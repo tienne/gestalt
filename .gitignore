@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.gestalt/
+.gestalt-test/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.local
+*.tsbuildinfo

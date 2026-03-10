@@ -1,0 +1,32 @@
+import { loadConfig } from '../../core/config.js';
+import { EventStore } from '../../events/store.js';
+import { AnthropicAdapter } from '../../llm/adapter.js';
+import { InterviewEngine } from '../../interview/engine.js';
+import { SeedGenerator } from '../../seed/generator.js';
+
+export async function seedCommand(sessionId: string, options: { force?: boolean }): Promise<void> {
+  const config = loadConfig();
+  const eventStore = new EventStore(config.dbPath);
+  const llm = new AnthropicAdapter(config.anthropicApiKey, config.model);
+  const engine = new InterviewEngine(llm, eventStore);
+  const generator = new SeedGenerator(llm, eventStore);
+
+  try {
+    const session = engine.getSession(sessionId);
+    console.log(`\n🌱 Generating seed for session: ${session.topic}\n`);
+
+    const result = await generator.generate(session, options.force ?? false);
+
+    if (!result.ok) {
+      console.error(`Error: ${result.error.message}`);
+      return;
+    }
+
+    console.log(JSON.stringify(result.value, null, 2));
+    console.log('\n✅ Seed generated successfully.\n');
+  } catch (e) {
+    console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    eventStore.close();
+  }
+}
