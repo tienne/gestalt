@@ -3,7 +3,7 @@ import type {
   ExecuteSession,
   ExecutionPlan,
   PlanningStepResult,
-  Seed,
+  Spec,
   TaskExecutionResult,
   EvaluationResult,
   StructuralResult,
@@ -31,11 +31,11 @@ export class ExecuteSessionManager {
     }
   }
 
-  create(seed: Seed): ExecuteSession {
+  create(spec: Spec): ExecuteSession {
     const session: ExecuteSession = {
       sessionId: randomUUID(),
-      seedId: seed.metadata.seedId,
-      seed,
+      specId: spec.metadata.specId,
+      spec,
       status: 'planning',
       currentStep: 1,
       planningSteps: [],
@@ -48,10 +48,10 @@ export class ExecuteSessionManager {
     this.sessions.set(session.sessionId, session);
 
     this.eventStore.append('execute', session.sessionId, EventType.EXECUTE_SESSION_STARTED, {
-      seedId: seed.metadata.seedId,
-      goal: seed.goal,
-      acCount: seed.acceptanceCriteria.length,
-      seed,
+      specId: spec.metadata.specId,
+      goal: spec.goal,
+      acCount: spec.acceptanceCriteria.length,
+      spec,
     });
 
     return session;
@@ -156,7 +156,7 @@ export class ExecuteSessionManager {
     session.evaluateStage = 'complete';
     session.status = 'completed';
     session.evaluationResult = {
-      verifications: session.seed.acceptanceCriteria.map((_, i) => ({
+      verifications: session.spec.acceptanceCriteria.map((_, i) => ({
         acIndex: i,
         satisfied: false,
         evidence: 'Short-circuited due to structural failure',

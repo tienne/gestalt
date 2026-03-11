@@ -2,7 +2,7 @@ import type { EventStore } from '../events/store.js';
 import type {
   DomainEvent,
   ExecuteSession,
-  Seed,
+  Spec,
   PlanningStepResult,
   ExecutionPlan,
   TaskExecutionResult,
@@ -52,15 +52,15 @@ export class ExecuteSessionRepository {
   private foldEvents(sessionId: string, events: DomainEvent[]): ExecuteSession {
     const firstEvent = events[0]!;
     const startPayload = firstEvent.payload as {
-      seedId: string;
+      specId: string;
       goal: string;
-      seed?: Seed;
+      spec?: Spec;
     };
 
     const session: ExecuteSession = {
       sessionId,
-      seedId: startPayload.seedId ?? '',
-      seed: startPayload.seed ?? this.buildMinimalSeed(startPayload),
+      specId: startPayload.specId ?? '',
+      spec: startPayload.spec ?? this.buildMinimalSpec(startPayload),
       status: 'planning',
       currentStep: 1,
       planningSteps: [],
@@ -194,10 +194,10 @@ export class ExecuteSessionRepository {
   }
 
   /**
-   * 이전 payload 형식(seed 전체 없음)을 위한 최소 Seed 생성.
+   * 이전 payload 형식(spec 전체 없음)을 위한 최소 Spec 생성.
    * 재구성은 되지만 일부 데이터가 불완전할 수 있음.
    */
-  private buildMinimalSeed(startPayload: { seedId: string; goal: string }): Seed {
+  private buildMinimalSpec(startPayload: { specId: string; goal: string }): Spec {
     return {
       version: '1.0',
       goal: startPayload.goal ?? '',
@@ -206,7 +206,7 @@ export class ExecuteSessionRepository {
       ontologySchema: { entities: [], relations: [] },
       gestaltAnalysis: [],
       metadata: {
-        seedId: startPayload.seedId ?? '',
+        specId: startPayload.specId ?? '',
         interviewSessionId: '',
         ambiguityScore: 0,
         generatedAt: '',

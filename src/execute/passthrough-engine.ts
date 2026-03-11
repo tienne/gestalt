@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type {
-  Seed,
+  Spec,
   ExecuteSession,
   ExecutionPlan,
   PlanningStepResult,
@@ -60,7 +60,7 @@ export interface ExecuteContext {
   phase: 'planning';
   stepNumber: number;
   totalSteps: number;
-  seed: Seed;
+  spec: Spec;
   previousSteps: PlanningStepResult[];
 }
 
@@ -122,7 +122,7 @@ export interface ContextualEvaluateContext {
   evaluatePrompt: string;
   phase: 'evaluating';
   stage: 'contextual';
-  seed: Seed;
+  spec: Spec;
   taskResults: TaskExecutionResult[];
   classifiedACs: ClassifiedAC[];
   structuralResult: StructuralResult;
@@ -147,11 +147,11 @@ export class PassthroughExecuteEngine {
     this.sessionManager.loadFromStore();
   }
 
-  start(seed: Seed): Result<PassthroughStartResult, ExecuteError> {
+  start(spec: Spec): Result<PassthroughStartResult, ExecuteError> {
     try {
-      const session = this.sessionManager.create(seed);
+      const session = this.sessionManager.create(spec);
 
-      const executeContext = this.buildExecuteContext(seed, 1, []);
+      const executeContext = this.buildExecuteContext(spec, 1, []);
 
       return ok({ session, executeContext });
     } catch (e) {
@@ -212,7 +212,7 @@ export class PassthroughExecuteEngine {
 
       const nextStep = session.planningSteps.length + 1;
       const executeContext = this.buildExecuteContext(
-        session.seed,
+        session.spec,
         nextStep,
         session.planningSteps,
       );
@@ -276,7 +276,7 @@ export class PassthroughExecuteEngine {
 
       const plan: ExecutionPlan = {
         planId: randomUUID(),
-        seedId: session.seedId,
+        specId: session.specId,
         classifiedACs: fgStep.classifiedACs,
         atomicTasks: closureStep.atomicTasks,
         taskGroups: proximityStep.taskGroups,
@@ -373,7 +373,7 @@ export class PassthroughExecuteEngine {
 
       if (taskResult.status === 'completed') {
         const threshold = driftThreshold ?? DRIFT_THRESHOLD;
-        driftScore = measureDrift(session.seed, task, taskResult, threshold);
+        driftScore = measureDrift(session.spec, task, taskResult, threshold);
         this.sessionManager.addDriftScore(sessionId, driftScore);
 
         if (driftScore.thresholdExceeded) {
@@ -385,7 +385,7 @@ export class PassthroughExecuteEngine {
           retrospectiveContext = {
             systemPrompt: EXECUTE_EXECUTION_SYSTEM_PROMPT,
             retrospectivePrompt: buildDriftRetrospectivePrompt(
-              session.seed,
+              session.spec,
               task,
               taskResult,
               driftScore,
@@ -534,7 +534,7 @@ export class PassthroughExecuteEngine {
       }
 
       // Validate evaluation covers all ACs
-      const acCount = session.seed.acceptanceCriteria.length;
+      const acCount = session.spec.acceptanceCriteria.length;
       const verifiedIndices = new Set(evaluationResult.verifications.map((v) => v.acIndex));
       for (let i = 0; i < acCount; i++) {
         if (!verifiedIndices.has(i)) {
@@ -626,7 +626,7 @@ export class PassthroughExecuteEngine {
 
     const taskPrompt = buildTaskExecutionPrompt(
       nextTask,
-      session.seed,
+      session.spec,
       completedResults,
       similarTasks,
     );
@@ -661,7 +661,7 @@ export class PassthroughExecuteEngine {
   private buildContextualEvaluateContext(session: ExecuteSession): ContextualEvaluateContext {
     const plan = session.executionPlan!;
     const evaluatePrompt = buildContextualEvaluationPrompt(
-      session.seed,
+      session.spec,
       plan.classifiedACs,
       session.taskResults,
       session.structuralResult!,
@@ -672,7 +672,7 @@ export class PassthroughExecuteEngine {
       evaluatePrompt,
       phase: 'evaluating',
       stage: 'contextual',
-      seed: session.seed,
+      spec: session.spec,
       taskResults: session.taskResults,
       classifiedACs: plan.classifiedACs,
       structuralResult: session.structuralResult!,
@@ -687,7 +687,7 @@ export class PassthroughExecuteEngine {
   ): string | null {
     switch (stepResult.principle) {
       case 'figure_ground':
-        return this.validateFigureGround(session.seed, stepResult);
+        return this.validateFigureGround(session.spec, stepResult);
       case 'closure':
         return this.validateClosure(session, stepResult);
       case 'proximity':
@@ -699,13 +699,13 @@ export class PassthroughExecuteEngine {
     }
   }
 
-  private validateFigureGround(seed: Seed, result: FigureGroundResult): string | null {
+  private validateFigureGround(spec: Spec, result: FigureGroundResult): string | null {
     const { classifiedACs } = result;
     if (!classifiedACs || classifiedACs.length === 0) {
       return 'classifiedACs is required and must not be empty';
     }
 
-    const acCount = seed.acceptanceCriteria.length;
+    const acCount = spec.acceptanceCriteria.length;
     const indices = new Set(classifiedACs.map((ac) => ac.acIndex));
 
     // Check all ACs are classified
@@ -855,12 +855,12 @@ export class PassthroughExecuteEngine {
   // ─── Context builder ──────────────────────────────────────────
 
   private buildExecuteContext(
-    seed: Seed,
+    spec: Spec,
     stepNumber: number,
     previousSteps: PlanningStepResult[],
   ): ExecuteContext {
     const principle = PLANNING_PRINCIPLE_SEQUENCE[stepNumber - 1]!;
-    const planningPrompt = buildPlanningStepPrompt(seed, stepNumber, previousSteps);
+    const planningPrompt = buildPlanningStepPrompt(spec, stepNumber, previousSteps);
 
     return {
       systemPrompt: EXECUTE_SYSTEM_PROMPT,
@@ -870,7 +870,7 @@ export class PassthroughExecuteEngine {
       phase: 'planning',
       stepNumber,
       totalSteps: PLANNING_TOTAL_STEPS,
-      seed,
+      spec,
       previousSteps,
     };
   }

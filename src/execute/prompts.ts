@@ -1,4 +1,4 @@
-import type { Seed, ClassifiedAC, AtomicTask, TaskGroup, PlanningStepResult, TaskExecutionResult, StructuralResult, DriftScore } from '../core/types.js';
+import type { Spec, ClassifiedAC, AtomicTask, TaskGroup, PlanningStepResult, TaskExecutionResult, StructuralResult, DriftScore } from '../core/types.js';
 import {
   PLANNING_PRINCIPLE_SEQUENCE,
   PLANNING_TOTAL_STEPS,
@@ -6,7 +6,7 @@ import {
 
 // ─── System Prompt ──────────────────────────────────────────────
 
-export const EXECUTE_SYSTEM_PROMPT = `You are a Gestalt-trained execution planner. Your goal is to transform a validated Seed specification into a concrete, dependency-aware Execution Plan by applying Gestalt psychology principles as a structured planning framework.
+export const EXECUTE_SYSTEM_PROMPT = `You are a Gestalt-trained execution planner. Your goal is to transform a validated Spec specification into a concrete, dependency-aware Execution Plan by applying Gestalt psychology principles as a structured planning framework.
 
 ## Planning Phases (in order)
 1. **Figure-Ground**: Classify acceptance criteria as essential (figure) or supplementary (ground), assign priorities
@@ -24,8 +24,8 @@ export const EXECUTE_SYSTEM_PROMPT = `You are a Gestalt-trained execution planne
 
 // ─── Step Prompts ───────────────────────────────────────────────
 
-export function buildFigureGroundPrompt(seed: Seed): string {
-  const acList = seed.acceptanceCriteria
+export function buildFigureGroundPrompt(spec: Spec): string {
+  const acList = spec.acceptanceCriteria
     .map((ac, i) => `  [${i}] ${ac}`)
     .join('\n');
 
@@ -33,15 +33,15 @@ export function buildFigureGroundPrompt(seed: Seed): string {
 
 Classify each acceptance criterion as "figure" (essential, core functionality) or "ground" (supplementary, nice-to-have).
 
-**Seed Goal**: ${seed.goal}
+**Spec Goal**: ${spec.goal}
 
 **Constraints**:
-${seed.constraints.map((c) => `- ${c}`).join('\n')}
+${spec.constraints.map((c) => `- ${c}`).join('\n')}
 
 **Acceptance Criteria**:
 ${acList}
 
-**Ontology Entities**: ${seed.ontologySchema.entities.map((e) => e.name).join(', ')}
+**Ontology Entities**: ${spec.ontologySchema.entities.map((e) => e.name).join(', ')}
 
 Respond with ONLY a JSON object:
 {
@@ -58,12 +58,12 @@ Respond with ONLY a JSON object:
 }
 
 Rules:
-- Every AC must be classified (indices 0 to ${seed.acceptanceCriteria.length - 1})
+- Every AC must be classified (indices 0 to ${spec.acceptanceCriteria.length - 1})
 - "figure" ACs should be the minimum set needed for the goal
 - Priority reflects execution order importance`;
 }
 
-export function buildClosurePrompt(seed: Seed, figureGroundResult: ClassifiedAC[]): string {
+export function buildClosurePrompt(spec: Spec, figureGroundResult: ClassifiedAC[]): string {
   const classified = figureGroundResult
     .map((ac) => `  [${ac.acIndex}] (${ac.classification}/${ac.priority}) ${ac.acText}`)
     .join('\n');
@@ -72,14 +72,14 @@ export function buildClosurePrompt(seed: Seed, figureGroundResult: ClassifiedAC[
 
 Decompose the classified acceptance criteria into atomic, independently executable tasks. Identify implicit sub-tasks that are required but not explicitly stated.
 
-**Seed Goal**: ${seed.goal}
+**Spec Goal**: ${spec.goal}
 
 **Classified ACs**:
 ${classified}
 
 **Ontology**:
-- Entities: ${seed.ontologySchema.entities.map((e) => `${e.name} (${e.attributes.join(', ')})`).join('; ')}
-- Relations: ${seed.ontologySchema.relations.map((r) => `${r.from} → ${r.to} [${r.type}]`).join('; ')}
+- Entities: ${spec.ontologySchema.entities.map((e) => `${e.name} (${e.attributes.join(', ')})`).join('; ')}
+- Relations: ${spec.ontologySchema.relations.map((r) => `${r.from} → ${r.to} [${r.type}]`).join('; ')}
 
 Respond with ONLY a JSON object:
 {
@@ -105,7 +105,7 @@ Rules:
 - Each task should be a single, testable unit of work`;
 }
 
-export function buildProximityPrompt(seed: Seed, atomicTasks: AtomicTask[]): string {
+export function buildProximityPrompt(spec: Spec, atomicTasks: AtomicTask[]): string {
   const taskList = atomicTasks
     .map((t) => `  ${t.taskId}: ${t.title} [${t.estimatedComplexity}] depends: [${t.dependsOn.join(', ')}]`)
     .join('\n');
@@ -114,12 +114,12 @@ export function buildProximityPrompt(seed: Seed, atomicTasks: AtomicTask[]): str
 
 Group related atomic tasks into logical task groups based on domain, functionality, or natural affinity.
 
-**Seed Goal**: ${seed.goal}
+**Spec Goal**: ${spec.goal}
 
 **Atomic Tasks**:
 ${taskList}
 
-**Ontology Entities**: ${seed.ontologySchema.entities.map((e) => e.name).join(', ')}
+**Ontology Entities**: ${spec.ontologySchema.entities.map((e) => e.name).join(', ')}
 
 Respond with ONLY a JSON object:
 {
@@ -143,7 +143,7 @@ Rules:
 }
 
 export function buildContinuityPrompt(
-  seed: Seed,
+  spec: Spec,
   atomicTasks: AtomicTask[],
   taskGroups: TaskGroup[],
 ): string {
@@ -159,7 +159,7 @@ export function buildContinuityPrompt(
 
 Validate the dependency graph for consistency. Check for cycles, conflicts between groups, and compute the execution order.
 
-**Seed Goal**: ${seed.goal}
+**Spec Goal**: ${spec.goal}
 
 **Tasks & Dependencies**:
 ${taskList}
@@ -200,7 +200,7 @@ export const EXECUTE_EXECUTION_SYSTEM_PROMPT = `You are a Gestalt-trained task e
 
 export function buildTaskExecutionPrompt(
   task: AtomicTask,
-  seed: Seed,
+  spec: Spec,
   completedResults: TaskExecutionResult[],
   similarTasks: AtomicTask[],
 ): string {
@@ -221,7 +221,7 @@ export function buildTaskExecutionPrompt(
 
   return `## Task Execution
 
-**Seed Goal**: ${seed.goal}
+**Spec Goal**: ${spec.goal}
 
 **Current Task**:
 - ID: ${task.taskId}
@@ -257,7 +257,7 @@ export const EXECUTE_EVALUATION_SYSTEM_PROMPT = `You are a Gestalt-trained evalu
 5. Respond with ONLY a JSON object matching the specified schema`;
 
 export function buildEvaluationPrompt(
-  seed: Seed,
+  spec: Spec,
   classifiedACs: ClassifiedAC[],
   taskResults: TaskExecutionResult[],
 ): string {
@@ -271,7 +271,7 @@ export function buildEvaluationPrompt(
 
   return `## Evaluation — Acceptance Criteria Verification
 
-**Seed Goal**: ${seed.goal}
+**Spec Goal**: ${spec.goal}
 
 **Acceptance Criteria**:
 ${acList}
@@ -300,13 +300,13 @@ Verify each AC against the task results and respond with ONLY a JSON object:
 }
 
 Rules:
-- Every AC index must be verified (indices 0 to ${seed.acceptanceCriteria.length - 1})
+- Every AC index must be verified (indices 0 to ${spec.acceptanceCriteria.length - 1})
 - overallScore: weighted ratio (figure/critical ACs weigh more)
 - recommendations: actionable items if any gaps exist`;
 }
 
 export function buildDriftRetrospectivePrompt(
-  seed: Seed,
+  spec: Spec,
   task: AtomicTask,
   taskResult: TaskExecutionResult,
   driftScore: DriftScore,
@@ -319,9 +319,9 @@ export function buildDriftRetrospectivePrompt(
 
 A task has exceeded the drift threshold (${driftScore.overall.toFixed(3)} > threshold).
 
-**Seed Goal**: ${seed.goal}
+**Spec Goal**: ${spec.goal}
 
-**Constraints**: ${seed.constraints.join(', ')}
+**Constraints**: ${spec.constraints.join(', ')}
 
 **Task**: ${task.taskId} — ${task.title}
 **Task Description**: ${task.description}
@@ -334,7 +334,7 @@ Analyze the drift and respond with ONLY a JSON object:
 {
   "taskId": "${task.taskId}",
   "driftScore": ${JSON.stringify(driftScore)},
-  "causeAnalysis": "Explain why this task drifted from the Seed spec",
+  "causeAnalysis": "Explain why this task drifted from the Spec",
   "correctionSuggestions": ["Concrete suggestion 1", "Concrete suggestion 2"]
 }
 
@@ -344,7 +344,7 @@ Rules:
 }
 
 export function buildContextualEvaluationPrompt(
-  seed: Seed,
+  spec: Spec,
   classifiedACs: ClassifiedAC[],
   taskResults: TaskExecutionResult[],
   structuralResult: StructuralResult,
@@ -366,7 +366,7 @@ export function buildContextualEvaluationPrompt(
 **Structural Check Results** (all passed):
 ${structuralSummary}
 
-**Seed Goal**: ${seed.goal}
+**Spec Goal**: ${spec.goal}
 
 **Acceptance Criteria**:
 ${acList}
@@ -390,16 +390,16 @@ Verify each AC against the task results and assess goal alignment. Respond with 
 }
 
 Rules:
-- Every AC index must be verified (indices 0 to ${seed.acceptanceCriteria.length - 1})
+- Every AC index must be verified (indices 0 to ${spec.acceptanceCriteria.length - 1})
 - overallScore: weighted ratio (figure/critical ACs weigh more)
-- goalAlignment: how well the overall implementation aligns with the Seed goal (0.0-1.0)
+- goalAlignment: how well the overall implementation aligns with the Spec goal (0.0-1.0)
 - recommendations: actionable items if any gaps exist`;
 }
 
 // ─── Dispatcher ─────────────────────────────────────────────────
 
 export function buildPlanningStepPrompt(
-  seed: Seed,
+  spec: Spec,
   stepNumber: number,
   previousSteps: PlanningStepResult[],
 ): string {
@@ -410,18 +410,18 @@ export function buildPlanningStepPrompt(
 
   switch (stepNumber) {
     case 1:
-      return buildFigureGroundPrompt(seed);
+      return buildFigureGroundPrompt(spec);
     case 2: {
       const fgResult = previousSteps.find((s) => s.principle === 'figure_ground') as
         | { classifiedACs: ClassifiedAC[] }
         | undefined;
-      return buildClosurePrompt(seed, fgResult?.classifiedACs ?? []);
+      return buildClosurePrompt(spec, fgResult?.classifiedACs ?? []);
     }
     case 3: {
       const closureResult = previousSteps.find((s) => s.principle === 'closure') as
         | { atomicTasks: AtomicTask[] }
         | undefined;
-      return buildProximityPrompt(seed, closureResult?.atomicTasks ?? []);
+      return buildProximityPrompt(spec, closureResult?.atomicTasks ?? []);
     }
     case 4: {
       const closureResult2 = previousSteps.find((s) => s.principle === 'closure') as
@@ -431,7 +431,7 @@ export function buildPlanningStepPrompt(
         | { taskGroups: TaskGroup[] }
         | undefined;
       return buildContinuityPrompt(
-        seed,
+        spec,
         closureResult2?.atomicTasks ?? [],
         proximityResult?.taskGroups ?? [],
       );
