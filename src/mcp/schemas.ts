@@ -38,7 +38,10 @@ export type SpecInput = z.infer<typeof specInputSchema>;
 
 // ─── Execute Tool ───────────────────────────────────────────────
 export const executeInputSchema = z.object({
-  action: z.enum(['start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status']),
+  action: z.enum([
+    'start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status',
+    'evolve_fix', 'evolve', 'evolve_patch', 'evolve_re_execute',
+  ]),
   spec: z.object({
     version: z.string(),
     goal: z.string(),
@@ -115,6 +118,42 @@ export const executeInputSchema = z.object({
     goalAlignment: z.number().min(0).max(1).optional().default(0),
     recommendations: z.array(z.string()),
   }).optional().describe('Evaluation result (optional for evaluate action)'),
+
+  // ─── Evolution Loop Fields ────────────────────────────────
+  fixTasks: z.array(z.object({
+    taskId: z.string(),
+    failedCommand: z.string(),
+    errorOutput: z.string(),
+    fixDescription: z.string(),
+    artifacts: z.array(z.string()),
+  })).optional().describe('Fix task results (required for evolve_fix after fix stage)'),
+
+  specPatch: z.object({
+    acceptanceCriteria: z.array(z.string()).optional(),
+    constraints: z.array(z.string()).optional(),
+    ontologySchema: z.object({
+      entities: z.array(z.object({
+        name: z.string(),
+        description: z.string(),
+        attributes: z.array(z.string()),
+      })).optional(),
+      relations: z.array(z.object({
+        from: z.string(),
+        to: z.string(),
+        type: z.string(),
+      })).optional(),
+    }).optional(),
+  }).optional().describe('Spec patch for contextual evolution (required for evolve_patch)'),
+
+  reExecuteTaskResult: z.object({
+    taskId: z.string(),
+    status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'skipped']),
+    output: z.string(),
+    artifacts: z.array(z.string()),
+  }).optional().describe('Re-execution task result (required for evolve_re_execute)'),
+
+  terminateReason: z.enum(['caller']).optional()
+    .describe('Caller-initiated termination (use with evolve action)'),
 });
 
 export type ExecuteInput = z.infer<typeof executeInputSchema>;

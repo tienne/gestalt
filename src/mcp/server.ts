@@ -93,10 +93,13 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
     server.tool(
       'ges_execute',
-      'Execute a Spec specification using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status.',
+      'Execute a Spec specification using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, evolve_fix, evolve, evolve_patch, evolve_re_execute.',
       {
-        action: z.enum(['start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status']).describe(
-          'start: begin execution planning, plan_step: submit a planning step result, plan_complete: assemble final plan, execute_start: start task execution, execute_task: submit task result, evaluate: start/submit evaluation, status: check session status',
+        action: z.enum([
+          'start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status',
+          'evolve_fix', 'evolve', 'evolve_patch', 'evolve_re_execute',
+        ]).describe(
+          'start: begin execution planning, plan_step: submit a planning step result, plan_complete: assemble final plan, execute_start: start task execution, execute_task: submit task result, evaluate: start/submit evaluation, status: check session status, evolve_fix: start/submit structural fix, evolve: start contextual evolution, evolve_patch: submit spec patch, evolve_re_execute: submit re-execution task result',
         ),
         spec: z.object({
           version: z.string(),
@@ -142,8 +145,31 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
             gaps: z.array(z.string()),
           })),
           overallScore: z.number().min(0).max(1),
+          goalAlignment: z.number().min(0).max(1).optional().default(0),
           recommendations: z.array(z.string()),
         }).optional().describe('Evaluation result (optional for evaluate action)'),
+        fixTasks: z.array(z.object({
+          taskId: z.string(),
+          failedCommand: z.string(),
+          errorOutput: z.string(),
+          fixDescription: z.string(),
+          artifacts: z.array(z.string()),
+        })).optional().describe('Fix task results (for evolve_fix)'),
+        specPatch: z.object({
+          acceptanceCriteria: z.array(z.string()).optional(),
+          constraints: z.array(z.string()).optional(),
+          ontologySchema: z.object({
+            entities: z.array(z.any()).optional(),
+            relations: z.array(z.any()).optional(),
+          }).optional(),
+        }).optional().describe('Spec patch for contextual evolution (for evolve_patch)'),
+        reExecuteTaskResult: z.object({
+          taskId: z.string(),
+          status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'skipped']),
+          output: z.string(),
+          artifacts: z.array(z.string()),
+        }).optional().describe('Re-execution task result (for evolve_re_execute)'),
+        terminateReason: z.enum(['caller']).optional().describe('Caller-initiated termination'),
       },
       (params) => {
         const input = executeInputSchema.parse(params);

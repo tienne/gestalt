@@ -197,6 +197,115 @@ export function handleExecutePassthrough(
     case 'status': {
       return handleStatus(engine, input.sessionId);
     }
+
+    // ─── Evolution Loop Actions ───────────────────────────────
+
+    case 'evolve_fix': {
+      if (!input.sessionId) return formatError('sessionId is required for evolve_fix action');
+
+      const fixResult = engine.startStructuralFix(input.sessionId, input.fixTasks);
+      if (!fixResult.ok) return formatError(fixResult.error.message);
+
+      const { fixContext } = fixResult.value;
+
+      if (fixContext) {
+        return JSON.stringify({
+          status: 'evolving',
+          sessionId: fixResult.value.session.sessionId,
+          stage: 'fix',
+          fixContext,
+          message: 'Structural failures detected. Use fixContext to generate fix tasks, then re-submit with fixTasks.',
+        }, null, 2);
+      }
+
+      return JSON.stringify({
+        status: 'fix_applied',
+        sessionId: fixResult.value.session.sessionId,
+        message: 'Fix tasks recorded. Call evaluate to re-run structural checks.',
+      }, null, 2);
+    }
+
+    case 'evolve': {
+      if (!input.sessionId) return formatError('sessionId is required for evolve action');
+
+      const evolveResult = engine.startContextualEvolve(input.sessionId, input.terminateReason);
+      if (!evolveResult.ok) return formatError(evolveResult.error.message);
+
+      if (evolveResult.value.terminated) {
+        return JSON.stringify({
+          status: 'terminated',
+          sessionId: evolveResult.value.session.sessionId,
+          terminationReason: evolveResult.value.terminationReason,
+          evolutionHistory: evolveResult.value.session.evolutionHistory.map((g) => ({
+            generation: g.generation,
+            score: g.evaluationScore,
+            goalAlignment: g.goalAlignment,
+            fieldsChanged: g.delta.fieldsChanged,
+          })),
+          message: `Evolution terminated: ${evolveResult.value.terminationReason}.`,
+        }, null, 2);
+      }
+
+      return JSON.stringify({
+        status: 'evolving',
+        sessionId: evolveResult.value.session.sessionId,
+        stage: 'evolve',
+        evolveContext: evolveResult.value.evolveContext,
+        message: 'Use evolveContext to generate a Spec patch, then submit with evolve_patch.',
+      }, null, 2);
+    }
+
+    case 'evolve_patch': {
+      if (!input.sessionId) return formatError('sessionId is required for evolve_patch action');
+      if (!input.specPatch) return formatError('specPatch is required for evolve_patch action');
+
+      const patchResult = engine.submitSpecPatch(input.sessionId, input.specPatch);
+      if (!patchResult.ok) return formatError(patchResult.error.message);
+
+      const { impactedTaskIds, reExecuteContext } = patchResult.value;
+
+      if (impactedTaskIds.length === 0) {
+        return JSON.stringify({
+          status: 'patch_applied',
+          sessionId: patchResult.value.session.sessionId,
+          impactedTaskIds: [],
+          message: 'Spec patched. No tasks need re-execution. Call evaluate to re-assess.',
+        }, null, 2);
+      }
+
+      return JSON.stringify({
+        status: 're_executing',
+        sessionId: patchResult.value.session.sessionId,
+        impactedTaskIds,
+        reExecuteContext,
+        message: `Spec patched. ${impactedTaskIds.length} tasks need re-execution. Use reExecuteContext to implement the task.`,
+      }, null, 2);
+    }
+
+    case 'evolve_re_execute': {
+      if (!input.sessionId) return formatError('sessionId is required for evolve_re_execute action');
+      if (!input.reExecuteTaskResult) return formatError('reExecuteTaskResult is required for evolve_re_execute action');
+
+      const reExecResult = engine.submitReExecuteTaskResult(input.sessionId, input.reExecuteTaskResult);
+      if (!reExecResult.ok) return formatError(reExecResult.error.message);
+
+      const { reExecuteContext: nextContext, allTasksCompleted } = reExecResult.value;
+
+      if (allTasksCompleted) {
+        return JSON.stringify({
+          status: 're_execute_complete',
+          sessionId: reExecResult.value.session.sessionId,
+          message: 'All impacted tasks re-executed. Call evaluate to re-assess.',
+        }, null, 2);
+      }
+
+      return JSON.stringify({
+        status: 're_executing',
+        sessionId: reExecResult.value.session.sessionId,
+        reExecuteContext: nextContext,
+        message: 'Task recorded. Use reExecuteContext to implement the next re-execution task.',
+      }, null, 2);
+    }
   }
 }
 
@@ -235,6 +344,10 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string): str
           evaluateStage: session.evaluateStage ?? null,
           hasEvaluation: !!session.evaluationResult,
           driftAlerts: session.driftHistory.filter((d) => d.thresholdExceeded).length,
+          evolveStage: session.evolveStage ?? null,
+          currentGeneration: session.currentGeneration,
+          evolutionCount: session.evolutionHistory.length,
+          terminationReason: session.terminationReason ?? null,
           createdAt: session.createdAt,
           updatedAt: session.updatedAt,
         },
