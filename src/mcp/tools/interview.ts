@@ -46,7 +46,7 @@ export async function handleInterview(
           })),
         },
         message: ambiguityScore.isReady
-          ? 'Ambiguity threshold met! You can now complete the interview and generate a seed.'
+          ? 'Ambiguity threshold met! You can now complete the interview and generate a spec.'
           : `Ambiguity: ${(ambiguityScore.overall * 100).toFixed(0)}% — continue answering to reduce ambiguity.`,
       }, null, 2);
     }
@@ -82,7 +82,7 @@ export async function handleInterview(
         sessionId: result.value.sessionId,
         totalRounds: result.value.rounds.length,
         finalAmbiguityScore: result.value.ambiguityScore?.overall.toFixed(2) ?? 'N/A',
-        message: 'Interview completed. You can now generate a seed with ges_generate_seed.',
+        message: 'Interview completed. You can now generate a spec with ges_generate_spec.',
       }, null, 2);
     }
   }

@@ -1,11 +1,11 @@
 import type { InterviewEngine } from '../../interview/engine.js';
-import type { SeedGenerator } from '../../seed/generator.js';
-import type { SeedInput } from '../schemas.js';
+import type { SpecGenerator } from '../../spec/generator.js';
+import type { SpecInput } from '../schemas.js';
 
-export async function handleSeed(
+export async function handleSpec(
   engine: InterviewEngine,
-  generator: SeedGenerator,
-  input: SeedInput,
+  generator: SpecGenerator,
+  input: SpecInput,
 ): Promise<string> {
   try {
     const session = engine.getSession(input.sessionId);
@@ -17,7 +17,7 @@ export async function handleSeed(
 
     return JSON.stringify({
       status: 'generated',
-      seed: result.value,
+      spec: result.value,
     }, null, 2);
   } catch (e) {
     return JSON.stringify({

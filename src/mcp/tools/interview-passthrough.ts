@@ -54,7 +54,7 @@ export function handleInterviewPassthrough(
             }
           : null,
         message: ambiguityScore?.isReady
-          ? 'Ambiguity threshold met! You can complete the interview and generate a seed.'
+          ? 'Ambiguity threshold met! You can complete the interview and generate a spec.'
           : 'Use gestaltContext.questionPrompt to generate the next question. Use gestaltContext.scoringPrompt to compute ambiguity scores.',
       }, null, 2);
     }
@@ -97,7 +97,7 @@ export function handleInterviewPassthrough(
         sessionId: result.value.sessionId,
         totalRounds: result.value.rounds.length,
         finalAmbiguityScore: result.value.ambiguityScore?.overall.toFixed(2) ?? 'N/A',
-        message: 'Interview completed. Use ges_generate_seed to generate a seed.',
+        message: 'Interview completed. Use ges_generate_spec to generate a spec.',
       }, null, 2);
     }
   }

@@ -8,16 +8,16 @@ export function handleExecutePassthrough(
 ): string {
   switch (input.action) {
     case 'start': {
-      if (!input.seed) return formatError('seed is required for start action');
+      if (!input.spec) return formatError('spec is required for start action');
 
-      const result = engine.start(input.seed as Parameters<typeof engine.start>[0]);
+      const result = engine.start(input.spec as Parameters<typeof engine.start>[0]);
       if (!result.ok) return formatError(result.error.message);
 
       const { session, executeContext } = result.value;
       return JSON.stringify({
         status: 'started',
         sessionId: session.sessionId,
-        seedId: session.seedId,
+        specId: session.specId,
         executeContext,
         message: `Execute session started. Use the executeContext.planningPrompt with executeContext.systemPrompt to generate the Figure-Ground classification.`,
       }, null, 2);
@@ -67,7 +67,7 @@ export function handleExecutePassthrough(
         sessionId: result.value.session.sessionId,
         executionPlan: {
           planId: executionPlan.planId,
-          seedId: executionPlan.seedId,
+          specId: executionPlan.specId,
           totalTasks: executionPlan.atomicTasks.length,
           totalGroups: executionPlan.taskGroups.length,
           dagValid: executionPlan.dagValidation.isValid,
@@ -226,7 +226,7 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string): str
       return JSON.stringify({
         session: {
           sessionId: session.sessionId,
-          seedId: session.seedId,
+          specId: session.specId,
           status: session.status,
           currentStep: session.currentStep,
           stepsCompleted: session.planningSteps.length,
@@ -245,7 +245,7 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string): str
     return JSON.stringify({
       sessions: sessions.map((s) => ({
         sessionId: s.sessionId,
-        seedId: s.seedId,
+        specId: s.specId,
         status: s.status,
         stepsCompleted: s.planningSteps.length,
         hasPlan: !!s.executionPlan,

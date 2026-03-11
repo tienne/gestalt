@@ -7,16 +7,16 @@ import { EventStore } from '../events/store.js';
 import { AnthropicAdapter } from '../llm/adapter.js';
 import { InterviewEngine } from '../interview/engine.js';
 import { PassthroughEngine } from '../interview/passthrough-engine.js';
-import { SeedGenerator } from '../seed/generator.js';
-import { PassthroughSeedGenerator } from '../seed/passthrough-generator.js';
+import { SpecGenerator } from '../spec/generator.js';
+import { PassthroughSpecGenerator } from '../spec/passthrough-generator.js';
 import { SkillRegistry } from '../skills/registry.js';
 import { handleInterview } from './tools/interview.js';
 import { handleInterviewPassthrough } from './tools/interview-passthrough.js';
-import { handleSeed } from './tools/seed.js';
-import { handleSeedPassthrough } from './tools/seed-passthrough.js';
+import { handleSpec } from './tools/spec.js';
+import { handleSpecPassthrough } from './tools/spec-passthrough.js';
 import { handleExecutePassthrough } from './tools/execute-passthrough.js';
 import { handleStatus } from './tools/status.js';
-import { interviewInputSchema, seedInputSchema, executeInputSchema, statusInputSchema } from './schemas.js';
+import { interviewInputSchema, specInputSchema, executeInputSchema, statusInputSchema } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 
 export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) {
@@ -36,7 +36,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   if (isPassthrough) {
     // ─── Passthrough mode: no API key, prompts returned to caller ───
     const ptEngine = new PassthroughEngine(eventStore);
-    const ptSeedGen = new PassthroughSeedGenerator(eventStore);
+    const ptSpecGen = new PassthroughSpecGenerator(eventStore);
 
     server.tool(
       'ges_interview',
@@ -67,24 +67,24 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     );
 
     server.tool(
-      'ges_generate_seed',
-      'Generate a Seed specification (passthrough mode — returns prompt or validates externally generated seed).',
+      'ges_generate_spec',
+      'Generate a Spec specification (passthrough mode — returns prompt or validates externally generated spec).',
       {
         sessionId: z.string().describe('The interview session ID'),
         force: z.boolean().optional().default(false).describe(
           'Force generation even if ambiguity threshold is not met',
         ),
-        seed: z.object({
+        spec: z.object({
           goal: z.string(),
           constraints: z.array(z.string()),
           acceptanceCriteria: z.array(z.string()),
           ontologySchema: z.object({ entities: z.array(z.any()), relations: z.array(z.any()) }),
           gestaltAnalysis: z.array(z.any()),
-        }).optional().describe('Externally generated seed JSON to validate and store'),
+        }).optional().describe('Externally generated spec JSON to validate and store'),
       },
       (params) => {
-        const input = seedInputSchema.parse(params);
-        const result = handleSeedPassthrough(ptEngine, ptSeedGen, input);
+        const input = specInputSchema.parse(params);
+        const result = handleSpecPassthrough(ptEngine, ptSpecGen, input);
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );
@@ -93,12 +93,12 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
     server.tool(
       'ges_execute',
-      'Execute a Seed specification using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status.',
+      'Execute a Spec specification using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status.',
       {
         action: z.enum(['start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status']).describe(
           'start: begin execution planning, plan_step: submit a planning step result, plan_complete: assemble final plan, execute_start: start task execution, execute_task: submit task result, evaluate: start/submit evaluation, status: check session status',
         ),
-        seed: z.object({
+        spec: z.object({
           version: z.string(),
           goal: z.string(),
           constraints: z.array(z.string()),
@@ -106,12 +106,12 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           ontologySchema: z.object({ entities: z.array(z.any()), relations: z.array(z.any()) }),
           gestaltAnalysis: z.array(z.any()),
           metadata: z.object({
-            seedId: z.string(),
+            specId: z.string(),
             interviewSessionId: z.string(),
             ambiguityScore: z.number(),
             generatedAt: z.string(),
           }),
-        }).optional().describe('Seed specification (required for start)'),
+        }).optional().describe('Spec specification (required for start)'),
         sessionId: z.string().optional().describe('Execute session ID (required for plan_step/plan_complete/status)'),
         stepResult: z.object({
           principle: z.enum(['figure_ground', 'closure', 'proximity', 'continuity']),
@@ -168,7 +168,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     // ─── Normal mode: direct LLM calls ──────────────────────────
     const llm = new AnthropicAdapter(config.anthropicApiKey, config.model);
     const engine = new InterviewEngine(llm, eventStore);
-    const seedGenerator = new SeedGenerator(llm, eventStore);
+    const specGenerator = new SpecGenerator(llm, eventStore);
 
     server.tool(
       'ges_interview',
@@ -190,8 +190,8 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     );
 
     server.tool(
-      'ges_generate_seed',
-      'Generate a Seed specification from a completed interview session.',
+      'ges_generate_spec',
+      'Generate a Spec specification from a completed interview session.',
       {
         sessionId: z.string().describe('The interview session ID'),
         force: z.boolean().optional().default(false).describe(
@@ -199,8 +199,8 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         ),
       },
       async (params) => {
-        const input = seedInputSchema.parse(params);
-        const result = await handleSeed(engine, seedGenerator, input);
+        const input = specInputSchema.parse(params);
+        const result = await handleSpec(engine, specGenerator, input);
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );

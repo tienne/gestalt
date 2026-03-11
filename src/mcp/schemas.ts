@@ -21,25 +21,25 @@ export const interviewInputSchema = z.object({
 
 export type InterviewInput = z.infer<typeof interviewInputSchema>;
 
-// ─── Seed Tool ──────────────────────────────────────────────────
-export const seedInputSchema = z.object({
+// ─── Spec Tool ──────────────────────────────────────────────────
+export const specInputSchema = z.object({
   sessionId: z.string(),
   force: z.boolean().optional().default(false),
-  seed: z.object({
+  spec: z.object({
     goal: z.string(),
     constraints: z.array(z.string()),
     acceptanceCriteria: z.array(z.string()),
     ontologySchema: z.object({ entities: z.array(z.any()), relations: z.array(z.any()) }),
     gestaltAnalysis: z.array(z.any()),
-  }).optional().describe('Externally generated seed (passthrough mode)'),
+  }).optional().describe('Externally generated spec (passthrough mode)'),
 });
 
-export type SeedInput = z.infer<typeof seedInputSchema>;
+export type SpecInput = z.infer<typeof specInputSchema>;
 
 // ─── Execute Tool ───────────────────────────────────────────────
 export const executeInputSchema = z.object({
   action: z.enum(['start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status']),
-  seed: z.object({
+  spec: z.object({
     version: z.string(),
     goal: z.string(),
     constraints: z.array(z.string()),
@@ -47,12 +47,12 @@ export const executeInputSchema = z.object({
     ontologySchema: z.object({ entities: z.array(z.any()), relations: z.array(z.any()) }),
     gestaltAnalysis: z.array(z.any()),
     metadata: z.object({
-      seedId: z.string(),
+      specId: z.string(),
       interviewSessionId: z.string(),
       ambiguityScore: z.number(),
       generatedAt: z.string(),
     }),
-  }).optional().describe('Seed specification (required for start)'),
+  }).optional().describe('Spec specification (required for start)'),
   sessionId: z.string().optional().describe('Execute session ID'),
   stepResult: z.object({
     principle: z.enum(['figure_ground', 'closure', 'proximity', 'continuity']),
