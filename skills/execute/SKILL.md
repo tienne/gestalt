@@ -1,23 +1,23 @@
 ---
 name: execute
 version: "1.0.0"
-description: "Gestalt-driven execution planner that transforms a Seed into a validated ExecutionPlan"
+description: "Gestalt-driven execution planner that transforms a Spec into a validated ExecutionPlan"
 triggers:
   - "execute"
   - "plan execution"
   - "create execution plan"
 inputs:
-  seed:
+  spec:
     type: object
     required: true
-    description: "A validated Seed specification from the seed generation step"
+    description: "A validated Spec specification from the spec generation step"
 outputs:
   - executionPlan
 ---
 
 # Execute Skill
 
-This skill transforms a validated Seed specification into a concrete, dependency-aware Execution Plan by applying Gestalt psychology principles as a structured planning framework.
+This skill transforms a validated Spec specification into a concrete, dependency-aware Execution Plan by applying Gestalt psychology principles as a structured planning framework.
 
 ## Process
 
@@ -34,9 +34,9 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 
 **`start`** — 실행 계획 세션 시작
 ```json
-{ "action": "start", "seed": { ... } }
+{ "action": "start", "spec": { ... } }
 ```
-→ `{ status, sessionId, seedId, executeContext, message }`
+→ `{ status, sessionId, specId, executeContext, message }`
 
 **`plan_step`** — 각 계획 단계 결과 제출
 ```json
@@ -66,7 +66,7 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 | `phase` | string | 현재 단계 (`planning`) |
 | `stepNumber` | number | 현재 스텝 번호 (1-4) |
 | `totalSteps` | number | 전체 스텝 수 (4) |
-| `seed` | Seed | 원본 Seed 스펙 |
+| `spec` | Spec | 원본 Spec 스펙 |
 | `previousSteps` | array | 이전 단계 결과들 |
 
 ### Planning Principle 순서

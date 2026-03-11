@@ -29,7 +29,7 @@ This skill conducts a Gestalt psychology-driven interview to transform vague req
 1. **Start**: Create a session, detect project type (greenfield/brownfield), ask the first question
 2. **Iterate**: Ask questions guided by Gestalt principles (Closure → Proximity → Similarity → Figure-Ground)
 3. **Score**: Continuously assess ambiguity across multiple dimensions
-4. **Complete**: When ambiguity score ≤ 0.2, the interview is ready for seed generation
+4. **Complete**: When ambiguity score ≤ 0.2, the interview is ready for spec generation
 
 ## Gestalt Principles Applied
 
