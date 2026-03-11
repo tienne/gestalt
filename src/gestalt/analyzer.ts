@@ -13,11 +13,17 @@ import {
 } from '../core/constants.js';
 
 interface RawClarityScores {
+  /** 목표 명확도: 프로젝트의 목표가 얼마나 완전하게 정의되었는가 (Closure) */
   goalClarity: number;
+  /** 제약사항 명확도: 제약사항이 얼마나 잘 구조화되고 그룹핑되었는가 (Proximity) */
   constraintClarity: number;
+  /** 성공 기준 명확도: 성공 기준의 패턴이 일관적이고 측정 가능한가 (Similarity) */
   successCriteria: number;
+  /** 우선순위 명확도: MVP와 후순위가 명확히 분리되었는가 (Figure-Ground) */
   priorityClarity: number;
+  /** 맥락 명확도: 기존 시스템과의 일관성에 모순이 없는가 (Continuity, Brownfield 전용) */
   contextClarity?: number;
+  /** 인터뷰 중 감지된 모순 목록 */
   contradictions: string[];
 }
 

@@ -1,9 +1,15 @@
+import { existsSync } from 'node:fs';
+import { dirname, isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { DEFAULT_MODEL, AMBIGUITY_THRESHOLD, MAX_INTERVIEW_ROUNDS } from './constants.js';
 import { ConfigError } from './errors.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = resolve(__dirname, '..', '..');
+
 const configSchema = z.object({
-  anthropicApiKey: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
+  anthropicApiKey: z.string().default(''),
   model: z.string().default(DEFAULT_MODEL),
   ambiguityThreshold: z.number().min(0).max(1).default(AMBIGUITY_THRESHOLD),
   maxInterviewRounds: z.number().int().positive().default(MAX_INTERVIEW_ROUNDS),
@@ -13,6 +19,21 @@ const configSchema = z.object({
 });
 
 export type GestaltConfig = z.infer<typeof configSchema>;
+
+/**
+ * Resolve skills directory path:
+ * 1. Absolute path → use as-is
+ * 2. CWD-relative → if exists, use it
+ * 3. Fallback to package root (for plugin/npm install environments)
+ */
+function resolveSkillsDir(dir: string): string {
+  if (isAbsolute(dir)) return dir;
+
+  const cwdResolved = resolve(dir);
+  if (existsSync(cwdResolved)) return cwdResolved;
+
+  return resolve(PACKAGE_ROOT, dir);
+}
 
 export function loadConfig(overrides: Partial<Record<string, unknown>> = {}): GestaltConfig {
   const raw = {
@@ -36,5 +57,7 @@ export function loadConfig(overrides: Partial<Record<string, unknown>> = {}): Ge
     throw new ConfigError(`Invalid configuration:\n${messages.join('\n')}`);
   }
 
-  return result.data;
+  const config = result.data;
+  config.skillsDir = resolveSkillsDir(config.skillsDir);
+  return config;
 }

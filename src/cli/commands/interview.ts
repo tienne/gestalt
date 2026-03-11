@@ -6,6 +6,12 @@ import { InterviewEngine } from '../../interview/engine.js';
 
 export async function interviewCommand(topic: string): Promise<void> {
   const config = loadConfig();
+
+  if (!config.anthropicApiKey) {
+    console.error('Error: ANTHROPIC_API_KEY is required for CLI mode. Set it in .env or as environment variable.');
+    process.exit(1);
+  }
+
   const eventStore = new EventStore(config.dbPath);
   const llm = new AnthropicAdapter(config.anthropicApiKey, config.model);
   const engine = new InterviewEngine(llm, eventStore);

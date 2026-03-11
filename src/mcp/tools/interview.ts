@@ -82,7 +82,7 @@ export async function handleInterview(
         sessionId: result.value.sessionId,
         totalRounds: result.value.rounds.length,
         finalAmbiguityScore: result.value.ambiguityScore?.overall.toFixed(2) ?? 'N/A',
-        message: 'Interview completed. You can now generate a seed with gestalt_generate_seed.',
+        message: 'Interview completed. You can now generate a seed with ges_generate_seed.',
       }, null, 2);
     }
   }

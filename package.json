@@ -1,5 +1,5 @@
 {
-  "name": "gestalt",
+  "name": "@tienne/gestalt",
   "version": "0.1.0",
   "description": "TypeScript AI Development Harness - Gestalt psychology-driven requirement clarification",
   "type": "module",
@@ -7,11 +7,20 @@
     "node": ">=20.0.0"
   },
   "bin": {
-    "gestalt": "./bin/gestalt.ts"
+    "gestalt": "./dist/bin/gestalt.js"
   },
+  "files": [
+    "dist",
+    "skills",
+    ".claude-plugin",
+    ".mcp.json",
+    "CLAUDE.md"
+  ],
   "scripts": {
     "dev": "tsx bin/gestalt.ts",
     "build": "tsc",
+    "postbuild": "cp -r skills dist/",
+    "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
     "serve": "tsx bin/gestalt.ts serve",

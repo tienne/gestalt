@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { watch } from 'chokidar';
 import { parseSkillMd } from './parser.js';
@@ -18,7 +18,6 @@ export class SkillRegistry {
   loadAll(): void {
     if (!existsSync(this.skillsDir)) return;
 
-    const { readdirSync } = require('node:fs') as typeof import('node:fs');
     const entries = readdirSync(this.skillsDir, { withFileTypes: true });
 
     for (const entry of entries) {
