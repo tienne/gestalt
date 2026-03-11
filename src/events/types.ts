@@ -5,7 +5,7 @@ export enum EventType {
   INTERVIEW_AMBIGUITY_SCORED = 'interview.ambiguity.scored',
   INTERVIEW_SESSION_COMPLETED = 'interview.session.completed',
   GESTALT_PRINCIPLE_APPLIED = 'gestalt.principle.applied',
-  SEED_SPEC_GENERATED = 'seed.spec.generated',
+  SPEC_GENERATED = 'spec.generated',
   BROWNFIELD_DETECTED = 'brownfield.detected',
   EXECUTE_SESSION_STARTED = 'execute.session.started',
   EXECUTE_PLANNING_STEP_COMPLETED = 'execute.planning.step.completed',

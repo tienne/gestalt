@@ -39,10 +39,10 @@ export class AmbiguityThresholdError extends GestaltError {
   }
 }
 
-export class SeedGenerationError extends GestaltError {
+export class SpecGenerationError extends GestaltError {
   constructor(message: string) {
-    super(message, 'SEED_GENERATION_ERROR');
-    this.name = 'SeedGenerationError';
+    super(message, 'SPEC_GENERATION_ERROR');
+    this.name = 'SpecGenerationError';
   }
 }
 

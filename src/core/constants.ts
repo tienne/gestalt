@@ -2,7 +2,7 @@ import { GestaltPrinciple } from './types.js';
 
 export const AMBIGUITY_THRESHOLD = 0.2;
 export const MAX_INTERVIEW_ROUNDS = 15;
-export const MAX_SEED_RETRIES = 3;
+export const MAX_SPEC_RETRIES = 3;
 export const LLM_TEMPERATURE = 0.3;
 export const LLM_MAX_TOKENS = 4096;
 export const DEFAULT_MODEL = 'claude-sonnet-4-20250514';

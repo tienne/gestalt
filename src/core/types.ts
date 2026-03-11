@@ -54,7 +54,7 @@ export interface InterviewSession {
   updatedAt: string;
 }
 
-// ─── Seed ───────────────────────────────────────────────────────
+// ─── Spec ───────────────────────────────────────────────────────
 export interface OntologyEntity {
   name: string;
   description: string;
@@ -72,21 +72,21 @@ export interface OntologySchema {
   relations: OntologyRelation[];
 }
 
-export interface SeedMetadata {
-  seedId: string;
+export interface SpecMetadata {
+  specId: string;
   interviewSessionId: string;
   ambiguityScore: number;
   generatedAt: string;
 }
 
-export interface Seed {
+export interface Spec {
   version: string;
   goal: string;
   constraints: string[];
   acceptanceCriteria: string[];
   ontologySchema: OntologySchema;
   gestaltAnalysis: GestaltAnalysis[];
-  metadata: SeedMetadata;
+  metadata: SpecMetadata;
 }
 
 // ─── Skills ─────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ export type PlanningStepResult =
 
 export interface ExecutionPlan {
   planId: string;
-  seedId: string;
+  specId: string;
   classifiedACs: ClassifiedAC[];
   atomicTasks: AtomicTask[];
   taskGroups: TaskGroup[];
@@ -228,7 +228,7 @@ export interface ACVerification {
 export interface EvaluationResult {
   verifications: ACVerification[];
   overallScore: number; // 0.0-1.0
-  goalAlignment: number; // 0.0-1.0, Seed goal과의 정합성
+  goalAlignment: number; // 0.0-1.0, Spec goal과의 정합성
   recommendations: string[];
 }
 
@@ -255,8 +255,8 @@ export interface RetrospectiveResult {
 
 export interface ExecuteSession {
   sessionId: string;
-  seedId: string;
-  seed: Seed;
+  specId: string;
+  spec: Spec;
   status: ExecuteStatus;
   currentStep: number;
   planningSteps: PlanningStepResult[];
