@@ -9,6 +9,8 @@ import type {
   EvaluationResult,
   StructuralResult,
   DriftScore,
+  SpecDelta,
+  TerminationReason,
 } from '../core/types.js';
 import { EventType } from '../events/types.js';
 
@@ -66,6 +68,8 @@ export class ExecuteSessionRepository {
       planningSteps: [],
       taskResults: [],
       driftHistory: [],
+      evolutionHistory: [],
+      currentGeneration: 0,
       createdAt: firstEvent.timestamp,
       updatedAt: firstEvent.timestamp,
     };
@@ -183,6 +187,82 @@ export class ExecuteSessionRepository {
         const driftScore = payload as unknown as DriftScore;
         if (driftScore?.taskId) {
           session.driftHistory.push(driftScore);
+        }
+        break;
+      }
+
+      // ─── Evolution Loop ─────────────────────────────────────
+
+      case EventType.EVOLVE_STRUCTURAL_FIX_STARTED:
+        session.evolveStage = 'fix';
+        session.status = 'executing';
+        break;
+
+      case EventType.EVOLVE_STRUCTURAL_FIX_COMPLETED:
+        // Fix tasks recorded in event, no direct session state change beyond stage
+        break;
+
+      case EventType.EVOLVE_SPEC_PATCHED: {
+        const patchedSpec = payload.spec as Spec | undefined;
+        const delta = payload.delta as SpecDelta | undefined;
+        const generation = payload.generation as number | undefined;
+        if (patchedSpec) {
+          session.spec = patchedSpec;
+        }
+        if (generation !== undefined) {
+          session.currentGeneration = generation;
+        }
+        session.evolveStage = 'patch';
+
+        // Record generation snapshot
+        if (delta && generation !== undefined) {
+          session.evolutionHistory.push({
+            generation: generation,
+            spec: session.spec,
+            evaluationScore: session.evaluationResult?.overallScore ?? 0,
+            goalAlignment: session.evaluationResult?.goalAlignment ?? 0,
+            delta,
+          });
+        }
+        break;
+      }
+
+      case EventType.EVOLVE_RE_EXECUTION_STARTED: {
+        session.evolveStage = 're_executing';
+        session.status = 'executing';
+        const reExecTaskIds = payload.taskIds as string[] | undefined;
+        if (reExecTaskIds) {
+          session.taskResults = session.taskResults.filter(
+            (r) => !reExecTaskIds.includes(r.taskId),
+          );
+        }
+        break;
+      }
+
+      case EventType.EVOLVE_TASK_COMPLETED: {
+        const evolveTaskResult: TaskExecutionResult = {
+          taskId: payload.taskId as string,
+          status: payload.status as TaskExecutionResult['status'],
+          output: (payload.output as string) ?? '',
+          artifacts: (payload.artifacts as string[]) ?? [],
+        };
+        const evolveExistingIdx = session.taskResults.findIndex(
+          (r) => r.taskId === evolveTaskResult.taskId,
+        );
+        if (evolveExistingIdx >= 0) {
+          session.taskResults[evolveExistingIdx] = evolveTaskResult;
+        } else {
+          session.taskResults.push(evolveTaskResult);
+        }
+        break;
+      }
+
+      case EventType.EVOLVE_TERMINATED: {
+        const terminationReason = payload.reason as TerminationReason | undefined;
+        if (terminationReason) {
+          session.terminationReason = terminationReason;
+          session.status = terminationReason === 'success' ? 'completed' : 'failed';
+          session.evolveStage = undefined;
         }
         break;
       }

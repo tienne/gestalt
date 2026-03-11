@@ -1,4 +1,4 @@
-import type { Spec, ClassifiedAC, AtomicTask, TaskGroup, PlanningStepResult, TaskExecutionResult, StructuralResult, DriftScore } from '../core/types.js';
+import type { Spec, ClassifiedAC, AtomicTask, TaskGroup, PlanningStepResult, TaskExecutionResult, StructuralResult, DriftScore, StructuralCommandResult, EvaluationResult, EvolutionGeneration } from '../core/types.js';
 import {
   PLANNING_PRINCIPLE_SEQUENCE,
   PLANNING_TOTAL_STEPS,
@@ -439,4 +439,164 @@ export function buildPlanningStepPrompt(
     default:
       throw new Error(`Invalid step number: ${stepNumber}`);
   }
+}
+
+// ─── Evolution Loop Prompts ──────────────────────────────────
+
+export const EVOLVE_STRUCTURAL_FIX_SYSTEM_PROMPT = `You are a Gestalt-trained structural fixer. You generate fix tasks for structural failures (lint, build, test). Each fix task should target a specific failed command and provide concrete instructions.
+
+## Rules
+1. Analyze each failed structural command and its error output
+2. Generate a targeted fix task for each failure
+3. Fix tasks should be independent and specific
+4. Respond with ONLY a JSON array matching the specified schema`;
+
+export function buildStructuralFixPrompt(
+  spec: Spec,
+  failedCommands: StructuralCommandResult[],
+  taskResults: TaskExecutionResult[],
+): string {
+  const failedSummary = failedCommands
+    .map((c) => `  ${c.name}: "${c.command}" → exit ${c.exitCode}\n    output: ${c.output.slice(0, 500)}`)
+    .join('\n');
+
+  const taskSummary = taskResults
+    .map((r) => `  ${r.taskId}: [${r.status}] ${r.output.slice(0, 150)}`)
+    .join('\n');
+
+  return `## Structural Fix Generation
+
+**Spec Goal**: ${spec.goal}
+
+**Failed Structural Commands**:
+${failedSummary}
+
+**Completed Task Results** (context):
+${taskSummary}
+
+Generate a fix task for each failed command. Respond with ONLY a JSON array:
+[
+  {
+    "taskId": "fix-1",
+    "failedCommand": "the command that failed",
+    "errorOutput": "key error lines",
+    "fixDescription": "Concrete steps to fix this failure",
+    "artifacts": ["path/to/file-to-modify.ts"]
+  }
+]
+
+Rules:
+- One fix task per failed command
+- fixDescription must be specific and actionable
+- artifacts: files that need modification`;
+}
+
+export const EVOLVE_CONTEXTUAL_SYSTEM_PROMPT = `You are a Gestalt-trained spec evolver. When evaluation shows unsatisfied acceptance criteria, you generate a Spec patch that addresses the gaps while preserving the original goal.
+
+## Patch Scope Rules (CRITICAL)
+- L1 (acceptanceCriteria): FREE — add, modify, or remove
+- L2 (constraints): FREE — add, modify, or remove
+- L3 (ontologySchema): SELECTIVE — add or modify entities/relations only, NEVER delete existing ones
+- L4 (goal): FORBIDDEN — the goal must NEVER change
+
+## Rules
+1. Analyze evaluation gaps to identify what needs to change
+2. Generate a minimal patch that addresses the gaps
+3. Respect the patch scope rules strictly
+4. Respond with ONLY a JSON object matching the specified schema`;
+
+export function buildContextualEvolvePrompt(
+  spec: Spec,
+  evaluationResult: EvaluationResult,
+  evolutionHistory: EvolutionGeneration[],
+): string {
+  const unsatisfied = evaluationResult.verifications
+    .filter((v) => !v.satisfied)
+    .map((v) => `  [${v.acIndex}] ${spec.acceptanceCriteria[v.acIndex] ?? 'N/A'}\n    gaps: ${v.gaps.join('; ')}`)
+    .join('\n');
+
+  const historySummary = evolutionHistory.length > 0
+    ? `\n**Evolution History** (${evolutionHistory.length} generations):\n${evolutionHistory
+        .map((g) => `  Gen ${g.generation}: score=${g.evaluationScore.toFixed(2)}, goalAlign=${g.goalAlignment.toFixed(2)}, delta=[${g.delta.fieldsChanged.join(', ')}]`)
+        .join('\n')}`
+    : '';
+
+  return `## Contextual Evolution — Spec Patch Generation
+
+**Spec Goal** (IMMUTABLE): ${spec.goal}
+
+**Current Constraints**: ${spec.constraints.map((c, i) => `\n  [${i}] ${c}`).join('')}
+
+**Current Acceptance Criteria**: ${spec.acceptanceCriteria.map((ac, i) => `\n  [${i}] ${ac}`).join('')}
+
+**Current Ontology**:
+- Entities: ${spec.ontologySchema.entities.map((e) => e.name).join(', ')}
+- Relations: ${spec.ontologySchema.relations.map((r) => `${r.from}→${r.to}[${r.type}]`).join(', ')}
+
+**Unsatisfied Criteria**:
+${unsatisfied}
+
+**Recommendations**: ${evaluationResult.recommendations.join('; ')}
+
+**Evaluation Score**: ${evaluationResult.overallScore.toFixed(2)} | **Goal Alignment**: ${evaluationResult.goalAlignment.toFixed(2)}
+${historySummary}
+
+Generate a Spec patch to address the gaps. Respond with ONLY a JSON object:
+{
+  "acceptanceCriteria": ["updated AC list if changed"],
+  "constraints": ["updated constraints if changed"],
+  "ontologySchema": {
+    "entities": [{"name": "...", "description": "...", "attributes": ["..."]}],
+    "relations": [{"from": "...", "to": "...", "type": "..."}]
+  }
+}
+
+Rules:
+- Only include fields that need to change (omit unchanged fields)
+- acceptanceCriteria/constraints: provide the FULL list (not just additions)
+- ontologySchema.entities: must include ALL existing entities + any new ones
+- ontologySchema.relations: must include ALL existing relations + any new ones
+- Focus on addressing the specific gaps identified
+- Keep changes minimal to avoid scope creep`;
+}
+
+export function buildReExecutionPrompt(
+  task: AtomicTask,
+  spec: Spec,
+  completedResults: TaskExecutionResult[],
+  patchSummary: string,
+): string {
+  const completedSummary = completedResults.length > 0
+    ? completedResults
+        .map((r) => `  ${r.taskId}: [${r.status}] ${r.output.slice(0, 200)}`)
+        .join('\n')
+    : '  (none)';
+
+  return `## Re-Execution Task (Evolution Loop)
+
+The Spec has been patched. Re-implement this task with the updated requirements.
+
+**Spec Goal**: ${spec.goal}
+
+**Spec Patch Summary**: ${patchSummary}
+
+**Current Task**:
+- ID: ${task.taskId}
+- Title: ${task.title}
+- Description: ${task.description}
+- Complexity: ${task.estimatedComplexity}
+- Dependencies: [${task.dependsOn.join(', ')}]
+
+**Other Completed Tasks**:
+${completedSummary}
+
+Implement this task under the patched Spec and respond with ONLY a JSON object:
+{
+  "taskId": "${task.taskId}",
+  "status": "completed",
+  "output": "Description of what was implemented and key decisions made",
+  "artifacts": ["path/to/file1.ts", "path/to/file2.ts"]
+}
+
+If the task cannot be completed, use status "failed" and explain why in output.`;
 }

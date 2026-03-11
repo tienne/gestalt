@@ -8,6 +8,11 @@ import type {
   EvaluationResult,
   StructuralResult,
   DriftScore,
+  SpecPatch,
+  SpecDelta,
+  FixTask,
+  EvolutionGeneration,
+  TerminationReason,
 } from '../core/types.js';
 import { ExecuteSessionNotFoundError } from '../core/errors.js';
 import { EventStore } from '../events/store.js';
@@ -41,6 +46,8 @@ export class ExecuteSessionManager {
       planningSteps: [],
       taskResults: [],
       driftHistory: [],
+      evolutionHistory: [],
+      currentGeneration: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -209,6 +216,100 @@ export class ExecuteSessionManager {
       overall: driftScore.overall,
       thresholdExceeded: driftScore.thresholdExceeded,
       dimensions: driftScore.dimensions,
+    });
+  }
+
+  // ─── Evolution Loop Methods ─────────────────────────────────
+
+  startStructuralFix(sessionId: string): void {
+    const session = this.get(sessionId);
+    session.evolveStage = 'fix';
+    session.status = 'executing';
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVOLVE_STRUCTURAL_FIX_STARTED, {
+      generation: session.currentGeneration,
+      structuralResult: session.structuralResult,
+    });
+  }
+
+  completeStructuralFix(sessionId: string, fixTasks: FixTask[]): void {
+    const session = this.get(sessionId);
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVOLVE_STRUCTURAL_FIX_COMPLETED, {
+      generation: session.currentGeneration,
+      fixCount: fixTasks.length,
+      fixTasks,
+    });
+  }
+
+  patchSpec(sessionId: string, patch: SpecPatch, newSpec: Spec, delta: SpecDelta): void {
+    const session = this.get(sessionId);
+    session.currentGeneration++;
+    session.spec = newSpec;
+    session.evolveStage = 'patch';
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVOLVE_SPEC_PATCHED, {
+      generation: session.currentGeneration,
+      patch,
+      spec: newSpec,
+      delta,
+    });
+  }
+
+  startReExecution(sessionId: string, taskIds: string[]): void {
+    const session = this.get(sessionId);
+    session.evolveStage = 're_executing';
+    session.status = 'executing';
+    // Clear results for tasks being re-executed
+    session.taskResults = session.taskResults.filter((r) => !taskIds.includes(r.taskId));
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVOLVE_RE_EXECUTION_STARTED, {
+      generation: session.currentGeneration,
+      taskIds,
+    });
+  }
+
+  addEvolveTaskResult(sessionId: string, taskResult: TaskExecutionResult): void {
+    const session = this.get(sessionId);
+    const existingIdx = session.taskResults.findIndex((r) => r.taskId === taskResult.taskId);
+    if (existingIdx >= 0) {
+      session.taskResults[existingIdx] = taskResult;
+    } else {
+      session.taskResults.push(taskResult);
+    }
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVOLVE_TASK_COMPLETED, {
+      generation: session.currentGeneration,
+      taskId: taskResult.taskId,
+      status: taskResult.status,
+      output: taskResult.output,
+      artifacts: taskResult.artifacts,
+    });
+  }
+
+  recordEvolutionGeneration(sessionId: string, generation: EvolutionGeneration): void {
+    const session = this.get(sessionId);
+    session.evolutionHistory.push(generation);
+    session.updatedAt = new Date().toISOString();
+  }
+
+  terminate(sessionId: string, reason: TerminationReason): void {
+    const session = this.get(sessionId);
+    session.terminationReason = reason;
+    session.status = reason === 'success' ? 'completed' : 'failed';
+    session.evolveStage = undefined;
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVOLVE_TERMINATED, {
+      reason,
+      generation: session.currentGeneration,
+      scoreHistory: session.evolutionHistory.map((g) => g.evaluationScore),
+      evolutionHistory: session.evolutionHistory,
     });
   }
 
