@@ -33,6 +33,7 @@
     "chokidar": "^4.0.3",
     "commander": "^13.1.0",
     "gray-matter": "^4.0.3",
+    "openai": "^6.27.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

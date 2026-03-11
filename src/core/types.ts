@@ -319,6 +319,26 @@ export interface ExecuteSession {
   updatedAt: string;
 }
 
+// ─── Agent ──────────────────────────────────────────────────────
+export type AgentTier = 'frugal' | 'standard' | 'frontier';
+export type AgentPipeline = 'interview' | 'spec' | 'execute' | 'evaluate';
+export type LLMProvider = 'anthropic' | 'openai';
+
+export interface AgentFrontmatter {
+  name: string;
+  model?: string;
+  tier: AgentTier;
+  pipeline: AgentPipeline;
+  escalateTo?: string;
+  description: string;
+}
+
+export interface AgentDefinition {
+  frontmatter: AgentFrontmatter;
+  systemPrompt: string;
+  filePath: string;
+}
+
 // ─── Events ─────────────────────────────────────────────────────
 export interface DomainEvent<T = unknown> {
   id: string;
