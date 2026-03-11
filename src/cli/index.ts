@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { interviewCommand } from './commands/interview.js';
-import { seedCommand } from './commands/seed.js';
+import { specCommand } from './commands/spec.js';
 import { serveCommand } from './commands/serve.js';
 import { statusCommand } from './commands/status.js';
 
@@ -20,11 +20,11 @@ export function createCli(): Command {
     });
 
   program
-    .command('seed <session-id>')
-    .description('Generate a Seed specification from a completed interview')
+    .command('spec <session-id>')
+    .description('Generate a Spec from a completed interview')
     .option('-f, --force', 'Force generation even if ambiguity threshold is not met')
     .action(async (sessionId: string, options: { force?: boolean }) => {
-      await seedCommand(sessionId, options);
+      await specCommand(sessionId, options);
     });
 
   program

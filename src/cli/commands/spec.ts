@@ -2,9 +2,9 @@ import { loadConfig } from '../../core/config.js';
 import { EventStore } from '../../events/store.js';
 import { AnthropicAdapter } from '../../llm/adapter.js';
 import { InterviewEngine } from '../../interview/engine.js';
-import { SeedGenerator } from '../../seed/generator.js';
+import { SpecGenerator } from '../../spec/generator.js';
 
-export async function seedCommand(sessionId: string, options: { force?: boolean }): Promise<void> {
+export async function specCommand(sessionId: string, options: { force?: boolean }): Promise<void> {
   const config = loadConfig();
 
   if (!config.anthropicApiKey) {
@@ -15,11 +15,11 @@ export async function seedCommand(sessionId: string, options: { force?: boolean 
   const eventStore = new EventStore(config.dbPath);
   const llm = new AnthropicAdapter(config.anthropicApiKey, config.model);
   const engine = new InterviewEngine(llm, eventStore);
-  const generator = new SeedGenerator(llm, eventStore);
+  const generator = new SpecGenerator(llm, eventStore);
 
   try {
     const session = engine.getSession(sessionId);
-    console.log(`\n🌱 Generating seed for session: ${session.topic}\n`);
+    console.log(`\n📋 Generating spec for session: ${session.topic}\n`);
 
     const result = await generator.generate(session, options.force ?? false);
 
@@ -29,7 +29,7 @@ export async function seedCommand(sessionId: string, options: { force?: boolean 
     }
 
     console.log(JSON.stringify(result.value, null, 2));
-    console.log('\n✅ Seed generated successfully.\n');
+    console.log('\n✅ Spec generated successfully.\n');
   } catch (e) {
     console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
   } finally {

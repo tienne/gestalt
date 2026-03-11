@@ -72,7 +72,7 @@ export async function interviewCommand(topic: string): Promise<void> {
     const completeResult = engine.complete(sessionId);
     if (completeResult.ok) {
       console.log(`\n✅ Interview completed. Session ID: ${sessionId}`);
-      console.log('Run `gestalt seed ' + sessionId + '` to generate a seed.\n');
+      console.log('Run `gestalt spec ' + sessionId + '` to generate a spec.\n');
     }
   } finally {
     rl.close();
