@@ -1,4 +1,4 @@
-import type { Seed, ClassifiedAC, AtomicTask, TaskGroup, PlanningStepResult, TaskExecutionResult } from '../core/types.js';
+import type { Seed, ClassifiedAC, AtomicTask, TaskGroup, PlanningStepResult, TaskExecutionResult, StructuralResult, DriftScore } from '../core/types.js';
 import {
   PLANNING_PRINCIPLE_SEQUENCE,
   PLANNING_TOTAL_STEPS,
@@ -302,6 +302,97 @@ Verify each AC against the task results and respond with ONLY a JSON object:
 Rules:
 - Every AC index must be verified (indices 0 to ${seed.acceptanceCriteria.length - 1})
 - overallScore: weighted ratio (figure/critical ACs weigh more)
+- recommendations: actionable items if any gaps exist`;
+}
+
+export function buildDriftRetrospectivePrompt(
+  seed: Seed,
+  task: AtomicTask,
+  taskResult: TaskExecutionResult,
+  driftScore: DriftScore,
+): string {
+  const dimSummary = driftScore.dimensions
+    .map((d) => `  ${d.name}: ${d.score.toFixed(3)} — ${d.detail}`)
+    .join('\n');
+
+  return `## Drift Retrospective
+
+A task has exceeded the drift threshold (${driftScore.overall.toFixed(3)} > threshold).
+
+**Seed Goal**: ${seed.goal}
+
+**Constraints**: ${seed.constraints.join(', ')}
+
+**Task**: ${task.taskId} — ${task.title}
+**Task Description**: ${task.description}
+**Task Output**: ${taskResult.output}
+
+**Drift Dimensions**:
+${dimSummary}
+
+Analyze the drift and respond with ONLY a JSON object:
+{
+  "taskId": "${task.taskId}",
+  "driftScore": ${JSON.stringify(driftScore)},
+  "causeAnalysis": "Explain why this task drifted from the Seed spec",
+  "correctionSuggestions": ["Concrete suggestion 1", "Concrete suggestion 2"]
+}
+
+Rules:
+- causeAnalysis: specific, evidence-based explanation of the drift
+- correctionSuggestions: actionable items to bring the task back in alignment`;
+}
+
+export function buildContextualEvaluationPrompt(
+  seed: Seed,
+  classifiedACs: ClassifiedAC[],
+  taskResults: TaskExecutionResult[],
+  structuralResult: StructuralResult,
+): string {
+  const acList = classifiedACs
+    .map((ac) => `  [${ac.acIndex}] (${ac.classification}/${ac.priority}) ${ac.acText}`)
+    .join('\n');
+
+  const resultSummary = taskResults
+    .map((r) => `  ${r.taskId}: [${r.status}] ${r.output}\n    artifacts: [${r.artifacts.join(', ')}]`)
+    .join('\n');
+
+  const structuralSummary = structuralResult.commands
+    .map((c) => `  ${c.name}: ${c.exitCode === 0 ? 'PASS' : `FAIL (exit ${c.exitCode})`}`)
+    .join('\n');
+
+  return `## Contextual Evaluation — Semantic Verification
+
+**Structural Check Results** (all passed):
+${structuralSummary}
+
+**Seed Goal**: ${seed.goal}
+
+**Acceptance Criteria**:
+${acList}
+
+**Completed Task Results**:
+${resultSummary}
+
+Verify each AC against the task results and assess goal alignment. Respond with ONLY a JSON object:
+{
+  "verifications": [
+    {
+      "acIndex": 0,
+      "satisfied": true,
+      "evidence": "Specific evidence from task results that this AC is met",
+      "gaps": []
+    }
+  ],
+  "overallScore": 0.85,
+  "goalAlignment": 0.90,
+  "recommendations": ["Suggestions for improvement if score < 1.0"]
+}
+
+Rules:
+- Every AC index must be verified (indices 0 to ${seed.acceptanceCriteria.length - 1})
+- overallScore: weighted ratio (figure/critical ACs weigh more)
+- goalAlignment: how well the overall implementation aligns with the Seed goal (0.0-1.0)
 - recommendations: actionable items if any gaps exist`;
 }
 

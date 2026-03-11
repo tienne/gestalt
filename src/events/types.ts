@@ -16,4 +16,11 @@ export enum EventType {
   EXECUTE_TASK_COMPLETED = 'execute.task.completed',
   EXECUTE_EVALUATION_COMPLETED = 'execute.evaluation.completed',
   EXECUTE_SESSION_COMPLETED = 'execute.session.completed',
+  EVALUATE_STRUCTURAL_STARTED = 'evaluate.structural.started',
+  EVALUATE_STRUCTURAL_COMPLETED = 'evaluate.structural.completed',
+  EVALUATE_CONTEXTUAL_STARTED = 'evaluate.contextual.started',
+  EVALUATE_CONTEXTUAL_COMPLETED = 'evaluate.contextual.completed',
+  EVALUATE_SHORT_CIRCUITED = 'evaluate.short.circuited',
+  EXECUTE_DRIFT_MEASURED = 'execute.drift.measured',
+  EXECUTE_DRIFT_RETROSPECTIVE = 'execute.drift.retrospective',
 }

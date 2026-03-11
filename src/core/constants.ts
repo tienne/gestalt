@@ -71,3 +71,11 @@ export const EXECUTION_PRINCIPLE_STRATEGY: Record<string, string> = {
   [GestaltPrinciple.SIMILARITY]:
     'Leverage Similarity: when executing a task, reference completed tasks with similar patterns to provide consistent implementation context.',
 };
+
+// ─── Drift Detection ───────────────────────────────────────────
+export const DRIFT_THRESHOLD = 0.3;
+export const DRIFT_WEIGHTS = {
+  goal: 0.5,
+  constraint: 0.3,
+  ontology: 0.2,
+} as const;

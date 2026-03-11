@@ -12,6 +12,7 @@ import type {
   ContinuityResult,
   TaskExecutionResult,
   EvaluationResult,
+  StructuralResult,
 } from '../../../src/core/types.js';
 
 function createTestSeed(): Seed {
@@ -282,7 +283,7 @@ describe('Execution Phase', () => {
   });
 });
 
-describe('Evaluate Phase', () => {
+describe('Evaluate Phase (2-Stage Pipeline)', () => {
   let store: EventStore;
   let engine: PassthroughExecuteEngine;
   let dbPath: string;
@@ -310,8 +311,26 @@ describe('Evaluate Phase', () => {
     }
   }
 
-  describe('startEvaluation', () => {
-    it('returns evaluate context with AC and task results', () => {
+  const passingStructuralResult: StructuralResult = {
+    commands: [
+      { name: 'lint', command: 'npm run lint', exitCode: 0, output: 'No errors' },
+      { name: 'build', command: 'npm run build', exitCode: 0, output: 'Build success' },
+      { name: 'test', command: 'npm test', exitCode: 0, output: '10 tests passed' },
+    ],
+    allPassed: true,
+  };
+
+  const failingStructuralResult: StructuralResult = {
+    commands: [
+      { name: 'lint', command: 'npm run lint', exitCode: 1, output: '3 errors found' },
+      { name: 'build', command: 'npm run build', exitCode: 0, output: 'Build success' },
+      { name: 'test', command: 'npm test', exitCode: 0, output: '10 tests passed' },
+    ],
+    allPassed: false,
+  };
+
+  describe('startEvaluation (Structural Stage)', () => {
+    it('returns structural commands to run', () => {
       const seed = createTestSeed();
       const sessionId = completePlanningPhase(engine, seed);
       engine.startExecution(sessionId);
@@ -321,32 +340,101 @@ describe('Evaluate Phase', () => {
       expect(isOk(result)).toBe(true);
 
       if (result.ok) {
-        const ctx = result.value.evaluateContext!;
-        expect(ctx.phase).toBe('evaluating');
-        expect(ctx.systemPrompt).toContain('evaluator');
-        expect(ctx.evaluatePrompt).toContain('Evaluation');
-        expect(ctx.classifiedACs).toHaveLength(4);
-        expect(ctx.taskResults).toHaveLength(6);
-        expect(ctx.seed.goal).toBe(seed.goal);
+        expect(result.value.stage).toBe('structural');
+        expect(result.value.structuralContext).toBeDefined();
+        expect(result.value.structuralContext!.phase).toBe('evaluating');
+        expect(result.value.structuralContext!.stage).toBe('structural');
+        expect(result.value.structuralContext!.commands).toHaveLength(3);
+        expect(result.value.structuralContext!.commands.map((c) => c.name)).toEqual(['lint', 'build', 'test']);
       }
+    });
+
+    it('sets evaluateStage to structural on session', () => {
+      const seed = createTestSeed();
+      const sessionId = completePlanningPhase(engine, seed);
+      engine.startExecution(sessionId);
+      executeAllTasks(engine, sessionId);
+
+      engine.startEvaluation(sessionId);
+      const session = engine.getSession(sessionId);
+      expect(session.evaluateStage).toBe('structural');
     });
 
     it('rejects when session not in executing state', () => {
       const seed = createTestSeed();
       const sessionId = completePlanningPhase(engine, seed);
-      // Don't start execution
 
       const result = engine.startEvaluation(sessionId);
       expect(isErr(result)).toBe(true);
     });
   });
 
-  describe('submitEvaluation', () => {
-    it('completes session with evaluation result', () => {
+  describe('submitStructuralResult', () => {
+    it('advances to contextual stage when structural passes', () => {
       const seed = createTestSeed();
       const sessionId = completePlanningPhase(engine, seed);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
+      engine.startEvaluation(sessionId);
+
+      const result = engine.submitStructuralResult(sessionId, passingStructuralResult);
+      expect(isOk(result)).toBe(true);
+
+      if (result.ok) {
+        expect(result.value.stage).toBe('contextual');
+        expect(result.value.shortCircuited).toBeFalsy();
+        expect(result.value.contextualContext).toBeDefined();
+        expect(result.value.contextualContext!.phase).toBe('evaluating');
+        expect(result.value.contextualContext!.stage).toBe('contextual');
+        expect(result.value.contextualContext!.evaluatePrompt).toContain('Contextual Evaluation');
+        expect(result.value.contextualContext!.classifiedACs).toHaveLength(4);
+        expect(result.value.contextualContext!.taskResults).toHaveLength(6);
+      }
+    });
+
+    it('short-circuits when structural fails', () => {
+      const seed = createTestSeed();
+      const sessionId = completePlanningPhase(engine, seed);
+      engine.startExecution(sessionId);
+      executeAllTasks(engine, sessionId);
+      engine.startEvaluation(sessionId);
+
+      const result = engine.submitStructuralResult(sessionId, failingStructuralResult);
+      expect(isOk(result)).toBe(true);
+
+      if (result.ok) {
+        expect(result.value.stage).toBe('complete');
+        expect(result.value.shortCircuited).toBe(true);
+        expect(result.value.evaluationResult).toBeDefined();
+        expect(result.value.evaluationResult!.overallScore).toBe(0);
+        expect(result.value.session.status).toBe('completed');
+      }
+    });
+
+    it('rejects when not in structural stage', () => {
+      const seed = createTestSeed();
+      const sessionId = completePlanningPhase(engine, seed);
+      engine.startExecution(sessionId);
+      executeAllTasks(engine, sessionId);
+      // Don't call startEvaluation
+
+      const result = engine.submitStructuralResult(sessionId, passingStructuralResult);
+      expect(isErr(result)).toBe(true);
+    });
+  });
+
+  describe('submitEvaluation (Contextual Stage)', () => {
+    function advanceToContextual(engine: PassthroughExecuteEngine, sessionId: string): void {
+      engine.startEvaluation(sessionId);
+      engine.submitStructuralResult(sessionId, passingStructuralResult);
+    }
+
+    it('completes session with contextual evaluation result', () => {
+      const seed = createTestSeed();
+      const sessionId = completePlanningPhase(engine, seed);
+      engine.startExecution(sessionId);
+      executeAllTasks(engine, sessionId);
+      advanceToContextual(engine, sessionId);
 
       const evaluationResult: EvaluationResult = {
         verifications: [
@@ -356,6 +444,7 @@ describe('Evaluate Phase', () => {
           { acIndex: 3, satisfied: true, evidence: 'OAuth2 Google login implemented', gaps: [] },
         ],
         overallScore: 1.0,
+        goalAlignment: 0.95,
         recommendations: [],
       };
 
@@ -364,8 +453,10 @@ describe('Evaluate Phase', () => {
 
       if (result.ok) {
         expect(result.value.session.status).toBe('completed');
+        expect(result.value.stage).toBe('complete');
         expect(result.value.evaluationResult).toBeDefined();
         expect(result.value.evaluationResult!.overallScore).toBe(1.0);
+        expect(result.value.evaluationResult!.goalAlignment).toBe(0.95);
         expect(result.value.session.evaluationResult).toBeDefined();
       }
     });
@@ -375,13 +466,14 @@ describe('Evaluate Phase', () => {
       const sessionId = completePlanningPhase(engine, seed);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
+      advanceToContextual(engine, sessionId);
 
       const evaluationResult: EvaluationResult = {
         verifications: [
           { acIndex: 0, satisfied: true, evidence: 'done', gaps: [] },
-          // Missing acIndex 1, 2, 3
         ],
         overallScore: 0.25,
+        goalAlignment: 0.5,
         recommendations: ['Incomplete evaluation'],
       };
 
@@ -397,6 +489,7 @@ describe('Evaluate Phase', () => {
       const sessionId = completePlanningPhase(engine, seed);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
+      advanceToContextual(engine, sessionId);
 
       const evaluationResult: EvaluationResult = {
         verifications: [
@@ -405,7 +498,8 @@ describe('Evaluate Phase', () => {
           { acIndex: 2, satisfied: true, evidence: 'done', gaps: [] },
           { acIndex: 3, satisfied: true, evidence: 'done', gaps: [] },
         ],
-        overallScore: 1.5, // Invalid
+        overallScore: 1.5,
+        goalAlignment: 0.8,
         recommendations: [],
       };
 
@@ -416,13 +510,14 @@ describe('Evaluate Phase', () => {
       }
     });
 
-    it('rejects when session not in executing state', () => {
+    it('rejects when not in contextual stage', () => {
       const seed = createTestSeed();
       const sessionId = completePlanningPhase(engine, seed);
 
       const evaluationResult: EvaluationResult = {
         verifications: [],
         overallScore: 0,
+        goalAlignment: 0,
         recommendations: [],
       };
 
@@ -435,6 +530,7 @@ describe('Evaluate Phase', () => {
       const sessionId = completePlanningPhase(engine, seed);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
+      advanceToContextual(engine, sessionId);
 
       const evaluationResult: EvaluationResult = {
         verifications: [
@@ -444,6 +540,7 @@ describe('Evaluate Phase', () => {
           { acIndex: 3, satisfied: false, evidence: 'OAuth not fully integrated', gaps: ['Token refresh not handled'] },
         ],
         overallScore: 0.6,
+        goalAlignment: 0.7,
         recommendations: ['Complete email templates', 'Add OAuth token refresh'],
       };
 
@@ -453,6 +550,7 @@ describe('Evaluate Phase', () => {
       if (result.ok) {
         expect(result.value.session.status).toBe('completed');
         expect(result.value.evaluationResult!.overallScore).toBe(0.6);
+        expect(result.value.evaluationResult!.goalAlignment).toBe(0.7);
         expect(result.value.evaluationResult!.recommendations).toHaveLength(2);
       }
     });
@@ -512,13 +610,32 @@ describe('Full Pipeline: Planning → Execution → Evaluate', () => {
     const afterExec = engine.getSession(sessionId);
     expect(afterExec.taskResults).toHaveLength(topoOrder.length);
 
-    // Phase 3: Evaluate
+    // Phase 3: Evaluate — Stage 1: Structural
     const evalStart = engine.startEvaluation(sessionId);
     expect(isOk(evalStart)).toBe(true);
     if (evalStart.ok) {
-      expect(evalStart.value.evaluateContext).toBeDefined();
+      expect(evalStart.value.structuralContext).toBeDefined();
+      expect(evalStart.value.stage).toBe('structural');
     }
 
+    // Stage 2: Submit structural results
+    const structuralResult: StructuralResult = {
+      commands: [
+        { name: 'lint', command: 'npm run lint', exitCode: 0, output: 'OK' },
+        { name: 'build', command: 'npm run build', exitCode: 0, output: 'OK' },
+        { name: 'test', command: 'npm test', exitCode: 0, output: 'OK' },
+      ],
+      allPassed: true,
+    };
+
+    const structResult = engine.submitStructuralResult(sessionId, structuralResult);
+    expect(isOk(structResult)).toBe(true);
+    if (structResult.ok) {
+      expect(structResult.value.stage).toBe('contextual');
+      expect(structResult.value.contextualContext).toBeDefined();
+    }
+
+    // Stage 3: Submit contextual evaluation
     const evaluationResult: EvaluationResult = {
       verifications: seed.acceptanceCriteria.map((_, i) => ({
         acIndex: i,
@@ -527,6 +644,7 @@ describe('Full Pipeline: Planning → Execution → Evaluate', () => {
         gaps: [],
       })),
       overallScore: 1.0,
+      goalAlignment: 0.95,
       recommendations: [],
     };
 
@@ -536,14 +654,17 @@ describe('Full Pipeline: Planning → Execution → Evaluate', () => {
     if (evalResult.ok) {
       expect(evalResult.value.session.status).toBe('completed');
       expect(evalResult.value.evaluationResult!.overallScore).toBe(1.0);
+      expect(evalResult.value.evaluationResult!.goalAlignment).toBe(0.95);
     }
 
     // Final session state check
     const finalSession = engine.getSession(sessionId);
     expect(finalSession.status).toBe('completed');
+    expect(finalSession.evaluateStage).toBe('complete');
     expect(finalSession.planningSteps).toHaveLength(4);
     expect(finalSession.taskResults).toHaveLength(6);
     expect(finalSession.evaluationResult).toBeDefined();
     expect(finalSession.evaluationResult!.overallScore).toBe(1.0);
+    expect(finalSession.evaluationResult!.goalAlignment).toBe(0.95);
   });
 });

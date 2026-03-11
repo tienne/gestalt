@@ -6,6 +6,8 @@ import type {
   Seed,
   TaskExecutionResult,
   EvaluationResult,
+  StructuralResult,
+  DriftScore,
 } from '../core/types.js';
 import { ExecuteSessionNotFoundError } from '../core/errors.js';
 import { EventStore } from '../events/store.js';
@@ -38,6 +40,7 @@ export class ExecuteSessionManager {
       currentStep: 1,
       planningSteps: [],
       taskResults: [],
+      driftHistory: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -117,14 +120,75 @@ export class ExecuteSessionManager {
     });
   }
 
+  startStructuralEvaluation(sessionId: string): void {
+    const session = this.get(sessionId);
+    session.evaluateStage = 'structural';
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVALUATE_STRUCTURAL_STARTED, {
+      taskResultCount: session.taskResults.length,
+    });
+  }
+
+  completeStructuralStage(sessionId: string, structuralResult: StructuralResult): void {
+    const session = this.get(sessionId);
+    session.structuralResult = structuralResult;
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVALUATE_STRUCTURAL_COMPLETED, {
+      allPassed: structuralResult.allPassed,
+      commands: structuralResult.commands.map((c) => ({ name: c.name, exitCode: c.exitCode })),
+    });
+  }
+
+  startContextualEvaluation(sessionId: string): void {
+    const session = this.get(sessionId);
+    session.evaluateStage = 'contextual';
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVALUATE_CONTEXTUAL_STARTED, {
+      structuralPassed: session.structuralResult?.allPassed ?? false,
+    });
+  }
+
+  shortCircuitEvaluation(sessionId: string, reason: string): void {
+    const session = this.get(sessionId);
+    session.evaluateStage = 'complete';
+    session.status = 'completed';
+    session.evaluationResult = {
+      verifications: session.seed.acceptanceCriteria.map((_, i) => ({
+        acIndex: i,
+        satisfied: false,
+        evidence: 'Short-circuited due to structural failure',
+        gaps: [reason],
+      })),
+      overallScore: 0,
+      goalAlignment: 0,
+      recommendations: ['Fix structural issues before contextual evaluation'],
+    };
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVALUATE_SHORT_CIRCUITED, {
+      reason,
+      structuralResult: session.structuralResult,
+    });
+
+    this.eventStore.append('execute', sessionId, EventType.EXECUTE_SESSION_COMPLETED, {
+      overallScore: 0,
+      shortCircuited: true,
+    });
+  }
+
   completeEvaluation(sessionId: string, evaluationResult: EvaluationResult): void {
     const session = this.get(sessionId);
     session.evaluationResult = evaluationResult;
+    session.evaluateStage = 'complete';
     session.status = 'completed';
     session.updatedAt = new Date().toISOString();
 
     this.eventStore.append('execute', sessionId, EventType.EXECUTE_EVALUATION_COMPLETED, {
       overallScore: evaluationResult.overallScore,
+      goalAlignment: evaluationResult.goalAlignment,
       satisfiedCount: evaluationResult.verifications.filter((v) => v.satisfied).length,
       totalCount: evaluationResult.verifications.length,
       evaluationResult,
@@ -132,6 +196,19 @@ export class ExecuteSessionManager {
 
     this.eventStore.append('execute', sessionId, EventType.EXECUTE_SESSION_COMPLETED, {
       overallScore: evaluationResult.overallScore,
+    });
+  }
+
+  addDriftScore(sessionId: string, driftScore: DriftScore): void {
+    const session = this.get(sessionId);
+    session.driftHistory.push(driftScore);
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EXECUTE_DRIFT_MEASURED, {
+      taskId: driftScore.taskId,
+      overall: driftScore.overall,
+      thresholdExceeded: driftScore.thresholdExceeded,
+      dimensions: driftScore.dimensions,
     });
   }
 

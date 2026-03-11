@@ -199,6 +199,25 @@ export interface TaskExecutionResult {
 }
 
 // ─── Evaluate Phase ─────────────────────────────────────────────
+export type EvaluateStage = 'structural' | 'contextual' | 'complete';
+
+export interface StructuralCommand {
+  name: string;
+  command: string;
+}
+
+export interface StructuralCommandResult {
+  name: string;
+  command: string;
+  exitCode: number;
+  output: string;
+}
+
+export interface StructuralResult {
+  commands: StructuralCommandResult[];
+  allPassed: boolean;
+}
+
 export interface ACVerification {
   acIndex: number;
   satisfied: boolean;
@@ -209,7 +228,29 @@ export interface ACVerification {
 export interface EvaluationResult {
   verifications: ACVerification[];
   overallScore: number; // 0.0-1.0
+  goalAlignment: number; // 0.0-1.0, Seed goal과의 정합성
   recommendations: string[];
+}
+
+// ─── Drift Detection ───────────────────────────────────────────
+export interface DriftDimension {
+  name: 'goal' | 'constraint' | 'ontology';
+  score: number; // 0.0-1.0 (higher = more drift)
+  detail: string;
+}
+
+export interface DriftScore {
+  taskId: string;
+  overall: number; // weighted sum of dimensions
+  dimensions: DriftDimension[];
+  thresholdExceeded: boolean;
+}
+
+export interface RetrospectiveResult {
+  taskId: string;
+  driftScore: DriftScore;
+  causeAnalysis: string;
+  correctionSuggestions: string[];
 }
 
 export interface ExecuteSession {
@@ -221,7 +262,10 @@ export interface ExecuteSession {
   planningSteps: PlanningStepResult[];
   executionPlan?: ExecutionPlan;
   taskResults: TaskExecutionResult[];
+  evaluateStage?: EvaluateStage;
+  structuralResult?: StructuralResult;
   evaluationResult?: EvaluationResult;
+  driftHistory: DriftScore[];
   createdAt: string;
   updatedAt: string;
 }

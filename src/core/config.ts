@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { DEFAULT_MODEL, AMBIGUITY_THRESHOLD, MAX_INTERVIEW_ROUNDS } from './constants.js';
+import { DEFAULT_MODEL, AMBIGUITY_THRESHOLD, MAX_INTERVIEW_ROUNDS, DRIFT_THRESHOLD } from './constants.js';
 import { ConfigError } from './errors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -18,6 +18,7 @@ const configSchema = z.object({
   dbPath: z.string().default(GLOBAL_DB_PATH),
   skillsDir: z.string().default('skills'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  driftThreshold: z.number().min(0).max(1).default(DRIFT_THRESHOLD),
 });
 
 export type GestaltConfig = z.infer<typeof configSchema>;
@@ -50,6 +51,9 @@ export function loadConfig(overrides: Partial<Record<string, unknown>> = {}): Ge
     dbPath: process.env['GESTALT_DB_PATH'] ?? GLOBAL_DB_PATH,
     skillsDir: process.env['GESTALT_SKILLS_DIR'] ?? 'skills',
     logLevel: process.env['GESTALT_LOG_LEVEL'] ?? 'info',
+    driftThreshold: process.env['GESTALT_DRIFT_THRESHOLD']
+      ? Number(process.env['GESTALT_DRIFT_THRESHOLD'])
+      : DRIFT_THRESHOLD,
     ...overrides,
   };
 

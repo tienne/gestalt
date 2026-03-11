@@ -95,6 +95,15 @@ export const executeInputSchema = z.object({
     output: z.string(),
     artifacts: z.array(z.string()),
   }).optional().describe('Task execution result (required for execute_task)'),
+  structuralResult: z.object({
+    commands: z.array(z.object({
+      name: z.string(),
+      command: z.string(),
+      exitCode: z.number(),
+      output: z.string(),
+    })),
+    allPassed: z.boolean(),
+  }).optional().describe('Structural check results (required for evaluate after structural stage)'),
   evaluationResult: z.object({
     verifications: z.array(z.object({
       acIndex: z.number(),
@@ -103,6 +112,7 @@ export const executeInputSchema = z.object({
       gaps: z.array(z.string()),
     })),
     overallScore: z.number().min(0).max(1),
+    goalAlignment: z.number().min(0).max(1).optional().default(0),
     recommendations: z.array(z.string()),
   }).optional().describe('Evaluation result (optional for evaluate action)'),
 });

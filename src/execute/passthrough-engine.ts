@@ -12,6 +12,10 @@ import type {
   AtomicTask,
   TaskExecutionResult,
   EvaluationResult,
+  StructuralCommand,
+  StructuralResult,
+  EvaluateStage,
+  DriftScore,
 } from '../core/types.js';
 import {
   ExecuteError,
@@ -39,9 +43,12 @@ import {
   EXECUTE_EVALUATION_SYSTEM_PROMPT,
   buildPlanningStepPrompt,
   buildTaskExecutionPrompt,
-  buildEvaluationPrompt,
+  buildContextualEvaluationPrompt,
+  buildDriftRetrospectivePrompt,
 } from './prompts.js';
 import { validateDAG } from './dag-validator.js';
+import { measureDrift } from './drift-detector.js';
+import { DRIFT_THRESHOLD } from '../core/constants.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -89,25 +96,45 @@ export interface PassthroughExecutionStartResult {
   allTasksCompleted: boolean;
 }
 
+export interface DriftRetrospectiveContext {
+  systemPrompt: string;
+  retrospectivePrompt: string;
+  driftScore: DriftScore;
+}
+
 export interface PassthroughTaskSubmitResult {
   session: ExecuteSession;
   taskContext: TaskExecutionContext | null;
   allTasksCompleted: boolean;
+  driftScore?: DriftScore;
+  retrospectiveContext?: DriftRetrospectiveContext;
 }
 
-export interface EvaluateContext {
+export interface StructuralEvaluateContext {
+  phase: 'evaluating';
+  stage: 'structural';
+  commands: StructuralCommand[];
+  message: string;
+}
+
+export interface ContextualEvaluateContext {
   systemPrompt: string;
   evaluatePrompt: string;
   phase: 'evaluating';
+  stage: 'contextual';
   seed: Seed;
   taskResults: TaskExecutionResult[];
   classifiedACs: ClassifiedAC[];
+  structuralResult: StructuralResult;
 }
 
 export interface PassthroughEvaluateResult {
   session: ExecuteSession;
-  evaluateContext?: EvaluateContext;
+  stage: EvaluateStage;
+  structuralContext?: StructuralEvaluateContext;
+  contextualContext?: ContextualEvaluateContext;
   evaluationResult?: EvaluationResult;
+  shortCircuited?: boolean;
 }
 
 // ─── Engine ─────────────────────────────────────────────────────
@@ -315,6 +342,7 @@ export class PassthroughExecuteEngine {
   submitTaskResult(
     sessionId: string,
     taskResult: TaskExecutionResult,
+    driftThreshold?: number,
   ): Result<PassthroughTaskSubmitResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
@@ -330,14 +358,42 @@ export class PassthroughExecuteEngine {
       }
 
       // Validate taskId exists in plan
-      const validTaskIds = new Set(session.executionPlan.atomicTasks.map((t) => t.taskId));
-      if (!validTaskIds.has(taskResult.taskId)) {
+      const task = session.executionPlan.atomicTasks.find((t) => t.taskId === taskResult.taskId);
+      if (!task) {
         return err(new TaskExecutionError(
           `Task "${taskResult.taskId}" not found in execution plan`,
         ));
       }
 
       this.sessionManager.addTaskResult(sessionId, taskResult);
+
+      // Drift Detection (only for completed tasks)
+      let driftScore: DriftScore | undefined;
+      let retrospectiveContext: DriftRetrospectiveContext | undefined;
+
+      if (taskResult.status === 'completed') {
+        const threshold = driftThreshold ?? DRIFT_THRESHOLD;
+        driftScore = measureDrift(session.seed, task, taskResult, threshold);
+        this.sessionManager.addDriftScore(sessionId, driftScore);
+
+        if (driftScore.thresholdExceeded) {
+          this.eventStore.append('execute', sessionId, EventType.EXECUTE_DRIFT_RETROSPECTIVE, {
+            taskId: taskResult.taskId,
+            driftScore,
+          });
+
+          retrospectiveContext = {
+            systemPrompt: EXECUTE_EXECUTION_SYSTEM_PROMPT,
+            retrospectivePrompt: buildDriftRetrospectivePrompt(
+              session.seed,
+              task,
+              taskResult,
+              driftScore,
+            ),
+            driftScore,
+          };
+        }
+      }
 
       const updatedSession = this.sessionManager.get(sessionId);
       const taskContext = this.buildNextTaskContext(updatedSession);
@@ -347,6 +403,8 @@ export class PassthroughExecuteEngine {
         session: updatedSession,
         taskContext,
         allTasksCompleted,
+        driftScore,
+        retrospectiveContext,
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
@@ -356,8 +414,11 @@ export class PassthroughExecuteEngine {
     }
   }
 
-  // ─── Evaluate Phase ─────────────────────────────────────────
+  // ─── Evaluate Phase (2-Stage Pipeline) ──────────────────────
 
+  /**
+   * Call 1: Start evaluation → returns structural commands to run.
+   */
   startEvaluation(
     sessionId: string,
   ): Result<PassthroughEvaluateResult, ExecuteError> {
@@ -374,11 +435,23 @@ export class PassthroughExecuteEngine {
         return err(new EvaluationError('No execution plan found'));
       }
 
-      const evaluateContext = this.buildEvaluateContext(session);
+      this.sessionManager.startStructuralEvaluation(sessionId);
+
+      const commands: StructuralCommand[] = [
+        { name: 'lint', command: 'npm run lint' },
+        { name: 'build', command: 'npm run build' },
+        { name: 'test', command: 'npm test' },
+      ];
 
       return ok({
-        session,
-        evaluateContext,
+        session: this.sessionManager.get(sessionId),
+        stage: 'structural',
+        structuralContext: {
+          phase: 'evaluating',
+          stage: 'structural',
+          commands,
+          message: 'Run these structural checks and submit results. Adapt commands to your project (e.g., pnpm/yarn). All must pass to proceed to contextual evaluation.',
+        },
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
@@ -388,6 +461,65 @@ export class PassthroughExecuteEngine {
     }
   }
 
+  /**
+   * Call 2: Submit structural results → returns contextual context or short-circuits.
+   */
+  submitStructuralResult(
+    sessionId: string,
+    structuralResult: StructuralResult,
+  ): Result<PassthroughEvaluateResult, ExecuteError> {
+    try {
+      const session = this.sessionManager.get(sessionId);
+
+      if (session.status !== 'executing' || session.evaluateStage !== 'structural') {
+        return err(new EvaluationError(
+          `Cannot submit structural result: expected stage "structural", got "${session.evaluateStage ?? 'none'}"`,
+        ));
+      }
+
+      this.sessionManager.completeStructuralStage(sessionId, structuralResult);
+
+      // Short-circuit if structural checks failed
+      if (!structuralResult.allPassed) {
+        const failedCommands = structuralResult.commands
+          .filter((c) => c.exitCode !== 0)
+          .map((c) => `${c.name} (exit ${c.exitCode})`)
+          .join(', ');
+
+        this.sessionManager.shortCircuitEvaluation(
+          sessionId,
+          `Structural checks failed: ${failedCommands}`,
+        );
+
+        return ok({
+          session: this.sessionManager.get(sessionId),
+          stage: 'complete',
+          shortCircuited: true,
+          evaluationResult: this.sessionManager.get(sessionId).evaluationResult,
+        });
+      }
+
+      // Structural passed → advance to contextual stage
+      this.sessionManager.startContextualEvaluation(sessionId);
+      const updatedSession = this.sessionManager.get(sessionId);
+      const contextualContext = this.buildContextualEvaluateContext(updatedSession);
+
+      return ok({
+        session: updatedSession,
+        stage: 'contextual',
+        contextualContext,
+      });
+    } catch (e) {
+      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      return err(new EvaluationError(
+        `Failed to submit structural result: ${e instanceof Error ? e.message : String(e)}`,
+      ));
+    }
+  }
+
+  /**
+   * Call 3: Submit contextual evaluation result → completes session.
+   */
   submitEvaluation(
     sessionId: string,
     evaluationResult: EvaluationResult,
@@ -395,27 +527,30 @@ export class PassthroughExecuteEngine {
     try {
       const session = this.sessionManager.get(sessionId);
 
-      if (session.status !== 'executing') {
+      if (session.status !== 'executing' || session.evaluateStage !== 'contextual') {
         return err(new EvaluationError(
-          `Cannot submit evaluation: session status is "${session.status}", expected "executing"`,
+          `Cannot submit evaluation: expected stage "contextual", got "${session.evaluateStage ?? 'none'}"`,
         ));
       }
 
       // Validate evaluation covers all ACs
-      if (session.executionPlan) {
-        const acCount = session.seed.acceptanceCriteria.length;
-        const verifiedIndices = new Set(evaluationResult.verifications.map((v) => v.acIndex));
-        for (let i = 0; i < acCount; i++) {
-          if (!verifiedIndices.has(i)) {
-            return err(new EvaluationError(`AC index ${i} is not verified`));
-          }
+      const acCount = session.seed.acceptanceCriteria.length;
+      const verifiedIndices = new Set(evaluationResult.verifications.map((v) => v.acIndex));
+      for (let i = 0; i < acCount; i++) {
+        if (!verifiedIndices.has(i)) {
+          return err(new EvaluationError(`AC index ${i} is not verified`));
         }
       }
 
-      // Validate score range
+      // Validate score ranges
       if (evaluationResult.overallScore < 0 || evaluationResult.overallScore > 1) {
         return err(new EvaluationError(
           `overallScore must be between 0 and 1, got ${evaluationResult.overallScore}`,
+        ));
+      }
+      if (evaluationResult.goalAlignment < 0 || evaluationResult.goalAlignment > 1) {
+        return err(new EvaluationError(
+          `goalAlignment must be between 0 and 1, got ${evaluationResult.goalAlignment}`,
         ));
       }
 
@@ -423,6 +558,7 @@ export class PassthroughExecuteEngine {
 
       return ok({
         session: this.sessionManager.get(sessionId),
+        stage: 'complete',
         evaluationResult,
       });
     } catch (e) {
@@ -522,21 +658,24 @@ export class PassthroughExecuteEngine {
     });
   }
 
-  private buildEvaluateContext(session: ExecuteSession): EvaluateContext {
+  private buildContextualEvaluateContext(session: ExecuteSession): ContextualEvaluateContext {
     const plan = session.executionPlan!;
-    const evaluatePrompt = buildEvaluationPrompt(
+    const evaluatePrompt = buildContextualEvaluationPrompt(
       session.seed,
       plan.classifiedACs,
       session.taskResults,
+      session.structuralResult!,
     );
 
     return {
       systemPrompt: EXECUTE_EVALUATION_SYSTEM_PROMPT,
       evaluatePrompt,
       phase: 'evaluating',
+      stage: 'contextual',
       seed: session.seed,
       taskResults: session.taskResults,
       classifiedACs: plan.classifiedACs,
+      structuralResult: session.structuralResult!,
     };
   }
 

@@ -112,13 +112,15 @@ export function handleExecutePassthrough(
       const result = engine.submitTaskResult(input.sessionId, input.taskResult);
       if (!result.ok) return formatError(result.error.message);
 
-      const { session, taskContext, allTasksCompleted } = result.value;
+      const { session, taskContext, allTasksCompleted, driftScore, retrospectiveContext } = result.value;
 
       if (allTasksCompleted) {
         return JSON.stringify({
           status: 'all_tasks_completed',
           sessionId: session.sessionId,
           completedTasks: session.taskResults.length,
+          ...(driftScore ? { driftScore } : {}),
+          ...(retrospectiveContext ? { retrospectiveContext } : {}),
           message: 'All tasks completed. Call evaluate to verify acceptance criteria.',
         }, null, 2);
       }
@@ -128,37 +130,67 @@ export function handleExecutePassthrough(
         sessionId: session.sessionId,
         completedTasks: session.taskResults.length,
         taskContext,
-        message: `Task "${input.taskResult.taskId}" recorded. Use taskContext.taskPrompt to implement the next task.`,
+        ...(driftScore ? { driftScore } : {}),
+        ...(retrospectiveContext ? { retrospectiveContext } : {}),
+        message: `Task "${input.taskResult.taskId}" recorded.${driftScore?.thresholdExceeded ? ' WARNING: Drift threshold exceeded! Review retrospectiveContext.' : ''} Use taskContext.taskPrompt to implement the next task.`,
       }, null, 2);
     }
 
     case 'evaluate': {
       if (!input.sessionId) return formatError('sessionId is required for evaluate action');
 
-      // If evaluationResult is provided, submit it
+      // Call 3: Submit contextual evaluation result
       if (input.evaluationResult) {
         const result = engine.submitEvaluation(input.sessionId, input.evaluationResult);
         if (!result.ok) return formatError(result.error.message);
 
-        const { session, evaluationResult } = result.value;
+        const { evaluationResult } = result.value;
         return JSON.stringify({
           status: 'completed',
-          sessionId: session.sessionId,
+          sessionId: result.value.session.sessionId,
+          stage: 'complete',
           evaluationResult,
-          message: `Evaluation complete. Overall score: ${evaluationResult!.overallScore.toFixed(2)}. Session is now completed.`,
+          message: `Evaluation complete. Overall score: ${evaluationResult!.overallScore.toFixed(2)}, goal alignment: ${evaluationResult!.goalAlignment.toFixed(2)}. Session is now completed.`,
         }, null, 2);
       }
 
-      // Otherwise, return evaluate context for the caller
+      // Call 2: Submit structural results
+      if (input.structuralResult) {
+        const result = engine.submitStructuralResult(input.sessionId, input.structuralResult);
+        if (!result.ok) return formatError(result.error.message);
+
+        const { stage, shortCircuited, contextualContext, evaluationResult } = result.value;
+
+        if (shortCircuited) {
+          return JSON.stringify({
+            status: 'completed',
+            sessionId: result.value.session.sessionId,
+            stage: 'complete',
+            shortCircuited: true,
+            evaluationResult,
+            message: 'Structural checks failed. Evaluation short-circuited. Fix structural issues and retry.',
+          }, null, 2);
+        }
+
+        return JSON.stringify({
+          status: 'evaluating',
+          sessionId: result.value.session.sessionId,
+          stage,
+          contextualContext,
+          message: 'Structural checks passed. Use contextualContext.evaluatePrompt with contextualContext.systemPrompt to generate the contextual evaluation.',
+        }, null, 2);
+      }
+
+      // Call 1: Start evaluation → return structural commands
       const result = engine.startEvaluation(input.sessionId);
       if (!result.ok) return formatError(result.error.message);
 
-      const { session, evaluateContext } = result.value;
       return JSON.stringify({
         status: 'evaluating',
-        sessionId: session.sessionId,
-        evaluateContext,
-        message: 'Use evaluateContext.evaluatePrompt with evaluateContext.systemPrompt to generate the evaluation, then call evaluate again with evaluationResult.',
+        sessionId: result.value.session.sessionId,
+        stage: 'structural',
+        structuralContext: result.value.structuralContext,
+        message: 'Run structural checks (lint, build, test) and submit results with structuralResult.',
       }, null, 2);
     }
 
@@ -200,7 +232,9 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string): str
           stepsCompleted: session.planningSteps.length,
           hasPlan: !!session.executionPlan,
           taskResults: session.taskResults.length,
+          evaluateStage: session.evaluateStage ?? null,
           hasEvaluation: !!session.evaluationResult,
+          driftAlerts: session.driftHistory.filter((d) => d.thresholdExceeded).length,
           createdAt: session.createdAt,
           updatedAt: session.updatedAt,
         },

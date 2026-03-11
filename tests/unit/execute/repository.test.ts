@@ -214,6 +214,7 @@ describe('ExecuteSessionRepository', () => {
         { acIndex: 2, satisfied: false, evidence: 'Partial', gaps: ['Missing polish'] },
       ],
       overallScore: 0.85,
+      goalAlignment: 0.9,
       recommendations: ['Add more polish'],
     };
     manager.completeEvaluation(session.sessionId, evaluation);

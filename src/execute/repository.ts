@@ -7,6 +7,8 @@ import type {
   ExecutionPlan,
   TaskExecutionResult,
   EvaluationResult,
+  StructuralResult,
+  DriftScore,
 } from '../core/types.js';
 import { EventType } from '../events/types.js';
 
@@ -63,6 +65,7 @@ export class ExecuteSessionRepository {
       currentStep: 1,
       planningSteps: [],
       taskResults: [],
+      driftHistory: [],
       createdAt: firstEvent.timestamp,
       updatedAt: firstEvent.timestamp,
     };
@@ -122,10 +125,48 @@ export class ExecuteSessionRepository {
         break;
       }
 
+      case EventType.EVALUATE_STRUCTURAL_STARTED:
+        session.evaluateStage = 'structural';
+        break;
+
+      case EventType.EVALUATE_STRUCTURAL_COMPLETED: {
+        const structuralResult = payload as unknown as { allPassed: boolean; commands: Array<{ name: string; exitCode: number }> };
+        // 전체 StructuralResult는 이벤트에 포함되지 않을 수 있으므로 최소 복원
+        if (structuralResult) {
+          session.structuralResult = session.structuralResult ?? {
+            commands: (structuralResult.commands ?? []).map((c) => ({
+              name: c.name,
+              command: '',
+              exitCode: c.exitCode,
+              output: '',
+            })),
+            allPassed: structuralResult.allPassed ?? false,
+          };
+        }
+        break;
+      }
+
+      case EventType.EVALUATE_CONTEXTUAL_STARTED:
+        session.evaluateStage = 'contextual';
+        break;
+
+      case EventType.EVALUATE_CONTEXTUAL_COMPLETED:
+        break;
+
+      case EventType.EVALUATE_SHORT_CIRCUITED: {
+        session.evaluateStage = 'complete';
+        const shortCircuitResult = payload.structuralResult as StructuralResult | undefined;
+        if (shortCircuitResult) {
+          session.structuralResult = shortCircuitResult;
+        }
+        break;
+      }
+
       case EventType.EXECUTE_EVALUATION_COMPLETED: {
         const evaluationResult = payload.evaluationResult as EvaluationResult | undefined;
         if (evaluationResult) {
           session.evaluationResult = evaluationResult;
+          session.evaluateStage = 'complete';
         }
         break;
       }
@@ -138,7 +179,15 @@ export class ExecuteSessionRepository {
         session.status = 'failed';
         break;
 
-      // EXECUTE_PLAN_VALIDATED — 검증 메타데이터, 세션 상태에 직접 영향 없음
+      case EventType.EXECUTE_DRIFT_MEASURED: {
+        const driftScore = payload as unknown as DriftScore;
+        if (driftScore?.taskId) {
+          session.driftHistory.push(driftScore);
+        }
+        break;
+      }
+
+      // EXECUTE_PLAN_VALIDATED 등 — 세션 상태에 직접 영향 없음
       default:
         break;
     }
