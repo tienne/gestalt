@@ -115,7 +115,6 @@ export function validateDAG(tasks: AtomicTask[], groups: TaskGroup[]): DAGValida
 }
 
 function computeCriticalPath(tasks: AtomicTask[], topologicalOrder: string[]): string[] {
-  const taskMap = new Map(tasks.map((t) => [t.taskId, t]));
   const dist = new Map<string, number>();
   const predecessor = new Map<string, string | null>();
 
@@ -125,7 +124,6 @@ function computeCriticalPath(tasks: AtomicTask[], topologicalOrder: string[]): s
   }
 
   for (const id of topologicalOrder) {
-    const task = taskMap.get(id)!;
     const currentDist = dist.get(id)!;
     // Look at tasks that depend on this one (skip self-references)
     for (const otherTask of tasks) {
