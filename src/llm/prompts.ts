@@ -73,7 +73,7 @@ Respond with ONLY a JSON object:
 }`;
 }
 
-export function buildSeedPrompt(
+export function buildSpecPrompt(
   topic: string,
   rounds: { question: string; response: string }[],
   projectType: 'greenfield' | 'brownfield',
@@ -82,7 +82,7 @@ export function buildSeedPrompt(
     .map((r, i) => `Q${i + 1}: ${r.question}\nA${i + 1}: ${r.response}`)
     .join('\n\n');
 
-  return `Generate a complete project specification (Seed) from this interview about: "${topic}" (${projectType} project)
+  return `Generate a complete project specification (Spec) from this interview about: "${topic}" (${projectType} project)
 
 Interview transcript:
 ${history}

@@ -1,6 +1,6 @@
 import type { InterviewSession, GestaltAnalysis, OntologySchema } from '../core/types.js';
-import { buildSeedPrompt, INTERVIEW_SYSTEM_PROMPT } from '../llm/prompts.js';
-import { SeedGenerationError } from '../core/errors.js';
+import { buildSpecPrompt, INTERVIEW_SYSTEM_PROMPT } from '../llm/prompts.js';
+import { SpecGenerationError } from '../core/errors.js';
 import type { LLMAdapter } from '../llm/types.js';
 
 export interface ExtractedData {
@@ -11,7 +11,7 @@ export interface ExtractedData {
   gestaltAnalysis: GestaltAnalysis[];
 }
 
-export class SeedExtractor {
+export class SpecExtractor {
   constructor(private llm: LLMAdapter) {}
 
   async extract(session: InterviewSession): Promise<ExtractedData> {
@@ -23,10 +23,10 @@ export class SeedExtractor {
       }));
 
     if (completedRounds.length === 0) {
-      throw new SeedGenerationError('No completed interview rounds to extract from');
+      throw new SpecGenerationError('No completed interview rounds to extract from');
     }
 
-    const prompt = buildSeedPrompt(session.topic, completedRounds, session.projectType);
+    const prompt = buildSpecPrompt(session.topic, completedRounds, session.projectType);
 
     const response = await this.llm.chat({
       system: INTERVIEW_SYSTEM_PROMPT,
@@ -34,14 +34,14 @@ export class SeedExtractor {
       temperature: 0.3,
     });
 
-    return parseSeedResponse(response.content);
+    return parseSpecResponse(response.content);
   }
 }
 
-function parseSeedResponse(content: string): ExtractedData {
+function parseSpecResponse(content: string): ExtractedData {
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new SeedGenerationError('Failed to parse LLM response as JSON');
+    throw new SpecGenerationError('Failed to parse LLM response as JSON');
   }
 
   try {
@@ -55,9 +55,9 @@ function parseSeedResponse(content: string): ExtractedData {
       gestaltAnalysis: parseGestaltAnalysis(parsed['gestaltAnalysis']),
     };
   } catch (e) {
-    if (e instanceof SeedGenerationError) throw e;
-    throw new SeedGenerationError(
-      `Failed to parse seed data: ${e instanceof Error ? e.message : String(e)}`,
+    if (e instanceof SpecGenerationError) throw e;
+    throw new SpecGenerationError(
+      `Failed to parse spec data: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
 }

@@ -1,28 +1,28 @@
 import { randomUUID } from 'node:crypto';
-import type { InterviewSession, Seed } from '../core/types.js';
-import { AmbiguityThresholdError, SeedGenerationError } from '../core/errors.js';
-import { AMBIGUITY_THRESHOLD, MAX_SEED_RETRIES } from '../core/constants.js';
+import type { InterviewSession, Spec } from '../core/types.js';
+import { AmbiguityThresholdError, SpecGenerationError } from '../core/errors.js';
+import { AMBIGUITY_THRESHOLD, MAX_SPEC_RETRIES } from '../core/constants.js';
 import { type Result, ok, err } from '../core/result.js';
-import { seedSchema } from './schema.js';
-import { SeedExtractor } from './extractor.js';
+import { specSchema } from './schema.js';
+import { SpecExtractor } from './extractor.js';
 import type { LLMAdapter } from '../llm/types.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 
-export class SeedGenerator {
-  private extractor: SeedExtractor;
+export class SpecGenerator {
+  private extractor: SpecExtractor;
 
   constructor(
     llm: LLMAdapter,
     private eventStore: EventStore,
   ) {
-    this.extractor = new SeedExtractor(llm);
+    this.extractor = new SpecExtractor(llm);
   }
 
   async generate(
     session: InterviewSession,
     force = false,
-  ): Promise<Result<Seed, SeedGenerationError | AmbiguityThresholdError>> {
+  ): Promise<Result<Spec, SpecGenerationError | AmbiguityThresholdError>> {
     // Validate ambiguity threshold
     if (!force) {
       const ambiguity = session.ambiguityScore?.overall ?? 1.0;
@@ -32,16 +32,16 @@ export class SeedGenerator {
     }
 
     if (session.status !== 'completed') {
-      return err(new SeedGenerationError('Interview session must be completed before generating a seed'));
+      return err(new SpecGenerationError('Interview session must be completed before generating a spec'));
     }
 
-    // Retry up to MAX_SEED_RETRIES
+    // Retry up to MAX_SPEC_RETRIES
     let lastError: Error | null = null;
-    for (let attempt = 0; attempt < MAX_SEED_RETRIES; attempt++) {
+    for (let attempt = 0; attempt < MAX_SPEC_RETRIES; attempt++) {
       try {
         const extracted = await this.extractor.extract(session);
 
-        const seed: Seed = {
+        const spec: Spec = {
           version: '1.0.0',
           goal: extracted.goal,
           constraints: extracted.constraints,
@@ -49,7 +49,7 @@ export class SeedGenerator {
           ontologySchema: extracted.ontologySchema,
           gestaltAnalysis: extracted.gestaltAnalysis,
           metadata: {
-            seedId: randomUUID(),
+            specId: randomUUID(),
             interviewSessionId: session.sessionId,
             ambiguityScore: session.ambiguityScore?.overall ?? 1.0,
             generatedAt: new Date().toISOString(),
@@ -57,35 +57,35 @@ export class SeedGenerator {
         };
 
         // Validate against schema
-        const validation = seedSchema.safeParse(seed);
+        const validation = specSchema.safeParse(spec);
         if (!validation.success) {
-          lastError = new SeedGenerationError(
-            `Seed validation failed: ${validation.error.message}`,
+          lastError = new SpecGenerationError(
+            `Spec validation failed: ${validation.error.message}`,
           );
           continue;
         }
 
         this.eventStore.append(
-          'seed',
-          seed.metadata.seedId,
-          EventType.SEED_SPEC_GENERATED,
+          'spec',
+          spec.metadata.specId,
+          EventType.SPEC_GENERATED,
           {
             sessionId: session.sessionId,
-            goal: seed.goal,
-            constraintCount: seed.constraints.length,
-            criteriaCount: seed.acceptanceCriteria.length,
+            goal: spec.goal,
+            constraintCount: spec.constraints.length,
+            criteriaCount: spec.acceptanceCriteria.length,
           },
         );
 
-        return ok(seed);
+        return ok(spec);
       } catch (e) {
         lastError = e instanceof Error ? e : new Error(String(e));
       }
     }
 
     return err(
-      new SeedGenerationError(
-        `Failed after ${MAX_SEED_RETRIES} attempts: ${lastError?.message ?? 'unknown error'}`,
+      new SpecGenerationError(
+        `Failed after ${MAX_SPEC_RETRIES} attempts: ${lastError?.message ?? 'unknown error'}`,
       ),
     );
   }

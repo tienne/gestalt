@@ -24,21 +24,21 @@ const gestaltAnalysisSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
-const seedMetadataSchema = z.object({
-  seedId: z.string(),
+const specMetadataSchema = z.object({
+  specId: z.string(),
   interviewSessionId: z.string(),
   ambiguityScore: z.number().min(0).max(1),
   generatedAt: z.string(),
 });
 
-export const seedSchema = z.object({
+export const specSchema = z.object({
   version: z.string(),
   goal: z.string().min(1),
   constraints: z.array(z.string()),
   acceptanceCriteria: z.array(z.string()),
   ontologySchema: ontologySchemaSchema,
   gestaltAnalysis: z.array(gestaltAnalysisSchema),
-  metadata: seedMetadataSchema,
+  metadata: specMetadataSchema,
 });
 
-export type ValidatedSeed = z.infer<typeof seedSchema>;
+export type ValidatedSpec = z.infer<typeof specSchema>;

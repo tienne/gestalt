@@ -1,22 +1,22 @@
 import { randomUUID } from 'node:crypto';
-import type { InterviewSession, Seed, InterviewRound } from '../core/types.js';
-import { AmbiguityThresholdError, SeedGenerationError } from '../core/errors.js';
+import type { InterviewSession, Spec, InterviewRound } from '../core/types.js';
+import { AmbiguityThresholdError, SpecGenerationError } from '../core/errors.js';
 import { AMBIGUITY_THRESHOLD } from '../core/constants.js';
 import { type Result, ok, err } from '../core/result.js';
-import { seedSchema } from './schema.js';
+import { specSchema } from './schema.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
-import { INTERVIEW_SYSTEM_PROMPT, buildSeedPrompt } from '../llm/prompts.js';
+import { INTERVIEW_SYSTEM_PROMPT, buildSpecPrompt } from '../llm/prompts.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
-export interface SeedContext {
+export interface SpecContext {
   systemPrompt: string;
-  seedPrompt: string;
+  specPrompt: string;
   allRounds: { roundNumber: number; question: string; response: string; gestaltFocus: string }[];
 }
 
-export interface ExternalSeed {
+export interface ExternalSpec {
   goal: string;
   constraints: string[];
   acceptanceCriteria: string[];
@@ -26,10 +26,10 @@ export interface ExternalSeed {
 
 // ─── Generator ──────────────────────────────────────────────────
 
-export class PassthroughSeedGenerator {
+export class PassthroughSpecGenerator {
   constructor(private eventStore: EventStore) {}
 
-  buildSeedContext(session: InterviewSession): SeedContext {
+  buildSpecContext(session: InterviewSession): SpecContext {
     const answeredRounds = session.rounds
       .filter((r): r is InterviewRound & { userResponse: string } => r.userResponse !== null)
       .map((r) => ({
@@ -37,11 +37,11 @@ export class PassthroughSeedGenerator {
         response: r.userResponse,
       }));
 
-    const seedPrompt = buildSeedPrompt(session.topic, answeredRounds, session.projectType);
+    const specPrompt = buildSpecPrompt(session.topic, answeredRounds, session.projectType);
 
     return {
       systemPrompt: INTERVIEW_SYSTEM_PROMPT,
-      seedPrompt,
+      specPrompt,
       allRounds: session.rounds
         .filter((r) => r.userResponse !== null)
         .map((r) => ({
@@ -55,9 +55,9 @@ export class PassthroughSeedGenerator {
 
   validateAndStore(
     session: InterviewSession,
-    externalSeed: ExternalSeed,
+    externalSpec: ExternalSpec,
     force = false,
-  ): Result<Seed, SeedGenerationError | AmbiguityThresholdError> {
+  ): Result<Spec, SpecGenerationError | AmbiguityThresholdError> {
     // Validate ambiguity threshold
     if (!force) {
       const ambiguity = session.ambiguityScore?.overall ?? 1.0;
@@ -67,19 +67,19 @@ export class PassthroughSeedGenerator {
     }
 
     if (session.status !== 'completed') {
-      return err(new SeedGenerationError('Interview session must be completed before generating a seed'));
+      return err(new SpecGenerationError('Interview session must be completed before generating a spec'));
     }
 
     try {
-      const seed: Seed = {
+      const spec: Spec = {
         version: '1.0.0',
-        goal: externalSeed.goal,
-        constraints: externalSeed.constraints,
-        acceptanceCriteria: externalSeed.acceptanceCriteria,
-        ontologySchema: externalSeed.ontologySchema as Seed['ontologySchema'],
-        gestaltAnalysis: externalSeed.gestaltAnalysis as Seed['gestaltAnalysis'],
+        goal: externalSpec.goal,
+        constraints: externalSpec.constraints,
+        acceptanceCriteria: externalSpec.acceptanceCriteria,
+        ontologySchema: externalSpec.ontologySchema as Spec['ontologySchema'],
+        gestaltAnalysis: externalSpec.gestaltAnalysis as Spec['gestaltAnalysis'],
         metadata: {
-          seedId: randomUUID(),
+          specId: randomUUID(),
           interviewSessionId: session.sessionId,
           ambiguityScore: session.ambiguityScore?.overall ?? 1.0,
           generatedAt: new Date().toISOString(),
@@ -87,33 +87,33 @@ export class PassthroughSeedGenerator {
       };
 
       // Validate against schema
-      const validation = seedSchema.safeParse(seed);
+      const validation = specSchema.safeParse(spec);
       if (!validation.success) {
         return err(
-          new SeedGenerationError(
-            `Seed validation failed: ${validation.error.message}`,
+          new SpecGenerationError(
+            `Spec validation failed: ${validation.error.message}`,
           ),
         );
       }
 
       this.eventStore.append(
-        'seed',
-        seed.metadata.seedId,
-        EventType.SEED_SPEC_GENERATED,
+        'spec',
+        spec.metadata.specId,
+        EventType.SPEC_GENERATED,
         {
           sessionId: session.sessionId,
-          goal: seed.goal,
-          constraintCount: seed.constraints.length,
-          criteriaCount: seed.acceptanceCriteria.length,
+          goal: spec.goal,
+          constraintCount: spec.constraints.length,
+          criteriaCount: spec.acceptanceCriteria.length,
           source: 'passthrough',
         },
       );
 
-      return ok(seed);
+      return ok(spec);
     } catch (e) {
       return err(
-        new SeedGenerationError(
-          `Failed to validate seed: ${e instanceof Error ? e.message : String(e)}`,
+        new SpecGenerationError(
+          `Failed to validate spec: ${e instanceof Error ? e.message : String(e)}`,
         ),
       );
     }
