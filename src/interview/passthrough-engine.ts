@@ -58,6 +58,7 @@ export class PassthroughEngine {
 
   constructor(private eventStore: EventStore) {
     this.sessionManager = new SessionManager(eventStore);
+    this.sessionManager.loadFromStore();
   }
 
   start(topic: string, cwd?: string): Result<PassthroughStartResult, InterviewError> {

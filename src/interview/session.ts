@@ -9,11 +9,24 @@ import type {
 import { SessionNotFoundError, SessionAlreadyCompletedError } from '../core/errors.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
+import { InterviewSessionRepository } from './repository.js';
 
 export class SessionManager {
   private sessions = new Map<string, InterviewSession>();
 
   constructor(private eventStore: EventStore) {}
+
+  /**
+   * EventStore에서 기존 세션을 복원하여 메모리 Map에 로드한다.
+   * 서버 시작 시 한 번 호출.
+   */
+  loadFromStore(): void {
+    const repo = new InterviewSessionRepository(this.eventStore);
+    const restored = repo.reconstructAll();
+    for (const session of restored) {
+      this.sessions.set(session.sessionId, session);
+    }
+  }
 
   create(topic: string, projectType: ProjectType): InterviewSession {
     const session: InterviewSession = {

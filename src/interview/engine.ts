@@ -38,6 +38,7 @@ export class InterviewEngine {
     private eventStore: EventStore,
   ) {
     this.sessionManager = new SessionManager(eventStore);
+    this.sessionManager.loadFromStore();
     this.questionGenerator = new QuestionGenerator(llm);
     this.ambiguityScorer = new AmbiguityScorer(llm);
   }
