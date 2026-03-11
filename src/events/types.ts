@@ -7,4 +7,9 @@ export enum EventType {
   GESTALT_PRINCIPLE_APPLIED = 'gestalt.principle.applied',
   SEED_SPEC_GENERATED = 'seed.spec.generated',
   BROWNFIELD_DETECTED = 'brownfield.detected',
+  EXECUTE_SESSION_STARTED = 'execute.session.started',
+  EXECUTE_PLANNING_STEP_COMPLETED = 'execute.planning.step.completed',
+  EXECUTE_PLAN_VALIDATED = 'execute.plan.validated',
+  EXECUTE_PLAN_COMPLETED = 'execute.plan.completed',
+  EXECUTE_SESSION_FAILED = 'execute.session.failed',
 }

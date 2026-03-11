@@ -73,3 +73,31 @@ export class ConfigError extends GestaltError {
     this.name = 'ConfigError';
   }
 }
+
+export class ExecuteError extends GestaltError {
+  constructor(message: string) {
+    super(message, 'EXECUTE_ERROR');
+    this.name = 'ExecuteError';
+  }
+}
+
+export class ExecuteSessionNotFoundError extends ExecuteError {
+  constructor(sessionId: string) {
+    super(`Execute session not found: ${sessionId}`);
+    this.name = 'ExecuteSessionNotFoundError';
+  }
+}
+
+export class InvalidPlanningStepError extends ExecuteError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidPlanningStepError';
+  }
+}
+
+export class DAGCycleError extends ExecuteError {
+  constructor(details: string) {
+    super(`DAG contains cycles: ${details}`);
+    this.name = 'DAGCycleError';
+  }
+}

@@ -41,3 +41,27 @@ export const PRINCIPLE_QUESTION_STRATEGIES: Record<GestaltPrinciple, string> = {
 
 export const EVENT_STORE_TABLE = 'events';
 export const SKILLS_DIR = 'skills';
+
+// ─── Execute Engine ──────────────────────────────────────────────
+export const PLANNING_PRINCIPLE_SEQUENCE = [
+  GestaltPrinciple.FIGURE_GROUND,
+  GestaltPrinciple.CLOSURE,
+  GestaltPrinciple.PROXIMITY,
+  GestaltPrinciple.CONTINUITY,
+] as const;
+
+export const PLANNING_TOTAL_STEPS = 4;
+
+export const PLANNING_PRINCIPLE_STRATEGIES: Record<string, string> = {
+  [GestaltPrinciple.FIGURE_GROUND]:
+    'Separate essential (figure) from supplementary (ground) acceptance criteria. Assign priority levels based on impact and dependencies.',
+  [GestaltPrinciple.CLOSURE]:
+    'Identify implicit sub-tasks that are not explicitly stated but required for completeness. Decompose each AC into atomic, independently executable tasks.',
+  [GestaltPrinciple.PROXIMITY]:
+    'Group related atomic tasks by domain or functional area. Tasks that naturally belong together should share a group.',
+  [GestaltPrinciple.CONTINUITY]:
+    'Validate the dependency graph for consistency. Ensure no cycles, no conflicts between groups, and a clear execution order exists.',
+};
+
+export const MAX_ATOMIC_TASKS = 100;
+export const MAX_TASK_GROUPS = 20;
