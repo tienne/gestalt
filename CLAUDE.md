@@ -28,7 +28,7 @@ pnpm tsx bin/gestalt.ts status             # Check sessions
 ## MCP Tools
 - `ges_interview`: action=[start|respond|score|complete]
 - `ges_generate_spec`: sessionId, force?
-- `ges_execute`: action=[start|plan_step|plan_complete|status]
+- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|evaluate|status|evolve_fix|evolve|evolve_patch|evolve_re_execute]
 - `ges_status`: sessionId?
 
 ## MCP Passthrough Mode
@@ -133,6 +133,48 @@ ges_execute({
 ges_execute({ action: "plan_complete", sessionId: "<id>" })
 → ExecutionPlan (classifiedACs, atomicTasks, taskGroups, dagValidation) 반환
 ```
+
+### Execute → Evaluate → Evolution 플로우
+
+**Execution Phase**: execute_start → execute_task (반복) → evaluate (3-Call: structural → contextual)
+
+**Evolution Loop** (Evaluate 점수가 threshold 미달 시):
+
+**Flow A: Structural Fix** (structural 실패 시)
+```
+// 1. Fix context 요청
+ges_execute({ action: "evolve_fix", sessionId: "<id>" })
+→ fixContext 반환
+
+// 2. Fix tasks 제출
+ges_execute({ action: "evolve_fix", sessionId: "<id>", fixTasks: [...] })
+→ 상태 복원, evaluate 재실행 가능
+
+// 3. Re-evaluate
+ges_execute({ action: "evaluate", sessionId: "<id>" })
+```
+
+**Flow B: Contextual Evolution** (structural 통과, contextual 점수 미달 시)
+```
+// 1. Evolution context 요청
+ges_execute({ action: "evolve", sessionId: "<id>" })
+→ evolveContext 반환 (또는 terminateReason으로 종료)
+
+// 2. Spec patch 제출
+ges_execute({ action: "evolve_patch", sessionId: "<id>", specPatch: {...} })
+→ impactedTaskIds + reExecuteContext 반환
+
+// 3. Impacted tasks 재실행 (반복)
+ges_execute({ action: "evolve_re_execute", sessionId: "<id>", reExecuteTaskResult: {...} })
+→ allTasksCompleted === true가 될 때까지 반복
+
+// 4. Re-evaluate
+ges_execute({ action: "evaluate", sessionId: "<id>" })
+```
+
+**Spec Patch 범위**: L1(AC)+L2(constraints) 자유, L3(ontology) 추가/변경만, L4(goal) 금지
+**종료 조건**: success(≥0.85, ≥0.80), stagnation, oscillation, hard_cap(3+3), caller
+**Caller 종료**: `ges_execute({ action: "evolve", sessionId: "<id>", terminateReason: "caller" })`
 
 ### 핵심 규칙
 - `action: "respond"` 시 `generatedQuestion` **필수**, `ambiguityScore` 선택
