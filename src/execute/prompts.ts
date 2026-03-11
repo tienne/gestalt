@@ -1,7 +1,6 @@
-import type { Seed, ClassifiedAC, AtomicTask, TaskGroup, PlanningStepResult } from '../core/types.js';
+import type { Seed, ClassifiedAC, AtomicTask, TaskGroup, PlanningStepResult, TaskExecutionResult } from '../core/types.js';
 import {
   PLANNING_PRINCIPLE_SEQUENCE,
-  PLANNING_PRINCIPLE_STRATEGIES,
   PLANNING_TOTAL_STEPS,
 } from '../core/constants.js';
 
@@ -187,6 +186,123 @@ Rules:
 - criticalPath: the longest chain of dependent tasks (determines minimum execution time)
 - If cycles or conflicts are found, isValid must be false
 - cycleDetails/conflictDetails should describe the issues found`;
+}
+
+// ─── Execution Phase Prompts ────────────────────────────────────
+
+export const EXECUTE_EXECUTION_SYSTEM_PROMPT = `You are a Gestalt-trained task executor. You implement atomic tasks from an execution plan one at a time. Apply the Similarity principle: leverage patterns from previously completed tasks to maintain consistency.
+
+## Rules
+1. Implement exactly what the task description specifies
+2. Reference previous task outputs for consistent patterns
+3. Respond with ONLY a JSON object matching the specified schema
+4. Include file paths in artifacts when creating/modifying files`;
+
+export function buildTaskExecutionPrompt(
+  task: AtomicTask,
+  seed: Seed,
+  completedResults: TaskExecutionResult[],
+  similarTasks: AtomicTask[],
+): string {
+  const completedSummary = completedResults.length > 0
+    ? completedResults
+        .map((r) => `  ${r.taskId}: [${r.status}] ${r.output.slice(0, 200)}`)
+        .join('\n')
+    : '  (none)';
+
+  const similarContext = similarTasks.length > 0
+    ? `\n**Similar completed tasks** (use for consistent patterns):\n${similarTasks
+        .map((t) => {
+          const result = completedResults.find((r) => r.taskId === t.taskId);
+          return `  ${t.taskId}: ${t.title} → ${result?.output.slice(0, 150) ?? 'N/A'}`;
+        })
+        .join('\n')}`
+    : '';
+
+  return `## Task Execution
+
+**Seed Goal**: ${seed.goal}
+
+**Current Task**:
+- ID: ${task.taskId}
+- Title: ${task.title}
+- Description: ${task.description}
+- Complexity: ${task.estimatedComplexity}
+- Dependencies: [${task.dependsOn.join(', ')}]
+
+**Completed Tasks**:
+${completedSummary}
+${similarContext}
+
+Implement this task and respond with ONLY a JSON object:
+{
+  "taskId": "${task.taskId}",
+  "status": "completed",
+  "output": "Description of what was implemented and key decisions made",
+  "artifacts": ["path/to/file1.ts", "path/to/file2.ts"]
+}
+
+If the task cannot be completed, use status "failed" and explain why in output.`;
+}
+
+// ─── Evaluate Phase Prompts ─────────────────────────────────────
+
+export const EXECUTE_EVALUATION_SYSTEM_PROMPT = `You are a Gestalt-trained evaluator. You verify whether all acceptance criteria have been satisfied by the completed task results. Be thorough and evidence-based.
+
+## Rules
+1. Check each acceptance criterion against the completed task outputs
+2. Provide specific evidence for satisfied criteria
+3. Identify concrete gaps for unsatisfied criteria
+4. The overall score should reflect the ratio of satisfied criteria weighted by priority
+5. Respond with ONLY a JSON object matching the specified schema`;
+
+export function buildEvaluationPrompt(
+  seed: Seed,
+  classifiedACs: ClassifiedAC[],
+  taskResults: TaskExecutionResult[],
+): string {
+  const acList = classifiedACs
+    .map((ac) => `  [${ac.acIndex}] (${ac.classification}/${ac.priority}) ${ac.acText}`)
+    .join('\n');
+
+  const resultSummary = taskResults
+    .map((r) => `  ${r.taskId}: [${r.status}] ${r.output}\n    artifacts: [${r.artifacts.join(', ')}]`)
+    .join('\n');
+
+  return `## Evaluation — Acceptance Criteria Verification
+
+**Seed Goal**: ${seed.goal}
+
+**Acceptance Criteria**:
+${acList}
+
+**Completed Task Results**:
+${resultSummary}
+
+Verify each AC against the task results and respond with ONLY a JSON object:
+{
+  "verifications": [
+    {
+      "acIndex": 0,
+      "satisfied": true,
+      "evidence": "Specific evidence from task results that this AC is met",
+      "gaps": []
+    },
+    {
+      "acIndex": 1,
+      "satisfied": false,
+      "evidence": "Partial evidence found",
+      "gaps": ["What is missing or incomplete"]
+    }
+  ],
+  "overallScore": 0.85,
+  "recommendations": ["Suggestions for improvement if score < 1.0"]
+}
+
+Rules:
+- Every AC index must be verified (indices 0 to ${seed.acceptanceCriteria.length - 1})
+- overallScore: weighted ratio (figure/critical ACs weigh more)
+- recommendations: actionable items if any gaps exist`;
 }
 
 // ─── Dispatcher ─────────────────────────────────────────────────

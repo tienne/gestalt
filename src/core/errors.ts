@@ -101,3 +101,17 @@ export class DAGCycleError extends ExecuteError {
     this.name = 'DAGCycleError';
   }
 }
+
+export class TaskExecutionError extends ExecuteError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TaskExecutionError';
+  }
+}
+
+export class EvaluationError extends ExecuteError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EvaluationError';
+  }
+}

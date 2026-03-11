@@ -12,4 +12,8 @@ export enum EventType {
   EXECUTE_PLAN_VALIDATED = 'execute.plan.validated',
   EXECUTE_PLAN_COMPLETED = 'execute.plan.completed',
   EXECUTE_SESSION_FAILED = 'execute.session.failed',
+  EXECUTE_EXECUTION_STARTED = 'execute.execution.started',
+  EXECUTE_TASK_COMPLETED = 'execute.task.completed',
+  EXECUTE_EVALUATION_COMPLETED = 'execute.evaluation.completed',
+  EXECUTE_SESSION_COMPLETED = 'execute.session.completed',
 }

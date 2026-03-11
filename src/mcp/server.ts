@@ -93,10 +93,10 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
     server.tool(
       'ges_execute',
-      'Plan execution from a Seed specification using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, status.',
+      'Execute a Seed specification using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status.',
       {
-        action: z.enum(['start', 'plan_step', 'plan_complete', 'status']).describe(
-          'start: begin execution planning, plan_step: submit a planning step result, plan_complete: assemble final plan, status: check session status',
+        action: z.enum(['start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status']).describe(
+          'start: begin execution planning, plan_step: submit a planning step result, plan_complete: assemble final plan, execute_start: start task execution, execute_task: submit task result, evaluate: start/submit evaluation, status: check session status',
         ),
         seed: z.object({
           version: z.string(),
@@ -128,6 +128,22 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
             criticalPath: z.array(z.string()),
           }).optional(),
         }).optional().describe('Planning step result (required for plan_step)'),
+        taskResult: z.object({
+          taskId: z.string(),
+          status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'skipped']),
+          output: z.string(),
+          artifacts: z.array(z.string()),
+        }).optional().describe('Task execution result (required for execute_task)'),
+        evaluationResult: z.object({
+          verifications: z.array(z.object({
+            acIndex: z.number(),
+            satisfied: z.boolean(),
+            evidence: z.string(),
+            gaps: z.array(z.string()),
+          })),
+          overallScore: z.number().min(0).max(1),
+          recommendations: z.array(z.string()),
+        }).optional().describe('Evaluation result (optional for evaluate action)'),
       },
       (params) => {
         const input = executeInputSchema.parse(params);

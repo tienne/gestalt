@@ -10,12 +10,15 @@ import type {
   ContinuityResult,
   ClassifiedAC,
   AtomicTask,
-  TaskGroup,
+  TaskExecutionResult,
+  EvaluationResult,
 } from '../core/types.js';
 import {
   ExecuteError,
   ExecuteSessionNotFoundError,
   InvalidPlanningStepError,
+  TaskExecutionError,
+  EvaluationError,
 } from '../core/errors.js';
 import { type Result, ok, err } from '../core/result.js';
 import {
@@ -27,8 +30,17 @@ import {
 } from '../core/constants.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
+import { EXECUTION_PRINCIPLE_STRATEGY } from '../core/constants.js';
+import { GestaltPrinciple } from '../core/types.js';
 import { ExecuteSessionManager } from './session.js';
-import { EXECUTE_SYSTEM_PROMPT, buildPlanningStepPrompt } from './prompts.js';
+import {
+  EXECUTE_SYSTEM_PROMPT,
+  EXECUTE_EXECUTION_SYSTEM_PROMPT,
+  EXECUTE_EVALUATION_SYSTEM_PROMPT,
+  buildPlanningStepPrompt,
+  buildTaskExecutionPrompt,
+  buildEvaluationPrompt,
+} from './prompts.js';
 import { validateDAG } from './dag-validator.js';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -61,6 +73,43 @@ export interface PassthroughPlanCompleteResult {
   executionPlan: ExecutionPlan;
 }
 
+export interface TaskExecutionContext {
+  systemPrompt: string;
+  taskPrompt: string;
+  phase: 'executing';
+  currentTask: AtomicTask;
+  similarityStrategy: string;
+  pendingTasks: AtomicTask[];
+  completedTaskIds: string[];
+}
+
+export interface PassthroughExecutionStartResult {
+  session: ExecuteSession;
+  taskContext: TaskExecutionContext | null; // null if no executable tasks
+  allTasksCompleted: boolean;
+}
+
+export interface PassthroughTaskSubmitResult {
+  session: ExecuteSession;
+  taskContext: TaskExecutionContext | null;
+  allTasksCompleted: boolean;
+}
+
+export interface EvaluateContext {
+  systemPrompt: string;
+  evaluatePrompt: string;
+  phase: 'evaluating';
+  seed: Seed;
+  taskResults: TaskExecutionResult[];
+  classifiedACs: ClassifiedAC[];
+}
+
+export interface PassthroughEvaluateResult {
+  session: ExecuteSession;
+  evaluateContext?: EvaluateContext;
+  evaluationResult?: EvaluationResult;
+}
+
 // ─── Engine ─────────────────────────────────────────────────────
 
 export class PassthroughExecuteEngine {
@@ -68,6 +117,7 @@ export class PassthroughExecuteEngine {
 
   constructor(private eventStore: EventStore) {
     this.sessionManager = new ExecuteSessionManager(eventStore);
+    this.sessionManager.loadFromStore();
   }
 
   start(seed: Seed): Result<PassthroughStartResult, ExecuteError> {
@@ -225,12 +275,269 @@ export class PassthroughExecuteEngine {
     }
   }
 
+  // ─── Execution Phase ──────────────────────────────────────────
+
+  startExecution(
+    sessionId: string,
+  ): Result<PassthroughExecutionStartResult, ExecuteError> {
+    try {
+      const session = this.sessionManager.get(sessionId);
+
+      if (session.status !== 'plan_complete') {
+        return err(new TaskExecutionError(
+          `Cannot start execution: session status is "${session.status}", expected "plan_complete"`,
+        ));
+      }
+
+      if (!session.executionPlan) {
+        return err(new TaskExecutionError('No execution plan found'));
+      }
+
+      this.sessionManager.startExecution(sessionId);
+
+      const taskContext = this.buildNextTaskContext(
+        this.sessionManager.get(sessionId),
+      );
+
+      return ok({
+        session: this.sessionManager.get(sessionId),
+        taskContext,
+        allTasksCompleted: taskContext === null,
+      });
+    } catch (e) {
+      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      return err(new TaskExecutionError(
+        `Failed to start execution: ${e instanceof Error ? e.message : String(e)}`,
+      ));
+    }
+  }
+
+  submitTaskResult(
+    sessionId: string,
+    taskResult: TaskExecutionResult,
+  ): Result<PassthroughTaskSubmitResult, ExecuteError> {
+    try {
+      const session = this.sessionManager.get(sessionId);
+
+      if (session.status !== 'executing') {
+        return err(new TaskExecutionError(
+          `Cannot submit task result: session status is "${session.status}", expected "executing"`,
+        ));
+      }
+
+      if (!session.executionPlan) {
+        return err(new TaskExecutionError('No execution plan found'));
+      }
+
+      // Validate taskId exists in plan
+      const validTaskIds = new Set(session.executionPlan.atomicTasks.map((t) => t.taskId));
+      if (!validTaskIds.has(taskResult.taskId)) {
+        return err(new TaskExecutionError(
+          `Task "${taskResult.taskId}" not found in execution plan`,
+        ));
+      }
+
+      this.sessionManager.addTaskResult(sessionId, taskResult);
+
+      const updatedSession = this.sessionManager.get(sessionId);
+      const taskContext = this.buildNextTaskContext(updatedSession);
+      const allTasksCompleted = taskContext === null;
+
+      return ok({
+        session: updatedSession,
+        taskContext,
+        allTasksCompleted,
+      });
+    } catch (e) {
+      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      return err(new TaskExecutionError(
+        `Failed to submit task result: ${e instanceof Error ? e.message : String(e)}`,
+      ));
+    }
+  }
+
+  // ─── Evaluate Phase ─────────────────────────────────────────
+
+  startEvaluation(
+    sessionId: string,
+  ): Result<PassthroughEvaluateResult, ExecuteError> {
+    try {
+      const session = this.sessionManager.get(sessionId);
+
+      if (session.status !== 'executing') {
+        return err(new EvaluationError(
+          `Cannot start evaluation: session status is "${session.status}", expected "executing"`,
+        ));
+      }
+
+      if (!session.executionPlan) {
+        return err(new EvaluationError('No execution plan found'));
+      }
+
+      const evaluateContext = this.buildEvaluateContext(session);
+
+      return ok({
+        session,
+        evaluateContext,
+      });
+    } catch (e) {
+      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      return err(new EvaluationError(
+        `Failed to start evaluation: ${e instanceof Error ? e.message : String(e)}`,
+      ));
+    }
+  }
+
+  submitEvaluation(
+    sessionId: string,
+    evaluationResult: EvaluationResult,
+  ): Result<PassthroughEvaluateResult, ExecuteError> {
+    try {
+      const session = this.sessionManager.get(sessionId);
+
+      if (session.status !== 'executing') {
+        return err(new EvaluationError(
+          `Cannot submit evaluation: session status is "${session.status}", expected "executing"`,
+        ));
+      }
+
+      // Validate evaluation covers all ACs
+      if (session.executionPlan) {
+        const acCount = session.seed.acceptanceCriteria.length;
+        const verifiedIndices = new Set(evaluationResult.verifications.map((v) => v.acIndex));
+        for (let i = 0; i < acCount; i++) {
+          if (!verifiedIndices.has(i)) {
+            return err(new EvaluationError(`AC index ${i} is not verified`));
+          }
+        }
+      }
+
+      // Validate score range
+      if (evaluationResult.overallScore < 0 || evaluationResult.overallScore > 1) {
+        return err(new EvaluationError(
+          `overallScore must be between 0 and 1, got ${evaluationResult.overallScore}`,
+        ));
+      }
+
+      this.sessionManager.completeEvaluation(sessionId, evaluationResult);
+
+      return ok({
+        session: this.sessionManager.get(sessionId),
+        evaluationResult,
+      });
+    } catch (e) {
+      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      return err(new EvaluationError(
+        `Failed to submit evaluation: ${e instanceof Error ? e.message : String(e)}`,
+      ));
+    }
+  }
+
   getSession(sessionId: string): ExecuteSession {
     return this.sessionManager.get(sessionId);
   }
 
   listSessions(): ExecuteSession[] {
     return this.sessionManager.list();
+  }
+
+  // ─── Execution context builders ────────────────────────────────
+
+  private buildNextTaskContext(session: ExecuteSession): TaskExecutionContext | null {
+    if (!session.executionPlan) return null;
+
+    const plan = session.executionPlan;
+    const completedIds = new Set(
+      session.taskResults
+        .filter((r) => r.status === 'completed' || r.status === 'skipped')
+        .map((r) => r.taskId),
+    );
+    const failedIds = new Set(
+      session.taskResults.filter((r) => r.status === 'failed').map((r) => r.taskId),
+    );
+
+    // Find next executable task (all dependencies satisfied, not yet done)
+    const topoOrder = plan.dagValidation.topologicalOrder;
+    let nextTask: AtomicTask | null = null;
+
+    for (const taskId of topoOrder) {
+      if (completedIds.has(taskId) || failedIds.has(taskId)) continue;
+
+      const task = plan.atomicTasks.find((t) => t.taskId === taskId);
+      if (!task) continue;
+
+      const depsResolved = task.dependsOn.every(
+        (dep) => completedIds.has(dep) || failedIds.has(dep),
+      );
+      if (depsResolved) {
+        nextTask = task;
+        break;
+      }
+    }
+
+    if (!nextTask) return null;
+
+    // Find similar completed tasks (Similarity principle)
+    const similarTasks = this.findSimilarTasks(nextTask, plan.atomicTasks, completedIds);
+
+    const completedResults = session.taskResults.filter(
+      (r) => r.status === 'completed',
+    );
+
+    const pendingTasks = plan.atomicTasks.filter(
+      (t) => !completedIds.has(t.taskId) && !failedIds.has(t.taskId) && t.taskId !== nextTask!.taskId,
+    );
+
+    const taskPrompt = buildTaskExecutionPrompt(
+      nextTask,
+      session.seed,
+      completedResults,
+      similarTasks,
+    );
+
+    return {
+      systemPrompt: EXECUTE_EXECUTION_SYSTEM_PROMPT,
+      taskPrompt,
+      phase: 'executing',
+      currentTask: nextTask,
+      similarityStrategy: EXECUTION_PRINCIPLE_STRATEGY[GestaltPrinciple.SIMILARITY]!,
+      pendingTasks,
+      completedTaskIds: Array.from(completedIds),
+    };
+  }
+
+  private findSimilarTasks(
+    target: AtomicTask,
+    allTasks: AtomicTask[],
+    completedIds: Set<string>,
+  ): AtomicTask[] {
+    return allTasks.filter((t) => {
+      if (!completedIds.has(t.taskId)) return false;
+      if (t.taskId === target.taskId) return false;
+
+      // Same complexity or overlapping sourceAC = similar
+      const sharedAC = t.sourceAC.some((ac) => target.sourceAC.includes(ac));
+      const sameComplexity = t.estimatedComplexity === target.estimatedComplexity;
+      return sharedAC || sameComplexity;
+    });
+  }
+
+  private buildEvaluateContext(session: ExecuteSession): EvaluateContext {
+    const plan = session.executionPlan!;
+    const evaluatePrompt = buildEvaluationPrompt(
+      session.seed,
+      plan.classifiedACs,
+      session.taskResults,
+    );
+
+    return {
+      systemPrompt: EXECUTE_EVALUATION_SYSTEM_PROMPT,
+      evaluatePrompt,
+      phase: 'evaluating',
+      seed: session.seed,
+      taskResults: session.taskResults,
+      classifiedACs: plan.classifiedACs,
+    };
   }
 
   // ─── Validation helpers ───────────────────────────────────────
@@ -420,7 +727,7 @@ export class PassthroughExecuteEngine {
       systemPrompt: EXECUTE_SYSTEM_PROMPT,
       planningPrompt,
       currentPrinciple: principle,
-      principleStrategy: PLANNING_PRINCIPLE_STRATEGIES[principle],
+      principleStrategy: PLANNING_PRINCIPLE_STRATEGIES[principle]!,
       phase: 'planning',
       stepNumber,
       totalSteps: PLANNING_TOTAL_STEPS,

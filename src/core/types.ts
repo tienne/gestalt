@@ -188,6 +188,30 @@ export interface ExecutionPlan {
   createdAt: string;
 }
 
+// ─── Execution Phase ────────────────────────────────────────────
+export type TaskExecutionStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+
+export interface TaskExecutionResult {
+  taskId: string;
+  status: TaskExecutionStatus;
+  output: string;
+  artifacts: string[];
+}
+
+// ─── Evaluate Phase ─────────────────────────────────────────────
+export interface ACVerification {
+  acIndex: number;
+  satisfied: boolean;
+  evidence: string;
+  gaps: string[];
+}
+
+export interface EvaluationResult {
+  verifications: ACVerification[];
+  overallScore: number; // 0.0-1.0
+  recommendations: string[];
+}
+
 export interface ExecuteSession {
   sessionId: string;
   seedId: string;
@@ -196,6 +220,8 @@ export interface ExecuteSession {
   currentStep: number;
   planningSteps: PlanningStepResult[];
   executionPlan?: ExecutionPlan;
+  taskResults: TaskExecutionResult[];
+  evaluationResult?: EvaluationResult;
   createdAt: string;
   updatedAt: string;
 }

@@ -38,7 +38,7 @@ export type SeedInput = z.infer<typeof seedInputSchema>;
 
 // ─── Execute Tool ───────────────────────────────────────────────
 export const executeInputSchema = z.object({
-  action: z.enum(['start', 'plan_step', 'plan_complete', 'status']),
+  action: z.enum(['start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status']),
   seed: z.object({
     version: z.string(),
     goal: z.string(),
@@ -53,7 +53,7 @@ export const executeInputSchema = z.object({
       generatedAt: z.string(),
     }),
   }).optional().describe('Seed specification (required for start)'),
-  sessionId: z.string().optional().describe('Execute session ID (required for plan_step/plan_complete/status)'),
+  sessionId: z.string().optional().describe('Execute session ID'),
   stepResult: z.object({
     principle: z.enum(['figure_ground', 'closure', 'proximity', 'continuity']),
     classifiedACs: z.array(z.object({
@@ -89,6 +89,22 @@ export const executeInputSchema = z.object({
       criticalPath: z.array(z.string()),
     }).optional(),
   }).optional().describe('Planning step result (required for plan_step)'),
+  taskResult: z.object({
+    taskId: z.string(),
+    status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'skipped']),
+    output: z.string(),
+    artifacts: z.array(z.string()),
+  }).optional().describe('Task execution result (required for execute_task)'),
+  evaluationResult: z.object({
+    verifications: z.array(z.object({
+      acIndex: z.number(),
+      satisfied: z.boolean(),
+      evidence: z.string(),
+      gaps: z.array(z.string()),
+    })),
+    overallScore: z.number().min(0).max(1),
+    recommendations: z.array(z.string()),
+  }).optional().describe('Evaluation result (optional for evaluate action)'),
 });
 
 export type ExecuteInput = z.infer<typeof executeInputSchema>;

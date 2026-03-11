@@ -65,3 +65,9 @@ export const PLANNING_PRINCIPLE_STRATEGIES: Record<string, string> = {
 
 export const MAX_ATOMIC_TASKS = 100;
 export const MAX_TASK_GROUPS = 20;
+
+// ─── Execution Phase ────────────────────────────────────────────
+export const EXECUTION_PRINCIPLE_STRATEGY: Record<string, string> = {
+  [GestaltPrinciple.SIMILARITY]:
+    'Leverage Similarity: when executing a task, reference completed tasks with similar patterns to provide consistent implementation context.',
+};
