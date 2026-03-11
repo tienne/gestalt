@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { InterviewEngine } from '../../src/interview/engine.js';
-import { SeedGenerator } from '../../src/seed/generator.js';
+import { SpecGenerator } from '../../src/spec/generator.js';
 import { EventStore } from '../../src/events/store.js';
 import type { LLMAdapter, LLMRequest, LLMResponse } from '../../src/llm/types.js';
 import { isOk } from '../../src/core/result.js';
@@ -22,7 +22,7 @@ class MockLLM implements LLMAdapter {
   }
 }
 
-describe('Interview → Seed Pipeline', () => {
+describe('Interview → Spec Pipeline', () => {
   let store: EventStore;
   let dbPath: string;
 
@@ -40,7 +40,7 @@ describe('Interview → Seed Pipeline', () => {
     } catch { /* ignore */ }
   });
 
-  it('completes full interview → seed pipeline', async () => {
+  it('completes full interview → spec pipeline', async () => {
     const llm = new MockLLM([
       // start: question generation
       '{"question": "What is the main goal of your dashboard?", "reasoning": "Closure"}',
@@ -56,7 +56,7 @@ describe('Interview → Seed Pipeline', () => {
       '{"goalClarity": 0.95, "constraintClarity": 0.9, "successCriteria": 0.85, "priorityClarity": 0.9, "contradictions": []}',
       // respond round 3: next question
       '{"question": "Any priorities?", "reasoning": "FigureGround"}',
-      // seed generation
+      // spec generation
       JSON.stringify({
         goal: 'Build a real-time analytics dashboard for e-commerce metrics',
         constraints: ['React + TypeScript', 'WebSocket for real-time', 'Mobile responsive'],
@@ -76,7 +76,7 @@ describe('Interview → Seed Pipeline', () => {
     ]);
 
     const engine = new InterviewEngine(llm, store);
-    const seedGenerator = new SeedGenerator(llm, store);
+    const specGenerator = new SpecGenerator(llm, store);
 
     // Step 1: Start interview
     const startResult = await engine.start('E-commerce analytics dashboard');
@@ -100,16 +100,16 @@ describe('Interview → Seed Pipeline', () => {
     const completeResult = engine.complete(session.sessionId);
     expect(isOk(completeResult)).toBe(true);
 
-    // Step 4: Generate seed (force since we may not meet threshold with mock)
+    // Step 4: Generate spec (force since we may not meet threshold with mock)
     const completedSession = engine.getSession(session.sessionId);
-    const seedResult = await seedGenerator.generate(completedSession, true);
-    expect(isOk(seedResult)).toBe(true);
+    const specResult = await specGenerator.generate(completedSession, true);
+    expect(isOk(specResult)).toBe(true);
 
-    if (seedResult.ok) {
-      expect(seedResult.value.goal).toContain('analytics dashboard');
-      expect(seedResult.value.constraints.length).toBeGreaterThan(0);
-      expect(seedResult.value.acceptanceCriteria.length).toBeGreaterThan(0);
-      expect(seedResult.value.metadata.interviewSessionId).toBe(session.sessionId);
+    if (specResult.ok) {
+      expect(specResult.value.goal).toContain('analytics dashboard');
+      expect(specResult.value.constraints.length).toBeGreaterThan(0);
+      expect(specResult.value.acceptanceCriteria.length).toBeGreaterThan(0);
+      expect(specResult.value.metadata.interviewSessionId).toBe(session.sessionId);
     }
   });
 });

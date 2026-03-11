@@ -5,14 +5,14 @@ import { isOk, isErr } from '../../../src/core/result.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type {
-  Seed,
+  Spec,
   FigureGroundResult,
   ClosureResult,
   ProximityResult,
   ContinuityResult,
 } from '../../../src/core/types.js';
 
-function createTestSeed(): Seed {
+function createTestSpec(): Spec {
   return {
     version: '1.0.0',
     goal: 'Build a user authentication system',
@@ -36,7 +36,7 @@ function createTestSeed(): Seed {
       { principle: 'closure' as const, finding: 'Password reset flow needs email service', confidence: 0.9 },
     ],
     metadata: {
-      seedId: randomUUID(),
+      specId: randomUUID(),
       interviewSessionId: randomUUID(),
       ambiguityScore: 0.15,
       generatedAt: new Date().toISOString(),
@@ -116,14 +116,14 @@ describe('PassthroughExecuteEngine', () => {
 
   describe('start', () => {
     it('creates session and returns Figure-Ground context', () => {
-      const seed = createTestSeed();
-      const result = engine.start(seed);
+      const spec = createTestSpec();
+      const result = engine.start(spec);
       expect(isOk(result)).toBe(true);
 
       if (result.ok) {
         const { session, executeContext } = result.value;
         expect(session.status).toBe('planning');
-        expect(session.seedId).toBe(seed.metadata.seedId);
+        expect(session.specId).toBe(spec.metadata.specId);
         expect(session.currentStep).toBe(1);
         expect(session.planningSteps).toHaveLength(0);
         expect(executeContext.systemPrompt).toContain('Gestalt');
@@ -138,8 +138,8 @@ describe('PassthroughExecuteEngine', () => {
 
   describe('planStep', () => {
     it('accepts Figure-Ground result and returns Closure context', () => {
-      const seed = createTestSeed();
-      const startResult = engine.start(seed);
+      const spec = createTestSpec();
+      const startResult = engine.start(spec);
       if (!startResult.ok) return;
 
       const { sessionId } = startResult.value.session;
@@ -156,8 +156,8 @@ describe('PassthroughExecuteEngine', () => {
     });
 
     it('accepts Closure result and returns Proximity context', () => {
-      const seed = createTestSeed();
-      const startResult = engine.start(seed);
+      const spec = createTestSpec();
+      const startResult = engine.start(spec);
       if (!startResult.ok) return;
 
       const { sessionId } = startResult.value.session;
@@ -174,8 +174,8 @@ describe('PassthroughExecuteEngine', () => {
     });
 
     it('accepts Proximity result and returns Continuity context', () => {
-      const seed = createTestSeed();
-      const startResult = engine.start(seed);
+      const spec = createTestSpec();
+      const startResult = engine.start(spec);
       if (!startResult.ok) return;
 
       const { sessionId } = startResult.value.session;
@@ -193,8 +193,8 @@ describe('PassthroughExecuteEngine', () => {
     });
 
     it('accepts Continuity result and signals last step', () => {
-      const seed = createTestSeed();
-      const startResult = engine.start(seed);
+      const spec = createTestSpec();
+      const startResult = engine.start(spec);
       if (!startResult.ok) return;
 
       const { sessionId } = startResult.value.session;
@@ -213,8 +213,8 @@ describe('PassthroughExecuteEngine', () => {
     });
 
     it('rejects wrong principle order', () => {
-      const seed = createTestSeed();
-      const startResult = engine.start(seed);
+      const spec = createTestSpec();
+      const startResult = engine.start(spec);
       if (!startResult.ok) return;
 
       const { sessionId } = startResult.value.session;
@@ -227,8 +227,8 @@ describe('PassthroughExecuteEngine', () => {
     });
 
     it('rejects Figure-Ground with missing AC', () => {
-      const seed = createTestSeed();
-      const startResult = engine.start(seed);
+      const spec = createTestSpec();
+      const startResult = engine.start(spec);
       if (!startResult.ok) return;
 
       const { sessionId } = startResult.value.session;
@@ -245,8 +245,8 @@ describe('PassthroughExecuteEngine', () => {
     });
 
     it('rejects Closure with duplicate taskId', () => {
-      const seed = createTestSeed();
-      const startResult = engine.start(seed);
+      const spec = createTestSpec();
+      const startResult = engine.start(spec);
       if (!startResult.ok) return;
 
       const { sessionId } = startResult.value.session;
@@ -268,8 +268,8 @@ describe('PassthroughExecuteEngine', () => {
     });
 
     it('rejects Proximity with task not in any group', () => {
-      const seed = createTestSeed();
-      const startResult = engine.start(seed);
+      const spec = createTestSpec();
+      const startResult = engine.start(spec);
       if (!startResult.ok) return;
 
       const { sessionId } = startResult.value.session;
@@ -296,8 +296,8 @@ describe('PassthroughExecuteEngine', () => {
 
   describe('planComplete', () => {
     it('assembles ExecutionPlan after all 4 steps', () => {
-      const seed = createTestSeed();
-      const startResult = engine.start(seed);
+      const spec = createTestSpec();
+      const startResult = engine.start(spec);
       if (!startResult.ok) return;
 
       const { sessionId } = startResult.value.session;
@@ -313,7 +313,7 @@ describe('PassthroughExecuteEngine', () => {
         const { executionPlan, session } = result.value;
         expect(session.status).toBe('plan_complete');
         expect(executionPlan.planId).toBeDefined();
-        expect(executionPlan.seedId).toBe(seed.metadata.seedId);
+        expect(executionPlan.specId).toBe(spec.metadata.specId);
         expect(executionPlan.classifiedACs).toHaveLength(4);
         expect(executionPlan.atomicTasks).toHaveLength(6);
         expect(executionPlan.taskGroups).toHaveLength(3);
@@ -323,8 +323,8 @@ describe('PassthroughExecuteEngine', () => {
     });
 
     it('rejects planComplete before all steps', () => {
-      const seed = createTestSeed();
-      const startResult = engine.start(seed);
+      const spec = createTestSpec();
+      const startResult = engine.start(spec);
       if (!startResult.ok) return;
 
       const { sessionId } = startResult.value.session;
@@ -340,15 +340,15 @@ describe('PassthroughExecuteEngine', () => {
 
   describe('session management', () => {
     it('lists sessions', () => {
-      engine.start(createTestSeed());
-      engine.start(createTestSeed());
+      engine.start(createTestSpec());
+      engine.start(createTestSpec());
 
       const sessions = engine.listSessions();
       expect(sessions).toHaveLength(2);
     });
 
     it('gets session by ID', () => {
-      const startResult = engine.start(createTestSeed());
+      const startResult = engine.start(createTestSpec());
       if (!startResult.ok) return;
 
       const session = engine.getSession(startResult.value.session.sessionId);
@@ -363,10 +363,10 @@ describe('PassthroughExecuteEngine', () => {
 
   describe('full flow', () => {
     it('completes the entire planning pipeline', () => {
-      const seed = createTestSeed();
+      const spec = createTestSpec();
 
       // Step 1: Start
-      const startResult = engine.start(seed);
+      const startResult = engine.start(spec);
       expect(isOk(startResult)).toBe(true);
       if (!startResult.ok) return;
       const { sessionId } = startResult.value.session;

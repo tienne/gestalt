@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { SeedGenerator } from '../../../src/seed/generator.js';
+import { SpecGenerator } from '../../../src/spec/generator.js';
 import { EventStore } from '../../../src/events/store.js';
 import type { InterviewSession } from '../../../src/core/types.js';
 import { GestaltPrinciple } from '../../../src/core/types.js';
@@ -37,12 +37,12 @@ function makeSession(overrides: Partial<InterviewSession> = {}): InterviewSessio
   };
 }
 
-describe('SeedGenerator', () => {
+describe('SpecGenerator', () => {
   let store: EventStore;
   let dbPath: string;
 
   beforeEach(() => {
-    dbPath = `.gestalt-test/seed-${randomUUID()}.db`;
+    dbPath = `.gestalt-test/spec-${randomUUID()}.db`;
     store = new EventStore(dbPath);
   });
 
@@ -55,7 +55,7 @@ describe('SeedGenerator', () => {
     } catch { /* ignore */ }
   });
 
-  it('generates a seed from completed interview', async () => {
+  it('generates a spec from completed interview', async () => {
     const llm = new MockLLM();
     llm.response = JSON.stringify({
       goal: 'Build a dashboard',
@@ -70,7 +70,7 @@ describe('SeedGenerator', () => {
       ],
     });
 
-    const generator = new SeedGenerator(llm, store);
+    const generator = new SpecGenerator(llm, store);
     const result = await generator.generate(makeSession());
 
     expect(isOk(result)).toBe(true);
@@ -83,7 +83,7 @@ describe('SeedGenerator', () => {
 
   it('rejects when ambiguity too high and not forced', async () => {
     const llm = new MockLLM();
-    const generator = new SeedGenerator(llm, store);
+    const generator = new SpecGenerator(llm, store);
     const session = makeSession({
       ambiguityScore: { overall: 0.5, dimensions: [], isReady: false },
     });
@@ -102,7 +102,7 @@ describe('SeedGenerator', () => {
       gestaltAnalysis: [],
     });
 
-    const generator = new SeedGenerator(llm, store);
+    const generator = new SpecGenerator(llm, store);
     const session = makeSession({
       ambiguityScore: { overall: 0.5, dimensions: [], isReady: false },
     });
@@ -113,7 +113,7 @@ describe('SeedGenerator', () => {
 
   it('rejects incomplete sessions', async () => {
     const llm = new MockLLM();
-    const generator = new SeedGenerator(llm, store);
+    const generator = new SpecGenerator(llm, store);
     const session = makeSession({ status: 'in_progress' });
 
     const result = await generator.generate(session);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SeedExtractor } from '../../../src/seed/extractor.js';
+import { SpecExtractor } from '../../../src/spec/extractor.js';
 import type { InterviewSession } from '../../../src/core/types.js';
 import { GestaltPrinciple } from '../../../src/core/types.js';
 import type { LLMAdapter, LLMRequest, LLMResponse } from '../../../src/llm/types.js';
@@ -33,8 +33,8 @@ function makeSession(overrides: Partial<InterviewSession> = {}): InterviewSessio
   };
 }
 
-describe('SeedExtractor', () => {
-  it('extracts seed data from LLM response', async () => {
+describe('SpecExtractor', () => {
+  it('extracts spec data from LLM response', async () => {
     const llm = new MockLLM();
     llm.response = JSON.stringify({
       goal: 'Build a real-time analytics dashboard',
@@ -49,7 +49,7 @@ describe('SeedExtractor', () => {
       ],
     });
 
-    const extractor = new SeedExtractor(llm);
+    const extractor = new SpecExtractor(llm);
     const result = await extractor.extract(makeSession());
 
     expect(result.goal).toBe('Build a real-time analytics dashboard');
@@ -61,7 +61,7 @@ describe('SeedExtractor', () => {
 
   it('throws on empty rounds', async () => {
     const llm = new MockLLM();
-    const extractor = new SeedExtractor(llm);
+    const extractor = new SpecExtractor(llm);
     const session = makeSession({ rounds: [] });
 
     await expect(extractor.extract(session)).rejects.toThrow('No completed interview rounds');
@@ -70,7 +70,7 @@ describe('SeedExtractor', () => {
   it('handles malformed LLM response gracefully', async () => {
     const llm = new MockLLM();
     llm.response = 'This is not JSON at all';
-    const extractor = new SeedExtractor(llm);
+    const extractor = new SpecExtractor(llm);
 
     await expect(extractor.extract(makeSession())).rejects.toThrow('Failed to parse');
   });

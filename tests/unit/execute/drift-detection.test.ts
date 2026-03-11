@@ -6,7 +6,7 @@ import { isOk } from '../../../src/core/result.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type {
-  Seed,
+  Spec,
   FigureGroundResult,
   ClosureResult,
   ProximityResult,
@@ -15,7 +15,7 @@ import type {
   AtomicTask,
 } from '../../../src/core/types.js';
 
-function createTestSeed(): Seed {
+function createTestSpec(): Spec {
   return {
     version: '1.0.0',
     goal: 'Build a user authentication system with JWT tokens',
@@ -37,7 +37,7 @@ function createTestSeed(): Seed {
       { principle: 'closure' as const, finding: 'Auth needs token refresh', confidence: 0.9 },
     ],
     metadata: {
-      seedId: randomUUID(),
+      specId: randomUUID(),
       interviewSessionId: randomUUID(),
       ambiguityScore: 0.15,
       generatedAt: new Date().toISOString(),
@@ -56,8 +56,8 @@ const dummyTask: AtomicTask = {
 };
 
 describe('Drift Detector (measureDrift)', () => {
-  it('returns lower drift for output aligned with seed than for unrelated output', () => {
-    const seed = createTestSeed();
+  it('returns lower drift for output aligned with spec than for unrelated output', () => {
+    const spec = createTestSpec();
     const alignedResult: TaskExecutionResult = {
       taskId: 'task-0',
       status: 'completed',
@@ -71,8 +71,8 @@ describe('Drift Detector (measureDrift)', () => {
       artifacts: ['src/weather.ts'],
     };
 
-    const alignedDrift = measureDrift(seed, dummyTask, alignedResult, 0.3);
-    const unrelatedDrift = measureDrift(seed, dummyTask, unrelatedResult, 0.3);
+    const alignedDrift = measureDrift(spec, dummyTask, alignedResult, 0.3);
+    const unrelatedDrift = measureDrift(spec, dummyTask, unrelatedResult, 0.3);
 
     expect(alignedDrift.taskId).toBe('task-0');
     expect(alignedDrift.overall).toBeLessThan(unrelatedDrift.overall);
@@ -80,8 +80,8 @@ describe('Drift Detector (measureDrift)', () => {
     expect(alignedDrift.dimensions.map((d) => d.name)).toEqual(['goal', 'constraint', 'ontology']);
   });
 
-  it('returns high drift for output unrelated to seed', () => {
-    const seed = createTestSeed();
+  it('returns high drift for output unrelated to spec', () => {
+    const spec = createTestSpec();
     const result: TaskExecutionResult = {
       taskId: 'task-0',
       status: 'completed',
@@ -89,13 +89,13 @@ describe('Drift Detector (measureDrift)', () => {
       artifacts: ['src/weather.ts'],
     };
 
-    const drift = measureDrift(seed, dummyTask, result, 0.3);
+    const drift = measureDrift(spec, dummyTask, result, 0.3);
     expect(drift.overall).toBeGreaterThan(0.3);
     expect(drift.thresholdExceeded).toBe(true);
   });
 
   it('handles empty constraints gracefully', () => {
-    const seed = { ...createTestSeed(), constraints: [] };
+    const spec = { ...createTestSpec(), constraints: [] };
     const result: TaskExecutionResult = {
       taskId: 'task-0',
       status: 'completed',
@@ -103,15 +103,15 @@ describe('Drift Detector (measureDrift)', () => {
       artifacts: [],
     };
 
-    const drift = measureDrift(seed, dummyTask, result, 0.3);
+    const drift = measureDrift(spec, dummyTask, result, 0.3);
     const constraintDim = drift.dimensions.find((d) => d.name === 'constraint')!;
     expect(constraintDim.score).toBe(0);
     expect(constraintDim.detail).toContain('No constraints');
   });
 
   it('handles empty ontology gracefully', () => {
-    const seed = {
-      ...createTestSeed(),
+    const spec = {
+      ...createTestSpec(),
       ontologySchema: { entities: [], relations: [] },
     };
     const result: TaskExecutionResult = {
@@ -121,14 +121,14 @@ describe('Drift Detector (measureDrift)', () => {
       artifacts: [],
     };
 
-    const drift = measureDrift(seed, dummyTask, result, 0.3);
+    const drift = measureDrift(spec, dummyTask, result, 0.3);
     const ontologyDim = drift.dimensions.find((d) => d.name === 'ontology')!;
     expect(ontologyDim.score).toBe(0);
     expect(ontologyDim.detail).toContain('No ontology');
   });
 
   it('respects configurable threshold', () => {
-    const seed = createTestSeed();
+    const spec = createTestSpec();
     const result: TaskExecutionResult = {
       taskId: 'task-0',
       status: 'completed',
@@ -136,8 +136,8 @@ describe('Drift Detector (measureDrift)', () => {
       artifacts: [],
     };
 
-    const driftLow = measureDrift(seed, dummyTask, result, 0.1);
-    const driftHigh = measureDrift(seed, dummyTask, result, 0.9);
+    const driftLow = measureDrift(spec, dummyTask, result, 0.1);
+    const driftHigh = measureDrift(spec, dummyTask, result, 0.9);
 
     // Same score, different threshold crossing
     expect(driftLow.overall).toBe(driftHigh.overall);
@@ -168,16 +168,16 @@ describe('Drift Detection in Engine', () => {
   });
 
   function setupExecutingSession(): string {
-    const seed = createTestSeed();
-    const startResult = engine.start(seed);
+    const spec = createTestSpec();
+    const startResult = engine.start(spec);
     if (!startResult.ok) throw new Error('start failed');
     const sessionId = startResult.value.session.sessionId;
 
     const fg: FigureGroundResult = {
       principle: 'figure_ground',
       classifiedACs: [
-        { acIndex: 0, acText: seed.acceptanceCriteria[0]!, classification: 'figure', priority: 'critical', reasoning: 'Core' },
-        { acIndex: 1, acText: seed.acceptanceCriteria[1]!, classification: 'figure', priority: 'high', reasoning: 'Core' },
+        { acIndex: 0, acText: spec.acceptanceCriteria[0]!, classification: 'figure', priority: 'critical', reasoning: 'Core' },
+        { acIndex: 1, acText: spec.acceptanceCriteria[1]!, classification: 'figure', priority: 'high', reasoning: 'Core' },
       ],
     };
     const closure: ClosureResult = {
@@ -267,7 +267,7 @@ describe('Drift Detection in Engine', () => {
   it('returns retrospectiveContext when drift exceeds threshold', () => {
     const sessionId = setupExecutingSession();
 
-    // Submit a task with highly drifted output (unrelated to seed)
+    // Submit a task with highly drifted output (unrelated to spec)
     const result = engine.submitTaskResult(
       sessionId,
       {

@@ -5,7 +5,7 @@ import { isOk, isErr } from '../../../src/core/result.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type {
-  Seed,
+  Spec,
   FigureGroundResult,
   ClosureResult,
   ProximityResult,
@@ -15,7 +15,7 @@ import type {
   StructuralResult,
 } from '../../../src/core/types.js';
 
-function createTestSeed(): Seed {
+function createTestSpec(): Spec {
   return {
     version: '1.0.0',
     goal: 'Build a user authentication system',
@@ -39,7 +39,7 @@ function createTestSeed(): Seed {
       { principle: 'closure' as const, finding: 'Password reset flow needs email service', confidence: 0.9 },
     ],
     metadata: {
-      seedId: randomUUID(),
+      specId: randomUUID(),
       interviewSessionId: randomUUID(),
       ambiguityScore: 0.15,
       generatedAt: new Date().toISOString(),
@@ -97,8 +97,8 @@ function createContinuityResult(): ContinuityResult {
   };
 }
 
-function completePlanningPhase(engine: PassthroughExecuteEngine, seed: Seed): string {
-  const startResult = engine.start(seed);
+function completePlanningPhase(engine: PassthroughExecuteEngine, spec: Spec): string {
+  const startResult = engine.start(spec);
   if (!startResult.ok) throw new Error('start failed');
   const { sessionId } = startResult.value.session;
   engine.planStep(sessionId, createFigureGroundResult());
@@ -140,8 +140,8 @@ describe('Execution Phase', () => {
 
   describe('startExecution', () => {
     it('transitions from plan_complete to executing', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
 
       const result = engine.startExecution(sessionId);
       expect(isOk(result)).toBe(true);
@@ -154,8 +154,8 @@ describe('Execution Phase', () => {
     });
 
     it('returns first executable task (root of DAG)', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
 
       const result = engine.startExecution(sessionId);
       if (!result.ok) return;
@@ -169,8 +169,8 @@ describe('Execution Phase', () => {
     });
 
     it('rejects startExecution when not in plan_complete state', () => {
-      const seed = createTestSeed();
-      const startResult = engine.start(seed);
+      const spec = createTestSpec();
+      const startResult = engine.start(spec);
       if (!startResult.ok) return;
 
       const result = engine.startExecution(startResult.value.session.sessionId);
@@ -183,8 +183,8 @@ describe('Execution Phase', () => {
 
   describe('submitTaskResult', () => {
     it('records task result and returns next task context', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
 
       // Get first task from context
@@ -205,8 +205,8 @@ describe('Execution Phase', () => {
     });
 
     it('rejects invalid taskId', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
 
       const result = engine.submitTaskResult(sessionId, createTaskResult('nonexistent-task'));
@@ -217,8 +217,8 @@ describe('Execution Phase', () => {
     });
 
     it('rejects when session not in executing state', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       // Don't call startExecution
 
       const result = engine.submitTaskResult(sessionId, createTaskResult('task-0'));
@@ -226,8 +226,8 @@ describe('Execution Phase', () => {
     });
 
     it('signals allTasksCompleted when all tasks are done', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
 
       const session = engine.getSession(sessionId);
@@ -247,8 +247,8 @@ describe('Execution Phase', () => {
     });
 
     it('handles failed tasks and moves to next', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
 
       const session = engine.getSession(sessionId);
@@ -264,8 +264,8 @@ describe('Execution Phase', () => {
     });
 
     it('provides similar task context via Similarity principle', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
 
       // Complete task-0 (low complexity, sourceAC [0])
@@ -331,8 +331,8 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
 
   describe('startEvaluation (Structural Stage)', () => {
     it('returns structural commands to run', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
 
@@ -350,8 +350,8 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
     });
 
     it('sets evaluateStage to structural on session', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
 
@@ -361,8 +361,8 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
     });
 
     it('rejects when session not in executing state', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
 
       const result = engine.startEvaluation(sessionId);
       expect(isErr(result)).toBe(true);
@@ -371,8 +371,8 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
 
   describe('submitStructuralResult', () => {
     it('advances to contextual stage when structural passes', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
       engine.startEvaluation(sessionId);
@@ -393,8 +393,8 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
     });
 
     it('short-circuits when structural fails', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
       engine.startEvaluation(sessionId);
@@ -412,8 +412,8 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
     });
 
     it('rejects when not in structural stage', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
       // Don't call startEvaluation
@@ -430,8 +430,8 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
     }
 
     it('completes session with contextual evaluation result', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
       advanceToContextual(engine, sessionId);
@@ -462,8 +462,8 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
     });
 
     it('rejects evaluation missing AC verification', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
       advanceToContextual(engine, sessionId);
@@ -485,8 +485,8 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
     });
 
     it('rejects evaluation with invalid score range', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
       advanceToContextual(engine, sessionId);
@@ -511,8 +511,8 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
     });
 
     it('rejects when not in contextual stage', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
 
       const evaluationResult: EvaluationResult = {
         verifications: [],
@@ -526,8 +526,8 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
     });
 
     it('handles partial success with gaps', () => {
-      const seed = createTestSeed();
-      const sessionId = completePlanningPhase(engine, seed);
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
       executeAllTasks(engine, sessionId);
       advanceToContextual(engine, sessionId);
@@ -578,10 +578,10 @@ describe('Full Pipeline: Planning → Execution → Evaluate', () => {
   });
 
   it('completes the entire pipeline from planning to evaluation', () => {
-    const seed = createTestSeed();
+    const spec = createTestSpec();
 
     // Phase 1: Planning
-    const startResult = engine.start(seed);
+    const startResult = engine.start(spec);
     expect(isOk(startResult)).toBe(true);
     if (!startResult.ok) return;
     const { sessionId } = startResult.value.session;
@@ -637,7 +637,7 @@ describe('Full Pipeline: Planning → Execution → Evaluate', () => {
 
     // Stage 3: Submit contextual evaluation
     const evaluationResult: EvaluationResult = {
-      verifications: seed.acceptanceCriteria.map((_, i) => ({
+      verifications: spec.acceptanceCriteria.map((_, i) => ({
         acIndex: i,
         satisfied: true,
         evidence: `AC ${i} fully satisfied`,

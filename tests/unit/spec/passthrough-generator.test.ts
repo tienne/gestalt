@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { PassthroughSeedGenerator } from '../../../src/seed/passthrough-generator.js';
+import { PassthroughSpecGenerator } from '../../../src/spec/passthrough-generator.js';
 import { EventStore } from '../../../src/events/store.js';
 import { isOk, isErr } from '../../../src/core/result.js';
 import { existsSync, rmSync } from 'node:fs';
@@ -40,7 +40,7 @@ function makeSession(overrides: Partial<InterviewSession> = {}): InterviewSessio
   };
 }
 
-const validExternalSeed = {
+const validExternalSpec = {
   goal: 'Build a payment processing system',
   constraints: ['Must support credit cards', 'PCI-DSS compliant'],
   acceptanceCriteria: ['Process payments within 3 seconds'],
@@ -53,15 +53,15 @@ const validExternalSeed = {
   ],
 };
 
-describe('PassthroughSeedGenerator', () => {
+describe('PassthroughSpecGenerator', () => {
   let store: EventStore;
-  let generator: PassthroughSeedGenerator;
+  let generator: PassthroughSpecGenerator;
   let dbPath: string;
 
   beforeEach(() => {
-    dbPath = `.gestalt-test/pt-seed-${randomUUID()}.db`;
+    dbPath = `.gestalt-test/pt-spec-${randomUUID()}.db`;
     store = new EventStore(dbPath);
-    generator = new PassthroughSeedGenerator(store);
+    generator = new PassthroughSpecGenerator(store);
   });
 
   afterEach(() => {
@@ -73,20 +73,20 @@ describe('PassthroughSeedGenerator', () => {
     } catch { /* ignore */ }
   });
 
-  it('buildSeedContext returns prompt and round data', () => {
+  it('buildSpecContext returns prompt and round data', () => {
     const session = makeSession();
-    const context = generator.buildSeedContext(session);
+    const context = generator.buildSpecContext(session);
 
     expect(context.systemPrompt).toContain('Gestalt');
-    expect(context.seedPrompt).toContain('Test project');
+    expect(context.specPrompt).toContain('Test project');
     expect(context.allRounds).toHaveLength(2);
     expect(context.allRounds[0]!.question).toBe('What is the goal?');
     expect(context.allRounds[0]!.response).toBe('Build a payment system');
   });
 
-  it('validateAndStore with valid seed passes Zod and stores event', () => {
+  it('validateAndStore with valid spec passes Zod and stores event', () => {
     const session = makeSession();
-    const result = generator.validateAndStore(session, validExternalSeed);
+    const result = generator.validateAndStore(session, validExternalSpec);
 
     expect(isOk(result)).toBe(true);
     if (result.ok) {
@@ -97,9 +97,9 @@ describe('PassthroughSeedGenerator', () => {
     }
   });
 
-  it('validateAndStore with invalid seed returns Zod error', () => {
+  it('validateAndStore with invalid spec returns Zod error', () => {
     const session = makeSession();
-    const invalidSeed = {
+    const invalidSpec = {
       goal: '',  // empty goal should fail
       constraints: [],
       acceptanceCriteria: [],
@@ -107,7 +107,7 @@ describe('PassthroughSeedGenerator', () => {
       gestaltAnalysis: [],
     };
 
-    const result = generator.validateAndStore(session, invalidSeed);
+    const result = generator.validateAndStore(session, invalidSpec);
     expect(isErr(result)).toBe(true);
   });
 
@@ -116,7 +116,7 @@ describe('PassthroughSeedGenerator', () => {
       ambiguityScore: { overall: 0.5, dimensions: [], isReady: false },
     });
 
-    const result = generator.validateAndStore(session, validExternalSeed, false);
+    const result = generator.validateAndStore(session, validExternalSpec, false);
     expect(isErr(result)).toBe(true);
     if (!result.ok) {
       expect(result.error.message).toContain('exceeds threshold');
@@ -128,14 +128,14 @@ describe('PassthroughSeedGenerator', () => {
       ambiguityScore: { overall: 0.5, dimensions: [], isReady: false },
     });
 
-    const result = generator.validateAndStore(session, validExternalSeed, true);
+    const result = generator.validateAndStore(session, validExternalSpec, true);
     expect(isOk(result)).toBe(true);
   });
 
   it('validateAndStore with incomplete session returns error', () => {
     const session = makeSession({ status: 'in_progress' });
 
-    const result = generator.validateAndStore(session, validExternalSeed);
+    const result = generator.validateAndStore(session, validExternalSpec);
     expect(isErr(result)).toBe(true);
     if (!result.ok) {
       expect(result.error.message).toContain('must be completed');

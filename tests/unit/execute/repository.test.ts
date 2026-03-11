@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ExecuteSessionRepository } from '../../../src/execute/repository.js';
 import { ExecuteSessionManager } from '../../../src/execute/session.js';
 import { EventStore } from '../../../src/events/store.js';
-import type { Seed, PlanningStepResult, ExecutionPlan, TaskExecutionResult, EvaluationResult } from '../../../src/core/types.js';
+import type { Spec, PlanningStepResult, ExecutionPlan, TaskExecutionResult, EvaluationResult } from '../../../src/core/types.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
-const createTestSeed = (): Seed => ({
+const createTestSpec = (): Spec => ({
   version: '1.0',
   goal: 'Test goal',
   constraints: ['C1', 'C2'],
@@ -17,7 +17,7 @@ const createTestSeed = (): Seed => ({
   },
   gestaltAnalysis: [{ principle: 'closure' as const, finding: 'Test finding', confidence: 0.9 }],
   metadata: {
-    seedId: `seed-${randomUUID()}`,
+    specId: `spec-${randomUUID()}`,
     interviewSessionId: `interview-${randomUUID()}`,
     ambiguityScore: 0.15,
     generatedAt: new Date().toISOString(),
@@ -88,22 +88,22 @@ describe('ExecuteSessionRepository', () => {
   });
 
   it('reconstructs a basic planning session', () => {
-    const seed = createTestSeed();
-    const session = manager.create(seed);
+    const spec = createTestSpec();
+    const session = manager.create(spec);
 
     const reconstructed = repo.reconstruct(session.sessionId);
 
     expect(reconstructed).not.toBeNull();
     expect(reconstructed!.sessionId).toBe(session.sessionId);
-    expect(reconstructed!.seedId).toBe(seed.metadata.seedId);
+    expect(reconstructed!.specId).toBe(spec.metadata.specId);
     expect(reconstructed!.status).toBe('planning');
-    expect(reconstructed!.seed.goal).toBe('Test goal');
-    expect(reconstructed!.seed.acceptanceCriteria).toEqual(['AC0', 'AC1', 'AC2']);
+    expect(reconstructed!.spec.goal).toBe('Test goal');
+    expect(reconstructed!.spec.acceptanceCriteria).toEqual(['AC0', 'AC1', 'AC2']);
   });
 
   it('reconstructs planning steps', () => {
-    const seed = createTestSeed();
-    const session = manager.create(seed);
+    const spec = createTestSpec();
+    const session = manager.create(spec);
     manager.addPlanningStep(session.sessionId, figureGroundStep);
     manager.addPlanningStep(session.sessionId, closureStep);
 
@@ -121,8 +121,8 @@ describe('ExecuteSessionRepository', () => {
   });
 
   it('reconstructs plan_complete with ExecutionPlan', () => {
-    const seed = createTestSeed();
-    const session = manager.create(seed);
+    const spec = createTestSpec();
+    const session = manager.create(spec);
     manager.addPlanningStep(session.sessionId, figureGroundStep);
     manager.addPlanningStep(session.sessionId, closureStep);
     manager.addPlanningStep(session.sessionId, proximityStep);
@@ -130,7 +130,7 @@ describe('ExecuteSessionRepository', () => {
 
     const plan: ExecutionPlan = {
       planId: randomUUID(),
-      seedId: seed.metadata.seedId,
+      specId: spec.metadata.specId,
       classifiedACs: figureGroundStep.classifiedACs,
       atomicTasks: closureStep.atomicTasks,
       taskGroups: proximityStep.taskGroups,
@@ -148,8 +148,8 @@ describe('ExecuteSessionRepository', () => {
   });
 
   it('reconstructs executing session with task results', () => {
-    const seed = createTestSeed();
-    const session = manager.create(seed);
+    const spec = createTestSpec();
+    const session = manager.create(spec);
     manager.addPlanningStep(session.sessionId, figureGroundStep);
     manager.addPlanningStep(session.sessionId, closureStep);
     manager.addPlanningStep(session.sessionId, proximityStep);
@@ -157,7 +157,7 @@ describe('ExecuteSessionRepository', () => {
 
     const plan: ExecutionPlan = {
       planId: randomUUID(),
-      seedId: seed.metadata.seedId,
+      specId: spec.metadata.specId,
       classifiedACs: figureGroundStep.classifiedACs,
       atomicTasks: closureStep.atomicTasks,
       taskGroups: proximityStep.taskGroups,
@@ -185,8 +185,8 @@ describe('ExecuteSessionRepository', () => {
   });
 
   it('reconstructs completed session with evaluation', () => {
-    const seed = createTestSeed();
-    const session = manager.create(seed);
+    const spec = createTestSpec();
+    const session = manager.create(spec);
     manager.addPlanningStep(session.sessionId, figureGroundStep);
     manager.addPlanningStep(session.sessionId, closureStep);
     manager.addPlanningStep(session.sessionId, proximityStep);
@@ -194,7 +194,7 @@ describe('ExecuteSessionRepository', () => {
 
     const plan: ExecutionPlan = {
       planId: randomUUID(),
-      seedId: seed.metadata.seedId,
+      specId: spec.metadata.specId,
       classifiedACs: figureGroundStep.classifiedACs,
       atomicTasks: closureStep.atomicTasks,
       taskGroups: proximityStep.taskGroups,
@@ -229,24 +229,24 @@ describe('ExecuteSessionRepository', () => {
   });
 
   it('lists all session IDs', () => {
-    manager.create(createTestSeed());
-    manager.create(createTestSeed());
+    manager.create(createTestSpec());
+    manager.create(createTestSpec());
 
     const ids = repo.list();
     expect(ids).toHaveLength(2);
   });
 
   it('reconstructs all sessions', () => {
-    manager.create(createTestSeed());
-    manager.create(createTestSeed());
+    manager.create(createTestSpec());
+    manager.create(createTestSpec());
 
     const sessions = repo.reconstructAll();
     expect(sessions).toHaveLength(2);
   });
 
   it('reconstructs from a fresh EventStore (simulates restart)', () => {
-    const seed = createTestSeed();
-    const session = manager.create(seed);
+    const spec = createTestSpec();
+    const session = manager.create(spec);
     manager.addPlanningStep(session.sessionId, figureGroundStep);
     manager.addPlanningStep(session.sessionId, closureStep);
     manager.addPlanningStep(session.sessionId, proximityStep);
@@ -254,7 +254,7 @@ describe('ExecuteSessionRepository', () => {
 
     const plan: ExecutionPlan = {
       planId: randomUUID(),
-      seedId: seed.metadata.seedId,
+      specId: spec.metadata.specId,
       classifiedACs: figureGroundStep.classifiedACs,
       atomicTasks: closureStep.atomicTasks,
       taskGroups: proximityStep.taskGroups,
@@ -276,7 +276,7 @@ describe('ExecuteSessionRepository', () => {
     const reconstructed = newRepo.reconstruct(session.sessionId);
 
     expect(reconstructed).not.toBeNull();
-    expect(reconstructed!.seed.goal).toBe('Test goal');
+    expect(reconstructed!.spec.goal).toBe('Test goal');
     expect(reconstructed!.planningSteps).toHaveLength(4);
     expect(reconstructed!.executionPlan).toBeDefined();
     expect(reconstructed!.status).toBe('executing');
@@ -288,8 +288,8 @@ describe('ExecuteSessionRepository', () => {
   });
 
   it('ExecuteSessionManager.loadFromStore() restores sessions into memory', () => {
-    const seed = createTestSeed();
-    const session = manager.create(seed);
+    const spec = createTestSpec();
+    const session = manager.create(spec);
     manager.addPlanningStep(session.sessionId, figureGroundStep);
 
     // Simulate restart
@@ -299,16 +299,16 @@ describe('ExecuteSessionRepository', () => {
     newManager.loadFromStore();
 
     const restored = newManager.get(session.sessionId);
-    expect(restored.seedId).toBe(seed.metadata.seedId);
+    expect(restored.specId).toBe(spec.metadata.specId);
     expect(restored.planningSteps).toHaveLength(1);
-    expect(restored.seed.goal).toBe('Test goal');
+    expect(restored.spec.goal).toBe('Test goal');
 
     newStore.close();
   });
 
   it('handles failed session reconstruction', () => {
-    const seed = createTestSeed();
-    const session = manager.create(seed);
+    const spec = createTestSpec();
+    const session = manager.create(spec);
     manager.fail(session.sessionId, 'Something went wrong');
 
     const reconstructed = repo.reconstruct(session.sessionId);
