@@ -110,6 +110,28 @@ export class EventStore {
     return row ? parseRow(row) : null;
   }
 
+  /**
+   * Replay all events for a specific aggregate in chronological order.
+   * Semantic alias for getByAggregate — used by Repository pattern for session reconstruction.
+   */
+  replay(aggregateType: string, aggregateId: string): DomainEvent[] {
+    return this.getByAggregate(aggregateType, aggregateId);
+  }
+
+  /**
+   * List distinct aggregate IDs for a given type, ordered by earliest event timestamp.
+   */
+  listAggregates(aggregateType: string): string[] {
+    const stmt = this.db.prepare(`
+      SELECT DISTINCT aggregate_id
+      FROM events
+      WHERE aggregate_type = ?
+      ORDER BY MIN(timestamp) OVER (PARTITION BY aggregate_id)
+    `);
+    const rows = stmt.all(aggregateType) as { aggregate_id: string }[];
+    return rows.map((r) => r.aggregate_id);
+  }
+
   getAll(limit = 100): DomainEvent[] {
     const stmt = this.db.prepare(`
       SELECT * FROM events ORDER BY timestamp DESC LIMIT ?

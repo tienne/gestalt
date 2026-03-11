@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { DEFAULT_MODEL, AMBIGUITY_THRESHOLD, MAX_INTERVIEW_ROUNDS } from './constants.js';
@@ -7,13 +8,14 @@ import { ConfigError } from './errors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(__dirname, '..', '..');
+const GLOBAL_DB_PATH = join(homedir(), '.gestalt', 'events.db');
 
 const configSchema = z.object({
   anthropicApiKey: z.string().default(''),
   model: z.string().default(DEFAULT_MODEL),
   ambiguityThreshold: z.number().min(0).max(1).default(AMBIGUITY_THRESHOLD),
   maxInterviewRounds: z.number().int().positive().default(MAX_INTERVIEW_ROUNDS),
-  dbPath: z.string().default('.gestalt/events.db'),
+  dbPath: z.string().default(GLOBAL_DB_PATH),
   skillsDir: z.string().default('skills'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
@@ -45,7 +47,7 @@ export function loadConfig(overrides: Partial<Record<string, unknown>> = {}): Ge
     maxInterviewRounds: process.env['GESTALT_MAX_ROUNDS']
       ? Number(process.env['GESTALT_MAX_ROUNDS'])
       : MAX_INTERVIEW_ROUNDS,
-    dbPath: process.env['GESTALT_DB_PATH'] ?? '.gestalt/events.db',
+    dbPath: process.env['GESTALT_DB_PATH'] ?? GLOBAL_DB_PATH,
     skillsDir: process.env['GESTALT_SKILLS_DIR'] ?? 'skills',
     logLevel: process.env['GESTALT_LOG_LEVEL'] ?? 'info',
     ...overrides,
