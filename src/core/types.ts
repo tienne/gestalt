@@ -253,6 +253,50 @@ export interface RetrospectiveResult {
   correctionSuggestions: string[];
 }
 
+// ─── Evolution Loop ───────────────────────────────────────────
+export type EvolveStage = 'fix' | 'patch' | 're_executing';
+export type TerminationReason = 'success' | 'stagnation' | 'oscillation' | 'hard_cap' | 'caller';
+
+export interface SpecPatch {
+  acceptanceCriteria?: string[];
+  constraints?: string[];
+  ontologySchema?: {
+    entities?: OntologyEntity[];
+    relations?: OntologyRelation[];
+  };
+}
+
+export interface SpecDelta {
+  fieldsChanged: string[];
+  similarity: number; // 0.0-1.0, Jaccard similarity between old and new Spec
+  generation: number;
+}
+
+export interface FixTask {
+  taskId: string;
+  failedCommand: string;
+  errorOutput: string;
+  fixDescription: string;
+  artifacts: string[];
+}
+
+export interface TerminationCondition {
+  reason: TerminationReason;
+  scoreHistory: number[];
+  stagnationDetected: boolean;
+  oscillationDetected: boolean;
+  hardCapReached: boolean;
+}
+
+export interface EvolutionGeneration {
+  generation: number;
+  spec: Spec;
+  evaluationScore: number;
+  goalAlignment: number;
+  delta: SpecDelta;
+  terminationReason?: TerminationReason;
+}
+
 export interface ExecuteSession {
   sessionId: string;
   specId: string;
@@ -266,6 +310,11 @@ export interface ExecuteSession {
   structuralResult?: StructuralResult;
   evaluationResult?: EvaluationResult;
   driftHistory: DriftScore[];
+  // Evolution Loop
+  evolutionHistory: EvolutionGeneration[];
+  currentGeneration: number;
+  evolveStage?: EvolveStage;
+  terminationReason?: TerminationReason;
   createdAt: string;
   updatedAt: string;
 }

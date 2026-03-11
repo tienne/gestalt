@@ -23,4 +23,11 @@ export enum EventType {
   EVALUATE_SHORT_CIRCUITED = 'evaluate.short.circuited',
   EXECUTE_DRIFT_MEASURED = 'execute.drift.measured',
   EXECUTE_DRIFT_RETROSPECTIVE = 'execute.drift.retrospective',
+  // Evolution Loop
+  EVOLVE_STRUCTURAL_FIX_STARTED = 'evolve.structural.fix.started',
+  EVOLVE_STRUCTURAL_FIX_COMPLETED = 'evolve.structural.fix.completed',
+  EVOLVE_SPEC_PATCHED = 'evolve.spec.patched',
+  EVOLVE_RE_EXECUTION_STARTED = 'evolve.re.execution.started',
+  EVOLVE_TASK_COMPLETED = 'evolve.task.completed',
+  EVOLVE_TERMINATED = 'evolve.terminated',
 }

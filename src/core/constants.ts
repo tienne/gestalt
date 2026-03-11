@@ -79,3 +79,16 @@ export const DRIFT_WEIGHTS = {
   constraint: 0.3,
   ontology: 0.2,
 } as const;
+
+// ─── Evolution Loop ────────────────────────────────────────────
+export const EVOLVE_MAX_STRUCTURAL_FIX = 3;
+export const EVOLVE_MAX_CONTEXTUAL = 3;
+export const EVOLVE_SUCCESS_THRESHOLD = parseFloat(
+  process.env.GESTALT_EVOLVE_THRESHOLD ?? '0.85',
+);
+export const EVOLVE_GOAL_ALIGNMENT_THRESHOLD = parseFloat(
+  process.env.GESTALT_EVOLVE_GOAL_THRESHOLD ?? '0.80',
+);
+export const EVOLVE_STAGNATION_DELTA = 0.05;
+export const EVOLVE_STAGNATION_COUNT = 2;
+export const EVOLVE_OSCILLATION_COUNT = 2;
