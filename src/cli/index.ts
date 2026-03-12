@@ -13,6 +13,13 @@ export function createCli(): Command {
     .version('0.1.0');
 
   program
+    .command('serve', { isDefault: true })
+    .description('Start the Gestalt MCP server (stdio transport)')
+    .action(async () => {
+      await serveCommand();
+    });
+
+  program
     .command('interview [topic]')
     .description('Start an interactive Gestalt interview')
     .action(async (topic: string | undefined) => {
@@ -25,13 +32,6 @@ export function createCli(): Command {
     .option('-f, --force', 'Force generation even if ambiguity threshold is not met')
     .action(async (sessionId: string, options: { force?: boolean }) => {
       await specCommand(sessionId, options);
-    });
-
-  program
-    .command('serve')
-    .description('Start the Gestalt MCP server (stdio transport)')
-    .action(async () => {
-      await serveCommand();
     });
 
   program

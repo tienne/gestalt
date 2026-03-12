@@ -1,0 +1,20 @@
+# Source
+src/
+bin/
+
+# Tests
+tests/
+vitest.config.ts
+.gestalt-test/
+
+# Config
+tsconfig.json
+.mcp.json
+.claude/
+.claude-plugin/
+
+# Dev
+.git/
+.github/
+node_modules/
+*.tsbuildinfo
