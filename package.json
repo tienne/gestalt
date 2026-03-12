@@ -20,7 +20,7 @@
   "scripts": {
     "dev": "tsx bin/gestalt.ts",
     "build": "tsc",
-    "postbuild": "cp -r agents dist/ && cp -r skills dist/ && chmod +x dist/bin/gestalt.js",
+    "postbuild": "cp -r agents dist/ && cp -r skills dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
