@@ -254,8 +254,8 @@ export interface RetrospectiveResult {
 }
 
 // ─── Evolution Loop ───────────────────────────────────────────
-export type EvolveStage = 'fix' | 'patch' | 're_executing';
-export type TerminationReason = 'success' | 'stagnation' | 'oscillation' | 'hard_cap' | 'caller';
+export type EvolveStage = 'fix' | 'patch' | 're_executing' | 'lateral';
+export type TerminationReason = 'success' | 'stagnation' | 'oscillation' | 'hard_cap' | 'caller' | 'human_escalation';
 
 export interface SpecPatch {
   acceptanceCriteria?: string[];
@@ -315,6 +315,11 @@ export interface ExecuteSession {
   currentGeneration: number;
   evolveStage?: EvolveStage;
   terminationReason?: TerminationReason;
+  // Lateral Thinking
+  lateralTriedPersonas: string[];
+  lateralAttempts: number;
+  lateralCurrentPersona?: string;
+  lateralCurrentPattern?: string;
   createdAt: string;
   updatedAt: string;
 }

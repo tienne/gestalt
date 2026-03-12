@@ -30,4 +30,8 @@ export enum EventType {
   EVOLVE_RE_EXECUTION_STARTED = 'evolve.re.execution.started',
   EVOLVE_TASK_COMPLETED = 'evolve.task.completed',
   EVOLVE_TERMINATED = 'evolve.terminated',
+  // Lateral Thinking
+  EVOLVE_LATERAL_STARTED = 'evolve.lateral.started',
+  EVOLVE_LATERAL_COMPLETED = 'evolve.lateral.completed',
+  EVOLVE_HUMAN_ESCALATION = 'evolve.human.escalation',
 }
