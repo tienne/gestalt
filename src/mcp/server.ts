@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { loadConfig, type GestaltConfig } from '../core/config.js';
 import { log } from '../core/log.js';
+import { getVersion, checkForUpdates, getCachedUpdateResult } from '../core/version.js';
 import { EventStore } from '../events/store.js';
 import { AnthropicAdapter } from '../llm/adapter.js';
 import { InterviewEngine } from '../interview/engine.js';
@@ -33,7 +34,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   const server = new McpServer({
     name: 'gestalt',
-    version: '0.1.0',
+    version: getVersion(),
   });
 
   if (isPassthrough) {
@@ -256,10 +257,18 @@ function handleStatusPassthrough(
   engine: PassthroughEngine,
   input: { sessionId?: string },
 ): string {
+  const updateResult = getCachedUpdateResult();
+  const versionInfo = {
+    current: getVersion(),
+    latest: updateResult?.latestVersion ?? null,
+    updateAvailable: updateResult?.updateAvailable ?? false,
+  };
+
   try {
     if (input.sessionId) {
       const session = engine.getSession(input.sessionId);
       return JSON.stringify({
+        versionInfo,
         session: {
           sessionId: session.sessionId,
           topic: session.topic,
@@ -281,6 +290,7 @@ function handleStatusPassthrough(
 
     const sessions = engine.listSessions();
     return JSON.stringify({
+      versionInfo,
       sessions: sessions.map((s) => ({
         sessionId: s.sessionId,
         topic: s.topic,
@@ -311,6 +321,13 @@ export async function startMcpServer(configOverrides?: Partial<GestaltConfig>) {
   await server.connect(transport);
 
   log(`MCP server started on stdio${isPassthrough ? ' (passthrough mode)' : ''}`);
+
+  checkForUpdates().then((result) => {
+    if (result?.updateAvailable) {
+      log(`Update available: ${result.currentVersion} → ${result.latestVersion}`);
+      log(`Run: npx -y @tienne/gestalt@latest`);
+    }
+  }).catch(() => {});
 
   process.on('SIGINT', async () => {
     await skillRegistry.stopWatching();

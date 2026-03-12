@@ -3,6 +3,7 @@ import { interviewCommand } from './commands/interview.js';
 import { specCommand } from './commands/spec.js';
 import { serveCommand } from './commands/serve.js';
 import { statusCommand } from './commands/status.js';
+import { getVersion } from '../core/version.js';
 
 export function createCli(): Command {
   const program = new Command();
@@ -10,7 +11,7 @@ export function createCli(): Command {
   program
     .name('gestalt')
     .description('Gestalt — AI Development Harness with Gestalt psychology-driven requirement clarification')
-    .version('0.1.0');
+    .version(getVersion());
 
   program
     .command('serve', { isDefault: true })

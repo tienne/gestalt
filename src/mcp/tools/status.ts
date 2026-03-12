@@ -1,14 +1,23 @@
 import type { InterviewEngine } from '../../interview/engine.js';
 import type { StatusInput } from '../schemas.js';
+import { getVersion, getCachedUpdateResult } from '../../core/version.js';
 
 export function handleStatus(
   engine: InterviewEngine,
   input: StatusInput,
 ): string {
+  const updateResult = getCachedUpdateResult();
+  const versionInfo = {
+    current: getVersion(),
+    latest: updateResult?.latestVersion ?? null,
+    updateAvailable: updateResult?.updateAvailable ?? false,
+  };
+
   try {
     if (input.sessionId) {
       const session = engine.getSession(input.sessionId);
       return JSON.stringify({
+        versionInfo,
         session: {
           sessionId: session.sessionId,
           topic: session.topic,
@@ -28,9 +37,9 @@ export function handleStatus(
       }, null, 2);
     }
 
-    // List all sessions
     const sessions = engine.listSessions();
     return JSON.stringify({
+      versionInfo,
       sessions: sessions.map((s) => ({
         sessionId: s.sessionId,
         topic: s.topic,

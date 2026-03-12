@@ -25,7 +25,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "serve": "tsx bin/gestalt.ts serve",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "version:sync": "tsx scripts/sync-version.ts",
+    "postversion": "pnpm run version:sync"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
