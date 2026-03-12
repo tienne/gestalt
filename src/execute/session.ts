@@ -48,6 +48,8 @@ export class ExecuteSessionManager {
       driftHistory: [],
       evolutionHistory: [],
       currentGeneration: 0,
+      lateralTriedPersonas: [],
+      lateralAttempts: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -296,6 +298,40 @@ export class ExecuteSessionManager {
     const session = this.get(sessionId);
     session.evolutionHistory.push(generation);
     session.updatedAt = new Date().toISOString();
+  }
+
+  // ─── Lateral Thinking Methods ───────────────────────────────
+
+  startLateral(sessionId: string, persona: string, pattern: string): void {
+    const session = this.get(sessionId);
+    session.evolveStage = 'lateral';
+    session.status = 'executing';
+    session.lateralCurrentPersona = persona;
+    session.lateralCurrentPattern = pattern;
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVOLVE_LATERAL_STARTED, {
+      generation: session.currentGeneration,
+      persona,
+      pattern,
+      attemptNumber: session.lateralAttempts + 1,
+    });
+  }
+
+  completeLateral(sessionId: string, persona: string, description: string): void {
+    const session = this.get(sessionId);
+    session.lateralTriedPersonas.push(persona);
+    session.lateralAttempts++;
+    session.lateralCurrentPersona = undefined;
+    session.lateralCurrentPattern = undefined;
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EVOLVE_LATERAL_COMPLETED, {
+      generation: session.currentGeneration,
+      persona,
+      description,
+      attemptNumber: session.lateralAttempts,
+    });
   }
 
   terminate(sessionId: string, reason: TerminationReason): void {

@@ -70,6 +70,8 @@ export class ExecuteSessionRepository {
       driftHistory: [],
       evolutionHistory: [],
       currentGeneration: 0,
+      lateralTriedPersonas: [],
+      lateralAttempts: 0,
       createdAt: firstEvent.timestamp,
       updatedAt: firstEvent.timestamp,
     };
@@ -266,6 +268,32 @@ export class ExecuteSessionRepository {
         }
         break;
       }
+
+      // ─── Lateral Thinking ──────────────────────────────────────
+
+      case EventType.EVOLVE_LATERAL_STARTED:
+        session.evolveStage = 'lateral';
+        session.status = 'executing';
+        session.lateralCurrentPersona = payload.persona as string;
+        session.lateralCurrentPattern = payload.pattern as string;
+        break;
+
+      case EventType.EVOLVE_LATERAL_COMPLETED: {
+        const lateralPersona = payload.persona as string;
+        if (lateralPersona) {
+          session.lateralTriedPersonas.push(lateralPersona);
+          session.lateralAttempts++;
+        }
+        session.lateralCurrentPersona = undefined;
+        session.lateralCurrentPattern = undefined;
+        break;
+      }
+
+      case EventType.EVOLVE_HUMAN_ESCALATION:
+        session.terminationReason = 'human_escalation';
+        session.status = 'failed';
+        session.evolveStage = undefined;
+        break;
 
       // EXECUTE_PLAN_VALIDATED 등 — 세션 상태에 직접 영향 없음
       default:

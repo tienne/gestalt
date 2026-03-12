@@ -63,6 +63,9 @@ import { identifyImpactedTasks } from './impact-identifier.js';
 import { checkTermination } from './termination-detector.js';
 import type { AgentRegistry } from '../agent/registry.js';
 import { mergeSystemPrompt } from '../agent/prompt-resolver.js';
+import { classifyStagnation } from '../resilience/stagnation-detector.js';
+import { suggestPersona, buildLateralContext, buildEscalationContext } from '../resilience/lateral.js';
+import type { LateralContext, EscalationContext, LateralResult, LateralPersonaName } from '../resilience/types.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -184,6 +187,8 @@ export interface PassthroughEvolveFixResult {
   session: ExecuteSession;
   fixContext?: StructuralFixContext;
   evolveContext?: ContextualEvolveContext;
+  lateralContext?: LateralContext;
+  humanEscalation?: EscalationContext;
   terminated?: boolean;
   terminationReason?: TerminationReason;
 }
@@ -738,11 +743,61 @@ export class PassthroughExecuteEngine {
       });
 
       if (termination) {
-        this.sessionManager.terminate(sessionId, termination.reason);
+        // Success → terminate normally
+        if (termination.reason === 'success') {
+          this.sessionManager.terminate(sessionId, 'success');
+          return ok({
+            session: this.sessionManager.get(sessionId),
+            terminated: true,
+            terminationReason: 'success',
+          });
+        }
+
+        // Non-success → lateral thinking
+        const pattern = classifyStagnation({
+          evolutionHistory: session.evolutionHistory,
+          currentScore: session.evaluationResult!.overallScore,
+          termination,
+        });
+
+        const persona = suggestPersona(
+          pattern,
+          session.lateralTriedPersonas as LateralPersonaName[],
+        );
+
+        if (persona) {
+          this.sessionManager.startLateral(sessionId, persona, pattern);
+          const lateralCtx = buildLateralContext(
+            persona,
+            pattern,
+            session.spec,
+            session.evaluationResult!,
+            session.evolutionHistory,
+            session.lateralAttempts + 1,
+          );
+          return ok({
+            session: this.sessionManager.get(sessionId),
+            lateralContext: lateralCtx,
+          });
+        }
+
+        // All personas exhausted → human escalation
+        this.sessionManager.terminate(sessionId, 'human_escalation');
+        this.eventStore.append('execute', sessionId, EventType.EVOLVE_HUMAN_ESCALATION, {
+          triedPersonas: session.lateralTriedPersonas,
+          bestScore: Math.max(...session.evolutionHistory.map((g) => g.evaluationScore), session.evaluationResult!.overallScore),
+        });
+
+        const escalation = buildEscalationContext(
+          session.lateralTriedPersonas as LateralPersonaName[],
+          session.evaluationResult!,
+          session.evolutionHistory,
+        );
         return ok({
           session: this.sessionManager.get(sessionId),
+          humanEscalation: escalation,
           terminated: true,
-          terminationReason: termination.reason,
+          terminationReason: 'human_escalation',
         });
       }
 
@@ -878,6 +933,123 @@ export class PassthroughExecuteEngine {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
       return err(new TaskExecutionError(
         `Failed to submit re-execute task result: ${e instanceof Error ? e.message : String(e)}`,
+      ));
+    }
+  }
+
+  /**
+   * evolve_lateral: 다음 lateral persona를 suggest하거나 human_escalation 반환.
+   * evolve에서 자동 분기되지만, caller가 명시적으로 다음 persona를 요청할 때도 사용.
+   */
+  startLateralEvolve(
+    sessionId: string,
+  ): Result<PassthroughEvolveFixResult, ExecuteError> {
+    try {
+      const session = this.sessionManager.get(sessionId);
+
+      if (!session.evaluationResult) {
+        return err(new ExecuteError('No evaluation result found. Run evaluate first.'));
+      }
+
+      // Check termination again (might have succeeded after lateral re-execute)
+      const termination = checkTermination({
+        evolutionHistory: session.evolutionHistory,
+        currentScore: session.evaluationResult.overallScore,
+        currentGoalAlignment: session.evaluationResult.goalAlignment,
+        structuralFixCount: this.countStructuralFixes(session),
+        contextualCount: session.evolutionHistory.length,
+      });
+
+      if (termination?.reason === 'success') {
+        this.sessionManager.terminate(sessionId, 'success');
+        return ok({
+          session: this.sessionManager.get(sessionId),
+          terminated: true,
+          terminationReason: 'success',
+        });
+      }
+
+      // Classify stagnation for next persona suggestion
+      const pattern = termination
+        ? classifyStagnation({
+            evolutionHistory: session.evolutionHistory,
+            currentScore: session.evaluationResult.overallScore,
+            termination,
+          })
+        : 'spinning' as const; // fallback if no termination yet
+
+      const persona = suggestPersona(
+        pattern,
+        session.lateralTriedPersonas as LateralPersonaName[],
+      );
+
+      if (persona) {
+        this.sessionManager.startLateral(sessionId, persona, pattern);
+        const lateralCtx = buildLateralContext(
+          persona,
+          pattern,
+          session.spec,
+          session.evaluationResult,
+          session.evolutionHistory,
+          session.lateralAttempts + 1,
+        );
+        return ok({
+          session: this.sessionManager.get(sessionId),
+          lateralContext: lateralCtx,
+        });
+      }
+
+      // All personas exhausted → human escalation
+      this.sessionManager.terminate(sessionId, 'human_escalation');
+      this.eventStore.append('execute', sessionId, EventType.EVOLVE_HUMAN_ESCALATION, {
+        triedPersonas: session.lateralTriedPersonas,
+        bestScore: Math.max(...session.evolutionHistory.map((g) => g.evaluationScore), session.evaluationResult.overallScore),
+      });
+
+      const escalation = buildEscalationContext(
+        session.lateralTriedPersonas as LateralPersonaName[],
+        session.evaluationResult,
+        session.evolutionHistory,
+      );
+      return ok({
+        session: this.sessionManager.get(sessionId),
+        humanEscalation: escalation,
+        terminated: true,
+        terminationReason: 'human_escalation',
+      });
+    } catch (e) {
+      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      return err(new ExecuteError(
+        `Failed lateral evolve: ${e instanceof Error ? e.message : String(e)}`,
+      ));
+    }
+  }
+
+  /**
+   * evolve_lateral_result: Lateral thinking 결과(specPatch) 제출.
+   * completeLateral() 후 기존 submitSpecPatch() 위임.
+   */
+  submitLateralResult(
+    sessionId: string,
+    lateralResult: LateralResult,
+  ): Result<PassthroughEvolvePatchResult, ExecuteError> {
+    try {
+      // Validate session exists
+      this.sessionManager.get(sessionId);
+
+      // Complete lateral phase
+      this.sessionManager.completeLateral(
+        sessionId,
+        lateralResult.persona,
+        lateralResult.description,
+      );
+
+      // Delegate to existing submitSpecPatch
+      return this.submitSpecPatch(sessionId, lateralResult.specPatch);
+    } catch (e) {
+      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      return err(new ExecuteError(
+        `Failed to submit lateral result: ${e instanceof Error ? e.message : String(e)}`,
       ));
     }
   }
