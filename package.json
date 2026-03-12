@@ -1,6 +1,6 @@
 {
   "name": "@tienne/gestalt",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TypeScript AI Development Harness - Gestalt psychology-driven requirement clarification",
   "type": "module",
   "main": "./dist/src/index.js",
@@ -20,7 +20,7 @@
   "scripts": {
     "dev": "tsx bin/gestalt.ts",
     "build": "tsc",
-    "postbuild": "cp -r agents dist/ && cp -r skills dist/",
+    "postbuild": "cp -r agents dist/ && cp -r skills dist/ && chmod +x dist/bin/gestalt.js",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
