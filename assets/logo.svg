@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 500" width="1200" height="500">
+  <defs>
+    <!-- Diagonal stripe pattern for Similarity (T, L, T) -->
+    <pattern id="stripes" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
+      <rect width="8" height="8" fill="#1B2A5C"/>
+      <line x1="0" y1="0" x2="0" y2="8" stroke="white" stroke-width="2.5" stroke-opacity="0.4"/>
+    </pattern>
+
+    <!-- Grid pattern for Proximity (E) -->
+    <pattern id="grid" patternUnits="userSpaceOnUse" width="28" height="28">
+      <rect width="28" height="28" fill="#1B2A5C"/>
+      <rect x="1" y="1" width="12" height="12" fill="#1B2A5C" rx="1"/>
+      <rect x="15" y="1" width="12" height="12" fill="#8B95AD" rx="1"/>
+      <rect x="1" y="15" width="12" height="12" fill="#8B95AD" rx="1"/>
+      <rect x="15" y="15" width="12" height="12" fill="#1B2A5C" rx="1"/>
+    </pattern>
+
+    <!-- Clip paths for each letter -->
+    <!-- G - Closure (incomplete circle) -->
+    <clipPath id="clip-g">
+      <path d="M 60,200
+               A 95,95 0 1,1 155,295
+               L 155,260
+               L 110,260
+               L 110,220
+               L 155,220
+               L 155,200
+               A 60,60 0 1,0 95,140
+               Z" />
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="500" fill="white"/>
+
+  <!-- ===== G - CLOSURE (incomplete circle with gap at top-right) ===== -->
+  <g transform="translate(30, 50)">
+    <!-- Outer arc with gap -->
+    <path d="M 130,30
+             A 100,100 0 1,0 130,230
+             L 130,170
+             L 80,170
+             L 80,145
+             L 130,145
+             L 130,120
+             A 55,55 0 1,1 130,80
+             Z"
+          fill="#1B2A5C"/>
+    <!-- Gap area - making the "C" shape open at top-right -->
+    <rect x="115" y="55" width="40" height="40" fill="white"/>
+  </g>
+
+  <!-- ===== E - PROXIMITY (grid of squares) ===== -->
+  <g transform="translate(210, 62)">
+    <!-- E shape made of small grid squares -->
+    <!-- Column 1 (left bar) - 7 rows -->
+    <rect x="0" y="0" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="0" y="28" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="0" y="56" width="24" height="24" rx="2" fill="#8B95AD"/>
+    <rect x="0" y="84" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="0" y="112" width="24" height="24" rx="2" fill="#8B95AD"/>
+    <rect x="0" y="140" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="0" y="168" width="24" height="24" rx="2" fill="#1B2A5C"/>
+
+    <!-- Column 2 -->
+    <rect x="28" y="0" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="28" y="28" width="24" height="24" rx="2" fill="#8B95AD"/>
+    <rect x="28" y="56" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="28" y="84" width="24" height="24" rx="2" fill="#8B95AD"/>
+    <rect x="28" y="112" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="28" y="140" width="24" height="24" rx="2" fill="#8B95AD"/>
+    <rect x="28" y="168" width="24" height="24" rx="2" fill="#1B2A5C"/>
+
+    <!-- Column 3 -->
+    <rect x="56" y="0" width="24" height="24" rx="2" fill="#8B95AD"/>
+    <rect x="56" y="28" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="56" y="56" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="56" y="84" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="56" y="112" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="56" y="140" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="56" y="168" width="24" height="24" rx="2" fill="#8B95AD"/>
+
+    <!-- Column 4 (top/middle/bottom bars) -->
+    <rect x="84" y="0" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="84" y="28" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="84" y="84" width="24" height="24" rx="2" fill="#8B95AD"/>
+    <rect x="84" y="168" width="24" height="24" rx="2" fill="#1B2A5C"/>
+
+    <!-- Column 5 (top/middle/bottom bars) -->
+    <rect x="112" y="0" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="112" y="84" width="24" height="24" rx="2" fill="#1B2A5C"/>
+    <rect x="112" y="168" width="24" height="24" rx="2" fill="#1B2A5C"/>
+  </g>
+
+  <!-- ===== S - CONTINUATION (S with vertical line through) ===== -->
+  <g transform="translate(390, 50)">
+    <!-- S letter -->
+    <path d="M 120,35
+             C 100,15 55,10 35,30
+             C 10,55 15,90 50,105
+             L 90,120
+             C 125,135 130,170 105,195
+             C 85,215 40,215 20,195"
+          fill="none" stroke="#1B2A5C" stroke-width="32" stroke-linecap="round"/>
+    <!-- Vertical continuation line -->
+    <rect x="62" y="5" width="16" height="220" rx="8" fill="#A0A8BC" opacity="0.6"/>
+    <rect x="65" y="5" width="10" height="220" rx="5" fill="#C8CDD8" opacity="0.5"/>
+  </g>
+
+  <!-- ===== T - SIMILARITY (diagonal stripes) ===== -->
+  <g transform="translate(540, 50)">
+    <rect x="0" y="0" width="140" height="38" rx="3" fill="url(#stripes)"/>
+    <rect x="48" y="0" width="44" height="200" rx="3" fill="url(#stripes)"/>
+  </g>
+
+  <!-- ===== A - FIGURE/GROUND (solid with negative space triangle) ===== -->
+  <g transform="translate(710, 50)">
+    <!-- Outer A shape -->
+    <path d="M 75,0 L 0,200 L 35,200 L 50,155 L 100,155 L 115,200 L 150,200 Z" fill="#1B2A5C"/>
+    <!-- Inner triangle (negative space = ground) -->
+    <path d="M 75,45 L 55,140 L 95,140 Z" fill="white"/>
+  </g>
+
+  <!-- ===== L - SIMILARITY (diagonal stripes, same as T) ===== -->
+  <g transform="translate(885, 50)">
+    <rect x="0" y="0" width="44" height="200" rx="3" fill="url(#stripes)"/>
+    <rect x="0" y="162" width="130" height="38" rx="3" fill="url(#stripes)"/>
+  </g>
+
+  <!-- ===== T - SIMILARITY (diagonal stripes) ===== -->
+  <g transform="translate(1020, 50)">
+    <rect x="0" y="0" width="140" height="38" rx="3" fill="url(#stripes)"/>
+    <rect x="48" y="0" width="44" height="200" rx="3" fill="url(#stripes)"/>
+  </g>
+
+  <!-- ===== ANNOTATIONS ===== -->
+  <!-- Arrow style -->
+  <marker id="arrowDown" viewBox="0 0 10 10" refX="5" refY="10" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+    <path d="M 0,0 L 10,0 L 5,10 Z" fill="#333"/>
+  </marker>
+
+  <!-- Closure annotation (below G) -->
+  <g>
+    <polygon points="95,310 90,300 100,300" fill="#333"/>
+    <text x="95" y="340" text-anchor="middle" font-family="Georgia, serif" font-size="20" font-style="italic" fill="#333">Closure</text>
+  </g>
+
+  <!-- Proximity annotation (above E) -->
+  <g>
+    <polygon points="290,45 285,55 295,55" fill="#333"/>
+    <text x="290" y="35" text-anchor="middle" font-family="Georgia, serif" font-size="20" font-style="italic" fill="#333">Proximity</text>
+  </g>
+
+  <!-- Continuation annotation (below S) -->
+  <g>
+    <polygon points="460,310 455,300 465,300" fill="#333"/>
+    <text x="460" y="340" text-anchor="middle" font-family="Georgia, serif" font-size="20" font-style="italic" fill="#333">Continuation</text>
+  </g>
+
+  <!-- Similarity annotation (above T, A, L, T with bracket) -->
+  <g>
+    <!-- Bracket line -->
+    <line x1="610" y1="25" x2="1090" y2="25" stroke="#333" stroke-width="2"/>
+    <line x1="610" y1="25" x2="610" y2="40" stroke="#333" stroke-width="2"/>
+    <line x1="1090" y1="25" x2="1090" y2="40" stroke="#333" stroke-width="2"/>
+    <!-- Center arrow down -->
+    <line x1="850" y1="25" x2="850" y2="40" stroke="#333" stroke-width="2"/>
+    <polygon points="850,44 845,38 855,38" fill="#333"/>
+    <text x="850" y="16" text-anchor="middle" font-family="Georgia, serif" font-size="20" font-style="italic" fill="#333">Similarity</text>
+  </g>
+
+  <!-- Figure & Ground annotation (below A) -->
+  <g>
+    <polygon points="785,310 780,300 790,300" fill="#333"/>
+    <text x="785" y="340" text-anchor="middle" font-family="Georgia, serif" font-size="20" font-style="italic" fill="#333">Figure &amp; Ground</text>
+  </g>
+
+  <!-- Subtitle -->
+  <text x="600" y="400" text-anchor="middle" font-family="'SF Mono', 'Fira Code', monospace" font-size="16" fill="#666" letter-spacing="3">
+    AI Development Harness
+  </text>
+  <text x="600" y="425" text-anchor="middle" font-family="'SF Mono', 'Fira Code', monospace" font-size="13" fill="#999" letter-spacing="2">
+    "The whole is greater than the sum of its parts"
+  </text>
+</svg>

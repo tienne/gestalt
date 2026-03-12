@@ -16,14 +16,15 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import { PassthroughExecuteEngine } from '../src/execute/passthrough-engine.js';
 import { EventStore } from '../src/events/store.js';
-import type {
-  Spec,
-  FigureGroundResult,
-  ClosureResult,
-  ProximityResult,
-  ContinuityResult,
-  StructuralResult,
-  EvaluationResult,
+import {
+  GestaltPrinciple,
+  type Spec,
+  type FigureGroundResult,
+  type ClosureResult,
+  type ProximityResult,
+  type ContinuityResult,
+  type StructuralResult,
+  type EvaluationResult,
 } from '../src/core/types.js';
 
 // ─── Styling ─────────────────────────────────────────────────
@@ -48,10 +49,6 @@ const C = {
 
 function header(text: string) {
   console.log(`\n${C.bold}${C.bgBlue}${C.white} ${text} ${C.reset}\n`);
-}
-
-function subheader(text: string) {
-  console.log(`\n  ${C.bold}${C.blue}── ${text} ──${C.reset}\n`);
 }
 
 function step(text: string) {
@@ -116,7 +113,7 @@ function createSpec(): Spec {
       relations: [{ from: 'User', to: 'Token', type: 'has_many' }],
     },
     gestaltAnalysis: [
-      { principle: 'closure' as const, finding: '토큰 리프레시 로직이 암묵적으로 필요', confidence: 0.9 },
+      { principle: GestaltPrinciple.CLOSURE, finding: '토큰 리프레시 로직이 암묵적으로 필요', confidence: 0.9 },
     ],
     metadata: {
       specId: randomUUID(),
