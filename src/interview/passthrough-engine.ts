@@ -14,6 +14,8 @@ import { detectProjectType } from './brownfield.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { INTERVIEW_SYSTEM_PROMPT, buildQuestionPrompt, buildAmbiguityPrompt } from '../llm/prompts.js';
+import type { AgentRegistry } from '../agent/registry.js';
+import { mergeSystemPrompt, getActiveAgentNames } from '../agent/prompt-resolver.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -25,6 +27,7 @@ export interface GestaltContext {
   questionPrompt: string;
   scoringPrompt?: string;
   roundNumber: number;
+  activeAgents?: string[];
 }
 
 export interface PassthroughStartResult {
@@ -55,10 +58,12 @@ export interface ExternalAmbiguityScore {
 
 export class PassthroughEngine {
   private sessionManager: SessionManager;
+  private agentRegistry?: AgentRegistry;
 
-  constructor(private eventStore: EventStore) {
+  constructor(private eventStore: EventStore, agentRegistry?: AgentRegistry) {
     this.sessionManager = new SessionManager(eventStore);
     this.sessionManager.loadFromStore();
+    this.agentRegistry = agentRegistry;
   }
 
   start(topic: string, cwd?: string): Result<PassthroughStartResult, InterviewError> {
@@ -276,13 +281,17 @@ export class PassthroughEngine {
     const questionPrompt = buildQuestionPrompt(topic, principle, previousRounds, projectType);
     const phase = getPrinciplePhaseLabel(roundNumber);
 
+    const systemPrompt = mergeSystemPrompt(INTERVIEW_SYSTEM_PROMPT, this.agentRegistry, 'interview');
+    const activeAgents = getActiveAgentNames(this.agentRegistry, 'interview');
+
     const context: GestaltContext = {
-      systemPrompt: INTERVIEW_SYSTEM_PROMPT,
+      systemPrompt,
       currentPrinciple: principle,
       principleStrategy: PRINCIPLE_QUESTION_STRATEGIES[principle],
       phase,
       questionPrompt,
       roundNumber,
+      ...(activeAgents.length > 0 && { activeAgents }),
     };
 
     if (includeScoringPrompt) {

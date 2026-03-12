@@ -10,6 +10,7 @@ import { PassthroughEngine } from '../interview/passthrough-engine.js';
 import { SpecGenerator } from '../spec/generator.js';
 import { PassthroughSpecGenerator } from '../spec/passthrough-generator.js';
 import { SkillRegistry } from '../skills/registry.js';
+import { AgentRegistry } from '../agent/registry.js';
 import { handleInterview } from './tools/interview.js';
 import { handleInterviewPassthrough } from './tools/interview-passthrough.js';
 import { handleSpec } from './tools/spec.js';
@@ -23,8 +24,10 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   const config = loadConfig(configOverrides);
   const eventStore = new EventStore(config.dbPath);
   const skillRegistry = new SkillRegistry(config.skillsDir);
+  const agentRegistry = new AgentRegistry(config.agentsDir);
 
   skillRegistry.loadAll();
+  agentRegistry.loadAll();
 
   const isPassthrough = !config.anthropicApiKey;
 
@@ -35,8 +38,8 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   if (isPassthrough) {
     // ─── Passthrough mode: no API key, prompts returned to caller ───
-    const ptEngine = new PassthroughEngine(eventStore);
-    const ptSpecGen = new PassthroughSpecGenerator(eventStore);
+    const ptEngine = new PassthroughEngine(eventStore, agentRegistry);
+    const ptSpecGen = new PassthroughSpecGenerator(eventStore, agentRegistry);
 
     server.tool(
       'ges_interview',
@@ -89,7 +92,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
     );
 
-    const ptExecuteEngine = new PassthroughExecuteEngine(eventStore);
+    const ptExecuteEngine = new PassthroughExecuteEngine(eventStore, agentRegistry);
 
     server.tool(
       'ges_execute',
@@ -245,7 +248,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     );
   }
 
-  return { server, eventStore, skillRegistry };
+  return { server, eventStore, skillRegistry, agentRegistry };
 }
 
 // Status handler for passthrough mode — uses PassthroughEngine instead of InterviewEngine
@@ -299,9 +302,10 @@ function handleStatusPassthrough(
 export async function startMcpServer(configOverrides?: Partial<GestaltConfig>) {
   const config = loadConfig(configOverrides);
   const isPassthrough = !config.anthropicApiKey;
-  const { server, skillRegistry } = await createMcpServer(configOverrides);
+  const { server, skillRegistry, agentRegistry } = await createMcpServer(configOverrides);
 
   skillRegistry.startWatching();
+  agentRegistry.startWatching();
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -310,6 +314,7 @@ export async function startMcpServer(configOverrides?: Partial<GestaltConfig>) {
 
   process.on('SIGINT', async () => {
     await skillRegistry.stopWatching();
+    await agentRegistry.stopWatching();
     await server.close();
     process.exit(0);
   });

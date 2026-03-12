@@ -61,6 +61,8 @@ import { validateSpecPatch } from './spec-patch-validator.js';
 import { applySpecPatch } from './spec-patch-applier.js';
 import { identifyImpactedTasks } from './impact-identifier.js';
 import { checkTermination } from './termination-detector.js';
+import type { AgentRegistry } from '../agent/registry.js';
+import { mergeSystemPrompt } from '../agent/prompt-resolver.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -204,10 +206,12 @@ export interface PassthroughReExecuteResult {
 
 export class PassthroughExecuteEngine {
   private sessionManager: ExecuteSessionManager;
+  private agentRegistry?: AgentRegistry;
 
-  constructor(private eventStore: EventStore) {
+  constructor(private eventStore: EventStore, agentRegistry?: AgentRegistry) {
     this.sessionManager = new ExecuteSessionManager(eventStore);
     this.sessionManager.loadFromStore();
+    this.agentRegistry = agentRegistry;
   }
 
   start(spec: Spec): Result<PassthroughStartResult, ExecuteError> {
@@ -446,7 +450,7 @@ export class PassthroughExecuteEngine {
           });
 
           retrospectiveContext = {
-            systemPrompt: EXECUTE_EXECUTION_SYSTEM_PROMPT,
+            systemPrompt: mergeSystemPrompt(EXECUTE_EXECUTION_SYSTEM_PROMPT, this.agentRegistry, 'execute'),
             retrospectivePrompt: buildDriftRetrospectivePrompt(
               session.spec,
               task,
@@ -666,7 +670,7 @@ export class PassthroughExecuteEngine {
         return ok({
           session: this.sessionManager.get(sessionId),
           fixContext: {
-            systemPrompt: EVOLVE_STRUCTURAL_FIX_SYSTEM_PROMPT,
+            systemPrompt: mergeSystemPrompt(EVOLVE_STRUCTURAL_FIX_SYSTEM_PROMPT, this.agentRegistry, 'evaluate'),
             fixPrompt: buildStructuralFixPrompt(session.spec, failedCommands, session.taskResults),
             phase: 'evolving',
             stage: 'fix',
@@ -745,7 +749,7 @@ export class PassthroughExecuteEngine {
       return ok({
         session,
         evolveContext: {
-          systemPrompt: EVOLVE_CONTEXTUAL_SYSTEM_PROMPT,
+          systemPrompt: mergeSystemPrompt(EVOLVE_CONTEXTUAL_SYSTEM_PROMPT, this.agentRegistry, 'evaluate'),
           evolvePrompt: buildContextualEvolvePrompt(
             session.spec,
             session.evaluationResult,
@@ -912,7 +916,7 @@ export class PassthroughExecuteEngine {
 
       const patchSummary = `Fields changed: ${delta.fieldsChanged.join(', ')}`;
       return {
-        systemPrompt: EXECUTE_EXECUTION_SYSTEM_PROMPT,
+        systemPrompt: mergeSystemPrompt(EXECUTE_EXECUTION_SYSTEM_PROMPT, this.agentRegistry, 'execute'),
         taskPrompt: buildReExecutionPrompt(task, session.spec, session.taskResults, patchSummary),
         phase: 'evolving',
         stage: 're_execute',
@@ -952,7 +956,7 @@ export class PassthroughExecuteEngine {
 
       const patchSummary = `Fields changed: ${delta.fieldsChanged.join(', ')}`;
       return {
-        systemPrompt: EXECUTE_EXECUTION_SYSTEM_PROMPT,
+        systemPrompt: mergeSystemPrompt(EXECUTE_EXECUTION_SYSTEM_PROMPT, this.agentRegistry, 'execute'),
         taskPrompt: buildReExecutionPrompt(task, session.spec, session.taskResults, patchSummary),
         phase: 'evolving',
         stage: 're_execute',
@@ -1020,7 +1024,7 @@ export class PassthroughExecuteEngine {
     );
 
     return {
-      systemPrompt: EXECUTE_EXECUTION_SYSTEM_PROMPT,
+      systemPrompt: mergeSystemPrompt(EXECUTE_EXECUTION_SYSTEM_PROMPT, this.agentRegistry, 'execute'),
       taskPrompt,
       phase: 'executing',
       currentTask: nextTask,
@@ -1056,7 +1060,7 @@ export class PassthroughExecuteEngine {
     );
 
     return {
-      systemPrompt: EXECUTE_EVALUATION_SYSTEM_PROMPT,
+      systemPrompt: mergeSystemPrompt(EXECUTE_EVALUATION_SYSTEM_PROMPT, this.agentRegistry, 'evaluate'),
       evaluatePrompt,
       phase: 'evaluating',
       stage: 'contextual',
@@ -1251,7 +1255,7 @@ export class PassthroughExecuteEngine {
     const planningPrompt = buildPlanningStepPrompt(spec, stepNumber, previousSteps);
 
     return {
-      systemPrompt: EXECUTE_SYSTEM_PROMPT,
+      systemPrompt: mergeSystemPrompt(EXECUTE_SYSTEM_PROMPT, this.agentRegistry, 'execute'),
       planningPrompt,
       currentPrinciple: principle,
       principleStrategy: PLANNING_PRINCIPLE_STRATEGIES[principle]!,

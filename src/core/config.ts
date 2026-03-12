@@ -17,6 +17,7 @@ const configSchema = z.object({
   maxInterviewRounds: z.number().int().positive().default(MAX_INTERVIEW_ROUNDS),
   dbPath: z.string().default(GLOBAL_DB_PATH),
   skillsDir: z.string().default('skills'),
+  agentsDir: z.string().default('agents'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   driftThreshold: z.number().min(0).max(1).default(DRIFT_THRESHOLD),
 });
@@ -24,12 +25,12 @@ const configSchema = z.object({
 export type GestaltConfig = z.infer<typeof configSchema>;
 
 /**
- * Resolve skills directory path:
+ * Resolve a directory path:
  * 1. Absolute path → use as-is
  * 2. CWD-relative → if exists, use it
  * 3. Fallback to package root (for plugin/npm install environments)
  */
-function resolveSkillsDir(dir: string): string {
+function resolveDir(dir: string): string {
   if (isAbsolute(dir)) return dir;
 
   const cwdResolved = resolve(dir);
@@ -50,6 +51,7 @@ export function loadConfig(overrides: Partial<Record<string, unknown>> = {}): Ge
       : MAX_INTERVIEW_ROUNDS,
     dbPath: process.env['GESTALT_DB_PATH'] ?? GLOBAL_DB_PATH,
     skillsDir: process.env['GESTALT_SKILLS_DIR'] ?? 'skills',
+    agentsDir: process.env['GESTALT_AGENTS_DIR'] ?? 'agents',
     logLevel: process.env['GESTALT_LOG_LEVEL'] ?? 'info',
     driftThreshold: process.env['GESTALT_DRIFT_THRESHOLD']
       ? Number(process.env['GESTALT_DRIFT_THRESHOLD'])
@@ -64,6 +66,7 @@ export function loadConfig(overrides: Partial<Record<string, unknown>> = {}): Ge
   }
 
   const config = result.data;
-  config.skillsDir = resolveSkillsDir(config.skillsDir);
+  config.skillsDir = resolveDir(config.skillsDir);
+  config.agentsDir = resolveDir(config.agentsDir);
   return config;
 }

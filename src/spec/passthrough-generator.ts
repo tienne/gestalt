@@ -7,6 +7,8 @@ import { specSchema } from './schema.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { INTERVIEW_SYSTEM_PROMPT, buildSpecPrompt } from '../llm/prompts.js';
+import type { AgentRegistry } from '../agent/registry.js';
+import { mergeSystemPrompt, getActiveAgentNames } from '../agent/prompt-resolver.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -14,6 +16,7 @@ export interface SpecContext {
   systemPrompt: string;
   specPrompt: string;
   allRounds: { roundNumber: number; question: string; response: string; gestaltFocus: string }[];
+  activeAgents?: string[];
 }
 
 export interface ExternalSpec {
@@ -27,7 +30,11 @@ export interface ExternalSpec {
 // ─── Generator ──────────────────────────────────────────────────
 
 export class PassthroughSpecGenerator {
-  constructor(private eventStore: EventStore) {}
+  private agentRegistry?: AgentRegistry;
+
+  constructor(private eventStore: EventStore, agentRegistry?: AgentRegistry) {
+    this.agentRegistry = agentRegistry;
+  }
 
   buildSpecContext(session: InterviewSession): SpecContext {
     const answeredRounds = session.rounds
@@ -39,8 +46,11 @@ export class PassthroughSpecGenerator {
 
     const specPrompt = buildSpecPrompt(session.topic, answeredRounds, session.projectType);
 
+    const systemPrompt = mergeSystemPrompt(INTERVIEW_SYSTEM_PROMPT, this.agentRegistry, 'spec');
+    const activeAgents = getActiveAgentNames(this.agentRegistry, 'spec');
+
     return {
-      systemPrompt: INTERVIEW_SYSTEM_PROMPT,
+      systemPrompt,
       specPrompt,
       allRounds: session.rounds
         .filter((r) => r.userResponse !== null)
@@ -50,6 +60,7 @@ export class PassthroughSpecGenerator {
           response: r.userResponse!,
           gestaltFocus: r.gestaltFocus,
         })),
+      ...(activeAgents.length > 0 && { activeAgents }),
     };
   }
 
