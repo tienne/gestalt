@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gestalt": {
+      "command": "npx",
+      "args": ["-y", "@tienne/gestalt"]
+    }
+  }
+}

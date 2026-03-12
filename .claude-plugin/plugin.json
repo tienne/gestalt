@@ -1,0 +1,24 @@
+{
+  "name": "gestalt",
+  "version": "0.1.1",
+  "description": "Gestalt psychology-driven AI development harness. Transforms scattered requirements into structured, validated specifications through interactive interviews.",
+  "author": {
+    "name": "tienne-ai",
+    "email": "tienne.ai@gmail.com"
+  },
+  "repository": "https://github.com/tienne/gestalt",
+  "homepage": "https://github.com/tienne/gestalt",
+  "license": "MIT",
+  "keywords": [
+    "gestalt",
+    "requirements",
+    "specification",
+    "interview",
+    "mcp",
+    "ai-development",
+    "claude-code"
+  ],
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "mcpServers": "./.mcp.json"
+}

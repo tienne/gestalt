@@ -4,16 +4,24 @@ Gestalt psychology-driven AI development harness. Transforms scattered requireme
 
 ## Installation
 
-### Claude Code (Recommended)
+### Claude Plugin (Recommended)
 
 ```bash
-claude mcp add gestalt -- npx @tienne/gestalt
+claude plugin install tienne/gestalt
+```
+
+Skills, agents, MCP tools, and CLAUDE.md are all configured automatically.
+
+### Claude Code MCP
+
+```bash
+claude mcp add gestalt -- npx -y @tienne/gestalt
 ```
 
 ### npx (No Install)
 
 ```bash
-npx @tienne/gestalt
+npx -y @tienne/gestalt
 ```
 
 ### Global Install
