@@ -41,6 +41,7 @@ export const executeInputSchema = z.object({
   action: z.enum([
     'start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status',
     'evolve_fix', 'evolve', 'evolve_patch', 'evolve_re_execute',
+    'evolve_lateral', 'evolve_lateral_result',
   ]),
   spec: z.object({
     version: z.string(),
@@ -154,6 +155,27 @@ export const executeInputSchema = z.object({
 
   terminateReason: z.enum(['caller']).optional()
     .describe('Caller-initiated termination (use with evolve action)'),
+
+  lateralResult: z.object({
+    persona: z.enum(['multistability', 'simplicity', 'reification', 'invariance']),
+    specPatch: z.object({
+      acceptanceCriteria: z.array(z.string()).optional(),
+      constraints: z.array(z.string()).optional(),
+      ontologySchema: z.object({
+        entities: z.array(z.object({
+          name: z.string(),
+          description: z.string(),
+          attributes: z.array(z.string()),
+        })).optional(),
+        relations: z.array(z.object({
+          from: z.string(),
+          to: z.string(),
+          type: z.string(),
+        })).optional(),
+      }).optional(),
+    }),
+    description: z.string(),
+  }).optional().describe('Lateral thinking result (required for evolve_lateral_result)'),
 });
 
 export type ExecuteInput = z.infer<typeof executeInputSchema>;

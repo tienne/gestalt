@@ -97,13 +97,14 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
     server.tool(
       'ges_execute',
-      'Execute a Spec specification using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, evolve_fix, evolve, evolve_patch, evolve_re_execute.',
+      'Execute a Spec specification using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result.',
       {
         action: z.enum([
           'start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status',
           'evolve_fix', 'evolve', 'evolve_patch', 'evolve_re_execute',
+          'evolve_lateral', 'evolve_lateral_result',
         ]).describe(
-          'start: begin execution planning, plan_step: submit a planning step result, plan_complete: assemble final plan, execute_start: start task execution, execute_task: submit task result, evaluate: start/submit evaluation, status: check session status, evolve_fix: start/submit structural fix, evolve: start contextual evolution, evolve_patch: submit spec patch, evolve_re_execute: submit re-execution task result',
+          'start: begin execution planning, plan_step: submit a planning step result, plan_complete: assemble final plan, execute_start: start task execution, execute_task: submit task result, evaluate: start/submit evaluation, status: check session status, evolve_fix: start/submit structural fix, evolve: start contextual evolution, evolve_patch: submit spec patch, evolve_re_execute: submit re-execution task result, evolve_lateral: request next lateral thinking persona, evolve_lateral_result: submit lateral thinking result',
         ),
         spec: z.object({
           version: z.string(),
@@ -152,6 +153,15 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           goalAlignment: z.number().min(0).max(1).optional().default(0),
           recommendations: z.array(z.string()),
         }).optional().describe('Evaluation result (optional for evaluate action)'),
+        structuralResult: z.object({
+          commands: z.array(z.object({
+            name: z.string(),
+            command: z.string(),
+            exitCode: z.number(),
+            output: z.string(),
+          })),
+          allPassed: z.boolean(),
+        }).optional().describe('Structural check results (required for evaluate after structural stage)'),
         fixTasks: z.array(z.object({
           taskId: z.string(),
           failedCommand: z.string(),
@@ -174,6 +184,18 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           artifacts: z.array(z.string()),
         }).optional().describe('Re-execution task result (for evolve_re_execute)'),
         terminateReason: z.enum(['caller']).optional().describe('Caller-initiated termination'),
+        lateralResult: z.object({
+          persona: z.enum(['multistability', 'simplicity', 'reification', 'invariance']),
+          specPatch: z.object({
+            acceptanceCriteria: z.array(z.string()).optional(),
+            constraints: z.array(z.string()).optional(),
+            ontologySchema: z.object({
+              entities: z.array(z.any()).optional(),
+              relations: z.array(z.any()).optional(),
+            }).optional(),
+          }),
+          description: z.string(),
+        }).optional().describe('Lateral thinking result (for evolve_lateral_result)'),
       },
       (params) => {
         const input = executeInputSchema.parse(params);

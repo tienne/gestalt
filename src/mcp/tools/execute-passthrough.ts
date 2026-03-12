@@ -231,6 +231,31 @@ export function handleExecutePassthrough(
       const evolveResult = engine.startContextualEvolve(input.sessionId, input.terminateReason);
       if (!evolveResult.ok) return formatError(evolveResult.error.message);
 
+      if (evolveResult.value.lateralContext) {
+        return JSON.stringify({
+          status: 'lateral_thinking',
+          sessionId: evolveResult.value.session.sessionId,
+          lateralContext: evolveResult.value.lateralContext,
+          message: `Stagnation detected. Lateral thinking activated: ${evolveResult.value.lateralContext.persona} persona (attempt ${evolveResult.value.lateralContext.attemptNumber}/4). Use lateralContext to generate a lateral SpecPatch, then submit with evolve_lateral_result.`,
+        }, null, 2);
+      }
+
+      if (evolveResult.value.humanEscalation) {
+        return JSON.stringify({
+          status: 'human_escalation',
+          sessionId: evolveResult.value.session.sessionId,
+          terminationReason: 'human_escalation',
+          escalationContext: evolveResult.value.humanEscalation,
+          evolutionHistory: evolveResult.value.session.evolutionHistory.map((g) => ({
+            generation: g.generation,
+            score: g.evaluationScore,
+            goalAlignment: g.goalAlignment,
+            fieldsChanged: g.delta.fieldsChanged,
+          })),
+          message: 'All lateral thinking personas exhausted. Human intervention required.',
+        }, null, 2);
+      }
+
       if (evolveResult.value.terminated) {
         return JSON.stringify({
           status: 'terminated',
@@ -304,6 +329,65 @@ export function handleExecutePassthrough(
         sessionId: reExecResult.value.session.sessionId,
         reExecuteContext: nextContext,
         message: 'Task recorded. Use reExecuteContext to implement the next re-execution task.',
+      }, null, 2);
+    }
+
+    // ─── Lateral Thinking Actions ──────────────────────────────
+
+    case 'evolve_lateral': {
+      if (!input.sessionId) return formatError('sessionId is required for evolve_lateral action');
+
+      const lateralResult = engine.startLateralEvolve(input.sessionId);
+      if (!lateralResult.ok) return formatError(lateralResult.error.message);
+
+      if (lateralResult.value.terminated) {
+        return JSON.stringify({
+          status: lateralResult.value.terminationReason === 'human_escalation' ? 'human_escalation' : 'terminated',
+          sessionId: lateralResult.value.session.sessionId,
+          terminationReason: lateralResult.value.terminationReason,
+          ...(lateralResult.value.humanEscalation ? { escalationContext: lateralResult.value.humanEscalation } : {}),
+          message: lateralResult.value.terminationReason === 'human_escalation'
+            ? 'All lateral thinking personas exhausted. Human intervention required.'
+            : `Evolution terminated: ${lateralResult.value.terminationReason}.`,
+        }, null, 2);
+      }
+
+      if (lateralResult.value.lateralContext) {
+        return JSON.stringify({
+          status: 'lateral_thinking',
+          sessionId: lateralResult.value.session.sessionId,
+          lateralContext: lateralResult.value.lateralContext,
+          message: `Lateral thinking: ${lateralResult.value.lateralContext.persona} persona (attempt ${lateralResult.value.lateralContext.attemptNumber}/4). Use lateralContext to generate a lateral SpecPatch, then submit with evolve_lateral_result.`,
+        }, null, 2);
+      }
+
+      return formatError('Unexpected state in evolve_lateral');
+    }
+
+    case 'evolve_lateral_result': {
+      if (!input.sessionId) return formatError('sessionId is required for evolve_lateral_result action');
+      if (!input.lateralResult) return formatError('lateralResult is required for evolve_lateral_result action');
+
+      const lrResult = engine.submitLateralResult(input.sessionId, input.lateralResult);
+      if (!lrResult.ok) return formatError(lrResult.error.message);
+
+      const { impactedTaskIds, reExecuteContext: lrReExecCtx } = lrResult.value;
+
+      if (impactedTaskIds.length === 0) {
+        return JSON.stringify({
+          status: 'lateral_patch_applied',
+          sessionId: lrResult.value.session.sessionId,
+          impactedTaskIds: [],
+          message: 'Lateral spec patch applied. No tasks need re-execution. Call evaluate to re-assess.',
+        }, null, 2);
+      }
+
+      return JSON.stringify({
+        status: 're_executing',
+        sessionId: lrResult.value.session.sessionId,
+        impactedTaskIds,
+        reExecuteContext: lrReExecCtx,
+        message: `Lateral spec patch applied. ${impactedTaskIds.length} tasks need re-execution. Use reExecuteContext to implement the task.`,
       }, null, 2);
     }
   }
