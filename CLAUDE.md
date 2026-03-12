@@ -8,6 +8,7 @@
 - **Interview Engine**: 게슈탈트 원리 기반 Q&A로 모호성 점수를 0.2 이하로 낮춤
 - **Spec Generator**: 완료된 인터뷰에서 구조화된 프로젝트 스펙(Spec) 생성
 - **Execute Engine**: 게슈탈트 5원리를 실행 전략으로 사용, Spec→ExecutionPlan 변환 (Figure-Ground→Closure→Proximity→Continuity)
+- **Resilience Engine**: Stagnation 감지 → Lateral Thinking Personas → Human Escalation
 - **MCP Server**: stdio transport로 Claude Code 등 AI 에이전트와 통합
 - **Skill System**: SKILL.md 기반 확장, chokidar hot-reload 지원
 - **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱
@@ -28,7 +29,7 @@ pnpm tsx bin/gestalt.ts status             # Check sessions
 ## MCP Tools
 - `ges_interview`: action=[start|respond|score|complete]
 - `ges_generate_spec`: sessionId, force?
-- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|evaluate|status|evolve_fix|evolve|evolve_patch|evolve_re_execute]
+- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|evaluate|status|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result]
 - `ges_status`: sessionId?
 
 ## MCP Passthrough Mode
@@ -173,8 +174,51 @@ ges_execute({ action: "evaluate", sessionId: "<id>" })
 ```
 
 **Spec Patch 범위**: L1(AC)+L2(constraints) 자유, L3(ontology) 추가/변경만, L4(goal) 금지
-**종료 조건**: success(≥0.85, ≥0.80), stagnation, oscillation, hard_cap(3+3), caller
+**종료 조건**: success(≥0.85, ≥0.80), stagnation, oscillation, hard_cap(3+3), caller, human_escalation
 **Caller 종료**: `ges_execute({ action: "evolve", sessionId: "<id>", terminateReason: "caller" })`
+
+**Flow C: Lateral Thinking** (evolution stagnation/oscillation/hard_cap 감지 시 자동 분기)
+
+evolve 호출 시 non-success termination이 감지되면 즉시 종료하는 대신 lateral thinking persona로 자동 분기한다.
+
+```
+// 1. evolve 호출 → lateralContext 자동 반환 (stagnation 시)
+ges_execute({ action: "evolve", sessionId: "<id>" })
+→ { status: "lateral_thinking", lateralContext: { persona, pattern, systemPrompt, lateralPrompt, ... } }
+
+// 2. Lateral result 제출 (caller가 persona 관점으로 specPatch 생성)
+ges_execute({
+  action: "evolve_lateral_result",
+  sessionId: "<id>",
+  lateralResult: {
+    persona: "multistability",
+    specPatch: { acceptanceCriteria: [...], constraints: [...] },
+    description: "관점 전환으로 요구사항 재구성"
+  }
+})
+→ impactedTaskIds + reExecuteContext 반환
+
+// 3. Impacted tasks 재실행 (기존 action 재사용)
+ges_execute({ action: "evolve_re_execute", sessionId: "<id>", reExecuteTaskResult: {...} })
+→ 반복...
+
+// 4. Re-evaluate
+ges_execute({ action: "evaluate", sessionId: "<id>" })
+
+// 5. 다음 persona 요청 (점수 미달 시)
+ges_execute({ action: "evolve_lateral", sessionId: "<id>" })
+→ 다음 lateralContext (or humanEscalation if 4개 persona 소진)
+```
+
+**Stagnation Pattern → Persona 매핑**:
+| Pattern | Persona | 전략 |
+|---|---|---|
+| spinning (hard_cap) | Multistability | 다른 각도로 보기 |
+| oscillation | Simplicity | 단순하게 줄이기 |
+| no_drift (delta≈0) | Reification | 빠진 조각 채우기 |
+| diminishing_returns (delta↓) | Invariance | 성공 패턴 복제하기 |
+
+**Human Escalation**: 4개 persona 모두 소진 시 `humanEscalation` 반환 (triedPersonas, bestScore, suggestions 포함). session은 `status: 'failed'`, `terminationReason: 'human_escalation'`으로 종료.
 
 ### 핵심 규칙
 - `action: "respond"` 시 `generatedQuestion` **필수**, `ambiguityScore` 선택
@@ -189,7 +233,10 @@ ges_execute({ action: "evaluate", sessionId: "<id>" })
 - `src/interview/` — InterviewEngine, AmbiguityScorer, SessionManager
 - `src/spec/` — SpecGenerator, SpecExtractor
 - `src/execute/` — ExecuteEngine, DAG Validator, ExecuteSessionManager
+- `src/resilience/` — Stagnation Detector, Lateral Thinking Personas, Human Escalation
 - `src/skills/` — SkillRegistry, parser
+- `src/agent/` — AgentRegistry, FiguralRouter, multi-provider LLM
+- `src/registry/` — BaseRegistry 추상 클래스
 - `src/mcp/` — MCP 서버 + 툴 핸들러
 - `src/events/` — EventStore (SQLite)
 - `src/llm/` — Anthropic SDK adapter
