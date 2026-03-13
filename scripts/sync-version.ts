@@ -21,6 +21,9 @@ writeFileSync(pluginPath, JSON.stringify(plugin, null, 2) + '\n');
 // marketplace.json
 const marketplacePath = resolve(ROOT, '.claude-plugin', 'marketplace.json');
 const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf-8'));
+if (marketplace.metadata) {
+  marketplace.metadata.version = version;
+}
 for (const p of marketplace.plugins) {
   p.version = version;
 }
