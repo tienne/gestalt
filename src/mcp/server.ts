@@ -30,7 +30,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   skillRegistry.loadAll();
   agentRegistry.loadAll();
 
-  const isPassthrough = !config.anthropicApiKey;
+  const isPassthrough = !config.llm.apiKey;
 
   const server = new McpServer({
     name: 'gestalt',
@@ -218,7 +218,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     );
   } else {
     // ─── Normal mode: direct LLM calls ──────────────────────────
-    const llm = new AnthropicAdapter(config.anthropicApiKey, config.model);
+    const llm = new AnthropicAdapter(config.llm.apiKey, config.llm.model);
     const engine = new InterviewEngine(llm, eventStore);
     const specGenerator = new SpecGenerator(llm, eventStore);
 
@@ -333,7 +333,7 @@ function handleStatusPassthrough(
 
 export async function startMcpServer(configOverrides?: Partial<GestaltConfig>) {
   const config = loadConfig(configOverrides);
-  const isPassthrough = !config.anthropicApiKey;
+  const isPassthrough = !config.llm.apiKey;
   const { server, skillRegistry, agentRegistry } = await createMcpServer(configOverrides);
 
   skillRegistry.startWatching();

@@ -15,7 +15,7 @@
 
 ## Tech Stack
 TypeScript 5.x / ESM / pnpm / vitest
-Dependencies: @anthropic-ai/sdk, @modelcontextprotocol/sdk, better-sqlite3, zod, chokidar, commander, gray-matter
+Dependencies: @anthropic-ai/sdk, @modelcontextprotocol/sdk, better-sqlite3, zod, chokidar, commander, gray-matter, dotenv
 
 ## Key Commands
 ```bash
@@ -24,7 +24,63 @@ pnpm run serve     # Start MCP server
 pnpm tsx bin/gestalt.ts interview "topic"  # Interactive interview
 pnpm tsx bin/gestalt.ts spec <session-id>  # Generate spec
 pnpm tsx bin/gestalt.ts status             # Check sessions
+pnpm tsx bin/gestalt.ts setup              # Generate gestalt.json config
 ```
+
+## Configuration
+
+설정값은 다음 우선순위로 merge된다 (높→낮):
+1. `loadConfig(overrides)` — 코드에서 직접 전달
+2. Shell 환경변수 (`export GESTALT_*`)
+3. `.env` 파일 (dotenv)
+4. `gestalt.json` 파일
+5. 기본값
+
+### gestalt.json
+`gestalt setup` 명령어로 생성. JSON Schema로 IDE 자동완성 지원.
+
+```json
+{
+  "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
+  "llm": { "apiKey": "", "model": "claude-sonnet-4-20250514" },
+  "interview": { "ambiguityThreshold": 0.2, "maxRounds": 10 },
+  "execute": { "driftThreshold": 0.3, "successThreshold": 0.85, "goalAlignmentThreshold": 0.80 },
+  "dbPath": ".gestalt/gestalt.db",
+  "logLevel": "info"
+}
+```
+
+### GestaltConfig 구조 (nested)
+
+```typescript
+interface GestaltConfig {
+  llm: { apiKey: string; model: string };
+  interview: { ambiguityThreshold: number; maxRounds: number };
+  execute: { driftThreshold: number; successThreshold: number; goalAlignmentThreshold: number };
+  dbPath: string;
+  skillsDir: string;
+  agentsDir: string;
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+}
+```
+
+### 환경변수 매핑
+
+| 환경변수 | Config 경로 | 기본값 |
+|----------|-------------|--------|
+| `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` |
+| `GESTALT_MODEL` | `llm.model` | `"claude-sonnet-4-20250514"` |
+| `GESTALT_AMBIGUITY_THRESHOLD` | `interview.ambiguityThreshold` | `0.2` |
+| `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` |
+| `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` | `0.3` |
+| `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | `execute.successThreshold` | `0.85` |
+| `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | `execute.goalAlignmentThreshold` | `0.80` |
+| `GESTALT_DB_PATH` | `dbPath` | `"~/.gestalt/events.db"` |
+| `GESTALT_SKILLS_DIR` | `skillsDir` | `"skills"` |
+| `GESTALT_AGENTS_DIR` | `agentsDir` | `"agents"` |
+| `GESTALT_LOG_LEVEL` | `logLevel` | `"info"` |
+
+잘못된 설정값은 경고를 출력하고 기본값으로 fallback한다 (에러를 throw하지 않음).
 
 ## MCP Tools
 - `ges_interview`: action=[start|respond|score|complete]
@@ -36,13 +92,24 @@ pnpm tsx bin/gestalt.ts status             # Check sessions
 
 API 키(`ANTHROPIC_API_KEY`) 없이 MCP 서버 실행 시 자동 활성화. LLM 호출을 서버가 하지 않고, caller(Claude Code 등)에게 위임한다.
 
-### 설정 (claude_desktop_config.json / settings.json)
+### 설치 방법
+
+**Claude Plugin (Recommended)**
+```bash
+# 1. 마켓플레이스 등록 (최초 1회)
+/plugin marketplace add tienne/gestalt
+
+# 2. 플러그인 설치
+/plugin install gestalt@gestalt
+```
+
+**MCP 직접 설정** (claude_desktop_config.json / settings.json)
 ```json
 {
   "mcpServers": {
     "gestalt": {
       "command": "npx",
-      "args": ["tsx", "bin/gestalt.ts", "serve"]
+      "args": ["-y", "@tienne/gestalt"]
     }
   }
 }
@@ -240,7 +307,8 @@ ges_execute({ action: "evolve_lateral", sessionId: "<id>" })
 - `src/mcp/` — MCP 서버 + 툴 핸들러
 - `src/events/` — EventStore (SQLite)
 - `src/llm/` — Anthropic SDK adapter
-- `src/cli/` — commander 기반 CLI
+- `src/cli/` — commander 기반 CLI (interview, spec, status, setup)
+- `schemas/` — JSON Schema (gestalt.schema.json)
 
 ## Conventions
 - MCP 서버에서 `console.log` 사용 금지 → stderr(`log()` 유틸)

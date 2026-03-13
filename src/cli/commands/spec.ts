@@ -7,13 +7,13 @@ import { SpecGenerator } from '../../spec/generator.js';
 export async function specCommand(sessionId: string, options: { force?: boolean }): Promise<void> {
   const config = loadConfig();
 
-  if (!config.anthropicApiKey) {
+  if (!config.llm.apiKey) {
     console.error('Error: ANTHROPIC_API_KEY is required for CLI mode. Set it in .env or as environment variable.');
     process.exit(1);
   }
 
   const eventStore = new EventStore(config.dbPath);
-  const llm = new AnthropicAdapter(config.anthropicApiKey, config.model);
+  const llm = new AnthropicAdapter(config.llm.apiKey, config.llm.model);
   const engine = new InterviewEngine(llm, eventStore);
   const generator = new SpecGenerator(llm, eventStore);
 

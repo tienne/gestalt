@@ -1,12 +1,11 @@
+import { loadConfig } from '../../core/config.js';
 import { EventStore } from '../../events/store.js';
 import { EventType } from '../../events/types.js';
 import type { DomainEvent } from '../../core/types.js';
 
-const DEFAULT_DB_PATH = '.gestalt/events.db';
-
 export function statusCommand(sessionId?: string): void {
-  const dbPath = process.env['GESTALT_DB_PATH'] ?? DEFAULT_DB_PATH;
-  const eventStore = new EventStore(dbPath);
+  const config = loadConfig();
+  const eventStore = new EventStore(config.dbPath);
 
   try {
     if (sessionId) {

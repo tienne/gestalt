@@ -1,21 +1,23 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "gestalt",
-  "description": "Gestalt psychology-driven AI development harness",
   "owner": {
-    "name": "tienne-ai",
-    "email": "tienne.ai@gmail.com"
+    "name": "tienne",
+    "email": "tienne89@gmail.com"
+  },
+  "metadata": {
+    "description": "Gestalt psychology-driven AI development harness",
+    "version": "0.1.1"
   },
   "plugins": [
     {
       "name": "gestalt",
+      "source": "./",
       "description": "Transform vague ideas into structured, validated specifications through Gestalt-driven interviews. Interview → Spec → Execute pipeline with 4 MCP tools.",
       "version": "0.1.1",
       "author": {
-        "name": "tienne-ai",
-        "email": "tienne.ai@gmail.com"
+        "name": "tienne",
+        "email": "tienne89@gmail.com"
       },
-      "source": "./",
       "category": "development",
       "homepage": "https://github.com/tienne/gestalt",
       "repository": "https://github.com/tienne/gestalt",

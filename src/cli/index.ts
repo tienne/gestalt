@@ -3,6 +3,7 @@ import { interviewCommand } from './commands/interview.js';
 import { specCommand } from './commands/spec.js';
 import { serveCommand } from './commands/serve.js';
 import { statusCommand } from './commands/status.js';
+import { setupCommand } from './commands/setup.js';
 import { getVersion } from '../core/version.js';
 
 export function createCli(): Command {
@@ -40,6 +41,13 @@ export function createCli(): Command {
     .description('Check interview session status')
     .action((sessionId?: string) => {
       statusCommand(sessionId);
+    });
+
+  program
+    .command('setup')
+    .description('Generate a gestalt.json configuration file')
+    .action(() => {
+      setupCommand();
     });
 
   return program;

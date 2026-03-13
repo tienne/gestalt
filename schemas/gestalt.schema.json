@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Gestalt Configuration",
+  "description": "Configuration file for Gestalt AI Development Harness",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for IDE autocompletion"
+    },
+    "llm": {
+      "type": "object",
+      "description": "LLM provider settings",
+      "properties": {
+        "apiKey": {
+          "type": "string",
+          "description": "Anthropic API key (env: ANTHROPIC_API_KEY)"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model to use (env: GESTALT_MODEL)",
+          "default": "claude-sonnet-4-20250514"
+        }
+      },
+      "additionalProperties": false
+    },
+    "interview": {
+      "type": "object",
+      "description": "Interview engine settings",
+      "properties": {
+        "ambiguityThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Ambiguity threshold below which requirements are considered clear (env: GESTALT_AMBIGUITY_THRESHOLD)",
+          "default": 0.2
+        },
+        "maxRounds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of interview rounds (env: GESTALT_MAX_ROUNDS)",
+          "default": 10
+        }
+      },
+      "additionalProperties": false
+    },
+    "execute": {
+      "type": "object",
+      "description": "Execute engine settings",
+      "properties": {
+        "driftThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Drift detection threshold (env: GESTALT_DRIFT_THRESHOLD)",
+          "default": 0.3
+        },
+        "successThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Evolution success threshold (env: GESTALT_EVOLVE_SUCCESS_THRESHOLD)",
+          "default": 0.85
+        },
+        "goalAlignmentThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Goal alignment threshold (env: GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD)",
+          "default": 0.80
+        }
+      },
+      "additionalProperties": false
+    },
+    "dbPath": {
+      "type": "string",
+      "description": "Path to the SQLite event store database (env: GESTALT_DB_PATH)",
+      "default": ".gestalt/gestalt.db"
+    },
+    "skillsDir": {
+      "type": "string",
+      "description": "Directory containing skill definitions (env: GESTALT_SKILLS_DIR)",
+      "default": "skills"
+    },
+    "agentsDir": {
+      "type": "string",
+      "description": "Directory containing agent definitions (env: GESTALT_AGENTS_DIR)",
+      "default": "agents"
+    },
+    "logLevel": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error"],
+      "description": "Log level (env: GESTALT_LOG_LEVEL)",
+      "default": "info"
+    }
+  },
+  "additionalProperties": false
+}

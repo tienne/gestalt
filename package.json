@@ -15,12 +15,13 @@
     "dist",
     "agents",
     "skills",
+    "schemas",
     "CLAUDE.md"
   ],
   "scripts": {
     "dev": "tsx bin/gestalt.ts",
     "build": "tsc",
-    "postbuild": "cp -r agents dist/ && cp -r skills dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js",
+    "postbuild": "cp -r agents dist/ && cp -r skills dist/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -35,6 +36,7 @@
     "better-sqlite3": "^11.8.2",
     "chokidar": "^4.0.3",
     "commander": "^13.1.0",
+    "dotenv": "^17.3.1",
     "gray-matter": "^4.0.3",
     "openai": "^6.27.0",
     "zod": "^3.24.2"

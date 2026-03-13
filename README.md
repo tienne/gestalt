@@ -14,7 +14,11 @@
 ### Claude Plugin (Recommended)
 
 ```bash
-claude plugin install tienne/gestalt
+# 1. 마켓플레이스 등록 (최초 1회)
+/plugin marketplace add tienne/gestalt
+
+# 2. 플러그인 설치
+/plugin install gestalt@gestalt
 ```
 
 Skills, agents, MCP tools, and CLAUDE.md are all configured automatically.
@@ -98,7 +102,32 @@ gestalt serve              # Start MCP server (explicit)
 gestalt interview "topic"  # Interactive interview
 gestalt spec <session-id>  # Generate Spec from interview
 gestalt status             # List all sessions
+gestalt setup              # Generate gestalt.json config file
 ```
+
+## Configuration
+
+Run `gestalt setup` to generate a `gestalt.json` configuration file with IDE autocompletion support.
+
+```json
+{
+  "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
+  "interview": {
+    "ambiguityThreshold": 0.2,
+    "maxRounds": 10
+  }
+}
+```
+
+Configuration is loaded with the following priority (highest → lowest):
+
+1. Code overrides (`loadConfig(overrides)`)
+2. Shell environment variables (`GESTALT_*`)
+3. `.env` file
+4. `gestalt.json`
+5. Built-in defaults
+
+Invalid values trigger a warning and fall back to defaults.
 
 ## Passthrough Mode
 
