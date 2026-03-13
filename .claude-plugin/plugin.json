@@ -19,6 +19,5 @@
     "claude-code"
   ],
   "skills": "./skills/",
-  "agents": "./agents/",
   "mcpServers": "./.mcp.json"
 }
