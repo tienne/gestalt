@@ -245,7 +245,50 @@ Step 4. Continuity     → DAG 검증 (순환/충돌 확인)
 
 ---
 
-## 모호성 점수와의 연결
+## 동적 원리 선택 알고리즘
+
+`selectNextPrinciple()`은 매 라운드마다 다음 원리를 동적으로 결정한다.
+
+### 우선순위 체계
+
+```
+1. Continuity Override  — 모순이 감지되었으면 무조건 Continuity
+        ↓ (모순 없음)
+2. Weakest Dimension    — clarity < 0.5인 차원 중 영향도가 가장 큰 원리
+        ↓ (모든 차원 ≥ 0.5)
+3. Phase Default        — 라운드 번호 기반 기본값
+```
+
+### 가장 약한 차원 찾기 (findWeakestDimension)
+
+단순 clarity 비교가 아니라 **가중 영향도**를 계산한다:
+
+```
+impact = (1 - clarity) × weight
+```
+
+예시: goalClarity=0.4 (weight 0.40) → impact 0.24, constraintClarity=0.3 (weight 0.25) → impact 0.175
+→ goalClarity의 영향도가 더 크므로 Closure 선택
+
+이 방식으로 가중치가 높은 차원의 낮은 명확도가 가중치가 낮은 차원보다 우선시된다.
+
+### 라운드 기반 기본값
+
+| 라운드 | 페이즈 | 기본 원리 | 이유 |
+|:---:|:---:|---|---|
+| 1–3 | early (goal definition) | Closure | 목표부터 완성 |
+| 4 | mid (structuring) | Proximity | 구조화 시작 |
+| 5 | mid | Similarity | 패턴 식별 |
+| 6 | mid | Proximity | 구조화 심화 |
+| 7 | mid | Similarity | 패턴 심화 |
+| 8 | mid | Proximity | 구조화 마무리 |
+| 9+ | late (prioritization) | Figure-Ground | 우선순위 결정 |
+
+> 4–8 라운드에서 Proximity와 Similarity가 **홀/짝 번호로 교대** 적용된다.
+
+---
+
+## 모호성 점수 (Ambiguity Score)
 
 각 원리는 모호성 점수의 특정 차원과 매핑된다:
 
@@ -255,6 +298,57 @@ Step 4. Continuity     → DAG 검증 (순환/충돌 확인)
 | Proximity | constraintClarity | 제약사항이 얼마나 잘 구조화되었나 |
 | Similarity | successCriteria | 성공 기준의 패턴이 일관적인가 |
 | Figure-Ground | priorityClarity | 우선순위가 명확한가 |
-| Continuity | contextClarity | 전체 맥락에 모순이 없는가 |
+| Continuity | contextClarity | 전체 맥락에 모순이 없는가 (Brownfield 전용) |
 
-**모호성 점수가 0.2 이하**가 되면 요구사항이 충분히 명확하다고 판단하고 인터뷰를 종료할 수 있다.
+### 점수 계산 공식
+
+```
+overall = clamp(1.0 - Σ(clarity_i × weight_i) + continuityPenalty)
+```
+
+- `clarity_i`: 각 차원의 명확도 (0~1, LLM이 평가)
+- `weight_i`: 프로젝트 유형별 가중치 (위 원리별 섹션 참조)
+- `continuityPenalty`: 모순 기반 페널티
+- `clamp`: 결과를 0~1 범위로 제한
+
+**예시 (Greenfield, 모순 없음):**
+
+```
+goalClarity       = 0.8 × 0.40 = 0.32
+constraintClarity = 0.7 × 0.25 = 0.175
+successCriteria   = 0.6 × 0.20 = 0.12
+priorityClarity   = 0.5 × 0.15 = 0.075
+
+overall = 1.0 - (0.32 + 0.175 + 0.12 + 0.075) + 0
+        = 1.0 - 0.69
+        = 0.31  → 아직 불충분 (threshold 0.2 초과)
+```
+
+### Continuity 페널티
+
+인터뷰 중 모순이 감지되면 모호성 점수에 페널티가 추가된다:
+
+```
+모순 0개 → 페널티 0
+모순 1개 → 0.05 + (0.10 × 1/3) ≈ 0.083
+모순 2개 → 0.05 + (0.10 × 2/3) ≈ 0.117
+모순 3개+ → 0.15 (최대)
+```
+
+공식: `penalty = 0.05 + 0.10 × min(contradictions / 3, 1)`
+
+모순이 해소되지 않으면 모호성 점수가 threshold(0.2) 아래로 내려가기 어렵다. 이는 모순 해결을 강제하는 메커니즘이다.
+
+### 종료 조건
+
+**모호성 점수가 0.2 이하**가 되면 요구사항이 충분히 명확하다고 판단하고 인터뷰를 종료할 수 있다. (`isReady = overall ≤ 0.2`)
+
+---
+
+## 소스 코드 참조
+
+| 파일 | 역할 |
+|---|---|
+| `src/core/constants.ts` | 가중치, 질문 전략, 페널티 상수 |
+| `src/gestalt/principles.ts` | `selectNextPrinciple()`, `findWeakestDimension()` |
+| `src/gestalt/analyzer.ts` | `computeAmbiguityScore()`, `computeContinuityPenalty()` |
