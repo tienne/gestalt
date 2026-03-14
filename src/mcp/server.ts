@@ -17,9 +17,12 @@ import { handleInterviewPassthrough } from './tools/interview-passthrough.js';
 import { handleSpec } from './tools/spec.js';
 import { handleSpecPassthrough } from './tools/spec-passthrough.js';
 import { handleExecutePassthrough } from './tools/execute-passthrough.js';
+import { handleCreateAgentPassthrough } from './tools/create-agent-passthrough.js';
 import { handleStatus } from './tools/status.js';
-import { interviewInputSchema, specInputSchema, executeInputSchema, statusInputSchema } from './schemas.js';
+import { interviewInputSchema, specInputSchema, executeInputSchema, agentCreateInputSchema, statusInputSchema } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
+import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
+import { RoleAgentRegistry } from '../agent/role-agent-registry.js';
 
 export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) {
   const config = loadConfig(configOverrides);
@@ -93,7 +96,10 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
     );
 
-    const ptExecuteEngine = new PassthroughExecuteEngine(eventStore, agentRegistry);
+    const roleAgentRegistry = new RoleAgentRegistry(config.roleAgentsDir, config.agentsDir);
+    roleAgentRegistry.loadAll();
+
+    const ptExecuteEngine = new PassthroughExecuteEngine(eventStore, agentRegistry, roleAgentRegistry);
 
     server.tool(
       'ges_execute',
@@ -103,6 +109,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           'start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status',
           'evolve_fix', 'evolve', 'evolve_patch', 'evolve_re_execute',
           'evolve_lateral', 'evolve_lateral_result',
+          'role_match', 'role_consensus',
         ]).describe(
           'start: begin execution planning, plan_step: submit a planning step result, plan_complete: assemble final plan, execute_start: start task execution, execute_task: submit task result, evaluate: start/submit evaluation, status: check session status, evolve_fix: start/submit structural fix, evolve: start contextual evolution, evolve_patch: submit spec patch, evolve_re_execute: submit re-execution task result, evolve_lateral: request next lateral thinking persona, evolve_lateral_result: submit lateral thinking result',
         ),
@@ -196,10 +203,54 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           }),
           description: z.string(),
         }).optional().describe('Lateral thinking result (for evolve_lateral_result)'),
+        matchResult: z.array(z.object({
+          agentName: z.string(),
+          domain: z.array(z.string()),
+          relevanceScore: z.number().min(0).max(1),
+          reasoning: z.string(),
+        })).optional().describe('Role match results (for role_match action)'),
+        perspectives: z.array(z.object({
+          agentName: z.string(),
+          perspective: z.string(),
+          confidence: z.number().min(0).max(1),
+        })).optional().describe('Role perspectives (for role_consensus action)'),
+        consensus: z.object({
+          consensus: z.string(),
+          conflictResolutions: z.array(z.string()),
+          perspectives: z.array(z.object({
+            agentName: z.string(),
+            perspective: z.string(),
+            confidence: z.number().min(0).max(1),
+          })),
+        }).optional().describe('Synthesized consensus (for role_consensus action)'),
       },
       (params) => {
         const input = executeInputSchema.parse(params);
         const result = handleExecutePassthrough(ptExecuteEngine, input);
+        return { content: [{ type: 'text' as const, text: result }] };
+      },
+    );
+
+    const ptAgentGen = new PassthroughAgentGenerator(eventStore, roleAgentRegistry);
+
+    server.tool(
+      'ges_create_agent',
+      'Create a custom Role Agent from a completed interview session (passthrough mode). Actions: start, submit.',
+      {
+        action: z.enum(['start', 'submit']).describe(
+          'start: get agent creation context with prompts, submit: validate and save AGENT.md',
+        ),
+        sessionId: z.string().describe('The interview session ID'),
+        agentContent: z.string().optional().describe(
+          'Complete AGENT.md content (frontmatter + body) to validate and save (required for submit)',
+        ),
+        cwd: z.string().optional().describe(
+          'Working directory where agents/{name}/AGENT.md will be created (defaults to process.cwd())',
+        ),
+      },
+      (params) => {
+        const input = agentCreateInputSchema.parse(params);
+        const result = handleCreateAgentPassthrough(ptEngine, ptAgentGen, input);
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );
