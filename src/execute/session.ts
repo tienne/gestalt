@@ -13,6 +13,8 @@ import type {
   FixTask,
   EvolutionGeneration,
   TerminationReason,
+  RoleMatch,
+  RoleConsensus,
 } from '../core/types.js';
 import { ExecuteSessionNotFoundError } from '../core/errors.js';
 import { EventStore } from '../events/store.js';
@@ -297,6 +299,40 @@ export class ExecuteSessionManager {
   recordEvolutionGeneration(sessionId: string, generation: EvolutionGeneration): void {
     const session = this.get(sessionId);
     session.evolutionHistory.push(generation);
+    session.updatedAt = new Date().toISOString();
+  }
+
+  // ─── Role Agent Methods ────────────────────────────────────
+
+  setRoleMatches(sessionId: string, taskId: string, matches: RoleMatch[]): void {
+    const session = this.get(sessionId);
+    if (!session.roleMatches) session.roleMatches = [];
+    session.roleMatches = matches;
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.ROLE_MATCH_COMPLETED, {
+      taskId,
+      matchCount: matches.length,
+      agents: matches.map((m) => m.agentName),
+    });
+  }
+
+  setRoleConsensus(sessionId: string, taskId: string, consensus: RoleConsensus): void {
+    const session = this.get(sessionId);
+    session.roleConsensus = consensus;
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.ROLE_CONSENSUS_COMPLETED, {
+      taskId,
+      participatingAgents: consensus.perspectives.map((p) => p.agentName),
+      conflictCount: consensus.conflictResolutions.length,
+    });
+  }
+
+  clearRoleState(sessionId: string): void {
+    const session = this.get(sessionId);
+    session.roleMatches = undefined;
+    session.roleConsensus = undefined;
     session.updatedAt = new Date().toISOString();
   }
 

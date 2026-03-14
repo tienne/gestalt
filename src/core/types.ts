@@ -320,6 +320,9 @@ export interface ExecuteSession {
   lateralAttempts: number;
   lateralCurrentPersona?: string;
   lateralCurrentPattern?: string;
+  // Role Agent System
+  roleMatches?: RoleMatch[];
+  roleConsensus?: RoleConsensus;
   createdAt: string;
   updatedAt: string;
 }
@@ -336,12 +339,40 @@ export interface AgentFrontmatter {
   pipeline: AgentPipeline;
   escalateTo?: string;
   description: string;
+  role?: boolean;
+  domain?: string[];
 }
 
 export interface AgentDefinition {
   frontmatter: AgentFrontmatter;
   systemPrompt: string;
   filePath: string;
+}
+
+// ─── Role Agent System ─────────────────────────────────────────
+export interface RoleMatch {
+  agentName: string;
+  domain: string[];
+  relevanceScore: number;
+  reasoning: string;
+}
+
+export interface RolePerspective {
+  agentName: string;
+  perspective: string;
+  confidence: number;
+}
+
+export interface RoleConsensus {
+  consensus: string;
+  conflictResolutions: string[];
+  perspectives: RolePerspective[];
+}
+
+export interface RoleGuidance {
+  agents: RolePerspective[];
+  consensus: string;
+  conflictResolutions: string[];
 }
 
 // ─── Events ─────────────────────────────────────────────────────

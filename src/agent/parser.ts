@@ -10,6 +10,8 @@ const agentFrontmatterSchema = z.object({
   pipeline: z.enum(['interview', 'spec', 'execute', 'evaluate']),
   escalateTo: z.string().optional(),
   description: z.string().min(1),
+  role: z.boolean().default(false),
+  domain: z.array(z.string()).default([]),
 });
 
 export function parseAgentMd(content: string, filePath: string): AgentDefinition {

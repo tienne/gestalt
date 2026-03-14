@@ -22,6 +22,10 @@ export class AgentRegistry extends BaseRegistry<AgentDefinition> {
   }
 
   getByPipeline(pipeline: AgentPipeline): AgentDefinition[] {
-    return this.getAll().filter((a) => a.frontmatter.pipeline === pipeline);
+    return this.getAll().filter((a) => a.frontmatter.pipeline === pipeline && !a.frontmatter.role);
+  }
+
+  getByRole(): AgentDefinition[] {
+    return this.getAll().filter((a) => a.frontmatter.role === true);
   }
 }

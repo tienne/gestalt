@@ -19,6 +19,10 @@ import type {
   FixTask,
   SpecPatch,
   TerminationReason,
+  RoleMatch,
+  RolePerspective,
+  RoleConsensus,
+  RoleGuidance,
 } from '../core/types.js';
 import {
   ExecuteError,
@@ -66,6 +70,10 @@ import { mergeSystemPrompt } from '../agent/prompt-resolver.js';
 import { classifyStagnation } from '../resilience/stagnation-detector.js';
 import { suggestPersona, buildLateralContext, buildEscalationContext } from '../resilience/lateral.js';
 import type { LateralContext, EscalationContext, LateralResult, LateralPersonaName } from '../resilience/types.js';
+import type { RoleAgentRegistry } from '../agent/role-agent-registry.js';
+import { RoleMatchEngine, type MatchContext } from '../agent/role-match-engine.js';
+import { RolePromptGenerator, type PerspectivePrompt } from '../agent/role-prompt-generator.js';
+import { RoleConsensusEngine, type SynthesisContext } from '../agent/role-consensus-engine.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -105,6 +113,21 @@ export interface TaskExecutionContext {
   similarityStrategy: string;
   pendingTasks: AtomicTask[];
   completedTaskIds: string[];
+  roleGuidance?: RoleGuidance;
+}
+
+// ─── Role Agent System Types ─────────────────────────────────────
+
+export interface PassthroughRoleMatchResult {
+  session: ExecuteSession;
+  matchContext?: MatchContext;
+  perspectivePrompts?: PerspectivePrompt[];
+}
+
+export interface PassthroughRoleConsensusResult {
+  session: ExecuteSession;
+  synthesisContext?: SynthesisContext;
+  roleGuidance?: RoleGuidance;
 }
 
 export interface PassthroughExecutionStartResult {
@@ -212,11 +235,13 @@ export interface PassthroughReExecuteResult {
 export class PassthroughExecuteEngine {
   private sessionManager: ExecuteSessionManager;
   private agentRegistry?: AgentRegistry;
+  private roleAgentRegistry?: RoleAgentRegistry;
 
-  constructor(private eventStore: EventStore, agentRegistry?: AgentRegistry) {
+  constructor(private eventStore: EventStore, agentRegistry?: AgentRegistry, roleAgentRegistry?: RoleAgentRegistry) {
     this.sessionManager = new ExecuteSessionManager(eventStore);
     this.sessionManager.loadFromStore();
     this.agentRegistry = agentRegistry;
+    this.roleAgentRegistry = roleAgentRegistry;
   }
 
   start(spec: Spec): Result<PassthroughStartResult, ExecuteError> {
@@ -439,6 +464,9 @@ export class PassthroughExecuteEngine {
 
       this.sessionManager.addTaskResult(sessionId, taskResult);
 
+      // Clear role state from previous role_match/role_consensus cycle
+      this.sessionManager.clearRoleState(sessionId);
+
       // Drift Detection (only for completed tasks)
       let driftScore: DriftScore | undefined;
       let retrospectiveContext: DriftRetrospectiveContext | undefined;
@@ -482,6 +510,155 @@ export class PassthroughExecuteEngine {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
       return err(new TaskExecutionError(
         `Failed to submit task result: ${e instanceof Error ? e.message : String(e)}`,
+      ));
+    }
+  }
+
+  // ─── Role Agent System ──────────────────────────────────────
+
+  /**
+   * role_match: 2-call passthrough pattern.
+   * - Call 1 (no matchResult): Returns matchContext for current task
+   * - Call 2 (with matchResult): Stores matches, returns perspectivePrompts
+   */
+  roleMatch(
+    sessionId: string,
+    matchResult?: RoleMatch[],
+  ): Result<PassthroughRoleMatchResult, ExecuteError> {
+    try {
+      const session = this.sessionManager.get(sessionId);
+
+      if (session.status !== 'executing') {
+        return err(new TaskExecutionError(
+          `Cannot perform role match: session status is "${session.status}", expected "executing"`,
+        ));
+      }
+
+      const currentTask = this.getCurrentTask(session);
+      if (!currentTask) {
+        return err(new TaskExecutionError('No pending task found for role matching'));
+      }
+
+      // Call 1: Return match context
+      if (!matchResult) {
+        if (!this.roleAgentRegistry) {
+          return err(new ExecuteError('RoleAgentRegistry not configured'));
+        }
+
+        this.eventStore.append('execute', sessionId, EventType.ROLE_MATCH_STARTED, {
+          taskId: currentTask.taskId,
+        });
+
+        const engine = new RoleMatchEngine();
+        const matchContext = engine.generateMatchContext(
+          currentTask.taskId,
+          currentTask.title,
+          currentTask.description,
+          this.roleAgentRegistry.getAll(),
+        );
+
+        return ok({ session, matchContext });
+      }
+
+      // Call 2: Submit match results, return perspective prompts
+      this.sessionManager.setRoleMatches(sessionId, currentTask.taskId, matchResult);
+
+      if (matchResult.length === 0) {
+        return ok({
+          session: this.sessionManager.get(sessionId),
+          perspectivePrompts: [],
+        });
+      }
+
+      if (!this.roleAgentRegistry) {
+        return err(new ExecuteError('RoleAgentRegistry not configured'));
+      }
+
+      const matchedAgents = matchResult
+        .map((m) => this.roleAgentRegistry!.getByName(m.agentName))
+        .filter((a): a is NonNullable<typeof a> => a !== undefined);
+
+      const generator = new RolePromptGenerator();
+      const perspectivePrompts = generator.generatePerspectivePrompts(
+        currentTask.title,
+        currentTask.description,
+        matchedAgents,
+      );
+
+      return ok({
+        session: this.sessionManager.get(sessionId),
+        perspectivePrompts,
+      });
+    } catch (e) {
+      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      return err(new ExecuteError(
+        `Failed role match: ${e instanceof Error ? e.message : String(e)}`,
+      ));
+    }
+  }
+
+  /**
+   * role_consensus: 2-call passthrough pattern.
+   * - Call 1 (perspectives, no consensus): Returns synthesisContext
+   * - Call 2 (consensus): Stores consensus, returns roleGuidance
+   */
+  roleConsensus(
+    sessionId: string,
+    perspectives?: RolePerspective[],
+    consensus?: RoleConsensus,
+  ): Result<PassthroughRoleConsensusResult, ExecuteError> {
+    try {
+      const session = this.sessionManager.get(sessionId);
+
+      if (session.status !== 'executing') {
+        return err(new TaskExecutionError(
+          `Cannot perform role consensus: session status is "${session.status}", expected "executing"`,
+        ));
+      }
+
+      const currentTask = this.getCurrentTask(session);
+      if (!currentTask) {
+        return err(new TaskExecutionError('No pending task found for role consensus'));
+      }
+
+      // Call 1: Submit perspectives, return synthesis context
+      if (perspectives && !consensus) {
+        this.eventStore.append('execute', sessionId, EventType.ROLE_CONSENSUS_STARTED, {
+          taskId: currentTask.taskId,
+          perspectiveCount: perspectives.length,
+        });
+
+        const engine = new RoleConsensusEngine();
+        const synthesisContext = engine.generateSynthesisContext(
+          currentTask.title,
+          currentTask.description,
+          perspectives,
+        );
+
+        return ok({ session, synthesisContext });
+      }
+
+      // Call 2: Submit consensus, store in session
+      if (consensus) {
+        this.sessionManager.setRoleConsensus(sessionId, currentTask.taskId, consensus);
+
+        const roleGuidance: RoleGuidance = {
+          agents: consensus.perspectives,
+          consensus: consensus.consensus,
+          conflictResolutions: consensus.conflictResolutions,
+        };
+
+        return ok({
+          session: this.sessionManager.get(sessionId),
+          roleGuidance,
+        });
+      }
+
+      return err(new ExecuteError('Either perspectives or consensus must be provided'));
+    } catch (e) {
+      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      return err(new ExecuteError(
+        `Failed role consensus: ${e instanceof Error ? e.message : String(e)}`,
       ));
     }
   }
@@ -1143,7 +1320,7 @@ export class PassthroughExecuteEngine {
 
   // ─── Execution context builders ────────────────────────────────
 
-  private buildNextTaskContext(session: ExecuteSession): TaskExecutionContext | null {
+  private getCurrentTask(session: ExecuteSession): AtomicTask | null {
     if (!session.executionPlan) return null;
 
     const plan = session.executionPlan;
@@ -1156,10 +1333,7 @@ export class PassthroughExecuteEngine {
       session.taskResults.filter((r) => r.status === 'failed').map((r) => r.taskId),
     );
 
-    // Find next executable task (all dependencies satisfied, not yet done)
     const topoOrder = plan.dagValidation.topologicalOrder;
-    let nextTask: AtomicTask | null = null;
-
     for (const taskId of topoOrder) {
       if (completedIds.has(taskId) || failedIds.has(taskId)) continue;
 
@@ -1169,13 +1343,25 @@ export class PassthroughExecuteEngine {
       const depsResolved = task.dependsOn.every(
         (dep) => completedIds.has(dep) || failedIds.has(dep),
       );
-      if (depsResolved) {
-        nextTask = task;
-        break;
-      }
+      if (depsResolved) return task;
     }
 
+    return null;
+  }
+
+  private buildNextTaskContext(session: ExecuteSession): TaskExecutionContext | null {
+    const nextTask = this.getCurrentTask(session);
     if (!nextTask) return null;
+
+    const plan = session.executionPlan!;
+    const completedIds = new Set(
+      session.taskResults
+        .filter((r) => r.status === 'completed' || r.status === 'skipped')
+        .map((r) => r.taskId),
+    );
+    const failedIds = new Set(
+      session.taskResults.filter((r) => r.status === 'failed').map((r) => r.taskId),
+    );
 
     // Find similar completed tasks (Similarity principle)
     const similarTasks = this.findSimilarTasks(nextTask, plan.atomicTasks, completedIds);
@@ -1195,6 +1381,13 @@ export class PassthroughExecuteEngine {
       similarTasks,
     );
 
+    // Include roleGuidance if available from a previous role_match/role_consensus cycle
+    const roleGuidance = session.roleConsensus ? {
+      agents: session.roleConsensus.perspectives,
+      consensus: session.roleConsensus.consensus,
+      conflictResolutions: session.roleConsensus.conflictResolutions,
+    } : undefined;
+
     return {
       systemPrompt: mergeSystemPrompt(EXECUTE_EXECUTION_SYSTEM_PROMPT, this.agentRegistry, 'execute'),
       taskPrompt,
@@ -1203,6 +1396,7 @@ export class PassthroughExecuteEngine {
       similarityStrategy: EXECUTION_PRINCIPLE_STRATEGY[GestaltPrinciple.SIMILARITY]!,
       pendingTasks,
       completedTaskIds: Array.from(completedIds),
+      roleGuidance,
     };
   }
 

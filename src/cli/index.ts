@@ -4,6 +4,7 @@ import { specCommand } from './commands/spec.js';
 import { serveCommand } from './commands/serve.js';
 import { statusCommand } from './commands/status.js';
 import { setupCommand } from './commands/setup.js';
+import { monitorCommand } from './commands/monitor.js';
 import { getVersion } from '../core/version.js';
 
 export function createCli(): Command {
@@ -48,6 +49,13 @@ export function createCli(): Command {
     .description('Generate a gestalt.json configuration file')
     .action(() => {
       setupCommand();
+    });
+
+  program
+    .command('monitor [session-id]')
+    .description('Launch TUI dashboard for real-time pipeline monitoring')
+    .action(async (sessionId?: string) => {
+      await monitorCommand(sessionId);
     });
 
   return program;

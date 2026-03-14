@@ -332,6 +332,65 @@ export function handleExecutePassthrough(
       }, null, 2);
     }
 
+    // ─── Role Agent System Actions ────────────────────────────
+
+    case 'role_match': {
+      if (!input.sessionId) return formatError('sessionId is required for role_match action');
+
+      const rmResult = engine.roleMatch(input.sessionId, input.matchResult);
+      if (!rmResult.ok) return formatError(rmResult.error.message);
+
+      const { matchContext, perspectivePrompts } = rmResult.value;
+
+      if (matchContext) {
+        return JSON.stringify({
+          status: 'role_matching',
+          sessionId: rmResult.value.session.sessionId,
+          matchContext,
+          message: 'Use matchContext.systemPrompt + matchContext.matchingPrompt to determine which role agents match this task. Submit matchResult with role_match.',
+        }, null, 2);
+      }
+
+      return JSON.stringify({
+        status: 'role_matched',
+        sessionId: rmResult.value.session.sessionId,
+        perspectivePrompts: perspectivePrompts ?? [],
+        matchCount: perspectivePrompts?.length ?? 0,
+        message: perspectivePrompts?.length
+          ? `${perspectivePrompts.length} agents matched. Use each perspectivePrompt for parallel LLM calls, then submit perspectives with role_consensus.`
+          : 'No agents matched. Proceed directly to execute_task.',
+      }, null, 2);
+    }
+
+    case 'role_consensus': {
+      if (!input.sessionId) return formatError('sessionId is required for role_consensus action');
+
+      const rcResult = engine.roleConsensus(
+        input.sessionId,
+        input.perspectives,
+        input.consensus,
+      );
+      if (!rcResult.ok) return formatError(rcResult.error.message);
+
+      const { synthesisContext, roleGuidance } = rcResult.value;
+
+      if (synthesisContext) {
+        return JSON.stringify({
+          status: 'synthesizing',
+          sessionId: rcResult.value.session.sessionId,
+          synthesisContext,
+          message: 'Use synthesisContext.systemPrompt + synthesisContext.synthesisPrompt to synthesize consensus. Submit consensus with role_consensus.',
+        }, null, 2);
+      }
+
+      return JSON.stringify({
+        status: 'consensus_complete',
+        sessionId: rcResult.value.session.sessionId,
+        roleGuidance,
+        message: 'Role consensus stored. Use roleGuidance to inform task implementation, then submit with execute_task.',
+      }, null, 2);
+    }
+
     // ─── Lateral Thinking Actions ──────────────────────────────
 
     case 'evolve_lateral': {
