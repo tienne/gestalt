@@ -85,7 +85,8 @@ interface GestaltConfig {
 ## MCP Tools
 - `ges_interview`: action=[start|respond|score|complete]
 - `ges_generate_spec`: sessionId, force?
-- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|evaluate|status|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result]
+- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|evaluate|status|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|role_match|role_consensus]
+- `ges_create_agent`: action=[start|submit] — 인터뷰 기반 커스텀 Role Agent 생성
 - `ges_status`: sessionId?
 
 ## MCP Passthrough Mode
@@ -287,6 +288,58 @@ ges_execute({ action: "evolve_lateral", sessionId: "<id>" })
 
 **Human Escalation**: 4개 persona 모두 소진 시 `humanEscalation` 반환 (triedPersonas, bestScore, suggestions 포함). session은 `status: 'failed'`, `terminationReason: 'human_escalation'`으로 종료.
 
+### Interview → Agent 생성 플로우
+
+`ges_interview`로 요구사항을 수집한 뒤, `ges_create_agent`로 커스텀 Role Agent AGENT.md 파일을 자동 생성한다.
+
+**Step 1: Agent Context 요청**
+```
+ges_create_agent({ action: "start", sessionId: "<완료된 인터뷰 sessionId>" })
+```
+→ `agentContext` 반환 (systemPrompt, creationPrompt, existingAgents, agentMdSchema)
+
+**Step 2: AGENT.md 생성 및 제출**
+```
+ges_create_agent({
+  action: "submit",
+  sessionId: "<id>",
+  agentContent: "---\nname: security-expert\ntier: standard\npipeline: execute\nrole: true\ndomain: [\"oauth\", \"jwt\"]\ndescription: \"보안 전문가\"\n---\n\nSystem prompt...",
+  cwd: "/path/to/project"  // 선택, 기본값 process.cwd()
+})
+```
+→ agents/{name}/AGENT.md 파일 생성, parseAgentMd() 검증, AGENT_CREATED 이벤트 기록
+
+**규칙**:
+- 인터뷰 세션이 `completed` 상태여야 함
+- `role: true` 필수 (Role Agent 전용)
+- 동일 이름 에이전트 존재 시 override + 안내 메시지
+
+### Role Agent System 플로우
+
+태스크 실행 시 관련 Role Agent를 자동 매칭하여 다중 관점 합의를 수행한다.
+
+**Step 1: Role Match (2-Call)**
+```
+// Call 1: 매칭 컨텍스트 요청
+ges_execute({ action: "role_match", sessionId: "<id>" })
+→ matchContext 반환
+
+// Call 2: 매칭 결과 제출
+ges_execute({ action: "role_match", sessionId: "<id>", matchResult: [...] })
+→ perspectivePrompts 반환
+```
+
+**Step 2: Role Consensus (2-Call)**
+```
+// Call 1: 각 에이전트 관점 제출
+ges_execute({ action: "role_consensus", sessionId: "<id>", perspectives: [...] })
+→ synthesisContext 반환
+
+// Call 2: 합성된 합의 제출
+ges_execute({ action: "role_consensus", sessionId: "<id>", consensus: {...} })
+→ roleGuidance 반환 → execute_task 수행 시 참조
+```
+
 ### 핵심 규칙
 - `action: "respond"` 시 `generatedQuestion` **필수**, `ambiguityScore` 선택
 - ambiguityScore 차원: `goalClarity`, `constraintClarity`, `successCriteria`, `priorityClarity` (필수), `contextClarity` (선택)
@@ -302,13 +355,14 @@ ges_execute({ action: "evolve_lateral", sessionId: "<id>" })
 - `src/execute/` — ExecuteEngine, DAG Validator, ExecuteSessionManager
 - `src/resilience/` — Stagnation Detector, Lateral Thinking Personas, Human Escalation
 - `src/skills/` — SkillRegistry, parser
-- `src/agent/` — AgentRegistry, FiguralRouter, multi-provider LLM
+- `src/agent/` — AgentRegistry, FiguralRouter, multi-provider LLM, RoleAgentRegistry, PassthroughAgentGenerator
 - `src/registry/` — BaseRegistry 추상 클래스
 - `src/mcp/` — MCP 서버 + 툴 핸들러
 - `src/events/` — EventStore (SQLite)
 - `src/llm/` — Anthropic SDK adapter
 - `src/cli/` — commander 기반 CLI (interview, spec, status, setup)
 - `schemas/` — JSON Schema (gestalt.schema.json)
+- `role-agents/` — 내장 Role Agent 정의 (architect, frontend-developer 등 8개)
 
 ## Conventions
 - MCP 서버에서 `console.log` 사용 금지 → stderr(`log()` 유틸)
