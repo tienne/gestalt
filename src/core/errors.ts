@@ -115,3 +115,10 @@ export class EvaluationError extends ExecuteError {
     this.name = 'EvaluationError';
   }
 }
+
+export class AgentCreationError extends GestaltError {
+  constructor(message: string) {
+    super(message, 'AGENT_CREATION_ERROR');
+    this.name = 'AgentCreationError';
+  }
+}

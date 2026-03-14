@@ -34,4 +34,11 @@ export enum EventType {
   EVOLVE_LATERAL_STARTED = 'evolve.lateral.started',
   EVOLVE_LATERAL_COMPLETED = 'evolve.lateral.completed',
   EVOLVE_HUMAN_ESCALATION = 'evolve.human.escalation',
+  // Role Agent System
+  ROLE_MATCH_STARTED = 'role.match.started',
+  ROLE_MATCH_COMPLETED = 'role.match.completed',
+  ROLE_CONSENSUS_STARTED = 'role.consensus.started',
+  ROLE_CONSENSUS_COMPLETED = 'role.consensus.completed',
+  // Agent Creation
+  AGENT_CREATED = 'agent.created',
 }
