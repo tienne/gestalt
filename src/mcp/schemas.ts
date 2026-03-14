@@ -42,6 +42,7 @@ export const executeInputSchema = z.object({
     'start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status',
     'evolve_fix', 'evolve', 'evolve_patch', 'evolve_re_execute',
     'evolve_lateral', 'evolve_lateral_result',
+    'role_match', 'role_consensus',
   ]),
   spec: z.object({
     version: z.string(),
@@ -156,6 +157,30 @@ export const executeInputSchema = z.object({
   terminateReason: z.enum(['caller']).optional()
     .describe('Caller-initiated termination (use with evolve action)'),
 
+  // ─── Role Agent System Fields ────────────────────────────
+  matchResult: z.array(z.object({
+    agentName: z.string(),
+    domain: z.array(z.string()),
+    relevanceScore: z.number().min(0).max(1),
+    reasoning: z.string(),
+  })).optional().describe('Role match results from LLM (for role_match action, call 2)'),
+
+  perspectives: z.array(z.object({
+    agentName: z.string(),
+    perspective: z.string(),
+    confidence: z.number().min(0).max(1),
+  })).optional().describe('Role perspectives from parallel LLM calls (for role_consensus action, call 1)'),
+
+  consensus: z.object({
+    consensus: z.string(),
+    conflictResolutions: z.array(z.string()),
+    perspectives: z.array(z.object({
+      agentName: z.string(),
+      perspective: z.string(),
+      confidence: z.number().min(0).max(1),
+    })),
+  }).optional().describe('Synthesized consensus result (for role_consensus action, call 2)'),
+
   lateralResult: z.object({
     persona: z.enum(['multistability', 'simplicity', 'reification', 'invariance']),
     specPatch: z.object({
@@ -179,6 +204,18 @@ export const executeInputSchema = z.object({
 });
 
 export type ExecuteInput = z.infer<typeof executeInputSchema>;
+
+// ─── Create Agent Tool ──────────────────────────────────────────
+export const agentCreateInputSchema = z.object({
+  action: z.enum(['start', 'submit']),
+  sessionId: z.string().describe('The interview session ID'),
+  agentContent: z.string().optional()
+    .describe('Complete AGENT.md content (frontmatter + body) to validate and save (required for submit)'),
+  cwd: z.string().optional()
+    .describe('Working directory where agents/ will be created (defaults to process.cwd())'),
+});
+
+export type AgentCreateInput = z.infer<typeof agentCreateInputSchema>;
 
 // ─── Status Tool ────────────────────────────────────────────────
 export const statusInputSchema = z.object({
