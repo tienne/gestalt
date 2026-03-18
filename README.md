@@ -18,6 +18,8 @@
 
 ### Claude Plugin (Recommended)
 
+Claude Code 마켓플레이스를 통해 설치하면 MCP 서버, Skill, Agent, CLAUDE.md가 자동 구성된다.
+
 ```bash
 # 1. 마켓플레이스 등록 (최초 1회)
 /plugin marketplace add tienne/gestalt
@@ -26,7 +28,22 @@
 /plugin install gestalt@gestalt
 ```
 
-Skills, agents, MCP tools, and CLAUDE.md are all configured automatically.
+플러그인 설치 시 포함되는 항목:
+
+| 항목 | 내용 |
+|------|------|
+| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_status` |
+| **Skills** | `/interview`, `/spec`, `/execute` (slash command) |
+| **Agents** | 5개 Gestalt Agent + 8개 Role Agent |
+| **CLAUDE.md** | 프로젝트 컨텍스트 및 MCP 사용 가이드 자동 주입 |
+
+설치 후 바로 사용 가능:
+
+```bash
+/interview "사용자 인증 시스템"    # 요구사항 인터뷰 시작
+/spec                             # 인터뷰 완료 후 Spec 생성
+/execute                          # Spec 기반 실행 계획 수립 및 실행
+```
 
 ### Claude Code MCP
 
