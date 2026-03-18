@@ -19,7 +19,8 @@ import { handleSpecPassthrough } from './tools/spec-passthrough.js';
 import { handleExecutePassthrough } from './tools/execute-passthrough.js';
 import { handleCreateAgentPassthrough } from './tools/create-agent-passthrough.js';
 import { handleStatus } from './tools/status.js';
-import { interviewInputSchema, specInputSchema, executeInputSchema, agentCreateInputSchema, statusInputSchema } from './schemas.js';
+import { handleBenchmarkPassthrough } from './tools/benchmark-passthrough.js';
+import { interviewInputSchema, specInputSchema, executeInputSchema, agentCreateInputSchema, benchmarkInputSchema, statusInputSchema } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
 import { RoleAgentRegistry } from '../agent/role-agent-registry.js';
@@ -256,14 +257,38 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     );
 
     server.tool(
+      'ges_benchmark',
+      'Run Gestalt pipeline benchmarks in passthrough mode. Actions: start (begin a scenario), respond (submit LLM response), status (check progress). No API key required — caller acts as the LLM.',
+      {
+        action: z.enum(['start', 'respond', 'status']).describe(
+          'start: begin benchmark scenario, respond: submit LLM response for current step, status: check benchmark progress',
+        ),
+        scenario: z.string().optional().describe('Scenario name for start: auth-system, dashboard, api-gateway'),
+        benchmarkSessionId: z.string().optional().describe('Benchmark session ID (required for respond/status)'),
+        response: z.string().optional().describe('JSON response from the caller LLM (required for respond)'),
+        usage: z.object({
+          inputTokens: z.number(),
+          outputTokens: z.number(),
+        }).optional().describe('Token usage from the caller LLM call (optional, for metrics)'),
+      },
+      (params) => {
+        const input = benchmarkInputSchema.parse(params);
+        const result = handleBenchmarkPassthrough(input);
+        return { content: [{ type: 'text' as const, text: result }] };
+      },
+    );
+
+    server.tool(
       'ges_status',
-      'Check the status of interview sessions.',
+      'Check the status of interview and execute sessions.',
       {
         sessionId: z.string().optional().describe('Specific session ID to check (omit for all sessions)'),
+        sessionType: z.enum(['interview', 'execute', 'all']).optional().default('all')
+          .describe('Filter by session type (default: all)'),
       },
       (params) => {
         const input = statusInputSchema.parse(params);
-        const result = handleStatusPassthrough(ptEngine, input);
+        const result = handleStatusPassthrough(ptEngine, ptExecuteEngine, input);
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );
@@ -310,13 +335,15 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
     server.tool(
       'ges_status',
-      'Check the status of interview sessions.',
+      'Check the status of interview and execute sessions.',
       {
         sessionId: z.string().optional().describe('Specific session ID to check (omit for all sessions)'),
+        sessionType: z.enum(['interview', 'execute', 'all']).optional().default('all')
+          .describe('Filter by session type (default: all)'),
       },
       (params) => {
         const input = statusInputSchema.parse(params);
-        const result = handleStatus(engine, input);
+        const result = handleStatus(engine, input, eventStore);
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );
@@ -325,10 +352,11 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   return { server, eventStore, skillRegistry, agentRegistry };
 }
 
-// Status handler for passthrough mode — uses PassthroughEngine instead of InterviewEngine
+// Status handler for passthrough mode — uses PassthroughEngine + PassthroughExecuteEngine
 function handleStatusPassthrough(
   engine: PassthroughEngine,
-  input: { sessionId?: string },
+  executeEngine: PassthroughExecuteEngine,
+  input: { sessionId?: string; sessionType?: 'interview' | 'execute' | 'all' },
 ): string {
   const updateResult = getCachedUpdateResult();
   const versionInfo = {
@@ -336,50 +364,167 @@ function handleStatusPassthrough(
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
   };
+  const sessionType = input.sessionType ?? 'all';
 
   try {
     if (input.sessionId) {
-      const session = engine.getSession(input.sessionId);
-      return JSON.stringify({
-        versionInfo,
-        session: {
-          sessionId: session.sessionId,
-          topic: session.topic,
-          status: session.status,
-          projectType: session.projectType,
-          totalRounds: session.rounds.length,
-          answeredRounds: session.rounds.filter((r) => r.userResponse).length,
-          ambiguityScore: session.ambiguityScore
-            ? {
-                overall: session.ambiguityScore.overall.toFixed(2),
-                isReady: session.ambiguityScore.isReady,
-              }
-            : null,
-          createdAt: session.createdAt,
-          updatedAt: session.updatedAt,
-        },
-      }, null, 2);
+      // Try interview first, then execute
+      try {
+        const session = engine.getSession(input.sessionId);
+        return JSON.stringify({
+          versionInfo,
+          type: 'interview',
+          session: {
+            sessionId: session.sessionId,
+            topic: session.topic,
+            status: session.status,
+            projectType: session.projectType,
+            totalRounds: session.rounds.length,
+            answeredRounds: session.rounds.filter((r) => r.userResponse).length,
+            ambiguityScore: session.ambiguityScore
+              ? {
+                  overall: session.ambiguityScore.overall.toFixed(2),
+                  isReady: session.ambiguityScore.isReady,
+                }
+              : null,
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt,
+          },
+        }, null, 2);
+      } catch {
+        // Not found in interview, try execute
+        const session = executeEngine.getSession(input.sessionId);
+        return JSON.stringify({
+          versionInfo,
+          type: 'execute',
+          session: formatExecuteSession(session),
+        }, null, 2);
+      }
     }
 
-    const sessions = engine.listSessions();
+    // List mode
+    const interviewSessions = (sessionType === 'interview' || sessionType === 'all')
+      ? engine.listSessions().map((s) => ({
+          sessionId: s.sessionId,
+          topic: s.topic,
+          status: s.status,
+          projectType: s.projectType,
+          totalRounds: s.rounds.length,
+          ambiguityScore: s.ambiguityScore?.overall.toFixed(2) ?? 'N/A',
+          createdAt: s.createdAt,
+        }))
+      : [];
+
+    const executeSessions = (sessionType === 'execute' || sessionType === 'all')
+      ? executeEngine.listSessions().map((s) => formatExecuteSessionSummary(s))
+      : [];
+
     return JSON.stringify({
       versionInfo,
-      sessions: sessions.map((s) => ({
-        sessionId: s.sessionId,
-        topic: s.topic,
-        status: s.status,
-        projectType: s.projectType,
-        totalRounds: s.rounds.length,
-        ambiguityScore: s.ambiguityScore?.overall.toFixed(2) ?? 'N/A',
-        createdAt: s.createdAt,
-      })),
-      total: sessions.length,
+      interviewSessions,
+      executeSessions,
+      total: { interview: interviewSessions.length, execute: executeSessions.length },
     }, null, 2);
   } catch (e) {
     return JSON.stringify({
       error: e instanceof Error ? e.message : String(e),
     }, null, 2);
   }
+}
+
+function formatExecuteSessionSummary(session: import('../core/types.js').ExecuteSession) {
+  const totalTasks = session.executionPlan?.atomicTasks.length ?? 0;
+  const completedTasks = session.taskResults.filter((t) => t.status === 'completed').length;
+  return {
+    sessionId: session.sessionId,
+    specId: session.specId,
+    status: session.status,
+    goal: session.spec.goal,
+    currentStep: session.currentStep,
+    hasPlan: !!session.executionPlan,
+    taskProgress: totalTasks > 0 ? `${completedTasks}/${totalTasks}` : null,
+    evaluationScore: session.evaluationResult?.overallScore ?? null,
+    goalAlignment: session.evaluationResult?.goalAlignment ?? null,
+    evaluateStage: session.evaluateStage ?? null,
+    evolveStage: session.evolveStage ?? null,
+    currentGeneration: session.currentGeneration,
+    lateralPersonas: session.lateralTriedPersonas.length > 0 ? session.lateralTriedPersonas : null,
+    terminationReason: session.terminationReason ?? null,
+    createdAt: session.createdAt,
+  };
+}
+
+function formatExecuteSession(session: import('../core/types.js').ExecuteSession) {
+  const totalTasks = session.executionPlan?.atomicTasks.length ?? 0;
+  const completedTasks = session.taskResults.filter((t) => t.status === 'completed').length;
+  const failedTasks = session.taskResults.filter((t) => t.status === 'failed').length;
+  const pendingTasks = totalTasks - completedTasks - failedTasks;
+  const totalACs = session.spec.acceptanceCriteria.length;
+  const satisfiedACs = session.evaluationResult
+    ? session.evaluationResult.verifications.filter((v) => v.satisfied).length
+    : 0;
+
+  return {
+    sessionId: session.sessionId,
+    specId: session.specId,
+    status: session.status,
+    goal: session.spec.goal,
+    currentStep: session.currentStep,
+    stepsCompleted: session.planningSteps.map((s) => s.principle),
+    hasPlan: !!session.executionPlan,
+    taskProgress: { total: totalTasks, completed: completedTasks, failed: failedTasks, pending: pendingTasks },
+    satisfiedACs: `${satisfiedACs}/${totalACs}`,
+    evaluateStage: session.evaluateStage ?? null,
+    hasEvaluation: !!session.evaluationResult,
+    evaluationScore: session.evaluationResult?.overallScore ?? null,
+    goalAlignment: session.evaluationResult?.goalAlignment ?? null,
+    driftAlerts: session.driftHistory.filter((d) => d.thresholdExceeded).length,
+    evolution: session.evolutionHistory.length > 0 ? {
+      scoreProgression: session.evolutionHistory.map((gen) => ({
+        generation: gen.generation,
+        score: gen.evaluationScore,
+        goalAlignment: gen.goalAlignment,
+        fieldsChanged: Object.keys(gen.delta).filter((k) => {
+          const val = gen.delta[k as keyof typeof gen.delta];
+          return Array.isArray(val) ? val.length > 0 : val !== undefined;
+        }),
+      })),
+      summary: summarizeEvolution(session),
+    } : null,
+    evolveStage: session.evolveStage ?? null,
+    currentGeneration: session.currentGeneration,
+    terminationReason: session.terminationReason ?? null,
+    lateral: session.lateralTriedPersonas.length > 0 ? {
+      triedPersonas: session.lateralTriedPersonas,
+      totalAttempts: session.lateralAttempts,
+      currentPersona: session.lateralCurrentPersona ?? null,
+      currentPattern: session.lateralCurrentPattern ?? null,
+    } : null,
+    roleAgent: session.roleMatches ? {
+      matchedAgents: session.roleMatches.map((m) => m.agentName),
+      hasConsensus: !!session.roleConsensus,
+    } : null,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+  };
+}
+
+function summarizeEvolution(session: import('../core/types.js').ExecuteSession): string {
+  const history = session.evolutionHistory;
+  if (history.length === 0) return 'No evolution';
+  const first = history[0]!;
+  const last = history[history.length - 1]!;
+  const scoreDelta = (last.evaluationScore - first.evaluationScore).toFixed(2);
+  const sign = Number(scoreDelta) >= 0 ? '+' : '';
+  const parts = [
+    `${history.length} generation${history.length > 1 ? 's' : ''}`,
+    `Score: ${first.evaluationScore.toFixed(2)} → ${last.evaluationScore.toFixed(2)} (${sign}${scoreDelta})`,
+    `Goal: ${first.goalAlignment.toFixed(2)} → ${last.goalAlignment.toFixed(2)}`,
+  ];
+  if (session.terminationReason) {
+    parts.push(`Terminated: ${session.terminationReason}`);
+  }
+  return parts.join(' | ');
 }
 
 export async function startMcpServer(configOverrides?: Partial<GestaltConfig>) {

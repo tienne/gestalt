@@ -217,6 +217,23 @@ export const agentCreateInputSchema = z.object({
 
 export type AgentCreateInput = z.infer<typeof agentCreateInputSchema>;
 
+// ─── Benchmark Tool ─────────────────────────────────────────────
+export const benchmarkInputSchema = z.object({
+  action: z.enum(['start', 'respond', 'status']),
+  scenario: z.string().optional()
+    .describe('Scenario name (required for start): auth-system, dashboard, api-gateway'),
+  benchmarkSessionId: z.string().optional()
+    .describe('Benchmark session ID (required for respond/status)'),
+  response: z.string().optional()
+    .describe('JSON response from the caller LLM (required for respond)'),
+  usage: z.object({
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+  }).optional().describe('Token usage from the caller LLM call (optional, for metrics)'),
+});
+
+export type BenchmarkInput = z.infer<typeof benchmarkInputSchema>;
+
 // ─── Status Tool ────────────────────────────────────────────────
 export const statusInputSchema = z.object({
   sessionId: z.string().optional(),
