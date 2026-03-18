@@ -7,6 +7,11 @@
   Transforms scattered requirements into structured, validated specifications through interactive interviews.
 </p>
 
+<p align="center">
+  <a href="https://github.com/tienne/gestalt/actions/workflows/ci.yml"><img src="https://github.com/tienne/gestalt/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://www.npmjs.com/package/@tienne/gestalt"><img src="https://img.shields.io/npm/v/@tienne/gestalt" alt="npm version" /></a>
+</p>
+
 ---
 
 ## Installation
@@ -255,6 +260,18 @@ Skill documentation (Markdown)
 
 커스텀 Skill은 `skills/` 디렉토리에 추가하면 **chokidar hot-reload**로 자동 로드된다.
 
+## Multi-provider LLM
+
+Agent System의 **FiguralRouter**가 에이전트의 tier에 따라 다른 LLM provider를 라우팅한다:
+
+| Tier | Provider | Model Example | Use Case |
+|---|---|---|---|
+| `frugal` | OpenAI | gpt-4o-mini | 반복적/저비용 태스크 (proximity-worker) |
+| `standard` | Anthropic | claude-sonnet | 일반 태스크 (closure-completer, ground-mapper) |
+| `frontier` | Anthropic | claude-opus | 고품질 판단 (continuity-judge) |
+
+이를 위해 `@anthropic-ai/sdk`와 `openai` 두 SDK가 모두 포함되어 있다. Passthrough 모드에서는 caller가 LLM 호출을 하므로 이 라우팅이 적용되지 않는다.
+
 ## Event Sourcing
 
 모든 세션 활동은 **SQLite WAL 모드 이벤트 스토어**에 기록된다.
@@ -335,9 +352,24 @@ Invalid values trigger a warning and fall back to defaults.
 | `GESTALT_AGENTS_DIR` | `agentsDir` | `agents` |
 | `GESTALT_LOG_LEVEL` | `logLevel` | `info` |
 
-## Passthrough Mode
+## Operating Modes
+
+Gestalt supports two operating modes:
+
+| Mode | API Key | LLM Calls | Use Case |
+|---|---|---|---|
+| **Passthrough** (default) | Not needed | Caller (e.g., Claude Code) | MCP 통합 환경에서 권장 |
+| **Provider-backed** | `ANTHROPIC_API_KEY` 필요 | Gestalt가 직접 호출 | 독립 실행 (CLI 등) |
+
+### Passthrough Mode
 
 Gestalt runs in passthrough mode by default: it returns prompts and context to the calling LLM (e.g., Claude Code) instead of making its own API calls. No `ANTHROPIC_API_KEY` needed.
+
+### Provider-backed Mode
+
+`ANTHROPIC_API_KEY`를 설정하면 Gestalt가 직접 LLM 호출을 수행한다. CLI 명령어(`gestalt interview`, `gestalt spec`)는 이 모드에서 동작한다.
+
+### N-Call Passthrough Pattern
 
 All MCP tools follow a consistent **N-Call Passthrough Pattern**:
 
@@ -352,6 +384,26 @@ Call N: Caller가 LLM으로 결과 생성 → 제출 및 검증
 | `ges_generate_spec` | 2-Call | specContext 요청 → spec JSON 제출 |
 | `ges_execute` | Multi-Call | plan (4-step) → execute → evaluate (2-stage) → evolve |
 | `ges_create_agent` | 2-Call | agentContext 요청 → agentContent 제출 |
+
+## Benchmarks
+
+`pnpm bench`로 파이프라인 벤치마크를 실행할 수 있다. 3개의 시나리오가 Interview → Spec → Execute → Evaluate 전체 파이프라인을 통과한다.
+
+```bash
+pnpm bench                          # 전체 시나리오 실행
+pnpm bench -s auth-system           # 특정 시나리오만 실행
+pnpm bench -o benchmarks/results    # 결과 출력 디렉토리 지정
+```
+
+### Latest Results
+
+| Scenario | Tasks | Completion | Score | Goal Alignment | ACs |
+|----------|-------|------------|-------|----------------|-----|
+| auth-system | 7 | 100% | 0.92 | 0.90 | 5/5 |
+| dashboard | 6 | 100% | 0.88 | 0.85 | 4/4 |
+| api-gateway | 8 | 100% | 0.95 | 0.92 | 5/5 |
+
+**Average Score: 0.92 | Average Goal Alignment: 0.89**
 
 ## License
 
