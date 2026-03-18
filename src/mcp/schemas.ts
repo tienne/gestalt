@@ -220,6 +220,7 @@ export type AgentCreateInput = z.infer<typeof agentCreateInputSchema>;
 // ─── Status Tool ────────────────────────────────────────────────
 export const statusInputSchema = z.object({
   sessionId: z.string().optional(),
+  sessionType: z.enum(['interview', 'execute', 'all']).optional().default('all'),
 });
 
 export type StatusInput = z.infer<typeof statusInputSchema>;
