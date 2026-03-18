@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import type { InterviewSession, AgentDefinition } from '../core/types.js';
 import { AgentCreationError } from '../core/errors.js';
 import { type Result, ok, err } from '../core/result.js';
