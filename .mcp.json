@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gestalt": {
+      "command": "node",
+      "args": ["/Users/kwon-david/dev/gestalt/dist/bin/gestalt.js", "serve"]
+    }
+  }
+}
