@@ -14,6 +14,21 @@
 
 ---
 
+## Prerequisites
+
+- **Node.js >= 20.0.0** (22.x recommended)
+
+```bash
+node --version  # v20.x.x 이상이어야 합니다
+```
+
+Node 18 이하에서는 MCP SDK의 ES2024 기능 호환성 문제로 실행이 실패합니다. [nvm](https://github.com/nvm-sh/nvm) 사용 시:
+
+```bash
+nvm install 22
+nvm use 22
+```
+
 ## Installation
 
 ### Claude Plugin (Recommended)
