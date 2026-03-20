@@ -20,6 +20,8 @@ import { handleExecutePassthrough } from './tools/execute-passthrough.js';
 import { handleCreateAgentPassthrough } from './tools/create-agent-passthrough.js';
 import { handleStatus } from './tools/status.js';
 import { handleBenchmarkPassthrough } from './tools/benchmark-passthrough.js';
+import { handleReviewPassthrough } from './tools/review-passthrough.js';
+import { PassthroughReviewEngine } from '../review/passthrough-engine.js';
 import { interviewInputSchema, specInputSchema, executeInputSchema, agentCreateInputSchema, benchmarkInputSchema, statusInputSchema } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
@@ -101,18 +103,20 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     roleAgentRegistry.loadAll();
 
     const ptExecuteEngine = new PassthroughExecuteEngine(eventStore, agentRegistry, roleAgentRegistry);
+    const ptReviewEngine = new PassthroughReviewEngine(eventStore);
 
     server.tool(
       'ges_execute',
-      'Execute a Spec specification using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result.',
+      'Execute a Spec specification using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result, review_start, review_submit, review_consensus, review_fix.',
       {
         action: z.enum([
           'start', 'plan_step', 'plan_complete', 'execute_start', 'execute_task', 'evaluate', 'status',
           'evolve_fix', 'evolve', 'evolve_patch', 'evolve_re_execute',
           'evolve_lateral', 'evolve_lateral_result',
           'role_match', 'role_consensus',
+          'review_start', 'review_submit', 'review_consensus', 'review_fix',
         ]).describe(
-          'start: begin execution planning, plan_step: submit a planning step result, plan_complete: assemble final plan, execute_start: start task execution, execute_task: submit task result, evaluate: start/submit evaluation, status: check session status, evolve_fix: start/submit structural fix, evolve: start contextual evolution, evolve_patch: submit spec patch, evolve_re_execute: submit re-execution task result, evolve_lateral: request next lateral thinking persona, evolve_lateral_result: submit lateral thinking result',
+          'start: begin execution planning, plan_step: submit a planning step result, plan_complete: assemble final plan, execute_start: start task execution, execute_task: submit task result, evaluate: start/submit evaluation, status: check session status, evolve_fix: start/submit structural fix, evolve: start contextual evolution, evolve_patch: submit spec patch, evolve_re_execute: submit re-execution task result, evolve_lateral: request next lateral thinking persona, evolve_lateral_result: submit lateral thinking result, review_start: start code review, review_submit: submit agent review, review_consensus: submit merged review, review_fix: start auto-fix loop',
         ),
         spec: z.object({
           version: z.string(),
@@ -227,6 +231,11 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
       (params) => {
         const input = executeInputSchema.parse(params);
+        // Route review actions to review engine
+        if (input.action.startsWith('review_')) {
+          const result = handleReviewPassthrough(ptReviewEngine, ptExecuteEngine, roleAgentRegistry, input);
+          return { content: [{ type: 'text' as const, text: result }] };
+        }
         const result = handleExecutePassthrough(ptExecuteEngine, input);
         return { content: [{ type: 'text' as const, text: result }] };
       },

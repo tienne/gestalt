@@ -41,4 +41,12 @@ export enum EventType {
   ROLE_CONSENSUS_COMPLETED = 'role.consensus.completed',
   // Agent Creation
   AGENT_CREATED = 'agent.created',
+  // Code Review
+  REVIEW_STARTED = 'review.started',
+  REVIEW_SUBMITTED = 'review.submitted',
+  REVIEW_CONSENSUS_COMPLETED = 'review.consensus.completed',
+  REVIEW_FIX_STARTED = 'review.fix.started',
+  REVIEW_FIX_COMPLETED = 'review.fix.completed',
+  REVIEW_PASSED = 'review.passed',
+  REVIEW_FAILED = 'review.failed',
 }

@@ -43,6 +43,7 @@ export const executeInputSchema = z.object({
     'evolve_fix', 'evolve', 'evolve_patch', 'evolve_re_execute',
     'evolve_lateral', 'evolve_lateral_result',
     'role_match', 'role_consensus',
+    'review_start', 'review_submit', 'review_consensus', 'review_fix',
   ]),
   spec: z.object({
     version: z.string(),
@@ -201,6 +202,41 @@ export const executeInputSchema = z.object({
     }),
     description: z.string(),
   }).optional().describe('Lateral thinking result (required for evolve_lateral_result)'),
+
+  // Code Review
+  reviewAgentName: z.string().optional()
+    .describe('Review agent name (required for review_submit)'),
+  reviewResult: z.object({
+    issues: z.array(z.object({
+      id: z.string(),
+      severity: z.enum(['critical', 'high', 'warning']),
+      category: z.string(),
+      file: z.string(),
+      line: z.number().optional(),
+      message: z.string(),
+      suggestion: z.string(),
+    })),
+    approved: z.boolean(),
+    summary: z.string(),
+  }).optional().describe('Individual agent review result (required for review_submit)'),
+  reviewConsensus: z.object({
+    mergedIssues: z.array(z.object({
+      id: z.string(),
+      severity: z.enum(['critical', 'high', 'warning']),
+      category: z.string(),
+      file: z.string(),
+      line: z.number().optional(),
+      message: z.string(),
+      suggestion: z.string(),
+      reportedBy: z.string(),
+    })),
+    approvedBy: z.array(z.string()),
+    blockedBy: z.array(z.string()),
+    summary: z.string(),
+    overallApproved: z.boolean(),
+  }).optional().describe('Merged review consensus (required for review_consensus)'),
+  reviewSessionId: z.string().optional()
+    .describe('Review session ID (required for review_submit, review_consensus, review_fix)'),
 });
 
 export type ExecuteInput = z.infer<typeof executeInputSchema>;

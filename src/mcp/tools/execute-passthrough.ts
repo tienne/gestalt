@@ -449,6 +449,9 @@ export function handleExecutePassthrough(
         message: `Lateral spec patch applied. ${impactedTaskIds.length} tasks need re-execution. Use reExecuteContext to implement the task.`,
       }, null, 2);
     }
+
+    default:
+      return formatError(`Unknown action: ${input.action}`);
   }
 }
 

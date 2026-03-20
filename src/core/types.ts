@@ -329,7 +329,7 @@ export interface ExecuteSession {
 
 // ─── Agent ──────────────────────────────────────────────────────
 export type AgentTier = 'frugal' | 'standard' | 'frontier';
-export type AgentPipeline = 'interview' | 'spec' | 'execute' | 'evaluate';
+export type AgentPipeline = 'interview' | 'spec' | 'execute' | 'evaluate' | 'review';
 export type LLMProvider = 'anthropic' | 'openai';
 
 export interface AgentFrontmatter {
@@ -373,6 +373,65 @@ export interface RoleGuidance {
   agents: RolePerspective[];
   consensus: string;
   conflictResolutions: string[];
+}
+
+// ─── Code Review System ─────────────────────────────────────────
+export type ReviewIssueSeverity = 'critical' | 'high' | 'warning';
+export type ReviewSessionStatus = 'started' | 'reviewing' | 'consensus' | 'fixing' | 'passed' | 'failed_with_report';
+
+export interface ReviewIssue {
+  id: string;
+  severity: ReviewIssueSeverity;
+  category: string;
+  file: string;
+  line?: number;
+  message: string;
+  suggestion: string;
+  reportedBy: string;
+}
+
+export interface ReviewResult {
+  agentName: string;
+  issues: ReviewIssue[];
+  approved: boolean;
+  summary: string;
+}
+
+export interface ReviewConsensusResult {
+  mergedIssues: ReviewIssue[];
+  approvedBy: string[];
+  blockedBy: string[];
+  summary: string;
+  overallApproved: boolean;
+}
+
+export interface ReviewReport {
+  markdown: string;
+  generatedAt: string;
+  attempt: number;
+  passed: boolean;
+}
+
+export interface ReviewContext {
+  changedFiles: string[];
+  dependencyFiles: string[];
+  spec: Spec;
+  taskResults: TaskExecutionResult[];
+}
+
+export interface ReviewSession {
+  sessionId: string;
+  executeSessionId: string;
+  status: ReviewSessionStatus;
+  currentAttempt: number;
+  maxAttempts: number;
+  reviewContext?: ReviewContext;
+  matchedAgents: string[];
+  reviewResults: ReviewResult[];
+  consensus?: ReviewConsensusResult;
+  reports: ReviewReport[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── Events ─────────────────────────────────────────────────────
