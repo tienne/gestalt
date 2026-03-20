@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Gestalt psychology-driven AI development harness",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "plugins": [
     {
       "name": "gestalt",
       "source": "./",
       "description": "Transform vague ideas into structured, validated specifications through Gestalt-driven interviews. Interview → Spec → Execute pipeline with 4 MCP tools.",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "author": {
         "name": "tienne",
         "email": "tienne89@gmail.com"
