@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-03-20
+
+### Added
+- **Code Review Pipeline**: Evolve 이후 최종 완료 직전에 PR 수준의 종합 코드리뷰 게이트 추가
+  - `review_start`, `review_submit`, `review_consensus`, `review_fix` 4개 action (ges_execute 통합)
+  - 카테고리별 리뷰 에이전트가 독립 리뷰 → 토론/병합 → 최종 합의
+  - critical/high 이슈 0건이면 통과, warning 허용
+  - 자동 수정 루프 최대 3회, 초과 시 마크다운 리포트로 사람에게 위임
+  - 수정 후 Structural 재검증(lint/build/test)만 수행, Contextual 스킵
+- **3개 코드리뷰 전용 에이전트**: security-reviewer, performance-reviewer, quality-reviewer
+- **ReviewReportGenerator**: 리뷰 결과 JSON → 마크다운 리포트 변환 (severity별 그룹핑, 통계 테이블)
+- **ReviewContextCollector**: 변경 파일 + import 의존성 분석으로 리뷰 범위 수집
+- **ReviewAgentMatcher**: 기존 Role Agent + 코드리뷰 전용 에이전트 통합 매칭
+- `REVIEW_*` 이벤트 7종 추가 (이벤트 소싱)
+- **벤치마크 시스템**: `ges_benchmark` MCP 도구, 3개 시나리오 (auth-system, dashboard, api-gateway)
+- **TUI 대시보드**: `gestalt monitor` CLI (ink 기반)
+- **ges_status 확장**: execute 세션 조회 + sessionType 필터
+- **GitHub Actions CI/CD** 워크플로우
+
+### Changed
+- `AgentPipeline` 타입에 `'review'` 추가
+- `ges_execute` action enum에 `review_start`, `review_submit`, `review_consensus`, `review_fix` 추가
+- `executeInputSchema`에 리뷰 관련 입력 필드 추가 (reviewResult, reviewConsensus, reviewSessionId 등)
+- execute-passthrough.ts에 default case 추가 (TS exhaustiveness)
+
 ## [0.2.0] - 2026-03-14
 
 ### Added
@@ -51,5 +76,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Seed → Spec 전면 리네이밍 (타입, 클래스, 필드, MCP 도구, 이벤트, CLI, 문서)
 
+[0.5.0]: https://github.com/tienne/gestalt/compare/v0.2.0...v0.5.0
 [0.2.0]: https://github.com/tienne/gestalt/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tienne/gestalt/releases/tag/v0.1.0
