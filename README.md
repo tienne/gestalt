@@ -19,6 +19,14 @@
 
 ---
 
+## What is Gestalt?
+
+Gestalt is an MCP server that runs inside Claude Code. It conducts structured requirement interviews, generates a validated **Spec** (a JSON document capturing your goal, constraints, and acceptance criteria), and transforms that Spec into a dependency-aware execution plan — all without a separate API key.
+
+> **Prerequisites:** Node.js >= 20.0.0. Use `nvm install 22 && nvm use 22` if needed.
+
+---
+
 ## See it in action
 
 > **30 seconds to a structured execution plan** — no API key needed.
@@ -324,13 +332,16 @@ Use any agent outside the pipeline with `/agent`:
 
 Custom Role Agents can be generated from interview results:
 
-```bash
+```
 # After completing an interview, generate a custom agent
-ges_create_agent({ action: "start", sessionId: "<id>" })
-# → returns agent creation context
 
-ges_create_agent({ action: "submit", sessionId: "<id>", agentContent: "..." })
-# → creates agents/{name}/AGENT.md
+# Step 1: Get agent creation context
+ges_create_agent  →  action: "start", sessionId: "<id>"
+                  →  returns agentContext (systemPrompt, creationPrompt, schema)
+
+# Step 2: Submit the generated AGENT.md content
+ges_create_agent  →  action: "submit", sessionId: "<id>", agentContent: "..."
+                  →  creates agents/{name}/AGENT.md
 ```
 
 ---
