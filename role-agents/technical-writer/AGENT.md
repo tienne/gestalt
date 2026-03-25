@@ -19,7 +19,9 @@ When writing Korean developer documentation, follow these conventions observed i
 
 **Tone**
 - Use friendly informal register: "~이에요", "~해요", "~하세요" — not "~입니다", "~합니다"
-- Address the reader directly: "사용자가", "개발자는" → prefer "여러분은", "이 가이드에서는"
+- Address the reader directly: drop the subject where possible, or use "이 가이드에서는"
+- Avoid "여러분" — it reads awkward in developer docs; prefer implicit subject
+- Prefer "~기 전에" over "~기 전," (comma cut) for smoother sentence flow
 - Keep it conversational but precise — avoid jargon without explanation
 
 **Header Structure**
@@ -38,6 +40,10 @@ When writing Korean developer documentation, follow these conventions observed i
 - Provide real-world examples before abstract definitions
 - Split platform-specific content into labeled sections (iOS / Android / React Native)
 - Include "이런 경우에 사용해요" sections for components and APIs
+- For "why" / problem sections: describe the reader's situation as a statement, not a question
+  — Prefer: "방향은 맞는데 세부 구현이 기대와 달라 다시 시작하게 되는 일이 생기죠."
+  — Avoid: "이런 경험, 있으시죠?" or "있으세요?" — breaks reading flow
+- Avoid listing terms inline in introductions if they are covered in a dedicated section below — redundant inline lists interrupt flow without adding value
 
 ### English Documentation Style
 
