@@ -5,7 +5,7 @@ import { parseAgentMd } from './parser.js';
 import type { AgentDefinition } from '../core/types.js';
 
 /**
- * RoleAgentRegistry: 내장 role-agents/ + 사용자 agents/ (role=true)를 병합.
+ * RoleAgentRegistry: 내장 role-agents/ + review-agents/ + 사용자 agents/ (role=true)를 병합.
  * 동일 이름은 커스텀이 오버라이드.
  */
 export class RoleAgentRegistry {
@@ -14,13 +14,19 @@ export class RoleAgentRegistry {
   constructor(
     private builtinDir: string,
     private customDir?: string,
+    private reviewDir?: string,
   ) {}
 
   loadAll(): void {
     // 1. 내장 role agents 로드
     this.loadFromDir(resolve(this.builtinDir));
 
-    // 2. 커스텀 디렉토리에서 role=true인 에이전트 로드 (오버라이드)
+    // 2. review agents 로드
+    if (this.reviewDir) {
+      this.loadFromDir(resolve(this.reviewDir));
+    }
+
+    // 3. 커스텀 디렉토리에서 role=true인 에이전트 로드 (오버라이드)
     if (this.customDir) {
       this.loadFromDir(resolve(this.customDir), true);
     }
@@ -52,6 +58,10 @@ export class RoleAgentRegistry {
 
   getAll(): AgentDefinition[] {
     return Array.from(this.agents.values());
+  }
+
+  getByPipeline(pipeline: string): AgentDefinition[] {
+    return this.getAll().filter((a) => a.frontmatter.pipeline === pipeline);
   }
 
   getByName(name: string): AgentDefinition | undefined {

@@ -20,6 +20,7 @@ import { handleExecutePassthrough } from './tools/execute-passthrough.js';
 import { handleCreateAgentPassthrough } from './tools/create-agent-passthrough.js';
 import { handleStatus } from './tools/status.js';
 import { handleBenchmarkPassthrough } from './tools/benchmark-passthrough.js';
+import { handleAgentPassthrough } from './tools/agent-passthrough.js';
 import { handleReviewPassthrough } from './tools/review-passthrough.js';
 import { PassthroughReviewEngine } from '../review/passthrough-engine.js';
 import { interviewInputSchema, specInputSchema, executeInputSchema, agentCreateInputSchema, benchmarkInputSchema, statusInputSchema } from './schemas.js';
@@ -99,7 +100,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
     );
 
-    const roleAgentRegistry = new RoleAgentRegistry(config.roleAgentsDir, config.agentsDir);
+    const roleAgentRegistry = new RoleAgentRegistry(config.roleAgentsDir, config.agentsDir, config.reviewAgentsDir);
     roleAgentRegistry.loadAll();
 
     const ptExecuteEngine = new PassthroughExecuteEngine(eventStore, agentRegistry, roleAgentRegistry);
@@ -261,6 +262,24 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       (params) => {
         const input = agentCreateInputSchema.parse(params);
         const result = handleCreateAgentPassthrough(ptEngine, ptAgentGen, input);
+        return { content: [{ type: 'text' as const, text: result }] };
+      },
+    );
+
+    server.tool(
+      'ges_agent',
+      'List available agents or retrieve a specific agent\'s system prompt for standalone use — no pipeline required. Actions: list (get all role/review agents), get (retrieve agent by name).',
+      {
+        action: z.enum(['list', 'get']).describe(
+          'list: get all available agents grouped by type, get: retrieve a specific agent\'s systemPrompt',
+        ),
+        name: z.string().optional().describe('Agent name (required for action=get, e.g. "architect", "security-reviewer")'),
+      },
+      (params) => {
+        const result = handleAgentPassthrough(roleAgentRegistry, {
+          action: params.action,
+          name: params.name,
+        });
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );
