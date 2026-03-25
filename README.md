@@ -21,7 +21,7 @@
 
 ## What is Gestalt?
 
-Gestalt is an MCP server that runs inside Claude Code. It conducts structured requirement interviews, generates a validated **Spec** (a JSON document capturing your goal, constraints, and acceptance criteria), and transforms that Spec into a dependency-aware execution plan — all without a separate API key.
+Gestalt is an MCP (Model Context Protocol) server that runs inside Claude Code. It conducts structured requirement interviews, generates a validated **Spec** (a JSON document capturing your goal, constraints, and acceptance criteria), and transforms that Spec into a dependency-aware execution plan — all without a separate API key.
 
 > **Prerequisites:** Node.js >= 20.0.0. Use `nvm install 22 && nvm use 22` if needed.
 
@@ -42,8 +42,7 @@ Gestalt is an MCP server that runs inside Claude Code. It conducts structured re
 /execute
 ```
 
-![Gestalt Demo](./docs/demo.gif)
-_(demo coming soon)_
+_(Demo coming soon.)_
 
 ---
 
@@ -55,19 +54,17 @@ Gestalt addresses this at the source. Before any code is written, it runs a stru
 
 ### The Five Gestalt Principles
 
-```
-Closure      → Finds what's missing (fills in implicit requirements)
-Proximity    → Groups related features and tasks by domain
-Similarity   → Identifies repeating patterns across requirements
-Figure-Ground → Separates MVP (figure) from nice-to-have (ground)
-Continuity   → Validates dependency chains, detects contradictions
-```
+- **Closure** — Finds what's missing; fills in implicit requirements
+- **Proximity** — Groups related features and tasks by domain
+- **Similarity** — Identifies repeating patterns across requirements
+- **Figure-Ground** — Separates MVP (figure) from nice-to-have (ground)
+- **Continuity** — Validates dependency chains; detects contradictions
 
 > "The whole is greater than the sum of its parts." — Aristotle
 
-### Passthrough Mode — No API Key Required
+### How does Passthrough Mode work?
 
-Gestalt runs as an **MCP server**. When used through Claude Code, Claude Code acts as the LLM — Gestalt returns prompts and context, and Claude Code does the reasoning. No separate API calls are made by the server.
+Gestalt runs as an **MCP server**. Claude Code acts as the LLM: Gestalt returns prompts and context, and Claude Code does the reasoning. The server makes no API calls.
 
 ```
 You (in Claude Code)
@@ -164,13 +161,13 @@ Or edit `~/.claude/settings.json` directly:
 
 ### Step 1 — Interview
 
-Run the interview command with a topic — it can be as rough as a single sentence.
+Start with any topic. A single rough sentence is enough.
 
 ```bash
 /interview "I want to build a checkout flow with Stripe"
 ```
 
-Gestalt conducts a multi-round interview, with each round targeting a specific ambiguity dimension:
+Gestalt conducts a multi-round interview. Each round targets a specific ambiguity dimension:
 
 - **Closure** — What's missing? What did you assume but not say?
 - **Proximity** — Which features belong together?
@@ -220,7 +217,7 @@ Transforms the Spec into a dependency-aware execution plan and runs it:
 
 | Step | Principle | What it does |
 |:---:|-----------|-------------|
-| 1 | **Figure-Ground** | Classifies ACs as critical (figure) vs. supplementary (ground) |
+| 1 | **Figure-Ground** | Classifies acceptance criteria (ACs) as critical (figure) vs. supplementary (ground) |
 | 2 | **Closure** | Decomposes ACs into atomic tasks, including implicit ones |
 | 3 | **Proximity** | Groups related tasks by domain into logical task groups |
 | 4 | **Continuity** | Validates the dependency DAG — no cycles, clear topological order |
@@ -235,7 +232,7 @@ Transforms the Spec into a dependency-aware execution plan and runs it:
 
 ### Step 4 — Evaluate
 
-After execution, a 2-stage evaluation runs:
+Execution triggers a 2-stage evaluation:
 
 | Stage | Method | On failure |
 |:---:|-------|-----------|
@@ -290,7 +287,7 @@ When all 4 personas are exhausted, the session terminates with **Human Escalatio
 
 ### Step 6 — Code Review
 
-After evolution completes, the code review pipeline runs automatically:
+When evolution finishes, code review starts automatically:
 
 ```
 review_start → agents submit perspectives → consensus → auto-fix
@@ -330,11 +327,9 @@ Use any agent outside the pipeline with `/agent`:
 /agent technical-writer "write a README for this module"
 ```
 
-Custom Role Agents can be generated from interview results:
+Generate custom Role Agents from interview results:
 
 ```
-# After completing an interview, generate a custom agent
-
 # Step 1: Get agent creation context
 ges_create_agent  →  action: "start", sessionId: "<id>"
                   →  returns agentContext (systemPrompt, creationPrompt, schema)
@@ -420,7 +415,7 @@ Invalid values emit a warning and fall back to defaults.
 ## Architecture
 
 ![Gestalt Architecture](./docs/architecture.png)
-_(diagram coming soon)_
+_(Diagram coming soon.)_
 
 ```
 Claude Code (you)
