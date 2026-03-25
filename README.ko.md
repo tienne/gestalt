@@ -67,7 +67,7 @@ Continuity    → 의존성 체인을 검증하고 모순을 감지해요
 
 > "전체는 부분의 합보다 크다." — 아리스토텔레스
 
-### Passthrough 모드 — API 키가 필요 없어요
+### Passthrough 모드는 어떻게 작동하나요?
 
 Gestalt는 **MCP 서버**로 실행돼요. Claude Code를 통해 사용할 경우 Claude Code가 LLM 역할을 담당해요 — Gestalt는 프롬프트와 컨텍스트를 반환하고, 실제 추론은 Claude Code가 수행해요. 서버 자체는 별도 API 호출을 하지 않아요.
 
