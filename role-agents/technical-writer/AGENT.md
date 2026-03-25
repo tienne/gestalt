@@ -101,6 +101,15 @@ Choose the document type based on **what the reader needs to do**:
 **시작하기 vs 튜토리얼**: 시작하기 = 주요 흐름 파악 + 간단한 설치, 튜토리얼 = 명확한 결과물이 있는 단계별 실습
 **가이드 vs 트러블슈팅**: 가이드 = 기능 구현 절차, 트러블슈팅 = 이미 발생한 문제 진단
 
+**Document type determines how to open and how deep to explain:**
+
+| Type | Opens with | Explanation depth |
+|------|-----------|-------------------|
+| **Learning** | Goal statement — "이 가이드를 마치면 X를 할 수 있어요." | Define all new concepts immediately; reader is learning from scratch |
+| **Problem-Solving** | Problem statement — specific error, symptom, or failure condition | Trust domain knowledge; define only what's specific to this problem |
+| **Reference** | Declarative definition — "X는 Y다" (Jo Suyong style: cut straight to the definition) | Minimal prose; let the spec table carry the information |
+| **Explanation** | Why it exists — the problem this technology was created to solve | Rich context; define all terms; use diagrams; leave room for the reader to think |
+
 ### API Reference
 - Method signature first, description second
 - Parameter table: name / type / required / default / description
@@ -156,9 +165,12 @@ Apply these principles when structuring any document:
 
 **Heading rules**
 - Keep headings under 30 characters
-- Write headings as plain sentences — no question marks or exclamation points
+- Match heading form to the section's purpose — do not apply one style universally:
+  - Concept sections: Q&A form — "~은 무엇인가요?", "~을 써야 하는 이유는?"
+  - Task sections: Action-oriented — "시작하기", "설치하는 방법"
+  - Reference sections: Noun keyword — "요청 파라미터", "응답 형식"
 - Include the core keyword in the heading
-- Use the same grammatical form across sibling headings (all noun-form or all verb-form — never mixed)
+- Use consistent grammatical form across sibling headings within the same section — never mix forms
   — Don't: `## 키워드를 포함하세요 / ## 일관성 유지 / ## 평서문으로 작성하기`
   — Do: `## 키워드 포함하기 / ## 일관성 유지하기 / ## 평서문으로 작성하기`
 
@@ -175,10 +187,14 @@ Apply these principles when structuring any document:
   — Do: `## 기본적인 사용법 / ## 비동기 데이터 요청하기`
 - Use the same term for the same concept throughout — don't vary wording for style
 
-**Define new concepts immediately**
-- When introducing a term the reader may not know, define it in 1–2 sentences right there
-  — Don't: "이 서비스는 이벤트 소싱 방식을 사용해 상태를 관리합니다."
-  — Do: "이 서비스는 이벤트 소싱(Event Sourcing) 방식을 사용해 상태를 관리합니다. 이벤트 소싱은 상태의 최종 결과만 저장하는 대신, 상태 변화를 일으킨 모든 이벤트를 기록하는 방식입니다."
+**Define new concepts — context-dependent**
+- Learning documents: define every new term immediately in 1–2 sentences; reader cannot fill the gap
+- Explanation documents: define terms and leave room to think — give the definition, then trust the reader to connect it
+- Problem-Solving documents: assume domain knowledge; only define what is specific to this issue
+- Reference documents: omit prose definitions unless the term is non-standard; let the parameter table speak
+  — Don't (Reference): "이 서비스는 이벤트 소싱 방식을 사용해 상태를 관리합니다. 이벤트 소싱은 상태의 최종 결과만 저장하는 대신…" (too much prose in a reference)
+  — Do (Reference): `` `eventSourcing` `boolean` — 이벤트 소싱 활성화 여부. 기본값: `false` ``
+  — Do (Learning/Explanation): "이 서비스는 이벤트 소싱(Event Sourcing)으로 상태를 관리해요. 이벤트 소싱은 상태의 최종 값 대신 변화를 일으킨 모든 이벤트를 기록하는 방식이에요."
 
 ## Output Format
 
