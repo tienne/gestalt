@@ -45,6 +45,28 @@ When writing Korean developer documentation, follow these conventions observed i
   — Avoid: "이런 경험, 있으시죠?" or "있으세요?" — breaks reading flow
 - Avoid listing terms inline in introductions if they are covered in a dedicated section below — redundant inline lists interrupt flow without adding value
 
+**Korean Sentence Writing**
+- Reader is the subject: write so the developer is the actor — use active constructions
+  — Don't: "설정이 완료되어야 합니다." → Do: "설정을 완료하세요."
+  — Don't: "이 라이브러리는 초기화를 수행해요." → Do: "이 명령어로 초기화하세요."
+  — Exception: when describing what a tool/system does on its own, the tool can be the subject
+- One idea per sentence — split compound sentences that use "~하고", "~하며", "~한 후"
+  — Don't: "설정 파일을 변경한 후 저장하고, 변경 사항이 적용되었는지 확인한 다음, 서버를 재시작하세요."
+  — Do: "설정 파일을 변경한 후 저장하세요. 변경 사항이 적용됐는지 확인하고, 필요하면 서버를 재시작하세요."
+- No meta-discourse — remove filler transitions that add noise without meaning
+  — Remove: "앞서 설명했듯이", "다음으로", "결론적으로", "아시겠지만"
+- Remove unnecessary Sino-Korean action nouns — 수행하다, 진행하다, 실시하다 add no meaning
+  — Don't: "로그 파일 삭제 작업을 수행합니다." → Do: "로그 파일을 삭제합니다."
+  — Don't: "배포 진행이 가능합니다." → Do: "배포할 수 있습니다."
+- Avoid translation-ese — convert English noun chains into natural Korean verb constructions
+  — Don't: "API 키를 이용한 사용자 인증 처리가 완료된 후, 데이터베이스 접속 설정 진행이 가능합니다."
+  — Do: "API 키로 사용자를 인증한 후, 데이터베이스에 접속하도록 설정할 수 있습니다."
+- Consistent terminology — pick one term and use it throughout; never mix synonyms
+  — Don't: "파일을 추가하려면… 파일을 첨부한 후… 파일을 다시 넣을 수 있습니다."
+  — Do: "파일을 업로드하려면… 파일을 업로드한 후… 파일을 다시 업로드할 수 있습니다."
+- Abbreviations on first use: write out in full with the abbreviation in parentheses, no space before `(`
+  — Don't: "이 기능은 SSR을 지원합니다." → Do: "이 기능은 SSR(Server-Side Rendering)을 지원합니다."
+
 ### English Documentation Style
 
 Follow conventions aligned with Stripe, Vercel, and similar developer-first docs:
@@ -66,6 +88,18 @@ When writing or reviewing documentation, evaluate:
 6. **Navigation**: Are section anchors provided? Is there a clear table of contents for longer docs?
 
 ## Document Types
+
+Choose the document type based on **what the reader needs to do**:
+
+| Type | Reader's goal | Korean examples |
+|------|---------------|-----------------|
+| **Learning** | Understand a new technology end-to-end | 시작하기, 튜토리얼 |
+| **Problem-Solving** | Fix a specific issue they've hit | 트러블슈팅, How-to 가이드 |
+| **Reference** | Look up exact specs quickly | API 레퍼런스, Props 목록 |
+| **Explanation** | Deeply understand a concept or design decision | 아키텍처 개요, 동작 원리 |
+
+**시작하기 vs 튜토리얼**: 시작하기 = 주요 흐름 파악 + 간단한 설치, 튜토리얼 = 명확한 결과물이 있는 단계별 실습
+**가이드 vs 트러블슈팅**: 가이드 = 기능 구현 절차, 트러블슈팅 = 이미 발생한 문제 진단
 
 ### API Reference
 - Method signature first, description second
@@ -94,6 +128,57 @@ When writing or reviewing documentation, evaluate:
 - Step-by-step with numbered sections
 - Expected output at each step
 - Troubleshooting section for common errors
+
+### Problem-Solving (How-to / Troubleshooting)
+- Open with a clear problem definition — distinguish between cause and symptom; include error messages or log examples
+- Provide immediately applicable solutions: code snippets, commands, or config changes
+- Explain the underlying principle, not just the fix
+- Account for environment differences (OS, library versions, etc.)
+
+### Explanation (Concept / Architecture)
+- Start with why this technology exists — the problem it was created to solve
+- Provide background and context before diving into mechanics
+- Use diagrams, flow charts, and tables to visualize complex relationships
+- State what prior knowledge the reader needs upfront
+
+## Information Architecture
+
+Apply these principles when structuring any document:
+
+**One topic per page**
+- If heading depth reaches H4, treat it as a signal to split into a separate page
+- Use an index/overview page to link related sub-pages
+
+**Value first**
+- Open with what the reader gains, not how the feature was built
+  — Don't: "리버스 프록시 설정은 2019년에 도입되었고…"
+  — Do: "리버스 프록시 설정을 적용하면 네트워크 지연 문제를 최소화할 수 있어요."
+
+**Heading rules**
+- Keep headings under 30 characters
+- Write headings as plain sentences — no question marks or exclamation points
+- Include the core keyword in the heading
+- Use the same grammatical form across sibling headings (all noun-form or all verb-form — never mixed)
+  — Don't: `## 키워드를 포함하세요 / ## 일관성 유지 / ## 평서문으로 작성하기`
+  — Do: `## 키워드 포함하기 / ## 일관성 유지하기 / ## 평서문으로 작성하기`
+
+**Overview placement**
+- Place the overview immediately after the page title, before any section
+- Answer: "What will I be able to do after reading this?"
+  — Don't: "이 문서는 TypeScript 유틸리티 타입을 소개합니다." (no reader benefit)
+  — Do: "TypeScript 유틸리티 타입으로 반복적인 타입 선언을 줄이는 방법을 알아봐요."
+
+**Predictable structure**
+- Description before code — never lead with a code block without context
+- Logical ordering: basic concept → usage → examples → advanced/edge cases
+  — Don't: `## 비동기 데이터 요청하기 / ## 기본적인 사용법`
+  — Do: `## 기본적인 사용법 / ## 비동기 데이터 요청하기`
+- Use the same term for the same concept throughout — don't vary wording for style
+
+**Define new concepts immediately**
+- When introducing a term the reader may not know, define it in 1–2 sentences right there
+  — Don't: "이 서비스는 이벤트 소싱 방식을 사용해 상태를 관리합니다."
+  — Do: "이 서비스는 이벤트 소싱(Event Sourcing) 방식을 사용해 상태를 관리합니다. 이벤트 소싱은 상태의 최종 결과만 저장하는 대신, 상태 변화를 일으킨 모든 이벤트를 기록하는 방식입니다."
 
 ## Output Format
 
