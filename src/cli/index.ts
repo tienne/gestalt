@@ -25,8 +25,9 @@ export function createCli(): Command {
   program
     .command('interview [topic]')
     .description('Start an interactive Gestalt interview')
-    .action(async (topic: string | undefined) => {
-      await interviewCommand(topic ?? 'Untitled project');
+    .option('-r, --record', 'Record terminal output as GIF')
+    .action(async (topic: string | undefined, options: { record?: boolean }) => {
+      await interviewCommand(topic ?? 'Untitled project', options);
     });
 
   program
