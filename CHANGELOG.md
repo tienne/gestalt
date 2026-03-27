@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-03-27
+
+### Added
+- **Terminal Recording**: `gestalt interview --record` 플래그로 인터뷰 세션 전체를 GIF로 녹화
+  - `TerminalRecorder`: `process.stdout.write` 인터셉션으로 NDJSON `.frames` 파일에 실시간 저장
+  - `GifGenerator`: jimp(텍스트 렌더링) + gifencoder(GIF 인코딩) — 외부 바이너리 없음
+  - `FilenameGenerator`: LLM이 인터뷰 주제 기반 kebab-case slug + YYYYMMDD 날짜로 파일명 자동 생성
+  - `SegmentMerger`: 복수 세그먼트 병합 + 5초 이상 갭 3초 압축
+  - `ResumeDetector`: `.frames` 파일 존재 시 `--record` 없이도 자동으로 이어서 녹화
+  - GIF 생성 완료 후 임시 `.frames` 파일 자동 삭제
+
 ## [0.5.1] - 2026-03-20
 
 ### Added

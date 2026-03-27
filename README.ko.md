@@ -356,6 +356,9 @@ ges_create_agent  →  action: "submit", sessionId: "<id>", agentContent: "..."
 # 인터랙티브 인터뷰 시작
 npx @tienne/gestalt interview "주제"
 
+# 터미널 세션을 GIF로 녹화
+npx @tienne/gestalt interview "주제" --record
+
 # 완료된 세션에서 Spec 생성
 npx @tienne/gestalt spec <session-id>
 
@@ -368,6 +371,24 @@ npx @tienne/gestalt setup
 # MCP 서버 수동 시작
 npx @tienne/gestalt serve
 ```
+
+#### 인터뷰 세션 녹화
+
+`--record` (또는 `-r`) 플래그를 추가하면 터미널 세션을 GIF로 녹화할 수 있어요:
+
+```bash
+npx @tienne/gestalt interview "주제" --record
+```
+
+인터뷰가 완료되면 현재 디렉토리에 GIF 파일이 생성돼요:
+
+```
+user-auth-interview-20260327.gif
+```
+
+파일명은 LLM이 인터뷰 주제를 기반으로 kebab-case로 생성하고, `YYYYMMDD` 날짜를 붙여요. 외부 바이너리는 필요하지 않아요 — `gifencoder`와 `jimp` npm 패키지만 사용해요.
+
+**중단된 세션 이어 녹화:** 녹화 중 세션이 중단되더라도 걱정하지 않아도 돼요. 동일 세션을 다시 실행하면 `.frames` 파일을 자동으로 감지해 이어서 녹화해요. 임시 프레임 데이터는 `.gestalt/recordings/{sessionId}.frames`에 저장되고, GIF 생성이 완료되면 자동으로 삭제돼요.
 
 ---
 
