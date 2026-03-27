@@ -444,3 +444,37 @@ export interface DomainEvent<T = unknown> {
   timestamp: string;
   createdAt: string;
 }
+
+// ─── Recording ──────────────────────────────────────────────────
+
+/** 단일 터미널 출력 프레임 — NDJSON으로 .frames 파일에 append */
+export interface TerminalFrame {
+  timestamp: number;    // Date.now() ms
+  data: string;         // ANSI 포함 raw 출력 데이터
+  cols: number;
+  rows: number;
+}
+
+/** 하나의 연속 녹화 구간 (.frames 파일 1개에 대응) */
+export interface RecordingSegment {
+  sessionId: string;
+  framesPath: string;   // .gestalt/recordings/{sessionId}.frames
+  startedAt: number;    // timestamp ms
+  endedAt?: number;
+}
+
+/** 활성 녹화 세션 상태 */
+export interface RecordingSession {
+  sessionId: string;
+  segments: RecordingSegment[];
+  isRecording: boolean;
+  isResuming: boolean;
+}
+
+/** GIF 생성 결과 */
+export interface GifOutput {
+  filePath: string;
+  sizeBytes: number;
+  frameCount: number;
+  durationMs: number;
+}
