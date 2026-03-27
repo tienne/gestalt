@@ -1,28 +1,34 @@
-# 5단계: Evolve — 실패한 실행을 진화시키다
+# 5단계: Evolve — 실패한 실행을 진화시키기
 
-> Evaluate가 "아직 부족하다"고 판정했을 때 Evolve가 시작된다. 단순히 재실행하는 게 아니라, 무엇이 잘못됐는지를 진단하고 Spec 자체를 수술하거나 관점을 바꿔 새로운 해결책을 찾는다.
+> Evaluate가 "아직 부족해요"라고 판정하면 Evolve가 시작돼요. 단순 재실행이 아니라, 실패 원인을 진단하고 Spec 자체를 수정하거나 관점을 바꿔 새 해결책을 찾아요.
 
 ---
 
-## 무엇을 하는가
+## Evolve는 어떤 일을 하나요?
 
-Evaluate 점수가 성공 임계값 미달일 때 Evolve는 세 가지 흐름(Flow A/B/C) 중 하나로 분기한다. 각 흐름은 실패 원인에 맞는 처방을 적용한 뒤 re-evaluate를 통해 수렴을 시도한다.
+Evaluate 점수가 성공 임계값에 미달하면 Evolve가 실행돼요. 실패 원인에 따라 세 가지 흐름 중 하나로 분기해요.
+
+- **Flow A — Structural Fix**: 빌드·린트·테스트가 실패한 경우
+- **Flow B — Contextual Evolution**: 구조는 통과했지만 요구사항 충족이 부족한 경우
+- **Flow C — Lateral Thinking**: 반복 시도에도 개선이 없는 경우
+
+각 흐름은 처방을 적용한 뒤 re-evaluate로 수렴을 시도해요.
 
 ---
 
 ## 게슈탈트 원리 적용
 
-Evolve는 **전체 5원리의 동적 조합**으로 작동한다.
+Evolve는 전체 5원리를 동적으로 조합해서 작동해요.
 
-- **폐쇄성**: 미완성된 구현의 빈틈을 찾아 채운다 (Flow A — Structural Fix)
-- **연속성**: Spec과 구현의 흐름 단절을 감지하고 수정한다 (Flow B — Spec Patch)
-- **다중안정성(Multistability)**: 막혔을 때 다른 각도로 문제를 재구성한다 (Flow C — Lateral Thinking)
+- **폐쇄성**: 미완성 구현의 빈틈을 찾아 채워요 (Flow A)
+- **연속성**: Spec과 구현의 흐름 단절을 감지하고 수정해요 (Flow B)
+- **다중안정성(Multistability)**: 막혔을 때 다른 각도로 문제를 재구성해요 (Flow C)
 
 ---
 
 ## Flow A: Structural Fix
 
-Evaluate Structural Stage 실패 시 진입한다.
+Evaluate Structural Stage가 실패하면 진입해요.
 
 ```
 // 1. Fix 컨텍스트 요청
@@ -49,22 +55,24 @@ ges_execute({
 ges_execute({ action: "evaluate", sessionId: "<id>" })
 ```
 
-최대 **3회** 재시도. 초과 시 `terminationReason: 'hard_cap'`.
+최대 **3회** 재시도할 수 있어요. 초과하면 `terminationReason: 'hard_cap'`으로 종료돼요.
 
 ---
 
 ## Flow B: Contextual Evolution
 
-Structural은 통과했지만 Contextual 점수 미달 시 진입한다.
+Structural은 통과했지만 Contextual 점수가 미달이면 진입해요.
 
-### Spec Patch 범위 제한 (L1~L4 계층)
+### Spec Patch는 어느 범위까지 수정할 수 있나요?
 
-| 계층 | 대상 | 변경 가능 여부 |
+Spec은 4개 계층으로 나뉘어요. 계층마다 수정 가능 범위가 달라요.
+
+| 계층 | 대상 | 수정 범위 |
 |:---:|:---|:---|
-| L1 | `acceptanceCriteria` | 자유 추가/수정/삭제 |
-| L2 | `constraints` | 자유 추가/수정/삭제 |
-| L3 | `ontologySchema` | 추가·변경만 허용, 삭제 금지 |
-| L4 | `goal` | **변경 금지** |
+| **L1** | `acceptanceCriteria` | 추가 · 수정 · 삭제 모두 가능 |
+| **L2** | `constraints` | 추가 · 수정 · 삭제 모두 가능 |
+| **L3** | `ontologySchema` | 추가 · 변경만 허용, **삭제 금지** |
+| **L4** | `goal` | **변경 금지** |
 
 소스: `src/execute/spec-patch-validator.ts`
 
@@ -72,8 +80,8 @@ Structural은 통과했지만 Contextual 점수 미달 시 진입한다.
 // 1. Evolution 컨텍스트 요청
 ges_execute({ action: "evolve", sessionId: "<id>" })
 → evolveContext 반환 (현재 점수, 미충족 AC, 드리프트 요약)
-  또는 stagnation/oscillation 감지 시 → lateralContext 반환 (Flow C 자동 분기)
-  또는 hard_cap/caller 종료 시 → terminateReason 반환
+  stagnation/oscillation 감지 시 → lateralContext 반환 (Flow C 자동 분기)
+  hard_cap/caller 종료 시 → terminateReason 반환
 
 // 2. Spec Patch 제출
 ges_execute({
@@ -104,22 +112,22 @@ ges_execute({
 ges_execute({ action: "evaluate", sessionId: "<id>" })
 ```
 
-최대 **3회** 반복. 초과 시 Flow C로 자동 분기.
+최대 **3회** 반복할 수 있어요. 초과하면 Flow C로 자동 분기돼요.
 
 ---
 
 ## Flow C: Lateral Thinking
 
-Stagnation/Oscillation 감지 시 Evolve에서 자동 분기한다. 게슈탈트 심리학의 확장 개념 4가지 Persona가 각기 다른 관점으로 Spec을 재구성한다.
+Stagnation 또는 Oscillation이 감지되면 Evolve에서 자동 분기해요. 게슈탈트 심리학의 확장 개념에서 가져온 4가지 Persona가 각기 다른 관점으로 Spec을 재구성해요.
 
-### Stagnation 패턴 → Persona 매핑
+### 어떤 패턴에 어떤 Persona가 매핑되나요?
 
 | 패턴 | 감지 조건 | Persona | 전략 |
 |:---|:---|:---|:---|
-| `spinning` | hard_cap 도달 | **Multistability** | 같은 요소를 다른 각도로 재해석 |
-| `oscillation` | 점수가 up/down 반복 | **Simplicity** | 요구사항을 단순화해 핵심만 남기기 |
-| `no_drift` | delta ≈ 0, 변화 없음 | **Reification** | 암묵적으로 빠진 조각을 명시적으로 채우기 |
-| `diminishing_returns` | delta 점점 감소 | **Invariance** | 성공한 패턴을 다른 영역에 복제 |
+| `spinning` | hard_cap 도달 | **Multistability** | 같은 요소를 다른 각도로 재해석해요 |
+| `oscillation` | 점수가 up/down 반복 | **Simplicity** | 요구사항을 단순화해 핵심만 남겨요 |
+| `no_drift` | delta ≈ 0, 변화 없음 | **Reification** | 암묵적으로 빠진 조각을 명시적으로 채워요 |
+| `diminishing_returns` | delta 점점 감소 | **Invariance** | 성공한 패턴을 다른 영역에 복제해요 |
 
 소스: `src/resilience/types.ts`, `src/resilience/lateral.ts`
 
@@ -138,7 +146,7 @@ ges_execute({
     persona: "multistability",
     specPatch: {
       acceptanceCriteria: ["재구성된 AC"],
-      constraints: ["...]
+      constraints: ["..."]
     },
     description: "관점 전환 설명"
   }
@@ -151,12 +159,12 @@ ges_execute({
 // 점수 미달 시 다음 Persona 요청
 ges_execute({ action: "evolve_lateral", sessionId: "<id>" })
 → 다음 lateralContext 반환
-  또는 모든 Persona 소진 시 → humanEscalation 반환
+  모든 Persona 소진 시 → humanEscalation 반환
 ```
 
 ### Human Escalation
 
-4개 Persona를 모두 소진해도 성공하지 못하면 `humanEscalation`을 반환하고 세션을 종료한다.
+4개 Persona를 모두 소진해도 성공하지 못하면 `humanEscalation`을 반환하고 세션을 종료해요.
 
 ```typescript
 interface EscalationContext {
@@ -167,7 +175,7 @@ interface EscalationContext {
 }
 ```
 
-세션 최종 상태: `status: 'failed'`, `terminationReason: 'human_escalation'`
+세션 최종 상태는 `status: 'failed'`, `terminationReason: 'human_escalation'`이에요.
 
 ---
 
@@ -184,7 +192,7 @@ interface EscalationContext {
 
 소스: `src/execute/termination-detector.ts`
 
-### Caller 강제 종료
+### Caller가 직접 종료하려면?
 
 ```
 ges_execute({ action: "evolve", sessionId: "<id>", terminateReason: "caller" })
@@ -194,7 +202,7 @@ ges_execute({ action: "evolve", sessionId: "<id>", terminateReason: "caller" })
 
 ## Spec History
 
-각 Evolution 세대마다 Spec snapshot과 delta를 기록한다.
+각 Evolution 세대마다 Spec snapshot과 delta를 기록해요.
 
 ```typescript
 interface EvolutionGeneration {
@@ -208,16 +216,21 @@ interface EvolutionGeneration {
 
 ---
 
-## 설계 결정
+## 왜 이렇게 설계했나요?
 
-**왜 L4(goal)를 절대 변경하지 못하게 하는가?**
-goal은 Spec의 존재 이유다. 구현이 어렵다고 목표를 바꾸면 처음에 사용자가 원했던 것과 다른 결과물이 나온다. 모든 AC, constraint, ontology는 goal을 달성하기 위한 수단이므로 수단이 어렵다면 수단을 바꿔야지 목적을 바꿔선 안 된다.
+### 왜 L4(goal)는 절대 변경하지 못하나요?
 
-**왜 Oscillation을 Stagnation과 구분하는가?**
-Oscillation(점수 반복)과 Stagnation(점수 정체)은 원인이 다르다. Oscillation은 Spec이 서로 충돌하는 요구사항을 포함하고 있음을 시사하므로 단순화(Simplicity)가 처방이다. Stagnation은 빠진 요소가 있거나 방향이 틀렸음을 시사하므로 재해석(Multistability)이나 채우기(Reification)가 처방이다.
+goal은 Spec의 존재 이유예요. 구현이 어렵다고 목표를 바꾸면 사용자가 처음에 원했던 것과 다른 결과물이 나와요. AC, constraint, ontology는 모두 goal을 달성하기 위한 수단이에요. 수단이 어렵다면 수단을 바꿔야지, 목적을 바꾸면 안 돼요.
 
-**왜 Caller 종료를 명시적으로 지원하는가?**
-Gestalt는 Passthrough 모드에서 Caller가 전체 흐름을 제어한다. Caller(Claude Code 등)가 외부 판단으로 "이제 충분하다"거나 "사용자가 요청을 취소했다"고 판단할 때 강제 종료할 수 있어야 한다.
+### 왜 Oscillation을 Stagnation과 구분하나요?
+
+두 패턴은 원인이 달라요.
+
+Oscillation(점수 반복)은 Spec 안에 서로 충돌하는 요구사항이 있다는 신호예요. 이 경우 단순화(Simplicity)가 처방이에요. Stagnation(점수 정체)은 빠진 요소가 있거나 방향이 틀렸다는 신호예요. 이 경우 재해석(Multistability)이나 빈틈 채우기(Reification)가 처방이에요.
+
+### 왜 Caller 종료를 명시적으로 지원하나요?
+
+Gestalt는 Passthrough 모드에서 Caller가 전체 흐름을 제어해요. Caller(Claude Code 등)가 "이제 충분해요" 또는 "사용자가 요청을 취소했어요"라고 판단할 때 강제 종료할 수 있어야 해요.
 
 ---
 
@@ -225,8 +238,8 @@ Gestalt는 Passthrough 모드에서 Caller가 전체 흐름을 제어한다. Cal
 
 | 액션 | 설명 |
 |:---|:---|
-| `evolve_fix` | Structural Fix context 요청 (Call 1) 또는 Fix 결과 제출 (Call 2) |
-| `evolve` | Contextual Evolution context 요청 + Stagnation 감지 → 자동 분기 |
+| `evolve_fix` | Structural Fix 컨텍스트 요청 (Call 1) 또는 Fix 결과 제출 (Call 2) |
+| `evolve` | Contextual Evolution 컨텍스트 요청 + Stagnation 감지 시 자동 분기 |
 | `evolve_patch` | Spec Patch 제출 → 영향 태스크 식별 |
 | `evolve_re_execute` | 영향받은 태스크 재실행 결과 제출 |
 | `evolve_lateral` | 다음 Lateral Persona 요청 |

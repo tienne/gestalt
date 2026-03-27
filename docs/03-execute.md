@@ -1,18 +1,18 @@
 # 3단계: Execute — Spec을 실행 가능한 태스크로
 
-> 완성된 Spec이 있다고 해서 바로 실행할 수 있는 건 아니다. Execute 단계는 하나의 목표를 게슈탈트 4원리로 분해하고, DAG로 순서를 정한 뒤, 각 태스크를 실행하면서 드리프트를 감지한다.
+> Spec이 완성됐다고 바로 실행할 수 있는 건 아니에요. Execute 단계에서 하나의 목표를 게슈탈트 4원리로 분해하고, DAG로 실행 순서를 정한 뒤, 태스크마다 드리프트를 감지해요.
 
 ---
 
-## 무엇을 하는가
+## Execute가 하는 일
 
-Spec을 입력으로 받아 **ExecutionPlan**을 수립하고, 태스크를 위상 정렬 순서로 실행한다. 실행 중에는 Drift Detection이 Spec과의 이탈을 실시간으로 측정한다.
+Spec을 입력으로 받아 **ExecutionPlan**을 수립하고, 태스크를 위상 정렬 순서로 실행해요. 실행 중에는 Drift Detection이 Spec과의 이탈을 실시간으로 측정해요.
 
 ---
 
 ## 게슈탈트 원리 적용
 
-Planning Phase는 4개 원리를 순서대로 적용한다.
+Planning Phase는 4개 원리를 순서대로 적용해요.
 
 ```
 PLANNING_PRINCIPLE_SEQUENCE = [
@@ -29,16 +29,16 @@ PLANNING_PRINCIPLE_SEQUENCE = [
 
 | 단계 | 원리 | 역할 |
 |:---:|:---:|:---|
-| 1 | **전경과 배경** | AC를 core(MVP)와 enhancement로 분류. 무엇을 먼저 할지 결정. |
-| 2 | **폐쇄성** | 각 AC에서 암묵적 요구사항을 발굴해 원자 태스크로 변환. |
-| 3 | **근접성** | 연관 태스크를 그룹(병렬 실행 단위)으로 묶어 TaskGroup 생성. |
-| 4 | **연속성** | 의존성 순환 여부를 검증하고 임계 경로(critical path)를 확정. |
+| 1 | **전경과 배경** | AC를 core(MVP)와 enhancement로 분류해요. 무엇을 먼저 할지 결정해요. |
+| 2 | **폐쇄성** | 각 AC에서 암묵적 요구사항을 발굴해 원자 태스크로 변환해요. |
+| 3 | **근접성** | 연관 태스크를 그룹(병렬 실행 단위)으로 묶어 TaskGroup을 생성해요. |
+| 4 | **연속성** | 의존성 순환 여부를 검증하고 임계 경로(critical path)를 확정해요. |
 
 ---
 
 ## DAG 검증
 
-태스크 간 의존성은 DAG(Directed Acyclic Graph)로 표현되며, Kahn's Algorithm으로 검증한다.
+태스크 간 의존성은 DAG(Directed Acyclic Graph)로 표현하고, Kahn's Algorithm으로 검증해요.
 
 ```
 1. in-degree 계산 (각 노드로 들어오는 간선 수)
@@ -47,7 +47,7 @@ PLANNING_PRINCIPLE_SEQUENCE = [
 4. 반복 → 처리된 노드 수 < 전체 노드 수 → 순환 감지
 ```
 
-Critical Path는 위상 정렬 순서대로 `longest-path` DP로 계산한다.
+Critical Path는 위상 정렬 순서대로 `longest-path` DP로 계산해요.
 
 소스: `src/execute/dag-validator.ts`
 
@@ -117,11 +117,11 @@ ges_execute({
 
 ## Drift Detection
 
-태스크 결과가 제출될 때마다 Spec과의 이탈 정도를 자동으로 측정한다.
+태스크 결과가 제출될 때마다 Spec과의 이탈 정도를 자동으로 측정해요.
 
 ### 측정 방식
 
-Jaccard 유사도 기반 3차원 드리프트:
+Jaccard 유사도 기반 3차원 드리프트로 계산해요.
 
 ```
 driftScore = Goal × 0.5 + Constraint × 0.3 + Ontology × 0.2
@@ -135,13 +135,13 @@ Ontology:   1 - Jaccard(task.entities, spec.ontologySchema.entities)
 
 ### 임계값 초과 시
 
-`driftScore > driftThreshold(기본 0.3)` 이면 `retrospectiveContext`를 반환한다. Caller는 이를 보고 태스크를 수정하거나 다음 Evolve에서 Spec을 패치할 수 있다.
+`driftScore > driftThreshold(기본 0.3)`이면 `retrospectiveContext`를 반환해요. Caller는 이를 보고 태스크를 수정하거나, 이후 Evolve 단계에서 Spec을 패치할 수 있어요.
 
 ---
 
 ## Role Agent 매칭
 
-태스크 실행 전 관련 Role Agent를 자동으로 매칭하여 다중 관점 합의를 수행할 수 있다.
+태스크 실행 전 관련 Role Agent를 자동으로 매칭해서 다중 관점 합의를 수행할 수 있어요.
 
 ### 흐름 (4-Call)
 
@@ -182,7 +182,7 @@ ges_execute({
 
 ### 내장 Role Agent (8개)
 
-`role-agents/` 디렉토리에 위치. 사용자 `agents/`의 `role: true` 에이전트와 병합 로드되며, 동일 이름은 커스텀이 우선한다.
+`role-agents/` 디렉토리에 있어요. 사용자 `agents/`의 `role: true` 에이전트와 병합해서 로드하고, 이름이 같으면 커스텀 에이전트가 우선해요.
 
 | 에이전트 | 도메인 |
 |:---|:---|
@@ -199,14 +199,17 @@ ges_execute({
 
 ## 설계 결정
 
-**왜 Planning을 4단계 순서로 고정했는가?**
-각 원리가 다음 단계의 입력을 생성한다. 전경과 배경(무엇)이 없으면 폐쇄성(어떻게)이 방향을 잃는다. 근접성(어디서 같이)이 없으면 연속성(어떤 순서로)이 기준점이 없다. 병렬화보다 순차 의존이 더 정확한 계획을 만든다.
+### 왜 Planning을 4단계 순서로 고정했나요?
 
-**왜 Drift Detection을 태스크 제출 시마다 하는가?**
-태스크 완료 후 drift를 발견하면 이미 다음 태스크에 오염이 전파됐을 수 있다. 실시간 측정으로 이탈을 조기에 포착하고 Evolve 단계에서 패치 범위를 최소화한다.
+각 원리가 다음 단계의 입력을 만들어요. 전경과 배경(무엇)이 없으면 폐쇄성(어떻게)이 방향을 잃어요. 근접성(어디서 같이)이 없으면 연속성(어떤 순서로)이 기준점이 없어요. 병렬 처리보다 순차 의존이 더 정확한 계획을 만들어요.
 
-**왜 Jaccard 유사도인가?**
-키워드 집합 간 겹침 비율은 LLM 임베딩 없이도 계산 가능하고, 동일 Spec에서 반복 측정 시 일관성이 보장된다. 임베딩 기반 의미 유사도는 동일 문장도 호출마다 미세하게 달라질 수 있다.
+### 왜 Drift Detection을 태스크 제출 시마다 하나요?
+
+태스크 완료 후 drift를 발견하면 이미 다음 태스크에 오염이 전파됐을 수 있어요. 실시간으로 측정해서 이탈을 조기에 포착하고, Evolve 단계에서 패치 범위를 최소화해요.
+
+### 왜 Jaccard 유사도를 쓰나요?
+
+키워드 집합 간 겹침 비율은 LLM 임베딩 없이도 계산할 수 있어요. 동일 Spec에서 반복 측정할 때 일관성도 보장돼요. 임베딩 기반 의미 유사도는 같은 문장도 호출마다 미세하게 달라질 수 있어요.
 
 ---
 
