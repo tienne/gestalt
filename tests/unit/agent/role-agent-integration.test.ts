@@ -121,7 +121,7 @@ describe('Role Agent Integration: Full MCP Flow', () => {
     if (!result.ok) return;
 
     expect(result.value.matchContext).toBeDefined();
-    expect(result.value.matchContext!.availableAgents.length).toBe(8);
+    expect(result.value.matchContext!.availableAgents.length).toBe(9);
     expect(result.value.matchContext!.systemPrompt).toContain('role-agent matcher');
     expect(result.value.matchContext!.matchingPrompt).toContain('task-a');
   });
