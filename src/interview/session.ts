@@ -5,6 +5,7 @@ import type {
   AmbiguityScore,
   ProjectType,
   GestaltPrinciple,
+  CompressedContext,
 } from '../core/types.js';
 import { SessionNotFoundError, SessionAlreadyCompletedError } from '../core/errors.js';
 import { EventStore } from '../events/store.js';
@@ -124,6 +125,12 @@ export class SessionManager {
       isReady: score.isReady,
       dimensions: score.dimensions,
     });
+  }
+
+  setCompressedContext(sessionId: string, compressedContext: CompressedContext): void {
+    const session = this.get(sessionId);
+    session.compressedContext = compressedContext;
+    session.updatedAt = new Date().toISOString();
   }
 
   complete(sessionId: string): InterviewSession {

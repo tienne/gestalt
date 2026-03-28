@@ -59,6 +59,7 @@ import {
   buildReExecutionPrompt,
 } from './prompts.js';
 import { validateDAG } from './dag-validator.js';
+import { computeParallelGroups } from './parallel-groups.js';
 import { measureDrift } from './drift-detector.js';
 import { DRIFT_THRESHOLD } from '../core/constants.js';
 import { validateSpecPatch } from './spec-patch-validator.js';
@@ -244,6 +245,10 @@ export class PassthroughExecuteEngine {
     this.roleAgentRegistry = roleAgentRegistry;
   }
 
+  getSessionManager(): ExecuteSessionManager {
+    return this.sessionManager;
+  }
+
   start(spec: Spec): Result<PassthroughStartResult, ExecuteError> {
     try {
       const session = this.sessionManager.create(spec);
@@ -371,6 +376,11 @@ export class PassthroughExecuteEngine {
         serverValid: serverDAG.isValid,
       });
 
+      const parallelGroups = computeParallelGroups(
+        closureStep.atomicTasks,
+        serverDAG.topologicalOrder,
+      );
+
       const plan: ExecutionPlan = {
         planId: randomUUID(),
         specId: session.specId,
@@ -378,6 +388,7 @@ export class PassthroughExecuteEngine {
         atomicTasks: closureStep.atomicTasks,
         taskGroups: proximityStep.taskGroups,
         dagValidation: serverDAG,
+        parallelGroups,
         createdAt: new Date().toISOString(),
       };
 

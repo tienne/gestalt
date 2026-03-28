@@ -16,6 +16,7 @@ import { EventType } from '../events/types.js';
 import { INTERVIEW_SYSTEM_PROMPT, buildQuestionPrompt, buildAmbiguityPrompt } from '../llm/prompts.js';
 import type { AgentRegistry } from '../agent/registry.js';
 import { mergeSystemPrompt, getActiveAgentNames } from '../agent/prompt-resolver.js';
+import { ContextCompressor } from './context-compressor.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -41,6 +42,8 @@ export interface PassthroughRespondResult {
   session: InterviewSession;
   ambiguityScore: AmbiguityScore | null;
   gestaltContext: GestaltContext;
+  compressionContext?: { systemPrompt: string; compressionPrompt: string };
+  needsCompression?: boolean;
 }
 
 // ─── External ambiguity score shape (from caller LLM) ───────────
@@ -191,10 +194,25 @@ export class PassthroughEngine {
         true, // include scoring prompt
       );
 
+      // Check if compression is needed
+      const compressor = new ContextCompressor();
+      const updatedSession = this.sessionManager.get(sessionId);
+      let compressionContext: { systemPrompt: string; compressionPrompt: string } | undefined;
+      let needsCompression = false;
+      if (compressor.needsCompression(updatedSession.rounds)) {
+        needsCompression = true;
+        compressionContext = compressor.buildCompressionContext(
+          updatedSession.topic,
+          updatedSession.rounds,
+          updatedSession.compressedContext?.summary,
+        );
+      }
+
       return ok({
-        session: this.sessionManager.get(sessionId),
+        session: updatedSession,
         ambiguityScore,
         gestaltContext,
+        ...(needsCompression ? { compressionContext, needsCompression } : {}),
       });
     } catch (e) {
       return err(
@@ -258,6 +276,10 @@ export class PassthroughEngine {
 
   getSession(sessionId: string): InterviewSession {
     return this.sessionManager.get(sessionId);
+  }
+
+  getSessionManager(): SessionManager {
+    return this.sessionManager;
   }
 
   getLatestSession(): InterviewSession | null {

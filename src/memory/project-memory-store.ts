@@ -94,6 +94,23 @@ export class ProjectMemoryStore {
     return memory;
   }
 
+  addCompressedContext(sessionId: string, summary: string): ProjectMemory {
+    const memory = this.read();
+    if (!memory.compressedContexts) {
+      memory.compressedContexts = [];
+    }
+    // Replace existing entry for same sessionId
+    const idx = memory.compressedContexts.findIndex((c) => c.sessionId === sessionId);
+    const entry = { sessionId, summary, compressedAt: new Date().toISOString() };
+    if (idx >= 0) {
+      memory.compressedContexts[idx] = entry;
+    } else {
+      memory.compressedContexts.push(entry);
+    }
+    this.write(memory);
+    return memory;
+  }
+
   getRepoRoot(): string {
     return this.repoRoot;
   }

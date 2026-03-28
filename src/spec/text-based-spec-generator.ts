@@ -2,11 +2,13 @@ import { INTERVIEW_SYSTEM_PROMPT } from '../llm/prompts.js';
 import type { AgentRegistry } from '../agent/registry.js';
 import { mergeSystemPrompt } from '../agent/prompt-resolver.js';
 import type { ProjectMemory } from '../core/types.js';
+import { SpecTemplateRegistry } from './templates.js';
 
 export interface TextSpecContext {
   systemPrompt: string;
   specPrompt: string;
   memoryContext?: string;
+  templateId?: string;
 }
 
 function buildMemorySection(memory: ProjectMemory): string {
@@ -33,9 +35,9 @@ function buildMemorySection(memory: ProjectMemory): string {
   return lines.join('\n');
 }
 
-function buildTextSpecPrompt(text: string, memoryContext?: string): string {
+function buildTextSpecPrompt(text: string, memoryContext?: string, templateContext?: string): string {
   return `Generate a complete project specification (Spec) from the following description.
-${memoryContext ? `\n${memoryContext}\n` : ''}
+${memoryContext ? `\n${memoryContext}\n` : ''}${templateContext ? `\n${templateContext}\n` : ''}
 ## Description
 ${text}
 
@@ -56,21 +58,25 @@ Respond with ONLY a JSON object:
 
 export class TextBasedSpecGenerator {
   private agentRegistry?: AgentRegistry;
+  private templateRegistry: SpecTemplateRegistry;
 
   constructor(agentRegistry?: AgentRegistry) {
     this.agentRegistry = agentRegistry;
+    this.templateRegistry = new SpecTemplateRegistry();
   }
 
-  buildSpecContext(text: string, memory?: ProjectMemory): TextSpecContext {
+  buildSpecContext(text: string, memory?: ProjectMemory, templateId?: string): TextSpecContext {
     const systemPrompt = mergeSystemPrompt(INTERVIEW_SYSTEM_PROMPT, this.agentRegistry, 'spec');
 
     const memoryContext = memory ? buildMemorySection(memory) : undefined;
-    const specPrompt = buildTextSpecPrompt(text, memoryContext || undefined);
+    const templateContext = templateId ? this.templateRegistry.buildTemplateContext(templateId) ?? undefined : undefined;
+    const specPrompt = buildTextSpecPrompt(text, memoryContext || undefined, templateContext);
 
     return {
       systemPrompt,
       specPrompt,
       memoryContext: memoryContext || undefined,
+      templateId: templateId || undefined,
     };
   }
 }

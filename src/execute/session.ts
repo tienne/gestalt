@@ -15,6 +15,8 @@ import type {
   TerminationReason,
   RoleMatch,
   RoleConsensus,
+  SubTask,
+  AuditResult,
 } from '../core/types.js';
 import { ExecuteSessionNotFoundError } from '../core/errors.js';
 import { EventStore } from '../events/store.js';
@@ -47,6 +49,9 @@ export class ExecuteSessionManager {
       currentStep: 1,
       planningSteps: [],
       taskResults: [],
+      completedTaskIds: [],
+      nextTaskId: null,
+      subTasks: [],
       driftHistory: [],
       evolutionHistory: [],
       currentGeneration: 0,
@@ -120,6 +125,17 @@ export class ExecuteSessionManager {
       session.taskResults[existingIdx] = taskResult;
     } else {
       session.taskResults.push(taskResult);
+    }
+    // Track completed task IDs for resume support
+    if (taskResult.status === 'completed' && !session.completedTaskIds.includes(taskResult.taskId)) {
+      session.completedTaskIds.push(taskResult.taskId);
+    }
+    // Update nextTaskId: first pending task in topological order not yet completed
+    const plan = session.executionPlan;
+    if (plan) {
+      const completedSet = new Set(session.completedTaskIds);
+      const next = plan.dagValidation.topologicalOrder.find((id) => !completedSet.has(id));
+      session.nextTaskId = next ?? null;
     }
     session.updatedAt = new Date().toISOString();
 
@@ -333,6 +349,27 @@ export class ExecuteSessionManager {
     const session = this.get(sessionId);
     session.roleMatches = undefined;
     session.roleConsensus = undefined;
+    session.updatedAt = new Date().toISOString();
+  }
+
+  // ─── Sub-task Methods ───────────────────────────────────────
+
+  addSubTasks(sessionId: string, subTasks: SubTask[]): void {
+    const session = this.get(sessionId);
+    session.subTasks.push(...subTasks);
+    session.updatedAt = new Date().toISOString();
+
+    this.eventStore.append('execute', sessionId, EventType.EXECUTE_TASK_COMPLETED, {
+      type: 'sub_tasks_spawned',
+      parentTaskId: subTasks[0]?.parentTaskId,
+      count: subTasks.length,
+      taskIds: subTasks.map((t) => t.taskId),
+    });
+  }
+
+  setAuditResult(sessionId: string, auditResult: AuditResult): void {
+    const session = this.get(sessionId);
+    session.auditResult = auditResult;
     session.updatedAt = new Date().toISOString();
   }
 
