@@ -24,6 +24,7 @@
     "dev": "tsx bin/gestalt.ts",
     "build": "tsc",
     "postbuild": "cp -r agents dist/ && cp -r role-agents dist/ && cp -r review-agents dist/ && cp -r skills dist/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js",
+    "postinstall": "node ./dist/src/scripts/postinstall.js || true",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
