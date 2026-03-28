@@ -1,6 +1,6 @@
 # 2단계: Spec — 흩어진 답변을 하나의 구조로
 
-인터뷰가 끝나면 이 단계에서 수십 개의 Q&A 라운드를 AI가 실행할 수 있는 정형화된 Spec JSON으로 만들어요. Execute·Evaluate·Evolve 전 과정에서 이 Spec을 기준점(ground truth)으로 사용해요.
+인터뷰가 끝나면 이 단계에서 수십 개의 Q&A 라운드를 AI가 실행할 수 있는 Spec JSON으로 만들어요. Execute·Evaluate·Evolve 전 과정에서 이 Spec을 기준점(ground truth)으로 사용해요.
 
 ---
 
