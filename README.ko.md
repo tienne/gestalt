@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Gestalt — AI 개발 하네스</strong><br/>
-  흩어진 모호함을 하나의 실행 계획으로
+  흩어진 막연함을 하나의 실행 계획으로
 </p>
 
 <p align="center">
