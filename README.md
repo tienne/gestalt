@@ -29,21 +29,7 @@ Gestalt is an MCP (Model Context Protocol) server that runs inside Claude Code. 
 
 ## Quick Start
 
-**Choose your path:**
-
-### For Non-Developers (Claude Desktop)
-
-No terminal. No API key. Just Claude Desktop.
-
-→ **[5-minute Getting Started Guide](./docs/getting-started.md)**
-
-1. Open Claude Desktop
-2. Install the Gestalt plugin
-3. Type `/interview "your idea"` — Gestalt guides you through the rest
-
----
-
-### For Developers (MCP Integration)
+Install the plugin once, then use it in any Claude Code session:
 
 ```bash
 # Step 1: Add to marketplace (one-time setup)
@@ -60,6 +46,8 @@ Then in any Claude Code session:
 /spec
 /execute
 ```
+
+No API key required — Gestalt runs as an MCP server inside Claude Code, and Claude Code handles all LLM reasoning.
 
 → **[Full MCP Reference](./docs/mcp-reference.md)** — all tools, parameters, and examples
 
@@ -468,9 +456,9 @@ ges_create_agent  →  action: "submit", sessionId: "<id>", agentContent: "..."
 
 ---
 
-### Alternative: CLI Direct Mode
+### CLI Mode (without Claude Code)
 
-Requires `ANTHROPIC_API_KEY`. Runs Gestalt directly from the terminal without Claude Code:
+Want to run Gestalt without Claude Code? CLI mode runs interviews directly in your terminal. **Requires `ANTHROPIC_API_KEY`.**
 
 ```bash
 # Start an interactive interview

@@ -27,9 +27,19 @@ Gestalt는 Claude Code 안에서 실행되는 MCP(Model Context Protocol) 서버
 
 ---
 
-## 실제로 어떻게 작동하나요?
+## 빠른 시작
 
-> **30초 만에 실행 계획 완성** — API 키 없이도 돼요.
+플러그인을 설치하세요 (최초 1회):
+
+```bash
+# 1단계: 마켓플레이스 등록
+/plugin marketplace add tienne/gestalt
+
+# 2단계: 플러그인 설치
+/plugin install gestalt@gestalt
+```
+
+설치가 끝나면 Claude Code에서 바로 사용할 수 있어요:
 
 ```bash
 # 요구사항 인터뷰 시작
@@ -41,6 +51,8 @@ Gestalt는 Claude Code 안에서 실행되는 MCP(Model Context Protocol) 서버
 # Spec을 실행 계획으로 만들고 실행
 /execute
 ```
+
+API 키는 필요하지 않아요. Gestalt는 MCP 서버로 실행되고, 모든 LLM 추론은 Claude Code가 담당해요.
 
 ![Gestalt 데모](./docs/demo.gif)
 _(데모 영상 준비 중)_
@@ -456,9 +468,9 @@ ges_create_agent  →  action: "submit", sessionId: "<id>", agentContent: "..."
 
 ---
 
-### 대안: CLI 직접 실행 모드
+### CLI 모드 (Claude Code 없이 사용하기)
 
-`ANTHROPIC_API_KEY`가 필요해요. Claude Code 없이 터미널에서 직접 실행할 수 있어요:
+Claude Code 없이 터미널에서 바로 사용하고 싶다면 CLI 모드를 이용할 수 있어요. **`ANTHROPIC_API_KEY`가 필요해요.**
 
 ```bash
 # 인터랙티브 인터뷰 시작
