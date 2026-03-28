@@ -21,7 +21,7 @@
 
 ## Gestalt는 무엇인가요?
 
-Gestalt는 Claude Code 안에서 실행되는 MCP(Model Context Protocol) 서버예요. 구조화된 요구사항 인터뷰를 진행해 검증된 **Spec**(목표·제약조건·완료 기준을 담은 JSON 문서)을 만들어요. 그 Spec에서 실행 계획을 만들 때 별도 API 키는 필요하지 않아요.
+Gestalt는 Claude Code 안에서 실행되는 MCP(Model Context Protocol) 서버예요. 요구사항을 인터뷰로 구체화해 **Spec**(목표·제약조건·완료 기준)을 만들고, 그 Spec을 바탕으로 실행 계획을 짜요. API 키는 필요하지 않아요.
 
 > **시작 전 확인** — Node.js >= 20.0.0이 필요해요. `nvm install 22 && nvm use 22`로 설치할 수 있어요.
 
