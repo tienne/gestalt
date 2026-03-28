@@ -10,6 +10,8 @@ import { INTERVIEW_SYSTEM_PROMPT, buildSpecPrompt } from '../llm/prompts.js';
 import type { AgentRegistry } from '../agent/registry.js';
 import { mergeSystemPrompt, getActiveAgentNames } from '../agent/prompt-resolver.js';
 
+export const TEXT_INPUT_SESSION_ID = 'text-input';
+
 // ─── Types ──────────────────────────────────────────────────────
 
 export interface SpecContext {
@@ -117,6 +119,55 @@ export class PassthroughSpecGenerator {
           constraintCount: spec.constraints.length,
           criteriaCount: spec.acceptanceCriteria.length,
           source: 'passthrough',
+        },
+      );
+
+      return ok(spec);
+    } catch (e) {
+      return err(
+        new SpecGenerationError(
+          `Failed to validate spec: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
+    }
+  }
+
+  validateAndStoreFromText(externalSpec: ExternalSpec): Result<Spec, SpecGenerationError> {
+    try {
+      const spec: Spec = {
+        version: '1.0.0',
+        goal: externalSpec.goal,
+        constraints: externalSpec.constraints,
+        acceptanceCriteria: externalSpec.acceptanceCriteria,
+        ontologySchema: externalSpec.ontologySchema as Spec['ontologySchema'],
+        gestaltAnalysis: externalSpec.gestaltAnalysis as Spec['gestaltAnalysis'],
+        metadata: {
+          specId: randomUUID(),
+          interviewSessionId: TEXT_INPUT_SESSION_ID,
+          ambiguityScore: 0,
+          generatedAt: new Date().toISOString(),
+        },
+      };
+
+      const validation = specSchema.safeParse(spec);
+      if (!validation.success) {
+        return err(
+          new SpecGenerationError(
+            `Spec validation failed: ${validation.error.message}`,
+          ),
+        );
+      }
+
+      this.eventStore.append(
+        'spec',
+        spec.metadata.specId,
+        EventType.SPEC_GENERATED,
+        {
+          sessionId: TEXT_INPUT_SESSION_ID,
+          goal: spec.goal,
+          constraintCount: spec.constraints.length,
+          criteriaCount: spec.acceptanceCriteria.length,
+          source: 'text',
         },
       );
 
