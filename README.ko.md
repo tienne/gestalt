@@ -94,6 +94,26 @@ Claude Code
 
 ---
 
+## Project Memory
+
+Spec과 실행 결과는 레포 루트의 `.gestalt/memory.json`에 자동으로 기록돼요.
+
+```json
+{
+  "specHistory": [
+    { "specId": "...", "goal": "Build a user auth system", "sourceType": "text" }
+  ],
+  "executionHistory": [],
+  "architectureDecisions": []
+}
+```
+
+- **커밋하세요** — `.gestalt/memory.json`은 일반 JSON 파일이에요. 커밋하면 팀원도 `git pull` 후 이전 결정 사항을 그대로 이어받을 수 있어요.
+- **컨텍스트 주입** — 다음 Spec을 생성할 때 이전 목표와 아키텍처 결정 사항이 프롬프트에 자동으로 주입돼요.
+- **User Profile** — 개인 설정은 `~/.gestalt/profile.json`에 저장되며 커밋 대상에 포함되지 않아요.
+
+---
+
 ## 설치
 
 ### 옵션 1: Claude Code 플러그인 (권장)
@@ -192,7 +212,13 @@ claude mcp add gestalt -- npx -y @tienne/gestalt
 
 ### 2단계 — Spec 생성
 
-모호성 점수가 ≤ 0.2에 도달하면 실행하세요:
+**옵션 A — 텍스트로 바로 생성 (인터뷰 불필요):**
+
+```bash
+ges_generate_spec({ text: "Stripe로 결제 플로우 구현" })
+```
+
+**옵션 B — 완료된 인터뷰에서 생성:**
 
 ```bash
 /spec

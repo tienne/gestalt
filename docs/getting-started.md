@@ -36,7 +36,13 @@ Once installed, you'll see the Gestalt tools available in your Claude Desktop se
 
 ## Step 2: Run Your First Interview
 
-Type this in Claude Desktop:
+> **Skip the interview:** If you already have a clear idea, generate a spec directly without going through the interview:
+> ```
+> ges_generate_spec({ text: "I want to build [your idea here]" })
+> ```
+> The result is saved to `.gestalt/memory.json` and future specs automatically inherit the context.
+
+Type this in Claude Desktop to start an interview:
 
 ```
 /interview "I want to build [your idea here]"

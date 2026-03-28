@@ -144,15 +144,18 @@ ges_interview({ action: "complete", sessionId: "<sessionId>", record: true })
 
 ## `ges_generate_spec`
 
-Generates a structured Spec from a completed interview session.
+Generates a structured Spec from a completed interview session, or directly from plain text without an interview.
 
 ### Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `sessionId` | `string` | ✅ | Completed interview session ID |
+| `sessionId` | `string` | Optional | Completed interview session ID |
+| `text` | `string` | Optional | Plain text description to generate spec without an interview |
 | `force` | `boolean` | Optional | Force generation even if ambiguity threshold not met |
 | `spec` | `object` | Optional (passthrough) | Externally generated spec to validate and store |
+
+> Either `sessionId` or `text` must be provided. When using `text`, the `interviewSessionId` in the generated spec metadata is set to `"text-input"`, and the result is saved to `.gestalt/memory.json`.
 
 ### Responses
 
@@ -196,14 +199,37 @@ Generates a structured Spec from a completed interview session.
 
 ### Passthrough Flow (2-Call)
 
-**Call 1: Request spec context**
+Two input paths are available. Both follow the same 2-call pattern.
+
+**Option A — Text-based (no interview required)**
+
 ```javascript
-ges_generate_spec({ sessionId: "<id>" })
-// Returns: specContext { systemPrompt, specPrompt, allRounds }
+// Call 1: Request spec context from plain text
+ges_generate_spec({ text: "Build a user auth system with JWT" })
+// Returns: specContext { systemPrompt, specPrompt }
+
+// Call 2: Submit generated spec
+ges_generate_spec({
+  text: "Build a user auth system with JWT",
+  spec: {
+    goal: "...",
+    constraints: [...],
+    acceptanceCriteria: [...],
+    ontologySchema: { entities: [...], relations: [...] },
+    gestaltAnalysis: [...]
+  }
+})
+// Returns validated spec; saves to .gestalt/memory.json
 ```
 
-**Call 2: Submit generated spec**
+**Option B — Interview-based (existing flow)**
+
 ```javascript
+// Call 1: Request spec context from a completed interview
+ges_generate_spec({ sessionId: "<id>" })
+// Returns: specContext { systemPrompt, specPrompt, allRounds }
+
+// Call 2: Submit generated spec
 ges_generate_spec({
   sessionId: "<id>",
   spec: {

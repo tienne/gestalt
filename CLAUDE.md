@@ -84,7 +84,7 @@ interface GestaltConfig {
 
 ## MCP Tools
 - `ges_interview`: action=[start|respond|score|complete]
-- `ges_generate_spec`: sessionId, force?
+- `ges_generate_spec`: sessionId? (optional), text? (optional), force?, spec? (passthrough)
 - `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|evaluate|status|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|role_match|role_consensus]
 - `ges_create_agent`: action=[start|submit] — 인터뷰 기반 커스텀 Role Agent 생성
 - `ges_status`: sessionId?
@@ -159,8 +159,18 @@ ges_interview({ action: "complete", sessionId: "<id>" })
 ```
 
 **Step 6: Spec 생성 (2단계)**
+
+두 가지 입력 경로 중 하나를 선택한다.
+
 ```
-// 6a: specContext 요청
+// Text-based 경로 (인터뷰 불필요)
+ges_generate_spec({ text: "..." })
+→ specContext (systemPrompt, specPrompt) 반환
+
+ges_generate_spec({ text: "...", spec: {...} })
+→ Zod 검증 후 최종 Spec 반환 + .gestalt/memory.json 자동 업데이트
+
+// Interview 기반 경로 (6a: specContext 요청)
 ges_generate_spec({ sessionId: "<id>" })
 → specContext (systemPrompt, specPrompt, allRounds) 반환
 
@@ -346,6 +356,7 @@ ges_execute({ action: "role_consensus", sessionId: "<id>", consensus: {...} })
 - Spec의 `gestaltAnalysis[].principle`은 enum: `closure | proximity | similarity | figure_ground | continuity`
 - `ontologySchema.entities[]`: `{ name, description, attributes[] }`
 - `ontologySchema.relations[]`: `{ from, to, type }`
+- text-based 경로: `sessionId` 불필요, 생성된 spec의 `interviewSessionId`는 `"text-input"`으로 설정
 
 ## Project Structure
 - `src/core/` — types, errors, Result monad, config, constants

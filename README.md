@@ -108,6 +108,26 @@ You (in Claude Code)
 
 ---
 
+## Project Memory
+
+Every spec and execution result is automatically recorded in `.gestalt/memory.json` at your repo root.
+
+```json
+{
+  "specHistory": [
+    { "specId": "...", "goal": "Build a user auth system", "sourceType": "text" }
+  ],
+  "executionHistory": [],
+  "architectureDecisions": []
+}
+```
+
+- **Commit it** — `.gestalt/memory.json` is plain JSON. Commit it and teammates inherit all prior decisions on `git pull`.
+- **Context injection** — When generating the next spec, prior goals and architecture decisions are automatically injected into the prompt.
+- **User profile** — Personal preferences are stored in `~/.gestalt/profile.json` and are never committed.
+
+---
+
 ## Installation
 
 ### Option 1: Claude Code Plugin (Recommended)
@@ -206,7 +226,13 @@ Round 8 → ambiguity: 0.19  ✓ ready for Spec
 
 ### Step 2 — Spec Generation
 
-When the ambiguity score reaches ≤ 0.2, run:
+**Option A — From text (no interview required):**
+
+```bash
+ges_generate_spec({ text: "Build a checkout flow with Stripe" })
+```
+
+**Option B — From a completed interview:**
 
 ```bash
 /spec
