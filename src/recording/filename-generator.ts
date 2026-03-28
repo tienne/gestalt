@@ -22,6 +22,14 @@ export class FilenameGenerator {
     return dir === '.' ? filename : `${dir}/${filename}`;
   }
 
+  async generateCast(topic: string, sessionId: string, outputDir?: string): Promise<string> {
+    const slug = await this.requestSlugFromLLM(topic, sessionId);
+    const date = this.getDateString();
+    const filename = `${slug}-${date}.cast`;
+    const dir = outputDir ?? this.options.outputDir ?? '.gestalt/recordings';
+    return `${dir}/${filename}`;
+  }
+
   private async requestSlugFromLLM(topic: string, sessionId: string): Promise<string> {
     try {
       const response = await this.llm.chat({

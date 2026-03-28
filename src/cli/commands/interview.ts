@@ -1,18 +1,13 @@
 import { createInterface } from 'node:readline';
-import { unlinkSync } from 'node:fs';
 import { loadConfig } from '../../core/config.js';
 import { EventStore } from '../../events/store.js';
 import { AnthropicAdapter } from '../../llm/adapter.js';
 import { InterviewEngine } from '../../interview/engine.js';
-import { TerminalRecorder } from '../../recording/terminal-recorder.js';
-import { detectResume } from '../../recording/resume-detector.js';
-import { SegmentMerger } from '../../recording/segment-merger.js';
-import { GifGenerator } from '../../recording/gif-generator.js';
-import { FilenameGenerator } from '../../recording/filename-generator.js';
-import { getFramesPath } from '../../recording/recording-dir.js';
+import { RecordingOrchestrator } from '../../recording/recording-orchestrator.js';
 
 export interface InterviewCommandOptions {
   record?: boolean;
+  mp4?: boolean;
 }
 
 export async function interviewCommand(
@@ -26,8 +21,14 @@ export async function interviewCommand(
     process.exit(1);
   }
 
-  const eventStore = new EventStore(config.dbPath);
   const llm = new AnthropicAdapter(config.llm.apiKey, config.llm.model);
+  const orchestrator = new RecordingOrchestrator(llm);
+
+  // --record 플래그가 있고 아직 asciinema로 감싸지지 않았으면 respawn.
+  // respawn 시 process.exit()이 호출되므로 이후 코드는 실행되지 않음.
+  await orchestrator.startIfNeeded(options);
+
+  const eventStore = new EventStore(config.dbPath);
   const engine = new InterviewEngine(llm, eventStore);
 
   const rl = createInterface({
@@ -38,10 +39,12 @@ export async function interviewCommand(
   const prompt = (question: string): Promise<string> =>
     new Promise((resolve) => rl.question(question, resolve));
 
-  let recorder: TerminalRecorder | null = null;
-
   try {
     console.log(`\n🔍 Starting Gestalt interview for: "${topic}"\n`);
+
+    if (orchestrator.isRecording()) {
+      console.log('📹 Recording in progress (asciinema)...\n');
+    }
 
     const startResult = await engine.start(topic);
     if (!startResult.ok) {
@@ -51,20 +54,6 @@ export async function interviewCommand(
 
     const { session, firstQuestion, projectType, detectedFiles } = startResult.value;
     const sessionId = session.sessionId;
-
-    // --record 플래그 또는 기존 .frames 파일이 있으면 녹화 시작 (resume 자동 감지)
-    const { isResuming } = detectResume(sessionId);
-    const shouldRecord = options.record === true || isResuming;
-
-    if (shouldRecord) {
-      recorder = new TerminalRecorder(sessionId);
-      recorder.start();
-      if (isResuming) {
-        console.log('📹 Resuming recording from previous session...\n');
-      } else {
-        console.log('📹 Recording started...\n');
-      }
-    }
 
     console.log(`Project type: ${projectType}`);
     if (detectedFiles.length > 0) {
@@ -106,47 +95,12 @@ export async function interviewCommand(
       console.log('Run `gestalt spec ' + sessionId + '` to generate a spec.\n');
     }
 
-    // 녹화 중이었다면 GIF 생성
-    if (recorder && recorder.recording) {
-      recorder.stop();
-      await generateGif(sessionId, topic, llm);
+    // asciinema 녹화 중이었다면 백그라운드 GIF 변환 트리거
+    if (orchestrator.isRecording()) {
+      await orchestrator.stopAndConvert(topic, sessionId, options);
     }
   } finally {
-    // 프로세스 종료 시 recorder가 아직 녹화 중이면 pause
-    if (recorder?.recording) {
-      recorder.pause();
-    }
     rl.close();
     eventStore.close();
-  }
-}
-
-async function generateGif(sessionId: string, topic: string, llm: AnthropicAdapter): Promise<void> {
-  const framesPath = getFramesPath(sessionId);
-
-  try {
-    console.log('🎬 Generating GIF recording...');
-
-    const merger = new SegmentMerger();
-    const frames = await merger.readSingleFile(framesPath);
-
-    if (frames.length === 0) {
-      console.log('⚠️  No frames captured, skipping GIF generation.');
-      return;
-    }
-
-    const filenameGen = new FilenameGenerator(llm);
-    const outputPath = await filenameGen.generate(topic, sessionId);
-
-    const gifGen = new GifGenerator({ repeat: 0, quality: 10, frameDelay: 150 });
-    const result = await gifGen.generateFromFrames(frames, outputPath);
-
-    // 임시 .frames 파일 정리
-    unlinkSync(framesPath);
-
-    console.log(`✅ GIF saved: ${result.filePath} (${(result.sizeBytes / 1024).toFixed(1)} KB, ${result.frameCount} frames)\n`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`⚠️  GIF generation failed: ${message}`);
   }
 }
