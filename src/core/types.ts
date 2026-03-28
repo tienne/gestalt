@@ -434,6 +434,50 @@ export interface ReviewSession {
   updatedAt: string;
 }
 
+// ─── Project Memory ─────────────────────────────────────────────
+export type TextInputSourceType = 'text' | 'jira' | 'github_issue';
+
+export interface TextInputSource {
+  type: TextInputSourceType;
+  content: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SpecHistoryEntry {
+  specId: string;
+  goal: string;
+  createdAt: string;
+  interviewSessionId?: string;
+  sourceType: TextInputSourceType | 'interview';
+}
+
+export interface MemoryExecutionRecord {
+  executeSessionId: string;
+  specId: string;
+  completedTasks: string[];
+  failedTasks: string[];
+  resultSummary: string;
+  completedAt: string;
+}
+
+export interface ProjectMemory {
+  version: string;
+  repoRoot: string;
+  specHistory: SpecHistoryEntry[];
+  executionHistory: MemoryExecutionRecord[];
+  architectureDecisions: string[];
+  lastUpdated: string;
+}
+
+export interface UserProfile {
+  userId?: string;
+  preferredModel?: string;
+  crossRepoPatterns: string[];
+  personalPreferences: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ─── Events ─────────────────────────────────────────────────────
 export interface DomainEvent<T = unknown> {
   id: string;
