@@ -69,6 +69,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           contextClarity: z.number().min(0).max(1).optional(),
           contradictions: z.array(z.string()).optional(),
         }).optional().describe('Ambiguity scores computed by the caller LLM'),
+        record: z.boolean().optional().describe('Generate a GIF recording of the interview session on complete'),
       },
       (params) => {
         const input = interviewInputSchema.parse(params);
@@ -337,6 +338,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         sessionId: z.string().optional().describe('Session ID (required for respond/score/complete)'),
         response: z.string().optional().describe('User response to the current question (required for respond)'),
         cwd: z.string().optional().describe('Working directory for brownfield detection'),
+        record: z.boolean().optional().describe('Generate a GIF recording of the interview session on complete'),
       },
       async (params) => {
         const input = interviewInputSchema.parse(params);
