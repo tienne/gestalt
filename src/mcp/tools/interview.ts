@@ -94,6 +94,16 @@ export async function handleInterview(
           : 'Interview completed. You can now generate a spec with ges_generate_spec.',
       }, null, 2);
     }
+
+    case 'compress': {
+      // compress action is passthrough-only; normal mode does not support it
+      return formatError('compress action is only available in passthrough mode');
+    }
+
+    default: {
+      const _exhaustive: never = input.action;
+      return formatError(`Unknown action: ${_exhaustive}`);
+    }
   }
 }
 

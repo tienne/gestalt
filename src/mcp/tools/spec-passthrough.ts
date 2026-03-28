@@ -40,7 +40,7 @@ export function handleSpecPassthrough(
       }
 
       // Call 1: return prompt for caller LLM to generate spec
-      const context = textGenerator.buildSpecContext(input.text, memory);
+      const context = textGenerator.buildSpecContext(input.text, memory, input.template ?? undefined);
 
       return JSON.stringify({
         status: 'prompt',

@@ -4,6 +4,8 @@ import type { InterviewSession } from '../../core/types.js';
 import { CastGenerator, slugify, getDateString } from '../../recording/cast-generator.js';
 import { AggConverter } from '../../recording/agg-converter.js';
 import type { InterviewInput } from '../schemas.js';
+import { ContextCompressor } from '../../interview/context-compressor.js';
+import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 
 export function handleInterviewPassthrough(
   engine: PassthroughEngine,
@@ -40,12 +42,13 @@ export function handleInterviewPassthrough(
       );
       if (!result.ok) return formatError(result.error.message);
 
-      const { session, ambiguityScore, gestaltContext } = result.value;
+      const { session, ambiguityScore, gestaltContext, compressionContext, needsCompression } = result.value;
       return JSON.stringify({
         status: 'in_progress',
         sessionId: session.sessionId,
         roundNumber: session.rounds.length,
         gestaltContext,
+        ...(needsCompression ? { compressionContext, needsCompression } : {}),
         ambiguityScore: ambiguityScore
           ? {
               overall: ambiguityScore.overall.toFixed(2),
@@ -59,7 +62,9 @@ export function handleInterviewPassthrough(
           : null,
         message: ambiguityScore?.isReady
           ? 'Ambiguity threshold met! You can complete the interview and generate a spec.'
-          : 'Use gestaltContext.questionPrompt to generate the next question. Use gestaltContext.scoringPrompt to compute ambiguity scores.',
+          : needsCompression
+            ? 'Use compressionContext to compress previous rounds, then continue with gestaltContext.questionPrompt.'
+            : 'Use gestaltContext.questionPrompt to generate the next question. Use gestaltContext.scoringPrompt to compute ambiguity scores.',
       }, null, 2);
     }
 
@@ -88,6 +93,52 @@ export function handleInterviewPassthrough(
           ? 'Use the scoringPrompt to compute ambiguity scores, then call score again with the ambiguityScore parameter.'
           : undefined,
       }, null, 2);
+    }
+
+    case 'compress': {
+      if (!input.sessionId) return formatError('sessionId is required for compress action');
+
+      try {
+        const session = engine.getSession(input.sessionId);
+        const compressor = new ContextCompressor();
+
+        // Call 2: submit compressed summary
+        if (input.compressedSummary) {
+          const completedRounds = session.rounds.filter((r) => r.userResponse !== null);
+          const roundsToCompress = Math.max(0, completedRounds.length - 3);
+          const compressedContext = compressor.buildCompressedContext(input.compressedSummary, roundsToCompress);
+          engine.getSessionManager().setCompressedContext(input.sessionId, compressedContext);
+
+          // Persist to project memory
+          try {
+            const memoryStore = new ProjectMemoryStore();
+            memoryStore.addCompressedContext(input.sessionId, input.compressedSummary);
+          } catch { /* non-blocking */ }
+
+          return JSON.stringify({
+            status: 'compressed',
+            sessionId: input.sessionId,
+            roundsCompressed: roundsToCompress,
+            message: `Context compressed (${roundsToCompress} rounds summarized). Continue with respond action.`,
+          }, null, 2);
+        }
+
+        // Call 1: return compression context
+        const compressionCtx = compressor.buildCompressionContext(
+          session.topic,
+          session.rounds,
+          session.compressedContext?.summary,
+        );
+
+        return JSON.stringify({
+          status: 'compressing',
+          sessionId: input.sessionId,
+          compressionContext: compressionCtx,
+          message: 'Use compressionContext.systemPrompt + compressionContext.compressionPrompt to generate a summary, then submit with compressedSummary.',
+        }, null, 2);
+      } catch (e) {
+        return formatError(e instanceof Error ? e.message : String(e));
+      }
     }
 
     case 'complete': {
