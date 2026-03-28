@@ -90,14 +90,17 @@ ges_execute({
 // Call 5: 실행 계획 조립
 ges_execute({ action: "plan_complete", sessionId: "<id>" })
 → ExecutionPlan 반환
+  - planSummary: { totalTasks, groupCount, criticalPathLength, parallelGroupCount }
+  - nextStep: 실행 시작 안내 메시지
 ```
 
 ### Execution Phase
 
 ```
 // 실행 시작
-ges_execute({ action: "execute_start", sessionId: "<id>" })
+ges_execute({ action: "execute_start", sessionId: "<id>", cwd: "/path/to/project" })
 → 첫 번째 태스크 컨텍스트 반환
+  cwd를 전달하면 .claude/rules/gestalt-active.md와 .gestalt/active-session.json을 자동 생성해요.
 
 // 태스크 결과 제출
 ges_execute({
@@ -111,7 +114,32 @@ ges_execute({
   }
 })
 → 다음 태스크 컨텍스트 + driftScore 반환
+  완료된 태스크가 5개를 초과하면 compressionAvailable: true 포함.
 ```
+
+---
+
+## Active Session Rule File
+
+`execute_start`에 `cwd`를 전달하면 두 파일을 자동으로 생성하고 관리해요.
+
+| 파일 | 위치 | 내용 |
+|:---|:---|:---|
+| `.claude/rules/gestalt-active.md` | `{cwd}/.claude/rules/` | goal / constraints / 현재 태스크 |
+| `.gestalt/active-session.json` | `{cwd}/.gestalt/` | sessionId + specId |
+
+`.claude/rules/` 디렉토리의 파일은 Claude Code 세션 시작 시 자동으로 로드돼요. 새 세션을 열어도 현재 실행 중인 Spec의 목표와 제약조건이 컨텍스트에 주입돼요.
+
+### 라이프사이클
+
+| 액션 | 동작 |
+|:---|:---|
+| `execute_start` | 두 파일 생성 |
+| `execute_task` | `gestalt-active.md`의 currentTask 업데이트 |
+| `evolve_patch` | `gestalt-active.md`의 Spec 정보 업데이트 |
+| 세션 종료 (`completed` / `terminated` / `human_escalation`) | 두 파일 삭제 |
+
+소스: `src/execute/rule-writer.ts`
 
 ---
 
@@ -220,8 +248,8 @@ ges_execute({
 | `start` | Spec 제출 → Planning 세션 시작 |
 | `plan_step` | 각 원리 단계 결과 제출 |
 | `plan_complete` | 실행 계획 조립 → ExecutionPlan 반환 |
-| `execute_start` | 실행 Phase 시작 → 첫 태스크 컨텍스트 |
-| `execute_task` | 태스크 결과 제출 → driftScore + 다음 태스크 |
+| `execute_start` | 실행 Phase 시작 → 첫 태스크 컨텍스트. `cwd` 전달 시 `.claude/rules/gestalt-active.md` 자동 생성 |
+| `execute_task` | 태스크 결과 제출 → driftScore + 다음 태스크. 완료 5개 초과 시 `compressionAvailable: true` |
 | `role_match` | Role Agent 매칭 (2-Call) |
 | `role_consensus` | 다중 관점 합의 (2-Call) |
 | `status` | 세션 상태 조회 |
@@ -240,4 +268,5 @@ ges_execute({
 | `src/agent/role-match-engine.ts` | 에이전트 매칭 컨텍스트 생성 |
 | `src/agent/role-consensus-engine.ts` | 다중 관점 합성 |
 | `src/core/constants.ts` | PLANNING_PRINCIPLE_SEQUENCE, DRIFT_WEIGHTS |
+| `src/execute/rule-writer.ts` | `gestalt-active.md` 및 `active-session.json` 라이프사이클 관리 |
 | `src/mcp/tools/execute-passthrough.ts` | MCP 핸들러 |

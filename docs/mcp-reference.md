@@ -328,6 +328,24 @@ Plans and executes tasks derived from a Spec.
 | `action` | `string` | ✅ | See action tables above |
 | `sessionId` | `string` | Most actions | Execute session ID |
 | `spec` | `Spec object` | For `start` | Complete Spec from `ges_generate_spec` |
+| `cwd` | `string` | Optional | Working directory; `execute_start` uses this to create `.claude/rules/gestalt-active.md` and `.gestalt/active-session.json`; `status` uses it to read `resumeHint` |
+
+### `plan_complete` Response
+
+```json
+{
+  "status": "plan_complete",
+  "sessionId": "exec-456",
+  "planSummary": {
+    "totalTasks": 12,
+    "groupCount": 4,
+    "criticalPathLength": 7,
+    "parallelGroupCount": 3
+  },
+  "executionPlan": { "...": "..." },
+  "nextStep": "Call execute_start to begin task execution. Tasks will run in topological order — critical path has 7 tasks."
+}
+```
 
 ### Planning Step Result
 
@@ -346,6 +364,8 @@ ges_execute({
 ```
 
 ### `execute_start` Response
+
+When `cwd` is provided, `.claude/rules/gestalt-active.md` and `.gestalt/active-session.json` are created in the working directory. Both files are deleted when the session terminates.
 
 ```json
 {
@@ -376,24 +396,25 @@ ges_execute({
 {
   "status": "executing",
   "sessionId": "exec-456",
-  "completedTasks": 1,
+  "completedTasks": 6,
+  "compressionAvailable": true,
   "taskContext": {
-    "currentTask": { "taskId": "task-1", "..." : "..." },
-    "completedTaskIds": ["task-0"]
+    "currentTask": { "taskId": "task-6", "..." : "..." },
+    "completedTaskIds": ["task-0", "task-1", "task-2", "task-3", "task-4", "task-5"]
   },
   "driftScore": {
-    "taskId": "task-0",
+    "taskId": "task-5",
     "overall": 0.12,
     "dimensions": [
       { "name": "goal", "score": 0.05, "detail": "Goal-output Jaccard: 0.95" }
     ],
     "thresholdExceeded": false
   },
-  "message": "Task recorded. Use taskContext.taskPrompt to implement the next task."
+  "message": "Task recorded. TIP: Context is getting long — consider calling compress to summarize completed work. Use taskContext.taskPrompt to implement the next task."
 }
 ```
 
-When all tasks are complete, the response includes `"allTasksCompleted": true`.
+`compressionAvailable` is only included when `completedTasks > 5`. When all tasks are complete, the response includes `"allTasksCompleted": true`.
 
 ### Task Result
 
@@ -525,6 +546,22 @@ Checks session status for interview or execute sessions.
 |-----------|------|----------|-------------|
 | `sessionId` | `string` | Optional | Specific session ID to check; omit for all sessions |
 | `sessionType` | `"interview" \| "execute" \| "all"` | Optional | Filter by session type (default: `"all"`) |
+| `cwd` | `string` | Optional | Working directory; reads `.gestalt/active-session.json` to include `resumeHint` in the response |
+
+### Response (list, with `cwd`)
+
+```json
+{
+  "sessions": [...],
+  "total": 2,
+  "resumeHint": {
+    "sessionId": "exec-456",
+    "specId": "d9356d63-..."
+  }
+}
+```
+
+`resumeHint` is only included when `cwd` is provided and `.gestalt/active-session.json` exists.
 
 ---
 
