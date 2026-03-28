@@ -2,6 +2,7 @@ import type { PassthroughReviewEngine } from '../../review/passthrough-engine.js
 import type { PassthroughExecuteEngine } from '../../execute/passthrough-engine.js';
 import type { RoleAgentRegistry } from '../../agent/role-agent-registry.js';
 import type { ExecuteInput } from '../schemas.js';
+import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 
 export function handleReviewPassthrough(
   reviewEngine: PassthroughReviewEngine,
@@ -121,6 +122,18 @@ function handleReviewConsensus(
   if (!result.ok) return JSON.stringify({ error: result.error.message });
 
   const { approved, report, needsFix, canFix, criticalHighCount } = result.value;
+
+  // Save key findings as architecture decisions
+  try {
+    const memoryStore = new ProjectMemoryStore();
+    const { summary, mergedIssues } = input.reviewConsensus!;
+    if (summary) memoryStore.addArchitectureDecision(`[Review] ${summary}`);
+    for (const issue of mergedIssues.filter((i) => i.severity === 'critical')) {
+      memoryStore.addArchitectureDecision(`[Review:critical] ${issue.category}: ${issue.message}`);
+    }
+  } catch {
+    // Memory update failure should not block the response
+  }
 
   return JSON.stringify({
     status: approved ? 'review_passed' : 'review_blocked',

@@ -67,6 +67,7 @@ export const executeInputSchema = z.object({
     }),
   }).optional().describe('Spec specification (required for start)'),
   sessionId: z.string().optional().describe('Execute session ID'),
+  cwd: z.string().optional().describe('Working directory for rule file creation'),
   stepResult: z.object({
     principle: z.enum(['figure_ground', 'closure', 'proximity', 'continuity']),
     classifiedACs: z.array(z.object({

@@ -4,6 +4,15 @@ import type { PlanningStepResult, SubTask, ResumeContext } from '../../core/type
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { AuditEngine } from '../../execute/audit-engine.js';
 import { randomUUID } from 'node:crypto';
+import {
+  writeGestaltRule,
+  updateGestaltRule,
+  deleteGestaltRule,
+  writeActiveSession,
+  deleteActiveSession,
+} from '../../execute/rule-writer.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 export function handleExecutePassthrough(
   engine: PassthroughExecuteEngine,
@@ -65,9 +74,16 @@ export function handleExecutePassthrough(
       if (!result.ok) return formatError(result.error.message);
 
       const { executionPlan } = result.value;
+      const planSummary = {
+        totalTasks: executionPlan.atomicTasks.length,
+        groupCount: executionPlan.taskGroups.length,
+        criticalPathLength: executionPlan.dagValidation.criticalPath.length,
+        parallelGroupCount: executionPlan.parallelGroups?.length ?? 0,
+      };
       return JSON.stringify({
         status: 'plan_complete',
         sessionId: result.value.session.sessionId,
+        planSummary,
         executionPlan: {
           planId: executionPlan.planId,
           specId: executionPlan.specId,
@@ -81,6 +97,7 @@ export function handleExecutePassthrough(
           dagValidation: executionPlan.dagValidation,
           parallelGroups: executionPlan.parallelGroups,
         },
+        nextStep: 'Call execute_start to begin task execution. Tasks will run in topological order — critical path has ' + planSummary.criticalPathLength + ' tasks.',
         message: 'Execution plan assembled and validated. Call execute_start to begin task execution.',
       }, null, 2);
     }
@@ -99,6 +116,16 @@ export function handleExecutePassthrough(
           sessionId: session.sessionId,
           message: 'All tasks already completed. Call evaluate to verify acceptance criteria.',
         }, null, 2);
+      }
+
+      if (input.cwd) {
+        try {
+          const currentTask = taskContext ? { taskId: taskContext.currentTask.taskId, title: taskContext.currentTask.title } : null;
+          writeGestaltRule(input.cwd, { goal: session.spec.goal, constraints: session.spec.constraints }, currentTask);
+          writeActiveSession(input.cwd, session.sessionId, session.specId);
+        } catch {
+          // Rule file creation failure should not block execution
+        }
       }
 
       return JSON.stringify({
@@ -129,14 +156,25 @@ export function handleExecutePassthrough(
         }, null, 2);
       }
 
+      if (input.cwd && taskContext) {
+        try {
+          updateGestaltRule(input.cwd, { goal: session.spec.goal, constraints: session.spec.constraints }, { taskId: taskContext.currentTask.taskId, title: taskContext.currentTask.title });
+        } catch {
+          // Rule file update failure should not block execution
+        }
+      }
+
+      const compressionAvailable = session.taskResults.length > 5;
+
       return JSON.stringify({
         status: 'executing',
         sessionId: session.sessionId,
         completedTasks: session.taskResults.length,
         taskContext,
+        ...(compressionAvailable ? { compressionAvailable: true } : {}),
         ...(driftScore ? { driftScore } : {}),
         ...(retrospectiveContext ? { retrospectiveContext } : {}),
-        message: `Task "${input.taskResult.taskId}" recorded.${driftScore?.thresholdExceeded ? ' WARNING: Drift threshold exceeded! Review retrospectiveContext.' : ''} Use taskContext.taskPrompt to implement the next task.`,
+        message: `Task "${input.taskResult.taskId}" recorded.${driftScore?.thresholdExceeded ? ' WARNING: Drift threshold exceeded! Review retrospectiveContext.' : ''}${compressionAvailable ? ' TIP: Context is getting long — consider calling compress to summarize completed work.' : ''} Use taskContext.taskPrompt to implement the next task.`,
       }, null, 2);
     }
 
@@ -172,6 +210,15 @@ export function handleExecutePassthrough(
           });
         } catch {
           // Memory update failure should not block the response
+        }
+
+        if (input.cwd) {
+          try {
+            deleteGestaltRule(input.cwd);
+            deleteActiveSession(input.cwd);
+          } catch {
+            // Cleanup failure should not block the response
+          }
         }
 
         return JSON.stringify({
@@ -224,7 +271,7 @@ export function handleExecutePassthrough(
     }
 
     case 'status': {
-      return handleStatus(engine, input.sessionId);
+      return handleStatus(engine, input.sessionId, input.cwd);
     }
 
     // ─── Execution Continuity Actions ─────────────────────────
@@ -400,6 +447,9 @@ export function handleExecutePassthrough(
       }
 
       if (evolveResult.value.humanEscalation) {
+        if (input.cwd) {
+          try { deleteGestaltRule(input.cwd); deleteActiveSession(input.cwd); } catch { /* ignore */ }
+        }
         return JSON.stringify({
           status: 'human_escalation',
           sessionId: evolveResult.value.session.sessionId,
@@ -416,6 +466,9 @@ export function handleExecutePassthrough(
       }
 
       if (evolveResult.value.terminated) {
+        if (input.cwd) {
+          try { deleteGestaltRule(input.cwd); deleteActiveSession(input.cwd); } catch { /* ignore */ }
+        }
         return JSON.stringify({
           status: 'terminated',
           sessionId: evolveResult.value.session.sessionId,
@@ -447,6 +500,15 @@ export function handleExecutePassthrough(
       if (!patchResult.ok) return formatError(patchResult.error.message);
 
       const { impactedTaskIds, reExecuteContext } = patchResult.value;
+
+      if (input.cwd) {
+        try {
+          const patchedSession = patchResult.value.session;
+          updateGestaltRule(input.cwd, { goal: patchedSession.spec.goal, constraints: patchedSession.spec.constraints }, null);
+        } catch {
+          // Rule file update failure should not block execution
+        }
+      }
 
       if (impactedTaskIds.length === 0) {
         return JSON.stringify({
@@ -559,6 +621,9 @@ export function handleExecutePassthrough(
       if (!lateralResult.ok) return formatError(lateralResult.error.message);
 
       if (lateralResult.value.terminated) {
+        if (input.cwd) {
+          try { deleteGestaltRule(input.cwd); deleteActiveSession(input.cwd); } catch { /* ignore */ }
+        }
         return JSON.stringify({
           status: lateralResult.value.terminationReason === 'human_escalation' ? 'human_escalation' : 'terminated',
           sessionId: lateralResult.value.session.sessionId,
@@ -633,7 +698,7 @@ function buildStepResult(raw: NonNullable<ExecuteInput['stepResult']>): Planning
   }
 }
 
-function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string): string {
+function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string, cwd?: string): string {
   try {
     if (sessionId) {
       const session = engine.getSession(sessionId);
@@ -682,6 +747,19 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string): str
     }
 
     const sessions = engine.listSessions();
+
+    let resumeHint: { sessionId: string; specId: string } | undefined;
+    if (cwd) {
+      try {
+        const activeSessionPath = join(cwd, '.gestalt', 'active-session.json');
+        if (existsSync(activeSessionPath)) {
+          resumeHint = JSON.parse(readFileSync(activeSessionPath, 'utf-8'));
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     return JSON.stringify({
       sessions: sessions.map((s) => ({
         sessionId: s.sessionId,
@@ -704,6 +782,7 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string): str
         createdAt: s.createdAt,
       })),
       total: sessions.length,
+      ...(resumeHint ? { resumeHint } : {}),
     }, null, 2);
   } catch (e) {
     return formatError(e instanceof Error ? e.message : String(e));
