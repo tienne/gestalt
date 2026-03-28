@@ -43,6 +43,12 @@ export interface InterviewRound {
   timestamp: string;
 }
 
+export interface CompressedContext {
+  summary: string;
+  compressedAt: string;
+  roundsCompressed: number;
+}
+
 export interface InterviewSession {
   sessionId: string;
   topic: string;
@@ -50,6 +56,7 @@ export interface InterviewSession {
   projectType: ProjectType;
   rounds: InterviewRound[];
   ambiguityScore: AmbiguityScore | null;
+  compressedContext?: CompressedContext;
   createdAt: string;
   updatedAt: string;
 }
@@ -185,6 +192,7 @@ export interface ExecutionPlan {
   atomicTasks: AtomicTask[];
   taskGroups: TaskGroup[];
   dagValidation: DAGValidation;
+  parallelGroups: string[][];
   createdAt: string;
 }
 
@@ -297,6 +305,32 @@ export interface EvolutionGeneration {
   terminationReason?: TerminationReason;
 }
 
+export interface ResumeContext {
+  completedTaskIds: string[];
+  nextTaskId: string | null;
+  totalTasks: number;
+  progressPercent: number;
+}
+
+export interface AuditResult {
+  implementedACs: number[];
+  partialACs: number[];
+  missingACs: number[];
+  gapAnalysis: string;
+  auditedAt: string;
+}
+
+export interface SubTask {
+  taskId: string;
+  parentTaskId: string;
+  title: string;
+  description: string;
+  inheritedContext: string;
+  dependsOn: string[];
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  createdAt: string;
+}
+
 export interface ExecuteSession {
   sessionId: string;
   specId: string;
@@ -306,6 +340,10 @@ export interface ExecuteSession {
   planningSteps: PlanningStepResult[];
   executionPlan?: ExecutionPlan;
   taskResults: TaskExecutionResult[];
+  completedTaskIds: string[];
+  nextTaskId: string | null;
+  subTasks: SubTask[];
+  auditResult?: AuditResult;
   evaluateStage?: EvaluateStage;
   structuralResult?: StructuralResult;
   evaluationResult?: EvaluationResult;
@@ -434,6 +472,16 @@ export interface ReviewSession {
   updatedAt: string;
 }
 
+// ─── Spec Templates ─────────────────────────────────────────────
+export interface SpecTemplate {
+  id: string;
+  name: string;
+  description: string;
+  baseConstraints: string[];
+  baseAcceptanceCriteria: string[];
+  baseOntologyEntities: string[];
+}
+
 // ─── Project Memory ─────────────────────────────────────────────
 export type TextInputSourceType = 'text' | 'jira' | 'github_issue';
 
@@ -460,12 +508,19 @@ export interface MemoryExecutionRecord {
   completedAt: string;
 }
 
+export interface CompressedContextEntry {
+  sessionId: string;
+  summary: string;
+  compressedAt: string;
+}
+
 export interface ProjectMemory {
   version: string;
   repoRoot: string;
   specHistory: SpecHistoryEntry[];
   executionHistory: MemoryExecutionRecord[];
   architectureDecisions: string[];
+  compressedContexts?: CompressedContextEntry[];
   lastUpdated: string;
 }
 
