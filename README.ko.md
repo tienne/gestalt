@@ -21,7 +21,7 @@
 
 ## Gestalt는 무엇인가요?
 
-Gestalt는 Claude Code 안에서 실행되는 MCP(Model Context Protocol) 서버예요. 구조화된 요구사항 인터뷰를 진행해 검증된 **Spec**(목표·제약조건·완료 기준을 담은 JSON 문서)을 만들어요. 그 Spec을 의존성 기반 실행 계획으로 변환할 때 별도 API 키는 필요하지 않아요.
+Gestalt는 Claude Code 안에서 실행되는 MCP(Model Context Protocol) 서버예요. 구조화된 요구사항 인터뷰를 진행해 검증된 **Spec**(목표·제약조건·완료 기준을 담은 JSON 문서)을 만들어요. 그 Spec에서 실행 계획을 만들 때 별도 API 키는 필요하지 않아요.
 
 > **시작 전 확인** — Node.js >= 20.0.0이 필요해요. `nvm install 22 && nvm use 22`로 설치할 수 있어요.
 
@@ -96,7 +96,7 @@ Claude Code
 
 ## Project Memory
 
-Spec과 실행 결과는 레포 루트의 `.gestalt/memory.json`에 자동으로 기록돼요.
+Spec과 실행 결과는 레포 루트의 `.gestalt/memory.json`에 자동으로 저장돼요.
 
 ```json
 {
@@ -109,7 +109,7 @@ Spec과 실행 결과는 레포 루트의 `.gestalt/memory.json`에 자동으로
 ```
 
 - **커밋하세요** — `.gestalt/memory.json`은 일반 JSON 파일이에요. 커밋하면 팀원도 `git pull` 후 이전 결정 사항을 그대로 이어받을 수 있어요.
-- **컨텍스트 주입** — 다음 Spec을 생성할 때 이전 목표와 아키텍처 결정 사항이 프롬프트에 자동으로 주입돼요.
+- **컨텍스트 반영** — 다음 Spec을 생성할 때 이전 목표와 아키텍처 결정 사항이 프롬프트에 자동으로 반영돼요.
 - **User Profile** — 개인 설정은 `~/.gestalt/profile.json`에 저장되며 커밋 대상에 포함되지 않아요.
 
 ---
@@ -218,7 +218,7 @@ claude mcp add gestalt -- npx -y @tienne/gestalt
 3. caller가 요약 생성 후 제출 → 세션에 저장
 ```
 
-이후 라운드에서는 압축된 요약이 자동으로 주입돼요.
+이후 라운드에서 압축된 요약이 자동으로 반영돼요.
 
 ---
 
@@ -264,7 +264,7 @@ gestaltAnalysis     → 게슈탈트 원리별 핵심 발견 사항
 
 ### 3단계 — Execute (계획 + 실행)
 
-Spec을 의존성 기반 실행 계획으로 변환하고 실행해요:
+Spec에서 실행 계획을 만들어 실행해요:
 
 ```bash
 /execute
@@ -283,11 +283,11 @@ Spec을 의존성 기반 실행 계획으로 변환하고 실행해요:
 
 - 3차원 점수: Goal (50%) + Constraint (30%) + Ontology (20%)
 - Jaccard 유사도 기반 측정
-- Threshold를 초과하면 소급 검토가 자동으로 시작돼요
+- 임계값을 초과하면 회고(Retrospective)가 자동으로 시작돼요
 
 #### 병렬 실행 (Parallel Groups)
 
-`plan_complete` 응답에 `parallelGroups: string[][]`이 포함돼요. 의존성이 없는 태스크는 같은 그룹에 배치되어 동시 실행할 수 있어요:
+`plan_complete` 응답에 `parallelGroups: string[][]`이 포함돼요. 의존성이 없는 태스크를 같은 그룹으로 묶어 동시에 실행해요:
 
 ```json
 "parallelGroups": [
@@ -325,9 +325,9 @@ ges_execute({
 })
 ```
 
-#### Sub-agent 스포닝 (Spawn)
+#### 하위 에이전트 생성 (Spawn)
 
-복잡한 태스크를 동적으로 하위 태스크로 분해할 수 있어요:
+실행 중에 복잡한 태스크를 하위 태스크로 나눌 수 있어요:
 
 ```bash
 ges_execute({
@@ -349,7 +349,7 @@ ges_execute({
 
 | 단계 | 방식 | 실패 시 |
 |:---:|-------|-----------|
-| 1 | **Structural** — lint → build → test 실행 | 단락(short-circuit); 2단계 스킵 |
+| 1 | **Structural** — lint → build → test 실행 | 조기 종료(short-circuit); 2단계 건너뜀 |
 | 2 | **Contextual** — LLM이 각 AC + goal alignment 검증 | Evolution Loop 진입 |
 
 **성공 조건:** `score ≥ 0.85` AND `goalAlignment ≥ 0.80`
@@ -372,16 +372,16 @@ evolve → Spec 패치 (AC/constraints) → 영향받은 태스크 재실행 →
 
 Spec 패치 범위: AC와 constraints는 자유 수정; ontology는 추가/변경만; **goal은 변경 불가**.
 
-**Flow C — Lateral Thinking** (스태그네이션 감지 시)
+**Flow C — Lateral Thinking** (답보 상태 감지 시)
 
-종료하는 대신 Lateral Thinking Persona를 순환하며 다른 접근을 시도해요:
+종료하는 대신 Lateral Thinking Persona를 순서대로 적용하며 다른 접근을 시도해요:
 
-| 스태그네이션 패턴 | Persona | 전략 |
+| 답보 상태 패턴 | Persona | 전략 |
 |--------------------|---------|---------|
 | Hard cap 도달 | **Multistability** | 다른 각도로 보기 |
 | 진동하는 점수 | **Simplicity** | 단순하게 줄이고 수렴 |
 | 진전 없음 (no drift) | **Reification** | 빠진 것 채우기 |
-| 수익 체감 | **Invariance** | 성공한 패턴 복제 |
+| 효과 감소 | **Invariance** | 성공한 패턴 복제 |
 
 4개 Persona를 모두 소진하면 세션이 **Human Escalation**으로 종료돼요 — 수동 해결을 위한 구체적인 제안 목록과 함께.
 
@@ -434,7 +434,7 @@ review_start → 에이전트 관점 제출 → 합의 → 자동 수정
 # 사용 가능한 에이전트 목록 조회
 /agent
 
-# 특정 에이전트로 임의 태스크 실행
+# 특정 에이전트로 원하는 태스크 실행
 /agent architect "이 코드베이스의 모듈 경계를 리뷰해줘"
 /agent security-reviewer "이 인증 코드의 취약점을 확인해줘"
 /agent technical-writer "이 모듈의 README를 작성해줘"
