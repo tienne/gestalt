@@ -8,6 +8,7 @@ export async function handleSpec(
   input: SpecInput,
 ): Promise<string> {
   try {
+    if (!input.sessionId) return JSON.stringify({ error: 'sessionId is required' }, null, 2);
     const session = engine.getSession(input.sessionId);
     const result = await generator.generate(session, input.force);
 

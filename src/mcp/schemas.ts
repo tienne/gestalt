@@ -25,7 +25,8 @@ export type InterviewInput = z.infer<typeof interviewInputSchema>;
 
 // ─── Spec Tool ──────────────────────────────────────────────────
 export const specInputSchema = z.object({
-  sessionId: z.string(),
+  sessionId: z.string().optional().describe('Interview session ID (required when not using text input)'),
+  text: z.string().optional().describe('Plain text description to generate spec directly without interview'),
   force: z.boolean().optional().default(false),
   spec: z.object({
     goal: z.string(),

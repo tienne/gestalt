@@ -1,6 +1,7 @@
 import type { PassthroughExecuteEngine } from '../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../schemas.js';
 import type { PlanningStepResult } from '../../core/types.js';
+import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 
 export function handleExecutePassthrough(
   engine: PassthroughExecuteEngine,
@@ -145,9 +146,34 @@ export function handleExecutePassthrough(
         if (!result.ok) return formatError(result.error.message);
 
         const { evaluationResult } = result.value;
+        const completedSession = result.value.session;
+
+        // Update project memory on execution completion
+        try {
+          const memoryStore = new ProjectMemoryStore();
+          const completedTasks = completedSession.taskResults
+            .filter((t) => t.status === 'completed')
+            .map((t) => t.taskId);
+          const failedTasks = completedSession.taskResults
+            .filter((t) => t.status === 'failed')
+            .map((t) => t.taskId);
+          const score = evaluationResult?.overallScore ?? 0;
+          const goalAlign = evaluationResult?.goalAlignment ?? 0;
+          memoryStore.addExecution({
+            executeSessionId: completedSession.sessionId,
+            specId: completedSession.specId,
+            completedTasks,
+            failedTasks,
+            resultSummary: `Score: ${score.toFixed(2)}, goalAlignment: ${goalAlign.toFixed(2)}`,
+            completedAt: new Date().toISOString(),
+          });
+        } catch {
+          // Memory update failure should not block the response
+        }
+
         return JSON.stringify({
           status: 'completed',
-          sessionId: result.value.session.sessionId,
+          sessionId: completedSession.sessionId,
           stage: 'complete',
           evaluationResult,
           message: `Evaluation complete. Overall score: ${evaluationResult!.overallScore.toFixed(2)}, goal alignment: ${evaluationResult!.goalAlignment.toFixed(2)}. Session is now completed.`,

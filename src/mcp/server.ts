@@ -82,7 +82,8 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       'ges_generate_spec',
       'Generate a Spec specification (passthrough mode — returns prompt or validates externally generated spec).',
       {
-        sessionId: z.string().describe('The interview session ID'),
+        sessionId: z.string().optional().describe('Interview session ID (required when not using text input)'),
+        text: z.string().optional().describe('Plain text description to generate spec directly without interview'),
         force: z.boolean().optional().default(false).describe(
           'Force generation even if ambiguity threshold is not met',
         ),
@@ -96,7 +97,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
       (params) => {
         const input = specInputSchema.parse(params);
-        const result = handleSpecPassthrough(ptEngine, ptSpecGen, input);
+        const result = handleSpecPassthrough(ptEngine, ptSpecGen, input, agentRegistry);
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );
