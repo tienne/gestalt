@@ -47,8 +47,6 @@ Then in any Claude Code session:
 /execute
 ```
 
-Gestalt runs as an MCP server inside Claude Code, and Claude Code handles all LLM reasoning.
-
 → **[Full MCP Reference](./docs/mcp-reference.md)** — all tools, parameters, and examples
 
 ---

@@ -1,6 +1,6 @@
 # Getting Started with Gestalt
 
-> **Goal:** Run your first interview in 5 minutes — no terminal, no API key required.
+> **Goal:** Run your first interview in 5 minutes.
 
 ---
 
@@ -8,41 +8,28 @@
 
 Gestalt is a tool that helps you turn vague ideas into structured plans. You describe what you want to build, and Gestalt asks targeted questions until your requirements are clear enough to act on.
 
-It works entirely inside Claude Desktop — no extra accounts, no API keys.
+It runs as an MCP server inside Claude Code. Claude Code handles all AI reasoning — Gestalt manages state, validates results, and advances the pipeline.
 
 ---
 
 ## Step 1: Install the Plugin
 
-### In Claude Desktop
-
-1. Open Claude Desktop
-2. Click the **Plugins** icon (puzzle piece) in the sidebar
-3. Search for **"Gestalt"** in the marketplace
-4. Click **Install**
-
-> **Screenshot placeholder:** Claude Desktop plugin marketplace with Gestalt search result
-
-Once installed, you'll see the Gestalt tools available in your Claude Desktop session.
-
-**Alternative (one-time CLI setup):**
+Run these commands in Claude Code (one-time setup):
 
 ```bash
 /plugin marketplace add tienne/gestalt
 /plugin install gestalt@gestalt
 ```
 
+Once installed, the `/interview`, `/spec`, and `/execute` slash commands are available in any Claude Code session.
+
+> **Requires Node.js >= 20.0.0** — use `nvm install 22 && nvm use 22` if needed.
+
 ---
 
 ## Step 2: Run Your First Interview
 
-> **Skip the interview:** If you already have a clear idea, generate a spec directly without going through the interview:
-> ```
-> ges_generate_spec({ text: "I want to build [your idea here]" })
-> ```
-> The result is saved to `.gestalt/memory.json` and future specs automatically inherit the context.
-
-Type this in Claude Desktop to start an interview:
+Start with any topic. A single rough sentence is enough.
 
 ```
 /interview "I want to build [your idea here]"
@@ -54,9 +41,11 @@ Type this in Claude Desktop to start an interview:
 /interview "I want to create a mobile app that helps people track their daily water intake"
 ```
 
-Gestalt will guide you through a structured conversation. Just answer the questions — no technical knowledge required.
-
-> **Screenshot placeholder:** Claude Desktop showing the first interview question
+> **Skip the interview:** If you already have a clear idea, generate a spec directly:
+> ```
+> ges_generate_spec({ text: "I want to build [your idea here]" })
+> ```
+> The result is saved to `.gestalt/memory.json` and future specs automatically inherit the context.
 
 ---
 
@@ -107,9 +96,9 @@ Here's what a real interview looks like. Start with:
 **Gestalt:**
 > "Ambiguity score: 0.17 ✓ Your requirements are clear enough. Run `/spec` to generate a structured plan."
 
-**Total time: ~5 minutes.** No API key needed — Claude Desktop handles the AI reasoning in passthrough mode.
+**Total time: ~5 minutes.** Claude Code handles the AI reasoning in passthrough mode.
 
-> **Tip:** You don't need to write perfect answers. Short, honest responses work best. Gestalt asks follow-up questions to fill in any gaps.
+> **Tip:** Short, honest answers work best. Gestalt asks follow-up questions to fill in any gaps.
 
 ---
 
@@ -137,17 +126,13 @@ Gestalt breaks your requirements into tasks, validates dependencies, and runs th
 
 ---
 
-## No API Key? No Problem.
+## How Passthrough Mode Works
 
-Gestalt runs in **Passthrough Mode** by default — Claude Desktop handles all AI reasoning. The Gestalt server only manages state and structure.
+Gestalt runs as an MCP server inside Claude Code. When you run `/interview` or `/spec`, Claude Code acts as the AI — Gestalt returns prompts and context, and Claude Code does the reasoning. The server makes no external API calls.
 
-You don't need an `ANTHROPIC_API_KEY` to use Gestalt with Claude Desktop.
+### CLI Mode (for automation and CI/CD)
 
-### What if I have an API key?
-
-If you add an `ANTHROPIC_API_KEY` to your Gestalt configuration, Gestalt can run its own LLM calls independently (useful for automation or CI/CD pipelines). For most users, passthrough mode is all you need.
-
-**To add an API key (optional):**
+If you want to run Gestalt without Claude Code open — for scripted workflows or CI pipelines — add an `ANTHROPIC_API_KEY`. Gestalt will then make its own LLM calls independently.
 
 Create a `.env` file in your project root:
 
@@ -155,15 +140,13 @@ Create a `.env` file in your project root:
 ANTHROPIC_API_KEY=your-api-key-here
 ```
 
-Or create `gestalt.json`:
+Or add it to `gestalt.json`:
 
 ```json
 {
   "llm": { "apiKey": "your-api-key-here" }
 }
 ```
-
-With an API key, Gestalt can run interviews and spec generation autonomously — without Claude Desktop being open. This is useful for scripted workflows and CI pipelines.
 
 ---
 
@@ -213,14 +196,14 @@ ges_interview({ action: "start", topic: "my project idea" })
 
 The slash commands (`/interview`, `/spec`, `/execute`) require the Claude Code plugin and are not available on claude.ai web.
 
-> **For most users, Claude Desktop with the plugin is the easiest option.** The web option is best for teams who want to share a single hosted Gestalt instance.
+> **For most users, Claude Code with the plugin is the easiest option.** The web option is best for teams who want to share a single hosted Gestalt instance.
 
 ---
 
 ## Troubleshooting
 
 **The plugin doesn't appear after install**
-→ Restart Claude Desktop and check the Plugins panel.
+→ Restart Claude Code and check the Plugins panel.
 
 **Interview stops unexpectedly**
 → Type `/interview` again with the same topic to resume.

@@ -52,8 +52,6 @@ Gestalt는 Claude Code 안에서 실행되는 MCP(Model Context Protocol) 서버
 /execute
 ```
 
-Gestalt는 MCP 서버로 실행되고, 모든 LLM 추론은 Claude Code가 담당해요.
-
 ![Gestalt 데모](./docs/demo.gif)
 _(데모 영상 준비 중)_
 
@@ -104,7 +102,7 @@ Claude Code
 
 ---
 
-## Project Memory
+## 프로젝트 메모리
 
 Spec과 실행 결과는 레포 루트의 `.gestalt/memory.json`에 자동으로 저장돼요.
 
