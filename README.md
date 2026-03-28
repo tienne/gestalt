@@ -27,22 +27,41 @@ Gestalt is an MCP (Model Context Protocol) server that runs inside Claude Code. 
 
 ---
 
-## See it in action
+## Quick Start
 
-> **30 seconds to a structured execution plan** — no API key needed.
+**Choose your path:**
+
+### For Non-Developers (Claude Desktop)
+
+No terminal. No API key. Just Claude Desktop.
+
+→ **[5-minute Getting Started Guide](./docs/getting-started.md)**
+
+1. Open Claude Desktop
+2. Install the Gestalt plugin
+3. Type `/interview "your idea"` — Gestalt guides you through the rest
+
+---
+
+### For Developers (MCP Integration)
 
 ```bash
-# Start a Gestalt-driven requirements interview
+# Step 1: Add to marketplace (one-time setup)
+/plugin marketplace add tienne/gestalt
+
+# Step 2: Install the plugin
+/plugin install gestalt@gestalt
+```
+
+Then in any Claude Code session:
+
+```bash
 /interview "user authentication system"
-
-# Once the interview is done, generate a structured Spec
 /spec
-
-# Transform the Spec into a validated execution plan and run it
 /execute
 ```
 
-_(Demo coming soon.)_
+→ **[Full MCP Reference](./docs/mcp-reference.md)** — all tools, parameters, and examples
 
 ---
 
