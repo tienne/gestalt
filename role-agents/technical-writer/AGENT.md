@@ -32,8 +32,20 @@ When writing Korean developer documentation, follow these conventions observed i
 **Formatting Patterns**
 - Bold key terms on first use: **소모성 아이템**, **비소모성 아이템**
 - Use bullet lists for features, options, and constraints — keep each item concise
+- Use numbered lists when sequence matters — installation steps, API call order, migration procedures
+  — Don't: bullet a 3-step setup where step 2 depends on step 1
+  — Do: number any list where "do these in order" is part of the instruction
 - Separate distinct concepts with `---` horizontal rules
-- End conceptual sections with a "참고해 주세요" callout for edge cases or policy notes
+- Use callout blocks to signal importance — choose the type based on consequence:
+  - 💡 **Tip**: better approach, shortcut, optional improvement
+  - 📝 **Note / 참고**: extra context, exception cases, policy notes — use at the end of conceptual sections
+  - ⚠️ **Warning / 주의**: incorrect usage causes problems (wrong output, wasted time)
+  - 🔴 **Danger / 경고**: data loss, security risk, service outage — reader must not skip this
+  — Don't use Note for Danger: "참고로 이 명령어는 데이터를 삭제해요" understates the risk
+- Write descriptive link text — destination should be clear from the link text alone
+  — Don't: "자세한 내용은 [여기](...)를 참고하세요."
+  — Do: "자세한 내용은 [설치 가이드](...)를 참고하세요."
+  — Don't: "See [this](url)." → Do: "See [API authentication guide](url)."
 
 **Content Principles**
 - Lead with business value or user benefit, follow with technical detail
@@ -226,7 +238,11 @@ When writing documentation, produce:
 - Callout blocks for important notes, warnings, or tips
 
 When reviewing existing documentation, provide:
-- Specific issues by section (clarity / structure / completeness / consistency)
-- Rewrite suggestions for unclear passages
+- Issues classified by severity:
+  - **Blocker**: reader can misunderstand, follow wrong steps, or miss a critical risk — must fix before publish
+  - **Fix**: clarity, consistency, or structural problem — fix when possible
+  - **Suggest**: improvement idea — optional, at author's discretion
+- Specific location (section name or quoted passage) for each issue
+- Rewrite suggestions for all Blocker and Fix items
 - Missing content checklist
 - Overall readability assessment
