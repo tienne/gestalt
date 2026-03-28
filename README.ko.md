@@ -208,6 +208,18 @@ claude mcp add gestalt -- npx -y @tienne/gestalt
 8라운드 → 모호성: 0.19  ✓ Spec 생성 준비 완료
 ```
 
+#### 인터뷰가 길어질 때 (Context Compression)
+
+라운드가 5개를 초과하면 Gestalt가 자동으로 압축을 제안해요. `compress` action을 사용하면 이전 대화를 요약해 컨텍스트를 줄일 수 있어요:
+
+```
+1. respond 응답에 needsCompression: true + compressionContext 포함
+2. ges_interview({ action: "compress", sessionId }) → compressionContext 반환
+3. caller가 요약 생성 후 제출 → 세션에 저장
+```
+
+이후 라운드에서는 압축된 요약이 자동으로 주입돼요.
+
 ---
 
 ### 2단계 — Spec 생성
@@ -216,6 +228,20 @@ claude mcp add gestalt -- npx -y @tienne/gestalt
 
 ```bash
 ges_generate_spec({ text: "Stripe로 결제 플로우 구현" })
+```
+
+**옵션 A-2 — 내장 템플릿 사용:**
+
+3가지 내장 템플릿으로 빠르게 시작할 수 있어요:
+
+| 템플릿 ID | 설명 |
+|-----------|------|
+| `rest-api` | REST API 서버 (인증, CRUD, OpenAPI) |
+| `react-dashboard` | React 대시보드 앱 (차트, 필터, 반응형) |
+| `cli-tool` | CLI 도구 (서브커맨드, 설정, 배포) |
+
+```bash
+ges_generate_spec({ text: "JWT 인증이 포함된 API", template: "rest-api" })
 ```
 
 **옵션 B — 완료된 인터뷰에서 생성:**
@@ -258,6 +284,62 @@ Spec을 의존성 기반 실행 계획으로 변환하고 실행해요:
 - 3차원 점수: Goal (50%) + Constraint (30%) + Ontology (20%)
 - Jaccard 유사도 기반 측정
 - Threshold를 초과하면 소급 검토가 자동으로 시작돼요
+
+#### 병렬 실행 (Parallel Groups)
+
+`plan_complete` 응답에 `parallelGroups: string[][]`이 포함돼요. 의존성이 없는 태스크는 같은 그룹에 배치되어 동시 실행할 수 있어요:
+
+```json
+"parallelGroups": [
+  ["setup-db", "setup-env"],   // 동시 실행 가능
+  ["create-schema"],           // 위 그룹 완료 후 실행
+  ["seed-data", "run-tests"]   // 동시 실행 가능
+]
+```
+
+#### 실행 이어하기 (Resume)
+
+실행 중 세션이 중단되어도 이어서 계속할 수 있어요:
+
+```bash
+ges_execute({ action: "resume", sessionId: "<id>" })
+```
+
+`ResumeContext`를 반환해요: 완료된 태스크 목록, 다음 태스크, 진행률(%). `ges_status` 응답에도 `resumeContext`가 자동으로 포함돼요.
+
+#### Brownfield 감사 (Audit)
+
+기존 코드베이스가 있을 때 Spec 대비 구현 현황을 분석할 수 있어요:
+
+```bash
+# 1단계: 감사 컨텍스트 요청
+ges_execute({ action: "audit", sessionId: "<id>" })
+→ auditContext (systemPrompt, auditPrompt) 반환
+
+# 2단계: 코드베이스 스냅샷 + 감사 결과 제출
+ges_execute({
+  action: "audit",
+  sessionId: "<id>",
+  codebaseSnapshot: "...",
+  auditResult: { implementedACs: [0,2], partialACs: [1], missingACs: [3], gapAnalysis: "..." }
+})
+```
+
+#### Sub-agent 스포닝 (Spawn)
+
+복잡한 태스크를 동적으로 하위 태스크로 분해할 수 있어요:
+
+```bash
+ges_execute({
+  action: "spawn",
+  sessionId: "<id>",
+  parentTaskId: "task-3",
+  subTasks: [
+    { title: "DB 스키마 작성", description: "..." },
+    { title: "마이그레이션 실행", description: "...", dependsOn: ["spawned-<id>"] }
+  ]
+})
+```
 
 ---
 
@@ -481,15 +563,19 @@ Claude Code
 │  Interview Engine                │
 │  ├─ GestaltPrincipleSelector     │
 │  ├─ AmbiguityScorer              │
-│  └─ SessionManager               │
+│  ├─ SessionManager               │
+│  └─ ContextCompressor            │
 │                                  │
 │  Spec Generator                  │
-│  └─ PassthroughSpecGenerator     │
+│  ├─ PassthroughSpecGenerator     │
+│  └─ SpecTemplateRegistry         │
 │                                  │
 │  Execute Engine                  │
 │  ├─ DAG Validator                │
+│  ├─ ParallelGroupsCalculator     │
 │  ├─ DriftDetector                │
 │  ├─ EvaluationEngine             │
+│  ├─ AuditEngine                  │
 │  └─ ExecuteSessionManager        │
 │                                  │
 │  Resilience Engine               │

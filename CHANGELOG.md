@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-28
+
+### Added
+- **Execution Continuity (Resume)**: 중단된 실행 세션을 이어서 실행하는 `resume` MCP action 추가
+  - `ges_execute({ action: "resume", sessionId })` — 완료된 태스크 목록 + 다음 태스크 컨텍스트 반환
+  - `ResumeContext`: `completedTaskIds`, `nextTaskId`, `totalTasks`, `progressPercent` 포함
+  - `ges_status` 응답에 `resumeContext` 자동 포함 (executing 상태 세션)
+- **Context Compression**: 인터뷰 컨텍스트가 길어질 때 자동 압축하는 `compress` MCP action 추가
+  - 5라운드 초과 시 `compress` 권장 (`needsCompression`, `compressionContext` 응답 포함)
+  - `compress` action: 2-Call 패턴 — compressionContext 반환 → caller가 요약 생성 → 제출
+  - 압축 요약은 세션에 저장(`compressedContext`)되어 이후 라운드에 자동 주입
+  - `ProjectMemoryStore.addCompressedContext()` — `.gestalt/memory.json`에 압축 이력 영속화
+- **Spec Template Library**: `ges_generate_spec`에 `template` 파라미터 추가
+  - 3개 내장 템플릿: `rest-api`, `react-dashboard`, `cli-tool`
+  - 템플릿 제약 조건과 완료 기준이 Spec 생성 프롬프트에 자동 주입
+  - `SpecTemplateRegistry`: `list()`, `get()`, `has()`, `buildTemplateContext()`
+- **Brownfield Audit**: 기존 코드베이스와 Spec 간 갭을 분석하는 `audit` MCP action 추가
+  - 2-Call 패턴: `audit` (context 요청) → codebaseSnapshot + auditResult 제출
+  - `AuditResult`: `implementedACs`, `partialACs`, `missingACs`, `gapAnalysis`, `auditedAt`
+- **Parallel Task Groups**: 동시 실행 가능한 태스크 그룹 자동 계산
+  - `computeParallelGroups()` — DAG 레이어 기반 병렬 그룹 배열 생성
+  - `ExecutionPlan.parallelGroups: string[][]` 필드 추가 — `plan_complete` 응답에 포함
+- **Sub-agent Spawning**: `spawn` MCP action으로 동적 하위 태스크 생성
+  - `ges_execute({ action: "spawn", sessionId, parentTaskId, subTasks })` — SubTask[] 등록
+  - `SubTask`: 부모 태스크 컨텍스트를 상속, 독립 실행 가능
+
+### Changed
+- `ges_execute` action enum에 `resume`, `audit`, `spawn` 추가
+- `ges_interview` action enum에 `compress` 추가
+- `ExecuteSession`에 `completedTaskIds`, `nextTaskId`, `subTasks` 필드 추가
+- `InterviewSession`에 `compressedContext` 필드 추가
+
 ## [0.6.0] - 2026-03-27
 
 ### Added

@@ -222,6 +222,18 @@ Round 4 → ambiguity: 0.45  (getting clearer)
 Round 8 → ambiguity: 0.19  ✓ ready for Spec
 ```
 
+#### Long interviews: Context Compression
+
+When rounds exceed 5, Gestalt automatically signals that compression is available. Use the `compress` action to summarize earlier rounds and keep the context window lean:
+
+```
+1. respond returns needsCompression: true + compressionContext
+2. ges_interview({ action: "compress", sessionId }) → compressionContext
+3. Caller generates summary → submits it → stored in session
+```
+
+The compressed summary is automatically injected into all subsequent rounds.
+
 ---
 
 ### Step 2 — Spec Generation
@@ -230,6 +242,20 @@ Round 8 → ambiguity: 0.19  ✓ ready for Spec
 
 ```bash
 ges_generate_spec({ text: "Build a checkout flow with Stripe" })
+```
+
+**Option A-2 — With a built-in template:**
+
+Three starter templates pre-fill common constraints and acceptance criteria:
+
+| Template ID | Description |
+|-------------|-------------|
+| `rest-api` | REST API server with auth, CRUD, and OpenAPI |
+| `react-dashboard` | React dashboard with charts, filters, and responsive layout |
+| `cli-tool` | CLI tool with subcommands, config, and distribution |
+
+```bash
+ges_generate_spec({ text: "API with JWT authentication", template: "rest-api" })
 ```
 
 **Option B — From a completed interview:**
@@ -272,6 +298,62 @@ Transforms the Spec into a dependency-aware execution plan and runs it:
 - 3-dimensional score: Goal (50%) + Constraint (30%) + Ontology (20%)
 - Jaccard similarity-based measurement
 - Auto-triggers a retrospective when drift exceeds threshold
+
+#### Parallel execution groups
+
+The `plan_complete` response includes `parallelGroups: string[][]`. Tasks with no mutual dependencies land in the same group and can be executed concurrently:
+
+```json
+"parallelGroups": [
+  ["setup-db", "setup-env"],   // run in parallel
+  ["create-schema"],           // after group above
+  ["seed-data", "run-tests"]   // run in parallel
+]
+```
+
+#### Resuming an interrupted execution
+
+Pick up where you left off when a session is interrupted:
+
+```bash
+ges_execute({ action: "resume", sessionId: "<id>" })
+```
+
+Returns `ResumeContext`: completed task IDs, next task, and `progressPercent`. The `ges_status` response also includes `resumeContext` automatically for any executing session.
+
+#### Brownfield audit
+
+When a codebase already exists, audit it against the Spec before executing new tasks:
+
+```bash
+# Step 1: request audit context
+ges_execute({ action: "audit", sessionId: "<id>" })
+→ auditContext (systemPrompt, auditPrompt)
+
+# Step 2: submit codebase snapshot + audit result
+ges_execute({
+  action: "audit",
+  sessionId: "<id>",
+  codebaseSnapshot: "...",
+  auditResult: { implementedACs: [0,2], partialACs: [1], missingACs: [3], gapAnalysis: "..." }
+})
+```
+
+#### Sub-agent spawning
+
+Decompose a complex task into sub-tasks dynamically during execution:
+
+```bash
+ges_execute({
+  action: "spawn",
+  sessionId: "<id>",
+  parentTaskId: "task-3",
+  subTasks: [
+    { title: "Write DB schema", description: "..." },
+    { title: "Run migration", description: "...", dependsOn: ["spawned-<id>"] }
+  ]
+})
+```
 
 ---
 
@@ -493,15 +575,19 @@ Claude Code (you)
 │  Interview Engine                │
 │  ├─ GestaltPrincipleSelector     │
 │  ├─ AmbiguityScorer              │
-│  └─ SessionManager               │
+│  ├─ SessionManager               │
+│  └─ ContextCompressor            │
 │                                  │
 │  Spec Generator                  │
-│  └─ PassthroughSpecGenerator     │
+│  ├─ PassthroughSpecGenerator     │
+│  └─ SpecTemplateRegistry         │
 │                                  │
 │  Execute Engine                  │
 │  ├─ DAG Validator                │
+│  ├─ ParallelGroupsCalculator     │
 │  ├─ DriftDetector                │
 │  ├─ EvaluationEngine             │
+│  ├─ AuditEngine                  │
 │  └─ ExecuteSessionManager        │
 │                                  │
 │  Resilience Engine               │
