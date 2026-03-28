@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Gestalt — AI 개발 하네스</strong><br/>
-  모호한 요구사항을 구조화된 실행 계획으로 — Claude Code 안에서 바로.
+  흩어진 모호함을 하나의 실행 계획으로
 </p>
 
 <p align="center">
