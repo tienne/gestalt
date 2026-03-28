@@ -21,7 +21,7 @@
 
 ## Gestalt는 무엇인가요?
 
-Gestalt는 Claude Code 안에서 실행되는 MCP(Model Context Protocol) 서버예요. 요구사항을 인터뷰로 구체화해 **Spec**(목표·제약조건·완료 기준)을 만들고, 그 Spec을 바탕으로 실행 계획을 짜요. API 키는 필요하지 않아요.
+Gestalt는 Claude Code 안에서 실행되는 MCP(Model Context Protocol) 서버예요. 요구사항을 인터뷰로 구체화해 **Spec**(목표·제약조건·완료 기준)을 만들고, 그 Spec을 바탕으로 실행 계획을 짜요.
 
 > **시작 전 확인** — Node.js >= 20.0.0이 필요해요. `nvm install 22 && nvm use 22`로 설치할 수 있어요.
 
@@ -52,7 +52,7 @@ Gestalt는 Claude Code 안에서 실행되는 MCP(Model Context Protocol) 서버
 /execute
 ```
 
-API 키는 필요하지 않아요. Gestalt는 MCP 서버로 실행되고, 모든 LLM 추론은 Claude Code가 담당해요.
+Gestalt는 MCP 서버로 실행되고, 모든 LLM 추론은 Claude Code가 담당해요.
 
 ![Gestalt 데모](./docs/demo.gif)
 _(데모 영상 준비 중)_
@@ -99,8 +99,6 @@ Claude Code
        ▼ 모호성 ≤ 0.2 될 때까지 반복
   최종 Spec → 실행 계획
 ```
-
-`ANTHROPIC_API_KEY`는 필요하지 않아요. 모든 LLM 작업은 Claude Code가 처리해요.
 
 > **참고해 주세요** — CLI 직접 실행 모드에서는 `ANTHROPIC_API_KEY`가 필요해요. Claude Code 없이 터미널에서 바로 사용할 경우에만 해당돼요.
 

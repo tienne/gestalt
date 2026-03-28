@@ -21,7 +21,7 @@
 
 ## What is Gestalt?
 
-Gestalt is an MCP (Model Context Protocol) server that runs inside Claude Code. It conducts structured requirement interviews, generates a validated **Spec** (a JSON document capturing your goal, constraints, and acceptance criteria), and transforms that Spec into a dependency-aware execution plan — all without a separate API key.
+Gestalt is an MCP (Model Context Protocol) server that runs inside Claude Code. It conducts structured requirement interviews, generates a validated **Spec** (a JSON document capturing your goal, constraints, and acceptance criteria), and transforms that Spec into a dependency-aware execution plan.
 
 > **Prerequisites:** Node.js >= 20.0.0. Use `nvm install 22 && nvm use 22` if needed.
 
@@ -47,7 +47,7 @@ Then in any Claude Code session:
 /execute
 ```
 
-No API key required — Gestalt runs as an MCP server inside Claude Code, and Claude Code handles all LLM reasoning.
+Gestalt runs as an MCP server inside Claude Code, and Claude Code handles all LLM reasoning.
 
 → **[Full MCP Reference](./docs/mcp-reference.md)** — all tools, parameters, and examples
 
@@ -91,8 +91,6 @@ You (in Claude Code)
        ▼ repeat until ambiguity ≤ 0.2
   Final Spec → Execution Plan
 ```
-
-`ANTHROPIC_API_KEY` is not required. All LLM work is handled by Claude Code.
 
 ---
 
