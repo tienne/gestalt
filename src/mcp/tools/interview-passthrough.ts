@@ -1,4 +1,8 @@
+import { join } from 'node:path';
 import type { PassthroughEngine } from '../../interview/passthrough-engine.js';
+import type { InterviewSession } from '../../core/types.js';
+import { CastGenerator, slugify, getDateString } from '../../recording/cast-generator.js';
+import { AggConverter } from '../../recording/agg-converter.js';
 import type { InterviewInput } from '../schemas.js';
 
 export function handleInterviewPassthrough(
@@ -92,12 +96,17 @@ export function handleInterviewPassthrough(
       const result = engine.complete(input.sessionId);
       if (!result.ok) return formatError(result.error.message);
 
+      const recordingPath = input.record ? triggerRecording(result.value) : undefined;
+
       return JSON.stringify({
         status: 'completed',
         sessionId: result.value.sessionId,
         totalRounds: result.value.rounds.length,
         finalAmbiguityScore: result.value.ambiguityScore?.overall.toFixed(2) ?? 'N/A',
-        message: 'Interview completed. Use ges_generate_spec to generate a spec.',
+        ...(recordingPath && { recordingPath }),
+        message: recordingPath
+          ? `Interview completed. GIF recording is being generated: ${recordingPath}`
+          : 'Interview completed. Use ges_generate_spec to generate a spec.',
       }, null, 2);
     }
   }
@@ -105,4 +114,24 @@ export function handleInterviewPassthrough(
 
 function formatError(message: string): string {
   return JSON.stringify({ error: message }, null, 2);
+}
+
+function triggerRecording(session: InterviewSession): string {
+  const slug = slugify(session.topic);
+  const date = getDateString();
+  const gifPath = join('.gestalt', 'recordings', `${slug}-${date}.gif`);
+  const castPath = join('.gestalt', 'recordings', `tmp-${session.sessionId}.cast`);
+
+  try {
+    new CastGenerator().generate(session, castPath);
+    void new AggConverter().convertAsync(castPath, gifPath, {
+      deleteCastAfter: true,
+      onComplete: (p) => process.stderr.write(`[gestalt] Recording saved: ${p}\n`),
+      onError: (e) => process.stderr.write(`[gestalt] Recording failed: ${e.message}\n`),
+    }).catch(() => {});
+  } catch {
+    // cast generation failure should not break complete action
+  }
+
+  return gifPath;
 }

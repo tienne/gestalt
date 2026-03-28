@@ -17,6 +17,8 @@ export const interviewInputSchema = z.object({
     contextClarity: z.number().min(0).max(1).optional(),
     contradictions: z.array(z.string()).optional(),
   }).optional().describe('Ambiguity scores computed by the caller LLM (passthrough mode)'),
+  record: z.boolean().optional()
+    .describe('Generate a GIF recording of the interview session on complete'),
 });
 
 export type InterviewInput = z.infer<typeof interviewInputSchema>;
