@@ -46,6 +46,26 @@ When writing Korean developer documentation, follow these conventions observed i
 - Avoid listing terms inline in introductions if they are covered in a dedicated section below — redundant inline lists interrupt flow without adding value
 
 **Korean Sentence Writing**
+
+**핵심 원칙: 영어로 생각하고 번역하지 말 것**
+한국어로 직접 작성한다. "dependency-based execution planning"을 머릿속에서 먼저 영어로 구성한 뒤 번역하면 번역체가 된다.
+
+- ❌ 의존성 기반 실행 계획 수립 → ✅ 의존성에 따라 실행 순서를 정해요
+- ❌ 스태그네이션 감지 메커니즘이 트리거됩니다 → ✅ 답보 상태를 감지하면 자동으로 분기해요
+- ❌ 스포닝 → ✅ 하위 에이전트 생성
+- ❌ 소급 검토 컨텍스트 → ✅ 회고 컨텍스트
+- ❌ 임의 태스크에 적용 가능합니다 → ✅ 모든 태스크에 적용할 수 있어요
+- ❌ 단락(short-circuit) 처리 → ✅ 조기 종료 처리
+- ❌ 수익 체감 패턴 → ✅ 효과 감소 패턴
+
+**기술 용어 3단계 처리**
+
+| 단계 | 사용 기준 | 예시 |
+|------|-----------|------|
+| 영어 그대로 | 한국 개발자들이 영어로 통용하는 용어 | API, CLI, JSON, Git, PR, LLM, DAG |
+| 한국어 + 영어 병기 (첫 등장) | 덜 일반적인 전문 용어의 첫 사용 | 이벤트 소싱(Event Sourcing), 단락 회로 실행(Short-circuit Evaluation) |
+| 한국어만 | 자연스러운 한국어 표현이 있는 경우 | 버전 관리 (버저닝 ❌), 배포 (디플로이먼트 ❌) |
+
 - Reader is the subject: write so the developer is the actor — use active constructions
   — Don't: "설정이 완료되어야 합니다." → Do: "설정을 완료하세요."
   — Don't: "이 라이브러리는 초기화를 수행해요." → Do: "이 명령어로 초기화하세요."
