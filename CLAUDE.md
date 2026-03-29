@@ -1,7 +1,7 @@
 # Gestalt — AI Development Harness
 
 ## Overview
-게슈탈트 심리학 원리를 요구사항 명확화 프로세스에 매핑한 TypeScript 기반 AI 개발 하네스.
+게슈탈트 지각이론을 요구사항 명확화 프로세스에 매핑한 TypeScript 기반 AI 개발 하네스.
 "전체는 부분의 합보다 크다" — 흩어진 요구사항 조각들을 모아 완전한 스펙(Spec)으로 결정화.
 
 ## Architecture
