@@ -6,6 +6,7 @@ import { AggConverter } from '../../recording/agg-converter.js';
 import type { InterviewInput } from '../schemas.js';
 import { ContextCompressor } from '../../interview/context-compressor.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
+import { gestaltNotify } from '../../utils/notifier.js';
 
 export function handleInterviewPassthrough(
   engine: PassthroughEngine,
@@ -148,6 +149,11 @@ export function handleInterviewPassthrough(
       if (!result.ok) return formatError(result.error.message);
 
       const recordingPath = input.record ? triggerRecording(result.value) : undefined;
+
+      gestaltNotify({
+        event: 'interview_complete',
+        message: `인터뷰 완료 — ${result.value.rounds.length}라운드, 모호성: ${result.value.ambiguityScore?.overall.toFixed(2) ?? 'N/A'}`,
+      });
 
       return JSON.stringify({
         status: 'completed',

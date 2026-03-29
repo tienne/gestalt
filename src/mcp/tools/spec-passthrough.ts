@@ -4,6 +4,7 @@ import { TextBasedSpecGenerator } from '../../spec/text-based-spec-generator.js'
 import type { SpecInput } from '../schemas.js';
 import type { AgentRegistry } from '../../agent/registry.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
+import { gestaltNotify } from '../../utils/notifier.js';
 
 export function handleSpecPassthrough(
   engine: PassthroughEngine,
@@ -33,6 +34,10 @@ export function handleSpecPassthrough(
           sourceType: 'text',
         });
 
+        gestaltNotify({
+          event: 'spec_generated',
+          message: `Spec 생성 완료 — ${result.value.goal.slice(0, 50)}`,
+        });
         return JSON.stringify({
           status: 'generated',
           spec: result.value,
@@ -76,6 +81,10 @@ export function handleSpecPassthrough(
         // Memory update failure should not block spec generation
       }
 
+      gestaltNotify({
+        event: 'spec_generated',
+        message: `Spec 생성 완료 — ${result.value.goal.slice(0, 50)}`,
+      });
       return JSON.stringify({
         status: 'generated',
         spec: result.value,

@@ -3,6 +3,7 @@ import type { ExecuteInput } from '../schemas.js';
 import type { PlanningStepResult, SubTask, ResumeContext } from '../../core/types.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { AuditEngine } from '../../execute/audit-engine.js';
+import { gestaltNotify } from '../../utils/notifier.js';
 import { randomUUID } from 'node:crypto';
 import {
   writeGestaltRule,
@@ -146,6 +147,10 @@ export function handleExecutePassthrough(
       const { session, taskContext, allTasksCompleted, driftScore, retrospectiveContext } = result.value;
 
       if (allTasksCompleted) {
+        gestaltNotify({
+          event: 'tasks_completed',
+          message: `모든 태스크 완료 (${session.taskResults.length}개) — evaluate를 호출하세요`,
+        });
         return JSON.stringify({
           status: 'all_tasks_completed',
           sessionId: session.sessionId,
@@ -221,12 +226,21 @@ export function handleExecutePassthrough(
           }
         }
 
+        const score = evaluationResult!.overallScore;
+        const alignment = evaluationResult!.goalAlignment;
+        const success = score >= 0.85 && alignment >= 0.80;
+        gestaltNotify({
+          event: success ? 'evaluation_success' : 'evaluation_failed',
+          message: success
+            ? `평가 성공 ✓ score: ${score.toFixed(2)}, alignment: ${alignment.toFixed(2)}`
+            : `평가 미달 score: ${score.toFixed(2)}, alignment: ${alignment.toFixed(2)} — Evolve 진입`,
+        });
         return JSON.stringify({
           status: 'completed',
           sessionId: completedSession.sessionId,
           stage: 'complete',
           evaluationResult,
-          message: `Evaluation complete. Overall score: ${evaluationResult!.overallScore.toFixed(2)}, goal alignment: ${evaluationResult!.goalAlignment.toFixed(2)}. Session is now completed.`,
+          message: `Evaluation complete. Overall score: ${score.toFixed(2)}, goal alignment: ${alignment.toFixed(2)}. Session is now completed.`,
         }, null, 2);
       }
 
@@ -238,6 +252,10 @@ export function handleExecutePassthrough(
         const { stage, shortCircuited, contextualContext, evaluationResult } = result.value;
 
         if (shortCircuited) {
+          gestaltNotify({
+            event: 'structural_failed',
+            message: 'Structural 검사 실패 — lint/build/test를 확인하세요',
+          });
           return JSON.stringify({
             status: 'completed',
             sessionId: result.value.session.sessionId,
@@ -450,6 +468,10 @@ export function handleExecutePassthrough(
         if (input.cwd) {
           try { deleteGestaltRule(input.cwd); deleteActiveSession(input.cwd); } catch { /* ignore */ }
         }
+        gestaltNotify({
+          event: 'human_escalation',
+          message: '⚠️ Human Escalation — 모든 Lateral Thinking 소진, 수동 개입이 필요해요',
+        });
         return JSON.stringify({
           status: 'human_escalation',
           sessionId: evolveResult.value.session.sessionId,
@@ -469,6 +491,10 @@ export function handleExecutePassthrough(
         if (input.cwd) {
           try { deleteGestaltRule(input.cwd); deleteActiveSession(input.cwd); } catch { /* ignore */ }
         }
+        gestaltNotify({
+          event: 'terminated',
+          message: `세션 종료: ${evolveResult.value.terminationReason ?? 'unknown'}`,
+        });
         return JSON.stringify({
           status: 'terminated',
           sessionId: evolveResult.value.session.sessionId,
