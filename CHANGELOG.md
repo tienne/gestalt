@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-03-29
+
+### Added
+- **공통 진행 패널**: `/interview`, `/spec`, `/execute` 스킬 실행 중 Claude Code Task 패널에 실시간 진행 상태 표시
+  - Planning 시작 시 `TaskCreate`로 패널 생성, 각 단계(`plan_step`, `execute_task`, `evaluate`)마다 `TaskUpdate`로 갱신
+  - Interview: 라운드 번호 / 현재 게슈탈트 원리 / 모호성 점수 추이 표시
+  - Spec: 생성 중 → 완료(specId 포함) 상태 표시
+  - Execute: `{완료}/{총합} 완료 | 현재: {태스크명} | 실패: {n}개 | 그룹 {x}/{y}` 형식 표시
+  - best-effort — 패널 업데이트 실패가 파이프라인 실행을 중단하지 않음
+  - 스킬 레벨(SKILL.md)에서 동작, MCP 서버 코드 변경 없음
+
+### Changed
+- `skills/interview/SKILL.md`: 버전 1.0.0 → 1.1.0, 공통 진행 패널 섹션 추가
+- `skills/spec/SKILL.md`: 버전 1.0.0 → 1.1.0, 공통 진행 패널 섹션 추가
+- `skills/execute/SKILL.md`: 버전 1.1.0 → 1.2.0, 공통 진행 패널 섹션 추가
+
+### Documentation
+- `docs/03-execute.md`: 공통 진행 패널 섹션 추가
+- `docs/mcp-reference.md`: execute 섹션에 Progress Panel 설명 추가
+- `README.md` / `README.ko.md`: Execute 섹션에 실행 진행 패널 언급 추가
+- `CLAUDE.md`: Skill System 항목에 TaskCreate/TaskUpdate 진행 패널 설명 추가
+
 ## [0.8.0] - 2026-03-28
 
 ### Added
