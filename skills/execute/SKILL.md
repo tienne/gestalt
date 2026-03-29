@@ -381,26 +381,28 @@ Planning 패널 태스크를 완료하고, 새 Execution 패널 태스크를 생
 
 ```
 subject: "Gestalt Execute: {spec.goal 앞 40자}"
-description: "0/{totalTasks} 완료 | 현재: 시작 대기 중 | 실패: 0개 | 그룹 0/{parallelGroupCount}"
-activeForm: "태스크 실행 중"
+description: "0/{totalTasks} 완료 | 실패: 0개 | 그룹 0/{parallelGroupCount}"
+activeForm: "실행 중: {taskContext.currentTask.title}"
 ```
 
 `plan_complete` 응답의 `planSummary.totalTasks`와 `planSummary.parallelGroupCount`를 활용한다.
+`taskContext.currentTask.title`은 `execute_start` 응답에서 바로 꺼내 쓴다.
 
 ### 각 태스크 완료 후 (`execute_task` 응답 수신 시마다)
 
-`TaskUpdate`로 진행 상황을 업데이트한다.
+`TaskUpdate`로 진행 상황과 현재 실행 태스크명을 업데이트한다.
 
 ```
-description: "{completedCount}/{totalTasks} 완료 | 현재: {nextTask.title or '완료'} | 실패: {failedCount}개 | 그룹 {groupIndex}/{totalGroups}"
+description: "{completedCount}/{totalTasks} 완료 | 실패: {failedCount}개 | 그룹 {groupIndex}/{totalGroups}"
+activeForm: "실행 중: {taskContext.currentTask.title}"
 ```
 
-- `completedCount`: 지금까지 제출한 taskResult 수
-- `nextTask`: 응답의 `nextTaskId`로 다음 태스크 이름 추론
+- `completedCount`: 지금까지 제출한 taskResult 수 (`response.completedTasks`)
+- `taskContext.currentTask.title`: 응답의 `taskContext.currentTask.title` — 다음 실행할 태스크 이름
 - `failedCount`: status가 `failed`인 taskResult 수
 - `groupIndex/totalGroups`: `plan_complete` 응답의 `parallelGroups` 기준
 
-`allTasksCompleted === true` 이면 description에 "전체 완료" 표시 후 `TaskUpdate`로 status를 completed로 변경한다.
+`allTasksCompleted === true` 이면 `TaskUpdate({ status: "completed", activeForm: undefined, description: "전체 완료 ({totalTasks}개)" })`로 변경한다.
 
 ### 평가/진화 단계
 
