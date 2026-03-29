@@ -57,6 +57,7 @@ interface GestaltConfig {
   llm: { apiKey: string; model: string };
   interview: { ambiguityThreshold: number; maxRounds: number };
   execute: { driftThreshold: number; successThreshold: number; goalAlignmentThreshold: number };
+  notifications: boolean;
   dbPath: string;
   skillsDir: string;
   agentsDir: string;
@@ -75,6 +76,7 @@ interface GestaltConfig {
 | `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` | `0.3` |
 | `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | `execute.successThreshold` | `0.85` |
 | `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | `execute.goalAlignmentThreshold` | `0.80` |
+| `GESTALT_NOTIFICATIONS` | `notifications` | `false` |
 | `GESTALT_DB_PATH` | `dbPath` | `"~/.gestalt/events.db"` |
 | `GESTALT_SKILLS_DIR` | `skillsDir` | `"skills"` |
 | `GESTALT_AGENTS_DIR` | `agentsDir` | `"agents"` |
