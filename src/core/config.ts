@@ -39,6 +39,7 @@ const configSchema = z.object({
   llm: llmConfigSchema.default({}),
   interview: interviewConfigSchema.default({}),
   execute: executeConfigSchema.default({}),
+  notifications: z.boolean().default(false),
   dbPath: z.string().default(GLOBAL_DB_PATH),
   skillsDir: z.string().default('skills'),
   agentsDir: z.string().default('agents'),
@@ -149,6 +150,11 @@ function buildEnvConfig(): Record<string, unknown> {
     execute.goalAlignmentThreshold = Number(env['GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD']);
   }
   if (Object.keys(execute).length > 0) result.execute = execute;
+
+  // notifications
+  if (env['GESTALT_NOTIFICATIONS'] !== undefined) {
+    result.notifications = env['GESTALT_NOTIFICATIONS'] === 'true';
+  }
 
   // top-level
   if (env['GESTALT_DB_PATH'] !== undefined) result.dbPath = env['GESTALT_DB_PATH'];

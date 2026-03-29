@@ -1,5 +1,11 @@
 import notifier from 'node-notifier';
 
+let _enabled = false;
+
+export function setNotificationsEnabled(enabled: boolean): void {
+  _enabled = enabled;
+}
+
 export type GestaltNotifyEvent =
   | 'tasks_completed'
   | 'evaluation_success'
@@ -17,6 +23,7 @@ interface NotifyOptions {
 }
 
 export function gestaltNotify(options: NotifyOptions): void {
+  if (!_enabled) return;
   try {
     notifier.notify({
       title: options.title ?? 'Gestalt',

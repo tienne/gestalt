@@ -27,9 +27,11 @@ import { interviewInputSchema, specInputSchema, executeInputSchema, agentCreateI
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
 import { RoleAgentRegistry } from '../agent/role-agent-registry.js';
+import { setNotificationsEnabled } from '../utils/notifier.js';
 
 export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) {
   const config = loadConfig(configOverrides);
+  setNotificationsEnabled(config.notifications);
   const eventStore = new EventStore(config.dbPath);
   const skillRegistry = new SkillRegistry(config.skillsDir);
   const agentRegistry = new AgentRegistry(config.agentsDir);
