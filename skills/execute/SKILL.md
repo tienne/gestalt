@@ -1,6 +1,6 @@
 ---
 name: execute
-version: "1.1.0"
+version: "1.2.0"
 description: "Gestalt-driven execution planner that transforms a Spec into a validated ExecutionPlan"
 triggers:
   - "execute"
@@ -350,3 +350,68 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
 | `hard_cap` | structural 3회 + contextual 3회 실패 |
 | `caller` | `{ action: "evolve", terminateReason: "caller" }` |
 | `human_escalation` | 4개 lateral persona 소진 |
+
+---
+
+## 공통 진행 패널
+
+Execute 파이프라인 실행 중 Claude Code Task 패널에 실시간 상태를 표시한다. 패널 업데이트는 best-effort — 실패가 태스크 실행 흐름을 중단시켜서는 안 된다.
+
+### Planning 단계 시작 시 (`start` 응답 수신 후)
+
+`TaskCreate`로 실행 패널을 생성하고, 반환된 taskId를 세션 동안 보관한다.
+
+```
+subject: "Gestalt Execute: {spec.goal 앞 40자}"
+description: "Planning 중 | 단계 1/4 | figure_ground"
+activeForm: "실행 계획 수립 중"
+```
+
+### Planning 각 단계 후 (`plan_step` 응답 수신 시마다)
+
+`TaskUpdate`로 현재 Planning 단계를 업데이트한다.
+
+```
+description: "Planning 중 | 단계 {stepsCompleted}/4 | {currentPrinciple}"
+```
+
+### Execution 시작 후 (`execute_start` 응답 수신 후)
+
+Planning 패널 태스크를 완료하고, 새 Execution 패널 태스크를 생성한다.
+
+```
+subject: "Gestalt Execute: {spec.goal 앞 40자}"
+description: "0/{totalTasks} 완료 | 현재: 시작 대기 중 | 실패: 0개 | 그룹 0/{parallelGroupCount}"
+activeForm: "태스크 실행 중"
+```
+
+`plan_complete` 응답의 `planSummary.totalTasks`와 `planSummary.parallelGroupCount`를 활용한다.
+
+### 각 태스크 완료 후 (`execute_task` 응답 수신 시마다)
+
+`TaskUpdate`로 진행 상황을 업데이트한다.
+
+```
+description: "{completedCount}/{totalTasks} 완료 | 현재: {nextTask.title or '완료'} | 실패: {failedCount}개 | 그룹 {groupIndex}/{totalGroups}"
+```
+
+- `completedCount`: 지금까지 제출한 taskResult 수
+- `nextTask`: 응답의 `nextTaskId`로 다음 태스크 이름 추론
+- `failedCount`: status가 `failed`인 taskResult 수
+- `groupIndex/totalGroups`: `plan_complete` 응답의 `parallelGroups` 기준
+
+`allTasksCompleted === true` 이면 description에 "전체 완료" 표시 후 `TaskUpdate`로 status를 completed로 변경한다.
+
+### 평가/진화 단계
+
+- `evaluate` 시작: description에 "평가 중 — structural 검사" 추가
+- structural 통과: "평가 중 — contextual 검사" 로 업데이트
+- 평가 완료(success): `TaskUpdate({ status: "completed", description: "완료 | score: {overallScore} | alignment: {goalAlignment}" })`
+- Evolve 진입: description에 "개선 중 (generation {N})" 추가
+
+### 오류/에스컬레이션 시
+
+```
+status: "completed"
+description: "종료: {terminationReason} | 최고 점수: {bestScore}"
+```

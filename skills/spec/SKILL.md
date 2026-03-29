@@ -1,6 +1,6 @@
 ---
 name: spec
-version: "1.0.0"
+version: "1.1.0"
 description: "Generate a Spec specification from a completed interview"
 triggers:
   - "generate spec"
@@ -90,3 +90,35 @@ ges_generate_spec({
 - `gestaltAnalysis[].confidence`: 0.0 ~ 1.0
 - `ontologySchema.entities[]`: `{ name: string(min 1), description: string, attributes: string[] }`
 - `ontologySchema.relations[]`: `{ from: string(min 1), to: string(min 1), type: string(min 1) }`
+
+---
+
+## 공통 진행 패널
+
+Spec 생성 중 Claude Code Task 패널에 상태를 표시한다. best-effort — 패널 실패가 Spec 생성을 막아서는 안 된다.
+
+### 시작 시 (1단계 `ges_generate_spec` 호출 전)
+
+`TaskCreate`로 패널을 생성한다.
+
+```
+subject: "Spec 생성 중"
+description: "인터뷰 세션 {sessionId} 기반 Spec 구성 중..."
+activeForm: "Spec 생성 중"
+```
+
+### 완료 시 (2단계 `ges_generate_spec` 응답 수신 후)
+
+`TaskUpdate`로 status를 completed로 변경한다.
+
+```
+status: "completed"
+description: "Spec 생성 완료 | specId: {spec.metadata.specId}"
+```
+
+실패 시(error 반환):
+
+```
+status: "completed"
+description: "Spec 생성 실패: {error}"
+```
