@@ -13,6 +13,7 @@ export function setupCommand(): void {
 
   const config = {
     $schema: './node_modules/@tienne/gestalt/schemas/gestalt.schema.json',
+    notifications: false,
     interview: {
       ambiguityThreshold: 0.2,
       maxRounds: 10,

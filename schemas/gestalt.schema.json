@@ -87,6 +87,11 @@
       "description": "Directory containing agent definitions (env: GESTALT_AGENTS_DIR)",
       "default": "agents"
     },
+    "notifications": {
+      "type": "boolean",
+      "description": "Enable OS desktop notifications for pipeline events (env: GESTALT_NOTIFICATIONS)",
+      "default": false
+    },
     "logLevel": {
       "type": "string",
       "enum": ["debug", "info", "warn", "error"],

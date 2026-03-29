@@ -33,8 +33,8 @@ describe('setupCommand', () => {
       ambiguityThreshold: 0.2,
       maxRounds: 10,
     });
-    // Should only have $schema and interview
-    expect(Object.keys(content)).toEqual(['$schema', 'interview']);
+    // Should only have $schema, notifications and interview
+    expect(Object.keys(content)).toEqual(['$schema', 'notifications', 'interview']);
   });
 
   it('does not overwrite existing gestalt.json', () => {
