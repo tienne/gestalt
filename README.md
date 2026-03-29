@@ -323,6 +323,10 @@ ges_execute({
 })
 ```
 
+#### Real-time progress panel
+
+When using the `/execute` slash command, Gestalt displays live execution status in the Claude Code Task panel — showing completed/total tasks, current task name, failed task count, and parallel group progress. Updated automatically at each planning step, task completion, and evaluation stage.
+
 #### Sub-agent spawning
 
 Decompose a complex task into sub-tasks dynamically during execution:

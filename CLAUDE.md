@@ -10,7 +10,7 @@
 - **Execute Engine**: 게슈탈트 5원리를 실행 전략으로 사용, Spec→ExecutionPlan 변환 (Figure-Ground→Closure→Proximity→Continuity)
 - **Resilience Engine**: Stagnation 감지 → Lateral Thinking Personas → Human Escalation
 - **MCP Server**: stdio transport로 Claude Code 등 AI 에이전트와 통합
-- **Skill System**: SKILL.md 기반 확장, chokidar hot-reload 지원
+- **Skill System**: SKILL.md 기반 확장, chokidar hot-reload 지원. 각 스킬(`/interview`, `/spec`, `/execute`)은 실행 중 Claude Code Task 패널에 진행 상태를 `TaskCreate`/`TaskUpdate`로 실시간 표시 (공통 진행 패널)
 - **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱
 
 ## Tech Stack

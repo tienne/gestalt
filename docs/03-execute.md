@@ -256,6 +256,24 @@ ges_execute({
 
 ---
 
+## 공통 진행 패널
+
+`/execute` 스킬 실행 시 Claude Code Task 패널에 실시간 진행 상태가 표시돼요. Planning 시작 시 `TaskCreate`로 패널을 생성하고, 각 단계(`plan_step`, `execute_task`, `evaluate`)마다 `TaskUpdate`로 상태를 갱신해요. best-effort — 패널 업데이트 실패가 실행 흐름을 중단하지 않아요.
+
+```
+Planning 중 | 단계 2/4 | closure
+↓
+3/12 완료 | 현재: DB 스키마 생성 | 실패: 0개 | 그룹 1/4
+↓
+평가 중 — structural 검사
+↓
+완료 | score: 0.92 | alignment: 0.88
+```
+
+스킬 레벨에서 동작하므로 MCP 서버 코드 변경 없이 `/execute` 슬래시 커맨드를 통해 자동으로 활성화돼요. 자세한 동작 방식은 `skills/execute/SKILL.md`를 참고하세요.
+
+---
+
 ## 소스 코드 참조
 
 | 파일 | 역할 |

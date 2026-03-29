@@ -390,6 +390,10 @@ When `cwd` is provided, `.claude/rules/gestalt-active.md` and `.gestalt/active-s
 }
 ```
 
+### Progress Panel
+
+When using the `/execute` slash command (rather than the MCP tool directly), Gestalt automatically maintains a real-time progress panel in the Claude Code Task panel via `TaskCreate`/`TaskUpdate`. Planning steps, task completions, evaluation stages, and evolution rounds are all reflected. This is a best-effort feature — panel failures do not interrupt execution.
+
 ### `execute_task` Response
 
 ```json
