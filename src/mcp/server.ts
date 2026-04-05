@@ -236,14 +236,14 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           })),
         }).optional().describe('Synthesized consensus (for role_consensus action)'),
       },
-      (params) => {
+      async (params) => {
         const input = executeInputSchema.parse(params);
         // Route review actions to review engine
         if (input.action.startsWith('review_')) {
           const result = handleReviewPassthrough(ptReviewEngine, ptExecuteEngine, roleAgentRegistry, input);
           return { content: [{ type: 'text' as const, text: result }] };
         }
-        const result = handleExecutePassthrough(ptExecuteEngine, input);
+        const result = await handleExecutePassthrough(ptExecuteEngine, input);
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );

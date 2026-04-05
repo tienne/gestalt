@@ -15,10 +15,10 @@ import {
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export function handleExecutePassthrough(
+export async function handleExecutePassthrough(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-): string {
+): Promise<string> {
   switch (input.action) {
     case 'start': {
       if (!input.spec) return formatError('spec is required for start action');
@@ -112,7 +112,8 @@ export function handleExecutePassthrough(
       const result = engine.startExecution(input.sessionId);
       if (!result.ok) return formatError(result.error.message);
 
-      const { session, taskContext, allTasksCompleted } = result.value;
+      const { session, allTasksCompleted } = result.value;
+      let { taskContext } = result.value;
 
       if (allTasksCompleted) {
         return JSON.stringify({
@@ -120,6 +121,11 @@ export function handleExecutePassthrough(
           sessionId: session.sessionId,
           message: 'All tasks already completed. Call evaluate to verify acceptance criteria.',
         }, null, 2);
+      }
+
+      // Hybrid search로 suggestedFiles 업그레이드 (codeGraphRepoRoot 있을 때)
+      if (taskContext && session.codeGraphRepoRoot) {
+        taskContext = await engine.hydrateSuggestedFiles(taskContext, session.codeGraphRepoRoot);
       }
 
       if (input.cwd) {
@@ -147,7 +153,8 @@ export function handleExecutePassthrough(
       const result = engine.submitTaskResult(input.sessionId, input.taskResult);
       if (!result.ok) return formatError(result.error.message);
 
-      const { session, taskContext, allTasksCompleted, driftScore, retrospectiveContext } = result.value;
+      const { session, allTasksCompleted, driftScore, retrospectiveContext } = result.value;
+      let { taskContext } = result.value;
 
       if (allTasksCompleted) {
         gestaltNotify({
@@ -162,6 +169,11 @@ export function handleExecutePassthrough(
           ...(retrospectiveContext ? { retrospectiveContext } : {}),
           message: 'All tasks completed. Call evaluate to verify acceptance criteria.',
         }, null, 2);
+      }
+
+      // Hybrid search로 suggestedFiles 업그레이드
+      if (taskContext && session.codeGraphRepoRoot) {
+        taskContext = await engine.hydrateSuggestedFiles(taskContext, session.codeGraphRepoRoot);
       }
 
       if (input.cwd && taskContext) {

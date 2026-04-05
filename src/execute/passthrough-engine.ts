@@ -1426,7 +1426,8 @@ export class PassthroughExecuteEngine {
       (t) => !completedIds.has(t.taskId) && !failedIds.has(t.taskId) && t.taskId !== nextTask!.taskId,
     );
 
-    // suggestedFiles 계산 (code-graph searchByKeywords 기반)
+    // suggestedFiles 계산 (code-graph searchByKeywords 기반 — 동기 fallback)
+    // Semantic/hybrid upgrade는 호출측(MCP handler 등)에서 hydrateTaskContextSuggestedFiles()로 수행
     let suggestedFiles: string[] | undefined;
     if (session.codeGraphRepoRoot && codeGraphEngine.dbExists(session.codeGraphRepoRoot)) {
       try {
@@ -1464,6 +1465,29 @@ export class PassthroughExecuteEngine {
       roleGuidance,
       suggestedFiles,
     };
+  }
+
+  // ─── Semantic Hydration ───────────────────────────────────────────
+
+  /**
+   * suggestedFiles를 searchByHybrid(키워드+의미론)로 업그레이드.
+   * buildNextTaskContext()는 동기 유지, 호출측에서 필요 시 이 메서드로 보강한다.
+   */
+  async hydrateSuggestedFiles(
+    context: TaskExecutionContext,
+    repoRoot: string,
+  ): Promise<TaskExecutionContext> {
+    if (!codeGraphEngine.dbExists(repoRoot)) return context;
+    try {
+      const query = extractKeywords(
+        context.currentTask.title + ' ' + context.currentTask.description,
+      ).join(' ');
+      const files = await codeGraphEngine.searchByHybrid(repoRoot, query, 10);
+      return { ...context, suggestedFiles: files };
+    } catch {
+      // semantic 실패 시 기존 keyword-based suggestedFiles 유지
+      return context;
+    }
   }
 
   private findSimilarTasks(
