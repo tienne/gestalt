@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { statSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { CodeGraphNode, CodeGraphEdge, CodeGraphStats } from './types.js';
+import type { CodeNodeEmbedding } from './embedding-provider.js';
 
 interface RawNodeRow {
   id: string;
@@ -35,6 +36,24 @@ function toNode(row: RawNodeRow): CodeGraphNode {
     isTest: row.is_test === 1,
     fileHash: row.file_hash ?? undefined,
     updatedAt: row.updated_at,
+  };
+}
+
+interface RawEmbeddingRow {
+  node_id: string;
+  file_path: string;
+  embedding: Buffer;
+  model_id: string;
+  created_at: number;
+}
+
+function toEmbedding(row: RawEmbeddingRow): CodeNodeEmbedding {
+  return {
+    nodeId: row.node_id,
+    filePath: row.file_path,
+    embedding: row.embedding,
+    modelId: row.model_id,
+    createdAt: row.created_at,
   };
 }
 
@@ -91,6 +110,15 @@ export class CodeGraphStore {
       CREATE INDEX IF NOT EXISTS idx_cg_edges_source ON cg_edges(source_id);
       CREATE INDEX IF NOT EXISTS idx_cg_edges_target ON cg_edges(target_id);
       CREATE INDEX IF NOT EXISTS idx_cg_edges_kind ON cg_edges(kind);
+
+      CREATE TABLE IF NOT EXISTS node_embeddings (
+        node_id TEXT PRIMARY KEY,
+        file_path TEXT NOT NULL,
+        embedding BLOB NOT NULL,
+        model_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_embeddings_file ON node_embeddings(file_path);
     `);
   }
 
@@ -245,6 +273,35 @@ export class CodeGraphStore {
       lastBuiltAt,
       dbSizeBytes,
     };
+  }
+
+  upsertEmbedding(embedding: CodeNodeEmbedding): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO node_embeddings
+        (node_id, file_path, embedding, model_id, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    stmt.run(embedding.nodeId, embedding.filePath, embedding.embedding, embedding.modelId, embedding.createdAt);
+  }
+
+  getEmbedding(nodeId: string): CodeNodeEmbedding | null {
+    const stmt = this.db.prepare(`SELECT * FROM node_embeddings WHERE node_id = ?`);
+    const row = stmt.get(nodeId) as RawEmbeddingRow | undefined;
+    return row ? toEmbedding(row) : null;
+  }
+
+  getAllEmbeddings(): CodeNodeEmbedding[] {
+    const stmt = this.db.prepare(`SELECT * FROM node_embeddings`);
+    const rows = stmt.all() as RawEmbeddingRow[];
+    return rows.map(toEmbedding);
+  }
+
+  deleteEmbedding(nodeId: string): void {
+    this.db.prepare(`DELETE FROM node_embeddings WHERE node_id = ?`).run(nodeId);
+  }
+
+  deleteEmbeddingsByFile(filePath: string): void {
+    this.db.prepare(`DELETE FROM node_embeddings WHERE file_path = ?`).run(filePath);
   }
 
   close(): void {
