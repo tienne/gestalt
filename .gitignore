@@ -11,3 +11,4 @@ dist/
 benchmarks/results/
 .gestalt-bench/
 coverage/
+_workspace/
