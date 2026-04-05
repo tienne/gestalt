@@ -11,6 +11,7 @@
 - **Resilience Engine**: Stagnation 감지 → Lateral Thinking Personas → Human Escalation
 - **MCP Server**: stdio transport로 Claude Code 등 AI 에이전트와 통합
 - **Skill System**: SKILL.md 기반 확장, chokidar hot-reload 지원. 각 스킬(`/interview`, `/spec`, `/execute`)은 실행 중 Claude Code Task 패널에 진행 상태를 `TaskCreate`/`TaskUpdate`로 실시간 표시 (공통 진행 패널)
+- **Code Knowledge Graph**: 코드베이스 정적 분석 → 의존성 그래프화 → Blast-Radius로 영향 파일 추림. Execute 파이프라인 태스크 실행 시 `suggestedFiles`로 자동 컨텍스트 주입해 불필요한 파일 읽기를 줄임
 - **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱
 
 ## Tech Stack
@@ -89,6 +90,7 @@ interface GestaltConfig {
 - `ges_generate_spec`: sessionId? (optional), text? (optional), force?, spec? (passthrough)
 - `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|evaluate|status|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|role_match|role_consensus]
 - `ges_create_agent`: action=[start|submit] — 인터뷰 기반 커스텀 Role Agent 생성
+- `ges_code_graph`: action=[build|blast_radius|query|stats|db_exists] — 코드 지식 그래프 관리
 - `ges_status`: sessionId?
 
 ## MCP Passthrough Mode
@@ -367,6 +369,7 @@ ges_execute({ action: "role_consensus", sessionId: "<id>", consensus: {...} })
 - `src/spec/` — SpecGenerator, SpecExtractor
 - `src/execute/` — ExecuteEngine, DAG Validator, ExecuteSessionManager
 - `src/resilience/` — Stagnation Detector, Lateral Thinking Personas, Human Escalation
+- `src/code-graph/` — CodeGraphEngine, CodeGraphStore, BlastRadius, 언어 플러그인 8개
 - `src/skills/` — SkillRegistry, parser
 - `src/agent/` — AgentRegistry, FiguralRouter, multi-provider LLM, RoleAgentRegistry, PassthroughAgentGenerator
 - `src/registry/` — BaseRegistry 추상 클래스
@@ -376,6 +379,75 @@ ges_execute({ action: "role_consensus", sessionId: "<id>", consensus: {...} })
 - `src/cli/` — commander 기반 CLI (interview, spec, status, setup)
 - `schemas/` — JSON Schema (gestalt.schema.json)
 - `role-agents/` — 내장 Role Agent 정의 (architect, frontend-developer 등 8개)
+- `skills/` — 외부 스킬 정의 (`build-graph`, `blast-radius`)
+
+## Code Knowledge Graph
+
+코드베이스를 정적 분석해 의존성 그래프를 빌드하고, 변경 영향 파일을 빠르게 추려 AI 컨텍스트를 절약한다.
+
+### ges_code_graph MCP 툴
+
+```
+// 그래프 빌드 (최초 또는 full rebuild)
+ges_code_graph({ action: "build", repoRoot: "<절대경로>" })
+→ { nodesBuilt, edgesBuilt, timeTakenMs, installedHook }
+
+// Blast-Radius 분석 (커밋 기준 영향범위)
+ges_code_graph({ action: "blast_radius", repoRoot: "<경로>", base?: "HEAD~1", changedFiles?: [...], maxDepth?: 2 })
+→ { changedFiles, impactedFiles, riskScore, summary }
+
+// Diff-Radius 분석 (미커밋 변경 기준 영향범위)
+ges_code_graph({ action: "diff_radius", repoRoot: "<경로>", diffMode?: "staged"|"unstaged"|"all", maxDepth?: 2 })
+→ { changedFiles, impactedFiles, riskScore, summary }
+
+// 키워드 기반 관련 파일 검색
+ges_code_graph({ action: "query", repoRoot: "<경로>", pattern: "callers_of"|"callees_of"|"tests_for"|"imports_of", target: "<노드명>" })
+→ { nodes, edges }
+
+// 그래프 통계
+ges_code_graph({ action: "stats", repoRoot: "<경로>" })
+→ { totalFiles, totalNodes, totalEdges, lastBuiltAt, dbSizeBytes }
+
+// DB 존재 여부 확인
+ges_code_graph({ action: "db_exists", repoRoot: "<경로>" })
+→ { exists: boolean }
+```
+
+저장소: `.gestalt/code-graph.db` (WAL SQLite, EventStore DB와 별도)
+
+### 자동 컨텍스트 주입 (Execute 파이프라인 통합)
+
+`ges_execute { action: "start", spec: {...}, codeGraphRepoRoot: "/path" }` 호출 시 활성화.
+
+태스크 실행 시 `buildNextTaskContext()`가 자동으로:
+1. 태스크 title + description에서 키워드를 추출 (`extractKeywords()`)
+2. `codeGraphEngine.searchByKeywords()`로 관련 파일 최대 10개 검색
+3. `execute_task` 응답의 `suggestedFiles` 필드로 반환
+
+Claude Code가 `suggestedFiles`를 받으면 해당 파일을 먼저 Read한 뒤 태스크를 수행한다 (`EXECUTE_EXECUTION_SYSTEM_PROMPT` 지시).
+
+code-graph.db가 없거나 검색 실패 시 `suggestedFiles`는 undefined — 기존 동작 그대로 유지 (graceful fallback).
+
+### 스킬
+
+| 스킬 | 파일 | 설명 |
+|------|------|------|
+| `/build-graph` | `skills/build-graph/SKILL.md` | 코드 그래프 빌드 및 증분 갱신 |
+| `/blast-radius` | `skills/blast-radius/SKILL.md` (v1.1.0) | 영향범위 분석 (커밋 기준), 23개 트리거 |
+| `/diff-radius` | `skills/diff-radius/SKILL.md` (v1.0.0) | 영향범위 분석 (미커밋 기준), staged/unstaged/all 지원 |
+
+blast-radius 스킬은 "영향범위", "어디까지 영향받아", "사이드 이펙트", "리팩토링" 등 자연스러운 한국어 표현으로 자동 발동한다. CLAUDE.md나 훅과 달리 호출 시에만 토큰이 발생한다.
+
+### 언어 플러그인 (8개)
+
+TypeScript/JavaScript, Python, Go, Java, Kotlin, Rust, Swift, Objective-C
+
+각 플러그인: `{ language, extensions[], parse(filePath) → {nodes, edges} }`
+TypeScript 플러그인은 TypeScript Compiler API 사용 (Tree-sitter 불필요).
+
+### 주의사항
+- `glob` 패키지 미사용 → `readdirSync({ recursive: true })`로 파일 수집, `Dirent.parentPath` 활용
+- `noUncheckedIndexedAccess` 환경 → 배열 인덱스·regex 캡처그룹에 `!` 단언 필수
 
 ## Conventions
 - MCP 서버에서 `console.log` 사용 금지 → stderr(`log()` 유틸)
