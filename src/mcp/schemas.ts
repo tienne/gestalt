@@ -330,3 +330,11 @@ export const statusInputSchema = z.object({
 });
 
 export type StatusInput = z.infer<typeof statusInputSchema>;
+
+// ─── Graph Visualize Tool ────────────────────────────────────────
+export const graphVisualizeInputSchema = z.object({
+  repoRoot: z.string().describe('Absolute path to the repository root'),
+  port: z.number().optional().describe('Preferred port (default: 7891, auto-increments on conflict)'),
+});
+
+export type GraphVisualizeInput = z.infer<typeof graphVisualizeInputSchema>;

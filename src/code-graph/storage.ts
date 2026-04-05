@@ -134,6 +134,14 @@ export class CodeGraphStore {
     return rows.map(toNode);
   }
 
+  getAllEdges(): CodeGraphEdge[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM cg_edges
+    `);
+    const rows = stmt.all() as RawEdgeRow[];
+    return rows.map(toEdge);
+  }
+
   upsertNode(node: CodeGraphNode): void {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO cg_nodes

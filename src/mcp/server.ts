@@ -23,8 +23,9 @@ import { handleBenchmarkPassthrough } from './tools/benchmark-passthrough.js';
 import { handleAgentPassthrough } from './tools/agent-passthrough.js';
 import { handleReviewPassthrough } from './tools/review-passthrough.js';
 import { handleCodeGraphPassthrough } from './tools/code-graph-passthrough.js';
+import { handleGraphVisualizePassthrough } from './tools/graph-visualize-passthrough.js';
 import { PassthroughReviewEngine } from '../review/passthrough-engine.js';
-import { interviewInputSchema, specInputSchema, executeInputSchema, agentCreateInputSchema, benchmarkInputSchema, statusInputSchema, codeGraphInputSchema } from './schemas.js';
+import { interviewInputSchema, specInputSchema, executeInputSchema, agentCreateInputSchema, benchmarkInputSchema, statusInputSchema, codeGraphInputSchema, graphVisualizeInputSchema } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
 import { RoleAgentRegistry } from '../agent/role-agent-registry.js';
@@ -347,6 +348,20 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       async (params) => {
         const input = codeGraphInputSchema.parse(params);
         const result = await handleCodeGraphPassthrough(input);
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      },
+    );
+
+    server.tool(
+      'ges_graph_visualize',
+      'Start a local HTTP server that renders an interactive D3.js force-directed graph visualization of the code knowledge graph. Opens the browser automatically. Requires an existing or auto-buildable code-graph.db.',
+      {
+        repoRoot: z.string().describe('Absolute path to the repository root'),
+        port: z.number().optional().describe('Preferred server port (default: 7891, auto-increments on conflict)'),
+      },
+      async (params) => {
+        const input = graphVisualizeInputSchema.parse(params);
+        const result = await handleGraphVisualizePassthrough(input);
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
       },
     );

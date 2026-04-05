@@ -6,6 +6,7 @@ import { statusCommand } from './commands/status.js';
 import { setupCommand } from './commands/setup.js';
 import { initCommand } from './commands/init.js';
 import { monitorCommand } from './commands/monitor.js';
+import { graphVisualizeCommand } from './commands/graph-visualize.js';
 import { getVersion } from '../core/version.js';
 
 export function createCli(): Command {
@@ -68,6 +69,20 @@ export function createCli(): Command {
     .description('Launch TUI dashboard for real-time pipeline monitoring')
     .action(async (sessionId?: string) => {
       await monitorCommand(sessionId);
+    });
+
+  program
+    .command('graph-visualize')
+    .description('Visualize the code knowledge graph in the browser')
+    .option('--repo-root <path>', 'Repository root (defaults to cwd)')
+    .option('--port <number>', 'Preferred server port (default: 7891)', parseInt)
+    .option('--no-browser', 'Do not open the browser automatically')
+    .action(async (options: { repoRoot?: string; port?: number; browser?: boolean }) => {
+      await graphVisualizeCommand({
+        repoRoot: options.repoRoot,
+        port: options.port,
+        noBrowser: options.browser === false,
+      });
     });
 
   return program;
