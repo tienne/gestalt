@@ -33,11 +33,22 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
           exclude: input.exclude,
           mode: input.mode,
         });
+        // Generate embeddings after graph build (graceful — non-fatal on failure)
+        let embeddingsBuilt = 0;
+        try {
+          const embResult = await codeGraphEngine.buildEmbeddings(repoRoot, {
+            mode: input.mode,
+          });
+          embeddingsBuilt = embResult.embeddingsBuilt;
+        } catch {
+          // embedding generation is best-effort
+        }
         return {
           nodesBuilt: result.nodesBuilt,
           edgesBuilt: result.edgesBuilt,
           timeTakenMs: result.timeTakenMs,
           installedHook: false,
+          embeddingsBuilt,
         };
       }
 

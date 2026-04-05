@@ -6,6 +6,7 @@ import { execSync } from 'node:child_process';
 import { CodeGraphStore } from './storage.js';
 import { computeBlastRadius } from './blast-radius.js';
 import { getPluginForFile } from './plugins/index.js';
+import { NodeKind } from './types.js';
 import type {
   BuildOptions,
   BuildResult,
@@ -16,6 +17,21 @@ import type {
   QueryResult,
   CodeGraphStats,
 } from './types.js';
+import type { EmbeddingProvider } from './embedding-provider.js';
+import type { SummaryProvider } from './summary-provider.js';
+import { type ScoredFile } from './rrf.js';
+
+export interface EmbeddingBuildOptions {
+  embeddingProvider?: EmbeddingProvider;
+  summaryProvider?: SummaryProvider | null;
+  batchSize?: number;
+  mode?: 'full' | 'incremental';
+}
+
+export interface EmbeddingBuildResult {
+  embeddingsBuilt: number;
+  timeTakenMs: number;
+}
 
 function getFilesRecursively(repoRoot: string, excludePatterns: string[], include?: string[]): string[] {
   const excludeSegments = new Set(
@@ -304,6 +320,157 @@ export class CodeGraphEngine {
   }
 
   /**
+   * Semantic search: embed query, compute cosine similarity against stored embeddings.
+   * Returns file paths sorted by similarity descending.
+   */
+  async searchBySemantic(repoRoot: string, query: string, topK = 10): Promise<ScoredFile[]> {
+    const store = this.getStore(repoRoot);
+    const allEmbeddings = store.getAllEmbeddings();
+    if (allEmbeddings.length === 0) return [];
+
+    // Lazy-load LocalEmbeddingProvider
+    const { LocalEmbeddingProvider } = await import('./providers/local-embedding.js');
+    const provider = new LocalEmbeddingProvider();
+
+    // Embed the query
+    const queryVectors = await provider.embed([query]);
+    const queryVector = queryVectors[0];
+    if (!queryVector) return [];
+
+    // Compute cosine similarity for each stored embedding
+    const scored: ScoredFile[] = [];
+    for (const stored of allEmbeddings) {
+      const storedVec = new Float32Array(stored.embedding.buffer, stored.embedding.byteOffset, stored.embedding.byteLength / 4);
+      const score = cosineSimilarity(queryVector, Array.from(storedVec));
+      scored.push({ filePath: stored.filePath, score });
+    }
+
+    // Deduplicate by filePath (keep max score), sort descending
+    const dedupMap = new Map<string, number>();
+    for (const s of scored) {
+      const prev = dedupMap.get(s.filePath) ?? -Infinity;
+      if (s.score > prev) dedupMap.set(s.filePath, s.score);
+    }
+
+    return [...dedupMap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, topK)
+      .map(([filePath, score]) => ({ filePath, score }));
+  }
+
+  /**
+   * Hybrid search: parallel keyword + semantic search, merged with RRF.
+   * Falls back to keyword-only if semantic fails or no embeddings exist.
+   */
+  async searchByHybrid(repoRoot: string, query: string, topK = 10): Promise<string[]> {
+    const { reciprocalRankFusion } = await import('./rrf.js');
+
+    const keywords = query
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+      .slice(0, 5);
+
+    const keywordResults = this.searchByKeywords(repoRoot, keywords).map(
+      (filePath, idx) => ({ filePath, score: 1 / (idx + 1) }),
+    );
+
+    let semanticResults: ScoredFile[] = [];
+    try {
+      semanticResults = await this.searchBySemantic(repoRoot, query, topK * 2);
+    } catch {
+      // fallback: keyword only
+    }
+
+    if (semanticResults.length === 0) {
+      return keywordResults.slice(0, topK).map((r) => r.filePath);
+    }
+
+    const merged = reciprocalRankFusion([keywordResults, semanticResults]);
+    return merged.slice(0, topK).map((r) => r.filePath);
+  }
+
+  /**
+   * Build embeddings for all file nodes in the code graph.
+   * Runs after build() to generate semantic search vectors.
+   */
+  async buildEmbeddings(repoRoot: string, opts: EmbeddingBuildOptions = {}): Promise<EmbeddingBuildResult> {
+    const start = Date.now();
+    const store = this.getStore(repoRoot);
+    const {
+      summaryProvider = null,
+      batchSize = 32,
+      mode = 'full',
+    } = opts;
+
+    // Lazy-load LocalEmbeddingProvider only when needed
+    let embeddingProvider = opts.embeddingProvider;
+    if (!embeddingProvider) {
+      const { LocalEmbeddingProvider } = await import('./providers/local-embedding.js');
+      embeddingProvider = new LocalEmbeddingProvider();
+    }
+
+    // Collect File nodes only (one embedding per file)
+    const fileNodes = store.getAllNodes().filter((n) => n.kind === NodeKind.File);
+
+    // Build list of nodes that need (re-)embedding
+    const toEmbed: { nodeId: string; filePath: string; text: string }[] = [];
+
+    for (const node of fileNodes) {
+      if (mode === 'incremental') {
+        const existing = store.getEmbedding(node.id);
+        if (existing && existing.modelId === embeddingProvider.modelId) continue;
+      }
+
+      let text: string;
+      if (summaryProvider) {
+        try {
+          const code = readFileSync(node.filePath, 'utf-8');
+          const summary = await summaryProvider.summarize(node.filePath, code);
+          text = summary ?? `${node.name} ${node.filePath}`;
+        } catch {
+          text = `${node.name} ${node.filePath}`;
+        }
+      } else {
+        text = `${node.name} ${node.filePath}`;
+      }
+
+      toEmbed.push({ nodeId: node.id, filePath: node.filePath, text });
+    }
+
+    // Batch embed
+    let embeddingsBuilt = 0;
+    for (let i = 0; i < toEmbed.length; i += batchSize) {
+      const batch = toEmbed.slice(i, i + batchSize);
+      const texts = batch.map((e) => e.text);
+
+      try {
+        const vectors = await embeddingProvider.embed(texts);
+        const now = Date.now();
+
+        for (let j = 0; j < batch.length; j++) {
+          const entry = batch[j];
+          const vector = vectors[j];
+          if (!entry || !vector) continue;
+
+          const float32 = new Float32Array(vector);
+          store.upsertEmbedding({
+            nodeId: entry.nodeId,
+            filePath: entry.filePath,
+            embedding: Buffer.from(float32.buffer),
+            modelId: embeddingProvider.modelId,
+            createdAt: now,
+          });
+          embeddingsBuilt++;
+        }
+      } catch {
+        // Skip failed batch, continue with next
+      }
+    }
+
+    return { embeddingsBuilt, timeTakenMs: Date.now() - start };
+  }
+
+  /**
    * Close all open database connections.
    */
   close(): void {
@@ -334,3 +501,21 @@ export class CodeGraphEngine {
 
 // Singleton for shared use across MCP tools
 export const codeGraphEngine = new CodeGraphEngine();
+
+// ─── Helpers ─────────────────────────────────────────────────────
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const ai = a[i] ?? 0;
+    const bi = b[i] ?? 0;
+    dot += ai * bi;
+    normA += ai * ai;
+    normB += bi * bi;
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
