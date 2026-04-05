@@ -67,7 +67,8 @@
       "better-sqlite3",
       "esbuild",
       "node-pty",
-      "onnxruntime-node"
+      "onnxruntime-node",
+      "sharp"
     ]
   }
 }
