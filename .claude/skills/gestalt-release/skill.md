@@ -51,11 +51,28 @@ pnpm build
 - 배포할 버전: vX.Y.Z
 - 주요 변경 내용: [요약]
 - 배포 대상: npm public registry (@tienne/gestalt)
+- 플러그인 스킬 변경 여부: skills/ 디렉토리 변경 시 명시
 
 ### 5. npm 배포
 ```bash
 npm publish --access public
 ```
+
+### 6. git push
+```bash
+git push
+```
+`npm version`이 생성한 태그와 커밋을 원격에 올린다.
+
+### 7. 플러그인 업데이트 안내
+
+`skills/` 디렉토리는 npm 패키지에 포함되어 자동 배포된다. 기존 플러그인 사용자가 새 버전을 받으려면:
+
+```
+/plugin install gestalt@gestalt
+```
+
+변경된 스킬이 있으면 배포 확인 메시지에 **플러그인 스킬 변경 내용**도 함께 안내한다.
 
 ## 에러 처리
 
