@@ -40,7 +40,7 @@ export class ExecuteSessionManager {
     }
   }
 
-  create(spec: Spec): ExecuteSession {
+  create(spec: Spec, opts: { codeGraphRepoRoot?: string } = {}): ExecuteSession {
     const session: ExecuteSession = {
       sessionId: randomUUID(),
       specId: spec.metadata.specId,
@@ -57,6 +57,7 @@ export class ExecuteSessionManager {
       currentGeneration: 0,
       lateralTriedPersonas: [],
       lateralAttempts: 0,
+      codeGraphRepoRoot: opts.codeGraphRepoRoot,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -68,6 +69,7 @@ export class ExecuteSessionManager {
       goal: spec.goal,
       acCount: spec.acceptanceCriteria.length,
       spec,
+      codeGraphRepoRoot: opts.codeGraphRepoRoot,
     });
 
     return session;

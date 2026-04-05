@@ -361,6 +361,8 @@ export interface ExecuteSession {
   // Role Agent System
   roleMatches?: RoleMatch[];
   roleConsensus?: RoleConsensus;
+  // Blast-radius based test filtering
+  codeGraphRepoRoot?: string;
   createdAt: string;
   updatedAt: string;
 }

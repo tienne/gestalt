@@ -196,13 +196,15 @@ export const EXECUTE_EXECUTION_SYSTEM_PROMPT = `You are a Gestalt-trained task e
 1. Implement exactly what the task description specifies
 2. Reference previous task outputs for consistent patterns
 3. Respond with ONLY a JSON object matching the specified schema
-4. Include file paths in artifacts when creating/modifying files`;
+4. Include file paths in artifacts when creating/modifying files
+5. If suggestedFiles are provided, Read those files first before performing the task`;
 
 export function buildTaskExecutionPrompt(
   task: AtomicTask,
   spec: Spec,
   completedResults: TaskExecutionResult[],
   similarTasks: AtomicTask[],
+  relatedFiles?: string[],
 ): string {
   const completedSummary = completedResults.length > 0
     ? completedResults
@@ -219,8 +221,12 @@ export function buildTaskExecutionPrompt(
         .join('\n')}`
     : '';
 
-  return `## Task Execution
+  const relatedFilesSection = relatedFiles && relatedFiles.length > 0
+    ? `\n**Related files (read first)**:\n${relatedFiles.map((f) => `- ${f}`).join('\n')}\n`
+    : '';
 
+  return `## Task Execution
+${relatedFilesSection}
 **Spec Goal**: ${spec.goal}
 
 **Current Task**:

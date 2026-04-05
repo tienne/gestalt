@@ -57,6 +57,7 @@ export class ExecuteSessionRepository {
       specId: string;
       goal: string;
       spec?: Spec;
+      codeGraphRepoRoot?: string;
     };
 
     const session: ExecuteSession = {
@@ -75,6 +76,7 @@ export class ExecuteSessionRepository {
       currentGeneration: 0,
       lateralTriedPersonas: [],
       lateralAttempts: 0,
+      codeGraphRepoRoot: startPayload.codeGraphRepoRoot,
       createdAt: firstEvent.timestamp,
       updatedAt: firstEvent.timestamp,
     };

@@ -68,6 +68,7 @@ import { identifyImpactedTasks } from './impact-identifier.js';
 import { checkTermination } from './termination-detector.js';
 import type { AgentRegistry } from '../agent/registry.js';
 import { mergeSystemPrompt } from '../agent/prompt-resolver.js';
+import { codeGraphEngine } from '../code-graph/index.js';
 import { classifyStagnation } from '../resilience/stagnation-detector.js';
 import { suggestPersona, buildLateralContext, buildEscalationContext } from '../resilience/lateral.js';
 import type { LateralContext, EscalationContext, LateralResult, LateralPersonaName } from '../resilience/types.js';
@@ -75,6 +76,17 @@ import type { RoleAgentRegistry } from '../agent/role-agent-registry.js';
 import { RoleMatchEngine, type MatchContext } from '../agent/role-match-engine.js';
 import { RolePromptGenerator, type PerspectivePrompt } from '../agent/role-prompt-generator.js';
 import { RoleConsensusEngine, type SynthesisContext } from '../agent/role-consensus-engine.js';
+
+// ─── Helpers ─────────────────────────────────────────────────────
+
+function extractKeywords(text: string): string[] {
+  const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', '—', '+']);
+  return text
+    .replace(/[^\w\s가-힣]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()))
+    .slice(0, 5);
+}
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -115,6 +127,7 @@ export interface TaskExecutionContext {
   pendingTasks: AtomicTask[];
   completedTaskIds: string[];
   roleGuidance?: RoleGuidance;
+  suggestedFiles?: string[];
 }
 
 // ─── Role Agent System Types ─────────────────────────────────────
@@ -249,9 +262,9 @@ export class PassthroughExecuteEngine {
     return this.sessionManager;
   }
 
-  start(spec: Spec): Result<PassthroughStartResult, ExecuteError> {
+  start(spec: Spec, opts: { codeGraphRepoRoot?: string } = {}): Result<PassthroughStartResult, ExecuteError> {
     try {
-      const session = this.sessionManager.create(spec);
+      const session = this.sessionManager.create(spec, { codeGraphRepoRoot: opts.codeGraphRepoRoot });
 
       const executeContext = this.buildExecuteContext(spec, 1, []);
 
@@ -697,11 +710,39 @@ export class PassthroughExecuteEngine {
 
       this.sessionManager.startStructuralEvaluation(sessionId);
 
-      const commands: StructuralCommand[] = [
+      let commands: StructuralCommand[] = [
         { name: 'lint', command: 'npm run lint' },
         { name: 'build', command: 'npm run build' },
         { name: 'test', command: 'npm test' },
       ];
+
+      // blast-radius 기반 테스트 필터링: codeGraphRepoRoot가 설정되고 DB가 존재할 때
+      if (session.codeGraphRepoRoot && codeGraphEngine.dbExists(session.codeGraphRepoRoot)) {
+        try {
+          const blastResult = codeGraphEngine.blastRadius(session.codeGraphRepoRoot, { base: 'HEAD~1' });
+          const testFiles = blastResult.impactedFiles.filter(
+            (f) => f.includes('.test.') || f.includes('.spec.') || f.includes('__tests__'),
+          );
+          if (testFiles.length > 0) {
+            commands = commands.map((cmd) => {
+              if (cmd.name === 'test') {
+                return { ...cmd, command: `${cmd.command} -- ${testFiles.join(' ')}` };
+              }
+              return cmd;
+            });
+          } else {
+            // 변경된 테스트 파일 없음 → 테스트 스킵
+            commands = commands.map((cmd) => {
+              if (cmd.name === 'test') {
+                return { ...cmd, command: 'echo "No affected tests"' };
+              }
+              return cmd;
+            });
+          }
+        } catch {
+          // blast-radius 실패 시 기존 전체 테스트로 fallback (graceful degradation)
+        }
+      }
 
       return ok({
         session: this.sessionManager.get(sessionId),
@@ -1385,11 +1426,24 @@ export class PassthroughExecuteEngine {
       (t) => !completedIds.has(t.taskId) && !failedIds.has(t.taskId) && t.taskId !== nextTask!.taskId,
     );
 
+    // suggestedFiles 계산 (code-graph searchByKeywords 기반)
+    let suggestedFiles: string[] | undefined;
+    if (session.codeGraphRepoRoot && codeGraphEngine.dbExists(session.codeGraphRepoRoot)) {
+      try {
+        const keywords = extractKeywords(nextTask.title + ' ' + nextTask.description);
+        const files = codeGraphEngine.searchByKeywords(session.codeGraphRepoRoot, keywords);
+        suggestedFiles = files.slice(0, 10);
+      } catch {
+        // graceful fallback — suggestedFiles remains undefined
+      }
+    }
+
     const taskPrompt = buildTaskExecutionPrompt(
       nextTask,
       session.spec,
       completedResults,
       similarTasks,
+      suggestedFiles,
     );
 
     // Include roleGuidance if available from a previous role_match/role_consensus cycle
@@ -1408,6 +1462,7 @@ export class PassthroughExecuteEngine {
       pendingTasks,
       completedTaskIds: Array.from(completedIds),
       roleGuidance,
+      suggestedFiles,
     };
   }
 
