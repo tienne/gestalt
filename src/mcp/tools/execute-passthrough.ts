@@ -23,7 +23,10 @@ export function handleExecutePassthrough(
     case 'start': {
       if (!input.spec) return formatError('spec is required for start action');
 
-      const result = engine.start(input.spec as Parameters<typeof engine.start>[0]);
+      const result = engine.start(
+        input.spec as Parameters<typeof engine.start>[0],
+        { codeGraphRepoRoot: input.codeGraphRepoRoot },
+      );
       if (!result.ok) return formatError(result.error.message);
 
       const { session, executeContext } = result.value;

@@ -67,6 +67,7 @@ export const executeInputSchema = z.object({
     }),
   }).optional().describe('Spec specification (required for start)'),
   sessionId: z.string().optional().describe('Execute session ID'),
+  codeGraphRepoRoot: z.string().optional().describe('Repo root path for blast-radius based test filtering (optional, requires code-graph.db)'),
   cwd: z.string().optional().describe('Working directory for rule file creation'),
   stepResult: z.object({
     principle: z.enum(['figure_ground', 'closure', 'proximity', 'continuity']),
@@ -108,6 +109,7 @@ export const executeInputSchema = z.object({
     status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'skipped']),
     output: z.string(),
     artifacts: z.array(z.string()),
+    suggestedFiles: z.array(z.string()).optional(),
   }).optional().describe('Task execution result (required for execute_task)'),
   structuralResult: z.object({
     commands: z.array(z.object({
@@ -296,6 +298,30 @@ export const benchmarkInputSchema = z.object({
 });
 
 export type BenchmarkInput = z.infer<typeof benchmarkInputSchema>;
+
+// ─── Code Graph Tool ────────────────────────────────────────────
+export const codeGraphInputSchema = z.object({
+  action: z.enum(['build', 'blast_radius', 'diff_radius', 'query', 'stats', 'db_exists'])
+    .describe('build: index codebase, blast_radius: committed changes, diff_radius: uncommitted changes, query: graph query, stats: show stats, db_exists: check DB'),
+  repoRoot: z.string().describe('Absolute path to the repository root'),
+  // build 전용
+  include: z.array(z.string()).optional().describe('Glob patterns to include (default: **/**)'),
+  exclude: z.array(z.string()).optional().describe('Glob patterns to exclude'),
+  mode: z.enum(['full', 'incremental']).optional().describe('Build mode (default: full)'),
+  // blast_radius 전용
+  changedFiles: z.array(z.string()).optional().describe('Changed file paths (auto-detected from git diff if omitted)'),
+  base: z.string().optional().describe('Git base ref for diff (default: HEAD~1)'),
+  maxDepth: z.number().optional().describe('BFS depth limit (default: 2)'),
+  // diff_radius 전용
+  diffMode: z.enum(['staged', 'unstaged', 'all']).optional()
+    .describe('diff_radius mode: staged=git diff --cached, unstaged=git diff, all=git diff HEAD (default: all)'),
+  // query 전용
+  pattern: z.enum(['callers_of', 'callees_of', 'tests_for', 'imports_of']).optional()
+    .describe('Query pattern (required for query action)'),
+  target: z.string().optional().describe('Target function/file name (required for query action)'),
+});
+
+export type CodeGraphInput = z.infer<typeof codeGraphInputSchema>;
 
 // ─── Status Tool ────────────────────────────────────────────────
 export const statusInputSchema = z.object({

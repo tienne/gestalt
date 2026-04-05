@@ -22,8 +22,9 @@ import { handleStatus } from './tools/status.js';
 import { handleBenchmarkPassthrough } from './tools/benchmark-passthrough.js';
 import { handleAgentPassthrough } from './tools/agent-passthrough.js';
 import { handleReviewPassthrough } from './tools/review-passthrough.js';
+import { handleCodeGraphPassthrough } from './tools/code-graph-passthrough.js';
 import { PassthroughReviewEngine } from '../review/passthrough-engine.js';
-import { interviewInputSchema, specInputSchema, executeInputSchema, agentCreateInputSchema, benchmarkInputSchema, statusInputSchema } from './schemas.js';
+import { interviewInputSchema, specInputSchema, executeInputSchema, agentCreateInputSchema, benchmarkInputSchema, statusInputSchema, codeGraphInputSchema } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
 import { RoleAgentRegistry } from '../agent/role-agent-registry.js';
@@ -322,6 +323,31 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         const input = statusInputSchema.parse(params);
         const result = handleStatusPassthrough(ptEngine, ptExecuteEngine, input);
         return { content: [{ type: 'text' as const, text: result }] };
+      },
+    );
+
+    server.tool(
+      'ges_code_graph',
+      'Build and query the code knowledge graph for a repository. Actions: build (index codebase), blast_radius (find impacted files from changes), query (graph traversal), stats (show DB stats), db_exists (check if graph DB exists).',
+      {
+        action: z.enum(['build', 'blast_radius', 'query', 'stats', 'db_exists']).describe(
+          'build: index codebase into graph DB, blast_radius: find files impacted by changes, query: traverse graph, stats: show stats, db_exists: check if DB exists',
+        ),
+        repoRoot: z.string().describe('Absolute path to the repository root'),
+        include: z.array(z.string()).optional().describe('Glob patterns to include (default: **/*)'),
+        exclude: z.array(z.string()).optional().describe('Glob patterns to exclude'),
+        mode: z.enum(['full', 'incremental']).optional().describe('Build mode: full (default) or incremental (hash-based skip)'),
+        changedFiles: z.array(z.string()).optional().describe('Changed file paths (auto-detected from git diff HEAD~1 if omitted)'),
+        base: z.string().optional().describe('Git base ref for diff detection (default: HEAD~1)'),
+        maxDepth: z.number().optional().describe('BFS traversal depth for blast_radius (default: 2)'),
+        pattern: z.enum(['callers_of', 'callees_of', 'tests_for', 'imports_of']).optional()
+          .describe('Query pattern (required for query action)'),
+        target: z.string().optional().describe('Target function or file path (required for query action)'),
+      },
+      async (params) => {
+        const input = codeGraphInputSchema.parse(params);
+        const result = await handleCodeGraphPassthrough(input);
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
       },
     );
   } else {
