@@ -3,6 +3,6 @@
   "notifications": false,
   "interview": {
     "ambiguityThreshold": 0.2,
-    "maxRounds": 10
+    "maxRounds": 20
   }
 }
