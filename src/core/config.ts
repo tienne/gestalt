@@ -169,14 +169,14 @@ function buildEnvConfig(): Record<string, unknown> {
 
 // ─── Public API ─────────────────────────────────────────────────
 
-export function loadConfig(overrides: Partial<Record<string, unknown>> = {}, options?: { skipDotEnv?: boolean }): GestaltConfig {
+export function loadConfig(overrides: Partial<Record<string, unknown>> = {}, options?: { skipDotEnv?: boolean; skipGestaltJson?: boolean }): GestaltConfig {
   // 1. Load .env (does not override existing env vars)
   if (!options?.skipDotEnv) {
     loadDotEnv();
   }
 
   // 2. Load gestalt.json
-  const jsonConfig = loadGestaltJson();
+  const jsonConfig = options?.skipGestaltJson ? {} : loadGestaltJson();
 
   // 3. Build env config from process.env
   const envConfig = buildEnvConfig();

@@ -8,8 +8,8 @@ describe('loadConfig', () => {
     process.env = { ...originalEnv };
   });
 
-  // Use skipDotEnv to avoid .env file interference in tests
-  const opts = { skipDotEnv: true };
+  // Use skipDotEnv + skipGestaltJson to isolate from local config files
+  const opts = { skipDotEnv: true, skipGestaltJson: true };
 
   it('loads config with empty API key for passthrough mode', () => {
     delete process.env['ANTHROPIC_API_KEY'];
