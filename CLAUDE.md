@@ -26,6 +26,9 @@ pnpm tsx bin/gestalt.ts interview "topic"  # Interactive interview
 pnpm tsx bin/gestalt.ts spec <session-id>  # Generate spec
 pnpm tsx bin/gestalt.ts status             # Check sessions
 pnpm tsx bin/gestalt.ts setup              # Generate gestalt.json config
+pnpm tsx bin/gestalt.ts init               # One-step onboarding: gestalt.json + code graph + post-commit hook
+pnpm tsx bin/gestalt.ts init --skip-graph  # Skip code graph build
+pnpm tsx bin/gestalt.ts init --skip-hook   # Skip post-commit hook installation
 ```
 
 ## Configuration
