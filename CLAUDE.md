@@ -5,7 +5,7 @@
 "전체는 부분의 합보다 크다" — 흩어진 요구사항 조각들을 모아 완전한 스펙(Spec)으로 결정화.
 
 ## Architecture
-- **Interview Engine**: 게슈탈트 원리 기반 Q&A로 모호성 점수를 0.2 이하로 낮춤
+- **Interview Engine**: 게슈탈트 원리 기반 Q&A로 해상도 점수를 0.8 이상으로 높임
 - **Spec Generator**: 완료된 인터뷰에서 구조화된 프로젝트 스펙(Spec) 생성
 - **Execute Engine**: 게슈탈트 5원리를 실행 전략으로 사용, Spec→ExecutionPlan 변환 (Figure-Ground→Closure→Proximity→Continuity)
 - **Resilience Engine**: Stagnation 감지 → Lateral Thinking Personas → Human Escalation
@@ -47,7 +47,7 @@ pnpm tsx bin/gestalt.ts init --skip-hook   # Skip post-commit hook installation
 {
   "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
   "llm": { "apiKey": "", "model": "claude-sonnet-4-20250514" },
-  "interview": { "ambiguityThreshold": 0.2, "maxRounds": 10 },
+  "interview": { "resolutionThreshold": 0.8, "maxRounds": 10 },
   "execute": { "driftThreshold": 0.3, "successThreshold": 0.85, "goalAlignmentThreshold": 0.80 },
   "dbPath": ".gestalt/gestalt.db",
   "logLevel": "info"
@@ -59,7 +59,7 @@ pnpm tsx bin/gestalt.ts init --skip-hook   # Skip post-commit hook installation
 ```typescript
 interface GestaltConfig {
   llm: { apiKey: string; model: string };
-  interview: { ambiguityThreshold: number; maxRounds: number };
+  interview: { resolutionThreshold: number; maxRounds: number };
   execute: { driftThreshold: number; successThreshold: number; goalAlignmentThreshold: number };
   notifications: boolean;
   dbPath: string;
@@ -75,7 +75,7 @@ interface GestaltConfig {
 |----------|-------------|--------|
 | `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` |
 | `GESTALT_MODEL` | `llm.model` | `"claude-sonnet-4-20250514"` |
-| `GESTALT_AMBIGUITY_THRESHOLD` | `interview.ambiguityThreshold` | `0.2` |
+| `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` | `0.8` |
 | `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` |
 | `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` | `0.3` |
 | `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | `execute.successThreshold` | `0.85` |
@@ -142,7 +142,7 @@ ges_interview({
   sessionId: "<sessionId>",
   response: "사용자 답변",
   generatedQuestion: "caller가 생성한 질문",
-  ambiguityScore: {              // 선택사항
+  resolutionScore: {              // 선택사항
     goalClarity: 0.7,
     constraintClarity: 0.5,
     successCriteria: 0.4,
@@ -150,14 +150,14 @@ ges_interview({
   }
 })
 ```
-→ 다음 `gestaltContext` + `ambiguityScore` 반환. `ambiguityScore.isReady === true`가 될 때까지 반복.
+→ 다음 `gestaltContext` + `resolutionScore` 반환. `resolutionScore.isReady === true`가 될 때까지 반복.
 
 **Step 4: 스코어링 (선택)**
-respond 시 ambiguityScore를 안 보냈다면 별도로 요청 가능:
+respond 시 resolutionScore를 안 보냈다면 별도로 요청 가능:
 ```
 ges_interview({ action: "score", sessionId: "<id>" })
 → scoringPrompt 반환 → caller가 점수 산출 →
-ges_interview({ action: "score", sessionId: "<id>", ambiguityScore: {...} })
+ges_interview({ action: "score", sessionId: "<id>", resolutionScore: {...} })
 ```
 
 **Step 5: 인터뷰 완료**
@@ -358,8 +358,8 @@ ges_execute({ action: "role_consensus", sessionId: "<id>", consensus: {...} })
 ```
 
 ### 핵심 규칙
-- `action: "respond"` 시 `generatedQuestion` **필수**, `ambiguityScore` 선택
-- ambiguityScore 차원: `goalClarity`, `constraintClarity`, `successCriteria`, `priorityClarity` (필수), `contextClarity` (선택)
+- `action: "respond"` 시 `generatedQuestion` **필수**, `resolutionScore` 선택
+- resolutionScore 차원: `goalClarity`, `constraintClarity`, `successCriteria`, `priorityClarity` (필수), `contextClarity` (선택)
 - Spec의 `gestaltAnalysis[].principle`은 enum: `closure | proximity | similarity | figure_ground | continuity`
 - `ontologySchema.entities[]`: `{ name, description, attributes[] }`
 - `ontologySchema.relations[]`: `{ from, to, type }`
@@ -368,7 +368,7 @@ ges_execute({ action: "role_consensus", sessionId: "<id>", consensus: {...} })
 ## Project Structure
 - `src/core/` — types, errors, Result monad, config, constants
 - `src/gestalt/` — 게슈탈트 원리 엔진 (핵심 차별점)
-- `src/interview/` — InterviewEngine, AmbiguityScorer, SessionManager
+- `src/interview/` — InterviewEngine, ResolutionScorer, SessionManager
 - `src/spec/` — SpecGenerator, SpecExtractor
 - `src/execute/` — ExecuteEngine, DAG Validator, ExecuteSessionManager
 - `src/resilience/` — Stagnation Detector, Lateral Thinking Personas, Human Escalation
@@ -455,6 +455,6 @@ TypeScript 플러그인은 TypeScript Compiler API 사용 (Tree-sitter 불필요
 ## Conventions
 - MCP 서버에서 `console.log` 사용 금지 → stderr(`log()` 유틸)
 - LLM 호출: temperature 0.3, JSON 응답 파싱 + fallback
-- 모호성 점수 ≤ 0.2 = 요구사항 충분히 명확
+- 해상도 점수 ≥ 0.8 = 요구사항 충분히 명확
 - Spec 생성 실패 시 최대 3회 재시도
 - 테스트: 각 test에서 고유 DB 경로 사용 (병렬 테스트 안전)

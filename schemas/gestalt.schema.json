@@ -28,12 +28,12 @@
       "type": "object",
       "description": "Interview engine settings",
       "properties": {
-        "ambiguityThreshold": {
+        "resolutionThreshold": {
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "description": "Ambiguity threshold below which requirements are considered clear (env: GESTALT_AMBIGUITY_THRESHOLD)",
-          "default": 0.2
+          "description": "Resolution threshold above which requirements are considered clear (env: GESTALT_RESOLUTION_THRESHOLD)",
+          "default": 0.8
         },
         "maxRounds": {
           "type": "integer",
