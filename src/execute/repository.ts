@@ -321,7 +321,7 @@ export class ExecuteSessionRepository {
       metadata: {
         specId: startPayload.specId ?? '',
         interviewSessionId: '',
-        ambiguityScore: 0,
+        resolutionScore: 0,
         generatedAt: '',
       },
     };
