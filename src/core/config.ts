@@ -19,9 +19,21 @@ const GLOBAL_DB_PATH = resolve(homedir(), '.gestalt', 'events.db');
 
 // ─── Zod Schemas ────────────────────────────────────────────────
 
+const llmTierConfigSchema = z.object({
+  provider: z.enum(['anthropic', 'openai']),
+  apiKey: z.string().optional(),
+  baseURL: z.string().optional(),
+  model: z.string(),
+});
+
+export type LLMTierConfig = z.infer<typeof llmTierConfigSchema>;
+
 const llmConfigSchema = z.object({
   apiKey: z.string().default(''),
   model: z.string().default(DEFAULT_MODEL),
+  frugal: llmTierConfigSchema.optional(),
+  standard: llmTierConfigSchema.optional(),
+  frontier: llmTierConfigSchema.optional(),
 });
 
 const interviewConfigSchema = z.object({
@@ -126,6 +138,24 @@ function buildEnvConfig(): Record<string, unknown> {
   const llm: Record<string, unknown> = {};
   if (env['ANTHROPIC_API_KEY'] !== undefined) llm.apiKey = env['ANTHROPIC_API_KEY'];
   if (env['GESTALT_MODEL'] !== undefined) llm.model = env['GESTALT_MODEL'];
+
+  // tier-level env overrides: GESTALT_LLM_<TIER>_PROVIDER, _API_KEY, _BASE_URL, _MODEL
+  for (const tier of ['frugal', 'standard', 'frontier'] as const) {
+    const prefix = `GESTALT_LLM_${tier.toUpperCase()}`;
+    const provider = env[`${prefix}_PROVIDER`];
+    const tierApiKey = env[`${prefix}_API_KEY`];
+    const baseURL = env[`${prefix}_BASE_URL`];
+    const model = env[`${prefix}_MODEL`];
+    if (provider || tierApiKey || baseURL || model) {
+      const tierCfg: Record<string, string> = {};
+      if (provider) tierCfg.provider = provider;
+      if (tierApiKey) tierCfg.apiKey = tierApiKey;
+      if (baseURL) tierCfg.baseURL = baseURL;
+      if (model) tierCfg.model = model;
+      llm[tier] = tierCfg;
+    }
+  }
+
   if (Object.keys(llm).length > 0) result.llm = llm;
 
   // interview
