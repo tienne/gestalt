@@ -53,11 +53,19 @@ pnpm build
 - 배포 대상: npm public registry (@tienne/gestalt)
 - 플러그인 스킬 변경 여부: skills/ 디렉토리 변경 시 명시
 
-### 5. git push
+### 5. 플러그인 매니페스트 커밋
+`postversion` 훅이 `plugin.json`, `marketplace.json`을 업데이트하지만 버전 커밋 이후에 실행되므로 별도로 커밋해야 한다.
+
+```bash
+git add .claude-plugin/plugin.json .claude-plugin/marketplace.json
+git commit -m "chore(plugin): bump plugin manifest to vX.Y.Z"
+```
+
+### 6. git push
 ```bash
 git push && git push --tags
 ```
-`npm version`이 생성한 버전 커밋과 태그를 원격에 먼저 올린다.
+버전 커밋 + 플러그인 매니페스트 커밋 + 태그를 원격에 먼저 올린다.
 
 ### 6. npm 배포
 ```bash
