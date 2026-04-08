@@ -20,9 +20,20 @@
           "type": "string",
           "description": "Model to use (env: GESTALT_MODEL)",
           "default": "claude-sonnet-4-20250514"
+        },
+        "frugal": {
+          "$ref": "#/definitions/llmTierConfig",
+          "description": "Frugal tier — lightweight tasks (scoring, classification)"
+        },
+        "standard": {
+          "$ref": "#/definitions/llmTierConfig",
+          "description": "Standard tier — general-purpose tasks (interview, spec generation)"
+        },
+        "frontier": {
+          "$ref": "#/definitions/llmTierConfig",
+          "description": "Frontier tier — complex reasoning tasks (architecture, code review)"
         }
-      },
-      "additionalProperties": false
+      }
     },
     "interview": {
       "type": "object",
@@ -99,5 +110,32 @@
       "default": "info"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "definitions": {
+    "llmTierConfig": {
+      "type": "object",
+      "description": "Per-tier LLM provider configuration",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["anthropic", "openai"],
+          "description": "LLM provider (anthropic or openai-compatible)"
+        },
+        "apiKey": {
+          "type": "string",
+          "description": "API key for this tier (falls back to llm.apiKey if omitted)"
+        },
+        "baseURL": {
+          "type": "string",
+          "description": "Base URL for the API (e.g. http://localhost:11434/v1 for Ollama)"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model name for this tier"
+        }
+      },
+      "required": ["provider", "model"],
+      "additionalProperties": false
+    }
+  }
 }
