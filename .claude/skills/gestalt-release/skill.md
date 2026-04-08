@@ -53,16 +53,17 @@ pnpm build
 - 배포 대상: npm public registry (@tienne/gestalt)
 - 플러그인 스킬 변경 여부: skills/ 디렉토리 변경 시 명시
 
-### 5. npm 배포
+### 5. git push
+```bash
+git push && git push --tags
+```
+`npm version`이 생성한 버전 커밋과 태그를 원격에 먼저 올린다.
+
+### 6. npm 배포
 ```bash
 npm publish --access public
 ```
-
-### 6. git push
-```bash
-git push
-```
-`npm version`이 생성한 태그와 커밋을 원격에 올린다.
+git push가 완료된 후 npm에 배포한다.
 
 ### 7. 플러그인 업데이트 안내
 
