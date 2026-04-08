@@ -5,7 +5,7 @@ import { loadConfig, type GestaltConfig } from '../core/config.js';
 import { log } from '../core/log.js';
 import { getVersion, checkForUpdates, getCachedUpdateResult } from '../core/version.js';
 import { EventStore } from '../events/store.js';
-import { AnthropicAdapter } from '../llm/adapter.js';
+import { createAdapter } from '../llm/factory.js';
 import { InterviewEngine } from '../interview/engine.js';
 import { PassthroughEngine } from '../interview/passthrough-engine.js';
 import { SpecGenerator } from '../spec/generator.js';
@@ -367,7 +367,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     );
   } else {
     // ─── Normal mode: direct LLM calls ──────────────────────────
-    const llm = new AnthropicAdapter(config.llm.apiKey, config.llm.model);
+    const llm = createAdapter(config.llm);
     const engine = new InterviewEngine(llm, eventStore);
     const specGenerator = new SpecGenerator(llm, eventStore);
 

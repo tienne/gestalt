@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline';
 import { loadConfig } from '../../core/config.js';
 import { EventStore } from '../../events/store.js';
-import { AnthropicAdapter } from '../../llm/adapter.js';
+import { createAdapter } from '../../llm/factory.js';
 import { InterviewEngine } from '../../interview/engine.js';
 import { RecordingOrchestrator } from '../../recording/recording-orchestrator.js';
 
@@ -21,7 +21,7 @@ export async function interviewCommand(
     process.exit(1);
   }
 
-  const llm = new AnthropicAdapter(config.llm.apiKey, config.llm.model);
+  const llm = createAdapter(config.llm);
   const orchestrator = new RecordingOrchestrator(llm);
 
   // --record 플래그가 있고 아직 asciinema로 감싸지지 않았으면 respawn.

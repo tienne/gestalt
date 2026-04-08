@@ -1,6 +1,6 @@
 import { loadConfig } from '../../core/config.js';
 import { EventStore } from '../../events/store.js';
-import { AnthropicAdapter } from '../../llm/adapter.js';
+import { createAdapter } from '../../llm/factory.js';
 import { InterviewEngine } from '../../interview/engine.js';
 import { SpecGenerator } from '../../spec/generator.js';
 
@@ -13,7 +13,7 @@ export async function specCommand(sessionId: string, options: { force?: boolean 
   }
 
   const eventStore = new EventStore(config.dbPath);
-  const llm = new AnthropicAdapter(config.llm.apiKey, config.llm.model);
+  const llm = createAdapter(config.llm);
   const engine = new InterviewEngine(llm, eventStore);
   const generator = new SpecGenerator(llm, eventStore);
 
