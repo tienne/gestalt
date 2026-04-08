@@ -1,6 +1,7 @@
 import type { EventStore } from '../events/store.js';
 import type { DomainEvent, InterviewSession, InterviewRound, ResolutionScore, ProjectType, GestaltPrinciple } from '../core/types.js';
 import { EventType } from '../events/types.js';
+import { RESOLUTION_THRESHOLD } from '../core/constants.js';
 
 /**
  * InterviewSessionRepository — Event Replay 기반 InterviewSession 재구성.
@@ -93,12 +94,22 @@ export class InterviewSessionRepository {
         break;
       }
 
-      case EventType.INTERVIEW_RESOLUTION_SCORED:
-      // Backward compatibility: handle old event type from existing databases
-      case 'interview.ambiguity.scored' as EventType: {
+      case EventType.INTERVIEW_RESOLUTION_SCORED: {
         session.resolutionScore = {
           overall: payload.overall as number,
           isReady: payload.isReady as boolean,
+          dimensions: (payload.dimensions as ResolutionScore['dimensions']) ?? [],
+        };
+        break;
+      }
+      // Backward compatibility: old ambiguity score was inverted (low = clear)
+      // Convert to resolution score by inverting: resolution = 1 - ambiguity
+      case 'interview.ambiguity.scored' as EventType: {
+        const ambiguity = payload.overall as number;
+        const resolution = 1 - ambiguity;
+        session.resolutionScore = {
+          overall: resolution,
+          isReady: resolution >= RESOLUTION_THRESHOLD,
           dimensions: (payload.dimensions as ResolutionScore['dimensions']) ?? [],
         };
         break;
