@@ -14,7 +14,7 @@ inputs:
   force:
     type: boolean
     required: false
-    description: "Force generation even if ambiguity threshold is not met"
+    description: "Force generation even if resolution threshold is not met"
 outputs:
   - spec
 ---
@@ -34,7 +34,7 @@ This skill transforms completed interview data into a structured project specifi
 ## Requirements
 
 - Interview session must be in `completed` status
-- Ambiguity score must be ≤ 0.2 (unless `force` is true)
+- Resolution score must be ≥ 0.8 (unless `force` is true)
 
 ## Passthrough Mode
 
