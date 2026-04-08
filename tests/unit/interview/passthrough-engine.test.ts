@@ -65,7 +65,7 @@ describe('PassthroughEngine', () => {
     }
   });
 
-  it('responds with ambiguityScore and computes score', () => {
+  it('responds with resolutionScore and computes score', () => {
     const startResult = engine.start('Dashboard');
     expect(isOk(startResult)).toBe(true);
     if (!startResult.ok) return;

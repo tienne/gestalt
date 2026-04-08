@@ -61,7 +61,7 @@ describe('InterviewSessionRepository', () => {
     expect(reconstructed!.rounds[1]!.userResponse).toBe('24 hours');
   });
 
-  it('reconstructs ambiguity score', () => {
+  it('reconstructs resolution score', () => {
     const session = manager.create('test', 'greenfield');
     manager.updateResolutionScore(session.sessionId, {
       overall: 0.3,

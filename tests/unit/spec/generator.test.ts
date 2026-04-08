@@ -81,7 +81,7 @@ describe('SpecGenerator', () => {
     }
   });
 
-  it('rejects when ambiguity too high and not forced', async () => {
+  it('rejects when resolution too low and not forced', async () => {
     const llm = new MockLLM();
     const generator = new SpecGenerator(llm, store);
     const session = makeSession({

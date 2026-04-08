@@ -90,7 +90,7 @@ describe('SessionManager', () => {
     expect(list).toHaveLength(2);
   });
 
-  it('updates ambiguity score', () => {
+  it('updates resolution score', () => {
     const session = manager.create('test', 'greenfield');
     const mockScore = {
       overall: 0.5,

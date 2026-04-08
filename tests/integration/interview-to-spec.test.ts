@@ -44,15 +44,15 @@ describe('Interview → Spec Pipeline', () => {
     const llm = new MockLLM([
       // start: question generation
       '{"question": "What is the main goal of your dashboard?", "reasoning": "Closure"}',
-      // respond round 1: ambiguity scoring
+      // respond round 1: resolution scoring
       '{"goalClarity": 0.6, "constraintClarity": 0.4, "successCriteria": 0.3, "priorityClarity": 0.2, "contradictions": []}',
       // respond round 1: next question
       '{"question": "What technical constraints exist?", "reasoning": "Proximity"}',
-      // respond round 2: ambiguity scoring
+      // respond round 2: resolution scoring
       '{"goalClarity": 0.8, "constraintClarity": 0.7, "successCriteria": 0.6, "priorityClarity": 0.5, "contradictions": []}',
       // respond round 2: next question
       '{"question": "What are the success criteria?", "reasoning": "Similarity"}',
-      // respond round 3: ambiguity scoring
+      // respond round 3: resolution scoring
       '{"goalClarity": 0.95, "constraintClarity": 0.9, "successCriteria": 0.85, "priorityClarity": 0.9, "contradictions": []}',
       // respond round 3: next question
       '{"question": "Any priorities?", "reasoning": "FigureGround"}',

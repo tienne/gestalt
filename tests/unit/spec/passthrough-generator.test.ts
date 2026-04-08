@@ -111,7 +111,7 @@ describe('PassthroughSpecGenerator', () => {
     expect(isErr(result)).toBe(true);
   });
 
-  it('validateAndStore with high ambiguity and force=false returns ResolutionThresholdError', () => {
+  it('validateAndStore with low resolution and force=false returns ResolutionThresholdError', () => {
     const session = makeSession({
       resolutionScore: { overall: 0.5, dimensions: [], isReady: false },
     });
@@ -123,7 +123,7 @@ describe('PassthroughSpecGenerator', () => {
     }
   });
 
-  it('validateAndStore with high ambiguity and force=true succeeds', () => {
+  it('validateAndStore with low resolution and force=true succeeds', () => {
     const session = makeSession({
       resolutionScore: { overall: 0.5, dimensions: [], isReady: false },
     });
