@@ -7,11 +7,11 @@
 ## Architecture
 - **Interview Engine**: 게슈탈트 원리 기반 Q&A로 해상도 점수를 0.8 이상으로 높임
 - **Spec Generator**: 완료된 인터뷰에서 구조화된 프로젝트 스펙(Spec) 생성
-- **Execute Engine**: 게슈탈트 5원리를 실행 전략으로 사용, Spec→ExecutionPlan 변환 (Figure-Ground→Closure→Proximity→Continuity)
+- **Execute Engine**: Spec→ExecutionPlan 변환 (Figure-Ground→Closure→Proximity→Continuity)
 - **Resilience Engine**: Stagnation 감지 → Lateral Thinking Personas → Human Escalation
-- **MCP Server**: stdio transport로 Claude Code 등 AI 에이전트와 통합
-- **Skill System**: SKILL.md 기반 확장, chokidar hot-reload 지원. 각 스킬(`/interview`, `/spec`, `/execute`)은 실행 중 Claude Code Task 패널에 진행 상태를 `TaskCreate`/`TaskUpdate`로 실시간 표시 (공통 진행 패널)
-- **Code Knowledge Graph**: 코드베이스 정적 분석 → 의존성 그래프화 → Blast-Radius로 영향 파일 추림. Execute 파이프라인 태스크 실행 시 `suggestedFiles`로 자동 컨텍스트 주입해 불필요한 파일 읽기를 줄임
+- **MCP Server**: stdio transport, API 키 없으면 Passthrough 모드 자동 활성화
+- **Skill System**: SKILL.md 기반 확장, chokidar hot-reload
+- **Code Knowledge Graph**: 정적 분석 → 의존성 그래프 → Blast-Radius 영향 파일 추출
 - **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱
 
 ## Tech Stack
@@ -20,441 +20,47 @@ Dependencies: @anthropic-ai/sdk, @modelcontextprotocol/sdk, better-sqlite3, zod,
 
 ## Key Commands
 ```bash
-pnpm test          # Run all tests (vitest)
-pnpm run serve     # Start MCP server
-pnpm tsx bin/gestalt.ts interview "topic"  # Interactive interview
-pnpm tsx bin/gestalt.ts spec <session-id>  # Generate spec
-pnpm tsx bin/gestalt.ts status             # Check sessions
-pnpm tsx bin/gestalt.ts setup              # Generate gestalt.json config
-pnpm tsx bin/gestalt.ts init               # One-step onboarding: gestalt.json + code graph + post-commit hook
-pnpm tsx bin/gestalt.ts init --skip-graph  # Skip code graph build
-pnpm tsx bin/gestalt.ts init --skip-hook   # Skip post-commit hook installation
+pnpm test          # 전체 테스트
+pnpm run serve     # MCP 서버 시작
+pnpm tsx bin/gestalt.ts interview "topic"
+pnpm tsx bin/gestalt.ts spec <session-id>
+pnpm tsx bin/gestalt.ts status
+pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 ```
-
-## Configuration
-
-설정값은 다음 우선순위로 merge된다 (높→낮):
-1. `loadConfig(overrides)` — 코드에서 직접 전달
-2. Shell 환경변수 (`export GESTALT_*`)
-3. `.env` 파일 (dotenv)
-4. `gestalt.json` 파일
-5. 기본값
-
-### gestalt.json
-`gestalt setup` 명령어로 생성. JSON Schema로 IDE 자동완성 지원.
-
-```json
-{
-  "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
-  "llm": { "apiKey": "", "model": "claude-sonnet-4-20250514" },
-  "interview": { "resolutionThreshold": 0.8, "maxRounds": 10 },
-  "execute": { "driftThreshold": 0.3, "successThreshold": 0.85, "goalAlignmentThreshold": 0.80 },
-  "dbPath": ".gestalt/gestalt.db",
-  "logLevel": "info"
-}
-```
-
-### GestaltConfig 구조 (nested)
-
-```typescript
-interface GestaltConfig {
-  llm: { apiKey: string; model: string };
-  interview: { resolutionThreshold: number; maxRounds: number };
-  execute: { driftThreshold: number; successThreshold: number; goalAlignmentThreshold: number };
-  notifications: boolean;
-  dbPath: string;
-  skillsDir: string;
-  agentsDir: string;
-  logLevel: 'debug' | 'info' | 'warn' | 'error';
-}
-```
-
-### 환경변수 매핑
-
-| 환경변수 | Config 경로 | 기본값 |
-|----------|-------------|--------|
-| `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` |
-| `GESTALT_MODEL` | `llm.model` | `"claude-sonnet-4-20250514"` |
-| `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` | `0.8` |
-| `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` |
-| `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` | `0.3` |
-| `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | `execute.successThreshold` | `0.85` |
-| `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | `execute.goalAlignmentThreshold` | `0.80` |
-| `GESTALT_NOTIFICATIONS` | `notifications` | `false` |
-| `GESTALT_DB_PATH` | `dbPath` | `"~/.gestalt/events.db"` |
-| `GESTALT_SKILLS_DIR` | `skillsDir` | `"skills"` |
-| `GESTALT_AGENTS_DIR` | `agentsDir` | `"agents"` |
-| `GESTALT_LOG_LEVEL` | `logLevel` | `"info"` |
-
-잘못된 설정값은 경고를 출력하고 기본값으로 fallback한다 (에러를 throw하지 않음).
 
 ## MCP Tools
 - `ges_interview`: action=[start|respond|score|complete]
-- `ges_generate_spec`: sessionId? (optional), text? (optional), force?, spec? (passthrough)
-- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|evaluate|status|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|role_match|role_consensus]
-- `ges_create_agent`: action=[start|submit] — 인터뷰 기반 커스텀 Role Agent 생성
-- `ges_code_graph`: action=[build|blast_radius|query|stats|db_exists] — 코드 지식 그래프 관리
+- `ges_generate_spec`: sessionId?, text?, force?, spec?
+- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|evaluate|status|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|role_match|role_consensus|review_start|review_submit|review_consensus|review_fix]
+- `ges_create_agent`: action=[start|submit]
+- `ges_code_graph`: action=[build|blast_radius|diff_radius|query|stats|db_exists]
 - `ges_status`: sessionId?
 
-## MCP Passthrough Mode
-
-API 키(`ANTHROPIC_API_KEY`) 없이 MCP 서버 실행 시 자동 활성화. LLM 호출을 서버가 하지 않고, caller(Claude Code 등)에게 위임한다.
-
-### 설치 방법
-
-**Claude Plugin (Recommended)**
-```bash
-# 1. 마켓플레이스 등록 (최초 1회)
-/plugin marketplace add tienne/gestalt
-
-# 2. 플러그인 설치
-/plugin install gestalt@gestalt
-```
-
-**MCP 직접 설정** (claude_desktop_config.json / settings.json)
-```json
-{
-  "mcpServers": {
-    "gestalt": {
-      "command": "npx",
-      "args": ["-y", "@tienne/gestalt"]
-    }
-  }
-}
-```
-> `env`에 `ANTHROPIC_API_KEY`를 넣지 않으면 passthrough 모드로 동작.
-
-### Interview → Spec 전체 플로우
-
-**Step 1: 인터뷰 시작**
-```
-ges_interview({ action: "start", topic: "사용자 인증 시스템" })
-```
-→ `gestaltContext` 반환 (systemPrompt, questionPrompt, currentPrinciple, phase 등)
-
-**Step 2: 질문 생성 (caller 수행)**
-`gestaltContext.systemPrompt` + `gestaltContext.questionPrompt`를 사용해 질문을 생성한다.
-
-**Step 3: 사용자 응답 수집 후 전달**
-```
-ges_interview({
-  action: "respond",
-  sessionId: "<sessionId>",
-  response: "사용자 답변",
-  generatedQuestion: "caller가 생성한 질문",
-  resolutionScore: {              // 선택사항
-    goalClarity: 0.7,
-    constraintClarity: 0.5,
-    successCriteria: 0.4,
-    priorityClarity: 0.6
-  }
-})
-```
-→ 다음 `gestaltContext` + `resolutionScore` 반환. `resolutionScore.isReady === true`가 될 때까지 반복.
-
-**Step 4: 스코어링 (선택)**
-respond 시 resolutionScore를 안 보냈다면 별도로 요청 가능:
-```
-ges_interview({ action: "score", sessionId: "<id>" })
-→ scoringPrompt 반환 → caller가 점수 산출 →
-ges_interview({ action: "score", sessionId: "<id>", resolutionScore: {...} })
-```
-
-**Step 5: 인터뷰 완료**
-```
-ges_interview({ action: "complete", sessionId: "<id>" })
-```
-
-**Step 6: Spec 생성 (2단계)**
-
-두 가지 입력 경로 중 하나를 선택한다.
-
-```
-// Text-based 경로 (인터뷰 불필요)
-ges_generate_spec({ text: "..." })
-→ specContext (systemPrompt, specPrompt) 반환
-
-ges_generate_spec({ text: "...", spec: {...} })
-→ Zod 검증 후 최종 Spec 반환 + .gestalt/memory.json 자동 업데이트
-
-// Interview 기반 경로 (6a: specContext 요청)
-ges_generate_spec({ sessionId: "<id>" })
-→ specContext (systemPrompt, specPrompt, allRounds) 반환
-
-// 6b: caller가 spec JSON 생성 후 제출
-ges_generate_spec({
-  sessionId: "<id>",
-  spec: {
-    goal: "...",
-    constraints: ["..."],
-    acceptanceCriteria: ["..."],
-    ontologySchema: { entities: [...], relations: [...] },
-    gestaltAnalysis: [{ principle: "closure", finding: "...", confidence: 0.9 }]
-  }
-})
-→ Zod 검증 후 최종 Spec 반환
-```
-
-### Spec → Execute 플로우
-
-**Step 1: 실행 계획 세션 시작**
-```
-ges_execute({ action: "start", spec: { ...completeSpecObject } })
-```
-→ `executeContext` 반환 (systemPrompt, planningPrompt, currentPrinciple 등)
-
-**Step 2~5: 4단계 계획 수립 (caller가 각 단계 결과를 생성)**
-```
-// Figure-Ground → Closure → Proximity → Continuity 순서로 진행
-ges_execute({
-  action: "plan_step",
-  sessionId: "<id>",
-  stepResult: { principle: "figure_ground", classifiedACs: [...] }
-})
-→ 다음 단계 executeContext 반환. isLastStep === true가 될 때까지 반복.
-```
-
-**Step 6: 실행 계획 조립**
-```
-ges_execute({ action: "plan_complete", sessionId: "<id>" })
-→ ExecutionPlan (classifiedACs, atomicTasks, taskGroups, dagValidation) 반환
-```
-
-### Execute → Evaluate → Evolution 플로우
-
-**Execution Phase**: execute_start → execute_task (반복) → evaluate (3-Call: structural → contextual)
-
-**Evolution Loop** (Evaluate 점수가 threshold 미달 시):
-
-**Flow A: Structural Fix** (structural 실패 시)
-```
-// 1. Fix context 요청
-ges_execute({ action: "evolve_fix", sessionId: "<id>" })
-→ fixContext 반환
-
-// 2. Fix tasks 제출
-ges_execute({ action: "evolve_fix", sessionId: "<id>", fixTasks: [...] })
-→ 상태 복원, evaluate 재실행 가능
-
-// 3. Re-evaluate
-ges_execute({ action: "evaluate", sessionId: "<id>" })
-```
-
-**Flow B: Contextual Evolution** (structural 통과, contextual 점수 미달 시)
-```
-// 1. Evolution context 요청
-ges_execute({ action: "evolve", sessionId: "<id>" })
-→ evolveContext 반환 (또는 terminateReason으로 종료)
-
-// 2. Spec patch 제출
-ges_execute({ action: "evolve_patch", sessionId: "<id>", specPatch: {...} })
-→ impactedTaskIds + reExecuteContext 반환
-
-// 3. Impacted tasks 재실행 (반복)
-ges_execute({ action: "evolve_re_execute", sessionId: "<id>", reExecuteTaskResult: {...} })
-→ allTasksCompleted === true가 될 때까지 반복
-
-// 4. Re-evaluate
-ges_execute({ action: "evaluate", sessionId: "<id>" })
-```
-
-**Spec Patch 범위**: L1(AC)+L2(constraints) 자유, L3(ontology) 추가/변경만, L4(goal) 금지
-**종료 조건**: success(≥0.85, ≥0.80), stagnation, oscillation, hard_cap(3+3), caller, human_escalation
-**Caller 종료**: `ges_execute({ action: "evolve", sessionId: "<id>", terminateReason: "caller" })`
-
-**Flow C: Lateral Thinking** (evolution stagnation/oscillation/hard_cap 감지 시 자동 분기)
-
-evolve 호출 시 non-success termination이 감지되면 즉시 종료하는 대신 lateral thinking persona로 자동 분기한다.
-
-```
-// 1. evolve 호출 → lateralContext 자동 반환 (stagnation 시)
-ges_execute({ action: "evolve", sessionId: "<id>" })
-→ { status: "lateral_thinking", lateralContext: { persona, pattern, systemPrompt, lateralPrompt, ... } }
-
-// 2. Lateral result 제출 (caller가 persona 관점으로 specPatch 생성)
-ges_execute({
-  action: "evolve_lateral_result",
-  sessionId: "<id>",
-  lateralResult: {
-    persona: "multistability",
-    specPatch: { acceptanceCriteria: [...], constraints: [...] },
-    description: "관점 전환으로 요구사항 재구성"
-  }
-})
-→ impactedTaskIds + reExecuteContext 반환
-
-// 3. Impacted tasks 재실행 (기존 action 재사용)
-ges_execute({ action: "evolve_re_execute", sessionId: "<id>", reExecuteTaskResult: {...} })
-→ 반복...
-
-// 4. Re-evaluate
-ges_execute({ action: "evaluate", sessionId: "<id>" })
-
-// 5. 다음 persona 요청 (점수 미달 시)
-ges_execute({ action: "evolve_lateral", sessionId: "<id>" })
-→ 다음 lateralContext (or humanEscalation if 4개 persona 소진)
-```
-
-**Stagnation Pattern → Persona 매핑**:
-| Pattern | Persona | 전략 |
-|---|---|---|
-| spinning (hard_cap) | Multistability | 다른 각도로 보기 |
-| oscillation | Simplicity | 단순하게 줄이기 |
-| no_drift (delta≈0) | Reification | 빠진 조각 채우기 |
-| diminishing_returns (delta↓) | Invariance | 성공 패턴 복제하기 |
-
-**Human Escalation**: 4개 persona 모두 소진 시 `humanEscalation` 반환 (triedPersonas, bestScore, suggestions 포함). session은 `status: 'failed'`, `terminationReason: 'human_escalation'`으로 종료.
-
-### Interview → Agent 생성 플로우
-
-`ges_interview`로 요구사항을 수집한 뒤, `ges_create_agent`로 커스텀 Role Agent AGENT.md 파일을 자동 생성한다.
-
-**Step 1: Agent Context 요청**
-```
-ges_create_agent({ action: "start", sessionId: "<완료된 인터뷰 sessionId>" })
-```
-→ `agentContext` 반환 (systemPrompt, creationPrompt, existingAgents, agentMdSchema)
-
-**Step 2: AGENT.md 생성 및 제출**
-```
-ges_create_agent({
-  action: "submit",
-  sessionId: "<id>",
-  agentContent: "---\nname: security-expert\ntier: standard\npipeline: execute\nrole: true\ndomain: [\"oauth\", \"jwt\"]\ndescription: \"보안 전문가\"\n---\n\nSystem prompt...",
-  cwd: "/path/to/project"  // 선택, 기본값 process.cwd()
-})
-```
-→ agents/{name}/AGENT.md 파일 생성, parseAgentMd() 검증, AGENT_CREATED 이벤트 기록
-
-**규칙**:
-- 인터뷰 세션이 `completed` 상태여야 함
-- `role: true` 필수 (Role Agent 전용)
-- 동일 이름 에이전트 존재 시 override + 안내 메시지
-
-### Role Agent System 플로우
-
-태스크 실행 시 관련 Role Agent를 자동 매칭하여 다중 관점 합의를 수행한다.
-
-**Step 1: Role Match (2-Call)**
-```
-// Call 1: 매칭 컨텍스트 요청
-ges_execute({ action: "role_match", sessionId: "<id>" })
-→ matchContext 반환
-
-// Call 2: 매칭 결과 제출
-ges_execute({ action: "role_match", sessionId: "<id>", matchResult: [...] })
-→ perspectivePrompts 반환
-```
-
-**Step 2: Role Consensus (2-Call)**
-```
-// Call 1: 각 에이전트 관점 제출
-ges_execute({ action: "role_consensus", sessionId: "<id>", perspectives: [...] })
-→ synthesisContext 반환
-
-// Call 2: 합성된 합의 제출
-ges_execute({ action: "role_consensus", sessionId: "<id>", consensus: {...} })
-→ roleGuidance 반환 → execute_task 수행 시 참조
-```
-
-### 핵심 규칙
-- `action: "respond"` 시 `generatedQuestion` **필수**, `resolutionScore` 선택
-- resolutionScore 차원: `goalClarity`, `constraintClarity`, `successCriteria`, `priorityClarity` (필수), `contextClarity` (선택)
-- Spec의 `gestaltAnalysis[].principle`은 enum: `closure | proximity | similarity | figure_ground | continuity`
-- `ontologySchema.entities[]`: `{ name, description, attributes[] }`
-- `ontologySchema.relations[]`: `{ from, to, type }`
-- text-based 경로: `sessionId` 불필요, 생성된 spec의 `interviewSessionId`는 `"text-input"`으로 설정
+상세 플로우 → [`docs/mcp-reference.md`](./docs/mcp-reference.md)
+설정 레퍼런스 → [`docs/configuration.md`](./docs/configuration.md)
+코드 그래프 → [`docs/code-graph.md`](./docs/code-graph.md)
 
 ## Project Structure
-- `src/core/` — types, errors, Result monad, config, constants
-- `src/gestalt/` — 게슈탈트 원리 엔진 (핵심 차별점)
-- `src/interview/` — InterviewEngine, ResolutionScorer, SessionManager
-- `src/spec/` — SpecGenerator, SpecExtractor
-- `src/execute/` — ExecuteEngine, DAG Validator, ExecuteSessionManager
-- `src/resilience/` — Stagnation Detector, Lateral Thinking Personas, Human Escalation
-- `src/code-graph/` — CodeGraphEngine, CodeGraphStore, BlastRadius, 언어 플러그인 8개
-- `src/skills/` — SkillRegistry, parser
-- `src/agent/` — AgentRegistry, FiguralRouter, multi-provider LLM, RoleAgentRegistry, PassthroughAgentGenerator
-- `src/registry/` — BaseRegistry 추상 클래스
-- `src/mcp/` — MCP 서버 + 툴 핸들러
-- `src/events/` — EventStore (SQLite)
-- `src/llm/` — Anthropic SDK adapter
-- `src/cli/` — commander 기반 CLI (interview, spec, status, setup)
-- `schemas/` — JSON Schema (gestalt.schema.json)
-- `role-agents/` — 내장 Role Agent 정의 (architect, frontend-developer 등 8개)
-- `skills/` — 외부 스킬 정의 (`build-graph`, `blast-radius`)
-
-## Code Knowledge Graph
-
-코드베이스를 정적 분석해 의존성 그래프를 빌드하고, 변경 영향 파일을 빠르게 추려 AI 컨텍스트를 절약한다.
-
-### ges_code_graph MCP 툴
-
 ```
-// 그래프 빌드 (최초 또는 full rebuild)
-ges_code_graph({ action: "build", repoRoot: "<절대경로>" })
-→ { nodesBuilt, edgesBuilt, timeTakenMs, installedHook }
-
-// Blast-Radius 분석 (커밋 기준 영향범위)
-ges_code_graph({ action: "blast_radius", repoRoot: "<경로>", base?: "HEAD~1", changedFiles?: [...], maxDepth?: 2 })
-→ { changedFiles, impactedFiles, riskScore, summary }
-
-// Diff-Radius 분석 (미커밋 변경 기준 영향범위)
-ges_code_graph({ action: "diff_radius", repoRoot: "<경로>", diffMode?: "staged"|"unstaged"|"all", maxDepth?: 2 })
-→ { changedFiles, impactedFiles, riskScore, summary }
-
-// 키워드 기반 관련 파일 검색
-ges_code_graph({ action: "query", repoRoot: "<경로>", pattern: "callers_of"|"callees_of"|"tests_for"|"imports_of", target: "<노드명>" })
-→ { nodes, edges }
-
-// 그래프 통계
-ges_code_graph({ action: "stats", repoRoot: "<경로>" })
-→ { totalFiles, totalNodes, totalEdges, lastBuiltAt, dbSizeBytes }
-
-// DB 존재 여부 확인
-ges_code_graph({ action: "db_exists", repoRoot: "<경로>" })
-→ { exists: boolean }
+src/core/        — types, errors, Result monad, config, constants
+src/gestalt/     — 게슈탈트 원리 엔진
+src/interview/   — InterviewEngine, ResolutionScorer
+src/spec/        — SpecGenerator, SpecExtractor
+src/execute/     — ExecuteEngine, DAG Validator
+src/resilience/  — Stagnation Detector, Lateral Thinking Personas
+src/code-graph/  — CodeGraphEngine, BlastRadius, 언어 플러그인 8개
+src/agent/       — AgentRegistry, FiguralRouter, RoleAgentRegistry
+src/mcp/         — MCP 서버 + 툴 핸들러
+src/events/      — EventStore (SQLite)
+src/cli/         — commander 기반 CLI
+role-agents/     — 내장 Role Agent 8개
+skills/          — build-graph, blast-radius, diff-radius
 ```
-
-저장소: `.gestalt/code-graph.db` (WAL SQLite, EventStore DB와 별도)
-
-### 자동 컨텍스트 주입 (Execute 파이프라인 통합)
-
-`ges_execute { action: "start", spec: {...}, codeGraphRepoRoot: "/path" }` 호출 시 활성화.
-
-태스크 실행 시 `buildNextTaskContext()`가 자동으로:
-1. 태스크 title + description에서 키워드를 추출 (`extractKeywords()`)
-2. `codeGraphEngine.searchByKeywords()`로 관련 파일 최대 10개 검색
-3. `execute_task` 응답의 `suggestedFiles` 필드로 반환
-
-Claude Code가 `suggestedFiles`를 받으면 해당 파일을 먼저 Read한 뒤 태스크를 수행한다 (`EXECUTE_EXECUTION_SYSTEM_PROMPT` 지시).
-
-code-graph.db가 없거나 검색 실패 시 `suggestedFiles`는 undefined — 기존 동작 그대로 유지 (graceful fallback).
-
-### 스킬
-
-| 스킬 | 파일 | 설명 |
-|------|------|------|
-| `/build-graph` | `skills/build-graph/SKILL.md` | 코드 그래프 빌드 및 증분 갱신 |
-| `/blast-radius` | `skills/blast-radius/SKILL.md` (v1.1.0) | 영향범위 분석 (커밋 기준), 23개 트리거 |
-| `/diff-radius` | `skills/diff-radius/SKILL.md` (v1.0.0) | 영향범위 분석 (미커밋 기준), staged/unstaged/all 지원 |
-
-blast-radius 스킬은 "영향범위", "어디까지 영향받아", "사이드 이펙트", "리팩토링" 등 자연스러운 한국어 표현으로 자동 발동한다. CLAUDE.md나 훅과 달리 호출 시에만 토큰이 발생한다.
-
-### 언어 플러그인 (8개)
-
-TypeScript/JavaScript, Python, Go, Java, Kotlin, Rust, Swift, Objective-C
-
-각 플러그인: `{ language, extensions[], parse(filePath) → {nodes, edges} }`
-TypeScript 플러그인은 TypeScript Compiler API 사용 (Tree-sitter 불필요).
-
-### 주의사항
-- `glob` 패키지 미사용 → `readdirSync({ recursive: true })`로 파일 수집, `Dirent.parentPath` 활용
-- `noUncheckedIndexedAccess` 환경 → 배열 인덱스·regex 캡처그룹에 `!` 단언 필수
 
 ## Conventions
-- MCP 서버에서 `console.log` 사용 금지 → stderr(`log()` 유틸)
+- MCP 서버에서 `console.log` 금지 → `log()` stderr 유틸 사용
+- `noUncheckedIndexedAccess` 환경 → 배열 인덱스·regex 캡처그룹에 `!` 단언 필수
+- `glob` 패키지 미사용 → `readdirSync({ recursive: true })` + `Dirent.parentPath`
 - LLM 호출: temperature 0.3, JSON 응답 파싱 + fallback
 - 해상도 점수 ≥ 0.8 = 요구사항 충분히 명확
-- Spec 생성 실패 시 최대 3회 재시도
-- 테스트: 각 test에서 고유 DB 경로 사용 (병렬 테스트 안전)
+- 테스트 DB: `.gestalt-test/xxx-${randomUUID()}.db` 고유 경로 (병렬 안전)

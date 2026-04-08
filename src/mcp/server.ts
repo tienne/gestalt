@@ -123,7 +123,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           'role_match', 'role_consensus',
           'review_start', 'review_submit', 'review_consensus', 'review_fix',
         ]).describe(
-          'start: begin execution planning, plan_step: submit a planning step result, plan_complete: assemble final plan, execute_start: start task execution, execute_task: submit task result, evaluate: start/submit evaluation, status: check session status, evolve_fix: start/submit structural fix, evolve: start contextual evolution, evolve_patch: submit spec patch, evolve_re_execute: submit re-execution task result, evolve_lateral: request next lateral thinking persona, evolve_lateral_result: submit lateral thinking result, review_start: start code review, review_submit: submit agent review, review_consensus: submit merged review, review_fix: start auto-fix loop',
+          'planning: start/plan_step/plan_complete, execution: execute_start/execute_task, evaluate: check results, status: session status, evolve_*: resilience loop, review_*: code review',
         ),
         spec: z.object({
           version: z.string(),
