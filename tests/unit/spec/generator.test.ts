@@ -30,7 +30,7 @@ function makeSession(overrides: Partial<InterviewSession> = {}): InterviewSessio
         timestamp: new Date().toISOString(),
       },
     ],
-    ambiguityScore: { overall: 0.15, dimensions: [], isReady: true },
+    resolutionScore: { overall: 0.85, dimensions: [], isReady: true },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,
@@ -85,7 +85,7 @@ describe('SpecGenerator', () => {
     const llm = new MockLLM();
     const generator = new SpecGenerator(llm, store);
     const session = makeSession({
-      ambiguityScore: { overall: 0.5, dimensions: [], isReady: false },
+      resolutionScore: { overall: 0.5, dimensions: [], isReady: false },
     });
 
     const result = await generator.generate(session);
@@ -104,7 +104,7 @@ describe('SpecGenerator', () => {
 
     const generator = new SpecGenerator(llm, store);
     const session = makeSession({
-      ambiguityScore: { overall: 0.5, dimensions: [], isReady: false },
+      resolutionScore: { overall: 0.5, dimensions: [], isReady: false },
     });
 
     const result = await generator.generate(session, true);

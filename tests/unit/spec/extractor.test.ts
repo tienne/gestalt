@@ -26,7 +26,7 @@ function makeSession(overrides: Partial<InterviewSession> = {}): InterviewSessio
         timestamp: new Date().toISOString(),
       },
     ],
-    ambiguityScore: null,
+    resolutionScore: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,

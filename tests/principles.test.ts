@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { selectNextPrinciple, getPrinciplePhaseLabel, getAllPrinciples } from '../src/gestalt/principles.js';
-import { GestaltPrinciple, type AmbiguityDimension } from '../src/core/types.js';
+import { GestaltPrinciple, type ResolutionDimension } from '../src/core/types.js';
 
 describe('selectNextPrinciple', () => {
   it('returns CONTINUITY when contradictions exist', () => {
@@ -40,7 +40,7 @@ describe('selectNextPrinciple', () => {
   });
 
   it('targets weakest dimension when clarity < 0.5', () => {
-    const dims: AmbiguityDimension[] = [
+    const dims: ResolutionDimension[] = [
       { name: 'scope', clarity: 0.8, weight: 0.4, gestaltPrinciple: GestaltPrinciple.CLOSURE },
       { name: 'arch', clarity: 0.3, weight: 0.3, gestaltPrinciple: GestaltPrinciple.PROXIMITY },
     ];

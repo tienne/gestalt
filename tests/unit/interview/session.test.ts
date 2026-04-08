@@ -97,7 +97,7 @@ describe('SessionManager', () => {
       dimensions: [],
       isReady: false,
     };
-    manager.updateAmbiguityScore(session.sessionId, mockScore);
-    expect(session.ambiguityScore).toEqual(mockScore);
+    manager.updateResolutionScore(session.sessionId, mockScore);
+    expect(session.resolutionScore).toEqual(mockScore);
   });
 });

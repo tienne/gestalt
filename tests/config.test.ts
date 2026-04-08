@@ -21,18 +21,18 @@ describe('loadConfig', () => {
     process.env['ANTHROPIC_API_KEY'] = 'sk-ant-test-key';
     const config = loadConfig({}, opts);
     expect(config.llm.apiKey).toBe('sk-ant-test-key');
-    expect(config.interview.ambiguityThreshold).toBe(0.2);
+    expect(config.interview.resolutionThreshold).toBe(0.8);
     expect(config.interview.maxRounds).toBe(15);
   });
 
   it('respects environment variable overrides', () => {
     process.env['ANTHROPIC_API_KEY'] = 'sk-ant-test-key';
-    process.env['GESTALT_AMBIGUITY_THRESHOLD'] = '0.5';
+    process.env['GESTALT_RESOLUTION_THRESHOLD'] = '0.5';
     process.env['GESTALT_MAX_ROUNDS'] = '10';
     process.env['GESTALT_DB_PATH'] = '/tmp/test.db';
 
     const config = loadConfig({}, opts);
-    expect(config.interview.ambiguityThreshold).toBe(0.5);
+    expect(config.interview.resolutionThreshold).toBe(0.5);
     expect(config.interview.maxRounds).toBe(10);
     expect(config.dbPath).toBe('/tmp/test.db');
   });
@@ -47,11 +47,11 @@ describe('loadConfig', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     const config = loadConfig({
       llm: { apiKey: 'test-key', model: 'custom-model' },
-      interview: { ambiguityThreshold: 0.1 },
+      interview: { resolutionThreshold: 0.9 },
     }, opts);
     expect(config.llm.apiKey).toBe('test-key');
     expect(config.llm.model).toBe('custom-model');
-    expect(config.interview.ambiguityThreshold).toBe(0.1);
+    expect(config.interview.resolutionThreshold).toBe(0.9);
     expect(config.interview.maxRounds).toBe(15); // default preserved
   });
 
@@ -72,7 +72,7 @@ describe('loadConfig', () => {
   it('returns defaults when no config sources exist', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     delete process.env['GESTALT_MODEL'];
-    delete process.env['GESTALT_AMBIGUITY_THRESHOLD'];
+    delete process.env['GESTALT_RESOLUTION_THRESHOLD'];
     delete process.env['GESTALT_MAX_ROUNDS'];
     delete process.env['GESTALT_DB_PATH'];
     delete process.env['GESTALT_SKILLS_DIR'];
@@ -85,7 +85,7 @@ describe('loadConfig', () => {
     const config = loadConfig({}, opts);
     expect(config.llm.apiKey).toBe('');
     expect(config.llm.model).toBe('claude-sonnet-4-20250514');
-    expect(config.interview.ambiguityThreshold).toBe(0.2);
+    expect(config.interview.resolutionThreshold).toBe(0.8);
     expect(config.interview.maxRounds).toBe(15);
     expect(config.execute.driftThreshold).toBe(0.3);
     expect(config.execute.successThreshold).toBe(0.85);
@@ -97,11 +97,11 @@ describe('loadConfig', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     delete process.env['ANTHROPIC_API_KEY'];
     const config = loadConfig({
-      interview: { ambiguityThreshold: 5 }, // invalid: max 1
+      interview: { resolutionThreshold: 5 }, // invalid: max 1
     }, opts);
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Warning'));
     // Falls back to defaults
-    expect(config.interview.ambiguityThreshold).toBe(0.2);
+    expect(config.interview.resolutionThreshold).toBe(0.8);
     consoleSpy.mockRestore();
   });
 

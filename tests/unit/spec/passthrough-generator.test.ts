@@ -29,8 +29,8 @@ function makeSession(overrides: Partial<InterviewSession> = {}): InterviewSessio
         timestamp: new Date().toISOString(),
       },
     ],
-    ambiguityScore: {
-      overall: 0.15,
+    resolutionScore: {
+      overall: 0.85,
       dimensions: [],
       isReady: true,
     },
@@ -111,21 +111,21 @@ describe('PassthroughSpecGenerator', () => {
     expect(isErr(result)).toBe(true);
   });
 
-  it('validateAndStore with high ambiguity and force=false returns AmbiguityThresholdError', () => {
+  it('validateAndStore with high ambiguity and force=false returns ResolutionThresholdError', () => {
     const session = makeSession({
-      ambiguityScore: { overall: 0.5, dimensions: [], isReady: false },
+      resolutionScore: { overall: 0.5, dimensions: [], isReady: false },
     });
 
     const result = generator.validateAndStore(session, validExternalSpec, false);
     expect(isErr(result)).toBe(true);
     if (!result.ok) {
-      expect(result.error.message).toContain('exceeds threshold');
+      expect(result.error.message).toContain('below threshold');
     }
   });
 
   it('validateAndStore with high ambiguity and force=true succeeds', () => {
     const session = makeSession({
-      ambiguityScore: { overall: 0.5, dimensions: [], isReady: false },
+      resolutionScore: { overall: 0.5, dimensions: [], isReady: false },
     });
 
     const result = generator.validateAndStore(session, validExternalSpec, true);
@@ -133,7 +133,10 @@ describe('PassthroughSpecGenerator', () => {
   });
 
   it('validateAndStore with incomplete session returns error', () => {
-    const session = makeSession({ status: 'in_progress' });
+    const session = makeSession({
+      status: 'in_progress',
+      resolutionScore: { overall: 0.85, dimensions: [], isReady: true },
+    });
 
     const result = generator.validateAndStore(session, validExternalSpec);
     expect(isErr(result)).toBe(true);

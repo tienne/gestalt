@@ -51,10 +51,10 @@ describe('EventStore', () => {
   });
 
   it('getLatest returns the most recent matching event', () => {
-    store.append('interview', 's1', EventType.INTERVIEW_AMBIGUITY_SCORED, { overall: 0.8 });
-    store.append('interview', 's1', EventType.INTERVIEW_AMBIGUITY_SCORED, { overall: 0.4 });
+    store.append('interview', 's1', EventType.INTERVIEW_RESOLUTION_SCORED, { overall: 0.8 });
+    store.append('interview', 's1', EventType.INTERVIEW_RESOLUTION_SCORED, { overall: 0.4 });
 
-    const latest = store.getLatest('interview', 's1', EventType.INTERVIEW_AMBIGUITY_SCORED);
+    const latest = store.getLatest('interview', 's1', EventType.INTERVIEW_RESOLUTION_SCORED);
     expect(latest).not.toBeNull();
     expect((latest!.payload as Record<string, number>).overall).toBe(0.4);
   });

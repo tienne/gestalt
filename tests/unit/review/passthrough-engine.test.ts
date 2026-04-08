@@ -16,7 +16,7 @@ function createMockExecuteSession(overrides?: Partial<ExecuteSession>): ExecuteS
       metadata: {
         specId: 'spec-1',
         interviewSessionId: 'int-1',
-        ambiguityScore: 0.1,
+        resolutionScore: 0.9,
         generatedAt: new Date().toISOString(),
       },
     },

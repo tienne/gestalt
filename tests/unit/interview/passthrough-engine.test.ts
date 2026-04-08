@@ -85,9 +85,9 @@ describe('PassthroughEngine', () => {
     expect(isOk(result)).toBe(true);
 
     if (result.ok) {
-      expect(result.value.ambiguityScore).not.toBeNull();
-      expect(result.value.ambiguityScore!.overall).toBeGreaterThan(0);
-      expect(result.value.ambiguityScore!.dimensions.length).toBeGreaterThanOrEqual(4);
+      expect(result.value.resolutionScore).not.toBeNull();
+      expect(result.value.resolutionScore!.overall).toBeGreaterThan(0);
+      expect(result.value.resolutionScore!.dimensions.length).toBeGreaterThanOrEqual(4);
       expect(result.value.gestaltContext.scoringPrompt).toBeDefined();
     }
   });
@@ -128,7 +128,7 @@ describe('PassthroughEngine', () => {
     expect(isOk(result)).toBe(true);
 
     if (result.ok) {
-      expect(result.value.ambiguityScore).not.toBeNull();
+      expect(result.value.resolutionScore).not.toBeNull();
       expect(result.value.scoringPrompt).toBeUndefined();
     }
   });

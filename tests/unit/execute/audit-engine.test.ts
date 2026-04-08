@@ -17,7 +17,7 @@ function makeSpec(overrides: Partial<Spec> = {}): Spec {
     metadata: {
       specId: 'test-spec-id',
       interviewSessionId: 'test-session-id',
-      ambiguityScore: 0.1,
+      resolutionScore: 0.9,
       generatedAt: '2026-01-01T00:00:00.000Z',
     },
     ...overrides,

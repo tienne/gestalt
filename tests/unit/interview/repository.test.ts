@@ -63,7 +63,7 @@ describe('InterviewSessionRepository', () => {
 
   it('reconstructs ambiguity score', () => {
     const session = manager.create('test', 'greenfield');
-    manager.updateAmbiguityScore(session.sessionId, {
+    manager.updateResolutionScore(session.sessionId, {
       overall: 0.3,
       isReady: false,
       dimensions: [
@@ -73,10 +73,10 @@ describe('InterviewSessionRepository', () => {
 
     const reconstructed = repo.reconstruct(session.sessionId);
 
-    expect(reconstructed!.ambiguityScore).not.toBeNull();
-    expect(reconstructed!.ambiguityScore!.overall).toBe(0.3);
-    expect(reconstructed!.ambiguityScore!.isReady).toBe(false);
-    expect(reconstructed!.ambiguityScore!.dimensions).toHaveLength(1);
+    expect(reconstructed!.resolutionScore).not.toBeNull();
+    expect(reconstructed!.resolutionScore!.overall).toBe(0.3);
+    expect(reconstructed!.resolutionScore!.isReady).toBe(false);
+    expect(reconstructed!.resolutionScore!.dimensions).toHaveLength(1);
   });
 
   it('reconstructs completed session', () => {
@@ -112,7 +112,7 @@ describe('InterviewSessionRepository', () => {
     const session = manager.create('persistent topic', 'greenfield');
     manager.addQuestion(session.sessionId, 'Will this persist?', GestaltPrinciple.CONTINUITY);
     manager.recordResponse(session.sessionId, 'It should!');
-    manager.updateAmbiguityScore(session.sessionId, {
+    manager.updateResolutionScore(session.sessionId, {
       overall: 0.15,
       isReady: true,
       dimensions: [],
@@ -129,8 +129,8 @@ describe('InterviewSessionRepository', () => {
     expect(reconstructed!.topic).toBe('persistent topic');
     expect(reconstructed!.rounds).toHaveLength(1);
     expect(reconstructed!.rounds[0]!.userResponse).toBe('It should!');
-    expect(reconstructed!.ambiguityScore!.overall).toBe(0.15);
-    expect(reconstructed!.ambiguityScore!.isReady).toBe(true);
+    expect(reconstructed!.resolutionScore!.overall).toBe(0.15);
+    expect(reconstructed!.resolutionScore!.isReady).toBe(true);
 
     newStore.close();
   });

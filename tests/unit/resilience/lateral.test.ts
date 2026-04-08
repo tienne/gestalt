@@ -14,7 +14,7 @@ function makeSpec(): Spec {
       relations: [],
     },
     gestaltAnalysis: [],
-    metadata: { specId: 'test', interviewSessionId: 'test', ambiguityScore: 0.1, generatedAt: '' },
+    metadata: { specId: 'test', interviewSessionId: 'test', resolutionScore: 0.9, generatedAt: '' },
   };
 }
 

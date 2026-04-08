@@ -31,7 +31,7 @@ function makeSession(overrides: Partial<InterviewSession> = {}): InterviewSessio
         timestamp: new Date().toISOString(),
       },
     ],
-    ambiguityScore: {
+    resolutionScore: {
       overall: 0.15,
       dimensions: [],
       isReady: true,

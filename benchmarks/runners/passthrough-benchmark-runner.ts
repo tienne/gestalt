@@ -3,7 +3,7 @@ import { EventStore } from '../../src/events/store.js';
 import { PassthroughEngine } from '../../src/interview/passthrough-engine.js';
 import { PassthroughSpecGenerator } from '../../src/spec/passthrough-generator.js';
 import { PassthroughExecuteEngine } from '../../src/execute/passthrough-engine.js';
-import type { ExternalAmbiguityScore } from '../../src/interview/passthrough-engine.js';
+import type { ExternalResolutionScore } from '../../src/interview/passthrough-engine.js';
 import type { BenchmarkScenario, StageMetrics, LLMCallMetric, LLMMetrics, PipelineMetrics } from '../types.js';
 
 // ─── Step Types ─────────────────────────────────────────────────
@@ -164,7 +164,7 @@ export class PassthroughBenchmarkRunner {
 
   private advanceInterview(parsed: Record<string, unknown>, input: BenchmarkRespondInput): BenchmarkAdvanceResult {
     if (this.waitingForScore) {
-      return this.handleInterviewScore(parsed as unknown as ExternalAmbiguityScore);
+      return this.handleInterviewScore(parsed as unknown as ExternalResolutionScore);
     }
     return this.handleInterviewQuestion(parsed, input);
   }
@@ -194,12 +194,12 @@ export class PassthroughBenchmarkRunner {
     return this.submitInterviewRound(undefined);
   }
 
-  private handleInterviewScore(score: ExternalAmbiguityScore): BenchmarkAdvanceResult {
+  private handleInterviewScore(score: ExternalResolutionScore): BenchmarkAdvanceResult {
     this.waitingForScore = false;
     return this.submitInterviewRound(score);
   }
 
-  private submitInterviewRound(score: ExternalAmbiguityScore | undefined): BenchmarkAdvanceResult {
+  private submitInterviewRound(score: ExternalResolutionScore | undefined): BenchmarkAdvanceResult {
     const userResponse = this.scenario.userResponses[this.interviewRoundIndex];
     if (!userResponse) throw new Error(`No user response for round ${this.interviewRoundIndex}`);
 
@@ -287,7 +287,7 @@ export class PassthroughBenchmarkRunner {
       metadata: {
         specId: this.specId,
         interviewSessionId: this.interviewSessionId,
-        ambiguityScore: 0.15,
+        resolutionScore: 0.85,
         generatedAt: new Date().toISOString(),
       },
     };
@@ -488,7 +488,7 @@ export class PassthroughBenchmarkRunner {
         stages: this.stages,
         interview: {
           rounds: this.scenario.userResponses.length,
-          finalAmbiguity: 0.15,
+          finalResolution: 0.85,
         },
         spec: {
           generated: !!this.specJSON,

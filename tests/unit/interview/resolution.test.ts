@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { computeAmbiguityScore } from '../../../src/gestalt/analyzer.js';
+import { computeResolutionScore } from '../../../src/gestalt/analyzer.js';
 
-describe('computeAmbiguityScore', () => {
-  it('returns high ambiguity for all-zero clarity', () => {
-    const score = computeAmbiguityScore(
+describe('computeResolutionScore', () => {
+  it('returns low resolution for all-zero clarity', () => {
+    const score = computeResolutionScore(
       {
         goalClarity: 0,
         constraintClarity: 0,
@@ -13,12 +13,12 @@ describe('computeAmbiguityScore', () => {
       },
       'greenfield',
     );
-    expect(score.overall).toBe(1.0);
+    expect(score.overall).toBe(0.0);
     expect(score.isReady).toBe(false);
   });
 
-  it('returns low ambiguity for all-perfect clarity', () => {
-    const score = computeAmbiguityScore(
+  it('returns high resolution for all-perfect clarity', () => {
+    const score = computeResolutionScore(
       {
         goalClarity: 1.0,
         constraintClarity: 1.0,
@@ -28,12 +28,12 @@ describe('computeAmbiguityScore', () => {
       },
       'greenfield',
     );
-    expect(score.overall).toBe(0.0);
+    expect(score.overall).toBe(1.0);
     expect(score.isReady).toBe(true);
   });
 
   it('applies continuity penalty for contradictions', () => {
-    const withoutContradictions = computeAmbiguityScore(
+    const withoutContradictions = computeResolutionScore(
       {
         goalClarity: 0.5,
         constraintClarity: 0.5,
@@ -44,7 +44,7 @@ describe('computeAmbiguityScore', () => {
       'greenfield',
     );
 
-    const withContradictions = computeAmbiguityScore(
+    const withContradictions = computeResolutionScore(
       {
         goalClarity: 0.5,
         constraintClarity: 0.5,
@@ -55,11 +55,11 @@ describe('computeAmbiguityScore', () => {
       'greenfield',
     );
 
-    expect(withContradictions.overall).toBeGreaterThan(withoutContradictions.overall);
+    expect(withContradictions.overall).toBeLessThan(withoutContradictions.overall);
   });
 
   it('includes contextClarity for brownfield projects', () => {
-    const score = computeAmbiguityScore(
+    const score = computeResolutionScore(
       {
         goalClarity: 0.9,
         constraintClarity: 0.9,
@@ -75,7 +75,7 @@ describe('computeAmbiguityScore', () => {
   });
 
   it('greenfield has 4 dimensions', () => {
-    const score = computeAmbiguityScore(
+    const score = computeResolutionScore(
       {
         goalClarity: 0.5,
         constraintClarity: 0.5,
@@ -89,7 +89,7 @@ describe('computeAmbiguityScore', () => {
   });
 
   it('clamps values to 0-1 range', () => {
-    const score = computeAmbiguityScore(
+    const score = computeResolutionScore(
       {
         goalClarity: 1.5,
         constraintClarity: -0.2,

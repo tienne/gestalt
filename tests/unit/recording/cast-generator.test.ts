@@ -30,7 +30,7 @@ function makeSession(overrides: Partial<InterviewSession> = {}): InterviewSessio
         timestamp: '2026-03-28T00:01:00.000Z',
       },
     ],
-    ambiguityScore: { overall: 0.18, isReady: true, dimensions: [] },
+    resolutionScore: { overall: 0.82, isReady: true, dimensions: [] },
     createdAt: '2026-03-28T00:00:00.000Z',
     updatedAt: '2026-03-28T00:02:00.000Z',
     ...overrides,

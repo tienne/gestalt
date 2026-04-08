@@ -73,7 +73,7 @@ describe('InterviewEngine', () => {
 
       if (respondResult.ok) {
         expect(respondResult.value.nextQuestion).toBe('What constraints exist?');
-        expect(respondResult.value.ambiguityScore.overall).toBeGreaterThan(0);
+        expect(respondResult.value.resolutionScore.overall).toBeGreaterThan(0);
       }
     }
   });

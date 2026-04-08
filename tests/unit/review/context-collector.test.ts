@@ -9,7 +9,7 @@ const mockSpec: Spec = {
   acceptanceCriteria: [],
   ontologySchema: { entities: [], relations: [] },
   gestaltAnalysis: [],
-  metadata: { specId: 's1', interviewSessionId: 'i1', ambiguityScore: 0.1, generatedAt: '' },
+  metadata: { specId: 's1', interviewSessionId: 'i1', resolutionScore: 0.9, generatedAt: '' },
 };
 
 describe('ReviewContextCollector', () => {

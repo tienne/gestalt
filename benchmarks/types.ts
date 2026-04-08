@@ -63,7 +63,7 @@ export interface PipelineMetrics {
   stages: StageMetrics[];
   interview: {
     rounds: number;
-    finalAmbiguity: number;
+    finalResolution: number;
   };
   spec: {
     generated: boolean;

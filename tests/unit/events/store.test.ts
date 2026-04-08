@@ -66,10 +66,10 @@ describe('EventStore', () => {
   });
 
   it('retrieves latest event', () => {
-    store.append('interview', 's1', EventType.INTERVIEW_AMBIGUITY_SCORED, { score: 0.8 });
-    store.append('interview', 's1', EventType.INTERVIEW_AMBIGUITY_SCORED, { score: 0.5 });
+    store.append('interview', 's1', EventType.INTERVIEW_RESOLUTION_SCORED, { score: 0.8 });
+    store.append('interview', 's1', EventType.INTERVIEW_RESOLUTION_SCORED, { score: 0.5 });
 
-    const latest = store.getLatest('interview', 's1', EventType.INTERVIEW_AMBIGUITY_SCORED);
+    const latest = store.getLatest('interview', 's1', EventType.INTERVIEW_RESOLUTION_SCORED);
     expect(latest).not.toBeNull();
     expect((latest!.payload as { score: number }).score).toBe(0.5);
   });

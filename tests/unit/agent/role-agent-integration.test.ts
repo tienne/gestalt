@@ -43,7 +43,7 @@ function createTestSpec(): Spec {
     metadata: {
       specId: `spec-${randomUUID()}`,
       interviewSessionId: `int-${randomUUID()}`,
-      ambiguityScore: 0.15,
+      resolutionScore: 0.85,
       generatedAt: new Date().toISOString(),
     },
   };

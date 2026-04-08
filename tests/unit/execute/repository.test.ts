@@ -19,7 +19,7 @@ const createTestSpec = (): Spec => ({
   metadata: {
     specId: `spec-${randomUUID()}`,
     interviewSessionId: `interview-${randomUUID()}`,
-    ambiguityScore: 0.15,
+    resolutionScore: 0.85,
     generatedAt: new Date().toISOString(),
   },
 });

@@ -30,7 +30,7 @@ describe('setupCommand', () => {
     const content = JSON.parse(readFileSync(filePath, 'utf-8'));
     expect(content.$schema).toContain('gestalt.schema.json');
     expect(content.interview).toEqual({
-      ambiguityThreshold: 0.2,
+      resolutionThreshold: 0.8,
       maxRounds: 10,
     });
     // Should only have $schema, notifications and interview
