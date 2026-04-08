@@ -61,7 +61,7 @@ Gestalt asks questions based on **5 Gestalt principles**:
 | **Figure-Ground** | Separates must-haves from nice-to-haves |
 | **Continuity** | Checks for contradictions |
 
-The interview continues until your requirements are clear enough (ambiguity score ≤ 0.2). This typically takes **5–10 rounds**.
+The interview continues until your requirements are clear enough (resolution score ≥ 0.8). This typically takes **5–10 rounds**.
 
 ---
 
@@ -94,7 +94,7 @@ Here's what a real interview looks like. Start with:
 *...a few more rounds...*
 
 **Gestalt:**
-> "Ambiguity score: 0.17 ✓ Your requirements are clear enough. Run `/spec` to generate a structured plan."
+> "Resolution score: 0.83 ✓ Your requirements are clear enough. Run `/spec` to generate a structured plan."
 
 **Total time: ~5 minutes.** Claude Code handles the AI reasoning in passthrough mode.
 

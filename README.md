@@ -55,7 +55,7 @@ Then in any Claude Code session:
 
 Vague requirements are the primary source of implementation drift. When the goal isn't precise, Claude fills in gaps with assumptions — and those assumptions diverge from intent as the project grows.
 
-Gestalt addresses this at the source. Before any code is written, it runs a structured interview guided by **Gestalt psychology principles** to reduce ambiguity to a measurable threshold (≤ 0.2). The result is a **Spec**: a validated JSON document that serves as the single source of truth for planning and execution.
+Gestalt addresses this at the source. Before any code is written, it runs a structured interview guided by **Gestalt psychology principles** to raise resolution to a measurable threshold (≥ 0.8). The result is a **Spec**: a validated JSON document that serves as the single source of truth for planning and execution.
 
 ### The Five Gestalt Principles
 
@@ -86,7 +86,7 @@ You (in Claude Code)
   Gestalt MCP Server
   (validates, stores state, advances)
        │
-       ▼ repeat until ambiguity ≤ 0.2
+       ▼ repeat until resolution ≥ 0.8
   Final Spec → Execution Plan
 ```
 
@@ -190,7 +190,7 @@ Start with any topic. A single rough sentence is enough.
 /interview "I want to build a checkout flow with Stripe"
 ```
 
-Gestalt conducts a multi-round interview. Each round targets a specific ambiguity dimension:
+Gestalt conducts a multi-round interview. Each round targets a specific resolution dimension:
 
 - **Closure** — What's missing? What did you assume but not say?
 - **Proximity** — Which features belong together?
@@ -198,12 +198,12 @@ Gestalt conducts a multi-round interview. Each round targets a specific ambiguit
 - **Figure-Ground** — What's the core MVP vs. what's optional?
 - **Continuity** — Any contradictions or conflicts?
 
-The interview continues until the **ambiguity score reaches ≤ 0.2**:
+The interview continues until the **resolution score reaches ≥ 0.8**:
 
 ```
-Round 1 → ambiguity: 0.72  (lots of unknowns)
-Round 4 → ambiguity: 0.45  (getting clearer)
-Round 8 → ambiguity: 0.19  ✓ ready for Spec
+Round 1 → resolution: 0.28  (lots of unknowns)
+Round 4 → resolution: 0.55  (getting clearer)
+Round 8 → resolution: 0.81  ✓ ready for Spec
 ```
 
 #### Long interviews: Context Compression
@@ -251,7 +251,7 @@ ges_generate_spec({ text: "API with JWT authentication", template: "rest-api" })
 Generates a structured **Spec** — a validated JSON document that drives the rest of the pipeline:
 
 ```
-goal                → Clear, unambiguous project objective
+goal                → Clear, precise project objective
 constraints         → Technical and business constraints
 acceptanceCriteria  → Measurable, verifiable success conditions
 ontologySchema      → Entity-relationship model (entities + relations)
@@ -515,7 +515,7 @@ npx @tienne/gestalt setup
     "model": "claude-sonnet-4-20250514"
   },
   "interview": {
-    "ambiguityThreshold": 0.2,
+    "resolutionThreshold": 0.8,
     "maxRounds": 10
   },
   "execute": {
@@ -536,7 +536,7 @@ Invalid values emit a warning and fall back to defaults.
 |----------|-------------|---------|-------------|
 | `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` | Required only for CLI direct mode |
 | `GESTALT_MODEL` | `llm.model` | `claude-sonnet-4-20250514` | LLM model (provider-backed mode) |
-| `GESTALT_AMBIGUITY_THRESHOLD` | `interview.ambiguityThreshold` | `0.2` | Interview completion threshold |
+| `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` | `0.8` | Interview completion threshold |
 | `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` | Max interview rounds |
 | `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` | `0.3` | Task drift detection threshold |
 | `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | `execute.successThreshold` | `0.85` | Evolution success score |
@@ -562,7 +562,7 @@ Claude Code (you)
 │                                  │
 │  Interview Engine                │
 │  ├─ GestaltPrincipleSelector     │
-│  ├─ AmbiguityScorer              │
+│  ├─ ResolutionScorer              │
 │  ├─ SessionManager               │
 │  └─ ContextCompressor            │
 │                                  │

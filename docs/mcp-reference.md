@@ -38,7 +38,7 @@ Conducts a structured requirements interview using Gestalt principles.
 |--------|-------------|
 | `start` | Begin a new interview session |
 | `respond` | Submit user response and advance to next round |
-| `score` | Compute or submit ambiguity scores |
+| `score` | Compute or submit resolution scores |
 | `complete` | Finalize the interview |
 
 ### Parameters
@@ -51,10 +51,10 @@ Conducts a structured requirements interview using Gestalt principles.
 | `sessionId` | `string` | For `respond`, `score`, `complete` | Session ID from `start` response |
 | `response` | `string` | For `respond` | User's answer to the current question |
 | `generatedQuestion` | `string` | For `respond` (passthrough) | The question the caller generated |
-| `ambiguityScore` | `object` | Optional | Ambiguity scores computed by caller |
+| `resolutionScore` | `object` | Optional | Resolution scores computed by caller |
 | `record` | `boolean` | Optional | Generate a GIF recording on `complete` |
 
-#### `ambiguityScore` object
+#### `resolutionScore` object
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -94,8 +94,8 @@ Conducts a structured requirements interview using Gestalt principles.
   "sessionId": "abc-123",
   "roundNumber": 3,
   "gestaltContext": { "...": "next question context" },
-  "ambiguityScore": {
-    "overall": "0.45",
+  "resolutionScore": {
+    "overall": "0.55",
     "isReady": false,
     "dimensions": [
       { "name": "goalClarity", "clarity": "0.70", "principle": "closure" }
@@ -111,7 +111,7 @@ Conducts a structured requirements interview using Gestalt principles.
   "status": "completed",
   "sessionId": "abc-123",
   "totalRounds": 8,
-  "finalAmbiguityScore": "0.18",
+  "finalResolutionScore": "0.82",
   "recordingPath": ".gestalt/recordings/my-topic-20260328.gif"
 }
 ```
@@ -128,7 +128,7 @@ ges_interview({
   sessionId: "<sessionId>",
   response: "We need OAuth2 with Google and GitHub providers",
   generatedQuestion: "What authentication methods should be supported?",
-  ambiguityScore: {
+  resolutionScore: {
     goalClarity: 0.7,
     constraintClarity: 0.5,
     successCriteria: 0.4,
@@ -152,7 +152,7 @@ Generates a structured Spec from a completed interview session, or directly from
 |-----------|------|----------|-------------|
 | `sessionId` | `string` | Optional | Completed interview session ID |
 | `text` | `string` | Optional | Plain text description to generate spec without an interview |
-| `force` | `boolean` | Optional | Force generation even if ambiguity threshold not met |
+| `force` | `boolean` | Optional | Force generation even if resolution threshold not met |
 | `spec` | `object` | Optional (passthrough) | Externally generated spec to validate and store |
 
 > Either `sessionId` or `text` must be provided. When using `text`, the `interviewSessionId` in the generated spec metadata is set to `"text-input"`, and the result is saved to `.gestalt/memory.json`.
@@ -190,7 +190,7 @@ Generates a structured Spec from a completed interview session, or directly from
     "metadata": {
       "specId": "d9356d63-...",
       "interviewSessionId": "abc-123",
-      "ambiguityScore": 0.17,
+      "resolutionScore": 0.83,
       "generatedAt": "2026-03-28T00:00:00.000Z"
     }
   }
@@ -260,7 +260,7 @@ ges_generate_spec({
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `goal` | `string` | ✅ | Clear, unambiguous objective |
+| `goal` | `string` | ✅ | Clear, precise objective |
 | `constraints` | `string[]` | ✅ | Technical and business constraints |
 | `acceptanceCriteria` | `string[]` | ✅ | Measurable success conditions |
 | `ontologySchema.entities` | `Entity[]` | ✅ | `{ name, description, attributes[] }` |

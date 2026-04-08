@@ -94,7 +94,7 @@ Claude Code
   Gestalt MCP 서버
   (검증, 상태 저장, 단계 진행)
        │
-       ▼ 모호성 ≤ 0.2 될 때까지 반복
+       ▼ 해상도 ≥ 0.8 될 때까지 반복
   최종 Spec → 실행 계획
 ```
 
@@ -208,12 +208,12 @@ claude mcp add gestalt -- npx -y @tienne/gestalt
 - **Figure-Ground** — 핵심 MVP와 선택사항을 구분해요
 - **Continuity** — 모순이나 충돌을 검증해요
 
-**모호성 점수가 ≤ 0.2에 도달할 때까지** 인터뷰가 계속돼요:
+**해상도가 ≥ 0.8에 도달할 때까지** 인터뷰가 계속돼요:
 
 ```
-1라운드 → 모호성: 0.72  (모르는 것이 많음)
-4라운드 → 모호성: 0.45  (점점 명확해짐)
-8라운드 → 모호성: 0.19  ✓ Spec 생성 준비 완료
+1라운드 → 해상도: 0.28  (모르는 것이 많음)
+4라운드 → 해상도: 0.55  (점점 명확해짐)
+8라운드 → 해상도: 0.81  ✓ Spec 생성 준비 완료
 ```
 
 #### 인터뷰가 길어질 때 (Context Compression)
@@ -261,7 +261,7 @@ ges_generate_spec({ text: "JWT 인증이 포함된 API", template: "rest-api" })
 이후 단계 전체의 기준이 되는 **Spec**을 생성해요:
 
 ```
-goal                → 명확하고 모호성 없는 프로젝트 목표
+goal                → 명확한 프로젝트 목표
 constraints         → 기술적·비즈니스적 제약 조건
 acceptanceCriteria  → 측정 가능한 완료 기준
 ontologySchema      → 엔티티-관계 모델 (entities + relations)
@@ -527,7 +527,7 @@ npx @tienne/gestalt setup
     "model": "claude-sonnet-4-20250514"
   },
   "interview": {
-    "ambiguityThreshold": 0.2,
+    "resolutionThreshold": 0.8,
     "maxRounds": 10
   },
   "execute": {
@@ -548,7 +548,7 @@ npx @tienne/gestalt setup
 |----------|-------------|---------|-------------|
 | `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` | CLI 직접 모드에서만 필요 |
 | `GESTALT_MODEL` | `llm.model` | `claude-sonnet-4-20250514` | LLM 모델 (provider 모드) |
-| `GESTALT_AMBIGUITY_THRESHOLD` | `interview.ambiguityThreshold` | `0.2` | 인터뷰 완료 임계값 |
+| `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` | `0.8` | 인터뷰 완료 임계값 |
 | `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` | 최대 인터뷰 라운드 수 |
 | `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` | `0.3` | 태스크 drift 감지 임계값 |
 | `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | `execute.successThreshold` | `0.85` | Evolution 성공 점수 |
@@ -574,7 +574,7 @@ Claude Code
 │                                  │
 │  Interview Engine                │
 │  ├─ GestaltPrincipleSelector     │
-│  ├─ AmbiguityScorer              │
+│  ├─ ResolutionScorer              │
 │  ├─ SessionManager               │
 │  └─ ContextCompressor            │
 │                                  │

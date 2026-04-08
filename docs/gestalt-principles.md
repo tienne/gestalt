@@ -4,7 +4,7 @@
 
 ## 개요
 
-게슈탈트 심리학의 5가지 지각 원리를 **요구사항 수집(Interview)**과 **실행 계획(Execute)** 두 단계에 매핑해요. 각 원리는 서로 다른 관점에서 모호성을 줄이는 역할을 해요.
+게슈탈트 심리학의 5가지 지각 원리를 **요구사항 수집(Interview)**과 **실행 계획(Execute)** 두 단계에 매핑해요. 각 원리는 서로 다른 관점에서 요구사항을 명확히 하는 역할을 해요.
 
 ---
 
@@ -210,7 +210,7 @@ Continuity 감지:
 ### 특수 규칙
 
 - **모순이 감지되면 다른 모든 원리보다 우선 적용** (override)
-- 모순 발견 시 모호성 점수에 **페널티 부여** (0.05 ~ 0.15)
+- 모순 발견 시 해상도에 **페널티 부여** (0.05 ~ 0.15)
 
 ### 가중치
 
@@ -231,7 +231,7 @@ Continuity 감지:
 라운드 9+   [후기]  → Figure-Ground (우선순위 결정)
 
 ※ 모순 감지 시 → 언제든 Continuity가 즉시 개입
-※ 모호성이 가장 낮은 차원 → 동적으로 해당 원리 우선 적용
+※ 해상도가 가장 낮은 차원 → 동적으로 해당 원리 우선 적용
 ```
 
 ### 실행 계획 단계 (고정 순서)
@@ -288,11 +288,11 @@ impact = (1 - clarity) × weight
 
 ---
 
-## 모호성 점수 (Ambiguity Score)
+## 해상도 (Resolution Score)
 
-각 원리는 모호성 점수의 특정 차원과 매핑돼요:
+각 원리는 해상도의 특정 차원과 매핑돼요:
 
-| 원리 | 모호성 차원 | 의미 |
+| 원리 | 해상도 차원 | 의미 |
 |---|---|---|
 | Closure | goalClarity | 목표가 얼마나 완전한가 |
 | Proximity | constraintClarity | 제약사항이 얼마나 잘 구조화되었나 |
@@ -303,7 +303,7 @@ impact = (1 - clarity) × weight
 ### 점수 계산 공식
 
 ```
-overall = clamp(1.0 - Σ(clarity_i × weight_i) + continuityPenalty)
+overall = clamp(Σ(clarity_i × weight_i) - continuityPenalty)
 ```
 
 - `clarity_i`: 각 차원의 명확도 (0~1, LLM이 평가)
@@ -319,14 +319,14 @@ constraintClarity = 0.7 × 0.25 = 0.175
 successCriteria   = 0.6 × 0.20 = 0.12
 priorityClarity   = 0.5 × 0.15 = 0.075
 
-overall = 1.0 - (0.32 + 0.175 + 0.12 + 0.075) + 0
-        = 1.0 - 0.69
-        = 0.31  → 아직 불충분 (threshold 0.2 초과)
+overall = (0.32 + 0.175 + 0.12 + 0.075) - 0
+        = 0.69
+        → 아직 불충분 (threshold 0.8 미만)
 ```
 
 ### Continuity 페널티
 
-인터뷰 중 모순이 감지되면 모호성 점수에 페널티가 추가돼요:
+인터뷰 중 모순이 감지되면 해상도에서 페널티가 차감돼요:
 
 ```
 모순 0개 → 페널티 0
@@ -337,11 +337,11 @@ overall = 1.0 - (0.32 + 0.175 + 0.12 + 0.075) + 0
 
 공식: `penalty = 0.05 + 0.10 × min(contradictions / 3, 1)`
 
-모순이 해소되지 않으면 모호성 점수가 threshold(0.2) 아래로 내려가기 어려워요. 이는 모순 해결을 강제하는 메커니즘이에요.
+모순이 해소되지 않으면 해상도가 0.8에 도달하기 어렵게 설계했어요.
 
 ### 종료 조건
 
-**모호성 점수가 0.2 이하**가 되면 요구사항이 충분히 명확하다고 판단하고 인터뷰를 종료할 수 있어요. (`isReady = overall ≤ 0.2`)
+**해상도가 0.8 이상**이 되면 요구사항이 충분히 명확하다고 판단하고 인터뷰를 종료할 수 있어요. (`isReady = overall ≥ 0.8`)
 
 ---
 
@@ -351,4 +351,4 @@ overall = 1.0 - (0.32 + 0.175 + 0.12 + 0.075) + 0
 |---|---|
 | `src/core/constants.ts` | 가중치, 질문 전략, 페널티 상수 |
 | `src/gestalt/principles.ts` | `selectNextPrinciple()`, `findWeakestDimension()` |
-| `src/gestalt/analyzer.ts` | `computeAmbiguityScore()`, `computeContinuityPenalty()` |
+| `src/gestalt/analyzer.ts` | `computeResolutionScore()`, `computeContinuityPenalty()` |
