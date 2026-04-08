@@ -12,17 +12,17 @@ export enum GestaltPrinciple {
   CONTINUITY = 'continuity',
 }
 
-export interface AmbiguityDimension {
+export interface ResolutionDimension {
   name: string;
   clarity: number; // 0.0-1.0
   weight: number;
   gestaltPrinciple: GestaltPrinciple;
 }
 
-export interface AmbiguityScore {
-  overall: number; // 0.0-1.0 (lower = clearer)
-  dimensions: AmbiguityDimension[];
-  isReady: boolean; // overall <= AMBIGUITY_THRESHOLD
+export interface ResolutionScore {
+  overall: number; // 0.0-1.0 (higher = clearer)
+  dimensions: ResolutionDimension[];
+  isReady: boolean; // overall >= RESOLUTION_THRESHOLD
 }
 
 export interface GestaltAnalysis {
@@ -55,7 +55,7 @@ export interface InterviewSession {
   status: InterviewStatus;
   projectType: ProjectType;
   rounds: InterviewRound[];
-  ambiguityScore: AmbiguityScore | null;
+  resolutionScore: ResolutionScore | null;
   compressedContext?: CompressedContext;
   createdAt: string;
   updatedAt: string;
@@ -82,7 +82,7 @@ export interface OntologySchema {
 export interface SpecMetadata {
   specId: string;
   interviewSessionId: string;
-  ambiguityScore: number;
+  resolutionScore: number;
   generatedAt: string;
 }
 

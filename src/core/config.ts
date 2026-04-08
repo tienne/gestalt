@@ -6,7 +6,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
 import {
   DEFAULT_MODEL,
-  AMBIGUITY_THRESHOLD,
+  RESOLUTION_THRESHOLD,
   MAX_INTERVIEW_ROUNDS,
   DRIFT_THRESHOLD,
   EVOLVE_SUCCESS_THRESHOLD,
@@ -25,7 +25,7 @@ const llmConfigSchema = z.object({
 });
 
 const interviewConfigSchema = z.object({
-  ambiguityThreshold: z.number().min(0).max(1).default(AMBIGUITY_THRESHOLD),
+  resolutionThreshold: z.number().min(0).max(1).default(RESOLUTION_THRESHOLD),
   maxRounds: z.number().int().positive().default(MAX_INTERVIEW_ROUNDS),
 });
 
@@ -130,8 +130,8 @@ function buildEnvConfig(): Record<string, unknown> {
 
   // interview
   const interview: Record<string, unknown> = {};
-  if (env['GESTALT_AMBIGUITY_THRESHOLD'] !== undefined) {
-    interview.ambiguityThreshold = Number(env['GESTALT_AMBIGUITY_THRESHOLD']);
+  if (env['GESTALT_RESOLUTION_THRESHOLD'] !== undefined) {
+    interview.resolutionThreshold = Number(env['GESTALT_RESOLUTION_THRESHOLD']);
   }
   if (env['GESTALT_MAX_ROUNDS'] !== undefined) {
     interview.maxRounds = Number(env['GESTALT_MAX_ROUNDS']);

@@ -29,13 +29,13 @@ export class SessionAlreadyCompletedError extends InterviewError {
   }
 }
 
-export class AmbiguityThresholdError extends GestaltError {
+export class ResolutionThresholdError extends GestaltError {
   constructor(score: number, threshold: number) {
     super(
-      `Ambiguity score ${score.toFixed(2)} exceeds threshold ${threshold}. Continue the interview.`,
-      'AMBIGUITY_THRESHOLD',
+      `Resolution score ${score.toFixed(2)} below threshold ${threshold}. Continue the interview.`,
+      'RESOLUTION_THRESHOLD',
     );
-    this.name = 'AmbiguityThresholdError';
+    this.name = 'ResolutionThresholdError';
   }
 }
 
