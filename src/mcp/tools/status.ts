@@ -33,10 +33,10 @@ export function handleStatus(
             projectType: session.projectType,
             totalRounds: session.rounds.length,
             answeredRounds: session.rounds.filter((r) => r.userResponse).length,
-            ambiguityScore: session.ambiguityScore
+            resolutionScore: session.resolutionScore
               ? {
-                  overall: session.ambiguityScore.overall.toFixed(2),
-                  isReady: session.ambiguityScore.isReady,
+                  overall: session.resolutionScore.overall.toFixed(2),
+                  isReady: session.resolutionScore.isReady,
                 }
               : null,
             createdAt: session.createdAt,
@@ -68,7 +68,7 @@ export function handleStatus(
           status: s.status,
           projectType: s.projectType,
           totalRounds: s.rounds.length,
-          ambiguityScore: s.ambiguityScore?.overall.toFixed(2) ?? 'N/A',
+          resolutionScore: s.resolutionScore?.overall.toFixed(2) ?? 'N/A',
           createdAt: s.createdAt,
         }))
       : [];

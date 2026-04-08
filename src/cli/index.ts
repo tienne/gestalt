@@ -36,7 +36,7 @@ export function createCli(): Command {
   program
     .command('spec <session-id>')
     .description('Generate a Spec from a completed interview')
-    .option('-f, --force', 'Force generation even if ambiguity threshold is not met')
+    .option('-f, --force', 'Force generation even if resolution threshold is not met')
     .action(async (sessionId: string, options: { force?: boolean }) => {
       await specCommand(sessionId, options);
     });

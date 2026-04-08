@@ -39,50 +39,50 @@ export function handleInterviewPassthrough(
         input.sessionId,
         input.response,
         input.generatedQuestion,
-        input.ambiguityScore,
+        input.resolutionScore,
       );
       if (!result.ok) return formatError(result.error.message);
 
-      const { session, ambiguityScore, gestaltContext, compressionContext, needsCompression } = result.value;
+      const { session, resolutionScore, gestaltContext, compressionContext, needsCompression } = result.value;
       return JSON.stringify({
         status: 'in_progress',
         sessionId: session.sessionId,
         roundNumber: session.rounds.length,
         gestaltContext,
         ...(needsCompression ? { compressionContext, needsCompression } : {}),
-        ambiguityScore: ambiguityScore
+        resolutionScore: resolutionScore
           ? {
-              overall: ambiguityScore.overall.toFixed(2),
-              isReady: ambiguityScore.isReady,
-              dimensions: ambiguityScore.dimensions.map((d) => ({
+              overall: resolutionScore.overall.toFixed(2),
+              isReady: resolutionScore.isReady,
+              dimensions: resolutionScore.dimensions.map((d) => ({
                 name: d.name,
                 clarity: d.clarity.toFixed(2),
                 principle: d.gestaltPrinciple,
               })),
             }
           : null,
-        message: ambiguityScore?.isReady
-          ? 'Ambiguity threshold met! You can complete the interview and generate a spec.'
+        message: resolutionScore?.isReady
+          ? 'Resolution threshold met! You can complete the interview and generate a spec.'
           : needsCompression
             ? 'Use compressionContext to compress previous rounds, then continue with gestaltContext.questionPrompt.'
-            : 'Use gestaltContext.questionPrompt to generate the next question. Use gestaltContext.scoringPrompt to compute ambiguity scores.',
+            : 'Use gestaltContext.questionPrompt to generate the next question. Use gestaltContext.scoringPrompt to compute resolution scores.',
       }, null, 2);
     }
 
     case 'score': {
       if (!input.sessionId) return formatError('sessionId is required for score action');
 
-      const result = engine.score(input.sessionId, input.ambiguityScore);
+      const result = engine.score(input.sessionId, input.resolutionScore);
       if (!result.ok) return formatError(result.error.message);
 
-      const { ambiguityScore, scoringPrompt } = result.value;
+      const { resolutionScore, scoringPrompt } = result.value;
       return JSON.stringify({
         status: 'scored',
-        ambiguityScore: ambiguityScore
+        resolutionScore: resolutionScore
           ? {
-              overall: ambiguityScore.overall.toFixed(2),
-              isReady: ambiguityScore.isReady,
-              dimensions: ambiguityScore.dimensions.map((d) => ({
+              overall: resolutionScore.overall.toFixed(2),
+              isReady: resolutionScore.isReady,
+              dimensions: resolutionScore.dimensions.map((d) => ({
                 name: d.name,
                 clarity: d.clarity.toFixed(2),
                 principle: d.gestaltPrinciple,
@@ -91,7 +91,7 @@ export function handleInterviewPassthrough(
           : null,
         scoringPrompt: scoringPrompt ?? null,
         message: scoringPrompt
-          ? 'Use the scoringPrompt to compute ambiguity scores, then call score again with the ambiguityScore parameter.'
+          ? 'Use the scoringPrompt to compute resolution scores, then call score again with the resolutionScore parameter.'
           : undefined,
       }, null, 2);
     }
@@ -152,14 +152,14 @@ export function handleInterviewPassthrough(
 
       gestaltNotify({
         event: 'interview_complete',
-        message: `인터뷰 완료 — ${result.value.rounds.length}라운드, 모호성: ${result.value.ambiguityScore?.overall.toFixed(2) ?? 'N/A'}`,
+        message: `인터뷰 완료 — ${result.value.rounds.length}라운드, 해상도: ${result.value.resolutionScore?.overall.toFixed(2) ?? 'N/A'}`,
       });
 
       return JSON.stringify({
         status: 'completed',
         sessionId: result.value.sessionId,
         totalRounds: result.value.rounds.length,
-        finalAmbiguityScore: result.value.ambiguityScore?.overall.toFixed(2) ?? 'N/A',
+        finalResolutionScore: result.value.resolutionScore?.overall.toFixed(2) ?? 'N/A',
         ...(recordingPath && { recordingPath }),
         message: recordingPath
           ? `Interview completed. GIF recording is being generated: ${recordingPath}`

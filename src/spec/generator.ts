@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { InterviewSession, Spec } from '../core/types.js';
-import { AmbiguityThresholdError, SpecGenerationError } from '../core/errors.js';
-import { AMBIGUITY_THRESHOLD, MAX_SPEC_RETRIES } from '../core/constants.js';
+import { ResolutionThresholdError, SpecGenerationError } from '../core/errors.js';
+import { RESOLUTION_THRESHOLD, MAX_SPEC_RETRIES } from '../core/constants.js';
 import { type Result, ok, err } from '../core/result.js';
 import { specSchema } from './schema.js';
 import { SpecExtractor } from './extractor.js';
@@ -22,12 +22,12 @@ export class SpecGenerator {
   async generate(
     session: InterviewSession,
     force = false,
-  ): Promise<Result<Spec, SpecGenerationError | AmbiguityThresholdError>> {
-    // Validate ambiguity threshold
+  ): Promise<Result<Spec, SpecGenerationError | ResolutionThresholdError>> {
+    // Validate resolution threshold
     if (!force) {
-      const ambiguity = session.ambiguityScore?.overall ?? 1.0;
-      if (ambiguity > AMBIGUITY_THRESHOLD) {
-        return err(new AmbiguityThresholdError(ambiguity, AMBIGUITY_THRESHOLD));
+      const resolution = session.resolutionScore?.overall ?? 0.0;
+      if (resolution < RESOLUTION_THRESHOLD) {
+        return err(new ResolutionThresholdError(resolution, RESOLUTION_THRESHOLD));
       }
     }
 
@@ -51,7 +51,7 @@ export class SpecGenerator {
           metadata: {
             specId: randomUUID(),
             interviewSessionId: session.sessionId,
-            ambiguityScore: session.ambiguityScore?.overall ?? 1.0,
+            resolutionScore: session.resolutionScore?.overall ?? 0.0,
             generatedAt: new Date().toISOString(),
           },
         };

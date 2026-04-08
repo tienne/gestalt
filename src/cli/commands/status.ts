@@ -17,7 +17,7 @@ export function statusCommand(sessionId?: string): void {
 
       const startEvent = events.find((e) => e.eventType === EventType.INTERVIEW_SESSION_STARTED);
       const completeEvent = events.find((e) => e.eventType === EventType.INTERVIEW_SESSION_COMPLETED);
-      const scoreEvents = events.filter((e) => e.eventType === EventType.INTERVIEW_AMBIGUITY_SCORED);
+      const scoreEvents = events.filter((e) => e.eventType === EventType.INTERVIEW_RESOLUTION_SCORED);
       const questionEvents = events.filter((e) => e.eventType === EventType.INTERVIEW_QUESTION_ASKED);
       const latestScore = scoreEvents.length > 0 ? scoreEvents[scoreEvents.length - 1] : null;
       const payload = (event: DomainEvent | null | undefined) => event?.payload as Record<string, unknown> | undefined;
@@ -29,7 +29,7 @@ export function statusCommand(sessionId?: string): void {
           status: completeEvent ? 'completed' : 'in_progress',
           projectType: payload(startEvent)?.projectType ?? 'unknown',
           totalRounds: questionEvents.length,
-          ambiguityScore: latestScore
+          resolutionScore: latestScore
             ? { overall: payload(latestScore)?.overall, isReady: payload(latestScore)?.isReady }
             : null,
           createdAt: startEvent?.timestamp,
@@ -48,7 +48,7 @@ export function statusCommand(sessionId?: string): void {
         const sessionEvents = eventStore.getByAggregate('interview', start.aggregateId);
         const completeEvent = sessionEvents.find((e) => e.eventType === EventType.INTERVIEW_SESSION_COMPLETED);
         const questionEvents = sessionEvents.filter((e) => e.eventType === EventType.INTERVIEW_QUESTION_ASKED);
-        const scoreEvents = sessionEvents.filter((e) => e.eventType === EventType.INTERVIEW_AMBIGUITY_SCORED);
+        const scoreEvents = sessionEvents.filter((e) => e.eventType === EventType.INTERVIEW_RESOLUTION_SCORED);
         const latestScore = scoreEvents.length > 0 ? scoreEvents[scoreEvents.length - 1] : null;
 
         return {
@@ -57,7 +57,7 @@ export function statusCommand(sessionId?: string): void {
           status: completeEvent ? 'completed' : 'in_progress',
           projectType: (start.payload as Record<string, unknown>)?.projectType ?? 'unknown',
           totalRounds: questionEvents.length,
-          ambiguityScore: latestScore
+          resolutionScore: latestScore
             ? (latestScore.payload as Record<string, unknown>)?.overall
             : 'N/A',
           createdAt: start.timestamp,

@@ -27,7 +27,7 @@ const gestaltAnalysisSchema = z.object({
 const specMetadataSchema = z.object({
   specId: z.string(),
   interviewSessionId: z.string(),
-  ambiguityScore: z.number().min(0).max(1),
+  resolutionScore: z.number().min(0).max(1),
   generatedAt: z.string(),
 });
 

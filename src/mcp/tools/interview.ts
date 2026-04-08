@@ -34,24 +34,24 @@ export async function handleInterview(
       const result = await engine.respond(input.sessionId, input.response);
       if (!result.ok) return formatError(result.error.message);
 
-      const { session, nextQuestion, ambiguityScore } = result.value;
+      const { session, nextQuestion, resolutionScore } = result.value;
       return JSON.stringify({
         status: 'in_progress',
         sessionId: session.sessionId,
         roundNumber: session.rounds.length,
         question: nextQuestion,
-        ambiguityScore: {
-          overall: ambiguityScore.overall.toFixed(2),
-          isReady: ambiguityScore.isReady,
-          dimensions: ambiguityScore.dimensions.map((d) => ({
+        resolutionScore: {
+          overall: resolutionScore.overall.toFixed(2),
+          isReady: resolutionScore.isReady,
+          dimensions: resolutionScore.dimensions.map((d) => ({
             name: d.name,
             clarity: d.clarity.toFixed(2),
             principle: d.gestaltPrinciple,
           })),
         },
-        message: ambiguityScore.isReady
-          ? 'Ambiguity threshold met! You can now complete the interview and generate a spec.'
-          : `Ambiguity: ${(ambiguityScore.overall * 100).toFixed(0)}% — continue answering to reduce ambiguity.`,
+        message: resolutionScore.isReady
+          ? 'Resolution threshold met! You can now complete the interview and generate a spec.'
+          : `Resolution: ${(resolutionScore.overall * 100).toFixed(0)}% — continue answering to increase resolution.`,
       }, null, 2);
     }
 
@@ -63,7 +63,7 @@ export async function handleInterview(
 
       return JSON.stringify({
         status: 'scored',
-        ambiguityScore: {
+        resolutionScore: {
           overall: result.value.overall.toFixed(2),
           isReady: result.value.isReady,
           dimensions: result.value.dimensions.map((d) => ({
@@ -87,7 +87,7 @@ export async function handleInterview(
         status: 'completed',
         sessionId: result.value.sessionId,
         totalRounds: result.value.rounds.length,
-        finalAmbiguityScore: result.value.ambiguityScore?.overall.toFixed(2) ?? 'N/A',
+        finalResolutionScore: result.value.resolutionScore?.overall.toFixed(2) ?? 'N/A',
         ...(recordingPath && { recordingPath }),
         message: recordingPath
           ? `Interview completed. GIF recording is being generated: ${recordingPath}`

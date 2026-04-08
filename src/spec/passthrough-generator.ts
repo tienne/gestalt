@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { InterviewSession, Spec, InterviewRound } from '../core/types.js';
-import { AmbiguityThresholdError, SpecGenerationError } from '../core/errors.js';
-import { AMBIGUITY_THRESHOLD } from '../core/constants.js';
+import { ResolutionThresholdError, SpecGenerationError } from '../core/errors.js';
+import { RESOLUTION_THRESHOLD } from '../core/constants.js';
 import { type Result, ok, err } from '../core/result.js';
 import { specSchema } from './schema.js';
 import { EventStore } from '../events/store.js';
@@ -70,12 +70,12 @@ export class PassthroughSpecGenerator {
     session: InterviewSession,
     externalSpec: ExternalSpec,
     force = false,
-  ): Result<Spec, SpecGenerationError | AmbiguityThresholdError> {
-    // Validate ambiguity threshold
+  ): Result<Spec, SpecGenerationError | ResolutionThresholdError> {
+    // Validate resolution threshold
     if (!force) {
-      const ambiguity = session.ambiguityScore?.overall ?? 1.0;
-      if (ambiguity > AMBIGUITY_THRESHOLD) {
-        return err(new AmbiguityThresholdError(ambiguity, AMBIGUITY_THRESHOLD));
+      const resolution = session.resolutionScore?.overall ?? 0.0;
+      if (resolution < RESOLUTION_THRESHOLD) {
+        return err(new ResolutionThresholdError(resolution, RESOLUTION_THRESHOLD));
       }
     }
 
@@ -94,7 +94,7 @@ export class PassthroughSpecGenerator {
         metadata: {
           specId: randomUUID(),
           interviewSessionId: session.sessionId,
-          ambiguityScore: session.ambiguityScore?.overall ?? 1.0,
+          resolutionScore: session.resolutionScore?.overall ?? 0.0,
           generatedAt: new Date().toISOString(),
         },
       };
@@ -144,7 +144,7 @@ export class PassthroughSpecGenerator {
         metadata: {
           specId: randomUUID(),
           interviewSessionId: TEXT_INPUT_SESSION_ID,
-          ambiguityScore: 0,
+          resolutionScore: 1,
           generatedAt: new Date().toISOString(),
         },
       };

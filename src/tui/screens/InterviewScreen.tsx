@@ -7,7 +7,7 @@ interface InterviewRound {
   roundNumber: number;
   question: string;
   response: string;
-  ambiguityScore: number | null;
+  resolutionScore: number | null;
   gestaltPrinciple: string;
 }
 
@@ -58,7 +58,7 @@ function parseInterviewEvents(
       questionMap.set(roundNumber, existing);
     }
 
-    if (ev.eventType === 'interview.ambiguity.scored') {
+    if (ev.eventType === 'interview.resolution.scored' || ev.eventType === 'interview.ambiguity.scored') {
       const overall = payload.overall as number | undefined;
       const roundNumber = payload.roundNumber as number | undefined;
       if (overall !== undefined) {
@@ -67,7 +67,7 @@ function parseInterviewEvents(
       if (roundNumber !== undefined) {
         const existing = questionMap.get(roundNumber);
         if (existing) {
-          existing.ambiguityScore = overall ?? null;
+          existing.resolutionScore = overall ?? null;
         }
       }
     }
@@ -83,7 +83,7 @@ function parseInterviewEvents(
       roundNumber: roundNum,
       question: data.question ?? '',
       response: data.response ?? '',
-      ambiguityScore: data.ambiguityScore ?? null,
+      resolutionScore: data.resolutionScore ?? null,
       gestaltPrinciple: data.gestaltPrinciple ?? '',
     });
   }
@@ -155,8 +155,8 @@ export function InterviewScreen({
         </Text>
         {data.overallAmbiguity !== null && (
           <React.Fragment>
-            <Text dimColor>| ambiguity:</Text>
-            <Text color={data.overallAmbiguity <= 0.2 ? 'green' : data.overallAmbiguity <= 0.5 ? 'yellow' : 'red'}>
+            <Text dimColor>| resolution:</Text>
+            <Text color={data.overallAmbiguity >= 0.8 ? 'green' : data.overallAmbiguity >= 0.5 ? 'yellow' : 'red'}>
               {(data.overallAmbiguity * 100).toFixed(0)}%
             </Text>
           </React.Fragment>
@@ -183,10 +183,10 @@ export function InterviewScreen({
                 [{round.gestaltPrinciple}]
               </Text>
             )}
-            {round.ambiguityScore !== null && (
+            {round.resolutionScore !== null && (
               <Text dimColor>
-                amb: {renderMiniBar(round.ambiguityScore, 10)}
-                {' '}{(round.ambiguityScore * 100).toFixed(0)}%
+                res: {renderMiniBar(round.resolutionScore, 10)}
+                {' '}{(round.resolutionScore * 100).toFixed(0)}%
               </Text>
             )}
           </Box>

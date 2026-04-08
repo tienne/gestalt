@@ -9,7 +9,7 @@ export * from './gestalt/principles.js';
 export * from './gestalt/analyzer.js';
 export * from './interview/engine.js';
 export * from './interview/session.js';
-export * from './interview/ambiguity.js';
+export * from './interview/resolution.js';
 export * from './interview/questions.js';
 export * from './interview/brownfield.js';
 export * from './spec/generator.js';

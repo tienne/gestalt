@@ -77,10 +77,10 @@ export async function interviewCommand(
         break;
       }
 
-      const { nextQuestion, ambiguityScore } = respondResult.value;
-      console.log(`\n📊 Ambiguity: ${(ambiguityScore.overall * 100).toFixed(0)}%`);
+      const { nextQuestion, resolutionScore } = respondResult.value;
+      console.log(`\n📊 Resolution: ${(resolutionScore.overall * 100).toFixed(0)}%`);
 
-      if (ambiguityScore.isReady) {
+      if (resolutionScore.isReady) {
         console.log('✅ Requirements are clear enough! Type "done" to finish or continue.\n');
       } else {
         console.log('');

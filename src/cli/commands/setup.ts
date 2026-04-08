@@ -15,7 +15,7 @@ export function setupCommand(): void {
     $schema: './node_modules/@tienne/gestalt/schemas/gestalt.schema.json',
     notifications: false,
     interview: {
-      ambiguityThreshold: 0.2,
+      resolutionThreshold: 0.8,
       maxRounds: 10,
     },
   };

@@ -69,8 +69,8 @@ export class CastGenerator {
     // Footer
     events.push([t, 'o', `${BOLD}${CYAN}✅ Interview completed — ${session.rounds.length} rounds${RESET}\r\n`]);
     t += 0.3;
-    if (session.ambiguityScore) {
-      events.push([t, 'o', `${DIM}Ambiguity score: ${session.ambiguityScore.overall.toFixed(2)}${RESET}\r\n`]);
+    if (session.resolutionScore) {
+      events.push([t, 'o', `${DIM}Resolution score: ${session.resolutionScore.overall.toFixed(2)}${RESET}\r\n`]);
     }
     events.push([t + 0.2, 'o', '\r\n']);
 
