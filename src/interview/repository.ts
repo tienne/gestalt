@@ -1,5 +1,5 @@
 import type { EventStore } from '../events/store.js';
-import type { DomainEvent, InterviewSession, InterviewRound, AmbiguityScore, ProjectType, GestaltPrinciple } from '../core/types.js';
+import type { DomainEvent, InterviewSession, InterviewRound, ResolutionScore, ProjectType, GestaltPrinciple } from '../core/types.js';
 import { EventType } from '../events/types.js';
 
 /**
@@ -50,7 +50,7 @@ export class InterviewSessionRepository {
       status: 'in_progress',
       projectType: startPayload.projectType ?? 'greenfield',
       rounds: [],
-      ambiguityScore: null,
+      resolutionScore: null,
       createdAt: firstEvent.timestamp,
       updatedAt: firstEvent.timestamp,
     };
@@ -93,11 +93,13 @@ export class InterviewSessionRepository {
         break;
       }
 
-      case EventType.INTERVIEW_AMBIGUITY_SCORED: {
-        session.ambiguityScore = {
+      case EventType.INTERVIEW_RESOLUTION_SCORED:
+      // Backward compatibility: handle old event type from existing databases
+      case 'interview.ambiguity.scored' as EventType: {
+        session.resolutionScore = {
           overall: payload.overall as number,
           isReady: payload.isReady as boolean,
-          dimensions: (payload.dimensions as AmbiguityScore['dimensions']) ?? [],
+          dimensions: (payload.dimensions as ResolutionScore['dimensions']) ?? [],
         };
         break;
       }

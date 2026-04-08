@@ -1,26 +1,26 @@
-import type { AmbiguityScore, InterviewRound, ProjectType } from '../core/types.js';
-import { computeAmbiguityScore } from '../gestalt/analyzer.js';
-import { buildAmbiguityPrompt, INTERVIEW_SYSTEM_PROMPT } from '../llm/prompts.js';
+import type { ResolutionScore, InterviewRound, ProjectType } from '../core/types.js';
+import { computeResolutionScore } from '../gestalt/analyzer.js';
+import { buildResolutionPrompt, INTERVIEW_SYSTEM_PROMPT } from '../llm/prompts.js';
 import type { LLMAdapter } from '../llm/types.js';
 
-export class AmbiguityScorer {
+export class ResolutionScorer {
   constructor(private llm: LLMAdapter) {}
 
   async score(
     topic: string,
     rounds: InterviewRound[],
     projectType: ProjectType,
-  ): Promise<AmbiguityScore> {
+  ): Promise<ResolutionScore> {
     const answeredRounds = rounds.filter((r) => r.userResponse);
     if (answeredRounds.length === 0) {
       return {
-        overall: 1.0,
+        overall: 0.0,
         dimensions: [],
         isReady: false,
       };
     }
 
-    const prompt = buildAmbiguityPrompt(
+    const prompt = buildResolutionPrompt(
       topic,
       answeredRounds.map((r) => ({
         question: r.question,
@@ -35,8 +35,8 @@ export class AmbiguityScorer {
       temperature: 0.3,
     });
 
-    const raw = parseAmbiguityResponse(response.content, projectType);
-    return computeAmbiguityScore(raw, projectType);
+    const raw = parseResolutionResponse(response.content, projectType);
+    return computeResolutionScore(raw, projectType);
   }
 }
 
@@ -49,7 +49,7 @@ interface RawLLMScores {
   contradictions: string[];
 }
 
-function parseAmbiguityResponse(content: string, projectType: ProjectType): RawLLMScores {
+function parseResolutionResponse(content: string, projectType: ProjectType): RawLLMScores {
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     return defaultScores(projectType);

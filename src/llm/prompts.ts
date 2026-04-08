@@ -43,7 +43,7 @@ Respond with ONLY a JSON object:
 }`;
 }
 
-export function buildAmbiguityPrompt(
+export function buildResolutionPrompt(
   topic: string,
   rounds: { question: string; response: string | null }[],
   projectType: 'greenfield' | 'brownfield',

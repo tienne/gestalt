@@ -1,13 +1,13 @@
 import type {
   InterviewSession,
-  AmbiguityScore,
+  ResolutionScore,
   ProjectType,
 } from '../core/types.js';
 import { MAX_INTERVIEW_ROUNDS } from '../core/constants.js';
 import { InterviewError } from '../core/errors.js';
 import { type Result, ok, err } from '../core/result.js';
 import { selectNextPrinciple } from '../gestalt/principles.js';
-import { AmbiguityScorer } from './ambiguity.js';
+import { ResolutionScorer } from './resolution.js';
 import { QuestionGenerator } from './questions.js';
 import { SessionManager } from './session.js';
 import { detectProjectType } from './brownfield.js';
@@ -25,13 +25,13 @@ export interface StartResult {
 export interface RespondResult {
   session: InterviewSession;
   nextQuestion: string;
-  ambiguityScore: AmbiguityScore;
+  resolutionScore: ResolutionScore;
 }
 
 export class InterviewEngine {
   private sessionManager: SessionManager;
   private questionGenerator: QuestionGenerator;
-  private ambiguityScorer: AmbiguityScorer;
+  private resolutionScorer: ResolutionScorer;
 
   constructor(
     llm: LLMAdapter,
@@ -40,7 +40,7 @@ export class InterviewEngine {
     this.sessionManager = new SessionManager(eventStore);
     this.sessionManager.loadFromStore();
     this.questionGenerator = new QuestionGenerator(llm);
-    this.ambiguityScorer = new AmbiguityScorer(llm);
+    this.resolutionScorer = new ResolutionScorer(llm);
   }
 
   async start(topic: string, cwd?: string): Promise<Result<StartResult, InterviewError>> {
@@ -102,22 +102,22 @@ export class InterviewEngine {
         );
       }
 
-      // Score ambiguity
-      const ambiguityScore = await this.ambiguityScorer.score(
+      // Score resolution
+      const resolutionScore = await this.resolutionScorer.score(
         session.topic,
         session.rounds,
         session.projectType,
       );
-      this.sessionManager.updateAmbiguityScore(sessionId, ambiguityScore);
+      this.sessionManager.updateResolutionScore(sessionId, resolutionScore);
 
       // Select next principle based on current state
-      const hasContradictions = ambiguityScore.dimensions.some(
+      const hasContradictions = resolutionScore.dimensions.some(
         (d) => d.clarity < 0.3 && d.name === 'continuity',
       );
 
       const nextPrinciple = selectNextPrinciple({
         roundNumber: session.rounds.length + 1,
-        dimensions: ambiguityScore.dimensions,
+        dimensions: resolutionScore.dimensions,
         hasContradictions,
       });
 
@@ -141,7 +141,7 @@ export class InterviewEngine {
       return ok({
         session: this.sessionManager.get(sessionId),
         nextQuestion: question,
-        ambiguityScore,
+        resolutionScore,
       });
     } catch (e) {
       return err(
@@ -152,16 +152,16 @@ export class InterviewEngine {
     }
   }
 
-  async score(sessionId: string): Promise<Result<AmbiguityScore, InterviewError>> {
+  async score(sessionId: string): Promise<Result<ResolutionScore, InterviewError>> {
     try {
       const session = this.sessionManager.get(sessionId);
-      const ambiguityScore = await this.ambiguityScorer.score(
+      const resolutionScore = await this.resolutionScorer.score(
         session.topic,
         session.rounds,
         session.projectType,
       );
-      this.sessionManager.updateAmbiguityScore(sessionId, ambiguityScore);
-      return ok(ambiguityScore);
+      this.sessionManager.updateResolutionScore(sessionId, resolutionScore);
+      return ok(resolutionScore);
     } catch (e) {
       return err(
         new InterviewError(

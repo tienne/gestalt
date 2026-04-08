@@ -1,13 +1,13 @@
 import {
   GestaltPrinciple,
-  type AmbiguityScore,
-  type AmbiguityDimension,
+  type ResolutionScore,
+  type ResolutionDimension,
   type ProjectType,
 } from '../core/types.js';
 import {
   GREENFIELD_WEIGHTS,
   BROWNFIELD_WEIGHTS,
-  AMBIGUITY_THRESHOLD,
+  RESOLUTION_THRESHOLD,
   CONTINUITY_PENALTY_MIN,
   CONTINUITY_PENALTY_MAX,
 } from '../core/constants.js';
@@ -27,14 +27,14 @@ interface RawClarityScores {
   contradictions: string[];
 }
 
-export function computeAmbiguityScore(
+export function computeResolutionScore(
   raw: RawClarityScores,
   projectType: ProjectType,
-): AmbiguityScore {
+): ResolutionScore {
   const weights =
     projectType === 'greenfield' ? GREENFIELD_WEIGHTS : BROWNFIELD_WEIGHTS;
 
-  const dimensions: AmbiguityDimension[] = [
+  const dimensions: ResolutionDimension[] = [
     {
       name: 'goalClarity',
       clarity: clamp(raw.goalClarity),
@@ -77,12 +77,12 @@ export function computeAmbiguityScore(
 
   const continuityPenalty = computeContinuityPenalty(raw.contradictions);
 
-  const overall = clamp(1.0 - weightedSum + continuityPenalty);
+  const overall = clamp(weightedSum - continuityPenalty);
 
   return {
     overall,
     dimensions,
-    isReady: overall <= AMBIGUITY_THRESHOLD,
+    isReady: overall >= RESOLUTION_THRESHOLD,
   };
 }
 

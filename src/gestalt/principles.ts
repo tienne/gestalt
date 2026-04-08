@@ -1,8 +1,8 @@
-import { GestaltPrinciple, type AmbiguityDimension } from '../core/types.js';
+import { GestaltPrinciple, type ResolutionDimension } from '../core/types.js';
 
 interface PrincipleSelectionContext {
   roundNumber: number;
-  dimensions: AmbiguityDimension[];
+  dimensions: ResolutionDimension[];
   hasContradictions: boolean;
 }
 
@@ -45,8 +45,8 @@ export function selectNextPrinciple(context: PrincipleSelectionContext): Gestalt
 }
 
 function findWeakestDimension(
-  dimensions: AmbiguityDimension[],
-): AmbiguityDimension | null {
+  dimensions: ResolutionDimension[],
+): ResolutionDimension | null {
   if (dimensions.length === 0) return null;
 
   let weakest = dimensions[0]!;

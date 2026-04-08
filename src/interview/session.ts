@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   InterviewSession,
   InterviewRound,
-  AmbiguityScore,
+  ResolutionScore,
   ProjectType,
   GestaltPrinciple,
   CompressedContext,
@@ -36,7 +36,7 @@ export class SessionManager {
       status: 'in_progress',
       projectType,
       rounds: [],
-      ambiguityScore: null,
+      resolutionScore: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -115,12 +115,12 @@ export class SessionManager {
     return currentRound;
   }
 
-  updateAmbiguityScore(sessionId: string, score: AmbiguityScore): void {
+  updateResolutionScore(sessionId: string, score: ResolutionScore): void {
     const session = this.get(sessionId);
-    session.ambiguityScore = score;
+    session.resolutionScore = score;
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('interview', sessionId, EventType.INTERVIEW_AMBIGUITY_SCORED, {
+    this.eventStore.append('interview', sessionId, EventType.INTERVIEW_RESOLUTION_SCORED, {
       overall: score.overall,
       isReady: score.isReady,
       dimensions: score.dimensions,
@@ -140,7 +140,7 @@ export class SessionManager {
 
     this.eventStore.append('interview', sessionId, EventType.INTERVIEW_SESSION_COMPLETED, {
       totalRounds: session.rounds.length,
-      finalAmbiguityScore: session.ambiguityScore?.overall ?? null,
+      finalResolutionScore: session.resolutionScore?.overall ?? null,
     });
 
     return session;

@@ -1,4 +1,4 @@
-import { AMBIGUITY_THRESHOLD } from '../core/constants.js';
+import { RESOLUTION_THRESHOLD } from '../core/constants.js';
 import { INTERVIEW_SYSTEM_PROMPT } from '../llm/prompts.js';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -17,7 +17,7 @@ export interface MiniInterviewContext {
   message: string;
 }
 
-export interface AmbiguityDimensionScore {
+export interface ResolutionDimensionScore {
   goalClarity: number;
   constraintClarity: number;
   successCriteria: number;
@@ -28,13 +28,14 @@ export interface AmbiguityDimensionScore {
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-function getDimensionsNeedingClarification(score: AmbiguityDimensionScore): string[] {
+function getDimensionsNeedingClarification(score: ResolutionDimensionScore): string[] {
+  const clarityFloor = 1 - RESOLUTION_THRESHOLD;
   const dims: string[] = [];
-  if (score.goalClarity < AMBIGUITY_THRESHOLD) dims.push('goalClarity');
-  if (score.constraintClarity < AMBIGUITY_THRESHOLD) dims.push('constraintClarity');
-  if (score.successCriteria < AMBIGUITY_THRESHOLD) dims.push('successCriteria');
-  if (score.priorityClarity < AMBIGUITY_THRESHOLD) dims.push('priorityClarity');
-  if (score.contextClarity !== undefined && score.contextClarity < AMBIGUITY_THRESHOLD) {
+  if (score.goalClarity < clarityFloor) dims.push('goalClarity');
+  if (score.constraintClarity < clarityFloor) dims.push('constraintClarity');
+  if (score.successCriteria < clarityFloor) dims.push('successCriteria');
+  if (score.priorityClarity < clarityFloor) dims.push('priorityClarity');
+  if (score.contextClarity !== undefined && score.contextClarity < clarityFloor) {
     dims.push('contextClarity');
   }
   return dims;
@@ -116,7 +117,7 @@ export class MiniInterviewEngine {
    * Given an initial ambiguity score from text-based spec generation,
    * determine if a mini-interview is needed and build the clarification context.
    */
-  needsMiniInterview(score: AmbiguityDimensionScore): boolean {
+  needsMiniInterview(score: ResolutionDimensionScore): boolean {
     const dims = getDimensionsNeedingClarification(score);
     return dims.length > 0;
   }
@@ -124,7 +125,7 @@ export class MiniInterviewEngine {
   buildClarificationContext(
     topic: string,
     text: string,
-    score: AmbiguityDimensionScore,
+    score: ResolutionDimensionScore,
   ): MiniInterviewContext {
     const dims = getDimensionsNeedingClarification(score);
 

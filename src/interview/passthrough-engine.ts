@@ -1,6 +1,6 @@
 import type {
   InterviewSession,
-  AmbiguityScore,
+  ResolutionScore,
   ProjectType,
   GestaltPrinciple,
 } from '../core/types.js';
@@ -8,12 +8,12 @@ import { MAX_INTERVIEW_ROUNDS, PRINCIPLE_QUESTION_STRATEGIES } from '../core/con
 import { InterviewError } from '../core/errors.js';
 import { type Result, ok, err } from '../core/result.js';
 import { selectNextPrinciple, getPrinciplePhaseLabel } from '../gestalt/principles.js';
-import { computeAmbiguityScore } from '../gestalt/analyzer.js';
+import { computeResolutionScore } from '../gestalt/analyzer.js';
 import { SessionManager } from './session.js';
 import { detectProjectType } from './brownfield.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
-import { INTERVIEW_SYSTEM_PROMPT, buildQuestionPrompt, buildAmbiguityPrompt } from '../llm/prompts.js';
+import { INTERVIEW_SYSTEM_PROMPT, buildQuestionPrompt, buildResolutionPrompt } from '../llm/prompts.js';
 import type { AgentRegistry } from '../agent/registry.js';
 import { mergeSystemPrompt, getActiveAgentNames } from '../agent/prompt-resolver.js';
 import { ContextCompressor } from './context-compressor.js';
@@ -40,15 +40,15 @@ export interface PassthroughStartResult {
 
 export interface PassthroughRespondResult {
   session: InterviewSession;
-  ambiguityScore: AmbiguityScore | null;
+  resolutionScore: ResolutionScore | null;
   gestaltContext: GestaltContext;
   compressionContext?: { systemPrompt: string; compressionPrompt: string };
   needsCompression?: boolean;
 }
 
-// ─── External ambiguity score shape (from caller LLM) ───────────
+// ─── External resolution score shape (from caller LLM) ───────────
 
-export interface ExternalAmbiguityScore {
+export interface ExternalResolutionScore {
   goalClarity: number;
   constraintClarity: number;
   successCriteria: number;
@@ -114,7 +114,7 @@ export class PassthroughEngine {
     sessionId: string,
     response: string,
     generatedQuestion: string,
-    externalScore?: ExternalAmbiguityScore,
+    externalScore?: ExternalResolutionScore,
   ): Result<PassthroughRespondResult, InterviewError> {
     try {
       const session = this.sessionManager.get(sessionId);
@@ -144,10 +144,10 @@ export class PassthroughEngine {
         );
       }
 
-      // Compute ambiguity score if provided externally
-      let ambiguityScore: AmbiguityScore | null = null;
+      // Compute resolution score if provided externally
+      let resolutionScore: ResolutionScore | null = null;
       if (externalScore) {
-        ambiguityScore = computeAmbiguityScore(
+        resolutionScore = computeResolutionScore(
           {
             goalClarity: externalScore.goalClarity,
             constraintClarity: externalScore.constraintClarity,
@@ -158,17 +158,17 @@ export class PassthroughEngine {
           },
           session.projectType,
         );
-        this.sessionManager.updateAmbiguityScore(sessionId, ambiguityScore);
+        this.sessionManager.updateResolutionScore(sessionId, resolutionScore);
       }
 
       // Select next principle
-      const hasContradictions = ambiguityScore?.dimensions.some(
+      const hasContradictions = resolutionScore?.dimensions.some(
         (d) => d.clarity < 0.3 && d.name === 'continuity',
       ) ?? false;
 
       const nextPrinciple = selectNextPrinciple({
         roundNumber: session.rounds.length + 1,
-        dimensions: ambiguityScore?.dimensions ?? [],
+        dimensions: resolutionScore?.dimensions ?? [],
         hasContradictions,
       });
 
@@ -210,7 +210,7 @@ export class PassthroughEngine {
 
       return ok({
         session: updatedSession,
-        ambiguityScore,
+        resolutionScore,
         gestaltContext,
         ...(needsCompression ? { compressionContext, needsCompression } : {}),
       });
@@ -225,13 +225,13 @@ export class PassthroughEngine {
 
   score(
     sessionId: string,
-    externalScore?: ExternalAmbiguityScore,
-  ): Result<{ ambiguityScore: AmbiguityScore | null; scoringPrompt?: string }, InterviewError> {
+    externalScore?: ExternalResolutionScore,
+  ): Result<{ resolutionScore: ResolutionScore | null; scoringPrompt?: string }, InterviewError> {
     try {
       const session = this.sessionManager.get(sessionId);
 
       if (externalScore) {
-        const ambiguityScore = computeAmbiguityScore(
+        const resolutionScore = computeResolutionScore(
           {
             goalClarity: externalScore.goalClarity,
             constraintClarity: externalScore.constraintClarity,
@@ -242,8 +242,8 @@ export class PassthroughEngine {
           },
           session.projectType,
         );
-        this.sessionManager.updateAmbiguityScore(sessionId, ambiguityScore);
-        return ok({ ambiguityScore });
+        this.sessionManager.updateResolutionScore(sessionId, resolutionScore);
+        return ok({ resolutionScore });
       }
 
       // No external score — return scoring prompt for the caller
@@ -251,8 +251,8 @@ export class PassthroughEngine {
         .filter((r) => r.userResponse)
         .map((r) => ({ question: r.question, response: r.userResponse }));
 
-      const scoringPrompt = buildAmbiguityPrompt(session.topic, rounds, session.projectType);
-      return ok({ ambiguityScore: session.ambiguityScore, scoringPrompt });
+      const scoringPrompt = buildResolutionPrompt(session.topic, rounds, session.projectType);
+      return ok({ resolutionScore: session.resolutionScore, scoringPrompt });
     } catch (e) {
       return err(
         new InterviewError(
@@ -320,7 +320,7 @@ export class PassthroughEngine {
       const answeredRounds = previousRounds
         .filter((r) => r.response)
         .map((r) => ({ question: r.question, response: r.response }));
-      context.scoringPrompt = buildAmbiguityPrompt(topic, answeredRounds, projectType);
+      context.scoringPrompt = buildResolutionPrompt(topic, answeredRounds, projectType);
     }
 
     return context;
