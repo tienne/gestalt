@@ -140,7 +140,7 @@ Spec과 실행 결과는 레포 루트의 `.gestalt/memory.json`에 자동으로
 
 | 항목 | 내용 |
 |------|------|
-| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status` |
+| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark` |
 | **슬래시 커맨드** | `/interview`, `/spec`, `/execute`, `/agent` |
 | **에이전트** | Gestalt 파이프라인 에이전트 5개 + Role 에이전트 9개 + Review 에이전트 3개 |
 | **CLAUDE.md** | 프로젝트 컨텍스트 및 MCP 사용 가이드 자동 추가 |
@@ -542,6 +542,44 @@ npx @tienne/gestalt setup
 
 잘못된 값은 경고를 출력하고 기본값을 사용해요.
 
+### 멀티 프로바이더 설정 (LLM Tier)
+
+작업 복잡도에 따라 서로 다른 LLM 프로바이더를 tier별로 지정할 수 있어요.
+
+| Tier | 용도 | 예시 |
+|------|------|------|
+| **frugal** | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `haiku` |
+| **standard** | 일반 작업 — 인터뷰, 스펙 생성, 코드 실행 | `claude-sonnet-4-20250514` |
+| **frontier** | 고난도 추론 — 아키텍처 설계, 코드 리뷰, 진화 루프 | `claude-opus-4-20250514` |
+
+Anthropic(standard/frontier)과 Ollama(frugal)를 혼합하는 예시예요:
+
+```json
+{
+  "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
+  "llm": {
+    "apiKey": "",
+    "model": "claude-sonnet-4-20250514",
+    "frugal": {
+      "provider": "openai",
+      "baseURL": "http://localhost:11434/v1",
+      "apiKey": "ollama",
+      "model": "llama3.2"
+    },
+    "standard": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514"
+    },
+    "frontier": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-20250514"
+    }
+  }
+}
+```
+
+> tier를 설정하지 않으면 `llm.apiKey` + `llm.model` 조합으로 모든 tier에 Anthropic을 사용해요. 기존 설정과 완전히 호환돼요.
+
 ### 환경변수
 
 | 변수 | Config 경로 | 기본값 | 설명 |
@@ -557,6 +595,18 @@ npx @tienne/gestalt setup
 | `GESTALT_SKILLS_DIR` | `skillsDir` | `skills` | 커스텀 스킬 디렉토리 |
 | `GESTALT_AGENTS_DIR` | `agentsDir` | `agents` | 커스텀 에이전트 디렉토리 |
 | `GESTALT_LOG_LEVEL` | `logLevel` | `info` | 로그 레벨 (`debug`/`info`/`warn`/`error`) |
+| `GESTALT_LLM_FRUGAL_PROVIDER` | `llm.frugal.provider` | — | frugal tier 프로바이더 (`anthropic`/`openai`) |
+| `GESTALT_LLM_FRUGAL_API_KEY` | `llm.frugal.apiKey` | — | frugal tier API 키 |
+| `GESTALT_LLM_FRUGAL_BASE_URL` | `llm.frugal.baseURL` | — | frugal tier API 엔드포인트 (Ollama 등) |
+| `GESTALT_LLM_FRUGAL_MODEL` | `llm.frugal.model` | — | frugal tier 모델 |
+| `GESTALT_LLM_STANDARD_PROVIDER` | `llm.standard.provider` | — | standard tier 프로바이더 |
+| `GESTALT_LLM_STANDARD_API_KEY` | `llm.standard.apiKey` | — | standard tier API 키 |
+| `GESTALT_LLM_STANDARD_BASE_URL` | `llm.standard.baseURL` | — | standard tier API 엔드포인트 |
+| `GESTALT_LLM_STANDARD_MODEL` | `llm.standard.model` | — | standard tier 모델 |
+| `GESTALT_LLM_FRONTIER_PROVIDER` | `llm.frontier.provider` | — | frontier tier 프로바이더 |
+| `GESTALT_LLM_FRONTIER_API_KEY` | `llm.frontier.apiKey` | — | frontier tier API 키 |
+| `GESTALT_LLM_FRONTIER_BASE_URL` | `llm.frontier.baseURL` | — | frontier tier API 엔드포인트 |
+| `GESTALT_LLM_FRONTIER_MODEL` | `llm.frontier.model` | — | frontier tier 모델 |
 
 ---
 

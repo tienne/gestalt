@@ -130,7 +130,7 @@ What you get out of the box:
 
 | Item | Details |
 |------|---------|
-| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status` |
+| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark` |
 | **Slash Commands** | `/interview`, `/spec`, `/execute`, `/agent` |
 | **Agents** | 5 Gestalt pipeline agents + 9 Role agents + 3 Review agents |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
@@ -528,6 +528,44 @@ npx @tienne/gestalt setup
 
 **Config priority** (highest → lowest): code overrides → shell env vars → `.env` → `gestalt.json` → built-in defaults
 
+### Multi-Provider Configuration (LLM Tiers)
+
+Gestalt supports routing LLM calls by task complexity across three tiers: **frugal**, **standard**, and **frontier**.
+
+| Tier | Purpose | Example models |
+|------|---------|---------------|
+| **frugal** | Lightweight tasks — scoring, classification, short responses | `llama3.2`, `claude-haiku` |
+| **standard** | General tasks — interviews, spec generation, execution | `claude-sonnet-4-20250514` |
+| **frontier** | High-complexity reasoning — architecture, code review, evolution loop | `claude-opus-4-20250514` |
+
+Mix providers freely. The example below uses Anthropic for standard/frontier and a local Ollama model for frugal tasks:
+
+```json
+{
+  "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
+  "llm": {
+    "apiKey": "",
+    "model": "claude-sonnet-4-20250514",
+    "frugal": {
+      "provider": "openai",
+      "baseURL": "http://localhost:11434/v1",
+      "apiKey": "ollama",
+      "model": "llama3.2"
+    },
+    "standard": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514"
+    },
+    "frontier": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-20250514"
+    }
+  }
+}
+```
+
+> If no tiers are configured, all tiers fall back to the top-level `llm.apiKey` + `llm.model` with the Anthropic adapter — fully backward-compatible.
+
 Invalid values emit a warning and fall back to defaults.
 
 ### Environment Variables
@@ -545,6 +583,18 @@ Invalid values emit a warning and fall back to defaults.
 | `GESTALT_SKILLS_DIR` | `skillsDir` | `skills` | Custom skills directory |
 | `GESTALT_AGENTS_DIR` | `agentsDir` | `agents` | Custom agents directory |
 | `GESTALT_LOG_LEVEL` | `logLevel` | `info` | Log level (`debug`/`info`/`warn`/`error`) |
+| `GESTALT_LLM_FRUGAL_PROVIDER` | `llm.frugal.provider` | `anthropic` | Frugal tier provider |
+| `GESTALT_LLM_FRUGAL_API_KEY` | `llm.frugal.apiKey` | `""` | Frugal tier API key |
+| `GESTALT_LLM_FRUGAL_BASE_URL` | `llm.frugal.baseURL` | `""` | Frugal tier base URL (e.g. Ollama) |
+| `GESTALT_LLM_FRUGAL_MODEL` | `llm.frugal.model` | — | Frugal tier model |
+| `GESTALT_LLM_STANDARD_PROVIDER` | `llm.standard.provider` | `anthropic` | Standard tier provider |
+| `GESTALT_LLM_STANDARD_API_KEY` | `llm.standard.apiKey` | `""` | Standard tier API key |
+| `GESTALT_LLM_STANDARD_BASE_URL` | `llm.standard.baseURL` | `""` | Standard tier base URL |
+| `GESTALT_LLM_STANDARD_MODEL` | `llm.standard.model` | — | Standard tier model |
+| `GESTALT_LLM_FRONTIER_PROVIDER` | `llm.frontier.provider` | `anthropic` | Frontier tier provider |
+| `GESTALT_LLM_FRONTIER_API_KEY` | `llm.frontier.apiKey` | `""` | Frontier tier API key |
+| `GESTALT_LLM_FRONTIER_BASE_URL` | `llm.frontier.baseURL` | `""` | Frontier tier base URL |
+| `GESTALT_LLM_FRONTIER_MODEL` | `llm.frontier.model` | — | Frontier tier model |
 
 ---
 
