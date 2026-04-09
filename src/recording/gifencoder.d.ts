@@ -11,7 +11,19 @@ declare module 'gifencoder' {
     setDelay(ms: number): void;
     setQuality(quality: number): void;
     setTransparent(color: number): void;
-    addFrame(imageData: Buffer | Uint8Array | { getImageData: (x: number, y: number, w: number, h: number) => { data: Uint8ClampedArray } }): void;
+    addFrame(
+      imageData:
+        | Buffer
+        | Uint8Array
+        | {
+            getImageData: (
+              x: number,
+              y: number,
+              w: number,
+              h: number,
+            ) => { data: Uint8ClampedArray };
+          },
+    ): void;
   }
 
   export default GIFEncoder;

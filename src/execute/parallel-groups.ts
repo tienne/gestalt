@@ -6,10 +6,7 @@ import type { AtomicTask } from '../core/types.js';
  *
  * @returns string[][] — 각 배열이 동시 실행 가능한 태스크 ID 목록
  */
-export function computeParallelGroups(
-  tasks: AtomicTask[],
-  topologicalOrder: string[],
-): string[][] {
+export function computeParallelGroups(tasks: AtomicTask[], topologicalOrder: string[]): string[][] {
   if (tasks.length === 0) return [];
 
   const taskIds = new Set(tasks.map((t) => t.taskId));

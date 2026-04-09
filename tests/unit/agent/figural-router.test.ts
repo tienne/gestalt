@@ -33,8 +33,16 @@ describe('FiguralRouter', () => {
   const router = new FiguralRouter({
     tierMapping: {
       frugal: { provider: 'openai', model: 'gpt-4o-mini', adapter: frugalAdapter },
-      standard: { provider: 'anthropic', model: 'claude-sonnet-4-20250514', adapter: standardAdapter },
-      frontier: { provider: 'anthropic', model: 'claude-opus-4-20250514', adapter: frontierAdapter },
+      standard: {
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+        adapter: standardAdapter,
+      },
+      frontier: {
+        provider: 'anthropic',
+        model: 'claude-opus-4-20250514',
+        adapter: frontierAdapter,
+      },
     },
   });
 
@@ -68,8 +76,16 @@ describe('FiguralRouter', () => {
     const defaultRouter = new FiguralRouter({
       tierMapping: {
         frugal: { provider: 'openai', model: 'gpt-4o-mini', adapter: frugalAdapter },
-        standard: { provider: 'anthropic', model: 'claude-sonnet-4-20250514', adapter: standardAdapter },
-        frontier: { provider: 'anthropic', model: 'claude-opus-4-20250514', adapter: frontierAdapter },
+        standard: {
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+          adapter: standardAdapter,
+        },
+        frontier: {
+          provider: 'anthropic',
+          model: 'claude-opus-4-20250514',
+          adapter: frontierAdapter,
+        },
       },
       defaultTier: 'standard',
     });

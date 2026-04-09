@@ -44,11 +44,9 @@ describe('findAvailablePort()', () => {
         servers.push(s);
       }
 
-      await expect(findAvailablePort(startPort, count)).rejects.toThrow(
-        /No available port found/,
-      );
+      await expect(findAvailablePort(startPort, count)).rejects.toThrow(/No available port found/);
     } finally {
-      await Promise.all(servers.map(s => new Promise<void>((res) => s.close(() => res()))));
+      await Promise.all(servers.map((s) => new Promise<void>((res) => s.close(() => res()))));
     }
   });
 });

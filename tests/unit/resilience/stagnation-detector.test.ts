@@ -64,11 +64,7 @@ describe('classifyStagnation', () => {
     };
 
     const result = classifyStagnation({
-      evolutionHistory: [
-        makeGeneration(0, 0.5),
-        makeGeneration(1, 0.55),
-        makeGeneration(2, 0.57),
-      ],
+      evolutionHistory: [makeGeneration(0, 0.5), makeGeneration(1, 0.55), makeGeneration(2, 0.57)],
       currentScore: 0.575,
       termination,
     });
@@ -86,11 +82,7 @@ describe('classifyStagnation', () => {
     };
 
     const result = classifyStagnation({
-      evolutionHistory: [
-        makeGeneration(0, 0.5),
-        makeGeneration(1, 0.5),
-        makeGeneration(2, 0.5),
-      ],
+      evolutionHistory: [makeGeneration(0, 0.5), makeGeneration(1, 0.5), makeGeneration(2, 0.5)],
       currentScore: 0.5,
       termination,
     });

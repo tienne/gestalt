@@ -27,7 +27,9 @@ export class PassthroughAgentGenerator {
 
   buildAgentContext(session: InterviewSession): Result<AgentCreationContext, AgentCreationError> {
     if (session.status !== 'completed') {
-      return err(new AgentCreationError('Interview session must be completed before creating an agent'));
+      return err(
+        new AgentCreationError('Interview session must be completed before creating an agent'),
+      );
     }
 
     const existingAgents = (this.roleAgentRegistry?.getAll() ?? []).map((a) => ({
@@ -41,9 +43,12 @@ export class PassthroughAgentGenerator {
       .map((r) => `Q${r.roundNumber}: ${r.question}\nA: ${r.userResponse}`)
       .join('\n\n');
 
-    const existingList = existingAgents.length > 0
-      ? existingAgents.map((a) => `- ${a.name}: ${a.description} (domains: ${a.domain.join(', ')})`).join('\n')
-      : '(none)';
+    const existingList =
+      existingAgents.length > 0
+        ? existingAgents
+            .map((a) => `- ${a.name}: ${a.description} (domains: ${a.domain.join(', ')})`)
+            .join('\n')
+        : '(none)';
 
     const systemPrompt = `You are a Gestalt agent creator. Based on the completed interview, generate an AGENT.md file for a custom Role Agent. The agent must have role: true in its frontmatter.`;
 
@@ -115,7 +120,9 @@ description: "<string>"
     cwd: string,
   ): Result<{ agent: AgentDefinition; filePath: string; overridden: boolean }, AgentCreationError> {
     if (session.status !== 'completed') {
-      return err(new AgentCreationError('Interview session must be completed before creating an agent'));
+      return err(
+        new AgentCreationError('Interview session must be completed before creating an agent'),
+      );
     }
 
     // Parse and validate AGENT.md content
@@ -123,14 +130,20 @@ description: "<string>"
     try {
       agent = parseAgentMd(agentContent, '<submitted>');
     } catch (e) {
-      return err(new AgentCreationError(
-        `Invalid AGENT.md content: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new AgentCreationError(
+          `Invalid AGENT.md content: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
     }
 
     // Must be a role agent
     if (!agent.frontmatter.role) {
-      return err(new AgentCreationError('Agent must have role=true. Only Role Agents can be created via ges_create_agent.'));
+      return err(
+        new AgentCreationError(
+          'Agent must have role=true. Only Role Agents can be created via ges_create_agent.',
+        ),
+      );
     }
 
     const agentName = agent.frontmatter.name;
@@ -143,29 +156,26 @@ description: "<string>"
       mkdirSync(agentDir, { recursive: true });
       writeFileSync(filePath, agentContent, 'utf-8');
     } catch (e) {
-      return err(new AgentCreationError(
-        `Failed to write AGENT.md: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new AgentCreationError(
+          `Failed to write AGENT.md: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
     }
 
     // Update filePath to actual location
     agent = { ...agent, filePath };
 
-    this.eventStore.append(
-      'agent',
+    this.eventStore.append('agent', agentName, EventType.AGENT_CREATED, {
+      sessionId: session.sessionId,
       agentName,
-      EventType.AGENT_CREATED,
-      {
-        sessionId: session.sessionId,
-        agentName,
-        tier: agent.frontmatter.tier,
-        pipeline: agent.frontmatter.pipeline,
-        domain: agent.frontmatter.domain,
-        description: agent.frontmatter.description,
-        overridden,
-        filePath,
-      },
-    );
+      tier: agent.frontmatter.tier,
+      pipeline: agent.frontmatter.pipeline,
+      domain: agent.frontmatter.domain,
+      description: agent.frontmatter.description,
+      overridden,
+      filePath,
+    });
 
     return ok({ agent, filePath, overridden });
   }

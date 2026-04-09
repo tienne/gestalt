@@ -16,9 +16,7 @@ export class AuditEngine {
 Your task is to determine which Acceptance Criteria (ACs) are fully implemented, partially implemented, or missing entirely.
 Be precise: only classify an AC as "implemented" if you can see clear evidence in the code. Be conservative.`;
 
-    const acList = spec.acceptanceCriteria
-      .map((ac, i) => `AC[${i}]: ${ac}`)
-      .join('\n');
+    const acList = spec.acceptanceCriteria.map((ac, i) => `AC[${i}]: ${ac}`).join('\n');
 
     const auditPrompt = `Audit the following codebase snapshot against the project specification.
 
@@ -47,9 +45,12 @@ Respond with ONLY a JSON object:
     return { systemPrompt, auditPrompt };
   }
 
-  buildAuditResult(
-    raw: { implementedACs: number[]; partialACs: number[]; missingACs: number[]; gapAnalysis: string },
-  ): AuditResult {
+  buildAuditResult(raw: {
+    implementedACs: number[];
+    partialACs: number[];
+    missingACs: number[];
+    gapAnalysis: string;
+  }): AuditResult {
     return {
       implementedACs: raw.implementedACs,
       partialACs: raw.partialACs,

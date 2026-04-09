@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PassthroughReviewEngine } from '../../../src/review/passthrough-engine.js';
-import type { ExecuteSession, AgentDefinition, ReviewConsensusResult } from '../../../src/core/types.js';
+import type {
+  ExecuteSession,
+  AgentDefinition,
+  ReviewConsensusResult,
+} from '../../../src/core/types.js';
 
 function createMockExecuteSession(overrides?: Partial<ExecuteSession>): ExecuteSession {
   return {
@@ -137,7 +141,9 @@ describe('PassthroughReviewEngine', () => {
       expect(result.value.reviewStartContext.systemPrompt).toContain('code reviewer');
       expect(result.value.reviewStartContext.reviewPrompt).toContain('Test goal');
       expect(result.value.reviewStartContext.matchContext.availableAgents).toHaveLength(2);
-      expect(result.value.reviewStartContext.reviewContext.changedFiles).toContain('src/auth/login.ts');
+      expect(result.value.reviewStartContext.reviewContext.changedFiles).toContain(
+        'src/auth/login.ts',
+      );
     });
 
     it('includes both role agents and review agents in match context', () => {
@@ -164,7 +170,17 @@ describe('PassthroughReviewEngine', () => {
       const reviewSessionId = startResult.value.sessionId;
       const result = engine.submitReview(reviewSessionId, 'security-reviewer', {
         agentName: 'security-reviewer',
-        issues: [{ id: 'i1', severity: 'high', category: 'security', file: 'f.ts', message: 'msg', suggestion: 'fix', reportedBy: '' }],
+        issues: [
+          {
+            id: 'i1',
+            severity: 'high',
+            category: 'security',
+            file: 'f.ts',
+            message: 'msg',
+            suggestion: 'fix',
+            reportedBy: '',
+          },
+        ],
         approved: false,
         summary: 'Issues found',
       });
@@ -182,7 +198,17 @@ describe('PassthroughReviewEngine', () => {
 
       engine.submitReview(startResult.value.sessionId, 'architect', {
         agentName: 'architect',
-        issues: [{ id: 'i1', severity: 'warning', category: 'design', file: 'f.ts', message: 'msg', suggestion: 'fix', reportedBy: '' }],
+        issues: [
+          {
+            id: 'i1',
+            severity: 'warning',
+            category: 'design',
+            file: 'f.ts',
+            message: 'msg',
+            suggestion: 'fix',
+            reportedBy: '',
+          },
+        ],
         approved: true,
         summary: 'Minor issues',
       });
@@ -193,7 +219,10 @@ describe('PassthroughReviewEngine', () => {
 
     it('returns error for unknown session', () => {
       const result = engine.submitReview('nonexistent', 'agent', {
-        agentName: 'agent', issues: [], approved: true, summary: 'ok',
+        agentName: 'agent',
+        issues: [],
+        approved: true,
+        summary: 'ok',
       });
       expect(result.ok).toBe(false);
     });
@@ -206,10 +235,7 @@ describe('PassthroughReviewEngine', () => {
       const startResult = engine.startReview(session, roleAgents, reviewAgents);
       if (!startResult.ok) return;
 
-      const result = engine.submitConsensus(
-        startResult.value.sessionId,
-        createCleanConsensus(),
-      );
+      const result = engine.submitConsensus(startResult.value.sessionId, createCleanConsensus());
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -225,10 +251,7 @@ describe('PassthroughReviewEngine', () => {
       const startResult = engine.startReview(session, roleAgents, reviewAgents);
       if (!startResult.ok) return;
 
-      const result = engine.submitConsensus(
-        startResult.value.sessionId,
-        createBlockedConsensus(),
-      );
+      const result = engine.submitConsensus(startResult.value.sessionId, createBlockedConsensus());
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -245,10 +268,17 @@ describe('PassthroughReviewEngine', () => {
       if (!startResult.ok) return;
 
       const warningOnlyConsensus: ReviewConsensusResult = {
-        mergedIssues: [{
-          id: 'w1', severity: 'warning', category: 'quality',
-          file: 'f.ts', message: 'minor', suggestion: 'fix', reportedBy: 'quality-reviewer',
-        }],
+        mergedIssues: [
+          {
+            id: 'w1',
+            severity: 'warning',
+            category: 'quality',
+            file: 'f.ts',
+            message: 'minor',
+            suggestion: 'fix',
+            reportedBy: 'quality-reviewer',
+          },
+        ],
         approvedBy: ['architect', 'security-reviewer'],
         blockedBy: [],
         summary: 'Only warnings.',
@@ -389,11 +419,7 @@ describe('PassthroughReviewEngine', () => {
       const { roleAgents, reviewAgents } = createMockAgents();
 
       engine.startReview(session, roleAgents, reviewAgents);
-      engine.startReview(
-        { ...session, sessionId: 'exec-2' },
-        roleAgents,
-        reviewAgents,
-      );
+      engine.startReview({ ...session, sessionId: 'exec-2' }, roleAgents, reviewAgents);
 
       expect(engine.listSessions()).toHaveLength(2);
     });

@@ -22,7 +22,9 @@ describe('PassthroughEngine', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   it('starts an interview and returns GestaltContext', () => {

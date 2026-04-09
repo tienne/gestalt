@@ -37,16 +37,12 @@ export function selectNextPrinciple(context: PrincipleSelectionContext): Gestalt
     return GestaltPrinciple.CLOSURE;
   }
   if (roundNumber <= 8) {
-    return roundNumber % 2 === 0
-      ? GestaltPrinciple.PROXIMITY
-      : GestaltPrinciple.SIMILARITY;
+    return roundNumber % 2 === 0 ? GestaltPrinciple.PROXIMITY : GestaltPrinciple.SIMILARITY;
   }
   return GestaltPrinciple.FIGURE_GROUND;
 }
 
-function findWeakestDimension(
-  dimensions: ResolutionDimension[],
-): ResolutionDimension | null {
+function findWeakestDimension(dimensions: ResolutionDimension[]): ResolutionDimension | null {
   if (dimensions.length === 0) return null;
 
   let weakest = dimensions[0]!;

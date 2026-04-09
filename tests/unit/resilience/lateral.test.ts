@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { suggestPersona, buildLateralContext, buildEscalationContext } from '../../../src/resilience/lateral.js';
+import {
+  suggestPersona,
+  buildLateralContext,
+  buildEscalationContext,
+} from '../../../src/resilience/lateral.js';
 import type { Spec, EvaluationResult, EvolutionGeneration } from '../../../src/core/types.js';
 import type { LateralPersonaName } from '../../../src/resilience/types.js';
 
@@ -66,7 +70,12 @@ describe('suggestPersona', () => {
   });
 
   it('all tried → returns null', () => {
-    const allTried: LateralPersonaName[] = ['multistability', 'simplicity', 'reification', 'invariance'];
+    const allTried: LateralPersonaName[] = [
+      'multistability',
+      'simplicity',
+      'reification',
+      'invariance',
+    ];
     expect(suggestPersona('spinning', allTried)).toBeNull();
   });
 });
@@ -94,14 +103,7 @@ describe('buildLateralContext', () => {
   });
 
   it('includes unsatisfied criteria in prompt', () => {
-    const ctx = buildLateralContext(
-      'reification',
-      'no_drift',
-      makeSpec(),
-      makeEvalResult(),
-      [],
-      1,
-    );
+    const ctx = buildLateralContext('reification', 'no_drift', makeSpec(), makeEvalResult(), [], 1);
 
     expect(ctx.lateralPrompt).toContain('Missing OAuth');
   });
@@ -109,7 +111,12 @@ describe('buildLateralContext', () => {
 
 describe('buildEscalationContext', () => {
   it('returns correctly structured EscalationContext', () => {
-    const allTried: LateralPersonaName[] = ['multistability', 'simplicity', 'reification', 'invariance'];
+    const allTried: LateralPersonaName[] = [
+      'multistability',
+      'simplicity',
+      'reification',
+      'invariance',
+    ];
     const ctx = buildEscalationContext(allTried, makeEvalResult(), makeHistory(3));
 
     expect(ctx.phase).toBe('evolving');

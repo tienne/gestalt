@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ExecuteSessionRepository } from '../../../src/execute/repository.js';
 import { ExecuteSessionManager } from '../../../src/execute/session.js';
 import { EventStore } from '../../../src/events/store.js';
-import type { Spec, PlanningStepResult, ExecutionPlan, TaskExecutionResult, EvaluationResult } from '../../../src/core/types.js';
+import type {
+  Spec,
+  PlanningStepResult,
+  ExecutionPlan,
+  TaskExecutionResult,
+  EvaluationResult,
+} from '../../../src/core/types.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -27,26 +33,80 @@ const createTestSpec = (): Spec => ({
 const figureGroundStep: PlanningStepResult = {
   principle: 'figure_ground',
   classifiedACs: [
-    { acIndex: 0, acText: 'AC0', classification: 'figure', priority: 'critical', reasoning: 'Core' },
-    { acIndex: 1, acText: 'AC1', classification: 'figure', priority: 'high', reasoning: 'Important' },
-    { acIndex: 2, acText: 'AC2', classification: 'ground', priority: 'medium', reasoning: 'Nice to have' },
+    {
+      acIndex: 0,
+      acText: 'AC0',
+      classification: 'figure',
+      priority: 'critical',
+      reasoning: 'Core',
+    },
+    {
+      acIndex: 1,
+      acText: 'AC1',
+      classification: 'figure',
+      priority: 'high',
+      reasoning: 'Important',
+    },
+    {
+      acIndex: 2,
+      acText: 'AC2',
+      classification: 'ground',
+      priority: 'medium',
+      reasoning: 'Nice to have',
+    },
   ],
 };
 
 const closureStep: PlanningStepResult = {
   principle: 'closure',
   atomicTasks: [
-    { taskId: 'task-0', title: 'Setup', description: 'Setup project', sourceAC: [0], isImplicit: false, estimatedComplexity: 'low', dependsOn: [] },
-    { taskId: 'task-1', title: 'Core', description: 'Core feature', sourceAC: [0, 1], isImplicit: false, estimatedComplexity: 'high', dependsOn: ['task-0'] },
-    { taskId: 'task-2', title: 'Polish', description: 'Nice to have', sourceAC: [2], isImplicit: false, estimatedComplexity: 'low', dependsOn: ['task-1'] },
+    {
+      taskId: 'task-0',
+      title: 'Setup',
+      description: 'Setup project',
+      sourceAC: [0],
+      isImplicit: false,
+      estimatedComplexity: 'low',
+      dependsOn: [],
+    },
+    {
+      taskId: 'task-1',
+      title: 'Core',
+      description: 'Core feature',
+      sourceAC: [0, 1],
+      isImplicit: false,
+      estimatedComplexity: 'high',
+      dependsOn: ['task-0'],
+    },
+    {
+      taskId: 'task-2',
+      title: 'Polish',
+      description: 'Nice to have',
+      sourceAC: [2],
+      isImplicit: false,
+      estimatedComplexity: 'low',
+      dependsOn: ['task-1'],
+    },
   ],
 };
 
 const proximityStep: PlanningStepResult = {
   principle: 'proximity',
   taskGroups: [
-    { groupId: 'group-0', name: 'Infrastructure', domain: 'setup', taskIds: ['task-0'], reasoning: 'Setup tasks' },
-    { groupId: 'group-1', name: 'Features', domain: 'core', taskIds: ['task-1', 'task-2'], reasoning: 'Feature tasks' },
+    {
+      groupId: 'group-0',
+      name: 'Infrastructure',
+      domain: 'setup',
+      taskIds: ['task-0'],
+      reasoning: 'Setup tasks',
+    },
+    {
+      groupId: 'group-1',
+      name: 'Features',
+      domain: 'core',
+      taskIds: ['task-1', 'task-2'],
+      reasoning: 'Feature tasks',
+    },
   ],
 };
 
@@ -80,7 +140,9 @@ describe('ExecuteSessionRepository', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   it('returns null for non-existent session', () => {
@@ -203,9 +265,24 @@ describe('ExecuteSessionRepository', () => {
     };
     manager.completePlan(session.sessionId, plan);
     manager.startExecution(session.sessionId);
-    manager.addTaskResult(session.sessionId, { taskId: 'task-0', status: 'completed', output: 'Done', artifacts: [] });
-    manager.addTaskResult(session.sessionId, { taskId: 'task-1', status: 'completed', output: 'Done', artifacts: [] });
-    manager.addTaskResult(session.sessionId, { taskId: 'task-2', status: 'completed', output: 'Done', artifacts: [] });
+    manager.addTaskResult(session.sessionId, {
+      taskId: 'task-0',
+      status: 'completed',
+      output: 'Done',
+      artifacts: [],
+    });
+    manager.addTaskResult(session.sessionId, {
+      taskId: 'task-1',
+      status: 'completed',
+      output: 'Done',
+      artifacts: [],
+    });
+    manager.addTaskResult(session.sessionId, {
+      taskId: 'task-2',
+      status: 'completed',
+      output: 'Done',
+      artifacts: [],
+    });
 
     const evaluation: EvaluationResult = {
       verifications: [
@@ -264,8 +341,10 @@ describe('ExecuteSessionRepository', () => {
     manager.completePlan(session.sessionId, plan);
     manager.startExecution(session.sessionId);
     manager.addTaskResult(session.sessionId, {
-      taskId: 'task-0', status: 'completed',
-      output: 'Persisted output', artifacts: ['file.ts'],
+      taskId: 'task-0',
+      status: 'completed',
+      output: 'Persisted output',
+      artifacts: ['file.ts'],
     });
 
     // Simulate restart

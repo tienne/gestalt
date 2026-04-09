@@ -52,7 +52,9 @@ export abstract class BaseRegistry<T extends RegistryItem> {
       const item = this.parse(content, filePath);
       this.items.set(this.getName(item), item);
     } catch (e) {
-      log(`Failed to load ${this.label} at ${filePath}: ${e instanceof Error ? e.message : String(e)}`);
+      log(
+        `Failed to load ${this.label} at ${filePath}: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
 

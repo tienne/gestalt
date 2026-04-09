@@ -11,7 +11,8 @@ class MockLLM implements LLMAdapter {
   private callIndex = 0;
 
   async chat(_request: LLMRequest): Promise<LLMResponse> {
-    const content = this.responses[this.callIndex] ?? '{"question": "Fallback question?", "reasoning": "mock"}';
+    const content =
+      this.responses[this.callIndex] ?? '{"question": "Fallback question?", "reasoning": "mock"}';
     this.callIndex++;
     return { content, usage: { inputTokens: 100, outputTokens: 50 } };
   }
@@ -36,7 +37,9 @@ describe('InterviewEngine', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   it('starts an interview', async () => {
@@ -95,9 +98,7 @@ describe('InterviewEngine', () => {
   });
 
   it('completes a session', async () => {
-    mockLLM.responses = [
-      '{"question": "What?", "reasoning": "r"}',
-    ];
+    mockLLM.responses = ['{"question": "What?", "reasoning": "r"}'];
 
     const start = await engine.start('test');
     if (!start.ok) throw new Error('start failed');

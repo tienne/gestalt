@@ -44,14 +44,18 @@ export class AsciinemaRecorder {
 
     mkdirSync(dirname(castPath), { recursive: true });
 
-    const result = spawnSync('asciinema', ['rec', '--overwrite', castPath, '--', 'node', ...filteredArgs], {
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        GESTALT_RECORDING: '1',
-        GESTALT_CAST_PATH: castPath,
+    const result = spawnSync(
+      'asciinema',
+      ['rec', '--overwrite', castPath, '--', 'node', ...filteredArgs],
+      {
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          GESTALT_RECORDING: '1',
+          GESTALT_CAST_PATH: castPath,
+        },
       },
-    });
+    );
 
     process.exit(result.status ?? 0);
   }

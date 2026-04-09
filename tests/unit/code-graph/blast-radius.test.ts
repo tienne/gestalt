@@ -17,7 +17,11 @@ function makeNode(id: string, filePath: string, isTest = false): CodeGraphNode {
   };
 }
 
-function makeEdge(sourceId: string, targetId: string, kind: EdgeKind = EdgeKind.IMPORTS_FROM): CodeGraphEdge {
+function makeEdge(
+  sourceId: string,
+  targetId: string,
+  kind: EdgeKind = EdgeKind.IMPORTS_FROM,
+): CodeGraphEdge {
   return {
     kind,
     sourceId,

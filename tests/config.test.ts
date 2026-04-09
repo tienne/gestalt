@@ -45,10 +45,13 @@ describe('loadConfig', () => {
 
   it('nested overrides merge correctly', () => {
     delete process.env['ANTHROPIC_API_KEY'];
-    const config = loadConfig({
-      llm: { apiKey: 'test-key', model: 'custom-model' },
-      interview: { resolutionThreshold: 0.9 },
-    }, opts);
+    const config = loadConfig(
+      {
+        llm: { apiKey: 'test-key', model: 'custom-model' },
+        interview: { resolutionThreshold: 0.9 },
+      },
+      opts,
+    );
     expect(config.llm.apiKey).toBe('test-key');
     expect(config.llm.model).toBe('custom-model');
     expect(config.interview.resolutionThreshold).toBe(0.9);
@@ -89,16 +92,19 @@ describe('loadConfig', () => {
     expect(config.interview.maxRounds).toBe(15);
     expect(config.execute.driftThreshold).toBe(0.3);
     expect(config.execute.successThreshold).toBe(0.85);
-    expect(config.execute.goalAlignmentThreshold).toBe(0.80);
+    expect(config.execute.goalAlignmentThreshold).toBe(0.8);
     expect(config.logLevel).toBe('info');
   });
 
   it('warns and falls back on invalid values', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     delete process.env['ANTHROPIC_API_KEY'];
-    const config = loadConfig({
-      interview: { resolutionThreshold: 5 }, // invalid: max 1
-    }, opts);
+    const config = loadConfig(
+      {
+        interview: { resolutionThreshold: 5 }, // invalid: max 1
+      },
+      opts,
+    );
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Warning'));
     // Falls back to defaults
     expect(config.interview.resolutionThreshold).toBe(0.8);
@@ -107,9 +113,12 @@ describe('loadConfig', () => {
 
   it('overrides take highest priority over env vars', () => {
     process.env['GESTALT_DRIFT_THRESHOLD'] = '0.5';
-    const config = loadConfig({
-      execute: { driftThreshold: 0.7 },
-    }, opts);
+    const config = loadConfig(
+      {
+        execute: { driftThreshold: 0.7 },
+      },
+      opts,
+    );
     expect(config.execute.driftThreshold).toBe(0.7);
   });
 });

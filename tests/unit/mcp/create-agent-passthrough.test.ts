@@ -42,7 +42,9 @@ describe('handleCreateAgentPassthrough', () => {
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
       if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   function createCompletedSession(): string {

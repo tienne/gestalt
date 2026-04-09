@@ -25,7 +25,10 @@ async function confirm(question: string): Promise<boolean> {
   });
 }
 
-export async function initCommand(options: { skipGraph?: boolean; skipHook?: boolean }): Promise<void> {
+export async function initCommand(options: {
+  skipGraph?: boolean;
+  skipHook?: boolean;
+}): Promise<void> {
   const repoRoot = process.cwd();
   const filePath = resolve(repoRoot, CONFIG_FILENAME);
 
@@ -77,5 +80,7 @@ export async function initCommand(options: { skipGraph?: boolean; skipHook?: boo
     console.log('post-commit 훅 설치를 건너뜁니다. (--skip-hook)');
   }
 
-  console.log('\nGestalt 초기화 완료! 이제 /build-graph, /blast-radius 스킬을 바로 사용할 수 있습니다.');
+  console.log(
+    '\nGestalt 초기화 완료! 이제 /build-graph, /blast-radius 스킬을 바로 사용할 수 있습니다.',
+  );
 }

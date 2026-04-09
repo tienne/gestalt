@@ -19,7 +19,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     const extractor = await this.getExtractor();
     const results: number[][] = [];
     for (const text of texts) {
-      const output = await extractor(text, { pooling: 'mean', normalize: true }) as Tensor;
+      const output = (await extractor(text, { pooling: 'mean', normalize: true })) as Tensor;
       // output.data is Float32Array or similar DataArray
       results.push(Array.from(output.data as Float32Array));
     }

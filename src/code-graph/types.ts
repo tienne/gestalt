@@ -15,19 +15,19 @@ export enum EdgeKind {
 }
 
 export interface CodeGraphNode {
-  id: string;           // e.g. "function:src/auth.ts:login"
+  id: string; // e.g. "function:src/auth.ts:login"
   kind: NodeKind;
   name: string;
   filePath: string;
   lineStart?: number;
   lineEnd?: number;
   isTest: boolean;
-  fileHash?: string;    // SHA-256 for incremental update
-  updatedAt: number;    // Unix timestamp ms
+  fileHash?: string; // SHA-256 for incremental update
+  updatedAt: number; // Unix timestamp ms
 }
 
 export interface CodeGraphEdge {
-  id?: number;          // autoincrement in DB
+  id?: number; // autoincrement in DB
   kind: EdgeKind;
   sourceId: string;
   targetId: string;
@@ -47,9 +47,9 @@ export interface BlastRadiusNode {
 
 export interface BlastRadiusResult {
   changedFiles: string[];
-  impactedFiles: string[];         // unique file paths, test files first
+  impactedFiles: string[]; // unique file paths, test files first
   impactedNodes: BlastRadiusNode[];
-  riskScore: number;               // 0-1, impactedNodes / totalNodes
+  riskScore: number; // 0-1, impactedNodes / totalNodes
   maxDepthUsed: number;
   summary: string;
 }
@@ -63,7 +63,7 @@ export interface ParseResult {
 
 export interface AnalyzerPlugin {
   language: string;
-  extensions: string[];           // e.g. ['.ts', '.tsx', '.js']
+  extensions: string[]; // e.g. ['.ts', '.tsx', '.js']
   parse(filePath: string, content: string): ParseResult;
 }
 
@@ -80,7 +80,7 @@ export interface CodeGraphStats {
   totalFiles: number;
   totalNodes: number;
   totalEdges: number;
-  lastBuiltAt: number | null;    // Unix timestamp ms
+  lastBuiltAt: number | null; // Unix timestamp ms
   dbSizeBytes: number;
 }
 
@@ -88,7 +88,7 @@ export interface CodeGraphStats {
 export type BuildMode = 'full' | 'incremental';
 
 export interface BuildOptions {
-  include?: string[];             // glob patterns
+  include?: string[]; // glob patterns
   exclude?: string[];
   mode?: BuildMode;
 }
@@ -102,15 +102,15 @@ export interface BuildResult {
 
 // ─── Blast Radius Options ────────────────────────────────────────
 export interface BlastRadiusOptions {
-  changedFiles?: string[];        // explicit list, overrides git diff
-  base?: string;                  // git base ref, default 'HEAD~1'
-  maxDepth?: number;              // BFS max depth, default 2
+  changedFiles?: string[]; // explicit list, overrides git diff
+  base?: string; // git base ref, default 'HEAD~1'
+  maxDepth?: number; // BFS max depth, default 2
 }
 
 // ─── Diff Radius ─────────────────────────────────────────────────
 export type DiffMode = 'staged' | 'unstaged' | 'all';
 
 export interface DiffRadiusOptions {
-  mode?: DiffMode;                // default 'all'
+  mode?: DiffMode; // default 'all'
   maxDepth?: number;
 }

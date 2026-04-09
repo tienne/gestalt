@@ -49,10 +49,30 @@ describe('selectNextPrinciple', () => {
     const result = selectNextPrinciple({
       roundNumber: 5,
       dimensions: [
-        { name: 'goalClarity', clarity: 0.9, weight: 0.40, gestaltPrinciple: GestaltPrinciple.CLOSURE },
-        { name: 'constraintClarity', clarity: 0.2, weight: 0.25, gestaltPrinciple: GestaltPrinciple.PROXIMITY },
-        { name: 'successCriteria', clarity: 0.8, weight: 0.20, gestaltPrinciple: GestaltPrinciple.SIMILARITY },
-        { name: 'priorityClarity', clarity: 0.7, weight: 0.15, gestaltPrinciple: GestaltPrinciple.FIGURE_GROUND },
+        {
+          name: 'goalClarity',
+          clarity: 0.9,
+          weight: 0.4,
+          gestaltPrinciple: GestaltPrinciple.CLOSURE,
+        },
+        {
+          name: 'constraintClarity',
+          clarity: 0.2,
+          weight: 0.25,
+          gestaltPrinciple: GestaltPrinciple.PROXIMITY,
+        },
+        {
+          name: 'successCriteria',
+          clarity: 0.8,
+          weight: 0.2,
+          gestaltPrinciple: GestaltPrinciple.SIMILARITY,
+        },
+        {
+          name: 'priorityClarity',
+          clarity: 0.7,
+          weight: 0.15,
+          gestaltPrinciple: GestaltPrinciple.FIGURE_GROUND,
+        },
       ],
       hasContradictions: false,
     });
@@ -63,8 +83,18 @@ describe('selectNextPrinciple', () => {
     const result = selectNextPrinciple({
       roundNumber: 2,
       dimensions: [
-        { name: 'goalClarity', clarity: 0.8, weight: 0.40, gestaltPrinciple: GestaltPrinciple.CLOSURE },
-        { name: 'constraintClarity', clarity: 0.7, weight: 0.25, gestaltPrinciple: GestaltPrinciple.PROXIMITY },
+        {
+          name: 'goalClarity',
+          clarity: 0.8,
+          weight: 0.4,
+          gestaltPrinciple: GestaltPrinciple.CLOSURE,
+        },
+        {
+          name: 'constraintClarity',
+          clarity: 0.7,
+          weight: 0.25,
+          gestaltPrinciple: GestaltPrinciple.PROXIMITY,
+        },
       ],
       hasContradictions: false,
     });

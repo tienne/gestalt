@@ -23,7 +23,9 @@ describe('EventStore', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore cleanup errors */ }
+    } catch {
+      /* ignore cleanup errors */
+    }
   });
 
   it('creates database and tables', () => {
@@ -31,12 +33,9 @@ describe('EventStore', () => {
   });
 
   it('appends and retrieves events', () => {
-    const event = store.append(
-      'interview',
-      'session-1',
-      EventType.INTERVIEW_SESSION_STARTED,
-      { topic: 'test topic' },
-    );
+    const event = store.append('interview', 'session-1', EventType.INTERVIEW_SESSION_STARTED, {
+      topic: 'test topic',
+    });
 
     expect(event.id).toBeDefined();
     expect(event.aggregateType).toBe('interview');

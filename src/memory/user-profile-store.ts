@@ -84,10 +84,7 @@ export class UserProfileStore {
       ...profile,
       ...partial,
       crossRepoPatterns: [
-        ...new Set([
-          ...profile.crossRepoPatterns,
-          ...(partial.crossRepoPatterns ?? []),
-        ]),
+        ...new Set([...profile.crossRepoPatterns, ...(partial.crossRepoPatterns ?? [])]),
       ],
       personalPreferences: {
         ...profile.personalPreferences,

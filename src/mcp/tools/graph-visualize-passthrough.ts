@@ -13,9 +13,7 @@ export interface GraphVisualizeInput {
  * Note: The server keeps running after this call returns.
  * The caller is responsible for keeping the MCP session alive or handling shutdown.
  */
-export async function handleGraphVisualizePassthrough(
-  input: GraphVisualizeInput,
-): Promise<object> {
+export async function handleGraphVisualizePassthrough(input: GraphVisualizeInput): Promise<object> {
   const { repoRoot, port } = input;
 
   log(`graph-visualize: repoRoot=${repoRoot}, port=${port ?? 'auto'}`);

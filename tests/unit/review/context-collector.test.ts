@@ -17,13 +17,22 @@ describe('ReviewContextCollector', () => {
 
   it('extracts changed files from task artifacts', () => {
     const taskResults: TaskExecutionResult[] = [
-      { taskId: 't1', status: 'completed', output: '', artifacts: ['src/auth/login.ts', 'src/auth/session.ts'] },
+      {
+        taskId: 't1',
+        status: 'completed',
+        output: '',
+        artifacts: ['src/auth/login.ts', 'src/auth/session.ts'],
+      },
       { taskId: 't2', status: 'completed', output: '', artifacts: ['src/api/routes.ts'] },
     ];
 
     const ctx = collector.collect(mockSpec, taskResults);
 
-    expect(ctx.changedFiles).toEqual(['src/api/routes.ts', 'src/auth/login.ts', 'src/auth/session.ts']);
+    expect(ctx.changedFiles).toEqual([
+      'src/api/routes.ts',
+      'src/auth/login.ts',
+      'src/auth/session.ts',
+    ]);
   });
 
   it('deduplicates file paths', () => {
@@ -41,7 +50,8 @@ describe('ReviewContextCollector', () => {
       {
         taskId: 't1',
         status: 'completed',
-        output: 'Created file with import from "./utils/hash.js" and import { foo } from "../core/types.js"',
+        output:
+          'Created file with import from "./utils/hash.js" and import { foo } from "../core/types.js"',
         artifacts: ['src/auth/login.ts'],
       },
     ];

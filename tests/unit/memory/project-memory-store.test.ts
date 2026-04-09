@@ -49,8 +49,18 @@ describe('ProjectMemoryStore', () => {
     const specId1 = randomUUID();
     const specId2 = randomUUID();
 
-    store.addSpec({ specId: specId1, goal: 'Goal 1', createdAt: new Date().toISOString(), sourceType: 'interview' });
-    store.addSpec({ specId: specId2, goal: 'Goal 2', createdAt: new Date().toISOString(), sourceType: 'text' });
+    store.addSpec({
+      specId: specId1,
+      goal: 'Goal 1',
+      createdAt: new Date().toISOString(),
+      sourceType: 'interview',
+    });
+    store.addSpec({
+      specId: specId2,
+      goal: 'Goal 2',
+      createdAt: new Date().toISOString(),
+      sourceType: 'text',
+    });
 
     const memory = store.read();
     expect(memory.specHistory).toHaveLength(2);
@@ -60,8 +70,18 @@ describe('ProjectMemoryStore', () => {
 
   it('prevents duplicate specId entries', () => {
     const specId = randomUUID();
-    store.addSpec({ specId, goal: 'Goal', createdAt: new Date().toISOString(), sourceType: 'text' });
-    store.addSpec({ specId, goal: 'Goal', createdAt: new Date().toISOString(), sourceType: 'text' });
+    store.addSpec({
+      specId,
+      goal: 'Goal',
+      createdAt: new Date().toISOString(),
+      sourceType: 'text',
+    });
+    store.addSpec({
+      specId,
+      goal: 'Goal',
+      createdAt: new Date().toISOString(),
+      sourceType: 'text',
+    });
 
     const memory = store.read();
     expect(memory.specHistory).toHaveLength(1);
@@ -119,7 +139,12 @@ describe('ProjectMemoryStore', () => {
 
   it('updates lastUpdated on write', () => {
     const before = new Date().toISOString();
-    store.addSpec({ specId: randomUUID(), goal: 'G', createdAt: new Date().toISOString(), sourceType: 'text' });
+    store.addSpec({
+      specId: randomUUID(),
+      goal: 'G',
+      createdAt: new Date().toISOString(),
+      sourceType: 'text',
+    });
     const memory = store.read();
     expect(memory.lastUpdated >= before).toBe(true);
   });

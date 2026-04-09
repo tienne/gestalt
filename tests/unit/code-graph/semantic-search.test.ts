@@ -124,7 +124,11 @@ describe('CodeGraphStore — 임베딩 CRUD', () => {
     store.upsertEmbedding(makeEmbedding('node:1', 'src/auth.ts', [0.9, 0.8]));
 
     const result = store.getEmbedding('node:1');
-    const vec = new Float32Array(result!.embedding.buffer, result!.embedding.byteOffset, result!.embedding.byteLength / 4);
+    const vec = new Float32Array(
+      result!.embedding.buffer,
+      result!.embedding.byteOffset,
+      result!.embedding.byteLength / 4,
+    );
     expect(vec[0]).toBeCloseTo(0.9, 4);
   });
 
@@ -197,7 +201,9 @@ describe('searchBySemantic — mock 기반 정렬 검증', () => {
     const fileC = [0.7071, 0.7071, 0];
 
     function cosSim(a: number[], b: number[]): number {
-      let dot = 0, na = 0, nb = 0;
+      let dot = 0,
+        na = 0,
+        nb = 0;
       for (let i = 0; i < a.length; i++) {
         const ai = a[i] ?? 0;
         const bi = b[i] ?? 0;
@@ -234,21 +240,24 @@ describe('searchByHybrid — RRF 통합 및 fallback', () => {
     const semanticResults: ScoredFile[] = [];
 
     // searchByHybrid 내부 로직 시뮬레이션
-    const merged = semanticResults.length === 0
-      ? keywordResults.slice(0, 10).map((r) => r.filePath)
-      : reciprocalRankFusion([keywordResults, semanticResults]).slice(0, 10).map((r) => r.filePath);
+    const merged =
+      semanticResults.length === 0
+        ? keywordResults.slice(0, 10).map((r) => r.filePath)
+        : reciprocalRankFusion([keywordResults, semanticResults])
+            .slice(0, 10)
+            .map((r) => r.filePath);
 
     expect(merged).toEqual(['src/auth.ts', 'src/user.ts']);
   });
 
   it('두 결과가 모두 있으면 RRF로 병합된다', () => {
     const keywordResults: ScoredFile[] = [
-      { filePath: 'src/auth.ts', score: 1.0 },  // rank 0
-      { filePath: 'src/user.ts', score: 0.5 },  // rank 1
+      { filePath: 'src/auth.ts', score: 1.0 }, // rank 0
+      { filePath: 'src/user.ts', score: 0.5 }, // rank 1
     ];
     const semanticResults: ScoredFile[] = [
-      { filePath: 'src/user.ts', score: 0.9 },  // rank 0 in semantic
-      { filePath: 'src/auth.ts', score: 0.8 },  // rank 1 in semantic
+      { filePath: 'src/user.ts', score: 0.9 }, // rank 0 in semantic
+      { filePath: 'src/auth.ts', score: 0.8 }, // rank 1 in semantic
     ];
 
     const merged = reciprocalRankFusion([keywordResults, semanticResults]).slice(0, 10);

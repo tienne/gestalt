@@ -43,10 +43,7 @@ Respond with ONLY a JSON object:
 }`;
 
     const agentList = availableAgents
-      .map(
-        (a) =>
-          `- **${a.name}**: ${a.description} (domains: ${a.domain.join(', ')})`,
-      )
+      .map((a) => `- **${a.name}**: ${a.description} (domains: ${a.domain.join(', ')})`)
       .join('\n');
 
     const matchingPrompt = `## Role Agent Matching

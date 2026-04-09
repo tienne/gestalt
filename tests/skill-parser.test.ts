@@ -58,6 +58,8 @@ No name.
 
   it('throws SkillParseError for content without name', () => {
     // gray-matter parses this as body with empty frontmatter, triggering name validation
-    expect(() => parseSkillMd('not valid frontmatter at all {{{{', 'broken.md')).toThrow(SkillParseError);
+    expect(() => parseSkillMd('not valid frontmatter at all {{{{', 'broken.md')).toThrow(
+      SkillParseError,
+    );
   });
 });

@@ -199,13 +199,7 @@ export class CodeGraphStore {
       INSERT INTO cg_edges (kind, source_id, target_id, line, updated_at)
       VALUES (?, ?, ?, ?, ?)
     `);
-    insertStmt.run(
-      edge.kind,
-      edge.sourceId,
-      edge.targetId,
-      edge.line ?? 0,
-      edge.updatedAt,
-    );
+    insertStmt.run(edge.kind, edge.sourceId, edge.targetId, edge.line ?? 0, edge.updatedAt);
   }
 
   deleteByFile(filePath: string): void {
@@ -254,9 +248,9 @@ export class CodeGraphStore {
       this.db.prepare(`SELECT COUNT(*) AS cnt FROM cg_edges`).get() as { cnt: number }
     ).cnt;
 
-    const lastBuiltRow = this.db
-      .prepare(`SELECT MAX(updated_at) AS last FROM cg_nodes`)
-      .get() as { last: number | null };
+    const lastBuiltRow = this.db.prepare(`SELECT MAX(updated_at) AS last FROM cg_nodes`).get() as {
+      last: number | null;
+    };
     const lastBuiltAt = lastBuiltRow.last ?? null;
 
     let dbSizeBytes = 0;
@@ -281,7 +275,13 @@ export class CodeGraphStore {
         (node_id, file_path, embedding, model_id, created_at)
       VALUES (?, ?, ?, ?, ?)
     `);
-    stmt.run(embedding.nodeId, embedding.filePath, embedding.embedding, embedding.modelId, embedding.createdAt);
+    stmt.run(
+      embedding.nodeId,
+      embedding.filePath,
+      embedding.embedding,
+      embedding.modelId,
+      embedding.createdAt,
+    );
   }
 
   getEmbedding(nodeId: string): CodeNodeEmbedding | null {

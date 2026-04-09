@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAgentPrompt, mergeSystemPrompt, getActiveAgentNames } from '../../../src/agent/prompt-resolver.js';
+import {
+  resolveAgentPrompt,
+  mergeSystemPrompt,
+  getActiveAgentNames,
+} from '../../../src/agent/prompt-resolver.js';
 import { AgentRegistry } from '../../../src/agent/registry.js';
 import { resolve } from 'node:path';
 

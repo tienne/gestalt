@@ -65,7 +65,9 @@ describe('RecordingOrchestrator', () => {
       mockedAsciinemaRecorder.isInsideRecording.mockReturnValue(false);
       const orchestrator = new RecordingOrchestrator(mockLlm);
       await orchestrator.startIfNeeded({ record: true });
-      expect(mockedAsciinemaRecorder.respawnWithAsciinema).toHaveBeenCalledWith('/tmp/tmp-uuid.cast');
+      expect(mockedAsciinemaRecorder.respawnWithAsciinema).toHaveBeenCalledWith(
+        '/tmp/tmp-uuid.cast',
+      );
     });
   });
 
@@ -99,9 +101,7 @@ describe('RecordingOrchestrator', () => {
       const orchestrator = new RecordingOrchestrator(mockLlm);
 
       // 에러 없이 완료되고 비동기 변환이 트리거됨
-      await expect(
-        orchestrator.stopAndConvert('my topic', 'session-123'),
-      ).resolves.toBeUndefined();
+      await expect(orchestrator.stopAndConvert('my topic', 'session-123')).resolves.toBeUndefined();
     });
   });
 });

@@ -49,31 +49,95 @@ function createPlanningSteps() {
   const fgResult: FigureGroundResult = {
     principle: 'figure_ground',
     classifiedACs: [
-      { acIndex: 0, acText: 'Users can register', classification: 'figure', priority: 'critical', reasoning: 'Core' },
-      { acIndex: 1, acText: 'Users can login', classification: 'figure', priority: 'critical', reasoning: 'Core' },
-      { acIndex: 2, acText: 'Token refresh', classification: 'ground', priority: 'medium', reasoning: 'Nice to have' },
+      {
+        acIndex: 0,
+        acText: 'Users can register',
+        classification: 'figure',
+        priority: 'critical',
+        reasoning: 'Core',
+      },
+      {
+        acIndex: 1,
+        acText: 'Users can login',
+        classification: 'figure',
+        priority: 'critical',
+        reasoning: 'Core',
+      },
+      {
+        acIndex: 2,
+        acText: 'Token refresh',
+        classification: 'ground',
+        priority: 'medium',
+        reasoning: 'Nice to have',
+      },
     ],
   };
   const closureResult: ClosureResult = {
     principle: 'closure',
     atomicTasks: [
-      { taskId: 'task-0', title: 'Setup user model', description: 'Create User model', sourceAC: [0], isImplicit: false, estimatedComplexity: 'low', dependsOn: [] },
-      { taskId: 'task-1', title: 'Implement registration', description: 'Register endpoint', sourceAC: [0], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-0'] },
-      { taskId: 'task-2', title: 'Implement login', description: 'Login endpoint', sourceAC: [1], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-0'] },
-      { taskId: 'task-3', title: 'Token refresh', description: 'Refresh endpoint', sourceAC: [2], isImplicit: false, estimatedComplexity: 'low', dependsOn: ['task-2'] },
+      {
+        taskId: 'task-0',
+        title: 'Setup user model',
+        description: 'Create User model',
+        sourceAC: [0],
+        isImplicit: false,
+        estimatedComplexity: 'low',
+        dependsOn: [],
+      },
+      {
+        taskId: 'task-1',
+        title: 'Implement registration',
+        description: 'Register endpoint',
+        sourceAC: [0],
+        isImplicit: false,
+        estimatedComplexity: 'medium',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-2',
+        title: 'Implement login',
+        description: 'Login endpoint',
+        sourceAC: [1],
+        isImplicit: false,
+        estimatedComplexity: 'medium',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-3',
+        title: 'Token refresh',
+        description: 'Refresh endpoint',
+        sourceAC: [2],
+        isImplicit: false,
+        estimatedComplexity: 'low',
+        dependsOn: ['task-2'],
+      },
     ],
   };
   const proximityResult: ProximityResult = {
     principle: 'proximity',
     taskGroups: [
-      { groupId: 'group-0', name: 'User Management', domain: 'auth', taskIds: ['task-0', 'task-1'], reasoning: 'User-related' },
-      { groupId: 'group-1', name: 'Auth Tokens', domain: 'auth', taskIds: ['task-2', 'task-3'], reasoning: 'Token-related' },
+      {
+        groupId: 'group-0',
+        name: 'User Management',
+        domain: 'auth',
+        taskIds: ['task-0', 'task-1'],
+        reasoning: 'User-related',
+      },
+      {
+        groupId: 'group-1',
+        name: 'Auth Tokens',
+        domain: 'auth',
+        taskIds: ['task-2', 'task-3'],
+        reasoning: 'Token-related',
+      },
     ],
   };
   const continuityResult: ContinuityResult = {
     principle: 'continuity',
     dagValidation: {
-      isValid: true, hasCycles: false, hasConflicts: false,
+      isValid: true,
+      hasCycles: false,
+      hasConflicts: false,
       topologicalOrder: ['task-0', 'task-1', 'task-2', 'task-3'],
       criticalPath: ['task-0', 'task-2', 'task-3'],
     },
@@ -261,7 +325,10 @@ describe('Lateral Thinking Integration', () => {
 
     for (const taskId of ['task-0', 'task-1', 'task-2', 'task-3']) {
       engine.submitTaskResult(sessionId, {
-        taskId, status: 'completed', output: `Done ${taskId}`, artifacts: [],
+        taskId,
+        status: 'completed',
+        output: `Done ${taskId}`,
+        artifacts: [],
       });
     }
 
@@ -306,9 +373,27 @@ describe('Lateral Thinking Integration', () => {
     // Trigger hard_cap termination by setting enough evolution history
     // (contextualCount >= MAX_CONTEXTUAL=3)
     session.evolutionHistory = [
-      { generation: 0, spec, evaluationScore: 0.5, goalAlignment: 0.5, delta: { fieldsChanged: ['acceptanceCriteria'], similarity: 0.9, generation: 0 } },
-      { generation: 1, spec, evaluationScore: 0.52, goalAlignment: 0.52, delta: { fieldsChanged: ['acceptanceCriteria'], similarity: 0.9, generation: 1 } },
-      { generation: 2, spec, evaluationScore: 0.54, goalAlignment: 0.54, delta: { fieldsChanged: ['acceptanceCriteria'], similarity: 0.9, generation: 2 } },
+      {
+        generation: 0,
+        spec,
+        evaluationScore: 0.5,
+        goalAlignment: 0.5,
+        delta: { fieldsChanged: ['acceptanceCriteria'], similarity: 0.9, generation: 0 },
+      },
+      {
+        generation: 1,
+        spec,
+        evaluationScore: 0.52,
+        goalAlignment: 0.52,
+        delta: { fieldsChanged: ['acceptanceCriteria'], similarity: 0.9, generation: 1 },
+      },
+      {
+        generation: 2,
+        spec,
+        evaluationScore: 0.54,
+        goalAlignment: 0.54,
+        delta: { fieldsChanged: ['acceptanceCriteria'], similarity: 0.9, generation: 2 },
+      },
     ];
 
     const result = engine.startContextualEvolve(sessionId);

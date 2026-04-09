@@ -52,7 +52,9 @@ describe('SpecGenerator', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   it('generates a spec from completed interview', async () => {
@@ -65,9 +67,7 @@ describe('SpecGenerator', () => {
         entities: [{ name: 'Dashboard', description: 'Main', attributes: ['title'] }],
         relations: [],
       },
-      gestaltAnalysis: [
-        { principle: 'closure', finding: 'Clear goal', confidence: 0.9 },
-      ],
+      gestaltAnalysis: [{ principle: 'closure', finding: 'Clear goal', confidence: 0.9 }],
     });
 
     const generator = new SpecGenerator(llm, store);

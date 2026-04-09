@@ -72,7 +72,7 @@ describe('GraphVisualizationServer', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/json');
 
-    const body = await res.json() as { nodes: unknown[]; edges: unknown[] };
+    const body = (await res.json()) as { nodes: unknown[]; edges: unknown[] };
     expect(body.nodes).toHaveLength(1);
     expect(body.edges).toHaveLength(1);
   });

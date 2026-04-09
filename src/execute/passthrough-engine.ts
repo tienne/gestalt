@@ -70,8 +70,17 @@ import type { AgentRegistry } from '../agent/registry.js';
 import { mergeSystemPrompt } from '../agent/prompt-resolver.js';
 import { codeGraphEngine } from '../code-graph/index.js';
 import { classifyStagnation } from '../resilience/stagnation-detector.js';
-import { suggestPersona, buildLateralContext, buildEscalationContext } from '../resilience/lateral.js';
-import type { LateralContext, EscalationContext, LateralResult, LateralPersonaName } from '../resilience/types.js';
+import {
+  suggestPersona,
+  buildLateralContext,
+  buildEscalationContext,
+} from '../resilience/lateral.js';
+import type {
+  LateralContext,
+  EscalationContext,
+  LateralResult,
+  LateralPersonaName,
+} from '../resilience/types.js';
 import type { RoleAgentRegistry } from '../agent/role-agent-registry.js';
 import { RoleMatchEngine, type MatchContext } from '../agent/role-match-engine.js';
 import { RolePromptGenerator, type PerspectivePrompt } from '../agent/role-prompt-generator.js';
@@ -80,11 +89,28 @@ import { RoleConsensusEngine, type SynthesisContext } from '../agent/role-consen
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function extractKeywords(text: string): string[] {
-  const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', '—', '+']);
+  const stopWords = new Set([
+    'the',
+    'a',
+    'an',
+    'and',
+    'or',
+    'but',
+    'in',
+    'on',
+    'at',
+    'to',
+    'for',
+    'of',
+    'with',
+    'by',
+    '—',
+    '+',
+  ]);
   return text
     .replace(/[^\w\s가-힣]/g, ' ')
     .split(/\s+/)
-    .filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()))
+    .filter((w) => w.length > 2 && !stopWords.has(w.toLowerCase()))
     .slice(0, 5);
 }
 
@@ -251,7 +277,11 @@ export class PassthroughExecuteEngine {
   private agentRegistry?: AgentRegistry;
   private roleAgentRegistry?: RoleAgentRegistry;
 
-  constructor(private eventStore: EventStore, agentRegistry?: AgentRegistry, roleAgentRegistry?: RoleAgentRegistry) {
+  constructor(
+    private eventStore: EventStore,
+    agentRegistry?: AgentRegistry,
+    roleAgentRegistry?: RoleAgentRegistry,
+  ) {
     this.sessionManager = new ExecuteSessionManager(eventStore);
     this.sessionManager.loadFromStore();
     this.agentRegistry = agentRegistry;
@@ -262,9 +292,14 @@ export class PassthroughExecuteEngine {
     return this.sessionManager;
   }
 
-  start(spec: Spec, opts: { codeGraphRepoRoot?: string } = {}): Result<PassthroughStartResult, ExecuteError> {
+  start(
+    spec: Spec,
+    opts: { codeGraphRepoRoot?: string } = {},
+  ): Result<PassthroughStartResult, ExecuteError> {
     try {
-      const session = this.sessionManager.create(spec, { codeGraphRepoRoot: opts.codeGraphRepoRoot });
+      const session = this.sessionManager.create(spec, {
+        codeGraphRepoRoot: opts.codeGraphRepoRoot,
+      });
 
       const executeContext = this.buildExecuteContext(spec, 1, []);
 
@@ -349,9 +384,7 @@ export class PassthroughExecuteEngine {
     }
   }
 
-  planComplete(
-    sessionId: string,
-  ): Result<PassthroughPlanCompleteResult, ExecuteError> {
+  planComplete(sessionId: string): Result<PassthroughPlanCompleteResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
 
@@ -416,25 +449,23 @@ export class PassthroughExecuteEngine {
         return err(e);
       }
       return err(
-        new ExecuteError(
-          `Failed to complete plan: ${e instanceof Error ? e.message : String(e)}`,
-        ),
+        new ExecuteError(`Failed to complete plan: ${e instanceof Error ? e.message : String(e)}`),
       );
     }
   }
 
   // ─── Execution Phase ──────────────────────────────────────────
 
-  startExecution(
-    sessionId: string,
-  ): Result<PassthroughExecutionStartResult, ExecuteError> {
+  startExecution(sessionId: string): Result<PassthroughExecutionStartResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
 
       if (session.status !== 'plan_complete') {
-        return err(new TaskExecutionError(
-          `Cannot start execution: session status is "${session.status}", expected "plan_complete"`,
-        ));
+        return err(
+          new TaskExecutionError(
+            `Cannot start execution: session status is "${session.status}", expected "plan_complete"`,
+          ),
+        );
       }
 
       if (!session.executionPlan) {
@@ -443,9 +474,7 @@ export class PassthroughExecuteEngine {
 
       this.sessionManager.startExecution(sessionId);
 
-      const taskContext = this.buildNextTaskContext(
-        this.sessionManager.get(sessionId),
-      );
+      const taskContext = this.buildNextTaskContext(this.sessionManager.get(sessionId));
 
       return ok({
         session: this.sessionManager.get(sessionId),
@@ -454,9 +483,11 @@ export class PassthroughExecuteEngine {
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new TaskExecutionError(
-        `Failed to start execution: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new TaskExecutionError(
+          `Failed to start execution: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
     }
   }
 
@@ -469,9 +500,11 @@ export class PassthroughExecuteEngine {
       const session = this.sessionManager.get(sessionId);
 
       if (session.status !== 'executing') {
-        return err(new TaskExecutionError(
-          `Cannot submit task result: session status is "${session.status}", expected "executing"`,
-        ));
+        return err(
+          new TaskExecutionError(
+            `Cannot submit task result: session status is "${session.status}", expected "executing"`,
+          ),
+        );
       }
 
       if (!session.executionPlan) {
@@ -481,9 +514,9 @@ export class PassthroughExecuteEngine {
       // Validate taskId exists in plan
       const task = session.executionPlan.atomicTasks.find((t) => t.taskId === taskResult.taskId);
       if (!task) {
-        return err(new TaskExecutionError(
-          `Task "${taskResult.taskId}" not found in execution plan`,
-        ));
+        return err(
+          new TaskExecutionError(`Task "${taskResult.taskId}" not found in execution plan`),
+        );
       }
 
       this.sessionManager.addTaskResult(sessionId, taskResult);
@@ -507,7 +540,11 @@ export class PassthroughExecuteEngine {
           });
 
           retrospectiveContext = {
-            systemPrompt: mergeSystemPrompt(EXECUTE_EXECUTION_SYSTEM_PROMPT, this.agentRegistry, 'execute'),
+            systemPrompt: mergeSystemPrompt(
+              EXECUTE_EXECUTION_SYSTEM_PROMPT,
+              this.agentRegistry,
+              'execute',
+            ),
             retrospectivePrompt: buildDriftRetrospectivePrompt(
               session.spec,
               task,
@@ -532,9 +569,11 @@ export class PassthroughExecuteEngine {
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new TaskExecutionError(
-        `Failed to submit task result: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new TaskExecutionError(
+          `Failed to submit task result: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
     }
   }
 
@@ -553,9 +592,11 @@ export class PassthroughExecuteEngine {
       const session = this.sessionManager.get(sessionId);
 
       if (session.status !== 'executing') {
-        return err(new TaskExecutionError(
-          `Cannot perform role match: session status is "${session.status}", expected "executing"`,
-        ));
+        return err(
+          new TaskExecutionError(
+            `Cannot perform role match: session status is "${session.status}", expected "executing"`,
+          ),
+        );
       }
 
       const currentTask = this.getCurrentTask(session);
@@ -615,9 +656,9 @@ export class PassthroughExecuteEngine {
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new ExecuteError(
-        `Failed role match: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new ExecuteError(`Failed role match: ${e instanceof Error ? e.message : String(e)}`),
+      );
     }
   }
 
@@ -635,9 +676,11 @@ export class PassthroughExecuteEngine {
       const session = this.sessionManager.get(sessionId);
 
       if (session.status !== 'executing') {
-        return err(new TaskExecutionError(
-          `Cannot perform role consensus: session status is "${session.status}", expected "executing"`,
-        ));
+        return err(
+          new TaskExecutionError(
+            `Cannot perform role consensus: session status is "${session.status}", expected "executing"`,
+          ),
+        );
       }
 
       const currentTask = this.getCurrentTask(session);
@@ -681,9 +724,9 @@ export class PassthroughExecuteEngine {
       return err(new ExecuteError('Either perspectives or consensus must be provided'));
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new ExecuteError(
-        `Failed role consensus: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new ExecuteError(`Failed role consensus: ${e instanceof Error ? e.message : String(e)}`),
+      );
     }
   }
 
@@ -692,16 +735,16 @@ export class PassthroughExecuteEngine {
   /**
    * Call 1: Start evaluation → returns structural commands to run.
    */
-  startEvaluation(
-    sessionId: string,
-  ): Result<PassthroughEvaluateResult, ExecuteError> {
+  startEvaluation(sessionId: string): Result<PassthroughEvaluateResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
 
       if (session.status !== 'executing') {
-        return err(new EvaluationError(
-          `Cannot start evaluation: session status is "${session.status}", expected "executing"`,
-        ));
+        return err(
+          new EvaluationError(
+            `Cannot start evaluation: session status is "${session.status}", expected "executing"`,
+          ),
+        );
       }
 
       if (!session.executionPlan) {
@@ -719,7 +762,9 @@ export class PassthroughExecuteEngine {
       // blast-radius 기반 테스트 필터링: codeGraphRepoRoot가 설정되고 DB가 존재할 때
       if (session.codeGraphRepoRoot && codeGraphEngine.dbExists(session.codeGraphRepoRoot)) {
         try {
-          const blastResult = codeGraphEngine.blastRadius(session.codeGraphRepoRoot, { base: 'HEAD~1' });
+          const blastResult = codeGraphEngine.blastRadius(session.codeGraphRepoRoot, {
+            base: 'HEAD~1',
+          });
           const testFiles = blastResult.impactedFiles.filter(
             (f) => f.includes('.test.') || f.includes('.spec.') || f.includes('__tests__'),
           );
@@ -751,14 +796,17 @@ export class PassthroughExecuteEngine {
           phase: 'evaluating',
           stage: 'structural',
           commands,
-          message: 'Run these structural checks and submit results. Adapt commands to your project (e.g., pnpm/yarn). All must pass to proceed to contextual evaluation.',
+          message:
+            'Run these structural checks and submit results. Adapt commands to your project (e.g., pnpm/yarn). All must pass to proceed to contextual evaluation.',
         },
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new EvaluationError(
-        `Failed to start evaluation: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new EvaluationError(
+          `Failed to start evaluation: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
     }
   }
 
@@ -773,9 +821,11 @@ export class PassthroughExecuteEngine {
       const session = this.sessionManager.get(sessionId);
 
       if (session.status !== 'executing' || session.evaluateStage !== 'structural') {
-        return err(new EvaluationError(
-          `Cannot submit structural result: expected stage "structural", got "${session.evaluateStage ?? 'none'}"`,
-        ));
+        return err(
+          new EvaluationError(
+            `Cannot submit structural result: expected stage "structural", got "${session.evaluateStage ?? 'none'}"`,
+          ),
+        );
       }
 
       this.sessionManager.completeStructuralStage(sessionId, structuralResult);
@@ -812,9 +862,11 @@ export class PassthroughExecuteEngine {
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new EvaluationError(
-        `Failed to submit structural result: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new EvaluationError(
+          `Failed to submit structural result: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
     }
   }
 
@@ -829,9 +881,11 @@ export class PassthroughExecuteEngine {
       const session = this.sessionManager.get(sessionId);
 
       if (session.status !== 'executing' || session.evaluateStage !== 'contextual') {
-        return err(new EvaluationError(
-          `Cannot submit evaluation: expected stage "contextual", got "${session.evaluateStage ?? 'none'}"`,
-        ));
+        return err(
+          new EvaluationError(
+            `Cannot submit evaluation: expected stage "contextual", got "${session.evaluateStage ?? 'none'}"`,
+          ),
+        );
       }
 
       // Validate evaluation covers all ACs
@@ -845,14 +899,18 @@ export class PassthroughExecuteEngine {
 
       // Validate score ranges
       if (evaluationResult.overallScore < 0 || evaluationResult.overallScore > 1) {
-        return err(new EvaluationError(
-          `overallScore must be between 0 and 1, got ${evaluationResult.overallScore}`,
-        ));
+        return err(
+          new EvaluationError(
+            `overallScore must be between 0 and 1, got ${evaluationResult.overallScore}`,
+          ),
+        );
       }
       if (evaluationResult.goalAlignment < 0 || evaluationResult.goalAlignment > 1) {
-        return err(new EvaluationError(
-          `goalAlignment must be between 0 and 1, got ${evaluationResult.goalAlignment}`,
-        ));
+        return err(
+          new EvaluationError(
+            `goalAlignment must be between 0 and 1, got ${evaluationResult.goalAlignment}`,
+          ),
+        );
       }
 
       this.sessionManager.completeEvaluation(sessionId, evaluationResult);
@@ -864,9 +922,11 @@ export class PassthroughExecuteEngine {
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new EvaluationError(
-        `Failed to submit evaluation: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new EvaluationError(
+          `Failed to submit evaluation: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
     }
   }
 
@@ -904,7 +964,11 @@ export class PassthroughExecuteEngine {
         return ok({
           session: this.sessionManager.get(sessionId),
           fixContext: {
-            systemPrompt: mergeSystemPrompt(EVOLVE_STRUCTURAL_FIX_SYSTEM_PROMPT, this.agentRegistry, 'evaluate'),
+            systemPrompt: mergeSystemPrompt(
+              EVOLVE_STRUCTURAL_FIX_SYSTEM_PROMPT,
+              this.agentRegistry,
+              'evaluate',
+            ),
             fixPrompt: buildStructuralFixPrompt(session.spec, failedCommands, session.taskResults),
             phase: 'evolving',
             stage: 'fix',
@@ -929,9 +993,9 @@ export class PassthroughExecuteEngine {
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new ExecuteError(
-        `Failed structural fix: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new ExecuteError(`Failed structural fix: ${e instanceof Error ? e.message : String(e)}`),
+      );
     }
   }
 
@@ -1014,7 +1078,10 @@ export class PassthroughExecuteEngine {
         this.sessionManager.terminate(sessionId, 'human_escalation');
         this.eventStore.append('execute', sessionId, EventType.EVOLVE_HUMAN_ESCALATION, {
           triedPersonas: session.lateralTriedPersonas,
-          bestScore: Math.max(...session.evolutionHistory.map((g) => g.evaluationScore), session.evaluationResult!.overallScore),
+          bestScore: Math.max(
+            ...session.evolutionHistory.map((g) => g.evaluationScore),
+            session.evaluationResult!.overallScore,
+          ),
         });
 
         const escalation = buildEscalationContext(
@@ -1033,7 +1100,11 @@ export class PassthroughExecuteEngine {
       return ok({
         session,
         evolveContext: {
-          systemPrompt: mergeSystemPrompt(EVOLVE_CONTEXTUAL_SYSTEM_PROMPT, this.agentRegistry, 'evaluate'),
+          systemPrompt: mergeSystemPrompt(
+            EVOLVE_CONTEXTUAL_SYSTEM_PROMPT,
+            this.agentRegistry,
+            'evaluate',
+          ),
           evolvePrompt: buildContextualEvolvePrompt(
             session.spec,
             session.evaluationResult,
@@ -1047,9 +1118,9 @@ export class PassthroughExecuteEngine {
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new ExecuteError(
-        `Failed contextual evolve: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new ExecuteError(`Failed contextual evolve: ${e instanceof Error ? e.message : String(e)}`),
+      );
     }
   }
 
@@ -1120,9 +1191,11 @@ export class PassthroughExecuteEngine {
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new ExecuteError(
-        `Failed to submit spec patch: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new ExecuteError(
+          `Failed to submit spec patch: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
     }
   }
 
@@ -1143,9 +1216,9 @@ export class PassthroughExecuteEngine {
       // Validate task exists
       const task = session.executionPlan.atomicTasks.find((t) => t.taskId === taskResult.taskId);
       if (!task) {
-        return err(new TaskExecutionError(
-          `Task "${taskResult.taskId}" not found in execution plan`,
-        ));
+        return err(
+          new TaskExecutionError(`Task "${taskResult.taskId}" not found in execution plan`),
+        );
       }
 
       this.sessionManager.addEvolveTaskResult(sessionId, taskResult);
@@ -1160,9 +1233,11 @@ export class PassthroughExecuteEngine {
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new TaskExecutionError(
-        `Failed to submit re-execute task result: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new TaskExecutionError(
+          `Failed to submit re-execute task result: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
     }
   }
 
@@ -1170,9 +1245,7 @@ export class PassthroughExecuteEngine {
    * evolve_lateral: 다음 lateral persona를 suggest하거나 human_escalation 반환.
    * evolve에서 자동 분기되지만, caller가 명시적으로 다음 persona를 요청할 때도 사용.
    */
-  startLateralEvolve(
-    sessionId: string,
-  ): Result<PassthroughEvolveFixResult, ExecuteError> {
+  startLateralEvolve(sessionId: string): Result<PassthroughEvolveFixResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
 
@@ -1205,12 +1278,9 @@ export class PassthroughExecuteEngine {
             currentScore: session.evaluationResult.overallScore,
             termination,
           })
-        : 'spinning' as const; // fallback if no termination yet
+        : ('spinning' as const); // fallback if no termination yet
 
-      const persona = suggestPersona(
-        pattern,
-        session.lateralTriedPersonas as LateralPersonaName[],
-      );
+      const persona = suggestPersona(pattern, session.lateralTriedPersonas as LateralPersonaName[]);
 
       if (persona) {
         this.sessionManager.startLateral(sessionId, persona, pattern);
@@ -1232,7 +1302,10 @@ export class PassthroughExecuteEngine {
       this.sessionManager.terminate(sessionId, 'human_escalation');
       this.eventStore.append('execute', sessionId, EventType.EVOLVE_HUMAN_ESCALATION, {
         triedPersonas: session.lateralTriedPersonas,
-        bestScore: Math.max(...session.evolutionHistory.map((g) => g.evaluationScore), session.evaluationResult.overallScore),
+        bestScore: Math.max(
+          ...session.evolutionHistory.map((g) => g.evaluationScore),
+          session.evaluationResult.overallScore,
+        ),
       });
 
       const escalation = buildEscalationContext(
@@ -1248,9 +1321,9 @@ export class PassthroughExecuteEngine {
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new ExecuteError(
-        `Failed lateral evolve: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new ExecuteError(`Failed lateral evolve: ${e instanceof Error ? e.message : String(e)}`),
+      );
     }
   }
 
@@ -1277,9 +1350,11 @@ export class PassthroughExecuteEngine {
       return this.submitSpecPatch(sessionId, lateralResult.specPatch);
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
-      return err(new ExecuteError(
-        `Failed to submit lateral result: ${e instanceof Error ? e.message : String(e)}`,
-      ));
+      return err(
+        new ExecuteError(
+          `Failed to submit lateral result: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
     }
   }
 
@@ -1317,7 +1392,11 @@ export class PassthroughExecuteEngine {
 
       const patchSummary = `Fields changed: ${delta.fieldsChanged.join(', ')}`;
       return {
-        systemPrompt: mergeSystemPrompt(EXECUTE_EXECUTION_SYSTEM_PROMPT, this.agentRegistry, 'execute'),
+        systemPrompt: mergeSystemPrompt(
+          EXECUTE_EXECUTION_SYSTEM_PROMPT,
+          this.agentRegistry,
+          'execute',
+        ),
         taskPrompt: buildReExecutionPrompt(task, session.spec, session.taskResults, patchSummary),
         phase: 'evolving',
         stage: 're_execute',
@@ -1351,13 +1430,18 @@ export class PassthroughExecuteEngine {
       const depsResolved = task.dependsOn.every((dep) => completedIds.has(dep));
       if (!depsResolved) continue;
 
-      const delta = session.evolutionHistory.length > 0
-        ? session.evolutionHistory[session.evolutionHistory.length - 1]!.delta
-        : { fieldsChanged: [] };
+      const delta =
+        session.evolutionHistory.length > 0
+          ? session.evolutionHistory[session.evolutionHistory.length - 1]!.delta
+          : { fieldsChanged: [] };
 
       const patchSummary = `Fields changed: ${delta.fieldsChanged.join(', ')}`;
       return {
-        systemPrompt: mergeSystemPrompt(EXECUTE_EXECUTION_SYSTEM_PROMPT, this.agentRegistry, 'execute'),
+        systemPrompt: mergeSystemPrompt(
+          EXECUTE_EXECUTION_SYSTEM_PROMPT,
+          this.agentRegistry,
+          'execute',
+        ),
         taskPrompt: buildReExecutionPrompt(task, session.spec, session.taskResults, patchSummary),
         phase: 'evolving',
         stage: 're_execute',
@@ -1418,12 +1502,11 @@ export class PassthroughExecuteEngine {
     // Find similar completed tasks (Similarity principle)
     const similarTasks = this.findSimilarTasks(nextTask, plan.atomicTasks, completedIds);
 
-    const completedResults = session.taskResults.filter(
-      (r) => r.status === 'completed',
-    );
+    const completedResults = session.taskResults.filter((r) => r.status === 'completed');
 
     const pendingTasks = plan.atomicTasks.filter(
-      (t) => !completedIds.has(t.taskId) && !failedIds.has(t.taskId) && t.taskId !== nextTask!.taskId,
+      (t) =>
+        !completedIds.has(t.taskId) && !failedIds.has(t.taskId) && t.taskId !== nextTask!.taskId,
     );
 
     // suggestedFiles 계산 (code-graph searchByKeywords 기반 — 동기 fallback)
@@ -1448,14 +1531,20 @@ export class PassthroughExecuteEngine {
     );
 
     // Include roleGuidance if available from a previous role_match/role_consensus cycle
-    const roleGuidance = session.roleConsensus ? {
-      agents: session.roleConsensus.perspectives,
-      consensus: session.roleConsensus.consensus,
-      conflictResolutions: session.roleConsensus.conflictResolutions,
-    } : undefined;
+    const roleGuidance = session.roleConsensus
+      ? {
+          agents: session.roleConsensus.perspectives,
+          consensus: session.roleConsensus.consensus,
+          conflictResolutions: session.roleConsensus.conflictResolutions,
+        }
+      : undefined;
 
     return {
-      systemPrompt: mergeSystemPrompt(EXECUTE_EXECUTION_SYSTEM_PROMPT, this.agentRegistry, 'execute'),
+      systemPrompt: mergeSystemPrompt(
+        EXECUTE_EXECUTION_SYSTEM_PROMPT,
+        this.agentRegistry,
+        'execute',
+      ),
       taskPrompt,
       phase: 'executing',
       currentTask: nextTask,
@@ -1516,7 +1605,11 @@ export class PassthroughExecuteEngine {
     );
 
     return {
-      systemPrompt: mergeSystemPrompt(EXECUTE_EVALUATION_SYSTEM_PROMPT, this.agentRegistry, 'evaluate'),
+      systemPrompt: mergeSystemPrompt(
+        EXECUTE_EVALUATION_SYSTEM_PROMPT,
+        this.agentRegistry,
+        'evaluate',
+      ),
       evaluatePrompt,
       phase: 'evaluating',
       stage: 'contextual',
@@ -1690,10 +1783,9 @@ export class PassthroughExecuteEngine {
 
     // If caller says valid but server finds issues, flag it
     if (continuityResult.dagValidation.isValid && !serverDAG.isValid) {
-      const issues = [
-        ...(serverDAG.cycleDetails ?? []),
-        ...(serverDAG.conflictDetails ?? []),
-      ].join('; ');
+      const issues = [...(serverDAG.cycleDetails ?? []), ...(serverDAG.conflictDetails ?? [])].join(
+        '; ',
+      );
       return `Server-side DAG validation disagrees: ${issues}`;
     }
 

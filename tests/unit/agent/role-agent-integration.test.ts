@@ -73,26 +73,62 @@ function planAndStartExecution(engine: PassthroughExecuteEngine, spec: Spec): st
     const stepResult: Record<string, unknown> = { principle };
     if (principle === 'figure_ground') {
       stepResult.classifiedACs = spec.acceptanceCriteria.map((ac, i) => ({
-        acIndex: i, acText: ac, classification: 'figure', priority: 'critical', reasoning: 'test',
+        acIndex: i,
+        acText: ac,
+        classification: 'figure',
+        priority: 'critical',
+        reasoning: 'test',
       }));
     } else if (principle === 'closure') {
       stepResult.atomicTasks = [
-        { taskId: 'task-a', title: 'React 컴포넌트 구현', description: 'UserProfile React 컴포넌트를 구현한다', sourceAC: [0], isImplicit: false, estimatedComplexity: 'medium', dependsOn: [] },
-        { taskId: 'task-b', title: 'API 연동', description: 'Backend API와 연동하여 데이터를 가져온다', sourceAC: [1], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-a'] },
+        {
+          taskId: 'task-a',
+          title: 'React 컴포넌트 구현',
+          description: 'UserProfile React 컴포넌트를 구현한다',
+          sourceAC: [0],
+          isImplicit: false,
+          estimatedComplexity: 'medium',
+          dependsOn: [],
+        },
+        {
+          taskId: 'task-b',
+          title: 'API 연동',
+          description: 'Backend API와 연동하여 데이터를 가져온다',
+          sourceAC: [1],
+          isImplicit: false,
+          estimatedComplexity: 'medium',
+          dependsOn: ['task-a'],
+        },
       ];
     } else if (principle === 'proximity') {
       stepResult.taskGroups = [
-        { groupId: 'g1', name: 'UI', domain: 'frontend', taskIds: ['task-a'], reasoning: 'UI task' },
-        { groupId: 'g2', name: 'Backend', domain: 'backend', taskIds: ['task-b'], reasoning: 'API task' },
+        {
+          groupId: 'g1',
+          name: 'UI',
+          domain: 'frontend',
+          taskIds: ['task-a'],
+          reasoning: 'UI task',
+        },
+        {
+          groupId: 'g2',
+          name: 'Backend',
+          domain: 'backend',
+          taskIds: ['task-b'],
+          reasoning: 'API task',
+        },
       ];
     } else if (principle === 'continuity') {
       stepResult.dagValidation = {
-        isValid: true, hasCycles: false, hasConflicts: false,
-        topologicalOrder: ['task-a', 'task-b'], criticalPath: ['task-a', 'task-b'],
+        isValid: true,
+        hasCycles: false,
+        hasConflicts: false,
+        topologicalOrder: ['task-a', 'task-b'],
+        criticalPath: ['task-a', 'task-b'],
       };
     }
     const planResult = engine.planStep(sessionId, stepResult as any);
-    if (!planResult.ok) throw new Error(`Plan step ${principle} failed: ${planResult.error.message}`);
+    if (!planResult.ok)
+      throw new Error(`Plan step ${principle} failed: ${planResult.error.message}`);
   }
 
   const completeResult = engine.planComplete(sessionId);
@@ -130,8 +166,18 @@ describe('Role Agent Integration: Full MCP Flow', () => {
     engine.roleMatch(sessionId);
 
     const matches: RoleMatch[] = [
-      { agentName: 'frontend-developer', domain: ['ui', 'react'], relevanceScore: 0.95, reasoning: 'React component task' },
-      { agentName: 'designer', domain: ['ui', 'ux'], relevanceScore: 0.7, reasoning: 'UI design guidance' },
+      {
+        agentName: 'frontend-developer',
+        domain: ['ui', 'react'],
+        relevanceScore: 0.95,
+        reasoning: 'React component task',
+      },
+      {
+        agentName: 'designer',
+        domain: ['ui', 'ux'],
+        relevanceScore: 0.7,
+        reasoning: 'UI design guidance',
+      },
     ];
 
     const result = engine.roleMatch(sessionId, matches);
@@ -153,7 +199,11 @@ describe('Role Agent Integration: Full MCP Flow', () => {
     ]);
 
     const perspectives: RolePerspective[] = [
-      { agentName: 'frontend-developer', perspective: 'Use React hooks with TypeScript', confidence: 0.9 },
+      {
+        agentName: 'frontend-developer',
+        perspective: 'Use React hooks with TypeScript',
+        confidence: 0.9,
+      },
       { agentName: 'designer', perspective: 'Follow Material Design guidelines', confidence: 0.85 },
     ];
 
@@ -198,14 +248,28 @@ describe('Role Agent Integration: Full MCP Flow', () => {
     // 1. role_match
     engine.roleMatch(sessionId);
     engine.roleMatch(sessionId, [
-      { agentName: 'frontend-developer', domain: ['ui', 'react'], relevanceScore: 0.95, reasoning: 'React task' },
-      { agentName: 'architect', domain: ['architecture'], relevanceScore: 0.75, reasoning: 'Design review' },
+      {
+        agentName: 'frontend-developer',
+        domain: ['ui', 'react'],
+        relevanceScore: 0.95,
+        reasoning: 'React task',
+      },
+      {
+        agentName: 'architect',
+        domain: ['architecture'],
+        relevanceScore: 0.75,
+        reasoning: 'Design review',
+      },
     ]);
 
     // 2. role_consensus
     engine.roleConsensus(sessionId, [
       { agentName: 'frontend-developer', perspective: 'Use React hooks pattern', confidence: 0.9 },
-      { agentName: 'architect', perspective: 'Ensure clean architecture separation', confidence: 0.85 },
+      {
+        agentName: 'architect',
+        perspective: 'Ensure clean architecture separation',
+        confidence: 0.85,
+      },
     ]);
 
     const consensus: RoleConsensus = {
@@ -299,7 +363,9 @@ describe('Role Agent Integration: Full MCP Flow', () => {
     engine.roleConsensus(sessionId, undefined, {
       consensus: 'Use hooks',
       conflictResolutions: [],
-      perspectives: [{ agentName: 'frontend-developer', perspective: 'Use hooks', confidence: 0.9 }],
+      perspectives: [
+        { agentName: 'frontend-developer', perspective: 'Use hooks', confidence: 0.9 },
+      ],
     });
 
     // Submit task-a → clears role state

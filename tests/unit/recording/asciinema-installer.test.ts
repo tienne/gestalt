@@ -42,51 +42,75 @@ describe('AsciinemaInstaller', () => {
 
     it('installs via brew on macOS', async () => {
       // not installed
-      mockedExecSync.mockImplementationOnce(() => { throw new Error(); });
+      mockedExecSync.mockImplementationOnce(() => {
+        throw new Error();
+      });
       mockedPlatform.mockReturnValue('darwin');
       // brew is available
       mockedExecSync.mockReturnValueOnce(Buffer.from('/usr/local/bin/brew'));
-      mockedSpawnSync.mockReturnValueOnce({ status: 0 } as ReturnType<typeof childProcess.spawnSync>);
+      mockedSpawnSync.mockReturnValueOnce({ status: 0 } as ReturnType<
+        typeof childProcess.spawnSync
+      >);
       // post-install check: installed
       mockedExecSync.mockReturnValueOnce(Buffer.from('/usr/local/bin/asciinema'));
 
       await installer.ensureInstalled();
 
-      expect(mockedSpawnSync).toHaveBeenCalledWith('brew', ['install', 'asciinema'], { stdio: 'inherit' });
+      expect(mockedSpawnSync).toHaveBeenCalledWith('brew', ['install', 'asciinema'], {
+        stdio: 'inherit',
+      });
     });
 
     it('installs via pip3 on Linux', async () => {
-      mockedExecSync.mockImplementationOnce(() => { throw new Error(); });
+      mockedExecSync.mockImplementationOnce(() => {
+        throw new Error();
+      });
       mockedPlatform.mockReturnValue('linux');
-      mockedSpawnSync.mockReturnValueOnce({ status: 0 } as ReturnType<typeof childProcess.spawnSync>);
+      mockedSpawnSync.mockReturnValueOnce({ status: 0 } as ReturnType<
+        typeof childProcess.spawnSync
+      >);
       mockedExecSync.mockReturnValueOnce(Buffer.from('/usr/bin/asciinema'));
 
       await installer.ensureInstalled();
 
-      expect(mockedSpawnSync).toHaveBeenCalledWith('pip3', ['install', 'asciinema'], { stdio: 'inherit' });
+      expect(mockedSpawnSync).toHaveBeenCalledWith('pip3', ['install', 'asciinema'], {
+        stdio: 'inherit',
+      });
     });
 
     it('throws on unsupported platform', async () => {
-      mockedExecSync.mockImplementationOnce(() => { throw new Error(); });
+      mockedExecSync.mockImplementationOnce(() => {
+        throw new Error();
+      });
       mockedPlatform.mockReturnValue('win32');
 
       await expect(installer.ensureInstalled()).rejects.toThrow('Unsupported platform');
     });
 
     it('throws when brew is not available on macOS', async () => {
-      mockedExecSync.mockImplementationOnce(() => { throw new Error(); }); // asciinema not found
+      mockedExecSync.mockImplementationOnce(() => {
+        throw new Error();
+      }); // asciinema not found
       mockedPlatform.mockReturnValue('darwin');
-      mockedExecSync.mockImplementationOnce(() => { throw new Error(); }); // brew not found
+      mockedExecSync.mockImplementationOnce(() => {
+        throw new Error();
+      }); // brew not found
 
       await expect(installer.ensureInstalled()).rejects.toThrow('Homebrew is not installed');
     });
 
     it('throws if installation fails', async () => {
-      mockedExecSync.mockImplementationOnce(() => { throw new Error(); });
+      mockedExecSync.mockImplementationOnce(() => {
+        throw new Error();
+      });
       mockedPlatform.mockReturnValue('linux');
-      mockedSpawnSync.mockReturnValueOnce({ status: 1 } as ReturnType<typeof childProcess.spawnSync>);
+      mockedSpawnSync.mockReturnValueOnce({ status: 1 } as ReturnType<
+        typeof childProcess.spawnSync
+      >);
 
-      await expect(installer.ensureInstalled()).rejects.toThrow('Failed to install asciinema via pip3');
+      await expect(installer.ensureInstalled()).rejects.toThrow(
+        'Failed to install asciinema via pip3',
+      );
     });
   });
 });

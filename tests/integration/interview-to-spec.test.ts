@@ -37,7 +37,9 @@ describe('Interview → Spec Pipeline', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   it('completes full interview → spec pipeline', async () => {
@@ -64,12 +66,20 @@ describe('Interview → Spec Pipeline', () => {
         ontologySchema: {
           entities: [
             { name: 'Dashboard', description: 'Main container', attributes: ['title', 'layout'] },
-            { name: 'Widget', description: 'Data visualization', attributes: ['type', 'dataSource'] },
+            {
+              name: 'Widget',
+              description: 'Data visualization',
+              attributes: ['type', 'dataSource'],
+            },
           ],
           relations: [{ from: 'Dashboard', to: 'Widget', type: 'contains' }],
         },
         gestaltAnalysis: [
-          { principle: 'closure', finding: 'Clear goal with real-time requirement', confidence: 0.95 },
+          {
+            principle: 'closure',
+            finding: 'Clear goal with real-time requirement',
+            confidence: 0.95,
+          },
           { principle: 'proximity', finding: 'Technical stack well-defined', confidence: 0.9 },
         ],
       }),

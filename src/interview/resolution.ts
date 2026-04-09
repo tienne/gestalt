@@ -63,9 +63,7 @@ function parseResolutionResponse(content: string, projectType: ProjectType): Raw
       successCriteria: toNumber(parsed['successCriteria'], 0),
       priorityClarity: toNumber(parsed['priorityClarity'], 0),
       contextClarity:
-        projectType === 'brownfield'
-          ? toNumber(parsed['contextClarity'], 0)
-          : undefined,
+        projectType === 'brownfield' ? toNumber(parsed['contextClarity'], 0) : undefined,
       contradictions: Array.isArray(parsed['contradictions'])
         ? (parsed['contradictions'] as string[])
         : [],

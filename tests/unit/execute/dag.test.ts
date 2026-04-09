@@ -41,27 +41,26 @@ describe('validateDAG', () => {
       task('t-2', ['t-0']),
       task('t-3', ['t-1', 't-2']),
     ];
-    const groups = [
-      group('g-0', ['t-0', 't-1']),
-      group('g-1', ['t-2', 't-3']),
-    ];
+    const groups = [group('g-0', ['t-0', 't-1']), group('g-1', ['t-2', 't-3'])];
 
     const result = validateDAG(tasks, groups);
     expect(result.isValid).toBe(true);
     expect(result.hasCycles).toBe(false);
     expect(result.hasConflicts).toBe(false);
     expect(result.topologicalOrder).toHaveLength(4);
-    expect(result.topologicalOrder.indexOf('t-0')).toBeLessThan(result.topologicalOrder.indexOf('t-1'));
-    expect(result.topologicalOrder.indexOf('t-0')).toBeLessThan(result.topologicalOrder.indexOf('t-2'));
-    expect(result.topologicalOrder.indexOf('t-1')).toBeLessThan(result.topologicalOrder.indexOf('t-3'));
+    expect(result.topologicalOrder.indexOf('t-0')).toBeLessThan(
+      result.topologicalOrder.indexOf('t-1'),
+    );
+    expect(result.topologicalOrder.indexOf('t-0')).toBeLessThan(
+      result.topologicalOrder.indexOf('t-2'),
+    );
+    expect(result.topologicalOrder.indexOf('t-1')).toBeLessThan(
+      result.topologicalOrder.indexOf('t-3'),
+    );
   });
 
   it('detects cycles', () => {
-    const tasks = [
-      task('t-0', ['t-2']),
-      task('t-1', ['t-0']),
-      task('t-2', ['t-1']),
-    ];
+    const tasks = [task('t-0', ['t-2']), task('t-1', ['t-0']), task('t-2', ['t-1'])];
     const groups = [group('g-0', ['t-0', 't-1', 't-2'])];
 
     const result = validateDAG(tasks, groups);
@@ -84,10 +83,7 @@ describe('validateDAG', () => {
 
   it('detects task in multiple groups', () => {
     const tasks = [task('t-0'), task('t-1')];
-    const groups = [
-      group('g-0', ['t-0', 't-1']),
-      group('g-1', ['t-1']),
-    ];
+    const groups = [group('g-0', ['t-0', 't-1']), group('g-1', ['t-1'])];
 
     const result = validateDAG(tasks, groups);
     expect(result.isValid).toBe(false);
@@ -126,16 +122,8 @@ describe('validateDAG', () => {
   it('computes critical path correctly', () => {
     // t-0 → t-1 → t-3 (length 3)
     // t-0 → t-2 (length 2)
-    const tasks = [
-      task('t-0'),
-      task('t-1', ['t-0']),
-      task('t-2', ['t-0']),
-      task('t-3', ['t-1']),
-    ];
-    const groups = [
-      group('g-0', ['t-0', 't-1']),
-      group('g-1', ['t-2', 't-3']),
-    ];
+    const tasks = [task('t-0'), task('t-1', ['t-0']), task('t-2', ['t-0']), task('t-3', ['t-1'])];
+    const groups = [group('g-0', ['t-0', 't-1']), group('g-1', ['t-2', 't-3'])];
 
     const result = validateDAG(tasks, groups);
     expect(result.isValid).toBe(true);

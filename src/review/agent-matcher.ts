@@ -54,9 +54,10 @@ Respond with ONLY a JSON object:
       .join('\n');
 
     const fileList = reviewContext.changedFiles.join('\n  ');
-    const depList = reviewContext.dependencyFiles.length > 0
-      ? reviewContext.dependencyFiles.join('\n  ')
-      : '(none)';
+    const depList =
+      reviewContext.dependencyFiles.length > 0
+        ? reviewContext.dependencyFiles.join('\n  ')
+        : '(none)';
 
     const matchingPrompt = `## Code Review Agent Matching
 

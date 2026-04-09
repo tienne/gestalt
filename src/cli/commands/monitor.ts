@@ -9,7 +9,7 @@ export async function monitorCommand(sessionId?: string): Promise<void> {
     React.createElement(TUIApp, {
       dbPath: config.dbPath,
       initialSessionId: sessionId,
-    })
+    }),
   );
 
   await waitUntilExit();

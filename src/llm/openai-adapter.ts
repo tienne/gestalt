@@ -45,9 +45,7 @@ export class OpenAIAdapter implements LLMAdapter {
       };
     } catch (e) {
       if (e instanceof LLMError) throw e;
-      throw new LLMError(
-        `OpenAI API error: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      throw new LLMError(`OpenAI API error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 }

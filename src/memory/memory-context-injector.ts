@@ -4,28 +4,29 @@ import { ProjectMemoryStore } from './project-memory-store.js';
 export interface MemoryContext {
   recentSpecs: Array<{ goal: string; specId: string; createdAt: string; sourceType: string }>;
   architectureDecisions: string[];
-  recentExecutions: Array<{ specId: string; completedTasks: number; failedTasks: number; completedAt: string }>;
+  recentExecutions: Array<{
+    specId: string;
+    completedTasks: number;
+    failedTasks: number;
+    completedAt: string;
+  }>;
   hasContext: boolean;
 }
 
 export function buildMemoryContext(memory: ProjectMemory): MemoryContext {
-  const recentSpecs = memory.specHistory
-    .slice(-5)
-    .map((s) => ({
-      goal: s.goal,
-      specId: s.specId,
-      createdAt: s.createdAt,
-      sourceType: s.sourceType,
-    }));
+  const recentSpecs = memory.specHistory.slice(-5).map((s) => ({
+    goal: s.goal,
+    specId: s.specId,
+    createdAt: s.createdAt,
+    sourceType: s.sourceType,
+  }));
 
-  const recentExecutions = memory.executionHistory
-    .slice(-3)
-    .map((e) => ({
-      specId: e.specId,
-      completedTasks: e.completedTasks.length,
-      failedTasks: e.failedTasks.length,
-      completedAt: e.completedAt,
-    }));
+  const recentExecutions = memory.executionHistory.slice(-3).map((e) => ({
+    specId: e.specId,
+    completedTasks: e.completedTasks.length,
+    failedTasks: e.failedTasks.length,
+    completedAt: e.completedAt,
+  }));
 
   const hasContext =
     recentSpecs.length > 0 ||

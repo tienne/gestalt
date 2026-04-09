@@ -44,9 +44,7 @@ describe('SpecExtractor', () => {
         entities: [{ name: 'Dashboard', description: 'Main view', attributes: ['title'] }],
         relations: [{ from: 'Dashboard', to: 'Chart', type: 'contains' }],
       },
-      gestaltAnalysis: [
-        { principle: 'closure', finding: 'Goal is clear', confidence: 0.9 },
-      ],
+      gestaltAnalysis: [{ principle: 'closure', finding: 'Goal is clear', confidence: 0.9 }],
     });
 
     const extractor = new SpecExtractor(llm);

@@ -13,7 +13,12 @@ import { computeBlastRadius } from '../../../src/code-graph/blast-radius.js';
 import { NodeKind, EdgeKind } from '../../../src/code-graph/types.js';
 import type { CodeGraphNode, CodeGraphEdge } from '../../../src/code-graph/types.js';
 
-function makeNode(id: string, filePath: string, isTest = false, kind = NodeKind.Function): CodeGraphNode {
+function makeNode(
+  id: string,
+  filePath: string,
+  isTest = false,
+  kind = NodeKind.Function,
+): CodeGraphNode {
   return {
     id,
     kind,
@@ -24,7 +29,11 @@ function makeNode(id: string, filePath: string, isTest = false, kind = NodeKind.
   };
 }
 
-function makeEdge(sourceId: string, targetId: string, kind: EdgeKind = EdgeKind.CALLS): CodeGraphEdge {
+function makeEdge(
+  sourceId: string,
+  targetId: string,
+  kind: EdgeKind = EdgeKind.CALLS,
+): CodeGraphEdge {
   return { kind, sourceId, targetId, updatedAt: Date.now() };
 }
 

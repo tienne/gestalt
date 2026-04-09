@@ -26,9 +26,34 @@ describe('ReviewReportGenerator', () => {
   it('generates blocked report with issues grouped by severity', () => {
     const consensus: ReviewConsensusResult = {
       mergedIssues: [
-        { id: '1', severity: 'critical', category: 'security', file: 'a.ts', line: 10, message: 'SQL injection', suggestion: 'Use params', reportedBy: 'sec' },
-        { id: '2', severity: 'high', category: 'perf', file: 'b.ts', message: 'N+1 query', suggestion: 'Batch', reportedBy: 'perf' },
-        { id: '3', severity: 'warning', category: 'quality', file: 'c.ts', message: 'Magic number', suggestion: 'Extract const', reportedBy: 'qual' },
+        {
+          id: '1',
+          severity: 'critical',
+          category: 'security',
+          file: 'a.ts',
+          line: 10,
+          message: 'SQL injection',
+          suggestion: 'Use params',
+          reportedBy: 'sec',
+        },
+        {
+          id: '2',
+          severity: 'high',
+          category: 'perf',
+          file: 'b.ts',
+          message: 'N+1 query',
+          suggestion: 'Batch',
+          reportedBy: 'perf',
+        },
+        {
+          id: '3',
+          severity: 'warning',
+          category: 'quality',
+          file: 'c.ts',
+          message: 'Magic number',
+          suggestion: 'Extract const',
+          reportedBy: 'qual',
+        },
       ],
       approvedBy: ['architect'],
       blockedBy: ['security-reviewer'],
@@ -51,9 +76,33 @@ describe('ReviewReportGenerator', () => {
   it('includes severity count table', () => {
     const consensus: ReviewConsensusResult = {
       mergedIssues: [
-        { id: '1', severity: 'critical', category: 'sec', file: 'a.ts', message: 'm', suggestion: 's', reportedBy: 'r' },
-        { id: '2', severity: 'critical', category: 'sec', file: 'b.ts', message: 'm', suggestion: 's', reportedBy: 'r' },
-        { id: '3', severity: 'warning', category: 'q', file: 'c.ts', message: 'm', suggestion: 's', reportedBy: 'r' },
+        {
+          id: '1',
+          severity: 'critical',
+          category: 'sec',
+          file: 'a.ts',
+          message: 'm',
+          suggestion: 's',
+          reportedBy: 'r',
+        },
+        {
+          id: '2',
+          severity: 'critical',
+          category: 'sec',
+          file: 'b.ts',
+          message: 'm',
+          suggestion: 's',
+          reportedBy: 'r',
+        },
+        {
+          id: '3',
+          severity: 'warning',
+          category: 'q',
+          file: 'c.ts',
+          message: 'm',
+          suggestion: 's',
+          reportedBy: 'r',
+        },
       ],
       approvedBy: [],
       blockedBy: ['sec'],
@@ -72,7 +121,15 @@ describe('ReviewReportGenerator', () => {
   it('shows file location without line when line is undefined', () => {
     const consensus: ReviewConsensusResult = {
       mergedIssues: [
-        { id: '1', severity: 'high', category: 'q', file: 'src/app.ts', message: 'Issue', suggestion: 'Fix', reportedBy: 'r' },
+        {
+          id: '1',
+          severity: 'high',
+          category: 'q',
+          file: 'src/app.ts',
+          message: 'Issue',
+          suggestion: 'Fix',
+          reportedBy: 'r',
+        },
       ],
       approvedBy: [],
       blockedBy: ['r'],

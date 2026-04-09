@@ -142,10 +142,7 @@ describe('RolePromptGenerator', () => {
     const registry = new RoleAgentRegistry(resolve('role-agents'));
     registry.loadAll();
 
-    const agents = [
-      registry.getByName('frontend-developer')!,
-      registry.getByName('designer')!,
-    ];
+    const agents = [registry.getByName('frontend-developer')!, registry.getByName('designer')!];
 
     const generator = new RolePromptGenerator();
     const prompts = generator.generatePerspectivePrompts(

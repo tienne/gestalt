@@ -9,7 +9,12 @@ import { STAGNATION_PERSONA_MAP } from './types.js';
 import { getLateralSystemPrompt, buildLateralPrompt } from './prompts.js';
 
 /** 모든 persona 이름 (순회 순서) */
-const ALL_PERSONAS: LateralPersonaName[] = ['multistability', 'simplicity', 'reification', 'invariance'];
+const ALL_PERSONAS: LateralPersonaName[] = [
+  'multistability',
+  'simplicity',
+  'reification',
+  'invariance',
+];
 
 /**
  * pattern에 매핑된 1순위 persona를 먼저 시도하고,

@@ -2,25 +2,39 @@ import ts from 'typescript';
 import { createHash } from 'node:crypto';
 import { resolve, dirname, basename, extname } from 'node:path';
 import { log } from '../../core/log.js';
-import { NodeKind, EdgeKind, type AnalyzerPlugin, type ParseResult, type CodeGraphNode, type CodeGraphEdge } from '../types.js';
+import {
+  NodeKind,
+  EdgeKind,
+  type AnalyzerPlugin,
+  type ParseResult,
+  type CodeGraphNode,
+  type CodeGraphEdge,
+} from '../types.js';
 
 const SUPPORTED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
 
 function isTestFile(filePath: string): boolean {
-  return filePath.includes('.test.') || filePath.includes('.spec.') || filePath.includes('__tests__');
+  return (
+    filePath.includes('.test.') || filePath.includes('.spec.') || filePath.includes('__tests__')
+  );
 }
 
 function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-function getNodePosition(node: ts.Node, sourceFile: ts.SourceFile): { lineStart: number; lineEnd: number } {
+function getNodePosition(
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+): { lineStart: number; lineEnd: number } {
   const start = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
   const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
   return { lineStart: start.line + 1, lineEnd: end.line + 1 };
 }
 
-function getFunctionName(node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression | ts.MethodDeclaration): string | undefined {
+function getFunctionName(
+  node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression | ts.MethodDeclaration,
+): string | undefined {
   if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) {
     return node.name?.getText();
   }
@@ -100,7 +114,13 @@ export const typescriptPlugin: AnalyzerPlugin = {
         ts.isFunctionExpression(node) ||
         ts.isMethodDeclaration(node)
       ) {
-        const name = getFunctionName(node as ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression | ts.MethodDeclaration);
+        const name = getFunctionName(
+          node as
+            | ts.FunctionDeclaration
+            | ts.ArrowFunction
+            | ts.FunctionExpression
+            | ts.MethodDeclaration,
+        );
         if (name) {
           const { lineStart, lineEnd } = getNodePosition(node, sourceFile);
           const fnId = `function:${filePath}:${name}`;

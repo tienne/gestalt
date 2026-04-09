@@ -76,9 +76,9 @@ describe('AggConverter', () => {
       mockedSpawn.mockReturnValueOnce(makeChildMock(0));
       mockedUnlink.mockRejectedValueOnce(new Error('ENOENT'));
 
-      await expect(
-        converter.convertAsync('/tmp/test.cast', '/tmp/test.gif'),
-      ).resolves.toBe('/tmp/test.gif');
+      await expect(converter.convertAsync('/tmp/test.cast', '/tmp/test.gif')).resolves.toBe(
+        '/tmp/test.gif',
+      );
     });
   });
 

@@ -40,9 +40,7 @@ function createTestSpec(): Spec {
         { name: 'User', description: 'System user', attributes: ['email', 'password', 'role'] },
         { name: 'Token', description: 'JWT token', attributes: ['accessToken', 'refreshToken'] },
       ],
-      relations: [
-        { from: 'User', to: 'Token', type: 'has_many' },
-      ],
+      relations: [{ from: 'User', to: 'Token', type: 'has_many' }],
     },
     gestaltAnalysis: [
       { principle: 'closure' as const, finding: 'Auth needs token refresh', confidence: 0.9 },
@@ -60,25 +58,87 @@ function createPlanningSteps() {
   const fgResult: FigureGroundResult = {
     principle: 'figure_ground',
     classifiedACs: [
-      { acIndex: 0, acText: 'Users can register', classification: 'figure', priority: 'critical', reasoning: 'Core' },
-      { acIndex: 1, acText: 'Users can login', classification: 'figure', priority: 'critical', reasoning: 'Core' },
-      { acIndex: 2, acText: 'Token refresh', classification: 'ground', priority: 'medium', reasoning: 'Nice to have' },
+      {
+        acIndex: 0,
+        acText: 'Users can register',
+        classification: 'figure',
+        priority: 'critical',
+        reasoning: 'Core',
+      },
+      {
+        acIndex: 1,
+        acText: 'Users can login',
+        classification: 'figure',
+        priority: 'critical',
+        reasoning: 'Core',
+      },
+      {
+        acIndex: 2,
+        acText: 'Token refresh',
+        classification: 'ground',
+        priority: 'medium',
+        reasoning: 'Nice to have',
+      },
     ],
   };
   const closureResult: ClosureResult = {
     principle: 'closure',
     atomicTasks: [
-      { taskId: 'task-0', title: 'Setup user model', description: 'Create User model', sourceAC: [0], isImplicit: false, estimatedComplexity: 'low', dependsOn: [] },
-      { taskId: 'task-1', title: 'Implement registration', description: 'Register endpoint', sourceAC: [0], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-0'] },
-      { taskId: 'task-2', title: 'Implement login', description: 'Login endpoint', sourceAC: [1], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-0'] },
-      { taskId: 'task-3', title: 'Token refresh', description: 'Refresh endpoint', sourceAC: [2], isImplicit: false, estimatedComplexity: 'low', dependsOn: ['task-2'] },
+      {
+        taskId: 'task-0',
+        title: 'Setup user model',
+        description: 'Create User model',
+        sourceAC: [0],
+        isImplicit: false,
+        estimatedComplexity: 'low',
+        dependsOn: [],
+      },
+      {
+        taskId: 'task-1',
+        title: 'Implement registration',
+        description: 'Register endpoint',
+        sourceAC: [0],
+        isImplicit: false,
+        estimatedComplexity: 'medium',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-2',
+        title: 'Implement login',
+        description: 'Login endpoint',
+        sourceAC: [1],
+        isImplicit: false,
+        estimatedComplexity: 'medium',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-3',
+        title: 'Token refresh',
+        description: 'Refresh endpoint',
+        sourceAC: [2],
+        isImplicit: false,
+        estimatedComplexity: 'low',
+        dependsOn: ['task-2'],
+      },
     ],
   };
   const proximityResult: ProximityResult = {
     principle: 'proximity',
     taskGroups: [
-      { groupId: 'group-0', name: 'User Management', domain: 'auth', taskIds: ['task-0', 'task-1'], reasoning: 'User-related' },
-      { groupId: 'group-1', name: 'Authentication', domain: 'auth', taskIds: ['task-2', 'task-3'], reasoning: 'Auth-related' },
+      {
+        groupId: 'group-0',
+        name: 'User Management',
+        domain: 'auth',
+        taskIds: ['task-0', 'task-1'],
+        reasoning: 'User-related',
+      },
+      {
+        groupId: 'group-1',
+        name: 'Authentication',
+        domain: 'auth',
+        taskIds: ['task-2', 'task-3'],
+        reasoning: 'Auth-related',
+      },
     ],
   };
   const continuityResult: ContinuityResult = {
@@ -96,10 +156,30 @@ function createPlanningSteps() {
 
 function createCompletedTaskResults(): TaskExecutionResult[] {
   return [
-    { taskId: 'task-0', status: 'completed', output: 'User model created with email password role fields', artifacts: ['src/models/user.ts'] },
-    { taskId: 'task-1', status: 'completed', output: 'Registration endpoint with validation', artifacts: ['src/routes/register.ts'] },
-    { taskId: 'task-2', status: 'completed', output: 'Login endpoint with JWT token generation', artifacts: ['src/routes/login.ts'] },
-    { taskId: 'task-3', status: 'completed', output: 'Token refresh endpoint implemented', artifacts: ['src/routes/refresh.ts'] },
+    {
+      taskId: 'task-0',
+      status: 'completed',
+      output: 'User model created with email password role fields',
+      artifacts: ['src/models/user.ts'],
+    },
+    {
+      taskId: 'task-1',
+      status: 'completed',
+      output: 'Registration endpoint with validation',
+      artifacts: ['src/routes/register.ts'],
+    },
+    {
+      taskId: 'task-2',
+      status: 'completed',
+      output: 'Login endpoint with JWT token generation',
+      artifacts: ['src/routes/login.ts'],
+    },
+    {
+      taskId: 'task-3',
+      status: 'completed',
+      output: 'Token refresh endpoint implemented',
+      artifacts: ['src/routes/refresh.ts'],
+    },
   ];
 }
 
@@ -212,10 +292,42 @@ describe('Spec Patch Applier', () => {
 
 describe('Impact Identifier', () => {
   const tasks: AtomicTask[] = [
-    { taskId: 'task-0', title: 'Setup', description: '', sourceAC: [0], isImplicit: false, estimatedComplexity: 'low', dependsOn: [] },
-    { taskId: 'task-1', title: 'Register', description: '', sourceAC: [0], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-0'] },
-    { taskId: 'task-2', title: 'Login', description: '', sourceAC: [1], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-0'] },
-    { taskId: 'task-3', title: 'Implicit setup', description: '', sourceAC: [], isImplicit: true, estimatedComplexity: 'low', dependsOn: [] },
+    {
+      taskId: 'task-0',
+      title: 'Setup',
+      description: '',
+      sourceAC: [0],
+      isImplicit: false,
+      estimatedComplexity: 'low',
+      dependsOn: [],
+    },
+    {
+      taskId: 'task-1',
+      title: 'Register',
+      description: '',
+      sourceAC: [0],
+      isImplicit: false,
+      estimatedComplexity: 'medium',
+      dependsOn: ['task-0'],
+    },
+    {
+      taskId: 'task-2',
+      title: 'Login',
+      description: '',
+      sourceAC: [1],
+      isImplicit: false,
+      estimatedComplexity: 'medium',
+      dependsOn: ['task-0'],
+    },
+    {
+      taskId: 'task-3',
+      title: 'Implicit setup',
+      description: '',
+      sourceAC: [],
+      isImplicit: true,
+      estimatedComplexity: 'low',
+      dependsOn: [],
+    },
   ];
 
   it('identifies drift-exceeded tasks', () => {
@@ -307,9 +419,27 @@ describe('Termination Detector', () => {
 
   it('detects stagnation', () => {
     const history: EvolutionGeneration[] = [
-      { generation: 0, spec: {} as Spec, evaluationScore: 0.5, goalAlignment: 0.5, delta: { fieldsChanged: [], similarity: 1, generation: 0 } },
-      { generation: 1, spec: {} as Spec, evaluationScore: 0.51, goalAlignment: 0.5, delta: { fieldsChanged: ['ac'], similarity: 0.9, generation: 1 } },
-      { generation: 2, spec: {} as Spec, evaluationScore: 0.52, goalAlignment: 0.5, delta: { fieldsChanged: ['ac'], similarity: 0.9, generation: 2 } },
+      {
+        generation: 0,
+        spec: {} as Spec,
+        evaluationScore: 0.5,
+        goalAlignment: 0.5,
+        delta: { fieldsChanged: [], similarity: 1, generation: 0 },
+      },
+      {
+        generation: 1,
+        spec: {} as Spec,
+        evaluationScore: 0.51,
+        goalAlignment: 0.5,
+        delta: { fieldsChanged: ['ac'], similarity: 0.9, generation: 1 },
+      },
+      {
+        generation: 2,
+        spec: {} as Spec,
+        evaluationScore: 0.52,
+        goalAlignment: 0.5,
+        delta: { fieldsChanged: ['ac'], similarity: 0.9, generation: 2 },
+      },
     ];
     const result = checkTermination({
       evolutionHistory: history,
@@ -362,7 +492,13 @@ describe('Evolution Loop Engine Integration', () => {
 
     // Submit fix tasks (call 2)
     const fixSubmit = engine.startStructuralFix(sessionId, [
-      { taskId: 'fix-1', failedCommand: 'npm run lint', errorOutput: 'unused var', fixDescription: 'Remove unused var', artifacts: ['src/routes/login.ts'] },
+      {
+        taskId: 'fix-1',
+        failedCommand: 'npm run lint',
+        errorOutput: 'unused var',
+        fixDescription: 'Remove unused var',
+        artifacts: ['src/routes/login.ts'],
+      },
     ]);
     expect(isOk(fixSubmit)).toBe(true);
     if (isOk(fixSubmit)) {
@@ -389,8 +525,18 @@ describe('Evolution Loop Engine Integration', () => {
     const evalResult: EvaluationResult = {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'Registration works', gaps: [] },
-        { acIndex: 1, satisfied: false, evidence: 'Login partially works', gaps: ['Missing rate limiting'] },
-        { acIndex: 2, satisfied: false, evidence: 'No refresh endpoint', gaps: ['Not implemented'] },
+        {
+          acIndex: 1,
+          satisfied: false,
+          evidence: 'Login partially works',
+          gaps: ['Missing rate limiting'],
+        },
+        {
+          acIndex: 2,
+          satisfied: false,
+          evidence: 'No refresh endpoint',
+          gaps: ['Not implemented'],
+        },
       ],
       overallScore: 0.5,
       goalAlignment: 0.6,

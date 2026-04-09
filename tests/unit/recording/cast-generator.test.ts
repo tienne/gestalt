@@ -105,9 +105,7 @@ describe('CastGenerator', () => {
 
     const written = mockedWriteFileSync.mock.calls[0]![1] as string;
     const lines = written.trim().split('\n').slice(1); // skip header
-    const timestamps = lines
-      .map((l) => JSON.parse(l) as [number, string, string])
-      .map(([t]) => t);
+    const timestamps = lines.map((l) => JSON.parse(l) as [number, string, string]).map(([t]) => t);
 
     for (let i = 1; i < timestamps.length; i++) {
       expect(timestamps[i]).toBeGreaterThanOrEqual(timestamps[i - 1]!);

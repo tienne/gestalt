@@ -34,7 +34,10 @@ export interface ExternalSpec {
 export class PassthroughSpecGenerator {
   private agentRegistry?: AgentRegistry;
 
-  constructor(private eventStore: EventStore, agentRegistry?: AgentRegistry) {
+  constructor(
+    private eventStore: EventStore,
+    agentRegistry?: AgentRegistry,
+  ) {
     this.agentRegistry = agentRegistry;
   }
 
@@ -80,7 +83,9 @@ export class PassthroughSpecGenerator {
     }
 
     if (session.status !== 'completed') {
-      return err(new SpecGenerationError('Interview session must be completed before generating a spec'));
+      return err(
+        new SpecGenerationError('Interview session must be completed before generating a spec'),
+      );
     }
 
     try {
@@ -102,25 +107,16 @@ export class PassthroughSpecGenerator {
       // Validate against schema
       const validation = specSchema.safeParse(spec);
       if (!validation.success) {
-        return err(
-          new SpecGenerationError(
-            `Spec validation failed: ${validation.error.message}`,
-          ),
-        );
+        return err(new SpecGenerationError(`Spec validation failed: ${validation.error.message}`));
       }
 
-      this.eventStore.append(
-        'spec',
-        spec.metadata.specId,
-        EventType.SPEC_GENERATED,
-        {
-          sessionId: session.sessionId,
-          goal: spec.goal,
-          constraintCount: spec.constraints.length,
-          criteriaCount: spec.acceptanceCriteria.length,
-          source: 'passthrough',
-        },
-      );
+      this.eventStore.append('spec', spec.metadata.specId, EventType.SPEC_GENERATED, {
+        sessionId: session.sessionId,
+        goal: spec.goal,
+        constraintCount: spec.constraints.length,
+        criteriaCount: spec.acceptanceCriteria.length,
+        source: 'passthrough',
+      });
 
       return ok(spec);
     } catch (e) {
@@ -151,25 +147,16 @@ export class PassthroughSpecGenerator {
 
       const validation = specSchema.safeParse(spec);
       if (!validation.success) {
-        return err(
-          new SpecGenerationError(
-            `Spec validation failed: ${validation.error.message}`,
-          ),
-        );
+        return err(new SpecGenerationError(`Spec validation failed: ${validation.error.message}`));
       }
 
-      this.eventStore.append(
-        'spec',
-        spec.metadata.specId,
-        EventType.SPEC_GENERATED,
-        {
-          sessionId: TEXT_INPUT_SESSION_ID,
-          goal: spec.goal,
-          constraintCount: spec.constraints.length,
-          criteriaCount: spec.acceptanceCriteria.length,
-          source: 'text',
-        },
-      );
+      this.eventStore.append('spec', spec.metadata.specId, EventType.SPEC_GENERATED, {
+        sessionId: TEXT_INPUT_SESSION_ID,
+        goal: spec.goal,
+        constraintCount: spec.constraints.length,
+        criteriaCount: spec.acceptanceCriteria.length,
+        source: 'text',
+      });
 
       return ok(spec);
     } catch (e) {

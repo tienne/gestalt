@@ -82,10 +82,7 @@ describe('TerminalRecorder', () => {
 
     if (existsSync(framesPath)) {
       const content = readFileSync(framesPath, 'utf8');
-      const lines = content
-        .trim()
-        .split('\n')
-        .filter(Boolean);
+      const lines = content.trim().split('\n').filter(Boolean);
       // 최소 1개 이상의 NDJSON 라인이 있어야 함
       expect(lines.length).toBeGreaterThan(0);
       // 각 라인이 유효한 JSON인지 확인

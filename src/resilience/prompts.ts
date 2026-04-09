@@ -81,7 +81,10 @@ export function buildLateralPrompt(
 ): string {
   const unsatisfied = evaluationResult.verifications
     .filter((v) => !v.satisfied)
-    .map((v) => `  [${v.acIndex}] ${spec.acceptanceCriteria[v.acIndex] ?? 'N/A'}\n    gaps: ${v.gaps.join('; ')}`)
+    .map(
+      (v) =>
+        `  [${v.acIndex}] ${spec.acceptanceCriteria[v.acIndex] ?? 'N/A'}\n    gaps: ${v.gaps.join('; ')}`,
+    )
     .join('\n');
 
   const satisfied = evaluationResult.verifications
@@ -89,17 +92,25 @@ export function buildLateralPrompt(
     .map((v) => `  [${v.acIndex}] ${spec.acceptanceCriteria[v.acIndex] ?? 'N/A'}`)
     .join('\n');
 
-  const historySummary = evolutionHistory.length > 0
-    ? evolutionHistory
-        .map((g) => `  Gen ${g.generation}: score=${g.evaluationScore.toFixed(2)}, goalAlign=${g.goalAlignment.toFixed(2)}, delta=[${g.delta.fieldsChanged.join(', ')}]`)
-        .join('\n')
-    : '  (none)';
+  const historySummary =
+    evolutionHistory.length > 0
+      ? evolutionHistory
+          .map(
+            (g) =>
+              `  Gen ${g.generation}: score=${g.evaluationScore.toFixed(2)}, goalAlign=${g.goalAlignment.toFixed(2)}, delta=[${g.delta.fieldsChanged.join(', ')}]`,
+          )
+          .join('\n')
+      : '  (none)';
 
   const patternDescription: Record<StagnationPattern, string> = {
-    spinning: 'The system has hit a hard cap — multiple evolution attempts have not converged. A fundamentally different approach is needed.',
-    oscillation: 'The system is oscillating between states — scores go up then down repeatedly. Convergence to a stable solution is needed.',
-    no_drift: 'The system shows zero progress — score changes are negligible. Something essential is missing from the spec.',
-    diminishing_returns: 'Progress is diminishing — each iteration yields less improvement. The current approach may have a structural ceiling.',
+    spinning:
+      'The system has hit a hard cap — multiple evolution attempts have not converged. A fundamentally different approach is needed.',
+    oscillation:
+      'The system is oscillating between states — scores go up then down repeatedly. Convergence to a stable solution is needed.',
+    no_drift:
+      'The system shows zero progress — score changes are negligible. Something essential is missing from the spec.',
+    diminishing_returns:
+      'Progress is diminishing — each iteration yields less improvement. The current approach may have a structural ceiling.',
   };
 
   return `## Lateral Thinking — ${persona.charAt(0).toUpperCase() + persona.slice(1)} Persona (Attempt ${attemptNumber}/4)

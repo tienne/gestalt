@@ -16,15 +16,19 @@ export async function handleInterview(
       if (!result.ok) return formatError(result.error.message);
 
       const { session, firstQuestion, projectType, detectedFiles } = result.value;
-      return JSON.stringify({
-        status: 'started',
-        sessionId: session.sessionId,
-        projectType,
-        detectedFiles,
-        question: firstQuestion,
-        roundNumber: 1,
-        message: `Interview started for "${topic}" (${projectType}). Please answer the question below.`,
-      }, null, 2);
+      return JSON.stringify(
+        {
+          status: 'started',
+          sessionId: session.sessionId,
+          projectType,
+          detectedFiles,
+          question: firstQuestion,
+          roundNumber: 1,
+          message: `Interview started for "${topic}" (${projectType}). Please answer the question below.`,
+        },
+        null,
+        2,
+      );
     }
 
     case 'respond': {
@@ -35,24 +39,28 @@ export async function handleInterview(
       if (!result.ok) return formatError(result.error.message);
 
       const { session, nextQuestion, resolutionScore } = result.value;
-      return JSON.stringify({
-        status: 'in_progress',
-        sessionId: session.sessionId,
-        roundNumber: session.rounds.length,
-        question: nextQuestion,
-        resolutionScore: {
-          overall: resolutionScore.overall.toFixed(2),
-          isReady: resolutionScore.isReady,
-          dimensions: resolutionScore.dimensions.map((d) => ({
-            name: d.name,
-            clarity: d.clarity.toFixed(2),
-            principle: d.gestaltPrinciple,
-          })),
+      return JSON.stringify(
+        {
+          status: 'in_progress',
+          sessionId: session.sessionId,
+          roundNumber: session.rounds.length,
+          question: nextQuestion,
+          resolutionScore: {
+            overall: resolutionScore.overall.toFixed(2),
+            isReady: resolutionScore.isReady,
+            dimensions: resolutionScore.dimensions.map((d) => ({
+              name: d.name,
+              clarity: d.clarity.toFixed(2),
+              principle: d.gestaltPrinciple,
+            })),
+          },
+          message: resolutionScore.isReady
+            ? 'Resolution threshold met! You can now complete the interview and generate a spec.'
+            : `Resolution: ${(resolutionScore.overall * 100).toFixed(0)}% — continue answering to increase resolution.`,
         },
-        message: resolutionScore.isReady
-          ? 'Resolution threshold met! You can now complete the interview and generate a spec.'
-          : `Resolution: ${(resolutionScore.overall * 100).toFixed(0)}% — continue answering to increase resolution.`,
-      }, null, 2);
+        null,
+        2,
+      );
     }
 
     case 'score': {
@@ -61,18 +69,22 @@ export async function handleInterview(
       const result = await engine.score(input.sessionId);
       if (!result.ok) return formatError(result.error.message);
 
-      return JSON.stringify({
-        status: 'scored',
-        resolutionScore: {
-          overall: result.value.overall.toFixed(2),
-          isReady: result.value.isReady,
-          dimensions: result.value.dimensions.map((d) => ({
-            name: d.name,
-            clarity: d.clarity.toFixed(2),
-            principle: d.gestaltPrinciple,
-          })),
+      return JSON.stringify(
+        {
+          status: 'scored',
+          resolutionScore: {
+            overall: result.value.overall.toFixed(2),
+            isReady: result.value.isReady,
+            dimensions: result.value.dimensions.map((d) => ({
+              name: d.name,
+              clarity: d.clarity.toFixed(2),
+              principle: d.gestaltPrinciple,
+            })),
+          },
         },
-      }, null, 2);
+        null,
+        2,
+      );
     }
 
     case 'complete': {
@@ -83,16 +95,20 @@ export async function handleInterview(
 
       const recordingPath = input.record ? triggerRecording(result.value) : undefined;
 
-      return JSON.stringify({
-        status: 'completed',
-        sessionId: result.value.sessionId,
-        totalRounds: result.value.rounds.length,
-        finalResolutionScore: result.value.resolutionScore?.overall.toFixed(2) ?? 'N/A',
-        ...(recordingPath && { recordingPath }),
-        message: recordingPath
-          ? `Interview completed. GIF recording is being generated: ${recordingPath}`
-          : 'Interview completed. You can now generate a spec with ges_generate_spec.',
-      }, null, 2);
+      return JSON.stringify(
+        {
+          status: 'completed',
+          sessionId: result.value.sessionId,
+          totalRounds: result.value.rounds.length,
+          finalResolutionScore: result.value.resolutionScore?.overall.toFixed(2) ?? 'N/A',
+          ...(recordingPath && { recordingPath }),
+          message: recordingPath
+            ? `Interview completed. GIF recording is being generated: ${recordingPath}`
+            : 'Interview completed. You can now generate a spec with ges_generate_spec.',
+        },
+        null,
+        2,
+      );
     }
 
     case 'compress': {
@@ -119,11 +135,13 @@ function triggerRecording(session: InterviewSession): string {
 
   try {
     new CastGenerator().generate(session, castPath);
-    void new AggConverter().convertAsync(castPath, gifPath, {
-      deleteCastAfter: true,
-      onComplete: (p) => process.stderr.write(`[gestalt] Recording saved: ${p}\n`),
-      onError: (e) => process.stderr.write(`[gestalt] Recording failed: ${e.message}\n`),
-    }).catch(() => {});
+    void new AggConverter()
+      .convertAsync(castPath, gifPath, {
+        deleteCastAfter: true,
+        onComplete: (p) => process.stderr.write(`[gestalt] Recording saved: ${p}\n`),
+        onError: (e) => process.stderr.write(`[gestalt] Recording failed: ${e.message}\n`),
+      })
+      .catch(() => {});
   } catch {
     // cast generation failure should not break complete action
   }

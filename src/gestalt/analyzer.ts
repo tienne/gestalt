@@ -31,8 +31,7 @@ export function computeResolutionScore(
   raw: RawClarityScores,
   projectType: ProjectType,
 ): ResolutionScore {
-  const weights =
-    projectType === 'greenfield' ? GREENFIELD_WEIGHTS : BROWNFIELD_WEIGHTS;
+  const weights = projectType === 'greenfield' ? GREENFIELD_WEIGHTS : BROWNFIELD_WEIGHTS;
 
   const dimensions: ResolutionDimension[] = [
     {
@@ -70,10 +69,7 @@ export function computeResolutionScore(
     });
   }
 
-  const weightedSum = dimensions.reduce(
-    (sum, d) => sum + d.clarity * d.weight,
-    0,
-  );
+  const weightedSum = dimensions.reduce((sum, d) => sum + d.clarity * d.weight, 0);
 
   const continuityPenalty = computeContinuityPenalty(raw.contradictions);
 
@@ -90,8 +86,7 @@ function computeContinuityPenalty(contradictions: string[]): number {
   if (contradictions.length === 0) return 0;
   const penalty =
     CONTINUITY_PENALTY_MIN +
-    (CONTINUITY_PENALTY_MAX - CONTINUITY_PENALTY_MIN) *
-      Math.min(contradictions.length / 3, 1);
+    (CONTINUITY_PENALTY_MAX - CONTINUITY_PENALTY_MIN) * Math.min(contradictions.length / 3, 1);
   return penalty;
 }
 

@@ -17,8 +17,8 @@ const PADDING = 10;
 const BG_COLOR = 0x1e1e2eff; // dark background
 
 export interface GifGeneratorOptions {
-  repeat?: number;    // -1: no repeat, 0: forever
-  quality?: number;   // 1-20, lower = better quality
+  repeat?: number; // -1: no repeat, 0: forever
+  quality?: number; // 1-20, lower = better quality
   frameDelay?: number; // default delay between frames (ms)
 }
 

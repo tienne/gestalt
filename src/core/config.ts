@@ -83,14 +83,21 @@ function resolveDir(dir: string): string {
  * Deep merge two objects. Source values override target values.
  * Only merges plain objects — arrays and primitives are replaced.
  */
-function deepMerge<T extends Record<string, unknown>>(target: T, source: Record<string, unknown>): T {
+function deepMerge<T extends Record<string, unknown>>(
+  target: T,
+  source: Record<string, unknown>,
+): T {
   const result = { ...target } as Record<string, unknown>;
   for (const key of Object.keys(source)) {
     const sv = source[key];
     const tv = result[key];
     if (
-      sv !== null && typeof sv === 'object' && !Array.isArray(sv) &&
-      tv !== null && typeof tv === 'object' && !Array.isArray(tv)
+      sv !== null &&
+      typeof sv === 'object' &&
+      !Array.isArray(sv) &&
+      tv !== null &&
+      typeof tv === 'object' &&
+      !Array.isArray(tv)
     ) {
       result[key] = deepMerge(tv as Record<string, unknown>, sv as Record<string, unknown>);
     } else if (sv !== undefined) {
@@ -190,8 +197,10 @@ function buildEnvConfig(): Record<string, unknown> {
   if (env['GESTALT_DB_PATH'] !== undefined) result.dbPath = env['GESTALT_DB_PATH'];
   if (env['GESTALT_SKILLS_DIR'] !== undefined) result.skillsDir = env['GESTALT_SKILLS_DIR'];
   if (env['GESTALT_AGENTS_DIR'] !== undefined) result.agentsDir = env['GESTALT_AGENTS_DIR'];
-  if (env['GESTALT_ROLE_AGENTS_DIR'] !== undefined) result.roleAgentsDir = env['GESTALT_ROLE_AGENTS_DIR'];
-  if (env['GESTALT_REVIEW_AGENTS_DIR'] !== undefined) result.reviewAgentsDir = env['GESTALT_REVIEW_AGENTS_DIR'];
+  if (env['GESTALT_ROLE_AGENTS_DIR'] !== undefined)
+    result.roleAgentsDir = env['GESTALT_ROLE_AGENTS_DIR'];
+  if (env['GESTALT_REVIEW_AGENTS_DIR'] !== undefined)
+    result.reviewAgentsDir = env['GESTALT_REVIEW_AGENTS_DIR'];
   if (env['GESTALT_LOG_LEVEL'] !== undefined) result.logLevel = env['GESTALT_LOG_LEVEL'];
 
   return result;
@@ -199,7 +208,10 @@ function buildEnvConfig(): Record<string, unknown> {
 
 // ─── Public API ─────────────────────────────────────────────────
 
-export function loadConfig(overrides: Partial<Record<string, unknown>> = {}, options?: { skipDotEnv?: boolean; skipGestaltJson?: boolean }): GestaltConfig {
+export function loadConfig(
+  overrides: Partial<Record<string, unknown>> = {},
+  options?: { skipDotEnv?: boolean; skipGestaltJson?: boolean },
+): GestaltConfig {
   // 1. Load .env (does not override existing env vars)
   if (!options?.skipDotEnv) {
     loadDotEnv();
@@ -212,16 +224,15 @@ export function loadConfig(overrides: Partial<Record<string, unknown>> = {}, opt
   const envConfig = buildEnvConfig();
 
   // 4. Merge: defaults ← gestalt.json ← envConfig ← overrides
-  const merged = deepMerge(
-    deepMerge(jsonConfig, envConfig),
-    overrides as Record<string, unknown>,
-  );
+  const merged = deepMerge(deepMerge(jsonConfig, envConfig), overrides as Record<string, unknown>);
 
   // 5. Validate with Zod — warn + fallback on invalid values
   const result = configSchema.safeParse(merged);
   if (!result.success) {
     const messages = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
-    console.error(`[gestalt] Warning: Invalid configuration, using defaults for invalid fields:\n${messages.join('\n')}`);
+    console.error(
+      `[gestalt] Warning: Invalid configuration, using defaults for invalid fields:\n${messages.join('\n')}`,
+    );
     // Fallback: parse empty to get all defaults, then overlay what we can
     return applyPostProcessing(configSchema.parse({}));
   }
@@ -238,4 +249,8 @@ function applyPostProcessing(config: GestaltConfig): GestaltConfig {
 }
 
 // Re-export for testing
-export { deepMerge as _deepMerge, loadGestaltJson as _loadGestaltJson, buildEnvConfig as _buildEnvConfig };
+export {
+  deepMerge as _deepMerge,
+  loadGestaltJson as _loadGestaltJson,
+  buildEnvConfig as _buildEnvConfig,
+};

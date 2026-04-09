@@ -33,7 +33,8 @@ export class FilenameGenerator {
   private async requestSlugFromLLM(topic: string, sessionId: string): Promise<string> {
     try {
       const response = await this.llm.chat({
-        system: 'You are a file naming assistant. Respond with ONLY a kebab-case slug (2-5 words, lowercase, hyphens only, no spaces, no special chars, no extension).',
+        system:
+          'You are a file naming assistant. Respond with ONLY a kebab-case slug (2-5 words, lowercase, hyphens only, no spaces, no special chars, no extension).',
         messages: [
           {
             role: 'user',
@@ -58,12 +59,14 @@ export class FilenameGenerator {
   }
 
   private fallbackSlug(topic: string): string {
-    return topic
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, '')
-      .trim()
-      .replace(/\s+/g, '-')
-      .slice(0, 40) || 'interview';
+    return (
+      topic
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .slice(0, 40) || 'interview'
+    );
   }
 
   private getDateString(): string {

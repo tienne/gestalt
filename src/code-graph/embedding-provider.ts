@@ -14,7 +14,7 @@ export interface EmbeddingProvider {
 export interface CodeNodeEmbedding {
   nodeId: string;
   filePath: string;
-  embedding: Buffer;    // float32 LE bytes
+  embedding: Buffer; // float32 LE bytes
   modelId: string;
-  createdAt: number;    // Unix timestamp ms
+  createdAt: number; // Unix timestamp ms
 }

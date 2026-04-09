@@ -51,7 +51,9 @@ export class RoleAgentRegistry {
 
         this.agents.set(agent.frontmatter.name, agent);
       } catch (e) {
-        log(`Failed to load role agent at ${filePath}: ${e instanceof Error ? e.message : String(e)}`);
+        log(
+          `Failed to load role agent at ${filePath}: ${e instanceof Error ? e.message : String(e)}`,
+        );
       }
     }
   }

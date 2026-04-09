@@ -1,10 +1,7 @@
 import type { Spec, TaskExecutionResult, ReviewContext } from '../core/types.js';
 
 export class ReviewContextCollector {
-  collect(
-    spec: Spec,
-    taskResults: TaskExecutionResult[],
-  ): ReviewContext {
+  collect(spec: Spec, taskResults: TaskExecutionResult[]): ReviewContext {
     const changedFiles = this.extractChangedFiles(taskResults);
     const dependencyFiles = this.extractDependencies(taskResults, changedFiles);
 
@@ -39,9 +36,7 @@ export class ReviewContextCollector {
 
     // Extract import references from task output
     for (const result of taskResults) {
-      const importMatches = result.output.matchAll(
-        /(?:import|from)\s+['"]([^'"]+)['"]/g,
-      );
+      const importMatches = result.output.matchAll(/(?:import|from)\s+['"]([^'"]+)['"]/g);
       for (const match of importMatches) {
         const importPath = match[1]!;
         // Only include relative imports (not node_modules)

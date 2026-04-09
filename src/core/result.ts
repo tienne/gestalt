@@ -35,10 +35,7 @@ export function unwrapOr<T, E>(result: Result<T, E>, defaultValue: T): T {
   return result.ok ? result.value : defaultValue;
 }
 
-export function map<T, U, E>(
-  result: Result<T, E>,
-  fn: (value: T) => U,
-): Result<U, E> {
+export function map<T, U, E>(result: Result<T, E>, fn: (value: T) => U): Result<U, E> {
   return result.ok ? ok(fn(result.value)) : result;
 }
 
@@ -49,9 +46,7 @@ export function flatMap<T, U, E>(
   return result.ok ? fn(result.value) : result;
 }
 
-export async function tryCatch<T>(
-  fn: () => Promise<T>,
-): Promise<Result<T, Error>> {
+export async function tryCatch<T>(fn: () => Promise<T>): Promise<Result<T, Error>> {
   try {
     return ok(await fn());
   } catch (e) {

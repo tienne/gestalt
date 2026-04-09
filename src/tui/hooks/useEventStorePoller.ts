@@ -19,10 +19,7 @@ const EMPTY_STATS: EventStats = {
   newestEvent: null,
 };
 
-export function useEventStorePoller(
-  dbPath: string,
-  pollInterval = 1000
-): PollerState {
+export function useEventStorePoller(dbPath: string, pollInterval = 1000): PollerState {
   const [state, setState] = useState<PollerState>({
     events: [],
     sessions: [],
@@ -53,10 +50,7 @@ export function useEventStorePoller(
       }
 
       setState((prev) => {
-        const allEvents =
-          newEvents.length > 0
-            ? [...prev.events, ...newEvents]
-            : prev.events;
+        const allEvents = newEvents.length > 0 ? [...prev.events, ...newEvents] : prev.events;
 
         return {
           events: allEvents,

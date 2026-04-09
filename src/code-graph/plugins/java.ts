@@ -5,9 +5,7 @@ import type { AnalyzerPlugin, ParseResult, CodeGraphNode, CodeGraphEdge } from '
 
 function isTestFile(filePath: string): boolean {
   return (
-    filePath.includes('Test.java') ||
-    filePath.includes('/test/') ||
-    filePath.includes('/tests/')
+    filePath.includes('Test.java') || filePath.includes('/test/') || filePath.includes('/tests/')
   );
 }
 
@@ -35,9 +33,11 @@ export const javaPlugin: AnalyzerPlugin = {
     });
 
     const lines = content.split('\n');
-    const classRegex = /(?:public\s+|private\s+|protected\s+|abstract\s+|final\s+)*(?:class|enum)\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?/;
+    const classRegex =
+      /(?:public\s+|private\s+|protected\s+|abstract\s+|final\s+)*(?:class|enum)\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?/;
     const interfaceRegex = /(?:public\s+)?interface\s+(\w+)/;
-    const methodRegex = /(?:public|private|protected|static|final|abstract|synchronized|native|default)\s+[\w<>\[\]]+\s+(\w+)\s*\(/;
+    const methodRegex =
+      /(?:public|private|protected|static|final|abstract|synchronized|native|default)\s+[\w<>\[\]]+\s+(\w+)\s*\(/;
     const importRegex = /^import\s+(?:static\s+)?([\w.]+);/;
 
     let currentClassId: string | null = null;
@@ -54,7 +54,13 @@ export const javaPlugin: AnalyzerPlugin = {
         const edgeKey = `IMPORTS_FROM:${fileNodeId}:${targetId}`;
         if (!edgeSet.has(edgeKey)) {
           edgeSet.add(edgeKey);
-          edges.push({ kind: EdgeKind.IMPORTS_FROM, sourceId: fileNodeId, targetId, line: lineNum, updatedAt: now });
+          edges.push({
+            kind: EdgeKind.IMPORTS_FROM,
+            sourceId: fileNodeId,
+            targetId,
+            line: lineNum,
+            updatedAt: now,
+          });
         }
         continue;
       }
@@ -64,11 +70,25 @@ export const javaPlugin: AnalyzerPlugin = {
       if (ifaceMatch) {
         const name = ifaceMatch[1]!;
         const nodeId = `type:${filePath}:${name}`;
-        nodes.push({ id: nodeId, kind: NodeKind.Type, name, filePath, lineStart: lineNum, isTest, updatedAt: now });
+        nodes.push({
+          id: nodeId,
+          kind: NodeKind.Type,
+          name,
+          filePath,
+          lineStart: lineNum,
+          isTest,
+          updatedAt: now,
+        });
         const edgeKey = `CONTAINS:${fileNodeId}:${nodeId}`;
         if (!edgeSet.has(edgeKey)) {
           edgeSet.add(edgeKey);
-          edges.push({ kind: EdgeKind.CONTAINS, sourceId: fileNodeId, targetId: nodeId, line: lineNum, updatedAt: now });
+          edges.push({
+            kind: EdgeKind.CONTAINS,
+            sourceId: fileNodeId,
+            targetId: nodeId,
+            line: lineNum,
+            updatedAt: now,
+          });
         }
         currentClassId = nodeId;
         continue;
@@ -79,11 +99,25 @@ export const javaPlugin: AnalyzerPlugin = {
       if (classMatch) {
         const name = classMatch[1]!;
         const nodeId = `class:${filePath}:${name}`;
-        nodes.push({ id: nodeId, kind: NodeKind.Class, name, filePath, lineStart: lineNum, isTest, updatedAt: now });
+        nodes.push({
+          id: nodeId,
+          kind: NodeKind.Class,
+          name,
+          filePath,
+          lineStart: lineNum,
+          isTest,
+          updatedAt: now,
+        });
         const edgeKey = `CONTAINS:${fileNodeId}:${nodeId}`;
         if (!edgeSet.has(edgeKey)) {
           edgeSet.add(edgeKey);
-          edges.push({ kind: EdgeKind.CONTAINS, sourceId: fileNodeId, targetId: nodeId, line: lineNum, updatedAt: now });
+          edges.push({
+            kind: EdgeKind.CONTAINS,
+            sourceId: fileNodeId,
+            targetId: nodeId,
+            line: lineNum,
+            updatedAt: now,
+          });
         }
 
         // Inheritance
@@ -93,7 +127,13 @@ export const javaPlugin: AnalyzerPlugin = {
           const inheritKey = `INHERITS:${nodeId}:${parentId}`;
           if (!edgeSet.has(inheritKey)) {
             edgeSet.add(inheritKey);
-            edges.push({ kind: EdgeKind.INHERITS, sourceId: nodeId, targetId: parentId, line: lineNum, updatedAt: now });
+            edges.push({
+              kind: EdgeKind.INHERITS,
+              sourceId: nodeId,
+              targetId: parentId,
+              line: lineNum,
+              updatedAt: now,
+            });
           }
         }
         currentClassId = nodeId;
@@ -107,11 +147,25 @@ export const javaPlugin: AnalyzerPlugin = {
           const name = methodMatch[1]!;
           if (name !== 'if' && name !== 'while' && name !== 'for' && name !== 'return') {
             const nodeId = `function:${filePath}:${name}`;
-            nodes.push({ id: nodeId, kind: NodeKind.Function, name, filePath, lineStart: lineNum, isTest, updatedAt: now });
+            nodes.push({
+              id: nodeId,
+              kind: NodeKind.Function,
+              name,
+              filePath,
+              lineStart: lineNum,
+              isTest,
+              updatedAt: now,
+            });
             const edgeKey = `CONTAINS:${currentClassId}:${nodeId}`;
             if (!edgeSet.has(edgeKey)) {
               edgeSet.add(edgeKey);
-              edges.push({ kind: EdgeKind.CONTAINS, sourceId: currentClassId, targetId: nodeId, line: lineNum, updatedAt: now });
+              edges.push({
+                kind: EdgeKind.CONTAINS,
+                sourceId: currentClassId,
+                targetId: nodeId,
+                line: lineNum,
+                updatedAt: now,
+              });
             }
           }
         }

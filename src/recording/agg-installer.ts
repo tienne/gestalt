@@ -22,7 +22,9 @@ export class AggInstaller {
       console.log('  → cargo install agg');
       const result = spawnSync('cargo', ['install', 'agg'], { stdio: 'inherit' });
       if (result.status !== 0) {
-        throw new Error('Failed to install agg via cargo. Please install manually: https://github.com/asciinema/agg');
+        throw new Error(
+          'Failed to install agg via cargo. Please install manually: https://github.com/asciinema/agg',
+        );
       }
     } else if (hasNpm) {
       console.log('  → npm install -g @asciinema/agg');
@@ -39,7 +41,9 @@ export class AggInstaller {
     }
 
     if (!this.isInstalled()) {
-      throw new Error('agg installation failed. Please install it manually: https://github.com/asciinema/agg');
+      throw new Error(
+        'agg installation failed. Please install it manually: https://github.com/asciinema/agg',
+      );
     }
     console.log('✅ agg installed successfully.\n');
   }

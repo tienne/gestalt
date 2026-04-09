@@ -263,7 +263,13 @@ export interface RetrospectiveResult {
 
 // ─── Evolution Loop ───────────────────────────────────────────
 export type EvolveStage = 'fix' | 'patch' | 're_executing' | 'lateral';
-export type TerminationReason = 'success' | 'stagnation' | 'oscillation' | 'hard_cap' | 'caller' | 'human_escalation';
+export type TerminationReason =
+  | 'success'
+  | 'stagnation'
+  | 'oscillation'
+  | 'hard_cap'
+  | 'caller'
+  | 'human_escalation';
 
 export interface SpecPatch {
   acceptanceCriteria?: string[];
@@ -417,7 +423,13 @@ export interface RoleGuidance {
 
 // ─── Code Review System ─────────────────────────────────────────
 export type ReviewIssueSeverity = 'critical' | 'high' | 'warning';
-export type ReviewSessionStatus = 'started' | 'reviewing' | 'consensus' | 'fixing' | 'passed' | 'failed_with_report';
+export type ReviewSessionStatus =
+  | 'started'
+  | 'reviewing'
+  | 'consensus'
+  | 'fixing'
+  | 'passed'
+  | 'failed_with_report';
 
 export interface ReviewIssue {
   id: string;
@@ -550,8 +562,8 @@ export interface DomainEvent<T = unknown> {
 
 /** 단일 터미널 출력 프레임 — NDJSON으로 .frames 파일에 append */
 export interface TerminalFrame {
-  timestamp: number;    // Date.now() ms
-  data: string;         // ANSI 포함 raw 출력 데이터
+  timestamp: number; // Date.now() ms
+  data: string; // ANSI 포함 raw 출력 데이터
   cols: number;
   rows: number;
 }
@@ -559,8 +571,8 @@ export interface TerminalFrame {
 /** 하나의 연속 녹화 구간 (.frames 파일 1개에 대응) */
 export interface RecordingSegment {
   sessionId: string;
-  framesPath: string;   // .gestalt/recordings/{sessionId}.frames
-  startedAt: number;    // timestamp ms
+  framesPath: string; // .gestalt/recordings/{sessionId}.frames
+  startedAt: number; // timestamp ms
   endedAt?: number;
 }
 

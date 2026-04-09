@@ -13,11 +13,13 @@ const DIM = '\x1b[2m';
 type CastEvent = [number, 'o', string];
 
 export function slugify(topic: string): string {
-  return topic
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50) || 'interview';
+  return (
+    topic
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 50) || 'interview'
+  );
 }
 
 export function getDateString(date = new Date()): string {
@@ -40,13 +42,29 @@ export class CastGenerator {
     let t = 0;
 
     // Banner
-    events.push([t, 'o', `\r\n${BOLD}${CYAN}╔══════════════════════════════════════════════╗${RESET}\r\n`]);
+    events.push([
+      t,
+      'o',
+      `\r\n${BOLD}${CYAN}╔══════════════════════════════════════════════╗${RESET}\r\n`,
+    ]);
     t += 0.05;
-    events.push([t, 'o', `${BOLD}${CYAN}║  🎯 Gestalt Interview                        ║${RESET}\r\n`]);
+    events.push([
+      t,
+      'o',
+      `${BOLD}${CYAN}║  🎯 Gestalt Interview                        ║${RESET}\r\n`,
+    ]);
     t += 0.05;
-    events.push([t, 'o', `${BOLD}${CYAN}║  ${DIM}${session.topic.slice(0, 44).padEnd(44)}${RESET}${BOLD}${CYAN}  ║${RESET}\r\n`]);
+    events.push([
+      t,
+      'o',
+      `${BOLD}${CYAN}║  ${DIM}${session.topic.slice(0, 44).padEnd(44)}${RESET}${BOLD}${CYAN}  ║${RESET}\r\n`,
+    ]);
     t += 0.05;
-    events.push([t, 'o', `${BOLD}${CYAN}╚══════════════════════════════════════════════╝${RESET}\r\n\r\n`]);
+    events.push([
+      t,
+      'o',
+      `${BOLD}${CYAN}╚══════════════════════════════════════════════╝${RESET}\r\n\r\n`,
+    ]);
     t += 0.5;
 
     // Q&A rounds
@@ -54,7 +72,11 @@ export class CastGenerator {
       if (!round.userResponse) continue;
 
       // Question
-      events.push([t, 'o', `${BOLD}${YELLOW}Q${round.roundNumber} [${round.gestaltFocus}]${RESET}\r\n`]);
+      events.push([
+        t,
+        'o',
+        `${BOLD}${YELLOW}Q${round.roundNumber} [${round.gestaltFocus}]${RESET}\r\n`,
+      ]);
       t += 0.1;
       events.push([t, 'o', `${round.question}\r\n\r\n`]);
       t += 1.2;
@@ -67,19 +89,24 @@ export class CastGenerator {
     }
 
     // Footer
-    events.push([t, 'o', `${BOLD}${CYAN}✅ Interview completed — ${session.rounds.length} rounds${RESET}\r\n`]);
+    events.push([
+      t,
+      'o',
+      `${BOLD}${CYAN}✅ Interview completed — ${session.rounds.length} rounds${RESET}\r\n`,
+    ]);
     t += 0.3;
     if (session.resolutionScore) {
-      events.push([t, 'o', `${DIM}Resolution score: ${session.resolutionScore.overall.toFixed(2)}${RESET}\r\n`]);
+      events.push([
+        t,
+        'o',
+        `${DIM}Resolution score: ${session.resolutionScore.overall.toFixed(2)}${RESET}\r\n`,
+      ]);
     }
     events.push([t + 0.2, 'o', '\r\n']);
 
     // Write file
     mkdirSync(dirname(outputPath), { recursive: true });
-    const lines = [
-      JSON.stringify(header),
-      ...events.map((e) => JSON.stringify(e)),
-    ];
+    const lines = [JSON.stringify(header), ...events.map((e) => JSON.stringify(e))];
     writeFileSync(outputPath, lines.join('\n') + '\n', 'utf8');
   }
 }

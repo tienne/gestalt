@@ -33,7 +33,7 @@ const specMetadataSchema = z
     ambiguityScore: z.number().min(0).max(1).optional(),
     generatedAt: z.string(),
   })
-  .transform(data => ({
+  .transform((data) => ({
     specId: data.specId,
     interviewSessionId: data.interviewSessionId,
     generatedAt: data.generatedAt,

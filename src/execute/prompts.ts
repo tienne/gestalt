@@ -1,8 +1,17 @@
-import type { Spec, ClassifiedAC, AtomicTask, TaskGroup, PlanningStepResult, TaskExecutionResult, StructuralResult, DriftScore, StructuralCommandResult, EvaluationResult, EvolutionGeneration } from '../core/types.js';
-import {
-  PLANNING_PRINCIPLE_SEQUENCE,
-  PLANNING_TOTAL_STEPS,
-} from '../core/constants.js';
+import type {
+  Spec,
+  ClassifiedAC,
+  AtomicTask,
+  TaskGroup,
+  PlanningStepResult,
+  TaskExecutionResult,
+  StructuralResult,
+  DriftScore,
+  StructuralCommandResult,
+  EvaluationResult,
+  EvolutionGeneration,
+} from '../core/types.js';
+import { PLANNING_PRINCIPLE_SEQUENCE, PLANNING_TOTAL_STEPS } from '../core/constants.js';
 
 // ─── System Prompt ──────────────────────────────────────────────
 
@@ -25,9 +34,7 @@ export const EXECUTE_SYSTEM_PROMPT = `You are a Gestalt-trained execution planne
 // ─── Step Prompts ───────────────────────────────────────────────
 
 export function buildFigureGroundPrompt(spec: Spec): string {
-  const acList = spec.acceptanceCriteria
-    .map((ac, i) => `  [${i}] ${ac}`)
-    .join('\n');
+  const acList = spec.acceptanceCriteria.map((ac, i) => `  [${i}] ${ac}`).join('\n');
 
   return `## Phase 1: Figure-Ground Classification
 
@@ -107,7 +114,10 @@ Rules:
 
 export function buildProximityPrompt(spec: Spec, atomicTasks: AtomicTask[]): string {
   const taskList = atomicTasks
-    .map((t) => `  ${t.taskId}: ${t.title} [${t.estimatedComplexity}] depends: [${t.dependsOn.join(', ')}]`)
+    .map(
+      (t) =>
+        `  ${t.taskId}: ${t.title} [${t.estimatedComplexity}] depends: [${t.dependsOn.join(', ')}]`,
+    )
     .join('\n');
 
   return `## Phase 3: Proximity — Task Grouping
@@ -206,24 +216,27 @@ export function buildTaskExecutionPrompt(
   similarTasks: AtomicTask[],
   relatedFiles?: string[],
 ): string {
-  const completedSummary = completedResults.length > 0
-    ? completedResults
-        .map((r) => `  ${r.taskId}: [${r.status}] ${r.output.slice(0, 200)}`)
-        .join('\n')
-    : '  (none)';
+  const completedSummary =
+    completedResults.length > 0
+      ? completedResults
+          .map((r) => `  ${r.taskId}: [${r.status}] ${r.output.slice(0, 200)}`)
+          .join('\n')
+      : '  (none)';
 
-  const similarContext = similarTasks.length > 0
-    ? `\n**Similar completed tasks** (use for consistent patterns):\n${similarTasks
-        .map((t) => {
-          const result = completedResults.find((r) => r.taskId === t.taskId);
-          return `  ${t.taskId}: ${t.title} → ${result?.output.slice(0, 150) ?? 'N/A'}`;
-        })
-        .join('\n')}`
-    : '';
+  const similarContext =
+    similarTasks.length > 0
+      ? `\n**Similar completed tasks** (use for consistent patterns):\n${similarTasks
+          .map((t) => {
+            const result = completedResults.find((r) => r.taskId === t.taskId);
+            return `  ${t.taskId}: ${t.title} → ${result?.output.slice(0, 150) ?? 'N/A'}`;
+          })
+          .join('\n')}`
+      : '';
 
-  const relatedFilesSection = relatedFiles && relatedFiles.length > 0
-    ? `\n**Related files (read first)**:\n${relatedFiles.map((f) => `- ${f}`).join('\n')}\n`
-    : '';
+  const relatedFilesSection =
+    relatedFiles && relatedFiles.length > 0
+      ? `\n**Related files (read first)**:\n${relatedFiles.map((f) => `- ${f}`).join('\n')}\n`
+      : '';
 
   return `## Task Execution
 ${relatedFilesSection}
@@ -272,7 +285,9 @@ export function buildEvaluationPrompt(
     .join('\n');
 
   const resultSummary = taskResults
-    .map((r) => `  ${r.taskId}: [${r.status}] ${r.output}\n    artifacts: [${r.artifacts.join(', ')}]`)
+    .map(
+      (r) => `  ${r.taskId}: [${r.status}] ${r.output}\n    artifacts: [${r.artifacts.join(', ')}]`,
+    )
     .join('\n');
 
   return `## Evaluation — Acceptance Criteria Verification
@@ -360,7 +375,9 @@ export function buildContextualEvaluationPrompt(
     .join('\n');
 
   const resultSummary = taskResults
-    .map((r) => `  ${r.taskId}: [${r.status}] ${r.output}\n    artifacts: [${r.artifacts.join(', ')}]`)
+    .map(
+      (r) => `  ${r.taskId}: [${r.status}] ${r.output}\n    artifacts: [${r.artifacts.join(', ')}]`,
+    )
     .join('\n');
 
   const structuralSummary = structuralResult.commands
@@ -463,7 +480,10 @@ export function buildStructuralFixPrompt(
   taskResults: TaskExecutionResult[],
 ): string {
   const failedSummary = failedCommands
-    .map((c) => `  ${c.name}: "${c.command}" → exit ${c.exitCode}\n    output: ${c.output.slice(0, 500)}`)
+    .map(
+      (c) =>
+        `  ${c.name}: "${c.command}" → exit ${c.exitCode}\n    output: ${c.output.slice(0, 500)}`,
+    )
     .join('\n');
 
   const taskSummary = taskResults
@@ -518,14 +538,21 @@ export function buildContextualEvolvePrompt(
 ): string {
   const unsatisfied = evaluationResult.verifications
     .filter((v) => !v.satisfied)
-    .map((v) => `  [${v.acIndex}] ${spec.acceptanceCriteria[v.acIndex] ?? 'N/A'}\n    gaps: ${v.gaps.join('; ')}`)
+    .map(
+      (v) =>
+        `  [${v.acIndex}] ${spec.acceptanceCriteria[v.acIndex] ?? 'N/A'}\n    gaps: ${v.gaps.join('; ')}`,
+    )
     .join('\n');
 
-  const historySummary = evolutionHistory.length > 0
-    ? `\n**Evolution History** (${evolutionHistory.length} generations):\n${evolutionHistory
-        .map((g) => `  Gen ${g.generation}: score=${g.evaluationScore.toFixed(2)}, goalAlign=${g.goalAlignment.toFixed(2)}, delta=[${g.delta.fieldsChanged.join(', ')}]`)
-        .join('\n')}`
-    : '';
+  const historySummary =
+    evolutionHistory.length > 0
+      ? `\n**Evolution History** (${evolutionHistory.length} generations):\n${evolutionHistory
+          .map(
+            (g) =>
+              `  Gen ${g.generation}: score=${g.evaluationScore.toFixed(2)}, goalAlign=${g.goalAlignment.toFixed(2)}, delta=[${g.delta.fieldsChanged.join(', ')}]`,
+          )
+          .join('\n')}`
+      : '';
 
   return `## Contextual Evolution — Spec Patch Generation
 
@@ -572,11 +599,12 @@ export function buildReExecutionPrompt(
   completedResults: TaskExecutionResult[],
   patchSummary: string,
 ): string {
-  const completedSummary = completedResults.length > 0
-    ? completedResults
-        .map((r) => `  ${r.taskId}: [${r.status}] ${r.output.slice(0, 200)}`)
-        .join('\n')
-    : '  (none)';
+  const completedSummary =
+    completedResults.length > 0
+      ? completedResults
+          .map((r) => `  ${r.taskId}: [${r.status}] ${r.output.slice(0, 200)}`)
+          .join('\n')
+      : '  (none)';
 
   return `## Re-Execution Task (Evolution Loop)
 

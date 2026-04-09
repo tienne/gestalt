@@ -12,7 +12,7 @@ import type { BenchmarkInput } from '../schemas.js';
 
 const SCENARIOS: Record<string, BenchmarkScenario> = {
   'auth-system': authSystemScenario,
-  'dashboard': dashboardScenario,
+  dashboard: dashboardScenario,
   'api-gateway': apiGatewayScenario,
 };
 
@@ -55,10 +55,14 @@ function handleStart(input: BenchmarkInput): string {
 
   const firstStep = runner.start();
 
-  return JSON.stringify({
-    status: 'started',
-    ...firstStep,
-  }, null, 2);
+  return JSON.stringify(
+    {
+      status: 'started',
+      ...firstStep,
+    },
+    null,
+    2,
+  );
 }
 
 function handleRespond(input: BenchmarkInput): string {
@@ -84,16 +88,24 @@ function handleRespond(input: BenchmarkInput): string {
 
   if (result.step === 'complete') {
     removeBenchmarkRunner(sessionId);
-    return JSON.stringify({
-      status: 'complete',
-      ...result,
-    }, null, 2);
+    return JSON.stringify(
+      {
+        status: 'complete',
+        ...result,
+      },
+      null,
+      2,
+    );
   }
 
-  return JSON.stringify({
-    status: 'in_progress',
-    ...result,
-  }, null, 2);
+  return JSON.stringify(
+    {
+      status: 'in_progress',
+      ...result,
+    },
+    null,
+    2,
+  );
 }
 
 function handleStatus(input: BenchmarkInput): string {

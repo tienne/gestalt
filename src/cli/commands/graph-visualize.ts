@@ -25,7 +25,9 @@ export async function graphVisualizeCommand(opts: GraphVisualizeOptions = {}): P
     console.log('\nPress Ctrl+C to stop the server.\n');
 
     // Keep process alive until SIGINT (the server's own SIGINT handler will exit)
-    await new Promise<void>(() => { /* runs until Ctrl+C */ });
+    await new Promise<void>(() => {
+      /* runs until Ctrl+C */
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`Error starting graph visualization: ${msg}`);

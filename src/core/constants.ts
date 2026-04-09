@@ -8,19 +8,19 @@ export const LLM_MAX_TOKENS = 4096;
 export const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
 
 export const GREENFIELD_WEIGHTS: Record<GestaltPrinciple, number> = {
-  [GestaltPrinciple.CLOSURE]: 0.40,
+  [GestaltPrinciple.CLOSURE]: 0.4,
   [GestaltPrinciple.PROXIMITY]: 0.25,
-  [GestaltPrinciple.SIMILARITY]: 0.20,
+  [GestaltPrinciple.SIMILARITY]: 0.2,
   [GestaltPrinciple.FIGURE_GROUND]: 0.15,
   [GestaltPrinciple.CONTINUITY]: 0,
 };
 
 export const BROWNFIELD_WEIGHTS: Record<GestaltPrinciple, number> = {
-  [GestaltPrinciple.CLOSURE]: 0.30,
-  [GestaltPrinciple.PROXIMITY]: 0.20,
+  [GestaltPrinciple.CLOSURE]: 0.3,
+  [GestaltPrinciple.PROXIMITY]: 0.2,
   [GestaltPrinciple.SIMILARITY]: 0.15,
   [GestaltPrinciple.FIGURE_GROUND]: 0.15,
-  [GestaltPrinciple.CONTINUITY]: 0.20,
+  [GestaltPrinciple.CONTINUITY]: 0.2,
 };
 
 export const CONTINUITY_PENALTY_MIN = 0.05;
@@ -84,7 +84,7 @@ export const DRIFT_WEIGHTS = {
 export const EVOLVE_MAX_STRUCTURAL_FIX = 3;
 export const EVOLVE_MAX_CONTEXTUAL = 3;
 export const EVOLVE_SUCCESS_THRESHOLD = 0.85;
-export const EVOLVE_GOAL_ALIGNMENT_THRESHOLD = 0.80;
+export const EVOLVE_GOAL_ALIGNMENT_THRESHOLD = 0.8;
 export const EVOLVE_STAGNATION_DELTA = 0.05;
 export const EVOLVE_STAGNATION_COUNT = 2;
 export const EVOLVE_OSCILLATION_COUNT = 2;

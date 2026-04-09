@@ -71,7 +71,7 @@ export class EventStoreReader {
       .prepare(
         `SELECT * FROM events
          WHERE (created_at > ?) OR (created_at = ? AND id > ?)
-         ORDER BY created_at ASC LIMIT ?`
+         ORDER BY created_at ASC LIMIT ?`,
       )
       .all(anchor.created_at, anchor.created_at, anchor.id, limit) as EventRow[];
     return rows.map(rowToEvent);
@@ -88,7 +88,7 @@ export class EventStoreReader {
         FROM events
         WHERE aggregate_id != 'system'
         GROUP BY aggregate_type, aggregate_id
-        ORDER BY first_event DESC`
+        ORDER BY first_event DESC`,
       )
       .all() as Array<{
       aggregate_id: string;
@@ -102,7 +102,7 @@ export class EventStoreReader {
         .prepare(
           `SELECT payload FROM events
            WHERE aggregate_id = ? AND event_type LIKE '%_STARTED%'
-           ORDER BY timestamp ASC LIMIT 1`
+           ORDER BY timestamp ASC LIMIT 1`,
         )
         .get(row.aggregate_id) as { payload: string } | undefined;
 
@@ -110,7 +110,7 @@ export class EventStoreReader {
         .prepare(
           `SELECT event_type FROM events
            WHERE aggregate_id = ?
-           ORDER BY timestamp DESC LIMIT 1`
+           ORDER BY timestamp DESC LIMIT 1`,
         )
         .get(row.aggregate_id) as { event_type: string } | undefined;
 
@@ -139,28 +139,22 @@ export class EventStoreReader {
 
   getSessionEvents(sessionId: string): DomainEvent[] {
     const rows = this.db
-      .prepare(
-        'SELECT * FROM events WHERE aggregate_id = ? ORDER BY created_at ASC'
-      )
+      .prepare('SELECT * FROM events WHERE aggregate_id = ? ORDER BY created_at ASC')
       .all(sessionId) as EventRow[];
     return rows.map(rowToEvent);
   }
 
   getStats(): EventStats {
-    const total = this.db
-      .prepare('SELECT COUNT(*) as count FROM events')
-      .get() as { count: number };
+    const total = this.db.prepare('SELECT COUNT(*) as count FROM events').get() as {
+      count: number;
+    };
 
     const byTypeRows = this.db
-      .prepare(
-        'SELECT event_type, COUNT(*) as count FROM events GROUP BY event_type'
-      )
+      .prepare('SELECT event_type, COUNT(*) as count FROM events GROUP BY event_type')
       .all() as Array<{ event_type: string; count: number }>;
 
     const byAggRows = this.db
-      .prepare(
-        'SELECT aggregate_type, COUNT(*) as count FROM events GROUP BY aggregate_type'
-      )
+      .prepare('SELECT aggregate_type, COUNT(*) as count FROM events GROUP BY aggregate_type')
       .all() as Array<{ aggregate_type: string; count: number }>;
 
     const oldest = this.db

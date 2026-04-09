@@ -141,7 +141,10 @@ export class ExecuteSessionRepository {
         break;
 
       case EventType.EVALUATE_STRUCTURAL_COMPLETED: {
-        const structuralResult = payload as unknown as { allPassed: boolean; commands: Array<{ name: string; exitCode: number }> };
+        const structuralResult = payload as unknown as {
+          allPassed: boolean;
+          commands: Array<{ name: string; exitCode: number }>;
+        };
         // 전체 StructuralResult는 이벤트에 포함되지 않을 수 있으므로 최소 복원
         if (structuralResult) {
           session.structuralResult = session.structuralResult ?? {

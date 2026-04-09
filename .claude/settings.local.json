@@ -1,33 +1,33 @@
 {
-  "permissions": {
-    "allow": [
-      "WebFetch(domain:github.com)",
-      "Bash(gh repo:*)",
-      "WebSearch",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:ts.sdk.modelcontextprotocol.io)",
-      "WebFetch(domain:ai-sdk.dev)",
-      "WebFetch(domain:docs.langchain.com)",
-      "WebFetch(domain:dev.to)",
-      "WebFetch(domain:www.freecodecamp.org)",
-      "mcp__context7__resolve-library-id",
-      "mcp__context7__query-docs",
-      "Bash(pnpm:*)",
-      "Bash(node:*)",
-      "mcp__gestalt__ges_interview",
-      "Bash(ls:*)",
-      "Bash(wc:*)",
-      "Bash(gh api:*)",
-      "mcp__gestalt__ges_generate_spec",
-      "mcp__jetbrains__list_directory_tree",
-      "Bash(npx vitest:*)",
-      "Bash(npx tsx:*)",
-      "Bash(pkill:*)",
-      "Bash(timeout 15 npx vitest:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(do echo:*)",
-      "mcp__gestalt__ges_status"
-    ]
-  }
+	"permissions": {
+		"allow": [
+			"WebFetch(domain:github.com)",
+			"Bash(gh repo:*)",
+			"WebSearch",
+			"WebFetch(domain:raw.githubusercontent.com)",
+			"WebFetch(domain:ts.sdk.modelcontextprotocol.io)",
+			"WebFetch(domain:ai-sdk.dev)",
+			"WebFetch(domain:docs.langchain.com)",
+			"WebFetch(domain:dev.to)",
+			"WebFetch(domain:www.freecodecamp.org)",
+			"mcp__context7__resolve-library-id",
+			"mcp__context7__query-docs",
+			"Bash(pnpm:*)",
+			"Bash(node:*)",
+			"mcp__gestalt__ges_interview",
+			"Bash(ls:*)",
+			"Bash(wc:*)",
+			"Bash(gh api:*)",
+			"mcp__gestalt__ges_generate_spec",
+			"mcp__jetbrains__list_directory_tree",
+			"Bash(npx vitest:*)",
+			"Bash(npx tsx:*)",
+			"Bash(pkill:*)",
+			"Bash(timeout 15 npx vitest:*)",
+			"Bash(git add:*)",
+			"Bash(git commit:*)",
+			"Bash(do echo:*)",
+			"mcp__gestalt__ges_status"
+		]
+	}
 }

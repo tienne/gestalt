@@ -33,14 +33,20 @@ export interface EmbeddingBuildResult {
   timeTakenMs: number;
 }
 
-function getFilesRecursively(repoRoot: string, excludePatterns: string[], include?: string[]): string[] {
+function getFilesRecursively(
+  repoRoot: string,
+  excludePatterns: string[],
+  include?: string[],
+): string[] {
   const excludeSegments = new Set(
-    excludePatterns.filter(p => p.endsWith('/**')).map(p => p.slice(0, -3)),
+    excludePatterns.filter((p) => p.endsWith('/**')).map((p) => p.slice(0, -3)),
   );
   const excludeSuffixes = excludePatterns
-    .filter(p => !p.includes('/') && p.startsWith('*.'))
-    .map(p => p.slice(1));
-  const includeRoots = include?.filter(p => !p.startsWith('**')).map(p => p.replace(/\*\*.*$/, '').replace(/\/$/, ''));
+    .filter((p) => !p.includes('/') && p.startsWith('*.'))
+    .map((p) => p.slice(1));
+  const includeRoots = include
+    ?.filter((p) => !p.startsWith('**'))
+    .map((p) => p.replace(/\*\*.*$/, '').replace(/\/$/, ''));
 
   const results: string[] = [];
   try {
@@ -50,9 +56,10 @@ function getFilesRecursively(repoRoot: string, excludePatterns: string[], includ
       const fullPath = join(entry.parentPath, entry.name);
       const rel = fullPath.slice(repoRoot.length + 1);
       const segments = rel.split('/');
-      if (segments.some(s => excludeSegments.has(s))) continue;
-      if (excludeSuffixes.some(s => entry.name.endsWith(s))) continue;
-      if (includeRoots && includeRoots.length > 0 && !includeRoots.some(r => rel.startsWith(r))) continue;
+      if (segments.some((s) => excludeSegments.has(s))) continue;
+      if (excludeSuffixes.some((s) => entry.name.endsWith(s))) continue;
+      if (includeRoots && includeRoots.length > 0 && !includeRoots.some((r) => rel.startsWith(r)))
+        continue;
       results.push(fullPath);
     }
   } catch {
@@ -165,9 +172,7 @@ export class CodeGraphEngine {
     }
 
     // Convert to absolute paths
-    const absoluteFiles = files.map((f) =>
-      f.startsWith('/') ? f : resolve(repoRoot, f),
-    );
+    const absoluteFiles = files.map((f) => (f.startsWith('/') ? f : resolve(repoRoot, f)));
 
     return computeBlastRadius(store, absoluteFiles, maxDepth);
   }
@@ -314,9 +319,7 @@ export class CodeGraphEngine {
       }
     }
 
-    return [...scoreMap.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([filePath]) => filePath);
+    return [...scoreMap.entries()].sort((a, b) => b[1] - a[1]).map(([filePath]) => filePath);
   }
 
   /**
@@ -340,7 +343,11 @@ export class CodeGraphEngine {
     // Compute cosine similarity for each stored embedding
     const scored: ScoredFile[] = [];
     for (const stored of allEmbeddings) {
-      const storedVec = new Float32Array(stored.embedding.buffer, stored.embedding.byteOffset, stored.embedding.byteLength / 4);
+      const storedVec = new Float32Array(
+        stored.embedding.buffer,
+        stored.embedding.byteOffset,
+        stored.embedding.byteLength / 4,
+      );
       const score = cosineSimilarity(queryVector, Array.from(storedVec));
       scored.push({ filePath: stored.filePath, score });
     }
@@ -370,9 +377,10 @@ export class CodeGraphEngine {
       .filter((w) => w.length > 2)
       .slice(0, 5);
 
-    const keywordResults = this.searchByKeywords(repoRoot, keywords).map(
-      (filePath, idx) => ({ filePath, score: 1 / (idx + 1) }),
-    );
+    const keywordResults = this.searchByKeywords(repoRoot, keywords).map((filePath, idx) => ({
+      filePath,
+      score: 1 / (idx + 1),
+    }));
 
     let semanticResults: ScoredFile[] = [];
     try {
@@ -393,14 +401,13 @@ export class CodeGraphEngine {
    * Build embeddings for all file nodes in the code graph.
    * Runs after build() to generate semantic search vectors.
    */
-  async buildEmbeddings(repoRoot: string, opts: EmbeddingBuildOptions = {}): Promise<EmbeddingBuildResult> {
+  async buildEmbeddings(
+    repoRoot: string,
+    opts: EmbeddingBuildOptions = {},
+  ): Promise<EmbeddingBuildResult> {
     const start = Date.now();
     const store = this.getStore(repoRoot);
-    const {
-      summaryProvider = null,
-      batchSize = 32,
-      mode = 'full',
-    } = opts;
+    const { summaryProvider = null, batchSize = 32, mode = 'full' } = opts;
 
     // Lazy-load LocalEmbeddingProvider only when needed
     let embeddingProvider = opts.embeddingProvider;

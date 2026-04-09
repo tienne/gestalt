@@ -129,7 +129,10 @@ export class ExecuteSessionManager {
       session.taskResults.push(taskResult);
     }
     // Track completed task IDs for resume support
-    if (taskResult.status === 'completed' && !session.completedTaskIds.includes(taskResult.taskId)) {
+    if (
+      taskResult.status === 'completed' &&
+      !session.completedTaskIds.includes(taskResult.taskId)
+    ) {
       session.completedTaskIds.push(taskResult.taskId);
     }
     // Update nextTaskId: first pending task in topological order not yet completed
@@ -435,8 +438,8 @@ export class ExecuteSessionManager {
   }
 
   list(): ExecuteSession[] {
-    return Array.from(this.sessions.values()).sort(
-      (a, b) => b.createdAt.localeCompare(a.createdAt),
+    return Array.from(this.sessions.values()).sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
     );
   }
 }

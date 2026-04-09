@@ -38,20 +38,33 @@ export function handleSpecPassthrough(
           event: 'spec_generated',
           message: `Spec 생성 완료 — ${result.value.goal.slice(0, 50)}`,
         });
-        return JSON.stringify({
-          status: 'generated',
-          spec: result.value,
-        }, null, 2);
+        return JSON.stringify(
+          {
+            status: 'generated',
+            spec: result.value,
+          },
+          null,
+          2,
+        );
       }
 
       // Call 1: return prompt for caller LLM to generate spec
-      const context = textGenerator.buildSpecContext(input.text, memory, input.template ?? undefined);
+      const context = textGenerator.buildSpecContext(
+        input.text,
+        memory,
+        input.template ?? undefined,
+      );
 
-      return JSON.stringify({
-        status: 'prompt',
-        specContext: context,
-        message: 'Use specContext.specPrompt with specContext.systemPrompt to generate the spec JSON, then call this tool again with both the text and spec parameters.',
-      }, null, 2);
+      return JSON.stringify(
+        {
+          status: 'prompt',
+          specContext: context,
+          message:
+            'Use specContext.specPrompt with specContext.systemPrompt to generate the spec JSON, then call this tool again with both the text and spec parameters.',
+        },
+        null,
+        2,
+      );
     }
 
     // ─── Interview-based path (sessionId required) ────────────────
@@ -85,23 +98,36 @@ export function handleSpecPassthrough(
         event: 'spec_generated',
         message: `Spec 생성 완료 — ${result.value.goal.slice(0, 50)}`,
       });
-      return JSON.stringify({
-        status: 'generated',
-        spec: result.value,
-      }, null, 2);
+      return JSON.stringify(
+        {
+          status: 'generated',
+          spec: result.value,
+        },
+        null,
+        2,
+      );
     }
 
     // Call 1: return prompt for caller LLM to generate spec
     const context = generator.buildSpecContext(session);
 
-    return JSON.stringify({
-      status: 'prompt',
-      specContext: context,
-      message: 'Use specContext.specPrompt with specContext.systemPrompt to generate the spec JSON, then call this tool again with the spec parameter.',
-    }, null, 2);
+    return JSON.stringify(
+      {
+        status: 'prompt',
+        specContext: context,
+        message:
+          'Use specContext.specPrompt with specContext.systemPrompt to generate the spec JSON, then call this tool again with the spec parameter.',
+      },
+      null,
+      2,
+    );
   } catch (e) {
-    return JSON.stringify({
-      error: e instanceof Error ? e.message : String(e),
-    }, null, 2);
+    return JSON.stringify(
+      {
+        error: e instanceof Error ? e.message : String(e),
+      },
+      null,
+      2,
+    );
   }
 }

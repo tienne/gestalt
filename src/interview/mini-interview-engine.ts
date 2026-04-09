@@ -85,9 +85,7 @@ function buildMiniScoringPrompt(
   originalText: string,
   answers: Array<{ question: string; answer: string }>,
 ): string {
-  const qa = answers
-    .map((a, i) => `Q${i + 1}: ${a.question}\nA${i + 1}: ${a.answer}`)
-    .join('\n\n');
+  const qa = answers.map((a, i) => `Q${i + 1}: ${a.question}\nA${i + 1}: ${a.answer}`).join('\n\n');
 
   return `Re-score the ambiguity of this project description after the follow-up Q&A.
 
@@ -133,7 +131,7 @@ export class MiniInterviewEngine {
       systemPrompt: INTERVIEW_SYSTEM_PROMPT,
       questions: dims.map((d) => ({
         dimension: d,
-        prompt: '',  // Caller LLM fills this in using the clarification prompt
+        prompt: '', // Caller LLM fills this in using the clarification prompt
         rationale: '',
       })),
       scoringPrompt: buildMiniQuestionPrompt(topic, text, dims),

@@ -13,7 +13,11 @@ import { SessionManager } from './session.js';
 import { detectProjectType } from './brownfield.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
-import { INTERVIEW_SYSTEM_PROMPT, buildQuestionPrompt, buildResolutionPrompt } from '../llm/prompts.js';
+import {
+  INTERVIEW_SYSTEM_PROMPT,
+  buildQuestionPrompt,
+  buildResolutionPrompt,
+} from '../llm/prompts.js';
 import type { AgentRegistry } from '../agent/registry.js';
 import { mergeSystemPrompt, getActiveAgentNames } from '../agent/prompt-resolver.js';
 import { ContextCompressor } from './context-compressor.js';
@@ -63,7 +67,10 @@ export class PassthroughEngine {
   private sessionManager: SessionManager;
   private agentRegistry?: AgentRegistry;
 
-  constructor(private eventStore: EventStore, agentRegistry?: AgentRegistry) {
+  constructor(
+    private eventStore: EventStore,
+    agentRegistry?: AgentRegistry,
+  ) {
     this.sessionManager = new SessionManager(eventStore);
     this.sessionManager.loadFromStore();
     this.agentRegistry = agentRegistry;
@@ -87,13 +94,7 @@ export class PassthroughEngine {
         hasContradictions: false,
       });
 
-      const gestaltContext = this.buildGestaltContext(
-        topic,
-        principle,
-        1,
-        [],
-        projectType,
-      );
+      const gestaltContext = this.buildGestaltContext(topic, principle, 1, [], projectType);
 
       return ok({
         session,
@@ -120,9 +121,10 @@ export class PassthroughEngine {
       const session = this.sessionManager.get(sessionId);
 
       // Save the externally generated question
-      const principle = session.rounds.length > 0
-        ? session.rounds[session.rounds.length - 1]!.gestaltFocus
-        : selectNextPrinciple({ roundNumber: 1, dimensions: [], hasContradictions: false });
+      const principle =
+        session.rounds.length > 0
+          ? session.rounds[session.rounds.length - 1]!.gestaltFocus
+          : selectNextPrinciple({ roundNumber: 1, dimensions: [], hasContradictions: false });
 
       // If there's no pending round (no unanswered question), add one
       const lastRound = session.rounds[session.rounds.length - 1];
@@ -162,9 +164,9 @@ export class PassthroughEngine {
       }
 
       // Select next principle
-      const hasContradictions = resolutionScore?.dimensions.some(
-        (d) => d.clarity < 0.3 && d.name === 'continuity',
-      ) ?? false;
+      const hasContradictions =
+        resolutionScore?.dimensions.some((d) => d.clarity < 0.3 && d.name === 'continuity') ??
+        false;
 
       const nextPrinciple = selectNextPrinciple({
         roundNumber: session.rounds.length + 1,
@@ -172,12 +174,10 @@ export class PassthroughEngine {
         hasContradictions,
       });
 
-      this.eventStore.append(
-        'interview',
-        sessionId,
-        EventType.GESTALT_PRINCIPLE_APPLIED,
-        { principle: nextPrinciple, roundNumber: session.rounds.length + 1 },
-      );
+      this.eventStore.append('interview', sessionId, EventType.GESTALT_PRINCIPLE_APPLIED, {
+        principle: nextPrinciple,
+        roundNumber: session.rounds.length + 1,
+      });
 
       // Build context for next question generation (with scoring prompt for current round)
       const previousRounds = session.rounds.map((r) => ({
@@ -255,9 +255,7 @@ export class PassthroughEngine {
       return ok({ resolutionScore: session.resolutionScore, scoringPrompt });
     } catch (e) {
       return err(
-        new InterviewError(
-          `Failed to score: ${e instanceof Error ? e.message : String(e)}`,
-        ),
+        new InterviewError(`Failed to score: ${e instanceof Error ? e.message : String(e)}`),
       );
     }
   }
@@ -267,9 +265,7 @@ export class PassthroughEngine {
       return ok(this.sessionManager.complete(sessionId));
     } catch (e) {
       return err(
-        new InterviewError(
-          `Failed to complete: ${e instanceof Error ? e.message : String(e)}`,
-        ),
+        new InterviewError(`Failed to complete: ${e instanceof Error ? e.message : String(e)}`),
       );
     }
   }
@@ -303,7 +299,11 @@ export class PassthroughEngine {
     const questionPrompt = buildQuestionPrompt(topic, principle, previousRounds, projectType);
     const phase = getPrinciplePhaseLabel(roundNumber);
 
-    const systemPrompt = mergeSystemPrompt(INTERVIEW_SYSTEM_PROMPT, this.agentRegistry, 'interview');
+    const systemPrompt = mergeSystemPrompt(
+      INTERVIEW_SYSTEM_PROMPT,
+      this.agentRegistry,
+      'interview',
+    );
     const activeAgents = getActiveAgentNames(this.agentRegistry, 'interview');
 
     const context: GestaltContext = {

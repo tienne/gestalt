@@ -29,10 +29,7 @@ describe('GifGenerator', () => {
 
   describe('readFrames', () => {
     it('parses NDJSON .frames file', async () => {
-      const frames = [
-        makeFrame(1000, 'hello'),
-        makeFrame(2000, 'world'),
-      ];
+      const frames = [makeFrame(1000, 'hello'), makeFrame(2000, 'world')];
       const path = join(TEST_DIR, `read-test-${randomUUID()}.frames`);
       const content = frames.map((f) => JSON.stringify(f)).join('\n') + '\n';
       writeFileSync(path, content, 'utf8');

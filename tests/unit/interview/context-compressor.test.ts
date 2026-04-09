@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ContextCompressor, COMPRESSION_THRESHOLD } from '../../../src/interview/context-compressor.js';
+import {
+  ContextCompressor,
+  COMPRESSION_THRESHOLD,
+} from '../../../src/interview/context-compressor.js';
 import type { InterviewRound } from '../../../src/core/types.js';
 
 function makeRound(roundNumber: number, response: string | null = 'answer'): InterviewRound {

@@ -1,10 +1,7 @@
 import type { ReviewConsensusResult, ReviewIssue, ReviewReport } from '../core/types.js';
 
 export class ReviewReportGenerator {
-  generate(
-    consensus: ReviewConsensusResult,
-    attempt: number,
-  ): ReviewReport {
+  generate(consensus: ReviewConsensusResult, attempt: number): ReviewReport {
     const passed = consensus.overallApproved;
     const markdown = this.renderMarkdown(consensus, attempt, passed);
 

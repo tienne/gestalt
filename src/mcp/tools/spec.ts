@@ -16,13 +16,21 @@ export async function handleSpec(
       return JSON.stringify({ error: result.error.message }, null, 2);
     }
 
-    return JSON.stringify({
-      status: 'generated',
-      spec: result.value,
-    }, null, 2);
+    return JSON.stringify(
+      {
+        status: 'generated',
+        spec: result.value,
+      },
+      null,
+      2,
+    );
   } catch (e) {
-    return JSON.stringify({
-      error: e instanceof Error ? e.message : String(e),
-    }, null, 2);
+    return JSON.stringify(
+      {
+        error: e instanceof Error ? e.message : String(e),
+      },
+      null,
+      2,
+    );
   }
 }

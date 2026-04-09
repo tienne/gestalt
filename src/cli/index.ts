@@ -14,7 +14,9 @@ export function createCli(): Command {
 
   program
     .name('gestalt')
-    .description('Gestalt — AI Development Harness with Gestalt psychology-driven requirement clarification')
+    .description(
+      'Gestalt — AI Development Harness with Gestalt psychology-driven requirement clarification',
+    )
     .version(getVersion());
 
   program
@@ -50,7 +52,9 @@ export function createCli(): Command {
 
   program
     .command('init')
-    .description('Initialize Gestalt: create gestalt.json, build code graph, and install post-commit hook')
+    .description(
+      'Initialize Gestalt: create gestalt.json, build code graph, and install post-commit hook',
+    )
     .option('--skip-graph', 'Skip code graph build')
     .option('--skip-hook', 'Skip post-commit hook installation')
     .action(async (options: { skipGraph?: boolean; skipHook?: boolean }) => {

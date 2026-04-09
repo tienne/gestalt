@@ -45,12 +45,12 @@ const validExternalSpec = {
   constraints: ['Must support credit cards', 'PCI-DSS compliant'],
   acceptanceCriteria: ['Process payments within 3 seconds'],
   ontologySchema: {
-    entities: [{ name: 'Payment', description: 'A payment transaction', attributes: ['amount', 'currency'] }],
+    entities: [
+      { name: 'Payment', description: 'A payment transaction', attributes: ['amount', 'currency'] },
+    ],
     relations: [{ from: 'Payment', to: 'User', type: 'belongs_to' }],
   },
-  gestaltAnalysis: [
-    { principle: 'closure', finding: 'Missing refund flow', confidence: 0.8 },
-  ],
+  gestaltAnalysis: [{ principle: 'closure', finding: 'Missing refund flow', confidence: 0.8 }],
 };
 
 describe('PassthroughSpecGenerator', () => {
@@ -70,7 +70,9 @@ describe('PassthroughSpecGenerator', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   it('buildSpecContext returns prompt and round data', () => {
@@ -100,7 +102,7 @@ describe('PassthroughSpecGenerator', () => {
   it('validateAndStore with invalid spec returns Zod error', () => {
     const session = makeSession();
     const invalidSpec = {
-      goal: '',  // empty goal should fail
+      goal: '', // empty goal should fail
       constraints: [],
       acceptanceCriteria: [],
       ontologySchema: { entities: [], relations: [] },

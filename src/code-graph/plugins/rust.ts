@@ -5,9 +5,7 @@ import type { AnalyzerPlugin, ParseResult, CodeGraphNode, CodeGraphEdge } from '
 
 function isTestFile(filePath: string): boolean {
   return (
-    filePath.includes('/tests/') ||
-    filePath.includes('/test/') ||
-    basename(filePath) === 'tests.rs'
+    filePath.includes('/tests/') || filePath.includes('/test/') || basename(filePath) === 'tests.rs'
   );
 }
 
@@ -55,7 +53,13 @@ export const rustPlugin: AnalyzerPlugin = {
           const edgeKey = `IMPORTS_FROM:${fileNodeId}:${targetId}`;
           if (!edgeSet.has(edgeKey)) {
             edgeSet.add(edgeKey);
-            edges.push({ kind: EdgeKind.IMPORTS_FROM, sourceId: fileNodeId, targetId, line: lineNum, updatedAt: now });
+            edges.push({
+              kind: EdgeKind.IMPORTS_FROM,
+              sourceId: fileNodeId,
+              targetId,
+              line: lineNum,
+              updatedAt: now,
+            });
           }
         }
         continue;
@@ -66,11 +70,25 @@ export const rustPlugin: AnalyzerPlugin = {
       if (funcMatch) {
         const name = funcMatch[1]!;
         const nodeId = `function:${filePath}:${name}`;
-        nodes.push({ id: nodeId, kind: NodeKind.Function, name, filePath, lineStart: lineNum, isTest, updatedAt: now });
+        nodes.push({
+          id: nodeId,
+          kind: NodeKind.Function,
+          name,
+          filePath,
+          lineStart: lineNum,
+          isTest,
+          updatedAt: now,
+        });
         const edgeKey = `CONTAINS:${fileNodeId}:${nodeId}`;
         if (!edgeSet.has(edgeKey)) {
           edgeSet.add(edgeKey);
-          edges.push({ kind: EdgeKind.CONTAINS, sourceId: fileNodeId, targetId: nodeId, line: lineNum, updatedAt: now });
+          edges.push({
+            kind: EdgeKind.CONTAINS,
+            sourceId: fileNodeId,
+            targetId: nodeId,
+            line: lineNum,
+            updatedAt: now,
+          });
         }
         continue;
       }
@@ -80,11 +98,25 @@ export const rustPlugin: AnalyzerPlugin = {
       if (structMatch) {
         const name = structMatch[1]!;
         const nodeId = `class:${filePath}:${name}`;
-        nodes.push({ id: nodeId, kind: NodeKind.Class, name, filePath, lineStart: lineNum, isTest, updatedAt: now });
+        nodes.push({
+          id: nodeId,
+          kind: NodeKind.Class,
+          name,
+          filePath,
+          lineStart: lineNum,
+          isTest,
+          updatedAt: now,
+        });
         const edgeKey = `CONTAINS:${fileNodeId}:${nodeId}`;
         if (!edgeSet.has(edgeKey)) {
           edgeSet.add(edgeKey);
-          edges.push({ kind: EdgeKind.CONTAINS, sourceId: fileNodeId, targetId: nodeId, line: lineNum, updatedAt: now });
+          edges.push({
+            kind: EdgeKind.CONTAINS,
+            sourceId: fileNodeId,
+            targetId: nodeId,
+            line: lineNum,
+            updatedAt: now,
+          });
         }
         continue;
       }
@@ -94,11 +126,25 @@ export const rustPlugin: AnalyzerPlugin = {
       if (enumMatch) {
         const name = enumMatch[1]!;
         const nodeId = `type:${filePath}:${name}`;
-        nodes.push({ id: nodeId, kind: NodeKind.Type, name, filePath, lineStart: lineNum, isTest, updatedAt: now });
+        nodes.push({
+          id: nodeId,
+          kind: NodeKind.Type,
+          name,
+          filePath,
+          lineStart: lineNum,
+          isTest,
+          updatedAt: now,
+        });
         const edgeKey = `CONTAINS:${fileNodeId}:${nodeId}`;
         if (!edgeSet.has(edgeKey)) {
           edgeSet.add(edgeKey);
-          edges.push({ kind: EdgeKind.CONTAINS, sourceId: fileNodeId, targetId: nodeId, line: lineNum, updatedAt: now });
+          edges.push({
+            kind: EdgeKind.CONTAINS,
+            sourceId: fileNodeId,
+            targetId: nodeId,
+            line: lineNum,
+            updatedAt: now,
+          });
         }
         continue;
       }
@@ -108,11 +154,25 @@ export const rustPlugin: AnalyzerPlugin = {
       if (traitMatch) {
         const name = traitMatch[1]!;
         const nodeId = `type:${filePath}:${name}`;
-        nodes.push({ id: nodeId, kind: NodeKind.Type, name, filePath, lineStart: lineNum, isTest, updatedAt: now });
+        nodes.push({
+          id: nodeId,
+          kind: NodeKind.Type,
+          name,
+          filePath,
+          lineStart: lineNum,
+          isTest,
+          updatedAt: now,
+        });
         const edgeKey = `CONTAINS:${fileNodeId}:${nodeId}`;
         if (!edgeSet.has(edgeKey)) {
           edgeSet.add(edgeKey);
-          edges.push({ kind: EdgeKind.CONTAINS, sourceId: fileNodeId, targetId: nodeId, line: lineNum, updatedAt: now });
+          edges.push({
+            kind: EdgeKind.CONTAINS,
+            sourceId: fileNodeId,
+            targetId: nodeId,
+            line: lineNum,
+            updatedAt: now,
+          });
         }
       }
     }

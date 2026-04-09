@@ -1,8 +1,4 @@
-import type {
-  InterviewSession,
-  ResolutionScore,
-  ProjectType,
-} from '../core/types.js';
+import type { InterviewSession, ResolutionScore, ProjectType } from '../core/types.js';
 import { MAX_INTERVIEW_ROUNDS } from '../core/constants.js';
 import { InterviewError } from '../core/errors.js';
 import { type Result, ok, err } from '../core/result.js';
@@ -61,12 +57,7 @@ export class InterviewEngine {
         hasContradictions: false,
       });
 
-      const { question } = await this.questionGenerator.generate(
-        topic,
-        principle,
-        [],
-        projectType,
-      );
+      const { question } = await this.questionGenerator.generate(topic, principle, [], projectType);
 
       this.sessionManager.addQuestion(session.sessionId, question, principle);
 
@@ -121,12 +112,10 @@ export class InterviewEngine {
         hasContradictions,
       });
 
-      this.eventStore.append(
-        'interview',
-        sessionId,
-        EventType.GESTALT_PRINCIPLE_APPLIED,
-        { principle: nextPrinciple, roundNumber: session.rounds.length + 1 },
-      );
+      this.eventStore.append('interview', sessionId, EventType.GESTALT_PRINCIPLE_APPLIED, {
+        principle: nextPrinciple,
+        roundNumber: session.rounds.length + 1,
+      });
 
       // Generate next question
       const { question } = await this.questionGenerator.generate(
@@ -164,9 +153,7 @@ export class InterviewEngine {
       return ok(resolutionScore);
     } catch (e) {
       return err(
-        new InterviewError(
-          `Failed to score: ${e instanceof Error ? e.message : String(e)}`,
-        ),
+        new InterviewError(`Failed to score: ${e instanceof Error ? e.message : String(e)}`),
       );
     }
   }
@@ -176,9 +163,7 @@ export class InterviewEngine {
       return ok(this.sessionManager.complete(sessionId));
     } catch (e) {
       return err(
-        new InterviewError(
-          `Failed to complete: ${e instanceof Error ? e.message : String(e)}`,
-        ),
+        new InterviewError(`Failed to complete: ${e instanceof Error ? e.message : String(e)}`),
       );
     }
   }

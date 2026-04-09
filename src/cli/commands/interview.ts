@@ -17,7 +17,9 @@ export async function interviewCommand(
   const config = loadConfig();
 
   if (!config.llm.apiKey) {
-    console.error('Error: ANTHROPIC_API_KEY is required for CLI mode. Set it in .env or as environment variable.');
+    console.error(
+      'Error: ANTHROPIC_API_KEY is required for CLI mode. Set it in .env or as environment variable.',
+    );
     process.exit(1);
   }
 

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { selectNextPrinciple, getPrinciplePhaseLabel, getAllPrinciples } from '../src/gestalt/principles.js';
+import {
+  selectNextPrinciple,
+  getPrinciplePhaseLabel,
+  getAllPrinciples,
+} from '../src/gestalt/principles.js';
 import { GestaltPrinciple, type ResolutionDimension } from '../src/core/types.js';
 
 describe('selectNextPrinciple', () => {

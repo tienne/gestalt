@@ -20,7 +20,11 @@ function makeNode(overrides: Partial<CodeGraphNode> = {}): CodeGraphNode {
   };
 }
 
-function makeEdge(sourceId: string, targetId: string, overrides: Partial<CodeGraphEdge> = {}): CodeGraphEdge {
+function makeEdge(
+  sourceId: string,
+  targetId: string,
+  overrides: Partial<CodeGraphEdge> = {},
+): CodeGraphEdge {
   return {
     kind: EdgeKind.CALLS,
     sourceId,
@@ -64,7 +68,11 @@ describe('CodeGraphStore', () => {
     });
 
     it('동일 id로 다시 삽입하면 업데이트된다', () => {
-      const node = makeNode({ id: 'function:src/auth.ts:login', name: 'login', filePath: 'src/auth.ts' });
+      const node = makeNode({
+        id: 'function:src/auth.ts:login',
+        name: 'login',
+        filePath: 'src/auth.ts',
+      });
       store.upsertNode(node);
 
       const updatedNode = { ...node, name: 'loginUpdated', lineStart: 99 };
@@ -141,9 +149,15 @@ describe('CodeGraphStore', () => {
 
   describe('getNodesByFile()', () => {
     it('특정 파일의 노드만 반환한다', () => {
-      store.upsertNode(makeNode({ id: 'function:src/auth.ts:login', filePath: 'src/auth.ts', name: 'login' }));
-      store.upsertNode(makeNode({ id: 'function:src/auth.ts:logout', filePath: 'src/auth.ts', name: 'logout' }));
-      store.upsertNode(makeNode({ id: 'function:src/user.ts:getUser', filePath: 'src/user.ts', name: 'getUser' }));
+      store.upsertNode(
+        makeNode({ id: 'function:src/auth.ts:login', filePath: 'src/auth.ts', name: 'login' }),
+      );
+      store.upsertNode(
+        makeNode({ id: 'function:src/auth.ts:logout', filePath: 'src/auth.ts', name: 'logout' }),
+      );
+      store.upsertNode(
+        makeNode({ id: 'function:src/user.ts:getUser', filePath: 'src/user.ts', name: 'getUser' }),
+      );
 
       const authNodes = store.getNodesByFile('src/auth.ts');
       expect(authNodes).toHaveLength(2);
@@ -254,11 +268,13 @@ describe('CodeGraphStore', () => {
 
   describe('getFileHash()', () => {
     it('저장된 파일 해시를 반환한다', () => {
-      store.upsertNode(makeNode({
-        id: 'file:src/auth.ts',
-        filePath: 'src/auth.ts',
-        fileHash: 'deadbeef1234',
-      }));
+      store.upsertNode(
+        makeNode({
+          id: 'file:src/auth.ts',
+          filePath: 'src/auth.ts',
+          fileHash: 'deadbeef1234',
+        }),
+      );
 
       const hash = store.getFileHash('src/auth.ts');
       expect(hash).toBe('deadbeef1234');
@@ -270,11 +286,13 @@ describe('CodeGraphStore', () => {
     });
 
     it('fileHash가 없는 노드는 null을 반환한다', () => {
-      store.upsertNode(makeNode({
-        id: 'file:src/no-hash.ts',
-        filePath: 'src/no-hash.ts',
-        fileHash: undefined,
-      }));
+      store.upsertNode(
+        makeNode({
+          id: 'file:src/no-hash.ts',
+          filePath: 'src/no-hash.ts',
+          fileHash: undefined,
+        }),
+      );
 
       const hash = store.getFileHash('src/no-hash.ts');
       expect(hash).toBeNull();

@@ -49,25 +49,27 @@ function handleReviewStart(
 
   const { sessionId, reviewStartContext } = result.value;
 
-  return JSON.stringify({
-    status: 'review_started',
-    reviewSessionId: sessionId,
-    executeSessionId: input.sessionId,
-    reviewStartContext: {
-      systemPrompt: reviewStartContext.systemPrompt,
-      reviewPrompt: reviewStartContext.reviewPrompt,
-      matchContext: reviewStartContext.matchContext,
-      changedFiles: reviewStartContext.reviewContext.changedFiles,
-      dependencyFiles: reviewStartContext.reviewContext.dependencyFiles,
+  return JSON.stringify(
+    {
+      status: 'review_started',
+      reviewSessionId: sessionId,
+      executeSessionId: input.sessionId,
+      reviewStartContext: {
+        systemPrompt: reviewStartContext.systemPrompt,
+        reviewPrompt: reviewStartContext.reviewPrompt,
+        matchContext: reviewStartContext.matchContext,
+        changedFiles: reviewStartContext.reviewContext.changedFiles,
+        dependencyFiles: reviewStartContext.reviewContext.dependencyFiles,
+      },
+      message:
+        "Use matchContext to select review agents, then submit each agent's review with review_submit.",
     },
-    message: 'Use matchContext to select review agents, then submit each agent\'s review with review_submit.',
-  }, null, 2);
+    null,
+    2,
+  );
 }
 
-function handleReviewSubmit(
-  reviewEngine: PassthroughReviewEngine,
-  input: ExecuteInput,
-): string {
+function handleReviewSubmit(reviewEngine: PassthroughReviewEngine, input: ExecuteInput): string {
   if (!input.reviewSessionId) {
     return JSON.stringify({ error: 'reviewSessionId is required for review_submit' });
   }
@@ -78,35 +80,32 @@ function handleReviewSubmit(
     return JSON.stringify({ error: 'reviewResult is required for review_submit' });
   }
 
-  const result = reviewEngine.submitReview(
-    input.reviewSessionId,
-    input.reviewAgentName,
-    {
-      agentName: input.reviewAgentName,
-      issues: input.reviewResult.issues.map((i) => ({
-        ...i,
-        reportedBy: input.reviewAgentName!,
-        line: i.line,
-      })),
-      approved: input.reviewResult.approved,
-      summary: input.reviewResult.summary,
-    },
-  );
+  const result = reviewEngine.submitReview(input.reviewSessionId, input.reviewAgentName, {
+    agentName: input.reviewAgentName,
+    issues: input.reviewResult.issues.map((i) => ({
+      ...i,
+      reportedBy: input.reviewAgentName!,
+      line: i.line,
+    })),
+    approved: input.reviewResult.approved,
+    summary: input.reviewResult.summary,
+  });
 
   if (!result.ok) return JSON.stringify({ error: result.error.message });
 
-  return JSON.stringify({
-    status: 'review_submitted',
-    reviewSessionId: input.reviewSessionId,
-    ...result.value,
-    message: 'Submit more reviews or call review_consensus to merge all reviews.',
-  }, null, 2);
+  return JSON.stringify(
+    {
+      status: 'review_submitted',
+      reviewSessionId: input.reviewSessionId,
+      ...result.value,
+      message: 'Submit more reviews or call review_consensus to merge all reviews.',
+    },
+    null,
+    2,
+  );
 }
 
-function handleReviewConsensus(
-  reviewEngine: PassthroughReviewEngine,
-  input: ExecuteInput,
-): string {
+function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: ExecuteInput): string {
   if (!input.reviewSessionId) {
     return JSON.stringify({ error: 'reviewSessionId is required for review_consensus' });
   }
@@ -114,10 +113,7 @@ function handleReviewConsensus(
     return JSON.stringify({ error: 'reviewConsensus is required for review_consensus' });
   }
 
-  const result = reviewEngine.submitConsensus(
-    input.reviewSessionId,
-    input.reviewConsensus,
-  );
+  const result = reviewEngine.submitConsensus(input.reviewSessionId, input.reviewConsensus);
 
   if (!result.ok) return JSON.stringify({ error: result.error.message });
 
@@ -135,26 +131,27 @@ function handleReviewConsensus(
     // Memory update failure should not block the response
   }
 
-  return JSON.stringify({
-    status: approved ? 'review_passed' : 'review_blocked',
-    reviewSessionId: input.reviewSessionId,
-    approved,
-    criticalHighCount,
-    report: report.markdown,
-    needsFix,
-    canFix,
-    message: approved
-      ? 'Code review passed! All critical/high issues resolved.'
-      : canFix
-        ? `${criticalHighCount} critical/high issues found. Use review_fix to auto-fix.`
-        : `${criticalHighCount} critical/high issues remain after max attempts. Review the report.`,
-  }, null, 2);
+  return JSON.stringify(
+    {
+      status: approved ? 'review_passed' : 'review_blocked',
+      reviewSessionId: input.reviewSessionId,
+      approved,
+      criticalHighCount,
+      report: report.markdown,
+      needsFix,
+      canFix,
+      message: approved
+        ? 'Code review passed! All critical/high issues resolved.'
+        : canFix
+          ? `${criticalHighCount} critical/high issues found. Use review_fix to auto-fix.`
+          : `${criticalHighCount} critical/high issues remain after max attempts. Review the report.`,
+    },
+    null,
+    2,
+  );
 }
 
-function handleReviewFix(
-  reviewEngine: PassthroughReviewEngine,
-  input: ExecuteInput,
-): string {
+function handleReviewFix(reviewEngine: PassthroughReviewEngine, input: ExecuteInput): string {
   if (!input.reviewSessionId) {
     return JSON.stringify({ error: 'reviewSessionId is required for review_fix' });
   }
@@ -167,25 +164,33 @@ function handleReviewFix(
 
   // Check if exhausted
   if ('exhausted' in value) {
-    return JSON.stringify({
-      status: 'review_exhausted',
-      reviewSessionId: input.reviewSessionId,
-      report: value.report.markdown,
-      message: 'Max fix attempts exceeded. Review the report and fix remaining issues manually.',
-    }, null, 2);
+    return JSON.stringify(
+      {
+        status: 'review_exhausted',
+        reviewSessionId: input.reviewSessionId,
+        report: value.report.markdown,
+        message: 'Max fix attempts exceeded. Review the report and fix remaining issues manually.',
+      },
+      null,
+      2,
+    );
   }
 
   // Return fix context for caller
-  return JSON.stringify({
-    status: 'review_fix_context',
-    reviewSessionId: input.reviewSessionId,
-    fixContext: {
-      systemPrompt: value.systemPrompt,
-      fixPrompt: value.fixPrompt,
-      issues: value.issues,
-      attempt: value.attempt,
-      maxAttempts: value.maxAttempts,
+  return JSON.stringify(
+    {
+      status: 'review_fix_context',
+      reviewSessionId: input.reviewSessionId,
+      fixContext: {
+        systemPrompt: value.systemPrompt,
+        fixPrompt: value.fixPrompt,
+        issues: value.issues,
+        attempt: value.attempt,
+        maxAttempts: value.maxAttempts,
+      },
+      message: `Fix attempt ${value.attempt}/${value.maxAttempts}. Fix the issues and run structural checks, then call review_start to re-review.`,
     },
-    message: `Fix attempt ${value.attempt}/${value.maxAttempts}. Fix the issues and run structural checks, then call review_start to re-review.`,
-  }, null, 2);
+    null,
+    2,
+  );
 }

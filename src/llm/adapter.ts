@@ -39,9 +39,7 @@ export class AnthropicAdapter implements LLMAdapter {
       };
     } catch (e) {
       if (e instanceof LLMError) throw e;
-      throw new LLMError(
-        `Anthropic API error: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      throw new LLMError(`Anthropic API error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 }

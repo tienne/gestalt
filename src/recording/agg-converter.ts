@@ -21,7 +21,11 @@ export class AggConverter {
    * .cast 파일을 GIF로 변환한다 (백그라운드 비동기).
    * 반환값은 변환 완료를 기다리는 Promise이지만, 호출 측에서 await하지 않아도 된다.
    */
-  convertAsync(castPath: string, outputPath: string, options: ConvertOptions = {}): Promise<string> {
+  convertAsync(
+    castPath: string,
+    outputPath: string,
+    options: ConvertOptions = {},
+  ): Promise<string> {
     const { deleteCastAfter = true, onComplete, onError } = options;
 
     mkdirSync(dirname(outputPath), { recursive: true });
@@ -39,7 +43,9 @@ export class AggConverter {
 
       child.on('close', async (code) => {
         if (code !== 0) {
-          const err = new Error(`agg exited with code ${code}. GIF conversion failed for: ${castPath}`);
+          const err = new Error(
+            `agg exited with code ${code}. GIF conversion failed for: ${castPath}`,
+          );
           onError?.(err);
           reject(err);
           return;
@@ -68,7 +74,11 @@ export class AggConverter {
    * GIF → MP4 변환 (ffmpeg 사용).
    * agg는 gif만 지원하므로 gifPath → mp4Path 변환은 ffmpeg에 위임한다.
    */
-  convertGifToMp4Async(gifPath: string, mp4Path: string, options: ConvertOptions = {}): Promise<string> {
+  convertGifToMp4Async(
+    gifPath: string,
+    mp4Path: string,
+    options: ConvertOptions = {},
+  ): Promise<string> {
     const { onComplete, onError } = options;
 
     mkdirSync(dirname(mp4Path), { recursive: true });

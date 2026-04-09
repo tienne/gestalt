@@ -67,7 +67,13 @@ export const pythonPlugin: AnalyzerPlugin = {
           const edgeKey = `CONTAINS:${fileNodeId}:${nodeId}`;
           if (!edgeSet.has(edgeKey)) {
             edgeSet.add(edgeKey);
-            edges.push({ kind: EdgeKind.CONTAINS, sourceId: fileNodeId, targetId: nodeId, line: lineNum, updatedAt: now });
+            edges.push({
+              kind: EdgeKind.CONTAINS,
+              sourceId: fileNodeId,
+              targetId: nodeId,
+              line: lineNum,
+              updatedAt: now,
+            });
           }
         }
         continue;
@@ -91,7 +97,13 @@ export const pythonPlugin: AnalyzerPlugin = {
         const containsKey = `CONTAINS:${fileNodeId}:${nodeId}`;
         if (!edgeSet.has(containsKey)) {
           edgeSet.add(containsKey);
-          edges.push({ kind: EdgeKind.CONTAINS, sourceId: fileNodeId, targetId: nodeId, line: lineNum, updatedAt: now });
+          edges.push({
+            kind: EdgeKind.CONTAINS,
+            sourceId: fileNodeId,
+            targetId: nodeId,
+            line: lineNum,
+            updatedAt: now,
+          });
         }
         // Inheritance
         if (parents) {
@@ -101,7 +113,13 @@ export const pythonPlugin: AnalyzerPlugin = {
               const inheritKey = `INHERITS:${nodeId}:${parentId}`;
               if (!edgeSet.has(inheritKey)) {
                 edgeSet.add(inheritKey);
-                edges.push({ kind: EdgeKind.INHERITS, sourceId: nodeId, targetId: parentId, line: lineNum, updatedAt: now });
+                edges.push({
+                  kind: EdgeKind.INHERITS,
+                  sourceId: nodeId,
+                  targetId: parentId,
+                  line: lineNum,
+                  updatedAt: now,
+                });
               }
             }
           }
@@ -118,7 +136,13 @@ export const pythonPlugin: AnalyzerPlugin = {
           const edgeKey = `IMPORTS_FROM:${fileNodeId}:${targetId}`;
           if (!edgeSet.has(edgeKey)) {
             edgeSet.add(edgeKey);
-            edges.push({ kind: EdgeKind.IMPORTS_FROM, sourceId: fileNodeId, targetId, line: lineNum, updatedAt: now });
+            edges.push({
+              kind: EdgeKind.IMPORTS_FROM,
+              sourceId: fileNodeId,
+              targetId,
+              line: lineNum,
+              updatedAt: now,
+            });
           }
         }
       }

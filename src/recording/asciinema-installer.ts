@@ -22,13 +22,17 @@ export class AsciinemaInstaller {
       console.log('  → brew install asciinema');
       const result = spawnSync('brew', ['install', 'asciinema'], { stdio: 'inherit' });
       if (result.status !== 0) {
-        throw new Error('Failed to install asciinema via brew. Please install manually: brew install asciinema');
+        throw new Error(
+          'Failed to install asciinema via brew. Please install manually: brew install asciinema',
+        );
       }
     } else if (os === 'linux') {
       console.log('  → pip3 install asciinema');
       const result = spawnSync('pip3', ['install', 'asciinema'], { stdio: 'inherit' });
       if (result.status !== 0) {
-        throw new Error('Failed to install asciinema via pip3. Please install manually: pip3 install asciinema');
+        throw new Error(
+          'Failed to install asciinema via pip3. Please install manually: pip3 install asciinema',
+        );
       }
     } else {
       throw new Error(

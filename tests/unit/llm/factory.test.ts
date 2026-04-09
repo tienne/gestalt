@@ -40,10 +40,7 @@ describe('createAdapterFromTierConfig', () => {
 
   it('provider=anthropic -> AnthropicAdapter', () => {
     delete process.env['ANTHROPIC_API_KEY'];
-    const config = loadConfig(
-      { llm: { apiKey: 'sk-ant-test', model: DEFAULT_MODEL } },
-      opts,
-    );
+    const config = loadConfig({ llm: { apiKey: 'sk-ant-test', model: DEFAULT_MODEL } }, opts);
     const adapter = createAdapterFromTierConfig(
       { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
       config.llm,
@@ -53,10 +50,7 @@ describe('createAdapterFromTierConfig', () => {
 
   it('provider=openai -> OpenAIAdapter', () => {
     delete process.env['ANTHROPIC_API_KEY'];
-    const config = loadConfig(
-      { llm: { apiKey: 'sk-openai-test', model: DEFAULT_MODEL } },
-      opts,
-    );
+    const config = loadConfig({ llm: { apiKey: 'sk-openai-test', model: DEFAULT_MODEL } }, opts);
     const adapter = createAdapterFromTierConfig(
       { provider: 'openai', model: 'gpt-4o-mini' },
       config.llm,
@@ -66,10 +60,7 @@ describe('createAdapterFromTierConfig', () => {
 
   it('provider=openai + baseURL -> OpenAIAdapter receives baseURL', () => {
     delete process.env['ANTHROPIC_API_KEY'];
-    const config = loadConfig(
-      { llm: { apiKey: 'ollama-key', model: DEFAULT_MODEL } },
-      opts,
-    );
+    const config = loadConfig({ llm: { apiKey: 'ollama-key', model: DEFAULT_MODEL } }, opts);
     const adapter = createAdapterFromTierConfig(
       { provider: 'openai', model: 'llama3', baseURL: 'http://localhost:11434/v1' },
       config.llm,
@@ -89,10 +80,7 @@ describe('createTierMapping', () => {
 
   it('flat config only -> all three tiers are AnthropicAdapter', () => {
     delete process.env['ANTHROPIC_API_KEY'];
-    const config = loadConfig(
-      { llm: { apiKey: 'sk-ant-test', model: DEFAULT_MODEL } },
-      opts,
-    );
+    const config = loadConfig({ llm: { apiKey: 'sk-ant-test', model: DEFAULT_MODEL } }, opts);
     const mapping = createTierMapping(config);
 
     expect(mapping.frugal.adapter).toBeInstanceOf(AnthropicAdapter);
@@ -182,10 +170,7 @@ describe('hasLLMApiKey', () => {
 
   it('flat apiKey present -> true', () => {
     delete process.env['ANTHROPIC_API_KEY'];
-    const config = loadConfig(
-      { llm: { apiKey: 'sk-ant-test' } },
-      opts,
-    );
+    const config = loadConfig({ llm: { apiKey: 'sk-ant-test' } }, opts);
     expect(hasLLMApiKey(config)).toBe(true);
   });
 

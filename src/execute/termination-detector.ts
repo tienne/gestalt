@@ -27,12 +27,21 @@ interface TerminationInput {
  * 4. Oscillation: 연속 N회 score가 오르내림 반복
  */
 export function checkTermination(input: TerminationInput): TerminationCondition | null {
-  const { evolutionHistory, currentScore, currentGoalAlignment, structuralFixCount, contextualCount } = input;
+  const {
+    evolutionHistory,
+    currentScore,
+    currentGoalAlignment,
+    structuralFixCount,
+    contextualCount,
+  } = input;
 
   const scoreHistory = [...evolutionHistory.map((g) => g.evaluationScore), currentScore];
 
   // 1. Success
-  if (currentScore >= EVOLVE_SUCCESS_THRESHOLD && currentGoalAlignment >= EVOLVE_GOAL_ALIGNMENT_THRESHOLD) {
+  if (
+    currentScore >= EVOLVE_SUCCESS_THRESHOLD &&
+    currentGoalAlignment >= EVOLVE_GOAL_ALIGNMENT_THRESHOLD
+  ) {
     return {
       reason: 'success',
       scoreHistory,

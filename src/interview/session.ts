@@ -65,11 +65,7 @@ export class SessionManager {
     return latest;
   }
 
-  addQuestion(
-    sessionId: string,
-    question: string,
-    gestaltFocus: GestaltPrinciple,
-  ): InterviewRound {
+  addQuestion(sessionId: string, question: string, gestaltFocus: GestaltPrinciple): InterviewRound {
     const session = this.get(sessionId);
     if (session.status !== 'in_progress') {
       throw new SessionAlreadyCompletedError(sessionId);
@@ -154,8 +150,8 @@ export class SessionManager {
   }
 
   list(): InterviewSession[] {
-    return Array.from(this.sessions.values()).sort(
-      (a, b) => b.createdAt.localeCompare(a.createdAt),
+    return Array.from(this.sessions.values()).sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
     );
   }
 }

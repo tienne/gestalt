@@ -19,12 +19,17 @@ export function handleCreateAgentPassthrough(
       const result = generator.buildAgentContext(session);
       if (!result.ok) return formatError(result.error.message);
 
-      return JSON.stringify({
-        status: 'agent_context_ready',
-        sessionId: session.sessionId,
-        agentContext: result.value,
-        message: 'Use agentContext.systemPrompt + agentContext.creationPrompt to generate AGENT.md content, then submit with action=submit and agentContent.',
-      }, null, 2);
+      return JSON.stringify(
+        {
+          status: 'agent_context_ready',
+          sessionId: session.sessionId,
+          agentContext: result.value,
+          message:
+            'Use agentContext.systemPrompt + agentContext.creationPrompt to generate AGENT.md content, then submit with action=submit and agentContent.',
+        },
+        null,
+        2,
+      );
     }
 
     case 'submit': {
@@ -42,23 +47,27 @@ export function handleCreateAgentPassthrough(
       if (!result.ok) return formatError(result.error.message);
 
       const { agent, filePath, overridden } = result.value;
-      return JSON.stringify({
-        status: 'agent_created',
-        sessionId: session.sessionId,
-        agentName: agent.frontmatter.name,
-        filePath,
-        overridden,
-        agent: {
-          name: agent.frontmatter.name,
-          tier: agent.frontmatter.tier,
-          pipeline: agent.frontmatter.pipeline,
-          domain: agent.frontmatter.domain,
-          description: agent.frontmatter.description,
+      return JSON.stringify(
+        {
+          status: 'agent_created',
+          sessionId: session.sessionId,
+          agentName: agent.frontmatter.name,
+          filePath,
+          overridden,
+          agent: {
+            name: agent.frontmatter.name,
+            tier: agent.frontmatter.tier,
+            pipeline: agent.frontmatter.pipeline,
+            domain: agent.frontmatter.domain,
+            description: agent.frontmatter.description,
+          },
+          message: overridden
+            ? `Agent "${agent.frontmatter.name}" has been overridden at ${filePath}. Reload the agent registry to pick up changes.`
+            : `Agent "${agent.frontmatter.name}" created at ${filePath}. Reload the agent registry to activate.`,
         },
-        message: overridden
-          ? `Agent "${agent.frontmatter.name}" has been overridden at ${filePath}. Reload the agent registry to pick up changes.`
-          : `Agent "${agent.frontmatter.name}" created at ${filePath}. Reload the agent registry to activate.`,
-      }, null, 2);
+        null,
+        2,
+      );
     }
   }
 }

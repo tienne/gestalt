@@ -244,18 +244,15 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     if (session.currentAttempt > session.maxAttempts) {
       session.status = 'failed_with_report';
 
-      const report = this.reportGenerator.generate(
-        session.consensus,
-        session.currentAttempt,
-      );
+      const report = this.reportGenerator.generate(session.consensus, session.currentAttempt);
       session.reports.push(report);
 
       this.emitEvent(sessionId, EventType.REVIEW_FAILED, {
         attempt: session.currentAttempt,
         reason: 'max_attempts_exceeded',
-        remainingIssues: session.consensus.mergedIssues
-          .filter((i) => i.severity === 'critical' || i.severity === 'high')
-          .length,
+        remainingIssues: session.consensus.mergedIssues.filter(
+          (i) => i.severity === 'critical' || i.severity === 'high',
+        ).length,
       });
 
       return ok({ report, exhausted: true as const });
@@ -318,9 +315,7 @@ Fix these issues while maintaining code integrity. Run structural checks after f
     });
   }
 
-  submitFix(
-    sessionId: string,
-  ): Result<{ readyForReReview: boolean; attempt: number }> {
+  submitFix(sessionId: string): Result<{ readyForReReview: boolean; attempt: number }> {
     const session = this.sessions.get(sessionId);
     if (!session) return err(new Error(`Review session not found: ${sessionId}`));
 

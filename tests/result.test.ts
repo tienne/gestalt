@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { ok, err, isOk, isErr, unwrap, unwrapOr, map, flatMap, tryCatch, tryCatchSync } from '../src/core/result.js';
+import {
+  ok,
+  err,
+  isOk,
+  isErr,
+  unwrap,
+  unwrapOr,
+  map,
+  flatMap,
+  tryCatch,
+  tryCatchSync,
+} from '../src/core/result.js';
 
 describe('Result monad', () => {
   describe('ok / err', () => {

@@ -41,7 +41,9 @@ export function validateDAG(tasks: AtomicTask[], groups: TaskGroup[]): DAGValida
       }
       const existing = taskToGroup.get(tid);
       if (existing) {
-        conflictDetails.push(`Task "${tid}" belongs to multiple groups: "${existing}" and "${group.groupId}"`);
+        conflictDetails.push(
+          `Task "${tid}" belongs to multiple groups: "${existing}" and "${group.groupId}"`,
+        );
       }
       taskToGroup.set(tid, group.groupId);
     }

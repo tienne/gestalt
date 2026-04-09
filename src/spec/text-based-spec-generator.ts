@@ -35,7 +35,11 @@ function buildMemorySection(memory: ProjectMemory): string {
   return lines.join('\n');
 }
 
-function buildTextSpecPrompt(text: string, memoryContext?: string, templateContext?: string): string {
+function buildTextSpecPrompt(
+  text: string,
+  memoryContext?: string,
+  templateContext?: string,
+): string {
   return `Generate a complete project specification (Spec) from the following description.
 ${memoryContext ? `\n${memoryContext}\n` : ''}${templateContext ? `\n${templateContext}\n` : ''}
 ## Description
@@ -69,7 +73,9 @@ export class TextBasedSpecGenerator {
     const systemPrompt = mergeSystemPrompt(INTERVIEW_SYSTEM_PROMPT, this.agentRegistry, 'spec');
 
     const memoryContext = memory ? buildMemorySection(memory) : undefined;
-    const templateContext = templateId ? this.templateRegistry.buildTemplateContext(templateId) ?? undefined : undefined;
+    const templateContext = templateId
+      ? (this.templateRegistry.buildTemplateContext(templateId) ?? undefined)
+      : undefined;
     const specPrompt = buildTextSpecPrompt(text, memoryContext || undefined, templateContext);
 
     return {

@@ -51,13 +51,17 @@ describe('AsciinemaRecorder', () => {
   describe('respawnWithAsciinema()', () => {
     it('calls spawnSync with asciinema rec and exits', () => {
       mockedMkdirSync.mockReturnValue(undefined);
-      mockedSpawnSync.mockReturnValueOnce({ status: 0 } as ReturnType<typeof childProcess.spawnSync>);
+      mockedSpawnSync.mockReturnValueOnce({ status: 0 } as ReturnType<
+        typeof childProcess.spawnSync
+      >);
 
       const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
         throw new Error('process.exit called');
       });
 
-      expect(() => AsciinemaRecorder.respawnWithAsciinema('/tmp/test.cast')).toThrow('process.exit called');
+      expect(() => AsciinemaRecorder.respawnWithAsciinema('/tmp/test.cast')).toThrow(
+        'process.exit called',
+      );
 
       expect(mockedSpawnSync).toHaveBeenCalledWith(
         'asciinema',
@@ -78,7 +82,9 @@ describe('AsciinemaRecorder', () => {
       const originalArgv = process.argv;
       process.argv = ['node', 'gestalt', 'interview', 'topic', '--record'];
       mockedMkdirSync.mockReturnValue(undefined);
-      mockedSpawnSync.mockReturnValueOnce({ status: 0 } as ReturnType<typeof childProcess.spawnSync>);
+      mockedSpawnSync.mockReturnValueOnce({ status: 0 } as ReturnType<
+        typeof childProcess.spawnSync
+      >);
       const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
         throw new Error('exit');
       });

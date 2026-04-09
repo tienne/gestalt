@@ -31,11 +31,7 @@ describe('computeParallelGroups', () => {
   });
 
   it('separates dependent tasks into different layers', () => {
-    const tasks = [
-      makeTask('a'),
-      makeTask('b', ['a']),
-      makeTask('c', ['b']),
-    ];
+    const tasks = [makeTask('a'), makeTask('b', ['a']), makeTask('c', ['b'])];
     const order = ['a', 'b', 'c'];
     const groups = computeParallelGroups(tasks, order);
 

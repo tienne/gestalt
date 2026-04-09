@@ -1,5 +1,12 @@
 import type { EventStore } from '../events/store.js';
-import type { DomainEvent, InterviewSession, InterviewRound, ResolutionScore, ProjectType, GestaltPrinciple } from '../core/types.js';
+import type {
+  DomainEvent,
+  InterviewSession,
+  InterviewRound,
+  ResolutionScore,
+  ProjectType,
+  GestaltPrinciple,
+} from '../core/types.js';
 import { EventType } from '../events/types.js';
 import { RESOLUTION_THRESHOLD } from '../core/constants.js';
 

@@ -29,14 +29,20 @@ function createTestSpec(): Spec {
     ontologySchema: {
       entities: [
         { name: 'User', description: 'System user', attributes: ['email', 'password', 'role'] },
-        { name: 'Token', description: 'JWT token', attributes: ['accessToken', 'refreshToken', 'expiresAt'] },
+        {
+          name: 'Token',
+          description: 'JWT token',
+          attributes: ['accessToken', 'refreshToken', 'expiresAt'],
+        },
       ],
-      relations: [
-        { from: 'User', to: 'Token', type: 'has_many' },
-      ],
+      relations: [{ from: 'User', to: 'Token', type: 'has_many' }],
     },
     gestaltAnalysis: [
-      { principle: 'closure' as const, finding: 'Password reset flow needs email service', confidence: 0.9 },
+      {
+        principle: 'closure' as const,
+        finding: 'Password reset flow needs email service',
+        confidence: 0.9,
+      },
     ],
     metadata: {
       specId: randomUUID(),
@@ -51,10 +57,34 @@ function createFigureGroundResult(): FigureGroundResult {
   return {
     principle: 'figure_ground',
     classifiedACs: [
-      { acIndex: 0, acText: 'Users can register with email/password', classification: 'figure', priority: 'critical', reasoning: 'Core feature' },
-      { acIndex: 1, acText: 'Users can login and receive JWT', classification: 'figure', priority: 'critical', reasoning: 'Core feature' },
-      { acIndex: 2, acText: 'Users can reset password via email', classification: 'ground', priority: 'medium', reasoning: 'Supplementary' },
-      { acIndex: 3, acText: 'OAuth2 login with Google supported', classification: 'ground', priority: 'high', reasoning: 'Important but not MVP' },
+      {
+        acIndex: 0,
+        acText: 'Users can register with email/password',
+        classification: 'figure',
+        priority: 'critical',
+        reasoning: 'Core feature',
+      },
+      {
+        acIndex: 1,
+        acText: 'Users can login and receive JWT',
+        classification: 'figure',
+        priority: 'critical',
+        reasoning: 'Core feature',
+      },
+      {
+        acIndex: 2,
+        acText: 'Users can reset password via email',
+        classification: 'ground',
+        priority: 'medium',
+        reasoning: 'Supplementary',
+      },
+      {
+        acIndex: 3,
+        acText: 'OAuth2 login with Google supported',
+        classification: 'ground',
+        priority: 'high',
+        reasoning: 'Important but not MVP',
+      },
     ],
   };
 }
@@ -63,12 +93,60 @@ function createClosureResult(): ClosureResult {
   return {
     principle: 'closure',
     atomicTasks: [
-      { taskId: 'task-0', title: 'Setup user model', description: 'Create User entity', sourceAC: [0], isImplicit: false, estimatedComplexity: 'low', dependsOn: [] },
-      { taskId: 'task-1', title: 'Register endpoint', description: 'POST /register', sourceAC: [0], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-0'] },
-      { taskId: 'task-2', title: 'Login endpoint', description: 'POST /login with JWT', sourceAC: [1], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-0'] },
-      { taskId: 'task-3', title: 'Password reset', description: 'Reset via email', sourceAC: [2], isImplicit: false, estimatedComplexity: 'high', dependsOn: ['task-0'] },
-      { taskId: 'task-4', title: 'OAuth2 Google', description: 'Google OAuth integration', sourceAC: [3], isImplicit: false, estimatedComplexity: 'high', dependsOn: ['task-0'] },
-      { taskId: 'task-5', title: 'Email service', description: 'Setup email sending', sourceAC: [2], isImplicit: true, estimatedComplexity: 'medium', dependsOn: [] },
+      {
+        taskId: 'task-0',
+        title: 'Setup user model',
+        description: 'Create User entity',
+        sourceAC: [0],
+        isImplicit: false,
+        estimatedComplexity: 'low',
+        dependsOn: [],
+      },
+      {
+        taskId: 'task-1',
+        title: 'Register endpoint',
+        description: 'POST /register',
+        sourceAC: [0],
+        isImplicit: false,
+        estimatedComplexity: 'medium',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-2',
+        title: 'Login endpoint',
+        description: 'POST /login with JWT',
+        sourceAC: [1],
+        isImplicit: false,
+        estimatedComplexity: 'medium',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-3',
+        title: 'Password reset',
+        description: 'Reset via email',
+        sourceAC: [2],
+        isImplicit: false,
+        estimatedComplexity: 'high',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-4',
+        title: 'OAuth2 Google',
+        description: 'Google OAuth integration',
+        sourceAC: [3],
+        isImplicit: false,
+        estimatedComplexity: 'high',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-5',
+        title: 'Email service',
+        description: 'Setup email sending',
+        sourceAC: [2],
+        isImplicit: true,
+        estimatedComplexity: 'medium',
+        dependsOn: [],
+      },
     ],
   };
 }
@@ -77,9 +155,27 @@ function createProximityResult(): ProximityResult {
   return {
     principle: 'proximity',
     taskGroups: [
-      { groupId: 'group-0', name: 'Core Auth', domain: 'authentication', taskIds: ['task-0', 'task-1', 'task-2'], reasoning: 'Core auth tasks' },
-      { groupId: 'group-1', name: 'Password Recovery', domain: 'recovery', taskIds: ['task-3', 'task-5'], reasoning: 'Password recovery related' },
-      { groupId: 'group-2', name: 'OAuth', domain: 'oauth', taskIds: ['task-4'], reasoning: 'OAuth integration' },
+      {
+        groupId: 'group-0',
+        name: 'Core Auth',
+        domain: 'authentication',
+        taskIds: ['task-0', 'task-1', 'task-2'],
+        reasoning: 'Core auth tasks',
+      },
+      {
+        groupId: 'group-1',
+        name: 'Password Recovery',
+        domain: 'recovery',
+        taskIds: ['task-3', 'task-5'],
+        reasoning: 'Password recovery related',
+      },
+      {
+        groupId: 'group-2',
+        name: 'OAuth',
+        domain: 'oauth',
+        taskIds: ['task-4'],
+        reasoning: 'OAuth integration',
+      },
     ],
   };
 }
@@ -109,7 +205,10 @@ function completePlanningPhase(engine: PassthroughExecuteEngine, spec: Spec): st
   return sessionId;
 }
 
-function createTaskResult(taskId: string, status: 'completed' | 'failed' = 'completed'): TaskExecutionResult {
+function createTaskResult(
+  taskId: string,
+  status: 'completed' | 'failed' = 'completed',
+): TaskExecutionResult {
   return {
     taskId,
     status,
@@ -135,7 +234,9 @@ describe('Execution Phase', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   describe('startExecution', () => {
@@ -300,7 +401,9 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   function executeAllTasks(engine: PassthroughExecuteEngine, sessionId: string): void {
@@ -345,7 +448,11 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
         expect(result.value.structuralContext!.phase).toBe('evaluating');
         expect(result.value.structuralContext!.stage).toBe('structural');
         expect(result.value.structuralContext!.commands).toHaveLength(3);
-        expect(result.value.structuralContext!.commands.map((c) => c.name)).toEqual(['lint', 'build', 'test']);
+        expect(result.value.structuralContext!.commands.map((c) => c.name)).toEqual([
+          'lint',
+          'build',
+          'test',
+        ]);
       }
     });
 
@@ -439,8 +546,18 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       const evaluationResult: EvaluationResult = {
         verifications: [
           { acIndex: 0, satisfied: true, evidence: 'Register endpoint implemented', gaps: [] },
-          { acIndex: 1, satisfied: true, evidence: 'Login endpoint with JWT implemented', gaps: [] },
-          { acIndex: 2, satisfied: true, evidence: 'Password reset via email implemented', gaps: [] },
+          {
+            acIndex: 1,
+            satisfied: true,
+            evidence: 'Login endpoint with JWT implemented',
+            gaps: [],
+          },
+          {
+            acIndex: 2,
+            satisfied: true,
+            evidence: 'Password reset via email implemented',
+            gaps: [],
+          },
           { acIndex: 3, satisfied: true, evidence: 'OAuth2 Google login implemented', gaps: [] },
         ],
         overallScore: 1.0,
@@ -469,9 +586,7 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       advanceToContextual(engine, sessionId);
 
       const evaluationResult: EvaluationResult = {
-        verifications: [
-          { acIndex: 0, satisfied: true, evidence: 'done', gaps: [] },
-        ],
+        verifications: [{ acIndex: 0, satisfied: true, evidence: 'done', gaps: [] }],
         overallScore: 0.25,
         goalAlignment: 0.5,
         recommendations: ['Incomplete evaluation'],
@@ -536,8 +651,18 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
         verifications: [
           { acIndex: 0, satisfied: true, evidence: 'Register works', gaps: [] },
           { acIndex: 1, satisfied: true, evidence: 'Login works', gaps: [] },
-          { acIndex: 2, satisfied: false, evidence: 'Email service partially done', gaps: ['Email templates missing'] },
-          { acIndex: 3, satisfied: false, evidence: 'OAuth not fully integrated', gaps: ['Token refresh not handled'] },
+          {
+            acIndex: 2,
+            satisfied: false,
+            evidence: 'Email service partially done',
+            gaps: ['Email templates missing'],
+          },
+          {
+            acIndex: 3,
+            satisfied: false,
+            evidence: 'OAuth not fully integrated',
+            gaps: ['Token refresh not handled'],
+          },
         ],
         overallScore: 0.6,
         goalAlignment: 0.7,
@@ -574,7 +699,9 @@ describe('Full Pipeline: Planning → Execution → Evaluate', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   it('completes the entire pipeline from planning to evaluation', () => {

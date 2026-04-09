@@ -43,14 +43,20 @@ function createTestSpec(): Spec {
     ontologySchema: {
       entities: [
         { name: 'User', description: 'System user', attributes: ['email', 'password', 'role'] },
-        { name: 'Token', description: 'JWT token', attributes: ['accessToken', 'refreshToken', 'expiresAt'] },
+        {
+          name: 'Token',
+          description: 'JWT token',
+          attributes: ['accessToken', 'refreshToken', 'expiresAt'],
+        },
       ],
-      relations: [
-        { from: 'User', to: 'Token', type: 'has_many' },
-      ],
+      relations: [{ from: 'User', to: 'Token', type: 'has_many' }],
     },
     gestaltAnalysis: [
-      { principle: 'closure' as const, finding: 'Password reset flow needs email service', confidence: 0.9 },
+      {
+        principle: 'closure' as const,
+        finding: 'Password reset flow needs email service',
+        confidence: 0.9,
+      },
     ],
     metadata: {
       specId: randomUUID(),
@@ -65,10 +71,34 @@ function createFigureGroundResult(): FigureGroundResult {
   return {
     principle: 'figure_ground',
     classifiedACs: [
-      { acIndex: 0, acText: 'Users can register with email/password', classification: 'figure', priority: 'critical', reasoning: 'Core feature' },
-      { acIndex: 1, acText: 'Users can login and receive JWT', classification: 'figure', priority: 'critical', reasoning: 'Core feature' },
-      { acIndex: 2, acText: 'Users can reset password via email', classification: 'ground', priority: 'medium', reasoning: 'Supplementary' },
-      { acIndex: 3, acText: 'OAuth2 login with Google supported', classification: 'ground', priority: 'high', reasoning: 'Important' },
+      {
+        acIndex: 0,
+        acText: 'Users can register with email/password',
+        classification: 'figure',
+        priority: 'critical',
+        reasoning: 'Core feature',
+      },
+      {
+        acIndex: 1,
+        acText: 'Users can login and receive JWT',
+        classification: 'figure',
+        priority: 'critical',
+        reasoning: 'Core feature',
+      },
+      {
+        acIndex: 2,
+        acText: 'Users can reset password via email',
+        classification: 'ground',
+        priority: 'medium',
+        reasoning: 'Supplementary',
+      },
+      {
+        acIndex: 3,
+        acText: 'OAuth2 login with Google supported',
+        classification: 'ground',
+        priority: 'high',
+        reasoning: 'Important',
+      },
     ],
   };
 }
@@ -77,12 +107,60 @@ function createClosureResult(): ClosureResult {
   return {
     principle: 'closure',
     atomicTasks: [
-      { taskId: 'task-0', title: 'Setup user model', description: 'Create User entity', sourceAC: [0], isImplicit: false, estimatedComplexity: 'low', dependsOn: [] },
-      { taskId: 'task-1', title: 'Register endpoint', description: 'POST /register', sourceAC: [0], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-0'] },
-      { taskId: 'task-2', title: 'Login endpoint', description: 'POST /login with JWT', sourceAC: [1], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-0'] },
-      { taskId: 'task-3', title: 'Password reset', description: 'Reset via email', sourceAC: [2], isImplicit: false, estimatedComplexity: 'high', dependsOn: ['task-0'] },
-      { taskId: 'task-4', title: 'OAuth2 Google', description: 'Google OAuth integration', sourceAC: [3], isImplicit: false, estimatedComplexity: 'high', dependsOn: ['task-0'] },
-      { taskId: 'task-5', title: 'Email service', description: 'Setup email sending', sourceAC: [2], isImplicit: true, estimatedComplexity: 'medium', dependsOn: [] },
+      {
+        taskId: 'task-0',
+        title: 'Setup user model',
+        description: 'Create User entity',
+        sourceAC: [0],
+        isImplicit: false,
+        estimatedComplexity: 'low',
+        dependsOn: [],
+      },
+      {
+        taskId: 'task-1',
+        title: 'Register endpoint',
+        description: 'POST /register',
+        sourceAC: [0],
+        isImplicit: false,
+        estimatedComplexity: 'medium',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-2',
+        title: 'Login endpoint',
+        description: 'POST /login with JWT',
+        sourceAC: [1],
+        isImplicit: false,
+        estimatedComplexity: 'medium',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-3',
+        title: 'Password reset',
+        description: 'Reset via email',
+        sourceAC: [2],
+        isImplicit: false,
+        estimatedComplexity: 'high',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-4',
+        title: 'OAuth2 Google',
+        description: 'Google OAuth integration',
+        sourceAC: [3],
+        isImplicit: false,
+        estimatedComplexity: 'high',
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-5',
+        title: 'Email service',
+        description: 'Setup email sending',
+        sourceAC: [2],
+        isImplicit: true,
+        estimatedComplexity: 'medium',
+        dependsOn: [],
+      },
     ],
   };
 }
@@ -91,9 +169,27 @@ function createProximityResult(): ProximityResult {
   return {
     principle: 'proximity',
     taskGroups: [
-      { groupId: 'group-0', name: 'Core Auth', domain: 'authentication', taskIds: ['task-0', 'task-1', 'task-2'], reasoning: 'Core auth tasks' },
-      { groupId: 'group-1', name: 'Password Recovery', domain: 'recovery', taskIds: ['task-3', 'task-5'], reasoning: 'Password recovery related' },
-      { groupId: 'group-2', name: 'OAuth', domain: 'oauth', taskIds: ['task-4'], reasoning: 'OAuth integration' },
+      {
+        groupId: 'group-0',
+        name: 'Core Auth',
+        domain: 'authentication',
+        taskIds: ['task-0', 'task-1', 'task-2'],
+        reasoning: 'Core auth tasks',
+      },
+      {
+        groupId: 'group-1',
+        name: 'Password Recovery',
+        domain: 'recovery',
+        taskIds: ['task-3', 'task-5'],
+        reasoning: 'Password recovery related',
+      },
+      {
+        groupId: 'group-2',
+        name: 'OAuth',
+        domain: 'oauth',
+        taskIds: ['task-4'],
+        reasoning: 'OAuth integration',
+      },
     ],
   };
 }
@@ -114,7 +210,11 @@ function createContinuityResult(): ContinuityResult {
 /**
  * 세션을 plan_complete 상태까지 진행한 뒤 sessionId를 반환한다.
  */
-function completePlanningPhase(engine: PassthroughExecuteEngine, spec: Spec, repoRoot?: string): string {
+function completePlanningPhase(
+  engine: PassthroughExecuteEngine,
+  spec: Spec,
+  repoRoot?: string,
+): string {
   const startResult = engine.start(spec, { codeGraphRepoRoot: repoRoot });
   if (!startResult.ok) throw new Error('start failed');
   const { sessionId } = startResult.value.session;
@@ -151,7 +251,9 @@ describe('buildNextTaskContext — suggestedFiles 주입', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   describe('db가 존재할 때', () => {
@@ -189,10 +291,7 @@ describe('buildNextTaskContext — suggestedFiles 주입', () => {
       engine.startExecution(sessionId);
 
       expect(mockedEngine.dbExists).toHaveBeenCalledWith(repoRoot);
-      expect(mockedEngine.searchByKeywords).toHaveBeenCalledWith(
-        repoRoot,
-        expect.any(Array),
-      );
+      expect(mockedEngine.searchByKeywords).toHaveBeenCalledWith(repoRoot, expect.any(Array));
     });
   });
 
@@ -212,7 +311,9 @@ describe('buildNextTaskContext — suggestedFiles 주입', () => {
         expect(taskContext).not.toBeNull();
         // db 없음 → suggestedFiles는 undefined이거나 빈 배열이어야 함
         const suggested = taskContext!.suggestedFiles;
-        expect(suggested === undefined || (Array.isArray(suggested) && suggested.length === 0)).toBe(true);
+        expect(
+          suggested === undefined || (Array.isArray(suggested) && suggested.length === 0),
+        ).toBe(true);
         // searchByKeywords는 호출되지 않아야 함
         expect(mockedEngine.searchByKeywords).not.toHaveBeenCalled();
       }

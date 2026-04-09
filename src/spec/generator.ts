@@ -32,7 +32,9 @@ export class SpecGenerator {
     }
 
     if (session.status !== 'completed') {
-      return err(new SpecGenerationError('Interview session must be completed before generating a spec'));
+      return err(
+        new SpecGenerationError('Interview session must be completed before generating a spec'),
+      );
     }
 
     // Retry up to MAX_SPEC_RETRIES
@@ -65,17 +67,12 @@ export class SpecGenerator {
           continue;
         }
 
-        this.eventStore.append(
-          'spec',
-          spec.metadata.specId,
-          EventType.SPEC_GENERATED,
-          {
-            sessionId: session.sessionId,
-            goal: spec.goal,
-            constraintCount: spec.constraints.length,
-            criteriaCount: spec.acceptanceCriteria.length,
-          },
-        );
+        this.eventStore.append('spec', spec.metadata.specId, EventType.SPEC_GENERATED, {
+          sessionId: session.sessionId,
+          goal: spec.goal,
+          constraintCount: spec.constraints.length,
+          criteriaCount: spec.acceptanceCriteria.length,
+        });
 
         return ok(spec);
       } catch (e) {

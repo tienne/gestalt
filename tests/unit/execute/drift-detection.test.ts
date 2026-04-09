@@ -29,9 +29,7 @@ function createTestSpec(): Spec {
         { name: 'User', description: 'System user', attributes: ['email', 'password', 'role'] },
         { name: 'Token', description: 'JWT token', attributes: ['accessToken', 'refreshToken'] },
       ],
-      relations: [
-        { from: 'User', to: 'Token', type: 'has_many' },
-      ],
+      relations: [{ from: 'User', to: 'Token', type: 'has_many' }],
     },
     gestaltAnalysis: [
       { principle: 'closure' as const, finding: 'Auth needs token refresh', confidence: 0.9 },
@@ -67,7 +65,8 @@ describe('Drift Detector (measureDrift)', () => {
     const unrelatedResult: TaskExecutionResult = {
       taskId: 'task-0',
       status: 'completed',
-      output: 'Implemented weather forecast dashboard with chart visualizations and map integration',
+      output:
+        'Implemented weather forecast dashboard with chart visualizations and map integration',
       artifacts: ['src/weather.ts'],
     };
 
@@ -85,7 +84,8 @@ describe('Drift Detector (measureDrift)', () => {
     const result: TaskExecutionResult = {
       taskId: 'task-0',
       status: 'completed',
-      output: 'Implemented weather forecast dashboard with chart visualizations and map integration',
+      output:
+        'Implemented weather forecast dashboard with chart visualizations and map integration',
       artifacts: ['src/weather.ts'],
     };
 
@@ -164,7 +164,9 @@ describe('Drift Detection in Engine', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   function setupExecutingSession(): string {
@@ -176,27 +178,63 @@ describe('Drift Detection in Engine', () => {
     const fg: FigureGroundResult = {
       principle: 'figure_ground',
       classifiedACs: [
-        { acIndex: 0, acText: spec.acceptanceCriteria[0]!, classification: 'figure', priority: 'critical', reasoning: 'Core' },
-        { acIndex: 1, acText: spec.acceptanceCriteria[1]!, classification: 'figure', priority: 'high', reasoning: 'Core' },
+        {
+          acIndex: 0,
+          acText: spec.acceptanceCriteria[0]!,
+          classification: 'figure',
+          priority: 'critical',
+          reasoning: 'Core',
+        },
+        {
+          acIndex: 1,
+          acText: spec.acceptanceCriteria[1]!,
+          classification: 'figure',
+          priority: 'high',
+          reasoning: 'Core',
+        },
       ],
     };
     const closure: ClosureResult = {
       principle: 'closure',
       atomicTasks: [
-        { taskId: 'task-0', title: 'User model', description: 'Create User entity', sourceAC: [0], isImplicit: false, estimatedComplexity: 'low', dependsOn: [] },
-        { taskId: 'task-1', title: 'Login endpoint', description: 'POST /login JWT', sourceAC: [1], isImplicit: false, estimatedComplexity: 'medium', dependsOn: ['task-0'] },
+        {
+          taskId: 'task-0',
+          title: 'User model',
+          description: 'Create User entity',
+          sourceAC: [0],
+          isImplicit: false,
+          estimatedComplexity: 'low',
+          dependsOn: [],
+        },
+        {
+          taskId: 'task-1',
+          title: 'Login endpoint',
+          description: 'POST /login JWT',
+          sourceAC: [1],
+          isImplicit: false,
+          estimatedComplexity: 'medium',
+          dependsOn: ['task-0'],
+        },
       ],
     };
     const proximity: ProximityResult = {
       principle: 'proximity',
       taskGroups: [
-        { groupId: 'group-0', name: 'Auth', domain: 'auth', taskIds: ['task-0', 'task-1'], reasoning: 'Auth tasks' },
+        {
+          groupId: 'group-0',
+          name: 'Auth',
+          domain: 'auth',
+          taskIds: ['task-0', 'task-1'],
+          reasoning: 'Auth tasks',
+        },
       ],
     };
     const continuity: ContinuityResult = {
       principle: 'continuity',
       dagValidation: {
-        isValid: true, hasCycles: false, hasConflicts: false,
+        isValid: true,
+        hasCycles: false,
+        hasConflicts: false,
         topologicalOrder: ['task-0', 'task-1'],
         criticalPath: ['task-0', 'task-1'],
       },
@@ -273,7 +311,8 @@ describe('Drift Detection in Engine', () => {
       {
         taskId: 'task-0',
         status: 'completed',
-        output: 'Implemented weather forecast dashboard with chart visualizations and map integration using React and D3',
+        output:
+          'Implemented weather forecast dashboard with chart visualizations and map integration using React and D3',
         artifacts: ['src/weather.ts'],
       },
       0.05, // Very low threshold to force drift detection
@@ -284,7 +323,9 @@ describe('Drift Detection in Engine', () => {
       expect(result.value.driftScore).toBeDefined();
       expect(result.value.driftScore!.thresholdExceeded).toBe(true);
       expect(result.value.retrospectiveContext).toBeDefined();
-      expect(result.value.retrospectiveContext!.retrospectivePrompt).toContain('Drift Retrospective');
+      expect(result.value.retrospectiveContext!.retrospectivePrompt).toContain(
+        'Drift Retrospective',
+      );
       expect(result.value.retrospectiveContext!.driftScore).toBeDefined();
     }
   });

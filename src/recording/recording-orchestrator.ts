@@ -67,7 +67,11 @@ export class RecordingOrchestrator {
    * @param sessionId - 세션 ID (파일명 생성용)
    * @param options - 녹화 옵션
    */
-  async stopAndConvert(topic: string, sessionId: string, options: RecordingOptions = {}): Promise<void> {
+  async stopAndConvert(
+    topic: string,
+    sessionId: string,
+    options: RecordingOptions = {},
+  ): Promise<void> {
     const castPath = AsciinemaRecorder.getCurrentCastPath();
     if (!castPath) return;
 
