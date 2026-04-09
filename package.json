@@ -31,6 +31,8 @@
     "serve": "tsx bin/gestalt.ts serve",
     "bench": "tsx benchmarks/run.ts",
     "lint": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
     "version:sync": "tsx scripts/sync-version.ts",
     "postversion": "pnpm run version:sync"
   },
@@ -59,6 +61,7 @@
     "@types/node": "^22.13.10",
     "@types/node-notifier": "^8.0.5",
     "@vitest/coverage-v8": "^3.2.4",
+    "prettier": "^3.8.1",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vitest": "^3.0.9"
