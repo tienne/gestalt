@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-04-12
+
+### Added
+- **멀티 프로바이더 LLM 지원**: `gestalt.json`에 `frugal`/`standard`/`frontier` tier별 provider 설정 추가
+  - `provider: 'anthropic' | 'openai'`, `apiKey`, `baseURL`(Ollama 등), `model` 설정 가능
+  - `src/llm/factory.ts`: `createAdapter()`, `createTierMapping()`, `hasLLMApiKey()` 팩토리 함수 신규 추가
+  - 기존 `llm.apiKey` + `llm.model` 단일 구조와 완전 하위 호환
+  - Ollama 로컬 모델(Gemma 4 등) 연결 지원
+- **Prettier 설정**: `.prettierrc.json` 추가, `pnpm format` / `pnpm format:check` 스크립트 추가
+- **CI 커버리지 수정**: `@vitest/coverage-v8` devDependency 추가로 `pnpm test --coverage` CI 실패 해결
+
+### Changed
+- `src/llm/openai-adapter.ts`: `baseURL` 옵션 파라미터 추가 (Ollama 호환)
+- `src/mcp/server.ts`, CLI 커맨드: `new AnthropicAdapter(...)` 하드코딩 → `createAdapter(config.llm)` 팩토리 교체
+- `gestalt.json`: `ambiguityThreshold` → `resolutionThreshold` 키 수정
+- `skills/interview/SKILL.md`: 인터뷰 중 Claude가 스스로 질문에 답변하는 문제 방지 규칙 추가
+- 전체 소스 파일 Prettier 포맷 일괄 적용
+
+### Documentation
+- `docs/configuration.md`: 멀티 프로바이더 설정 방법 및 Ollama 연결 가이드 추가
+- `docs/code-graph.md`, `docs/configuration.md`: 신규 문서 추가
+- `README.md` / `README.ko.md`: `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark` 툴 추가, 멀티 프로바이더 설정 섹션 추가
+- `schemas/gestalt.schema.json`: tier 구조 및 `llmTierConfig` 정의 추가
+
 ## [0.9.0] - 2026-03-29
 
 ### Added
