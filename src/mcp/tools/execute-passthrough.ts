@@ -173,8 +173,8 @@ export async function handleExecutePassthrough(
         {
           status: 'executing',
           sessionId: session.sessionId,
-          taskContext,
-          message: `Execution started. Use taskContext.taskPrompt with taskContext.systemPrompt to implement the task, then submit with execute_task.`,
+          taskContext: taskContext ? slimTaskContext(taskContext as unknown as Record<string, unknown>) : taskContext,
+          message: `Execution started. Use taskContext.taskPrompt to implement the task, then submit with execute_task.`,
         },
         null,
         2,
@@ -202,7 +202,9 @@ export async function handleExecutePassthrough(
             sessionId: session.sessionId,
             completedTasks: session.taskResults.length,
             ...(driftScore ? { driftScore } : {}),
-            ...(retrospectiveContext ? { retrospectiveContext } : {}),
+            ...(retrospectiveContext
+              ? { retrospectiveContext: slimRetrospectiveContext(retrospectiveContext as unknown as Record<string, unknown>) }
+              : {}),
             message: 'All tasks completed. Call evaluate to verify acceptance criteria.',
           },
           null,
@@ -234,10 +236,12 @@ export async function handleExecutePassthrough(
           status: 'executing',
           sessionId: session.sessionId,
           completedTasks: session.taskResults.length,
-          taskContext,
+          taskContext: taskContext ? slimTaskContext(taskContext as unknown as Record<string, unknown>) : taskContext,
           ...(compressionAvailable ? { compressionAvailable: true } : {}),
           ...(driftScore ? { driftScore } : {}),
-          ...(retrospectiveContext ? { retrospectiveContext } : {}),
+          ...(retrospectiveContext
+            ? { retrospectiveContext: slimRetrospectiveContext(retrospectiveContext as unknown as Record<string, unknown>) }
+            : {}),
           message: `Task "${input.taskResult.taskId}" recorded.${driftScore?.thresholdExceeded ? ' WARNING: Drift threshold exceeded! Review retrospectiveContext.' : ''}${compressionAvailable ? ' TIP: Context is getting long — consider calling compress to summarize completed work.' : ''} Use taskContext.taskPrompt to implement the next task.`,
         },
         null,
@@ -1033,6 +1037,39 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string, cwd?
   } catch (e) {
     return formatError(e instanceof Error ? e.message : String(e));
   }
+}
+
+// ─── Response Slim Helpers ─────────────────────────────────────────────────
+// systemPrompt is static per session (same agent persona every call).
+// Stripping it from responses saves ~500 tokens × N calls in context history.
+// pendingTasks description/sourceAC are not needed at execution time.
+
+function slimTaskContext(ctx: Record<string, unknown>): Record<string, unknown> {
+  const { systemPrompt: _sp, pendingTasks, ...rest } = ctx as {
+    systemPrompt?: unknown;
+    pendingTasks?: Array<Record<string, unknown>>;
+    [key: string]: unknown;
+  };
+  return {
+    ...rest,
+    ...(Array.isArray(pendingTasks)
+      ? {
+          pendingTasks: pendingTasks.map(({ taskId, title, dependsOn }) => ({
+            taskId,
+            title,
+            dependsOn,
+          })),
+        }
+      : {}),
+  };
+}
+
+function slimRetrospectiveContext(ctx: Record<string, unknown>): Record<string, unknown> {
+  const { systemPrompt: _sp, ...rest } = ctx as {
+    systemPrompt?: unknown;
+    [key: string]: unknown;
+  };
+  return rest;
 }
 
 function formatError(message: string): string {
