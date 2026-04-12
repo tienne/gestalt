@@ -24,6 +24,9 @@ import { handleAgentPassthrough } from './tools/agent-passthrough.js';
 import { handleReviewPassthrough } from './tools/review-passthrough.js';
 import { handleCodeGraphPassthrough } from './tools/code-graph-passthrough.js';
 import { handleGraphVisualizePassthrough } from './tools/graph-visualize-passthrough.js';
+import { handleGenerateKb } from './tools/generate-kb.js';
+import { handleSearchKb } from './tools/search-kb.js';
+import { handleSyncKb } from './tools/sync-kb.js';
 import { PassthroughReviewEngine } from '../review/passthrough-engine.js';
 import {
   interviewInputSchema,
@@ -543,6 +546,54 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         const input = graphVisualizeInputSchema.parse(params);
         const result = await handleGraphVisualizePassthrough(input);
         return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      },
+    );
+
+    server.tool(
+      'ges_generate_kb',
+      'Gestalt 코드 그래프 분석 결과 및 도메인 내용을 MD 파일로 내보내고 임베딩을 생성합니다',
+      {
+        repoRoot: z.string().optional().describe('분석할 레포 경로 (기본: cwd)'),
+        outputPath: z.string().optional().describe('출력 경로 (기본: .gestalt-kb/)'),
+        types: z
+          .array(z.enum(['code-graph', 'business-logic', 'api-spec', 'adr', 'policy']))
+          .optional()
+          .describe('생성할 타입 필터'),
+      },
+      async (params) => {
+        const result = await handleGenerateKb(params, process.cwd());
+        return { content: [{ type: 'text' as const, text: result }] };
+      },
+    );
+
+    server.tool(
+      'ges_search',
+      'Knowledge Base에서 시맨틱 검색을 수행합니다',
+      {
+        query: z.string().describe('검색 쿼리'),
+        k: z.number().optional().describe('반환할 결과 수 (기본: 5)'),
+        kbPath: z.string().optional().describe('Knowledge Base 경로 (기본: .gestalt-kb/)'),
+        types: z
+          .array(z.enum(['code-graph', 'business-logic', 'api-spec', 'adr', 'policy']))
+          .optional()
+          .describe('검색할 타입 필터'),
+      },
+      async (params) => {
+        const result = await handleSearchKb(params, process.cwd());
+        return { content: [{ type: 'text' as const, text: result }] };
+      },
+    );
+
+    server.tool(
+      'ges_sync',
+      'Knowledge Base를 다른 경로로 동기화(복사)합니다',
+      {
+        sourcePath: z.string().optional().describe('소스 경로 (기본: .gestalt-kb/)'),
+        targetPath: z.string().describe('동기화 대상 경로'),
+      },
+      async (params) => {
+        const result = await handleSyncKb(params, process.cwd());
+        return { content: [{ type: 'text' as const, text: result }] };
       },
     );
   } else {
