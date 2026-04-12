@@ -24,10 +24,27 @@ outputs:
 
 This skill conducts a Gestalt psychology-driven interview to transform vague requirements into clear specifications.
 
+## ⚠️ Critical Rule: Never Self-Answer
+
+**You are the interviewer, not the interviewee.**
+
+When Gestalt returns a question to ask, you MUST:
+1. Present the question **to the human user** exactly as generated
+2. **Wait** for the human's response
+3. Submit the human's response back to Gestalt via `ges_interview respond`
+
+You must **NEVER**:
+- Answer the question yourself (even if you know a good answer)
+- Make assumptions about what the user might want
+- Skip asking and proceed with a hypothetical answer
+- Suggest an answer while asking ("Would you like JWT? Most people use JWT")
+
+The interview only has value if the human's actual intent is captured. A self-answered interview produces a Spec that reflects your assumptions, not the user's requirements.
+
 ## Process
 
 1. **Start**: Create a session, detect project type (greenfield/brownfield), ask the first question
-2. **Iterate**: Ask questions guided by Gestalt principles (Closure → Proximity → Similarity → Figure-Ground)
+2. **Iterate**: Present each generated question to the user → wait for answer → submit answer to Gestalt
 3. **Score**: Continuously assess resolution across multiple dimensions
 4. **Complete**: When resolution score ≥ 0.8, the interview is ready for spec generation
 
