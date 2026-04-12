@@ -1045,8 +1045,7 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string, cwd?
 // pendingTasks description/sourceAC are not needed at execution time.
 
 function slimTaskContext(ctx: Record<string, unknown>): Record<string, unknown> {
-  const { systemPrompt: _sp, pendingTasks, ...rest } = ctx as {
-    systemPrompt?: unknown;
+  const { pendingTasks, ...rest } = ctx as {
     pendingTasks?: Array<Record<string, unknown>>;
     [key: string]: unknown;
   };
