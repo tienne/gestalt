@@ -1,6 +1,6 @@
 {
   "name": "gestalt",
-  "version": "0.12.3",
+  "version": "0.13.0",
   "description": "Gestalt psychology-driven AI development harness. Transforms scattered requirements into structured, validated specifications through interactive interviews.",
   "author": {
     "name": "tienne",
