@@ -29,6 +29,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `README.md` / `README.ko.md`: `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark` 툴 추가, 멀티 프로바이더 설정 섹션 추가
 - `schemas/gestalt.schema.json`: tier 구조 및 `llmTierConfig` 정의 추가
 
+## [0.12.3] - 2026-04-09
+
+### Changed
+- `ges_execute` MCP 액션 description 축약으로 토큰 사용량 절감
+
+---
+
+## [0.12.2] - 2026-04-08
+
+### Documentation
+- `gestalt-release` 스킬에 플러그인 매니페스트 커밋 단계 추가
+
+---
+
+## [0.12.1] - 2026-04-08
+
+### Fixed
+- 릴리즈 스킬 단계 순서 정리
+
+---
+
+## [0.12.0] - 2026-04-08
+
+### Changed
+- **모호성(ambiguity) → 해상도(resolution) 전면 리네이밍**
+  - `AmbiguityScorer` → `ResolutionScorer`, 점수 방향 반전 (낮을수록 명확 → 높을수록 명확)
+  - `ambiguityThreshold: 0.2` → `resolutionThreshold: 0.8`
+  - 환경변수 `GESTALT_AMBIGUITY_THRESHOLD` → `GESTALT_RESOLUTION_THRESHOLD`
+  - 레거시 이벤트 replay 시 기존 ambiguity 점수 자동 반전 처리
+
+### Fixed
+- 레거시 Spec 메타데이터 하위 호환 처리
+- execute 엔진 내 레거시 fallback의 ambiguityScore → resolutionScore 처리
+
+---
+
+## [0.11.0] - 2026-04-05
+
+### Added
+- **시맨틱 검색 / 하이브리드 검색**: Code Knowledge Graph에 임베딩 기반 검색 추가
+  - `@xenova/transformers` 로컬 임베딩 (외부 API 불필요)
+  - `node_embeddings` 테이블 추가 (`buildEmbeddings`, `searchBySemantic`, `searchByHybrid`)
+  - RRF(Reciprocal Rank Fusion) 알고리즘으로 키워드 + 시맨틱 결합
+  - `EmbeddingProvider`, `SummaryProvider` 인터페이스 (Anthropic/OpenAI/Gemini/Local 지원)
+  - Execute Engine에 `hydrateSuggestedFiles()`로 시맨틱 검색 결과 자동 주입
+
+---
+
+## [0.10.0] - 2026-04-05
+
+### Added
+- **Graph Visualization**: `ges_graph_visualize` MCP 툴 추가 — D3.js 인터랙티브 코드 그래프 시각화
+- **Setup Skill**: `/setup` 슬래시 커맨드로 `gestalt init` 원클릭 실행
+- **개발 자동화**: `gestalt-develop`, `gestalt-release` 스킬 추가
+- **전문 에이전트**: `gestalt-analyst`, `gestalt-developer`, `gestalt-qa` 에이전트 추가
+
+---
+
+## [0.9.2] - 2026-04-05
+
+### Added
+- **Code Knowledge Graph**: 정적 분석 기반 의존성 그래프 (`ges_code_graph` MCP 툴)
+  - `build` / `blast_radius` / `diff_radius` / `query` / `stats` / `db_exists` 액션
+  - Execute Engine에 blast-radius 기반 suggestedFiles 자동 주입
+  - `build-graph`, `blast-radius`, `diff-radius` 슬래시 커맨드 스킬 추가
+- **OS 알림**: 파이프라인 이벤트 시 데스크탑 알림 (`notifications` 설정)
+- **병렬 에이전트 실행**: `/execute` 스킬에서 `parallelGroups` 기반 동시 실행
+- **`gestalt init`**: `gestalt.json` 생성 + 코드 그래프 빌드 + post-commit 훅 설치 원스텝 온보딩
+- **`.claude/rules` 라이프사이클**: `gestalt-active.md` 자동 생성·삭제
+
+### Changed
+- `interview.maxRounds` 기본값 10 → 20
+
+---
+
 ## [0.9.0] - 2026-03-29
 
 ### Added
