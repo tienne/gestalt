@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-04-12
+
+### Added
+- Knowledge Base 모듈 (`src/knowledge-base/`): 코드 그래프 분석 결과 및 도메인 콘텐츠를 MD 파일로 내보내기
+- `ges_generate_kb` MCP 도구: 프로젝트 지식베이스 생성 및 임베딩 사전 계산 (`.gestalt-kb/`)
+- `ges_search` MCP 도구: 로컬 파일 기반 시맨틱 검색 (네트워크 호출 없음, 코사인 유사도)
+- `ges_sync` MCP 도구: 지식베이스 디렉토리를 다른 레포로 동기화
+- 5가지 KnowledgeEntry 타입 지원: `code-graph`, `business-logic`, `api-spec`, `adr`, `policy`
+- `@xenova/transformers` (Xenova/all-MiniLM-L6-v2) 기반 임베딩 벡터 분리 저장 (`embeddings.json`)
+
+### Changed
+- `execute_task` 응답에서 `retrospectiveContext.systemPrompt` 제거 (taskContext와 동일한 내용 — 중복 제거)
+- `execute_task` 응답의 `pendingTasks`를 경량화 (`taskId`, `title`, `dependsOn`만 포함)
+
 ## [0.13.0] - 2026-04-12
 
 ### Added
