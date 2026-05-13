@@ -3,17 +3,8 @@ import { loadConfig } from '../../core/config.js';
 import { EventStore } from '../../events/store.js';
 import { createAdapter } from '../../llm/factory.js';
 import { InterviewEngine } from '../../interview/engine.js';
-import { RecordingOrchestrator } from '../../recording/recording-orchestrator.js';
 
-export interface InterviewCommandOptions {
-  record?: boolean;
-  mp4?: boolean;
-}
-
-export async function interviewCommand(
-  topic: string,
-  options: InterviewCommandOptions = {},
-): Promise<void> {
+export async function interviewCommand(topic: string): Promise<void> {
   const config = loadConfig();
 
   if (!config.llm.apiKey) {
@@ -24,11 +15,6 @@ export async function interviewCommand(
   }
 
   const llm = createAdapter(config.llm);
-  const orchestrator = new RecordingOrchestrator(llm);
-
-  // --record 플래그가 있고 아직 asciinema로 감싸지지 않았으면 respawn.
-  // respawn 시 process.exit()이 호출되므로 이후 코드는 실행되지 않음.
-  await orchestrator.startIfNeeded(options);
 
   const eventStore = new EventStore(config.dbPath);
   const engine = new InterviewEngine(llm, eventStore);
@@ -43,10 +29,6 @@ export async function interviewCommand(
 
   try {
     console.log(`\n🔍 Starting Gestalt interview for: "${topic}"\n`);
-
-    if (orchestrator.isRecording()) {
-      console.log('📹 Recording in progress (asciinema)...\n');
-    }
 
     const startResult = await engine.start(topic);
     if (!startResult.ok) {
@@ -95,11 +77,6 @@ export async function interviewCommand(
     if (completeResult.ok) {
       console.log(`\n✅ Interview completed. Session ID: ${sessionId}`);
       console.log('Run `gestalt spec ' + sessionId + '` to generate a spec.\n');
-    }
-
-    // asciinema 녹화 중이었다면 백그라운드 GIF 변환 트리거
-    if (orchestrator.isRecording()) {
-      await orchestrator.stopAndConvert(topic, sessionId, options);
     }
   } finally {
     rl.close();

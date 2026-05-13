@@ -22,10 +22,6 @@ export const interviewInputSchema = z.object({
     })
     .optional()
     .describe('Resolution scores computed by the caller LLM (passthrough mode)'),
-  record: z
-    .boolean()
-    .optional()
-    .describe('Generate a GIF recording of the interview session on complete'),
   compressedSummary: z
     .string()
     .optional()

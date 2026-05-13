@@ -93,7 +93,6 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           })
           .optional()
           .describe('Resolution scores computed by the caller LLM'),
-        record: z.boolean().optional(),
       },
       (params) => {
         const input = interviewInputSchema.parse(params);
@@ -563,10 +562,6 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           .optional()
           .describe('User response to the current question (required for respond)'),
         cwd: z.string().optional().describe('Working directory for brownfield detection'),
-        record: z
-          .boolean()
-          .optional()
-          .describe('Generate a GIF recording of the interview session on complete'),
       },
       async (params) => {
         const input = interviewInputSchema.parse(params);
