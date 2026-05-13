@@ -128,12 +128,25 @@ Spec과 실행 결과는 레포 루트의 `.gestalt/memory.json`에 자동으로
 
 설치 한 번에 MCP 서버, 슬래시 커맨드, Gestalt 에이전트, 프로젝트 컨텍스트를 모두 사용할 수 있어요.
 
+**Claude Code 세션 내에서:**
+
 ```bash
 # 1단계: 마켓플레이스 등록 (최초 1회)
 /plugin marketplace add tienne/gestalt
 
 # 2단계: 플러그인 설치
 /plugin install gestalt@gestalt
+```
+
+**터미널에서 (세션 없이):**
+
+```bash
+# 1단계: ~/.claude/settings.json에 마켓플레이스 소스 추가
+#   "pluginMarketplaces": ["tienne/gestalt"]
+#   (또는 세션에서 /plugin marketplace add 를 최초 1회 실행)
+
+# 2단계: claude CLI로 설치
+claude plugin install gestalt@gestalt
 ```
 
 기본 제공 항목:
