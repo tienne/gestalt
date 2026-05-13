@@ -118,6 +118,12 @@ Every spec and execution result is automatically recorded in `.gestalt/memory.js
 
 Bundles the MCP server, slash-command skills, Gestalt agents, and project context — pre-configured in a single install.
 
+**From a terminal:**
+
+```bash
+claude plugin install gestalt@gestalt
+```
+
 **Inside a Claude Code session:**
 
 ```bash
@@ -126,17 +132,6 @@ Bundles the MCP server, slash-command skills, Gestalt agents, and project contex
 
 # Step 2: Install the plugin
 /plugin install gestalt@gestalt
-```
-
-**From a terminal (outside a session):**
-
-```bash
-# Step 1: Add marketplace source to ~/.claude/settings.json
-#   "pluginMarketplaces": ["tienne/gestalt"]
-#   (or run /plugin marketplace add inside a session once)
-
-# Step 2: Install via claude CLI
-claude plugin install gestalt@gestalt
 ```
 
 What you get out of the box:
