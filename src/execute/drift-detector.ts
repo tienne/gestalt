@@ -32,11 +32,30 @@ export function measureDrift(
     constraintDimension.score * DRIFT_WEIGHTS.constraint +
     ontologyDimension.score * DRIFT_WEIGHTS.ontology;
 
+  const roundedOverall = Math.round(overall * 1000) / 1000;
+
+  let status: 'OK' | 'WARNING' | 'CRITICAL';
+  if (roundedOverall < driftThreshold * 0.5) {
+    status = 'OK';
+  } else if (roundedOverall < driftThreshold) {
+    status = 'WARNING';
+  } else {
+    status = 'CRITICAL';
+  }
+
+  const hint =
+    status === 'OK'
+      ? ''
+      : '스펙과의 편차가 감지되었습니다. evolve_patch로 스펙을 수정하거나 계속 진행하세요.';
+
   return {
     taskId: taskResult.taskId,
-    overall: Math.round(overall * 1000) / 1000,
+    overall: roundedOverall,
     dimensions,
     thresholdExceeded: overall > driftThreshold,
+    status,
+    threshold: driftThreshold,
+    hint,
   };
 }
 

@@ -1,6 +1,6 @@
 import type { PassthroughExecuteEngine } from '../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../schemas.js';
-import type { PlanningStepResult, SubTask, ResumeContext } from '../../core/types.js';
+import type { PlanningStepResult, SubTask, ResumeContext, NextActionGuide, ProgressInfo } from '../../core/types.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { AuditEngine } from '../../execute/audit-engine.js';
 import { gestaltNotify } from '../../utils/notifier.js';
@@ -19,6 +19,8 @@ export async function handleExecutePassthrough(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
 ): Promise<string> {
+  const verbose = input.verbose !== false;
+
   switch (input.action) {
     case 'start': {
       if (!input.spec) return formatError('spec is required for start action');
@@ -29,13 +31,21 @@ export async function handleExecutePassthrough(
       if (!result.ok) return formatError(result.error.message);
 
       const { session, executeContext } = result.value;
+      const startGuide: NextActionGuide = {
+        nextAction: 'plan_step',
+        nextActionParams: { sessionId: session.sessionId },
+        hint: 'executeContext.planningPrompt를 사용해 figure_ground 분류를 수행하세요.',
+      };
       return JSON.stringify(
         {
           status: 'started',
           sessionId: session.sessionId,
           specId: session.specId,
-          executeContext,
+          executeContext: verbose
+            ? executeContext
+            : stripContextPrompts(executeContext as unknown as Record<string, unknown>),
           message: `Execute session started. Use the executeContext.planningPrompt with executeContext.systemPrompt to generate the Figure-Ground classification.`,
+          ...startGuide,
         },
         null,
         2,
@@ -56,6 +66,11 @@ export async function handleExecutePassthrough(
       const { session, executeContext, isLastStep } = result.value;
 
       if (isLastStep) {
+        const planStepLastGuide: NextActionGuide = {
+          nextAction: 'plan_complete',
+          nextActionParams: { sessionId: session.sessionId },
+          hint: '4단계 Planning 완료. plan_complete를 호출하세요.',
+        };
         return JSON.stringify(
           {
             status: 'planning_complete',
@@ -64,20 +79,30 @@ export async function handleExecutePassthrough(
             isLastStep: true,
             message:
               'All planning steps completed. Call plan_complete to assemble the execution plan.',
+            ...planStepLastGuide,
           },
           null,
           2,
         );
       }
 
+      const currentPrinciple = executeContext?.currentPrinciple ?? 'next';
+      const planStepGuide: NextActionGuide = {
+        nextAction: 'plan_step',
+        nextActionParams: { sessionId: session.sessionId },
+        hint: `다음 단계: ${currentPrinciple}. executeContext.planningPrompt를 사용하세요.`,
+      };
       return JSON.stringify(
         {
           status: 'planning',
           sessionId: session.sessionId,
           stepsCompleted: session.planningSteps.length,
           isLastStep: false,
-          executeContext,
+          executeContext: verbose
+            ? executeContext
+            : stripContextPrompts(executeContext as unknown as Record<string, unknown>),
           message: `Step ${session.planningSteps.length}/${4} complete. Use the executeContext.planningPrompt to generate the next step.`,
+          ...planStepGuide,
         },
         null,
         2,
@@ -96,6 +121,11 @@ export async function handleExecutePassthrough(
         groupCount: executionPlan.taskGroups.length,
         criticalPathLength: executionPlan.dagValidation.criticalPath.length,
         parallelGroupCount: executionPlan.parallelGroups?.length ?? 0,
+      };
+      const planCompleteGuide: NextActionGuide = {
+        nextAction: 'execute_start',
+        nextActionParams: { sessionId: result.value.session.sessionId },
+        hint: '실행 계획이 준비됐습니다. execute_start를 호출하세요.',
       };
       return JSON.stringify(
         {
@@ -121,6 +151,7 @@ export async function handleExecutePassthrough(
             ' tasks.',
           message:
             'Execution plan assembled and validated. Call execute_start to begin task execution.',
+          ...planCompleteGuide,
         },
         null,
         2,
@@ -137,11 +168,17 @@ export async function handleExecutePassthrough(
       let { taskContext } = result.value;
 
       if (allTasksCompleted) {
+        const execStartDoneGuide: NextActionGuide = {
+          nextAction: 'evaluate',
+          nextActionParams: { sessionId: session.sessionId },
+          hint: '모든 태스크 완료. evaluate를 호출하세요.',
+        };
         return JSON.stringify(
           {
             status: 'all_tasks_completed',
             sessionId: session.sessionId,
             message: 'All tasks already completed. Call evaluate to verify acceptance criteria.',
+            ...execStartDoneGuide,
           },
           null,
           2,
@@ -169,12 +206,23 @@ export async function handleExecutePassthrough(
         }
       }
 
+      const execStartGuide: NextActionGuide = {
+        nextAction: 'execute_task',
+        nextActionParams: { sessionId: session.sessionId },
+        hint: `첫 번째 태스크: ${taskContext?.currentTask.title ?? ''}. taskContext.taskPrompt를 사용해 구현하세요.`,
+      };
       return JSON.stringify(
         {
           status: 'executing',
           sessionId: session.sessionId,
-          taskContext: taskContext ? slimTaskContext(taskContext as unknown as Record<string, unknown>) : taskContext,
+          taskContext: taskContext
+            ? applyTaskContextFilters(
+                taskContext as unknown as Record<string, unknown>,
+                verbose,
+              )
+            : taskContext,
           message: `Execution started. Use taskContext.taskPrompt to implement the task, then submit with execute_task.`,
+          ...execStartGuide,
         },
         null,
         2,
@@ -196,16 +244,30 @@ export async function handleExecutePassthrough(
           event: 'tasks_completed',
           message: `모든 태스크 완료 (${session.taskResults.length}개) — evaluate를 호출하세요`,
         });
+        const execTaskDoneGuide: NextActionGuide = {
+          nextAction: 'evaluate',
+          nextActionParams: { sessionId: session.sessionId },
+          hint: '모든 태스크 완료. evaluate를 호출하세요.',
+        };
+        const doneTotal = session.executionPlan?.atomicTasks.length ?? 0;
+        const doneCompleted = session.taskResults.length;
+        const doneProgress: ProgressInfo = {
+          completed: doneCompleted,
+          total: doneTotal,
+          percent: doneTotal > 0 ? Math.round((doneCompleted / doneTotal) * 100) : 0,
+        };
         return JSON.stringify(
           {
             status: 'all_tasks_completed',
             sessionId: session.sessionId,
             completedTasks: session.taskResults.length,
+            progress: doneProgress,
             ...(driftScore ? { driftScore } : {}),
             ...(retrospectiveContext
               ? { retrospectiveContext: slimRetrospectiveContext(retrospectiveContext as unknown as Record<string, unknown>) }
               : {}),
             message: 'All tasks completed. Call evaluate to verify acceptance criteria.',
+            ...execTaskDoneGuide,
           },
           null,
           2,
@@ -231,18 +293,38 @@ export async function handleExecutePassthrough(
 
       const compressionAvailable = session.taskResults.length > 5;
 
+      const execTaskNextId = taskContext?.currentTask.taskId ?? '';
+      const execTaskGuide: NextActionGuide = {
+        nextAction: 'execute_task',
+        nextActionParams: { sessionId: session.sessionId },
+        hint: `다음 태스크: ${execTaskNextId}. 계속 실행하세요.`,
+      };
+      const execTotal = session.executionPlan?.atomicTasks.length ?? 0;
+      const execCompleted = session.taskResults.length;
+      const execProgress: ProgressInfo = {
+        completed: execCompleted,
+        total: execTotal,
+        percent: execTotal > 0 ? Math.round((execCompleted / execTotal) * 100) : 0,
+      };
       return JSON.stringify(
         {
           status: 'executing',
           sessionId: session.sessionId,
           completedTasks: session.taskResults.length,
-          taskContext: taskContext ? slimTaskContext(taskContext as unknown as Record<string, unknown>) : taskContext,
+          progress: execProgress,
+          taskContext: taskContext
+            ? applyTaskContextFilters(
+                taskContext as unknown as Record<string, unknown>,
+                verbose,
+              )
+            : taskContext,
           ...(compressionAvailable ? { compressionAvailable: true } : {}),
           ...(driftScore ? { driftScore } : {}),
           ...(retrospectiveContext
             ? { retrospectiveContext: slimRetrospectiveContext(retrospectiveContext as unknown as Record<string, unknown>) }
             : {}),
           message: `Task "${input.taskResult.taskId}" recorded.${driftScore?.thresholdExceeded ? ' WARNING: Drift threshold exceeded! Review retrospectiveContext.' : ''}${compressionAvailable ? ' TIP: Context is getting long — consider calling compress to summarize completed work.' : ''} Use taskContext.taskPrompt to implement the next task.`,
+          ...execTaskGuide,
         },
         null,
         2,
@@ -301,6 +383,13 @@ export async function handleExecutePassthrough(
             ? `평가 성공 ✓ score: ${score.toFixed(2)}, alignment: ${alignment.toFixed(2)}`
             : `평가 미달 score: ${score.toFixed(2)}, alignment: ${alignment.toFixed(2)} — Evolve 진입`,
         });
+        const evalCompleteExtra = success
+          ? { hint: '구현 완료! score ≥ 0.85, alignment ≥ 0.80 달성.' }
+          : {
+              nextAction: 'evolve',
+              nextActionParams: { sessionId: completedSession.sessionId },
+              hint: '점수 미달. evolve를 호출해 개선하세요.',
+            };
         return JSON.stringify(
           {
             status: 'completed',
@@ -308,6 +397,7 @@ export async function handleExecutePassthrough(
             stage: 'complete',
             evaluationResult,
             message: `Evaluation complete. Overall score: ${score.toFixed(2)}, goal alignment: ${alignment.toFixed(2)}. Session is now completed.`,
+            ...evalCompleteExtra,
           },
           null,
           2,
@@ -326,6 +416,11 @@ export async function handleExecutePassthrough(
             event: 'structural_failed',
             message: 'Structural 검사 실패 — lint/build/test를 확인하세요',
           });
+          const evalShortCircuitGuide: NextActionGuide = {
+            nextAction: 'evolve',
+            nextActionParams: { sessionId: result.value.session.sessionId },
+            hint: '점수 미달. evolve를 호출해 개선하세요.',
+          };
           return JSON.stringify(
             {
               status: 'completed',
@@ -335,20 +430,29 @@ export async function handleExecutePassthrough(
               evaluationResult,
               message:
                 'Structural checks failed. Evaluation short-circuited. Fix structural issues and retry.',
+              ...evalShortCircuitGuide,
             },
             null,
             2,
           );
         }
 
+        const evalContextualGuide: NextActionGuide = {
+          nextAction: 'evaluate',
+          nextActionParams: { sessionId: result.value.session.sessionId },
+          hint: 'evaluationContext에 따라 각 AC를 검증하고 결과를 제출하세요.',
+        };
         return JSON.stringify(
           {
             status: 'evaluating',
             sessionId: result.value.session.sessionId,
             stage,
-            contextualContext,
+            contextualContext: verbose
+              ? contextualContext
+              : stripContextPrompts(contextualContext as unknown as Record<string, unknown>),
             message:
               'Structural checks passed. Use contextualContext.evaluatePrompt with contextualContext.systemPrompt to generate the contextual evaluation.',
+            ...evalContextualGuide,
           },
           null,
           2,
@@ -359,6 +463,11 @@ export async function handleExecutePassthrough(
       const result = engine.startEvaluation(input.sessionId);
       if (!result.ok) return formatError(result.error.message);
 
+      const evalStructuralGuide: NextActionGuide = {
+        nextAction: 'evaluate',
+        nextActionParams: { sessionId: result.value.session.sessionId },
+        hint: 'structuralContext에 따라 lint/build/test를 실행하고 결과를 제출하세요.',
+      };
       return JSON.stringify(
         {
           status: 'evaluating',
@@ -367,6 +476,7 @@ export async function handleExecutePassthrough(
           structuralContext: result.value.structuralContext,
           message:
             'Run structural checks (lint, build, test) and submit results with structuralResult.',
+          ...evalStructuralGuide,
         },
         null,
         2,
@@ -540,6 +650,11 @@ export async function handleExecutePassthrough(
       const { fixContext } = fixResult.value;
 
       if (fixContext) {
+        const evolveFixGuide: NextActionGuide = {
+          nextAction: 'evolve_fix',
+          nextActionParams: { sessionId: fixResult.value.session.sessionId },
+          hint: 'fixContext에 따라 lint/build/test 오류를 수정하세요.',
+        };
         return JSON.stringify(
           {
             status: 'evolving',
@@ -548,17 +663,24 @@ export async function handleExecutePassthrough(
             fixContext,
             message:
               'Structural failures detected. Use fixContext to generate fix tasks, then re-submit with fixTasks.',
+            ...evolveFixGuide,
           },
           null,
           2,
         );
       }
 
+      const evolveFixAppliedGuide: NextActionGuide = {
+        nextAction: 'evaluate',
+        nextActionParams: { sessionId: fixResult.value.session.sessionId },
+        hint: 'fixContext에 따라 lint/build/test 오류를 수정하세요.',
+      };
       return JSON.stringify(
         {
           status: 'fix_applied',
           sessionId: fixResult.value.session.sessionId,
           message: 'Fix tasks recorded. Call evaluate to re-run structural checks.',
+          ...evolveFixAppliedGuide,
         },
         null,
         2,
@@ -572,12 +694,18 @@ export async function handleExecutePassthrough(
       if (!evolveResult.ok) return formatError(evolveResult.error.message);
 
       if (evolveResult.value.lateralContext) {
+        const evolveLateralGuide: NextActionGuide = {
+          nextAction: 'evolve_lateral_result',
+          nextActionParams: { sessionId: evolveResult.value.session.sessionId },
+          hint: 'lateralContext.lateralPrompt를 사용해 관점 전환 결과를 제출하세요.',
+        };
         return JSON.stringify(
           {
             status: 'lateral_thinking',
             sessionId: evolveResult.value.session.sessionId,
             lateralContext: evolveResult.value.lateralContext,
             message: `Stagnation detected. Lateral thinking activated: ${evolveResult.value.lateralContext.persona} persona (attempt ${evolveResult.value.lateralContext.attemptNumber}/4). Use lateralContext to generate a lateral SpecPatch, then submit with evolve_lateral_result.`,
+            ...evolveLateralGuide,
           },
           null,
           2,
@@ -647,6 +775,11 @@ export async function handleExecutePassthrough(
         );
       }
 
+      const evolveGuide: NextActionGuide = {
+        nextAction: 'evolve_patch',
+        nextActionParams: { sessionId: evolveResult.value.session.sessionId },
+        hint: 'evolveContext에 따라 specPatch를 작성하세요.',
+      };
       return JSON.stringify(
         {
           status: 'evolving',
@@ -654,6 +787,7 @@ export async function handleExecutePassthrough(
           stage: 'evolve',
           evolveContext: evolveResult.value.evolveContext,
           message: 'Use evolveContext to generate a Spec patch, then submit with evolve_patch.',
+          ...evolveGuide,
         },
         null,
         2,
@@ -683,18 +817,29 @@ export async function handleExecutePassthrough(
       }
 
       if (impactedTaskIds.length === 0) {
+        const evolvePatchNoTasksGuide: NextActionGuide = {
+          nextAction: 'evaluate',
+          nextActionParams: { sessionId: patchResult.value.session.sessionId },
+          hint: 'impactedTaskIds의 태스크를 재실행하세요.',
+        };
         return JSON.stringify(
           {
             status: 'patch_applied',
             sessionId: patchResult.value.session.sessionId,
             impactedTaskIds: [],
             message: 'Spec patched. No tasks need re-execution. Call evaluate to re-assess.',
+            ...evolvePatchNoTasksGuide,
           },
           null,
           2,
         );
       }
 
+      const evolvePatchGuide: NextActionGuide = {
+        nextAction: 'evolve_re_execute',
+        nextActionParams: { sessionId: patchResult.value.session.sessionId },
+        hint: 'impactedTaskIds의 태스크를 재실행하세요.',
+      };
       return JSON.stringify(
         {
           status: 're_executing',
@@ -702,6 +847,7 @@ export async function handleExecutePassthrough(
           impactedTaskIds,
           reExecuteContext,
           message: `Spec patched. ${impactedTaskIds.length} tasks need re-execution. Use reExecuteContext to implement the task.`,
+          ...evolvePatchGuide,
         },
         null,
         2,
@@ -723,23 +869,35 @@ export async function handleExecutePassthrough(
       const { reExecuteContext: nextContext, allTasksCompleted } = reExecResult.value;
 
       if (allTasksCompleted) {
+        const reExecDoneGuide: NextActionGuide = {
+          nextAction: 'evaluate',
+          nextActionParams: { sessionId: reExecResult.value.session.sessionId },
+          hint: '재실행 완료. evaluate를 다시 호출하세요.',
+        };
         return JSON.stringify(
           {
             status: 're_execute_complete',
             sessionId: reExecResult.value.session.sessionId,
             message: 'All impacted tasks re-executed. Call evaluate to re-assess.',
+            ...reExecDoneGuide,
           },
           null,
           2,
         );
       }
 
+      const reExecGuide: NextActionGuide = {
+        nextAction: 'evolve_re_execute',
+        nextActionParams: { sessionId: reExecResult.value.session.sessionId },
+        hint: '재실행 계속. 남은 태스크를 완료하세요.',
+      };
       return JSON.stringify(
         {
           status: 're_executing',
           sessionId: reExecResult.value.session.sessionId,
           reExecuteContext: nextContext,
           message: 'Task recorded. Use reExecuteContext to implement the next re-execution task.',
+          ...reExecGuide,
         },
         null,
         2,
@@ -757,6 +915,11 @@ export async function handleExecutePassthrough(
       const { matchContext, perspectivePrompts } = rmResult.value;
 
       if (matchContext) {
+        const roleMatchCall1Guide: NextActionGuide = {
+          nextAction: 'role_match',
+          nextActionParams: { sessionId: rmResult.value.session.sessionId },
+          hint: 'matchContext를 사용해 관련 Role Agent를 선택하고 matchResult를 제출하세요.',
+        };
         return JSON.stringify(
           {
             status: 'role_matching',
@@ -764,12 +927,18 @@ export async function handleExecutePassthrough(
             matchContext,
             message:
               'Use matchContext.systemPrompt + matchContext.matchingPrompt to determine which role agents match this task. Submit matchResult with role_match.',
+            ...roleMatchCall1Guide,
           },
           null,
           2,
         );
       }
 
+      const roleMatchCall2Guide: NextActionGuide = {
+        nextAction: 'role_consensus',
+        nextActionParams: { sessionId: rmResult.value.session.sessionId },
+        hint: '각 에이전트의 관점을 생성하고 perspectives를 제출하세요.',
+      };
       return JSON.stringify(
         {
           status: 'role_matched',
@@ -779,6 +948,7 @@ export async function handleExecutePassthrough(
           message: perspectivePrompts?.length
             ? `${perspectivePrompts.length} agents matched. Use each perspectivePrompt for parallel LLM calls, then submit perspectives with role_consensus.`
             : 'No agents matched. Proceed directly to execute_task.',
+          ...roleMatchCall2Guide,
         },
         null,
         2,
@@ -794,6 +964,11 @@ export async function handleExecutePassthrough(
       const { synthesisContext, roleGuidance } = rcResult.value;
 
       if (synthesisContext) {
+        const roleConsensusCall1Guide: NextActionGuide = {
+          nextAction: 'role_consensus',
+          nextActionParams: { sessionId: rcResult.value.session.sessionId },
+          hint: 'synthesisContext를 사용해 관점을 통합하고 consensus를 제출하세요.',
+        };
         return JSON.stringify(
           {
             status: 'synthesizing',
@@ -801,12 +976,18 @@ export async function handleExecutePassthrough(
             synthesisContext,
             message:
               'Use synthesisContext.systemPrompt + synthesisContext.synthesisPrompt to synthesize consensus. Submit consensus with role_consensus.',
+            ...roleConsensusCall1Guide,
           },
           null,
           2,
         );
       }
 
+      const roleConsensusCall2Guide: NextActionGuide = {
+        nextAction: 'execute_task',
+        nextActionParams: { sessionId: rcResult.value.session.sessionId },
+        hint: 'roleGuidance를 참조해 태스크를 실행하세요.',
+      };
       return JSON.stringify(
         {
           status: 'consensus_complete',
@@ -814,6 +995,7 @@ export async function handleExecutePassthrough(
           roleGuidance,
           message:
             'Role consensus stored. Use roleGuidance to inform task implementation, then submit with execute_task.',
+          ...roleConsensusCall2Guide,
         },
         null,
         2,
@@ -1069,6 +1251,31 @@ function slimRetrospectiveContext(ctx: Record<string, unknown>): Record<string, 
     [key: string]: unknown;
   };
   return rest;
+}
+
+// ─── Verbose=false Helpers ──────────────────────────────────────────────────
+// When verbose=false, strip large prompt fields to reduce response token usage.
+// Callers that omit verbose (default=true) receive identical responses as before.
+
+const PROMPT_KEYS = ['systemPrompt', 'planningPrompt', 'taskPrompt'] as const;
+
+function stripContextPrompts(
+  ctx: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null | undefined {
+  if (!ctx || typeof ctx !== 'object') return ctx;
+  const result: Record<string, unknown> = { ...ctx };
+  for (const key of PROMPT_KEYS) {
+    delete result[key];
+  }
+  return result;
+}
+
+function applyTaskContextFilters(
+  ctx: Record<string, unknown>,
+  verbose: boolean,
+): Record<string, unknown> {
+  const slimmed = slimTaskContext(ctx);
+  return verbose ? slimmed : (stripContextPrompts(slimmed) as Record<string, unknown>);
 }
 
 function formatError(message: string): string {

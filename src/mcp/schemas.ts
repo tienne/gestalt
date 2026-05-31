@@ -45,6 +45,13 @@ export const specInputSchema = z.object({
     .optional()
     .describe('Template ID to use as base (rest-api, react-dashboard, cli-tool)'),
   force: z.boolean().optional().default(false),
+  verbose: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      'When false, omit large prompt fields (systemPrompt, specPrompt) from responses to reduce token usage',
+    ),
   spec: z
     .object({
       goal: z.string(),
@@ -362,6 +369,15 @@ export const executeInputSchema = z.object({
     )
     .optional()
     .describe('Sub-tasks to spawn (required for spawn action)'),
+
+  // ─── Verbosity Control ────────────────────────────────────
+  verbose: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      'When false, omit large prompt fields (systemPrompt, planningPrompt, taskPrompt, etc.) from responses to reduce token usage',
+    ),
 
   // Code Review
   reviewAgentName: z.string().optional().describe('Review agent name (required for review_submit)'),

@@ -59,6 +59,69 @@ interface DAGValidation {
 
 ---
 
+## 상태 전이 다이어그램
+
+14개 액션의 전체 흐름이에요.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Planning : start
+
+  state Planning {
+    start --> plan_step : figure_ground 컨텍스트 반환
+    plan_step --> plan_step : (closure / proximity / continuity 반복)
+    plan_step --> plan_complete : isLastStep === true
+  }
+
+  Planning --> Execution : plan_complete → ExecutionPlan 반환
+
+  state Execution {
+    execute_start --> execute_task : 첫 태스크 컨텍스트 반환
+    execute_task --> execute_task : (다음 태스크 반복)
+    execute_task --> [*] : allTasksCompleted
+  }
+
+  Execution --> RoleAgent : role_match (선택)
+  Execution --> Evaluate : execute_task → allTasksCompleted
+
+  state RoleAgent {
+    role_match --> role_match : (matchResult 제출)
+    role_match --> role_consensus : perspectivePrompts 반환
+    role_consensus --> role_consensus : (consensus 제출)
+  }
+
+  RoleAgent --> Execution : roleGuidance → execute_task로 복귀
+
+  state Evaluate {
+    evaluate --> evaluate : structural → contextual (2-Call)
+  }
+
+  Evaluate --> [*] : score ≥ 0.85 → completed
+  Evaluate --> EvolveStructural : structural 실패
+  Evaluate --> Evolve : score < 0.85
+
+  state EvolveStructural {
+    evolve_fix --> evolve_fix : (fixTasks 제출)
+  }
+
+  EvolveStructural --> Evaluate : fix_applied → evaluate 재실행
+
+  state Evolve {
+    evolve --> evolve_patch : evolveContext 반환
+    evolve_patch --> evolve_re_execute : impactedTasks 있음
+    evolve_re_execute --> evolve_re_execute : (재실행 반복)
+    evolve_re_execute --> [*] : allTasksCompleted
+    evolve --> evolve_lateral : stagnation 감지
+    evolve_lateral --> evolve_lateral_result : lateralContext 반환
+    evolve_lateral_result --> [*] : lateral patch 적용
+  }
+
+  Evolve --> Evaluate : re_execute_complete → evaluate 재실행
+  Evolve --> [*] : human_escalation (Lateral ×4 소진)
+```
+
+---
+
 ## 처리 흐름 (Passthrough 모드)
 
 ### Planning Phase (5-Call)

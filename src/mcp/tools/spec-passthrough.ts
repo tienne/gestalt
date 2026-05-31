@@ -55,10 +55,11 @@ export function handleSpecPassthrough(
         input.template ?? undefined,
       );
 
+      const verbose = input.verbose !== false;
       return JSON.stringify(
         {
           status: 'prompt',
-          specContext: context,
+          specContext: verbose ? context : stripSpecContextPrompts(context as unknown as Record<string, unknown>),
           message:
             'Use specContext.specPrompt with specContext.systemPrompt to generate the spec JSON, then call this tool again with both the text and spec parameters.',
         },
@@ -111,10 +112,11 @@ export function handleSpecPassthrough(
     // Call 1: return prompt for caller LLM to generate spec
     const context = generator.buildSpecContext(session);
 
+    const verbose = input.verbose !== false;
     return JSON.stringify(
       {
         status: 'prompt',
-        specContext: context,
+        specContext: verbose ? context : stripSpecContextPrompts(context as unknown as Record<string, unknown>),
         message:
           'Use specContext.specPrompt with specContext.systemPrompt to generate the spec JSON, then call this tool again with the spec parameter.',
       },
@@ -130,4 +132,20 @@ export function handleSpecPassthrough(
       2,
     );
   }
+}
+
+// ─── Verbose=false Helper ───────────────────────────────────────────────────
+// When verbose=false, strip large prompt fields from specContext to reduce token usage.
+
+const SPEC_PROMPT_KEYS = ['systemPrompt', 'specPrompt'] as const;
+
+function stripSpecContextPrompts(
+  ctx: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null | undefined {
+  if (!ctx || typeof ctx !== 'object') return ctx;
+  const result: Record<string, unknown> = { ...ctx };
+  for (const key of SPEC_PROMPT_KEYS) {
+    delete result[key];
+  }
+  return result;
 }

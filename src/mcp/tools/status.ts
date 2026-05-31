@@ -23,17 +23,23 @@ export function handleStatus(
       // Try interview first
       try {
         const session = engine.getSession(input.sessionId);
+        const answeredRounds = session.rounds.filter((r) => r.userResponse).length;
+        const scoreStr = session.resolutionScore
+          ? ` (score ${session.resolutionScore.overall.toFixed(2)})`
+          : '';
+        const interviewSummary = `세션 ${session.sessionId.slice(0, 8)}: ${session.status} — ${answeredRounds}/${session.rounds.length} 라운드 완료${scoreStr}`;
         return JSON.stringify(
           {
             versionInfo,
             type: 'interview',
+            summary: interviewSummary,
             session: {
               sessionId: session.sessionId,
               topic: session.topic,
               status: session.status,
               projectType: session.projectType,
               totalRounds: session.rounds.length,
-              answeredRounds: session.rounds.filter((r) => r.userResponse).length,
+              answeredRounds,
               resolutionScore: session.resolutionScore
                 ? {
                     overall: session.resolutionScore.overall.toFixed(2),
@@ -53,11 +59,13 @@ export function handleStatus(
           const repo = new ExecuteSessionRepository(eventStore);
           const execSession = repo.reconstruct(input.sessionId);
           if (execSession) {
+            const formatted = formatExecuteSessionBasic(execSession);
             return JSON.stringify(
               {
                 versionInfo,
                 type: 'execute',
-                session: formatExecuteSessionBasic(execSession),
+                summary: formatted.summary,
+                session: formatted,
               },
               null,
               2,
@@ -112,11 +120,30 @@ export function handleStatus(
 function formatExecuteSessionBasic(session: import('../../core/types.js').ExecuteSession) {
   const totalTasks = session.executionPlan?.atomicTasks.length ?? 0;
   const completedTasks = session.taskResults.filter((t) => t.status === 'completed').length;
+
+  let summary: string;
+  const shortId = session.sessionId.slice(0, 8);
+  if (session.status === 'completed') {
+    const scoreStr = session.evaluationResult?.overallScore != null
+      ? ` score ${session.evaluationResult.overallScore.toFixed(2)}`
+      : '';
+    const alignStr = session.evaluationResult?.goalAlignment != null
+      ? `, alignment ${session.evaluationResult.goalAlignment.toFixed(2)}`
+      : '';
+    summary = `세션 ${shortId}: completed —${scoreStr}${alignStr}`;
+  } else if (totalTasks > 0) {
+    const pct = Math.round((completedTasks / totalTasks) * 100);
+    summary = `세션 ${shortId}: ${session.status} 단계, ${completedTasks}/${totalTasks} 태스크 완료 (${pct}%)`;
+  } else {
+    summary = `세션 ${shortId}: ${session.status} 단계, 0개 태스크 완료`;
+  }
+
   return {
     sessionId: session.sessionId,
     specId: session.specId,
     status: session.status,
     goal: session.spec.goal,
+    summary,
     taskProgress: totalTasks > 0 ? `${completedTasks}/${totalTasks}` : null,
     evaluationScore: session.evaluationResult?.overallScore ?? null,
     goalAlignment: session.evaluationResult?.goalAlignment ?? null,

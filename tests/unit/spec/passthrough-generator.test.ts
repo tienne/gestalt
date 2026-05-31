@@ -121,7 +121,7 @@ describe('PassthroughSpecGenerator', () => {
     const result = generator.validateAndStore(session, validExternalSpec, false);
     expect(isErr(result)).toBe(true);
     if (!result.ok) {
-      expect(result.error.message).toContain('below threshold');
+      expect(result.error.message).toContain('임계값');
     }
   });
 

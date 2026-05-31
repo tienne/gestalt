@@ -17,6 +17,8 @@ export interface ResolutionDimension {
   clarity: number; // 0.0-1.0
   weight: number;
   gestaltPrinciple: GestaltPrinciple;
+  label: string; // Korean display name, e.g. "목표 명확성"
+  improvementHint: string; // Dimension-specific hint for improving the score
 }
 
 export interface ResolutionScore {
@@ -252,6 +254,9 @@ export interface DriftScore {
   overall: number; // weighted sum of dimensions
   dimensions: DriftDimension[];
   thresholdExceeded: boolean;
+  status: 'OK' | 'WARNING' | 'CRITICAL';
+  threshold: number;
+  hint: string;
 }
 
 export interface RetrospectiveResult {
@@ -545,6 +550,19 @@ export interface UserProfile {
   personalPreferences: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+// ─── Shared Response Helpers ────────────────────────────────────
+export interface NextActionGuide {
+  nextAction: string;
+  nextActionParams?: Record<string, unknown>;
+  hint: string;
+}
+
+export interface ProgressInfo {
+  completed: number;
+  total: number;
+  percent: number;
 }
 
 // ─── Events ─────────────────────────────────────────────────────

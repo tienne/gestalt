@@ -47,24 +47,46 @@ interface GestaltConfig {
 
 ---
 
-## 환경변수 매핑
+## 환경변수 레퍼런스
 
-| 환경변수 | Config 경로 | 기본값 |
-|----------|-------------|--------|
-| `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` |
-| `GESTALT_MODEL` | `llm.model` | `"claude-sonnet-4-20250514"` |
-| `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` | `0.8` |
-| `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` |
-| `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` | `0.3` |
-| `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | `execute.successThreshold` | `0.85` |
-| `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | `execute.goalAlignmentThreshold` | `0.80` |
-| `GESTALT_NOTIFICATIONS` | `notifications` | `false` |
-| `GESTALT_DB_PATH` | `dbPath` | `"~/.gestalt/events.db"` |
-| `GESTALT_SKILLS_DIR` | `skillsDir` | `"skills"` |
-| `GESTALT_AGENTS_DIR` | `agentsDir` | `"agents"` |
-| `GESTALT_LOG_LEVEL` | `logLevel` | `"info"` |
+| 변수명 | 타입 | 기본값 | 설명 |
+|--------|------|--------|------|
+| `ANTHROPIC_API_KEY` | string | `""` | Anthropic API 키. 없으면 Interview/Spec에서 Passthrough 모드로 동작. Execute는 항상 Passthrough. |
+| `GESTALT_MODEL` | string | `"claude-sonnet-4-20250514"` | 기본 LLM 모델 이름 (`llm.model` 매핑) |
+| `GESTALT_RESOLUTION_THRESHOLD` | number (0–1) | `0.8` | 인터뷰 완료 기준 해상도 점수. 이 값 이상이면 인터뷰를 충분히 완료된 것으로 판단 |
+| `GESTALT_MAX_ROUNDS` | number (int) | `10` | 인터뷰 최대 라운드 수 |
+| `GESTALT_DRIFT_THRESHOLD` | number (0–1) | `0.3` | Execute 평가 시 드리프트 허용 임계값. 초과 시 Evolve 루프 진입 |
+| `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | number (0–1) | `0.85` | Evolve 성공 판정 기준 점수 |
+| `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | number (0–1) | `0.80` | 목표 정렬도 최소 임계값. 미달 시 재실행 트리거 |
+| `GESTALT_NOTIFICATIONS` | boolean | `false` | 완료/실패 시 OS 알림 전송 여부 (`"true"` 문자열로 설정) |
+| `GESTALT_DB_PATH` | string | `"~/.gestalt/events.db"` | SQLite 이벤트 스토어 파일 경로 |
+| `GESTALT_SKILLS_DIR` | string | `"skills"` | 스킬 SKILL.md 파일들이 위치한 디렉터리 |
+| `GESTALT_AGENTS_DIR` | string | `"agents"` | 커스텀 에이전트 정의 디렉터리 |
+| `GESTALT_ROLE_AGENTS_DIR` | string | `"role-agents"` | Role Agent 정의 디렉터리 |
+| `GESTALT_REVIEW_AGENTS_DIR` | string | `"review-agents"` | Review Agent 정의 디렉터리 |
+| `GESTALT_LOG_LEVEL` | `"debug"` \| `"info"` \| `"warn"` \| `"error"` | `"info"` | 로그 출력 레벨 |
+| `GESTALT_NO_UPDATE_CHECK` | `"1"` | — | `"1"` 로 설정하면 버전 업데이트 확인을 건너뜀 |
 
 잘못된 설정값은 경고를 출력하고 기본값으로 fallback한다 (에러를 throw하지 않음).
+
+### Config 경로 매핑 (빠른 참조)
+
+| 환경변수 | Config 경로 |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | `llm.apiKey` |
+| `GESTALT_MODEL` | `llm.model` |
+| `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` |
+| `GESTALT_MAX_ROUNDS` | `interview.maxRounds` |
+| `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` |
+| `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | `execute.successThreshold` |
+| `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | `execute.goalAlignmentThreshold` |
+| `GESTALT_NOTIFICATIONS` | `notifications` |
+| `GESTALT_DB_PATH` | `dbPath` |
+| `GESTALT_SKILLS_DIR` | `skillsDir` |
+| `GESTALT_AGENTS_DIR` | `agentsDir` |
+| `GESTALT_ROLE_AGENTS_DIR` | `roleAgentsDir` |
+| `GESTALT_REVIEW_AGENTS_DIR` | `reviewAgentsDir` |
+| `GESTALT_LOG_LEVEL` | `logLevel` |
 
 ---
 

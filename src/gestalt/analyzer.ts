@@ -39,24 +39,32 @@ export function computeResolutionScore(
       clarity: clamp(raw.goalClarity),
       weight: weights[GestaltPrinciple.CLOSURE],
       gestaltPrinciple: GestaltPrinciple.CLOSURE,
+      label: '목표 명확성',
+      improvementHint: '프로젝트의 최종 목표와 기대 결과물을 구체적으로 서술해 주세요.',
     },
     {
       name: 'constraintClarity',
       clarity: clamp(raw.constraintClarity),
       weight: weights[GestaltPrinciple.PROXIMITY],
       gestaltPrinciple: GestaltPrinciple.PROXIMITY,
+      label: '제약사항 명확성',
+      improvementHint: '기술 스택, 예산, 기한, 팀 규모 등 구체적인 제약 조건을 명시해 주세요.',
     },
     {
       name: 'successCriteria',
       clarity: clamp(raw.successCriteria),
       weight: weights[GestaltPrinciple.SIMILARITY],
       gestaltPrinciple: GestaltPrinciple.SIMILARITY,
+      label: '성공 기준 명확성',
+      improvementHint: '측정 가능한 성공 지표(KPI, 수치 목표 등)를 추가해 주세요.',
     },
     {
       name: 'priorityClarity',
       clarity: clamp(raw.priorityClarity),
       weight: weights[GestaltPrinciple.FIGURE_GROUND],
       gestaltPrinciple: GestaltPrinciple.FIGURE_GROUND,
+      label: '우선순위 명확성',
+      improvementHint: 'MVP 필수 기능과 추후 개선 사항을 명확히 구분해 주세요.',
     },
   ];
 
@@ -66,6 +74,8 @@ export function computeResolutionScore(
       clarity: clamp(raw.contextClarity),
       weight: weights[GestaltPrinciple.CONTINUITY],
       gestaltPrinciple: GestaltPrinciple.CONTINUITY,
+      label: '맥락 일관성',
+      improvementHint: '기존 시스템과의 연계 방식, 마이그레이션 전략, 호환성 요구사항을 구체적으로 설명해 주세요.',
     });
   }
 
