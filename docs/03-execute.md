@@ -1,12 +1,8 @@
-# 3단계: Execute — Spec을 실행 가능한 태스크로
+# 3단계: Execute
 
-> Spec이 완성됐다고 바로 실행할 수 있는 건 아니에요. Execute 단계에서 하나의 목표를 게슈탈트 4원리로 분해하고, DAG로 실행 순서를 정한 뒤, 태스크마다 드리프트를 감지해요.
+이 단계를 마치면 Spec을 게슈탈트 4원리로 분해하고, DAG 기반 실행 순서를 확정하며, 태스크마다 드리프트를 실시간으로 측정할 수 있어요.
 
----
-
-## Execute가 하는 일
-
-Spec을 입력으로 받아 **ExecutionPlan**을 수립하고, 태스크를 위상 정렬 순서로 실행해요. 실행 중에는 Drift Detection이 Spec과의 이탈을 실시간으로 측정해요.
+Execute는 두 개의 Phase로 나뉘어요. Planning Phase에서 Spec을 ExecutionPlan으로 변환하고, Execution Phase에서 태스크를 위상 정렬 순서대로 실행해요.
 
 ---
 
@@ -25,11 +21,9 @@ PLANNING_PRINCIPLE_SEQUENCE = [
 
 소스: `src/core/constants.ts`
 
-### 원리별 역할
-
 | 단계 | 원리 | 역할 |
 |:---:|:---:|:---|
-| 1 | **전경과 배경** | AC를 core(MVP)와 enhancement로 분류해요. 무엇을 먼저 할지 결정해요. |
+| 1 | **전경과 배경** | AC를 core(MVP)와 enhancement로 분류해요. 실행 우선순위를 결정해요. |
 | 2 | **폐쇄성** | 각 AC에서 암묵적 요구사항을 발굴해 원자 태스크로 변환해요. |
 | 3 | **근접성** | 연관 태스크를 그룹(병렬 실행 단위)으로 묶어 TaskGroup을 생성해요. |
 | 4 | **연속성** | 의존성 순환 여부를 검증하고 임계 경로(critical path)를 확정해요. |
@@ -51,8 +45,6 @@ Critical Path는 위상 정렬 순서대로 `longest-path` DP로 계산해요.
 
 소스: `src/execute/dag-validator.ts`
 
-### DAG 검증 결과
-
 ```typescript
 interface DAGValidation {
   isValid: boolean;
@@ -67,16 +59,16 @@ interface DAGValidation {
 
 ---
 
-## 처리 흐름 (Passthrough Mode)
+## 처리 흐름 (Passthrough 모드)
 
-### Planning Phase (4-Call)
+### Planning Phase (5-Call)
 
 ```
 // Call 1: 세션 시작
 ges_execute({ action: "start", spec: { ...specObject } })
 → executeContext 반환 (systemPrompt, planningPrompt, currentPrinciple: "figure_ground")
 
-// Call 2~4: 각 원리 단계 결과 제출
+// Call 2~4: 각 원리 단계 결과 제출 (isLastStep === true까지 반복)
 ges_execute({
   action: "plan_step",
   sessionId: "<id>",
@@ -85,7 +77,7 @@ ges_execute({
     classifiedACs: [{ acIndex: 0, classification: "core" }, ...]
   }
 })
-→ 다음 executeContext 반환. isLastStep === true까지 반복.
+→ 다음 executeContext 반환
 
 // Call 5: 실행 계획 조립
 ges_execute({ action: "plan_complete", sessionId: "<id>" })
@@ -102,7 +94,7 @@ ges_execute({ action: "execute_start", sessionId: "<id>", cwd: "/path/to/project
 → 첫 번째 태스크 컨텍스트 반환
   cwd를 전달하면 .claude/rules/gestalt-active.md와 .gestalt/active-session.json을 자동 생성해요.
 
-// 태스크 결과 제출
+// 태스크 결과 제출 (태스크가 남아있는 동안 반복)
 ges_execute({
   action: "execute_task",
   sessionId: "<id>",
@@ -130,8 +122,6 @@ ges_execute({
 
 `.claude/rules/` 디렉토리의 파일은 Claude Code 세션 시작 시 자동으로 로드돼요. 새 세션을 열어도 현재 실행 중인 Spec의 목표와 제약조건이 컨텍스트에 주입돼요.
 
-### 라이프사이클
-
 | 액션 | 동작 |
 |:---|:---|
 | `execute_start` | 두 파일 생성 |
@@ -147,8 +137,6 @@ ges_execute({
 
 태스크 결과가 제출될 때마다 Spec과의 이탈 정도를 자동으로 측정해요.
 
-### 측정 방식
-
 Jaccard 유사도 기반 3차원 드리프트로 계산해요.
 
 ```
@@ -159,11 +147,9 @@ Constraint: violated_constraints / total_constraints
 Ontology:   1 - Jaccard(task.entities, spec.ontologySchema.entities)
 ```
 
+`driftScore > driftThreshold(기본 0.3)`이면 `retrospectiveContext`를 반환해요. Caller는 태스크를 수정하거나, 이후 Evolve 단계에서 Spec을 패치할 수 있어요.
+
 소스: `src/execute/drift-detector.ts`, `src/core/constants.ts`
-
-### 임계값 초과 시
-
-`driftScore > driftThreshold(기본 0.3)`이면 `retrospectiveContext`를 반환해요. Caller는 이를 보고 태스크를 수정하거나, 이후 Evolve 단계에서 Spec을 패치할 수 있어요.
 
 ---
 
@@ -171,14 +157,12 @@ Ontology:   1 - Jaccard(task.entities, spec.ontologySchema.entities)
 
 태스크 실행 전 관련 Role Agent를 자동으로 매칭해서 다중 관점 합의를 수행할 수 있어요.
 
-### 흐름 (4-Call)
-
 ```
-// Role Match — Call 1: 매칭 컨텍스트 요청
+// Call 1: 매칭 컨텍스트 요청
 ges_execute({ action: "role_match", sessionId: "<id>" })
 → matchContext 반환 (후보 에이전트 목록 + 태스크 컨텍스트)
 
-// Role Match — Call 2: 매칭 결과 제출
+// Call 2: 매칭 결과 제출
 ges_execute({
   action: "role_match",
   sessionId: "<id>",
@@ -189,7 +173,7 @@ ges_execute({
 })
 → perspectivePrompts 반환
 
-// Role Consensus — Call 3: 각 에이전트 관점 제출
+// Call 3: 각 에이전트 관점 제출
 ges_execute({
   action: "role_consensus",
   sessionId: "<id>",
@@ -199,7 +183,7 @@ ges_execute({
 })
 → synthesisContext 반환
 
-// Role Consensus — Call 4: 합성 합의 제출
+// Call 4: 합성 합의 제출
 ges_execute({
   action: "role_consensus",
   sessionId: "<id>",
@@ -225,22 +209,6 @@ ges_execute({
 
 ---
 
-## 설계 결정
-
-### 왜 Planning을 4단계 순서로 고정했나요?
-
-각 원리가 다음 단계의 입력을 만들어요. 전경과 배경(무엇)이 없으면 폐쇄성(어떻게)이 방향을 잃어요. 근접성(어디서 같이)이 없으면 연속성(어떤 순서로)이 기준점이 없어요. 병렬 처리보다 순차 의존이 더 정확한 계획을 만들어요.
-
-### 왜 Drift Detection을 태스크 제출 시마다 하나요?
-
-태스크 완료 후 drift를 발견하면 이미 다음 태스크에 오염이 전파됐을 수 있어요. 실시간으로 측정해서 이탈을 조기에 포착하고, Evolve 단계에서 패치 범위를 최소화해요.
-
-### 왜 Jaccard 유사도를 쓰나요?
-
-키워드 집합 간 겹침 비율은 LLM 임베딩 없이도 계산할 수 있어요. 동일 Spec에서 반복 측정할 때 일관성도 보장돼요. 임베딩 기반 의미 유사도는 같은 문장도 호출마다 미세하게 달라질 수 있어요.
-
----
-
 ## MCP 액션 요약
 
 | 액션 | 설명 |
@@ -248,7 +216,7 @@ ges_execute({
 | `start` | Spec 제출 → Planning 세션 시작 |
 | `plan_step` | 각 원리 단계 결과 제출 |
 | `plan_complete` | 실행 계획 조립 → ExecutionPlan 반환 |
-| `execute_start` | 실행 Phase 시작 → 첫 태스크 컨텍스트. `cwd` 전달 시 `.claude/rules/gestalt-active.md` 자동 생성 |
+| `execute_start` | Execution Phase 시작 → 첫 태스크 컨텍스트. `cwd` 전달 시 `.claude/rules/gestalt-active.md` 자동 생성 |
 | `execute_task` | 태스크 결과 제출 → driftScore + 다음 태스크. 완료 5개 초과 시 `compressionAvailable: true` |
 | `role_match` | Role Agent 매칭 (2-Call) |
 | `role_consensus` | 다중 관점 합의 (2-Call) |
@@ -256,21 +224,19 @@ ges_execute({
 
 ---
 
-## 공통 진행 패널
+## 설계 결정
 
-`/execute` 스킬 실행 시 Claude Code Task 패널에 실시간 진행 상태가 표시돼요. Planning 시작 시 `TaskCreate`로 패널을 생성하고, 각 단계(`plan_step`, `execute_task`, `evaluate`)마다 `TaskUpdate`로 상태를 갱신해요. best-effort — 패널 업데이트 실패가 실행 흐름을 중단하지 않아요.
+**왜 Planning을 4단계 순서로 고정했나요?**
 
-```
-Planning 중 | 단계 2/4 | closure
-↓
-3/12 완료 | 현재: DB 스키마 생성 | 실패: 0개 | 그룹 1/4
-↓
-평가 중 — structural 검사
-↓
-완료 | score: 0.92 | alignment: 0.88
-```
+각 원리가 다음 단계의 입력을 만들어요. 전경과 배경(무엇)이 없으면 폐쇄성(어떻게)이 방향을 잃어요. 근접성(어디서 같이)이 없으면 연속성(어떤 순서로)이 기준점이 없어요. 병렬 처리보다 순차 의존이 더 정확한 계획을 만들어요.
 
-스킬 레벨에서 동작하므로 MCP 서버 코드 변경 없이 `/execute` 슬래시 커맨드를 통해 자동으로 활성화돼요. 자세한 동작 방식은 `skills/execute/SKILL.md`를 참고하세요.
+**왜 Drift Detection을 태스크 제출 시마다 하나요?**
+
+태스크 완료 후 드리프트를 발견하면 이미 다음 태스크에 오염이 전파됐을 수 있어요. 실시간으로 측정해서 이탈을 조기에 포착하고, Evolve 단계에서 패치 범위를 최소화해요.
+
+**왜 Jaccard 유사도를 쓰나요?**
+
+키워드 집합 간 겹침 비율은 LLM 임베딩 없이도 계산할 수 있어요. 동일 Spec에서 반복 측정할 때 일관성도 보장돼요. 임베딩 기반 의미 유사도는 같은 문장도 호출마다 미세하게 달라질 수 있어요.
 
 ---
 
@@ -279,7 +245,7 @@ Planning 중 | 단계 2/4 | closure
 | 파일 | 역할 |
 |:---|:---|
 | `src/execute/passthrough-engine.ts` | Passthrough 모드 Execute 핸들러 |
-| `src/execute/dag-validator.ts` | Kahn's algorithm DAG 검증 |
+| `src/execute/dag-validator.ts` | Kahn's Algorithm DAG 검증 |
 | `src/execute/drift-detector.ts` | Jaccard 기반 드리프트 측정 |
 | `src/execute/session-manager.ts` | ExecuteSession 상태 관리 |
 | `src/agent/role-agent-registry.ts` | RoleAgentRegistry |

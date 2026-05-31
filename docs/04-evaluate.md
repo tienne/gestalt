@@ -1,16 +1,12 @@
-# 4단계: Evaluate — 실행 결과를 기준으로 검증
+# 4단계: Evaluate
 
-태스크가 완료됐다고 끝이 아니에요. Evaluate 단계는 두 가지 관점에서 결과를 검증해요. 빌드가 깨지지 않았는지(Structural), 그리고 원래 의도에 부합하는지(Contextual).
+이 단계를 마치면 완료된 태스크 결과를 두 관점에서 검증하고, 성공 여부를 수치로 판정할 수 있어요.
 
----
-
-## 무엇을 하나요?
-
-완료된 태스크 결과를 **2-Stage Pipeline**으로 평가해요. Structural Stage가 먼저 실행되고, 통과할 때만 Contextual Stage로 진행해요. 두 점수를 합산해서 성공 여부를 판정해요.
+Evaluate는 빌드가 깨지지 않았는지(Structural)와 원래 의도에 부합하는지(Contextual)를 순서대로 확인해요. 두 점수를 합산해서 Evolve로 넘길지 Code Review로 진행할지 결정해요.
 
 ---
 
-## 게슈탈트 원리는 어떻게 적용되나요?
+## 게슈탈트 원리 적용
 
 Evaluate는 **연속성(Continuity)** 원리가 주도해요.
 
@@ -62,7 +58,7 @@ interface EvaluationResult {
 
 ---
 
-## 처리 흐름 (Passthrough Mode) — 3-Call 패턴
+## 처리 흐름 (Passthrough 모드) — 3-Call 패턴
 
 ```
 // Call 1: Evaluate 시작
@@ -83,7 +79,7 @@ ges_execute({
   }
 })
 → contextualContext 반환 (scoringPrompt, AC 목록)
-  또는 allPassed === false 시 → evolveContext 반환 (Short-Circuit)
+  allPassed === false 시 → evolveContext 반환 (Short-Circuit)
 
 // Call 3: Contextual 결과 제출
 ges_execute({
@@ -112,25 +108,9 @@ ges_execute({
 | `overallScore` (AC 충족 비율) | ≥ 0.85 | `GESTALT_EVOLVE_SUCCESS_THRESHOLD` |
 | `goalAlignment` (목표 정렬도) | ≥ 0.80 | `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` |
 
-두 조건을 모두 충족하면 `status: 'success'` — 다음 단계(Code Review)로 진행해요. 하나라도 미달이면 Evolve 단계로 전달해요.
+두 조건을 모두 충족하면 `status: 'success'` — Code Review 단계로 진행해요. 하나라도 미달이면 Evolve 단계로 전달해요.
 
 소스: `src/core/constants.ts`
-
----
-
-## 왜 이렇게 설계했나요?
-
-### Structural을 먼저 실행하는 이유가 뭔가요?
-
-빌드가 깨진 상태에서 LLM에게 코드를 평가시키는 건 낭비예요. 코드가 컴파일조차 안 된다면 AC 충족 여부를 따지기 전에 먼저 고쳐야 해요. Short-Circuit으로 불필요한 LLM 호출을 줄여요.
-
-### overallScore와 goalAlignment를 따로 측정하는 이유가 뭔가요?
-
-AC를 모두 충족해도 Spec의 핵심 목표와 어긋날 수 있어요. 예를 들어 "로그인 기능 구현"의 모든 AC를 통과했지만 실제 구현이 OAuth 대신 기본 인증을 사용해 보안 요구사항을 만족하지 못하는 경우예요. goalAlignment는 이런 의미적 드리프트를 잡아줘요.
-
-### Structural 실패 시 바로 Evolve로 가는 이유가 뭔가요?
-
-Structural 실패 원인은 명확해요 — 코드 오류, 누락된 의존성, 잘못된 명령어. LLM의 추가 평가 없이 오류 메시지만으로 Fix 컨텍스트를 만들 수 있어요. Contextual을 돌리면 불완전한 결과에 대해 잘못된 신뢰를 줄 수 있어요.
 
 ---
 
@@ -141,6 +121,22 @@ Structural 실패 원인은 명확해요 — 코드 오류, 누락된 의존성,
 | `evaluate` (Call 1) | Evaluate 시작 → structuralContext 반환 |
 | `evaluate` + `structuralResult` (Call 2) | Structural 결과 제출 → contextualContext 또는 Short-Circuit |
 | `evaluate` + `evaluationResult` (Call 3) | Contextual 결과 제출 → 최종 판정 |
+
+---
+
+## 설계 결정
+
+**Structural을 먼저 실행하는 이유가 뭔가요?**
+
+빌드가 깨진 상태에서 LLM에게 코드를 평가시키는 건 낭비예요. 코드가 컴파일조차 안 된다면 AC 충족 여부를 따지기 전에 먼저 고쳐야 해요. Short-Circuit으로 불필요한 LLM 호출을 줄여요.
+
+**overallScore와 goalAlignment를 따로 측정하는 이유가 뭔가요?**
+
+AC를 모두 충족해도 Spec의 핵심 목표와 어긋날 수 있어요. "로그인 기능 구현"의 모든 AC를 통과했지만 실제 구현이 OAuth 대신 기본 인증을 사용해 보안 요구사항을 만족하지 못하는 경우가 그 예예요. goalAlignment는 이런 의미적 드리프트를 잡아줘요.
+
+**Structural 실패 시 바로 Evolve로 가는 이유가 뭔가요?**
+
+Structural 실패 원인은 명확해요 — 코드 오류, 누락된 의존성, 잘못된 명령어. LLM의 추가 평가 없이 오류 메시지만으로 Fix 컨텍스트를 만들 수 있어요. Contextual을 먼저 돌리면 불완전한 결과에 대해 잘못된 신뢰를 줄 수 있어요.
 
 ---
 

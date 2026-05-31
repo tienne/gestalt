@@ -1,15 +1,20 @@
 # Configuration Reference
 
-설정값 우선순위 (높→낮):
+## 우선순위
+
+설정값은 다음 순서로 병합된다 (위로 갈수록 높은 우선순위).
+
 1. `loadConfig(overrides)` — 코드에서 직접 전달
 2. Shell 환경변수 (`export GESTALT_*`)
 3. `.env` 파일 (dotenv)
 4. `gestalt.json` 파일
 5. 기본값
 
-## gestalt.json
+---
 
-`gestalt init` 명령어로 생성. JSON Schema로 IDE 자동완성 지원.
+## `gestalt.json`
+
+`gestalt init` 명령으로 생성된다. JSON Schema로 IDE 자동완성을 지원한다.
 
 ```json
 {
@@ -22,7 +27,9 @@
 }
 ```
 
-## GestaltConfig 타입
+---
+
+## `GestaltConfig` 타입
 
 ```typescript
 interface GestaltConfig {
@@ -37,6 +44,8 @@ interface GestaltConfig {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
 }
 ```
+
+---
 
 ## 환경변수 매핑
 
@@ -61,17 +70,26 @@ interface GestaltConfig {
 
 ## 멀티 프로바이더 설정 (LLM Tier)
 
-Gestalt는 작업 복잡도에 따라 다른 LLM 프로바이더를 사용할 수 있어요. **frugal**, **standard**, **frontier** 세 가지 tier로 구분해요.
+작업 복잡도에 따라 다른 LLM 프로바이더를 라우팅할 수 있다. `frugal`, `standard`, `frontier` 세 가지 tier로 구분한다.
 
-| Tier | 용도 | 예시 |
-|------|------|------|
-| **frugal** | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `haiku` |
-| **standard** | 일반 작업 — 인터뷰, 스펙 생성, 코드 실행 | `claude-sonnet-4-20250514` |
-| **frontier** | 고난도 추론 — 아키텍처 설계, 코드 리뷰, 진화 루프 | `claude-opus-4-20250514`, `o1` |
+| Tier | 용도 | 예시 모델 |
+|------|------|-----------|
+| `frugal` | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `haiku` |
+| `standard` | 일반 작업 — 인터뷰, 스펙 생성, 코드 실행 | `claude-sonnet-4-20250514` |
+| `frontier` | 고난도 추론 — 아키텍처 설계, 코드 리뷰, 진화 루프 | `claude-opus-4-20250514`, `o1` |
 
-### gestalt.json 예시
+### Tier 객체 필드
 
-Anthropic과 Ollama(OpenAI 호환)를 혼합해서 사용하는 설정이에요.
+| 필드 | 타입 | Required | Description |
+|------|------|:--------:|-------------|
+| `provider` | `"anthropic" \| "openai"` | Y | LLM 프로바이더 |
+| `model` | `string` | Y | 모델 이름 |
+| `apiKey` | `string` | N | 해당 tier의 API 키. 생략하면 `llm.apiKey`를 사용 |
+| `baseURL` | `string` | N | API 엔드포인트 URL. Ollama 등 로컬 서버 연결 시 필요 |
+
+tier를 설정하지 않으면 `llm.apiKey` + `llm.model` 조합으로 모든 tier에 Anthropic 어댑터를 사용한다. 기존 설정과 호환된다.
+
+### `gestalt.json` 예시 (Anthropic + Ollama 혼합)
 
 ```json
 {
@@ -97,22 +115,9 @@ Anthropic과 Ollama(OpenAI 호환)를 혼합해서 사용하는 설정이에요.
 }
 ```
 
-> 💡 **Tip**: tier를 설정하지 않으면 기존 `llm.apiKey` + `llm.model` 조합으로 모든 tier에 Anthropic 어댑터를 사용해요. 기존 설정과 완전히 호환돼요.
+### Tier별 환경변수
 
-### tier 설정 규칙
-
-각 tier 객체에는 다음 필드를 지정할 수 있어요.
-
-| 필드 | 타입 | 필수 | 설명 |
-|------|------|------|------|
-| `provider` | `"anthropic"` \| `"openai"` | O | LLM 프로바이더 |
-| `model` | `string` | O | 모델 이름 |
-| `apiKey` | `string` | - | 해당 tier의 API 키. 생략하면 `llm.apiKey`를 사용해요. |
-| `baseURL` | `string` | - | API 엔드포인트 URL. Ollama 등 로컬 서버 연결 시 필요해요. |
-
-### 환경변수 매핑
-
-tier별 설정은 환경변수로도 지정할 수 있어요. 패턴은 `GESTALT_LLM_{TIER}_{FIELD}`예요.
+패턴: `GESTALT_LLM_{TIER}_{FIELD}`
 
 | 환경변수 | Config 경로 |
 |----------|-------------|
@@ -131,11 +136,11 @@ tier별 설정은 환경변수로도 지정할 수 있어요. 패턴은 `GESTALT
 
 ---
 
-## Ollama 연결하기
+## Ollama 연결
 
-Ollama는 OpenAI 호환 API를 제공해요. `openai` provider에 `baseURL`을 지정하면 Gestalt에서 바로 사용할 수 있어요.
+Ollama는 OpenAI 호환 API를 제공한다. `openai` provider에 `baseURL`을 지정하면 바로 사용할 수 있다.
 
-### 1. Ollama 설치 및 모델 다운로드
+### 1. Ollama 설치 및 모델 준비
 
 ```bash
 # macOS
@@ -148,7 +153,7 @@ ollama serve
 ollama pull llama3.2
 ```
 
-### 2. gestalt.json에 frugal tier로 설정
+### 2. `gestalt.json` 설정
 
 ```json
 {
@@ -164,4 +169,4 @@ ollama pull llama3.2
 }
 ```
 
-> 📝 **참고**: Ollama의 OpenAI 호환 엔드포인트는 `http://localhost:11434/v1`이에요. `apiKey`는 아무 문자열이나 넣으면 돼요 (Ollama가 인증을 요구하지 않지만, OpenAI SDK가 빈 값을 허용하지 않아요).
+Ollama의 OpenAI 호환 엔드포인트는 `http://localhost:11434/v1`이다. `apiKey`는 임의의 문자열을 넣으면 된다 (Ollama는 인증을 요구하지 않지만, OpenAI SDK가 빈 값을 허용하지 않는다).

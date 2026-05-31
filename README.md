@@ -19,27 +19,52 @@
 
 ---
 
-## What is Gestalt?
+Gestalt is an MCP (Model Context Protocol) server that runs inside Claude Code. It conducts a structured requirement interview, generates a validated **Spec** — a JSON document capturing your goal, constraints, and acceptance criteria — and transforms that Spec into a dependency-aware execution plan.
 
-Gestalt is an MCP (Model Context Protocol) server that runs inside Claude Code. It conducts structured requirement interviews, generates a validated **Spec** (a JSON document capturing your goal, constraints, and acceptance criteria), and transforms that Spec into a dependency-aware execution plan.
+Claude Code acts as the LLM throughout. Gestalt manages state, validates results, and advances the pipeline. No API key required.
 
-> **Prerequisites:** Node.js >= 20.0.0. Use `nvm install 22 && nvm use 22` if needed.
+> **Requires Node.js >= 20.0.0.** Use `nvm install 22 && nvm use 22` if needed.
+
+---
+
+## Contents
+
+- [Quick Start](#quick-start)
+- [How It Works](#how-it-works)
+- [Installation](#installation)
+- [The Pipeline](#the-pipeline)
+  - [1. Interview](#1-interview)
+  - [2. Spec Generation](#2-spec-generation)
+  - [3. Execute](#3-execute)
+  - [4. Evaluate](#4-evaluate)
+  - [5. Evolve](#5-evolve)
+  - [6. Code Review](#6-code-review)
+- [Agents](#agents)
+- [CLI Mode](#cli-mode)
+- [Project Memory](#project-memory)
+- [Configuration](#configuration)
+- [Architecture](#architecture)
 
 ---
 
 ## Quick Start
 
-Install the plugin once, then use it in any Claude Code session:
+Install the plugin once, then use it in any Claude Code session.
+
+**From a terminal (outside a session):**
 
 ```bash
-# Step 1: Add to marketplace (one-time setup)
-/plugin marketplace add tienne/gestalt
+claude plugin install gestalt@gestalt
+```
 
-# Step 2: Install the plugin
+**Inside a Claude Code session:**
+
+```bash
+/plugin marketplace add tienne/gestalt
 /plugin install gestalt@gestalt
 ```
 
-Then in any Claude Code session:
+Then run the pipeline:
 
 ```bash
 /interview "user authentication system"
@@ -47,34 +72,34 @@ Then in any Claude Code session:
 /execute
 ```
 
-→ **[Full MCP Reference](./docs/mcp-reference.md)** — all tools, parameters, and examples
+**[Full MCP Reference](./docs/mcp-reference.md)** — all tools, parameters, and examples
 
 ---
 
-## Why Gestalt?
+## How It Works
 
-Vague requirements are the primary source of implementation drift. When the goal isn't precise, Claude fills in gaps with assumptions — and those assumptions diverge from intent as the project grows.
+Vague requirements are the primary cause of implementation drift. When the goal isn't precise, Claude fills gaps with assumptions — and those assumptions diverge from intent as the project grows.
 
-Gestalt addresses this at the source. Before any code is written, it runs a structured interview guided by **Gestalt psychology principles** to raise resolution to a measurable threshold (≥ 0.8). The result is a **Spec**: a validated JSON document that serves as the single source of truth for planning and execution.
+Gestalt addresses this before any code is written. It runs a structured interview guided by five **Gestalt psychology principles** to raise requirement resolution to a measurable threshold (≥ 0.8). The result is a **Spec**: a validated JSON document that drives every subsequent step.
 
 ### The Five Gestalt Principles
 
-- **Closure** — Finds what's missing; fills in implicit requirements
-- **Proximity** — Groups related features and tasks by domain
-- **Similarity** — Identifies repeating patterns across requirements
-- **Figure-Ground** — Separates MVP (figure) from nice-to-have (ground)
-- **Continuity** — Validates dependency chains; detects contradictions
+| Principle | Role |
+|-----------|------|
+| **Closure** | Finds what's missing; surfaces implicit requirements |
+| **Proximity** | Groups related features and tasks by domain |
+| **Similarity** | Identifies repeating patterns across requirements |
+| **Figure-Ground** | Separates MVP (figure) from nice-to-have (ground) |
+| **Continuity** | Validates dependency chains; detects contradictions |
 
-> "The whole is greater than the sum of its parts." — Aristotle
+### Passthrough Mode
 
-### How does Passthrough Mode work?
-
-Gestalt runs as an **MCP server**. Claude Code acts as the LLM: Gestalt returns prompts and context, and Claude Code does the reasoning. The server makes no API calls.
+Gestalt runs as an MCP server. Claude Code acts as the LLM: Gestalt returns prompts and context, and Claude Code does the reasoning. The server makes no API calls.
 
 ```
 You (in Claude Code)
        │
-       ▼ /interview "topic"
+       ▼  /interview "topic"
   Gestalt MCP Server
   (returns context + prompts)
        │
@@ -86,29 +111,9 @@ You (in Claude Code)
   Gestalt MCP Server
   (validates, stores state, advances)
        │
-       ▼ repeat until resolution ≥ 0.8
+       ▼  repeat until resolution ≥ 0.8
   Final Spec → Execution Plan
 ```
-
----
-
-## Project Memory
-
-Every spec and execution result is automatically recorded in `.gestalt/memory.json` at your repo root.
-
-```json
-{
-  "specHistory": [
-    { "specId": "...", "goal": "Build a user auth system", "sourceType": "text" }
-  ],
-  "executionHistory": [],
-  "architectureDecisions": []
-}
-```
-
-- **Commit it** — `.gestalt/memory.json` is plain JSON. Commit it and teammates inherit all prior decisions on `git pull`.
-- **Context injection** — When generating the next spec, prior goals and architecture decisions are automatically injected into the prompt.
-- **User profile** — Personal preferences are stored in `~/.gestalt/profile.json` and are never committed.
 
 ---
 
@@ -127,29 +132,24 @@ claude plugin install gestalt@gestalt
 **Inside a Claude Code session:**
 
 ```bash
-# Step 1: Add to marketplace (one-time setup)
 /plugin marketplace add tienne/gestalt
-
-# Step 2: Install the plugin
 /plugin install gestalt@gestalt
 ```
 
-What you get out of the box:
+What you get:
 
 | Item | Details |
 |------|---------|
-| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark` |
+| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
 | **Slash Commands** | `/interview`, `/spec`, `/execute`, `/agent` |
-| **Agents** | 5 Gestalt pipeline agents + 9 Role agents + 3 Review agents |
+| **Agents** | 5 pipeline agents + 9 Role agents + 3 Review agents |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
-
-> **Requires Node.js >= 20.0.0** — use [nvm](https://github.com/nvm-sh/nvm) if needed: `nvm install 22 && nvm use 22`
 
 ---
 
 ### Option 2: Claude Code Desktop
 
-Open your Claude Code Desktop settings and add to `settings.json` (or `claude_desktop_config.json`):
+Add this to your `settings.json` (or `claude_desktop_config.json`) and restart:
 
 ```json
 {
@@ -162,18 +162,17 @@ Open your Claude Code Desktop settings and add to `settings.json` (or `claude_de
 }
 ```
 
-Restart Claude Code Desktop. The MCP tools become available immediately. Slash commands require the plugin or manual skills setup.
+MCP tools are available immediately after restart. Slash commands require the plugin or manual skills setup.
 
 ---
 
 ### Option 3: Claude Code CLI
 
 ```bash
-# Via the claude CLI
 claude mcp add gestalt -- npx -y @tienne/gestalt
 ```
 
-Or edit `~/.claude/settings.json` directly:
+Or add directly to `~/.claude/settings.json`:
 
 ```json
 {
@@ -188,11 +187,11 @@ Or edit `~/.claude/settings.json` directly:
 
 ---
 
-## Usage: Full Pipeline
+## The Pipeline
 
-### Step 1 — Interview
+### 1. Interview
 
-Start with any topic. A single rough sentence is enough.
+Start with any topic. A rough sentence is enough.
 
 ```bash
 /interview "I want to build a checkout flow with Stripe"
@@ -206,7 +205,7 @@ Gestalt conducts a multi-round interview. Each round targets a specific resoluti
 - **Figure-Ground** — What's the core MVP vs. what's optional?
 - **Continuity** — Any contradictions or conflicts?
 
-The interview continues until the **resolution score reaches ≥ 0.8**:
+The interview continues until the resolution score reaches ≥ 0.8:
 
 ```
 Round 1 → resolution: 0.28  (lots of unknowns)
@@ -214,9 +213,9 @@ Round 4 → resolution: 0.55  (getting clearer)
 Round 8 → resolution: 0.81  ✓ ready for Spec
 ```
 
-#### Long interviews: Context Compression
+#### Context Compression
 
-When rounds exceed 5, Gestalt automatically signals that compression is available. Use the `compress` action to summarize earlier rounds and keep the context window lean:
+When rounds exceed 5, Gestalt signals that compression is available. Use the `compress` action to summarize earlier rounds and keep the context window lean:
 
 ```
 1. respond returns needsCompression: true + compressionContext
@@ -228,114 +227,111 @@ The compressed summary is automatically injected into all subsequent rounds.
 
 ---
 
-### Step 2 — Spec Generation
+### 2. Spec Generation
 
-**Option A — From text (no interview required):**
-
-```bash
-ges_generate_spec({ text: "Build a checkout flow with Stripe" })
-```
-
-**Option A-2 — With a built-in template:**
-
-Three starter templates pre-fill common constraints and acceptance criteria:
-
-| Template ID | Description |
-|-------------|-------------|
-| `rest-api` | REST API server with auth, CRUD, and OpenAPI |
-| `react-dashboard` | React dashboard with charts, filters, and responsive layout |
-| `cli-tool` | CLI tool with subcommands, config, and distribution |
-
-```bash
-ges_generate_spec({ text: "API with JWT authentication", template: "rest-api" })
-```
-
-**Option B — From a completed interview:**
+**From a completed interview:**
 
 ```bash
 /spec
 ```
 
-Generates a structured **Spec** — a validated JSON document that drives the rest of the pipeline:
+**From text (no interview required):**
+
+```bash
+ges_generate_spec({ text: "Build a checkout flow with Stripe" })
+```
+
+**With a built-in template:**
+
+| Template ID | Description |
+|-------------|-------------|
+| `rest-api` | REST API with auth, CRUD, and OpenAPI |
+| `react-dashboard` | React dashboard with charts, filters, and responsive layout |
+| `cli-tool` | CLI with subcommands, config file, and distribution |
+
+```bash
+ges_generate_spec({ text: "API with JWT authentication", template: "rest-api" })
+```
+
+The generated Spec includes:
 
 ```
 goal                → Clear, precise project objective
 constraints         → Technical and business constraints
 acceptanceCriteria  → Measurable, verifiable success conditions
-ontologySchema      → Entity-relationship model (entities + relations)
+ontologySchema      → Entity-relationship model
 gestaltAnalysis     → Key findings per Gestalt principle
 ```
 
 ---
 
-### Step 3 — Execute (Planning + Execution)
+### 3. Execute
 
-Transforms the Spec into a dependency-aware execution plan and runs it:
+Transform the Spec into a dependency-aware execution plan and run it:
 
 ```bash
 /execute
 ```
 
-**Planning phase** applies 4 Gestalt principles in a fixed sequence:
+**Planning** applies four Gestalt principles in a fixed sequence:
 
 | Step | Principle | What it does |
 |:---:|-----------|-------------|
-| 1 | **Figure-Ground** | Classifies acceptance criteria (ACs) as critical (figure) vs. supplementary (ground) |
+| 1 | **Figure-Ground** | Classifies acceptance criteria as critical vs. supplementary |
 | 2 | **Closure** | Decomposes ACs into atomic tasks, including implicit ones |
-| 3 | **Proximity** | Groups related tasks by domain into logical task groups |
-| 4 | **Continuity** | Validates the dependency DAG — no cycles, clear topological order |
+| 3 | **Proximity** | Groups related tasks by domain |
+| 4 | **Continuity** | Validates the dependency DAG — no cycles, topological order confirmed |
 
-**Execution phase** runs tasks in topological order. After each task, **drift detection** checks alignment with the Spec:
+**Execution** runs tasks in topological order. After each task, drift detection checks alignment with the Spec:
 
 - 3-dimensional score: Goal (50%) + Constraint (30%) + Ontology (20%)
-- Jaccard similarity-based measurement
-- Auto-triggers a retrospective when drift exceeds threshold
+- Jaccard similarity measurement
+- Auto-triggers a retrospective when drift exceeds the threshold
 
-#### Parallel execution groups
+#### Parallel Execution
 
-The `plan_complete` response includes `parallelGroups: string[][]`. Tasks with no mutual dependencies land in the same group and can be executed concurrently:
+The `plan_complete` response includes `parallelGroups: string[][]`. Tasks with no mutual dependencies are placed in the same group and can run concurrently:
 
 ```json
 "parallelGroups": [
-  ["setup-db", "setup-env"],   // run in parallel
-  ["create-schema"],           // after group above
-  ["seed-data", "run-tests"]   // run in parallel
+  ["setup-db", "setup-env"],
+  ["create-schema"],
+  ["seed-data", "run-tests"]
 ]
 ```
 
-#### Resuming an interrupted execution
-
-Pick up where you left off when a session is interrupted:
+#### Resuming an Interrupted Session
 
 ```bash
 ges_execute({ action: "resume", sessionId: "<id>" })
 ```
 
-Returns `ResumeContext`: completed task IDs, next task, and `progressPercent`. The `ges_status` response also includes `resumeContext` automatically for any executing session.
+Returns `ResumeContext`: completed task IDs, next task, and `progressPercent`. The `ges_status` response also includes `resumeContext` automatically for any active session.
 
-#### Brownfield audit
+#### Brownfield Audit
 
-When a codebase already exists, audit it against the Spec before executing new tasks:
+When a codebase already exists, audit it against the Spec before running new tasks:
 
 ```bash
 # Step 1: request audit context
 ges_execute({ action: "audit", sessionId: "<id>" })
-→ auditContext (systemPrompt, auditPrompt)
+# → returns auditContext (systemPrompt, auditPrompt)
 
 # Step 2: submit codebase snapshot + audit result
 ges_execute({
   action: "audit",
   sessionId: "<id>",
   codebaseSnapshot: "...",
-  auditResult: { implementedACs: [0,2], partialACs: [1], missingACs: [3], gapAnalysis: "..." }
+  auditResult: {
+    implementedACs: [0, 2],
+    partialACs: [1],
+    missingACs: [3],
+    gapAnalysis: "..."
+  }
 })
 ```
 
-#### Real-time progress panel
-
-When using the `/execute` slash command, Gestalt displays live execution status in the Claude Code Task panel — showing completed/total tasks, current task name, failed task count, and parallel group progress. Updated automatically at each planning step, task completion, and evaluation stage.
-
-#### Sub-agent spawning
+#### Sub-Agent Spawning
 
 Decompose a complex task into sub-tasks dynamically during execution:
 
@@ -351,31 +347,37 @@ ges_execute({
 })
 ```
 
+#### Real-Time Progress Panel
+
+The `/execute` slash command displays live execution status in the Claude Code Task panel — completed/total tasks, current task name, failed count, and parallel group progress. Updated automatically at each planning step, task completion, and evaluation stage.
+
 ---
 
-### Step 4 — Evaluate
+### 4. Evaluate
 
-Execution triggers a 2-stage evaluation:
+Execution triggers a two-stage evaluation automatically:
 
 | Stage | Method | On failure |
 |:---:|-------|-----------|
-| 1 | **Structural** — runs lint → build → test | Short-circuits; skips Stage 2 |
-| 2 | **Contextual** — LLM validates each AC + goal alignment | Enters Evolution Loop |
+| 1 | **Structural** — runs lint → build → test | Short-circuits; Stage 2 is skipped |
+| 2 | **Contextual** — LLM validates each AC and goal alignment | Enters the Evolution Loop |
 
 **Success condition:** `score ≥ 0.85` AND `goalAlignment ≥ 0.80`
 
 ---
 
-### Step 5 — Evolve
+### 5. Evolve
 
 When evaluation fails, the Evolution Loop engages. Three recovery flows are available:
 
 **Flow A — Structural Fix** (when lint/build/test fails)
+
 ```
 evolve_fix → submit fix tasks → re-evaluate
 ```
 
 **Flow B — Contextual Evolution** (when AC score is too low)
+
 ```
 evolve → patch Spec (ACs/constraints) → re-execute impacted tasks → re-evaluate
 ```
@@ -388,12 +390,12 @@ Gestalt rotates through lateral thinking personas rather than terminating:
 
 | Stagnation Pattern | Persona | Strategy |
 |--------------------|---------|---------|
-| Hard cap hit | **Multistability** | See from a different angle |
+| Hard cap hit | **Multistability** | View from a different angle |
 | Oscillating scores | **Simplicity** | Strip down and converge |
 | No progress (no drift) | **Reification** | Fill in what's missing |
 | Diminishing returns | **Invariance** | Replicate what worked |
 
-When all 4 personas are exhausted, the session terminates with **Human Escalation** — a structured list of actionable suggestions for manual resolution.
+When all four personas are exhausted, the session ends with **Human Escalation** — a structured list of actionable suggestions for manual resolution.
 
 **Termination conditions:**
 
@@ -408,7 +410,7 @@ When all 4 personas are exhausted, the session terminates with **Human Escalatio
 
 ---
 
-### Step 6 — Code Review
+### 6. Code Review
 
 When evolution finishes, code review starts automatically:
 
@@ -416,7 +418,27 @@ When evolution finishes, code review starts automatically:
 review_start → agents submit perspectives → consensus → auto-fix
 ```
 
-9 built-in **Role Agents** provide multi-perspective review:
+See [Agents](#agents) for the full list of built-in reviewers.
+
+---
+
+## Agents
+
+Use any agent directly, outside the pipeline:
+
+```bash
+# List all available agents
+/agent
+
+# Run a specific agent on any task
+/agent architect "review the module boundaries in this codebase"
+/agent security-reviewer "check this authentication code for vulnerabilities"
+/agent technical-writer "write a README for this module"
+```
+
+### Role Agents
+
+Nine built-in role agents provide multi-perspective review:
 
 | Agent | Domain |
 |-------|--------|
@@ -430,7 +452,9 @@ review_start → agents submit perspectives → consensus → auto-fix
 | `researcher` | Analysis, data, benchmarks |
 | `technical-writer` | Documentation, API docs, guides, README |
 
-3 built-in **Review Agents** run focused code analysis:
+### Review Agents
+
+Three built-in review agents run focused code analysis:
 
 | Agent | Focus |
 |-------|-------|
@@ -438,44 +462,31 @@ review_start → agents submit perspectives → consensus → auto-fix
 | `performance-reviewer` | Memory leaks, N+1 queries, bundle size, async |
 | `quality-reviewer` | Readability, SOLID, error handling, DRY |
 
-Use any agent outside the pipeline with `/agent`:
+### Custom Agents
+
+Generate a custom Role Agent from interview results:
 
 ```bash
-# List all available agents
-/agent
+# Step 1: get agent creation context
+ges_create_agent({ action: "start", sessionId: "<id>" })
+# → returns agentContext (systemPrompt, creationPrompt, schema)
 
-# Run a specific agent on any task
-/agent architect "review the module boundaries in this codebase"
-/agent security-reviewer "check this authentication code for vulnerabilities"
-/agent technical-writer "write a README for this module"
-```
-
-Generate custom Role Agents from interview results:
-
-```
-# Step 1: Get agent creation context
-ges_create_agent  →  action: "start", sessionId: "<id>"
-                  →  returns agentContext (systemPrompt, creationPrompt, schema)
-
-# Step 2: Submit the generated AGENT.md content
-ges_create_agent  →  action: "submit", sessionId: "<id>", agentContent: "..."
-                  →  creates agents/{name}/AGENT.md
+# Step 2: submit the generated AGENT.md content
+ges_create_agent({ action: "submit", sessionId: "<id>", agentContent: "..." })
+# → creates agents/{name}/AGENT.md
 ```
 
 ---
 
-### CLI Mode (without Claude Code)
+## CLI Mode
 
-Want to run Gestalt without Claude Code? CLI mode runs interviews directly in your terminal. **Requires `ANTHROPIC_API_KEY`.**
+Run Gestalt without Claude Code. **Requires `ANTHROPIC_API_KEY`.**
 
 ```bash
 # Start an interactive interview
 npx @tienne/gestalt interview "my topic"
 
-# Record the session as a GIF
-npx @tienne/gestalt interview "my topic" --record
-
-# Generate Spec from a completed session
+# Generate a Spec from a completed session
 npx @tienne/gestalt spec <session-id>
 
 # List all sessions
@@ -488,29 +499,33 @@ npx @tienne/gestalt setup
 npx @tienne/gestalt serve
 ```
 
-#### Recording an interview session
+---
 
-Add `--record` (or `-r`) to capture the terminal session as a GIF:
+## Project Memory
 
-```bash
-npx @tienne/gestalt interview "my topic" --record
+Every spec and execution result is automatically recorded in `.gestalt/memory.json` at your repo root.
+
+```json
+{
+  "specHistory": [
+    { "specId": "...", "goal": "Build a user auth system", "sourceType": "text" }
+  ],
+  "executionHistory": [],
+  "architectureDecisions": []
+}
 ```
 
-When the interview completes, a GIF is written to the current directory:
+**Commit it.** `.gestalt/memory.json` is plain JSON. Teammates inherit all prior decisions on `git pull`.
 
-```
-user-auth-interview-20260327.gif
-```
+**Context injection.** Prior goals and architecture decisions are automatically injected into the next spec prompt.
 
-The filename is generated by the LLM from the interview topic (kebab-case) plus a `YYYYMMDD` date stamp. No external binaries are required — recording uses `gifencoder` and `jimp` only.
-
-**Resuming an interrupted session:** If a session is interrupted mid-recording, restarting the same session automatically detects the `.frames` file and continues where it left off. Temporary frame data is stored at `.gestalt/recordings/{sessionId}.frames` and deleted once the GIF is written.
+**User profile.** Personal preferences are stored in `~/.gestalt/profile.json` and are never committed.
 
 ---
 
 ## Configuration
 
-Generate a `gestalt.json` with IDE autocompletion support:
+Generate a `gestalt.json` with IDE autocomplete support:
 
 ```bash
 npx @tienne/gestalt setup
@@ -536,23 +551,22 @@ npx @tienne/gestalt setup
 
 **Config priority** (highest → lowest): code overrides → shell env vars → `.env` → `gestalt.json` → built-in defaults
 
-### Multi-Provider Configuration (LLM Tiers)
+### Multi-Provider LLM Tiers
 
-Gestalt supports routing LLM calls by task complexity across three tiers: **frugal**, **standard**, and **frontier**.
+Route LLM calls by task complexity across three tiers:
 
 | Tier | Purpose | Example models |
 |------|---------|---------------|
 | **frugal** | Lightweight tasks — scoring, classification, short responses | `llama3.2`, `claude-haiku` |
 | **standard** | General tasks — interviews, spec generation, execution | `claude-sonnet-4-20250514` |
-| **frontier** | High-complexity reasoning — architecture, code review, evolution loop | `claude-opus-4-20250514` |
+| **frontier** | High-complexity reasoning — architecture, code review, evolution | `claude-opus-4-20250514` |
 
-Mix providers freely. The example below uses Anthropic for standard/frontier and a local Ollama model for frugal tasks:
+Mix providers freely. This example uses Anthropic for standard/frontier and a local Ollama model for frugal tasks:
 
 ```json
 {
   "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
   "llm": {
-    "apiKey": "",
     "model": "claude-sonnet-4-20250514",
     "frugal": {
       "provider": "openai",
@@ -572,16 +586,14 @@ Mix providers freely. The example below uses Anthropic for standard/frontier and
 }
 ```
 
-> If no tiers are configured, all tiers fall back to the top-level `llm.apiKey` + `llm.model` with the Anthropic adapter — fully backward-compatible.
-
-Invalid values emit a warning and fall back to defaults.
+If no tiers are configured, all tiers fall back to the top-level `llm.model` with the Anthropic adapter — fully backward-compatible.
 
 ### Environment Variables
 
-| Variable | Config Path | Default | Description |
+| Variable | Config path | Default | Description |
 |----------|-------------|---------|-------------|
 | `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` | Required only for CLI direct mode |
-| `GESTALT_MODEL` | `llm.model` | `claude-sonnet-4-20250514` | LLM model (provider-backed mode) |
+| `GESTALT_MODEL` | `llm.model` | `claude-sonnet-4-20250514` | LLM model |
 | `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` | `0.8` | Interview completion threshold |
 | `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` | Max interview rounds |
 | `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` | `0.3` | Task drift detection threshold |
@@ -608,9 +620,6 @@ Invalid values emit a warning and fall back to defaults.
 
 ## Architecture
 
-![Gestalt Architecture](./docs/architecture.png)
-_(Diagram coming soon.)_
-
 ```
 Claude Code (you)
      │
@@ -620,7 +629,7 @@ Claude Code (you)
 │                                  │
 │  Interview Engine                │
 │  ├─ GestaltPrincipleSelector     │
-│  ├─ ResolutionScorer              │
+│  ├─ ResolutionScorer             │
 │  ├─ SessionManager               │
 │  └─ ContextCompressor            │
 │                                  │
@@ -649,6 +658,13 @@ Claude Code (you)
 │  EventStore (SQLite WAL)         │
 └──────────────────────────────────┘
 ```
+
+**Further reading:**
+
+- [MCP Reference](./docs/mcp-reference.md) — all tools, parameters, and action schemas
+- [Getting Started](./docs/getting-started.md) — 5-minute walkthrough
+- [Configuration Reference](./docs/configuration.md) — full config options
+- [Code Knowledge Graph](./docs/code-graph.md) — static analysis and blast-radius
 
 ---
 
