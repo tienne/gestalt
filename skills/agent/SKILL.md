@@ -49,6 +49,7 @@ Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 | Agent | Domain |
 |-------|--------|
 | `architect` | System design, scalability, design patterns |
+| `harness-architect` | Claude Code harness design, agent pipeline, skill/command structure |
 | `backend-developer` | API, database, authentication, server |
 | `frontend-developer` | UI, React, accessibility |
 | `designer` | UX/UI, design systems, interaction |
@@ -56,6 +57,7 @@ Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 | `devops-engineer` | CI/CD, infrastructure, monitoring |
 | `product-planner` | Requirements, roadmap, user stories |
 | `researcher` | Analysis, benchmarks, best practices |
+| `technical-writer` | Documentation, API docs, README, developer guides |
 
 **Review Agents** — code review specialists:
 
