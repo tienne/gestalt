@@ -96,6 +96,8 @@ Gestalt addresses this before any code is written. It runs a structured intervie
 
 Gestalt runs as an MCP server. Claude Code acts as the LLM: Gestalt returns prompts and context, and Claude Code does the reasoning. The server makes no API calls.
 
+> **Note:** The Execute stage **always runs in Passthrough mode**, regardless of whether an API key is configured. Execute carries out real file edits and code execution through Claude Code's tools (Bash, Edit, etc.), so Claude Code must be the LLM that drives it — this is by design, not a missing feature.
+
 ```
 You (in Claude Code)
        │
@@ -272,6 +274,8 @@ Transform the Spec into a dependency-aware execution plan and run it:
 ```bash
 /execute
 ```
+
+> Execute **always runs in Passthrough mode** — Claude Code performs the actual file edits and code execution through its tools (Bash, Edit, etc.). Configuring an API key does not switch Execute to a self-contained LLM mode; there is no such mode by design.
 
 **Planning** applies four Gestalt principles in a fixed sequence:
 

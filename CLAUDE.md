@@ -7,9 +7,9 @@
 ## Architecture
 - **Interview Engine**: 게슈탈트 원리 기반 Q&A로 해상도 점수를 0.8 이상으로 높임
 - **Spec Generator**: 완료된 인터뷰에서 구조화된 프로젝트 스펙(Spec) 생성
-- **Execute Engine**: Spec→ExecutionPlan 변환 (Figure-Ground→Closure→Proximity→Continuity)
+- **Execute Engine**: Spec→ExecutionPlan 변환 (Figure-Ground→Closure→Proximity→Continuity). 설계상 **항상 Passthrough 모드** — Claude Code가 도구(Bash/Edit 등)로 실제 파일 수정·코드 실행을 수행하므로 LLM 주체가 됨 (API 키 유무 무관)
 - **Resilience Engine**: Stagnation 감지 → Lateral Thinking Personas → Human Escalation
-- **MCP Server**: stdio transport, API 키 없으면 Passthrough 모드 자동 활성화
+- **MCP Server**: stdio transport, API 키 없으면 Passthrough 모드 자동 활성화 (Execute는 항상 Passthrough)
 - **Skill System**: SKILL.md 기반 확장, chokidar hot-reload
 - **Code Knowledge Graph**: 정적 분석 → 의존성 그래프 → Blast-Radius 영향 파일 추출
 - **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱

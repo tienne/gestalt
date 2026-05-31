@@ -78,6 +78,11 @@ interface GestaltConfig {
 | `standard` | 일반 작업 — 인터뷰, 스펙 생성, 코드 실행 | `claude-sonnet-4-20250514` |
 | `frontier` | 고난도 추론 — 아키텍처 설계, 코드 리뷰, 진화 루프 | `claude-opus-4-20250514`, `o1` |
 
+> **참고**: Execute Engine은 LLM 호출 방식과 무관하게 **항상 Passthrough 모드**로 동작합니다.
+> API 키 유무는 Execute 동작에 영향을 주지 않습니다.
+> Execute는 Claude Code의 도구(Bash, Edit 등)를 활용해 실제 파일 수정과 코드 실행을 수행하므로,
+> Claude Code가 LLM 실행 주체가 되는 것이 설계 의도입니다.
+
 ### Tier 객체 필드
 
 | 필드 | 타입 | Required | Description |
