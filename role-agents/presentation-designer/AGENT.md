@@ -23,35 +23,143 @@ When reviewing or guiding a presentation task:
 
 ## Template Library
 
-Three production-ready Reveal.js templates are available at `role-agents/presentation-designer/templates/`.
-Choose based on audience and context:
+10개의 Reveal.js 템플릿이 `role-agents/presentation-designer/templates/`에 있다.
 
-| Template | File | Style | Best For |
-|----------|------|-------|----------|
-| **Signal** | `signal.html` | Dark navy + antique gold + Source Serif 4 (roman+italic mix) | 투자자/기관 보고, 분기 리뷰, 전략 발표 |
-| **Neo-Grid Bold** | `neo-grid.html` | Off-white + neon yellow + Space Grotesk + 12×8 CSS grid | 스타트업 피치, 제품 발표, 네오브루탈 감성 |
-| **Studio** | `studio.html` | Black + electric yellow + Barlow 900 uppercase | 크리에이티브 에이전시, 기술 발표, 에디토리얼 |
+### 무드 기반 선택 가이드
 
-### Signal
-- **Fonts**: Source Serif 4 (display/heading) + DM Sans (body) + IBM Plex Mono (labels)
-- **Colors**: `--c-bg: #1c2644` / `--c-accent: #c8a870` (antique gold)
-- **Signature**: `<em>` inside `.display`/`.h1`/`.h2` → italic serif + gold color
-- **Slide types**: cover · chapter · stats · split · list · statement · compare · quote · end
-- **Animations**: `data-anim="fade-up|fade-in|reveal-right|scale-in"` + `data-delay="0-5"`
+사용자가 원하는 느낌을 먼저 파악한 뒤 아래 카테고리에서 매칭하라.
 
-### Neo-Grid Bold
+---
+
+#### 권위 / 신뢰 (Authority & Trust)
+> 이사회, 투자자 보고, 연간 리뷰, 전략 발표
+
+| Template | File | 한 줄 요약 |
+|----------|------|----------|
+| **Signal** | `signal.html` | 다크 네이비 + 앤틱 골드. Source Serif 4 roman+italic 혼용. 격식의 정수 |
+| **Broadside** | `broadside.html` | 다크 + 버닝 오렌지 #e85d26. Barlow 900 uppercase. 선언적 임팩트 |
+
+---
+
+#### 크리에이티브 / 임팩트 (Creative & Impact)
+> 스타트업 피치, 제품 런치, 컨퍼런스 키노트
+
+| Template | File | 한 줄 요약 |
+|----------|------|----------|
+| **Neo-Grid Bold** | `neo-grid.html` | 오프화이트 + 네온 옐로 #E6FF3D. 12×8 CSS 그리드 카드. 네오브루탈리즘 |
+| **Studio** | `studio.html` | 블랙 + 일렉트릭 옐로 #f5d200. Barlow 900 전면 uppercase. 에이전시 감성 |
+
+---
+
+#### 에디토리얼 / 럭셔리 (Editorial & Luxury)
+> 패션·라이프스타일 브랜드, 고급 이벤트, 야간 분위기
+
+| Template | File | 한 줄 요약 |
+|----------|------|----------|
+| **Pink Script** | `pink-script.html` | 딥 다크 + 핫핑크 #ED3D8C. DM Serif Display 이탤릭 초대형 타입. 필름 그레인 |
+| **Emerald Editorial** | `emerald-editorial.html` | 에메랄드 그린 + 네이비 잉크 + 크림. Bodoni Moda 900. 고전 신문 매거진 |
+
+---
+
+#### 자연 / 지속가능 (Nature & Sustainability)
+> ESG 보고, 환경·사회적 가치 발표, 유기적 브랜딩
+
+| Template | File | 한 줄 요약 |
+|----------|------|----------|
+| **Editorial Forest** | `editorial-forest.html` | 포레스트 그린 + 더스티 핑크 + 크림. Source Serif 4 + JetBrains Mono. 유기적 에디토리얼 |
+
+---
+
+#### 레트로 / 아날로그 (Retro & Analog)
+> 워크숍, 리서치 공유, 문화·예술, 음악 업계
+
+| Template | File | 한 줄 요약 |
+|----------|------|----------|
+| **Pin & Paper** | `pin-and-paper.html` | 노란 종이 #EFE56A + 파란 잉크 #1F3A8A. Caveat 손글씨 + Space Grotesk. 스크랩북 |
+| **Sakura Chroma** | `sakura-chroma.html` | 크림 + 6색 (빨·분·주·녹·파·노). Big Shoulders Display 900. 일본 카세트 레이블 |
+
+---
+
+#### 헤리티지 / 박물관 (Heritage & Museum)
+> 브랜드 아카이브, 역사·연구 발표, 다색 구성의 풍부한 정보 전달
+
+| Template | File | 한 줄 요약 |
+|----------|------|----------|
+| **Stencil & Tablet** | `stencil-tablet.html` | 본(bone) #E2DCC9 + 블랙. Stardos Stencil 스텐실 서체. 6색 컬러 카드 시스템 |
+
+---
+
+### 템플릿 상세 레퍼런스
+
+#### Signal
+- **Fonts**: Source Serif 4 + DM Sans + IBM Plex Mono
+- **Colors**: `--c-bg: #1c2644` / `--c-accent: #c8a870`
+- **Signature**: `.dark` / `.light` 테마 분기. `<em>` → italic serif + gold. 80px grid texture
+- **Slides**: cover · chapter · stats(3-col) · split · list · statement · compare · quote · end
+- **Animations**: `data-anim` + `data-delay` ✅
+
+#### Neo-Grid Bold
 - **Fonts**: Space Grotesk 700 + JetBrains Mono
-- **Colors**: `--bg: #ECECE8` / `--accent: #E6FF3D` (neon yellow) / `--ink: #0A0A0A`
-- **Signature**: 12×8 CSS grid `.frame` inside each `<section>`. Cards: `.card`, `.card.lemon`, `.card.ink`
-- **Slide types**: cover · section-divider · stats · features · process · quote · end
-- **No animations** — `transition: 'none'`, design speaks through layout contrast
+- **Colors**: `--bg: #ECECE8` / `--accent: #E6FF3D` / `--ink: #0A0A0A`
+- **Signature**: 12×8 `.frame` grid. `.card.lemon` / `.card.ink` 카드. `.blockmark` 2×2 도트
+- **Slides**: cover · section-divider · stats · features · process · quote · end
+- **Animations**: 없음 (transition: none)
 
-### Studio
-- **Fonts**: Barlow 900 + IBM Plex Mono (all uppercase, aggressive letter-spacing)
-- **Colors**: `--c-bg: #1c1c1c` / `--c-accent: #f5d200` (electric yellow)
-- **Signature**: Alternates dark (black bg) ↔ light (yellow bg) slides. `.rule` 2px yellow line as accent.
-- **Slide types**: cover · chapter(light) · stats · split · bar-chart · list · statement · quote · end
-- **Animations**: Same `data-anim` system as Signal
+#### Studio
+- **Fonts**: Barlow 900 + IBM Plex Mono
+- **Colors**: `--c-bg: #1c1c1c` / `--c-accent: #f5d200`
+- **Signature**: `.dark` ↔ `.light`(yellow bg) 교차. bar-chart 슬라이드 포함
+- **Slides**: cover · chapter · stats · split · bar-chart · list · statement · quote · end
+- **Animations**: `data-anim` + `data-delay` ✅
+
+#### Broadside
+- **Fonts**: Barlow 900 + IBM Plex Mono
+- **Colors**: `--c-bg: #111111` / `--c-accent: #e85d26`
+- **Signature**: `.dark` ↔ `.orange` 교차. `/` bullet. Studio와 동일한 animation system
+- **Slides**: cover · chapter · stats · split · statement · list · quote · end
+- **Animations**: `data-anim` + `data-delay` ✅
+
+#### Emerald Editorial
+- **Fonts**: Bodoni Moda 900 + Manrope
+- **Colors**: `--bg: #3CD896` / `--ink: #0F1A5C` / `--paper: #F1E9D6`
+- **Signature**: `.ornament` 더블룰 (단어 사이 이중선). `.panel-ink`/`.panel-paper` 패널 분할
+- **Slides**: cover · section-opener(split) · statement+3col · kpi-grid · process · closing
+- **Animations**: 없음 (정적 레이아웃)
+
+#### Editorial Forest
+- **Fonts**: Source Serif 4 (optical size) + JetBrains Mono
+- **Colors**: `--green: #2e4a2a` / `--pink: #e89cb1` / `--cream: #efe7d4`
+- **Signature**: `.topic` 아젠다 카드(t-green/t-pink/t-greenLite/t-cream). `.step` 프레임워크 카드
+- **Slides**: cover · agenda · statement(pink) · data(chart) · framework(4-step) · stats · closing
+- **Animations**: 없음
+
+#### Pink Script
+- **Fonts**: DM Serif Display + Inter 300 + JetBrains Mono
+- **Colors**: `--ink: #060507` / `--pink: #ED3D8C` / `--paper: #F5EDF1`
+- **Signature**: `.script.huge` (최대 380px 이탤릭 핫핑크). `::after` hairline 프레임. `.runner`/`.footer` mono chrome
+- **Slides**: cover · toc · section-divider · stats · process · quote · closing
+- **Animations**: 없음 (디자인이 임팩트)
+
+#### Pin & Paper
+- **Fonts**: Caveat (손글씨) + Space Grotesk + DM Mono
+- **Colors**: `--paper: #EFE56A` / `--ink: #1F3A8A` / `--red: #C2342B`
+- **Signature**: `.stamp` (빨간 테두리 도장). `.note-card` (그림자 박스). `.t-script` Caveat 손글씨 장식
+- **Slides**: cover · agenda · section-divider(ink) · notes-cards · stats · quote · closing
+- **Animations**: 없음
+
+#### Sakura Chroma
+- **Fonts**: Big Shoulders Display 900 + Albert Sans + JetBrains Mono + Noto Sans JP
+- **Colors**: `--paper: #F1E6CB` / `--ink: #3A2516` (warm brown). 6 accent: red/pink/orange/green/blue/yellow
+- **Signature**: `.cat-card` (컬러 상단 스트립). `.eq-bars` 이퀄라이저 차트. `.rosette` 12각 별 뱃지. `.chip` 컬러 태그
+- **Slides**: cover · catalogue(4-col) · manifesto · data(equalizer) · schedule(ledger) · closing
+- **Animations**: 없음
+
+#### Stencil & Tablet
+- **Fonts**: Stardos Stencil + Barlow Condensed + Inter
+- **Colors**: `--bone: #E2DCC9` / `--black: #000000` + 6 accent (sienna/magenta/orange/teal/blue/mustard)
+- **Signature**: `.tablet` rounded-rect 카드 (Stardos Stencil 대형 숫자). `.pill` (teal/mustard/magenta 배지)
+- **Slides**: cover · dark-agenda · principles(3col) · stats · process(5-step) · closing
+- **Animations**: 없음
 
 ## Reveal.js Best Practices
 

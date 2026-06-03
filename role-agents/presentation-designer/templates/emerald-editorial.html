@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Emerald Editorial — Reveal.js</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@500;700;800;900&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
+  <style>
+    :root {
+      --bg:    #3CD896;
+      --bg-2:  #2DC684;
+      --ink:   #0F1A5C;
+      --ink-2: #1B2774;
+      --paper: #F1E9D6;
+      --rule:  rgba(15, 26, 92, 0.22);
+      --rule-strong: rgba(15, 26, 92, 0.85);
+      --display-font: 'Bodoni Moda', serif;
+    }
+
+    .reveal { font-family: 'Manrope', sans-serif; }
+    .reveal .slides { text-align: left; }
+    .reveal .slides section {
+      box-sizing: border-box;
+      width: 100%; height: 100%;
+      padding: 0;
+      overflow: hidden;
+      top: 0 !important; left: 0 !important;
+      background: var(--bg);
+      color: var(--ink);
+    }
+    .reveal h1,.reveal h2,.reveal h3,.reveal p,.reveal ul,.reveal ol { margin: 0; }
+
+    /* STAGE wrapper inside each section */
+    .stage {
+      position: absolute; inset: 0;
+      padding: 56px 80px 70px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    /* CHROME */
+    .masthead, .footline {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: clamp(14px, 1.6vw, 22px);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--ink);
+    }
+
+    /* RULE */
+    .rule-h  { height: 4px; background: var(--ink); }
+    .rule-h.thin { height: 1px; background: var(--rule); }
+
+    /* ORNAMENT — double rule with word */
+    .ornament {
+      display: inline-flex;
+      align-items: center;
+      gap: 26px;
+      justify-content: center;
+      width: 100%;
+    }
+    .ornament .word {
+      font-family: var(--display-font);
+      font-weight: 800;
+      font-size: 0.42em;
+      letter-spacing: 0.02em;
+      padding: 0 4px;
+    }
+    .ornament .lines {
+      flex: 1; height: 18px; position: relative;
+    }
+    .ornament .lines::before,
+    .ornament .lines::after {
+      content: "";
+      position: absolute;
+      left: 0; right: 0;
+      height: 4px;
+      background: var(--ink);
+    }
+    .ornament .lines::before { top: 3px; }
+    .ornament .lines::after  { bottom: 3px; }
+
+    /* TYPOGRAPHY */
+    .t-display {
+      font-family: var(--display-font);
+      font-weight: 900;
+      line-height: 0.88;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+    }
+    .t-display.xl  { font-size: clamp(100px, 18vw, 280px); }
+    .t-display.lg  { font-size: clamp(60px,  10vw, 160px); }
+    .t-display.md  { font-size: clamp(36px,  5.5vw, 88px); }
+    .t-head  { font-family: var(--display-font); font-weight: 700; font-size: clamp(24px, 3.5vw, 52px); line-height: 1.1; color: var(--ink); }
+    .t-body  { font-size: clamp(14px, 1.5vw, 22px); line-height: 1.6; color: var(--ink); font-weight: 400; }
+    .t-label { font-family: 'Manrope', sans-serif; font-size: clamp(11px, 1.1vw, 16px); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); opacity: 0.7; }
+    .t-num   { font-family: var(--display-font); font-weight: 900; font-size: clamp(60px, 9vw, 140px); line-height: 0.92; color: var(--ink); }
+
+    /* PAPER PANEL */
+    .panel-paper { background: var(--paper); }
+    .panel-ink   { background: var(--ink); color: var(--bg); }
+
+    /* KPI CARD */
+    .kpi {
+      background: var(--ink); color: var(--bg);
+      padding: clamp(20px, 3vh, 36px) clamp(18px, 2.5vw, 32px);
+      display: flex; flex-direction: column; justify-content: space-between;
+      gap: 1rem; overflow: hidden;
+    }
+    .kpi.alt { background: var(--paper); color: var(--ink); }
+    .kpi .delta {
+      display: inline-block; font-weight: 800; letter-spacing: 0.08em;
+      font-size: clamp(11px, 1.2vw, 18px); padding: 4px 12px;
+      background: var(--bg); color: var(--ink); align-self: flex-start;
+    }
+
+    /* STEP CARD */
+    .step {
+      background: var(--ink); color: var(--bg);
+      padding: clamp(18px, 2.5vh, 32px) clamp(16px, 2vw, 28px);
+      display: flex; flex-direction: column;
+    }
+    .step.alt { background: var(--paper); color: var(--ink); }
+
+    /* MARK (inline badge) */
+    .mark { background: var(--ink); color: var(--bg); padding: 6px 18px; font-weight: 700; letter-spacing: 0.1em; }
+  </style>
+</head>
+<body style="margin:0;background:#1a4a38">
+<div class="reveal">
+  <div class="slides">
+
+    <!-- COVER -->
+    <section>
+      <div class="stage" style="padding:56px 80px;text-align:center;display:flex;flex-direction:column;align-items:center;">
+        <div class="masthead" style="width:100%">
+          <span class="t-label">{{ORGANIZATION}}</span>
+          <span class="t-label">{{DATE}}</span>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.5vh">
+          <div class="ornament" style="font-size:clamp(20px,2.5vw,36px)">
+            <div class="lines"></div>
+            <span class="word">{{CATEGORY}}</span>
+            <div class="lines"></div>
+          </div>
+          <div class="t-display xl" style="text-align:center">{{TITLE}}</div>
+          <div class="ornament" style="font-size:clamp(20px,2.5vw,36px)">
+            <div class="lines"></div>
+            <span class="word">{{SUBTITLE}}</span>
+            <div class="lines"></div>
+          </div>
+        </div>
+        <div class="footline" style="width:100%">
+          <span class="t-label">{{AUTHOR}}</span>
+          <span class="t-label">Vol. {{ISSUE}}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION OPENER (split) -->
+    <section style="padding:0">
+      <div style="position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr">
+        <div class="panel-ink" style="padding:clamp(40px,5vw,80px);display:flex;align-items:center;justify-content:center;overflow:hidden">
+          <div class="t-display xl" style="color:var(--bg);text-align:center">01</div>
+        </div>
+        <div style="padding:clamp(40px,5vw,80px);display:flex;flex-direction:column;justify-content:center;gap:1.5rem;overflow:hidden">
+          <span class="t-label">Chapter</span>
+          <div class="t-head" style="font-size:clamp(28px,4vw,62px)">섹션<br>제목</div>
+          <div class="rule-h" style="width:36px"></div>
+          <p class="t-body">서브 설명이 여기에 들어갑니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATEMENT + 3-COL SUPPORT -->
+    <section>
+      <div class="stage">
+        <div>
+          <div class="t-head" style="font-size:clamp(28px,4vw,60px)">핵심 주장</div>
+          <div class="rule-h" style="margin-top:1.5vh"></div>
+        </div>
+        <div style="display:flex;align-items:center">
+          <div class="t-display lg">이것이<br>핵심이다</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(20px,3vw,50px);border-top:4px solid var(--ink);padding-top:2vh">
+          <div><p class="t-label" style="margin-bottom:0.5rem">근거 01</p><p class="t-body">설명 내용</p></div>
+          <div><p class="t-label" style="margin-bottom:0.5rem">근거 02</p><p class="t-body">설명 내용</p></div>
+          <div><p class="t-label" style="margin-bottom:0.5rem">근거 03</p><p class="t-body">설명 내용</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- KPI GRID -->
+    <section>
+      <div class="stage">
+        <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:clamp(40px,5vw,80px);align-items:end">
+          <div class="t-head" style="font-size:clamp(28px,3.5vw,54px)">핵심 지표</div>
+          <p class="t-body" style="opacity:0.7">{{SECTION_LABEL}}</p>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(16px,2vw,28px);margin-top:2vh">
+          <div class="kpi"><div class="t-num">98%</div><div><p class="t-label" style="color:var(--bg)">지표명</p><div class="delta">+12%p</div></div></div>
+          <div class="kpi alt"><div class="t-num">2.4s</div><div><p class="t-label">지표명</p></div></div>
+          <div class="kpi"><div class="t-num">41</div><div><p class="t-label" style="color:var(--bg)">지표명</p><div class="delta">+8</div></div></div>
+          <div class="kpi alt"><div class="t-num">86%</div><div><p class="t-label">지표명</p></div></div>
+        </div>
+        <div class="footline" style="margin-top:1.5vh">
+          <span class="t-label">{{ORG}}</span>
+          <span class="t-label">{{DATE}}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROCESS — 4 steps -->
+    <section>
+      <div class="stage">
+        <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:clamp(40px,5vw,80px);align-items:end">
+          <div class="t-head">실행 단계</div>
+          <p class="t-body" style="opacity:0.7">{{PERIOD}}</p>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(16px,2vw,28px);margin-top:2vh">
+          <div class="step"><p class="t-label" style="color:var(--bg);margin-bottom:1rem">01</p><p class="t-body" style="color:var(--bg)">Step 제목</p><p class="t-body" style="color:var(--bg);opacity:0.7;font-size:0.85em;margin-top:0.5rem">설명</p></div>
+          <div class="step alt"><p class="t-label" style="margin-bottom:1rem">02</p><p class="t-body">Step 제목</p><p class="t-body" style="opacity:0.7;font-size:0.85em;margin-top:0.5rem">설명</p></div>
+          <div class="step"><p class="t-label" style="color:var(--bg);margin-bottom:1rem">03</p><p class="t-body" style="color:var(--bg)">Step 제목</p><p class="t-body" style="color:var(--bg);opacity:0.7;font-size:0.85em;margin-top:0.5rem">설명</p></div>
+          <div class="step alt"><p class="t-label" style="margin-bottom:1rem">04</p><p class="t-body">Step 제목</p><p class="t-body" style="opacity:0.7;font-size:0.85em;margin-top:0.5rem">설명</p></div>
+        </div>
+        <div class="footline" style="margin-top:1.5vh">
+          <span class="t-label">{{ORG}}</span>
+          <span class="t-label">{{DATE}}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLOSING -->
+    <section>
+      <div class="stage" style="text-align:center;align-items:center">
+        <div class="masthead" style="width:100%;justify-content:center">
+          <span class="t-label">{{ORGANIZATION}}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:1.5vh">
+          <div class="ornament" style="font-size:clamp(20px,2.5vw,36px)">
+            <div class="lines"></div>
+            <span class="word">Thank You</span>
+            <div class="lines"></div>
+          </div>
+          <div class="t-display lg" style="text-align:center">Q&amp;A</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(20px,3vw,40px);border-top:4px solid var(--ink);padding-top:2vh;text-align:left">
+          <div><p class="t-label" style="margin-bottom:0.5rem">발표자</p><p class="t-body" style="font-weight:700">{{AUTHOR}}</p></div>
+          <div><p class="t-label" style="margin-bottom:0.5rem">이메일</p><p class="t-body">{{EMAIL}}</p></div>
+          <div><p class="t-label" style="margin-bottom:0.5rem">소속</p><p class="t-body">{{ORG}}</p></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true, width: 1600, height: 900, margin: 0,
+    minScale: 0.1, maxScale: 1.5,
+    controls: true, progress: false, slideNumber: false,
+    transition: 'fade', backgroundTransition: 'fade',
+    plugins: [RevealNotes],
+  });
+</script>
+</body>
+</html>

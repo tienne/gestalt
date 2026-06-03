@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Pin &amp; Paper — Reveal.js</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
+  <style>
+    :root {
+      --paper:    #EFE56A;
+      --paper-2:  #F5ECA0;
+      --paper-3:  #E8D85A;
+      --cream:    #F8F1D6;
+      --kraft:    #C9A66B;
+      --ink:      #1F3A8A;
+      --ink-soft: #2D4FB8;
+      --black:    #0E1430;
+      --red:      #C2342B;
+      --olive:    #6B7A2E;
+      --orange:   #D8702A;
+    }
+
+    .reveal { font-family: 'Space Grotesk', sans-serif; }
+    .reveal .slides { text-align: left; }
+    .reveal .slides section {
+      box-sizing: border-box;
+      width: 100%; height: 100%;
+      padding: 0;
+      overflow: hidden;
+      top: 0 !important; left: 0 !important;
+      background: var(--paper);
+      color: var(--ink);
+      position: relative;
+    }
+    .reveal h1,.reveal h2,.reveal h3,.reveal p,.reveal ul,.reveal ol { margin: 0; }
+    .reveal .slides section.s-sec { background: var(--ink); color: var(--paper); }
+
+    /* CHROME */
+    .top {
+      position: absolute; top: 34px; left: 48px; right: 48px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-family: 'DM Mono', monospace; font-weight: 500;
+      font-size: clamp(11px, 1.2vw, 16px); letter-spacing: 0.12em; text-transform: uppercase;
+    }
+    .top .lockup { display: flex; align-items: center; gap: 14px; }
+    .top .meta   { display: flex; gap: 2.5vw; opacity: 0.7; }
+    .footer {
+      position: absolute; left: 48px; right: 48px; bottom: 28px;
+      display: flex; justify-content: space-between; align-items: center;
+      font-family: 'DM Mono', monospace; font-weight: 500;
+      font-size: clamp(10px, 1.1vw, 15px); letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.65;
+    }
+
+    /* TYPOGRAPHY */
+    .t-display { font-weight: 700; font-size: clamp(60px,10vw,160px); line-height: 0.92; letter-spacing: -0.02em; }
+    .t-title   { font-weight: 700; font-size: clamp(36px,5.5vw,84px); line-height: 0.95; letter-spacing: -0.015em; }
+    .t-head    { font-weight: 700; font-size: clamp(20px,2.8vw,44px); line-height: 1.1; }
+    .t-body    { font-size: clamp(13px,1.5vw,22px); line-height: 1.45; font-weight: 400; }
+    .t-label   { font-family: 'DM Mono', monospace; font-size: clamp(10px,1.1vw,16px); letter-spacing: 0.12em; text-transform: uppercase; font-weight: 500; }
+    .t-script  { font-family: 'Caveat', cursive; font-weight: 600; font-size: clamp(20px,2.5vw,40px); line-height: 1.05; }
+    .t-num     { font-weight: 700; font-size: clamp(50px,8vw,120px); line-height: 1; letter-spacing: -0.02em; }
+
+    /* STAMP */
+    .stamp {
+      display: inline-block;
+      border: 3px solid var(--red); color: var(--red);
+      padding: 5px 14px; font-family: 'DM Mono', monospace; font-weight: 500;
+      font-size: clamp(10px,1.1vw,15px); letter-spacing: 0.18em; text-transform: uppercase;
+      transform: rotate(-4deg);
+    }
+
+    /* NOTE CARD */
+    .note-card {
+      background: var(--cream);
+      border: 1.5px solid var(--ink);
+      border-radius: 4px;
+      padding: clamp(16px,2.5vh,28px) clamp(14px,2vw,24px);
+      display: flex; flex-direction: column;
+      box-shadow: 4px 5px 0 0 var(--ink);
+    }
+    .note-card.alt  { background: var(--paper-2); }
+
+    /* STAT CARD */
+    .stat-card {
+      border-radius: 8px;
+      padding: clamp(16px,2.5vh,28px) clamp(14px,2vw,24px);
+      display: flex; flex-direction: column; gap: 0.75rem;
+    }
+    .stat-card.ink { background: var(--ink); color: var(--paper); }
+    .stat-card.yel { background: var(--paper-2); color: var(--ink); }
+    .stat-card.red { background: var(--red);  color: var(--cream); }
+
+    /* AGENDA ROW */
+    .agenda-row {
+      display: grid;
+      grid-template-columns: 64px 1fr 180px;
+      align-items: center;
+      gap: 2vw;
+      padding: 1.5vh 0;
+      border-bottom: 1.5px dashed rgba(31,58,138,.4);
+    }
+  </style>
+</head>
+<body style="margin:0;background:#b8a520">
+<div class="reveal">
+  <div class="slides">
+
+    <!-- COVER -->
+    <section>
+      <div class="top"><div class="lockup"><span class="t-label">{{ORGANIZATION}}</span></div><div class="meta"><span>{{DATE}}</span></div></div>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding:8vh 5vw;gap:2vh">
+        <div class="t-script" style="color:var(--ink);opacity:0.7">{{CATEGORY}}</div>
+        <div class="t-display">{{TITLE}}</div>
+        <div class="t-script" style="margin-top:1vh">{{SUBTITLE}}</div>
+        <div style="display:flex;gap:2vw;align-items:center;margin-top:2vh">
+          <span class="stamp">{{DATE}}</span>
+          <span class="t-label" style="opacity:0.7">{{AUTHOR}}</span>
+        </div>
+      </div>
+      <div class="footer"><span>{{ORG}}</span><span>{{DATE}}</span></div>
+    </section>
+
+    <!-- AGENDA -->
+    <section>
+      <div class="top"><div class="lockup"><span class="t-label">목차</span></div><div class="meta"><span>{{DATE}}</span></div></div>
+      <div style="position:absolute;left:5vw;right:5vw;top:100px;bottom:80px;display:flex;flex-direction:column;justify-content:center;gap:0">
+        <div class="t-head" style="margin-bottom:2vh">{{TITLE}}</div>
+        <div class="agenda-row"><span class="t-label">01</span><span class="t-body" style="font-weight:600">섹션 제목</span><span class="t-script" style="font-size:clamp(16px,1.8vw,26px);opacity:0.6">설명</span></div>
+        <div class="agenda-row"><span class="t-label">02</span><span class="t-body" style="font-weight:600">섹션 제목</span><span class="t-script" style="font-size:clamp(16px,1.8vw,26px);opacity:0.6">설명</span></div>
+        <div class="agenda-row"><span class="t-label">03</span><span class="t-body" style="font-weight:600">섹션 제목</span><span class="t-script" style="font-size:clamp(16px,1.8vw,26px);opacity:0.6">설명</span></div>
+        <div class="agenda-row" style="border-bottom:none"><span class="t-label">04</span><span class="t-body" style="font-weight:600">섹션 제목</span><span class="t-script" style="font-size:clamp(16px,1.8vw,26px);opacity:0.6">설명</span></div>
+      </div>
+      <div class="footer"><span>{{ORG}}</span><span>{{DATE}}</span></div>
+    </section>
+
+    <!-- SECTION DIVIDER (ink) -->
+    <section class="s-sec">
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2vh;text-align:center">
+        <span class="t-label" style="opacity:0.5;letter-spacing:0.2em">Section</span>
+        <div class="t-display" style="color:var(--paper)">01</div>
+        <div class="t-title" style="color:var(--paper)">섹션 제목</div>
+        <div class="t-script" style="color:var(--paper-2);font-size:clamp(18px,2vw,30px)">서브 설명</div>
+      </div>
+    </section>
+
+    <!-- NOTE CARDS (3-col) -->
+    <section>
+      <div class="top"><div class="lockup"><span class="t-label">{{SECTION_LABEL}}</span></div><div class="meta"><span>01</span></div></div>
+      <div style="position:absolute;left:5vw;right:5vw;top:100px;bottom:80px">
+        <p class="t-head" style="margin-bottom:2vh">주요 내용</p>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(14px,2vw,28px)">
+          <div class="note-card"><p class="t-label" style="margin-bottom:0.75rem">01</p><p class="t-body" style="font-weight:600;margin-bottom:0.5rem">항목 제목</p><p class="t-body">설명 내용이 들어갑니다. 2-3줄.</p></div>
+          <div class="note-card alt"><p class="t-label" style="margin-bottom:0.75rem">02</p><p class="t-body" style="font-weight:600;margin-bottom:0.5rem">항목 제목</p><p class="t-body">설명 내용이 들어갑니다. 2-3줄.</p></div>
+          <div class="note-card"><p class="t-label" style="margin-bottom:0.75rem">03</p><p class="t-body" style="font-weight:600;margin-bottom:0.5rem">항목 제목</p><p class="t-body">설명 내용이 들어갑니다. 2-3줄.</p></div>
+        </div>
+      </div>
+      <div class="footer"><span>{{ORG}}</span><span>{{DATE}}</span></div>
+    </section>
+
+    <!-- STATS -->
+    <section>
+      <div class="top"><div class="lockup"><span class="t-label">{{SECTION_LABEL}}</span></div><div class="meta"><span>02</span></div></div>
+      <div style="position:absolute;left:5vw;right:5vw;top:100px;bottom:80px">
+        <p class="t-head" style="margin-bottom:2vh">성과 지표</p>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(14px,2vw,24px)">
+          <div class="stat-card ink"><div class="t-num" style="color:var(--paper)">98%</div><p class="t-label" style="color:var(--paper);opacity:0.7">지표명</p><p class="t-script" style="color:var(--paper-2);font-size:clamp(14px,1.5vw,22px)">설명</p></div>
+          <div class="stat-card yel"><div class="t-num">41</div><p class="t-label" style="opacity:0.7">지표명</p><p class="t-script" style="font-size:clamp(14px,1.5vw,22px);opacity:0.7">설명</p></div>
+          <div class="stat-card red"><div class="t-num" style="color:var(--cream)">2.4s</div><p class="t-label" style="color:var(--cream);opacity:0.7">지표명</p><p class="t-script" style="color:var(--cream);font-size:clamp(14px,1.5vw,22px);opacity:0.8">설명</p></div>
+        </div>
+      </div>
+      <div class="footer"><span>{{ORG}}</span><span>{{DATE}}</span></div>
+    </section>
+
+    <!-- QUOTE -->
+    <section>
+      <div style="position:absolute;inset:0;display:grid;grid-template-columns:1fr 1.6fr;gap:5vw;align-items:center;padding:8vh 5vw">
+        <div style="display:flex;flex-direction:column;gap:1.5rem">
+          <div style="width:80px;height:80px;background:var(--ink);border-radius:50%;display:flex;align-items:center;justify-content:center">
+            <span class="t-label" style="color:var(--paper)">IMG</span>
+          </div>
+          <p class="t-body" style="font-weight:700">발언자 이름</p>
+          <p class="t-label" style="opacity:0.7">직함 / 소속</p>
+        </div>
+        <div>
+          <div class="t-title" style="font-size:clamp(24px,3.5vw,56px)">"인용문이<br>여기에 들어갑니다"</div>
+          <div class="t-script" style="margin-top:2vh;opacity:0.7">— 맥락 설명</div>
+        </div>
+      </div>
+      <div class="footer"><span>{{ORG}}</span><span>{{DATE}}</span></div>
+    </section>
+
+    <!-- CLOSING -->
+    <section>
+      <div style="position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;gap:5vw;padding:8vh 5vw">
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:2vh">
+          <div class="t-script" style="font-size:clamp(20px,2.5vw,36px);opacity:0.7">감사합니다</div>
+          <div class="t-display">Q&amp;A</div>
+          <div class="stamp" style="align-self:flex-start;margin-top:1vh">{{DATE}}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:1.5vh">
+          <p class="t-label" style="opacity:0.6;margin-bottom:0.25rem">발표자</p><p class="t-body" style="font-weight:700;margin-bottom:1rem">{{AUTHOR}}</p>
+          <p class="t-label" style="opacity:0.6;margin-bottom:0.25rem">이메일</p><p class="t-body" style="margin-bottom:1rem">{{EMAIL}}</p>
+          <p class="t-label" style="opacity:0.6;margin-bottom:0.25rem">소속</p><p class="t-body">{{ORG}}</p>
+        </div>
+      </div>
+      <div class="footer"><span>{{ORG}}</span><span>{{DATE}}</span></div>
+    </section>
+
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true, width: 1600, height: 900, margin: 0,
+    minScale: 0.1, maxScale: 1.5,
+    controls: false, progress: false, slideNumber: false,
+    transition: 'fade', backgroundTransition: 'fade',
+    plugins: [RevealNotes],
+  });
+</script>
+</body>
+</html>

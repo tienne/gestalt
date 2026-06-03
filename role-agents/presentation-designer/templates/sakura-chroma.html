@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Sakura Chroma — Reveal.js</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800;900&family=Albert+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+JP:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
+  <style>
+    :root {
+      --paper:    #F1E6CB;
+      --paper-dk: #E5D6B0;
+      --ink:      #3A2516;
+      --red:      #E5392A;
+      --pink:     #E54489;
+      --orange:   #F09131;
+      --green:    #3D9F47;
+      --blue:     #3F8BC4;
+      --yellow:   #F0BC2A;
+      --line:     #3A2516;
+    }
+
+    .reveal { font-family: 'Albert Sans', sans-serif; }
+    .reveal .slides { text-align: left; }
+    .reveal .slides section {
+      box-sizing: border-box;
+      width: 100%; height: 100%;
+      padding: 0;
+      overflow: hidden;
+      top: 0 !important; left: 0 !important;
+      background: var(--paper);
+      color: var(--ink);
+      position: relative;
+    }
+    .reveal h1,.reveal h2,.reveal h3,.reveal p,.reveal ul,.reveal ol { margin: 0; }
+
+    /* FRAME (inner padding container) */
+    .frame {
+      position: absolute;
+      inset: clamp(28px, 3vw, 56px) clamp(28px, 3vw, 56px) clamp(56px, 6vh, 90px);
+      display: flex; flex-direction: column;
+      gap: clamp(14px, 1.8vh, 24px);
+    }
+
+    /* TOPBAR */
+    .topbar {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      border-bottom: 1.5px solid var(--ink);
+      padding-bottom: clamp(8px, 1.2vh, 16px);
+      gap: 2vw;
+    }
+
+    /* FOOTER */
+    .col-footer {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: clamp(10px,1.2vh,18px) clamp(28px,3vw,56px);
+      background: var(--paper-dk);
+      display: grid; grid-template-columns: 1.1fr 1fr 1.1fr;
+      gap: 2vw;
+    }
+
+    /* TYPOGRAPHY */
+    .disp  { font-family: 'Big Shoulders Display', sans-serif; font-weight: 900; line-height: 0.84; letter-spacing: -0.012em; }
+    .micro { font-family: 'Albert Sans', sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.16em; font-size: clamp(10px,1.1vw,15px); }
+    .body-tx { font-family: 'Albert Sans', sans-serif; font-weight: 400; line-height: 1.5; font-size: clamp(13px,1.4vw,21px); }
+    .mono  { font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: clamp(10px,1.1vw,15px); }
+    .jp    { font-family: 'Noto Sans JP', sans-serif; font-weight: 500; }
+
+    /* COLOUR STRIPS on cards */
+    .c-red    { background: var(--red);    color: var(--paper); }
+    .c-pink   { background: var(--pink);   color: var(--paper); }
+    .c-orange { background: var(--orange); color: var(--ink); }
+    .c-green  { background: var(--green);  color: var(--paper); }
+    .c-blue   { background: var(--blue);   color: var(--paper); }
+    .c-yellow { background: var(--yellow); color: var(--ink); }
+
+    /* CATALOGUE CARD */
+    .cat-card {
+      background: var(--paper);
+      border: 1.5px solid var(--ink);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .cat-card .topstrip { height: clamp(12px,1.5vh,22px); }
+    .cat-card .body-inner { padding: clamp(12px,1.8vh,22px) clamp(12px,1.6vw,20px); flex: 1; display: flex; flex-direction: column; }
+
+    /* STAMP */
+    .stamp {
+      position: absolute; z-index: 5;
+      background: var(--red); color: var(--paper);
+      padding: clamp(6px,0.8vh,12px) clamp(10px,1.2vw,18px);
+      font-family: 'Big Shoulders Display', sans-serif;
+      font-weight: 900; line-height: 1;
+      transform: rotate(-3deg);
+    }
+
+    /* ROSETTE BADGE */
+    .rosette {
+      display: grid; place-items: center;
+      background: var(--ink); color: var(--paper);
+      clip-path: polygon(50% 0%, 60% 8%, 73% 4%, 76% 17%, 89% 18%, 87% 31%, 100% 35%, 92% 47%, 100% 60%, 87% 64%, 90% 77%, 76% 78%, 75% 91%, 62% 88%, 53% 100%, 42% 90%, 30% 96%, 25% 84%, 12% 86%, 13% 73%, 0% 70%, 7% 58%, 0% 47%, 11% 39%, 4% 27%, 17% 25%, 13% 12%, 27% 14%, 25% 1%, 38% 7%);
+      font-family: 'Big Shoulders Display', sans-serif;
+      font-weight: 900;
+    }
+
+    /* SCHEDULE ROW */
+    .ledger-row {
+      display: grid;
+      grid-template-columns: clamp(60px,6vw,96px) 1.4fr 0.9fr 0.6fr clamp(40px,4vw,64px);
+      gap: 1.2vw;
+      align-items: center;
+      padding: clamp(8px,1.2vh,16px) 0;
+      border-bottom: 1px solid rgba(58,37,22,0.22);
+    }
+
+    /* CHIP TAG */
+    .chip {
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 3px 8px;
+      font-family: 'JetBrains Mono', monospace; font-size: clamp(9px,0.9vw,13px);
+      font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--paper);
+    }
+
+    /* EQUALIZER BARS */
+    .eq-bars {
+      display: grid; grid-template-columns: repeat(8,1fr);
+      gap: clamp(6px,0.8vw,14px); align-items: end; height: 100%;
+    }
+    .eq-col { display: flex; flex-direction: column-reverse; justify-content: start; height: 100%; gap: clamp(3px,0.5vh,6px); }
+    .eq-cell { border-radius: 3px; }
+  </style>
+</head>
+<body style="margin:0;background:#c8b890">
+<div class="reveal">
+  <div class="slides">
+
+    <!-- COVER -->
+    <section>
+      <div class="frame">
+        <div class="topbar">
+          <div class="disp" style="font-size:clamp(28px,4vw,60px)">{{ORGANIZATION}}</div>
+          <div style="display:flex;gap:2vw;align-items:center">
+            <span class="micro">{{DATE}}</span>
+            <div class="rosette" style="width:clamp(40px,5vw,80px);height:clamp(40px,5vw,80px);font-size:clamp(14px,1.6vw,24px)">★</div>
+          </div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:1.5vh">
+          <span class="micro" style="opacity:0.6">{{CATEGORY}}</span>
+          <div class="disp" style="font-size:clamp(80px,12vw,200px);color:var(--ink)">{{TITLE}}</div>
+          <p class="body-tx" style="max-width:55%;opacity:0.75">{{SUBTITLE}}</p>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span class="micro" style="opacity:0.6">{{AUTHOR}}</span>
+          <span class="mono" style="opacity:0.5">Press → to advance</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CATALOGUE GRID (4-col) -->
+    <section>
+      <div class="frame">
+        <div class="topbar">
+          <div class="disp" style="font-size:clamp(28px,3.5vw,54px)">{{SECTION_LABEL}}</div>
+          <span class="micro" style="opacity:0.6">{{DATE}}</span>
+        </div>
+        <div style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(12px,1.4vw,20px)">
+          <div class="cat-card"><div class="topstrip c-red"></div><div class="body-inner"><span class="micro" style="margin-bottom:0.5rem">01</span><p class="body-tx" style="font-weight:600;margin-bottom:0.5rem">항목 제목</p><p class="body-tx" style="font-size:0.85em;opacity:0.7">설명 내용</p></div></div>
+          <div class="cat-card"><div class="topstrip c-pink"></div><div class="body-inner"><span class="micro" style="margin-bottom:0.5rem">02</span><p class="body-tx" style="font-weight:600;margin-bottom:0.5rem">항목 제목</p><p class="body-tx" style="font-size:0.85em;opacity:0.7">설명 내용</p></div></div>
+          <div class="cat-card"><div class="topstrip c-orange"></div><div class="body-inner"><span class="micro" style="margin-bottom:0.5rem">03</span><p class="body-tx" style="font-weight:600;margin-bottom:0.5rem">항목 제목</p><p class="body-tx" style="font-size:0.85em;opacity:0.7">설명 내용</p></div></div>
+          <div class="cat-card"><div class="topstrip c-blue"></div><div class="body-inner"><span class="micro" style="margin-bottom:0.5rem">04</span><p class="body-tx" style="font-weight:600;margin-bottom:0.5rem">항목 제목</p><p class="body-tx" style="font-size:0.85em;opacity:0.7">설명 내용</p></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MANIFESTO -->
+    <section style="background:var(--ink)">
+      <div style="position:absolute;inset:0;display:grid;place-items:center;padding:0 clamp(60px,10vw,180px)">
+        <div>
+          <p class="micro" style="color:var(--paper);opacity:0.5;margin-bottom:2vh">Statement</p>
+          <div class="disp" style="font-size:clamp(48px,7.5vw,120px);color:var(--paper)">
+            "핵심 선언문이<br>여기에 들어갑니다"
+          </div>
+          <div style="margin-top:3vh;display:flex;gap:2vw;align-items:center">
+            <div style="width:36px;height:1.5px;background:var(--pink)"></div>
+            <span class="micro" style="color:var(--paper);opacity:0.6">— 발언자, 맥락</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DATA — equalizer bars -->
+    <section>
+      <div class="frame">
+        <div class="topbar">
+          <div class="disp" style="font-size:clamp(28px,3.5vw,54px)">데이터 분석</div>
+          <span class="micro" style="opacity:0.6">{{DATE}}</span>
+        </div>
+        <div style="flex:1;display:grid;grid-template-columns:0.9fr 1.6fr;gap:clamp(20px,3vw,50px)">
+          <div style="display:flex;flex-direction:column;justify-content:center;gap:1.5vh">
+            <span class="micro" style="opacity:0.6">Key Metric</span>
+            <div class="disp" style="font-size:clamp(50px,8vw,120px)">98%</div>
+            <p class="body-tx">핵심 지표 설명이 들어갑니다.</p>
+          </div>
+          <div class="eq-bars">
+            <div class="eq-col"><div class="eq-cell c-red"   style="height:75%"></div></div>
+            <div class="eq-col"><div class="eq-cell c-orange" style="height:55%"></div></div>
+            <div class="eq-col"><div class="eq-cell c-yellow" style="height:88%"></div></div>
+            <div class="eq-col"><div class="eq-cell c-green"  style="height:60%"></div></div>
+            <div class="eq-col"><div class="eq-cell c-blue"   style="height:70%"></div></div>
+            <div class="eq-col"><div class="eq-cell c-pink"   style="height:45%"></div></div>
+            <div class="eq-col"><div class="eq-cell c-red"    style="height:80%"></div></div>
+            <div class="eq-col"><div class="eq-cell c-orange" style="height:62%"></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCHEDULE -->
+    <section>
+      <div class="frame">
+        <div class="topbar">
+          <div class="disp" style="font-size:clamp(28px,3.5vw,54px)">일정</div>
+          <span class="micro" style="opacity:0.6">{{PERIOD}}</span>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+          <div class="ledger-row" style="border-top:1px solid rgba(58,37,22,0.22)">
+            <span class="mono" style="opacity:0.5">07월</span>
+            <p class="body-tx" style="font-weight:600">항목 제목</p>
+            <p class="body-tx" style="opacity:0.7">담당자</p>
+            <p class="body-tx" style="opacity:0.5;font-size:0.85em">진행중</p>
+            <div class="chip c-red">진행</div>
+          </div>
+          <div class="ledger-row">
+            <span class="mono" style="opacity:0.5">08월</span>
+            <p class="body-tx" style="font-weight:600">항목 제목</p>
+            <p class="body-tx" style="opacity:0.7">담당자</p>
+            <p class="body-tx" style="opacity:0.5;font-size:0.85em">예정</p>
+            <div class="chip c-orange">예정</div>
+          </div>
+          <div class="ledger-row">
+            <span class="mono" style="opacity:0.5">08월</span>
+            <p class="body-tx" style="font-weight:600">항목 제목</p>
+            <p class="body-tx" style="opacity:0.7">담당자</p>
+            <p class="body-tx" style="opacity:0.5;font-size:0.85em">예정</p>
+            <div class="chip c-green">완료</div>
+          </div>
+          <div class="ledger-row">
+            <span class="mono" style="opacity:0.5">09월</span>
+            <p class="body-tx" style="font-weight:600">항목 제목</p>
+            <p class="body-tx" style="opacity:0.7">담당자</p>
+            <p class="body-tx" style="opacity:0.5;font-size:0.85em">예정</p>
+            <div class="chip c-blue">계획</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLOSING -->
+    <section>
+      <div class="frame">
+        <div class="topbar">
+          <div class="disp" style="font-size:clamp(28px,3.5vw,54px)">{{ORGANIZATION}}</div>
+          <span class="micro" style="opacity:0.6">{{DATE}}</span>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:2vh">
+          <span class="micro" style="opacity:0.6">Thank You</span>
+          <div class="disp" style="font-size:clamp(80px,12vw,200px)">Q&amp;A</div>
+        </div>
+        <div class="col-footer" style="position:relative;bottom:auto;left:auto;right:auto;background:var(--paper-dk);padding:1.5vh 0">
+          <div><p class="micro" style="opacity:0.6;margin-bottom:0.4rem">발표자</p><p class="body-tx" style="font-weight:700">{{AUTHOR}}</p></div>
+          <div><p class="micro" style="opacity:0.6;margin-bottom:0.4rem">이메일</p><p class="body-tx">{{EMAIL}}</p></div>
+          <div><p class="micro" style="opacity:0.6;margin-bottom:0.4rem">소속</p><p class="body-tx">{{ORG}}</p></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true, width: 1600, height: 900, margin: 0,
+    minScale: 0.1, maxScale: 1.5,
+    controls: false, progress: false, slideNumber: false,
+    transition: 'fade', backgroundTransition: 'fade',
+    plugins: [RevealNotes],
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Pink Script — After Hours — Reveal.js</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
+  <style>
+    :root {
+      --ink:       #060507;
+      --ink-2:     #0F0D11;
+      --paper:     #F5EDF1;
+      --pink:      #ED3D8C;
+      --pink-2:    #FF66A8;
+      --pink-deep: #B81D67;
+      --line:      rgba(237, 61, 140, 0.32);
+      --mute:      rgba(245, 237, 241, 0.55);
+      --hair:      rgba(245, 237, 241, 0.14);
+    }
+
+    .reveal { font-family: 'Inter', sans-serif; }
+    .reveal .slides { text-align: left; }
+    .reveal .slides section {
+      box-sizing: border-box;
+      width: 100%; height: 100%;
+      padding: 0;
+      overflow: hidden;
+      top: 0 !important; left: 0 !important;
+      background: var(--ink);
+      color: var(--paper);
+      position: relative;
+    }
+    .reveal h1,.reveal h2,.reveal h3,.reveal p,.reveal ul,.reveal ol { margin: 0; }
+
+    /* FILM GRAIN + HAIRLINE FRAME */
+    .reveal .slides section::after {
+      content: ""; position: absolute; inset: 28px; pointer-events: none;
+      border: 1px solid var(--hair); z-index: 1;
+    }
+
+    /* CHROME */
+    .runner {
+      position: absolute; left: 48px; right: 48px; top: 48px;
+      display: flex; align-items: baseline; justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: clamp(12px, 1.2vw, 18px); letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--mute); z-index: 5;
+    }
+    .runner .brand { color: var(--pink); }
+    .footer {
+      position: absolute; left: 48px; right: 48px; bottom: 48px;
+      display: flex; align-items: baseline; justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: clamp(12px, 1.2vw, 18px); letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--mute); z-index: 5;
+    }
+    .footer .pageno { color: var(--paper); }
+    .footer .pageno em { color: var(--pink); font-style: normal; }
+
+    /* TYPOGRAPHY */
+    .script { font-family: 'DM Serif Display', serif; font-weight: 400; color: var(--pink); letter-spacing: -0.01em; line-height: 1.05; padding-bottom: 0.12em; }
+    .script.huge  { font-size: clamp(100px,20vw,380px); }
+    .script.giant { font-size: clamp(70px, 14vw,250px); }
+    .script.large { font-size: clamp(50px, 9vw, 150px); }
+    .script.med   { font-size: clamp(36px, 6vw, 100px); }
+    .script.sm    { font-size: clamp(22px, 3.5vw,64px); }
+    .sans-display { font-family: 'Inter', sans-serif; font-weight: 300; text-transform: uppercase; letter-spacing: 0.04em; color: var(--paper); }
+    .mono         { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.12em; text-transform: uppercase; }
+    .rule         { height: 1px; background: var(--pink); opacity: 0.45; }
+    .rule.thin    { opacity: 0.25; background: var(--paper); }
+
+    /* STAT FIGURE */
+    .stat-figure { font-family: 'DM Serif Display', serif; font-size: clamp(60px,9vw,140px); line-height: 0.9; color: var(--pink); display: flex; align-items: baseline; }
+    .stat-unit { font-size: 0.5em; color: var(--paper); margin-left: 4px; }
+
+    /* PILL (matrix) */
+    .pill { display: inline-block; padding: 5px 12px; font-family: 'JetBrains Mono', monospace; font-size: clamp(11px,1.1vw,16px); letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid var(--pink); color: var(--pink); }
+    .pill.dim    { border-color: var(--hair); color: var(--mute); }
+    .pill.solid  { background: var(--pink); color: var(--ink); border-color: var(--pink); font-weight: 500; }
+
+    /* STEP (process) */
+    .step { display: flex; flex-direction: column; gap: 1rem; padding-top: 1.5vh; border-top: 1px solid var(--pink); }
+  </style>
+</head>
+<body style="margin:0;background:#000">
+<div class="reveal">
+  <div class="slides">
+
+    <!-- COVER -->
+    <section>
+      <div class="runner"><span class="brand">{{ORGANIZATION}}</span><span>{{DATE}}</span></div>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1.5vh">
+        <div class="mono" style="font-size:clamp(11px,1.2vw,17px);color:var(--mute)">{{CATEGORY}}</div>
+        <div class="script huge" style="text-align:center">{{TITLE}}</div>
+        <div class="rule" style="width:60px;margin:1vh auto"></div>
+        <div class="sans-display" style="font-size:clamp(14px,1.8vw,26px)">{{SUBTITLE}}</div>
+      </div>
+      <div class="footer"><span>{{AUTHOR}}</span><span class="pageno"><em>01</em> / 08</span></div>
+    </section>
+
+    <!-- TOC -->
+    <section>
+      <div class="runner"><span class="brand">{{ORGANIZATION}}</span><span>Index</span></div>
+      <div style="position:absolute;left:48px;right:48px;top:120px;bottom:120px;display:grid;grid-template-columns:clamp(200px,28vw,380px) 1fr;gap:5vw">
+        <div><div class="script med">목차</div></div>
+        <div style="display:flex;flex-direction:column">
+          <div style="display:grid;grid-template-columns:clamp(60px,7vw,100px) 1fr clamp(100px,12vw,160px);gap:2vw;align-items:baseline;padding:1.5vh 0;border-bottom:1px solid var(--hair)">
+            <span class="mono" style="font-size:clamp(12px,1.3vw,18px);color:var(--mute)">01</span><span class="sans-display" style="font-size:clamp(14px,1.8vw,26px)">섹션 제목</span><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">설명</span>
+          </div>
+          <div style="display:grid;grid-template-columns:clamp(60px,7vw,100px) 1fr clamp(100px,12vw,160px);gap:2vw;align-items:baseline;padding:1.5vh 0;border-bottom:1px solid var(--hair)">
+            <span class="mono" style="font-size:clamp(12px,1.3vw,18px);color:var(--mute)">02</span><span class="sans-display" style="font-size:clamp(14px,1.8vw,26px)">섹션 제목</span><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">설명</span>
+          </div>
+          <div style="display:grid;grid-template-columns:clamp(60px,7vw,100px) 1fr clamp(100px,12vw,160px);gap:2vw;align-items:baseline;padding:1.5vh 0;border-bottom:1px solid var(--hair)">
+            <span class="mono" style="font-size:clamp(12px,1.3vw,18px);color:var(--mute)">03</span><span class="sans-display" style="font-size:clamp(14px,1.8vw,26px)">섹션 제목</span><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">설명</span>
+          </div>
+          <div style="display:grid;grid-template-columns:clamp(60px,7vw,100px) 1fr clamp(100px,12vw,160px);gap:2vw;align-items:baseline;padding:1.5vh 0">
+            <span class="mono" style="font-size:clamp(12px,1.3vw,18px);color:var(--mute)">04</span><span class="sans-display" style="font-size:clamp(14px,1.8vw,26px)">섹션 제목</span><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">설명</span>
+          </div>
+        </div>
+      </div>
+      <div class="footer"><span>{{DATE}}</span><span class="pageno"><em>02</em> / 08</span></div>
+    </section>
+
+    <!-- SECTION DIVIDER -->
+    <section>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;padding-left:clamp(80px,12vw,200px)">
+        <div>
+          <span class="mono" style="font-size:clamp(11px,1.2vw,17px);color:var(--mute);display:block;margin-bottom:1.5vh">Chapter 01</span>
+          <div class="script giant">섹션<br>제목</div>
+        </div>
+      </div>
+      <div style="position:absolute;right:clamp(60px,7vw,120px);top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:1rem;max-width:clamp(180px,24vw,320px)">
+        <p class="sans-display" style="font-size:clamp(12px,1.5vw,22px);opacity:0.7">서브 설명이 여기에 들어갑니다.</p>
+      </div>
+      <div class="footer"><span>{{ORG}}</span><span class="pageno"><em>03</em> / 08</span></div>
+    </section>
+
+    <!-- STATS -->
+    <section>
+      <div class="runner"><span class="brand">{{ORGANIZATION}}</span><span>{{SECTION_LABEL}}</span></div>
+      <div style="position:absolute;left:48px;right:48px;top:120px;bottom:120px;display:grid;grid-template-columns:1fr 1.05fr;gap:5vw">
+        <div style="display:flex;flex-direction:column;justify-content:space-between">
+          <div>
+            <div class="script med">핵심<br>지표</div>
+            <p class="sans-display" style="font-size:clamp(12px,1.5vw,22px);opacity:0.7;margin-top:1.5vh">설명 텍스트</p>
+          </div>
+          <div class="rule"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:1.5vh">
+          <div style="display:grid;grid-template-columns:clamp(120px,15vw,200px) 1fr;align-items:center;gap:2vw;padding-bottom:1.5vh;border-bottom:1px solid var(--hair)">
+            <div class="stat-figure">98<span class="stat-unit">%</span></div>
+            <div><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">지표명</p><p class="sans-display" style="font-size:clamp(12px,1.4vw,20px)">설명</p></div>
+          </div>
+          <div style="display:grid;grid-template-columns:clamp(120px,15vw,200px) 1fr;align-items:center;gap:2vw;padding-bottom:1.5vh;border-bottom:1px solid var(--hair)">
+            <div class="stat-figure">41<span class="stat-unit">개</span></div>
+            <div><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">지표명</p><p class="sans-display" style="font-size:clamp(12px,1.4vw,20px)">설명</p></div>
+          </div>
+          <div style="display:grid;grid-template-columns:clamp(120px,15vw,200px) 1fr;align-items:center;gap:2vw">
+            <div class="stat-figure">2.4<span class="stat-unit">s</span></div>
+            <div><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">지표명</p><p class="sans-display" style="font-size:clamp(12px,1.4vw,20px)">설명</p></div>
+          </div>
+        </div>
+      </div>
+      <div class="footer"><span>{{DATE}}</span><span class="pageno"><em>04</em> / 08</span></div>
+    </section>
+
+    <!-- PROCESS (5-step) -->
+    <section>
+      <div class="runner"><span class="brand">{{ORGANIZATION}}</span><span>{{SECTION_LABEL}}</span></div>
+      <div style="position:absolute;left:48px;right:48px;top:120px;bottom:120px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:5vw;margin-bottom:3vh">
+          <div class="script sm">프로세스</div>
+          <p class="mono" style="font-size:clamp(11px,1.2vw,17px);color:var(--mute)">{{PERIOD}}</p>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:2vw">
+          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">01</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
+          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">02</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
+          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">03</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
+          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">04</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
+          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">05</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
+        </div>
+      </div>
+      <div class="footer"><span>{{DATE}}</span><span class="pageno"><em>05</em> / 08</span></div>
+    </section>
+
+    <!-- QUOTE -->
+    <section>
+      <div style="position:absolute;left:48px;right:48px;top:120px;bottom:120px;display:grid;grid-template-columns:clamp(160px,20vw,280px) 1fr;gap:5vw;align-items:center">
+        <div style="display:flex;flex-direction:column;gap:1.5rem">
+          <div style="width:clamp(60px,7vw,100px);height:clamp(60px,7vw,100px);border-radius:50%;border:1px solid var(--line);display:flex;align-items:center;justify-content:center">
+            <span class="mono" style="color:var(--mute);font-size:clamp(10px,1vw,14px)">IMG</span>
+          </div>
+          <p style="font-weight:500;font-size:clamp(13px,1.5vw,22px)">발언자 이름</p>
+          <p class="mono" style="color:var(--mute);font-size:clamp(11px,1.1vw,16px)">직함</p>
+        </div>
+        <div>
+          <div class="script large">"인용문이<br>여기에"</div>
+          <div style="display:flex;align-items:baseline;gap:2vw;margin-top:2vh;padding-top:1.5vh;border-top:1px solid var(--pink)">
+            <p class="mono" style="color:var(--mute)">— 맥락 설명</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer"><span>{{ORG}}</span><span class="pageno"><em>06</em> / 08</span></div>
+    </section>
+
+    <!-- CLOSING -->
+    <section>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:100px 48px 100px">
+        <div style="display:flex;flex-direction:column;gap:1vh">
+          <div class="mono" style="color:var(--mute)">감사합니다</div>
+          <div class="script giant">Q&amp;A</div>
+          <div class="rule" style="width:60px;margin-top:2vh"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr) clamp(180px,22vw,260px);gap:4vw;align-items:end">
+          <div class="step"><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">발표자</p><p style="font-weight:600;font-size:clamp(13px,1.5vw,22px)">{{AUTHOR}}</p></div>
+          <div class="step"><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">이메일</p><p style="font-size:clamp(13px,1.5vw,22px)">{{EMAIL}}</p></div>
+          <div class="step"><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">소속</p><p style="font-size:clamp(13px,1.5vw,22px)">{{ORG}}</p></div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.75rem">
+            <div class="pill solid">{{DATE}}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true, width: 1600, height: 900, margin: 0,
+    minScale: 0.1, maxScale: 1.5,
+    controls: false, progress: false, slideNumber: false,
+    transition: 'fade', backgroundTransition: 'fade',
+    plugins: [RevealNotes],
+  });
+</script>
+</body>
+</html>
