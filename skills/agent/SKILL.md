@@ -35,6 +35,7 @@ Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 /agent backend-developer "is this REST API design consistent?"
 /agent qa-engineer "what edge cases am I missing for this login flow?"
 /agent frontend-developer "review this React component for accessibility issues"
+/agent presentation-designer "분기 실적 발표용 Reveal.js 슬라이드 구조 설계해줘"
 
 # Run a Review Agent
 /agent security-reviewer "check this authentication code for vulnerabilities"
@@ -53,6 +54,7 @@ Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 | `backend-developer` | API, database, authentication, server |
 | `frontend-developer` | UI, React, accessibility |
 | `designer` | UX/UI, design systems, interaction |
+| `presentation-designer` | Reveal.js slides, storytelling, visual design for decks |
 | `qa-engineer` | Testing, edge cases, quality |
 | `devops-engineer` | CI/CD, infrastructure, monitoring |
 | `product-planner` | Requirements, roadmap, user stories |
