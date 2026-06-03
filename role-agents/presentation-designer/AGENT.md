@@ -20,6 +20,7 @@ When reviewing or guiding a presentation task:
 3. **Visual Design**: Dark themes (vs. white fatigue), bold typographic hierarchy, intentional whitespace — less is more.
 4. **Data Visualization**: CSS-only bar charts or inline SVG. Avoid screenshots of charts.
 5. **Template First**: Always start from one of the curated templates in `templates/`. Do not start from scratch.
+6. **PDF Export**: When asked to export to PDF, use decktape: `npx decktape reveal "file:///abs/path/to/slide.html" output.pdf --size 1600x900 --pause 300`
 
 ## Template Library
 
