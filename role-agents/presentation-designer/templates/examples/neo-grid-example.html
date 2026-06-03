@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Neo-Grid Bold — Reveal.js</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
+  <style>
+    /* ── DESIGN TOKENS ────────────────────────────────────────────── */
+    :root {
+      --bg:     #ECECE8;
+      --ink:    #0A0A0A;
+      --paper:  #F5F4EF;
+      --accent: #E6FF3D;
+      --line:   #0A0A0A;
+    }
+
+    /* ── REVEAL RESET ─────────────────────────────────────────────── */
+    .reveal { font-family: "Space Grotesk", sans-serif; }
+    .reveal .slides { text-align: left; }
+    .reveal .slides section {
+      box-sizing: border-box;
+      width: 100%;
+      height: 100%;
+      padding: 0;
+      overflow: hidden;
+      top: 0 !important;
+      left: 0 !important;
+      background: var(--bg);
+      color: var(--ink);
+    }
+    .reveal h1, .reveal h2, .reveal h3, .reveal h4,
+    .reveal p, .reveal ul, .reveal ol { margin: 0; }
+
+    /* ── 12×8 GRID FRAME ──────────────────────────────────────────── */
+    .frame {
+      position: absolute;
+      inset: 40px;
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+      gap: 12px;
+    }
+
+    /* ── CARD BASE ────────────────────────────────────────────────── */
+    .card {
+      background: var(--paper);
+      position: relative;
+      overflow: hidden;
+      padding: 1.4rem 1.6rem;
+      box-sizing: border-box;
+    }
+    .card.ink   { background: var(--ink);    color: var(--paper); }
+    .card.lemon { background: var(--accent); color: var(--ink); }
+    .card.ghost { background: transparent;   border: 1.5px solid var(--line); }
+    .card.flush { padding: 0; }
+    .card.bare  { background: var(--bg); padding: 0; }
+
+    /* ── PAGE NUMBER ──────────────────────────────────────────────── */
+    .pagenum {
+      position: absolute;
+      left: 0; bottom: 0;
+      font-family: "JetBrains Mono", monospace;
+      font-size: clamp(12px, 1.4vw, 20px);
+      padding: 12px 20px;
+      background: var(--paper);
+      color: var(--ink);
+      z-index: 10;
+    }
+    .pagenum.invert { background: var(--ink);    color: var(--paper); }
+    .pagenum.lemon  { background: var(--accent); color: var(--ink); }
+
+    /* ── CORNER MARK ──────────────────────────────────────────────── */
+    .corner-mark {
+      position: absolute;
+      top: 20px; right: 20px;
+      width: 30px; height: 30px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 4px;
+    }
+    .corner-mark span { background: currentColor; }
+    .corner-mark span:nth-child(2) { background: transparent; }
+
+    /* ── BLOCKMARK ────────────────────────────────────────────────── */
+    .blockmark {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 5px;
+    }
+    .blockmark span { background: currentColor; }
+    .blockmark span:nth-child(2), .blockmark span:nth-child(3) { background: transparent; }
+
+    /* ── TYPOGRAPHY ───────────────────────────────────────────────── */
+    .t-display {
+      font-weight: 700;
+      font-size: clamp(48px, 8vw, 128px);
+      line-height: 0.92;
+      letter-spacing: -0.02em;
+      text-transform: uppercase;
+    }
+    .t-title {
+      font-weight: 700;
+      font-size: clamp(36px, 5.5vw, 88px);
+      line-height: 0.95;
+      letter-spacing: -0.015em;
+      text-transform: uppercase;
+    }
+    .t-subtitle {
+      font-weight: 700;
+      font-size: clamp(24px, 3.5vw, 56px);
+      line-height: 1;
+      letter-spacing: -0.01em;
+      text-transform: uppercase;
+    }
+    .t-body  { font-size: clamp(14px, 1.6vw, 26px); line-height: 1.4; font-weight: 400; }
+    .t-label { font-family: "JetBrains Mono", monospace; font-size: clamp(10px, 1.2vw, 20px); letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.7; }
+    .t-stat  { font-weight: 700; font-size: clamp(64px, 11vw, 180px); line-height: 0.88; letter-spacing: -0.03em; }
+    .t-stat.sm { font-size: clamp(48px, 7vw, 112px); }
+
+    mark { background: var(--accent); color: var(--ink); padding: 0 4px; }
+
+    /* ── PHOTO PLACEHOLDER ────────────────────────────────────────── */
+    .ph {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(80% 60% at 50% 50%, #1f1f1f 0%, #0a0a0a 80%),
+        repeating-linear-gradient(45deg, rgba(255,255,255,.05) 0 2px, transparent 2px 8px);
+    }
+
+    /* ── SLIDE: COVER ─────────────────────────────────────────────── */
+    .s-cover .photo-l  { grid-column: 1 / span 3;  grid-row: 1 / span 8; }
+    .s-cover .mid      { grid-column: 4 / span 5;  grid-row: 1 / span 5; }
+    .s-cover .title    { grid-column: 4 / span 5;  grid-row: 6 / span 3; }
+    .s-cover .photo-r  { grid-column: 9 / span 4;  grid-row: 1 / span 5; }
+    .s-cover .cap      { grid-column: 9 / span 4;  grid-row: 6 / span 3; }
+
+    /* ── SLIDE: TOC / END ─────────────────────────────────────────── */
+    .s-toc .head    { grid-column: 1 / span 12; grid-row: 1 / span 2; display: flex; align-items: flex-end; }
+    .s-toc .item-1  { grid-column: 1 / span 4;  grid-row: 3 / span 6; }
+    .s-toc .item-2  { grid-column: 5 / span 4;  grid-row: 3 / span 6; }
+    .s-toc .item-3  { grid-column: 9 / span 4;  grid-row: 3 / span 6; }
+
+    /* ── SLIDE: STATS ─────────────────────────────────────────────── */
+    .s-stats .accent-col { grid-column: 1 / span 2;  grid-row: 1 / span 8; }
+    .s-stats .copy       { grid-column: 3 / span 4;  grid-row: 1 / span 8; display: flex; flex-direction: column; justify-content: center; }
+    .s-stats .stat-1     { grid-column: 7 / span 6;  grid-row: 1 / span 4; display: flex; align-items: flex-end; }
+    .s-stats .stat-2     { grid-column: 7 / span 3;  grid-row: 5 / span 4; display: flex; align-items: flex-end; }
+    .s-stats .stat-3     { grid-column: 10 / span 3; grid-row: 5 / span 4; display: flex; align-items: flex-end; }
+
+    /* ── SLIDE: SECTION DIVIDER ───────────────────────────────────── */
+    .s-section .num   { grid-column: 1 / span 4;  grid-row: 1 / span 8; display: flex; align-items: center; justify-content: center; }
+    .s-section .title { grid-column: 5 / span 8;  grid-row: 1 / span 8; display: flex; align-items: center; }
+
+    /* ── SLIDE: FEATURES ──────────────────────────────────────────── */
+    .s-features .head   { grid-column: 1 / span 12; grid-row: 1 / span 2; display: flex; align-items: flex-end; }
+    .s-features .feat-1 { grid-column: 1 / span 4;  grid-row: 3 / span 6; }
+    .s-features .feat-2 { grid-column: 5 / span 4;  grid-row: 3 / span 6; }
+    .s-features .feat-3 { grid-column: 9 / span 4;  grid-row: 3 / span 6; }
+
+    /* ── SLIDE: PROCESS ───────────────────────────────────────────── */
+    .s-process .head      { grid-column: 1 / span 12; grid-row: 1 / span 2; display: flex; align-items: flex-end; }
+    .s-process .step-1    { grid-column: 1 / span 3;  grid-row: 3 / span 5; }
+    .s-process .step-2    { grid-column: 4 / span 3;  grid-row: 3 / span 5; }
+    .s-process .step-3    { grid-column: 7 / span 3;  grid-row: 3 / span 5; }
+    .s-process .step-4    { grid-column: 10 / span 3; grid-row: 3 / span 5; }
+    .s-process .timeline  { grid-column: 1 / span 12; grid-row: 8 / span 1; }
+
+    /* ── SLIDE: QUOTE ─────────────────────────────────────────────── */
+    .s-quote .photo { grid-column: 1 / span 5;  grid-row: 1 / span 8; }
+    .s-quote .body  { grid-column: 6 / span 7;  grid-row: 1 / span 8; display: flex; flex-direction: column; justify-content: center; gap: 1.5rem; }
+  </style>
+</head>
+<body style="margin:0;background:#1a1a1a">
+<div class="reveal">
+  <div class="slides">
+
+    <!-- ════════════════════════════════════════════════
+         COVER
+         ════════════════════════════════════════════════ -->
+    <section class="s-cover">
+      <div class="frame">
+        <div class="card ink flush photo-l"><div class="ph"></div></div>
+        <div class="card ink mid" style="display:flex;flex-direction:column;justify-content:space-between">
+          <span class="t-label" style="color:var(--paper)">CatchTable</span>
+          <div class="blockmark" style="color:var(--accent);width:44px;height:44px">
+            <span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+        <div class="card lemon title" style="display:flex;flex-direction:column;justify-content:flex-end">
+          <div class="t-display">3.0</div>
+          <p class="t-label" style="margin-top:0.75rem;opacity:1">CatchTable 새 시대</p>
+        </div>
+        <div class="card flush photo-r"><div class="ph"></div></div>
+        <div class="card cap" style="display:flex;flex-direction:column;justify-content:flex-end">
+          <p class="t-label">2026.06 · 권윤학</p>
+        </div>
+      </div>
+      <div class="pagenum lemon">01</div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════
+         SECTION DIVIDER
+         ════════════════════════════════════════════════ -->
+    <section class="s-section">
+      <div class="frame">
+        <div class="card lemon num">
+          <div class="t-stat" style="font-size:clamp(64px,14vw,220px)">01</div>
+        </div>
+        <div class="card ink title">
+          <div>
+            <p class="t-label" style="color:var(--paper);margin-bottom:1rem">Chapter</p>
+            <div class="t-title" style="color:var(--paper)">핵심<br><mark>성과</mark></div>
+          </div>
+        </div>
+      </div>
+      <div class="pagenum invert">02</div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════
+         STATS
+         ════════════════════════════════════════════════ -->
+    <section class="s-stats">
+      <div class="frame">
+        <div class="card lemon accent-col"></div>
+        <div class="card copy">
+          <p class="t-label" style="margin-bottom:1rem">주요 지표</p>
+          <div class="t-subtitle">핵심<br>지표</div>
+        </div>
+        <div class="card ink stat-1">
+          <div style="padding:1.2rem">
+            <div class="t-stat" style="color:var(--accent)">98<span style="font-size:0.4em">%</span></div>
+            <p class="t-label" style="color:var(--paper);margin-top:0.5rem">Core Web Vitals</p>
+          </div>
+        </div>
+        <div class="card stat-2">
+          <div style="padding:1rem">
+            <div class="t-stat sm">2.4<span style="font-size:0.35em">s</span></div>
+            <p class="t-label" style="margin-top:0.5rem">LCP</p>
+          </div>
+        </div>
+        <div class="card lemon stat-3">
+          <div style="padding:1rem">
+            <div class="t-stat sm">41</div>
+            <p class="t-label" style="margin-top:0.5rem;opacity:1">신규 컴포넌트</p>
+          </div>
+        </div>
+      </div>
+      <div class="pagenum">03</div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════
+         FEATURES — 3 cards
+         ════════════════════════════════════════════════ -->
+    <section class="s-features">
+      <div class="frame">
+        <div class="card ink head">
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;width:100%">
+            <div class="t-subtitle" style="color:var(--paper)">주요 <mark>개선</mark></div>
+            <span class="t-label" style="color:var(--paper)">Q3 2026</span>
+          </div>
+        </div>
+        <div class="card feat-1">
+          <p class="t-label" style="margin-bottom:0.75rem">01</p>
+          <p class="t-body" style="font-weight:700;font-size:1.1em;margin-bottom:0.5rem">성능 최적화</p>
+          <p class="t-body">번들 사이즈 42% 감소, LCP 2.4초 달성. React 서버 컴포넌트 전면 도입으로 초기 로딩 속도를 대폭 개선했습니다.</p>
+        </div>
+        <div class="card lemon feat-2">
+          <p class="t-label" style="margin-bottom:0.75rem;opacity:1">02</p>
+          <p class="t-body" style="font-weight:700;font-size:1.1em;margin-bottom:0.5rem">디자인 시스템 v3</p>
+          <p class="t-body">41개 신규 컴포넌트 추가, 다크모드 완전 지원. 브랜드 일관성과 개발 속도를 동시에 끌어올렸습니다.</p>
+        </div>
+        <div class="card feat-3">
+          <p class="t-label" style="margin-bottom:0.75rem">03</p>
+          <p class="t-body" style="font-weight:700;font-size:1.1em;margin-bottom:0.5rem">AI 추천</p>
+          <p class="t-body">개인화 추천 엔진 탑재. 사용자 취향과 예약 이력을 분석해 최적의 레스토랑을 실시간으로 제안합니다.</p>
+        </div>
+      </div>
+      <div class="pagenum">04</div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════
+         SECTION DIVIDER 2
+         ════════════════════════════════════════════════ -->
+    <section class="s-section">
+      <div class="frame">
+        <div class="card lemon num">
+          <div class="t-stat" style="font-size:clamp(64px,14vw,220px)">02</div>
+        </div>
+        <div class="card ink title">
+          <div>
+            <p class="t-label" style="color:var(--paper);margin-bottom:1rem">Chapter</p>
+            <div class="t-title" style="color:var(--paper)">다음<br><mark>계획</mark></div>
+          </div>
+        </div>
+      </div>
+      <div class="pagenum invert">05</div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════
+         PROCESS — 4-step + timeline
+         ════════════════════════════════════════════════ -->
+    <section class="s-process">
+      <div class="frame">
+        <div class="card ink head">
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;width:100%">
+            <div class="t-subtitle" style="color:var(--paper)">실행 <mark>계획</mark></div>
+            <span class="t-label" style="color:var(--paper)">Q3 2026</span>
+          </div>
+        </div>
+        <div class="card step-1">
+          <p class="t-label" style="margin-bottom:0.5rem">7월</p>
+          <p class="t-body" style="font-weight:700">리아키텍처<br>착수</p>
+        </div>
+        <div class="card lemon step-2">
+          <p class="t-label" style="margin-bottom:0.5rem;opacity:1">8월</p>
+          <p class="t-body" style="font-weight:700">디자인시스템<br>v3 배포</p>
+        </div>
+        <div class="card step-3">
+          <p class="t-label" style="margin-bottom:0.5rem">8월</p>
+          <p class="t-body" style="font-weight:700">E2E 커버리지<br>80% 달성</p>
+        </div>
+        <div class="card ink step-4">
+          <p class="t-label" style="color:var(--paper);margin-bottom:0.5rem">9월</p>
+          <p class="t-body" style="font-weight:700;color:var(--paper)">MFE 파일럿<br>런치</p>
+        </div>
+        <div class="card lemon timeline" style="display:flex;align-items:center">
+          <p class="t-label" style="opacity:1">Q3 2026 마일스톤 타임라인</p>
+        </div>
+      </div>
+      <div class="pagenum">06</div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════
+         QUOTE
+         ════════════════════════════════════════════════ -->
+    <section class="s-quote">
+      <div class="frame">
+        <div class="card ink flush photo"><div class="ph"></div></div>
+        <div class="card body">
+          <div class="corner-mark" style="color:var(--accent)"><span></span><span></span><span></span><span></span></div>
+          <p class="t-label" style="margin-bottom:1.5rem">Vision</p>
+          <div class="t-title" style="font-size:clamp(28px,3.5vw,52px)">"더 빠르고,<br>더 아름답고,<br>더 스마트하게"</div>
+          <p class="t-label" style="margin-top:1.5rem">— CatchTable 3.0 제품 원칙</p>
+        </div>
+      </div>
+      <div class="pagenum">07</div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════
+         END / Q&A
+         ════════════════════════════════════════════════ -->
+    <section class="s-toc">
+      <div class="frame">
+        <div class="card ink head">
+          <div class="t-subtitle" style="color:var(--paper)">감사합니다 · <mark>Q&A</mark></div>
+        </div>
+        <div class="card item-1" style="display:flex;flex-direction:column;justify-content:space-between">
+          <div>
+            <p class="t-label" style="margin-bottom:0.75rem">Contact</p>
+            <p class="t-body" style="font-weight:700">권윤학</p>
+            <p class="t-body">Frontend 팀장</p>
+          </div>
+          <p class="t-label" style="opacity:0.5">tienne@catchtable.co.kr</p>
+        </div>
+        <div class="card lemon item-2" style="display:flex;flex-direction:column;justify-content:flex-end">
+          <div class="t-display" style="font-size:clamp(48px,7vw,112px)">Thank<br>You</div>
+        </div>
+        <div class="card ink item-3" style="display:flex;align-items:center;justify-content:center">
+          <div style="text-align:center">
+            <div class="blockmark" style="color:var(--accent);width:56px;height:56px;margin:0 auto 1rem">
+              <span></span><span></span><span></span><span></span>
+            </div>
+            <p class="t-label" style="color:var(--paper);opacity:0.5">CatchTable · 2026.06</p>
+          </div>
+        </div>
+      </div>
+      <div class="pagenum lemon">08</div>
+    </section>
+
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    width: 1600,
+    height: 900,
+    margin: 0,
+    minScale: 0.1,
+    maxScale: 1.5,
+    controls: false,
+    progress: false,
+    slideNumber: false,
+    transition: 'none',
+    backgroundTransition: 'none',
+    plugins: [RevealNotes],
+  });
+</script>
+</body>
+</html>

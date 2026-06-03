@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Editorial Forest — Reveal.js</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,300;8..60,400;8..60,500;8..60,600;8..60,700;8..60,800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
+  <style>
+    :root {
+      --green:      #2e4a2a;
+      --green-deep: #243a21;
+      --green-lite: #3a5a36;
+      --pink:       #e89cb1;
+      --pink-deep:  #d27e96;
+      --cream:      #efe7d4;
+      --cream-2:    #e6dcc4;
+      --ink:        #1a1a17;
+      --serif: "Source Serif 4", Georgia, serif;
+      --mono:  "JetBrains Mono", monospace;
+    }
+
+    .reveal { font-family: var(--serif); }
+    .reveal .slides { text-align: left; }
+    .reveal .slides section {
+      box-sizing: border-box;
+      width: 100%; height: 100%;
+      padding: 7vh 7vw;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      overflow: hidden;
+      top: 0 !important; left: 0 !important;
+      background: var(--cream);
+      color: var(--ink);
+    }
+    .reveal h1,.reveal h2,.reveal h3,.reveal p,.reveal ul,.reveal ol { margin: 0; }
+
+    /* COVER overrides */
+    .reveal .slides section.cover { background: var(--green); color: var(--pink); }
+    .reveal .slides section.statement-slide { background: var(--pink); color: var(--green-deep); }
+    .reveal .slides section.data-slide { background: var(--green); color: var(--cream); }
+
+    /* CHROME */
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: clamp(20px,3vw,40px);
+      padding-bottom: 2vh;
+      border-bottom: 2px solid currentColor;
+      opacity: 0.85;
+    }
+
+    /* TYPOGRAPHY */
+    .t-display { font-family: var(--serif); font-weight: 800; line-height: 0.92; letter-spacing: -0.02em; font-size: clamp(72px, 12vw, 190px); }
+    .t-title   { font-family: var(--serif); font-weight: 700; font-size: clamp(36px, 5.5vw, 88px);  line-height: 1.0; }
+    .t-head    { font-family: var(--serif); font-weight: 600; font-size: clamp(22px, 3vw, 48px);    line-height: 1.1; }
+    .t-body    { font-family: var(--serif); font-weight: 400; font-size: clamp(14px, 1.5vw, 22px);  line-height: 1.65; }
+    .t-label   { font-family: var(--mono);  font-weight: 500; font-size: clamp(10px, 1.1vw, 16px);  letter-spacing: 0.18em; text-transform: uppercase; }
+    .t-big     { font-family: var(--serif); font-weight: 500; font-size: clamp(80px, 13vw, 210px);  line-height: 0.92; letter-spacing: -0.03em; }
+
+    /* TOPIC CARD (agenda grid) */
+    .topic {
+      border-radius: 6px;
+      padding: clamp(20px,3vh,40px) clamp(16px,2.5vw,40px);
+      display: flex; flex-direction: column; justify-content: space-between;
+      min-height: 0;
+    }
+    .topic.t-green     { background: var(--green);      color: var(--pink); }
+    .topic.t-pink      { background: var(--pink);       color: var(--green-deep); }
+    .topic.t-greenLite { background: var(--green-lite); color: var(--pink); }
+    .topic.t-cream     { background: var(--cream-2);    color: var(--green); border: 2px solid var(--green); }
+    .topic .foot { font-family: var(--mono); font-size: clamp(10px,1.1vw,16px); letter-spacing: 0.12em; text-transform: uppercase; font-weight: 500; margin-top: 1rem; }
+
+    /* STEP CARD */
+    .step {
+      border-radius: 8px;
+      padding: clamp(18px,2.5vh,40px) clamp(14px,2vw,32px);
+      display: flex; flex-direction: column; min-height: 0;
+      border: 2.5px solid var(--green);
+      background: var(--cream);
+      color: var(--green);
+    }
+    .step.fill      { background: var(--green);  color: var(--pink);       border-color: var(--green); }
+    .step.pinkfill  { background: var(--pink);   color: var(--green-deep); border-color: var(--pink-deep); }
+    .step .marker {
+      margin-top: auto; padding-top: 1rem;
+      border-top: 2px solid currentColor;
+      font-family: var(--mono);
+      font-size: clamp(10px,1.1vw,16px); letter-spacing: 0.12em; text-transform: uppercase; font-weight: 500;
+      display: flex; justify-content: space-between; align-items: baseline;
+    }
+
+    /* KPI */
+    .kpi { display: flex; flex-direction: column; gap: 0.75rem; padding-top: 2vh; border-top: 2px solid var(--pink); }
+    .kpi .big { font-family: var(--serif); font-weight: 500; font-size: clamp(80px,13vw,210px); line-height: 0.92; letter-spacing: -0.03em; color: var(--pink); }
+    .kpi .big .unit { font-size: 0.5em; color: var(--cream); margin-left: 4px; }
+
+    /* BAR CHART */
+    .bar-plot {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      height: clamp(160px, 25vh, 400px);
+      border-left: 2px solid var(--cream); border-bottom: 2px solid var(--cream);
+      padding: 0 2vw;
+      gap: clamp(8px, 1.5vw, 24px);
+    }
+    .bar-group { display: flex; align-items: flex-end; gap: 8px; height: 100%; }
+    .bar { width: clamp(28px,3.5vw,56px); border-radius: 3px 3px 0 0; }
+    .bar.a { background: var(--pink); }
+    .bar.b { background: var(--cream); opacity: 0.5; }
+
+    /* CIRCLE BADGE */
+    .circle-badge {
+      width: clamp(60px,7vw,110px); height: clamp(60px,7vw,110px);
+      border-radius: 50%; border: 2px solid var(--pink);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono); font-size: clamp(11px,1.2vw,18px); letter-spacing: 0.1em; font-weight: 500;
+    }
+  </style>
+</head>
+<body style="margin:0;background:#1c3018">
+<div class="reveal">
+  <div class="slides">
+
+    <!-- COVER -->
+    <section class="cover" style="padding:7vh 7vw;display:flex;flex-direction:column;">
+      <div class="topbar" style="border-color:rgba(232,156,177,0.4)">
+        <span class="t-label">CatchTable</span>
+        <div class="circle-badge">2026.06</div>
+        <span class="t-label">권윤학</span>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:2vh">
+        <p class="t-label" style="letter-spacing:0.22em">Engineering Culture</p>
+        <div class="t-display">지속가능한<br>개발 문화</div>
+        <p class="t-body" style="max-width:50%;opacity:0.75;font-size:clamp(14px,1.8vw,28px)">CatchTable FE Engineering 2026</p>
+      </div>
+    </section>
+
+    <!-- AGENDA (topic grid) -->
+    <section>
+      <div class="topbar">
+        <div class="t-head">목차</div>
+        <span class="t-label">2026.06</span>
+      </div>
+      <div style="flex:1;display:grid;grid-template-columns:1.5fr 1fr 1fr;grid-template-rows:1fr 1fr;gap:clamp(12px,1.5vw,24px);margin-top:2.5vh">
+        <div class="topic t-green" style="grid-row:span 2">
+          <div><p class="t-label" style="margin-bottom:0.5rem">01</p><p class="t-head" style="color:var(--pink)">코드 품질</p><p class="t-body" style="color:var(--pink);opacity:0.75;margin-top:0.75rem">리뷰 문화와 정적 분석으로 기술 부채를 줄이고 팀 전체가 오너십을 갖는 코드베이스를 만든다</p></div>
+          <p class="foot">Code Quality</p>
+        </div>
+        <div class="topic t-pink">
+          <p class="t-label" style="margin-bottom:0.5rem">02</p>
+          <p class="t-head" style="font-size:clamp(18px,2.2vw,34px)">테스트 문화</p>
+          <p class="foot">Test Culture</p>
+        </div>
+        <div class="topic t-cream">
+          <p class="t-label" style="margin-bottom:0.5rem">03</p>
+          <p class="t-head" style="font-size:clamp(18px,2.2vw,34px)">문서화</p>
+          <p class="foot">Documentation</p>
+        </div>
+        <div class="topic t-greenLite">
+          <p class="t-label" style="margin-bottom:0.5rem">04</p>
+          <p class="t-head" style="font-size:clamp(18px,2.2vw,34px)">온보딩</p>
+          <p class="foot">Onboarding</p>
+        </div>
+        <div class="topic" style="background:var(--cream-2);color:var(--green);border:2px solid var(--green)">
+          <p class="t-label" style="margin-bottom:0.5rem">05</p>
+          <p class="t-head" style="font-size:clamp(18px,2.2vw,34px)">회고</p>
+          <p class="foot">Retrospective</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATEMENT (pink bg) -->
+    <section class="statement-slide" style="padding:7vh 9vw;display:flex;flex-direction:column;justify-content:space-between;">
+      <div class="t-display" style="font-size:clamp(48px,7.5vw,120px)">
+        "좋은 코드는<br>다음 개발자를<br>위한 선물이다"
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;padding-top:2vh;border-top:2px solid var(--green-deep)">
+        <span class="t-label" style="color:var(--green-deep)">— CatchTable FE Engineering, 지속가능한 개발 문화</span>
+        <span class="t-label" style="color:var(--green-deep)">2026.06</span>
+      </div>
+    </section>
+
+    <!-- DATA (green bg) -->
+    <section class="data-slide">
+      <div class="topbar" style="border-color:rgba(239,231,212,0.3)">
+        <div class="t-head" style="color:var(--cream)">테스트 커버리지 현황</div>
+        <span class="t-label" style="color:var(--cream);opacity:0.6">2026.06</span>
+      </div>
+      <div style="flex:1;display:grid;grid-template-columns:1fr 1.5fr;gap:clamp(30px,4vw,60px);align-items:center">
+        <div>
+          <p class="t-label" style="color:var(--pink);margin-bottom:1rem">Coverage Goal</p>
+          <p class="t-head" style="color:var(--cream);font-size:clamp(18px,2.5vw,38px)">65% → 80%<br>로 끌어올린다</p>
+          <p class="t-body" style="color:var(--cream);opacity:0.7;margin-top:1.5vh">유닛·통합·E2E 테스트를 계층별로 체계화해 Q3 내 목표 커버리지를 달성한다. 신규 기능은 테스트 없이 머지 불가.</p>
+        </div>
+        <div>
+          <div class="bar-plot">
+            <div class="bar-group">
+              <div class="bar a" style="height:65%"></div>
+              <div class="bar b" style="height:30%"></div>
+            </div>
+            <div class="bar-group">
+              <div class="bar a" style="height:70%"></div>
+              <div class="bar b" style="height:40%"></div>
+            </div>
+            <div class="bar-group">
+              <div class="bar a" style="height:75%"></div>
+              <div class="bar b" style="height:55%"></div>
+            </div>
+            <div class="bar-group">
+              <div class="bar a" style="height:80%"></div>
+              <div class="bar b" style="height:65%"></div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:1.5vh;padding:0 2vw">
+            <span class="t-label" style="color:var(--cream);opacity:0.6">Q4 2025</span>
+            <span class="t-label" style="color:var(--cream);opacity:0.6">Q1 2026</span>
+            <span class="t-label" style="color:var(--cream);opacity:0.6">Q2 2026</span>
+            <span class="t-label" style="color:var(--pink)">Q3 목표</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FRAMEWORK (4-step) -->
+    <section>
+      <div class="topbar">
+        <div class="t-head">개발 문화 4단계 프레임워크</div>
+        <span class="t-label">Q3 2026</span>
+      </div>
+      <div style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(14px,2vw,28px);margin-top:2.5vh">
+        <div class="step fill">
+          <p class="t-label" style="margin-bottom:1rem;color:var(--pink)">01</p>
+          <p class="t-head" style="color:var(--pink);font-size:clamp(16px,2vw,30px)">코드리뷰</p>
+          <p class="t-body" style="color:var(--pink);opacity:0.8;margin-top:0.75rem;font-size:0.85em">PR 머지 전 최소 1인 승인 필수. 리뷰어는 24시간 내 응답을 원칙으로 한다.</p>
+          <div class="marker"><span>Phase 1</span></div>
+        </div>
+        <div class="step">
+          <p class="t-label" style="margin-bottom:1rem">02</p>
+          <p class="t-head" style="font-size:clamp(16px,2vw,30px)">페어프로그래밍</p>
+          <p class="t-body" style="opacity:0.7;margin-top:0.75rem;font-size:0.85em">복잡한 도메인 로직이나 레거시 리팩터링 시 주 1회 이상 페어 세션을 진행한다.</p>
+          <div class="marker"><span>Phase 2</span></div>
+        </div>
+        <div class="step pinkfill">
+          <p class="t-label" style="margin-bottom:1rem">03</p>
+          <p class="t-head" style="font-size:clamp(16px,2vw,30px)">테스트</p>
+          <p class="t-body" style="opacity:0.8;margin-top:0.75rem;font-size:0.85em">신규 기능 유닛 테스트 필수, CI에서 커버리지 게이트 적용. 80% 미달 시 머지 차단.</p>
+          <div class="marker"><span>Phase 3</span></div>
+        </div>
+        <div class="step">
+          <p class="t-label" style="margin-bottom:1rem">04</p>
+          <p class="t-head" style="font-size:clamp(16px,2vw,30px)">회고</p>
+          <p class="t-body" style="opacity:0.7;margin-top:0.75rem;font-size:0.85em">격주 스프린트 회고로 프로세스 개선점을 발굴하고 액션 아이템을 추적한다.</p>
+          <div class="marker"><span>Phase 4</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATS (green bg) -->
+    <section class="data-slide">
+      <div class="topbar" style="border-color:rgba(239,231,212,0.3)">
+        <div class="t-head" style="color:var(--cream)">성과 지표</div>
+        <span class="t-label" style="color:var(--cream);opacity:0.6">2026.06</span>
+      </div>
+      <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(30px,5vw,60px);align-items:start;margin-top:3vh">
+        <div class="kpi">
+          <div class="big">65<span class="unit">%</span></div>
+          <p class="t-label" style="color:var(--cream)">테스트 커버리지</p>
+          <p class="t-body" style="color:var(--cream);opacity:0.6">현재 수치 — Q3 목표 80%를 향해 매 스프린트 개선 중</p>
+        </div>
+        <div class="kpi">
+          <div class="big">0.8<span class="unit">일</span></div>
+          <p class="t-label" style="color:var(--cream)">평균 PR 리뷰 시간</p>
+          <p class="t-body" style="color:var(--cream);opacity:0.6">2.1일에서 단축 — 리뷰어 가이드라인 도입 후 61% 개선</p>
+        </div>
+        <div class="kpi">
+          <div class="big">2<span class="unit">주</span></div>
+          <p class="t-label" style="color:var(--cream)">온보딩 기간</p>
+          <p class="t-body" style="color:var(--cream);opacity:0.6">4주에서 단축 — 런북·코드투어 문서화로 50% 단축 달성</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLOSING -->
+    <section class="cover" style="padding:7vh 7vw;display:flex;flex-direction:column;">
+      <div class="topbar" style="border-color:rgba(232,156,177,0.4)">
+        <span class="t-label">CatchTable</span>
+        <span class="t-label">2026.06</span>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:2vh">
+        <p class="t-label" style="letter-spacing:0.22em">Thank You</p>
+        <div class="t-display" style="font-size:clamp(60px,10vw,160px)">Q&amp;A</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2vw;border-top:2px solid rgba(232,156,177,0.4);padding-top:2vh">
+        <div><p class="t-label" style="opacity:0.6;margin-bottom:0.5rem">발표자</p><p class="t-body" style="font-weight:700">권윤학</p></div>
+        <div><p class="t-label" style="opacity:0.6;margin-bottom:0.5rem">이메일</p><p class="t-body">tienne@catchtable.co.kr</p></div>
+        <div><p class="t-label" style="opacity:0.6;margin-bottom:0.5rem">소속</p><p class="t-body">CatchTable</p></div>
+      </div>
+    </section>
+
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true, width: 1600, height: 900, margin: 0,
+    minScale: 0.1, maxScale: 1.5,
+    controls: true, progress: false, slideNumber: false,
+    transition: 'fade', backgroundTransition: 'fade',
+    plugins: [RevealNotes],
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Pink Script — Design System v3 — Reveal.js</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
+  <style>
+    :root {
+      --ink:       #060507;
+      --ink-2:     #0F0D11;
+      --paper:     #F5EDF1;
+      --pink:      #ED3D8C;
+      --pink-2:    #FF66A8;
+      --pink-deep: #B81D67;
+      --line:      rgba(237, 61, 140, 0.32);
+      --mute:      rgba(245, 237, 241, 0.55);
+      --hair:      rgba(245, 237, 241, 0.14);
+    }
+
+    .reveal { font-family: 'Inter', sans-serif; }
+    .reveal .slides { text-align: left; }
+    .reveal .slides section {
+      box-sizing: border-box;
+      width: 100%; height: 100%;
+      padding: 0;
+      overflow: hidden;
+      top: 0 !important; left: 0 !important;
+      background: var(--ink);
+      color: var(--paper);
+      position: relative;
+    }
+    .reveal h1,.reveal h2,.reveal h3,.reveal p,.reveal ul,.reveal ol { margin: 0; }
+
+    /* FILM GRAIN + HAIRLINE FRAME */
+    .reveal .slides section::after {
+      content: ""; position: absolute; inset: 28px; pointer-events: none;
+      border: 1px solid var(--hair); z-index: 1;
+    }
+
+    /* CHROME */
+    .runner {
+      position: absolute; left: 48px; right: 48px; top: 48px;
+      display: flex; align-items: baseline; justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: clamp(12px, 1.2vw, 18px); letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--mute); z-index: 5;
+    }
+    .runner .brand { color: var(--pink); }
+    .footer {
+      position: absolute; left: 48px; right: 48px; bottom: 48px;
+      display: flex; align-items: baseline; justify-content: space-between;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: clamp(12px, 1.2vw, 18px); letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--mute); z-index: 5;
+    }
+    .footer .pageno { color: var(--paper); }
+    .footer .pageno em { color: var(--pink); font-style: normal; }
+
+    /* TYPOGRAPHY */
+    .script { font-family: 'DM Serif Display', serif; font-weight: 400; color: var(--pink); letter-spacing: -0.01em; line-height: 1.05; padding-bottom: 0.12em; }
+    .script.huge  { font-size: clamp(100px,20vw,380px); }
+    .script.giant { font-size: clamp(70px, 14vw,250px); }
+    .script.large { font-size: clamp(50px, 9vw, 150px); }
+    .script.med   { font-size: clamp(36px, 6vw, 100px); }
+    .script.sm    { font-size: clamp(22px, 3.5vw,64px); }
+    .sans-display { font-family: 'Inter', sans-serif; font-weight: 300; text-transform: uppercase; letter-spacing: 0.04em; color: var(--paper); }
+    .mono         { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.12em; text-transform: uppercase; }
+    .rule         { height: 1px; background: var(--pink); opacity: 0.45; }
+    .rule.thin    { opacity: 0.25; background: var(--paper); }
+
+    /* STAT FIGURE */
+    .stat-figure { font-family: 'DM Serif Display', serif; font-size: clamp(60px,9vw,140px); line-height: 0.9; color: var(--pink); display: flex; align-items: baseline; }
+    .stat-unit { font-size: 0.5em; color: var(--paper); margin-left: 4px; }
+
+    /* PILL (matrix) */
+    .pill { display: inline-block; padding: 5px 12px; font-family: 'JetBrains Mono', monospace; font-size: clamp(11px,1.1vw,16px); letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid var(--pink); color: var(--pink); }
+    .pill.dim    { border-color: var(--hair); color: var(--mute); }
+    .pill.solid  { background: var(--pink); color: var(--ink); border-color: var(--pink); font-weight: 500; }
+
+    /* STEP (process) */
+    .step { display: flex; flex-direction: column; gap: 1rem; padding-top: 1.5vh; border-top: 1px solid var(--pink); }
+  </style>
+</head>
+<body style="margin:0;background:#000">
+<div class="reveal">
+  <div class="slides">
+
+    <!-- COVER -->
+    <section>
+      <div class="runner"><span class="brand">CatchTable Design</span><span>2026.06</span></div>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1.5vh">
+        <div class="mono" style="font-size:clamp(11px,1.2vw,17px);color:var(--mute)">릴리즈 발표</div>
+        <div class="script huge" style="text-align:center">Design<br>System</div>
+        <div class="rule" style="width:60px;margin:1vh auto"></div>
+        <div class="sans-display" style="font-size:clamp(14px,1.8vw,26px)">v3 릴리즈 발표</div>
+      </div>
+      <div class="footer"><span>권윤학</span><span class="pageno"><em>01</em> / 08</span></div>
+    </section>
+
+    <!-- TOC -->
+    <section>
+      <div class="runner"><span class="brand">CatchTable Design</span><span>Index</span></div>
+      <div style="position:absolute;left:48px;right:48px;top:120px;bottom:120px;display:grid;grid-template-columns:clamp(200px,28vw,380px) 1fr;gap:5vw">
+        <div><div class="script med">목차</div></div>
+        <div style="display:flex;flex-direction:column">
+          <div style="display:grid;grid-template-columns:clamp(60px,7vw,100px) 1fr clamp(100px,12vw,160px);gap:2vw;align-items:baseline;padding:1.5vh 0;border-bottom:1px solid var(--hair)">
+            <span class="mono" style="font-size:clamp(12px,1.3vw,18px);color:var(--mute)">01</span><span class="sans-display" style="font-size:clamp(14px,1.8vw,26px)">배경</span><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">왜 v3인가</span>
+          </div>
+          <div style="display:grid;grid-template-columns:clamp(60px,7vw,100px) 1fr clamp(100px,12vw,160px);gap:2vw;align-items:baseline;padding:1.5vh 0;border-bottom:1px solid var(--hair)">
+            <span class="mono" style="font-size:clamp(12px,1.3vw,18px);color:var(--mute)">02</span><span class="sans-display" style="font-size:clamp(14px,1.8vw,26px)">핵심 변경</span><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">토큰 & API</span>
+          </div>
+          <div style="display:grid;grid-template-columns:clamp(60px,7vw,100px) 1fr clamp(100px,12vw,160px);gap:2vw;align-items:baseline;padding:1.5vh 0;border-bottom:1px solid var(--hair)">
+            <span class="mono" style="font-size:clamp(12px,1.3vw,18px);color:var(--mute)">03</span><span class="sans-display" style="font-size:clamp(14px,1.8vw,26px)">컴포넌트 라이브러리</span><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">41개 신규</span>
+          </div>
+          <div style="display:grid;grid-template-columns:clamp(60px,7vw,100px) 1fr clamp(100px,12vw,160px);gap:2vw;align-items:baseline;padding:1.5vh 0">
+            <span class="mono" style="font-size:clamp(12px,1.3vw,18px);color:var(--mute)">04</span><span class="sans-display" style="font-size:clamp(14px,1.8vw,26px)">마이그레이션 가이드</span><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">단계별 안내</span>
+          </div>
+        </div>
+      </div>
+      <div class="footer"><span>2026.06</span><span class="pageno"><em>02</em> / 08</span></div>
+    </section>
+
+    <!-- SECTION DIVIDER -->
+    <section>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;padding-left:clamp(80px,12vw,200px)">
+        <div>
+          <span class="mono" style="font-size:clamp(11px,1.2vw,17px);color:var(--mute);display:block;margin-bottom:1.5vh">Chapter 03</span>
+          <div class="script giant">컴포넌트<br>라이브러리</div>
+        </div>
+      </div>
+      <div style="position:absolute;right:clamp(60px,7vw,120px);top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:1rem;max-width:clamp(180px,24vw,320px)">
+        <p class="sans-display" style="font-size:clamp(12px,1.5vw,22px);opacity:0.7">v3에서 새롭게 추가된 41개 컴포넌트와 186개 디자인 토큰을 소개합니다.</p>
+      </div>
+      <div class="footer"><span>CatchTable</span><span class="pageno"><em>03</em> / 08</span></div>
+    </section>
+
+    <!-- STATS -->
+    <section>
+      <div class="runner"><span class="brand">CatchTable Design</span><span>릴리즈 현황</span></div>
+      <div style="position:absolute;left:48px;right:48px;top:120px;bottom:120px;display:grid;grid-template-columns:1fr 1.05fr;gap:5vw">
+        <div style="display:flex;flex-direction:column;justify-content:space-between">
+          <div>
+            <div class="script med">핵심<br>지표</div>
+            <p class="sans-display" style="font-size:clamp(12px,1.5vw,22px);opacity:0.7;margin-top:1.5vh">디자인 시스템 v3 릴리즈 기준 주요 수치</p>
+          </div>
+          <div class="rule"></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:1.5vh">
+          <div style="display:grid;grid-template-columns:clamp(120px,15vw,200px) 1fr;align-items:center;gap:2vw;padding-bottom:1.5vh;border-bottom:1px solid var(--hair)">
+            <div class="stat-figure">41<span class="stat-unit">개</span></div>
+            <div><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">신규 컴포넌트</p><p class="sans-display" style="font-size:clamp(12px,1.4vw,20px)">새로 추가된 UI 컴포넌트</p></div>
+          </div>
+          <div style="display:grid;grid-template-columns:clamp(120px,15vw,200px) 1fr;align-items:center;gap:2vw;padding-bottom:1.5vh;border-bottom:1px solid var(--hair)">
+            <div class="stat-figure">186<span class="stat-unit">개</span></div>
+            <div><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">디자인 토큰</p><p class="sans-display" style="font-size:clamp(12px,1.4vw,20px)">컬러·타이포·스페이싱 토큰 전체</p></div>
+          </div>
+          <div style="display:grid;grid-template-columns:clamp(120px,15vw,200px) 1fr;align-items:center;gap:2vw">
+            <div class="stat-figure">92<span class="stat-unit">%</span></div>
+            <div><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">적용률</p><p class="sans-display" style="font-size:clamp(12px,1.4vw,20px)">전체 프로덕트 화면 적용 비율</p></div>
+          </div>
+        </div>
+      </div>
+      <div class="footer"><span>2026.06</span><span class="pageno"><em>04</em> / 08</span></div>
+    </section>
+
+    <!-- PROCESS (5-step) -->
+    <section>
+      <div class="runner"><span class="brand">CatchTable Design</span><span>릴리즈 현황</span></div>
+      <div style="position:absolute;left:48px;right:48px;top:120px;bottom:120px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:5vw;margin-bottom:3vh">
+          <div class="script sm">프로세스</div>
+          <p class="mono" style="font-size:clamp(11px,1.2vw,17px);color:var(--mute)">Q2–Q3</p>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:2vw">
+          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">01</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">요구사항 수집</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">팀별 페인포인트 인터뷰 및 이슈 트래킹</p></div>
+          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">02</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">토큰 설계</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">시맨틱 토큰 체계 재정의 및 다크모드 지원</p></div>
+          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">03</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">컴포넌트 구현</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">React + Storybook 기반 신규 컴포넌트 개발</p></div>
+          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">04</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">QA</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">크로스브라우저·접근성·반응형 검증</p></div>
+          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">05</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">릴리즈</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">npm 배포 및 마이그레이션 가이드 배포</p></div>
+        </div>
+      </div>
+      <div class="footer"><span>2026.06</span><span class="pageno"><em>05</em> / 08</span></div>
+    </section>
+
+    <!-- QUOTE -->
+    <section>
+      <div style="position:absolute;left:48px;right:48px;top:120px;bottom:120px;display:grid;grid-template-columns:clamp(160px,20vw,280px) 1fr;gap:5vw;align-items:center">
+        <div style="display:flex;flex-direction:column;gap:1.5rem">
+          <div style="width:clamp(60px,7vw,100px);height:clamp(60px,7vw,100px);border-radius:50%;border:1px solid var(--line);display:flex;align-items:center;justify-content:center">
+            <span class="mono" style="color:var(--mute);font-size:clamp(10px,1vw,14px)">IMG</span>
+          </div>
+          <p style="font-weight:500;font-size:clamp(13px,1.5vw,22px)">CatchTable Design</p>
+          <p class="mono" style="color:var(--mute);font-size:clamp(11px,1.1vw,16px)">Design Team</p>
+        </div>
+        <div>
+          <div class="script large">"일관성은<br>사용자가 느끼는<br>신뢰다"</div>
+          <div style="display:flex;align-items:baseline;gap:2vw;margin-top:2vh;padding-top:1.5vh;border-top:1px solid var(--pink)">
+            <p class="mono" style="color:var(--mute)">— CatchTable Design</p>
+          </div>
+        </div>
+      </div>
+      <div class="footer"><span>CatchTable</span><span class="pageno"><em>06</em> / 08</span></div>
+    </section>
+
+    <!-- CLOSING -->
+    <section>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;padding:100px 48px 100px">
+        <div style="display:flex;flex-direction:column;gap:1vh">
+          <div class="mono" style="color:var(--mute)">감사합니다</div>
+          <div class="script giant">Q&amp;A</div>
+          <div class="rule" style="width:60px;margin-top:2vh"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr) clamp(180px,22vw,260px);gap:4vw;align-items:end">
+          <div class="step"><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">발표자</p><p style="font-weight:600;font-size:clamp(13px,1.5vw,22px)">권윤학</p></div>
+          <div class="step"><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">이메일</p><p style="font-size:clamp(13px,1.5vw,22px)">tienne@catchtable.co.kr</p></div>
+          <div class="step"><p class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">소속</p><p style="font-size:clamp(13px,1.5vw,22px)">CatchTable</p></div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.75rem">
+            <div class="pill solid">2026.06</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true, width: 1600, height: 900, margin: 0,
+    minScale: 0.1, maxScale: 1.5,
+    controls: false, progress: false, slideNumber: false,
+    transition: 'fade', backgroundTransition: 'fade',
+    plugins: [RevealNotes],
+  });
+</script>
+</body>
+</html>
