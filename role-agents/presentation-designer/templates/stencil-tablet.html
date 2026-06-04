@@ -5,7 +5,7 @@
   <title>Stencil &amp; Tablet — Reveal.js</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=Stardos+Stencil:wght@400;700&family=Barlow+Condensed:wght@500;600;700;800;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=Stardos+Stencil:wght@400;700&family=Barlow+Condensed:wght@500;600;700;800;900&family=Inter:wght@400;500;600&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
   <style>
     :root {
@@ -22,7 +22,7 @@
       --olive:   #6F7A2E;
     }
 
-    .reveal { font-family: 'Barlow Condensed', sans-serif; }
+    .reveal { font-family: 'Barlow Condensed', 'Noto Sans KR', sans-serif; }
     .reveal .slides { text-align: left; }
     .reveal .slides section {
       box-sizing: border-box;
@@ -56,10 +56,10 @@
 
     /* TYPOGRAPHY */
     .stencil { font-family: 'Stardos Stencil', serif; font-weight: 700; }
-    .t-display { font-size: clamp(100px,16vw,260px); line-height: 0.88; letter-spacing: -0.02em; }
-    .t-title   { font-size: clamp(50px, 8vw, 130px);  line-height: 0.92; letter-spacing: -0.01em; font-weight: 900; text-transform: uppercase; }
-    .t-head    { font-size: clamp(24px, 3.5vw, 54px); line-height: 1.0;  font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em; }
-    .t-body    { font-family: 'Inter', sans-serif; font-size: clamp(13px, 1.4vw, 20px); line-height: 1.45; font-weight: 400; }
+    .t-display { font-size: clamp(100px,16vw,260px); line-height: 1.05; letter-spacing: -0.02em; }
+    .t-title   { font-size: clamp(50px, 8vw, 130px);  line-height: 1.05; letter-spacing: -0.01em; font-weight: 900; text-transform: uppercase; }
+    .t-head    { font-size: clamp(24px, 3.5vw, 54px); line-height: 1.2;  font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em; }
+    .t-body    { font-family: 'Inter', sans-serif; font-size: clamp(13px, 1.4vw, 20px); line-height: 1.75; font-weight: 400; }
     .t-label   { font-family: 'Barlow Condensed', sans-serif; font-size: clamp(12px,1.3vw,18px); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 
     /* TABLET CARD */
@@ -67,7 +67,7 @@
       border-radius: 22px; padding: clamp(20px,3vh,34px) clamp(18px,2.5vw,30px);
       display: flex; flex-direction: column; position: relative; overflow: hidden;
     }
-    .tablet .num { font-family: 'Stardos Stencil', serif; font-weight: 700; line-height: 0.9; font-size: clamp(80px,12vw,180px); letter-spacing: -0.02em; }
+    .tablet .num { font-family: 'Stardos Stencil', serif; font-weight: 700; line-height: 1.05; font-size: clamp(80px,12vw,180px); letter-spacing: -0.02em; }
     .tablet h3  { font-family: 'Stardos Stencil', serif; font-weight: 700; font-size: clamp(16px,2vw,28px); text-transform: uppercase; letter-spacing: 0.02em; margin-top: auto; margin-bottom: 0.5rem; }
     .tablet.dark { background: var(--ink); color: var(--bone); }
 
@@ -76,7 +76,7 @@
       border-radius: 22px; padding: clamp(18px,2.5vh,28px) clamp(16px,2vw,26px);
       display: flex; flex-direction: column; gap: 0.75rem;
     }
-    .stat-num { font-family: 'Stardos Stencil', serif; font-weight: 700; font-size: clamp(60px,9vw,140px); line-height: 0.9; letter-spacing: -0.02em; }
+    .stat-num { font-family: 'Stardos Stencil', serif; font-weight: 700; font-size: clamp(60px,9vw,140px); line-height: 1.05; letter-spacing: -0.02em; }
 
     /* PROCESS NODE */
     .node {

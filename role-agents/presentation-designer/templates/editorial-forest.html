@@ -5,7 +5,7 @@
   <title>Editorial Forest — Reveal.js</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,300;8..60,400;8..60,500;8..60,600;8..60,700;8..60,800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,300;8..60,400;8..60,500;8..60,600;8..60,700;8..60,800&family=JetBrains+Mono:wght@400;500;700&family=Noto+Serif+KR:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
   <style>
     :root {
@@ -17,7 +17,7 @@
       --cream:      #efe7d4;
       --cream-2:    #e6dcc4;
       --ink:        #1a1a17;
-      --serif: "Source Serif 4", Georgia, serif;
+      --serif: "Source Serif 4", "Noto Serif KR", Georgia, serif;
       --mono:  "JetBrains Mono", monospace;
     }
 
@@ -53,12 +53,12 @@
     }
 
     /* TYPOGRAPHY */
-    .t-display { font-family: var(--serif); font-weight: 800; line-height: 0.92; letter-spacing: -0.02em; font-size: clamp(72px, 12vw, 190px); }
-    .t-title   { font-family: var(--serif); font-weight: 700; font-size: clamp(36px, 5.5vw, 88px);  line-height: 1.0; }
-    .t-head    { font-family: var(--serif); font-weight: 600; font-size: clamp(22px, 3vw, 48px);    line-height: 1.1; }
-    .t-body    { font-family: var(--serif); font-weight: 400; font-size: clamp(14px, 1.5vw, 22px);  line-height: 1.65; }
+    .t-display { font-family: var(--serif); font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; font-size: clamp(72px, 12vw, 190px); }
+    .t-title   { font-family: var(--serif); font-weight: 700; font-size: clamp(36px, 5.5vw, 88px);  line-height: 1.2; }
+    .t-head    { font-family: var(--serif); font-weight: 600; font-size: clamp(22px, 3vw, 48px);    line-height: 1.3; }
+    .t-body    { font-family: var(--serif); font-weight: 400; font-size: clamp(14px, 1.5vw, 22px);  line-height: 1.75; }
     .t-label   { font-family: var(--mono);  font-weight: 500; font-size: clamp(10px, 1.1vw, 16px);  letter-spacing: 0.18em; text-transform: uppercase; }
-    .t-big     { font-family: var(--serif); font-weight: 500; font-size: clamp(80px, 13vw, 210px);  line-height: 0.92; letter-spacing: -0.03em; }
+    .t-big     { font-family: var(--serif); font-weight: 500; font-size: clamp(80px, 13vw, 210px);  line-height: 1.05; letter-spacing: -0.03em; }
 
     /* TOPIC CARD (agenda grid) */
     .topic {
@@ -94,7 +94,7 @@
 
     /* KPI */
     .kpi { display: flex; flex-direction: column; gap: 0.75rem; padding-top: 2vh; border-top: 2px solid var(--pink); }
-    .kpi .big { font-family: var(--serif); font-weight: 500; font-size: clamp(80px,13vw,210px); line-height: 0.92; letter-spacing: -0.03em; color: var(--pink); }
+    .kpi .big { font-family: var(--serif); font-weight: 500; font-size: clamp(80px,13vw,210px); line-height: 1.05; letter-spacing: -0.03em; color: var(--pink); }
     .kpi .big .unit { font-size: 0.5em; color: var(--cream); margin-left: 4px; }
 
     /* BAR CHART */

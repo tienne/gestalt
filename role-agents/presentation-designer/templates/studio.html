@@ -5,7 +5,7 @@
   <title>Studio — Reveal.js</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;700;800;900&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;700;800;900&family=IBM+Plex+Mono:wght@300;400;500&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
   <style>
     /* ── DESIGN TOKENS ────────────────────────────────────────────── */
@@ -23,8 +23,8 @@
       --c-accent:       #f5d200;
       --c-border:       #2e2e2c;
       --c-border-light: rgba(28, 28, 28, 0.18);
-      --f-display: "Barlow", sans-serif;
-      --f-body:    "Barlow", sans-serif;
+      --f-display: "Barlow", "Noto Sans KR", sans-serif;
+      --f-body:    "Barlow", "Noto Sans KR", sans-serif;
       --f-mono:    "IBM Plex Mono", monospace;
       --sz-display: 12vw;
       --sz-h1:  7.5vw;
@@ -98,13 +98,13 @@
     .slide--compare .slide-body { display: grid; grid-template-columns: 1fr 1fr;     height: 100%; }
 
     /* ── TYPOGRAPHY ───────────────────────────────────────────────── */
-    .display { font-size: var(--sz-display); font-weight: 900; line-height: 0.9;  letter-spacing: -0.02em; text-transform: uppercase; }
-    .h1      { font-size: var(--sz-h1);      font-weight: 900; line-height: 0.92; letter-spacing: -0.02em; text-transform: uppercase; }
-    .h2      { font-size: var(--sz-h2);      font-weight: 900; line-height: 0.95; letter-spacing: -0.01em; text-transform: uppercase; }
-    .h3      { font-size: var(--sz-h3);      font-weight: 700; line-height: 1.1;  text-transform: uppercase; }
-    .lead    { font-size: var(--sz-lead);    font-weight: 500; line-height: 1.45; }
-    .body    { font-size: var(--sz-body);    font-weight: 400; line-height: 1.6; }
-    .caption { font-size: var(--sz-caption); line-height: 1.5; }
+    .display { font-size: var(--sz-display); font-weight: 900; line-height: 1.05; letter-spacing: -0.02em; text-transform: uppercase; }
+    .h1      { font-size: var(--sz-h1);      font-weight: 900; line-height: 1.05; letter-spacing: -0.02em; text-transform: uppercase; }
+    .h2      { font-size: var(--sz-h2);      font-weight: 900; line-height: 1.05; letter-spacing: -0.01em; text-transform: uppercase; }
+    .h3      { font-size: var(--sz-h3);      font-weight: 700; line-height: 1.3;  text-transform: uppercase; }
+    .lead    { font-size: var(--sz-lead);    font-weight: 500; line-height: 1.7; }
+    .body    { font-size: var(--sz-body);    font-weight: 400; line-height: 1.75; }
+    .caption { font-size: var(--sz-caption); line-height: 1.7; }
     .label   { font-family: var(--f-mono); font-size: var(--sz-label); font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; }
     .kicker  { font-family: var(--f-mono); font-size: var(--sz-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--c-accent); display: block; margin-bottom: var(--gap-sm); }
     .dark  .kicker { color: var(--c-accent); }
@@ -125,7 +125,7 @@
     }
 
     .bullet-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--gap-sm); }
-    .bullet-list li { display: flex; gap: 0.75em; font-size: var(--sz-body); line-height: 1.6; }
+    .bullet-list li { display: flex; gap: 0.75em; font-size: var(--sz-body); line-height: 1.75; }
     .dark  .bullet-list li::before { content: "—"; color: var(--c-accent); flex-shrink: 0; }
     .light .bullet-list li::before { content: "—"; color: var(--c-fg-light); flex-shrink: 0; }
 

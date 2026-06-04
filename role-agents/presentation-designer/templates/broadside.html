@@ -5,7 +5,7 @@
   <title>Broadside — Reveal.js</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;700;800;900&family=IBM+Plex+Mono:wght@300;400;500&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;700;800;900&family=IBM+Plex+Mono:wght@300;400;500&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
   <style>
     :root {
@@ -17,8 +17,8 @@
       --c-fg-3:       #505048;
       --c-accent:     #e85d26;
       --c-border:     #282826;
-      --f-display: "Barlow", "Noto Sans SC", sans-serif;
-      --f-body:    "Barlow", "Noto Sans SC", system-ui, sans-serif;
+      --f-display: "Barlow", "Noto Sans KR", sans-serif;
+      --f-body:    "Barlow", "Noto Sans KR", system-ui, sans-serif;
       --f-mono:    "IBM Plex Mono", monospace;
       --sz-display: 13vw;
       --sz-h1:  7.5vw;
@@ -81,13 +81,13 @@
     .slide--compare .slide-body { display: grid; grid-template-columns: 1fr 1fr;     height: 100%; }
 
     /* TYPOGRAPHY */
-    .display { font-size: var(--sz-display); font-weight: 900; line-height: 0.88; letter-spacing: -0.025em; text-transform: uppercase; }
-    .h1      { font-size: var(--sz-h1);      font-weight: 900; line-height: 0.92; letter-spacing: -0.02em;  text-transform: uppercase; }
-    .h2      { font-size: var(--sz-h2);      font-weight: 900; line-height: 0.95; letter-spacing: -0.01em;  text-transform: uppercase; }
-    .h3      { font-size: var(--sz-h3);      font-weight: 700; line-height: 1.1; }
-    .lead    { font-size: var(--sz-lead);    font-weight: 500; line-height: 1.4; }
-    .body    { font-size: var(--sz-body);    font-weight: 400; line-height: 1.6; }
-    .caption { font-size: var(--sz-caption); line-height: 1.5; }
+    .display { font-size: var(--sz-display); font-weight: 900; line-height: 1.05; letter-spacing: -0.025em; text-transform: uppercase; }
+    .h1      { font-size: var(--sz-h1);      font-weight: 900; line-height: 1.05; letter-spacing: -0.02em;  text-transform: uppercase; }
+    .h2      { font-size: var(--sz-h2);      font-weight: 900; line-height: 1.05; letter-spacing: -0.01em;  text-transform: uppercase; }
+    .h3      { font-size: var(--sz-h3);      font-weight: 700; line-height: 1.3; }
+    .lead    { font-size: var(--sz-lead);    font-weight: 500; line-height: 1.7; }
+    .body    { font-size: var(--sz-body);    font-weight: 400; line-height: 1.75; }
+    .caption { font-size: var(--sz-caption); line-height: 1.7; }
     .label   { font-family: var(--f-mono); font-size: var(--sz-label); font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; }
     .kicker  { font-family: var(--f-mono); font-size: var(--sz-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--c-accent); display: block; margin-bottom: var(--gap-sm); }
     .orange .kicker  { color: rgba(17,17,17,0.55); }
@@ -108,7 +108,7 @@
     .stat-value { font-size: 5.5vw; font-weight: 900; line-height: 1; color: var(--c-accent); letter-spacing: -0.04em; }
     .orange .stat-value { color: #111; }
     .bullet-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--gap-sm); }
-    .bullet-list li { display: grid; grid-template-columns: 1.2em 1fr; gap: 0.5em; font-size: var(--sz-lead); font-weight: 500; line-height: 1.4; }
+    .bullet-list li { display: grid; grid-template-columns: 1.2em 1fr; gap: 0.5em; font-size: var(--sz-lead); font-weight: 500; line-height: 1.75; }
     .dark .bullet-list li::before   { content: "/"; color: var(--c-accent); font-family: var(--f-mono); font-weight: 700; }
     .orange .bullet-list li::before { content: "/"; color: rgba(17,17,17,0.55); font-family: var(--f-mono); font-weight: 700; }
     .img-placeholder { background: var(--c-bg-alt); width: 100%; height: 100%; min-height: 25vh; display: flex; align-items: center; justify-content: center; font-family: var(--f-mono); font-size: var(--sz-label); letter-spacing: 0.1em; color: var(--c-fg-3); }
