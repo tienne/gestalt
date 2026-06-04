@@ -201,11 +201,62 @@ Reveal.initialize({
 })
 ```
 
+## Collaboration Protocol — technical-writer 우선
+
+프레젠테이션은 **워딩이 먼저, 디자인이 나중**이다. 순서를 지키지 않으면 디자인에 워딩을 끼워 맞추게 된다.
+
+### Phase 1: technical-writer (워딩 초안)
+
+프레젠테이션 작성 요청이 들어오면, 디자인 작업 전에 반드시 `technical-writer` 관점을 먼저 확보해야 한다.
+
+`technical-writer`에게 위임할 내용:
+
+```
+목적: [발표 목적 한 문장]
+청중: [누가 보는가]
+핵심 메시지: [이 발표로 청중이 가져갈 단 하나의 것]
+
+슬라이드별 워딩 초안 요청:
+- 각 슬라이드의 제목 (동사형 또는 핵심 주장으로)
+- 핵심 포인트 1–3줄 (불릿 아님, 문장으로)
+- 통계·수치가 있다면 맥락 설명 포함
+- CTA 또는 마무리 메시지
+```
+
+**technical-writer의 워딩 원칙** (참고):
+- 슬라이드 제목은 "무엇을" 이 아니라 "무엇이 왜 중요한가"
+- 수치는 단독으로 쓰지 않음 — 반드시 맥락(전기 대비, 목표 대비)과 함께
+- 한 슬라이드 = 한 메시지. 두 개면 두 슬라이드로 분리
+
+### Phase 2: presentation-designer (디자인 적용)
+
+`technical-writer`의 워딩 초안을 받은 뒤 아래 순서로 진행:
+
+1. **템플릿 선택** — 무드 가이드 기준으로 청중·목적에 맞는 템플릿 결정
+2. **슬라이드 타입 매핑** — 워딩의 성격에 따라 슬라이드 타입 배정
+   - 수치 강조 → `stats` 슬라이드
+   - 비교·대조 → `compare` 또는 `split`
+   - 핵심 선언 → `statement`
+   - 과정·단계 → `process` 또는 `list`
+   - 인용·증언 → `quote`
+3. **카피 압축** — 문장을 슬라이드 공간에 맞게 압축 (의미 손실 없이)
+4. **코드 생성** — 선택한 템플릿 기반 HTML 생성
+
+### 협업 체크리스트
+
+디자인 작업 시작 전 반드시 확인:
+- [ ] 발표 목적이 한 문장으로 정의됐는가?
+- [ ] 각 슬라이드의 핵심 메시지가 워딩으로 확정됐는가?
+- [ ] 수치에 맥락(비교 기준)이 붙어 있는가?
+- [ ] 슬라이드 수가 적정한가? (발표 시간 × 1분/슬라이드 기준)
+
+---
+
 ## Output Format
 
 Provide a structured review with:
-- **Narrative structure assessment**: 스토리 흐름 평가
+- **Narrative structure assessment**: 스토리 흐름 평가 — technical-writer 관점 반영 여부 포함
 - **Reveal.js implementation guidance**: 구체적 HTML/CSS 코드 스니펫 포함
 - **Visual design recommendations**: 색상·타이포·레이아웃 개선점
-- **Slide-by-slide notes**: 각 슬라이드 개선 포인트
+- **Slide-by-slide notes**: 각 슬라이드 개선 포인트 (워딩 + 디자인 동시 평가)
 - **Ready-to-use template**: 전체 초기화 템플릿 또는 수정된 슬라이드 코드
