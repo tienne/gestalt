@@ -189,6 +189,59 @@ Or add directly to `~/.claude/settings.json`:
 
 ---
 
+### Option 4: OpenAI Codex CLI
+
+```bash
+codex mcp add gestalt -- npx -y @tienne/gestalt serve
+```
+
+Then add `"client": "codex"` to your project's `gestalt.json` so the active session context is written to `AGENTS.md` (which Codex reads automatically):
+
+```json
+{
+  "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
+  "client": "codex"
+}
+```
+
+Or set `GESTALT_CLIENT=codex` as an environment variable.
+
+All 12 MCP tools (`ges_interview`, `ges_generate_spec`, `ges_execute`, etc.) are available immediately. Slash commands and the Claude Code Task panel are not available in Codex — the pipeline runs entirely through MCP tool calls.
+
+---
+
+### Option 5: Google Gemini CLI
+
+```bash
+gemini mcp add gestalt -- npx -y @tienne/gestalt serve
+```
+
+Or add directly to `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "gestalt": {
+      "command": "npx",
+      "args": ["-y", "@tienne/gestalt", "serve"]
+    }
+  }
+}
+```
+
+Then add `"client": "codex"` to your project's `gestalt.json` — Gemini CLI reads `AGENTS.md` for persistent context, same as Codex:
+
+```json
+{
+  "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
+  "client": "codex"
+}
+```
+
+Use the `/mcp` command inside a Gemini CLI session to verify the server is connected.
+
+---
+
 ## The Pipeline
 
 ### 1. Interview
@@ -549,11 +602,24 @@ npx @tienne/gestalt setup
     "driftThreshold": 0.3,
     "successThreshold": 0.85,
     "goalAlignmentThreshold": 0.80
-  }
+  },
+  "client": "claude-code"
 }
 ```
 
 **Config priority** (highest → lowest): code overrides → shell env vars → `.env` → `gestalt.json` → built-in defaults
+
+### Client Setting
+
+The `client` field controls where Gestalt writes the active session context during execution:
+
+| Value | Context file | When to use |
+|-------|-------------|-------------|
+| `"claude-code"` (default) | `.claude/rules/gestalt-active.md` | Claude Code (CLI, Desktop, Plugin) |
+| `"codex"` | `AGENTS.md` (managed section) | OpenAI Codex CLI, Google Gemini CLI |
+| `"both"` | Both locations | Shared repos used by multiple agents |
+
+`"codex"` is the right value for both Codex CLI and Gemini CLI — both read `AGENTS.md` for persistent project context.
 
 ### Multi-Provider LLM Tiers
 
@@ -607,6 +673,7 @@ If no tiers are configured, all tiers fall back to the top-level `llm.model` wit
 | `GESTALT_SKILLS_DIR` | `skillsDir` | `skills` | Custom skills directory |
 | `GESTALT_AGENTS_DIR` | `agentsDir` | `agents` | Custom agents directory |
 | `GESTALT_LOG_LEVEL` | `logLevel` | `info` | Log level (`debug`/`info`/`warn`/`error`) |
+| `GESTALT_CLIENT` | `client` | `claude-code` | MCP client type (`claude-code`/`codex`/`both`) |
 | `GESTALT_LLM_FRUGAL_PROVIDER` | `llm.frugal.provider` | `anthropic` | Frugal tier provider |
 | `GESTALT_LLM_FRUGAL_API_KEY` | `llm.frugal.apiKey` | `""` | Frugal tier API key |
 | `GESTALT_LLM_FRUGAL_BASE_URL` | `llm.frugal.baseURL` | `""` | Frugal tier base URL (e.g. Ollama) |
