@@ -1,8 +1,14 @@
-import { mkdirSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, unlinkSync, existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 
-const RULE_FILE = '.claude/rules/gestalt-active.md';
+const CLAUDE_RULE_FILE = '.claude/rules/gestalt-active.md';
+const AGENTS_FILE = 'AGENTS.md';
 const ACTIVE_SESSION_FILE = '.gestalt/active-session.json';
+
+const SECTION_START = '<!-- gestalt-active-start -->';
+const SECTION_END = '<!-- gestalt-active-end -->';
+
+export type ClientType = 'claude-code' | 'codex' | 'both';
 
 interface RuleSpec {
   goal: string;
@@ -20,21 +26,47 @@ interface ActiveSession {
   updatedAt: string;
 }
 
-export function writeGestaltRule(cwd: string, spec: RuleSpec, currentTask: RuleTask | null): void {
-  const path = join(cwd, RULE_FILE);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, formatRuleContent(spec, currentTask), 'utf-8');
+export function writeGestaltRule(
+  cwd: string,
+  spec: RuleSpec,
+  currentTask: RuleTask | null,
+  client: ClientType = 'claude-code',
+): void {
+  const content = formatRuleContent(spec, currentTask);
+  if (client === 'claude-code' || client === 'both') {
+    const path = join(cwd, CLAUDE_RULE_FILE);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content, 'utf-8');
+  }
+  if (client === 'codex' || client === 'both') {
+    upsertAgentsSection(cwd, content);
+  }
 }
 
-export function updateGestaltRule(cwd: string, spec: RuleSpec, currentTask: RuleTask | null): void {
-  const path = join(cwd, RULE_FILE);
-  if (!existsSync(path)) return;
-  writeFileSync(path, formatRuleContent(spec, currentTask), 'utf-8');
+export function updateGestaltRule(
+  cwd: string,
+  spec: RuleSpec,
+  currentTask: RuleTask | null,
+  client: ClientType = 'claude-code',
+): void {
+  const content = formatRuleContent(spec, currentTask);
+  if (client === 'claude-code' || client === 'both') {
+    const path = join(cwd, CLAUDE_RULE_FILE);
+    if (existsSync(path)) writeFileSync(path, content, 'utf-8');
+  }
+  if (client === 'codex' || client === 'both') {
+    upsertAgentsSection(cwd, content);
+  }
 }
 
-export function deleteGestaltRule(cwd: string): void {
-  const path = join(cwd, RULE_FILE);
-  if (existsSync(path)) unlinkSync(path);
+export function deleteGestaltRule(cwd: string, client: ClientType = 'claude-code'): void {
+  if (client === 'claude-code' || client === 'both') {
+    const path = join(cwd, CLAUDE_RULE_FILE);
+    if (existsSync(path)) unlinkSync(path);
+  }
+  if (client === 'codex' || client === 'both') {
+    removeAgentsSection(cwd);
+  }
 }
 
 export function writeActiveSession(cwd: string, sessionId: string, specId: string): void {
@@ -47,6 +79,50 @@ export function writeActiveSession(cwd: string, sessionId: string, specId: strin
 export function deleteActiveSession(cwd: string): void {
   const path = join(cwd, ACTIVE_SESSION_FILE);
   if (existsSync(path)) unlinkSync(path);
+}
+
+// ─── AGENTS.md section management ────────────────────────────────
+
+function upsertAgentsSection(cwd: string, content: string): void {
+  const path = join(cwd, AGENTS_FILE);
+  const section = `${SECTION_START}\n${content}\n${SECTION_END}`;
+
+  if (!existsSync(path)) {
+    writeFileSync(path, section + '\n', 'utf-8');
+    return;
+  }
+
+  const existing = readFileSync(path, 'utf-8');
+  const start = existing.indexOf(SECTION_START);
+  const end = existing.indexOf(SECTION_END);
+
+  if (start !== -1 && end !== -1 && end > start) {
+    const replaced = existing.slice(0, start) + section + existing.slice(end + SECTION_END.length);
+    writeFileSync(path, replaced, 'utf-8');
+  } else {
+    writeFileSync(path, existing.trimEnd() + '\n\n' + section + '\n', 'utf-8');
+  }
+}
+
+function removeAgentsSection(cwd: string): void {
+  const path = join(cwd, AGENTS_FILE);
+  if (!existsSync(path)) return;
+
+  const existing = readFileSync(path, 'utf-8');
+  const start = existing.indexOf(SECTION_START);
+  const end = existing.indexOf(SECTION_END);
+
+  if (start === -1 || end === -1 || end <= start) return;
+
+  const before = existing.slice(0, start).trimEnd();
+  const after = existing.slice(end + SECTION_END.length).trimStart();
+
+  const result = before && after ? before + '\n\n' + after : before || after;
+  if (result.trim()) {
+    writeFileSync(path, result + '\n', 'utf-8');
+  } else {
+    unlinkSync(path);
+  }
 }
 
 function formatRuleContent(spec: RuleSpec, currentTask: RuleTask | null): string {

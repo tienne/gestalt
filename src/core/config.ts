@@ -58,6 +58,7 @@ const configSchema = z.object({
   roleAgentsDir: z.string().default('role-agents'),
   reviewAgentsDir: z.string().default('review-agents'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  client: z.enum(['claude-code', 'codex', 'both']).default('claude-code'),
 });
 
 export type GestaltConfig = z.infer<typeof configSchema>;
@@ -202,6 +203,7 @@ function buildEnvConfig(): Record<string, unknown> {
   if (env['GESTALT_REVIEW_AGENTS_DIR'] !== undefined)
     result.reviewAgentsDir = env['GESTALT_REVIEW_AGENTS_DIR'];
   if (env['GESTALT_LOG_LEVEL'] !== undefined) result.logLevel = env['GESTALT_LOG_LEVEL'];
+  if (env['GESTALT_CLIENT'] !== undefined) result.client = env['GESTALT_CLIENT'];
 
   return result;
 }

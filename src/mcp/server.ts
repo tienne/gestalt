@@ -359,7 +359,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           );
           return { content: [{ type: 'text' as const, text: result }] };
         }
-        const result = await handleExecutePassthrough(ptExecuteEngine, input);
+        const result = await handleExecutePassthrough(ptExecuteEngine, input, config.client);
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );

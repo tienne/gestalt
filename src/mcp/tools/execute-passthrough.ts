@@ -11,6 +11,7 @@ import {
   deleteGestaltRule,
   writeActiveSession,
   deleteActiveSession,
+  type ClientType,
 } from '../../execute/rule-writer.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,6 +19,7 @@ import { join } from 'node:path';
 export async function handleExecutePassthrough(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
+  client: ClientType = 'claude-code',
 ): Promise<string> {
   const verbose = input.verbose !== false;
 
@@ -199,6 +201,7 @@ export async function handleExecutePassthrough(
             input.cwd,
             { goal: session.spec.goal, constraints: session.spec.constraints },
             currentTask,
+            client,
           );
           writeActiveSession(input.cwd, session.sessionId, session.specId);
         } catch {
@@ -285,6 +288,7 @@ export async function handleExecutePassthrough(
             input.cwd,
             { goal: session.spec.goal, constraints: session.spec.constraints },
             { taskId: taskContext.currentTask.taskId, title: taskContext.currentTask.title },
+            client,
           );
         } catch {
           // Rule file update failure should not block execution
@@ -367,7 +371,7 @@ export async function handleExecutePassthrough(
 
         if (input.cwd) {
           try {
-            deleteGestaltRule(input.cwd);
+            deleteGestaltRule(input.cwd, client);
             deleteActiveSession(input.cwd);
           } catch {
             // Cleanup failure should not block the response
@@ -715,7 +719,7 @@ export async function handleExecutePassthrough(
       if (evolveResult.value.humanEscalation) {
         if (input.cwd) {
           try {
-            deleteGestaltRule(input.cwd);
+            deleteGestaltRule(input.cwd, client);
             deleteActiveSession(input.cwd);
           } catch {
             /* ignore */
@@ -747,7 +751,7 @@ export async function handleExecutePassthrough(
       if (evolveResult.value.terminated) {
         if (input.cwd) {
           try {
-            deleteGestaltRule(input.cwd);
+            deleteGestaltRule(input.cwd, client);
             deleteActiveSession(input.cwd);
           } catch {
             /* ignore */
@@ -810,6 +814,7 @@ export async function handleExecutePassthrough(
             input.cwd,
             { goal: patchedSession.spec.goal, constraints: patchedSession.spec.constraints },
             null,
+            client,
           );
         } catch {
           // Rule file update failure should not block execution
@@ -1013,7 +1018,7 @@ export async function handleExecutePassthrough(
       if (lateralResult.value.terminated) {
         if (input.cwd) {
           try {
-            deleteGestaltRule(input.cwd);
+            deleteGestaltRule(input.cwd, client);
             deleteActiveSession(input.cwd);
           } catch {
             /* ignore */

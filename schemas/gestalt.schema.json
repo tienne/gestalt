@@ -108,6 +108,12 @@
       "enum": ["debug", "info", "warn", "error"],
       "description": "Log level (env: GESTALT_LOG_LEVEL)",
       "default": "info"
+    },
+    "client": {
+      "type": "string",
+      "enum": ["claude-code", "codex", "both"],
+      "description": "MCP client type — controls where active session context is written. 'claude-code' writes to .claude/rules/, 'codex' writes to AGENTS.md, 'both' writes to both (env: GESTALT_CLIENT)",
+      "default": "claude-code"
     }
   },
   "additionalProperties": false,
