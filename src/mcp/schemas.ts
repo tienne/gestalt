@@ -427,6 +427,7 @@ export const executeInputSchema = z.object({
 });
 
 export type ExecuteInput = z.infer<typeof executeInputSchema>;
+export const executeToolSchema = executeInputSchema.shape;
 
 // ─── Create Agent Tool ──────────────────────────────────────────
 export const agentCreateInputSchema = z.object({

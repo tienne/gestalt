@@ -15,6 +15,11 @@ Complete reference for all Gestalt MCP tools.
 | [`ges_agent`](#ges_agent) | 에이전트 목록 조회 및 상세 조회 |
 | [`ges_status`](#ges_status) | 세션 상태 확인 |
 | [`ges_benchmark`](#ges_benchmark) | 파이프라인 벤치마크 실행 |
+| [`ges_code_graph`](./code-graph.md#ges_code_graph-mcp-툴) | 코드 그래프 빌드, 질의, blast radius 분석 |
+| `ges_graph_visualize` | 코드 그래프를 로컬 브라우저에서 시각화 |
+| `ges_generate_kb` | 코드 그래프/도메인 내용을 Knowledge Base 문서로 생성 |
+| `ges_search` | Knowledge Base 시맨틱 검색 |
+| `ges_sync` | Knowledge Base 파일 동기화 |
 
 ---
 
@@ -290,6 +295,15 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 |--------|-------------|
 | `execute_start` | 태스크 실행 시작 |
 | `execute_task` | 태스크 결과 제출 |
+
+#### Continuity & Audit
+
+| Action | Description |
+|--------|-------------|
+| `status` | 실행 세션 상태 조회 |
+| `resume` | 중단된 실행 세션의 다음 태스크와 진행률 조회 |
+| `audit` | 기존 코드베이스를 Spec의 acceptance criteria와 대조 |
+| `spawn` | 현재 태스크에서 파생된 하위 태스크 등록 |
 
 #### Evaluation
 

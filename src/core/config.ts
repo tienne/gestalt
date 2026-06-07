@@ -208,6 +208,54 @@ function buildEnvConfig(): Record<string, unknown> {
   return result;
 }
 
+function cloneRecord(input: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(input)) as Record<string, unknown>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeInvalidPath(path: (string | number)[]): (string | number)[] {
+  if (
+    path[0] === 'llm' &&
+    typeof path[1] === 'string' &&
+    ['frugal', 'standard', 'frontier'].includes(path[1]) &&
+    path.length > 2
+  ) {
+    return ['llm', path[1]];
+  }
+  return path;
+}
+
+function removePath(root: Record<string, unknown>, rawPath: (string | number)[]): boolean {
+  const path = normalizeInvalidPath(rawPath);
+  if (path.length === 0) return false;
+
+  let current: unknown = root;
+  for (const segment of path.slice(0, -1)) {
+    if (!isRecord(current)) return false;
+    current = current[String(segment)];
+  }
+
+  if (!isRecord(current)) return false;
+  const finalSegment = String(path[path.length - 1]);
+  if (!(finalSegment in current)) return false;
+  delete current[finalSegment];
+  return true;
+}
+
+function pruneInvalidConfig(
+  input: Record<string, unknown>,
+  paths: (string | number)[][],
+): Record<string, unknown> {
+  const pruned = cloneRecord(input);
+  for (const path of paths) {
+    removePath(pruned, path);
+  }
+  return pruned;
+}
+
 // ─── Public API ─────────────────────────────────────────────────
 
 export function loadConfig(
@@ -235,7 +283,16 @@ export function loadConfig(
     console.error(
       `[gestalt] Warning: Invalid configuration, using defaults for invalid fields:\n${messages.join('\n')}`,
     );
-    // Fallback: parse empty to get all defaults, then overlay what we can
+    const pruned = pruneInvalidConfig(
+      merged,
+      result.error.issues.map((issue) => issue.path),
+    );
+    const recovered = configSchema.safeParse(pruned);
+    if (recovered.success) {
+      return applyPostProcessing(recovered.data);
+    }
+
+    console.error('[gestalt] Warning: Failed to recover configuration, using defaults');
     return applyPostProcessing(configSchema.parse({}));
   }
 

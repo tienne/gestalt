@@ -96,18 +96,22 @@ describe('loadConfig', () => {
     expect(config.logLevel).toBe('info');
   });
 
-  it('warns and falls back on invalid values', () => {
+  it('warns and falls back only on invalid values', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     delete process.env['ANTHROPIC_API_KEY'];
     const config = loadConfig(
       {
+        llm: { model: 'custom-model' },
         interview: { resolutionThreshold: 5 }, // invalid: max 1
+        execute: { driftThreshold: 0.4 },
       },
       opts,
     );
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Warning'));
-    // Falls back to defaults
+    // Invalid field falls back to default, valid fields are preserved.
+    expect(config.llm.model).toBe('custom-model');
     expect(config.interview.resolutionThreshold).toBe(0.8);
+    expect(config.execute.driftThreshold).toBe(0.4);
     consoleSpy.mockRestore();
   });
 

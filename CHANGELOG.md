@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.2] - 2026-06-07
+
+### Fixed
+- `ges_execute` MCP tool registration now uses the shared execute input schema, so implemented actions such as `resume`, `audit`, and `spawn` are exposed consistently.
+- Invalid configuration fields now fall back individually instead of discarding otherwise valid configuration values.
+
+### Documentation
+- Updated the MCP reference tool overview and `ges_execute` action list to match the current server surface.
+
 ## [0.14.0] - 2026-04-12
 
 ### Added
