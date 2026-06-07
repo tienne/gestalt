@@ -44,6 +44,9 @@ importers:
       openai:
         specifier: ^6.27.0
         version: 6.27.0(ws@8.19.0)(zod@3.25.76)
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
       zod:
         specifier: ^3.24.2
         version: 3.25.76
@@ -66,9 +69,6 @@ importers:
       tsx:
         specifier: ^4.19.3
         version: 4.21.0
-      typescript:
-        specifier: ^5.8.2
-        version: 5.9.3
       vitest:
         specifier: ^3.0.9
         version: 3.2.4(@types/node@22.19.15)(tsx@4.21.0)
