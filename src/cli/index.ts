@@ -6,6 +6,7 @@ import { statusCommand } from './commands/status.js';
 import { setupCommand } from './commands/setup.js';
 import { initCommand } from './commands/init.js';
 import { graphVisualizeCommand } from './commands/graph-visualize.js';
+import { updateCommand } from './commands/update.js';
 import { getVersion } from '../core/version.js';
 
 export function createCli(): Command {
@@ -63,6 +64,13 @@ export function createCli(): Command {
     .description('Generate a gestalt.json configuration file')
     .action(() => {
       setupCommand();
+    });
+
+  program
+    .command('update')
+    .description('Check for updates and install the latest version')
+    .action(async () => {
+      await updateCommand();
     });
 
   program
