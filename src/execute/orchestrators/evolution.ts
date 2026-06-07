@@ -190,10 +190,14 @@ export class EvolutionOrchestrator {
           ),
         });
 
+        const blockedTask = session.executionPlan?.atomicTasks.find(
+          (t) => t.taskId === session.nextTaskId,
+        );
         const escalation = buildEscalationContext(
           session.lateralTriedPersonas as LateralPersonaName[],
           session.evaluationResult!,
           session.evolutionHistory,
+          blockedTask ? { taskId: blockedTask.taskId, title: blockedTask.title } : undefined,
         );
         return ok({
           session: this.sessionManager.get(sessionId),
@@ -414,10 +418,14 @@ export class EvolutionOrchestrator {
         ),
       });
 
+      const blockedTask = session.executionPlan?.atomicTasks.find(
+        (t) => t.taskId === session.nextTaskId,
+      );
       const escalation = buildEscalationContext(
         session.lateralTriedPersonas as LateralPersonaName[],
         session.evaluationResult,
         session.evolutionHistory,
+        blockedTask ? { taskId: blockedTask.taskId, title: blockedTask.title } : undefined,
       );
       return ok({
         session: this.sessionManager.get(sessionId),

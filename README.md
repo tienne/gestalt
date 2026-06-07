@@ -23,6 +23,14 @@ Gestalt is an MCP (Model Context Protocol) server that runs inside Claude Code. 
 
 Claude Code acts as the LLM throughout. Gestalt manages state, validates results, and advances the pipeline. No API key required.
 
+**In two lines:** describe what you want in plain language, and Gestalt interviews you until the requirement is sharp, then turns it into a validated Spec and a dependency-ordered execution plan. Everything runs inside Claude Code — no extra services, no API key.
+
+```bash
+/interview "user authentication system"   # clarify requirements (resolution ≥ 0.8)
+/spec                                      # crystallize into a validated Spec
+/execute                                   # plan → execute → evaluate → evolve
+```
+
 > **Requires Node.js >= 20.0.0.** Use `nvm install 22 && nvm use 22` if needed.
 
 ---
@@ -30,7 +38,6 @@ Claude Code acts as the LLM throughout. Gestalt manages state, validates results
 ## Contents
 
 - [Quick Start](#quick-start)
-- [How It Works](#how-it-works)
 - [Installation](#installation)
 - [The Pipeline](#the-pipeline)
   - [1. Interview](#1-interview)
@@ -43,6 +50,7 @@ Claude Code acts as the LLM throughout. Gestalt manages state, validates results
 - [CLI Mode](#cli-mode)
 - [Project Memory](#project-memory)
 - [Configuration](#configuration)
+- [How It Works](#how-it-works)
 - [Architecture](#architecture)
 
 ---
@@ -73,49 +81,6 @@ Then run the pipeline:
 ```
 
 **[Full MCP Reference](./docs/mcp-reference.md)** — all tools, parameters, and examples
-
----
-
-## How It Works
-
-Vague requirements are the primary cause of implementation drift. When the goal isn't precise, Claude fills gaps with assumptions — and those assumptions diverge from intent as the project grows.
-
-Gestalt addresses this before any code is written. It runs a structured interview guided by five **Gestalt psychology principles** to raise requirement resolution to a measurable threshold (≥ 0.8). The result is a **Spec**: a validated JSON document that drives every subsequent step.
-
-### The Five Gestalt Principles
-
-| Principle | Role |
-|-----------|------|
-| **Closure** | Finds what's missing; surfaces implicit requirements |
-| **Proximity** | Groups related features and tasks by domain |
-| **Similarity** | Identifies repeating patterns across requirements |
-| **Figure-Ground** | Separates MVP (figure) from nice-to-have (ground) |
-| **Continuity** | Validates dependency chains; detects contradictions |
-
-### Passthrough Mode
-
-Gestalt runs as an MCP server. Claude Code acts as the LLM: Gestalt returns prompts and context, and Claude Code does the reasoning. The server makes no API calls.
-
-> **Note:** The Execute stage **always runs in Passthrough mode**, regardless of whether an API key is configured. Execute carries out real file edits and code execution through Claude Code's tools (Bash, Edit, etc.), so Claude Code must be the LLM that drives it — this is by design, not a missing feature.
-
-```
-You (in Claude Code)
-       │
-       ▼  /interview "topic"
-  Gestalt MCP Server
-  (returns context + prompts)
-       │
-       ▼
-  Claude Code executes the prompts
-  (generates questions, scores, plans)
-       │
-       ▼
-  Gestalt MCP Server
-  (validates, stores state, advances)
-       │
-       ▼  repeat until resolution ≥ 0.8
-  Final Spec → Execution Plan
-```
 
 ---
 
@@ -686,6 +651,49 @@ If no tiers are configured, all tiers fall back to the top-level `llm.model` wit
 | `GESTALT_LLM_FRONTIER_API_KEY` | `llm.frontier.apiKey` | `""` | Frontier tier API key |
 | `GESTALT_LLM_FRONTIER_BASE_URL` | `llm.frontier.baseURL` | `""` | Frontier tier base URL |
 | `GESTALT_LLM_FRONTIER_MODEL` | `llm.frontier.model` | — | Frontier tier model |
+
+---
+
+## How It Works
+
+Vague requirements are the primary cause of implementation drift. When the goal isn't precise, Claude fills gaps with assumptions — and those assumptions diverge from intent as the project grows.
+
+Gestalt addresses this before any code is written. It runs a structured interview guided by five **Gestalt psychology principles** to raise requirement resolution to a measurable threshold (≥ 0.8). The result is a **Spec**: a validated JSON document that drives every subsequent step.
+
+### The Five Gestalt Principles
+
+| Principle | Role |
+|-----------|------|
+| **Closure** | Finds what's missing; surfaces implicit requirements |
+| **Proximity** | Groups related features and tasks by domain |
+| **Similarity** | Identifies repeating patterns across requirements |
+| **Figure-Ground** | Separates MVP (figure) from nice-to-have (ground) |
+| **Continuity** | Validates dependency chains; detects contradictions |
+
+### Passthrough Mode
+
+Gestalt runs as an MCP server. Claude Code acts as the LLM: Gestalt returns prompts and context, and Claude Code does the reasoning. The server makes no API calls.
+
+> **Note:** The Execute stage **always runs in Passthrough mode**, regardless of whether an API key is configured. Execute carries out real file edits and code execution through Claude Code's tools (Bash, Edit, etc.), so Claude Code must be the LLM that drives it — this is by design, not a missing feature.
+
+```
+You (in Claude Code)
+       │
+       ▼  /interview "topic"
+  Gestalt MCP Server
+  (returns context + prompts)
+       │
+       ▼
+  Claude Code executes the prompts
+  (generates questions, scores, plans)
+       │
+       ▼
+  Gestalt MCP Server
+  (validates, stores state, advances)
+       │
+       ▼  repeat until resolution ≥ 0.8
+  Final Spec → Execution Plan
+```
 
 ---
 

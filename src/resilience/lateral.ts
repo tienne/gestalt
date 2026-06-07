@@ -80,6 +80,7 @@ export function buildEscalationContext(
   triedPersonas: LateralPersonaName[],
   evaluationResult: EvaluationResult,
   evolutionHistory: EvolutionGeneration[],
+  blockedTask?: { taskId: string; title: string },
 ): EscalationContext {
   const scores = evolutionHistory.map((g) => g.evaluationScore);
   const bestScore = scores.length > 0 ? Math.max(...scores) : evaluationResult.overallScore;
@@ -87,6 +88,15 @@ export function buildEscalationContext(
   const unsatisfiedACs = evaluationResult.verifications
     .filter((v) => !v.satisfied)
     .map((v) => `AC[${v.acIndex}]: ${v.gaps.join(', ')}`);
+
+  const firstUnsatisfiedAC = unsatisfiedACs[0];
+  const recommendedSolutions = [
+    '태스크를 더 작은 단위로 분해한 뒤 새 스펙으로 `execute start`를 재시작하세요.',
+    firstUnsatisfiedAC
+      ? `"${firstUnsatisfiedAC}" — 해당 acceptance criteria를 수정한 뒤 \`evolve_patch\`로 재실행하세요.`
+      : '해당 acceptance criteria를 수정한 뒤 `evolve_patch`로 재실행하세요.',
+    '이 태스크를 수동으로 처리한 뒤 `execute_task` 액션으로 결과를 제출하세요.',
+  ];
 
   return {
     phase: 'evolving',
@@ -99,5 +109,7 @@ export function buildEscalationContext(
       ...evaluationResult.recommendations,
       ...unsatisfiedACs.map((ac) => `Unresolved: ${ac}`),
     ],
+    blockedTask,
+    recommendedSolutions,
   };
 }

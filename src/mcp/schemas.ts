@@ -1,5 +1,24 @@
 import { z } from 'zod';
 
+// ─── Shared Spec Sub-schemas ────────────────────────────────────
+// Spec의 ontology/gestaltAnalysis 필드를 구체화한 로컬 스키마.
+// src/core/types.ts의 OntologyEntity, OntologyRelation, GestaltAnalysis와 정합.
+const ontologyEntitySchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  attributes: z.array(z.string()).optional(),
+});
+const ontologyRelationSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  type: z.string(),
+});
+const gestaltAnalysisItemSchema = z.object({
+  principle: z.string(),
+  finding: z.string(),
+  confidence: z.number().min(0).max(1).optional(),
+});
+
 // ─── Interview Tool ─────────────────────────────────────────────
 export const interviewInputSchema = z.object({
   action: z.enum(['start', 'respond', 'score', 'complete', 'compress']),
@@ -57,8 +76,11 @@ export const specInputSchema = z.object({
       goal: z.string(),
       constraints: z.array(z.string()),
       acceptanceCriteria: z.array(z.string()),
-      ontologySchema: z.object({ entities: z.array(z.any()), relations: z.array(z.any()) }),
-      gestaltAnalysis: z.array(z.any()),
+      ontologySchema: z.object({
+        entities: z.array(ontologyEntitySchema),
+        relations: z.array(ontologyRelationSchema),
+      }),
+      gestaltAnalysis: z.array(gestaltAnalysisItemSchema),
     })
     .optional()
     .describe('Externally generated spec (passthrough mode)'),
@@ -98,8 +120,11 @@ export const executeInputSchema = z.object({
       goal: z.string(),
       constraints: z.array(z.string()),
       acceptanceCriteria: z.array(z.string()),
-      ontologySchema: z.object({ entities: z.array(z.any()), relations: z.array(z.any()) }),
-      gestaltAnalysis: z.array(z.any()),
+      ontologySchema: z.object({
+        entities: z.array(ontologyEntitySchema),
+        relations: z.array(ontologyRelationSchema),
+      }),
+      gestaltAnalysis: z.array(gestaltAnalysisItemSchema),
       metadata: z.object({
         specId: z.string(),
         interviewSessionId: z.string(),

@@ -51,4 +51,8 @@ export interface EscalationContext {
   bestScore: number;
   lastEvaluationResult: EvaluationResult;
   suggestions: string[];
+  /** 막힌 태스크 정보 (실행 계획에서 추출 가능한 경우) */
+  blockedTask?: { taskId: string; title: string };
+  /** 사용자에게 제시하는 권장 해결책 (정확히 3개) */
+  recommendedSolutions: string[];
 }
