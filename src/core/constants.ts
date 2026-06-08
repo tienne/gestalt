@@ -42,6 +42,9 @@ export const PRINCIPLE_QUESTION_STRATEGIES: Record<GestaltPrinciple, string> = {
 export const EVENT_STORE_TABLE = 'events';
 export const SKILLS_DIR = 'skills';
 
+// ─── Session TTL ────────────────────────────────────────────────
+export const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
 // ─── Execute Engine ──────────────────────────────────────────────
 export const PLANNING_PRINCIPLE_SEQUENCE = [
   GestaltPrinciple.FIGURE_GROUND,
