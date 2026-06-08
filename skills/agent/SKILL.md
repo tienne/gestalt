@@ -60,6 +60,7 @@ Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 | `product-planner` | Requirements, roadmap, user stories |
 | `researcher` | Analysis, benchmarks, best practices |
 | `technical-writer` | Documentation, API docs, README, developer guides |
+| `humanize-monolith` | AI-tell 패턴 탐지·윤문, 번역투 교정, 텍스트 자연스럽게 |
 
 **Review Agents** — code review specialists:
 
