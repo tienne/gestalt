@@ -228,6 +228,10 @@ Reveal.initialize({
 - 수치는 단독으로 쓰지 않음 — 반드시 맥락(전기 대비, 목표 대비)과 함께
 - 한 슬라이드 = 한 메시지. 두 개면 두 슬라이드로 분리
 
+### Phase 1.5: humanize-monolith (AI투 제거)
+
+technical-writer 워딩 초안을 `humanize-monolith`에 전달한다. S1 패턴(번역투·AI 관용구) 제거 후 디자인 작업을 진행한다. 슬라이드 워딩은 한국어 자연스러움이 특히 중요하다.
+
 ### Phase 2: presentation-designer (디자인 적용)
 
 `technical-writer`의 워딩 초안을 받은 뒤 아래 순서로 진행:
