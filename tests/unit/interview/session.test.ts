@@ -102,4 +102,41 @@ describe('SessionManager', () => {
     manager.updateResolutionScore(session.sessionId, mockScore);
     expect(session.resolutionScore).toEqual(mockScore);
   });
+
+  describe('cleanup (TTL)', () => {
+    it('removes sessions whose updatedAt is older than the TTL (25h ago)', () => {
+      const session = manager.create('stale', 'greenfield');
+      // Force updatedAt to 25 hours ago — beyond the 24h default TTL
+      session.updatedAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+
+      manager.cleanup();
+
+      expect(() => manager.get(session.sessionId)).toThrow(SessionNotFoundError);
+    });
+
+    it('preserves sessions whose updatedAt is within the TTL (1h ago)', () => {
+      const session = manager.create('active', 'greenfield');
+      session.updatedAt = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString();
+
+      manager.cleanup();
+
+      expect(manager.get(session.sessionId).sessionId).toBe(session.sessionId);
+    });
+
+    it('returns the number of sessions removed', () => {
+      const stale1 = manager.create('stale1', 'greenfield');
+      const stale2 = manager.create('stale2', 'greenfield');
+      const fresh = manager.create('fresh', 'greenfield');
+
+      const past = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+      stale1.updatedAt = past;
+      stale2.updatedAt = past;
+      // fresh keeps its recent updatedAt
+
+      const removed = manager.cleanup();
+
+      expect(removed).toBe(2);
+      expect(manager.get(fresh.sessionId).sessionId).toBe(fresh.sessionId);
+    });
+  });
 });
