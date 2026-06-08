@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { loadConfig, type GestaltConfig } from '../core/config.js';
 import { log } from '../core/log.js';
+import { logger } from '../core/logger.js';
 import { getVersion, checkForUpdates, getCachedUpdateResult } from '../core/version.js';
 import { EventStore } from '../events/store.js';
 import { createAdapter } from '../llm/factory.js';
@@ -65,6 +66,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     // ─── Passthrough mode: no API key, prompts returned to caller ───
     const ptEngine = new PassthroughEngine(eventStore, agentRegistry);
     const ptSpecGen = new PassthroughSpecGenerator(eventStore, agentRegistry);
+
+    const interviewRemoved = ptEngine.getSessionManager().cleanup();
+    logger.info('session.cleanup', { module: 'interview', removed: interviewRemoved });
 
     server.tool(
       'ges_interview',
@@ -150,6 +154,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       roleAgentRegistry,
     );
     const ptReviewEngine = new PassthroughReviewEngine(eventStore);
+
+    const executeRemoved = ptExecuteEngine.getSessionManager().cleanup();
+    logger.info('session.cleanup', { module: 'execute', removed: executeRemoved });
 
     server.tool(
       'ges_execute',

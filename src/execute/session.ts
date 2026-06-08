@@ -19,6 +19,8 @@ import type {
   AuditResult,
 } from '../core/types.js';
 import { ExecuteSessionNotFoundError } from '../core/errors.js';
+import { DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
+import { logger } from '../core/logger.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { ExecuteSessionRepository } from './repository.js';
@@ -72,7 +74,31 @@ export class ExecuteSessionManager {
       codeGraphRepoRoot: opts.codeGraphRepoRoot,
     });
 
+    logger.info('execute.started', {
+      module: 'execute',
+      sessionId: session.sessionId,
+      specId: spec.metadata.specId,
+      acCount: spec.acceptanceCriteria.length,
+    });
+
     return session;
+  }
+
+  /**
+   * updatedAt(마지막 활동) 기준으로 ttlMs를 초과한 인메모리 세션을 제거한다.
+   * SQLite 이벤트 원장은 보존되므로 재시작 시 loadFromStore로 복원 가능.
+   * @returns 제거된 세션 수
+   */
+  cleanup(ttlMs = DEFAULT_SESSION_TTL_MS): number {
+    const now = Date.now();
+    let removed = 0;
+    for (const [id, session] of this.sessions) {
+      if (now - new Date(session.updatedAt).getTime() > ttlMs) {
+        this.sessions.delete(id);
+        removed++;
+      }
+    }
+    return removed;
   }
 
   get(sessionId: string): ExecuteSession {
@@ -149,6 +175,13 @@ export class ExecuteSessionManager {
       status: taskResult.status,
       output: taskResult.output,
       artifacts: taskResult.artifacts,
+    });
+
+    logger.info('execute.task_completed', {
+      module: 'execute',
+      sessionId,
+      taskId: taskResult.taskId,
+      status: taskResult.status,
     });
   }
 
@@ -228,6 +261,13 @@ export class ExecuteSessionManager {
 
     this.eventStore.append('execute', sessionId, EventType.EXECUTE_SESSION_COMPLETED, {
       overallScore: evaluationResult.overallScore,
+    });
+
+    logger.info('execute.completed', {
+      module: 'execute',
+      sessionId,
+      overallScore: evaluationResult.overallScore,
+      goalAlignment: evaluationResult.goalAlignment,
     });
   }
 
@@ -433,6 +473,12 @@ export class ExecuteSessionManager {
     session.updatedAt = new Date().toISOString();
 
     this.eventStore.append('execute', sessionId, EventType.EXECUTE_SESSION_FAILED, {
+      reason,
+    });
+
+    logger.warn('execute.failed', {
+      module: 'execute',
+      sessionId,
       reason,
     });
   }
