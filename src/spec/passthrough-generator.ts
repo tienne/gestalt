@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { InterviewSession, Spec, InterviewRound } from '../core/types.js';
 import { ResolutionThresholdError, SpecGenerationError } from '../core/errors.js';
 import { RESOLUTION_THRESHOLD } from '../core/constants.js';
+import { logger } from '../core/logger.js';
 import { type Result, ok, err } from '../core/result.js';
 import { specSchema } from './schema.js';
 import { EventStore } from '../events/store.js';
@@ -118,6 +119,12 @@ export class PassthroughSpecGenerator {
         source: 'passthrough',
       });
 
+      logger.info('spec.generated', {
+        module: 'spec',
+        sessionId: session.sessionId,
+        specId: spec.metadata.specId,
+      });
+
       return ok(spec);
     } catch (e) {
       return err(
@@ -156,6 +163,12 @@ export class PassthroughSpecGenerator {
         constraintCount: spec.constraints.length,
         criteriaCount: spec.acceptanceCriteria.length,
         source: 'text',
+      });
+
+      logger.info('spec.generated', {
+        module: 'spec',
+        sessionId: TEXT_INPUT_SESSION_ID,
+        specId: spec.metadata.specId,
       });
 
       return ok(spec);

@@ -17,6 +17,7 @@ import {
   buildReExecutionPrompt,
 } from '../prompts.js';
 import { DRIFT_THRESHOLD } from '../../core/constants.js';
+import { logger } from '../../core/logger.js';
 import { validateSpecPatch } from '../spec-patch-validator.js';
 import { applySpecPatch } from '../spec-patch-applier.js';
 import { identifyImpactedTasks } from '../impact-identifier.js';
@@ -188,6 +189,12 @@ export class EvolutionOrchestrator {
             ...session.evolutionHistory.map((g) => g.evaluationScore),
             session.evaluationResult!.overallScore,
           ),
+        });
+
+        logger.warn('execute.human_escalation', {
+          module: 'execute',
+          sessionId,
+          triedPersonas: session.lateralTriedPersonas,
         });
 
         const blockedTask = session.executionPlan?.atomicTasks.find(
@@ -416,6 +423,12 @@ export class EvolutionOrchestrator {
           ...session.evolutionHistory.map((g) => g.evaluationScore),
           session.evaluationResult.overallScore,
         ),
+      });
+
+      logger.warn('execute.human_escalation', {
+        module: 'execute',
+        sessionId,
+        triedPersonas: session.lateralTriedPersonas,
       });
 
       const blockedTask = session.executionPlan?.atomicTasks.find(
