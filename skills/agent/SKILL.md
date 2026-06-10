@@ -70,6 +70,20 @@ Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 | `performance-reviewer` | Memory leaks, N+1 queries, bundle size, async |
 | `quality-reviewer` | Readability, SOLID, error handling, DRY |
 
+## Proactive Invocation
+
+이 스킬은 사용자가 `/agent`를 명시하지 않아도 아래 상황에서 자동으로 실행된다. CLAUDE.md의 Role Agent 자동 라우팅 규칙에 따라 적절한 에이전트를 선택해 실행한다.
+
+- 영상·비디오 URL 포함 또는 "요약해줘" → `video-summarizer`
+- 번역투·AI 말투 교정 → `humanize-monolith`
+- 문서·README·가이드 작성 → `technical-writer`
+- 슬라이드·발표자료 → `presentation-designer`
+- 보안 검토 → `security-reviewer`
+- 성능 분석 → `performance-reviewer`
+- 코드 리뷰 → `quality-reviewer`
+
+에이전트 이름 없이 태스크 설명만 있는 경우: `ges_agent({ action: "list" })`로 전체 목록을 조회한 뒤 설명과 domain을 기반으로 가장 적합한 에이전트를 자동 선택한다.
+
 ## Instructions
 
 ### Listing agents

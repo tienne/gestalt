@@ -40,6 +40,27 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 설정 레퍼런스 → [`docs/configuration.md`](./docs/configuration.md)
 코드 그래프 → [`docs/code-graph.md`](./docs/code-graph.md)
 
+## Role Agent 자동 라우팅
+
+아래 상황에서는 사용자가 명시적으로 에이전트를 지정하지 않아도 해당 에이전트를 proactively 사용한다. `/agent [이름] "태스크"` 또는 `ges_agent` MCP 도구로 호출한다.
+
+| 상황 | 에이전트 |
+|------|---------|
+| 영상/비디오 URL이 포함되거나 "요약해줘" 요청 | `video-summarizer` |
+| 번역투·AI 말투·어색한 한국어 교정 요청 | `humanize-monolith` |
+| README, API 문서, 가이드, 개발자 문서 작성 | `technical-writer` |
+| 슬라이드·발표자료·프레젠테이션 제작 | `presentation-designer` |
+| 시스템 설계, 아키텍처 리뷰, 설계 패턴 | `architect` |
+| 보안 취약점, 인증/인가, 시크릿 노출 검토 | `security-reviewer` |
+| 성능 병목, N+1, 메모리 누수 분석 | `performance-reviewer` |
+| 코드 가독성, SOLID, 에러 처리 리뷰 | `quality-reviewer` |
+| 테스트 케이스, 엣지 케이스, QA | `qa-engineer` |
+| UI, React, 접근성, 컴포넌트 설계 | `frontend-developer` |
+| API, DB, 인증, 서버 로직 | `backend-developer` |
+| CI/CD, 인프라, 모니터링 | `devops-engineer` |
+| 요구사항 정리, 로드맵, 유저 스토리 | `product-planner` |
+| 기술 분석, 벤치마크, 사례 조사 | `researcher` |
+
 ## Project Structure
 ```
 src/core/        — types, errors, Result monad, config, constants
