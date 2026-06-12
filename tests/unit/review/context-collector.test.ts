@@ -85,4 +85,48 @@ describe('ReviewContextCollector', () => {
     expect(ctx.spec).toBe(mockSpec);
     expect(ctx.taskResults).toBe(taskResults);
   });
+
+  describe('collectFromFiles (direct review)', () => {
+    it('returns a ReviewContext from a file list without execute session', () => {
+      const ctx = collector.collectFromFiles(
+        ['src/auth/jwt.ts', 'src/auth/middleware.ts'],
+        '/repo',
+      );
+
+      expect(ctx.changedFiles).toEqual(['src/auth/jwt.ts', 'src/auth/middleware.ts']);
+      expect(ctx.dependencyFiles).toEqual([]);
+    });
+
+    it('leaves spec and taskResults undefined', () => {
+      const ctx = collector.collectFromFiles(['src/a.ts'], '/repo');
+
+      expect(ctx.spec).toBeUndefined();
+      expect(ctx.taskResults).toBeUndefined();
+    });
+
+    it('returns changedFiles sorted', () => {
+      const ctx = collector.collectFromFiles(
+        ['src/z.ts', 'src/a.ts', 'src/m.ts'],
+        '/repo',
+      );
+
+      expect(ctx.changedFiles).toEqual(['src/a.ts', 'src/m.ts', 'src/z.ts']);
+    });
+
+    it('does not mutate the input array', () => {
+      const input = ['src/z.ts', 'src/a.ts'];
+      collector.collectFromFiles(input, '/repo');
+
+      expect(input).toEqual(['src/z.ts', 'src/a.ts']);
+    });
+
+    it('handles an empty file list', () => {
+      const ctx = collector.collectFromFiles([], '/repo');
+
+      expect(ctx.changedFiles).toEqual([]);
+      expect(ctx.dependencyFiles).toEqual([]);
+      expect(ctx.spec).toBeUndefined();
+      expect(ctx.taskResults).toBeUndefined();
+    });
+  });
 });

@@ -132,7 +132,7 @@ describe('PassthroughReviewEngine', () => {
       const session = createMockExecuteSession();
       const { roleAgents, reviewAgents } = createMockAgents();
 
-      const result = engine.startReview(session, roleAgents, reviewAgents);
+      const result = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -150,7 +150,7 @@ describe('PassthroughReviewEngine', () => {
       const session = createMockExecuteSession();
       const { roleAgents, reviewAgents } = createMockAgents();
 
-      const result = engine.startReview(session, roleAgents, reviewAgents);
+      const result = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
       if (!result.ok) return;
 
       const agents = result.value.reviewStartContext.matchContext.availableAgents;
@@ -158,13 +158,62 @@ describe('PassthroughReviewEngine', () => {
       expect(categories).toContain('role-agent');
       expect(categories).toContain('review-specialist');
     });
+
+    it('starts a direct review from changedFiles + repoRoot (no execute session)', () => {
+      const { roleAgents, reviewAgents } = createMockAgents();
+
+      const result = engine.startReview(
+        { changedFiles: ['src/auth/jwt.ts', 'src/auth/middleware.ts'], repoRoot: '/repo' },
+        roleAgents,
+        reviewAgents,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.value.sessionId).toBeDefined();
+      expect(result.value.reviewStartContext.reviewContext.changedFiles).toEqual([
+        'src/auth/jwt.ts',
+        'src/auth/middleware.ts',
+      ]);
+      // Direct review has no spec/taskResults
+      expect(result.value.reviewStartContext.reviewContext.spec).toBeUndefined();
+      expect(result.value.reviewStartContext.reviewContext.taskResults).toBeUndefined();
+    });
+
+    it('uses empty-string sentinel for executeSessionId in direct review', () => {
+      const { roleAgents, reviewAgents } = createMockAgents();
+
+      const result = engine.startReview(
+        { changedFiles: ['src/a.ts'], repoRoot: '/repo' },
+        roleAgents,
+        reviewAgents,
+      );
+      if (!result.ok) return;
+
+      const session = engine.getSession(result.value.sessionId);
+      expect(session.executeSessionId).toBe('');
+    });
+
+    it('falls back to "Direct file review" goal when spec is absent', () => {
+      const { roleAgents, reviewAgents } = createMockAgents();
+
+      const result = engine.startReview(
+        { changedFiles: ['src/a.ts'], repoRoot: '/repo' },
+        roleAgents,
+        reviewAgents,
+      );
+      if (!result.ok) return;
+
+      expect(result.value.reviewStartContext.reviewPrompt).toContain('Direct file review');
+    });
   });
 
   describe('submitReview', () => {
     it('stores individual review result', () => {
       const session = createMockExecuteSession();
       const { roleAgents, reviewAgents } = createMockAgents();
-      const startResult = engine.startReview(session, roleAgents, reviewAgents);
+      const startResult = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
       if (!startResult.ok) return;
 
       const reviewSessionId = startResult.value.sessionId;
@@ -193,7 +242,7 @@ describe('PassthroughReviewEngine', () => {
     it('tags issues with reporter name', () => {
       const session = createMockExecuteSession();
       const { roleAgents, reviewAgents } = createMockAgents();
-      const startResult = engine.startReview(session, roleAgents, reviewAgents);
+      const startResult = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
       if (!startResult.ok) return;
 
       engine.submitReview(startResult.value.sessionId, 'architect', {
@@ -232,7 +281,7 @@ describe('PassthroughReviewEngine', () => {
     it('approves when no critical/high issues', () => {
       const session = createMockExecuteSession();
       const { roleAgents, reviewAgents } = createMockAgents();
-      const startResult = engine.startReview(session, roleAgents, reviewAgents);
+      const startResult = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
       if (!startResult.ok) return;
 
       const result = engine.submitConsensus(startResult.value.sessionId, createCleanConsensus());
@@ -248,7 +297,7 @@ describe('PassthroughReviewEngine', () => {
     it('blocks when critical/high issues exist', () => {
       const session = createMockExecuteSession();
       const { roleAgents, reviewAgents } = createMockAgents();
-      const startResult = engine.startReview(session, roleAgents, reviewAgents);
+      const startResult = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
       if (!startResult.ok) return;
 
       const result = engine.submitConsensus(startResult.value.sessionId, createBlockedConsensus());
@@ -264,7 +313,7 @@ describe('PassthroughReviewEngine', () => {
     it('allows warnings without blocking', () => {
       const session = createMockExecuteSession();
       const { roleAgents, reviewAgents } = createMockAgents();
-      const startResult = engine.startReview(session, roleAgents, reviewAgents);
+      const startResult = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
       if (!startResult.ok) return;
 
       const warningOnlyConsensus: ReviewConsensusResult = {
@@ -294,7 +343,7 @@ describe('PassthroughReviewEngine', () => {
     it('generates markdown report', () => {
       const session = createMockExecuteSession();
       const { roleAgents, reviewAgents } = createMockAgents();
-      const startResult = engine.startReview(session, roleAgents, reviewAgents);
+      const startResult = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
       if (!startResult.ok) return;
 
       const result = engine.submitConsensus(startResult.value.sessionId, createBlockedConsensus());
@@ -311,7 +360,7 @@ describe('PassthroughReviewEngine', () => {
       const engine = new PassthroughReviewEngine();
       const session = createMockExecuteSession();
       const { roleAgents, reviewAgents } = createMockAgents();
-      const startResult = engine.startReview(session, roleAgents, reviewAgents);
+      const startResult = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
       if (!startResult.ok) throw new Error('start failed');
       engine.submitConsensus(startResult.value.sessionId, createBlockedConsensus());
       return { engine, reviewSessionId: startResult.value.sessionId };
@@ -418,8 +467,12 @@ describe('PassthroughReviewEngine', () => {
       const session = createMockExecuteSession();
       const { roleAgents, reviewAgents } = createMockAgents();
 
-      engine.startReview(session, roleAgents, reviewAgents);
-      engine.startReview({ ...session, sessionId: 'exec-2' }, roleAgents, reviewAgents);
+      engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
+      engine.startReview(
+        { executeSession: { ...session, sessionId: 'exec-2' } },
+        roleAgents,
+        reviewAgents,
+      );
 
       expect(engine.listSessions()).toHaveLength(2);
     });
@@ -427,7 +480,7 @@ describe('PassthroughReviewEngine', () => {
     it('sets status to passed on clean consensus', () => {
       const session = createMockExecuteSession();
       const { roleAgents, reviewAgents } = createMockAgents();
-      const startResult = engine.startReview(session, roleAgents, reviewAgents);
+      const startResult = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
       if (!startResult.ok) return;
 
       engine.submitConsensus(startResult.value.sessionId, createCleanConsensus());
