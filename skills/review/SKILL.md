@@ -1,7 +1,7 @@
 ---
 name: review
 version: "1.0.0"
-description: "PR·브랜치·커밋의 변경사항을 3종 리뷰 에이전트(보안·성능·품질)로 검토한다."
+description: "PR·브랜치·커밋의 변경사항을 3종 리뷰 에이전트(보안·성능·품질)로 검토하고, humanize-monolith로 리포트를 자연스러운 한국어로 다듬는다."
 triggers:
   - "PR 리뷰"
   - "브랜치 리뷰"
@@ -128,7 +128,15 @@ ges_execute {
 }
 ```
 
-응답의 `report`(마크다운)를 사용자에게 그대로 표시합니다.
+응답의 `report`(마크다운)를 4.5단계로 넘깁니다.
+
+### 4.5단계: 리포트 워싱 (humanize-monolith)
+
+`review_consensus`가 반환한 마크다운 리포트를 `humanize-monolith` 에이전트로 전달해 AI 말투·번역투를 제거합니다.
+
+`ges_agent { action: "get", name: "humanize-monolith" }`로 에이전트 시스템 프롬프트를 가져온 뒤, 해당 관점에서 리포트를 윤문합니다. 이슈 내용(severity·file·line·message)은 수정하지 않고, 설명 문장의 어투만 자연스럽게 다듬습니다.
+
+윤문된 리포트를 사용자에게 표시합니다:
 - `approved: true` → 리뷰 통과. 리포트를 보여주고 종료합니다.
 - `approved: false` → critical/high 이슈가 남아 Block 상태입니다. 5단계로 진행합니다.
 
