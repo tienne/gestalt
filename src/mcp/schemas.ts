@@ -135,6 +135,11 @@ export const executeInputSchema = z.object({
     .optional()
     .describe('Spec specification (required for start)'),
   sessionId: z.string().optional().describe('Execute session ID'),
+  changedFiles: z
+    .array(z.string())
+    .optional()
+    .describe('Changed file paths for direct review (without execute session)'),
+  repoRoot: z.string().optional().describe('Repository root for direct review mode'),
   codeGraphRepoRoot: z
     .string()
     .optional()

@@ -472,8 +472,8 @@ export interface ReviewReport {
 export interface ReviewContext {
   changedFiles: string[];
   dependencyFiles: string[];
-  spec: Spec;
-  taskResults: TaskExecutionResult[];
+  spec?: Spec;
+  taskResults?: TaskExecutionResult[];
 }
 
 export interface ReviewSession {
