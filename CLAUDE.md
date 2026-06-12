@@ -60,6 +60,7 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | CI/CD, 인프라, 모니터링 | `devops-engineer` |
 | 요구사항 정리, 로드맵, 유저 스토리 | `product-planner` |
 | 기술 분석, 벤치마크, 사례 조사 | `researcher` |
+| PR·브랜치·커밋 코드 리뷰 요청 | `/review` 스킬 사용 |
 
 ## Project Structure
 ```
