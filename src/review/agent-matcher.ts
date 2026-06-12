@@ -61,7 +61,7 @@ Respond with ONLY a JSON object:
 
     const matchingPrompt = `## Code Review Agent Matching
 
-**Spec Goal**: ${reviewContext.spec.goal}
+**Spec Goal**: ${reviewContext.spec?.goal ?? 'Direct file review'}
 
 **Changed Files** (${reviewContext.changedFiles.length}):
   ${fileList}
@@ -69,7 +69,7 @@ Respond with ONLY a JSON object:
 **Dependency Context** (${reviewContext.dependencyFiles.length}):
   ${depList}
 
-**Task Results Summary**: ${reviewContext.taskResults.length} tasks completed
+**Task Results Summary**: ${reviewContext.taskResults?.length ?? 0} tasks completed
 
 **Available Agents** (${availableAgents.length}):
 ${agentList}

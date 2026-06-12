@@ -43,14 +43,27 @@ export class PassthroughReviewEngine {
 
   // ─── review_start ─────────────────────────────────────────────
   startReview(
-    executeSession: ExecuteSession,
+    source: { executeSession: ExecuteSession } | { changedFiles: string[]; repoRoot: string },
     roleAgents: AgentDefinition[],
     reviewAgents: AgentDefinition[],
   ): Result<{ sessionId: string; reviewStartContext: ReviewStartContext }> {
-    const reviewContext = this.contextCollector.collect(
-      executeSession.spec,
-      executeSession.taskResults,
-    );
+    let reviewContext: ReviewContext;
+    let executeSessionId: string;
+
+    if ('executeSession' in source) {
+      reviewContext = this.contextCollector.collect(
+        source.executeSession.spec,
+        source.executeSession.taskResults,
+      );
+      executeSessionId = source.executeSession.sessionId;
+    } else {
+      reviewContext = this.contextCollector.collectFromFiles(
+        source.changedFiles,
+        source.repoRoot,
+      );
+      // Sentinel: direct file review has no backing execute session
+      executeSessionId = '';
+    }
 
     const matchContext = this.agentMatcher.generateMatchContext(
       reviewContext,
@@ -61,7 +74,7 @@ export class PassthroughReviewEngine {
     const sessionId = randomUUID();
     const session: ReviewSession = {
       sessionId,
-      executeSessionId: executeSession.sessionId,
+      executeSessionId,
       status: 'started',
       currentAttempt: 0,
       maxAttempts: MAX_REVIEW_ATTEMPTS,
@@ -76,7 +89,7 @@ export class PassthroughReviewEngine {
     this.sessions.set(sessionId, session);
 
     this.emitEvent(sessionId, EventType.REVIEW_STARTED, {
-      executeSessionId: executeSession.sessionId,
+      executeSessionId,
       changedFiles: reviewContext.changedFiles.length,
       dependencyFiles: reviewContext.dependencyFiles.length,
     });
@@ -109,9 +122,14 @@ Respond with ONLY a JSON object:
   "summary": "Overall assessment"
 }`;
 
+    const constraintsBlock =
+      reviewContext.spec && reviewContext.spec.constraints.length > 0
+        ? reviewContext.spec.constraints.map((c) => `  - ${c}`).join('\n')
+        : '  (none)';
+
     const reviewPrompt = `## Code Review
 
-**Spec Goal**: ${reviewContext.spec.goal}
+**Spec Goal**: ${reviewContext.spec?.goal ?? 'Direct file review'}
 
 **Changed Files** (${reviewContext.changedFiles.length}):
 ${reviewContext.changedFiles.map((f) => `  - ${f}`).join('\n')}
@@ -120,7 +138,7 @@ ${reviewContext.changedFiles.map((f) => `  - ${f}`).join('\n')}
 ${reviewContext.dependencyFiles.map((f) => `  - ${f}`).join('\n')}
 
 **Constraints**:
-${reviewContext.spec.constraints.map((c) => `  - ${c}`).join('\n')}
+${constraintsBlock}
 
 Review the code changes from your assigned perspective. Focus on issues that matter, not nitpicks.`;
 

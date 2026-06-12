@@ -13,6 +13,15 @@ export class ReviewContextCollector {
     };
   }
 
+  collectFromFiles(changedFiles: string[], _repoRoot: string): ReviewContext {
+    return {
+      changedFiles: [...changedFiles].sort(),
+      dependencyFiles: [],
+      spec: undefined,
+      taskResults: undefined,
+    };
+  }
+
   private extractChangedFiles(taskResults: TaskExecutionResult[]): string[] {
     const files = new Set<string>();
 

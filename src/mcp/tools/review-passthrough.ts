@@ -34,17 +34,23 @@ function handleReviewStart(
   roleAgentRegistry: RoleAgentRegistry | undefined,
   input: ExecuteInput,
 ): string {
-  if (!input.sessionId) {
-    return JSON.stringify({ error: 'sessionId (execute session) is required for review_start' });
+  if (!input.sessionId && !(input.changedFiles?.length && input.repoRoot)) {
+    return JSON.stringify({
+      error:
+        'review_start requires either sessionId (execute session) or changedFiles + repoRoot (direct review)',
+    });
   }
 
-  const executeSession = executeEngine.getSession(input.sessionId);
   const roleAgents = roleAgentRegistry?.getAll() ?? [];
   // Get review-specific agents from role agent registry (pipeline: review)
   const allRoleAgents = roleAgentRegistry?.getAll() ?? [];
   const reviewAgents = allRoleAgents.filter((a) => a.frontmatter.pipeline === 'review');
 
-  const result = reviewEngine.startReview(executeSession, roleAgents, reviewAgents);
+  const source = input.sessionId
+    ? { executeSession: executeEngine.getSession(input.sessionId) }
+    : { changedFiles: input.changedFiles!, repoRoot: input.repoRoot! };
+
+  const result = reviewEngine.startReview(source, roleAgents, reviewAgents);
   if (!result.ok) return JSON.stringify({ error: result.error.message });
 
   const { sessionId, reviewStartContext } = result.value;
@@ -53,7 +59,7 @@ function handleReviewStart(
     {
       status: 'review_started',
       reviewSessionId: sessionId,
-      executeSessionId: input.sessionId,
+      executeSessionId: input.sessionId ?? null,
       reviewStartContext: {
         systemPrompt: reviewStartContext.systemPrompt,
         reviewPrompt: reviewStartContext.reviewPrompt,
