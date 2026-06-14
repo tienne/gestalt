@@ -80,18 +80,8 @@ export async function generateFromCodeGraph(
     `knowledge-base generator: ${stats.totalFiles} files, ${stats.totalNodes} nodes in graph`,
   );
 
-  // CodeGraphEngine 내부 store에 직접 접근하는 대신 searchByKeywords('') 우회로를
-  // 사용하면 API 변경에 취약하므로, 엔진을 통해 stats를 얻은 뒤
-  // getStore().getAllNodes()에 해당하는 public searchByKeywords를 활용한다.
-  // File 노드만 필요하므로 빈 키워드 검색 대신 전체 노드를 얻는 방법이 없기 때문에
-  // blast_radius 없이 engine.build() 시 생성된 File 노드만 직접 조회한다.
-  // → private store에 접근하지 않고, searchByKeywords([''])로 모든 파일경로를 수집한다.
-  const allFilePaths = engine.searchByKeywords(repoRoot, ['']);
+  const allFilePaths = engine.listAllFiles(repoRoot);
 
-  // searchByKeywords가 match 없으면 빈 배열을 반환하므로, stats.totalFiles > 0 이지만
-  // 키워드가 공백이면 결과가 없을 수 있다. 이 경우 모든 File 노드를 가져오는
-  // 대안: 빈 문자열 하나짜리 검색 대신 단일 공통 확장자 패턴 목록을 사용한다.
-  // 실제로는 `searchByKeywords`가 includes('')로 모든 경로에 매칭되므로 동작한다.
   log(`knowledge-base generator: ${allFilePaths.length} file paths collected`);
 
   const now = new Date().toISOString();
