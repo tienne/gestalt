@@ -243,15 +243,17 @@ ges_execute({ action: "start", spec: { /* ... */ }, codeGraphRepoRoot: "/path/to
 
 ## 지원 언어 플러그인 (8개)
 
-| 언어 | 확장자 | 비고 |
-|------|--------|------|
-| TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` | TypeScript Compiler API 사용 (Tree-sitter 불필요) |
-| Python | `.py` | — |
-| Go | `.go` | — |
-| Java | `.java` | — |
-| Kotlin | `.kt` | — |
-| Rust | `.rs` | — |
-| Swift | `.swift` | — |
-| Objective-C | `.m`, `.h` | — |
+| 언어 | 확장자 | 지원 수준 |
+|------|--------|----------|
+| TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` | 1급 지원 — TypeScript Compiler API 기반 AST 정적 분석. 함수·클래스·타입·import 엣지 완전 추출. |
+| Python | `.py` | 정규식 기반 best-effort — 함수·클래스·import 기본 추출. 동적 require·타입 전용 import·매크로 미지원. |
+| Go | `.go` | 정규식 기반 best-effort — 함수·클래스·import 기본 추출. 동적 require·타입 전용 import·매크로 미지원. |
+| Java | `.java` | 정규식 기반 best-effort — 함수·클래스·import 기본 추출. 동적 require·타입 전용 import·매크로 미지원. |
+| Kotlin | `.kt` | 정규식 기반 best-effort — 함수·클래스·import 기본 추출. 동적 require·타입 전용 import·매크로 미지원. |
+| Rust | `.rs` | 정규식 기반 best-effort — 함수·클래스·import 기본 추출. 동적 require·타입 전용 import·매크로 미지원. |
+| Swift | `.swift` | 정규식 기반 best-effort — 함수·클래스·import 기본 추출. 동적 require·타입 전용 import·매크로 미지원. |
+| Objective-C | `.m`, `.h` | 정규식 기반 best-effort — 함수·클래스·import 기본 추출. 동적 require·타입 전용 import·매크로 미지원. |
+
+> **지원 수준 안내**: TypeScript/JavaScript는 컴파일러 API 기반으로 정확한 분석을 제공합니다. 나머지 언어는 정규식 기반 휴리스틱으로, 기본적인 함수·클래스·import 추출은 가능하나 복잡한 패턴(동적 import, 매크로, 메타프로그래밍)은 누락될 수 있습니다.
 
 각 플러그인 인터페이스: `{ language, extensions[], parse(filePath) → { nodes, edges } }`
