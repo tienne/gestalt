@@ -3,8 +3,11 @@ import { EventStore } from '../../events/store.js';
 import { createAdapter } from '../../llm/factory.js';
 import { InterviewEngine } from '../../interview/engine.js';
 import { SpecGenerator } from '../../spec/generator.js';
+import { logger } from '../../core/logger.js';
 
 export async function specCommand(sessionId: string, options: { force?: boolean }): Promise<void> {
+  logger.info('cli.spec', { module: 'cli/spec', sessionId, force: options.force ?? false });
+
   const config = loadConfig();
 
   if (!config.llm.apiKey) {

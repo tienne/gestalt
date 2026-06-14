@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { codeGraphEngine } from '../../code-graph/index.js';
 import { gitHookManager } from '../../code-graph/git-hook.js';
+import { logger } from '../../core/logger.js';
 
 const CONFIG_FILENAME = 'gestalt.json';
 
@@ -31,6 +32,13 @@ export async function initCommand(options: {
 }): Promise<void> {
   const repoRoot = process.cwd();
   const filePath = resolve(repoRoot, CONFIG_FILENAME);
+
+  logger.info('cli.init', {
+    module: 'cli/init',
+    repoRoot,
+    skipGraph: options.skipGraph ?? false,
+    skipHook: options.skipHook ?? false,
+  });
 
   const totalSteps = 3;
   let completedSteps = 0;

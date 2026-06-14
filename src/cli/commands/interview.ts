@@ -3,8 +3,11 @@ import { loadConfig } from '../../core/config.js';
 import { EventStore } from '../../events/store.js';
 import { createAdapter } from '../../llm/factory.js';
 import { InterviewEngine } from '../../interview/engine.js';
+import { logger } from '../../core/logger.js';
 
 export async function interviewCommand(topic: string): Promise<void> {
+  logger.info('cli.interview', { module: 'cli/interview', topic });
+
   const config = loadConfig();
 
   if (!config.llm.apiKey) {
