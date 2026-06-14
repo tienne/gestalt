@@ -29,6 +29,7 @@
     "test:watch": "vitest",
     "serve": "tsx bin/gestalt.ts serve",
     "bench": "tsx benchmarks/run.ts",
+    "resolution-bench": "tsx benchmarks/run-resolution-benchmark.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",

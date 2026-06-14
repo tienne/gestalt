@@ -1,0 +1,146 @@
+{
+  "version": "1.0.0",
+  "description": "Gestalt resolution benchmark golden set — 20 ambiguous requirements across domains and ambiguity levels",
+  "requirements": [
+    {
+      "id": "req-001",
+      "text": "사용자 인증 시스템을 만들어줘",
+      "domain": "auth",
+      "ambiguityLevel": "high",
+      "expectedResolutionRange": { "min": 0.15, "max": 0.35 }
+    },
+    {
+      "id": "req-002",
+      "text": "JWT를 사용한 사용자 로그인/로그아웃 API를 만들어줘. 토큰 만료는 1시간, 리프레시 토큰은 7일. PostgreSQL에 세션 저장.",
+      "domain": "auth",
+      "ambiguityLevel": "low",
+      "expectedResolutionRange": { "min": 0.70, "max": 0.90 }
+    },
+    {
+      "id": "req-003",
+      "text": "대시보드를 만들어줘",
+      "domain": "frontend",
+      "ambiguityLevel": "very-high",
+      "expectedResolutionRange": { "min": 0.05, "max": 0.20 }
+    },
+    {
+      "id": "req-004",
+      "text": "결제 시스템을 연동해야 해",
+      "domain": "payments",
+      "ambiguityLevel": "high",
+      "expectedResolutionRange": { "min": 0.10, "max": 0.30 }
+    },
+    {
+      "id": "req-005",
+      "text": "Stripe를 이용해 신용카드 결제를 처리하는 API를 만들어줘. 웹훅으로 결제 완료/실패 이벤트를 받고, 실패 시 3회까지 재시도.",
+      "domain": "payments",
+      "ambiguityLevel": "low",
+      "expectedResolutionRange": { "min": 0.65, "max": 0.85 }
+    },
+    {
+      "id": "req-006",
+      "text": "알림 기능을 추가하고 싶어",
+      "domain": "notifications",
+      "ambiguityLevel": "very-high",
+      "expectedResolutionRange": { "min": 0.05, "max": 0.20 }
+    },
+    {
+      "id": "req-007",
+      "text": "데이터를 빠르게 조회하고 싶어",
+      "domain": "performance",
+      "ambiguityLevel": "very-high",
+      "expectedResolutionRange": { "min": 0.05, "max": 0.25 }
+    },
+    {
+      "id": "req-008",
+      "text": "상품 목록 페이지에서 검색·필터·페이지네이션을 구현해줘. 검색은 제목+설명 full-text, 필터는 카테고리·가격 범위, 페이지당 20개.",
+      "domain": "ecommerce",
+      "ambiguityLevel": "low",
+      "expectedResolutionRange": { "min": 0.68, "max": 0.88 }
+    },
+    {
+      "id": "req-009",
+      "text": "파일 업로드 기능이 필요해",
+      "domain": "file-management",
+      "ambiguityLevel": "high",
+      "expectedResolutionRange": { "min": 0.15, "max": 0.35 }
+    },
+    {
+      "id": "req-010",
+      "text": "사용자가 이미지를 올리면 S3에 저장하고, 썸네일(300×300)을 자동 생성해서 CDN URL을 반환하는 API를 만들어줘. 파일 크기 제한 10MB.",
+      "domain": "file-management",
+      "ambiguityLevel": "low",
+      "expectedResolutionRange": { "min": 0.72, "max": 0.92 }
+    },
+    {
+      "id": "req-011",
+      "text": "채팅 기능을 구현해줘",
+      "domain": "realtime",
+      "ambiguityLevel": "very-high",
+      "expectedResolutionRange": { "min": 0.08, "max": 0.25 }
+    },
+    {
+      "id": "req-012",
+      "text": "코드 리뷰 도구를 만들어줘",
+      "domain": "developer-tools",
+      "ambiguityLevel": "high",
+      "expectedResolutionRange": { "min": 0.12, "max": 0.30 }
+    },
+    {
+      "id": "req-013",
+      "text": "GitHub PR에 자동으로 코드 스타일 위반을 코멘트로 달아주는 봇을 만들어줘. ESLint 규칙 기준, 파일당 최대 5개 코멘트.",
+      "domain": "developer-tools",
+      "ambiguityLevel": "medium",
+      "expectedResolutionRange": { "min": 0.50, "max": 0.70 }
+    },
+    {
+      "id": "req-014",
+      "text": "보안을 강화하고 싶어",
+      "domain": "security",
+      "ambiguityLevel": "very-high",
+      "expectedResolutionRange": { "min": 0.05, "max": 0.20 }
+    },
+    {
+      "id": "req-015",
+      "text": "API 요청에 rate limiting을 적용해줘",
+      "domain": "security",
+      "ambiguityLevel": "medium",
+      "expectedResolutionRange": { "min": 0.35, "max": 0.55 }
+    },
+    {
+      "id": "req-016",
+      "text": "Redis를 이용해 IP 기준 분당 100회, 유저 기준 분당 500회 rate limiting을 구현해줘. 초과 시 429 응답과 Retry-After 헤더 포함.",
+      "domain": "security",
+      "ambiguityLevel": "low",
+      "expectedResolutionRange": { "min": 0.70, "max": 0.90 }
+    },
+    {
+      "id": "req-017",
+      "text": "마케팅 이메일을 보내고 싶어",
+      "domain": "marketing",
+      "ambiguityLevel": "high",
+      "expectedResolutionRange": { "min": 0.12, "max": 0.32 }
+    },
+    {
+      "id": "req-018",
+      "text": "모바일 앱을 만들어줘",
+      "domain": "mobile",
+      "ambiguityLevel": "very-high",
+      "expectedResolutionRange": { "min": 0.03, "max": 0.15 }
+    },
+    {
+      "id": "req-019",
+      "text": "주문 처리 워크플로를 자동화하고 싶어",
+      "domain": "ecommerce",
+      "ambiguityLevel": "high",
+      "expectedResolutionRange": { "min": 0.15, "max": 0.35 }
+    },
+    {
+      "id": "req-020",
+      "text": "주문 완료 후 재고 차감 → 배송사 API 호출 → 고객 이메일 발송을 순서대로 처리하되, 어느 단계든 실패 시 이전 단계를 롤백하는 saga 패턴을 구현해줘.",
+      "domain": "ecommerce",
+      "ambiguityLevel": "medium",
+      "expectedResolutionRange": { "min": 0.55, "max": 0.75 }
+    }
+  ]
+}

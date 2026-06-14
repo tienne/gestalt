@@ -1,0 +1,71 @@
+{
+  "version": "1.0.0",
+  "description": "LLM-as-judge rubric for measuring rework probability across resolution levels. Tests Gestalt's core hypothesis: high-resolution specs (≥0.8) reduce rework compared to low-resolution (0.5).",
+  "hypothesis": "해상도 0.8 스펙이 0.5 스펙보다 재작업률이 낮다",
+  "resolutionLevels": {
+    "low": {
+      "score": 0.5,
+      "description": "요구사항 텍스트만 존재. 모호한 상태. 컨텍스트 없음.",
+      "contextTemplate": "요구사항: {requirement}"
+    },
+    "mid": {
+      "score": 0.65,
+      "description": "요구사항 + 기본 제약조건 포함. 일부 명확화됨.",
+      "contextTemplate": "요구사항: {requirement}\n\n기본 제약조건:\n- 기술 스택: 미지정\n- 타임라인: 미지정\n- 팀 규모: 미지정\n- 우선순위: 미지정"
+    },
+    "high": {
+      "score": 0.8,
+      "description": "요구사항 + 상세 제약조건 + 명확한 성공 기준. 충분히 명확화됨.",
+      "contextTemplate": "요구사항: {requirement}\n\n상세 제약조건:\n- 구현 범위가 명확히 정의됨\n- 기술 선택 기준이 제시됨\n- 엣지 케이스가 식별됨\n- 비기능 요구사항 포함\n\n성공 기준:\n- 측정 가능한 완료 조건이 명시됨\n- 인수 테스트 시나리오가 제시됨\n- 예외 처리 방침이 정의됨"
+    }
+  },
+  "criteria": [
+    {
+      "id": "reproducibility",
+      "name": "재현성",
+      "weight": 0.30,
+      "description": "같은 스펙 입력에 대해 같은 점수를 안정적으로 산출할 수 있는가. Judge가 동일한 컨텍스트를 두 번 평가했을 때 reworkProbability 편차가 ±0.1 이내여야 한다.",
+      "scoringPrompt": "아래 소프트웨어 개발 요구사항 스펙을 읽고, 이 스펙을 기반으로 개발팀이 작업할 때 재작업(rework)이 필요할 확률을 0-1 사이로 평가하라. 1에 가까울수록 재작업 가능성이 높다. 평가 기준: 스펙이 모호할수록, 가정이 많이 필요할수록, 범위가 불명확할수록 재작업 확률이 높다."
+    },
+    {
+      "id": "monotonicity",
+      "name": "단조성",
+      "weight": 0.40,
+      "description": "해상도 점수가 높을수록 재작업 확률이 낮아야 한다. low(0.5) > mid(0.65) > high(0.8) 순으로 reworkProbability가 감소해야 한다. 이 기준을 위반하면 rubric 자체의 타당도가 낮다.",
+      "scoringPrompt": "해상도 수준(low/mid/high)에 따라 같은 요구사항을 평가하라. high 해상도 스펙은 low 해상도 스펙보다 반드시 낮은 재작업 확률을 보여야 한다. 해상도가 높을수록 개발자가 명확한 방향을 가질 수 있으므로 재작업이 줄어든다는 원리를 반영하라."
+    },
+    {
+      "id": "causality",
+      "name": "인과성",
+      "weight": 0.30,
+      "description": "Gestalt 인터뷰 사용 여부(해상도 차이)가 재작업률 차이의 원인임을 측정한다. low-to-high 해상도 전환 시 reworkProbability 감소폭이 통계적으로 유의미해야 한다 (평균 감소 > 0.15).",
+      "scoringPrompt": "스펙의 명확도가 재작업률에 미치는 영향을 독립적으로 평가하라. 같은 요구사항이더라도 스펙 품질(해상도)에 따라 개발자가 경험하는 불확실성이 달라진다는 점을 중심으로 평가하라. 다른 외부 요인(팀 실력, 기술 난이도 등)이 아닌 스펙 명확도 자체가 재작업률에 미치는 영향에 집중하라."
+    }
+  ],
+  "outputSchema": {
+    "reworkProbability": {
+      "type": "number",
+      "range": [0, 1],
+      "description": "이 스펙 기반으로 개발 시 재작업이 필요할 확률 (0=확실히 불필요, 1=확실히 필요)"
+    },
+    "confidence": {
+      "type": "number",
+      "range": [0, 1],
+      "description": "이 평가에 대한 judge의 확신도"
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "평가 근거 (2-3문장)"
+    },
+    "keyAmbiguities": {
+      "type": "array",
+      "items": "string",
+      "description": "재작업 유발 주요 모호성 목록"
+    }
+  },
+  "successThresholds": {
+    "minReworkReduction_lowToHigh": 0.15,
+    "minMonotonicityRate": 0.80,
+    "minReproducibilityScore": 0.90
+  }
+}

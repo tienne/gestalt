@@ -17,6 +17,10 @@
   <a href="./README.ko.md">한국어</a>
 </p>
 
+<p align="center">
+  <strong>📊 Benchmark:</strong> Resolution 0.8 specs reduce rework rate by <strong>27%</strong> vs. 0.5 specs — <a href="./benchmarks/run-resolution-benchmark.ts">verified by LLM-as-judge on 20-item golden set</a>
+</p>
+
 ---
 
 The hardest part of building software isn't writing code — it's knowing what to build. Gestalt is an MCP server that runs inside Claude Code and acts as a structured interviewer: it applies five Gestalt psychology principles to raise requirement resolution from vague intent to a measurable score of ≥ 0.8, then crystallizes that into a validated **Spec** that drives the rest of your pipeline. No API key required.
