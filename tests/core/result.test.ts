@@ -89,7 +89,10 @@ describe('Result monad', () => {
     });
 
     it('map 결과에 다시 map을 체인할 수 있다', () => {
-      const r = map(map(ok(1), (x) => x + 1), (x) => x * 10);
+      const r = map(
+        map(ok(1), (x) => x + 1),
+        (x) => x * 10,
+      );
       expect(isOk(r) && r.value).toBe(20);
     });
   });
@@ -222,7 +225,7 @@ describe('Result monad', () => {
       let mapCalled = false;
       const inner = new Error('inner fail');
       const r = map(
-        flatMap(ok(100), (_x) => err(inner) as ReturnType<typeof err<Error>>,),
+        flatMap(ok(100), (_x) => err(inner) as ReturnType<typeof err<Error>>),
         (_x: number) => {
           mapCalled = true;
           return _x + 1;

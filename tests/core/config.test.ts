@@ -186,10 +186,7 @@ describe('loadConfig — gestalt.json parsing', () => {
 
   it('reads dbPath from gestalt.json', () => {
     const customDbPath = join(tmpDir, 'custom.db');
-    writeFileSync(
-      join(tmpDir, 'gestalt.json'),
-      JSON.stringify({ dbPath: customDbPath }),
-    );
+    writeFileSync(join(tmpDir, 'gestalt.json'), JSON.stringify({ dbPath: customDbPath }));
     const config = withCwd(tmpDir, () => loadConfig({}, { skipDotEnv: true }));
     expect(config.dbPath).toBe(customDbPath);
   });
@@ -211,10 +208,7 @@ describe('loadConfig — environment variable priority', () => {
   });
 
   it('env var ANTHROPIC_API_KEY overrides gestalt.json', () => {
-    writeFileSync(
-      join(tmpDir, 'gestalt.json'),
-      JSON.stringify({ llm: { apiKey: 'from-json' } }),
-    );
+    writeFileSync(join(tmpDir, 'gestalt.json'), JSON.stringify({ llm: { apiKey: 'from-json' } }));
     process.env['ANTHROPIC_API_KEY'] = 'from-env';
     const config = withCwd(tmpDir, () => loadConfig({}, { skipDotEnv: true }));
     expect(config.llm.apiKey).toBe('from-env');
@@ -231,10 +225,7 @@ describe('loadConfig — environment variable priority', () => {
   });
 
   it('code override takes highest priority over env and gestalt.json', () => {
-    writeFileSync(
-      join(tmpDir, 'gestalt.json'),
-      JSON.stringify({ llm: { apiKey: 'from-json' } }),
-    );
+    writeFileSync(join(tmpDir, 'gestalt.json'), JSON.stringify({ llm: { apiKey: 'from-json' } }));
     process.env['ANTHROPIC_API_KEY'] = 'from-env';
     const config = withCwd(tmpDir, () =>
       loadConfig({ llm: { apiKey: 'from-override' } }, { skipDotEnv: true }),
