@@ -108,8 +108,8 @@ What you get:
 | Item | Details |
 |------|---------|
 | **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
-| **Slash Commands** | `/interview`, `/spec`, `/execute`, `/agent` |
-| **Agents** | 5 pipeline agents + 9 Role agents + 3 Review agents |
+| **Slash Commands** | `/interview`, `/spec`, `/execute`, `/agent`, `/review` |
+| **Agents** | 13 Role agents + 3 Review agents |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
 
 ---
