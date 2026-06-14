@@ -59,7 +59,9 @@ export function handleSpecPassthrough(
       return JSON.stringify(
         {
           status: 'prompt',
-          specContext: verbose ? context : stripSpecContextPrompts(context as unknown as Record<string, unknown>),
+          specContext: verbose
+            ? context
+            : stripSpecContextPrompts(context as unknown as Record<string, unknown>),
           message:
             'Use specContext.specPrompt with specContext.systemPrompt to generate the spec JSON, then call this tool again with both the text and spec parameters.',
         },
@@ -116,7 +118,9 @@ export function handleSpecPassthrough(
     return JSON.stringify(
       {
         status: 'prompt',
-        specContext: verbose ? context : stripSpecContextPrompts(context as unknown as Record<string, unknown>),
+        specContext: verbose
+          ? context
+          : stripSpecContextPrompts(context as unknown as Record<string, unknown>),
         message:
           'Use specContext.specPrompt with specContext.systemPrompt to generate the spec JSON, then call this tool again with the spec parameter.',
       },

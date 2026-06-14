@@ -4,7 +4,11 @@ import { writeKnowledgeBase } from '../../knowledge-base/writer.js';
 import { EmbeddingService } from '../../knowledge-base/embedding.js';
 import { saveEmbeddingIndex } from '../../knowledge-base/embedding-index.js';
 import { log } from '../../core/log.js';
-import type { KnowledgeEntryType, EmbeddingEntry, EmbeddingIndex } from '../../knowledge-base/types.js';
+import type {
+  KnowledgeEntryType,
+  EmbeddingEntry,
+  EmbeddingIndex,
+} from '../../knowledge-base/types.js';
 
 export interface GenerateKbInput {
   repoRoot?: string;
@@ -47,7 +51,7 @@ export async function handleGenerateKb(input: GenerateKbInput, cwd: string): Pro
     // 4. EmbeddingIndex 저장
     const index: EmbeddingIndex = {
       model: 'Xenova/all-MiniLM-L6-v2',
-      dimension: embeddingEntries.length > 0 ? (embeddingEntries[0]!.vector.length) : 384,
+      dimension: embeddingEntries.length > 0 ? embeddingEntries[0]!.vector.length : 384,
       entries: embeddingEntries,
       createdAt: now,
     };

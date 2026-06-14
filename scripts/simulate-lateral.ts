@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import { PassthroughExecuteEngine } from '../src/execute/passthrough-engine.js';
 import { EventStore } from '../src/events/store.js';
+import type { LateralPersonaName } from '../src/resilience/types.js';
 import {
   GestaltPrinciple,
   type Spec,
@@ -203,7 +204,7 @@ function handleLateral(
   reEvalScore: number,
 ) {
   const lrResult = engine.submitLateralResult(sessionId, {
-    persona: persona as any,
+    persona: persona as LateralPersonaName,
     specPatch: {
       acceptanceCriteria: [
         '이메일/비밀번호로 회원가입 가능',

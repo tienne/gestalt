@@ -90,7 +90,9 @@ export async function initCommand(options: {
       gitHookManager.installHook(repoRoot);
       completedSteps++;
       if (alreadyInstalled) {
-        console.log(`✓ post-commit 훅 설치 (완료 ${completedSteps}/${totalSteps} 단계) — 이미 설치되어 있었습니다`);
+        console.log(
+          `✓ post-commit 훅 설치 (완료 ${completedSteps}/${totalSteps} 단계) — 이미 설치되어 있었습니다`,
+        );
       } else {
         console.log(`✓ post-commit 훅 설치 (완료 ${completedSteps}/${totalSteps} 단계)`);
       }

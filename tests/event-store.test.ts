@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EventStore } from '../src/events/store.js';
 import { EventType } from '../src/events/types.js';
-import { mkdirSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 describe('EventStore', () => {

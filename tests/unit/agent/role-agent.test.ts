@@ -52,7 +52,6 @@ Test system prompt`;
     const registry = new AgentRegistry(resolve('agents'));
     registry.loadAll();
 
-    const all = registry.getAll();
     const pipeline = registry.getByPipeline('execute');
     // Pipeline agents have role=false (default)
     expect(pipeline.every((a) => a.frontmatter.role === false)).toBe(true);

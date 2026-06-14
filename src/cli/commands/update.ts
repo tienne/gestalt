@@ -58,7 +58,9 @@ export async function updateCommand(): Promise<void> {
   if (hasCodex) {
     if (isCodexGestaltNpx()) {
       // npx 방식은 Codex 재시작 시 자동으로 최신 버전을 가져옴
-      console.log('✅ Codex: 다음 시작 시 자동으로 v' + result.latestVersion + '이 적용됩니다. (npx 방식)');
+      console.log(
+        '✅ Codex: 다음 시작 시 자동으로 v' + result.latestVersion + '이 적용됩니다. (npx 방식)',
+      );
     } else {
       // global 설치 방식 — MCP 재등록
       console.log('● Codex MCP 재등록 중...');

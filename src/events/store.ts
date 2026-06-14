@@ -11,8 +11,18 @@ import { logger } from '../core/logger.js';
  * 이 인터페이스에 의존하도록 하여 단일 장애점을 완화한다.
  */
 export interface IEventStore {
-  append<T>(aggregateType: string, aggregateId: string, eventType: string, payload: T): DomainEvent<T>;
-  emit<T>(aggregateType: string, aggregateId: string, eventType: string, payload: T): DomainEvent<T> | null;
+  append<T>(
+    aggregateType: string,
+    aggregateId: string,
+    eventType: string,
+    payload: T,
+  ): DomainEvent<T>;
+  emit<T>(
+    aggregateType: string,
+    aggregateId: string,
+    eventType: string,
+    payload: T,
+  ): DomainEvent<T> | null;
   getByAggregate(aggregateType: string, aggregateId: string): DomainEvent<unknown>[];
   replay(aggregateType: string, aggregateId: string): DomainEvent<unknown>[];
   listAggregates(aggregateType: string): string[];

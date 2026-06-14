@@ -45,8 +45,22 @@ describe('selectNextPrinciple', () => {
 
   it('targets weakest dimension when clarity < 0.5', () => {
     const dims: ResolutionDimension[] = [
-      { name: 'scope', clarity: 0.8, weight: 0.4, gestaltPrinciple: GestaltPrinciple.CLOSURE, label: 'scope', improvementHint: '' },
-      { name: 'arch', clarity: 0.3, weight: 0.3, gestaltPrinciple: GestaltPrinciple.PROXIMITY, label: 'arch', improvementHint: '' },
+      {
+        name: 'scope',
+        clarity: 0.8,
+        weight: 0.4,
+        gestaltPrinciple: GestaltPrinciple.CLOSURE,
+        label: 'scope',
+        improvementHint: '',
+      },
+      {
+        name: 'arch',
+        clarity: 0.3,
+        weight: 0.3,
+        gestaltPrinciple: GestaltPrinciple.PROXIMITY,
+        label: 'arch',
+        improvementHint: '',
+      },
     ];
 
     const result = selectNextPrinciple({

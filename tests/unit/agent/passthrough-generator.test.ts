@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PassthroughAgentGenerator } from '../../../src/agent/passthrough-generator.js';
 import { EventStore } from '../../../src/events/store.js';
 import { isOk, isErr } from '../../../src/core/result.js';
-import { existsSync, rmSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, readFileSync, mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { InterviewSession } from '../../../src/core/types.js';

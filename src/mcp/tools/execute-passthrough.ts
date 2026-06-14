@@ -1,6 +1,12 @@
 import type { PassthroughExecuteEngine } from '../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../schemas.js';
-import type { PlanningStepResult, SubTask, ResumeContext, NextActionGuide, ProgressInfo } from '../../core/types.js';
+import type {
+  PlanningStepResult,
+  SubTask,
+  ResumeContext,
+  NextActionGuide,
+  ProgressInfo,
+} from '../../core/types.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { AuditEngine } from '../../execute/audit-engine.js';
 import { gestaltNotify } from '../../utils/notifier.js';
@@ -219,10 +225,7 @@ export async function handleExecutePassthrough(
           status: 'executing',
           sessionId: session.sessionId,
           taskContext: taskContext
-            ? applyTaskContextFilters(
-                taskContext as unknown as Record<string, unknown>,
-                verbose,
-              )
+            ? applyTaskContextFilters(taskContext as unknown as Record<string, unknown>, verbose)
             : taskContext,
           message: `Execution started. Use taskContext.taskPrompt to implement the task, then submit with execute_task.`,
           ...execStartGuide,
@@ -267,7 +270,11 @@ export async function handleExecutePassthrough(
             progress: doneProgress,
             ...(driftScore ? { driftScore } : {}),
             ...(retrospectiveContext
-              ? { retrospectiveContext: slimRetrospectiveContext(retrospectiveContext as unknown as Record<string, unknown>) }
+              ? {
+                  retrospectiveContext: slimRetrospectiveContext(
+                    retrospectiveContext as unknown as Record<string, unknown>,
+                  ),
+                }
               : {}),
             message: 'All tasks completed. Call evaluate to verify acceptance criteria.',
             ...execTaskDoneGuide,
@@ -317,15 +324,16 @@ export async function handleExecutePassthrough(
           completedTasks: session.taskResults.length,
           progress: execProgress,
           taskContext: taskContext
-            ? applyTaskContextFilters(
-                taskContext as unknown as Record<string, unknown>,
-                verbose,
-              )
+            ? applyTaskContextFilters(taskContext as unknown as Record<string, unknown>, verbose)
             : taskContext,
           ...(compressionAvailable ? { compressionAvailable: true } : {}),
           ...(driftScore ? { driftScore } : {}),
           ...(retrospectiveContext
-            ? { retrospectiveContext: slimRetrospectiveContext(retrospectiveContext as unknown as Record<string, unknown>) }
+            ? {
+                retrospectiveContext: slimRetrospectiveContext(
+                  retrospectiveContext as unknown as Record<string, unknown>,
+                ),
+              }
             : {}),
           message: `Task "${input.taskResult.taskId}" recorded.${driftScore?.thresholdExceeded ? ' WARNING: Drift threshold exceeded! Review retrospectiveContext.' : ''}${compressionAvailable ? ' TIP: Context is getting long — consider calling compress to summarize completed work.' : ''} Use taskContext.taskPrompt to implement the next task.`,
           ...execTaskGuide,

@@ -8,10 +8,7 @@ const EMBEDDINGS_FILENAME = 'embeddings.json';
 /**
  * EmbeddingIndex를 {kbPath}/embeddings.json에 저장한다.
  */
-export async function saveEmbeddingIndex(
-  index: EmbeddingIndex,
-  outputPath: string,
-): Promise<void> {
+export async function saveEmbeddingIndex(index: EmbeddingIndex, outputPath: string): Promise<void> {
   const filePath = join(outputPath, EMBEDDINGS_FILENAME);
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, JSON.stringify(index, null, 2), 'utf-8');

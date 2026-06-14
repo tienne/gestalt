@@ -289,7 +289,7 @@ describe('Execution Phase', () => {
       engine.startExecution(sessionId);
 
       // Get first task from context
-      const execResult = engine.startExecution(sessionId);
+      engine.startExecution(sessionId);
       // Session is already executing, so re-get context
       const session = engine.getSession(sessionId);
       const plan = session.executionPlan!;
