@@ -131,7 +131,7 @@ function loadGestaltJson(): Record<string, unknown> {
  * Load .env file via dotenv. Does not override existing env vars.
  */
 function loadDotEnv(): void {
-  dotenvConfig(); // loads .env, respects existing env vars
+  dotenvConfig({ quiet: true }); // loads .env, respects existing env vars
 }
 
 /**
