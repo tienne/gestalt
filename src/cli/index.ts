@@ -7,6 +7,7 @@ import { setupCommand } from './commands/setup.js';
 import { initCommand } from './commands/init.js';
 import { graphVisualizeCommand } from './commands/graph-visualize.js';
 import { updateCommand } from './commands/update.js';
+import { usageReportCommand } from './commands/usage-report.js';
 import { getVersion } from '../core/version.js';
 
 export function createCli(): Command {
@@ -85,6 +86,13 @@ export function createCli(): Command {
         port: options.port,
         noBrowser: options.browser === false,
       });
+    });
+
+  program
+    .command('usage-report')
+    .description('Show event frequency report grouped by event type')
+    .action(() => {
+      usageReportCommand();
     });
 
   return program;

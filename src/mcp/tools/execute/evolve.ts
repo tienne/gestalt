@@ -2,18 +2,14 @@ import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engi
 import type { ExecuteInput } from '../../schemas.js';
 import type { NextActionGuide } from '../../../core/types.js';
 import { gestaltNotify } from '../../../utils/notifier.js';
-import {
-  deleteGestaltRule,
-  deleteActiveSession,
-  updateGestaltRule,
-  type ClientType,
-} from '../../../execute/rule-writer.js';
+import { deleteActiveSession, formatRuleContent } from '../../../execute/rule-writer.js';
+import type { IHostAdapter } from '../../host-adapter.js';
 import { formatError } from './utils.js';
 
 export function handleEvolveFix(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for evolve_fix action');
 
@@ -63,7 +59,7 @@ export function handleEvolveFix(
 export function handleEvolve(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  client: ClientType,
+  adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for evolve action');
 
@@ -92,7 +88,7 @@ export function handleEvolve(
   if (evolveResult.value.humanEscalation) {
     if (input.cwd) {
       try {
-        deleteGestaltRule(input.cwd, client);
+        void adapter.clearActiveContext();
         deleteActiveSession(input.cwd);
       } catch {
         /* ignore */
@@ -124,7 +120,7 @@ export function handleEvolve(
   if (evolveResult.value.terminated) {
     if (input.cwd) {
       try {
-        deleteGestaltRule(input.cwd, client);
+        void adapter.clearActiveContext();
         deleteActiveSession(input.cwd);
       } catch {
         /* ignore */
@@ -174,7 +170,7 @@ export function handleEvolve(
 export function handleEvolvePatch(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  client: ClientType,
+  adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for evolve_patch action');
   if (!input.specPatch) return formatError('specPatch is required for evolve_patch action');
@@ -187,12 +183,11 @@ export function handleEvolvePatch(
   if (input.cwd) {
     try {
       const patchedSession = patchResult.value.session;
-      updateGestaltRule(
-        input.cwd,
+      const content = formatRuleContent(
         { goal: patchedSession.spec.goal, constraints: patchedSession.spec.constraints },
         null,
-        client,
       );
+      void adapter.writeActiveContext(content);
     } catch {
       // Rule file update failure should not block execution
     }
@@ -239,7 +234,7 @@ export function handleEvolvePatch(
 export function handleEvolveReExecute(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for evolve_re_execute action');
   if (!input.reExecuteTaskResult)
@@ -289,7 +284,7 @@ export function handleEvolveReExecute(
 export function handleEvolveLateral(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  client: ClientType,
+  adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for evolve_lateral action');
 
@@ -299,7 +294,7 @@ export function handleEvolveLateral(
   if (lateralResult.value.terminated) {
     if (input.cwd) {
       try {
-        deleteGestaltRule(input.cwd, client);
+        void adapter.clearActiveContext();
         deleteActiveSession(input.cwd);
       } catch {
         /* ignore */
@@ -345,7 +340,7 @@ export function handleEvolveLateral(
 export function handleEvolveLateralResult(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   if (!input.sessionId)
     return formatError('sessionId is required for evolve_lateral_result action');

@@ -268,6 +268,26 @@ export class EventStore implements IEventStore {
     return rows.map(parseRow);
   }
 
+  getEventCountsByType(): Record<string, number> {
+    if (!this.db) {
+      const counts: Record<string, number> = {};
+      for (const event of this.readJsonlEvents()) {
+        counts[event.eventType] = (counts[event.eventType] ?? 0) + 1;
+      }
+      return counts;
+    }
+
+    const stmt = this.db.prepare(`
+      SELECT event_type, COUNT(*) as count FROM events GROUP BY event_type
+    `);
+    const rows = stmt.all() as { event_type: string; count: number }[];
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+      counts[row.event_type] = row.count;
+    }
+    return counts;
+  }
+
   close(): void {
     this.db?.close();
   }

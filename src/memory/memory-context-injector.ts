@@ -1,9 +1,9 @@
-import type { ProjectMemory } from '../core/types.js';
+import type { ProjectMemory, ArchitectureDecision } from '../core/types.js';
 import { ProjectMemoryStore } from './project-memory-store.js';
 
 export interface MemoryContext {
   recentSpecs: Array<{ goal: string; specId: string; createdAt: string; sourceType: string }>;
-  architectureDecisions: string[];
+  architectureDecisions: ArchitectureDecision[];
   recentExecutions: Array<{
     specId: string;
     completedTasks: number;
@@ -56,7 +56,8 @@ export function formatMemoryContextForPrompt(context: MemoryContext): string {
   if (context.architectureDecisions.length > 0) {
     lines.push('\n### Architecture Decisions');
     for (const d of context.architectureDecisions) {
-      lines.push(`- ${d}`);
+      const rationale = d.rationale ? ` (${d.rationale})` : '';
+      lines.push(`- ${d.decision}${rationale}`);
     }
   }
 

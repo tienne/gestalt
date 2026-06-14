@@ -1,9 +1,9 @@
 import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../../schemas.js';
-import type { ClientType } from '../../../execute/rule-writer.js';
+import type { IHostAdapter } from '../../host-adapter.js';
 
 export type ExecuteHandler = (
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  client: ClientType,
+  adapter: IHostAdapter,
 ) => Promise<string> | string;

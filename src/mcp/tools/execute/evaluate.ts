@@ -3,17 +3,14 @@ import type { ExecuteInput } from '../../schemas.js';
 import type { NextActionGuide } from '../../../core/types.js';
 import { ProjectMemoryStore } from '../../../memory/project-memory-store.js';
 import { gestaltNotify } from '../../../utils/notifier.js';
-import {
-  deleteGestaltRule,
-  deleteActiveSession,
-  type ClientType,
-} from '../../../execute/rule-writer.js';
+import { deleteActiveSession } from '../../../execute/rule-writer.js';
+import type { IHostAdapter } from '../../host-adapter.js';
 import { formatError, stripContextPrompts } from './utils.js';
 
 export function handleEvaluate(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  client: ClientType,
+  adapter: IHostAdapter,
 ): string {
   const verbose = input.verbose !== false;
 
@@ -52,7 +49,7 @@ export function handleEvaluate(
 
     if (input.cwd) {
       try {
-        deleteGestaltRule(input.cwd, client);
+        void adapter.clearActiveContext();
         deleteActiveSession(input.cwd);
       } catch {
         // Cleanup failure should not block the response

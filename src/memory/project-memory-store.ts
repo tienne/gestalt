@@ -1,6 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import type { ProjectMemory, SpecHistoryEntry, MemoryExecutionRecord } from '../core/types.js';
+import type {
+  ProjectMemory,
+  SpecHistoryEntry,
+  MemoryExecutionRecord,
+  ArchitectureDecision,
+} from '../core/types.js';
 
 const MEMORY_FILENAME = '.gestalt/memory.json';
 const MEMORY_VERSION = '1.0.0';
@@ -46,7 +51,22 @@ export class ProjectMemoryStore {
     }
     try {
       const raw = readFileSync(this.memoryPath, 'utf-8');
-      return JSON.parse(raw) as ProjectMemory;
+      const parsed = JSON.parse(raw) as ProjectMemory;
+      // v1 → v2 자동 마이그레이션: architectureDecisions string[] → ArchitectureDecision[]
+      if (Array.isArray(parsed.architectureDecisions)) {
+        parsed.architectureDecisions = parsed.architectureDecisions.map((item) => {
+          if (typeof item === 'string') {
+            return {
+              decision: item,
+              rationale: '',
+              specId: '',
+              timestamp: new Date().toISOString(),
+            } satisfies ArchitectureDecision;
+          }
+          return item as ArchitectureDecision;
+        });
+      }
+      return parsed;
     } catch {
       return createEmptyMemory(this.repoRoot);
     }
@@ -85,9 +105,11 @@ export class ProjectMemoryStore {
     return memory;
   }
 
-  addArchitectureDecision(decision: string): ProjectMemory {
+  addArchitectureDecision(decision: ArchitectureDecision): ProjectMemory {
     const memory = this.read();
-    if (!memory.architectureDecisions.includes(decision)) {
+    // decision 내용 기준 중복 방지 (같은 결정을 중복 기록하지 않음)
+    const exists = memory.architectureDecisions.some((d) => d.decision === decision.decision);
+    if (!exists) {
       memory.architectureDecisions.push(decision);
     }
     this.write(memory);
@@ -109,6 +131,70 @@ export class ProjectMemoryStore {
     }
     this.write(memory);
     return memory;
+  }
+
+  async searchSimilarSpecs(query: string, topK = 3): Promise<SpecHistoryEntry[]> {
+    const { searchSimilarSpecs } = await import('./semantic-search.js');
+    const memory = this.read();
+    return searchSimilarSpecs(query, memory, topK);
+  }
+
+  /**
+   * local과 remote ProjectMemory를 머지한다.
+   *
+   * - specHistory: specId 기준 dedupe (remote에 없는 local 항목 추가)
+   * - executionHistory: executeSessionId 기준 dedupe (동일 방식)
+   * - architectureDecisions: timestamp+decision 기준 dedupe
+   * - 그 외 스칼라 필드: local 값 우선, lastUpdated는 최신값
+   */
+  mergeMemory(local: ProjectMemory, remote: ProjectMemory): ProjectMemory {
+    // specHistory: specId 기준 dedupe — remote 기준에서 local에만 있는 항목 추가
+    const remoteSpecIds = new Set(remote.specHistory.map((s) => s.specId));
+    const mergedSpecHistory: SpecHistoryEntry[] = [
+      ...remote.specHistory,
+      ...local.specHistory.filter((s) => !remoteSpecIds.has(s.specId)),
+    ];
+
+    // executionHistory: executeSessionId 기준 dedupe
+    const remoteExecIds = new Set(remote.executionHistory.map((e) => e.executeSessionId));
+    const mergedExecutionHistory: MemoryExecutionRecord[] = [
+      ...remote.executionHistory,
+      ...local.executionHistory.filter((e) => !remoteExecIds.has(e.executeSessionId)),
+    ];
+
+    // architectureDecisions: timestamp+decision 기준 dedupe
+    const remoteDecisionKeys = new Set(
+      remote.architectureDecisions.map((d) => `${d.timestamp}::${d.decision}`),
+    );
+    const mergedArchitectureDecisions: ArchitectureDecision[] = [
+      ...remote.architectureDecisions,
+      ...local.architectureDecisions.filter(
+        (d) => !remoteDecisionKeys.has(`${d.timestamp}::${d.decision}`),
+      ),
+    ];
+
+    // compressedContexts: sessionId 기준 dedupe (remote 우선)
+    const localContexts = local.compressedContexts ?? [];
+    const remoteContexts = remote.compressedContexts ?? [];
+    const remoteContextIds = new Set(remoteContexts.map((c) => c.sessionId));
+    const mergedContexts = [
+      ...remoteContexts,
+      ...localContexts.filter((c) => !remoteContextIds.has(c.sessionId)),
+    ];
+
+    // lastUpdated: 더 최신 값 사용
+    const lastUpdated =
+      local.lastUpdated > remote.lastUpdated ? local.lastUpdated : remote.lastUpdated;
+
+    return {
+      version: local.version,
+      repoRoot: local.repoRoot,
+      specHistory: mergedSpecHistory,
+      executionHistory: mergedExecutionHistory,
+      architectureDecisions: mergedArchitectureDecisions,
+      compressedContexts: mergedContexts.length > 0 ? mergedContexts : undefined,
+      lastUpdated,
+    };
   }
 
   getRepoRoot(): string {

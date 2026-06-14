@@ -122,16 +122,32 @@ describe('ProjectMemoryStore', () => {
   });
 
   it('appends architecture decisions', () => {
-    store.addArchitectureDecision('Use PostgreSQL over MongoDB');
-    store.addArchitectureDecision('Use React for frontend');
+    store.addArchitectureDecision({
+      decision: 'Use PostgreSQL over MongoDB',
+      rationale: 'Better relational support',
+      specId: '',
+      timestamp: new Date().toISOString(),
+    });
+    store.addArchitectureDecision({
+      decision: 'Use React for frontend',
+      rationale: 'Team familiarity',
+      specId: '',
+      timestamp: new Date().toISOString(),
+    });
 
     const memory = store.read();
     expect(memory.architectureDecisions).toHaveLength(2);
   });
 
   it('prevents duplicate architecture decisions', () => {
-    store.addArchitectureDecision('Use PostgreSQL');
-    store.addArchitectureDecision('Use PostgreSQL');
+    const decision = {
+      decision: 'Use PostgreSQL',
+      rationale: 'ACID compliance',
+      specId: '',
+      timestamp: new Date().toISOString(),
+    };
+    store.addArchitectureDecision(decision);
+    store.addArchitectureDecision(decision);
 
     const memory = store.read();
     expect(memory.architectureDecisions).toHaveLength(1);

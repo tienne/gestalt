@@ -6,14 +6,14 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { ClientType } from '../../../execute/rule-writer.js';
+import type { IHostAdapter } from '../../host-adapter.js';
 import { formatError } from './utils.js';
 import { generateEvolutionHtml } from '../../../graph-viz/evolution-html-generator.js';
 
 export function handleStatusAction(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   return handleStatus(engine, input.sessionId, input.cwd);
 }
@@ -21,7 +21,7 @@ export function handleStatusAction(
 export function handleResume(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for resume action');
 
@@ -72,7 +72,7 @@ export function handleResume(
 export function handleAudit(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for audit action');
 
@@ -127,7 +127,7 @@ export function handleAudit(
 export function handleSpawn(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for spawn action');
   if (!input.parentTaskId) return formatError('parentTaskId is required for spawn action');
@@ -179,7 +179,7 @@ export function handleSpawn(
 export function handleEvolutionViz(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required');
   try {

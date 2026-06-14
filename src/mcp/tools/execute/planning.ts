@@ -1,13 +1,13 @@
 import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../../schemas.js';
 import type { PlanningStepResult, NextActionGuide } from '../../../core/types.js';
-import type { ClientType } from '../../../execute/rule-writer.js';
+import type { IHostAdapter } from '../../host-adapter.js';
 import { formatError, stripContextPrompts } from './utils.js';
 
 export function handleStart(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   const verbose = input.verbose !== false;
 
@@ -43,7 +43,7 @@ export function handleStart(
 export function handlePlanStep(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   const verbose = input.verbose !== false;
 
@@ -105,7 +105,7 @@ export function handlePlanStep(
 export function handlePlanComplete(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for plan_complete action');
 

@@ -125,7 +125,7 @@ function removeAgentsSection(cwd: string): void {
   }
 }
 
-function formatRuleContent(spec: RuleSpec, currentTask: RuleTask | null): string {
+export function formatRuleContent(spec: RuleSpec, currentTask: RuleTask | null): string {
   const lines: string[] = [
     '---',
     'description: Active Gestalt execution context — goal, constraints, and current task',

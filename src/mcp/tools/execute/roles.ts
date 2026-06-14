@@ -1,13 +1,13 @@
 import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../../schemas.js';
 import type { NextActionGuide } from '../../../core/types.js';
-import type { ClientType } from '../../../execute/rule-writer.js';
+import type { IHostAdapter } from '../../host-adapter.js';
 import { formatError } from './utils.js';
 
 export function handleRoleMatch(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for role_match action');
 
@@ -60,7 +60,7 @@ export function handleRoleMatch(
 export function handleRoleConsensus(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  _client: ClientType,
+  _adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for role_consensus action');
 

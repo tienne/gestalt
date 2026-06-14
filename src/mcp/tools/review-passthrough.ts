@@ -129,9 +129,22 @@ function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: Exe
   try {
     const memoryStore = new ProjectMemoryStore();
     const { summary, mergedIssues } = input.reviewConsensus!;
-    if (summary) memoryStore.addArchitectureDecision(`[Review] ${summary}`);
+    const now = new Date().toISOString();
+    if (summary) {
+      memoryStore.addArchitectureDecision({
+        decision: `[Review] ${summary}`,
+        rationale: 'Code review consensus summary',
+        specId: '',
+        timestamp: now,
+      });
+    }
     for (const issue of mergedIssues.filter((i) => i.severity === 'critical')) {
-      memoryStore.addArchitectureDecision(`[Review:critical] ${issue.category}: ${issue.message}`);
+      memoryStore.addArchitectureDecision({
+        decision: `[Review:critical] ${issue.category}: ${issue.message}`,
+        rationale: issue.suggestion,
+        specId: '',
+        timestamp: now,
+      });
     }
   } catch {
     // Memory update failure should not block the response

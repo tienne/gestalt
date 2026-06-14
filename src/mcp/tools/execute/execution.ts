@@ -2,18 +2,14 @@ import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engi
 import type { ExecuteInput } from '../../schemas.js';
 import type { NextActionGuide, ProgressInfo } from '../../../core/types.js';
 import { gestaltNotify } from '../../../utils/notifier.js';
-import {
-  writeGestaltRule,
-  updateGestaltRule,
-  writeActiveSession,
-  type ClientType,
-} from '../../../execute/rule-writer.js';
+import { writeActiveSession, formatRuleContent } from '../../../execute/rule-writer.js';
+import type { IHostAdapter } from '../../host-adapter.js';
 import { formatError, applyTaskContextFilters, slimRetrospectiveContext } from './utils.js';
 
 export async function handleExecuteStart(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  client: ClientType,
+  adapter: IHostAdapter,
 ): Promise<string> {
   const verbose = input.verbose !== false;
 
@@ -53,12 +49,11 @@ export async function handleExecuteStart(
       const currentTask = taskContext
         ? { taskId: taskContext.currentTask.taskId, title: taskContext.currentTask.title }
         : null;
-      writeGestaltRule(
-        input.cwd,
+      const content = formatRuleContent(
         { goal: session.spec.goal, constraints: session.spec.constraints },
         currentTask,
-        client,
       );
+      await adapter.writeActiveContext(content);
       writeActiveSession(input.cwd, session.sessionId, session.specId);
     } catch {
       // Rule file creation failure should not block execution
@@ -88,7 +83,7 @@ export async function handleExecuteStart(
 export async function handleExecuteTask(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
-  client: ClientType,
+  adapter: IHostAdapter,
 ): Promise<string> {
   const verbose = input.verbose !== false;
 
@@ -147,12 +142,11 @@ export async function handleExecuteTask(
 
   if (input.cwd && taskContext) {
     try {
-      updateGestaltRule(
-        input.cwd,
+      const content = formatRuleContent(
         { goal: session.spec.goal, constraints: session.spec.constraints },
         { taskId: taskContext.currentTask.taskId, title: taskContext.currentTask.title },
-        client,
       );
+      await adapter.writeActiveContext(content);
     } catch {
       // Rule file update failure should not block execution
     }

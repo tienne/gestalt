@@ -533,12 +533,20 @@ export interface CompressedContextEntry {
   compressedAt: string;
 }
 
+export interface ArchitectureDecision {
+  decision: string;
+  rationale: string;
+  outcome?: string;
+  specId: string;
+  timestamp: string;
+}
+
 export interface ProjectMemory {
   version: string;
   repoRoot: string;
   specHistory: SpecHistoryEntry[];
   executionHistory: MemoryExecutionRecord[];
-  architectureDecisions: string[];
+  architectureDecisions: ArchitectureDecision[];
   compressedContexts?: CompressedContextEntry[];
   lastUpdated: string;
 }
