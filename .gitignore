@@ -5,6 +5,7 @@ dist/
 *.db
 *.db-wal
 *.db-shm
+*.db.jsonl
 .env
 .env.local
 *.tsbuildinfo
@@ -12,3 +13,4 @@ benchmarks/results/
 .gestalt-bench/
 coverage/
 _workspace/
+.claude/worktrees/
