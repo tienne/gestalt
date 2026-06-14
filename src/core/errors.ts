@@ -23,7 +23,9 @@ export class InterviewError extends GestaltError {
 
 export class SessionNotFoundError extends InterviewError {
   constructor(sessionId: string) {
-    super(`세션을 찾을 수 없습니다 (${sessionId}). ges_interview action=start로 새 세션을 시작하세요.`);
+    super(
+      `세션을 찾을 수 없습니다 (${sessionId}). ges_interview action=start로 새 세션을 시작하세요.`,
+    );
     this.name = 'SessionNotFoundError';
   }
 }
@@ -105,9 +107,10 @@ export class DAGCycleError extends ExecuteError {
   public readonly cyclePath: string[];
 
   constructor(details: string, cyclePath: string[] = []) {
-    const pathInfo = cyclePath.length > 0
-      ? `DAG 순환이 감지되었습니다: ${cyclePath.join(' → ')}. 태스크 의존관계를 확인하세요.`
-      : `DAG contains cycles: ${details}`;
+    const pathInfo =
+      cyclePath.length > 0
+        ? `DAG 순환이 감지되었습니다: ${cyclePath.join(' → ')}. 태스크 의존관계를 확인하세요.`
+        : `DAG contains cycles: ${details}`;
     super(pathInfo);
     this.name = 'DAGCycleError';
     this.cyclePath = cyclePath;

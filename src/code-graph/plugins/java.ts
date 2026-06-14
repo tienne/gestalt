@@ -37,7 +37,7 @@ export const javaPlugin: AnalyzerPlugin = {
       /(?:public\s+|private\s+|protected\s+|abstract\s+|final\s+)*(?:class|enum)\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?/;
     const interfaceRegex = /(?:public\s+)?interface\s+(\w+)/;
     const methodRegex =
-      /(?:public|private|protected|static|final|abstract|synchronized|native|default)\s+[\w<>\[\]]+\s+(\w+)\s*\(/;
+      /(?:public|private|protected|static|final|abstract|synchronized|native|default)\s+[\w<>[\]]+\s+(\w+)\s*\(/;
     const importRegex = /^import\s+(?:static\s+)?([\w.]+);/;
 
     let currentClassId: string | null = null;

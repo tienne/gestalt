@@ -338,7 +338,6 @@ describe('Lateral Thinking Integration', () => {
     engine.submitEvaluation(sessionId, makeLowEval());
 
     // Manually start lateral
-    const session = engine.getSession(sessionId);
     // Simulate lateral start
     const lateralResult = engine.submitLateralResult(sessionId, {
       persona: 'multistability',

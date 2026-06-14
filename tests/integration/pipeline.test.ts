@@ -6,9 +6,7 @@ import { PassthroughSpecGenerator } from '../../src/spec/passthrough-generator.j
 import { PassthroughExecuteEngine } from '../../src/execute/passthrough-engine.js';
 import { EventStore } from '../../src/events/store.js';
 import { isOk } from '../../src/core/result.js';
-import type {
-  ExternalResolutionScore,
-} from '../../src/interview/passthrough-engine.js';
+import type { ExternalResolutionScore } from '../../src/interview/passthrough-engine.js';
 import type { ExternalSpec } from '../../src/spec/passthrough-generator.js';
 import type {
   Spec,

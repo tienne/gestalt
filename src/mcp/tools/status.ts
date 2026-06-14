@@ -124,12 +124,14 @@ function formatExecuteSessionBasic(session: import('../../core/types.js').Execut
   let summary: string;
   const shortId = session.sessionId.slice(0, 8);
   if (session.status === 'completed') {
-    const scoreStr = session.evaluationResult?.overallScore != null
-      ? ` score ${session.evaluationResult.overallScore.toFixed(2)}`
-      : '';
-    const alignStr = session.evaluationResult?.goalAlignment != null
-      ? `, alignment ${session.evaluationResult.goalAlignment.toFixed(2)}`
-      : '';
+    const scoreStr =
+      session.evaluationResult?.overallScore != null
+        ? ` score ${session.evaluationResult.overallScore.toFixed(2)}`
+        : '';
+    const alignStr =
+      session.evaluationResult?.goalAlignment != null
+        ? `, alignment ${session.evaluationResult.goalAlignment.toFixed(2)}`
+        : '';
     summary = `세션 ${shortId}: completed —${scoreStr}${alignStr}`;
   } else if (totalTasks > 0) {
     const pct = Math.round((completedTasks / totalTasks) * 100);

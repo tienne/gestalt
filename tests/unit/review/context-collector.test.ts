@@ -105,10 +105,7 @@ describe('ReviewContextCollector', () => {
     });
 
     it('returns changedFiles sorted', () => {
-      const ctx = collector.collectFromFiles(
-        ['src/z.ts', 'src/a.ts', 'src/m.ts'],
-        '/repo',
-      );
+      const ctx = collector.collectFromFiles(['src/z.ts', 'src/a.ts', 'src/m.ts'], '/repo');
 
       expect(ctx.changedFiles).toEqual(['src/a.ts', 'src/m.ts', 'src/z.ts']);
     });

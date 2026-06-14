@@ -58,10 +58,7 @@ export class PassthroughReviewEngine {
       );
       executeSessionId = source.executeSession.sessionId;
     } else {
-      reviewContext = this.contextCollector.collectFromFiles(
-        source.changedFiles,
-        source.repoRoot,
-      );
+      reviewContext = this.contextCollector.collectFromFiles(source.changedFiles, source.repoRoot);
       // Sentinel: direct file review has no backing execute session
       executeSessionId = '';
     }

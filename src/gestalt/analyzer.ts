@@ -75,7 +75,8 @@ export function computeResolutionScore(
       weight: weights[GestaltPrinciple.CONTINUITY],
       gestaltPrinciple: GestaltPrinciple.CONTINUITY,
       label: '맥락 일관성',
-      improvementHint: '기존 시스템과의 연계 방식, 마이그레이션 전략, 호환성 요구사항을 구체적으로 설명해 주세요.',
+      improvementHint:
+        '기존 시스템과의 연계 방식, 마이그레이션 전략, 호환성 요구사항을 구체적으로 설명해 주세요.',
     });
   }
 

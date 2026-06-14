@@ -13,11 +13,7 @@ interface GenerateOptions {
  * File 노드에 CONTAINS 관계로 연결된 자식 노드(함수·클래스·타입)의 이름 목록을 추출해
  * content 본문을 구성한다.
  */
-function buildFileContent(
-  filePath: string,
-  engine: CodeGraphEngine,
-  repoRoot: string,
-): string {
+function buildFileContent(filePath: string, engine: CodeGraphEngine, repoRoot: string): string {
   const queryResult = engine.query(repoRoot, 'callees_of', filePath);
   const childNodes = queryResult.nodes.filter(
     (n) => n.kind === NodeKind.Function || n.kind === NodeKind.Class || n.kind === NodeKind.Type,
@@ -76,9 +72,7 @@ export async function generateFromCodeGraph(
   }
 
   const stats = engine.stats(repoRoot);
-  log(
-    `knowledge-base generator: ${stats.totalFiles} files, ${stats.totalNodes} nodes in graph`,
-  );
+  log(`knowledge-base generator: ${stats.totalFiles} files, ${stats.totalNodes} nodes in graph`);
 
   const allFilePaths = engine.listAllFiles(repoRoot);
 

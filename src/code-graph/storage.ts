@@ -253,7 +253,7 @@ export class CodeGraphStore {
     };
     const lastBuiltAt = lastBuiltRow.last ?? null;
 
-    let dbSizeBytes = 0;
+    let dbSizeBytes: number;
     try {
       dbSizeBytes = statSync(dbPath).size;
     } catch {

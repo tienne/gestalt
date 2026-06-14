@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -41,7 +41,7 @@ describe('setupCommand', () => {
     // Create an existing file
     const filePath = join(process.cwd(), 'gestalt.json');
     const existingContent = '{"existing": true}';
-    require('node:fs').writeFileSync(filePath, existingContent);
+    writeFileSync(filePath, existingContent);
 
     setupCommand();
 

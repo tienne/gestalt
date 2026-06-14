@@ -1,12 +1,14 @@
-import type { ExecuteSession, EvaluationResult, StructuralCommand, StructuralResult } from '../../core/types.js';
+import type {
+  ExecuteSession,
+  EvaluationResult,
+  StructuralCommand,
+  StructuralResult,
+} from '../../core/types.js';
 import { ExecuteError, ExecuteSessionNotFoundError, EvaluationError } from '../../core/errors.js';
 import { type Result, ok, err } from '../../core/result.js';
 import { EventStore } from '../../events/store.js';
 import { ExecuteSessionManager } from '../session.js';
-import {
-  EXECUTE_EVALUATION_SYSTEM_PROMPT,
-  buildContextualEvaluationPrompt,
-} from '../prompts.js';
+import { EXECUTE_EVALUATION_SYSTEM_PROMPT, buildContextualEvaluationPrompt } from '../prompts.js';
 import type { AgentRegistry } from '../../agent/registry.js';
 import { mergeSystemPrompt } from '../../agent/prompt-resolver.js';
 import { codeGraphEngine } from '../../code-graph/index.js';
