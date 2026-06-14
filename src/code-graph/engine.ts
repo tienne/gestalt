@@ -314,14 +314,28 @@ export class CodeGraphEngine {
   }
 
   /**
+   * Returns all unique file paths present in the code graph, sorted alphabetically.
+   * Use this instead of the `searchByKeywords(repoRoot, [''])` anti-pattern.
+   */
+  listAllFiles(repoRoot: string): string[] {
+    const store = this.getStore(repoRoot);
+    const files = new Set<string>();
+    for (const node of store.getAllNodes()) {
+      files.add(node.filePath);
+    }
+    return [...files].sort();
+  }
+
+  /**
    * Search for files whose paths or node names contain any of the given keywords.
    * Returns unique file paths sorted by match count descending.
    */
   searchByKeywords(repoRoot: string, keywords: string[]): string[] {
-    if (keywords.length === 0) return [];
+    const cleaned = keywords.map((k) => k.trim()).filter((k) => k.length > 0);
+    if (cleaned.length === 0) return [];
     const store = this.getStore(repoRoot);
     const nodes = store.getAllNodes();
-    const lower = keywords.map((k) => k.toLowerCase());
+    const lower = cleaned.map((k) => k.toLowerCase());
 
     const scoreMap = new Map<string, number>();
     for (const node of nodes) {
