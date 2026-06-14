@@ -3,10 +3,12 @@ import type { ExecuteInput } from '../../schemas.js';
 import type { SubTask, ResumeContext } from '../../../core/types.js';
 import { AuditEngine } from '../../../execute/audit-engine.js';
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { ClientType } from '../../../execute/rule-writer.js';
 import { formatError } from './utils.js';
+import { generateEvolutionHtml } from '../../../graph-viz/evolution-html-generator.js';
 
 export function handleStatusAction(
   engine: PassthroughExecuteEngine,
@@ -165,6 +167,41 @@ export function handleSpawn(
           dependsOn: t.dependsOn,
         })),
         message: `${spawnedTasks.length} sub-tasks spawned from "${input.parentTaskId}". Submit results with execute_task using each sub-task's taskId.`,
+      },
+      null,
+      2,
+    );
+  } catch (e) {
+    return formatError(e instanceof Error ? e.message : String(e));
+  }
+}
+
+export function handleEvolutionViz(
+  engine: PassthroughExecuteEngine,
+  input: ExecuteInput,
+  _client: ClientType,
+): string {
+  if (!input.sessionId) return formatError('sessionId is required');
+  try {
+    const session = engine.getSession(input.sessionId);
+    const html = generateEvolutionHtml(session);
+    const filePath = join(tmpdir(), `gestalt-evolution-${input.sessionId}.html`);
+    writeFileSync(filePath, html, 'utf-8');
+    return JSON.stringify(
+      {
+        status: 'evolution_viz_ready',
+        sessionId: session.sessionId,
+        filePath,
+        html,
+        summary: {
+          totalGenerations: session.evolutionHistory.length,
+          currentGeneration: session.currentGeneration,
+          finalScore:
+            session.evolutionHistory[session.evolutionHistory.length - 1]?.evaluationScore ?? null,
+          triedPersonas: session.lateralTriedPersonas,
+          terminationReason: session.terminationReason ?? null,
+        },
+        message: `Evolution visualization saved to ${filePath}.`,
       },
       null,
       2,

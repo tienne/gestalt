@@ -14,7 +14,13 @@ import {
   handleEvolveLateralResult,
 } from './execute/evolve.js';
 import { handleRoleMatch, handleRoleConsensus } from './execute/roles.js';
-import { handleStatusAction, handleResume, handleAudit, handleSpawn } from './execute/utility.js';
+import {
+  handleStatusAction,
+  handleResume,
+  handleAudit,
+  handleSpawn,
+  handleEvolutionViz,
+} from './execute/utility.js';
 import { formatError } from './execute/utils.js';
 
 const handlers: Record<string, ExecuteHandler> = {
@@ -36,6 +42,7 @@ const handlers: Record<string, ExecuteHandler> = {
   role_consensus: handleRoleConsensus,
   evolve_lateral: handleEvolveLateral,
   evolve_lateral_result: handleEvolveLateralResult,
+  evolution_viz: handleEvolutionViz,
 };
 
 export async function handleExecutePassthrough(

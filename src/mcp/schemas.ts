@@ -113,6 +113,7 @@ export const executeInputSchema = z.object({
     'review_submit',
     'review_consensus',
     'review_fix',
+    'evolution_viz',
   ]),
   spec: z
     .object({
