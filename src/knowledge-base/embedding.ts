@@ -20,22 +20,29 @@ export class EmbeddingService {
 
   /**
    * 텍스트 하나를 임베딩 벡터로 변환한다.
-   * mean pooling + normalize 옵션을 사용해 384차원 number[]를 반환한다.
+   * embedBatch에 위임한다.
    */
   async embed(text: string): Promise<number[]> {
-    const extractor = await this.getPipeline();
-    const output = (await extractor(text, { pooling: 'mean', normalize: true })) as Tensor;
-    return Array.from(output.data as Float32Array);
+    const results = await this.embedBatch([text]);
+    return results[0] ?? [];
   }
 
   /**
-   * 텍스트 배열을 순차적으로 임베딩한다.
+   * 텍스트 배열을 batchSize 단위로 청크 처리한다.
+   * mean pooling + normalize 옵션을 사용해 384차원 number[][] 를 반환한다.
    */
-  async embedBatch(texts: string[]): Promise<number[][]> {
+  async embedBatch(texts: string[], batchSize = 32): Promise<number[][]> {
+    if (texts.length === 0) return [];
+    const extractor = await this.getPipeline();
     const results: number[][] = [];
-    for (const text of texts) {
-      const vector = await this.embed(text);
-      results.push(vector);
+    for (let i = 0; i < texts.length; i += batchSize) {
+      const chunk = texts.slice(i, i + batchSize);
+      const output = (await extractor(chunk, { pooling: 'mean', normalize: true })) as Tensor;
+      const flat = output.data as Float32Array;
+      const dim = flat.length / chunk.length;
+      for (let j = 0; j < chunk.length; j++) {
+        results.push(Array.from(flat.slice(j * dim, (j + 1) * dim)));
+      }
     }
     return results;
   }

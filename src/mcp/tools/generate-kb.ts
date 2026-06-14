@@ -35,9 +35,11 @@ export async function handleGenerateKb(input: GenerateKbInput, cwd: string): Pro
     const embeddingEntries: EmbeddingEntry[] = [];
     const now = new Date().toISOString();
 
-    for (const entry of entries) {
-      const text = `${entry.title}\n${entry.content}`;
-      const vector = await embeddingService.embed(text);
+    const texts = entries.map((e) => `${e.title}\n${e.content}`);
+    const vectors = await embeddingService.embedBatch(texts);
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i]!;
+      const vector = vectors[i] ?? [];
       embeddingEntries.push({
         entryId: entry.id,
         filePath: path.join(outputPath, entry.type, `${entry.id}.md`),

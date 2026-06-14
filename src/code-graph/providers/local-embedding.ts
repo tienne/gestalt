@@ -15,13 +15,18 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     return this.extractor;
   }
 
-  async embed(texts: string[]): Promise<number[][]> {
+  async embed(texts: string[], batchSize = 32): Promise<number[][]> {
+    if (texts.length === 0) return [];
     const extractor = await this.getExtractor();
     const results: number[][] = [];
-    for (const text of texts) {
-      const output = (await extractor(text, { pooling: 'mean', normalize: true })) as Tensor;
-      // output.data is Float32Array or similar DataArray
-      results.push(Array.from(output.data as Float32Array));
+    for (let i = 0; i < texts.length; i += batchSize) {
+      const chunk = texts.slice(i, i + batchSize);
+      const output = (await extractor(chunk, { pooling: 'mean', normalize: true })) as Tensor;
+      const flat = output.data as Float32Array;
+      const dim = flat.length / chunk.length;
+      for (let j = 0; j < chunk.length; j++) {
+        results.push(Array.from(flat.slice(j * dim, (j + 1) * dim)));
+      }
     }
     return results;
   }
