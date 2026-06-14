@@ -76,7 +76,11 @@ export class PassthroughEngine {
     this.agentRegistry = agentRegistry;
   }
 
-  start(topic: string, cwd?: string, memoryContextStr?: string): Result<PassthroughStartResult, InterviewError> {
+  start(
+    topic: string,
+    cwd?: string,
+    memoryContextStr?: string,
+  ): Result<PassthroughStartResult, InterviewError> {
     try {
       const { projectType, detectedFiles } = detectProjectType(cwd);
 

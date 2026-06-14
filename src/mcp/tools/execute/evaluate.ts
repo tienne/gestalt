@@ -3,7 +3,11 @@ import type { ExecuteInput } from '../../schemas.js';
 import type { NextActionGuide } from '../../../core/types.js';
 import { ProjectMemoryStore } from '../../../memory/project-memory-store.js';
 import { gestaltNotify } from '../../../utils/notifier.js';
-import { deleteGestaltRule, deleteActiveSession, type ClientType } from '../../../execute/rule-writer.js';
+import {
+  deleteGestaltRule,
+  deleteActiveSession,
+  type ClientType,
+} from '../../../execute/rule-writer.js';
 import { formatError, stripContextPrompts } from './utils.js';
 
 export function handleEvaluate(

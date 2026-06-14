@@ -71,8 +71,7 @@ export function handlePlanStep(
         sessionId: session.sessionId,
         stepsCompleted: session.planningSteps.length,
         isLastStep: true,
-        message:
-          'All planning steps completed. Call plan_complete to assemble the execution plan.',
+        message: 'All planning steps completed. Call plan_complete to assemble the execution plan.',
         ...planStepLastGuide,
       },
       null,

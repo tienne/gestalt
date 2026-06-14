@@ -174,7 +174,8 @@ describe('PassthroughEngine', () => {
   });
 
   it('start with memoryContextStr appends memory to systemPrompt', () => {
-    const memoryStr = '## Prior Project Context\n\n### Recent Specs\n- [2026-06-01] E-commerce checkout';
+    const memoryStr =
+      '## Prior Project Context\n\n### Recent Specs\n- [2026-06-01] E-commerce checkout';
     const result = engine.start('Payment system', undefined, memoryStr);
     expect(isOk(result)).toBe(true);
     if (!result.ok) return;

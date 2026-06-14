@@ -3,7 +3,10 @@ import type { InterviewInput } from '../schemas.js';
 import { ContextCompressor } from '../../interview/context-compressor.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { gestaltNotify } from '../../utils/notifier.js';
-import { MemoryContextInjector, formatMemoryContextForPrompt } from '../../memory/memory-context-injector.js';
+import {
+  MemoryContextInjector,
+  formatMemoryContextForPrompt,
+} from '../../memory/memory-context-injector.js';
 
 export function handleInterviewPassthrough(
   engine: PassthroughEngine,
@@ -15,9 +18,7 @@ export function handleInterviewPassthrough(
 
       const memoryInjector = new MemoryContextInjector(input.cwd);
       const memoryCtx = memoryInjector.getContext();
-      const memoryStr = memoryCtx.hasContext
-        ? formatMemoryContextForPrompt(memoryCtx)
-        : undefined;
+      const memoryStr = memoryCtx.hasContext ? formatMemoryContextForPrompt(memoryCtx) : undefined;
 
       const result = engine.start(topic, input.cwd, memoryStr);
       if (!result.ok) return formatError(result.error.message);

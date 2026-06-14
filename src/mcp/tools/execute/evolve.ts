@@ -2,7 +2,12 @@ import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engi
 import type { ExecuteInput } from '../../schemas.js';
 import type { NextActionGuide } from '../../../core/types.js';
 import { gestaltNotify } from '../../../utils/notifier.js';
-import { deleteGestaltRule, deleteActiveSession, updateGestaltRule, type ClientType } from '../../../execute/rule-writer.js';
+import {
+  deleteGestaltRule,
+  deleteActiveSession,
+  updateGestaltRule,
+  type ClientType,
+} from '../../../execute/rule-writer.js';
 import { formatError } from './utils.js';
 
 export function handleEvolveFix(
@@ -236,15 +241,11 @@ export function handleEvolveReExecute(
   input: ExecuteInput,
   _client: ClientType,
 ): string {
-  if (!input.sessionId)
-    return formatError('sessionId is required for evolve_re_execute action');
+  if (!input.sessionId) return formatError('sessionId is required for evolve_re_execute action');
   if (!input.reExecuteTaskResult)
     return formatError('reExecuteTaskResult is required for evolve_re_execute action');
 
-  const reExecResult = engine.submitReExecuteTaskResult(
-    input.sessionId,
-    input.reExecuteTaskResult,
-  );
+  const reExecResult = engine.submitReExecuteTaskResult(input.sessionId, input.reExecuteTaskResult);
   if (!reExecResult.ok) return formatError(reExecResult.error.message);
 
   const { reExecuteContext: nextContext, allTasksCompleted } = reExecResult.value;
