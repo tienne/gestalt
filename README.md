@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>Gestalt — AI Development Harness</strong><br/>
-  Turn vague requirements into structured, executable plans — right inside Claude Code.
+  When requirements are vague, AI becomes the interviewer.
 </p>
 
 <p align="center">
@@ -19,14 +19,10 @@
 
 ---
 
-Gestalt is an MCP (Model Context Protocol) server that runs inside Claude Code. It conducts a structured requirement interview, generates a validated **Spec** — a JSON document capturing your goal, constraints, and acceptance criteria — and transforms that Spec into a dependency-aware execution plan.
-
-Claude Code acts as the LLM throughout. Gestalt manages state, validates results, and advances the pipeline. No API key required.
-
-**In two lines:** describe what you want in plain language, and Gestalt interviews you until the requirement is sharp, then turns it into a validated Spec and a dependency-ordered execution plan. Everything runs inside Claude Code — no extra services, no API key.
+The hardest part of building software isn't writing code — it's knowing what to build. Gestalt is an MCP server that runs inside Claude Code and acts as a structured interviewer: it applies five Gestalt psychology principles to raise requirement resolution from vague intent to a measurable score of ≥ 0.8, then crystallizes that into a validated **Spec** that drives the rest of your pipeline. No API key required.
 
 ```bash
-/interview "user authentication system"   # clarify requirements (resolution ≥ 0.8)
+/interview "user authentication system"   # AI interviews you until resolution ≥ 0.8
 /spec                                      # crystallize into a validated Spec
 /execute                                   # plan → execute → evaluate → evolve
 ```
@@ -37,21 +33,37 @@ Claude Code acts as the LLM throughout. Gestalt manages state, validates results
 
 ## Contents
 
+- [Built with Gestalt, for Gestalt](#built-with-gestalt-for-gestalt)
 - [Quick Start](#quick-start)
 - [Installation](#installation)
-- [The Pipeline](#the-pipeline)
+- [Interview + Spec: The Core Differentiator](#interview--spec-the-core-differentiator)
   - [1. Interview](#1-interview)
   - [2. Spec Generation](#2-spec-generation)
+- [Memory: The Feedback Loop](#memory-the-feedback-loop)
+- [Code Knowledge Graph](#code-knowledge-graph)
+- [Execute → Evaluate → Evolve](#execute--evaluate--evolve)
   - [3. Execute](#3-execute)
   - [4. Evaluate](#4-evaluate)
   - [5. Evolve](#5-evolve)
-  - [6. Code Review](#6-code-review)
+- [Code Review](#code-review)
 - [Agents](#agents)
 - [CLI Mode](#cli-mode)
-- [Project Memory](#project-memory)
 - [Configuration](#configuration)
 - [How It Works](#how-it-works)
 - [Architecture](#architecture)
+
+---
+
+## Built with Gestalt, for Gestalt
+
+This repository is developed using the `gestalt-develop` skill — the same pipeline you get when you install Gestalt. Every significant feature in [v0.26.0](#changelog) was implemented through the Interview → Spec → Execute → Evolve loop:
+
+- Memory → Interview feedback loop (prior specs auto-injected into new sessions)
+- `execute-passthrough.ts` 1,296-line God File decomposed into 8 focused modules
+- Code review `context-collector` migrated from regex to `blastRadius()` graph analysis
+- ESLint flat config + CI 3-gate pipeline (typecheck → lint → format:check)
+
+This self-referential proof is the strongest argument for Gestalt: an AI harness that improves itself through its own pipeline. When Gestalt interviews you about a Gestalt feature, it applies the same five principles to its own architecture.
 
 ---
 
@@ -207,7 +219,9 @@ Use the `/mcp` command inside a Gemini CLI session to verify the server is conne
 
 ---
 
-## The Pipeline
+## Interview + Spec: The Core Differentiator
+
+Claude Code and Cursor are excellent at executing tasks. Where they struggle is when the task itself is unclear. Gestalt fills that gap: before any code is written, it conducts a structured interview that surfaces assumptions, resolves contradictions, and captures acceptance criteria — producing a **Spec** precise enough to drive a dependency-aware execution plan.
 
 ### 1. Interview
 
@@ -217,21 +231,37 @@ Start with any topic. A rough sentence is enough.
 /interview "I want to build a checkout flow with Stripe"
 ```
 
-Gestalt conducts a multi-round interview. Each round targets a specific resolution dimension:
+Gestalt conducts a multi-round interview. Each round targets the weakest resolution dimension using a weighted impact score `(1 - clarity) × weight`, so the interview always attacks the most critical gap first.
 
-- **Closure** — What's missing? What did you assume but not say?
-- **Proximity** — Which features belong together?
-- **Similarity** — Are there repeating patterns across requirements?
-- **Figure-Ground** — What's the core MVP vs. what's optional?
-- **Continuity** — Any contradictions or conflicts?
+The five principles guide the process:
 
-The interview continues until the resolution score reaches ≥ 0.8:
+| Principle | Role |
+|-----------|------|
+| **Closure** | What's missing? Surfaces implicit requirements you haven't said yet |
+| **Proximity** | Which features belong together? Groups by domain |
+| **Similarity** | Are there repeating patterns across requirements? |
+| **Figure-Ground** | What's the core MVP vs. what's optional? |
+| **Continuity** | Any contradictions? Detected and penalized until resolved |
+
+The resolution score rises across four dimensions:
+
+| Dimension | Principle | Greenfield weight | Brownfield weight |
+|-----------|-----------|:-----------------:|:-----------------:|
+| goalClarity | Closure | 0.40 | 0.30 |
+| constraintClarity | Proximity | 0.25 | 0.20 |
+| successCriteria | Similarity | 0.20 | 0.15 |
+| priorityClarity | Figure-Ground | 0.15 | 0.15 |
+| contextClarity | Continuity | — | 0.20 |
+
+The interview continues until `overall ≥ 0.8`:
 
 ```
 Round 1 → resolution: 0.28  (lots of unknowns)
 Round 4 → resolution: 0.55  (getting clearer)
-Round 8 → resolution: 0.81  ✓ ready for Spec
+Round 8 → resolution: 0.81  ready for Spec
 ```
+
+Contradictions are penalized directly: unresolved contradictions subtract up to 0.15 from the overall score, making it structurally impossible to reach 0.8 without resolving them first.
 
 #### Context Compression
 
@@ -285,6 +315,60 @@ gestaltAnalysis     → Key findings per Gestalt principle
 
 ---
 
+## Memory: The Feedback Loop
+
+Every spec and execution result is automatically recorded in `.gestalt/memory.json` at your repo root.
+
+```json
+{
+  "specHistory": [
+    { "specId": "...", "goal": "Build a user auth system", "sourceType": "text" }
+  ],
+  "executionHistory": [],
+  "architectureDecisions": []
+}
+```
+
+**The interview gets shorter over time.** When prior specs and execution history exist, Gestalt automatically injects that context into the `gestaltContext.systemPrompt` at the start of each new interview session. Prior goals, architecture decisions, and constraints become shared knowledge — the AI already knows what you've built and why.
+
+**Commit it.** `.gestalt/memory.json` is plain JSON. Teammates inherit all prior decisions on `git pull`.
+
+**User profile.** Personal preferences are stored in `~/.gestalt/profile.json` and are never committed.
+
+---
+
+## Code Knowledge Graph
+
+Build a static dependency graph of your codebase and extract blast-radius impact files for any change — so Gestalt's review and evolution steps only process the files that actually matter.
+
+```bash
+# Build or incrementally update the graph
+ges_code_graph({ action: "build", repoRoot: "/path/to/repo" })
+
+# Find all files impacted by a commit
+ges_code_graph({ action: "blast_radius", repoRoot: "...", commitSha: "abc123" })
+
+# Find files impacted by uncommitted changes
+ges_code_graph({ action: "diff_radius", repoRoot: "..." })
+```
+
+Stored at `.gestalt/code-graph.db` (WAL SQLite, separate from the event store). After `gestalt init`, a post-commit hook keeps it current automatically.
+
+**Language support:**
+
+| Language | Extensions | Support level |
+|----------|-----------|--------------|
+| TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` | First-class — TypeScript Compiler API, full AST analysis |
+| Python, Go, Java, Kotlin, Rust, Swift, Objective-C | various | Regex-based best-effort — basic function/class/import extraction; dynamic imports, macros, and metaprogramming may be missed |
+
+See [Code Knowledge Graph docs](./docs/code-graph.md) for the full reference.
+
+---
+
+## Execute → Evaluate → Evolve
+
+> These stages run in Passthrough mode — Claude Code performs the actual file edits and code execution through its tools (Bash, Edit, etc.). Execute carries out real work; Gestalt manages state and advances the pipeline. No API key is used in this stage.
+
 ### 3. Execute
 
 Transform the Spec into a dependency-aware execution plan and run it:
@@ -292,8 +376,6 @@ Transform the Spec into a dependency-aware execution plan and run it:
 ```bash
 /execute
 ```
-
-> Execute **always runs in Passthrough mode** — Claude Code performs the actual file edits and code execution through its tools (Bash, Edit, etc.). Configuring an API key does not switch Execute to a self-contained LLM mode; there is no such mode by design.
 
 **Planning** applies four Gestalt principles in a fixed sequence:
 
@@ -432,7 +514,7 @@ When all four personas are exhausted, the session ends with **Human Escalation**
 
 ---
 
-### 6. Code Review
+## Code Review
 
 When evolution finishes, code review starts automatically:
 
@@ -440,7 +522,7 @@ When evolution finishes, code review starts automatically:
 review_start → agents submit perspectives → consensus → auto-fix
 ```
 
-See [Agents](#agents) for the full list of built-in reviewers.
+The review `context-collector` uses `blastRadius()` from the Code Knowledge Graph to scope analysis to impacted files only — falling back gracefully if no graph DB exists. See [Agents](#agents) for the full list of built-in reviewers.
 
 ---
 
@@ -520,28 +602,6 @@ npx @tienne/gestalt setup
 # Start the MCP server manually
 npx @tienne/gestalt serve
 ```
-
----
-
-## Project Memory
-
-Every spec and execution result is automatically recorded in `.gestalt/memory.json` at your repo root.
-
-```json
-{
-  "specHistory": [
-    { "specId": "...", "goal": "Build a user auth system", "sourceType": "text" }
-  ],
-  "executionHistory": [],
-  "architectureDecisions": []
-}
-```
-
-**Commit it.** `.gestalt/memory.json` is plain JSON. Teammates inherit all prior decisions on `git pull`.
-
-**Context injection.** Prior goals and architecture decisions are automatically injected into the next spec prompt.
-
-**User profile.** Personal preferences are stored in `~/.gestalt/profile.json` and are never committed.
 
 ---
 
@@ -660,21 +720,9 @@ Vague requirements are the primary cause of implementation drift. When the goal 
 
 Gestalt addresses this before any code is written. It runs a structured interview guided by five **Gestalt psychology principles** to raise requirement resolution to a measurable threshold (≥ 0.8). The result is a **Spec**: a validated JSON document that drives every subsequent step.
 
-### The Five Gestalt Principles
-
-| Principle | Role |
-|-----------|------|
-| **Closure** | Finds what's missing; surfaces implicit requirements |
-| **Proximity** | Groups related features and tasks by domain |
-| **Similarity** | Identifies repeating patterns across requirements |
-| **Figure-Ground** | Separates MVP (figure) from nice-to-have (ground) |
-| **Continuity** | Validates dependency chains; detects contradictions |
-
 ### Passthrough Mode
 
-Gestalt runs as an MCP server. Claude Code acts as the LLM: Gestalt returns prompts and context, and Claude Code does the reasoning. The server makes no API calls.
-
-> **Note:** The Execute stage **always runs in Passthrough mode**, regardless of whether an API key is configured. Execute carries out real file edits and code execution through Claude Code's tools (Bash, Edit, etc.), so Claude Code must be the LLM that drives it — this is by design, not a missing feature.
+Gestalt runs as an MCP server. Claude Code acts as the LLM: Gestalt returns prompts and context, and Claude Code does the reasoning. The server makes no API calls in any stage.
 
 ```
 You (in Claude Code)
