@@ -1,4 +1,4 @@
-import type { EventStore } from '../events/store.js';
+import type { IEventStore } from '../events/store.js';
 import type {
   DomainEvent,
   ExecuteSession,
@@ -19,7 +19,7 @@ import { EventType } from '../events/types.js';
  * 도메인 전용 Repository: aggregate_type='execute' 이벤트만 처리.
  */
 export class ExecuteSessionRepository {
-  constructor(private eventStore: EventStore) {}
+  constructor(private eventStore: IEventStore) {}
 
   /**
    * 이벤트를 fold하여 ExecuteSession 상태를 완전히 복원한다.

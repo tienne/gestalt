@@ -1,4 +1,4 @@
-import type { EventStore } from '../events/store.js';
+import type { IEventStore } from '../events/store.js';
 import type {
   DomainEvent,
   InterviewSession,
@@ -15,7 +15,7 @@ import { RESOLUTION_THRESHOLD } from '../core/constants.js';
  * 도메인 전용 Repository: aggregate_type='interview' 이벤트만 처리.
  */
 export class InterviewSessionRepository {
-  constructor(private eventStore: EventStore) {}
+  constructor(private eventStore: IEventStore) {}
 
   /**
    * 이벤트를 fold하여 InterviewSession 상태를 완전히 복원한다.

@@ -6,7 +6,20 @@ import type { DomainEvent } from '../core/types.js';
 import { EventStoreError } from '../core/errors.js';
 import { logger } from '../core/logger.js';
 
-export class EventStore {
+/**
+ * EventStore 추상 인터페이스 — SessionManager/Repository가 구체 클래스 대신
+ * 이 인터페이스에 의존하도록 하여 단일 장애점을 완화한다.
+ */
+export interface IEventStore {
+  append<T>(aggregateType: string, aggregateId: string, eventType: string, payload: T): DomainEvent<T>;
+  emit<T>(aggregateType: string, aggregateId: string, eventType: string, payload: T): DomainEvent<T> | null;
+  getByAggregate(aggregateType: string, aggregateId: string): DomainEvent<unknown>[];
+  replay(aggregateType: string, aggregateId: string): DomainEvent<unknown>[];
+  listAggregates(aggregateType: string): string[];
+  close(): void;
+}
+
+export class EventStore implements IEventStore {
   private db: Database.Database;
 
   constructor(dbPath: string) {

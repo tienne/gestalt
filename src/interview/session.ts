@@ -10,14 +10,14 @@ import type {
 import { SessionNotFoundError, SessionAlreadyCompletedError } from '../core/errors.js';
 import { DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
 import { logger } from '../core/logger.js';
-import { EventStore } from '../events/store.js';
+import type { IEventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { InterviewSessionRepository } from './repository.js';
 
 export class SessionManager {
   private sessions = new Map<string, InterviewSession>();
 
-  constructor(private eventStore: EventStore) {}
+  constructor(private eventStore: IEventStore) {}
 
   /**
    * EventStore에서 기존 세션을 복원하여 메모리 Map에 로드한다.
