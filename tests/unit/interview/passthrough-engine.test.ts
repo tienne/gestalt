@@ -165,4 +165,22 @@ describe('PassthroughEngine', () => {
     expect(latest).not.toBeNull();
     expect(latest!.topic).toBe('Project B');
   });
+
+  it('start without memoryContextStr does not inject memory into systemPrompt', () => {
+    const result = engine.start('Payment system');
+    expect(isOk(result)).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.gestaltContext.systemPrompt).not.toContain('## Prior Project Context');
+  });
+
+  it('start with memoryContextStr appends memory to systemPrompt', () => {
+    const memoryStr = '## Prior Project Context\n\n### Recent Specs\n- [2026-06-01] E-commerce checkout';
+    const result = engine.start('Payment system', undefined, memoryStr);
+    expect(isOk(result)).toBe(true);
+    if (!result.ok) return;
+    const { systemPrompt } = result.value.gestaltContext;
+    expect(systemPrompt).toContain('## Prior Project Context');
+    expect(systemPrompt).toContain('E-commerce checkout');
+    expect(systemPrompt).toContain('Gestalt');
+  });
 });
