@@ -7,6 +7,7 @@ import {
 } from '../../../src/llm/factory.js';
 import { AnthropicAdapter } from '../../../src/llm/adapter.js';
 import { OpenAIAdapter } from '../../../src/llm/openai-adapter.js';
+import { RetryingAdapter } from '../../../src/llm/retry-adapter.js';
 import { loadConfig } from '../../../src/core/config.js';
 import { DEFAULT_MODEL } from '../../../src/core/constants.js';
 
@@ -20,14 +21,15 @@ describe('createAdapter', () => {
     process.env = { ...originalEnv };
   });
 
-  it('flat config(apiKey+model) -> AnthropicAdapter instance', () => {
+  it('flat config(apiKey+model) -> RetryingAdapter wrapping AnthropicAdapter', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     const config = loadConfig(
       { llm: { apiKey: 'sk-ant-test', model: 'claude-sonnet-4-20250514' } },
       opts,
     );
     const adapter = createAdapter(config.llm);
-    expect(adapter).toBeInstanceOf(AnthropicAdapter);
+    expect(adapter).toBeInstanceOf(RetryingAdapter);
+    expect((adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
   });
 });
 
@@ -38,34 +40,37 @@ describe('createAdapterFromTierConfig', () => {
     process.env = { ...originalEnv };
   });
 
-  it('provider=anthropic -> AnthropicAdapter', () => {
+  it('provider=anthropic -> RetryingAdapter wrapping AnthropicAdapter', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     const config = loadConfig({ llm: { apiKey: 'sk-ant-test', model: DEFAULT_MODEL } }, opts);
     const adapter = createAdapterFromTierConfig(
       { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
       config.llm,
     );
-    expect(adapter).toBeInstanceOf(AnthropicAdapter);
+    expect(adapter).toBeInstanceOf(RetryingAdapter);
+    expect((adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
   });
 
-  it('provider=openai -> OpenAIAdapter', () => {
+  it('provider=openai -> RetryingAdapter wrapping OpenAIAdapter', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     const config = loadConfig({ llm: { apiKey: 'sk-openai-test', model: DEFAULT_MODEL } }, opts);
     const adapter = createAdapterFromTierConfig(
       { provider: 'openai', model: 'gpt-4o-mini' },
       config.llm,
     );
-    expect(adapter).toBeInstanceOf(OpenAIAdapter);
+    expect(adapter).toBeInstanceOf(RetryingAdapter);
+    expect((adapter as RetryingAdapter)['inner']).toBeInstanceOf(OpenAIAdapter);
   });
 
-  it('provider=openai + baseURL -> OpenAIAdapter receives baseURL', () => {
+  it('provider=openai + baseURL -> RetryingAdapter wrapping OpenAIAdapter with baseURL', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     const config = loadConfig({ llm: { apiKey: 'ollama-key', model: DEFAULT_MODEL } }, opts);
     const adapter = createAdapterFromTierConfig(
       { provider: 'openai', model: 'llama3', baseURL: 'http://localhost:11434/v1' },
       config.llm,
     );
-    expect(adapter).toBeInstanceOf(OpenAIAdapter);
+    expect(adapter).toBeInstanceOf(RetryingAdapter);
+    expect((adapter as RetryingAdapter)['inner']).toBeInstanceOf(OpenAIAdapter);
     // OpenAIAdapter stores the client internally; we verify construction succeeded
     // with the baseURL param (no throw = baseURL was accepted)
   });
@@ -78,20 +83,23 @@ describe('createTierMapping', () => {
     process.env = { ...originalEnv };
   });
 
-  it('flat config only -> all three tiers are AnthropicAdapter', () => {
+  it('flat config only -> all three tiers are RetryingAdapter wrapping AnthropicAdapter', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     const config = loadConfig({ llm: { apiKey: 'sk-ant-test', model: DEFAULT_MODEL } }, opts);
     const mapping = createTierMapping(config);
 
-    expect(mapping.frugal.adapter).toBeInstanceOf(AnthropicAdapter);
-    expect(mapping.standard.adapter).toBeInstanceOf(AnthropicAdapter);
-    expect(mapping.frontier.adapter).toBeInstanceOf(AnthropicAdapter);
+    expect(mapping.frugal.adapter).toBeInstanceOf(RetryingAdapter);
+    expect(mapping.standard.adapter).toBeInstanceOf(RetryingAdapter);
+    expect(mapping.frontier.adapter).toBeInstanceOf(RetryingAdapter);
+    expect((mapping.frugal.adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
+    expect((mapping.standard.adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
+    expect((mapping.frontier.adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
     expect(mapping.frugal.provider).toBe('anthropic');
     expect(mapping.standard.provider).toBe('anthropic');
     expect(mapping.frontier.provider).toBe('anthropic');
   });
 
-  it('frugal only set(openai) -> frugal=OpenAI, standard/frontier=Anthropic', () => {
+  it('frugal only set(openai) -> frugal=RetryingAdapter(OpenAI), standard/frontier=RetryingAdapter(Anthropic)', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     const config = loadConfig(
       {
@@ -105,14 +113,17 @@ describe('createTierMapping', () => {
     );
     const mapping = createTierMapping(config);
 
-    expect(mapping.frugal.adapter).toBeInstanceOf(OpenAIAdapter);
+    expect(mapping.frugal.adapter).toBeInstanceOf(RetryingAdapter);
+    expect((mapping.frugal.adapter as RetryingAdapter)['inner']).toBeInstanceOf(OpenAIAdapter);
     expect(mapping.frugal.provider).toBe('openai');
     expect(mapping.frugal.model).toBe('gpt-4o-mini');
 
-    expect(mapping.standard.adapter).toBeInstanceOf(AnthropicAdapter);
+    expect(mapping.standard.adapter).toBeInstanceOf(RetryingAdapter);
+    expect((mapping.standard.adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
     expect(mapping.standard.provider).toBe('anthropic');
 
-    expect(mapping.frontier.adapter).toBeInstanceOf(AnthropicAdapter);
+    expect(mapping.frontier.adapter).toBeInstanceOf(RetryingAdapter);
+    expect((mapping.frontier.adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
     expect(mapping.frontier.provider).toBe('anthropic');
   });
 
@@ -132,13 +143,16 @@ describe('createTierMapping', () => {
     );
     const mapping = createTierMapping(config);
 
-    expect(mapping.frugal.adapter).toBeInstanceOf(OpenAIAdapter);
+    expect(mapping.frugal.adapter).toBeInstanceOf(RetryingAdapter);
+    expect((mapping.frugal.adapter as RetryingAdapter)['inner']).toBeInstanceOf(OpenAIAdapter);
     expect(mapping.frugal.model).toBe('gpt-4o-mini');
 
-    expect(mapping.standard.adapter).toBeInstanceOf(AnthropicAdapter);
+    expect(mapping.standard.adapter).toBeInstanceOf(RetryingAdapter);
+    expect((mapping.standard.adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
     expect(mapping.standard.model).toBe('claude-sonnet-4-20250514');
 
-    expect(mapping.frontier.adapter).toBeInstanceOf(AnthropicAdapter);
+    expect(mapping.frontier.adapter).toBeInstanceOf(RetryingAdapter);
+    expect((mapping.frontier.adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
     expect(mapping.frontier.model).toBe('claude-opus-4-20250514');
   });
 
@@ -157,7 +171,8 @@ describe('createTierMapping', () => {
     );
     // createTierMapping should not throw even though tier apiKey is missing
     const mapping = createTierMapping(config);
-    expect(mapping.standard.adapter).toBeInstanceOf(AnthropicAdapter);
+    expect(mapping.standard.adapter).toBeInstanceOf(RetryingAdapter);
+    expect((mapping.standard.adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
   });
 });
 
