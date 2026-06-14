@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-06-14
+
+### Added
+- Memory → Interview 피드백 루프: 이전 스펙·실행 이력이 있으면 interview 시작 시 `gestaltContext.systemPrompt`에 자동 주입
+- `CodeGraphEngine.listAllFiles()` — 명시적 전체 파일 목록 API 추가
+
+### Fixed
+- better-sqlite3 Node 버전 불일치 시 MCP 서버가 초기화 전에 죽는 문제 수정 (`CodeGraphStore` static import → lazy load)
+- `searchByKeywords([''])` 빈 문자열 우회로 차단 — 빈/공백 키워드는 항상 `[]` 반환
+
+### Changed
+- `execute-passthrough.ts` 1296줄 God File → `src/mcp/tools/execute/` 하위 8개 파일 분리 (dispatch map 패턴)
+- review `context-collector` 의존성 분석을 정규식에서 code-graph `blastRadius()`로 교체, DB 없으면 graceful fallback
+- ESLint flat config 도입 + CI에 `typecheck → lint → format:check` 3단 게이트 추가
+- 다국어 code-graph 플러그인 지원 수준 문서 정직화 (TS/JS: 1급, 나머지 7개: 정규식 best-effort)
+- Codex CLI 진입점(`AGENTS.md`) 및 스킬 미러 추가
+
 ## [0.25.3] - 2026-06-14
 
 ### Fixed
