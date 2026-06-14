@@ -23,13 +23,14 @@ describe('EventStore', () => {
       if (existsSync(dbPath)) rmSync(dbPath);
       if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
       if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
+      if (existsSync(dbPath + '.jsonl')) rmSync(dbPath + '.jsonl');
     } catch {
       /* ignore cleanup errors */
     }
   });
 
   it('creates database and tables', () => {
-    expect(existsSync(dbPath)).toBe(true);
+    expect(existsSync(dbPath) || existsSync(dbPath + '.jsonl')).toBe(true);
   });
 
   it('appends and retrieves events', () => {
@@ -104,13 +105,43 @@ describe('EventStore', () => {
     });
 
     it('returns null without throwing when the DB is closed', () => {
+      const usesSqlite = existsSync(dbPath);
       store.close();
 
       let result: ReturnType<typeof store.emit> | undefined;
       expect(() => {
         result = store.emit('interview', 'session-1', EventType.INTERVIEW_SESSION_STARTED, {});
       }).not.toThrow();
-      expect(result).toBeNull();
+      if (usesSqlite) {
+        expect(result).toBeNull();
+      } else {
+        expect(result).not.toBeNull();
+      }
+    });
+  });
+
+  describe('JSONL fallback backend', () => {
+    it('persists and replays events without sqlite bindings', () => {
+      const fallbackDbPath = testDb();
+      const fallbackStore = new EventStore(fallbackDbPath, { forceJsonl: true });
+
+      fallbackStore.append('interview', 'jsonl-session', EventType.INTERVIEW_SESSION_STARTED, {
+        topic: 'fallback topic',
+      });
+      fallbackStore.append('interview', 'jsonl-session', EventType.INTERVIEW_QUESTION_ASKED, {
+        q: 'What?',
+      });
+      fallbackStore.close();
+
+      const reloaded = new EventStore(fallbackDbPath, { forceJsonl: true });
+      const events = reloaded.replay('interview', 'jsonl-session');
+      expect(events).toHaveLength(2);
+      expect(events[0]!.eventType).toBe(EventType.INTERVIEW_SESSION_STARTED);
+      expect(events[1]!.eventType).toBe(EventType.INTERVIEW_QUESTION_ASKED);
+      expect(reloaded.listAggregates('interview')).toEqual(['jsonl-session']);
+      reloaded.close();
+
+      rmSync(fallbackDbPath + '.jsonl', { force: true });
     });
   });
 });

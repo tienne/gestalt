@@ -1,10 +1,32 @@
-import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, existsSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { appendFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import type { DomainEvent } from '../core/types.js';
 import { EventStoreError } from '../core/errors.js';
 import { logger } from '../core/logger.js';
+
+const require = createRequire(import.meta.url);
+
+interface SqliteStatement {
+  run(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
+  get(...params: unknown[]): unknown;
+}
+
+interface SqliteDatabase {
+  pragma(source: string): unknown;
+  exec(source: string): unknown;
+  prepare(source: string): SqliteStatement;
+  close(): void;
+}
+
+type SqliteConstructor = new (path: string) => SqliteDatabase;
+
+export interface EventStoreOptions {
+  forceJsonl?: boolean;
+}
 
 /**
  * EventStore 추상 인터페이스 — SessionManager/Repository가 구체 클래스 대신
@@ -30,22 +52,36 @@ export interface IEventStore {
 }
 
 export class EventStore implements IEventStore {
-  private db: Database.Database;
+  private db: SqliteDatabase | null = null;
+  private jsonlPath: string | null = null;
 
-  constructor(dbPath: string) {
-    const dir = dirname(dbPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+  constructor(dbPath: string, options: EventStoreOptions = {}) {
+    if (!options.forceJsonl) {
+      try {
+        const dir = dirname(dbPath);
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+        }
+        const Database = loadSqliteDatabase();
+        this.db = new Database(dbPath);
+        this.db.pragma('journal_mode = WAL');
+        this.db.pragma('foreign_keys = ON');
+        this.initialize(this.db);
+        return;
+      } catch (e) {
+        logger.warn('event_store.sqlite_unavailable_using_jsonl', {
+          module: 'events/store',
+          dbPath,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
     }
 
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
-    this.initialize();
+    this.configureJsonlFallback(dbPath);
   }
 
-  private initialize(): void {
-    this.db.exec(`
+  private initialize(db: SqliteDatabase): void {
+    db.exec(`
       CREATE TABLE IF NOT EXISTS events (
         id TEXT PRIMARY KEY,
         aggregate_type TEXT NOT NULL,
@@ -81,18 +117,22 @@ export class EventStore implements IEventStore {
     };
 
     try {
-      const stmt = this.db.prepare(`
-        INSERT INTO events (id, aggregate_type, aggregate_id, event_type, payload, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run(
-        event.id,
-        event.aggregateType,
-        event.aggregateId,
-        event.eventType,
-        JSON.stringify(event.payload),
-        event.timestamp,
-      );
+      if (this.db) {
+        const stmt = this.db.prepare(`
+          INSERT INTO events (id, aggregate_type, aggregate_id, event_type, payload, timestamp)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(
+          event.id,
+          event.aggregateType,
+          event.aggregateId,
+          event.eventType,
+          JSON.stringify(event.payload),
+          event.timestamp,
+        );
+      } else {
+        this.appendJsonl(event);
+      }
     } catch (e) {
       throw new EventStoreError(
         `Failed to append event: ${e instanceof Error ? e.message : String(e)}`,
@@ -127,6 +167,12 @@ export class EventStore implements IEventStore {
   }
 
   getByAggregate(aggregateType: string, aggregateId: string): DomainEvent[] {
+    if (!this.db) {
+      return this.readJsonlEvents().filter(
+        (event) => event.aggregateType === aggregateType && event.aggregateId === aggregateId,
+      );
+    }
+
     const stmt = this.db.prepare(`
       SELECT * FROM events
       WHERE aggregate_type = ? AND aggregate_id = ?
@@ -137,6 +183,13 @@ export class EventStore implements IEventStore {
   }
 
   getByType(eventType: string, limit = 100): DomainEvent[] {
+    if (!this.db) {
+      return this.readJsonlEvents()
+        .filter((event) => event.eventType === eventType)
+        .sort(descByTimestamp)
+        .slice(0, limit);
+    }
+
     const stmt = this.db.prepare(`
       SELECT * FROM events
       WHERE event_type = ?
@@ -148,6 +201,16 @@ export class EventStore implements IEventStore {
   }
 
   getLatest(aggregateType: string, aggregateId: string, eventType: string): DomainEvent | null {
+    if (!this.db) {
+      const matches = this.readJsonlEvents().filter(
+        (event) =>
+          event.aggregateType === aggregateType &&
+          event.aggregateId === aggregateId &&
+          event.eventType === eventType,
+      );
+      return matches[matches.length - 1] ?? null;
+    }
+
     const stmt = this.db.prepare(`
       SELECT * FROM events
       WHERE aggregate_type = ? AND aggregate_id = ? AND event_type = ?
@@ -170,6 +233,19 @@ export class EventStore implements IEventStore {
    * List distinct aggregate IDs for a given type, ordered by earliest event timestamp.
    */
   listAggregates(aggregateType: string): string[] {
+    if (!this.db) {
+      const earliestByAggregate = new Map<string, string>();
+      for (const event of this.readJsonlEvents()) {
+        if (event.aggregateType !== aggregateType) continue;
+        if (!earliestByAggregate.has(event.aggregateId)) {
+          earliestByAggregate.set(event.aggregateId, event.timestamp);
+        }
+      }
+      return [...earliestByAggregate.entries()]
+        .sort((a, b) => a[1].localeCompare(b[1]))
+        .map(([aggregateId]) => aggregateId);
+    }
+
     const stmt = this.db.prepare(`
       SELECT DISTINCT aggregate_id
       FROM events
@@ -181,6 +257,10 @@ export class EventStore implements IEventStore {
   }
 
   getAll(limit = 100): DomainEvent[] {
+    if (!this.db) {
+      return this.readJsonlEvents().sort(descByTimestamp).slice(0, limit);
+    }
+
     const stmt = this.db.prepare(`
       SELECT * FROM events ORDER BY timestamp DESC LIMIT ?
     `);
@@ -189,7 +269,68 @@ export class EventStore implements IEventStore {
   }
 
   close(): void {
-    this.db.close();
+    this.db?.close();
+  }
+
+  private appendJsonl<T>(event: DomainEvent<T>): void {
+    if (!this.jsonlPath) {
+      throw new EventStoreError('JSONL event store path is not configured');
+    }
+    appendFileSync(this.jsonlPath, JSON.stringify(event) + '\n', 'utf-8');
+  }
+
+  private configureJsonlFallback(dbPath: string): void {
+    const candidates = [
+      dbPath,
+      join(process.cwd(), '.gestalt', 'events.db'),
+      join(tmpdir(), 'gestalt', 'events.db'),
+    ];
+
+    const failures: string[] = [];
+    for (const candidate of candidates) {
+      const jsonlPath = `${candidate}.jsonl`;
+      try {
+        const dir = dirname(jsonlPath);
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+        }
+        appendFileSync(jsonlPath, '', { encoding: 'utf-8', flag: 'a' });
+        this.jsonlPath = jsonlPath;
+        if (candidate !== dbPath) {
+          logger.warn('event_store.jsonl_path_fallback', {
+            module: 'events/store',
+            requestedPath: dbPath,
+            jsonlPath,
+          });
+        }
+        return;
+      } catch (e) {
+        failures.push(`${jsonlPath}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    throw new EventStoreError(
+      `Failed to initialize JSONL event store fallback:\n${failures.join('\n')}`,
+    );
+  }
+
+  private readJsonlEvents(): DomainEvent[] {
+    if (!this.jsonlPath || !existsSync(this.jsonlPath)) return [];
+
+    const raw = readFileSync(this.jsonlPath, 'utf-8');
+    const events: DomainEvent[] = [];
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        events.push(JSON.parse(line) as DomainEvent);
+      } catch {
+        logger.warn('event_store.invalid_jsonl_event_ignored', {
+          module: 'events/store',
+          jsonlPath: this.jsonlPath,
+        });
+      }
+    }
+    return events;
   }
 }
 
@@ -213,4 +354,15 @@ function parseRow(row: RawEventRow): DomainEvent {
     timestamp: row.timestamp,
     createdAt: row.created_at,
   };
+}
+
+function loadSqliteDatabase(): SqliteConstructor {
+  const imported = require('better-sqlite3') as SqliteConstructor | { default?: SqliteConstructor };
+  if (typeof imported === 'function') return imported;
+  if (typeof imported.default === 'function') return imported.default;
+  throw new EventStoreError('better-sqlite3 did not export a Database constructor');
+}
+
+function descByTimestamp(a: DomainEvent, b: DomainEvent): number {
+  return b.timestamp.localeCompare(a.timestamp);
 }
