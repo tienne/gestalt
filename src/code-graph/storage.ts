@@ -1,8 +1,33 @@
-import Database from 'better-sqlite3';
+import { createRequire } from 'node:module';
 import { statSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { CodeGraphNode, CodeGraphEdge, CodeGraphStats } from './types.js';
 import type { CodeNodeEmbedding } from './embedding-provider.js';
+
+const _require = createRequire(import.meta.url);
+
+interface SqliteStatement {
+  run(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
+  get(...params: unknown[]): unknown;
+}
+
+interface SqliteDb {
+  pragma(source: string): unknown;
+  exec(source: string): unknown;
+  prepare(source: string): SqliteStatement;
+  transaction(fn: () => void): () => void;
+  close(): void;
+}
+
+type SqliteConstructor = new (path: string) => SqliteDb;
+
+function loadSqlite(): SqliteConstructor {
+  const mod = _require('better-sqlite3') as SqliteConstructor | { default?: SqliteConstructor };
+  if (typeof mod === 'function') return mod;
+  if (typeof mod.default === 'function') return mod.default;
+  throw new Error('better-sqlite3 did not export a Database constructor');
+}
 
 interface RawNodeRow {
   id: string;
@@ -69,13 +94,14 @@ function toEdge(row: RawEdgeRow): CodeGraphEdge {
 }
 
 export class CodeGraphStore {
-  private db: Database.Database;
+  private db: SqliteDb;
 
   constructor(dbPath: string) {
     const dir = dirname(dbPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
+    const Database = loadSqlite();
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
