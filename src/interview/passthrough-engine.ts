@@ -76,7 +76,7 @@ export class PassthroughEngine {
     this.agentRegistry = agentRegistry;
   }
 
-  start(topic: string, cwd?: string): Result<PassthroughStartResult, InterviewError> {
+  start(topic: string, cwd?: string, memoryContextStr?: string): Result<PassthroughStartResult, InterviewError> {
     try {
       const { projectType, detectedFiles } = detectProjectType(cwd);
 
@@ -95,6 +95,10 @@ export class PassthroughEngine {
       });
 
       const gestaltContext = this.buildGestaltContext(topic, principle, 1, [], projectType);
+
+      if (memoryContextStr) {
+        gestaltContext.systemPrompt = `${gestaltContext.systemPrompt}\n\n${memoryContextStr}`;
+      }
 
       return ok({
         session,
