@@ -62,9 +62,17 @@ export abstract class BaseRegistry<T extends RegistryItem> {
     if (this.watcher) return;
     if (!existsSync(this.dir)) return;
 
-    this.watcher = watch(join(this.dir, `**/${this.filename}`), {
-      ignoreInitial: true,
-    });
+    try {
+      this.watcher = watch(join(this.dir, `**/${this.filename}`), {
+        ignoreInitial: true,
+      });
+    } catch (e) {
+      log(
+        `Failed to watch ${this.label} directory ${this.dir}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      this.watcher = null;
+      return;
+    }
 
     this.watcher.on('add', (path) => {
       log(`${this.label} added: ${path}`);
@@ -84,6 +92,13 @@ export abstract class BaseRegistry<T extends RegistryItem> {
           break;
         }
       }
+    });
+
+    this.watcher.on('error', (e) => {
+      log(`Disabling ${this.label} watcher: ${e instanceof Error ? e.message : String(e)}`);
+      void this.watcher?.close().finally(() => {
+        this.watcher = null;
+      });
     });
   }
 
