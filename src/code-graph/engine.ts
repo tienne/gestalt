@@ -7,6 +7,7 @@ import { CodeGraphStore } from './storage.js';
 import { computeBlastRadius } from './blast-radius.js';
 import { getPluginForFile } from './plugins/index.js';
 import { NodeKind } from './types.js';
+import { logger } from '../core/logger.js';
 import type {
   BuildOptions,
   BuildResult,
@@ -101,6 +102,8 @@ export class CodeGraphEngine {
     const store = this.getStore(repoRoot);
     const { include, exclude = [], mode = 'full' } = opts;
 
+    logger.info('code_graph.build_started', { module: 'code-graph/engine', repoRoot, mode });
+
     // Collect files
     const excludePatterns = [...DEFAULT_EXCLUDE, ...exclude];
     const files = getFilesRecursively(repoRoot, excludePatterns, include);
@@ -150,10 +153,19 @@ export class CodeGraphEngine {
       }
     }
 
+    const timeTakenMs = Date.now() - start;
+    logger.info('code_graph.build_completed', {
+      module: 'code-graph/engine',
+      repoRoot,
+      nodesBuilt,
+      edgesBuilt,
+      durationMs: timeTakenMs,
+    });
+
     return {
       nodesBuilt,
       edgesBuilt,
-      timeTakenMs: Date.now() - start,
+      timeTakenMs,
       installedHook: false, // Hook installation handled separately via GitHookManager
     };
   }
@@ -174,7 +186,15 @@ export class CodeGraphEngine {
     // Convert to absolute paths
     const absoluteFiles = files.map((f) => (f.startsWith('/') ? f : resolve(repoRoot, f)));
 
-    return computeBlastRadius(store, absoluteFiles, maxDepth);
+    const result = computeBlastRadius(store, absoluteFiles, maxDepth);
+    logger.info('code_graph.blast_radius_completed', {
+      module: 'code-graph/engine',
+      repoRoot,
+      base,
+      changedFiles: absoluteFiles.length,
+      riskScore: result.riskScore,
+    });
+    return result;
   }
 
   /**

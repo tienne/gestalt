@@ -1,3 +1,4 @@
+// Note: direct OpenAI SDK usage intentional — code-graph summary providers require custom baseURL config not available through LLMAdapter
 import OpenAI from 'openai';
 import type { SummaryProvider } from '../summary-provider.js';
 
