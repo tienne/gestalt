@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { LLM_TEMPERATURE, LLM_MAX_TOKENS } from '../core/constants.js';
 import { LLMError } from '../core/errors.js';
+import { logger } from '../core/logger.js';
 import type { LLMAdapter, LLMRequest, LLMResponse } from './types.js';
 
 export class AnthropicAdapter implements LLMAdapter {
@@ -13,6 +14,7 @@ export class AnthropicAdapter implements LLMAdapter {
   }
 
   async chat(request: LLMRequest): Promise<LLMResponse> {
+    const t0 = Date.now();
     try {
       const response = await this.client.messages.create({
         model: this.model,
@@ -30,6 +32,13 @@ export class AnthropicAdapter implements LLMAdapter {
         throw new LLMError('No text content in LLM response');
       }
 
+      logger.info('llm.chat_completed', {
+        module: 'llm/adapter',
+        provider: 'anthropic',
+        model: this.model,
+        durationMs: Date.now() - t0,
+      });
+
       return {
         content: textBlock.text,
         usage: {
@@ -38,6 +47,13 @@ export class AnthropicAdapter implements LLMAdapter {
         },
       };
     } catch (e) {
+      logger.error('llm.chat_failed', {
+        module: 'llm/adapter',
+        provider: 'anthropic',
+        model: this.model,
+        durationMs: Date.now() - t0,
+        error: e instanceof Error ? e.message : String(e),
+      });
       if (e instanceof LLMError) throw e;
       throw new LLMError(`Anthropic API error: ${e instanceof Error ? e.message : String(e)}`);
     }
