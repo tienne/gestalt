@@ -13,6 +13,7 @@ import { type Result, ok, err } from '../core/result.js';
 import { ReviewContextCollector } from './context-collector.js';
 import { ReviewAgentMatcher, type ReviewMatchContext } from './agent-matcher.js';
 import { ReviewReportGenerator } from './report-generator.js';
+import { logger } from '../core/logger.js';
 import type { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 
@@ -87,6 +88,14 @@ export class PassthroughReviewEngine {
     };
 
     this.sessions.set(sessionId, session);
+
+    logger.info('review.started', {
+      module: 'review',
+      sessionId,
+      changedFiles: reviewContext.changedFiles.length,
+      dependencyFiles: reviewContext.dependencyFiles.length,
+      mode: 'executeSession' in source ? 'execute' : 'direct',
+    });
 
     this.emitEvent(sessionId, EventType.REVIEW_STARTED, {
       executeSessionId,
@@ -178,6 +187,14 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     session.status = 'reviewing';
     session.updatedAt = new Date().toISOString();
 
+    logger.info('review.submitted', {
+      module: 'review',
+      sessionId,
+      agentName,
+      issueCount: result.issues.length,
+      approved: result.approved,
+    });
+
     this.emitEvent(sessionId, EventType.REVIEW_SUBMITTED, {
       agentName,
       issueCount: result.issues.length,
@@ -232,9 +249,23 @@ Review the code changes from your assigned perspective. Focus on issues that mat
 
     if (approved) {
       session.status = 'passed';
+      logger.info('review.passed', {
+        module: 'review',
+        sessionId,
+        attempt: session.currentAttempt + 1,
+        warningCount: consensus.mergedIssues.filter((i) => i.severity === 'warning').length,
+      });
       this.emitEvent(sessionId, EventType.REVIEW_PASSED, {
         attempt: session.currentAttempt + 1,
         warningCount: consensus.mergedIssues.filter((i) => i.severity === 'warning').length,
+      });
+    } else {
+      logger.warn('review.blocked', {
+        module: 'review',
+        sessionId,
+        criticalHighCount: criticalHighIssues.length,
+        attempt: session.currentAttempt + 1,
+        canFix: session.currentAttempt < session.maxAttempts,
       });
     }
 
@@ -265,12 +296,21 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       const report = this.reportGenerator.generate(session.consensus, session.currentAttempt);
       session.reports.push(report);
 
+      const remainingIssues = session.consensus.mergedIssues.filter(
+        (i) => i.severity === 'critical' || i.severity === 'high',
+      ).length;
+
+      logger.warn('review.exhausted', {
+        module: 'review',
+        sessionId,
+        attempt: session.currentAttempt,
+        remainingIssues,
+      });
+
       this.emitEvent(sessionId, EventType.REVIEW_FAILED, {
         attempt: session.currentAttempt,
         reason: 'max_attempts_exceeded',
-        remainingIssues: session.consensus.mergedIssues.filter(
-          (i) => i.severity === 'critical' || i.severity === 'high',
-        ).length,
+        remainingIssues,
       });
 
       return ok({ report, exhausted: true as const });
@@ -281,6 +321,13 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     const criticalHighIssues = session.consensus.mergedIssues.filter(
       (i) => i.severity === 'critical' || i.severity === 'high',
     );
+
+    logger.info('review.fix_started', {
+      module: 'review',
+      sessionId,
+      attempt: session.currentAttempt,
+      issueCount: criticalHighIssues.length,
+    });
 
     this.emitEvent(sessionId, EventType.REVIEW_FIX_STARTED, {
       attempt: session.currentAttempt,
