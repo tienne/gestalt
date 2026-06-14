@@ -65,7 +65,11 @@ Agent(
   model: "opus",
   prompt: """
     _workspace/analysis.md를 읽고 모든 영향 파일을 구현하라.
-    완료 후 _workspace/implementation.md에 결과를 저장한다.
+    완료 후 반드시 아래 순서로 검증하고 모두 통과해야 한다:
+      1. pnpm typecheck   (타입 에러 0)
+      2. pnpm lint        (ESLint 에러 0)
+      3. pnpm format      (Prettier 자동 적용 — check가 아닌 write)
+    결과를 _workspace/implementation.md에 저장한다.
     프로젝트 루트: /Users/kwon-david/dev/gestalt
   """
 )
@@ -79,7 +83,10 @@ Agent(
   model: "opus",
   prompt: """
     _workspace/analysis.md와 _workspace/implementation.md를 읽고
-    테스트를 작성하고 pnpm test를 실행하라.
+    테스트를 작성한 뒤 아래 순서로 실행하라:
+      1. pnpm format   (테스트 파일 포맷 적용)
+      2. pnpm lint     (에러 0 확인)
+      3. pnpm test     (전체 테스트)
     결과를 _workspace/test-results.md에 저장한다.
     프로젝트 루트: /Users/kwon-david/dev/gestalt
   """
@@ -108,7 +115,8 @@ Agent(
 | 상황 | 대응 |
 |------|------|
 | 분석 결과 불충분 | analyst 재실행 1회, 여전히 부족하면 사용자에게 질문 |
-| 구현 후 lint 에러 | developer에게 수정 요청 (최대 2회) |
+| 구현 후 typecheck/lint 에러 | developer에게 수정 요청 (최대 2회) |
+| 구현 후 format 미적용 | developer에게 `pnpm format` 실행 후 재확인 요청 (1회) |
 | 테스트 실패 (구현 버그) | developer에게 test-results.md 전달 후 수정 요청 (최대 2회) |
 | 테스트 실패 (테스트 오류) | qa에게 재작성 요청 (최대 1회) |
 | 3회 이상 실패 | 사용자에게 현재 상태 보고 후 에스컬레이션 |
