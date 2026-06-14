@@ -55,6 +55,7 @@ export class PassthroughReviewEngine {
       reviewContext = this.contextCollector.collect(
         source.executeSession.spec,
         source.executeSession.taskResults,
+        source.executeSession.codeGraphRepoRoot,
       );
       executeSessionId = source.executeSession.sessionId;
     } else {

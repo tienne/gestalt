@@ -1,9 +1,12 @@
 import type { Spec, TaskExecutionResult, ReviewContext } from '../core/types.js';
+import { codeGraphEngine } from '../code-graph/engine.js';
 
 export class ReviewContextCollector {
-  collect(spec: Spec, taskResults: TaskExecutionResult[]): ReviewContext {
+  collect(spec: Spec, taskResults: TaskExecutionResult[], repoRoot?: string): ReviewContext {
     const changedFiles = this.extractChangedFiles(taskResults);
-    const dependencyFiles = this.extractDependencies(taskResults, changedFiles);
+    const dependencyFiles = repoRoot
+      ? this.extractDependenciesFromGraph(changedFiles, repoRoot)
+      : this.extractDependenciesFromOutput(taskResults, changedFiles);
 
     return {
       changedFiles,
@@ -13,10 +16,11 @@ export class ReviewContextCollector {
     };
   }
 
-  collectFromFiles(changedFiles: string[], _repoRoot: string): ReviewContext {
+  collectFromFiles(changedFiles: string[], repoRoot: string): ReviewContext {
+    const dependencyFiles = this.extractDependenciesFromGraph(changedFiles, repoRoot);
     return {
       changedFiles: [...changedFiles].sort(),
-      dependencyFiles: [],
+      dependencyFiles,
       spec: undefined,
       taskResults: undefined,
     };
@@ -37,7 +41,19 @@ export class ReviewContextCollector {
     return [...files].sort();
   }
 
-  private extractDependencies(
+  private extractDependenciesFromGraph(changedFiles: string[], repoRoot: string): string[] {
+    try {
+      if (!codeGraphEngine.dbExists(repoRoot)) return [];
+      const result = codeGraphEngine.blastRadius(repoRoot, { changedFiles });
+      const changedSet = new Set(changedFiles);
+      return result.impactedFiles.filter((f) => !changedSet.has(f)).sort();
+    } catch {
+      return [];
+    }
+    // finally: close() 금지 — 싱글턴
+  }
+
+  private extractDependenciesFromOutput(
     taskResults: TaskExecutionResult[],
     changedFiles: string[],
   ): string[] {
