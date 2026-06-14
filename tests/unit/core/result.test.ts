@@ -8,6 +8,7 @@ import {
   unwrapOr,
   map,
   flatMap,
+  flatMapAsync,
   tryCatch,
   tryCatchSync,
 } from '../../../src/core/result.js';
@@ -82,6 +83,30 @@ describe('Result', () => {
     it('short-circuits on Err', () => {
       const error = new Error('first');
       const result = flatMap(err(error), (x: number) => ok(x + 5));
+      expect(isErr(result)).toBe(true);
+    });
+  });
+
+  describe('flatMapAsync', () => {
+    it('chains Ok results with an async fn', async () => {
+      const result = await flatMapAsync(ok(10), async (x) => ok(x + 5));
+      expect(unwrap(result)).toBe(15);
+    });
+
+    it('short-circuits on Err without calling fn', async () => {
+      const error = new Error('first');
+      let called = false;
+      const result = await flatMapAsync(err(error), async (x: number) => {
+        called = true;
+        return ok(x + 5);
+      });
+      expect(isErr(result)).toBe(true);
+      expect(called).toBe(false);
+    });
+
+    it('propagates an Err produced by the async fn', async () => {
+      const error = new Error('inner');
+      const result = await flatMapAsync(ok(10), async () => err(error));
       expect(isErr(result)).toBe(true);
     });
   });

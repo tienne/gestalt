@@ -46,6 +46,13 @@ export function flatMap<T, U, E>(
   return result.ok ? fn(result.value) : result;
 }
 
+export async function flatMapAsync<T, E extends Error, U>(
+  result: Result<T, E>,
+  fn: (value: T) => Promise<Result<U, E>>,
+): Promise<Result<U, E>> {
+  return result.ok ? fn(result.value) : result;
+}
+
 export async function tryCatch<T>(fn: () => Promise<T>): Promise<Result<T, Error>> {
   try {
     return ok(await fn());
