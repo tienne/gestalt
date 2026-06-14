@@ -85,4 +85,32 @@ describe('EventStore', () => {
     const events = store.getAll(3);
     expect(events).toHaveLength(3);
   });
+
+  describe('emit (non-throwing wrapper)', () => {
+    it('returns a DomainEvent on success', () => {
+      const event = store.emit('interview', 'session-1', EventType.INTERVIEW_SESSION_STARTED, {
+        topic: 'emit topic',
+      });
+
+      expect(event).not.toBeNull();
+      expect(event!.id).toBeDefined();
+      expect(event!.aggregateType).toBe('interview');
+      expect(event!.aggregateId).toBe('session-1');
+      expect(event!.payload).toEqual({ topic: 'emit topic' });
+
+      // emitted event is actually persisted
+      const stored = store.getByAggregate('interview', 'session-1');
+      expect(stored).toHaveLength(1);
+    });
+
+    it('returns null without throwing when the DB is closed', () => {
+      store.close();
+
+      let result: ReturnType<typeof store.emit> | undefined;
+      expect(() => {
+        result = store.emit('interview', 'session-1', EventType.INTERVIEW_SESSION_STARTED, {});
+      }).not.toThrow();
+      expect(result).toBeNull();
+    });
+  });
 });

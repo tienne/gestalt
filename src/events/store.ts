@@ -4,6 +4,7 @@ import { mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { DomainEvent } from '../core/types.js';
 import { EventStoreError } from '../core/errors.js';
+import { logger } from '../core/logger.js';
 
 export class EventStore {
   private db: Database.Database;
@@ -76,6 +77,30 @@ export class EventStore {
     }
 
     return event;
+  }
+
+  /**
+   * Non-throwing variant of append(). Logs a warning and returns null on failure
+   * so event emission never interrupts the main flow.
+   */
+  emit<T>(
+    aggregateType: string,
+    aggregateId: string,
+    eventType: string,
+    payload: T,
+  ): DomainEvent<T> | null {
+    try {
+      return this.append(aggregateType, aggregateId, eventType, payload);
+    } catch (e) {
+      logger.warn('event_store.emit_failed', {
+        module: 'events/store',
+        aggregateType,
+        aggregateId,
+        eventType,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return null;
+    }
   }
 
   getByAggregate(aggregateType: string, aggregateId: string): DomainEvent[] {
