@@ -6,6 +6,8 @@ import type { LLMAdapter } from './types.js';
 import type { TierMapping } from '../agent/figural-router.js';
 import { AnthropicAdapter } from './adapter.js';
 import { OpenAIAdapter } from './openai-adapter.js';
+import { RetryingAdapter } from './retry-adapter.js';
+import { FallbackAdapter } from './fallback-adapter.js';
 
 /**
  * tier config 또는 flat config(apiKey + model)에서 LLMAdapter를 생성한다.
@@ -19,7 +21,7 @@ export function createAdapter(llmConfig: GestaltConfig['llm']): LLMAdapter {
   }
 
   // flat config fallback (기존 호환)
-  return new AnthropicAdapter(llmConfig.apiKey, llmConfig.model);
+  return new RetryingAdapter(new AnthropicAdapter(llmConfig.apiKey, llmConfig.model));
 }
 
 /**
@@ -34,9 +36,9 @@ export function createAdapterFromTierConfig(
 
   switch (tierCfg.provider) {
     case 'anthropic':
-      return new AnthropicAdapter(apiKey, tierCfg.model);
+      return new RetryingAdapter(new AnthropicAdapter(apiKey, tierCfg.model));
     case 'openai':
-      return new OpenAIAdapter(apiKey, tierCfg.model, tierCfg.baseURL);
+      return new RetryingAdapter(new OpenAIAdapter(apiKey, tierCfg.model, tierCfg.baseURL));
     default:
       throw new LLMError(`Unsupported LLM provider: ${String(tierCfg.provider)}`);
   }
@@ -64,12 +66,25 @@ export function createTierMapping(config: GestaltConfig): TierMapping {
       mapping[tier] = {
         provider: 'anthropic',
         model: llm.model || DEFAULT_MODEL,
-        adapter: new AnthropicAdapter(llm.apiKey, llm.model || DEFAULT_MODEL),
+        adapter: new RetryingAdapter(new AnthropicAdapter(llm.apiKey, llm.model || DEFAULT_MODEL)),
       };
     }
   }
 
   return mapping as TierMapping;
+}
+
+/**
+ * GestaltConfig에서 FallbackAdapter를 생성한다.
+ * tier 순서(frontier → standard → frugal)로 시도하며, tier가 없으면 flat config로 폴백한다.
+ */
+export function createFallbackAdapter(config: GestaltConfig): FallbackAdapter {
+  const tiers: AgentTier[] = ['frontier', 'standard', 'frugal'];
+  const adapters = tiers
+    .filter((t) => config.llm[t])
+    .map((t) => createAdapterFromTierConfig(config.llm[t]!, config.llm));
+  if (adapters.length === 0) adapters.push(createAdapter(config.llm));
+  return new FallbackAdapter(adapters);
 }
 
 /**
