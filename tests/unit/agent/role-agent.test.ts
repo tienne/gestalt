@@ -111,6 +111,52 @@ describe('RoleAgentRegistry', () => {
     expect(architect).toBeDefined();
     expect(architect!.frontmatter.tier).toBe('frontier');
   });
+
+  // ─── code-review-writer (신규 role agent) ──────────────────
+
+  it('loads code-review-writer role agent', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    expect(registry.has('code-review-writer')).toBe(true);
+  });
+
+  it('code-review-writer has correct frontmatter fields', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    const agent = registry.getByName('code-review-writer');
+    expect(agent).toBeDefined();
+
+    const fm = agent!.frontmatter;
+    expect(fm.name).toBe('code-review-writer');
+    expect(fm.role).toBe(true);
+    expect(fm.tier).toBe('standard');
+    expect(fm.pipeline).toBe('execute');
+    expect(fm.description).toBeTruthy();
+    expect(Array.isArray(fm.domain)).toBe(true);
+    expect(fm.domain).toContain('code-review');
+    expect(fm.domain).toContain('pr-review');
+
+    // systemPrompt가 비어있지 않아야 함
+    expect(agent!.systemPrompt.trim().length).toBeGreaterThan(0);
+  });
+
+  it('getByDomain("pr-review") includes code-review-writer', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    const agents = registry.getByDomain('pr-review');
+    expect(agents.some((a) => a.frontmatter.name === 'code-review-writer')).toBe(true);
+  });
+
+  it('getByDomain("code-review") includes code-review-writer', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    const agents = registry.getByDomain('code-review');
+    expect(agents.some((a) => a.frontmatter.name === 'code-review-writer')).toBe(true);
+  });
 });
 
 // ─── RoleMatchEngine ────────────────────────────────────────
