@@ -56,6 +56,7 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | 코드 가독성, SOLID, 에러 처리 리뷰 | `quality-reviewer` |
 | 테스트 케이스, 엣지 케이스, QA | `qa-engineer` |
 | UI, React, 접근성, 컴포넌트 설계 | `frontend-developer` |
+| UI·React 코드 리뷰, 접근성·번들 최적화 검토 | `frontend-reviewer` |
 | API, DB, 인증, 서버 로직 | `backend-developer` |
 | CI/CD, 인프라, 모니터링 | `devops-engineer` |
 | 요구사항 정리, 로드맵, 유저 스토리 | `product-planner` |
