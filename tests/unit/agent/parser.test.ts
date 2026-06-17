@@ -68,4 +68,23 @@ description: "Bad pipeline"
 Prompt`;
     expect(() => parseAgentMd(content, 'test.md')).toThrow();
   });
+
+  it('parses pipeline: review without throwing', () => {
+    const content = `---
+name: frontend-reviewer
+tier: standard
+pipeline: review
+role: true
+domain: ["frontend", "react"]
+description: "Frontend reviewer"
+---
+
+Review system prompt.`;
+
+    const agent = parseAgentMd(content, 'test.md');
+
+    expect(agent.frontmatter.pipeline).toBe('review');
+    expect(agent.frontmatter.role).toBe(true);
+    expect(agent.frontmatter.domain).toEqual(['frontend', 'react']);
+  });
 });

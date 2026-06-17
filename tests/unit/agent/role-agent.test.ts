@@ -159,6 +159,64 @@ describe('RoleAgentRegistry', () => {
   });
 });
 
+// ─── Review Agents (review-agents/ 디렉토리) ─────────────────
+
+describe('RoleAgentRegistry: review-agents loading', () => {
+  function loadWithReview(): RoleAgentRegistry {
+    // 생성자: (builtinDir, customDir?, reviewDir?)
+    const registry = new RoleAgentRegistry(
+      resolve('role-agents'),
+      undefined,
+      resolve('review-agents'),
+    );
+    registry.loadAll();
+    return registry;
+  }
+
+  it('getByPipeline("review") includes frontend-reviewer', () => {
+    const registry = loadWithReview();
+
+    const reviewAgents = registry.getByPipeline('review');
+    expect(reviewAgents.some((a) => a.frontmatter.name === 'frontend-reviewer')).toBe(true);
+  });
+
+  it('loads all 4 review agents (quality/security/performance/frontend)', () => {
+    const registry = loadWithReview();
+
+    const reviewNames = registry.getByPipeline('review').map((a) => a.frontmatter.name);
+    expect(reviewNames).toContain('quality-reviewer');
+    expect(reviewNames).toContain('security-reviewer');
+    expect(reviewNames).toContain('performance-reviewer');
+    expect(reviewNames).toContain('frontend-reviewer');
+    expect(reviewNames.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('every review agent has pipeline=review', () => {
+    const registry = loadWithReview();
+
+    const reviewAgents = registry.getByPipeline('review');
+    expect(reviewAgents.length).toBeGreaterThanOrEqual(4);
+    expect(reviewAgents.every((a) => a.frontmatter.pipeline === 'review')).toBe(true);
+  });
+
+  it('frontend-reviewer is matchable by frontend domains', () => {
+    const registry = loadWithReview();
+
+    for (const domain of ['react', 'a11y', 'web-vitals']) {
+      const agents = registry.getByDomain(domain);
+      expect(agents.some((a) => a.frontmatter.name === 'frontend-reviewer')).toBe(true);
+    }
+  });
+
+  it('frontend-reviewer is not loaded when reviewDir is omitted', () => {
+    // 회귀 가드: review-agents는 reviewDir 지정 시에만 로드되어야 한다
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    expect(registry.has('frontend-reviewer')).toBe(false);
+  });
+});
+
 // ─── RoleMatchEngine ────────────────────────────────────────
 
 describe('RoleMatchEngine', () => {
