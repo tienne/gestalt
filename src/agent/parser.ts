@@ -7,7 +7,7 @@ const agentFrontmatterSchema = z.object({
   name: z.string().min(1),
   model: z.string().optional(),
   tier: z.enum(['frugal', 'standard', 'frontier']),
-  pipeline: z.enum(['interview', 'spec', 'execute', 'evaluate']),
+  pipeline: z.enum(['interview', 'spec', 'execute', 'evaluate', 'review']),
   escalateTo: z.string().optional(),
   description: z.string().min(1),
   role: z.boolean().default(false),
