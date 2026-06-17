@@ -69,6 +69,24 @@ Prompt`;
     expect(() => parseAgentMd(content, 'test.md')).toThrow();
   });
 
+  it('parses pipeline: persona without throwing', () => {
+    const content = `---
+name: medicine-seller
+tier: standard
+pipeline: persona
+domain: ["sales", "hype"]
+description: "Hype salesman persona"
+---
+
+Persona system prompt.`;
+
+    const agent = parseAgentMd(content, 'test.md');
+
+    expect(agent.frontmatter.pipeline).toBe('persona');
+    expect(agent.frontmatter.name).toBe('medicine-seller');
+    expect(agent.frontmatter.domain).toEqual(['sales', 'hype']);
+  });
+
   it('parses pipeline: review without throwing', () => {
     const content = `---
 name: frontend-reviewer

@@ -36,6 +36,7 @@ const GESTALT_ENV_KEYS = [
   'GESTALT_AGENTS_DIR',
   'GESTALT_ROLE_AGENTS_DIR',
   'GESTALT_REVIEW_AGENTS_DIR',
+  'GESTALT_PERSONAS_DIR',
   'GESTALT_LOG_LEVEL',
   'GESTALT_CLIENT',
   'GESTALT_DRIFT_THRESHOLD',
@@ -470,5 +471,47 @@ describe('_buildEnvConfig', () => {
     process.env['GESTALT_DB_PATH'] = '/custom/path.db';
     const result = _buildEnvConfig();
     expect(result['dbPath']).toBe('/custom/path.db');
+  });
+
+  it('maps GESTALT_PERSONAS_DIR to personasDir', () => {
+    process.env['GESTALT_PERSONAS_DIR'] = '/custom/personas';
+    const result = _buildEnvConfig();
+    expect(result['personasDir']).toBe('/custom/personas');
+  });
+});
+
+// ─── personasDir resolution ─────────────────────────────────────
+
+describe('loadConfig — personasDir', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir('gestalt-personas-test');
+  });
+
+  afterEach(() => {
+    if (existsSync(tmpDir)) {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('env var GESTALT_PERSONAS_DIR overrides default (absolute path passes through)', () => {
+    const abs = join(tmpDir, 'my-personas');
+    mkdirSync(abs, { recursive: true });
+    process.env['GESTALT_PERSONAS_DIR'] = abs;
+    const config = loadConfig({}, isolatedOpts);
+    expect(config.personasDir).toBe(abs);
+  });
+
+  it('env var GESTALT_PERSONAS_DIR overrides gestalt.json', () => {
+    const fromEnv = join(tmpDir, 'env-personas');
+    mkdirSync(fromEnv, { recursive: true });
+    writeFileSync(
+      join(tmpDir, 'gestalt.json'),
+      JSON.stringify({ personasDir: join(tmpDir, 'json-personas') }),
+    );
+    process.env['GESTALT_PERSONAS_DIR'] = fromEnv;
+    const config = withCwd(tmpDir, () => loadConfig({}, { skipDotEnv: true }));
+    expect(config.personasDir).toBe(fromEnv);
   });
 });
