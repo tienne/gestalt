@@ -146,6 +146,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       config.roleAgentsDir,
       config.agentsDir,
       config.reviewAgentsDir,
+      config.personasDir,
     );
     roleAgentRegistry.loadAll();
 

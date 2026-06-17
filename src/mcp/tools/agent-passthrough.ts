@@ -17,6 +17,7 @@ export function handleAgentPassthrough(
     const all = roleAgentRegistry.getAll();
     const roleAgents = roleAgentRegistry.getByPipeline('execute');
     const reviewAgents = roleAgentRegistry.getByPipeline('review');
+    const personaAgents = roleAgentRegistry.getByPipeline('persona');
 
     return JSON.stringify({
       status: 'ok',
@@ -28,6 +29,11 @@ export function handleAgentPassthrough(
           domain: a.frontmatter.domain ?? [],
         })),
         review: reviewAgents.map((a) => ({
+          name: a.frontmatter.name,
+          description: a.frontmatter.description,
+          domain: a.frontmatter.domain ?? [],
+        })),
+        persona: personaAgents.map((a) => ({
           name: a.frontmatter.name,
           description: a.frontmatter.description,
           domain: a.frontmatter.domain ?? [],

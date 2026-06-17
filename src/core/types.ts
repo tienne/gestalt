@@ -380,7 +380,7 @@ export interface ExecuteSession {
 
 // ─── Agent ──────────────────────────────────────────────────────
 export type AgentTier = 'frugal' | 'standard' | 'frontier';
-export type AgentPipeline = 'interview' | 'spec' | 'execute' | 'evaluate' | 'review';
+export type AgentPipeline = 'interview' | 'spec' | 'execute' | 'evaluate' | 'review' | 'persona';
 export type LLMProvider = 'anthropic' | 'openai';
 
 export interface AgentFrontmatter {

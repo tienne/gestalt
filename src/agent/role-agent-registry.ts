@@ -15,6 +15,7 @@ export class RoleAgentRegistry {
     private builtinDir: string,
     private customDir?: string,
     private reviewDir?: string,
+    private personasDir?: string,
   ) {}
 
   loadAll(): void {
@@ -26,7 +27,12 @@ export class RoleAgentRegistry {
       this.loadFromDir(resolve(this.reviewDir));
     }
 
-    // 3. 커스텀 디렉토리에서 role=true인 에이전트 로드 (오버라이드)
+    // 3. persona agents 로드
+    if (this.personasDir) {
+      this.loadFromDir(resolve(this.personasDir));
+    }
+
+    // 4. 커스텀 디렉토리에서 role=true인 에이전트 로드 (오버라이드)
     if (this.customDir) {
       this.loadFromDir(resolve(this.customDir), true);
     }

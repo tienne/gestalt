@@ -57,6 +57,7 @@ const configSchema = z.object({
   agentsDir: z.string().default('agents'),
   roleAgentsDir: z.string().default('role-agents'),
   reviewAgentsDir: z.string().default('review-agents'),
+  personasDir: z.string().default('personas'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   client: z.enum(['claude-code', 'codex', 'both']).default('claude-code'),
 });
@@ -202,6 +203,7 @@ function buildEnvConfig(): Record<string, unknown> {
     result.roleAgentsDir = env['GESTALT_ROLE_AGENTS_DIR'];
   if (env['GESTALT_REVIEW_AGENTS_DIR'] !== undefined)
     result.reviewAgentsDir = env['GESTALT_REVIEW_AGENTS_DIR'];
+  if (env['GESTALT_PERSONAS_DIR'] !== undefined) result.personasDir = env['GESTALT_PERSONAS_DIR'];
   if (env['GESTALT_LOG_LEVEL'] !== undefined) result.logLevel = env['GESTALT_LOG_LEVEL'];
   if (env['GESTALT_CLIENT'] !== undefined) result.client = env['GESTALT_CLIENT'];
 
@@ -304,6 +306,7 @@ function applyPostProcessing(config: GestaltConfig): GestaltConfig {
   config.agentsDir = resolveDir(config.agentsDir);
   config.roleAgentsDir = resolveDir(config.roleAgentsDir);
   config.reviewAgentsDir = resolveDir(config.reviewAgentsDir);
+  config.personasDir = resolveDir(config.personasDir);
   return config;
 }
 
