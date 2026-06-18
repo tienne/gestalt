@@ -158,6 +158,41 @@ describe('RoleAgentRegistry', () => {
     expect(agents.some((a) => a.frontmatter.name === 'code-review-writer')).toBe(true);
   });
 
+  // ─── ux-writer (신규 role agent) ──────────────────────────────
+
+  it('loads ux-writer role agent', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    expect(registry.has('ux-writer')).toBe(true);
+  });
+
+  it('ux-writer has correct frontmatter fields', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    const agent = registry.getByName('ux-writer');
+    expect(agent).toBeDefined();
+
+    const fm = agent!.frontmatter;
+    expect(fm.name).toBe('ux-writer');
+    expect(fm.role).toBe(true);
+    expect(fm.tier).toBe('standard');
+    expect(fm.pipeline).toBe('execute');
+    expect(fm.description).toBeTruthy();
+    expect(Array.isArray(fm.domain)).toBe(true);
+    expect(fm.domain).toContain('ux-writing');
+    expect(agent!.systemPrompt.trim().length).toBeGreaterThan(0);
+  });
+
+  it('getByDomain("ux-writing") includes ux-writer', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    const agents = registry.getByDomain('ux-writing');
+    expect(agents.some((a) => a.frontmatter.name === 'ux-writer')).toBe(true);
+  });
+
   // ─── change-context-writer (신규 role agent) ───────────────
 
   it('loads change-context-writer role agent', () => {
