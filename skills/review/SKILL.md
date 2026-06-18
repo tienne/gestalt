@@ -21,6 +21,7 @@ inputs:
     required: false
     description: "Repository root (기본값: 현재 디렉토리)"
 outputs:
+  - reviewIntent
   - changeContext
   - reviewReport
   - verdict
@@ -53,6 +54,26 @@ execute 세션 없이 PR·브랜치·커밋의 변경사항을 직접 리뷰 파
 `repoRoot`가 주어지지 않으면 현재 작업 디렉토리를 절대 경로로 사용합니다.
 `target`이 주어지지 않으면 현재 브랜치 vs `main`을 기준으로 삼습니다.
 
+### 0단계: 미니 인터뷰 (reviewIntent 수집)
+
+본격 리뷰에 앞서 리뷰의 의도·중점 영역을 한 번에 가볍게 확인합니다. **세 질문을 단일 묶음으로 한 번에 제시**하고, 사용자의 한 번의 응답으로 처리합니다 (1턴 경량 인터뷰):
+
+```
+리뷰를 시작하기 전에 세 가지를 확인합니다. 모르거나 해당 없으면 Enter / "없음"으로 건너뛰어도 됩니다.
+
+1. 이번 변경의 주요 목적/의도는? (한 줄)
+2. 특별히 중점을 둬야 할 영역이 있나요? (보안·성능·품질·프론트엔드 등)
+3. 리뷰어가 미리 알면 좋을 배경 정보가 있나요?
+```
+
+사용자 응답을 `reviewIntent = { purpose, focusAreas[], background }` 형태로 보관합니다.
+
+- 각 항목별로 빈 응답·`"없음"`·`"스킵"`·`"바로 리뷰"` 등은 해당 항목을 `"(없음)"`으로 처리합니다.
+- `focusAreas`는 2번 답변에서 언급된 영역(보안·성능·품질·프론트엔드 등)을 배열로 추출합니다. 없으면 빈 배열로 둡니다.
+- **전체 건너뛰기**: 사용자가 `"스킵"` / `"그냥 리뷰"` / `"바로 시작"` 등으로 (개별 질문이 아닌) 0단계 자체를 건너뛰겠다는 의사를 보이면, 0단계 전체를 건너뛰고 `reviewIntent`의 모든 항목을 `"(없음)"`/빈 배열로 둔 채 1단계로 바로 진행합니다.
+
+`reviewIntent`는 MCP 입력 파라미터로 전달되지 않습니다 — 이후 단계에서 **Claude의 추론 컨텍스트로만** 활용합니다.
+
 ### 1단계: 변경 파일 수집 (blast_radius)
 
 `blast_radius`로 리뷰 대상의 변경 파일과 영향받는 파일을 수집합니다:
@@ -73,6 +94,8 @@ ges_code_graph {
 
 `ges_agent { action: "get", name: "change-context-writer" }`로 에이전트 시스템 프롬프트를 가져온 뒤, 해당 관점에서 diff를 분석해 기획 컨텍스트 문서를 작성한다.
 
+0단계에서 수집한 `reviewIntent.purpose`·`reviewIntent.background`가 `"(없음)"`이 아니라면, diff 분석 입력에 함께 전달해 더 정확한 기획 컨텍스트를 생성하도록 한다.
+
 작성된 컨텍스트 문서를 **리뷰 결과보다 먼저** 사용자에게 표시한다.
 
 ### 2단계: 리뷰 시작 (review_start)
@@ -88,7 +111,15 @@ ges_execute {
 ```
 
 응답의 `reviewSessionId`, `reviewStartContext.systemPrompt`, `reviewStartContext.matchContext`를 확보합니다.
-`matchContext`를 참고해 이번 리뷰에 투입할 에이전트(보안·성능·품질 등)를 선택합니다.
+`matchContext.matchingPrompt`를 참고해 이번 리뷰에 투입할 에이전트(보안·성능·품질 등)를 선택합니다.
+
+0단계의 `reviewIntent.focusAreas`에 영역이 명시돼 있으면 해당 전문가를 **반드시 포함하고, 가장 먼저 제출**합니다:
+- `"보안"` → security-reviewer 우선
+- `"성능"` → performance-reviewer 우선
+- `"품질"` → quality-reviewer 우선
+- `"프론트엔드"` → frontend-reviewer 우선
+
+`focusAreas`가 비어 있으면 기존 기본 순서(보안 → 성능 → 품질)를 유지합니다.
 
 ### 3단계: 에이전트별 리뷰 제출 (review_submit × 3)
 
@@ -166,7 +197,17 @@ ges_execute {
 
 ## 결과 표시
 
-기획 컨텍스트 문서(1.5단계)를 항상 리뷰 리포트 앞에 먼저 표시한 뒤, 코드 리뷰 결과를 표시합니다.
+0단계의 `reviewIntent`에 `purpose` 또는 `focusAreas`가 하나라도 있으면, 전체 출력 최상단에 리뷰 컨텍스트 블록을 표시합니다 (둘 다 `"(없음)"`/빈 배열이면 블록 전체를 생략):
+
+```
+## 리뷰 컨텍스트
+**목적**: {purpose 또는 "(없음)"}
+**중점 영역**: {focusAreas 또는 "(없음)"}
+
+---
+```
+
+그다음 기획 컨텍스트 문서(1.5단계)를 리뷰 리포트 앞에 먼저 표시한 뒤, 코드 리뷰 결과를 표시합니다.
 
 ```
 {1.5단계 기획 컨텍스트 마크다운}
