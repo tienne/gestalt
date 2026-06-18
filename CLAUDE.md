@@ -55,6 +55,7 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | 성능 병목, N+1, 메모리 누수 분석 | `performance-reviewer` |
 | 코드 가독성, SOLID, 에러 처리 리뷰 | `quality-reviewer` |
 | 테스트 케이스, 엣지 케이스, QA | `qa-engineer` |
+| UX 문구 작성·교정, 버튼 텍스트, 에러 메시지, 토스트, 온보딩 카피 | `ux-writer` |
 | UI, React, 접근성, 컴포넌트 설계 | `frontend-developer` |
 | UI·React 코드 리뷰, 접근성·번들 최적화 검토 | `frontend-reviewer` |
 | API, DB, 인증, 서버 로직 | `backend-developer` |
