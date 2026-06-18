@@ -157,6 +157,43 @@ describe('RoleAgentRegistry', () => {
     const agents = registry.getByDomain('code-review');
     expect(agents.some((a) => a.frontmatter.name === 'code-review-writer')).toBe(true);
   });
+
+  // ─── change-context-writer (신규 role agent) ───────────────
+
+  it('loads change-context-writer role agent', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    expect(registry.has('change-context-writer')).toBe(true);
+  });
+
+  it('change-context-writer has correct frontmatter fields', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    const agent = registry.getByName('change-context-writer');
+    expect(agent).toBeDefined();
+
+    const fm = agent!.frontmatter;
+    expect(fm.name).toBe('change-context-writer');
+    expect(fm.role).toBe(true);
+    expect(fm.tier).toBe('standard');
+    expect(fm.pipeline).toBe('execute');
+    expect(fm.description).toBeTruthy();
+    expect(Array.isArray(fm.domain)).toBe(true);
+    expect(fm.domain).toContain('change-context');
+
+    // systemPrompt가 비어있지 않아야 함
+    expect(agent!.systemPrompt.trim().length).toBeGreaterThan(0);
+  });
+
+  it('getByDomain("change-context") includes change-context-writer', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    const agents = registry.getByDomain('change-context');
+    expect(agents.some((a) => a.frontmatter.name === 'change-context-writer')).toBe(true);
+  });
 });
 
 // ─── Review Agents (review-agents/ 디렉토리) ─────────────────
