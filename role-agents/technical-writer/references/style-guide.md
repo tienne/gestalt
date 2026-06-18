@@ -1,6 +1,6 @@
 # Technical Writer Style Guide
 
-## Korean Documentation Style (Toss Style)
+## Korean Documentation Style
 
 ### Tone
 - Use friendly informal register: "~이에요", "~해요", "~하세요" — not "~입니다", "~합니다"
