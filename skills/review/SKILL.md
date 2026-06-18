@@ -21,6 +21,7 @@ inputs:
     required: false
     description: "Repository root (기본값: 현재 디렉토리)"
 outputs:
+  - changeContext
   - reviewReport
   - verdict
 ---
@@ -65,6 +66,14 @@ ges_code_graph {
 ```
 
 `changedFiles`와 `impactedFiles`를 합쳐 리뷰 대상 파일 목록을 구성합니다.
+
+### 1.5단계: 기획 컨텍스트 분석
+
+`blast_radius`로 수집한 `changedFiles`를 바탕으로 변경의 기획적 의도와 동작 변화를 분석한다.
+
+`ges_agent { action: "get", name: "change-context-writer" }`로 에이전트 시스템 프롬프트를 가져온 뒤, 해당 관점에서 diff를 분석해 기획 컨텍스트 문서를 작성한다.
+
+작성된 컨텍스트 문서를 **리뷰 결과보다 먼저** 사용자에게 표시한다.
 
 ### 2단계: 리뷰 시작 (review_start)
 
@@ -157,7 +166,13 @@ ges_execute {
 
 ## 결과 표시
 
+기획 컨텍스트 문서(1.5단계)를 항상 리뷰 리포트 앞에 먼저 표시한 뒤, 코드 리뷰 결과를 표시합니다.
+
 ```
+{1.5단계 기획 컨텍스트 마크다운}
+
+---
+
 ## 코드 리뷰 결과
 
 **대상**: <target>
