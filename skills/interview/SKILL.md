@@ -1,6 +1,6 @@
 ---
 name: interview
-version: "1.1.0"
+version: "1.2.0"
 description: "Gestalt-driven interview to clarify project requirements"
 triggers:
   - "interview"
@@ -23,6 +23,29 @@ outputs:
 # Interview Skill
 
 This skill conducts a Gestalt psychology-driven interview to transform vague requirements into clear specifications.
+
+## 0단계: 인텐트 라우팅 (인터뷰 시작 전)
+
+인터뷰를 시작하기 전에 topic이 인터뷰 파이프라인에 적합한지 먼저 확인한다.
+
+### PR 관련 키워드 감지
+topic에 아래 키워드가 포함되면 `/pr` 스킬이 더 적합하다:
+`PR`, `풀리퀘`, `풀 리퀘스트`, `pull request`, `PR 작성`, `PR 만들어`, `PR 써줘`, `PR 올려`
+
+→ `ges_interview start`를 실행하지 않고 사용자에게 안내:
+> "이 요청은 `/pr` 스킬이 더 적합합니다. PR 작성 전용 파이프라인(레포 규칙 탐색 → 미니 인터뷰 → diff 분석 → description 생성)으로 진행할까요?"
+> 확인 시 `/pr` 스킬 즉시 실행.
+
+### 코드 리뷰 관련 키워드 감지
+topic에 아래 키워드가 포함되면 `/review` 스킬이 더 적합하다:
+`코드리뷰`, `code review`, `리뷰해줘`, `리뷰 부탁`, `리뷰 요청`, `review`, `리뷰`
+
+→ `ges_interview start`를 실행하지 않고 사용자에게 안내:
+> "이 요청은 `/review` 스킬이 더 적합합니다. 코드 리뷰 전용 파이프라인(미니 인터뷰 → 기획 컨텍스트 분석 → 전문 리뷰어 검토)으로 진행할까요?"
+> 확인 시 `/review` 스킬 즉시 실행.
+
+### 라우팅 대상이 아닌 경우
+위 키워드가 없으면 기존 인터뷰 파이프라인을 정상 진행한다.
 
 ## ⚠️ Critical Rule: Never Self-Answer
 
