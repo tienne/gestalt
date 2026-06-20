@@ -57,7 +57,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   agentRegistry.loadAll();
 
   const isPassthrough = !config.llm.apiKey;
-  const usePassthroughInterview = isPassthrough || config.client === 'codex';
+  // claude-code/codex 모두 호스트가 LLM 역할 → passthrough 강제
+  const usePassthroughInterview =
+    isPassthrough || config.client === 'codex' || config.client === 'claude-code';
 
   const server = new McpServer({
     name: 'gestalt',

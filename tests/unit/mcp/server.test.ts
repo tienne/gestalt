@@ -120,7 +120,7 @@ describe('createMcpServer', () => {
     }
   });
 
-  it('keeps direct-LLM interview and spec schemas for Claude Code when an API key exists', async () => {
+  it('uses passthrough interview for Claude Code even when an API key exists', async () => {
     const overrides: Partial<GestaltConfig> = {
       dbPath: dbPath(),
       llm: { apiKey: 'sk-ant-test', model: 'test-model' },
@@ -131,8 +131,9 @@ describe('createMcpServer', () => {
     try {
       const tools = registeredTools(server);
 
-      expect(inputKeys(tools['ges_interview'])).not.toContain('generatedQuestion');
-      expect(inputKeys(tools['ges_generate_spec'])).not.toContain('text');
+      // claude-code는 호스트가 LLM 역할 → passthrough 강제 (API 키 유무 무관)
+      expect(inputKeys(tools['ges_interview'])).toContain('generatedQuestion');
+      expect(inputKeys(tools['ges_generate_spec'])).toContain('text');
       expect(tools['ges_execute']).toBeDefined();
       expect(tools['ges_code_graph']).toBeDefined();
     } finally {
