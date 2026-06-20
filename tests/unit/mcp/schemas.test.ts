@@ -8,4 +8,19 @@ describe('MCP schema exports', () => {
       expect(executeToolSchema.action.safeParse(action).success).toBe(true);
     }
   });
+
+  it('accepts a per-call client override on execute input', () => {
+    const parsed = executeInputSchema.parse({ action: 'status', client: 'codex' });
+    expect(parsed.client).toBe('codex');
+
+    for (const client of ['claude-code', 'codex', 'both']) {
+      expect(executeInputSchema.shape.client.safeParse(client).success).toBe(true);
+    }
+    expect(executeInputSchema.shape.client.safeParse('gemini').success).toBe(false);
+  });
+
+  it('leaves client undefined when omitted', () => {
+    const parsed = executeInputSchema.parse({ action: 'status' });
+    expect(parsed.client).toBeUndefined();
+  });
 });
