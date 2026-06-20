@@ -12,6 +12,7 @@ import type {
   EvolutionGeneration,
 } from '../core/types.js';
 import { PLANNING_PRINCIPLE_SEQUENCE, PLANNING_TOTAL_STEPS } from '../core/constants.js';
+import { KOREAN_TONE_GUIDE } from '../llm/prompts.js';
 
 // ─── System Prompt ──────────────────────────────────────────────
 
@@ -29,7 +30,9 @@ export const EXECUTE_SYSTEM_PROMPT = `You are a Gestalt-trained execution planne
 3. Atomic tasks must be independently executable units
 4. All tasks must belong to exactly one group
 5. The final DAG must be acyclic with a valid topological ordering
-6. Always respond with ONLY a JSON object matching the specified schema`;
+6. Always respond with ONLY a JSON object matching the specified schema
+
+${KOREAN_TONE_GUIDE}`;
 
 // ─── Step Prompts ───────────────────────────────────────────────
 
@@ -207,7 +210,9 @@ export const EXECUTE_EXECUTION_SYSTEM_PROMPT = `You are a Gestalt-trained task e
 2. Reference previous task outputs for consistent patterns
 3. Respond with ONLY a JSON object matching the specified schema
 4. Include file paths in artifacts when creating/modifying files
-5. If suggestedFiles are provided, Read those files first before performing the task`;
+5. If suggestedFiles are provided, Read those files first before performing the task
+
+${KOREAN_TONE_GUIDE}`;
 
 export function buildTaskExecutionPrompt(
   task: AtomicTask,
@@ -273,7 +278,9 @@ export const EXECUTE_EVALUATION_SYSTEM_PROMPT = `You are a Gestalt-trained evalu
 2. Provide specific evidence for satisfied criteria
 3. Identify concrete gaps for unsatisfied criteria
 4. The overall score should reflect the ratio of satisfied criteria weighted by priority
-5. Respond with ONLY a JSON object matching the specified schema`;
+5. Respond with ONLY a JSON object matching the specified schema
+
+${KOREAN_TONE_GUIDE}`;
 
 export function buildEvaluationPrompt(
   spec: Spec,
@@ -472,7 +479,9 @@ export const EVOLVE_STRUCTURAL_FIX_SYSTEM_PROMPT = `You are a Gestalt-trained st
 1. Analyze each failed structural command and its error output
 2. Generate a targeted fix task for each failure
 3. Fix tasks should be independent and specific
-4. Respond with ONLY a JSON array matching the specified schema`;
+4. Respond with ONLY a JSON array matching the specified schema
+
+${KOREAN_TONE_GUIDE}`;
 
 export function buildStructuralFixPrompt(
   spec: Spec,
@@ -529,7 +538,9 @@ export const EVOLVE_CONTEXTUAL_SYSTEM_PROMPT = `You are a Gestalt-trained spec e
 1. Analyze evaluation gaps to identify what needs to change
 2. Generate a minimal patch that addresses the gaps
 3. Respect the patch scope rules strictly
-4. Respond with ONLY a JSON object matching the specified schema`;
+4. Respond with ONLY a JSON object matching the specified schema
+
+${KOREAN_TONE_GUIDE}`;
 
 export function buildContextualEvolvePrompt(
   spec: Spec,
