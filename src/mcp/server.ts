@@ -57,17 +57,35 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   agentRegistry.loadAll();
 
   const isPassthrough = !config.llm.apiKey;
+  const usePassthroughInterview = isPassthrough || config.client === 'codex';
 
   const server = new McpServer({
     name: 'gestalt',
     version: getVersion(),
   });
 
-  if (isPassthrough) {
-    // ─── Passthrough mode: no API key, prompts returned to caller ───
-    const ptEngine = new PassthroughEngine(eventStore, agentRegistry);
-    const ptSpecGen = new PassthroughSpecGenerator(eventStore, agentRegistry);
+  const ptEngine = new PassthroughEngine(eventStore, agentRegistry);
+  const ptSpecGen = new PassthroughSpecGenerator(eventStore, agentRegistry);
+  const roleAgentRegistry = new RoleAgentRegistry(
+    config.roleAgentsDir,
+    config.agentsDir,
+    config.reviewAgentsDir,
+    config.personasDir,
+  );
+  roleAgentRegistry.loadAll();
 
+  const ptExecuteEngine = new PassthroughExecuteEngine(
+    eventStore,
+    agentRegistry,
+    roleAgentRegistry,
+  );
+  const ptReviewEngine = new PassthroughReviewEngine(eventStore);
+
+  const executeRemoved = ptExecuteEngine.getSessionManager().cleanup();
+  logger.info('session.cleanup', { module: 'execute', removed: executeRemoved });
+
+  if (usePassthroughInterview) {
+    // ─── Passthrough mode: prompts returned to the caller LLM ───
     const interviewRemoved = ptEngine.getSessionManager().cleanup();
     logger.info('session.cleanup', { module: 'interview', removed: interviewRemoved });
 
@@ -138,220 +156,6 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       (params) => {
         const input = specInputSchema.parse(params);
         const result = handleSpecPassthrough(ptEngine, ptSpecGen, input, agentRegistry);
-        return { content: [{ type: 'text' as const, text: result }] };
-      },
-    );
-
-    const roleAgentRegistry = new RoleAgentRegistry(
-      config.roleAgentsDir,
-      config.agentsDir,
-      config.reviewAgentsDir,
-      config.personasDir,
-    );
-    roleAgentRegistry.loadAll();
-
-    const ptExecuteEngine = new PassthroughExecuteEngine(
-      eventStore,
-      agentRegistry,
-      roleAgentRegistry,
-    );
-    const ptReviewEngine = new PassthroughReviewEngine(eventStore);
-
-    const executeRemoved = ptExecuteEngine.getSessionManager().cleanup();
-    logger.info('session.cleanup', { module: 'execute', removed: executeRemoved });
-
-    server.tool(
-      'ges_execute',
-      'Execute a Spec using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, resume, audit, spawn, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result, role_match, role_consensus, review_start, review_submit, review_consensus, review_fix.',
-      executeToolSchema,
-      async (params) => {
-        const input = executeInputSchema.parse(params);
-        // Route review actions to review engine
-        if (input.action.startsWith('review_')) {
-          const result = handleReviewPassthrough(
-            ptReviewEngine,
-            ptExecuteEngine,
-            roleAgentRegistry,
-            input,
-          );
-          return { content: [{ type: 'text' as const, text: result }] };
-        }
-        const adapter = createHostAdapter(config.client, input.cwd);
-        const result = await handleExecutePassthrough(ptExecuteEngine, input, adapter);
-        return { content: [{ type: 'text' as const, text: result }] };
-      },
-    );
-
-    const ptAgentGen = new PassthroughAgentGenerator(eventStore, roleAgentRegistry);
-
-    server.tool(
-      'ges_create_agent',
-      'Create a custom Role Agent from a completed interview session (passthrough mode). Actions: start, submit.',
-      {
-        action: z
-          .enum(['start', 'submit'])
-          .describe(
-            'start: get agent creation context with prompts, submit: validate and save AGENT.md',
-          ),
-        sessionId: z.string(),
-        agentContent: z.string().optional().describe('(required for submit)'),
-        cwd: z.string().optional(),
-      },
-      (params) => {
-        const input = agentCreateInputSchema.parse(params);
-        const result = handleCreateAgentPassthrough(ptEngine, ptAgentGen, input);
-        return { content: [{ type: 'text' as const, text: result }] };
-      },
-    );
-
-    server.tool(
-      'ges_agent',
-      "List available agents or retrieve a specific agent's system prompt for standalone use — no pipeline required. Actions: list (get all role/review agents), get (retrieve agent by name).",
-      {
-        action: z
-          .enum(['list', 'get'])
-          .describe(
-            "list: get all available agents grouped by type, get: retrieve a specific agent's systemPrompt",
-          ),
-        name: z.string().optional().describe('(required for get)'),
-      },
-      (params) => {
-        const result = handleAgentPassthrough(roleAgentRegistry, {
-          action: params.action,
-          name: params.name,
-        });
-        return { content: [{ type: 'text' as const, text: result }] };
-      },
-    );
-
-    server.tool(
-      'ges_benchmark',
-      'Run Gestalt pipeline benchmarks in passthrough mode. Actions: start (begin a scenario), respond (submit LLM response), status (check progress). No API key required — caller acts as the LLM.',
-      {
-        action: z
-          .enum(['start', 'respond', 'status'])
-          .describe(
-            'start: begin benchmark scenario, respond: submit LLM response for current step, status: check benchmark progress',
-          ),
-        scenario: z
-          .string()
-          .optional()
-          .describe('Scenario name for start: auth-system, dashboard, api-gateway'),
-        benchmarkSessionId: z.string().optional().describe('(required for respond/status)'),
-        response: z.string().optional().describe('(required for respond)'),
-        usage: z
-          .object({
-            inputTokens: z.number(),
-            outputTokens: z.number(),
-          })
-          .optional(),
-      },
-      (params) => {
-        const input = benchmarkInputSchema.parse(params);
-        const result = handleBenchmarkPassthrough(input);
-        return { content: [{ type: 'text' as const, text: result }] };
-      },
-    );
-
-    server.tool(
-      'ges_status',
-      'Check the status of interview and execute sessions.',
-      {
-        sessionId: z.string().optional(),
-        sessionType: z.enum(['interview', 'execute', 'all']).optional().default('all'),
-      },
-      (params) => {
-        const input = statusInputSchema.parse(params);
-        const result = handleStatusPassthrough(ptEngine, ptExecuteEngine, input);
-        return { content: [{ type: 'text' as const, text: result }] };
-      },
-    );
-
-    server.tool(
-      'ges_code_graph',
-      'Build and query the code knowledge graph for a repository. Actions: build (index codebase), blast_radius (find impacted files from changes), query (graph traversal), stats (show DB stats), db_exists (check if graph DB exists).',
-      {
-        action: z
-          .enum(['build', 'blast_radius', 'query', 'stats', 'db_exists'])
-          .describe(
-            'build: index codebase into graph DB, blast_radius: find files impacted by changes, query: traverse graph, stats: show stats, db_exists: check if DB exists',
-          ),
-        repoRoot: z.string(),
-        include: z.array(z.string()).optional(),
-        exclude: z.array(z.string()).optional(),
-        mode: z.enum(['full', 'incremental']).optional(),
-        changedFiles: z
-          .array(z.string())
-          .optional()
-          .describe('(auto-detected from git if omitted)'),
-        base: z.string().optional(),
-        maxDepth: z.number().optional(),
-        pattern: z.enum(['callers_of', 'callees_of', 'tests_for', 'imports_of']).optional(),
-        target: z.string().optional(),
-      },
-      async (params) => {
-        const input = codeGraphInputSchema.parse(params);
-        const result = await handleCodeGraphPassthrough(input);
-        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
-      },
-    );
-
-    server.tool(
-      'ges_graph_visualize',
-      'Start a local HTTP server that renders an interactive D3.js force-directed graph visualization of the code knowledge graph. Opens the browser automatically. Requires an existing or auto-buildable code-graph.db.',
-      {
-        repoRoot: z.string(),
-        port: z.number().optional(),
-      },
-      async (params) => {
-        const input = graphVisualizeInputSchema.parse(params);
-        const result = await handleGraphVisualizePassthrough(input);
-        return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
-      },
-    );
-
-    server.tool(
-      'ges_generate_kb',
-      'Gestalt 코드 그래프 분석 결과 및 도메인 내용을 MD 파일로 내보내고 임베딩을 생성합니다',
-      {
-        repoRoot: z.string().optional(),
-        outputPath: z.string().optional(),
-        types: z
-          .array(z.enum(['code-graph', 'business-logic', 'api-spec', 'adr', 'policy']))
-          .optional(),
-      },
-      async (params) => {
-        const result = await handleGenerateKb(params, process.cwd());
-        return { content: [{ type: 'text' as const, text: result }] };
-      },
-    );
-
-    server.tool(
-      'ges_search',
-      'Knowledge Base에서 시맨틱 검색을 수행합니다',
-      {
-        query: z.string(),
-        k: z.number().optional(),
-        kbPath: z.string().optional(),
-        types: z
-          .array(z.enum(['code-graph', 'business-logic', 'api-spec', 'adr', 'policy']))
-          .optional(),
-      },
-      async (params) => {
-        const result = await handleSearchKb(params, process.cwd());
-        return { content: [{ type: 'text' as const, text: result }] };
-      },
-    );
-
-    server.tool(
-      'ges_sync',
-      'Knowledge Base를 다른 경로로 동기화(복사)합니다',
-      {
-        sourcePath: z.string().optional(),
-        targetPath: z.string(),
-      },
-      async (params) => {
-        const result = await handleSyncKb(params, process.cwd());
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );
@@ -427,6 +231,201 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
     );
   }
+
+  server.tool(
+    'ges_execute',
+    'Execute a Spec using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, resume, audit, spawn, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result, role_match, role_consensus, review_start, review_submit, review_consensus, review_fix.',
+    executeToolSchema,
+    async (params) => {
+      const input = executeInputSchema.parse(params);
+      // Route review actions to review engine.
+      if (input.action.startsWith('review_')) {
+        const result = handleReviewPassthrough(
+          ptReviewEngine,
+          ptExecuteEngine,
+          roleAgentRegistry,
+          input,
+        );
+        return { content: [{ type: 'text' as const, text: result }] };
+      }
+      const adapter = createHostAdapter(input.client ?? config.client, input.cwd);
+      const result = await handleExecutePassthrough(ptExecuteEngine, input, adapter);
+      return { content: [{ type: 'text' as const, text: result }] };
+    },
+  );
+
+  const ptAgentGen = new PassthroughAgentGenerator(eventStore, roleAgentRegistry);
+
+  server.tool(
+    'ges_create_agent',
+    'Create a custom Role Agent from a completed interview session (passthrough mode). Actions: start, submit.',
+    {
+      action: z
+        .enum(['start', 'submit'])
+        .describe(
+          'start: get agent creation context with prompts, submit: validate and save AGENT.md',
+        ),
+      sessionId: z.string(),
+      agentContent: z.string().optional().describe('(required for submit)'),
+      cwd: z.string().optional(),
+    },
+    (params) => {
+      const input = agentCreateInputSchema.parse(params);
+      const result = handleCreateAgentPassthrough(ptEngine, ptAgentGen, input);
+      return { content: [{ type: 'text' as const, text: result }] };
+    },
+  );
+
+  server.tool(
+    'ges_agent',
+    "List available agents or retrieve a specific agent's system prompt for standalone use — no pipeline required. Actions: list (get all role/review agents), get (retrieve agent by name).",
+    {
+      action: z
+        .enum(['list', 'get'])
+        .describe(
+          "list: get all available agents grouped by type, get: retrieve a specific agent's systemPrompt",
+        ),
+      name: z.string().optional().describe('(required for get)'),
+    },
+    (params) => {
+      const result = handleAgentPassthrough(roleAgentRegistry, {
+        action: params.action,
+        name: params.name,
+      });
+      return { content: [{ type: 'text' as const, text: result }] };
+    },
+  );
+
+  server.tool(
+    'ges_benchmark',
+    'Run Gestalt pipeline benchmarks in passthrough mode. Actions: start (begin a scenario), respond (submit LLM response), status (check progress). No API key required — caller acts as the LLM.',
+    {
+      action: z
+        .enum(['start', 'respond', 'status'])
+        .describe(
+          'start: begin benchmark scenario, respond: submit LLM response for current step, status: check benchmark progress',
+        ),
+      scenario: z
+        .string()
+        .optional()
+        .describe('Scenario name for start: auth-system, dashboard, api-gateway'),
+      benchmarkSessionId: z.string().optional().describe('(required for respond/status)'),
+      response: z.string().optional().describe('(required for respond)'),
+      usage: z
+        .object({
+          inputTokens: z.number(),
+          outputTokens: z.number(),
+        })
+        .optional(),
+    },
+    (params) => {
+      const input = benchmarkInputSchema.parse(params);
+      const result = handleBenchmarkPassthrough(input);
+      return { content: [{ type: 'text' as const, text: result }] };
+    },
+  );
+
+  if (usePassthroughInterview) {
+    server.tool(
+      'ges_status',
+      'Check the status of interview and execute sessions.',
+      {
+        sessionId: z.string().optional(),
+        sessionType: z.enum(['interview', 'execute', 'all']).optional().default('all'),
+      },
+      (params) => {
+        const input = statusInputSchema.parse(params);
+        const result = handleStatusPassthrough(ptEngine, ptExecuteEngine, input);
+        return { content: [{ type: 'text' as const, text: result }] };
+      },
+    );
+  }
+
+  server.tool(
+    'ges_code_graph',
+    'Build and query the code knowledge graph for a repository. Actions: build (index codebase), blast_radius (find impacted files from changes), query (graph traversal), stats (show DB stats), db_exists (check if graph DB exists).',
+    {
+      action: z
+        .enum(['build', 'blast_radius', 'query', 'stats', 'db_exists'])
+        .describe(
+          'build: index codebase into graph DB, blast_radius: find files impacted by changes, query: traverse graph, stats: show stats, db_exists: check if DB exists',
+        ),
+      repoRoot: z.string(),
+      include: z.array(z.string()).optional(),
+      exclude: z.array(z.string()).optional(),
+      mode: z.enum(['full', 'incremental']).optional(),
+      changedFiles: z.array(z.string()).optional().describe('(auto-detected from git if omitted)'),
+      base: z.string().optional(),
+      maxDepth: z.number().optional(),
+      pattern: z.enum(['callers_of', 'callees_of', 'tests_for', 'imports_of']).optional(),
+      target: z.string().optional(),
+    },
+    async (params) => {
+      const input = codeGraphInputSchema.parse(params);
+      const result = await handleCodeGraphPassthrough(input);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'ges_graph_visualize',
+    'Start a local HTTP server that renders an interactive D3.js force-directed graph visualization of the code knowledge graph. Opens the browser automatically. Requires an existing or auto-buildable code-graph.db.',
+    {
+      repoRoot: z.string(),
+      port: z.number().optional(),
+    },
+    async (params) => {
+      const input = graphVisualizeInputSchema.parse(params);
+      const result = await handleGraphVisualizePassthrough(input);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'ges_generate_kb',
+    'Gestalt 코드 그래프 분석 결과 및 도메인 내용을 MD 파일로 내보내고 임베딩을 생성합니다',
+    {
+      repoRoot: z.string().optional(),
+      outputPath: z.string().optional(),
+      types: z
+        .array(z.enum(['code-graph', 'business-logic', 'api-spec', 'adr', 'policy']))
+        .optional(),
+    },
+    async (params) => {
+      const result = await handleGenerateKb(params, process.cwd());
+      return { content: [{ type: 'text' as const, text: result }] };
+    },
+  );
+
+  server.tool(
+    'ges_search',
+    'Knowledge Base에서 시맨틱 검색을 수행합니다',
+    {
+      query: z.string(),
+      k: z.number().optional(),
+      kbPath: z.string().optional(),
+      types: z
+        .array(z.enum(['code-graph', 'business-logic', 'api-spec', 'adr', 'policy']))
+        .optional(),
+    },
+    async (params) => {
+      const result = await handleSearchKb(params, process.cwd());
+      return { content: [{ type: 'text' as const, text: result }] };
+    },
+  );
+
+  server.tool(
+    'ges_sync',
+    'Knowledge Base를 다른 경로로 동기화(복사)합니다',
+    {
+      sourcePath: z.string().optional(),
+      targetPath: z.string(),
+    },
+    async (params) => {
+      const result = await handleSyncKb(params, process.cwd());
+      return { content: [{ type: 'text' as const, text: result }] };
+    },
+  );
 
   return { server, eventStore, skillRegistry, agentRegistry };
 }
@@ -639,7 +638,7 @@ function summarizeEvolution(session: import('../core/types.js').ExecuteSession):
 
 export async function startMcpServer(configOverrides?: Partial<GestaltConfig>) {
   const config = loadConfig(configOverrides);
-  const isPassthrough = !config.llm.apiKey;
+  const usePassthroughInterview = !config.llm.apiKey || config.client === 'codex';
   const { server, skillRegistry, agentRegistry } = await createMcpServer(configOverrides);
 
   skillRegistry.startWatching();
@@ -648,7 +647,7 @@ export async function startMcpServer(configOverrides?: Partial<GestaltConfig>) {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  log(`MCP server started on stdio${isPassthrough ? ' (passthrough mode)' : ''}`);
+  log(`MCP server started on stdio${usePassthroughInterview ? ' (passthrough mode)' : ''}`);
 
   checkForUpdates()
     .then((result) => {

@@ -148,6 +148,10 @@ export const executeInputSchema = z.object({
       'Repo root path for blast-radius based test filtering (optional, requires code-graph.db)',
     ),
   cwd: z.string().optional().describe('Working directory for rule file creation'),
+  client: z
+    .enum(['claude-code', 'codex', 'both'])
+    .optional()
+    .describe('Host client for active context recording (overrides server config per call)'),
   stepResult: z
     .object({
       principle: z.enum(['figure_ground', 'closure', 'proximity', 'continuity']),
