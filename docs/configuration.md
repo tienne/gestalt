@@ -51,7 +51,7 @@ interface GestaltConfig {
 
 | 변수명 | 타입 | 기본값 | 설명 |
 |--------|------|--------|------|
-| `ANTHROPIC_API_KEY` | string | `""` | Anthropic API 키. 없으면 Interview/Spec에서 Passthrough 모드로 동작. Execute는 항상 Passthrough. |
+| `ANTHROPIC_API_KEY` | string | `""` | Anthropic API 키. 없으면 Interview/Spec에서 Passthrough 모드로 동작. `client: "codex"`에서도 Codex가 LLM 주체가 되도록 Interview/Spec은 Passthrough 모드로 동작. Execute는 항상 Passthrough. |
 | `GESTALT_MODEL` | string | `"claude-sonnet-4-20250514"` | 기본 LLM 모델 이름 (`llm.model` 매핑) |
 | `GESTALT_RESOLUTION_THRESHOLD` | number (0–1) | `0.8` | 인터뷰 완료 기준 해상도 점수. 이 값 이상이면 인터뷰를 충분히 완료된 것으로 판단 |
 | `GESTALT_MAX_ROUNDS` | number (int) | `10` | 인터뷰 최대 라운드 수 |
@@ -102,8 +102,8 @@ interface GestaltConfig {
 
 > **참고**: Execute Engine은 LLM 호출 방식과 무관하게 **항상 Passthrough 모드**로 동작합니다.
 > API 키 유무는 Execute 동작에 영향을 주지 않습니다.
-> Execute는 Claude Code의 도구(Bash, Edit 등)를 활용해 실제 파일 수정과 코드 실행을 수행하므로,
-> Claude Code가 LLM 실행 주체가 되는 것이 설계 의도입니다.
+> Execute는 호스트 코딩 에이전트의 도구(Bash, Edit 등)를 활용해 실제 파일 수정과 코드 실행을 수행하므로,
+> Claude Code나 Codex 같은 호스트가 LLM 실행 주체가 되는 것이 설계 의도입니다.
 
 ### Tier 객체 필드
 

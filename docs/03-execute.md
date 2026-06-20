@@ -155,7 +155,7 @@ ges_execute({ action: "plan_complete", sessionId: "<id>" })
 // 실행 시작
 ges_execute({ action: "execute_start", sessionId: "<id>", cwd: "/path/to/project" })
 → 첫 번째 태스크 컨텍스트 반환
-  cwd를 전달하면 .claude/rules/gestalt-active.md와 .gestalt/active-session.json을 자동 생성해요.
+  cwd를 전달하면 client 설정에 맞는 active context 파일과 .gestalt/active-session.json을 자동 생성해요.
 
 // 태스크 결과 제출 (태스크가 남아있는 동안 반복)
 ges_execute({
@@ -176,20 +176,21 @@ ges_execute({
 
 ## Active Session Rule File
 
-`execute_start`에 `cwd`를 전달하면 두 파일을 자동으로 생성하고 관리해요.
+`execute_start`에 `cwd`를 전달하면 active context 파일과 세션 힌트를 자동으로 생성하고 관리해요.
 
 | 파일 | 위치 | 내용 |
 |:---|:---|:---|
-| `.claude/rules/gestalt-active.md` | `{cwd}/.claude/rules/` | goal / constraints / 현재 태스크 |
+| `.claude/rules/gestalt-active.md` | `{cwd}/.claude/rules/` | `client: "claude-code"` 또는 `"both"`일 때 goal / constraints / 현재 태스크 |
+| `AGENTS.md` 관리 섹션 | `{cwd}/AGENTS.md` | `client: "codex"` 또는 `"both"`일 때 goal / constraints / 현재 태스크 |
 | `.gestalt/active-session.json` | `{cwd}/.gestalt/` | sessionId + specId |
 
-`.claude/rules/` 디렉토리의 파일은 Claude Code 세션 시작 시 자동으로 로드돼요. 새 세션을 열어도 현재 실행 중인 Spec의 목표와 제약조건이 컨텍스트에 주입돼요.
+`.claude/rules/` 디렉토리의 파일은 Claude Code 세션 시작 시 자동으로 로드돼요. Codex에서는 `AGENTS.md`의 managed section이 새 세션의 지속 컨텍스트가 됩니다. 실행 중인 현재 턴에서는 MCP 응답의 `taskContext`와 `executeContext`를 우선해서 따르세요.
 
 | 액션 | 동작 |
 |:---|:---|
 | `execute_start` | 두 파일 생성 |
-| `execute_task` | `gestalt-active.md`의 currentTask 업데이트 |
-| `evolve_patch` | `gestalt-active.md`의 Spec 정보 업데이트 |
+| `execute_task` | active context의 currentTask 업데이트 |
+| `evolve_patch` | active context의 Spec 정보 업데이트 |
 | 세션 종료 (`completed` / `terminated` / `human_escalation`) | 두 파일 삭제 |
 
 소스: `src/execute/rule-writer.ts`

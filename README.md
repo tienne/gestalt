@@ -187,7 +187,12 @@ Then add `"client": "codex"` to your project's `gestalt.json` so the active sess
 
 Or set `GESTALT_CLIENT=codex` as an environment variable.
 
-All 12 MCP tools (`ges_interview`, `ges_generate_spec`, `ges_execute`, etc.) are available immediately. Slash commands and the Claude Code Task panel are not available in Codex — the pipeline runs entirely through MCP tool calls.
+Codex uses host passthrough mode: Gestalt returns prompts and structured context,
+and Codex performs the reasoning, file edits, and command execution. When
+`client` is `"codex"`, this remains true even if `ANTHROPIC_API_KEY` exists in
+your shell.
+
+All 12 MCP tools (`ges_interview`, `ges_generate_spec`, `ges_execute`, etc.) are available immediately. Slash commands and the Claude Code Task panel are not available in Codex — the pipeline runs entirely through MCP tool calls. During execution, active context is written to a managed section in `AGENTS.md`; continue following the current MCP response (`executeContext`, `taskContext`, etc.) in the active Codex turn.
 
 ---
 
@@ -650,6 +655,9 @@ The `client` field controls where Gestalt writes the active session context duri
 
 `"codex"` is the right value for both Codex CLI and Gemini CLI — both read `AGENTS.md` for persistent project context.
 
+When `client` is `"codex"`, MCP interview/spec generation uses passthrough mode
+even if an Anthropic API key is configured, so Codex remains the active LLM.
+
 ### Multi-Provider LLM Tiers
 
 Route LLM calls by task complexity across three tiers:
@@ -726,17 +734,20 @@ Gestalt addresses this before any code is written. It runs a structured intervie
 
 ### Passthrough Mode
 
-Gestalt runs as an MCP server. Claude Code acts as the LLM: Gestalt returns prompts and context, and Claude Code does the reasoning. The server makes no API calls in any stage.
+Gestalt runs as an MCP server. In host passthrough mode, the connected coding
+agent, such as Claude Code or Codex, acts as the LLM: Gestalt returns prompts and
+context, and the host does the reasoning. Execute/review stages always use this
+pattern because the host owns file edits and command execution.
 
 ```
-You (in Claude Code)
+You (in Claude Code or Codex)
        │
-       ▼  /interview "topic"
+       ▼  /interview "topic" or ges_interview
   Gestalt MCP Server
   (returns context + prompts)
        │
        ▼
-  Claude Code executes the prompts
+  Host agent executes the prompts
   (generates questions, scores, plans)
        │
        ▼

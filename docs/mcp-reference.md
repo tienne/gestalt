@@ -345,7 +345,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `action` | `string` | Y | — | 수행할 액션 (위 테이블 참고) |
 | `sessionId` | `string` | 대부분의 액션 | — | 실행 세션 ID |
 | `spec` | `Spec` | `start` | — | `ges_generate_spec`에서 받은 완성된 Spec 객체 |
-| `cwd` | `string` | N | — | 작업 디렉터리. `execute_start`에서 `.claude/rules/gestalt-active.md`와 `.gestalt/active-session.json` 생성에 사용. `status`에서 `resumeHint` 읽기에 사용. |
+| `cwd` | `string` | N | — | 작업 디렉터리. `execute_start`에서 client 설정에 맞는 active context(`.claude/rules/gestalt-active.md`, `AGENTS.md` managed section, 또는 둘 다)와 `.gestalt/active-session.json` 생성에 사용. `status`에서 `resumeHint` 읽기에 사용. |
 | `codeGraphRepoRoot` | `string` | N | — | `start`에서 설정 시 태스크 실행마다 관련 파일을 자동 추출해 `suggestedFiles`로 반환 |
 
 ### `start` — Example Request & Response
@@ -410,7 +410,7 @@ ges_execute({
 
 ### `execute_start` — Response
 
-`cwd` 지정 시 `.claude/rules/gestalt-active.md`와 `.gestalt/active-session.json`이 해당 디렉터리에 생성된다. 세션 종료 시 두 파일 모두 삭제된다.
+`cwd` 지정 시 client 설정에 맞는 active context와 `.gestalt/active-session.json`이 해당 디렉터리에 생성된다. `client: "claude-code"`는 `.claude/rules/gestalt-active.md`, `client: "codex"`는 `AGENTS.md` managed section, `client: "both"`는 둘 다 사용한다. 세션 종료 시 active context와 세션 힌트가 삭제된다.
 
 ```json
 {
