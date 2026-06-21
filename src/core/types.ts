@@ -133,6 +133,8 @@ export interface ClassifiedAC {
   reasoning: string;
 }
 
+export type TaskModel = 'haiku' | 'sonnet' | 'opus';
+
 export interface AtomicTask {
   taskId: string;
   title: string;
@@ -141,6 +143,12 @@ export interface AtomicTask {
   isImplicit: boolean;
   estimatedComplexity: 'low' | 'medium' | 'high';
   dependsOn: string[];
+  /**
+   * Optional model hint for Passthrough execution. When set, Claude Code is
+   * advised to spawn a sub-agent with this model via the Agent tool. Auto-assigned
+   * at plan completion based on task complexity and intent.
+   */
+  model?: TaskModel;
 }
 
 export interface TaskGroup {
