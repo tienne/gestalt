@@ -243,6 +243,10 @@ export function buildTaskExecutionPrompt(
       ? `\n**Related files (read first)**:\n${relatedFiles.map((f) => `- ${f}`).join('\n')}\n`
       : '';
 
+  const modelHintSection = task.model
+    ? `\n**Model hint**: \`${task.model}\` — Spawn a sub-agent for this task via the Agent tool with \`model: "${task.model}"\`, then execute the task inside that sub-agent. This routes the task to the most cost-effective model for its complexity.\n`
+    : `\n**Model hint**: none — Execute this task directly in the current session (no sub-agent needed).\n`;
+
   return `## Task Execution
 ${relatedFilesSection}
 **Spec Goal**: ${spec.goal}
@@ -253,7 +257,7 @@ ${relatedFilesSection}
 - Description: ${task.description}
 - Complexity: ${task.estimatedComplexity}
 - Dependencies: [${task.dependsOn.join(', ')}]
-
+${modelHintSection}
 **Completed Tasks**:
 ${completedSummary}
 ${similarContext}

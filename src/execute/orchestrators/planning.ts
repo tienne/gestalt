@@ -28,6 +28,7 @@ import { ExecuteSessionManager } from '../session.js';
 import { EXECUTE_SYSTEM_PROMPT, buildPlanningStepPrompt } from '../prompts.js';
 import { validateDAG } from '../dag-validator.js';
 import { computeParallelGroups } from '../parallel-groups.js';
+import { assignModelHints } from '../model-hint.js';
 import type { AgentRegistry } from '../../agent/registry.js';
 import { mergeSystemPrompt } from '../../agent/prompt-resolver.js';
 import type { RoleAgentRegistry } from '../../agent/role-agent-registry.js';
@@ -176,16 +177,16 @@ export class PlanningOrchestrator {
         serverValid: serverDAG.isValid,
       });
 
-      const parallelGroups = computeParallelGroups(
-        closureStep.atomicTasks,
-        serverDAG.topologicalOrder,
-      );
+      // Auto-assign per-task model hints for Passthrough sub-agent spawning
+      const atomicTasks = assignModelHints(closureStep.atomicTasks);
+
+      const parallelGroups = computeParallelGroups(atomicTasks, serverDAG.topologicalOrder);
 
       const plan: ExecutionPlan = {
         planId: randomUUID(),
         specId: session.specId,
         classifiedACs: fgStep.classifiedACs,
-        atomicTasks: closureStep.atomicTasks,
+        atomicTasks,
         taskGroups: proximityStep.taskGroups,
         dagValidation: serverDAG,
         parallelGroups,
