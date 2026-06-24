@@ -127,13 +127,16 @@ git diff {target}...HEAD             # 실제 diff (핵심 변경만)
 - 취소: description 텍스트만 출력하고 종료
 ```
 
-생성 시 heredoc 패턴으로 실행합니다:
+생성 시 heredoc 패턴으로 실행합니다. **PR 작성자 자신을 어사인**하기 위해 `--assignee @me`를 항상 포함합니다:
 
 ```bash
-gh pr create --title "..." --body "$(cat <<'EOF'
+gh pr create --assignee @me --title "..." --body "$(cat <<'EOF'
 {description 내용}
 EOF
 )"
 ```
+
+- `@me`는 `gh`에 인증된 현재 사용자를 가리키므로, PR이 생성되면 작성자 본인이 자동으로 assignee로 지정됩니다.
+- 어사인이 실패해도(권한·레포 설정 등) PR 생성 자체는 막지 않습니다. 실패 시 PR 생성 후 `gh pr edit {prUrl} --add-assignee @me`로 재시도합니다.
 
 반환된 PR URL을 사용자에게 표시합니다 (`prUrl`).
