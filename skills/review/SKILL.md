@@ -176,7 +176,11 @@ ges_execute {
 
 `ges_agent { action: "get", name: "humanize-monolith" }`로 에이전트 시스템 프롬프트를 가져온 뒤, 해당 관점에서 리포트를 윤문합니다. 이슈 내용(severity·file·line·message)은 수정하지 않고, 설명 문장의 어투만 자연스럽게 다듬습니다.
 
-이때 윤문 대상은 리뷰어가 말하는 글이므로 `../../role-agents/technical-writer/references/author-voice.md`의 작성자 voice를 적용합니다. 제안형 어투("~하는 게 좋을 것 같아요/어떨까요?"), 온기·물결·이모지(코멘트당 1개 안팎)는 보존하고, `c:`/`r:` 접두어·`[출처]` 태깅·"…권장." 체언 종지(Claude artifact)는 쓰지 않습니다.
+humanize-monolith는 두 룰북을 함께 적용합니다.
+- **어투**: `../../role-agents/technical-writer/references/author-voice.md` — 제안형("~하는 게 좋을 것 같아요/어떨까요?"), 온기·물결·이모지(코멘트당 1개 안팎)는 보존하고, `c:`/`r:` 접두어·`[출처]` 태깅·"…권장." 체언 종지(Claude artifact)는 쓰지 않습니다.
+- **음차·AI-tell**: `../../role-agents/technical-writer/references/ai-tell-quick-rules.md` — 안 굳어진 음차("소스 오브 트루스" 등)는 한글 의역하되, 굳어진 화이트리스트(컴포넌트·토큰·렌더링·트레이드오프 등)는 그대로 둡니다.
+
+즉 리뷰 파이프라인 리포트도 인라인 코멘트와 동일하게 voice + 음차가 함께 처리됩니다.
 
 윤문된 리포트를 사용자에게 표시합니다:
 - `approved: true` → 리뷰 통과. 리포트를 보여주고 종료합니다.
