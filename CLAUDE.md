@@ -63,6 +63,7 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | 요구사항 정리, 로드맵, 유저 스토리 | `product-planner` |
 | 기술 분석, 벤치마크, 사례 조사 | `researcher` |
 | PR·브랜치·커밋 코드 리뷰 요청 | `/review` 스킬 사용 |
+| PR 작성·생성 요청 ("PR 만들어줘", "PR 작성해줘", "PR 올려줘") | `gestalt:pr` 스킬 사용 |
 
 ## Project Structure
 ```
