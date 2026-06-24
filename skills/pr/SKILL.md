@@ -127,15 +127,16 @@ git diff {target}...HEAD             # 실제 diff (핵심 변경만)
 - 취소: description 텍스트만 출력하고 종료
 ```
 
-생성 시 heredoc 패턴으로 실행합니다. **PR 작성자 자신을 어사인**하기 위해 `--assignee @me`를 항상 포함합니다:
+생성 시 heredoc 패턴으로 실행합니다. **PR 작성자 자신을 어사인**하기 위해 `--assignee @me`를 항상 포함합니다. 명령 앞에 `GESTALT_PR=1` 표식을 붙입니다 (raw `gh pr create`를 가로채는 PreToolUse 훅이 이 스킬의 호출은 통과시키도록 하는 우회 표식):
 
 ```bash
-gh pr create --assignee @me --title "..." --body "$(cat <<'EOF'
+GESTALT_PR=1 gh pr create --assignee @me --title "..." --body "$(cat <<'EOF'
 {description 내용}
 EOF
 )"
 ```
 
+- `GESTALT_PR=1`은 환경변수 형태의 표식일 뿐 동작에 영향을 주지 않습니다. 이미 gestalt:pr 플로우 안이므로 PR 생성 확인 프롬프트가 중복되지 않게 해줍니다.
 - `@me`는 `gh`에 인증된 현재 사용자를 가리키므로, PR이 생성되면 작성자 본인이 자동으로 assignee로 지정됩니다.
 - 어사인이 실패해도(권한·레포 설정 등) PR 생성 자체는 막지 않습니다. 실패 시 PR 생성 후 `gh pr edit {prUrl} --add-assignee @me`로 재시도합니다.
 
