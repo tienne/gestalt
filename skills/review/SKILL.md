@@ -176,6 +176,8 @@ ges_execute {
 
 `ges_agent { action: "get", name: "humanize-monolith" }`로 에이전트 시스템 프롬프트를 가져온 뒤, 해당 관점에서 리포트를 윤문합니다. 이슈 내용(severity·file·line·message)은 수정하지 않고, 설명 문장의 어투만 자연스럽게 다듬습니다.
 
+이때 윤문 대상은 리뷰어가 말하는 글이므로 `../../role-agents/technical-writer/references/author-voice.md`의 작성자 voice를 적용합니다. 제안형 어투("~하는 게 좋을 것 같아요/어떨까요?"), 온기·물결·이모지(코멘트당 1개 안팎)는 보존하고, `c:`/`r:` 접두어·`[출처]` 태깅·"…권장." 체언 종지(Claude artifact)는 쓰지 않습니다.
+
 윤문된 리포트를 사용자에게 표시합니다:
 - `approved: true` → 리뷰 통과. 리포트를 보여주고 종료합니다.
 - `approved: false` → critical/high 이슈가 남아 Block 상태입니다. 5단계로 진행합니다.
