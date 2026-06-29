@@ -1,7 +1,7 @@
 ---
 name: review
 version: "1.0.0"
-description: "PR·브랜치·커밋의 변경사항을 3종 리뷰 에이전트(보안·성능·품질)로 검토하고, humanize-monolith로 리포트를 자연스러운 한국어로 다듬는다."
+description: "PR·브랜치·커밋의 변경사항을 3종 리뷰 에이전트(보안·성능·품질)로 검토하고, humanize-monolith로 리포트를 다듬은 뒤, PR 대상이면 code-review-writer가 작성한 인라인 코멘트로 게시한다."
 triggers:
   - "PR 리뷰"
   - "브랜치 리뷰"
@@ -11,6 +11,10 @@ triggers:
   - "review branch"
   - "이 브랜치 리뷰"
   - "변경사항 리뷰"
+  - "PR에 코멘트 남겨줘"
+  - "리뷰 코멘트 달아줘"
+  - "PR에 인라인 코멘트"
+  - "리뷰 결과 PR에 게시"
 inputs:
   target:
     type: string
@@ -25,12 +29,13 @@ outputs:
   - changeContext
   - reviewReport
   - verdict
+  - postedReview
 ---
 
 # Review Skill
 
 execute 세션 없이 PR·브랜치·커밋의 변경사항을 직접 리뷰 파이프라인에 주입해 검토합니다.
-변경 파일을 수집하고, 3종 리뷰 에이전트(보안·성능·품질)로 다각도 리뷰한 뒤, Pass/Block 판정과 마크다운 리포트를 생성합니다.
+변경 파일을 수집하고, 3종 리뷰 에이전트(보안·성능·품질)로 다각도 리뷰한 뒤, Pass/Block 판정과 마크다운 리포트를 생성합니다. 리뷰 대상이 GitHub PR이면 `code-review-writer` 에이전트가 작성한 인라인 코멘트로 PR에 게시까지 이어집니다.
 
 ## 사용 방법
 
@@ -182,14 +187,71 @@ humanize-monolith는 두 룰북을 함께 적용합니다.
 
 즉 리뷰 파이프라인 리포트도 인라인 코멘트와 동일하게 voice + 음차가 함께 처리됩니다.
 
-윤문된 리포트를 사용자에게 표시합니다:
-- `approved: true` → 리뷰 통과. 리포트를 보여주고 종료합니다.
-- `approved: false` → critical/high 이슈가 남아 Block 상태입니다. 5단계로 진행합니다.
+윤문된 리포트를 사용자에게 표시합니다. 그다음 대상이 GitHub PR이면 4.7단계로, 아니면 결과 표시로 넘어갑니다.
+- `approved: true` → 리뷰 통과. 리포트를 보여줍니다.
+- `approved: false` → critical/high 이슈가 남아 Block 상태입니다.
 
-### 5단계: 수정 확인 (review_fix)
+### 4.7단계: 인라인 코멘트 게시 (code-review-writer)
 
-Block일 때 사용자에게 **"수정하시겠습니까?"** 를 먼저 확인합니다.
-동의하면 `review_fix`로 수정 컨텍스트를 받아 critical/high 이슈를 수정합니다:
+리뷰 대상이 GitHub PR이면, 4단계에서 병합한 이슈를 **리포트로 끝내지 않고 PR에 인라인 코멘트로 게시**합니다. 이 단계의 코멘트 본문은 반드시 `code-review-writer` 에이전트가 작성합니다 — Claude가 즉흥으로 쓰지 않습니다. 그래야 어투가 매 리뷰마다 일정하게 유지됩니다.
+
+#### 진입 경로 두 가지
+
+이 단계는 `/review`를 처음부터 돌린 흐름뿐 아니라, **대화 도중 "이제 PR에 코멘트 남겨줘"처럼 게시만 따로 요청**받았을 때도 진입점이 됩니다 (위 triggers의 "PR에 코멘트 남겨줘" 등). 두 경우 모두 아래 **신선도 가드를 먼저 통과해야** 게시할 수 있습니다.
+
+#### 신선도 가드 (stale consensus 게시 금지)
+
+게시 직전에, 게시하려는 consensus가 **현재 diff와 일치하는지** 반드시 확인합니다. 리뷰를 끝낸 뒤 코드가 바뀌었거나(커밋 추가·로컬 수정), 애초에 활성 리뷰 세션이 없으면 그 consensus는 stale이므로 **그대로 올리지 않습니다.**
+
+```bash
+# 리뷰 시점 대비 PR head·작업트리가 바뀌었는지 확인
+gh pr view <target> --json headRefOid
+git rev-parse HEAD && git status --porcelain
+```
+
+판단 기준:
+
+- **이번 세션에 방금 리뷰를 끝냈고 그 뒤 diff 변화가 없다** → consensus가 신선함. 곧장 게시 진행.
+- **리뷰 후 코드가 바뀌었다 / 활성 리뷰 세션이 없다 / 다른 세션의 오래된 결과다** → consensus가 stale. **게시하지 말고**, 1단계(blast_radius)부터 현재 diff로 리뷰 파이프라인(1~4단계)을 다시 돌린 뒤, 새로 나온 consensus로 4.7을 진행합니다. 사용자에게 "변경이 있어 현재 코드로 다시 리뷰한 뒤 게시할게요"라고 한 줄 알립니다.
+
+즉 인라인 코멘트는 **언제 요청받든 항상 "현재 diff 기준 consensus + code-review-writer voice"** 로만 게시됩니다. 옛 리뷰 메모리를 그대로 옮겨 적거나 Claude가 손으로 코멘트를 짜는 경로는 없습니다.
+
+**PR 식별.** 먼저 대상이 PR인지 확인합니다.
+
+```bash
+gh pr view <target> --json number,headRefName,baseRefName,url 2>/dev/null
+```
+
+`target`이 브랜치면 그 브랜치의 PR을, 생략됐으면 현재 브랜치의 PR을 찾습니다. PR이 없으면(로컬 브랜치·커밋 범위 등) 이 단계를 통째로 건너뛰고 결과 표시로 갑니다.
+
+**게시 확인.** PR이 식별되면 사용자에게 한 번 확인합니다: **"발견된 이슈 N건을 PR #<number>에 인라인 코멘트로 게시할까요?"** 동의하지 않으면 리포트만 보여주고 종료합니다.
+
+**코멘트 본문 작성 (code-review-writer).** `ges_agent { action: "get", name: "code-review-writer" }`로 에이전트 시스템 프롬프트를 가져온 뒤, 그 관점에서 4단계 `mergedIssues`의 각 이슈를 인라인 코멘트 본문으로 작성합니다. 이슈의 `file`·`line`·`severity`는 그대로 두고, `message`·`suggestion`을 에이전트 voice로 다듬어 코멘트 본문을 만듭니다.
+
+- code-review-writer는 `author-voice.md`(제안형·온기·물결·이모지)와 `ai-tell-quick-rules.md`(음차 교정)를 이미 내장하므로 **별도 humanize-monolith 패스를 거치지 않습니다.**
+- 에이전트 룰에 따라 `c:`/`r:` 접두어, `[출처]` 태깅, "…권장." 체언 종지는 쓰지 않습니다. 이건 Claude artifact이지 실제 리뷰어 어투가 아닙니다.
+- severity는 본문 첫 줄에 `[critical]`처럼 대괄호 라벨로만 표기합니다.
+
+**게시 (gh api).** 작성한 코멘트를 한 번의 리뷰로 묶어 게시합니다. 이슈마다 개별 호출하지 않고 `comments` 배열로 모읍니다.
+
+```bash
+gh api repos/{owner}/{repo}/pulls/{number}/reviews \
+  -f event=COMMENT \
+  -f body="<요약 한 줄 — code-review-writer가 작성한 overall summary>" \
+  --input <(jq -n '{ comments: [ { path: "...", line: 42, side: "RIGHT", body: "..." } ] }')
+```
+
+- `line`은 diff의 **우측(신규) 라인**을 기준으로 하고 `side: "RIGHT"`를 명시합니다. 삭제된 라인을 짚어야 하면 `side: "LEFT"`를 씁니다.
+- 라인 매핑이 불확실한 이슈(파일 전반·구조적 지적 등)는 인라인 대신 리뷰 `body` 요약에 한 줄로 넣습니다. 임의 라인에 억지로 붙이지 않습니다.
+- 게시 후 리뷰 URL을 사용자에게 보여줍니다.
+
+JSON 제어문자가 깨지지 않도록 코멘트 본문은 셸 변수 echo 파이프 대신 `jq`로 직접 조립하거나 파일로 떨궈 `--input`으로 전달합니다.
+
+### 5단계: 수정 확인 (review_fix, opt-in)
+
+자동 수정은 기본 동작이 아닙니다. 4.7단계로 인라인 코멘트를 게시했거나 리포트를 보여준 뒤, 사용자가 **명시적으로 수정을 요청할 때만** 진행합니다 ("고쳐줘"·"수정해줘" 등). Block 상태라도 먼저 자동 수정을 들이밀지 않습니다.
+
+요청을 받으면 `review_fix`로 수정 컨텍스트를 받아 critical/high 이슈를 수정합니다:
 
 ```
 ges_execute {
@@ -227,3 +289,13 @@ ges_execute {
 
 {report 마크다운}
 ```
+
+4.7단계에서 인라인 코멘트를 게시했으면, 리포트 끝에 게시 결과를 한 줄로 덧붙입니다.
+
+```
+---
+
+**인라인 코멘트**: PR #<number>에 <N>건 게시 완료 → <리뷰 URL>
+```
+
+PR이 아니거나 사용자가 게시를 거절했으면 이 블록을 생략합니다.
