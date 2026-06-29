@@ -40,6 +40,7 @@
 - 번역체 금지 — "API 키를 이용한 사용자 인증 처리가 완료된 후" → "API 키로 인증한 후"
 - 용어 일관성 — 같은 개념에 다른 단어 혼용 금지
 - 약어: 첫 등장 시 `SSR(Server-Side Rendering)` 형식
+- 가운뎃점(·) 절제 — 본문에서 "A·B·C" 압축 나열 대신 쉼표나 "A랑 B하고 C"로 푼다. 사람은 산문에서 가운뎃점을 거의 안 쓴다 (표·용어 목록은 예외). 자세히는 `ai-tell-quick-rules.md` C-12
 
 ### Technical Term Handling
 

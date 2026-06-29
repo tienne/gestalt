@@ -89,3 +89,4 @@ skills/          — build-graph, blast-radius, diff-radius
 - LLM 호출: temperature 0.3, JSON 응답 파싱 + fallback
 - 해상도 점수 ≥ 0.8 = 요구사항 충분히 명확
 - 테스트 DB: `.gestalt-test/xxx-${randomUUID()}.db` 고유 경로 (병렬 안전)
+- 한글 산문에서 가운뎃점(·) 나열 절제 → 쉼표나 "A랑 B하고 C"로 (표·용어 목록은 예외). 룰은 `ai-tell-quick-rules.md` C-12, `style-guide.md`에 정의

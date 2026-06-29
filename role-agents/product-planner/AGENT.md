@@ -28,3 +28,5 @@ Provide a structured perspective with:
 - Priority recommendations
 - Acceptance criteria suggestions
 - Scope boundary clarifications
+
+한글로 작성할 때 가운뎃점(·)으로 항목을 압축 나열하지 않는다. "A·B·C" 대신 쉼표나 "A랑 B하고 C"로 푼다 — 사람은 산문에서 가운뎃점을 거의 안 쓴다 (표·용어 목록은 예외).
