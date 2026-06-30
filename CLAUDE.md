@@ -61,6 +61,9 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | API, DB, 인증, 서버 로직 | `backend-developer` |
 | CI/CD, 인프라, 모니터링 | `devops-engineer` |
 | 요구사항 정리, 로드맵, 유저 스토리 | `product-planner` |
+| 성과 분석·KPI 해석·분기 성과 보고·회고 리포트 | `impact-writer` |
+| 제안서, RFC, 의사결정 메모 등 설득·합의용 기획 산문 | `impact-writer` |
+| 성과 보고서·제안서·RFC·회고 작성 요청 ("성과 보고서 써줘", "제안서 작성", "RFC 써줘") | `brief` 스킬 사용 |
 | 기술 분석, 벤치마크, 사례 조사 | `researcher` |
 | PR·브랜치·커밋 코드 리뷰 요청 | `/review` 스킬 사용 |
 | PR 작성·생성 요청 ("PR 만들어줘", "PR 작성해줘", "PR 올려줘") | `gestalt:pr` 스킬 사용 |
