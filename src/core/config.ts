@@ -6,6 +6,8 @@ import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
 import {
   DEFAULT_MODEL,
+  DEFAULT_REASONING_MODEL,
+  REASONING_MODEL_FALLBACK,
   RESOLUTION_THRESHOLD,
   MAX_INTERVIEW_ROUNDS,
   DRIFT_THRESHOLD,
@@ -47,10 +49,14 @@ const executeConfigSchema = z.object({
   goalAlignmentThreshold: z.number().min(0).max(1).default(EVOLVE_GOAL_ALIGNMENT_THRESHOLD),
 });
 
+const reasoningModelSchema = z.enum(['fable', 'opus', 'sonnet', 'haiku']);
+
 const configSchema = z.object({
   llm: llmConfigSchema.default({}),
   interview: interviewConfigSchema.default({}),
   execute: executeConfigSchema.default({}),
+  reasoningModel: reasoningModelSchema.default(DEFAULT_REASONING_MODEL),
+  reasoningModelFallback: reasoningModelSchema.default(REASONING_MODEL_FALLBACK),
   notifications: z.boolean().default(false),
   dbPath: z.string().default(GLOBAL_DB_PATH),
   skillsDir: z.string().default('skills'),
@@ -196,6 +202,10 @@ function buildEnvConfig(): Record<string, unknown> {
   }
 
   // top-level
+  if (env['GESTALT_REASONING_MODEL'] !== undefined)
+    result.reasoningModel = env['GESTALT_REASONING_MODEL'];
+  if (env['GESTALT_REASONING_MODEL_FALLBACK'] !== undefined)
+    result.reasoningModelFallback = env['GESTALT_REASONING_MODEL_FALLBACK'];
   if (env['GESTALT_DB_PATH'] !== undefined) result.dbPath = env['GESTALT_DB_PATH'];
   if (env['GESTALT_SKILLS_DIR'] !== undefined) result.skillsDir = env['GESTALT_SKILLS_DIR'];
   if (env['GESTALT_AGENTS_DIR'] !== undefined) result.agentsDir = env['GESTALT_AGENTS_DIR'];
