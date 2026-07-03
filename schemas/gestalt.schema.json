@@ -83,6 +83,18 @@
       },
       "additionalProperties": false
     },
+    "reasoningModel": {
+      "type": "string",
+      "enum": ["fable", "opus", "sonnet", "haiku"],
+      "description": "Agent subagent model for deep one-shot reasoning in spec generation and execution planning (env: GESTALT_REASONING_MODEL)",
+      "default": "fable"
+    },
+    "reasoningModelFallback": {
+      "type": "string",
+      "enum": ["fable", "opus", "sonnet", "haiku"],
+      "description": "Fallback model when the Agent tool does not support reasoningModel (env: GESTALT_REASONING_MODEL_FALLBACK)",
+      "default": "opus"
+    },
     "dbPath": {
       "type": "string",
       "description": "Path to the SQLite event store database (env: GESTALT_DB_PATH)",

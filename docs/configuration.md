@@ -22,6 +22,8 @@
   "llm": { "apiKey": "", "model": "claude-sonnet-4-20250514" },
   "interview": { "resolutionThreshold": 0.8, "maxRounds": 10 },
   "execute": { "driftThreshold": 0.3, "successThreshold": 0.85, "goalAlignmentThreshold": 0.80 },
+  "reasoningModel": "fable",
+  "reasoningModelFallback": "opus",
   "dbPath": ".gestalt/gestalt.db",
   "logLevel": "info"
 }
@@ -36,6 +38,8 @@ interface GestaltConfig {
   llm: { apiKey: string; model: string };
   interview: { resolutionThreshold: number; maxRounds: number };
   execute: { driftThreshold: number; successThreshold: number; goalAlignmentThreshold: number };
+  reasoningModel: 'fable' | 'opus' | 'sonnet' | 'haiku';
+  reasoningModelFallback: 'fable' | 'opus' | 'sonnet' | 'haiku';
   notifications: boolean;
   dbPath: string;
   skillsDir: string;
@@ -58,6 +62,8 @@ interface GestaltConfig {
 | `GESTALT_DRIFT_THRESHOLD` | number (0–1) | `0.3` | Execute 평가 시 드리프트 허용 임계값. 초과 시 Evolve 루프 진입 |
 | `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | number (0–1) | `0.85` | Evolve 성공 판정 기준 점수 |
 | `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | number (0–1) | `0.80` | 목표 정렬도 최소 임계값. 미달 시 재실행 트리거 |
+| `GESTALT_REASONING_MODEL` | `"fable"` \| `"opus"` \| `"sonnet"` \| `"haiku"` | `"fable"` | 스펙 생성과 실행 플래닝의 깊은 추론에 쓸 Agent 서브에이전트 모델. Interview는 대상이 아님 |
+| `GESTALT_REASONING_MODEL_FALLBACK` | `"fable"` \| `"opus"` \| `"sonnet"` \| `"haiku"` | `"opus"` | 위 모델을 Agent 도구가 지원하지 않을 때 쓸 폴백 모델 |
 | `GESTALT_NOTIFICATIONS` | boolean | `false` | 완료/실패 시 OS 알림 전송 여부 (`"true"` 문자열로 설정) |
 | `GESTALT_DB_PATH` | string | `"~/.gestalt/events.db"` | SQLite 이벤트 스토어 파일 경로 |
 | `GESTALT_SKILLS_DIR` | string | `"skills"` | 스킬 SKILL.md 파일들이 위치한 디렉터리 |
@@ -80,6 +86,8 @@ interface GestaltConfig {
 | `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` |
 | `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | `execute.successThreshold` |
 | `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | `execute.goalAlignmentThreshold` |
+| `GESTALT_REASONING_MODEL` | `reasoningModel` |
+| `GESTALT_REASONING_MODEL_FALLBACK` | `reasoningModelFallback` |
 | `GESTALT_NOTIFICATIONS` | `notifications` |
 | `GESTALT_DB_PATH` | `dbPath` |
 | `GESTALT_SKILLS_DIR` | `skillsDir` |
@@ -87,6 +95,22 @@ interface GestaltConfig {
 | `GESTALT_ROLE_AGENTS_DIR` | `roleAgentsDir` |
 | `GESTALT_REVIEW_AGENTS_DIR` | `reviewAgentsDir` |
 | `GESTALT_LOG_LEVEL` | `logLevel` |
+
+---
+
+## Reasoning Model (`reasoningModel` / `reasoningModelFallback`)
+
+게슈탈트는 Passthrough 모드라 인터뷰→스펙→실행 플래닝의 추론을 호스트 세션 모델이 수행한다. 이 중 상위 추론 모델이 진짜 값을 하는 곳은 leaf 실행 태스크가 아니라 **스펙 생성과 실행 플래닝(스펙→태스크 DAG 분해)의 깊은 one-shot 추론**이다. 그래서 spec 스킬과 execute 스킬의 Phase 1 플래닝은 `reasoningModel`(기본 `fable`)을 Agent 서브에이전트 `model` 파라미터로 스폰한다.
+
+- **적용 대상**: 스펙 생성(spec 스킬), 실행 플래닝(execute 스킬 `plan_step` / `plan_complete`).
+- **비대상**: 인터뷰(Phase 1 Q&A는 대화형이라 제외), execute Phase 2 실행 태스크(기존 태스크별 `model` 힌트 유지).
+- **값**: `fable | opus | sonnet | haiku` — full 모델 ID가 아니라 Agent 도구가 받는 alias.
+
+`ges_status`는 sessionId 없이 호출해도 resolve된 `reasoningModel` / `reasoningModelFallback`을 노출한다. 스킬은 `gestalt.json`을 직접 파싱하지 않고 이 값을 읽는다.
+
+### 폴백 발동 지점
+
+`reasoningModelFallback`(기본 `opus`)은 폴백 **대상**일 뿐이다. 서버는 모델 가용성을 감지하지 않으며, 폴백을 발동하지도 않는다. 실제 발동은 **스킬 런타임**에서 일어난다 — Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`로 바꿔 1회 재시도한다. 즉 "fable 안 되면 opus"의 판단은 서버가 아니라 스킬이 한다.
 
 ---
 
