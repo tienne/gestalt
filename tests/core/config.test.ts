@@ -95,7 +95,7 @@ describe('loadConfig — default values', () => {
 
   it('returns default model', () => {
     const config = loadConfig({}, isolatedOpts);
-    expect(config.llm.model).toBe('claude-sonnet-4-20250514');
+    expect(config.llm.model).toBe('claude-sonnet-4-6');
   });
 
   it('returns default interview settings', () => {

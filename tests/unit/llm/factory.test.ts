@@ -23,10 +23,7 @@ describe('createAdapter', () => {
 
   it('flat config(apiKey+model) -> RetryingAdapter wrapping AnthropicAdapter', () => {
     delete process.env['ANTHROPIC_API_KEY'];
-    const config = loadConfig(
-      { llm: { apiKey: 'sk-ant-test', model: 'claude-sonnet-4-20250514' } },
-      opts,
-    );
+    const config = loadConfig({ llm: { apiKey: 'sk-ant-test', model: 'claude-sonnet-4-6' } }, opts);
     const adapter = createAdapter(config.llm);
     expect(adapter).toBeInstanceOf(RetryingAdapter);
     expect((adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
@@ -44,7 +41,7 @@ describe('createAdapterFromTierConfig', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     const config = loadConfig({ llm: { apiKey: 'sk-ant-test', model: DEFAULT_MODEL } }, opts);
     const adapter = createAdapterFromTierConfig(
-      { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+      { provider: 'anthropic', model: 'claude-sonnet-4-6' },
       config.llm,
     );
     expect(adapter).toBeInstanceOf(RetryingAdapter);
@@ -135,7 +132,7 @@ describe('createTierMapping', () => {
           apiKey: 'sk-ant-fallback',
           model: DEFAULT_MODEL,
           frugal: { provider: 'openai', model: 'gpt-4o-mini', apiKey: 'sk-openai' },
-          standard: { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+          standard: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
           frontier: { provider: 'anthropic', model: 'claude-opus-4-20250514' },
         },
       },
@@ -149,7 +146,7 @@ describe('createTierMapping', () => {
 
     expect(mapping.standard.adapter).toBeInstanceOf(RetryingAdapter);
     expect((mapping.standard.adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
-    expect(mapping.standard.model).toBe('claude-sonnet-4-20250514');
+    expect(mapping.standard.model).toBe('claude-sonnet-4-6');
 
     expect(mapping.frontier.adapter).toBeInstanceOf(RetryingAdapter);
     expect((mapping.frontier.adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
@@ -164,7 +161,7 @@ describe('createTierMapping', () => {
         llm: {
           apiKey: 'sk-ant-flat-key',
           model: DEFAULT_MODEL,
-          standard: { provider: 'anthropic', model: 'claude-sonnet-4-20250514' },
+          standard: { provider: 'anthropic', model: 'claude-sonnet-4-6' },
         },
       },
       opts,

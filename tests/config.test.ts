@@ -87,7 +87,7 @@ describe('loadConfig', () => {
 
     const config = loadConfig({}, opts);
     expect(config.llm.apiKey).toBe('');
-    expect(config.llm.model).toBe('claude-sonnet-4-20250514');
+    expect(config.llm.model).toBe('claude-sonnet-4-6');
     expect(config.interview.resolutionThreshold).toBe(0.8);
     expect(config.interview.maxRounds).toBe(15);
     expect(config.execute.driftThreshold).toBe(0.3);

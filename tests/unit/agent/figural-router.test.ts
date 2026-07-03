@@ -35,7 +35,7 @@ describe('FiguralRouter', () => {
       frugal: { provider: 'openai', model: 'gpt-4o-mini', adapter: frugalAdapter },
       standard: {
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         adapter: standardAdapter,
       },
       frontier: {
@@ -64,7 +64,7 @@ describe('FiguralRouter', () => {
 
   it('resolves model from tier mapping', () => {
     const agent = createAgent({ tier: 'standard' });
-    expect(router.resolveModel(agent)).toBe('claude-sonnet-4-20250514');
+    expect(router.resolveModel(agent)).toBe('claude-sonnet-4-6');
   });
 
   it('AGENT.md model field takes precedence in resolveModel', () => {
@@ -78,7 +78,7 @@ describe('FiguralRouter', () => {
         frugal: { provider: 'openai', model: 'gpt-4o-mini', adapter: frugalAdapter },
         standard: {
           provider: 'anthropic',
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           adapter: standardAdapter,
         },
         frontier: {
