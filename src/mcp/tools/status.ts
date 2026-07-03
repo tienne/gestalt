@@ -1,6 +1,7 @@
 import type { InterviewEngine } from '../../interview/engine.js';
 import type { StatusInput } from '../schemas.js';
 import type { EventStore } from '../../events/store.js';
+import type { GestaltConfig } from '../../core/config.js';
 import { ExecuteSessionRepository } from '../../execute/repository.js';
 import { getVersion, getCachedUpdateResult } from '../../core/version.js';
 
@@ -8,12 +9,17 @@ export function handleStatus(
   engine: InterviewEngine,
   input: StatusInput,
   eventStore?: EventStore,
+  config?: GestaltConfig,
 ): string {
   const updateResult = getCachedUpdateResult();
   const versionInfo = {
     current: getVersion(),
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
+  };
+  const reasoningModelInfo = {
+    reasoningModel: config?.reasoningModel ?? null,
+    reasoningModelFallback: config?.reasoningModelFallback ?? null,
   };
 
   const sessionType = input.sessionType ?? 'all';
@@ -31,6 +37,7 @@ export function handleStatus(
         return JSON.stringify(
           {
             versionInfo,
+            ...reasoningModelInfo,
             type: 'interview',
             summary: interviewSummary,
             session: {
@@ -63,6 +70,7 @@ export function handleStatus(
             return JSON.stringify(
               {
                 versionInfo,
+                ...reasoningModelInfo,
                 type: 'execute',
                 summary: formatted.summary,
                 session: formatted,
@@ -99,6 +107,7 @@ export function handleStatus(
     return JSON.stringify(
       {
         versionInfo,
+        ...reasoningModelInfo,
         interviewSessions,
         executeSessions,
         total: { interview: interviewSessions.length, execute: executeSessions.length },
@@ -109,6 +118,7 @@ export function handleStatus(
   } catch (e) {
     return JSON.stringify(
       {
+        ...reasoningModelInfo,
         error: e instanceof Error ? e.message : String(e),
       },
       null,

@@ -228,7 +228,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
       (params) => {
         const input = statusInputSchema.parse(params);
-        const result = handleStatus(engine, input, eventStore);
+        const result = handleStatus(engine, input, eventStore, config);
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );
@@ -337,7 +337,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
       (params) => {
         const input = statusInputSchema.parse(params);
-        const result = handleStatusPassthrough(ptEngine, ptExecuteEngine, input);
+        const result = handleStatusPassthrough(ptEngine, ptExecuteEngine, input, config);
         return { content: [{ type: 'text' as const, text: result }] };
       },
     );
@@ -437,12 +437,17 @@ function handleStatusPassthrough(
   engine: PassthroughEngine,
   executeEngine: PassthroughExecuteEngine,
   input: { sessionId?: string; sessionType?: 'interview' | 'execute' | 'all' },
+  config?: GestaltConfig,
 ): string {
   const updateResult = getCachedUpdateResult();
   const versionInfo = {
     current: getVersion(),
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
+  };
+  const reasoningModelInfo = {
+    reasoningModel: config?.reasoningModel ?? null,
+    reasoningModelFallback: config?.reasoningModelFallback ?? null,
   };
   const sessionType = input.sessionType ?? 'all';
 
@@ -454,6 +459,7 @@ function handleStatusPassthrough(
         return JSON.stringify(
           {
             versionInfo,
+            ...reasoningModelInfo,
             type: 'interview',
             session: {
               sessionId: session.sessionId,
@@ -481,6 +487,7 @@ function handleStatusPassthrough(
         return JSON.stringify(
           {
             versionInfo,
+            ...reasoningModelInfo,
             type: 'execute',
             session: formatExecuteSession(session),
           },
@@ -512,6 +519,7 @@ function handleStatusPassthrough(
     return JSON.stringify(
       {
         versionInfo,
+        ...reasoningModelInfo,
         interviewSessions,
         executeSessions,
         total: { interview: interviewSessions.length, execute: executeSessions.length },
@@ -522,6 +530,7 @@ function handleStatusPassthrough(
   } catch (e) {
     return JSON.stringify(
       {
+        ...reasoningModelInfo,
         error: e instanceof Error ? e.message : String(e),
       },
       null,
