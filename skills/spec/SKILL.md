@@ -1,6 +1,6 @@
 ---
 name: spec
-version: "1.1.0"
+version: "1.2.0"
 description: "Generate a Spec specification from a completed interview"
 triggers:
   - "generate spec"
@@ -83,6 +83,20 @@ ges_generate_spec({
 })
 ```
 → `{ status: "generated", spec }` (metadata 자동 생성 포함) 또는 `{ error }` 반환
+
+### Reasoning Model 서브에이전트로 Spec 추론
+
+Spec 생성은 인터뷰 조각들을 하나의 완전한 구조로 결정화하는 깊은 one-shot 추론이라, 게슈탈트에서 상위 추론 모델이 진짜 값을 하는 지점이다. 1단계 SpecContext를 받은 뒤 2단계 Spec JSON을 만드는 추론은 현재 세션이 직접 하지 말고 별도 Agent 서브에이전트로 스폰한다.
+
+**추론 모델 값 읽기.** `gestalt.json`을 직접 파싱하지 말고 `ges_status`(sessionId 없이 호출)의 응답에서 `reasoningModel`과 `reasoningModelFallback`을 읽는다. 서버가 config를 resolve해 노출하는 값이다.
+
+```
+ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ... }
+```
+
+**스폰.** Agent 도구로 서브에이전트를 띄우되 `model` 파라미터에 `reasoningModel` 값을 넘긴다. 서브에이전트에는 1단계에서 받은 `systemPrompt`, `specPrompt`, `allRounds[]`를 그대로 전달하고, 위 Spec 검증 스키마에 맞는 Spec JSON을 산출하게 한다. 서브에이전트 결과를 2단계 `ges_generate_spec({ sessionId, spec })`로 제출한다.
+
+**폴백은 스킬 런타임에서 발동한다.** 서버는 폴백 대상(`reasoningModelFallback`)만 알려줄 뿐, 모델 가용성을 감지하거나 재시도하지 않는다. Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`(예: `opus`)로 바꿔 1회 재시도한다. 폴백 판단과 재시도는 전적으로 이 스킬 런타임의 책임이다.
 
 ### Spec 검증 스키마 (Zod)
 
