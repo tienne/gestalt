@@ -4,7 +4,28 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createMcpServer } from '../../../src/mcp/server.js';
 import type { GestaltConfig } from '../../../src/core/config.js';
 
-type RegisteredToolMap = Record<string, { inputSchema?: Record<string, unknown> }>;
+type ToolHandler = (
+  args: Record<string, unknown>,
+  extra: Record<string, unknown>,
+) => { content: Array<{ type: string; text: string }> };
+
+type RegisteredToolMap = Record<
+  string,
+  { inputSchema?: Record<string, unknown>; handler?: ToolHandler }
+>;
+
+/** Invoke a registered tool's handler and parse its JSON text payload. */
+function callTool(
+  server: unknown,
+  name: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const tool = registeredTools(server)[name];
+  if (!tool?.handler) throw new Error(`Tool ${name} has no handler`);
+  const result = tool.handler(args, {});
+  const text = result.content[0]?.text ?? '';
+  return JSON.parse(text) as Record<string, unknown>;
+}
 
 interface ServerWithRegisteredTools {
   _registeredTools: RegisteredToolMap;
@@ -115,6 +136,41 @@ describe('createMcpServer', () => {
       expect(inputKeys(tools['ges_interview'])).toContain('resolutionScore');
       expect(inputKeys(tools['ges_generate_spec'])).toContain('text');
       expect(inputKeys(tools['ges_generate_spec'])).toContain('spec');
+    } finally {
+      eventStore.close();
+    }
+  });
+
+  it('exposes reasoningModel via the passthrough ges_status handler (default real path, no session)', async () => {
+    // No API key → passthrough interview registration wins → handleStatusPassthrough is the live handler.
+    const { server, eventStore } = await createMcpServer({
+      dbPath: dbPath(),
+      llm: { apiKey: '', model: 'test-model' },
+    });
+
+    try {
+      const status = callTool(server, 'ges_status', { sessionType: 'all' });
+
+      // sessionId 없이 호출해도 resolved config 값이 나와야 한다 (스킬이 gestalt.json 직접 파싱 안 하게 하는 목적).
+      expect(status.reasoningModel).toBe('fable');
+      expect(status.reasoningModelFallback).toBe('opus');
+    } finally {
+      eventStore.close();
+    }
+  });
+
+  it('reflects overridden reasoningModel through the passthrough ges_status handler', async () => {
+    const { server, eventStore } = await createMcpServer({
+      dbPath: dbPath(),
+      llm: { apiKey: '', model: 'test-model' },
+      reasoningModel: 'sonnet',
+      reasoningModelFallback: 'haiku',
+    });
+
+    try {
+      const status = callTool(server, 'ges_status', { sessionType: 'all' });
+      expect(status.reasoningModel).toBe('sonnet');
+      expect(status.reasoningModelFallback).toBe('haiku');
     } finally {
       eventStore.close();
     }

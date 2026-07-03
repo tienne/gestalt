@@ -39,6 +39,8 @@ const GESTALT_ENV_KEYS = [
   'GESTALT_PERSONAS_DIR',
   'GESTALT_LOG_LEVEL',
   'GESTALT_CLIENT',
+  'GESTALT_REASONING_MODEL',
+  'GESTALT_REASONING_MODEL_FALLBACK',
   'GESTALT_DRIFT_THRESHOLD',
   'GESTALT_EVOLVE_SUCCESS_THRESHOLD',
   'GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD',
@@ -122,6 +124,12 @@ describe('loadConfig — default values', () => {
   it('returns default client = claude-code', () => {
     const config = loadConfig({}, isolatedOpts);
     expect(config.client).toBe('claude-code');
+  });
+
+  it('returns default reasoningModel = fable and fallback = opus', () => {
+    const config = loadConfig({}, isolatedOpts);
+    expect(config.reasoningModel).toBe('fable');
+    expect(config.reasoningModelFallback).toBe('opus');
   });
 });
 
@@ -250,6 +258,25 @@ describe('loadConfig — environment variable priority', () => {
     process.env['GESTALT_MODEL'] = 'claude-3-opus-20240229';
     const config = loadConfig({}, isolatedOpts);
     expect(config.llm.model).toBe('claude-3-opus-20240229');
+  });
+
+  it('env var GESTALT_REASONING_MODEL overrides reasoningModel', () => {
+    process.env['GESTALT_REASONING_MODEL'] = 'sonnet';
+    const config = loadConfig({}, isolatedOpts);
+    expect(config.reasoningModel).toBe('sonnet');
+  });
+
+  it('env var GESTALT_REASONING_MODEL_FALLBACK overrides reasoningModelFallback', () => {
+    process.env['GESTALT_REASONING_MODEL_FALLBACK'] = 'haiku';
+    const config = loadConfig({}, isolatedOpts);
+    expect(config.reasoningModelFallback).toBe('haiku');
+  });
+
+  it('invalid GESTALT_REASONING_MODEL falls back to default fable', () => {
+    process.env['GESTALT_REASONING_MODEL'] = 'gpt4';
+    const config = loadConfig({}, isolatedOpts);
+    expect(config.reasoningModel).toBe('fable');
+    expect(config.reasoningModelFallback).toBe('opus');
   });
 
   it('env var GESTALT_NOTIFICATIONS=true sets notifications boolean', () => {
