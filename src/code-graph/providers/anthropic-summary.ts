@@ -5,7 +5,7 @@ const SYSTEM_PROMPT =
   'Generate a concise technical summary (1-2 sentences) of the following code file for semantic search indexing.';
 
 const MAX_CODE_LENGTH = 2000;
-const DEFAULT_MODEL = 'claude-haiku-4-20250514';
+const DEFAULT_MODEL = 'claude-haiku-4-5';
 
 export class AnthropicSummaryProvider implements SummaryProvider {
   private client: Anthropic;
