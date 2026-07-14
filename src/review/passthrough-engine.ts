@@ -400,7 +400,9 @@ Respond with ONLY a JSON object:
     // 해소 가능한 정합성 문제(예: 네이밍·패턴 불일치)다. 결함과 함께 고치도록 넘긴다.
     // escalate 항목은 재설계 신호이므로 fix 컨텍스트에 넣지 않는다.
     const fixableDrift: ContinuityDriftFinding[] =
-      session.continuityVerdict && !session.continuityVerdict.coherent && !session.continuityVerdict.escalate
+      session.continuityVerdict &&
+      !session.continuityVerdict.coherent &&
+      !session.continuityVerdict.escalate
         ? session.continuityVerdict.driftFindings
         : [];
 

@@ -156,11 +156,7 @@ function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: Exe
 
   // escalate가 걸렸고 자동 수정 대상이 아니면(결함 없음) 재설계 신호를 준다.
   const escalatedOnly = !approved && escalate && !canFix;
-  const status = approved
-    ? 'review_passed'
-    : escalatedOnly
-      ? 'review_escalated'
-      : 'review_blocked';
+  const status = approved ? 'review_passed' : escalatedOnly ? 'review_escalated' : 'review_blocked';
 
   return JSON.stringify(
     {
