@@ -295,7 +295,10 @@ ges_execute {
 }
 ```
 
-`fixContext.fixPrompt`에 따라 파일을 수정하고 구조 검사(lint·build·test)를 실행한 뒤, 2단계의 `review_start`부터 다시 반복해 재리뷰합니다.
+`fixContext.fixPrompt`에 따라 파일을 수정하고 구조 검사(lint·build·test)를 실행한 뒤, 2단계의 `review_start`부터 다시 반복해 재리뷰합니다. **재리뷰는 3단계(결함)와 3.5단계(정합)를 모두 다시 돌립니다** — 수정으로 결함과 정합성이 함께 해소됐는지 두 심급으로 새로 판정합니다.
+
+`fixContext`에는 결함 이슈(`issues`) 외에 **`driftFindings`** 가 실릴 수 있습니다. 정합 심급이 Block했지만 escalate는 아닌, 즉 라인 수정으로 해소 가능한 정합성 항목(네이밍·패턴 불일치 등)입니다. 결함과 함께 이 항목도 반영해야 재리뷰의 정합 심급을 통과합니다. (escalate 항목은 fixContext에 실리지 않습니다 — 재설계 경로입니다.)
+
 `review_exhausted` 응답이 오면 최대 시도 횟수를 초과한 것이므로 리포트를 보여주고 남은 이슈는 수동 수정하도록 안내합니다.
 
 ## 결과 표시
