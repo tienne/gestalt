@@ -9,6 +9,7 @@ import type {
   ExecuteSession,
   AgentDefinition,
   ContinuityVerdict,
+  ContinuityDriftFinding,
 } from '../core/types.js';
 import { type Result, ok, err } from '../core/result.js';
 import { ReviewContextCollector } from './context-collector.js';
@@ -31,6 +32,8 @@ export interface ReviewFixContext {
   systemPrompt: string;
   fixPrompt: string;
   issues: ReviewIssue[];
+  /** 정합 심급이 잡은 수정 가능한(escalate 아닌) 이탈 항목. 라인 수정과 함께 해소한다. */
+  driftFindings: ContinuityDriftFinding[];
   attempt: number;
   maxAttempts: number;
 }
@@ -393,10 +396,26 @@ Respond with ONLY a JSON object:
       )
       .join('\n');
 
+    // 정합 심급이 Block했지만 escalate는 아닌 경우, 그 이탈 항목은 라인 수정으로
+    // 해소 가능한 정합성 문제(예: 네이밍·패턴 불일치)다. 결함과 함께 고치도록 넘긴다.
+    // escalate 항목은 재설계 신호이므로 fix 컨텍스트에 넣지 않는다.
+    const fixableDrift: ContinuityDriftFinding[] =
+      session.continuityVerdict && !session.continuityVerdict.coherent && !session.continuityVerdict.escalate
+        ? session.continuityVerdict.driftFindings
+        : [];
+
+    const driftBlock =
+      fixableDrift.length > 0
+        ? `\n\n**Continuity findings to reconcile** (${fixableDrift.length}):\n` +
+          fixableDrift
+            .map((d) => `- [${d.axis}]${d.file ? ` ${d.file}` : ''}: ${d.message}`)
+            .join('\n')
+        : '';
+
     const fixPrompt = `## Fix Code Review Issues (Attempt ${session.currentAttempt}/${session.maxAttempts})
 
 **Issues to fix** (${criticalHighIssues.length}):
-${issueList}
+${issueList}${driftBlock}
 
 Fix these issues while maintaining code integrity. Run structural checks after fixing.`;
 
@@ -404,6 +423,7 @@ Fix these issues while maintaining code integrity. Run structural checks after f
       systemPrompt,
       fixPrompt,
       issues: criticalHighIssues,
+      driftFindings: fixableDrift,
       attempt: session.currentAttempt,
       maxAttempts: session.maxAttempts,
     });
@@ -413,9 +433,10 @@ Fix these issues while maintaining code integrity. Run structural checks after f
     const session = this.sessions.get(sessionId);
     if (!session) return err(new Error(`Review session not found: ${sessionId}`));
 
-    // Reset for re-review
+    // Reset for re-review — 두 심급 모두 초기화해 재리뷰에서 결함·정합을 새로 평가한다.
     session.reviewResults = [];
     session.consensus = undefined;
+    session.continuityVerdict = undefined;
     session.status = 'started';
     session.updatedAt = new Date().toISOString();
 

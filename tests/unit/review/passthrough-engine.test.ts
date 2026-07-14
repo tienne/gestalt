@@ -460,6 +460,73 @@ describe('PassthroughReviewEngine', () => {
     });
   });
 
+  // ─── 재리뷰 루프의 정합 재평가 — v2 ──────────────────────────
+  describe('fix loop: continuity re-evaluation', () => {
+    function setupWithVerdict(verdict: {
+      coherent: boolean;
+      driftFindings: { axis: 'goal' | 'consistency' | 'drift'; file?: string; message: string }[];
+      escalate: boolean;
+      summary: string;
+    }) {
+      const engine = new PassthroughReviewEngine();
+      const session = createMockExecuteSession();
+      const { roleAgents, reviewAgents } = createMockAgents();
+      const startResult = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
+      if (!startResult.ok) throw new Error('start failed');
+      const id = startResult.value.sessionId;
+      // 결함 + 정합 이탈이 함께 있는 blocked 상태
+      engine.submitConsensus(id, createBlockedConsensus(), verdict);
+      return { engine, id };
+    }
+
+    it('includes fixable (non-escalate) continuity findings in the fix context', () => {
+      const { engine, id } = setupWithVerdict({
+        coherent: false,
+        driftFindings: [{ axis: 'consistency', file: 'src/x.ts', message: '네이밍 불일치' }],
+        escalate: false,
+        summary: '일관성 문제',
+      });
+
+      const result = engine.startFix(id);
+      if (!result.ok || 'exhausted' in result.value) return;
+
+      expect(result.value.driftFindings).toHaveLength(1);
+      expect(result.value.fixPrompt).toContain('Continuity findings');
+      expect(result.value.fixPrompt).toContain('네이밍 불일치');
+    });
+
+    it('excludes escalate continuity findings from the fix context', () => {
+      const { engine, id } = setupWithVerdict({
+        coherent: false,
+        driftFindings: [{ axis: 'goal', message: '목표 이탈' }],
+        escalate: true,
+        summary: '재설계 필요',
+      });
+
+      const result = engine.startFix(id);
+      if (!result.ok || 'exhausted' in result.value) return;
+
+      expect(result.value.driftFindings).toHaveLength(0);
+      expect(result.value.fixPrompt).not.toContain('Continuity findings');
+    });
+
+    it('resets continuityVerdict on submitFix so re-review re-evaluates it', () => {
+      const { engine, id } = setupWithVerdict({
+        coherent: false,
+        driftFindings: [{ axis: 'drift', message: '이탈' }],
+        escalate: false,
+        summary: '이탈',
+      });
+
+      engine.startFix(id);
+      engine.submitFix(id);
+
+      expect(engine.getSession(id).continuityVerdict).toBeUndefined();
+      expect(engine.getSession(id).consensus).toBeUndefined();
+      expect(engine.getSession(id).status).toBe('started');
+    });
+  });
+
   describe('fix loop', () => {
     function setupBlockedSession() {
       const engine = new PassthroughReviewEngine();
