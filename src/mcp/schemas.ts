@@ -455,6 +455,23 @@ export const executeInputSchema = z.object({
     })
     .optional()
     .describe('Merged review consensus (required for review_consensus)'),
+  continuityVerdict: z
+    .object({
+      coherent: z.boolean(),
+      driftFindings: z.array(
+        z.object({
+          axis: z.enum(['goal', 'consistency', 'drift']),
+          file: z.string().optional(),
+          message: z.string(),
+        }),
+      ),
+      escalate: z.boolean(),
+      summary: z.string(),
+    })
+    .optional()
+    .describe(
+      'Continuity instance (정합 심급) verdict from continuity-judge (optional, for review_consensus). coherent=false blocks even without defects; escalate=true routes to re-spec instead of review_fix.',
+    ),
   reviewSessionId: z
     .string()
     .optional()

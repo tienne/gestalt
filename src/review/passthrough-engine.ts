@@ -8,6 +8,7 @@ import type {
   ReviewContext,
   ExecuteSession,
   AgentDefinition,
+  ContinuityVerdict,
 } from '../core/types.js';
 import { type Result, ok, err } from '../core/result.js';
 import { ReviewContextCollector } from './context-collector.js';
@@ -210,30 +211,41 @@ Review the code changes from your assigned perspective. Focus on issues that mat
   submitConsensus(
     sessionId: string,
     consensus: ReviewConsensusResult,
+    continuityVerdict?: ContinuityVerdict,
   ): Result<{
     approved: boolean;
     report: ReviewReport;
     needsFix: boolean;
     canFix: boolean;
     criticalHighCount: number;
+    escalate: boolean;
   }> {
     const session = this.sessions.get(sessionId);
     if (!session) return err(new Error(`Review session not found: ${sessionId}`));
 
     session.consensus = consensus;
+    session.continuityVerdict = continuityVerdict;
     session.status = 'consensus';
     session.updatedAt = new Date().toISOString();
 
     const criticalHighIssues = consensus.mergedIssues.filter(
       (i) => i.severity === 'critical' || i.severity === 'high',
     );
-    const approved = criticalHighIssues.length === 0;
+    // 결함 심급: 국소 결함(critical/high) 유무.
+    const defectApproved = criticalHighIssues.length === 0;
+    // 정합 심급: 판정이 있고 coherent=false면 결함이 없어도 Block.
+    const continuityBlocks = continuityVerdict ? !continuityVerdict.coherent : false;
+    const escalate = continuityVerdict?.escalate ?? false;
+    const approved = defectApproved && !continuityBlocks;
     const needsFix = !approved;
-    const canFix = session.currentAttempt < session.maxAttempts;
+    // review_fix 루프는 결함만 해결한다. 결함이 없고 정합 심급만 Block이면
+    // 자동 수정 대상이 아니므로 canFix=false (escalate 신호로 라우팅).
+    const canFix = !defectApproved && session.currentAttempt < session.maxAttempts;
 
     const report = this.reportGenerator.generate(
       { ...consensus, overallApproved: approved },
       session.currentAttempt + 1,
+      continuityVerdict,
     );
     session.reports.push(report);
 
@@ -243,6 +255,9 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       approved,
       approvedBy: consensus.approvedBy,
       blockedBy: consensus.blockedBy,
+      continuityCoherent: continuityVerdict ? continuityVerdict.coherent : null,
+      driftCount: continuityVerdict?.driftFindings.length ?? 0,
+      escalate,
     });
 
     if (approved) {
@@ -257,13 +272,28 @@ Review the code changes from your assigned perspective. Focus on issues that mat
         attempt: session.currentAttempt + 1,
         warningCount: consensus.mergedIssues.filter((i) => i.severity === 'warning').length,
       });
+    } else if (continuityBlocks && escalate && defectApproved) {
+      // 결함은 없고 정합 심급이 escalate만 걸었다 → 재설계 신호. fix 루프로 보내지 않는다.
+      session.status = 'escalated';
+      logger.warn('review.escalated', {
+        module: 'review',
+        sessionId,
+        attempt: session.currentAttempt + 1,
+        driftCount: continuityVerdict?.driftFindings.length ?? 0,
+      });
+      this.emitEvent(sessionId, EventType.REVIEW_ESCALATED, {
+        attempt: session.currentAttempt + 1,
+        driftCount: continuityVerdict?.driftFindings.length ?? 0,
+        summary: continuityVerdict?.summary ?? '',
+      });
     } else {
       logger.warn('review.blocked', {
         module: 'review',
         sessionId,
         criticalHighCount: criticalHighIssues.length,
+        continuityBlocks,
         attempt: session.currentAttempt + 1,
-        canFix: session.currentAttempt < session.maxAttempts,
+        canFix,
       });
     }
 
@@ -273,6 +303,7 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       needsFix,
       canFix,
       criticalHighCount: criticalHighIssues.length,
+      escalate,
     });
   }
 

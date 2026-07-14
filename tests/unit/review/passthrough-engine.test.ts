@@ -355,6 +355,111 @@ describe('PassthroughReviewEngine', () => {
     });
   });
 
+  // ─── 정합 심급 (continuity instance) — v2 ────────────────────
+  describe('submitConsensus: continuity instance', () => {
+    function startSession(): string {
+      const session = createMockExecuteSession();
+      const { roleAgents, reviewAgents } = createMockAgents();
+      const startResult = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
+      if (!startResult.ok) throw new Error('start failed');
+      return startResult.value.sessionId;
+    }
+
+    it('omitting continuityVerdict keeps defect-only behavior unchanged', () => {
+      const id = startSession();
+      const result = engine.submitConsensus(id, createCleanConsensus());
+      if (!result.ok) return;
+      expect(result.value.approved).toBe(true);
+      expect(result.value.escalate).toBe(false);
+    });
+
+    it('blocks a defect-clean change when continuity is incoherent', () => {
+      const id = startSession();
+      const result = engine.submitConsensus(id, createCleanConsensus(), {
+        coherent: false,
+        driftFindings: [{ axis: 'goal', file: 'src/a.ts', message: '목적과 무관한 변경' }],
+        escalate: false,
+        summary: '목표에서 벗어난 변경이 있습니다.',
+      });
+      if (!result.ok) return;
+      // 결함은 없지만 정합 심급이 Block
+      expect(result.value.criticalHighCount).toBe(0);
+      expect(result.value.approved).toBe(false);
+      expect(result.value.needsFix).toBe(true);
+    });
+
+    it('escalates (not fixable) when continuity fails with escalate on a defect-clean change', () => {
+      const id = startSession();
+      const result = engine.submitConsensus(id, createCleanConsensus(), {
+        coherent: false,
+        driftFindings: [{ axis: 'drift', message: '스펙 제약과 모순' }],
+        escalate: true,
+        summary: '재설계가 필요합니다.',
+      });
+      if (!result.ok) return;
+      expect(result.value.approved).toBe(false);
+      expect(result.value.escalate).toBe(true);
+      // 라인 수정으로 해결 불가 → fix 루프 대상 아님
+      expect(result.value.canFix).toBe(false);
+      expect(engine.getSession(id).status).toBe('escalated');
+    });
+
+    it('still passes when continuity is coherent and no defects', () => {
+      const id = startSession();
+      const result = engine.submitConsensus(id, createCleanConsensus(), {
+        coherent: true,
+        driftFindings: [],
+        escalate: false,
+        summary: '목표와 정합합니다.',
+      });
+      if (!result.ok) return;
+      expect(result.value.approved).toBe(true);
+      expect(result.value.escalate).toBe(false);
+      expect(engine.getSession(id).status).toBe('passed');
+    });
+
+    it('defects take fix priority over escalate (canFix stays true)', () => {
+      const id = startSession();
+      const result = engine.submitConsensus(id, createBlockedConsensus(), {
+        coherent: false,
+        driftFindings: [{ axis: 'goal', message: '목표 이탈' }],
+        escalate: true,
+        summary: '결함과 이탈이 함께 있습니다.',
+      });
+      if (!result.ok) return;
+      expect(result.value.approved).toBe(false);
+      // 결함이 있으므로 fix 루프로 처리 가능
+      expect(result.value.canFix).toBe(true);
+      expect(engine.getSession(id).status).not.toBe('escalated');
+    });
+
+    it('renders a continuity section with drift findings in the report', () => {
+      const id = startSession();
+      const result = engine.submitConsensus(id, createCleanConsensus(), {
+        coherent: false,
+        driftFindings: [{ axis: 'consistency', file: 'src/x.ts', message: '네이밍 불일치' }],
+        escalate: true,
+        summary: '일관성 문제가 있습니다.',
+      });
+      if (!result.ok) return;
+      expect(result.value.report.markdown).toContain('정합 심급');
+      expect(result.value.report.markdown).toContain('네이밍 불일치');
+      expect(result.value.report.markdown).toContain('[consistency]');
+    });
+
+    it('does not render a continuity section when coherent with no drift', () => {
+      const id = startSession();
+      const result = engine.submitConsensus(id, createCleanConsensus(), {
+        coherent: true,
+        driftFindings: [],
+        escalate: false,
+        summary: '정합합니다.',
+      });
+      if (!result.ok) return;
+      expect(result.value.report.markdown).not.toContain('정합 심급');
+    });
+  });
+
   describe('fix loop', () => {
     function setupBlockedSession() {
       const engine = new PassthroughReviewEngine();

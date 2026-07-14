@@ -442,6 +442,7 @@ export type ReviewSessionStatus =
   | 'consensus'
   | 'fixing'
   | 'passed'
+  | 'escalated'
   | 'failed_with_report';
 
 export interface ReviewIssue {
@@ -470,6 +471,29 @@ export interface ReviewConsensusResult {
   overallApproved: boolean;
 }
 
+/** 정합 심급이 판단하는 세 축. goal=목표 정합, consistency=일관성, drift=이탈. */
+export type ContinuityAxis = 'goal' | 'consistency' | 'drift';
+
+export interface ContinuityDriftFinding {
+  axis: ContinuityAxis;
+  file?: string;
+  message: string;
+}
+
+/**
+ * 정합 심급(continuity-judge)의 판정.
+ * 결함 심급이 국소 결함을 검출하는 것과 독립적으로, 변경 전체가 목표를
+ * 향하는지·일관된지·drift가 없는지를 종합 판단한다.
+ * coherent=false면 결함이 없어도 리뷰를 Block한다.
+ * escalate=true면 라인 수정(review_fix) 대상이 아니라 스펙·설계 재검토 신호다.
+ */
+export interface ContinuityVerdict {
+  coherent: boolean;
+  driftFindings: ContinuityDriftFinding[];
+  escalate: boolean;
+  summary: string;
+}
+
 export interface ReviewReport {
   markdown: string;
   generatedAt: string;
@@ -494,6 +518,7 @@ export interface ReviewSession {
   matchedAgents: string[];
   reviewResults: ReviewResult[];
   consensus?: ReviewConsensusResult;
+  continuityVerdict?: ContinuityVerdict;
   reports: ReviewReport[];
   createdAt: string;
   updatedAt: string;

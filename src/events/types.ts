@@ -48,5 +48,6 @@ export enum EventType {
   REVIEW_FIX_STARTED = 'review.fix.started',
   REVIEW_FIX_COMPLETED = 'review.fix.completed',
   REVIEW_PASSED = 'review.passed',
+  REVIEW_ESCALATED = 'review.escalated',
   REVIEW_FAILED = 'review.failed',
 }

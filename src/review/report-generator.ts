@@ -1,9 +1,18 @@
-import type { ReviewConsensusResult, ReviewIssue, ReviewReport } from '../core/types.js';
+import type {
+  ContinuityVerdict,
+  ReviewConsensusResult,
+  ReviewIssue,
+  ReviewReport,
+} from '../core/types.js';
 
 export class ReviewReportGenerator {
-  generate(consensus: ReviewConsensusResult, attempt: number): ReviewReport {
+  generate(
+    consensus: ReviewConsensusResult,
+    attempt: number,
+    continuityVerdict?: ContinuityVerdict,
+  ): ReviewReport {
     const passed = consensus.overallApproved;
-    const markdown = this.renderMarkdown(consensus, attempt, passed);
+    const markdown = this.renderMarkdown(consensus, attempt, passed, continuityVerdict);
 
     return {
       markdown,
@@ -17,6 +26,7 @@ export class ReviewReportGenerator {
     consensus: ReviewConsensusResult,
     attempt: number,
     passed: boolean,
+    continuityVerdict?: ContinuityVerdict,
   ): string {
     const lines: string[] = [];
     const statusEmoji = passed ? '✅' : '❌';
@@ -41,6 +51,32 @@ export class ReviewReportGenerator {
       lines.push(`**Blocked by**: ${consensus.blockedBy.join(', ')}`);
     }
     lines.push('');
+
+    // Continuity instance (정합 심급) — only rendered when a verdict is present
+    // and it has something to say (incoherent or has drift findings).
+    if (
+      continuityVerdict &&
+      (!continuityVerdict.coherent || continuityVerdict.driftFindings.length > 0)
+    ) {
+      const emoji = continuityVerdict.coherent ? '🧭' : '🧭❌';
+      lines.push(`## ${emoji} Continuity Instance (정합 심급)`);
+      lines.push('');
+      lines.push(continuityVerdict.summary);
+      lines.push('');
+      if (continuityVerdict.driftFindings.length > 0) {
+        for (const finding of continuityVerdict.driftFindings) {
+          const where = finding.file ? ` \`${finding.file}\`` : '';
+          lines.push(`- **[${finding.axis}]**${where}: ${finding.message}`);
+        }
+        lines.push('');
+      }
+      if (continuityVerdict.escalate) {
+        lines.push(
+          '> ⚠️ 목표에서 벗어나는 변경이라 라인 수정으로는 부족합니다. 스펙 재정리 또는 결정 재확인이 필요합니다.',
+        );
+        lines.push('');
+      }
+    }
 
     // Issues by severity
     const criticals = consensus.mergedIssues.filter((i) => i.severity === 'critical');

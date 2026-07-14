@@ -119,11 +119,15 @@ function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: Exe
     return JSON.stringify({ error: 'reviewConsensus is required for review_consensus' });
   }
 
-  const result = reviewEngine.submitConsensus(input.reviewSessionId, input.reviewConsensus);
+  const result = reviewEngine.submitConsensus(
+    input.reviewSessionId,
+    input.reviewConsensus,
+    input.continuityVerdict,
+  );
 
   if (!result.ok) return JSON.stringify({ error: result.error.message });
 
-  const { approved, report, needsFix, canFix, criticalHighCount } = result.value;
+  const { approved, report, needsFix, canFix, criticalHighCount, escalate } = result.value;
 
   // Save key findings as architecture decisions
   try {
@@ -150,20 +154,31 @@ function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: Exe
     // Memory update failure should not block the response
   }
 
+  // escalate가 걸렸고 자동 수정 대상이 아니면(결함 없음) 재설계 신호를 준다.
+  const escalatedOnly = !approved && escalate && !canFix;
+  const status = approved
+    ? 'review_passed'
+    : escalatedOnly
+      ? 'review_escalated'
+      : 'review_blocked';
+
   return JSON.stringify(
     {
-      status: approved ? 'review_passed' : 'review_blocked',
+      status,
       reviewSessionId: input.reviewSessionId,
       approved,
       criticalHighCount,
+      escalate,
       report: report.markdown,
       needsFix,
       canFix,
       message: approved
         ? 'Code review passed! All critical/high issues resolved.'
-        : canFix
-          ? `${criticalHighCount} critical/high issues found. Use review_fix to auto-fix.`
-          : `${criticalHighCount} critical/high issues remain after max attempts. Review the report.`,
+        : escalatedOnly
+          ? '정합 심급이 목표 이탈을 감지했습니다. 라인 수정(review_fix)이 아니라 스펙 재정리 또는 결정 재확인이 필요합니다.'
+          : canFix
+            ? `${criticalHighCount} critical/high issues found. Use review_fix to auto-fix.`
+            : `${criticalHighCount} critical/high issues remain after max attempts. Review the report.`,
     },
     null,
     2,
