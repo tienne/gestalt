@@ -156,9 +156,34 @@ ges_execute {
 
 `systemPrompt`가 요구하는 JSON 스키마(severity·category·file·line·message·suggestion)를 준수합니다.
 
+### 3.5단계: 정합 심급 판단 (continuity-judge)
+
+`review_consensus`를 호출하기 **전에** 정합 심급을 먼저 판단합니다. 결함 심급(3단계 리뷰 에이전트)이 "부분에 결함이 있나"를 봤다면, 정합 심급은 "부분의 합이 목표를 이루나"를 봅니다 — 국소 결함으로는 안 잡히는 **목표 이탈(drift)과 전체 일관성**입니다.
+
+`ges_agent { action: "get", name: "continuity-judge" }`로 에이전트 시스템 프롬프트를 가져온 뒤(원리 에이전트라도 `get`으로 조회됩니다), 그 관점에서 **개별 이슈가 아니라 변경 전체**를 아래 세 축으로 판단합니다. 판단 기준은 `reviewIntent.purpose`(0단계에서 수집), 없으면 `spec.goal`, 그것도 없으면 변경 파일에서 추론한 목표입니다.
+
+- **목표 정합(goal)**: 이 변경(전체 diff)이 명시된 목적을 향해 가는가? 목적과 무관하거나 반하는 변경이 섞여 있지 않은가?
+- **일관성(consistency)**: 변경 파일 간 네이밍·API·패턴이 일관된가? 주변 코드의 기존 컨벤션과 이어지는가?
+- **이탈(drift)**: 스펙 제약(`reviewContext.spec.constraints`)이나 원래 의도와 모순되는 지점이 있는가?
+
+판단 결과를 `continuityVerdict`로 만들어 4단계로 넘깁니다:
+
+```
+continuityVerdict = {
+  coherent: true | false,        // 정합 심급 통과 여부 (false면 결함이 없어도 Block)
+  driftFindings: [               // 목표 이탈·불일치 항목 (없으면 빈 배열)
+    { axis: "goal" | "consistency" | "drift", file?, message }
+  ],
+  escalate: true | false,        // 라인 수정으로 해결 불가 → 재설계 필요 신호
+  summary: "..."
+}
+```
+
+정합 심급에 아무 이탈도 없으면 `{ coherent: true, driftFindings: [], escalate: false, summary: "..." }`로 넘기면 됩니다.
+
 ### 4단계: 합의 및 판정 (review_consensus)
 
-모든 에이전트의 리뷰를 병합해 Pass/Block을 판정합니다:
+모든 에이전트의 리뷰(결함 심급)와 3.5단계의 `continuityVerdict`(정합 심급)를 함께 넘겨 Pass/Block을 판정합니다:
 
 ```
 ges_execute {
@@ -170,41 +195,20 @@ ges_execute {
     blockedBy: [...],
     summary: "...",
     overallApproved: true | false
-  }
+  },
+  continuityVerdict: { ...3.5단계 산출물... }
 }
 ```
 
-`review_consensus`의 Pass/Block 판정은 **결함 심급**입니다 — 보안·성능·품질 에이전트가 검출한 국소 결함(critical/high)만 봅니다. 여기에 4.3단계의 **정합 심급**을 얹어, 변경이 목표를 향하는지·전체가 일관된지까지 판단한 뒤 4.5단계로 넘깁니다.
+엔진이 두 심급을 합쳐 판정합니다 — **결함(critical/high)이 없고 `coherent: true`여야 통과**입니다. `continuityVerdict`를 생략하면 결함 심급만으로 판정하는 기존 동작 그대로입니다.
 
-### 4.3단계: 정합 심급 감독 (continuity-judge)
+응답 해석:
 
-결함 심급(4단계)이 "부분에 결함이 있나"를 봤다면, 정합 심급은 "부분의 합이 목표를 이루나"를 봅니다. 국소 결함으로는 안 잡히는 **목표 이탈(drift)과 전체 일관성**을 `continuity-judge` 관점으로 감독합니다.
+- `status: "review_passed"` → 두 심급 모두 통과.
+- `status: "review_blocked"` → 결함이 남아 Block. `canFix`가 true면 6단계 `review_fix`로 자동 수정 루프.
+- `status: "review_escalated"` (`escalate: true`, 결함은 없음) → 정합 심급이 목표 이탈을 감지. **`review_fix`로 보내지 않습니다.** 라인 수정이 아니라 스펙·설계 이탈이므로, 사용자에게 **"이 변경은 목표에서 벗어나는 부분이 있어 라인 수정으로는 부족합니다. 스펙 재정리(similarity-crystallizer) 또는 결정 재확인이 필요해 보여요"** 라고 알리고 판단을 넘깁니다.
 
-`ges_agent { action: "get", name: "continuity-judge" }`로 에이전트 시스템 프롬프트를 가져온 뒤(원리 에이전트라도 `get`으로 조회됩니다), 그 관점에서 **개별 이슈가 아니라 변경 전체**를 아래 세 축으로 판단합니다. 판단 기준은 `reviewIntent.purpose`(0단계에서 수집), 없으면 `spec.goal`, 그것도 없으면 변경 파일에서 추론한 목표입니다.
-
-- **목표 정합**: 이 변경(전체 diff)이 명시된 목적을 향해 가는가? 목적과 무관하거나 반하는 변경이 섞여 있지 않은가?
-- **일관성**: 변경 파일 간 네이밍·API·패턴이 일관된가? 주변 코드의 기존 컨벤션과 이어지는가?
-- **이탈(drift)**: 스펙 제약(`reviewContext.spec.constraints`)이나 원래 의도와 모순되는 지점이 있는가?
-
-산출물은 `continuityVerdict`로 보관합니다:
-
-```
-continuityVerdict = {
-  coherent: true | false,        // 정합 심급 통과 여부
-  driftFindings: [               // 목표 이탈·불일치 항목 (없으면 빈 배열)
-    { axis: "goal" | "consistency" | "drift", file?, message }
-  ],
-  escalate: true | false,        // 라인 수정으로 해결 불가 → 재설계 필요 신호
-  summary: "..."
-}
-```
-
-**v1에서 정합 심급은 자문(advisory)입니다** — 4단계의 Pass/Block(결함 기준)을 뒤집지 않습니다. 대신 두 가지로 이어집니다.
-
-- `driftFindings`를 4단계 리포트 하단에 **"정합 심급" 섹션**으로 덧붙여 4.5단계로 함께 넘깁니다. 이 섹션도 humanize 대상입니다.
-- `escalate: true`이면 결함 수정 루프(6단계 `review_fix`)로 보내지 않습니다. 라인 수정이 아니라 스펙·설계 이탈이므로, 사용자에게 **"이 변경은 목표에서 벗어나는 부분이 있어 라인 수정으로는 부족합니다. 스펙 재정리(similarity-crystallizer) 또는 결정 재확인이 필요해 보여요"** 라고 한 줄 알리고 판단을 넘깁니다.
-
-정합 심급에서 아무 이탈도 없으면(`coherent: true`, `driftFindings` 비어 있음) 조용히 통과하고 별도 섹션을 붙이지 않습니다.
+정합 심급의 `driftFindings`는 엔진이 리포트에 **"Continuity Instance (정합 심급)" 섹션**으로 렌더링하므로, 4.5단계 humanize에서 함께 다듬어집니다.
 
 ### 4.5단계: 리포트 워싱 (humanize-monolith)
 
