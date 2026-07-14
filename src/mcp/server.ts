@@ -290,10 +290,14 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       name: z.string().optional().describe('(required for get)'),
     },
     (params) => {
-      const result = handleAgentPassthrough(roleAgentRegistry, {
-        action: params.action,
-        name: params.name,
-      });
+      const result = handleAgentPassthrough(
+        roleAgentRegistry,
+        {
+          action: params.action,
+          name: params.name,
+        },
+        agentRegistry,
+      );
       return { content: [{ type: 'text' as const, text: result }] };
     },
   );
