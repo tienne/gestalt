@@ -5,6 +5,7 @@ import type { SpecInput } from '../schemas.js';
 import type { AgentRegistry } from '../../agent/registry.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { gestaltNotify } from '../../utils/notifier.js';
+import { sanitizeSurfaceContext } from '../../gestalt/surface-labels.js';
 
 export function handleSpecPassthrough(
   engine: PassthroughEngine,
@@ -60,8 +61,10 @@ export function handleSpecPassthrough(
         {
           status: 'prompt',
           specContext: verbose
-            ? context
-            : stripSpecContextPrompts(context as unknown as Record<string, unknown>),
+            ? sanitizeSurfaceContext(context)
+            : stripSpecContextPrompts(
+                sanitizeSurfaceContext(context) as unknown as Record<string, unknown>,
+              ),
           message:
             'Use specContext.specPrompt with specContext.systemPrompt to generate the spec JSON, then call this tool again with both the text and spec parameters.',
         },
@@ -119,8 +122,10 @@ export function handleSpecPassthrough(
       {
         status: 'prompt',
         specContext: verbose
-          ? context
-          : stripSpecContextPrompts(context as unknown as Record<string, unknown>),
+          ? sanitizeSurfaceContext(context)
+          : stripSpecContextPrompts(
+              sanitizeSurfaceContext(context) as unknown as Record<string, unknown>,
+            ),
         message:
           'Use specContext.specPrompt with specContext.systemPrompt to generate the spec JSON, then call this tool again with the spec parameter.',
       },

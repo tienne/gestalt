@@ -7,6 +7,7 @@ import {
   MemoryContextInjector,
   formatMemoryContextForPrompt,
 } from '../../memory/memory-context-injector.js';
+import { sanitizeSurfaceContext } from '../../gestalt/surface-labels.js';
 
 export function handleInterviewPassthrough(
   engine: PassthroughEngine,
@@ -30,11 +31,11 @@ export function handleInterviewPassthrough(
           sessionId: session.sessionId,
           projectType,
           detectedFiles,
-          gestaltContext,
+          gestaltContext: sanitizeSurfaceContext(gestaltContext),
           roundNumber: 1,
           memoryInjected: memoryCtx.hasContext,
           ...(memoryCtx.hasContext && { priorContext: memoryCtx }),
-          message: `Interview started for "${topic}" (${projectType}). Use the gestaltContext.questionPrompt with gestaltContext.systemPrompt to generate the first question.`,
+          message: `Interview started for "${topic}" (${projectType}). Use the returned questionPrompt with the systemPrompt to generate the first question.`,
         },
         null,
         2,
@@ -62,7 +63,7 @@ export function handleInterviewPassthrough(
           status: 'in_progress',
           sessionId: session.sessionId,
           roundNumber: session.rounds.length,
-          gestaltContext,
+          gestaltContext: sanitizeSurfaceContext(gestaltContext),
           ...(needsCompression ? { compressionContext, needsCompression } : {}),
           resolutionScore: resolutionScore
             ? {
@@ -71,15 +72,15 @@ export function handleInterviewPassthrough(
                 dimensions: resolutionScore.dimensions.map((d) => ({
                   name: d.name,
                   clarity: d.clarity.toFixed(2),
-                  principle: d.gestaltPrinciple,
+                  label: d.label,
                 })),
               }
             : null,
           message: resolutionScore?.isReady
             ? 'Resolution threshold met! You can complete the interview and generate a spec.'
             : needsCompression
-              ? 'Use compressionContext to compress previous rounds, then continue with gestaltContext.questionPrompt.'
-              : 'Use gestaltContext.questionPrompt to generate the next question. Use gestaltContext.scoringPrompt to compute resolution scores.',
+              ? 'Use compressionContext to compress previous rounds, then continue with the returned questionPrompt.'
+              : 'Use the returned questionPrompt to generate the next question. Use the scoringPrompt to compute resolution scores.',
         },
         null,
         2,
@@ -103,7 +104,7 @@ export function handleInterviewPassthrough(
                 dimensions: resolutionScore.dimensions.map((d) => ({
                   name: d.name,
                   clarity: d.clarity.toFixed(2),
-                  principle: d.gestaltPrinciple,
+                  label: d.label,
                 })),
               }
             : null,

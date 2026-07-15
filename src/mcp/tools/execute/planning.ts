@@ -3,6 +3,7 @@ import type { ExecuteInput } from '../../schemas.js';
 import type { PlanningStepResult, NextActionGuide } from '../../../core/types.js';
 import type { IHostAdapter } from '../../host-adapter.js';
 import { formatError, stripContextPrompts } from './utils.js';
+import { sanitizeSurfaceContext, getStageLabel } from '../../../gestalt/surface-labels.js';
 
 export function handleStart(
   engine: PassthroughExecuteEngine,
@@ -22,17 +23,18 @@ export function handleStart(
   const startGuide: NextActionGuide = {
     nextAction: 'plan_step',
     nextActionParams: { sessionId: session.sessionId },
-    hint: 'executeContext.planningPrompt를 사용해 figure_ground 분류를 수행하세요.',
+    hint: `executeContext.planningPrompt를 사용해 첫 단계(${getStageLabel(executeContext.currentPrinciple)})를 수행하세요.`,
   };
+  const sanitizedStartContext = sanitizeSurfaceContext(
+    executeContext as unknown as Record<string, unknown>,
+  );
   return JSON.stringify(
     {
       status: 'started',
       sessionId: session.sessionId,
       specId: session.specId,
-      executeContext: verbose
-        ? executeContext
-        : stripContextPrompts(executeContext as unknown as Record<string, unknown>),
-      message: `Execute session started. Use the executeContext.planningPrompt with executeContext.systemPrompt to generate the Figure-Ground classification.`,
+      executeContext: verbose ? sanitizedStartContext : stripContextPrompts(sanitizedStartContext),
+      message: `Execute session started. Use the executeContext.planningPrompt with executeContext.systemPrompt to generate the first planning step (${getStageLabel(executeContext.currentPrinciple, 'en')}).`,
       ...startGuide,
     },
     null,
@@ -79,21 +81,22 @@ export function handlePlanStep(
     );
   }
 
-  const currentPrinciple = executeContext?.currentPrinciple ?? 'next';
+  const currentStage = getStageLabel(executeContext?.currentPrinciple ?? 'next');
   const planStepGuide: NextActionGuide = {
     nextAction: 'plan_step',
     nextActionParams: { sessionId: session.sessionId },
-    hint: `다음 단계: ${currentPrinciple}. executeContext.planningPrompt를 사용하세요.`,
+    hint: `다음 단계: ${currentStage}. executeContext.planningPrompt를 사용하세요.`,
   };
+  const sanitizedStepContext = sanitizeSurfaceContext(
+    executeContext as unknown as Record<string, unknown>,
+  );
   return JSON.stringify(
     {
       status: 'planning',
       sessionId: session.sessionId,
       stepsCompleted: session.planningSteps.length,
       isLastStep: false,
-      executeContext: verbose
-        ? executeContext
-        : stripContextPrompts(executeContext as unknown as Record<string, unknown>),
+      executeContext: verbose ? sanitizedStepContext : stripContextPrompts(sanitizedStepContext),
       message: `Step ${session.planningSteps.length}/${4} complete. Use the executeContext.planningPrompt to generate the next step.`,
       ...planStepGuide,
     },

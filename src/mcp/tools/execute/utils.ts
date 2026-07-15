@@ -1,15 +1,20 @@
+import { getConsistencyHint } from '../../../gestalt/surface-labels.js';
+
 // ─── Response Slim Helpers ─────────────────────────────────────────────────
 // systemPrompt is static per session (same agent persona every call).
 // Stripping it from responses saves ~500 tokens × N calls in context history.
 // pendingTasks description/sourceAC are not needed at execution time.
 
 function slimTaskContext(ctx: Record<string, unknown>): Record<string, unknown> {
-  const { pendingTasks, ...rest } = ctx as {
+  const { pendingTasks, similarityStrategy, ...rest } = ctx as {
     pendingTasks?: Array<Record<string, unknown>>;
+    similarityStrategy?: unknown;
     [key: string]: unknown;
   };
   return {
     ...rest,
+    // Similarity 원리를 노출하던 similarityStrategy → 중립적 consistencyHint로 치환
+    ...(similarityStrategy !== undefined ? { consistencyHint: getConsistencyHint() } : {}),
     ...(Array.isArray(pendingTasks)
       ? {
           pendingTasks: pendingTasks.map(({ taskId, title, dependsOn }) => ({
