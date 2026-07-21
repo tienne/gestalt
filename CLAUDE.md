@@ -57,6 +57,7 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | 테스트 케이스, 엣지 케이스, QA | `qa-engineer` |
 | UX 문구 작성·교정, 버튼 텍스트, 에러 메시지, 토스트, 온보딩 카피 | `ux-writer` |
 | 슬랙·메신저 메시지 작성 또는 딱딱한/AI스러운 초안을 본인 말투로 다듬기 | `slack-messenger` |
+| 슬랙 메시지 전송·예약 발송 요청 ("~라고 보내줘", "공지해줘", "예약 발송해줘") | `slack-send` 스킬 사용 (내부적으로 slack-messenger 다듬기 → 승인 게이트 → 전송) |
 | UI, React, 접근성, 컴포넌트 설계 | `frontend-developer` |
 | UI·React 코드 리뷰, 접근성·번들 최적화 검토 | `frontend-reviewer` |
 | API, DB, 인증, 서버 로직 | `backend-developer` |
