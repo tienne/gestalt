@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { AtomicTask, TaskModel } from '../../../src/core/types.js';
-import { resolveTaskModel, assignModelHints } from '../../../src/execute/model-hint.js';
+import {
+  resolveTaskModel,
+  assignModelHints,
+  resolvePromptModel,
+} from '../../../src/execute/model-hint.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -205,5 +209,51 @@ describe('assignModelHints', () => {
     const preset = makeTask({ taskId: 'task-0', model: 'sonnet' });
     const result = assignModelHints([preset]);
     expect(result[0]).toBe(preset);
+  });
+});
+
+// ─── resolvePromptModel (프롬프트 문자열 라우팅) ───────────────────────────────
+
+describe('resolvePromptModel', () => {
+  it('complex 키워드 감지 → opus + intervene', () => {
+    const hint = resolvePromptModel('이 모듈 아키텍처를 다시 설계해줘');
+    expect(hint.model).toBe('opus');
+    expect(hint.intervene).toBe(true);
+    expect(hint.reason).toContain('설계');
+  });
+
+  it('영어 complex 키워드(refactor) → opus', () => {
+    const hint = resolvePromptModel('Please refactor the auth layer');
+    expect(hint.model).toBe('opus');
+    expect(hint.intervene).toBe(true);
+  });
+
+  it('trivial 키워드(오타) → haiku, 개입 안 함', () => {
+    const hint = resolvePromptModel('주석 오타 하나만 고쳐줘');
+    expect(hint.model).toBe('haiku');
+    expect(hint.intervene).toBe(false);
+  });
+
+  it('일반 프롬프트 → sonnet 기본, 개입 안 함', () => {
+    const hint = resolvePromptModel('로그인 핸들러 만들어줘');
+    expect(hint.model).toBe('sonnet');
+    expect(hint.intervene).toBe(false);
+  });
+
+  it('complex + trivial 동시 → opus 우선 (complex 먼저 검사)', () => {
+    const hint = resolvePromptModel('보안 로직 리팩터하면서 포맷도 정리해줘');
+    expect(hint.model).toBe('opus');
+    expect(hint.intervene).toBe(true);
+  });
+
+  it('대소문자 무관 (SECURITY 대문자) → opus', () => {
+    const hint = resolvePromptModel('review the SECURITY of this endpoint');
+    expect(hint.model).toBe('opus');
+  });
+
+  it('빈 프롬프트 → sonnet 기본', () => {
+    const hint = resolvePromptModel('');
+    expect(hint.model).toBe('sonnet');
+    expect(hint.intervene).toBe(false);
   });
 });
