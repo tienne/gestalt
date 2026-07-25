@@ -16,10 +16,10 @@ Complete reference for all Gestalt MCP tools.
 | [`ges_status`](#ges_status) | 세션 상태 확인 |
 | [`ges_benchmark`](#ges_benchmark) | 파이프라인 벤치마크 실행 |
 | [`ges_code_graph`](./code-graph.md#ges_code_graph-mcp-툴) | 코드 그래프 빌드, 질의, blast radius 분석 |
-| `ges_graph_visualize` | 코드 그래프를 로컬 브라우저에서 시각화 |
-| `ges_generate_kb` | 코드 그래프/도메인 내용을 Knowledge Base 문서로 생성 |
-| `ges_search` | Knowledge Base 시맨틱 검색 |
-| `ges_sync` | Knowledge Base 파일 동기화 |
+| [`ges_graph_visualize`](#ges_graph_visualize) | 코드 그래프를 로컬 브라우저에서 시각화 |
+| [`ges_generate_kb`](#ges_generate_kb) | 코드 그래프/도메인 내용을 Knowledge Base 문서로 생성 |
+| [`ges_search`](#ges_search) | Knowledge Base 시맨틱 검색 |
+| [`ges_sync`](#ges_sync) | Knowledge Base 파일 동기화 |
 
 ---
 
@@ -698,6 +698,134 @@ ges_benchmark({ action: "start", scenario: "auth-system" })
     "resolutionScore": 0.84,
     "specQuality": 0.79
   }
+}
+```
+
+---
+
+## `ges_graph_visualize`
+
+로컬 HTTP 서버를 띄워 코드 지식 그래프를 D3.js force-directed 그래프로 시각화하고 브라우저를 자동으로 연다. `.gestalt/code-graph.db`가 없으면 자동 빌드를 시도한다.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|:--------:|---------|-------------|
+| `repoRoot` | `string` | Y | — | 시각화할 저장소 경로 |
+| `port` | `number` | N | 자동 할당 | 로컬 서버 포트 |
+
+### Example
+
+```javascript
+ges_graph_visualize({ repoRoot: "/path/to/repo" })
+```
+
+```json
+{
+  "url": "http://localhost:4173",
+  "port": 4173,
+  "message": "Graph visualization server started. Opening browser..."
+}
+```
+
+서버는 툴 호출이 반환된 뒤에도 계속 실행된다 — 종료는 호출자(MCP 클라이언트/호스트) 세션 관리 책임이다.
+
+---
+
+## `ges_generate_kb`
+
+코드 그래프 분석 결과와 도메인 지식을 Markdown 파일로 내보내고, 로컬 임베딩(`Xenova/all-MiniLM-L6-v2`)을 사전 계산해 `.gestalt-kb/`에 저장한다.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|:--------:|---------|-------------|
+| `repoRoot` | `string` | N | `process.cwd()` | 분석할 저장소 경로 |
+| `outputPath` | `string` | N | `<cwd>/.gestalt-kb` | KB 출력 경로 |
+| `types` | `("code-graph" \| "business-logic" \| "api-spec" \| "adr" \| "policy")[]` | N | 전체 | 생성할 KnowledgeEntry 타입 필터 |
+
+### Example
+
+```javascript
+ges_generate_kb({ repoRoot: "/path/to/repo", types: ["code-graph", "adr"] })
+```
+
+```json
+{
+  "entriesGenerated": 42,
+  "embeddingsComputed": 42,
+  "outputPath": "/path/to/repo/.gestalt-kb"
+}
+```
+
+---
+
+## `ges_search`
+
+`.gestalt-kb/`에 사전 계산된 임베딩으로 로컬 시맨틱 검색을 수행한다. 네트워크 호출 없이 코사인 유사도로 동작한다.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|:--------:|---------|-------------|
+| `query` | `string` | Y | — | 검색어 |
+| `k` | `number` | N | `5` | 반환할 결과 수 |
+| `kbPath` | `string` | N | `<cwd>/.gestalt-kb` | KB 경로 |
+| `types` | `KnowledgeEntryType[]` | N | 전체 | 타입 필터 |
+
+### Example
+
+```javascript
+ges_search({ query: "OAuth2 로그인 흐름", k: 3 })
+```
+
+```json
+{
+  "results": [
+    {
+      "entry": {
+        "id": "a1b2c3",
+        "type": "code-graph",
+        "title": "OAuth2 login route",
+        "content": "...",
+        "filePath": "src/auth/oauth.ts",
+        "createdAt": "2026-03-28T00:00:00.000Z",
+        "tags": []
+      },
+      "score": 0.87,
+      "excerpt": "...",
+      "rank": 1
+    }
+  ],
+  "query": "OAuth2 로그인 흐름",
+  "total": 1
+}
+```
+
+---
+
+## `ges_sync`
+
+`.gestalt-kb/` 디렉터리를 다른 경로(예: 별도 레포)로 복사해 지식베이스를 동기화한다.
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|:--------:|---------|-------------|
+| `sourcePath` | `string` | N | `<cwd>/.gestalt-kb` | 동기화할 소스 경로 |
+| `targetPath` | `string` | Y | — | 복사할 대상 경로 |
+
+### Example
+
+```javascript
+ges_sync({ targetPath: "/other-repo/.gestalt-kb" })
+```
+
+```json
+{
+  "sourcePath": "/path/to/repo/.gestalt-kb",
+  "targetPath": "/other-repo/.gestalt-kb",
+  "success": true
 }
 ```
 
