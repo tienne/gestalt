@@ -5,6 +5,210 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.1] - 2026-07-23
+
+### Documentation
+- 코드 리뷰 코멘트 어투: 명사 압축·기술 비유 명사 교정 룰 추가
+
+## [0.41.0] - 2026-07-21
+
+### Added
+- `jira-writer` role agent + `jira-create` 스킬 추가 — 지라 티켓 본문 구조화 후 승인 게이트를 거쳐 생성
+- `slack-send` 스킬 추가 — 슬랙 메시지 다듬기 → 승인 게이트 → 전송·예약 발송
+
+## [0.40.0] - 2026-07-18
+
+### Added
+- `slack-messenger` role agent 추가 — 슬랙 메시지 작성 및 어투 다듬기, 자동 라우팅 표 등록
+
+## [0.39.0] - 2026-07-15
+
+### Changed
+- 게슈탈트 용어(Figure-Ground 등)의 표면/심층 분리 — MCP 경계에서만 sanitize, 매핑 소스는 `src/gestalt/surface-labels.ts`
+
+### Documentation
+- 코드 리뷰 코멘트에 r/c/a 접두어 컨벤션 도입, GFM 개행 규칙 적용
+
+## [0.38.0] - 2026-07-14
+
+### Added
+- `continuity-judge` 정합 심급(consistency judge) 감독 단계 추가 — 리뷰 결과의 결함 여부뿐 아니라 목표 정합까지 판단
+- `review_consensus` 판정에 정합 심급 결과 병합 (blocking)
+- `ges_agent` get 액션에 원리 에이전트(gestalt principle agent) 레지스트리 fallback 추가
+
+### Documentation
+- `gestalt-develop`, `/review` 스킬에 정합 심급 판단 단계 반영, 재리뷰 시 재평가 명시
+
+## [0.37.0] - 2026-07-03
+
+### Added
+- `reasoningModel` / `reasoningModelFallback` 설정 추가 — 스펙·플래닝 등 깊은 추론용 모델 지정
+- `ges_status` 응답에 `reasoningModel` 설정값 노출
+
+### Fixed
+- 은퇴한 모델 ID를 현행 alias로 교체
+
+### Documentation
+- `reasoningModel` 설정 문서화, spec/execute 스킬에 서브에이전트 스폰 지시 추가
+
+## [0.36.2] - 2026-07-02
+
+### Changed
+- 어투 규칙: 가운뎃점 나열(C-12) 규칙을 S1(강제)로 승격
+
+## [0.36.1] - 2026-07-02
+
+### Documentation
+- 어투 규칙: 어색한 조어 교정 규칙(B-4) 추가
+
+## [0.36.0] - 2026-07-01
+
+### Added
+- PR description에 흐름 변화(AS-IS → TO-BE) 섹션 추가, `change-context-writer`에도 동일 섹션 반영
+
+## [0.35.0] - 2026-06-30
+
+### Added
+- `impact-writer` role agent + `brief` 스킬 추가 — 성과 분석·KPI 회고·제안서·RFC 등 의사결정용 산문 작성
+
+## [0.34.0] - 2026-06-29
+
+### Added
+- `/review` 스킬에 PR 인라인 코멘트 게시 단계 추가 (`code-review-writer` 경로)
+
+### Documentation
+- 한글 산문 가운뎃점(·) 나열 절제 규칙(C-12) 전파
+
+## [0.33.3] - 2026-06-24
+
+### Fixed
+- `code-review-writer`에 음차 표기 교정 규칙 추가, voice 가이드 내 모순 제거
+
+## [0.33.2] - 2026-06-24
+
+### Added
+- `gh pr create` 호출에 `GESTALT_PR` 표식 추가 — PreToolUse 훅 우회용
+
+## [0.33.1] - 2026-06-24
+
+### Documentation
+- PR 작성 요청 시 `gestalt:pr` 스킬로 라우팅하도록 CLAUDE.md에 추가
+
+## [0.33.0] - 2026-06-24
+
+### Added
+- `humanize-monolith` · `change-context-writer` · 리뷰 파이프라인에 작성자 본인 voice 보존 연결
+- `code-review-writer` 어투를 실제 PR 코멘트 voice 기반으로 재작성
+
+### Changed
+- CI Node 24로 업그레이드, GitHub Actions 버전 갱신
+
+## [0.32.5] - 2026-06-24
+
+### Added
+- PR 생성 시 작성자 본인 자동 어사인
+
+### Documentation
+- 굳어진 음차 표기 화이트리스트를 Do-NOT 규칙에 명시
+
+## [0.32.4] - 2026-06-23
+
+### Documentation
+- 비표준 영어 구 음차 표기 교정 룰(B-3) 추가
+
+## [0.32.3] - 2026-06-23
+
+### Added
+- `AtomicTask`에 `model` 힌트 필드 추가, Passthrough 태스크에 model 힌트 자동 할당 및 프롬프트 반영
+
+## [0.32.2] - 2026-06-21
+
+### Fixed
+- `client: "claude-code"`에서도 passthrough를 강제하도록 수정 — API 키가 있어도 호스트가 LLM 주체가 되도록 통일
+
+## [0.32.1] - 2026-06-21
+
+### Fixed
+- `ges_create_agent` normal mode 등록 누락 수정, `ges_execute`에 client per-call 지정 지원 추가
+
+### Documentation
+- Codex 호스트 패스스루 동작 설명 보강
+
+## [0.32.0] - 2026-06-20
+
+### Added
+- `solve` 스킬 추가 — 인터뷰 완료 후 실행 루프를 자율로 드라이빙
+
+## [0.31.2] - 2026-06-20
+
+### Added
+- 한국어 응답 생성 시 AI 어투 제거 가이드, 영어 약어·한자어 대신 일상 단어를 우선하는 어휘 선택 규칙 추가
+
+## [0.31.1] - 2026-06-18
+
+### Added
+- `ux-writer` role agent 추가 — UX 문구 작성·교정 전담
+
+### Changed
+- `technical-writer` / `ux-writer` 에이전트에서 특정 브랜드 레퍼런스 제거, 범용 가이드라인으로 대체
+
+## [0.31.0] - 2026-06-18
+
+### Added
+- `/pr` 스킬 추가 — repo 규칙 탐색 + 미니 인터뷰 + `gh pr create` 흐름
+- 인터뷰 세션에 PR/review 키워드 intent routing 추가 — 해당 키워드 감지 시 `/pr`·`/review`로 안내
+
+## [0.30.1] - 2026-06-18
+
+### Added
+- `/review` 스킬에 0단계 mini-interview 추가 — 리뷰 컨텍스트 확보
+
+## [0.30.0] - 2026-06-18
+
+### Added
+- `change-context-writer` role agent 추가 — 기획 컨텍스트 분석 전담
+- `/review` 스킬에 1.5단계 기획 컨텍스트 분석 단계 추가
+
+## [0.29.1] - 2026-06-17
+
+### Added
+- 페르소나 파이프라인 및 `personasDir` 설정 지원, `medicine-seller`·`trickster` 캐릭터 에이전트 추가
+
+### Changed
+- humanize 단계를 `humanize-monolith` 에이전트에 위임하도록 리팩터링 (`ges_agent` 경유)
+
+## [0.29.0] - 2026-06-17
+
+### Added
+- `frontend-reviewer` review agent 추가
+- `code-review-writer` role agent 추가 — repo rule discovery, `humanize-monolith` S1 규칙 통합
+
+### Fixed
+- 파서의 pipeline zod enum에 `review` 값 누락 수정
+
+## [0.28.1] - 2026-06-14
+
+### Changed
+- `gestalt-release` 체크리스트에 `format:check` 단계 추가, 테스트 파일에 prettier 포맷 적용
+
+## [0.28.0] - 2026-06-14
+
+### Added
+- Memory 격상 3단계, `HostAdapter` 추상화, `usage-report` CLI 추가
+
+## [0.27.0] - 2026-06-14
+
+### Added
+- 벤치마크 코어 테스트 스위트, resolution benchmark 추가
+- `evolve_viz`(evolution_viz) 액션 추가 — Chart.js 기반 진화 궤적 시각화
+- LLM `RetryingAdapter` / `FallbackAdapter` 추가 — tier cascade 폴백
+
+### Changed
+- Knowledge Base 임베딩을 `@xenova/transformers` 네이티브 배열 입력으로 배치 처리해 성능 개선
+
+### Documentation
+- README를 Interview 차별점과 자기 자신을 개발하는 dogfooding 스토리 중심으로 재구성
+
 ## [0.26.0] - 2026-06-14
 
 ### Added
