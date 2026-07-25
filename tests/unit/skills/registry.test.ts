@@ -34,4 +34,21 @@ describe('SkillRegistry', () => {
     registry.loadAll();
     expect(registry.getAll()).toHaveLength(0);
   });
+
+  // ─── presentation 스킬 (신규) ──────────────────────────────
+
+  it('loads presentation skill from real skills/ directory', () => {
+    const registry = new SkillRegistry(resolve('skills'));
+    registry.loadAll();
+
+    expect(registry.has('presentation')).toBe(true);
+
+    const skill = registry.get('presentation');
+    expect(skill).toBeDefined();
+    expect(skill!.frontmatter.name).toBe('presentation');
+    expect(skill!.frontmatter.description).toBeTruthy();
+    // 트리거로 발동 가능해야 한다
+    expect(skill!.frontmatter.triggers.length).toBeGreaterThan(0);
+    expect(skill!.frontmatter.triggers.some((t) => t.includes('발표자료'))).toBe(true);
+  });
 });

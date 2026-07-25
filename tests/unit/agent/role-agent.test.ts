@@ -229,6 +229,47 @@ describe('RoleAgentRegistry', () => {
     const agents = registry.getByDomain('change-context');
     expect(agents.some((a) => a.frontmatter.name === 'change-context-writer')).toBe(true);
   });
+
+  // ─── presentation-writer (신규 role agent) ─────────────────
+
+  it('loads presentation-writer role agent (ges_agent list 노출)', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    expect(registry.has('presentation-writer')).toBe(true);
+    // 콘텐츠(writer)와 디자인(designer) 역할 에이전트가 공존해야 한다
+    expect(registry.has('presentation-designer')).toBe(true);
+    expect(registry.getAll().some((a) => a.frontmatter.name === 'presentation-writer')).toBe(true);
+  });
+
+  it('presentation-writer has correct frontmatter fields (ges_agent get)', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    const agent = registry.getByName('presentation-writer');
+    expect(agent).toBeDefined();
+
+    const fm = agent!.frontmatter;
+    expect(fm.name).toBe('presentation-writer');
+    expect(fm.role).toBe(true);
+    expect(fm.tier).toBe('standard');
+    expect(fm.pipeline).toBe('execute');
+    expect(fm.description).toBeTruthy();
+    expect(Array.isArray(fm.domain)).toBe(true);
+    expect(fm.domain).toContain('presentation-content');
+    expect(fm.domain).toContain('slide-copy');
+
+    // systemPrompt가 비어있지 않아야 함
+    expect(agent!.systemPrompt.trim().length).toBeGreaterThan(0);
+  });
+
+  it('getByDomain("presentation-content") includes presentation-writer', () => {
+    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    registry.loadAll();
+
+    const agents = registry.getByDomain('presentation-content');
+    expect(agents.some((a) => a.frontmatter.name === 'presentation-writer')).toBe(true);
+  });
 });
 
 // ─── Review Agents (review-agents/ 디렉토리) ─────────────────
