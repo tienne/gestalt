@@ -9,9 +9,13 @@
 - **Spec Generator**: 완료된 인터뷰에서 구조화된 프로젝트 스펙(Spec) 생성
 - **Execute Engine**: Spec→ExecutionPlan 변환 (Figure-Ground→Closure→Proximity→Continuity). 설계상 **항상 Passthrough 모드** — Claude Code가 도구(Bash/Edit 등)로 실제 파일 수정·코드 실행을 수행하므로 LLM 주체가 됨 (API 키 유무 무관)
 - **Resilience Engine**: Stagnation 감지 → Lateral Thinking Personas → Human Escalation
+- **Review Pipeline**: Code Review 4종 에이전트(보안/성능/품질/프론트엔드) + consensus → 자동 수정 루프
 - **MCP Server**: stdio transport, API 키 없으면 Passthrough 모드 자동 활성화 (Execute는 항상 Passthrough)
 - **Skill System**: SKILL.md 기반 확장, chokidar hot-reload
-- **Code Knowledge Graph**: 정적 분석 → 의존성 그래프 → Blast-Radius 영향 파일 추출
+- **Code Knowledge Graph**: 정적 분석 → 의존성 그래프 → Blast-Radius 영향 파일 추출, D3 시각화(`ges_graph_visualize`) 지원
+- **Knowledge Base**: 코드 그래프·도메인 지식을 MD로 내보내고 로컬 임베딩으로 시맨틱 검색
+- **Memory**: 이전 스펙·실행 이력을 `.gestalt/memory.json`에 축적, 신규 인터뷰에 자동 주입
+- **Multi-Provider LLM**: frugal/standard/frontier 티어별로 Anthropic/OpenAI 호환 프로바이더 자유 조합
 - **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱
 
 ## Tech Stack
@@ -31,10 +35,16 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 ## MCP Tools
 - `ges_interview`: action=[start|respond|score|complete]
 - `ges_generate_spec`: sessionId?, text?, force?, spec?
-- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|evaluate|status|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|role_match|role_consensus|review_start|review_submit|review_consensus|review_fix]
+- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|status|resume|audit|spawn|evaluate|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|role_match|role_consensus|review_start|review_submit|review_consensus|review_fix]
 - `ges_create_agent`: action=[start|submit]
+- `ges_agent`: action=[list|get], name?
+- `ges_status`: sessionId?, sessionType?, cwd?
+- `ges_benchmark`: action=[start|respond|status], scenario?, benchmarkSessionId?, response?
 - `ges_code_graph`: action=[build|blast_radius|diff_radius|query|stats|db_exists]
-- `ges_status`: sessionId?
+- `ges_graph_visualize`: repoRoot, port?
+- `ges_generate_kb`: repoRoot?, outputPath?, types?
+- `ges_search`: query, k?, kbPath?, types?
+- `ges_sync`: sourcePath?, targetPath
 
 상세 플로우 → [`docs/mcp-reference.md`](./docs/mcp-reference.md)
 설정 레퍼런스 → [`docs/configuration.md`](./docs/configuration.md)
@@ -74,19 +84,28 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 
 ## Project Structure
 ```
-src/core/        — types, errors, Result monad, config, constants
-src/gestalt/     — 게슈탈트 원리 엔진
-src/interview/   — InterviewEngine, ResolutionScorer
-src/spec/        — SpecGenerator, SpecExtractor
-src/execute/     — ExecuteEngine, DAG Validator
-src/resilience/  — Stagnation Detector, Lateral Thinking Personas
-src/code-graph/  — CodeGraphEngine, BlastRadius, 언어 플러그인 8개
-src/agent/       — AgentRegistry, FiguralRouter, RoleAgentRegistry
-src/mcp/         — MCP 서버 + 툴 핸들러
-src/events/      — EventStore (SQLite)
-src/cli/         — commander 기반 CLI
-role-agents/     — 내장 Role Agent 8개
-skills/          — build-graph, blast-radius, diff-radius
+src/core/          — types, errors, Result monad, config, constants
+src/gestalt/       — 게슈탈트 원리 엔진
+src/interview/     — InterviewEngine, ResolutionScorer
+src/spec/          — SpecGenerator, SpecExtractor
+src/execute/       — ExecuteEngine, DAG Validator
+src/resilience/    — Stagnation Detector, Lateral Thinking Personas
+src/code-graph/    — CodeGraphEngine, BlastRadius, 언어 플러그인 8개
+src/graph-viz/     — 코드 그래프 D3 시각화 (ges_graph_visualize 백엔드)
+src/knowledge-base/— KB 생성·시맨틱 검색·동기화 (ges_generate_kb/ges_search/ges_sync 백엔드)
+src/memory/        — Memory 피드백 루프 (ProjectMemoryStore, UserProfileStore)
+src/llm/           — 멀티 프로바이더 LLM 어댑터 (frugal/standard/frontier 티어 라우팅)
+src/review/        — Code Review 파이프라인 (agent-matcher, context-collector, report-generator)
+src/agent/         — AgentRegistry, FiguralRouter, RoleAgentRegistry
+src/mcp/           — MCP 서버 + 툴 핸들러
+src/events/        — EventStore (SQLite)
+src/skills/        — Skill System 엔진 (SKILL.md 파서·실행기, 최상위 skills/와는 별개)
+src/registry/      — 레지스트리 공통 베이스 클래스
+src/utils/         — 알림 등 공용 유틸
+src/cli/           — commander 기반 CLI
+role-agents/       — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger 등) 총 19개
+review-agents/     — 내장 Review Agent 4개 (security-reviewer, performance-reviewer, quality-reviewer, frontend-reviewer)
+skills/            — SKILL.md 14개 (interview, spec, execute, agent, review, pr, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, solve, setup)
 ```
 
 ## Conventions
