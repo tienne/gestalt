@@ -349,12 +349,12 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   server.tool(
     'ges_code_graph',
-    'Build and query the code knowledge graph for a repository. Actions: build (index codebase), blast_radius (find impacted files from changes), query (graph traversal), stats (show DB stats), db_exists (check if graph DB exists).',
+    'Build and query the code knowledge graph for a repository. Actions: build (index codebase), blast_radius (find impacted files from committed changes), diff_radius (find impacted files from uncommitted changes), query (graph traversal), stats (show DB stats), db_exists (check if graph DB exists).',
     {
       action: z
-        .enum(['build', 'blast_radius', 'query', 'stats', 'db_exists'])
+        .enum(['build', 'blast_radius', 'diff_radius', 'query', 'stats', 'db_exists'])
         .describe(
-          'build: index codebase into graph DB, blast_radius: find files impacted by changes, query: traverse graph, stats: show stats, db_exists: check if DB exists',
+          'build: index codebase into graph DB, blast_radius: find files impacted by committed changes, diff_radius: find files impacted by uncommitted changes, query: traverse graph, stats: show stats, db_exists: check if DB exists',
         ),
       repoRoot: z.string(),
       include: z.array(z.string()).optional(),
@@ -363,6 +363,12 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       changedFiles: z.array(z.string()).optional().describe('(auto-detected from git if omitted)'),
       base: z.string().optional(),
       maxDepth: z.number().optional(),
+      diffMode: z
+        .enum(['staged', 'unstaged', 'all'])
+        .optional()
+        .describe(
+          'diff_radius mode: staged=git diff --cached, unstaged=git diff, all=git diff HEAD (default: all)',
+        ),
       pattern: z.enum(['callers_of', 'callees_of', 'tests_for', 'imports_of']).optional(),
       target: z.string().optional(),
     },
