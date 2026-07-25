@@ -150,9 +150,9 @@ claude plugin install gestalt@gestalt
 
 | 항목 | 내용 |
 |------|------|
-| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark` |
-| **슬래시 커맨드** | `/interview`, `/spec`, `/execute`, `/agent` |
-| **에이전트** | Gestalt 파이프라인 에이전트 5개 + Role 에이전트 9개 + Review 에이전트 3개 |
+| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
+| **슬래시 커맨드** | `/interview`, `/spec`, `/execute`, `/agent`, `/review` |
+| **에이전트** | Gestalt 파이프라인 에이전트 5개 + Role 에이전트 9개 + Review 에이전트 4개 |
 | **CLAUDE.md** | 프로젝트 컨텍스트 및 MCP 사용 가이드 자동 추가 |
 
 > **Node.js >= 20.0.0** 필요 — [nvm](https://github.com/nvm-sh/nvm) 사용 시: `nvm install 22 && nvm use 22`
@@ -444,13 +444,14 @@ review_start → 에이전트 관점 제출 → 합의 → 자동 수정
 | `researcher` | 분석, 데이터, 벤치마크 |
 | `technical-writer` | 문서화, API 문서, 가이드, README |
 
-3개의 내장 **Review 에이전트**가 코드를 집중 분석해요:
+4개의 내장 **Review 에이전트**가 코드를 집중 분석해요:
 
 | 에이전트 | 집중 영역 |
 |-------|-------|
 | `security-reviewer` | 인젝션, XSS, 인증 취약점, 시크릿 |
 | `performance-reviewer` | 메모리 누수, N+1 쿼리, 번들 크기, 비동기 |
 | `quality-reviewer` | 가독성, SOLID, 에러 핸들링, DRY |
+| `frontend-reviewer` | UI·React 리뷰, 접근성, 번들 최적화 |
 
 파이프라인 밖에서도 `/agent`로 언제든 에이전트를 쓸 수 있어요:
 
@@ -636,10 +637,21 @@ Claude Code
 │  ├─ LateralThinkingPersonas      │
 │  └─ HumanEscalation              │
 │                                  │
+│  Review Pipeline                 │
+│  ├─ AgentMatcher                 │
+│  ├─ ContextCollector (blastRadius)│
+│  └─ ReportGenerator              │
+│                                  │
 │  Agent System                    │
 │  ├─ RoleAgentRegistry            │
 │  ├─ RoleMatchEngine              │
 │  └─ RoleConsensusEngine          │
+│                                  │
+│  Knowledge Base + Memory          │
+│  ├─ KB Generator/Search/Sync     │
+│  └─ ProjectMemoryStore           │
+│                                  │
+│  Code Graph Viz (D3.js, 로컬 HTTP)│
 │                                  │
 │  EventStore (SQLite WAL)         │
 └──────────────────────────────────┘

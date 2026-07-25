@@ -125,7 +125,7 @@ What you get:
 |------|---------|
 | **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
 | **Slash Commands** | `/interview`, `/spec`, `/execute`, `/agent`, `/review` |
-| **Agents** | 13 Role agents + 3 Review agents |
+| **Agents** | 9 Role agents + 4 Review agents |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
 
 ---
@@ -567,13 +567,14 @@ Nine built-in role agents provide multi-perspective review:
 
 ### Review Agents
 
-Three built-in review agents run focused code analysis:
+Four built-in review agents run focused code analysis:
 
 | Agent | Focus |
 |-------|-------|
 | `security-reviewer` | Injection, XSS, auth vulnerabilities, secrets |
 | `performance-reviewer` | Memory leaks, N+1 queries, bundle size, async |
 | `quality-reviewer` | Readability, SOLID, error handling, DRY |
+| `frontend-reviewer` | UI/React review, accessibility, bundle optimization |
 
 ### Custom Agents
 
@@ -792,10 +793,21 @@ Claude Code (you)
 │  ├─ LateralThinkingPersonas      │
 │  └─ HumanEscalation              │
 │                                  │
+│  Review Pipeline                 │
+│  ├─ AgentMatcher                 │
+│  ├─ ContextCollector (blastRadius)│
+│  └─ ReportGenerator              │
+│                                  │
 │  Agent System                    │
 │  ├─ RoleAgentRegistry            │
 │  ├─ RoleMatchEngine              │
 │  └─ RoleConsensusEngine          │
+│                                  │
+│  Knowledge Base + Memory          │
+│  ├─ KB Generator/Search/Sync     │
+│  └─ ProjectMemoryStore           │
+│                                  │
+│  Code Graph Viz (D3.js, local HTTP)│
 │                                  │
 │  EventStore (SQLite WAL)         │
 └──────────────────────────────────┘
