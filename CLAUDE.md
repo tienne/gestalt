@@ -59,7 +59,9 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | 영상/비디오 URL이 포함되거나 "요약해줘" 요청 | `video-summarizer` |
 | 번역투·AI 말투·어색한 한국어 교정 요청 | `humanize-monolith` |
 | README, API 문서, 가이드, 개발자 문서 작성 | `technical-writer` |
-| 슬라이드·발표자료·프레젠테이션 제작 | `presentation-designer` |
+| 발표 슬라이드 콘텐츠·문구·데이터 요약·발표 노트 작성 | `presentation-writer` |
+| 슬라이드 Reveal.js 구조·템플릿·비주얼 디자인 자문 | `presentation-designer` |
+| 발표자료·슬라이드·프레젠테이션 제작 요청 ("발표자료 만들어줘", "슬라이드 만들어줘", "피치덱") | `presentation` 스킬 사용 (presentation-writer 콘텐츠 → 승인 게이트 → presentation-designer 디자인 → Reveal.js HTML) |
 | 시스템 설계, 아키텍처 리뷰, 설계 패턴 | `architect` |
 | 보안 취약점, 인증/인가, 시크릿 노출 검토 | `security-reviewer` |
 | 성능 병목, N+1, 메모리 누수 분석 | `performance-reviewer` |
@@ -103,9 +105,9 @@ src/skills/        — Skill System 엔진 (SKILL.md 파서·실행기, 최상�
 src/registry/      — 레지스트리 공통 베이스 클래스
 src/utils/         — 알림 등 공용 유틸
 src/cli/           — commander 기반 CLI
-role-agents/       — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger 등) 총 19개
+role-agents/       — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer 등) 총 20개
 review-agents/     — 내장 Review Agent 4개 (security-reviewer, performance-reviewer, quality-reviewer, frontend-reviewer)
-skills/            — SKILL.md 14개 (interview, spec, execute, agent, review, pr, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, solve, setup)
+skills/            — SKILL.md 15개 (interview, spec, execute, agent, review, pr, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, solve, setup)
 ```
 
 ## Conventions

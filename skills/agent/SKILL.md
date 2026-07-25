@@ -54,6 +54,7 @@ Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 | `backend-developer` | API, database, authentication, server |
 | `frontend-developer` | UI, React, accessibility |
 | `designer` | UX/UI, design systems, interaction |
+| `presentation-writer` | 슬라이드 콘텐츠, 발표 카피, 데이터 요약, 발표 노트 |
 | `presentation-designer` | Reveal.js slides, storytelling, visual design for decks |
 | `qa-engineer` | Testing, edge cases, quality |
 | `devops-engineer` | CI/CD, infrastructure, monitoring |
@@ -77,7 +78,9 @@ Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 - 영상·비디오 URL 포함 또는 "요약해줘" → `video-summarizer`
 - 번역투·AI 말투 교정 → `humanize-monolith`
 - 문서·README·가이드 작성 → `technical-writer`
-- 슬라이드·발표자료 → `presentation-designer`
+- 발표 슬라이드 콘텐츠·문구 작성 → `presentation-writer`
+- 슬라이드 Reveal.js 구조·비주얼 디자인 → `presentation-designer`
+- 발표자료·프레젠테이션 제작(콘텐츠+디자인 통합) → `presentation` 스킬
 - 보안 검토 → `security-reviewer`
 - 성능 분석 → `performance-reviewer`
 - 코드 리뷰 → `quality-reviewer`
