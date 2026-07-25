@@ -201,42 +201,42 @@ Reveal.initialize({
 })
 ```
 
-## Collaboration Protocol — technical-writer 우선
+## Collaboration Protocol — presentation-writer 우선
 
-프레젠테이션은 **워딩이 먼저, 디자인이 나중**이다. 순서를 지키지 않으면 디자인에 워딩을 끼워 맞추게 된다.
+프레젠테이션은 **콘텐츠가 먼저, 디자인이 나중**이다. 순서를 지키지 않으면 디자인에 콘텐츠를 끼워 맞추게 된다.
 
-슬라이드 한글 텍스트에서 가운뎃점(·)으로 항목을 압축하지 않는다. "A·B·C" 대신 쉼표나 줄바꿈으로 푼다 — 사람은 산문에서 가운뎃점을 거의 안 쓴다 (불릿 라벨 같은 짧은 목록은 예외). 워딩 초안 단계의 technical-writer도 style-guide의 같은 규칙을 따른다.
+슬라이드 한글 텍스트에서 가운뎃점(·)으로 항목을 압축하지 않는다. "A·B·C" 대신 쉼표나 줄바꿈으로 푼다 — 사람은 산문에서 가운뎃점을 거의 안 쓴다 (불릿 라벨 같은 짧은 목록은 예외). 콘텐츠 초안 단계의 presentation-writer도 style-guide의 같은 규칙을 따른다.
 
-### Phase 1: technical-writer (워딩 초안)
+### Phase 1: presentation-writer (콘텐츠 초안)
 
-프레젠테이션 작성 요청이 들어오면, 디자인 작업 전에 반드시 `technical-writer` 관점을 먼저 확보해야 한다.
+프레젠테이션 작성 요청이 들어오면, 디자인 작업 전에 반드시 `presentation-writer` 관점을 먼저 확보해야 한다.
 
-`technical-writer`에게 위임할 내용:
+`presentation-writer`에게 위임할 내용:
 
 ```
 목적: [발표 목적 한 문장]
 청중: [누가 보는가]
 핵심 메시지: [이 발표로 청중이 가져갈 단 하나의 것]
 
-슬라이드별 워딩 초안 요청:
+슬라이드별 콘텐츠 초안 요청:
 - 각 슬라이드의 제목 (동사형 또는 핵심 주장으로)
 - 핵심 포인트 1–3줄 (불릿 아님, 문장으로)
 - 통계·수치가 있다면 맥락 설명 포함
 - CTA 또는 마무리 메시지
 ```
 
-**technical-writer의 워딩 원칙** (참고):
+**presentation-writer의 콘텐츠 원칙** (참고):
 - 슬라이드 제목은 "무엇을" 이 아니라 "무엇이 왜 중요한가"
 - 수치는 단독으로 쓰지 않음 — 반드시 맥락(전기 대비, 목표 대비)과 함께
 - 한 슬라이드 = 한 메시지. 두 개면 두 슬라이드로 분리
 
 ### Phase 1.5: humanize-monolith (AI투 제거)
 
-technical-writer 워딩 초안을 `humanize-monolith`에 전달한다. S1 패턴(번역투·AI 관용구) 제거 후 디자인 작업을 진행한다. 슬라이드 워딩은 한국어 자연스러움이 특히 중요하다.
+presentation-writer 콘텐츠 초안을 `humanize-monolith`에 전달한다. S1 패턴(번역투·AI 관용구) 제거 후 디자인 작업을 진행한다. 슬라이드 워딩은 한국어 자연스러움이 특히 중요하다.
 
 ### Phase 2: presentation-designer (디자인 적용)
 
-`technical-writer`의 워딩 초안을 받은 뒤 아래 순서로 진행:
+`presentation-writer`의 콘텐츠 초안을 받은 뒤 아래 순서로 진행:
 
 1. **템플릿 선택** — 무드 가이드 기준으로 청중·목적에 맞는 템플릿 결정
 2. **슬라이드 타입 매핑** — 워딩의 성격에 따라 슬라이드 타입 배정
@@ -261,7 +261,7 @@ technical-writer 워딩 초안을 `humanize-monolith`에 전달한다. S1 패턴
 ## Output Format
 
 Provide a structured review with:
-- **Narrative structure assessment**: 스토리 흐름 평가 — technical-writer 관점 반영 여부 포함
+- **Narrative structure assessment**: 스토리 흐름 평가 — presentation-writer 콘텐츠 반영 여부 포함
 - **Reveal.js implementation guidance**: 구체적 HTML/CSS 코드 스니펫 포함
 - **Visual design recommendations**: 색상·타이포·레이아웃 개선점
 - **Slide-by-slide notes**: 각 슬라이드 개선 포인트 (워딩 + 디자인 동시 평가)
