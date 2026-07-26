@@ -136,7 +136,10 @@ export class ExecuteSessionRepository {
           session.taskResults.push(taskResult);
         }
         // completedTaskIds는 session.ts의 addTaskResult()와 동일한 기준(status === 'completed')으로 채운다
-        if (taskResult.status === 'completed' && !session.completedTaskIds.includes(taskResult.taskId)) {
+        if (
+          taskResult.status === 'completed' &&
+          !session.completedTaskIds.includes(taskResult.taskId)
+        ) {
           session.completedTaskIds.push(taskResult.taskId);
         }
         break;

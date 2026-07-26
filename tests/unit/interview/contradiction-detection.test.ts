@@ -71,7 +71,10 @@ describe('Continuity 모순 감지 (engine.ts — 자체 LLM 호출 모드)', ()
     if (!startResult.ok) throw new Error('start failed');
 
     const { sessionId } = startResult.value.session;
-    const respondResult = await engine.respond(sessionId, '관리자만 접근 가능해야 하지만 모든 사용자도 봐야 해요');
+    const respondResult = await engine.respond(
+      sessionId,
+      '관리자만 접근 가능해야 하지만 모든 사용자도 봐야 해요',
+    );
     expect(respondResult.ok).toBe(true);
     if (!respondResult.ok) return;
 
@@ -128,7 +131,10 @@ describe('Continuity 모순 감지 (engine.ts — 자체 LLM 호출 모드)', ()
     if (!startResult.ok) throw new Error('start failed');
 
     const { sessionId } = startResult.value.session;
-    const respondResult = await engine.respond(sessionId, '결제는 즉시 처리되면서 동시에 24시간 후 처리되어야 해요');
+    const respondResult = await engine.respond(
+      sessionId,
+      '결제는 즉시 처리되면서 동시에 24시간 후 처리되어야 해요',
+    );
     if (!respondResult.ok) throw new Error('respond failed');
 
     // 서버 재시작 시뮬레이션: EventStore를 닫고 새로 열어 replay로 복원
@@ -209,13 +215,18 @@ describe('Continuity 모순 감지 (passthrough-engine.ts — Passthrough 모드
     if (!startResult.ok) throw new Error('start failed');
 
     const { sessionId } = startResult.value.session;
-    const respondResult = engine.respond(sessionId, 'It just needs a login page', 'What is the goal?', {
-      goalClarity: 0.9,
-      constraintClarity: 0.9,
-      successCriteria: 0.9,
-      priorityClarity: 0.9,
-      contradictions: [],
-    });
+    const respondResult = engine.respond(
+      sessionId,
+      'It just needs a login page',
+      'What is the goal?',
+      {
+        goalClarity: 0.9,
+        constraintClarity: 0.9,
+        successCriteria: 0.9,
+        priorityClarity: 0.9,
+        contradictions: [],
+      },
+    );
     expect(respondResult.ok).toBe(true);
     if (!respondResult.ok) return;
 

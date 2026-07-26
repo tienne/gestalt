@@ -74,10 +74,14 @@ function logDrift(label: string, drift: Awaited<ReturnType<typeof measureDrift>>
   console.log(`[absolute-threshold] ${label} overall=${drift.overall} goal=${goalScore}`);
 }
 
-const jwtSpec = makeSpec('Build a user authentication system with JWT tokens', ['Must use JWT', 'Must support OAuth2'], [
-  { name: 'User', attrs: ['email', 'password', 'role'] },
-  { name: 'Token', attrs: ['accessToken', 'refreshToken'] },
-]);
+const jwtSpec = makeSpec(
+  'Build a user authentication system with JWT tokens',
+  ['Must use JWT', 'Must support OAuth2'],
+  [
+    { name: 'User', attrs: ['email', 'password', 'role'] },
+    { name: 'Token', attrs: ['accessToken', 'refreshToken'] },
+  ],
+);
 
 const cartSpec = makeSpec(
   'Build a shopping cart feature where users can add products and check out',
