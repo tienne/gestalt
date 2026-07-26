@@ -56,11 +56,13 @@ outputs:
 
 ### 2. 초안 작성 (slack-messenger)
 
-`slack-messenger` role agent로 메시지를 작성하거나 다듬는다.
+`slack-messenger` role agent로 메시지를 작성하거나 다듬는다. **주의: Claude Code의 Agent/Task 도구(subagent_type)로 호출하지 않는다 — 거기엔 이 이름이 등록돼 있지 않아 "Agent type not found" 에러가 난다.** 대신 `ges_agent({ action: "get", name: "slack-messenger" })` MCP 도구로 에이전트 정의(systemPrompt)를 가져온 뒤, 그 페르소나를 그대로 채택해 직접 수행한다.
 
 ```
 /agent slack-messenger "<대상 채널/상대 + 상황/요점, 또는 다듬을 초안>"
 ```
+
+위 표기는 `gestalt:agent` 스킬(ges_agent 기반)을 가리키는 축약 표기다.
 
 - 대상 채널로 레지스터(R1 정중 / R2 친근)를 판단하도록 채널 정보를 함께 넘긴다.
 - 에이전트가 `[???]`로 남긴 빈 정보가 있으면 **여기서 채워 받는다** — 빈 채로 전송하지 않는다.

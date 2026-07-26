@@ -51,11 +51,13 @@ outputs:
 
 ### 2. 본문 작성 (jira-writer)
 
-`jira-writer` role agent로 티켓 본문을 구조화한다.
+`jira-writer` role agent로 티켓 본문을 구조화한다. **주의: Claude Code의 Agent/Task 도구(subagent_type)로 호출하지 않는다 — 거기엔 이 이름이 등록돼 있지 않아 "Agent type not found" 에러가 난다.** 대신 `ges_agent({ action: "get", name: "jira-writer" })` MCP 도구로 에이전트 정의(systemPrompt)를 가져온 뒤, 그 페르소나를 그대로 채택해 직접 수행한다.
 
 ```
 /agent jira-writer "<요청 상황 원문>"
 ```
+
+위 표기는 `gestalt:agent` 스킬(ges_agent 기반)을 가리키는 축약 표기다.
 
 - 에이전트가 이슈타입·요약·설명·AC·제안 메타를 반환한다.
 - `[???]`나 `[확인 필요]`로 남긴 항목이 있으면 **여기서 채워 받는다** — 빈 재현 절차·모호한 AC 채로 생성하지 않는다.
