@@ -188,7 +188,7 @@ let eventStore: EventStore;
 let engine: PassthroughExecuteEngine;
 
 // Helper to run through full planning and execution
-function setupCompletedExecution() {
+async function setupCompletedExecution() {
   const spec = createTestSpec();
   const startResult = engine.start(spec);
   if (!isOk(startResult)) throw new Error('start failed');
@@ -203,7 +203,7 @@ function setupCompletedExecution() {
   engine.startExecution(sessionId);
 
   for (const tr of createCompletedTaskResults()) {
-    engine.submitTaskResult(sessionId, tr);
+    await engine.submitTaskResult(sessionId, tr);
   }
 
   return sessionId;
@@ -465,8 +465,8 @@ describe('Evolution Loop Engine Integration', () => {
     if (existsSync(dbPath)) rmSync(dbPath);
   });
 
-  it('structural fix flow: start → fix → re-evaluate', () => {
-    const sessionId = setupCompletedExecution();
+  it('structural fix flow: start → fix → re-evaluate', async () => {
+    const sessionId = await setupCompletedExecution();
 
     // Start evaluation
     const evalStart = engine.startEvaluation(sessionId);
@@ -507,8 +507,8 @@ describe('Evolution Loop Engine Integration', () => {
     }
   });
 
-  it('contextual evolve flow: evolve → patch → re-execute', () => {
-    const sessionId = setupCompletedExecution();
+  it('contextual evolve flow: evolve → patch → re-execute', async () => {
+    const sessionId = await setupCompletedExecution();
 
     // Run through evaluation
     engine.startEvaluation(sessionId);
@@ -568,8 +568,8 @@ describe('Evolution Loop Engine Integration', () => {
     }
   });
 
-  it('caller-initiated termination', () => {
-    const sessionId = setupCompletedExecution();
+  it('caller-initiated termination', async () => {
+    const sessionId = await setupCompletedExecution();
 
     // Run evaluation
     engine.startEvaluation(sessionId);
@@ -598,8 +598,8 @@ describe('Evolution Loop Engine Integration', () => {
     }
   });
 
-  it('rejects invalid spec patch (goal modification)', () => {
-    const sessionId = setupCompletedExecution();
+  it('rejects invalid spec patch (goal modification)', async () => {
+    const sessionId = await setupCompletedExecution();
 
     engine.startEvaluation(sessionId);
     engine.submitStructuralResult(sessionId, {
@@ -635,8 +635,8 @@ describe('Evolution Loop Engine Integration', () => {
     }
   });
 
-  it('re-execute task result submission flow', () => {
-    const sessionId = setupCompletedExecution();
+  it('re-execute task result submission flow', async () => {
+    const sessionId = await setupCompletedExecution();
 
     // Evaluate
     engine.startEvaluation(sessionId);
@@ -692,8 +692,8 @@ describe('Evolution Loop Repository Replay', () => {
     if (existsSync(dbPath)) rmSync(dbPath);
   });
 
-  it('reconstructs session with evolution state from events', () => {
-    const sessionId = setupCompletedExecution();
+  it('reconstructs session with evolution state from events', async () => {
+    const sessionId = await setupCompletedExecution();
 
     // Evaluate
     engine.startEvaluation(sessionId);

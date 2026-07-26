@@ -84,19 +84,12 @@ export class EvolutionOrchestrator {
         });
       }
 
-      // Call 2: Submit fix results
+      // Call 2: Submit fix results — completeStructuralFix()가 이벤트 스토어를 거쳐
+      // evaluateStage/structuralResult/evaluationResult/status를 리셋한다.
       this.sessionManager.completeStructuralFix(sessionId, fixTasks);
 
-      // Reset evaluation state for re-evaluate
-      const updated = this.sessionManager.get(sessionId);
-      updated.evaluateStage = undefined;
-      updated.structuralResult = undefined;
-      updated.evaluationResult = undefined;
-      updated.status = 'executing';
-      updated.updatedAt = new Date().toISOString();
-
       return ok({
-        session: updated,
+        session: this.sessionManager.get(sessionId),
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);

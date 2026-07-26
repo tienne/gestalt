@@ -8,6 +8,8 @@ import type {
   ExecutionPlan,
   TaskExecutionResult,
   EvaluationResult,
+  StructuralResult,
+  FixTask,
 } from '../../../src/core/types.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -393,5 +395,154 @@ describe('ExecuteSessionRepository', () => {
     const reconstructed = repo.reconstruct(session.sessionId);
 
     expect(reconstructed!.status).toBe('failed');
+  });
+
+  it('replay 후 completedTaskIds가 completed 상태 태스크만 정확히 복원한다 (재시작 시뮬레이션)', () => {
+    const spec = createTestSpec();
+    const session = manager.create(spec);
+    manager.addPlanningStep(session.sessionId, figureGroundStep);
+    manager.addPlanningStep(session.sessionId, closureStep);
+    manager.addPlanningStep(session.sessionId, proximityStep);
+    manager.addPlanningStep(session.sessionId, continuityStep);
+
+    const plan: ExecutionPlan = {
+      planId: randomUUID(),
+      specId: spec.metadata.specId,
+      classifiedACs: figureGroundStep.classifiedACs,
+      atomicTasks: closureStep.atomicTasks,
+      taskGroups: proximityStep.taskGroups,
+      dagValidation: continuityStep.dagValidation,
+      createdAt: new Date().toISOString(),
+    };
+    manager.completePlan(session.sessionId, plan);
+    manager.startExecution(session.sessionId);
+
+    // task-0: completed, task-1: failed(재시도 전), task-2: completed
+    manager.addTaskResult(session.sessionId, {
+      taskId: 'task-0',
+      status: 'completed',
+      output: 'Done',
+      artifacts: [],
+    });
+    manager.addTaskResult(session.sessionId, {
+      taskId: 'task-1',
+      status: 'failed',
+      output: 'Error occurred',
+      artifacts: [],
+    });
+    manager.addTaskResult(session.sessionId, {
+      taskId: 'task-2',
+      status: 'completed',
+      output: 'Done',
+      artifacts: [],
+    });
+
+    const liveSession = manager.get(session.sessionId);
+    expect([...liveSession.completedTaskIds].sort()).toEqual(['task-0', 'task-2']);
+    expect(liveSession.completedTaskIds).not.toContain('task-1');
+
+    // Simulate restart: 새 EventStore/Repository로 replay
+    store.close();
+    const newStore = new EventStore(dbPath);
+    const newRepo = new ExecuteSessionRepository(newStore);
+
+    const reconstructed = newRepo.reconstruct(session.sessionId);
+
+    expect(reconstructed).not.toBeNull();
+    expect([...reconstructed!.completedTaskIds].sort()).toEqual(['task-0', 'task-2']);
+    expect(reconstructed!.completedTaskIds).not.toContain('task-1');
+    expect(reconstructed!.taskResults).toHaveLength(3);
+
+    newStore.close();
+  });
+
+  it('evolve_fix로 리셋된 evaluateStage/structuralResult/evaluationResult/status가 replay 후에도 라이브 세션과 일치한다 (재시작 시뮬레이션)', () => {
+    const spec = createTestSpec();
+    const session = manager.create(spec);
+    manager.addPlanningStep(session.sessionId, figureGroundStep);
+    manager.addPlanningStep(session.sessionId, closureStep);
+    manager.addPlanningStep(session.sessionId, proximityStep);
+    manager.addPlanningStep(session.sessionId, continuityStep);
+
+    const plan: ExecutionPlan = {
+      planId: randomUUID(),
+      specId: spec.metadata.specId,
+      classifiedACs: figureGroundStep.classifiedACs,
+      atomicTasks: closureStep.atomicTasks,
+      taskGroups: proximityStep.taskGroups,
+      dagValidation: continuityStep.dagValidation,
+      createdAt: new Date().toISOString(),
+    };
+    manager.completePlan(session.sessionId, plan);
+    manager.startExecution(session.sessionId);
+    manager.addTaskResult(session.sessionId, {
+      taskId: 'task-0',
+      status: 'completed',
+      output: 'Done',
+      artifacts: [],
+    });
+
+    // Structural 평가 실패 상태를 만든다
+    manager.startStructuralEvaluation(session.sessionId);
+    const structuralResult: StructuralResult = {
+      commands: [{ name: 'test', command: 'pnpm test', exitCode: 1, output: 'FAIL' }],
+      allPassed: false,
+    };
+    manager.completeStructuralStage(session.sessionId, structuralResult);
+
+    // evaluationResult도 채워 넣어 리셋 전/후 값이 실제로 달라지는지 검증한다
+    const evaluationResult: EvaluationResult = {
+      verifications: [{ acIndex: 0, satisfied: false, evidence: 'n/a', gaps: ['broken'] }],
+      overallScore: 0.4,
+      goalAlignment: 0.5,
+      recommendations: ['Fix structural issues first'],
+    };
+    manager.completeEvaluation(session.sessionId, evaluationResult);
+
+    // 리셋 전: evaluateStage/structuralResult/evaluationResult가 모두 채워져 있음을 확인
+    const beforeFix = manager.get(session.sessionId);
+    expect(beforeFix.evaluateStage).toBe('complete');
+    expect(beforeFix.structuralResult).toBeDefined();
+    expect(beforeFix.evaluationResult).toBeDefined();
+
+    // evolve_fix 흐름: fix 시작 → completeStructuralFix로 상태 리셋 + resetState 이벤트 기록
+    manager.startStructuralFix(session.sessionId);
+    const fixTasks: FixTask[] = [
+      {
+        taskId: 'task-0',
+        failedCommand: 'pnpm test',
+        errorOutput: 'FAIL',
+        fixDescription: 'Fixed the failing test',
+        artifacts: ['src/foo.ts'],
+      },
+    ];
+    manager.completeStructuralFix(session.sessionId, fixTasks);
+
+    const liveSession = manager.get(session.sessionId);
+    expect(liveSession.evaluateStage).toBeUndefined();
+    expect(liveSession.structuralResult).toBeUndefined();
+    expect(liveSession.evaluationResult).toBeUndefined();
+    expect(liveSession.status).toBe('executing');
+
+    // Simulate restart: 새 EventStore/Repository로 replay
+    store.close();
+    const newStore = new EventStore(dbPath);
+    const newRepo = new ExecuteSessionRepository(newStore);
+
+    const reconstructed = newRepo.reconstruct(session.sessionId);
+
+    expect(reconstructed).not.toBeNull();
+    expect(reconstructed!.evaluateStage).toBe(liveSession.evaluateStage);
+    expect(reconstructed!.structuralResult).toBe(liveSession.structuralResult);
+    expect(reconstructed!.evaluationResult).toBe(liveSession.evaluationResult);
+    expect(reconstructed!.status).toBe(liveSession.status);
+
+    // 명시적으로도 undefined/'executing' 확인 (undefined가 null 등으로 오염되지 않았는지)
+    expect(reconstructed!.evaluateStage).toBeUndefined();
+    expect(reconstructed!.structuralResult).toBeUndefined();
+    expect(reconstructed!.evaluationResult).toBeUndefined();
+    expect(reconstructed!.status).toBe('executing');
+
+    newStore.close();
   });
 });

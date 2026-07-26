@@ -283,7 +283,7 @@ describe('Execution Phase', () => {
   });
 
   describe('submitTaskResult', () => {
-    it('records task result and returns next task context', () => {
+    it('records task result and returns next task context', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
@@ -295,7 +295,7 @@ describe('Execution Phase', () => {
       const plan = session.executionPlan!;
       const firstTaskId = plan.dagValidation.topologicalOrder[0]!;
 
-      const result = engine.submitTaskResult(sessionId, createTaskResult(firstTaskId));
+      const result = await engine.submitTaskResult(sessionId, createTaskResult(firstTaskId));
       expect(isOk(result)).toBe(true);
 
       if (result.ok) {
@@ -305,28 +305,28 @@ describe('Execution Phase', () => {
       }
     });
 
-    it('rejects invalid taskId', () => {
+    it('rejects invalid taskId', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
 
-      const result = engine.submitTaskResult(sessionId, createTaskResult('nonexistent-task'));
+      const result = await engine.submitTaskResult(sessionId, createTaskResult('nonexistent-task'));
       expect(isErr(result)).toBe(true);
       if (!result.ok) {
         expect(result.error.message).toContain('not found in execution plan');
       }
     });
 
-    it('rejects when session not in executing state', () => {
+    it('rejects when session not in executing state', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       // Don't call startExecution
 
-      const result = engine.submitTaskResult(sessionId, createTaskResult('task-0'));
+      const result = await engine.submitTaskResult(sessionId, createTaskResult('task-0'));
       expect(isErr(result)).toBe(true);
     });
 
-    it('signals allTasksCompleted when all tasks are done', () => {
+    it('signals allTasksCompleted when all tasks are done', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
@@ -336,7 +336,7 @@ describe('Execution Phase', () => {
 
       let lastResult;
       for (const taskId of topoOrder) {
-        lastResult = engine.submitTaskResult(sessionId, createTaskResult(taskId));
+        lastResult = await engine.submitTaskResult(sessionId, createTaskResult(taskId));
         expect(isOk(lastResult!)).toBe(true);
       }
 
@@ -347,7 +347,7 @@ describe('Execution Phase', () => {
       }
     });
 
-    it('handles failed tasks and moves to next', () => {
+    it('handles failed tasks and moves to next', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
@@ -355,7 +355,10 @@ describe('Execution Phase', () => {
       const session = engine.getSession(sessionId);
       const firstTaskId = session.executionPlan!.dagValidation.topologicalOrder[0]!;
 
-      const result = engine.submitTaskResult(sessionId, createTaskResult(firstTaskId, 'failed'));
+      const result = await engine.submitTaskResult(
+        sessionId,
+        createTaskResult(firstTaskId, 'failed'),
+      );
       expect(isOk(result)).toBe(true);
       // Even though task-0 failed, dependent tasks should be unblocked
       if (result.ok) {
@@ -364,18 +367,18 @@ describe('Execution Phase', () => {
       }
     });
 
-    it('provides similar task context via Similarity principle', () => {
+    it('provides similar task context via Similarity principle', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
 
       // Complete task-0 (low complexity, sourceAC [0])
-      engine.submitTaskResult(sessionId, createTaskResult('task-0'));
+      await engine.submitTaskResult(sessionId, createTaskResult('task-0'));
       // Complete task-5 (medium complexity, sourceAC [2])
-      engine.submitTaskResult(sessionId, createTaskResult('task-5'));
+      await engine.submitTaskResult(sessionId, createTaskResult('task-5'));
 
       // Now task-1 (medium complexity, sourceAC [0]) should have similar context
-      const result = engine.submitTaskResult(sessionId, createTaskResult('task-1'));
+      const result = await engine.submitTaskResult(sessionId, createTaskResult('task-1'));
       if (result.ok && result.value.taskContext) {
         expect(result.value.taskContext.similarityStrategy).toBeDefined();
         expect(result.value.taskContext.completedTaskIds).toContain('task-0');
@@ -406,11 +409,14 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
     }
   });
 
-  function executeAllTasks(engine: PassthroughExecuteEngine, sessionId: string): void {
+  async function executeAllTasks(
+    engine: PassthroughExecuteEngine,
+    sessionId: string,
+  ): Promise<void> {
     const session = engine.getSession(sessionId);
     const topoOrder = session.executionPlan!.dagValidation.topologicalOrder;
     for (const taskId of topoOrder) {
-      engine.submitTaskResult(sessionId, createTaskResult(taskId));
+      await engine.submitTaskResult(sessionId, createTaskResult(taskId));
     }
   }
 
@@ -433,11 +439,11 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
   };
 
   describe('startEvaluation (Structural Stage)', () => {
-    it('returns structural commands to run', () => {
+    it('returns structural commands to run', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
-      executeAllTasks(engine, sessionId);
+      await executeAllTasks(engine, sessionId);
 
       const result = engine.startEvaluation(sessionId);
       expect(isOk(result)).toBe(true);
@@ -456,11 +462,11 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       }
     });
 
-    it('sets evaluateStage to structural on session', () => {
+    it('sets evaluateStage to structural on session', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
-      executeAllTasks(engine, sessionId);
+      await executeAllTasks(engine, sessionId);
 
       engine.startEvaluation(sessionId);
       const session = engine.getSession(sessionId);
@@ -477,11 +483,11 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
   });
 
   describe('submitStructuralResult', () => {
-    it('advances to contextual stage when structural passes', () => {
+    it('advances to contextual stage when structural passes', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
-      executeAllTasks(engine, sessionId);
+      await executeAllTasks(engine, sessionId);
       engine.startEvaluation(sessionId);
 
       const result = engine.submitStructuralResult(sessionId, passingStructuralResult);
@@ -499,11 +505,11 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       }
     });
 
-    it('short-circuits when structural fails', () => {
+    it('short-circuits when structural fails', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
-      executeAllTasks(engine, sessionId);
+      await executeAllTasks(engine, sessionId);
       engine.startEvaluation(sessionId);
 
       const result = engine.submitStructuralResult(sessionId, failingStructuralResult);
@@ -518,11 +524,11 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       }
     });
 
-    it('rejects when not in structural stage', () => {
+    it('rejects when not in structural stage', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
-      executeAllTasks(engine, sessionId);
+      await executeAllTasks(engine, sessionId);
       // Don't call startEvaluation
 
       const result = engine.submitStructuralResult(sessionId, passingStructuralResult);
@@ -536,11 +542,11 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       engine.submitStructuralResult(sessionId, passingStructuralResult);
     }
 
-    it('completes session with contextual evaluation result', () => {
+    it('completes session with contextual evaluation result', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
-      executeAllTasks(engine, sessionId);
+      await executeAllTasks(engine, sessionId);
       advanceToContextual(engine, sessionId);
 
       const evaluationResult: EvaluationResult = {
@@ -578,11 +584,11 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       }
     });
 
-    it('rejects evaluation missing AC verification', () => {
+    it('rejects evaluation missing AC verification', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
-      executeAllTasks(engine, sessionId);
+      await executeAllTasks(engine, sessionId);
       advanceToContextual(engine, sessionId);
 
       const evaluationResult: EvaluationResult = {
@@ -599,11 +605,11 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       }
     });
 
-    it('rejects evaluation with invalid score range', () => {
+    it('rejects evaluation with invalid score range', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
-      executeAllTasks(engine, sessionId);
+      await executeAllTasks(engine, sessionId);
       advanceToContextual(engine, sessionId);
 
       const evaluationResult: EvaluationResult = {
@@ -640,11 +646,11 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       expect(isErr(result)).toBe(true);
     });
 
-    it('handles partial success with gaps', () => {
+    it('handles partial success with gaps', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
-      executeAllTasks(engine, sessionId);
+      await executeAllTasks(engine, sessionId);
       advanceToContextual(engine, sessionId);
 
       const evaluationResult: EvaluationResult = {
@@ -704,7 +710,7 @@ describe('Full Pipeline: Planning → Execution → Evaluate', () => {
     }
   });
 
-  it('completes the entire pipeline from planning to evaluation', () => {
+  it('completes the entire pipeline from planning to evaluation', async () => {
     const spec = createTestSpec();
 
     // Phase 1: Planning
@@ -729,7 +735,7 @@ describe('Full Pipeline: Planning → Execution → Evaluate', () => {
     const topoOrder = session.executionPlan!.dagValidation.topologicalOrder;
 
     for (const taskId of topoOrder) {
-      const submitResult = engine.submitTaskResult(sessionId, createTaskResult(taskId));
+      const submitResult = await engine.submitTaskResult(sessionId, createTaskResult(taskId));
       expect(isOk(submitResult)).toBe(true);
     }
 

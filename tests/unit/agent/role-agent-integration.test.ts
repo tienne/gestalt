@@ -244,7 +244,7 @@ describe('Role Agent Integration: Full MCP Flow', () => {
     expect(result.value.roleGuidance!.conflictResolutions).toEqual([]);
   });
 
-  it('full flow: role_match → role_consensus → execute_task with roleGuidance', () => {
+  it('full flow: role_match → role_consensus → execute_task with roleGuidance', async () => {
     // 1. role_match
     engine.roleMatch(sessionId);
     engine.roleMatch(sessionId, [
@@ -285,7 +285,7 @@ describe('Role Agent Integration: Full MCP Flow', () => {
     expect(guidanceResult.ok && guidanceResult.value.roleGuidance).toBeDefined();
 
     // 3. execute_task — submit task-a
-    const taskSubmit = engine.submitTaskResult(sessionId, {
+    const taskSubmit = await engine.submitTaskResult(sessionId, {
       taskId: 'task-a',
       status: 'completed',
       output: 'React component implemented with hooks',
@@ -300,7 +300,7 @@ describe('Role Agent Integration: Full MCP Flow', () => {
     }
   });
 
-  it('zero matches: perspectivePrompts is empty, execute_task works without roleGuidance', () => {
+  it('zero matches: perspectivePrompts is empty, execute_task works without roleGuidance', async () => {
     engine.roleMatch(sessionId);
     const result = engine.roleMatch(sessionId, []);
     expect(result.ok).toBe(true);
@@ -308,7 +308,7 @@ describe('Role Agent Integration: Full MCP Flow', () => {
       expect(result.value.perspectivePrompts).toEqual([]);
     }
 
-    const taskSubmit = engine.submitTaskResult(sessionId, {
+    const taskSubmit = await engine.submitTaskResult(sessionId, {
       taskId: 'task-a',
       status: 'completed',
       output: 'Task completed without role guidance',
@@ -352,7 +352,7 @@ describe('Role Agent Integration: Full MCP Flow', () => {
     }
   });
 
-  it('roleState is cleared after each execute_task submission', () => {
+  it('roleState is cleared after each execute_task submission', async () => {
     engine.roleMatch(sessionId);
     engine.roleMatch(sessionId, [
       { agentName: 'frontend-developer', domain: ['ui'], relevanceScore: 0.9, reasoning: 'match' },
@@ -369,7 +369,7 @@ describe('Role Agent Integration: Full MCP Flow', () => {
     });
 
     // Submit task-a → clears role state
-    engine.submitTaskResult(sessionId, {
+    await engine.submitTaskResult(sessionId, {
       taskId: 'task-a',
       status: 'completed',
       output: 'Done',

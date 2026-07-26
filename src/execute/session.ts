@@ -300,12 +300,26 @@ export class ExecuteSessionManager {
 
   completeStructuralFix(sessionId: string, fixTasks: FixTask[]): void {
     const session = this.get(sessionId);
+    const generation = session.currentGeneration;
+
+    // Reset evaluation state so the session re-enters structural/contextual re-evaluation
+    session.evaluateStage = undefined;
+    session.structuralResult = undefined;
+    session.evaluationResult = undefined;
+    session.status = 'executing';
     session.updatedAt = new Date().toISOString();
 
     this.eventStore.append('execute', sessionId, EventType.EVOLVE_STRUCTURAL_FIX_COMPLETED, {
-      generation: session.currentGeneration,
+      generation,
       fixCount: fixTasks.length,
       fixTasks,
+      // replay 시 정확히 복원하기 위해 리셋된 상태값을 명시적으로 기록 (undefined는 JSON에서 유실되므로 null 사용)
+      resetState: {
+        evaluateStage: null,
+        structuralResult: null,
+        evaluationResult: null,
+        status: 'executing' as const,
+      },
     });
   }
 

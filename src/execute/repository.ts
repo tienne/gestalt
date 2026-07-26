@@ -11,6 +11,8 @@ import type {
   DriftScore,
   SpecDelta,
   TerminationReason,
+  EvaluateStage,
+  ExecuteStatus,
 } from '../core/types.js';
 import { EventType } from '../events/types.js';
 
@@ -133,6 +135,10 @@ export class ExecuteSessionRepository {
         } else {
           session.taskResults.push(taskResult);
         }
+        // completedTaskIds는 session.ts의 addTaskResult()와 동일한 기준(status === 'completed')으로 채운다
+        if (taskResult.status === 'completed' && !session.completedTaskIds.includes(taskResult.taskId)) {
+          session.completedTaskIds.push(taskResult.taskId);
+        }
         break;
       }
 
@@ -208,9 +214,25 @@ export class ExecuteSessionRepository {
         session.status = 'executing';
         break;
 
-      case EventType.EVOLVE_STRUCTURAL_FIX_COMPLETED:
-        // Fix tasks recorded in event, no direct session state change beyond stage
+      case EventType.EVOLVE_STRUCTURAL_FIX_COMPLETED: {
+        // completeStructuralFix()가 evaluateStage/structuralResult/evaluationResult/status를
+        // 리셋한 결과를 resetState로 기록해두었으므로 그대로 복원한다 (null → undefined)
+        const resetState = payload.resetState as
+          | {
+              evaluateStage: EvaluateStage | null;
+              structuralResult: StructuralResult | null;
+              evaluationResult: EvaluationResult | null;
+              status: ExecuteStatus;
+            }
+          | undefined;
+        if (resetState) {
+          session.evaluateStage = resetState.evaluateStage ?? undefined;
+          session.structuralResult = resetState.structuralResult ?? undefined;
+          session.evaluationResult = resetState.evaluationResult ?? undefined;
+          session.status = resetState.status;
+        }
         break;
+      }
 
       case EventType.EVOLVE_SPEC_PATCHED: {
         const patchedSpec = payload.spec as Spec | undefined;
