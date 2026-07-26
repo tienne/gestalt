@@ -172,9 +172,7 @@ export class PassthroughEngine {
       }
 
       // Select next principle
-      const hasContradictions =
-        resolutionScore?.dimensions.some((d) => d.clarity < 0.3 && d.name === 'continuity') ??
-        false;
+      const hasContradictions = (externalScore?.contradictions?.length ?? 0) > 0;
 
       const nextPrinciple = selectNextPrinciple({
         roundNumber: session.rounds.length + 1,

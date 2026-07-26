@@ -89,6 +89,7 @@ export function computeResolutionScore(
     overall,
     dimensions,
     isReady: overall >= RESOLUTION_THRESHOLD,
+    contradictions: raw.contradictions,
   };
 }
 

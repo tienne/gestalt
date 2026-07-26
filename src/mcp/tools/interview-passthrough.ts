@@ -74,6 +74,7 @@ export function handleInterviewPassthrough(
                   clarity: d.clarity.toFixed(2),
                   label: d.label,
                 })),
+                contradictions: resolutionScore.contradictions ?? [],
               }
             : null,
           message: resolutionScore?.isReady
@@ -106,6 +107,7 @@ export function handleInterviewPassthrough(
                   clarity: d.clarity.toFixed(2),
                   label: d.label,
                 })),
+                contradictions: resolutionScore.contradictions ?? [],
               }
             : null,
           scoringPrompt: scoringPrompt ?? null,

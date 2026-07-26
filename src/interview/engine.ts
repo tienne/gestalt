@@ -102,9 +102,7 @@ export class InterviewEngine {
       this.sessionManager.updateResolutionScore(sessionId, resolutionScore);
 
       // Select next principle based on current state
-      const hasContradictions = resolutionScore.dimensions.some(
-        (d) => d.clarity < 0.3 && d.name === 'continuity',
-      );
+      const hasContradictions = (resolutionScore.contradictions?.length ?? 0) > 0;
 
       const nextPrinciple = selectNextPrinciple({
         roundNumber: session.rounds.length + 1,

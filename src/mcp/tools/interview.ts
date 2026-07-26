@@ -49,6 +49,7 @@ export async function handleInterview(
               clarity: d.clarity.toFixed(2),
               principle: d.gestaltPrinciple,
             })),
+            contradictions: resolutionScore.contradictions ?? [],
           },
           message: resolutionScore.isReady
             ? 'Resolution threshold met! You can now complete the interview and generate a spec.'
@@ -76,6 +77,7 @@ export async function handleInterview(
               clarity: d.clarity.toFixed(2),
               principle: d.gestaltPrinciple,
             })),
+            contradictions: result.value.contradictions ?? [],
           },
         },
         null,

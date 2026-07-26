@@ -102,11 +102,25 @@ export class InterviewSessionRepository {
       }
 
       case EventType.INTERVIEW_RESOLUTION_SCORED: {
+        const contradictions = (payload.contradictions as string[] | undefined) ?? [];
         session.resolutionScore = {
           overall: payload.overall as number,
           isReady: payload.isReady as boolean,
           dimensions: (payload.dimensions as ResolutionScore['dimensions']) ?? [],
+          ...(contradictions.length > 0 && { contradictions }),
         };
+
+        if (contradictions.length > 0) {
+          const roundNumber = payload.roundNumber as number | null;
+          const round =
+            roundNumber != null
+              ? session.rounds.find((r) => r.roundNumber === roundNumber)
+              : undefined;
+          const targetRound = round ?? session.rounds[session.rounds.length - 1];
+          if (targetRound) {
+            targetRound.contradictions = contradictions;
+          }
+        }
         break;
       }
       // Backward compatibility: old ambiguity score was inverted (low = clear)

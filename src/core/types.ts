@@ -25,6 +25,7 @@ export interface ResolutionScore {
   overall: number; // 0.0-1.0 (higher = clearer)
   dimensions: ResolutionDimension[];
   isReady: boolean; // overall >= RESOLUTION_THRESHOLD
+  contradictions?: string[]; // Detected contradictions during interview
 }
 
 export interface GestaltAnalysis {
@@ -43,6 +44,7 @@ export interface InterviewRound {
   userResponse: string | null;
   gestaltFocus: GestaltPrinciple;
   timestamp: string;
+  contradictions?: string[]; // 이 라운드 응답 채점 시 감지된 모순
 }
 
 export interface CompressedContext {

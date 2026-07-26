@@ -51,8 +51,14 @@ export function handleStatus(
                 ? {
                     overall: session.resolutionScore.overall.toFixed(2),
                     isReady: session.resolutionScore.isReady,
+                    contradictions: session.resolutionScore.contradictions ?? [],
                   }
                 : null,
+              rounds: session.rounds.map((r) => ({
+                roundNumber: r.roundNumber,
+                gestaltFocus: r.gestaltFocus,
+                contradictions: r.contradictions ?? [],
+              })),
               createdAt: session.createdAt,
               updatedAt: session.updatedAt,
             },
@@ -94,6 +100,7 @@ export function handleStatus(
             projectType: s.projectType,
             totalRounds: s.rounds.length,
             resolutionScore: s.resolutionScore?.overall.toFixed(2) ?? 'N/A',
+            hasContradictions: (s.resolutionScore?.contradictions?.length ?? 0) > 0,
             createdAt: s.createdAt,
           }))
         : [];

@@ -141,10 +141,18 @@ export class SessionManager {
     session.resolutionScore = score;
     session.updatedAt = new Date().toISOString();
 
+    // 채점 시점의 마지막 라운드(방금 답변된 라운드)에 감지된 모순을 기록한다.
+    const currentRound = session.rounds[session.rounds.length - 1];
+    if (currentRound && score.contradictions && score.contradictions.length > 0) {
+      currentRound.contradictions = score.contradictions;
+    }
+
     this.eventStore.append('interview', sessionId, EventType.INTERVIEW_RESOLUTION_SCORED, {
       overall: score.overall,
       isReady: score.isReady,
       dimensions: score.dimensions,
+      contradictions: score.contradictions ?? [],
+      roundNumber: currentRound?.roundNumber ?? null,
     });
   }
 
