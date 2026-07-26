@@ -180,6 +180,23 @@ export class CodeGraphStore {
     return rows.map(toEdge);
   }
 
+  /**
+   * filePath를 target으로 하는 엣지들의 source 파일 목록을 반환한다 (1-hop, 자기 자신 제외).
+   * 증분 빌드에서 deleteByFile로 filePath의 엣지를 지우기 전에 호출해야 한다 —
+   * 지운 뒤에는 filePath를 참조하던 파일 목록을 더 이상 조회할 수 없다.
+   */
+  getReferencingFiles(filePath: string): string[] {
+    const stmt = this.db.prepare(`
+      SELECT DISTINCT src.file_path AS file_path
+      FROM cg_edges e
+      JOIN cg_nodes tgt ON tgt.id = e.target_id
+      JOIN cg_nodes src ON src.id = e.source_id
+      WHERE tgt.file_path = ? AND src.file_path != ?
+    `);
+    const rows = stmt.all(filePath, filePath) as { file_path: string }[];
+    return rows.map((r) => r.file_path);
+  }
+
   getAllNodes(): CodeGraphNode[] {
     const stmt = this.db.prepare(`
       SELECT * FROM cg_nodes

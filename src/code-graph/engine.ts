@@ -111,25 +111,47 @@ export class CodeGraphEngine {
     // Filter files that have supported plugins
     const supportedFiles = files.filter((f) => getPluginForFile(f) !== null);
 
-    let nodesBuilt = 0;
-    let edgesBuilt = 0;
+    let filesToProcess = supportedFiles;
 
-    for (const filePath of supportedFiles) {
-      // Incremental: skip unchanged files (hash comparison)
-      if (mode === 'incremental') {
+    if (mode === 'incremental') {
+      const changedFiles: string[] = [];
+      for (const filePath of supportedFiles) {
         const existingHash = store.getFileHash(filePath);
-        if (existingHash) {
-          try {
-            const content = readFileSync(filePath, 'utf-8');
-            const currentHash = createHash('sha256').update(content).digest('hex');
-            if (currentHash === existingHash) continue;
-          } catch {
-            // If can't read, skip
-            continue;
-          }
+        if (!existingHash) {
+          changedFiles.push(filePath);
+          continue;
+        }
+        try {
+          const content = readFileSync(filePath, 'utf-8');
+          const currentHash = createHash('sha256').update(content).digest('hex');
+          if (currentHash !== existingHash) changedFiles.push(filePath);
+        } catch {
+          // If can't read, skip (변경 여부 판단 불가 — 재파싱 대상에서 제외)
         }
       }
 
+      // 변경된 파일(F)을 참조하던 파일(A)들도 함께 재파싱 대상에 포함한다.
+      // F 재파싱 시 deleteByFile(F)이 "A→F" 엣지까지 지우는데 A는 변경되지 않아
+      // 재파싱 대상에서 빠지면 그 엣지가 영영 복원되지 않기 때문이다(1-hop만 전파).
+      // 반드시 deleteByFile 호출 전에 조회해야 한다 — 지운 뒤에는 이미 늦다.
+      const changedSet = new Set(changedFiles);
+      const referencing = new Set<string>();
+      for (const filePath of changedFiles) {
+        for (const refFile of store.getReferencingFiles(filePath)) {
+          referencing.add(refFile);
+        }
+      }
+      for (const refFile of referencing) {
+        if (!changedSet.has(refFile)) changedFiles.push(refFile);
+      }
+
+      filesToProcess = changedFiles;
+    }
+
+    let nodesBuilt = 0;
+    let edgesBuilt = 0;
+
+    for (const filePath of filesToProcess) {
       const plugin = getPluginForFile(filePath);
       if (!plugin) continue;
 
