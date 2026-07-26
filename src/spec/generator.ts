@@ -24,11 +24,11 @@ export class SpecGenerator {
     force = false,
   ): Promise<Result<Spec, SpecGenerationError | ResolutionThresholdError>> {
     // Validate resolution threshold
-    if (!force) {
-      const resolution = session.resolutionScore?.overall ?? 0.0;
-      if (resolution < RESOLUTION_THRESHOLD) {
-        return err(new ResolutionThresholdError(resolution, RESOLUTION_THRESHOLD));
-      }
+    const resolution = session.resolutionScore?.overall ?? 0.0;
+    const thresholdExceeded = resolution < RESOLUTION_THRESHOLD;
+
+    if (!force && thresholdExceeded) {
+      return err(new ResolutionThresholdError(resolution, RESOLUTION_THRESHOLD));
     }
 
     if (session.status !== 'completed') {
@@ -53,7 +53,7 @@ export class SpecGenerator {
           metadata: {
             specId: randomUUID(),
             interviewSessionId: session.sessionId,
-            resolutionScore: session.resolutionScore?.overall ?? 0.0,
+            resolutionScore: resolution,
             generatedAt: new Date().toISOString(),
           },
         };
@@ -65,6 +65,17 @@ export class SpecGenerator {
             `Spec validation failed: ${validation.error.message}`,
           );
           continue;
+        }
+
+        // Record audit event if force override was used with subthreshold resolution
+        if (force && thresholdExceeded) {
+          this.eventStore.append('spec', spec.metadata.specId, EventType.SPEC_FORCE_OVERRIDE, {
+            sessionId: session.sessionId,
+            specId: spec.metadata.specId,
+            resolutionScore: resolution,
+            threshold: RESOLUTION_THRESHOLD,
+            timestamp: new Date().toISOString(),
+          });
         }
 
         this.eventStore.append('spec', spec.metadata.specId, EventType.SPEC_GENERATED, {

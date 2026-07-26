@@ -28,7 +28,7 @@ const specMetadataSchema = z
   .object({
     specId: z.string(),
     interviewSessionId: z.string(),
-    resolutionScore: z.number().min(0).max(1).optional(),
+    resolutionScore: z.number().min(0).max(1).nullable().optional(),
     // Backward compatibility: old Specs stored ambiguityScore (inverted scale)
     ambiguityScore: z.number().min(0).max(1).optional(),
     generatedAt: z.string(),
@@ -38,7 +38,7 @@ const specMetadataSchema = z
     interviewSessionId: data.interviewSessionId,
     generatedAt: data.generatedAt,
     resolutionScore:
-      data.resolutionScore ?? (data.ambiguityScore != null ? 1 - data.ambiguityScore : 0),
+      data.resolutionScore ?? (data.ambiguityScore != null ? 1 - data.ambiguityScore : null),
   }));
 
 export const specSchema = z.object({

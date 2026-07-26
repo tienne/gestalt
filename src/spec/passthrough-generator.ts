@@ -76,11 +76,11 @@ export class PassthroughSpecGenerator {
     force = false,
   ): Result<Spec, SpecGenerationError | ResolutionThresholdError> {
     // Validate resolution threshold
-    if (!force) {
-      const resolution = session.resolutionScore?.overall ?? 0.0;
-      if (resolution < RESOLUTION_THRESHOLD) {
-        return err(new ResolutionThresholdError(resolution, RESOLUTION_THRESHOLD));
-      }
+    const resolution = session.resolutionScore?.overall ?? 0.0;
+    const thresholdExceeded = resolution < RESOLUTION_THRESHOLD;
+
+    if (!force && thresholdExceeded) {
+      return err(new ResolutionThresholdError(resolution, RESOLUTION_THRESHOLD));
     }
 
     if (session.status !== 'completed') {
@@ -100,7 +100,7 @@ export class PassthroughSpecGenerator {
         metadata: {
           specId: randomUUID(),
           interviewSessionId: session.sessionId,
-          resolutionScore: session.resolutionScore?.overall ?? 0.0,
+          resolutionScore: resolution,
           generatedAt: new Date().toISOString(),
         },
       };
@@ -109,6 +109,17 @@ export class PassthroughSpecGenerator {
       const validation = specSchema.safeParse(spec);
       if (!validation.success) {
         return err(new SpecGenerationError(`Spec validation failed: ${validation.error.message}`));
+      }
+
+      // Record audit event if force override was used with subthreshold resolution
+      if (force && thresholdExceeded) {
+        this.eventStore.append('spec', spec.metadata.specId, EventType.SPEC_FORCE_OVERRIDE, {
+          sessionId: session.sessionId,
+          specId: spec.metadata.specId,
+          resolutionScore: resolution,
+          threshold: RESOLUTION_THRESHOLD,
+          timestamp: new Date().toISOString(),
+        });
       }
 
       this.eventStore.append('spec', spec.metadata.specId, EventType.SPEC_GENERATED, {
@@ -147,7 +158,7 @@ export class PassthroughSpecGenerator {
         metadata: {
           specId: randomUUID(),
           interviewSessionId: TEXT_INPUT_SESSION_ID,
-          resolutionScore: 1,
+          resolutionScore: null,
           generatedAt: new Date().toISOString(),
         },
       };

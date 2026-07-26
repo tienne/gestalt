@@ -129,7 +129,7 @@ export const executeInputSchema = z.object({
       metadata: z.object({
         specId: z.string(),
         interviewSessionId: z.string(),
-        resolutionScore: z.number(),
+        resolutionScore: z.number().nullable(),
         generatedAt: z.string(),
       }),
     })

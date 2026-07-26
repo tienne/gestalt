@@ -6,6 +6,7 @@ export enum EventType {
   INTERVIEW_SESSION_COMPLETED = 'interview.session.completed',
   GESTALT_PRINCIPLE_APPLIED = 'gestalt.principle.applied',
   SPEC_GENERATED = 'spec.generated',
+  SPEC_FORCE_OVERRIDE = 'spec.force.override',
   BROWNFIELD_DETECTED = 'brownfield.detected',
   EXECUTE_SESSION_STARTED = 'execute.session.started',
   EXECUTE_PLANNING_STEP_COMPLETED = 'execute.planning.step.completed',

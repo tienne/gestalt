@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SpecGenerator } from '../../../src/spec/generator.js';
 import { EventStore } from '../../../src/events/store.js';
+import { EventType } from '../../../src/events/types.js';
 import type { InterviewSession } from '../../../src/core/types.js';
 import { GestaltPrinciple } from '../../../src/core/types.js';
 import type { LLMAdapter, LLMRequest, LLMResponse } from '../../../src/llm/types.js';
@@ -118,5 +119,65 @@ describe('SpecGenerator', () => {
 
     const result = await generator.generate(session);
     expect(isErr(result)).toBe(true);
+  });
+
+  it('force flag with subthreshold resolution emits SPEC_FORCE_OVERRIDE audit event with correct payload', async () => {
+    const llm = new MockLLM();
+    llm.response = JSON.stringify({
+      goal: 'Build it',
+      constraints: [],
+      acceptanceCriteria: [],
+      ontologySchema: { entities: [], relations: [] },
+      gestaltAnalysis: [],
+    });
+
+    const generator = new SpecGenerator(llm, store);
+    const session = makeSession({
+      resolutionScore: { overall: 0.5, dimensions: [], isReady: false },
+    });
+
+    const result = await generator.generate(session, true);
+    expect(isOk(result)).toBe(true);
+
+    const overrideEvents = store.getByType(EventType.SPEC_FORCE_OVERRIDE);
+    expect(overrideEvents).toHaveLength(1);
+
+    const payload = overrideEvents[0]!.payload as {
+      sessionId: string;
+      specId: string;
+      resolutionScore: number;
+      threshold: number;
+      timestamp: string;
+    };
+    expect(payload.sessionId).toBe(session.sessionId);
+    expect(payload.resolutionScore).toBe(0.5);
+    expect(payload.threshold).toBe(0.8);
+    expect(typeof payload.timestamp).toBe('string');
+
+    if (result.ok) {
+      expect(payload.specId).toBe(result.value.metadata.specId);
+    }
+  });
+
+  it('force flag with threshold already met does NOT emit SPEC_FORCE_OVERRIDE', async () => {
+    const llm = new MockLLM();
+    llm.response = JSON.stringify({
+      goal: 'Build it',
+      constraints: [],
+      acceptanceCriteria: [],
+      ontologySchema: { entities: [], relations: [] },
+      gestaltAnalysis: [],
+    });
+
+    const generator = new SpecGenerator(llm, store);
+    const session = makeSession({
+      resolutionScore: { overall: 0.9, dimensions: [], isReady: true },
+    });
+
+    const result = await generator.generate(session, true);
+    expect(isOk(result)).toBe(true);
+
+    const overrideEvents = store.getByType(EventType.SPEC_FORCE_OVERRIDE);
+    expect(overrideEvents).toHaveLength(0);
   });
 });

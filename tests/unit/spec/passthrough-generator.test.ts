@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PassthroughSpecGenerator } from '../../../src/spec/passthrough-generator.js';
 import { EventStore } from '../../../src/events/store.js';
+import { EventType } from '../../../src/events/types.js';
 import { isOk, isErr } from '../../../src/core/result.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -144,6 +145,79 @@ describe('PassthroughSpecGenerator', () => {
     expect(isErr(result)).toBe(true);
     if (!result.ok) {
       expect(result.error.message).toContain('must be completed');
+    }
+  });
+
+  it('validateAndStore with low resolution and force=true emits SPEC_FORCE_OVERRIDE audit event with correct payload', () => {
+    const session = makeSession({
+      resolutionScore: { overall: 0.5, dimensions: [], isReady: false },
+    });
+
+    const result = generator.validateAndStore(session, validExternalSpec, true);
+    expect(isOk(result)).toBe(true);
+
+    const overrideEvents = store.getByType(EventType.SPEC_FORCE_OVERRIDE);
+    expect(overrideEvents).toHaveLength(1);
+
+    const payload = overrideEvents[0]!.payload as {
+      sessionId: string;
+      specId: string;
+      resolutionScore: number;
+      threshold: number;
+      timestamp: string;
+    };
+    expect(payload.sessionId).toBe(session.sessionId);
+    expect(payload.resolutionScore).toBe(0.5);
+    expect(payload.threshold).toBe(0.8);
+    expect(typeof payload.timestamp).toBe('string');
+
+    if (result.ok) {
+      expect(payload.specId).toBe(result.value.metadata.specId);
+    }
+  });
+
+  it('validateAndStore with force=true but threshold already met does NOT emit SPEC_FORCE_OVERRIDE', () => {
+    const session = makeSession({
+      resolutionScore: { overall: 0.9, dimensions: [], isReady: true },
+    });
+
+    const result = generator.validateAndStore(session, validExternalSpec, true);
+    expect(isOk(result)).toBe(true);
+
+    const overrideEvents = store.getByType(EventType.SPEC_FORCE_OVERRIDE);
+    expect(overrideEvents).toHaveLength(0);
+  });
+});
+
+describe('PassthroughSpecGenerator.validateAndStoreFromText', () => {
+  let store: EventStore;
+  let generator: PassthroughSpecGenerator;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dbPath = `.gestalt-test/pt-spec-text-${randomUUID()}.db`;
+    store = new EventStore(dbPath);
+    generator = new PassthroughSpecGenerator(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    try {
+      if (existsSync(dbPath)) rmSync(dbPath);
+      if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
+      if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
+    } catch {
+      /* ignore */
+    }
+  });
+
+  it('stores spec with metadata.resolutionScore = null, not hardcoded 1', () => {
+    const result = generator.validateAndStoreFromText(validExternalSpec);
+
+    expect(isOk(result)).toBe(true);
+    if (result.ok) {
+      expect(result.value.metadata.resolutionScore).toBeNull();
+      expect(result.value.metadata.resolutionScore).not.toBe(1);
     }
   });
 });

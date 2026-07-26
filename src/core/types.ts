@@ -86,7 +86,7 @@ export interface OntologySchema {
 export interface SpecMetadata {
   specId: string;
   interviewSessionId: string;
-  resolutionScore: number;
+  resolutionScore: number | null;
   generatedAt: string;
 }
 
