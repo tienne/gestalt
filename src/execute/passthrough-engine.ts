@@ -138,7 +138,7 @@ export class PassthroughExecuteEngine {
     sessionId: string,
     taskResult: TaskExecutionResult,
     driftThreshold?: number,
-  ): Result<PassthroughTaskSubmitResult, ExecuteError> {
+  ): Promise<Result<PassthroughTaskSubmitResult, ExecuteError>> {
     return this.executionOrch.submitTaskResult(sessionId, taskResult, driftThreshold);
   }
 

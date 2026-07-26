@@ -132,7 +132,7 @@ export class PassthroughBenchmarkRunner {
   }
 
   /** Advance state machine with the LLM response */
-  advance(input: BenchmarkRespondInput): BenchmarkAdvanceResult {
+  async advance(input: BenchmarkRespondInput): Promise<BenchmarkAdvanceResult> {
     const parsed = this.tryParseJSON(input.response);
 
     this.logCall(input.usage);
@@ -381,8 +381,8 @@ export class PassthroughBenchmarkRunner {
     };
   }
 
-  private advanceExecution(parsed: Record<string, unknown>): BenchmarkAdvanceResult {
-    const submitResult = this.executeEngine.submitTaskResult(this.executeSessionId, {
+  private async advanceExecution(parsed: Record<string, unknown>): Promise<BenchmarkAdvanceResult> {
+    const submitResult = await this.executeEngine.submitTaskResult(this.executeSessionId, {
       taskId: this.currentTaskId,
       status: 'completed',
       output: (parsed.output as string) ?? `Task ${this.currentTaskId} completed`,

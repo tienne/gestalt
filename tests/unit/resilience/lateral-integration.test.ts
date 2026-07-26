@@ -181,7 +181,10 @@ function makeSuccessEval(): EvaluationResult {
 }
 
 // Helper: complete full planning + execution + evaluation cycle
-function setupToEvaluationComplete(engine: PassthroughExecuteEngine, spec: Spec): string {
+async function setupToEvaluationComplete(
+  engine: PassthroughExecuteEngine,
+  spec: Spec,
+): Promise<string> {
   const startResult = engine.start(spec);
   if (!startResult.ok) throw new Error('start failed');
   const sessionId = startResult.value.session.sessionId;
@@ -195,7 +198,7 @@ function setupToEvaluationComplete(engine: PassthroughExecuteEngine, spec: Spec)
 
   engine.startExecution(sessionId);
   for (const taskId of ['task-0', 'task-1', 'task-2', 'task-3']) {
-    engine.submitTaskResult(sessionId, {
+    await engine.submitTaskResult(sessionId, {
       taskId,
       status: 'completed',
       output: `Implemented ${taskId}`,
@@ -227,9 +230,9 @@ describe('Lateral Thinking Integration', () => {
     if (existsSync(dbPath)) rmSync(dbPath, { force: true });
   });
 
-  it('evolve returns lateralContext when stagnation is detected (instead of terminating)', () => {
+  it('evolve returns lateralContext when stagnation is detected (instead of terminating)', async () => {
     const spec = createTestSpec();
-    const sessionId = setupToEvaluationComplete(engine, spec);
+    const sessionId = await setupToEvaluationComplete(engine, spec);
 
     // First evolve → should return evolveContext (no termination yet, 0 generations)
     const evolveResult = engine.startContextualEvolve(sessionId);
@@ -291,9 +294,9 @@ describe('Lateral Thinking Integration', () => {
     expect(hasLateral || hasEvolve).toBe(true);
   });
 
-  it('evolve still terminates on success', () => {
+  it('evolve still terminates on success', async () => {
     const spec = createTestSpec();
-    const sessionId = setupToEvaluationComplete(engine, spec);
+    const sessionId = await setupToEvaluationComplete(engine, spec);
 
     // Override the evaluation to be a success
     const session = engine.getSession(sessionId);
@@ -308,7 +311,7 @@ describe('Lateral Thinking Integration', () => {
     expect(result.value.terminationReason).toBe('success');
   });
 
-  it('evolve_lateral_result applies specPatch and triggers re-execution', () => {
+  it('evolve_lateral_result applies specPatch and triggers re-execution', async () => {
     const spec = createTestSpec();
     const startResult = engine.start(spec);
     if (!startResult.ok) throw new Error('start failed');
@@ -324,7 +327,7 @@ describe('Lateral Thinking Integration', () => {
     engine.startExecution(sessionId);
 
     for (const taskId of ['task-0', 'task-1', 'task-2', 'task-3']) {
-      engine.submitTaskResult(sessionId, {
+      await engine.submitTaskResult(sessionId, {
         taskId,
         status: 'completed',
         output: `Done ${taskId}`,
@@ -360,9 +363,9 @@ describe('Lateral Thinking Integration', () => {
     expect(updated.lateralAttempts).toBe(1);
   });
 
-  it('human_escalation when all 4 personas exhausted', () => {
+  it('human_escalation when all 4 personas exhausted', async () => {
     const spec = createTestSpec();
-    const sessionId = setupToEvaluationComplete(engine, spec);
+    const sessionId = await setupToEvaluationComplete(engine, spec);
 
     // Manually exhaust all personas
     const session = engine.getSession(sessionId);
@@ -407,9 +410,9 @@ describe('Lateral Thinking Integration', () => {
     expect(result.value.humanEscalation!.triedPersonas).toHaveLength(4);
   });
 
-  it('existing evolve flow works normally when no termination', () => {
+  it('existing evolve flow works normally when no termination', async () => {
     const spec = createTestSpec();
-    const sessionId = setupToEvaluationComplete(engine, spec);
+    const sessionId = await setupToEvaluationComplete(engine, spec);
 
     // First evolve — no stagnation yet, should return evolveContext
     const result = engine.startContextualEvolve(sessionId);
@@ -421,9 +424,9 @@ describe('Lateral Thinking Integration', () => {
     expect(result.value.terminated).toBeUndefined();
   });
 
-  it('startLateralEvolve suggests next persona correctly', () => {
+  it('startLateralEvolve suggests next persona correctly', async () => {
     const spec = createTestSpec();
-    const sessionId = setupToEvaluationComplete(engine, spec);
+    const sessionId = await setupToEvaluationComplete(engine, spec);
 
     // Manually set some tried personas
     const session = engine.getSession(sessionId);
@@ -439,9 +442,9 @@ describe('Lateral Thinking Integration', () => {
     expect(result.value.lateralContext!.persona).not.toBe('multistability');
   });
 
-  it('startLateralEvolve returns success termination when score improves', () => {
+  it('startLateralEvolve returns success termination when score improves', async () => {
     const spec = createTestSpec();
-    const sessionId = setupToEvaluationComplete(engine, spec);
+    const sessionId = await setupToEvaluationComplete(engine, spec);
 
     // Override eval to success
     const session = engine.getSession(sessionId);

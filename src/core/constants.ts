@@ -78,7 +78,11 @@ export const EXECUTION_PRINCIPLE_STRATEGY: Record<string, string> = {
 };
 
 // ─── Drift Detection ───────────────────────────────────────────
-export const DRIFT_THRESHOLD = 0.3;
+// Goal Drift가 문장 단위 Jaccard 유사도에서 임베딩(Xenova/all-MiniLM-L6-v2) 코사인
+// 유사도로 교체되면서(src/execute/drift-detector.ts) 임계값도 새 척도에 맞게 재조정했다.
+// 정렬 샘플(overall 0.30~0.57)과 이탈 샘플(overall 0.65~0.76) 실측 분포 사이의 간격에서
+// 정렬 샘플 쪽에 여유를 두어 0.6으로 설정 — 상세 계산 근거는 PR/구현 기록 참고.
+export const DRIFT_THRESHOLD = 0.6;
 export const DRIFT_WEIGHTS = {
   goal: 0.5,
   constraint: 0.3,

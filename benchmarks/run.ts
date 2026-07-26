@@ -135,7 +135,7 @@ program
 
         while (true) {
           const response = generateResponse(current, scenario);
-          const result: BenchmarkAdvanceResult = runner.advance({ response });
+          const result: BenchmarkAdvanceResult = await runner.advance({ response });
 
           if (result.step === 'complete') {
             collector.add(result.metrics);

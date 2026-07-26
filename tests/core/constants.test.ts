@@ -83,8 +83,8 @@ describe('숫자형 상수', () => {
     expect(MAX_TASK_GROUPS).toBe(20);
   });
 
-  it('DRIFT_THRESHOLD는 0.3이다', () => {
-    expect(DRIFT_THRESHOLD).toBe(0.3);
+  it('DRIFT_THRESHOLD는 0.6이다', () => {
+    expect(DRIFT_THRESHOLD).toBe(0.6);
   });
 
   it('EVOLVE_MAX_STRUCTURAL_FIX는 3이다', () => {

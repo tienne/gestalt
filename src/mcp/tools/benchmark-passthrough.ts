@@ -16,13 +16,13 @@ const SCENARIOS: Record<string, BenchmarkScenario> = {
   'api-gateway': apiGatewayScenario,
 };
 
-export function handleBenchmarkPassthrough(input: BenchmarkInput): string {
+export async function handleBenchmarkPassthrough(input: BenchmarkInput): Promise<string> {
   try {
     switch (input.action) {
       case 'start':
         return handleStart(input);
       case 'respond':
-        return handleRespond(input);
+        return await handleRespond(input);
       case 'status':
         return handleStatus(input);
       default:
@@ -65,7 +65,7 @@ function handleStart(input: BenchmarkInput): string {
   );
 }
 
-function handleRespond(input: BenchmarkInput): string {
+async function handleRespond(input: BenchmarkInput): Promise<string> {
   const sessionId = input.benchmarkSessionId;
   if (!sessionId) {
     return JSON.stringify({ error: 'benchmarkSessionId is required for respond action' });
@@ -81,7 +81,7 @@ function handleRespond(input: BenchmarkInput): string {
     return JSON.stringify({ error: `No active benchmark session: ${sessionId}` });
   }
 
-  const result = runner.advance({
+  const result = await runner.advance({
     response,
     usage: input.usage,
   });

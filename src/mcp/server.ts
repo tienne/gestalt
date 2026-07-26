@@ -324,9 +324,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         })
         .optional(),
     },
-    (params) => {
+    async (params) => {
       const input = benchmarkInputSchema.parse(params);
-      const result = handleBenchmarkPassthrough(input);
+      const result = await handleBenchmarkPassthrough(input);
       return { content: [{ type: 'text' as const, text: result }] };
     },
   );

@@ -90,7 +90,7 @@ describe('loadConfig', () => {
     expect(config.llm.model).toBe('claude-sonnet-4-6');
     expect(config.interview.resolutionThreshold).toBe(0.8);
     expect(config.interview.maxRounds).toBe(15);
-    expect(config.execute.driftThreshold).toBe(0.3);
+    expect(config.execute.driftThreshold).toBe(0.6);
     expect(config.execute.successThreshold).toBe(0.85);
     expect(config.execute.goalAlignmentThreshold).toBe(0.8);
     expect(config.logLevel).toBe('info');

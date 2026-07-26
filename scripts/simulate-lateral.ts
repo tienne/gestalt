@@ -278,7 +278,7 @@ async function simulate() {
 
     engine.startExecution(sessionId);
     for (const taskId of ['task-0', 'task-1', 'task-2', 'task-3']) {
-      engine.submitTaskResult(sessionId, {
+      await engine.submitTaskResult(sessionId, {
         taskId, status: 'completed', output: `${taskId} 구현 완료`, artifacts: [`src/${taskId}.ts`],
       });
     }

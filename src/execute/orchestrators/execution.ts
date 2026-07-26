@@ -113,11 +113,11 @@ export class ExecutionOrchestrator {
     }
   }
 
-  submitTaskResult(
+  async submitTaskResult(
     sessionId: string,
     taskResult: TaskExecutionResult,
     driftThreshold?: number,
-  ): Result<PassthroughTaskSubmitResult, ExecuteError> {
+  ): Promise<Result<PassthroughTaskSubmitResult, ExecuteError>> {
     try {
       const session = this.sessionManager.get(sessionId);
 
@@ -152,7 +152,7 @@ export class ExecutionOrchestrator {
 
       if (taskResult.status === 'completed') {
         const threshold = driftThreshold ?? DRIFT_THRESHOLD;
-        driftScore = measureDrift(session.spec, task, taskResult, threshold);
+        driftScore = await measureDrift(session.spec, task, taskResult, threshold);
         this.sessionManager.addDriftScore(sessionId, driftScore);
 
         if (driftScore.thresholdExceeded) {

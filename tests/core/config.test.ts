@@ -106,7 +106,7 @@ describe('loadConfig — default values', () => {
 
   it('returns default execute thresholds', () => {
     const config = loadConfig({}, isolatedOpts);
-    expect(config.execute.driftThreshold).toBe(0.3);
+    expect(config.execute.driftThreshold).toBe(0.6);
     expect(config.execute.successThreshold).toBe(0.85);
     expect(config.execute.goalAlignmentThreshold).toBe(0.8);
   });

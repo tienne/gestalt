@@ -90,7 +90,7 @@ export async function handleExecuteTask(
   if (!input.sessionId) return formatError('sessionId is required for execute_task action');
   if (!input.taskResult) return formatError('taskResult is required for execute_task action');
 
-  const result = engine.submitTaskResult(input.sessionId, input.taskResult);
+  const result = await engine.submitTaskResult(input.sessionId, input.taskResult);
   if (!result.ok) return formatError(result.error.message);
 
   const { session, allTasksCompleted, driftScore, retrospectiveContext } = result.value;
