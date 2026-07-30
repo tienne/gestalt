@@ -45,6 +45,7 @@ function makeSession(overrides: Partial<ExecuteSession> = {}): ExecuteSession {
     taskResults: [],
     completedTaskIds: [],
     nextTaskId: null,
+    nextTaskIds: [],
     subTasks: [],
     driftHistory: [],
     evolutionHistory: [],

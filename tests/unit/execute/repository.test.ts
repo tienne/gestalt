@@ -10,7 +10,10 @@ import type {
   EvaluationResult,
   StructuralResult,
   FixTask,
+  AtomicTask,
+  TaskGroup,
 } from '../../../src/core/types.js';
+import { validateDAG } from '../../../src/execute/dag-validator.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -542,6 +545,233 @@ describe('ExecuteSessionRepository', () => {
     expect(reconstructed!.structuralResult).toBeUndefined();
     expect(reconstructed!.evaluationResult).toBeUndefined();
     expect(reconstructed!.status).toBe('executing');
+
+    newStore.close();
+  });
+});
+
+// 다이아몬드 DAG: p-0 → {p-1, p-2} → p-3 (p-0 완료 시 ready가 2개)
+const parallelTasks: AtomicTask[] = [
+  {
+    taskId: 'p-0',
+    title: 'Root',
+    description: 'Root task',
+    sourceAC: [0],
+    isImplicit: false,
+    estimatedComplexity: 'low',
+    dependsOn: [],
+  },
+  {
+    taskId: 'p-1',
+    title: 'Branch A',
+    description: 'Branch A',
+    sourceAC: [1],
+    isImplicit: false,
+    estimatedComplexity: 'medium',
+    dependsOn: ['p-0'],
+  },
+  {
+    taskId: 'p-2',
+    title: 'Branch B',
+    description: 'Branch B',
+    sourceAC: [1],
+    isImplicit: false,
+    estimatedComplexity: 'medium',
+    dependsOn: ['p-0'],
+  },
+  {
+    taskId: 'p-3',
+    title: 'Join',
+    description: 'Join task',
+    sourceAC: [2],
+    isImplicit: false,
+    estimatedComplexity: 'low',
+    dependsOn: ['p-1', 'p-2'],
+  },
+];
+
+const parallelGroups: TaskGroup[] = [
+  {
+    groupId: 'pg-0',
+    name: 'All',
+    domain: 'core',
+    taskIds: ['p-0', 'p-1', 'p-2', 'p-3'],
+    reasoning: 'single group',
+  },
+];
+
+describe('ExecuteSessionRepository — ready set(nextTaskIds) replay', () => {
+  let store: EventStore;
+  let manager: ExecuteSessionManager;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dbPath = `.gestalt-test/execute-repo-ready-${randomUUID()}.db`;
+    store = new EventStore(dbPath);
+    manager = new ExecuteSessionManager(store);
+  });
+
+  afterEach(() => {
+    store.close();
+    try {
+      if (existsSync(dbPath)) rmSync(dbPath);
+      if (existsSync(dbPath + '-wal')) rmSync(dbPath + '-wal');
+      if (existsSync(dbPath + '-shm')) rmSync(dbPath + '-shm');
+    } catch {
+      /* ignore */
+    }
+  });
+
+  /** 병렬 DAG 플랜으로 executing 상태 세션을 만든다 */
+  function startParallelSession(): string {
+    const spec = createTestSpec();
+    const session = manager.create(spec);
+    const dag = validateDAG(parallelTasks, parallelGroups);
+    const plan: ExecutionPlan = {
+      planId: randomUUID(),
+      specId: spec.metadata.specId,
+      classifiedACs: figureGroundStep.classifiedACs,
+      atomicTasks: parallelTasks,
+      taskGroups: parallelGroups,
+      dagValidation: dag,
+      createdAt: new Date().toISOString(),
+    };
+    manager.completePlan(session.sessionId, plan);
+    manager.startExecution(session.sessionId);
+    return session.sessionId;
+  }
+
+  const completed = (taskId: string): TaskExecutionResult => ({
+    taskId,
+    status: 'completed',
+    output: `${taskId} done`,
+    artifacts: [`src/${taskId}.ts`],
+  });
+
+  it('replay 후 nextTaskIds/nextTaskId가 라이브 세션과 일치한다 (재시작 시뮬레이션)', () => {
+    const sessionId = startParallelSession();
+    manager.addTaskResult(sessionId, completed('p-0'));
+
+    const liveSession = manager.get(sessionId);
+    // 다이아몬드 루트가 끝났으니 두 브랜치가 동시에 착수 가능
+    expect(liveSession.nextTaskIds).toEqual(['p-1', 'p-2']);
+    expect(liveSession.nextTaskId).toBe('p-1');
+
+    // Simulate restart: 새 EventStore/Repository로 replay
+    store.close();
+    const newStore = new EventStore(dbPath);
+    const newRepo = new ExecuteSessionRepository(newStore);
+
+    const reconstructed = newRepo.reconstruct(sessionId);
+
+    expect(reconstructed).not.toBeNull();
+    expect(reconstructed!.nextTaskIds).toEqual(liveSession.nextTaskIds);
+    expect(reconstructed!.nextTaskId).toEqual(liveSession.nextTaskId);
+
+    newStore.close();
+  });
+
+  it('replay 세션의 nextTaskId가 null이 아니다 (replay 미갱신 결함 회귀 방지)', () => {
+    const sessionId = startParallelSession();
+    manager.addTaskResult(sessionId, completed('p-0'));
+
+    store.close();
+    const newStore = new EventStore(dbPath);
+    const newRepo = new ExecuteSessionRepository(newStore);
+
+    const reconstructed = newRepo.reconstruct(sessionId);
+
+    expect(reconstructed).not.toBeNull();
+    expect(reconstructed!.nextTaskId).not.toBeNull();
+    expect(reconstructed!.nextTaskId).toBe('p-1');
+    expect(reconstructed!.nextTaskIds.length).toBeGreaterThanOrEqual(2);
+
+    newStore.close();
+  });
+
+  it('여러 태스크 완료 후에도 replay가 라이브 세션과 일치한다', () => {
+    const sessionId = startParallelSession();
+    manager.addTaskResult(sessionId, completed('p-0'));
+    manager.addTaskResult(sessionId, completed('p-1'));
+
+    const liveSession = manager.get(sessionId);
+    // p-2 미완료라 합류 태스크 p-3은 아직 막혀 있다
+    expect(liveSession.nextTaskIds).toEqual(['p-2']);
+    expect(liveSession.nextTaskId).toBe('p-2');
+
+    store.close();
+    const newStore = new EventStore(dbPath);
+    const newRepo = new ExecuteSessionRepository(newStore);
+
+    const reconstructed = newRepo.reconstruct(sessionId);
+
+    expect(reconstructed!.nextTaskIds).toEqual(liveSession.nextTaskIds);
+    expect(reconstructed!.nextTaskId).toEqual(liveSession.nextTaskId);
+
+    newStore.close();
+  });
+
+  it('failed 태스크가 섞여도 replay가 라이브 세션과 일치한다 (completed-only 기준)', () => {
+    const sessionId = startParallelSession();
+    manager.addTaskResult(sessionId, completed('p-0'));
+    manager.addTaskResult(sessionId, {
+      taskId: 'p-1',
+      status: 'failed',
+      output: 'Error occurred',
+      artifacts: [],
+    });
+
+    const liveSession = manager.get(sessionId);
+    // 실패한 p-1은 재시도 대상으로 ready에 남고, 의존하는 p-3은 막혀 있다
+    expect(liveSession.nextTaskIds).toEqual(['p-1', 'p-2']);
+    expect(liveSession.nextTaskId).toBe('p-1');
+
+    store.close();
+    const newStore = new EventStore(dbPath);
+    const newRepo = new ExecuteSessionRepository(newStore);
+
+    const reconstructed = newRepo.reconstruct(sessionId);
+
+    expect(reconstructed!.nextTaskIds).toEqual(liveSession.nextTaskIds);
+    expect(reconstructed!.nextTaskId).toEqual(liveSession.nextTaskId);
+
+    newStore.close();
+  });
+
+  it('모든 태스크 완료 후 replay에서도 ready가 비고 nextTaskId가 null이다', () => {
+    const sessionId = startParallelSession();
+    for (const taskId of ['p-0', 'p-1', 'p-2', 'p-3']) {
+      manager.addTaskResult(sessionId, completed(taskId));
+    }
+
+    const liveSession = manager.get(sessionId);
+    expect(liveSession.nextTaskIds).toEqual([]);
+    expect(liveSession.nextTaskId).toBeNull();
+
+    store.close();
+    const newStore = new EventStore(dbPath);
+    const newRepo = new ExecuteSessionRepository(newStore);
+
+    const reconstructed = newRepo.reconstruct(sessionId);
+
+    expect(reconstructed!.nextTaskIds).toEqual([]);
+    expect(reconstructed!.nextTaskId).toBeNull();
+
+    newStore.close();
+  });
+
+  it('loadFromStore()로 복원한 세션도 nextTaskIds를 갖는다', () => {
+    const sessionId = startParallelSession();
+    manager.addTaskResult(sessionId, completed('p-0'));
+
+    store.close();
+    const newStore = new EventStore(dbPath);
+    const newManager = new ExecuteSessionManager(newStore);
+    newManager.loadFromStore();
+
+    const restored = newManager.get(sessionId);
+    expect(restored.nextTaskIds).toEqual(['p-1', 'p-2']);
+    expect(restored.nextTaskId).toBe('p-1');
 
     newStore.close();
   });
