@@ -329,6 +329,8 @@ export interface EvolutionGeneration {
 export interface ResumeContext {
   completedTaskIds: string[];
   nextTaskId: string | null;
+  /** 지금 동시에 착수 가능한 태스크 집합. nextTaskId는 이 배열의 첫 원소와 항상 일치한다. */
+  nextTaskIds: string[];
   totalTasks: number;
   progressPercent: number;
 }
@@ -363,6 +365,8 @@ export interface ExecuteSession {
   taskResults: TaskExecutionResult[];
   completedTaskIds: string[];
   nextTaskId: string | null;
+  /** 지금 동시에 착수 가능한 태스크 집합. nextTaskId는 nextTaskIds[0]에서 파생된다. */
+  nextTaskIds: string[];
   subTasks: SubTask[];
   auditResult?: AuditResult;
   evaluateStage?: EvaluateStage;
