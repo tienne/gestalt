@@ -7,8 +7,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { IHostAdapter } from '../../host-adapter.js';
-import { formatError } from './utils.js';
+import { formatError, parallelHint } from './utils.js';
 import { generateEvolutionHtml } from '../../../graph-viz/evolution-html-generator.js';
+import { computeReadyTaskIds } from '../../../execute/parallel-groups.js';
 
 export function handleStatusAction(
   engine: PassthroughExecuteEngine,
@@ -36,11 +37,12 @@ export function handleResume(
       return formatError('No execution plan found. Complete planning first.');
     }
 
-    const completedSet = new Set(session.completedTaskIds);
-    const remaining = session.executionPlan.dagValidation.topologicalOrder.filter(
-      (id) => !completedSet.has(id),
+    const nextTaskIds = computeReadyTaskIds(
+      session.executionPlan.atomicTasks,
+      session.executionPlan.dagValidation.topologicalOrder,
+      session.completedTaskIds,
     );
-    const nextTaskId = remaining[0] ?? null;
+    const nextTaskId = nextTaskIds[0] ?? null;
     const totalTasks = session.executionPlan.atomicTasks.length;
     const progressPercent =
       totalTasks > 0 ? Math.round((session.completedTaskIds.length / totalTasks) * 100) : 0;
@@ -48,6 +50,7 @@ export function handleResume(
     const resumeContext: ResumeContext = {
       completedTaskIds: session.completedTaskIds,
       nextTaskId,
+      nextTaskIds,
       totalTasks,
       progressPercent,
     };
@@ -58,7 +61,7 @@ export function handleResume(
         sessionId: session.sessionId,
         resumeContext,
         message: nextTaskId
-          ? `Resuming from task "${nextTaskId}". ${session.completedTaskIds.length}/${totalTasks} tasks completed (${progressPercent}%). Use execute_task to continue.`
+          ? `Resuming from task "${nextTaskId}". ${session.completedTaskIds.length}/${totalTasks} tasks completed (${progressPercent}%). Use execute_task to continue.${parallelHint(nextTaskIds)}`
           : 'All tasks completed. Call evaluate to verify acceptance criteria.',
       },
       null,
@@ -219,15 +222,16 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string, cwd?
       // Build resumeContext for in-progress sessions
       let resumeContext: ResumeContext | undefined;
       if (session.status === 'executing' && session.executionPlan) {
-        const completedSet = new Set(session.completedTaskIds);
         const totalTasks = session.executionPlan.atomicTasks.length;
-        const nextTaskId =
-          session.executionPlan.dagValidation.topologicalOrder.find(
-            (id) => !completedSet.has(id),
-          ) ?? null;
+        const nextTaskIds = computeReadyTaskIds(
+          session.executionPlan.atomicTasks,
+          session.executionPlan.dagValidation.topologicalOrder,
+          session.completedTaskIds,
+        );
         resumeContext = {
           completedTaskIds: session.completedTaskIds,
-          nextTaskId,
+          nextTaskId: nextTaskIds[0] ?? null,
+          nextTaskIds,
           totalTasks,
           progressPercent:
             totalTasks > 0 ? Math.round((session.completedTaskIds.length / totalTasks) * 100) : 0,
@@ -292,6 +296,7 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string, cwd?
                 resumeContext: {
                   completedTaskIds: s.completedTaskIds,
                   nextTaskId: s.nextTaskId,
+                  nextTaskIds: s.nextTaskIds,
                   totalTasks: s.executionPlan?.atomicTasks.length ?? 0,
                   progressPercent: s.executionPlan
                     ? Math.round(

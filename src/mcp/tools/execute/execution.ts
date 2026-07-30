@@ -4,7 +4,12 @@ import type { NextActionGuide, ProgressInfo } from '../../../core/types.js';
 import { gestaltNotify } from '../../../utils/notifier.js';
 import { writeActiveSession, formatRuleContent } from '../../../execute/rule-writer.js';
 import type { IHostAdapter } from '../../host-adapter.js';
-import { formatError, applyTaskContextFilters, slimRetrospectiveContext } from './utils.js';
+import {
+  formatError,
+  applyTaskContextFilters,
+  slimRetrospectiveContext,
+  parallelHint,
+} from './utils.js';
 
 export async function handleExecuteStart(
   engine: PassthroughExecuteEngine,
@@ -173,6 +178,8 @@ export async function handleExecuteTask(
       sessionId: session.sessionId,
       completedTasks: session.taskResults.length,
       progress: execProgress,
+      // 착수 가능 후보 집합. taskContext.currentTask는 엔진이 고른 "다음 하나"로 의미가 다르다
+      nextTaskIds: session.nextTaskIds,
       taskContext: taskContext
         ? applyTaskContextFilters(taskContext as unknown as Record<string, unknown>, verbose)
         : taskContext,
@@ -185,7 +192,7 @@ export async function handleExecuteTask(
             ),
           }
         : {}),
-      message: `Task "${input.taskResult.taskId}" recorded.${driftScore?.thresholdExceeded ? ' WARNING: Drift threshold exceeded! Review retrospectiveContext.' : ''}${compressionAvailable ? ' TIP: Context is getting long — consider calling compress to summarize completed work.' : ''} Use taskContext.taskPrompt to implement the next task.`,
+      message: `Task "${input.taskResult.taskId}" recorded.${driftScore?.thresholdExceeded ? ' WARNING: Drift threshold exceeded! Review retrospectiveContext.' : ''}${compressionAvailable ? ' TIP: Context is getting long — consider calling compress to summarize completed work.' : ''} Use taskContext.taskPrompt to implement the next task.${parallelHint(session.nextTaskIds)}`,
       ...execTaskGuide,
     },
     null,

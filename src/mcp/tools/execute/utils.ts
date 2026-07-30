@@ -63,3 +63,12 @@ export function applyTaskContextFilters(
 export function formatError(message: string): string {
   return JSON.stringify({ error: message }, null, 2);
 }
+
+/**
+ * 착수 가능한 태스크가 2개 이상일 때만 붙는 안내 문구.
+ * 병렬 디스패치 판단은 호스트 몫이므로 정보만 전달한다.
+ */
+export function parallelHint(nextTaskIds: string[]): string {
+  if (nextTaskIds.length < 2) return '';
+  return ` 착수 가능한 태스크 ${nextTaskIds.length}개 — 동시 진행 가능합니다: ${nextTaskIds.join(', ')}.`;
+}
