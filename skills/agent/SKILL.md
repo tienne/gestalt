@@ -1,7 +1,7 @@
 ---
 name: agent
 version: "1.0.0"
-description: "Invoke a Gestalt agent directly for any task — no pipeline required"
+description: "Invoke a Gestalt agent directly for any task — no pipeline required. Use this only when no dedicated skill covers the task. If one does (review, pr, brief, presentation, jira-create, slack-send), use that skill instead — they add approval gates and output handling this skill does not."
 triggers:
   - "agent"
   - "use agent"

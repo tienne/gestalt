@@ -1,7 +1,7 @@
 ---
 name: review
 version: "1.0.0"
-description: "PR·브랜치·커밋의 변경사항을 3종 리뷰 에이전트(보안·성능·품질)로 검토하고, humanize-monolith로 리포트를 다듬은 뒤, PR 대상이면 code-review-writer가 작성한 인라인 코멘트로 게시한다."
+description: "PR이나 브랜치, 커밋의 변경사항을 3종 리뷰 에이전트(보안, 성능, 품질)로 검토하고, humanize-monolith로 리포트를 다듬은 뒤, PR 대상이면 code-review-writer가 작성한 인라인 코멘트로 게시한다. 검토만 한다. PR을 새로 만드는 건 pr 스킬이고, 리뷰 관점 하나만 빠르게 물어보려면 security-reviewer 같은 에이전트를 직접 호출한다."
 triggers:
   - "PR 리뷰"
   - "브랜치 리뷰"

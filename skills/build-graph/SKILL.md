@@ -1,7 +1,7 @@
 ---
 name: build-graph
 version: "1.0.0"
-description: "Build a code knowledge graph for the current repository to enable blast-radius analysis"
+description: "Build a code knowledge graph for the current repository to enable blast-radius analysis. Graph build only. For first-time project setup — gestalt.json, the post-commit hook, and the graph together — use setup instead."
 triggers:
   - "build graph"
   - "build-graph"

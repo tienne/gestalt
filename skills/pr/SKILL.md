@@ -1,7 +1,7 @@
 ---
 name: pr
 version: "1.0.0"
-description: "PR 작성 전용 스킬. 레포 규칙을 먼저 탐색하고, 미니 인터뷰로 컨텍스트를 수집한 뒤 diff 기반 PR description을 생성하고 gh pr create로 제출한다."
+description: "PR 작성 전용 스킬. 레포 규칙을 먼저 탐색하고, 미니 인터뷰로 컨텍스트를 수집한 뒤 diff 기반 PR description을 생성하고 gh pr create로 제출한다. PR을 만드는 것까지가 범위다. 이미 있는 PR이나 브랜치의 코드를 검토받으려면 review를 쓴다."
 triggers:
   - "PR 작성"
   - "PR 만들어"

@@ -1,7 +1,7 @@
 ---
 name: execute
 version: "1.3.0"
-description: "Gestalt-driven execution planner that transforms a Spec into a validated ExecutionPlan"
+description: "Gestalt-driven execution planner that transforms a Spec into a validated ExecutionPlan. Requires a Spec that already exists. Given only a problem statement, use solve instead — it drives interview → spec → execute as one loop."
 triggers:
   - "execute"
   - "plan execution"

@@ -1,7 +1,7 @@
 ---
 name: jira-create
 version: "1.0.0"
-description: "지라 티켓을 jira-writer로 구조화해 승인 게이트를 거친 뒤 Atlassian MCP로 생성한다. '티켓 만들어줘/이슈 생성해줘/지라에 올려줘' 요청 시 자동 발동. jira-writer로 본문 → 프로젝트·이슈타입·필수필드 확정 → 미리보기 승인 → createJiraIssue."
+description: "지라 티켓을 jira-writer로 구조화해 승인 게이트를 거친 뒤 Atlassian MCP로 생성한다. '티켓 만들어줘/이슈 생성해줘/지라에 올려줘' 요청 시 자동 발동. jira-writer로 본문 → 프로젝트와 이슈타입, 필수필드 확정 → 미리보기 승인 → createJiraIssue. 생성까지 하는 스킬이다. 티켓 본문만 다듬고 등록은 직접 하려면 jira-writer를 호출한다."
 triggers:
   - "지라 티켓"
   - "지라 이슈"

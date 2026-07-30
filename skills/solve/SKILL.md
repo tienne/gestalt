@@ -1,7 +1,7 @@
 ---
 name: solve
 version: "1.0.0"
-description: "제품 문제를 던지면 인터뷰 → 스펙 → 실행 루프를 자율로 드라이빙한다"
+description: "제품 문제를 던지면 인터뷰 → 스펙 → 실행 루프를 자율로 드라이빙한다. 단계별로 멈춰 확인하고 싶으면 이 스킬이 아니다 — 요구사항만 정리하려면 interview, 스펙만 뽑으려면 spec, 이미 스펙이 있으면 execute를 쓴다."
 triggers:
   - "solve"
   - "문제 해결"

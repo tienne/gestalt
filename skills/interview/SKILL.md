@@ -1,7 +1,7 @@
 ---
 name: interview
 version: "1.2.0"
-description: "Gestalt-driven interview to clarify project requirements"
+description: "Gestalt-driven interview to clarify project requirements. Clarification only — it stops at a resolution score and does not produce a Spec. Use spec to turn a finished interview into a Spec, or solve to drive the whole loop without stopping between steps."
 triggers:
   - "interview"
   - "clarify requirements"

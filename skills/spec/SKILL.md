@@ -1,7 +1,7 @@
 ---
 name: spec
 version: "1.2.0"
-description: "Generate a Spec specification from a completed interview"
+description: "Generate a Spec specification from a completed interview. Requires an interview session id. Starting from a raw problem, run interview first, or use solve for the whole loop."
 triggers:
   - "generate spec"
   - "create spec"

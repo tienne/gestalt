@@ -1,7 +1,7 @@
 ---
 name: setup
 version: "1.0.0"
-description: "Gestalt 프로젝트 초기 설정 — gestalt.json 생성, 코드 그래프 빌드, post-commit 훅 설치"
+description: "Gestalt 프로젝트 초기 설정 — gestalt.json 생성, 코드 그래프 빌드, post-commit 훅 설치. 레포당 최초 1회용이다. 이미 설정된 레포에서 코드 그래프만 다시 빌드하려면 build-graph를 쓴다."
 triggers:
   - "gestalt 초기화"
   - "gestalt init"
