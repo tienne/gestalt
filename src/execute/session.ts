@@ -24,6 +24,7 @@ import { logger } from '../core/logger.js';
 import type { IEventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { ExecuteSessionRepository } from './repository.js';
+import { computeReadyTaskIds } from './parallel-groups.js';
 
 export class ExecuteSessionManager {
   private sessions = new Map<string, ExecuteSession>();
@@ -53,6 +54,7 @@ export class ExecuteSessionManager {
       taskResults: [],
       completedTaskIds: [],
       nextTaskId: null,
+      nextTaskIds: [],
       subTasks: [],
       driftHistory: [],
       evolutionHistory: [],
@@ -161,12 +163,15 @@ export class ExecuteSessionManager {
     ) {
       session.completedTaskIds.push(taskResult.taskId);
     }
-    // Update nextTaskId: first pending task in topological order not yet completed
+    // nextTaskId를 nextTaskIds[0]에서 파생시켜 둘의 불일치를 구조적으로 차단한다
     const plan = session.executionPlan;
     if (plan) {
-      const completedSet = new Set(session.completedTaskIds);
-      const next = plan.dagValidation.topologicalOrder.find((id) => !completedSet.has(id));
-      session.nextTaskId = next ?? null;
+      session.nextTaskIds = computeReadyTaskIds(
+        plan.atomicTasks,
+        plan.dagValidation.topologicalOrder,
+        session.completedTaskIds,
+      );
+      session.nextTaskId = session.nextTaskIds[0] ?? null;
     }
     session.updatedAt = new Date().toISOString();
 

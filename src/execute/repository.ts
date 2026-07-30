@@ -15,6 +15,7 @@ import type {
   ExecuteStatus,
 } from '../core/types.js';
 import { EventType } from '../events/types.js';
+import { computeReadyTaskIds } from './parallel-groups.js';
 
 /**
  * ExecuteSessionRepository — Event Replay 기반 ExecuteSession 재구성.
@@ -72,6 +73,7 @@ export class ExecuteSessionRepository {
       taskResults: [],
       completedTaskIds: [],
       nextTaskId: null,
+      nextTaskIds: [],
       subTasks: [],
       driftHistory: [],
       evolutionHistory: [],
@@ -141,6 +143,17 @@ export class ExecuteSessionRepository {
           !session.completedTaskIds.includes(taskResult.taskId)
         ) {
           session.completedTaskIds.push(taskResult.taskId);
+        }
+        // nextTaskIds/nextTaskId도 addTaskResult()와 같은 공유 함수로 복원한다.
+        // 이전에는 초기값 null에서 갱신되지 않아 재시작 후 라이브 세션과 값이 어긋났다.
+        const plan = session.executionPlan;
+        if (plan) {
+          session.nextTaskIds = computeReadyTaskIds(
+            plan.atomicTasks,
+            plan.dagValidation.topologicalOrder,
+            session.completedTaskIds,
+          );
+          session.nextTaskId = session.nextTaskIds[0] ?? null;
         }
         break;
       }
