@@ -81,7 +81,9 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | 제안서, RFC, 의사결정 메모 등 설득·합의용 기획 산문 | `impact-writer` |
 | 성과 보고서·제안서·RFC·회고 작성 요청 ("성과 보고서 써줘", "제안서 작성", "RFC 써줘") | `brief` 스킬 사용 |
 | 기술 분석, 벤치마크, 사례 조사 | `researcher` |
+| 내 PR에 달린 리뷰 코멘트 답변 본문 작성 (반영·대안·보류·질문) | `code-review-responder` |
 | PR·브랜치·커밋 코드 리뷰 요청 | `/review` 스킬 사용 |
+| 받은 리뷰 반영·답글 게시 요청 ("리뷰 반영해줘", "리뷰 코멘트에 답해줘", "받은 리뷰 처리해줘") | `review-reply` 스킬 사용 (스레드 수집 → 유형 분류 승인 → 수정·커밋 → 답글 승인 → 게시) |
 | PR 작성·생성 요청 ("PR 만들어줘", "PR 작성해줘", "PR 올려줘") | `gestalt:pr` 스킬 사용 |
 
 ## Project Structure
@@ -105,9 +107,9 @@ src/skills/        — Skill System 엔진 (SKILL.md 파서·실행기, 최상�
 src/registry/      — 레지스트리 공통 베이스 클래스
 src/utils/         — 알림 등 공용 유틸
 src/cli/           — commander 기반 CLI
-role-agents/       — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer 등) 총 20개
+role-agents/       — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer, code-review-writer, code-review-responder 등) 총 21개
 review-agents/     — 내장 Review Agent 4개 (security-reviewer, performance-reviewer, quality-reviewer, frontend-reviewer)
-skills/            — SKILL.md 15개 (interview, spec, execute, agent, review, pr, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, solve, setup)
+skills/            — SKILL.md 16개 (interview, spec, execute, agent, review, review-reply, pr, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, solve, setup)
 ```
 
 ## Conventions
