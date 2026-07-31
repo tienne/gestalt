@@ -85,6 +85,7 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | PR·브랜치·커밋 코드 리뷰 요청 | `/review` 스킬 사용 |
 | 받은 리뷰 반영·답글 게시 요청 ("리뷰 반영해줘", "리뷰 코멘트에 답해줘", "받은 리뷰 처리해줘") | `review-reply` 스킬 사용 (스레드 수집 → 유형 분류 승인 → 수정·커밋 → 답글 승인 → 게시) |
 | PR 작성·생성 요청 ("PR 만들어줘", "PR 작성해줘", "PR 올려줘") | `gestalt:pr` 스킬 사용 |
+| 실행 태스크를 외부 런타임 워커로 뿌리는 요청 ("orca로 실행", "codex로 실행", "워커 띄워서 실행") | `dispatch` 스킬 사용 (런타임 감지 → 같은 워크트리에 터미널 → worker_done 대기 → ready 재계산). 런타임 없으면 execute의 기본 병렬 경로 |
 
 ## Project Structure
 ```
@@ -109,7 +110,7 @@ src/utils/         — 알림 등 공용 유틸
 src/cli/           — commander 기반 CLI
 role-agents/       — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer, code-review-writer, code-review-responder 등) 총 21개
 review-agents/     — 내장 Review Agent 4개 (security-reviewer, performance-reviewer, quality-reviewer, frontend-reviewer)
-skills/            — SKILL.md 16개 (interview, spec, execute, agent, review, review-reply, pr, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, solve, setup)
+skills/            — SKILL.md 17개 (interview, spec, execute, dispatch, agent, review, review-reply, pr, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, solve, setup) + `_shared/` 공유 규칙(스킬 아님, 레지스트리가 건너뜀)
 ```
 
 ## Conventions
