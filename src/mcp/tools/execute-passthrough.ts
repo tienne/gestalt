@@ -22,7 +22,7 @@ import {
   handleSpawn,
   handleEvolutionViz,
 } from './execute/utility.js';
-import { formatError } from './execute/utils.js';
+import { formatError, resolveExecuteSessionInput } from './execute/utils.js';
 
 const handlers: Record<string, ExecuteHandler> = {
   start: handleStart,
@@ -57,5 +57,9 @@ export async function handleExecutePassthrough(
     typeof clientOrAdapter === 'string'
       ? createHostAdapter(clientOrAdapter, input.cwd)
       : clientOrAdapter;
-  return handler(engine, input, adapter);
+
+  const resolved = resolveExecuteSessionInput(engine, input);
+  if (!resolved.ok) return formatError(resolved.error);
+
+  return handler(engine, resolved.input, adapter);
 }

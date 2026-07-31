@@ -8,11 +8,16 @@ import {
   formatMemoryContextForPrompt,
 } from '../../memory/memory-context-injector.js';
 import { sanitizeSurfaceContext } from '../../gestalt/surface-labels.js';
+import { resolveInterviewSessionId } from '../session-selector.js';
 
 export function handleInterviewPassthrough(
   engine: PassthroughEngine,
-  input: InterviewInput,
+  rawInput: InterviewInput,
 ): string {
+  const resolved = resolveInterviewSessionId(engine, rawInput.sessionId);
+  if (!resolved.ok) return formatError(resolved.error);
+  const input: InterviewInput = { ...rawInput, sessionId: resolved.sessionId };
+
   switch (input.action) {
     case 'start': {
       const topic = input.topic ?? 'Untitled project';

@@ -20,7 +20,7 @@ interface RuleTask {
   title: string;
 }
 
-interface ActiveSession {
+export interface ActiveSession {
   sessionId: string;
   specId: string;
   updatedAt: string;
@@ -74,6 +74,19 @@ export function writeActiveSession(cwd: string, sessionId: string, specId: strin
   mkdirSync(dirname(path), { recursive: true });
   const data: ActiveSession = { sessionId, specId, updatedAt: new Date().toISOString() };
   writeFileSync(path, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+export function readActiveSession(cwd: string): ActiveSession | null {
+  const path = join(cwd, ACTIVE_SESSION_FILE);
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Partial<ActiveSession>;
+    return typeof parsed.sessionId === 'string' && parsed.sessionId.length > 0
+      ? (parsed as ActiveSession)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function deleteActiveSession(cwd: string): void {

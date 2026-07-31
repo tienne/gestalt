@@ -19,6 +19,7 @@ import { handleSpec } from './tools/spec.js';
 import { handleSpecPassthrough } from './tools/spec-passthrough.js';
 import { handleExecutePassthrough } from './tools/execute-passthrough.js';
 import { createHostAdapter } from './host-adapter.js';
+import { resolveStatusSessionId } from './session-selector.js';
 import { handleCreateAgentPassthrough } from './tools/create-agent-passthrough.js';
 import { handleStatus } from './tools/status.js';
 import { handleBenchmarkPassthrough } from './tools/benchmark-passthrough.js';
@@ -104,7 +105,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         sessionId: z
           .string()
           .optional()
-          .describe('Session ID (required for respond/score/complete)'),
+          .describe(
+            "Session ID (required for respond/score/complete). 'latest'(가장 최근 갱신)도 가능.",
+          ),
         response: z.string().optional().describe('(required for respond)'),
         cwd: z.string().optional(),
         generatedQuestion: z.string().optional().describe('(required for respond)'),
@@ -134,7 +137,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         sessionId: z
           .string()
           .optional()
-          .describe('Interview session ID (required when not using text input)'),
+          .describe(
+            "Interview session ID (required when not using text input). 'latest'(가장 최근 갱신)도 가능.",
+          ),
         text: z
           .string()
           .optional()
@@ -198,7 +203,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       'ges_generate_spec',
       'Generate a Spec specification from a completed interview session.',
       {
-        sessionId: z.string().describe('The interview session ID'),
+        sessionId: z
+          .string()
+          .describe("The interview session ID. 'latest'(가장 최근 갱신)도 가능."),
         force: z
           .boolean()
           .optional()
@@ -219,7 +226,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         sessionId: z
           .string()
           .optional()
-          .describe('Specific session ID to check (omit for all sessions)'),
+          .describe(
+            "Specific session ID to check (omit for all sessions). 'latest'(가장 최근 갱신)도 가능하고, sessionType='execute'/'all'이면 'active'(현재 활성 실행 세션)도 가능.",
+          ),
         sessionType: z
           .enum(['interview', 'execute', 'all'])
           .optional()
@@ -267,7 +276,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         .describe(
           'start: get agent creation context with prompts, submit: validate and save AGENT.md',
         ),
-      sessionId: z.string(),
+      sessionId: z.string().describe("Interview session ID. 'latest'(가장 최근 갱신)도 가능."),
       agentContent: z.string().optional().describe('(required for submit)'),
       cwd: z.string().optional(),
     },
@@ -336,7 +345,12 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       'ges_status',
       'Check the status of interview and execute sessions.',
       {
-        sessionId: z.string().optional(),
+        sessionId: z
+          .string()
+          .optional()
+          .describe(
+            "Specific session ID to check (omit for all sessions). 'latest'(가장 최근 갱신)도 가능하고, sessionType='execute'/'all'이면 'active'(현재 활성 실행 세션)도 가능.",
+          ),
         sessionType: z.enum(['interview', 'execute', 'all']).optional().default('all'),
       },
       (params) => {
@@ -446,7 +460,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 function handleStatusPassthrough(
   engine: PassthroughEngine,
   executeEngine: PassthroughExecuteEngine,
-  input: { sessionId?: string; sessionType?: 'interview' | 'execute' | 'all' },
+  rawInput: { sessionId?: string; sessionType?: 'interview' | 'execute' | 'all' },
   config?: GestaltConfig,
 ): string {
   const updateResult = getCachedUpdateResult();
@@ -459,7 +473,18 @@ function handleStatusPassthrough(
     reasoningModel: config?.reasoningModel ?? null,
     reasoningModelFallback: config?.reasoningModelFallback ?? null,
   };
-  const sessionType = input.sessionType ?? 'all';
+  const sessionType = rawInput.sessionType ?? 'all';
+
+  const resolvedSessionId = rawInput.sessionId
+    ? resolveStatusSessionId(rawInput.sessionId, sessionType, {
+        listInterviewSessions: () => engine.listSessions(),
+        listExecuteSessions: () => executeEngine.listSessions(),
+      })
+    : null;
+  if (resolvedSessionId && !resolvedSessionId.ok) {
+    return JSON.stringify({ ...reasoningModelInfo, error: resolvedSessionId.error }, null, 2);
+  }
+  const input = { ...rawInput, sessionId: resolvedSessionId?.sessionId };
 
   try {
     if (input.sessionId) {

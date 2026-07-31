@@ -1,10 +1,15 @@
 import type { InterviewEngine } from '../../interview/engine.js';
 import type { InterviewInput } from '../schemas.js';
+import { resolveInterviewSessionId } from '../session-selector.js';
 
 export async function handleInterview(
   engine: InterviewEngine,
-  input: InterviewInput,
+  rawInput: InterviewInput,
 ): Promise<string> {
+  const resolved = resolveInterviewSessionId(engine, rawInput.sessionId);
+  if (!resolved.ok) return formatError(resolved.error);
+  const input: InterviewInput = { ...rawInput, sessionId: resolved.sessionId };
+
   switch (input.action) {
     case 'start': {
       const topic = input.topic ?? 'Untitled project';

@@ -4,10 +4,11 @@ import type { EventStore } from '../../events/store.js';
 import type { GestaltConfig } from '../../core/config.js';
 import { ExecuteSessionRepository } from '../../execute/repository.js';
 import { getVersion, getCachedUpdateResult } from '../../core/version.js';
+import { resolveStatusSessionId } from '../session-selector.js';
 
 export function handleStatus(
   engine: InterviewEngine,
-  input: StatusInput,
+  rawInput: StatusInput,
   eventStore?: EventStore,
   config?: GestaltConfig,
 ): string {
@@ -22,7 +23,19 @@ export function handleStatus(
     reasoningModelFallback: config?.reasoningModelFallback ?? null,
   };
 
-  const sessionType = input.sessionType ?? 'all';
+  const sessionType = rawInput.sessionType ?? 'all';
+
+  const resolvedSessionId = rawInput.sessionId
+    ? resolveStatusSessionId(rawInput.sessionId, sessionType, {
+        listInterviewSessions: () => engine.listSessions(),
+        listExecuteSessions: () =>
+          eventStore ? new ExecuteSessionRepository(eventStore).reconstructAll() : [],
+      })
+    : null;
+  if (resolvedSessionId && !resolvedSessionId.ok) {
+    return JSON.stringify({ ...reasoningModelInfo, error: resolvedSessionId.error }, null, 2);
+  }
+  const input: StatusInput = { ...rawInput, sessionId: resolvedSessionId?.sessionId };
 
   try {
     if (input.sessionId) {

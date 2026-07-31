@@ -1,12 +1,20 @@
 import type { PassthroughEngine } from '../../interview/passthrough-engine.js';
 import type { PassthroughAgentGenerator } from '../../agent/passthrough-generator.js';
 import type { AgentCreateInput } from '../schemas.js';
+import { resolveInterviewSessionId } from '../session-selector.js';
 
 export function handleCreateAgentPassthrough(
   interviewEngine: PassthroughEngine,
   generator: PassthroughAgentGenerator,
-  input: AgentCreateInput,
+  rawInput: AgentCreateInput,
 ): string {
+  const resolved = resolveInterviewSessionId(interviewEngine, rawInput.sessionId);
+  if (!resolved.ok) return formatError(resolved.error);
+  const input: AgentCreateInput = {
+    ...rawInput,
+    sessionId: resolved.sessionId ?? rawInput.sessionId,
+  };
+
   switch (input.action) {
     case 'start': {
       let session;

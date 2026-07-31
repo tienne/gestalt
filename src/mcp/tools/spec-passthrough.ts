@@ -6,13 +6,18 @@ import type { AgentRegistry } from '../../agent/registry.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { gestaltNotify } from '../../utils/notifier.js';
 import { sanitizeSurfaceContext } from '../../gestalt/surface-labels.js';
+import { resolveInterviewSessionId } from '../session-selector.js';
 
 export function handleSpecPassthrough(
   engine: PassthroughEngine,
   generator: PassthroughSpecGenerator,
-  input: SpecInput,
+  rawInput: SpecInput,
   agentRegistry?: AgentRegistry,
 ): string {
+  const resolved = resolveInterviewSessionId(engine, rawInput.sessionId);
+  if (!resolved.ok) return JSON.stringify({ error: resolved.error }, null, 2);
+  const input: SpecInput = { ...rawInput, sessionId: resolved.sessionId };
+
   try {
     // ─── Text-based path (no sessionId required) ──────────────────
     if (input.text) {

@@ -3,13 +3,19 @@ import type { PassthroughExecuteEngine } from '../../execute/passthrough-engine.
 import type { RoleAgentRegistry } from '../../agent/role-agent-registry.js';
 import type { ExecuteInput } from '../schemas.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
+import { resolveExecuteSessionInput } from './execute/utils.js';
 
 export function handleReviewPassthrough(
   reviewEngine: PassthroughReviewEngine,
   executeEngine: PassthroughExecuteEngine,
   roleAgentRegistry: RoleAgentRegistry | undefined,
-  input: ExecuteInput,
+  rawInput: ExecuteInput,
 ): string {
+  // review_* 액션의 sessionId도 실행 세션이라 active/latest 셀렉터를 지원한다.
+  const resolved = resolveExecuteSessionInput(executeEngine, rawInput);
+  if (!resolved.ok) return JSON.stringify({ error: resolved.error });
+  const input = resolved.input;
+
   try {
     switch (input.action) {
       case 'review_start':

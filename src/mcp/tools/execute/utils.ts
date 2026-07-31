@@ -1,4 +1,6 @@
 import { getConsistencyHint } from '../../../gestalt/surface-labels.js';
+import { resolveSessionId, type SessionRef } from '../../session-selector.js';
+import type { ExecuteInput } from '../../schemas.js';
 
 // ─── Response Slim Helpers ─────────────────────────────────────────────────
 // systemPrompt is static per session (same agent persona every call).
@@ -62,6 +64,25 @@ export function applyTaskContextFilters(
 
 export function formatError(message: string): string {
   return JSON.stringify({ error: message }, null, 2);
+}
+
+/**
+ * sessionId에 담긴 `active`/`latest` 셀렉터를 UUID로 바꾼 입력을 돌려준다.
+ * 엔진은 셀렉터를 모르므로 핸들러 진입 전에 여기서 해석한다.
+ */
+export function resolveExecuteSessionInput(
+  engine: { listSessions(): SessionRef[] },
+  input: ExecuteInput,
+): { ok: true; input: ExecuteInput } | { ok: false; error: string } {
+  if (!input.sessionId) return { ok: true, input };
+
+  const resolved = resolveSessionId(input.sessionId, 'execute', {
+    listExecuteSessions: () => engine.listSessions(),
+    cwd: input.cwd ?? process.cwd(),
+  });
+  if (!resolved.ok) return { ok: false, error: resolved.error };
+
+  return { ok: true, input: { ...input, sessionId: resolved.sessionId } };
 }
 
 /**

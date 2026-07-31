@@ -23,7 +23,10 @@ const gestaltAnalysisItemSchema = z.object({
 export const interviewInputSchema = z.object({
   action: z.enum(['start', 'respond', 'score', 'complete', 'compress']),
   topic: z.string().optional(),
-  sessionId: z.string().optional(),
+  sessionId: z
+    .string()
+    .optional()
+    .describe("Interview session ID. 'latest'(가장 최근 갱신)도 가능."),
   response: z.string().optional(),
   cwd: z.string().optional(),
   generatedQuestion: z
@@ -54,7 +57,9 @@ export const specInputSchema = z.object({
   sessionId: z
     .string()
     .optional()
-    .describe('Interview session ID (required when not using text input)'),
+    .describe(
+      "Interview session ID (required when not using text input). 'latest'(가장 최근 갱신)도 가능.",
+    ),
   text: z
     .string()
     .optional()
@@ -135,7 +140,10 @@ export const executeInputSchema = z.object({
     })
     .optional()
     .describe('Spec specification (required for start)'),
-  sessionId: z.string().optional().describe('Execute session ID'),
+  sessionId: z
+    .string()
+    .optional()
+    .describe("Execute session ID. 'active'(현재 활성 세션) 또는 'latest'(가장 최근 갱신)도 가능."),
   changedFiles: z
     .array(z.string())
     .optional()
@@ -484,7 +492,7 @@ export const executeToolSchema = executeInputSchema.shape;
 // ─── Create Agent Tool ──────────────────────────────────────────
 export const agentCreateInputSchema = z.object({
   action: z.enum(['start', 'submit']),
-  sessionId: z.string().describe('The interview session ID'),
+  sessionId: z.string().describe("The interview session ID. 'latest'(가장 최근 갱신)도 가능."),
   agentContent: z
     .string()
     .optional()
@@ -563,7 +571,12 @@ export type CodeGraphInput = z.infer<typeof codeGraphInputSchema>;
 
 // ─── Status Tool ────────────────────────────────────────────────
 export const statusInputSchema = z.object({
-  sessionId: z.string().optional(),
+  sessionId: z
+    .string()
+    .optional()
+    .describe(
+      "Session ID. 'latest'(가장 최근 갱신)도 가능하고, sessionType='execute'/'all'이면 'active'(현재 활성 실행 세션)도 가능.",
+    ),
   sessionType: z.enum(['interview', 'execute', 'all']).optional().default('all'),
 });
 
