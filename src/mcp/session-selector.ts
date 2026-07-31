@@ -29,8 +29,8 @@ const ERR_NO_EXECUTE_SESSION =
 const ERR_NO_ANY_SESSION =
   '기록된 세션이 없습니다. ges_interview action=start로 인터뷰를 시작하거나 ges_execute action=start로 실행을 시작하세요.';
 
-/** 셀렉터 키워드인지 판별한다. UUID는 false. */
-export function isSessionSelector(input: string): boolean {
+/** 셀렉터 키워드인지 판별한다. UUID는 false. 모듈 내부 전용. */
+function isSessionSelector(input: string): boolean {
   const normalized = normalize(input);
   return normalized === ACTIVE || normalized === LATEST;
 }
