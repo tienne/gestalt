@@ -44,6 +44,12 @@ export const PRINCIPLE_QUESTION_STRATEGIES: Record<GestaltPrinciple, string> = {
 export const EVENT_STORE_TABLE = 'events';
 export const SKILLS_DIR = 'skills';
 
+// ─── SQLite 연결 ─────────────────────────────────────────────────
+// MCP 서버는 클라이언트 세션마다 프로세스가 따로 뜨는데 DB는 홈 글로벌 경로를 공유한다.
+// busy_timeout 기본값 0이면 쓰기 잠금이 겹치는 순간 기다리지 않고 SQLITE_BUSY로 즉시
+// 실패하므로, 잠금이 풀릴 때까지 대기할 시간을 준다. 연결마다 설정해야 적용된다.
+export const SQLITE_BUSY_TIMEOUT_MS = 5000;
+
 // ─── Session TTL ────────────────────────────────────────────────
 export const DEFAULT_SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 

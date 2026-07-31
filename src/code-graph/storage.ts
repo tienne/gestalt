@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { statSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { SQLITE_BUSY_TIMEOUT_MS } from '../core/constants.js';
 import type { CodeGraphNode, CodeGraphEdge, CodeGraphStats } from './types.js';
 import type { CodeNodeEmbedding } from './embedding-provider.js';
 
@@ -104,6 +105,7 @@ export class CodeGraphStore {
     const Database = loadSqlite();
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
+    this.db.pragma(`busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
     this.db.pragma('foreign_keys = ON');
     this.initialize();
   }

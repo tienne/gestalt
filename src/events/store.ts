@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { DomainEvent } from '../core/types.js';
+import { SQLITE_BUSY_TIMEOUT_MS } from '../core/constants.js';
 import { EventStoreError } from '../core/errors.js';
 import { logger } from '../core/logger.js';
 
@@ -65,6 +66,7 @@ export class EventStore implements IEventStore {
         const Database = loadSqliteDatabase();
         this.db = new Database(dbPath);
         this.db.pragma('journal_mode = WAL');
+        this.db.pragma(`busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
         this.db.pragma('foreign_keys = ON');
         this.initialize(this.db);
         return;
