@@ -3,7 +3,18 @@ import { existsSync, rmSync } from 'node:fs';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { CodeGraphStore } from '../../../src/code-graph/storage.js';
 import { NodeKind, EdgeKind } from '../../../src/code-graph/types.js';
+import { SQLITE_BUSY_TIMEOUT_MS } from '../../../src/core/constants.js';
 import type { CodeGraphNode, CodeGraphEdge } from '../../../src/code-graph/types.js';
+
+// pragma는 연결 속성이라 별도 연결로는 확인할 수 없어 스토어의 내부 연결을 직접 들여다본다
+function pragma(store: CodeGraphStore, source: string, key: string): unknown {
+  const db = (store as unknown as { db: { pragma(s: string): unknown } }).db;
+  const raw = db.pragma(source);
+  if (Array.isArray(raw)) {
+    return (raw[0] as Record<string, unknown> | undefined)?.[key];
+  }
+  return raw;
+}
 
 function makeNode(overrides: Partial<CodeGraphNode> = {}): CodeGraphNode {
   return {
@@ -53,6 +64,34 @@ describe('CodeGraphStore', () => {
 
   it('WAL 모드로 DB를 초기화한다', () => {
     expect(existsSync(dbPath)).toBe(true);
+  });
+
+  describe('sqlite 연결 pragma', () => {
+    it('busy_timeout을 설정값으로 적용한다', () => {
+      expect(pragma(store, 'busy_timeout', 'timeout')).toBe(SQLITE_BUSY_TIMEOUT_MS);
+    });
+
+    it('busy_timeout 설정 후에도 journal_mode는 wal로 유지된다', () => {
+      expect(pragma(store, 'journal_mode', 'journal_mode')).toBe('wal');
+    });
+
+    it('같은 DB를 연 두 스토어가 서로 막지 않고 각각 기록한다', () => {
+      const second = new CodeGraphStore(dbPath);
+
+      try {
+        expect(() => {
+          store.upsertNode(makeNode({ id: 'function:src/a.ts:a', filePath: 'src/a.ts' }));
+          second.upsertNode(makeNode({ id: 'function:src/b.ts:b', filePath: 'src/b.ts' }));
+        }).not.toThrow();
+
+        for (const s of [store, second]) {
+          expect(s.getNodeById('function:src/a.ts:a')).not.toBeNull();
+          expect(s.getNodeById('function:src/b.ts:b')).not.toBeNull();
+        }
+      } finally {
+        second.close();
+      }
+    });
   });
 
   describe('upsertNode()', () => {

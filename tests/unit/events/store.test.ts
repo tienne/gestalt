@@ -1,11 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
+import { SQLITE_BUSY_TIMEOUT_MS } from '../../../src/core/constants.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 function testDb() {
   return `.gestalt-test/events-${randomUUID()}.db`;
+}
+
+// pragma는 연결 속성이라 별도 연결로는 확인할 수 없어 스토어의 내부 연결을 직접 들여다본다
+function pragma(store: EventStore, source: string, key: string): unknown {
+  const db = (store as unknown as { db: { pragma(s: string): unknown } | null }).db;
+  if (!db) return undefined;
+  const raw = db.pragma(source);
+  if (Array.isArray(raw)) {
+    return (raw[0] as Record<string, unknown> | undefined)?.[key];
+  }
+  return raw;
 }
 
 describe('EventStore', () => {
@@ -116,6 +128,44 @@ describe('EventStore', () => {
         expect(result).toBeNull();
       } else {
         expect(result).not.toBeNull();
+      }
+    });
+  });
+
+  describe('sqlite 연결 pragma', () => {
+    it('busy_timeout을 설정값으로 적용한다', () => {
+      expect(pragma(store, 'busy_timeout', 'timeout')).toBe(SQLITE_BUSY_TIMEOUT_MS);
+    });
+
+    it('busy_timeout 설정 후에도 journal_mode는 wal로 유지된다', () => {
+      expect(pragma(store, 'journal_mode', 'journal_mode')).toBe('wal');
+    });
+
+    it('같은 DB를 연 두 스토어가 서로 막지 않고 각각 기록한다', () => {
+      const sharedPath = testDb();
+      const first = new EventStore(sharedPath);
+      const second = new EventStore(sharedPath);
+
+      try {
+        expect(() => {
+          first.append('interview', 'shared', EventType.INTERVIEW_SESSION_STARTED, { from: 'a' });
+          second.append('interview', 'shared', EventType.INTERVIEW_QUESTION_ASKED, { from: 'b' });
+        }).not.toThrow();
+
+        for (const store of [first, second]) {
+          const events = store.getByAggregate('interview', 'shared');
+          expect(events).toHaveLength(2);
+          expect(events.map((e) => e.eventType)).toEqual([
+            EventType.INTERVIEW_SESSION_STARTED,
+            EventType.INTERVIEW_QUESTION_ASKED,
+          ]);
+        }
+      } finally {
+        first.close();
+        second.close();
+        for (const suffix of ['', '-wal', '-shm', '.jsonl']) {
+          rmSync(sharedPath + suffix, { force: true });
+        }
       }
     });
   });
