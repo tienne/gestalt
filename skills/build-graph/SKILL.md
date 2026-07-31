@@ -34,6 +34,9 @@ outputs:
 
 코드베이스를 정적 분석해 코드 지식 그래프를 빌드합니다. 이 그래프를 바탕으로 `/blast-radius` 스킬을 사용할 수 있습니다.
 
+> **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
+> `ges_*` 도구가 없거나 호출이 실패하면 직접 흉내내 진행하지 않고, 무엇이 왜 안 되는지 말하고 멈춥니다.
+
 ## 목적
 
 코드 지식 그래프는 파일·함수·클래스 사이의 의존 관계를 SQLite DB(`.gestalt/code-graph.db`)에 저장합니다. 한 번 빌드해두면 `blast-radius` 분석으로 변경 영향 파일만 빠르게 조회할 수 있어 불필요한 파일 읽기를 크게 줄일 수 있습니다.

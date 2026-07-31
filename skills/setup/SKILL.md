@@ -23,6 +23,9 @@ outputs:
 
 `gestalt init` 명령어와 동일한 초기화 작업을 Claude Code 스킬로 실행한다.
 
+> **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
+> `ges_*` 도구가 없거나 호출이 실패하면 직접 흉내내 진행하지 않고, 무엇이 왜 안 되는지 말하고 멈춥니다.
+
 ## 실행 단계
 
 1. **선택 화면**: `AskUserQuestion`으로 실행할 단계를 다중 선택

@@ -19,6 +19,9 @@ outputs:
 
 This skill transforms a validated Spec specification into a concrete, dependency-aware Execution Plan, executes it with multi-perspective Role Agent guidance, and validates the result through a 2-stage evaluation pipeline.
 
+> **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
+> `ges_*` 도구가 없거나 호출이 실패하면 직접 흉내내 진행하지 않고, 무엇이 왜 안 되는지 말하고 멈춥니다.
+
 ## Full Pipeline
 
 ```
