@@ -4,8 +4,9 @@
 리뷰 코멘트·PR 설명·변경 컨텍스트 등 "작성자가 직접 말하는" 산출물의 어투 기준이며,
 여러 에이전트가 공유한다.
 
-- 참조 에이전트: `code-review-writer`(리뷰 코멘트), `change-context-writer`(PR/변경 문서),
-  `humanize-monolith`(윤문 시 이 voice를 **보존**), `/review` 스킬(4.5단계 워싱).
+- 참조 에이전트: `code-review-writer`(리뷰 코멘트), `code-review-responder`(받은 리뷰에 답글),
+  `change-context-writer`(PR/변경 문서), `humanize-monolith`(윤문 시 이 voice를 **보존**),
+  `/review` 스킬(4.5단계 워싱), `/review-reply` 스킬(5단계 답글 작성).
 - AI-tell을 제거하는 `ai-tell-quick-rules.md`가 "빼기"라면, 이 문서는 "더하기" —
   실제 사람이 쓰는 voice를 입히고 지키는 포지티브 레퍼런스다.
 
@@ -128,6 +129,11 @@ ghost 는 button의 ghost variant 를 위한 토큰입니다.
 ## 장르별 적용
 
 - **리뷰 코멘트(code-review-writer)**: 라인 지적은 레지스터 A, PR 전반·협업 맥락은 레지스터 B.
+- **받은 리뷰에 답글(code-review-responder)**: 레지스터 A의 "본인 PR에 답할 때 / 수정 반영" 절이
+  주 참조 구간이고, 협업 한마디는 레지스터 B를 빌린다. 반영은 커밋 링크 + 한 줄로 짧게, 이견은
+  근거 하나 대고 상대에게 판단을 넘긴다. **리뷰이는 강제성을 매기는 자리가 아니라 `r:`/`c:`/`a:`
+  접두어를 붙이지 않는다** — 접두어는 리뷰어 쪽 도구다. 과잉 사과와 장문 변명이 이 장르에서
+  가장 자주 새는 AI-tell이다.
 - **PR 설명·변경 컨텍스트(change-context-writer)**: 본문은 "무엇을 왜 바꿨는지"를 서술하는
   성격이라 제안형보다 **담백한 서술체**가 맞다. 단 "~한 것 같습니다"의 부드러움과 온기는 유지하고,
   딱딱한 단언·결산 피벗으로 평탄화하지 않는다. 협업 한마디(요청·배려)는 레지스터 B를 빌린다.
