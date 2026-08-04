@@ -151,8 +151,8 @@ claude plugin install gestalt@gestalt
 | 항목 | 내용 |
 |------|------|
 | **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
-| **슬래시 커맨드** | `/interview`, `/spec`, `/execute`, `/agent`, `/review` |
-| **에이전트** | Gestalt 파이프라인 에이전트 5개 + Role 에이전트 9개 + Review 에이전트 4개 |
+| **슬래시 커맨드** | 워크플로 스킬 18개 — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send` 등 |
+| **에이전트** | 파이프라인 에이전트 5개 + Role 에이전트 21개 + Review 에이전트 4개 |
 | **CLAUDE.md** | 프로젝트 컨텍스트 및 MCP 사용 가이드 자동 추가 |
 
 > **Node.js >= 20.0.0** 필요 — [nvm](https://github.com/nvm-sh/nvm) 사용 시: `nvm install 22 && nvm use 22`
@@ -197,6 +197,50 @@ claude mcp add gestalt -- npx -y @tienne/gestalt
   }
 }
 ```
+
+---
+
+### 옵션 4: OpenAI Codex 플러그인
+
+Claude Code 플러그인과 똑같이 MCP 서버랑 워크플로 스킬 18개를 한 번에 받아요.
+
+```bash
+codex plugin marketplace add tienne/gestalt
+codex plugin add gestalt@gestalt
+```
+
+기본 제공 항목:
+
+| 항목 | 내용 |
+|------|------|
+| **MCP 도구** | `ges_*` 12개 전부 |
+| **스킬** | 워크플로 스킬 18개 (`gestalt:review`, `gestalt:pr` 포함) |
+| **에이전트** | Role 에이전트 21개 + Review 에이전트 4개 (스킬이 읽을 수 있게 같이 들어감) |
+
+스킬은 다음 Codex 세션부터 잡혀요. 슬래시 커맨드랑 Claude Code Task 패널은 Claude Code 전용이라, Codex에서는 하려는 일을 말로 설명하면 Codex가 해당 `SKILL.md`를 읽어 진행해요.
+
+---
+
+### 옵션 5: OpenAI Codex CLI (MCP만)
+
+스킬 없이 MCP 도구만 쓰려면 이렇게 해요.
+
+```bash
+codex mcp add gestalt -- npx -y @tienne/gestalt serve
+```
+
+그리고 프로젝트의 `gestalt.json`에 `"client": "codex"`를 넣으면 실행 컨텍스트가 `AGENTS.md`에 기록돼요 (Codex가 자동으로 읽는 파일이에요).
+
+```json
+{
+  "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
+  "client": "codex"
+}
+```
+
+환경변수 `GESTALT_CLIENT=codex`로도 됩니다.
+
+Codex는 호스트 패스스루로 동작해요 — Gestalt가 프롬프트와 구조화된 컨텍스트를 돌려주고, 추론이랑 파일 수정, 명령 실행은 Codex가 해요. `client`가 `"codex"`면 셸에 `ANTHROPIC_API_KEY`가 있어도 이 동작은 그대로예요.
 
 ---
 

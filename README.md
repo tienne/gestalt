@@ -124,8 +124,8 @@ What you get:
 | Item | Details |
 |------|---------|
 | **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
-| **Slash Commands** | `/interview`, `/spec`, `/execute`, `/agent`, `/review` |
-| **Agents** | 9 Role agents + 4 Review agents |
+| **Slash Commands** | 18 workflow skills — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send`, and more |
+| **Agents** | 21 role agents + 4 review agents |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
 
 ---
@@ -170,7 +170,32 @@ Or add directly to `~/.claude/settings.json`:
 
 ---
 
-### Option 4: OpenAI Codex CLI
+### Option 4: OpenAI Codex Plugin
+
+Bundles the MCP server and all 18 workflow skills, the same way the Claude Code plugin does.
+
+```bash
+codex plugin marketplace add tienne/gestalt
+codex plugin add gestalt@gestalt
+```
+
+What you get:
+
+| Item | Details |
+|------|---------|
+| **MCP Tools** | All 12 `ges_*` tools |
+| **Skills** | 18 workflow skills, including `gestalt:review` and `gestalt:pr` |
+| **Agents** | 21 role agents + 4 review agents (bundled for skills to read) |
+
+Skills load on the next Codex session. Slash commands and the Claude Code Task
+panel are still Claude Code only — in Codex you invoke a skill by describing the
+task, and Codex reads the matching `SKILL.md`.
+
+---
+
+### Option 5: OpenAI Codex CLI (MCP only)
+
+If you want the MCP tools without the bundled skills:
 
 ```bash
 codex mcp add gestalt -- npx -y @tienne/gestalt serve
@@ -192,11 +217,11 @@ and Codex performs the reasoning, file edits, and command execution. When
 `client` is `"codex"`, this remains true even if `ANTHROPIC_API_KEY` exists in
 your shell.
 
-All 12 MCP tools (`ges_interview`, `ges_generate_spec`, `ges_execute`, etc.) are available immediately. Slash commands and the Claude Code Task panel are not available in Codex — the pipeline runs entirely through MCP tool calls. During execution, active context is written to a managed section in `AGENTS.md`; continue following the current MCP response (`executeContext`, `taskContext`, etc.) in the active Codex turn.
+All 12 MCP tools (`ges_interview`, `ges_generate_spec`, `ges_execute`, etc.) are available immediately. This option ships no skills — the pipeline runs entirely through MCP tool calls. Use Option 4 if you want `gestalt:review` and the other workflow skills. During execution, active context is written to a managed section in `AGENTS.md`; continue following the current MCP response (`executeContext`, `taskContext`, etc.) in the active Codex turn.
 
 ---
 
-### Option 5: Google Gemini CLI
+### Option 6: Google Gemini CLI
 
 ```bash
 gemini mcp add gestalt -- npx -y @tienne/gestalt serve
