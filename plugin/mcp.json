@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "gestalt": {
+      "command": "npx",
+      "args": ["-y", "@tienne/gestalt", "serve"],
+      "tool_timeout_sec": 900
+    }
+  }
+}

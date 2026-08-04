@@ -1,0 +1,41 @@
+{
+  "name": "gestalt",
+  "version": "0.46.1",
+  "description": "Gestalt psychology-driven AI development harness. Transforms scattered requirements into structured, validated specifications through interactive interviews.",
+  "author": {
+    "name": "tienne",
+    "email": "tienne89@gmail.com"
+  },
+  "homepage": "https://github.com/tienne/gestalt",
+  "repository": "https://github.com/tienne/gestalt",
+  "license": "MIT",
+  "keywords": [
+    "gestalt",
+    "requirements",
+    "specification",
+    "interview",
+    "mcp",
+    "ai-development",
+    "code-review"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json",
+  "interface": {
+    "displayName": "Gestalt",
+    "shortDescription": "Requirements-to-spec pipeline with review and PR workflows",
+    "longDescription": "Gestalt turns vague ideas into validated specifications through Gestalt-principle interviews, then drives execution, code review, and PR authoring. Bundles 18 workflow skills and 27 role agents over 12 MCP tools.",
+    "developerName": "tienne",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/tienne/gestalt",
+    "defaultPrompt": [
+      "Review this PR with the Gestalt review pipeline.",
+      "Clarify these requirements into a structured spec.",
+      "Write a PR description for the current branch."
+    ]
+  }
+}
