@@ -1,5 +1,6 @@
 {
   "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
+  "client": "both",
   "notifications": false,
   "interview": {
     "resolutionThreshold": 0.8,
