@@ -6,17 +6,17 @@ import { handleAgentPassthrough } from '../../../src/mcp/tools/agent-passthrough
 
 function loadRoleRegistry(): RoleAgentRegistry {
   const registry = new RoleAgentRegistry(
-    resolve('role-agents'),
+    resolve('plugin/role-agents'),
     undefined,
-    resolve('review-agents'),
-    resolve('personas'),
+    resolve('plugin/review-agents'),
+    resolve('plugin/personas'),
   );
   registry.loadAll();
   return registry;
 }
 
 function loadPrincipleRegistry(): AgentRegistry {
-  const registry = new AgentRegistry(resolve('agents'));
+  const registry = new AgentRegistry(resolve('plugin/agents'));
   registry.loadAll();
   return registry;
 }

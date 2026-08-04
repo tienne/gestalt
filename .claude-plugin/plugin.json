@@ -18,6 +18,6 @@
     "ai-development",
     "claude-code"
   ],
-  "skills": "./skills/",
+  "skills": "./plugin/skills/",
   "mcpServers": "./.mcp.json"
 }

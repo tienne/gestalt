@@ -51,11 +51,11 @@ function createTestSpec(): Spec {
 
 function setupEngine(withRoleRegistry = true): PassthroughExecuteEngine {
   const eventStore = new EventStore('fake.db');
-  const agentRegistry = new AgentRegistry(resolve('agents'));
+  const agentRegistry = new AgentRegistry(resolve('plugin/agents'));
   agentRegistry.loadAll();
 
   if (withRoleRegistry) {
-    const roleAgentRegistry = new RoleAgentRegistry(resolve('role-agents'));
+    const roleAgentRegistry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     roleAgentRegistry.loadAll();
     return new PassthroughExecuteEngine(eventStore, agentRegistry, roleAgentRegistry);
   }

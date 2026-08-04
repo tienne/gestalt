@@ -131,8 +131,8 @@ describe('문자열 상수', () => {
     expect(EVENT_STORE_TABLE).toBe('events');
   });
 
-  it('SKILLS_DIR은 skills다', () => {
-    expect(SKILLS_DIR).toBe('skills');
+  it('SKILLS_DIR은 plugin/skills다', () => {
+    expect(SKILLS_DIR).toBe('plugin/skills');
   });
 });
 

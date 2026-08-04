@@ -29,7 +29,7 @@ Test system prompt`;
   });
 
   it('loads real pipeline agents from agents/ directory', () => {
-    const registry = new AgentRegistry(resolve('agents'));
+    const registry = new AgentRegistry(resolve('plugin/agents'));
     registry.loadAll();
 
     const all = registry.getAll();
@@ -41,7 +41,7 @@ Test system prompt`;
   });
 
   it('getByRole returns empty for pipeline-only agents', () => {
-    const registry = new AgentRegistry(resolve('agents'));
+    const registry = new AgentRegistry(resolve('plugin/agents'));
     registry.loadAll();
 
     const roleAgents = registry.getByRole();
@@ -49,7 +49,7 @@ Test system prompt`;
   });
 
   it('getByPipeline filters out role agents', () => {
-    const registry = new AgentRegistry(resolve('agents'));
+    const registry = new AgentRegistry(resolve('plugin/agents'));
     registry.loadAll();
 
     const pipeline = registry.getByPipeline('execute');
@@ -83,7 +83,7 @@ Test role system prompt`;
 
 describe('RoleAgentRegistry', () => {
   it('loads builtin role agents from role-agents/ directory', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const all = registry.getAll();
@@ -95,7 +95,7 @@ describe('RoleAgentRegistry', () => {
   });
 
   it('getByDomain returns matching agents', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const uiAgents = registry.getByDomain('ui');
@@ -104,7 +104,7 @@ describe('RoleAgentRegistry', () => {
   });
 
   it('getByName returns specific agent', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const architect = registry.getByName('architect');
@@ -115,14 +115,14 @@ describe('RoleAgentRegistry', () => {
   // ─── code-review-writer (신규 role agent) ──────────────────
 
   it('loads code-review-writer role agent', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     expect(registry.has('code-review-writer')).toBe(true);
   });
 
   it('code-review-writer has correct frontmatter fields', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const agent = registry.getByName('code-review-writer');
@@ -143,7 +143,7 @@ describe('RoleAgentRegistry', () => {
   });
 
   it('getByDomain("pr-review") includes code-review-writer', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const agents = registry.getByDomain('pr-review');
@@ -151,7 +151,7 @@ describe('RoleAgentRegistry', () => {
   });
 
   it('getByDomain("code-review") includes code-review-writer', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const agents = registry.getByDomain('code-review');
@@ -161,14 +161,14 @@ describe('RoleAgentRegistry', () => {
   // ─── ux-writer (신규 role agent) ──────────────────────────────
 
   it('loads ux-writer role agent', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     expect(registry.has('ux-writer')).toBe(true);
   });
 
   it('ux-writer has correct frontmatter fields', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const agent = registry.getByName('ux-writer');
@@ -186,7 +186,7 @@ describe('RoleAgentRegistry', () => {
   });
 
   it('getByDomain("ux-writing") includes ux-writer', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const agents = registry.getByDomain('ux-writing');
@@ -196,14 +196,14 @@ describe('RoleAgentRegistry', () => {
   // ─── change-context-writer (신규 role agent) ───────────────
 
   it('loads change-context-writer role agent', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     expect(registry.has('change-context-writer')).toBe(true);
   });
 
   it('change-context-writer has correct frontmatter fields', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const agent = registry.getByName('change-context-writer');
@@ -223,7 +223,7 @@ describe('RoleAgentRegistry', () => {
   });
 
   it('getByDomain("change-context") includes change-context-writer', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const agents = registry.getByDomain('change-context');
@@ -233,7 +233,7 @@ describe('RoleAgentRegistry', () => {
   // ─── presentation-writer (신규 role agent) ─────────────────
 
   it('loads presentation-writer role agent (ges_agent list 노출)', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     expect(registry.has('presentation-writer')).toBe(true);
@@ -243,7 +243,7 @@ describe('RoleAgentRegistry', () => {
   });
 
   it('presentation-writer has correct frontmatter fields (ges_agent get)', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const agent = registry.getByName('presentation-writer');
@@ -264,7 +264,7 @@ describe('RoleAgentRegistry', () => {
   });
 
   it('getByDomain("presentation-content") includes presentation-writer', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const agents = registry.getByDomain('presentation-content');
@@ -278,9 +278,9 @@ describe('RoleAgentRegistry: review-agents loading', () => {
   function loadWithReview(): RoleAgentRegistry {
     // 생성자: (builtinDir, customDir?, reviewDir?)
     const registry = new RoleAgentRegistry(
-      resolve('role-agents'),
+      resolve('plugin/role-agents'),
       undefined,
-      resolve('review-agents'),
+      resolve('plugin/review-agents'),
     );
     registry.loadAll();
     return registry;
@@ -323,7 +323,7 @@ describe('RoleAgentRegistry: review-agents loading', () => {
 
   it('frontend-reviewer is not loaded when reviewDir is omitted', () => {
     // 회귀 가드: review-agents는 reviewDir 지정 시에만 로드되어야 한다
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     expect(registry.has('frontend-reviewer')).toBe(false);
@@ -336,10 +336,10 @@ describe('RoleAgentRegistry: personas loading', () => {
   function loadWithPersonas(): RoleAgentRegistry {
     // 생성자: (builtinDir, customDir?, reviewDir?, personasDir?)
     const registry = new RoleAgentRegistry(
-      resolve('role-agents'),
+      resolve('plugin/role-agents'),
       undefined,
       undefined,
-      resolve('personas'),
+      resolve('plugin/personas'),
     );
     registry.loadAll();
     return registry;
@@ -382,7 +382,7 @@ describe('RoleAgentRegistry: personas loading', () => {
 
   it('personas are not loaded when personasDir is omitted', () => {
     // 회귀 가드: personas는 personasDir 지정 시에만 로드되어야 한다
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     expect(registry.has('medicine-seller')).toBe(false);
@@ -393,10 +393,10 @@ describe('RoleAgentRegistry: personas loading', () => {
   it('isolates persona from execute/review pipelines', () => {
     // builtin role-agents (execute) + review-agents (review) + personas (persona) 모두 로드
     const registry = new RoleAgentRegistry(
-      resolve('role-agents'),
+      resolve('plugin/role-agents'),
       undefined,
-      resolve('review-agents'),
-      resolve('personas'),
+      resolve('plugin/review-agents'),
+      resolve('plugin/personas'),
     );
     registry.loadAll();
 
@@ -428,7 +428,7 @@ describe('RoleAgentRegistry: personas loading', () => {
 
 describe('RoleMatchEngine', () => {
   it('generates match context with all available agents', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const engine = new RoleMatchEngine();
@@ -450,7 +450,7 @@ describe('RoleMatchEngine', () => {
 
 describe('RolePromptGenerator', () => {
   it('generates perspective prompts for matched agents', () => {
-    const registry = new RoleAgentRegistry(resolve('role-agents'));
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
     registry.loadAll();
 
     const agents = [registry.getByName('frontend-developer')!, registry.getByName('designer')!];

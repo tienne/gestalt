@@ -30,7 +30,7 @@ describe('surface leak regression', () => {
   beforeEach(() => {
     dbPath = `.gestalt-test/surface-leak-${randomUUID()}.db`;
     store = new EventStore(dbPath);
-    registry = new AgentRegistry('agents');
+    registry = new AgentRegistry('plugin/agents');
     registry.loadAll();
     engine = new PassthroughEngine(store, registry);
     generator = new PassthroughSpecGenerator(store, registry);

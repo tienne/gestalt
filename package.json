@@ -13,18 +13,14 @@
   },
   "files": [
     "dist",
-    "agents",
-    "role-agents",
-    "review-agents",
-    "personas",
-    "skills",
+    "plugin",
     "schemas",
     "CLAUDE.md"
   ],
   "scripts": {
     "dev": "tsx bin/gestalt.ts",
     "build": "tsc",
-    "postbuild": "cp -r agents dist/ && cp -r role-agents dist/ && cp -r review-agents dist/ && cp -r personas dist/ && cp -r skills dist/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js",
+    "postbuild": "mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",

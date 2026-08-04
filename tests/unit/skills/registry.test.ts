@@ -38,7 +38,7 @@ describe('SkillRegistry', () => {
   // ─── presentation 스킬 (신규) ──────────────────────────────
 
   it('loads presentation skill from real skills/ directory', () => {
-    const registry = new SkillRegistry(resolve('skills'));
+    const registry = new SkillRegistry(resolve('plugin/skills'));
     registry.loadAll();
 
     expect(registry.has('presentation')).toBe(true);
