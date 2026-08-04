@@ -1,6 +1,9 @@
 #!/usr/bin/env tsx
 /**
- * Sync version from package.json → .claude-plugin/plugin.json + marketplace.json
+ * Sync version from package.json → Claude Code and Codex plugin manifests.
+ *
+ * Codex reads plugin/.codex-plugin/plugin.json and shows its version in
+ * `codex plugin list`, so it has to move with the others.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -29,4 +32,12 @@ for (const p of marketplace.plugins) {
 }
 writeFileSync(marketplacePath, JSON.stringify(marketplace, null, 2) + '\n');
 
-console.log(`Synced version ${version} → plugin.json, marketplace.json`);
+// Codex plugin.json
+const codexPluginPath = resolve(ROOT, 'plugin', '.codex-plugin', 'plugin.json');
+const codexPlugin = JSON.parse(readFileSync(codexPluginPath, 'utf-8'));
+codexPlugin.version = version;
+writeFileSync(codexPluginPath, JSON.stringify(codexPlugin, null, 2) + '\n');
+
+console.log(
+  `Synced version ${version} → plugin.json, marketplace.json, .codex-plugin/plugin.json`
+);
