@@ -22,11 +22,11 @@ export {
 } from './detectors.js';
 export { changeRate, type ChangeRateOptions } from './change-rate.js';
 export {
-  runGate,
+  runCheck,
   formatReport,
   EXIT_CODE,
   THRESHOLD,
-  type GateReport,
+  type CheckReport,
   type AxisResult,
   type Verdict,
-} from './gate.js';
+} from './check.js';

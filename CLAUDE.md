@@ -31,7 +31,7 @@ pnpm tsx bin/gestalt.ts spec <session-id>
 pnpm tsx bin/gestalt.ts status
 pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 pnpm verify:rules  # 룰북과 에이전트 문서의 룰 ID·심각도 정합 검사
-pnpm tsx bin/gestalt.ts humanize-gate --before a.md --after b.md --register chat
+pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register chat
 ```
 
 ## MCP Tools
@@ -109,7 +109,7 @@ src/mcp/           — MCP 서버 + 툴 핸들러
 src/events/        — EventStore (SQLite)
 src/skills/        — Skill System 엔진 (SKILL.md 파서·실행기, 최상위 skills/와는 별개)
 src/registry/      — 레지스트리 공통 베이스 클래스
-src/humanize/      — 룰북 읽기 + AI-tell 탐지기 + 윤문 코드 검사 (`gestalt humanize-gate` 백엔드)
+src/humanize/      — 룰북 읽기 + AI-tell 탐지기 + 윤문 코드 검사 (`gestalt humanize-check` 백엔드)
 src/utils/         — 알림 등 공용 유틸
 src/cli/           — commander 기반 CLI
 plugin/            — 배포 자산 전부. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다

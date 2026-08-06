@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { formatReport, runGate, EXIT_CODE } from '../../humanize/index.js';
+import { formatReport, runCheck, EXIT_CODE } from '../../humanize/index.js';
 import type { Register } from '../../humanize/index.js';
 
-export interface HumanizeGateOptions {
+export interface HumanizeCheckOptions {
   before: string;
   after: string;
   register?: string;
@@ -19,7 +19,7 @@ function read(label: string, path: string): string {
   return readFileSync(full, 'utf-8');
 }
 
-export function humanizeGateCommand(options: HumanizeGateOptions): void {
+export function humanizeCheckCommand(options: HumanizeCheckOptions): void {
   const register: Register = options.register === 'chat' ? 'chat' : 'doc';
   const before = read('원문', options.before);
   const after = read('윤문본', options.after);
@@ -29,7 +29,7 @@ export function humanizeGateCommand(options: HumanizeGateOptions): void {
     process.exit(EXIT_CODE.unknown);
   }
 
-  const report = runGate(before, after, { register });
+  const report = runCheck(before, after, { register });
 
   if (options.json) {
     console.log(JSON.stringify(report, null, 2));

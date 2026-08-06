@@ -31,7 +31,7 @@ export interface AxisResult {
   evidence?: string[];
 }
 
-export interface GateReport {
+export interface CheckReport {
   register: Register;
   verdict: Verdict;
   exitCode: number;
@@ -68,7 +68,7 @@ function checkResidualS1(
   register: Register,
   before: string,
   after: string,
-): { axis: AxisResult; residual: GateReport['residualS1'] } {
+): { axis: AxisResult; residual: CheckReport['residualS1'] } {
   const targets = s1Ids(book, register);
   const beforeCounts = countByRule(before, targets);
   const afterCounts = countByRule(after, targets);
@@ -101,7 +101,7 @@ function checkResidualS1(
 }
 
 /** 철칙 — AI 티는 빼기만 하고 넣지 않는다. 늘어난 룰이 있으면 윤문이 새 티를 심은 것이다 */
-function findIntroduced(before: string, after: string): GateReport['introduced'] {
+function findIntroduced(before: string, after: string): CheckReport['introduced'] {
   const beforeCounts = countByRule(before);
   const afterCounts = countByRule(after);
 
@@ -127,7 +127,7 @@ function checkPreservation(before: string, after: string): AxisResult {
 function checkStructure(
   before: string,
   after: string,
-  introduced: GateReport['introduced'],
+  introduced: CheckReport['introduced'],
 ): AxisResult {
   const a = structureStats(before);
   const b = structureStats(after);
@@ -158,12 +158,12 @@ function checkStructure(
   };
 }
 
-export interface RunGateOptions {
+export interface RunCheckOptions {
   register?: Register;
   book?: RuleBook;
 }
 
-export function runGate(before: string, after: string, options: RunGateOptions = {}): GateReport {
+export function runCheck(before: string, after: string, options: RunCheckOptions = {}): CheckReport {
   const register = options.register ?? 'doc';
   const book = options.book ?? parseRuleBook();
 
@@ -191,7 +191,7 @@ export function runGate(before: string, after: string, options: RunGateOptions =
   };
 }
 
-export function formatReport(report: GateReport): string {
+export function formatReport(report: CheckReport): string {
   const head = `검사 ${report.verdict.toUpperCase()} (exit ${report.exitCode}) / 말투 ${report.register}`;
   const lines = [head, ''];
 

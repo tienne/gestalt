@@ -6,7 +6,7 @@ import {
   protectedTokens,
   structureStats,
 } from '../../../src/humanize/detectors.js';
-import { runGate } from '../../../src/humanize/gate.js';
+import { runCheck } from '../../../src/humanize/check.js';
 
 describe('changeRate', () => {
   it('같은 글은 0이다', () => {
@@ -109,7 +109,7 @@ describe('structureStats', () => {
   });
 });
 
-describe('runGate', () => {
+describe('runCheck', () => {
   const before =
     '이 변경에 대해 설명드리면, 캐시가 그렇게 판단되어진다는 문제가 있었습니다. ' +
     '결론적으로 응답이 250ms까지 줄었습니다. 배포는 내일이고, 롤백 기준도 정했습니다.';
@@ -118,7 +118,7 @@ describe('runGate', () => {
     const after =
       '이 변경을 설명드리면 캐시가 그렇게 판단된다는 문제가 있었습니다. ' +
       '응답이 250ms까지 줄었습니다. 배포는 내일이고 롤백 기준도 정했습니다.';
-    const report = runGate(before, after);
+    const report = runCheck(before, after);
     expect(report.verdict).toBe('pass');
     expect(report.exitCode).toBe(0);
     expect(report.changeRate).toBeLessThan(0.3);
@@ -126,7 +126,7 @@ describe('runGate', () => {
 
   it('수치가 사라지면 채택 금지다', () => {
     const after = '이 변경을 설명드리면 캐시 판정에 문제가 있었습니다. 응답이 빨라졌습니다.';
-    const report = runGate(before, after);
+    const report = runCheck(before, after);
     expect(report.verdict).toBe('abort');
     expect(report.exitCode).toBe(2);
     expect(report.axes.find((a) => a.axis === 'preservation')?.verdict).toBe('abort');
@@ -136,7 +136,7 @@ describe('runGate', () => {
     const after =
       '이 변경에 대해 설명드리면 캐시가 그렇게 판단된다는 문제가 있었습니다. ' +
       '응답이 250ms까지 줄었습니다. 배포는 내일이고 롤백 기준도 정했습니다.';
-    const report = runGate(before, after);
+    const report = runCheck(before, after);
     expect(report.verdict).toBe('warn');
     expect(report.changeRate).toBeLessThan(0.3);
     expect(report.residualS1.map((r) => r.ruleId)).toContain('A-1');
@@ -147,22 +147,22 @@ describe('runGate', () => {
       '이 변경을 설명드리면 캐시 판정에 문제가 있었습니다. ' +
       '응답이 250ms까지 줄었습니다. 배포는 내일이고 롤백 기준도 정했습니다. ' +
       '이는 기능·성능·안정성 모두에서 시사하는 바가 큽니다.';
-    const report = runGate(before, after);
+    const report = runCheck(before, after);
     expect(report.introduced.map((r) => r.ruleId)).toContain('C-12');
     expect(report.verdict).not.toBe('pass');
   });
 
   it('말투에 따라 S1 대상이 달라진다', () => {
     const draft = '이 작업을 통해 유지보수성 개선 작업을 했습니다. 응답이 250ms까지 줄었습니다.';
-    const doc = runGate(draft, draft, { register: 'doc' });
-    const chat = runGate(draft, draft, { register: 'chat' });
+    const doc = runCheck(draft, draft, { register: 'doc' });
+    const chat = runCheck(draft, draft, { register: 'chat' });
     expect(doc.residualS1.map((r) => r.ruleId)).not.toContain('A-2');
     expect(chat.residualS1.map((r) => r.ruleId)).toContain('A-2');
   });
 
   it('절반 넘게 갈아엎으면 채택 금지다', () => {
     const after = '전혀 다른 내용으로 통째 다시 썼습니다. 250 관련 이야기는 빼겠습니다.';
-    const report = runGate(before, after);
+    const report = runCheck(before, after);
     expect(report.exitCode).toBe(2);
   });
 });
