@@ -20,7 +20,7 @@
   "scripts": {
     "dev": "tsx bin/gestalt.ts",
     "build": "tsc",
-    "postbuild": "rm -rf dist/plugin && mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js && pnpm run verify:plugin",
+    "postbuild": "rm -rf dist/plugin && mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js && pnpm run verify:plugin && pnpm run verify:rules",
     "verify:plugin": "tsx scripts/verify-plugin-assets.ts",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
@@ -33,7 +33,8 @@
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
     "version:sync": "tsx scripts/sync-version.ts",
-    "postversion": "pnpm run version:sync"
+    "postversion": "pnpm run version:sync",
+    "verify:rules": "tsx scripts/verify-rule-refs.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
