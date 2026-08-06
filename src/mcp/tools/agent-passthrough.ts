@@ -1,15 +1,21 @@
 import type { RoleAgentRegistry } from '../../agent/role-agent-registry.js';
 import type { AgentRegistry } from '../../agent/registry.js';
+import { DEFAULT_TIER_MODELS } from '../../core/constants.js';
+import type { AgentTier } from '../../core/types.js';
 
 export interface AgentInput {
   action: 'list' | 'get';
   name?: string;
 }
 
+/** tier → Agent 도구 model 별칭 표. 설정이 없으면 기본 표를 쓴다. */
+export type TierModels = Record<AgentTier, string>;
+
 export function handleAgentPassthrough(
   roleAgentRegistry: RoleAgentRegistry | undefined,
   input: AgentInput,
   agentRegistry?: AgentRegistry,
+  tierModels: TierModels = DEFAULT_TIER_MODELS,
 ): string {
   if (!roleAgentRegistry) {
     return JSON.stringify({ error: 'Agent registry not available' });
@@ -65,12 +71,18 @@ export function handleAgentPassthrough(
       });
     }
 
+    // tier가 없는 에이전트는 standard로 본다. 스킬은 model을 그대로 Agent 도구에
+    // 넘기면 되고, tier도 함께 돌려줘 왜 그 모델인지 확인할 수 있게 한다.
+    const tier: AgentTier = agent.frontmatter.tier ?? 'standard';
+
     return JSON.stringify({
       status: 'ok',
       name: agent.frontmatter.name,
       description: agent.frontmatter.description,
       domain: agent.frontmatter.domain ?? [],
       pipeline: agent.frontmatter.pipeline,
+      tier,
+      model: tierModels[tier],
       systemPrompt: agent.systemPrompt,
     });
   }

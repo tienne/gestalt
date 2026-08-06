@@ -613,15 +613,41 @@ ges_agent({ action: "get", name: "architect" })
 
 ### `list` — Example Response
 
+파이프라인별로 묶어서 돌려준다.
+
 ```json
 {
-  "agents": [
-    { "name": "architect", "tier": "frontier", "pipeline": "execute", "description": "..." },
-    { "name": "security-expert", "tier": "standard", "pipeline": "execute", "description": "..." }
-  ],
-  "total": 2
+  "status": "ok",
+  "total": 27,
+  "groups": {
+    "role": [{ "name": "architect", "description": "...", "domain": ["architecture"] }],
+    "review": [{ "name": "security-reviewer", "description": "...", "domain": ["security"] }],
+    "persona": [{ "name": "trickster", "description": "...", "domain": [] }]
+  }
 }
 ```
+
+### `get` — Example Response
+
+`tier`와 함께 **해석된 `model`** 을 돌려준다. 서브에이전트를 띄울 때 이 값을 Agent 도구의
+`model` 파라미터로 넘기면 tier가 실제 모델 선택에 반영된다. 표는 `gestalt.json`의
+`tierModels`로 바꿀 수 있다 (기본값: frugal → haiku, standard → sonnet, frontier → opus).
+
+```json
+{
+  "status": "ok",
+  "name": "architect",
+  "description": "...",
+  "domain": ["architecture", "design"],
+  "pipeline": "execute",
+  "tier": "frontier",
+  "model": "opus",
+  "systemPrompt": "You are the Architect role agent. ..."
+}
+```
+
+세션에서 직접 수행하면 tier는 참고값이다. 적용 규칙은
+[`plugin/skills/_shared/agent-model.md`](../plugin/skills/_shared/agent-model.md) 참조.
 
 ---
 

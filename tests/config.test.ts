@@ -87,7 +87,7 @@ describe('loadConfig', () => {
 
     const config = loadConfig({}, opts);
     expect(config.llm.apiKey).toBe('');
-    expect(config.llm.model).toBe('claude-sonnet-4-6');
+    expect(config.llm.model).toBe('claude-sonnet-5');
     expect(config.interview.resolutionThreshold).toBe(0.8);
     expect(config.interview.maxRounds).toBe(15);
     expect(config.execute.driftThreshold).toBe(0.6);
@@ -124,6 +124,36 @@ describe('loadConfig', () => {
       opts,
     );
     expect(config.execute.driftThreshold).toBe(0.7);
+  });
+});
+
+describe('loadConfig — tierModels', () => {
+  const originalEnv = { ...process.env };
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+  const opts = { skipDotEnv: true, skipGestaltJson: true };
+
+  it('기본 표는 frugal=haiku, standard=sonnet, frontier=opus', () => {
+    const config = loadConfig({}, opts);
+    expect(config.tierModels).toEqual({
+      frugal: 'haiku',
+      standard: 'sonnet',
+      frontier: 'opus',
+    });
+  });
+
+  it('env로 한 tier만 바꿔도 나머지는 기본값을 유지한다', () => {
+    process.env['GESTALT_TIER_MODEL_FRONTIER'] = 'fable';
+    const config = loadConfig({}, opts);
+    expect(config.tierModels.frontier).toBe('fable');
+    expect(config.tierModels.standard).toBe('sonnet');
+    expect(config.tierModels.frugal).toBe('haiku');
+  });
+
+  it('DEFAULT_MODEL은 현행 sonnet 5다', () => {
+    const config = loadConfig({}, opts);
+    expect(config.llm.model).toBe('claude-sonnet-5');
   });
 });
 

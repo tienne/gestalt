@@ -7,6 +7,7 @@ import { z } from 'zod';
 import {
   DEFAULT_MODEL,
   DEFAULT_REASONING_MODEL,
+  DEFAULT_TIER_MODELS,
   REASONING_MODEL_FALLBACK,
   RESOLUTION_THRESHOLD,
   MAX_INTERVIEW_ROUNDS,
@@ -49,7 +50,16 @@ const executeConfigSchema = z.object({
   goalAlignmentThreshold: z.number().min(0).max(1).default(EVOLVE_GOAL_ALIGNMENT_THRESHOLD),
 });
 
-const reasoningModelSchema = z.enum(['fable', 'opus', 'sonnet', 'haiku']);
+/** 호스트 Agent 도구가 받는 모델 별칭. API 모델 ID(llm.model)와는 층위가 다르다. */
+const agentModelAliasSchema = z.enum(['fable', 'opus', 'sonnet', 'haiku']);
+const reasoningModelSchema = agentModelAliasSchema;
+
+/** 에이전트 tier를 Agent 도구 model 별칭으로 옮기는 표 */
+const tierModelsSchema = z.object({
+  frugal: agentModelAliasSchema.default(DEFAULT_TIER_MODELS.frugal),
+  standard: agentModelAliasSchema.default(DEFAULT_TIER_MODELS.standard),
+  frontier: agentModelAliasSchema.default(DEFAULT_TIER_MODELS.frontier),
+});
 
 const configSchema = z.object({
   llm: llmConfigSchema.default({}),
@@ -57,6 +67,7 @@ const configSchema = z.object({
   execute: executeConfigSchema.default({}),
   reasoningModel: reasoningModelSchema.default(DEFAULT_REASONING_MODEL),
   reasoningModelFallback: reasoningModelSchema.default(REASONING_MODEL_FALLBACK),
+  tierModels: tierModelsSchema.default({}),
   notifications: z.boolean().default(false),
   dbPath: z.string().default(GLOBAL_DB_PATH),
   skillsDir: z.string().default('plugin/skills'),
@@ -206,6 +217,14 @@ function buildEnvConfig(): Record<string, unknown> {
     result.reasoningModel = env['GESTALT_REASONING_MODEL'];
   if (env['GESTALT_REASONING_MODEL_FALLBACK'] !== undefined)
     result.reasoningModelFallback = env['GESTALT_REASONING_MODEL_FALLBACK'];
+
+  const tierModels: Record<string, string> = {};
+  for (const tier of ['frugal', 'standard', 'frontier'] as const) {
+    const value = env[`GESTALT_TIER_MODEL_${tier.toUpperCase()}`];
+    if (value !== undefined) tierModels[tier] = value;
+  }
+  if (Object.keys(tierModels).length > 0) result.tierModels = tierModels;
+
   if (env['GESTALT_DB_PATH'] !== undefined) result.dbPath = env['GESTALT_DB_PATH'];
   if (env['GESTALT_SKILLS_DIR'] !== undefined) result.skillsDir = env['GESTALT_SKILLS_DIR'];
   if (env['GESTALT_AGENTS_DIR'] !== undefined) result.agentsDir = env['GESTALT_AGENTS_DIR'];

@@ -306,6 +306,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           name: params.name,
         },
         agentRegistry,
+        config.tierModels,
       );
       return { content: [{ type: 'text' as const, text: result }] };
     },

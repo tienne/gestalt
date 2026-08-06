@@ -19,11 +19,12 @@
 ```json
 {
   "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
-  "llm": { "apiKey": "", "model": "claude-sonnet-4-20250514" },
+  "llm": { "apiKey": "", "model": "claude-sonnet-5" },
   "interview": { "resolutionThreshold": 0.8, "maxRounds": 10 },
   "execute": { "driftThreshold": 0.3, "successThreshold": 0.85, "goalAlignmentThreshold": 0.80 },
   "reasoningModel": "fable",
   "reasoningModelFallback": "opus",
+  "tierModels": { "frugal": "haiku", "standard": "sonnet", "frontier": "opus" },
   "dbPath": ".gestalt/gestalt.db",
   "logLevel": "info"
 }
@@ -40,6 +41,11 @@ interface GestaltConfig {
   execute: { driftThreshold: number; successThreshold: number; goalAlignmentThreshold: number };
   reasoningModel: 'fable' | 'opus' | 'sonnet' | 'haiku';
   reasoningModelFallback: 'fable' | 'opus' | 'sonnet' | 'haiku';
+  tierModels: {
+    frugal: 'fable' | 'opus' | 'sonnet' | 'haiku';
+    standard: 'fable' | 'opus' | 'sonnet' | 'haiku';
+    frontier: 'fable' | 'opus' | 'sonnet' | 'haiku';
+  };
   notifications: boolean;
   dbPath: string;
   skillsDir: string;
@@ -56,7 +62,7 @@ interface GestaltConfig {
 | 변수명 | 타입 | 기본값 | 설명 |
 |--------|------|--------|------|
 | `ANTHROPIC_API_KEY` | string | `""` | Anthropic API 키. 없으면 Interview/Spec에서 Passthrough 모드로 동작. `client: "codex"`에서도 Codex가 LLM 주체가 되도록 Interview/Spec은 Passthrough 모드로 동작. Execute는 항상 Passthrough. |
-| `GESTALT_MODEL` | string | `"claude-sonnet-4-20250514"` | 기본 LLM 모델 이름 (`llm.model` 매핑) |
+| `GESTALT_MODEL` | string | `"claude-sonnet-5"` | 기본 LLM 모델 이름 (`llm.model` 매핑) |
 | `GESTALT_RESOLUTION_THRESHOLD` | number (0–1) | `0.8` | 인터뷰 완료 기준 해상도 점수. 이 값 이상이면 인터뷰를 충분히 완료된 것으로 판단 |
 | `GESTALT_MAX_ROUNDS` | number (int) | `10` | 인터뷰 최대 라운드 수 |
 | `GESTALT_DRIFT_THRESHOLD` | number (0–1) | `0.3` | Execute 평가 시 드리프트 허용 임계값. 초과 시 Evolve 루프 진입 |
@@ -88,6 +94,9 @@ interface GestaltConfig {
 | `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | `execute.goalAlignmentThreshold` |
 | `GESTALT_REASONING_MODEL` | `reasoningModel` |
 | `GESTALT_REASONING_MODEL_FALLBACK` | `reasoningModelFallback` |
+| `GESTALT_TIER_MODEL_FRUGAL` | `tierModels.frugal` |
+| `GESTALT_TIER_MODEL_STANDARD` | `tierModels.standard` |
+| `GESTALT_TIER_MODEL_FRONTIER` | `tierModels.frontier` |
 | `GESTALT_NOTIFICATIONS` | `notifications` |
 | `GESTALT_DB_PATH` | `dbPath` |
 | `GESTALT_SKILLS_DIR` | `skillsDir` |
@@ -121,7 +130,7 @@ interface GestaltConfig {
 | Tier | 용도 | 예시 모델 |
 |------|------|-----------|
 | `frugal` | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `haiku` |
-| `standard` | 일반 작업 — 인터뷰, 스펙 생성, 코드 실행 | `claude-sonnet-4-20250514` |
+| `standard` | 일반 작업 — 인터뷰, 스펙 생성, 코드 실행 | `claude-sonnet-5` |
 | `frontier` | 고난도 추론 — 아키텍처 설계, 코드 리뷰, 진화 루프 | `claude-opus-4-20250514`, `o1` |
 
 > **참고**: Execute Engine은 LLM 호출 방식과 무관하게 **항상 Passthrough 모드**로 동작합니다.
@@ -147,7 +156,7 @@ tier를 설정하지 않으면 `llm.apiKey` + `llm.model` 조합으로 모든 ti
   "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
   "llm": {
     "apiKey": "",
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-sonnet-5",
     "frugal": {
       "provider": "openai",
       "baseURL": "http://localhost:11434/v1",
@@ -156,7 +165,7 @@ tier를 설정하지 않으면 `llm.apiKey` + `llm.model` 조합으로 모든 ti
     },
     "standard": {
       "provider": "anthropic",
-      "model": "claude-sonnet-4-20250514"
+      "model": "claude-sonnet-5"
     },
     "frontier": {
       "provider": "anthropic",

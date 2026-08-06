@@ -33,6 +33,7 @@ outputs:
 
 # Presentation Skill
 
+> **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 발표 자료를 **콘텐츠 먼저, 디자인 나중** 순서로 만드는 파이프라인.
 `presentation-writer`(슬라이드 콘텐츠)와 `presentation-designer`(Reveal.js HTML)를 잇고, 산출 전 승인 게이트를 둔다.
 

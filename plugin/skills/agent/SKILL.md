@@ -25,6 +25,8 @@ outputs:
 Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
+>
+> **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 > `ges_*` 도구가 없거나 호출이 실패하면 직접 흉내내 진행하지 않고, 무엇이 왜 안 되는지 말하고 멈춥니다.
 
 ## Usage

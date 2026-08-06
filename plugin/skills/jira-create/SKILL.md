@@ -34,6 +34,7 @@ outputs:
 
 # Jira Create Skill
 
+> **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 지라 티켓을 **jira-writer로 구조화 → 프로젝트·필드 확정 → 승인받고 → 생성**하는 파이프라인.
 `jira-writer` role agent(본문 작성)와 Atlassian MCP(생성)를 잇는다.
 

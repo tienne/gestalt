@@ -5,9 +5,26 @@ export const MAX_INTERVIEW_ROUNDS = 15;
 export const MAX_SPEC_RETRIES = 3;
 export const LLM_TEMPERATURE = 0.3;
 export const LLM_MAX_TOKENS = 4096;
-export const DEFAULT_MODEL = 'claude-sonnet-4-6';
+export const DEFAULT_MODEL = 'claude-sonnet-5';
 export const DEFAULT_REASONING_MODEL = 'fable';
 export const REASONING_MODEL_FALLBACK = 'opus';
+
+/**
+ * 에이전트 tier → Agent 도구 model 별칭.
+ *
+ * frontmatter의 tier는 "이 역할이 어느 정도 모델을 필요로 하나"를 선언할 뿐이라,
+ * 실제 모델로 옮겨주는 자리가 없으면 라벨로만 남는다. 서브에이전트를 띄울 때
+ * 이 표로 별칭을 뽑아 Agent 도구 model 파라미터로 넘긴다.
+ *
+ * DEFAULT_MODEL(API 모델 ID)과는 층위가 다르다 — 그쪽은 LLM 어댑터가 직접
+ * API를 호출할 때 쓰는 정식 ID이고, 이쪽은 Passthrough에서 호스트 Agent 도구에
+ * 넘기는 별칭이다.
+ */
+export const DEFAULT_TIER_MODELS = {
+  frugal: 'haiku',
+  standard: 'sonnet',
+  frontier: 'opus',
+} as const;
 
 export const GREENFIELD_WEIGHTS: Record<GestaltPrinciple, number> = {
   [GestaltPrinciple.CLOSURE]: 0.4,

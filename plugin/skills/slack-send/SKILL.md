@@ -39,6 +39,7 @@ outputs:
 
 # Slack Send Skill
 
+> **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 슬랙 메시지를 **권윤학님 어투로 다듬어 → 승인받고 → 전송/예약**하는 파이프라인.
 `slack-messenger` role agent(작성·다듬기)와 Slack MCP(전송)를 잇는다.
 

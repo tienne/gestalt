@@ -29,6 +29,7 @@ outputs:
 
 # PR Skill
 
+> **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 레포의 PR 규칙을 먼저 탐색하고, 미니 인터뷰로 컨텍스트를 수집한 뒤, diff를 분석해 레포 규칙에 맞는 PR description을 생성하고 `gh pr create`로 제출합니다.
 
 ## 사용 방법

@@ -21,6 +21,51 @@ function loadPrincipleRegistry(): AgentRegistry {
   return registry;
 }
 
+describe('handleAgentPassthrough: tier → model', () => {
+  it('frontier 에이전트는 opus로 해석한다', () => {
+    const raw = handleAgentPassthrough(loadRoleRegistry(), { action: 'get', name: 'architect' });
+    const res = JSON.parse(raw);
+
+    expect(res.tier).toBe('frontier');
+    expect(res.model).toBe('opus');
+  });
+
+  it('standard 에이전트는 sonnet으로 해석한다', () => {
+    const raw = handleAgentPassthrough(loadRoleRegistry(), {
+      action: 'get',
+      name: 'humanize-monolith',
+    });
+    const res = JSON.parse(raw);
+
+    expect(res.tier).toBe('standard');
+    expect(res.model).toBe('sonnet');
+  });
+
+  it('frugal 에이전트는 haiku로 해석한다', () => {
+    const raw = handleAgentPassthrough(
+      loadRoleRegistry(),
+      { action: 'get', name: 'proximity-worker' },
+      loadPrincipleRegistry(),
+    );
+    const res = JSON.parse(raw);
+
+    expect(res.tier).toBe('frugal');
+    expect(res.model).toBe('haiku');
+  });
+
+  it('설정으로 표를 바꾸면 그 값을 쓴다', () => {
+    const raw = handleAgentPassthrough(
+      loadRoleRegistry(),
+      { action: 'get', name: 'architect' },
+      undefined,
+      { frugal: 'haiku', standard: 'sonnet', frontier: 'fable' },
+    );
+    const res = JSON.parse(raw);
+
+    expect(res.model).toBe('fable');
+  });
+});
+
 describe('handleAgentPassthrough: get', () => {
   it('resolves a role agent from the role registry', () => {
     const roleReg = loadRoleRegistry();
