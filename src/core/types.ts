@@ -521,6 +521,8 @@ export interface ReviewSession {
   currentAttempt: number;
   maxAttempts: number;
   reviewContext?: ReviewContext;
+  /** 이슈 라인의 코드 스니펫을 읽을 기준 경로. 없으면 cwd로 폴백한다. */
+  repoRoot?: string;
   matchedAgents: string[];
   reviewResults: ReviewResult[];
   consensus?: ReviewConsensusResult;

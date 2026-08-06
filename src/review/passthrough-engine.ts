@@ -54,6 +54,7 @@ export class PassthroughReviewEngine {
   ): Result<{ sessionId: string; reviewStartContext: ReviewStartContext }> {
     let reviewContext: ReviewContext;
     let executeSessionId: string;
+    let repoRoot: string | undefined;
 
     if ('executeSession' in source) {
       reviewContext = this.contextCollector.collect(
@@ -62,10 +63,12 @@ export class PassthroughReviewEngine {
         source.executeSession.codeGraphRepoRoot,
       );
       executeSessionId = source.executeSession.sessionId;
+      repoRoot = source.executeSession.codeGraphRepoRoot;
     } else {
       reviewContext = this.contextCollector.collectFromFiles(source.changedFiles, source.repoRoot);
       // Sentinel: direct file review has no backing execute session
       executeSessionId = '';
+      repoRoot = source.repoRoot;
     }
 
     const matchContext = this.agentMatcher.generateMatchContext(
@@ -82,6 +85,7 @@ export class PassthroughReviewEngine {
       currentAttempt: 0,
       maxAttempts: MAX_REVIEW_ATTEMPTS,
       reviewContext,
+      repoRoot,
       matchedAgents: [],
       reviewResults: [],
       reports: [],
@@ -249,6 +253,7 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       { ...consensus, overallApproved: approved },
       session.currentAttempt + 1,
       continuityVerdict,
+      session.repoRoot,
     );
     session.reports.push(report);
 
@@ -325,7 +330,12 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     if (session.currentAttempt > session.maxAttempts) {
       session.status = 'failed_with_report';
 
-      const report = this.reportGenerator.generate(session.consensus, session.currentAttempt);
+      const report = this.reportGenerator.generate(
+        session.consensus,
+        session.currentAttempt,
+        undefined,
+        session.repoRoot,
+      );
       session.reports.push(report);
 
       const remainingIssues = session.consensus.mergedIssues.filter(

@@ -4,15 +4,20 @@ import type {
   ReviewIssue,
   ReviewReport,
 } from '../core/types.js';
+import { SnippetReader, type CodeSnippet } from './snippet-reader.js';
 
 export class ReviewReportGenerator {
   generate(
     consensus: ReviewConsensusResult,
     attempt: number,
     continuityVerdict?: ContinuityVerdict,
+    repoRoot?: string,
   ): ReviewReport {
     const passed = consensus.overallApproved;
-    const markdown = this.renderMarkdown(consensus, attempt, passed, continuityVerdict);
+    // 리더를 호출마다 새로 만든다 — review_fix가 파일을 고치므로 재시도
+    // 리포트는 캐시가 아니라 디스크의 현재 내용을 보여줘야 한다.
+    const snippets = new SnippetReader(repoRoot);
+    const markdown = this.renderMarkdown(consensus, attempt, passed, continuityVerdict, snippets);
 
     return {
       markdown,
@@ -26,7 +31,8 @@ export class ReviewReportGenerator {
     consensus: ReviewConsensusResult,
     attempt: number,
     passed: boolean,
-    continuityVerdict?: ContinuityVerdict,
+    continuityVerdict: ContinuityVerdict | undefined,
+    snippets: SnippetReader,
   ): string {
     const lines: string[] = [];
     const statusEmoji = passed ? '✅' : '❌';
@@ -86,19 +92,19 @@ export class ReviewReportGenerator {
     if (criticals.length > 0) {
       lines.push('## 🔴 Critical Issues');
       lines.push('');
-      this.renderIssueList(lines, criticals);
+      this.renderIssueList(lines, criticals, snippets);
     }
 
     if (highs.length > 0) {
       lines.push('## 🟠 High Issues');
       lines.push('');
-      this.renderIssueList(lines, highs);
+      this.renderIssueList(lines, highs, snippets);
     }
 
     if (warnings.length > 0) {
       lines.push('## 🟡 Warnings');
       lines.push('');
-      this.renderIssueList(lines, warnings);
+      this.renderIssueList(lines, warnings, snippets);
     }
 
     if (consensus.mergedIssues.length === 0) {
@@ -121,7 +127,7 @@ export class ReviewReportGenerator {
     return lines.join('\n');
   }
 
-  private renderIssueList(lines: string[], issues: ReviewIssue[]): void {
+  private renderIssueList(lines: string[], issues: ReviewIssue[], snippets: SnippetReader): void {
     for (const issue of issues) {
       const location = issue.line ? `${issue.file}:${issue.line}` : issue.file;
       lines.push(`### ${issue.message}`);
@@ -131,6 +137,22 @@ export class ReviewReportGenerator {
       lines.push(`- **Reported by**: ${issue.reportedBy}`);
       lines.push(`- **Suggestion**: ${issue.suggestion}`);
       lines.push('');
+
+      const snippet = snippets.read(issue.file, issue.line);
+      if (snippet) this.renderSnippet(lines, snippet);
     }
+  }
+
+  /** 지목된 라인에 `>` 마커를 붙여 코드펜스로 렌더링한다. */
+  private renderSnippet(lines: string[], snippet: CodeSnippet): void {
+    const width = String(snippet.lines[snippet.lines.length - 1]!.no).length;
+
+    lines.push(`\`\`\`${snippet.lang}`);
+    for (const line of snippet.lines) {
+      const marker = line.target ? '>' : ' ';
+      lines.push(`${marker} ${String(line.no).padStart(width, ' ')} | ${line.text}`);
+    }
+    lines.push('```');
+    lines.push('');
   }
 }
