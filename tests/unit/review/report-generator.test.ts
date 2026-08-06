@@ -167,22 +167,66 @@ describe('ReviewReportGenerator', () => {
       overallApproved: false,
     });
 
+    /** 스니펫 코드펜스 안쪽 라인만 뽑는다 */
+    const snippetBody = (markdown: string): string[] => {
+      const all = markdown.split('\n');
+      const open = all.findIndex((l) => /^```[a-z]*$/.test(l));
+      if (open === -1) return [];
+      const close = all.indexOf('```', open + 1);
+      return all.slice(open + 1, close);
+    };
+
+    const lineNos = (markdown: string): number[] =>
+      snippetBody(markdown)
+        .filter((l) => /^[> ] *\d+ \| /.test(l))
+        .map((l) => Number(/(\d+)/.exec(l)![1]));
+
     beforeAll(() => {
       repoRoot = mkdtempSync(join(tmpdir(), 'gestalt-snippet-'));
       mkdirSync(join(repoRoot, 'src'), { recursive: true });
+
+      // 1  import jwt from 'jsonwebtoken';
+      // 2  (빈 줄)
+      // 3  export function currentUser(req: Request) {
+      // 4 ~ 12  본문 (12번이 닫는 중괄호)
+      // 13 (빈 줄)
+      // 14 export function logout() {  ← 다음 함수
       writeFileSync(
         join(repoRoot, 'src/auth.ts'),
         [
-          'import jwt from "jsonwebtoken";',
-          '',
-          'export function currentUser(req: Request) {',
-          '  const token = req.headers.authorization;',
-          '  const user = jwt.decode(token);',
-          '  return user;',
-          '}',
+          "import jwt from 'jsonwebtoken';", // 1
+          '', // 2
+          'export function currentUser(req: Request) {', // 3
+          '  const header = req.headers.authorization;', // 4
+          '  if (!header) {', // 5
+          '    return null;', // 6
+          '  }', // 7
+          '', // 8
+          '  const token = header.slice(7);', // 9
+          '  const user = jwt.decode(token);', // 10
+          '  return user;', // 11
+          '}', // 12
+          '', // 13
+          'export function logout() {', // 14
+          '  session.destroy();', // 15
+          '}', // 16
         ].join('\n'),
       );
-      writeFileSync(join(repoRoot, 'src/long.ts'), `const x = "${'a'.repeat(400)}";`);
+
+      writeFileSync(join(repoRoot, 'src/long.ts'), `const x = '${'a'.repeat(400)}';`);
+      writeFileSync(
+        join(repoRoot, 'src/deep.py'),
+        [
+          'def handler(event):', // 1
+          '    for item in event:', // 2
+          ...Array.from({ length: 12 }, (_, i) => `        step_${i}()`), // 3~14
+          '        risky(item)', // 15
+          '    return True', // 16
+          '', // 17
+          'def other():', // 18
+          '    pass', // 19
+        ].join('\n'),
+      );
     });
 
     afterAll(() => {
@@ -191,38 +235,85 @@ describe('ReviewReportGenerator', () => {
 
     it('지목한 라인 주변 코드를 마커와 함께 붙인다', () => {
       const report = generator.generate(
-        consensusWith(issue('src/auth.ts', 5)),
+        consensusWith(issue('src/auth.ts', 10)),
         1,
         undefined,
         repoRoot,
       );
 
       expect(report.markdown).toContain('```ts');
-      expect(report.markdown).toContain('> 5 |   const user = jwt.decode(token);');
-      // 앞뒤 컨텍스트도 함께
-      expect(report.markdown).toContain('  4 |   const token = req.headers.authorization;');
-      expect(report.markdown).toContain('  6 |   return user;');
+      expect(report.markdown).toContain('> 10 |   const user = jwt.decode(token);');
+      expect(report.markdown).toContain('  11 |   return user;');
       // 지목 라인만 마커를 받는다
-      expect(report.markdown).not.toContain('> 4 |');
+      expect(report.markdown).not.toContain('> 11 |');
     });
 
-    it('파일 경계를 넘지 않는다', () => {
+    it('기본 창은 위아래 5줄이고 감싸는 선언이 함께 붙는다', () => {
       const report = generator.generate(
-        consensusWith(issue('src/auth.ts', 2)),
+        consensusWith(issue('src/auth.ts', 10)),
         1,
         undefined,
         repoRoot,
       );
 
-      expect(report.markdown).toContain('> 2 |');
-      expect(report.markdown).toContain('1 | import jwt from "jsonwebtoken";');
+      // 3: 감싸는 함수 선언 / 5~12: 위로 5줄, 아래는 블록 끝(12)에서 멈춤
+      expect(lineNos(report.markdown)).toEqual([3, 5, 6, 7, 8, 9, 10, 11, 12]);
+    });
 
-      const snippetLineNos = report.markdown
-        .split('\n')
-        .filter((l) => /^[> ] *\d+ \| /.test(l))
-        .map((l) => Number(/(\d+)/.exec(l)![1]));
-      expect(snippetLineNos[0]).toBe(1);
-      expect(snippetLineNos).toEqual([1, 2, 3, 4, 5]);
+    it('아래로 감싸는 블록이 끝나면 멈춰서 다음 함수를 넘보지 않는다', () => {
+      const report = generator.generate(
+        consensusWith(issue('src/auth.ts', 11)),
+        1,
+        undefined,
+        repoRoot,
+      );
+
+      const nos = lineNos(report.markdown);
+      // 12번(닫는 중괄호)까지만. 14번 다음 함수 선언은 포함하지 않는다
+      expect(nos.at(-1)).toBe(12);
+      expect(report.markdown).not.toContain('logout');
+    });
+
+    it('감싸는 선언이 창 밖이면 함수까지 체인으로 붙이고 생략 표시를 넣는다', () => {
+      const report = generator.generate(
+        consensusWith(issue('src/deep.py', 15)),
+        1,
+        undefined,
+        repoRoot,
+      );
+
+      // 1: def handler / 2: for 문 / 그 다음이 생략 표시
+      expect(lineNos(report.markdown)).toEqual([1, 2, 10, 11, 12, 13, 14, 15, 16]);
+      const body = snippetBody(report.markdown);
+      expect(body[0]).toContain('def handler(event):');
+      expect(body[1]).toContain('for item in event:');
+      expect(body[2]).toContain('…');
+      expect(report.markdown).toContain('> 15 |         risky(item)');
+      expect(report.markdown).toContain('```python');
+    });
+
+    it('선언이 이미 창 안에 있으면 생략 표시를 넣지 않는다', () => {
+      const report = generator.generate(
+        consensusWith(issue('src/auth.ts', 6)),
+        1,
+        undefined,
+        repoRoot,
+      );
+
+      const body = snippetBody(report.markdown);
+      expect(body.some((l) => l.includes('export function currentUser'))).toBe(true);
+      expect(body.some((l) => l.trim().endsWith('| …'))).toBe(false);
+    });
+
+    it('최상위 라인은 기본 창을 그대로 쓴다', () => {
+      const report = generator.generate(
+        consensusWith(issue('src/auth.ts', 3)),
+        1,
+        undefined,
+        repoRoot,
+      );
+
+      expect(lineNos(report.markdown)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     });
 
     it('긴 라인은 잘라낸다', () => {
@@ -264,9 +355,9 @@ describe('ReviewReportGenerator', () => {
     });
 
     it('repoRoot가 없으면 스니펫 없이 렌더링한다', () => {
-      const report = generator.generate(consensusWith(issue('src/auth.ts', 5)), 1);
+      const report = generator.generate(consensusWith(issue('src/auth.ts', 10)), 1);
 
-      expect(report.markdown).toContain('`src/auth.ts:5`');
+      expect(report.markdown).toContain('`src/auth.ts:10`');
       expect(report.markdown).not.toContain('```ts');
     });
   });

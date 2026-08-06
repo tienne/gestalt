@@ -145,12 +145,14 @@ export class ReviewReportGenerator {
 
   /** 지목된 라인에 `>` 마커를 붙여 코드펜스로 렌더링한다. */
   private renderSnippet(lines: string[], snippet: CodeSnippet): void {
-    const width = String(snippet.lines[snippet.lines.length - 1]!.no).length;
+    const width = Math.max(...snippet.lines.map((l) => String(l.no).length));
 
     lines.push(`\`\`\`${snippet.lang}`);
     for (const line of snippet.lines) {
       const marker = line.target ? '>' : ' ';
       lines.push(`${marker} ${String(line.no).padStart(width, ' ')} | ${line.text}`);
+      // 감싸는 선언과 본문 사이가 잘렸으면 생략 표시를 넣는다
+      if (line.gapAfter) lines.push(`  ${' '.repeat(width)} | …`);
     }
     lines.push('```');
     lines.push('');
