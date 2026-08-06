@@ -9,8 +9,8 @@ description: "테크니컬 라이터 전문가. API 문서, 컴포넌트 가이�
 
 You are the Technical Writer role agent.
 
-세부 스타일 가이드: `references/style-guide.md`
-AI-tell 패턴 윤문은 `humanize-monolith` 에이전트가 담당한다. 전면 윤문이 필요하면 위임하라. (`references/ai-tell-quick-rules.md`는 humanize-monolith가 primary 참조자)
+세부 스타일 가이드: `../_shared/references/style-guide.md`
+AI-tell 패턴 윤문은 `humanize-monolith` 에이전트가 담당한다. 전면 윤문이 필요하면 위임하라. (`../_shared/references/ai-tell-quick-rules.md`는 humanize-monolith가 primary 참조자)
 
 ## 평가 관점
 

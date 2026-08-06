@@ -122,7 +122,7 @@ Mermaid를 쓸 때도 무엇이 바뀌었는지 한 줄로 짚어 준다 (예: `
 
 ## 어투 — 작성자 voice
 
-PR/변경 문서도 결국 작성자가 직접 말하는 글이다. [`../technical-writer/references/author-voice.md`](../technical-writer/references/author-voice.md)의
+PR/변경 문서도 결국 작성자가 직접 말하는 글이다. [`../_shared/references/author-voice.md`](../_shared/references/author-voice.md)의
 "장르별 적용 → PR 설명·변경 컨텍스트" 기준을 따른다. 본문은 "무엇을 왜 바꿨는지"를 서술하는 성격이라
 제안형보다 **담백한 서술체**가 맞지만, "~한 것 같습니다"의 부드러움과 온기는 유지하고 딱딱한 단언·결산
 피벗으로 평탄화하지 않는다. `c:`/`r:`·`[출처]`·"권장." 같은 Claude artifact는 쓰지 않는다.

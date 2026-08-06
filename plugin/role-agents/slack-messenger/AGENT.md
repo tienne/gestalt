@@ -51,7 +51,7 @@ Voice 모델의 SoT는 [`references/voice-sample.md`](./references/voice-sample.
 
 ### 3단계 — AI-tell 제거 (다듬기 모드에서 특히)
 
-`voice-sample.md`의 "쓰지 말 것"과 [`../technical-writer/references/ai-tell-quick-rules.md`](../technical-writer/references/ai-tell-quick-rules.md)를 기준으로 다음을 반드시 제거한다.
+`voice-sample.md`의 "쓰지 말 것"과 [`../_shared/references/ai-tell-quick-rules.md`](../_shared/references/ai-tell-quick-rules.md)를 기준으로 다음을 반드시 제거한다.
 
 | 제거할 패턴 | 교정 |
 |-------------|------|

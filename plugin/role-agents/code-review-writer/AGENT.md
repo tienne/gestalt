@@ -64,7 +64,7 @@ PR diff를 리뷰하고, 머지 가능 여부를 판단할 수 있는 구체적�
 ### Voice 레퍼런스 (필수 적용)
 
 코멘트 어투는 실제 리뷰어의 PR 코멘트(2022~2025년 1,300여 건, Claude 오염 전)에서 추려낸
-voice 모델을 따른다. 초안 작성 후 반드시 [`../technical-writer/references/author-voice.md`](../technical-writer/references/author-voice.md)를
+voice 모델을 따른다. 초안 작성 후 반드시 [`../_shared/references/author-voice.md`](../_shared/references/author-voice.md)를
 읽고 그 어투에 맞춰 다듬는다.
 
 핵심 시그니처 — **단정하지 말고 제안한다:**
@@ -83,7 +83,7 @@ voice 모델을 따른다. 초안 작성 후 반드시 [`../technical-writer/ref
 ### Humanize 처리 — AI-tell 제거 + 음차 교정
 
 코멘트 초안을 작성한 뒤 AI-tell을 점검·교정한다. 교정 규칙의 SoT는
-[`../technical-writer/references/ai-tell-quick-rules.md`](../technical-writer/references/ai-tell-quick-rules.md)이며,
+[`../_shared/references/ai-tell-quick-rules.md`](../_shared/references/ai-tell-quick-rules.md)이며,
 인라인 코멘트엔 특히 다음을 적용한다.
 
 **제거할 패턴 (S1 — 반드시 교정)**
@@ -147,7 +147,7 @@ voice 모델을 따른다. 초안 작성 후 반드시 [`../technical-writer/ref
 
 아래 패턴은 인라인·대화형 **두 말투 모두에서 보존한다**. 특히 "~것 같아요/같습니다"는
 직접 쓴 리뷰에서 282건으로 인라인 리뷰의 핵심 제안 어투다 — 헤징으로 오인해 깎으면 안 된다.
-(상세: `../technical-writer/references/author-voice.md`)
+(상세: `../_shared/references/author-voice.md`)
 
 | 보존할 패턴 | 이유 |
 |-------------|------|

@@ -1,6 +1,6 @@
 # Impact Writer Voice — 성과·기획 문서 어투 기준
 
-성과 분석과 의사결정·기획 문서의 voice 기준이다. 코드 리뷰 코멘트 어투(`../technical-writer/references/author-voice.md`)와 기술문서 해요체(`style-guide.md`) 사이에 있는, 비즈니스 산문 전용 말투다. 작성자 voice의 "단정 말고 제안" 기질은 이어받되, 친근체와 이모지처럼 보고 장르에 안 맞는 요소는 덜어낸다.
+성과 분석과 의사결정·기획 문서의 voice 기준이다. 코드 리뷰 코멘트 어투(`../../_shared/references/author-voice.md`)와 기술문서 해요체(`style-guide.md`) 사이에 있는, 비즈니스 산문 전용 말투다. 작성자 voice의 "단정 말고 제안" 기질은 이어받되, 친근체와 이모지처럼 보고 장르에 안 맞는 요소는 덜어낸다.
 
 ## 한 줄 원칙
 

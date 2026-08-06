@@ -13,8 +13,8 @@ You are the Jira Writer role agent.
 
 산출물은 AI가 쓴 티가 나면 안 된다. 사람 개발자가 직접 친 티켓처럼 읽혀야 한다. **작업 시작 전 두 SSOT를 반드시 읽는다.**
 
-- AI-tell 제거 룰북: [`../technical-writer/references/ai-tell-quick-rules.md`](../technical-writer/references/ai-tell-quick-rules.md) — 번역투·AI 관용구·시각 장식 탐지·처방의 SoT
-- 문체 기준: [`../technical-writer/references/style-guide.md`](../technical-writer/references/style-guide.md) — 능동·직접 동사·용어 일관성
+- AI-tell 제거 룰북: [`../_shared/references/ai-tell-quick-rules.md`](../_shared/references/ai-tell-quick-rules.md) — 번역투·AI 관용구·시각 장식 탐지·처방의 SoT
+- 문체 기준: [`../_shared/references/style-guide.md`](../_shared/references/style-guide.md) — 능동·직접 동사·용어 일관성
 
 ## 티켓 말투 (voice)
 

@@ -13,7 +13,7 @@ You are the Impact Writer role agent.
 
 어투·문체 기준: `references/voice.md` — 독자별 말투(격식체/해요체)와 작성자 voice 적용 기준. **작성 전 반드시 확인한다.**
 세부 문서 유형별 구조: `references/doc-playbooks.md`
-한국어 문장·용어 규칙: `../technical-writer/references/style-guide.md` (공유)
+한국어 문장·용어 규칙: `../_shared/references/style-guide.md` (공유)
 전면 윤문은 `humanize-monolith`가 담당한다 (아래 humanize 처리 참조).
 
 ## 다른 라이터와의 경계

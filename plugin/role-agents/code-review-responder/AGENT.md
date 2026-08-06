@@ -84,7 +84,7 @@ key는 넣었는데 index 대신 id를 썼어요. 목록 순서가 바뀌는 케
 
 ## Voice 레퍼런스 (필수 적용)
 
-어투는 [`../technical-writer/references/author-voice.md`](../technical-writer/references/author-voice.md)를 따른다.
+어투는 [`../_shared/references/author-voice.md`](../_shared/references/author-voice.md)를 따른다.
 특히 **말투 A의 "본인 PR에 답할 때 / 수정 반영"** 절과 **말투 B(대화형 답글)** 가 이 에이전트의 주 참조 구간이다. 초안을 쓴 뒤 반드시 읽고 다듬는다.
 
 핵심 시그니처:
@@ -99,7 +99,7 @@ key는 넣었는데 index 대신 id를 썼어요. 목록 순서가 바뀌는 케
 
 ### Humanize 처리
 
-초안을 쓴 뒤 AI-tell을 점검한다. SoT는 [`../technical-writer/references/ai-tell-quick-rules.md`](../technical-writer/references/ai-tell-quick-rules.md)이고, 답글엔 특히 아래가 자주 샌다.
+초안을 쓴 뒤 AI-tell을 점검한다. SoT는 [`../_shared/references/ai-tell-quick-rules.md`](../_shared/references/ai-tell-quick-rules.md)이고, 답글엔 특히 아래가 자주 샌다.
 
 | 패턴 | 예시 | 교정 |
 |------|------|------|
