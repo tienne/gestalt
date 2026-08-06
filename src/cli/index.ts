@@ -8,6 +8,7 @@ import { initCommand } from './commands/init.js';
 import { graphVisualizeCommand } from './commands/graph-visualize.js';
 import { updateCommand } from './commands/update.js';
 import { usageReportCommand } from './commands/usage-report.js';
+import { humanizeGateCommand } from './commands/humanize-gate.js';
 import { getVersion } from '../core/version.js';
 
 export function createCli(): Command {
@@ -86,6 +87,17 @@ export function createCli(): Command {
         port: options.port,
         noBrowser: options.browser === false,
       });
+    });
+
+  program
+    .command('humanize-gate')
+    .description('Judge a humanized draft against the rulebook (exit 0 pass / 1 warn / 2 abort)')
+    .requiredOption('--before <path>', 'Original text file')
+    .requiredOption('--after <path>', 'Humanized text file')
+    .option('--register <doc|chat>', 'Register to judge against (default: doc)', 'doc')
+    .option('--json', 'Emit the full report as JSON')
+    .action((options: { before: string; after: string; register?: string; json?: boolean }) => {
+      humanizeGateCommand(options);
     });
 
   program
