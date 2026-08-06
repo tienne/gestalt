@@ -20,7 +20,8 @@
   "scripts": {
     "dev": "tsx bin/gestalt.ts",
     "build": "tsc",
-    "postbuild": "mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js",
+    "postbuild": "rm -rf dist/plugin && mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js && pnpm run verify:plugin",
+    "verify:plugin": "tsx scripts/verify-plugin-assets.ts",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
