@@ -34,7 +34,8 @@
     "gestalt"
   ],
   "enabledPlugins": {
-    "kb-catchtable@kb-catchtable": false
+    "kb-catchtable@kb-catchtable": false,
+    "ct-task@kb-catchtable": false
   },
   "outputStyle": "Tienne Voice"
 }
