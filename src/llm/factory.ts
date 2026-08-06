@@ -1,9 +1,7 @@
 import type { GestaltConfig, LLMTierConfig } from '../core/config.js';
-import { DEFAULT_MODEL } from '../core/constants.js';
 import { LLMError } from '../core/errors.js';
 import type { AgentTier } from '../core/types.js';
 import type { LLMAdapter } from './types.js';
-import type { TierMapping } from '../agent/figural-router.js';
 import { AnthropicAdapter } from './adapter.js';
 import { OpenAIAdapter } from './openai-adapter.js';
 import { RetryingAdapter } from './retry-adapter.js';
@@ -42,36 +40,6 @@ export function createAdapterFromTierConfig(
     default:
       throw new LLMError(`Unsupported LLM provider: ${String(tierCfg.provider)}`);
   }
-}
-
-/**
- * GestaltConfig에서 FiguralRouter용 TierMapping을 생성한다.
- * tier 설정이 없는 경우 flat config(apiKey + model)로 모든 tier에 AnthropicAdapter를 할당한다.
- */
-export function createTierMapping(config: GestaltConfig): TierMapping {
-  const llm = config.llm;
-  const tiers: AgentTier[] = ['frugal', 'standard', 'frontier'];
-  const mapping = {} as Record<AgentTier, TierMapping[AgentTier]>;
-
-  for (const tier of tiers) {
-    const tierCfg = llm[tier];
-    if (tierCfg) {
-      mapping[tier] = {
-        provider: tierCfg.provider,
-        model: tierCfg.model,
-        adapter: createAdapterFromTierConfig(tierCfg, llm),
-      };
-    } else {
-      // flat config fallback
-      mapping[tier] = {
-        provider: 'anthropic',
-        model: llm.model || DEFAULT_MODEL,
-        adapter: new RetryingAdapter(new AnthropicAdapter(llm.apiKey, llm.model || DEFAULT_MODEL)),
-      };
-    }
-  }
-
-  return mapping as TierMapping;
 }
 
 /**

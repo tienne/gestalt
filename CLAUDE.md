@@ -102,7 +102,7 @@ src/knowledge-base/— KB 생성·시맨틱 검색·동기화 (ges_generate_kb/g
 src/memory/        — Memory 피드백 루프 (ProjectMemoryStore, UserProfileStore)
 src/llm/           — 멀티 프로바이더 LLM 어댑터 (frugal/standard/frontier 티어 라우팅)
 src/review/        — Code Review 파이프라인 (agent-matcher, context-collector, report-generator)
-src/agent/         — AgentRegistry, FiguralRouter, RoleAgentRegistry
+src/agent/         — AgentRegistry, RoleAgentRegistry (tier→모델 해석은 MCP 핸들러가 담당)
 src/mcp/           — MCP 서버 + 툴 핸들러
 src/events/        — EventStore (SQLite)
 src/skills/        — Skill System 엔진 (SKILL.md 파서·실행기, 최상위 skills/와는 별개)
