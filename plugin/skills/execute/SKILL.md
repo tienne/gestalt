@@ -208,7 +208,7 @@ ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ..
 
 > 이 경로가 기본값이고 외부 도구 없이 동작한다. 워커별로 다른 에이전트 CLI를 쓰거나, 진행을 터미널로 들여다봐야 하거나, `worker_done` 추적이 필요하면 `dispatch` 스킬이 같은 단계를 외부 런타임으로 돌린다. 셋 다 필요 없으면 여기 그대로 두는 편이 가볍다.
 >
-> `execute_task` 응답의 `nextTaskIds`는 그 시점에 착수 가능한 태스크 집합이다. `parallelGroups`가 계획 시점의 정적 레이어라면, 이쪽은 지금 완료 상태를 반영한 값이다. 한 태스크가 끝나고 다음을 고를 때는 `nextTaskIds`를 보는 편이 정확하다.
+> `execute_task` 응답의 `nextTaskIds`는 그 시점에 착수 가능한 태스크 집합이다. `parallelGroups`가 계획 시점의 정적 묶음이라면, 이쪽은 지금 완료 상태를 반영한 값이다. 한 태스크가 끝나고 다음을 고를 때는 `nextTaskIds`를 보는 편이 정확하다.
 
 **병렬 그룹 실행 흐름:**
 

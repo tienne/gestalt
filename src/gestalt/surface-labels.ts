@@ -1,13 +1,13 @@
 import { GestaltPrinciple } from '../core/types.js';
 
 /**
- * 표면/심층 분리 (Figure-Ground)의 표면 레이어 단일 소스.
+ * 표면/심층 분리 (Figure-Ground)에서 표면 문자열을 정의하는 단 한 곳.
  *
  * 코드 내부는 게슈탈트 원리(GestaltPrinciple enum)와 에이전트 식별자를 그대로 쓰지만,
  * 사용자에게 돌려주는 표면 문자열에는 게슈탈트 용어가 새어 나가면 안 된다.
  * 이 모듈이 내부 식별자를 평범한 한국어·영어 문구로 잇는 유일한 매핑 지점이다.
  *
- * 심층 레이어(README·docs·LLM 시스템 프롬프트·내부 타입)는 이 모듈을 거치지 않고
+ * 심층 쪽(README, docs, LLM 시스템 프롬프트, 내부 타입)은 이 모듈을 거치지 않고
  * 게슈탈트 어휘를 그대로 유지한다.
  */
 
@@ -117,7 +117,7 @@ export const BANNED_SURFACE_TERMS: readonly string[] = [
 ];
 
 /**
- * MCP 도구 응답에서 심층 레이어(LLM 지시 프롬프트) 필드 키.
+ * MCP 도구 응답에서 심층 쪽(LLM 지시 프롬프트) 필드 키.
  * 이 필드들은 게슈탈트 어휘를 담은 채 유지되므로 표면 누수 검사 대상에서 제외한다.
  */
 export const DEEP_PROMPT_KEYS: readonly string[] = [

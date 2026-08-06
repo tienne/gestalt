@@ -1,7 +1,7 @@
 ---
 name: slack-send
 version: "1.0.0"
-description: "슬랙 메시지를 권윤학님 어투로 다듬어 승인 게이트를 거친 뒤 전송하거나 예약한다. 메시지를 '보내달라/전달해달라/공지해달라/예약 발송해달라'는 요청 시 자동 발동. slack-messenger로 초안 → 채널과 발송 시각 확인 → 미리보기 승인 → slack_send_message/slack_schedule_message. 전송까지 하는 스킬이다. 문구만 다듬고 보내지는 않으려면 slack-messenger를 호출한다."
+description: "슬랙 메시지를 권윤학님 어투로 다듬어 승인 단계를 거친 뒤 전송하거나 예약한다. 메시지를 '보내달라/전달해달라/공지해달라/예약 발송해달라'는 요청 시 자동 발동. slack-messenger로 초안 → 채널과 발송 시각 확인 → 미리보기 승인 → slack_send_message/slack_schedule_message. 전송까지 하는 스킬이다. 문구만 다듬고 보내지는 않으려면 slack-messenger를 호출한다."
 triggers:
   # 전송 의도
   - "슬랙 보내"
@@ -74,7 +74,7 @@ outputs:
 - DM: `slack_search_users`로 상대 → `user_id`(그대로 channel_id로 사용).
 - 확정한 채널명·ID를 사용자에게 노출해 **대상이 맞는지 확인**한다.
 
-### 4. 미리보기 + 승인 게이트 (필수)
+### 4. 미리보기 + 승인 단계 (필수)
 
 아래를 한 화면에 모아 보여주고 명시적 승인을 받는다.
 

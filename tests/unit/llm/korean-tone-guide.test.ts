@@ -70,8 +70,8 @@ describe('execute 5개 system 상수에 KOREAN_TONE_GUIDE 주입', () => {
 });
 
 describe('import 참조 동일성', () => {
-  it('execute/prompts.ts와 llm/prompts.ts의 KOREAN_TONE_GUIDE가 동일 상수 참조 (SSOT)', () => {
-    // 동일 문자열 전문이 양쪽 상수에 그대로 포함되는지로 SSOT를 검증
+  it('execute/prompts.ts와 llm/prompts.ts의 KOREAN_TONE_GUIDE가 같은 상수를 참조한다', () => {
+    // 같은 문자열 전문이 양쪽 상수에 그대로 들어있는지로 기준이 하나인지 확인한다
     expect(EXECUTE_SYSTEM_PROMPT).toContain(KOREAN_TONE_GUIDE);
     expect(INTERVIEW_SYSTEM_PROMPT).toContain(KOREAN_TONE_GUIDE);
   });

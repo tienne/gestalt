@@ -82,7 +82,7 @@ voice 모델을 따른다. 초안 작성 후 반드시 [`../_shared/references/a
 
 ### Humanize 처리 — AI-tell 제거 + 음차 교정
 
-코멘트 초안을 작성한 뒤 AI-tell을 점검·교정한다. 교정 규칙의 SoT는
+코멘트 초안을 작성한 뒤 AI-tell을 점검·교정한다. 교정 규칙의 기준은
 [`../_shared/references/ai-tell-quick-rules.md`](../_shared/references/ai-tell-quick-rules.md)이며,
 인라인 코멘트엔 특히 다음을 적용한다.
 

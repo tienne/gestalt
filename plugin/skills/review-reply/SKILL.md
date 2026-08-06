@@ -126,7 +126,7 @@ gh api repos/<owner>/<repo>/issues/<number>/comments --jq '.[] | {id, user: .use
 - 리뷰 이후 그 부분이 이미 바뀌었으면 기록해둔다 — 답변 유형이 accept가 아니라 "이미 처리됨"이 된다.
 - 코멘트가 여러 파일에 걸친 구조적인 내용이면 관련 파일까지 읽는다. 영향범위가 불확실하면 `ges_code_graph { action: "blast_radius" }`를 쓴다.
 
-### 3단계: 유형 분류 + 승인 게이트 1 (필수)
+### 3단계: 유형 분류 + 승인 단계 1 (필수)
 
 스레드마다 처리 방향을 제안한다. 분류는 `code-review-responder`의 네 유형을 쓴다.
 
@@ -137,7 +137,7 @@ gh api repos/<owner>/<repo>/issues/<number>/comments --jq '.[] | {id, user: .use
 | `defer` | 지금은 안 고치는 편이 낫다 | 없음 |
 | `clarify` | 의도를 못 잡았다 — 되묻는다 | 없음 |
 
-분류표를 보여주고 **사용자가 확정**하게 한다. 이 게이트가 스킬의 핵심이다 — 무엇을 수용하고 무엇을 반박할지는 코드가 아니라 사람이 정한다.
+분류표를 보여주고 **사용자가 확정**하게 한다. 이 단계가 스킬의 핵심이다 — 무엇을 수용하고 무엇을 반박할지는 코드가 아니라 사람이 정한다.
 
 ```
 받은 코멘트 4건의 처리 방향을 이렇게 봤어요. 바꿀 게 있으면 말씀해주세요.
@@ -178,7 +178,7 @@ gh pr view <number> --json url --jq .url   # 커밋 링크 조립용 base
 git status -sb   # ahead/behind 확인
 ```
 
-### 5단계: 답글 작성 (code-review-responder) + 승인 게이트 2 (필수)
+### 5단계: 답글 작성 (code-review-responder) + 승인 단계 2 (필수)
 
 답글 본문은 반드시 `code-review-responder` 에이전트가 쓴다. Claude가 즉흥으로 쓰지 않는다 — 그래야 어투가 매번 일정하다.
 

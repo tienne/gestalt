@@ -46,7 +46,7 @@ outputs:
 |---------|---------------|
 | 워커별로 다른 에이전트 CLI (codex, gemini 등 혼용) | 불가 — 호스트 모델 하나 |
 | 사람이 워커 진행을 터미널로 들여다보기 | 불가 — Agent 도구 내부는 안 보임 |
-| `worker_done` 생애주기, 결정 게이트, 연속 실패 차단 | 없음 |
+| `worker_done` 생애주기, 사람 판단 요청, 연속 실패 차단 | 없음 |
 
 셋 다 필요하지 않으면 이 스킬을 쓰지 않는다. 사용자가 "orca로", "codex로", "워커 띄워서"처럼 **명시적으로 외부 런타임이나 다른 CLI를 지목했을 때만** 발동한다. 단지 병렬로 빠르게 돌리고 싶다는 요청은 execute 스킬로 보낸다.
 
@@ -147,9 +147,9 @@ Orca 런타임이 붙지 않아 워커 디스패치는 못 합니다.
 
 새로 ready가 된 태스크가 있으면 2~3단계로 디스패치한다. **ready 집합을 앞으로 굴리는 것은 이 코디네이터 한 명만 한다.** 워커에게 다음 태스크를 알아서 집으라고 시키면 둘이 같은 태스크를 잡는다.
 
-## 6단계: 막힌 것은 게이트로 올린다
+## 6단계: 막힌 것은 사람에게 올린다
 
-게슈탈트가 human escalation으로 세션을 끝냈으면(`terminationReason: 'human_escalation'`) 그 사실을 Orca 게이트로 올려 사람 눈에 보이게 한다.
+게슈탈트가 human escalation으로 세션을 끝냈으면(`terminationReason: 'human_escalation'`) 그 사실을 `orchestration gate-create`로 올려 사람 눈에 보이게 한다.
 
 ```bash
 <실행파일> orchestration gate-create --task <task_id> --question "<막힌 지점과 필요한 판단>" --json

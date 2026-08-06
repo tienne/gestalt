@@ -99,7 +99,7 @@ key는 넣었는데 index 대신 id를 썼어요. 목록 순서가 바뀌는 케
 
 ### Humanize 처리
 
-초안을 쓴 뒤 AI-tell을 점검한다. SoT는 [`../_shared/references/ai-tell-quick-rules.md`](../_shared/references/ai-tell-quick-rules.md)이고, 답글엔 특히 아래가 자주 샌다.
+초안을 쓴 뒤 AI-tell을 점검한다. 기준은 [`../_shared/references/ai-tell-quick-rules.md`](../_shared/references/ai-tell-quick-rules.md)이고, 답글엔 특히 아래가 자주 샌다.
 
 | 패턴 | 예시 | 교정 |
 |------|------|------|
