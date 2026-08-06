@@ -163,7 +163,11 @@ export interface RunCheckOptions {
   book?: RuleBook;
 }
 
-export function runCheck(before: string, after: string, options: RunCheckOptions = {}): CheckReport {
+export function runCheck(
+  before: string,
+  after: string,
+  options: RunCheckOptions = {},
+): CheckReport {
   const register = options.register ?? 'doc';
   const book = options.book ?? parseRuleBook();
 

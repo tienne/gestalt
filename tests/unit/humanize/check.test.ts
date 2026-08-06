@@ -101,7 +101,9 @@ describe('protectedTokens', () => {
 
 describe('structureStats', () => {
   it('문장·헤딩·불릿·링크를 센다', () => {
-    const stats = structureStats('# 제목\n\n첫 문장이다. 둘째 문장이다.\n\n- 항목\n[링크](http://a.b)');
+    const stats = structureStats(
+      '# 제목\n\n첫 문장이다. 둘째 문장이다.\n\n- 항목\n[링크](http://a.b)',
+    );
     expect(stats.headings).toBe(1);
     expect(stats.bullets).toBe(1);
     expect(stats.links).toBe(1);
