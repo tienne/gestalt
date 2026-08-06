@@ -49,21 +49,31 @@ pnpm run format:check   # Prettier 포맷 (실패 시: pnpm format → 커밋 �
 ```bash
 npm version patch   # 또는 minor
 ```
-`postversion` hook이 자동으로 `pnpm run version:sync`를 실행하여 `plugin.json`, `marketplace.json`, `src/core/version.ts`를 업데이트한다.
+`postversion` hook이 자동으로 `pnpm run version:sync`를 실행하여 `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `plugin/.codex-plugin/plugin.json` 세 매니페스트를 업데이트한다. `src/core/version.ts`는 런타임에 `package.json`을 읽으므로 동기화 대상이 아니다.
 
 ### 4. 빌드
 ```bash
 pnpm build
 ```
-`postbuild` hook이 자동으로 `agents/`, `role-agents/`, `review-agents/`, `skills/`, `schemas/`를 `dist/`에 복사한다.
+`postbuild` hook이 `dist/plugin`을 비우고 `agents/`, `role-agents/`, `review-agents/`, `personas/`, `skills/`와 `schemas/`를 `dist/`에 다시 복사한 뒤, `verify-plugin-assets.ts`로 원본과 바이트 단위로 일치하는지 확인한다. 어긋나면 빌드가 여기서 끊긴다 — 복사 누락, 원본에서 삭제된 유령 자산, 내용 불일치를 각각 보고한다.
 
 ### 5. 플러그인 매니페스트 커밋
-`postversion` 훅이 `plugin.json`, `marketplace.json`을 업데이트하지만 버전 커밋 이후에 실행되므로 별도로 커밋해야 한다.
+`postversion` 훅이 매니페스트를 업데이트하지만 버전 커밋 이후에 실행되므로 별도로 커밋해야 한다.
 
 ```bash
-git add .claude-plugin/plugin.json .claude-plugin/marketplace.json
+git add .claude-plugin/plugin.json .claude-plugin/marketplace.json plugin/.codex-plugin/plugin.json
 git commit -m "chore(plugin): bump plugin manifest to vX.Y.Z"
 ```
+
+### 5.5. 태그를 매니페스트 커밋으로 옮긴다 (빠뜨리면 안 됨)
+`npm version`이 찍은 태그는 5단계 커밋보다 **앞**을 가리킨다. GitHub Actions는 태그를 체크아웃해 빌드하므로, 그대로 두면 배포되는 패키지에 **한 버전 뒤처진 매니페스트**가 실린다. `plugin/`이 npm `files`에 포함되어 있어 Codex 사용자에게 그 값이 그대로 보인다 (v0.47.1 태그에 0.47.0 매니페스트가 실려 나간 실제 사례가 있다).
+
+```bash
+git tag -f vX.Y.Z            # 매니페스트 커밋(HEAD)으로 이동
+git show vX.Y.Z:plugin/.codex-plugin/plugin.json | grep version   # 확인
+```
+
+푸시 전이라면 태그 이동은 안전하다. 이미 푸시했다면 옮기지 말고 다음 패치 버전으로 넘긴다.
 
 ### 6. git push — 이 순간 npm 자동 배포 시작
 ```bash
