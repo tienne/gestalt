@@ -30,6 +30,8 @@ pnpm tsx bin/gestalt.ts interview "topic"
 pnpm tsx bin/gestalt.ts spec <session-id>
 pnpm tsx bin/gestalt.ts status
 pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
+pnpm verify:rules  # 룰북과 에이전트 문서의 룰 ID·심각도 정합 검사
+pnpm tsx bin/gestalt.ts humanize-gate --before a.md --after b.md --register chat
 ```
 
 ## MCP Tools
@@ -62,7 +64,7 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | README, API 문서, 가이드, 개발자 문서 작성 | `technical-writer` |
 | 발표 슬라이드 콘텐츠·문구·데이터 요약·발표 노트 작성 | `presentation-writer` |
 | 슬라이드 Reveal.js 구조·템플릿·비주얼 디자인 자문 | `presentation-designer` |
-| 발표자료·슬라이드·프레젠테이션 제작 요청 ("발표자료 만들어줘", "슬라이드 만들어줘", "피치덱") | `presentation` 스킬 사용 (presentation-writer 콘텐츠 → 승인 게이트 → presentation-designer 디자인 → Reveal.js HTML) |
+| 발표자료·슬라이드·프레젠테이션 제작 요청 ("발표자료 만들어줘", "슬라이드 만들어줘", "피치덱") | `presentation` 스킬 사용 (presentation-writer 콘텐츠 → 승인 단계 → presentation-designer 디자인 → Reveal.js HTML) |
 | 시스템 설계, 아키텍처 리뷰, 설계 패턴 | `architect` |
 | 보안 취약점, 인증/인가, 시크릿 노출 검토 | `security-reviewer` |
 | 성능 병목, N+1, 메모리 누수 분석 | `performance-reviewer` |
@@ -70,9 +72,9 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | 테스트 케이스, 엣지 케이스, QA | `qa-engineer` |
 | UX 문구 작성·교정, 버튼 텍스트, 에러 메시지, 토스트, 온보딩 카피 | `ux-writer` |
 | 슬랙·메신저 메시지 작성 또는 딱딱한/AI스러운 초안을 본인 말투로 다듬기 | `slack-messenger` |
-| 슬랙 메시지 전송·예약 발송 요청 ("~라고 보내줘", "공지해줘", "예약 발송해줘") | `slack-send` 스킬 사용 (내부적으로 slack-messenger 다듬기 → 승인 게이트 → 전송) |
-| 지라 티켓 본문 작성·구조화 (제목, 설명, 인수조건, 이슈타입 추천) | `jira-writer` |
-| 지라 티켓 생성 요청 ("티켓 만들어줘", "이슈 생성해줘", "지라에 올려줘") | `jira-create` 스킬 사용 (내부적으로 jira-writer 구조화 → 프로젝트·필드 확정 → 승인 게이트 → createJiraIssue) |
+| 슬랙 메시지 전송·예약 발송 요청 ("~라고 보내줘", "공지해줘", "예약 발송해줘") | `slack-send` 스킬 사용 (내부적으로 slack-messenger 다듬기 → 승인 단계 → 전송) |
+| 지라 티켓 본문 작성·구조화 (제목, 설명, 완료 조건, 이슈타입 추천) | `jira-writer` |
+| 지라 티켓 생성 요청 ("티켓 만들어줘", "이슈 생성해줘", "지라에 올려줘") | `jira-create` 스킬 사용 (내부적으로 jira-writer 구조화 → 프로젝트·필드 확정 → 승인 단계 → createJiraIssue) |
 | UI, React, 접근성, 컴포넌트 설계 | `frontend-developer` |
 | UI·React 코드 리뷰, 접근성·번들 최적화 검토 | `frontend-reviewer` |
 | API, DB, 인증, 서버 로직 | `backend-developer` |
@@ -107,6 +109,7 @@ src/mcp/           — MCP 서버 + 툴 핸들러
 src/events/        — EventStore (SQLite)
 src/skills/        — Skill System 엔진 (SKILL.md 파서·실행기, 최상위 skills/와는 별개)
 src/registry/      — 레지스트리 공통 베이스 클래스
+src/humanize/      — 룰북 읽기 + AI-tell 탐지기 + 윤문 코드 검사 (`gestalt humanize-gate` 백엔드)
 src/utils/         — 알림 등 공용 유틸
 src/cli/           — commander 기반 CLI
 plugin/            — 배포 자산 전부. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다
