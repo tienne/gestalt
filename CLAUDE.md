@@ -57,7 +57,8 @@ pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 | 상황 | 에이전트 |
 |------|---------|
 | 영상/비디오 URL이 포함되거나 "요약해줘" 요청 | `video-summarizer` |
-| 번역투·AI 말투·어색한 한국어 교정 요청 | `humanize-monolith` |
+| 번역투·AI 말투·어색한 한국어 교정 요청 | `humanize-monolith` (윤문 모드) |
+| 고치지 말고 AI 티만 짚어달라는 요청 ("이거 AI 같아?", "슬롭인지 봐줘", "패턴만 짚어줘") | `humanize-monolith` (탐지 모드 — 원문 무수정, 패턴 인용만, 저자 판정·등급 금지) |
 | README, API 문서, 가이드, 개발자 문서 작성 | `technical-writer` |
 | 발표 슬라이드 콘텐츠·문구·데이터 요약·발표 노트 작성 | `presentation-writer` |
 | 슬라이드 Reveal.js 구조·템플릿·비주얼 디자인 자문 | `presentation-designer` |
