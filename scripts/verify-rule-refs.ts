@@ -71,6 +71,26 @@ function bareProse(markdown: string): { line: string; number: number }[] {
   return out;
 }
 
+/**
+ * "화이트리스트" 가 적힌 줄에서 가장 긴 가운뎃점 나열을 정착어 목록으로 읽는다.
+ * 꼬리의 "… 등 정착어는 그대로 둔다" 는 잘라낸다.
+ */
+function whitelistTerms(markdown: string): string[] {
+  const terms: string[] = [];
+  for (const line of markdown.split('\n')) {
+    if (!line.includes('화이트리스트')) continue;
+    const runs = line.match(/[가-힣][가-힣 ]*(?:·[가-힣][가-힣 ]*)+/g) ?? [];
+    const longest = runs.sort((a, b) => b.length - a.length)[0];
+    if (!longest) continue;
+    for (const raw of longest.split('·')) {
+      // 한글 뒤 \b 는 성립하지 않는다. 후행 부정 탐색으로 "등"의 끝을 잡는다
+      const term = raw.split(/\s+등(?![가-힣])/)[0]!.trim();
+      if (term) terms.push(term);
+    }
+  }
+  return terms;
+}
+
 export function verifyRuleRefs(): RuleRefIssue[] {
   const issues: RuleRefIssue[] = [];
   const book = parseRuleBook(QUICK_RULES_PATH);
@@ -158,6 +178,21 @@ export function verifyRuleRefs(): RuleRefIssue[] {
           });
         }
       });
+  }
+
+  // 3d. 음차 화이트리스트가 에이전트 문서에 두 벌 더 복사돼 있다.
+  //     사본이 룰북에 없는 말을 정착어라고 우기면 그 말만 교정에서 빠져나간다.
+  const allowed = new Set(whitelistTerms(readFileSync(QUICK_RULES_PATH, 'utf-8')));
+  for (const file of markdownFiles(PLUGIN)) {
+    if (file === QUICK_RULES_PATH) continue;
+    const stray = whitelistTerms(readFileSync(file, 'utf-8')).filter((t) => !allowed.has(t));
+    if (stray.length > 0) {
+      issues.push({
+        level: 'error',
+        file: rel(file),
+        message: `룰북 화이트리스트에 없는 정착어 주장: ${stray.sort().join(', ')}`,
+      });
+    }
   }
 
   // 4. 룰 문서가 자기가 금지한 표현을 본문에 쓰고 있는가

@@ -4,13 +4,13 @@ export interface ScoredFile {
 }
 
 /**
- * Reciprocal Rank Fusion — 여러 랭킹 리스트를 하나로 합산한다.
+ * Reciprocal Rank Fusion — 여러 순위 목록을 하나로 합산한다.
  *
- * 각 리스트의 각 항목에 대해 1/(k + rank) 점수를 누적하고,
+ * 각 목록의 항목마다 1/(k + rank) 점수를 누적하고,
  * 내림차순으로 정렬하여 반환한다.
  *
- * @param lists  - ScoredFile 랭킹 리스트 배열 (0-based index가 rank로 사용됨)
- * @param k      - RRF 상수 (default: 60). 높을수록 하위 랭크의 영향이 줄어든다.
+ * @param lists  - ScoredFile 순위 목록 배열 (0-based index가 rank로 사용됨)
+ * @param k      - RRF 상수 (default: 60). 높을수록 하위 순위의 영향이 줄어든다.
  */
 export function reciprocalRankFusion(lists: ScoredFile[][], k = 60): ScoredFile[] {
   const scoreMap = new Map<string, number>();
