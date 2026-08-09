@@ -10,11 +10,16 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { citedRuleIds, parseRuleBook, s1Ids, QUICK_RULES_PATH } from '../src/humanize/index.js';
-import { DETECTABLE_RULE_IDS } from '../src/humanize/detectors.js';
+import { countByRule, DETECTABLE_RULE_IDS } from '../src/humanize/detectors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const PLUGIN = join(ROOT, 'plugin');
+const rel = (path: string) => path.slice(ROOT.length + 1);
+const BASELINE_PATH = join(__dirname, 'humanize-baseline.json');
+
+/** 룰 ID 나열은 목록이지 산문이 아니다 */
+const RULE_ID_CHAIN = /^[A-J]-\d{1,2}(?:·[A-J]-\d{1,2})+$/;
 
 /**
  * 룰 문서가 스스로 금지한 표현을 본문에 쓰면 산출물로 샌다.
@@ -94,7 +99,6 @@ function whitelistTerms(markdown: string): string[] {
 export function verifyRuleRefs(): RuleRefIssue[] {
   const issues: RuleRefIssue[] = [];
   const book = parseRuleBook(QUICK_RULES_PATH);
-  const rel = (path: string) => path.slice(ROOT.length + 1);
 
   if (book.rules.size === 0) {
     issues.push({
@@ -225,7 +229,51 @@ export function verifyRuleRefs(): RuleRefIssue[] {
     }
   }
 
+  // 6. 에이전트가 읽는 문서에 S1 어투 패턴이 늘어나지 않았는가.
+  //    문서가 AI-tell을 담고 있으면 에이전트가 그걸 배워 산출물로 내보낸다.
+  //    남은 건 대부분 탐지기가 못 가리는 오탐이라 0건이 아니라 베이스라인으로 잠근다.
+  const baseline = readBaseline();
+  for (const [file, count] of countS1ByFile()) {
+    const allowed = baseline[file] ?? 0;
+    if (count > allowed) {
+      issues.push({
+        level: 'error',
+        file,
+        message: `S1 어투 패턴 ${count}건 (허용 ${allowed}건). 고치거나 pnpm humanize:baseline 으로 기준을 낮춰 잠근다`,
+      });
+    }
+  }
+
   return issues;
+}
+
+/** 파일별 S1 건수. 룰 예외(용어 목록·룰 ID 나열)는 세지 않는다 */
+export function countS1ByFile(): Map<string, number> {
+  const targets = s1Ids(parseRuleBook(), 'doc');
+  const counts = new Map<string, number>();
+
+  for (const file of markdownFiles(PLUGIN)) {
+    let total = 0;
+    for (const { line } of bareProse(readFileSync(file, 'utf-8'))) {
+      // 굳어진 음차 화이트리스트는 C-12 예외다
+      if (line.includes('화이트리스트')) continue;
+      const prose = line.replace(/[가-힣A-Za-z0-9-]+(?:·[가-힣A-Za-z0-9-]+)+/g, (chain) =>
+        RULE_ID_CHAIN.test(chain) ? ' ' : chain,
+      );
+      for (const n of countByRule(prose, targets).values()) total += n;
+    }
+    if (total > 0) counts.set(rel(file), total);
+  }
+
+  return counts;
+}
+
+function readBaseline(): Record<string, number> {
+  try {
+    return JSON.parse(readFileSync(BASELINE_PATH, 'utf-8')) as Record<string, number>;
+  } catch {
+    return {};
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);

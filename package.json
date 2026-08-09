@@ -34,7 +34,8 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
     "version:sync": "tsx scripts/sync-version.ts",
     "postversion": "pnpm run version:sync",
-    "verify:rules": "tsx scripts/verify-rule-refs.ts"
+    "verify:rules": "tsx scripts/verify-rule-refs.ts",
+    "humanize:baseline": "tsx scripts/humanize-baseline.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
