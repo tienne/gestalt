@@ -1,7 +1,7 @@
 ---
 name: slack-send
 version: "1.0.0"
-description: "슬랙 메시지를 권윤학님 어투로 다듬어 승인 단계를 거친 뒤 전송하거나 예약한다. 메시지를 '보내달라/전달해달라/공지해달라/예약 발송해달라'는 요청 시 자동 발동. slack-messenger로 초안 → 채널과 발송 시각 확인 → 미리보기 승인 → slack_send_message/slack_schedule_message. 전송까지 하는 스킬이다. 문구만 다듬고 보내지는 않으려면 slack-messenger를 호출한다."
+description: "슬랙 메시지를 작성자 어투로 다듬어 승인 단계를 거친 뒤 전송하거나 예약한다. 메시지를 '보내달라/전달해달라/공지해달라/예약 발송해달라'는 요청 시 자동 발동. slack-messenger로 초안 → 채널과 발송 시각 확인 → 미리보기 승인 → slack_send_message/slack_schedule_message. 전송까지 하는 스킬이다. 문구만 다듬고 보내지는 않으려면 slack-messenger를 호출한다."
 triggers:
   # 전송 의도
   - "슬랙 보내"
@@ -28,7 +28,7 @@ inputs:
   target:
     type: string
     required: false
-    description: "대상 채널명(#team-프론트엔드) 또는 DM 상대"
+    description: "대상 채널명(#example-channel) 또는 DM 상대"
   when:
     type: string
     required: false
@@ -40,7 +40,7 @@ outputs:
 # Slack Send Skill
 
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
-슬랙 메시지를 **권윤학님 어투로 다듬어 → 승인받고 → 전송/예약**하는 파이프라인.
+슬랙 메시지를 **작성자 어투로 다듬어 → 승인받고 → 전송/예약**하는 파이프라인.
 `slack-messenger` role agent(작성·다듬기)와 Slack MCP(전송)를 잇는다.
 
 > **불변 규칙: 승인 없이는 절대 전송하지 않는다.** 미리보기를 보여주고 사용자의 명시적 "OK"를 받은 뒤에만 `slack_send_message`/`slack_schedule_message`를 호출한다. 이건 이 스킬의 존재 이유다 — 잘못된 채널, 오탈자, 오발송 방지.
@@ -79,7 +79,7 @@ outputs:
 아래를 한 화면에 모아 보여주고 명시적 승인을 받는다.
 
 ```
-[보낼 곳] #team-프론트엔드 (C0XXXX)
+[보낼 곳] #example-channel (C0XXXX)
 [시각]    즉시 전송  /  또는  2026-07-20(월) 09:00 KST 예약
 [내용]
 <다듬어진 최종 메시지 전문>

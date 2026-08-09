@@ -14,3 +14,4 @@ benchmarks/results/
 coverage/
 _workspace/
 .claude/worktrees/
+.claude/settings.local.json

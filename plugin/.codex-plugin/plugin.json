@@ -3,8 +3,7 @@
   "version": "0.53.0",
   "description": "Gestalt psychology-driven AI development harness. Transforms scattered requirements into structured, validated specifications through interactive interviews.",
   "author": {
-    "name": "tienne",
-    "email": "tienne89@gmail.com"
+    "name": "tienne"
   },
   "homepage": "https://github.com/tienne/gestalt",
   "repository": "https://github.com/tienne/gestalt",

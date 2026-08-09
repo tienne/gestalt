@@ -2,7 +2,7 @@
   "name": "gestalt",
   "owner": {
     "name": "tienne",
-    "email": "tienne89@gmail.com"
+    "email": "noreply@github.com"
   },
   "metadata": {
     "description": "Gestalt psychology-driven AI development harness",
@@ -16,7 +16,7 @@
       "version": "0.53.0",
       "author": {
         "name": "tienne",
-        "email": "tienne89@gmail.com"
+        "email": "noreply@github.com"
       },
       "category": "development",
       "homepage": "https://github.com/tienne/gestalt",

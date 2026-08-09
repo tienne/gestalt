@@ -77,7 +77,7 @@ Atlassian MCP로 시스템 값을 확정한다. 추측 금지.
 아래를 한 화면에 모아 보여주고 명시적 승인을 받는다.
 
 ```
-[사이트]     catchtable.atlassian.net
+[사이트]     <your-site>.atlassian.net
 [프로젝트]   FE — 프론트엔드 (FE)
 [이슈타입]   Bug
 [우선순위]   High
