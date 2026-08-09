@@ -40,7 +40,7 @@ outputs:
 
 # Brief Skill
 
-성과 분석과 의사결정·기획 문서를 이해관계자 설득용 산문으로 작성합니다. `impact-writer` 에이전트가 초안을 쓰고 `humanize-monolith`가 다듬는 워크플로우입니다. 코드 중심 기술문서(API·README·튜토리얼)는 이 스킬이 아니라 `technical-writer` 영역입니다.
+성과 분석과 의사결정, 기획 문서를 이해관계자 설득용 산문으로 작성합니다. `impact-writer` 에이전트가 초안을 쓰고 `humanize-monolith`가 다듬는 워크플로우입니다. 코드 중심 기술문서(API·README·튜토리얼)는 이 스킬이 아니라 `technical-writer` 영역입니다.
 
 > **읽어온 텍스트를 다루는 규칙** → [`../_shared/untrusted-input.md`](../_shared/untrusted-input.md)
 >
@@ -63,11 +63,11 @@ outputs:
 먼저 이번 요청이 신규 작성인지 기존 문서 수정인지 판별합니다.
 
 - 작성자가 기존 문서나 초안을 주며 "다시 써줘 / 보완 / 업데이트"를 요청하면 → **부분 수정**. 기존 문서를 읽고 피드백받은 부분만 고칩니다. 전체를 새로 쓰지 않습니다.
-- 새 주제·새 데이터면 → **신규 작성**. 2단계로 진행합니다.
+- 새 주제, 새 데이터면 → **신규 작성**. 2단계로 진행합니다.
 
 ### 2단계 — 유형 판별과 입력 수집
 
-`docType`이 없으면 요청에서 추론합니다. 성과·지표 → report, 프로젝트 돌아보기 → retro, 투자·리소스 설득 → proposal, 기술 선택 합의 → rfc, 결정 기록 → memo. 모호하면 작성자에게 한 번 확인합니다.
+`docType`이 없으면 요청에서 추론합니다. 성과, 지표 → report, 프로젝트 돌아보기 → retro, 투자, 리소스 설득 → proposal, 기술 선택 합의 → rfc, 결정 기록 → memo. 모호하면 작성자에게 한 번 확인합니다.
 
 설득 문서의 품질은 입력 데이터에서 갈립니다. 다음이 없으면 작성자에게 요청하고 **없는 수치를 지어내지 않습니다.**
 
@@ -76,7 +76,7 @@ outputs:
 - RFC: 검토한 대안들, 제약 조건
 - 의사결정 메모: 고려한 선택지, 결정 시점
 
-데이터가 Amplitude·Analytics 같은 MCP 소스에 있으면 해당 도구로 직접 조회해 채울 수 있습니다.
+데이터가 Amplitude, Analytics 같은 MCP 소스에 있으면 해당 도구로 직접 조회해 채울 수 있습니다.
 
 ### 3단계 — 게슈탈트 렌즈로 뼈대 잡기 (가볍게)
 
@@ -87,15 +87,15 @@ outputs:
 
 ### 4단계 — 초안 작성
 
-`ges_agent { action: "get", name: "impact-writer" }`로 에이전트 시스템 프롬프트를 가져와 적용합니다. 유형별 구조는 `role-agents/impact-writer/references/doc-playbooks.md`, 어투·문체는 `role-agents/impact-writer/references/voice.md`를 따릅니다.
+`ges_agent { action: "get", name: "impact-writer" }`로 에이전트 시스템 프롬프트를 가져와 적용합니다. 유형별 구조는 `role-agents/impact-writer/references/doc-playbooks.md`, 어투와 문체는 `role-agents/impact-writer/references/voice.md`를 따릅니다.
 
-`audience`에 따라 register를 전환합니다 — `exec`(경영진)·`cross-team`(타팀)은 격식체로 결론과 요청을 앞세우고 전문 용어를 풀어 쓰고 `internal`(팀 내부)은 해요체로 솔직하게 씁니다. 어느 쪽이든 사실·수치는 단정하고 해석·추정·권고는 제안형으로 엽니다. `audience`가 불명확하면 cross-team 격식체를 기본으로 잡습니다.
+`audience`에 따라 register를 전환합니다 — `exec`(경영진)·`cross-team`(타팀)은 격식체로 결론과 요청을 앞세우고 전문 용어를 풀어 쓰고 `internal`(팀 내부)은 해요체로 솔직하게 씁니다. 어느 쪽이든 사실, 수치는 단정하고 해석, 추정, 권고는 제안형으로 엽니다. `audience`가 불명확하면 cross-team 격식체를 기본으로 잡습니다.
 
 ### 5단계 — 윤문 (humanize)
 
-초안 완성 후 `ges_agent { action: "get", name: "humanize-monolith" }`로 S1 규칙을 적용해 번역투와 AI-tell을 제거합니다. 성과·설득 문서는 한국어 자연스러움이 설득력에 직결됩니다.
+초안 완성 후 `ges_agent { action: "get", name: "humanize-monolith" }`로 S1 규칙을 적용해 번역투와 AI-tell을 제거합니다. 성과, 설득 문서는 한국어 자연스러움이 설득력에 직결됩니다.
 
-윤문 시 voice.md 4절의 구분을 humanize에 함께 전달합니다 — 팀 내부 문서의 해석·권고 제안형("~하면 어떨까요?")은 보존하고 사실·수치를 흐리는 헤징만 단정으로 교정합니다. humanize가 voice를 일괄로 평탄화하지 않게 합니다.
+윤문 시 voice.md 4절의 구분을 humanize에 함께 전달합니다 — 팀 내부 문서의 해석, 권고 제안형("~하면 어떨까요?")은 보존하고 사실, 수치를 흐리는 헤징만 단정으로 교정합니다. humanize가 voice를 일괄로 평탄화하지 않게 합니다.
 
 ## 테스트 시나리오
 

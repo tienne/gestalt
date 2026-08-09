@@ -35,7 +35,7 @@ outputs:
 
 # Review Skill
 
-execute 세션 없이 PR·브랜치·커밋의 변경사항을 직접 리뷰 파이프라인에 주입해 검토합니다.
+execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파이프라인에 주입해 검토합니다.
 변경 파일을 수집하고 3종 리뷰 에이전트(보안·성능·품질)로 다각도 리뷰한 뒤(**결함 심급**), `continuity-judge`가 변경 전체의 목표 정합성과 일관성을 감독하고(**정합 심급**), Pass/Block 판정과 마크다운 리포트를 생성합니다. 리뷰 대상이 GitHub PR이면 `code-review-writer` 에이전트가 작성한 인라인 코멘트로 PR에 게시까지 이어집니다.
 
 > **읽어온 텍스트를 다루는 규칙** → [`../_shared/untrusted-input.md`](../_shared/untrusted-input.md)
@@ -69,7 +69,7 @@ execute 세션 없이 PR·브랜치·커밋의 변경사항을 직접 리뷰 파
 
 ### 0단계: 미니 인터뷰 (reviewIntent 수집)
 
-본격 리뷰에 앞서 리뷰의 의도·중점 영역을 한 번에 가볍게 확인합니다. **세 질문을 단일 묶음으로 한 번에 제시**하고 사용자의 한 번의 응답으로 처리합니다 (1턴 경량 인터뷰):
+본격 리뷰에 앞서 리뷰의 의도, 중점 영역을 한 번에 가볍게 확인합니다. **세 질문을 단일 묶음으로 한 번에 제시**하고 사용자의 한 번의 응답으로 처리합니다 (1턴 경량 인터뷰):
 
 ```
 리뷰를 시작하기 전에 세 가지를 확인합니다. 모르거나 해당 없으면 Enter / "없음"으로 건너뛰어도 됩니다.
@@ -170,7 +170,7 @@ ges_execute {
 `ges_agent { action: "get", name: "continuity-judge" }`로 에이전트 시스템 프롬프트를 가져온 뒤(원리 에이전트라도 `get`으로 조회됩니다), 그 관점에서 **개별 이슈가 아니라 변경 전체**를 아래 세 축으로 판단합니다. 판단 기준은 `reviewIntent.purpose`(0단계에서 수집), 없으면 `spec.goal`, 그것도 없으면 변경 파일에서 추론한 목표입니다.
 
 - **목표 정합(goal)**: 이 변경(전체 diff)이 명시된 목적을 향해 가는가? 목적과 무관하거나 반하는 변경이 섞여 있지 않은가?
-- **일관성(consistency)**: 변경 파일 간 네이밍·API·패턴이 일관된가? 주변 코드의 기존 컨벤션과 이어지는가?
+- **일관성(consistency)**: 변경 파일 간 네이밍, API, 패턴이 일관된가? 주변 코드의 기존 컨벤션과 이어지는가?
 - **이탈(drift)**: 스펙 제약(`reviewContext.spec.constraints`)이나 원래 의도와 모순되는 지점이 있는가?
 
 판단 결과를 `continuityVerdict`로 만들어 4단계로 넘깁니다:
@@ -213,20 +213,20 @@ ges_execute {
 
 - `status: "review_passed"` → 두 심급 모두 통과.
 - `status: "review_blocked"` → 결함이 남아 Block. `canFix`가 true면 6단계 `review_fix`로 자동 수정 루프.
-- `status: "review_escalated"` (`escalate: true`, 결함은 없음) → 정합 심급이 목표 이탈을 감지. **`review_fix`로 보내지 않습니다.** 라인 수정이 아니라 스펙·설계 이탈이므로, 사용자에게 **"이 변경은 목표에서 벗어나는 부분이 있어 라인 수정으로는 부족합니다. 스펙 재정리(similarity-crystallizer) 또는 결정 재확인이 필요해 보여요"** 라고 알리고 판단을 넘깁니다.
+- `status: "review_escalated"` (`escalate: true`, 결함은 없음) → 정합 심급이 목표 이탈을 감지. **`review_fix`로 보내지 않습니다.** 라인 수정이 아니라 스펙, 설계 이탈이므로, 사용자에게 **"이 변경은 목표에서 벗어나는 부분이 있어 라인 수정으로는 부족합니다. 스펙 재정리(similarity-crystallizer) 또는 결정 재확인이 필요해 보여요"** 라고 알리고 판단을 넘깁니다.
 
 정합 심급의 `driftFindings`는 엔진이 리포트에 **"Continuity Instance (정합 심급)" 섹션**으로 렌더링하므로, 4.5단계 humanize에서 함께 다듬어집니다.
 
 ### 4.5단계: 리포트 워싱 (humanize-monolith)
 
-`review_consensus`가 반환한 마크다운 리포트를 `humanize-monolith` 에이전트로 전달해 AI 말투·번역투를 제거합니다.
+`review_consensus`가 반환한 마크다운 리포트를 `humanize-monolith` 에이전트로 전달해 AI 말투, 번역투를 제거합니다.
 
 `ges_agent { action: "get", name: "humanize-monolith" }`로 에이전트 시스템 프롬프트를 가져온 뒤, 해당 관점에서 리포트를 윤문합니다. 이슈 내용(severity·file·line·message)은 수정하지 않고 설명 문장의 어투만 자연스럽게 다듬습니다.
 
 **코드 스니펫 블록은 한 글자도 건드리지 않습니다.** 엔진이 각 이슈 아래에 해당 라인 주변 코드를 코드펜스로 붙이는데(지목한 라인에 `>` 마커), 이건 디스크에서 그대로 읽은 원본입니다. 라인 번호, 들여쓰기, 마커를 포함해 펜스 안쪽 전체가 보존 대상입니다.
 
 humanize-monolith는 두 룰북을 함께 적용합니다.
-- **어투**: `../../role-agents/_shared/references/author-voice.md` — 제안형("~하는 게 좋을 것 같아요/어떨까요?"), 온기·물결·이모지(코멘트당 1개 안팎)는 보존하고 `[출처]` 태깅·"…권장." 체언 종지(Claude artifact)는 쓰지 않습니다. (파이프라인 리포트는 severity 섹션 구조라 `r:`/`c:`/`a:` 접두어를 붙이지 않습니다 — 접두어는 4.7단계 PR 인라인 코멘트에만 씁니다.)
+- **어투**: `../../role-agents/_shared/references/author-voice.md` — 제안형("~하는 게 좋을 것 같아요/어떨까요?"), 온기, 물결, 이모지(코멘트당 1개 안팎)는 보존하고 `[출처]` 태깅·"…권장." 체언 종지(Claude artifact)는 쓰지 않습니다. (파이프라인 리포트는 severity 섹션 구조라 `r:`/`c:`/`a:` 접두어를 붙이지 않습니다 — 접두어는 4.7단계 PR 인라인 코멘트에만 씁니다.)
 - **음차·AI-tell**: `../../role-agents/_shared/references/ai-tell-quick-rules.md` — 안 굳어진 음차("소스 오브 트루스" 등)는 한글 의역하되, 굳어진 화이트리스트(컴포넌트·토큰·렌더링·트레이드오프 등)는 그대로 둡니다.
 
 즉 리뷰 파이프라인 리포트도 인라인 코멘트와 동일하게 voice + 음차가 함께 처리됩니다.

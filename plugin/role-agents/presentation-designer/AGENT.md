@@ -53,7 +53,7 @@ When reviewing or guiding a presentation task:
 ---
 
 #### 에디토리얼 / 럭셔리 (Editorial & Luxury)
-> 패션·라이프스타일 브랜드, 고급 이벤트, 야간 분위기
+> 패션, 라이프스타일 브랜드, 고급 이벤트, 야간 분위기
 
 | Template | File | 한 줄 요약 |
 |----------|------|----------|
@@ -63,7 +63,7 @@ When reviewing or guiding a presentation task:
 ---
 
 #### 자연 / 지속가능 (Nature & Sustainability)
-> ESG 보고, 환경·사회적 가치 발표, 유기적 브랜딩
+> ESG 보고, 환경, 사회적 가치 발표, 유기적 브랜딩
 
 | Template | File | 한 줄 요약 |
 |----------|------|----------|
@@ -72,7 +72,7 @@ When reviewing or guiding a presentation task:
 ---
 
 #### 레트로 / 아날로그 (Retro & Analog)
-> 워크숍, 리서치 공유, 문화·예술, 음악 업계
+> 워크숍, 리서치 공유, 문화, 예술, 음악 업계
 
 | Template | File | 한 줄 요약 |
 |----------|------|----------|
@@ -82,7 +82,7 @@ When reviewing or guiding a presentation task:
 ---
 
 #### 헤리티지 / 박물관 (Heritage & Museum)
-> 브랜드 아카이브, 역사·연구 발표, 다색 구성의 풍부한 정보 전달
+> 브랜드 아카이브, 역사, 연구 발표, 다색 구성의 풍부한 정보 전달
 
 | Template | File | 한 줄 요약 |
 |----------|------|----------|
@@ -238,13 +238,13 @@ presentation-writer 콘텐츠 초안을 `humanize-monolith`에 전달한다. S1 
 
 `presentation-writer`의 콘텐츠 초안을 받은 뒤 아래 순서로 진행:
 
-1. **템플릿 선택** — 무드 가이드 기준으로 청중·목적에 맞는 템플릿 결정
+1. **템플릿 선택** — 무드 가이드 기준으로 청중, 목적에 맞는 템플릿 결정
 2. **슬라이드 타입 매핑** — 워딩의 성격에 따라 슬라이드 타입 배정
    - 수치 강조 → `stats` 슬라이드
-   - 비교·대조 → `compare` 또는 `split`
+   - 비교, 대조 → `compare` 또는 `split`
    - 핵심 선언 → `statement`
-   - 과정·단계 → `process` 또는 `list`
-   - 인용·증언 → `quote`
+   - 과정, 단계 → `process` 또는 `list`
+   - 인용, 증언 → `quote`
 3. **카피 압축** — 문장을 슬라이드 공간에 맞게 압축 (의미 손실 없이)
 4. **코드 생성** — 선택한 템플릿 기반 HTML 생성
 
@@ -263,6 +263,6 @@ presentation-writer 콘텐츠 초안을 `humanize-monolith`에 전달한다. S1 
 Provide a structured review with:
 - **Narrative structure assessment**: 스토리 흐름 평가 — presentation-writer 콘텐츠 반영 여부 포함
 - **Reveal.js implementation guidance**: 구체적 HTML/CSS 코드 스니펫 포함
-- **Visual design recommendations**: 색상·타이포·레이아웃 개선점
+- **Visual design recommendations**: 색상, 타이포, 레이아웃 개선점
 - **Slide-by-slide notes**: 각 슬라이드 개선 포인트 (워딩 + 디자인 동시 평가)
 - **Ready-to-use template**: 전체 초기화 템플릿 또는 수정된 슬라이드 코드

@@ -80,12 +80,12 @@ Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 
 이 스킬은 사용자가 `/agent`를 명시하지 않아도 아래 상황에서 자동으로 실행된다. CLAUDE.md의 Role Agent 자동 라우팅 규칙에 따라 적절한 에이전트를 선택해 실행한다.
 
-- 영상·비디오 URL 포함 또는 "요약해줘" → `video-summarizer`
-- 번역투·AI 말투 교정 → `humanize-monolith`
-- 문서·README·가이드 작성 → `technical-writer`
-- 발표 슬라이드 콘텐츠·문구 작성 → `presentation-writer`
-- 슬라이드 Reveal.js 구조·비주얼 디자인 → `presentation-designer`
-- 발표자료·프레젠테이션 제작(콘텐츠+디자인 통합) → `presentation` 스킬
+- 영상, 비디오 URL 포함 또는 "요약해줘" → `video-summarizer`
+- 번역투, AI 말투 교정 → `humanize-monolith`
+- 문서, README, 가이드 작성 → `technical-writer`
+- 발표 슬라이드 콘텐츠, 문구 작성 → `presentation-writer`
+- 슬라이드 Reveal.js 구조, 비주얼 디자인 → `presentation-designer`
+- 발표자료, 프레젠테이션 제작(콘텐츠+디자인 통합) → `presentation` 스킬
 - 보안 검토 → `security-reviewer`
 - 성능 분석 → `performance-reviewer`
 - 코드 리뷰 → `quality-reviewer`
