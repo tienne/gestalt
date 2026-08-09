@@ -131,6 +131,44 @@ export function parseRuleBook(path: string = QUICK_RULES_PATH): RuleBook {
   };
 }
 
+const LABEL_MAX = 24;
+
+/** 패턴 칸은 조건·예시까지 담고 있어 그대로 쓰면 한 줄을 넘는다. 이름만 남긴다 */
+function washLabel(pattern: string): string {
+  let text = pattern.replace(/\*\*/g, ' ').replace(/`/g, '');
+
+  // 부연은 대시 뒤에 붙는다
+  text = text.split(' — ')[0]!.trim();
+
+  // 괄호 안이 길면 예시다. 예시는 뒤에 붙으니 거기서 끊는다.
+  // "(·)", "(서)" 처럼 짧은 건 이름의 일부라 남긴다
+  const paren = text.search(/\s*\([^)]{4,}/);
+  if (paren >= 0) text = text.slice(0, paren);
+
+  // 띄어 쓴 슬래시 뒤는 같은 패턴의 다른 표기다
+  text = text.split(' / ')[0]!.trim();
+
+  // 앞에 이름이 있으면 뒤따르는 인용은 예시다. 짧은 인용은 그 자체가 이름이라 남긴다
+  const quoted = text.match(/^(.+?)\s+"([^"]+)"/);
+  if (quoted && quoted[2]!.length > 10) text = quoted[1]!.trim();
+
+  // 빈도 조건은 이름이 아니다
+  text = text.replace(/\s*(한 글에\s*)?\d+회\s*(이상|\+)?(\s*반복)?$/, '');
+  text = text.replace(/\s*단락\s*[≥>]=?\s*\d+회.*$/, '');
+
+  text = text.replace(/\s{2,}/g, ' ').trim();
+  if (text.length > LABEL_MAX) text = `${text.slice(0, LABEL_MAX)}…`;
+  return text;
+}
+
+/** CLI가 찍는 이름. 룰북이 기준이라 문서와 따로 놀지 않는다 */
+export function ruleLabel(book: RuleBook, id: string): string {
+  const pattern = book.rules.get(id)?.pattern;
+  if (!pattern) return id;
+  const label = washLabel(pattern);
+  return label ? `${id} ${label}` : id;
+}
+
 /** 해당 말투 기준으로 S1인 룰 ID */
 export function s1Ids(book: RuleBook, register: Register): string[] {
   return [...book.rules.values()]

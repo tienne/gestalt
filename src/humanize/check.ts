@@ -7,7 +7,7 @@
  */
 import { changeRate } from './change-rate.js';
 import { countByRule, missingProtectedTokens, structureStats } from './detectors.js';
-import { parseRuleBook, s1Ids, type Register, type RuleBook } from './rules.js';
+import { parseRuleBook, ruleLabel, s1Ids, type Register, type RuleBook } from './rules.js';
 
 export type Verdict = 'pass' | 'warn' | 'abort';
 
@@ -88,7 +88,9 @@ function checkResidualS1(
     };
   }
 
-  const evidence = residual.map((row) => `${row.ruleId}: ${row.before} → ${row.after}`);
+  const evidence = residual.map(
+    (row) => `${ruleLabel(book, row.ruleId)}: ${row.before} → ${row.after}`,
+  );
   return {
     axis: {
       axis: 'residual-s1',
@@ -125,6 +127,7 @@ function checkPreservation(before: string, after: string): AxisResult {
 }
 
 function checkStructure(
+  book: RuleBook,
   before: string,
   after: string,
   introduced: CheckReport['introduced'],
@@ -144,7 +147,7 @@ function checkStructure(
     problems.push(`링크 ${a.links} → ${b.links}`);
   }
   for (const row of introduced.slice(0, 5)) {
-    problems.push(`${row.ruleId} 신규 유입 ${row.before} → ${row.after}`);
+    problems.push(`${ruleLabel(book, row.ruleId)} 신규 유입 ${row.before} → ${row.after}`);
   }
 
   if (problems.length === 0) {
@@ -178,7 +181,7 @@ export function runCheck(
   const { axis: s1Axis, residual } = checkResidualS1(book, register, before, after);
   const preservationAxis = checkPreservation(before, after);
   const introduced = findIntroduced(before, after);
-  const structureAxis = checkStructure(before, after, introduced);
+  const structureAxis = checkStructure(book, before, after, introduced);
 
   const axes = [changeAxis, s1Axis, preservationAxis, structureAxis];
   const verdict = worst(axes.map((a) => a.verdict));
