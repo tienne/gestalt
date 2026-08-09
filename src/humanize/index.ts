@@ -1,5 +1,6 @@
 export {
   parseRuleBook,
+  ruleLabel,
   s1Ids,
   citedRuleIds,
   expandIdRanges,

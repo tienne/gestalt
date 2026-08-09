@@ -20,7 +20,7 @@
   "scripts": {
     "dev": "tsx bin/gestalt.ts",
     "build": "tsc",
-    "postbuild": "rm -rf dist/plugin && mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js && pnpm run verify:plugin && pnpm run verify:rules",
+    "postbuild": "rm -rf dist/plugin && mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js && pnpm run verify:plugin && pnpm run verify:rules && pnpm run verify:output-style",
     "verify:plugin": "tsx scripts/verify-plugin-assets.ts",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
@@ -35,7 +35,9 @@
     "version:sync": "tsx scripts/sync-version.ts",
     "postversion": "pnpm run version:sync",
     "verify:rules": "tsx scripts/verify-rule-refs.ts",
-    "humanize:baseline": "tsx scripts/humanize-baseline.ts"
+    "humanize:baseline": "tsx scripts/humanize-baseline.ts",
+    "build:output-style": "tsx scripts/build-output-style.ts",
+    "verify:output-style": "tsx scripts/build-output-style.ts --dry-run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
