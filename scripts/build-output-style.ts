@@ -28,6 +28,7 @@ const GATE: { name: string; ids: string[] }[] = [
   { name: '명사구 압축', ids: ['F-6'] },
   { name: '기술 비유 명사', ids: ['F-7'] },
   { name: '사무투 분류사', ids: ['I-5'] },
+  { name: '측량투 명사', ids: ['I-6'] },
   { name: '가운뎃점 나열', ids: ['C-12'] },
 ];
 
@@ -42,7 +43,7 @@ const SPOTLIGHT = [
   'D-1', 'D-3', 'D-4', 'D-5',
   'F-4', 'F-5', 'F-6', 'F-7',
   'H-1',
-  'I-1', 'I-5',
+  'I-1', 'I-5', 'I-6',
 ];
 
 const PATTERN_MAX = 44;
