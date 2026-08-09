@@ -1,6 +1,6 @@
 # Content Playbook — 슬라이드 유형별 콘텐츠 작성
 
-슬라이드 유형별 콘텐츠 뼈대. 각 유형은 `presentation-designer`의 슬라이드 타입(`presentation-designer/AGENT.md`의 Layout Patterns)과 1:1로 맞물린다. writer가 여기 형식으로 쓰면 designer가 그대로 타입을 배정해 HTML로 옮긴다. 공통 원칙은 AGENT.md의 작성 원칙을 따르고, 한국어 문장 규칙은 `../../_shared/references/style-guide.md`를 공유한다.
+슬라이드 유형별 콘텐츠 뼈대. 각 유형은 `presentation-designer`의 슬라이드 타입(`presentation-designer/AGENT.md`의 Layout Patterns)과 1:1로 맞물린다. writer가 여기 형식으로 쓰면 designer가 그대로 타입을 배정해 HTML로 옮긴다. 공통 원칙은 AGENT.md의 작성 원칙을 따르고 한국어 문장 규칙은 `../../_shared/references/style-guide.md`를 공유한다.
 
 ## 유형 ↔ designer 슬라이드 타입 매핑
 

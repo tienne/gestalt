@@ -20,7 +20,7 @@ outputs:
 This skill transforms a validated Spec specification into a concrete, dependency-aware Execution Plan, executes it with multi-perspective Role Agent guidance, and validates the result through a 2-stage evaluation pipeline.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
-> `ges_*` 도구가 없거나 호출이 실패하면 직접 흉내내 진행하지 않고, 무엇이 왜 안 되는지 말하고 멈춥니다.
+> `ges_*` 도구가 없거나 호출이 실패하면 직접 흉내내 진행하지 않고 무엇이 왜 안 되는지 말하고 멈춥니다.
 
 ## Full Pipeline
 
@@ -113,13 +113,13 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 - 순서가 강제됨: figure_ground → closure → proximity → continuity
 - 각 단계 결과는 이전 단계 데이터와 교차 검증됨
 - Continuity 단계에서는 서버 측 DAG 검증이 추가로 수행됨
-- 모든 AC가 분류되어야 하고, 모든 Task가 그룹에 포함되어야 함
+- 모든 AC가 분류되어야 하고 모든 Task가 그룹에 포함되어야 함
 
 ### Reasoning Model 서브에이전트로 플래닝 추론
 
 Phase 1 플래닝(`plan_step` 4단계 + `plan_complete`)은 Spec을 태스크 DAG로 분해하는 깊은 one-shot 추론이라, 게슈탈트에서 상위 추론 모델이 진짜 값을 하는 지점이다. 각 `plan_step`의 `stepResult`(classifiedACs / atomicTasks / taskGroups / dagValidation)를 만드는 추론은 현재 세션이 직접 하지 말고 별도 Agent 서브에이전트로 스폰한다.
 
-**이 지시는 Phase 1 플래닝에만 적용된다. Phase 2 실행(`execute_start`, `execute_task`, 병렬 그룹 Agent 스폰)은 기존 태스크별 `model` 힌트를 그대로 유지하며, 여기서 다루는 `reasoningModel`로 바꾸지 않는다.**
+**이 지시는 Phase 1 플래닝에만 적용된다. Phase 2 실행(`execute_start`, `execute_task`, 병렬 그룹 Agent 스폰)은 기존 태스크별 `model` 힌트를 그대로 유지하며 여기서 다루는 `reasoningModel`로 바꾸지 않는다.**
 
 **추론 모델 값 읽기.** `gestalt.json`을 직접 파싱하지 말고 `ges_status`(sessionId 없이 호출)의 응답에서 `reasoningModel`과 `reasoningModelFallback`을 읽는다. 서버가 config를 resolve해 노출하는 값이다.
 
@@ -127,7 +127,7 @@ Phase 1 플래닝(`plan_step` 4단계 + `plan_complete`)은 Spec을 태스크 DA
 ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ... }
 ```
 
-**스폰.** 각 `plan_step`(그리고 `plan_complete` 조립을 위한 추론이 필요하면 그 단계)에서 Agent 도구로 서브에이전트를 띄우되 `model` 파라미터에 `reasoningModel` 값을 넘긴다. 서브에이전트에는 해당 단계의 `executeContext`(`systemPrompt`, `planningPrompt`, `currentPrinciple`, `spec`, `previousSteps`)를 전달하고, 그 단계의 `stepResult`를 산출하게 한다. 결과를 `plan_step`으로 제출한다.
+**스폰.** 각 `plan_step`(그리고 `plan_complete` 조립을 위한 추론이 필요하면 그 단계)에서 Agent 도구로 서브에이전트를 띄우되 `model` 파라미터에 `reasoningModel` 값을 넘긴다. 서브에이전트에는 해당 단계의 `executeContext`(`systemPrompt`, `planningPrompt`, `currentPrinciple`, `spec`, `previousSteps`)를 전달하고 그 단계의 `stepResult`를 산출하게 한다. 결과를 `plan_step`으로 제출한다.
 
 **폴백은 스킬 런타임에서 발동한다.** 서버는 폴백 대상(`reasoningModelFallback`)만 알려줄 뿐, 모델 가용성을 감지하거나 재시도하지 않는다. Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`(예: `opus`)로 바꿔 1회 재시도한다. 폴백 판단과 재시도는 전적으로 이 스킬 런타임의 책임이다.
 
@@ -214,7 +214,7 @@ ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ..
 
 1. `parallelGroups[groupIndex]`의 taskId 목록을 확인한다.
 2. **단일 메시지에서** 각 taskId마다 Agent 툴을 하나씩, 동시에 호출한다 (여러 Agent 툴 호출을 같은 메시지에 담는다).
-3. 각 Agent는 독립적으로 해당 태스크를 수행하고, 완료되면 `execute_task`를 호출해 결과를 제출한다.
+3. 각 Agent는 독립적으로 해당 태스크를 수행하고 완료되면 `execute_task`를 호출해 결과를 제출한다.
 4. 그룹 내 일부 Agent가 실패해도 나머지는 계속 실행한다. 실패한 태스크는 `status: "failed"`로 제출한다.
 5. 그룹 내 모든 Agent가 완료되면 다음 그룹으로 넘어간다.
 6. 모든 그룹이 완료된 후 실패한 태스크가 있으면 기존 evolve 파이프라인으로 재처리한다.
@@ -443,7 +443,7 @@ Execute 파이프라인 실행 중 Claude Code Task 패널에 실시간 상태�
 
 ### Planning 단계 시작 시 (`start` 응답 수신 후)
 
-`TaskCreate`로 실행 패널을 생성하고, 반환된 taskId를 세션 동안 보관한다.
+`TaskCreate`로 실행 패널을 생성하고 반환된 taskId를 세션 동안 보관한다.
 
 ```
 subject: "Gestalt Execute: {spec.goal 앞 40자}"
@@ -461,7 +461,7 @@ description: "Planning 중 | 단계 {stepsCompleted}/4 | {currentPrinciple}"
 
 ### Execution 시작 후 (`execute_start` 응답 수신 후)
 
-Planning 패널 태스크를 완료하고, 새 Execution 패널 태스크를 생성한다.
+Planning 패널 태스크를 완료하고 새 Execution 패널 태스크를 생성한다.
 
 ```
 subject: "Gestalt Execute: {spec.goal 앞 40자}"

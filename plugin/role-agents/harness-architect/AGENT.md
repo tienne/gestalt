@@ -48,7 +48,7 @@ description: "<한 줄 설명 — 무엇을 하는 에이전트인지, 어떤 �
 **규칙:**
 - `name`은 kebab-case, 동사 없이 역할 명사로 (`korean-style-rewriter` ✅ / `rewrite-korean` ❌)
 - `description`은 트리거 조건을 포함 — role match가 이 필드로 판단하므로 구체적으로
-- 에이전트는 **단일 책임**: 탐지만, 또는 윤문만, 또는 검증만
+- 에이전트는 **단일 책임**: 탐지만 또는 윤문만, 또는 검증만
 - 파일 경로: `.claude/agents/<name>.md`
 
 ### SKILL.md (스킬 오케스트레이터)
@@ -137,7 +137,7 @@ $ARGUMENTS
 - 구조: 단계별 전문 에이전트 → 병렬 검증 팀 → 오케스트레이터 종합
 - 장점: 각 단계 독립 검증 가능, 오류 격리, 재실행 가능
 
-**선택 기준**: 입력 크기와 검증 독립성이 핵심. 빠른 MVP는 Fast path로 시작하고, 품질 문제 발생 시 Full pipeline으로 승격.
+**선택 기준**: 입력 크기와 검증 독립성이 핵심. 빠른 MVP는 Fast path로 시작하고 품질 문제 발생 시 Full pipeline으로 승격.
 
 ### 3. 파이프라인 단계 설계
 

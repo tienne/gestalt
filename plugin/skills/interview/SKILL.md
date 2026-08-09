@@ -135,7 +135,7 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 
 ### 시작 시 (`start` 응답 수신 직후)
 
-`TaskCreate`를 호출해 진행 패널을 생성하고, 반환된 taskId를 세션 동안 보관한다.
+`TaskCreate`를 호출해 진행 패널을 생성하고 반환된 taskId를 세션 동안 보관한다.
 
 ```
 subject: "Gestalt 인터뷰: {topic}"

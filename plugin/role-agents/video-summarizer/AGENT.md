@@ -31,14 +31,14 @@ YouTube/로컬 영상을 받아 오디오 전사·화면 OCR·요약을 거쳐 �
 - **YouTube URL / mp4 URL** — yt-dlp로 오디오 다운로드 → ffmpeg 오디오 추출 → faster-whisper 전사 → OCR → Claude 요약
 - **로컬 파일 경로 (.mp4 등)** — yt-dlp 단계 건너뜀 → ffmpeg 오디오 추출 → faster-whisper 전사 → OCR → Claude 요약
 
-URL인지 로컬 경로인지 먼저 판별하고, 로컬 경로면 다운로드 단계를 생략한다.
+URL인지 로컬 경로인지 먼저 판별하고 로컬 경로면 다운로드 단계를 생략한다.
 
 ## 의존성 / 환경 감지
 
-처리 전에 필요한 도구를 점검하고, 없으면 자동 설치를 시도한다.
+처리 전에 필요한 도구를 점검하고 없으면 자동 설치를 시도한다.
 
 - **필수 도구**: yt-dlp, ffmpeg, faster-whisper, EasyOCR / pytesseract
-- 미설치 도구는 자동 설치를 시도하고, 설치 결과를 사용자에게 알린다.
+- 미설치 도구는 자동 설치를 시도하고 설치 결과를 사용자에게 알린다.
 - **GPU 감지**: GPU가 검출되지 않으면 경고 메시지를 출력한 뒤 CPU로 계속 진행한다 (중단하지 않는다).
 - **OCR 도구 선택**: GPU가 있으면 EasyOCR, 없으면 pytesseract를 자동 선택한다.
 

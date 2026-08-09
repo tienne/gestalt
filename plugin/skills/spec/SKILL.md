@@ -100,7 +100,7 @@ Spec 생성은 인터뷰 조각들을 하나의 완전한 구조로 결정화하
 ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ... }
 ```
 
-**스폰.** Agent 도구로 서브에이전트를 띄우되 `model` 파라미터에 `reasoningModel` 값을 넘긴다. 서브에이전트에는 1단계에서 받은 `systemPrompt`, `specPrompt`, `allRounds[]`를 그대로 전달하고, 위 Spec 검증 스키마에 맞는 Spec JSON을 산출하게 한다. 서브에이전트 결과를 2단계 `ges_generate_spec({ sessionId, spec })`로 제출한다.
+**스폰.** Agent 도구로 서브에이전트를 띄우되 `model` 파라미터에 `reasoningModel` 값을 넘긴다. 서브에이전트에는 1단계에서 받은 `systemPrompt`, `specPrompt`, `allRounds[]`를 그대로 전달하고 위 Spec 검증 스키마에 맞는 Spec JSON을 산출하게 한다. 서브에이전트 결과를 2단계 `ges_generate_spec({ sessionId, spec })`로 제출한다.
 
 **폴백은 스킬 런타임에서 발동한다.** 서버는 폴백 대상(`reasoningModelFallback`)만 알려줄 뿐, 모델 가용성을 감지하거나 재시도하지 않는다. Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`(예: `opus`)로 바꿔 1회 재시도한다. 폴백 판단과 재시도는 전적으로 이 스킬 런타임의 책임이다.
 
