@@ -25,7 +25,10 @@ function proseOnly(text: string): string {
     .replace(/```[\s\S]*?```/g, '\n')
     .replace(/`[^`\n]+`/g, ' ')
     .split('\n')
-    .filter((line) => !line.trimStart().startsWith('|'))
+    .filter((line) => {
+      const trimmed = line.trimStart();
+      return !trimmed.startsWith('|') && !trimmed.startsWith('>');
+    })
     .join('\n');
 }
 
@@ -127,6 +130,31 @@ export function detect(text: string, ruleIds?: readonly string[]): Detection[] {
 
 export function countByRule(text: string, ruleIds?: readonly string[]): Map<string, number> {
   return new Map(detect(text, ruleIds).map((d) => [d.ruleId, d.count]));
+}
+
+export interface ReportRegisterStats {
+  plainEndings: number;
+  formalEndings: number;
+}
+
+/**
+ * 보고 본문에서 평서체와 합니다체가 섞였는지만 보수적으로 센다.
+ * 인용문, 코드, 표는 작성자 말투가 아니므로 proseOnly에서 제외한다.
+ */
+export function reportRegisterStats(text: string): ReportRegisterStats {
+  let plainEndings = 0;
+  let formalEndings = 0;
+
+  for (const sentence of splitSentences(proseOnly(text))) {
+    const trimmed = sentence.trim();
+    if (/[가-힣]니다[.!?…]?$/.test(trimmed)) {
+      formalEndings += 1;
+    } else if (/[가-힣]다[.!?…]?$/.test(trimmed)) {
+      plainEndings += 1;
+    }
+  }
+
+  return { plainEndings, formalEndings };
 }
 
 // --- 보존해야 하는 토큰 ---------------------------------------------------

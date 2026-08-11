@@ -17,8 +17,10 @@ export {
   missingProtectedTokens,
   structureStats,
   splitSentences,
+  reportRegisterStats,
   DETECTABLE_RULE_IDS,
   type Detection,
+  type ReportRegisterStats,
   type StructureStats,
 } from './detectors.js';
 export { changeRate, type ChangeRateOptions } from './change-rate.js';

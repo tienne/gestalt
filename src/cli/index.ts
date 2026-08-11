@@ -94,7 +94,7 @@ export function createCli(): Command {
     .description('Judge a humanized draft against the rulebook (exit 0 pass / 1 warn / 2 abort)')
     .requiredOption('--before <path>', 'Original text file')
     .requiredOption('--after <path>', 'Humanized text file')
-    .option('--register <doc|chat>', 'Register to judge against (default: doc)', 'doc')
+    .option('--register <doc|chat|report>', 'Register to judge against (default: doc)', 'doc')
     .option('--json', 'Emit the full report as JSON')
     .action((options: { before: string; after: string; register?: string; json?: boolean }) => {
       humanizeCheckCommand(options);

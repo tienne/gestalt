@@ -91,11 +91,19 @@ outputs:
 
 `audience`에 따라 register를 전환합니다 — `exec`(경영진)·`cross-team`(타팀)은 격식체로 결론과 요청을 앞세우고 전문 용어를 풀어 쓰고 `internal`(팀 내부)은 해요체로 솔직하게 씁니다. 어느 쪽이든 사실, 수치는 단정하고 해석, 추정, 권고는 제안형으로 엽니다. `audience`가 불명확하면 cross-team 격식체를 기본으로 잡습니다.
 
-### 5단계 — 윤문 (humanize)
+### 5단계 — 보고서 문체와 프레이밍
+
+`report`, `proposal`, `decision memo`처럼 기록성과 해석 정밀도가 필요한 산출물은 `role-agents/impact-writer/references/report-register.md`를 먼저 적용합니다. 광의 동사는 목적어 기준으로 구체화하고 수치에는 측정 상태를 붙이고 각 절은 결과와 대응 경로를 먼저 보이게 다듬습니다.
+
+이 단계에서만 절 제목, 수치 상태, 정보 배치를 고칩니다. PR, 슬랙, 지라, 리뷰 코멘트에는 적용하지 않습니다.
+
+### 6단계 — 윤문 (humanize)
 
 초안 완성 후 `ges_agent { action: "get", name: "humanize-monolith" }`로 S1 규칙을 적용해 번역투와 AI-tell을 제거합니다. 성과, 설득 문서는 한국어 자연스러움이 설득력에 직결됩니다.
 
 윤문 시 voice.md 4절의 구분을 humanize에 함께 전달합니다 — 팀 내부 문서의 해석, 권고 제안형("~하면 어떨까요?")은 보존하고 사실, 수치를 흐리는 헤징만 단정으로 교정합니다. humanize가 voice를 일괄로 평탄화하지 않게 합니다.
+
+파일 기반 윤문이면 `gestalt humanize-check --before before.md --after after.md --register report`를 실행합니다. 이 검사는 기존 S1 패턴과 보고 본문의 평서체/합니다체 혼용을 함께 확인합니다.
 
 ## 테스트 시나리오
 

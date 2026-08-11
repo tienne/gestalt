@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url';
 
 export type Severity = 'S1' | 'S2' | 'S3';
 
-/** 산문(칼럼·리포트·문서) 기준과 대화·리뷰 코멘트 기준을 나눠 본다 */
-export type Register = 'doc' | 'chat';
+/** 산문, 대화·리뷰, 보고서 기준을 나눠 본다 */
+export type Register = 'doc' | 'chat' | 'report';
 
 export interface Rule {
   id: string;

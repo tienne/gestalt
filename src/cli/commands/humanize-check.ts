@@ -20,7 +20,8 @@ function read(label: string, path: string): string {
 }
 
 export function humanizeCheckCommand(options: HumanizeCheckOptions): void {
-  const register: Register = options.register === 'chat' ? 'chat' : 'doc';
+  const register: Register =
+    options.register === 'chat' ? 'chat' : options.register === 'report' ? 'report' : 'doc';
   const before = read('원문', options.before);
   const after = read('윤문본', options.after);
 

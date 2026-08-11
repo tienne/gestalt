@@ -4,6 +4,7 @@ import {
   countByRule,
   missingProtectedTokens,
   protectedTokens,
+  reportRegisterStats,
   structureStats,
 } from '../../../src/humanize/detectors.js';
 import { runCheck } from '../../../src/humanize/check.js';
@@ -73,6 +74,11 @@ describe('detectors', () => {
   it('문두 접속사는 문장 첫머리에서만 센다', () => {
     const counts = countByRule('또한 캐시를 봤어요. 이건 또한 중요합니다.');
     expect(counts.get('H-1')).toBe(1);
+  });
+
+  it('보고서 어미는 인용문을 빼고 센다', () => {
+    const stats = reportRegisterStats('지표는 증가했다.\n> "요청을 확인했습니다."');
+    expect(stats).toEqual({ plainEndings: 1, formalEndings: 0 });
   });
 });
 
@@ -160,6 +166,22 @@ describe('runCheck', () => {
     const chat = runCheck(draft, draft, { register: 'chat' });
     expect(doc.residualS1.map((r) => r.ruleId)).not.toContain('A-2');
     expect(chat.residualS1.map((r) => r.ruleId)).toContain('A-2');
+  });
+
+  it('보고서에서 평서체와 합니다체를 섞으면 경고한다', () => {
+    const draft =
+      '응답 시간은 4.2시간에서 9.1시간으로 증가했다. 다음 분기에는 대응 경로를 복구합니다.';
+    const report = runCheck(draft, draft, { register: 'report' });
+    const axis = report.axes.find((item) => item.axis === 'report-register');
+    expect(axis?.verdict).toBe('warn');
+    expect(axis?.evidence).toEqual(['평서체 1문장 / 합니다체 1문장']);
+  });
+
+  it('보고서 어미가 일관되면 통과한다', () => {
+    const draft =
+      '응답 시간은 4.2시간에서 9.1시간으로 증가했다. 다음 분기에는 대응 경로를 복구한다.';
+    const report = runCheck(draft, draft, { register: 'report' });
+    expect(report.axes.find((item) => item.axis === 'report-register')?.verdict).toBe('pass');
   });
 
   it('절반 넘게 갈아엎으면 채택 금지다', () => {

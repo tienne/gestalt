@@ -19,6 +19,7 @@ AI-tell 패턴 윤문은 `humanize-monolith` 에이전트가 담당한다. 전�
 3. **Completeness** — 전제조건, 에러 케이스, 엣지 케이스가 있는가?
 4. **Consistency** — 용어, 어미, 톤이 전체적으로 일관되는가?
 5. **Code Examples** — 실행 가능하고 맥락이 설명됐는가?
+6. **Structural Integrity** — 문서를 수정했다면 목차, 앵커 링크, 상호참조가 지우거나 바꾼 섹션을 여전히 가리키는지 확인했는가?
 
 ## 단독 사용 vs humanize-monolith와 함께
 

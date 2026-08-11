@@ -6,7 +6,12 @@
  * 그래서 변경률, 잔존, 보존, 구조 4가지 측면에서 각각 측정하고, 판단한다.
  */
 import { changeRate } from './change-rate.js';
-import { countByRule, missingProtectedTokens, structureStats } from './detectors.js';
+import {
+  countByRule,
+  missingProtectedTokens,
+  reportRegisterStats,
+  structureStats,
+} from './detectors.js';
 import { parseRuleBook, ruleLabel, s1Ids, type Register, type RuleBook } from './rules.js';
 
 export type Verdict = 'pass' | 'warn' | 'abort';
@@ -25,7 +30,7 @@ export const THRESHOLD = {
 } as const;
 
 export interface AxisResult {
-  axis: 'change-rate' | 'residual-s1' | 'preservation' | 'structure';
+  axis: 'change-rate' | 'residual-s1' | 'preservation' | 'structure' | 'report-register';
   verdict: Verdict;
   detail: string;
   evidence?: string[];
@@ -161,6 +166,23 @@ function checkStructure(
   };
 }
 
+function checkReportRegister(after: string): AxisResult {
+  const { plainEndings, formalEndings } = reportRegisterStats(after);
+  if (plainEndings > 0 && formalEndings > 0) {
+    return {
+      axis: 'report-register',
+      verdict: 'warn',
+      detail: '보고 본문에 평서체와 합니다체가 함께 있음',
+      evidence: [`평서체 ${plainEndings}문장 / 합니다체 ${formalEndings}문장`],
+    };
+  }
+  return {
+    axis: 'report-register',
+    verdict: 'pass',
+    detail: '보고 본문 어미 일관',
+  };
+}
+
 export interface RunCheckOptions {
   register?: Register;
   book?: RuleBook;
@@ -182,8 +204,9 @@ export function runCheck(
   const preservationAxis = checkPreservation(before, after);
   const introduced = findIntroduced(before, after);
   const structureAxis = checkStructure(book, before, after, introduced);
+  const reportAxis = register === 'report' ? [checkReportRegister(after)] : [];
 
-  const axes = [changeAxis, s1Axis, preservationAxis, structureAxis];
+  const axes = [changeAxis, s1Axis, preservationAxis, structureAxis, ...reportAxis];
   const verdict = worst(axes.map((a) => a.verdict));
 
   return {

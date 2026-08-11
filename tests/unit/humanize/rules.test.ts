@@ -76,6 +76,10 @@ describe('s1Ids', () => {
     expect(s1Ids(book, 'doc')).not.toContain('I-5');
     expect(s1Ids(book, 'chat')).toContain('I-5');
   });
+
+  it('보고서 기준 S1은 문서 기준과 같다', () => {
+    expect(s1Ids(book, 'report')).toEqual(s1Ids(book, 'doc'));
+  });
 });
 
 describe('ruleLabel', () => {
