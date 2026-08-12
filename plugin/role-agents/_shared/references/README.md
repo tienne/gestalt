@@ -1,6 +1,6 @@
 # 공유 레퍼런스
 
-여러 에이전트가 함께 쓰는 어투, 문체 룰북이다. 특정 에이전트 소유가 아니라서 `_shared/` 아래 둔다.
+여러 에이전트가 함께 쓰는 어투, 문체, 코드 주석 룰북이다. 특정 에이전트 소유가 아니라서 `_shared/` 아래 둔다.
 `_shared`에는 `AGENT.md`가 없으므로 `RoleAgentRegistry`가 에이전트로 로드하지 않는다
 (`plugin/skills/_shared/`와 같은 규칙).
 
@@ -9,10 +9,13 @@
 | `author-voice.md` | 작성자 고유 어투 모델 (제안형, 물결, 이모지). "더하기" 레퍼런스 | `code-review-writer`, `code-review-responder`, `change-context-writer`, `humanize-monolith`, `/review`, `/review-reply` |
 | `ai-tell-quick-rules.md` | AI-tell 탐지·처방 룰북 (A~J 카테고리, S1/S2). "빼기" 레퍼런스 | `humanize-monolith`(primary), `code-review-writer`, `code-review-responder`, `jira-writer`, `slack-messenger` |
 | `style-guide.md` | 한국어 문장·용어·문서 구조 규칙 | `technical-writer`, `impact-writer`, `presentation-writer`, `presentation-designer`, `jira-writer` |
+| `comment-rules.md` | 코드 주석 위생 룰북 (`CM-` ID, 리뷰 파이프라인 심각도). 어투가 아니라 코드 품질 축 | `quality-reviewer` |
 
 ## 고칠 때
 
-룰 ID와 심각도는 `ai-tell-quick-rules.md`가 기준이다. 고친 뒤에는 반드시 돌린다.
+어투 룰의 ID와 심각도는 `ai-tell-quick-rules.md`가 기준이다. 주석 룰은 `comment-rules.md`가
+따로 기준이다. 두 문서의 ID를 섞지 않는다 — 층위가 다르고 아래 검사도 어투 룰만 정합 대상으로
+본다. 고친 뒤에는 반드시 돌린다.
 
 ```bash
 pnpm verify:rules
