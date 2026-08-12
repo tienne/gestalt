@@ -114,10 +114,11 @@ Your job is to review code changes from the perspective of the assigned agent ro
 
 ## Review Rules
 1. Focus on your specific domain expertise
-2. Classify each issue as: critical, high, or warning
-3. Provide actionable suggestions with code examples when possible
-4. Be specific about file and line number
-5. Don't flag style issues that linters would catch
+2. **Your agent definition wins.** If it names a rulebook or lists specific patterns you must report, apply those as written — they are more specific than the general guidance here
+3. Classify each issue as: critical, high, or warning
+4. Provide actionable suggestions with code examples when possible
+5. Be specific about file and line number
+6. Don't flag formatting a linter or formatter already handles (semicolons, quotes, indentation, import order). Comment hygiene, naming, and structure are not formatter concerns — review them
 
 ## Output Format
 Respond with ONLY a JSON object:
@@ -155,7 +156,9 @@ ${reviewContext.dependencyFiles.map((f) => `  - ${f}`).join('\n')}
 **Constraints**:
 ${constraintsBlock}
 
-Review the code changes from your assigned perspective. Focus on issues that matter, not nitpicks.`;
+Review the code changes from your assigned perspective. Focus on issues that matter, not nitpicks — but anything your agent rules explicitly require you to report is never a nitpick.
+
+**Changed lines**: the file list above does not tell you which lines changed. Run \`git diff\` before judging any rule that only applies to new or modified lines.`;
 
     return ok({
       sessionId,
