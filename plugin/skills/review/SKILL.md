@@ -56,11 +56,7 @@ execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파
 
 ## 전제 조건
 
-코드 지식 그래프가 빌드되어 있어야 변경 파일의 영향범위까지 수집할 수 있습니다:
-```
-/build-graph
-```
-그래프 DB가 없으면 `ges_code_graph { action: "db_exists", repoRoot: "<repoRoot>" }`로 확인 후 `/build-graph`를 먼저 안내합니다.
+없습니다. git 저장소이기만 하면 바로 돌아갑니다 — 코드 그래프는 쓰지 않습니다.
 
 ## Skill Instructions
 
@@ -87,23 +83,31 @@ execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파
 
 `reviewIntent`는 MCP 입력 파라미터로 전달되지 않습니다 — 이후 단계에서 **Claude의 추론 컨텍스트로만** 활용합니다.
 
-### 1단계: 변경 파일 수집 (blast_radius)
+### 1단계: 변경 파일 수집 (git diff)
 
-`blast_radius`로 리뷰 대상의 변경 파일과 영향받는 파일을 수집합니다:
+리뷰 대상의 변경 파일을 git으로 수집합니다. `target` 형태에 따라 명령이 달라집니다:
 
+```bash
+# 현재 브랜치 vs main (target 생략)
+git diff --name-only main...HEAD
+
+# 특정 브랜치
+git diff --name-only main...<branch>
+
+# 범위 (main..feature/auth)
+git diff --name-only <range>
+
+# 특정 커밋
+git diff --name-only <commit>^ <commit>
 ```
-ges_code_graph {
-  action: "blast_radius",
-  repoRoot: "<repoRoot>",
-  base: "<target>"
-}
-```
 
-`changedFiles`와 `impactedFiles`를 합쳐 리뷰 대상 파일 목록을 구성합니다.
+출력이 비어 있으면 리뷰할 변경이 없다고 알리고 중단합니다.
+
+**바뀐 파일만 리뷰 대상입니다.** 의존 파일이나 호출부를 목록에 얹지 않습니다 — 안 바뀐 파일이 목록에 섞이면 리뷰어가 그걸 변경으로 오해해서 기존 코드를 지적합니다. 시그니처나 공용 유틸 변경처럼 호출부까지 봐야 하는 경우는 3단계에서 리뷰어가 직접 읽습니다.
 
 ### 1.5단계: 기획 컨텍스트 분석
 
-`blast_radius`로 수집한 `changedFiles`를 바탕으로 변경의 기획적 의도와 동작 변화를 분석한다.
+1단계에서 수집한 변경 파일을 바탕으로 변경의 기획적 의도와 동작 변화를 분석한다.
 
 `ges_agent { action: "get", name: "change-context-writer" }`로 에이전트 시스템 프롬프트를 가져온 뒤, 해당 관점에서 diff를 분석해 기획 컨텍스트 문서를 작성한다.
 
@@ -118,7 +122,7 @@ ges_code_graph {
 ```
 ges_execute {
   action: "review_start",
-  changedFiles: [...수집한 파일...],
+  changedFiles: [...1단계에서 수집한 변경 파일...],
   repoRoot: "<repoRoot>"
 }
 ```
@@ -268,7 +272,7 @@ git rev-parse HEAD && git status --porcelain
 판단 기준:
 
 - **이번 세션에 방금 리뷰를 끝냈고 그 뒤 diff 변화가 없다** → consensus가 신선함. 곧장 게시 진행.
-- **리뷰 후 코드가 바뀌었다 / 활성 리뷰 세션이 없다 / 다른 세션의 오래된 결과다** → consensus가 stale. **게시하지 말고**, 1단계(blast_radius)부터 현재 diff로 리뷰 파이프라인(1~4단계)을 다시 돌린 뒤, 새로 나온 consensus로 4.7을 진행합니다. 사용자에게 "변경이 있어 현재 코드로 다시 리뷰한 뒤 게시할게요"라고 한 줄 알립니다.
+- **리뷰 후 코드가 바뀌었다 / 활성 리뷰 세션이 없다 / 다른 세션의 오래된 결과다** → consensus가 stale. **게시하지 말고**, 1단계(git diff)부터 현재 diff로 리뷰 파이프라인(1~4단계)을 다시 돌린 뒤, 새로 나온 consensus로 4.7을 진행합니다. 사용자에게 "변경이 있어 현재 코드로 다시 리뷰한 뒤 게시할게요"라고 한 줄 알립니다.
 
 즉 인라인 코멘트는 **언제 요청받든 항상 "현재 diff 기준 consensus + code-review-writer voice"** 로만 게시됩니다. 옛 리뷰 메모리를 그대로 옮겨 적거나 Claude가 손으로 코멘트를 짜는 경로는 없습니다.
 

@@ -60,12 +60,11 @@ export class PassthroughReviewEngine {
       reviewContext = this.contextCollector.collect(
         source.executeSession.spec,
         source.executeSession.taskResults,
-        source.executeSession.codeGraphRepoRoot,
       );
       executeSessionId = source.executeSession.sessionId;
       repoRoot = source.executeSession.codeGraphRepoRoot;
     } else {
-      reviewContext = this.contextCollector.collectFromFiles(source.changedFiles, source.repoRoot);
+      reviewContext = this.contextCollector.collectFromFiles(source.changedFiles);
       // Sentinel: direct file review has no backing execute session
       executeSessionId = '';
       repoRoot = source.repoRoot;
@@ -143,16 +142,20 @@ Respond with ONLY a JSON object:
         ? reviewContext.spec.constraints.map((c) => `  - ${c}`).join('\n')
         : '  (none)';
 
+    const dependencyBlock =
+      reviewContext.dependencyFiles.length > 0
+        ? `\n**Dependency Context** (${reviewContext.dependencyFiles.length}):\n${reviewContext.dependencyFiles
+            .map((f) => `  - ${f}`)
+            .join('\n')}\n`
+        : '';
+
     const reviewPrompt = `## Code Review
 
 **Spec Goal**: ${reviewContext.spec?.goal ?? 'Direct file review'}
 
 **Changed Files** (${reviewContext.changedFiles.length}):
 ${reviewContext.changedFiles.map((f) => `  - ${f}`).join('\n')}
-
-**Dependency Context** (${reviewContext.dependencyFiles.length}):
-${reviewContext.dependencyFiles.map((f) => `  - ${f}`).join('\n')}
-
+${dependencyBlock}
 **Constraints**:
 ${constraintsBlock}
 

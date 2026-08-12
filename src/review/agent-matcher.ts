@@ -54,10 +54,10 @@ Respond with ONLY a JSON object:
       .join('\n');
 
     const fileList = reviewContext.changedFiles.join('\n  ');
-    const depList =
+    const dependencyBlock =
       reviewContext.dependencyFiles.length > 0
-        ? reviewContext.dependencyFiles.join('\n  ')
-        : '(none)';
+        ? `\n**Dependency Context** (${reviewContext.dependencyFiles.length}):\n  ${reviewContext.dependencyFiles.join('\n  ')}\n`
+        : '';
 
     const matchingPrompt = `## Code Review Agent Matching
 
@@ -65,10 +65,7 @@ Respond with ONLY a JSON object:
 
 **Changed Files** (${reviewContext.changedFiles.length}):
   ${fileList}
-
-**Dependency Context** (${reviewContext.dependencyFiles.length}):
-  ${depList}
-
+${dependencyBlock}
 **Task Results Summary**: ${reviewContext.taskResults?.length ?? 0} tasks completed
 
 **Available Agents** (${availableAgents.length}):
