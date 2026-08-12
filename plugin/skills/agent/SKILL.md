@@ -75,6 +75,7 @@ Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 | `security-reviewer` | Injection, XSS, auth vulnerabilities, secrets |
 | `performance-reviewer` | Memory leaks, N+1 queries, bundle size, async |
 | `quality-reviewer` | Readability, SOLID, error handling, DRY |
+| `comment-reviewer` | Comment hygiene — restated code, dead code, stale comments, untracked TODOs |
 
 ## Proactive Invocation
 

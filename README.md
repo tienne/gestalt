@@ -600,6 +600,7 @@ Four built-in review agents run focused code analysis:
 | `performance-reviewer` | Memory leaks, N+1 queries, bundle size, async |
 | `quality-reviewer` | Readability, SOLID, error handling, DRY |
 | `frontend-reviewer` | UI/React review, accessibility, bundle optimization |
+| `comment-reviewer` | Comment hygiene — restated code, dead code, stale comments, untracked TODOs |
 
 ### Custom Agents
 

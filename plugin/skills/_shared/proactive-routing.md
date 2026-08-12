@@ -27,6 +27,7 @@
 | 지라 티켓 생성 요청 ("티켓 만들어줘", "이슈 생성해줘", "지라에 올려줘") | `jira-create` 스킬 사용 (내부적으로 jira-writer 구조화 → 프로젝트·필드 확정 → 승인 단계 → createJiraIssue) |
 | UI, React, 접근성, 컴포넌트 설계 | `frontend-developer` |
 | UI·React 코드 리뷰, 접근성·번들 최적화 검토 | `frontend-reviewer` |
+| 주석 검토 ("주석 좀 봐줘", 불필요한 주석·죽은 코드·티켓 없는 TODO 확인) | `comment-reviewer` |
 | API, DB, 인증, 서버 로직 | `backend-developer` |
 | CI/CD, 인프라, 모니터링 | `devops-engineer` |
 | 요구사항 정리, 로드맵, 유저 스토리 | `product-planner` |

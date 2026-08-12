@@ -496,6 +496,7 @@ review_start → 에이전트 관점 제출 → 합의 → 자동 수정
 | `performance-reviewer` | 메모리 누수, N+1 쿼리, 번들 크기, 비동기 |
 | `quality-reviewer` | 가독성, SOLID, 에러 핸들링, DRY |
 | `frontend-reviewer` | UI·React 리뷰, 접근성, 번들 최적화 |
+| `comment-reviewer` | 주석 위생 — 코드 반복, 죽은 코드, 어긋난 주석, 티켓 없는 TODO |
 
 파이프라인 밖에서도 `/agent`로 언제든 에이전트를 쓸 수 있어요:
 

@@ -301,7 +301,8 @@ describe('RoleAgentRegistry: review-agents loading', () => {
     expect(reviewNames).toContain('security-reviewer');
     expect(reviewNames).toContain('performance-reviewer');
     expect(reviewNames).toContain('frontend-reviewer');
-    expect(reviewNames.length).toBeGreaterThanOrEqual(4);
+    expect(reviewNames).toContain('comment-reviewer');
+    expect(reviewNames.length).toBeGreaterThanOrEqual(5);
   });
 
   it('every review agent has pipeline=review', () => {
