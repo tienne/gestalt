@@ -207,6 +207,34 @@ describe('PassthroughReviewEngine', () => {
 
       expect(result.value.reviewStartContext.reviewPrompt).toContain('Direct file review');
     });
+
+    it('omits the dependency section from the review prompt in direct review', () => {
+      const { roleAgents, reviewAgents } = createMockAgents();
+
+      const result = engine.startReview(
+        { changedFiles: ['src/a.ts'], repoRoot: '/repo' },
+        roleAgents,
+        reviewAgents,
+      );
+      if (!result.ok) return;
+
+      const prompt = result.value.reviewStartContext.reviewPrompt;
+      expect(prompt).not.toContain('Dependency Context');
+      expect(prompt).toContain('  - src/a.ts\n\n**Constraints**:');
+    });
+
+    it('renders the dependency section when the execute session yields dependencies', () => {
+      const session = createMockExecuteSession();
+      const { roleAgents, reviewAgents } = createMockAgents();
+
+      const result = engine.startReview({ executeSession: session }, roleAgents, reviewAgents);
+      if (!result.ok) return;
+
+      const prompt = result.value.reviewStartContext.reviewPrompt;
+      expect(prompt).toContain(
+        '**Dependency Context** (1):\n  - ../utils/hash.js\n\n**Constraints**:',
+      );
+    });
   });
 
   describe('submitReview', () => {

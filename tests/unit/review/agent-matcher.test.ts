@@ -72,6 +72,25 @@ describe('ReviewAgentMatcher', () => {
     expect(ctx.matchingPrompt).toContain('./utils/hash.js');
   });
 
+  it('omits the dependency section entirely when there are no dependency files', () => {
+    const ctx = matcher.generateMatchContext(
+      { ...mockContext, dependencyFiles: [] },
+      [roleAgent],
+      [reviewAgent],
+    );
+
+    expect(ctx.matchingPrompt).not.toContain('Dependency Context');
+    expect(ctx.matchingPrompt).toContain('src/auth/session.ts\n\n**Task Results Summary**');
+  });
+
+  it('surrounds the dependency section with one blank line when it renders', () => {
+    const ctx = matcher.generateMatchContext(mockContext, [roleAgent], [reviewAgent]);
+
+    expect(ctx.matchingPrompt).toContain(
+      'src/auth/session.ts\n\n**Dependency Context** (1):\n  ./utils/hash.js\n\n**Task Results Summary**',
+    );
+  });
+
   it('system prompt contains matching rules', () => {
     const ctx = matcher.generateMatchContext(mockContext, [], [reviewAgent]);
     expect(ctx.systemPrompt).toContain('Always include at least one review-specialist');
