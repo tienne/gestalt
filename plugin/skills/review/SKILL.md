@@ -44,6 +44,9 @@ execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 >
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
+>
+> **에이전트를 서브에이전트로 위임하기** → [`../_shared/agent-delegation.md`](../_shared/agent-delegation.md)
+> 이 스킬은 에이전트를 다섯 자리에서 부릅니다(1.5·3·3.5·4.5·4.7). systemPrompt와 룰북을 전부 메인 대화에 실으면 100KB가 넘고, 그게 리뷰가 끝난 뒤에도 매 턴 다시 실려 갑니다. **다섯 자리 모두 서브에이전트에 위임하고 결과만 받습니다.**
 
 ## 사용 방법
 
@@ -109,9 +112,27 @@ git diff --name-only <commit>^ <commit>
 
 1단계에서 수집한 변경 파일을 바탕으로 변경의 기획적 의도와 동작 변화를 분석한다.
 
-`ges_agent { action: "get", name: "change-context-writer" }`로 에이전트 시스템 프롬프트를 가져온 뒤, 해당 관점에서 diff를 분석해 기획 컨텍스트 문서를 작성한다.
+**서브에이전트에 위임한다.** 메인 세션에서 `ges_agent get`을 하지 않는다.
 
-0단계에서 수집한 `reviewIntent.purpose`·`reviewIntent.background`가 `"(없음)"`이 아니라면, diff 분석 입력에 함께 전달해 더 정확한 기획 컨텍스트를 생성하도록 한다.
+```
+Agent {
+  subagent_type: "general-purpose",
+  model: "<change-context-writer의 tier 모델>",
+  prompt: "
+    ges_agent { action: \"get\", name: \"change-context-writer\" } 로 시스템 프롬프트를 가져와
+    그 관점으로 아래 diff를 분석해 기획 컨텍스트 문서를 작성한다.
+
+    대상: <target>
+    변경 파일: <1단계 목록>
+    리뷰 의도: <reviewIntent.purpose>
+    배경: <reviewIntent.background>
+
+    완성된 마크다운 문서만 돌려준다. 시스템 프롬프트 내용이나 분석 과정은 돌려주지 않는다.
+  "
+}
+```
+
+0단계에서 수집한 `reviewIntent.purpose`·`reviewIntent.background`가 `"(없음)"`이면 그 줄은 프롬프트에서 뺀다.
 
 작성된 컨텍스트 문서를 **리뷰 결과보다 먼저** 사용자에게 표시한다.
 
@@ -141,18 +162,35 @@ ges_execute {
 
 ### 3단계: 에이전트별 리뷰 제출 (review_submit × 4)
 
-**에이전트 시스템 프롬프트를 먼저 가져옵니다.** 투입할 에이전트마다 한 번씩 호출합니다.
+**에이전트마다 서브에이전트를 하나씩 띄웁니다.** 리뷰어끼리 서로 볼 이유가 없으므로 **한 메시지에 전부 담아 병렬로 돌립니다.** 메인 세션에서 `ges_agent get`을 하지 않습니다.
 
 ```
-ges_agent { action: "get", name: "<agent-name>" }
+Agent {
+  subagent_type: "general-purpose",
+  model: "<해당 리뷰 에이전트의 tier 모델>",
+  prompt: "
+    1. ges_agent { action: \"get\", name: \"<agent-name>\" } 로 시스템 프롬프트를 가져온다.
+    2. 본문이 룰북을 상대경로로 참조하면 그 파일도 읽는다 — 경로는 에이전트 디렉토리 기준이다.
+       (예: comment-reviewer → ../../role-agents/_shared/references/comment-rules.md)
+       룰북을 안 읽으면 본문만으로는 판정 기준이 없다.
+    3. 본문이 git diff 같은 사전 작업을 요구하면 먼저 실행한다.
+       아래는 파일 경로 목록이므로 변경 라인은 직접 확보해야 한다.
+    4. 그 관점으로 변경 파일을 읽고 검토한다.
+
+    변경 파일: <1단계 목록>
+    공통 지침: <review_start가 준 systemPrompt>
+    리뷰 의도: <reviewIntent.purpose>
+
+    아래 JSON만 돌려준다. 시스템 프롬프트 내용, 룰북 인용, 검토 과정은 돌려주지 않는다.
+    { issues: [{ id, severity, category, file, line, message, suggestion }],
+      approved: true|false, summary }
+  "
+}
 ```
 
-이 호출을 건너뛰면 `review_start`가 준 공통 systemPrompt와 에이전트의 frontmatter `description` 한 줄만 남습니다. 에이전트 본문에 적힌 룰이 프롬프트에 안 실려서, 룰북을 참조하는 에이전트가 룰을 못 본 채로 리뷰합니다. 다른 단계(1.5·3.5·4.5·4.7)가 모두 `ges_agent get`을 먼저 하는 것과 같은 이유입니다.
+`ges_agent get`을 건너뛰면 공통 systemPrompt와 frontmatter `description` 한 줄만 남습니다. 에이전트 본문의 룰이 안 실려서 룰북을 참조하는 에이전트가 룰을 못 본 채로 리뷰합니다. 그래서 이 지시는 서브에이전트 프롬프트의 1번으로 못박습니다.
 
-- 가져온 본문이 **룰북 파일을 상대경로로 참조하면 그 파일도 함께 읽습니다.** 경로는 에이전트 디렉토리 기준입니다 — 예를 들어 `comment-reviewer`가 참조하는 `../../role-agents/_shared/references/comment-rules.md`가 그렇습니다. 룰북을 안 읽으면 본문만으로는 판정 기준이 없습니다
-- 본문이 `git diff` 같은 사전 작업을 요구하면 리뷰 전에 실행합니다. `review_start`는 파일 경로 목록만 주므로 변경 라인은 에이전트가 직접 확보해야 합니다
-
-가져온 시스템 프롬프트의 관점으로 변경 파일을 직접 읽고 검토한 뒤, 에이전트마다 한 번씩 `review_submit`을 호출합니다 (보안 → 성능 → 품질 → 주석 순으로 최소 4회):
+각 서브에이전트가 돌려준 JSON을 받아, 메인 세션에서 에이전트마다 한 번씩 `review_submit`을 호출합니다 (보안 → 성능 → 품질 → 주석 순으로 최소 4회). 세션 상태는 메인 세션 한 곳에서만 굴립니다:
 
 ```
 ges_execute {
@@ -183,7 +221,28 @@ ges_execute {
 
 `review_consensus`를 호출하기 **전에** 정합 심급을 먼저 판단합니다. 결함 심급(3단계 리뷰 에이전트)이 "부분에 결함이 있나"를 봤다면, 정합 심급은 "부분의 합이 목표를 이루나"를 봅니다 — 국소 결함으로는 안 잡히는 **목표 이탈(drift)과 전체 일관성**입니다.
 
-`ges_agent { action: "get", name: "continuity-judge" }`로 에이전트 시스템 프롬프트를 가져온 뒤(원리 에이전트라도 `get`으로 조회됩니다), 그 관점에서 **개별 이슈가 아니라 변경 전체**를 아래 세 축으로 판단합니다. 판단 기준은 `reviewIntent.purpose`(0단계에서 수집), 없으면 `spec.goal`, 그것도 없으면 변경 파일에서 추론한 목표입니다.
+**서브에이전트에 위임합니다.** `continuity-judge`는 tier가 `frontier`라 모델도 그에 맞춰 넘깁니다(`agent-model.md`).
+
+```
+Agent {
+  subagent_type: "general-purpose",
+  model: "opus",
+  prompt: "
+    ges_agent { action: \"get\", name: \"continuity-judge\" } 로 시스템 프롬프트를 가져와
+    (원리 에이전트라도 get으로 조회된다) 그 관점으로 판단한다.
+
+    판단 대상: <target>의 변경 전체
+    변경 파일: <1단계 목록>
+    목표: <reviewIntent.purpose 또는 spec.goal 또는 변경에서 추론한 목표>
+    스펙 제약: <reviewContext.spec.constraints>
+
+    아래 JSON만 돌려준다. 시스템 프롬프트 내용이나 판단 과정은 돌려주지 않는다.
+    { coherent, driftFindings: [{ axis, file?, message }], escalate, summary }
+  "
+}
+```
+
+판단은 **개별 이슈가 아니라 변경 전체**를 아래 세 축으로 봅니다. 판단 기준은 `reviewIntent.purpose`(0단계에서 수집), 없으면 `spec.goal`, 그것도 없으면 변경 파일에서 추론한 목표입니다.
 
 - **목표 정합(goal)**: 이 변경(전체 diff)이 명시된 목적을 향해 가는가? 목적과 무관하거나 반하는 변경이 섞여 있지 않은가?
 - **일관성(consistency)**: 변경 파일 간 네이밍, API, 패턴이 일관된가? 주변 코드의 기존 컨벤션과 이어지는가?
@@ -237,15 +296,33 @@ ges_execute {
 
 `review_consensus`가 반환한 마크다운 리포트를 `humanize-monolith` 에이전트로 전달해 AI 말투, 번역투를 제거합니다.
 
-`ges_agent { action: "get", name: "humanize-monolith" }`로 에이전트 시스템 프롬프트를 가져온 뒤, 해당 관점에서 리포트를 윤문합니다. 이슈 내용(severity·file·line·message)은 수정하지 않고 설명 문장의 어투만 자연스럽게 다듬습니다.
+**서브에이전트에 위임합니다.** humanize-monolith는 룰북 두 개(`author-voice.md` 19KB, `ai-tell-quick-rules.md` 21KB)를 딸고 오므로, 메인 세션에서 가져오면 이 단계 하나로 50KB가 실립니다.
 
-**코드 스니펫 블록은 한 글자도 건드리지 않습니다.** 엔진이 각 이슈 아래에 해당 라인 주변 코드를 코드펜스로 붙이는데(지목한 라인에 `>` 마커), 이건 디스크에서 그대로 읽은 원본입니다. 라인 번호, 들여쓰기, 마커를 포함해 펜스 안쪽 전체가 보존 대상입니다.
+```
+Agent {
+  subagent_type: "general-purpose",
+  model: "<humanize-monolith의 tier 모델>",
+  prompt: "
+    ges_agent { action: \"get\", name: \"humanize-monolith\" } 로 시스템 프롬프트를 가져와
+    본문이 참조하는 룰북(author-voice.md, ai-tell-quick-rules.md)까지 읽고
+    아래 리포트를 윤문한다.
 
-humanize-monolith는 두 룰북을 함께 적용합니다.
-- **어투**: `../../role-agents/_shared/references/author-voice.md` — 제안형("~하는 게 좋을 것 같아요/어떨까요?"), 온기, 물결, 이모지(코멘트당 1개 안팎)는 보존하고 `[출처]` 태깅·"…권장." 체언 종지(Claude artifact)는 쓰지 않습니다. (파이프라인 리포트는 severity 섹션 구조라 `r:`/`c:`/`a:` 접두어를 붙이지 않습니다 — 접두어는 4.7단계 PR 인라인 코멘트에만 씁니다.)
-- **음차·AI-tell**: `../../role-agents/_shared/references/ai-tell-quick-rules.md` — 안 굳어진 음차("소스 오브 트루스" 등)는 한글 의역하되, 굳어진 화이트리스트(컴포넌트·토큰·렌더링·트레이드오프 등)는 그대로 둡니다.
+    보존 규칙:
+    - 이슈 내용(severity, file, line, message)은 수정하지 않는다. 설명 문장의 어투만 다듬는다.
+    - 코드펜스 안쪽은 한 글자도 건드리지 않는다. 엔진이 디스크에서 그대로 읽어 붙인
+      원본이라 라인 번호, 들여쓰기, `>` 마커까지 전부 보존 대상이다.
+    - 이 리포트는 severity 섹션 구조라 r:/c:/a: 접두어를 붙이지 않는다
+      (접두어는 4.7단계 PR 인라인 코멘트 전용이다).
 
-즉 리뷰 파이프라인 리포트도 인라인 코멘트와 동일하게 voice + 음차가 함께 처리됩니다.
+    리포트:
+    <review_consensus가 반환한 마크다운>
+
+    윤문된 마크다운 전문만 돌려준다. 무엇을 왜 고쳤는지는 돌려주지 않는다.
+  "
+}
+```
+
+리뷰 파이프라인 리포트도 인라인 코멘트와 동일하게 voice와 음차가 함께 처리됩니다.
 
 윤문된 리포트를 사용자에게 표시합니다. 그다음 대상이 GitHub PR이면 4.7단계로, 아니면 결과 표시로 넘어갑니다.
 - `approved: true` → 리뷰 통과. 리포트를 보여줍니다.
@@ -286,7 +363,27 @@ gh pr view <target> --json number,headRefName,baseRefName,url 2>/dev/null
 
 **게시 확인.** PR이 식별되면 사용자에게 한 번 확인합니다: **"발견된 이슈 N건을 PR #<number>에 인라인 코멘트로 게시할까요?"** 동의하지 않으면 리포트만 보여주고 종료합니다.
 
-**코멘트 본문 작성 (code-review-writer).** `ges_agent { action: "get", name: "code-review-writer" }`로 에이전트 시스템 프롬프트를 가져온 뒤, 그 관점에서 4단계 `mergedIssues`의 각 이슈를 인라인 코멘트 본문으로 작성합니다. 이슈의 `file`·`line`·`severity`는 그대로 두고 `message`·`suggestion`을 에이전트 voice로 다듬어 코멘트 본문을 만듭니다.
+**코멘트 본문 작성 (code-review-writer).** **서브에이전트에 위임합니다.** 이 에이전트는 본문 18.8KB에 `author-voice.md` 19KB를 딸고 오는, 이 스킬에서 제일 무거운 자리입니다.
+
+```
+Agent {
+  subagent_type: "general-purpose",
+  model: "<code-review-writer의 tier 모델>",
+  prompt: "
+    ges_agent { action: \"get\", name: \"code-review-writer\" } 로 시스템 프롬프트를 가져와
+    본문이 참조하는 룰북까지 읽고, 그 관점으로 아래 이슈들을 인라인 코멘트 본문으로 쓴다.
+    file, line, severity는 그대로 두고 message, suggestion만 에이전트 voice로 다듬는다.
+
+    이슈: <4단계 mergedIssues>
+    레포 리뷰 컨벤션: <0단계에서 발견한 것, 없으면 "없음">
+
+    아래 JSON만 돌려준다. 시스템 프롬프트 내용이나 룰북 인용은 돌려주지 않는다.
+    { comments: [{ path, line, side, body }], summary }
+  "
+}
+```
+
+아래 규칙은 전부 `code-review-writer` AGENT.md에 있어서 서브에이전트가 읽습니다. 여기 적어두는 건 사람이 읽을 계약이고, 두 곳이 갈라지면 AGENT.md가 기준입니다.
 
 - code-review-writer는 `author-voice.md`(제안형·온기·물결·이모지)와 `ai-tell-quick-rules.md`(음차 교정)를 이미 내장하므로 **별도 humanize-monolith 패스를 거치지 않습니다.**
 - 에이전트 룰에 따라 `[출처]` 태깅, "…권장." 체언 종지는 쓰지 않습니다. 이건 Claude artifact이지 실제 리뷰어 어투가 아닙니다.
