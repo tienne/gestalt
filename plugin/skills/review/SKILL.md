@@ -194,7 +194,7 @@ ges_execute {
 ```
 continuityVerdict = {
   coherent: true | false,        // 정합 심급 통과 여부 (false면 결함이 없어도 Block)
-  driftFindings: [               // 목표 이탈·불일치 항목 (없으면 빈 배열)
+  driftFindings: [               // 목표 이탈과 불일치 항목 (없으면 빈 배열)
     { axis: "goal" | "consistency" | "drift", file?, message }
   ],
   escalate: true | false,        // 라인 수정으로 해결 불가 → 재설계 필요 신호

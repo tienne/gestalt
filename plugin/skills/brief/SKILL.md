@@ -50,7 +50,7 @@ outputs:
 ## 사용 방법
 
 ```
-/brief                          # 유형·데이터를 대화로 수집
+/brief                          # 유형이랑 데이터를 대화로 수집
 /brief report                   # 성과 분석 리포트
 /brief proposal "검색 개편 투자 제안"
 /brief rfc "이벤트 소싱 도입"
