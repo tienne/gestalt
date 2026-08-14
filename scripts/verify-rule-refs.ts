@@ -10,7 +10,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { citedRuleIds, parseRuleBook, s1Ids, QUICK_RULES_PATH } from '../src/humanize/index.js';
-import { countByRule, DETECTABLE_RULE_IDS } from '../src/humanize/detectors.js';
+import { countByRule, proseLines, DETECTABLE_RULE_IDS } from '../src/humanize/detectors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -53,27 +53,18 @@ function markdownFiles(root: string): string[] {
     .map((entry) => join(entry.parentPath, entry.name));
 }
 
-/** 예시로 인용한 금지어까지 잡으면 못 쓴다 — 표·코드·따옴표 안은 인용으로 본다 */
+/**
+ * 예시로 인용한 금지어까지 잡으면 못 쓴다 — 따옴표와 괄호 안은 인용으로 본다.
+ * 어느 줄이 산문인지는 proseLines가 정한다. 여기서 따로 세면 detect 경로와 갈라진다.
+ */
 function bareProse(markdown: string): { line: string; number: number }[] {
-  const out: { line: string; number: number }[] = [];
-  let inFence = false;
-
-  markdown.split('\n').forEach((raw, index) => {
-    if (raw.trimStart().startsWith('```')) {
-      inFence = !inFence;
-      return;
-    }
-    if (inFence) return;
-    if (raw.trimStart().startsWith('|')) return;
-
-    const stripped = raw
+  return proseLines(markdown).map(({ text, number }) => ({
+    line: text
       .replace(/`[^`\n]*`/g, ' ')
       .replace(/"[^"\n]*"|“[^”\n]*”|'[^'\n]*'/g, ' ')
-      .replace(/\([^)\n]*\)/g, ' ');
-    out.push({ line: stripped, number: index + 1 });
-  });
-
-  return out;
+      .replace(/\([^)\n]*\)/g, ' '),
+    number,
+  }));
 }
 
 /**

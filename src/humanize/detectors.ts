@@ -19,17 +19,56 @@ interface Detector {
 
 const SAMPLE_CAP = 3;
 
-/** 표 안 압축과 코드는 룰 적용 대상이 아니라서 센 뒤 빼야 한다 */
-function proseOnly(text: string): string {
-  return text
-    .replace(/```[\s\S]*?```/g, '\n')
-    .replace(/`[^`\n]+`/g, ' ')
-    .split('\n')
-    .filter((line) => {
-      const trimmed = line.trimStart();
-      return !trimmed.startsWith('|') && !trimmed.startsWith('>');
-    })
-    .join('\n');
+export interface ProseLine {
+  text: string;
+  number: number;
+}
+
+export interface ProseOptions {
+  /** 인용줄을 뺀다. 보고 본문 어미처럼 작성자 말투가 아닌 걸 셀 때만 쓴다 */
+  excludeQuotes?: boolean;
+}
+
+/**
+ * 룰을 적용할 산문 줄만 남긴다.
+ *
+ * 코드펜스는 언어 태그가 붙었을 때만 코드로 본다. 태그 없는 펜스에는 실행 코드가 아니라
+ * 서브에이전트가 지시로 읽는 한글 산문이 들어 있어서, 통째로 빼면 그 안의 S1이 그대로 샌다.
+ * 인용줄도 마커만 떼고 산문으로 본다 — 스킬 문서 상단 규칙 블록이 전부 인용이라 빼면 검사가 비는다.
+ * 표는 항목 압축이라 그대로 뺀다.
+ */
+export function proseLines(text: string, options: ProseOptions = {}): ProseLine[] {
+  const lines: ProseLine[] = [];
+  let inFence = false;
+  let fenceIsCode = false;
+
+  text.split('\n').forEach((raw, index) => {
+    const trimmed = raw.trimStart();
+
+    if (trimmed.startsWith('```')) {
+      if (!inFence) fenceIsCode = trimmed.slice(3).trim().length > 0;
+      inFence = !inFence;
+      return;
+    }
+    if (inFence && fenceIsCode) return;
+    if (trimmed.startsWith('|')) return;
+
+    if (trimmed.startsWith('>')) {
+      if (options.excludeQuotes) return;
+      lines.push({ text: raw.replace(/^\s*>+\s?/, ''), number: index + 1 });
+      return;
+    }
+    lines.push({ text: raw, number: index + 1 });
+  });
+
+  return lines;
+}
+
+function proseOnly(text: string, options: ProseOptions = {}): string {
+  return proseLines(text, options)
+    .map((line) => line.text)
+    .join('\n')
+    .replace(/`[^`\n]+`/g, ' ');
 }
 
 function matcher(ruleId: string, re: RegExp, onProse = true): Detector {
@@ -139,13 +178,13 @@ export interface ReportRegisterStats {
 
 /**
  * 보고 본문에서 평서체와 합니다체가 섞였는지만 보수적으로 센다.
- * 인용문, 코드, 표는 작성자 말투가 아니므로 proseOnly에서 제외한다.
+ * 어미는 인용문에서 남의 말투가 그대로 딸려오므로 여기서만 인용줄을 뺀다.
  */
 export function reportRegisterStats(text: string): ReportRegisterStats {
   let plainEndings = 0;
   let formalEndings = 0;
 
-  for (const sentence of splitSentences(proseOnly(text))) {
+  for (const sentence of splitSentences(proseOnly(text, { excludeQuotes: true }))) {
     const trimmed = sentence.trim();
     if (/[가-힣]니다[.!?…]?$/.test(trimmed)) {
       formalEndings += 1;
@@ -160,7 +199,8 @@ export function reportRegisterStats(text: string): ReportRegisterStats {
 // --- 보존해야 하는 토큰 ---------------------------------------------------
 
 const PROTECTED_PATTERNS: RegExp[] = [
-  /```[\s\S]*?```/g,
+  // 언어 태그가 붙은 펜스만 원본 코드다. 태그 없는 펜스는 프롬프트 산문이라 윤문 대상이다
+  /```[^\s`][^\n`]*\n[\s\S]*?```/g,
   /`[^`\n]+`/g,
   /https?:\/\/[^\s)\]]+/g,
   /"[^"\n]{2,}"|“[^”\n]{2,}”/g,
