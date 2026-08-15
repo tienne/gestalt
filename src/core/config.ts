@@ -76,7 +76,7 @@ const configSchema = z.object({
   reviewAgentsDir: z.string().default('plugin/review-agents'),
   personasDir: z.string().default('plugin/personas'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-  client: z.enum(['claude-code', 'codex', 'both']).default('claude-code'),
+  client: z.enum(['claude-code', 'codex', 'both', 'grok']).default('claude-code'),
 });
 
 export type GestaltConfig = z.infer<typeof configSchema>;

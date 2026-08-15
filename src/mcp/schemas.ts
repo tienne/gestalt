@@ -157,7 +157,7 @@ export const executeInputSchema = z.object({
     ),
   cwd: z.string().optional().describe('Working directory for rule file creation'),
   client: z
-    .enum(['claude-code', 'codex', 'both'])
+    .enum(['claude-code', 'codex', 'both', 'grok'])
     .optional()
     .describe('Host client for active context recording (overrides server config per call)'),
   stepResult: z
