@@ -13,7 +13,7 @@ describe('MCP schema exports', () => {
     const parsed = executeInputSchema.parse({ action: 'status', client: 'codex' });
     expect(parsed.client).toBe('codex');
 
-    for (const client of ['claude-code', 'codex', 'both']) {
+    for (const client of ['claude-code', 'codex', 'both', 'grok']) {
       expect(executeInputSchema.shape.client.safeParse(client).success).toBe(true);
     }
     expect(executeInputSchema.shape.client.safeParse('gemini').success).toBe(false);

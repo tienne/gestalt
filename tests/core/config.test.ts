@@ -199,6 +199,12 @@ describe('loadConfig — gestalt.json parsing', () => {
     const config = withCwd(tmpDir, () => loadConfig({}, { skipDotEnv: true }));
     expect(config.dbPath).toBe(customDbPath);
   });
+
+  it('reads client grok from gestalt.json', () => {
+    writeFileSync(join(tmpDir, 'gestalt.json'), JSON.stringify({ client: 'grok' }));
+    const config = withCwd(tmpDir, () => loadConfig({}, { skipDotEnv: true }));
+    expect(config.client).toBe('grok');
+  });
 });
 
 // ─── Environment Variable Priority ──────────────────────────────
@@ -307,6 +313,22 @@ describe('loadConfig — environment variable priority', () => {
     expect(config.llm.frontier?.provider).toBe('anthropic');
     expect(config.llm.frontier?.model).toBe('claude-opus-4-5');
     expect(config.llm.frontier?.apiKey).toBe('sk-frontier-key');
+  });
+
+  it('env var GESTALT_CLIENT=grok overrides gestalt.json claude-code', () => {
+    writeFileSync(join(tmpDir, 'gestalt.json'), JSON.stringify({ client: 'claude-code' }));
+    process.env['GESTALT_CLIENT'] = 'grok';
+    const config = withCwd(tmpDir, () => loadConfig({}, { skipDotEnv: true }));
+    expect(config.client).toBe('grok');
+  });
+
+  it('env var GESTALT_CLIENT=gemini warns and falls back to default claude-code', () => {
+    process.env['GESTALT_CLIENT'] = 'gemini';
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const config = loadConfig({}, isolatedOpts);
+    expect(config.client).toBe('claude-code');
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Warning'));
+    consoleSpy.mockRestore();
   });
 });
 

@@ -141,6 +141,25 @@ describe('createMcpServer', () => {
     }
   });
 
+  it('uses passthrough interview and spec schemas for Grok even when an API key exists', async () => {
+    const { server, eventStore } = await createMcpServer({
+      dbPath: dbPath(),
+      llm: { apiKey: 'sk-ant-test', model: 'test-model' },
+      client: 'grok',
+    });
+
+    try {
+      const tools = registeredTools(server);
+
+      expect(inputKeys(tools['ges_interview'])).toContain('generatedQuestion');
+      expect(inputKeys(tools['ges_interview'])).toContain('resolutionScore');
+      expect(inputKeys(tools['ges_generate_spec'])).toContain('text');
+      expect(inputKeys(tools['ges_generate_spec'])).toContain('spec');
+    } finally {
+      eventStore.close();
+    }
+  });
+
   it('exposes reasoningModel via the passthrough ges_status handler (default real path, no session)', async () => {
     // No API key → passthrough interview registration wins → handleStatusPassthrough is the live handler.
     const { server, eventStore } = await createMcpServer({

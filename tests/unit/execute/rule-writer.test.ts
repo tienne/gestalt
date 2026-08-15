@@ -60,6 +60,24 @@ describe('rule-writer', () => {
       writeGestaltRule(cwd, SPEC, null);
       expect(existsSync(join(cwd, '.claude', 'rules'))).toBe(true);
     });
+
+    it('writes only .grok/rules/gestalt-active.md for grok client', () => {
+      writeGestaltRule(cwd, SPEC, TASK, 'grok');
+      const grokPath = join(cwd, '.grok', 'rules', 'gestalt-active.md');
+      expect(existsSync(grokPath)).toBe(true);
+      const content = readFileSync(grokPath, 'utf-8');
+      expect(content).toContain('Build a task manager');
+      expect(content).toContain('T1');
+      expect(existsSync(join(cwd, '.claude', 'rules', 'gestalt-active.md'))).toBe(false);
+      expect(existsSync(join(cwd, 'AGENTS.md'))).toBe(false);
+    });
+
+    it('writes claude + AGENTS for both and does not create .grok/', () => {
+      writeGestaltRule(cwd, SPEC, TASK, 'both');
+      expect(existsSync(join(cwd, '.claude', 'rules', 'gestalt-active.md'))).toBe(true);
+      expect(existsSync(join(cwd, 'AGENTS.md'))).toBe(true);
+      expect(existsSync(join(cwd, '.grok'))).toBe(false);
+    });
   });
 
   describe('updateGestaltRule', () => {
@@ -74,6 +92,19 @@ describe('rule-writer', () => {
     it('does nothing if file does not exist', () => {
       expect(() => updateGestaltRule(cwd, SPEC, null)).not.toThrow();
     });
+
+    it('updates grok rule only when the grok file already exists', () => {
+      const grokPath = join(cwd, '.grok', 'rules', 'gestalt-active.md');
+      expect(() => updateGestaltRule(cwd, SPEC, TASK, 'grok')).not.toThrow();
+      expect(existsSync(grokPath)).toBe(false);
+
+      writeGestaltRule(cwd, SPEC, null, 'grok');
+      updateGestaltRule(cwd, { ...SPEC, goal: 'Updated grok goal' }, TASK, 'grok');
+      const content = readFileSync(grokPath, 'utf-8');
+      expect(content).toContain('Updated grok goal');
+      expect(content).toContain('T1');
+      expect(existsSync(join(cwd, '.claude', 'rules', 'gestalt-active.md'))).toBe(false);
+    });
   });
 
   describe('deleteGestaltRule', () => {
@@ -87,6 +118,23 @@ describe('rule-writer', () => {
 
     it('does nothing if file does not exist', () => {
       expect(() => deleteGestaltRule(cwd)).not.toThrow();
+    });
+
+    it('deletes only the grok rule file', () => {
+      writeGestaltRule(cwd, SPEC, null, 'grok');
+      writeGestaltRule(cwd, SPEC, null, 'claude-code');
+      writeGestaltRule(cwd, SPEC, null, 'codex');
+      const grokPath = join(cwd, '.grok', 'rules', 'gestalt-active.md');
+      const claudePath = join(cwd, '.claude', 'rules', 'gestalt-active.md');
+      const agentsPath = join(cwd, 'AGENTS.md');
+      expect(existsSync(grokPath)).toBe(true);
+      expect(existsSync(claudePath)).toBe(true);
+      expect(existsSync(agentsPath)).toBe(true);
+
+      deleteGestaltRule(cwd, 'grok');
+      expect(existsSync(grokPath)).toBe(false);
+      expect(existsSync(claudePath)).toBe(true);
+      expect(existsSync(agentsPath)).toBe(true);
     });
   });
 
