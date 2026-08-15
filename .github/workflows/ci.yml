@@ -11,7 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [22, 24]
+        # 24는 24.18.0에 묶어둔다. 24.19.0이 node::ObjectWrap에 정리 훅을 붙이면서
+        # (nodejs/node#63642) better-sqlite3 11.x의 Database 소멸자가 RemoveEnvironmentCleanupHook
+        # 어서션에서 abort한다. Node 쪽 수정(nodejs/node#65196)은 아직 미머지고 24.19.0 이후
+        # 24.x 릴리즈도 없다. better-sqlite3 13.x(N-API)로 올리면 풀리므로 그때 24로 되돌린다.
+        node-version: ['22', '24.18.0']
 
     steps:
       - uses: actions/checkout@v7
@@ -45,7 +49,7 @@ jobs:
         run: pnpm test -- --coverage
 
       - name: Upload coverage
-        if: matrix.node-version == 24 && github.event_name == 'pull_request'
+        if: matrix.node-version == '24.18.0' && github.event_name == 'pull_request'
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           json-summary-path: coverage/coverage-summary.json
