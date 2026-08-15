@@ -47,6 +47,15 @@ import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
 import { RoleAgentRegistry } from '../agent/role-agent-registry.js';
 import { setNotificationsEnabled } from '../utils/notifier.js';
 
+function shouldUsePassthroughInterview(config: GestaltConfig): boolean {
+  return (
+    !config.llm.apiKey ||
+    config.client === 'codex' ||
+    config.client === 'claude-code' ||
+    config.client === 'grok'
+  );
+}
+
 export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) {
   const config = loadConfig(configOverrides);
   setNotificationsEnabled(config.notifications);
@@ -57,10 +66,8 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   skillRegistry.loadAll();
   agentRegistry.loadAll();
 
-  const isPassthrough = !config.llm.apiKey;
-  // claude-code/codex 모두 호스트가 LLM 역할 → passthrough 강제
-  const usePassthroughInterview =
-    isPassthrough || config.client === 'codex' || config.client === 'claude-code';
+  // claude-code/codex/grok는 호스트가 LLM 역할 → passthrough 강제. both는 API 키 없을 때만.
+  const usePassthroughInterview = shouldUsePassthroughInterview(config);
 
   const server = new McpServer({
     name: 'gestalt',
@@ -685,7 +692,7 @@ function summarizeEvolution(session: import('../core/types.js').ExecuteSession):
 
 export async function startMcpServer(configOverrides?: Partial<GestaltConfig>) {
   const config = loadConfig(configOverrides);
-  const usePassthroughInterview = !config.llm.apiKey || config.client === 'codex';
+  const usePassthroughInterview = shouldUsePassthroughInterview(config);
   const { server, skillRegistry, agentRegistry } = await createMcpServer(configOverrides);
 
   skillRegistry.startWatching();

@@ -1,0 +1,15 @@
+{
+  "name": "gestalt",
+  "description": "Gestalt psychology-driven AI development harness",
+  "owner": { "name": "tienne" },
+  "plugins": [
+    {
+      "name": "gestalt",
+      "description": "Interview → Spec → Execute pipeline with MCP tools and workflow skills.",
+      "category": "development",
+      "source": { "type": "local", "path": "./plugin" },
+      "homepage": "https://github.com/tienne/gestalt",
+      "keywords": ["gestalt", "requirements", "specification", "interview", "mcp"]
+    }
+  ]
+}

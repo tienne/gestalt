@@ -2,13 +2,14 @@ import { mkdirSync, writeFileSync, unlinkSync, existsSync, readFileSync } from '
 import { join, dirname } from 'node:path';
 
 const CLAUDE_RULE_FILE = '.claude/rules/gestalt-active.md';
+const GROK_RULE_FILE = '.grok/rules/gestalt-active.md';
 const AGENTS_FILE = 'AGENTS.md';
 const ACTIVE_SESSION_FILE = '.gestalt/active-session.json';
 
 const SECTION_START = '<!-- gestalt-active-start -->';
 const SECTION_END = '<!-- gestalt-active-end -->';
 
-export type ClientType = 'claude-code' | 'codex' | 'both';
+export type ClientType = 'claude-code' | 'codex' | 'both' | 'grok';
 
 interface RuleSpec {
   goal: string;
@@ -41,6 +42,11 @@ export function writeGestaltRule(
   if (client === 'codex' || client === 'both') {
     upsertAgentsSection(cwd, content);
   }
+  if (client === 'grok') {
+    const path = join(cwd, GROK_RULE_FILE);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content, 'utf-8');
+  }
 }
 
 export function updateGestaltRule(
@@ -57,6 +63,10 @@ export function updateGestaltRule(
   if (client === 'codex' || client === 'both') {
     upsertAgentsSection(cwd, content);
   }
+  if (client === 'grok') {
+    const path = join(cwd, GROK_RULE_FILE);
+    if (existsSync(path)) writeFileSync(path, content, 'utf-8');
+  }
 }
 
 export function deleteGestaltRule(cwd: string, client: ClientType = 'claude-code'): void {
@@ -66,6 +76,10 @@ export function deleteGestaltRule(cwd: string, client: ClientType = 'claude-code
   }
   if (client === 'codex' || client === 'both') {
     removeAgentsSection(cwd);
+  }
+  if (client === 'grok') {
+    const path = join(cwd, GROK_RULE_FILE);
+    if (existsSync(path)) unlinkSync(path);
   }
 }
 

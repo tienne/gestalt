@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import type { ClientType } from '../execute/rule-writer.js';
 
 const CLAUDE_RULE_FILE = '.claude/rules/gestalt-active.md';
+const GROK_RULE_FILE = '.grok/rules/gestalt-active.md';
 const AGENTS_FILE = 'AGENTS.md';
 
 const SECTION_START = '<!-- gestalt-active-start -->';
@@ -46,6 +47,23 @@ export class CodexAdapter implements IHostAdapter {
   }
 }
 
+// ─── Grok Adapter ───────────────────────────────────────────────
+
+export class GrokAdapter implements IHostAdapter {
+  constructor(private readonly cwd: string) {}
+
+  async writeActiveContext(content: string): Promise<void> {
+    const path = join(this.cwd, GROK_RULE_FILE);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content, 'utf-8');
+  }
+
+  async clearActiveContext(): Promise<void> {
+    const path = join(this.cwd, GROK_RULE_FILE);
+    if (existsSync(path)) unlinkSync(path);
+  }
+}
+
 // ─── Both Adapter ───────────────────────────────────────────────
 
 export class BothAdapter implements IHostAdapter {
@@ -77,6 +95,8 @@ export function createHostAdapter(client: ClientType, cwd?: string): IHostAdapte
       return new CodexAdapter(resolvedCwd);
     case 'both':
       return new BothAdapter(resolvedCwd);
+    case 'grok':
+      return new GrokAdapter(resolvedCwd);
     case 'claude-code':
     default:
       return new ClaudeCodeAdapter(resolvedCwd);
