@@ -124,5 +124,12 @@ ges_code_graph {
 **요약**: {summary}
 ```
 
+`depthExhausted: true`면 위 표시 바로 아래에 한 줄을 덧붙입니다. 빠뜨리지 않습니다.
+
+```
+⚠️ 깊이 {maxDepthUsed}에서 탐색이 멈췄고 {unexploredNodes}개 노드가 남았습니다.
+   위 목록과 위험도는 하한이며 전부가 아닙니다. 전체를 보려면 maxDepth를 올려 다시 부르세요.
+```
+
 5. `impactedFiles` 목록을 컨텍스트로 활용합니다.
 6. 변경된 파일이 없으면 "현재 미커밋 변경이 없습니다." 안내합니다.

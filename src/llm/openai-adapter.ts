@@ -34,6 +34,16 @@ export class OpenAIAdapter implements LLMAdapter {
       });
 
       const choice = response.choices[0];
+
+      // adapter.ts의 stop_reason 검사와 같은 이유다 — 잘린 응답을 성공으로
+      // 돌려주면 소비자가 완전한 답으로 읽고 조용히 기본값으로 떨어진다.
+      if (choice?.finish_reason === 'length') {
+        throw new LLMError(
+          `Response truncated at max_tokens (${request.maxTokens ?? LLM_MAX_TOKENS}). ` +
+            `Raise maxTokens or shorten the prompt.`,
+        );
+      }
+
       if (!choice?.message?.content) {
         throw new LLMError('No content in OpenAI response');
       }

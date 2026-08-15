@@ -226,4 +226,49 @@ describe('computeBlastRadius()', () => {
     expect(result.impactedNodes).toHaveLength(0);
     expect(result.changedFiles).toContain('src/a.ts');
   });
+
+  describe('깊이 상한 노출', () => {
+    /** a ← b ← c ← d 사슬. a를 바꾸면 b(1홉), c(2홉), d(3홉)가 영향받는다 */
+    function buildChain(): void {
+      for (const f of ['a', 'b', 'c', 'd']) {
+        store.upsertNode(makeNode(`fn:src/${f}.ts:fn${f.toUpperCase()}`, `src/${f}.ts`));
+      }
+      store.upsertEdge(makeEdge('fn:src/b.ts:fnB', 'fn:src/a.ts:fnA'));
+      store.upsertEdge(makeEdge('fn:src/c.ts:fnC', 'fn:src/b.ts:fnB'));
+      store.upsertEdge(makeEdge('fn:src/d.ts:fnD', 'fn:src/c.ts:fnC'));
+    }
+
+    it('상한에 걸려 멈추면 depthExhausted로 알린다', () => {
+      buildChain();
+
+      const result = computeBlastRadius(store, ['src/a.ts'], 2);
+
+      // 2홉까지만 갔으니 d는 안 잡힌다 — 그게 잘렸다는 사실이 드러나야 한다
+      expect(result.impactedFiles).not.toContain('src/d.ts');
+      expect(result.depthExhausted).toBe(true);
+      expect(result.unexploredNodes).toBeGreaterThan(0);
+      expect(result.summary).toContain('INCOMPLETE');
+      expect(result.summary).toContain('lower bounds');
+    });
+
+    it('끝까지 탐색했으면 depthExhausted가 false다', () => {
+      buildChain();
+
+      const result = computeBlastRadius(store, ['src/a.ts'], 10);
+
+      expect(result.impactedFiles).toContain('src/d.ts');
+      expect(result.depthExhausted).toBe(false);
+      expect(result.unexploredNodes).toBe(0);
+      expect(result.summary).not.toContain('INCOMPLETE');
+    });
+
+    it('잘린 riskScore는 끝까지 탐색한 값보다 작다 — 하한이라는 뜻', () => {
+      buildChain();
+
+      const truncated = computeBlastRadius(store, ['src/a.ts'], 2);
+      const full = computeBlastRadius(store, ['src/a.ts'], 10);
+
+      expect(truncated.riskScore).toBeLessThan(full.riskScore);
+    });
+  });
 });

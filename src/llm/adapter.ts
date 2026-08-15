@@ -27,6 +27,16 @@ export class AnthropicAdapter implements LLMAdapter {
         })),
       });
 
+      // 잘린 응답을 성공으로 돌려주면 소비자가 그걸 완전한 답으로 읽는다.
+      // JSON을 뽑는 쪽은 닫는 괄호가 없어 파싱에 실패하고 기본값으로 떨어지는데,
+      // 그 기본값이 "점수 0점" 같은 그럴듯한 값이라 원인이 영영 안 드러난다.
+      if (response.stop_reason === 'max_tokens') {
+        throw new LLMError(
+          `Response truncated at max_tokens (${request.maxTokens ?? LLM_MAX_TOKENS}). ` +
+            `Raise maxTokens or shorten the prompt.`,
+        );
+      }
+
       const textBlock = response.content.find((b) => b.type === 'text');
       if (!textBlock || textBlock.type !== 'text') {
         throw new LLMError('No text content in LLM response');

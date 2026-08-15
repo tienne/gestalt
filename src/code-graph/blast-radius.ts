@@ -19,6 +19,8 @@ export function computeBlastRadius(
       impactedNodes: [],
       riskScore: 0,
       maxDepthUsed: maxDepth,
+      depthExhausted: false,
+      unexploredNodes: 0,
       summary: 'No changed files provided.',
     };
   }
@@ -58,6 +60,12 @@ export function computeBlastRadius(
 
     frontier = nextFrontier;
   }
+
+  // 루프는 두 이유로 끝난다 — 더 갈 데가 없거나(frontier 비었음),
+  // maxDepth에 걸렸거나. 후자면 아직 안 가본 노드가 frontier에 남아 있고
+  // impactedFiles와 riskScore는 실제값의 하한이 된다. 그 사실을 결과에 담는다.
+  const depthExhausted = frontier.length > 0;
+  const unexploredNodes = frontier.length;
 
   // 3. Resolve impacted node details and extract file paths
   const impactedFileSet = new Set<string>(changedFiles);
@@ -101,7 +109,15 @@ export function computeBlastRadius(
   const riskScore = totalNodes > 0 ? Math.min(1, impactedNodeIds.size / totalNodes) : 0;
 
   // 7. Build summary
-  const summary = buildSummary(changedFiles, impactedFiles, impactedNodes, riskScore);
+  const summary = buildSummary(
+    changedFiles,
+    impactedFiles,
+    impactedNodes,
+    riskScore,
+    maxDepth,
+    depthExhausted,
+    unexploredNodes,
+  );
 
   return {
     changedFiles,
@@ -109,6 +125,8 @@ export function computeBlastRadius(
     impactedNodes,
     riskScore,
     maxDepthUsed: maxDepth,
+    depthExhausted,
+    unexploredNodes,
     summary,
   };
 }
@@ -163,14 +181,26 @@ function buildSummary(
   impactedFiles: string[],
   impactedNodes: BlastRadiusNode[],
   riskScore: number,
+  maxDepth: number,
+  depthExhausted: boolean,
+  unexploredNodes: number,
 ): string {
   const testFileCount = impactedFiles.filter(isTestFile).length;
   const riskLabel = riskScore > 0.6 ? 'HIGH' : riskScore > 0.3 ? 'MEDIUM' : 'LOW';
   const testNodes = impactedNodes.filter((n) => n.kind === NodeKind.Function && n.isTest).length;
 
-  return (
+  const base =
     `Changed ${changedFiles.length} file(s) impact ${impactedFiles.length} file(s) ` +
     `(${testFileCount} test files, ${testNodes} test functions). ` +
-    `Risk: ${riskLabel} (${(riskScore * 100).toFixed(1)}%).`
+    `Risk: ${riskLabel} (${(riskScore * 100).toFixed(1)}%).`;
+
+  // 잘렸으면 요약에서 먼저 말한다. 사람은 summary만 읽고 판단하는 일이 잦은데
+  // "영향 12개, 위험 낮음"만 보면 그게 전부인 줄 안다.
+  if (!depthExhausted) return base;
+
+  return (
+    `${base} INCOMPLETE: search stopped at depth ${maxDepth} with ${unexploredNodes} node(s) ` +
+    `still unexplored, so the impact list and risk are lower bounds, not totals. ` +
+    `Re-run with a higher maxDepth to see the rest.`
   );
 }

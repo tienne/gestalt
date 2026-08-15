@@ -103,8 +103,12 @@ ges_code_graph {
 |------|------|
 | `changedFiles` | 변경된 파일 목록 |
 | `impactedFiles` | 영향받는 파일 목록 (테스트 파일 우선 정렬) |
-| `riskScore` | 위험도 점수 0~1 (전체 대비 영향 노드 비율) |
+| `riskScore` | 위험도 점수 0~1 (전체 대비 영향 노드 비율). `depthExhausted`면 하한이다 |
+| `depthExhausted` | `maxDepth`에 걸려 탐색이 멈췄고 갈 곳이 남아 있었다 |
+| `unexploredNodes` | 그때 다음 홉에서 기다리던 노드 수 |
 | `summary` | 한 줄 요약 |
+
+**`depthExhausted: true`면 결과는 전부가 아니라 하한이다.** 기본 `maxDepth`가 2라 3홉 이상 떨어진 호출부는 목록에 없다. 이걸 안 알리면 사용자는 "영향받는 파일 12개, 위험도 낮음"을 완전한 답으로 읽고 나머지를 안 읽는다 — 이 스킬을 쓰는 이유가 사이드 이펙트를 놓치지 않으려는 것이므로 그 오해가 가장 비싸다.
 
 ## Skill Instructions
 
@@ -129,6 +133,13 @@ ges_code_graph {
 
 **위험도**: 0.23 (낮음)
 **요약**: {summary}
+```
+
+`depthExhausted: true`면 위 표시 바로 아래에 한 줄을 덧붙입니다. 빠뜨리지 않습니다.
+
+```
+⚠️ 깊이 {maxDepthUsed}에서 탐색이 멈췄고 {unexploredNodes}개 노드가 남았습니다.
+   위 목록과 위험도는 하한이며 전부가 아닙니다. 전체를 보려면 maxDepth를 올려 다시 부르세요.
 ```
 
 5. `impactedFiles` 목록을 컨텍스트로 활용합니다:

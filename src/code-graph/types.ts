@@ -49,8 +49,15 @@ export interface BlastRadiusResult {
   changedFiles: string[];
   impactedFiles: string[]; // unique file paths, test files first
   impactedNodes: BlastRadiusNode[];
-  riskScore: number; // 0-1, impactedNodes / totalNodes
+  riskScore: number; // 0-1, impactedNodes / totalNodes. depthExhausted면 하한이다
   maxDepthUsed: number;
+  /**
+   * maxDepth에 걸려 탐색을 멈췄고 아직 갈 곳이 남아 있었다.
+   * true면 impactedFiles와 riskScore는 실제값의 하한이지 전부가 아니다.
+   */
+  depthExhausted: boolean;
+  /** depthExhausted일 때 다음 홉에서 기다리던 노드 수. 얼마나 잘렸는지 가늠용 */
+  unexploredNodes: number;
   summary: string;
 }
 
