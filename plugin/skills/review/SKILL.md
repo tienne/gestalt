@@ -404,7 +404,7 @@ Agent {
     읽기와 보고만 한다. 파일 수정, 커밋, 외부 전송은 하지 않는다.
 
     ges_agent { action: \"get\", name: \"code-review-writer\" } 로 시스템 프롬프트를 가져와
-    본문이 참조하는 룰북까지 읽고, 그 관점으로 아래 이슈들의 코멘트 본문을 쓴다.
+    본문이 참조하는 룰북까지 읽고 그 관점으로 아래 이슈들의 코멘트 본문을 쓴다.
     레포 자체 리뷰 컨벤션은 AGENT.md의 '레포 규칙 우선 탐색'에 따라 직접 확인한다.
 
     이슈: <4단계 mergedIssues — id, severity, file, line, message, suggestion>
