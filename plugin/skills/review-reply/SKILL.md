@@ -81,11 +81,13 @@ gh api user --jq .login
 REST(`pulls/{n}/comments`)는 resolved 여부를 주지 않으므로 **GraphQL로 조회**한다. 이미 닫힌 스레드에 답글을 다시 붙이지 않으려면 이 단계가 필요하다.
 
 ```bash
-gh api graphql -F owner='<owner>' -F repo='<repo>' -F number=<number> -f query='
-query($owner:String!, $repo:String!, $number:Int!) {
+gh api graphql --paginate \
+  -F owner='<owner>' -F repo='<repo>' -F number=<number> -f query='
+query($owner:String!, $repo:String!, $number:Int!, $endCursor:String) {
   repository(owner:$owner, name:$repo) {
     pullRequest(number:$number) {
-      reviewThreads(first:100) {
+      reviewThreads(first:100, after:$endCursor) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           id
           isResolved
@@ -93,7 +95,8 @@ query($owner:String!, $repo:String!, $number:Int!) {
           path
           line
           originalLine
-          comments(first:30) {
+          comments(last:100) {
+            totalCount
             nodes { databaseId author { login } body createdAt }
           }
         }
@@ -102,6 +105,12 @@ query($owner:String!, $repo:String!, $number:Int!) {
   }
 }'
 ```
+
+**`comments`는 `first`가 아니라 `last`다.** 아래 필터가 스레드의 *마지막* 코멘트 작성자를 보는데 `first`는 가장 오래된 것부터 준다. 왕복이 상한을 넘은 스레드에서 중간 코멘트를 마지막으로 착각하면 판정이 양쪽으로 뒤집힌다 — 리뷰어가 기다리는 질문을 닫힌 걸로 보고 건너뛰거나, 이미 답한 스레드에 또 답글을 단다.
+
+**스레드는 `--paginate`로 전부 받는다.** AI 리뷰어가 붙으면 라인마다 스레드가 생겨 한 PR에 100개를 넘기는 일이 흔하다. 커서를 안 돌리면 101번째부터 조용히 사라지고 그 리뷰어들은 답을 못 받는다. 잘렸다는 사실조차 안 보이는 게 이 실패의 고약한 점이다.
+
+`first`와 `last`는 100이 GitHub 상한이다(101을 넘기면 `EXCESSIVE_PAGINATION`). 얕은 스레드는 있는 만큼만 오므로 100으로 잡아도 손해가 없다. `comments.totalCount`가 100을 넘는 스레드는 앞부분이 안 실려 온 것이니, 답글에 맥락이 필요하면 그 스레드만 `comments(first:100)`으로 다시 받는다.
 
 수집한 스레드를 아래 기준으로 걸러 `openThreads`를 만든다.
 
@@ -113,10 +122,15 @@ query($owner:String!, $repo:String!, $number:Int!) {
 PR 전반 코멘트(라인에 안 붙은 것)도 함께 모은다. 스레드 개념이 없어 답글 API가 다르다.
 
 ```bash
-gh api repos/<owner>/<repo>/issues/<number>/comments --jq '.[] | {id, user: .user.login, body}'
+gh api --paginate 'repos/<owner>/<repo>/issues/<number>/comments?per_page=100' \
+  --jq '.[] | {id, user: .user.login, body}'
 ```
 
+여기도 `--paginate`가 필요하다. REST 기본 페이지가 30건이라 그냥 부르면 31번째부터 잘린다.
+
 수집 결과를 한 줄로 알린다: **"미해결 스레드 N건, PR 전반 코멘트 M건을 찾았어요."** 0건이면 여기서 끝낸다 ("답할 코멘트가 없네요").
+
+세는 값은 페이지를 전부 받은 뒤의 총계여야 한다. 한 페이지만 보고 "100건"이라고 알리면 사용자는 그게 실제 개수인지 잘린 값인지 알 수 없다.
 
 ### 2단계: 코멘트별 컨텍스트 확인
 
