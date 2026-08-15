@@ -244,6 +244,42 @@ Codex는 호스트 패스스루로 동작해요 — Gestalt가 프롬프트와 �
 
 ---
 
+### 옵션 6: Grok Build 플러그인
+
+Grok Build TUI/CLI용으로 MCP 서버랑 워크플로 스킬을 한 번에 받아요. 마켓플레이스는 `.grok-plugin/marketplace.json`이 정본이에요. Claude 마켓플레이스는 레포 루트를 복사하니 여기서 쓰지 마세요.
+
+```bash
+grok plugin marketplace add tienne/gestalt
+grok plugin install gestalt --trust
+```
+
+그리고 프로젝트의 `gestalt.json`에 `"client": "grok"`를 넣으면 실행 컨텍스트가 `.grok/rules/gestalt-active.md`에 기록돼요 (Grok이 항상 읽는 경로예요).
+
+```json
+{
+  "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
+  "client": "grok"
+}
+```
+
+환경변수 `GESTALT_CLIENT=grok`로도 됩니다.
+
+Grok도 호스트 패스스루로 동작해요 — Gestalt가 프롬프트와 구조화된 컨텍스트를 돌려주고, 추론이랑 파일 수정, 명령 실행은 Grok이 해요. `client`가 `"grok"`면 셸에 `ANTHROPIC_API_KEY`가 있어도 이 동작은 그대로예요. `"both"`는 Claude랑 Codex만 쓰고 Grok 경로는 쓰지 않아요.
+
+---
+
+### 옵션 7: Grok Build CLI (MCP만)
+
+스킬 없이 MCP 도구만 쓰려면 이렇게 해요.
+
+```bash
+grok mcp add gestalt -- npx -y @tienne/gestalt serve
+```
+
+그리고 옵션 6처럼 `"client": "grok"`를 넣으면 실행 컨텍스트가 `.grok/rules/gestalt-active.md`에 기록돼요. 워크플로 스킬이 필요하면 옵션 6을 쓰세요.
+
+---
+
 ## 사용법: 전체 파이프라인
 
 ### 1단계 — 인터뷰

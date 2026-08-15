@@ -221,7 +221,46 @@ All 12 MCP tools (`ges_interview`, `ges_generate_spec`, `ges_execute`, etc.) are
 
 ---
 
-### Option 6: Google Gemini CLI
+### Option 6: Grok Build Plugin
+
+Bundles the MCP server and workflow skills for Grok Build TUI/CLI. Install from the Grok marketplace (`.grok-plugin/marketplace.json`). Do not use the Claude marketplace here — that one copies the repo root.
+
+```bash
+grok plugin marketplace add tienne/gestalt
+grok plugin install gestalt --trust
+```
+
+Then add `"client": "grok"` to your project's `gestalt.json` so the active session context is written to `.grok/rules/gestalt-active.md` (which Grok always scans):
+
+```json
+{
+  "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
+  "client": "grok"
+}
+```
+
+Or set `GESTALT_CLIENT=grok` as an environment variable.
+
+Grok uses host passthrough mode: Gestalt returns prompts and structured context,
+and Grok performs the reasoning, file edits, and command execution. When
+`client` is `"grok"`, this remains true even if `ANTHROPIC_API_KEY` exists in
+your shell.
+
+---
+
+### Option 7: Grok Build CLI (MCP only)
+
+If you want the MCP tools without the bundled skills:
+
+```bash
+grok mcp add gestalt -- npx -y @tienne/gestalt serve
+```
+
+Then add `"client": "grok"` as in Option 6. This option ships no skills — the pipeline runs entirely through MCP tool calls. Use Option 6 if you want the workflow skills. During execution, active context is written to `.grok/rules/gestalt-active.md`.
+
+---
+
+### Option 8: Google Gemini CLI
 
 ```bash
 gemini mcp add gestalt -- npx -y @tienne/gestalt serve
@@ -678,12 +717,12 @@ The `client` field controls where Gestalt writes the active session context duri
 |-------|-------------|-------------|
 | `"claude-code"` (default) | `.claude/rules/gestalt-active.md` | Claude Code (CLI, Desktop, Plugin) |
 | `"codex"` | `AGENTS.md` (managed section) | OpenAI Codex CLI, Google Gemini CLI |
-| `"both"` | Both locations | Shared repos used by multiple agents |
+| `"grok"` | `.grok/rules/gestalt-active.md` | Grok Build TUI/CLI |
+| `"both"` | Claude + Codex only (not Grok) | Shared repos used by Claude Code and Codex |
 
-`"codex"` is the right value for both Codex CLI and Gemini CLI — both read `AGENTS.md` for persistent project context.
+`"codex"` is the right value for both Codex CLI and Gemini CLI — both read `AGENTS.md` for persistent project context. `"both"` never writes `.grok/rules/`.
 
-When `client` is `"codex"`, MCP interview/spec generation uses passthrough mode
-even if an Anthropic API key is configured, so Codex remains the active LLM.
+When `client` is `"claude-code"`, `"codex"`, or `"grok"`, MCP interview/spec generation uses passthrough mode even if an Anthropic API key is configured, so the host remains the active LLM. `"both"` does not force passthrough.
 
 ### Multi-Provider LLM Tiers
 
@@ -737,7 +776,7 @@ If no tiers are configured, all tiers fall back to the top-level `llm.model` wit
 | `GESTALT_SKILLS_DIR` | `skillsDir` | `skills` | Custom skills directory |
 | `GESTALT_AGENTS_DIR` | `agentsDir` | `agents` | Custom agents directory |
 | `GESTALT_LOG_LEVEL` | `logLevel` | `info` | Log level (`debug`/`info`/`warn`/`error`) |
-| `GESTALT_CLIENT` | `client` | `claude-code` | MCP client type (`claude-code`/`codex`/`both`) |
+| `GESTALT_CLIENT` | `client` | `claude-code` | MCP client type (`claude-code`/`codex`/`both`/`grok`) |
 | `GESTALT_LLM_FRUGAL_PROVIDER` | `llm.frugal.provider` | `anthropic` | Frugal tier provider |
 | `GESTALT_LLM_FRUGAL_API_KEY` | `llm.frugal.apiKey` | `""` | Frugal tier API key |
 | `GESTALT_LLM_FRUGAL_BASE_URL` | `llm.frugal.baseURL` | `""` | Frugal tier base URL (e.g. Ollama) |

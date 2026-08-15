@@ -18,18 +18,23 @@ source of truth.
 ## Shipped skills live in `plugin/`
 
 The skills this package distributes are separate from the two repo-local ones
-above. They live in `plugin/skills/` and are shared by both the Claude Code and
-Codex plugin manifests — no copies, no symlinks.
+above. They live in `plugin/skills/` and are shared by the Claude Code, Codex,
+and Grok plugin manifests — no copies, no symlinks.
 
 ```
 .claude-plugin/plugin.json        "skills": "./plugin/skills/"
 .agents/plugins/marketplace.json  path: "./plugin"        ← Codex reads this
+.grok-plugin/marketplace.json     source: "./plugin"      ← Grok reads this
 plugin/.codex-plugin/plugin.json  "skills": "./skills/"
+plugin/.mcp.json                  Grok MCP (same as plugin/mcp.json)
 ```
 
 When changing anything under `plugin/`, keep these in mind.
 
 - Codex only finds a marketplace manifest at `.agents/plugins/marketplace.json`.
+- Grok marketplace is `.grok-plugin/marketplace.json`. Source must stay
+  `./plugin`. Do not retarget `.claude-plugin/marketplace.json` (`source: "./"`).
+- Grok reads `plugin/.mcp.json` (dotfile). Keep it identical to `plugin/mcp.json`.
 - Codex copies the whole directory that `path` points at, so it must stay
   `./plugin` — pointing at the repo root drags in `.git` and `node_modules`.
 - Codex does not follow symlinks. Assets have to be real files under `plugin/`.

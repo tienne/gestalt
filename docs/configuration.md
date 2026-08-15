@@ -52,6 +52,7 @@ interface GestaltConfig {
   agentsDir: string;
   roleAgentsDir: string;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  client: 'claude-code' | 'codex' | 'both' | 'grok';
 }
 ```
 
@@ -61,7 +62,7 @@ interface GestaltConfig {
 
 | 변수명 | 타입 | 기본값 | 설명 |
 |--------|------|--------|------|
-| `ANTHROPIC_API_KEY` | string | `""` | Anthropic API 키. 없으면 Interview/Spec에서 Passthrough 모드로 동작. `client: "codex"`에서도 Codex가 LLM 주체가 되도록 Interview/Spec은 Passthrough 모드로 동작. Execute는 항상 Passthrough. |
+| `ANTHROPIC_API_KEY` | string | `""` | Anthropic API 키. 없으면 Interview/Spec에서 Passthrough 모드로 동작. `client`가 `"claude-code"`, `"codex"`, `"grok"`이면 API 키가 있어도 Interview/Spec은 Passthrough. `"both"`는 강제하지 않는다. Execute는 항상 Passthrough. |
 | `GESTALT_MODEL` | string | `"claude-sonnet-5"` | 기본 LLM 모델 이름 (`llm.model` 매핑) |
 | `GESTALT_RESOLUTION_THRESHOLD` | number (0–1) | `0.8` | 인터뷰 완료 기준 해상도 점수. 이 값 이상이면 인터뷰를 충분히 완료된 것으로 판단 |
 | `GESTALT_MAX_ROUNDS` | number (int) | `10` | 인터뷰 최대 라운드 수 |
@@ -77,6 +78,7 @@ interface GestaltConfig {
 | `GESTALT_ROLE_AGENTS_DIR` | string | `"role-agents"` | Role Agent 정의 디렉터리 |
 | `GESTALT_REVIEW_AGENTS_DIR` | string | `"review-agents"` | Review Agent 정의 디렉터리 |
 | `GESTALT_LOG_LEVEL` | `"debug"` \| `"info"` \| `"warn"` \| `"error"` | `"info"` | 로그 출력 레벨 |
+| `GESTALT_CLIENT` | `"claude-code"` \| `"codex"` \| `"both"` \| `"grok"` | `"claude-code"` | 액티브 세션 컨텍스트를 쓰는 호스트. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고 Interview/Spec passthrough를 강제한다. `"both"`는 Claude와 Codex만 쓰며 Grok 경로는 쓰지 않는다 |
 | `GESTALT_NO_UPDATE_CHECK` | `"1"` | — | `"1"` 로 설정하면 버전 업데이트 확인을 건너뜀 |
 
 잘못된 설정값은 경고를 출력하고 기본값으로 fallback한다 (에러를 throw하지 않음).
@@ -104,6 +106,7 @@ interface GestaltConfig {
 | `GESTALT_ROLE_AGENTS_DIR` | `roleAgentsDir` |
 | `GESTALT_REVIEW_AGENTS_DIR` | `reviewAgentsDir` |
 | `GESTALT_LOG_LEVEL` | `logLevel` |
+| `GESTALT_CLIENT` | `client` |
 
 ---
 

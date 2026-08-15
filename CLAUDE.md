@@ -89,15 +89,19 @@ plugin/personas/       — Lateral Thinking 페르소나
 
 ## 플러그인 배포 구조
 
-두 클라이언트가 같은 `plugin/`을 각자 매니페스트로 가리킨다. 복사도 심링크도 없다.
+세 클라이언트가 같은 `plugin/`을 각자 매니페스트로 가리킨다. 복사도 심링크도 없다.
 
 ```
 .claude-plugin/plugin.json        "skills": "./plugin/skills/"
 .agents/plugins/marketplace.json  path: "./plugin"        ← Codex
+.grok-plugin/marketplace.json     source: "./plugin"      ← Grok
 plugin/.codex-plugin/plugin.json  "skills": "./skills/"
+plugin/.mcp.json                  Grok MCP (plugin/mcp.json과 동일)
 ```
 
 - Codex는 마켓플레이스 매니페스트를 `.agents/plugins/marketplace.json`에서만 찾는다. `.codex-plugin/marketplace.json`은 인식하지 않는다.
+- Grok은 `.grok-plugin/marketplace.json`이 정본이다. source는 반드시 `./plugin`이다. Claude 매니페스트(`source: "./"`)를 바꾸지 말 것.
+- Grok은 `plugin/.mcp.json`(점 파일)을 읽는다. `plugin/mcp.json`과 내용을 같게 유지한다.
 - Codex는 `path`가 가리킨 디렉토리를 통째로 복사한다. 레포 루트를 가리키면 `.git`과 `node_modules`까지 딸려가 1.6GB가 되므로 반드시 `plugin/`으로 좁힌다.
 - Codex는 심링크를 따라가지 않는다. 자산은 실물 파일로 `plugin/` 안에 있어야 한다.
 - `plugin/skills/review/SKILL.md`가 `../../role-agents/`를 참조한다. 스킬과 에이전트를 함께 옮겨야 이 상대 깊이가 유지된다.

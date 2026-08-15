@@ -182,9 +182,10 @@ ges_execute({
 |:---|:---|:---|
 | `.claude/rules/gestalt-active.md` | `{cwd}/.claude/rules/` | `client: "claude-code"` 또는 `"both"`일 때 goal / constraints / 현재 태스크 |
 | `AGENTS.md` 관리 섹션 | `{cwd}/AGENTS.md` | `client: "codex"` 또는 `"both"`일 때 goal / constraints / 현재 태스크 |
+| `.grok/rules/gestalt-active.md` | `{cwd}/.grok/rules/` | `client: "grok"`일 때만 goal / constraints / 현재 태스크. `"both"`는 이 경로를 쓰지 않음 |
 | `.gestalt/active-session.json` | `{cwd}/.gestalt/` | sessionId + specId |
 
-`.claude/rules/` 디렉토리의 파일은 Claude Code 세션 시작 시 자동으로 로드돼요. Codex에서는 `AGENTS.md`의 managed section이 새 세션의 지속 컨텍스트가 됩니다. 실행 중인 현재 턴에서는 MCP 응답의 `taskContext`와 `executeContext`를 우선해서 따르세요.
+`.claude/rules/` 디렉토리의 파일은 Claude Code 세션 시작 시 자동으로 로드돼요. Codex에서는 `AGENTS.md`의 managed section이 새 세션의 지속 컨텍스트가 됩니다. Grok은 `.grok/rules/`를 항상 스캔해요. 실행 중인 현재 턴에서는 MCP 응답의 `taskContext`와 `executeContext`를 우선해서 따르세요. 실제 write 경로는 `src/mcp/host-adapter.ts`예요.
 
 | 액션 | 동작 |
 |:---|:---|
@@ -280,7 +281,7 @@ ges_execute({
 | `start` | Spec 제출 → Planning 세션 시작 |
 | `plan_step` | 각 원리 단계 결과 제출 |
 | `plan_complete` | 실행 계획 조립 → ExecutionPlan 반환 |
-| `execute_start` | Execution Phase 시작 → 첫 태스크 컨텍스트. `cwd` 전달 시 `.claude/rules/gestalt-active.md` 자동 생성 |
+| `execute_start` | Execution Phase 시작 → 첫 태스크 컨텍스트. `cwd` 전달 시 client에 맞는 active context 자동 생성 |
 | `execute_task` | 태스크 결과 제출 → driftScore + 다음 태스크. 완료 5개 초과 시 `compressionAvailable: true` |
 | `role_match` | Role Agent 매칭 (2-Call) |
 | `role_consensus` | 다중 관점 합의 (2-Call) |
