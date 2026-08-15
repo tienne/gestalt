@@ -105,7 +105,8 @@ export class SnippetReader {
       };
     });
 
-    return { lang: LANG_BY_EXT[extname(file).toLowerCase()] ?? '', lines };
+    // 태그를 비우면 윤문 검사가 펜스 안을 산문으로 읽는다. 모르는 확장자는 text로 못박는다
+    return { lang: LANG_BY_EXT[extname(file).toLowerCase()] ?? 'text', lines };
   }
 
   /**

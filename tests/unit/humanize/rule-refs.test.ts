@@ -34,12 +34,21 @@ describe('S1 어투 베이스라인', () => {
     expect(errors.map((e) => `${e.file} — ${e.message}`)).toEqual([]);
   });
 
+  const baseline = JSON.parse(
+    readFileSync(new URL('../../../scripts/humanize-baseline.json', import.meta.url), 'utf-8'),
+  ) as Record<string, number>;
+
   it('기준에 잠긴 문서만 S1을 남기고 있다', () => {
-    const baseline = JSON.parse(
-      readFileSync(new URL('../../../scripts/humanize-baseline.json', import.meta.url), 'utf-8'),
-    ) as Record<string, number>;
     for (const [file, count] of countS1ByFile()) {
       expect(`${file}: ${count}`).toBe(`${file}: ${baseline[file] ?? 0}`);
+    }
+  });
+
+  // 기준이 실제보다 높으면 검사가 통과해버려 래칫이 풀린다. 문서를 고쳤으면 기준도 내려야 한다
+  it('기준이 실제 건수보다 높게 남아 있지 않다', () => {
+    const actual = countS1ByFile();
+    for (const file of Object.keys(baseline)) {
+      expect(`${file}: ${baseline[file]}`).toBe(`${file}: ${actual.get(file) ?? 0}`);
     }
   });
 });

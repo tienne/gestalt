@@ -273,7 +273,7 @@ Agent {
 ```
 continuityVerdict = {
   coherent: true | false,        // 정합 심급 통과 여부 (false면 결함이 없어도 Block)
-  driftFindings: [               // 목표 이탈·불일치 항목 (없으면 빈 배열)
+  driftFindings: [               // 목표 이탈과 불일치 항목 (없으면 빈 배열)
     { axis: "goal" | "consistency" | "drift", file?, message }
   ],
   escalate: true | false,        // 라인 수정으로 해결 불가 → 재설계 필요 신호
@@ -376,7 +376,7 @@ git rev-parse HEAD && git status --porcelain
 - **이번 세션에 방금 리뷰를 끝냈고 그 뒤 diff 변화가 없다** → consensus가 신선함. 곧장 게시 진행.
 - **리뷰 후 코드가 바뀌었다 / 활성 리뷰 세션이 없다 / 다른 세션의 오래된 결과다** → consensus가 stale. **게시하지 말고**, 1단계(git diff)부터 현재 diff로 리뷰 파이프라인(1~4단계)을 다시 돌린 뒤, 새로 나온 consensus로 4.7을 진행합니다. 사용자에게 "변경이 있어 현재 코드로 다시 리뷰한 뒤 게시할게요"라고 한 줄 알립니다.
 
-즉 인라인 코멘트는 **언제 요청받든 항상 "현재 diff 기준 consensus + code-review-writer voice"** 로만 게시됩니다. 옛 리뷰 메모리를 그대로 옮겨 적거나 Claude가 손으로 코멘트를 짜는 경로는 없습니다.
+인라인 코멘트는 **언제 요청받든 항상 "현재 diff 기준 consensus + code-review-writer voice"** 로만 게시됩니다. 옛 리뷰 메모리를 그대로 옮겨 적거나 Claude가 손으로 코멘트를 짜는 경로는 없습니다.
 
 **PR 식별.** 먼저 대상이 PR인지 확인합니다.
 
@@ -434,7 +434,7 @@ Agent {
 - 없고 `warning`만 있으면 → `COMMENT` (접두어 `c:`)
 - `suggestion`만 있거나 이슈가 없으면 → `APPROVE` (접두어 `a:`)
 
-이는 4단계 `overallApproved`(결함 심급 blocking 여부)와도 일치합니다 — blocking 이슈가 있으면 critical이나 high가 존재하므로 `REQUEST_CHANGES`가 됩니다. 단 `APPROVE`/`REQUEST_CHANGES`는 리뷰 상태를 바꾸는 행위이므로, 위 **"게시 확인"**에서 사용자 동의를 받은 뒤에만 게시합니다.
+4단계 `overallApproved`(결함 심급 blocking 여부)와도 일치합니다 — blocking 이슈가 있으면 critical이나 high가 존재하므로 `REQUEST_CHANGES`가 됩니다. 단 `APPROVE`/`REQUEST_CHANGES`는 리뷰 상태를 바꾸는 행위이므로, 위 **"게시 확인"**에서 사용자 동의를 받은 뒤에만 게시합니다.
 
 > **본인 PR 예외**: GitHub는 PR 작성자 본인이 자기 PR을 `APPROVE`/`REQUEST_CHANGES`하는 걸 막습니다(422). `gh pr view --json author`와 `gh api user`로 작성자가 현재 사용자와 같은지 확인하고 같으면 `event=COMMENT`로 폴백해 게시합니다 (접두어 r/c/a는 본문에 그대로 유지). 이때 사용자에게 "본인 PR이라 승인/변경요청 상태는 못 걸어서 코멘트로 남겼어요"라고 한 줄 알립니다.
 

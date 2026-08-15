@@ -1,6 +1,7 @@
 {
   "plugin/role-agents/_shared/references/ai-tell-quick-rules.md": 1,
   "plugin/role-agents/impact-writer/AGENT.md": 2,
+  "plugin/role-agents/presentation-designer/AGENT.md": 2,
   "plugin/role-agents/ux-writer/AGENT.md": 2,
-  "plugin/skills/review/SKILL.md": 2
+  "plugin/skills/review/SKILL.md": 1
 }

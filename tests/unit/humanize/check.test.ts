@@ -80,6 +80,24 @@ describe('detectors', () => {
     const stats = reportRegisterStats('지표는 증가했다.\n> "요청을 확인했습니다."');
     expect(stats).toEqual({ plainEndings: 1, formalEndings: 0 });
   });
+
+  it('언어 태그가 붙은 펜스는 코드라서 건너뛴다', () => {
+    const text = '```ts\nconst label = "기능·성능·안정성";\n```';
+    expect(countByRule(text).get('C-12')).toBeUndefined();
+  });
+
+  it('태그 없는 펜스는 프롬프트 산문이라 검사한다', () => {
+    const text = 'Agent {\n  prompt: "기능·성능·안정성을 본다"\n}';
+    expect(countByRule(`\`\`\`\n${text}\n\`\`\``).get('C-12')).toBe(2);
+  });
+
+  it('인용줄은 마커만 떼고 산문으로 본다', () => {
+    expect(countByRule('> 결론적으로 캐시 문제였어요.').get('D-1')).toBe(1);
+  });
+
+  it('인용줄 문두 접속사도 문장 첫머리로 센다', () => {
+    expect(countByRule('> 따라서 이 모델은 공개 채널 말투를 재현한다.').get('H-1')).toBe(1);
+  });
 });
 
 describe('protectedTokens', () => {
@@ -102,6 +120,17 @@ describe('protectedTokens', () => {
     const before = '응답이 250ms까지 줄었습니다.';
     const after = '응답 시간이 250ms로 내려갔어요.';
     expect(missingProtectedTokens(before, after)).toEqual([]);
+  });
+
+  it('태그 없는 펜스는 윤문 대상이라 통째로 보호하지 않는다', () => {
+    const before = '```\n프롬프트 본문입니다.\n```';
+    expect(protectedTokens(before)).not.toContain(before);
+    expect(missingProtectedTokens(before, '```\n프롬프트 본문이에요.\n```')).toEqual([]);
+  });
+
+  it('언어 태그가 붙은 펜스는 한 글자도 못 바꾼다', () => {
+    const before = '```ts\nconst a = 1;\n```';
+    expect(missingProtectedTokens(before, '```ts\nconst b = 1;\n```')).toContain(before);
   });
 });
 
