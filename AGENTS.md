@@ -1,19 +1,38 @@
-# Codex Entry Point
+# Project Entry Point
 
-Read `CLAUDE.md` first for project architecture, commands, conventions, and
-agent routing notes.
+Architecture, commands, conventions, and agent routing live in `CLAUDE.md`.
+Grok and Claude load that file automatically. Other hosts should read it first.
 
-Claude-specific workflow docs live under `.claude/skills/`. When a user request
-matches one of those workflows, read the relevant skill file before taking
-action.
+## Repo-local development workflows
 
-- For feature development, bug fixes, MCP action changes, implementation work,
-  tests, or code modifications, use `codex-skills/gestalt-develop/SKILL.md`.
-- For release, deploy, publish, version bump, or npm 배포 requests, use
-  `codex-skills/gestalt-release/SKILL.md`.
+Canonical procedures live under `.claude/skills/`. Host shims only adapt tool
+mechanics; they do not duplicate the procedure.
 
-Those Codex skills delegate to `.claude/skills/**/skill.md` as the canonical
-source of truth.
+- Feature development, bug fixes, MCP action changes, tests, or code
+  modifications:
+  - Grok: `.grok/skills/gestalt-develop/SKILL.md`
+  - Codex: `codex-skills/gestalt-develop/SKILL.md`
+  - Claude Code: `.claude/skills/gestalt-develop/skill.md`
+- Release, deploy, publish, version bump, or npm 배포:
+  - Grok: `.grok/skills/gestalt-release/SKILL.md`
+  - Codex: `codex-skills/gestalt-release/SKILL.md`
+  - Claude Code: `.claude/skills/gestalt-release/skill.md`
+
+Grok-specific execution constraints live in `.grok/rules/` and load
+automatically in Grok.
+
+## This repo's MCP
+
+When developing this repository, do not start Gestalt via `npx @tienne/gestalt`
+or `npx -y @tienne/gestalt serve`. That runs the published package, not this
+checkout.
+
+- Grok: `.grok/config.toml` starts `scripts/grok-mcp-serve.sh` (local `tsx`,
+  Node >= 20).
+- Other hosts: `pnpm run serve` or `pnpm exec tsx bin/gestalt.ts serve`.
+
+Root `.mcp.json` and `plugin/.mcp.json` stay on `npx @tienne/gestalt` for
+package consumers. Do not retarget them at this checkout.
 
 ## Shipped skills live in `plugin/`
 

@@ -1,0 +1,10 @@
+# Dogfood this checkout. Wins over root `.mcp.json` (`npx @tienne/gestalt`),
+# which would start the published package instead of local source.
+# command/args are resolved from the repo root (Grok session cwd).
+
+[mcp_servers.gestalt]
+command = "bash"
+args = ["scripts/grok-mcp-serve.sh"]
+startup_timeout_sec = 60
+tool_timeout_sec = 900
+env = { GESTALT_CLIENT = "grok" }

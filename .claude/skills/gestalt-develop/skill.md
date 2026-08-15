@@ -51,7 +51,7 @@ Agent(
   prompt: """
     _workspace/task.md를 읽고 코드베이스를 탐색하여 구현 분석을 수행하라.
     결과를 _workspace/analysis.md에 저장한다.
-    프로젝트 루트: /Users/kwon-david/dev/gestalt
+    프로젝트 루트: 현재 git 루트 (홈 경로를 하드코딩하지 말 것)
   """
 )
 ```
@@ -72,7 +72,7 @@ Agent(
       2. pnpm lint        (ESLint 에러 0)
       3. pnpm format      (Prettier 자동 적용 — check가 아닌 write)
     결과를 _workspace/implementation.md에 저장한다.
-    프로젝트 루트: /Users/kwon-david/dev/gestalt
+    프로젝트 루트: 현재 git 루트 (홈 경로를 하드코딩하지 말 것)
   """
 )
 ```
@@ -90,7 +90,7 @@ Agent(
       2. pnpm lint     (에러 0 확인)
       3. pnpm test     (전체 테스트)
     결과를 _workspace/test-results.md에 저장한다.
-    프로젝트 루트: /Users/kwon-david/dev/gestalt
+    프로젝트 루트: 현재 git 루트 (홈 경로를 하드코딩하지 말 것)
   """
 )
 ```

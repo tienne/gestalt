@@ -15,3 +15,4 @@ coverage/
 _workspace/
 .claude/worktrees/
 .claude/settings.local.json
+.grok/rules/gestalt-active.md
