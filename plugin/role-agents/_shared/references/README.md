@@ -9,13 +9,14 @@
 | `author-voice.md` | 작성자 고유 어투 모델 (제안형, 물결, 이모지). "더하기" 레퍼런스 | `code-review-writer`, `code-review-responder`, `change-context-writer`, `humanize-monolith`, `/review`, `/review-reply` |
 | `ai-tell-quick-rules.md` | AI-tell 탐지·처방 룰북 (A~J 카테고리, S1/S2). "빼기" 레퍼런스 | `humanize-monolith`(primary), `code-review-writer`, `code-review-responder`, `jira-writer`, `slack-messenger` |
 | `style-guide.md` | 한국어 문장·용어·문서 구조 규칙 | `technical-writer`, `impact-writer`, `presentation-writer`, `presentation-designer`, `jira-writer` |
-| `comment-rules.md` | 코드 주석 위생 룰북 (`CM-` ID, 리뷰 파이프라인 심각도). 어투가 아니라 코드 품질 축 | `quality-reviewer` |
+| `comment-rules.md` | 코드 주석 위생 룰북 (`CM-` ID, 리뷰 파이프라인 심각도). 어투가 아니라 코드 품질 쪽 | `quality-reviewer` |
+| `truncation-rules.md` | 잘린 결과 룰북 (`TR-` ID, 리뷰 파이프라인 심각도). 일부만 가져와놓고 전부인 것처럼 돌려주는 코드 | `quality-reviewer` |
 
 ## 고칠 때
 
-어투 룰의 ID와 심각도는 `ai-tell-quick-rules.md`가 기준이다. 주석 룰은 `comment-rules.md`가
-따로 기준이다. 두 문서의 ID를 섞지 않는다 — 층위가 다르고 아래 검사도 어투 룰만 정합 대상으로
-본다. 고친 뒤에는 반드시 돌린다.
+어투 룰의 ID와 심각도는 `ai-tell-quick-rules.md`가 기준이다. 코드 룰은 `comment-rules.md`(`CM-`)와
+`truncation-rules.md`(`TR-`)가 각각 따로 기준이다. 세 문서의 ID를 섞지 않는다 — 층위가 다르고
+아래 검사도 어투 룰만 정합 대상으로 본다. 고친 뒤에는 반드시 돌린다.
 
 ```bash
 pnpm verify:rules

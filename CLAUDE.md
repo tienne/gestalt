@@ -80,7 +80,7 @@ src/humanize/      — 룰북 읽기 + AI-tell 탐지기 + 윤문 코드 검사 
 src/utils/         — 알림 등 공용 유틸
 src/cli/           — commander 기반 CLI
 plugin/            — 배포 자산 전부. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다
-plugin/role-agents/    — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer, code-review-writer, code-review-responder 등) 총 21개 + `_shared/references/` 공유 룰북(author-voice, ai-tell-quick-rules, style-guide, comment-rules — 에이전트 아님, 레지스트리가 건너뜀)
+plugin/role-agents/    — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer, code-review-writer, code-review-responder 등) 총 21개 + `_shared/references/` 공유 룰북(author-voice, ai-tell-quick-rules, style-guide, comment-rules, truncation-rules — 에이전트 아님, 레지스트리가 건너뜀)
 plugin/review-agents/  — 내장 Review Agent 5개 (security-reviewer, performance-reviewer, quality-reviewer, frontend-reviewer, comment-reviewer)
 plugin/skills/         — SKILL.md 17개 (interview, spec, execute, dispatch, agent, review, review-reply, pr, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, solve, setup) + `_shared/` 공유 규칙(스킬 아님, 레지스트리가 건너뜀)
 plugin/agents/         — 파이프라인 에이전트 5개
