@@ -14,6 +14,29 @@ import type {
 import { PLANNING_PRINCIPLE_SEQUENCE, PLANNING_TOTAL_STEPS } from '../core/constants.js';
 import { KOREAN_TONE_GUIDE } from '../llm/prompts.js';
 
+/**
+ * 출력을 뒤에서부터 자른다. 실패한 명령과 태스크에 쓴다.
+ *
+ * 앞에서 자르면 안 된다. lint든 test든 실패 상세는 출력 끝에 나오고 앞머리는
+ * 명령 에코와 진행 로그다. 앞 500자만 넘기면 수정 모델은 실패 이유를 못 본 채
+ * 고칠 것을 지어내고, 사용자는 evolve 루프가 왜 헛도는지 알 수 없다.
+ */
+function tailOutput(output: string, limit: number): string {
+  if (output.length <= limit) return output;
+  return `…(앞 ${output.length - limit}자 생략)\n${output.slice(-limit)}`;
+}
+
+/**
+ * 출력을 앞에서부터 자른다. 완료된 태스크를 맥락으로 넘길 때 쓴다.
+ *
+ * 어느 쪽을 자르든 잘렸다는 표시는 반드시 남긴다. 표시가 없으면 받는 모델이
+ * 출력이 거기서 끝났다고 읽는다.
+ */
+function headOutput(output: string, limit: number): string {
+  if (output.length <= limit) return output;
+  return `${output.slice(0, limit)}\n…(뒤 ${output.length - limit}자 생략)`;
+}
+
 // ─── System Prompt ──────────────────────────────────────────────
 
 export const EXECUTE_SYSTEM_PROMPT = `You are a Gestalt-trained execution planner. Your goal is to transform a validated Spec specification into a concrete, dependency-aware Execution Plan by applying Gestalt psychology principles as a structured planning framework.
@@ -224,7 +247,7 @@ export function buildTaskExecutionPrompt(
   const completedSummary =
     completedResults.length > 0
       ? completedResults
-          .map((r) => `  ${r.taskId}: [${r.status}] ${r.output.slice(0, 200)}`)
+          .map((r) => `  ${r.taskId}: [${r.status}] ${headOutput(r.output, 200)}`)
           .join('\n')
       : '  (none)';
 
@@ -233,7 +256,7 @@ export function buildTaskExecutionPrompt(
       ? `\n**Similar completed tasks** (use for consistent patterns):\n${similarTasks
           .map((t) => {
             const result = completedResults.find((r) => r.taskId === t.taskId);
-            return `  ${t.taskId}: ${t.title} → ${result?.output.slice(0, 150) ?? 'N/A'}`;
+            return `  ${t.taskId}: ${t.title} → ${result ? headOutput(result.output, 150) : 'N/A'}`;
           })
           .join('\n')}`
       : '';
@@ -495,12 +518,12 @@ export function buildStructuralFixPrompt(
   const failedSummary = failedCommands
     .map(
       (c) =>
-        `  ${c.name}: "${c.command}" → exit ${c.exitCode}\n    output: ${c.output.slice(0, 500)}`,
+        `  ${c.name}: "${c.command}" → exit ${c.exitCode}\n    output: ${tailOutput(c.output, 500)}`,
     )
     .join('\n');
 
   const taskSummary = taskResults
-    .map((r) => `  ${r.taskId}: [${r.status}] ${r.output.slice(0, 150)}`)
+    .map((r) => `  ${r.taskId}: [${r.status}] ${tailOutput(r.output, 150)}`)
     .join('\n');
 
   return `## Structural Fix Generation
@@ -617,7 +640,7 @@ export function buildReExecutionPrompt(
   const completedSummary =
     completedResults.length > 0
       ? completedResults
-          .map((r) => `  ${r.taskId}: [${r.status}] ${r.output.slice(0, 200)}`)
+          .map((r) => `  ${r.taskId}: [${r.status}] ${tailOutput(r.output, 200)}`)
           .join('\n')
       : '  (none)';
 

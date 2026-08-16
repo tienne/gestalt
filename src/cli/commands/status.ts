@@ -49,8 +49,13 @@ export function statusCommand(sessionId?: string): void {
         ),
       );
     } else {
-      // List all sessions from events
-      const startEvents = eventStore.getByType(EventType.INTERVIEW_SESSION_STARTED, 100);
+      // List all sessions from events.
+      // getByType은 timestamp DESC라 상한에 걸리면 오래된 세션부터 잘린다.
+      // 잘렸는지 알려면 한 건 더 요청해 초과분이 있는지 본다.
+      const SESSION_LIMIT = 100;
+      const fetched = eventStore.getByType(EventType.INTERVIEW_SESSION_STARTED, SESSION_LIMIT + 1);
+      const truncated = fetched.length > SESSION_LIMIT;
+      const startEvents = truncated ? fetched.slice(0, SESSION_LIMIT) : fetched;
 
       if (startEvents.length === 0) {
         console.log(
@@ -89,7 +94,22 @@ export function statusCommand(sessionId?: string): void {
         };
       });
 
-      console.log(JSON.stringify({ sessions, total: sessions.length }, null, 2));
+      // total을 sessions.length로 쓰면 잘린 값을 전체 개수라고 말하게 된다.
+      // 세션이 150개일 때 "total: 100"을 보면 나머지 50개가 지워진 줄 안다.
+      console.log(
+        JSON.stringify(
+          {
+            sessions,
+            shown: sessions.length,
+            truncated,
+            ...(truncated && {
+              note: `최근 ${SESSION_LIMIT}건만 표시했습니다. 더 오래된 세션이 있습니다.`,
+            }),
+          },
+          null,
+          2,
+        ),
+      );
     }
   } finally {
     eventStore.close();

@@ -105,6 +105,14 @@ export interface BuildResult {
   edgesBuilt: number;
   timeTakenMs: number;
   installedHook: boolean;
+  /**
+   * 읽거나 파싱하지 못해 그래프에 안 들어간 파일들.
+   *
+   * 세지 않으면 nodesBuilt만 보고 전부 처리됐다고 읽는다. 여기 빠진 파일은
+   * 이후 blast-radius의 영향 범위에서 영영 누락되고, 그 누락은 깊이 상한과
+   * 달리 어떤 파라미터로도 되살릴 수 없다.
+   */
+  skippedFiles: { filePath: string; reason: string }[];
 }
 
 // ─── Blast Radius Options ────────────────────────────────────────
