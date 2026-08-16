@@ -150,6 +150,7 @@ export class CodeGraphEngine {
 
     let nodesBuilt = 0;
     let edgesBuilt = 0;
+    const skippedFiles: { filePath: string; reason: string }[] = [];
 
     for (const filePath of filesToProcess) {
       const plugin = getPluginForFile(filePath);
@@ -170,9 +171,22 @@ export class CodeGraphEngine {
           store.upsertEdge(edge);
           edgesBuilt++;
         }
-      } catch {
-        // Skip files that fail to parse
+      } catch (e) {
+        // 건너뛰되 조용히 넘어가지 않는다. 여기 빠진 파일은 그래프에 없으므로
+        // 이후 blast-radius가 영향 범위에서 영영 누락한다.
+        skippedFiles.push({
+          filePath,
+          reason: e instanceof Error ? e.message : String(e),
+        });
       }
+    }
+
+    if (skippedFiles.length > 0) {
+      logger.warn('code_graph.files_skipped', {
+        module: 'code-graph/engine',
+        count: skippedFiles.length,
+        files: skippedFiles.slice(0, 10).map((f) => f.filePath),
+      });
     }
 
     const timeTakenMs = Date.now() - start;
@@ -181,6 +195,7 @@ export class CodeGraphEngine {
       repoRoot,
       nodesBuilt,
       edgesBuilt,
+      skippedCount: skippedFiles.length,
       durationMs: timeTakenMs,
     });
 
@@ -189,6 +204,7 @@ export class CodeGraphEngine {
       edgesBuilt,
       timeTakenMs,
       installedHook: false, // Hook installation handled separately via GitHookManager
+      skippedFiles,
     };
   }
 

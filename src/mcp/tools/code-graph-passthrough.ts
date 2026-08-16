@@ -49,6 +49,10 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
           timeTakenMs: result.timeTakenMs,
           installedHook: false,
           embeddingsBuilt,
+          // 건너뛴 파일은 그래프에 없어서 이후 blast-radius가 영영 누락한다.
+          // 개수는 늘 싣고 목록은 진단용으로 앞 20개만 — 전량은 응답만 키운다.
+          skippedCount: result.skippedFiles.length,
+          skippedFiles: result.skippedFiles.slice(0, 20),
         };
       }
 
