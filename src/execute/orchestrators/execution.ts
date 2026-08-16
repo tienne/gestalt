@@ -431,7 +431,8 @@ export class ExecutionOrchestrator {
     );
 
     // suggestedFiles 계산 (code-graph searchByKeywords 기반 — 동기 fallback)
-    // Semantic/hybrid upgrade는 호출측(MCP handler 등)에서 hydrateTaskContextSuggestedFiles()로 수행
+    // Semantic/hybrid upgrade는 호출측에서 hydrateSuggestedFiles()로 수행한다
+    // (src/mcp/tools/execute/execution.ts). 이 메서드가 동기라 여기선 키워드까지만 한다.
     let suggestedFiles: string[] | undefined;
     if (session.codeGraphRepoRoot && codeGraphEngine.dbExists(session.codeGraphRepoRoot)) {
       try {
