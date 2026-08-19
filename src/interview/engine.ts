@@ -32,7 +32,7 @@ export class InterviewEngine {
   /**
    * @param llm 질문 생성에 쓰는 기본 어댑터
    * @param frugalLlm 해상도 점수 산정용 저비용 어댑터. 없으면 `llm`을 그대로 쓴다.
-   *   점수 산정은 정해진 축에 숫자를 매기는 작업이라 질문 생성만큼의 모델이 필요 없다.
+   *   점수 산정은 정해진 기준에 점수를 매기는 작업이라 질문 생성만큼의 모델이 필요 없다.
    */
   constructor(
     llm: LLMAdapter,

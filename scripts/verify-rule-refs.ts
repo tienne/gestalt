@@ -262,14 +262,21 @@ function sourceFiles(root: string): string[] {
 }
 
 /**
- * 소스 파일에서 주석 줄만 뽑아 산문처럼 돌려준다.
+ * 소스 파일에서 주석만 뽑아 산문처럼 돌려준다.
  *
  * 코드 본문은 대상이 아니다. 문자열 리터럴 안의 한글도 빼는데, 프롬프트 템플릿이
  * 대부분이라 어투 룰로 재면 오탐만 는다. 사람이 읽는 설명은 주석에 있다.
+ *
+ * 줄을 통째로 차지하는 주석과 코드 뒤에 붙는 줄끝 주석을 모두 본다. 이 레포는
+ * `filePath: string; // .gestalt-kb 경로` 같은 줄끝 주석을 흔하게 쓴다.
+ *
+ * 백틱 문자열 안은 건너뛴다. 템플릿 리터럴에 들어간 예시 코드의 `//`를 주석으로
+ * 세면 문자열 데이터를 산문으로 재게 된다.
  */
 function commentProse(source: string): { line: string; number: number }[] {
   const out: { line: string; number: number }[] = [];
   let inBlock = false;
+  let inTemplate = false;
 
   source.split('\n').forEach((raw, index) => {
     const trimmed = raw.trim();
@@ -278,17 +285,46 @@ function commentProse(source: string): { line: string; number: number }[] {
     if (inBlock) {
       text = trimmed.replace(/^\*+\s?/, '').replace(/\*\/.*$/, '');
       if (trimmed.includes('*/')) inBlock = false;
+    } else if (inTemplate) {
+      // 템플릿 안은 문자열이다. 백틱 개수만 세어 언제 빠져나오는지 본다
+      if (countBackticks(raw) % 2 === 1) inTemplate = false;
     } else if (trimmed.startsWith('/*')) {
       text = trimmed.replace(/^\/\*+\s?/, '').replace(/\*\/.*$/, '');
       if (!trimmed.includes('*/')) inBlock = true;
     } else if (trimmed.startsWith('//')) {
       text = trimmed.replace(/^\/\/+\s?/, '');
+    } else {
+      text = trailingComment(raw);
+      if (countBackticks(raw) % 2 === 1) inTemplate = true;
     }
 
     if (text && /[가-힣]/.test(text)) out.push({ line: text, number: index + 1 });
   });
 
   return out;
+}
+
+/** 이스케이프되지 않은 백틱 수 */
+function countBackticks(line: string): number {
+  return (line.match(/(?<!\\)`/g) ?? []).length;
+}
+
+/**
+ * 코드 뒤에 붙는 `// ...` 를 뽑는다.
+ *
+ * 따옴표와 백틱 안은 먼저 지운다. URL의 `//`를 주석으로 세지 않으려는 것이다.
+ * 지운 자리의 길이를 맞춰 둬야 잘라낼 위치가 원본과 어긋나지 않는다.
+ */
+function trailingComment(raw: string): string | null {
+  const masked = raw
+    .replace(/`[^`]*`/g, (m) => ' '.repeat(m.length))
+    .replace(/'[^']*'/g, (m) => ' '.repeat(m.length))
+    .replace(/"[^"]*"/g, (m) => ' '.repeat(m.length))
+    .replace(/https?:\/\//g, (m) => ' '.repeat(m.length));
+
+  const at = masked.indexOf('//');
+  if (at === -1) return null;
+  return raw.slice(at).replace(/^\/\/+\s?/, '').trim() || null;
 }
 
 /** 파일별 S1 건수. 룰 예외(용어 목록·룰 ID 나열)는 세지 않는다 */

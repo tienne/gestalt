@@ -136,7 +136,7 @@ interface GestaltConfig {
 | `standard` | 일반 작업 — 인터뷰, 스펙 생성 | `claude-sonnet-5` | 질문 생성, Spec 생성. tier 미설정 시 flat `llm.apiKey`+`llm.model`로 폴백 |
 | `frontier` | 고난도 추론 | `claude-opus-4-20250514`, `o1` | 아직 직접 호출 경로 없음 — 설정만 받아둔다 |
 
-`frugal`은 위 두 자리에서 쓰인다. 정해진 축에 숫자를 매기거나 파일 하나를 한 문장으로 옮겨 적는 작업이라 질문 생성만큼의 모델이 필요 없어서다.
+`frugal`은 위 두 자리에서 쓰인다. 정해진 기준에 점수를 매기거나 파일 하나를 한 문장으로 옮겨 적는 작업이라 질문 생성만큼의 모델이 필요 없어서다.
 
 조건이 자리마다 다르다. 해상도 점수 산정은 tier를 설정하면 그쪽으로 내려간다. KB 요약은 tier만으로는 안 켜지고 `ges_generate_kb`를 `summarize: true`로 불러야 돈다. 둘 다 설정이 없으면 점수 산정은 `standard`(또는 flat 설정)를 그대로 쓰고 요약 단계는 통째로 건너뛴다 — 기존 동작과 같다.
 

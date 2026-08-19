@@ -32,7 +32,7 @@
   "src/execute/parallel-groups.ts": 3,
   "src/execute/prompts.ts": 1,
   "src/gestalt/surface-labels.ts": 5,
-  "src/humanize/change-rate.ts": 3,
+  "src/humanize/change-rate.ts": 2,
   "src/humanize/check.ts": 2,
   "src/humanize/detectors.ts": 3,
   "src/humanize/rules.ts": 6,

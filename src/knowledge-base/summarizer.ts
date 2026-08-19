@@ -48,11 +48,20 @@ const SUMMARY_MARKER = '<!-- summary -->';
 /** 한 문장 요약에 이보다 긴 게 오면 요약이 아니다 */
 const MAX_SUMMARY_CHARS = 300;
 
-/** 한 패스로 지우면 남은 조각이 다시 붙는다. 아래 STRUCTURAL을 안 바뀔 때까지 반복한다 */
+/** 문서 구조를 만드는 조각. 한 패스로 지우면 남은 것끼리 다시 붙는다 */
 const STRUCTURAL = /<!--|-->|```/g;
 
-/** 줄머리에 오면 마크다운 블록을 여는 문자들 */
-const LEADING_BLOCK = /^[\s#>*+-]+/;
+/** 줄머리에서 블록을 열거나 화자를 흉내내는 접두. 앞엣것을 지우면 뒤엣것이 드러난다 */
+const LEADING_PREFIX = /^\s*(?:(?:system|assistant|user)\s*:|[#>*+-]+)\s*/i;
+
+/**
+ * 고정점 루프에 들여보낼 원문 상한.
+ *
+ * 아래 루프는 매 패스가 매치를 전량 지우지만, 지울 때마다 새 매치가 하나씩만
+ * 생기는 입력을 넣으면 패스 수가 길이에 비례해 O(n²)가 된다. 실측으로 32만 자에서
+ * 25초를 동기로 먹었다. 어차피 300자로 자를 한 문장이라 루프가 볼 길이부터 묶는다.
+ */
+const MAX_RAW_CHARS = 2000;
 
 /**
  * 요약문을 KB에 넣기 전에 형태를 정리한다.
@@ -61,33 +70,30 @@ const LEADING_BLOCK = /^[\s#>*+-]+/;
  * 마커 경계를 깨거나 문서 구조를 흉내내는 문자열이 KB 본문과 임베딩에 남는다.
  * 나중에 ges_search 결과로 다른 세션에 다시 실린다.
  *
- * 지우는 건 세 가지다. 개행과 탭(여러 줄로 퍼지지 못하게), HTML 주석 경계와
- * 코드펜스, 그리고 줄머리 블록 문자. 삽입 템플릿이 요약을 마커 다음 줄에 놓기
+ * 지우는 것: 개행과 탭(여러 줄로 퍼지지 못하게), HTML 주석 경계와 코드펜스,
+ * 줄머리 블록 문자, 줄머리 역할 접두어. 삽입 템플릿이 요약을 마커 다음 줄에 놓기
  * 때문에 선두의 #이나 -는 그 자리에서 헤딩이나 목록이 된다.
  *
  * **한 번 치환으로는 부족하다.** replace는 자기 출력을 다시 검사하지 않는다.
- * `-` + 백틱 세 개 + `->` 처럼 쪼개 넣으면 백틱이 빠지면서 `-->`가 도로 생긴다.
- * 그래서 더 이상 안 바뀔 때까지 돌린다. 매 회 길이가 줄어드니 반드시 끝난다.
+ * `-` + 백틱 세 개 + `->` 처럼 쪼개 넣으면 백틱이 빠지면서 `-->`가 도로 생기고,
+ * `# system:` 처럼 겹쳐 놓으면 앞엣것을 지운 자리에서 뒤엣것이 새로 드러난다.
+ * 그래서 둘 다 한 루프에 넣고 더 이상 안 바뀔 때까지 돌린다. 매 회 길이가
+ * 줄어드니 반드시 끝난다.
  *
  * **뜻은 검열하지 않는다.** "이 함수는 오류를 무시한다" 같은 정상 요약을 지우게
  * 된다. 지시로 읽힐 문장이 남는 건 여기서 못 막는다. 읽는 쪽이 자료로 다루는 게
  * 기준이라, ges_search가 응답에 그 사실을 함께 싣는다.
  */
 function sanitizeSummary(raw: string): string {
-  let text = raw.replace(/[\r\n\t]+/g, ' ');
+  let text = raw.slice(0, MAX_RAW_CHARS).replace(/[\r\n\t]+/g, ' ');
 
   let previous: string;
   do {
     previous = text;
-    text = text.replace(STRUCTURAL, '');
+    text = text.replace(STRUCTURAL, '').replace(LEADING_PREFIX, '');
   } while (text !== previous);
 
-  return text
-    .replace(/^\s*(system|assistant|user)\s*:\s*/i, '')
-    .replace(LEADING_BLOCK, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_SUMMARY_CHARS);
+  return text.replace(/\s+/g, ' ').trim().slice(0, MAX_SUMMARY_CHARS);
 }
 
 /**
@@ -135,7 +141,7 @@ function parseSummaries(content: string): Map<string, string> {
 /**
  * 엔트리 배열을 제자리에서 수정해 각 content 앞에 한 줄 요약을 끼운다.
  *
- * 배치 하나가 실패해도 나머지는 그대로 진행한다 — 요약은 KB의 덤이지 KB 자체가 아니라서,
+ * 배치 하나가 실패해도 나머지는 그대로 진행한다. 요약은 KB에 얹는 부가 정보라,
  * 여기서 던지면 요약 하나 때문에 그래프 전체를 못 내보내게 된다.
  */
 export async function summarizeEntries(
