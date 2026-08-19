@@ -627,7 +627,7 @@ npx @tienne/gestalt setup
 
 `frugal`을 설정하면 위 두 자리가 그쪽으로 내려가요. 설정하지 않으면 점수 산정은 기존처럼 standard가 맡고 KB 요약 단계는 아예 건너뜁니다. KB 요약은 tier만 설정한다고 켜지지 않아요 — `ges_generate_kb`를 `summarize: true`로 불러야 돌아갑니다.
 
-Claude Code나 Codex로 쓰면 인터뷰가 Passthrough로 돌아서 점수를 호스트가 매겨요. 그때는 어댑터를 안 거치니 frugal 점수 산정은 CLI에서만 걸립니다. 품질 영향은 아직 안 쟀고, `scripts/verify-frugal-scoring.ts`로 두 tier를 비교해볼 수 있어요.
+Claude Code나 Codex로 쓰면 인터뷰가 Passthrough로 돌아서 점수를 호스트가 매겨요. 그때는 어댑터를 안 거치니 frugal 점수 산정은 CLI에서만 걸립니다. 품질 영향은 아직 안 쟀어요. `scripts/verify-frugal-scoring.ts`로 두 tier를 비교해볼 수 있습니다.
 
 Anthropic(standard/frontier)과 Ollama(frugal)를 혼합하는 예시예요:
 

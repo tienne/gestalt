@@ -10,7 +10,8 @@ import type { KnowledgeEntry } from './types.js';
  * 그 문장이 실려서 이름이 안 겹치는 질의가 걸린다.
  *
  * 파일 수백 개를 한 줄씩 옮겨 적는 전형적인 저비용 배치 작업이라 frugal tier로 돌린다.
- * 어댑터는 호출부가 주입한다 — frugal tier가 설정 안 돼 있으면 이 단계 자체를 건너뛴다.
+ * 어댑터는 호출부가 주입한다. ges_generate_kb 기준으로 summarize를 켜고 llm.frugal이
+ * 설정돼 있어야 여기까지 온다. 둘 중 하나라도 없으면 이 단계 자체를 건너뛴다.
  */
 
 const SYSTEM_PROMPT = `You summarize source files for a code knowledge base.
@@ -47,23 +48,43 @@ const SUMMARY_MARKER = '<!-- summary -->';
 /** 한 문장 요약에 이보다 긴 게 오면 요약이 아니다 */
 const MAX_SUMMARY_CHARS = 300;
 
+/** 한 패스로 지우면 남은 조각이 다시 붙는다. 아래 STRUCTURAL을 안 바뀔 때까지 반복한다 */
+const STRUCTURAL = /<!--|-->|```/g;
+
+/** 줄머리에 오면 마크다운 블록을 여는 문자들 */
+const LEADING_BLOCK = /^[\s#>*+-]+/;
+
 /**
- * 요약문을 KB에 넣기 전에 형태를 무해하게 만든다.
+ * 요약문을 KB에 넣기 전에 형태를 정리한다.
  *
  * 이 문장은 LLM이 쓴 것이고 그 입력은 남이 쓴 코드와 주석이다. 그대로 넣으면
- * 마커 경계를 깨거나 문서 구조를 흉내내는 문자열이 KB 본문과 임베딩에 그대로 남고,
+ * 마커 경계를 깨거나 문서 구조를 흉내내는 문자열이 KB 본문과 임베딩에 남는다.
  * 나중에 ges_search 결과로 다른 세션에 다시 실린다.
  *
- * 뜻은 검열하지 않는다 — "이 함수는 오류를 무시한다" 같은 정상 요약을 지우게 된다.
- * 대신 구조를 못 만들게 한다. 한 줄로 눌러두면 헤딩도 코드펜스도 못 만들고,
- * 지시로 읽힐 문장이 남더라도 그건 읽는 쪽이 자료로 다루면 되는 문제다.
+ * 지우는 건 세 가지다. 개행과 탭(여러 줄로 퍼지지 못하게), HTML 주석 경계와
+ * 코드펜스, 그리고 줄머리 블록 문자. 삽입 템플릿이 요약을 마커 다음 줄에 놓기
+ * 때문에 선두의 #이나 -는 그 자리에서 헤딩이나 목록이 된다.
+ *
+ * **한 번 치환으로는 부족하다.** replace는 자기 출력을 다시 검사하지 않는다.
+ * `-` + 백틱 세 개 + `->` 처럼 쪼개 넣으면 백틱이 빠지면서 `-->`가 도로 생긴다.
+ * 그래서 더 이상 안 바뀔 때까지 돌린다. 매 회 길이가 줄어드니 반드시 끝난다.
+ *
+ * **뜻은 검열하지 않는다.** "이 함수는 오류를 무시한다" 같은 정상 요약을 지우게
+ * 된다. 지시로 읽힐 문장이 남는 건 여기서 못 막는다. 읽는 쪽이 자료로 다루는 게
+ * 기준이라, ges_search가 응답에 그 사실을 함께 싣는다.
  */
 function sanitizeSummary(raw: string): string {
-  return raw
-    .replace(/[\r\n\t]+/g, ' ')
-    .replace(/<!--|-->/g, '')
-    .replace(/```/g, '')
+  let text = raw.replace(/[\r\n\t]+/g, ' ');
+
+  let previous: string;
+  do {
+    previous = text;
+    text = text.replace(STRUCTURAL, '');
+  } while (text !== previous);
+
+  return text
     .replace(/^\s*(system|assistant|user)\s*:\s*/i, '')
+    .replace(LEADING_BLOCK, '')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, MAX_SUMMARY_CHARS);
@@ -72,7 +93,7 @@ function sanitizeSummary(raw: string): string {
 /**
  * 배치를 동시에 몇 개까지 띄울지.
  *
- * 엔트리 수백 개를 직렬로 돌리면 배치 하나당 네트워크 왕복이 그대로 쌓이고,
+ * 엔트리 수백 개를 직렬로 돌리면 배치 하나당 네트워크 왕복이 그대로 쌓인다.
  * 재시도 어댑터의 백오프까지 순차로 더해져 ges_generate_kb 한 번이 수 분이 된다.
  * 프로바이더 쪽 rate limit을 건드리지 않을 만큼만 올린다.
  */

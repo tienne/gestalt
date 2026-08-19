@@ -6,7 +6,7 @@
  * 거기서 ID를 지우거나 심각도를 바꿔도 그 사본들은 그대로 남아 아무도 모른 채 어긋난다.
  * 여기서 막는다.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { citedRuleIds, parseRuleBook, s1Ids, QUICK_RULES_PATH } from '../src/humanize/index.js';
@@ -15,6 +15,10 @@ import { countByRule, proseLines, DETECTABLE_RULE_IDS } from '../src/humanize/de
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const PLUGIN = join(ROOT, 'plugin');
+const DOCS = join(ROOT, 'docs');
+const SRC = join(ROOT, 'src');
+/** 레포 루트에 흩어져 있는 산문 문서 */
+const ROOT_DOCS = ['README.md', 'README.ko.md', 'CLAUDE.md'];
 const rel = (path: string) => path.slice(ROOT.length + 1);
 const BASELINE_PATH = join(__dirname, 'humanize-baseline.json');
 
@@ -238,14 +242,65 @@ export function verifyRuleRefs(): RuleRefIssue[] {
   return issues;
 }
 
+/**
+ * S1 검사 대상. 사람이 읽을 한국어 산문이 있는 자리는 전부 넣는다.
+ *
+ * 에이전트 문서만 훑던 때는 docs와 README, 소스 주석에 같은 패턴이 쌓여도 아무도
+ * 몰랐다. writing-reviewer를 도입한 브랜치가 정작 그 세 자리에 C-11을 일곱 개
+ * 남긴 게 이 범위 차이 때문이라, 검사도 사람이 읽는 자리까지 따라간다.
+ */
+function proseTargets(): string[] {
+  const rootDocs = ROOT_DOCS.map((name) => join(ROOT, name)).filter((path) => existsSync(path));
+  return [...markdownFiles(PLUGIN), ...markdownFiles(DOCS), ...rootDocs, ...sourceFiles(SRC)];
+}
+
+function sourceFiles(root: string): string[] {
+  if (!existsSync(root)) return [];
+  return readdirSync(root, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
+    .map((entry) => join(entry.parentPath, entry.name));
+}
+
+/**
+ * 소스 파일에서 주석 줄만 뽑아 산문처럼 돌려준다.
+ *
+ * 코드 본문은 대상이 아니다. 문자열 리터럴 안의 한글도 빼는데, 프롬프트 템플릿이
+ * 대부분이라 어투 룰로 재면 오탐만 는다. 사람이 읽는 설명은 주석에 있다.
+ */
+function commentProse(source: string): { line: string; number: number }[] {
+  const out: { line: string; number: number }[] = [];
+  let inBlock = false;
+
+  source.split('\n').forEach((raw, index) => {
+    const trimmed = raw.trim();
+    let text: string | null = null;
+
+    if (inBlock) {
+      text = trimmed.replace(/^\*+\s?/, '').replace(/\*\/.*$/, '');
+      if (trimmed.includes('*/')) inBlock = false;
+    } else if (trimmed.startsWith('/*')) {
+      text = trimmed.replace(/^\/\*+\s?/, '').replace(/\*\/.*$/, '');
+      if (!trimmed.includes('*/')) inBlock = true;
+    } else if (trimmed.startsWith('//')) {
+      text = trimmed.replace(/^\/\/+\s?/, '');
+    }
+
+    if (text && /[가-힣]/.test(text)) out.push({ line: text, number: index + 1 });
+  });
+
+  return out;
+}
+
 /** 파일별 S1 건수. 룰 예외(용어 목록·룰 ID 나열)는 세지 않는다 */
 export function countS1ByFile(): Map<string, number> {
   const targets = s1Ids(parseRuleBook(), 'doc');
   const counts = new Map<string, number>();
 
-  for (const file of markdownFiles(PLUGIN)) {
+  for (const file of proseTargets()) {
+    const content = readFileSync(file, 'utf-8');
+    const lines = file.endsWith('.ts') ? commentProse(content) : bareProse(content);
     let total = 0;
-    for (const { line } of bareProse(readFileSync(file, 'utf-8'))) {
+    for (const { line } of lines) {
       // 굳어진 음차 화이트리스트는 C-12 예외다
       if (line.includes('화이트리스트')) continue;
       const prose = line.replace(/[가-힣A-Za-z0-9-]+(?:·[가-힣A-Za-z0-9-]+)+/g, (chain) =>

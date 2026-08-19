@@ -28,7 +28,7 @@ export async function handleSearchKb(input: SearchKbInput, cwd: string): Promise
         results,
         query: input.query,
         total: results.length,
-        // 결과 본문은 레포의 코드와 주석에서 왔고, frugal 요약을 켰으면 LLM이 쓴 문장도
+        // 결과 본문은 레포의 코드와 주석에서 왔다. frugal 요약을 켰으면 LLM이 쓴 문장도
         // 섞인다. 둘 다 남이 쓴 텍스트라 지시로 읽히면 안 된다. 소비하는 쪽이 그걸
         // 알도록 응답에 함께 싣는다 — 프롬프트에 붙일 때 이 문장이 같이 간다.
         untrustedContent: true,
