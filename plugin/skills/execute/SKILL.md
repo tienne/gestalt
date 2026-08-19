@@ -158,6 +158,21 @@ ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ..
 ```
 → `{ matchContext }` — 어떤 에이전트가 적합한지 판단하기 위한 프롬프트
 
+`matchContext.tierHint`는 `"frugal"`이다. `matchContext.availableAgents`에는 에이전트 20여 개의 description이 통째로 들어 있다. 그걸 세션 컨텍스트에 들이는 대신 **서브에이전트에 넘겨 1차 후보를 좁힌다.**
+
+```
+ges_status {}   → tierModels.frugal (기본 "haiku")
+
+Agent {
+  subagent_type: "Explore",
+  model: "<tierModels.frugal>",
+  prompt: "<matchContext.systemPrompt>\n\n<matchContext.matchingPrompt>\n\n
+           matches JSON만 돌려준다."
+}
+```
+
+돌아온 후보는 **초안이다.** 세션이 태스크를 아는 쪽이므로, relevanceScore가 낮은 항목과 이 태스크에 명백히 안 맞는 항목을 걷어낸 뒤 Call 2로 제출한다. 스폰이 그 별칭을 거부하면 `sonnet` 1회 재시도, 그것도 안 되면 세션에서 직접 판단한다. 에이전트가 몇 개 없는 레포에선 팬아웃 없이 세션에서 그냥 고른다.
+
 ```json
 // Call 2: 매칭 결과 제출
 {

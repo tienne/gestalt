@@ -130,11 +130,13 @@ interface GestaltConfig {
 
 작업 복잡도에 따라 다른 LLM 프로바이더를 라우팅할 수 있다. `frugal`, `standard`, `frontier` 세 가지 tier로 구분한다.
 
-| Tier | 용도 | 예시 모델 |
-|------|------|-----------|
-| `frugal` | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `haiku` |
-| `standard` | 일반 작업 — 인터뷰, 스펙 생성, 코드 실행 | `claude-sonnet-5` |
-| `frontier` | 고난도 추론 — 아키텍처 설계, 코드 리뷰, 진화 루프 | `claude-opus-4-20250514`, `o1` |
+| Tier | 용도 | 예시 모델 | 지금 실제로 쓰이는 자리 |
+|------|------|-----------|------------------------|
+| `frugal` | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `claude-haiku-4-5` | 인터뷰 해상도 점수 산정(`ResolutionScorer`) |
+| `standard` | 일반 작업 — 인터뷰, 스펙 생성 | `claude-sonnet-5` | 질문 생성, Spec 생성. tier 미설정 시 flat `llm.apiKey`+`llm.model`로 폴백 |
+| `frontier` | 고난도 추론 | `claude-opus-4-20250514`, `o1` | 아직 직접 호출 경로 없음 — 설정만 받아둔다 |
+
+`frugal`을 설정하면 해상도 점수 산정만 그쪽으로 내려간다. 정해진 축에 숫자를 매기고 모순을 뽑는 작업이라 질문 생성만큼의 모델이 필요 없어서다. 설정하지 않으면 점수 산정도 `standard`(또는 flat 설정)를 그대로 쓴다 — 기존 동작과 같다.
 
 > **참고**: Execute Engine은 LLM 호출 방식과 무관하게 **항상 Passthrough 모드**로 동작합니다.
 > API 키 유무는 Execute 동작에 영향을 주지 않습니다.

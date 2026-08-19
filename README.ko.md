@@ -619,11 +619,13 @@ npx @tienne/gestalt setup
 
 작업 복잡도에 따라 서로 다른 LLM 프로바이더를 tier별로 지정할 수 있어요.
 
-| Tier | 용도 | 예시 |
-|------|------|------|
-| **frugal** | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `haiku` |
-| **standard** | 일반 작업 — 인터뷰, 스펙 생성, 코드 실행 | `claude-sonnet-4-20250514` |
-| **frontier** | 고난도 추론 — 아키텍처 설계, 코드 리뷰, 진화 루프 | `claude-opus-4-20250514` |
+| Tier | 용도 | 예시 | 지금 쓰이는 자리 |
+|------|------|------|-----------------|
+| **frugal** | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `claude-haiku-4-5` | 인터뷰 해상도 점수 산정 |
+| **standard** | 일반 작업 — 인터뷰, 스펙 생성 | `claude-sonnet-4-20250514` | 질문 생성, Spec 생성 |
+| **frontier** | 고난도 추론 | `claude-opus-4-20250514` | 아직 직접 호출 경로 없음 |
+
+`frugal`을 설정하면 해상도 점수 산정만 그쪽으로 내려갑니다. 설정하지 않으면 기존처럼 standard가 다 맡아요.
 
 Anthropic(standard/frontier)과 Ollama(frugal)를 혼합하는 예시예요:
 

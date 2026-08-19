@@ -445,6 +445,21 @@ describe('RoleMatchEngine', () => {
     expect(context.matchingPrompt).toContain('React 컴포넌트 구현');
     expect(context.availableAgents.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('매칭은 분류 작업이라 frugal tier 힌트를 함께 준다', () => {
+    const registry = new RoleAgentRegistry(resolve('plugin/role-agents'));
+    registry.loadAll();
+
+    const engine = new RoleMatchEngine();
+    const context = engine.generateMatchContext(
+      'task-1',
+      '문서 작성',
+      'README 갱신',
+      registry.getAll(),
+    );
+
+    expect(context.tierHint).toBe('frugal');
+  });
 });
 
 // ─── RolePromptGenerator ────────────────────────────────────

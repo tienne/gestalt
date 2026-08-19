@@ -17,6 +17,21 @@ ges_agent { action: "get", name: "architect" }
 | `standard` | `sonnet` | 대부분 |
 | `frontier` | `opus` | architect, harness-architect, continuity-judge |
 
+## 등록 에이전트가 없는 자리
+
+리뷰 스레드 분류처럼 **역할 정의 없이 기계적으로 읽고 옮겨 적는 작업**을 서브에이전트에 맡길 때가 있다.
+이런 자리엔 넘길 에이전트 이름이 없어서 `ges_agent { action: "get" }`을 쓸 수 없다. 대신 `ges_status`가
+같은 표를 통째로 준다.
+
+```
+ges_status {}
+  →  { tierModels: { frugal: "haiku", standard: "sonnet", frontier: "opus" }, ... }
+```
+
+여기서 `tierModels.frugal`을 뽑아 Agent 도구의 `model`로 넘긴다. 판단하는 자리가 아니라 모아서 분류하고
+정리하는 자리, 그러니까 결과를 사람이 다시 확인하는 작업에만 쓴다 — 확정 판단, 문장 작성, 파일 수정은
+이 경로로 내리지 않는다.
+
 ## 적용 규칙
 
 **서브에이전트를 띄울 때는 `model`을 그대로 넘긴다.** Agent 도구의 `model` 파라미터에 응답의

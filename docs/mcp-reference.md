@@ -672,6 +672,9 @@ ges_agent({ action: "get", name: "architect" })
     { "sessionId": "exec-456", "type": "execute", "status": "executing", "createdAt": "..." }
   ],
   "total": 1,
+  "reasoningModel": "fable",
+  "reasoningModelFallback": "opus",
+  "tierModels": { "frugal": "haiku", "standard": "sonnet", "frontier": "opus" },
   "resumeHint": {
     "sessionId": "exec-456",
     "specId": "d9356d63-..."
@@ -680,6 +683,8 @@ ges_agent({ action: "get", name: "architect" })
 ```
 
 `resumeHint`는 `cwd`가 제공되고 `.gestalt/active-session.json`이 존재할 때만 포함된다.
+
+`reasoningModel`·`reasoningModelFallback`·`tierModels`는 세션 조회든 목록 조회든 오류 응답이든 항상 함께 온다. 앞의 둘은 spec과 execute 플래닝이 쓴다. `tierModels`는 **등록 에이전트가 없는 인라인 서브에이전트**가 tier 모델을 고를 때 쓴다 (`ges_agent { action: "get" }`은 에이전트 이름을 요구하므로 그런 자리에서는 조회 경로가 없다). 서버는 표만 알려줄 뿐 모델 가용성을 검사하지 않는다 — 폴백은 스킬 런타임 몫이다.
 
 ---
 
@@ -780,10 +785,21 @@ ges_generate_kb({ repoRoot: "/path/to/repo", types: ["code-graph", "adr"] })
 ```json
 {
   "entriesGenerated": 42,
+  "entriesSummarized": 42,
   "embeddingsComputed": 42,
   "outputPath": "/path/to/repo/.gestalt-kb"
 }
 ```
+
+### 파일별 한 줄 요약 (frugal tier)
+
+`llm.frugal`이 설정돼 있으면 엔트리마다 "이 파일이 무슨 일을 하나"를 한 문장으로 붙인다. 코드 그래프가 뽑아주는 건 함수와 클래스 이름 목록이라, 그것만으로는 읽는 쪽이 이름에서 역할을 유추해야 한다. 요약문은 MD 본문 맨 앞에 들어가고 임베딩 텍스트에도 함께 실려서, 식별자 이름이 안 겹치는 질의도 `ges_search`에 걸린다.
+
+파일 수백 개를 한 줄씩 옮겨 적는 배치 작업이라 frugal tier로 돌린다 (설정 예시는 [configuration.md](./configuration.md#멀티-프로바이더-설정-llm-tier) 참조).
+
+- `llm.frugal`이 없으면 이 단계를 통째로 건너뛴다. `entriesSummarized`가 `0`으로 온다.
+- 배치 하나가 실패해도 나머지는 그대로 진행한다. 요약은 KB의 덤이지 전제가 아니라서, 요약 실패로 그래프 내보내기 전체를 막지 않는다.
+- `entriesGenerated`와 `entriesSummarized`가 다르면 일부 파일에 요약이 없다는 뜻이다.
 
 ---
 

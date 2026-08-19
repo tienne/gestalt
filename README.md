@@ -728,11 +728,13 @@ When `client` is `"claude-code"`, `"codex"`, or `"grok"`, MCP interview/spec gen
 
 Route LLM calls by task complexity across three tiers:
 
-| Tier | Purpose | Example models |
-|------|---------|---------------|
-| **frugal** | Lightweight tasks — scoring, classification, short responses | `llama3.2`, `claude-haiku` |
-| **standard** | General tasks — interviews, spec generation, execution | `claude-sonnet-4-20250514` |
-| **frontier** | High-complexity reasoning — architecture, code review, evolution | `claude-opus-4-20250514` |
+| Tier | Purpose | Example models | Where it runs today |
+|------|---------|---------------|---------------------|
+| **frugal** | Lightweight tasks — scoring, classification, short responses | `llama3.2`, `claude-haiku-4-5` | Interview resolution scoring |
+| **standard** | General tasks — interviews, spec generation | `claude-sonnet-4-20250514` | Question generation, spec generation |
+| **frontier** | High-complexity reasoning | `claude-opus-4-20250514` | No direct call path yet |
+
+Configuring `frugal` moves resolution scoring onto it. Leave it unset and scoring stays on `standard`, exactly as before.
 
 Mix providers freely. This example uses Anthropic for standard/frontier and a local Ollama model for frugal tasks:
 

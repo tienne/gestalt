@@ -6,7 +6,7 @@ import { log } from '../core/log.js';
 import { logger } from '../core/logger.js';
 import { getVersion, checkForUpdates, getCachedUpdateResult } from '../core/version.js';
 import { EventStore } from '../events/store.js';
-import { createAdapter } from '../llm/factory.js';
+import { createAdapter, createTierAdapter } from '../llm/factory.js';
 import { InterviewEngine } from '../interview/engine.js';
 import { PassthroughEngine } from '../interview/passthrough-engine.js';
 import { SpecGenerator } from '../spec/generator.js';
@@ -176,7 +176,8 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   } else {
     // ─── Normal mode: direct LLM calls ──────────────────────────
     const llm = createAdapter(config.llm);
-    const engine = new InterviewEngine(llm, eventStore);
+    const frugalLlm = createTierAdapter(config.llm, 'frugal');
+    const engine = new InterviewEngine(llm, eventStore, frugalLlm);
     const specGenerator = new SpecGenerator(llm, eventStore);
 
     server.tool(
@@ -426,7 +427,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         .optional(),
     },
     async (params) => {
-      const result = await handleGenerateKb(params, process.cwd());
+      const result = await handleGenerateKb(params, process.cwd(), config);
       return { content: [{ type: 'text' as const, text: result }] };
     },
   );

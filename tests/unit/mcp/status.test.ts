@@ -65,6 +65,22 @@ describe('handleStatus — reasoningModel exposure', () => {
 
     expect(result.reasoningModel).toBeNull();
     expect(result.reasoningModelFallback).toBeNull();
+    expect(result.tierModels).toBeNull();
+  });
+
+  it('exposes the tierModels table so inline sub-agents can pick a tier model', () => {
+    const config = loadConfig({}, isolatedOpts);
+    const result = JSON.parse(handleStatus(engine, listInput, store, config));
+
+    expect(result.tierModels).toEqual({ frugal: 'haiku', standard: 'sonnet', frontier: 'opus' });
+  });
+
+  it('reflects overridden tierModels', () => {
+    const config = loadConfig({ tierModels: { frugal: 'sonnet' } }, isolatedOpts) as GestaltConfig;
+    const result = JSON.parse(handleStatus(engine, listInput, store, config));
+
+    expect(result.tierModels.frugal).toBe('sonnet');
+    expect(result.tierModels.standard).toBe('sonnet');
   });
 
   it('exposes reasoningModel on the session-not-found error path', () => {

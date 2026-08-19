@@ -43,6 +43,22 @@ export function createAdapterFromTierConfig(
 }
 
 /**
+ * 특정 tier가 설정돼 있을 때만 그 tier의 어댑터를 만든다.
+ *
+ * 설정이 없으면 `undefined`를 돌려준다. 그러면 호출부는 기본 어댑터를 그대로 쓴다.
+ * "이 호출은 frugal로 내려도 된다"는 판단은 호출부가 한다. 실제로 내릴 수 있는지는
+ * 사용자가 그 tier를 설정했는지에 달려 있어서 두 조건을 여기서 갈라놓는다.
+ */
+export function createTierAdapter(
+  llmConfig: GestaltConfig['llm'],
+  tier: AgentTier,
+): LLMAdapter | undefined {
+  const tierCfg = llmConfig[tier];
+  if (!tierCfg) return undefined;
+  return createAdapterFromTierConfig(tierCfg, llmConfig);
+}
+
+/**
  * GestaltConfig에서 FallbackAdapter를 생성한다.
  * tier 순서(frontier → standard → frugal)로 시도하며, tier가 없으면 flat config로 폴백한다.
  */
