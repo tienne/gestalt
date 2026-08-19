@@ -302,7 +302,29 @@ describe('RoleAgentRegistry: review-agents loading', () => {
     expect(reviewNames).toContain('performance-reviewer');
     expect(reviewNames).toContain('frontend-reviewer');
     expect(reviewNames).toContain('comment-reviewer');
-    expect(reviewNames.length).toBeGreaterThanOrEqual(5);
+    expect(reviewNames).toContain('writing-reviewer');
+    expect(reviewNames.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('writing-reviewer는 문서·어투 도메인으로 매칭된다', () => {
+    const registry = loadWithReview();
+
+    for (const domain of ['writing', 'ai-tell', 'docs', '어투']) {
+      const agents = registry.getByDomain(domain);
+      expect(agents.some((a) => a.frontmatter.name === 'writing-reviewer')).toBe(true);
+    }
+  });
+
+  it('writing-reviewer는 룰을 옮겨 적지 않고 룰북을 참조한다', () => {
+    const registry = loadWithReview();
+
+    const agent = registry.getByName('writing-reviewer');
+    expect(agent).toBeDefined();
+    expect(agent!.frontmatter.tier).toBe('standard');
+    expect(agent!.frontmatter.pipeline).toBe('review');
+    // 룰북 경로가 살아 있어야 한다 — 사본을 두면 룰북과 갈라진다
+    expect(agent!.systemPrompt).toContain('ai-tell-quick-rules.md');
+    expect(agent!.systemPrompt).toContain('style-guide.md');
   });
 
   it('every review agent has pipeline=review', () => {

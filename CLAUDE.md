@@ -9,7 +9,7 @@
 - **Spec Generator**: 완료된 인터뷰에서 구조화된 프로젝트 스펙(Spec) 생성
 - **Execute Engine**: Spec→ExecutionPlan 변환 (Figure-Ground→Closure→Proximity→Continuity). 설계상 **항상 Passthrough 모드** — Claude Code가 도구(Bash/Edit 등)로 실제 파일 수정·코드 실행을 수행하므로 LLM 주체가 됨 (API 키 유무 무관)
 - **Resilience Engine**: Stagnation 감지 → Lateral Thinking Personas → Human Escalation
-- **Review Pipeline**: Code Review 5종 에이전트(보안/성능/품질/프론트엔드/주석) + consensus → 자동 수정 루프
+- **Review Pipeline**: Code Review 6종 에이전트(보안/성능/품질/프론트엔드/주석/라이팅) + consensus → 자동 수정 루프
 - **MCP Server**: stdio transport, API 키 없으면 Passthrough 모드 자동 활성화 (Execute는 항상 Passthrough)
 - **Skill System**: SKILL.md 기반 확장, chokidar hot-reload
 - **Code Knowledge Graph**: 정적 분석 → 의존성 그래프 → Blast-Radius 영향 파일 추출, D3 시각화(`ges_graph_visualize`) 지원
@@ -81,7 +81,7 @@ src/utils/         — 알림 등 공용 유틸
 src/cli/           — commander 기반 CLI
 plugin/            — 배포 자산 전부. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다
 plugin/role-agents/    — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer, code-review-writer, code-review-responder 등) 총 21개 + `_shared/references/` 공유 룰북(author-voice, ai-tell-quick-rules, style-guide, comment-rules, truncation-rules — 에이전트 아님, 레지스트리가 건너뜀)
-plugin/review-agents/  — 내장 Review Agent 5개 (security-reviewer, performance-reviewer, quality-reviewer, frontend-reviewer, comment-reviewer)
+plugin/review-agents/  — 내장 Review Agent 6개 (security-reviewer, performance-reviewer, quality-reviewer, frontend-reviewer, comment-reviewer, writing-reviewer)
 plugin/skills/         — SKILL.md 17개 (interview, spec, execute, dispatch, agent, review, review-reply, pr, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, solve, setup) + `_shared/` 공유 규칙(스킬 아님, 레지스트리가 건너뜀)
 plugin/agents/         — 파이프라인 에이전트 5개
 plugin/personas/       — Lateral Thinking 페르소나
