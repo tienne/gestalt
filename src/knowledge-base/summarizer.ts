@@ -44,6 +44,31 @@ export interface SummarizeResult {
 
 const SUMMARY_MARKER = '<!-- summary -->';
 
+/** 한 문장 요약에 이보다 긴 게 오면 요약이 아니다 */
+const MAX_SUMMARY_CHARS = 300;
+
+/**
+ * 요약문을 KB에 넣기 전에 형태를 무해하게 만든다.
+ *
+ * 이 문장은 LLM이 쓴 것이고 그 입력은 남이 쓴 코드와 주석이다. 그대로 넣으면
+ * 마커 경계를 깨거나 문서 구조를 흉내내는 문자열이 KB 본문과 임베딩에 그대로 남고,
+ * 나중에 ges_search 결과로 다른 세션에 다시 실린다.
+ *
+ * 뜻은 검열하지 않는다 — "이 함수는 오류를 무시한다" 같은 정상 요약을 지우게 된다.
+ * 대신 구조를 못 만들게 한다. 한 줄로 눌러두면 헤딩도 코드펜스도 못 만들고,
+ * 지시로 읽힐 문장이 남더라도 그건 읽는 쪽이 자료로 다루면 되는 문제다.
+ */
+function sanitizeSummary(raw: string): string {
+  return raw
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/<!--|-->/g, '')
+    .replace(/```/g, '')
+    .replace(/^\s*(system|assistant|user)\s*:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_SUMMARY_CHARS);
+}
+
 /**
  * 배치를 동시에 몇 개까지 띄울지.
  *
@@ -74,8 +99,9 @@ function parseSummaries(content: string): Map<string, string> {
     for (const item of parsed.summaries) {
       if (item === null || typeof item !== 'object') continue;
       const { path, summary } = item as Record<string, unknown>;
-      if (typeof path === 'string' && typeof summary === 'string' && summary.trim().length > 0) {
-        result.set(path, summary.trim());
+      if (typeof path === 'string' && typeof summary === 'string') {
+        const clean = sanitizeSummary(summary);
+        if (clean.length > 0) result.set(path, clean);
       }
     }
   } catch {
