@@ -425,6 +425,12 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       types: z
         .array(z.enum(['code-graph', 'business-logic', 'api-spec', 'adr', 'policy']))
         .optional(),
+      summarize: z
+        .boolean()
+        .optional()
+        .describe(
+          'Add a one-line summary per file using the frugal tier. Off by default — summaries are LLM-written text that lands in the KB body and embeddings, and llm.frugal must be configured.',
+        ),
     },
     async (params) => {
       const result = await handleGenerateKb(params, process.cwd(), config);

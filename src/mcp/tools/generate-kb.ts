@@ -17,6 +17,14 @@ export interface GenerateKbInput {
   repoRoot?: string;
   outputPath?: string;
   types?: KnowledgeEntryType[];
+  /**
+   * 파일별 한 줄 요약을 붙일지. 기본은 끔이다.
+   *
+   * 요약은 LLM이 만든 문장을 KB 본문과 임베딩에 함께 남기는데, 그 둘은 되돌리려면
+   * KB를 다시 만들어야 한다. 품질을 재는 수단도 아직 없다. 켤지 말지는 부르는 쪽이
+   * 정한다 — llm.frugal을 설정했다는 사실만으로 켜지지 않는다.
+   */
+  summarize?: boolean;
 }
 
 export async function handleGenerateKb(
@@ -34,14 +42,18 @@ export async function handleGenerateKb(
     const entries = await generateFromCodeGraph(repoRoot, { types: input.types });
     log(`generate-kb: ${entries.length} entries generated`);
 
-    // 1.5. frugal tier가 설정돼 있으면 파일별 한 줄 요약을 붙인다.
+    // 1.5. summarize를 켰고 frugal tier가 있으면 파일별 한 줄 요약을 붙인다.
     //      요약문은 아래 임베딩 텍스트에도 함께 실려 검색 품질에 반영된다.
-    //      설정이 없으면 이 단계를 건너뛴다 — 요약은 KB의 덤이지 전제가 아니다.
+    //      둘 중 하나라도 없으면 건너뛴다 — 요약은 KB의 덤이지 전제가 아니다.
     let summarized = 0;
-    const frugalLlm = config ? createTierAdapter(config.llm, 'frugal') : undefined;
+    const frugalLlm =
+      input.summarize && config ? createTierAdapter(config.llm, 'frugal') : undefined;
     if (frugalLlm && entries.length > 0) {
       const result = await summarizeEntries(entries, frugalLlm);
       summarized = result.summarized;
+    } else if (input.summarize && !frugalLlm) {
+      // 켜달라고 했는데 못 켠 경우다. 조용히 건너뛰면 응답의 0이 "요약이 다 실패했나"로 읽힌다.
+      log('generate-kb: summarize was requested but llm.frugal is not configured — skipping');
     }
 
     // 2. MD 파일 저장

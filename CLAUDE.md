@@ -45,7 +45,7 @@ pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register rep
 - `ges_benchmark`: action=[start|respond|status], scenario?, benchmarkSessionId?, response?
 - `ges_code_graph`: action=[build|blast_radius|diff_radius|query|stats|db_exists]
 - `ges_graph_visualize`: repoRoot, port?
-- `ges_generate_kb`: repoRoot?, outputPath?, types?
+- `ges_generate_kb`: repoRoot?, outputPath?, types?, summarize?
 - `ges_search`: query, k?, kbPath?, types?
 - `ges_sync`: sourcePath?, targetPath
 

@@ -730,11 +730,11 @@ Route LLM calls by task complexity across three tiers:
 
 | Tier | Purpose | Example models | Where it runs today |
 |------|---------|---------------|---------------------|
-| **frugal** | Lightweight tasks — scoring, classification, short responses | `llama3.2`, `claude-haiku-4-5` | Interview resolution scoring (CLI and `client: "both"` only), per-file KB summaries |
+| **frugal** | Lightweight tasks — scoring, classification, short responses | `llama3.2`, `claude-haiku-4-5` | Interview resolution scoring (CLI and `client: "both"` only), per-file KB summaries (only with `summarize: true`) |
 | **standard** | General tasks — interviews, spec generation | `claude-sonnet-4-20250514` | Question generation, spec generation |
 | **frontier** | High-complexity reasoning | `claude-opus-4-20250514` | No direct call path yet |
 
-Configuring `frugal` moves both of those onto it. Leave it unset and scoring stays on `standard` while the KB summary step is skipped entirely — exactly as before.
+Configuring `frugal` moves both of those onto it. Leave it unset and scoring stays on `standard` while the KB summary step is skipped entirely — exactly as before. Configuring the tier alone does not enable KB summaries; call `ges_generate_kb` with `summarize: true`.
 
 Under Claude Code or Codex the interview runs in Passthrough mode, so the host scores resolution and no adapter is involved; frugal scoring only applies to the CLI. The quality impact has not been measured yet — `scripts/verify-frugal-scoring.ts` compares both tiers against the golden set.
 

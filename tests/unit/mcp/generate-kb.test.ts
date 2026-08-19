@@ -68,7 +68,7 @@ describe('handleGenerateKb — frugal tier 분기', () => {
     expect(writeKnowledgeBase).toHaveBeenCalledOnce();
   });
 
-  it('llm.frugal이 있으면 요약하고 그 개수를 응답에 싣는다', async () => {
+  it('llm.frugal이 있어도 summarize를 안 켜면 요약하지 않는다', async () => {
     const config = loadConfig(
       {
         llm: {
@@ -81,8 +81,34 @@ describe('handleGenerateKb — frugal tier 분기', () => {
 
     const raw = await handleGenerateKb({ repoRoot: '/repo' }, '/cwd', config);
 
+    expect(summarizeEntries).not.toHaveBeenCalled();
+    expect(JSON.parse(raw).entriesSummarized).toBe(0);
+  });
+
+  it('summarize와 llm.frugal이 둘 다 있어야 요약한다', async () => {
+    const config = loadConfig(
+      {
+        llm: {
+          apiKey: 'sk-ant-test',
+          frugal: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+        },
+      },
+      isolated,
+    );
+
+    const raw = await handleGenerateKb({ repoRoot: '/repo', summarize: true }, '/cwd', config);
+
     expect(summarizeEntries).toHaveBeenCalledOnce();
     expect(JSON.parse(raw).entriesSummarized).toBe(2);
+  });
+
+  it('summarize를 켰어도 llm.frugal이 없으면 건너뛴다', async () => {
+    const config = loadConfig({ llm: { apiKey: 'sk-ant-test' } }, isolated);
+
+    const raw = await handleGenerateKb({ repoRoot: '/repo', summarize: true }, '/cwd', config);
+
+    expect(summarizeEntries).not.toHaveBeenCalled();
+    expect(JSON.parse(raw).entriesSummarized).toBe(0);
   });
 
   it('요약이 붙은 content로 임베딩을 계산한다', async () => {
@@ -102,13 +128,13 @@ describe('handleGenerateKb — frugal tier 분기', () => {
       return Promise.resolve({ summarized: entries.length, failedBatches: 0 });
     });
 
-    await handleGenerateKb({ repoRoot: '/repo' }, '/cwd', config);
+    await handleGenerateKb({ repoRoot: '/repo', summarize: true }, '/cwd', config);
 
     const texts = embedBatch.mock.calls[0]![0] as string[];
     expect(texts[0]).toContain('토큰을 검증한다.');
   });
 
-  it('엔트리가 0개면 frugal이 있어도 요약을 안 부른다', async () => {
+  it('엔트리가 0개면 summarize를 켜도 요약을 안 부른다', async () => {
     generateFromCodeGraph.mockResolvedValue([]);
     embedBatch.mockResolvedValue([]);
     const config = loadConfig(
@@ -121,7 +147,7 @@ describe('handleGenerateKb — frugal tier 분기', () => {
       isolated,
     );
 
-    const raw = await handleGenerateKb({ repoRoot: '/repo' }, '/cwd', config);
+    const raw = await handleGenerateKb({ repoRoot: '/repo', summarize: true }, '/cwd', config);
 
     expect(summarizeEntries).not.toHaveBeenCalled();
     expect(JSON.parse(raw).entriesGenerated).toBe(0);

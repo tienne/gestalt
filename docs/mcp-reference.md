@@ -775,11 +775,15 @@ ges_graph_visualize({ repoRoot: "/path/to/repo" })
 | `repoRoot` | `string` | N | `process.cwd()` | 분석할 저장소 경로 |
 | `outputPath` | `string` | N | `<cwd>/.gestalt-kb` | KB 출력 경로 |
 | `types` | `("code-graph" \| "business-logic" \| "api-spec" \| "adr" \| "policy")[]` | N | 전체 | 생성할 KnowledgeEntry 타입 필터 |
+| `summarize` | `boolean` | N | `false` | 파일별 한 줄 요약을 붙일지. `llm.frugal`이 함께 설정돼 있어야 한다 |
 
 ### Example
 
 ```javascript
 ges_generate_kb({ repoRoot: "/path/to/repo", types: ["code-graph", "adr"] })
+
+// 파일별 요약까지 붙이려면 (llm.frugal 필요)
+ges_generate_kb({ repoRoot: "/path/to/repo", summarize: true })
 ```
 
 ```json
@@ -791,13 +795,14 @@ ges_generate_kb({ repoRoot: "/path/to/repo", types: ["code-graph", "adr"] })
 }
 ```
 
-### 파일별 한 줄 요약 (frugal tier)
+### 파일별 한 줄 요약 (opt-in)
 
-`llm.frugal`이 설정돼 있으면 엔트리마다 "이 파일이 무슨 일을 하나"를 한 문장으로 붙인다. 코드 그래프가 뽑아주는 건 함수와 클래스 이름 목록이라, 그것만으로는 읽는 쪽이 이름에서 역할을 유추해야 한다. 요약문은 MD 본문 맨 앞에 들어가고 임베딩 텍스트에도 함께 실려서, 식별자 이름이 안 겹치는 질의도 `ges_search`에 걸린다.
+`summarize: true`로 부르고 `llm.frugal`이 설정돼 있으면 엔트리마다 "이 파일이 무슨 일을 하나"를 한 문장으로 붙인다. 코드 그래프가 뽑아주는 건 함수와 클래스 이름 목록이라, 그것만으로는 읽는 쪽이 이름에서 역할을 유추해야 한다. 요약문은 MD 본문 맨 앞에 들어가고 임베딩 텍스트에도 함께 실려서, 식별자 이름이 안 겹치는 질의도 `ges_search`에 걸린다.
 
 파일 수백 개를 한 줄씩 옮겨 적는 배치 작업이라 frugal tier로 돌린다 (설정 예시는 [configuration.md](./configuration.md#멀티-프로바이더-설정-llm-tier) 참조).
 
-- `llm.frugal`이 없으면 이 단계를 통째로 건너뛴다. `entriesSummarized`가 `0`으로 온다.
+- **기본은 꺼져 있다.** `summarize`를 안 주거나 `llm.frugal`이 없으면 이 단계를 통째로 건너뛰고 `entriesSummarized`가 `0`으로 온다. 요약은 LLM이 쓴 문장을 KB 본문과 임베딩에 함께 남기는데 그 둘은 되돌리려면 KB를 다시 만들어야 하고, 요약 품질을 재는 수단도 아직 없다. 그래서 설정만으로 켜지지 않고 부르는 쪽이 매번 정한다.
+- `summarize: true`인데 `llm.frugal`이 없으면 건너뛰면서 stderr에 그 사실을 남긴다. 응답의 `0`이 "요약이 다 실패했다"로 읽히지 않게 하려는 것이다.
 - 배치 하나가 실패해도 나머지는 그대로 진행한다. 요약은 KB의 덤이지 전제가 아니라서, 요약 실패로 그래프 내보내기 전체를 막지 않는다.
 - `entriesGenerated`와 `entriesSummarized`가 다르면 일부 파일에 요약이 없다는 뜻이다.
 - 엔트리 20개를 한 배치로 묶고 배치 네 개를 동시에 돌린다. 그래도 호출 시간은 엔트리 수에 비례해 늘어나므로, 파일이 수백 개인 레포에서는 `ges_generate_kb` 한 번이 눈에 띄게 길어진다. 이 단계는 임베딩 계산 앞에 있어서 전체 호출 시간에 그대로 더해진다.
