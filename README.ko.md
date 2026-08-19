@@ -621,11 +621,13 @@ npx @tienne/gestalt setup
 
 | Tier | 용도 | 예시 | 지금 쓰이는 자리 |
 |------|------|------|-----------------|
-| **frugal** | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `claude-haiku-4-5` | 인터뷰 해상도 점수 산정 |
+| **frugal** | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `claude-haiku-4-5` | 인터뷰 해상도 점수 산정(CLI와 `client: "both"` 한정), KB 파일별 요약 |
 | **standard** | 일반 작업 — 인터뷰, 스펙 생성 | `claude-sonnet-4-20250514` | 질문 생성, Spec 생성 |
 | **frontier** | 고난도 추론 | `claude-opus-4-20250514` | 아직 직접 호출 경로 없음 |
 
-`frugal`을 설정하면 해상도 점수 산정만 그쪽으로 내려갑니다. 설정하지 않으면 기존처럼 standard가 다 맡아요.
+`frugal`을 설정하면 위 두 자리가 그쪽으로 내려가요. 설정하지 않으면 점수 산정은 기존처럼 standard가 맡고 KB 요약 단계는 아예 건너뜁니다.
+
+Claude Code나 Codex로 쓰면 인터뷰가 Passthrough로 돌아서 점수를 호스트가 매겨요. 그때는 어댑터를 안 거치니 frugal 점수 산정은 CLI에서만 걸립니다. 품질 영향은 아직 안 쟀고, `scripts/verify-frugal-scoring.ts`로 두 tier를 비교해볼 수 있어요.
 
 Anthropic(standard/frontier)과 Ollama(frugal)를 혼합하는 예시예요:
 

@@ -33,6 +33,8 @@ export interface SummarizeOptions {
   batchSize?: number;
   /** 엔트리당 프롬프트에 실을 본문 최대 길이 */
   maxContentChars?: number;
+  /** 동시에 띄울 배치 수. 1이면 직렬이다 */
+  concurrency?: number;
 }
 
 export interface SummarizeResult {
@@ -41,6 +43,15 @@ export interface SummarizeResult {
 }
 
 const SUMMARY_MARKER = '<!-- summary -->';
+
+/**
+ * 배치를 동시에 몇 개까지 띄울지.
+ *
+ * 엔트리 수백 개를 직렬로 돌리면 배치 하나당 네트워크 왕복이 그대로 쌓이고,
+ * 재시도 어댑터의 백오프까지 순차로 더해져 ges_generate_kb 한 번이 수 분이 된다.
+ * 프로바이더 쪽 rate limit을 건드리지 않을 만큼만 올린다.
+ */
+const DEFAULT_CONCURRENCY = 4;
 
 function buildBatchPrompt(batch: KnowledgeEntry[], maxContentChars: number): string {
   const blocks = batch.map((e) => {
@@ -87,38 +98,25 @@ export async function summarizeEntries(
 ): Promise<SummarizeResult> {
   const batchSize = options.batchSize ?? 20;
   const maxContentChars = options.maxContentChars ?? 1200;
+  const concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
+
+  const batches: KnowledgeEntry[][] = [];
+  for (let i = 0; i < entries.length; i += batchSize) {
+    batches.push(entries.slice(i, i + batchSize));
+  }
 
   let summarized = 0;
   let failedBatches = 0;
 
-  for (let i = 0; i < entries.length; i += batchSize) {
-    const batch = entries.slice(i, i + batchSize);
+  for (let i = 0; i < batches.length; i += concurrency) {
+    const chunk = batches.slice(i, i + concurrency);
+    const results = await Promise.all(
+      chunk.map((batch, offset) => summarizeBatch(batch, llm, maxContentChars, i + offset)),
+    );
 
-    try {
-      const response = await llm.chat({
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildBatchPrompt(batch, maxContentChars) }],
-        temperature: 0.3,
-      });
-
-      const summaries = parseSummaries(response.content);
-      if (summaries.size === 0) {
-        failedBatches++;
-        log(`kb summarizer: batch ${i / batchSize} returned no usable summary`);
-        continue;
-      }
-
-      for (const entry of batch) {
-        const summary = summaries.get(entry.title);
-        if (!summary) continue;
-        entry.content = `${SUMMARY_MARKER}\n${summary}\n\n${entry.content}`;
-        summarized++;
-      }
-    } catch (e) {
-      failedBatches++;
-      log(
-        `kb summarizer: batch ${i / batchSize} failed — ${e instanceof Error ? e.message : String(e)}`,
-      );
+    for (const result of results) {
+      summarized += result.summarized;
+      if (!result.ok) failedBatches++;
     }
   }
 
@@ -126,4 +124,45 @@ export async function summarizeEntries(
     `kb summarizer: ${summarized}/${entries.length} entries summarized, ${failedBatches} batches failed`,
   );
   return { summarized, failedBatches };
+}
+
+/**
+ * 배치 하나를 요약한다. 던지지 않는다 — 실패는 ok=false로 돌려준다.
+ *
+ * 한 배치가 던지면 같은 청크에서 함께 도는 배치까지 Promise.all이 버리므로,
+ * 실패를 값으로 바꿔 격리한다.
+ */
+async function summarizeBatch(
+  batch: KnowledgeEntry[],
+  llm: LLMAdapter,
+  maxContentChars: number,
+  batchIndex: number,
+): Promise<{ ok: boolean; summarized: number }> {
+  try {
+    const response = await llm.chat({
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: buildBatchPrompt(batch, maxContentChars) }],
+      temperature: 0.3,
+    });
+
+    const summaries = parseSummaries(response.content);
+    if (summaries.size === 0) {
+      log(`kb summarizer: batch ${batchIndex} returned no usable summary`);
+      return { ok: false, summarized: 0 };
+    }
+
+    let summarized = 0;
+    for (const entry of batch) {
+      const summary = summaries.get(entry.title);
+      if (!summary) continue;
+      entry.content = `${SUMMARY_MARKER}\n${summary}\n\n${entry.content}`;
+      summarized++;
+    }
+    return { ok: true, summarized };
+  } catch (e) {
+    log(
+      `kb summarizer: batch ${batchIndex} failed — ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return { ok: false, summarized: 0 };
+  }
 }

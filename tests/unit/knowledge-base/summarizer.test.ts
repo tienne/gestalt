@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { summarizeEntries } from '../../../src/knowledge-base/summarizer.js';
 import type { LLMAdapter, LLMRequest, LLMResponse } from '../../../src/llm/types.js';
 import type { KnowledgeEntry } from '../../../src/knowledge-base/types.js';
@@ -106,6 +106,76 @@ describe('summarizeEntries', () => {
 
     expect(result.summarized).toBe(1);
     expect(entries[1]!.content.startsWith('## b')).toBe(true);
+  });
+
+  it('배치를 concurrency만큼 동시에 띄운다', async () => {
+    // 직렬로 돌면 동시 실행 최대치가 1로 남는다. 그걸로 회귀를 잡는다.
+    let inFlight = 0;
+    let peak = 0;
+    const gate: Array<() => void> = [];
+
+    const llm: LLMAdapter = {
+      async chat() {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise<void>((resolve) => gate.push(resolve));
+        inFlight--;
+        return { content: '{"summaries": []}', usage: { inputTokens: 1, outputTokens: 1 } };
+      },
+    };
+
+    const entries = Array.from({ length: 6 }, (_, i) => makeEntry(`f${i}.ts`));
+    const pending = summarizeEntries(entries, llm, { batchSize: 1, concurrency: 3 });
+
+    // 첫 청크 3개가 동시에 떠 있어야 한다
+    await vi.waitFor(() => expect(gate).toHaveLength(3));
+    gate.splice(0).forEach((release) => release());
+    await vi.waitFor(() => expect(gate).toHaveLength(3));
+    gate.splice(0).forEach((release) => release());
+
+    await pending;
+    expect(peak).toBe(3);
+  });
+
+  it('concurrency: 1이면 직렬로 돈다', async () => {
+    let inFlight = 0;
+    let peak = 0;
+
+    const llm: LLMAdapter = {
+      async chat() {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await Promise.resolve();
+        inFlight--;
+        return { content: '{"summaries": []}', usage: { inputTokens: 1, outputTokens: 1 } };
+      },
+    };
+
+    await summarizeEntries([makeEntry('a'), makeEntry('b')], llm, {
+      batchSize: 1,
+      concurrency: 1,
+    });
+
+    expect(peak).toBe(1);
+  });
+
+  it('같은 청크의 배치가 던져도 나머지 배치 결과는 살아남는다', async () => {
+    // Promise.all은 하나가 던지면 나머지를 버린다. 실패를 값으로 바꿔 격리하는지 본다.
+    const entries = [makeEntry('a'), makeEntry('b')];
+    const llm: LLMAdapter = {
+      async chat(request) {
+        if (request.messages[0]!.content.includes('path: a')) throw new Error('boom');
+        return {
+          content: JSON.stringify({ summaries: [{ path: 'b', summary: 'B' }] }),
+          usage: { inputTokens: 1, outputTokens: 1 },
+        };
+      },
+    };
+
+    const result = await summarizeEntries(entries, llm, { batchSize: 1, concurrency: 2 });
+
+    expect(result).toEqual({ summarized: 1, failedBatches: 1 });
+    expect(entries[1]!.content).toContain('B');
   });
 
   it('본문이 길면 maxContentChars로 잘라 보낸다', async () => {

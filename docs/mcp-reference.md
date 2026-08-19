@@ -800,6 +800,7 @@ ges_generate_kb({ repoRoot: "/path/to/repo", types: ["code-graph", "adr"] })
 - `llm.frugal`이 없으면 이 단계를 통째로 건너뛴다. `entriesSummarized`가 `0`으로 온다.
 - 배치 하나가 실패해도 나머지는 그대로 진행한다. 요약은 KB의 덤이지 전제가 아니라서, 요약 실패로 그래프 내보내기 전체를 막지 않는다.
 - `entriesGenerated`와 `entriesSummarized`가 다르면 일부 파일에 요약이 없다는 뜻이다.
+- 엔트리 20개를 한 배치로 묶고 배치 네 개를 동시에 돌린다. 그래도 호출 시간은 엔트리 수에 비례해 늘어나므로, 파일이 수백 개인 레포에서는 `ges_generate_kb` 한 번이 눈에 띄게 길어진다. 이 단계는 임베딩 계산 앞에 있어서 전체 호출 시간에 그대로 더해진다.
 
 ---
 

@@ -19,7 +19,8 @@ export function buildReasoningModelInfo(config?: GestaltConfig) {
     reasoningModelFallback: config?.reasoningModelFallback ?? null,
     // 등록 에이전트가 없는 인라인 서브에이전트(예: review-reply의 스레드 분류)도
     // tier 모델을 골라야 한다. ges_agent get은 에이전트 이름을 요구하므로
-    // 그런 자리에서는 이 표가 유일한 조회 경로다.
+    // 그런 자리에서는 이 표가 유일한 조회 경로다. 소비처 개수는 여기 적지 않는다 —
+    // 스킬이 늘 때 같이 안 고쳐져서 어긋난다. 규칙은 _shared/agent-model.md에 있다.
     tierModels: config?.tierModels ?? null,
   };
 }
