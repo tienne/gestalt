@@ -267,13 +267,13 @@ function sourceFiles(root: string): string[] {
  * 코드 본문은 대상이 아니다. 문자열 리터럴 안의 한글도 빼는데, 프롬프트 템플릿이
  * 대부분이라 어투 룰로 재면 오탐만 는다. 사람이 읽는 설명은 주석에 있다.
  *
- * 줄을 통째로 차지하는 주석과 코드 뒤에 붙는 줄끝 주석을 모두 본다. 이 레포는
- * `filePath: string; // .gestalt-kb 경로` 같은 줄끝 주석을 흔하게 쓴다.
+ * 줄을 통째로 차지하는 주석과 코드 뒤에 붙는 줄끝 주석을 모두 본다. 이 레포에는
+ * `filePath: string; // .gestalt-kb 경로` 같은 줄끝 주석이 흔하다.
  *
  * 백틱 문자열 안은 건너뛴다. 템플릿 리터럴에 들어간 예시 코드의 `//`를 주석으로
- * 세면 문자열 데이터를 산문으로 재게 된다.
+ * 세면 문자열 데이터를 산문으로 오인해 검사하게 된다.
  */
-function commentProse(source: string): { line: string; number: number }[] {
+export function commentProse(source: string): { line: string; number: number }[] {
   const out: { line: string; number: number }[] = [];
   let inBlock = false;
   let inTemplate = false;
@@ -286,8 +286,11 @@ function commentProse(source: string): { line: string; number: number }[] {
       text = trimmed.replace(/^\*+\s?/, '').replace(/\*\/.*$/, '');
       if (trimmed.includes('*/')) inBlock = false;
     } else if (inTemplate) {
-      // 템플릿 안은 문자열이다. 백틱 개수만 세어 언제 빠져나오는지 본다
-      if (countBackticks(raw) % 2 === 1) inTemplate = false;
+      // 템플릿이 이 줄에서 닫히면 그 뒤는 다시 코드다. 닫힌 자리 이후만 본다
+      if (countBackticks(raw) % 2 === 1) {
+        inTemplate = false;
+        text = trailingComment(raw.slice(raw.lastIndexOf('`') + 1));
+      }
     } else if (trimmed.startsWith('/*')) {
       text = trimmed.replace(/^\/\*+\s?/, '').replace(/\*\/.*$/, '');
       if (!trimmed.includes('*/')) inBlock = true;
@@ -310,21 +313,77 @@ function countBackticks(line: string): number {
 }
 
 /**
- * 코드 뒤에 붙는 `// ...` 를 뽑는다.
+ * 문자열과 정규식 리터럴을 같은 길이의 공백으로 덮는다.
  *
- * 따옴표와 백틱 안은 먼저 지운다. URL의 `//`를 주석으로 세지 않으려는 것이다.
- * 지운 자리의 길이를 맞춰 둬야 잘라낼 위치가 원본과 어긋나지 않는다.
+ * 자리를 그대로 비워둬야 원본에서 잘라낼 위치가 안 어긋난다. 이스케이프된 따옴표를
+ * 짝으로 세면 엉뚱한 구간이 노출되므로 백슬래시 다음 글자는 건너뛴다.
+ * 정규식 리터럴을 안 덮으면 `/https:\/\//` 안의 슬래시가 주석 시작으로 읽힌다.
+ */
+function maskLiterals(raw: string): string {
+  const out = raw.split('');
+  let quote: string | null = null;
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!;
+
+    if (quote) {
+      if (ch === '\\') {
+        out[i] = ' ';
+        if (i + 1 < raw.length) out[++i] = ' ';
+        continue;
+      }
+      out[i] = ' ';
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      out[i] = ' ';
+      continue;
+    }
+
+    // 정규식 리터럴. 나눗셈과 헷갈리지 않게 앞이 =·(·,·: 인 자리만 본다
+    if (ch === '/' && raw[i + 1] !== '/' && raw[i + 1] !== '*') {
+      const before = raw.slice(0, i).trimEnd();
+      if (/[=(,:[!&|?+]$/.test(before) || before === '') {
+        let j = i + 1;
+        while (j < raw.length && raw[j] !== '/') {
+          if (raw[j] === '\\') j++;
+          j++;
+        }
+        if (j < raw.length) {
+          for (let k = i; k <= j; k++) out[k] = ' ';
+          i = j;
+        }
+      }
+    }
+  }
+
+  return out.join('');
+}
+
+/**
+ * 코드 뒤에 붙는 `// ...` 와 `/* ... *\/` 를 뽑는다.
+ *
+ * 문자열과 정규식 리터럴은 maskLiterals가 먼저 덮는다. URL의 `//`나 정규식 안의
+ * 슬래시를 주석 시작으로 읽지 않으려는 것이다.
  */
 function trailingComment(raw: string): string | null {
-  const masked = raw
-    .replace(/`[^`]*`/g, (m) => ' '.repeat(m.length))
-    .replace(/'[^']*'/g, (m) => ' '.repeat(m.length))
-    .replace(/"[^"]*"/g, (m) => ' '.repeat(m.length))
-    .replace(/https?:\/\//g, (m) => ' '.repeat(m.length));
+  const masked = maskLiterals(raw);
 
-  const at = masked.indexOf('//');
-  if (at === -1) return null;
-  return raw.slice(at).replace(/^\/\/+\s?/, '').trim() || null;
+  const lineAt = masked.indexOf('//');
+  if (lineAt !== -1) {
+    return raw.slice(lineAt).replace(/^\/\/+\s?/, '').trim() || null;
+  }
+
+  const block = /\/\*([\s\S]*?)\*\//.exec(masked);
+  if (block) {
+    const from = block.index + 2;
+    return raw.slice(from, from + block[1]!.length).trim() || null;
+  }
+
+  return null;
 }
 
 /** 파일별 S1 건수. 룰 예외(용어 목록·룰 ID 나열)는 세지 않는다 */

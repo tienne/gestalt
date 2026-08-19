@@ -270,6 +270,27 @@ describe('summarizeEntries', () => {
     expect(Date.now() - started).toBeLessThan(1000);
   });
 
+  it('부호나 강조로 시작하는 정상 요약은 건드리지 않는다', async () => {
+    // 블록 문자를 조건 없이 지우면 "-1을 반환한다"가 "1을 반환한다"가 된다.
+    // 마크다운 목록과 헤딩은 뒤에 공백이 와야 성립하므로 그때만 지운다.
+    const entries = [makeEntry('a'), makeEntry('b'), makeEntry('c')];
+    const llm = new ScriptedLLM([
+      JSON.stringify({
+        summaries: [
+          { path: 'a', summary: '-1을 반환한다' },
+          { path: 'b', summary: '+3을 더한다' },
+          { path: 'c', summary: '*강조*로 시작한다' },
+        ],
+      }),
+    ]);
+
+    await summarizeEntries(entries, llm);
+
+    expect(entries[0]!.content.split('\n')[1]!).toBe('-1을 반환한다');
+    expect(entries[1]!.content.split('\n')[1]!).toBe('+3을 더한다');
+    expect(entries[2]!.content.split('\n')[1]!).toBe('*강조*로 시작한다');
+  });
+
   it('여러 줄과 코드펜스를 한 줄로 누른다', async () => {
     const entries = [makeEntry('a')];
     const llm = new ScriptedLLM([
