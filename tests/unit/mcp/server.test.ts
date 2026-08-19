@@ -173,6 +173,24 @@ describe('createMcpServer', () => {
       // sessionId 없이 호출해도 resolved config 값이 나와야 한다 (스킬이 gestalt.json 직접 파싱 안 하게 하는 목적).
       expect(status.reasoningModel).toBe('fable');
       expect(status.reasoningModelFallback).toBe('opus');
+      // tierModels도 같은 경로로 나와야 한다. 스킬 네 곳이 이 값으로 frugal 모델을 고른다 —
+      // handleStatus에만 넣으면 단위 테스트는 통과하고 실제 호출에는 안 나온다.
+      expect(status.tierModels).toEqual({ frugal: 'haiku', standard: 'sonnet', frontier: 'opus' });
+    } finally {
+      eventStore.close();
+    }
+  });
+
+  it('reflects overridden tierModels through the passthrough ges_status handler', async () => {
+    const { server, eventStore } = await createMcpServer({
+      dbPath: dbPath(),
+      llm: { apiKey: '', model: 'test-model' },
+      tierModels: { frugal: 'sonnet', standard: 'sonnet', frontier: 'opus' },
+    });
+
+    try {
+      const status = callTool(server, 'ges_status', { sessionType: 'all' });
+      expect(status.tierModels.frugal).toBe('sonnet');
     } finally {
       eventStore.close();
     }

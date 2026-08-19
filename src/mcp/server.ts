@@ -21,7 +21,7 @@ import { handleExecutePassthrough } from './tools/execute-passthrough.js';
 import { createHostAdapter } from './host-adapter.js';
 import { resolveStatusSessionId } from './session-selector.js';
 import { handleCreateAgentPassthrough } from './tools/create-agent-passthrough.js';
-import { handleStatus } from './tools/status.js';
+import { handleStatus, buildReasoningModelInfo } from './tools/status.js';
 import { handleBenchmarkPassthrough } from './tools/benchmark-passthrough.js';
 import { handleAgentPassthrough } from './tools/agent-passthrough.js';
 import { handleReviewPassthrough } from './tools/review-passthrough.js';
@@ -478,10 +478,7 @@ function handleStatusPassthrough(
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
   };
-  const reasoningModelInfo = {
-    reasoningModel: config?.reasoningModel ?? null,
-    reasoningModelFallback: config?.reasoningModelFallback ?? null,
-  };
+  const reasoningModelInfo = buildReasoningModelInfo(config);
   const sessionType = rawInput.sessionType ?? 'all';
 
   const resolvedSessionId = rawInput.sessionId
