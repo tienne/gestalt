@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventStore } from '../../../src/events/store.js';
 import { LocalPrEngine, PrError } from '../../../src/local-pr/engine.js';
-import { PullRequestRepository } from '../../../src/local-pr/repository.js';
+import { PullRequestRepository, unresolvedCount } from '../../../src/local-pr/repository.js';
 import * as git from '../../../src/local-pr/git.js';
 
 /**
@@ -97,6 +97,25 @@ describe('LocalPrEngine', () => {
     // 뿌리만 닫고 답글이 열린 채 남으면 미해결 수가 어긋난다
     const resolved = engine.resolve(pr.id, rootId, 'r');
     expect(resolved.comments.every((c) => c.resolved)).toBe(true);
+  });
+
+  it('답글이 달려도 미해결 수가 늘지 않는다', () => {
+    // 코멘트를 세면 주고받을수록 수가 늘어 대화가 나빠 보인다. 스레드를 센다
+    const pr = engine.create({ title: 't', author: 'a' });
+    const withRoot = engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '지적' });
+    const rootId = withRoot.comments[0]!.id;
+
+    expect(unresolvedCount(withRoot)).toBe(1);
+
+    const withReply = engine.comment(pr.id, {
+      author: 'a',
+      path: 'a.txt',
+      body: '고쳤어요',
+      replyTo: rootId,
+    });
+    expect(unresolvedCount(withReply)).toBe(1);
+
+    expect(unresolvedCount(engine.resolve(pr.id, rootId, 'r'))).toBe(0);
   });
 
   it('없는 코멘트에 답글을 달면 못 찾았다고 한다', () => {
