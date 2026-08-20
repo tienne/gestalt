@@ -156,6 +156,53 @@ export function prDiffCommand(opts: PrCommonOptions & { id: string }): void {
   });
 }
 
+/**
+ * `gestalt pr checkout <id>` — PR head를 임시 워크트리로 떼어낸다.
+ *
+ * `--remove`면 지운다. 붙였다 뗐다를 한 명령에 둔 이유는 경로 규칙이 하나라서다.
+ * 리뷰어는 id만 알면 되고 경로를 적어둘 필요가 없다.
+ */
+export function prCheckoutCommand(
+  opts: PrCommonOptions & { id: string; remove?: boolean; force?: boolean },
+): void {
+  run(() => {
+    const engine = engineOf(opts);
+    try {
+      if (opts.remove) {
+        const result = engine.removeCheckout(opts.id, { force: opts.force });
+        emit(result, opts.json, () => {
+          if (result.removed) {
+            console.log(`워크트리를 지웠다: ${result.path}`);
+            if (result.savedRef) {
+              console.log(`  여기서 커밋한 변경은 ${result.savedRef}로 붙잡아 뒀다`);
+            }
+          } else {
+            console.log(`안 지웠다 — ${result.reason}`);
+            console.log(`  ${result.path}`);
+          }
+        });
+        // 안 지운 건 실패가 아니라 판단을 되돌려준 것이다. 에이전트가 종료 코드로
+        // 갈래를 타게 4(상태 충돌)를 준다. 단 `absent`는 뺀다 — 지울 자리가 없는 건
+        // 정리의 목표가 이미 이뤄진 상태다. 실패가 아니다. 4로 주면 `--remove`를 두 번
+        // 부르는 `set -e` 스크립트가 두 번째에 죽는다. 이 갈림은 --json의 status로도
+        // 읽을 수 있다 — 산문 reason을 부분 문자열로 긁을 필요가 없다
+        if (result.status === 'dirty' || result.status === 'diverged') process.exit(4);
+        return;
+      }
+
+      const checkout = engine.checkout(opts.id);
+      emit(checkout, opts.json, () => {
+        console.log(checkout.created ? '워크트리를 뗐다' : '이미 떼어둔 워크트리가 있다');
+        console.log(`  ${checkout.path}`);
+        console.log(`  head ${checkout.headSha.slice(0, 8)}`);
+        console.log(`  정리: gestalt pr checkout ${opts.id} --remove`);
+      });
+    } finally {
+      engine.dispose();
+    }
+  });
+}
+
 export function prCommentCommand(
   opts: PrCommonOptions & {
     id: string;

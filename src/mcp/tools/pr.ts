@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { LocalPrEngine, PrError } from '../../local-pr/engine.js';
+import type { CheckoutRemoval, PrCheckout } from '../../local-pr/git.js';
 import type { Actor, PullRequest } from '../../local-pr/types.js';
 import { log } from '../../core/log.js';
 import type { PrInput } from '../schemas.js';
@@ -24,7 +25,7 @@ function requireId(input: PrInput): string {
 function dispatch(
   engine: LocalPrEngine,
   input: PrInput,
-): PullRequest | PullRequest[] | { diff: string } {
+): PullRequest | PullRequest[] | { diff: string } | PrCheckout | CheckoutRemoval {
   switch (input.action) {
     case 'create': {
       if (!input.title) throw new PrError('title이 필요하다', 1);
@@ -74,6 +75,10 @@ function dispatch(
       return engine.merge(requireId(input), actorOf(input), { deleteBranch: input.deleteBranch });
     case 'close':
       return engine.closePr(requireId(input), actorOf(input), input.reason ?? '');
+    case 'checkout':
+      return engine.checkout(requireId(input));
+    case 'checkout_remove':
+      return engine.removeCheckout(requireId(input), { force: input.force });
   }
 }
 

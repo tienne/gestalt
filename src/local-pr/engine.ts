@@ -58,6 +58,34 @@ export class LocalPrEngine {
     return git.changedFiles(this.repoRoot, pr.baseSha, pr.headSha);
   }
 
+  /**
+   * PR head를 임시 워크트리로 떼어 놓고 그 경로를 준다.
+   *
+   * 리뷰어가 코드를 깨서 테스트가 잡는지 보려면 실물 파일이 필요하다. diff만으로는
+   * 못 하는 검증이다. 닫히거나 머지된 PR도 떼어낼 수 있게 열림 여부는 안 본다 —
+   * 머지된 뒤에 "그때 그 코드가 맞았나"를 되짚는 자리가 있다.
+   */
+  checkout(prId: string): git.PrCheckout {
+    const pr = this.require(prId);
+
+    if (!git.commitExists(this.repoRoot, pr.headSha)) {
+      throw new PrError(`head 커밋이 이 레포에 없다: ${pr.headSha.slice(0, 8)}`, 3);
+    }
+
+    return git.checkoutPrHead(this.repoRoot, prId, pr.headSha);
+  }
+
+  /**
+   * 떼어 놓은 워크트리를 지운다.
+   *
+   * 지킬 변경이 있으면 지우지 않고 그 사실을 돌려준다. 부르는 쪽은 결과의 `status`로
+   * 갈래를 탄다. PR head를 함께 넘겨야 그 자리에서 쌓은 커밋을 가려낼 수 있다.
+   */
+  removeCheckout(prId: string, options: { force?: boolean } = {}): git.CheckoutRemoval {
+    const pr = this.require(prId);
+    return git.removePrCheckout(this.repoRoot, prId, { ...options, headSha: pr.headSha });
+  }
+
   // ─── 생성과 갱신 ─────────────────────────────────────────
 
   create(input: {
