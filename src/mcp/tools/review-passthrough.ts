@@ -4,8 +4,9 @@ import type { PassthroughExecuteEngine } from '../../execute/passthrough-engine.
 import type { RoleAgentRegistry } from '../../agent/role-agent-registry.js';
 import type { ExecuteInput } from '../schemas.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
-import { LocalPrEngine } from '../../local-pr/engine.js';
-import type { ReviewIssue } from '../../core/types.js';
+import { LocalPrEngine, PrError } from '../../local-pr/engine.js';
+import { errorKind } from './pr.js';
+import type { ReviewIssue, ReviewPublishState } from '../../core/types.js';
 import type { ReviewVerdict } from '../../local-pr/types.js';
 import { log } from '../../core/log.js';
 import { resolveExecuteSessionInput } from './execute/utils.js';
@@ -17,9 +18,16 @@ export function handleReviewPassthrough(
   rawInput: ExecuteInput,
 ): string {
   // review_* 액션의 sessionId도 실행 세션이라 active/latest 셀렉터를 지원한다.
-  const resolved = resolveExecuteSessionInput(executeEngine, rawInput);
-  if (!resolved.ok) return JSON.stringify({ error: resolved.error });
-  const input = resolved.input;
+  // 다만 prId를 함께 줬으면 셀렉터를 해석하지 않는다. prId 갈래는 실행 세션을 쓰지
+  // 않는다. 여기서 해석에 실패해도 그 뒤 판단에 영향이 없다. 그런데 해석을 먼저 돌리면
+  // 스키마에 적은 우선순위(prId > sessionId)가 뒤집힌다. 없는 sessionId를 명시하면
+  // 통과하고 latest 셀렉터를 주면 막히는 갈림도 여기서 사라진다.
+  let input = rawInput;
+  if (!input.prId) {
+    const resolved = resolveExecuteSessionInput(executeEngine, input);
+    if (!resolved.ok) return JSON.stringify({ error: resolved.error });
+    input = resolved.input;
+  }
 
   try {
     switch (input.action) {
@@ -37,21 +45,31 @@ export function handleReviewPassthrough(
         return JSON.stringify({ error: `Unknown review action: ${input.action}` });
     }
   } catch (e) {
-    return JSON.stringify({ error: e instanceof Error ? e.message : String(e) });
+    const message = e instanceof Error ? e.message : String(e);
+    // LocalPrEngine이 던지는 PrError는 exitCode로 갈래를 실어 보낸다. ges_pr이 쓰는
+    // 같은 변환기로 kind를 붙여 두 도구의 응답 규약을 하나로 맞춘다.
+    if (e instanceof PrError)
+      return JSON.stringify({ error: message, kind: errorKind(e.exitCode) });
+    return JSON.stringify({ error: message });
   }
 }
 
-/** 로컬 PR에서 리뷰 대상(변경 파일)을 끌어온다. 조회가 끝나면 저장소를 닫는다. */
+/**
+ * 로컬 PR에서 리뷰 대상(변경 파일)을 끌어온다. 조회가 끝나면 저장소를 닫는다.
+ *
+ * 실패는 PrError로 던진다. 바깥 catch가 exitCode를 kind로 접어서 ges_pr과 같은
+ * 응답 규약을 쓴다. 3은 PR을 못 찾은 것이다. 4는 PR은 있는데 리뷰할 게 없는 상태다.
+ */
 function collectPrSource(
   prId: string,
   repoRoot: string,
-): { changedFiles: string[]; repoRoot: string; prId: string } | { error: string } {
+): { changedFiles: string[]; repoRoot: string; prId: string } {
   const engine = new LocalPrEngine(repoRoot);
   try {
     const pr = engine.get(prId);
-    if (!pr) return { error: `PR을 못 찾았다: ${prId}` };
+    if (!pr) throw new PrError(`PR을 못 찾았다: ${prId}`, 3);
     const changedFiles = engine.changedFiles(prId);
-    if (changedFiles.length === 0) return { error: `PR ${prId}에 변경된 파일이 없다` };
+    if (changedFiles.length === 0) throw new PrError(`PR ${prId}에 변경된 파일이 없다`, 4);
     return { changedFiles, repoRoot, prId };
   } finally {
     engine.dispose();
@@ -81,9 +99,7 @@ function handleReviewStart(
   if (input.prId) {
     const repoRoot = resolve(input.repoRoot ?? process.cwd());
     log(`review_start: prId=${input.prId}, repoRoot=${repoRoot}`);
-    const collected = collectPrSource(input.prId, repoRoot);
-    if ('error' in collected) return JSON.stringify({ error: collected.error, kind: 'not_found' });
-    prSource = collected;
+    prSource = collectPrSource(input.prId, repoRoot);
   }
 
   const source = prSource
@@ -281,7 +297,9 @@ function handleReviewFix(reviewEngine: PassthroughReviewEngine, input: ExecuteIn
  * 정합 심급이 coherent=false를 냈으면 결함이 없어도 request_changes로 내린다.
  * submitConsensus의 approved도 같은 조건으로 막는다.
  */
-function verdictOf(issues: ReviewIssue[], continuityBlocks: boolean): ReviewVerdict {
+type PublishVerdict = Extract<ReviewVerdict, 'approve' | 'request_changes'>;
+
+function verdictOf(issues: ReviewIssue[], continuityBlocks: boolean): PublishVerdict {
   const hasDefect = issues.some((i) => i.severity === 'critical' || i.severity === 'high');
   return hasDefect || continuityBlocks ? 'request_changes' : 'approve';
 }
@@ -331,8 +349,57 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
 
   const engine = new LocalPrEngine(repoRoot);
   try {
+    const target = engine.get(prId);
+    if (!target) throw new PrError(`PR을 못 찾았다: ${prId}`, 3);
+    const headSha = target.headSha;
+
+    // 같은 PR의 같은 head를 가리키는 자국만 이어 쓴다. head가 옮겨갔으면 작성자가
+    // 고쳐 올린 새 라운드라 처음부터 다시 쓰는 게 맞다.
+    const prior =
+      session.publishState?.prId === prId && session.publishState.headSha === headSha
+        ? session.publishState
+        : undefined;
+
+    // 이미 한 바퀴를 끝낸 자국이면 아무것도 쓰지 않고 그때 결과를 그대로 돌려준다.
+    // 막지 않고 멱등하게 만든 이유는 부르는 쪽이 호스트의 재시도라서다. 오류로 접으면
+    // 호스트는 실패로 보고 다시 부른다. 그런데 PR에는 이미 다 쓰여 있다. 이벤트 소싱이라
+    // 그때 붙은 중복 코멘트는 지울 수 없고 사람이 손으로 resolve하는 수밖에 없다.
+    if (prior?.completed) {
+      return JSON.stringify(
+        {
+          status: 'review_published',
+          alreadyPublished: true,
+          reviewSessionId: input.reviewSessionId,
+          prId,
+          verdict: prior.verdict,
+          reviewer: prior.reviewer,
+          commentCount: prior.postedCount,
+          prStatus: target.status,
+          round: target.rounds.length,
+          message: `이 합의는 head ${headSha.slice(0, 7)}에 이미 옮겼다. 다시 쓰지 않았다.`,
+        },
+        null,
+        2,
+      );
+    }
+
+    // 앞선 호출이 코멘트 루프 중간에 던졌으면 그 다음 지적부터 잇는다. 코멘트 N건과
+    // 판정 하나를 따로 쓰는 다중 쓰기라 원자적으로 묶을 수 없다. 대신 매 코멘트마다
+    // 자국을 늘려서, 던진 자리가 어디든 재시도가 쓴 것을 다시 쓰지 않게 한다.
+    const state: ReviewPublishState = {
+      prId,
+      headSha,
+      postedCount: prior?.postedCount ?? 0,
+      completed: false,
+      verdict,
+      reviewer,
+    };
+    session.publishState = state;
+
+    const issues = consensus.mergedIssues;
     const postedComments: { path: string; line: number | null; author: string }[] = [];
-    for (const issue of consensus.mergedIssues) {
+    for (let i = state.postedCount; i < issues.length; i++) {
+      const issue = issues[i]!;
       // 지적의 파일과 라인이 그대로 코멘트 위치다. 라인이 없으면 파일 전체 코멘트다.
       engine.comment(prId, {
         author: actorOfAgent(issue.reportedBy),
@@ -340,6 +407,7 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
         line: issue.line,
         body: issueBody(issue),
       });
+      state.postedCount = i + 1;
       postedComments.push({
         path: issue.file,
         line: issue.line ?? null,
@@ -348,6 +416,7 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
     }
 
     const pr = engine.review(prId, { reviewer, verdict, summary: consensus.summary });
+    state.completed = true;
 
     return JSON.stringify(
       {
@@ -358,6 +427,7 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
         reviewer,
         commentCount: postedComments.length,
         comments: postedComments,
+        resumedFrom: prior ? prior.postedCount : 0,
         prStatus: pr.status,
         round: pr.rounds.length,
         message:

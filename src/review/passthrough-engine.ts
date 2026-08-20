@@ -243,6 +243,9 @@ Review the code changes from your assigned perspective. Focus on issues that mat
 
     session.consensus = consensus;
     session.continuityVerdict = continuityVerdict;
+    // 합의가 새로 들어오면 publish가 옮길 내용이 통째로 바뀐다. 앞선 publish의 진행
+    // 자국은 그 목록을 가리키던 것이라 여기서 버린다.
+    session.publishState = undefined;
     session.status = 'consensus';
     session.updatedAt = new Date().toISOString();
 
@@ -460,6 +463,7 @@ Fix these issues while maintaining code integrity. Run structural checks after f
     session.reviewResults = [];
     session.consensus = undefined;
     session.continuityVerdict = undefined;
+    session.publishState = undefined;
     session.status = 'started';
     session.updatedAt = new Date().toISOString();
 

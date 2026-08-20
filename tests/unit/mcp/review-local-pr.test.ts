@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -35,6 +35,9 @@ interface ReviewResponse {
   commentCount?: number;
   comments?: { path: string; line: number | null; author: string }[];
   reviewStartContext?: { changedFiles: string[] };
+  alreadyPublished?: boolean;
+  resumedFrom?: number;
+  round?: number;
 }
 
 describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
@@ -299,6 +302,155 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
 
     expect(parsed.status).toBeUndefined();
     expect(parsed.error).toContain('review_consensus');
+  });
+
+  // ─── 재실행 방어 ───────────────────────────────────────────
+
+  it('같은 합의를 두 번 옮겨도 코멘트가 늘지 않는다', () => {
+    const reviewSessionId = startAndAgree([
+      { severity: 'critical', file: 'a.txt', line: 2, reportedBy: 'security-reviewer' },
+    ]);
+
+    const first = call({ action: 'review_publish', reviewSessionId });
+    const second = call({ action: 'review_publish', reviewSessionId });
+
+    expect(first.alreadyPublished).toBeUndefined();
+    expect(second.alreadyPublished).toBe(true);
+    expect(second.verdict).toBe(first.verdict);
+    expect(second.round).toBe(first.round);
+
+    const pr = readPr();
+    expect(pr.comments).toHaveLength(1);
+    expect(pr.reviews).toHaveLength(1);
+  });
+
+  it('head가 옮겨가면 새 라운드라 다시 옮긴다', () => {
+    const reviewSessionId = startAndAgree([
+      { severity: 'critical', file: 'a.txt', line: 2, reportedBy: 'security-reviewer' },
+    ]);
+    call({ action: 'review_publish', reviewSessionId });
+
+    // 작성자가 고쳐 올렸다 — PR의 head가 새 커밋으로 옮겨간다
+    writeFileSync(join(repo, 'a.txt'), 'line1\nline2\nline3\n');
+    run(repo, ['commit', '-q', '-am', '세 번째 줄']);
+    const prEngine = new LocalPrEngine(repo);
+    prEngine.update(prId);
+    prEngine.dispose();
+
+    const again = call({ action: 'review_publish', reviewSessionId });
+
+    expect(again.alreadyPublished).toBeUndefined();
+    expect(again.commentCount).toBe(1);
+    expect(readPr().comments).toHaveLength(2);
+  });
+
+  it('코멘트 루프 중간에 던지면 재시도가 쓴 것을 다시 쓰지 않는다', () => {
+    const reviewSessionId = startAndAgree([
+      { severity: 'high', file: 'a.txt', line: 1, reportedBy: 'security-reviewer' },
+      { severity: 'high', file: 'a.txt', line: 2, reportedBy: 'security-reviewer' },
+      { severity: 'warning', file: 'a.txt', line: 3, reportedBy: 'quality-reviewer' },
+    ]);
+
+    // 세 번째 코멘트에서 던지게 만든다. 앞의 둘은 PR에 남는다.
+    const real = LocalPrEngine.prototype.comment;
+    let calls = 0;
+    const spy = vi.spyOn(LocalPrEngine.prototype, 'comment').mockImplementation(function (
+      this: LocalPrEngine,
+      ...args
+    ) {
+      calls += 1;
+      if (calls === 3) throw new Error('저장소가 잠겼다');
+      return real.apply(this, args) as ReturnType<typeof real>;
+    });
+
+    const failed = call({ action: 'review_publish', reviewSessionId });
+    spy.mockRestore();
+
+    expect(failed.status).toBeUndefined();
+    expect(readPr().comments).toHaveLength(2);
+    expect(readPr().reviews).toHaveLength(0);
+
+    const retried = call({ action: 'review_publish', reviewSessionId });
+
+    expect(retried.status).toBe('review_published');
+    expect(retried.resumedFrom).toBe(2);
+    expect(retried.commentCount).toBe(1);
+    expect(readPr().comments).toHaveLength(3);
+    expect(readPr().reviews).toHaveLength(1);
+  });
+
+  it('합의를 다시 내면 앞선 publish 자국을 버린다', () => {
+    const reviewSessionId = startAndAgree([
+      { severity: 'warning', file: 'a.txt', line: 2, reportedBy: 'quality-reviewer' },
+    ]);
+    call({ action: 'review_publish', reviewSessionId });
+
+    // 같은 세션에 새 합의가 들어왔다 — 옮길 목록이 통째로 바뀐다
+    call({
+      action: 'review_consensus',
+      reviewSessionId,
+      reviewConsensus: {
+        mergedIssues: [
+          {
+            id: 'issue-new',
+            severity: 'critical',
+            category: 'security',
+            file: 'a.txt',
+            line: 1,
+            message: '새 지적',
+            suggestion: '새 제안',
+            reportedBy: 'security-reviewer',
+          },
+        ],
+        approvedBy: [],
+        blockedBy: [],
+        summary: '두 번째 합의',
+        overallApproved: false,
+      },
+    });
+
+    const parsed = call({ action: 'review_publish', reviewSessionId });
+
+    expect(parsed.alreadyPublished).toBeUndefined();
+    expect(parsed.verdict).toBe('request_changes');
+    expect(readPr().comments.map((c) => c.body)).toContainEqual(expect.stringContaining('새 지적'));
+  });
+
+  // ─── 오류 규약 ─────────────────────────────────────────────
+
+  it('없는 prId로 publish하면 not_found로 접는다', () => {
+    const reviewSessionId = startAndAgree([
+      { severity: 'warning', file: 'a.txt', reportedBy: 'quality-reviewer' },
+    ]);
+
+    const parsed = call({ action: 'review_publish', reviewSessionId, prId: 'deadbeef' });
+
+    expect(parsed.status).toBeUndefined();
+    expect(parsed.kind).toBe('not_found');
+  });
+
+  it('머지된 PR에 publish하면 conflict로 접는다', () => {
+    const reviewSessionId = startAndAgree([
+      { severity: 'warning', file: 'a.txt', reportedBy: 'quality-reviewer' },
+    ]);
+    const prEngine = new LocalPrEngine(repo);
+    prEngine.merge(prId, 'human:tienne');
+    prEngine.dispose();
+
+    const parsed = call({ action: 'review_publish', reviewSessionId });
+
+    expect(parsed.status).toBeUndefined();
+    expect(parsed.kind).toBe('conflict');
+  });
+
+  it('prId가 sessionId 셀렉터보다 앞선다', () => {
+    // 실행 세션이 하나도 없어 latest는 해석되지 않는다. prId 갈래는 그것과 무관하다.
+    const parsed = call({ action: 'review_start', prId, repoRoot: repo, sessionId: 'latest' });
+
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.status).toBe('review_started');
+    expect(parsed.prId).toBe(prId);
+    expect(parsed.executeSessionId).toBeNull();
   });
 
   it('PR을 못 찾는 세션이면 prId를 요구한다', () => {
