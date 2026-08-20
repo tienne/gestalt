@@ -607,7 +607,7 @@ export const prInputSchema = z.object({
     .describe('PR id. create와 list를 제외한 모든 action에 필요하다'),
   // create 전용
   title: z.string().optional().describe('create에 필요'),
-  base: z.string().optional().describe('create: 기준 브랜치(기본 main), update: 옮겨갈 커밋'),
+  base: z.string().optional().describe('create 전용: 기준 브랜치(기본 main)'),
   head: z.string().optional().describe('create: 리뷰 대상 브랜치(기본 HEAD), update: 옮겨갈 커밋'),
   // create, comment, resolve, review, merge, close 공통
   author: z

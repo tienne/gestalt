@@ -126,6 +126,16 @@ describe('handlePr — ges_pr MCP 래퍼', () => {
     expect(after.reviews[0].verdict).toBe('approve');
   });
 
+  it('update: 새 커밋으로 head를 옮긴다', async () => {
+    const pr = await call({ action: 'create', title: 'A', author: 'codex:worker-1' });
+
+    writeFileSync(join(repo, 'a.txt'), 'line1\nline2\nline3\n');
+    run(repo, ['commit', '-q', '-am', '세 번째 줄']);
+
+    const after = await call({ action: 'update', id: pr.id, author: 'codex:worker-1' });
+    expect(after.headSha).not.toBe(pr.headSha);
+  });
+
   it('merge: 상태를 merged로 바꾼다', async () => {
     const pr = await call({ action: 'create', title: 'A', author: 'codex:worker-1' });
     const after = await call({ action: 'merge', id: pr.id, author: 'codex:worker-1' });
