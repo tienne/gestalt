@@ -337,6 +337,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `review_submit` | 에이전트 리뷰 제출 |
 | `review_consensus` | 통합 컨센서스 리뷰 제출 |
 | `review_fix` | 자동 수정 루프 시작 |
+| `review_publish` | 합의 결과를 로컬 PR의 인라인 코멘트와 판정으로 기록 |
 
 ### Common Parameters
 
@@ -348,6 +349,10 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `cwd` | `string` | N | — | 작업 디렉터리. `execute_start`에서 client 설정에 맞는 active context(`.claude/rules/gestalt-active.md`, `AGENTS.md` managed section, `.grok/rules/gestalt-active.md`, 또는 Claude+Codex 둘 다)와 `.gestalt/active-session.json` 생성에 사용. `status`에서 `resumeHint` 읽기에 사용. |
 | `client` | `"claude-code" \| "codex" \| "both" \| "grok"` | N | 서버 `config.client` | 호출 단위 호스트 override. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고, `"both"`는 Claude와 Codex만 쓴다. |
 | `codeGraphRepoRoot` | `string` | N | — | `start`에서 설정 시 태스크 실행마다 관련 파일을 자동 추출해 `suggestedFiles`로 반환 |
+| `prId` | `string` | N | — | `review_start`에서 주면 그 로컬 PR의 변경 파일로 리뷰를 연다. `sessionId`와 `changedFiles + repoRoot`보다 우선한다 — 함께 주면 나머지는 안 본다. `review_publish`에서는 쓸 대상 PR이고, `review_start`를 `prId`로 열었으면 세션에서 이어받으므로 생략할 수 있다 |
+| `repoRoot` | `string` | N | 프로세스 cwd | `prId`를 찾을 로컬 PR 저장소 |
+| `reviewSessionId` | `string` | `review_submit`, `review_consensus`, `review_publish` | — | `review_start`가 돌려준 리뷰 세션 ID |
+| `prReviewer` | `string` | N | `GESTALT_ACTOR` 또는 `gestalt:review` | `review_publish`가 판정을 남길 때 쓸 리뷰어 이름. 인라인 코멘트 작성자는 이 값이 아니라 지적을 낸 에이전트다 (`agent:security-reviewer` 꼴) |
 
 ### `start` — Example Request & Response
 

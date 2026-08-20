@@ -175,10 +175,25 @@ interface ReviewReport {
 | `review_submit` | Agent별 리뷰 결과 제출 |
 | `review_consensus` | 합의된 이슈 목록 제출 → 통과/Fix 판정 |
 | `review_fix` | Fix 컨텍스트 요청 → Fix 후 Re-review |
+| `review_publish` | 합의 결과를 로컬 PR에 코멘트와 판정으로 기록 |
 
 ---
 
 ## 설계 결정
+
+**`review_publish`의 판정은 어떻게 갈리나요?**
+
+critical이나 high 이슈가 한 건이라도 있으면 `request_changes`, warning만 있으면 `approve`예요. 정합 심급(`continuity-judge`)이 `coherent: false`를 냈으면 결함이 하나도 없어도 `request_changes`예요.
+
+이 경계는 `review_consensus`가 `approved`를 가르는 자리와 **일부러 같게** 뒀어요. 어긋나면 파이프라인은 통과인데 PR은 리젝인 상태가 생겨요. 어느 쪽을 믿어야 할지 알 수 없는 상태라 한쪽으로 맞춰야 해요.
+
+**같은 합의를 두 번 게시하면요?**
+
+두 번째는 아무것도 쓰지 않고 첫 번째 결과를 그대로 돌려줘요(`alreadyPublished: true`). PR은 이벤트 소싱이라 한 번 붙은 코멘트를 지울 수 없어요. 중복이 생기면 사람이 손으로 resolve하는 수밖에 없거든요.
+
+막지 않고 멱등하게 만든 건 부르는 쪽이 호스트의 재시도이기 때문이에요. 오류로 접으면 호스트는 실패로 보고 다시 불러요. 그런데 PR에는 이미 다 쓰여 있어요.
+
+코멘트 N건과 판정 하나를 따로 쓰는 다중 쓰기라 원자적으로는 못 묶어요. 대신 매 코멘트마다 어디까지 썼는지를 세션에 남겨 둬요. 중간에 끊긴 뒤 다시 부르면 그 다음부터 이어 써요. PR의 head가 옮겨갔으면 작성자가 고쳐 올린 새 라운드라 처음부터 다시 써요.
 
 **Evaluate를 통과했는데 왜 Code Review를 또 하나요?**
 

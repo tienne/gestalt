@@ -514,6 +514,41 @@ export interface ReviewContext {
   taskResults?: TaskExecutionResult[];
 }
 
+/**
+ * review_publish가 PR에 무엇까지 썼는지 남기는 자국.
+ *
+ * PR은 이벤트 소싱이라 한 번 쓴 코멘트를 지울 수 없다. 그래서 같은 합의를 두 번
+ * 옮기면 코멘트가 복제되고 되돌릴 방법이 없다. publish는 코멘트 N건을 쓰고 마지막에
+ * 판정 하나를 쓰는 다중 쓰기라 원자적으로 만들 수 없다. 대신 어디까지 썼는지를 여기
+ * 남겨서, 다시 부르면 그 다음부터 잇는다.
+ *
+ * 자국은 리뷰 세션과 수명이 같다(메모리). publish는 세션의 합의가 있어야 도는 액션이라
+ * 세션이 사라지면 publish도 못 돈다. 방어 범위와 액션의 범위가 같다.
+ */
+export interface ReviewPublishState {
+  prId: string;
+  /** publish를 시작할 때의 PR head. head가 옮겨가면 새 라운드라 처음부터 다시 쓴다. */
+  headSha: string;
+  /**
+   * 옮긴 합의의 지문.
+   *
+   * 자국을 버리는 기준은 `review_consensus`를 다시 불렀는지가 아니라 옮길 내용이
+   * 바뀌었는지다. 호출을 기준으로 삼으면 같은 합의를 다시 제출한 것만으로 자국이
+   * 날아가 코멘트가 복제된다. 호스트가 재시도하는 단위가 publish 한 호출이라는
+   * 보장이 없다. 리뷰 스킬처럼 consensus와 publish를 잇달아 부르는 흐름이 그 자리를
+   * 밟는다.
+   */
+  issuesKey: string;
+  /** 이 head에서 PR에 이미 쓴 지적 수. 합의 목록의 앞에서부터 이만큼이다. */
+  postedCount: number;
+  /** 판정까지 써서 한 바퀴가 끝났는지 */
+  completed: boolean;
+  /** 끝난 바퀴가 남긴 판정. completed일 때만 뜻이 있다. */
+  verdict: 'approve' | 'request_changes';
+  /** 판정을 남긴 리뷰어 */
+  reviewer: string;
+}
+
 export interface ReviewSession {
   sessionId: string;
   executeSessionId: string;
@@ -523,6 +558,10 @@ export interface ReviewSession {
   reviewContext?: ReviewContext;
   /** 이슈 라인의 코드 스니펫을 읽을 기준 경로. 없으면 cwd로 폴백한다. */
   repoRoot?: string;
+  /** 이 리뷰가 로컬 PR에서 시작했으면 그 PR id. 합의 결과를 되돌려 쓸 자리다. */
+  prId?: string;
+  /** review_publish가 PR에 쓴 진행 상태. 재실행 방어와 중단 재개의 근거다. */
+  publishState?: ReviewPublishState;
   matchedAgents: string[];
   reviewResults: ReviewResult[];
   consensus?: ReviewConsensusResult;

@@ -83,7 +83,7 @@ function dispatch(
 }
 
 /** PrError.exitCode(CLI 종료 코드)를 MCP 응답에서 갈래 타기 좋은 문자열로 바꾼다 */
-function errorKind(exitCode: number): string {
+export function errorKind(exitCode: number): string {
   switch (exitCode) {
     case 3:
       return 'not_found';
