@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { LocalPrEngine, PrError } from '../../local-pr/engine.js';
 import type { PullRequest, ReviewVerdict } from '../../local-pr/types.js';
+import { PrWebEngine } from '../../local-pr-web/engine.js';
 
 /**
  * `gestalt pr` — 로컬 PR CLI.
@@ -297,4 +298,32 @@ export function prCloseCommand(opts: PrCommonOptions & { id: string; reason?: st
       engine.dispose();
     }
   });
+}
+
+/** `gestalt pr serve` — 브라우저에서 PR을 읽는 읽기 전용 웹 UI. 코멘트 작성은 CLI 몫으로 남긴다 */
+export async function prServeCommand(
+  opts: PrCommonOptions & { port?: number; noBrowser?: boolean },
+): Promise<void> {
+  const repoRoot = resolve(opts.repoRoot ?? process.cwd());
+  const engine = new PrWebEngine();
+
+  try {
+    const result = await engine.start({
+      repoRoot,
+      port: opts.port,
+      openBrowser: !opts.noBrowser,
+    });
+    console.log(`\n로컬 PR 웹 UI: ${result.url}`);
+    console.log(result.message);
+    console.log('\nCtrl+C로 멈춘다.\n');
+
+    // 서버의 SIGINT 핸들러가 프로세스를 끝낼 때까지 살려둔다
+    await new Promise<void>(() => {
+      /* Ctrl+C까지 대기 */
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`웹 UI를 못 띄웠다: ${msg}`);
+    process.exit(1);
+  }
 }
