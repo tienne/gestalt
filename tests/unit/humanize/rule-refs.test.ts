@@ -38,7 +38,7 @@ describe('S1 어투 베이스라인', () => {
     readFileSync(new URL('../../../scripts/humanize-baseline.json', import.meta.url), 'utf-8'),
   ) as Record<string, number>;
 
-  it('기준에 잠긴 문서만 S1을 남기고 있다', () => {
+  it('기준에 적힌 문서만 S1을 남기고 있다', () => {
     for (const [file, count] of countS1ByFile()) {
       expect(`${file}: ${count}`).toBe(`${file}: ${baseline[file] ?? 0}`);
     }

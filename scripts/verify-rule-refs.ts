@@ -7,7 +7,7 @@
  * 여기서 막는다.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { citedRuleIds, parseRuleBook, s1Ids, QUICK_RULES_PATH } from '../src/humanize/index.js';
 import { countByRule, proseLines, DETECTABLE_RULE_IDS } from '../src/humanize/detectors.js';
@@ -57,7 +57,8 @@ const LOANWORD_HINT = 'style-guide.md §음차를 옮길 때';
  */
 const COINED_TERMS: Array<{ pattern: RegExp; term: string; replacement: string }> = [
   {
-    pattern: /잠[그근갔글가](?![가-힣]*파일)/,
+    // 능동형과 피동형을 함께 본다. `잠금 파일`은 굳은 말이라 뺀다
+    pattern: /잠[그근갔글가긴겨겼기](?![가-힣]*파일)/,
     term: '잠그다(테스트·기준을 자물쇠에 빗댄 자리)',
     replacement: '관련 테스트가 있다 / 기준으로 둔다',
   },
@@ -89,8 +90,37 @@ function bareProse(markdown: string): { line: string; number: number }[] {
   }));
 }
 
+/**
+ * 테스트 제목을 산문으로 돌려준다.
+ *
+ * 테스트 파일에서 사람이 읽는 서술은 대부분 it과 describe의 문자열이지 주석이 아니다.
+ * 주석만 보면 tests를 검사 대상에 넣어도 실제로 걸리는 게 별로 없다.
+ */
+function testTitles(source: string): { line: string; number: number }[] {
+  const out: { line: string; number: number }[] = [];
+  const re = /\b(?:it|test|describe)(?:\.\w+)?\(\s*(['"`])([\s\S]*?)\1/g;
+
+  source.split('\n').forEach((raw, index) => {
+    for (const match of raw.matchAll(re)) {
+      const title = match[2]!;
+      if (/[가-힣]/.test(title)) out.push({ line: title, number: index + 1 });
+    }
+  });
+
+  return out;
+}
+
+/** 이 파일의 산문 줄. 소스는 주석, 테스트는 주석과 제목, 나머지는 마크다운 본문이다 */
+function proseLinesOf(file: string, content: string): { line: string; number: number }[] {
+  if (!file.endsWith('.ts')) return bareProse(content);
+  const comments = commentProse(content);
+  return file.includes(`${sep}tests${sep}`) || file.endsWith('.test.ts')
+    ? [...comments, ...testTitles(content)]
+    : comments;
+}
+
 /** 따옴표와 백틱 안은 인용이라 판정 대상이 아니다 */
-function stripQuoted(line: string): string {
+export function stripQuoted(line: string): string {
   return line
     .replace(/`[^`\n]*`/g, ' ')
     .replace(/"[^"\n]*"|“[^”\n]*”|'[^'\n]*'/g, ' ');
@@ -268,8 +298,7 @@ export function verifyRuleRefs(): RuleRefIssue[] {
   //    어투 검사가 S2로 흘려보내는 자리라 여기서 따로 본다.
   for (const file of proseTargets()) {
     const content = readFileSync(file, 'utf-8');
-    const lines = file.endsWith('.ts') ? commentProse(content) : bareProse(content);
-    for (const { line, number } of lines) {
+    for (const { line, number } of proseLinesOf(file, content)) {
       // 인용은 예외다. 룰을 설명하려면 그 말을 적어야 한다 — bareProse와 같은 기준
       const prose = stripQuoted(line);
       for (const { pattern, term, replacement } of COINED_TERMS) {
@@ -297,7 +326,7 @@ export function verifyRuleRefs(): RuleRefIssue[] {
  * scripts와 tests도 넣는다. 검사기 자신이 검사 밖에 있으면 같은 일이 또 난다 —
  * 실제로 이 파일의 주석에 '잠근다'가 남아 있는 걸 사람이 눈으로 찾았다.
  */
-function proseTargets(): string[] {
+export function proseTargets(): string[] {
   const rootDocs = ROOT_DOCS.map((name) => join(ROOT, name)).filter((path) => existsSync(path));
   return [
     ...markdownFiles(PLUGIN),
@@ -369,7 +398,7 @@ export function commentProse(source: string): { line: string; number: number }[]
  * 백틱이 홀수 개 들어가면 그 줄부터 파일 끝까지 템플릿 안으로 오인해서, 아래 주석이
  * 통째로 검사에서 빠진다. 실제로 summarizer.ts에서 그 일이 났다.
  */
-function countBackticks(line: string): number {
+export function countBackticks(line: string): number {
   return (maskLiterals(line, { keepBackticks: true }).match(/(?<!\\)`/g) ?? []).length;
 }
 
@@ -457,9 +486,8 @@ export function countS1ByFile(): Map<string, number> {
 
   for (const file of proseTargets()) {
     const content = readFileSync(file, 'utf-8');
-    const lines = file.endsWith('.ts') ? commentProse(content) : bareProse(content);
     let total = 0;
-    for (const { line } of lines) {
+    for (const { line } of proseLinesOf(file, content)) {
       // 굳어진 음차 화이트리스트는 C-12 예외다
       if (line.includes('화이트리스트')) continue;
       const prose = line.replace(/[가-힣A-Za-z0-9-]+(?:·[가-힣A-Za-z0-9-]+)+/g, (chain) =>
