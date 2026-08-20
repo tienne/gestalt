@@ -23,6 +23,10 @@ inputs:
     type: string
     required: false
     description: "Repository root (기본값: 현재 디렉토리)"
+  local:
+    type: boolean
+    required: false
+    description: "로컬 PR(`gestalt pr` CLI)의 리뷰 스레드를 대상으로 삼을지 여부. 사용자가 붙인 `--local` 플래그가 이 값으로 들어온다. 기본값 false"
   resolveThreads:
     type: boolean
     required: false
@@ -69,9 +73,13 @@ outputs:
 
 판별은 0단계에서 한 번 하고 `prTarget = "github" | "local"`로 보관한다.
 
-1. 사용자가 `--local`을 붙였거나 로컬 PR id를 직접 지목했으면 → `local`.
+**id가 명시되면 그게 우선이다.** 아래 순서대로 훑어 처음 걸리는 갈래를 택한다.
+
+1. `local` 입력이 true거나(`--local` 플래그) `target`이 로컬 PR id 형식(`gestalt pr list`에 뜨는 id)이면 → `pnpm tsx bin/gestalt.ts pr --json show <id>`로 실제 존재를 확인한다. 있으면 `local`. 없으면 그 사실을 한 줄 알리고 2번으로 내려간다.
 2. `gh auth status`가 실패하거나(인증 안 됨) 원격이 없으면(`git remote -v` 비어 있음) → `local`.
 3. 위 둘 다 아니면 → `github` (기존 경로 그대로).
+
+gh 인증이 되고 원격도 있는데 로컬 PR id를 준 경우는 1번이 먼저 잡는다. 로컬 PR id 형식이 아닌 값(PR 번호, URL, 브랜치명)은 1번을 그냥 지나쳐 2번과 3번이 가른다.
 
 ## 파이프라인
 

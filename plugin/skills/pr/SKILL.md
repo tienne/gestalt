@@ -20,11 +20,17 @@ inputs:
     type: string
     required: false
     description: "Repository root (기본값: 현재 디렉토리)"
+  local:
+    type: boolean
+    required: false
+    description: "로컬 PR(`gestalt pr` CLI)로 제출할지 여부. 사용자가 붙인 `--local` 플래그가 이 값으로 들어온다. 기본값 false"
 outputs:
   - prIntent
   - changeContext
   - prDescription
+  - prTarget
   - prUrl
+  - prId
 ---
 
 # PR Skill
@@ -50,11 +56,20 @@ outputs:
 
 판별은 스킬 시작 시 한 번 하고 결과를 `prTarget = "github" | "local"`로 보관한다.
 
-1. 사용자가 `--local`을 붙였거나 로컬 PR 형식(`gestalt pr list`에 뜨는 id)을 직접 지목했으면 → `local`.
+1. `local` 입력이 true거나(`--local` 플래그) `target`이 로컬 PR 형식(`gestalt pr list`에 뜨는 id)이면 → `local`.
 2. 그 외에는 `gh auth status`를 실행한다. 실패하거나(인증 안 됨) `git remote -v`가 비어 있으면(원격 없음) → `local`.
 3. 위 둘 다 아니면 → `github` (기존 경로 그대로).
 
 판별 결과는 5단계 진입 직전에 한 줄로 알린다: "GitHub PR로 제출합니다" 또는 "로컬 PR로 제출합니다 (gh 인증 없음 / 원격 없음 / --local 지정)".
+
+### 출력 규약
+
+`prUrl`과 `prId`는 갈래에 따라 한쪽만 채워진다. 이 스킬을 부르는 쪽은 `prTarget`을 먼저 보고 어느 필드를 읽을지 정한다.
+
+| `prTarget` | `prUrl` | `prId` |
+| --- | --- | --- |
+| `github` | GitHub PR URL | 비어 있음 |
+| `local` | 비어 있음 | `gestalt pr` PR id |
 
 ## Skill Instructions
 
@@ -229,7 +244,7 @@ EOF
 - `@me`는 `gh`에 인증된 현재 사용자를 가리키므로, PR이 생성되면 작성자 본인이 자동으로 assignee로 지정됩니다.
 - 어사인이 실패해도(권한·레포 설정 등) PR 생성 자체는 막지 않습니다. 실패 시 PR 생성 후 `gh pr edit {prUrl} --add-assignee @me`로 재시도합니다.
 
-반환된 PR URL을 사용자에게 표시합니다 (`prUrl`).
+반환된 PR URL을 사용자에게 표시합니다. 반환값은 `prTarget: "github"` + `prUrl`로 담고 `prId`는 비워 둡니다.
 
 #### 로컬 PR (`prTarget: "local"`)
 
@@ -247,5 +262,5 @@ pnpm tsx bin/gestalt.ts pr create \
 ```
 
 - 로컬 PR에는 `--assignee` 개념이 없습니다 — `--author`가 곧 작성자입니다.
-- `prUrl` 자리는 반환된 PR id로 대신합니다. `pnpm tsx bin/gestalt.ts pr --json show <id>`로 생성 결과를 확인할 수 있습니다.
+- 반환값은 `prTarget: "local"` + `prId`로 담습니다. `prUrl`은 비워 둡니다 — 로컬 PR에는 URL이 없습니다. `pnpm tsx bin/gestalt.ts pr --json show <id>`로 생성 결과를 확인할 수 있습니다.
 - 반환된 PR id를 사용자에게 표시합니다.
