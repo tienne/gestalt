@@ -10,6 +10,19 @@ import { updateCommand } from './commands/update.js';
 import { usageReportCommand } from './commands/usage-report.js';
 import { humanizeCheckCommand } from './commands/humanize-check.js';
 import { getVersion } from '../core/version.js';
+import {
+  prCloseCommand,
+  prCommentCommand,
+  prCommentsCommand,
+  prCreateCommand,
+  prDiffCommand,
+  prListCommand,
+  prMergeCommand,
+  prResolveCommand,
+  prReviewCommand,
+  prShowCommand,
+  prUpdateCommand,
+} from './commands/pr.js';
 
 export function createCli(): Command {
   const program = new Command();
@@ -88,6 +101,77 @@ export function createCli(): Command {
         noBrowser: options.browser === false,
       });
     });
+
+  const pr = program
+    .command('pr')
+    .description('로컬 PR 리뷰 — 에이전트끼리 주고받는 자리')
+    .option('--repo-root <path>', 'Repository root (defaults to cwd)')
+    .option('--author <actor>', '누가 하는지 (예: codex:worker-2). 없으면 GESTALT_ACTOR')
+    .option('--json', '에이전트가 파싱할 JSON으로');
+
+  const inherited = (cmd: { parent?: { opts(): Record<string, unknown> } }) =>
+    (cmd.parent?.opts() ?? {}) as { repoRoot?: string; author?: string; json?: boolean };
+
+  pr.command('create')
+    .description('현재 HEAD로 PR을 만든다')
+    .requiredOption('--title <title>', 'PR 제목')
+    .option('--base <ref>', '갈라져 나온 기준 (기본 main)')
+    .option('--head <ref>', '리뷰 대상 (기본 HEAD)')
+    .option('--body-file <path>', '본문 파일. -면 stdin')
+    .action((o, cmd) => prCreateCommand({ ...inherited(cmd), ...o }));
+
+  pr.command('list')
+    .description('PR 목록')
+    .option('--status <status>', 'open | changes_requested | merged | closed')
+    .action((o, cmd) => prListCommand({ ...inherited(cmd), ...o }));
+
+  pr.command('show <id>')
+    .description('PR 상세 — 라운드와 미해결 코멘트')
+    .action((id, o, cmd) => prShowCommand({ ...inherited(cmd), ...o, id }));
+
+  pr.command('diff <id>')
+    .description('PR의 diff')
+    .action((id, o, cmd) => prDiffCommand({ ...inherited(cmd), ...o, id }));
+
+  pr.command('comment <id>')
+    .description('인라인 코멘트를 단다')
+    .requiredOption('--path <path>', '파일 경로')
+    .option('--line <number>', '라인 번호. 없으면 파일 전반')
+    .requiredOption('--body-file <path>', '본문 파일. -면 stdin')
+    .option('--reply-to <commentId>', '스레드에 답글')
+    .action((id, o, cmd) => prCommentCommand({ ...inherited(cmd), ...o, id }));
+
+  pr.command('comments <id>')
+    .description('코멘트 목록')
+    .option('--unresolved', '안 닫힌 것만')
+    .action((id, o, cmd) => prCommentsCommand({ ...inherited(cmd), ...o, id }));
+
+  pr.command('resolve <id> <commentId>')
+    .description('코멘트 스레드를 닫는다')
+    .action((id, commentId, o, cmd) =>
+      prResolveCommand({ ...inherited(cmd), ...o, id, commentId }),
+    );
+
+  pr.command('review <id>')
+    .description('판정을 남긴다')
+    .requiredOption('--verdict <verdict>', 'approve | request-changes | comment')
+    .option('--body-file <path>', '요약 파일. -면 stdin')
+    .action((id, o, cmd) => prReviewCommand({ ...inherited(cmd), ...o, id }));
+
+  pr.command('update <id>')
+    .description('head를 지금 커밋으로 옮긴다')
+    .option('--head <ref>', '옮길 대상')
+    .action((id, o, cmd) => prUpdateCommand({ ...inherited(cmd), ...o, id }));
+
+  pr.command('merge <id>')
+    .description('머지한다. 승인이 없어도 막지 않는다')
+    .option('--delete-branch', '머지 뒤 브랜치를 지운다')
+    .action((id, o, cmd) => prMergeCommand({ ...inherited(cmd), ...o, id }));
+
+  pr.command('close <id>')
+    .description('PR을 닫는다')
+    .option('--reason <text>', '닫는 이유')
+    .action((id, o, cmd) => prCloseCommand({ ...inherited(cmd), ...o, id }));
 
   program
     .command('humanize-check')
