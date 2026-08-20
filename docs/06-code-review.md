@@ -175,6 +175,7 @@ interface ReviewReport {
 | `review_submit` | Agent별 리뷰 결과 제출 |
 | `review_consensus` | 합의된 이슈 목록 제출 → 통과/Fix 판정 |
 | `review_fix` | Fix 컨텍스트 요청 → Fix 후 Re-review |
+| `review_publish` | 합의 결과를 로컬 PR에 코멘트와 판정으로 기록 |
 
 ---
 

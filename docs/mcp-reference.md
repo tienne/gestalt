@@ -337,6 +337,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `review_submit` | 에이전트 리뷰 제출 |
 | `review_consensus` | 통합 컨센서스 리뷰 제출 |
 | `review_fix` | 자동 수정 루프 시작 |
+| `review_publish` | 합의 결과를 로컬 PR의 인라인 코멘트와 판정으로 기록 |
 
 ### Common Parameters
 

@@ -255,7 +255,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   server.tool(
     'ges_execute',
-    'Execute a Spec using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, resume, audit, spawn, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result, role_match, role_consensus, review_start, review_submit, review_consensus, review_fix.',
+    'Execute a Spec using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, resume, audit, spawn, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result, role_match, role_consensus, review_start, review_submit, review_consensus, review_fix, review_publish.',
     executeToolSchema,
     async (params) => {
       const input = executeInputSchema.parse(params);

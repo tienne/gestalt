@@ -523,6 +523,8 @@ export interface ReviewSession {
   reviewContext?: ReviewContext;
   /** 이슈 라인의 코드 스니펫을 읽을 기준 경로. 없으면 cwd로 폴백한다. */
   repoRoot?: string;
+  /** 이 리뷰가 로컬 PR에서 시작했으면 그 PR id. 합의 결과를 되돌려 쓸 자리다. */
+  prId?: string;
   matchedAgents: string[];
   reviewResults: ReviewResult[];
   consensus?: ReviewConsensusResult;

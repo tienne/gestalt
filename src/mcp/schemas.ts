@@ -118,6 +118,7 @@ export const executeInputSchema = z.object({
     'review_submit',
     'review_consensus',
     'review_fix',
+    'review_publish',
     'evolution_viz',
   ]),
   spec: z
@@ -148,7 +149,12 @@ export const executeInputSchema = z.object({
     .array(z.string())
     .optional()
     .describe('Changed file paths for direct review (without execute session)'),
-  repoRoot: z.string().optional().describe('Repository root for direct review mode'),
+  repoRoot: z
+    .string()
+    .optional()
+    .describe(
+      'Repository root for direct review mode. prId 갈래에서는 로컬 PR 저장소 경로다 (생략하면 프로세스의 현재 작업 디렉토리).',
+    ),
   codeGraphRepoRoot: z
     .string()
     .optional()
@@ -483,7 +489,21 @@ export const executeInputSchema = z.object({
   reviewSessionId: z
     .string()
     .optional()
-    .describe('Review session ID (required for review_submit, review_consensus, review_fix)'),
+    .describe(
+      'Review session ID (required for review_submit, review_consensus, review_fix, review_publish)',
+    ),
+  prId: z
+    .string()
+    .optional()
+    .describe(
+      '로컬 PR id. review_start에 주면 그 PR의 변경 파일과 저장소 경로로 리뷰를 연다 (sessionId·changedFiles보다 우선). review_publish에 필요하며, review_start에서 이미 준 세션이면 생략할 수 있다.',
+    ),
+  prReviewer: z
+    .string()
+    .optional()
+    .describe(
+      'review_publish가 남길 판정의 리뷰어 이름. 생략하면 GESTALT_ACTOR 환경변수, 그것도 없으면 gestalt:review를 쓴다. 개별 코멘트 작성자는 이 값이 아니라 각 지적의 reportedBy다.',
+    ),
 });
 
 export type ExecuteInput = z.infer<typeof executeInputSchema>;

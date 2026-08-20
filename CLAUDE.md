@@ -38,7 +38,7 @@ pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register rep
 ## MCP Tools
 - `ges_interview`: action=[start|respond|score|complete]
 - `ges_generate_spec`: sessionId?, text?, force?, spec?
-- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|status|resume|audit|spawn|evaluate|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|role_match|role_consensus|review_start|review_submit|review_consensus|review_fix]
+- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|status|resume|audit|spawn|evaluate|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|role_match|role_consensus|review_start|review_submit|review_consensus|review_fix|review_publish]
 - `ges_create_agent`: action=[start|submit]
 - `ges_agent`: action=[list|get], name?
 - `ges_status`: sessionId?, sessionType?, cwd?
