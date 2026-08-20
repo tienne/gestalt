@@ -7,8 +7,8 @@ import type { PrInput } from '../schemas.js';
 /**
  * `ges_pr` 핸들러.
  *
- * 로직은 전부 LocalPrEngine에 있다. 여기는 action을 메서드 호출로 옮기고,
- * PrError를 MCP 응답 형태(`{ error, kind }`)로 접는 껍데기다. exitCode는
+ * 로직은 전부 LocalPrEngine에 있다. 여기는 action을 메서드 호출로 옮긴다.
+ * 그리고 PrError를 MCP 응답 형태(`{ error, kind }`)로 접는 껍데기다. exitCode는
  * 프로세스 종료 코드로 갈래를 타는 CLI 전용이라 MCP에선 kind 문자열로 바꾼다.
  */
 

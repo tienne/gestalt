@@ -136,6 +136,24 @@ describe('handlePr — ges_pr MCP 래퍼', () => {
     expect(after.headSha).not.toBe(pr.headSha);
   });
 
+  it('update: head 인자로 준 커밋으로 옮긴다', async () => {
+    const pr = await call({ action: 'create', title: 'A', author: 'codex:worker-1' });
+
+    writeFileSync(join(repo, 'a.txt'), 'line1\nline2\nline3\n');
+    run(repo, ['commit', '-q', '-am', '세 번째 줄']);
+    const third = run(repo, ['rev-parse', 'HEAD']);
+
+    writeFileSync(join(repo, 'a.txt'), 'line1\nline2\nline3\nline4\n');
+    run(repo, ['commit', '-q', '-am', '네 번째 줄']);
+    const fourth = run(repo, ['rev-parse', 'HEAD']);
+
+    // head를 안 넘기면 브랜치 끝(fourth)으로 간다. third를 명시했으니 거기 멈춰야
+    // 인자가 엔진까지 갔다는 뜻이다.
+    const after = await call({ action: 'update', id: pr.id, head: third, author: 'codex:worker-1' });
+    expect(after.headSha).toBe(third);
+    expect(after.headSha).not.toBe(fourth);
+  });
+
   it('merge: 상태를 merged로 바꾼다', async () => {
     const pr = await call({ action: 'create', title: 'A', author: 'codex:worker-1' });
     const after = await call({ action: 'merge', id: pr.id, author: 'codex:worker-1' });
