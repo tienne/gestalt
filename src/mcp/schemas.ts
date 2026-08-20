@@ -592,3 +592,50 @@ export const graphVisualizeInputSchema = z.object({
 });
 
 export type GraphVisualizeInput = z.infer<typeof graphVisualizeInputSchema>;
+
+// ─── Local PR Tool ────────────────────────────────────────────────
+export const prInputSchema = z.object({
+  action: z
+    .enum(['create', 'list', 'get', 'diff', 'comment', 'resolve', 'review', 'update', 'merge', 'close'])
+    .describe(
+      'create: 새 PR, list: 목록, get: 단건 조회, diff: 변경 내용, comment: 코멘트 추가, resolve: 코멘트 스레드 해결, review: 판정 기록, update: head 갱신, merge: 머지, close: 닫기',
+    ),
+  repoRoot: z.string().optional().describe('저장소 경로 (기본값: 현재 작업 디렉토리)'),
+  id: z
+    .string()
+    .optional()
+    .describe('PR id. create와 list를 제외한 모든 action에 필요하다'),
+  // create 전용
+  title: z.string().optional().describe('create에 필요'),
+  base: z.string().optional().describe('create: 기준 브랜치(기본 main), update: 옮겨갈 커밋'),
+  head: z.string().optional().describe('create: 리뷰 대상 브랜치(기본 HEAD), update: 옮겨갈 커밋'),
+  // create, comment, resolve, review, merge, close 공통
+  author: z
+    .string()
+    .optional()
+    .describe("작업자. 형식 예: 'claude-code:main', 'codex:worker-2'. 안 주면 human:local"),
+  body: z.string().optional().describe('create: PR 본문, comment: 코멘트 본문'),
+  // list 전용
+  status: z
+    .enum(['open', 'changes_requested', 'merged', 'closed'])
+    .optional()
+    .describe('list 필터'),
+  // comment 전용
+  path: z.string().optional().describe('comment에 필요. 코멘트가 달릴 파일 경로'),
+  line: z.number().optional().describe('comment: head 기준 라인. 생략하면 파일 전반'),
+  replyTo: z.string().optional().describe('comment: 답글일 때 부모 코멘트 id'),
+  // resolve 전용
+  commentId: z.string().optional().describe('resolve에 필요'),
+  // review 전용
+  verdict: z
+    .enum(['approve', 'request_changes', 'comment'])
+    .optional()
+    .describe('review에 필요'),
+  summary: z.string().optional().describe('review: 판정 요약'),
+  // merge 전용
+  deleteBranch: z.boolean().optional().describe('merge: 머지 후 head 브랜치 삭제 여부'),
+  // close 전용
+  reason: z.string().optional().describe('close: 닫는 이유'),
+});
+
+export type PrInput = z.infer<typeof prInputSchema>;
