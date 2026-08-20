@@ -20,6 +20,7 @@ import {
   prMergeCommand,
   prResolveCommand,
   prReviewCommand,
+  prServeCommand,
   prShowCommand,
   prUpdateCommand,
 } from './commands/pr.js';
@@ -172,6 +173,21 @@ export function createCli(): Command {
     .description('PR을 닫는다')
     .option('--reason <text>', '닫는 이유')
     .action((id, o, cmd) => prCloseCommand({ ...inherited(cmd), ...o, id }));
+
+  pr.command('serve')
+    .description('브라우저에서 PR을 읽는 웹 UI를 띄운다 (읽기 전용)')
+    .option('--port <number>', '서버 포트 (기본 7892)', parseInt)
+    .option('--no-browser', '브라우저를 자동으로 열지 않는다')
+    .action(async (o, cmd) => {
+      const opts = { ...inherited(cmd), ...o } as {
+        repoRoot?: string;
+        author?: string;
+        json?: boolean;
+        port?: number;
+        browser?: boolean;
+      };
+      await prServeCommand({ ...opts, noBrowser: opts.browser === false });
+    });
 
   program
     .command('humanize-check')
