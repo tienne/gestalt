@@ -135,16 +135,12 @@ describe('PrWebServer', () => {
     const port = randomPort();
     await server.start(port);
 
-    const before = await (
-      await fetch(`http://127.0.0.1:${port}/prs/${pr.id}`)
-    ).text();
+    const before = await (await fetch(`http://127.0.0.1:${port}/prs/${pr.id}`)).text();
     expect(before).not.toContain('나중에 단 코멘트');
 
     engine.comment(pr.id, { author: 'reviewer', path: 'a.txt', body: '나중에 단 코멘트' });
 
-    const after = await (
-      await fetch(`http://127.0.0.1:${port}/prs/${pr.id}`)
-    ).text();
+    const after = await (await fetch(`http://127.0.0.1:${port}/prs/${pr.id}`)).text();
     expect(after).toContain('나중에 단 코멘트');
   });
 });

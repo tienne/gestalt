@@ -156,8 +156,7 @@ describe('generatePrDetailHtml', () => {
   });
 
   it('diff에 </script>가 섞여도 스크립트 태그가 조기 종료되지 않는다', () => {
-    const diff =
-      'diff --git a/x.ts b/x.ts\n+</script><script>window.pwned = true;</script>\n';
+    const diff = 'diff --git a/x.ts b/x.ts\n+</script><script>window.pwned = true;</script>\n';
     const pr = makePr();
 
     const html = generatePrDetailHtml(pr, diff);

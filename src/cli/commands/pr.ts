@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { LocalPrEngine, PrError } from '../../local-pr/engine.js';
+import { unresolvedCount } from '../../local-pr/repository.js';
 import type { PullRequest, ReviewVerdict } from '../../local-pr/types.js';
 import { PrWebEngine } from '../../local-pr-web/engine.js';
 
@@ -47,7 +48,7 @@ function emit(value: unknown, json: boolean | undefined, human: () => void): voi
 }
 
 function summarize(pr: PullRequest): string {
-  const unresolved = pr.comments.filter((c) => !c.resolved).length;
+  const unresolved = unresolvedCount(pr);
   const round = pr.rounds[pr.rounds.length - 1]!.number;
   return `${pr.id}  [${pr.status}]  ${pr.title}  (라운드 ${round}, 미해결 ${unresolved})`;
 }
@@ -275,12 +276,12 @@ export function prMergeCommand(
     const engine = engineOf(opts);
     try {
       const before = engine.get(opts.id);
-      const unresolved = before?.comments.filter((c) => !c.resolved).length ?? 0;
+      const unresolved = before ? unresolvedCount(before) : 0;
 
       const pr = engine.merge(opts.id, actorOf(opts), { deleteBranch: opts.deleteBranch });
       emit(pr, opts.json, () => {
         console.log(`PR ${pr.id} 머지`);
-        if (unresolved > 0) console.log(`  미해결 코멘트 ${unresolved}건이 남은 채로 머지됐다`);
+        if (unresolved > 0) console.log(`  미해결 스레드 ${unresolved}건이 남은 채로 머지됐다`);
       });
     } finally {
       engine.dispose();
