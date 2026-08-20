@@ -163,6 +163,54 @@ describe('LocalPrEngine', () => {
       expect((mergedEvent!.payload as { unresolvedCount: number }).unresolvedCount).toBe(1);
     });
 
+    it('base를 안 올라타고 있어도 임시 워크트리로 머지한다', () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      // feat/x에 그대로 선 채로 머지한다. 옮겨 타지 않는다
+      expect(run(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe('feat/x');
+
+      const merged = engine.merge(pr.id, 'a');
+
+      expect(merged.status).toBe('merged');
+      expect(run(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe('feat/x');
+      // main이 머지 커밋으로 옮겨갔다
+      expect(run(repo, ['log', '-1', '--format=%s', 'main'])).toContain(pr.id);
+    });
+
+    it('임시 워크트리를 남기지 않는다', () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      engine.merge(pr.id, 'a');
+
+      const list = run(repo, ['worktree', 'list']);
+      expect(list).not.toContain('gestalt-merge-');
+      expect(list.trim().split('\n')).toHaveLength(1);
+    });
+
+    it('base를 올라타고 있으면 그 자리에서 머지한다', () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      run(repo, ['checkout', '-q', 'main']);
+
+      engine.merge(pr.id, 'a');
+
+      expect(run(repo, ['rev-parse', '--abbrev-ref', 'HEAD'])).toBe('main');
+      expect(run(repo, ['log', '-1', '--format=%s'])).toContain(pr.id);
+    });
+
+    it('다른 워크트리가 base를 잡고 있으면 밀지 않고 돌려보낸다', () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      const wt = mkdtempSync(join(tmpdir(), 'gestalt-holder-'));
+      rmSync(wt, { recursive: true, force: true });
+      // main을 다른 워크트리가 올라탄다. 여기서 ref를 밀면 그쪽이 깨진다
+      run(repo, ['worktree', 'add', '-q', wt, 'main']);
+
+      try {
+        expect(() => engine.merge(pr.id, 'a')).toThrow(/다른 워크트리/);
+        // 거부했으니 main은 그대로다
+        expect(run(repo, ['log', '-1', '--format=%s', 'main'])).toBe('init');
+      } finally {
+        run(repo, ['worktree', 'remove', '--force', wt]);
+      }
+    });
+
     it('머지된 PR은 더 못 건드린다', () => {
       const pr = engine.create({ title: 't', author: 'a' });
       run(repo, ['checkout', '-q', 'main']);

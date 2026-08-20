@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 /**
@@ -88,17 +90,111 @@ export function diffStat(repoRoot: string, baseSha: string, headSha: string): st
 
 export interface MergeResult {
   mergeSha: string;
+  /** 임시 워크트리에서 합쳤는지. 곧장 합쳤으면 false다 */
+  viaWorktree: boolean;
+}
+
+export interface WorktreeEntry {
+  path: string;
+  /** 이 워크트리가 올라타 있는 브랜치. detached면 null */
+  branch: string | null;
+}
+
+/** 이 레포에 딸린 워크트리 목록 */
+export function worktrees(repoRoot: string): WorktreeEntry[] {
+  const out = git(repoRoot, ['worktree', 'list', '--porcelain']);
+  const entries: WorktreeEntry[] = [];
+  let current: Partial<WorktreeEntry> = {};
+
+  for (const line of out.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      current = { path: line.slice('worktree '.length), branch: null };
+      entries.push(current as WorktreeEntry);
+    } else if (line.startsWith('branch ')) {
+      current.branch = line.slice('branch refs/heads/'.length);
+    }
+  }
+
+  return entries;
+}
+
+/** 이 브랜치를 올라타고 있는 워크트리. 없으면 null */
+export function worktreeOn(repoRoot: string, branch: string): WorktreeEntry | null {
+  return worktrees(repoRoot).find((w) => w.branch === branch) ?? null;
+}
+
+/** 심볼릭 링크를 풀어 같은 자리인지 본다 */
+function samePath(a: string, b: string): boolean {
+  const real = (p: string) => {
+    try {
+      return realpathSync(resolve(p));
+    } catch {
+      return resolve(p);
+    }
+  };
+  return real(a) === real(b);
+}
+
+export function isClean(repoRoot: string): boolean {
+  return git(repoRoot, ['status', '--porcelain']) === '';
 }
 
 /**
- * PR의 head를 base 쪽 브랜치에 병합한다.
+ * PR의 head를 base 브랜치에 병합한다.
  *
- * 지금 올라타 있는 브랜치에 합친다 — 브랜치를 옮겨 다니면 워크트리끼리 서로를
- * 밟기 때문이다. base 브랜치가 아닌 자리에서 부르면 그대로 실패한다.
+ * 부르는 쪽이 base로 옮겨 타지 않아도 되게 임시 워크트리에서 합치고 브랜치 ref만
+ * 옮긴다. 워커가 자기 워크트리에 그대로 있는 채로 머지할 수 있다.
+ *
+ * **base가 다른 워크트리에 체크아웃돼 있으면 ref를 밀지 않는다.** 그쪽은 파일이 옛
+ * 상태인데 HEAD만 움직여서, git이 머지를 되돌리는 수정이 널려 있는 것처럼 보고한다.
+ * 그 자리에서 직접 머지하도록 돌려보낸다.
+ *
+ * ref는 옛 값을 함께 넘겨 옮긴다. 그 사이 base가 움직였으면 git이 거부한다.
  */
-export function merge(repoRoot: string, prId: string, headSha: string, title: string): MergeResult {
-  git(repoRoot, ['merge', '--no-ff', headSha, '-m', `Merge local PR ${prId}: ${title}`]);
-  return { mergeSha: resolveSha(repoRoot, 'HEAD') };
+export function mergeIntoBase(
+  repoRoot: string,
+  input: { prId: string; baseRef: string; headSha: string; title: string },
+): MergeResult {
+  const { prId, baseRef, headSha, title } = input;
+  const message = `Merge local PR ${prId}: ${title}`;
+
+  const holder = worktreeOn(repoRoot, baseRef);
+
+  // 지금 이 자리가 base를 올라타고 있으면 그냥 여기서 합치는 게 제일 안전하다.
+  // macOS의 /tmp처럼 심볼릭 링크를 타는 경로가 있어 실경로로 맞춰야 같은 자리인지 안다
+  if (holder && samePath(holder.path, repoRoot)) {
+    git(repoRoot, ['merge', '--no-ff', headSha, '-m', message]);
+    return { mergeSha: resolveSha(repoRoot, 'HEAD'), viaWorktree: false };
+  }
+
+  if (holder) {
+    throw new Error(
+      `base 브랜치 ${baseRef}를 다른 워크트리가 올라타고 있다: ${holder.path}\n` +
+        '거기서 머지하거나 그 워크트리를 정리한 뒤 다시 부른다',
+    );
+  }
+
+  const before = resolveSha(repoRoot, baseRef);
+  const scratch = mkdtempSync(join(tmpdir(), `gestalt-merge-${prId}-`));
+
+  try {
+    // 브랜치를 체크아웃하지 않고 그 지점만 떼어 온다. 어느 워크트리와도 안 겹친다
+    git(repoRoot, ['worktree', 'add', '--detach', '-q', scratch, before]);
+    git(scratch, ['merge', '--no-ff', headSha, '-m', message]);
+    const mergeSha = resolveSha(scratch, 'HEAD');
+
+    // 옛 값을 같이 넘긴다. 그 사이 base가 움직였으면 여기서 거부된다
+    git(repoRoot, ['update-ref', `refs/heads/${baseRef}`, mergeSha, before]);
+
+    return { mergeSha, viaWorktree: true };
+  } finally {
+    try {
+      git(repoRoot, ['worktree', 'remove', '--force', scratch]);
+    } catch {
+      rmSync(scratch, { recursive: true, force: true });
+      git(repoRoot, ['worktree', 'prune']);
+    }
+  }
 }
 
 export function deleteBranch(repoRoot: string, branch: string): void {

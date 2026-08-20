@@ -180,7 +180,12 @@ export class LocalPrEngine {
   merge(prId: string, by: Actor, options: { deleteBranch?: boolean } = {}): PullRequest {
     const pr = this.requireOpen(prId);
 
-    const { mergeSha } = git.merge(this.repoRoot, prId, pr.headSha, pr.title);
+    const { mergeSha } = git.mergeIntoBase(this.repoRoot, {
+      prId,
+      baseRef: pr.baseRef ?? 'main',
+      headSha: pr.headSha,
+      title: pr.title,
+    });
 
     this.store.append(PR_AGGREGATE, prId, PrEvent.MERGED, {
       by,
