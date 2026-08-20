@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -220,6 +220,9 @@ export interface PrCheckout {
   headSha: string;
 }
 
+/** 떼어낸 워크트리를 모아 두는 칸. 자리를 되짚는 폴백이 이 이름으로 훑는다 */
+const CHECKOUT_ROOT = 'gestalt-pr-checkout';
+
 /**
  * PR 리뷰용 워크트리가 놓일 자리.
  *
@@ -228,16 +231,47 @@ export interface PrCheckout {
  * 다른 레포의 PR이 우연히 같은 id를 받아도 자리가 겹치지 않는다.
  *
  * 레포 안이 아니라 tmp에 둔다. 레포 안에 두면 워킹 트리에 추적되지 않는 디렉토리가
- * 생겨 리뷰 중인 diff에 섞인다.
+ * 생겨 리뷰 중인 diff에 섞인다. 대신 tmp 자리는 TMPDIR를 타므로 뗄 때와 지울 때
+ * 환경이 다르면 값이 갈린다. 그 경우는 `registeredCheckout`이 등록 목록으로 되짚는다.
  */
 export function prCheckoutPath(repoRoot: string, prId: string): string {
   const key = createHash('sha1').update(gitCommonDir(repoRoot)).digest('hex').slice(0, 8);
-  return join(tmpdir(), 'gestalt-pr-checkout', key, prId);
+  return join(tmpdir(), CHECKOUT_ROOT, key, prId);
 }
 
-/** 이 경로가 지금 이 레포에 워크트리로 등록돼 있는가 */
-function isRegistered(repoRoot: string, path: string): boolean {
-  return worktrees(repoRoot).some((w) => samePath(w.path, path));
+/**
+ * 이 PR이 실제로 떼어져 있는 자리. 등록이 없으면 null.
+ *
+ * 먼저 지금 환경이 계산한 자리를 본다. 없으면 등록 목록에서 `<CHECKOUT_ROOT>/<해시>/<prId>`
+ * 꼴을 훑는다 — 뗄 때와 지울 때 TMPDIR가 다르면 계산값이 옛 자리를 안 가리키기 때문이다.
+ * 폴백이 없으면 원래 자리가 등록된 채로 영영 남는다.
+ */
+function registeredCheckout(repoRoot: string, prId: string): string | null {
+  const canonical = prCheckoutPath(repoRoot, prId);
+  const list = worktrees(repoRoot);
+
+  if (list.some((w) => samePath(w.path, canonical))) return canonical;
+
+  const strayed = list.find((w) => {
+    const parts = w.path.split(/[\\/]/);
+    return parts.at(-1) === prId && parts.at(-3) === CHECKOUT_ROOT;
+  });
+
+  return strayed?.path ?? null;
+}
+
+/**
+ * 워크트리를 지운 뒤에도 git을 부를 수 있는 자리.
+ *
+ * `scrub`은 자기 cwd를 지울 수 있다 — `checkout`이 알려준 경로로 `cd` 한 채
+ * `--remove`를 부르는 게 이 명령의 정상 흐름이다. 사라진 cwd에서 git을 부르면
+ * spawn이 ENOENT로 죽어, 정리는 됐는데 실패로 보고한다. 그래서 지우는 자리 밖인
+ * 본체 워킹 트리를 잡는다. 본체가 없는 bare 레포면 공용 git 디렉토리 자신을 쓴다.
+ */
+function gitAnchor(repoRoot: string): string {
+  const common = gitCommonDir(repoRoot);
+  const main = dirname(common);
+  return existsSync(join(main, '.git')) ? main : common;
 }
 
 /** 그 자리가 아직 워크트리 노릇을 하는가. 등록만 남고 속이 깨진 경우를 가른다 */
@@ -250,15 +284,33 @@ function isUsable(path: string): boolean {
   }
 }
 
+/** 이 커밋을 품은 ref가 하나라도 있는가. 없으면 워크트리와 함께 사라진다 */
+function anchoredByRef(repoRoot: string, sha: string): boolean {
+  return (
+    git(repoRoot, ['for-each-ref', '--contains', sha, '--count=1', '--format=%(refname)']) !== ''
+  );
+}
+
 /** 반쯤 남은 흔적을 치운다. 등록과 디렉토리 둘 다 없앤다 */
 function scrub(repoRoot: string, path: string): void {
+  const anchor = gitAnchor(repoRoot);
+
   try {
-    git(repoRoot, ['worktree', 'remove', '--force', path]);
+    git(anchor, ['worktree', 'remove', '--force', path]);
   } catch {
     // 등록이 없거나 이미 깨졌다. 아래에서 손으로 치운다
   }
+
   rmSync(path, { recursive: true, force: true });
-  git(repoRoot, ['worktree', 'prune']);
+  git(anchor, ['worktree', 'prune']);
+
+  // 해시 칸에는 이 레포의 PR 자리만 들어간다. 비었으면 같이 치운다 — 안 그러면
+  // 레포마다 빈 디렉토리가 tmp에 쌓인다. 다른 PR이 남아 있으면 rmdir이 거부한다
+  try {
+    rmdirSync(dirname(path));
+  } catch {
+    // 비어 있지 않거나 이미 없다. 어느 쪽이든 더 할 일이 없다
+  }
 }
 
 /**
@@ -271,22 +323,24 @@ function scrub(repoRoot: string, path: string): void {
  * 부딪힌다. mergeIntoBase가 임시 워크트리에서 같은 선택을 한 이유와 같다.
  *
  * 같은 PR을 두 번 부르면 있는 워크트리를 그대로 돌려준다. 리뷰어가 거기서 하던
- * 작업을 날리지 않는다.
+ * 작업을 날리지 않는다. TMPDIR가 바뀌어 계산값이 달라져도 등록된 자리를 되짚어
+ * 돌려주므로 한 PR에 워크트리가 둘 생기지 않는다.
  */
 export function checkoutPrHead(repoRoot: string, prId: string, headSha: string): PrCheckout {
-  const path = prCheckoutPath(repoRoot, prId);
+  const existing = registeredCheckout(repoRoot, prId);
 
   // 리뷰어가 거기서 커밋을 얹었으면 HEAD가 PR head에서 옮겨가 있다. 인자로 받은
   // 값이 아니라 그 자리의 실제 HEAD를 돌려준다
-  if (isRegistered(repoRoot, path) && isUsable(path)) {
-    return { path, created: false, headSha: resolveSha(path, 'HEAD') };
+  if (existing && isUsable(existing)) {
+    return { path: existing, created: false, headSha: resolveSha(existing, 'HEAD') };
   }
+
+  const path = prCheckoutPath(repoRoot, prId);
 
   // 등록이나 디렉토리 한쪽만 남은 자리. 지난번 정리가 중간에 끊긴 흔적이다.
   // 그대로 두면 `worktree add`가 거부하므로 치우고 다시 뗀다
-  if (existsSync(path) || isRegistered(repoRoot, path)) {
-    scrub(repoRoot, path);
-  }
+  if (existing) scrub(repoRoot, existing);
+  if (existsSync(path)) scrub(repoRoot, path);
 
   mkdirSync(dirname(path), { recursive: true });
   git(repoRoot, ['worktree', 'add', '--detach', '-q', path, headSha]);
@@ -294,19 +348,49 @@ export function checkoutPrHead(repoRoot: string, prId: string, headSha: string):
   return { path, created: true, headSha };
 }
 
+/**
+ * 안 지운 이유를 식별자로 가른다.
+ *
+ * `reason`은 사람이 읽을 산문이라 부르는 쪽이 부분 문자열로 긁으면 문장을 손볼 때마다
+ * 깨진다. 갈래는 이 값으로 탄다.
+ *
+ * - `removed`  지웠다
+ * - `absent`   지울 자리가 없었다 (정리의 목표가 이미 이뤄진 상태다)
+ * - `dirty`    커밋 안 된 변경이 있어 일부러 안 지웠다
+ * - `diverged` 여기서 커밋한 변경이 있어 일부러 안 지웠다
+ */
+export type CheckoutRemovalStatus = 'removed' | 'absent' | 'dirty' | 'diverged';
+
 export interface CheckoutRemoval {
   path: string;
   removed: boolean;
+  status: CheckoutRemovalStatus;
   /** 안 지웠으면 그 이유. 지웠으면 null */
   reason: string | null;
+  /** 사라질 뻔한 커밋을 붙잡아 둔 ref. 그런 커밋이 없었으면 null */
+  savedRef: string | null;
+}
+
+/** `--force`로 지울 때 워크트리 전용 커밋을 붙잡아 둘 ref */
+function strandedRef(prId: string): string {
+  return `refs/gestalt/pr-checkout/${prId}`;
 }
 
 /**
  * 떼어 놓은 워크트리를 지운다.
  *
- * **커밋 안 된 변경이 있으면 지우지 않는다.** 리뷰어가 뮤테이션 검증 중이면 그
- * 워크트리는 일부러 깨놓은 코드다. 여기서 날리면 무엇을 어떻게 깼는지가 사라진다.
- * 대신 왜 안 지웠는지 돌려준다. 정말 버릴 참이면 `force`로 다시 부른다.
+ * **지울 만하지 않으면 지우지 않는다.** 리뷰어가 뮤테이션 검증 중이면 그 워크트리는
+ * 일부러 깨놓은 코드다. 여기서 날리면 무엇을 어떻게 깼는지가 사라진다. 두 갈래를 막는다.
+ *
+ * - 커밋 안 된 변경 (`dirty`)
+ * - 여기서 커밋했는데 어느 ref도 안 품은 커밋 (`diverged`) — 떼어낸 자리는 detached
+ *   HEAD라 브랜치 ref가 없고 워크트리 전용 reflog도 함께 죽는다. `git status`는
+ *   깨끗하다고 답하므로 미커밋 검사만으로는 이 손실이 안 걸린다.
+ *
+ * 어느 쪽이든 왜 안 지웠는지 돌려준다. 정말 버릴 참이면 `force`로 다시 부른다. 그때도
+ * ref가 안 품은 커밋은 `refs/gestalt/pr-checkout/<prId>`로 붙잡아 두고 지운다 — 막는
+ * 것과 지우게 두는 것 사이에서, 되돌릴 실마리를 남기는 쪽을 골랐다. 리뷰어가 검증
+ * 중간을 커밋해 두는 건 있을 법한 흐름이라 `--force` 한 번에 영영 잃게 둘 수 없다.
  *
  * git이 추적하지 않기로 한 파일(.gitignore에 걸린 node_modules 등)은 변경으로
  * 세지 않는다. `git status --porcelain`이 이미 그것들을 뺀 목록을 준다.
@@ -314,30 +398,57 @@ export interface CheckoutRemoval {
 export function removePrCheckout(
   repoRoot: string,
   prId: string,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; headSha?: string } = {},
 ): CheckoutRemoval {
-  const path = prCheckoutPath(repoRoot, prId);
+  const path = registeredCheckout(repoRoot, prId);
 
-  if (!isRegistered(repoRoot, path)) {
-    git(repoRoot, ['worktree', 'prune']);
-    rmSync(path, { recursive: true, force: true });
-    return { path, removed: false, reason: '떼어 놓은 워크트리가 없다' };
+  if (!path) {
+    const guess = prCheckoutPath(repoRoot, prId);
+    git(gitAnchor(repoRoot), ['worktree', 'prune']);
+    rmSync(guess, { recursive: true, force: true });
+    return {
+      path: guess,
+      removed: false,
+      status: 'absent',
+      reason: '떼어 놓은 워크트리가 없다',
+      savedRef: null,
+    };
   }
 
   // 속이 깨진 자리는 지킬 변경도 읽을 수 없다. 흔적만 치운다
   if (!isUsable(path)) {
     scrub(repoRoot, path);
-    return { path, removed: true, reason: null };
+    return { path, removed: true, status: 'removed', reason: null, savedRef: null };
   }
 
   if (!options.force && !isClean(path)) {
     return {
       path,
       removed: false,
+      status: 'dirty',
       reason: '커밋 안 된 변경이 있다. 확인한 뒤 --force로 다시 부른다',
+      savedRef: null,
     };
   }
 
+  // PR head에서 옮겨갔고 어느 ref도 안 품은 HEAD. 지우면 되짚을 sha를 아는 데가 없다
+  const head = resolveSha(path, 'HEAD');
+  const stranded =
+    options.headSha !== undefined && head !== options.headSha && !anchoredByRef(repoRoot, head);
+
+  if (stranded && !options.force) {
+    return {
+      path,
+      removed: false,
+      status: 'diverged',
+      reason: `여기서 커밋한 변경이 있다 (HEAD ${head.slice(0, 8)}). 확인한 뒤 --force로 다시 부른다`,
+      savedRef: null,
+    };
+  }
+
+  const savedRef = stranded ? strandedRef(prId) : null;
+  if (savedRef) git(repoRoot, ['update-ref', savedRef, head]);
+
   scrub(repoRoot, path);
-  return { path, removed: true, reason: null };
+  return { path, removed: true, status: 'removed', reason: null, savedRef };
 }

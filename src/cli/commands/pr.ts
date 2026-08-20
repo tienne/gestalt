@@ -173,14 +173,20 @@ export function prCheckoutCommand(
         emit(result, opts.json, () => {
           if (result.removed) {
             console.log(`워크트리를 지웠다: ${result.path}`);
+            if (result.savedRef) {
+              console.log(`  여기서 커밋한 변경은 ${result.savedRef}로 붙잡아 뒀다`);
+            }
           } else {
             console.log(`안 지웠다 — ${result.reason}`);
             console.log(`  ${result.path}`);
           }
         });
         // 안 지운 건 실패가 아니라 판단을 되돌려준 것이다. 에이전트가 종료 코드로
-        // 갈래를 타게 4(상태 충돌)를 준다
-        if (!result.removed) process.exit(4);
+        // 갈래를 타게 4(상태 충돌)를 준다. 단 `absent`는 뺀다 — 지울 자리가 없는 건
+        // 정리의 목표가 이미 이뤄진 상태다. 실패가 아니다. 4로 주면 `--remove`를 두 번
+        // 부르는 `set -e` 스크립트가 두 번째에 죽는다. 이 갈림은 --json의 status로도
+        // 읽을 수 있다 — 산문 reason을 부분 문자열로 긁을 필요가 없다
+        if (result.status === 'dirty' || result.status === 'diverged') process.exit(4);
         return;
       }
 

@@ -78,12 +78,12 @@ export class LocalPrEngine {
   /**
    * 떼어 놓은 워크트리를 지운다.
    *
-   * 커밋 안 된 변경이 있으면 지우지 않고 그 사실을 돌려준다. 부르는 쪽이 결과의
-   * removed를 보고 갈래를 탄다.
+   * 지킬 변경이 있으면 지우지 않고 그 사실을 돌려준다. 부르는 쪽은 결과의 `status`로
+   * 갈래를 탄다. PR head를 함께 넘겨야 그 자리에서 쌓은 커밋을 가려낼 수 있다.
    */
   removeCheckout(prId: string, options: { force?: boolean } = {}): git.CheckoutRemoval {
-    this.require(prId);
-    return git.removePrCheckout(this.repoRoot, prId, options);
+    const pr = this.require(prId);
+    return git.removePrCheckout(this.repoRoot, prId, { ...options, headSha: pr.headSha });
   }
 
   // ─── 생성과 갱신 ─────────────────────────────────────────

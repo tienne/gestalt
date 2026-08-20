@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { EventStore } from '../../../src/events/store.js';
 import { LocalPrEngine, PrError } from '../../../src/local-pr/engine.js';
 import * as git from '../../../src/local-pr/git.js';
@@ -233,6 +233,105 @@ describe('PR head 체크아웃', () => {
       expect(checkout.headSha).toBe(pr.headSha);
     } finally {
       engine.removeCheckout(pr.id, { force: true });
+    }
+  });
+  // ─── 2라운드 리뷰가 잡은 자리들 ────────────────────────────
+
+  it('떼어낸 자리 안에서 지워도 실패로 보고하지 않는다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+    const checkout = engine.checkout(pr.id);
+
+    // checkout이 알려준 경로로 cd 한 채 --remove를 부르는 게 이 명령의 정상 흐름이다.
+    // 그때 repoRoot는 지워질 그 자리를 가리킨다. 지운 뒤 거기서 git을 부르면 죽는다
+    const inside = new LocalPrEngine(checkout.path, store);
+    try {
+      const result = inside.removeCheckout(pr.id, { force: true });
+
+      expect(result.removed).toBe(true);
+      expect(existsSync(checkout.path)).toBe(false);
+    } finally {
+      inside.dispose();
+    }
+  });
+
+  it('지울 자리가 없는 것과 지키느라 안 지운 것을 status로 가른다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+    const checkout = engine.checkout(pr.id);
+
+    writeFileSync(join(checkout.path, 'a.txt'), '뮤테이션\n');
+    const kept = engine.removeCheckout(pr.id);
+
+    const gone = engine.removeCheckout(pr.id, { force: true });
+    const again = engine.removeCheckout(pr.id);
+
+    expect(kept.status).toBe('dirty');
+    expect(gone.status).toBe('removed');
+    // 두 번째 정리는 실패가 아니다. 목표가 이미 이뤄진 상태다
+    expect(again.status).toBe('absent');
+    expect(again.removed).toBe(false);
+  });
+
+  it('떼어낸 자리에서 커밋한 변경은 force 없이 안 지운다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+    const checkout = engine.checkout(pr.id);
+
+    run(checkout.path, ['config', 'user.email', 't@e.st']);
+    run(checkout.path, ['config', 'user.name', 'test']);
+    writeFileSync(join(checkout.path, 'a.txt'), '깨놓은 코드\n');
+    run(checkout.path, ['commit', '-q', '-am', '뮤테이션 확인 중']);
+
+    // detached HEAD라 git status는 깨끗하다고 답한다. 미커밋 검사만으로는 안 걸린다
+    const result = engine.removeCheckout(pr.id);
+
+    expect(result.status).toBe('diverged');
+    expect(result.removed).toBe(false);
+    expect(existsSync(checkout.path)).toBe(true);
+
+    engine.removeCheckout(pr.id, { force: true });
+  });
+
+  it('force로 지울 때 그 커밋을 ref로 붙잡아 둔다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+    const checkout = engine.checkout(pr.id);
+
+    run(checkout.path, ['config', 'user.email', 't@e.st']);
+    run(checkout.path, ['config', 'user.name', 'test']);
+    writeFileSync(join(checkout.path, 'a.txt'), '깨놓은 코드\n');
+    run(checkout.path, ['commit', '-q', '-am', '뮤테이션 확인 중']);
+    const stranded = run(checkout.path, ['rev-parse', 'HEAD']);
+
+    const result = engine.removeCheckout(pr.id, { force: true });
+
+    expect(result.removed).toBe(true);
+    expect(result.savedRef).toBe(`refs/gestalt/pr-checkout/${pr.id}`);
+    // 붙잡아 둔 ref가 실제로 그 커밋을 가리킨다. 되짚을 실마리가 남는다
+    expect(run(repo, ['rev-parse', result.savedRef!])).toBe(stranded);
+  });
+
+  it('마지막 PR을 지우면 레포 칸도 함께 치운다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+    const checkout = engine.checkout(pr.id);
+    const repoSlot = dirname(checkout.path);
+
+    engine.removeCheckout(pr.id, { force: true });
+
+    // 안 치우면 tmp에 빈 디렉토리가 레포마다 쌓인다
+    expect(existsSync(repoSlot)).toBe(false);
+  });
+
+  it('다른 PR이 남아 있으면 레포 칸을 안 치운다', () => {
+    const first = engine.create({ title: 'first', author: 'a' });
+    const second = engine.create({ title: 'second', author: 'a' });
+    const a = engine.checkout(first.id);
+    const b = engine.checkout(second.id);
+
+    engine.removeCheckout(first.id, { force: true });
+
+    try {
+      expect(existsSync(dirname(a.path))).toBe(true);
+      expect(existsSync(b.path)).toBe(true);
+    } finally {
+      engine.removeCheckout(second.id, { force: true });
     }
   });
 });
