@@ -11,6 +11,7 @@ import { usageReportCommand } from './commands/usage-report.js';
 import { humanizeCheckCommand } from './commands/humanize-check.js';
 import { getVersion } from '../core/version.js';
 import {
+  prCheckoutCommand,
   prCloseCommand,
   prCommentCommand,
   prCommentsCommand,
@@ -133,6 +134,12 @@ export function createCli(): Command {
   pr.command('diff <id>')
     .description('PR의 diff')
     .action((id, o, cmd) => prDiffCommand({ ...inherited(cmd), ...o, id }));
+
+  pr.command('checkout <id>')
+    .description('PR head를 임시 워크트리로 떼어낸다 — 뮤테이션 검증용')
+    .option('--remove', '떼어둔 워크트리를 지운다')
+    .option('--force', '--remove와 함께: 커밋 안 된 변경이 있어도 지운다')
+    .action((id, o, cmd) => prCheckoutCommand({ ...inherited(cmd), ...o, id }));
 
   pr.command('comment <id>')
     .description('인라인 코멘트를 단다')
