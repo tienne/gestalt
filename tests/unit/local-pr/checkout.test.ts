@@ -303,7 +303,7 @@ describe('PR head 체크아웃', () => {
     const result = engine.removeCheckout(pr.id, { force: true });
 
     expect(result.removed).toBe(true);
-    expect(result.savedRef).toBe(`refs/gestalt/pr-checkout/${pr.id}`);
+    expect(result.savedRef).toBe(`refs/gestalt/pr-checkout/${pr.id}/${stranded.slice(0, 8)}`);
     // 붙잡아 둔 ref가 실제로 그 커밋을 가리킨다. 되짚을 실마리가 남는다
     expect(run(repo, ['rev-parse', result.savedRef!])).toBe(stranded);
   });
@@ -332,6 +332,28 @@ describe('PR head 체크아웃', () => {
       expect(existsSync(b.path)).toBe(true);
     } finally {
       engine.removeCheckout(second.id, { force: true });
+    }
+  });
+  it('두 번째 force가 첫 번째로 구한 커밋을 덮지 않는다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+
+    // 뮤테이션 검증은 깨고 커밋하고 치우기를 여러 바퀴 돈다. 바퀴마다 구한 커밋이
+    // 남아야 한다 — PR당 ref가 하나면 두 번째가 첫 번째를 조용히 가져간다
+    const saved: string[] = [];
+    for (const mark of ['첫 바퀴', '둘째 바퀴']) {
+      const checkout = engine.checkout(pr.id);
+      run(checkout.path, ['config', 'user.email', 't@e.st']);
+      run(checkout.path, ['config', 'user.name', 'test']);
+      writeFileSync(join(checkout.path, 'a.txt'), `${mark}\n`);
+      run(checkout.path, ['commit', '-q', '-am', mark]);
+      saved.push(run(checkout.path, ['rev-parse', 'HEAD']));
+
+      engine.removeCheckout(pr.id, { force: true });
+    }
+
+    expect(saved[0]).not.toBe(saved[1]);
+    for (const sha of saved) {
+      expect(run(repo, ['for-each-ref', '--contains', sha, '--count=1'])).not.toBe('');
     }
   });
 });

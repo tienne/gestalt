@@ -371,9 +371,15 @@ export interface CheckoutRemoval {
   savedRef: string | null;
 }
 
-/** `--force`로 지울 때 워크트리 전용 커밋을 붙잡아 둘 ref */
-function strandedRef(prId: string): string {
-  return `refs/gestalt/pr-checkout/${prId}`;
+/**
+ * `--force`로 지울 때 워크트리 전용 커밋을 붙잡아 둘 ref.
+ *
+ * 이름에 sha를 실어 바퀴마다 한 칸씩 남긴다. PR당 한 칸이면 두 번째 `--force`가
+ * 첫 번째로 구한 커밋을 덮어써서, 그 커밋이 어느 ref도 안 품은 상태가 된다.
+ * 뮤테이션 검증은 깨고 커밋하고 치우기를 여러 바퀴 도는 흐름이라 그 자리를 실제로 밟는다.
+ */
+function strandedRef(prId: string, sha: string): string {
+  return `refs/gestalt/pr-checkout/${prId}/${sha.slice(0, 8)}`;
 }
 
 /**
@@ -446,7 +452,7 @@ export function removePrCheckout(
     };
   }
 
-  const savedRef = stranded ? strandedRef(prId) : null;
+  const savedRef = stranded ? strandedRef(prId, head) : null;
   if (savedRef) git(repoRoot, ['update-ref', savedRef, head]);
 
   scrub(repoRoot, path);
