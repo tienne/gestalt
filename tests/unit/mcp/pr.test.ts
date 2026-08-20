@@ -149,7 +149,12 @@ describe('handlePr — ges_pr MCP 래퍼', () => {
 
     // head를 안 넘기면 브랜치 끝(fourth)으로 간다. third를 명시했으니 거기 멈춰야
     // 인자가 엔진까지 갔다는 뜻이다.
-    const after = await call({ action: 'update', id: pr.id, head: third, author: 'codex:worker-1' });
+    const after = await call({
+      action: 'update',
+      id: pr.id,
+      head: third,
+      author: 'codex:worker-1',
+    });
     expect(after.headSha).toBe(third);
     expect(after.headSha).not.toBe(fourth);
   });
@@ -170,7 +175,12 @@ describe('handlePr — ges_pr MCP 래퍼', () => {
 
   it('close: 상태를 closed로 바꾼다', async () => {
     const pr = await call({ action: 'create', title: 'A', author: 'codex:worker-1' });
-    const after = await call({ action: 'close', id: pr.id, reason: '보류', author: 'codex:worker-1' });
+    const after = await call({
+      action: 'close',
+      id: pr.id,
+      reason: '보류',
+      author: 'codex:worker-1',
+    });
     expect(after.status).toBe('closed');
   });
 });

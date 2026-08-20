@@ -21,7 +21,10 @@ function requireId(input: PrInput): string {
   return input.id;
 }
 
-function dispatch(engine: LocalPrEngine, input: PrInput): PullRequest | PullRequest[] | { diff: string } {
+function dispatch(
+  engine: LocalPrEngine,
+  input: PrInput,
+): PullRequest | PullRequest[] | { diff: string } {
   switch (input.action) {
     case 'create': {
       if (!input.title) throw new PrError('title이 필요하다', 1);
