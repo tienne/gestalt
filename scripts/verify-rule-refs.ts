@@ -17,6 +17,8 @@ const ROOT = resolve(__dirname, '..');
 const PLUGIN = join(ROOT, 'plugin');
 const DOCS = join(ROOT, 'docs');
 const SRC = join(ROOT, 'src');
+const SCRIPTS = join(ROOT, 'scripts');
+const TESTS = join(ROOT, 'tests');
 /** 레포 루트에 흩어져 있는 산문 문서 */
 const ROOT_DOCS = ['README.md', 'README.ko.md', 'CLAUDE.md'];
 const rel = (path: string) => path.slice(ROOT.length + 1);
@@ -45,6 +47,22 @@ const LOANWORDS: Record<string, string> = {
 /** 대체어가 여러 개인 건 자리마다 다르기 때문이다 — 하나 정해 일괄 치환하지 말 것 */
 const LOANWORD_HINT = 'style-guide.md §음차를 옮길 때';
 
+/**
+ * 이 레포에서 만들어 쓰다가 굳어버린 비유. F-7 계열인데 문서 레지스터에서는 S2라
+ * 어투 검사(residual-s1)에 안 걸려서 따로 본다.
+ *
+ * 테스트를 자물쇠에 빗댄 "잠그다"가 그 예다. 리뷰에서 네 번 반복된 결함을 정리하며
+ * 쓰기 시작했는데, 팀에서 쓰는 말도 아니고 사람이 그 자리에서 고를 단어도 아니었다.
+ * "잠금 파일"처럼 명사로 굳은 자리는 대상이 아니라서 동사형만 본다.
+ */
+const COINED_TERMS: Array<{ pattern: RegExp; term: string; replacement: string }> = [
+  {
+    pattern: /잠[그근갔글가](?![가-힣]*파일)/,
+    term: '잠그다(테스트·기준을 자물쇠에 빗댄 자리)',
+    replacement: '관련 테스트가 있다 / 기준으로 둔다',
+  },
+];
+
 export interface RuleRefIssue {
   level: 'error' | 'warn';
   file: string;
@@ -69,6 +87,13 @@ function bareProse(markdown: string): { line: string; number: number }[] {
       .replace(/\([^)\n]*\)/g, ' '),
     number,
   }));
+}
+
+/** 따옴표와 백틱 안은 인용이라 판정 대상이 아니다 */
+function stripQuoted(line: string): string {
+  return line
+    .replace(/`[^`\n]*`/g, ' ')
+    .replace(/"[^"\n]*"|“[^”\n]*”|'[^'\n]*'/g, ' ');
 }
 
 /**
@@ -226,7 +251,7 @@ export function verifyRuleRefs(): RuleRefIssue[] {
 
   // 6. 에이전트가 읽는 문서에 S1 어투 패턴이 늘어나지 않았는가.
   //    문서가 AI-tell을 담고 있으면 에이전트가 그걸 배워 산출물로 내보낸다.
-  //    남은 건 대부분 탐지기가 못 가리는 오탐이라 0건이 아니라 베이스라인으로 잠근다.
+  //    남은 건 대부분 탐지기가 못 가리는 오탐이라 0건이 아니라 베이스라인을 기준으로 둔다.
   const baseline = readBaseline();
   for (const [file, count] of countS1ByFile()) {
     const allowed = baseline[file] ?? 0;
@@ -234,8 +259,28 @@ export function verifyRuleRefs(): RuleRefIssue[] {
       issues.push({
         level: 'error',
         file,
-        message: `S1 어투 패턴 ${count}건 (허용 ${allowed}건). 고치거나 pnpm humanize:baseline 으로 기준을 낮춰 잠근다`,
+        message: `S1 어투 패턴 ${count}건 (허용 ${allowed}건). 고치거나 pnpm humanize:baseline 으로 기준을 낮춘다`,
       });
+    }
+  }
+
+  // 7. 이 레포에서 만들어 쓴 비유가 산문에 남아 있는가.
+  //    어투 검사가 S2로 흘려보내는 자리라 여기서 따로 본다.
+  for (const file of proseTargets()) {
+    const content = readFileSync(file, 'utf-8');
+    const lines = file.endsWith('.ts') ? commentProse(content) : bareProse(content);
+    for (const { line, number } of lines) {
+      // 인용은 예외다. 룰을 설명하려면 그 말을 적어야 한다 — bareProse와 같은 기준
+      const prose = stripQuoted(line);
+      for (const { pattern, term, replacement } of COINED_TERMS) {
+        if (pattern.test(prose)) {
+          issues.push({
+            level: 'error',
+            file: `${rel(file)}:${number}`,
+            message: `만들어 쓴 비유: ${term} → ${replacement}`,
+          });
+        }
+      }
     }
   }
 
@@ -248,10 +293,20 @@ export function verifyRuleRefs(): RuleRefIssue[] {
  * 에이전트 문서만 훑던 때는 docs와 README, 소스 주석에 같은 패턴이 쌓여도 아무도
  * 몰랐다. writing-reviewer를 도입한 브랜치가 정작 그 세 자리에 C-11을 일곱 개
  * 남긴 게 이 범위 차이 때문이라, 검사도 사람이 읽는 자리까지 따라간다.
+ *
+ * scripts와 tests도 넣는다. 검사기 자신이 검사 밖에 있으면 같은 일이 또 난다 —
+ * 실제로 이 파일의 주석에 '잠근다'가 남아 있는 걸 사람이 눈으로 찾았다.
  */
 function proseTargets(): string[] {
   const rootDocs = ROOT_DOCS.map((name) => join(ROOT, name)).filter((path) => existsSync(path));
-  return [...markdownFiles(PLUGIN), ...markdownFiles(DOCS), ...rootDocs, ...sourceFiles(SRC)];
+  return [
+    ...markdownFiles(PLUGIN),
+    ...markdownFiles(DOCS),
+    ...rootDocs,
+    ...sourceFiles(SRC),
+    ...sourceFiles(SCRIPTS),
+    ...sourceFiles(TESTS),
+  ];
 }
 
 function sourceFiles(root: string): string[] {
@@ -307,9 +362,15 @@ export function commentProse(source: string): { line: string; number: number }[]
   return out;
 }
 
-/** 이스케이프되지 않은 백틱 수 */
+/**
+ * 템플릿 경계를 세는 백틱 수.
+ *
+ * 따옴표와 정규식 안의 백틱은 빼고 센다. `/<!--|-->|```/g` 같은 정규식 리터럴에
+ * 백틱이 홀수 개 들어가면 그 줄부터 파일 끝까지 템플릿 안으로 오인해서, 아래 주석이
+ * 통째로 검사에서 빠진다. 실제로 summarizer.ts에서 그 일이 났다.
+ */
 function countBackticks(line: string): number {
-  return (line.match(/(?<!\\)`/g) ?? []).length;
+  return (maskLiterals(line, { keepBackticks: true }).match(/(?<!\\)`/g) ?? []).length;
 }
 
 /**
@@ -319,7 +380,7 @@ function countBackticks(line: string): number {
  * 짝으로 세면 엉뚱한 구간이 노출되므로 백슬래시 다음 글자는 건너뛴다.
  * 정규식 리터럴을 안 덮으면 `/https:\/\//` 안의 슬래시가 주석 시작으로 읽힌다.
  */
-function maskLiterals(raw: string): string {
+function maskLiterals(raw: string, options: { keepBackticks?: boolean } = {}): string {
   const out = raw.split('');
   let quote: string | null = null;
 
@@ -336,6 +397,9 @@ function maskLiterals(raw: string): string {
       if (ch === quote) quote = null;
       continue;
     }
+
+    // 템플릿 경계를 셀 때는 백틱을 남긴다. 그걸 세러 온 것이라서다
+    if (ch === '`' && options.keepBackticks) continue;
 
     if (ch === '"' || ch === "'" || ch === '`') {
       quote = ch;
