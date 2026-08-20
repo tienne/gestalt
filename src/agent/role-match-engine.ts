@@ -4,6 +4,14 @@ export interface MatchContext {
   systemPrompt: string;
   matchingPrompt: string;
   availableAgents: Array<{ name: string; domain: string[]; description: string }>;
+  /**
+   * 이 매칭을 어느 tier 모델로 돌려도 되는지 알려주는 힌트.
+   *
+   * 설명 목록을 읽고 관련성 점수를 매기는 분류 작업이라 frugal로 충분하다.
+   * 에이전트 20여 개의 description을 세션 컨텍스트에 안 들이는 게 이 힌트의 실익이다.
+   * 서버는 힌트만 주고 모델을 고르지 않는다 — 스폰도 폴백도 스킬 런타임 몫이다.
+   */
+  tierHint: 'frugal';
 }
 
 export class RoleMatchEngine {
@@ -57,6 +65,6 @@ ${agentList}
 
 Analyze the task and select the most relevant role agents. Return matches sorted by relevance score (highest first).`;
 
-    return { systemPrompt, matchingPrompt, availableAgents };
+    return { systemPrompt, matchingPrompt, availableAgents, tierHint: 'frugal' };
   }
 }

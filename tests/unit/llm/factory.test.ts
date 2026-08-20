@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   createAdapter,
   createAdapterFromTierConfig,
+  createTierAdapter,
   hasLLMApiKey,
 } from '../../../src/llm/factory.js';
 import { AnthropicAdapter } from '../../../src/llm/adapter.js';
@@ -69,6 +70,52 @@ describe('createAdapterFromTierConfig', () => {
     expect((adapter as RetryingAdapter)['inner']).toBeInstanceOf(OpenAIAdapter);
     // OpenAIAdapter stores the client internally; we verify construction succeeded
     // with the baseURL param (no throw = baseURL was accepted)
+  });
+});
+
+describe('createTierAdapter', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it('tier 설정이 있으면 그 tier 어댑터를 만든다', () => {
+    delete process.env['ANTHROPIC_API_KEY'];
+    const config = loadConfig(
+      {
+        llm: {
+          apiKey: 'sk-ant-test',
+          frugal: { provider: 'openai', model: 'gpt-4o-mini', apiKey: 'sk-openai' },
+        },
+      },
+      opts,
+    );
+    const adapter = createTierAdapter(config.llm, 'frugal');
+    expect(adapter).toBeInstanceOf(RetryingAdapter);
+    expect((adapter as RetryingAdapter)['inner']).toBeInstanceOf(OpenAIAdapter);
+  });
+
+  it('tier 설정이 없으면 undefined를 돌려준다', () => {
+    delete process.env['ANTHROPIC_API_KEY'];
+    const config = loadConfig({ llm: { apiKey: 'sk-ant-test' } }, opts);
+    expect(createTierAdapter(config.llm, 'frugal')).toBeUndefined();
+  });
+
+  it('tier에 apiKey가 없으면 flat apiKey를 물려받는다', () => {
+    delete process.env['ANTHROPIC_API_KEY'];
+    const config = loadConfig(
+      {
+        llm: {
+          apiKey: 'sk-ant-test',
+          frugal: { provider: 'anthropic', model: 'claude-haiku-4-5' },
+        },
+      },
+      opts,
+    );
+    const adapter = createTierAdapter(config.llm, 'frugal');
+    expect(adapter).toBeInstanceOf(RetryingAdapter);
+    expect((adapter as RetryingAdapter)['inner']).toBeInstanceOf(AnthropicAdapter);
   });
 });
 

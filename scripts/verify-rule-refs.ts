@@ -6,8 +6,8 @@
  * 거기서 ID를 지우거나 심각도를 바꿔도 그 사본들은 그대로 남아 아무도 모른 채 어긋난다.
  * 여기서 막는다.
  */
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { citedRuleIds, parseRuleBook, s1Ids, QUICK_RULES_PATH } from '../src/humanize/index.js';
 import { countByRule, proseLines, DETECTABLE_RULE_IDS } from '../src/humanize/detectors.js';
@@ -15,6 +15,12 @@ import { countByRule, proseLines, DETECTABLE_RULE_IDS } from '../src/humanize/de
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const PLUGIN = join(ROOT, 'plugin');
+const DOCS = join(ROOT, 'docs');
+const SRC = join(ROOT, 'src');
+const SCRIPTS = join(ROOT, 'scripts');
+const TESTS = join(ROOT, 'tests');
+/** 레포 루트에 흩어져 있는 산문 문서 */
+const ROOT_DOCS = ['README.md', 'README.ko.md', 'CLAUDE.md'];
 const rel = (path: string) => path.slice(ROOT.length + 1);
 const BASELINE_PATH = join(__dirname, 'humanize-baseline.json');
 
@@ -41,6 +47,23 @@ const LOANWORDS: Record<string, string> = {
 /** 대체어가 여러 개인 건 자리마다 다르기 때문이다 — 하나 정해 일괄 치환하지 말 것 */
 const LOANWORD_HINT = 'style-guide.md §음차를 옮길 때';
 
+/**
+ * 이 레포에서 만들어 쓰다가 굳어버린 비유. F-7 계열인데 문서 레지스터에서는 S2라
+ * 어투 검사(residual-s1)에 안 걸려서 따로 본다.
+ *
+ * 테스트를 자물쇠에 빗댄 "잠그다"가 그 예다. 리뷰에서 네 번 반복된 결함을 정리하며
+ * 쓰기 시작했는데, 팀에서 쓰는 말도 아니고 사람이 그 자리에서 고를 단어도 아니었다.
+ * "잠금 파일"처럼 명사로 굳은 자리는 대상이 아니라서 동사형만 본다.
+ */
+const COINED_TERMS: Array<{ pattern: RegExp; term: string; replacement: string }> = [
+  {
+    // 능동형과 피동형을 함께 본다. `잠금 파일`은 굳은 말이라 뺀다
+    pattern: /잠[그근갔글가긴겨겼기](?![가-힣]*파일)/,
+    term: '잠그다(테스트·기준을 자물쇠에 빗댄 자리)',
+    replacement: '관련 테스트가 있다 / 기준으로 둔다',
+  },
+];
+
 export interface RuleRefIssue {
   level: 'error' | 'warn';
   file: string;
@@ -65,6 +88,42 @@ function bareProse(markdown: string): { line: string; number: number }[] {
       .replace(/\([^)\n]*\)/g, ' '),
     number,
   }));
+}
+
+/**
+ * 테스트 제목을 산문으로 돌려준다.
+ *
+ * 테스트 파일에서 사람이 읽는 서술은 대부분 it과 describe의 문자열이지 주석이 아니다.
+ * 주석만 보면 tests를 검사 대상에 넣어도 실제로 걸리는 게 별로 없다.
+ */
+function testTitles(source: string): { line: string; number: number }[] {
+  const out: { line: string; number: number }[] = [];
+  const re = /\b(?:it|test|describe)(?:\.\w+)?\(\s*(['"`])([\s\S]*?)\1/g;
+
+  source.split('\n').forEach((raw, index) => {
+    for (const match of raw.matchAll(re)) {
+      const title = match[2]!;
+      if (/[가-힣]/.test(title)) out.push({ line: title, number: index + 1 });
+    }
+  });
+
+  return out;
+}
+
+/** 이 파일의 산문 줄. 소스는 주석, 테스트는 주석과 제목, 나머지는 마크다운 본문이다 */
+function proseLinesOf(file: string, content: string): { line: string; number: number }[] {
+  if (!file.endsWith('.ts')) return bareProse(content);
+  const comments = commentProse(content);
+  return file.includes(`${sep}tests${sep}`) || file.endsWith('.test.ts')
+    ? [...comments, ...testTitles(content)]
+    : comments;
+}
+
+/** 따옴표와 백틱 안은 인용이라 판정 대상이 아니다 */
+export function stripQuoted(line: string): string {
+  return line
+    .replace(/`[^`\n]*`/g, ' ')
+    .replace(/"[^"\n]*"|“[^”\n]*”|'[^'\n]*'/g, ' ');
 }
 
 /**
@@ -222,7 +281,7 @@ export function verifyRuleRefs(): RuleRefIssue[] {
 
   // 6. 에이전트가 읽는 문서에 S1 어투 패턴이 늘어나지 않았는가.
   //    문서가 AI-tell을 담고 있으면 에이전트가 그걸 배워 산출물로 내보낸다.
-  //    남은 건 대부분 탐지기가 못 가리는 오탐이라 0건이 아니라 베이스라인으로 잠근다.
+  //    남은 건 대부분 탐지기가 못 가리는 오탐이라 0건이 아니라 베이스라인을 기준으로 둔다.
   const baseline = readBaseline();
   for (const [file, count] of countS1ByFile()) {
     const allowed = baseline[file] ?? 0;
@@ -230,12 +289,194 @@ export function verifyRuleRefs(): RuleRefIssue[] {
       issues.push({
         level: 'error',
         file,
-        message: `S1 어투 패턴 ${count}건 (허용 ${allowed}건). 고치거나 pnpm humanize:baseline 으로 기준을 낮춰 잠근다`,
+        message: `S1 어투 패턴 ${count}건 (허용 ${allowed}건). 고치거나 pnpm humanize:baseline 으로 기준을 낮춘다`,
       });
     }
   }
 
+  // 7. 이 레포에서 만들어 쓴 비유가 산문에 남아 있는가.
+  //    어투 검사가 S2로 흘려보내는 자리라 여기서 따로 본다.
+  for (const file of proseTargets()) {
+    const content = readFileSync(file, 'utf-8');
+    for (const { line, number } of proseLinesOf(file, content)) {
+      // 인용은 예외다. 룰을 설명하려면 그 말을 적어야 한다 — bareProse와 같은 기준
+      const prose = stripQuoted(line);
+      for (const { pattern, term, replacement } of COINED_TERMS) {
+        if (pattern.test(prose)) {
+          issues.push({
+            level: 'error',
+            file: `${rel(file)}:${number}`,
+            message: `만들어 쓴 비유: ${term} → ${replacement}`,
+          });
+        }
+      }
+    }
+  }
+
   return issues;
+}
+
+/**
+ * S1 검사 대상. 사람이 읽을 한국어 산문이 있는 자리는 전부 넣는다.
+ *
+ * 에이전트 문서만 훑던 때는 docs와 README, 소스 주석에 같은 패턴이 쌓여도 아무도
+ * 몰랐다. writing-reviewer를 도입한 브랜치가 정작 그 세 자리에 C-11을 일곱 개
+ * 남긴 게 이 범위 차이 때문이라, 검사도 사람이 읽는 자리까지 따라간다.
+ *
+ * scripts와 tests도 넣는다. 검사기 자신이 검사 밖에 있으면 같은 일이 또 난다 —
+ * 실제로 이 파일의 주석에 '잠근다'가 남아 있는 걸 사람이 눈으로 찾았다.
+ */
+export function proseTargets(): string[] {
+  const rootDocs = ROOT_DOCS.map((name) => join(ROOT, name)).filter((path) => existsSync(path));
+  return [
+    ...markdownFiles(PLUGIN),
+    ...markdownFiles(DOCS),
+    ...rootDocs,
+    ...sourceFiles(SRC),
+    ...sourceFiles(SCRIPTS),
+    ...sourceFiles(TESTS),
+  ];
+}
+
+function sourceFiles(root: string): string[] {
+  if (!existsSync(root)) return [];
+  return readdirSync(root, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
+    .map((entry) => join(entry.parentPath, entry.name));
+}
+
+/**
+ * 소스 파일에서 주석만 뽑아 산문처럼 돌려준다.
+ *
+ * 코드 본문은 대상이 아니다. 문자열 리터럴 안의 한글도 빼는데, 프롬프트 템플릿이
+ * 대부분이라 어투 룰로 재면 오탐만 는다. 사람이 읽는 설명은 주석에 있다.
+ *
+ * 줄을 통째로 차지하는 주석과 코드 뒤에 붙는 줄끝 주석을 모두 본다. 이 레포에는
+ * `filePath: string; // .gestalt-kb 경로` 같은 줄끝 주석이 흔하다.
+ *
+ * 백틱 문자열 안은 건너뛴다. 템플릿 리터럴에 들어간 예시 코드의 `//`를 주석으로
+ * 세면 문자열 데이터를 산문으로 오인해 검사하게 된다.
+ */
+export function commentProse(source: string): { line: string; number: number }[] {
+  const out: { line: string; number: number }[] = [];
+  let inBlock = false;
+  let inTemplate = false;
+
+  source.split('\n').forEach((raw, index) => {
+    const trimmed = raw.trim();
+    let text: string | null = null;
+
+    if (inBlock) {
+      text = trimmed.replace(/^\*+\s?/, '').replace(/\*\/.*$/, '');
+      if (trimmed.includes('*/')) inBlock = false;
+    } else if (inTemplate) {
+      // 템플릿이 이 줄에서 닫히면 그 뒤는 다시 코드다. 닫힌 자리 이후만 본다
+      if (countBackticks(raw) % 2 === 1) {
+        inTemplate = false;
+        text = trailingComment(raw.slice(raw.lastIndexOf('`') + 1));
+      }
+    } else if (trimmed.startsWith('/*')) {
+      text = trimmed.replace(/^\/\*+\s?/, '').replace(/\*\/.*$/, '');
+      if (!trimmed.includes('*/')) inBlock = true;
+    } else if (trimmed.startsWith('//')) {
+      text = trimmed.replace(/^\/\/+\s?/, '');
+    } else {
+      text = trailingComment(raw);
+      if (countBackticks(raw) % 2 === 1) inTemplate = true;
+    }
+
+    if (text && /[가-힣]/.test(text)) out.push({ line: text, number: index + 1 });
+  });
+
+  return out;
+}
+
+/**
+ * 템플릿 경계를 세는 백틱 수.
+ *
+ * 따옴표와 정규식 안의 백틱은 빼고 센다. `/<!--|-->|```/g` 같은 정규식 리터럴에
+ * 백틱이 홀수 개 들어가면 그 줄부터 파일 끝까지 템플릿 안으로 오인해서, 아래 주석이
+ * 통째로 검사에서 빠진다. 실제로 summarizer.ts에서 그 일이 났다.
+ */
+export function countBackticks(line: string): number {
+  return (maskLiterals(line, { keepBackticks: true }).match(/(?<!\\)`/g) ?? []).length;
+}
+
+/**
+ * 문자열과 정규식 리터럴을 같은 길이의 공백으로 덮는다.
+ *
+ * 자리를 그대로 비워둬야 원본에서 잘라낼 위치가 안 어긋난다. 이스케이프된 따옴표를
+ * 짝으로 세면 엉뚱한 구간이 노출되므로 백슬래시 다음 글자는 건너뛴다.
+ * 정규식 리터럴을 안 덮으면 `/https:\/\//` 안의 슬래시가 주석 시작으로 읽힌다.
+ */
+function maskLiterals(raw: string, options: { keepBackticks?: boolean } = {}): string {
+  const out = raw.split('');
+  let quote: string | null = null;
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!;
+
+    if (quote) {
+      if (ch === '\\') {
+        out[i] = ' ';
+        if (i + 1 < raw.length) out[++i] = ' ';
+        continue;
+      }
+      out[i] = ' ';
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    // 템플릿 경계를 셀 때는 백틱을 남긴다. 그걸 세러 온 것이라서다
+    if (ch === '`' && options.keepBackticks) continue;
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      out[i] = ' ';
+      continue;
+    }
+
+    // 정규식 리터럴. 나눗셈과 헷갈리지 않게 앞이 =·(·,·: 인 자리만 본다
+    if (ch === '/' && raw[i + 1] !== '/' && raw[i + 1] !== '*') {
+      const before = raw.slice(0, i).trimEnd();
+      if (/[=(,:[!&|?+]$/.test(before) || before === '') {
+        let j = i + 1;
+        while (j < raw.length && raw[j] !== '/') {
+          if (raw[j] === '\\') j++;
+          j++;
+        }
+        if (j < raw.length) {
+          for (let k = i; k <= j; k++) out[k] = ' ';
+          i = j;
+        }
+      }
+    }
+  }
+
+  return out.join('');
+}
+
+/**
+ * 코드 뒤에 붙는 `// ...` 와 `/* ... *\/` 를 뽑는다.
+ *
+ * 문자열과 정규식 리터럴은 maskLiterals가 먼저 덮는다. URL의 `//`나 정규식 안의
+ * 슬래시를 주석 시작으로 읽지 않으려는 것이다.
+ */
+function trailingComment(raw: string): string | null {
+  const masked = maskLiterals(raw);
+
+  const lineAt = masked.indexOf('//');
+  if (lineAt !== -1) {
+    return raw.slice(lineAt).replace(/^\/\/+\s?/, '').trim() || null;
+  }
+
+  const block = /\/\*([\s\S]*?)\*\//.exec(masked);
+  if (block) {
+    const from = block.index + 2;
+    return raw.slice(from, from + block[1]!.length).trim() || null;
+  }
+
+  return null;
 }
 
 /** 파일별 S1 건수. 룰 예외(용어 목록·룰 ID 나열)는 세지 않는다 */
@@ -243,9 +484,10 @@ export function countS1ByFile(): Map<string, number> {
   const targets = s1Ids(parseRuleBook(), 'doc');
   const counts = new Map<string, number>();
 
-  for (const file of markdownFiles(PLUGIN)) {
+  for (const file of proseTargets()) {
+    const content = readFileSync(file, 'utf-8');
     let total = 0;
-    for (const { line } of bareProse(readFileSync(file, 'utf-8'))) {
+    for (const { line } of proseLinesOf(file, content)) {
       // 굳어진 음차 화이트리스트는 C-12 예외다
       if (line.includes('화이트리스트')) continue;
       const prose = line.replace(/[가-힣A-Za-z0-9-]+(?:·[가-힣A-Za-z0-9-]+)+/g, (chain) =>

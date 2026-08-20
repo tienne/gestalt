@@ -130,11 +130,19 @@ interface GestaltConfig {
 
 작업 복잡도에 따라 다른 LLM 프로바이더를 라우팅할 수 있다. `frugal`, `standard`, `frontier` 세 가지 tier로 구분한다.
 
-| Tier | 용도 | 예시 모델 |
-|------|------|-----------|
-| `frugal` | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `haiku` |
-| `standard` | 일반 작업 — 인터뷰, 스펙 생성, 코드 실행 | `claude-sonnet-5` |
-| `frontier` | 고난도 추론 — 아키텍처 설계, 코드 리뷰, 진화 루프 | `claude-opus-4-20250514`, `o1` |
+| Tier | 용도 | 예시 모델 | 지금 실제로 쓰이는 자리 |
+|------|------|-----------|------------------------|
+| `frugal` | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `claude-haiku-4-5` | 인터뷰 해상도 점수 산정(`ResolutionScorer`, 아래 조건), `ges_generate_kb`의 파일별 한 줄 요약(`summarize: true`일 때만) |
+| `standard` | 일반 작업 — 인터뷰, 스펙 생성 | `claude-sonnet-5` | 질문 생성, Spec 생성. tier 미설정 시 flat `llm.apiKey`+`llm.model`로 폴백 |
+| `frontier` | 고난도 추론 | `claude-opus-4-20250514`, `o1` | 아직 직접 호출 경로 없음 — 설정만 받아둔다 |
+
+`frugal`은 위 두 자리에서 쓰인다. 정해진 기준에 점수를 매기거나 파일 하나를 한 문장으로 옮겨 적는 작업이라 질문 생성만큼의 모델이 필요 없어서다.
+
+조건이 자리마다 다르다. 해상도 점수 산정은 tier를 설정하면 그쪽으로 내려간다. KB 요약은 tier만으로는 안 켜지고 `ges_generate_kb`를 `summarize: true`로 불러야 돈다. 둘 다 설정이 없으면 점수 산정은 `standard`(또는 flat 설정)를 그대로 쓰고 요약 단계는 통째로 건너뛴다 — 기존 동작과 같다.
+
+**해상도 점수 산정은 서버가 직접 LLM을 부를 때만 이 경로를 탄다.** `client`가 `claude-code`, `codex`, `grok`이거나 API 키가 없으면 인터뷰는 Passthrough로 돈다. 그때는 점수를 호출자(호스트 LLM)가 매기므로 어댑터를 안 거친다. 그래서 이 라우팅이 실제로 사는 자리는 CLI(`gestalt interview`, `gestalt spec`)와 `client: "both"` + API 키 조합이다. KB 요약은 서버가 부르는 쪽이라 이 조건을 안 탄다. 대신 `summarize`를 켜야 돈다.
+
+> **품질 영향은 아직 측정하지 않았다.** 해상도 점수는 인터뷰를 언제 끝낼지 정하는 값(임계값 0.8)이라 모델을 내려서 점수가 흔들리면 라운드 수가 달라진다. `pnpm tsx scripts/verify-frugal-scoring.ts`가 golden-set 20건을 두 tier로 채점해 편차와 임계값 판정이 뒤집힌 건수를 낸다. KB 요약 쪽은 그에 대응하는 검증이 아직 없어서 opt-in으로 둔다. 요약문은 KB 본문과 임베딩에 남는다. 되돌리려면 KB를 다시 만들어야 한다.
 
 > **참고**: Execute Engine은 LLM 호출 방식과 무관하게 **항상 Passthrough 모드**로 동작합니다.
 > API 키 유무는 Execute 동작에 영향을 주지 않습니다.

@@ -6,6 +6,25 @@ import { ExecuteSessionRepository } from '../../execute/repository.js';
 import { getVersion, getCachedUpdateResult } from '../../core/version.js';
 import { resolveStatusSessionId } from '../session-selector.js';
 
+/**
+ * 두 status 경로가 공유하는 모델 정보.
+ *
+ * claude-code는 항상 passthrough라 handleStatus가 아니라 server.ts의
+ * handleStatusPassthrough를 탄다. 두 곳이 각자 이 객체를 만들면 한쪽에만 필드를
+ * 넣어도 테스트는 통과하고 실제 호출에는 안 나온다. 그래서 한 곳에서 만든다.
+ */
+export function buildReasoningModelInfo(config?: GestaltConfig) {
+  return {
+    reasoningModel: config?.reasoningModel ?? null,
+    reasoningModelFallback: config?.reasoningModelFallback ?? null,
+    // 등록 에이전트가 없는 인라인 서브에이전트(예: review-reply의 스레드 분류)도
+    // tier 모델을 골라야 한다. ges_agent get은 에이전트 이름을 요구하므로
+    // 그런 자리에서는 이 표가 유일한 조회 경로다. 소비처 개수는 여기 적지 않는다 —
+    // 스킬이 늘 때 같이 안 고쳐져서 어긋난다. 규칙은 _shared/agent-model.md에 있다.
+    tierModels: config?.tierModels ?? null,
+  };
+}
+
 export function handleStatus(
   engine: InterviewEngine,
   rawInput: StatusInput,
@@ -18,10 +37,7 @@ export function handleStatus(
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
   };
-  const reasoningModelInfo = {
-    reasoningModel: config?.reasoningModel ?? null,
-    reasoningModelFallback: config?.reasoningModelFallback ?? null,
-  };
+  const reasoningModelInfo = buildReasoningModelInfo(config);
 
   const sessionType = rawInput.sessionType ?? 'all';
 

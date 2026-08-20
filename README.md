@@ -728,11 +728,15 @@ When `client` is `"claude-code"`, `"codex"`, or `"grok"`, MCP interview/spec gen
 
 Route LLM calls by task complexity across three tiers:
 
-| Tier | Purpose | Example models |
-|------|---------|---------------|
-| **frugal** | Lightweight tasks — scoring, classification, short responses | `llama3.2`, `claude-haiku` |
-| **standard** | General tasks — interviews, spec generation, execution | `claude-sonnet-4-20250514` |
-| **frontier** | High-complexity reasoning — architecture, code review, evolution | `claude-opus-4-20250514` |
+| Tier | Purpose | Example models | Where it runs today |
+|------|---------|---------------|---------------------|
+| **frugal** | Lightweight tasks — scoring, classification, short responses | `llama3.2`, `claude-haiku-4-5` | Interview resolution scoring (CLI and `client: "both"` only), per-file KB summaries (only with `summarize: true`) |
+| **standard** | General tasks — interviews, spec generation | `claude-sonnet-4-20250514` | Question generation, spec generation |
+| **frontier** | High-complexity reasoning | `claude-opus-4-20250514` | No direct call path yet |
+
+Configuring `frugal` moves both of those onto it. Leave it unset and scoring stays on `standard` while the KB summary step is skipped entirely — exactly as before. Configuring the tier alone does not enable KB summaries; call `ges_generate_kb` with `summarize: true`.
+
+Under Claude Code or Codex the interview runs in Passthrough mode, so the host scores resolution and no adapter is involved; frugal scoring only applies to the CLI. The quality impact has not been measured yet — `scripts/verify-frugal-scoring.ts` compares both tiers against the golden set.
 
 Mix providers freely. This example uses Anthropic for standard/frontier and a local Ollama model for frugal tasks:
 

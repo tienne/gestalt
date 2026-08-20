@@ -6,7 +6,7 @@ import { log } from '../core/log.js';
 import { logger } from '../core/logger.js';
 import { getVersion, checkForUpdates, getCachedUpdateResult } from '../core/version.js';
 import { EventStore } from '../events/store.js';
-import { createAdapter } from '../llm/factory.js';
+import { createAdapter, createTierAdapter } from '../llm/factory.js';
 import { InterviewEngine } from '../interview/engine.js';
 import { PassthroughEngine } from '../interview/passthrough-engine.js';
 import { SpecGenerator } from '../spec/generator.js';
@@ -21,7 +21,7 @@ import { handleExecutePassthrough } from './tools/execute-passthrough.js';
 import { createHostAdapter } from './host-adapter.js';
 import { resolveStatusSessionId } from './session-selector.js';
 import { handleCreateAgentPassthrough } from './tools/create-agent-passthrough.js';
-import { handleStatus } from './tools/status.js';
+import { handleStatus, buildReasoningModelInfo } from './tools/status.js';
 import { handleBenchmarkPassthrough } from './tools/benchmark-passthrough.js';
 import { handleAgentPassthrough } from './tools/agent-passthrough.js';
 import { handleReviewPassthrough } from './tools/review-passthrough.js';
@@ -176,7 +176,8 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   } else {
     // ─── Normal mode: direct LLM calls ──────────────────────────
     const llm = createAdapter(config.llm);
-    const engine = new InterviewEngine(llm, eventStore);
+    const frugalLlm = createTierAdapter(config.llm, 'frugal');
+    const engine = new InterviewEngine(llm, eventStore, frugalLlm);
     const specGenerator = new SpecGenerator(llm, eventStore);
 
     server.tool(
@@ -424,9 +425,15 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       types: z
         .array(z.enum(['code-graph', 'business-logic', 'api-spec', 'adr', 'policy']))
         .optional(),
+      summarize: z
+        .boolean()
+        .optional()
+        .describe(
+          'Add a one-line summary per file using the frugal tier. Off by default — summaries are LLM-written text that lands in the KB body and embeddings, and llm.frugal must be configured.',
+        ),
     },
     async (params) => {
-      const result = await handleGenerateKb(params, process.cwd());
+      const result = await handleGenerateKb(params, process.cwd(), config);
       return { content: [{ type: 'text' as const, text: result }] };
     },
   );
@@ -477,10 +484,7 @@ function handleStatusPassthrough(
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
   };
-  const reasoningModelInfo = {
-    reasoningModel: config?.reasoningModel ?? null,
-    reasoningModelFallback: config?.reasoningModelFallback ?? null,
-  };
+  const reasoningModelInfo = buildReasoningModelInfo(config);
   const sessionType = rawInput.sessionType ?? 'all';
 
   const resolvedSessionId = rawInput.sessionId
