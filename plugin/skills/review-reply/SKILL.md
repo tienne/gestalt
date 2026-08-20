@@ -75,11 +75,30 @@ outputs:
 
 **id가 명시되면 그게 우선이다.** 아래 순서대로 훑어 처음 걸리는 갈래를 택한다.
 
-1. `local` 입력이 true거나(`--local` 플래그) `target`이 로컬 PR id 형식(`gestalt pr list`에 뜨는 id)이면 → `pnpm tsx bin/gestalt.ts pr --json show <id>`로 실제 존재를 확인한다. 있으면 `local`. 없으면 그 사실을 한 줄 알리고 2번으로 내려간다.
-2. `gh auth status`가 실패하거나(인증 안 됨) 원격이 없으면(`git remote -v` 비어 있음) → `local`.
+1. **로컬 지정** — `local` 입력이 true거나(`--local` 플래그) `target`이 로컬 PR id 형식(`gestalt pr list`에 뜨는 id)인 경우다. 이때는 로컬 PR을 두 수단으로 찾는다.
+   - `target`에 id가 있으면 먼저 `pnpm tsx bin/gestalt.ts pr --json show <id>`로 실제 존재를 확인한다.
+   - id가 없거나(`--local`만 준 경우) `show`가 빈 결과를 내면 `pnpm tsx bin/gestalt.ts pr --json list`로 현재 브랜치의 로컬 PR을 찾는다.
+   - 둘 중 하나로 찾으면 `local`. 어느 쪽으로도 못 찾으면 그 사실을 한 줄 알리고 2번으로 내려간다.
+
+   `local`은 boolean이고 `target`은 필수가 아니다. `/review-reply --local`처럼 플래그만 주는 입력이 정상이므로 id가 없는 갈래를 반드시 함께 둔다.
+2. `gh auth status`가 실패하거나(인증 안 됨) 원격이 없으면(`git remote -v` 비어 있음) → GitHub 경로가 막혀 있다. `local`.
 3. 위 둘 다 아니면 → `github` (기존 경로 그대로).
 
-gh 인증이 되고 원격도 있는데 로컬 PR id를 준 경우는 1번이 먼저 잡는다. 로컬 PR id 형식이 아닌 값(PR 번호, URL, 브랜치명)은 1번을 그냥 지나쳐 2번과 3번이 가른다.
+gh 인증이 되고 원격도 있는데 로컬 PR을 지정했으면 1번이 먼저 잡는다. 로컬 PR id 형식이 아닌 값(PR 번호, URL, 브랜치명)은 1번을 그냥 지나쳐 2번과 3번이 가른다.
+
+**갈리는 건 본문이 정본이다.** 아래 표는 본문 1~3번을 그대로 펼친 것뿐이다. 표와 본문이 어긋나 보이면 본문을 따르고 표를 고친다. 2열은 1번의 조회(`show` 또는 `list`)로 로컬 PR을 실제로 찾았는지다.
+
+| 로컬 지정 | 로컬 PR 조회 | gh 인증 | 원격 | 결과 |
+| --- | --- | --- | --- | --- |
+| 있음 | 찾음 | 무관 | 무관 | `local` (1번 — 지정이 이긴다) |
+| 있음 | 못 찾음 | 실패 | 무관 | `local` (2번) |
+| 있음 | 못 찾음 | 성공 | 없음 | `local` (2번) |
+| 있음 | 못 찾음 | 성공 | 있음 | `github` (3번) |
+| 없음 | 무관 | 실패 | 무관 | `local` (2번) |
+| 없음 | 무관 | 성공 | 없음 | `local` (2번) |
+| 없음 | 무관 | 성공 | 있음 | `github` (3번) |
+
+1열이 "있음"인데 로컬 PR을 못 찾으면 지정은 힘을 잃는다. 그 뒤로는 1열이 "없음"인 행과 같은 길을 간다. 2번이 `local`로 떨어졌는데 0단계에서도 PR을 못 찾으면 거기서 멈추고 알린다.
 
 ## 파이프라인
 
@@ -96,7 +115,7 @@ gh api user --jq .login
 
 ```bash
 pnpm tsx bin/gestalt.ts pr --json show <id>
-pnpm tsx bin/gestalt.ts pr --json list   # id 없이 브랜치로만 들어온 경우 현재 브랜치 매칭
+pnpm tsx bin/gestalt.ts pr --json list   # id가 없거나 show가 비었을 때 현재 브랜치 매칭 (판별 1번과 같은 두 수단)
 ```
 
 작성자는 `author` 필드, 현재 사용자는 `--author` 옵션값 → `GESTALT_ACTOR` 환경변수 → `human:local` 순으로 정해지는 값(`gestalt pr` CLI의 `actorOf` 규칙과 동일)과 비교한다.

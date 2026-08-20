@@ -75,24 +75,38 @@ execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파
 
 **id가 명시되면 그게 우선이다.** 아래 순서대로 훑어 처음 걸리는 갈래를 택하고 나머지는 보지 않는다.
 
-1. `local` 입력이 true거나(`--local` 플래그) `target`이 로컬 PR id 형식(`gestalt pr list`에 뜨는 id)이면 → `pnpm tsx bin/gestalt.ts pr --json show <id>`로 실제 존재를 확인한다. 있으면 `local`. 없으면 그 사실을 한 줄 알리고 2번으로 내려간다.
-2. `gh auth status`가 실패하거나(인증 안 됨) `git remote -v`가 비어 있으면(원격 없음) → GitHub 경로가 애초에 막혀 있다. `pnpm tsx bin/gestalt.ts pr --json list`로 현재 브랜치의 로컬 PR을 찾는다. 있으면 `local`. 없으면 `none`.
+1. **로컬 지정** — `local` 입력이 true거나(`--local` 플래그) `target`이 로컬 PR id 형식(`gestalt pr list`에 뜨는 id)인 경우다. 이때는 로컬 PR을 두 수단으로 찾는다.
+   - `target`에 id가 있으면 먼저 `pnpm tsx bin/gestalt.ts pr --json show <id>`로 실제 존재를 확인한다.
+   - id가 없거나(`--local`만 준 경우) `show`가 빈 결과를 내면 `pnpm tsx bin/gestalt.ts pr --json list`로 현재 브랜치의 로컬 PR을 찾는다.
+   - 둘 중 하나로 찾으면 `local`. 어느 쪽으로도 못 찾으면 그 사실을 한 줄 알리고 2번으로 내려간다.
+
+   `local`은 boolean이고 `target`은 필수가 아니다. `/review --local`처럼 플래그만 주는 입력이 정상이므로 id가 없는 갈래를 반드시 함께 둔다.
+2. `gh auth status`가 실패하거나(인증 안 됨) `git remote -v`가 비어 있으면(원격 없음) → GitHub 경로가 애초에 막혀 있다. `pnpm tsx bin/gestalt.ts pr --json list`로 현재 브랜치의 로컬 PR을 찾는다. 있으면 `local`. 없으면 `none`. (1번을 거쳐 내려왔으면 이미 못 찾은 뒤이므로 `none`이 된다.)
 3. `gh pr view <target>`이 성공하면(GitHub PR이 실제로 존재) → `github`.
 4. 여기까지 아무 데도 안 걸렸으면(GitHub에도 로컬에도 대응하는 PR이 없는 브랜치나 커밋 범위 리뷰) → `none`. 4.7단계 전체를 건너뛴다 — 원래 동작 그대로다.
 
-조합별로 어느 갈래에 떨어지는지 표로 확인한다. 빈 자리는 없다.
+**갈리는 건 본문이 정본이다.** 아래 표는 본문 1~4번을 그대로 펼친 것뿐이다. 표와 본문이 어긋나 보이면 본문을 따르고 표를 고친다.
 
-| `--local` 또는 로컬 PR id | gh 인증 | 원격 | GitHub PR 존재 | 결과 |
-| --- | --- | --- | --- | --- |
-| 있음 (로컬 PR 실재) | 성공 | 있음 | 있음 | `local` (1번 — id가 이긴다) |
-| 있음 (로컬 PR 실재) | 성공 | 있음 | 없음 | `local` (1번) |
-| 있음 (로컬 PR 실재) | 실패 | 무관 | 무관 | `local` (1번) |
-| 있음 (로컬 PR 없음) | 성공 | 있음 | 있음 | `github` (3번) |
-| 있음 (로컬 PR 없음) | 실패 | 무관 | 무관 | `local` 또는 `none` (2번) |
-| 없음 | 실패 | 무관 | 무관 | `local` 또는 `none` (2번) |
-| 없음 | 성공 | 없음 | 무관 | `local` 또는 `none` (2번) |
-| 없음 | 성공 | 있음 | 있음 | `github` (3번) |
-| 없음 | 성공 | 있음 | 없음 | `none` (4번) |
+표의 1열은 위 "로컬 지정" 여부다. 2열은 1번이나 2번의 조회(`show` 또는 `list`)로 로컬 PR을 실제로 찾았는지다. 두 열의 조합에 gh 인증, 원격, GitHub PR 존재를 곱한 32가지가 아래 11행으로 남김없이 나뉜다.
+
+| 로컬 지정 | 로컬 PR 조회 | gh 인증 | 원격 | GitHub PR 존재 | 결과 |
+| --- | --- | --- | --- | --- | --- |
+| 있음 | 찾음 | 무관 | 무관 | 무관 | `local` (1번 — 지정이 이긴다) |
+| 있음 | 못 찾음 | 실패 | 무관 | 무관 | `none` (2번) |
+| 있음 | 못 찾음 | 성공 | 없음 | 무관 | `none` (2번) |
+| 있음 | 못 찾음 | 성공 | 있음 | 있음 | `github` (3번) |
+| 있음 | 못 찾음 | 성공 | 있음 | 없음 | `none` (4번) |
+| 없음 | 찾음 | 실패 | 무관 | 무관 | `local` (2번) |
+| 없음 | 찾음 | 성공 | 없음 | 무관 | `local` (2번) |
+| 없음 | 못 찾음 | 실패 | 무관 | 무관 | `none` (2번) |
+| 없음 | 못 찾음 | 성공 | 없음 | 무관 | `none` (2번) |
+| 없음 | 무관 | 성공 | 있음 | 있음 | `github` (3번) |
+| 없음 | 무관 | 성공 | 있음 | 없음 | `none` (4번) |
+
+읽는 법 두 가지를 짚어 둔다.
+
+- 1열이 "있음"인데 로컬 PR을 못 찾으면 지정은 힘을 잃는다. 그 뒤로는 1열이 "없음"인 행과 같은 길을 간다. 잘못된 id를 주고 GitHub PR이 실재하면 `github`으로 가는 4행이 그 자리다.
+- 1열이 "없음"이면서 gh도 살아 있고 원격도 있으면 로컬 PR을 찾았는지는 결과를 바꾸지 않는다(마지막 두 행의 "무관"). 로컬 PR을 자동으로 집어오려면 `--local`이나 로컬 PR id로 의사를 밝혀야 한다.
 
 ## Skill Instructions
 
@@ -467,9 +481,9 @@ pnpm tsx bin/gestalt.ts pr --json show <id>   # headSha 필드로 비교
 # github
 gh pr view <target> --json number,headRefName,baseRefName,url 2>/dev/null
 
-# local (target이 로컬 PR id가 아니면 list로 현재 브랜치 매칭)
+# local (판별 1번과 같은 두 수단이다 — id가 있으면 show, 없거나 못 찾으면 list)
 pnpm tsx bin/gestalt.ts pr --json show <id> 2>/dev/null
-pnpm tsx bin/gestalt.ts pr --json list 2>/dev/null   # id 없이 브랜치로만 들어온 경우
+pnpm tsx bin/gestalt.ts pr --json list 2>/dev/null   # id가 없거나 show가 비었을 때 현재 브랜치 매칭
 ```
 
 `target`이 브랜치면 그 브랜치의 PR을, 생략됐으면 현재 브랜치의 PR을 찾습니다. 어느 쪽에서도 PR을 못 찾으면(`prTarget: "none"` — 로컬 브랜치·커밋 범위 등) 이 단계를 통째로 건너뛰고 결과 표시로 갑니다.
