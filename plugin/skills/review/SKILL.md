@@ -63,6 +63,17 @@ execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파
 
 없습니다. git 저장소이기만 하면 바로 돌아갑니다 — 코드 그래프는 쓰지 않습니다.
 
+## 대상 판별 (GitHub PR vs 로컬 PR vs 브랜치/커밋)
+
+**리뷰 파이프라인 자체(1~4단계: diff 수집 → 리뷰 에이전트 N종 → continuity-judge 정합 심급 → consensus 판정)는 대상이 무엇이든 그대로다.** 갈리는 건 4.7단계, 결과를 게시하는 자리뿐이다.
+
+판별은 4.7단계 진입 직전에 한 번 하고 `prTarget = "github" | "local" | "none"`으로 보관한다 (그 앞 단계는 target이 브랜치든 커밋이든 PR이든 `git diff`만으로 동작하므로 미리 알 필요가 없다).
+
+1. 사용자가 `--local`을 붙였거나 로컬 PR id를 직접 지목했으면 → `local`.
+2. `gh pr view <target>`이 성공하고(GitHub PR이 실제로 존재) `gh auth status`도 성공하면 → `github`.
+3. `gh auth status`가 실패하거나 원격이 없으면 → `local`. 이때 `pnpm tsx bin/gestalt.ts pr --json show <id>`로 대상 로컬 PR이 실제 존재하는지 먼저 확인한다.
+4. 위 어느 쪽도 PR을 찾지 못하면(로컬 브랜치·커밋 범위 리뷰) → `none`. 4.7단계 전체를 건너뛴다 — 원래 동작 그대로다.
+
 ## Skill Instructions
 
 `repoRoot`가 주어지지 않으면 현재 작업 디렉토리를 절대 경로로 사용합니다.
@@ -413,9 +424,14 @@ Agent {
 게시 직전에, 게시하려는 consensus가 **현재 diff와 일치하는지** 반드시 확인합니다. 리뷰를 끝낸 뒤 코드가 바뀌었거나(커밋 추가·로컬 수정), 애초에 활성 리뷰 세션이 없으면 그 consensus는 stale이므로 **그대로 올리지 않습니다.**
 
 ```bash
-# 리뷰 시점 대비 PR head·작업트리가 바뀌었는지 확인
-gh pr view <target> --json headRefOid
+# 리뷰 시점 대비 작업트리가 바뀌었는지 확인 — 대상과 무관하게 공통
 git rev-parse HEAD && git status --porcelain
+
+# github: PR head도 함께 확인
+gh pr view <target> --json headRefOid
+
+# local: PR head도 함께 확인
+pnpm tsx bin/gestalt.ts pr --json show <id>   # headSha 필드로 비교
 ```
 
 판단 기준:
@@ -425,15 +441,20 @@ git rev-parse HEAD && git status --porcelain
 
 인라인 코멘트는 **언제 요청받든 항상 "현재 diff 기준 consensus + code-review-writer voice"** 로만 게시됩니다. 옛 리뷰 메모리를 그대로 옮겨 적거나 Claude가 손으로 코멘트를 짜는 경로는 없습니다.
 
-**PR 식별.** 먼저 대상이 PR인지 확인합니다.
+**PR 식별.** 대상 판별 절의 순서대로 확인합니다.
 
 ```bash
+# github
 gh pr view <target> --json number,headRefName,baseRefName,url 2>/dev/null
+
+# local (target이 로컬 PR id가 아니면 list로 현재 브랜치 매칭)
+pnpm tsx bin/gestalt.ts pr --json show <id> 2>/dev/null
+pnpm tsx bin/gestalt.ts pr --json list 2>/dev/null   # id 없이 브랜치로만 들어온 경우
 ```
 
-`target`이 브랜치면 그 브랜치의 PR을, 생략됐으면 현재 브랜치의 PR을 찾습니다. PR이 없으면(로컬 브랜치·커밋 범위 등) 이 단계를 통째로 건너뛰고 결과 표시로 갑니다.
+`target`이 브랜치면 그 브랜치의 PR을, 생략됐으면 현재 브랜치의 PR을 찾습니다. 어느 쪽에서도 PR을 못 찾으면(`prTarget: "none"` — 로컬 브랜치·커밋 범위 등) 이 단계를 통째로 건너뛰고 결과 표시로 갑니다.
 
-**게시 확인.** PR이 식별되면 사용자에게 한 번 확인합니다: **"발견된 이슈 N건을 PR #<number>에 인라인 코멘트로 게시할까요?"** 동의하지 않으면 리포트만 보여주고 종료합니다.
+**게시 확인.** PR이 식별되면 사용자에게 한 번 확인합니다: **"발견된 이슈 N건을 PR #<number 또는 로컬 PR id>에 인라인 코멘트로 게시할까요?"** 동의하지 않으면 리포트만 보여주고 종료합니다.
 
 **코멘트 본문 작성 (code-review-writer).** **서브에이전트에 위임합니다.** 이 에이전트는 본문 18.8KB에 `author-voice.md` 19KB를 딸고 오는, 이 스킬에서 제일 무거운 자리입니다.
 
@@ -483,9 +504,13 @@ Agent {
 
 4단계 `overallApproved`(결함 심급 blocking 여부)와도 일치합니다 — blocking 이슈가 있으면 critical이나 high가 존재하므로 `REQUEST_CHANGES`가 됩니다. 단 `APPROVE`/`REQUEST_CHANGES`는 리뷰 상태를 바꾸는 행위이므로, 위 **"게시 확인"**에서 사용자 동의를 받은 뒤에만 게시합니다.
 
-> **본인 PR 예외**: GitHub는 PR 작성자 본인이 자기 PR을 `APPROVE`/`REQUEST_CHANGES`하는 걸 막습니다(422). `gh pr view --json author`와 `gh api user`로 작성자가 현재 사용자와 같은지 확인하고 같으면 `event=COMMENT`로 폴백해 게시합니다 (접두어 r/c/a는 본문에 그대로 유지). 이때 사용자에게 "본인 PR이라 승인/변경요청 상태는 못 걸어서 코멘트로 남겼어요"라고 한 줄 알립니다.
+> **본인 PR 예외 (github)**: GitHub는 PR 작성자 본인이 자기 PR을 `APPROVE`/`REQUEST_CHANGES`하는 걸 막습니다(422). `gh pr view --json author`와 `gh api user`로 작성자가 현재 사용자와 같은지 확인하고 같으면 `event=COMMENT`로 폴백해 게시합니다 (접두어 r/c/a는 본문에 그대로 유지). 이때 사용자에게 "본인 PR이라 승인/변경요청 상태는 못 걸어서 코멘트로 남겼어요"라고 한 줄 알립니다. **local**은 `gestalt pr review`가 이 제약을 두지 않습니다 — author가 본인과 같아도 verdict 그대로 게시하되, 사용자에게 그 사실만 한 줄 알립니다.
 
-**게시 (gh api).** 작성한 코멘트를 한 번의 리뷰로 묶어 게시합니다. 이슈마다 개별 호출하지 않고 `comments` 배열로 모읍니다. `event`는 바로 위에서 결정한 값을 넣습니다.
+**게시.** `prTarget`에 따라 갈립니다.
+
+#### 게시 — GitHub PR (`prTarget: "github"`)
+
+작성한 코멘트를 한 번의 리뷰로 묶어 게시합니다. 이슈마다 개별 호출하지 않고 `comments` 배열로 모읍니다. `event`는 바로 위에서 결정한 값을 넣습니다.
 
 ```bash
 gh api repos/{owner}/{repo}/pulls/{number}/reviews \
@@ -494,13 +519,43 @@ gh api repos/{owner}/{repo}/pulls/{number}/reviews \
   --input <(jq -n '{ comments: [ { path: "...", line: 42, side: "RIGHT", body: "..." } ] }')
 ```
 
-```
-
 - `line`은 diff의 **우측(신규) 라인**을 기준으로 하고 `side: "RIGHT"`를 명시합니다. 삭제된 라인을 짚어야 하면 `side: "LEFT"`를 씁니다.
 - 라인 매핑이 불확실한 이슈(파일 전반에 걸치거나 구조적인 것)는 인라인 대신 리뷰 `body` 요약에 한 줄로 넣습니다. 임의 라인에 억지로 붙이지 않습니다.
 - 게시 후 리뷰 URL을 사용자에게 보여줍니다.
 
 JSON 제어문자가 깨지지 않도록 코멘트 본문은 셸 변수 echo 파이프 대신 `jq`로 직접 조립하거나 파일로 떨궈 `--input`으로 전달합니다.
+
+#### 게시 — 로컬 PR (`prTarget: "local"`)
+
+로컬 PR에는 한 리뷰로 묶어 올리는 API가 없습니다. 인라인 코멘트는 이슈마다 `gestalt pr comment`로, 전체 판정은 `gestalt pr review`로 따로 남깁니다. 코멘트 본문은 셸을 안 타게 **`--body-file`로 넘깁니다** — 한글과 백틱이 셸에서 깨집니다.
+
+이슈마다:
+
+```bash
+cat > /tmp/gestalt-review-comment.md <<'EOF'
+{code-review-writer가 쓴 코멘트 body}
+EOF
+pnpm tsx bin/gestalt.ts pr comment <local-pr-id> \
+  --path "<file>" \
+  --line <line> \
+  --body-file /tmp/gestalt-review-comment.md
+```
+
+- 라인 매핑이 불확실한 이슈는 `--line`을 생략해 파일 전반 코멘트로 남깁니다 (`side` 개념은 로컬 PR에 없습니다).
+
+전체 판정은 위 **리뷰 이벤트 결정**을 그대로 따르되 `gestalt pr review`의 `--verdict`로 옮깁니다 (`REQUEST_CHANGES` → `request-changes`, `COMMENT` → `comment`, `APPROVE` → `approve`):
+
+```bash
+cat > /tmp/gestalt-review-summary.md <<'EOF'
+{code-review-writer가 쓴 overall summary}
+EOF
+pnpm tsx bin/gestalt.ts pr review <local-pr-id> \
+  --verdict <approve|request-changes|comment> \
+  --body-file /tmp/gestalt-review-summary.md
+```
+
+- 건마다 개별 호출입니다. 중간에 실패하면 어디까지 게시됐는지 사용자에게 알립니다 — 부분 실패를 성공으로 보고하지 않습니다.
+- 게시 후 `pnpm tsx bin/gestalt.ts pr --json show <local-pr-id>`로 반영을 확인하고 결과를 사용자에게 보여줍니다.
 
 ### 5단계: 수정 확인 (review_fix, opt-in)
 
@@ -553,7 +608,7 @@ ges_execute {
 ```
 ---
 
-**인라인 코멘트**: PR #<number>에 <N>건 게시 완료 → <리뷰 URL>
+**인라인 코멘트**: PR #<number 또는 로컬 PR id>에 <N>건 게시 완료 → <리뷰 URL 또는 `gestalt pr show <id>` 안내>
 ```
 
-PR이 아니거나 사용자가 게시를 거절했으면 이 블록을 생략합니다.
+`prTarget: "none"`이거나 사용자가 게시를 거절했으면 이 블록을 생략합니다.

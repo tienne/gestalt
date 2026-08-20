@@ -44,6 +44,18 @@ outputs:
 `repoRoot`가 주어지지 않으면 현재 작업 디렉토리를 절대 경로로 사용합니다.
 `target`이 주어지지 않으면 현재 브랜치 vs `main`을 기준으로 삼습니다.
 
+## 대상 판별 (GitHub vs 로컬 `gestalt pr`)
+
+이 스킬은 GitHub PR과 로컬 PR(`gestalt pr` CLI) 둘 다 만든다. 레포 규칙 탐색부터 description 워싱까지(0~4.5단계)는 대상이 무엇이든 동일하다. 갈리는 자리는 마지막 5단계, 어디에 제출하느냐뿐이다.
+
+판별은 스킬 시작 시 한 번 하고 결과를 `prTarget = "github" | "local"`로 보관한다.
+
+1. 사용자가 `--local`을 붙였거나 로컬 PR 형식(`gestalt pr list`에 뜨는 id)을 직접 지목했으면 → `local`.
+2. 그 외에는 `gh auth status`를 실행한다. 실패하거나(인증 안 됨) `git remote -v`가 비어 있으면(원격 없음) → `local`.
+3. 위 둘 다 아니면 → `github` (기존 경로 그대로).
+
+판별 결과는 5단계 진입 직전에 한 줄로 알린다: "GitHub PR로 제출합니다" 또는 "로컬 PR로 제출합니다 (gh 인증 없음 / 원격 없음 / --local 지정)".
+
 ## Skill Instructions
 
 ### 0단계: 레포 규칙 탐색 (필수 — 스킵 불가)
@@ -189,7 +201,7 @@ Agent {
 
 윤문된 description을 **사용자에게 미리보기로 먼저 표시**합니다.
 
-### 5단계: gh pr create 확인 및 실행
+### 5단계: 제출 확인 및 실행
 
 사용자에게 확인합니다:
 
@@ -200,7 +212,11 @@ Agent {
 - 취소: description 텍스트만 출력하고 종료
 ```
 
-생성 시 heredoc 패턴으로 실행합니다. **PR 작성자 자신을 어사인**하기 위해 `--assignee @me`를 항상 포함합니다. 명령 앞에 `GESTALT_PR=1` 표식을 붙입니다 (raw `gh pr create`를 가로채는 PreToolUse 훅이 이 스킬의 호출은 통과시키도록 하는 우회 표식):
+제출 방식은 `prTarget`(대상 판별 단계에서 정한 값)에 따라 갈립니다.
+
+#### GitHub PR (`prTarget: "github"`)
+
+heredoc 패턴으로 실행합니다. **PR 작성자 자신을 어사인**하기 위해 `--assignee @me`를 항상 포함합니다. 명령 앞에 `GESTALT_PR=1` 표식을 붙입니다 (raw `gh pr create`를 가로채는 PreToolUse 훅이 이 스킬의 호출은 통과시키도록 하는 우회 표식):
 
 ```bash
 GESTALT_PR=1 gh pr create --assignee @me --title "..." --body "$(cat <<'EOF'
@@ -214,3 +230,22 @@ EOF
 - 어사인이 실패해도(권한·레포 설정 등) PR 생성 자체는 막지 않습니다. 실패 시 PR 생성 후 `gh pr edit {prUrl} --add-assignee @me`로 재시도합니다.
 
 반환된 PR URL을 사용자에게 표시합니다 (`prUrl`).
+
+#### 로컬 PR (`prTarget: "local"`)
+
+`gestalt pr create`로 제출합니다. 본문은 셸을 안 타게 파일로 떨궈 `--body-file`로 넘깁니다 — 셸 변수로 직접 넘기면 한글과 백틱이 깨집니다.
+
+```bash
+cat > /tmp/gestalt-pr-body.md <<'EOF'
+{description 내용}
+EOF
+pnpm tsx bin/gestalt.ts pr create \
+  --title "..." \
+  --base "<target 또는 main>" \
+  --body-file /tmp/gestalt-pr-body.md \
+  --author "<현재 사용자 — 없으면 GESTALT_ACTOR 환경변수, 그것도 없으면 human:local>"
+```
+
+- 로컬 PR에는 `--assignee` 개념이 없습니다 — `--author`가 곧 작성자입니다.
+- `prUrl` 자리는 반환된 PR id로 대신합니다. `pnpm tsx bin/gestalt.ts pr --json show <id>`로 생성 결과를 확인할 수 있습니다.
+- 반환된 PR id를 사용자에게 표시합니다.
