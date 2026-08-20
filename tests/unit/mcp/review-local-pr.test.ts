@@ -99,17 +99,16 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
   }
 
   /** prId로 리뷰를 열고 합의까지 밀어 넣는다 */
-  function startAndAgree(
-    issues: {
-      severity: 'critical' | 'high' | 'warning';
-      file: string;
-      line?: number;
-      reportedBy: string;
-    }[],
-    continuity?: { coherent: boolean; escalate: boolean },
-  ): string {
-    const started = call({ action: 'review_start', prId, repoRoot: repo });
-    const reviewSessionId = started.reviewSessionId!;
+  type Issue = {
+    severity: 'critical' | 'high' | 'warning';
+    file: string;
+    line?: number;
+    reportedBy: string;
+  };
+  type Continuity = { coherent: boolean; escalate: boolean };
+
+  /** 이미 열린 리뷰 세션에 합의를 제출한다. 같은 목록을 다시 밀어 넣을 때도 쓴다 */
+  function agreeOn(reviewSessionId: string, issues: Issue[], continuity?: Continuity): void {
     call({
       action: 'review_consensus',
       reviewSessionId,
@@ -138,6 +137,12 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
           }
         : undefined,
     });
+  }
+
+  function startAndAgree(issues: Issue[], continuity?: Continuity): string {
+    const started = call({ action: 'review_start', prId, repoRoot: repo });
+    const reviewSessionId = started.reviewSessionId!;
+    agreeOn(reviewSessionId, issues, continuity);
     return reviewSessionId;
   }
 
@@ -379,7 +384,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
     expect(readPr().reviews).toHaveLength(1);
   });
 
-  it('합의를 다시 내면 앞선 publish 자국을 버린다', () => {
+  it('합의 내용이 바뀌면 앞선 publish 자국을 버린다', () => {
     const reviewSessionId = startAndAgree([
       { severity: 'warning', file: 'a.txt', line: 2, reportedBy: 'quality-reviewer' },
     ]);
@@ -470,5 +475,21 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
     const parsed = call({ action: 'review_publish', reviewSessionId: started.reviewSessionId });
 
     expect(parsed.error).toContain('prId');
+  });
+  it('같은 합의를 다시 제출해도 코멘트가 늘지 않는다', () => {
+    const issues = [
+      { severity: 'warning' as const, file: 'a.txt', line: 2, reportedBy: 'quality-reviewer' },
+    ];
+    const reviewSessionId = startAndAgree(issues);
+    call({ action: 'review_publish', reviewSessionId });
+    const afterFirst = readPr().comments.length;
+
+    // 호스트가 재시도하는 단위가 publish 한 호출이라는 보장이 없다. 리뷰 스킬은
+    // consensus와 publish를 잇달아 부르므로 그 묶음째 다시 타면 이 자리로 들어온다
+    agreeOn(reviewSessionId, issues);
+    const parsed = call({ action: 'review_publish', reviewSessionId });
+
+    expect(parsed.alreadyPublished).toBe(true);
+    expect(readPr().comments.length).toBe(afterFirst);
   });
 });

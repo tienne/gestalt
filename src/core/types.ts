@@ -529,6 +529,16 @@ export interface ReviewPublishState {
   prId: string;
   /** publish를 시작할 때의 PR head. head가 옮겨가면 새 라운드라 처음부터 다시 쓴다. */
   headSha: string;
+  /**
+   * 옮긴 합의의 지문.
+   *
+   * 자국을 버리는 기준은 `review_consensus`를 다시 불렀는지가 아니라 옮길 내용이
+   * 바뀌었는지다. 호출을 기준으로 삼으면 같은 합의를 다시 제출한 것만으로 자국이
+   * 날아가 코멘트가 복제된다. 호스트가 재시도하는 단위가 publish 한 호출이라는
+   * 보장이 없다. 리뷰 스킬처럼 consensus와 publish를 잇달아 부르는 흐름이 그 자리를
+   * 밟는다.
+   */
+  issuesKey: string;
   /** 이 head에서 PR에 이미 쓴 지적 수. 합의 목록의 앞에서부터 이만큼이다. */
   postedCount: number;
   /** 판정까지 써서 한 바퀴가 끝났는지 */

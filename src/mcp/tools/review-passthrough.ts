@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import type { PassthroughReviewEngine } from '../../review/passthrough-engine.js';
 import type { PassthroughExecuteEngine } from '../../execute/passthrough-engine.js';
@@ -299,6 +300,18 @@ function handleReviewFix(reviewEngine: PassthroughReviewEngine, input: ExecuteIn
  */
 type PublishVerdict = Extract<ReviewVerdict, 'approve' | 'request_changes'>;
 
+/**
+ * 합의 지문. 내용이 같으면 같은 값이 나온다.
+ *
+ * 자국을 살릴지 버릴지를 이 값으로 가른다. 같은 합의를 다시 제출한 것은 옮길 내용이
+ * 안 바뀐 것이라 자국을 살린다. 지적의 순서까지 넣는 이유는 publish가 목록의 앞에서부터
+ * 세어 이어 쓰기 때문이다 — 순서가 달라지면 이어 쓸 자리가 달라진다.
+ */
+function fingerprint(issues: ReviewIssue[]): string {
+  const shape = issues.map((i) => [i.file, i.line, i.severity, i.message, i.reportedBy]);
+  return createHash('sha1').update(JSON.stringify(shape)).digest('hex');
+}
+
 function verdictOf(issues: ReviewIssue[], continuityBlocks: boolean): PublishVerdict {
   const hasDefect = issues.some((i) => i.severity === 'critical' || i.severity === 'high');
   return hasDefect || continuityBlocks ? 'request_changes' : 'approve';
@@ -353,10 +366,14 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
     if (!target) throw new PrError(`PR을 못 찾았다: ${prId}`, 3);
     const headSha = target.headSha;
 
-    // 같은 PR의 같은 head를 가리키는 자국만 이어 쓴다. head가 옮겨갔으면 작성자가
-    // 고쳐 올린 새 라운드라 처음부터 다시 쓰는 게 맞다.
+    // 같은 PR, 같은 head, 같은 합의를 가리키는 자국만 이어 쓴다. head가 옮겨갔으면
+    // 작성자가 고쳐 올린 새 라운드다. 합의가 바뀌었으면 옮길 목록 자체가 다르다.
+    // 어느 쪽이든 처음부터 다시 쓰는 게 맞다.
+    const issuesKey = fingerprint(consensus.mergedIssues);
     const prior =
-      session.publishState?.prId === prId && session.publishState.headSha === headSha
+      session.publishState?.prId === prId &&
+      session.publishState.headSha === headSha &&
+      session.publishState.issuesKey === issuesKey
         ? session.publishState
         : undefined;
 
@@ -389,6 +406,7 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
     const state: ReviewPublishState = {
       prId,
       headSha,
+      issuesKey,
       postedCount: prior?.postedCount ?? 0,
       completed: false,
       verdict,
