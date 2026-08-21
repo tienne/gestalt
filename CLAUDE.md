@@ -16,6 +16,7 @@
 - **Knowledge Base**: 코드 그래프·도메인 지식을 MD로 내보내고 로컬 임베딩으로 시맨틱 검색
 - **Memory**: 이전 스펙·실행 이력을 `.gestalt/memory.json`에 축적, 신규 인터뷰에 자동 주입
 - **Multi-Provider LLM**: frugal/standard/frontier 티어별로 Anthropic/OpenAI 호환 프로바이더 자유 조합
+- **Local PR**: 에이전트끼리 레포 안에서 PR을 만들고 리뷰하고 머지 — 원격에 안 나간다. 워크트리가 `.gestalt/reviews.db` 하나를 공유
 - **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱
 
 ## Tech Stack
@@ -49,10 +50,12 @@ pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register rep
 - `ges_generate_kb`: repoRoot?, outputPath?, types?, summarize?
 - `ges_search`: query, k?, kbPath?, types?
 - `ges_sync`: sourcePath?, targetPath
+- `ges_pr`: action=[create|list|get|diff|comment|resolve|review|update|merge|close|checkout|checkout_remove]
 
 상세 플로우 → [`docs/mcp-reference.md`](./docs/mcp-reference.md)
 설정 레퍼런스 → [`docs/configuration.md`](./docs/configuration.md)
 코드 그래프 → [`docs/code-graph.md`](./docs/code-graph.md)
+로컬 PR → [`docs/local-pr.md`](./docs/local-pr.md)
 
 ## Role Agent 자동 라우팅
 
@@ -68,6 +71,8 @@ src/execute/       — ExecuteEngine, DAG Validator
 src/resilience/    — Stagnation Detector, Lateral Thinking Personas
 src/code-graph/    — CodeGraphEngine, BlastRadius, 언어 플러그인 8개
 src/graph-viz/     — 코드 그래프 D3 시각화 (ges_graph_visualize 백엔드)
+src/local-pr/      — 로컬 PR 도메인 (이벤트 소싱, git 연산, gestalt pr·ges_pr 백엔드)
+src/local-pr-web/  — 로컬 PR 읽기 전용 웹 UI (gestalt pr serve 백엔드)
 src/knowledge-base/— KB 생성·시맨틱 검색·동기화 (ges_generate_kb/ges_search/ges_sync 백엔드)
 src/memory/        — Memory 피드백 루프 (ProjectMemoryStore, UserProfileStore)
 src/llm/           — 멀티 프로바이더 LLM 어댑터 (frugal/standard/frontier 티어 라우팅)

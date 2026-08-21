@@ -888,6 +888,7 @@ Claude Code (you)
 - [Getting Started](./docs/getting-started.md) — 5-minute walkthrough
 - [Configuration Reference](./docs/configuration.md) — full config options
 - [Code Knowledge Graph](./docs/code-graph.md) — static analysis and blast-radius
+- [Local PR](./docs/local-pr.md) — agents review each other's work inside the repo
 
 ---
 
