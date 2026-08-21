@@ -614,22 +614,31 @@ export const graphVisualizeInputSchema = z.object({
 export type GraphVisualizeInput = z.infer<typeof graphVisualizeInputSchema>;
 
 // ─── Local PR Tool ────────────────────────────────────────────────
+/**
+ * `ges_pr`이 받는 액션.
+ *
+ * 서버 등록(`server.tool`)이 이 배열을 그대로 쓴다. 목록을 두 곳에 적으면 하나가
+ * 뒤처진다 — 실제로 checkout을 붙일 때 등록 enum만 열 개로 남아 MCP로는 부를 수
+ * 없는 액션이 생겼다.
+ */
+export const PR_ACTIONS = [
+  'create',
+  'list',
+  'get',
+  'diff',
+  'comment',
+  'resolve',
+  'review',
+  'update',
+  'merge',
+  'close',
+  'checkout',
+  'checkout_remove',
+] as const;
+
 export const prInputSchema = z.object({
   action: z
-    .enum([
-      'create',
-      'list',
-      'get',
-      'diff',
-      'comment',
-      'resolve',
-      'review',
-      'update',
-      'merge',
-      'close',
-      'checkout',
-      'checkout_remove',
-    ])
+    .enum(PR_ACTIONS)
     .describe(
       'create: 새 PR, list: 목록, get: 단건 조회, diff: 변경 내용, comment: 코멘트 추가, resolve: 코멘트 스레드 해결, review: 판정 기록, update: head 갱신, merge: 머지, close: 닫기, checkout: head를 임시 워크트리로 떼어냄, checkout_remove: 그 워크트리 정리',
     ),

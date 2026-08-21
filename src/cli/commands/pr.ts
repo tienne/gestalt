@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { LocalPrEngine, PrError } from '../../local-pr/engine.js';
-import { unresolvedCount } from '../../local-pr/repository.js';
+import { resolveActor, unresolvedCount } from '../../local-pr/policy.js';
 import type { PullRequest, ReviewVerdict } from '../../local-pr/types.js';
 import { PrWebEngine } from '../../local-pr-web/engine.js';
 
@@ -29,9 +29,8 @@ function readBody(bodyFile?: string): string {
   return readFileSync(bodyFile === '-' ? 0 : bodyFile, 'utf-8');
 }
 
-/** 누가 했는지. 안 주면 환경변수, 그것도 없으면 사람으로 본다 */
 function actorOf(opts: PrCommonOptions): string {
-  return opts.author ?? process.env['GESTALT_ACTOR'] ?? 'human:local';
+  return resolveActor(opts.author);
 }
 
 function engineOf(opts: PrCommonOptions): LocalPrEngine {

@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handlePr } from '../../../src/mcp/tools/pr.js';
+import { PR_ACTIONS, prInputSchema } from '../../../src/mcp/schemas.js';
 import type { PrInput } from '../../../src/mcp/schemas.js';
 
 /**
@@ -182,5 +183,27 @@ describe('handlePr — ges_pr MCP 래퍼', () => {
       author: 'codex:worker-1',
     });
     expect(after.status).toBe('closed');
+  });
+  it('checkout_remove: force가 엔진까지 간다', async () => {
+    const pr = await call({ action: 'create', title: 'A', author: 'a' });
+    const co = await call({ action: 'checkout', id: pr.id });
+    writeFileSync(join(co.path, 'a.txt'), '일부러 깬 코드\n');
+
+    // 지킬 변경이 있으면 안 지운다. force를 안 넘기면 이 갈림이 사라진다
+    expect((await call({ action: 'checkout_remove', id: pr.id })).status).toBe('dirty');
+    expect((await call({ action: 'checkout_remove', id: pr.id, force: true })).status).toBe(
+      'removed',
+    );
+  });
+
+  it('PR_ACTIONS의 모든 액션이 스키마를 통과한다', () => {
+    // 서버 등록과 스키마가 이 배열 하나를 함께 쓴다. 따로 적으면 하나가 뒤처진다 —
+    // 실제로 checkout이 그렇게 빠져 MCP로는 부를 수 없는 액션이 생겼다
+    for (const action of PR_ACTIONS) {
+      expect(prInputSchema.safeParse({ action, id: 'abcd1234' }).success).toBe(true);
+    }
+    expect(PR_ACTIONS).toContain('checkout');
+    expect(PR_ACTIONS).toContain('checkout_remove');
+    expect(prInputSchema.safeParse({ action: 'nope' }).success).toBe(false);
   });
 });

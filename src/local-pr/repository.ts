@@ -1,6 +1,7 @@
 import type { IEventStore } from '../events/store.js';
 import type { DomainEvent } from '../core/types.js';
 import { PR_AGGREGATE } from './types.js';
+export { unresolvedCount } from './policy.js';
 import type {
   Comment,
   CommentAddedPayload,
@@ -171,21 +172,6 @@ export class PullRequestRepository {
 
 function currentRound(pr: PullRequest): Round {
   return pr.rounds[pr.rounds.length - 1]!;
-}
-
-/**
- * 아직 안 닫힌 스레드 수. 머지 시점에 이 값을 이벤트에 남긴다.
- *
- * 코멘트가 아니라 스레드를 센다. 코멘트를 세면 답글이 달릴수록 수가 늘어난다.
- * 지적 두 건에 답을 달았더니 "미해결 4"가 되는 일이 실제로 났다. 주고받을수록
- * 나빠 보이는 신호는 티키타카를 말린다.
- */
-export function unresolvedCount(pr: PullRequest): number {
-  const openThreads = new Set<string>();
-  for (const comment of pr.comments) {
-    if (!comment.resolved) openThreads.add(comment.threadId);
-  }
-  return openThreads.size;
 }
 
 export type { PrCreatedPayload, PrMergedPayload, PrClosedPayload };

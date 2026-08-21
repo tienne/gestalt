@@ -1,3 +1,4 @@
+import { unresolvedCount } from '../local-pr/policy.js';
 import type { Comment, PullRequest, Review } from '../local-pr/types.js';
 
 /**
@@ -105,16 +106,12 @@ function verdictBadge(verdict: string): string {
   return `<span class="badge badge-${escapeHtml(verdict)}">${escapeHtml(verdict)}</span>`;
 }
 
-function unresolvedCountOf(pr: PullRequest): number {
-  return pr.comments.filter((c) => !c.resolved).length;
-}
-
 /** `GET /` — PR 목록 페이지 */
 export function generatePrListHtml(prs: PullRequest[]): string {
   const rows = prs
     .map((pr) => {
       const round = pr.rounds[pr.rounds.length - 1]!;
-      const unresolved = unresolvedCountOf(pr);
+      const unresolved = unresolvedCount(pr);
       return `<tr>
         <td><a href="/prs/${encodeURIComponent(pr.id)}">${escapeHtml(pr.id)}</a></td>
         <td><a href="/prs/${encodeURIComponent(pr.id)}">${escapeHtml(pr.title)}</a></td>

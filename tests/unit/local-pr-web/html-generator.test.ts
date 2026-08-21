@@ -66,6 +66,16 @@ describe('toEmbeddableJson', () => {
   });
 });
 
+/**
+ * 표의 미해결 칸만 뽑는다.
+ *
+ * `<td>1</td>`로 훑으면 라운드 칸에도 맞는다. 미해결 수가 틀려도 통과한다.
+ * 작성자 칸 바로 앞이라는 자리로 겨냥한다.
+ */
+function unresolvedCell(html: string): string | null {
+  return html.match(/<td>(\d+)<\/td>\s*<td class="meta">/)?.[1] ?? null;
+}
+
 describe('generatePrListHtml', () => {
   it('PR이 없으면 빈 상태 문구를 보여준다', () => {
     const html = generatePrListHtml([]);
@@ -95,8 +105,26 @@ describe('generatePrListHtml', () => {
     expect(html).toContain('두 번째 줄 추가');
     expect(html).toContain('badge-changes_requested');
     expect(html).toContain('/prs/abcd1234');
-    // 미해결 코멘트 1건이 표에 찍힌다
-    expect(html).toMatch(/<td>1<\/td>/);
+    expect(unresolvedCell(html)).toBe('1');
+  });
+
+  it('답글이 달려도 미해결 수가 안 늘어난다', () => {
+    const reply = (id: string) => ({
+      id,
+      author: 'codex:worker-1',
+      path: 'a.ts',
+      line: 3,
+      body: '고쳤습니다',
+      threadId: 'c1',
+      resolved: false,
+      headSha: 'b'.repeat(40),
+      createdAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    // 지적 하나에 답글 둘. 코멘트를 세면 3이 나오고 CLI와 값이 갈린다
+    const pr = makePr({ comments: [reply('c1'), reply('c2'), reply('c3')] });
+
+    expect(unresolvedCell(generatePrListHtml([pr]))).toBe('1');
   });
 
   it('제목에 스크립트가 들어오면 이스케이프해 실행되지 않게 한다', () => {

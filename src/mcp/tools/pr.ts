@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { LocalPrEngine, PrError } from '../../local-pr/engine.js';
+import { resolveActor } from '../../local-pr/policy.js';
 import type { CheckoutRemoval, PrCheckout } from '../../local-pr/git.js';
 import type { Actor, PullRequest } from '../../local-pr/types.js';
 import { log } from '../../core/log.js';
@@ -14,7 +15,7 @@ import type { PrInput } from '../schemas.js';
  */
 
 function actorOf(input: PrInput): Actor {
-  return input.author ?? process.env['GESTALT_ACTOR'] ?? 'human:local';
+  return resolveActor(input.author);
 }
 
 function requireId(input: PrInput): string {

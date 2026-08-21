@@ -43,6 +43,7 @@ import {
   codeGraphInputSchema,
   graphVisualizeInputSchema,
   prInputSchema,
+  PR_ACTIONS,
 } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
@@ -472,20 +473,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   server.tool(
     'ges_pr',
-    '로컬 PR을 만들고 굴립니다. GitHub 없이 에이전트끼리 작업 단위를 리뷰하고 주고받는 자리입니다. Actions: create, list, get, diff, comment, resolve, review, update, merge, close.',
+    `로컬 PR을 만들고 굴립니다. GitHub 없이 에이전트끼리 작업 단위를 리뷰하고 주고받는 자리입니다. Actions: ${PR_ACTIONS.join(', ')}.`,
     {
-      action: z.enum([
-        'create',
-        'list',
-        'get',
-        'diff',
-        'comment',
-        'resolve',
-        'review',
-        'update',
-        'merge',
-        'close',
-      ]),
+      action: z.enum(PR_ACTIONS),
       repoRoot: z.string().optional(),
       id: z.string().optional(),
       title: z.string().optional(),
@@ -502,6 +492,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       summary: z.string().optional(),
       deleteBranch: z.boolean().optional(),
       reason: z.string().optional(),
+      force: z.boolean().optional(),
     },
     async (params) => {
       const input = prInputSchema.parse(params);

@@ -7,7 +7,8 @@ import type { ExecuteInput } from '../schemas.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { LocalPrEngine, PrError } from '../../local-pr/engine.js';
 import { errorKind } from './pr.js';
-import type { ReviewIssue, ReviewPublishState } from '../../core/types.js';
+import { consensusVerdict, resolveActor } from '../../local-pr/policy.js';
+import type { ContinuityVerdict, ReviewIssue, ReviewPublishState } from '../../core/types.js';
 import type { ReviewVerdict } from '../../local-pr/types.js';
 import { log } from '../../core/log.js';
 import { resolveExecuteSessionInput } from './execute/utils.js';
@@ -312,9 +313,9 @@ function fingerprint(issues: ReviewIssue[]): string {
   return createHash('sha1').update(JSON.stringify(shape)).digest('hex');
 }
 
-function verdictOf(issues: ReviewIssue[], continuityBlocks: boolean): PublishVerdict {
-  const hasDefect = issues.some((i) => i.severity === 'critical' || i.severity === 'high');
-  return hasDefect || continuityBlocks ? 'request_changes' : 'approve';
+function verdictOf(issues: ReviewIssue[], continuityVerdict?: ContinuityVerdict): PublishVerdict {
+  // 경계를 여기서 다시 세지 않는다. submitConsensus가 approved를 가르는 그 함수를 부른다
+  return consensusVerdict(issues, continuityVerdict);
 }
 
 /**
@@ -354,9 +355,8 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
   }
 
   const repoRoot = resolve(input.repoRoot ?? session.repoRoot ?? process.cwd());
-  const continuityBlocks = session.continuityVerdict ? !session.continuityVerdict.coherent : false;
-  const verdict = verdictOf(consensus.mergedIssues, continuityBlocks);
-  const reviewer = input.prReviewer ?? process.env['GESTALT_ACTOR'] ?? 'gestalt:review';
+  const verdict = verdictOf(consensus.mergedIssues, session.continuityVerdict);
+  const reviewer = resolveActor(input.prReviewer, 'gestalt:review');
 
   log(`review_publish: prId=${prId}, repoRoot=${repoRoot}, verdict=${verdict}`);
 
