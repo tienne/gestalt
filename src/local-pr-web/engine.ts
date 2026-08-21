@@ -18,15 +18,24 @@ export class PrWebEngine {
   async start(opts: PrWebServerOptions): Promise<PrWebServerResult> {
     const { repoRoot, port: preferredPort, openBrowser = true } = opts;
 
+    // 싱글턴이라 같은 인스턴스로 다시 start를 부르는 흐름이 있다. 먼저 걷어내지 않으면
+    // 앞서 뜬 서버가 참조에서만 밀려나고 소켓과 포트, SIGINT 리스너는 그대로 남는다
+    await this.stop();
+
     this.prEngine = new LocalPrEngine(repoRoot);
     const count = this.prEngine.list().length;
 
-    const port = await findAvailablePort(preferredPort ?? 7892);
+    // 0은 "아무 빈 포트나"라는 뜻이라 탐색할 게 없다. 탐색을 태우면 isPortAvailable(0)이
+    // 늘 통과해 0을 그대로 돌려준다. 그 0이 URL에 박혀 죽은 주소가 나간다
+    const requested = preferredPort ?? 7892;
+    const port = requested === 0 ? 0 : await findAvailablePort(requested);
 
     this.server = new PrWebServer(this.prEngine);
     await this.server.start(port);
 
-    const url = `http://127.0.0.1:${port}`;
+    // listen(0)이면 실제 포트는 OS가 정한다. 요청값이 아니라 뜬 자리를 알려준다
+    const actualPort = this.server.port ?? port;
+    const url = `http://127.0.0.1:${actualPort}`;
     process.stderr.write(`[local-pr-web] server running at ${url}\n`);
 
     if (openBrowser) {
@@ -35,7 +44,7 @@ export class PrWebEngine {
 
     return {
       url,
-      port,
+      port: actualPort,
       message: `로컬 PR 웹 UI가 ${url}에서 돈다 (PR ${count}개)`,
     };
   }

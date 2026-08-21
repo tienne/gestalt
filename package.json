@@ -35,7 +35,7 @@
     "version:sync": "tsx scripts/sync-version.ts",
     "postversion": "pnpm run version:sync",
     "verify:rules": "tsx scripts/verify-rule-refs.ts",
-    "gate": "pnpm verify:rules && pnpm lint && pnpm format:check && pnpm test",
+    "gate": "pnpm typecheck && pnpm verify:rules && pnpm lint && pnpm format:check && pnpm build && pnpm test",
     "humanize:baseline": "tsx scripts/humanize-baseline.ts",
     "build:output-style": "tsx scripts/build-output-style.ts",
     "verify:output-style": "tsx scripts/build-output-style.ts --dry-run"

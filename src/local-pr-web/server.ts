@@ -30,7 +30,19 @@ export class PrWebServer {
   start(port: number): Promise<void> {
     return new Promise((resolve, reject) => {
       this.server = createServer((req: IncomingMessage, res: ServerResponse) => {
-        this.handleRequest(req, res);
+        // 핸들러가 던지면 createServer 콜백을 빠져나가 uncaughtException으로 프로세스가
+        // 죽는다. `GET /%` 한 번이면 되고 그건 임의 웹페이지가 img 태그로 보낼 수 있다.
+        // 읽기 전용 뷰어가 원격 요청 하나에 내려가지 않게 여기서 접는다.
+        try {
+          this.handleRequest(req, res);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          process.stderr.write(`[local-pr-web] request failed: ${msg}\n`);
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+          }
+          res.end('Internal Server Error');
+        }
       });
 
       this.server.once('error', reject);
@@ -77,12 +89,51 @@ export class PrWebServer {
 
   // ─── Private ───────────────────────────────────────────────────
 
-  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
-    const url = req.url ?? '/';
-    const path = decodeURIComponent(url.split('?')[0]!);
+  /** 퍼센트 인코딩이 깨져 있으면 null. 부르는 쪽이 400으로 접는다 */
+  private static safeDecode(raw: string): string | null {
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return null;
+    }
+  }
 
-    if (req.method !== 'GET') {
-      this.notFound(res);
+  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
+    // 읽기 전용 서버라 GET과 HEAD만 받는다. 나머지는 404가 아니라 405로 답해야
+    // 부르는 쪽이 "없는 자리"와 "여기선 못 하는 일"을 가릴 수 있다
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, {
+        Allow: 'GET, HEAD',
+        'Content-Type': 'text/plain; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.end('Method Not Allowed');
+      return;
+    }
+
+    // 127.0.0.1에만 바인딩해도 DNS 리바인딩은 남의 이름으로 이 자리에 닿는다.
+    // Host를 함께 봐야 그 경로가 막힌다
+    const host = (req.headers.host ?? '').split(':')[0];
+    if (host !== '127.0.0.1' && host !== 'localhost') {
+      res.writeHead(403, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.end('Forbidden');
+      return;
+    }
+
+    // 경로 전체를 먼저 디코딩하면 id 안의 %2F가 슬래시로 풀려 라우트가 갈라진다.
+    // 목록 페이지가 링크를 encodeURIComponent로 만드는 것과 짝이 맞으려면
+    // 정규식을 raw에 먼저 물리고 캡처된 세그먼트만 디코딩해야 한다
+    const rawPath = (req.url ?? '/').split('?')[0]!;
+    const path = PrWebServer.safeDecode(rawPath);
+    if (path === null) {
+      res.writeHead(400, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.end('Bad Request');
       return;
     }
 
@@ -96,9 +147,10 @@ export class PrWebServer {
       return;
     }
 
-    const apiMatch = path.match(API_PR_DETAIL_PATH);
+    const apiMatch = rawPath.match(API_PR_DETAIL_PATH);
     if (apiMatch) {
-      const pr = this.engine.get(apiMatch[1]!);
+      const apiId = PrWebServer.safeDecode(apiMatch[1]!);
+      const pr = apiId === null ? null : this.engine.get(apiId);
       if (!pr) {
         this.notFound(res);
         return;
@@ -107,11 +159,11 @@ export class PrWebServer {
       return;
     }
 
-    const detailMatch = path.match(PR_DETAIL_PATH);
+    const detailMatch = rawPath.match(PR_DETAIL_PATH);
     if (detailMatch) {
-      const id = detailMatch[1]!;
-      const pr = this.engine.get(id);
-      if (!pr) {
+      const id = PrWebServer.safeDecode(detailMatch[1]!);
+      const pr = id === null ? null : this.engine.get(id);
+      if (!pr || id === null) {
         this.notFound(res);
         return;
       }
@@ -127,28 +179,40 @@ export class PrWebServer {
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
     });
     res.end(html);
   }
 
+  /**
+   * JSON 응답.
+   *
+   * CORS 헤더를 안 붙인다. 이 API를 부르는 건 같은 오리진에서 뜬 자기 페이지뿐이라
+   * 필요가 없다. 와일드카드를 열면 127.0.0.1 바인딩으로 얻은 격리가 풀린다 —
+   * 사용자가 열어둔 아무 웹페이지나 리뷰 중인 비공개 소스를 읽어갈 수 있다.
+   */
   private sendJson(res: ServerResponse, value: unknown): void {
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
-      'Access-Control-Allow-Origin': '*',
+      'X-Content-Type-Options': 'nosniff',
     });
     res.end(JSON.stringify(value));
   }
 
   private notFound(res: ServerResponse): void {
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.writeHead(404, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+    });
     res.end('Not Found');
   }
 
   private registerSigintHandler(): void {
     this.sigintHandler = () => {
       process.stderr.write('\n[local-pr-web] SIGINT received — shutting down server...\n');
-      void this.stop().then(() => {
+      // finally로 받는다. close가 실패해도 프로세스는 끝나야 Ctrl+C가 먹는다
+      void this.stop().finally(() => {
         process.exit(0);
       });
     };

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,9 +16,14 @@ function run(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
 }
 
-function randomPort(): number {
-  return 31000 + Math.floor(Math.random() * 10000);
-}
+/**
+ * 포트는 OS에 맡긴다.
+ *
+ * 난수로 고르면 이미 쓰이는 자리를 집었을 때 코드가 아니라 환경 때문에 실패한다.
+ * vitest가 파일을 병렬로 돌리고 CI가 매트릭스 넷을 굴리는 레포라 실제로 밟는다.
+ * 0을 주면 listen이 빈 자리를 잡아준다. port getter가 그 값을 되짚는지도 함께 걸린다.
+ */
+const ANY_PORT = 0;
 
 describe('PrWebServer', () => {
   let repoRoot: string;
@@ -52,8 +58,8 @@ describe('PrWebServer', () => {
   it('GET / 은 PR 목록 HTML을 반환한다', async () => {
     engine.create({ title: '두 번째 줄', author: 'codex:worker-1' });
 
-    const port = randomPort();
-    await server.start(port);
+    await server.start(ANY_PORT);
+    const port = server.port!;
 
     const res = await fetch(`http://127.0.0.1:${port}/`);
     expect(res.status).toBe(200);
@@ -67,8 +73,8 @@ describe('PrWebServer', () => {
   it('GET /api/prs 는 PR 목록 JSON을 반환한다', async () => {
     const pr = engine.create({ title: '두 번째 줄', author: 'codex:worker-1' });
 
-    const port = randomPort();
-    await server.start(port);
+    await server.start(ANY_PORT);
+    const port = server.port!;
 
     const res = await fetch(`http://127.0.0.1:${port}/api/prs`);
     expect(res.status).toBe(200);
@@ -82,8 +88,8 @@ describe('PrWebServer', () => {
   it('GET /prs/:id 는 diff가 담긴 상세 HTML을 반환한다', async () => {
     const pr = engine.create({ title: '두 번째 줄', author: 'codex:worker-1' });
 
-    const port = randomPort();
-    await server.start(port);
+    await server.start(ANY_PORT);
+    const port = server.port!;
 
     const res = await fetch(`http://127.0.0.1:${port}/prs/${pr.id}`);
     expect(res.status).toBe(200);
@@ -94,8 +100,8 @@ describe('PrWebServer', () => {
   it('GET /api/prs/:id 는 PR 하나를 JSON으로 반환한다', async () => {
     const pr = engine.create({ title: '두 번째 줄', author: 'codex:worker-1' });
 
-    const port = randomPort();
-    await server.start(port);
+    await server.start(ANY_PORT);
+    const port = server.port!;
 
     const res = await fetch(`http://127.0.0.1:${port}/api/prs/${pr.id}`);
     expect(res.status).toBe(200);
@@ -105,8 +111,8 @@ describe('PrWebServer', () => {
   });
 
   it('없는 PR id는 404를 반환한다', async () => {
-    const port = randomPort();
-    await server.start(port);
+    await server.start(ANY_PORT);
+    const port = server.port!;
 
     const htmlRes = await fetch(`http://127.0.0.1:${port}/prs/nope`);
     expect(htmlRes.status).toBe(404);
@@ -116,24 +122,27 @@ describe('PrWebServer', () => {
   });
 
   it('알 수 없는 경로는 404를 반환한다', async () => {
-    const port = randomPort();
-    await server.start(port);
+    await server.start(ANY_PORT);
+    const port = server.port!;
 
     const res = await fetch(`http://127.0.0.1:${port}/nope`);
     expect(res.status).toBe(404);
   });
 
-  it('port getter는 start() 후 실제 포트를 반환한다', async () => {
-    const port = randomPort();
-    await server.start(port);
-    expect(server.port).toBe(port);
+  it('port getter는 OS가 잡아준 실제 포트를 반환한다', async () => {
+    await server.start(ANY_PORT);
+
+    // 요청값을 되받는 게 아니라 listen이 정한 자리를 읽는다. 0을 그대로 돌려주면
+    // `pr serve`가 http://127.0.0.1:0 이라는 죽은 주소를 사용자에게 알려준다
+    expect(server.port).toBeGreaterThan(0);
+    expect((await fetch(`http://127.0.0.1:${server.port}/`)).status).toBe(200);
   });
 
   it('서버가 떠 있는 동안 새로 단 코멘트가 다음 요청에 바로 보인다', async () => {
     const pr = engine.create({ title: '두 번째 줄', author: 'codex:worker-1' });
 
-    const port = randomPort();
-    await server.start(port);
+    await server.start(ANY_PORT);
+    const port = server.port!;
 
     const before = await (await fetch(`http://127.0.0.1:${port}/prs/${pr.id}`)).text();
     expect(before).not.toContain('나중에 단 코멘트');
@@ -142,5 +151,58 @@ describe('PrWebServer', () => {
 
     const after = await (await fetch(`http://127.0.0.1:${port}/prs/${pr.id}`)).text();
     expect(after).toContain('나중에 단 코멘트');
+  });
+  it('퍼센트 인코딩이 깨져도 서버가 죽지 않는다', async () => {
+    await server.start(ANY_PORT);
+    const port = server.port!;
+
+    // decodeURIComponent가 던진 URIError가 요청 리스너를 빠져나가면 프로세스가 죽는다.
+    // 임의 웹페이지가 img 태그 한 줄로 보낼 수 있는 요청이다
+    expect((await fetch(`http://127.0.0.1:${port}/%`)).status).toBe(400);
+    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+  });
+
+  it('JSON 응답에 CORS 와일드카드를 안 붙인다', async () => {
+    await server.start(ANY_PORT);
+
+    const res = await fetch(`http://127.0.0.1:${server.port}/api/prs`);
+
+    // 와일드카드를 열면 127.0.0.1 바인딩으로 얻은 격리가 풀린다
+    expect(res.headers.get('access-control-allow-origin')).toBeNull();
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('읽기 전용이라 GET과 HEAD 밖은 405로 답한다', async () => {
+    await server.start(ANY_PORT);
+
+    const res = await fetch(`http://127.0.0.1:${server.port}/`, { method: 'POST' });
+
+    expect(res.status).toBe(405);
+    expect(res.headers.get('allow')).toBe('GET, HEAD');
+  });
+
+  it('Host가 로컬이 아니면 거부한다', async () => {
+    await server.start(ANY_PORT);
+
+    // fetch는 Host를 못 바꾸게 막으므로 소켓으로 직접 보낸다.
+    // 127.0.0.1 바인딩만으로는 DNS 리바인딩이 남의 이름으로 이 자리에 닿는다
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = httpRequest(
+        {
+          host: '127.0.0.1',
+          port: server.port,
+          path: '/api/prs',
+          headers: { Host: 'evil.example.com' },
+        },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+
+    expect(status).toBe(403);
   });
 });
