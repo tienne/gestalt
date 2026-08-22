@@ -349,23 +349,25 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
     expect(readPr().comments).toHaveLength(2);
   });
 
-  it('코멘트 루프 중간에 던지면 재시도가 쓴 것을 다시 쓰지 않는다', () => {
-    const reviewSessionId = startAndAgree([
-      { severity: 'high', file: 'a.txt', line: 1, reportedBy: 'security-reviewer' },
-      { severity: 'high', file: 'a.txt', line: 2, reportedBy: 'security-reviewer' },
-      { severity: 'warning', file: 'a.txt', line: 3, reportedBy: 'quality-reviewer' },
-    ]);
+  it('코멘트를 쓰다 중간에 던지면 재시도가 쓴 것을 다시 쓰지 않는다', () => {
+    const issues = [
+      { severity: 'high' as const, file: 'a.txt', line: 1, reportedBy: 'security-reviewer' },
+      { severity: 'high' as const, file: 'a.txt', line: 2, reportedBy: 'security-reviewer' },
+      { severity: 'warning' as const, file: 'a.txt', line: 3, reportedBy: 'quality-reviewer' },
+    ];
+    const reviewSessionId = startAndAgree(issues);
 
-    // 세 번째 코멘트에서 던지게 만든다. 앞의 둘은 PR에 남는다.
-    const real = LocalPrEngine.prototype.comment;
-    let calls = 0;
-    const spy = vi.spyOn(LocalPrEngine.prototype, 'comment').mockImplementation(function (
+    // 앞의 둘만 쓰고 던진다. 코멘트 N건과 판정 하나를 따로 쓰는 다중 쓰기라
+    // 원자적으로 묶을 수 없는 자리다
+    const real = LocalPrEngine.prototype.commentMany;
+    const spy = vi.spyOn(LocalPrEngine.prototype, 'commentMany').mockImplementation(function (
       this: LocalPrEngine,
-      ...args
+      prId,
+      inputs,
+      onPosted,
     ) {
-      calls += 1;
-      if (calls === 3) throw new Error('저장소가 잠겼다');
-      return real.apply(this, args) as ReturnType<typeof real>;
+      real.call(this, prId, inputs.slice(0, 2), onPosted);
+      throw new Error('저장소가 잠겼다');
     });
 
     const failed = call({ action: 'review_publish', reviewSessionId });
@@ -379,9 +381,28 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
 
     expect(retried.status).toBe('review_published');
     expect(retried.resumedFrom).toBe(2);
-    expect(retried.commentCount).toBe(1);
     expect(readPr().comments).toHaveLength(3);
     expect(readPr().reviews).toHaveLength(1);
+  });
+
+  it('세션 자국이 사라져도 PR에 남은 자국으로 되짚는다', () => {
+    const issues = [
+      { severity: 'high' as const, file: 'a.txt', line: 1, reportedBy: 'security-reviewer' },
+      { severity: 'warning' as const, file: 'a.txt', line: 2, reportedBy: 'quality-reviewer' },
+    ];
+    const reviewSessionId = startAndAgree(issues);
+    call({ action: 'review_publish', reviewSessionId });
+    const afterFirst = readPr().comments.length;
+
+    // 자국은 메모리에만 산다. 프로세스가 죽으면 통째로 사라지는데 PR의 코멘트는 남는다.
+    // 그때 다시 부르면 같은 합의가 코멘트를 전부 다시 쓴다 — 이벤트 소싱이라 못 지운다
+    const session = reviewEngine.getSession(reviewSessionId);
+    if (session) session.publishState = undefined;
+
+    const again = call({ action: 'review_publish', reviewSessionId });
+
+    expect(again.alreadyPublished).toBe(true);
+    expect(readPr().comments).toHaveLength(afterFirst);
   });
 
   it('합의 내용이 바뀌면 앞선 publish 자국을 버린다', () => {

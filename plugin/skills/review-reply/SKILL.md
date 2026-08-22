@@ -118,7 +118,7 @@ pnpm tsx bin/gestalt.ts pr --json show <id>
 pnpm tsx bin/gestalt.ts pr --json list   # id가 없거나 show가 비었을 때 현재 브랜치 매칭 (판별 1번과 같은 두 수단)
 ```
 
-작성자는 `author` 필드, 현재 사용자는 `--author` 옵션값 → `GESTALT_ACTOR` 환경변수 → `human:local` 순으로 정해지는 값(`gestalt pr` CLI의 `actorOf` 규칙과 동일)과 비교한다.
+작성자는 `author` 필드다. 현재 사용자는 `gestalt pr` 명령이 쓰는 값과 같다 — 규칙은 `src/local-pr/policy.ts`의 `resolveActor`에 있다. 여기 옮겨 적으면 기본값을 바꿀 때 이 문장이 조용히 거짓이 된다.
 
 - `target`이 생략되면 현재 브랜치의 PR을 찾는다. PR이 없으면 여기서 멈추고 알린다 — 답할 코멘트가 있을 곳이 없다.
 - `state`가 `MERGED`/`CLOSED`(local은 `merged`/`closed`)면 사용자에게 한 줄 확인한다 ("이미 닫힌 PR인데 답글만 남길까요?").

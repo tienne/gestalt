@@ -595,35 +595,27 @@ JSON 제어문자가 깨지지 않도록 코멘트 본문은 셸 변수 echo 파
 
 #### 게시 — 로컬 PR (`prTarget: "local"`)
 
-로컬 PR에는 한 리뷰로 묶어 올리는 API가 없습니다. 인라인 코멘트는 이슈마다 `gestalt pr comment`로, 전체 판정은 `gestalt pr review`로 따로 남깁니다. 코멘트 본문은 셸을 안 타게 **`--body-file`로 넘깁니다** — 한글과 백틱이 셸에서 깨집니다.
+`review_publish` 한 번으로 인라인 코멘트와 판정을 함께 남깁니다. `gestalt pr comment`를 이슈마다 손으로 도는 방식은 쓰지 않습니다 — 그 경로는 게시가 중간에 끊겼을 때 어디까지 썼는지를 사람이 세야 합니다. 코멘트 작성자도 지적을 낸 에이전트가 아니라 실행한 계정으로 남습니다.
 
-이슈마다:
-
-```bash
-cat > /tmp/gestalt-review-comment.md <<'EOF'
-{code-review-writer가 쓴 코멘트 body}
-EOF
-pnpm tsx bin/gestalt.ts pr comment <local-pr-id> \
-  --path "<file>" \
-  --line <line> \
-  --body-file /tmp/gestalt-review-comment.md
+```
+ges_execute {
+  action: "review_publish",
+  reviewSessionId: "<reviewSessionId>",
+  prId: "<local-pr-id>",          // review_start를 prId로 열었으면 생략 가능
+  prReviewer: "<리뷰어 이름>"       // 생략하면 GESTALT_ACTOR, 그것도 없으면 gestalt:review
+}
 ```
 
-- 라인 매핑이 불확실한 이슈는 `--line`을 생략해 파일 전반 코멘트로 남깁니다 (`side` 개념은 로컬 PR에 없습니다).
+이 액션이 대신 해 주는 것들입니다.
 
-전체 판정은 위 **리뷰 이벤트 결정**을 그대로 따르되 `gestalt pr review`의 `--verdict`로 옮깁니다 (`REQUEST_CHANGES` → `request-changes`, `COMMENT` → `comment`, `APPROVE` → `approve`):
+- **인라인 코멘트의 작성자가 지적을 낸 에이전트로 남습니다** (`agent:security-reviewer` 꼴). 누가 지적했고 누가 답했는지가 남는 것이 로컬 PR의 존재 이유입니다.
+- **판정 경계가 파이프라인과 같습니다.** 4단계의 `overallApproved`를 가르는 그 함수를 그대로 씁니다. 손으로 `--verdict`를 고르면 파이프라인은 통과인데 PR은 `request_changes`인 상태가 생깁니다.
+- **두 번 불러도 코멘트가 안 늘어납니다.** 같은 합의를 다시 옮기면 `alreadyPublished: true`로 아무것도 쓰지 않습니다. PR은 이벤트 소싱이라 한 번 붙은 코멘트를 지울 수 없습니다.
+- **중간에 끊기면 그 다음부터 잇습니다.** 코멘트마다 자국을 PR에 남기므로 세션이 사라진 뒤에 다시 불러도 쓴 것을 다시 쓰지 않습니다.
 
-```bash
-cat > /tmp/gestalt-review-summary.md <<'EOF'
-{code-review-writer가 쓴 overall summary}
-EOF
-pnpm tsx bin/gestalt.ts pr review <local-pr-id> \
-  --verdict <approve|request-changes|comment> \
-  --body-file /tmp/gestalt-review-summary.md
-```
+응답의 `commentCount`와 `resumedFrom`, `prStatus`, `round`를 사용자에게 그대로 보여줍니다. `alreadyPublished`가 붙어 오면 이미 올라가 있다는 뜻이니 다시 부르지 않습니다.
 
-- 건마다 개별 호출입니다. 중간에 실패하면 어디까지 게시됐는지 사용자에게 알립니다 — 부분 실패를 성공으로 보고하지 않습니다.
-- 게시 후 `pnpm tsx bin/gestalt.ts pr --json show <local-pr-id>`로 반영을 확인하고 결과를 사용자에게 보여줍니다.
+라인 매핑이 불확실한 이슈는 `line`을 비워 파일 전반 코멘트가 됩니다 (`side` 개념은 로컬 PR에 없습니다). 이 액션은 `code-review-writer`를 거치지 않고 합의 이슈를 그대로 옮깁니다 — 어투를 맞춘 코멘트가 필요하면 4.5단계에서 다듬은 내용이 이미 `mergedIssues`에 들어 있어야 합니다.
 
 ### 5단계: 수정 확인 (review_fix, opt-in)
 

@@ -328,10 +328,24 @@ function actorOfAgent(name: string): string {
   return name.includes(':') ? name : `agent:${name}`;
 }
 
-function issueBody(issue: ReviewIssue): string {
+/**
+ * 이 코멘트가 어느 합의에서 나왔는지 남기는 자국.
+ *
+ * 세션의 진행 상태는 메모리에만 산다. 프로세스가 죽거나 세션이 다른 자리에서 열리면
+ * 그 값이 통째로 사라진다. 그러면 같은 합의로 다시 부른 publish가 코멘트를 전부 다시 쓴다.
+ * PR은 이벤트 소싱이라 그렇게 붙은 중복은 지울 수 없고 사람이 손으로 닫아야 한다.
+ * 그래서 어디까지 썼는지를 PR 자신에게도 남긴다 — 재기동해도 여기서 되짚는다.
+ *
+ * 마크다운 주석이라 렌더링되면 안 보인다.
+ */
+function publishMarker(issuesKey: string): string {
+  return `<!-- gestalt:publish ${issuesKey} -->`;
+}
+
+function issueBody(issue: ReviewIssue, issuesKey: string): string {
   const head = `**[${issue.severity}] ${issue.category}** — ${issue.reportedBy}`;
   const suggestion = issue.suggestion ? `\n\n제안: ${issue.suggestion}` : '';
-  return `${head}\n\n${issue.message}${suggestion}`;
+  return `${head}\n\n${issue.message}${suggestion}\n\n${publishMarker(issuesKey)}`;
 }
 
 function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: ExecuteInput): string {
@@ -370,12 +384,37 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
     // 작성자가 고쳐 올린 새 라운드다. 합의가 바뀌었으면 옮길 목록 자체가 다르다.
     // 어느 쪽이든 처음부터 다시 쓰는 게 맞다.
     const issuesKey = fingerprint(consensus.mergedIssues);
-    const prior =
+    const sessionPrior =
       session.publishState?.prId === prId &&
       session.publishState.headSha === headSha &&
       session.publishState.issuesKey === issuesKey
         ? session.publishState
         : undefined;
+
+    // 세션 자국이 없어도 PR 자신에게 물어본다. 자국은 메모리에만 살아서 프로세스가
+    // 죽거나 세션이 다른 자리에서 열리면 사라진다. 그런데 PR에 붙은 코멘트는 남아 있다.
+    // 그 수를 세지 않으면 재기동 뒤 같은 합의가 코멘트를 통째로 다시 쓴다.
+    const marker = publishMarker(issuesKey);
+    const alreadyOnPr = target.comments.filter(
+      (c) => c.headSha === headSha && c.body.includes(marker),
+    ).length;
+    const alreadyJudged = target.reviews.some(
+      (r) => r.headSha === headSha && r.reviewer === reviewer,
+    );
+
+    const prior: ReviewPublishState | undefined =
+      sessionPrior ??
+      (alreadyOnPr > 0
+        ? {
+            prId,
+            headSha,
+            issuesKey,
+            postedCount: alreadyOnPr,
+            completed: alreadyOnPr >= consensus.mergedIssues.length && alreadyJudged,
+            verdict,
+            reviewer,
+          }
+        : undefined);
 
     // 이미 한 바퀴를 끝낸 자국이면 아무것도 쓰지 않고 그때 결과를 그대로 돌려준다.
     // 막지 않고 멱등하게 만든 이유는 부르는 쪽이 호스트의 재시도라서다. 오류로 접으면
@@ -415,23 +454,30 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
     session.publishState = state;
 
     const issues = consensus.mergedIssues;
-    const postedComments: { path: string; line: number | null; author: string }[] = [];
-    for (let i = state.postedCount; i < issues.length; i++) {
-      const issue = issues[i]!;
-      // 지적의 파일과 라인이 그대로 코멘트 위치다. 라인이 없으면 파일 전체 코멘트다.
-      engine.comment(prId, {
-        author: actorOfAgent(issue.reportedBy),
-        path: issue.file,
-        line: issue.line,
-        body: issueBody(issue),
-      });
-      state.postedCount = i + 1;
-      postedComments.push({
-        path: issue.file,
-        line: issue.line ?? null,
-        author: actorOfAgent(issue.reportedBy),
-      });
+    const pending = issues.slice(state.postedCount);
+
+    // 지적의 파일과 라인이 그대로 코멘트 위치다. 라인이 없으면 파일 전체 코멘트다.
+    if (pending.length > 0) {
+      engine.commentMany(
+        prId,
+        pending.map((issue) => ({
+          author: actorOfAgent(issue.reportedBy),
+          path: issue.file,
+          line: issue.line,
+          body: issueBody(issue, issuesKey),
+        })),
+        (i) => {
+          state.postedCount = state.postedCount + 1;
+          void i;
+        },
+      );
     }
+
+    const postedComments = pending.map((issue) => ({
+      path: issue.file,
+      line: issue.line ?? null,
+      author: actorOfAgent(issue.reportedBy),
+    }));
 
     const pr = engine.review(prId, { reviewer, verdict, summary: consensus.summary });
     state.completed = true;

@@ -144,6 +144,40 @@ export class LocalPrEngine {
 
   // ─── 코멘트 ──────────────────────────────────────────────
 
+  /**
+   * 코멘트 여러 건을 한 번에 붙인다.
+   *
+   * `comment`를 N번 부르면 건마다 PR 전체를 두 번 재생한다 — 앞에서 상태를 얻고
+   * 뒤에서 돌려주느라 그렇다. 재생 대상 이벤트도 붙일수록 늘어서 총 비용이 건수의
+   * 제곱으로 커진다. 리뷰 합의를 옮기는 자리는 수십에서 수백 건이라 그 자리를 밟는다.
+   *
+   * 상태는 한 번만 접고 이벤트만 이어 붙인다. `onPosted`는 한 건 쓸 때마다 부른다 —
+   * 중간에 던져도 어디까지 썼는지가 부르는 쪽에 남아야 재시도가 다시 안 쓴다.
+   */
+  commentMany(
+    prId: string,
+    inputs: { author: Actor; path: string; line?: number; body: string }[],
+    onPosted?: (index: number) => void,
+  ): PullRequest {
+    const pr = this.requireOpen(prId);
+
+    inputs.forEach((input, i) => {
+      const commentId = randomUUID().slice(0, 8);
+      this.store.append(PR_AGGREGATE, prId, PrEvent.COMMENT_ADDED, {
+        commentId,
+        author: input.author,
+        path: input.path,
+        line: input.line ?? null,
+        body: input.body,
+        threadId: commentId,
+        headSha: pr.headSha,
+      });
+      onPosted?.(i);
+    });
+
+    return this.require(prId);
+  }
+
   comment(
     prId: string,
     input: { author: Actor; path: string; line?: number; body: string; replyTo?: string },
