@@ -133,6 +133,29 @@ describe('generatePrListHtml', () => {
     expect(html).not.toContain('<script>alert(document.cookie)</script>');
     expect(html).toContain('&lt;script&gt;alert(document.cookie)&lt;/script&gt;');
   });
+  it('레포가 여럿이면 옮겨 다니는 줄을 그린다', () => {
+    const pr = makePr({});
+    const repos = [
+      { key: 'aaaaaaaa', name: 'gestalt', active: true },
+      { key: 'bbbbbbbb', name: 'other', active: false },
+    ];
+
+    const html = generatePrListHtml([pr], repos);
+
+    expect(html).toContain('href="/r/bbbbbbbb"');
+    expect(html).toContain('<strong>gestalt</strong>');
+    // PR 링크도 지금 레포 아래로 간다
+    expect(html).toContain('href="/r/aaaaaaaa/prs/abcd1234"');
+  });
+
+  it('레포가 하나면 고를 게 없어 줄을 안 그린다', () => {
+    const html = generatePrListHtml(
+      [makePr({})],
+      [{ key: 'aaaaaaaa', name: 'gestalt', active: true }],
+    );
+
+    expect(html).not.toContain('ul class="repos"');
+  });
 });
 
 describe('generatePrDetailHtml', () => {

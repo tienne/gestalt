@@ -1,10 +1,14 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse, Server } from 'node:http';
 import type { LocalPrEngine } from '../local-pr/engine.js';
+import type { RegisteredRepo } from '../local-pr/registry.js';
 import { generatePrDetailHtml, generatePrListHtml } from './html-generator.js';
 
-const PR_DETAIL_PATH = /^\/prs\/([^/]+)$/;
-const API_PR_DETAIL_PATH = /^\/api\/prs\/([^/]+)$/;
+const REPO_KEY = '([0-9a-f]{8})';
+const PR_LIST_PATH = new RegExp(`^/r/${REPO_KEY}/?$`);
+const PR_DETAIL_PATH = new RegExp(`^/r/${REPO_KEY}/prs/([^/]+)$`);
+const API_PR_LIST_PATH = new RegExp(`^/api/r/${REPO_KEY}/prs$`);
+const API_PR_DETAIL_PATH = new RegExp(`^/api/r/${REPO_KEY}/prs/([^/]+)$`);
 
 /**
  * 로컬 PR을 브라우저에서 읽는 HTTP 서버. 읽기 전용이다.
@@ -13,12 +17,18 @@ const API_PR_DETAIL_PATH = /^\/api\/prs\/([^/]+)$/;
  * 않고 매 요청마다 LocalPrEngine에서 다시 읽는다는 것 — PR 목록은 서버가 떠 있는
  * 동안에도 다른 워커가 코멘트를 달거나 판정을 남기며 바뀐다.
  *
+ * 레포 여럿을 한 서버가 보여준다. URL에 실리는 건 경로가 아니라 등록된 레포의
+ * 키다 — 요청이 경로를 지정할 수 있으면 인증 없는 이 서버가 이 머신의 아무 git
+ * 레포나 읽어주는 도구가 된다. 모르는 키는 404다.
+ *
  * Routes:
- *   GET /              → PR 목록 HTML
- *   GET /prs/:id       → PR 상세 HTML (diff, 코멘트 스레드, 라운드별 판정)
- *   GET /api/prs       → PR 목록 JSON
- *   GET /api/prs/:id   → PR 상세 JSON
- *   *                  → 404
+ *   GET /                       → 지금 레포로 보냄 (등록 레포가 여럿이면 목록)
+ *   GET /r/:key                 → 그 레포의 PR 목록 HTML
+ *   GET /r/:key/prs/:id         → PR 상세 HTML (diff, 코멘트 스레드, 라운드별 판정)
+ *   GET /api/repos              → 등록된 레포 목록 JSON
+ *   GET /api/r/:key/prs         → PR 목록 JSON
+ *   GET /api/r/:key/prs/:id     → PR 상세 JSON
+ *   *                           → 404
  */
 export class PrWebServer {
   private server: Server | null = null;
@@ -32,7 +42,14 @@ export class PrWebServer {
    */
   private diffCache = new Map<string, string>();
 
-  constructor(private engine: LocalPrEngine) {}
+  /**
+   * @param engines 레포 키 → 엔진. 시작할 때 정해지고 요청이 못 늘린다
+   * @param primaryKey `pr serve`를 친 자리의 레포. `/`가 여기로 보낸다
+   */
+  constructor(
+    private engines: Map<string, { repo: RegisteredRepo; engine: LocalPrEngine }>,
+    private primaryKey: string,
+  ) {}
 
   /** Start the server on the given port. Resolves when listening. */
   start(port: number): Promise<void> {
@@ -146,51 +163,79 @@ export class PrWebServer {
     }
 
     if (path === '/') {
-      this.sendHtml(res, generatePrListHtml(this.engine.list()));
+      res.writeHead(302, { Location: `/r/${this.primaryKey}` });
+      res.end();
       return;
     }
 
-    if (path === '/api/prs') {
-      this.sendJson(res, this.engine.list());
+    if (path === '/api/repos') {
+      this.sendJson(
+        res,
+        [...this.engines.values()].map((e) => e.repo),
+      );
       return;
     }
 
-    const apiMatch = rawPath.match(API_PR_DETAIL_PATH);
-    if (apiMatch) {
-      const apiId = PrWebServer.safeDecode(apiMatch[1]!);
-      const pr = apiId === null ? null : this.engine.get(apiId);
-      if (!pr) {
-        this.notFound(res);
-        return;
-      }
+    const apiList = rawPath.match(API_PR_LIST_PATH);
+    if (apiList) {
+      const held = this.engines.get(apiList[1]!);
+      if (!held) return this.notFound(res);
+      this.sendJson(res, held.engine.list());
+      return;
+    }
+
+    const apiDetail = rawPath.match(API_PR_DETAIL_PATH);
+    if (apiDetail) {
+      const held = this.engines.get(apiDetail[1]!);
+      const apiId = PrWebServer.safeDecode(apiDetail[2]!);
+      const pr = held && apiId !== null ? held.engine.get(apiId) : null;
+      if (!pr) return this.notFound(res);
       this.sendJson(res, pr);
+      return;
+    }
+
+    const listMatch = rawPath.match(PR_LIST_PATH);
+    if (listMatch) {
+      const held = this.engines.get(listMatch[1]!);
+      if (!held) return this.notFound(res);
+      this.sendHtml(res, generatePrListHtml(held.engine.list(), this.repoNav(listMatch[1]!)));
       return;
     }
 
     const detailMatch = rawPath.match(PR_DETAIL_PATH);
     if (detailMatch) {
-      const id = PrWebServer.safeDecode(detailMatch[1]!);
-      const pr = id === null ? null : this.engine.get(id);
-      if (!pr || id === null) {
-        this.notFound(res);
-        return;
-      }
-      this.sendHtml(res, generatePrDetailHtml(pr, this.diffOf(pr)));
+      const key = detailMatch[1]!;
+      const held = this.engines.get(key);
+      const id = PrWebServer.safeDecode(detailMatch[2]!);
+      const pr = held && id !== null ? held.engine.get(id) : null;
+      if (!pr || !held) return this.notFound(res);
+      this.sendHtml(res, generatePrDetailHtml(pr, this.diffOf(held.engine, pr), key));
       return;
     }
 
     this.notFound(res);
   }
 
+  private repoNav(activeKey: string): { key: string; name: string; active: boolean }[] {
+    return [...this.engines.values()].map((e) => ({
+      key: e.repo.key,
+      name: e.repo.name,
+      active: e.repo.key === activeKey,
+    }));
+  }
+
   /** 캐시가 무한히 자라지 않게 둘 상한. 리뷰 한 세션이 여는 PR 수를 넉넉히 덮는다 */
   private static readonly DIFF_CACHE_MAX = 32;
 
-  private diffOf(pr: { id: string; baseSha: string; headSha: string }): string {
+  private diffOf(
+    engine: LocalPrEngine,
+    pr: { id: string; baseSha: string; headSha: string },
+  ): string {
     const key = `${pr.baseSha}..${pr.headSha}`;
     const hit = this.diffCache.get(key);
     if (hit !== undefined) return hit;
 
-    const diff = this.engine.diff(pr.id);
+    const diff = engine.diff(pr.id);
     if (this.diffCache.size >= PrWebServer.DIFF_CACHE_MAX) {
       const oldest = this.diffCache.keys().next().value;
       if (oldest !== undefined) this.diffCache.delete(oldest);

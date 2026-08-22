@@ -31,7 +31,11 @@ export function gitCommonDir(repoRoot: string): string {
   // 구하는 git 프로세스가 예닐곱 번 뜬다 — spawn당 수십 ms라 그대로 쌓인다
   let hit = commonDirCache.get(repoRoot);
   if (hit === undefined) {
-    hit = resolve(repoRoot, git(repoRoot, ['rev-parse', '--git-common-dir']));
+    const raw = resolve(repoRoot, git(repoRoot, ['rev-parse', '--git-common-dir']));
+    // 심볼릭 링크를 푼다. 본체에서는 상대 경로(.git)로, 워크트리에서는 절대 경로로
+    // 나오는데 macOS의 /tmp처럼 링크를 타는 자리에서는 그 둘이 다른 문자열이 된다.
+    // 이 값이 저장소 경로와 레포 키의 기준이라 갈리면 같은 레포가 둘로 보인다
+    hit = realpathSync(raw);
     commonDirCache.set(repoRoot, hit);
   }
   return hit;

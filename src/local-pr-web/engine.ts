@@ -1,5 +1,7 @@
 import { findAvailablePort } from '../graph-viz/port-finder.js';
 import { LocalPrEngine } from '../local-pr/engine.js';
+import { listRepos, registerRepo } from '../local-pr/registry.js';
+import type { RegisteredRepo } from '../local-pr/registry.js';
 import { PrWebServer } from './server.js';
 import type { PrWebServerOptions, PrWebServerResult } from './types.js';
 
@@ -13,7 +15,7 @@ import type { PrWebServerOptions, PrWebServerResult } from './types.js';
  */
 export class PrWebEngine {
   private server: PrWebServer | null = null;
-  private prEngine: LocalPrEngine | null = null;
+  private engines = new Map<string, { repo: RegisteredRepo; engine: LocalPrEngine }>();
 
   async start(opts: PrWebServerOptions): Promise<PrWebServerResult> {
     const { repoRoot, port: preferredPort, openBrowser = true } = opts;
@@ -22,15 +24,23 @@ export class PrWebEngine {
     // 앞서 뜬 서버가 참조에서만 밀려나고 소켓과 포트, SIGINT 리스너는 그대로 남는다
     await this.stop();
 
-    this.prEngine = new LocalPrEngine(repoRoot);
-    const count = this.prEngine.list().length;
+    // 지금 자리를 먼저 목록에 넣는다. PR을 한 번도 안 만든 레포에서 serve를 쳐도
+    // 자기 레포는 보여야 한다
+    const primary = registerRepo(repoRoot);
+    this.engines = new Map();
+    for (const repo of listRepos()) {
+      this.engines.set(repo.key, { repo, engine: new LocalPrEngine(repo.path) });
+    }
+
+    const held = this.engines.get(primary.key);
+    const count = held ? held.engine.list().length : 0;
 
     // 0은 "아무 빈 포트나"라는 뜻이라 탐색할 게 없다. 탐색을 태우면 isPortAvailable(0)이
     // 늘 통과해 0을 그대로 돌려준다. 그 0이 URL에 박혀 죽은 주소가 나간다
     const requested = preferredPort ?? 7892;
     const port = requested === 0 ? 0 : await findAvailablePort(requested);
 
-    this.server = new PrWebServer(this.prEngine);
+    this.server = new PrWebServer(this.engines, primary.key);
     await this.server.start(port);
 
     // listen(0)이면 실제 포트는 OS가 정한다. 요청값이 아니라 뜬 자리를 알려준다
@@ -55,10 +65,8 @@ export class PrWebEngine {
       await this.server.stop();
       this.server = null;
     }
-    if (this.prEngine) {
-      this.prEngine.dispose();
-      this.prEngine = null;
-    }
+    for (const { engine } of this.engines.values()) engine.dispose();
+    this.engines.clear();
   }
 }
 

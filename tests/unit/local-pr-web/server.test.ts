@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalPrEngine } from '../../../src/local-pr/engine.js';
 import { PrWebServer } from '../../../src/local-pr-web/server.js';
+import { repoKey as key } from '../../../src/local-pr/registry.js';
 
 /**
  * 진짜 git 레포 위에서 LocalPrEngine을 굴리고 PrWebServer가 그 데이터를 그대로
@@ -29,6 +30,7 @@ describe('PrWebServer', () => {
   let repoRoot: string;
   let engine: LocalPrEngine;
   let server: PrWebServer;
+  let repoKey: string;
 
   beforeEach(() => {
     repoRoot = mkdtempSync(join(tmpdir(), 'gestalt-pr-web-'));
@@ -46,7 +48,13 @@ describe('PrWebServer', () => {
     run(repoRoot, ['commit', '-q', '-am', '두 번째 줄']);
 
     engine = new LocalPrEngine(repoRoot);
-    server = new PrWebServer(engine);
+    repoKey = key(repoRoot);
+    server = new PrWebServer(
+      new Map([
+        [repoKey, { repo: { key: repoKey, path: repoRoot, name: 'r', addedAt: '' }, engine }],
+      ]),
+      repoKey,
+    );
   });
 
   afterEach(async () => {
@@ -61,7 +69,7 @@ describe('PrWebServer', () => {
     await server.start(ANY_PORT);
     const port = server.port!;
 
-    const res = await fetch(`http://127.0.0.1:${port}/`);
+    const res = await fetch(`http://127.0.0.1:${port}/r/${repoKey}`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
 
@@ -76,7 +84,7 @@ describe('PrWebServer', () => {
     await server.start(ANY_PORT);
     const port = server.port!;
 
-    const res = await fetch(`http://127.0.0.1:${port}/api/prs`);
+    const res = await fetch(`http://127.0.0.1:${port}/api/r/${repoKey}/prs`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/json');
 
@@ -91,7 +99,7 @@ describe('PrWebServer', () => {
     await server.start(ANY_PORT);
     const port = server.port!;
 
-    const res = await fetch(`http://127.0.0.1:${port}/prs/${pr.id}`);
+    const res = await fetch(`http://127.0.0.1:${port}/r/${repoKey}/prs/${pr.id}`);
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain('line2');
@@ -103,7 +111,7 @@ describe('PrWebServer', () => {
     await server.start(ANY_PORT);
     const port = server.port!;
 
-    const res = await fetch(`http://127.0.0.1:${port}/api/prs/${pr.id}`);
+    const res = await fetch(`http://127.0.0.1:${port}/api/r/${repoKey}/prs/${pr.id}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { id: string; title: string };
     expect(body.id).toBe(pr.id);
@@ -114,10 +122,10 @@ describe('PrWebServer', () => {
     await server.start(ANY_PORT);
     const port = server.port!;
 
-    const htmlRes = await fetch(`http://127.0.0.1:${port}/prs/nope`);
+    const htmlRes = await fetch(`http://127.0.0.1:${port}/r/${repoKey}/prs/nope`);
     expect(htmlRes.status).toBe(404);
 
-    const jsonRes = await fetch(`http://127.0.0.1:${port}/api/prs/nope`);
+    const jsonRes = await fetch(`http://127.0.0.1:${port}/api/r/${repoKey}/prs/nope`);
     expect(jsonRes.status).toBe(404);
   });
 
@@ -135,7 +143,7 @@ describe('PrWebServer', () => {
     // 요청값을 되받는 게 아니라 listen이 정한 자리를 읽는다. 0을 그대로 돌려주면
     // `pr serve`가 http://127.0.0.1:0 이라는 죽은 주소를 사용자에게 알려준다
     expect(server.port).toBeGreaterThan(0);
-    expect((await fetch(`http://127.0.0.1:${server.port}/`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${server.port}/r/${repoKey}`)).status).toBe(200);
   });
 
   it('서버가 떠 있는 동안 새로 단 코멘트가 다음 요청에 바로 보인다', async () => {
@@ -144,12 +152,12 @@ describe('PrWebServer', () => {
     await server.start(ANY_PORT);
     const port = server.port!;
 
-    const before = await (await fetch(`http://127.0.0.1:${port}/prs/${pr.id}`)).text();
+    const before = await (await fetch(`http://127.0.0.1:${port}/r/${repoKey}/prs/${pr.id}`)).text();
     expect(before).not.toContain('나중에 단 코멘트');
 
     engine.comment(pr.id, { author: 'reviewer', path: 'a.txt', body: '나중에 단 코멘트' });
 
-    const after = await (await fetch(`http://127.0.0.1:${port}/prs/${pr.id}`)).text();
+    const after = await (await fetch(`http://127.0.0.1:${port}/r/${repoKey}/prs/${pr.id}`)).text();
     expect(after).toContain('나중에 단 코멘트');
   });
   it('퍼센트 인코딩이 깨져도 서버가 죽지 않는다', async () => {
@@ -159,13 +167,13 @@ describe('PrWebServer', () => {
     // decodeURIComponent가 던진 URIError가 요청 리스너를 빠져나가면 프로세스가 죽는다.
     // 임의 웹페이지가 img 태그 한 줄로 보낼 수 있는 요청이다
     expect((await fetch(`http://127.0.0.1:${port}/%`)).status).toBe(400);
-    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/r/${repoKey}`)).status).toBe(200);
   });
 
   it('JSON 응답에 CORS 와일드카드를 안 붙인다', async () => {
     await server.start(ANY_PORT);
 
-    const res = await fetch(`http://127.0.0.1:${server.port}/api/prs`);
+    const res = await fetch(`http://127.0.0.1:${server.port}/api/r/${repoKey}/prs`);
 
     // 와일드카드를 열면 127.0.0.1 바인딩으로 얻은 격리가 풀린다
     expect(res.headers.get('access-control-allow-origin')).toBeNull();
@@ -204,5 +212,31 @@ describe('PrWebServer', () => {
     });
 
     expect(status).toBe(403);
+  });
+  it('/ 는 지금 레포로 보낸다', async () => {
+    await server.start(ANY_PORT);
+
+    const res = await fetch(`http://127.0.0.1:${server.port}/`, { redirect: 'manual' });
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(`/r/${repoKey}`);
+  });
+
+  it('등록 안 된 레포 키는 404다', async () => {
+    await server.start(ANY_PORT);
+
+    // URL에 실리는 건 경로가 아니라 키다. 요청이 새 자리를 가리킬 방법이 없어야 한다
+    expect((await fetch(`http://127.0.0.1:${server.port}/r/deadbeef`)).status).toBe(404);
+    expect((await fetch(`http://127.0.0.1:${server.port}/api/r/deadbeef/prs`)).status).toBe(404);
+  });
+
+  it('레포 키 형식이 아니면 라우트가 안 걸린다', async () => {
+    await server.start(ANY_PORT);
+
+    // 경로를 그대로 넣어보는 시도가 키 자리에 안 맞는다
+    for (const bad of ['..%2F..%2Fetc', '/etc/passwd', 'zzzzzzzz!']) {
+      const res = await fetch(`http://127.0.0.1:${server.port}/r/${encodeURIComponent(bad)}`);
+      expect(res.status).toBe(404);
+    }
   });
 });

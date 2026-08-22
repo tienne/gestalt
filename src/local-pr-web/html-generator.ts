@@ -89,6 +89,8 @@ function pageShell(title: string, body: string, extraHead = ''): string {
     .comment + .comment { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #30363d; }
     .path { font-family: 'JetBrains Mono', 'Fira Code', monospace; color: #8b949e; font-size: 12px; }
     #diff-container { margin-top: 8px; }
+    ul.repos { list-style: none; padding: 0; margin: 0 0 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+    ul.repos li { font-size: 13px; }
   </style>
   ${extraHead}
 </head>
@@ -106,15 +108,42 @@ function verdictBadge(verdict: string): string {
   return `<span class="badge badge-${escapeHtml(verdict)}">${escapeHtml(verdict)}</span>`;
 }
 
-/** `GET /` — PR 목록 페이지 */
-export function generatePrListHtml(prs: PullRequest[]): string {
+export interface RepoTab {
+  key: string;
+  name: string;
+  active: boolean;
+}
+
+/**
+ * 레포 사이를 옮겨 다니는 줄.
+ *
+ * 레포가 하나뿐이면 고를 게 없어서 안 그린다.
+ */
+function repoNavHtml(repos: RepoTab[]): string {
+  if (repos.length <= 1) return '';
+  const items = repos
+    .map(
+      (r) =>
+        `<li>${
+          r.active
+            ? `<strong>${escapeHtml(r.name)}</strong>`
+            : `<a href="/r/${escapeHtml(r.key)}">${escapeHtml(r.name)}</a>`
+        }</li>`,
+    )
+    .join('\n      ');
+  return `<nav aria-label="레포"><ul class="repos">\n      ${items}\n    </ul></nav>`;
+}
+
+/** `GET /r/:key` — PR 목록 페이지 */
+export function generatePrListHtml(prs: PullRequest[], repos: RepoTab[] = []): string {
+  const base = repos.find((r) => r.active)?.key ?? '';
   const rows = prs
     .map((pr) => {
       const round = pr.rounds[pr.rounds.length - 1]!;
       const unresolved = unresolvedCount(pr);
       return `<tr>
-        <td><a href="/prs/${encodeURIComponent(pr.id)}">${escapeHtml(pr.id)}</a></td>
-        <td><a href="/prs/${encodeURIComponent(pr.id)}">${escapeHtml(pr.title)}</a></td>
+        <td><a href="/r/${escapeHtml(base)}/prs/${encodeURIComponent(pr.id)}">${escapeHtml(pr.id)}</a></td>
+        <td><a href="/r/${escapeHtml(base)}/prs/${encodeURIComponent(pr.id)}">${escapeHtml(pr.title)}</a></td>
         <td>${statusBadge(pr.status)}</td>
         <td>${round.number}</td>
         <td>${unresolved}</td>
@@ -124,6 +153,7 @@ export function generatePrListHtml(prs: PullRequest[]): string {
     .join('\n');
 
   const body = `
+  ${repoNavHtml(repos)}
   <h1>로컬 PR</h1>
   ${
     prs.length === 0
@@ -202,13 +232,13 @@ function renderThreads(comments: Comment[]): string {
 }
 
 /** `GET /prs/:id` — diff와 코멘트 스레드, 라운드별 판정 이력 */
-export function generatePrDetailHtml(pr: PullRequest, diff: string): string {
+export function generatePrDetailHtml(pr: PullRequest, diff: string, repoKey = ''): string {
   const extraHead = `
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html-ui.min.js"></script>`;
 
   const body = `
-  <p><a href="/">&larr; PR 목록</a></p>
+  <nav aria-label="브레드크럼"><a href="/r/${escapeHtml(repoKey)}">&larr; PR 목록</a></nav>
   <h1>${escapeHtml(pr.title)} <span class="meta">#${escapeHtml(pr.id)}</span></h1>
   <p class="meta">
     ${statusBadge(pr.status)} 작성 ${escapeHtml(pr.author)} ·

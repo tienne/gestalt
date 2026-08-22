@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { EventStore } from '../events/store.js';
 import type { IEventStore } from '../events/store.js';
 import * as git from './git.js';
+import { registerRepo } from './registry.js';
 import { PrEvent, PullRequestRepository, unresolvedCount } from './repository.js';
 import { PR_AGGREGATE } from './types.js';
 import type { Actor, PullRequest, ReviewVerdict } from './types.js';
@@ -110,6 +111,14 @@ export class LocalPrEngine {
 
     // 이벤트보다 ref를 먼저 붙인다. 사이에 죽어도 커밋은 살아 있다
     git.pinRefs(this.repoRoot, prId, baseSha, headSha);
+
+    // 이 레포에 로컬 PR이 생겼다는 걸 전역 목록에 남긴다. 웹 UI 하나가 여러 레포를
+    // 보여주려면 어떤 레포가 있는지 알아야 하는데, 그걸 요청이 정하게 둘 수 없다
+    try {
+      registerRepo(this.repoRoot);
+    } catch {
+      // 목록에 못 넣어도 PR 자체는 만들어진다. 웹에서 안 보일 뿐이다
+    }
 
     this.store.append(PR_AGGREGATE, prId, PrEvent.CREATED, {
       title: input.title,
