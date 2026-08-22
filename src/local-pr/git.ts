@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -25,9 +24,17 @@ function git(repoRoot: string, args: string[]): string {
  * 워크트리에서 `--git-dir`는 그 워크트리 전용 경로를 준다. PR 목록은 워크트리
  * 여럿이 함께 봐야 하므로 본체를 가리키는 `--git-common-dir`로 잡는다.
  */
+const commonDirCache = new Map<string, string>();
+
 export function gitCommonDir(repoRoot: string): string {
-  const dir = git(repoRoot, ['rev-parse', '--git-common-dir']);
-  return resolve(repoRoot, dir);
+  // 프로세스 수명 동안 repoRoot당 불변이다. 캐시가 없으면 checkout 한 번에 이 값을
+  // 구하는 git 프로세스가 예닐곱 번 뜬다 — spawn당 수십 ms라 그대로 쌓인다
+  let hit = commonDirCache.get(repoRoot);
+  if (hit === undefined) {
+    hit = resolve(repoRoot, git(repoRoot, ['rev-parse', '--git-common-dir']));
+    commonDirCache.set(repoRoot, hit);
+  }
+  return hit;
 }
 
 /**
@@ -66,13 +73,20 @@ export function pinRefs(repoRoot: string, prId: string, baseSha: string, headSha
   git(repoRoot, ['update-ref', `refs/gestalt/pr/${prId}/head`, headSha]);
 }
 
+/**
+ * 붙잡아 둔 ref를 놓는다.
+ *
+ * **head는 안 놓는다.** PR을 닫아도 그 커밋은 되짚을 수 있어야 한다 — `checkout`이
+ * 닫힌 PR도 떼어낸다고 약속한다. 그게 "그때 그 코드가 맞았나"를 나중에 보는 자리다.
+ * head까지 놓으면 브랜치도 지워진 PR은 gc가 한 번 돌고 나서 빈 껍데기가 된다.
+ *
+ * base만 놓는 이유는 그 커밋이 base 브랜치 이력에 이미 들어 있어서다. 놓아도 안 사라진다.
+ */
 export function unpinRefs(repoRoot: string, prId: string): void {
-  for (const suffix of ['base', 'head']) {
-    try {
-      git(repoRoot, ['update-ref', '-d', `refs/gestalt/pr/${prId}/${suffix}`]);
-    } catch {
-      // 이미 없으면 지울 것도 없다
-    }
+  try {
+    git(repoRoot, ['update-ref', '-d', `refs/gestalt/pr/${prId}/base`]);
+  } catch {
+    // 이미 없으면 지울 것도 없다
   }
 }
 
@@ -147,10 +161,13 @@ export function isClean(repoRoot: string): boolean {
  * 옮긴다. 워커가 자기 워크트리에 그대로 있는 채로 머지할 수 있다.
  *
  * **base가 다른 워크트리에 체크아웃돼 있으면 ref를 밀지 않는다.** 그쪽은 파일이 옛
- * 상태인데 HEAD만 움직여서, git이 머지를 되돌리는 수정이 널려 있는 것처럼 보고한다.
+ * 상태인데 HEAD만 움직인다. 그러면 그 워크트리의 `git status`가 머지로 들어온 변경을
+ * 전부 미커밋 삭제로 잡는다.
  * 그 자리에서 직접 머지하도록 돌려보낸다.
  *
- * ref는 옛 값을 함께 넘겨 옮긴다. 그 사이 base가 움직였으면 git이 거부한다.
+ * ref는 옛 값을 함께 넘겨 옮긴다 — 경쟁 갱신을 git의 compare-and-swap에 맡기는
+ * 것까지가 이 함수의 범위다. 그 창은 여기서 base를 읽은 뒤 update-ref를 부르기
+ * 전까지라 테스트로 만들지 못했다.
  */
 export function mergeIntoBase(
   repoRoot: string,
@@ -164,7 +181,22 @@ export function mergeIntoBase(
   // 지금 이 자리가 base를 올라타고 있으면 그냥 여기서 합치는 게 제일 안전하다.
   // macOS의 /tmp처럼 심볼릭 링크를 타는 경로가 있어 실경로로 맞춰야 같은 자리인지 안다
   if (holder && samePath(holder.path, repoRoot)) {
-    git(repoRoot, ['merge', '--no-ff', headSha, '-m', message]);
+    try {
+      git(repoRoot, ['merge', '--no-ff', headSha, '-m', message]);
+    } catch (e) {
+      // 충돌하면 부르는 사람의 워킹 트리에 MERGE_HEAD가 선 채 남는다. 임시 워크트리
+      // 갈래는 finally로 통째로 걷어내니 이쪽도 되돌려야 대칭이 맞는다. 안 그러면
+      // 실패를 받은 에이전트가 자기 자리가 머지 중간 상태인 걸 모른다
+      try {
+        git(repoRoot, ['merge', '--abort']);
+      } catch {
+        // 머지가 서지도 못했다. 되돌릴 게 없다
+      }
+      const detail = e instanceof Error ? e.message : String(e);
+      throw new Error(`base ${baseRef}에 머지하다 실패했다. 워킹 트리는 되돌렸다\n${detail}`, {
+        cause: e,
+      });
+    }
     return { mergeSha: resolveSha(repoRoot, 'HEAD'), viaWorktree: false };
   }
 
@@ -184,7 +216,7 @@ export function mergeIntoBase(
     git(scratch, ['merge', '--no-ff', headSha, '-m', message]);
     const mergeSha = resolveSha(scratch, 'HEAD');
 
-    // 옛 값을 같이 넘긴다. 그 사이 base가 움직였으면 여기서 거부된다
+    // 옛 값을 같이 넘겨 compare-and-swap으로 민다
     git(repoRoot, ['update-ref', `refs/heads/${baseRef}`, mergeSha, before]);
 
     return { mergeSha, viaWorktree: true };
@@ -220,44 +252,46 @@ export interface PrCheckout {
   headSha: string;
 }
 
-/** 떼어낸 워크트리를 모아 두는 칸. 자리를 되짚는 폴백이 이 이름으로 훑는다 */
-const CHECKOUT_ROOT = 'gestalt-pr-checkout';
+/** 떼어낸 워크트리를 모아 두는 칸. 공용 git 디렉토리 아래 이 이름으로 들어간다 */
+const CHECKOUT_ROOT = 'gestalt/pr-checkout';
 
 /**
  * PR 리뷰용 워크트리가 놓일 자리.
  *
- * repoRoot와 prId만으로 정해진다. 리뷰어가 경로를 안 적어놨어도 지울 때 같은 값이
- * 다시 나온다. 레포마다 갈라야 해서 공용 git 디렉토리의 해시를 한 칸 끼운다 —
- * 다른 레포의 PR이 우연히 같은 id를 받아도 자리가 겹치지 않는다.
+ * 공용 git 디렉토리 아래에 둔다. `.git/`은 워킹 트리가 아니라서 추적 안 되는
+ * 디렉토리가 리뷰 중인 diff에 섞이지 않는다 — 레포 안을 피해 tmp로 갔던 원래 이유가
+ * 여기서는 안 생긴다.
  *
- * 레포 안이 아니라 tmp에 둔다. 레포 안에 두면 워킹 트리에 추적되지 않는 디렉토리가
- * 생겨 리뷰 중인 diff에 섞인다. 대신 tmp 자리는 TMPDIR를 타므로 뗄 때와 지울 때
- * 환경이 다르면 값이 갈린다. 그 경우는 `registeredCheckout`이 등록 목록으로 되짚는다.
+ * tmp를 안 쓰는 이유는 둘이다. 공유 /tmp를 쓰는 호스트에서는 이 경로가 예측 가능해서
+ * 남이 먼저 그 자리를 만들어 두면 리뷰 중인 소스가 남의 소유 디렉토리에 풀린다.
+ * 그리고 tmp 경로는 TMPDIR를 타므로 뗄 때와 지울 때 환경이 다르면 값이 갈린다.
+ *
+ * repoRoot와 prId만으로 정해져서 리뷰어가 경로를 안 적어놨어도 지울 때 같은 값이
+ * 다시 나온다. 공용 git 디렉토리가 이미 레포마다 갈리므로 해시 칸도 필요 없다.
  */
 export function prCheckoutPath(repoRoot: string, prId: string): string {
-  const key = createHash('sha1').update(gitCommonDir(repoRoot)).digest('hex').slice(0, 8);
-  return join(tmpdir(), CHECKOUT_ROOT, key, prId);
+  assertPrId(prId);
+  return join(gitCommonDir(repoRoot), CHECKOUT_ROOT, prId);
 }
 
 /**
- * 이 PR이 실제로 떼어져 있는 자리. 등록이 없으면 null.
+ * PR id 형식.
  *
- * 먼저 지금 환경이 계산한 자리를 본다. 없으면 등록 목록에서 `<CHECKOUT_ROOT>/<해시>/<prId>`
- * 꼴을 훑는다 — 뗄 때와 지울 때 TMPDIR가 다르면 계산값이 옛 자리를 안 가리키기 때문이다.
- * 폴백이 없으면 원래 자리가 등록된 채로 영영 남는다.
+ * 이 값이 파일 경로와 git ref 이름으로 그대로 이어 붙는다. `removePrCheckout`은
+ * 그 경로에 재귀 삭제를 건다. `pinRefs`는 ref를 만든다. 엔진을 거치지 않고 이
+ * 모듈을 직접 부르는 경로가 열려 있어서(`index.ts`가 통째로 export한다) 방어를
+ * 호출자에게 맡기지 않는다.
  */
+const PR_ID = /^[0-9a-f]{8}$/;
+
+function assertPrId(prId: string): void {
+  if (!PR_ID.test(prId)) throw new Error(`PR id 형식이 아니다: ${prId}`);
+}
+
+/** 이 PR이 떼어져 등록돼 있는 자리. 없으면 null */
 function registeredCheckout(repoRoot: string, prId: string): string | null {
   const canonical = prCheckoutPath(repoRoot, prId);
-  const list = worktrees(repoRoot);
-
-  if (list.some((w) => samePath(w.path, canonical))) return canonical;
-
-  const strayed = list.find((w) => {
-    const parts = w.path.split(/[\\/]/);
-    return parts.at(-1) === prId && parts.at(-3) === CHECKOUT_ROOT;
-  });
-
-  return strayed?.path ?? null;
+  return worktrees(repoRoot).some((w) => samePath(w.path, canonical)) ? canonical : null;
 }
 
 /**
@@ -274,8 +308,15 @@ function gitAnchor(repoRoot: string): string {
   return existsSync(join(main, '.git')) ? main : common;
 }
 
-/** 그 자리가 아직 워크트리 노릇을 하는가. 등록만 남고 속이 깨진 경우를 가른다 */
+/**
+ * 그 자리가 아직 워크트리 노릇을 하는가. 등록만 남고 속이 깨진 경우를 가른다.
+ *
+ * `.git` 링크 파일이 있는지를 먼저 본다. 이 경로는 공용 git 디렉토리 아래라 링크가
+ * 깨져도 git이 상위를 훑어 레포를 찾아낸다 — `rev-parse`만으로는 성한 워크트리와
+ * 껍데기만 남은 자리를 못 가른다.
+ */
 function isUsable(path: string): boolean {
+  if (!existsSync(join(path, '.git'))) return false;
   try {
     resolveSha(path, 'HEAD');
     return true;
@@ -394,8 +435,8 @@ function strandedRef(prId: string, sha: string): string {
  *   깨끗하다고 답하므로 미커밋 검사만으로는 이 손실이 안 걸린다.
  *
  * 어느 쪽이든 왜 안 지웠는지 돌려준다. 정말 버릴 참이면 `force`로 다시 부른다. 그때도
- * ref가 안 품은 커밋은 `refs/gestalt/pr-checkout/<prId>`로 붙잡아 두고 지운다 — 막는
- * 것과 지우게 두는 것 사이에서, 되돌릴 실마리를 남기는 쪽을 골랐다. 리뷰어가 검증
+ * ref가 안 품은 커밋은 `refs/gestalt/pr-checkout/<prId>/<sha 앞 8자>`로 붙잡아 두고 지운다 —
+ * 막는 것과 지우게 두는 것 사이에서, 되돌릴 실마리를 남기는 쪽을 골랐다. 리뷰어가 검증
  * 중간을 커밋해 두는 건 있을 법한 흐름이라 `--force` 한 번에 영영 잃게 둘 수 없다.
  *
  * git이 추적하지 않기로 한 파일(.gitignore에 걸린 node_modules 등)은 변경으로
@@ -411,12 +452,27 @@ export function removePrCheckout(
   if (!path) {
     const guess = prCheckoutPath(repoRoot, prId);
     git(gitAnchor(repoRoot), ['worktree', 'prune']);
+
+    // 등록이 끊기고 디렉토리만 남은 자리는 지난 정리가 중간에 끊긴 흔적이다. 그 안에
+    // 리뷰어가 일부러 깨놓은 코드가 있을 수 있는데 여기서는 읽을 방법이 없다.
+    // 지킬 게 있는지 모르면 안 지운다 — force로 뜻을 밝혀야 버린다
+    if (existsSync(guess) && !options.force) {
+      return {
+        path: guess,
+        removed: false,
+        status: 'dirty',
+        reason: '등록이 끊긴 디렉토리가 남아 있다. 안을 확인한 뒤 --force로 다시 부른다',
+        savedRef: null,
+      };
+    }
+
+    const had = existsSync(guess);
     rmSync(guess, { recursive: true, force: true });
     return {
       path: guess,
-      removed: false,
-      status: 'absent',
-      reason: '떼어 놓은 워크트리가 없다',
+      removed: had,
+      status: had ? 'removed' : 'absent',
+      reason: had ? null : '떼어 놓은 워크트리가 없다',
       savedRef: null,
     };
   }

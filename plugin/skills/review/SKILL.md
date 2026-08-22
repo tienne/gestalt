@@ -184,7 +184,7 @@ pnpm tsx bin/gestalt.ts pr checkout <id> --remove --json
 | `diverged` | 거기서 커밋한 변경이 있어 안 지웠다 | 4 |
 
 `dirty`와 `diverged`는 확인한 뒤 `--force`를 붙여 다시 부릅니다. `diverged`를 force로
-지우면 그 커밋을 `refs/gestalt/pr-checkout/<id>`가 붙잡아 둡니다.
+지우면 그 커밋을 `refs/gestalt/pr-checkout/<id>/<sha 8자>`가 붙잡아 둡니다.
 
 이 단계는 `prTarget`이 `local`일 때만 합니다. GitHub PR에는 `gh pr checkout`이 있습니다.
 브랜치나 커밋 범위 리뷰는 그 코드가 이미 워킹 트리에 있습니다.

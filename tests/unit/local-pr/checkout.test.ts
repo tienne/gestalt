@@ -356,4 +356,40 @@ describe('PR head 체크아웃', () => {
       expect(run(repo, ['for-each-ref', '--contains', sha, '--count=1'])).not.toBe('');
     }
   });
+  it('워크트리를 공용 git 디렉토리 아래에 둔다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+    const checkout = engine.checkout(pr.id);
+
+    try {
+      // 공유 /tmp에 예측 가능한 이름으로 열면 남이 먼저 그 자리를 만들어 둘 수 있다.
+      // .git 아래는 워킹 트리가 아니라서 추적 안 되는 디렉토리가 diff에 안 섞인다
+      expect(realpathSync(checkout.path).startsWith(realpathSync(join(repo, '.git')))).toBe(true);
+      expect(run(repo, ['status', '--porcelain'])).toBe('');
+    } finally {
+      engine.removeCheckout(pr.id, { force: true });
+    }
+  });
+
+  it('등록이 끊기고 디렉토리만 남았으면 force 없이 안 지운다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+    const checkout = engine.checkout(pr.id);
+    writeFileSync(join(checkout.path, 'a.txt'), '일부러 깬 코드\n');
+
+    // 지난 정리가 중간에 끊긴 흔적이다. 안에 뭐가 있는지 여기서는 못 읽는다
+    rmSync(join(checkout.path, '.git'), { force: true });
+    run(repo, ['worktree', 'prune']);
+
+    const kept = engine.removeCheckout(pr.id);
+
+    expect(kept.status).toBe('dirty');
+    expect(existsSync(join(checkout.path, 'a.txt'))).toBe(true);
+
+    expect(engine.removeCheckout(pr.id, { force: true }).status).toBe('removed');
+  });
+
+  it('PR id 형식이 아니면 경로를 만들지 않는다', () => {
+    // 이 값이 재귀 삭제 경로와 ref 이름으로 그대로 이어 붙는다
+    expect(() => git.prCheckoutPath(repo, '../../etc')).toThrow();
+    expect(() => git.prCheckoutPath(repo, 'abcd1234')).not.toThrow();
+  });
 });

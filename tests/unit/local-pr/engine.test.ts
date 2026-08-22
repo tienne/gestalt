@@ -240,12 +240,28 @@ describe('LocalPrEngine', () => {
       );
     });
 
-    it('닫으면 붙잡아 둔 ref를 놓는다', () => {
+    it('닫아도 head는 붙잡아 두고 base만 놓는다', () => {
       const pr = engine.create({ title: 't', author: 'a' });
+
       engine.closePr(pr.id, 'a', '다른 방식으로 간다');
 
       const refs = run(repo, ['for-each-ref', '--format=%(refname)', 'refs/gestalt/']);
-      expect(refs).not.toContain(pr.id);
+      // head까지 놓으면 브랜치도 지운 PR은 gc가 한 번 돌고 나서 빈 껍데기가 된다.
+      // checkout이 닫힌 PR도 떼어낸다고 약속한 자리라 그 약속이 먼저 깨진다
+      expect(refs).toContain(`refs/gestalt/pr/${pr.id}/head`);
+      expect(refs).not.toContain(`refs/gestalt/pr/${pr.id}/base`);
+    });
+
+    it('닫고 브랜치를 지운 뒤 gc가 돌아도 diff가 산다', () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      engine.closePr(pr.id, 'a', '');
+
+      run(repo, ['checkout', '-q', 'main']);
+      run(repo, ['branch', '-D', 'feat/x']);
+      run(repo, ['reflog', 'expire', '--expire=now', '--all']);
+      run(repo, ['gc', '--prune=now', '--quiet']);
+
+      expect(engine.diff(pr.id)).toContain('line2');
     });
   });
 
@@ -296,5 +312,17 @@ describe('LocalPrEngine', () => {
     });
 
     expect(after.comments[0]!.body).toBe(body);
+  });
+  // ─── 주석이 단언한 보장을 밟는 자리 (CM-8) ──────────────────
+
+  it('제목에 따옴표와 공백이 섞여도 머지 메시지에 그대로 간다', () => {
+    const title = `it's "quoted" $(id) \`tick\` 두 칸`;
+    run(repo, ['checkout', '-q', 'main']);
+    const pr = engine.create({ title, author: 'a', base: 'main', head: 'feat/x' });
+
+    // title은 mergeIntoBase에서 실제 git 인자(-m)가 된다. 셸을 타면 여기서 깨진다
+    engine.merge(pr.id, 'a');
+
+    expect(run(repo, ['log', '-1', '--format=%s', 'main'])).toContain(title);
   });
 });

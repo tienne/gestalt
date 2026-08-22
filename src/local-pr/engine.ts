@@ -235,6 +235,8 @@ export class LocalPrEngine {
   closePr(prId: string, by: Actor, reason = ''): PullRequest {
     const pr = this.requireOpen(prId);
     this.store.append(PR_AGGREGATE, prId, PrEvent.CLOSED, { by, reason });
+    // base ref만 놓는다. head를 놓으면 닫힌 PR의 커밋이 gc에 수거돼 checkout도 diff도
+    // 죽는데, checkout은 닫힌 PR도 떼어낸다고 약속한 자리다
     git.unpinRefs(this.repoRoot, prId);
     return this.require(pr.id);
   }
