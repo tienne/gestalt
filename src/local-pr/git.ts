@@ -165,9 +165,8 @@ export function isClean(repoRoot: string): boolean {
  * 전부 미커밋 삭제로 잡는다.
  * 그 자리에서 직접 머지하도록 돌려보낸다.
  *
- * ref는 옛 값을 함께 넘겨 옮긴다 — 경쟁 갱신을 git의 compare-and-swap에 맡기는
- * 것까지가 이 함수의 범위다. 그 창은 여기서 base를 읽은 뒤 update-ref를 부르기
- * 전까지라 테스트로 만들지 못했다.
+ * ref는 옛 값을 함께 넘겨 옮긴다. 여기서 base를 읽은 뒤 update-ref를 부르기 전에
+ * 다른 손이 base를 옮겼으면 git이 거부한다 — 그 사이에 낀 남의 커밋을 덮지 않는다.
  */
 export function mergeIntoBase(
   repoRoot: string,
@@ -216,7 +215,7 @@ export function mergeIntoBase(
     git(scratch, ['merge', '--no-ff', headSha, '-m', message]);
     const mergeSha = resolveSha(scratch, 'HEAD');
 
-    // 옛 값을 같이 넘겨 compare-and-swap으로 민다
+    // 옛 값을 같이 넘긴다. 그 사이 base가 움직였으면 여기서 거부된다
     git(repoRoot, ['update-ref', `refs/heads/${baseRef}`, mergeSha, before]);
 
     return { mergeSha, viaWorktree: true };
