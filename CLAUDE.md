@@ -26,6 +26,7 @@ Dependencies: @anthropic-ai/sdk, @modelcontextprotocol/sdk, better-sqlite3, zod,
 ## Key Commands
 ```bash
 pnpm gate          # 커밋 전 게이트 — CI가 도는 것과 같다 (typecheck, verify:rules, lint, format:check, build, test)
+                   # pnpm install이 pre-commit 훅을 깔아 빠른 셋(verify:rules, lint, format:check)을 커밋 때 강제한다
 pnpm test          # 전체 테스트
 pnpm run serve     # MCP 서버 시작
 pnpm tsx bin/gestalt.ts interview "topic"
