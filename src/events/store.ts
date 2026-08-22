@@ -49,6 +49,7 @@ export interface IEventStore {
   getByAggregate(aggregateType: string, aggregateId: string): DomainEvent<unknown>[];
   replay(aggregateType: string, aggregateId: string): DomainEvent<unknown>[];
   listAggregates(aggregateType: string): string[];
+  getAllByAggregateType(aggregateType: string): Map<string, DomainEvent[]>;
   close(): void;
 }
 
@@ -175,13 +176,52 @@ export class EventStore implements IEventStore {
       );
     }
 
+    // rowid를 함께 정렬한다. timestamp는 밀리초 ISO 문자열이라 같은 ms에 여러 건이
+    // 들어간다. 코멘트를 연속으로 붙이는 흐름은 그 자리를 통상적으로 밟는다.
+    //
+    // 이 절은 지금 sqlite에서 동작을 바꾸지 않는다. 인덱스 스캔이든 임시 b-tree
+    // 정렬이든 sqlite가 정렬 레코드에 rowid를 담아 비교한다. 동점이면 삽입 순서가
+    // 그대로 나온다 — 30만 건과 강제 스필까지 넣어봐도 안 뒤집혔다. 그래서 이 절을
+    // 지워도 테스트는 통과한다.
+    //
+    // 그래도 적어 둔다. 재생 순서는 이 도메인이 상태를 만드는 근거인데, 그걸 저장
+    // 엔진의 문서화되지 않은 성질에 기대고 싶지 않다
     const stmt = this.db.prepare(`
       SELECT * FROM events
       WHERE aggregate_type = ? AND aggregate_id = ?
-      ORDER BY timestamp ASC
+      ORDER BY timestamp ASC, rowid ASC
     `);
     const rows = stmt.all(aggregateType, aggregateId) as RawEventRow[];
     return rows.map(parseRow);
+  }
+
+  /**
+   * 이 타입의 모든 이벤트를 aggregate별로 묶어 한 번에 돌려준다.
+   *
+   * aggregate마다 replay를 부르면 PR 수만큼 쿼리가 나간다. sqlite가 없어 JSONL로
+   * 떨어진 런타임에서는 파일 전체를 PR 수만큼 다시 읽는다. 목록 화면과 CLI list가
+   * 부르는 가장 뜨거운 자리라 그 비용이 그대로 보인다.
+   */
+  getAllByAggregateType(aggregateType: string): Map<string, DomainEvent[]> {
+    const grouped = new Map<string, DomainEvent[]>();
+
+    const events = this.db
+      ? (
+          this.db
+            .prepare(
+              `SELECT * FROM events WHERE aggregate_type = ? ORDER BY timestamp ASC, rowid ASC`,
+            )
+            .all(aggregateType) as RawEventRow[]
+        ).map(parseRow)
+      : this.readJsonlEvents().filter((e) => e.aggregateType === aggregateType);
+
+    for (const event of events) {
+      const list = grouped.get(event.aggregateId);
+      if (list) list.push(event);
+      else grouped.set(event.aggregateId, [event]);
+    }
+
+    return grouped;
   }
 
   getByType(eventType: string, limit = 100): DomainEvent[] {

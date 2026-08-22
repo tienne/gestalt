@@ -23,6 +23,10 @@ inputs:
     type: string
     required: false
     description: "Repository root (기본값: 현재 디렉토리)"
+  local:
+    type: boolean
+    required: false
+    description: "로컬 PR(`gestalt pr` CLI)의 리뷰 스레드를 대상으로 삼을지 여부. 사용자가 붙인 `--local` 플래그가 이 값으로 들어온다. 기본값 false"
   resolveThreads:
     type: boolean
     required: false
@@ -46,7 +50,7 @@ outputs:
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 >
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
-> 이 스킬은 `gh` CLI(REST + GraphQL)에 의존한다. `gh auth status`가 실패하면 거기서 멈추고 알린다. 스레드 목록을 손으로 지어내지 않는다.
+> GitHub PR은 `gh` CLI(REST + GraphQL)에, 로컬 PR은 `gestalt pr` CLI에 의존한다 (대상 판별은 아래). 둘 다 실패하면 거기서 멈추고 알린다. 스레드 목록을 손으로 지어내지 않는다.
 
 ## 사용 방법
 
@@ -63,20 +67,66 @@ outputs:
 1. **승인 없이 게시하지 않는다.** 답글은 동료가 읽고 판단 근거로 쓰는 협업 산출물이다. 5단계 미리보기에서 명시적 승인을 받은 뒤에만 게시한다.
 2. **안 고친 걸 고쳤다고 쓰지 않는다.** "반영했습니다"는 실제 커밋이 있을 때만 쓴다. 4단계에서 커밋 해시를 검증하고 없으면 답변 유형을 되돌린다.
 
+## 대상 판별 (GitHub PR vs 로컬 PR)
+
+**파이프라인 자체(스레드 수집 → 유형 분류 승인 → 수정·커밋 → 답글 작성 → 미리보기 승인)는 대상이 무엇이든 그대로다.** 갈리는 건 API 호출 방식뿐이다 — GitHub는 REST/GraphQL, 로컬은 `gestalt pr` CLI.
+
+판별은 0단계에서 한 번 하고 `prTarget = "github" | "local"`로 보관한다.
+
+**id가 명시되면 그게 우선이다.** 아래 순서대로 훑어 처음 걸리는 갈래를 택한다.
+
+1. **로컬 지정** — `local` 입력이 true거나(`--local` 플래그) `target`이 로컬 PR id 형식(`gestalt pr list`에 뜨는 id)인 경우다. 이때는 로컬 PR을 두 수단으로 찾는다.
+   - `target`에 id가 있으면 먼저 `pnpm tsx bin/gestalt.ts pr --json show <id>`로 실제 존재를 확인한다.
+   - id가 없거나(`--local`만 준 경우) `show`가 빈 결과를 내면 `pnpm tsx bin/gestalt.ts pr --json list`로 현재 브랜치의 로컬 PR을 찾는다.
+   - 둘 중 하나로 찾으면 `local`. 어느 쪽으로도 못 찾으면 그 사실을 한 줄 알리고 2번으로 내려간다.
+
+   `local`은 boolean이고 `target`은 필수가 아니다. `/review-reply --local`처럼 플래그만 주는 입력이 정상이므로 id가 없는 갈래를 반드시 함께 둔다.
+2. `gh auth status`가 실패하거나(인증 안 됨) 원격이 없으면(`git remote -v` 비어 있음) → GitHub 경로가 막혀 있다. `local`.
+3. 위 둘 다 아니면 → `github` (기존 경로 그대로).
+
+gh 인증이 되고 원격도 있는데 로컬 PR을 지정했으면 1번이 먼저 잡는다. 로컬 PR id 형식이 아닌 값(PR 번호, URL, 브랜치명)은 1번을 그냥 지나쳐 2번과 3번이 가른다.
+
+**갈리는 건 본문이 정본이다.** 아래 표는 본문 1~3번을 그대로 펼친 것뿐이다. 표와 본문이 어긋나 보이면 본문을 따르고 표를 고친다. 2열은 1번의 조회(`show` 또는 `list`)로 로컬 PR을 실제로 찾았는지다.
+
+| 로컬 지정 | 로컬 PR 조회 | gh 인증 | 원격 | 결과 |
+| --- | --- | --- | --- | --- |
+| 있음 | 찾음 | 무관 | 무관 | `local` (1번 — 지정이 이긴다) |
+| 있음 | 못 찾음 | 실패 | 무관 | `local` (2번) |
+| 있음 | 못 찾음 | 성공 | 없음 | `local` (2번) |
+| 있음 | 못 찾음 | 성공 | 있음 | `github` (3번) |
+| 없음 | 무관 | 실패 | 무관 | `local` (2번) |
+| 없음 | 무관 | 성공 | 없음 | `local` (2번) |
+| 없음 | 무관 | 성공 | 있음 | `github` (3번) |
+
+1열이 "있음"인데 로컬 PR을 못 찾으면 지정은 힘을 잃는다. 그 뒤로는 1열이 "없음"인 행과 같은 길을 간다. 2번이 `local`로 떨어졌는데 0단계에서도 PR을 못 찾으면 거기서 멈추고 알린다.
+
 ## 파이프라인
 
 ### 0단계: 대상 PR 식별 + 본인 PR 확인
+
+**github**:
 
 ```bash
 gh pr view <target> --json number,url,author,headRefName,baseRefName,state
 gh api user --jq .login
 ```
 
+**local**:
+
+```bash
+pnpm tsx bin/gestalt.ts pr --json show <id>
+pnpm tsx bin/gestalt.ts pr --json list   # id가 없거나 show가 비었을 때 현재 브랜치 매칭 (판별 1번과 같은 두 수단)
+```
+
+작성자는 `author` 필드다. 현재 사용자는 `gestalt pr` 명령이 쓰는 값과 같다 — 규칙은 `src/local-pr/policy.ts`의 `resolveActor`에 있다. 여기 옮겨 적으면 기본값을 바꿀 때 이 문장이 조용히 거짓이 된다.
+
 - `target`이 생략되면 현재 브랜치의 PR을 찾는다. PR이 없으면 여기서 멈추고 알린다 — 답할 코멘트가 있을 곳이 없다.
-- `state`가 `MERGED`/`CLOSED`면 사용자에게 한 줄 확인한다 ("이미 닫힌 PR인데 답글만 남길까요?").
-- **작성자 확인**: `author.login`이 현재 사용자와 다르면 이건 남의 PR이다. "이 PR은 제 것이 아닌데, 리뷰어 입장 코멘트를 다는 거라면 `/review`가 맞아요"라고 안내하고 사용자 판단을 받는다. 남의 PR에 리뷰이 어투로 답하면 어색해진다.
+- `state`가 `MERGED`/`CLOSED`(local은 `merged`/`closed`)면 사용자에게 한 줄 확인한다 ("이미 닫힌 PR인데 답글만 남길까요?").
+- **작성자 확인**: 작성자가 현재 사용자와 다르면 이건 남의 PR이다. "이 PR은 제 것이 아닌데, 리뷰어 입장 코멘트를 다는 거라면 `/review`가 맞아요"라고 안내하고 사용자 판단을 받는다. 남의 PR에 리뷰이 어투로 답하면 어색해진다. (github·local 공통 규칙)
 
 ### 1단계: 미해결 리뷰 스레드 수집
+
+**github**:
 
 REST(`pulls/{n}/comments`)는 resolved 여부를 주지 않으므로 **GraphQL로 조회**한다. 이미 닫힌 스레드에 답글을 다시 붙이지 않으려면 이 단계가 필요하다.
 
@@ -127,6 +177,16 @@ gh api --paginate 'repos/<owner>/<repo>/issues/<number>/comments?per_page=100' \
 ```
 
 여기도 `--paginate`가 필요하다. REST 기본 페이지가 30건이라 그냥 부르면 31번째부터 잘린다.
+
+**local**:
+
+로컬 PR에는 GraphQL이 없다. `gestalt pr comments`가 resolved 여부를 이미 필드로 준다 — 페이지네이션 걱정도 없다(단일 프로세스, SQLite 기반이라 상한이 없다).
+
+```bash
+pnpm tsx bin/gestalt.ts pr --json comments <id> --unresolved
+```
+
+반환된 코멘트를 스레드로 재구성한다. `replyTo`로 이어지는 코멘트를 한 체인으로 묶는다. 체인의 마지막 작성자가 나 자신이면 제외한다(이미 답했음). `line`이 `null`인 항목이 PR 전반 코멘트다 — 별도 API가 없다. `isOutdated` 개념은 로컬 PR에 없으므로 그 필터는 건너뛴다.
 
 수집 결과를 한 줄로 알린다: **"미해결 스레드 N건, PR 전반 코멘트 M건을 찾았어요."** 0건이면 여기서 끝낸다 ("답할 코멘트가 없네요").
 
@@ -282,6 +342,8 @@ Agent {
 
 ### 6단계: 게시
 
+**github**:
+
 스레드 답글은 **스레드의 첫 코멘트 `databaseId`** 를 대상으로 붙인다.
 
 ```bash
@@ -295,13 +357,29 @@ PR 전반 코멘트에 답할 때는 스레드가 없으므로 일반 코멘트�
 gh api repos/<owner>/<repo>/issues/<number>/comments -f body="..."
 ```
 
-- 답글 본문은 셸 변수 echo 파이프 대신 **파일로 떨궈 전달**한다. 백틱, 따옴표, 개행이 셸에서 깨지지 않게 하려는 것이다.
+**local**:
+
+```bash
+pnpm tsx bin/gestalt.ts pr comment <id> \
+  --path "<원 코멘트의 path>" \
+  --line <원 코멘트의 line — 없으면 생략> \
+  --reply-to <원 코멘트 id> \
+  --body-file <답글 본문 파일>
+```
+
+PR 전반 코멘트(원 코멘트의 `line`이 `null`)에 답할 때도 `--path`는 CLI가 필수로 받으므로 원 코멘트와 같은 `path`를 넣고 `--line`만 생략한다. `--reply-to`가 스레드를 이어준다.
+
+공통:
+
+- 답글 본문은 셸 변수 echo 파이프 대신 **파일로 떨궈 `--body-file`(local) / 리다이렉트(github)로 전달**한다. 백틱, 따옴표, 개행이 셸에서 깨지지 않게 하려는 것이다.
 - 건마다 개별 호출이다. `/review`처럼 한 리뷰로 묶는 API가 아니다. 중간에 실패하면 어디까지 게시됐는지 사용자에게 알린다 — 부분 실패를 성공으로 보고하지 않는다.
-- **리뷰 상태(`APPROVE`/`REQUEST_CHANGES`)는 건드리지 않는다.** 리뷰이가 자기 PR의 리뷰 상태를 바꿀 일이 없고 GitHub도 본인 PR 승인을 막는다(422).
+- **리뷰 상태(`APPROVE`/`REQUEST_CHANGES`)는 건드리지 않는다.** 리뷰이가 자기 PR의 리뷰 상태를 바꿀 일이 없다. github는 이 원칙을 422로도 강제한다. local(`gestalt pr review`)은 강제하지 않지만 규칙은 동일하게 지킨다.
 
 ### 7단계: 스레드 닫기 (opt-in, 기본 안 함)
 
 `resolveThreads`가 명시적으로 `true`거나 사용자가 요청할 때만 한다. **기본값은 닫지 않는 것이다** — 코멘트가 해결됐는지 판단하는 건 리뷰어 몫이고 리뷰이가 먼저 닫으면 확인 없이 넘어간 것처럼 보인다.
+
+**github**:
 
 ```bash
 gh api graphql -F threadId='<thread node id>' -f query='
@@ -310,7 +388,13 @@ mutation($threadId:ID!) {
 }'
 ```
 
-닫더라도 `accept`·`alternate`만 닫는다. `defer`·`clarify`는 대화가 남아 있으므로 열어둔다.
+**local**:
+
+```bash
+pnpm tsx bin/gestalt.ts pr resolve <id> <commentId>
+```
+
+닫더라도 `accept`·`alternate`만 닫는다. `defer`·`clarify`는 대화가 남아 있으므로 열어둔다. (github·local 공통)
 
 ## 결과 표시
 

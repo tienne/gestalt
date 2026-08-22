@@ -118,6 +118,7 @@ export const executeInputSchema = z.object({
     'review_submit',
     'review_consensus',
     'review_fix',
+    'review_publish',
     'evolution_viz',
   ]),
   spec: z
@@ -148,7 +149,12 @@ export const executeInputSchema = z.object({
     .array(z.string())
     .optional()
     .describe('Changed file paths for direct review (without execute session)'),
-  repoRoot: z.string().optional().describe('Repository root for direct review mode'),
+  repoRoot: z
+    .string()
+    .optional()
+    .describe(
+      'Repository root for direct review mode. prId 갈래에서는 로컬 PR 저장소 경로다 (생략하면 프로세스의 현재 작업 디렉토리).',
+    ),
   codeGraphRepoRoot: z
     .string()
     .optional()
@@ -483,7 +489,21 @@ export const executeInputSchema = z.object({
   reviewSessionId: z
     .string()
     .optional()
-    .describe('Review session ID (required for review_submit, review_consensus, review_fix)'),
+    .describe(
+      'Review session ID (required for review_submit, review_consensus, review_fix, review_publish)',
+    ),
+  prId: z
+    .string()
+    .optional()
+    .describe(
+      '로컬 PR id. review_start에 주면 그 PR의 변경 파일과 저장소 경로로 리뷰를 연다 (sessionId·changedFiles보다 우선). review_publish에 필요하며, review_start에서 이미 준 세션이면 생략할 수 있다.',
+    ),
+  prReviewer: z
+    .string()
+    .optional()
+    .describe(
+      'review_publish가 남길 판정의 리뷰어 이름. 생략하면 GESTALT_ACTOR 환경변수, 그것도 없으면 gestalt:review를 쓴다. 개별 코멘트 작성자는 이 값이 아니라 각 지적의 reportedBy다.',
+    ),
 });
 
 export type ExecuteInput = z.infer<typeof executeInputSchema>;
@@ -592,3 +612,71 @@ export const graphVisualizeInputSchema = z.object({
 });
 
 export type GraphVisualizeInput = z.infer<typeof graphVisualizeInputSchema>;
+
+// ─── Local PR Tool ────────────────────────────────────────────────
+/**
+ * `ges_pr`이 받는 액션.
+ *
+ * 서버 등록(`server.tool`)이 이 배열을 그대로 쓴다. 목록을 두 곳에 적으면 하나가
+ * 뒤처진다 — 실제로 checkout을 붙일 때 등록 enum만 열 개로 남아 MCP로는 부를 수
+ * 없는 액션이 생겼다.
+ */
+export const PR_ACTIONS = [
+  'create',
+  'list',
+  'get',
+  'diff',
+  'comment',
+  'resolve',
+  'review',
+  'update',
+  'merge',
+  'close',
+  'checkout',
+  'checkout_remove',
+] as const;
+
+export const prInputSchema = z.object({
+  action: z
+    .enum(PR_ACTIONS)
+    .describe(
+      'create: 새 PR, list: 목록, get: 단건 조회, diff: 변경 내용, comment: 코멘트 추가, resolve: 코멘트 스레드 해결, review: 판정 기록, update: head 갱신, merge: 머지, close: 닫기, checkout: head를 임시 워크트리로 떼어냄, checkout_remove: 그 워크트리 정리',
+    ),
+  repoRoot: z.string().optional().describe('저장소 경로 (기본값: 현재 작업 디렉토리)'),
+  id: z.string().optional().describe('PR id. create와 list를 제외한 모든 action에 필요하다'),
+  // create 전용
+  title: z.string().optional().describe('create에 필요'),
+  base: z.string().optional().describe('create 전용: 기준 브랜치(기본 main)'),
+  head: z.string().optional().describe('create: 리뷰 대상 브랜치(기본 HEAD), update: 옮겨갈 커밋'),
+  // create, comment, resolve, review, merge, close 공통
+  author: z
+    .string()
+    .optional()
+    .describe("작업자. 형식 예: 'claude-code:main', 'codex:worker-2'. 안 주면 human:local"),
+  body: z.string().optional().describe('create: PR 본문, comment: 코멘트 본문'),
+  // list 전용
+  status: z
+    .enum(['open', 'changes_requested', 'merged', 'closed'])
+    .optional()
+    .describe('list 필터'),
+  // comment 전용
+  path: z.string().optional().describe('comment에 필요. 코멘트가 달릴 파일 경로'),
+  line: z.number().optional().describe('comment: head 기준 라인. 생략하면 파일 전반'),
+  replyTo: z.string().optional().describe('comment: 답글일 때 부모 코멘트 id'),
+  // resolve 전용
+  commentId: z.string().optional().describe('resolve에 필요'),
+  // review 전용
+  verdict: z.enum(['approve', 'request_changes', 'comment']).optional().describe('review에 필요'),
+  summary: z.string().optional().describe('review: 판정 요약'),
+  // merge 전용
+  deleteBranch: z.boolean().optional().describe('merge: 머지 후 head 브랜치 삭제 여부'),
+  // close 전용
+  reason: z.string().optional().describe('close: 닫는 이유'),
+  // checkout_remove 전용
+  force: z
+    .boolean()
+    .optional()
+    .describe('checkout_remove: 커밋 안 된 변경이 있어도 지운다. 기본은 안 지우고 알린다'),
+});
+
+export type PrInput = z.infer<typeof prInputSchema>;

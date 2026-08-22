@@ -28,6 +28,7 @@ import { handleReviewPassthrough } from './tools/review-passthrough.js';
 import { handleCodeGraphPassthrough } from './tools/code-graph-passthrough.js';
 import { handleGraphVisualizePassthrough } from './tools/graph-visualize-passthrough.js';
 import { handleGenerateKb } from './tools/generate-kb.js';
+import { handlePr } from './tools/pr.js';
 import { handleSearchKb } from './tools/search-kb.js';
 import { handleSyncKb } from './tools/sync-kb.js';
 import { PassthroughReviewEngine } from '../review/passthrough-engine.js';
@@ -41,6 +42,8 @@ import {
   statusInputSchema,
   codeGraphInputSchema,
   graphVisualizeInputSchema,
+  prInputSchema,
+  PR_ACTIONS,
 } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
@@ -253,7 +256,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   server.tool(
     'ges_execute',
-    'Execute a Spec using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, resume, audit, spawn, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result, role_match, role_consensus, review_start, review_submit, review_consensus, review_fix.',
+    'Execute a Spec using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, resume, audit, spawn, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result, role_match, role_consensus, review_start, review_submit, review_consensus, review_fix, review_publish.',
     executeToolSchema,
     async (params) => {
       const input = executeInputSchema.parse(params);
@@ -464,6 +467,36 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
     async (params) => {
       const result = await handleSyncKb(params, process.cwd());
+      return { content: [{ type: 'text' as const, text: result }] };
+    },
+  );
+
+  server.tool(
+    'ges_pr',
+    `로컬 PR을 만들고 굴립니다. GitHub 없이 에이전트끼리 작업 단위를 리뷰하고 주고받는 자리입니다. Actions: ${PR_ACTIONS.join(', ')}.`,
+    {
+      action: z.enum(PR_ACTIONS),
+      repoRoot: z.string().optional(),
+      id: z.string().optional(),
+      title: z.string().optional(),
+      base: z.string().optional(),
+      head: z.string().optional(),
+      author: z.string().optional(),
+      body: z.string().optional(),
+      status: z.enum(['open', 'changes_requested', 'merged', 'closed']).optional(),
+      path: z.string().optional(),
+      line: z.number().optional(),
+      replyTo: z.string().optional(),
+      commentId: z.string().optional(),
+      verdict: z.enum(['approve', 'request_changes', 'comment']).optional(),
+      summary: z.string().optional(),
+      deleteBranch: z.boolean().optional(),
+      reason: z.string().optional(),
+      force: z.boolean().optional(),
+    },
+    async (params) => {
+      const input = prInputSchema.parse(params);
+      const result = await handlePr(input, process.cwd());
       return { content: [{ type: 'text' as const, text: result }] };
     },
   );

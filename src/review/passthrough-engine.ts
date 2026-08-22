@@ -18,6 +18,7 @@ import { ReviewReportGenerator } from './report-generator.js';
 import { logger } from '../core/logger.js';
 import type { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
+import { isConsensusApproved } from '../local-pr/policy.js';
 
 const MAX_REVIEW_ATTEMPTS = 3;
 
@@ -48,13 +49,17 @@ export class PassthroughReviewEngine {
 
   // ─── review_start ─────────────────────────────────────────────
   startReview(
-    source: { executeSession: ExecuteSession } | { changedFiles: string[]; repoRoot: string },
+    source:
+      | { executeSession: ExecuteSession }
+      | { changedFiles: string[]; repoRoot: string; prId?: string },
     roleAgents: AgentDefinition[],
     reviewAgents: AgentDefinition[],
   ): Result<{ sessionId: string; reviewStartContext: ReviewStartContext }> {
     let reviewContext: ReviewContext;
     let executeSessionId: string;
     let repoRoot: string | undefined;
+    // 로컬 PR에서 시작한 리뷰만 prId를 갖는다. 나머지 두 갈래는 undefined다.
+    const prId = 'executeSession' in source ? undefined : source.prId;
 
     if ('executeSession' in source) {
       reviewContext = this.contextCollector.collect(
@@ -85,6 +90,7 @@ export class PassthroughReviewEngine {
       maxAttempts: MAX_REVIEW_ATTEMPTS,
       reviewContext,
       repoRoot,
+      prId,
       matchedAgents: [],
       reviewResults: [],
       reports: [],
@@ -246,10 +252,11 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     );
     // 결함 심급: 국소 결함(critical/high) 유무.
     const defectApproved = criticalHighIssues.length === 0;
-    // 정합 심급: 판정이 있고 coherent=false면 결함이 없어도 Block.
     const continuityBlocks = continuityVerdict ? !continuityVerdict.coherent : false;
     const escalate = continuityVerdict?.escalate ?? false;
-    const approved = defectApproved && !continuityBlocks;
+    // 두 심급을 합친 경계는 정책이 정한다. review_publish가 PR에 남길 판정도 같은
+    // 함수를 부른다 — 따로 세면 파이프라인은 통과인데 PR은 리젝인 상태가 생긴다
+    const approved = isConsensusApproved(consensus.mergedIssues, continuityVerdict);
     const needsFix = !approved;
     // review_fix 루프는 결함만 해결한다. 결함이 없고 정합 심급만 Block이면
     // 자동 수정 대상이 아니므로 canFix=false (escalate 신호로 라우팅).

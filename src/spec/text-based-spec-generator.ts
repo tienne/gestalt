@@ -27,8 +27,11 @@ function buildMemorySection(memory: ProjectMemory): string {
 
   if (memory.architectureDecisions.length > 0) {
     lines.push('\n### Architecture Decisions');
-    for (const decision of memory.architectureDecisions) {
-      lines.push(`- ${decision}`);
+    // ArchitectureDecision은 객체다. 그대로 문자열에 박으면 [object Object]가 프롬프트에
+    // 실려 간다. memory-context-injector가 같은 타입을 찍는 형식과 맞춘다
+    for (const d of memory.architectureDecisions) {
+      const rationale = d.rationale ? ` (${d.rationale})` : '';
+      lines.push(`- ${d.decision}${rationale}`);
     }
   }
 
