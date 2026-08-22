@@ -49,6 +49,7 @@ export interface IEventStore {
   getByAggregate(aggregateType: string, aggregateId: string): DomainEvent<unknown>[];
   replay(aggregateType: string, aggregateId: string): DomainEvent<unknown>[];
   listAggregates(aggregateType: string): string[];
+  getAllByAggregateType(aggregateType: string): Map<string, DomainEvent[]>;
   close(): void;
 }
 
@@ -175,13 +176,49 @@ export class EventStore implements IEventStore {
       );
     }
 
+    // rowid를 함께 정렬한다. timestamp는 밀리초 ISO 문자열이라 같은 ms에 들어간
+    // 이벤트들의 순서를 SQL이 보장하지 않는다. 코멘트를 연속으로 붙이는 흐름은 그
+    // 자리를 통상적으로 밟는다.
+    //
+    // 지금 sqlite는 동점일 때 삽입 순서를 그대로 주므로 이 절이 없어도 결과는 같다 —
+    // 테스트도 그래서 이 절을 지워도 통과한다. 보장을 구현의 우연에 기대지 않으려고
+    // 명시할 뿐이다
     const stmt = this.db.prepare(`
       SELECT * FROM events
       WHERE aggregate_type = ? AND aggregate_id = ?
-      ORDER BY timestamp ASC
+      ORDER BY timestamp ASC, rowid ASC
     `);
     const rows = stmt.all(aggregateType, aggregateId) as RawEventRow[];
     return rows.map(parseRow);
+  }
+
+  /**
+   * 이 타입의 모든 이벤트를 aggregate별로 묶어 한 번에 돌려준다.
+   *
+   * aggregate마다 replay를 부르면 PR 수만큼 쿼리가 나간다. sqlite가 없어 JSONL로
+   * 떨어진 런타임에서는 파일 전체를 PR 수만큼 다시 읽는다. 목록 화면과 CLI list가
+   * 부르는 가장 뜨거운 자리라 그 비용이 그대로 보인다.
+   */
+  getAllByAggregateType(aggregateType: string): Map<string, DomainEvent[]> {
+    const grouped = new Map<string, DomainEvent[]>();
+
+    const events = this.db
+      ? (
+          this.db
+            .prepare(
+              `SELECT * FROM events WHERE aggregate_type = ? ORDER BY timestamp ASC, rowid ASC`,
+            )
+            .all(aggregateType) as RawEventRow[]
+        ).map(parseRow)
+      : this.readJsonlEvents().filter((e) => e.aggregateType === aggregateType);
+
+    for (const event of events) {
+      const list = grouped.get(event.aggregateId);
+      if (list) list.push(event);
+      else grouped.set(event.aggregateId, [event]);
+    }
+
+    return grouped;
   }
 
   getByType(eventType: string, limit = 100): DomainEvent[] {

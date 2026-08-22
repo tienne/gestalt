@@ -185,7 +185,7 @@ interface ReviewReport {
 
 critical이나 high 이슈가 한 건이라도 있으면 `request_changes`, warning만 있으면 `approve`예요. 정합 심급(`continuity-judge`)이 `coherent: false`를 냈으면 결함이 하나도 없어도 `request_changes`예요.
 
-이 경계는 `review_consensus`가 `approved`를 가르는 자리와 **일부러 같게** 뒀어요. 어긋나면 파이프라인은 통과인데 PR은 리젝인 상태가 생겨요. 어느 쪽을 믿어야 할지 알 수 없는 상태라 한쪽으로 맞춰야 해요.
+이 경계는 `review_consensus`가 `approved`를 가르는 자리와 **일부러 같게** 뒀어요. 어긋나면 파이프라인은 통과인데 PR은 `request_changes`가 되는 상태가 생겨요. 어느 쪽을 믿어야 할지 알 수 없는 상태라 한쪽으로 맞춰야 해요.
 
 **같은 합의를 두 번 게시하면요?**
 

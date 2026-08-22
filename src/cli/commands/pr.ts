@@ -80,7 +80,7 @@ export function prCreateCommand(
         head: opts.head,
       });
       emit(pr, opts.json, () => {
-        console.log(`PR ${pr.id} 생성`);
+        console.log(`PR ${pr.id}을 만들었어요`);
         console.log(`  base ${pr.baseSha.slice(0, 8)} → head ${pr.headSha.slice(0, 8)}`);
         console.log(`  리뷰: gestalt pr show ${pr.id}`);
       });
@@ -97,7 +97,7 @@ export function prListCommand(opts: PrCommonOptions & { status?: PullRequest['st
       const prs = engine.list(opts.status);
       emit(prs, opts.json, () => {
         if (prs.length === 0) {
-          console.log('PR이 없다');
+          console.log('PR이 없어요');
           return;
         }
         for (const pr of prs) console.log(summarize(pr));
@@ -148,7 +148,8 @@ export function prDiffCommand(opts: PrCommonOptions & { id: string }): void {
   run(() => {
     const engine = engineOf(opts);
     try {
-      console.log(engine.diff(opts.id));
+      const diff = engine.diff(opts.id);
+      emit({ diff }, opts.json, () => console.log(diff));
     } finally {
       engine.dispose();
     }
@@ -171,12 +172,12 @@ export function prCheckoutCommand(
         const result = engine.removeCheckout(opts.id, { force: opts.force });
         emit(result, opts.json, () => {
           if (result.removed) {
-            console.log(`워크트리를 지웠다: ${result.path}`);
+            console.log(`워크트리를 지웠어요: ${result.path}`);
             if (result.savedRef) {
-              console.log(`  여기서 커밋한 변경은 ${result.savedRef}로 붙잡아 뒀다`);
+              console.log(`  여기서 커밋한 변경은 ${result.savedRef}로 붙잡아 뒀어요`);
             }
           } else {
-            console.log(`안 지웠다 — ${result.reason}`);
+            console.log(`안 지웠어요 — ${result.reason}`);
             console.log(`  ${result.path}`);
           }
         });
@@ -191,7 +192,7 @@ export function prCheckoutCommand(
 
       const checkout = engine.checkout(opts.id);
       emit(checkout, opts.json, () => {
-        console.log(checkout.created ? '워크트리를 뗐다' : '이미 떼어둔 워크트리가 있다');
+        console.log(checkout.created ? '워크트리를 뗐어요' : '이미 떼어둔 워크트리가 있어요');
         console.log(`  ${checkout.path}`);
         console.log(`  head ${checkout.headSha.slice(0, 8)}`);
         console.log(`  정리: gestalt pr checkout ${opts.id} --remove`);
@@ -215,7 +216,7 @@ export function prCommentCommand(
     const engine = engineOf(opts);
     try {
       const body = readBody(opts.bodyFile);
-      if (!body.trim()) throw new PrError('본문이 비었다. --body-file로 넘긴다', 1);
+      if (!body.trim()) throw new PrError('본문이 비었어요. --body-file로 넘겨주세요', 1);
 
       const pr = engine.comment(opts.id, {
         author: actorOf(opts),
@@ -261,8 +262,8 @@ export function prResolveCommand(opts: PrCommonOptions & { commentId: string; id
   run(() => {
     const engine = engineOf(opts);
     try {
-      engine.resolve(opts.id, opts.commentId, actorOf(opts));
-      console.log(`코멘트 ${opts.commentId} 스레드를 닫았다`);
+      const pr = engine.resolve(opts.id, opts.commentId, actorOf(opts));
+      emit(pr, opts.json, () => console.log(`코멘트 ${opts.commentId} 스레드를 닫았어요`));
     } finally {
       engine.dispose();
     }
@@ -281,7 +282,7 @@ export function prReviewCommand(
   run(() => {
     const verdict = VERDICTS[opts.verdict];
     if (!verdict) {
-      throw new PrError('판정은 approve, request-changes, comment 중 하나다', 1);
+      throw new PrError('판정은 approve, request-changes, comment 중 하나예요', 1);
     }
 
     const engine = engineOf(opts);
@@ -292,7 +293,7 @@ export function prReviewCommand(
         summary: readBody(opts.bodyFile).trim(),
       });
       emit(pr, opts.json, () => {
-        console.log(`판정 ${opts.verdict} 기록 — 상태 ${pr.status}`);
+        console.log(`판정 ${opts.verdict}을 남겼어요 — 상태 ${pr.status}`);
         console.log(`  라운드 ${pr.rounds[pr.rounds.length - 1]!.number}`);
       });
     } finally {
@@ -307,7 +308,7 @@ export function prUpdateCommand(opts: PrCommonOptions & { id: string; head?: str
     try {
       const pr = engine.update(opts.id, opts.head);
       emit(pr, opts.json, () => {
-        console.log(`head를 ${pr.headSha.slice(0, 8)}로 옮겼다 — 상태 ${pr.status}`);
+        console.log(`head를 ${pr.headSha.slice(0, 8)}로 옮겼어요 — 상태 ${pr.status}`);
       });
     } finally {
       engine.dispose();
@@ -326,8 +327,8 @@ export function prMergeCommand(
 
       const pr = engine.merge(opts.id, actorOf(opts), { deleteBranch: opts.deleteBranch });
       emit(pr, opts.json, () => {
-        console.log(`PR ${pr.id} 머지`);
-        if (unresolved > 0) console.log(`  미해결 스레드 ${unresolved}건이 남은 채로 머지됐다`);
+        console.log(`PR ${pr.id}을 머지했어요`);
+        if (unresolved > 0) console.log(`  미해결 스레드 ${unresolved}건이 남은 채로 머지했어요`);
       });
     } finally {
       engine.dispose();
@@ -339,8 +340,8 @@ export function prCloseCommand(opts: PrCommonOptions & { id: string; reason?: st
   run(() => {
     const engine = engineOf(opts);
     try {
-      engine.closePr(opts.id, actorOf(opts), opts.reason ?? '');
-      console.log(`PR ${opts.id} 닫음`);
+      const pr = engine.closePr(opts.id, actorOf(opts), opts.reason ?? '');
+      emit(pr, opts.json, () => console.log(`PR ${opts.id}를 닫았어요`));
     } finally {
       engine.dispose();
     }
@@ -362,7 +363,7 @@ export async function prServeCommand(
     });
     console.log(`\n로컬 PR 웹 UI: ${result.url}`);
     console.log(result.message);
-    console.log('\nCtrl+C로 멈춘다.\n');
+    console.log('\nCtrl+C로 멈춥니다.\n');
 
     // 서버의 SIGINT 핸들러가 프로세스를 끝낼 때까지 살려둔다
     await new Promise<void>(() => {
@@ -370,7 +371,7 @@ export async function prServeCommand(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`웹 UI를 못 띄웠다: ${msg}`);
+    console.error(`웹 UI를 못 띄웠어요: ${msg}`);
     process.exit(1);
   }
 }

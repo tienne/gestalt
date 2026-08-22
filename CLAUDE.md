@@ -16,7 +16,7 @@
 - **Knowledge Base**: 코드 그래프·도메인 지식을 MD로 내보내고 로컬 임베딩으로 시맨틱 검색
 - **Memory**: 이전 스펙·실행 이력을 `.gestalt/memory.json`에 축적, 신규 인터뷰에 자동 주입
 - **Multi-Provider LLM**: frugal/standard/frontier 티어별로 Anthropic/OpenAI 호환 프로바이더 자유 조합
-- **Local PR**: 에이전트끼리 레포 안에서 PR을 만들고 리뷰하고 머지 — 원격에 안 나간다. 워크트리가 `.gestalt/reviews.db` 하나를 공유
+- **Local PR**: 에이전트끼리 레포 안에서 PR을 만들고 리뷰하고 머지하는 자리 — 원격에 안 나간다. 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유한다
 - **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱
 
 ## Tech Stack

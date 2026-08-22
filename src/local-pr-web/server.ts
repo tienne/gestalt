@@ -23,6 +23,14 @@ const API_PR_DETAIL_PATH = /^\/api\/prs\/([^/]+)$/;
 export class PrWebServer {
   private server: Server | null = null;
   private sigintHandler: (() => void) | null = null;
+  /**
+   * `base..head` 쌍으로 캐시한 diff.
+   *
+   * diff는 그 두 sha에 대해 불변이라 캐시 키가 이미 공짜로 주어져 있다. 안 쓰면
+   * 새로고침마다 execFileSync로 git을 부르는데, 동기 spawn이라 그동안 이벤트 루프가
+   * 통째로 멈춰 다른 요청도 함께 기다린다. head가 옮겨가면 키가 저절로 갈린다.
+   */
+  private diffCache = new Map<string, string>();
 
   constructor(private engine: LocalPrEngine) {}
 
@@ -167,12 +175,28 @@ export class PrWebServer {
         this.notFound(res);
         return;
       }
-      const diff = this.engine.diff(id);
-      this.sendHtml(res, generatePrDetailHtml(pr, diff));
+      this.sendHtml(res, generatePrDetailHtml(pr, this.diffOf(pr)));
       return;
     }
 
     this.notFound(res);
+  }
+
+  /** 캐시가 무한히 자라지 않게 둘 상한. 리뷰 한 세션이 여는 PR 수를 넉넉히 덮는다 */
+  private static readonly DIFF_CACHE_MAX = 32;
+
+  private diffOf(pr: { id: string; baseSha: string; headSha: string }): string {
+    const key = `${pr.baseSha}..${pr.headSha}`;
+    const hit = this.diffCache.get(key);
+    if (hit !== undefined) return hit;
+
+    const diff = this.engine.diff(pr.id);
+    if (this.diffCache.size >= PrWebServer.DIFF_CACHE_MAX) {
+      const oldest = this.diffCache.keys().next().value;
+      if (oldest !== undefined) this.diffCache.delete(oldest);
+    }
+    this.diffCache.set(key, diff);
+    return diff;
   }
 
   private sendHtml(res: ServerResponse, html: string): void {

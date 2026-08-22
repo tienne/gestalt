@@ -911,7 +911,7 @@ ges_sync({ targetPath: "/other-repo/.gestalt-kb" })
 | `update` | head를 새 커밋으로 옮긴다. `changes_requested`였으면 `open`으로 돌아간다 |
 | `merge` | 머지한다. 승인이 없어도 막지 않고 미해결 수를 이벤트에 남긴다 |
 | `close` | PR을 닫는다 |
-| `checkout` | head를 임시 워크트리로 떼어낸다 — 뮤테이션 검증처럼 코드를 실제로 돌려야 할 때 쓴다 |
+| `checkout` | head를 임시 워크트리로 떼어낸다 — 코드를 일부러 깨서 테스트가 잡는지 보는 검증처럼 실제로 돌려야 할 때 쓴다 |
 | `checkout_remove` | 떼어낸 워크트리를 정리한다 |
 
 ### Parameters

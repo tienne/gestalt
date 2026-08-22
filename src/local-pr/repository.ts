@@ -46,10 +46,17 @@ export class PullRequestRepository {
     return this.eventStore.listAggregates(PR_AGGREGATE);
   }
 
+  /**
+   * 모든 PR을 한 번의 조회로 만든다.
+   *
+   * id를 훑어 하나씩 replay하면 PR 수만큼 쿼리가 나간다. 목록 화면과 CLI list가
+   * 부르는 자리라 PR이 늘수록 그대로 느려진다.
+   */
   reconstructAll(): PullRequest[] {
+    const grouped = this.eventStore.getAllByAggregateType(PR_AGGREGATE);
     const out: PullRequest[] = [];
-    for (const id of this.list()) {
-      const pr = this.reconstruct(id);
+    for (const [id, events] of grouped) {
+      const pr = this.fold(id, events);
       if (pr) out.push(pr);
     }
     return out;

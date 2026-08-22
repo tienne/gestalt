@@ -167,7 +167,7 @@ git diff --name-only <commit>^ <commit>
 pnpm tsx bin/gestalt.ts pr checkout <id> --json   # { path, created, headSha }
 ```
 
-`path`로 옮겨 가 테스트를 돌리고 뮤테이션을 넣습니다. 같은 PR을 두 번 불러도 워크트리는
+`path`로 옮겨 가 테스트를 돌리고 핵심 줄을 일부러 깨봅니다. 같은 PR을 두 번 불러도 워크트리는
 하나이고 그 안의 변경은 살아남습니다. 끝나면 정리합니다.
 
 ```bash
