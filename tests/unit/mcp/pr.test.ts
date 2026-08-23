@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handlePr } from '../../../src/mcp/tools/pr.js';
-import { PR_ACTIONS, prInputSchema } from '../../../src/mcp/schemas.js';
+import { createMcpServer } from '../../../src/mcp/server.js';
+import { prInputSchema } from '../../../src/mcp/schemas.js';
 import type { PrInput } from '../../../src/mcp/schemas.js';
 
 /**
@@ -13,6 +15,11 @@ import type { PrInput } from '../../../src/mcp/schemas.js';
  * 에러를 `{ error, kind }`로 접는 부분만 본다. 그래도 진짜 git 레포 위에서
  * 돌려야 이 매핑이 실제로 맞물리는지 볼 수 있다 (CM-8).
  */
+
+/** MCP SDK가 등록한 도구를 들여다보는 자리. 공개 API가 없어 내부 맵을 읽는다 */
+interface RegisteredTools {
+  _registeredTools: Record<string, { inputSchema?: { shape?: Record<string, unknown> } }>;
+}
 
 function run(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
@@ -196,14 +203,30 @@ describe('handlePr — ges_pr MCP 래퍼', () => {
     );
   });
 
-  it('PR_ACTIONS의 모든 액션이 스키마를 통과한다', () => {
-    // 서버 등록과 스키마가 이 배열 하나를 함께 쓴다. 따로 적으면 하나가 뒤처진다 —
-    // 실제로 checkout이 그렇게 빠져 MCP로는 부를 수 없는 액션이 생겼다
-    for (const action of PR_ACTIONS) {
-      expect(prInputSchema.safeParse({ action, id: 'abcd1234' }).success).toBe(true);
+  it('서버에 등록한 인자와 스키마가 같은 목록이다', async () => {
+    // `ges_pr`의 인자는 두 자리에 손으로 적혀 있다. server.ts의 등록 목록과
+    // schemas.ts의 prInputSchema다. 등록 목록에 없는 인자는 MCP 클라이언트가 보낼
+    // 수 없다. 스키마에만 더하면 그 인자는 끝까지 안 온다. 실제로 `force`가 그
+    // 경로로 빠질 뻔했다.
+    //
+    // 액션 배열(PR_ACTIONS) 쪽은 양쪽이 같은 상수를 쓰므로 갈릴 자리가 아니다.
+    const dbFile = `.gestalt-test/pr-schema-${randomUUID()}.db`;
+    const { server, eventStore } = await createMcpServer({
+      dbPath: dbFile,
+      llm: { apiKey: '', model: 'test-model' },
+    });
+
+    try {
+      const tools = (server as unknown as RegisteredTools)._registeredTools;
+      const registered = Object.keys(tools['ges_pr']?.inputSchema?.shape ?? {});
+
+      expect(registered.sort()).toEqual(Object.keys(prInputSchema.shape).sort());
+    } finally {
+      eventStore.close();
+      for (const suffix of ['', '-wal', '-shm', '.jsonl']) {
+        const file = `${dbFile}${suffix}`;
+        if (existsSync(file)) rmSync(file);
+      }
     }
-    expect(PR_ACTIONS).toContain('checkout');
-    expect(PR_ACTIONS).toContain('checkout_remove');
-    expect(prInputSchema.safeParse({ action: 'nope' }).success).toBe(false);
   });
 });

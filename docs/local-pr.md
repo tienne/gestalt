@@ -60,6 +60,7 @@ gestalt pr update <id> [--head <커밋>]
 gestalt pr merge <id> [--delete-branch]
 gestalt pr close <id> [--reason "..."]
 gestalt pr checkout <id> [--remove] [--force]
+gestalt pr prune [--checkouts] [--dry-run]
 gestalt pr serve [--port N] [--no-browser]
 ```
 
@@ -111,13 +112,44 @@ PR을 두 번 불러도 워크트리는 하나이고 그 안의 변경은 살아
 | `absent` | 지울 자리가 없었다 | 0 |
 | `dirty` | 커밋 안 된 변경이 있어 안 지웠다 | 4 |
 | `diverged` | 거기서 커밋한 변경이 있어 안 지웠다 | 4 |
+| `stale` | 등록이 끊기고 디렉토리만 남아, 안을 못 읽어 안 지웠다 | 4 |
 
 `absent`가 0인 이유는 지울 게 없으면 정리는 이미 끝난 셈이어서다. 4로 주면
 `--remove`를 두 번 부르는 `set -e` 스크립트가 두 번째에 죽는다.
 
-`dirty`와 `diverged`는 확인한 뒤 `--force`로 다시 부른다. `diverged`를 force로 지우면 그
+`stale`을 `dirty`에 얹지 않는 이유는 둘이 다른 상태여서다. `dirty`는 안을 읽어 커밋 안 된
+변경을 확인한 것이고 `stale`은 읽을 방법이 없어 판단을 미룬 것이다.
+
+`dirty`와 `diverged`와 `stale`은 확인한 뒤 `--force`로 다시 부른다. `diverged`를 force로 지우면 그
 커밋을 `refs/gestalt/pr-checkout/<id>/<sha 8자>`가 붙잡아 둔다. 떼어낸 자리는 detached
 HEAD라 브랜치 ref도 워크트리 reflog도 함께 죽는다. 붙잡지 않으면 되짚을 실마리가 없다.
+
+## ref 반납
+
+`refs/gestalt/` 아래는 붙이기만 하고 놓는 자리가 없었다. 머지된 PR도 base와 head를 영구
+보유한다. 체크아웃을 `--force`로 지울 때마다 자국도 한 칸씩 더 쌓인다. 오래 쓴 레포일수록
+`for-each-ref`가 느려지고 `git gc`가 놓지 못하는 객체가 늘어난다.
+
+```bash
+gestalt pr prune             # 머지된 PR의 base와 head를 놓는다
+gestalt pr prune --dry-run   # 무엇을 놓을지만 본다
+gestalt pr prune --checkouts # 체크아웃 자국도 놓는다
+```
+
+무엇을 놓는지는 **놓아도 커밋이 안 사라지는가**로 가른다.
+
+| 대상 | 기본 | 왜 |
+| --- | --- | --- |
+| 머지된 PR의 base·head | 놓는다 | 머지 커밋이 둘 다 base 브랜치 이력에 넣었다 |
+| 닫힌 PR의 head | 남긴다 | 닫힌 PR도 `checkout`으로 떼어낸다고 약속했다 |
+| 열린 PR | 남긴다 | 리뷰 중이다 |
+| 체크아웃 자국 | 남긴다 | 어느 이력에도 없는 워크트리 전용 커밋이라 놓으면 영영 사라진다 |
+
+머지된 PR이라도 head가 정말 base 이력에 있는지 확인한 뒤에 놓는다. 머지 뒤 누가 base를
+되돌렸으면 그 근거가 깨지므로 안 놓고 이유를 돌려준다.
+
+체크아웃 자국은 `--checkouts`로 뜻을 밝혔을 때, 그리고 그 PR이 이미 머지되거나 닫혀
+리뷰가 끝났을 때만 놓는다.
 
 ## 웹 UI
 
@@ -166,7 +198,9 @@ ges_execute { action: "review_publish", reviewSessionId: "<id>" }
   → 합의된 지적을 인라인 코멘트로 쓰고 판정을 기록한다
 ```
 
-`review_publish`는 멱등하다. 같은 합의를 두 번 옮겨도 코멘트가 늘지 않는다. PR은 이벤트
+`review_publish`는 멱등하다. 같은 합의를 두 번 옮겨도 코멘트가 늘지 않는다. 어디까지 썼는지는
+코멘트의 `marker` 필드에 남긴다 — 본문에 실으면 CLI가 평문으로 찍고 웹이 이스케이프해서
+화면에 내보내, 사람이 읽을 이유가 없는 해시 줄이 코멘트마다 붙는다. PR은 이벤트
 소싱이라 한 번 붙은 코멘트를 지울 수 없다. 중복이 생기면 사람이 손으로 resolve하는
 수밖에 없다.
 

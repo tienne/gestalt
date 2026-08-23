@@ -5,7 +5,8 @@ import { EventStore } from '../events/store.js';
 import type { IEventStore } from '../events/store.js';
 import * as git from './git.js';
 import { registerRepo } from './registry.js';
-import { PrEvent, PullRequestRepository, unresolvedCount } from './repository.js';
+import { unresolvedCount } from './policy.js';
+import { PrEvent, PullRequestRepository } from './repository.js';
 import { PR_AGGREGATE } from './types.js';
 import type { Actor, PullRequest, ReviewVerdict } from './types.js';
 
@@ -154,18 +155,20 @@ export class LocalPrEngine {
   // ─── 코멘트 ──────────────────────────────────────────────
 
   /**
-   * 코멘트 여러 건을 한 번에 붙인다.
+   * 코멘트 여러 개를 한 번에 붙인다.
    *
-   * `comment`를 N번 부르면 건마다 PR 전체를 두 번 재생한다 — 앞에서 상태를 얻고
-   * 뒤에서 돌려주느라 그렇다. 재생 대상 이벤트도 붙일수록 늘어서 총 비용이 건수의
-   * 제곱으로 커진다. 리뷰 합의를 옮기는 자리는 수십에서 수백 건이라 그 자리를 밟는다.
+   * `comment`를 N번 부르면 하나마다 PR 전체를 두 번 재생한다 — 앞에서 상태를 얻고
+   * 뒤에서 돌려주느라 그렇다. 재생 대상 이벤트도 붙일수록 늘어서 총 비용이 개수의
+   * 제곱으로 커진다. 리뷰 합의를 옮기는 자리는 수십에서 수백 개라 그 자리를 밟는다.
    *
-   * 상태는 한 번만 접고 이벤트만 이어 붙인다. `onPosted`는 한 건 쓸 때마다 부른다 —
-   * 중간에 던져도 어디까지 썼는지가 부르는 쪽에 남아야 재시도가 다시 안 쓴다.
+   * 상태는 한 번만 접고 이벤트만 이어 붙인다. `onPosted`는 하나 쓸 때마다 그 입력의
+   * 인덱스로 부른다 — 중간에 던져도 어디까지 썼는지가 부르는 쪽에 남아야 재시도가
+   * 다시 안 쓴다. 부르는 쪽은 이 인덱스로 재개 지점을 잡는다. 자기 카운터를 따로
+   * 올리면 두 계산이 갈릴 때 재개 지점이 밀려 코멘트가 겹치거나 빠진다.
    */
   commentMany(
     prId: string,
-    inputs: { author: Actor; path: string; line?: number; body: string }[],
+    inputs: { author: Actor; path: string; line?: number; body: string; marker?: string }[],
     onPosted?: (index: number) => void,
   ): PullRequest {
     const pr = this.requireOpen(prId);
@@ -180,6 +183,7 @@ export class LocalPrEngine {
         body: input.body,
         threadId: commentId,
         headSha: pr.headSha,
+        ...(input.marker ? { marker: input.marker } : {}),
       });
       onPosted?.(i);
     });
@@ -189,7 +193,14 @@ export class LocalPrEngine {
 
   comment(
     prId: string,
-    input: { author: Actor; path: string; line?: number; body: string; replyTo?: string },
+    input: {
+      author: Actor;
+      path: string;
+      line?: number;
+      body: string;
+      replyTo?: string;
+      marker?: string;
+    },
   ): PullRequest {
     const pr = this.requireOpen(prId);
 
@@ -212,6 +223,7 @@ export class LocalPrEngine {
       body: input.body,
       threadId,
       headSha: pr.headSha,
+      ...(input.marker ? { marker: input.marker } : {}),
     });
 
     return this.require(prId);
@@ -275,6 +287,67 @@ export class LocalPrEngine {
     return this.require(prId);
   }
 
+  /**
+   * 붙잡아 둘 이유가 끝난 ref를 놓는다.
+   *
+   * `refs/gestalt/` 아래는 지금까지 단조 증가만 했다. 머지된 PR도 base와 head를
+   * 영구 보유한다. `--force` 한 바퀴마다 체크아웃 자국도 한 칸씩 더 쌓인다. 지우는
+   * 명령도 만료도 없어서 오래 쓴 레포일수록 `for-each-ref`가 느려지고 `git gc`가
+   * 놓지 못하는 객체가 늘어난다.
+   *
+   * 무엇을 놓는지는 "놓아도 커밋이 안 사라지는가"로 가른다.
+   *
+   * - **머지된 PR의 base와 head**를 놓는다. 머지 커밋이 base 브랜치 이력에 둘을
+   *   모두 넣었으므로 ref를 놓아도 되짚을 수 있다. `unpinRefs`가 닫힌 PR의 base에
+   *   대해 이미 쓰는 근거와 같다. 그래도 놓기 전에 head가 정말 base 이력에 있는지
+   *   확인한다 — 머지 뒤 누가 base를 되돌렸으면 그 근거가 깨진다. 그때는 안 놓고
+   *   이유를 돌려준다.
+   * - **닫힌 PR은 아무것도 안 놓는다.** head를 붙잡아 두기로 한 결정이 그대로다.
+   *   닫힌 PR도 `checkout`으로 떼어낸다고 약속했다.
+   * - **체크아웃 자국(`refs/gestalt/pr-checkout/...`)은 기본으로 안 놓는다.** 그건
+   *   어느 이력에도 안 들어간 워크트리 전용 커밋이라 놓으면 영영 사라진다.
+   *   `checkouts`로 뜻을 밝혔을 때, 그리고 그 PR이 이미 머지되거나 닫혀 리뷰가
+   *   끝났을 때만 놓는다.
+   *
+   * `dryRun`이면 무엇을 놓을지만 돌려주고 손대지 않는다.
+   */
+  prune(options: { checkouts?: boolean; dryRun?: boolean } = {}): PruneResult {
+    const released: string[] = [];
+    const kept: { prId: string; reason: string }[] = [];
+
+    for (const pr of this.repo.reconstructAll()) {
+      if (pr.status === 'merged') {
+        const baseRef = pr.baseRef ?? 'main';
+        if (git.isAncestor(this.repoRoot, pr.headSha, baseRef)) {
+          released.push(`${git.PR_REF_ROOT}/${pr.id}/base`, `${git.PR_REF_ROOT}/${pr.id}/head`);
+        } else {
+          kept.push({
+            prId: pr.id,
+            reason: `머지된 뒤 base ${baseRef}가 되돌아가 head가 그 이력에 없다`,
+          });
+        }
+      }
+
+      if (options.checkouts && (pr.status === 'merged' || pr.status === 'closed')) {
+        released.push(...git.refsUnder(this.repoRoot, `${git.CHECKOUT_REF_ROOT}/${pr.id}`));
+      }
+    }
+
+    // 붙어 있지도 않은 ref를 놓았다고 세지 않는다. 머지 PR의 base는 close 경로에서
+    // 이미 놓였을 수 있다. prune을 두 번 부르면 두 번째는 놓을 게 없다
+    const existing = new Set([
+      ...git.refsUnder(this.repoRoot, git.PR_REF_ROOT),
+      ...git.refsUnder(this.repoRoot, git.CHECKOUT_REF_ROOT),
+    ]);
+    const targets = released.filter((ref) => existing.has(ref));
+
+    if (!options.dryRun) {
+      for (const ref of targets) git.deleteRef(this.repoRoot, ref);
+    }
+
+    return { released: targets, kept, dryRun: options.dryRun === true };
+  }
+
   closePr(prId: string, by: Actor, reason = ''): PullRequest {
     const pr = this.requireOpen(prId);
     this.store.append(PR_AGGREGATE, prId, PrEvent.CLOSED, { by, reason });
@@ -299,6 +372,16 @@ export class LocalPrEngine {
     }
     return pr;
   }
+}
+
+/** `prune`이 무엇을 놓았고 무엇을 왜 남겼는지 */
+export interface PruneResult {
+  /** 놓은 ref 이름 */
+  released: string[];
+  /** 놓을 만했지만 근거가 깨져 남긴 PR */
+  kept: { prId: string; reason: string }[];
+  /** true면 아무것도 안 놓고 목록만 돌려줬다 */
+  dryRun: boolean;
 }
 
 /**

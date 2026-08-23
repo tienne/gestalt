@@ -305,7 +305,7 @@ type PublishVerdict = Extract<ReviewVerdict, 'approve' | 'request_changes'>;
  * 합의 지문. 내용이 같으면 같은 값이 나온다.
  *
  * 자국을 살릴지 버릴지를 이 값으로 가른다. 같은 합의를 다시 제출한 것은 옮길 내용이
- * 안 바뀐 것이라 자국을 살린다. 지적의 순서까지 넣는 이유는 publish가 목록의 앞에서부터
+ * 안 바뀐 것이라 자국을 살린다. 리뷰 코멘트의 순서까지 넣는 이유는 publish가 목록의 앞에서부터
  * 세어 이어 쓰기 때문이다 — 순서가 달라지면 이어 쓸 자리가 달라진다.
  */
 function fingerprint(issues: ReviewIssue[]): string {
@@ -336,9 +336,21 @@ function actorOfAgent(name: string): string {
  * PR은 이벤트 소싱이라 그렇게 붙은 중복은 지울 수 없고 사람이 손으로 닫아야 한다.
  * 그래서 어디까지 썼는지를 PR 자신에게도 남긴다 — 재기동해도 여기서 되짚는다.
  *
- * 마크다운 주석이라 렌더링되면 안 보인다.
+ * 코멘트의 `marker` 필드에 넣는다. 본문에 실었더니 어느 표면에서도 안 보이지 않았다 —
+ * 웹은 본문을 이스케이프해서 `<!-- ... -->`를 화면에 그대로 찍고 CLI는 평문으로
+ * 내보낸다. 사람이 읽을 이유가 없는 해시 줄이 리뷰 코멘트마다 붙었다.
  */
 function publishMarker(issuesKey: string): string {
+  return `gestalt:publish:${issuesKey}`;
+}
+
+/**
+ * 자국을 본문에 싣던 시절의 형태.
+ *
+ * 이 자국이 이미 붙은 PR이 남아 있다. 재개 지점을 셀 때 옛 형태도 함께 봐야
+ * 그 PR에 다시 publish를 걸었을 때 코멘트가 통째로 겹쳐 쓰인다.
+ */
+function legacyBodyMarker(issuesKey: string): string {
   return `<!-- gestalt:publish ${issuesKey} -->`;
 }
 
@@ -359,10 +371,10 @@ function asMemoryNote(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, MAX_MEMORY_CHARS);
 }
 
-function issueBody(issue: ReviewIssue, issuesKey: string): string {
+function issueBody(issue: ReviewIssue): string {
   const head = `**[${issue.severity}] ${issue.category}** — ${issue.reportedBy}`;
   const suggestion = issue.suggestion ? `\n\n제안: ${issue.suggestion}` : '';
-  return `${head}\n\n${issue.message}${suggestion}\n\n${publishMarker(issuesKey)}`;
+  return `${head}\n\n${issue.message}${suggestion}`;
 }
 
 function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: ExecuteInput): string {
@@ -412,8 +424,9 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
     // 죽거나 세션이 다른 자리에서 열리면 사라진다. 그런데 PR에 붙은 코멘트는 남아 있다.
     // 그 수를 세지 않으면 재기동 뒤 같은 합의가 코멘트를 통째로 다시 쓴다.
     const marker = publishMarker(issuesKey);
+    const legacy = legacyBodyMarker(issuesKey);
     const alreadyOnPr = target.comments.filter(
-      (c) => c.headSha === headSha && c.body.includes(marker),
+      (c) => c.headSha === headSha && (c.marker === marker || c.body.includes(legacy)),
     ).length;
     const alreadyJudged = target.reviews.some(
       (r) => r.headSha === headSha && r.reviewer === reviewer,
@@ -456,7 +469,7 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
       );
     }
 
-    // 앞선 호출이 코멘트 루프 중간에 던졌으면 그 다음 지적부터 잇는다. 코멘트 N건과
+    // 앞선 호출이 코멘트 루프 중간에 던졌으면 그다음 코멘트부터 잇는다. 코멘트 N건과
     // 판정 하나를 따로 쓰는 다중 쓰기라 원자적으로 묶을 수 없다. 대신 매 코멘트마다
     // 자국을 늘려서, 던진 자리가 어디든 재시도가 쓴 것을 다시 쓰지 않게 한다.
     const state: ReviewPublishState = {
@@ -473,19 +486,22 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
     const issues = consensus.mergedIssues;
     const pending = issues.slice(state.postedCount);
 
-    // 지적의 파일과 라인이 그대로 코멘트 위치다. 라인이 없으면 파일 전체 코멘트다.
+    // 리뷰 코멘트의 파일과 라인이 그대로 코멘트 위치다. 라인이 없으면 파일 전체 코멘트다.
     if (pending.length > 0) {
+      // 재개 지점은 엔진이 주는 인덱스로만 잡는다. 여기서 카운터를 따로 올리면 두
+      // 계산이 갈릴 때 재개 지점이 밀려 코멘트가 겹치거나 빠진다
+      const resumeFrom = state.postedCount;
       engine.commentMany(
         prId,
         pending.map((issue) => ({
           author: actorOfAgent(issue.reportedBy),
           path: issue.file,
           line: issue.line,
-          body: issueBody(issue, issuesKey),
+          body: issueBody(issue),
+          marker,
         })),
         (i) => {
-          state.postedCount = state.postedCount + 1;
-          void i;
+          state.postedCount = resumeFrom + i + 1;
         },
       );
     }
@@ -513,7 +529,7 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
         round: pr.rounds.length,
         message:
           verdict === 'approve'
-            ? 'PR에 approve를 남겼다. critical/high 지적이 없다.'
+            ? 'PR에 approve를 남겼다. critical/high 결함이 없다.'
             : 'PR에 request_changes를 남겼다. 작성자가 코멘트를 받아 고칠 차례다.',
       },
       null,

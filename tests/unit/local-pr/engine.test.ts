@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventStore } from '../../../src/events/store.js';
 import { LocalPrEngine, PrError } from '../../../src/local-pr/engine.js';
-import { PullRequestRepository, unresolvedCount } from '../../../src/local-pr/repository.js';
+import { PullRequestRepository } from '../../../src/local-pr/repository.js';
+import { unresolvedCount } from '../../../src/local-pr/policy.js';
 import * as git from '../../../src/local-pr/git.js';
 
 /**
@@ -118,6 +119,21 @@ describe('LocalPrEngine', () => {
     expect(unresolvedCount(engine.resolve(pr.id, rootId, 'r'))).toBe(0);
   });
 
+  it('commentMany는 몇 번째 입력까지 썼는지를 인덱스로 알린다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+    const seen: number[] = [];
+
+    engine.commentMany(
+      pr.id,
+      ['하나', '둘', '셋'].map((body) => ({ author: 'r', path: 'a.txt', body })),
+      (i) => seen.push(i),
+    );
+
+    // 부르는 쪽은 이 값으로 재개 지점을 잡는다. 인덱스를 버리고 자기 카운터를 올리면
+    // 두 계산이 갈릴 때 재개 지점이 밀려 코멘트가 겹치거나 빠진다
+    expect(seen).toEqual([0, 1, 2]);
+  });
+
   it('없는 코멘트에 답글을 달면 못 찾았다고 한다', () => {
     const pr = engine.create({ title: 't', author: 'a' });
     expect(() =>
@@ -171,7 +187,7 @@ describe('LocalPrEngine', () => {
   describe('마무리', () => {
     it('승인 없이 머지하고 미해결 코멘트 수를 남긴다', () => {
       const pr = engine.create({ title: 't', author: 'a' });
-      engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '안 닫은 지적' });
+      engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '안 닫은 코멘트' });
       run(repo, ['checkout', '-q', 'main']);
 
       const merged = engine.merge(pr.id, 'a');
@@ -230,6 +246,26 @@ describe('LocalPrEngine', () => {
       }
     });
 
+    it('충돌하는 머지는 워킹 트리를 되돌려 놓고 던진다', () => {
+      // main과 feat/x가 같은 줄을 다르게 고친다. 이 자리에서 곧장 머지하는 갈래라
+      // 충돌이 부르는 사람의 워킹 트리에 MERGE_HEAD를 세운 채 남는다
+      const pr = engine.create({ title: 't', author: 'a' });
+      run(repo, ['checkout', '-q', 'main']);
+      writeFileSync(join(repo, 'a.txt'), 'line1\nmain이 고친 줄\n');
+      run(repo, ['commit', '-q', '-am', 'main도 두 번째 줄']);
+
+      expect(() => engine.merge(pr.id, 'a')).toThrow(/머지하다 실패했다/);
+
+      // 오류 문장이 "워킹 트리는 되돌렸다"고 단언한다. 그 단언을 여기서 확인한다 —
+      // merge --abort가 빠지면 아래 셋이 전부 어긋난다
+      expect(existsSync(join(repo, '.git', 'MERGE_HEAD'))).toBe(false);
+      // 추적 안 하는 파일은 뺀다. 저장소(.gestalt/)가 레포 안에 생겨 늘 걸린다
+      expect(run(repo, ['status', '--porcelain', '-uno'])).toBe('');
+      expect(readFileSync(join(repo, 'a.txt'), 'utf-8')).toBe('line1\nmain이 고친 줄\n');
+      // 실패했으니 PR도 그대로 열려 있다
+      expect(engine.get(pr.id)!.status).toBe('open');
+    });
+
     it('머지된 PR은 더 못 건드린다', () => {
       const pr = engine.create({ title: 't', author: 'a' });
       run(repo, ['checkout', '-q', 'main']);
@@ -262,6 +298,101 @@ describe('LocalPrEngine', () => {
       run(repo, ['gc', '--prune=now', '--quiet']);
 
       expect(engine.diff(pr.id)).toContain('line2');
+    });
+  });
+
+  describe('ref 반납', () => {
+    function gestaltRefs(): string[] {
+      const out = run(repo, ['for-each-ref', '--format=%(refname)', 'refs/gestalt/']);
+      return out ? out.split('\n') : [];
+    }
+
+    it('머지된 PR의 base와 head를 놓는다', () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      run(repo, ['checkout', '-q', 'main']);
+      engine.merge(pr.id, 'a');
+
+      const result = engine.prune();
+
+      expect(result.released.sort()).toEqual([
+        `refs/gestalt/pr/${pr.id}/base`,
+        `refs/gestalt/pr/${pr.id}/head`,
+      ]);
+      expect(gestaltRefs()).toHaveLength(0);
+      // 놓아도 커밋은 산다. 머지 커밋이 base 이력에 넣어놨다
+      expect(engine.diff(pr.id)).toContain('line2');
+    });
+
+    it('열린 PR과 닫힌 PR의 head는 안 놓는다', () => {
+      const open = engine.create({ title: 'open', author: 'a' });
+      run(repo, ['checkout', '-q', '-b', 'feat/y', 'main']);
+      writeFileSync(join(repo, 'b.txt'), 'b\n');
+      run(repo, ['add', '-A']);
+      run(repo, ['commit', '-q', '-m', 'b']);
+      const closed = engine.create({ title: 'closed', author: 'a' });
+      engine.closePr(closed.id, 'a', '');
+
+      engine.prune();
+
+      const refs = gestaltRefs();
+      expect(refs).toContain(`refs/gestalt/pr/${open.id}/head`);
+      expect(refs).toContain(`refs/gestalt/pr/${open.id}/base`);
+      // 닫힌 PR도 checkout으로 떼어낸다고 약속한 자리라 head를 남긴다
+      expect(refs).toContain(`refs/gestalt/pr/${closed.id}/head`);
+    });
+
+    it('머지 뒤 base가 되돌아갔으면 안 놓고 이유를 준다', () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      const beforeMerge = run(repo, ['rev-parse', 'main']);
+      run(repo, ['checkout', '-q', 'main']);
+      engine.merge(pr.id, 'a');
+      // 머지를 되돌린다. head가 더는 base 이력에 없어서 ref를 놓으면 커밋이 사라진다
+      run(repo, ['reset', '-q', '--hard', beforeMerge]);
+
+      const result = engine.prune();
+
+      expect(result.released).toHaveLength(0);
+      expect(result.kept).toEqual([{ prId: pr.id, reason: expect.stringContaining('base main') }]);
+      expect(gestaltRefs()).toContain(`refs/gestalt/pr/${pr.id}/head`);
+    });
+
+    it('dry-run은 목록만 주고 손대지 않는다', () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      run(repo, ['checkout', '-q', 'main']);
+      engine.merge(pr.id, 'a');
+
+      const result = engine.prune({ dryRun: true });
+
+      expect(result.dryRun).toBe(true);
+      expect(result.released).toHaveLength(2);
+      expect(gestaltRefs()).toHaveLength(2);
+    });
+
+    it('체크아웃 자국은 --checkouts로 뜻을 밝혀야 놓는다', () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      const checkout = engine.checkout(pr.id);
+      writeFileSync(join(checkout.path, 'a.txt'), '일부러 깬 코드\n');
+      run(checkout.path, ['commit', '-q', '-am', '뮤테이션']);
+      const saved = engine.removeCheckout(pr.id, { force: true }).savedRef!;
+      run(repo, ['checkout', '-q', 'main']);
+      engine.merge(pr.id, 'a');
+
+      // 기본은 안 놓는다. 워크트리 전용 커밋이라 놓으면 영영 사라진다
+      engine.prune();
+      expect(gestaltRefs()).toContain(saved);
+
+      const result = engine.prune({ checkouts: true });
+      expect(result.released).toContain(saved);
+      expect(gestaltRefs()).not.toContain(saved);
+    });
+
+    it('두 번 불러도 이미 놓은 ref를 다시 놓았다고 세지 않는다', () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      run(repo, ['checkout', '-q', 'main']);
+      engine.merge(pr.id, 'a');
+
+      expect(engine.prune().released).toHaveLength(2);
+      expect(engine.prune().released).toHaveLength(0);
     });
   });
 

@@ -2,7 +2,9 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   consensusVerdict,
   isConsensusApproved,
+  openThreads,
   resolveActor,
+  unresolvedComments,
   unresolvedCount,
 } from '../../../src/local-pr/policy.js';
 import type { PullRequest } from '../../../src/local-pr/types.js';
@@ -54,6 +56,26 @@ describe('로컬 PR 정책', () => {
       ]);
 
       expect(unresolvedCount(pr)).toBe(1);
+    });
+
+    it('헤아린 수와 늘어놓을 목록이 같은 계산에서 나온다', () => {
+      // `pr show`가 머리글에 스레드를, 바로 아래 목록에 코멘트를 세어 "미해결 1"이라
+      // 찍어놓고 세 줄을 늘어놓았다. 한 화면에서 같은 단어가 다른 수를 가리켰다
+      const pr = prWith([
+        { threadId: 't1', resolved: false },
+        { threadId: 't1', resolved: false },
+        { threadId: 't2', resolved: true },
+        { threadId: 't3', resolved: false },
+      ]);
+
+      const threads = openThreads(pr);
+
+      expect(threads).toHaveLength(unresolvedCount(pr));
+      expect(threads.map((t) => t.root.id)).toEqual(['c0', 'c3']);
+      // 뿌리와 답글이 한 스레드로 묶이고 답글 수를 표면이 셀 수 있다
+      expect(threads[0]!.comments).toHaveLength(2);
+      // 늘어놓는 자리(`pr comments --unresolved`)도 같은 술어에서 나온다
+      expect(unresolvedComments(pr).map((c) => c.id)).toEqual(['c0', 'c1', 'c3']);
     });
   });
 

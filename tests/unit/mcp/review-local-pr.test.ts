@@ -36,6 +36,7 @@ interface ReviewResponse {
   comments?: { path: string; line: number | null; author: string }[];
   reviewStartContext?: { changedFiles: string[] };
   alreadyPublished?: boolean;
+  message?: string;
   resumedFrom?: number;
   round?: number;
 }
@@ -243,6 +244,60 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
     expect(body).toContain('critical');
     expect(body).toContain('문제 0');
     expect(body).toContain('고치는 법 0');
+  });
+
+  it('publish 자국이 코멘트 본문에 안 실린다', () => {
+    const reviewSessionId = startAndAgree([
+      { severity: 'critical', file: 'a.txt', line: 2, reportedBy: 'security-reviewer' },
+    ]);
+
+    call({ action: 'review_publish', reviewSessionId });
+
+    // 본문은 사람이 읽는 자리다. CLI는 평문으로 찍고 웹은 이스케이프해서 그대로
+    // 내보내므로, 본문에 실은 자국은 어느 표면에서도 안 보이지 않는다
+    const comment = readPr().comments[0]!;
+    expect(comment.body).not.toContain('gestalt:publish');
+    expect(comment.body).not.toContain('<!--');
+    expect(comment.marker).toContain('gestalt:publish');
+  });
+
+  it('본문에 자국이 실린 옛 코멘트도 재개 지점으로 센다', () => {
+    const issues = [
+      { severity: 'high' as const, file: 'a.txt', line: 1, reportedBy: 'security-reviewer' },
+      { severity: 'warning' as const, file: 'a.txt', line: 2, reportedBy: 'quality-reviewer' },
+    ];
+    const reviewSessionId = startAndAgree(issues);
+    call({ action: 'review_publish', reviewSessionId });
+
+    // 자국이 본문에 실리던 시절의 코멘트를 그대로 만든다. 그런 PR이 이미 있다
+    const key = readPr().comments[0]!.marker!.replace('gestalt:publish:', '');
+
+    const prEngine = new LocalPrEngine(repo);
+    const second = prEngine.create({ title: '옛 자국', author: 'a', head: 'HEAD' }).id;
+    prEngine.comment(second, {
+      author: 'agent:security-reviewer',
+      path: 'a.txt',
+      line: 1,
+      body: `**[high] security** — security-reviewer\n\n문제 0\n\n<!-- gestalt:publish ${key} -->`,
+    });
+    prEngine.dispose();
+
+    // 세션 자국을 지워 PR에 남은 것만으로 되짚게 한다
+    const session = reviewEngine.getSession(reviewSessionId);
+    if (session) session.publishState = undefined;
+
+    const again = call({ action: 'review_publish', reviewSessionId, prId: second });
+
+    // 옛 형태를 못 읽으면 여기가 0이 되고 이미 있는 코멘트를 다시 쓴다
+    expect(again.resumedFrom).toBe(1);
+    expect(again.commentCount).toBe(1);
+
+    const engine = new LocalPrEngine(repo);
+    try {
+      expect(engine.get(second)!.comments).toHaveLength(2);
+    } finally {
+      engine.dispose();
+    }
   });
 
   it('critical이 있으면 request_changes로 내린다', () => {

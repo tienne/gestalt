@@ -50,6 +50,17 @@ export function reviewsDbPath(repoRoot: string): string {
   return join(gitCommonDir(repoRoot), '..', '.gestalt', 'reviews.db');
 }
 
+/**
+ * PR 커밋을 붙잡아 두는 ref의 뿌리.
+ *
+ * 이름을 리터럴로 여러 자리에 적으면 하나를 고칠 때 나머지가 남는다. 붙이는 자리와
+ * 놓는 자리와 훑는 자리가 이미 셋이라 상수로 둔다.
+ */
+export const PR_REF_ROOT = 'refs/gestalt/pr';
+
+/** `--force`로 지울 때 워크트리 전용 커밋을 붙잡아 둘 ref의 뿌리 */
+export const CHECKOUT_REF_ROOT = 'refs/gestalt/pr-checkout';
+
 export function resolveSha(repoRoot: string, rev: string): string {
   return git(repoRoot, ['rev-parse', '--verify', `${rev}^{commit}`]);
 }
@@ -73,8 +84,8 @@ export function currentBranch(repoRoot: string): string | null {
  * 수거해 간 뒤 PR이 빈 껍데기가 된다.
  */
 export function pinRefs(repoRoot: string, prId: string, baseSha: string, headSha: string): void {
-  git(repoRoot, ['update-ref', `refs/gestalt/pr/${prId}/base`, baseSha]);
-  git(repoRoot, ['update-ref', `refs/gestalt/pr/${prId}/head`, headSha]);
+  git(repoRoot, ['update-ref', `${PR_REF_ROOT}/${prId}/base`, baseSha]);
+  git(repoRoot, ['update-ref', `${PR_REF_ROOT}/${prId}/head`, headSha]);
 }
 
 /**
@@ -88,7 +99,7 @@ export function pinRefs(repoRoot: string, prId: string, baseSha: string, headSha
  */
 export function unpinRefs(repoRoot: string, prId: string): void {
   try {
-    git(repoRoot, ['update-ref', '-d', `refs/gestalt/pr/${prId}/base`]);
+    git(repoRoot, ['update-ref', '-d', `${PR_REF_ROOT}/${prId}/base`]);
   } catch {
     // 이미 없으면 지울 것도 없다
   }
@@ -402,8 +413,14 @@ export function checkoutPrHead(repoRoot: string, prId: string, headSha: string):
  * - `absent`   지울 자리가 없었다 (정리의 목표가 이미 이뤄진 상태다)
  * - `dirty`    커밋 안 된 변경이 있어 일부러 안 지웠다
  * - `diverged` 여기서 커밋한 변경이 있어 일부러 안 지웠다
+ * - `stale`    워크트리 등록이 끊기고 디렉토리만 남아, 안을 읽을 수 없어 안 지웠다
+ *
+ * `stale`을 `dirty`에 얹지 않는 이유는 둘이 다른 상태여서다. `dirty`는 안을 읽어서
+ * 커밋 안 된 변경을 확인한 것이고 `stale`은 읽을 방법이 없어 판단을 미룬 것이다.
+ * 부르는 쪽은 이 값으로 갈래를 타므로 같은 코드를 주면 "고칠 게 있으니 커밋해라"와
+ * "지난 정리가 끊겼으니 안을 확인해라"가 한 갈래로 뭉개진다.
  */
-export type CheckoutRemovalStatus = 'removed' | 'absent' | 'dirty' | 'diverged';
+export type CheckoutRemovalStatus = 'removed' | 'absent' | 'dirty' | 'diverged' | 'stale';
 
 export interface CheckoutRemoval {
   path: string;
@@ -423,7 +440,7 @@ export interface CheckoutRemoval {
  * 뮤테이션 검증은 깨고 커밋하고 치우기를 여러 바퀴 도는 흐름이라 그 자리를 실제로 밟는다.
  */
 function strandedRef(prId: string, sha: string): string {
-  return `refs/gestalt/pr-checkout/${prId}/${sha.slice(0, 8)}`;
+  return `${CHECKOUT_REF_ROOT}/${prId}/${sha.slice(0, 8)}`;
 }
 
 /**
@@ -463,7 +480,7 @@ export function removePrCheckout(
       return {
         path: guess,
         removed: false,
-        status: 'dirty',
+        status: 'stale',
         reason: '등록이 끊긴 디렉토리가 남아 있다. 안을 확인한 뒤 --force로 다시 부른다',
         savedRef: null,
       };
@@ -516,4 +533,34 @@ export function removePrCheckout(
 
   scrub(repoRoot, path);
   return { path, removed: true, status: 'removed', reason: null, savedRef };
+}
+
+/**
+ * 이 뿌리 아래 붙어 있는 ref 이름.
+ *
+ * 패턴에 슬래시를 붙여 넘긴다. `refs/gestalt/pr`은 `refs/gestalt/pr-checkout`의
+ * 접두사이기도 해서, 슬래시 없이 훑으면 체크아웃 자국까지 딸려 온다.
+ */
+export function refsUnder(repoRoot: string, root: string): string[] {
+  const out = git(repoRoot, ['for-each-ref', '--format=%(refname)', `${root}/`]);
+  return out ? out.split('\n') : [];
+}
+
+/** 이 커밋이 저 갈래의 이력에 들어 있는가. 들어 있으면 ref를 놓아도 안 사라진다 */
+export function isAncestor(repoRoot: string, sha: string, rev: string): boolean {
+  try {
+    git(repoRoot, ['merge-base', '--is-ancestor', sha, rev]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** ref를 놓는다. 이미 없으면 놓을 것도 없다 */
+export function deleteRef(repoRoot: string, ref: string): void {
+  try {
+    git(repoRoot, ['update-ref', '-d', ref]);
+  } catch {
+    // 이미 없다
+  }
 }
