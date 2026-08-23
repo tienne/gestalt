@@ -17,6 +17,18 @@ function run(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
 }
 
+/**
+ * `.git`을 다른 자리를 가리키는 깨진 gitfile로 바꾼다.
+ *
+ * 파일은 남으므로 목록의 존재 검사는 통과하고 열 때 죽는다 — 목록에 있는데 못 여는
+ * 상태가 딱 이 모양이다. HEAD나 objects만 지우는 방식은 git 버전에 따라 여전히
+ * 레포로 인식돼서 리눅스에서만 통과하는 테스트가 됐다.
+ */
+function breakRepo(repo: string): void {
+  rmSync(join(repo, '.git'), { recursive: true, force: true });
+  writeFileSync(join(repo, '.git'), 'gitdir: /nonexistent-gestalt-broken\n', 'utf-8');
+}
+
 function makeRepo(label: string): string {
   const repo = mkdtempSync(join(tmpdir(), `gestalt-web-${label}-${randomUUID().slice(0, 8)}-`));
   run(repo, ['init', '-q']);
@@ -70,9 +82,7 @@ describe('PrWebEngine', () => {
     registerRepo(good);
     registerRepo(broken);
 
-    // .git 디렉토리는 남기고 속을 부순다. 목록에서 걸러지지 않고 열 때 죽는 모양이다
-    rmSync(join(broken, '.git', 'HEAD'), { force: true });
-    rmSync(join(broken, '.git', 'objects'), { recursive: true, force: true });
+    breakRepo(broken);
 
     const result = await engine.start({ repoRoot: good, port: 0, openBrowser: false });
 
@@ -84,8 +94,7 @@ describe('PrWebEngine', () => {
   it('지금 자리를 못 열면 알리고 멈춘다', async () => {
     const repo = makeRepo('self');
     repos.push(repo);
-    rmSync(join(repo, '.git', 'HEAD'), { force: true });
-    rmSync(join(repo, '.git', 'objects'), { recursive: true, force: true });
+    breakRepo(repo);
 
     // 나머지는 건너뛰어도 되지만 정작 이 자리를 못 열면 보여줄 게 없다
     await expect(engine.start({ repoRoot: repo, port: 0, openBrowser: false })).rejects.toThrow();
