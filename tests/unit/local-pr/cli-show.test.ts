@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalPrEngine } from '../../../src/local-pr/engine.js';
-import { prCommentsCommand, prShowCommand } from '../../../src/cli/commands/pr.js';
+import { prCommentsCommand, prPruneCommand, prShowCommand } from '../../../src/cli/commands/pr.js';
 
 /**
  * CLI가 정책 층에서 값을 가져다 쓰는지 본다.
@@ -81,5 +81,78 @@ describe('gestalt pr 출력', () => {
     const heads = lines.filter((l) => /^\[[0-9a-f]{8}\]/.test(l));
     expect(heads).toHaveLength(3);
     expect(lines.join('\n')).not.toContain('이건 닫아요');
+  });
+});
+
+/**
+ * `gestalt pr prune`이 옵션을 엔진에 넘기는 자리.
+ *
+ * 엔진의 prune은 갈래마다 테스트가 있지만 CLI가 두 옵션을 **어느 자리로**
+ * 넘기는지는 안 걸렸다. `checkouts`와 `dryRun`을 뒤바꿔도 게이트가 전부 통과했다.
+ * 뒤바뀌면 `--dry-run`이 되돌릴 수 없는 체크아웃 자국을 실제로 지운다.
+ *
+ * 두 옵션을 따로 준다. 한쪽만 줬을 때 다른 쪽 자리가 비어야 뒤바뀜이 드러난다.
+ */
+describe('gestalt pr prune 옵션 전달', () => {
+  let repo: string;
+  let engine: LocalPrEngine;
+
+  /** 머지된 PR 하나와 그 PR의 체크아웃 자국 ref 하나 */
+  function mergedPrWithCheckoutMark(): { prId: string; mark: string } {
+    const pr = engine.create({ title: 't', author: 'a' });
+    engine.merge(pr.id, 'a');
+    const sha = run(repo, ['rev-parse', 'HEAD']).slice(0, 8);
+    const mark = `refs/gestalt/pr-checkout/${pr.id}/${sha}`;
+    run(repo, ['update-ref', mark, 'HEAD']);
+    return { prId: pr.id, mark };
+  }
+
+  function refExists(ref: string): boolean {
+    try {
+      run(repo, ['rev-parse', '--verify', '-q', ref]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), 'gestalt-pr-prune-'));
+    run(repo, ['init', '-q']);
+    run(repo, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+    run(repo, ['config', 'user.email', 't@e.st']);
+    run(repo, ['config', 'user.name', 'test']);
+    writeFileSync(join(repo, 'a.txt'), 'line1\n');
+    run(repo, ['add', '-A']);
+    run(repo, ['commit', '-q', '-m', 'init']);
+    run(repo, ['checkout', '-q', '-b', 'feat/x']);
+    writeFileSync(join(repo, 'a.txt'), 'line1\nline2\n');
+    run(repo, ['commit', '-q', '-am', '두 번째 줄']);
+
+    engine = new LocalPrEngine(repo);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    engine.dispose();
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('--dry-run만 주면 아무것도 안 지운다', () => {
+    const { prId, mark } = mergedPrWithCheckoutMark();
+
+    prPruneCommand({ repoRoot: repo, dryRun: true });
+
+    expect(refExists(mark)).toBe(true);
+    expect(refExists(`refs/gestalt/pr/${prId}/head`)).toBe(true);
+  });
+
+  it('--checkouts만 주면 자국을 실제로 지운다', () => {
+    const { mark } = mergedPrWithCheckoutMark();
+
+    prPruneCommand({ repoRoot: repo, checkouts: true });
+
+    expect(refExists(mark)).toBe(false);
   });
 });

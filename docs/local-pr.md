@@ -180,6 +180,7 @@ URL에 실리는 건 경로가 아니라 **레포 키**(공용 git 디렉토리�
 
 `ges_pr` 도구로 같은 일을 한다. 액션은 `create`, `list`, `get`, `diff`, `comment`,
 `resolve`, `review`, `update`, `merge`, `close`, `checkout`, `checkout_remove`다.
+`prune`은 없다 — ref를 되돌릴 수 없게 놓는 자리라 사람이 셸에서 치는 경로만 뒀다.
 오류는 `{ error, kind }`로 오고 `kind`는 `not_found`(종료 코드 3)나 `conflict`(4)다.
 
 CLI를 먼저 만든 이유는 MCP가 없거나 끊긴 런타임에서도 돌아야 해서다. 셸만 있으면 되는

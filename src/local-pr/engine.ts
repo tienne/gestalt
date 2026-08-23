@@ -341,6 +341,8 @@ export class LocalPrEngine {
     ]);
     const targets = released.filter((ref) => existing.has(ref));
 
+    // 확인과 삭제 사이에 base가 되돌아가면 근거가 깨진 채로 놓는다. 그 사이를 막지 않은
+    // 건 잃는 게 ref뿐이어서다 — 커밋은 reflog에 남고 PR 기록에 sha가 있어 되살린다
     if (!options.dryRun) {
       for (const ref of targets) git.deleteRef(this.repoRoot, ref);
     }

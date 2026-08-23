@@ -24,9 +24,12 @@ export function unresolvedComments(pr: PullRequest): Comment[] {
 
 /** 안 닫힌 스레드 하나 */
 export interface OpenThread {
-  /** 스레드의 첫 코멘트. 표면이 한 줄로 접을 때 이걸 보여준다 */
+  /**
+   * 표면이 한 줄로 접을 때 보여줄 코멘트. 스레드에서 아직 안 닫힌 것 중 첫 번째다.
+   * 뿌리가 닫히고 답글만 열려 있으면 그 답글이 여기 온다.
+   */
   root: Comment;
-  /** 뿌리와 답글 전부. 붙은 순서 그대로다 */
+  /** 이 스레드에서 안 닫힌 코멘트만. 붙은 순서 그대로다 */
   comments: Comment[];
 }
 
