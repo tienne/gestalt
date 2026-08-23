@@ -1,7 +1,6 @@
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { gestaltPath, ensureGestaltHome } from './home.js';
 
 const require = createRequire(import.meta.url);
 
@@ -36,7 +35,7 @@ export function getCachedUpdateResult(): UpdateCheckResult | null {
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 function getCacheFilePath(): string {
-  return join(homedir(), '.gestalt', '.update-check');
+  return gestaltPath('.update-check');
 }
 
 function readCache(): UpdateCheckResult | null {
@@ -62,8 +61,7 @@ function readCache(): UpdateCheckResult | null {
 
 function writeCache(latestVersion: string): void {
   try {
-    const dir = join(homedir(), '.gestalt');
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    ensureGestaltHome();
     writeFileSync(getCacheFilePath(), JSON.stringify({ timestamp: Date.now(), latestVersion }));
   } catch {
     // silently ignore
