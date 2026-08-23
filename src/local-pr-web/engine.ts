@@ -28,12 +28,25 @@ export class PrWebEngine {
     // 자기 레포는 보여야 한다
     const primary = registerRepo(repoRoot);
     this.engines = new Map();
+
+    // 레포 하나가 못 열려도 서버는 떠야 한다. 목록에는 남의 레포가 섞여 있고 그중
+    // 하나가 옮겨지거나 .git이 깨졌다고 나머지를 못 보는 건 말이 안 된다.
+    // 조용히 빼지는 않는다 — 안 보이는 이유를 알려야 사용자가 고칠 수 있다
+    const broken: string[] = [];
     for (const repo of listRepos()) {
-      this.engines.set(repo.key, { repo, engine: new LocalPrEngine(repo.path) });
+      try {
+        this.engines.set(repo.key, { repo, engine: new LocalPrEngine(repo.path) });
+      } catch {
+        broken.push(repo.name);
+      }
+    }
+    if (broken.length > 0) {
+      process.stderr.write(`[local-pr-web] 못 연 레포 ${broken.length}개: ${broken.join(', ')}\n`);
     }
 
     const held = this.engines.get(primary.key);
-    const count = held ? held.engine.list().length : 0;
+    if (!held) throw new Error(`이 레포를 못 열었다: ${repoRoot}`);
+    const count = held.engine.list().length;
 
     // 0은 "아무 빈 포트나"라는 뜻이라 탐색할 게 없다. 탐색을 태우면 isPortAvailable(0)이
     // 늘 통과해 0을 그대로 돌려준다. 그 0이 URL에 박혀 죽은 주소가 나간다
