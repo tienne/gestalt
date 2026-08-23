@@ -20,7 +20,7 @@ const SRC = join(ROOT, 'src');
 const SCRIPTS = join(ROOT, 'scripts');
 const TESTS = join(ROOT, 'tests');
 /** 레포 루트에 흩어져 있는 산문 문서 */
-const ROOT_DOCS = ['README.md', 'README.ko.md', 'CLAUDE.md'];
+const ROOT_DOCS = ['README.md', 'README.ko.md', 'CLAUDE.md', 'CHANGELOG.md'];
 const rel = (path: string) => path.slice(ROOT.length + 1);
 const BASELINE_PATH = join(__dirname, 'humanize-baseline.json');
 
