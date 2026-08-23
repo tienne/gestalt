@@ -246,4 +246,52 @@ describe('generatePrDetailHtml', () => {
     expect(html).toContain('api-server의 PR 목록');
     expect(html).toContain('href="/r/aaaaaaaa"');
   });
+  it('CDN 자산의 버전을 고정하고 SRI를 붙인다', () => {
+    const html = generatePrDetailHtml(makePr({}), 'diff --git a/x b/x');
+
+    // 버전을 안 묶으면 CDN이 오염되는 순간 리뷰 중인 소스가 남의 코드 손에 들어간다
+    expect(html).toMatch(/diff2html@\d+\.\d+\.\d+/);
+    expect(html).not.toContain('npm/diff2html/bundles');
+    expect((html.match(/integrity="sha384-/g) ?? []).length).toBe(3);
+    expect(html).toContain('highlight.js@');
+  });
+
+  it('렌더러를 못 불러오면 원본 diff를 보여준다', () => {
+    const html = generatePrDetailHtml(makePr({}), 'diff --git a/x b/x');
+
+    // 오프라인이면 아무 말 없이 빈 상자가 남아 "변경 없음"과 구분이 안 된다
+    expect(html).toContain("typeof Diff2HtmlUI === 'undefined'");
+    expect(html).toContain('원본을 그대로 보여드려요');
+  });
+
+  it('큰 diff는 잘라내고 그 사실을 알린다', () => {
+    const huge = `diff --git a/x b/x\n${'+line\n'.repeat(200_000)}`;
+
+    const html = generatePrDetailHtml(makePr({}), huge);
+
+    expect(html.length).toBeLessThan(huge.length);
+    expect(html).toContain('var truncated = true');
+  });
+
+  it('접근성 뼈대를 갖춘다', () => {
+    const html = generatePrListHtml(
+      [makePr({})],
+      [{ key: 'aaaaaaaa', name: 'gestalt', active: true, openCount: 1 }],
+    );
+
+    expect(html).toContain('<main>');
+    expect(html).toContain('scope="col"');
+    expect(html).toContain('<caption class="sr-only">');
+    expect(html).toContain('focus-visible');
+  });
+
+  it('배지 클래스는 아는 값에서만 고른다', () => {
+    // escapeHtml은 공백을 안 건드려서 class 자리에 다른 클래스가 함께 들어갈 수 있다
+    const pr = makePr({ status: 'open evil-class' as never });
+
+    const html = generatePrListHtml([pr]);
+
+    expect(html).not.toContain('badge-open evil-class');
+    expect(html).toContain('class="badge badge-closed"');
+  });
 });
