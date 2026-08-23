@@ -21,6 +21,7 @@ import {
   prMergeCommand,
   prResolveCommand,
   prReviewCommand,
+  prPruneCommand,
   prServeCommand,
   prShowCommand,
   prUpdateCommand,
@@ -128,7 +129,7 @@ export function createCli(): Command {
     .action((o, cmd) => prListCommand({ ...inherited(cmd), ...o }));
 
   pr.command('show <id>')
-    .description('PR 상세 — 라운드와 미해결 코멘트')
+    .description('PR 상세 — 라운드와 미해결 스레드')
     .action((id, o, cmd) => prShowCommand({ ...inherited(cmd), ...o, id }));
 
   pr.command('diff <id>')
@@ -180,6 +181,12 @@ export function createCli(): Command {
     .description('PR을 닫는다')
     .option('--reason <text>', '닫는 이유')
     .action((id, o, cmd) => prCloseCommand({ ...inherited(cmd), ...o, id }));
+
+  pr.command('prune')
+    .description('붙잡아 둘 이유가 끝난 ref를 놓는다 — 머지된 PR의 base·head')
+    .option('--checkouts', '체크아웃 자국도 놓는다. 되돌릴 수 없어 기본은 남긴다')
+    .option('--dry-run', '무엇을 놓을지만 보여준다')
+    .action((o, cmd) => prPruneCommand({ ...inherited(cmd), ...o }));
 
   pr.command('serve')
     .description('브라우저에서 PR을 읽는 웹 UI를 띄운다 (읽기 전용)')

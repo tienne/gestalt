@@ -16,7 +16,7 @@ export type ReviewVerdict = 'approve' | 'request_changes' | 'comment';
  * 누가 했는지.
  *
  * `claude-code:main`, `codex:worker-2`, `human:tienne` 같은 형태다. 에이전트끼리
- * 주고받는 자리라 작성자와 리뷰어가 갈려야 "누가 지적했고 누가 답했나"가 남는다.
+ * 주고받는 자리라 작성자와 리뷰어가 갈려야 "누가 짚었고 누가 답했나"가 남는다.
  */
 export type Actor = string;
 
@@ -53,6 +53,14 @@ export interface Comment {
   /** 이 코멘트가 달린 시점의 head. 이후 update로 라인이 밀렸는지 가린다 */
   headSha: string;
   createdAt: string;
+  /**
+   * 이 코멘트를 붙인 자동화가 남긴 자국.
+   *
+   * 사람이 읽을 내용이 아니라 본문 밖에 둔다. 본문에 실으면 CLI가 평문으로 찍고
+   * 웹은 이스케이프해서 화면에 그대로 내보낸다 — 리뷰 코멘트마다 읽을 이유가 없는
+   * 해시 줄이 붙는다. 손으로 단 코멘트에는 없다.
+   */
+  marker?: string;
 }
 
 export interface Review {
@@ -69,7 +77,7 @@ export interface Review {
 /**
  * 리뷰 한 바퀴.
  *
- * 리젝이 새 PR을 만들지 않고 같은 PR에서 라운드를 늘린다. 3차에서 재오픈된 지적이
+ * 리젝이 새 PR을 만들지 않고 같은 PR에서 라운드를 늘린다. 3차에서 다시 열린 코멘트가
  * 어느 라운드에서 났고 어디서 닫혔는지가 이 단위로 보인다.
  */
 export interface Round {
@@ -106,6 +114,8 @@ export interface CommentAddedPayload {
   body: string;
   threadId: string;
   headSha: string;
+  /** 자동화가 남긴 자국. 사람이 단 코멘트에는 없다 */
+  marker?: string;
 }
 
 export interface CommentResolvedPayload {

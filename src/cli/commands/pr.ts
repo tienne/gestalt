@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { LocalPrEngine, PrError } from '../../local-pr/engine.js';
-import { resolveActor, unresolvedCount } from '../../local-pr/policy.js';
+import {
+  openThreads,
+  resolveActor,
+  unresolvedComments,
+  unresolvedCount,
+} from '../../local-pr/policy.js';
 import type { PullRequest, ReviewVerdict } from '../../local-pr/types.js';
 import { PrWebEngine } from '../../local-pr-web/engine.js';
 
@@ -80,7 +85,7 @@ export function prCreateCommand(
         head: opts.head,
       });
       emit(pr, opts.json, () => {
-        console.log(`PR ${pr.id}을 만들었어요`);
+        console.log(`PR을 만들었어요: ${pr.id}`);
         console.log(`  base ${pr.baseSha.slice(0, 8)} → head ${pr.headSha.slice(0, 8)}`);
         console.log(`  리뷰: gestalt pr show ${pr.id}`);
       });
@@ -128,13 +133,17 @@ export function prShowCommand(opts: PrCommonOptions & { id: string }): void {
           }
         }
 
-        const open = pr.comments.filter((c) => !c.resolved);
-        if (open.length > 0) {
-          console.log('\n미해결 코멘트');
-          for (const c of open) {
-            const at = c.line === null ? c.path : `${c.path}:${c.line}`;
-            console.log(`  [${c.id}] ${at} (${c.author})`);
-            console.log(`    ${c.body.split('\n')[0]}`);
+        // 머리글의 "미해결 N"과 이 목록이 같은 함수에서 나온다. 따로 세면 머리글은
+        // 스레드를, 목록은 코멘트를 세어 한 화면에서 수가 갈린다
+        const threads = openThreads(pr);
+        if (threads.length > 0) {
+          console.log('\n미해결 스레드');
+          for (const { root, comments } of threads) {
+            const at = root.line === null ? root.path : `${root.path}:${root.line}`;
+            const replies = comments.length - 1;
+            const tail = replies > 0 ? ` (답글 ${replies}개)` : '';
+            console.log(`  [${root.id}] ${at} (${root.author})${tail}`);
+            console.log(`    ${root.body.split('\n')[0]}`);
           }
         }
       });
@@ -182,11 +191,13 @@ export function prCheckoutCommand(
           }
         });
         // 안 지운 건 실패가 아니라 판단을 되돌려준 것이다. 에이전트가 종료 코드로
-        // 갈래를 타게 4(상태 충돌)를 준다. 단 `absent`는 뺀다 — 지울 자리가 없는 건
-        // 정리의 목표가 이미 이뤄진 상태다. 실패가 아니다. 4로 주면 `--remove`를 두 번
-        // 부르는 `set -e` 스크립트가 두 번째에 죽는다. 이 갈림은 --json의 status로도
-        // 읽을 수 있다 — 산문 reason을 부분 문자열로 긁을 필요가 없다
-        if (result.status === 'dirty' || result.status === 'diverged') process.exit(4);
+        // 갈래를 타게 4(상태 충돌)를 준다. 지킨 갈래는 `dirty`, `diverged`, `stale`
+        // 셋이고 앞으로 늘 수 있다. 그 셋을 나열하는 대신 "지운 두 갈래가 아니면"으로
+        // 적는다. `absent`를 뺀 이유는 지울 자리가 없는 게 정리의 목표가 이미 이뤄진
+        // 상태여서다. 4로 주면 `--remove`를 두 번 부르는 `set -e` 스크립트가 두 번째에
+        // 죽는다. 이 갈림은 --json의 status로도 읽을 수 있다 — 산문 reason을 부분
+        // 문자열로 긁을 필요가 없다
+        if (result.status !== 'removed' && result.status !== 'absent') process.exit(4);
         return;
       }
 
@@ -242,7 +253,7 @@ export function prCommentsCommand(
       const pr = engine.get(opts.id);
       if (!pr) throw new PrError(`PR을 못 찾았다: ${opts.id}`, 3);
 
-      const comments = opts.unresolved ? pr.comments.filter((c) => !c.resolved) : pr.comments;
+      const comments = opts.unresolved ? unresolvedComments(pr) : pr.comments;
       emit(comments, opts.json, () => {
         for (const c of comments) {
           const at = c.line === null ? c.path : `${c.path}:${c.line}`;
@@ -293,7 +304,7 @@ export function prReviewCommand(
         summary: readBody(opts.bodyFile).trim(),
       });
       emit(pr, opts.json, () => {
-        console.log(`판정 ${opts.verdict}을 남겼어요 — 상태 ${pr.status}`);
+        console.log(`판정을 남겼어요: ${opts.verdict} — 상태 ${pr.status}`);
         console.log(`  라운드 ${pr.rounds[pr.rounds.length - 1]!.number}`);
       });
     } finally {
@@ -327,8 +338,8 @@ export function prMergeCommand(
 
       const pr = engine.merge(opts.id, actorOf(opts), { deleteBranch: opts.deleteBranch });
       emit(pr, opts.json, () => {
-        console.log(`PR ${pr.id}을 머지했어요`);
-        if (unresolved > 0) console.log(`  미해결 스레드 ${unresolved}건이 남은 채로 머지했어요`);
+        console.log(`PR을 머지했어요: ${pr.id}`);
+        if (unresolved > 0) console.log(`  미해결 스레드 ${unresolved}개가 남은 채로 머지했어요`);
       });
     } finally {
       engine.dispose();
@@ -341,7 +352,35 @@ export function prCloseCommand(opts: PrCommonOptions & { id: string; reason?: st
     const engine = engineOf(opts);
     try {
       const pr = engine.closePr(opts.id, actorOf(opts), opts.reason ?? '');
-      emit(pr, opts.json, () => console.log(`PR ${opts.id}를 닫았어요`));
+      emit(pr, opts.json, () => console.log(`PR을 닫았어요: ${opts.id}`));
+    } finally {
+      engine.dispose();
+    }
+  });
+}
+
+/**
+ * `gestalt pr prune` — 붙잡아 둘 이유가 끝난 ref를 놓는다.
+ *
+ * `refs/gestalt/` 아래는 지금까지 늘기만 했다. 무엇을 언제 놓는지는 엔진의 `prune`
+ * 주석에 있다. 되돌릴 수 없는 갈래(체크아웃 자국)는 `--checkouts`로 뜻을 밝혀야 놓는다.
+ */
+export function prPruneCommand(
+  opts: PrCommonOptions & { checkouts?: boolean; dryRun?: boolean },
+): void {
+  run(() => {
+    const engine = engineOf(opts);
+    try {
+      const result = engine.prune({ checkouts: opts.checkouts, dryRun: opts.dryRun });
+      emit(result, opts.json, () => {
+        const verb = result.dryRun ? '놓을 참이에요' : '놓았어요';
+        console.log(`ref ${result.released.length}개를 ${verb}`);
+        for (const ref of result.released) console.log(`  ${ref}`);
+        for (const k of result.kept) console.log(`  남김 ${k.prId} — ${k.reason}`);
+        if (!opts.checkouts) {
+          console.log('  체크아웃 자국은 그대로예요. 놓으려면 --checkouts를 붙여주세요');
+        }
+      });
     } finally {
       engine.dispose();
     }

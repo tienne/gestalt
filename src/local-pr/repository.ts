@@ -1,7 +1,6 @@
 import type { IEventStore } from '../events/store.js';
 import type { DomainEvent } from '../core/types.js';
 import { PR_AGGREGATE } from './types.js';
-export { unresolvedCount } from './policy.js';
 import type {
   Comment,
   CommentAddedPayload,
@@ -115,6 +114,7 @@ export class PullRequestRepository {
           resolved: false,
           headSha: p.headSha,
           createdAt: event.timestamp,
+          ...(p.marker ? { marker: p.marker } : {}),
         };
         pr.comments.push(comment);
         currentRound(pr).commentCount++;

@@ -182,8 +182,9 @@ pnpm tsx bin/gestalt.ts pr checkout <id> --remove --json
 | `absent` | 지울 자리가 없었다 | 0 |
 | `dirty` | 커밋 안 된 변경이 있어 안 지웠다 | 4 |
 | `diverged` | 거기서 커밋한 변경이 있어 안 지웠다 | 4 |
+| `stale` | 등록이 끊기고 디렉토리만 남아, 안을 못 읽어 안 지웠다 | 4 |
 
-`dirty`와 `diverged`는 확인한 뒤 `--force`를 붙여 다시 부릅니다. `diverged`를 force로
+`dirty`와 `diverged`와 `stale`은 확인한 뒤 `--force`를 붙여 다시 부릅니다. `diverged`를 force로
 지우면 그 커밋을 `refs/gestalt/pr-checkout/<id>/<sha 8자>`가 붙잡아 둡니다.
 
 이 단계는 `prTarget`이 `local`일 때만 합니다. GitHub PR에는 `gh pr checkout`이 있습니다.

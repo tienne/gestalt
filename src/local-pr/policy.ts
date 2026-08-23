@@ -1,5 +1,5 @@
 import type { ReviewIssue, ContinuityVerdict } from '../core/types.js';
-import type { Actor, PullRequest, ReviewVerdict } from './types.js';
+import type { Actor, Comment, PullRequest, ReviewVerdict } from './types.js';
 
 /**
  * 로컬 PR의 판단 규칙.
@@ -10,22 +10,50 @@ import type { Actor, PullRequest, ReviewVerdict } from './types.js';
  * 표면은 여기서 값을 가져다 쓰고 스스로 세지 않는다.
  */
 
-/** `--force`로 지울 때 워크트리 전용 커밋을 붙잡아 둘 ref의 뿌리 */
-export const CHECKOUT_REF_ROOT = 'refs/gestalt/pr-checkout';
+/**
+ * 아직 안 닫힌 코멘트.
+ *
+ * 미해결을 가르는 술어가 여기 하나뿐이다. 아래 두 함수도 이 목록에서 나온다 —
+ * 표면이 헤아릴 때와 늘어놓을 때를 따로 계산하면 같은 화면에서 수가 갈린다.
+ * 실제로 `pr show`가 머리글에 스레드 수를, 바로 아래 목록에 코멘트 수를 찍어
+ * "미해결 1"이라고 해놓고 세 줄을 늘어놓았다.
+ */
+export function unresolvedComments(pr: PullRequest): Comment[] {
+  return pr.comments.filter((c) => !c.resolved);
+}
+
+/** 안 닫힌 스레드 하나 */
+export interface OpenThread {
+  /**
+   * 표면이 한 줄로 접을 때 보여줄 코멘트. 스레드에서 아직 안 닫힌 것 중 첫 번째다.
+   * 뿌리가 닫히고 답글만 열려 있으면 그 답글이 여기 온다.
+   */
+  root: Comment;
+  /** 이 스레드에서 안 닫힌 코멘트만. 붙은 순서 그대로다 */
+  comments: Comment[];
+}
 
 /**
- * 아직 안 닫힌 스레드 수.
+ * 아직 안 닫힌 스레드.
  *
- * 코멘트가 아니라 스레드를 센다. 코멘트를 세면 답글이 달릴수록 수가 늘어난다.
- * 지적 두 건에 답을 달았더니 "미해결 4"가 되는 일이 실제로 났다. 주고받을수록
- * 나빠 보이는 신호는 티키타카를 말린다.
+ * 코멘트가 아니라 스레드로 묶는다. 코멘트를 세면 답글이 달릴수록 수가 늘어난다.
+ * 리뷰 코멘트 두 개에 답을 달았더니 "미해결 4"가 되는 일이 실제로 났다.
+ * 주고받을수록 나빠 보이는 신호는 티키타카를 말린다.
  */
-export function unresolvedCount(pr: PullRequest): number {
-  const openThreads = new Set<string>();
-  for (const comment of pr.comments) {
-    if (!comment.resolved) openThreads.add(comment.threadId);
+export function openThreads(pr: PullRequest): OpenThread[] {
+  const byThread = new Map<string, Comment[]>();
+  for (const comment of unresolvedComments(pr)) {
+    const bucket = byThread.get(comment.threadId);
+    if (bucket) bucket.push(comment);
+    else byThread.set(comment.threadId, [comment]);
   }
-  return openThreads.size;
+
+  return [...byThread.values()].map((comments) => ({ root: comments[0]!, comments }));
+}
+
+/** 안 닫힌 스레드 수. 표면의 "미해결 N"이 전부 이 값이다 */
+export function unresolvedCount(pr: PullRequest): number {
+  return openThreads(pr).length;
 }
 
 /**

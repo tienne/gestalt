@@ -381,10 +381,36 @@ describe('PR head 체크아웃', () => {
 
     const kept = engine.removeCheckout(pr.id);
 
-    expect(kept.status).toBe('dirty');
+    // `dirty`가 아니라 `stale`이다. `dirty`는 안을 읽어 커밋 안 된 변경을 확인한
+    // 상태고 여기는 읽을 방법이 없어 판단을 미룬 상태다. 부르는 쪽이 이 값으로 갈래를
+    // 타므로 같은 코드를 주면 문서 표가 조용히 거짓이 된다
+    expect(kept.status).toBe('stale');
     expect(existsSync(join(checkout.path, 'a.txt'))).toBe(true);
 
     expect(engine.removeCheckout(pr.id, { force: true }).status).toBe('removed');
+  });
+
+  it('안을 읽어 막은 것과 못 읽어 막은 것이 다른 status로 나온다', () => {
+    const dirtyPr = engine.create({ title: 't', author: 'a' });
+    const dirty = engine.checkout(dirtyPr.id);
+    writeFileSync(join(dirty.path, 'a.txt'), '커밋 안 한 변경\n');
+
+    run(repo, ['checkout', '-q', '-b', 'feat/stale', 'feat/x']);
+    writeFileSync(join(repo, 'c.txt'), 'c\n');
+    run(repo, ['add', '-A']);
+    run(repo, ['commit', '-q', '-m', 'c']);
+    const stalePr = engine.create({ title: 's', author: 'a' });
+    const stale = engine.checkout(stalePr.id);
+    rmSync(join(stale.path, '.git'), { force: true });
+    run(repo, ['worktree', 'prune']);
+
+    // 둘 다 "안 지웠다"지만 이유가 다르다. 한 값으로 뭉개면 에이전트가 커밋하라는
+    // 안내와 지난 정리를 확인하라는 안내를 못 가른다
+    expect(engine.removeCheckout(dirtyPr.id).status).toBe('dirty');
+    expect(engine.removeCheckout(stalePr.id).status).toBe('stale');
+
+    engine.removeCheckout(dirtyPr.id, { force: true });
+    engine.removeCheckout(stalePr.id, { force: true });
   });
 
   it('PR id 형식이 아니면 경로를 만들지 않는다', () => {
