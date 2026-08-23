@@ -1,7 +1,7 @@
 ---
 name: pr
 version: "1.0.0"
-description: "PR 작성 전용 스킬. 레포 규칙을 먼저 탐색하고, 미니 인터뷰로 컨텍스트를 수집한 뒤 diff 기반 PR description을 생성하고 gh pr create로 제출한다. PR을 만드는 것까지가 범위다. 이미 있는 PR이나 브랜치의 코드를 검토받으려면 review를 쓴다."
+description: "GitHub PR 작성 전용 스킬. 레포 규칙을 먼저 탐색하고 미니 인터뷰로 컨텍스트를 수집한 뒤 diff 기반 PR description을 생성해 gh pr create로 제출한다. PR을 만드는 것까지가 범위다. 레포 안에서 끝나는 PR은 local-pr을 쓰고 이미 있는 코드를 검토받으려면 review를 쓴다."
 triggers:
   - "PR 작성"
   - "PR 만들어"
@@ -20,17 +20,11 @@ inputs:
     type: string
     required: false
     description: "Repository root (기본값: 현재 디렉토리)"
-  local:
-    type: boolean
-    required: false
-    description: "로컬 PR(`gestalt pr` CLI)로 제출할지 여부. 사용자가 붙인 `--local` 플래그가 이 값으로 들어온다. 기본값 false"
 outputs:
   - prIntent
   - changeContext
   - prDescription
-  - prTarget
   - prUrl
-  - prId
 ---
 
 # PR Skill
@@ -50,26 +44,25 @@ outputs:
 `repoRoot`가 주어지지 않으면 현재 작업 디렉토리를 절대 경로로 사용합니다.
 `target`이 주어지지 않으면 현재 브랜치 vs `main`을 기준으로 삼습니다.
 
-## 대상 판별 (GitHub vs 로컬 `gestalt pr`)
+## 이 스킬은 GitHub에만 올린다
 
-이 스킬은 GitHub PR과 로컬 PR(`gestalt pr` CLI) 둘 다 만듭니다. 레포 규칙 탐색부터 description 워싱까지(0~4.5단계)는 대상이 무엇이든 같습니다. 갈리는 자리는 마지막 5단계, 어디에 제출하느냐뿐입니다.
+로컬 PR(`gestalt pr`)은 `local-pr` 스킬이 맡는다. 두 갈래는 능력이 아니라 용도로 갈린다 — 원격 PR은 사람이 읽고 판단하라고 올린다. 로컬 PR은 에이전트끼리 주고받는 자리다. 그래서 GitHub에 갈 수 있는지 여부로 갈래를 고르지 않는다.
 
-판별은 스킬 시작 시 한 번 하고 결과를 `prTarget = "github" | "local"`로 보관합니다.
+사용자가 로컬이라고 밝히지 않으면 GitHub다. 밝히는 방법은 둘이다.
 
-1. `local` 입력이 true거나(`--local` 플래그) `target`이 로컬 PR 형식(`gestalt pr list`에 뜨는 id)이면 → `local`.
-2. 그 외에는 `gh auth status`를 실행합니다. 실패하거나(인증 안 됨) `git remote -v`가 비어 있으면(원격 없음) → `local`.
-3. 위 둘 다 아니면 → `github` (기존 경로 그대로).
+1. `--local`을 붙이거나 말로 "로컬 PR"이라고 한다.
+2. `local-pr` 스킬을 직접 부른다.
 
-판별 결과는 5단계 진입 직전에 한 줄로 알린다: "GitHub PR로 제출합니다" 또는 "로컬 PR로 제출합니다 (gh 인증 없음 / 원격 없음 / --local 지정)".
+둘 중 하나면 이 스킬을 그만두고 `local-pr`로 넘긴다. 여기서 로컬 PR을 만들지 않는다.
 
-### 출력 규약
+### GitHub에 못 갈 때
 
-`prUrl`과 `prId`는 갈래에 따라 한쪽만 채워집니다. 이 스킬을 부르는 쪽은 `prTarget`을 먼저 보고 어느 필드를 읽을지 정합니다.
+`gh auth status`가 실패하거나 `git remote -v`가 비어 있으면 **말없이 로컬로 바꾸지 않는다.** 무엇이 없어서 못 올리는지 알리고 멈춘다. 사용자가 원격에 올릴 생각이었는데 로컬 PR이 만들어져 있으면 그게 더 나쁘다.
 
-| `prTarget` | `prUrl` | `prId` |
-| --- | --- | --- |
-| `github` | GitHub PR URL | 비어 있음 |
-| `local` | 비어 있음 | `gestalt pr` PR id |
+```
+GitHub에 못 올려요 — {gh 인증이 없어요 / 원격이 없어요}.
+인증을 붙여주세요. 레포 안에서 끝낼 거면 로컬 PR로 만들게요.
+```
 
 ## Skill Instructions
 
@@ -227,10 +220,6 @@ Agent {
 - 취소: description 텍스트만 출력하고 종료
 ```
 
-제출 방식은 `prTarget`(대상 판별 단계에서 정한 값)에 따라 갈립니다.
-
-#### GitHub PR (`prTarget: "github"`)
-
 heredoc 패턴으로 실행합니다. **PR 작성자 자신을 어사인**하기 위해 `--assignee @me`를 항상 포함합니다. 명령 앞에 `GESTALT_PR=1` 표식을 붙입니다 (raw `gh pr create`를 가로채는 PreToolUse 훅이 이 스킬의 호출은 통과시키도록 하는 우회 표식):
 
 ```bash
@@ -244,23 +233,5 @@ EOF
 - `@me`는 `gh`에 인증된 현재 사용자를 가리키므로, PR이 생성되면 작성자 본인이 자동으로 assignee로 지정됩니다.
 - 어사인이 실패해도(권한·레포 설정 등) PR 생성 자체는 막지 않습니다. 실패 시 PR 생성 후 `gh pr edit {prUrl} --add-assignee @me`로 재시도합니다.
 
-반환된 PR URL을 사용자에게 표시합니다. 반환값은 `prTarget: "github"` + `prUrl`로 담고 `prId`는 비워 둡니다.
+반환된 PR URL을 사용자에게 표시합니다. 반환값은 `prUrl` 하나입니다. 로컬 PR의 id가 필요하면 `local-pr` 스킬을 부릅니다.
 
-#### 로컬 PR (`prTarget: "local"`)
-
-`gestalt pr create`로 제출합니다. 본문은 셸을 안 타게 파일로 떨궈 `--body-file`로 넘깁니다 — 셸 변수로 직접 넘기면 한글과 백틱이 깨집니다.
-
-```bash
-cat > /tmp/gestalt-pr-body.md <<'EOF'
-{description 내용}
-EOF
-pnpm tsx bin/gestalt.ts pr create \
-  --title "..." \
-  --base "<target 또는 main>" \
-  --body-file /tmp/gestalt-pr-body.md \
-  --author "<현재 사용자 — 없으면 GESTALT_ACTOR 환경변수, 그것도 없으면 human:local>"
-```
-
-- 로컬 PR에는 `--assignee` 개념이 없습니다 — `--author`가 곧 작성자입니다.
-- 반환값은 `prTarget: "local"` + `prId`로 담습니다. `prUrl`은 비워 둡니다 — 로컬 PR에는 URL이 없습니다. `pnpm tsx bin/gestalt.ts pr --json show <id>`로 생성 결과를 확인할 수 있습니다.
-- 반환된 PR id를 사용자에게 표시합니다.

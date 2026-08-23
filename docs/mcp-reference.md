@@ -964,7 +964,7 @@ ges_pr({ action: "checkout", id: "e2085a1c" })
 
 ```json
 {
-  "path": "/tmp/gestalt-pr-checkout/9b7f3309/e2085a1c",
+  "path": "/repo/.git/gestalt/pr-checkout/e2085a1c",
   "created": true,
   "headSha": "52aa369..."
 }
