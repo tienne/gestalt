@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -260,6 +261,44 @@ describe('레포 레지스트리', () => {
     registry.registerRepo(repo);
 
     expect(registry.listRepos()).toHaveLength(1);
+  });
+
+  it('쓰다 만 임시 파일은 다음 등록 때 치운다', () => {
+    const repo = makeRepo();
+    repos.push(repo);
+
+    // 옆에 쓰고 rename으로 갈아 끼우므로, 쓰는 도중 죽으면 그 이름이 영영 남는다
+    mkdirSync(join(fakeHome, '.gestalt'), { recursive: true });
+    const leftover = join(fakeHome, '.gestalt', 'repos.json.99999.tmp');
+    writeFileSync(leftover, '[]\n', 'utf-8');
+
+    registry.registerRepo(repo);
+
+    expect(existsSync(leftover)).toBe(false);
+    expect(registry.listRepos()).toHaveLength(1);
+  });
+
+  it('내가 쥔 잠금이 아니면 안 푼다', () => {
+    const lock = join(fakeHome, '.gestalt', 'repos.json.lock');
+
+    // 내가 오래 쥐고 있는 사이에 남이 stale로 부수고 자기 잠금을 새로 만든 상황.
+    // 내가 끝나며 무조건 지우면 남이 목록을 고치는 도중에 그 잠금이 풀린다
+    registry.withLock(() => {
+      rmSync(lock, { recursive: true, force: true });
+      mkdirSync(lock, { recursive: true });
+      writeFileSync(join(lock, 'owner'), '남의-것', 'utf-8');
+    });
+
+    expect(existsSync(lock)).toBe(true);
+    expect(readFileSync(join(lock, 'owner'), 'utf-8')).toBe('남의-것');
+  });
+
+  it('내 잠금은 끝나면 푼다', () => {
+    const lock = join(fakeHome, '.gestalt', 'repos.json.lock');
+
+    registry.withLock(() => undefined);
+
+    expect(existsSync(lock)).toBe(false);
   });
 
   it('방금 잡힌 잠금은 기다리다 포기한다', () => {

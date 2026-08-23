@@ -1,15 +1,16 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, join, normalize } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize } from 'node:path';
 import { z } from 'zod';
 import { ensureGestaltHome, gestaltPath } from '../core/home.js';
 import { gitCommonDir } from './git.js';
@@ -122,17 +123,25 @@ function sleep(ms: number): void {
  * 워크트리 여럿이 같은 목록에 동시에 손대는 게 이 레포의 기본 흐름이다. 잠금 없이
  * 읽고 고쳐 쓰면 나중에 쓴 쪽이 먼저 쓴 쪽의 항목을 덮는다.
  *
+ * 잠금 소유권을 테스트에서 확인할 수 있게 내보낸다. 그 갈래는 잠금을 오래 쥔 쪽과
+ * 부순 쪽이 겹쳐야 열리는데, `registerRepo`로는 그 상황을 만들 수 없다.
+ *
  * `mkdir`는 있으면 실패하니까 그 자체가 잠금이다. 쥔 채로 죽은 프로세스가 목록을 영영
  * 못 고치게 만들면 안 되므로 오래된 자물쇠는 부순다. 부수는 순간에 둘이 겹치면 둘 다
  * `mkdir`을 시도하고 한쪽만 성공한다 — 진 쪽은 다시 기다린다.
  */
-function withLock<T>(fn: () => T): T {
+export function withLock<T>(fn: () => T): T {
   const lock = join(ensureGestaltHome(), 'repos.json.lock');
+  // 잠금을 누가 쥐고 있는지 적어둔다. 오래 쥔 잠금은 남이 부수고 자기 것을 새로 만드는데,
+  // 그때 원래 주인이 끝나며 무조건 지우면 **남의** 잠금을 푼다. 토큰이 내 것일 때만 지운다
+  const ownerPath = join(lock, 'owner');
+  const token = randomUUID();
   const start = Date.now();
 
   for (;;) {
     try {
       mkdirSync(lock);
+      writeFileSync(ownerPath, token, 'utf-8');
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
@@ -158,7 +167,14 @@ function withLock<T>(fn: () => T): T {
   try {
     return fn();
   } finally {
-    rmSync(lock, { recursive: true, force: true });
+    let mine: boolean;
+    try {
+      mine = readFileSync(ownerPath, 'utf-8') === token;
+    } catch {
+      // 잠금이 이미 없다. 풀 것도 없다
+      mine = false;
+    }
+    if (mine) rmSync(lock, { recursive: true, force: true });
   }
 }
 
@@ -174,6 +190,7 @@ function withLock<T>(fn: () => T): T {
  */
 function writeList(repos: RegisteredRepo[]): void {
   const path = registryPath();
+  sweepStaleTmp(path);
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(repos, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
   try {
@@ -185,6 +202,31 @@ function writeList(repos: RegisteredRepo[]): void {
       // 이미 없으면 됐다
     }
     throw e;
+  }
+}
+
+/**
+ * 쓰다 만 임시 파일을 치운다.
+ *
+ * pid를 붙여 쓰므로 쓰는 도중 죽으면 그 이름이 영영 남는다. 목록에는 영향이 없지만
+ * 홈에 쌓인다. 잠금 안에서 도니까 지금 쓰는 중인 남의 tmp를 뺏을 일은 없다.
+ */
+function sweepStaleTmp(path: string): void {
+  const dir = dirname(path);
+  const prefix = `${basename(path)}.`;
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue;
+    try {
+      unlinkSync(join(dir, name));
+    } catch {
+      // 남이 방금 갈아 끼웠다. 없어졌으면 된 것이다
+    }
   }
 }
 
