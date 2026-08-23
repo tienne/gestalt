@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse, Server } from 'node:http';
 import type { LocalPrEngine } from '../local-pr/engine.js';
 import type { RegisteredRepo } from '../local-pr/registry.js';
+import type { PullRequest } from '../local-pr/types.js';
 import { generatePrDetailHtml, generatePrListHtml } from './html-generator.js';
 import type { RepoTab } from './html-generator.js';
 
@@ -23,7 +24,7 @@ const API_PR_DETAIL_PATH = new RegExp(`^/api/r/${REPO_KEY}/prs/([^/]+)$`);
  * 레포나 읽어주는 도구가 된다. 모르는 키는 404다.
  *
  * Routes:
- *   GET /                       → 지금 레포로 보냄 (등록 레포가 여럿이면 목록)
+ *   GET /                       → `pr serve`를 친 레포의 목록으로 302
  *   GET /r/:key                 → 그 레포의 PR 목록 HTML
  *   GET /r/:key/prs/:id         → PR 상세 HTML (diff, 코멘트 스레드, 라운드별 판정)
  *   GET /api/repos              → 등록된 레포 목록 JSON
@@ -34,14 +35,24 @@ const API_PR_DETAIL_PATH = new RegExp(`^/api/r/${REPO_KEY}/prs/([^/]+)$`);
 export class PrWebServer {
   private server: Server | null = null;
   private sigintHandler: (() => void) | null = null;
+  private diffCache = new DiffCache();
+
   /**
-   * `base..head` 쌍으로 캐시한 diff.
+   * 레포 탭에 붙는 열린 PR 수. 마지막으로 센 값과 그 시각이다.
    *
-   * diff는 그 두 sha에 대해 불변이라 캐시 키가 이미 공짜로 주어져 있다. 안 쓰면
-   * 새로고침마다 execFileSync로 git을 부르는데, 동기 spawn이라 그동안 이벤트 루프가
-   * 통째로 멈춰 다른 요청도 함께 기다린다. head가 옮겨가면 키가 저절로 갈린다.
+   * 목록 페이지 한 번에 탭마다 `engine.list('open')`이 돌면 그 레포의 이벤트를
+   * 통째로 다시 접는다. 배지 숫자 하나 때문에 PR 전체를 복원하는 셈이다. 그 비용이
+   * 등록된 레포 수만큼 곱해진다.
+   *
+   * 이벤트 저장소에 집계 경로를 내는 길도 있었다. 안 골랐다 — `EventStore`는 로컬 PR
+   * 바깥에서도 쓰는 공용 모듈이라 배지 하나 때문에 조회 API를 늘리게 된다. 여기서는
+   * 짧은 TTL로 충분하다. 지금 보는 레포는 이 캐시를 아예 안 탄다 — 같은 요청이 이미
+   * 만든 목록에서 센다. 그래서 뒤처질 수 있는 건 남의 레포 배지뿐이다.
    */
-  private diffCache = new Map<string, string>();
+  private navCounts = new Map<string, { count: number; at: number }>();
+
+  /** 남의 레포 배지를 붙잡아 두는 시간 */
+  private static readonly NAV_COUNT_TTL_MS = 5_000;
 
   /**
    * @param engines 레포 키 → 엔진. 시작할 때 정해지고 요청이 못 늘린다
@@ -170,9 +181,15 @@ export class PrWebServer {
     }
 
     if (path === '/api/repos') {
+      // path는 안 내보낸다. URL에 경로가 아니라 키만 싣기로 한 설계(registry.ts)를
+      // 이 엔드포인트가 되돌리면 안 된다. 인증이 없는 서버라 응답도 같은 선을 지킨다
       this.sendJson(
         res,
-        [...this.engines.values()].map((e) => e.repo),
+        [...this.engines.values()].map((e) => ({
+          key: e.repo.key,
+          name: e.repo.name,
+          addedAt: e.repo.addedAt,
+        })),
       );
       return;
     }
@@ -199,7 +216,9 @@ export class PrWebServer {
     if (listMatch) {
       const held = this.engines.get(listMatch[1]!);
       if (!held) return this.notFound(res);
-      this.sendHtml(res, generatePrListHtml(held.engine.list(), this.repoNav(listMatch[1]!)));
+      // 한 번만 접는다. 탭 숫자도 이 목록에서 센다
+      const prs = held.engine.list();
+      this.sendHtml(res, generatePrListHtml(prs, this.repoNav(listMatch[1]!, prs)));
       return;
     }
 
@@ -212,7 +231,7 @@ export class PrWebServer {
       if (!pr || !held) return this.notFound(res);
       this.sendHtml(
         res,
-        generatePrDetailHtml(pr, this.diffOf(held.engine, pr), key, held.repo.name),
+        generatePrDetailHtml(pr, this.diffOf(key, held.engine, pr), key, held.repo.name),
       );
       return;
     }
@@ -220,31 +239,54 @@ export class PrWebServer {
     this.notFound(res);
   }
 
-  private repoNav(activeKey: string): RepoTab[] {
-    return [...this.engines.values()].map((e) => ({
-      key: e.repo.key,
-      name: e.repo.name,
-      active: e.repo.key === activeKey,
-      openCount: e.engine.list('open').length,
-    }));
+  /**
+   * 레포 탭 줄. 지금 보는 레포의 숫자는 `activePrs`에서 세고 나머지는 TTL 캐시를 탄다.
+   *
+   * @param activePrs 이 요청이 이미 만든 목록. 같은 레포를 두 번 접지 않으려고 받는다
+   */
+  private repoNav(activeKey: string, activePrs: PullRequest[]): RepoTab[] {
+    const now = Date.now();
+    return [...this.engines.values()].map((e) => {
+      const key = e.repo.key;
+      let openCount: number;
+      if (key === activeKey) {
+        openCount = activePrs.filter((pr) => pr.status === 'open').length;
+        this.navCounts.set(key, { count: openCount, at: now });
+      } else {
+        openCount = this.cachedOpenCount(key, e.engine, now);
+      }
+      return { key, name: e.repo.name, active: key === activeKey, openCount };
+    });
   }
 
-  /** 캐시가 무한히 자라지 않게 둘 상한. 리뷰 한 세션이 여는 PR 수를 넉넉히 덮는다 */
-  private static readonly DIFF_CACHE_MAX = 32;
+  private cachedOpenCount(key: string, engine: LocalPrEngine, now: number): number {
+    const hit = this.navCounts.get(key);
+    if (hit && now - hit.at < PrWebServer.NAV_COUNT_TTL_MS) return hit.count;
 
+    const count = engine.list('open').length;
+    this.navCounts.set(key, { count, at: now });
+    return count;
+  }
+
+  /**
+   * PR의 diff. 같은 sha 쌍이면 캐시에서 준다.
+   *
+   * 캐시 키에 레포를 함께 넣는다. 등록된 자리 둘이 같은 레포의 클론이면 sha 쌍이
+   * 겹친다. 지금은 두 자리의 diff가 어차피 같다. 그래도 캐시가 레포 경계를 넘어
+   * 값을 옮기는 구조 자체를 안 두는 편이 낫다. 한쪽에만 객체가 없는 경우처럼
+   * 같은 sha가 다른 결과를 내는 자리가 있다.
+   */
   private diffOf(
+    repoKey: string,
     engine: LocalPrEngine,
     pr: { id: string; baseSha: string; headSha: string },
   ): string {
-    const key = `${pr.baseSha}..${pr.headSha}`;
+    // head가 옮겨가면 키가 갈린다. update가 headSha를 바꾸기 때문이다
+    const key = `${repoKey}:${pr.baseSha}..${pr.headSha}`;
     const hit = this.diffCache.get(key);
     if (hit !== undefined) return hit;
 
     const diff = engine.diff(pr.id);
-    if (this.diffCache.size >= PrWebServer.DIFF_CACHE_MAX) {
-      const oldest = this.diffCache.keys().next().value;
-      if (oldest !== undefined) this.diffCache.delete(oldest);
-    }
     this.diffCache.set(key, diff);
     return diff;
   }
@@ -298,5 +340,60 @@ export class PrWebServer {
       process.off('SIGINT', this.sigintHandler);
       this.sigintHandler = null;
     }
+  }
+}
+
+/**
+ * diff 캐시.
+ *
+ * diff는 base와 head 두 sha에 대해 불변이라 캐시 키가 공짜로 주어져 있다. 안 쓰면
+ * 새로고침마다 execFileSync로 git을 부르는데, 동기 spawn이라 그동안 이벤트 루프가
+ * 통째로 멈춰 다른 요청도 함께 기다린다.
+ *
+ * 개수와 바이트를 함께 묶는다. 개수만 묶으면 `git.diff`의 maxBuffer가 64MB라
+ * 32개가 이론상 2GB가 된다. 예산보다 큰 diff 하나는 아예 안 담는다 — 담아 봐야
+ * 남은 걸 전부 밀어내고도 예산을 넘긴다.
+ *
+ * 상한을 생성자로 받는 건 테스트가 작은 값으로 밀어내기를 확인하려고 그렇다.
+ */
+export class DiffCache {
+  private entries = new Map<string, string>();
+  private bytes = 0;
+
+  constructor(
+    private readonly maxEntries = 32,
+    private readonly maxBytes = 8 * 1024 * 1024,
+  ) {}
+
+  get(key: string): string | undefined {
+    return this.entries.get(key);
+  }
+
+  set(key: string, value: string): void {
+    const size = Buffer.byteLength(value);
+    if (size > this.maxBytes) return;
+
+    const previous = this.entries.get(key);
+    if (previous !== undefined) this.bytes -= Buffer.byteLength(previous);
+    this.entries.set(key, value);
+    this.bytes += size;
+
+    // Map은 삽입 순서를 지킨다. 앞에서부터 걷어내면 오래된 것부터 나간다
+    while (this.entries.size > this.maxEntries || this.bytes > this.maxBytes) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest === undefined || oldest === key) break;
+      this.bytes -= Buffer.byteLength(this.entries.get(oldest)!);
+      this.entries.delete(oldest);
+    }
+  }
+
+  /** 담고 있는 항목 수 */
+  get size(): number {
+    return this.entries.size;
+  }
+
+  /** 담고 있는 바이트 합 */
+  get byteSize(): number {
+    return this.bytes;
   }
 }

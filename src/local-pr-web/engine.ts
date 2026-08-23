@@ -25,9 +25,16 @@ export class PrWebEngine {
     await this.stop();
 
     // 지금 자리를 먼저 목록에 넣는다. PR을 한 번도 안 만든 레포에서 serve를 쳐도
-    // 자기 레포는 보여야 한다
-    const primary = registerRepo(repoRoot);
-    this.engines = new Map();
+    // 자기 레포는 보여야 한다.
+    //
+    // 여기서 던지는 건 대개 git이다 — .git이 깨졌거나 레포가 아니다. 그 원문을 그대로
+    // 올리면 사용자는 rev-parse 실패만 본다. 어느 자리를 못 열었는지로 바꿔 던진다
+    let primary: RegisteredRepo;
+    try {
+      primary = registerRepo(repoRoot);
+    } catch (e) {
+      throw new Error(`이 레포를 못 열었어요: ${repoRoot}`, { cause: e });
+    }
 
     // 레포 하나가 못 열려도 서버는 떠야 한다. 목록에는 남의 레포가 섞여 있고 그중
     // 하나가 옮겨지거나 .git이 깨졌다고 나머지를 못 보는 건 말이 안 된다.
@@ -45,16 +52,24 @@ export class PrWebEngine {
     }
 
     const held = this.engines.get(primary.key);
-    if (!held) throw new Error(`이 레포를 못 열었다: ${repoRoot}`);
+    if (!held) throw new Error(`이 레포를 못 열었어요: ${repoRoot}`);
     const count = held.engine.list().length;
 
     // 0은 "아무 빈 포트나"라는 뜻이라 탐색할 게 없다. 탐색을 태우면 isPortAvailable(0)이
     // 늘 통과해 0을 그대로 돌려준다. 그 0이 URL에 박혀 죽은 주소가 나간다
     const requested = preferredPort ?? 7892;
-    const port = requested === 0 ? 0 : await findAvailablePort(requested);
 
-    this.server = new PrWebServer(this.engines, primary.key);
-    await this.server.start(port);
+    // 여기서부터는 이미 sqlite 핸들이 레포 수만큼 열려 있다. 포트를 못 잡거나 listen이
+    // 거부하면 그것들이 참조만 남고 안 닫힌다 — 싱글턴이라 재시도가 핸들을 누적시킨다
+    let port: number;
+    try {
+      port = requested === 0 ? 0 : await findAvailablePort(requested);
+      this.server = new PrWebServer(this.engines, primary.key);
+      await this.server.start(port);
+    } catch (e) {
+      await this.stop();
+      throw e;
+    }
 
     // listen(0)이면 실제 포트는 OS가 정한다. 요청값이 아니라 뜬 자리를 알려준다
     const actualPort = this.server.port ?? port;

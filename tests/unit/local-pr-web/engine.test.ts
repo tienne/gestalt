@@ -95,9 +95,10 @@ describe('PrWebEngine', () => {
 
     const result = await engine.start({ repoRoot: good, port: 0, openBrowser: false });
 
-    const listed = (await (await fetch(`${result.url}/api/repos`)).json()) as { path: string }[];
+    // 응답에 path는 안 실린다. 이름으로 어느 레포가 살아남았는지 본다
+    const listed = (await (await fetch(`${result.url}/api/repos`)).json()) as { name: string }[];
     expect(listed).toHaveLength(1);
-    expect(listed[0]!.path).toContain('good');
+    expect(listed[0]!.name).toContain('good');
   });
 
   it('지금 자리를 못 열면 알리고 멈춘다', async () => {
@@ -105,7 +106,27 @@ describe('PrWebEngine', () => {
     repos.push(repo);
     writeFileSync(join(repo, '.git'), 'gitdir: /nonexistent-gestalt-broken\n', 'utf-8');
 
-    // 나머지는 건너뛰어도 되지만 정작 이 자리를 못 열면 보여줄 게 없다
-    await expect(engine.start({ repoRoot: repo, port: 0, openBrowser: false })).rejects.toThrow();
+    // 나머지는 건너뛰어도 되지만 정작 이 자리를 못 열면 보여줄 게 없다.
+    // 메시지를 고정한다 — 인자 없는 toThrow는 registerRepo가 먼저 던져도 통과해서
+    // 정작 겨냥한 가드를 지워도 초록불이었다
+    await expect(engine.start({ repoRoot: repo, port: 0, openBrowser: false })).rejects.toThrow(
+      /못 열/,
+    );
+  });
+
+  it('같은 인스턴스로 다시 start를 불러도 앞 서버가 안 남는다', async () => {
+    const repo = makeRepo('restart');
+    repos.push(repo);
+    registerRepo(repo);
+
+    const first = await engine.start({ repoRoot: repo, port: 0, openBrowser: false });
+    const listenersBefore = process.listenerCount('SIGINT');
+
+    const second = await engine.start({ repoRoot: repo, port: 0, openBrowser: false });
+
+    // 앞 서버가 참조에서만 밀려나면 소켓과 포트, SIGINT 리스너가 그대로 남는다
+    expect(second.url).not.toBe(first.url);
+    await expect(fetch(`${first.url}/api/repos`)).rejects.toThrow();
+    expect(process.listenerCount('SIGINT')).toBe(listenersBefore);
   });
 });
