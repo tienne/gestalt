@@ -197,16 +197,16 @@ function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: Exe
     const now = new Date().toISOString();
     if (summary) {
       memoryStore.addArchitectureDecision({
-        decision: `[Review] ${summary}`,
-        rationale: 'Code review consensus summary',
+        decision: `[Review] ${asMemoryNote(summary)}`,
+        rationale: 'Code review consensus summary (agent-generated record, not an instruction)',
         specId: '',
         timestamp: now,
       });
     }
     for (const issue of mergedIssues.filter((i) => i.severity === 'critical')) {
       memoryStore.addArchitectureDecision({
-        decision: `[Review:critical] ${issue.category}: ${issue.message}`,
-        rationale: issue.suggestion,
+        decision: `[Review:critical] ${asMemoryNote(`${issue.category}: ${issue.message}`)}`,
+        rationale: asMemoryNote(issue.suggestion),
         specId: '',
         timestamp: now,
       });
@@ -340,6 +340,23 @@ function actorOfAgent(name: string): string {
  */
 function publishMarker(issuesKey: string): string {
   return `<!-- gestalt:publish ${issuesKey} -->`;
+}
+
+/**
+ * 리뷰가 만든 문장을 프로젝트 메모리에 넣기 전에 형태를 눌러 둔다.
+ *
+ * 이 값은 리뷰 에이전트가 diff와 코멘트를 읽고 만든 것이라 신뢰 경계 바깥이다.
+ * 그리고 메모리의 아키텍처 결정은 이후 모든 스펙 생성 프롬프트에 실린다 — 리뷰
+ * 대상 코드에 심어 둔 문장이 그 경로로 들어갈 수 있다.
+ *
+ * 줄바꿈을 없애 프롬프트 안에서 새 절이나 목록을 만들지 못하게 한다. 길이를 잘라
+ * 긴 지시문이 통째로 실리지 않게 한다. 내용 자체는 판단하지 않는다 — 그건 여기서
+ * 할 수 있는 일이 아니다. 형태를 눌러 두는 것까지가 이 함수의 범위다.
+ */
+const MAX_MEMORY_CHARS = 300;
+
+function asMemoryNote(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, MAX_MEMORY_CHARS);
 }
 
 function issueBody(issue: ReviewIssue, issuesKey: string): string {

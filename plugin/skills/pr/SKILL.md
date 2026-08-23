@@ -52,19 +52,19 @@ outputs:
 
 ## 대상 판별 (GitHub vs 로컬 `gestalt pr`)
 
-이 스킬은 GitHub PR과 로컬 PR(`gestalt pr` CLI) 둘 다 만든다. 레포 규칙 탐색부터 description 워싱까지(0~4.5단계)는 대상이 무엇이든 동일하다. 갈리는 자리는 마지막 5단계, 어디에 제출하느냐뿐이다.
+이 스킬은 GitHub PR과 로컬 PR(`gestalt pr` CLI) 둘 다 만듭니다. 레포 규칙 탐색부터 description 워싱까지(0~4.5단계)는 대상이 무엇이든 같습니다. 갈리는 자리는 마지막 5단계, 어디에 제출하느냐뿐입니다.
 
-판별은 스킬 시작 시 한 번 하고 결과를 `prTarget = "github" | "local"`로 보관한다.
+판별은 스킬 시작 시 한 번 하고 결과를 `prTarget = "github" | "local"`로 보관합니다.
 
 1. `local` 입력이 true거나(`--local` 플래그) `target`이 로컬 PR 형식(`gestalt pr list`에 뜨는 id)이면 → `local`.
-2. 그 외에는 `gh auth status`를 실행한다. 실패하거나(인증 안 됨) `git remote -v`가 비어 있으면(원격 없음) → `local`.
+2. 그 외에는 `gh auth status`를 실행합니다. 실패하거나(인증 안 됨) `git remote -v`가 비어 있으면(원격 없음) → `local`.
 3. 위 둘 다 아니면 → `github` (기존 경로 그대로).
 
 판별 결과는 5단계 진입 직전에 한 줄로 알린다: "GitHub PR로 제출합니다" 또는 "로컬 PR로 제출합니다 (gh 인증 없음 / 원격 없음 / --local 지정)".
 
 ### 출력 규약
 
-`prUrl`과 `prId`는 갈래에 따라 한쪽만 채워진다. 이 스킬을 부르는 쪽은 `prTarget`을 먼저 보고 어느 필드를 읽을지 정한다.
+`prUrl`과 `prId`는 갈래에 따라 한쪽만 채워집니다. 이 스킬을 부르는 쪽은 `prTarget`을 먼저 보고 어느 필드를 읽을지 정합니다.
 
 | `prTarget` | `prUrl` | `prId` |
 | --- | --- | --- |
