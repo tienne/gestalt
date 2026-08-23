@@ -177,6 +177,32 @@ const HLJS_CSS_SRI = 'sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQ
  */
 const MAX_INLINE_DIFF_BYTES = 512 * 1024;
 
+/**
+ * diff를 상한까지 자른다.
+ *
+ * 바이트로 잰다. `diff.length`는 UTF-16 코드 유닛이라 한글 diff에서는 문자당 2바이트가
+ * 넘어 실제 페이로드가 상한의 두 배를 넘긴다. Buffer로 자르면 멀티바이트 시퀀스가
+ * 중간에서 갈릴 수 있다. `toString`이 그 자리를 접어주고 남는 고아 서로게이트는
+ * 뒤에서 걷어낸다.
+ *
+ * 자를 때는 마지막 파일 경계까지만 준다. diff2html은 관대해서 잘린 hunk에도 예외를
+ * 안 내고 그냥 헤더가 약속한 줄 수보다 적게 그린다 — 리뷰어가 없는 변경을 봤다고
+ * 판단하는 자리라 파싱이 성립하는 자리에서 끊는다.
+ */
+function clipDiff(diff: string): { shownDiff: string; truncated: boolean } {
+  const buf = Buffer.from(diff, 'utf-8');
+  if (buf.byteLength <= MAX_INLINE_DIFF_BYTES) return { shownDiff: diff, truncated: false };
+
+  let shown = buf
+    .subarray(0, MAX_INLINE_DIFF_BYTES)
+    .toString('utf-8')
+    .replace(/[\uD800-\uDBFF]$/, '');
+  const lastFile = shown.lastIndexOf('\ndiff --git ');
+  if (lastFile > 0) shown = shown.slice(0, lastFile + 1);
+
+  return { shownDiff: shown, truncated: true };
+}
+
 export interface RepoTab {
   key: string;
   name: string;
@@ -314,15 +340,9 @@ export function generatePrDetailHtml(
   <link rel="stylesheet" href="${DIFF2HTML_CSS}" integrity="${DIFF2HTML_CSS_SRI}" crossorigin="anonymous" />
   <link rel="stylesheet" href="${HLJS_CSS}" integrity="${HLJS_CSS_SRI}" crossorigin="anonymous" />
   <script src="${DIFF2HTML_JS}" integrity="${DIFF2HTML_JS_SRI}" crossorigin="anonymous"></script>
-  <style>
-    /* diff2html 기본값은 라이트 테마다. 다크 셸 안에 흰 패널이 박히고, highlightCode가
-       붙이는 hljs 토큰 색이 상속돼 흰 배경 위 흰 글자가 되는 구간이 생긴다 */
-    #diff-container .d2h-wrapper { --d2h-bg-color: #0d1117; --d2h-border-color: #30363d; }
-    #diff-container .d2h-file-header, #diff-container .d2h-code-linenumber { background: #161b22; }
-  </style>`;
+`;
 
-  const truncated = diff.length > MAX_INLINE_DIFF_BYTES;
-  const shownDiff = truncated ? diff.slice(0, MAX_INLINE_DIFF_BYTES) : diff;
+  const { shownDiff, truncated } = clipDiff(diff);
 
   const body = `
   <nav aria-label="브레드크럼"><a href="/r/${escapeHtml(repoKey)}">&larr; ${
@@ -350,7 +370,18 @@ export function generatePrDetailHtml(
       var diffString = ${toEmbeddableJson(shownDiff)};
       var truncated = ${truncated};
       var target = document.getElementById('diff-container');
-      var done = function () { target.setAttribute('aria-busy', 'false'); };
+      var addNote = function () {
+        if (!truncated) return;
+        var note = document.createElement('p');
+        note.className = 'empty';
+        note.setAttribute('role', 'status');
+        note.textContent = 'diff가 커서 앞부분만 보여드려요. 전체는 gestalt pr diff 로 봅니다.';
+        target.insertBefore(note, target.firstChild);
+      };
+      var done = function () {
+        addNote();
+        target.setAttribute('aria-busy', 'false');
+      };
 
       if (!diffString) {
         target.innerHTML = '<p class="empty">변경 없음</p>';
@@ -375,6 +406,11 @@ export function generatePrDetailHtml(
           drawFileList: true,
           matching: 'lines',
           outputFormat: 'line-by-line',
+          // 라이브러리가 wrapper에 d2h-dark-color-scheme를 붙이고 --d2h-dark-* 변수를
+          // 켠다. 기본값이 light라 안 넘기면 다크 셸 안에 라이트 패널이 박힌다.
+          // CSS 변수를 밖에서 덮는 방법은 안 통한다 — --d2h-bg-color를 읽는 셀렉터는
+          // 줄 번호와 태그뿐이고 추가와 삭제 줄은 --d2h-ins-bg-color 쪽을 읽는다
+          colorScheme: 'dark',
         });
         ui.draw();
         ui.highlightCode();
@@ -386,12 +422,6 @@ export function generatePrDetailHtml(
         target.appendChild(raw);
       }
 
-      if (truncated) {
-        var note = document.createElement('p');
-        note.className = 'empty';
-        note.textContent = 'diff가 커서 앞부분만 보여드려요. 전체는 gestalt pr diff 로 봅니다.';
-        target.insertBefore(note, target.firstChild);
-      }
       done();
     })();
   </script>`;

@@ -294,4 +294,56 @@ describe('generatePrDetailHtml', () => {
     expect(html).not.toContain('badge-open evil-class');
     expect(html).toContain('class="badge badge-closed"');
   });
+  it('라이브러리에 다크 스킴을 넘긴다', () => {
+    const html = generatePrDetailHtml(makePr({}), 'diff --git a/x b/x', 'aaaaaaaa', 'r');
+
+    // CSS 변수를 밖에서 덮는 방법은 안 통한다 — --d2h-bg-color를 읽는 셀렉터는 줄
+    // 번호와 태그뿐이고 추가와 삭제 줄은 --d2h-ins-bg-color 쪽을 읽는다
+    expect(html).toContain("colorScheme: 'dark'");
+    // 밖에서 덮으려던 오버라이드 규칙이 남아 있으면 안 된다 (주석 속 언급은 제외)
+    expect(html).not.toContain('.d2h-wrapper {');
+  });
+
+  it('잘린 diff에 붙는 안내가 폴백 경로에서도 나온다', () => {
+    const huge = `diff --git a/x b/x\n${'+line\n'.repeat(200_000)}`;
+
+    const html = generatePrDetailHtml(makePr({}), huge, 'aaaaaaaa', 'r');
+
+    // 렌더러를 못 불러온 경로가 안내 앞에서 return하면, 오프라인에서 큰 PR을 열었을 때
+    // 아무 표시 없이 중간에서 끊긴 원본을 본다
+    expect(html).toContain('var truncated = true');
+    // done()이 안내를 붙인다. 세 경로(변경 없음, 폴백, 정상)가 전부 done()으로 끝나므로
+    // 여기 한 곳만 잡으면 폴백에서 안내가 빠지는 일이 안 생긴다
+    expect(html).toMatch(/var done = function \(\) \{\s*addNote\(\);/);
+  });
+
+  it('한글 diff를 바이트로 재서 자른다', () => {
+    // 문자 수는 상한 아래인데 바이트는 넘는 자리를 만든다. 한글은 문자당 3바이트라
+    // 30만 자면 900KB다 — 문자로 재면 안 자르고 바이트로 재면 자른다
+    const korean = `diff --git a/x b/x\n${'+한글줄\n'.repeat(60_000)}`;
+    expect(korean.length).toBeLessThan(512 * 1024);
+    expect(Buffer.byteLength(korean, 'utf-8')).toBeGreaterThan(512 * 1024);
+
+    const html = generatePrDetailHtml(makePr({}), korean, 'aaaaaaaa', 'r');
+
+    expect(html).toContain('var truncated = true');
+  });
+
+  it('자를 때 마지막 파일 경계에서 끊는다', () => {
+    // 둘째 파일 헤더가 상한 안쪽에서 시작하고 그 본문이 상한을 넘도록 만든다.
+    // 첫 파일만으로 이미 상한을 넘으면 경계를 잘라도 안 잘라도 결과가 같아서
+    // 이 테스트가 아무것도 안 잡는다
+    const filler = '+line\n'.repeat(50_000);
+    const twoFiles = `diff --git a/a b/a\n${filler}diff --git a/b b/b\n${filler}`;
+    expect(Buffer.byteLength(`diff --git a/a b/a\n${filler}`, 'utf-8')).toBeLessThan(512 * 1024);
+    expect(Buffer.byteLength(twoFiles, 'utf-8')).toBeGreaterThan(512 * 1024);
+
+    const html = generatePrDetailHtml(makePr({}), twoFiles, 'aaaaaaaa', 'r');
+
+    // hunk 중간에서 끊으면 diff2html이 예외 없이 적게 그린다 — 리뷰어가 없는 변경을
+    // 봤다고 판단하는 자리다
+    const embedded = html.slice(html.indexOf('var diffString ='));
+    expect(embedded).toContain('diff --git a/a b/a');
+    expect(embedded).not.toContain('diff --git a/b b/b');
+  });
 });
