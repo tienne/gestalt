@@ -1,9 +1,9 @@
 import { readFileSync, existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
+import { gestaltPath } from './home.js';
 import {
   DEFAULT_MODEL,
   DEFAULT_REASONING_MODEL,
@@ -18,7 +18,6 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(__dirname, '..', '..');
-const GLOBAL_DB_PATH = resolve(homedir(), '.gestalt', 'events.db');
 
 // ─── Zod Schemas ────────────────────────────────────────────────
 
@@ -69,7 +68,9 @@ const configSchema = z.object({
   reasoningModelFallback: reasoningModelSchema.default(REASONING_MODEL_FALLBACK),
   tierModels: tierModelsSchema.default({}),
   notifications: z.boolean().default(false),
-  dbPath: z.string().default(GLOBAL_DB_PATH),
+  // 상수가 아니라 함수다. 모듈을 읽을 때 굳히면 테스트 setupFiles가 GESTALT_HOME을
+  // 세우기 전에 값이 정해져서 진짜 홈을 가리킨다
+  dbPath: z.string().default(() => gestaltPath('events.db')),
   skillsDir: z.string().default('plugin/skills'),
   agentsDir: z.string().default('plugin/agents'),
   roleAgentsDir: z.string().default('plugin/role-agents'),

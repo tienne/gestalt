@@ -214,10 +214,13 @@ export interface RepoTab {
 /**
  * 레포 사이를 옮겨 다니는 줄.
  *
- * 레포가 하나뿐이면 고를 게 없어서 안 그린다.
+ * 레포가 하나뿐이어도 안내 한 줄은 남긴다. PR을 만들기만 하고 `pr serve`를 안 돌린
+ * 레포는 목록에 안 뜨는데, 아무 표시가 없으면 왜 없는지 알 길이 없다.
  */
 function repoNavHtml(repos: RepoTab[]): string {
-  if (repos.length <= 1) return '';
+  const hint =
+    '<p class="meta">여기 목록은 <code>gestalt pr serve</code>를 한 번이라도 돌린 레포만 보여요</p>';
+  if (repos.length <= 1) return hint;
   const items = repos
     .map((r) => {
       const label = `${escapeHtml(r.name)} <span class="meta">${r.openCount}</span>`;
@@ -226,7 +229,7 @@ function repoNavHtml(repos: RepoTab[]): string {
       }</li>`;
     })
     .join('\n      ');
-  return `<nav aria-label="레포"><ul class="repos">\n      ${items}\n    </ul></nav>`;
+  return `<nav aria-label="레포"><ul class="repos">\n      ${items}\n    </ul>\n    ${hint}</nav>`;
 }
 
 /** `GET /r/:key` — PR 목록 페이지 */
