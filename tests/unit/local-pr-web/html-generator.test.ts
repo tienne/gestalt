@@ -136,14 +136,14 @@ describe('generatePrListHtml', () => {
   it('레포가 여럿이면 옮겨 다니는 줄을 그린다', () => {
     const pr = makePr({});
     const repos = [
-      { key: 'aaaaaaaa', name: 'gestalt', active: true },
-      { key: 'bbbbbbbb', name: 'other', active: false },
+      { key: 'aaaaaaaa', name: 'gestalt', active: true, openCount: 2 },
+      { key: 'bbbbbbbb', name: 'other', active: false, openCount: 0 },
     ];
 
     const html = generatePrListHtml([pr], repos);
 
     expect(html).toContain('href="/r/bbbbbbbb"');
-    expect(html).toContain('<strong>gestalt</strong>');
+    expect(html).toContain('<strong>gestalt <span class="meta">2</span></strong>');
     // PR 링크도 지금 레포 아래로 간다
     expect(html).toContain('href="/r/aaaaaaaa/prs/abcd1234"');
   });
@@ -155,6 +155,19 @@ describe('generatePrListHtml', () => {
     );
 
     expect(html).not.toContain('ul class="repos"');
+  });
+  it('레포마다 열린 PR 수를 함께 그린다', () => {
+    const html = generatePrListHtml(
+      [makePr({})],
+      [
+        { key: 'aaaaaaaa', name: 'gestalt', active: true, openCount: 2 },
+        { key: 'bbbbbbbb', name: 'other', active: false, openCount: 5 },
+      ],
+    );
+
+    // 어디에 일이 쌓였는지 목록을 하나씩 열어보지 않고도 보여야 한다
+    expect(html).toMatch(/gestalt <span class="meta">2<\/span>/);
+    expect(html).toMatch(/other <span class="meta">5<\/span>/);
   });
 });
 
@@ -225,5 +238,12 @@ describe('generatePrDetailHtml', () => {
     expect(() => generatePrDetailHtml(pr, 'diff --git a/x b/x\n')).not.toThrow();
     const html = generatePrDetailHtml(pr, 'diff --git a/x b/x\n');
     expect(html.trim().startsWith('<!DOCTYPE html>')).toBe(true);
+  });
+  it('상세 페이지가 어느 레포인지 알려준다', () => {
+    const html = generatePrDetailHtml(makePr({}), 'diff --git a/x b/x', 'aaaaaaaa', 'api-server');
+
+    // 레포가 여럿이면 PR 제목만 보고는 어디 것인지 모른다
+    expect(html).toContain('api-server의 PR 목록');
+    expect(html).toContain('href="/r/aaaaaaaa"');
   });
 });

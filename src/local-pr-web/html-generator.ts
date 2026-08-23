@@ -112,6 +112,8 @@ export interface RepoTab {
   key: string;
   name: string;
   active: boolean;
+  /** 아직 안 닫힌 PR 수. 어디에 일이 쌓였는지 한눈에 보이라고 함께 그린다 */
+  openCount: number;
 }
 
 /**
@@ -122,14 +124,12 @@ export interface RepoTab {
 function repoNavHtml(repos: RepoTab[]): string {
   if (repos.length <= 1) return '';
   const items = repos
-    .map(
-      (r) =>
-        `<li>${
-          r.active
-            ? `<strong>${escapeHtml(r.name)}</strong>`
-            : `<a href="/r/${escapeHtml(r.key)}">${escapeHtml(r.name)}</a>`
-        }</li>`,
-    )
+    .map((r) => {
+      const label = `${escapeHtml(r.name)} <span class="meta">${r.openCount}</span>`;
+      return `<li>${
+        r.active ? `<strong>${label}</strong>` : `<a href="/r/${escapeHtml(r.key)}">${label}</a>`
+      }</li>`;
+    })
     .join('\n      ');
   return `<nav aria-label="레포"><ul class="repos">\n      ${items}\n    </ul></nav>`;
 }
@@ -232,13 +232,20 @@ function renderThreads(comments: Comment[]): string {
 }
 
 /** `GET /prs/:id` — diff와 코멘트 스레드, 라운드별 판정 이력 */
-export function generatePrDetailHtml(pr: PullRequest, diff: string, repoKey = ''): string {
+export function generatePrDetailHtml(
+  pr: PullRequest,
+  diff: string,
+  repoKey = '',
+  repoName = '',
+): string {
   const extraHead = `
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html-ui.min.js"></script>`;
 
   const body = `
-  <nav aria-label="브레드크럼"><a href="/r/${escapeHtml(repoKey)}">&larr; PR 목록</a></nav>
+  <nav aria-label="브레드크럼"><a href="/r/${escapeHtml(repoKey)}">&larr; ${
+    repoName ? `${escapeHtml(repoName)}의 PR 목록` : 'PR 목록'
+  }</a></nav>
   <h1>${escapeHtml(pr.title)} <span class="meta">#${escapeHtml(pr.id)}</span></h1>
   <p class="meta">
     ${statusBadge(pr.status)} 작성 ${escapeHtml(pr.author)} ·

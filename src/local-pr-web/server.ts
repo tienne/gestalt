@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse, Server } from 'node:http';
 import type { LocalPrEngine } from '../local-pr/engine.js';
 import type { RegisteredRepo } from '../local-pr/registry.js';
 import { generatePrDetailHtml, generatePrListHtml } from './html-generator.js';
+import type { RepoTab } from './html-generator.js';
 
 const REPO_KEY = '([0-9a-f]{8})';
 const PR_LIST_PATH = new RegExp(`^/r/${REPO_KEY}/?$`);
@@ -209,18 +210,22 @@ export class PrWebServer {
       const id = PrWebServer.safeDecode(detailMatch[2]!);
       const pr = held && id !== null ? held.engine.get(id) : null;
       if (!pr || !held) return this.notFound(res);
-      this.sendHtml(res, generatePrDetailHtml(pr, this.diffOf(held.engine, pr), key));
+      this.sendHtml(
+        res,
+        generatePrDetailHtml(pr, this.diffOf(held.engine, pr), key, held.repo.name),
+      );
       return;
     }
 
     this.notFound(res);
   }
 
-  private repoNav(activeKey: string): { key: string; name: string; active: boolean }[] {
+  private repoNav(activeKey: string): RepoTab[] {
     return [...this.engines.values()].map((e) => ({
       key: e.repo.key,
       name: e.repo.name,
       active: e.repo.key === activeKey,
+      openCount: e.engine.list('open').length,
     }));
   }
 
