@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrWebEngine } from '../../../src/local-pr-web/engine.js';
@@ -18,15 +18,27 @@ function run(cwd: string, args: string[]): string {
 }
 
 /**
- * `.git`을 다른 자리를 가리키는 깨진 gitfile로 바꾼다.
+ * 목록에는 있는데 못 여는 자리를 만든다.
  *
- * 파일은 남으므로 목록의 존재 검사는 통과하고 열 때 죽는다 — 목록에 있는데 못 여는
- * 상태가 딱 이 모양이다. HEAD나 objects만 지우는 방식은 git 버전에 따라 여전히
- * 레포로 인식돼서 리눅스에서만 통과하는 테스트가 됐다.
+ * `.git`이 없는 자리를 가리키는 파일이라 존재 검사는 통과하고 열 때 죽는다.
+ *
+ * 목록에 직접 써 넣는 이유는 `registerRepo`를 거치면 그 호출이 `gitCommonDir`를
+ * 캐시해서, 뒤에 레포를 깨도 캐시된 값으로 열리기 때문이다. 이 프로세스가 한 번도
+ * 안 열어 본 자리여야 진짜로 못 여는 상태가 된다.
  */
-function breakRepo(repo: string): void {
-  rmSync(join(repo, '.git'), { recursive: true, force: true });
-  writeFileSync(join(repo, '.git'), 'gitdir: /nonexistent-gestalt-broken\n', 'utf-8');
+function addBrokenRepo(home: string, key: string): string {
+  const dir = mkdtempSync(join(tmpdir(), `gestalt-web-broken-${randomUUID().slice(0, 8)}-`));
+  writeFileSync(join(dir, '.git'), 'gitdir: /nonexistent-gestalt-broken\n', 'utf-8');
+
+  const path = join(home, '.gestalt', 'repos.json');
+  const current = existsSync(path) ? (JSON.parse(readFileSync(path, 'utf-8')) as unknown[]) : [];
+  mkdirSync(join(home, '.gestalt'), { recursive: true });
+  writeFileSync(
+    path,
+    JSON.stringify([...current, { key, path: dir, name: 'broken', addedAt: '' }], null, 2),
+    'utf-8',
+  );
+  return dir;
 }
 
 function makeRepo(label: string): string {
@@ -77,12 +89,9 @@ describe('PrWebEngine', () => {
 
   it('못 여는 레포가 있어도 나머지는 연다', async () => {
     const good = makeRepo('good');
-    const broken = makeRepo('broken');
-    repos.push(good, broken);
+    repos.push(good);
     registerRepo(good);
-    registerRepo(broken);
-
-    breakRepo(broken);
+    repos.push(addBrokenRepo(home, 'deadbeef'));
 
     const result = await engine.start({ repoRoot: good, port: 0, openBrowser: false });
 
@@ -92,9 +101,9 @@ describe('PrWebEngine', () => {
   });
 
   it('지금 자리를 못 열면 알리고 멈춘다', async () => {
-    const repo = makeRepo('self');
+    const repo = mkdtempSync(join(tmpdir(), `gestalt-web-self-${randomUUID().slice(0, 8)}-`));
     repos.push(repo);
-    breakRepo(repo);
+    writeFileSync(join(repo, '.git'), 'gitdir: /nonexistent-gestalt-broken\n', 'utf-8');
 
     // 나머지는 건너뛰어도 되지만 정작 이 자리를 못 열면 보여줄 게 없다
     await expect(engine.start({ repoRoot: repo, port: 0, openBrowser: false })).rejects.toThrow();
