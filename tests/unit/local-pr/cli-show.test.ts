@@ -4,7 +4,13 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalPrEngine } from '../../../src/local-pr/engine.js';
-import { prCommentsCommand, prPruneCommand, prShowCommand } from '../../../src/cli/commands/pr.js';
+import {
+  assertServeRoot,
+  prCommentsCommand,
+  prPruneCommand,
+  prServeCommand,
+  prShowCommand,
+} from '../../../src/cli/commands/pr.js';
 
 /**
  * CLI가 정책 층에서 값을 가져다 쓰는지 본다.
@@ -154,5 +160,75 @@ describe('gestalt pr prune 옵션 전달', () => {
     prPruneCommand({ repoRoot: repo, checkouts: true });
 
     expect(refExists(mark)).toBe(false);
+  });
+});
+
+/**
+ * `pr serve --repo-root`가 등록 경계를 못 넘는다.
+ *
+ * `pr serve`는 뜨면서 그 경로를 인증 없는 뷰어 목록에 영구히 넣는다. 목록에 넣는 문을
+ * 좁게 둔 근거가 "사람이 그 레포에서 웹 UI를 직접 띄운 순간"인데, `--repo-root`를
+ * 그대로 받으면 에이전트가 셸로 `pr serve --repo-root /남의/레포 --no-browser`를 한
+ * 번 돌려 그 레포를 넣을 수 있다. 이후 전혀 다른 레포에서 serve를 띄워도 계속 보인다.
+ */
+describe('gestalt pr serve --repo-root 경계', () => {
+  let here: string;
+  let elsewhere: string;
+  let cwdBefore: string;
+
+  function makeRepo(prefix: string): string {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    run(dir, ['init', '-q']);
+    run(dir, ['config', 'user.email', 't@e.st']);
+    run(dir, ['config', 'user.name', 'test']);
+    writeFileSync(join(dir, 'a.txt'), 'x\n');
+    run(dir, ['add', '-A']);
+    run(dir, ['commit', '-q', '-m', 'init']);
+    return dir;
+  }
+
+  beforeEach(() => {
+    here = makeRepo('gestalt-serve-here-');
+    elsewhere = makeRepo('gestalt-serve-else-');
+    cwdBefore = process.cwd();
+    process.chdir(here);
+  });
+
+  afterEach(() => {
+    process.chdir(cwdBefore);
+    vi.restoreAllMocks();
+    rmSync(here, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
+  });
+
+  it('남의 레포를 가리키면 막는다', () => {
+    expect(() => assertServeRoot(elsewhere)).toThrow(/다른 레포/);
+  });
+
+  it('같은 레포의 워크트리나 하위 디렉토리는 통과한다', () => {
+    // 저장소를 공유하므로 키가 같다. 이 쓰임까지 막을 이유가 없다
+    const wt = join(tmpdir(), `gestalt-serve-wt-${Date.now()}`);
+    run(here, ['worktree', 'add', '--detach', '-q', wt, 'HEAD']);
+    try {
+      expect(() => assertServeRoot(here)).not.toThrow();
+      expect(() => assertServeRoot(wt)).not.toThrow();
+    } finally {
+      run(here, ['worktree', 'remove', '--force', wt]);
+    }
+  });
+
+  it('막힌 자리는 서버를 안 띄우고 4로 끝낸다', async () => {
+    const exits: number[] = [];
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      exits.push(code ?? 0);
+      return undefined as never;
+    }) as never);
+
+    // 여기서 서버가 뜨면 이 await는 Ctrl+C까지 안 돌아온다. 돌아온다는 것 자체가
+    // 판단이 먼저 걸렸다는 뜻이다
+    await prServeCommand({ repoRoot: elsewhere, noBrowser: true });
+
+    expect(exits).toEqual([4]);
   });
 });

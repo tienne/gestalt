@@ -10,7 +10,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, isAbsolute, join, normalize } from 'node:path';
+import { dirname, isAbsolute, join, normalize } from 'node:path';
 import { z } from 'zod';
 import { ensureGestaltHome, gestaltPath } from '../core/home.js';
 import { gitCommonDir } from './git.js';
@@ -26,7 +26,9 @@ import { gitCommonDir } from './git.js';
  * 실리므로 요청으로 새 자리를 가리킬 방법이 없다.
  *
  * 목록에 넣는 쪽도 같은 이유로 좁다. `registerRepo`를 부르는 자리는 `gestalt pr serve`
- * 하나다 — 사람이 그 레포에서 웹 UI를 직접 띄운 순간이다. 예전에는 `pr create`가
+ * 하나다 — 사람이 그 레포에서 웹 UI를 직접 띄운 순간이다. `--repo-root`로 다른 레포를
+ * 가리켜 그 전제를 비껴가는 길은 CLI가 막는다. 그리고 한 번 들어간 줄을 사람이
+ * `repos.json`을 손으로 고쳐야만 뺄 수 있으면 안 되므로 `unregisterRepo`를 함께 둔다. 예전에는 `pr create`가
  * 불렀는데, 그 경로는 MCP `ges_pr`의 `repoRoot`로 이어져 있어서 에이전트가 도구 호출
  * 한 번으로 아무 레포나 목록에 영구히 넣을 수 있었다. 한 번 들어가면 사용자가 전혀
  * 다른 레포에서 `pr serve`를 쳐도 그 레포의 diff와 코멘트가 인증 없는 엔드포인트로
@@ -109,12 +111,56 @@ function read(): RegisteredRepo[] {
   return kept;
 }
 
+/** 주인이 안 잡히는 잠금을 부수기까지 */
 const LOCK_STALE_MS = 5_000;
+
+/**
+ * 주인이 살아 있어도 이만큼 지나면 부순다.
+ *
+ * pid는 재활용된다. 잠금을 쥔 채 죽은 프로세스의 번호를 남이 물려받으면 살아 있다고
+ * 읽혀서 아무도 목록을 못 고치게 된다. 그 자리를 여는 마지막 문이다.
+ */
+const LOCK_HARD_STALE_MS = 60_000;
+
 const LOCK_WAIT_MS = 2_000;
+
+/** 대기 간격. 바퀴마다 배로 늘리되 이 값에서 멈춘다 */
+const LOCK_BACKOFF_START_MS = 5;
+const LOCK_BACKOFF_MAX_MS = 100;
 
 /** 동기 대기. 이 파일의 쓰기 경로는 전부 동기라 여기서만 잠깐 멈춘다 */
 function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** 잠금 디렉토리 안에 남기는 주인 표식 */
+interface LockOwner {
+  token: string;
+  pid: number;
+}
+
+function readOwner(ownerPath: string): LockOwner | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(ownerPath, 'utf-8'));
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const { token, pid } = parsed as { token?: unknown; pid?: unknown };
+    if (typeof token !== 'string' || typeof pid !== 'number') return null;
+    return { token, pid };
+  } catch {
+    // 아직 안 쓰였거나(mkdir 직후) 옛 버전이 쓴 모양이다. 주인을 모르는 것으로 친다
+    return null;
+  }
+}
+
+/** 그 프로세스가 아직 도는가. 신호 0은 아무것도 안 보내고 존재만 묻는다 */
+function alivePid(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    // EPERM은 남의 것이라 못 건드리는 것뿐이다. 그래도 살아는 있다
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
 }
 
 /**
@@ -123,25 +169,39 @@ function sleep(ms: number): void {
  * 워크트리 여럿이 같은 목록에 동시에 손대는 게 이 레포의 기본 흐름이다. 잠금 없이
  * 읽고 고쳐 쓰면 나중에 쓴 쪽이 먼저 쓴 쪽의 항목을 덮는다.
  *
+ * `mkdir`는 있으면 실패하니까 그 자체가 잠금이다. 쥔 채로 죽은 프로세스가 목록을 영영
+ * 못 고치게 만들면 안 되므로 버려진 잠금은 부순다. 부수는 순간에 둘이 겹치면 둘 다
+ * `mkdir`을 시도하고 한쪽만 성공한다 — 진 쪽은 다시 기다린다.
+ *
+ * **버려졌는지는 주인의 pid로 가른다.** 예전에는 잠금 디렉토리의 mtime만 봤는데,
+ * 잠금은 잡을 때 한 번 만들어지고 쥔 동안 mtime이 안 올라간다. 그래서 `fn()`이
+ * 5초를 넘기면 살아 있는 잠금이 버려진 것으로 보였다. 남이 부수고 들어와 둘이 나란히
+ * 읽고 고쳐 써서 늦게 쓴 쪽이 상대 항목을 덮었다. 파일은 rename이라 안 깨지고 등록만
+ * 조용히 사라진다.
+ *
+ * 쥔 동안 mtime을 주기적으로 올리는 방법은 여기서 안 통한다. `fn()`이 통째로 동기라
+ * 타이머가 돌 틈이 없다 — 갱신이 필요한 바로 그 순간에 이벤트 루프가 막혀 있다.
+ * 대신 주인이 살아 있는지를 직접 묻는다.
+ *
+ * `fn`에는 `stillMine`을 준다. 부수기와 다시 잡기가 겹치는 좁은 틈이 남아 있어,
+ * 쓰기 직전에 잠금이 아직 내 것인지 다시 확인할 수 있어야 한다.
+ *
  * 잠금 소유권을 테스트에서 확인할 수 있게 내보낸다. 그 갈래는 잠금을 오래 쥔 쪽과
  * 부순 쪽이 겹쳐야 열리는데, `registerRepo`로는 그 상황을 만들 수 없다.
- *
- * `mkdir`는 있으면 실패하니까 그 자체가 잠금이다. 쥔 채로 죽은 프로세스가 목록을 영영
- * 못 고치게 만들면 안 되므로 오래된 자물쇠는 부순다. 부수는 순간에 둘이 겹치면 둘 다
- * `mkdir`을 시도하고 한쪽만 성공한다 — 진 쪽은 다시 기다린다.
  */
-export function withLock<T>(fn: () => T): T {
+export function withLock<T>(fn: (ctx: { stillMine: () => boolean }) => T): T {
   const lock = join(ensureGestaltHome(), 'repos.json.lock');
-  // 잠금을 누가 쥐고 있는지 적어둔다. 오래 쥔 잠금은 남이 부수고 자기 것을 새로 만드는데,
+  // 잠금을 누가 쥐고 있는지 적어둔다. 버려진 잠금은 남이 부수고 자기 것을 새로 만드는데,
   // 그때 원래 주인이 끝나며 무조건 지우면 **남의** 잠금을 푼다. 토큰이 내 것일 때만 지운다
   const ownerPath = join(lock, 'owner');
   const token = randomUUID();
   const start = Date.now();
+  let waitMs = LOCK_BACKOFF_START_MS;
 
   for (;;) {
     try {
       mkdirSync(lock);
-      writeFileSync(ownerPath, token, 'utf-8');
+      writeFileSync(ownerPath, JSON.stringify({ token, pid: process.pid }), 'utf-8');
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
@@ -153,28 +213,28 @@ export function withLock<T>(fn: () => T): T {
         // 그 사이에 풀렸다. 다음 바퀴에서 잡는다
         heldFor = 0;
       }
-      if (heldFor > LOCK_STALE_MS) {
+      const owner = readOwner(ownerPath);
+      const holderAlive = owner !== null && alivePid(owner.pid);
+      const abandoned = heldFor > LOCK_HARD_STALE_MS || (!holderAlive && heldFor > LOCK_STALE_MS);
+      if (abandoned) {
         rmSync(lock, { recursive: true, force: true });
         continue;
       }
       if (Date.now() - start > LOCK_WAIT_MS) {
         throw new Error('레포 목록이 잠겨 있어서 못 고쳤어요', { cause: e });
       }
-      sleep(20);
+      // 바퀴마다 mkdir 실패와 stat이 붙는다. 간격을 배로 늘려 바퀴 수를 줄인다
+      sleep(waitMs);
+      waitMs = Math.min(waitMs * 2, LOCK_BACKOFF_MAX_MS);
     }
   }
 
+  const stillMine = (): boolean => readOwner(ownerPath)?.token === token;
+
   try {
-    return fn();
+    return fn({ stillMine });
   } finally {
-    let mine: boolean;
-    try {
-      mine = readFileSync(ownerPath, 'utf-8') === token;
-    } catch {
-      // 잠금이 이미 없다. 풀 것도 없다
-      mine = false;
-    }
-    if (mine) rmSync(lock, { recursive: true, force: true });
+    if (stillMine()) rmSync(lock, { recursive: true, force: true });
   }
 }
 
@@ -190,8 +250,9 @@ export function withLock<T>(fn: () => T): T {
  */
 function writeList(repos: RegisteredRepo[]): void {
   const path = registryPath();
-  sweepStaleTmp(path);
-  const tmp = `${path}.${process.pid}.tmp`;
+  const dir = ensureTmpDir();
+  sweepStaleTmp(dir);
+  const tmp = join(dir, `repos.json.${process.pid}.tmp`);
   writeFileSync(tmp, `${JSON.stringify(repos, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
   try {
     renameSync(tmp, path);
@@ -206,14 +267,27 @@ function writeList(repos: RegisteredRepo[]): void {
 }
 
 /**
+ * 옆에 쓸 임시 파일을 두는 자리.
+ *
+ * `~/.gestalt` 바로 아래가 아니라 전용 칸이다. 그 자리에는 이벤트 DB랑 사용자
+ * 프로필, 업데이트 캐시가 함께 모이는데 쓸 때마다 그 전부를 훑을 이유가 없다.
+ * 항목이 늘수록 스캔도 같이 늘던 자리다.
+ *
+ * 같은 파일시스템이라 `rename`은 그대로 원자적이다.
+ */
+function ensureTmpDir(): string {
+  const dir = gestaltPath('tmp');
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
+/**
  * 쓰다 만 임시 파일을 치운다.
  *
  * pid를 붙여 쓰므로 쓰는 도중 죽으면 그 이름이 영영 남는다. 목록에는 영향이 없지만
- * 홈에 쌓인다. 잠금 안에서 도니까 지금 쓰는 중인 남의 tmp를 뺏을 일은 없다.
+ * 디스크에 쌓인다. 잠금 안에서 도니까 지금 쓰는 중인 남의 tmp를 뺏을 일은 없다.
  */
-function sweepStaleTmp(path: string): void {
-  const dir = dirname(path);
-  const prefix = `${basename(path)}.`;
+function sweepStaleTmp(dir: string): void {
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -221,7 +295,7 @@ function sweepStaleTmp(path: string): void {
     return;
   }
   for (const name of names) {
-    if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue;
+    if (!name.startsWith('repos.json.') || !name.endsWith('.tmp')) continue;
     try {
       unlinkSync(join(dir, name));
     } catch {
@@ -245,12 +319,42 @@ export function registerRepo(repoRoot: string): RegisteredRepo {
     addedAt: new Date().toISOString(),
   };
 
-  return withLock(() => {
+  return withLock(({ stillMine }) => {
     // 쓸 때 죽은 항목을 걷어내는 건 파일이 무한정 길어지는 걸 막으려는 것뿐이다.
     // 지워진 레포를 안 보여주는 보장은 `listRepos`의 읽기 시점 필터가 진다
     const kept = read().filter((r) => r.key !== key && alive(r));
+    assertHeld(stillMine);
     writeList([...kept, entry].sort((a, b) => a.name.localeCompare(b.name)));
     return entry;
+  });
+}
+
+/**
+ * 읽고 고친 값을 쓰기 직전에 잠금이 아직 내 것인지 다시 묻는다.
+ *
+ * 남이 내 잠금을 부수고 자기 것을 만든 사이라면, 지금 손에 든 목록은 그 사이에 남이
+ * 쓴 항목을 안 담고 있다. 그대로 쓰면 상대 등록이 조용히 사라진다. 덮느니 실패한다.
+ */
+function assertHeld(stillMine: () => boolean): void {
+  if (!stillMine()) {
+    throw new Error('레포 목록 잠금을 뺏겨서 안 썼어요. 다시 불러주세요');
+  }
+}
+
+/**
+ * 레포를 목록에서 뺀다. 없던 키면 false다.
+ *
+ * 넣는 문은 좁게 뒀는데 빼는 문이 없으면, 한 번 들어간 레포는 사용자가 손으로
+ * `~/.gestalt/repos.json`을 고치기 전까지 인증 없는 뷰어 목록에 남는다.
+ */
+export function unregisterRepo(key: string): boolean {
+  return withLock(({ stillMine }) => {
+    const before = read();
+    const kept = before.filter((r) => r.key !== key);
+    if (kept.length === before.length) return false;
+    assertHeld(stillMine);
+    writeList(kept);
+    return true;
   });
 }
 

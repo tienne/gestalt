@@ -15,13 +15,23 @@ import { join } from 'node:path';
 
 const hooks: { onMerge?: () => void } = {};
 
+/**
+ * 인자 배열에서 서브커맨드를 집는다.
+ *
+ * 래퍼가 앞에 `-c key=value`를 붙이므로 첫 인자가 서브커맨드가 아니다. 옵션과 그
+ * 값을 건너뛰고 처음 나오는 맨 단어를 집는다.
+ */
+function subcommandOf(args: readonly string[]): string | undefined {
+  return args.find((a, i) => !a.startsWith('-') && args[i - 1] !== '-c');
+}
+
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   return {
     ...actual,
     execFileSync: (file: string, args: readonly string[], opts: unknown) => {
       const out = actual.execFileSync(file, args as string[], opts as never);
-      if (args[0] === 'merge' && hooks.onMerge) {
+      if (subcommandOf(args) === 'merge' && hooks.onMerge) {
         const fire = hooks.onMerge;
         hooks.onMerge = undefined;
         fire();

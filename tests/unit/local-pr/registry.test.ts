@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   utimesSync,
@@ -267,15 +268,98 @@ describe('레포 레지스트리', () => {
     const repo = makeRepo();
     repos.push(repo);
 
-    // 옆에 쓰고 rename으로 갈아 끼우므로, 쓰는 도중 죽으면 그 이름이 영영 남는다
-    mkdirSync(join(fakeHome, '.gestalt'), { recursive: true });
-    const leftover = join(fakeHome, '.gestalt', 'repos.json.99999.tmp');
+    // 옆에 쓰고 rename으로 갈아 끼우므로, 쓰는 도중 죽으면 그 이름이 영영 남는다.
+    // 그 임시 파일은 전용 칸에 둔다 — 쓸 때마다 `~/.gestalt` 전체를 훑지 않으려고
+    mkdirSync(join(fakeHome, '.gestalt', 'tmp'), { recursive: true });
+    const leftover = join(fakeHome, '.gestalt', 'tmp', 'repos.json.99999.tmp');
     writeFileSync(leftover, '[]\n', 'utf-8');
 
     registry.registerRepo(repo);
 
     expect(existsSync(leftover)).toBe(false);
     expect(registry.listRepos()).toHaveLength(1);
+  });
+
+  it('임시 파일은 목록 파일 옆이 아니라 전용 칸에 쓴다', () => {
+    const repo = makeRepo();
+    repos.push(repo);
+
+    registry.registerRepo(repo);
+
+    // `~/.gestalt`에는 이벤트 DB랑 프로필이 함께 모인다. 쓰기마다 그 전부를 훑지 않는다
+    const home = join(fakeHome, '.gestalt');
+    expect(readdirSync(home).filter((n) => n.endsWith('.tmp'))).toEqual([]);
+    expect(existsSync(join(home, 'tmp'))).toBe(true);
+  });
+
+  it('주인이 살아 있으면 오래 쥐고 있어도 안 부순다', () => {
+    const repo = makeRepo();
+    repos.push(repo);
+
+    // 잠금은 잡을 때 한 번 만들어지고 쥔 동안 mtime이 안 올라간다. 만료를 mtime으로만
+    // 재면 `fn()`이 5초를 넘긴 **살아 있는** 잠금이 버려진 것으로 보인다. 남이 부수고
+    // 들어와 둘이 나란히 읽고 고쳐 써서 늦게 쓴 쪽이 상대 항목을 덮는다
+    const lock = join(fakeHome, '.gestalt', 'repos.json.lock');
+    mkdirSync(lock, { recursive: true });
+    writeFileSync(
+      join(lock, 'owner'),
+      JSON.stringify({ token: '남의-것', pid: process.pid }),
+      'utf-8',
+    );
+    const longAgo = new Date(Date.now() - 30_000);
+    utimesSync(lock, longAgo, longAgo);
+
+    expect(() => registry.registerRepo(repo)).toThrow(/잠겨/);
+    expect(readFileSync(join(lock, 'owner'), 'utf-8')).toContain('남의-것');
+  }, 20_000);
+
+  it('아주 오래 묵은 잠금은 주인이 살아 보여도 부순다', () => {
+    const repo = makeRepo();
+    repos.push(repo);
+
+    // pid는 재활용된다. 쥔 채로 죽은 프로세스의 번호를 남이 물려받으면 살아 있다고
+    // 읽혀서 아무도 목록을 못 고치게 된다. 그 자리를 여는 마지막 문이다
+    const lock = join(fakeHome, '.gestalt', 'repos.json.lock');
+    mkdirSync(lock, { recursive: true });
+    writeFileSync(
+      join(lock, 'owner'),
+      JSON.stringify({ token: '남의-것', pid: process.pid }),
+      'utf-8',
+    );
+    const longAgo = new Date(Date.now() - 10 * 60_000);
+    utimesSync(lock, longAgo, longAgo);
+
+    registry.registerRepo(repo);
+
+    expect(registry.listRepos()).toHaveLength(1);
+  });
+
+  it('잠금을 뺏겼으면 쓰기 전에 알아챈다', () => {
+    // 부수기와 다시 잡기가 겹치는 좁은 틈이 남아 있다. 손에 든 목록은 그 사이에 남이
+    // 쓴 항목을 안 담고 있다. 그대로 쓰면 남의 등록이 조용히 사라진다
+    const lock = join(fakeHome, '.gestalt', 'repos.json.lock');
+
+    const seen = registry.withLock(({ stillMine }) => {
+      const before = stillMine();
+      rmSync(lock, { recursive: true, force: true });
+      mkdirSync(lock, { recursive: true });
+      writeFileSync(join(lock, 'owner'), JSON.stringify({ token: '남의-것', pid: 1 }), 'utf-8');
+      return { before, after: stillMine() };
+    });
+
+    expect(seen).toEqual({ before: true, after: false });
+  });
+
+  it('목록에서 뺄 수 있다', () => {
+    const repo = makeRepo();
+    repos.push(repo);
+    registry.registerRepo(repo);
+
+    // 넣는 문만 있고 빼는 문이 없으면, 한 번 들어간 레포는 사용자가 손으로 파일을
+    // 고치기 전까지 인증 없는 뷰어 목록에 남는다
+    expect(registry.unregisterRepo(registry.repoKey(repo))).toBe(true);
+    expect(registry.listRepos()).toHaveLength(0);
+    expect(registry.unregisterRepo(registry.repoKey(repo))).toBe(false);
   });
 
   it('내가 쥔 잠금이 아니면 안 푼다', () => {
