@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse, Server } from 'node:http';
 import type { LocalPrEngine } from '../local-pr/engine.js';
@@ -9,6 +10,9 @@ import type { RepoTab } from './html-generator.js';
 const REPO_KEY = '([0-9a-f]{8})';
 const PR_LIST_PATH = new RegExp(`^/r/${REPO_KEY}/?$`);
 const PR_DETAIL_PATH = new RegExp(`^/r/${REPO_KEY}/prs/([^/]+)$`);
+/** 자산을 끌어오는 유일한 바깥 출처. CSP가 이 하나만 허용한다 */
+const CDN_ORIGIN = 'https://cdn.jsdelivr.net';
+
 const API_PR_LIST_PATH = new RegExp(`^/api/r/${REPO_KEY}/prs$`);
 const API_PR_DETAIL_PATH = new RegExp(`^/api/r/${REPO_KEY}/prs/([^/]+)$`);
 
@@ -229,9 +233,11 @@ export class PrWebServer {
       const id = PrWebServer.safeDecode(detailMatch[2]!);
       const pr = held && id !== null ? held.engine.get(id) : null;
       if (!pr || !held) return this.notFound(res);
+      const nonce = randomBytes(16).toString('base64');
       this.sendHtml(
         res,
-        generatePrDetailHtml(pr, this.diffOf(key, held.engine, pr), key, held.repo.name),
+        generatePrDetailHtml(pr, this.diffOf(key, held.engine, pr), key, held.repo.name, nonce),
+        nonce,
       );
       return;
     }
@@ -291,11 +297,33 @@ export class PrWebServer {
     return diff;
   }
 
-  private sendHtml(res: ServerResponse, html: string): void {
+  /**
+   * HTML을 내보낸다.
+   *
+   * CSP를 붙이는 이유는 이 화면이 리뷰어가 쓴 텍스트를 담고 같은 오리진에 CDN
+   * 스크립트를 끌어오기 때문이다. SRI가 CDN 변조는 막지만 이스케이프가 한 군데라도
+   * 빠지면 남는 방어선이 없다. 인라인 스크립트는 nonce로만 허용한다.
+   *
+   * `frame-ancestors`는 아무 페이지나 이 뷰어를 iframe으로 띄우는 것을 막는다.
+   * 키를 아는 쪽이 화면을 읽어가는 경로다.
+   */
+  private sendHtml(res: ServerResponse, html: string, nonce = ''): void {
+    const scriptSrc = nonce ? `'nonce-${nonce}' ${CDN_ORIGIN}` : CDN_ORIGIN;
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': [
+        "default-src 'none'",
+        `script-src ${scriptSrc}`,
+        `style-src 'unsafe-inline' ${CDN_ORIGIN}`,
+        `font-src ${CDN_ORIGIN}`,
+        "img-src 'self' data:",
+        "frame-ancestors 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+      ].join('; '),
     });
     res.end(html);
   }
@@ -357,7 +385,7 @@ export class PrWebServer {
  * 상한을 생성자로 받는 건 테스트가 작은 값으로 밀어내기를 확인하려고 그렇다.
  */
 export class DiffCache {
-  private entries = new Map<string, string>();
+  private entries = new Map<string, { value: string; size: number }>();
   private bytes = 0;
 
   constructor(
@@ -366,23 +394,30 @@ export class DiffCache {
   ) {}
 
   get(key: string): string | undefined {
-    return this.entries.get(key);
+    return this.entries.get(key)?.value;
   }
 
   set(key: string, value: string): void {
     const size = Buffer.byteLength(value);
     if (size > this.maxBytes) return;
 
+    // 있는 키를 덮어쓰면 Map이 자리를 안 옮긴다. 그대로 두면 방금 채운 항목이 가장
+    // 오래된 것으로 남아 다음 축출에서 먼저 나간다. 지우고 다시 넣어 자리를 갱신한다
     const previous = this.entries.get(key);
-    if (previous !== undefined) this.bytes -= Buffer.byteLength(previous);
-    this.entries.set(key, value);
+    if (previous !== undefined) {
+      this.bytes -= previous.size;
+      this.entries.delete(key);
+    }
+    this.entries.set(key, { value, size });
     this.bytes += size;
 
-    // Map은 삽입 순서를 지킨다. 앞에서부터 걷어내면 오래된 것부터 나간다
+    // 방금 넣은 건 안 버린다. 위 크기 가드가 값 하나로 maxBytes를 넘는 경우를 이미
+    // 걸러내므로, 남을 다 걷어내면 예산 안에 든다 — maxEntries가 0일 때만 예외이고
+    // 그건 캐시를 끈 설정이다
     while (this.entries.size > this.maxEntries || this.bytes > this.maxBytes) {
       const oldest = this.entries.keys().next().value;
       if (oldest === undefined || oldest === key) break;
-      this.bytes -= Buffer.byteLength(this.entries.get(oldest)!);
+      this.bytes -= this.entries.get(oldest)!.size;
       this.entries.delete(oldest);
     }
   }

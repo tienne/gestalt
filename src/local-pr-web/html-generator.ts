@@ -1,5 +1,5 @@
-import { unresolvedCount } from '../local-pr/policy.js';
-import type { Comment, PullRequest, Review } from '../local-pr/types.js';
+import { threadsOf, unresolvedCount } from '../local-pr/policy.js';
+import type { PullRequest, Review } from '../local-pr/types.js';
 
 /**
  * 로컬 PR 웹 UI의 HTML을 만드는 순수 함수 모음.
@@ -190,10 +190,13 @@ const MAX_INLINE_DIFF_BYTES = 512 * 1024;
  * 판단하는 자리라 파싱이 성립하는 자리에서 끊는다.
  */
 function clipDiff(diff: string): { shownDiff: string; truncated: boolean } {
-  const buf = Buffer.from(diff, 'utf-8');
-  if (buf.byteLength <= MAX_INLINE_DIFF_BYTES) return { shownDiff: diff, truncated: false };
+  // byteLength는 할당 없이 센다. Buffer.from으로 재면 자를 필요가 없는 대다수 경우에도
+  // diff 길이만큼 힙을 잡는다 — git 쪽 maxBuffer가 64MB라 그만큼까지 커진다
+  if (Buffer.byteLength(diff, 'utf-8') <= MAX_INLINE_DIFF_BYTES) {
+    return { shownDiff: diff, truncated: false };
+  }
 
-  let shown = buf
+  let shown = Buffer.from(diff, 'utf-8')
     .subarray(0, MAX_INLINE_DIFF_BYTES)
     .toString('utf-8')
     .replace(/[\uD800-\uDBFF]$/, '');
@@ -255,7 +258,7 @@ export function generatePrListHtml(prs: PullRequest[], repos: RepoTab[] = []): s
   <h1>로컬 PR</h1>
   ${
     prs.length === 0
-      ? '<p class="empty">PR이 없다</p>'
+      ? '<p class="empty">아직 PR이 없어요</p>'
       : `<table>
     <caption class="sr-only">로컬 PR 목록</caption>
     <thead>
@@ -295,22 +298,19 @@ function renderRounds(pr: PullRequest): string {
     .join('\n');
 }
 
-function renderThreads(comments: Comment[]): string {
-  if (comments.length === 0) return '<p class="empty">코멘트가 없다</p>';
+function renderThreads(pr: PullRequest): string {
+  const threads = threadsOf(pr);
+  if (threads.length === 0) return '<p class="empty">코멘트가 없어요</p>';
 
-  const threads = new Map<string, Comment[]>();
-  for (const c of comments) {
-    const list = threads.get(c.threadId) ?? [];
-    list.push(c);
-    threads.set(c.threadId, list);
-  }
-
-  return Array.from(threads.values())
+  return threads
     .map((thread) => {
-      const root = thread[0]!;
-      const at = root.line === null ? root.path : `${root.path}:${root.line}`;
-      const resolved = root.resolved ? '해결' : '열림';
-      const items = thread
+      // 배지는 policy의 open으로 찍는다. 첫 코멘트의 resolved로 찍으면 뿌리가 닫히고
+      // 답글이 열린 스레드에서 목록 페이지의 미해결 수와 갈린다
+      const resolved = thread.open ? '열림' : '해결';
+      // 자리는 스레드가 처음 붙은 코멘트에서 가져온다. 답글은 라인을 안 갖는다
+      const anchor = thread.all[0]!;
+      const at = anchor.line === null ? anchor.path : `${anchor.path}:${anchor.line}`;
+      const items = thread.all
         .map(
           (c) => `<div class="comment">
         <div class="card-header">
@@ -338,7 +338,11 @@ export function generatePrDetailHtml(
   diff: string,
   repoKey = '',
   repoName = '',
+  nonce = '',
 ): string {
+  // CSP를 붙이면 인라인 스크립트가 nonce 없이는 안 돈다. nonce를 안 주면 속성도 안
+  // 붙는다 — 헤더 없이 이 함수만 쓰는 자리(테스트)가 그대로 동작해야 한다
+  const nonceAttr = nonce ? ` nonce="${escapeHtml(nonce)}"` : '';
   const extraHead = `
   <link rel="stylesheet" href="${DIFF2HTML_CSS}" integrity="${DIFF2HTML_CSS_SRI}" crossorigin="anonymous" />
   <link rel="stylesheet" href="${HLJS_CSS}" integrity="${HLJS_CSS_SRI}" crossorigin="anonymous" />
@@ -366,9 +370,9 @@ export function generatePrDetailHtml(
   ${renderRounds(pr)}
 
   <h2>코멘트</h2>
-  ${renderThreads(pr.comments)}
+  ${renderThreads(pr)}
 
-  <script>
+  <script${nonceAttr}>
     (function () {
       var diffString = ${toEmbeddableJson(shownDiff)};
       var truncated = ${truncated};
@@ -378,7 +382,7 @@ export function generatePrDetailHtml(
         var note = document.createElement('p');
         note.className = 'empty';
         note.setAttribute('role', 'status');
-        note.textContent = 'diff가 커서 앞부분만 보여드려요. 전체는 gestalt pr diff 로 봅니다.';
+        note.textContent = 'diff가 커서 앞부분만 보여드려요. 전체는 gestalt pr diff로 봐주세요.';
         target.insertBefore(note, target.firstChild);
       };
       var done = function () {

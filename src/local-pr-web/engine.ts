@@ -20,8 +20,8 @@ export class PrWebEngine {
   async start(opts: PrWebServerOptions): Promise<PrWebServerResult> {
     const { repoRoot, port: preferredPort, openBrowser = true } = opts;
 
-    // 싱글턴이라 같은 인스턴스로 다시 start를 부르는 흐름이 있다. 먼저 걷어내지 않으면
-    // 앞서 뜬 서버가 참조에서만 밀려나고 소켓과 포트, SIGINT 리스너는 그대로 남는다
+    // 같은 인스턴스로 start를 다시 부를 수 있다. 먼저 걷어내지 않으면 앞서 뜬 서버가
+    // 참조에서만 밀려나고 소켓과 포트, SIGINT 리스너는 그대로 남는다
     await this.stop();
 
     // 지금 자리를 먼저 목록에 넣는다. PR을 한 번도 안 만든 레포에서 serve를 쳐도
@@ -60,7 +60,7 @@ export class PrWebEngine {
     const requested = preferredPort ?? 7892;
 
     // 여기서부터는 이미 sqlite 핸들이 레포 수만큼 열려 있다. 포트를 못 잡거나 listen이
-    // 거부하면 그것들이 참조만 남고 안 닫힌다 — 싱글턴이라 재시도가 핸들을 누적시킨다
+    // 거부하면 그것들이 참조만 남고 안 닫힌다 — 같은 인스턴스로 재시도하면 누적된다
     let port: number;
     try {
       port = requested === 0 ? 0 : await findAvailablePort(requested);
@@ -98,9 +98,14 @@ export class PrWebEngine {
   }
 }
 
-// ─── Singleton for shared CLI / MCP use ──────────────────────────
 let _instance: PrWebEngine | null = null;
 
+/**
+ * 프로세스 하나가 서버를 하나만 띄우도록 공유하는 인스턴스.
+ *
+ * 아직 부르는 자리가 없다. `pr serve`는 `new PrWebEngine()`으로 직접 만들고 MCP는
+ * 이 모듈을 안 가져간다. 여러 표면이 서버를 공유해야 할 때를 위해 남겨 둔 진입점이다.
+ */
 export function getPrWebEngine(): PrWebEngine {
   if (!_instance) _instance = new PrWebEngine();
   return _instance;

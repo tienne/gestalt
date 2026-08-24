@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
+import { DiffCache } from '../../../src/local-pr-web/server.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -180,6 +181,55 @@ describe('PrWebServer', () => {
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
+  it('/api/repos는 레포 경로를 안 내보낸다', async () => {
+    await server.start(ANY_PORT);
+
+    // 인증이 없는 서버다. URL에 키만 싣기로 한 선을 응답도 지켜야 한다.
+    // 키 집합을 통째로 고정해서 나중에 필드가 늘 때도 걸리게 한다
+    const res = await fetch(`http://127.0.0.1:${server.port}/api/repos`);
+    const body = (await res.json()) as Record<string, unknown>[];
+
+    expect(body).toHaveLength(1);
+    expect(Object.keys(body[0]!).sort()).toEqual(['addedAt', 'key', 'name']);
+    expect(JSON.stringify(body)).not.toContain(repoRoot);
+  });
+
+  describe('응답 헤더', () => {
+    it('HTML에 CSP와 frame-ancestors를 붙인다', async () => {
+      await server.start(ANY_PORT);
+
+      const res = await fetch(`http://127.0.0.1:${server.port}/r/${repoKey}`);
+      const csp = res.headers.get('content-security-policy');
+
+      expect(csp).toContain("default-src 'none'");
+      expect(csp).toContain("frame-ancestors 'none'");
+      expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+    });
+
+    it('상세 페이지의 인라인 스크립트 nonce가 헤더와 같다', async () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      await server.start(ANY_PORT);
+
+      const res = await fetch(`http://127.0.0.1:${server.port}/r/${repoKey}/prs/${pr.id}`);
+      const html = await res.text();
+      const header = res.headers.get('content-security-policy')!.match(/'nonce-([^']+)'/)?.[1];
+
+      expect(header).toBeTruthy();
+      expect(html).toContain(`<script nonce="${header}">`);
+    });
+
+    it('요청마다 nonce가 달라진다', async () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      await server.start(ANY_PORT);
+
+      const url = `http://127.0.0.1:${server.port}/r/${repoKey}/prs/${pr.id}`;
+      const first = (await fetch(url)).headers.get('content-security-policy');
+      const second = (await fetch(url)).headers.get('content-security-policy');
+
+      expect(first).not.toBe(second);
+    });
+  });
+
   it('읽기 전용이라 GET과 HEAD 밖은 405로 답한다', async () => {
     await server.start(ANY_PORT);
 
@@ -240,3 +290,51 @@ describe('PrWebServer', () => {
     }
   });
 });
+
+/**
+ * 캐시가 예산을 지키는가.
+ *
+ * 셈이 어긋나도 화면은 정상으로 보인다 — 캐시가 좀 덜 맞거나 좀 더 먹을 뿐이다.
+ * 그래서 테스트가 없으면 아무도 안 잡는다. 세 갈래를 따로 세운다.
+ */
+describe('DiffCache 예산', () => {
+  it('같은 키를 다시 채우면 그게 가장 새 항목이 된다', () => {
+    const cache = new DiffCache(2, 1024);
+    cache.set('a', 'A');
+    cache.set('b', 'B');
+
+    // a를 다시 채웠으니 이제 b가 가장 오래된 것이다. Map은 덮어써도 자리를 안 옮기므로
+    // 지우고 다시 넣지 않으면 방금 채운 a가 먼저 나간다
+    cache.set('a', 'A2');
+    cache.set('c', 'C');
+
+    expect(cache.get('a')).toBe('A2');
+    expect(cache.get('b')).toBeUndefined();
+  });
+
+  it('항목 수 상한을 넘기지 않는다', () => {
+    const cache = new DiffCache(2, 1024);
+    cache.set('a', 'A');
+    cache.set('b', 'B');
+    cache.set('c', 'C');
+
+    expect([cache.get('a'), cache.get('b'), cache.get('c')].filter(Boolean)).toHaveLength(2);
+  });
+
+  it('바이트 상한을 넘기면 오래된 것부터 나간다', () => {
+    const cache = new DiffCache(10, 8);
+    cache.set('a', 'x'.repeat(6));
+    cache.set('b', 'y'.repeat(6));
+
+    expect(cache.get('a')).toBeUndefined();
+    expect(cache.get('b')).toBe('y'.repeat(6));
+  });
+});
+
+/**
+ * CSP가 실제로 나가는가.
+ *
+ * 헤더는 없어도 화면이 정상으로 보이므로 테스트가 없으면 조용히 사라진다.
+ * 인라인 스크립트가 nonce로만 허용되는지도 함께 본다 — nonce가 헤더와 본문에서
+ * 어긋나면 diff가 그려지지 않는다.
+ */
