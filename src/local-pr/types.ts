@@ -135,9 +135,12 @@ export interface PrMergedPayload {
   by: Actor;
   mergeSha: string;
   /**
-   * 머지한 시점의 미해결 코멘트 수.
+   * 머지한 시점의 미해결 스레드 수.
    *
-   * 승인 게이트가 없어서 막지는 않는다. 대신 "코멘트 세 개 남은 채 머지됨"이
+   * 코멘트가 아니라 스레드를 센다 — 답글이 달릴수록 수가 늘면 주고받을수록 나빠
+   * 보이는 신호가 된다. 계산은 `policy.unresolvedCount` 하나에서 나온다.
+   *
+   * 승인 게이트가 없어서 막지는 않는다. 대신 "스레드 세 개 남은 채 머지됨"이
    * 이력에 남아야 나중에 그 판단을 되짚을 수 있다.
    */
   unresolvedCount: number;

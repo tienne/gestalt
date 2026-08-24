@@ -13,7 +13,7 @@ import type { Actor, PullRequest, ReviewVerdict } from './types.js';
  * 로컬 PR을 만들고 굴린다.
  *
  * 상태 전이 규칙이 여기 산다. 승인 게이트는 없어서 승인 없이 머지할 수 있다.
- * 대신 그 시점의 미해결 코멘트 수를 이벤트에 남겨 나중에 되짚게 한다.
+ * 대신 그 시점의 미해결 스레드 수를 이벤트에 남겨 나중에 되짚게 한다.
  */
 export class LocalPrEngine {
   private store: IEventStore;
@@ -45,8 +45,17 @@ export class LocalPrEngine {
   }
 
   list(status?: PullRequest['status']): PullRequest[] {
-    const all = this.repo.reconstructAll();
-    return status ? all.filter((pr) => pr.status === status) : all;
+    return status ? this.repo.reconstructByStatus(status) : this.repo.reconstructAll();
+  }
+
+  /**
+   * 상태별 PR 개수.
+   *
+   * 개수만 필요한 자리가 PR을 다 접지 않게 한다 — 웹 UI의 레포 배지가 레포마다
+   * `list('open')`을 부르느라 화면 한 번에 전체 재생이 레포 수만큼 돌았다.
+   */
+  countByStatus(): Record<PullRequest['status'], number> {
+    return this.repo.countByStatus();
   }
 
   diff(prId: string): string {
@@ -306,44 +315,60 @@ export class LocalPrEngine {
    *   끝났을 때만 놓는다.
    *
    * `dryRun`이면 무엇을 놓을지만 돌려주고 손대지 않는다.
+   *
+   * 지금 붙어 있는 ref를 먼저 한 번에 모아 놓고 PR을 훑는다. 붙어 있지도 않은 ref를
+   * 놓았다고 세지 않으려는 게 첫째 이유고 — 머지 PR의 base는 close 경로에서 이미
+   * 놓였을 수 있다 — 그 집합을 게이트로 쓰면 버려질 PR에 프로세스를 안 태우는 게
+   * 둘째다. 뒤에서 거르면 결과만 같고 스폰은 다 나간다. 놓을 게 하나도 없는 두 번째
+   * prune이 첫 번째와 똑같이 비쌌던 이유다.
+   *
+   * 체크아웃 자국도 이 집합에서 접두사로 걸러 낸다. PR마다 `for-each-ref`를 띄우면
+   * 이미 뽑아 둔 목록을 PR 수만큼 다시 뽑는 셈이다.
+   *
+   * 붙은 ref가 하나도 없는 머지 PR은 `kept`에도 안 올린다. 놓을 게 없으면 근거가
+   * 깨졌는지 물을 일도 없다 — "놓을 만했지만 남긴 PR"에 남길 것 자체가 없다.
    */
   prune(options: { checkouts?: boolean; dryRun?: boolean } = {}): PruneResult {
     const released: string[] = [];
     const kept: { prId: string; reason: string }[] = [];
 
-    for (const pr of this.repo.reconstructAll()) {
-      if (pr.status === 'merged') {
-        const baseRef = pr.baseRef ?? 'main';
-        if (git.isAncestor(this.repoRoot, pr.headSha, baseRef)) {
-          released.push(`${git.PR_REF_ROOT}/${pr.id}/base`, `${git.PR_REF_ROOT}/${pr.id}/head`);
-        } else {
-          kept.push({
-            prId: pr.id,
-            reason: `머지된 뒤 base ${baseRef}가 되돌아가 head가 그 이력에 없다`,
-          });
-        }
-      }
-
-      if (options.checkouts && (pr.status === 'merged' || pr.status === 'closed')) {
-        released.push(...git.refsUnder(this.repoRoot, `${git.CHECKOUT_REF_ROOT}/${pr.id}`));
-      }
-    }
-
-    // 붙어 있지도 않은 ref를 놓았다고 세지 않는다. 머지 PR의 base는 close 경로에서
-    // 이미 놓였을 수 있다. prune을 두 번 부르면 두 번째는 놓을 게 없다
     const existing = new Set([
       ...git.refsUnder(this.repoRoot, git.PR_REF_ROOT),
       ...git.refsUnder(this.repoRoot, git.CHECKOUT_REF_ROOT),
     ]);
-    const targets = released.filter((ref) => existing.has(ref));
+
+    for (const pr of this.repo.reconstructAll()) {
+      if (pr.status === 'merged') {
+        const pinned = [`${git.PR_REF_ROOT}/${pr.id}/base`, `${git.PR_REF_ROOT}/${pr.id}/head`];
+        const attached = pinned.filter((ref) => existing.has(ref));
+        if (attached.length > 0) {
+          const baseRef = pr.baseRef ?? 'main';
+          if (git.isAncestor(this.repoRoot, pr.headSha, baseRef)) {
+            released.push(...attached);
+          } else {
+            kept.push({
+              prId: pr.id,
+              reason: `머지된 뒤 base ${baseRef}가 되돌아가 head가 그 이력에 없다`,
+            });
+          }
+        }
+      }
+
+      if (options.checkouts && (pr.status === 'merged' || pr.status === 'closed')) {
+        const prefix = `${git.CHECKOUT_REF_ROOT}/${pr.id}/`;
+        for (const ref of existing) {
+          if (ref.startsWith(prefix)) released.push(ref);
+        }
+      }
+    }
 
     // 확인과 삭제 사이에 base가 되돌아가면 근거가 깨진 채로 놓는다. 그 사이를 막지 않은
     // 건 잃는 게 ref뿐이어서다 — 커밋은 reflog에 남고 PR 기록에 sha가 있어 되살린다
     if (!options.dryRun) {
-      for (const ref of targets) git.deleteRef(this.repoRoot, ref);
+      for (const ref of released) git.deleteRef(this.repoRoot, ref);
     }
 
-    return { released: targets, kept, dryRun: options.dryRun === true };
+    return { released, kept, dryRun: options.dryRun === true };
   }
 
   closePr(prId: string, by: Actor, reason = ''): PullRequest {

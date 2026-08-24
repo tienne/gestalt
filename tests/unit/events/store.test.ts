@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
 import { SQLITE_BUSY_TIMEOUT_MS } from '../../../src/core/constants.js';
@@ -66,6 +66,35 @@ describe('EventStore', () => {
     expect(events).toHaveLength(2);
     expect(events[0]!.eventType).toBe(EventType.INTERVIEW_SESSION_STARTED);
     expect(events[1]!.eventType).toBe(EventType.INTERVIEW_QUESTION_ASKED);
+  });
+
+  it('timestamp가 같아도 붙인 순서대로 재생한다', () => {
+    // 재생 순서가 이 도메인의 상태를 만든다. timestamp는 밀리초 ISO 문자열이라
+    // 코멘트를 연속으로 붙이면 같은 값이 여럿 나온다. 시계를 세워 그 동점을 강제로
+    // 만든다. 그래도 순서가 삽입 순서 그대로인지 본다 — rowid 정렬이 지키는 약속이다
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+    try {
+      for (let i = 0; i < 50; i++) {
+        store.append('local-pr', 'pr1', 'pr.comment.added', { i });
+      }
+      store.append('local-pr', 'pr2', 'pr.comment.added', { i: -1 });
+
+      const byAggregate = store.getByAggregate('local-pr', 'pr1');
+      expect(new Set(byAggregate.map((e) => e.timestamp)).size).toBe(1);
+      expect(byAggregate.map((e) => (e.payload as { i: number }).i)).toEqual(
+        Array.from({ length: 50 }, (_, i) => i),
+      );
+
+      const grouped = store.getAllByAggregateType('local-pr');
+      expect(grouped.get('pr1')!.map((e) => (e.payload as { i: number }).i)).toEqual(
+        Array.from({ length: 50 }, (_, i) => i),
+      );
+      // 묶음 안의 상대 순서만 보장한다. 묶음은 aggregate별로 갈라 담는다
+      expect([...grouped.keys()].sort()).toEqual(['pr1', 'pr2']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('retrieves events by type', () => {

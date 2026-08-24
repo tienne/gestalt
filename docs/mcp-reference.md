@@ -919,7 +919,7 @@ ges_sync({ targetPath: "/other-repo/.gestalt-kb" })
 | Parameter | Type | Required | Default | Description |
 |-----------|------|:--------:|---------|-------------|
 | `action` | `string` | Y | — | 위 표 참고 |
-| `repoRoot` | `string` | N | 프로세스 cwd | 저장소 경로 |
+| `repoRoot` | `string` | N | 프로세스 cwd | 저장소 경로. 지금 자리와 같은 레포만 받는다 — 워크트리와 하위 디렉토리는 되고 다른 레포는 `invalid`로 막힌다 |
 | `id` | `string` | `create`와 `list` 외 전부 | — | PR id |
 | `title` | `string` | `create` | — | PR 제목 |
 | `base` | `string` | N | `main` | `create` 전용. 기준 브랜치 |
