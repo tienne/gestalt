@@ -73,6 +73,22 @@ git merge-base --is-ancestor <PR의 headSha> HEAD   # 종료 코드 0이면 이 
 
 **남의 PR 때문에 멈춰 세우지 않습니다.** 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유하므로 다른 워커가 올린 PR도 목록에 뜹니다. 그 커밋은 내 이력에 없어 위 걸러내기에서 떨어집니다.
 
+**리베이스나 amend를 하면 내 PR도 떨어집니다.** 옛 `headSha`가 HEAD 이력에서 빠지기 때문입니다. 그대로 두면 안 끝난 로컬 PR이 있는데 없다고 판정합니다. 이 절이 막으려는 상황이 조용히 뚫리는 셈입니다. 그래서 떨어진 PR을 버리기 전에 한 번 더 봅니다.
+
+```bash
+# 안 끝난 PR 중 ancestor가 아닌 것에서 아래 둘 중 하나가 맞으면 head만 뒤처진 내 PR일 수 있다
+#   headRef == 지금 브랜치 이름   (git rev-parse --abbrev-ref HEAD)
+#   author  == 지금 GESTALT_ACTOR
+```
+
+이건 자동으로 대상에 넣지 않습니다. 커밋이 이력에 없다는 사실은 그대로이고 `headRef`도 `author`도 정황일 뿐입니다. 대신 **말없이 버리지 않고 알립니다.**
+
+```
+head가 뒤처진 로컬 PR이 있을 수 있어요 — {id} {title} ({status}).
+리베이스나 amend를 했으면 아래로 head를 맞춘 뒤 다시 불러주세요.
+  gestalt pr update {id} --head $(git rev-parse HEAD)
+```
+
 남은 게 있으면 **만들기 전에 알리고 사용자 판단을 받습니다.** 로컬 PR이 안 끝났다는 건 그 코드가 아직 안 정해졌다는 뜻입니다. 그 상태로 원격에 올리면 사람이 아직 안 끝난 변경을 보게 됩니다.
 
 ```

@@ -223,9 +223,13 @@ ges_execute { action: "review_publish", reviewSessionId: "<id>" }
 GitHub 대신 로컬 PR로 간다. 판별 규칙은 각 SKILL.md에 표로 있다.
 
 세 스킬 모두 "현재 브랜치의 로컬 PR"을 이름이 아니라 커밋으로 가린다. `pr list`에 브랜치
-필터가 없고 `headRef`는 detached로 만든 PR에서 sha가 되기 때문이다. 열린 PR의 `headSha`가
-지금 HEAD 이력에 있는지를 `git merge-base --is-ancestor`로 본다. 다른 워크트리가 올린 PR이
-같은 목록에 뜨더라도 여기서 떨어진다.
+필터가 없고 `headRef`는 detached로 만든 PR에서 sha가 되기 때문이다. 안 끝난 PR(`open`이거나
+`changes_requested`)의 `headSha`가 지금 HEAD 이력에 있는지를 `git merge-base --is-ancestor`로
+본다. 다른 워크트리가 올린 PR이 같은 목록에 뜨더라도 여기서 떨어진다.
+
+이 걸러내기는 리베이스와 amend에 뚫린다. 옛 `headSha`가 이력에서 빠져 자기 PR도 안 걸린다.
+`gestalt pr update <id> --head <새 커밋>`으로 head를 옮기면 다시 걸린다. 세 스킬은 떨어진
+PR 중 `headRef`가 지금 브랜치거나 `author`가 지금 actor인 것을 사용자에게 알린다.
 
 ## 워크트리로 나눠 쓰기
 
