@@ -411,6 +411,14 @@ describe('목록과 상세의 스레드 상태', () => {
     expect(unresolvedCell(generatePrListHtml([pr]))).toBe('0');
   });
 
+  it('자리 표시는 스레드가 처음 붙은 코멘트에서 온다', () => {
+    // 답글은 라인을 안 갖는다. 마지막 코멘트에서 가져오면 어느 줄에 붙은 스레드인지
+    // 화면에서 사라진다
+    const html = generatePrDetailHtml(rootResolvedReplyOpen(), '');
+
+    expect(html).toContain('a.txt:2');
+  });
+
   it('닫힌 스레드의 코멘트도 상세에 보인다', () => {
     const pr = rootResolvedReplyOpen();
     pr.comments[1]!.resolved = true;

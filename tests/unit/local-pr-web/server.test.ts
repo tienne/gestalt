@@ -218,6 +218,19 @@ describe('PrWebServer', () => {
       expect(html).toContain(`<script nonce="${header}">`);
     });
 
+    it('nonce가 추측할 수 없는 값이다', async () => {
+      const pr = engine.create({ title: 't', author: 'a' });
+      await server.start(ANY_PORT);
+
+      const res = await fetch(`http://127.0.0.1:${server.port}/r/${repoKey}/prs/${pr.id}`);
+      const nonce = res.headers.get('content-security-policy')!.match(/'nonce-([^']+)'/)?.[1];
+
+      // 매번 달라지기만 하면 안 된다. 시계나 카운터로 만들면 값이 달라지면서도
+      // 남이 맞힐 수 있어 CSP가 막으려던 인라인 주입이 그대로 통과한다.
+      // 16바이트 base64는 24자다
+      expect(nonce).toMatch(/^[A-Za-z0-9+/]{22}==$|^[A-Za-z0-9+/]{23}=$|^[A-Za-z0-9+/]{24}$/);
+    });
+
     it('요청마다 nonce가 달라진다', async () => {
       const pr = engine.create({ title: 't', author: 'a' });
       await server.start(ANY_PORT);

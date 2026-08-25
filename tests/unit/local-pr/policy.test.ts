@@ -3,6 +3,7 @@ import {
   consensusVerdict,
   isConsensusApproved,
   openThreads,
+  threadsOf,
   resolveActor,
   unresolvedComments,
   unresolvedCount,
@@ -76,6 +77,57 @@ describe('로컬 PR 정책', () => {
       expect(threads[0]!.comments).toHaveLength(2);
       // 늘어놓는 자리(`pr comments --unresolved`)도 같은 술어에서 나온다
       expect(unresolvedComments(pr).map((c) => c.id)).toEqual(['c0', 'c1', 'c3']);
+    });
+  });
+
+  /**
+   * 스레드를 묶는 규칙과 뿌리를 고르는 규칙.
+   *
+   * 리팩터 전에는 버킷을 안 닫힌 코멘트로만 만들어 "첫 번째 = 안 닫힌 첫 번째"가
+   * 구조로 보장됐다. 지금은 전부를 묶고 삼항으로 고르므로 그 갈래를 직접 밟는다.
+   */
+  describe('스레드 묶기', () => {
+    it('뿌리가 닫혔으면 안 닫힌 첫 답글이 head다', () => {
+      const pr = prWith([
+        { threadId: 't1', resolved: true },
+        { threadId: 't1', resolved: false },
+      ]);
+
+      // all[0]으로 고르면 닫힌 코멘트가 head가 되어 표면이 그걸 한 줄로 보여준다
+      expect(openThreads(pr)[0]!.root.id).toBe('c1');
+    });
+
+    it('전부 닫혔으면 head가 맨 처음 코멘트다', () => {
+      const pr = prWith([
+        { threadId: 't1', resolved: true },
+        { threadId: 't1', resolved: true },
+      ]);
+
+      expect(threadsOf(pr)[0]!.head.id).toBe('c0');
+      expect(threadsOf(pr)[0]!.open).toBe(false);
+    });
+
+    it('openThreads의 comments에 닫힌 코멘트가 안 섞인다', () => {
+      const pr = prWith([
+        { threadId: 't1', resolved: true },
+        { threadId: 't1', resolved: false },
+        { threadId: 't1', resolved: true },
+      ]);
+
+      // all을 그대로 주면 표면이 이미 닫은 코멘트를 미해결로 늘어놓는다
+      expect(openThreads(pr)[0]!.comments.map((c) => c.id)).toEqual(['c1']);
+    });
+
+    it('스레드 차례는 그 스레드가 처음 붙은 자리를 따른다', () => {
+      const pr = prWith([
+        { threadId: 't1', resolved: true },
+        { threadId: 't2', resolved: false },
+        { threadId: 't1', resolved: false },
+      ]);
+
+      // t1이 먼저 열린 스레드다. 안 닫힌 코멘트만으로 묶으면 t2가 앞에 온다 —
+      // 리팩터 전 동작이고 지금은 스레드가 생긴 차례를 따른다
+      expect(openThreads(pr).map((t) => t.root.threadId)).toEqual(['t1', 't2']);
     });
   });
 
