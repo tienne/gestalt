@@ -195,9 +195,10 @@ export class EventStore implements IEventStore {
     // 단조 증가한다 — 이건 문서화된 성질이다. 삽입 순서가 곧 재생 순서다. 이 테이블은
     // 붙이기만 하고 지우는 자리가 없어서 최대 rowid가 재사용되는 갈래도 안 열린다.
     //
-    // 겸사겸사 정렬이 사라진다. timestamp를 앞에 두면 이 절을 받쳐 줄 인덱스가 없어
-    // sqlite가 매번 임시 b-tree를 세웠다. rowid만 남기면 idx_events_aggregate로
-    // 좁힌 뒤 rowid 순서로 훑고 끝난다.
+    // 겸사겸사 이 쿼리에서는 정렬이 사라진다. timestamp를 앞에 두면 이 절을 받쳐 줄
+    // 인덱스가 없어 sqlite가 매번 임시 b-tree를 세웠다. rowid만 남기면
+    // idx_events_aggregate로 좁힌 뒤 rowid 순서로 훑고 끝난다. 여기 얘기지
+    // `getAllByAggregateType` 얘기가 아니다 — 거기는 사정이 다르고 그 자리에 적었다.
     //
     // 재생 순서는 이 도메인이 상태를 만드는 근거라 저장 엔진의 문서화되지 않은
     // 성질에 기대고 싶지 않았다. 그 취지가 rowid 쪽에 더 맞는다
@@ -218,7 +219,17 @@ export class EventStore implements IEventStore {
    * 부르는 가장 뜨거운 자리라 그 비용이 그대로 보인다.
    *
    * 정렬은 rowid만 본다. 결과를 aggregate별로 다시 묶으므로 전역 시간 순서는 쓸
-   * 데가 없다. 필요한 건 묶음 안의 상대 순서뿐이다. 근거는 `getByAggregate`에 적었다.
+   * 데가 없다. 필요한 건 묶음 안의 상대 순서뿐이다. 순서를 rowid로 정하는 근거는
+   * `getByAggregate`에 적었다.
+   *
+   * 다만 임시 b-tree는 여기서 안 없어진다. 플래너가 `aggregate_type = ?` 하나만 보고도
+   * idx_events_aggregate를 고르는데, 그 인덱스 순서는 rowid 순서가 아니라 정렬이 또
+   * 필요하다. 어느 플랜을 고를지는 통계를 탄다 — `ANALYZE`를 돌려 sqlite_stat1이
+   * 있으면 `SCAN events`로 붙어 정렬이 사라진다. 없으면 인덱스를 골라 임시 b-tree가
+   * 남는다. 이 스토어는 ANALYZE를 안 돌리므로 실물은 후자다.
+   *
+   * 그래도 빨라지는 건 정렬 키가 ISO 문자열 비교에서 정수 비교로 바뀌어서다. 이벤트
+   * 2만 건에 aggregate 200개로 20회 평균 23.1 → 20.7 ms였다(sqlite 3.53.4, macOS).
    */
   getAllByAggregateType(aggregateType: string): Map<string, DomainEvent[]> {
     const grouped = new Map<string, DomainEvent[]>();

@@ -336,9 +336,12 @@ describe('LocalPrEngine', () => {
       run(repo, ['checkout', '-q', 'main']);
       engine.merge(merged, 'a');
 
-      // 코멘트와 approve 판정은 상태를 안 옮긴다. 가벼운 갈래가 그렇게 적어 뒀다
+      // 코멘트를 붙이는 것도 approve 판정도 comment 판정도 상태를 안 옮긴다. 가벼운
+      // 갈래가 그렇게 적어 뒀는데 approve만 밟으면 판정 종류를 안 보고 changes_requested로 옮기는 갈래가
+      // 안 잡힌다. 두 판정을 다 지난다
       engine.comment(open, { author: 'r', path: 'a.txt', body: '의견' });
       engine.review(open, { reviewer: 'r', verdict: 'approve', summary: 'ok' });
+      engine.review(open, { reviewer: 'r2', verdict: 'comment', summary: '의견만' });
 
       const all = engine.list();
       expect(all).toHaveLength(4);
@@ -515,6 +518,20 @@ describe('LocalPrEngine', () => {
 
       expect(engine.prune().released).toHaveLength(2);
       expect(engine.prune().released).toHaveLength(0);
+    });
+
+    it('base와 head 중 하나만 붙어 있으면 붙은 것만 놓는다', () => {
+      // 둘 다 붙었거나 둘 다 없는 상태만 지나면 `attached`와 `pinned`가 같은 물건이라
+      // 갈리지 않는다. 정확히 하나만 붙어 있을 때가 갈리는 자리다 — 주석이 근거로 든
+      // "머지 PR의 base는 close 경로에서 이미 놓였을 수 있다"가 그 상태다
+      const pr = engine.create({ title: 't', author: 'a' });
+      run(repo, ['checkout', '-q', 'main']);
+      engine.merge(pr.id, 'a');
+
+      run(repo, ['update-ref', '-d', `refs/gestalt/pr/${pr.id}/base`]);
+
+      expect(engine.prune().released).toEqual([`refs/gestalt/pr/${pr.id}/head`]);
+      expect(gestaltRefs()).toEqual([]);
     });
   });
 

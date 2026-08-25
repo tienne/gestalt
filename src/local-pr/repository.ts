@@ -100,13 +100,14 @@ export class PullRequestRepository {
   /**
    * 상태만 접는다. `fold`가 만드는 것 중 `status` 하나만 나오는 가벼운 갈래다.
    *
-   * 상태를 정하는 이벤트는 넷뿐이다 — created(open), updated(고쳐 올렸으니 다시
+   * 상태를 정하는 이벤트는 다섯뿐이다 — created(open), updated(고쳐 올렸으니 다시
    * open), review.submitted(request_changes일 때만), merged, closed. 코멘트를 붙이고
    * 닫는 이벤트는 `comments`와 라운드의 코멘트 수만 건드리고 상태에는 손대지 않는다.
    * approve와 comment 판정도 라운드의 판정만 적고 상태를 안 옮긴다.
    *
    * 두 갈래가 갈리면 목록과 필터가 어긋난다. `list(status)`가 `list()`를 거른 것과
-   * 같은지 보는 테스트가 그 자리를 잡는다.
+   * 같은지 보는 테스트가 그 자리를 잡는데, 그 테스트는 approve와 comment 판정을 둘 다
+   * 지난다 — 위 문장이 둘을 나란히 적어 두니 밟는 것도 둘이어야 한다.
    */
   private foldStatus(events: DomainEvent<unknown>[]): PullRequest['status'] | null {
     let status: PullRequest['status'] | null = null;

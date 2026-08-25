@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
+import type { DomainEvent } from '../../../src/core/types.js';
 import { SQLITE_BUSY_TIMEOUT_MS } from '../../../src/core/constants.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -92,6 +93,48 @@ describe('EventStore', () => {
       );
       // 묶음 안의 상대 순서만 보장한다. 묶음은 aggregate별로 갈라 담는다
       expect([...grouped.keys()].sort()).toEqual(['pr1', 'pr2']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('시계가 뒤로 물려도 붙인 순서대로 재생한다', () => {
+    // 시계를 세우는 것만으로는 timestamp 정렬을 못 가른다. 동점이면 sqlite가 삽입
+    // 순서를 주기 때문이다. 뒤로 물리면 얘기가 달라진다 — timestamp로 정렬하면
+    // 순서가 통째로 뒤집히고 rowid로 정렬해야 붙인 순서가 남는다.
+    //
+    // 되돌아가는 시계는 가정이 아니다. NTP가 한 걸음 물리는 일이 있고 `.gestalt/
+    // reviews.db` 하나를 워크트리 여럿이 함께 쓴다. 이 도메인이 원하는 건 애초에
+    // 시간 순서가 아니라 붙인 순서다. 뒤집히면 CREATED가 마지막에 와서 상태가 어긋난다
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:10.000Z'));
+      store.append('local-pr', 'pr1', 'pr.created', { i: 0 });
+      store.append('local-pr', 'pr2', 'pr.created', { i: 0 });
+
+      vi.setSystemTime(new Date('2026-01-01T00:00:05.000Z'));
+      store.append('local-pr', 'pr1', 'pr.comment.added', { i: 1 });
+      store.append('local-pr', 'pr2', 'pr.comment.added', { i: 1 });
+
+      vi.setSystemTime(new Date('2026-01-01T00:00:04.000Z'));
+      store.append('local-pr', 'pr1', 'pr.merged', { i: 2 });
+      store.append('local-pr', 'pr2', 'pr.merged', { i: 2 });
+
+      const order = (events: DomainEvent[]) => events.map((e) => (e.payload as { i: number }).i);
+
+      // timestamp가 거꾸로 붙은 걸 먼저 확인한다. 이게 아니면 이 테스트는 아무것도 안 본다
+      const byAggregate = store.getByAggregate('local-pr', 'pr1');
+      expect(byAggregate.map((e) => e.timestamp)).toEqual([
+        '2026-01-01T00:00:10.000Z',
+        '2026-01-01T00:00:05.000Z',
+        '2026-01-01T00:00:04.000Z',
+      ]);
+      expect(order(byAggregate)).toEqual([0, 1, 2]);
+      expect(byAggregate[0]!.eventType).toBe('pr.created');
+
+      const grouped = store.getAllByAggregateType('local-pr');
+      expect(order(grouped.get('pr1')!)).toEqual([0, 1, 2]);
+      expect(order(grouped.get('pr2')!)).toEqual([0, 1, 2]);
     } finally {
       vi.useRealTimers();
     }
