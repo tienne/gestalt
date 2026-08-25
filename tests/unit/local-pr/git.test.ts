@@ -138,6 +138,33 @@ describe('rev와 ref 이름이 옵션으로 읽히지 않는다', () => {
     expect(() => git.resolveSha(repo, '')).toThrow(/비었다/);
   });
 
+  it('diff 계열의 sha 자리도 막는다', () => {
+    // `--`가 뒤에 붙어 있어도 안 막힌다. git은 첫 비옵션 인자 전까지 옵션을 읽으므로
+    // `${base}..${head}`의 앞자리가 `-`로 시작하면 그대로 옵션이 된다.
+    // `git diff "--output=/tmp/X..HEAD" --`로 임의 파일 쓰기가 실제로 된다
+    const written = join(repo, 'diff-written.txt');
+    expect(() => git.diff(repo, `--output=${written}`, 'HEAD')).toThrow(/-로 시작/);
+    expect(() => git.changedFiles(repo, `--output=${written}`, 'HEAD')).toThrow(/-로 시작/);
+    expect(() => git.diffStat(repo, `--output=${written}`, 'HEAD')).toThrow(/-로 시작/);
+    expect(existsSync(written)).toBe(false);
+    // 뒷자리도 같이 막는다
+    expect(() => git.diff(repo, 'HEAD', '--output=x')).toThrow(/-로 시작/);
+  });
+
+  it('머지와 체크아웃의 head sha 자리도 막는다', () => {
+    // `merge --no-ff <headSha>`와 `worktree add ... <headSha>`는 baseRef와 달리
+    // 앞에 붙는 게 없어서 값이 그대로 옵션 자리에 선다
+    expect(() =>
+      git.mergeIntoBase(repo, {
+        prId: 'abcd1234',
+        baseRef: 'main',
+        headSha: '--abort',
+        title: 't',
+      }),
+    ).toThrow(/-로 시작/);
+    expect(() => git.checkoutPrHead(repo, 'abcd1234', '--detach')).toThrow(/-로 시작/);
+  });
+
   it('멀쩡한 rev는 그대로 통한다', () => {
     expect(git.resolveSha(repo, 'HEAD')).toMatch(/^[0-9a-f]{40}$/);
     expect(git.mergeBase(repo, 'HEAD', 'HEAD')).toMatch(/^[0-9a-f]{40}$/);
@@ -145,5 +172,8 @@ describe('rev와 ref 이름이 옵션으로 읽히지 않는다', () => {
     run(repo, ['checkout', '-q', '-b', 'feat/a-b']);
     run(repo, ['checkout', '-q', 'main']);
     expect(() => git.deleteBranch(repo, 'feat/a-b')).not.toThrow();
+    // 막는 쪽만 세우면 diff를 통째로 부숴도 테스트가 통과한다
+    expect(() => git.diff(repo, 'HEAD', 'HEAD')).not.toThrow();
+    expect(git.changedFiles(repo, 'HEAD', 'HEAD')).toEqual([]);
   });
 });

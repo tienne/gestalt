@@ -63,12 +63,15 @@ function run(fn: () => void): void {
   try {
     fn();
   } catch (e) {
+    // `process.exit`이 여기서 흐름을 끊는 건 런타임의 성질이지 이 갈래가 한 약속이
+    // 아니다. 갈라 두지 않으면 테스트가 exit을 가로챌 때 두 번 나간다
     if (e instanceof PrError) {
       console.error(e.message);
       process.exit(e.exitCode);
+    } else {
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exit(1);
     }
-    console.error(e instanceof Error ? e.message : String(e));
-    process.exit(1);
   }
 }
 

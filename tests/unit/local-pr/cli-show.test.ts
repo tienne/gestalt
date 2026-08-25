@@ -4,8 +4,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LocalPrEngine } from '../../../src/local-pr/engine.js';
+import { registerRepo, repoKey } from '../../../src/local-pr/registry.js';
 import {
   assertServeRoot,
+  prReposCommand,
+  prUnregisterCommand,
   prCommentsCommand,
   prPruneCommand,
   prServeCommand,
@@ -230,5 +233,89 @@ describe('gestalt pr serve --repo-root 경계', () => {
     await prServeCommand({ repoRoot: elsewhere, noBrowser: true });
 
     expect(exits).toEqual([4]);
+  });
+});
+
+/**
+ * `pr repos`와 `pr unregister`의 CLI 표면.
+ *
+ * `unregister`가 받는 키는 `pr repos` 말고 볼 데가 없다. 그 짝이 어느 종료 코드로
+ * 나가는지는 레지스트리 층 테스트가 못 잡는다 — 거기서는 `unregisterRepo`가 boolean만
+ * 돌려준다. 그 false를 CLI가 3으로 옮기는지 4로 옮기는지는 이 층에만 있다.
+ */
+describe('gestalt pr repos / unregister', () => {
+  let repo: string;
+  let fakeHome: string;
+  let lines: string[];
+  let exits: number[];
+  const savedHome = process.env['GESTALT_HOME'];
+
+  beforeEach(() => {
+    fakeHome = mkdtempSync(join(tmpdir(), 'gestalt-repos-home-'));
+    process.env['GESTALT_HOME'] = fakeHome;
+    repo = mkdtempSync(join(tmpdir(), 'gestalt-repos-repo-'));
+    run(repo, ['init', '-q']);
+    run(repo, ['config', 'user.email', 't@e.st']);
+    run(repo, ['config', 'user.name', 'test']);
+    writeFileSync(join(repo, 'a.txt'), 'x\n');
+    run(repo, ['add', '-A']);
+    run(repo, ['commit', '-q', '-m', 'init']);
+
+    lines = [];
+    exits = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      exits.push(code ?? 0);
+      return undefined as never;
+    }) as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (savedHome === undefined) delete process.env['GESTALT_HOME'];
+    else process.env['GESTALT_HOME'] = savedHome;
+    rmSync(fakeHome, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('빈 목록도 0으로 끝난다', () => {
+    prReposCommand({});
+
+    expect(exits).toEqual([]);
+    expect(lines.join('\n')).toContain('등록된 레포가 없어요');
+  });
+
+  it('등록된 레포의 키를 보여준다', () => {
+    registerRepo(repo);
+
+    prReposCommand({});
+
+    // 이 키가 `unregister`의 유일한 입구다
+    expect(lines.join('\n')).toContain(repoKey(repo));
+    expect(exits).toEqual([]);
+  });
+
+  it('없는 키를 빼려 하면 3으로 끝낸다', () => {
+    // 3은 `pr show`/`pr comments`가 못 찾은 것에 쓰는 코드와 같다
+    prUnregisterCommand({ key: 'a'.repeat(12) });
+
+    expect(exits).toEqual([3]);
+  });
+
+  it('있는 키를 빼면 목록에서 사라지고 0으로 끝난다', () => {
+    registerRepo(repo);
+    const key = repoKey(repo);
+
+    prUnregisterCommand({ key });
+    lines = [];
+    prReposCommand({});
+
+    expect(exits).toEqual([]);
+    expect(lines.join('\n')).not.toContain(key);
   });
 });

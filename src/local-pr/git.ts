@@ -57,6 +57,24 @@ function assertRev(value: string, what: string): void {
 }
 
 /**
+ * `<base>..<head>` 범위를 만들기 전에 양쪽을 거른다.
+ *
+ * 이 자리에는 `--`가 이미 붙어 있는데 그게 안 막는다. git은 첫 비옵션 인자를 만나기
+ * 전까지 옵션을 읽으므로, 범위 문자열이 `-`로 시작하면 그 뒤의 `--`가 손을 못 쓴다.
+ * `git diff "--output=/tmp/X..HEAD" --`로 임의 파일 쓰기가 실제로 된다.
+ *
+ * 지금 부르는 쪽이 넘기는 값은 전부 `resolveSha`가 뱉은 40자 sha라 실전 경로에서는
+ * 안 걸린다. 그래도 여기서 다시 막는 이유는 `assertPrId`가 든 것과 같다 — `index.ts`가
+ * 이 모듈을 통째로 내보내므로 엔진을 안 거치고 직접 부르는 경로가 열려 있다. 값의
+ * 출처인 `reviews.db`는 워크트리 여럿이 함께 쓰는 로컬 파일이다. diff 세 함수는 그중
+ * 인증 없는 웹 서버가 매 요청마다 지나는 자리다.
+ */
+function assertShaPair(baseSha: string, headSha: string): void {
+  assertRev(baseSha, 'base sha');
+  assertRev(headSha, 'head sha');
+}
+
+/**
  * 이 레포의 공용 git 디렉토리.
  *
  * 워크트리에서 `--git-dir`는 그 워크트리 전용 경로를 준다. PR 목록은 워크트리
@@ -177,10 +195,12 @@ export function unpinRefs(repoRoot: string, prId: string): void {
  * 아니게 되는데, 이 값을 읽는 쪽(웹 UI, 리뷰 에이전트)은 전부 통합 diff를 기대한다. 끄는 게 보안이자 정확성이다.
  */
 export function diff(repoRoot: string, baseSha: string, headSha: string): string {
+  assertShaPair(baseSha, headSha);
   return git(repoRoot, ['diff', ...NO_DIFF_FILTERS, `${baseSha}..${headSha}`, '--']);
 }
 
 export function changedFiles(repoRoot: string, baseSha: string, headSha: string): string[] {
+  assertShaPair(baseSha, headSha);
   const out = git(repoRoot, [
     'diff',
     ...NO_DIFF_FILTERS,
@@ -192,6 +212,7 @@ export function changedFiles(repoRoot: string, baseSha: string, headSha: string)
 }
 
 export function diffStat(repoRoot: string, baseSha: string, headSha: string): string {
+  assertShaPair(baseSha, headSha);
   return git(repoRoot, ['diff', ...NO_DIFF_FILTERS, '--stat', `${baseSha}..${headSha}`, '--']);
 }
 
@@ -275,6 +296,7 @@ export function mergeIntoBase(
 ): MergeResult {
   const { prId, baseRef, headSha, title } = input;
   assertRev(baseRef, 'base 브랜치');
+  assertRev(headSha, 'head sha');
   const message = `Merge local PR ${prId}: ${title}`;
 
   const holder = worktreeOn(repoRoot, baseRef);
@@ -484,6 +506,8 @@ function scrub(repoRoot: string, path: string): void {
  * 남고 속이 깨졌으면 치운 뒤 다시 뗀다. 어느 갈래로 가든 한 PR에 워크트리는 하나다.
  */
 export function checkoutPrHead(repoRoot: string, prId: string, headSha: string): PrCheckout {
+  assertRev(headSha, 'head sha');
+
   // 목록을 한 번만 구한다. `worktree list`는 프로세스를 띄우는 호출이다
   const existing = registeredCheckout(repoRoot, prId, worktrees(repoRoot));
 

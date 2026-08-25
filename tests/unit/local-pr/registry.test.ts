@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   existsSync,
@@ -43,6 +43,21 @@ function makeRepo(): string {
   run(repo, ['add', '-A']);
   run(repo, ['commit', '-q', '-m', 'init']);
   return repo;
+}
+
+/**
+ * 확실히 죽은 pid를 하나 얻는다.
+ *
+ * 큰 수를 찍으면 그 번호가 지금 안 쓰인다는 보장이 없다 — 리눅스는 `pid_max`가 기본
+ * 4194304이고 컨테이너는 pid를 낮은 번호부터 다시 돌려쓴다. 대신 자식을 하나 띄웠다
+ * 끝낸다. `spawnSync`는 자식이 끝나고 거둬질 때까지 안 돌아오므로 돌려받은 번호는
+ * 돌아온 시점에 이미 죽어 있다. 남이 그 번호를 물려받으려면 그 사이에 pid 카운터가
+ * 한 바퀴를 다 돌아야 한다
+ */
+function deadPid(): number {
+  const done = spawnSync(process.execPath, ['-e', '']);
+  if (typeof done.pid !== 'number') throw new Error('자식 pid를 못 얻었어요');
+  return done.pid;
 }
 
 describe('레포 레지스트리', () => {
@@ -312,6 +327,34 @@ describe('레포 레지스트리', () => {
     expect(() => registry.registerRepo(repo)).toThrow(/잠겨/);
     expect(readFileSync(join(lock, 'owner'), 'utf-8')).toContain('남의-것');
   }, 20_000);
+
+  it('주인이 죽었으면 hard cap 전이라도 부순다', () => {
+    const repo = makeRepo();
+    repos.push(repo);
+
+    // 진짜 크래시의 기본 모양이다. `mkdirSync` 다음 줄이 바로 owner 쓰기라, 잠금을 잡은 뒤
+    // 죽은 프로세스는 거의 언제나 owner를 남기고 죽는다. 주인이 도는지 안 묻고 mtime만
+    // 보면 5초에 풀려야 할 자리가 60초 hard cap까지 막힌다. 그 사이 호출은 대기 한도가
+    // 2초라 전부 실패한다
+    const lock = join(fakeHome, '.gestalt', 'repos.json.lock');
+    mkdirSync(lock, { recursive: true });
+    writeFileSync(
+      join(lock, 'owner'),
+      JSON.stringify({ token: '남의-것', pid: deadPid() }),
+      'utf-8',
+    );
+
+    // mtime을 `LOCK_STALE_MS`(5초)와 `LOCK_HARD_STALE_MS`(60초) 사이에 둔다. 이래야 hard cap이
+    // 먼저 걸리지 않아서 "주인이 죽었나"만 정확히 짚는다
+    const held = new Date(Date.now() - 10_000);
+    utimesSync(lock, held, held);
+
+    registry.registerRepo(repo);
+
+    expect(registry.listRepos()).toHaveLength(1);
+    // 부순 뒤 자기 것을 새로 만들고 끝나며 지운다
+    expect(existsSync(lock)).toBe(false);
+  });
 
   it('아주 오래 묵은 잠금은 주인이 살아 보여도 부순다', () => {
     const repo = makeRepo();

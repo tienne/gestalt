@@ -62,9 +62,12 @@ gestalt pr close <id> [--reason "..."]
 gestalt pr checkout <id> [--remove] [--force]
 gestalt pr prune [--checkouts] [--dry-run]
 gestalt pr serve [--port N] [--no-browser]
+gestalt pr repos
+gestalt pr unregister <키>
 ```
 
-모든 명령이 `--json`과 `--repo-root <경로>`를 받는다.
+모든 명령이 `--json`과 `--repo-root <경로>`를 받는다. `pr serve`의 `--repo-root`만
+지금 자리와 같은 레포를 가리켜야 한다 — 아래 등록 문단에 근거가 있다.
 
 **본문은 인자가 아니라 `--body-file`로 넘긴다.** 셸을 타면 한글과 백틱, 줄바꿈이 깨진다.
 `-`를 주면 stdin에서 읽는다 — `gh`가 `--body-file`에 쓰는 방식과 같다.
@@ -169,6 +172,14 @@ gestalt pr serve
 영구히 늘린다. 대신 PR만 만들고 한 번도 serve를 안 돌린 레포는 다른 레포의 목록에 안 뜬다.
 그 레포에서 `pr serve`를 한 번 돌리면 들어온다. 워크트리는 저장소를 공유하므로 본체에서
 한 번 돌리면 워크트리에서 만든 PR도 함께 보인다.
+
+`--repo-root`도 같은 문을 지난다. `pr serve --repo-root /남의/레포`가 통하면 셸 한 번으로
+남의 레포를 목록에 넣을 수 있으니, 지금 자리와 저장소가 같을 때만 받는다. 워크트리나
+하위 디렉토리는 저장소를 공유하므로 그대로 통한다. 다른 레포를 보려면 거기서 한 번 띄운다.
+
+목록은 `gestalt pr repos`로 본다. 무엇이 인증 없는 뷰어에 실려 있는지 확인하는 자리이자,
+`gestalt pr unregister <키>`가 받는 키를 볼 유일한 데다. `unregister`는 목록에서만 빼고
+레포와 PR 기록은 안 건드린다. 없는 키를 주면 3으로 끝난다.
 
 | 경로 | 내용 |
 | --- | --- |
