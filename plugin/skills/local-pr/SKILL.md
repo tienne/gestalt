@@ -1,7 +1,7 @@
 ---
 name: local-pr
 version: "1.0.0"
-description: "레포 안에서 끝나는 PR 전용 스킬. 에이전트끼리 코드를 주고받을 때 쓴다. gh도 인증도 원격 왕복도 필요 없다. 만들기부터 리뷰, 머지, ref 정리까지 로컬 PR의 한살이 전부를 다룬다. 사람에게 넘길 PR은 pr 스킬을 쓴다."
+description: "레포 안에서 끝나는 PR 전용 스킬. 에이전트끼리 코드를 주고받을 때 쓴다. gh도 인증도 원격 왕복도 필요 없다. 만들기부터 리뷰, 머지, ref 정리까지 전부 다룬다. 사람에게 넘길 PR은 pr 스킬을 쓴다."
 triggers:
   - "로컬 PR"
   - "로컬로 PR"
@@ -10,11 +10,12 @@ triggers:
   - "gestalt pr"
   - "워커 PR"
   - "에이전트끼리 PR"
+  - "--local"
 inputs:
   action:
     type: string
     required: false
-    description: "무엇을 할지. create | list | show | verify | comment | merge | close | prune | serve. 생략하면 사용자의 말에서 고른다"
+    description: "무엇을 할지. create | list | show | diff | checkout | comment | comments | resolve | review | update | merge | close | prune | serve. 생략하면 사용자의 말에서 고른다"
   id:
     type: string
     required: false
@@ -53,7 +54,7 @@ outputs:
 
 git 저장소이기만 하면 된다. 인증도 원격도 안 본다.
 
-명령은 `gestalt pr ...`이다. 게슈탈트 레포 자신에서 돌 때는 전역 설치가 없을 수 있으므로 `pnpm tsx bin/gestalt.ts pr ...`로 부른다. 한 번 확인하고 그 뒤로는 같은 형태를 쓴다.
+명령은 `gestalt pr ...`이다. 게슈탈트 레포 안에서 돌 때는 전역 설치가 없을 수 있으므로 `pnpm tsx bin/gestalt.ts pr ...`로 부른다. 한 번 확인하고 그 뒤로는 같은 형태를 쓴다.
 
 `--json`을 붙이면 객체만 나온다. 에이전트가 값을 읽어야 하는 자리에서는 이쪽을 쓴다.
 
@@ -65,7 +66,7 @@ git 저장소이기만 하면 된다. 인증도 원격도 안 본다.
 
 **승인 단계는 없다.** 미해결 스레드가 남아도 머지된다. 대신 머지 시점의 미해결 수가 이벤트에 남는다. 남은 채로 머지할 이유가 있으면 그 이유를 코멘트로 먼저 남긴다.
 
-**리젝은 새 PR을 만들지 않는다.** 같은 PR에 라운드가 는다. `pr update --head <sha>`로 head를 옮기면 그 자리가 다음 라운드다.
+**`request_changes`가 나도 새 PR을 만들지 않는다.** 같은 PR에 라운드가 는다. `pr update --head <sha>`로 head를 옮기면 그 자리가 다음 라운드다.
 
 ## 1단계: 만들기
 
@@ -173,12 +174,12 @@ gestalt pr prune --checkouts  # 체크아웃 자국까지
 
 ## 여러 워커로 나눌 때
 
-같은 base에서 워크트리를 여럿 떼어 각자 PR을 올리는 흐름을 이 스킬이 받친다.
+같은 base에서 워크트리를 여럿 떼어 각자 PR을 올리는 흐름을 이 스킬이 다룬다.
 
 - 워커마다 담당 파일을 미리 갈라준다. 겹치면 **PR 본문에 그 사실을 적게 한다.** 머지할 때 볼 자리가 된다.
 - 자기 PR은 자기가 리뷰하지 않는다. 다른 주체가 `pr checkout`으로 떼어내 직접 돌려보고 판정한다.
-- 작성자가 넣은 뮤테이션을 그대로 믿지 않는다. 리뷰어가 최소 몇 개를 다시 넣어 테스트가 죽는지 확인한다.
-- `pnpm gate`가 실패하면 base에서도 실패하는지 먼저 대조한다. 그 PR 소행이 아닐 수 있다.
+- 작성자가 코드를 깨고 돌려봤다는 말을 그대로 믿지 않는다. 리뷰어가 직접 몇 군데를 깨서 테스트가 죽는지 확인한다.
+- `pnpm gate`가 실패하면 base에서도 실패하는지 먼저 대조한다. 그 PR 때문이 아닐 수 있다.
 
 ## 출력 규약
 

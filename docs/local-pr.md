@@ -30,7 +30,7 @@ open ──review(request_changes)──> changes_requested ──update──> 
 ```
 
 `request_changes`가 나면 **새 PR을 만들지 않고 같은 PR에 라운드를 늘린다.** 3라운드에서
-다시 열린 지적이 어느 라운드에서 났고 어디서 닫혔는지가 한 자리에 남는다.
+다시 열린 이슈가 어느 라운드에서 났고 어디서 닫혔는지가 한 자리에 남는다.
 
 **승인 게이트는 없다.** 미해결 스레드가 남아 있어도 머지를 막지 않는다. 대신 머지 시점의
 미해결 수가 이벤트에 남는다. 나중에 그 판단을 되짚을 수 있다.
@@ -74,7 +74,7 @@ gestalt pr unregister <키>
 
 **누가 했는지는 `GESTALT_ACTOR` 환경변수나 `--author`로 준다.** `codex:worker-1`,
 `claude-code:main`, `human:tienne` 같은 형태다. 안 주면 `human:local`이다. 작성자와
-리뷰어가 갈려야 "누가 지적했고 누가 답했나"가 남는다.
+리뷰어가 갈려야 "누가 코멘트를 남겼고 누가 답했나"가 남는다.
 
 ### 종료 코드
 
@@ -85,7 +85,7 @@ gestalt pr unregister <키>
 | 0 | 정상 |
 | 1 | 입력이 잘못됐다 |
 | 3 | PR이나 코멘트를 못 찾았다 |
-| 4 | 상태가 안 맞는다 (이미 머지됨, 지킬 변경이 있음 등) |
+| 4 | 상태가 안 맞는다 (이미 머지됨, 커밋 안 된 변경이 남아 있음 등) |
 
 ## 리뷰용 체크아웃
 
@@ -213,7 +213,7 @@ ges_execute { action: "review_start", prId: "<id>" }
   → PR의 변경 파일로 리뷰를 연다. sessionId나 changedFiles를 손으로 나열할 필요가 없다
 
 ges_execute { action: "review_publish", reviewSessionId: "<id>" }
-  → 합의된 지적을 인라인 코멘트로 쓰고 판정을 기록한다
+  → 합의된 이슈를 인라인 코멘트로 쓰고 판정을 기록한다
 ```
 
 `review_publish`는 멱등하다. 같은 합의를 두 번 옮겨도 코멘트가 늘지 않는다. 어디까지 썼는지는
@@ -224,8 +224,23 @@ ges_execute { action: "review_publish", reviewSessionId: "<id>" }
 
 ## 스킬
 
-`pr`, `review`, `review-reply` 세 스킬이 로컬 갈래를 탄다. `--local`을 붙이거나 로컬 PR
-id를 주면 GitHub 대신 로컬 PR로 간다. 판별 규칙은 각 SKILL.md에 표로 있다.
+로컬 PR을 만들고 리뷰하고 머지하는 자리는 `local-pr` 스킬이다. `--local`을 붙이거나 말로
+"로컬 PR"이라고 하면 여기로 온다.
+
+`pr` 스킬은 GitHub 전용이라 로컬 갈래를 안 탄다. 로컬이라고 밝히면 만들지 않고 `local-pr`로
+넘긴다. 대신 원격 PR을 만들기 전에 이 브랜치의 안 끝난 로컬 PR을 찾아 사용자에게 알린다.
+
+`review`와 `review-reply`는 두 갈래를 다 탄다. `--local`을 붙이거나 로컬 PR id를 주면
+GitHub 대신 로컬 PR로 간다. 판별 규칙은 각 SKILL.md에 표로 있다.
+
+세 스킬 모두 "현재 브랜치의 로컬 PR"을 이름이 아니라 커밋으로 가린다. `pr list`에 브랜치
+필터가 없고 `headRef`는 detached로 만든 PR에서 sha가 되기 때문이다. 안 끝난 PR(`open`이거나
+`changes_requested`)의 `headSha`가 지금 HEAD 이력에 있는지를 `git merge-base --is-ancestor`로
+본다. 다른 워크트리가 올린 PR이 같은 목록에 뜨더라도 여기서 떨어진다.
+
+이 걸러내기는 리베이스와 amend에 뚫린다. 옛 `headSha`가 이력에서 빠져 자기 PR도 안 걸린다.
+`gestalt pr update <id> --head <새 커밋>`으로 head를 옮기면 다시 걸린다. 세 스킬은 떨어진
+PR 중 `headRef`가 지금 브랜치거나 `author`가 지금 actor인 것을 사용자에게 알린다.
 
 ## 워크트리로 나눠 쓰기
 

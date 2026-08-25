@@ -353,7 +353,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `prId` | `string` | N | — | `review_start`에서 주면 그 로컬 PR의 변경 파일로 리뷰를 연다. `sessionId`와 `changedFiles + repoRoot`보다 우선한다 — 함께 주면 나머지는 안 본다. `review_publish`에서는 쓸 대상 PR이고, `review_start`를 `prId`로 열었으면 세션에서 이어받으므로 생략할 수 있다 |
 | `repoRoot` | `string` | N | 프로세스 cwd | `prId`를 찾을 로컬 PR 저장소 |
 | `reviewSessionId` | `string` | `review_submit`, `review_consensus`, `review_publish` | — | `review_start`가 돌려준 리뷰 세션 ID |
-| `prReviewer` | `string` | N | `GESTALT_ACTOR` 또는 `gestalt:review` | `review_publish`가 판정을 남길 때 쓸 리뷰어 이름. 인라인 코멘트 작성자는 이 값이 아니라 지적을 낸 에이전트다 (`agent:security-reviewer` 꼴) |
+| `prReviewer` | `string` | N | `GESTALT_ACTOR` 또는 `gestalt:review` | `review_publish`가 판정을 남길 때 쓸 리뷰어 이름. 인라인 코멘트 작성자는 이 값이 아니라 이슈를 낸 에이전트다 (`agent:security-reviewer` 꼴) |
 
 ### `start` — Example Request & Response
 
@@ -935,7 +935,7 @@ ges_sync({ targetPath: "/other-repo/.gestalt-kb" })
 | `summary` | `string` | N | — | `review` 판정 요약 |
 | `deleteBranch` | `boolean` | N | `false` | `merge` 후 head 브랜치 삭제 여부 |
 | `reason` | `string` | N | — | `close`하는 이유 |
-| `force` | `boolean` | N | `false` | `checkout_remove`에서 지킬 변경이 있어도 지운다 |
+| `force` | `boolean` | N | `false` | `checkout_remove`에서 커밋 안 된 변경이 남아 있어도 지운다 |
 
 ### 오류
 
