@@ -22,6 +22,43 @@ export function unresolvedComments(pr: PullRequest): Comment[] {
   return pr.comments.filter((c) => !c.resolved);
 }
 
+/** 스레드 하나. 닫힌 것까지 포함한다 */
+export interface Thread {
+  /** 이 스레드의 코멘트 전부. 붙은 순서 그대로다 */
+  all: Comment[];
+  /** 그중 안 닫힌 것만. 전부 닫혔으면 빈 배열이다 */
+  unresolved: Comment[];
+  /**
+   * 표면이 한 줄로 접을 때 보여줄 코멘트. 안 닫힌 것 중 첫 번째다.
+   * 전부 닫혔으면 맨 처음 코멘트가 온다.
+   */
+  head: Comment;
+  /** 안 닫힌 코멘트가 하나라도 있는가. 스레드가 열렸는지를 이 값으로 가른다 */
+  open: boolean;
+}
+
+/**
+ * 코멘트를 스레드로 묶는다. 닫힌 스레드도 함께 준다.
+ *
+ * 스레드를 묶는 규칙과 열렸는지 가르는 규칙이 여기 하나뿐이어야 한다. 웹 상세
+ * 페이지가 이걸 안 거치고 스레드를 따로 묶은 뒤 첫 코멘트의 resolved로 배지를
+ * 찍던 자리가 있었다. 뿌리가 닫히고 답글이 열린 스레드에서 같은 화면의 목록은
+ * "미해결 1"을, 상세는 "해결"을 찍었다.
+ */
+export function threadsOf(pr: PullRequest): Thread[] {
+  const byThread = new Map<string, Comment[]>();
+  for (const comment of pr.comments) {
+    const bucket = byThread.get(comment.threadId);
+    if (bucket) bucket.push(comment);
+    else byThread.set(comment.threadId, [comment]);
+  }
+
+  return [...byThread.values()].map((all) => {
+    const unresolved = all.filter((c) => !c.resolved);
+    return { all, unresolved, head: unresolved[0] ?? all[0]!, open: unresolved.length > 0 };
+  });
+}
+
 /** 안 닫힌 스레드 하나 */
 export interface OpenThread {
   /**
@@ -33,22 +70,10 @@ export interface OpenThread {
   comments: Comment[];
 }
 
-/**
- * 아직 안 닫힌 스레드.
- *
- * 코멘트가 아니라 스레드로 묶는다. 코멘트를 세면 답글이 달릴수록 수가 늘어난다.
- * 리뷰 코멘트 두 개에 답을 달았더니 "미해결 4"가 되는 일이 실제로 났다.
- * 주고받을수록 나빠 보이는 신호는 티키타카를 말린다.
- */
 export function openThreads(pr: PullRequest): OpenThread[] {
-  const byThread = new Map<string, Comment[]>();
-  for (const comment of unresolvedComments(pr)) {
-    const bucket = byThread.get(comment.threadId);
-    if (bucket) bucket.push(comment);
-    else byThread.set(comment.threadId, [comment]);
-  }
-
-  return [...byThread.values()].map((comments) => ({ root: comments[0]!, comments }));
+  return threadsOf(pr)
+    .filter((t) => t.open)
+    .map((t) => ({ root: t.head, comments: t.unresolved }));
 }
 
 /** 안 닫힌 스레드 수. 표면의 "미해결 N"이 전부 이 값이다 */

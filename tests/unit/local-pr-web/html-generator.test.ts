@@ -79,7 +79,7 @@ function unresolvedCell(html: string): string | null {
 describe('generatePrListHtml', () => {
   it('PR이 없으면 빈 상태 문구를 보여준다', () => {
     const html = generatePrListHtml([]);
-    expect(html).toContain('PR이 없다');
+    expect(html).toContain('아직 PR이 없어요');
   });
 
   it('제목과 상태, 라운드, 미해결 코멘트 수를 표에 담는다', () => {
@@ -345,5 +345,87 @@ describe('generatePrDetailHtml', () => {
     const embedded = html.slice(html.indexOf('var diffString ='));
     expect(embedded).toContain('diff --git a/a b/a');
     expect(embedded).not.toContain('diff --git a/b b/b');
+  });
+});
+
+/**
+ * 목록과 상세가 같은 스레드를 두고 다른 말을 하지 않는가.
+ *
+ * 상세가 policy를 안 거치고 스레드를 따로 묶은 뒤 첫 코멘트의 resolved로 배지를
+ * 찍던 자리다. 뿌리가 닫히고 답글이 열린 스레드에서 갈렸다. 그 갈래는 코멘트가
+ * 둘 이상이고 앞쪽만 닫혀 있어야 열린다 — 픽스처를 그렇게 세운다.
+ */
+describe('목록과 상세의 스레드 상태', () => {
+  /** 뿌리는 닫혔고 답글은 열린 스레드 하나 */
+  function rootResolvedReplyOpen(): PullRequest {
+    return makePr({
+      comments: [
+        {
+          id: 'c1',
+          threadId: 't1',
+          author: 'r',
+          path: 'a.txt',
+          line: 2,
+          body: '여기요',
+          resolved: true,
+          resolvedBy: 'r',
+          replyTo: null,
+          createdAt: '2026-08-01T00:00:00.000Z',
+        },
+        {
+          id: 'c2',
+          threadId: 't1',
+          author: 'w',
+          path: 'a.txt',
+          line: null,
+          body: '다시 열어요',
+          resolved: false,
+          resolvedBy: null,
+          replyTo: 'c1',
+          createdAt: '2026-08-01T00:00:01.000Z',
+        },
+      ],
+    });
+  }
+
+  it('뿌리가 닫히고 답글이 열렸으면 상세도 열림으로 본다', () => {
+    const html = generatePrDetailHtml(rootResolvedReplyOpen(), '');
+
+    expect(html).toContain('열림');
+    expect(html).not.toContain('— 해결');
+  });
+
+  it('같은 PR을 목록이 미해결 1로 센다', () => {
+    const pr = rootResolvedReplyOpen();
+
+    expect(unresolvedCell(generatePrListHtml([pr]))).toBe('1');
+  });
+
+  it('스레드가 통째로 닫히면 상세가 해결로 본다', () => {
+    const pr = rootResolvedReplyOpen();
+    pr.comments[1]!.resolved = true;
+
+    const html = generatePrDetailHtml(pr, '');
+
+    expect(html).toContain('— 해결');
+    expect(unresolvedCell(generatePrListHtml([pr]))).toBe('0');
+  });
+
+  it('자리 표시는 스레드가 처음 붙은 코멘트에서 온다', () => {
+    // 답글은 라인을 안 갖는다. 마지막 코멘트에서 가져오면 어느 줄에 붙은 스레드인지
+    // 화면에서 사라진다
+    const html = generatePrDetailHtml(rootResolvedReplyOpen(), '');
+
+    expect(html).toContain('a.txt:2');
+  });
+
+  it('닫힌 스레드의 코멘트도 상세에 보인다', () => {
+    const pr = rootResolvedReplyOpen();
+    pr.comments[1]!.resolved = true;
+
+    const html = generatePrDetailHtml(pr, '');
+
+    expect(html).toContain('여기요');
+    expect(html).toContain('다시 열어요');
   });
 });
