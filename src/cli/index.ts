@@ -19,11 +19,13 @@ import {
   prDiffCommand,
   prListCommand,
   prMergeCommand,
+  prReposCommand,
   prResolveCommand,
   prReviewCommand,
   prPruneCommand,
   prServeCommand,
   prShowCommand,
+  prUnregisterCommand,
   prUpdateCommand,
 } from './commands/pr.js';
 
@@ -137,7 +139,7 @@ export function createCli(): Command {
     .action((id, o, cmd) => prDiffCommand({ ...inherited(cmd), ...o, id }));
 
   pr.command('checkout <id>')
-    .description('PR head를 임시 워크트리로 떼어낸다 — 뮤테이션 검증용')
+    .description('PR head를 임시 워크트리로 떼어낸다 — 코드를 일부러 깨고 돌려볼 자리')
     .option('--remove', '떼어둔 워크트리를 지운다')
     .option('--force', '--remove와 함께: 커밋 안 된 변경이 있어도 지운다')
     .action((id, o, cmd) => prCheckoutCommand({ ...inherited(cmd), ...o, id }));
@@ -202,6 +204,14 @@ export function createCli(): Command {
       };
       await prServeCommand({ ...opts, noBrowser: opts.browser === false });
     });
+
+  pr.command('repos')
+    .description('웹 UI가 열어 주는 레포 목록')
+    .action((o, cmd) => prReposCommand({ ...inherited(cmd), ...o }));
+
+  pr.command('unregister <key>')
+    .description('그 레포를 웹 UI 목록에서 뺀다. 레포 자체는 안 건드린다')
+    .action((key, o, cmd) => prUnregisterCommand({ ...inherited(cmd), ...o, key }));
 
   program
     .command('humanize-check')

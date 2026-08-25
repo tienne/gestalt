@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path';
 import { EventStore } from '../../../src/events/store.js';
 import { LocalPrEngine, PrError } from '../../../src/local-pr/engine.js';
 import * as git from '../../../src/local-pr/git.js';
+import { prCheckoutCommand } from '../../../src/cli/commands/pr.js';
 
 /**
  * `pr checkout`은 진짜 워크트리를 붙였다 뗀다. 흉내로는 안 잡히는 자리라 실제 git
@@ -235,8 +236,9 @@ describe('PR head 체크아웃', () => {
       engine.removeCheckout(pr.id, { force: true });
     }
   });
-  // ─── 2라운드 리뷰가 잡은 자리들 ────────────────────────────
 
+  // 아래는 지우는 쪽이 무엇을 지키는지 본다. 리뷰어가 그 자리에서 코드를 일부러 깨고
+  // 돌려보는 중이면, 커밋 안 한 변경과 어느 ref도 안 품은 커밋이 지우기 한 번에 사라진다
   it('떼어낸 자리 안에서 지워도 실패로 보고하지 않는다', () => {
     const pr = engine.create({ title: 't', author: 'a' });
     const checkout = engine.checkout(pr.id);
@@ -417,5 +419,87 @@ describe('PR head 체크아웃', () => {
     // 이 값이 재귀 삭제 경로와 ref 이름으로 그대로 이어 붙는다
     expect(() => git.prCheckoutPath(repo, '../../etc')).toThrow();
     expect(() => git.prCheckoutPath(repo, 'abcd1234')).not.toThrow();
+  });
+});
+
+/**
+ * `pr checkout --remove`가 status를 종료 코드로 옮기는 자리.
+ *
+ * 엔진의 `removeCheckout`은 갈래마다 테스트가 있지만 CLI가 그 값을 어느 종료 코드로
+ * 옮기는지는 안 걸렸다. 조건을 `!== 'removed'`로 좁혀 `absent`가 4를 뱉게 만들어도
+ * 게이트가 전부 통과했다. 그러면 `--remove`를 두 번 부르는 `set -e` 스크립트가 두
+ * 번째에 죽는다 — 지울 자리가 없는 건 실패가 아니라 목표가 이미 이뤄진 상태다.
+ *
+ * `process.exit`을 spy로 잡아 종료 코드를 그대로 본다.
+ */
+describe('gestalt pr checkout --remove 종료 코드', () => {
+  let repo: string;
+  let engine: LocalPrEngine;
+  let exits: number[];
+
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), 'gestalt-checkout-exit-'));
+    run(repo, ['init', '-q']);
+    run(repo, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+    run(repo, ['config', 'user.email', 't@e.st']);
+    run(repo, ['config', 'user.name', 'test']);
+    writeFileSync(join(repo, 'a.txt'), 'line1\n');
+    run(repo, ['add', '-A']);
+    run(repo, ['commit', '-q', '-m', 'init']);
+    run(repo, ['checkout', '-q', '-b', 'feat/x']);
+    writeFileSync(join(repo, 'a.txt'), 'line1\nline2\n');
+    run(repo, ['commit', '-q', '-am', '두 번째 줄']);
+
+    // CLI가 자기 엔진을 새로 여므로 저장소도 그 레포의 기본 자리를 쓴다.
+    // 테스트 전용 store를 끼우면 CLI가 그 PR을 못 본다
+    engine = new LocalPrEngine(repo);
+
+    exits = [];
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    // 진짜로 끝내면 테스트 러너가 죽는다. 코드만 받아 적는다
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      exits.push(code ?? 0);
+      return undefined as never;
+    }) as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    engine.dispose();
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('지울 자리가 없으면 종료 코드를 안 건드린다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+
+    // `--remove`를 두 번 부르는 `set -e` 스크립트가 두 번째에 죽으면 안 된다
+    prCheckoutCommand({ id: pr.id, repoRoot: repo, remove: true });
+
+    expect(exits).toEqual([]);
+  });
+
+  it('커밋 안 된 변경이 있어 안 지웠으면 4로 끝낸다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+    const checkout = engine.checkout(pr.id);
+    writeFileSync(join(checkout.path, 'a.txt'), '일부러 깬 코드\n');
+
+    try {
+      prCheckoutCommand({ id: pr.id, repoRoot: repo, remove: true });
+
+      // 에이전트가 stdout을 안 읽고도 갈래를 탄다
+      expect(exits).toEqual([4]);
+    } finally {
+      engine.removeCheckout(pr.id, { force: true });
+    }
+  });
+
+  it('제대로 지웠으면 종료 코드를 안 건드린다', () => {
+    const pr = engine.create({ title: 't', author: 'a' });
+    engine.checkout(pr.id);
+
+    prCheckoutCommand({ id: pr.id, repoRoot: repo, remove: true });
+
+    expect(exits).toEqual([]);
   });
 });

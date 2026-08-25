@@ -10,12 +10,68 @@ import { dirname, join, resolve } from 'node:path';
  * 브랜치 이름에 따옴표와 공백이 섞여도 그대로 간다.
  */
 
+/**
+ * 대상 레포의 config가 시키는 외부 명령을 끈다.
+ *
+ * `core.fsmonitor`에 적힌 값은 git이 그대로 실행한다. 그런데 이 모듈이 도는 자리
+ * 중에는 `pr serve`가 띄운 인증 없는 웹 서버의 요청 경로가 있다. 그 서버가 여는
+ * 레포 목록에는 사용자가 한 번이라도 serve를 돌린 남의 클론이 함께 들어 있다.
+ * `.git/config`는 에이전트가 쓸 수 있는 파일이라, 막지 않으면 HTTP GET 한 번이
+ * 그 config에 적힌 명령을 실행시킨다.
+ *
+ * 상태를 바꾸는 명령에도 함께 건다. fsmonitor는 파일 변경을 캐시로 앞당기는
+ * 성능 장치일 뿐이라 꺼도 결과가 안 달라진다 — 큰 레포에서 `status`가 느려질 뿐이다.
+ * 대신 훅이나 머지 드라이버는 안 건드린다. 그쪽은 사람이 직접 부른 머지에서
+ * 돌라고 있는 것이다. 웹 요청 경로에는 안 실린다.
+ *
+ * diff 쪽 벡터(`diff.external`, `diff.<드라이버>.textconv`)는 여기가 아니라
+ * diff 명령의 `--no-ext-diff --no-textconv`로 막는다. `-c diff.external=`은 빈
+ * 문자열을 실행 파일로 알아들어서 `cannot run : No such file or directory`로
+ * 죽는다 — 막기는 하지만 diff 자체가 안 나온다.
+ */
+const NO_CONFIG_EXEC = ['-c', 'core.fsmonitor='];
+
+/** diff 계열이 config에 적힌 외부 필터를 안 타게 하는 스위치 */
+const NO_DIFF_FILTERS = ['--no-ext-diff', '--no-textconv'];
+
 function git(repoRoot: string, args: string[]): string {
-  return execFileSync('git', args, {
+  return execFileSync('git', [...NO_CONFIG_EXEC, ...args], {
     cwd: repoRoot,
     encoding: 'utf-8',
     maxBuffer: 64 * 1024 * 1024,
   }).trim();
+}
+
+/**
+ * rev와 ref 이름에 `-`로 시작하는 값을 막는다.
+ *
+ * execFileSync라 셸 주입은 없지만 git은 `-`로 시작하는 인자를 옵션으로 읽는다.
+ * 이 값들의 출처는 MCP `ges_pr`의 `base`와 `head`이고 거기 스키마는 아직
+ * `z.string()`뿐이다. 서브커맨드마다 `--`를 받는지가 갈려서 — `rev-parse --verify`는
+ * `--` 뒤를 경로로 읽어 `Needed a single revision`으로 죽는다 — 옵션 종결자만으로는
+ * 다 못 막는다. 값 자체를 여기서 거른다.
+ */
+function assertRev(value: string, what: string): void {
+  if (value === '') throw new Error(`${what}가 비었다`);
+  if (value.startsWith('-')) throw new Error(`${what}는 -로 시작할 수 없다: ${value}`);
+}
+
+/**
+ * `<base>..<head>` 범위를 만들기 전에 양쪽을 거른다.
+ *
+ * 이 자리에는 `--`가 이미 붙어 있는데 그게 안 막는다. git은 첫 비옵션 인자를 만나기
+ * 전까지 옵션을 읽으므로, 범위 문자열이 `-`로 시작하면 그 뒤의 `--`가 손을 못 쓴다.
+ * `git diff "--output=/tmp/X..HEAD" --`로 임의 파일 쓰기가 실제로 된다.
+ *
+ * 지금 부르는 쪽이 넘기는 값은 전부 `resolveSha`가 뱉은 40자 sha라 실전 경로에서는
+ * 안 걸린다. 그래도 여기서 다시 막는 이유는 `assertPrId`가 든 것과 같다 — `index.ts`가
+ * 이 모듈을 통째로 내보내므로 엔진을 안 거치고 직접 부르는 경로가 열려 있다. 값의
+ * 출처인 `reviews.db`는 워크트리 여럿이 함께 쓰는 로컬 파일이다. diff 세 함수는 그중
+ * 인증 없는 웹 서버가 매 요청마다 지나는 자리다.
+ */
+function assertShaPair(baseSha: string, headSha: string): void {
+  assertRev(baseSha, 'base sha');
+  assertRev(headSha, 'head sha');
 }
 
 /**
@@ -26,19 +82,42 @@ function git(repoRoot: string, args: string[]): string {
  */
 const commonDirCache = new Map<string, string>();
 
+/**
+ * 캐시 상한. MCP 서버는 한 번 떠서 오래 사는데 `repoRoot`는 요청마다 다를 수 있어,
+ * 상한이 없으면 항목이 단조 증가한다. 실제로 오가는 레포는 한 자릿수라 넉넉하다.
+ */
+const COMMON_DIR_CACHE_MAX = 64;
+
 export function gitCommonDir(repoRoot: string): string {
+  // 키를 실경로로 맞춘다. 같은 자리를 심볼릭 링크로도 부르고 실경로로도 부르면
+  // 문자열이 갈려 같은 레포가 캐시에 두 줄로 앉는다
+  let key: string;
+  try {
+    key = realpathSync(repoRoot);
+  } catch {
+    key = resolve(repoRoot);
+  }
+
   // 프로세스 수명 동안 repoRoot당 불변이다. 캐시가 없으면 checkout 한 번에 이 값을
   // 구하는 git 프로세스가 예닐곱 번 뜬다 — spawn당 수십 ms라 그대로 쌓인다
-  let hit = commonDirCache.get(repoRoot);
-  if (hit === undefined) {
-    const raw = resolve(repoRoot, git(repoRoot, ['rev-parse', '--git-common-dir']));
-    // 심볼릭 링크를 푼다. 본체에서는 상대 경로(.git)로, 워크트리에서는 절대 경로로
-    // 나오는데 macOS의 /tmp처럼 링크를 타는 자리에서는 그 둘이 다른 문자열이 된다.
-    // 이 값이 저장소 경로와 레포 키의 기준이라 갈리면 같은 레포가 둘로 보인다
-    hit = realpathSync(raw);
-    commonDirCache.set(repoRoot, hit);
+  const hit = commonDirCache.get(key);
+  if (hit !== undefined) return hit;
+
+  const raw = resolve(repoRoot, git(repoRoot, ['rev-parse', '--git-common-dir']));
+  // 심볼릭 링크를 푼다. 본체에서는 상대 경로(.git)로, 워크트리에서는 절대 경로로
+  // 나오는데 macOS의 /tmp처럼 링크를 타는 자리에서는 그 둘이 다른 문자열이 된다.
+  // 이 값이 저장소 경로와 레포 키의 기준이라 갈리면 같은 레포가 둘로 보인다
+  const common = realpathSync(raw);
+
+  // 가장 오래된 항목부터 버린다. Map은 넣은 순서를 지키므로 첫 키가 그 자리다.
+  // 레포가 옮겨졌거나 `.git`이 갈린 경우에 낡은 값을 영영 붙들지 않는 효과도 있다
+  while (commonDirCache.size >= COMMON_DIR_CACHE_MAX) {
+    const oldest = commonDirCache.keys().next();
+    if (oldest.done === true) break;
+    commonDirCache.delete(oldest.value);
   }
-  return hit;
+  commonDirCache.set(key, common);
+  return common;
 }
 
 /**
@@ -62,12 +141,15 @@ export const PR_REF_ROOT = 'refs/gestalt/pr';
 export const CHECKOUT_REF_ROOT = 'refs/gestalt/pr-checkout';
 
 export function resolveSha(repoRoot: string, rev: string): string {
+  assertRev(rev, 'rev');
   return git(repoRoot, ['rev-parse', '--verify', `${rev}^{commit}`]);
 }
 
 /** 두 갈래가 갈라진 지점. PR의 base가 된다 */
 export function mergeBase(repoRoot: string, base: string, head: string): string {
-  return git(repoRoot, ['merge-base', base, head]);
+  assertRev(base, 'base');
+  assertRev(head, 'head');
+  return git(repoRoot, ['merge-base', '--', base, head]);
 }
 
 /** 지금 올라타 있는 브랜치 이름. detached HEAD면 null */
@@ -84,8 +166,8 @@ export function currentBranch(repoRoot: string): string | null {
  * 수거해 간 뒤 PR이 빈 껍데기가 된다.
  */
 export function pinRefs(repoRoot: string, prId: string, baseSha: string, headSha: string): void {
-  git(repoRoot, ['update-ref', `${PR_REF_ROOT}/${prId}/base`, baseSha]);
-  git(repoRoot, ['update-ref', `${PR_REF_ROOT}/${prId}/head`, headSha]);
+  git(repoRoot, ['update-ref', '--', `${PR_REF_ROOT}/${prId}/base`, baseSha]);
+  git(repoRoot, ['update-ref', '--', `${PR_REF_ROOT}/${prId}/head`, headSha]);
 }
 
 /**
@@ -99,23 +181,39 @@ export function pinRefs(repoRoot: string, prId: string, baseSha: string, headSha
  */
 export function unpinRefs(repoRoot: string, prId: string): void {
   try {
-    git(repoRoot, ['update-ref', '-d', `${PR_REF_ROOT}/${prId}/base`]);
+    git(repoRoot, ['update-ref', '-d', '--', `${PR_REF_ROOT}/${prId}/base`]);
   } catch {
     // 이미 없으면 지울 것도 없다
   }
 }
 
+/**
+ * diff 계열은 셋 다 config에 적힌 외부 필터를 끄고 부른다.
+ *
+ * `diff.external`과 `diff.<드라이버>.textconv`는 git이 실행하는 외부 명령이다.
+ * 이 셋은 인증 없는 웹 서버의 요청 경로에서 돈다. 켜져 있으면 출력이 통합 diff가
+ * 아니게 되는데, 이 값을 읽는 쪽(웹 UI, 리뷰 에이전트)은 전부 통합 diff를 기대한다. 끄는 게 보안이자 정확성이다.
+ */
 export function diff(repoRoot: string, baseSha: string, headSha: string): string {
-  return git(repoRoot, ['diff', `${baseSha}..${headSha}`]);
+  assertShaPair(baseSha, headSha);
+  return git(repoRoot, ['diff', ...NO_DIFF_FILTERS, `${baseSha}..${headSha}`, '--']);
 }
 
 export function changedFiles(repoRoot: string, baseSha: string, headSha: string): string[] {
-  const out = git(repoRoot, ['diff', '--name-only', `${baseSha}..${headSha}`]);
+  assertShaPair(baseSha, headSha);
+  const out = git(repoRoot, [
+    'diff',
+    ...NO_DIFF_FILTERS,
+    '--name-only',
+    `${baseSha}..${headSha}`,
+    '--',
+  ]);
   return out ? out.split('\n') : [];
 }
 
 export function diffStat(repoRoot: string, baseSha: string, headSha: string): string {
-  return git(repoRoot, ['diff', '--stat', `${baseSha}..${headSha}`]);
+  assertShaPair(baseSha, headSha);
+  return git(repoRoot, ['diff', ...NO_DIFF_FILTERS, '--stat', `${baseSha}..${headSha}`, '--']);
 }
 
 export interface MergeResult {
@@ -148,9 +246,18 @@ export function worktrees(repoRoot: string): WorktreeEntry[] {
   return entries;
 }
 
-/** 이 브랜치를 올라타고 있는 워크트리. 없으면 null */
-export function worktreeOn(repoRoot: string, branch: string): WorktreeEntry | null {
-  return worktrees(repoRoot).find((w) => w.branch === branch) ?? null;
+/**
+ * 이 브랜치를 올라타고 있는 워크트리. 없으면 null.
+ *
+ * `known`을 주면 목록을 다시 안 구한다. `worktree list`는 프로세스를 하나 띄우는데
+ * 체크아웃 한 번에 이 목록을 보는 자리가 여럿이라 진입점에서 한 번 구해 돌린다.
+ */
+export function worktreeOn(
+  repoRoot: string,
+  branch: string,
+  known?: WorktreeEntry[],
+): WorktreeEntry | null {
+  return (known ?? worktrees(repoRoot)).find((w) => w.branch === branch) ?? null;
 }
 
 /** 심볼릭 링크를 풀어 같은 자리인지 본다 */
@@ -188,6 +295,8 @@ export function mergeIntoBase(
   input: { prId: string; baseRef: string; headSha: string; title: string },
 ): MergeResult {
   const { prId, baseRef, headSha, title } = input;
+  assertRev(baseRef, 'base 브랜치');
+  assertRev(headSha, 'head sha');
   const message = `Merge local PR ${prId}: ${title}`;
 
   const holder = worktreeOn(repoRoot, baseRef);
@@ -231,7 +340,7 @@ export function mergeIntoBase(
     const mergeSha = resolveSha(scratch, 'HEAD');
 
     // 옛 값을 같이 넘긴다. 그 사이 base가 움직였으면 여기서 거부된다
-    git(repoRoot, ['update-ref', `refs/heads/${baseRef}`, mergeSha, before]);
+    git(repoRoot, ['update-ref', '--', `refs/heads/${baseRef}`, mergeSha, before]);
 
     return { mergeSha, viaWorktree: true };
   } finally {
@@ -245,13 +354,14 @@ export function mergeIntoBase(
 }
 
 export function deleteBranch(repoRoot: string, branch: string): void {
-  git(repoRoot, ['branch', '-D', branch]);
+  assertRev(branch, '브랜치 이름');
+  git(repoRoot, ['branch', '-D', '--', branch]);
 }
 
 /** 이 커밋이 아직 살아 있는가. ref가 안 붙었으면 gc가 가져갈 수 있다 */
 export function commitExists(repoRoot: string, sha: string): boolean {
   try {
-    git(repoRoot, ['cat-file', '-e', `${sha}^{commit}`]);
+    git(repoRoot, ['cat-file', '-e', '--', `${sha}^{commit}`]);
     return true;
   } catch {
     return false;
@@ -302,10 +412,18 @@ function assertPrId(prId: string): void {
   if (!PR_ID.test(prId)) throw new Error(`PR id 형식이 아니다: ${prId}`);
 }
 
-/** 이 PR이 떼어져 등록돼 있는 자리. 없으면 null */
-function registeredCheckout(repoRoot: string, prId: string): string | null {
+/**
+ * 이 PR이 떼어져 등록돼 있는 자리. 없으면 null.
+ *
+ * `known`을 주면 `worktree list` 스폰을 아낀다 — `worktreeOn`과 같은 이유다.
+ */
+function registeredCheckout(
+  repoRoot: string,
+  prId: string,
+  known?: WorktreeEntry[],
+): string | null {
   const canonical = prCheckoutPath(repoRoot, prId);
-  return worktrees(repoRoot).some((w) => samePath(w.path, canonical)) ? canonical : null;
+  return (known ?? worktrees(repoRoot)).some((w) => samePath(w.path, canonical)) ? canonical : null;
 }
 
 /**
@@ -323,19 +441,21 @@ function gitAnchor(repoRoot: string): string {
 }
 
 /**
- * 그 자리가 아직 워크트리 노릇을 하는가. 등록만 남고 속이 깨진 경우를 가른다.
+ * 그 자리가 아직 워크트리 노릇을 하면 거기 HEAD를, 아니면 null을 준다.
  *
  * `.git` 링크 파일이 있는지를 먼저 본다. 이 경로는 공용 git 디렉토리 아래라 링크가
  * 깨져도 git이 상위를 훑어 레포를 찾아낸다 — `rev-parse`만으로는 성한 워크트리와
  * 껍데기만 남은 자리를 못 가른다.
+ *
+ * 성했는지만 답하고 sha를 버리면 부르는 쪽이 `rev-parse`를 한 번 더 돌린다. 같은
+ * 값을 구하는 프로세스를 두 번 띄우게 되므로 여기서 함께 돌려준다.
  */
-function isUsable(path: string): boolean {
-  if (!existsSync(join(path, '.git'))) return false;
+function headOf(path: string): string | null {
+  if (!existsSync(join(path, '.git'))) return null;
   try {
-    resolveSha(path, 'HEAD');
-    return true;
+    return resolveSha(path, 'HEAD');
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -350,14 +470,18 @@ function anchoredByRef(repoRoot: string, sha: string): boolean {
 function scrub(repoRoot: string, path: string): void {
   const anchor = gitAnchor(repoRoot);
 
+  let removed = true;
   try {
     git(anchor, ['worktree', 'remove', '--force', path]);
   } catch {
     // 등록이 없거나 이미 깨졌다. 아래에서 손으로 치운다
+    removed = false;
   }
 
   rmSync(path, { recursive: true, force: true });
-  git(anchor, ['worktree', 'prune']);
+  // `worktree remove`가 통했으면 등록은 이미 그 명령이 걷어갔다. prune은 손으로
+  // 치운 갈래에서만 필요하다 — 늘 부르면 프로세스가 한 번 더 뜬다
+  if (!removed) git(anchor, ['worktree', 'prune']);
 
   // 해시 칸에는 이 레포의 PR 자리만 들어간다. 비었으면 같이 치운다 — 안 그러면
   // 레포마다 빈 디렉토리가 tmp에 쌓인다. 다른 PR이 남아 있으면 rmdir이 거부한다
@@ -378,16 +502,20 @@ function scrub(repoRoot: string, path: string): void {
  * 부딪힌다. mergeIntoBase가 임시 워크트리에서 같은 선택을 한 이유와 같다.
  *
  * 같은 PR을 두 번 부르면 있는 워크트리를 그대로 돌려준다. 리뷰어가 거기서 하던
- * 작업을 날리지 않는다. TMPDIR가 바뀌어 계산값이 달라져도 등록된 자리를 되짚어
- * 돌려주므로 한 PR에 워크트리가 둘 생기지 않는다.
+ * 작업을 날리지 않는다. 그 자리가 이미 워크트리로 등록돼 있는지를 먼저 본다. 등록만
+ * 남고 속이 깨졌으면 치운 뒤 다시 뗀다. 어느 갈래로 가든 한 PR에 워크트리는 하나다.
  */
 export function checkoutPrHead(repoRoot: string, prId: string, headSha: string): PrCheckout {
-  const existing = registeredCheckout(repoRoot, prId);
+  assertRev(headSha, 'head sha');
+
+  // 목록을 한 번만 구한다. `worktree list`는 프로세스를 띄우는 호출이다
+  const existing = registeredCheckout(repoRoot, prId, worktrees(repoRoot));
 
   // 리뷰어가 거기서 커밋을 얹었으면 HEAD가 PR head에서 옮겨가 있다. 인자로 받은
   // 값이 아니라 그 자리의 실제 HEAD를 돌려준다
-  if (existing && isUsable(existing)) {
-    return { path: existing, created: false, headSha: resolveSha(existing, 'HEAD') };
+  const liveHead = existing === null ? null : headOf(existing);
+  if (existing && liveHead !== null) {
+    return { path: existing, created: false, headSha: liveHead };
   }
 
   const path = prCheckoutPath(repoRoot, prId);
@@ -467,7 +595,7 @@ export function removePrCheckout(
   prId: string,
   options: { force?: boolean; headSha?: string } = {},
 ): CheckoutRemoval {
-  const path = registeredCheckout(repoRoot, prId);
+  const path = registeredCheckout(repoRoot, prId, worktrees(repoRoot));
 
   if (!path) {
     const guess = prCheckoutPath(repoRoot, prId);
@@ -498,7 +626,8 @@ export function removePrCheckout(
   }
 
   // 속이 깨진 자리는 지킬 변경도 읽을 수 없다. 흔적만 치운다
-  if (!isUsable(path)) {
+  const head = headOf(path);
+  if (head === null) {
     scrub(repoRoot, path);
     return { path, removed: true, status: 'removed', reason: null, savedRef: null };
   }
@@ -514,7 +643,6 @@ export function removePrCheckout(
   }
 
   // PR head에서 옮겨갔고 어느 ref도 안 품은 HEAD. 지우면 되짚을 sha를 아는 데가 없다
-  const head = resolveSha(path, 'HEAD');
   const stranded =
     options.headSha !== undefined && head !== options.headSha && !anchoredByRef(repoRoot, head);
 
@@ -529,7 +657,7 @@ export function removePrCheckout(
   }
 
   const savedRef = stranded ? strandedRef(prId, head) : null;
-  if (savedRef) git(repoRoot, ['update-ref', savedRef, head]);
+  if (savedRef) git(repoRoot, ['update-ref', '--', savedRef, head]);
 
   scrub(repoRoot, path);
   return { path, removed: true, status: 'removed', reason: null, savedRef };
@@ -549,7 +677,9 @@ export function refsUnder(repoRoot: string, root: string): string[] {
 /** 이 커밋이 저 갈래의 이력에 들어 있는가. 들어 있으면 ref를 놓아도 안 사라진다 */
 export function isAncestor(repoRoot: string, sha: string, rev: string): boolean {
   try {
-    git(repoRoot, ['merge-base', '--is-ancestor', sha, rev]);
+    assertRev(sha, 'sha');
+    assertRev(rev, 'rev');
+    git(repoRoot, ['merge-base', '--is-ancestor', '--', sha, rev]);
     return true;
   } catch {
     return false;
@@ -559,7 +689,7 @@ export function isAncestor(repoRoot: string, sha: string, rev: string): boolean 
 /** ref를 놓는다. 이미 없으면 놓을 것도 없다 */
 export function deleteRef(repoRoot: string, ref: string): void {
   try {
-    git(repoRoot, ['update-ref', '-d', ref]);
+    git(repoRoot, ['update-ref', '-d', '--', ref]);
   } catch {
     // 이미 없다
   }

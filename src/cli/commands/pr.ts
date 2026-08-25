@@ -7,6 +7,7 @@ import {
   unresolvedComments,
   unresolvedCount,
 } from '../../local-pr/policy.js';
+import { listRepos, repoKey, unregisterRepo } from '../../local-pr/registry.js';
 import type { PullRequest, ReviewVerdict } from '../../local-pr/types.js';
 import { PrWebEngine } from '../../local-pr-web/engine.js';
 
@@ -62,12 +63,15 @@ function run(fn: () => void): void {
   try {
     fn();
   } catch (e) {
+    // `process.exit`이 여기서 흐름을 끊는 건 런타임의 성질이지 이 갈래가 한 약속이
+    // 아니다. 갈라 두지 않으면 테스트가 exit을 가로챌 때 두 번 나간다
     if (e instanceof PrError) {
       console.error(e.message);
       process.exit(e.exitCode);
+    } else {
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exit(1);
     }
-    console.error(e instanceof Error ? e.message : String(e));
-    process.exit(1);
   }
 }
 
@@ -118,7 +122,7 @@ export function prShowCommand(opts: PrCommonOptions & { id: string }): void {
     const engine = engineOf(opts);
     try {
       const pr = engine.get(opts.id);
-      if (!pr) throw new PrError(`PR을 못 찾았다: ${opts.id}`, 3);
+      if (!pr) throw new PrError(`PR을 못 찾았어요: ${opts.id}`, 3);
 
       emit(pr, opts.json, () => {
         console.log(summarize(pr));
@@ -251,7 +255,7 @@ export function prCommentsCommand(
     const engine = engineOf(opts);
     try {
       const pr = engine.get(opts.id);
-      if (!pr) throw new PrError(`PR을 못 찾았다: ${opts.id}`, 3);
+      if (!pr) throw new PrError(`PR을 못 찾았어요: ${opts.id}`, 3);
 
       const comments = opts.unresolved ? unresolvedComments(pr) : pr.comments;
       emit(comments, opts.json, () => {
@@ -387,11 +391,58 @@ export function prPruneCommand(
   });
 }
 
+/**
+ * `--repo-root`가 지금 자리와 다른 레포를 가리키면 막는다.
+ *
+ * `pr serve`는 뜨면서 그 경로를 뷰어 목록에 영구히 넣는다. 목록에 넣는 문을 좁게
+ * 둔 근거가 "사람이 그 레포에서 웹 UI를 직접 띄운 순간"인데, `--repo-root`를 그대로
+ * 받으면 그 전제가 깨진다 — 에이전트가 셸로 `pr serve --repo-root /남의/레포
+ * --no-browser`를 한 번 돌리면 그 레포가 인증 없는 뷰어 목록에 들어간다. 이후 전혀
+ * 다른 레포에서 serve를 띄워도 그 레포의 diff와 코멘트가 계속 나간다.
+ *
+ * 그래서 `--repo-root`는 지금 자리와 같은 레포를 가리킬 때만 받는다. 워크트리나
+ * 하위 디렉토리를 가리키는 쓰임은 그대로 살고(키가 같다), 남의 레포를 넣는 쓰임만
+ * 닫힌다. 다른 레포를 보려면 거기서 한 번 띄우면 된다.
+ *
+ * 목록에 넣는 호출 자체는 `local-pr-web/engine.ts`에 있다. 거기서 "cwd만 등록하고
+ * 나머지는 조회만"으로 가르는 게 더 좁은 문이지만 그건 이 파일 밖이다.
+ *
+ * 서버를 안 띄우고 이 판단만 볼 수 있게 내보낸다. 통과 갈래를 `prServeCommand`로
+ * 확인하려면 진짜 서버가 떠 버린다.
+ */
+export function assertServeRoot(repoRoot: string): void {
+  const cwd = process.cwd();
+  if (resolve(repoRoot) === resolve(cwd)) return;
+
+  let same: boolean;
+  try {
+    same = repoKey(repoRoot) === repoKey(cwd);
+  } catch {
+    same = false;
+  }
+  if (same) return;
+
+  throw new PrError(
+    `--repo-root가 지금 자리와 다른 레포를 가리켜요: ${repoRoot}\n` +
+      '웹 UI는 띄우는 순간 그 레포를 인증 없는 뷰어 목록에 넣어요. 그 레포로 옮겨가서 띄워주세요',
+    4,
+  );
+}
+
 /** `gestalt pr serve` — 브라우저에서 PR을 읽는 읽기 전용 웹 UI. 코멘트 작성은 CLI 몫으로 남긴다 */
 export async function prServeCommand(
   opts: PrCommonOptions & { port?: number; noBrowser?: boolean },
 ): Promise<void> {
   const repoRoot = resolve(opts.repoRoot ?? process.cwd());
+  if (opts.repoRoot !== undefined) {
+    try {
+      assertServeRoot(repoRoot);
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exit(e instanceof PrError ? e.exitCode : 1);
+      return;
+    }
+  }
   const engine = new PrWebEngine();
 
   try {
@@ -413,4 +464,34 @@ export async function prServeCommand(
     console.error(`웹 UI를 못 띄웠어요: ${msg}`);
     process.exit(1);
   }
+}
+
+/**
+ * `gestalt pr repos` — 웹 UI가 열어 주는 레포 목록.
+ *
+ * `unregister`가 키를 받으므로 그 키를 어디선가 볼 수 있어야 한다. 무엇이 인증 없는
+ * 뷰어에 실려 있는지 확인하는 자리이기도 하다.
+ */
+export function prReposCommand(opts: PrCommonOptions): void {
+  run(() => {
+    const repos = listRepos();
+    emit(repos, opts.json, () => {
+      if (repos.length === 0) {
+        console.log('등록된 레포가 없어요');
+        return;
+      }
+      for (const r of repos) console.log(`${r.key}  ${r.name}  ${r.path}`);
+    });
+  });
+}
+
+/** `gestalt pr unregister <key>` — 그 레포를 웹 UI 목록에서 뺀다. 레포 자체는 안 건드린다 */
+export function prUnregisterCommand(opts: PrCommonOptions & { key: string }): void {
+  run(() => {
+    const gone = unregisterRepo(opts.key);
+    if (!gone) throw new PrError(`목록에 없는 키예요: ${opts.key}`, 3);
+    emit({ key: opts.key, removed: true }, opts.json, () => {
+      console.log(`목록에서 뺐어요: ${opts.key}`);
+    });
+  });
 }
