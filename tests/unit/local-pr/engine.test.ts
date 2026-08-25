@@ -185,13 +185,26 @@ describe('LocalPrEngine', () => {
   });
 
   describe('마무리', () => {
-    it('승인 없이 머지하고 미해결 코멘트 수를 남긴다', () => {
+    it('승인 없이 머지하고 미해결 스레드 수를 남긴다', () => {
       const pr = engine.create({ title: 't', author: 'a' });
-      engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '안 닫은 코멘트' });
+      const withComment = engine.comment(pr.id, {
+        author: 'r',
+        path: 'a.txt',
+        body: '안 닫은 코멘트',
+      });
+      // 답글을 달아 두 계산을 갈라 놓는다. 코멘트로 세면 2, 스레드로 세면 1이다.
+      // 답글이 없으면 두 값이 같아서 어느 쪽을 쓰는지 이 단언이 못 가른다
+      engine.comment(pr.id, {
+        author: 'a',
+        path: 'a.txt',
+        body: '고쳤다',
+        replyTo: withComment.comments[0]!.id,
+      });
       run(repo, ['checkout', '-q', 'main']);
 
       const merged = engine.merge(pr.id, 'a');
       expect(merged.status).toBe('merged');
+      expect(merged.comments.filter((c) => !c.resolved)).toHaveLength(2);
 
       const events = new EventStore(git.reviewsDbPath(repo)).replay('local-pr', pr.id);
       const mergedEvent = events.find((e) => e.eventType === 'pr.merged');
@@ -301,6 +314,83 @@ describe('LocalPrEngine', () => {
     });
   });
 
+  describe('상태 필터', () => {
+    /** 이름 붙인 브랜치에 커밋 하나를 얹고 PR을 만든다 */
+    function prOn(branch: string): string {
+      run(repo, ['checkout', '-q', '-b', branch, 'main']);
+      writeFileSync(join(repo, `${branch}.txt`), `${branch}\n`);
+      run(repo, ['add', '--', `${branch}.txt`]);
+      run(repo, ['commit', '-q', '-m', branch]);
+      return engine.create({ title: branch, author: 'a' }).id;
+    }
+
+    it('네 상태를 모두 만들고 필터가 전체 목록을 거른 것과 같다', () => {
+      // `list(status)`는 상태만 접는 가벼운 갈래로 후보를 좁힌다. 그 갈래가 통째로
+      // 접는 `fold`와 갈리면 목록과 필터가 어긋난다. 두 계산을 맞대는 자리다
+      const open = prOn('s-open');
+      const requested = prOn('s-requested');
+      engine.review(requested, { reviewer: 'r', verdict: 'request_changes', summary: 'x' });
+      const closed = prOn('s-closed');
+      engine.closePr(closed, 'a', '');
+      const merged = prOn('s-merged');
+      run(repo, ['checkout', '-q', 'main']);
+      engine.merge(merged, 'a');
+
+      // 코멘트를 붙이는 것도 approve 판정도 comment 판정도 상태를 안 옮긴다. 가벼운
+      // 갈래가 그렇게 적어 뒀는데 approve만 밟으면 판정 종류를 안 보고 changes_requested로 옮기는 갈래가
+      // 안 잡힌다. 두 판정을 다 지난다
+      engine.comment(open, { author: 'r', path: 'a.txt', body: '의견' });
+      engine.review(open, { reviewer: 'r', verdict: 'approve', summary: 'ok' });
+      engine.review(open, { reviewer: 'r2', verdict: 'comment', summary: '의견만' });
+
+      const all = engine.list();
+      expect(all).toHaveLength(4);
+
+      for (const status of ['open', 'changes_requested', 'merged', 'closed'] as const) {
+        expect(
+          engine
+            .list(status)
+            .map((pr) => pr.id)
+            .sort(),
+        ).toEqual(
+          all
+            .filter((pr) => pr.status === status)
+            .map((pr) => pr.id)
+            .sort(),
+        );
+      }
+
+      expect(engine.list('open').map((pr) => pr.id)).toEqual([open]);
+      expect(engine.list('changes_requested').map((pr) => pr.id)).toEqual([requested]);
+      expect(engine.countByStatus()).toEqual({
+        open: 1,
+        changes_requested: 1,
+        merged: 1,
+        closed: 1,
+      });
+    });
+
+    it('고쳐서 update하면 다시 open으로 세어진다', () => {
+      // changes_requested를 되돌리는 갈래는 상태를 정하는 이벤트 중 유일하게
+      // 이전 상태를 보고 갈린다. 가벼운 갈래에서 빠뜨리기 쉬운 자리다
+      const id = prOn('s-again');
+      engine.review(id, { reviewer: 'r', verdict: 'request_changes', summary: 'x' });
+      expect(engine.countByStatus().changes_requested).toBe(1);
+
+      writeFileSync(join(repo, 's-again.txt'), '고침\n');
+      run(repo, ['commit', '-q', '-am', '고침']);
+      engine.update(id);
+
+      expect(engine.list('open').map((pr) => pr.id)).toEqual([id]);
+      expect(engine.countByStatus()).toEqual({
+        open: 1,
+        changes_requested: 0,
+        merged: 0,
+        closed: 0,
+      });
+    });
+  });
+
   describe('ref 반납', () => {
     function gestaltRefs(): string[] {
       const out = run(repo, ['for-each-ref', '--format=%(refname)', 'refs/gestalt/']);
@@ -386,6 +476,41 @@ describe('LocalPrEngine', () => {
       expect(gestaltRefs()).not.toContain(saved);
     });
 
+    it('열린 PR의 체크아웃 자국은 --checkouts를 줘도 안 놓는다', () => {
+      // 자국은 어느 이력에도 안 들어간 워크트리 전용 커밋이라 놓으면 영영 사라진다.
+      // 리뷰가 안 끝난 PR에서는 리뷰어가 force로 구조해 둔 그 커밋을 아직 볼 일이 있다.
+      // 플래그만 보고 놓으면 되돌릴 방법이 없다
+      const pr = engine.create({ title: 't', author: 'a' });
+      const checkout = engine.checkout(pr.id);
+      writeFileSync(join(checkout.path, 'a.txt'), '일부러 깬 코드\n');
+      run(checkout.path, ['commit', '-q', '-am', '뮤테이션']);
+      const saved = engine.removeCheckout(pr.id, { force: true }).savedRef!;
+
+      const result = engine.prune({ checkouts: true });
+
+      expect(pr.status).toBe('open');
+      expect(result.released).not.toContain(saved);
+      expect(gestaltRefs()).toContain(saved);
+    });
+
+    it('닫힌 PR의 체크아웃 자국은 --checkouts로 놓는다', () => {
+      // 상태 조건의 다른 쪽 항이다. 머지된 PR만으로는 'merged || closed'에서
+      // closed 갈래가 안 밟힌다
+      const pr = engine.create({ title: 't', author: 'a' });
+      const checkout = engine.checkout(pr.id);
+      writeFileSync(join(checkout.path, 'a.txt'), '일부러 깬 코드\n');
+      run(checkout.path, ['commit', '-q', '-am', '뮤테이션']);
+      const saved = engine.removeCheckout(pr.id, { force: true }).savedRef!;
+      engine.closePr(pr.id, 'a', '');
+
+      const result = engine.prune({ checkouts: true });
+
+      expect(result.released).toContain(saved);
+      expect(gestaltRefs()).not.toContain(saved);
+      // 닫힌 PR의 head는 그대로 붙잡아 둔다. 자국만 놓는다
+      expect(gestaltRefs()).toContain(`refs/gestalt/pr/${pr.id}/head`);
+    });
+
     it('두 번 불러도 이미 놓은 ref를 다시 놓았다고 세지 않는다', () => {
       const pr = engine.create({ title: 't', author: 'a' });
       run(repo, ['checkout', '-q', 'main']);
@@ -393,6 +518,20 @@ describe('LocalPrEngine', () => {
 
       expect(engine.prune().released).toHaveLength(2);
       expect(engine.prune().released).toHaveLength(0);
+    });
+
+    it('base와 head 중 하나만 붙어 있으면 붙은 것만 놓는다', () => {
+      // 둘 다 붙었거나 둘 다 없는 상태만 지나면 `attached`와 `pinned`가 같은 물건이라
+      // 갈리지 않는다. 정확히 하나만 붙어 있을 때가 갈리는 자리다 — 주석이 근거로 든
+      // "머지 PR의 base는 close 경로에서 이미 놓였을 수 있다"가 그 상태다
+      const pr = engine.create({ title: 't', author: 'a' });
+      run(repo, ['checkout', '-q', 'main']);
+      engine.merge(pr.id, 'a');
+
+      run(repo, ['update-ref', '-d', `refs/gestalt/pr/${pr.id}/base`]);
+
+      expect(engine.prune().released).toEqual([`refs/gestalt/pr/${pr.id}/head`]);
+      expect(gestaltRefs()).toEqual([]);
     });
   });
 

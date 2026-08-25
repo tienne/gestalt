@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { LocalPrEngine, PrError } from '../../local-pr/engine.js';
 import { resolveActor } from '../../local-pr/policy.js';
+import { repoKey } from '../../local-pr/registry.js';
 import type { CheckoutRemoval, PrCheckout } from '../../local-pr/git.js';
 import type { Actor, PullRequest } from '../../local-pr/types.js';
 import { log } from '../../core/log.js';
@@ -95,9 +96,52 @@ export function errorKind(exitCode: number): string {
   }
 }
 
+/**
+ * `repoRoot`가 지금 자리와 다른 레포를 가리키면 막는다.
+ *
+ * 이 인자는 그대로 엔진의 작업 디렉토리가 되고 거기서 git이 돈다. `merge`는
+ * update-ref를 쓰고 워크트리를 만든다. `close`는 ref를 지운다. `checkout_remove --force`는
+ * 경로를 재귀로 지운다. 인자 하나를 바꿔 부르면 이 머신의 아무 git 레포나 그 대상이
+ * 된다. 레지스트리가 `pr create`의 등록 경로를 막은 것과 같은 축인데, 정작 git을
+ * 변형하는 표면이 열려 있었다.
+ *
+ * 그래서 지금 자리와 **같은 레포**일 때만 받는다. 판정은 공용 git 디렉토리로 하므로
+ * 워크트리와 하위 디렉토리는 그대로 통과한다 — 이 인자가 원래 있는 이유가 그거다.
+ * 다른 레포를 다루려면 거기서 서버를 띄우면 된다. CLI의 `pr serve --repo-root`가
+ * 같은 결로 좁혀져 있다.
+ *
+ * 읽기만 하는 action을 빼줄까 했지만 안 뺐다. `diff`와 `get`은 남의 레포 변경 내용과
+ * 리뷰 코멘트를 그대로 뱉는다. 그리고 action별로 표를 따로 두면 새 action이 붙을 때
+ * 그 표에 안 적히는 쪽이 기본으로 열린다 — 규칙 하나가 안 뒤처진다.
+ */
+function assertSameRepo(repoRoot: string, cwd: string): void {
+  if (repoRoot === resolve(cwd)) return;
+
+  try {
+    // 판정 기준은 공용 git 디렉토리다. 레포가 아니면 여기서 던지고 막는 쪽으로 간다
+    if (repoKey(repoRoot) === repoKey(cwd)) return;
+  } catch {
+    // 아래로 떨어뜨린다
+  }
+
+  throw new PrError(
+    `repoRoot가 지금 자리와 다른 레포를 가리킨다: ${repoRoot}. ` +
+      '로컬 PR 도구는 이 레포 안에서만 돈다. 워크트리와 하위 디렉토리는 그대로 쓸 수 있다',
+    1,
+  );
+}
+
 export async function handlePr(input: PrInput, cwd: string): Promise<string> {
   const repoRoot = resolve(input.repoRoot ?? cwd);
   log(`pr: action=${input.action}, repoRoot=${repoRoot}`);
+
+  try {
+    assertSameRepo(repoRoot, cwd);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    log(`pr error: ${message}`);
+    return JSON.stringify({ error: message, kind: 'invalid' }, null, 2);
+  }
 
   const engine = new LocalPrEngine(repoRoot);
   try {

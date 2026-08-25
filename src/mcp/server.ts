@@ -474,26 +474,11 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   server.tool(
     'ges_pr',
     `로컬 PR을 만들고 굴립니다. GitHub 없이 에이전트끼리 작업 단위를 리뷰하고 주고받는 자리입니다. Actions: ${PR_ACTIONS.join(', ')}.`,
-    {
-      action: z.enum(PR_ACTIONS),
-      repoRoot: z.string().optional(),
-      id: z.string().optional(),
-      title: z.string().optional(),
-      base: z.string().optional(),
-      head: z.string().optional(),
-      author: z.string().optional(),
-      body: z.string().optional(),
-      status: z.enum(['open', 'changes_requested', 'merged', 'closed']).optional(),
-      path: z.string().optional(),
-      line: z.number().optional(),
-      replyTo: z.string().optional(),
-      commentId: z.string().optional(),
-      verdict: z.enum(['approve', 'request_changes', 'comment']).optional(),
-      summary: z.string().optional(),
-      deleteBranch: z.boolean().optional(),
-      reason: z.string().optional(),
-      force: z.boolean().optional(),
-    },
+    // 등록 인자는 스키마에서 그대로 가져온다. 손으로 다시 적으면 한쪽이 뒤처진다 —
+    // action 목록이 실제로 그랬고(checkout이 등록에만 빠져 MCP로 못 불렀다) 그래서
+    // PR_ACTIONS를 상수로 뺐는데 필드는 두 벌로 남아 있었다. 파생시키면 `.describe()`도
+    // 함께 온다. 그게 없으면 도구를 부르는 모델에게 인자 설명이 하나도 안 간다
+    prInputSchema.shape,
     async (params) => {
       const input = prInputSchema.parse(params);
       const result = await handlePr(input, process.cwd());
