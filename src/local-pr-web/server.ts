@@ -269,7 +269,9 @@ export class PrWebServer {
     const hit = this.navCounts.get(key);
     if (hit && now - hit.at < PrWebServer.NAV_COUNT_TTL_MS) return hit.count;
 
-    const count = engine.list('open').length;
+    // list('open')은 PR을 코멘트 배열까지 통째로 접은 뒤 버린다. 배지에 쓸 숫자
+    // 하나에 그 비용을 치를 이유가 없다. countByStatus는 상태를 정하는 이벤트만 훑는다
+    const count = engine.countByStatus().open;
     this.navCounts.set(key, { count, at: now });
     return count;
   }

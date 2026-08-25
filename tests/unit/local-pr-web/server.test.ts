@@ -243,6 +243,47 @@ describe('PrWebServer', () => {
     });
   });
 
+  /**
+   * 지금 보는 레포가 아닌 자리의 배지.
+   *
+   * 활성 레포는 이미 만든 목록에서 세지만 나머지는 엔진에 따로 묻는다. 그 자리가
+   * 무엇을 세는지 렌더러 테스트로는 안 걸린다 — 렌더러는 받은 숫자를 그릴 뿐이다.
+   */
+  it('다른 레포 배지는 그 레포의 열린 PR 수다', async () => {
+    // 머지 둘, 열린 하나. 수가 갈려야 어느 상태를 세는지 단언이 가른다
+    const open1 = engine.create({ title: '열린 것', author: 'a' });
+    const m1 = engine.create({ title: '머지될 것 1', author: 'a' });
+    const m2 = engine.create({ title: '머지될 것 2', author: 'a' });
+    run(repoRoot, ['checkout', '-q', 'main']);
+    engine.merge(m1.id, 'a');
+    engine.merge(m2.id, 'a');
+    run(repoRoot, ['checkout', '-q', 'feat/x']);
+    expect(open1.status).toBe('open');
+    expect(engine.countByStatus()).toMatchObject({ open: 1, merged: 2 });
+
+    const otherKey = 'ffffffff';
+    const two = new PrWebServer(
+      new Map([
+        [otherKey, { repo: { key: otherKey, path: repoRoot, name: 'o', addedAt: '' }, engine }],
+        [repoKey, { repo: { key: repoKey, path: repoRoot, name: 'r', addedAt: '' }, engine }],
+      ]),
+      otherKey,
+    );
+    await two.start(ANY_PORT);
+
+    try {
+      // otherKey를 활성으로 두고 repoKey 배지를 본다. 활성 쪽은 이미 만든 목록에서
+      // 세므로 이 자리만 엔진에 따로 묻는 갈래다
+      const html = await (await fetch(`http://127.0.0.1:${two.port}/r/${otherKey}`)).text();
+      const badge = html.match(/r <span class="meta">(\d+)<\/span>/)?.[1];
+
+      // 열린 하나만 센다. 상태를 안 가리면 2, 다른 상태를 세면 1이 아니다
+      expect(badge).toBe('1');
+    } finally {
+      await two.stop();
+    }
+  });
+
   it('읽기 전용이라 GET과 HEAD 밖은 405로 답한다', async () => {
     await server.start(ANY_PORT);
 
