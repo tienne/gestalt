@@ -17,6 +17,7 @@ import {
   prCommentsCommand,
   prCreateCommand,
   prDiffCommand,
+  prEditCommand,
   prListCommand,
   prMergeCommand,
   prReposCommand,
@@ -173,6 +174,12 @@ export function createCli(): Command {
     .description('head를 지금 커밋으로 옮긴다')
     .option('--head <ref>', '옮길 대상')
     .action((id, o, cmd) => prUpdateCommand({ ...inherited(cmd), ...o, id }));
+
+  pr.command('edit <id>')
+    .description('제목과 본문을 고친다. 리뷰 판정도 라운드도 안 건드린다')
+    .option('--title <title>', '새 제목')
+    .option('--body-file <path>', '새 본문 파일. -면 stdin')
+    .action((id, o, cmd) => prEditCommand({ ...inherited(cmd), ...o, id }));
 
   pr.command('merge <id>')
     .description('머지한다. 승인이 없어도 막지 않는다')

@@ -73,6 +73,23 @@ function dispatch(
     }
     case 'update':
       return engine.update(requireId(input), input.head);
+    // CLI에만 두는 갈래는 `prune`처럼 되돌릴 수 없는 것이다. 본문 수정은 다시 고쳐
+    // 되돌릴 수 있고 옛 값이 이벤트에 그대로 남는다. 이 문이 없어서 막힌 게
+    // MCP로 도는 리뷰 에이전트였다 — 틀린 본문을 코멘트로만 정정하고 스레드를
+    // 열어둔 채 머지에 실려 갔다. 여기 없으면 그 자리가 그대로다
+    case 'edit': {
+      if (input.title === undefined && input.body === undefined) {
+        throw new PrError('edit에는 title이나 body 중 하나가 필요하다', 1);
+      }
+      return engine.edit(
+        requireId(input),
+        {
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.body !== undefined ? { body: input.body } : {}),
+        },
+        actorOf(input),
+      );
+    }
     case 'merge':
       return engine.merge(requireId(input), actorOf(input), { deleteBranch: input.deleteBranch });
     case 'close':

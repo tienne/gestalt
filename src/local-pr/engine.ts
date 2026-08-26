@@ -139,7 +139,7 @@ export class LocalPrEngine {
     return this.require(prId);
   }
 
-  /** head를 지금 커밋으로 옮긴다. 코멘트는 그대로 붙어 있다 */
+  /** head를 지금 커밋으로 옮긴다. 코멘트는 그대로 붙어 있다. 본문만 고치려면 `edit`이다 */
   update(prId: string, head?: string): PullRequest {
     const pr = this.requireOpen(prId);
     const headSha = git.resolveSha(this.repoRoot, head ?? pr.headRef ?? 'HEAD');
@@ -152,6 +152,42 @@ export class LocalPrEngine {
     this.store.append(PR_AGGREGATE, prId, PrEvent.UPDATED, {
       headSha,
       headRef: head ?? pr.headRef,
+    });
+
+    return this.require(prId);
+  }
+
+  /**
+   * 제목과 본문을 고친다. head는 그대로다.
+   *
+   * `update`와 갈라 둔 자리다. `update`는 "고쳐서 다시 올렸다"라 head가 안 움직이면
+   * 거절하고 움직이면 `changes_requested`를 `open`으로 되돌린다. 본문 오타 수정은
+   * 둘 다 틀리다 — 옮길 head가 없어서 거절당하고 억지로 태우면 리뷰어가 내린 판정이
+   * 글자 하나 고쳤다고 풀린다. 그래서 `pr.edited`를 따로 낸다.
+   *
+   * 라운드도 안 는다. 새 라운드를 여는 건 `request_changes` 판정 하나뿐이다.
+   *
+   * 고칠 것을 안 주거나 지금 값과 같으면 던진다. 아무 일도 안 하는 이벤트를 남기면
+   * 이력에 "누가 뭘 고쳤다"는 줄이 서는데 정작 달라진 게 없다.
+   *
+   * 머지되거나 닫힌 PR은 못 고친다. 리뷰가 끝난 기록이라 그 시점 본문이 그대로
+   * 남아야 판단을 되짚을 수 있다.
+   */
+  edit(prId: string, changes: { title?: string; body?: string }, by: Actor): PullRequest {
+    const pr = this.requireOpen(prId);
+
+    const title =
+      changes.title !== undefined && changes.title !== pr.title ? changes.title : undefined;
+    const body = changes.body !== undefined && changes.body !== pr.body ? changes.body : undefined;
+
+    if (title === undefined && body === undefined) {
+      throw new PrError('고칠 것이 없다. 지금 제목·본문과 같거나 아무것도 안 줬다', 4);
+    }
+
+    this.store.append(PR_AGGREGATE, prId, PrEvent.EDITED, {
+      by,
+      ...(title !== undefined ? { title } : {}),
+      ...(body !== undefined ? { body } : {}),
     });
 
     return this.require(prId);

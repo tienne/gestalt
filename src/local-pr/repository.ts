@@ -7,6 +7,7 @@ import type {
   CommentResolvedPayload,
   PrClosedPayload,
   PrCreatedPayload,
+  PrEditedPayload,
   PrMergedPayload,
   PrUpdatedPayload,
   PullRequest,
@@ -19,6 +20,7 @@ import type {
 export const PrEvent = {
   CREATED: 'pr.created',
   UPDATED: 'pr.updated',
+  EDITED: 'pr.edited',
   COMMENT_ADDED: 'pr.comment.added',
   COMMENT_RESOLVED: 'pr.comment.resolved',
   REVIEW_SUBMITTED: 'pr.review.submitted',
@@ -105,6 +107,10 @@ export class PullRequestRepository {
    * 닫는 이벤트는 `comments`와 라운드의 코멘트 수만 건드리고 상태에는 손대지 않는다.
    * approve와 comment 판정도 라운드의 판정만 적고 상태를 안 옮긴다.
    *
+   * `pr.edited`도 여기 없다. 일부러 없다 — 본문 오타를 고쳤다고 리뷰어가 내린
+   * `changes_requested`가 풀리면 판정이 글자 수정으로 리셋된다. `fold`만 그 이벤트를
+   * 읽고 제목과 본문을 갈아 끼운다.
+   *
    * 두 갈래가 갈리면 목록과 필터가 어긋난다. `list(status)`가 `list()`를 거른 것과
    * 같은지 보는 테스트가 그 자리를 잡는데, 그 테스트는 approve와 comment 판정을 둘 다
    * 지난다 — 위 문장이 둘을 나란히 적어 두니 밟는 것도 둘이어야 한다.
@@ -177,6 +183,15 @@ export class PullRequestRepository {
         pr.headRef = p.headRef;
         // 고치고 다시 올렸으니 리뷰를 기다리는 자리로 되돌린다
         if (pr.status === 'changes_requested') pr.status = 'open';
+        break;
+      }
+
+      case PrEvent.EDITED: {
+        const p = event.payload as PrEditedPayload;
+        // 안 실린 항목은 그대로 둔다. 빈 문자열은 "비워라"라서 여기서 걸러지면 안 된다
+        if (p.title !== undefined) pr.title = p.title;
+        if (p.body !== undefined) pr.body = p.body;
+        // 상태도 라운드도 안 건드린다. 글자를 고친 것이지 리뷰 대상을 옮긴 게 아니다
         break;
       }
 
@@ -259,4 +274,4 @@ function currentRound(pr: PullRequest): Round {
   return pr.rounds[pr.rounds.length - 1]!;
 }
 
-export type { PrCreatedPayload, PrMergedPayload, PrClosedPayload };
+export type { PrCreatedPayload, PrEditedPayload, PrMergedPayload, PrClosedPayload };

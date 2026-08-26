@@ -909,6 +909,7 @@ ges_sync({ targetPath: "/other-repo/.gestalt-kb" })
 | `resolve` | 코멘트 스레드를 닫는다 |
 | `review` | 판정을 기록한다. `request_changes`면 라운드가 하나 늘어난다 |
 | `update` | head를 새 커밋으로 옮긴다. `changes_requested`였으면 `open`으로 돌아간다 |
+| `edit` | 제목과 본문을 고친다. head를 안 옮기고 리뷰 판정도 라운드도 안 건드린다 |
 | `merge` | 머지한다. 승인이 없어도 막지 않고 미해결 수를 이벤트에 남긴다 |
 | `close` | PR을 닫는다 |
 | `checkout` | head를 임시 워크트리로 떼어낸다 — 코드를 일부러 깨서 테스트가 잡는지 보는 검증처럼 실제로 돌려야 할 때 쓴다 |
@@ -921,11 +922,11 @@ ges_sync({ targetPath: "/other-repo/.gestalt-kb" })
 | `action` | `string` | Y | — | 위 표 참고 |
 | `repoRoot` | `string` | N | 프로세스 cwd | 저장소 경로. 지금 자리와 같은 레포만 받는다 — 워크트리와 하위 디렉토리는 되고 다른 레포는 `invalid`로 막힌다 |
 | `id` | `string` | `create`와 `list` 외 전부 | — | PR id |
-| `title` | `string` | `create` | — | PR 제목 |
+| `title` | `string` | `create` | — | PR 제목. `edit`에서는 새 제목 |
 | `base` | `string` | N | `main` | `create` 전용. 기준 브랜치 |
 | `head` | `string` | N | `HEAD` | `create`는 리뷰 대상 브랜치, `update`는 옮겨갈 커밋 |
 | `author` | `string` | N | `human:local` | 작업자. `codex:worker-2`, `human:tienne` 같은 형태 |
-| `body` | `string` | `comment` | — | `create`는 PR 본문, `comment`는 코멘트 본문 |
+| `body` | `string` | `comment` | — | `create`는 PR 본문, `comment`는 코멘트 본문, `edit`은 새 PR 본문. `edit`에 빈 문자열을 주면 본문을 비운다 |
 | `status` | `"open" \| "changes_requested" \| "merged" \| "closed"` | N | — | `list` 필터 |
 | `path` | `string` | `comment` | — | 코멘트가 달릴 파일 경로 |
 | `line` | `number` | N | — | `comment`의 head 기준 라인. 생략하면 파일 전반 |
@@ -938,6 +939,8 @@ ges_sync({ targetPath: "/other-repo/.gestalt-kb" })
 | `force` | `boolean` | N | `false` | `checkout_remove`에서 커밋 안 된 변경이 남아 있어도 지운다 |
 
 ### 오류
+
+`edit`은 `title`과 `body` 중 하나는 있어야 한다. 둘 다 없거나 지금 값과 같으면 안 쓰고 오류를 돌려준다 — 아무것도 안 바뀐 줄이 이력에 서지 않게 한다.
 
 `{ error, kind }`로 온다. `kind`는 `not_found`(대상이 없다)나 `conflict`(상태가 안 맞는다)다. CLI의 종료 코드 3, 4와 같은 갈림이다.
 

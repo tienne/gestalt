@@ -150,3 +150,19 @@ export interface PrClosedPayload {
   by: Actor;
   reason: string;
 }
+
+/**
+ * 본문(과 제목)을 고친 기록.
+ *
+ * `PrUpdatedPayload`와 갈라 둔다. head를 옮기는 건 "고쳐서 다시 올렸다"는 뜻이라
+ * 리뷰 판정을 되돌리지만 본문 오타를 고친 건 리뷰 대상 코드에 손을 안 댄 것이다.
+ * 한 이벤트로 합치면 오타 수정이 `changes_requested`를 `open`으로 풀어 버린다.
+ *
+ * 안 고친 항목은 아예 안 싣는다. `undefined`가 "그대로 둬라"고, 빈 문자열이
+ * "본문을 비워라"다 — 둘을 같은 값으로 두면 본문을 못 지운다.
+ */
+export interface PrEditedPayload {
+  by: Actor;
+  title?: string;
+  body?: string;
+}
