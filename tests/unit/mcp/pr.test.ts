@@ -167,6 +167,34 @@ describe('handlePr — ges_pr MCP 래퍼', () => {
     expect(after.headSha).not.toBe(fourth);
   });
 
+  it('edit: title이나 body가 없으면 invalid 에러를 돌려준다', async () => {
+    const pr = await call({ action: 'create', title: 'A', author: 'codex:worker-1' });
+    const result = await call({ action: 'edit', id: pr.id, author: 'codex:worker-1' });
+    expect(result.error).toBeTruthy();
+    expect(result.kind).toBe('invalid');
+  });
+
+  it('edit: body가 엔진까지 가고 title은 안 건드린다', async () => {
+    const pr = await call({ action: 'create', title: 'A', body: '틀린 본문', author: 'a' });
+
+    const after = await call({ action: 'edit', id: pr.id, body: '고친 본문', author: 'a' });
+
+    expect(after.body).toBe('고친 본문');
+    expect(after.title).toBe('A');
+  });
+
+  it('edit: 리뷰 판정을 안 되돌린다', async () => {
+    // MCP로 도는 리뷰 에이전트가 바로 이 자리를 밟는다. `update`로 접어 붙였으면
+    // 본문 수정 한 번이 changes_requested를 open으로 푼다
+    const pr = await call({ action: 'create', title: 'A', body: 'x', author: 'a' });
+    await call({ action: 'review', id: pr.id, verdict: 'request_changes', summary: 's' });
+
+    const after = await call({ action: 'edit', id: pr.id, body: 'y', author: 'a' });
+
+    expect(after.status).toBe('changes_requested');
+    expect(after.rounds).toHaveLength(2);
+  });
+
   it('merge: 상태를 merged로 바꾼다', async () => {
     const pr = await call({ action: 'create', title: 'A', author: 'codex:worker-1' });
     const after = await call({ action: 'merge', id: pr.id, author: 'codex:worker-1' });

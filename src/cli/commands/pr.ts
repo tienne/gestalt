@@ -31,7 +31,11 @@ export interface PrCommonOptions {
  * `-`면 stdin이다 — gh가 --body-file에 쓰는 방식과 같다.
  */
 function readBody(bodyFile?: string): string {
-  if (!bodyFile) return '';
+  if (bodyFile === undefined) return '';
+  // 빈 문자열은 "안 줬다"가 아니라 "빈 경로를 줬다"다. 안 갈라 두면 셸에서 안 풀린
+  // `--body-file "$F"`가 본문을 조용히 지운다 — 없는 경로는 ENOENT로 죽는데
+  // 이 자리만 성공으로 끝난다
+  if (bodyFile === '') throw new PrError('--body-file에 경로가 비어 있어요', 1);
   return readFileSync(bodyFile === '-' ? 0 : bodyFile, 'utf-8');
 }
 
@@ -324,6 +328,45 @@ export function prUpdateCommand(opts: PrCommonOptions & { id: string; head?: str
       const pr = engine.update(opts.id, opts.head);
       emit(pr, opts.json, () => {
         console.log(`head를 ${pr.headSha.slice(0, 8)}로 옮겼어요 — 상태 ${pr.status}`);
+      });
+    } finally {
+      engine.dispose();
+    }
+  });
+}
+
+/**
+ * `gestalt pr edit <id>` — 제목과 본문을 고친다.
+ *
+ * 본문은 `--body-file`로만 받는다. `pr create`와 `pr comment`가 같은 이유로 그렇게
+ * 받는다 — 인자로 넘기면 셸이 한글과 백틱과 줄바꿈을 건드린다. 제목은 원래 인자로
+ * 받던 값이라 `--title` 그대로다.
+ *
+ * `--body-file`을 준 순간 본문은 그 파일 내용이다. 빈 파일이면 본문을 비운다 —
+ * 코멘트와 달리 여기서 빈 본문을 막지 않는 건 "잘못 쓴 본문을 지운다"가 실제로
+ * 있는 쓰임이어서다.
+ */
+export function prEditCommand(
+  opts: PrCommonOptions & { id: string; title?: string; bodyFile?: string },
+): void {
+  run(() => {
+    if (opts.title === undefined && opts.bodyFile === undefined) {
+      throw new PrError('고칠 것을 주세요 — --title이나 --body-file 중 하나는 있어야 해요', 1);
+    }
+
+    const engine = engineOf(opts);
+    try {
+      const pr = engine.edit(
+        opts.id,
+        {
+          ...(opts.title !== undefined ? { title: opts.title } : {}),
+          ...(opts.bodyFile !== undefined ? { body: readBody(opts.bodyFile) } : {}),
+        },
+        actorOf(opts),
+      );
+      emit(pr, opts.json, () => {
+        console.log(`PR ${pr.id}을 고쳤어요 — 상태 ${pr.status}`);
+        console.log(`  ${pr.title}`);
       });
     } finally {
       engine.dispose();

@@ -32,6 +32,8 @@ open ──review(request_changes)──> changes_requested ──update──> 
 `request_changes`가 나면 **새 PR을 만들지 않고 같은 PR에 라운드를 늘린다.** 3라운드에서
 다시 열린 이슈가 어느 라운드에서 났고 어디서 닫혔는지가 한 자리에 남는다.
 
+`edit`은 이 그림에 없다. 제목과 본문을 고치는 자리라 상태를 안 옮긴다 — 아래 문단에 근거가 있다.
+
 **승인 게이트는 없다.** 미해결 스레드가 남아 있어도 머지를 막지 않는다. 대신 머지 시점의
 미해결 수가 이벤트에 남는다. 나중에 그 판단을 되짚을 수 있다.
 
@@ -57,6 +59,7 @@ gestalt pr comments <id> [--unresolved]
 gestalt pr resolve <id> <commentId>
 gestalt pr review <id> --verdict approve|request-changes|comment --body-file v.md
 gestalt pr update <id> [--head <커밋>]
+gestalt pr edit <id> [--title "..."] [--body-file b.md]
 gestalt pr merge <id> [--delete-branch]
 gestalt pr close <id> [--reason "..."]
 gestalt pr checkout <id> [--remove] [--force]
@@ -86,6 +89,43 @@ gestalt pr unregister <키>
 | 1 | 입력이 잘못됐다 |
 | 3 | PR이나 코멘트를 못 찾았다 |
 | 4 | 상태가 안 맞는다 (이미 머지됨, 커밋 안 된 변경이 남아 있음 등) |
+
+## 본문 고치기
+
+PR 본문에 틀린 문장이 있는 걸 알아도 고칠 길이 없던 때가 있다. 리뷰어는 코멘트로 정정하고
+스레드를 열어둘 수밖에 없었고 그 스레드가 미해결인 채 머지에 실려 갔다.
+
+```bash
+gestalt pr edit <id> --body-file fixed.md
+gestalt pr edit <id> --title "고친 제목"
+gestalt pr edit <id> --title "..." --body-file fixed.md
+```
+
+본문은 `create`나 `comment`와 같은 이유로 `--body-file`로만 받는다. `-`면 stdin이다.
+안 준 항목은 그대로 둔다. 빈 파일을 주면 본문을 비운다 — "안 줬다"와 "비워라"를 갈라 둬야
+잘못 쓴 본문을 지울 수 있다.
+
+**이건 `update`와 다른 자리다.** `update`는 head를 옮긴다. "고쳐서 다시 올렸다"는 뜻이라
+`changes_requested`를 `open`으로 되돌린다. 본문 수정에 그걸 태우면 오타 하나 고친 게
+리뷰어의 판정을 푼다. 그래서 이벤트를 따로 낸다.
+
+| | `update` | `edit` |
+| --- | --- | --- |
+| 옮기는 것 | head 커밋 | 제목, 본문 |
+| 이벤트 | `pr.updated` | `pr.edited` |
+| `changes_requested` | `open`으로 되돌린다 | 그대로 둔다 |
+| 라운드 | 안 는다 | 안 는다 |
+| head가 그대로면 | 4로 거절한다 | 상관없다 |
+
+`pr.edited`는 상태만 접는 갈래(`foldStatus`)가 아예 안 읽는다. 거기 넣는 순간 판정이
+글자 수정으로 리셋된다. 제목과 본문을 갈아 끼우는 `fold`만 읽는다.
+
+머지되거나 닫힌 PR은 못 고친다. 리뷰가 끝난 기록이라 그 시점 본문이 그대로 남아야 판단을
+되짚을 수 있다. 고칠 게 없으면 — 아무것도 안 줬거나 지금 값과 같으면 — 4로 거절한다.
+아무 일도 안 하는 이벤트가 이력에 "누가 뭘 고쳤다"는 줄을 세우지 않게 한다.
+
+옛 값은 사라지지 않는다. 이벤트 소싱이라 `pr.edited` 하나마다 누가 무엇으로 바꿨는지가
+남고 그 이벤트가 없던 시절의 PR은 재생해도 그대로 나온다.
 
 ## 리뷰용 체크아웃
 
@@ -196,8 +236,11 @@ URL에 실리는 건 경로가 아니라 **레포 키**(공용 git 디렉토리�
 ## MCP
 
 `ges_pr` 도구로 같은 일을 한다. 액션은 `create`, `list`, `get`, `diff`, `comment`,
-`resolve`, `review`, `update`, `merge`, `close`, `checkout`, `checkout_remove`다.
-`prune`은 없다 — ref를 되돌릴 수 없게 놓는 자리라 사람이 셸에서 치는 경로만 뒀다.
+`resolve`, `review`, `update`, `edit`, `merge`, `close`, `checkout`, `checkout_remove`다.
+`edit`은 `body`를 인자로 받는다 — MCP는 셸을 안 타서 파일로 우회할 이유가 없다.
+`prune`은 없다 — ref를 되돌릴 수 없게 놓는 자리라 사람이 셸에서 치는 경로만 뒀다. `edit`을
+같이 안 뺀 건 되돌릴 수 있어서다. 다시 고치면 되고 옛 값은 이벤트에 남는다. 그리고 이 문이
+없어서 막힌 게 MCP로 도는 리뷰 에이전트였다.
 오류는 `{ error, kind }`로 오고 `kind`는 `not_found`(종료 코드 3)나 `conflict`(4)다.
 
 CLI를 먼저 만든 이유는 MCP가 없거나 끊긴 런타임에서도 돌아야 해서다. 셸만 있으면 되는

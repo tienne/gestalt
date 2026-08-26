@@ -51,7 +51,7 @@ pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register rep
 - `ges_generate_kb`: repoRoot?, outputPath?, types?, summarize?
 - `ges_search`: query, k?, kbPath?, types?
 - `ges_sync`: sourcePath?, targetPath
-- `ges_pr`: action=[create|list|get|diff|comment|resolve|review|update|merge|close|checkout|checkout_remove]
+- `ges_pr`: action=[create|list|get|diff|comment|resolve|review|update|edit|merge|close|checkout|checkout_remove]
 
 상세 플로우 → [`docs/mcp-reference.md`](./docs/mcp-reference.md)
 설정 레퍼런스 → [`docs/configuration.md`](./docs/configuration.md)

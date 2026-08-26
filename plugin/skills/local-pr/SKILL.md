@@ -136,6 +136,15 @@ GESTALT_ACTOR=agent:reviewer gestalt pr review <id> --verdict request-changes --
 
 코멘트를 쓸 때는 `review` 스킬과 같은 어투 규칙을 따른다. 출처를 밝히는 태그를 안 붙이고 내부 에이전트 이름을 본문에 안 드러낸다. 강제성은 `r:`, `c:`, `a:` 접두어로 표기한다.
 
+본문에 틀린 문장이 있으면 코멘트로 정정하지 말고 고친다. 코멘트로 정정하면 그 스레드가 미해결인 채 머지에 실려 간다.
+
+```bash
+GESTALT_ACTOR=agent:reviewer gestalt pr edit <id> --body-file /tmp/body.md
+GESTALT_ACTOR=agent:reviewer gestalt pr edit <id> --title "고친 제목"
+```
+
+`edit`은 `update`와 다르다. head를 안 옮기고 리뷰 판정도 라운드도 안 건드린다. 본문 오타를 고쳤다고 리뷰어가 내린 `request_changes`가 풀리면 안 되기 때문이다. 안 준 항목은 그대로 두고 빈 파일을 주면 본문을 비운다.
+
 ## 5단계: 머지와 닫기
 
 ```bash
