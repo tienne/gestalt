@@ -31,7 +31,11 @@ export interface PrCommonOptions {
  * `-`면 stdin이다 — gh가 --body-file에 쓰는 방식과 같다.
  */
 function readBody(bodyFile?: string): string {
-  if (!bodyFile) return '';
+  if (bodyFile === undefined) return '';
+  // 빈 문자열은 "안 줬다"가 아니라 "빈 경로를 줬다"다. 안 갈라 두면 셸에서 안 풀린
+  // `--body-file "$F"`가 본문을 조용히 지운다 — 없는 경로는 ENOENT로 죽는데
+  // 이 자리만 성공으로 끝난다
+  if (bodyFile === '') throw new PrError('--body-file에 경로가 비어 있어요', 1);
   return readFileSync(bodyFile === '-' ? 0 : bodyFile, 'utf-8');
 }
 

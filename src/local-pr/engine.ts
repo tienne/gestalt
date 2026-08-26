@@ -176,6 +176,12 @@ export class LocalPrEngine {
   edit(prId: string, changes: { title?: string; body?: string }, by: Actor): PullRequest {
     const pr = this.requireOpen(prId);
 
+    // 빈 제목을 받으면 머지 커밋 메시지가 `Merge local PR <id>:`로 나간다. 머지한
+    // 뒤에는 되돌릴 수 없는 유일한 자리라 도메인에서 막는다 — CLI와 MCP가 함께 지난다
+    if (changes.title !== undefined && changes.title.trim() === '') {
+      throw new PrError('제목을 비울 수 없어요', 1);
+    }
+
     const title =
       changes.title !== undefined && changes.title !== pr.title ? changes.title : undefined;
     const body = changes.body !== undefined && changes.body !== pr.body ? changes.body : undefined;

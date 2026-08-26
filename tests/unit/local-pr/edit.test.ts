@@ -341,3 +341,51 @@ describe('gestalt pr edit CLI', () => {
     expect((edited.payload as { by: string }).by).toBe('codex:worker-edit');
   });
 });
+
+/**
+ * 입력이 비었을 때.
+ *
+ * 둘 다 "안 줬다"와 "빈 값을 줬다"가 안 갈려서 열렸던 자리다. 조용히 성공하면
+ * 사용자는 무언가 지워진 걸 나중에야 안다.
+ */
+describe('빈 입력 경계', () => {
+  let repo: string;
+  let engine: LocalPrEngine;
+  let exits: number[];
+
+  beforeEach(() => {
+    repo = makeRepo('gestalt-pr-edit-empty-');
+    engine = new LocalPrEngine(repo);
+    exits = [];
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      exits.push(code ?? 0);
+      return undefined as never;
+    }) as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    engine.dispose();
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('빈 제목은 도메인에서 막는다', () => {
+    const pr = engine.create({ title: '원래 제목', author: 'a' });
+
+    // 머지 커밋 메시지가 `Merge local PR <id>:`로 나가고 머지 뒤엔 못 되돌린다
+    expect(() => engine.edit(pr.id, { title: '   ' }, 'a')).toThrow(PrError);
+    expect(engine.get(pr.id)!.title).toBe('원래 제목');
+  });
+
+  it('--body-file이 빈 경로면 본문을 안 지우고 멈춘다', () => {
+    const pr = engine.create({ title: 't', body: '지켜야 할 본문', author: 'a' });
+
+    // 셸에서 안 풀린 `--body-file "$F"`가 이 자리로 온다
+    prEditCommand({ repoRoot: repo, id: pr.id, bodyFile: '' });
+
+    expect(exits).toEqual([1]);
+    expect(new LocalPrEngine(repo).get(pr.id)!.body).toBe('지켜야 할 본문');
+  });
+});
