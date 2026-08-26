@@ -238,6 +238,7 @@ export function createCli(): Command {
     .requiredOption('--after <path>', 'Humanized text file')
     .option('--register <doc|chat|report>', 'Register to judge against (default: doc)', 'doc')
     .option('--attempt <n>', 'Which humanize attempt this is (default: 1)', '1')
+    .option('--fixed <ids>', '탐지기가 못 가리는 자리에서 고친 룰 ID (쉼표로 잇는다)')
     .option('--json', 'Emit the full report as JSON')
     .action(
       (options: {
@@ -245,6 +246,7 @@ export function createCli(): Command {
         after: string;
         register?: string;
         attempt?: string;
+        fixed?: string;
         json?: boolean;
       }) => {
         humanizeCheckCommand(options);

@@ -7,8 +7,9 @@
  *
  * 채택 금지(abort)는 양방향이다. 너무 많이 바꾼 쪽(변경률 50%, 보호 토큰 유실)만
  * 막으면 아무것도 안 고친 윤문이 그대로 통과한다 — 원문을 그대로 돌려줘도
- * 변경률 0%에 유실 0건이라 경고 하나로 끝났다. 그래서 못 줄인 쪽(S1 제거율 0)과
- * 새로 심은 쪽(S1 신규 유입)도 같은 무게로 막는다.
+ * 변경률 0%에 유실 0건이라 경고 하나로 끝났다. 그래서 못 줄인 쪽과 새로 심은 쪽도
+ * 막는다. 다만 두 쪽의 조건이 다르다. 신규 유입은 무조건 채택 금지다. 제거율 0은
+ * 탐지기 밖에서 고쳤다는 증거가 있어야 경고로 내려간다 — 아래 checkResidualS1 참조.
  */
 import { changeRate } from './change-rate.js';
 import {
@@ -17,7 +18,14 @@ import {
   reportRegisterStats,
   structureStats,
 } from './detectors.js';
-import { parseRuleBook, ruleLabel, s1Ids, type Register, type RuleBook } from './rules.js';
+import {
+  parseRuleBook,
+  ruleLabel,
+  s1Ids,
+  type Register,
+  type RuleBook,
+  type RuleScanOptions,
+} from './rules.js';
 import { scan } from './scan.js';
 
 export type Verdict = 'pass' | 'warn' | 'abort';
@@ -33,7 +41,7 @@ export const THRESHOLD = {
   changeWarn: 0.3,
   changeAbort: 0.5,
   sentenceDrop: 0.25,
-  /** S1을 이만큼도 못 줄이면 경고. 한 건도 못 줄이면 제거율이 0 이하라 채택 금지다 */
+  /** S1을 이만큼도 못 줄이면 경고. 한 건도 못 줄인 쪽은 아래 idleChange 와 함께 본다 */
   s1RemovalWarn: 0.5,
   /**
    * 손을 대긴 했다고 볼 최소 변경률.
@@ -41,6 +49,10 @@ export const THRESHOLD = {
    * 제거율만 보면 탐지기가 가리는 룰만 세게 된다. 탐지기 없는 S1(doc 기준 일곱 개)만
    * 제대로 고친 윤문본은 제거율이 0이라 채택 금지로 떨어진다. 원문을 그대로 돌려준
    * 것과 같은 판정을 받는 셈인데, 그쪽은 변경률도 0이라 여기서 갈린다.
+   *
+   * 다만 변경률은 "움직였나"만 증언하지 "무엇을 고쳤나"는 말하지 못한다. 이것만으로
+   * 통과를 열면 S1을 한 건도 안 줄이고 수사만 늘린 윤문본이 함께 빠져나간다.
+   * 그래서 이 문턱을 넘은 자리에는 unverifiableFixes 로 무엇을 고쳤는지 받는다.
    */
   idleChange: 0.05,
 } as const;
@@ -118,6 +130,7 @@ function checkResidualS1(
   register: Register,
   counts: { before: ReadonlyMap<string, number>; after: ReadonlyMap<string, number> },
   rate: number,
+  unverifiableFixes: readonly string[] = [],
 ): ResidualResult {
   const targets = s1Ids(book, register);
   const beforeCounts = counts.before;
@@ -146,7 +159,7 @@ function checkResidualS1(
   const scale = `S1 ${beforeTotal} → ${afterTotal}건`;
 
   // 원문에 없던 S1이 생긴 경우는 introduced 축이 판정한다. 여기서 함께 abort를 내면
-  // 같은 사실을 두 축이 각자 재는 꼴이라, 한쪽이 회귀해도 다른 쪽이 가려서 안 잡힌다.
+  // 같은 사실을 두 축이 각자 판단하는 꼴이라, 한쪽이 회귀해도 다른 쪽이 가려서 안 잡힌다.
   if (beforeTotal === 0) {
     return {
       ...base,
@@ -159,17 +172,29 @@ function checkResidualS1(
     };
   }
   if (removal <= 0) {
-    // 탐지 가능한 룰이 하나도 안 줄었다. 텍스트 자체가 그대로면 윤문을 안 한 것이다.
-    // 유의미하게 바뀌었으면 탐지기 밖에서 고쳤을 수 있어 사람이 볼 자리로 넘긴다.
-    const idle = rate < THRESHOLD.idleChange;
+    // 늘어난 경우와 그대로인 경우를 갈라 말한다. "안 줄었다"로 뭉뚱그리면 늘어난 자리를
+    // 줄지 않은 자리로 읽게 된다. 늘어난 쪽의 채택 금지는 introduced 축이 낸다.
+    const grew = afterTotal > beforeTotal;
+    const moved = rate >= THRESHOLD.idleChange;
+    const claimed = unverifiableFixes.length > 0;
+
+    // 텍스트가 안 움직였으면 윤문을 안 한 것이다. 움직였더라도 무엇을 고쳤는지
+    // 대지 못하면 교정인지 덧붙인 수사인지 알 수 없어 같은 자리에 둔다.
+    const verdict: Verdict = moved && claimed ? 'warn' : 'abort';
+    const why = grew
+      ? `탐지 가능한 룰이 오히려 늘었다`
+      : moved
+        ? claimed
+          ? `탐지기 밖에서 ${unverifiableFixes.join(', ')}를 고쳤다고 한다`
+          : `텍스트는 움직였지만 무엇을 고쳤는지 안 밝혔다`
+        : `한 건도 못 줄임`;
+
     return {
       ...base,
       axis: {
         axis: 'residual-s1',
-        verdict: idle ? 'abort' : 'warn',
-        detail: idle
-          ? `${scale}, 한 건도 못 줄임 (변경률 ${pct(rate)}) — 채택 금지`
-          : `${scale}, 탐지 가능한 룰은 안 줄었다 (변경률 ${pct(rate)}) — 탐지기 밖에서 고쳤는지 직접 본다`,
+        verdict,
+        detail: `${scale}, ${why} (변경률 ${pct(rate)})${verdict === 'abort' ? ' — 채택 금지' : ' — 직접 확인한다'}`,
         evidence,
       },
     };
@@ -336,18 +361,20 @@ export function prescan(text: string, options: RuleScanOptions = {}): PrescanRep
   };
 }
 
-/** 어느 말투의 룰북으로 볼지. prescan, scan, runCheck이 함께 쓴다 */
-export interface RuleScanOptions {
-  register?: Register;
-  book?: RuleBook;
-}
-
-/** @deprecated RuleScanOptions 를 쓴다. 이름이 runCheck 전용처럼 보여서 남겨둔 별칭이다 */
+/** @deprecated rules.ts 의 RuleScanOptions 를 쓴다. 이름이 runCheck 전용처럼 보인다 */
 export type RunCheckOptions = RuleScanOptions;
 
 export interface RunCheckWithPrescan extends RuleScanOptions {
   /** prescan() 이 센 원문 기준선. 안 넘기면 여기서 다시 센다 */
   prescanned?: ReadonlyMap<string, number>;
+  /**
+   * 탐지기가 못 가리는 자리에서 고쳤다고 보고한 룰 ID.
+   *
+   * 제거율이 0인데 텍스트는 움직인 자리에서만 쓴다. 변경률은 무언가 바뀌었다는
+   * 것만 말하지 그게 교정인지 덧붙인 수사인지 못 가른다. 여기에 룰 ID가 있어야
+   * 그 움직임을 교정으로 인정한다. 비어 있으면 채택하지 않는다.
+   */
+  unverifiableFixes?: readonly string[];
 }
 
 export function runCheck(
@@ -363,15 +390,26 @@ export function runCheck(
 
   // 탐지기는 텍스트당 한 번만 돌린다. 잔존 축은 S1 부분집합을, 유입 축은 전체를 보는데
   // 룰 필터만 다른 같은 순회라, 따로 부르면 같은 문자열에 정규식이 두 번씩 돌아간다.
+  //
+  // 다만 이 절약은 detect 안에서만이다. 아래 checkStructure의 structureStats가
+  // proseOnly를 다시 계산한다. report 말투면 reportRegisterStats가 한 번 더 한다.
+  // changeRate가 실행시간을 지배해 지금은 안 건드린다 — 고칠 때는 여기부터 본다.
   const beforeAll = countByRule(before);
   const afterAll = countByRule(after);
   // prescanned는 윤문에 들어가기 전에 확정한 기준선이라 지금 센 값보다 우선한다
   const counts = { before: options.prescanned ?? beforeAll, after: afterAll };
 
+  // 유입 축도 잔존 축과 같은 기준선을 봐야 한다. 잔존 축이 prescanned 기준으로
+  // "원문에 S1이 없었다"며 유입 축에 판정을 넘겼는데, 유입 축이 지금 센 원문을 보고
+  // "안 늘었다"고 하면 두 축 사이로 빠져나가는 자리가 생긴다.
+  const introducedBase = options.prescanned
+    ? new Map([...beforeAll, ...options.prescanned])
+    : beforeAll;
+
   const changeAxis = checkChangeRate(rate, rateNoMarkup);
-  const s1 = checkResidualS1(book, register, counts, rate);
+  const s1 = checkResidualS1(book, register, counts, rate, options.unverifiableFixes);
   const preservationAxis = checkPreservation(before, after);
-  const introduced = findIntroduced(beforeAll, afterAll);
+  const introduced = findIntroduced(introducedBase, afterAll);
   const introducedAxis = checkIntroduced(book, register, introduced);
   const structureAxis = checkStructure(before, after);
   const reportAxis = register === 'report' ? [checkReportRegister(after)] : [];

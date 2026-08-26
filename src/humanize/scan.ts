@@ -9,7 +9,7 @@
  * 그게 더 나쁜 거짓말이다.
  */
 import { detect, DETECTABLE_RULE_IDS } from './detectors.js';
-import { parseRuleBook, ruleLabel, s1Ids, type Register, type RuleBook } from './rules.js';
+import { parseRuleBook, ruleLabel, s1Ids, type Register, type RuleScanOptions } from './rules.js';
 
 export interface ScanHit {
   ruleId: string;
@@ -31,13 +31,10 @@ export interface ScanReport {
   worthHumanizing: boolean;
 }
 
-/** @deprecated RuleScanOptions 를 쓴다. 외부에서 이 이름으로 부르던 자리를 위해 남긴다 */
-export interface ScanOptions {
-  register?: Register;
-  book?: RuleBook;
-}
+/** @deprecated rules.ts 의 RuleScanOptions 를 쓴다. 외부에서 이 이름으로 부르던 자리다 */
+export type ScanOptions = RuleScanOptions;
 
-export function scan(text: string, options: ScanOptions = {}): ScanReport {
+export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
   const register = options.register ?? 'doc';
   const book = options.book ?? parseRuleBook();
   const targets = s1Ids(book, register);

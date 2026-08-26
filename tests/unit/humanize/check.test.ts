@@ -7,7 +7,7 @@ import {
   reportRegisterStats,
   structureStats,
 } from '../../../src/humanize/detectors.js';
-import { decide, formatReport, prescan, runCheck } from '../../../src/humanize/check.js';
+import { decide, formatReport, prescan, runCheck, THRESHOLD } from '../../../src/humanize/check.js';
 
 describe('changeRate', () => {
   it('같은 글은 0이다', () => {
@@ -368,18 +368,35 @@ describe('runCheck — 탐지기 밖에서 고친 경우', () => {
     '스키마도 소스 오브 트루스로 둔다.',
   ].join(' ');
 
-  it('제거율이 0이어도 텍스트가 바뀌었으면 채택을 막지 않는다', () => {
-    const after = [
-      '이 문제에 대해 정리한다.',
-      '설정 파일이 기준 문서다.',
-      '스키마도 기준 문서로 둔다.',
-    ].join(' ');
-    const report = runCheck(before, after);
+  const after = [
+    '이 문제에 대해 정리한다.',
+    '설정 파일이 기준 문서다.',
+    '스키마도 기준 문서로 둔다.',
+  ].join(' ');
+
+  it('무엇을 고쳤는지 대면 채택을 막지 않는다', () => {
+    const report = runCheck(before, after, { unverifiableFixes: ['B-3'] });
     expect(report.s1Removal).toBe(0);
     const axis = report.axes.find((a) => a.axis === 'residual-s1');
     expect(axis?.verdict).toBe('warn');
-    expect(axis?.detail).toContain('탐지 가능한 룰은 안 줄었다');
+    expect(axis?.detail).toContain('B-3');
     expect(decide(report).action).toBe('accept-with-warning');
+  });
+
+  it('텍스트만 움직이고 무엇을 고쳤는지 못 대면 채택 금지다', () => {
+    // 변경률은 움직였나만 증언한다. 그것만으로 통과를 열면 S1을 안 줄이고
+    // 수사만 늘린 윤문본이 함께 빠져나간다
+    const report = runCheck(before, after);
+    const axis = report.axes.find((a) => a.axis === 'residual-s1');
+    expect(axis?.verdict).toBe('abort');
+    expect(axis?.detail).toContain('무엇을 고쳤는지 안 밝혔다');
+  });
+
+  it('S1을 안 줄이고 수사만 늘린 윤문본은 통과 못 한다', () => {
+    const padded = `${before} 그 지점을 짚어 두면 다음 판단이 한결 수월해질 수 있다.`;
+    const report = runCheck(before, padded);
+    expect(report.s1Removal).toBeLessThanOrEqual(0);
+    expect(report.verdict).toBe('abort');
   });
 
   it('제거율이 0이고 텍스트도 그대로면 채택 금지다', () => {
@@ -416,5 +433,49 @@ describe('decide — 재시도 예산', () => {
     const report = runCheck(before, before);
     expect(decide(report, 2, 3).action).toBe('retry');
     expect(decide(report, 3, 3).action).toBe('fallback');
+  });
+});
+
+describe('runCheck — idleChange 경계', () => {
+  // A-1 하나가 끝까지 남는다. 제거율은 어느 쪽이든 0이다
+  const before =
+    '이 문제에 대해 정리한다. 설정은 그대로 두고 배포 순서만 확인한다. ' +
+    '롤백 기준도 정해 두었다. 캐시 무효화는 다음 주에 본다.';
+  const moved = before.replace('본다.', '본다');
+
+  it('증거를 대도 텍스트가 안 움직였으면 채택 금지다', () => {
+    const report = runCheck(before, before, { unverifiableFixes: ['B-3'] });
+    expect(report.changeRate).toBeLessThan(THRESHOLD.idleChange);
+    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('abort');
+  });
+
+  it('경계를 넘으면 같은 증거로 경고까지 내려간다', () => {
+    const report = runCheck(before, moved, { unverifiableFixes: ['B-3'] });
+    expect(report.changeRate).toBeGreaterThanOrEqual(THRESHOLD.idleChange);
+    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('warn');
+  });
+
+  it('경계를 넘어도 증거가 없으면 채택 금지 그대로다', () => {
+    const report = runCheck(before, moved);
+    expect(report.changeRate).toBeGreaterThanOrEqual(THRESHOLD.idleChange);
+    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('abort');
+  });
+});
+
+describe('두 축이 같은 기준선을 본다', () => {
+  // 잔존 축은 prescanned 를, 유입 축은 지금 센 원문을 보면 그 사이로 빠져나가는 자리가
+  // 생긴다. 잔존 축이 "원문에 S1이 없었다"며 물러나는데 유입 축은 "안 늘었다"고 하는 경우다
+  const before = '이 문제에 대해 정리한다. 저 사안에 대해서도 본다.';
+  const after = '이 문제에 대해 정리한다. 저 사안에 대해서도 본다.';
+
+  it('기준선이 어긋나도 어느 한 축은 막는다', () => {
+    // 윤문 전 스캔이 A-1을 0건으로 봤다고 하자 (별도 시점에 다른 텍스트를 훑은 경우)
+    const report = runCheck(before, after, { prescanned: new Map([['A-1', 0]]) });
+
+    // 잔존 축은 기준선이 0이라 유입 축에 판정을 넘긴다
+    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('warn');
+    // 유입 축이 같은 기준선을 보므로 여기서 막힌다
+    expect(report.axes.find((a) => a.axis === 'introduced')?.verdict).toBe('abort');
+    expect(report.verdict).toBe('abort');
   });
 });

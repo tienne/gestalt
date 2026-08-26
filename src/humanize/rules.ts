@@ -177,6 +177,17 @@ export function s1Ids(book: RuleBook, register: Register): string[] {
     .sort();
 }
 
+/**
+ * 어느 말투의 룰북으로 볼지. prescan, scan, runCheck이 함께 쓴다.
+ *
+ * 룰북 해석은 이 파일의 관심사라 여기 둔다. check.ts에 두면 scan.ts가 그걸
+ * 가져다 쓸 수 없다 — check가 scan을 부르므로 반대 방향 import는 순환이다.
+ */
+export interface RuleScanOptions {
+  register?: Register;
+  book?: RuleBook;
+}
+
 /** CLI 인자를 말투로 읽는다. 모르는 값은 doc이다 — 검사를 막을 이유가 없다 */
 export function parseRegister(value: string | undefined): Register {
   return value === 'chat' ? 'chat' : value === 'report' ? 'report' : 'doc';
