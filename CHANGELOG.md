@@ -7,13 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-08-26
+
 에이전트끼리 레포 안에서 PR을 만들고 리뷰하고 머지하는 자리가 생겼어요. 원격에 안 나가요.
 
 ### Added
 
 - **로컬 PR** — 원격 GitHub PR은 사람에게 넘기는 용도예요. 에이전트끼리 주고받는 데는 `gh`도 인증도 원격 왕복도 다 군더더기라 레포 안에서 끝내요.
 
-  `gestalt pr` 14개 명령과 `ges_pr` 12개 액션이 생겼어요. 이벤트 소싱이라 상태를 따로 저장하지 않아요. 저장소는 `--git-common-dir` 기준으로 잡아서 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유해요. PR의 커밋은 `refs/gestalt/pr/<id>/head`가 붙잡아요 — 워커가 브랜치를 지워도 diff가 살아요.
+  `gestalt pr` 17개 명령과 `ges_pr` 13개 액션이 생겼어요. 이벤트 소싱이라 상태를 따로 저장하지 않아요. 저장소는 `--git-common-dir` 기준으로 잡아서 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유해요. PR의 커밋은 `refs/gestalt/pr/<id>/head`가 붙잡아요 — 워커가 브랜치를 지워도 diff가 살아요.
 
   리젝이 새 PR을 만들지 않고 같은 PR에 라운드를 늘려요. 3차에서 다시 열린 코멘트가 어느 라운드에서 났고 어디서 닫혔는지가 한 자리에 남아요. 승인 게이트는 없어요 — 대신 머지 시점의 미해결 수가 이벤트에 남아서 나중에 그 판단을 되짚을 수 있어요.
 
@@ -26,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   머지된 PR의 base와 head를 놓는데, 놓기 전에 head가 정말 base 이력에 있는지 확인해요. 머지 뒤 base가 되돌아갔으면 근거가 깨지니까 안 놓고 이유를 돌려줘요. 닫힌 PR은 아무것도 안 놓아요. 체크아웃 자국은 어느 이력에도 없는 커밋이라 `--checkouts`로 뜻을 밝혀야 놓아요.
 
   CLI에만 뒀어요. 되돌릴 수 없게 놓는 자리라 도구 표면에 안 올렸어요.
+
+- **`gestalt pr edit`** — PR 본문에 틀린 문장이 있어도 고칠 길이 없었어요. 리뷰 라운드를 돌다 워커 셋이 같은 벽에 부딪혀서 코멘트로 정정하고 스레드를 열어둬야 했어요.
+
+  `pr update`에 `--body`를 그냥 더하면 안 됐어요. `PrEvent.UPDATED`는 `foldStatus`에서 `changes_requested`를 `open`으로 되돌리는 이벤트라, 그대로 쓰면 **본문 오타 수정이 리뷰 판정을 리셋해요.** 그래서 `pr.edited`를 새로 냈어요 — `fold`만 읽고 `foldStatus`는 안 읽어요. 라운드도 안 늘어요.
+
+- **`gestalt pr repos`와 `gestalt pr unregister`** — 웹 UI가 보여주는 레포 목록을 확인하고 되돌리는 자리예요. 목록에 한 번 들어가면 뺄 방법이 없었어요.
 
 - **로컬 PR 웹 UI** (`gestalt pr serve`) — 127.0.0.1에만 붙는 읽기 전용 뷰예요. 서버 하나가 등록된 레포를 전부 보여줘요. URL에는 경로가 아니라 레포 키가 실려요 — 요청이 레포 경로를 지정할 수 있으면 인증 없는 이 서버가 이 머신의 아무 git 레포나 읽어주는 도구가 되거든요.
 
