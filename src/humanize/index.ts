@@ -26,10 +26,19 @@ export {
 export { changeRate, type ChangeRateOptions } from './change-rate.js';
 export {
   runCheck,
+  prescan,
+  decide,
   formatReport,
   EXIT_CODE,
   THRESHOLD,
+  MAX_ATTEMPTS,
   type CheckReport,
+  type PrescanReport,
+  type Decision,
+  type NextAction,
+  type RunCheckOptions,
+  type RunCheckWithPrescan,
   type AxisResult,
   type Verdict,
 } from './check.js';
+export { scan, formatScan, type ScanReport, type ScanHit, type ScanOptions } from './scan.js';

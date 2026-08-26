@@ -9,6 +9,7 @@ import { graphVisualizeCommand } from './commands/graph-visualize.js';
 import { updateCommand } from './commands/update.js';
 import { usageReportCommand } from './commands/usage-report.js';
 import { humanizeCheckCommand } from './commands/humanize-check.js';
+import { humanizeScanCommand } from './commands/humanize-scan.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -221,15 +222,34 @@ export function createCli(): Command {
     .action((key, o, cmd) => prUnregisterCommand({ ...inherited(cmd), ...o, key }));
 
   program
+    .command('humanize-scan')
+    .description('Scan a draft and list only the S1 rules it actually trips')
+    .requiredOption('--file <path>', 'Text file to scan')
+    .option('--register <doc|chat|report>', 'Register to scan against (default: doc)', 'doc')
+    .option('--json', 'Emit the scan as JSON')
+    .action((options: { file: string; register?: string; json?: boolean }) => {
+      humanizeScanCommand(options);
+    });
+
+  program
     .command('humanize-check')
     .description('Judge a humanized draft against the rulebook (exit 0 pass / 1 warn / 2 abort)')
     .requiredOption('--before <path>', 'Original text file')
     .requiredOption('--after <path>', 'Humanized text file')
     .option('--register <doc|chat|report>', 'Register to judge against (default: doc)', 'doc')
+    .option('--attempt <n>', 'Which humanize attempt this is (default: 1)', '1')
     .option('--json', 'Emit the full report as JSON')
-    .action((options: { before: string; after: string; register?: string; json?: boolean }) => {
-      humanizeCheckCommand(options);
-    });
+    .action(
+      (options: {
+        before: string;
+        after: string;
+        register?: string;
+        attempt?: string;
+        json?: boolean;
+      }) => {
+        humanizeCheckCommand(options);
+      },
+    );
 
   program
     .command('usage-report')

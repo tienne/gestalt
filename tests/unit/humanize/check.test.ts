@@ -7,7 +7,7 @@ import {
   reportRegisterStats,
   structureStats,
 } from '../../../src/humanize/detectors.js';
-import { runCheck } from '../../../src/humanize/check.js';
+import { decide, formatReport, prescan, runCheck } from '../../../src/humanize/check.js';
 
 describe('changeRate', () => {
   it('같은 글은 0이다', () => {
@@ -217,5 +217,131 @@ describe('runCheck', () => {
     const after = '전혀 다른 내용으로 통째 다시 썼습니다. 250 관련 이야기는 빼겠습니다.';
     const report = runCheck(before, after);
     expect(report.exitCode).toBe(2);
+  });
+});
+
+describe('prescan', () => {
+  it('S1이 없으면 윤문할 이유도 없다', () => {
+    const clean = '배포는 내일이고 롤백 기준도 정했습니다. 응답은 250ms입니다.';
+    const report = prescan(clean);
+    expect(report.s1Total).toBe(0);
+    expect(report.worthHumanizing).toBe(false);
+  });
+
+  it('원문 S1을 룰별로 세어 기준선을 만든다', () => {
+    const draft = '이 변경에 대해 설명드리면 캐시가 판단되어진다는 문제가 있었습니다.';
+    const report = prescan(draft);
+    expect(report.worthHumanizing).toBe(true);
+    expect(report.s1ByRule.get('A-1')).toBe(1);
+    expect(report.s1ByRule.get('A-8')).toBe(1);
+    expect(report.s1Total).toBe(2);
+  });
+
+  it('말투에 따라 기준선이 달라진다', () => {
+    const draft = '이 작업을 통해 유지보수성을 손봤습니다.';
+    expect(prescan(draft, { register: 'doc' }).s1ByRule.has('A-2')).toBe(false);
+    expect(prescan(draft, { register: 'chat' }).s1ByRule.get('A-2')).toBe(1);
+  });
+
+  it('기준선을 넘기면 runCheck이 그 값을 쓴다', () => {
+    const draft = '이 문제에 대해 검토했다.';
+    // 원문에 A-1이 3건 있었다고 알려주면, 1건 남은 결과는 제거율 67%가 된다
+    const report = runCheck(draft, draft, { prescanned: new Map([['A-1', 3]]) });
+    expect(report.s1Before).toBe(3);
+    expect(report.s1After).toBe(1);
+    expect(report.s1Removal).toBeCloseTo(2 / 3);
+  });
+});
+
+describe('runCheck — 과소윤문', () => {
+  const before =
+    '이 변경에 대해 설명드리면, 캐시가 그렇게 판단되어진다는 문제가 있었습니다. ' +
+    '결론적으로 응답이 250ms까지 줄었습니다.';
+
+  it('원문을 그대로 돌려주면 채택 금지다', () => {
+    const report = runCheck(before, before);
+    expect(report.verdict).toBe('abort');
+    expect(report.exitCode).toBe(2);
+    expect(report.s1Removal).toBe(0);
+    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('abort');
+  });
+
+  it('절반도 못 줄이면 경고한다', () => {
+    // D-1만 걷어내고 A-1과 A-8은 그대로 둔다 (3건 → 2건, 제거율 33%)
+    const after =
+      '이 변경에 대해 설명드리면, 캐시가 그렇게 판단되어진다는 문제가 있었습니다. ' +
+      '응답이 250ms까지 줄었습니다.';
+    const report = runCheck(before, after);
+    expect(report.s1Removal).toBeCloseTo(1 / 3);
+    const axis = report.axes.find((a) => a.axis === 'residual-s1');
+    expect(axis?.verdict).toBe('warn');
+    expect(axis?.detail).toContain('절반도 못 줄임');
+  });
+
+  it('전부 걷어내면 잔존 측면은 통과한다', () => {
+    const after =
+      '이 변경을 설명드리면 캐시 판정에 문제가 있었습니다. 응답이 250ms까지 줄었습니다.';
+    const report = runCheck(before, after);
+    expect(report.s1After).toBe(0);
+    expect(report.s1Removal).toBe(1);
+    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('pass');
+  });
+});
+
+describe('runCheck — 유입', () => {
+  const clean = '배포는 내일이고 롤백 기준도 정했습니다. 응답은 250ms입니다.';
+
+  it('없던 S1을 심으면 채택 금지다', () => {
+    const report = runCheck(clean, `${clean} 이 문제에 대해 더 봅니다.`);
+    expect(report.verdict).toBe('abort');
+    expect(report.axes.find((a) => a.axis === 'introduced')?.verdict).toBe('abort');
+    expect(report.introduced.map((r) => r.ruleId)).toContain('A-1');
+  });
+
+  it('S1이 아닌 패턴 유입은 경고에서 멈춘다', () => {
+    // G-2는 doc 기준 S1이 아니다
+    const report = runCheck(clean, `${clean} 캐시 문제로 보인다.`);
+    const axis = report.axes.find((a) => a.axis === 'introduced');
+    expect(axis?.verdict).toBe('warn');
+    expect(report.introduced.map((r) => r.ruleId)).toContain('G-2');
+  });
+
+  it('아무것도 안 심으면 통과한다', () => {
+    const report = runCheck(clean, '배포는 내일입니다. 롤백 기준도 정했고 응답은 250ms입니다.');
+    expect(report.axes.find((a) => a.axis === 'introduced')?.verdict).toBe('pass');
+  });
+});
+
+describe('decide', () => {
+  const before =
+    '이 변경에 대해 설명드리면, 캐시가 그렇게 판단되어진다는 문제가 있었습니다. ' +
+    '결론적으로 응답이 250ms까지 줄었습니다.';
+  const good = '이 변경을 설명드리면 캐시 판정에 문제가 있었습니다. 응답이 250ms까지 줄었습니다.';
+
+  it('통과하면 채택한다', () => {
+    const clean = '배포는 내일입니다. 롤백 기준도 정했습니다.';
+    expect(decide(runCheck(clean, clean)).action).toBe('accept');
+  });
+
+  it('경고면 채택하되 걸린 측면을 남긴다', () => {
+    const report = runCheck(before, good);
+    expect(report.verdict).toBe('warn');
+    expect(decide(report).action).toBe('accept-with-warning');
+  });
+
+  it('첫 시도에서 막히면 다시 윤문시킨다', () => {
+    const decision = decide(runCheck(before, before), 1);
+    expect(decision.action).toBe('retry');
+    expect(decision.message).toContain('--attempt 2');
+  });
+
+  it('재시도를 소진하면 원문으로 돌아간다', () => {
+    const decision = decide(runCheck(before, before), 2);
+    expect(decision.action).toBe('fallback');
+    expect(decision.message).toContain('원문을 그대로 낸다');
+  });
+
+  it('리포트가 다음 행동을 함께 찍는다', () => {
+    expect(formatReport(runCheck(before, before), 2)).toContain('[다음] fallback');
   });
 });

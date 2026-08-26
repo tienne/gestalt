@@ -35,6 +35,7 @@ pnpm tsx bin/gestalt.ts status
 pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
 pnpm verify:rules  # 룰북과 에이전트 문서의 룰 ID·심각도 정합 검사
 pnpm build:output-style  # 룰북 → ~/.claude/output-styles/tienne-voice.md 생성
+pnpm tsx bin/gestalt.ts humanize-scan --file a.md --register chat   # 걸린 룰만 추린다
 pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register report
 ```
 
