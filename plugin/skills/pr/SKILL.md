@@ -1,7 +1,7 @@
 ---
 name: pr
 version: "1.0.0"
-description: "PR 작성 전용 스킬. 레포 규칙을 먼저 탐색하고, 미니 인터뷰로 컨텍스트를 수집한 뒤 diff 기반 PR description을 생성하고 gh pr create로 제출한다. PR을 만드는 것까지가 범위다. 이미 있는 PR이나 브랜치의 코드를 검토받으려면 review를 쓴다."
+description: "GitHub PR 작성 전용 스킬. 레포 규칙을 먼저 탐색하고 미니 인터뷰로 컨텍스트를 수집한 뒤 diff 기반 PR description을 생성해 gh pr create로 제출한다. PR을 만드는 것까지가 범위다. 레포 안에서 끝나는 PR은 local-pr을 쓰고 이미 있는 코드를 검토받으려면 review를 쓴다."
 triggers:
   - "PR 작성"
   - "PR 만들어"
@@ -43,6 +43,74 @@ outputs:
 
 `repoRoot`가 주어지지 않으면 현재 작업 디렉토리를 절대 경로로 사용합니다.
 `target`이 주어지지 않으면 현재 브랜치 vs `main`을 기준으로 삼습니다.
+
+## 이 스킬은 GitHub에만 올립니다
+
+로컬 PR(`gestalt pr`)은 `local-pr` 스킬이 맡습니다. 두 갈래는 능력이 아니라 용도로 갈립니다 — 원격 PR은 사람이 읽고 판단하라고 올립니다. 로컬 PR은 에이전트끼리 주고받는 자리입니다. 그래서 GitHub에 갈 수 있는지 여부로 갈래를 고르지 않습니다.
+
+사용자가 로컬이라고 밝히지 않으면 GitHub입니다. 밝히는 방법은 둘입니다.
+
+1. `--local`을 붙이거나 말로 "로컬 PR"이라고 합니다. `--local`은 이 스킬의 입력이 아니라 `local-pr`의 트리거입니다. 이 스킬은 그 값을 읽지 않고 넘기기만 합니다.
+2. `local-pr` 스킬을 직접 부릅니다.
+
+둘 중 하나면 이 스킬을 그만두고 `local-pr`로 넘깁니다. 여기서 로컬 PR을 만들지 않습니다.
+
+### 안 끝난 로컬 PR이 있을 때
+
+원격 PR을 만들기 전에, 이 브랜치의 변경이 로컬 PR로 아직 안 끝났는지 봅니다.
+
+```bash
+gestalt pr list --json
+```
+
+`gestalt pr list`에는 브랜치 필터가 없습니다. `--status`만 받습니다. 그래서 목록을 통째로 받아 이 자리에서 가릅니다. `headRef`로는 못 가릅니다 — 워크트리에서 detached로 만든 PR은 거기에 브랜치 이름이 아니라 sha가 들어갑니다. 이름 대신 커밋으로 가릅니다.
+
+```bash
+git merge-base --is-ancestor <PR의 headSha> HEAD   # 종료 코드 0이면 이 브랜치의 PR
+```
+
+`status`가 `open`이거나 `changes_requested`이면서 `headSha`가 지금 HEAD 이력에 있는 PR만 남깁니다. 둘 다 아직 안 끝난 상태입니다.
+
+**남의 PR 때문에 멈춰 세우지 않습니다.** 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유하므로 다른 워커가 올린 PR도 목록에 뜹니다. 그 커밋은 내 이력에 없어 위 걸러내기에서 떨어집니다.
+
+**리베이스나 amend를 하면 내 PR도 떨어집니다.** 옛 `headSha`가 HEAD 이력에서 빠지기 때문입니다. 그대로 두면 안 끝난 로컬 PR이 있는데 없다고 판정합니다. 이 절이 막으려는 상황이 조용히 뚫리는 셈입니다. 그래서 떨어진 PR을 버리기 전에 한 번 더 봅니다.
+
+```bash
+# 안 끝난 PR 중 ancestor가 아닌 것에서 아래 둘 중 하나가 맞으면 head만 뒤처진 내 PR일 수 있다
+#   headRef == 지금 브랜치 이름   (git rev-parse --abbrev-ref HEAD)
+#   author  == 지금 GESTALT_ACTOR
+```
+
+이건 자동으로 대상에 넣지 않습니다. 커밋이 이력에 없다는 사실은 그대로이고 `headRef`도 `author`도 정황일 뿐입니다. 대신 **말없이 버리지 않고 알립니다.**
+
+```
+head가 뒤처진 로컬 PR이 있을 수 있어요 — {id} {title} ({status}).
+리베이스나 amend를 했으면 아래로 head를 맞춘 뒤 다시 불러주세요.
+  gestalt pr update {id} --head $(git rev-parse HEAD)
+```
+
+남은 게 있으면 **만들기 전에 알리고 사용자 판단을 받습니다.** 로컬 PR이 안 끝났다는 건 그 코드가 아직 안 정해졌다는 뜻입니다. 그 상태로 원격에 올리면 사람이 아직 안 끝난 변경을 보게 됩니다.
+
+```
+이 브랜치에 안 끝난 로컬 PR이 있어요.
+- {id} {title} ({status})
+어떻게 할까요?
+- 로컬 먼저: local-pr 스킬로 넘어가요
+- 그냥 올리기: 열어둔 채로 GitHub PR을 만들어요
+```
+
+여럿이면 전부 보여주고 사용자가 고르게 합니다. 어느 게 이번 원격 PR과 겹치는지는 사람이 더 잘 압니다.
+
+여기서 멈추지 말고 물어봅니다. 로컬 PR을 열어둔 채 원격에 올릴 이유가 있을 수 있습니다 — 사람에게 중간 상태를 미리 보이는 자리가 그렇습니다.
+
+### GitHub에 못 갈 때
+
+`gh auth status`가 실패하거나 `git remote -v`가 비어 있으면 **말없이 로컬로 바꾸지 않습니다.** 무엇이 없어서 못 올리는지 알리고 멈춥니다. 사용자가 원격에 올릴 생각이었는데 로컬 PR이 만들어져 있으면 그게 더 나쁩니다.
+
+```
+GitHub에 못 올려요 — {gh 인증이 없어요 / 원격이 없어요}.
+인증을 붙여주세요. 레포 안에서 끝낼 거면 로컬 PR로 만들게요.
+```
 
 ## Skill Instructions
 
@@ -189,7 +257,7 @@ Agent {
 
 윤문된 description을 **사용자에게 미리보기로 먼저 표시**합니다.
 
-### 5단계: gh pr create 확인 및 실행
+### 5단계: 제출 확인 및 실행
 
 사용자에게 확인합니다:
 
@@ -200,7 +268,7 @@ Agent {
 - 취소: description 텍스트만 출력하고 종료
 ```
 
-생성 시 heredoc 패턴으로 실행합니다. **PR 작성자 자신을 어사인**하기 위해 `--assignee @me`를 항상 포함합니다. 명령 앞에 `GESTALT_PR=1` 표식을 붙입니다 (raw `gh pr create`를 가로채는 PreToolUse 훅이 이 스킬의 호출은 통과시키도록 하는 우회 표식):
+heredoc 패턴으로 실행합니다. **PR 작성자 자신을 어사인**하기 위해 `--assignee @me`를 항상 포함합니다. 명령 앞에 `GESTALT_PR=1` 표식을 붙입니다 (raw `gh pr create`를 가로채는 PreToolUse 훅이 이 스킬의 호출은 통과시키도록 하는 우회 표식):
 
 ```bash
 GESTALT_PR=1 gh pr create --assignee @me --title "..." --body "$(cat <<'EOF'
@@ -213,4 +281,5 @@ EOF
 - `@me`는 `gh`에 인증된 현재 사용자를 가리키므로, PR이 생성되면 작성자 본인이 자동으로 assignee로 지정됩니다.
 - 어사인이 실패해도(권한·레포 설정 등) PR 생성 자체는 막지 않습니다. 실패 시 PR 생성 후 `gh pr edit {prUrl} --add-assignee @me`로 재시도합니다.
 
-반환된 PR URL을 사용자에게 표시합니다 (`prUrl`).
+반환된 PR URL을 사용자에게 표시합니다. 반환값은 `prUrl` 하나입니다. 로컬 PR의 id가 필요하면 `local-pr` 스킬을 부릅니다.
+

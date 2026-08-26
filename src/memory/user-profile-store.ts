@@ -1,13 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { homedir } from 'node:os';
+import { dirname } from 'node:path';
+import { gestaltPath } from '../core/home.js';
 import type { UserProfile } from '../core/types.js';
 
-const PROFILE_DIR = '.gestalt';
 const PROFILE_FILENAME = 'profile.json';
 
 function getProfilePath(): string {
-  return join(homedir(), PROFILE_DIR, PROFILE_FILENAME);
+  return gestaltPath(PROFILE_FILENAME);
 }
 
 function createEmptyProfile(): UserProfile {

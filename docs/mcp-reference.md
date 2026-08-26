@@ -20,6 +20,7 @@ Complete reference for all Gestalt MCP tools.
 | [`ges_generate_kb`](#ges_generate_kb) | 코드 그래프/도메인 내용을 Knowledge Base 문서로 생성 |
 | [`ges_search`](#ges_search) | Knowledge Base 시맨틱 검색 |
 | [`ges_sync`](#ges_sync) | Knowledge Base 파일 동기화 |
+| [`ges_pr`](#ges_pr) | 로컬 PR 생성, 리뷰, 머지 — 원격에 안 나간다 |
 
 ---
 
@@ -337,6 +338,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `review_submit` | 에이전트 리뷰 제출 |
 | `review_consensus` | 통합 컨센서스 리뷰 제출 |
 | `review_fix` | 자동 수정 루프 시작 |
+| `review_publish` | 합의 결과를 로컬 PR의 인라인 코멘트와 판정으로 기록 |
 
 ### Common Parameters
 
@@ -348,6 +350,10 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `cwd` | `string` | N | — | 작업 디렉터리. `execute_start`에서 client 설정에 맞는 active context(`.claude/rules/gestalt-active.md`, `AGENTS.md` managed section, `.grok/rules/gestalt-active.md`, 또는 Claude+Codex 둘 다)와 `.gestalt/active-session.json` 생성에 사용. `status`에서 `resumeHint` 읽기에 사용. |
 | `client` | `"claude-code" \| "codex" \| "both" \| "grok"` | N | 서버 `config.client` | 호출 단위 호스트 override. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고, `"both"`는 Claude와 Codex만 쓴다. |
 | `codeGraphRepoRoot` | `string` | N | — | `start`에서 설정 시 태스크 실행마다 관련 파일을 자동 추출해 `suggestedFiles`로 반환 |
+| `prId` | `string` | N | — | `review_start`에서 주면 그 로컬 PR의 변경 파일로 리뷰를 연다. `sessionId`와 `changedFiles + repoRoot`보다 우선한다 — 함께 주면 나머지는 안 본다. `review_publish`에서는 쓸 대상 PR이고, `review_start`를 `prId`로 열었으면 세션에서 이어받으므로 생략할 수 있다 |
+| `repoRoot` | `string` | N | 프로세스 cwd | `prId`를 찾을 로컬 PR 저장소 |
+| `reviewSessionId` | `string` | `review_submit`, `review_consensus`, `review_publish` | — | `review_start`가 돌려준 리뷰 세션 ID |
+| `prReviewer` | `string` | N | `GESTALT_ACTOR` 또는 `gestalt:review` | `review_publish`가 판정을 남길 때 쓸 리뷰어 이름. 인라인 코멘트 작성자는 이 값이 아니라 이슈를 낸 에이전트다 (`agent:security-reviewer` 꼴) |
 
 ### `start` — Example Request & Response
 
@@ -880,6 +886,90 @@ ges_sync({ targetPath: "/other-repo/.gestalt-kb" })
   "sourcePath": "/path/to/repo/.gestalt-kb",
   "targetPath": "/other-repo/.gestalt-kb",
   "success": true
+}
+```
+
+---
+
+## `ges_pr`
+
+에이전트가 쪼갠 작업을 다른 에이전트에게 리뷰받는 자리다. 원격 GitHub PR과 별개이고 레포 안에서 끝난다. 개념과 CLI는 [`local-pr.md`](./local-pr.md)에 있다.
+
+이벤트 소싱이라 상태를 따로 저장하지 않는다. 저장소는 `.gestalt/reviews.db`이고 경로를 `--git-common-dir` 기준으로 잡아서 워크트리 어디서 불러도 같은 파일을 본다.
+
+### Actions
+
+| Action | Description |
+|:---|:---|
+| `create` | 현재 HEAD로 PR을 만든다 |
+| `list` | PR 목록 |
+| `get` | PR 단건 조회 — 라운드, 코멘트, 리뷰가 함께 온다 |
+| `diff` | base와 head 사이의 diff |
+| `comment` | 인라인 코멘트를 단다 |
+| `resolve` | 코멘트 스레드를 닫는다 |
+| `review` | 판정을 기록한다. `request_changes`면 라운드가 하나 늘어난다 |
+| `update` | head를 새 커밋으로 옮긴다. `changes_requested`였으면 `open`으로 돌아간다 |
+| `edit` | 제목과 본문을 고친다. head를 안 옮기고 리뷰 판정도 라운드도 안 건드린다 |
+| `merge` | 머지한다. 승인이 없어도 막지 않고 미해결 수를 이벤트에 남긴다 |
+| `close` | PR을 닫는다 |
+| `checkout` | head를 임시 워크트리로 떼어낸다 — 코드를 일부러 깨서 테스트가 잡는지 보는 검증처럼 실제로 돌려야 할 때 쓴다 |
+| `checkout_remove` | 떼어낸 워크트리를 정리한다 |
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|:--------:|---------|-------------|
+| `action` | `string` | Y | — | 위 표 참고 |
+| `repoRoot` | `string` | N | 프로세스 cwd | 저장소 경로. 지금 자리와 같은 레포만 받는다 — 워크트리와 하위 디렉토리는 되고 다른 레포는 `invalid`로 막힌다 |
+| `id` | `string` | `create`와 `list` 외 전부 | — | PR id |
+| `title` | `string` | `create` | — | PR 제목. `edit`에서는 새 제목 |
+| `base` | `string` | N | `main` | `create` 전용. 기준 브랜치 |
+| `head` | `string` | N | `HEAD` | `create`는 리뷰 대상 브랜치, `update`는 옮겨갈 커밋 |
+| `author` | `string` | N | `human:local` | 작업자. `codex:worker-2`, `human:tienne` 같은 형태 |
+| `body` | `string` | `comment` | — | `create`는 PR 본문, `comment`는 코멘트 본문, `edit`은 새 PR 본문. `edit`에 빈 문자열을 주면 본문을 비운다 |
+| `status` | `"open" \| "changes_requested" \| "merged" \| "closed"` | N | — | `list` 필터 |
+| `path` | `string` | `comment` | — | 코멘트가 달릴 파일 경로 |
+| `line` | `number` | N | — | `comment`의 head 기준 라인. 생략하면 파일 전반 |
+| `replyTo` | `string` | N | — | `comment`가 답글일 때 부모 코멘트 id |
+| `commentId` | `string` | `resolve` | — | 닫을 스레드의 코멘트 id |
+| `verdict` | `"approve" \| "request_changes" \| "comment"` | `review` | — | 판정 |
+| `summary` | `string` | N | — | `review` 판정 요약 |
+| `deleteBranch` | `boolean` | N | `false` | `merge` 후 head 브랜치 삭제 여부 |
+| `reason` | `string` | N | — | `close`하는 이유 |
+| `force` | `boolean` | N | `false` | `checkout_remove`에서 커밋 안 된 변경이 남아 있어도 지운다 |
+
+### 오류
+
+`edit`은 `title`과 `body` 중 하나는 있어야 한다. 둘 다 없거나 지금 값과 같으면 안 쓰고 오류를 돌려준다 — 아무것도 안 바뀐 줄이 이력에 서지 않게 한다.
+
+`{ error, kind }`로 온다. `kind`는 `not_found`(대상이 없다)나 `conflict`(상태가 안 맞는다)다. CLI의 종료 코드 3, 4와 같은 갈림이다.
+
+### Example
+
+```javascript
+ges_pr({ action: "create", title: "리뷰 파이프라인을 로컬 PR에 잇는다", base: "main", author: "codex:worker-5" })
+```
+
+```json
+{
+  "id": "e2085a1c",
+  "title": "리뷰 파이프라인을 로컬 PR에 잇는다",
+  "status": "open",
+  "baseSha": "469fc46...",
+  "headSha": "52aa369...",
+  "rounds": [{ "number": 1, "verdict": null, "commentCount": 0 }]
+}
+```
+
+```javascript
+ges_pr({ action: "checkout", id: "e2085a1c" })
+```
+
+```json
+{
+  "path": "/repo/.git/gestalt/pr-checkout/e2085a1c",
+  "created": true,
+  "headSha": "52aa369..."
 }
 ```
 

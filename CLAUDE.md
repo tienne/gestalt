@@ -16,6 +16,7 @@
 - **Knowledge Base**: 코드 그래프·도메인 지식을 MD로 내보내고 로컬 임베딩으로 시맨틱 검색
 - **Memory**: 이전 스펙·실행 이력을 `.gestalt/memory.json`에 축적, 신규 인터뷰에 자동 주입
 - **Multi-Provider LLM**: frugal/standard/frontier 티어별로 Anthropic/OpenAI 호환 프로바이더 자유 조합
+- **Local PR**: 에이전트끼리 레포 안에서 PR을 만들고 리뷰하고 머지하는 자리 — 원격에 안 나간다. 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유한다
 - **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱
 
 ## Tech Stack
@@ -24,6 +25,8 @@ Dependencies: @anthropic-ai/sdk, @modelcontextprotocol/sdk, better-sqlite3, zod,
 
 ## Key Commands
 ```bash
+pnpm gate          # 커밋 전 게이트 — CI가 도는 것과 같다 (typecheck, verify:rules, lint, format:check, build, test)
+                   # 강제하는 훅은 없다. 커밋 전에 사람이 부른다
 pnpm test          # 전체 테스트
 pnpm run serve     # MCP 서버 시작
 pnpm tsx bin/gestalt.ts interview "topic"
@@ -38,7 +41,7 @@ pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register rep
 ## MCP Tools
 - `ges_interview`: action=[start|respond|score|complete]
 - `ges_generate_spec`: sessionId?, text?, force?, spec?
-- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|status|resume|audit|spawn|evaluate|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|role_match|role_consensus|review_start|review_submit|review_consensus|review_fix]
+- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|status|resume|audit|spawn|evaluate|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|role_match|role_consensus|review_start|review_submit|review_consensus|review_fix|review_publish]
 - `ges_create_agent`: action=[start|submit]
 - `ges_agent`: action=[list|get], name?
 - `ges_status`: sessionId?, sessionType?, cwd?
@@ -48,10 +51,12 @@ pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register rep
 - `ges_generate_kb`: repoRoot?, outputPath?, types?, summarize?
 - `ges_search`: query, k?, kbPath?, types?
 - `ges_sync`: sourcePath?, targetPath
+- `ges_pr`: action=[create|list|get|diff|comment|resolve|review|update|edit|merge|close|checkout|checkout_remove]
 
 상세 플로우 → [`docs/mcp-reference.md`](./docs/mcp-reference.md)
 설정 레퍼런스 → [`docs/configuration.md`](./docs/configuration.md)
 코드 그래프 → [`docs/code-graph.md`](./docs/code-graph.md)
+로컬 PR → [`docs/local-pr.md`](./docs/local-pr.md)
 
 ## Role Agent 자동 라우팅
 
@@ -67,6 +72,8 @@ src/execute/       — ExecuteEngine, DAG Validator
 src/resilience/    — Stagnation Detector, Lateral Thinking Personas
 src/code-graph/    — CodeGraphEngine, BlastRadius, 언어 플러그인 8개
 src/graph-viz/     — 코드 그래프 D3 시각화 (ges_graph_visualize 백엔드)
+src/local-pr/      — 로컬 PR 도메인 (이벤트 소싱, git 연산, gestalt pr·ges_pr 백엔드)
+src/local-pr-web/  — 로컬 PR 읽기 전용 웹 UI (gestalt pr serve 백엔드)
 src/knowledge-base/— KB 생성·시맨틱 검색·동기화 (ges_generate_kb/ges_search/ges_sync 백엔드)
 src/memory/        — Memory 피드백 루프 (ProjectMemoryStore, UserProfileStore)
 src/llm/           — 멀티 프로바이더 LLM 어댑터 (frugal/standard/frontier 티어 라우팅)
@@ -82,7 +89,7 @@ src/cli/           — commander 기반 CLI
 plugin/            — 배포 자산 전부. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다
 plugin/role-agents/    — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer, code-review-writer, code-review-responder 등) 총 21개 + `_shared/references/` 공유 룰북(author-voice, ai-tell-quick-rules, style-guide, comment-rules, truncation-rules — 에이전트 아님, 레지스트리가 건너뜀)
 plugin/review-agents/  — 내장 Review Agent 6개 (security-reviewer, performance-reviewer, quality-reviewer, frontend-reviewer, comment-reviewer, writing-reviewer)
-plugin/skills/         — SKILL.md 17개 (interview, spec, execute, dispatch, agent, review, review-reply, pr, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, solve, setup) + `_shared/` 공유 규칙(스킬 아님, 레지스트리가 건너뜀)
+plugin/skills/         — SKILL.md 18개 (interview, spec, execute, dispatch, agent, review, review-reply, pr, local-pr, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, solve, setup) + `_shared/` 공유 규칙(스킬 아님, 레지스트리가 건너뜀)
 plugin/agents/         — 파이프라인 에이전트 5개
 plugin/personas/       — Lateral Thinking 페르소나
 ```

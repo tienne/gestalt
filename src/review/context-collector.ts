@@ -16,7 +16,7 @@ export class ReviewContextCollector {
    * 변경 파일 목록만으로 리뷰 컨텍스트를 만든다 (execute 세션 없는 직접 리뷰).
    *
    * 의존 파일을 채우지 않는다 — 코드 그래프로 영향 파일을 얹으면 리뷰어가 안 바뀐
-   * 파일을 변경 파일로 오해해서 기존 코드를 지적한다. 호출부 확인이 필요한 변경은
+   * 파일을 변경 파일로 오해해서 기존 코드에도 코멘트를 단다. 호출부 확인이 필요한 변경은
    * 리뷰어가 직접 읽는다.
    */
   collectFromFiles(changedFiles: string[]): ReviewContext {

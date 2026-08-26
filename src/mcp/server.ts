@@ -28,6 +28,7 @@ import { handleReviewPassthrough } from './tools/review-passthrough.js';
 import { handleCodeGraphPassthrough } from './tools/code-graph-passthrough.js';
 import { handleGraphVisualizePassthrough } from './tools/graph-visualize-passthrough.js';
 import { handleGenerateKb } from './tools/generate-kb.js';
+import { handlePr } from './tools/pr.js';
 import { handleSearchKb } from './tools/search-kb.js';
 import { handleSyncKb } from './tools/sync-kb.js';
 import { PassthroughReviewEngine } from '../review/passthrough-engine.js';
@@ -41,6 +42,8 @@ import {
   statusInputSchema,
   codeGraphInputSchema,
   graphVisualizeInputSchema,
+  prInputSchema,
+  PR_ACTIONS,
 } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
@@ -253,7 +256,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   server.tool(
     'ges_execute',
-    'Execute a Spec using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, resume, audit, spawn, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result, role_match, role_consensus, review_start, review_submit, review_consensus, review_fix.',
+    'Execute a Spec using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, resume, audit, spawn, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result, role_match, role_consensus, review_start, review_submit, review_consensus, review_fix, review_publish.',
     executeToolSchema,
     async (params) => {
       const input = executeInputSchema.parse(params);
@@ -464,6 +467,21 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
     async (params) => {
       const result = await handleSyncKb(params, process.cwd());
+      return { content: [{ type: 'text' as const, text: result }] };
+    },
+  );
+
+  server.tool(
+    'ges_pr',
+    `로컬 PR을 만들고 굴립니다. GitHub 없이 에이전트끼리 작업 단위를 리뷰하고 주고받는 자리입니다. Actions: ${PR_ACTIONS.join(', ')}.`,
+    // 등록 인자는 스키마에서 그대로 가져온다. 손으로 다시 적으면 한쪽이 뒤처진다 —
+    // action 목록이 실제로 그랬고(checkout이 등록에만 빠져 MCP로 못 불렀다) 그래서
+    // PR_ACTIONS를 상수로 뺐는데 필드는 두 벌로 남아 있었다. 파생시키면 `.describe()`도
+    // 함께 온다. 그게 없으면 도구를 부르는 모델에게 인자 설명이 하나도 안 간다
+    prInputSchema.shape,
+    async (params) => {
+      const input = prInputSchema.parse(params);
+      const result = await handlePr(input, process.cwd());
       return { content: [{ type: 'text' as const, text: result }] };
     },
   );
