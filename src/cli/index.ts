@@ -223,10 +223,10 @@ export function createCli(): Command {
 
   program
     .command('humanize-scan')
-    .description('Scan a draft and list only the S1 rules it actually trips')
-    .requiredOption('--file <path>', 'Text file to scan')
-    .option('--register <doc|chat|report>', 'Register to scan against (default: doc)', 'doc')
-    .option('--json', 'Emit the scan as JSON')
+    .description('원문에서 실제로 걸린 S1 룰만 처방과 함께 추린다')
+    .requiredOption('--file <path>', '스캔할 텍스트 파일')
+    .option('--register <doc|chat|report>', '어느 말투 기준으로 볼지 (기본 doc)', 'doc')
+    .option('--json', '스캔 결과를 JSON으로')
     .action((options: { file: string; register?: string; json?: boolean }) => {
       humanizeScanCommand(options);
     });

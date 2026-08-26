@@ -18,6 +18,7 @@ import {
   structureStats,
 } from './detectors.js';
 import { parseRuleBook, ruleLabel, s1Ids, type Register, type RuleBook } from './rules.js';
+import { scan } from './scan.js';
 
 export type Verdict = 'pass' | 'warn' | 'abort';
 
@@ -34,6 +35,14 @@ export const THRESHOLD = {
   sentenceDrop: 0.25,
   /** S1을 이만큼도 못 줄이면 경고. 한 건도 못 줄이면 제거율이 0 이하라 채택 금지다 */
   s1RemovalWarn: 0.5,
+  /**
+   * 손을 대긴 했다고 볼 최소 변경률.
+   *
+   * 제거율만 보면 탐지기가 가리는 룰만 세게 된다. 탐지기 없는 S1(doc 기준 일곱 개)만
+   * 제대로 고친 윤문본은 제거율이 0이라 채택 금지로 떨어진다. 원문을 그대로 돌려준
+   * 것과 같은 판정을 받는 셈인데, 그쪽은 변경률도 0이라 여기서 갈린다.
+   */
+  idleChange: 0.05,
 } as const;
 
 export interface AxisResult {
@@ -99,17 +108,20 @@ interface ResidualResult {
  * 잔존 건수만 보면 "5건 → 5건"과 "5건 → 1건"이 같은 경고로 끝난다. 앞은 윤문이
  * 아무 일도 안 한 것이고 뒤는 8할을 걷어낸 것이라, 같은 판정을 받을 수 없다.
  * 원문 건수를 기준선으로 두고 제거율로 가른다.
+ *
+ * 세는 대상은 탐지기가 있는 룰뿐이다. 그래서 제거율 0이 곧 "아무것도 안 했다"는
+ * 아니다 — 탐지기 없는 S1만 고친 윤문본도 여기서는 0으로 보인다. 그 둘을 변경률로
+ * 가른다. 원문을 그대로 돌려준 쪽은 변경률도 0이다. 탐지 밖에서 고친 쪽은 아니다.
  */
 function checkResidualS1(
   book: RuleBook,
   register: Register,
-  before: string,
-  after: string,
-  prescanned?: ReadonlyMap<string, number>,
+  counts: { before: ReadonlyMap<string, number>; after: ReadonlyMap<string, number> },
+  rate: number,
 ): ResidualResult {
   const targets = s1Ids(book, register);
-  const beforeCounts = prescanned ?? countByRule(before, targets);
-  const afterCounts = countByRule(after, targets);
+  const beforeCounts = counts.before;
+  const afterCounts = counts.after;
 
   const rows = targets.map((ruleId) => ({
     ruleId,
@@ -133,24 +145,31 @@ function checkResidualS1(
   );
   const scale = `S1 ${beforeTotal} → ${afterTotal}건`;
 
+  // 원문에 없던 S1이 생긴 경우는 introduced 축이 판정한다. 여기서 함께 abort를 내면
+  // 같은 사실을 두 축이 각자 재는 꼴이라, 한쪽이 회귀해도 다른 쪽이 가려서 안 잡힌다.
   if (beforeTotal === 0) {
     return {
       ...base,
       axis: {
         axis: 'residual-s1',
-        verdict: 'abort',
-        detail: `원문에 없던 S1이 ${afterTotal}건 생김 — 채택 금지`,
+        verdict: 'warn',
+        detail: `원문에 없던 S1이 ${afterTotal}건 생김 — 유입 측면을 본다`,
         evidence,
       },
     };
   }
   if (removal <= 0) {
+    // 탐지 가능한 룰이 하나도 안 줄었다. 텍스트 자체가 그대로면 윤문을 안 한 것이다.
+    // 유의미하게 바뀌었으면 탐지기 밖에서 고쳤을 수 있어 사람이 볼 자리로 넘긴다.
+    const idle = rate < THRESHOLD.idleChange;
     return {
       ...base,
       axis: {
         axis: 'residual-s1',
-        verdict: 'abort',
-        detail: `${scale}, 한 건도 못 줄임 — 채택 금지`,
+        verdict: idle ? 'abort' : 'warn',
+        detail: idle
+          ? `${scale}, 한 건도 못 줄임 (변경률 ${pct(rate)}) — 채택 금지`
+          : `${scale}, 탐지 가능한 룰은 안 줄었다 (변경률 ${pct(rate)}) — 탐지기 밖에서 고쳤는지 직접 본다`,
         evidence,
       },
     };
@@ -214,11 +233,11 @@ function checkIntroduced(
   };
 }
 
-/** 철칙 — AI 티는 빼기만 하고 넣지 않는다. 늘어난 룰이 있으면 윤문이 새 티를 심은 것이다 */
-function findIntroduced(before: string, after: string): CheckReport['introduced'] {
-  const beforeCounts = countByRule(before);
-  const afterCounts = countByRule(after);
-
+/** 늘어난 룰을 추린다. 판정은 checkIntroduced가 한다 */
+function findIntroduced(
+  beforeCounts: ReadonlyMap<string, number>,
+  afterCounts: ReadonlyMap<string, number>,
+): CheckReport['introduced'] {
   return [...afterCounts.entries()]
     .map(([ruleId, count]) => ({ ruleId, before: beforeCounts.get(ruleId) ?? 0, after: count }))
     .filter((row) => row.after > row.before)
@@ -296,25 +315,37 @@ export interface PrescanReport {
  * 윤문 전에 원문을 훑는다.
  *
  * 두 가지를 한다. 첫째, S1이 0건이면 윤문 자체를 건너뛴다 — 고칠 게 없는 글에
- * 윤문을 돌리면 남는 건 과윤문뿐이다. 둘째, 여기서 센 건수가 윤문 뒤 제거율의
- * 기준선이 된다. 사후에 다시 세는 값이 아니라 들어가기 전에 확정한 값이라,
- * 판정 근거로 쓸 수 있다.
+ * 윤문을 돌리면 남는 건 과윤문뿐이다. 둘째, 여기서 센 건수를 runCheck의 prescanned로
+ * 넘기면 그 값이 제거율의 기준선이 된다.
+ *
+ * 기준선이 실제로 의미를 가지려면 윤문 전에 불러 그 값을 들고 있어야 한다. 원문과
+ * 윤문본을 한꺼번에 받는 자리(예: humanize-check CLI)에서는 검사 시점에 다시 세는
+ * 것과 결과가 같다. 그 자리에서 이 함수는 편의일 뿐이다. 기준선이 갈릴 수 있는
+ * 흐름은 윤문 파이프라인이 원문을 먼저 훑는 경우다.
  */
-export function prescan(text: string, options: RunCheckOptions = {}): PrescanReport {
-  const register = options.register ?? 'doc';
-  const book = options.book ?? parseRuleBook();
-  const s1ByRule = countByRule(text, s1Ids(book, register));
-  const s1Total = [...s1ByRule.values()].reduce((sum, n) => sum + n, 0);
+export function prescan(text: string, options: RuleScanOptions = {}): PrescanReport {
+  // 세는 일은 scan 한 곳에만 둔다. 여기서 다시 세면 같은 집계가 두 벌이 된다.
+  // 룰북 해석이 갈리는 날 어느 쪽이 맞는지 알 수 없게 된다.
+  const report = scan(text, options);
 
-  return { register, s1Total, s1ByRule, worthHumanizing: s1Total > 0 };
+  return {
+    register: report.register,
+    s1Total: report.s1Total,
+    s1ByRule: new Map(report.hits.map((hit) => [hit.ruleId, hit.count])),
+    worthHumanizing: report.worthHumanizing,
+  };
 }
 
-export interface RunCheckOptions {
+/** 어느 말투의 룰북으로 볼지. prescan, scan, runCheck이 함께 쓴다 */
+export interface RuleScanOptions {
   register?: Register;
   book?: RuleBook;
 }
 
-export interface RunCheckWithPrescan extends RunCheckOptions {
+/** @deprecated RuleScanOptions 를 쓴다. 이름이 runCheck 전용처럼 보여서 남겨둔 별칭이다 */
+export type RunCheckOptions = RuleScanOptions;
+
+export interface RunCheckWithPrescan extends RuleScanOptions {
   /** prescan() 이 센 원문 기준선. 안 넘기면 여기서 다시 센다 */
   prescanned?: ReadonlyMap<string, number>;
 }
@@ -330,10 +361,17 @@ export function runCheck(
   const rate = changeRate(before, after);
   const rateNoMarkup = changeRate(before, after, { ignoreMarkup: true });
 
+  // 탐지기는 텍스트당 한 번만 돌린다. 잔존 축은 S1 부분집합을, 유입 축은 전체를 보는데
+  // 룰 필터만 다른 같은 순회라, 따로 부르면 같은 문자열에 정규식이 두 번씩 돌아간다.
+  const beforeAll = countByRule(before);
+  const afterAll = countByRule(after);
+  // prescanned는 윤문에 들어가기 전에 확정한 기준선이라 지금 센 값보다 우선한다
+  const counts = { before: options.prescanned ?? beforeAll, after: afterAll };
+
   const changeAxis = checkChangeRate(rate, rateNoMarkup);
-  const s1 = checkResidualS1(book, register, before, after, options.prescanned);
+  const s1 = checkResidualS1(book, register, counts, rate);
   const preservationAxis = checkPreservation(before, after);
-  const introduced = findIntroduced(before, after);
+  const introduced = findIntroduced(beforeAll, afterAll);
   const introducedAxis = checkIntroduced(book, register, introduced);
   const structureAxis = checkStructure(before, after);
   const reportAxis = register === 'report' ? [checkReportRegister(after)] : [];
@@ -384,7 +422,11 @@ export const MAX_ATTEMPTS = 2;
  * 재시도가 소진되면 윤문본을 버리고 원문을 낸다. 윤문이 원문보다 나아졌다고
  * 증명하지 못했으니, 남는 선택지는 원문뿐이다.
  */
-export function decide(report: CheckReport, attempt: number = 1): Decision {
+export function decide(
+  report: CheckReport,
+  attempt: number = 1,
+  maxAttempts: number = MAX_ATTEMPTS,
+): Decision {
   if (report.verdict === 'pass') {
     return { action: 'accept', message: '검사 통과. 윤문본을 채택한다.' };
   }
@@ -404,15 +446,15 @@ export function decide(report: CheckReport, attempt: number = 1): Decision {
     .map((axis) => axis.detail)
     .join(' / ');
 
-  if (attempt < MAX_ATTEMPTS) {
+  if (attempt < maxAttempts) {
     return {
       action: 'retry',
-      message: `${blocking} — 윤문본을 버리고 원문에서 한 번 더 윤문한 뒤 --attempt ${attempt + 1} 로 다시 검사한다.`,
+      message: `${blocking} — 윤문본을 버리고 원문에서 한 번 더 윤문한 뒤 --attempt ${attempt + 1}로 다시 검사한다.`,
     };
   }
   return {
     action: 'fallback',
-    message: `${blocking} — 재시도(${MAX_ATTEMPTS}회)를 소진했다. 윤문본을 버리고 원문을 그대로 낸다.`,
+    message: `${blocking} — 재시도(${maxAttempts}회)를 소진했다. 윤문본을 버리고 원문을 그대로 낸다.`,
   };
 }
 

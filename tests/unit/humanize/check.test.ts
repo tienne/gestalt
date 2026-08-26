@@ -345,3 +345,76 @@ describe('decide', () => {
     expect(formatReport(runCheck(before, before), 2)).toContain('[다음] fallback');
   });
 });
+
+describe('runCheck — 제거율 경계', () => {
+  it('절반을 정확히 걷어내면 "절반도 못 줄임"이 아니다', () => {
+    // S1 4건(A-1 2건 + D-1 2건) 중 D-1 2건만 제거 = 제거율 정확히 0.5
+    const before =
+      '이 문제에 대해 본다. 저 사안에 대해 본다. 결론적으로 캐시다. 결론적으로 끝이다.';
+    const after = '이 문제에 대해 본다. 저 사안에 대해 본다. 캐시가 원인이다. 여기서 끝이다.';
+    const report = runCheck(before, after);
+    expect(report.s1Removal).toBe(0.5);
+    const axis = report.axes.find((a) => a.axis === 'residual-s1');
+    expect(axis?.verdict).toBe('warn');
+    expect(axis?.detail).not.toContain('절반도 못 줄임');
+  });
+});
+
+describe('runCheck — 탐지기 밖에서 고친 경우', () => {
+  // B-3(안 굳어진 음차)은 탐지기가 없다. 그것만 고치면 제거율은 0으로 보인다
+  const before = [
+    '이 문제에 대해 정리한다.',
+    '설정 파일이 소스 오브 트루스다.',
+    '스키마도 소스 오브 트루스로 둔다.',
+  ].join(' ');
+
+  it('제거율이 0이어도 텍스트가 바뀌었으면 채택을 막지 않는다', () => {
+    const after = [
+      '이 문제에 대해 정리한다.',
+      '설정 파일이 기준 문서다.',
+      '스키마도 기준 문서로 둔다.',
+    ].join(' ');
+    const report = runCheck(before, after);
+    expect(report.s1Removal).toBe(0);
+    const axis = report.axes.find((a) => a.axis === 'residual-s1');
+    expect(axis?.verdict).toBe('warn');
+    expect(axis?.detail).toContain('탐지 가능한 룰은 안 줄었다');
+    expect(decide(report).action).toBe('accept-with-warning');
+  });
+
+  it('제거율이 0이고 텍스트도 그대로면 채택 금지다', () => {
+    const report = runCheck(before, before);
+    expect(report.s1Removal).toBe(0);
+    const axis = report.axes.find((a) => a.axis === 'residual-s1');
+    expect(axis?.verdict).toBe('abort');
+    expect(axis?.detail).toContain('한 건도 못 줄임');
+  });
+});
+
+describe('신규 유입은 한 축만 판정한다', () => {
+  const clean = '배포는 내일입니다. 롤백 기준도 정했습니다.';
+  const seeded = `${clean} 이 문제에 대해 더 봅니다.`;
+
+  it('잔존 축은 물러나고 유입 축이 막는다', () => {
+    const report = runCheck(clean, seeded);
+    // 두 축이 같은 사실을 각자 abort로 재면 한쪽이 회귀해도 다른 쪽이 가린다
+    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('warn');
+    expect(report.axes.find((a) => a.axis === 'introduced')?.verdict).toBe('abort');
+    expect(report.verdict).toBe('abort');
+  });
+});
+
+describe('decide — 재시도 예산', () => {
+  const before = '이 문제에 대해 검토했다. 결론적으로 캐시가 원인이다.';
+
+  it('호출자가 예산을 좁히면 첫 시도에서 바로 원문으로 간다', () => {
+    const report = runCheck(before, before);
+    expect(decide(report, 1, 1).action).toBe('fallback');
+  });
+
+  it('예산을 넓히면 재시도가 더 남는다', () => {
+    const report = runCheck(before, before);
+    expect(decide(report, 2, 3).action).toBe('retry');
+    expect(decide(report, 3, 3).action).toBe('fallback');
+  });
+});

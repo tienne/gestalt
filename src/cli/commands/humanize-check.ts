@@ -1,7 +1,14 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { decide, formatReport, prescan, runCheck, EXIT_CODE } from '../../humanize/index.js';
-import type { Register } from '../../humanize/index.js';
+import {
+  decide,
+  formatReport,
+  parseRegister,
+  parseRuleBook,
+  prescan,
+  runCheck,
+  EXIT_CODE,
+} from '../../humanize/index.js';
 
 export interface HumanizeCheckOptions {
   before: string;
@@ -22,8 +29,7 @@ function read(label: string, path: string): string {
 }
 
 export function humanizeCheckCommand(options: HumanizeCheckOptions): void {
-  const register: Register =
-    options.register === 'chat' ? 'chat' : options.register === 'report' ? 'report' : 'doc';
+  const register = parseRegister(options.register);
   const before = read('원문', options.before);
   const after = read('윤문본', options.after);
 
@@ -33,10 +39,11 @@ export function humanizeCheckCommand(options: HumanizeCheckOptions): void {
   }
 
   const attempt = Math.max(1, Number(options.attempt ?? 1) || 1);
-  // 원문 S1 기준선은 윤문 전에 확정된 값이라야 제거율이 판정 근거가 된다.
-  // CLI는 두 파일을 한꺼번에 받으니 여기서 센다. 세는 대상은 언제나 원문이다.
-  const baseline = prescan(before, { register });
-  const report = runCheck(before, after, { register, prescanned: baseline.s1ByRule });
+  // 룰북은 한 번만 읽어 두 호출이 나눠 쓴다. 각자 부르면 같은 마크다운을 두 번 파싱한다.
+  const book = parseRuleBook();
+  // 세는 대상은 언제나 원문이다. CLI는 두 파일을 한꺼번에 받아 기준선이 갈릴 일이 없다.
+  const baseline = prescan(before, { register, book });
+  const report = runCheck(before, after, { register, book, prescanned: baseline.s1ByRule });
   const decision = decide(report, attempt);
 
   if (options.json) {

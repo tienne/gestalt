@@ -31,6 +31,7 @@ export interface ScanReport {
   worthHumanizing: boolean;
 }
 
+/** @deprecated RuleScanOptions 를 쓴다. 외부에서 이 이름으로 부르던 자리를 위해 남긴다 */
 export interface ScanOptions {
   register?: Register;
   book?: RuleBook;
@@ -65,11 +66,15 @@ export function scan(text: string, options: ScanOptions = {}): ScanReport {
 
 export function formatScan(report: ScanReport): string {
   if (!report.worthHumanizing) {
+    // 직접 확인할 룰을 먼저 세운다. "윤문하지 않는다"를 앞에 두면 그 한 줄만 읽고
+    // 비탐지 룰 확인을 건너뛰게 된다 — 탐지기가 0건이라고 글이 깨끗한 건 아니다.
     return [
-      `[스캔] ${report.register} 기준 S1 0건`,
+      `[스캔] ${report.register} 기준 S1 0건 (탐지기가 가리는 범위)`,
       '',
-      '탐지기가 가리는 범위에서는 걸리는 게 없다. 윤문하지 않고 원문을 그대로 낸다.',
-      `직접 확인할 룰: ${report.unverifiable.join(' ')}`,
+      '아래 룰은 탐지기가 못 가린다. 직접 읽어서 확인한다.',
+      `  ${report.unverifiable.join(' ')}`,
+      '',
+      '여기서도 걸리는 게 없으면 윤문하지 않고 원문을 그대로 낸다.',
     ].join('\n');
   }
 

@@ -1,5 +1,6 @@
 export {
   parseRuleBook,
+  parseRegister,
   ruleLabel,
   s1Ids,
   citedRuleIds,
@@ -34,6 +35,7 @@ export {
   MAX_ATTEMPTS,
   type CheckReport,
   type PrescanReport,
+  type RuleScanOptions,
   type Decision,
   type NextAction,
   type RunCheckOptions,

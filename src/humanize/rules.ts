@@ -176,3 +176,8 @@ export function s1Ids(book: RuleBook, register: Register): string[] {
     .map((rule) => rule.id)
     .sort();
 }
+
+/** CLI 인자를 말투로 읽는다. 모르는 값은 doc이다 — 검사를 막을 이유가 없다 */
+export function parseRegister(value: string | undefined): Register {
+  return value === 'chat' ? 'chat' : value === 'report' ? 'report' : 'doc';
+}
