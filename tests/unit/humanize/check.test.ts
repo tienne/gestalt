@@ -7,7 +7,16 @@ import {
   reportRegisterStats,
   structureStats,
 } from '../../../src/humanize/detectors.js';
-import { decide, formatReport, prescan, runCheck, THRESHOLD } from '../../../src/humanize/check.js';
+import {
+  classifyFixClaims,
+  decide,
+  formatReport,
+  judgeIdleRemoval,
+  prescan,
+  runCheck,
+  THRESHOLD,
+} from '../../../src/humanize/check.js';
+import { parseRuleBook } from '../../../src/humanize/rules.js';
 
 describe('changeRate', () => {
   it('같은 글은 0이다', () => {
@@ -532,5 +541,102 @@ describe('S1이 오히려 늘어난 경우', () => {
     const after = '이 문제에 대해 정리한다. 저 사안에 대해서도 본다. 설정 파일이 기준 문서다.';
     const report = runCheck(before, after, { evidence: { unverifiableFixes: ['B-3'] } });
     expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('abort');
+  });
+});
+
+describe('classifyFixClaims', () => {
+  const book = parseRuleBook();
+  const sort = (claims: readonly string[], counts?: Map<string, number>) =>
+    classifyFixClaims(book, 'doc', claims, {
+      before: counts ?? new Map([['A-1', 2]]),
+      after: new Map([['A-1', 2]]),
+    });
+
+  it('말투 S1이면서 탐지기가 없으면 받는다', () => {
+    expect(sort(['B-3']).accepted).toEqual(['B-3']);
+  });
+
+  it('룰북에 없으면 모르는 ID다', () => {
+    expect(sort(['z']).unknown).toEqual(['z']);
+  });
+
+  it('말투 S1이 아니면 이 축과 무관하다', () => {
+    // A-9는 탐지기가 있지만 doc 기준 S1이 아니다
+    expect(sort(['A-9']).irrelevant).toEqual(['A-9']);
+  });
+
+  it('탐지기가 있는 S1이 안 줄었으면 신고와 어긋난다', () => {
+    expect(sort(['A-1']).contradicted).toEqual(['A-1']);
+  });
+
+  it('탐지기가 있는 S1이 실제로 줄었으면 코드가 확인한 참이다', () => {
+    const claims = classifyFixClaims(book, 'doc', ['A-1'], {
+      before: new Map([['A-1', 2]]),
+      after: new Map([['A-1', 1]]),
+    });
+    expect(claims.corroborated).toEqual(['A-1']);
+    expect(claims.contradicted).toEqual([]);
+  });
+
+  it('말투가 달라지면 같은 ID의 갈래도 달라진다', () => {
+    const counts = { before: new Map<string, number>(), after: new Map<string, number>() };
+    // A-2는 chat에서만 S1이다
+    expect(classifyFixClaims(book, 'doc', ['A-2'], counts).irrelevant).toEqual(['A-2']);
+    expect(classifyFixClaims(book, 'chat', ['A-2'], counts).irrelevant).toEqual([]);
+  });
+});
+
+describe('judgeIdleRemoval', () => {
+  const empty = { accepted: [], corroborated: [], contradicted: [], unknown: [], irrelevant: [] };
+
+  it('늘어난 쪽을 가장 먼저 가른다', () => {
+    // 안 움직였어도 늘어난 쪽 문구가 나온다
+    expect(judgeIdleRemoval(true, false, empty).why).toContain('오히려 늘었다');
+  });
+
+  it('안 움직였으면 윤문을 안 한 것이다', () => {
+    expect(judgeIdleRemoval(false, false, empty).verdict).toBe('abort');
+    expect(judgeIdleRemoval(false, false, empty).why).toContain('한 건도 못 줄임');
+  });
+
+  it('측정과 어긋나는 신고는 쓸 만한 신고가 있어도 막는다', () => {
+    const claims = { ...empty, accepted: ['B-3'], contradicted: ['A-1'] };
+    expect(judgeIdleRemoval(false, true, claims).verdict).toBe('abort');
+    expect(judgeIdleRemoval(false, true, claims).why).toContain('어긋난다');
+  });
+
+  it('무효한 신고는 이유를 갈라 말한다', () => {
+    expect(judgeIdleRemoval(false, true, { ...empty, unknown: ['z'] }).why).toContain(
+      '룰북에 없는',
+    );
+    expect(judgeIdleRemoval(false, true, { ...empty, irrelevant: ['A-9'] }).why).toContain(
+      '말투의 S1이 아닌',
+    );
+    expect(judgeIdleRemoval(false, true, empty).why).toContain('안 밝혔다');
+  });
+
+  it('쓸 만한 신고가 있으면 경고로 내려간다', () => {
+    const claims = { ...empty, accepted: ['B-3'], corroborated: ['A-1'] };
+    const out = judgeIdleRemoval(false, true, claims);
+    expect(out.verdict).toBe('warn');
+    expect(out.why).toContain('A-1');
+    expect(out.why).toContain('B-3');
+  });
+});
+
+describe('신고 검증은 기준선 출처에 안 흔들린다', () => {
+  it('prescanned 유무로 판정이 안 뒤집힌다', () => {
+    // A-9를 실제로 줄였다. doc S1이 아니라 잔존 축의 증거는 아니지만 거짓 고발도 아니다
+    const before =
+      '이 문제에 대해 정리한다. 스케줄러에 의해 실행된다. 설정 파일이 소스 오브 트루스다.';
+    const after = '이 문제에 대해 정리한다. 스케줄러가 실행한다. 설정 파일이 기준 문서다.';
+    const evidence = { unverifiableFixes: ['A-9', 'B-3'] };
+
+    const loose = runCheck(before, after, { evidence });
+    const pinned = runCheck(before, after, { evidence, prescanned: prescan(before).s1ByRule });
+
+    const verdictOf = (r: typeof loose) => r.axes.find((a) => a.axis === 'residual-s1')?.verdict;
+    expect(verdictOf(loose)).toBe('warn');
+    expect(verdictOf(pinned)).toBe(verdictOf(loose));
   });
 });

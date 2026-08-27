@@ -29,6 +29,8 @@ export { changeRate, type ChangeRateOptions } from './change-rate.js';
 export {
   runCheck,
   prescan,
+  classifyFixClaims,
+  judgeIdleRemoval,
   decide,
   formatReport,
   EXIT_CODE,
@@ -37,6 +39,7 @@ export {
   type CheckReport,
   type PrescanReport,
   type HumanizeEvidence,
+  type FixClaims,
   type Decision,
   type NextAction,
   type RunCheckOptions,

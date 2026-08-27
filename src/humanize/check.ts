@@ -8,8 +8,9 @@
  * 채택 금지(abort)는 양방향이다. 너무 많이 바꾼 쪽(변경률 50%, 보호 토큰 유실)만
  * 막으면 아무것도 안 고친 윤문이 그대로 통과한다 — 원문을 그대로 돌려줘도
  * 변경률 0%에 유실 0건이라 경고 하나로 끝났다. 그래서 못 줄인 쪽과 새로 심은 쪽도
- * 막는다. 다만 두 쪽의 조건이 다르다. 신규 유입은 무조건 채택 금지다. 제거율 0은
- * 탐지기 밖에서 고쳤다는 증거가 있어야 경고로 내려간다 — 아래 checkResidualS1 참조.
+ * 막는다. 다만 두 쪽의 조건이 다르다. 신규 유입은 그 말투의 S1이 새로 생겼을 때
+ * 채택 금지이고(S2 이하는 경고), 제거율 0은 탐지기 밖에서 고쳤다는 증거가 있어야
+ * 경고로 내려간다 — 각각 checkIntroduced 와 checkResidualS1 을 본다.
  */
 import { changeRate } from './change-rate.js';
 import {
@@ -111,40 +112,61 @@ function checkChangeRate(rate: number, rateNoMarkup: number): AxisResult {
  * 탐지기 밖에서 고쳤다는 신고를 갈래로 나눈다.
  *
  * 신고는 모델이 스스로 적는 값이라 그 룰이 정말 고쳐졌는지는 코드가 못 본다. 못 보는
- * 자리가 있다고 아무 값이나 받을 이유는 없다 — 룰북에 있는 ID인지, 정말 탐지기 밖
- * 룰인지, 탐지기가 있는 룰을 대면서 그게 안 줄었다고 나오는지는 지금 자료로 가릴 수 있다.
+ * 자리가 있다고 아무 값이나 받을 이유는 없다. 지금 자료로 가릴 수 있는 건 넷이다 —
+ * 룰북에 있는 ID인지, 이 말투의 S1인지, 탐지기가 있는 룰인지, 있다면 그게 정말 줄었는지.
+ *
+ * 판정 대상은 이 말투의 S1뿐이다. 잔존 축이 세는 게 그것뿐이라, 다른 룰을 고쳤다는
+ * 신고는 참이든 거짓이든 이 축의 증거가 못 된다.
  */
-interface FixClaims {
-  /** 룰북에 있고 탐지기가 없는 룰. 신고로 받아들인다 */
+export interface FixClaims {
+  /** 이 말투 S1이면서 탐지기가 없다. 코드가 못 보는 자리라 신고를 받는다 */
   accepted: string[];
+  /** 이 말투 S1이고 탐지기도 있는데 실제로 줄었다. 코드가 확인한 참이다 */
+  corroborated: string[];
+  /** 이 말투 S1이고 탐지기가 있는데 안 줄었다. 신고와 측정이 어긋난다 */
+  contradicted: string[];
   /** 룰북에 없는 ID. 오타이거나 지어낸 값이다 */
   unknown: string[];
-  /** 탐지기가 있는 룰인데 안 줄었다. 신고와 측정이 어긋난다 */
-  contradicted: string[];
+  /** 룰북엔 있지만 이 말투의 S1이 아니다. 잔존 축과 무관해 증거가 못 된다 */
+  irrelevant: string[];
 }
 
-function classifyFixClaims(
+export function classifyFixClaims(
   book: RuleBook,
+  register: Register,
   claims: readonly string[],
   counts: { before: ReadonlyMap<string, number>; after: ReadonlyMap<string, number> },
 ): FixClaims {
+  const targets = new Set(s1Ids(book, register));
   const detectable = new Set(DETECTABLE_RULE_IDS);
-  const out: FixClaims = { accepted: [], unknown: [], contradicted: [] };
+  const out: FixClaims = {
+    accepted: [],
+    corroborated: [],
+    contradicted: [],
+    unknown: [],
+    irrelevant: [],
+  };
 
   for (const id of claims) {
     if (!book.rules.has(id)) {
       out.unknown.push(id);
       continue;
     }
+    // 이 말투의 S1이 아니면 잔존 축이 애초에 안 센다. 기준선 맵에도 안 담겨서
+    // 아래 before/after 비교를 태우면 0 대 0으로 읽혀 엉뚱한 판정이 나온다.
+    if (!targets.has(id)) {
+      out.irrelevant.push(id);
+      continue;
+    }
     if (!detectable.has(id)) {
       out.accepted.push(id);
       continue;
     }
-    // 탐지기가 있는 룰은 제거율이 이미 센다. 그걸 고쳤다고 신고했는데 실제로 안 줄었으면
-    // 둘 중 하나가 틀린 것이다. 코드가 센 쪽을 믿는다.
+    // 탐지기가 있는 룰은 제거율이 이미 센다. 그 값과 신고를 맞대 본다.
     const before = counts.before.get(id) ?? 0;
     const after = counts.after.get(id) ?? 0;
-    if (after >= before) out.contradicted.push(id);
+    if (after < before) out.corroborated.push(id);
+    else out.contradicted.push(id);
   }
 
   return out;
@@ -153,10 +175,21 @@ function classifyFixClaims(
 /**
  * 제거율이 0 이하일 때 무엇으로 볼지 정한다.
  *
- * 갈래가 여섯이라 따로 뽑았다. checkResidualS1 안에 두면 그 함수만 읽어서는 결과를
- * 예측할 수 없다.
+ * 갈래가 일곱이라 따로 뽑았다. checkResidualS1 안에 두면 그 함수만 읽어서는 결과를
+ * 예측할 수 없다. 순서대로 이렇다.
+ *
+ * 1. 늘었으면 채택 금지. 줄지 않은 것과 갈라 말해야 회귀를 정체로 안 읽는다
+ * 2. 텍스트가 안 움직였으면 채택 금지. 윤문을 안 한 것이다
+ * 3. 신고가 측정과 어긋나면 채택 금지. 측정이 이긴다
+ * 4. 룰북에 없는 ID만 댔으면 채택 금지
+ * 5. 이 말투 S1이 아닌 룰만 댔으면 채택 금지. 이 축의 증거가 못 된다
+ * 6. 쓸 만한 신고가 하나도 없으면 채택 금지
+ * 7. 그 밖에는 경고. 사람이 직접 확인할 자리로 넘긴다
+ *
+ * 4와 5가 6보다 앞이다. 셋 다 채택 금지지만 이유가 달라야 다음에 무엇을 고칠지 안다.
+ * 6은 앞 둘의 상위집합이라 순서를 뒤집으면 4와 5가 영영 안 나온다.
  */
-function judgeIdleRemoval(
+export function judgeIdleRemoval(
   grew: boolean,
   moved: boolean,
   claims: FixClaims,
@@ -169,16 +202,22 @@ function judgeIdleRemoval(
       why: `고쳤다는 신고와 측정이 어긋난다 (안 줄어든 룰: ${claims.contradicted.join(' ')})`,
     };
   }
-  if (claims.unknown.length > 0 && claims.accepted.length === 0) {
-    return { verdict: 'abort', why: `룰북에 없는 ID만 댔다 (${claims.unknown.join(' ')})` };
-  }
-  if (claims.accepted.length === 0) {
+
+  const usable = [...claims.corroborated, ...claims.accepted];
+  if (usable.length === 0) {
+    if (claims.unknown.length > 0) {
+      return { verdict: 'abort', why: `룰북에 없는 ID만 댔다 (${claims.unknown.join(' ')})` };
+    }
+    if (claims.irrelevant.length > 0) {
+      return {
+        verdict: 'abort',
+        why: `이 말투의 S1이 아닌 룰만 댔다 (${claims.irrelevant.join(' ')})`,
+      };
+    }
     return { verdict: 'abort', why: '텍스트는 움직였지만 무엇을 고쳤는지 안 밝혔다' };
   }
-  return {
-    verdict: 'warn',
-    why: `탐지기 밖에서 고쳤다고 보고한 룰: ${claims.accepted.join(' ')}`,
-  };
+
+  return { verdict: 'warn', why: `고쳤다고 보고한 룰: ${usable.join(' ')}` };
 }
 
 interface ResidualResult {
@@ -200,7 +239,7 @@ interface ResidualResult {
  * 아니다 — 탐지기 없는 S1만 고친 윤문본도 여기서는 0으로 보인다.
  *
  * 그 둘은 변경률과 신고 둘 다로 가른다. 변경률만 넘고 무엇을 고쳤는지 못 대면 여전히
- * 채택 금지다. 갈래는 judgeIdleRemoval 이 정한다 — 거기 주석에 여섯 경우가 다 있다.
+ * 채택 금지다. 갈래는 judgeIdleRemoval 이 정하고 그 JSDoc 이 일곱을 다 적어 둔다.
  */
 function checkResidualS1(
   book: RuleBook,
@@ -252,7 +291,7 @@ function checkResidualS1(
     const { verdict, why } = judgeIdleRemoval(
       afterTotal > beforeTotal,
       rate >= THRESHOLD.idleChange,
-      classifyFixClaims(book, unverifiableFixes, counts),
+      classifyFixClaims(book, register, unverifiableFixes, counts),
     );
 
     return {
@@ -409,6 +448,10 @@ export interface PrescanReport {
  * 윤문을 돌리면 남는 건 과윤문뿐이다. 둘째, 여기서 센 건수를 runCheck의 prescanned로
  * 넘기면 그 값이 제거율의 기준선이 된다.
  *
+ * 비용은 문서 크기가 아니라 걸린 룰 종류 수에 비례한다. scan 을 거치며 라벨과 처방을
+ * 조회하지만 그건 걸린 룰마다 한 번씩이라, 2.5KB 와 5MB 사이에서 오버헤드가 커지지 않는다.
+ * 룰북이 수백 룰로 자라면 그때 다시 본다.
+ *
  * 기준선이 실제로 의미를 가지려면 윤문 전에 불러 그 값을 들고 있어야 한다. 원문과
  * 윤문본을 한꺼번에 받는 자리(예: humanize-check CLI)에서는 검사 시점에 다시 세는
  * 것과 결과가 같다. 그 자리에서 이 함수는 편의일 뿐이다. 기준선이 갈릴 수 있는
@@ -475,8 +518,8 @@ export function runCheck(
   // 다만 이 절약은 detect 안에서만이다. 아래 checkStructure의 structureStats가
   // proseOnly를 다시 계산한다. report 말투면 reportRegisterStats가 한 번 더 한다.
   //
-  // 안 건드리는 근거는 재봤다. 그 중복이 차지하는 비중이 1KB에서 1MB까지 어느 구간에서도
-  // 7에서 9퍼센트를 안 넘는다. changeRate가 지배한다는 말은 어절 6000개(TOKEN_DP_CAP)
+  // 안 건드리는 근거는 실측으로 확인했다. 그 중복이 차지하는 비중이 1KB에서 1MB까지
+  // 어느 구간에서도 7퍼센트를 안 넘는다. changeRate가 지배한다는 말은 어절 6000개
   // 이하에서만 맞고 그 위로는 절반으로 준다. 다만 그 자리를 메우는 건 detect 본연의
   // 계산이지 이 중복이 아니라, 결론은 전 구간에서 같다.
   const beforeAll = countByRule(before);
