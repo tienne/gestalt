@@ -1,13 +1,22 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { formatReport, runCheck, EXIT_CODE } from '../../humanize/index.js';
-import type { Register } from '../../humanize/index.js';
+import {
+  decide,
+  formatReport,
+  parseRegister,
+  parseRuleBook,
+  prescan,
+  runCheck,
+  EXIT_CODE,
+} from '../../humanize/index.js';
 
 export interface HumanizeCheckOptions {
   before: string;
   after: string;
   register?: string;
   json?: boolean;
+  /** 몇 번째 윤문인지. 재시도를 소진하면 원문을 채택하라고 지시한다 */
+  attempt?: string | number;
 }
 
 function read(label: string, path: string): string {
@@ -20,8 +29,7 @@ function read(label: string, path: string): string {
 }
 
 export function humanizeCheckCommand(options: HumanizeCheckOptions): void {
-  const register: Register =
-    options.register === 'chat' ? 'chat' : options.register === 'report' ? 'report' : 'doc';
+  const register = parseRegister(options.register);
   const before = read('원문', options.before);
   const after = read('윤문본', options.after);
 
@@ -30,12 +38,18 @@ export function humanizeCheckCommand(options: HumanizeCheckOptions): void {
     process.exit(EXIT_CODE.unknown);
   }
 
-  const report = runCheck(before, after, { register });
+  const attempt = Math.max(1, Number(options.attempt ?? 1) || 1);
+  // 룰북은 한 번만 읽어 두 호출이 나눠 쓴다. 각자 부르면 같은 마크다운을 두 번 파싱한다.
+  const book = parseRuleBook();
+  // 세는 대상은 언제나 원문이다. CLI는 두 파일을 한꺼번에 받아 기준선이 갈릴 일이 없다.
+  const baseline = prescan(before, { register, book });
+  const report = runCheck(before, after, { register, book, prescanned: baseline.s1ByRule });
+  const decision = decide(report, attempt);
 
   if (options.json) {
-    console.log(JSON.stringify(report, null, 2));
+    console.log(JSON.stringify({ ...report, attempt, decision }, null, 2));
   } else {
-    console.log(formatReport(report));
+    console.log(formatReport(report, attempt));
   }
 
   process.exit(report.exitCode);

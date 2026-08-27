@@ -9,6 +9,7 @@ import { graphVisualizeCommand } from './commands/graph-visualize.js';
 import { updateCommand } from './commands/update.js';
 import { usageReportCommand } from './commands/usage-report.js';
 import { humanizeCheckCommand } from './commands/humanize-check.js';
+import { humanizeScanCommand } from './commands/humanize-scan.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -221,15 +222,34 @@ export function createCli(): Command {
     .action((key, o, cmd) => prUnregisterCommand({ ...inherited(cmd), ...o, key }));
 
   program
+    .command('humanize-scan')
+    .description('원문에서 실제로 걸린 S1 룰만 처방과 함께 추린다 (exit 0 걸림 / 10 없음)')
+    .requiredOption('--file <path>', '스캔할 텍스트 파일')
+    .option('--register <doc|chat|report>', '어느 말투 기준으로 볼지 (기본 doc)', 'doc')
+    .option('--json', '스캔 결과를 JSON으로')
+    .action((options: { file: string; register?: string; json?: boolean }) => {
+      humanizeScanCommand(options);
+    });
+
+  program
     .command('humanize-check')
     .description('Judge a humanized draft against the rulebook (exit 0 pass / 1 warn / 2 abort)')
     .requiredOption('--before <path>', 'Original text file')
     .requiredOption('--after <path>', 'Humanized text file')
     .option('--register <doc|chat|report>', 'Register to judge against (default: doc)', 'doc')
+    .option('--attempt <n>', 'Which humanize attempt this is (default: 1)', '1')
     .option('--json', 'Emit the full report as JSON')
-    .action((options: { before: string; after: string; register?: string; json?: boolean }) => {
-      humanizeCheckCommand(options);
-    });
+    .action(
+      (options: {
+        before: string;
+        after: string;
+        register?: string;
+        attempt?: string;
+        json?: boolean;
+      }) => {
+        humanizeCheckCommand(options);
+      },
+    );
 
   program
     .command('usage-report')

@@ -14,7 +14,13 @@ export interface Detection {
 
 interface Detector {
   ruleId: string;
-  run: (text: string) => string[];
+  /**
+   * prose 는 detect 가 한 번 계산해 모든 탐지기에 나눠 주는, 산문만 남긴 텍스트다.
+   *
+   * 원문 그대로가 필요한 룰이 아직 없어 인자가 이것 하나다. 코드펜스나 표 안을
+   * 봐야 하는 룰이 생기면 그때 raw text 를 함께 넘긴다.
+   */
+  run: (prose: string) => string[];
 }
 
 const SAMPLE_CAP = 3;
@@ -71,13 +77,10 @@ function proseOnly(text: string, options: ProseOptions = {}): string {
     .replace(/`[^`\n]+`/g, ' ');
 }
 
-function matcher(ruleId: string, re: RegExp, onProse = true): Detector {
+function matcher(ruleId: string, re: RegExp): Detector {
   return {
     ruleId,
-    run: (text) => {
-      const target = onProse ? proseOnly(text) : text;
-      return [...target.matchAll(re)].map((m) => m[0]!.trim());
-    },
+    run: (prose) => [...prose.matchAll(re)].map((m) => m[0]!.trim()),
   };
 }
 
@@ -86,9 +89,9 @@ function sentenceInitial(ruleId: string, words: string[]): Detector {
   const re = new RegExp(`^(?:${words.join('|')})[\\s,]`);
   return {
     ruleId,
-    run: (text) => {
+    run: (prose) => {
       const hits: string[] = [];
-      for (const chunk of splitSentences(proseOnly(text))) {
+      for (const chunk of splitSentences(prose)) {
         const stripped = chunk.replace(/^[\s>*\-#\d.)]+/, '');
         const match = stripped.match(re);
         if (match) hits.push(match[0]!.trim());
@@ -161,10 +164,12 @@ export const DETECTABLE_RULE_IDS: string[] = DETECTORS.map((d) => d.ruleId);
 export function detect(text: string, ruleIds?: readonly string[]): Detection[] {
   const wanted = ruleIds ? new Set(ruleIds) : null;
   const results: Detection[] = [];
+  // 탐지기 24개가 각자 부르면 줄 분할과 인용 제거가 스물네 번 반복된다. 한 번만 한다
+  const prose = proseOnly(text);
 
   for (const detector of DETECTORS) {
     if (wanted && !wanted.has(detector.ruleId)) continue;
-    const hits = detector.run(text);
+    const hits = detector.run(prose);
     if (hits.length === 0) continue;
     results.push({
       ruleId: detector.ruleId,
