@@ -17,6 +17,7 @@ import {
   missingProtectedTokens,
   reportRegisterStats,
   structureStats,
+  DETECTABLE_RULE_IDS,
 } from './detectors.js';
 import {
   parseRuleBook,
@@ -50,8 +51,8 @@ export const THRESHOLD = {
    * 제대로 고친 윤문본은 제거율이 0이라 채택 금지로 떨어진다. 원문을 그대로 돌려준
    * 것과 같은 판정을 받는 셈인데, 그쪽은 변경률도 0이라 여기서 갈린다.
    *
-   * 다만 변경률은 "움직였나"만 증언하지 "무엇을 고쳤나"는 말하지 못한다. 이것만으로
-   * 통과를 열면 S1을 한 건도 안 줄이고 수사만 늘린 윤문본이 함께 빠져나간다.
+   * 다만 이 값으로는 텍스트가 움직였는지까지만 알 수 있다. 무엇을 고쳤는지는 알 수 없다.
+   * 이것만으로 통과를 열면 S1을 한 건도 안 줄이고 수사만 늘린 윤문본이 함께 빠져나간다.
    * 그래서 이 문턱을 넘은 자리에는 unverifiableFixes 로 무엇을 고쳤는지 받는다.
    */
   idleChange: 0.05,
@@ -106,6 +107,80 @@ function checkChangeRate(rate: number, rateNoMarkup: number): AxisResult {
   return { axis: 'change-rate', verdict: 'pass', detail };
 }
 
+/**
+ * 탐지기 밖에서 고쳤다는 신고를 갈래로 나눈다.
+ *
+ * 신고는 모델이 스스로 적는 값이라 그 룰이 정말 고쳐졌는지는 코드가 못 본다. 못 보는
+ * 자리가 있다고 아무 값이나 받을 이유는 없다 — 룰북에 있는 ID인지, 정말 탐지기 밖
+ * 룰인지, 탐지기가 있는 룰을 대면서 그게 안 줄었다고 나오는지는 지금 자료로 가릴 수 있다.
+ */
+interface FixClaims {
+  /** 룰북에 있고 탐지기가 없는 룰. 신고로 받아들인다 */
+  accepted: string[];
+  /** 룰북에 없는 ID. 오타이거나 지어낸 값이다 */
+  unknown: string[];
+  /** 탐지기가 있는 룰인데 안 줄었다. 신고와 측정이 어긋난다 */
+  contradicted: string[];
+}
+
+function classifyFixClaims(
+  book: RuleBook,
+  claims: readonly string[],
+  counts: { before: ReadonlyMap<string, number>; after: ReadonlyMap<string, number> },
+): FixClaims {
+  const detectable = new Set(DETECTABLE_RULE_IDS);
+  const out: FixClaims = { accepted: [], unknown: [], contradicted: [] };
+
+  for (const id of claims) {
+    if (!book.rules.has(id)) {
+      out.unknown.push(id);
+      continue;
+    }
+    if (!detectable.has(id)) {
+      out.accepted.push(id);
+      continue;
+    }
+    // 탐지기가 있는 룰은 제거율이 이미 센다. 그걸 고쳤다고 신고했는데 실제로 안 줄었으면
+    // 둘 중 하나가 틀린 것이다. 코드가 센 쪽을 믿는다.
+    const before = counts.before.get(id) ?? 0;
+    const after = counts.after.get(id) ?? 0;
+    if (after >= before) out.contradicted.push(id);
+  }
+
+  return out;
+}
+
+/**
+ * 제거율이 0 이하일 때 무엇으로 볼지 정한다.
+ *
+ * 갈래가 여섯이라 따로 뽑았다. checkResidualS1 안에 두면 그 함수만 읽어서는 결과를
+ * 예측할 수 없다.
+ */
+function judgeIdleRemoval(
+  grew: boolean,
+  moved: boolean,
+  claims: FixClaims,
+): { verdict: Verdict; why: string } {
+  if (grew) return { verdict: 'abort', why: '탐지 가능한 룰이 오히려 늘었다' };
+  if (!moved) return { verdict: 'abort', why: '한 건도 못 줄임' };
+  if (claims.contradicted.length > 0) {
+    return {
+      verdict: 'abort',
+      why: `고쳤다는 신고와 측정이 어긋난다 (안 줄어든 룰: ${claims.contradicted.join(' ')})`,
+    };
+  }
+  if (claims.unknown.length > 0 && claims.accepted.length === 0) {
+    return { verdict: 'abort', why: `룰북에 없는 ID만 댔다 (${claims.unknown.join(' ')})` };
+  }
+  if (claims.accepted.length === 0) {
+    return { verdict: 'abort', why: '텍스트는 움직였지만 무엇을 고쳤는지 안 밝혔다' };
+  }
+  return {
+    verdict: 'warn',
+    why: `탐지기 밖에서 고쳤다고 보고한 룰: ${claims.accepted.join(' ')}`,
+  };
+}
+
 interface ResidualResult {
   axis: AxisResult;
   residual: CheckReport['residualS1'];
@@ -122,8 +197,10 @@ interface ResidualResult {
  * 원문 건수를 기준선으로 두고 제거율로 가른다.
  *
  * 세는 대상은 탐지기가 있는 룰뿐이다. 그래서 제거율 0이 곧 "아무것도 안 했다"는
- * 아니다 — 탐지기 없는 S1만 고친 윤문본도 여기서는 0으로 보인다. 그 둘을 변경률로
- * 가른다. 원문을 그대로 돌려준 쪽은 변경률도 0이다. 탐지 밖에서 고친 쪽은 아니다.
+ * 아니다 — 탐지기 없는 S1만 고친 윤문본도 여기서는 0으로 보인다.
+ *
+ * 그 둘은 변경률과 신고 둘 다로 가른다. 변경률만 넘고 무엇을 고쳤는지 못 대면 여전히
+ * 채택 금지다. 갈래는 judgeIdleRemoval 이 정한다 — 거기 주석에 여섯 경우가 다 있다.
  */
 function checkResidualS1(
   book: RuleBook,
@@ -172,22 +249,11 @@ function checkResidualS1(
     };
   }
   if (removal <= 0) {
-    // 늘어난 경우와 그대로인 경우를 갈라 말한다. "안 줄었다"로 뭉뚱그리면 늘어난 자리를
-    // 줄지 않은 자리로 읽게 된다. 늘어난 쪽의 채택 금지는 introduced 축이 낸다.
-    const grew = afterTotal > beforeTotal;
-    const moved = rate >= THRESHOLD.idleChange;
-    const claimed = unverifiableFixes.length > 0;
-
-    // 텍스트가 안 움직였으면 윤문을 안 한 것이다. 움직였더라도 무엇을 고쳤는지
-    // 대지 못하면 교정인지 덧붙인 수사인지 알 수 없어 같은 자리에 둔다.
-    const verdict: Verdict = moved && claimed ? 'warn' : 'abort';
-    const why = grew
-      ? `탐지 가능한 룰이 오히려 늘었다`
-      : moved
-        ? claimed
-          ? `탐지기 밖에서 ${unverifiableFixes.join(', ')}를 고쳤다고 한다`
-          : `텍스트는 움직였지만 무엇을 고쳤는지 안 밝혔다`
-        : `한 건도 못 줄임`;
+    const { verdict, why } = judgeIdleRemoval(
+      afterTotal > beforeTotal,
+      rate >= THRESHOLD.idleChange,
+      classifyFixClaims(book, unverifiableFixes, counts),
+    );
 
     return {
       ...base,
@@ -364,17 +430,32 @@ export function prescan(text: string, options: RuleScanOptions = {}): PrescanRep
 /** @deprecated rules.ts 의 RuleScanOptions 를 쓴다. 이름이 runCheck 전용처럼 보인다 */
 export type RunCheckOptions = RuleScanOptions;
 
-export interface RunCheckWithPrescan extends RuleScanOptions {
-  /** prescan() 이 센 원문 기준선. 안 넘기면 여기서 다시 센다 */
-  prescanned?: ReadonlyMap<string, number>;
+/**
+ * 모델이 스스로 내는 증거.
+ *
+ * 기준선(prescanned)과는 다른 축이라 따로 묶는다. 하나는 코드가 센 값이고 하나는
+ * 모델이 적어 낸 값이다. 같은 자리에 두면 어느 쪽이 측정이고 어느 쪽이 주장인지 흐려진다.
+ */
+export interface HumanizeEvidence {
   /**
    * 탐지기가 못 가리는 자리에서 고쳤다고 보고한 룰 ID.
    *
-   * 제거율이 0인데 텍스트는 움직인 자리에서만 쓴다. 변경률은 무언가 바뀌었다는
-   * 것만 말하지 그게 교정인지 덧붙인 수사인지 못 가른다. 여기에 룰 ID가 있어야
-   * 그 움직임을 교정으로 인정한다. 비어 있으면 채택하지 않는다.
+   * 제거율이 0인데 텍스트는 움직인 자리에서만 쓴다. 변경률로는 무언가 바뀌었다는
+   * 데까지만 알 수 있고 그게 교정인지 덧붙인 수사인지는 안 갈린다. 여기에 룰 ID가
+   * 있어야 그 움직임을 교정으로 인정한다.
+   *
+   * **이 값은 모델의 자기 신고다.** 코드는 룰북에 있는 ID인지, 정말 탐지기 밖 룰인지,
+   * 탐지기가 있는 룰을 대면서 그게 안 줄었다고 나오는지까지만 본다. 그 룰이 실제로
+   * 고쳐졌는지는 확인하지 않는다 — 애초에 탐지기가 없어서 확인할 수 없는 자리다.
    */
   unverifiableFixes?: readonly string[];
+}
+
+export interface RunCheckWithPrescan extends RuleScanOptions {
+  /** prescan() 이 센 원문 기준선. 안 넘기면 여기서 다시 센다 */
+  prescanned?: ReadonlyMap<string, number>;
+  /** 모델이 낸 증거. 코드가 센 기준선과 섞이지 않게 따로 받는다 */
+  evidence?: HumanizeEvidence;
 }
 
 export function runCheck(
@@ -393,7 +474,11 @@ export function runCheck(
   //
   // 다만 이 절약은 detect 안에서만이다. 아래 checkStructure의 structureStats가
   // proseOnly를 다시 계산한다. report 말투면 reportRegisterStats가 한 번 더 한다.
-  // changeRate가 실행시간을 지배해 지금은 안 건드린다 — 고칠 때는 여기부터 본다.
+  //
+  // 안 건드리는 근거는 재봤다. 그 중복이 차지하는 비중이 1KB에서 1MB까지 어느 구간에서도
+  // 7에서 9퍼센트를 안 넘는다. changeRate가 지배한다는 말은 어절 6000개(TOKEN_DP_CAP)
+  // 이하에서만 맞고 그 위로는 절반으로 준다. 다만 그 자리를 메우는 건 detect 본연의
+  // 계산이지 이 중복이 아니라, 결론은 전 구간에서 같다.
   const beforeAll = countByRule(before);
   const afterAll = countByRule(after);
   // prescanned는 윤문에 들어가기 전에 확정한 기준선이라 지금 센 값보다 우선한다
@@ -407,7 +492,7 @@ export function runCheck(
     : beforeAll;
 
   const changeAxis = checkChangeRate(rate, rateNoMarkup);
-  const s1 = checkResidualS1(book, register, counts, rate, options.unverifiableFixes);
+  const s1 = checkResidualS1(book, register, counts, rate, options.evidence?.unverifiableFixes);
   const preservationAxis = checkPreservation(before, after);
   const introduced = findIntroduced(introducedBase, afterAll);
   const introducedAxis = checkIntroduced(book, register, introduced);

@@ -36,6 +36,7 @@ export {
   MAX_ATTEMPTS,
   type CheckReport,
   type PrescanReport,
+  type HumanizeEvidence,
   type Decision,
   type NextAction,
   type RunCheckOptions,

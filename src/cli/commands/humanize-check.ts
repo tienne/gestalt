@@ -53,7 +53,7 @@ export function humanizeCheckCommand(options: HumanizeCheckOptions): void {
     register,
     book,
     prescanned: baseline.s1ByRule,
-    unverifiableFixes,
+    evidence: { unverifiableFixes },
   });
   const decision = decide(report, attempt);
 

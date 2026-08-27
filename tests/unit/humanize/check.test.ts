@@ -375,7 +375,7 @@ describe('runCheck — 탐지기 밖에서 고친 경우', () => {
   ].join(' ');
 
   it('무엇을 고쳤는지 대면 채택을 막지 않는다', () => {
-    const report = runCheck(before, after, { unverifiableFixes: ['B-3'] });
+    const report = runCheck(before, after, { evidence: { unverifiableFixes: ['B-3'] } });
     expect(report.s1Removal).toBe(0);
     const axis = report.axes.find((a) => a.axis === 'residual-s1');
     expect(axis?.verdict).toBe('warn');
@@ -384,7 +384,7 @@ describe('runCheck — 탐지기 밖에서 고친 경우', () => {
   });
 
   it('텍스트만 움직이고 무엇을 고쳤는지 못 대면 채택 금지다', () => {
-    // 변경률은 움직였나만 증언한다. 그것만으로 통과를 열면 S1을 안 줄이고
+    // 변경률로는 움직였는지까지만 알 수 있다. 그것만으로 통과를 열면 S1을 안 줄이고
     // 수사만 늘린 윤문본이 함께 빠져나간다
     const report = runCheck(before, after);
     const axis = report.axes.find((a) => a.axis === 'residual-s1');
@@ -444,13 +444,13 @@ describe('runCheck — idleChange 경계', () => {
   const moved = before.replace('본다.', '본다');
 
   it('증거를 대도 텍스트가 안 움직였으면 채택 금지다', () => {
-    const report = runCheck(before, before, { unverifiableFixes: ['B-3'] });
+    const report = runCheck(before, before, { evidence: { unverifiableFixes: ['B-3'] } });
     expect(report.changeRate).toBeLessThan(THRESHOLD.idleChange);
     expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('abort');
   });
 
   it('경계를 넘으면 같은 증거로 경고까지 내려간다', () => {
-    const report = runCheck(before, moved, { unverifiableFixes: ['B-3'] });
+    const report = runCheck(before, moved, { evidence: { unverifiableFixes: ['B-3'] } });
     expect(report.changeRate).toBeGreaterThanOrEqual(THRESHOLD.idleChange);
     expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('warn');
   });
@@ -477,5 +477,60 @@ describe('두 축이 같은 기준선을 본다', () => {
     // 유입 축이 같은 기준선을 보므로 여기서 막힌다
     expect(report.axes.find((a) => a.axis === 'introduced')?.verdict).toBe('abort');
     expect(report.verdict).toBe('abort');
+  });
+});
+
+describe('신고 검증', () => {
+  // A-1 하나가 끝까지 남아 제거율은 0이다. B-3(음차)는 탐지기가 없어 코드가 못 센다
+  const before = '이 문제에 대해 정리한다. 설정 파일이 소스 오브 트루스다.';
+  const after = '이 문제에 대해 정리한다. 설정 파일이 기준 문서다.';
+  const axis = (fixes?: string[]) =>
+    runCheck(before, after, fixes ? { evidence: { unverifiableFixes: fixes } } : {}).axes.find(
+      (a) => a.axis === 'residual-s1',
+    );
+
+  it('탐지기가 없는 룰을 대면 받아들인다', () => {
+    expect(axis(['B-3'])?.verdict).toBe('warn');
+    expect(axis(['B-3'])?.detail).toContain('B-3');
+  });
+
+  it('룰북에 없는 ID만 대면 채택 금지다', () => {
+    expect(axis(['z'])?.verdict).toBe('abort');
+    expect(axis(['z'])?.detail).toContain('룰북에 없는 ID');
+  });
+
+  it('탐지기가 있는 룰을 댔는데 안 줄었으면 신고와 측정이 어긋난다', () => {
+    // A-1은 탐지기가 있고 before/after 모두 1건이라 안 줄었다
+    expect(axis(['A-1'])?.verdict).toBe('abort');
+    expect(axis(['A-1'])?.detail).toContain('어긋난다');
+  });
+
+  it('쓸 만한 신고가 하나라도 있으면 무효 ID가 섞여도 받는다', () => {
+    expect(axis(['B-3', 'z'])?.verdict).toBe('warn');
+  });
+
+  it('받침이 있든 없든 문장이 성립한다', () => {
+    // 조사를 붙이지 않고 콜론으로 끊어서 룰 ID 받침에 안 걸린다
+    expect(axis(['C-8'])?.detail).toContain('보고한 룰: C-8');
+    expect(axis(['B-3', 'C-8'])?.detail).toContain('보고한 룰: B-3 C-8');
+  });
+});
+
+describe('S1이 오히려 늘어난 경우', () => {
+  it('줄지 않은 것과 갈라 말한다', () => {
+    const before = '이 문제에 대해 정리한다. 설정 파일이 소스 오브 트루스다.';
+    const after = '이 문제에 대해 정리한다. 저 사안에 대해서도 본다. 설정 파일이 기준 문서다.';
+    const report = runCheck(before, after);
+    expect(report.s1Removal).toBeLessThan(0);
+    const axis = report.axes.find((a) => a.axis === 'residual-s1');
+    expect(axis?.verdict).toBe('abort');
+    expect(axis?.detail).toContain('오히려 늘었다');
+  });
+
+  it('늘어난 자리에는 신고를 대도 안 통한다', () => {
+    const before = '이 문제에 대해 정리한다. 설정 파일이 소스 오브 트루스다.';
+    const after = '이 문제에 대해 정리한다. 저 사안에 대해서도 본다. 설정 파일이 기준 문서다.';
+    const report = runCheck(before, after, { evidence: { unverifiableFixes: ['B-3'] } });
+    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('abort');
   });
 });
