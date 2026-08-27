@@ -406,7 +406,7 @@ describe('두 축이 같은 기준선을 본다', () => {
   });
 });
 
-describe('제거율이 0일 때 이 축이 아는 것', () => {
+describe('제거율이 0일 때 확정되는 것', () => {
   // A-1 하나가 끝까지 남는다. B-3(음차)는 탐지기가 없어 코드가 못 센다
   const before = [
     '이 문제에 대해 정리한다.',
@@ -414,15 +414,15 @@ describe('제거율이 0일 때 이 축이 아는 것', () => {
     '스키마도 소스 오브 트루스로 둔다.',
   ].join(' ');
 
-  it('텍스트까지 그대로면 윤문을 안 한 것이라 단정한다', () => {
+  it('변경까지 문턱 아래면 윤문을 안 한 것이다', () => {
     const report = runCheck(before, before);
     expect(report.s1Removal).toBe(0);
     const axis = report.axes.find((a) => a.axis === 'residual-s1');
     expect(axis?.verdict).toBe('abort');
-    expect(axis?.detail).toContain('텍스트도 그대로다');
+    expect(axis?.detail).toContain('변경도 문턱 아래다');
   });
 
-  it('텍스트가 바뀌었으면 못 본다고 말하고 넘긴다', () => {
+  it('변경이 문턱을 넘었으면 판정 범위 밖이라 넘긴다', () => {
     // B-3 셋을 고쳤다. 코드는 그걸 셀 수 없다
     const after = [
       '이 문제에 대해 정리한다.',
@@ -433,7 +433,7 @@ describe('제거율이 0일 때 이 축이 아는 것', () => {
     expect(report.s1Removal).toBe(0);
     const axis = report.axes.find((a) => a.axis === 'residual-s1');
     expect(axis?.verdict).toBe('warn');
-    expect(axis?.detail).toContain('탐지기 밖은 이 검사가 못 본다');
+    expect(axis?.detail).toContain('이 검사로 확인되지 않는다');
     expect(decide(report).action).toBe('accept-with-warning');
   });
 
@@ -454,5 +454,18 @@ describe('제거율이 0일 때 이 축이 아는 것', () => {
     expect(runCheck(before, moved).axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe(
       'warn',
     );
+  });
+});
+
+describe('idleChange 경계', () => {
+  it('변경률이 정확히 문턱이면 문턱 아래로 안 본다', () => {
+    // changeRate 가 정확히 THRESHOLD.idleChange 가 되는 쌍을 찾아 경계를 고정한다.
+    // 부등호가 < 이므로 같은 값은 idle 이 아니다 — 경고로 내려가야 한다
+    const before = '이 문제에 대해 정리한다. 설정은 그대로 두고 배포 순서만 확인한다.';
+    const after = before.replace('확인한다.', '확인한다');
+    const report = runCheck(before, after);
+    // 이 쌍이 경계 위인지 먼저 확인한다. 그 전제 위에서 판정을 고정한다
+    expect(report.changeRate).toBeGreaterThanOrEqual(THRESHOLD.idleChange);
+    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('warn');
   });
 });
