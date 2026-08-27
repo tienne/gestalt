@@ -9,8 +9,10 @@
  * 막으면 아무것도 안 고친 윤문이 그대로 통과한다 — 원문을 그대로 돌려줘도
  * 변경률 0%에 유실 0건이라 경고 하나로 끝났다. 그래서 못 줄인 쪽과 새로 심은 쪽도
  * 막는다. 다만 두 쪽의 조건이 다르다. 신규 유입은 그 말투의 S1이 새로 생겼을 때
- * 채택 금지이고(S2 이하는 경고), 제거율 0은 탐지기 밖에서 고쳤다는 증거가 있어야
- * 경고로 내려간다 — 각각 checkIntroduced 와 checkResidualS1 을 본다.
+ * 채택 금지이고 S2 이하는 경고다. 제거율 0은 텍스트까지 그대로일 때만 채택 금지다.
+ *
+ * 각 축은 자기가 아는 것만 말한다. 잔존 축이 세는 건 탐지기가 있는 룰뿐이라, 그 밖에서
+ * 무엇을 고쳤는지는 판정하지 않고 사람에게 넘긴다. 못 보는 자리를 봤다고 하지 않는다.
  */
 import { changeRate } from './change-rate.js';
 import {
@@ -18,7 +20,6 @@ import {
   missingProtectedTokens,
   reportRegisterStats,
   structureStats,
-  DETECTABLE_RULE_IDS,
 } from './detectors.js';
 import {
   parseRuleBook,
@@ -52,9 +53,8 @@ export const THRESHOLD = {
    * 제대로 고친 윤문본은 제거율이 0이라 채택 금지로 떨어진다. 원문을 그대로 돌려준
    * 것과 같은 판정을 받는 셈인데, 그쪽은 변경률도 0이라 여기서 갈린다.
    *
-   * 다만 이 값으로는 텍스트가 움직였는지까지만 알 수 있다. 무엇을 고쳤는지는 알 수 없다.
-   * 이것만으로 통과를 열면 S1을 한 건도 안 줄이고 수사만 늘린 윤문본이 함께 빠져나간다.
-   * 그래서 이 문턱을 넘은 자리에는 unverifiableFixes 로 무엇을 고쳤는지 받는다.
+   * 이 값으로 가르는 건 "윤문을 아예 안 했나"까지다. 문턱을 넘었다고 제대로 고쳤다는
+   * 뜻은 아니다 — 그건 이 검사가 판정할 수 있는 범위 밖이라 경고로 넘긴다.
    */
   idleChange: 0.05,
 } as const;
@@ -108,118 +108,6 @@ function checkChangeRate(rate: number, rateNoMarkup: number): AxisResult {
   return { axis: 'change-rate', verdict: 'pass', detail };
 }
 
-/**
- * 탐지기 밖에서 고쳤다는 신고를 갈래로 나눈다.
- *
- * 신고는 모델이 스스로 적는 값이라 그 룰이 정말 고쳐졌는지는 코드가 못 본다. 못 보는
- * 자리가 있다고 아무 값이나 받을 이유는 없다. 지금 자료로 가릴 수 있는 건 넷이다 —
- * 룰북에 있는 ID인지, 이 말투의 S1인지, 탐지기가 있는 룰인지, 있다면 그게 정말 줄었는지.
- *
- * 판정 대상은 이 말투의 S1뿐이다. 잔존 축이 세는 게 그것뿐이라, 다른 룰을 고쳤다는
- * 신고는 참이든 거짓이든 이 축의 증거가 못 된다.
- */
-export interface FixClaims {
-  /** 이 말투 S1이면서 탐지기가 없다. 코드가 못 보는 자리라 신고를 받는다 */
-  accepted: string[];
-  /** 이 말투 S1이고 탐지기도 있는데 실제로 줄었다. 코드가 확인한 참이다 */
-  corroborated: string[];
-  /** 이 말투 S1이고 탐지기가 있는데 안 줄었다. 신고와 측정이 어긋난다 */
-  contradicted: string[];
-  /** 룰북에 없는 ID. 오타이거나 지어낸 값이다 */
-  unknown: string[];
-  /** 룰북엔 있지만 이 말투의 S1이 아니다. 잔존 축과 무관해 증거가 못 된다 */
-  irrelevant: string[];
-}
-
-export function classifyFixClaims(
-  book: RuleBook,
-  register: Register,
-  claims: readonly string[],
-  counts: { before: ReadonlyMap<string, number>; after: ReadonlyMap<string, number> },
-): FixClaims {
-  const targets = new Set(s1Ids(book, register));
-  const detectable = new Set(DETECTABLE_RULE_IDS);
-  const out: FixClaims = {
-    accepted: [],
-    corroborated: [],
-    contradicted: [],
-    unknown: [],
-    irrelevant: [],
-  };
-
-  for (const id of claims) {
-    if (!book.rules.has(id)) {
-      out.unknown.push(id);
-      continue;
-    }
-    // 이 말투의 S1이 아니면 잔존 축이 애초에 안 센다. 기준선 맵에도 안 담겨서
-    // 아래 before/after 비교를 태우면 0 대 0으로 읽혀 엉뚱한 판정이 나온다.
-    if (!targets.has(id)) {
-      out.irrelevant.push(id);
-      continue;
-    }
-    if (!detectable.has(id)) {
-      out.accepted.push(id);
-      continue;
-    }
-    // 탐지기가 있는 룰은 제거율이 이미 센다. 그 값과 신고를 맞대 본다.
-    const before = counts.before.get(id) ?? 0;
-    const after = counts.after.get(id) ?? 0;
-    if (after < before) out.corroborated.push(id);
-    else out.contradicted.push(id);
-  }
-
-  return out;
-}
-
-/**
- * 제거율이 0 이하일 때 무엇으로 볼지 정한다.
- *
- * 갈래가 일곱이라 따로 뽑았다. checkResidualS1 안에 두면 그 함수만 읽어서는 결과를
- * 예측할 수 없다. 순서대로 이렇다.
- *
- * 1. 늘었으면 채택 금지. 줄지 않은 것과 갈라 말해야 회귀를 정체로 안 읽는다
- * 2. 텍스트가 안 움직였으면 채택 금지. 윤문을 안 한 것이다
- * 3. 신고가 측정과 어긋나면 채택 금지. 측정이 이긴다
- * 4. 룰북에 없는 ID만 댔으면 채택 금지
- * 5. 이 말투 S1이 아닌 룰만 댔으면 채택 금지. 이 축의 증거가 못 된다
- * 6. 쓸 만한 신고가 하나도 없으면 채택 금지
- * 7. 그 밖에는 경고. 사람이 직접 확인할 자리로 넘긴다
- *
- * 4와 5가 6보다 앞이다. 셋 다 채택 금지지만 이유가 달라야 다음에 무엇을 고칠지 안다.
- * 6은 앞 둘의 상위집합이라 순서를 뒤집으면 4와 5가 영영 안 나온다.
- */
-export function judgeIdleRemoval(
-  grew: boolean,
-  moved: boolean,
-  claims: FixClaims,
-): { verdict: Verdict; why: string } {
-  if (grew) return { verdict: 'abort', why: '탐지 가능한 룰이 오히려 늘었다' };
-  if (!moved) return { verdict: 'abort', why: '한 건도 못 줄임' };
-  if (claims.contradicted.length > 0) {
-    return {
-      verdict: 'abort',
-      why: `고쳤다는 신고와 측정이 어긋난다 (안 줄어든 룰: ${claims.contradicted.join(' ')})`,
-    };
-  }
-
-  const usable = [...claims.corroborated, ...claims.accepted];
-  if (usable.length === 0) {
-    if (claims.unknown.length > 0) {
-      return { verdict: 'abort', why: `룰북에 없는 ID만 댔다 (${claims.unknown.join(' ')})` };
-    }
-    if (claims.irrelevant.length > 0) {
-      return {
-        verdict: 'abort',
-        why: `이 말투의 S1이 아닌 룰만 댔다 (${claims.irrelevant.join(' ')})`,
-      };
-    }
-    return { verdict: 'abort', why: '텍스트는 움직였지만 무엇을 고쳤는지 안 밝혔다' };
-  }
-
-  return { verdict: 'warn', why: `고쳤다고 보고한 룰: ${usable.join(' ')}` };
-}
-
 interface ResidualResult {
   axis: AxisResult;
   residual: CheckReport['residualS1'];
@@ -238,15 +126,15 @@ interface ResidualResult {
  * 세는 대상은 탐지기가 있는 룰뿐이다. 그래서 제거율 0이 곧 "아무것도 안 했다"는
  * 아니다 — 탐지기 없는 S1만 고친 윤문본도 여기서는 0으로 보인다.
  *
- * 그 둘은 변경률과 신고 둘 다로 가른다. 변경률만 넘고 무엇을 고쳤는지 못 대면 여전히
- * 채택 금지다. 갈래는 judgeIdleRemoval 이 정하고 그 JSDoc 이 일곱을 다 적어 둔다.
+ * 그래서 제거율이 0일 때 이 축이 단정할 수 있는 건 하나뿐이다 — 텍스트까지 그대로면
+ * 윤문을 안 한 것이다. 텍스트가 바뀌었으면 탐지기 밖에서 고쳤을 수 있으므로 경고로
+ * 넘기고 사람이 본다.
  */
 function checkResidualS1(
   book: RuleBook,
   register: Register,
   counts: { before: ReadonlyMap<string, number>; after: ReadonlyMap<string, number> },
   rate: number,
-  unverifiableFixes: readonly string[] = [],
 ): ResidualResult {
   const targets = s1Ids(book, register);
   const beforeCounts = counts.before;
@@ -288,18 +176,19 @@ function checkResidualS1(
     };
   }
   if (removal <= 0) {
-    const { verdict, why } = judgeIdleRemoval(
-      afterTotal > beforeTotal,
-      rate >= THRESHOLD.idleChange,
-      classifyFixClaims(book, register, unverifiableFixes, counts),
-    );
-
+    // 여기서 갈 수 있는 데까지만 간다. 텍스트가 사실상 그대로면 윤문을 안 한 것이라
+    // 단정할 수 있다. 유의미하게 바뀌었으면 탐지기 밖에서 고쳤을 수도 있는데,
+    // 이 검사는 그 자리를 못 본다 — 못 보는 걸 봤다고 하지 않는다.
+    const idle = rate < THRESHOLD.idleChange;
+    const grew = afterTotal > beforeTotal;
     return {
       ...base,
       axis: {
         axis: 'residual-s1',
-        verdict,
-        detail: `${scale}, ${why} (변경률 ${pct(rate)})${verdict === 'abort' ? ' — 채택 금지' : ' — 직접 확인한다'}`,
+        verdict: idle ? 'abort' : 'warn',
+        detail: idle
+          ? `${scale}, 한 건도 못 줄이고 텍스트도 그대로다 (변경률 ${pct(rate)}) — 채택 금지`
+          : `${scale}, ${grew ? '탐지 가능한 룰이 오히려 늘었다' : '탐지 가능한 룰은 안 줄었다'} (변경률 ${pct(rate)}) — 탐지기 밖은 이 검사가 못 본다`,
         evidence,
       },
     };
@@ -473,32 +362,9 @@ export function prescan(text: string, options: RuleScanOptions = {}): PrescanRep
 /** @deprecated rules.ts 의 RuleScanOptions 를 쓴다. 이름이 runCheck 전용처럼 보인다 */
 export type RunCheckOptions = RuleScanOptions;
 
-/**
- * 모델이 스스로 내는 증거.
- *
- * 기준선(prescanned)과는 다른 축이라 따로 묶는다. 하나는 코드가 센 값이고 하나는
- * 모델이 적어 낸 값이다. 같은 자리에 두면 어느 쪽이 측정이고 어느 쪽이 주장인지 흐려진다.
- */
-export interface HumanizeEvidence {
-  /**
-   * 탐지기가 못 가리는 자리에서 고쳤다고 보고한 룰 ID.
-   *
-   * 제거율이 0인데 텍스트는 움직인 자리에서만 쓴다. 변경률로는 무언가 바뀌었다는
-   * 데까지만 알 수 있고 그게 교정인지 덧붙인 수사인지는 안 갈린다. 여기에 룰 ID가
-   * 있어야 그 움직임을 교정으로 인정한다.
-   *
-   * **이 값은 모델의 자기 신고다.** 코드는 룰북에 있는 ID인지, 정말 탐지기 밖 룰인지,
-   * 탐지기가 있는 룰을 대면서 그게 안 줄었다고 나오는지까지만 본다. 그 룰이 실제로
-   * 고쳐졌는지는 확인하지 않는다 — 애초에 탐지기가 없어서 확인할 수 없는 자리다.
-   */
-  unverifiableFixes?: readonly string[];
-}
-
 export interface RunCheckWithPrescan extends RuleScanOptions {
   /** prescan() 이 센 원문 기준선. 안 넘기면 여기서 다시 센다 */
   prescanned?: ReadonlyMap<string, number>;
-  /** 모델이 낸 증거. 코드가 센 기준선과 섞이지 않게 따로 받는다 */
-  evidence?: HumanizeEvidence;
 }
 
 export function runCheck(
@@ -535,7 +401,7 @@ export function runCheck(
     : beforeAll;
 
   const changeAxis = checkChangeRate(rate, rateNoMarkup);
-  const s1 = checkResidualS1(book, register, counts, rate, options.evidence?.unverifiableFixes);
+  const s1 = checkResidualS1(book, register, counts, rate);
   const preservationAxis = checkPreservation(before, after);
   const introduced = findIntroduced(introducedBase, afterAll);
   const introducedAxis = checkIntroduced(book, register, introduced);

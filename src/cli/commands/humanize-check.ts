@@ -17,8 +17,6 @@ export interface HumanizeCheckOptions {
   json?: boolean;
   /** 몇 번째 윤문인지. 재시도를 소진하면 원문을 채택하라고 지시한다 */
   attempt?: string | number;
-  /** 탐지기가 못 가리는 자리에서 고친 룰 ID. 쉼표로 잇는다 */
-  fixed?: string;
 }
 
 function read(label: string, path: string): string {
@@ -45,16 +43,7 @@ export function humanizeCheckCommand(options: HumanizeCheckOptions): void {
   const book = parseRuleBook();
   // 세는 대상은 언제나 원문이다. CLI는 두 파일을 한꺼번에 받아 기준선이 갈릴 일이 없다.
   const baseline = prescan(before, { register, book });
-  const unverifiableFixes = (options.fixed ?? '')
-    .split(',')
-    .map((id) => id.trim())
-    .filter(Boolean);
-  const report = runCheck(before, after, {
-    register,
-    book,
-    prescanned: baseline.s1ByRule,
-    evidence: { unverifiableFixes },
-  });
+  const report = runCheck(before, after, { register, book, prescanned: baseline.s1ByRule });
   const decision = decide(report, attempt);
 
   if (options.json) {

@@ -7,16 +7,7 @@ import {
   reportRegisterStats,
   structureStats,
 } from '../../../src/humanize/detectors.js';
-import {
-  classifyFixClaims,
-  decide,
-  formatReport,
-  judgeIdleRemoval,
-  prescan,
-  runCheck,
-  THRESHOLD,
-} from '../../../src/humanize/check.js';
-import { parseRuleBook } from '../../../src/humanize/rules.js';
+import { decide, formatReport, prescan, runCheck, THRESHOLD } from '../../../src/humanize/check.js';
 
 describe('changeRate', () => {
   it('같은 글은 0이다', () => {
@@ -369,54 +360,6 @@ describe('runCheck — 제거율 경계', () => {
   });
 });
 
-describe('runCheck — 탐지기 밖에서 고친 경우', () => {
-  // B-3(안 굳어진 음차)은 탐지기가 없다. 그것만 고치면 제거율은 0으로 보인다
-  const before = [
-    '이 문제에 대해 정리한다.',
-    '설정 파일이 소스 오브 트루스다.',
-    '스키마도 소스 오브 트루스로 둔다.',
-  ].join(' ');
-
-  const after = [
-    '이 문제에 대해 정리한다.',
-    '설정 파일이 기준 문서다.',
-    '스키마도 기준 문서로 둔다.',
-  ].join(' ');
-
-  it('무엇을 고쳤는지 대면 채택을 막지 않는다', () => {
-    const report = runCheck(before, after, { evidence: { unverifiableFixes: ['B-3'] } });
-    expect(report.s1Removal).toBe(0);
-    const axis = report.axes.find((a) => a.axis === 'residual-s1');
-    expect(axis?.verdict).toBe('warn');
-    expect(axis?.detail).toContain('B-3');
-    expect(decide(report).action).toBe('accept-with-warning');
-  });
-
-  it('텍스트만 움직이고 무엇을 고쳤는지 못 대면 채택 금지다', () => {
-    // 변경률로는 움직였는지까지만 알 수 있다. 그것만으로 통과를 열면 S1을 안 줄이고
-    // 수사만 늘린 윤문본이 함께 빠져나간다
-    const report = runCheck(before, after);
-    const axis = report.axes.find((a) => a.axis === 'residual-s1');
-    expect(axis?.verdict).toBe('abort');
-    expect(axis?.detail).toContain('무엇을 고쳤는지 안 밝혔다');
-  });
-
-  it('S1을 안 줄이고 수사만 늘린 윤문본은 통과 못 한다', () => {
-    const padded = `${before} 그 지점을 짚어 두면 다음 판단이 한결 수월해질 수 있다.`;
-    const report = runCheck(before, padded);
-    expect(report.s1Removal).toBeLessThanOrEqual(0);
-    expect(report.verdict).toBe('abort');
-  });
-
-  it('제거율이 0이고 텍스트도 그대로면 채택 금지다', () => {
-    const report = runCheck(before, before);
-    expect(report.s1Removal).toBe(0);
-    const axis = report.axes.find((a) => a.axis === 'residual-s1');
-    expect(axis?.verdict).toBe('abort');
-    expect(axis?.detail).toContain('한 건도 못 줄임');
-  });
-});
-
 describe('신규 유입은 한 축만 판정한다', () => {
   const clean = '배포는 내일입니다. 롤백 기준도 정했습니다.';
   const seeded = `${clean} 이 문제에 대해 더 봅니다.`;
@@ -445,32 +388,6 @@ describe('decide — 재시도 예산', () => {
   });
 });
 
-describe('runCheck — idleChange 경계', () => {
-  // A-1 하나가 끝까지 남는다. 제거율은 어느 쪽이든 0이다
-  const before =
-    '이 문제에 대해 정리한다. 설정은 그대로 두고 배포 순서만 확인한다. ' +
-    '롤백 기준도 정해 두었다. 캐시 무효화는 다음 주에 본다.';
-  const moved = before.replace('본다.', '본다');
-
-  it('증거를 대도 텍스트가 안 움직였으면 채택 금지다', () => {
-    const report = runCheck(before, before, { evidence: { unverifiableFixes: ['B-3'] } });
-    expect(report.changeRate).toBeLessThan(THRESHOLD.idleChange);
-    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('abort');
-  });
-
-  it('경계를 넘으면 같은 증거로 경고까지 내려간다', () => {
-    const report = runCheck(before, moved, { evidence: { unverifiableFixes: ['B-3'] } });
-    expect(report.changeRate).toBeGreaterThanOrEqual(THRESHOLD.idleChange);
-    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('warn');
-  });
-
-  it('경계를 넘어도 증거가 없으면 채택 금지 그대로다', () => {
-    const report = runCheck(before, moved);
-    expect(report.changeRate).toBeGreaterThanOrEqual(THRESHOLD.idleChange);
-    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('abort');
-  });
-});
-
 describe('두 축이 같은 기준선을 본다', () => {
   // 잔존 축은 prescanned 를, 유입 축은 지금 센 원문을 보면 그 사이로 빠져나가는 자리가
   // 생긴다. 잔존 축이 "원문에 S1이 없었다"며 물러나는데 유입 축은 "안 늘었다"고 하는 경우다
@@ -489,154 +406,53 @@ describe('두 축이 같은 기준선을 본다', () => {
   });
 });
 
-describe('신고 검증', () => {
-  // A-1 하나가 끝까지 남아 제거율은 0이다. B-3(음차)는 탐지기가 없어 코드가 못 센다
-  const before = '이 문제에 대해 정리한다. 설정 파일이 소스 오브 트루스다.';
-  const after = '이 문제에 대해 정리한다. 설정 파일이 기준 문서다.';
-  const axis = (fixes?: string[]) =>
-    runCheck(before, after, fixes ? { evidence: { unverifiableFixes: fixes } } : {}).axes.find(
-      (a) => a.axis === 'residual-s1',
-    );
+describe('제거율이 0일 때 이 축이 아는 것', () => {
+  // A-1 하나가 끝까지 남는다. B-3(음차)는 탐지기가 없어 코드가 못 센다
+  const before = [
+    '이 문제에 대해 정리한다.',
+    '설정 파일이 소스 오브 트루스다.',
+    '스키마도 소스 오브 트루스로 둔다.',
+  ].join(' ');
 
-  it('탐지기가 없는 룰을 대면 받아들인다', () => {
-    expect(axis(['B-3'])?.verdict).toBe('warn');
-    expect(axis(['B-3'])?.detail).toContain('B-3');
-  });
-
-  it('룰북에 없는 ID만 대면 채택 금지다', () => {
-    expect(axis(['z'])?.verdict).toBe('abort');
-    expect(axis(['z'])?.detail).toContain('룰북에 없는 ID');
-  });
-
-  it('탐지기가 있는 룰을 댔는데 안 줄었으면 신고와 측정이 어긋난다', () => {
-    // A-1은 탐지기가 있고 before/after 모두 1건이라 안 줄었다
-    expect(axis(['A-1'])?.verdict).toBe('abort');
-    expect(axis(['A-1'])?.detail).toContain('어긋난다');
-  });
-
-  it('쓸 만한 신고가 하나라도 있으면 무효 ID가 섞여도 받는다', () => {
-    expect(axis(['B-3', 'z'])?.verdict).toBe('warn');
-  });
-
-  it('받침이 있든 없든 문장이 성립한다', () => {
-    // 조사를 붙이지 않고 콜론으로 끊어서 룰 ID 받침에 안 걸린다
-    expect(axis(['C-8'])?.detail).toContain('보고한 룰: C-8');
-    expect(axis(['B-3', 'C-8'])?.detail).toContain('보고한 룰: B-3 C-8');
-  });
-});
-
-describe('S1이 오히려 늘어난 경우', () => {
-  it('줄지 않은 것과 갈라 말한다', () => {
-    const before = '이 문제에 대해 정리한다. 설정 파일이 소스 오브 트루스다.';
-    const after = '이 문제에 대해 정리한다. 저 사안에 대해서도 본다. 설정 파일이 기준 문서다.';
-    const report = runCheck(before, after);
-    expect(report.s1Removal).toBeLessThan(0);
+  it('텍스트까지 그대로면 윤문을 안 한 것이라 단정한다', () => {
+    const report = runCheck(before, before);
+    expect(report.s1Removal).toBe(0);
     const axis = report.axes.find((a) => a.axis === 'residual-s1');
     expect(axis?.verdict).toBe('abort');
-    expect(axis?.detail).toContain('오히려 늘었다');
+    expect(axis?.detail).toContain('텍스트도 그대로다');
   });
 
-  it('늘어난 자리에는 신고를 대도 안 통한다', () => {
-    const before = '이 문제에 대해 정리한다. 설정 파일이 소스 오브 트루스다.';
-    const after = '이 문제에 대해 정리한다. 저 사안에 대해서도 본다. 설정 파일이 기준 문서다.';
-    const report = runCheck(before, after, { evidence: { unverifiableFixes: ['B-3'] } });
-    expect(report.axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe('abort');
-  });
-});
-
-describe('classifyFixClaims', () => {
-  const book = parseRuleBook();
-  const sort = (claims: readonly string[], counts?: Map<string, number>) =>
-    classifyFixClaims(book, 'doc', claims, {
-      before: counts ?? new Map([['A-1', 2]]),
-      after: new Map([['A-1', 2]]),
-    });
-
-  it('말투 S1이면서 탐지기가 없으면 받는다', () => {
-    expect(sort(['B-3']).accepted).toEqual(['B-3']);
+  it('텍스트가 바뀌었으면 못 본다고 말하고 넘긴다', () => {
+    // B-3 셋을 고쳤다. 코드는 그걸 셀 수 없다
+    const after = [
+      '이 문제에 대해 정리한다.',
+      '설정 파일이 기준 문서다.',
+      '스키마도 기준 문서로 둔다.',
+    ].join(' ');
+    const report = runCheck(before, after);
+    expect(report.s1Removal).toBe(0);
+    const axis = report.axes.find((a) => a.axis === 'residual-s1');
+    expect(axis?.verdict).toBe('warn');
+    expect(axis?.detail).toContain('탐지기 밖은 이 검사가 못 본다');
+    expect(decide(report).action).toBe('accept-with-warning');
   });
 
-  it('룰북에 없으면 모르는 ID다', () => {
-    expect(sort(['z']).unknown).toEqual(['z']);
+  it('늘어난 쪽은 줄지 않은 쪽과 갈라 말한다', () => {
+    const grown = `${before} 저 사안에 대해서도 본다.`;
+    const report = runCheck(before, grown);
+    expect(report.s1Removal).toBeLessThan(0);
+    expect(report.axes.find((a) => a.axis === 'residual-s1')?.detail).toContain('오히려 늘었다');
   });
 
-  it('말투 S1이 아니면 이 축과 무관하다', () => {
-    // A-9는 탐지기가 있지만 doc 기준 S1이 아니다
-    expect(sort(['A-9']).irrelevant).toEqual(['A-9']);
-  });
-
-  it('탐지기가 있는 S1이 안 줄었으면 신고와 어긋난다', () => {
-    expect(sort(['A-1']).contradicted).toEqual(['A-1']);
-  });
-
-  it('탐지기가 있는 S1이 실제로 줄었으면 코드가 확인한 참이다', () => {
-    const claims = classifyFixClaims(book, 'doc', ['A-1'], {
-      before: new Map([['A-1', 2]]),
-      after: new Map([['A-1', 1]]),
-    });
-    expect(claims.corroborated).toEqual(['A-1']);
-    expect(claims.contradicted).toEqual([]);
-  });
-
-  it('말투가 달라지면 같은 ID의 갈래도 달라진다', () => {
-    const counts = { before: new Map<string, number>(), after: new Map<string, number>() };
-    // A-2는 chat에서만 S1이다
-    expect(classifyFixClaims(book, 'doc', ['A-2'], counts).irrelevant).toEqual(['A-2']);
-    expect(classifyFixClaims(book, 'chat', ['A-2'], counts).irrelevant).toEqual([]);
-  });
-});
-
-describe('judgeIdleRemoval', () => {
-  const empty = { accepted: [], corroborated: [], contradicted: [], unknown: [], irrelevant: [] };
-
-  it('늘어난 쪽을 가장 먼저 가른다', () => {
-    // 안 움직였어도 늘어난 쪽 문구가 나온다
-    expect(judgeIdleRemoval(true, false, empty).why).toContain('오히려 늘었다');
-  });
-
-  it('안 움직였으면 윤문을 안 한 것이다', () => {
-    expect(judgeIdleRemoval(false, false, empty).verdict).toBe('abort');
-    expect(judgeIdleRemoval(false, false, empty).why).toContain('한 건도 못 줄임');
-  });
-
-  it('측정과 어긋나는 신고는 쓸 만한 신고가 있어도 막는다', () => {
-    const claims = { ...empty, accepted: ['B-3'], contradicted: ['A-1'] };
-    expect(judgeIdleRemoval(false, true, claims).verdict).toBe('abort');
-    expect(judgeIdleRemoval(false, true, claims).why).toContain('어긋난다');
-  });
-
-  it('무효한 신고는 이유를 갈라 말한다', () => {
-    expect(judgeIdleRemoval(false, true, { ...empty, unknown: ['z'] }).why).toContain(
-      '룰북에 없는',
+  it('경계는 변경률이 가른다', () => {
+    const moved = before.replace('둔다.', '둔다');
+    expect(runCheck(before, before).changeRate).toBeLessThan(THRESHOLD.idleChange);
+    expect(runCheck(before, moved).changeRate).toBeGreaterThanOrEqual(THRESHOLD.idleChange);
+    expect(runCheck(before, before).axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe(
+      'abort',
     );
-    expect(judgeIdleRemoval(false, true, { ...empty, irrelevant: ['A-9'] }).why).toContain(
-      '말투의 S1이 아닌',
+    expect(runCheck(before, moved).axes.find((a) => a.axis === 'residual-s1')?.verdict).toBe(
+      'warn',
     );
-    expect(judgeIdleRemoval(false, true, empty).why).toContain('안 밝혔다');
-  });
-
-  it('쓸 만한 신고가 있으면 경고로 내려간다', () => {
-    const claims = { ...empty, accepted: ['B-3'], corroborated: ['A-1'] };
-    const out = judgeIdleRemoval(false, true, claims);
-    expect(out.verdict).toBe('warn');
-    expect(out.why).toContain('A-1');
-    expect(out.why).toContain('B-3');
-  });
-});
-
-describe('신고 검증은 기준선 출처에 안 흔들린다', () => {
-  it('prescanned 유무로 판정이 안 뒤집힌다', () => {
-    // A-9를 실제로 줄였다. doc S1이 아니라 잔존 축의 증거는 아니지만 거짓 고발도 아니다
-    const before =
-      '이 문제에 대해 정리한다. 스케줄러에 의해 실행된다. 설정 파일이 소스 오브 트루스다.';
-    const after = '이 문제에 대해 정리한다. 스케줄러가 실행한다. 설정 파일이 기준 문서다.';
-    const evidence = { unverifiableFixes: ['A-9', 'B-3'] };
-
-    const loose = runCheck(before, after, { evidence });
-    const pinned = runCheck(before, after, { evidence, prescanned: prescan(before).s1ByRule });
-
-    const verdictOf = (r: typeof loose) => r.axes.find((a) => a.axis === 'residual-s1')?.verdict;
-    expect(verdictOf(loose)).toBe('warn');
-    expect(verdictOf(pinned)).toBe(verdictOf(loose));
   });
 });
