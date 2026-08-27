@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`gestalt humanize-scan`** — 원문을 훑어 그 말투에서 실제로 걸린 S1 룰만 처방과 함께 추려요. 룰북 전체를 매번 펼치는 대신 이번에 볼 목록만 좁혀 줍니다. 종료 코드로도 답해요 (0 걸림 / 10 없음 / 3 파일 없음).
+- **`gestalt humanize-scan`** — 원문을 훑어 그 말투에서 실제로 걸린 S1 룰만 처방과 함께 추려요. 룰북 전체를 매번 펼치는 대신 이번에 볼 목록만 좁혀줘요. 종료 코드로도 답해요 (0 걸림 / 10 없음 / 3 파일 없음).
 
 ```bash
 gestalt humanize-scan --file draft.md --register chat
@@ -17,8 +17,8 @@ gestalt humanize-scan --file draft.md --register chat
 
 ### Changed
 
-- **`gestalt humanize-check`의 채택 금지가 양방향이 됐어요.** 전에는 과윤문(변경률 50%, 보호 토큰 유실)만 막아서 원문을 그대로 돌려준 윤문본이 경고 하나로 통과했습니다. 이제 탐지 가능한 S1을 한 건도 못 줄였고 변경도 문턱 아래면 채택 금지예요. 새 AI-tell을 심은 경우도 막습니다.
-- 리포트 마지막 줄에 `[다음]`으로 할 일을 찍어요 — `accept` / `accept-with-warning` / `retry` / `fallback`. `--attempt`로 몇 번째 시도인지 알려주면 재시도를 소진했을 때 원문으로 돌아가라고 지시합니다.
+- **`gestalt humanize-check`의 채택 금지가 양방향이 됐어요.** 전에는 과윤문(변경률 50%, 보호 토큰 유실)만 막아서 원문을 그대로 돌려준 윤문본이 경고 하나로 통과했어요. 이제 탐지 가능한 S1을 한 건도 못 줄이고 변경도 문턱 아래면 채택 금지예요. 그 말투의 S1을 새로 심은 경우도 막아요.
+- 리포트 마지막 줄에 `[다음]`으로 할 일을 찍어요 — `accept` / `accept-with-warning` / `retry` / `fallback`. `--attempt`로 몇 번째 시도인지 알려주면 재시도를 소진했을 때 원문으로 돌아가라고 알려줘요.
 
 ## [0.69.0] - 2026-08-26
 

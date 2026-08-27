@@ -2,11 +2,15 @@
  * 스캔은 "이번에 볼 룰"을 좁히는 장치다. 좁히기가 실제로 되는지,
  * 좁히다가 볼 것을 빠뜨리지는 않는지 둘 다 본다.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DETECTABLE_RULE_IDS } from '../../../src/humanize/detectors.js';
 import { parseRuleBook, s1Ids } from '../../../src/humanize/rules.js';
 import { formatScan, scan } from '../../../src/humanize/scan.js';
-import { SCAN_EXIT } from '../../../src/cli/commands/humanize-scan.js';
+import { EXIT_CODE } from '../../../src/humanize/check.js';
+import { SCAN_EXIT, humanizeScanCommand } from '../../../src/cli/commands/humanize-scan.js';
 
 const book = parseRuleBook();
 
@@ -63,21 +67,49 @@ describe('scan', () => {
   });
 });
 
-describe('SCAN_EXIT', () => {
+describe('humanize-scan 종료 코드', () => {
   // humanize-check 는 판정을 종료 코드로 답한다. scan 도 같은 계약을 지켜야
-  // 셸에서 stdout 을 파싱하지 않고 0단계 분기를 탈 수 있다
-  it('걸린 게 있으면 0, 없으면 10이다', () => {
-    expect(SCAN_EXIT.found).toBe(0);
-    expect(SCAN_EXIT.clean).toBe(10);
+  // 셸에서 stdout 을 파싱하지 않고 0단계 분기를 탈 수 있다.
+  // 상수만 확인하면 커맨드 안의 삼항을 뒤집어도 안 잡히므로 실제로 부른다
+  const dir = mkdtempSync(join(tmpdir(), 'gestalt-scan-'));
+  const write = (name: string, body: string) => {
+    const path = join(dir, name);
+    writeFileSync(path, body, 'utf-8');
+    return path;
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const exitCodeOf = (file: string) => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    // process.exit 를 막아 뒀으니 커맨드가 그 뒤로도 흘러간다. 파일이 없는 경로에서
+    // readFileSync 가 터지는 건 정상이다. 우리가 볼 건 이미 기록된 exit 인자다
+    try {
+      humanizeScanCommand({ file });
+    } catch {
+      // 무시
+    }
+    return exit.mock.calls[0]?.[0];
+  };
+
+  it('걸린 S1이 있으면 found 로 끝난다', () => {
+    const file = write('dirty.md', '이 문제에 대해 검토했다. 결론적으로 캐시가 원인이다.\n');
+    expect(exitCodeOf(file)).toBe(SCAN_EXIT.found);
   });
 
-  it('worthHumanizing 이 종료 코드를 가른다', () => {
-    const dirty = scan('이 문제에 대해 검토했다. 결론적으로 캐시가 원인이다.');
-    const clean = scan('배포는 내일입니다. 롤백 기준도 정했습니다.');
-    expect(dirty.worthHumanizing).toBe(true);
-    expect(clean.worthHumanizing).toBe(false);
-    // 커맨드가 이 값으로 고르는 코드
-    expect(dirty.worthHumanizing ? SCAN_EXIT.found : SCAN_EXIT.clean).toBe(0);
-    expect(clean.worthHumanizing ? SCAN_EXIT.found : SCAN_EXIT.clean).toBe(10);
+  it('걸리는 게 없으면 clean 으로 끝난다', () => {
+    const file = write('clean.md', '배포는 내일입니다. 롤백 기준도 정했습니다.\n');
+    expect(exitCodeOf(file)).toBe(SCAN_EXIT.clean);
+  });
+
+  it('파일이 없으면 판정이 아니라 unknown 으로 끝난다', () => {
+    expect(exitCodeOf(join(dir, '없는파일.md'))).toBe(EXIT_CODE.unknown);
+  });
+
+  it('두 코드가 서로 다르다', () => {
+    expect(SCAN_EXIT.found).not.toBe(SCAN_EXIT.clean);
+    rmSync(dir, { recursive: true, force: true });
   });
 });

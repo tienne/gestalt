@@ -419,7 +419,7 @@ describe('제거율이 0일 때 확정되는 것', () => {
     expect(report.s1Removal).toBe(0);
     const axis = report.axes.find((a) => a.axis === 'residual-s1');
     expect(axis?.verdict).toBe('abort');
-    expect(axis?.detail).toContain('변경도 문턱 아래다');
+    expect(axis?.detail).toContain('못 줄이고 변경도 문턱 아래다');
   });
 
   it('변경이 문턱을 넘었으면 판정 범위 밖이라 넘긴다', () => {
