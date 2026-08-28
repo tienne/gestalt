@@ -78,6 +78,21 @@ function proseOnly(text: string, options: ProseOptions = {}): string {
     .replace(/`[^`\n]+`/g, ' ');
 }
 
+/**
+ * 보고문에 실릴 조각을 눌러 둔다.
+ *
+ * 스캔 결과는 모델이 지시로 읽는 텍스트이고 sample 은 사용자 파일에서 잘라낸 원문이다.
+ * 보고문이 큰따옴표로 감싸는 틀이라 인용 경계와 코드 표기를 흉내 낼 문자를 지운다.
+ * 길이도 자른다 — D-9의 (?:\S+\s+)? 처럼 임의 토큰을 삼키는 탐지기가 있어서
+ * 매치 하나가 수백 자로 늘어날 수 있다.
+ *
+ * 어투 탐지기와 맞춤법 검사가 같이 지나는 자리에 둔다. 한쪽만 누르면 표면이 넓은
+ * 쪽이 그대로 새는데, 실제로 맞춤법만 누른 판이 그랬다.
+ */
+function clampSample(sample: string): string {
+  return sample.replace(/[`"']|\p{C}/gu, ' ').slice(0, SAMPLE_MAX);
+}
+
 function matcher(ruleId: string, re: RegExp): Detector {
   return {
     ruleId,
@@ -167,8 +182,9 @@ const DETECTORS: Detector[] = [
       'g',
     ),
   ),
-  // 산출은 판정을 압축하는 자리만 본다. 산출물, 산출량, 산출값, 산출식처럼 명사로 굳은
-  // 파생어는 조사도 활용형도 안 붙어서 빠진다. F-7이 "잠금 파일"을 빼는 것과 같은 기준
+  // 산출은 뒤에 오는 조사와 활용형을 열거해서 본다. 열거한 것만 보는 닫힌 목록이라
+  // "산출도", "산출된다"처럼 목록 밖 형태는 안 걸린다 — 늘릴 때는 코퍼스도 함께 늘린다.
+  // 산출물, 산출량, 산출식은 그 자리에 다른 글자가 와서 빠진다. F-7의 "잠금 파일"과 같은 기준
   matcher(
     'I-6',
     /실측|계측|오탐|산출(?=(?:으?로|은|는|이|을|과|와|에)(?![가-힣])|하[여는지고]|한|했|해서)/g,
@@ -180,14 +196,17 @@ const DETECTORS: Detector[] = [
   matcher(
     'I-7',
     new RegExp(
-      `지적\\s*(?:을|이|은|도|만|에|의|과|와)${NOT_HANGUL}|지적(?:해\\s*주|하신|해주신|받|당)|지적\\s*\\d+\\s*건|지적\\s*사항|지적들`,
+      `지적\\s*(?:을|이|은|도|만|에|의|과|와)${NOT_HANGUL}|지적(?:해\\s*주|하신|받|당)|지적\\s*\\d+\\s*건|지적\\s*사항|지적들`,
       'g',
     ),
   ),
   // 관형형 어간을 열거해야 명사+보조사("설계는 수준이")와 등급을 말하는 동사 관형형
   // ("요구되는 수준")이 빠진다. [가-힣]는 으로 열면 둘 다 걸린다.
-  // 뒤에 오는 조사로 "~하는 수준의 격리" 같은 등급 자리도 함께 제외한다
-  matcher('I-8', /(?:하|다듬|손보|고치|보|넘기|훑)는\s*수준(?!\s*(?:의|으로|까지|이상|이하))/g),
+  // 보 는 단독으로 두면 "정보는", "확보는"의 끝 음절을 먹어서 복합 어간으로만 적는다.
+  // 하 는 같은 구멍이 남지만("부하는 수준이") 그걸 빼면 "확인하는 수준"을 통째로 놓친다.
+  // 뒤따르는 조사는 안 본다 — 어간 열거가 이미 등급 자리를 걸러서, 조사까지 막으면
+  // "다듬는 수준으로 끝냈어요" 처럼 잡아야 할 자리만 빠진다
+  matcher('I-8', /(?:하|다듬|손보|고치|살펴보|알아보|들여다보|넘기|훑)는\s*수준/g),
   sentenceInitial('H-1', ['또한', '따라서', '즉', '나아가', '아울러', '게다가', '더욱이']),
   sentenceInitial('H-3', ['이는', '이\\s*점에서', '이\\s*관점에서', '이\\s*말은']),
 ];
@@ -209,7 +228,7 @@ function detectOn(prose: string, ruleIds?: readonly string[]): Detection[] {
     results.push({
       ruleId: detector.ruleId,
       count: hits.length,
-      samples: [...new Set(hits)].slice(0, SAMPLE_CAP),
+      samples: [...new Set(hits)].map(clampSample).slice(0, SAMPLE_CAP),
     });
   }
 
@@ -256,10 +275,6 @@ const SPACING: Array<{ label: string; fix: string; re: RegExp }> = [
  * 어긋난다 (author-voice.md §기계적 점검). S1 총계에 섞으면 윤문 등급이 맞춤법 때문에
  * 떨어지므로 ScanReport가 이 값을 따로 들고 간다.
  */
-function clampSample(sample: string): string {
-  return sample.replace(/[\r\n`]/g, ' ').slice(0, SAMPLE_MAX);
-}
-
 export function spacingIssues(text: string): SpacingIssue[] {
   return spacingOn(proseOnly(text));
 }
