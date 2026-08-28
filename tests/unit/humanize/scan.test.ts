@@ -35,6 +35,22 @@ describe('scan', () => {
     expect(formatScan(report)).toContain('원문을 그대로 낸다');
   });
 
+  it('맞춤법은 S1 총계와 따로 센다', () => {
+    const report = scan('Approve 합니다. 6564d04 에서 고쳤어요.');
+    expect(report.s1Total).toBe(0);
+    expect(report.worthHumanizing).toBe(false);
+    expect(report.spacing.map((issue) => issue.count)).toEqual([1, 1]);
+    expect(formatScan(report)).toContain('맞춤법');
+  });
+
+  it('맞춤법이 없으면 그 절을 안 만든다', () => {
+    expect(formatScan(scan('배포는 내일입니다.'))).not.toContain('맞춤법');
+  });
+
+  it('조사가 다음 줄에 있으면 띄어쓰기가 아니다', () => {
+    expect(scan('커밋 6564d04\n\n에서 시작했다.').spacing).toEqual([]);
+  });
+
   it('말투에 따라 볼 룰이 달라진다', () => {
     const draft = '이 작업을 통해 유지보수성을 손봤습니다.';
     expect(scan(draft, { register: 'doc' }).hits.map((h) => h.ruleId)).not.toContain('A-2');

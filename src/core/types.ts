@@ -539,7 +539,7 @@ export interface ReviewPublishState {
    * 밟는다.
    */
   issuesKey: string;
-  /** 이 head에서 PR에 이미 쓴 지적 수. 합의 목록의 앞에서부터 이만큼이다. */
+  /** 이 head에서 PR에 이미 쓴 의견 수. 합의 목록의 앞에서부터 이만큼이다. */
   postedCount: number;
   /** 판정까지 써서 한 바퀴가 끝났는지 */
   completed: boolean;

@@ -139,11 +139,19 @@ const DETECTORS: Detector[] = [
   matcher('D-4', /(?:파격적|압도적|획기적|혁신적|전례\s*없|폭발적)/g),
   matcher('D-6', /(?:할\s*때다|할\s*때입니다|할\s*시점|지금이야말로|할\s*순간)/g),
   matcher('D-8', /(?:뼈아[프픈팠]|뜨끔|부끄럽|(?:제일|가장|많이)\s*아팠)/g),
+  // 방향, 결론이 스스로 움직이는 자리만 본다. 사이에 부사 한 토큰까지 허용한다
+  matcher('D-9', /(?:방향|결론|판단|논의)[이가은는도]?\s*(?:\S+\s+)?(?:갔|가고|간다)/g),
   // '잠금 파일'처럼 명사로 굳은 자리는 빼고 동사형만 본다. 테스트나 기준을
   // 자물쇠에 빗대는 자리가 대상이다 — "테스트로 잠갔다" → "관련 테스트가 있다"
   matcher(
     'F-7',
     /(?:증류|배선|결정화|평탄화|오케스트레이션|파이프라인화|잠[그근갔글가긴겨겼기](?![가-힣]*파일))/g,
+  ),
+  // 목적어가 추상명사인 자리만 본다 — "온도를 재봤는데"는 멀쩡한 물리적 용법이다.
+  // "재확인"처럼 접두사로 붙는 자리를 피하려고 뒤따르는 어미까지 확인한다
+  matcher(
+    'F-8',
+    /(?:근거|의견|판단|영향|의미|가치|리스크)(?:를|을)\s*(?:재|달아)(?=[봤본보았어])/g,
   ),
   matcher('G-2', /(?:로\s*보인다|인\s*듯하다|로\s*판단된다|라고\s*여겨진다|로\s*여겨진다)/g),
   matcher('I-1', /(?:인\s*것이다|한\s*것이다|는\s*것이다|일\s*것이다)/g),
@@ -152,6 +160,19 @@ const DETECTORS: Detector[] = [
     'I-5',
     new RegExp(
       `(?:해당|이번|그)\\s*건${NOT_HANGUL}|[가-힣]\\s건(?:은|이|을|에|도)${NOT_HANGUL}`,
+      'g',
+    ),
+  ),
+  // "산출물"은 명사로 굳은 자리라 뺀다. F-7이 "잠금 파일"을 빼는 것과 같은 기준
+  matcher('I-6', /실측|계측|오탐|산출(?!물)/g),
+  // 동사 관형형만 본다. "높은 수준"처럼 등급을 실제로 말하는 자리는 대상이 아니다
+  matcher('I-8', /[가-힣]는\s*수준/g),
+  // "지적 재산", "지적 능력", "지적인"은 제 뜻으로 쓰이는 자리라 조사와 활용형만 본다.
+  // 리뷰 코멘트를 가리키는 호칭이 대상이다 — 내 것은 "남겼던 의견", 상대 것은 "짚어주신 부분"
+  matcher(
+    'I-7',
+    new RegExp(
+      `지적\\s*(?:을|이|은|도|만|에|의|과|와)${NOT_HANGUL}|지적(?:하|해|했|한|받|당)|지적\\s*\\d+\\s*건|지적\\s*사항`,
       'g',
     ),
   ),
@@ -164,7 +185,7 @@ export const DETECTABLE_RULE_IDS: string[] = DETECTORS.map((d) => d.ruleId);
 export function detect(text: string, ruleIds?: readonly string[]): Detection[] {
   const wanted = ruleIds ? new Set(ruleIds) : null;
   const results: Detection[] = [];
-  // 탐지기 24개가 각자 부르면 줄 분할과 인용 제거가 스물네 번 반복된다. 한 번만 한다
+  // 탐지기 29개가 각자 부르면 줄 분할과 인용 제거가 스물네 번 반복된다. 한 번만 한다
   const prose = proseOnly(text);
 
   for (const detector of DETECTORS) {
@@ -179,6 +200,52 @@ export function detect(text: string, ruleIds?: readonly string[]): Detection[] {
   }
 
   return results;
+}
+
+/**
+ * 어투가 아니라 맞춤법인 자리. 등급과 따로 센다.
+ *
+ * 리뷰 코멘트는 커밋 해시나 브랜치명을 문장에 그대로 섞기 때문에 조사 처리가 반복해서
+ * 어긋난다 (author-voice.md §기계적 점검). S1 총계에 섞으면 윤문 등급이 맞춤법 때문에
+ * 떨어지므로 ScanReport가 따로 들고 간다.
+ *
+ * 두 가지를 재보고 뺐다. 백틱 안에 조사가 들어간 자리("`c:로`")는 레포에서 8건이 걸렸는데
+ * 그중 여섯이 `파일:라인`, `human:이름` 같은 형식 표기였다. 영문 일반 뒤 조사("main 에")는
+ * 인라인 코드를 지운 자국과 작성자가 인용한 코드 예시를 통째로 먹었다. 줄바꿈을 건너뛰지
+ * 않도록 공백은 같은 줄로 한정한다.
+ */
+export interface SpacingIssue {
+  label: string;
+  fix: string;
+  count: number;
+  samples: string[];
+}
+
+const SPACING: Array<{ label: string; fix: string; re: RegExp }> = [
+  {
+    label: '식별자 뒤 조사를 띄어 썼다',
+    fix: '붙여 쓴다 (`6564d04 에서` → `6564d04에서`)',
+    // 16진수로만 이뤄진 영단어를 거르려고 숫자를 최소 하나 요구한다
+    re: /\b(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}[ \t]+(?:에서|에|로|은|는|이|가|을|를|와|과|의)(?![가-힣])/g,
+  },
+  {
+    label: '외래어와 하다를 띄어 썼다',
+    fix: '붙여 쓰거나 우리말로 (`Approve 합니다` → `Approve합니다` / `승인합니다`)',
+    re: /[A-Za-z]{2,}[ \t]+(?:합니다|했습니다|해요|할게요|하겠습니다|한다|하면|하고)(?![가-힣])/g,
+  },
+];
+
+export function spacingIssues(text: string): SpacingIssue[] {
+  const prose = proseOnly(text);
+  const out: SpacingIssue[] = [];
+
+  for (const { label, fix, re } of SPACING) {
+    const hits = [...prose.matchAll(re)].map((m) => m[0]!.trim());
+    if (hits.length === 0) continue;
+    out.push({ label, fix, count: hits.length, samples: [...new Set(hits)].slice(0, SAMPLE_CAP) });
+  }
+
+  return out;
 }
 
 export function countByRule(text: string, ruleIds?: readonly string[]): Map<string, number> {

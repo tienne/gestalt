@@ -20,9 +20,11 @@ export {
   structureStats,
   splitSentences,
   reportRegisterStats,
+  spacingIssues,
   DETECTABLE_RULE_IDS,
   type Detection,
   type ReportRegisterStats,
+  type SpacingIssue,
   type StructureStats,
 } from './detectors.js';
 export { changeRate, type ChangeRateOptions } from './change-rate.js';

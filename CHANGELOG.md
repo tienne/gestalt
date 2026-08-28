@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **AI-tell 룰 네 개를 새로 매겼어요.** 넷 다 `author-voice.md`에 산문으로만 적혀 있어서 룰 ID가 없었어요. 그래서 `humanize-scan`도 output style도 못 보던 자리예요. 읽은 에이전트만 지키는 규칙이었어요.
+  - `I-7` 리뷰 코멘트를 "지적"이라 부르기 → 내가 남긴 건 "남겼던 의견", 상대가 남긴 건 "짚어주신 부분"
+  - `I-8` 형식명사 "수준"으로 정도 뭉개기 → "정도"를 쓰거나 동사로 풀기
+  - `D-9` 추상명사에 이동 동사 → "방향도 맞게 갔습니다"처럼 방향이 스스로 움직이는 자리
+  - `F-8` 추상명사에 물리 측량 동사 → "근거를 재봤는데"처럼 저울에 안 올린 걸 재는 자리
+- **`humanize-scan`이 맞춤법을 따로 세요.** 커밋 해시 뒤 조사와 외래어에 붙는 "하다"의 띄어쓰기를 봐요. 어투가 아니라 맞춤법이라 S1 총계와 윤문 등급에는 안 섞고 별도 절로 내놔요.
+
+### Changed
+
+- **`I-6` 측량투 명사에 탐지기가 붙었어요.** 대화와 리뷰에서 S1인데 그동안 코드가 못 보던 룰이에요. "산출물"처럼 명사로 굳은 자리는 빼고 봐요.
+- **MCP 스키마 설명과 타입 주석에서 "지적"을 걷었어요.** 도구 설명은 모델 컨텍스트에 그대로 실려서, 룰북이 막는 말을 도구 정의가 먹여주고 있었어요.
+- **output style에 새 룰 넷이 실려요.** `pnpm build:output-style`로 다시 뽑으면 금지 26건에 자가점검 13개예요.
+
 ## [0.70.0] - 2026-08-27
 
 ### Added
