@@ -21,6 +21,7 @@ export {
   splitSentences,
   reportRegisterStats,
   spacingIssues,
+  scanProse,
   DETECTABLE_RULE_IDS,
   type Detection,
   type ReportRegisterStats,

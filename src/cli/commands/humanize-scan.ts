@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { EXIT_CODE, formatScan, parseRegister, scan } from '../../humanize/index.js';
 
@@ -18,22 +18,46 @@ export interface HumanizeScanOptions {
  * scan 은 판정 도구가 아니라 자문 도구라 실패를 뜻하는 코드는 안 낸다. 걸린 게
  * 있나 없나만 갈라 준다.
  */
+/** 스캔 대상 상한. 사람이 쓴 원고 한 벌은 이 근처에도 안 온다 */
+const MAX_SCAN_BYTES = 2_000_000;
+
 export const SCAN_EXIT = {
   /** 걸린 S1 이 있다. 윤문할 자리다 */
   found: 0,
   /** 탐지기가 가리는 범위에서는 0건이다. 비탐지 룰은 사람이 따로 본다 */
   clean: 10,
+  /** 어투는 안 걸렸고 맞춤법만 걸렸다. 어투를 건드리지 말고 그것만 고치는 자리다 */
+  spacingOnly: 11,
 } as const;
 
 export function humanizeScanCommand(options: HumanizeScanOptions): void {
   const full = resolve(process.cwd(), options.file);
-  if (!existsSync(full)) {
+  // statSync 하나로 존재, 종류, 크기를 함께 본다. existsSync 로 먼저 물으면 그 사이에
+  // 대상이 바뀔 수 있다. 디렉토리를 넘겼을 때 EISDIR 이 그대로 튀는 것도 여기서 막는다
+  let size: number;
+  try {
+    const stat = statSync(full);
+    if (!stat.isFile()) {
+      console.error(`파일이 아닙니다: ${full}`);
+      process.exit(EXIT_CODE.unknown);
+    }
+    size = stat.size;
+  } catch {
     console.error(`파일이 없습니다: ${full}`);
+    process.exit(EXIT_CODE.unknown);
+  }
+
+  // 탐지기 전부를 파일 전문에 돌리는 자리라 상한을 둔다. 원고 한 벌은 이 근처에도 안 온다
+  if (size > MAX_SCAN_BYTES) {
+    console.error(`파일이 너무 큽니다: ${size}B (상한 ${MAX_SCAN_BYTES}B)`);
     process.exit(EXIT_CODE.unknown);
   }
 
   const report = scan(readFileSync(full, 'utf-8'), { register: parseRegister(options.register) });
 
   console.log(options.json ? JSON.stringify(report, null, 2) : formatScan(report));
-  process.exit(report.worthHumanizing ? SCAN_EXIT.found : SCAN_EXIT.clean);
+  // 맞춤법만 걸린 원고를 clean 으로 닫으면 "윤문하지 않는다"로 읽혀 그대로 나간다.
+  // 어투 0건과 맞춤법만 있는 상태는 다음 할 일이 달라서 코드를 가른다
+  if (report.worthHumanizing) process.exit(SCAN_EXIT.found);
+  process.exit(report.spacing.length > 0 ? SCAN_EXIT.spacingOnly : SCAN_EXIT.clean);
 }

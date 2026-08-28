@@ -1,14 +1,14 @@
 /**
  * 윤문 전에 원문을 훑어 "이번에 볼 룰"만 추린다.
  *
- * 룰북은 59개까지 자랐다. 매번 전부 펼치면 모델이 나눠 쓰는 주의가 룰마다 얇아진다.
+ * 룰북은 예순 개를 넘겼다. 매번 전부 펼치면 모델이 나눠 쓰는 주의가 룰마다 얇아진다.
  * 실제로 걸린 서너 개는 안 걸린 쉰 개에 묻힌다. 스캔은 그 반대로 간다 —
  * 걸린 룰만 처방과 함께 내놓는다. 나머지는 아예 말하지 않는다.
  *
  * 탐지기가 없는 S1은 목록으로만 넘긴다. 코드가 못 가리는 자리를 가린다고 하면
  * 그게 더 나쁜 거짓말이다.
  */
-import { detect, spacingIssues, DETECTABLE_RULE_IDS, type SpacingIssue } from './detectors.js';
+import { scanProse, DETECTABLE_RULE_IDS, type SpacingIssue } from './detectors.js';
 import { parseRuleBook, ruleLabel, s1Ids, type Register, type RuleScanOptions } from './rules.js';
 
 export interface ScanHit {
@@ -42,7 +42,9 @@ export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
   const targets = s1Ids(book, register);
   const detectable = new Set(DETECTABLE_RULE_IDS);
 
-  const hits: ScanHit[] = detect(text, targets)
+  const { detections, spacing } = scanProse(text, targets);
+
+  const hits: ScanHit[] = detections
     .map((found) => ({
       ruleId: found.ruleId,
       label: ruleLabel(book, found.ruleId),
@@ -59,7 +61,7 @@ export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
     s1Total,
     hits,
     unverifiable: targets.filter((id) => !detectable.has(id)),
-    spacing: spacingIssues(text),
+    spacing,
     worthHumanizing: s1Total > 0,
   };
 }
@@ -83,7 +85,9 @@ export function formatScan(report: ScanReport): string {
       `  ${report.unverifiable.join(' ')}`,
       ...spacingBlock,
       '',
-      '여기서도 걸리는 게 없으면 윤문하지 않고 원문을 그대로 낸다.',
+      report.spacing.length > 0
+        ? '어투는 그대로 두고 위 맞춤법만 고쳐서 낸다.'
+        : '여기서도 걸리는 게 없으면 윤문하지 않고 원문을 그대로 낸다.',
     ].join('\n');
   }
 
