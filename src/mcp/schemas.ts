@@ -502,7 +502,7 @@ export const executeInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      'review_publish가 남길 판정의 리뷰어 이름. 생략하면 GESTALT_ACTOR 환경변수, 그것도 없으면 gestalt:review를 쓴다. 개별 코멘트 작성자는 이 값이 아니라 각 지적의 reportedBy다.',
+      'review_publish가 남길 판정의 리뷰어 이름. 생략하면 GESTALT_ACTOR 환경변수, 그것도 없으면 gestalt:review를 쓴다. 개별 코멘트 작성자는 이 값이 아니라 각 의견의 reportedBy다.',
     ),
 });
 

@@ -35,6 +35,22 @@ describe('scan', () => {
     expect(formatScan(report)).toContain('원문을 그대로 낸다');
   });
 
+  it('맞춤법은 S1 총계와 따로 센다', () => {
+    const report = scan('Approve 합니다. 6564d04 에서 고쳤어요.');
+    expect(report.s1Total).toBe(0);
+    expect(report.worthHumanizing).toBe(false);
+    expect(report.spacing.map((issue) => issue.count)).toEqual([1, 1]);
+    expect(formatScan(report)).toContain('맞춤법');
+  });
+
+  it('맞춤법이 없으면 그 절을 안 만든다', () => {
+    expect(formatScan(scan('배포는 내일입니다.'))).not.toContain('맞춤법');
+  });
+
+  it('조사가 다음 줄에 있으면 띄어쓰기가 아니다', () => {
+    expect(scan('커밋 6564d04\n\n에서 시작했다.').spacing).toEqual([]);
+  });
+
   it('말투에 따라 볼 룰이 달라진다', () => {
     const draft = '이 작업을 통해 유지보수성을 손봤습니다.';
     expect(scan(draft, { register: 'doc' }).hits.map((h) => h.ruleId)).not.toContain('A-2');
@@ -108,8 +124,22 @@ describe('humanize-scan 종료 코드', () => {
     expect(exitCodeOf(join(dir, '없는파일.md'))).toBe(EXIT_CODE.unknown);
   });
 
-  it('두 코드가 서로 다르다', () => {
-    expect(SCAN_EXIT.found).not.toBe(SCAN_EXIT.clean);
+  it('맞춤법만 걸리면 clean 이 아니라 spacingOnly 로 끝난다', () => {
+    const file = write('spacing.md', 'Approve 합니다.\n');
+    expect(exitCodeOf(file)).toBe(SCAN_EXIT.spacingOnly);
+  });
+
+  it('상한을 넘는 파일은 읽지 않고 unknown 으로 끝난다', () => {
+    const file = write('big.md', 'a'.repeat(2_000_001));
+    expect(exitCodeOf(file)).toBe(EXIT_CODE.unknown);
+  });
+
+  it('파일이 아니면 unknown 으로 끝난다', () => {
+    expect(exitCodeOf(dir)).toBe(EXIT_CODE.unknown);
+  });
+
+  it('세 코드가 서로 다르다', () => {
+    expect(new Set([SCAN_EXIT.found, SCAN_EXIT.clean, SCAN_EXIT.spacingOnly]).size).toBe(3);
     rmSync(dir, { recursive: true, force: true });
   });
 });
