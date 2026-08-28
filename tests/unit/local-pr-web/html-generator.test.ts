@@ -121,7 +121,7 @@ describe('generatePrListHtml', () => {
       createdAt: '2026-08-01T00:00:00.000Z',
     });
 
-    // 지적 하나에 답글 둘. 코멘트를 세면 3이 나오고 CLI와 값이 갈린다
+    // 의견 하나에 답글 둘. 코멘트를 세면 3이 나오고 CLI와 값이 갈린다
     const pr = makePr({ comments: [reply('c1'), reply('c2'), reply('c3')] });
 
     expect(unresolvedCell(generatePrListHtml([pr]))).toBe('1');
