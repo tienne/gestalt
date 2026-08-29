@@ -687,6 +687,8 @@ Copilot 리뷰 수렴 ({N}라운드)
 
 ## Phase 5 — 마무리
 
+**ⓒ에서 "바꾼다"를 고른 경우에만 ready로 옮긴다.** "draft로 둔다"면 이 줄을 건너뛰고 `prState`를 `draft`로 둔다. 아래 로컬 PR 닫기와 상태 정리는 어느 갈래든 그대로 한다.
+
 ```bash
 gh pr ready <prNumber>
 ```
