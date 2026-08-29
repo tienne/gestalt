@@ -132,14 +132,18 @@ What you get:
 
 ### Option 2: Claude Code Desktop
 
-Add this to your `settings.json` (or `claude_desktop_config.json`) and restart:
+Install once, then point the config at the installed binary:
+
+```bash
+npm install -g @tienne/gestalt
+```
 
 ```json
 {
   "mcpServers": {
     "gestalt": {
-      "command": "npx",
-      "args": ["-y", "@tienne/gestalt"]
+      "command": "gestalt",
+      "args": ["serve"]
     }
   }
 }
@@ -147,12 +151,15 @@ Add this to your `settings.json` (or `claude_desktop_config.json`) and restart:
 
 MCP tools are available immediately after restart. Slash commands require the plugin or manual skills setup.
 
+`npx -y @tienne/gestalt` works too, but read [Startup timeouts](#startup-timeouts) first — the desktop app is the setup most likely to hit them.
+
 ---
 
 ### Option 3: Claude Code CLI
 
 ```bash
-claude mcp add gestalt -- npx -y @tienne/gestalt
+npm install -g @tienne/gestalt
+claude mcp add gestalt -- gestalt serve
 ```
 
 Or add directly to `~/.claude/settings.json`:
@@ -161,12 +168,32 @@ Or add directly to `~/.claude/settings.json`:
 {
   "mcpServers": {
     "gestalt": {
-      "command": "npx",
-      "args": ["-y", "@tienne/gestalt"]
+      "command": "gestalt",
+      "args": ["serve"]
     }
   }
 }
 ```
+
+---
+
+### Startup timeouts
+
+If the server connects sometimes and reports `Connection closed` other times, the cause is almost always `npx`, not Gestalt. Three things are worth knowing.
+
+**npx reaches the registry on every start.** Pinning an exact version does not change that. Measured against npm: 1.9s on a warm cache, 20s on a cold one, and a 70s hang before failing when the registry is unreachable. Claude Code gives a stdio server 30s to answer `initialize`, so the cold and offline cases both surface as a closed connection. Installing the package globally and calling `gestalt serve` skips all of it.
+
+**GUI-launched sessions have a different PATH.** Anything started outside a terminal — the desktop app, a launcher, launchd — inherits a PATH with no version manager on it, so `npx` is not found and the server dies instantly. Give `command` an absolute path, or set `env.PATH` on the server entry.
+
+**`startup_timeout_sec` does nothing in Claude Code.** That key belongs to Codex. Claude Code reads the `MCP_TIMEOUT` environment variable (milliseconds) instead, so it goes in `settings.json`, where it lands in the Claude Code process:
+
+```json
+{
+  "env": { "MCP_TIMEOUT": "180000" }
+}
+```
+
+The plugin install (Option 1) already handles the first two through `scripts/mcp-serve.sh`: it finds Node under nvm, fnm, Volta, or Homebrew, prefers a globally installed `gestalt`, and otherwise resolves the pinned version straight from the npm cache without opening a socket.
 
 ---
 

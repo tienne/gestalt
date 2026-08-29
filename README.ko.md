@@ -161,14 +161,18 @@ claude plugin install gestalt@gestalt
 
 ### 옵션 2: Claude Code Desktop
 
-Claude Code Desktop 설정에서 `settings.json` (또는 `claude_desktop_config.json`)에 추가하세요:
+먼저 전역 설치한 다음, 설정이 그 바이너리를 가리키게 하세요:
+
+```bash
+npm install -g @tienne/gestalt
+```
 
 ```json
 {
   "mcpServers": {
     "gestalt": {
-      "command": "npx",
-      "args": ["-y", "@tienne/gestalt"]
+      "command": "gestalt",
+      "args": ["serve"]
     }
   }
 }
@@ -176,13 +180,15 @@ Claude Code Desktop 설정에서 `settings.json` (또는 `claude_desktop_config.
 
 Claude Code Desktop을 재시작하면 MCP 도구가 즉시 사용 가능해요. 슬래시 커맨드는 플러그인 설치 또는 별도 스킬 설정이 필요해요.
 
+`npx -y @tienne/gestalt`도 되긴 하는데, 그 전에 [기동 타임아웃](#기동-타임아웃)을 읽어보세요. 데스크톱 앱이 이 문제에 제일 잘 걸립니다.
+
 ---
 
 ### 옵션 3: Claude Code CLI
 
 ```bash
-# claude CLI로 추가
-claude mcp add gestalt -- npx -y @tienne/gestalt
+npm install -g @tienne/gestalt
+claude mcp add gestalt -- gestalt serve
 ```
 
 또는 `~/.claude/settings.json`을 직접 편집하세요:
@@ -191,12 +197,32 @@ claude mcp add gestalt -- npx -y @tienne/gestalt
 {
   "mcpServers": {
     "gestalt": {
-      "command": "npx",
-      "args": ["-y", "@tienne/gestalt"]
+      "command": "gestalt",
+      "args": ["serve"]
     }
   }
 }
 ```
+
+---
+
+### 기동 타임아웃
+
+서버가 붙을 때는 붙고 어떨 때는 `Connection closed`로 끊긴다면, 원인은 대개 Gestalt가 아니라 `npx`입니다. 알아둘 게 셋입니다.
+
+**npx는 기동할 때마다 레지스트리를 조회합니다.** 버전을 정확히 박아도 마찬가지예요. npm 상대로 재봤더니 캐시가 데워졌을 때 1.9초, 비었을 때 20초, 레지스트리에 못 닿으면 70초를 매달린 뒤 실패했습니다. Claude Code는 stdio 서버에 `initialize` 응답까지 30초를 주므로 콜드 상태와 오프라인 상태가 둘 다 끊긴 연결로 나타납니다. 전역 설치해서 `gestalt serve`를 직접 부르면 이 과정이 통째로 사라집니다.
+
+**GUI로 띄운 세션은 PATH가 다릅니다.** 터미널 밖에서 시작한 것들 — 데스크톱 앱, 런처, launchd — 은 버전 매니저가 빠진 PATH를 물려받아서 `npx`를 아예 못 찾고 즉시 죽습니다. `command`에 절대 경로를 주거나 서버 항목에 `env.PATH`를 지정하세요.
+
+**Claude Code에서 `startup_timeout_sec`는 아무 일도 안 합니다.** 그건 Codex 키예요. Claude Code는 `MCP_TIMEOUT` 환경변수(밀리초)를 읽으므로 `settings.json`에 넣어야 Claude Code 프로세스까지 전달됩니다:
+
+```json
+{
+  "env": { "MCP_TIMEOUT": "180000" }
+}
+```
+
+플러그인 설치(옵션 1)는 앞의 둘을 `scripts/mcp-serve.sh`가 알아서 처리합니다. nvm, fnm, Volta, Homebrew 밑에서 Node를 찾습니다. 전역 설치된 `gestalt`가 있으면 그걸 씁니다. 없으면 핀된 버전을 소켓 한 번 안 열고 npm 캐시에서 바로 해석합니다.
 
 ---
 
