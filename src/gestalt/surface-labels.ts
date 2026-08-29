@@ -1,10 +1,10 @@
 import { GestaltPrinciple } from '../core/types.js';
 
 /**
- * 표면/심층 분리 (Figure-Ground)에서 표면 문자열을 정의하는 단 한 곳.
+ * 사용자에게 보이는 문자열을 정의하는 단 한 곳. 안에서 쓰는 게슈탈트 용어와 가르는 자리다 (Figure-Ground).
  *
  * 코드 내부는 게슈탈트 원리(GestaltPrinciple enum)와 에이전트 식별자를 그대로 쓰지만,
- * 사용자에게 돌려주는 표면 문자열에는 게슈탈트 용어가 새어 나가면 안 된다.
+ * 사용자에게 돌려주는 문자열에는 게슈탈트 용어가 새어 나가면 안 된다.
  * 이 모듈이 내부 식별자를 평범한 한국어·영어 문구로 잇는 유일한 매핑 지점이다.
  *
  * 심층 쪽(README, docs, LLM 시스템 프롬프트, 내부 타입)은 이 모듈을 거치지 않고
@@ -60,7 +60,7 @@ const AGENT_DISPLAY_NAMES: Record<string, BilingualText> = {
 
 /**
  * 원리가 담당하는 단계를 평범한 말로 설명한 문구를 돌려준다.
- * currentPrinciple/principleStrategy/gestaltFocus 등 표면 노출 자리에 사용한다.
+ * currentPrinciple/principleStrategy/gestaltFocus 등 사용자에게 나가는 자리에 쓴다.
  * 알 수 없는 값('next' 등)은 중립적 기본 문구로 대체한다.
  */
 export function getStageLabel(
@@ -88,7 +88,7 @@ export function toDisplayAgentNames(agentNames: string[], lang: SurfaceLang = 'k
 }
 
 /**
- * 실행 단계에서 caller에게 주는 "일관성 유지" 힌트의 평범한 표면 문구.
+ * 실행 단계에서 caller에게 주는 "일관성 유지" 힌트로 사용자에게 보이는 평범한 문구.
  * Similarity 원리를 노출하던 similarityStrategy 필드를 이 문구로 치환한다.
  */
 const CONSISTENCY_HINT: BilingualText = {
@@ -101,8 +101,8 @@ export function getConsistencyHint(lang: SurfaceLang = 'ko'): string {
 }
 
 /**
- * 표면 문자열에 절대 나타나면 안 되는 게슈탈트 금지어.
- * 회귀 테스트(LeakTest)가 이 목록으로 사용자 표면 응답을 검사한다.
+ * 사용자에게 나가는 문자열에 절대 나타나면 안 되는 게슈탈트 금지어.
+ * 회귀 테스트(LeakTest)가 이 목록으로 사용자에게 나가는 응답을 검사한다.
  * 원리 이름 6종(figure-ground는 두 표기 모두)만 담는다 — 에이전트 접미사(completer 등)는
  * 게슈탈트 용어가 아니므로 중립 표시 이름에 그대로 쓸 수 있어 제외한다.
  */
@@ -118,7 +118,7 @@ export const BANNED_SURFACE_TERMS: readonly string[] = [
 
 /**
  * MCP 도구 응답에서 심층 쪽(LLM 지시 프롬프트) 필드 키.
- * 이 필드들은 게슈탈트 어휘를 담은 채 유지되므로 표면 누수 검사 대상에서 제외한다.
+ * 이 필드들은 게슈탈트 어휘를 담은 채 유지되므로 누수 검사 대상에서 제외한다.
  */
 export const DEEP_PROMPT_KEYS: readonly string[] = [
   'systemPrompt',
@@ -132,10 +132,10 @@ export const DEEP_PROMPT_KEYS: readonly string[] = [
 
 /**
  * 도구 응답에 통째로 실리는 컨텍스트 객체(gestaltContext/specContext/executeContext)에서
- * 게슈탈트 용어가 새는 메타 필드를 중립적 표면 값으로 치환한다.
+ * 게슈탈트 용어가 새는 메타 필드를 중립적인 값으로 치환한다.
  *
  * - currentPrinciple(원리 enum 값) → currentStage(평범한 단계 설명)
- * - principleStrategy(원리 용어가 박힌 전략 문구) → 표면에서 제거 (프롬프트에 이미 포함)
+ * - principleStrategy(원리 용어가 박힌 전략 문구) → 사용자 응답에서 제거 (프롬프트에 이미 포함)
  * - activeAgents(에이전트 식별자) → 중립적 표시 이름
  * - allRounds[].gestaltFocus(원리 enum 값) → stage(평범한 단계 설명)
  *

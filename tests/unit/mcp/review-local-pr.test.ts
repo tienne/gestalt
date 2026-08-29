@@ -254,7 +254,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
     call({ action: 'review_publish', reviewSessionId });
 
     // 본문은 사람이 읽는 자리다. CLI는 평문으로 찍고 웹은 이스케이프해서 그대로
-    // 내보내므로, 본문에 실은 자국은 어느 표면에서도 안 보이지 않는다
+    // 내보내므로, 본문에 실은 자국은 CLI에서도 웹에서도 그대로 보인다
     const comment = readPr().comments[0]!;
     expect(comment.body).not.toContain('gestalt:publish');
     expect(comment.body).not.toContain('<!--');

@@ -19,7 +19,7 @@ import {
  * CLI가 정책 층에서 값을 가져다 쓰는지 본다.
  *
  * 한 화면 안에서 머리글은 스레드를, 목록은 코멘트를 세던 자리다. 같은 단어로 다른
- * 수를 보여줬다. 정책 함수만 테스트하면 표면이 그 함수를 안 부르는 갈래가 안 걸린다.
+ * 수를 보여줬다. 정책 함수만 테스트하면 호출하는 쪽이 그 함수를 안 부르는 갈래가 안 걸린다.
  */
 
 function run(cwd: string, args: string[]): string {
@@ -237,7 +237,7 @@ describe('gestalt pr serve --repo-root 경계', () => {
 });
 
 /**
- * `pr repos`와 `pr unregister`의 CLI 표면.
+ * `pr repos`와 `pr unregister`의 CLI 명령.
  *
  * `unregister`가 받는 키는 `pr repos` 말고 볼 데가 없다. 그 짝이 어느 종료 코드로
  * 나가는지는 레지스트리 층 테스트가 못 잡는다 — 거기서는 `unregisterRepo`가 boolean만

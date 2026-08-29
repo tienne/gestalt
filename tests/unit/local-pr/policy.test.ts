@@ -12,10 +12,10 @@ import type { PullRequest } from '../../../src/local-pr/types.js';
 import type { ContinuityVerdict, ReviewIssue } from '../../../src/core/types.js';
 
 /**
- * 표면이 셋이고 산문이 셋 더 있는 규칙들이다.
+ * 호출하는 쪽이 셋이고 산문이 셋 더 있는 규칙들이다.
  *
  * 여기서 값이 갈리면 CLI와 웹이 같은 PR을 다르게 보여주거나, 파이프라인은 통과인데
- * PR은 리젝인 상태가 생긴다. 표면별 테스트로는 두 값이 우연히 같은 입력만 밟는다.
+ * PR은 리젝인 상태가 생긴다. 호출하는 쪽마다 테스트하면 두 값이 우연히 같은 입력만 밟는다.
  */
 
 function prWith(comments: { threadId: string; resolved: boolean }[]): PullRequest {
@@ -73,7 +73,7 @@ describe('로컬 PR 정책', () => {
 
       expect(threads).toHaveLength(unresolvedCount(pr));
       expect(threads.map((t) => t.root.id)).toEqual(['c0', 'c3']);
-      // 뿌리와 답글이 한 스레드로 묶이고 답글 수를 표면이 셀 수 있다
+      // 뿌리와 답글이 한 스레드로 묶이고 답글 수를 호출하는 쪽이 셀 수 있다
       expect(threads[0]!.comments).toHaveLength(2);
       // 늘어놓는 자리(`pr comments --unresolved`)도 같은 술어에서 나온다
       expect(unresolvedComments(pr).map((c) => c.id)).toEqual(['c0', 'c1', 'c3']);
@@ -93,7 +93,7 @@ describe('로컬 PR 정책', () => {
         { threadId: 't1', resolved: false },
       ]);
 
-      // all[0]으로 고르면 닫힌 코멘트가 head가 되어 표면이 그걸 한 줄로 보여준다
+      // all[0]으로 고르면 닫힌 코멘트가 head가 되어 그걸 한 줄로 보여준다
       expect(openThreads(pr)[0]!.root.id).toBe('c1');
     });
 
@@ -114,7 +114,7 @@ describe('로컬 PR 정책', () => {
         { threadId: 't1', resolved: true },
       ]);
 
-      // all을 그대로 주면 표면이 이미 닫은 코멘트를 미해결로 늘어놓는다
+      // all을 그대로 주면 이미 닫은 코멘트를 미해결로 늘어놓는다
       expect(openThreads(pr)[0]!.comments.map((c) => c.id)).toEqual(['c1']);
     });
 
