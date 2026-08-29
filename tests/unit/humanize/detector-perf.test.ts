@@ -21,23 +21,35 @@ function elapsed(text: string, ruleId: string): number {
   return Number(process.hrtime.bigint() - started) / 1e6;
 }
 
+/**
+ * 세 번 재서 최솟값을 쓴다.
+ *
+ * 한 번만 재면 GC 정지나 스케줄링 잡음이 그대로 배수에 실린다. CPU 를 포화시킨 상태에서
+ * 재보니 한 번 재기는 배수가 2.3에서 5.5까지 벌어졌다. 최솟값은 그 꼬리를 잘라 4 근처로
+ * 눌린다 — 제곱 회귀의 16배와는 여전히 네 배 넘게 갈린다.
+ */
+function best(n: number): number {
+  return Math.min(...[0, 1, 2].map(() => elapsed(pathological(n), 'I-7')));
+}
+
 describe('탐지기 병리 입력', () => {
   it('I-7 화자 갈래가 공백 없는 입력에서 선형으로 돈다', () => {
     // 워밍업 — 첫 호출에 JIT 비용이 실려 배수가 뒤틀린다
     elapsed(pathological(1000), 'I-7');
 
-    const small = Math.max(elapsed(pathological(4000), 'I-7'), 0.5);
-    const large = elapsed(pathological(16000), 'I-7');
+    const small = Math.max(best(4000), 0.5);
+    const large = best(16000);
 
     // 입력이 네 배다. 선형이면 네 배 근처, 제곱이면 열여섯 배가 된다
     expect(large / small).toBeLessThan(8);
   });
 
-  it('읽기 상한만 한 입력도 한 번에 끝난다', () => {
-    // humanize-scan 이 2MB 까지 받는다. "제가x" 한 벌이 7바이트라 285000 번이면 그 언저리다.
-    // 상한을 실제로 밟아야 다음 사람이 정규식을 넓혔을 때 이 자리가 잡아준다
-    const text = pathological(285000);
-    expect(Buffer.byteLength(text)).toBeGreaterThan(MAX_INPUT_BYTES * 0.95);
-    expect(elapsed(text, 'I-7')).toBeLessThan(2000);
+  it('읽기 상한의 삼분의 일쯤 되는 입력도 한 번에 끝난다', () => {
+    // 상한인 2MB 를 그대로 넣으면 회귀했을 때 이 자리가 이 분 넘게 동기로 붙잡는다.
+    // vitest 는 동기 블록을 못 끊어서 피드백만 늦어진다. 앞 배수 테스트가 이미 회귀를
+    // 잡으므로 여기는 절대 시간만 확인하고 크기를 줄인다
+    const text = pathological(90000);
+    expect(Buffer.byteLength(text)).toBeGreaterThan(MAX_INPUT_BYTES / 4);
+    expect(elapsed(text, 'I-7')).toBeLessThan(1000);
   });
 });

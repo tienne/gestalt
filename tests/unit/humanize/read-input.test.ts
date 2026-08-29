@@ -5,7 +5,7 @@
  * 한쪽만 막으면 다른 쪽으로 상한을 우회해 같은 정규식에 임의 크기를 먹일 수 있다.
  */
 import { describe, it, expect, afterAll } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, symlinkSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isReadFailure, readInput, MAX_INPUT_BYTES } from '../../../src/humanize/read-input.js';
@@ -45,6 +45,20 @@ describe('readInput', () => {
     symlinkSync(join(dir, '대상없음.md'), dangling);
     const broken = readInput(dangling);
     expect(isReadFailure(broken)).toBe(true);
+  });
+
+  it('상한과 정확히 같은 크기는 읽는다', () => {
+    // 상한 하나만 넘겨 보면 부등호 방향이 안 고정된다. 양쪽을 다 밟아야 >= 로 바뀌는 걸 잡는다
+    expect(typeof readInput(write('exact.md', 'a'.repeat(MAX_INPUT_BYTES)))).toBe('string');
+  });
+
+  it('크기를 0 으로 보고하는 특수 파일도 막는다', () => {
+    // isFile() 을 !isDirectory() 로 느슨하게 바꾸면 /dev/zero 가 size 0 으로 통과한다.
+    // 디렉터리만 밟으면 그 변경이 초록불로 지나간다
+    if (!existsSync('/dev/zero')) return;
+    const result = readInput('/dev/zero');
+    expect(isReadFailure(result)).toBe(true);
+    if (isReadFailure(result)) expect(result.message).toContain('파일이 아닙니다');
   });
 
   it('label 을 주면 메시지 앞에 붙는다', () => {
