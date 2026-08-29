@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "gestalt": {
-      "command": "npx",
-      "args": ["-y", "@tienne/gestalt"]
+      "command": "sh",
+      "args": [
+        "-c",
+        "for s in \"${CLAUDE_PLUGIN_ROOT}/scripts/mcp-serve.sh\" \"$PWD/scripts/mcp-serve.sh\"; do [ -x \"$s\" ] && exec \"$s\"; done; exec npx -y @tienne/gestalt serve"
+      ]
     }
   }
 }
