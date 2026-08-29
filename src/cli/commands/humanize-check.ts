@@ -1,5 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { isReadFailure, readInput } from '../../humanize/read-input.js';
 import {
   decide,
   formatReport,
@@ -20,12 +19,12 @@ export interface HumanizeCheckOptions {
 }
 
 function read(label: string, path: string): string {
-  const full = resolve(process.cwd(), path);
-  if (!existsSync(full)) {
-    console.error(`${label} 파일이 없습니다: ${full}`);
+  const input = readInput(path, label);
+  if (isReadFailure(input)) {
+    console.error(input.message);
     process.exit(EXIT_CODE.unknown);
   }
-  return readFileSync(full, 'utf-8');
+  return input;
 }
 
 export function humanizeCheckCommand(options: HumanizeCheckOptions): void {

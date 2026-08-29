@@ -84,7 +84,7 @@ describe('LocalPrEngine', () => {
 
   it('답글이 같은 스레드로 묶이고 스레드가 통째로 닫힌다', () => {
     const pr = engine.create({ title: 't', author: 'a' });
-    const withRoot = engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '지적' });
+    const withRoot = engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '의견' });
     const rootId = withRoot.comments[0]!.id;
 
     const withReply = engine.comment(pr.id, {
@@ -103,7 +103,7 @@ describe('LocalPrEngine', () => {
   it('답글이 달려도 미해결 수가 늘지 않는다', () => {
     // 코멘트를 세면 주고받을수록 수가 늘어 대화가 나빠 보인다. 스레드를 센다
     const pr = engine.create({ title: 't', author: 'a' });
-    const withRoot = engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '지적' });
+    const withRoot = engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '의견' });
     const rootId = withRoot.comments[0]!.id;
 
     expect(unresolvedCount(withRoot)).toBe(1);
@@ -537,7 +537,7 @@ describe('LocalPrEngine', () => {
 
   it('DB를 지우고 이벤트만 있어도 같은 상태가 나온다', () => {
     const pr = engine.create({ title: 't', author: 'a' });
-    engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '지적' });
+    engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '의견' });
     engine.review(pr.id, { reviewer: 'r', verdict: 'request_changes', summary: 'x' });
     const before = engine.get(pr.id)!;
 

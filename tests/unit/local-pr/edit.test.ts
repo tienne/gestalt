@@ -185,7 +185,7 @@ describe('LocalPrEngine.edit', () => {
 
   it('edit이 없던 시절의 이벤트만 재생해도 같은 상태가 나온다', () => {
     const pr = engine.create({ title: '원래 제목', body: '원래 본문', author: 'a' });
-    engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '지적' });
+    engine.comment(pr.id, { author: 'r', path: 'a.txt', body: '의견' });
     engine.review(pr.id, { reviewer: 'r', verdict: 'request_changes', summary: 's' });
     const before = engine.get(pr.id)!;
 

@@ -4,7 +4,7 @@
  * 룰을 하나 넣을 때마다 기존 룰이 조용히 죽거나, 새 정규식이 남의 문장을
  * 먹는 일이 생긴다. 룰이 늘어도 검출이 그대로인지는 사람 눈으로 못 지킨다.
  * 코퍼스가 그 자리를 대신한다 — 기대값은 걸리는 룰 '전부'라서,
- * 새 룰의 오탐도 같은 테스트에서 잡힌다.
+ * 새 룰이 잘못 감지하는 것도 같은 테스트에서 잡힌다.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -16,6 +16,8 @@ interface HitCase {
   ruleId: string;
   text: string;
   expect: Record<string, number>;
+  /** 잡히는 게 맞는 자리가 아니라 못 가르고 잘못 감지하는 자리면 여기에 적는다 */
+  label?: string;
 }
 
 interface MissCase {
@@ -38,11 +40,11 @@ function counts(text: string): Record<string, number> {
 }
 
 describe('탐지기 회귀 코퍼스', () => {
-  it.each(corpus.hits)('$ruleId — $text', (item) => {
+  it.each(corpus.hits)('$ruleId $label — $text', (item) => {
     expect(counts(item.text)).toEqual(item.expect);
   });
 
-  it.each(corpus.misses)('오탐 없음 — $label', (item) => {
+  it.each(corpus.misses)('잘못 감지 없음 — $label', (item) => {
     expect(counts(item.text)).toEqual({});
   });
 

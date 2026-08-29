@@ -196,7 +196,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
 
   // ─── 이음매 2: 합의 결과를 PR에 되돌려 쓴다 ────────────────
 
-  it('지적의 파일과 라인이 그대로 코멘트 위치가 된다', () => {
+  it('의견의 파일과 라인이 그대로 코멘트 위치가 된다', () => {
     const reviewSessionId = startAndAgree([
       { severity: 'critical', file: 'a.txt', line: 2, reportedBy: 'security-reviewer' },
     ]);
@@ -211,7 +211,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
     expect(pr.comments[0]!.line).toBe(2);
   });
 
-  it('라인이 없는 지적은 파일 전체 코멘트가 된다', () => {
+  it('라인이 없는 의견은 파일 전체 코멘트가 된다', () => {
     const reviewSessionId = startAndAgree([
       { severity: 'warning', file: 'a.txt', reportedBy: 'quality-reviewer' },
     ]);
@@ -478,7 +478,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
             category: 'security',
             file: 'a.txt',
             line: 1,
-            message: '새 지적',
+            message: '새 의견',
             suggestion: '새 제안',
             reportedBy: 'security-reviewer',
           },
@@ -494,7 +494,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
 
     expect(parsed.alreadyPublished).toBeUndefined();
     expect(parsed.verdict).toBe('request_changes');
-    expect(readPr().comments.map((c) => c.body)).toContainEqual(expect.stringContaining('새 지적'));
+    expect(readPr().comments.map((c) => c.body)).toContainEqual(expect.stringContaining('새 의견'));
   });
 
   // ─── 오류 규약 ─────────────────────────────────────────────
