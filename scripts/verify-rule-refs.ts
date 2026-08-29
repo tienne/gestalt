@@ -45,7 +45,7 @@ const LOANWORDS: Record<string, string> = {
 };
 
 /** 대체어가 여러 개인 건 자리마다 다르기 때문이다 — 하나 정해 일괄 치환하지 말 것 */
-const LOANWORD_HINT = 'style-guide.md §음차를 옮길 때';
+const LOANWORD_HINT = 'style-guide.md §「음차를 옮길 때 — 한 단어로 정하지 않는다」';
 
 /**
  * 이 레포에서 만들어 쓰다가 굳어버린 비유. F-7 계열인데 문서 레지스터에서는 S2라
@@ -145,6 +145,62 @@ function whitelistTerms(markdown: string): string[] {
   }
   return terms;
 }
+
+/**
+ * 마크다운 제목에서 GitHub 앵커 슬러그를 만든다.
+ * 소문자로 내리고 문장부호를 지운 뒤 공백 하나를 하이픈 하나로 바꾼다 —
+ * 줄표 앞뒤 공백이 하이픈 두 개로 남는 것까지 GitHub와 같게 둔다.
+ */
+function anchorSlug(heading: string): string {
+  return heading
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N} _-]/gu, '')
+    .replace(/ /g, '-');
+}
+
+/** 코드 펜스 안의 #는 제목이 아니다 */
+function headings(markdown: string): string[] {
+  const out: string[] = [];
+  let fenced = false;
+  for (const line of markdown.split('\n')) {
+    if (/^\s*```/.test(line)) fenced = !fenced;
+    else if (!fenced) {
+      const match = /^#{1,6}\s+(.+?)\s*$/.exec(line);
+      if (match) out.push(match[1]!);
+    }
+  }
+  return out;
+}
+
+const slugCache = new Map<string, Set<string>>();
+
+function slugsOf(file: string): Set<string> {
+  let slugs = slugCache.get(file);
+  if (!slugs) {
+    slugs = new Set(headings(readFileSync(file, 'utf-8')).map(anchorSlug));
+    slugCache.set(file, slugs);
+  }
+  return slugs;
+}
+
+/**
+ * 참조가 가리킨 마크다운 파일의 실제 경로.
+ *
+ * 마크다운끼리는 상대경로로 걸리지만 소스 주석은 파일명만 적는다. 그래서 이름으로도
+ * 찾는데, AGENT.md나 SKILL.md처럼 같은 이름이 여러 벌 있는 건 어느 쪽인지 알 수 없어
+ * 못 찾은 것으로 둔다.
+ */
+function resolveDoc(from: string, target: string): string | null {
+  const relative = resolve(dirname(from), target);
+  if (existsSync(relative)) return relative;
+
+  const named = [...markdownFiles(PLUGIN), ...markdownFiles(DOCS)].filter(
+    (path) => path.endsWith(`${sep}${target}`),
+  );
+  return named.length === 1 ? named[0]! : null;
+}
+
 
 export function verifyRuleRefs(): RuleRefIssue[] {
   const issues: RuleRefIssue[] = [];
@@ -311,6 +367,67 @@ export function verifyRuleRefs(): RuleRefIssue[] {
         }
       }
     }
+  }
+
+  // 8. 문서 안의 절을 가리킨 참조가 실제 제목과 맞는가.
+  //    표기가 제각각이면 검사할 수 없어서 제목을 고쳐도 참조만 조용히 낡는다.
+  //    style-guide.md 의 "다른 문서의 절을 가리킬 때"가 정한 두 가지 꼴만 통과시킨다.
+  for (const file of proseTargets()) {
+    const isMarkdown = file.endsWith('.md');
+
+    readFileSync(file, 'utf-8')
+      .split('\n')
+      .forEach((raw, index) => {
+        // 예시로 적은 표기까지 잡으면 규칙 문서 자신이 걸린다 — 백틱 안은 인용으로 본다
+        const line = raw.replace(/`[^`\n]*`/g, ' ');
+        const at = `${rel(file)}:${index + 1}`;
+
+        // 8a. 마크다운끼리는 앵커 링크로 건다
+        if (isMarkdown && line.includes('§')) {
+          issues.push({
+            level: 'error',
+            file: at,
+            message: '마크다운에서는 § 대신 앵커 링크를 쓴다 — `[제목](파일.md#슬러그)`',
+          });
+        }
+
+        // 8b. 앵커 링크가 가리킨 제목이 그 문서에 있는가
+        for (const [, target, slug] of line.matchAll(/\]\(([^)\s#]*\.md)?#([^)\s]+)\)/g)) {
+          const doc = target ? resolveDoc(file, target) : file;
+          if (!doc) {
+            issues.push({ level: 'error', file: at, message: `없는 문서 참조: ${target}` });
+          } else if (!slugsOf(doc).has(slug!)) {
+            issues.push({
+              level: 'error',
+              file: at,
+              message: `${target ?? '이 문서'}에 없는 앵커: #${slug}`,
+            });
+          }
+        }
+
+        // 8c. 소스 주석의 §「제목」이 제목 전문과 맞는가
+        for (const [, target, title] of line.matchAll(/([\w.-]+\.md)\s*§\s*「([^」]+)」/g)) {
+          const doc = resolveDoc(file, target!);
+          if (!doc) {
+            issues.push({ level: 'error', file: at, message: `없는 문서 참조: ${target}` });
+          } else if (!slugsOf(doc).has(anchorSlug(title!))) {
+            issues.push({
+              level: 'error',
+              file: at,
+              message: `${target}에 없는 제목: 「${title}」 (제목 전문을 그대로 옮긴다)`,
+            });
+          }
+        }
+
+        // 8d. 낫표 없이 쓴 § — 제목이 어디서 끝나는지 알 수 없어 검사가 비켜간다
+        if (!isMarkdown && /\.md\s*§\s*(?!「)/.test(line)) {
+          issues.push({
+            level: 'error',
+            file: at,
+            message: '§ 뒤 제목은 낫표로 감싼다 — `파일.md §「제목 전문」`',
+          });
+        }
+      });
   }
 
   return issues;

@@ -60,7 +60,7 @@ The hardest part of building software isn't writing code — it's knowing what t
 
 ## Built with Gestalt, for Gestalt
 
-This repository is developed using the `gestalt-develop` skill — the same pipeline you get when you install Gestalt. Every significant feature in [v0.26.0](#changelog) was implemented through the Interview → Spec → Execute → Evolve loop:
+This repository is developed using the `gestalt-develop` skill — the same pipeline you get when you install Gestalt. Every significant feature in [v0.26.0](CHANGELOG.md#0260---2026-06-14) was implemented through the Interview → Spec → Execute → Evolve loop:
 
 - Memory → Interview feedback loop (prior specs auto-injected into new sessions)
 - `execute-passthrough.ts` 1,296-line God File decomposed into 8 focused modules

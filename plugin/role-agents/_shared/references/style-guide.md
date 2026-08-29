@@ -24,6 +24,19 @@
   - 🔴 Danger: data loss, security risk — never use Note for this
 - Descriptive link text — Don't: `[여기](url)` / Do: `[설치 가이드](url)`
 
+### 다른 문서의 절을 가리킬 때
+
+절 참조는 대상 제목이 바뀌면 조용히 낡는다. 그래서 표기를 기계가 검사할 수 있는 꼴로 고정한다 (`pnpm verify:rules` 8번).
+
+- **마크다운 → 마크다운**: 앵커 링크. `[실측 근거](ai-tell-quick-rules.md#실측-근거)`, 같은 문서 안이면 `[실측 근거](#실측-근거)`
+- **코드 주석 → 마크다운**: `파일명 §「제목 전문」`. 주석에서는 링크가 안 눌리므로 낫표로 제목의 끝을 막는다. `author-voice.md §「기계적 점검 (어투는 아니지만 자주 틀리는 것)」`
+- 마크다운 본문에 `§`를 쓰지 않는다. 앵커로 쓸 수 있는 자리에 `§`를 쓰면 검사가 비켜간다
+- 앵커와 낫표 안은 **제목 전문**을 그대로 옮긴다. 꼬리를 잘라 적으면 검사에 걸린다. 매번 적기 버거운 제목은 참조를 줄이지 말고 제목을 줄인다
+- 링크 텍스트는 짧게 써도 된다 — 검사하는 건 앵커지 표시 문구가 아니다
+- 제목이 아닌 자리(볼드 라벨, 표의 행)는 `§`로 가리키지 않는다. 검사할 수 없어서 낡는 걸 못 잡는다
+
+앵커 슬러그는 제목을 소문자로 내리고 문장부호를 지운 뒤 공백을 하이픈으로 바꾼 것이다. `### B-5 대체어` → `#b-5-대체어`.
+
 ### Content Principles
 - Lead with business value, follow with technical detail
 - Real-world examples before abstract definitions
