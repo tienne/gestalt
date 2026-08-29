@@ -326,6 +326,18 @@ Phase 0에서 4번 갈래(사용자가 직접 준 명령)로 정했으면 `verif
 
 게슈탈트 레포에서는 1번에 걸려 `pnpm gate`가 된다. 아래 예시는 전부 그 경우다.
 
+### 액터
+
+로컬 PR은 누가 무엇을 했는지를 남긴다. 그 값은 `resolveActor`가 정한다 — 명시한 값, 없으면 `GESTALT_ACTOR` 환경변수, 그것도 없으면 `human:local`이다.
+
+**전 구간에 같은 값이 실려야 한다.** 안 맞으면 `review-reply` 0단계가 라운드마다 "이 PR은 제 것이 아닌데"로 멈춘다. PR을 `agent:ship`으로 만들어 놓고 `review-reply`를 부를 때 그 값이 안 실리면 그쪽은 `human:local`로 읽어 불일치가 난다. 값이 무엇이냐가 아니라 양쪽이 같으냐의 문제다.
+
+**기본은 액터를 안 쓰는 것이다.** `GESTALT_ACTOR`를 아무 데도 붙이지 않고 전부 `human:local`로 둔다. 이력의 값어치는 줄지만 양쪽이 같아서 라운드가 안 멈춘다.
+
+`agent:ship`으로 남기려면 **이 스킬이 부르는 하위 스킬의 `gestalt pr` 호출까지 그 값이 실린다는 확증**이 있어야 한다. 셸 상태가 도구 호출 사이에 안 남는 런타임이면 `export` 한 줄로는 안 된다. 확증이 없으면 안 쓴다 — **한쪽에만 붙이는 게 제일 나쁘다.**
+
+고른 값을 `shipActor`로 적어둔다. 이 문서의 예시는 `agent:ship`을 고른 경우다. 안 쓰기로 했으면 `GESTALT_ACTOR=...` 부분을 빼고 읽는다.
+
 ### 명령 형태
 
 게슈탈트 레포 안에서는 전역 설치가 없을 수 있으므로 `pnpm tsx bin/gestalt.ts pr ...`이고 밖에서는 `gestalt pr ...`이다. 확인하고 그 뒤로는 같은 형태를 쓴다.
@@ -356,26 +368,11 @@ Write <Phase 0에서 출력된 절대 경로>/pr-body.md   ← 4.5단계에서 �
 셸 heredoc이 아니라 파일 쓰기 도구를 쓴다. 한글과 백틱이 섞인 본문을 셸로 넘기면 깨진다. 그다음 그 파일을 `--body-file`로 넘긴다.
 
 ```bash
+shipTmp=<Phase 0에서 출력된 절대 경로>
+
 GESTALT_ACTOR=agent:ship gestalt pr create \
   --title "..." --base "<base>" --body-file "$shipTmp/pr-body.md"
 ```
-
-**액터는 Phase 0에서 한 번 정하고 전 구간에 같은 값이 실려야 한다.** 이게 안 맞으면 `review-reply`가 라운드마다 "남의 PR"이라며 멈춘다.
-
-누가 만들었는지는 `resolveActor`가 정한다 — 명시한 값, 없으면 `GESTALT_ACTOR`, 그것도 없으면 `human:local`이다. **PR을 `agent:ship`으로 만들어 놓고 `review-reply`를 부를 때 그 값이 안 실리면 그쪽은 `human:local`로 판정해 불일치가 난다.** `agent:worker`를 써도 같다. 값이 무엇이냐가 아니라 양쪽이 같으냐의 문제다.
-
-Phase 0에서 환경이 값을 물려주는지 확인하고 갈래를 고른다.
-
-```bash
-export GESTALT_ACTOR=agent:ship
-# 다른 명령을 한 번 돌린 뒤 다시 본다
-echo "${GESTALT_ACTOR:-(안 남음)}"
-```
-
-- **남으면** `agent:ship`으로 간다. 로컬 PR에 누가 무엇을 했는지가 남는다
-- **안 남으면 액터를 안 쓴다.** `GESTALT_ACTOR`를 붙이지 않고 전부 기본값 `human:local`로 둔다. 이력의 값어치는 줄지만 양쪽이 같아서 라운드가 안 멈춘다. **한쪽에만 붙이는 게 제일 나쁘다**
-
-고른 갈래를 `shipActor`로 적어두고 이 문서의 모든 `gestalt pr` 호출에 같게 적용한다. 아래 예시는 전부 첫 갈래다.
 
 돌아온 id를 `localPrId`로 보관한다.
 
