@@ -248,7 +248,14 @@ gh auth status
 shipBranch=$(git rev-parse --abbrev-ref HEAD)
 shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$shipBranch"
 mkdir -p "$shipTmp"
+rm -f "$shipTmp"/verify-src "$shipTmp"/verify-src-hash \
+      "$shipTmp"/round-start-head "$shipTmp"/requested-at
+echo "$shipTmp"
 ```
+
+**출력된 절대 경로를 적어둔다.** 이 자리는 git 디렉토리 아래라 세션이 끝나도 남는다. 지난 실행이 상한이나 escalate로 멈췄으면 그때 파일이 그대로 있어서 이번 실행이 남의 상태를 대조한다. 시작할 때 한 번 턴다.
+
+**파일 쓰기 도구에는 `$shipTmp`를 적지 않는다.** 그 도구는 셸 확장을 안 하므로 문자열이 그대로 경로가 된다. 절대 경로를 요구하는 런타임에서는 거절된다. 아니면 워킹트리 안에 `$shipTmp`라는 이름의 디렉토리가 생긴다 — 이 절이 피하려던 바로 그 결과다. 위에서 출력된 값을 그대로 적는다.
 
 - **`cd ... && pwd`로 절대 경로를 만든다.** `git rev-parse --git-common-dir`은 레포 루트에서 부르면 `.git`이라는 상대 경로를 준다. 그대로 쓰면 cwd가 바뀐 단계에서 다른 자리를 가리킨다. `--path-format=absolute`는 git 2.31부터라 안 쓴다
 - `--git-common-dir`이라 워크트리 여럿이 같은 자리를 공유하지만 **브랜치가 하위 디렉토리로 갈리므로 안 겹친다.** 브랜치 이름의 `/`는 그대로 디렉토리가 된다 — `tr`로 접으면 `feat/ship`과 `feat-ship`이 같은 자리를 쓴다
@@ -285,12 +292,37 @@ Phase 0에서 정의가 실린 파일을 함께 잡아둔다. 위 탐색 순번�
 | 3. CI 설정 | 그 워크플로 파일 |
 | 4. 사용자가 준 명령 | 없음 — 대조할 파일이 없으므로 이 절을 건너뛴다 |
 
+**절대 경로로 적어둔다.** 대조하는 자리의 cwd가 레포 루트가 아니면 상대 경로로는 파일을 못 찾아 거짓 판정이 난다. 해시는 `git hash-object`를 쓴다 — git은 이미 전제 조건이고 `shasum`은 perl이 없는 환경에 없다.
+
 ```bash
-echo "<verifySrc>" > "$shipTmp/verify-src"
-shasum "<verifySrc>" > "$shipTmp/verify-src-hash"
+verifySrc="$(cd "$(git rev-parse --show-toplevel)" && pwd)/<찾은 파일>"
+echo "$verifySrc" > "$shipTmp/verify-src"
+git hash-object "$verifySrc" > "$shipTmp/verify-src-hash"
 ```
 
-**대조는 검증을 돌리기 직전에 한다.** 2.3과 4.5가 그 자리다.
+### 검증 명령 대조 — 2.3과 4.5가 이 절을 쓴다
+
+검증을 돌리기 직전에 정의가 그대로인지 본다. 두 자리가 같은 절차를 쓰므로 여기 한 번만 적는다.
+
+```bash
+shipTmp=<Phase 0에서 출력된 절대 경로>
+
+if [ -f "$shipTmp/verify-src" ] \
+   && ! git hash-object "$(cat "$shipTmp/verify-src")" \
+        | diff -q - "$shipTmp/verify-src-hash" > /dev/null; then
+  echo "검증 명령의 정의가 바뀌었습니다 — 돌리기 전에 확인이 필요합니다"
+fi
+```
+
+**바뀌었으면 검증을 안 돌리고 ⓥ와 같은 확인을 다시 받는다.** 승인받은 것은 명령 이름이지 그 이름이 실행할 내용이 아니다.
+
+받고 나면 해시를 새로 적는다. **이 줄을 빠뜨리면 남은 라운드가 전부 같은 자리에서 걸린다.**
+
+```bash
+git hash-object "$(cat "$shipTmp/verify-src")" > "$shipTmp/verify-src-hash"
+```
+
+Phase 0에서 4번 갈래(사용자가 직접 준 명령)로 정했으면 `verify-src`가 없으므로 이 절 전체를 건너뛴다.
 
 게슈탈트 레포에서는 1번에 걸려 `pnpm gate`가 된다. 아래 예시는 전부 그 경우다.
 
@@ -318,7 +350,7 @@ GESTALT_ACTOR=agent:ship gestalt pr update <id> --head "$(git rev-parse HEAD)"
 **지은 본문을 파일로 떨군다.** `pr` 스킬 5단계는 heredoc으로 제출하므로 파일을 안 남긴다. 이 스킬은 그 본문을 Phase 3에서 다시 쓰므로 여기서 저장해 둔다.
 
 ```
-Write "$shipTmp/pr-body.md"   ← 4.5단계에서 윤문된 본문
+Write <Phase 0에서 출력된 절대 경로>/pr-body.md   ← 4.5단계에서 윤문된 본문
 ```
 
 셸 heredoc이 아니라 파일 쓰기 도구를 쓴다. 한글과 백틱이 섞인 본문을 셸로 넘기면 깨진다. 그다음 그 파일을 `--body-file`로 넘긴다.
@@ -328,7 +360,22 @@ GESTALT_ACTOR=agent:ship gestalt pr create \
   --title "..." --base "<base>" --body-file "$shipTmp/pr-body.md"
 ```
 
-**만들 때도 `GESTALT_ACTOR=agent:ship`을 쓴다.** `local-pr` 문서의 예시는 `agent:worker`인데 그대로 따르면 액터가 갈린다. 갈리면 `review-reply`의 작성자 확인에서 남의 PR로 걸려 예정에 없던 자리에서 멈춘다.
+**액터는 Phase 0에서 한 번 정하고 전 구간에 같은 값이 실려야 한다.** 이게 안 맞으면 `review-reply`가 라운드마다 "남의 PR"이라며 멈춘다.
+
+누가 만들었는지는 `resolveActor`가 정한다 — 명시한 값, 없으면 `GESTALT_ACTOR`, 그것도 없으면 `human:local`이다. **PR을 `agent:ship`으로 만들어 놓고 `review-reply`를 부를 때 그 값이 안 실리면 그쪽은 `human:local`로 판정해 불일치가 난다.** `agent:worker`를 써도 같다. 값이 무엇이냐가 아니라 양쪽이 같으냐의 문제다.
+
+Phase 0에서 환경이 값을 물려주는지 확인하고 갈래를 고른다.
+
+```bash
+export GESTALT_ACTOR=agent:ship
+# 다른 명령을 한 번 돌린 뒤 다시 본다
+echo "${GESTALT_ACTOR:-(안 남음)}"
+```
+
+- **남으면** `agent:ship`으로 간다. 로컬 PR에 누가 무엇을 했는지가 남는다
+- **안 남으면 액터를 안 쓴다.** `GESTALT_ACTOR`를 붙이지 않고 전부 기본값 `human:local`로 둔다. 이력의 값어치는 줄지만 양쪽이 같아서 라운드가 안 멈춘다. **한쪽에만 붙이는 게 제일 나쁘다**
+
+고른 갈래를 `shipActor`로 적어두고 이 문서의 모든 `gestalt pr` 호출에 같게 적용한다. 아래 예시는 전부 첫 갈래다.
 
 돌아온 id를 `localPrId`로 보관한다.
 
@@ -394,31 +441,19 @@ resolveThreads: true
 
 수정과 커밋과 답글이 거기서 끝난다. 그 안의 3단계와 5단계 승인은 위 "멈추는 자리" 표에 있는 그대로 사용자에게 간다.
 
-대응이 끝나면 **코드가 실제로 바뀌었을 때만** 검증을 돌린다. 돌리기 전에 검증 명령의 정의가 그대로인지 본다.
+대응이 끝나면 **Phase 0의 "검증 명령 대조" 절을 먼저 돈다.** 정의가 바뀌었으면 거기서 재승인을 받고 해시를 새로 적는다.
+
+그다음 **코드가 실제로 바뀌었을 때만** 검증을 돌린다.
 
 ```bash
-shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-parse --abbrev-ref HEAD)"
-
-if [ -f "$shipTmp/verify-src" ] \
-   && ! shasum "$(cat "$shipTmp/verify-src")" | diff -q - "$shipTmp/verify-src-hash" > /dev/null; then
-  echo "검증 명령의 정의가 이번 라운드에 바뀌었습니다 — 돌리기 전에 확인이 필요합니다"
-  exit 1
-fi
+shipTmp=<Phase 0에서 출력된 절대 경로>
 
 if ! git diff --quiet "$(cat "$shipTmp/round-start-head")" HEAD; then
   <verifyCmd> > "$shipTmp/gate-r{round}.log" 2>&1; echo "EXIT=$?"
 fi
 ```
 
-**정의가 바뀌었으면 검증을 안 돌리고 ⓥ와 같은 확인을 다시 받는다.** 승인받은 것은 명령 이름이지 그 이름이 실행할 내용이 아니다.
-
-받고 나면 해시를 새로 적는다. 이 줄을 빠뜨리면 남은 라운드가 전부 같은 자리에서 걸린다.
-
-```bash
-shasum "$(cat "$shipTmp/verify-src")" > "$shipTmp/verify-src-hash"
-```
-
-답글만 달고 코드를 안 고친 라운드에는 검증을 건너뛴다. 라운드 상한이 5라 무조건 돌리면 한 번의 출하에서 전체 검증이 열 번까지 돈다.
+답글만 달고 코드를 안 고친 라운드에는 검증을 건너뛴다. 상한까지 가면 무조건 돌리는 쪽이 전체 검증을 그 횟수만큼 돌린다.
 
 **출력을 파이프에 물리지 않는다** — 파이프의 종료 코드가 실패를 삼킨다. 파일로 떨구고 `$?`를 따로 본다.
 
@@ -490,7 +525,7 @@ description은 `pr` 스킬의 0~4.5단계를 그대로 탄다. **로컬 PR 본�
 Phase 1과 같이 **지은 본문을 먼저 파일로 떨군다.** `pr` 스킬은 파일을 안 남기므로 이 자리가 없으면 아래 `--body-file`이 읽을 게 없다.
 
 ```
-Write "$shipTmp/pr-body.md"   ← 4.5단계에서 윤문된 본문 (Phase 1 것을 덮어쓴다)
+Write <Phase 0에서 출력된 절대 경로>/pr-body.md   ← 4.5단계에서 윤문된 본문 (Phase 1 것을 덮어쓴다)
 ```
 
 제출만 이 스킬이 한다. `pr` 스킬과 갈리는 건 `--draft`와 `--base` 둘이다.
@@ -563,10 +598,12 @@ Copilot 리뷰가 10분째 안 옵니다. (요청은 접수됨)
 
 ```bash
 gh api "repos/{owner}/{repo}/pulls/<prNumber>/comments?since=<기준 시각>" \
-  --paginate --slurp
+  --paginate --slurp --jq 'add'
 ```
 
-**`--slurp`를 붙인다.** 안 붙이면 페이지마다 별도 JSON 배열이 이어 나와서 그대로 파싱하면 첫 페이지만 읽고 나머지를 버린다. 코멘트가 30건을 넘는 라운드에서 뒤쪽이 조용히 사라진다. 그러면 4.4가 안 본 코멘트를 두고 수렴이라고 판정한다. 받은 건수를 ⓑ에 함께 적어 그 사실이 드러나게 한다.
+**`--slurp`가 주는 건 페이지의 배열이다.** `--jq 'add'`로 한 번 펴서 센다. 안 펴고 `.[]`로 훑으면 코멘트가 아니라 페이지가 하나씩 나와서 ⓑ에 적히는 건수가 페이지 수가 된다.
+
+`--slurp` 없이 `--paginate`만 쓰면 페이지마다 별도 JSON 배열이 이어 나와서 그대로 파싱하면 첫 페이지만 읽고 나머지를 버린다. 코멘트가 30건을 넘는 라운드에서 뒤쪽이 조용히 사라진다. 그러면 4.4가 안 본 코멘트를 두고 수렴이라고 판정한다. 받은 건수를 ⓑ에 함께 적어 그 사실이 드러나게 한다.
 
 첫 라운드는 `since`에 `requestedAt`을 넣는다. 그다음부터는 **직전 라운드에서 본 마지막 코멘트 시각**을 넣고 그 값을 갱신해 들고 간다. `since` 없이 전체를 받아 클라이언트에서 거르면 라운드가 늘수록 받아오는 양이 함께 는다.
 
@@ -606,16 +643,10 @@ Copilot 코멘트에 특히 자주 나오는 두 가지는 미리 성향을 정�
 - **오탐** — 코드를 안 고치고 왜 아닌지 답글로 남긴다. 억지로 반영해 코드를 나쁘게 만들지 않는다.
 - **취향 차이** — 레포 규칙(Phase 3의 0단계에서 읽은 것)이 우선이다. 규칙과 어긋나는 제안은 근거를 적어 유예한다.
 
-대응 후 2.3과 같은 조건으로 검증을 돌리고 push한다.
+대응 후 2.3과 같다. **Phase 0의 "검증 명령 대조" 절을 먼저 돌고** 검증과 push로 간다.
 
 ```bash
-shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-parse --abbrev-ref HEAD)"
-
-if [ -f "$shipTmp/verify-src" ] \
-   && ! shasum "$(cat "$shipTmp/verify-src")" | diff -q - "$shipTmp/verify-src-hash" > /dev/null; then
-  echo "검증 명령의 정의가 이번 라운드에 바뀌었습니다 — 돌리기 전에 확인이 필요합니다"
-  exit 1
-fi
+shipTmp=<Phase 0에서 출력된 절대 경로>
 
 if ! git diff --quiet "$(cat "$shipTmp/round-start-head")" HEAD; then
   <verifyCmd> > "$shipTmp/gate-cp{round}.log" 2>&1; echo "EXIT=$?"
