@@ -82,10 +82,13 @@ outputs:
 ## 사용 방법
 
 ```
-/ship                    # 현재 브랜치 → 레포 기본 브랜치
-/ship main               # base 지정
-/ship --max-local 3      # 로컬 라운드 상한 조정
+/ship                     # 현재 브랜치 → 레포 기본 브랜치
+/ship main                # base 지정
+/ship --max-local 3       # 로컬 라운드 상한
+/ship --max-copilot 8     # Copilot 라운드 상한
 ```
+
+첫 인자가 `base`이고 `--max-local`이 `maxLocalRounds`, `--max-copilot`이 `maxCopilotRounds`다.
 
 ## 전제 조건
 
@@ -137,6 +140,7 @@ outputs:
 | 코멘트를 어떤 유형으로 처리할지 | 2.3과 4.5 | `review-reply` 3단계 | Phase 4에서는 ⓑ와 같은 자리다 |
 | 답글을 게시할지 | 2.3과 4.5 | `review-reply` 5단계 | 그대로 받는다 |
 | PR 의도 확인 | Phase 1과 Phase 3 | `pr` 1단계 | **미리 답한다.** 같은 규약이다 |
+| 안 끝난 로컬 PR이 있다는 알림 | Phase 3 | `pr` 스킬의 사전 점검 | **미리 답한다.** 아래 규약이다 |
 
 로컬 라운드 하나에 멈추는 자리는 그 라운드가 수렴했는지에 따라 갈린다. **수렴한 라운드는 `review` 4.7단계 하나**로 끝난다 — 2.2에서 바로 빠져나가므로 대응 자리가 안 열린다. **안 수렴해 2.3까지 내려간 라운드는 셋**이다(`review` 4.7단계와 `review-reply` 3단계와 5단계). Copilot 라운드는 3단계가 ⓑ와 같은 자리라 하나 적다.
 
@@ -167,6 +171,12 @@ Phase 1은 이 브랜치를 처음 다루는 자리라 재사용할 게 없다. 
 1. <커밋 메시지와 diff에서 뽑은 목적>
 2. <겹치는 작업이나 미완인 부분이 있으면 그것, 없으면 "없음">
 3. <이슈 번호가 있으면 그것, 없으면 "없음">
+```
+
+**Phase 3에서는 `pr` 스킬이 그보다 먼저 하나를 더 묻는다.** 그 스킬은 안 끝난 로컬 PR이 있으면 "로컬 먼저 처리할까요"라고 묻는데, 이 스킬의 로컬 PR은 Phase 5까지 열려 있는 게 정상이라 그 물음에 매번 걸린다. 첫 선택지가 루프를 `local-pr`로 되돌리므로 **그냥 두면 여기서 샌다.** 부를 때 미리 답한다.
+
+```
+이 로컬 PR <localPrId>은 ship이 Phase 5에서 닫습니다. 그냥 올립니다.
 ```
 
 Phase 3은 Phase 1에서 지은 목적을 그대로 쓰고 그 뒤 라운드에서 바뀐 것만 더한다.
@@ -336,7 +346,7 @@ Phase 0에서 4번 갈래(사용자가 직접 준 명령)로 정했으면 `verif
 
 `agent:ship`으로 남기려면 **이 스킬이 부르는 하위 스킬의 `gestalt pr` 호출까지 그 값이 실린다는 확증**이 있어야 한다. 셸 상태가 도구 호출 사이에 안 남는 런타임이면 `export` 한 줄로는 안 된다. 확증이 없으면 안 쓴다 — **한쪽에만 붙이는 게 제일 나쁘다.**
 
-고른 값을 `shipActor`로 적어둔다. 이 문서의 예시는 `agent:ship`을 고른 경우다. 안 쓰기로 했으면 `GESTALT_ACTOR=...` 부분을 빼고 읽는다.
+**이 문서의 `gestalt pr` 예시에는 액터가 안 붙어 있다.** 기본 갈래를 그대로 보인 것이다. `agent:ship`을 고르면 네 자리 전부에 `GESTALT_ACTOR=agent:ship`을 앞에 붙인다 — `pr create`, `pr update` 둘, `pr close`다. **넷 다 붙이거나 넷 다 안 붙인다.**
 
 ### 명령 형태
 
@@ -354,7 +364,7 @@ git merge-base --is-ancestor <PR의 headSha> HEAD    # 0이면 내 브랜치의 
 `open`이거나 `changes_requested`인 것만 본다. 찾았고 headSha가 지금 HEAD와 다르면 head를 먼저 맞춘다.
 
 ```bash
-GESTALT_ACTOR=agent:ship gestalt pr update <id> --head "$(git rev-parse HEAD)"
+gestalt pr update <id> --head "$(git rev-parse HEAD)"
 ```
 
 없으면 `local-pr` 스킬의 1단계로 만든다. description은 `pr` 스킬의 0~4.5단계 방식으로 짓는다 — 그 절차를 여기 다시 적지 않는다.
@@ -370,7 +380,7 @@ Write <Phase 0에서 출력된 절대 경로>/pr-body.md   ← 4.5단계에서 �
 ```bash
 shipTmp=<Phase 0에서 출력된 절대 경로>
 
-GESTALT_ACTOR=agent:ship gestalt pr create \
+gestalt pr create \
   --title "..." --base "<base>" --body-file "$shipTmp/pr-body.md"
 ```
 
@@ -459,7 +469,7 @@ fi
 ### 2.4 head 옮기기
 
 ```bash
-GESTALT_ACTOR=agent:ship gestalt pr update <id> --head "$(git rev-parse HEAD)"
+gestalt pr update <id> --head "$(git rev-parse HEAD)"
 ```
 
 **새 PR을 만들지 않는다.** 같은 PR에 라운드가 는다. 그래야 무엇이 몇 번 이슈로 올라왔는지 이력에 남는다.
@@ -667,7 +677,7 @@ git push
 Copilot 리뷰 수렴 ({N}라운드)
 - 반영: {M}건 / 유예: {K}건 (오탐 {a}, 규칙 우선 {b})
 - 미해결 스레드: {U}건
-- 검증: {verifyCmd} PASS
+- 검증: {돈 라운드면 "{verifyCmd} PASS", 건너뛴 라운드면 "코드 변경이 없어 건너뜀 (마지막 PASS: 라운드 {R})"}
 
 {prUrl}을 ready로 바꿀까요?
 - 바꾼다 / draft로 둔다
@@ -684,7 +694,7 @@ gh pr ready <prNumber>
 로컬 PR을 닫는다. **머지하지 않는다** — 실제 머지는 GitHub PR이 하고 로컬 PR은 리뷰 이력을 남기는 자리다.
 
 ```bash
-GESTALT_ACTOR=agent:ship gestalt pr close <localPrId> --reason "GitHub #<prNumber>로 이어감"
+gestalt pr close <localPrId> --reason "GitHub #<prNumber>로 이어감"
 ```
 
 닫힌 로컬 PR도 head ref를 붙잡으므로 나중에 `pr diff`와 `pr checkout`이 그대로 된다.
