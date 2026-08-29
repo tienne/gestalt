@@ -16,6 +16,8 @@ interface HitCase {
   ruleId: string;
   text: string;
   expect: Record<string, number>;
+  /** 잡히는 게 맞는 자리가 아니라 못 가르고 잘못 감지하는 자리면 여기에 적는다 */
+  label?: string;
 }
 
 interface MissCase {
@@ -38,7 +40,7 @@ function counts(text: string): Record<string, number> {
 }
 
 describe('탐지기 회귀 코퍼스', () => {
-  it.each(corpus.hits)('$ruleId — $text', (item) => {
+  it.each(corpus.hits)('$ruleId $label — $text', (item) => {
     expect(counts(item.text)).toEqual(item.expect);
   });
 

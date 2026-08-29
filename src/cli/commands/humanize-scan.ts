@@ -1,6 +1,5 @@
-import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { EXIT_CODE, formatScan, parseRegister, scan } from '../../humanize/index.js';
+import { isReadFailure, readInput } from '../../humanize/read-input.js';
 
 export interface HumanizeScanOptions {
   file: string;
@@ -27,44 +26,13 @@ export const SCAN_EXIT = {
   spacingOnly: 11,
 } as const;
 
-/** 스캔 대상 상한. 사람이 쓴 원고 한 벌은 이 근처에도 안 온다 */
-const MAX_SCAN_BYTES = 2_000_000;
-
 export function humanizeScanCommand(options: HumanizeScanOptions): void {
-  const full = resolve(process.cwd(), options.file);
-
-  // fd 를 잡고 그 위에서 검사와 읽기를 끝낸다. statSync 로 재고 readFileSync 로 다시 열면
-  // 그 사이에 경로가 다른 대상을 가리킬 수 있어서 종류 검사도 상한도 실제로 읽은 것에
-  // 안 걸린다. 크기를 0 으로 보고하는 특수 파일도 같은 자리에서 막힌다
-  let text: string;
-  let fd: number;
-  try {
-    fd = openSync(full, 'r');
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    // 권한이나 링크 순환을 파일 부재로 뭉개면 다음 사람이 엉뚱한 데를 고친다
-    console.error(
-      code === 'ENOENT' ? `파일이 없습니다: ${full}` : `읽을 수 없습니다: ${full} (${code})`,
-    );
+  const input = readInput(options.file);
+  if (isReadFailure(input)) {
+    console.error(input.message);
     process.exit(EXIT_CODE.unknown);
   }
-
-  try {
-    const stat = fstatSync(fd);
-    if (!stat.isFile()) {
-      console.error(`파일이 아닙니다: ${full}`);
-      process.exit(EXIT_CODE.unknown);
-    }
-    if (stat.size > MAX_SCAN_BYTES) {
-      console.error(`파일이 너무 큽니다: ${stat.size}B (상한 ${MAX_SCAN_BYTES}B)`);
-      process.exit(EXIT_CODE.unknown);
-    }
-    const buffer = Buffer.allocUnsafe(stat.size);
-    const read = readSync(fd, buffer, 0, stat.size, 0);
-    text = buffer.subarray(0, read).toString('utf-8');
-  } finally {
-    closeSync(fd);
-  }
+  const text = input;
 
   const report = scan(text, { register: parseRegister(options.register) });
 
