@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,12 +19,16 @@ const pkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf-8')) as 
 // 이 버전인데 서버만 앞서 나간 조합이 생긴다. sync-version.ts가 핀을 갱신하는데,
 // 릴리즈에서 그 단계를 건너뛰면 여기서 걸린다.
 describe('Codex와 Grok MCP 매니페스트', () => {
-  const paths = ['plugin/mcp.json', 'plugin/.mcp.json'];
-
-  it.each(paths)('%s 가 package.json 버전으로 핀되어 있다', (path) => {
-    const args = readManifest(path).mcpServers.gestalt!.args;
-    expect(args).toContain(`@tienne/gestalt@${pkg.version}`);
-  });
+  // 네 자리 전부 sync-version.ts가 갱신한다. 하나라도 빠지면 번들 스킬과 서버가
+  // 어긋나므로, 파일마다가 아니라 목록째로 고정한다.
+  it.each(['plugin/mcp.json', 'plugin/.mcp.json', '.mcp.json', '.claude-plugin/.mcp.json'])(
+    '%s 가 package.json 버전으로 핀되어 있다',
+    (path) => {
+      const args = readManifest(path).mcpServers.gestalt!.args;
+      expect(args.some((arg) => arg.includes(`@tienne/gestalt@${pkg.version}`))).toBe(true);
+      expect(args.some((arg) => /@tienne\/gestalt(?!@)/.test(arg))).toBe(false);
+    },
+  );
 
   it('Grok이 읽는 점 파일이 plugin/mcp.json과 같다', () => {
     expect(readManifest('plugin/.mcp.json')).toEqual(readManifest('plugin/mcp.json'));
@@ -54,7 +58,54 @@ describe('Claude MCP 매니페스트', () => {
     expect(command).toContain('GESTALT_LAUNCHER');
     expect(command).not.toContain('$PWD');
     // 스크립트를 못 찾아도 서버는 떠야 한다.
-    expect(command).toContain('npx -y @tienne/gestalt serve');
+    expect(command).toContain(`npx -y @tienne/gestalt@${pkg.version} serve`);
+  });
+
+  // 문자열 검사만으로는 상대 경로가 걸러지는지 모른다. 실제로 돌려서 본다.
+  it('상대 경로 GESTALT_LAUNCHER는 cwd에 파일이 있어도 실행되지 않는다', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gestalt-relpath-'));
+    try {
+      const nested = join(dir, 'scripts');
+      mkdirSync(nested);
+      writeFileSync(join(nested, 'mcp-serve.sh'), '#!/bin/sh\necho LAUNCHER_RAN\n', {
+        mode: 0o755,
+      });
+      const command = readManifest('.mcp.json').mcpServers.gestalt!.args[1]!;
+      const out = execFileSync('sh', ['-c', command.replace('exec npx', 'echo WOULD_NPX')], {
+        cwd: dir,
+        env: {
+          ...process.env,
+          CLAUDE_PLUGIN_ROOT: join(dir, 'absent'),
+          GESTALT_LAUNCHER: 'scripts/mcp-serve.sh',
+        },
+        encoding: 'utf-8',
+      });
+      expect(out).not.toContain('LAUNCHER_RAN');
+      expect(out).toContain('WOULD_NPX');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('절대 경로 GESTALT_LAUNCHER는 실행되고 그 사실이 stderr에 남는다', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gestalt-abspath-'));
+    try {
+      const stub = join(dir, 'launcher.sh');
+      writeFileSync(stub, '#!/bin/sh\necho LAUNCHER_RAN\n', { mode: 0o755 });
+      const command = readManifest('.mcp.json').mcpServers.gestalt!.args[1]!;
+      const out = execFileSync('sh', ['-c', command.replace('exec npx', 'echo WOULD_NPX')], {
+        cwd: dir,
+        env: {
+          ...process.env,
+          CLAUDE_PLUGIN_ROOT: join(dir, 'absent'),
+          GESTALT_LAUNCHER: stub,
+        },
+        encoding: 'utf-8',
+      });
+      expect(out).toContain('LAUNCHER_RAN');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('명령이 sh 문법으로 유효하다', () => {

@@ -31,10 +31,20 @@ checkout.
   Node >= 20).
 - Other hosts: `pnpm run serve` or `pnpm exec tsx bin/gestalt.ts serve`.
 
-Root `.mcp.json` goes through `scripts/mcp-serve.sh`, which resolves the
-published package — it is not a pointer at this checkout. `plugin/.mcp.json`
-stays on `npx @tienne/gestalt@<version>` for Codex and Grok. Do not retarget
-either at this checkout; set `GESTALT_LAUNCHER` if you need a local launcher.
+Four manifests start the published package, never this checkout. Do not
+retarget any of them. CLAUDE.md's "MCP 기동 경로" section is the reference; this
+is a summary of it.
+
+- `.mcp.json` and `.claude-plugin/.mcp.json` (Claude) run
+  `scripts/mcp-serve.sh` — but only from `${CLAUDE_PLUGIN_ROOT}`, which the host
+  fills in for an installed plugin. Open this repo without installing it and
+  that path is empty, so the pinned npx fallback runs instead. To drive a local
+  launcher there, point `GESTALT_LAUNCHER` at an absolute path; relative values
+  are ignored on purpose.
+- `plugin/mcp.json` (Codex) and `plugin/.mcp.json` (Grok) call
+  `npx @tienne/gestalt@<version>` directly.
+
+`scripts/sync-version.ts` moves the pin in all four on release.
 
 ## Shipped skills live in `plugin/`
 

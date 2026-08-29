@@ -100,6 +100,19 @@ pick_node() {
   return 1
 }
 
+# Before the Node search, because this branch does not need Node at all. Someone
+# pointing at their own build on a machine without a usable Node install should
+# not be turned away by a search whose result they were never going to use.
+#
+# An escape hatch, so it wins over the pinned resolution below. Whoever can set
+# this in the host's spawn environment can already edit the manifest's command,
+# so the trust boundary is the same either way — but an override that silently
+# replaces the server is worth a line in the log.
+if [[ -n "${GESTALT_MCP_BIN:-}" ]]; then
+  echo "gestalt MCP: GESTALT_MCP_BIN override — running $GESTALT_MCP_BIN." >&2
+  exec "${GESTALT_MCP_BIN}" serve
+fi
+
 NODE="$(pick_node)" || {
   echo "gestalt MCP: Node >= 20 required (package.json engines)." >&2
   echo "PATH node: $(command -v node || echo missing) $(node -v 2>/dev/null || true)" >&2
@@ -110,8 +123,9 @@ export PATH="$(dirname "$NODE"):$PATH"
 
 # The plugin ships as a git checkout, so package.json sits next to this script and
 # holds the version the bundled skills were written against. Pinning to it keeps
-# the server and the skills in lockstep — a bare spec silently pulls whatever is
-# newest on npm, which is how a 0.72.0 plugin ends up driving a 0.72.1 server.
+# the npx resolution below in lockstep with those skills — a bare spec silently
+# pulls whatever is newest on npm, which is how a 0.72.0 plugin ends up driving a
+# 0.72.1 server.
 SPEC="@tienne/gestalt"
 if [[ -f "$ROOT/package.json" ]]; then
   VERSION="$("$NODE" -p "require('$ROOT/package.json').version" 2>/dev/null || true)"
@@ -123,16 +137,12 @@ if [[ "$SPEC" == "@tienne/gestalt" ]]; then
   echo "gestalt MCP: no version pin (unreadable $ROOT/package.json) — resolving latest." >&2
 fi
 
-# An escape hatch for people running a build of their own. Whoever can set this
-# in the host's spawn environment can already edit the manifest's command, so
-# the trust boundary is the same either way — but an override that silently
-# replaces the server is worth a line in the log.
-if [[ -n "${GESTALT_MCP_BIN:-}" ]]; then
-  echo "gestalt MCP: GESTALT_MCP_BIN override — running $GESTALT_MCP_BIN." >&2
-  exec "${GESTALT_MCP_BIN}" serve
-fi
-
+# A global install outranks the pin on purpose: someone ran `npm i -g` and that
+# choice is more specific than what this checkout happens to bundle. Lockstep
+# governs what *we* resolve, not what the operator installed. Say which one it
+# was so a version mismatch is visible in the log rather than guessed at.
 if command -v gestalt >/dev/null 2>&1; then
+  echo "gestalt MCP: using globally installed gestalt ($(command -v gestalt)); pin $SPEC not applied." >&2
   exec gestalt serve
 fi
 
