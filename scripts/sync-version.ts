@@ -53,6 +53,16 @@ const NPX_MANIFESTS = [
   resolve(ROOT, 'plugin', '.mcp.json'),
 ];
 
+/**
+ * 두 파일이 글자 하나까지 같아야 한다는 규칙을 테스트가 지키고 있다. 하나를 쓴 뒤
+ * 다음 파일에서 exit하면 릴리즈 도중에 그 규칙이 깨진 상태로 남는다. 그래서 검증과
+ * 포맷을 전부 끝낸 뒤에 쓰기로 넘어간다.
+ *
+ * prettier 설정은 둘 다 같은 레포 루트 아래에서 나오므로 한 번만 찾는다.
+ */
+const prettierConfig = await resolveConfig(NPX_MANIFESTS[0]!);
+const pending: { path: string; contents: string }[] = [];
+
 for (const manifestPath of NPX_MANIFESTS) {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
   const args: unknown = manifest.mcpServers?.gestalt?.args;
@@ -71,8 +81,14 @@ for (const manifestPath of NPX_MANIFESTS) {
   // JSON.stringify는 args를 세 줄로 펼쳐 놓는다. 릴리즈마다 의미 없는 diff가
   // 쌓이지 않게 레포 prettier 설정으로 되돌린다.
   const raw = JSON.stringify(manifest, null, 2) + '\n';
-  const prettierConfig = await resolveConfig(manifestPath);
-  writeFileSync(manifestPath, await format(raw, { ...prettierConfig, filepath: manifestPath }));
+  pending.push({
+    path: manifestPath,
+    contents: await format(raw, { ...prettierConfig, filepath: manifestPath }),
+  });
+}
+
+for (const { path, contents } of pending) {
+  writeFileSync(path, contents);
 }
 
 console.log(
