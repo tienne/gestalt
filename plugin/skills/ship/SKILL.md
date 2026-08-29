@@ -572,7 +572,21 @@ gh pr edit <prNumber> --add-reviewer "@copilot"
 
 `@copilot`은 `gh` 2.x의 특수값이다. 두 번째 라운드부터는 같은 명령이 재요청이 된다.
 
-실패하면 멈추고 알린다. 흔한 원인 둘이다 — GHES라 지원이 없거나, 레포에 Copilot code review가 안 켜져 있다. **Copilot 리뷰를 못 받았는데 받은 것처럼 넘어가지 않는다.**
+**종료 코드로 성공을 판단하지 않는다.** `gh pr edit`은 요청이 반영 안 돼도 exit 0에 PR URL을 찍는다. REST로 직접 POST해도 200이 온다. 실제로 붙었는지는 따로 확인한다.
+
+```bash
+gh api "repos/{owner}/{repo}/pulls/<prNumber>/requested_reviewers" --jq '[.users[].login]'
+```
+
+여기 Copilot이 없으면 **요청이 접수되지 않은 것이다.** 기다려도 리뷰는 안 온다. 흔한 원인 셋이다.
+
+- GHES라 `@copilot`을 지원하지 않는다
+- 레포나 조직에 Copilot code review가 안 켜져 있다
+- 계정에 Copilot 구독이 없다
+
+그때는 **멈추고 알린다.** 무엇을 확인해야 하는지 함께 적는다 — 레포 Settings의 Copilot 항목과 계정 구독이다. **Copilot 리뷰를 못 받았는데 받은 것처럼 넘어가지 않는다.** 사용자가 리뷰 없이 진행하기로 하면 승인 단계 ⓒ로 가되 `copilotRounds`를 0으로 적고 완료 보고에 그 사실을 남긴다.
+
+Copilot이 리뷰를 이미 시작해 요청 목록에서 빠졌을 수도 있다. 그 경우는 4.2의 판정에 걸리므로, 목록이 비었으면 **한 번은 4.2로 내려가 보고** 거기서도 아무것도 안 오면 위의 갈래로 간다.
 
 ### 4.2 완료 대기
 
