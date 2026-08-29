@@ -4,17 +4,17 @@ import type { Actor, Comment, PullRequest, ReviewVerdict } from './types.js';
 /**
  * 로컬 PR의 판단 규칙.
  *
- * 표면이 셋(CLI, MCP, 웹)이고 이 규칙을 산문으로 옮겨 적는 스킬 문서가 셋 더 있다.
- * 규칙을 표면마다 다시 구현하면 하나가 반드시 뒤처진다 — 실제로 미해결 수를 스레드로
+ * CLI와 MCP와 웹 셋이 이 규칙을 쓴다. 산문으로 옮겨 적는 스킬 문서도 셋 더 있다.
+ * 규칙을 호출하는 쪽마다 다시 구현하면 하나가 반드시 뒤처진다 — 실제로 미해결 수를 스레드로
  * 고친 뒤에도 웹 UI만 옛 계산으로 남아 같은 PR이 CLI에서 2, 웹에서 4로 보였다.
- * 표면은 여기서 값을 가져다 쓰고 스스로 세지 않는다.
+ * 호출하는 쪽은 여기서 값을 가져다 쓰고 스스로 세지 않는다.
  */
 
 /**
  * 아직 안 닫힌 코멘트.
  *
  * 미해결을 가르는 술어가 여기 하나뿐이다. 아래 두 함수도 이 목록에서 나온다 —
- * 표면이 헤아릴 때와 늘어놓을 때를 따로 계산하면 같은 화면에서 수가 갈린다.
+ * 호출하는 쪽이 헤아릴 때와 늘어놓을 때를 따로 계산하면 같은 화면에서 수가 갈린다.
  * 실제로 `pr show`가 머리글에 스레드 수를, 바로 아래 목록에 코멘트 수를 찍어
  * "미해결 1"이라고 해놓고 세 줄을 늘어놓았다.
  */
@@ -29,7 +29,7 @@ export interface Thread {
   /** 그중 안 닫힌 것만. 전부 닫혔으면 빈 배열이다 */
   unresolved: Comment[];
   /**
-   * 표면이 한 줄로 접을 때 보여줄 코멘트. 안 닫힌 것 중 첫 번째다.
+   * 한 줄로 접을 때 보여줄 코멘트. 안 닫힌 것 중 첫 번째다.
    * 전부 닫혔으면 맨 처음 코멘트가 온다.
    */
   head: Comment;
@@ -62,7 +62,7 @@ export function threadsOf(pr: PullRequest): Thread[] {
 /** 안 닫힌 스레드 하나 */
 export interface OpenThread {
   /**
-   * 표면이 한 줄로 접을 때 보여줄 코멘트. 스레드에서 아직 안 닫힌 것 중 첫 번째다.
+   * 한 줄로 접을 때 보여줄 코멘트. 스레드에서 아직 안 닫힌 것 중 첫 번째다.
    * 뿌리가 닫히고 답글만 열려 있으면 그 답글이 여기 온다.
    */
   root: Comment;
@@ -76,7 +76,7 @@ export function openThreads(pr: PullRequest): OpenThread[] {
     .map((t) => ({ root: t.head, comments: t.unresolved }));
 }
 
-/** 안 닫힌 스레드 수. 표면의 "미해결 N"이 전부 이 값이다 */
+/** 안 닫힌 스레드 수. 화면에 찍히는 "미해결 N"이 전부 이 값이다 */
 export function unresolvedCount(pr: PullRequest): number {
   return openThreads(pr).length;
 }

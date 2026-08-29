@@ -120,7 +120,7 @@ export function errorKind(exitCode: number): string {
  * update-ref를 쓰고 워크트리를 만든다. `close`는 ref를 지운다. `checkout_remove --force`는
  * 경로를 재귀로 지운다. 인자 하나를 바꿔 부르면 이 머신의 아무 git 레포나 그 대상이
  * 된다. 레지스트리가 `pr create`의 등록 경로를 막은 것과 같은 축인데, 정작 git을
- * 변형하는 표면이 열려 있었다.
+ * 변형하는 자리가 열려 있었다.
  *
  * 그래서 지금 자리와 **같은 레포**일 때만 받는다. 판정은 공용 git 디렉토리로 하므로
  * 워크트리와 하위 디렉토리는 그대로 통과한다 — 이 인자가 원래 있는 이유가 그거다.

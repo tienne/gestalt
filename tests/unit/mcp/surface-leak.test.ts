@@ -10,12 +10,12 @@ import { handleSpecPassthrough } from '../../../src/mcp/tools/spec-passthrough.j
 import { BANNED_SURFACE_TERMS, DEEP_PROMPT_KEYS } from '../../../src/gestalt/surface-labels.js';
 
 /**
- * LeakTest — 사용자 표면으로 나가는 MCP 응답 문자열에 게슈탈트 원리 용어가
+ * LeakTest — 사용자에게 나가는 MCP 응답 문자열에 게슈탈트 원리 용어가
  * 하나도 새지 않는지 검사하는 회귀 테스트.
  *
- * 검사 대상: 시스템이 생성하는 표면 라벨·문구 (currentStage, dimensions.label, message, stage 등).
+ * 검사 대상: 시스템이 만들어 사용자에게 보이는 라벨과 문구 (currentStage, dimensions.label, message, stage 등).
  * 검사 제외:
- *   - 심층 LLM 지시 프롬프트 필드(systemPrompt/questionPrompt 등) — 게슈탈트 어휘를 담은 채 유지.
+ *   - LLM에게만 가는 프롬프트 필드(systemPrompt/questionPrompt 등) — 게슈탈트 어휘를 담은 채 유지.
  *   - 에코된 사용자/이력 데이터(priorContext 메모리, detectedFiles) — 사용자가 만든 스펙 목표에는
  *     제품명 "Gestalt"가 들어갈 수 있고, 이는 시스템이 주입한 원리 라벨 누수가 아니다.
  */
@@ -60,7 +60,7 @@ describe('surface leak regression', () => {
         cwd: process.cwd(),
       }),
     );
-    // 표면에는 currentPrinciple 대신 currentStage가 온다
+    // 사용자 응답에는 currentPrinciple 대신 currentStage가 온다
     expect(res.gestaltContext.currentPrinciple).toBeUndefined();
     expect(typeof res.gestaltContext.currentStage).toBe('string');
     assertNoLeak(res);
@@ -150,7 +150,7 @@ describe('surface leak regression', () => {
 // ─── helpers ────────────────────────────────────────────────────
 
 /**
- * 응답 객체에서 심층 프롬프트 필드를 제외한 모든 문자열 값을 모아
+ * 응답 객체에서 LLM에게만 가는 프롬프트 필드를 제외한 모든 문자열 값을 모아
  * 게슈탈트 금지어가 하나도 없는지 단언한다.
  */
 function assertNoLeak(response: unknown): void {

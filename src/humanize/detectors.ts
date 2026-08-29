@@ -89,7 +89,7 @@ function proseOnly(text: string, options: ProseOptions = {}): string {
  * 길이도 자른다 — D-9의 (?:\S+\s+)? 처럼 임의 토큰을 삼키는 탐지기가 있어서
  * 매치 하나가 수백 자로 늘어날 수 있다.
  *
- * 어투 탐지기와 맞춤법 검사가 같이 지나는 자리에 둔다. 한쪽만 누르면 표면이 넓은
+ * 어투 탐지기와 맞춤법 검사가 같이 지나는 자리에 둔다. 한쪽만 누르면 걸리는 범위가 넓은
  * 쪽이 그대로 새는데, 실제로 맞춤법만 누른 판이 그랬다.
  */
 function clampSample(sample: string): string {

@@ -104,7 +104,7 @@ let _instance: PrWebEngine | null = null;
  * 프로세스 하나가 서버를 하나만 띄우도록 공유하는 인스턴스.
  *
  * 아직 부르는 자리가 없다. `pr serve`는 `new PrWebEngine()`으로 직접 만들고 MCP는
- * 이 모듈을 안 가져간다. 여러 표면이 서버를 공유해야 할 때를 위해 남겨 둔 진입점이다.
+ * 이 모듈을 안 가져간다. CLI와 MCP가 같은 서버 인스턴스를 공유해야 할 때를 위해 남겨 둔 진입점이다.
  */
 export function getPrWebEngine(): PrWebEngine {
   if (!_instance) _instance = new PrWebEngine();

@@ -246,7 +246,7 @@ Codex는 호스트 패스스루로 동작해요 — Gestalt가 프롬프트와 �
 
 ### 옵션 6: Grok Build 플러그인
 
-Grok Build TUI/CLI용으로 MCP 서버랑 워크플로 스킬을 한 번에 받아요. 마켓플레이스는 `.grok-plugin/marketplace.json`이 정본이에요. Claude 마켓플레이스는 레포 루트를 복사하니 여기서 쓰지 마세요.
+Grok Build TUI/CLI용으로 MCP 서버랑 워크플로 스킬을 한 번에 받아요. Grok은 `.grok-plugin/marketplace.json`을 읽어요. Claude 마켓플레이스는 레포 루트를 복사하니 여기서 쓰지 마세요.
 
 ```bash
 grok plugin marketplace add tienne/gestalt

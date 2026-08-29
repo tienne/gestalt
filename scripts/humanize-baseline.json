@@ -62,5 +62,5 @@
   "tests/unit/humanize/rules.test.ts": 1,
   "tests/unit/interview/contradiction-detection.test.ts": 2,
   "tests/unit/mcp/session-selector.test.ts": 2,
-  "tests/unit/mcp/surface-leak.test.ts": 2
+  "tests/unit/mcp/surface-leak.test.ts": 1
 }
