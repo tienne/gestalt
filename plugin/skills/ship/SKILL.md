@@ -62,6 +62,11 @@ outputs:
 >
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 > `gh`, `gestalt pr`, `ges_execute` 중 하나라도 없으면 그 지점에서 멈추고 무엇이 왜 안 되는지 말한다. 리뷰를 안 돌리고 통과했다고 하지 않는다.
+>
+> **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
+>
+> **에이전트를 서브에이전트로 위임하기** → [`../_shared/agent-delegation.md`](../_shared/agent-delegation.md)
+> 이 스킬은 라운드를 여러 번 돈다. 한 번 실린 systemPrompt가 남은 라운드마다 다시 실려 가므로 위임 여부가 다른 스킬보다 더 크게 벌어진다. 아래 절이 이 스킬의 위임 규칙이다.
 
 ## 언제 이 스킬인가
 
@@ -87,6 +92,28 @@ outputs:
 - git 저장소
 - `gh` 인증 (Phase 3부터 필요 — Phase 0에서 미리 확인한다)
 - GitHub Enterprise Server가 아닐 것 (`@copilot` 리뷰어가 GHES에서는 안 된다)
+
+## 에이전트는 전부 서브에이전트로 돌린다
+
+**이 스킬 안에서 에이전트를 메인 대화에서 직접 부르지 않는다.** 예외는 없다.
+
+에이전트가 서는 자리는 두 갈래다.
+
+| 자리 | 누가 부르나 |
+| --- | --- |
+| 리뷰 6종과 continuity-judge, code-review-writer | `review` 스킬이 부른다 |
+| code-review-responder | `review-reply` 스킬이 부른다 |
+| change-context-writer, humanize-monolith | `pr` 스킬의 0~4.5단계가 부른다 |
+
+셋 다 이미 위임하도록 쓰여 있다. 이 스킬이 할 일은 **그 스킬들을 부를 때 위임을 건너뛰지 않게 하는 것**이다. 라운드가 도는 자리라 한 번 새면 그 비용이 남은 라운드마다 곱해진다.
+
+### 이 스킬을 부른 것이 곧 위임 요청이다
+
+호스트가 "사용자가 요청하지 않으면 서브에이전트를 쓰지 말라"는 지시를 기본으로 걸어둘 수 있다. Claude Code는 실제로 그렇게 한다.
+
+**그 조건은 사용자가 이 스킬을 부른 시점에 이미 충족됐다.** 리뷰 루프가 이 스킬의 본체이고 리뷰는 에이전트 없이 성립하지 않는다. 라운드마다 다시 묻지 않는다.
+
+다만 위임을 **못 하게** 된 경우는 다르다. 그때는 [`../_shared/agent-delegation.md`](../_shared/agent-delegation.md)의 실패 갈래를 따른다. 메인에서 직접 수행하는 폴백을 썼으면 그 사실을 완료 보고에 적는다. 페르소나 없이 임의로 리뷰하는 갈래는 어느 경우에도 없다.
 
 ## 멈추는 자리 세 곳
 
