@@ -117,7 +117,7 @@ export const BANNED_SURFACE_TERMS: readonly string[] = [
 ];
 
 /**
- * MCP 도구 응답에서 심층 쪽(LLM 지시 프롬프트) 필드 키.
+ * MCP 도구 응답에서 LLM에게만 가는 프롬프트 필드 키.
  * 이 필드들은 게슈탈트 어휘를 담은 채 유지되므로 누수 검사 대상에서 제외한다.
  */
 export const DEEP_PROMPT_KEYS: readonly string[] = [
@@ -139,7 +139,7 @@ export const DEEP_PROMPT_KEYS: readonly string[] = [
  * - activeAgents(에이전트 식별자) → 중립적 표시 이름
  * - allRounds[].gestaltFocus(원리 enum 값) → stage(평범한 단계 설명)
  *
- * 심층 프롬프트 필드(systemPrompt 등)와 나머지 필드는 그대로 둔다.
+ * LLM에게만 가는 프롬프트 필드(systemPrompt 등)와 나머지 필드는 그대로 둔다.
  */
 export function sanitizeSurfaceContext<T>(ctx: T, lang: SurfaceLang = 'ko'): T {
   if (!ctx || typeof ctx !== 'object') return ctx;
