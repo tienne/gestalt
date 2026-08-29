@@ -14,7 +14,7 @@ import { PrWebEngine } from '../../local-pr-web/engine.js';
 /**
  * `gestalt pr` — 로컬 PR CLI.
  *
- * 에이전트는 이 CLI를 부른다. MCP가 없거나 끊긴 런타임에서도 돌아야 해서
+ * MCP가 없거나 끊긴 런타임에서도 에이전트가 부를 수 있는 자리다.
  * 셸만 있으면 되는 이 경로를 먼저 만든다.
  */
 
