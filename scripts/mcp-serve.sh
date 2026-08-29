@@ -21,19 +21,35 @@ node_major() {
 
 # GUI-launched sessions (desktop app, Paseo, launchd) inherit a PATH without any
 # version manager on it, so `npx` is simply not found and the server dies at 0s.
-# Same search order as scripts/grok-mcp-serve.sh.
+#
+# scripts/grok-mcp-serve.sh looks at the same places but decides differently:
+# this one takes PATH's node the moment it is new enough, drops old nvm installs
+# by directory name, and knows about Volta. Change one and the other does not
+# follow — they pick different binaries on a machine with several Node versions.
+#
+# Among the candidates it does collect, the newest wins. npm and the SDK both
+# move faster than the oldest supported Node, so an old-but-adequate install is
+# the worse bet. The name-based filter above keeps that from costing much.
 pick_node() {
   local candidate major
   local best="" best_major=0
   local candidates=()
 
+  # An explicit override skips the search entirely. Collecting it as one
+  # candidate among many meant a newer nvm install could outrank it, which is
+  # the opposite of what someone setting this variable is asking for.
   if [[ -n "${GESTALT_NODE:-}" ]]; then
-    candidates+=("$GESTALT_NODE")
+    major="$(node_major "$GESTALT_NODE")" || true
+    if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 20 )); then
+      printf '%s\n' "$GESTALT_NODE"
+      return 0
+    fi
+    echo "gestalt MCP: GESTALT_NODE=$GESTALT_NODE is not Node >= 20, searching instead." >&2
   fi
 
   # Terminal-launched sessions almost always land here on the first try. Probing
   # every version manager costs a process spawn each, and this is the hot path.
-  if [[ -z "${GESTALT_NODE:-}" ]] && command -v node >/dev/null 2>&1; then
+  if command -v node >/dev/null 2>&1; then
     candidate="$(command -v node)"
     major="$(node_major "$candidate")" || true
     if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 20 )); then
@@ -101,8 +117,18 @@ if [[ -f "$ROOT/package.json" ]]; then
   VERSION="$("$NODE" -p "require('$ROOT/package.json').version" 2>/dev/null || true)"
   [[ -n "$VERSION" ]] && SPEC="@tienne/gestalt@$VERSION"
 fi
+# Losing the pin lands us back on whatever npm calls latest. That is the state
+# this script exists to avoid, so say it out loud rather than degrade quietly.
+if [[ "$SPEC" == "@tienne/gestalt" ]]; then
+  echo "gestalt MCP: no version pin (unreadable $ROOT/package.json) — resolving latest." >&2
+fi
 
+# An escape hatch for people running a build of their own. Whoever can set this
+# in the host's spawn environment can already edit the manifest's command, so
+# the trust boundary is the same either way — but an override that silently
+# replaces the server is worth a line in the log.
 if [[ -n "${GESTALT_MCP_BIN:-}" ]]; then
+  echo "gestalt MCP: GESTALT_MCP_BIN override — running $GESTALT_MCP_BIN." >&2
   exec "${GESTALT_MCP_BIN}" serve
 fi
 
@@ -115,10 +141,11 @@ fi
 # node_modules it dies with "gestalt: command not found" — hence the `cd /`. And
 # resolving separately means one npx round instead of a probe plus a real run.
 #
-# `--offline` reads the npm cache and never opens a socket: 1.5s on a hit, and a
-# 0.4s miss instead of the 70s the online path hangs for when the registry is
-# unreachable. </dev/null keeps npx away from the client's stdin, which the
-# server itself needs intact.
+# `--offline` answers from the npm cache. Measured on npm 10 it did not open a
+# socket — 1.5s on a hit, and a 0.4s miss against the 70s the online path hangs
+# for when the registry is unreachable. Nothing here depends on that holding: a
+# miss just falls through to the online call below. </dev/null keeps npx away
+# from the client's stdin, which the server itself needs intact.
 resolve_bin() {
   (cd / && npx -y "$@" --package "$SPEC" -c 'command -v gestalt' </dev/null 2>/dev/null) | tail -n 1
 }
