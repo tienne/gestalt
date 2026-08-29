@@ -22,7 +22,7 @@
   "interface": {
     "displayName": "Gestalt",
     "shortDescription": "Requirements-to-spec pipeline with review and PR workflows",
-    "longDescription": "Gestalt turns vague ideas into validated specifications through Gestalt-principle interviews, then drives execution, code review, and PR authoring. Bundles 18 workflow skills and 27 role agents over 12 MCP tools.",
+    "longDescription": "Gestalt turns vague ideas into validated specifications through Gestalt-principle interviews, then drives execution, code review, and PR authoring. Bundles 19 workflow skills and 27 role agents over 12 MCP tools.",
     "developerName": "tienne",
     "category": "Developer Tools",
     "capabilities": [
