@@ -123,7 +123,7 @@ outputs:
 
 | 자리 | 시점 | 묻는 것 |
 | --- | --- | --- |
-| ⓥ | Phase 0에서 한 번 | 레포에서 찾은 검증 명령이 맞는지 |
+| ⓥ | Phase 0에서 한 번, 그리고 그 정의가 바뀐 라운드 | 레포에서 찾은 검증 명령이 맞는지 |
 | ⓐ | Phase 3 직전 | 로컬 리뷰 결과를 보이고 이 상태로 GitHub에 올릴지 |
 | ⓑ | Phase 4 라운드마다 | Copilot 코멘트를 유형별로 분류해 보이고 무엇을 반영할지 |
 | ⓒ | Phase 5 | draft를 ready로 바꿀지 |
@@ -138,7 +138,7 @@ outputs:
 | 답글을 게시할지 | 2.3과 4.5 | `review-reply` 5단계 | 그대로 받는다 |
 | PR 의도 확인 | Phase 1과 Phase 3 | `pr` 1단계 | **미리 답한다.** 같은 규약이다 |
 
-로컬 라운드 하나에 실제로 멈추는 자리는 **셋**이다 — `review` 4.7단계와 `review-reply` 3단계와 5단계. Copilot 라운드는 3단계가 ⓑ와 같은 자리라 **둘**이다.
+로컬 라운드 하나에 멈추는 자리는 그 라운드가 수렴했는지에 따라 갈린다. **수렴한 라운드는 `review` 4.7단계 하나**로 끝난다 — 2.2에서 바로 빠져나가므로 대응 자리가 안 열린다. **안 수렴해 2.3까지 내려간 라운드는 셋**이다(`review` 4.7단계와 `review-reply` 3단계와 5단계). Copilot 라운드는 3단계가 ⓑ와 같은 자리라 하나 적다.
 
 **`review-reply` 5단계는 그 문서가 "어떤 경우에도 건너뛰지 않는다"고 못박은 불변 규칙이다.** 부르는 쪽에서 억제할 성질이 아니다. 답글은 동료가 읽고 판단 근거로 쓰는 협업 산출물이라 그렇게 정해져 있다.
 
@@ -228,6 +228,7 @@ gh auth status
 
 - **커밋 안 된 변경이 있으면 멈추고 묻는다.** 이 스킬은 head sha로 라운드를 가르므로 워킹 트리가 더러우면 무엇이 리뷰된 건지 흐려진다.
 - **현재 브랜치가 base와 같으면 멈춘다.** 기본 브랜치에서 바로 출하하지 않는다.
+- **detached HEAD면 멈춘다.** 라운드 상태를 브랜치별로 가르므로 이름이 없으면 다른 세션의 자리를 덮는다.
 - **base 대비 커밋이 없으면 멈춘다.** 리뷰할 게 없다.
 - `gh` 인증이 안 돼 있으면 **여기서 알린다.** Phase 3에서 처음 알면 로컬 리뷰 라운드가 통째로 헛돈다.
 
@@ -235,18 +236,25 @@ gh auth status
 
 ### 임시 파일 자리
 
-로그와 PR 본문과 라운드 상태를 공용 `/tmp`의 고정 이름에 쓰지 않는다. 그렇다고 `mktemp -d`도 안 쓴다 — 그 경로가 셸 변수에만 남는다. 라운드 사이에 셸 상태가 안 남는 런타임이면 다음 단계에서 빈 문자열로 풀린다. 이 스킬은 승인 두 번과 최대 10분 대기를 건너뛰며 같은 경로를 다시 찾아야 한다.
+로그와 PR 본문과 라운드 상태를 둘 자리가 필요하다. 세 가지를 피해야 한다.
 
-**레포 안의 결정적 경로를 쓴다.** 어느 단계에서든 같은 식으로 다시 만들어진다.
+- 공용 `/tmp`의 고정 이름 — 남이 먼저 만들어둔 심볼릭 링크로 쓰기 대상이 바뀔 수 있다
+- `mktemp -d` — 그 경로가 셸 변수에만 남는다. 라운드 사이에 셸 상태가 안 남는 런타임이면 다음 단계에서 빈 문자열로 풀린다
+- **레포 워킹트리 안** — `.gestalt/`처럼 이 레포가 무시하는 자리라도 **다른 레포에서는 아니다.** 이 스킬은 플러그인으로 배포돼 밖에서도 돈다. 무시 안 되는 자리에 쓰면 `review-reply`의 커밋이 로그까지 담아 PR에 실어 보내거나, `review` 4.7단계의 신선도 가드가 매 라운드 새 `??` 항목을 보고 리뷰를 통째로 다시 돌린다
+
+**git 디렉토리 아래를 쓴다.** git이 절대 추적하지 않는 자리이고 절대 경로라 cwd가 어디든 같은 자리를 가리킨다.
 
 ```bash
-shipTmp=".gestalt/ship/$(git rev-parse --abbrev-ref HEAD | tr / -)"
+shipBranch=$(git rev-parse --abbrev-ref HEAD)
+shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$shipBranch"
 mkdir -p "$shipTmp"
 ```
 
-`.gestalt/`는 이미 이 레포가 상태를 두는 자리이고 `.gitignore`에 들어 있다. 브랜치마다 갈리므로 워크트리 여럿이 같이 돌아도 안 겹친다.
+- **`cd ... && pwd`로 절대 경로를 만든다.** `git rev-parse --git-common-dir`은 레포 루트에서 부르면 `.git`이라는 상대 경로를 준다. 그대로 쓰면 cwd가 바뀐 단계에서 다른 자리를 가리킨다. `--path-format=absolute`는 git 2.31부터라 안 쓴다
+- `--git-common-dir`이라 워크트리 여럿이 같은 자리를 공유하지만 **브랜치가 하위 디렉토리로 갈리므로 안 겹친다.** 브랜치 이름의 `/`는 그대로 디렉토리가 된다 — `tr`로 접으면 `feat/ship`과 `feat-ship`이 같은 자리를 쓴다
+- **detached HEAD면 Phase 0에서 멈춘다.** `abbrev-ref`가 `HEAD`를 돌려주면 브랜치별로 갈리지 않아 다른 세션의 상태를 덮는다. 이 스킬은 브랜치 하나를 출하하는 자리라 detached로 들어올 이유도 없다
 
-**단계마다 이 두 줄을 다시 쓴다.** 변수를 물려받았다고 가정하지 않는다.
+**단계마다 이 세 줄을 다시 쓴다.** 변수를 물려받았다고 가정하지 않는다.
 
 ### 검증 명령 정하기
 
@@ -307,6 +315,19 @@ GESTALT_ACTOR=agent:ship gestalt pr update <id> --head "$(git rev-parse HEAD)"
 
 없으면 `local-pr` 스킬의 1단계로 만든다. description은 `pr` 스킬의 0~4.5단계 방식으로 짓는다 — 그 절차를 여기 다시 적지 않는다.
 
+**지은 본문을 파일로 떨군다.** `pr` 스킬 5단계는 heredoc으로 제출하므로 파일을 안 남긴다. 이 스킬은 그 본문을 Phase 3에서 다시 쓰므로 여기서 저장해 둔다.
+
+```
+Write "$shipTmp/pr-body.md"   ← 4.5단계에서 윤문된 본문
+```
+
+셸 heredoc이 아니라 파일 쓰기 도구를 쓴다. 한글과 백틱이 섞인 본문을 셸로 넘기면 깨진다. 그다음 그 파일을 `--body-file`로 넘긴다.
+
+```bash
+GESTALT_ACTOR=agent:ship gestalt pr create \
+  --title "..." --base "<base>" --body-file "$shipTmp/pr-body.md"
+```
+
 **만들 때도 `GESTALT_ACTOR=agent:ship`을 쓴다.** `local-pr` 문서의 예시는 `agent:worker`인데 그대로 따르면 액터가 갈린다. 갈리면 `review-reply`의 작성자 확인에서 남의 PR로 걸려 예정에 없던 자리에서 멈춘다.
 
 돌아온 id를 `localPrId`로 보관한다.
@@ -320,11 +341,11 @@ GESTALT_ACTOR=agent:ship gestalt pr update <id> --head "$(git rev-parse HEAD)"
 **라운드 시작 head를 먼저 잡아둔다.** 2.3의 검증 조건이 이 값을 쓴다.
 
 ```bash
-shipTmp=".gestalt/ship/$(git rev-parse --abbrev-ref HEAD | tr / -)"
+shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-parse --abbrev-ref HEAD)"
 git rev-parse HEAD > "$shipTmp/round-start-head"
 ```
 
-**셸 변수로 들고 가지 않는다.** 이 값을 잡는 자리와 쓰는 자리 사이에 리뷰 한 번과 승인 두 번이 들어간다. Phase 4에서는 최대 10분 대기까지 낀다. 그 사이에 셸 상태가 안 남는 런타임이면 변수가 빈 문자열로 풀려 `git diff --quiet "" HEAD`가 죽거나 엉뚱한 비교를 한다. `$shipTmp`도 마찬가지라 위의 두 줄로 매번 다시 만든다.
+**셸 변수로 들고 가지 않는다.** 이 값을 잡는 자리와 쓰는 자리 사이에 리뷰 한 번과 승인 두 번이 들어간다. Phase 4에서는 최대 10분 대기까지 낀다. 그 사이에 셸 상태가 안 남는 런타임이면 변수가 빈 문자열로 풀려 `git diff --quiet "" HEAD`가 죽거나 엉뚱한 비교를 한다. `$shipTmp`도 마찬가지라 위의 줄로 매번 다시 만든다.
 
 `review` 스킬을 `localPrId` 대상으로 부른다. 0단계에 미리 답하는 규약은 위 "멈추는 자리"에 있다.
 
@@ -356,7 +377,7 @@ gestalt pr --json show <id>
 
 2.3에서 `resolveThreads: true`를 넘기므로 `accept`와 `alternate`는 아예 닫혀서 목록에서 빠진다. 남는 건 답글만 달린 스레드뿐이다. 그게 이 루프가 도달할 수 있는 종점이다.
 
-**이 조회는 라운드에 한 번뿐이다.** `review`가 방금 코멘트를 게시한 직후다. 그 목록을 여기서 한 번 받아 2.3의 `review-reply`에 그대로 넘긴다. 두 스킬이 같은 PR을 각자 조회하면 라운드마다 같은 왕복이 겹친다.
+**이 조회는 종료를 판정하는 데만 쓴다.** 2.3의 `review-reply`는 이 목록을 못 받는다 — 그 스킬의 입력은 `target`과 `repoRoot`와 `local`과 `resolveThreads` 넷뿐이고 1단계에서 자기가 다시 모은다. 그래서 라운드마다 같은 PR을 두 번 조회한다. 없애려면 `review-reply`에 스레드 목록을 받는 입력을 새로 만들어야 하고 그건 이 스킬의 범위 밖이다. 로컬 PR 조회는 SQLite 한 번이라 그대로 둔다.
 
 라운드마다 답글만 달린 채 열려 있는 스레드 수를 들고 간다. ⓐ에서 그 수를 함께 보인다 — 유예한 게 있는데 전부 반영했다고 보이면 안 된다.
 
@@ -376,7 +397,7 @@ resolveThreads: true
 대응이 끝나면 **코드가 실제로 바뀌었을 때만** 검증을 돌린다. 돌리기 전에 검증 명령의 정의가 그대로인지 본다.
 
 ```bash
-shipTmp=".gestalt/ship/$(git rev-parse --abbrev-ref HEAD | tr / -)"
+shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-parse --abbrev-ref HEAD)"
 
 if [ -f "$shipTmp/verify-src" ] \
    && ! shasum "$(cat "$shipTmp/verify-src")" | diff -q - "$shipTmp/verify-src-hash" > /dev/null; then
@@ -389,7 +410,13 @@ if ! git diff --quiet "$(cat "$shipTmp/round-start-head")" HEAD; then
 fi
 ```
 
-**정의가 바뀌었으면 검증을 안 돌리고 ⓥ와 같은 확인을 다시 받는다.** 승인받은 것은 명령 이름이지 그 이름이 실행할 내용이 아니다. 받고 나면 해시를 새로 적어 다음 라운드로 간다.
+**정의가 바뀌었으면 검증을 안 돌리고 ⓥ와 같은 확인을 다시 받는다.** 승인받은 것은 명령 이름이지 그 이름이 실행할 내용이 아니다.
+
+받고 나면 해시를 새로 적는다. 이 줄을 빠뜨리면 남은 라운드가 전부 같은 자리에서 걸린다.
+
+```bash
+shasum "$(cat "$shipTmp/verify-src")" > "$shipTmp/verify-src-hash"
+```
 
 답글만 달고 코드를 안 고친 라운드에는 검증을 건너뛴다. 라운드 상한이 5라 무조건 돌리면 한 번의 출하에서 전체 검증이 열 번까지 돈다.
 
@@ -460,10 +487,16 @@ GitHub에 draft PR로 올릴까요?
 
 description은 `pr` 스킬의 0~4.5단계를 그대로 탄다. **로컬 PR 본문을 그냥 복사하지 않는다** — 로컬 라운드에서 코드가 바뀌었으므로 diff가 다르다.
 
+Phase 1과 같이 **지은 본문을 먼저 파일로 떨군다.** `pr` 스킬은 파일을 안 남기므로 이 자리가 없으면 아래 `--body-file`이 읽을 게 없다.
+
+```
+Write "$shipTmp/pr-body.md"   ← 4.5단계에서 윤문된 본문 (Phase 1 것을 덮어쓴다)
+```
+
 제출만 이 스킬이 한다. `pr` 스킬과 갈리는 건 `--draft`와 `--base` 둘이다.
 
 ```bash
-shipTmp=".gestalt/ship/$(git rev-parse --abbrev-ref HEAD | tr / -)"
+shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-parse --abbrev-ref HEAD)"
 
 git push -u origin HEAD
 GESTALT_PR=1 gh pr create --draft --base "<base>" --assignee @me \
@@ -486,7 +519,7 @@ PR 번호를 `prNumber`, URL을 `prUrl`로 보관한다.
 **요청 직전 시각과 라운드 시작 head를 먼저 박아둔다.** 시각이 없으면 이전 라운드의 리뷰를 이번 것으로 착각한다. head가 없으면 4.5의 검증 조건이 무엇과 비교할지 모른다.
 
 ```bash
-shipTmp=".gestalt/ship/$(git rev-parse --abbrev-ref HEAD | tr / -)"
+shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-parse --abbrev-ref HEAD)"
 
 date -u +%Y-%m-%dT%H:%M:%SZ > "$shipTmp/requested-at"
 git rev-parse HEAD > "$shipTmp/round-start-head"
@@ -529,8 +562,11 @@ Copilot 리뷰가 10분째 안 옵니다. (요청은 접수됨)
 ### 4.3 코멘트 수집
 
 ```bash
-gh api "repos/{owner}/{repo}/pulls/<prNumber>/comments?since=<기준 시각>" --paginate
+gh api "repos/{owner}/{repo}/pulls/<prNumber>/comments?since=<기준 시각>" \
+  --paginate --slurp
 ```
+
+**`--slurp`를 붙인다.** 안 붙이면 페이지마다 별도 JSON 배열이 이어 나와서 그대로 파싱하면 첫 페이지만 읽고 나머지를 버린다. 코멘트가 30건을 넘는 라운드에서 뒤쪽이 조용히 사라진다. 그러면 4.4가 안 본 코멘트를 두고 수렴이라고 판정한다. 받은 건수를 ⓑ에 함께 적어 그 사실이 드러나게 한다.
 
 첫 라운드는 `since`에 `requestedAt`을 넣는다. 그다음부터는 **직전 라운드에서 본 마지막 코멘트 시각**을 넣고 그 값을 갱신해 들고 간다. `since` 없이 전체를 받아 클라이언트에서 거르면 라운드가 늘수록 받아오는 양이 함께 는다.
 
@@ -573,7 +609,7 @@ Copilot 코멘트에 특히 자주 나오는 두 가지는 미리 성향을 정�
 대응 후 2.3과 같은 조건으로 검증을 돌리고 push한다.
 
 ```bash
-shipTmp=".gestalt/ship/$(git rev-parse --abbrev-ref HEAD | tr / -)"
+shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-parse --abbrev-ref HEAD)"
 
 if [ -f "$shipTmp/verify-src" ] \
    && ! shasum "$(cat "$shipTmp/verify-src")" | diff -q - "$shipTmp/verify-src-hash" > /dev/null; then
@@ -628,7 +664,7 @@ GESTALT_ACTOR=agent:ship gestalt pr close <localPrId> --reason "GitHub #<prNumbe
 라운드 상태를 지운다. 검증 로그는 두고 갈 이유가 없다.
 
 ```bash
-rm -rf ".gestalt/ship/$(git rev-parse --abbrev-ref HEAD | tr / -)"
+rm -rf "$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-parse --abbrev-ref HEAD)"
 ```
 
 ## 출력 규약
