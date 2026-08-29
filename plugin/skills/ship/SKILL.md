@@ -119,10 +119,11 @@ outputs:
 
 **이 스킬은 무인으로 안 돈다.** 라운드마다 사람에게 묻는 자리가 있고 그중 일부는 이 스킬이 없앨 수 없다.
 
-세 자리는 이 스킬이 스스로 둔다. 외부에 나가는 순간이다.
+네 자리는 이 스킬이 스스로 둔다. 셋은 외부에 나가는 순간이고 하나는 시작할 때 한 번이다.
 
 | 자리 | 시점 | 묻는 것 |
 | --- | --- | --- |
+| ⓥ | Phase 0에서 한 번 | 레포에서 찾은 검증 명령이 맞는지 |
 | ⓐ | Phase 3 직전 | 로컬 리뷰 결과를 보이고 이 상태로 GitHub에 올릴지 |
 | ⓑ | Phase 4 라운드마다 | Copilot 코멘트를 유형별로 분류해 보이고 무엇을 반영할지 |
 | ⓒ | Phase 5 | draft를 ready로 바꿀지 |
@@ -152,21 +153,42 @@ outputs:
 3. <라운드 번호와 직전 라운드에서 무엇을 고쳤는지>
 ```
 
-**"스킵"이나 "바로 리뷰" 같은 말을 쓰지 않는다.** 두 스킬 다 그 말을 **전체 건너뛰기** 신호로 읽고 `reviewIntent`와 `prIntent`를 통째로 비운다. 답을 적어 놓고 그 말을 함께 붙이면 방금 준 값이 그대로 지워진다.
+**건너뛰겠다는 뜻으로 읽히는 말을 쓰지 않는다.** `review` 0단계는 "스킵", "그냥 리뷰", "바로 시작"을, `pr` 1단계는 "없음", "스킵", "바로 PR"을 **전체 건너뛰기** 신호로 읽고 `reviewIntent`와 `prIntent`를 통째로 비운다. 답을 적어 놓고 그런 말을 함께 붙이면 방금 준 값이 그대로 지워진다.
+
+3번 답이 정말 없어서 "없음"이라고 적어야 할 때는 그 줄에만 적는다. 문장 전체를 그 말로 시작하지 않는다.
 
 **직전 라운드에서 무엇을 고쳤는지를 반드시 넘긴다.** 안 넘기면 리뷰어가 매 라운드 처음 보는 코드처럼 읽어 같은 이슈가 되돌아온다.
 
-`pr` 1단계도 같은 방식이다. Phase 1과 Phase 3에서 각각 한 번씩 타므로 두 자리 모두 답을 실어 부른다.
+`pr` 1단계도 같은 방식인데 **Phase 1과 Phase 3에서 답이 다르다.**
+
+Phase 1은 이 브랜치를 처음 다루는 자리라 재사용할 게 없다. 커밋 메시지와 diff에서 새로 뽑는다.
 
 ```
-1. <PR의 목적 — Phase 1에서 지은 것을 그대로>
-2. <로컬 라운드에서 무엇이 바뀌었는지>
+1. <커밋 메시지와 diff에서 뽑은 목적>
+2. <겹치는 작업이나 미완인 부분이 있으면 그것, 없으면 "없음">
 3. <이슈 번호가 있으면 그것, 없으면 "없음">
+```
+
+Phase 3은 Phase 1에서 지은 목적을 그대로 쓰고 그 뒤 라운드에서 바뀐 것만 더한다.
+
+```
+1. <Phase 1에서 지은 목적 그대로>
+2. <로컬 라운드에서 무엇이 바뀌었는지>
+3. <Phase 1과 같은 이슈 번호>
 ```
 
 ### 승인 횟수를 더 줄이려면
 
-`review` 4.7단계와 `review-reply` 3단계와 5단계에 **위임 호출용 비대화 모드 입력**을 신설해야 한다. 스킬 넷을 함께 고치는 일이라 이 스킬의 범위 밖이다. 지금은 그 자리들이 그대로 남아 있다. 두 루프가 상한을 다 쓰면 **로컬 15회에 Copilot 10회를 더해 스물다섯 번**이다. 여기에 ⓐⓑⓒ와 `pr` 1단계 두 번이 붙는다.
+`review` 4.7단계와 `review-reply` 3단계와 5단계를 대화 없이 부를 수 있는 입력을 새로 만들어야 한다. 스킬 넷을 함께 고치는 일이라 이 스킬의 범위 밖이다.
+
+지금 실제로 멈추는 횟수는 두 갈래로 갈린다.
+
+| 경우 | 횟수 |
+| --- | --- |
+| 두 루프가 상한을 다 쓰고 마지막 라운드에 수렴 | 로컬 15 + ⓐ 1 + Copilot 10 + ⓒ 1 + Phase 0의 검증 명령 확인 1 = **28** |
+| 로컬이 상한에 걸려 안 수렴 | 로컬 15 + 검증 명령 확인 1 = **16**. ⓐ부터가 안 열린다 |
+
+ⓑ는 Copilot 10회 안에 이미 들어 있다 — `review-reply` 3단계가 ⓑ와 같은 자리라 따로 더하지 않는다. `pr` 1단계도 안 더한다. 미리 답을 실어 부르므로 멈추지 않는다.
 
 **상한에 걸려 루프가 안 끝났을 때는 ⓐ와 ⓒ로 넘어가지 않는다.** 남은 이슈를 정리해 보고하고 멈춘다.
 
@@ -226,7 +248,18 @@ gh auth status
 라운드마다 이걸 돌립니다. 맞나요?
 ```
 
-한 번 확인받고 그 뒤로는 안 묻는다.
+한 번 확인받고 그 뒤로는 안 묻는다. **다만 그 명령이 가리키는 정의가 바뀌면 다시 묻는다.**
+
+`pnpm gate` 같은 스크립트 이름을 승인받은 것은 이름이지 그 이름이 실행할 내용이 아니다. 이 루프는 라운드마다 코드를 커밋하고 그중 4.5는 외부 텍스트에서 나온 변경이다. `package.json`의 그 스크립트 줄이 바뀌면 승인받은 적 없는 명령이 검증이라는 이름으로 돈다.
+
+Phase 0에서 정의가 실린 자리를 함께 잡아두고 라운드마다 대조한다.
+
+```bash
+verifySrc="package.json"          # 또는 명령을 읽어온 파일
+shasum "$verifySrc" > "$shipTmp/verify-src-hash"
+```
+
+달라졌으면 바뀐 정의를 보이고 다시 받는다.
 
 게슈탈트 레포에서는 1번에 걸려 `pnpm gate`가 된다. 아래 예시는 전부 그 경우다.
 
@@ -272,8 +305,10 @@ GESTALT_ACTOR=agent:ship gestalt pr update <id> --head "$(git rev-parse HEAD)"
 **라운드 시작 head를 먼저 잡아둔다.** 2.3의 검증 조건이 이 값을 쓴다.
 
 ```bash
-roundStartHead=$(git rev-parse HEAD)
+git rev-parse HEAD > "$shipTmp/round-start-head"
 ```
+
+**셸 변수로 들고 가지 않는다.** 이 값을 잡는 자리와 쓰는 자리 사이에 리뷰 한 번과 승인 두 번이 들어간다. Phase 4에서는 최대 10분 대기까지 낀다. 그 사이에 셸 상태가 안 남는 런타임이면 변수가 빈 문자열로 풀려 `git diff --quiet "" HEAD`가 죽거나 엉뚱한 비교를 한다. `$shipTmp`도 Phase 0에서 정한 절대 경로 하나를 끝까지 쓴다.
 
 `review` 스킬을 `localPrId` 대상으로 부른다. 0단계에 미리 답하는 규약은 위 "멈추는 자리"에 있다.
 
@@ -282,7 +317,7 @@ roundStartHead=$(git rev-parse HEAD)
 ### 2.2 종료 판정
 
 ```
-verdict.overallApproved === true  AND  답을 안 단 스레드 0  → 수렴. 루프 탈출
+verdict.overallApproved === true  AND  답글이 안 달린 열린 스레드 0  → 수렴. 루프 탈출
 ```
 
 **`gestalt pr list`의 미해결 수를 그대로 종료 조건에 쓰지 않는다.** 그 수가 0이 되는 일은 이 루프에서 일어나지 않는다. 이유가 둘이다.
@@ -290,17 +325,22 @@ verdict.overallApproved === true  AND  답을 안 단 스레드 0  → 수렴. �
 1. 스레드를 닫는 `review-reply`는 `resolveThreads` 기본값이 `false`다. 리뷰어가 닫는 게 원칙이라 그렇게 정해져 있다.
 2. `resolveThreads: true`를 넘겨도 **`accept`와 `alternate`만 닫는다.** `defer`와 `clarify`는 대화가 안 끝났다고 보고 열어둔다.
 
-그래서 2.3에서 `resolveThreads: true`를 넘기되, 종료는 미해결 수가 아니라 **답을 안 단 스레드**로 판정한다.
+**스레드 유형으로도 판정하지 않는다.** `accept`·`alternate`·`defer`·`clarify`는 `review-reply`가 도는 동안에만 있는 분류다. 로컬 PR은 그 값을 저장하지 않는다 — `Comment`에는 `threadId`와 `author`와 `resolved`만 있다. CLI에 없는 값을 조건에 쓰면 판정할 방법이 없다.
+
+**대신 답글이 달렸는지로 판정한다.** 그 값은 저장된다.
 
 ```bash
-gestalt pr comments <id> --unresolved
+gestalt pr --json show <id>
 ```
 
-여기 남은 것이 전부 `defer`이거나 `clarify`이면 **수렴이다.** 그 둘은 3단계에서 사용자가 그렇게 하기로 정한 결과이지 안 끝난 일이 아니다.
+`comments`를 `threadId`로 묶는다. 안 닫힌 스레드마다 **뿌리 말고 다른 코멘트가 있는지** 본다.
 
-**`accept`나 `alternate`인데 안 닫힌 스레드가 있으면 안 끝난 것이다.** 답글이 안 달렸거나 커밋이 없다는 뜻이라 다음 라운드로 간다.
+- 답글이 있으면 처리된 스레드다. `defer`나 `clarify`로 답만 남긴 자리가 여기 온다
+- 답글이 없으면 안 끝난 것이다. 다음 라운드로 간다
 
-라운드마다 남은 `defer`와 `clarify` 수를 들고 간다. ⓐ에서 그 수를 함께 보인다 — 유예한 게 있는데 전부 반영했다고 보이면 안 된다.
+2.3에서 `resolveThreads: true`를 넘기므로 `accept`와 `alternate`는 아예 닫혀서 목록에서 빠진다. 남는 건 답글만 달린 스레드뿐이다. 그게 이 루프가 도달할 수 있는 종점이다.
+
+라운드마다 답글만 달린 채 열려 있는 스레드 수를 들고 간다. ⓐ에서 그 수를 함께 보인다 — 유예한 게 있는데 전부 반영했다고 보이면 안 된다.
 
 ### 2.3 대응
 
@@ -318,7 +358,7 @@ resolveThreads: true
 대응이 끝나면 **코드가 실제로 바뀌었을 때만** 검증을 돌린다.
 
 ```bash
-if ! git diff --quiet "$roundStartHead" HEAD; then
+if ! git diff --quiet "$(cat "$shipTmp/round-start-head")" HEAD; then
   <verifyCmd> > "$shipTmp/gate-r{round}.log" 2>&1; echo "EXIT=$?"
 fi
 ```
@@ -335,7 +375,7 @@ fi
 GESTALT_ACTOR=agent:ship gestalt pr update <id> --head "$(git rev-parse HEAD)"
 ```
 
-**새 PR을 만들지 않는다.** 같은 PR에 라운드가 는다. 그래야 무엇이 몇 번 이슈됐는지 이력에 남는다.
+**새 PR을 만들지 않는다.** 같은 PR에 라운드가 는다. 그래야 무엇이 몇 번 이슈로 올라왔는지 이력에 남는다.
 
 `round += 1`로 **2.5를 거쳐** 2.1로 돌아간다.
 
@@ -416,10 +456,12 @@ PR 번호를 `prNumber`, URL을 `prUrl`로 보관한다.
 **요청 직전 시각과 라운드 시작 head를 먼저 박아둔다.** 시각이 없으면 이전 라운드의 리뷰를 이번 것으로 착각한다. head가 없으면 4.5의 검증 조건이 무엇과 비교할지 모른다.
 
 ```bash
-requestedAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-roundStartHead=$(git rev-parse HEAD)
+date -u +%Y-%m-%dT%H:%M:%SZ > "$shipTmp/requested-at"
+git rev-parse HEAD > "$shipTmp/round-start-head"
 gh pr edit <prNumber> --add-reviewer "@copilot"
 ```
+
+두 값 다 파일로 둔다. 이유는 2.1과 같다 — 잡는 자리와 쓰는 자리 사이에 대기와 승인이 낀다.
 
 `@copilot`은 `gh` 2.x의 특수값이다. 두 번째 라운드부터는 같은 명령이 재요청이 된다.
 
@@ -499,7 +541,7 @@ Copilot 코멘트에 특히 자주 나오는 두 가지는 미리 성향을 정�
 대응 후 2.3과 같은 조건으로 검증을 돌리고 push한다.
 
 ```bash
-if ! git diff --quiet "$roundStartHead" HEAD; then
+if ! git diff --quiet "$(cat "$shipTmp/round-start-head")" HEAD; then
   <verifyCmd> > "$shipTmp/gate-cp{round}.log" 2>&1; echo "EXIT=$?"
 fi
 git push
