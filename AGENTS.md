@@ -31,8 +31,10 @@ checkout.
   Node >= 20).
 - Other hosts: `pnpm run serve` or `pnpm exec tsx bin/gestalt.ts serve`.
 
-Root `.mcp.json` and `plugin/.mcp.json` stay on `npx @tienne/gestalt` for
-package consumers. Do not retarget them at this checkout.
+Root `.mcp.json` goes through `scripts/mcp-serve.sh`, which resolves the
+published package — it is not a pointer at this checkout. `plugin/.mcp.json`
+stays on `npx @tienne/gestalt@<version>` for Codex and Grok. Do not retarget
+either at this checkout; set `GESTALT_LAUNCHER` if you need a local launcher.
 
 ## Shipped skills live in `plugin/`
 
