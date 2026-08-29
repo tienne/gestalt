@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -45,10 +46,13 @@ describe('Claude MCP 매니페스트', () => {
     expect(server.args[1]).toContain('scripts/mcp-serve.sh');
   });
 
-  it.each(paths)('%s 의 명령이 플러그인 루트와 cwd를 모두 훑는다', (path) => {
+  // cwd 기준 경로를 후보로 두면 남의 레포를 열었을 때 거기 있는 동명 실행 파일이
+  // 서버 대신 돈다. 로컬 런처는 실행 비트가 아니라 GESTALT_LAUNCHER로만 연다.
+  it.each(paths)('%s 의 명령이 cwd 기준 경로를 후보로 안 쓴다', (path) => {
     const command = readManifest(path).mcpServers.gestalt!.args[1]!;
     expect(command).toContain('${CLAUDE_PLUGIN_ROOT}');
-    expect(command).toContain('$PWD');
+    expect(command).toContain('GESTALT_LAUNCHER');
+    expect(command).not.toContain('$PWD');
     // 스크립트를 못 찾아도 서버는 떠야 한다.
     expect(command).toContain('npx -y @tienne/gestalt serve');
   });
@@ -56,5 +60,43 @@ describe('Claude MCP 매니페스트', () => {
   it('명령이 sh 문법으로 유효하다', () => {
     const command = readManifest('.mcp.json').mcpServers.gestalt!.args[1]!;
     expect(() => execFileSync('sh', ['-n', '-c', command])).not.toThrow();
+  });
+});
+
+// 런처의 분기 순서는 이 PR의 핵심 로직인데 sh -n 문법 검사로는 안 잡힌다. 네트워크를
+// 안 타는 두 분기(GESTALT_MCP_BIN 오버라이드, GESTALT_NODE 검증)만 스텁으로 굳힌다.
+describe('scripts/mcp-serve.sh 분기 순서', () => {
+  const launcher = resolve(ROOT, 'scripts/mcp-serve.sh');
+
+  function withStub<T>(body: (stub: string, dir: string) => T): T {
+    const dir = mkdtempSync(join(tmpdir(), 'gestalt-launcher-'));
+    const stub = join(dir, 'fake-gestalt');
+    writeFileSync(stub, '#!/bin/sh\necho "STUB $*"\n', { mode: 0o755 });
+    try {
+      return body(stub, dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('GESTALT_MCP_BIN이 있으면 npx를 안 거치고 그걸 실행한다', () => {
+    withStub((stub) => {
+      const out = execFileSync('bash', [launcher], {
+        env: { ...process.env, GESTALT_MCP_BIN: stub },
+        encoding: 'utf-8',
+      });
+      expect(out.trim()).toBe('STUB serve');
+    });
+  });
+
+  it('GESTALT_NODE가 Node가 아니면 거기서 죽지 않고 탐색으로 넘어간다', () => {
+    withStub((stub) => {
+      const out = execFileSync('bash', [launcher], {
+        env: { ...process.env, GESTALT_NODE: stub, GESTALT_MCP_BIN: stub },
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      expect(out.trim()).toBe('STUB serve');
+    });
   });
 });

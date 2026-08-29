@@ -4,7 +4,7 @@
       "command": "sh",
       "args": [
         "-c",
-        "for s in \"${CLAUDE_PLUGIN_ROOT}/scripts/mcp-serve.sh\" \"$PWD/scripts/mcp-serve.sh\"; do [ -x \"$s\" ] && exec \"$s\"; done; exec npx -y @tienne/gestalt serve"
+        "for s in \"${CLAUDE_PLUGIN_ROOT}/scripts/mcp-serve.sh\" \"${GESTALT_LAUNCHER:-}\"; do [ -n \"$s\" ] && [ -x \"$s\" ] && exec \"$s\"; done; exec npx -y @tienne/gestalt serve"
       ]
     }
   }
