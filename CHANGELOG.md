@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.72.0] - 2026-08-29
+
+### Added
+
+- **`ship` 스킬** — 브랜치 하나를 리뷰가 더 나올 게 없는 상태까지 밀어 GitHub PR로 내보내요. 로컬 PR을 만들어 리뷰받고 고치고 다시 리뷰받는 걸 통과할 때까지 반복해요. 그다음 draft PR로 올려 Copilot 리뷰를 받아 또 고쳐요. 그동안 손으로 돌리던 절차예요 — 순서와 종료 조건이 사람 머릿속에만 있어서 매번 어디까지 왔는지 세어야 했어요.
+
+```
+/ship                     # 현재 브랜치 → 레포 기본 브랜치
+/ship --max-local 3       # 로컬 라운드 상한
+/ship --max-copilot 8     # Copilot 라운드 상한
+```
+
+  이 스킬이 직접 지는 건 **루프 제어와 Copilot 왕복** 둘뿐이에요. 로컬 PR은 `local-pr`, 리뷰는 `review`, 코멘트 대응은 `review-reply`, PR description은 `pr`의 0~4.5단계가 맡아요.
+
+- **멈추는 자리를 전부 적었어요.** 이 스킬은 무인으로 안 돌아요. 스스로 두는 자리가 넷이에요 — ⓥ 검증 명령 확인, ⓐ GitHub 게시, ⓑ Copilot 반영 계획, ⓒ ready 전환. 그 밖에 부르는 스킬이 자기 계약으로 요구하는 승인이 라운드마다 붙어요. `review-reply` 5단계처럼 그쪽이 "어떤 경우에도 건너뛰지 않는다"고 못박은 자리는 부르는 쪽에서 억제할 수 없어요. 줄이려면 하위 스킬에 대화 없이 부를 입력을 새로 만들어야 하고 그건 별건으로 뒀어요.
+- **미니 인터뷰에는 미리 답을 실어 넘겨요.** `review` 0단계와 `pr` 1단계, 그리고 `pr`의 "안 끝난 로컬 PR" 사전 점검이에요. "스킵" 같은 말을 붙이면 두 스킬이 그걸 전체 건너뛰기 신호로 읽고 방금 준 값을 통째로 비우거든요.
+- **라운드 상태는 git 디렉토리 아래에 둬요.** 이 스킬은 플러그인으로 배포돼 다른 레포에서도 도는데 거기엔 `.gestalt/`가 무시 목록에 없어요. 워킹트리 안에 쓰면 검증 로그가 PR에 실려 나가거나 `review` 4.7단계의 신선도 가드가 매 라운드 stale로 판정해요.
+- **검증 명령을 지어내지 않아요.** 레포 문서와 `package.json` scripts와 CI 설정을 순서대로 봐요. 못 찾으면 사용자에게 물어요. 찾은 명령은 한 번 보여 승인받은 뒤, 그 정의가 실린 파일의 해시를 라운드마다 대조해요 — 승인받은 건 이름이지 그 이름이 실행할 내용이 아니니까요.
+
+### Changed
+
+- **`proactive-routing.md`에 `ship` 행이 생겼어요.** "리뷰 통과할 때까지", "코파일럿 리뷰까지 받아줘" 같은 요청이 이제 여기로 와요.
+- **`review`, `review-reply`, `pr`, `local-pr`에 상위 경로를 한 줄씩 적었어요.** 각 스킬의 범위가 어디까지고 반복이 필요하면 `ship`이라는 걸 그 자리에서 알려줘요.
+- **`agent-delegation.md`의 위임 적용 목록에 `ship`이 들어갔어요.** 라운드가 여러 번 도는 스킬이라 한 번 메인 대화에 실린 systemPrompt가 남은 라운드마다 다시 실려 가요. 위임 여부가 다른 스킬보다 크게 벌어지는 자리예요.
+
+### 검증 범위
+
+이 스킬을 만든 뒤 **자기 자신에게 돌려 로컬 리뷰 10라운드**를 거쳤어요. 이슈가 20건에서 시작해 라운드 10에서 blocking 0으로 통과했어요. 아홉 개의 `fix` 커밋이 각 라운드의 대응이에요.
+
+세 라운드 연속 걸린 자리가 둘 있었어요. 둘 다 같은 뿌리예요 — 부르는 스킬의 실제 계약을 안 읽고 이쪽 이상형만 적었어요.
+
+- **수렴 조건**: `unresolvedCount === 0` → 스레드 유형 → 답글 유무. `review-reply`의 `resolveThreads` 기본값이 `false`이고 `defer`와 `clarify`는 닫지 않으며 그 유형이 로컬 PR에 저장되지 않는다는 걸 차례로 놓쳤어요.
+- **승인 횟수 산술**: 열 번 → 스물다섯 번 → 스물여덟 번으로 매번 다른 답이 나왔고 리뷰어들도 24와 27로 갈렸어요. 숫자를 빼는 게 답이었어요.
+
+문서에 적은 셸 스니펫을 실제로 돌려 셋을 잡았어요 — `git rev-parse --git-common-dir`이 상대 경로를 준다는 것, `--path-format=absolute`가 git 2.23에 없다는 것, `gh api --slurp`가 페이지의 배열을 준다는 것이에요.
+
+**Phase 4(Copilot 루프)는 4.1까지만 실제로 돌려봤어요.** 그 자리에서 하나를 잡았어요 — `gh pr edit --add-reviewer "@copilot"`이 요청이 반영 안 돼도 exit 0에 PR URL을 찍어요. REST로 직접 POST해도 200이 와요. 그래서 종료 코드가 아니라 `requested_reviewers`를 직접 확인하도록 했어요. 4.2부터 4.6(완료 대기, 증분 조회, 조기 종료, ⓑ 승인)은 Copilot code review를 쓸 수 있는 환경에서 아직 안 돌려봤어요.
+
 ## [0.71.0] - 2026-08-29
 
 ### Added

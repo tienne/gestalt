@@ -124,7 +124,7 @@ What you get:
 | Item | Details |
 |------|---------|
 | **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
-| **Slash Commands** | 18 workflow skills — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send`, and more |
+| **Slash Commands** | 19 workflow skills — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send`, and more |
 | **Agents** | 21 role agents + 4 review agents |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
 
@@ -172,7 +172,7 @@ Or add directly to `~/.claude/settings.json`:
 
 ### Option 4: OpenAI Codex Plugin
 
-Bundles the MCP server and all 18 workflow skills, the same way the Claude Code plugin does.
+Bundles the MCP server and all 19 workflow skills, the same way the Claude Code plugin does.
 
 ```bash
 codex plugin marketplace add tienne/gestalt
@@ -184,7 +184,7 @@ What you get:
 | Item | Details |
 |------|---------|
 | **MCP Tools** | All 12 `ges_*` tools |
-| **Skills** | 18 workflow skills, including `gestalt:review` and `gestalt:pr` |
+| **Skills** | 19 workflow skills, including `gestalt:review` and `gestalt:pr` |
 | **Agents** | 21 role agents + 4 review agents (bundled for skills to read) |
 
 Skills load on the next Codex session. Slash commands and the Claude Code Task
