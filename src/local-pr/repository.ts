@@ -216,7 +216,7 @@ export class PullRequestRepository {
 
       case PrEvent.COMMENT_RESOLVED: {
         const p = event.payload as CommentResolvedPayload;
-        // 스레드를 통째로 닫는다. 뿌리만 닫고 답글이 열린 채 남으면 미해결 수가 어긋난다
+        // 스레드를 통째로 종료한다. 뿌리만 종료하고 답글이 열린 채 남으면 미해결 수가 어긋난다
         const target = pr.comments.find((c) => c.id === p.commentId);
         if (target) {
           for (const c of pr.comments) {

@@ -240,7 +240,7 @@ if (isDirectRun) {
 
   if (dryRun) {
     // 홈은 사람마다 다르다. CI가 볼 수 있는 건 룰북과 템플릿이 맞물리는지까지다
-    console.log(`output style 룰 정합 통과 (금지 ${SPOTLIGHT.length}건, 게이트 ${GATE.length}개)`);
+    console.log(`output style 룰 정합 통과 (금지 ${SPOTLIGHT.length}개, 게이트 ${GATE.length}개)`);
   } else if (checkOnly) {
     let current = '';
     try {
@@ -258,6 +258,6 @@ if (isDirectRun) {
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, rendered, 'utf-8');
     const lines = rendered.split('\n').length;
-    console.log(`output style 생성: ${outPath} (${lines}줄, 금지 ${SPOTLIGHT.length}건, 게이트 ${GATE.length}개)`);
+    console.log(`output style 생성: ${outPath} (${lines}줄, 금지 ${SPOTLIGHT.length}개, 게이트 ${GATE.length}개)`);
   }
 }

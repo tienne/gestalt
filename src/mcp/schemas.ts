@@ -675,7 +675,7 @@ export const prInputSchema = z.object({
   // merge 전용
   deleteBranch: z.boolean().optional().describe('merge: 머지 후 head 브랜치 삭제 여부'),
   // close 전용
-  reason: z.string().optional().describe('close: 닫는 이유'),
+  reason: z.string().optional().describe('close: 종료 이유'),
   // checkout_remove 전용
   force: z
     .boolean()
