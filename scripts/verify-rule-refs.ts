@@ -639,8 +639,8 @@ if (isDirectRun) {
   }
 
   if (errors.length > 0) {
-    console.error(`\n룰 참조 정합 실패: ${errors.length}건`);
+    console.error(`\n룰 참조 정합 실패: ${errors.length}개`);
     process.exit(1);
   }
-  console.log(`룰 참조 정합 통과 (경고 ${issues.length}건)`);
+  console.log(`룰 참조 정합 통과 (경고 ${issues.length}개)`);
 }
