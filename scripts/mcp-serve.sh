@@ -141,9 +141,10 @@ fi
 # choice is more specific than what this checkout happens to bundle. Lockstep
 # governs what *we* resolve, not what the operator installed. Say which one it
 # was so a version mismatch is visible in the log rather than guessed at.
-if command -v gestalt >/dev/null 2>&1; then
-  echo "gestalt MCP: using globally installed gestalt ($(command -v gestalt)); pin $SPEC not applied." >&2
-  exec gestalt serve
+GLOBAL_BIN="$(command -v gestalt || true)"
+if [[ -n "$GLOBAL_BIN" ]]; then
+  echo "gestalt MCP: using globally installed gestalt ($GLOBAL_BIN); pin $SPEC not applied." >&2
+  exec "$GLOBAL_BIN" serve
 fi
 
 # Resolve the bin path instead of letting npx spawn the server, for two reasons.

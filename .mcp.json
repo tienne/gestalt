@@ -4,7 +4,7 @@
       "command": "sh",
       "args": [
         "-c",
-        "for s in \"${CLAUDE_PLUGIN_ROOT}/scripts/mcp-serve.sh\" \"${GESTALT_LAUNCHER:-}\"; do case \"$s\" in /*) [ -x \"$s\" ] || continue; [ \"$s\" = \"${GESTALT_LAUNCHER:-}\" ] && echo \"gestalt MCP: GESTALT_LAUNCHER override — running $s\" >&2; exec \"$s\" ;; esac; done; exec npx -y @tienne/gestalt@0.72.1 serve"
+        "for s in \"${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/scripts/mcp-serve.sh}\" \"${GESTALT_LAUNCHER:-}\"; do case \"$s\" in /*) [ -x \"$s\" ] || continue; [ \"$s\" = \"${GESTALT_LAUNCHER:-}\" ] && echo \"gestalt MCP: GESTALT_LAUNCHER override — running $s\" >&2; exec \"$s\" ;; esac; done; exec npx -y @tienne/gestalt@0.72.1 serve"
       ]
     }
   }

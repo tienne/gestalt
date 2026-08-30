@@ -87,6 +87,28 @@ describe('Claude MCP 매니페스트', () => {
     }
   });
 
+  // 빈 CLAUDE_PLUGIN_ROOT가 후보를 만들면 "/scripts/mcp-serve.sh"라는 고정 절대 경로가
+  // 되어 절대 경로 가드를 그냥 통과한다. 값이 실제로 채워졌을 때만 후보가 되어야 한다.
+  it('CLAUDE_PLUGIN_ROOT가 비면 루트 경로를 후보로 삼지 않는다', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gestalt-emptyroot-'));
+    try {
+      const command = readManifest('.mcp.json').mcpServers.gestalt!.args[1]!;
+      const env = { ...process.env };
+      delete env.CLAUDE_PLUGIN_ROOT;
+      delete env.GESTALT_LAUNCHER;
+      const out = execFileSync('sh', ['-xc', command.replace('exec npx', 'echo WOULD_NPX')], {
+        cwd: dir,
+        env,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      expect(out).toContain('WOULD_NPX');
+      expect(out).not.toContain('/scripts/mcp-serve.sh');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('절대 경로 GESTALT_LAUNCHER는 실행되고 그 사실이 stderr에 남는다', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-abspath-'));
     try {

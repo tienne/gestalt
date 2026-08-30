@@ -32,8 +32,8 @@ checkout.
 - Other hosts: `pnpm run serve` or `pnpm exec tsx bin/gestalt.ts serve`.
 
 Four manifests start the published package, never this checkout. Do not
-retarget any of them. CLAUDE.md's "MCP 기동 경로" section is the reference; this
-is a summary of it.
+retarget any of them. The reference is CLAUDE.md's
+[MCP launch paths](CLAUDE.md#mcp-기동-경로) section; what follows summarizes it.
 
 - `.mcp.json` and `.claude-plugin/.mcp.json` (Claude) run
   `scripts/mcp-serve.sh` — but only from `${CLAUDE_PLUGIN_ROOT}`, which the host

@@ -1,5 +1,6 @@
-# Dogfood this checkout. Wins over root `.mcp.json`, which goes through
-# scripts/mcp-serve.sh to start the published package instead of local source.
+# Dogfood this checkout. Wins over root `.mcp.json`, which starts the published
+# package either way — through scripts/mcp-serve.sh when this repo is installed as
+# a plugin, and straight through pinned npx when it is not.
 # command/args are resolved from the repo root (Grok session cwd).
 
 [mcp_servers.gestalt]
