@@ -146,7 +146,7 @@ GESTALT_ACTOR=agent:reviewer gestalt pr edit <id> --title "고친 제목"
 
 `edit`은 `update`와 다르다. head를 안 옮기고 리뷰 판정도 라운드도 안 건드린다. 본문 오타를 고쳤다고 리뷰어가 내린 `request_changes`가 풀리면 안 되기 때문이다. 안 준 항목은 그대로 두고 빈 파일을 주면 본문을 비운다.
 
-## 5단계: 머지와 닫기
+## 5단계: 머지와 종료
 
 ```bash
 gestalt pr merge <id>
@@ -162,7 +162,7 @@ gestalt pr update <id> --head "$(git rev-parse HEAD)"
 gestalt pr merge <id>
 ```
 
-닫힌 PR도 head ref를 그대로 붙잡는다. 나중에 `pr diff`와 `pr checkout`이 동작한다.
+종료된 PR도 head ref를 그대로 붙잡는다. 나중에 `pr diff`와 `pr checkout`이 동작한다.
 
 ## 6단계: ref 정리
 
@@ -177,8 +177,8 @@ gestalt pr prune --checkouts  # 체크아웃 자국까지
 기준은 하나다. **놓아도 커밋이 안 사라지는가.**
 
 - 머지된 PR의 base와 head를 놓는다. 놓기 전에 head가 정말 base 이력에 있는지 확인한다. 아니면 안 놓고 이유를 돌려준다.
-- 닫힌 PR은 아무것도 안 놓는다.
-- 체크아웃 자국은 기본으로 안 놓는다. 어느 이력에도 없는 커밋이라 놓으면 영영 사라진다. `--checkouts`로 뜻을 밝혀야 하고 그 PR이 이미 머지되거나 닫혔을 때만 놓는다.
+- 종료된 PR은 아무것도 안 놓는다.
+- 체크아웃 자국은 기본으로 안 놓는다. 어느 이력에도 없는 커밋이라 놓으면 영영 사라진다. `--checkouts`로 뜻을 밝혀야 하고 그 PR이 이미 머지되거나 종료됐을 때만 놓는다.
 
 `prune`은 CLI에만 있다. 되돌릴 수 없게 놓는 자리라 MCP 도구로는 안 뒀다.
 
@@ -197,6 +197,6 @@ gestalt pr prune --checkouts  # 체크아웃 자국까지
 | --- | --- |
 | `prId` | PR id (8자 16진수) |
 | `prStatus` | `open`, `merged`, `closed` |
-| `unresolvedCount` | 안 닫힌 스레드 수 |
+| `unresolvedCount` | 안 끝난 스레드 수 |
 
 로컬 PR에는 URL이 없다. `prUrl`을 안 돌려준다.

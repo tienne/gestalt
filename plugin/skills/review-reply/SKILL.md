@@ -30,7 +30,7 @@ inputs:
   resolveThreads:
     type: boolean
     required: false
-    description: "답글 게시 후 스레드를 resolved로 닫을지 여부. 기본값 false — 리뷰어가 닫는 게 원칙"
+    description: "답글 게시 후 스레드를 resolved로 종료할지 여부. 기본값 false — 리뷰어가 종료하는 게 원칙"
 outputs:
   - openThreads
   - responsePlan
@@ -123,7 +123,7 @@ id를 직접 주면 아래 1번의 첫 수단이 브랜치를 안 따지고 잡�
 2. **GitHub 지정** — `target`이 PR 번호나 GitHub URL이면 → `github`. 사용자가 원격을 짚었으므로 아래 3번을 건너뛴다.
 3. **안 끝난 로컬 PR** — 현재 브랜치에 안 끝난 로컬 PR이 있으면 → `local`. 1번이 이미 조회했으면 그 결과를 그대로 쓴다. 1번을 안 거쳤으면 여기서 처음 조회한다.
 
-   로컬 PR이 안 끝났다는 건 그 코드가 아직 안 정해졌다는 뜻이다. 그 상태로 원격에 답을 달면 두 자리에 서로 다른 결론이 남는다. 로컬을 먼저 닫고 원격을 본다.
+   로컬 PR이 안 끝났다는 건 그 코드가 아직 안 정해졌다는 뜻이다. 그 상태로 원격에 답을 달면 두 자리에 서로 다른 결론이 남는다. 로컬을 먼저 종료하고 원격을 본다.
 
    이 갈래로 왔으면 사용자에게 한 줄 알린다: "현재 브랜치에 안 끝난 로컬 PR {id}가 있어서 그쪽을 먼저 봐요. 원격이면 PR 번호나 URL을 주세요."
 4. `gh auth status`가 실패하거나(인증 안 됨) 원격이 없으면(`git remote -v` 비어 있음) → GitHub 경로가 막혀 있다. → `none`. **여기서 멈춘다.**
@@ -176,14 +176,14 @@ pnpm tsx bin/gestalt.ts pr --json show <판별에서 잡은 id>
 작성자는 `author` 필드다. 현재 사용자는 `gestalt pr` 명령이 쓰는 값과 같다 — 규칙은 `src/local-pr/policy.ts`의 `resolveActor`에 있다. 여기 옮겨 적으면 기본값을 바꿀 때 이 문장이 조용히 거짓이 된다.
 
 - `target`이 생략되면 현재 브랜치의 PR을 찾는다. PR이 없으면 여기서 멈추고 알린다 — 답할 코멘트가 있을 곳이 없다.
-- `state`가 `MERGED`/`CLOSED`(local은 `merged`/`closed`)면 사용자에게 한 줄 확인한다 ("이미 닫힌 PR인데 답글만 남길까요?").
+- `state`가 `MERGED`/`CLOSED`(local은 `merged`/`closed`)면 사용자에게 한 줄 확인한다 ("이미 종료된 PR인데 답글만 남길까요?").
 - **작성자 확인**: 작성자가 현재 사용자와 다르면 이건 남의 PR이다. "이 PR은 제 것이 아닌데, 리뷰어 입장 코멘트를 다는 거라면 `/review`가 맞아요"라고 안내하고 사용자 판단을 받는다. 남의 PR에 리뷰이 어투로 답하면 어색해진다. (github·local 공통 규칙)
 
 ### 1단계: 미해결 리뷰 스레드 수집
 
 **github**:
 
-REST(`pulls/{n}/comments`)는 resolved 여부를 주지 않으므로 **GraphQL로 조회**한다. 이미 닫힌 스레드에 답글을 다시 붙이지 않으려면 이 단계가 필요하다.
+REST(`pulls/{n}/comments`)는 resolved 여부를 주지 않으므로 **GraphQL로 조회**한다. 이미 끝난 스레드에 답글을 다시 붙이지 않으려면 이 단계가 필요하다.
 
 ```bash
 gh api graphql --paginate \
@@ -211,7 +211,7 @@ query($owner:String!, $repo:String!, $number:Int!, $endCursor:String) {
 }'
 ```
 
-**`comments`는 `first`가 아니라 `last`다.** 아래 필터가 스레드의 *마지막* 코멘트 작성자를 보는데 `first`는 가장 오래된 것부터 준다. 왕복이 상한을 넘은 스레드에서 중간 코멘트를 마지막으로 착각하면 판정이 양쪽으로 뒤집힌다 — 리뷰어가 기다리는 질문을 닫힌 걸로 보고 건너뛰거나, 이미 답한 스레드에 또 답글을 단다.
+**`comments`는 `first`가 아니라 `last`다.** 아래 필터가 스레드의 *마지막* 코멘트 작성자를 보는데 `first`는 가장 오래된 것부터 준다. 왕복이 상한을 넘은 스레드에서 중간 코멘트를 마지막으로 착각하면 판정이 양쪽으로 뒤집힌다 — 리뷰어가 기다리는 질문을 끝난 걸로 보고 건너뛰거나, 이미 답한 스레드에 또 답글을 단다.
 
 **스레드는 `--paginate`로 전부 받는다.** AI 리뷰어가 붙으면 라인마다 스레드가 생겨 한 PR에 100개를 넘기는 일이 흔하다. 커서를 안 돌리면 101번째부터 조용히 사라지고 그 리뷰어들은 답을 못 받는다. 잘렸다는 사실조차 안 보이는 게 이 실패의 고약한 점이다.
 
@@ -219,7 +219,7 @@ query($owner:String!, $repo:String!, $number:Int!, $endCursor:String) {
 
 수집한 스레드를 아래 기준으로 걸러 `openThreads`를 만든다.
 
-- `isResolved: true` → 제외 (이미 닫힘)
+- `isResolved: true` → 제외 (이미 종료됨)
 - 스레드의 **마지막 코멘트 작성자가 나 자신** → 제외 (내가 이미 답했고 리뷰어가 아직 안 받았다)
 - 작성자가 나 자신인 단독 스레드 → 제외 (내가 남긴 셀프 메모)
 - `isOutdated: true` → **제외하지 않고 표시만 한다.** 라인은 밀렸어도 코멘트는 유효할 수 있다. 다만 답글에 "이후 커밋에서 해당 부분이 바뀌었다"는 사실을 반영한다.
@@ -430,9 +430,9 @@ PR 전반 코멘트(원 코멘트의 `line`이 `null`)에 답할 때도 `--path`
 - 건마다 개별 호출이다. `/review`처럼 한 리뷰로 묶는 API가 아니다. 중간에 실패하면 어디까지 게시됐는지 사용자에게 알린다 — 부분 실패를 성공으로 보고하지 않는다.
 - **리뷰 상태(`APPROVE`/`REQUEST_CHANGES`)는 건드리지 않는다.** 리뷰이가 자기 PR의 리뷰 상태를 바꿀 일이 없다. github는 이 원칙을 422로도 강제한다. local(`gestalt pr review`)은 강제하지 않지만 규칙은 동일하게 지킨다.
 
-### 7단계: 스레드 닫기 (opt-in, 기본 안 함)
+### 7단계: 스레드 종료 (opt-in, 기본 안 함)
 
-`resolveThreads`가 명시적으로 `true`거나 사용자가 요청할 때만 한다. **기본값은 닫지 않는 것이다** — 코멘트가 해결됐는지 판단하는 건 리뷰어 몫이고 리뷰이가 먼저 닫으면 확인 없이 넘어간 것처럼 보인다.
+`resolveThreads`가 명시적으로 `true`거나 사용자가 요청할 때만 한다. **기본값은 종료하지 않는 것이다** — 코멘트가 해결됐는지 판단하는 건 리뷰어 몫이고 리뷰이가 먼저 종료하면 확인 없이 넘어간 것처럼 보인다.
 
 **github**:
 
@@ -449,7 +449,7 @@ mutation($threadId:ID!) {
 pnpm tsx bin/gestalt.ts pr resolve <id> <commentId>
 ```
 
-닫더라도 `accept`·`alternate`만 닫는다. `defer`·`clarify`는 대화가 남아 있으므로 열어둔다. (github·local 공통)
+종료하더라도 `accept`·`alternate`만 종료한다. `defer`·`clarify`는 대화가 남아 있으므로 열어둔다. (github·local 공통)
 
 ## 결과 표시
 

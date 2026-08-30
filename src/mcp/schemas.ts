@@ -641,7 +641,7 @@ export const prInputSchema = z.object({
   action: z
     .enum(PR_ACTIONS)
     .describe(
-      'create: 새 PR, list: 목록, get: 단건 조회, diff: 변경 내용, comment: 코멘트 추가, resolve: 코멘트 스레드 해결, review: 판정 기록, update: head 갱신, edit: 제목·본문 수정, merge: 머지, close: 닫기, checkout: head를 임시 워크트리로 떼어냄, checkout_remove: 그 워크트리 정리',
+      'create: 새 PR, list: 목록, get: 단건 조회, diff: 변경 내용, comment: 코멘트 추가, resolve: 코멘트 스레드 해결, review: 판정 기록, update: head 갱신, edit: 제목·본문 수정, merge: 머지, close: 종료, checkout: head를 임시 워크트리로 떼어냄, checkout_remove: 그 워크트리 정리',
     ),
   repoRoot: z.string().optional().describe('저장소 경로 (기본값: 현재 작업 디렉토리)'),
   id: z.string().optional().describe('PR id. create와 list를 제외한 모든 action에 필요하다'),
@@ -675,7 +675,7 @@ export const prInputSchema = z.object({
   // merge 전용
   deleteBranch: z.boolean().optional().describe('merge: 머지 후 head 브랜치 삭제 여부'),
   // close 전용
-  reason: z.string().optional().describe('close: 닫는 이유'),
+  reason: z.string().optional().describe('close: 종료 이유'),
   // checkout_remove 전용
   force: z
     .boolean()

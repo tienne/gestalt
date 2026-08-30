@@ -69,7 +69,7 @@ key는 넣었는데 index 대신 id를 썼어요. 목록 순서가 바뀌는 케
 요건 이번 PR 범위를 넘어서는 것 같아서 별도 티켓으로 뺄까 싶은데 괜찮을까요?
 ```
 
-- 반드시 상대에게 판단을 넘기는 한 문장으로 닫는다 ("어떻게 생각하세요?", "괜찮을까요?").
+- 반드시 상대에게 판단을 넘기는 한 문장을 마지막에 둔다 ("어떻게 생각하세요?", "괜찮을까요?").
 - 이견은 근거 하나만 대고 짧게 끝낸다. 방어적으로 길게 쓰면 톤이 세진다.
 
 ### 4. 질문 (clarify) — 코멘트 의도를 못 잡았다
@@ -101,7 +101,7 @@ key는 넣었는데 index 대신 id를 썼어요. 목록 순서가 바뀌는 케
 
 ### Humanize 처리
 
-초안을 쓴 뒤 AI-tell을 점검한다. 기준은 [`../_shared/references/ai-tell-quick-rules.md`](../_shared/references/ai-tell-quick-rules.md)이고 답글엔 특히 아래가 자주 샌다.
+초안을 쓴 뒤 AI-tell을 점검한다. 기준은 [`../_shared/references/ai-tell-quick-rules.md`](../_shared/references/ai-tell-quick-rules.md)이고 답글엔 특히 아래가 자주 걸린다.
 
 | 패턴 | 예시 | 교정 |
 |------|------|------|

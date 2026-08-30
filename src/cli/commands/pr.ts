@@ -282,7 +282,7 @@ export function prResolveCommand(opts: PrCommonOptions & { commentId: string; id
     const engine = engineOf(opts);
     try {
       const pr = engine.resolve(opts.id, opts.commentId, actorOf(opts));
-      emit(pr, opts.json, () => console.log(`코멘트 ${opts.commentId} 스레드를 닫았어요`));
+      emit(pr, opts.json, () => console.log(`코멘트 ${opts.commentId} 스레드를 종료했어요`));
     } finally {
       engine.dispose();
     }
@@ -399,7 +399,7 @@ export function prCloseCommand(opts: PrCommonOptions & { id: string; reason?: st
     const engine = engineOf(opts);
     try {
       const pr = engine.closePr(opts.id, actorOf(opts), opts.reason ?? '');
-      emit(pr, opts.json, () => console.log(`PR을 닫았어요: ${opts.id}`));
+      emit(pr, opts.json, () => console.log(`PR을 종료했어요: ${opts.id}`));
     } finally {
       engine.dispose();
     }

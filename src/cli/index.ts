@@ -156,11 +156,11 @@ export function createCli(): Command {
 
   pr.command('comments <id>')
     .description('코멘트 목록')
-    .option('--unresolved', '안 닫힌 것만')
+    .option('--unresolved', '안 끝난 것만')
     .action((id, o, cmd) => prCommentsCommand({ ...inherited(cmd), ...o, id }));
 
   pr.command('resolve <id> <commentId>')
-    .description('코멘트 스레드를 닫는다')
+    .description('코멘트 스레드를 종료한다')
     .action((id, commentId, o, cmd) =>
       prResolveCommand({ ...inherited(cmd), ...o, id, commentId }),
     );
@@ -188,8 +188,8 @@ export function createCli(): Command {
     .action((id, o, cmd) => prMergeCommand({ ...inherited(cmd), ...o, id }));
 
   pr.command('close <id>')
-    .description('PR을 닫는다')
-    .option('--reason <text>', '닫는 이유')
+    .description('PR을 종료한다')
+    .option('--reason <text>', '종료 이유')
     .action((id, o, cmd) => prCloseCommand({ ...inherited(cmd), ...o, id }));
 
   pr.command('prune')

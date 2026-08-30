@@ -52,7 +52,7 @@ outputs:
 
 | 단계 | 부르는 스킬 |
 | --- | --- |
-| 로컬 PR 만들기, head 옮기기, 닫기 | `local-pr` |
+| 로컬 PR 만들기, head 옮기기, 종료 | `local-pr` |
 | 리뷰와 인라인 코멘트 게시 | `review` |
 | 받은 코멘트 대응과 답글 | `review-reply` |
 | PR description 짓기 | `pr` (0~4.5단계) |
@@ -173,10 +173,10 @@ Phase 1은 이 브랜치를 처음 다루는 자리라 재사용할 게 없다. 
 3. <이슈 번호가 있으면 그것, 없으면 "없음">
 ```
 
-**Phase 3에서는 `pr` 스킬이 그보다 먼저 하나를 더 묻는다.** 그 스킬은 안 끝난 로컬 PR이 있으면 "로컬 먼저 처리할까요"라고 묻는데, 이 스킬의 로컬 PR은 Phase 5까지 열려 있는 게 정상이라 그 물음에 매번 걸린다. 첫 선택지가 루프를 `local-pr`로 되돌리므로 **그냥 두면 여기서 샌다.** 부를 때 미리 답한다.
+**Phase 3에서는 `pr` 스킬이 그보다 먼저 하나를 더 묻는다.** 그 스킬은 안 끝난 로컬 PR이 있으면 "로컬 먼저 처리할까요"라고 묻는데, 이 스킬의 로컬 PR은 Phase 5까지 열려 있는 게 정상이라 그 물음에 매번 걸린다. 첫 선택지가 루프를 `local-pr`로 되돌리므로 **그냥 두면 여기서 빠져나간다.** 부를 때 미리 답한다.
 
 ```
-이 로컬 PR <localPrId>은 ship이 Phase 5에서 닫습니다. 그냥 올립니다.
+이 로컬 PR <localPrId>은 ship이 Phase 5에서 종료합니다. 그냥 올립니다.
 ```
 
 Phase 3은 Phase 1에서 지은 목적을 그대로 쓰고 그 뒤 라운드에서 바뀐 것만 더한다.
@@ -413,8 +413,8 @@ verdict.overallApproved === true  AND  답글이 안 달린 열린 스레드 0  
 
 **`gestalt pr list`의 미해결 수를 그대로 종료 조건에 쓰지 않는다.** 그 수가 0이 되는 일은 이 루프에서 일어나지 않는다. 이유가 둘이다.
 
-1. 스레드를 닫는 `review-reply`는 `resolveThreads` 기본값이 `false`다. 리뷰어가 닫는 게 원칙이라 그렇게 정해져 있다.
-2. `resolveThreads: true`를 넘겨도 **`accept`와 `alternate`만 닫는다.** `defer`와 `clarify`는 대화가 안 끝났다고 보고 열어둔다.
+1. 스레드를 종료하는 `review-reply`는 `resolveThreads` 기본값이 `false`다. 리뷰어가 종료하는 게 원칙이라 그렇게 정해져 있다.
+2. `resolveThreads: true`를 넘겨도 **`accept`와 `alternate`만 종료한다.** `defer`와 `clarify`는 대화가 안 끝났다고 보고 열어둔다.
 
 **스레드 유형으로도 판정하지 않는다.** `accept`·`alternate`·`defer`·`clarify`는 `review-reply`가 도는 동안에만 있는 분류다. 로컬 PR은 그 값을 저장하지 않는다 — `Comment`에는 `threadId`와 `author`와 `resolved`만 있다. CLI에 없는 값을 조건에 쓰면 판정할 방법이 없다.
 
@@ -424,12 +424,12 @@ verdict.overallApproved === true  AND  답글이 안 달린 열린 스레드 0  
 gestalt pr --json show <id>
 ```
 
-`comments`를 `threadId`로 묶는다. 안 닫힌 스레드마다 **뿌리 말고 다른 코멘트가 있는지** 본다.
+`comments`를 `threadId`로 묶는다. 안 끝난 스레드마다 **뿌리 말고 다른 코멘트가 있는지** 본다.
 
 - 답글이 있으면 처리된 스레드다. `defer`나 `clarify`로 답만 남긴 자리가 여기 온다
 - 답글이 없으면 안 끝난 것이다. 다음 라운드로 간다
 
-2.3에서 `resolveThreads: true`를 넘기므로 `accept`와 `alternate`는 아예 닫혀서 목록에서 빠진다. 남는 건 답글만 달린 스레드뿐이다. 그게 이 루프가 도달할 수 있는 종점이다.
+2.3에서 `resolveThreads: true`를 넘기므로 `accept`와 `alternate`는 아예 종료돼 목록에서 빠진다. 남는 건 답글만 달린 스레드뿐이다. 그게 이 루프가 도달할 수 있는 종점이다.
 
 **이 조회는 종료를 판정하는 데만 쓴다.** 2.3의 `review-reply`는 이 목록을 못 받는다 — 그 스킬의 입력은 `target`과 `repoRoot`와 `local`과 `resolveThreads` 넷뿐이고 1단계에서 자기가 다시 모은다. 그래서 라운드마다 같은 PR을 두 번 조회한다. 없애려면 `review-reply`에 스레드 목록을 받는 입력을 새로 만들어야 하고 그건 이 스킬의 범위 밖이다. 로컬 PR 조회는 SQLite 한 번이라 그대로 둔다.
 
@@ -701,19 +701,19 @@ Copilot 리뷰 수렴 ({N}라운드)
 
 ## Phase 5 — 마무리
 
-**ⓒ에서 "바꾼다"를 고른 경우에만 ready로 옮긴다.** "draft로 둔다"면 이 줄을 건너뛰고 `prState`를 `draft`로 둔다. 아래 로컬 PR 닫기와 상태 정리는 어느 갈래든 그대로 한다.
+**ⓒ에서 "바꾼다"를 고른 경우에만 ready로 옮긴다.** "draft로 둔다"면 이 줄을 건너뛰고 `prState`를 `draft`로 둔다. 아래 로컬 PR 종료와 상태 정리는 어느 갈래든 그대로 한다.
 
 ```bash
 gh pr ready <prNumber>
 ```
 
-로컬 PR을 닫는다. **머지하지 않는다** — 실제 머지는 GitHub PR이 하고 로컬 PR은 리뷰 이력을 남기는 자리다.
+로컬 PR을 종료한다. **머지하지 않는다** — 실제 머지는 GitHub PR이 하고 로컬 PR은 리뷰 이력을 남기는 자리다.
 
 ```bash
 gestalt pr close <localPrId> --reason "GitHub #<prNumber>로 이어감"
 ```
 
-닫힌 로컬 PR도 head ref를 붙잡으므로 나중에 `pr diff`와 `pr checkout`이 그대로 된다.
+종료된 로컬 PR도 head ref를 붙잡으므로 나중에 `pr diff`와 `pr checkout`이 그대로 된다.
 
 라운드 상태를 지운다. 검증 로그는 두고 갈 이유가 없다.
 

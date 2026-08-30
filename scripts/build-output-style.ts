@@ -34,19 +34,23 @@ const GATE: { name: string; ids: string[] }[] = [
   { name: '형식명사 수준', ids: ['I-8'] },
   { name: '추상명사 동사 결합', ids: ['D-9', 'F-8'] },
   { name: '가운뎃점 나열', ids: ['C-12'] },
+  { name: '수량 예고', ids: ['C-14'] },
+  { name: '명사구 종결', ids: ['E-8'] },
+  { name: '화자 소거', ids: ['G-4'] },
 ];
 
 /**
- * 금지 목록에 펼칠 룰. 대화 S1 전부가 아니라 실제로 새는 것만 고른다.
+ * 금지 목록에 펼칠 룰. 대화 S1 전부가 아니라 실제로 자주 걸리는 것만 고른다.
  * C-5(이모지 남발)처럼 칼럼·리포트 기준인 룰은 대화 어투와 충돌해서 뺐다.
  */
 const SPOTLIGHT = [
   'A-1', 'A-2', 'A-3', 'A-5', 'A-7', 'A-8',
   'B-3',
-  'C-10', 'C-12',
+  'C-10', 'C-12', 'C-14',
   'D-1', 'D-3', 'D-4', 'D-5', 'D-8', 'D-9',
+  'E-8',
   'F-4', 'F-5', 'F-6', 'F-7', 'F-8',
-  'H-1',
+  'G-4', 'H-1',
   'I-1', 'I-5', 'I-6', 'I-7', 'I-8',
 ];
 
@@ -236,7 +240,7 @@ if (isDirectRun) {
 
   if (dryRun) {
     // 홈은 사람마다 다르다. CI가 볼 수 있는 건 룰북과 템플릿이 맞물리는지까지다
-    console.log(`output style 룰 정합 통과 (금지 ${SPOTLIGHT.length}건, 게이트 ${GATE.length}개)`);
+    console.log(`output style 룰 정합 통과 (금지 ${SPOTLIGHT.length}개, 게이트 ${GATE.length}개)`);
   } else if (checkOnly) {
     let current = '';
     try {
@@ -254,6 +258,6 @@ if (isDirectRun) {
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, rendered, 'utf-8');
     const lines = rendered.split('\n').length;
-    console.log(`output style 생성: ${outPath} (${lines}줄, 금지 ${SPOTLIGHT.length}건, 게이트 ${GATE.length}개)`);
+    console.log(`output style 생성: ${outPath} (${lines}줄, 금지 ${SPOTLIGHT.length}개, 게이트 ${GATE.length}개)`);
   }
 }

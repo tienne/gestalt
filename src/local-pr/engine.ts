@@ -33,7 +33,7 @@ export class LocalPrEngine {
     this.repo = new PullRequestRepository(this.store);
   }
 
-  /** 저장소를 닫는다. PR을 닫는 closePr과 헷갈리지 않게 이름을 갈라뒀다 */
+  /** 저장소 연결을 끊는다. PR을 종료하는 closePr과 헷갈리지 않게 이름을 갈라뒀다 */
   dispose(): void {
     this.store.close();
   }
