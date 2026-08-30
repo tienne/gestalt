@@ -167,14 +167,25 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     });
   });
 
-  it('GESTALT_NODE가 Node가 아니면 거기서 죽지 않고 탐색으로 넘어간다', () => {
-    withStub((stub) => {
-      const out = execFileSync('bash', [launcher], {
-        env: { ...process.env, GESTALT_NODE: stub, GESTALT_MCP_BIN: stub },
+  // GESTALT_MCP_BIN을 같이 주면 그 분기에서 먼저 빠져나가 pick_node에 닿지도 않는다.
+  // 여기서는 PATH에 gestalt 스텁을 심어, 잘못된 GESTALT_NODE로 pick_node를 통과한 뒤
+  // 전역 분기에서 멈추게 한다. 네트워크를 안 타면서 경고가 실제로 찍히는지 본다.
+  it('GESTALT_NODE가 Node가 아니면 경고를 남기고 탐색으로 넘어간다', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gestalt-badnode-'));
+    try {
+      writeFileSync(join(dir, 'gestalt'), '#!/bin/sh\necho "STUB $*"\n', { mode: 0o755 });
+      const run = spawnSync('bash', [launcher], {
+        env: {
+          ...process.env,
+          PATH: `${dir}:${process.env.PATH ?? ''}`,
+          GESTALT_NODE: '/bin/echo',
+        },
         encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
       });
-      expect(out.trim()).toBe('STUB serve');
-    });
+      expect(run.stderr).toContain('is not Node >= 20');
+      expect(run.stdout.trim()).toBe('STUB serve');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

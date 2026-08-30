@@ -193,7 +193,7 @@ If the server connects sometimes and reports `Connection closed` other times, th
 }
 ```
 
-The plugin install (Option 1) already handles the first two through `scripts/mcp-serve.sh`: it finds Node under nvm, fnm, Volta, or Homebrew, prefers a globally installed `gestalt`, and otherwise resolves the pinned version straight from the npm cache without opening a socket.
+The plugin install (Option 1) already handles the first two through `scripts/mcp-serve.sh`: it finds Node under nvm, fnm, Volta, or Homebrew, prefers a globally installed `gestalt`, and otherwise resolves the pinned version from the npm cache, falling back to the network only when the cache misses.
 
 ---
 
