@@ -167,6 +167,36 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     });
   });
 
+  // 실패 경로만 굳히면 오버라이드가 통째로 무력화되는 회귀가 안 잡힌다. 이 PR이 고친
+  // 버그가 정확히 그것이라, 성공 경로도 함께 굳힌다.
+  //
+  // 두 디렉토리에 서로 다른 gestalt 스텁을 둔다. 오버라이드가 이기면 런처가 그 node의
+  // 디렉토리를 PATH 앞에 붙이므로 A가 잡힌다. 무시되면 PATH에 있던 B가 잡힌다. 어느
+  // 쪽이든 npx까지 안 가므로 네트워크를 안 탄다.
+  it('유효한 GESTALT_NODE는 탐색 결과를 이긴다', () => {
+    const overrideDir = mkdtempSync(join(tmpdir(), 'gestalt-node-a-'));
+    const pathDir = mkdtempSync(join(tmpdir(), 'gestalt-node-b-'));
+    try {
+      writeFileSync(join(overrideDir, 'node'), '#!/bin/sh\necho 22\n', { mode: 0o755 });
+      writeFileSync(join(overrideDir, 'gestalt'), '#!/bin/sh\necho FROM_OVERRIDE\n', {
+        mode: 0o755,
+      });
+      writeFileSync(join(pathDir, 'gestalt'), '#!/bin/sh\necho FROM_PATH\n', { mode: 0o755 });
+      const run = spawnSync('bash', [launcher], {
+        env: {
+          ...process.env,
+          PATH: `${pathDir}:${process.env.PATH ?? ''}`,
+          GESTALT_NODE: join(overrideDir, 'node'),
+        },
+        encoding: 'utf-8',
+      });
+      expect(run.stdout.trim()).toBe('FROM_OVERRIDE');
+    } finally {
+      rmSync(overrideDir, { recursive: true, force: true });
+      rmSync(pathDir, { recursive: true, force: true });
+    }
+  });
+
   // GESTALT_MCP_BIN을 같이 주면 그 분기에서 먼저 빠져나가 pick_node에 닿지도 않는다.
   // 여기서는 PATH에 gestalt 스텁을 심어, 잘못된 GESTALT_NODE로 pick_node를 통과한 뒤
   // 전역 분기에서 멈추게 한다. 네트워크를 안 타면서 경고가 실제로 찍히는지 본다.
