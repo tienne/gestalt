@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -89,6 +89,10 @@ describe('Claude MCP 매니페스트', () => {
 
   // 빈 CLAUDE_PLUGIN_ROOT가 후보를 만들면 "/scripts/mcp-serve.sh"라는 고정 절대 경로가
   // 되어 절대 경로 가드를 그냥 통과한다. 값이 실제로 채워졌을 때만 후보가 되어야 한다.
+  //
+  // 판정은 `sh -x` 트레이스로 한다. 그 후보를 실제로 훑었는지는 실행 결과로는 안 보인다 —
+  // 어느 쪽이든 그 경로에 파일이 없어 npx로 떨어지므로 stdout이 똑같다. 트레이스는
+  // stderr로 나가니 stdout만 보면 이 테스트는 버그가 있어도 통과한다.
   it('CLAUDE_PLUGIN_ROOT가 비면 루트 경로를 후보로 삼지 않는다', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-emptyroot-'));
     try {
@@ -96,14 +100,15 @@ describe('Claude MCP 매니페스트', () => {
       const env = { ...process.env };
       delete env.CLAUDE_PLUGIN_ROOT;
       delete env.GESTALT_LAUNCHER;
-      const out = execFileSync('sh', ['-xc', command.replace('exec npx', 'echo WOULD_NPX')], {
+      const run = spawnSync('sh', ['-xc', command.replace('exec npx', 'echo WOULD_NPX')], {
         cwd: dir,
         env,
         encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
       });
-      expect(out).toContain('WOULD_NPX');
-      expect(out).not.toContain('/scripts/mcp-serve.sh');
+      const trace = `${run.stdout}${run.stderr}`;
+      expect(trace).toContain('WOULD_NPX');
+      // 가드가 없으면 트레이스에 `[ -x /scripts/mcp-serve.sh ]`가 찍힌다.
+      expect(trace).not.toContain(' /scripts/mcp-serve.sh');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
