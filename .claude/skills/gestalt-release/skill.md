@@ -60,9 +60,24 @@ pnpm build
 ### 5. 플러그인 매니페스트 커밋
 `postversion` 훅이 매니페스트를 업데이트하지만 버전 커밋 이후에 실행되므로 별도로 커밋해야 한다.
 
+`sync-version.ts`는 일곱 자리를 건드린다 — 버전 필드 셋과 npx 스펙이 박힌 MCP 매니페스트 넷이다. **하나라도 빠지면 배포판에 옛 핀이 실리고 `tests/unit/mcp-manifests.test.ts`가 main에서 깨진다.** 목록을 손으로 적는 대신 스크립트가 실제로 건드린 것을 그대로 담는다.
+
 ```bash
-git add .claude-plugin/plugin.json .claude-plugin/marketplace.json plugin/.codex-plugin/plugin.json
+pnpm run version:sync            # 이미 postversion이 돌렸지만 멱등하다
+git add -u                       # sync-version이 건드린 자리만 스테이징된다
+git status --short               # 일곱 자리가 다 올라왔는지 눈으로 본다
 git commit -m "chore(plugin): bump plugin manifest to vX.Y.Z"
+```
+
+`git add -u`가 다른 작업 중인 변경까지 담을까 걱정되면 3단계 전에 `git status`가 깨끗했는지 확인한다. 1단계가 그걸 이미 요구한다.
+
+`git status --short`에 아래 일곱이 다 보여야 한다.
+
+```
+.claude-plugin/plugin.json        .claude-plugin/marketplace.json
+plugin/.codex-plugin/plugin.json
+.mcp.json                         .claude-plugin/.mcp.json
+plugin/mcp.json                   plugin/.mcp.json
 ```
 
 ### 5.5. 태그를 매니페스트 커밋으로 옮긴다 (빠뜨리면 안 됨)
@@ -71,6 +86,7 @@ git commit -m "chore(plugin): bump plugin manifest to vX.Y.Z"
 ```bash
 git tag -f vX.Y.Z            # 매니페스트 커밋(HEAD)으로 이동
 git show vX.Y.Z:plugin/.codex-plugin/plugin.json | grep version   # 확인
+git show vX.Y.Z:plugin/mcp.json | grep @tienne/gestalt            # npx 핀도 확인
 ```
 
 푸시 전이라면 태그 이동은 안전하다. 이미 푸시했다면 옮기지 말고 다음 패치 버전으로 넘긴다.
