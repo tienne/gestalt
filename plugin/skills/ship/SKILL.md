@@ -414,7 +414,7 @@ verdict.overallApproved === true  AND  답글이 안 달린 열린 스레드 0  
 **`gestalt pr list`의 미해결 수를 그대로 종료 조건에 쓰지 않는다.** 그 수가 0이 되는 일은 이 루프에서 일어나지 않는다. 이유가 둘이다.
 
 1. 스레드를 닫는 `review-reply`는 `resolveThreads` 기본값이 `false`다. 리뷰어가 닫는 게 원칙이라 그렇게 정해져 있다.
-2. `resolveThreads: true`를 넘겨도 **`accept`와 `alternate`만 닫는다.** `defer`와 `clarify`는 대화가 안 끝났다고 보고 열어둔다.
+2. `resolveThreads: true`를 넘겨도 **`accept`와 `alternate`만 종료한다.** `defer`와 `clarify`는 대화가 안 끝났다고 보고 열어둔다.
 
 **스레드 유형으로도 판정하지 않는다.** `accept`·`alternate`·`defer`·`clarify`는 `review-reply`가 도는 동안에만 있는 분류다. 로컬 PR은 그 값을 저장하지 않는다 — `Comment`에는 `threadId`와 `author`와 `resolved`만 있다. CLI에 없는 값을 조건에 쓰면 판정할 방법이 없다.
 
@@ -424,7 +424,7 @@ verdict.overallApproved === true  AND  답글이 안 달린 열린 스레드 0  
 gestalt pr --json show <id>
 ```
 
-`comments`를 `threadId`로 묶는다. 안 닫힌 스레드마다 **뿌리 말고 다른 코멘트가 있는지** 본다.
+`comments`를 `threadId`로 묶는다. 안 끝난 스레드마다 **뿌리 말고 다른 코멘트가 있는지** 본다.
 
 - 답글이 있으면 처리된 스레드다. `defer`나 `clarify`로 답만 남긴 자리가 여기 온다
 - 답글이 없으면 안 끝난 것이다. 다음 라운드로 간다
@@ -707,13 +707,13 @@ Copilot 리뷰 수렴 ({N}라운드)
 gh pr ready <prNumber>
 ```
 
-로컬 PR을 닫는다. **머지하지 않는다** — 실제 머지는 GitHub PR이 하고 로컬 PR은 리뷰 이력을 남기는 자리다.
+로컬 PR을 종료한다. **머지하지 않는다** — 실제 머지는 GitHub PR이 하고 로컬 PR은 리뷰 이력을 남기는 자리다.
 
 ```bash
 gestalt pr close <localPrId> --reason "GitHub #<prNumber>로 이어감"
 ```
 
-닫힌 로컬 PR도 head ref를 붙잡으므로 나중에 `pr diff`와 `pr checkout`이 그대로 된다.
+종료된 로컬 PR도 head ref를 붙잡으므로 나중에 `pr diff`와 `pr checkout`이 그대로 된다.
 
 라운드 상태를 지운다. 검증 로그는 두고 갈 이유가 없다.
 

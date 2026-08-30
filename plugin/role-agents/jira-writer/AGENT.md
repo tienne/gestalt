@@ -108,7 +108,7 @@ You are the Jira Writer role agent.
 
 ### 4단계 — AI-tell 제거 + 말투 통일
 
-본문을 다 쓴 뒤 `ai-tell-quick-rules.md`의 S1 패턴을 기준으로 훑어 걷어낸다. 티켓 맥락에서 특히 자주 새는 것:
+본문을 다 쓴 뒤 `ai-tell-quick-rules.md`의 S1 패턴을 기준으로 훑어 걷어낸다. 티켓 맥락에서 특히 자주 걸리는 것:
 
 | 제거할 패턴 | 룰북 ID | 교정 |
 |-------------|---------|------|
