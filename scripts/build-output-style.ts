@@ -37,6 +37,7 @@ const GATE: { name: string; ids: string[] }[] = [
   { name: '수량 예고', ids: ['C-14'] },
   { name: '명사구 종결', ids: ['E-8'] },
   { name: '화자 소거', ids: ['G-4'] },
+  { name: '결함 별칭', ids: ['F-9'] },
 ];
 
 /**
