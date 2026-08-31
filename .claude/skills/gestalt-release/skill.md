@@ -17,6 +17,7 @@ description: "Gestalt @tienne/gestalt 패키지를 npm에 배포한다. '릴리�
 2. `pnpm test` — 모든 테스트 통과
 3. `pnpm run lint` — TypeScript 에러 없음
 4. `pnpm run format:check` — Prettier 포맷 통과 (CI 3-gate와 동일)
+5. `CHANGELOG.md`에 이번 버전 항목이 있음 → 아래 2.5단계
 
 ## 버전 범프 기준
 
@@ -45,6 +46,53 @@ pnpm run format:check   # Prettier 포맷 (실패 시: pnpm format → 커밋 �
 - 배포 대상: npm public registry (@tienne/gestalt)
 - 플러그인 스킬 변경 여부: skills/ 디렉토리 변경 시 명시
 
+### 2.5. CHANGELOG 작성 (버전 범프 앞에 한다)
+
+**이 단계를 건너뛰면 릴리즈가 나간 뒤에야 빠진 걸 안다.** 0.72.2와 0.72.3이 연속으로 누락된 적이 있다. 체크리스트에 없어서 두 번 다 사람 기억에만 맡겨졌다.
+
+버전 범프 **앞**에 쓴다. `npm version`이 찍는 태그가 CHANGELOG를 포함해야 GitHub Release 본문과 태그 내용이 어긋나지 않는다.
+
+이전 태그부터의 커밋을 훑어 재료를 모은다.
+
+```bash
+git describe --tags --abbrev=0                 # 직전 태그
+git log <직전태그>..HEAD --format="%s%n%b%n---" # 제목과 본문 전부
+```
+
+**커밋 제목만 옮겨 적지 않는다.** 본문에 측정값, 실패 사례, 판단 근거가 들어 있고 그게 CHANGELOG가 실어야 할 것이다. 커밋 제목은 무엇을 했는지만 말하고 왜 그랬는지는 본문에 있다.
+
+형식은 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)다. 최신 버전을 파일 맨 위에 붙인다.
+
+```markdown
+## [X.Y.Z] - YYYY-MM-DD
+
+### Added
+### Changed
+### Fixed
+```
+
+기존 항목들의 어투를 따른다 — `~했어요` 체다. 무엇을 왜 바꿨는지를 문장으로 푼다. 항목 하나가 여러 줄이면 하위 불릿으로 근거를 나눈다.
+
+두 절을 관행으로 갖는다. 있으면 적고 없으면 뺀다.
+
+- **검증 범위** — 리뷰를 몇 라운드 돌렸는지, 이슈가 몇 건에서 몇 건으로 줄었는지. 무엇이 걸렸는지도 한 줄
+- **남긴 것** — 알면서 안 고친 것과 그 이유. 다음 사람이 "왜 이건 안 했지"를 다시 묻지 않게 한다
+
+작성 후 검사한다.
+
+```bash
+pnpm tsx bin/gestalt.ts humanize-scan --file CHANGELOG.md --register doc
+pnpm verify:rules   # baseline 초과분이 있으면 여기서 걸린다
+```
+
+`verify:rules`가 `CHANGELOG.md — S1 어투 패턴 N건 (허용 M건)`으로 걸리면 **새로 쓴 문장이 원인이다.** baseline을 낮추지 말고 문장을 고친다. 실제로 매번 `C-11`(연결어미 뒤 쉼표)이 걸린다.
+
+커밋은 3단계 뒤 5단계에서 매니페스트와 함께 한다 — `npm version`이 만드는 커밋에 얹으면 태그가 이미 지나간 뒤라 안 실린다.
+
+```bash
+git add CHANGELOG.md   # 아직 커밋하지 않는다
+```
+
 ### 3. 버전 업데이트
 ```bash
 npm version patch   # 또는 minor
@@ -64,8 +112,8 @@ pnpm build
 
 ```bash
 pnpm run version:sync            # 이미 postversion이 돌렸지만 멱등하다
-git add -u                       # sync-version이 건드린 자리만 스테이징된다
-git status --short               # 일곱 자리가 다 올라왔는지 눈으로 본다
+git add -u                       # sync-version이 건드린 자리와 2.5단계의 CHANGELOG가 함께 올라온다
+git status --short               # 일곱 자리 + CHANGELOG.md 가 다 올라왔는지 눈으로 본다
 git commit -m "chore(plugin): bump plugin manifest to vX.Y.Z"
 ```
 
@@ -78,6 +126,7 @@ git commit -m "chore(plugin): bump plugin manifest to vX.Y.Z"
 plugin/.codex-plugin/plugin.json
 .mcp.json                         .claude-plugin/.mcp.json
 plugin/mcp.json                   plugin/.mcp.json
+CHANGELOG.md                      ← 2.5단계에서 쓴 것
 ```
 
 ### 5.5. 태그를 매니페스트 커밋으로 옮긴다 (빠뜨리면 안 됨)
@@ -87,6 +136,7 @@ plugin/mcp.json                   plugin/.mcp.json
 git tag -f vX.Y.Z            # 매니페스트 커밋(HEAD)으로 이동
 git show vX.Y.Z:plugin/.codex-plugin/plugin.json | grep version   # 확인
 git show vX.Y.Z:plugin/mcp.json | grep @tienne/gestalt            # npx 핀도 확인
+git show vX.Y.Z:CHANGELOG.md | head -12                          # 이번 버전 항목이 실렸는지
 ```
 
 푸시 전이라면 태그 이동은 안전하다. 이미 푸시했다면 옮기지 말고 다음 패치 버전으로 넘긴다.
@@ -124,4 +174,6 @@ npm view @tienne/gestalt version   # npm 반영 확인 (보통 1~2분 소요)
 | `pnpm run lint` 에러 | 타입 에러 목록 보고, 배포 중단 |
 | `pnpm run format:check` 실패 | `pnpm format` 실행 후 변경 파일 커밋, 재검증 |
 | `pnpm build` 실패 | 빌드 에러 보고, 배포 중단 |
+| `verify:rules`가 CHANGELOG로 걸림 | baseline을 낮추지 말고 새로 쓴 문장을 고친다 (대개 `C-11`) |
+| CHANGELOG를 안 쓰고 태그를 푸시함 | 태그는 옮기지 않는다. 다음 커밋으로 채우고 그 사실을 사용자에게 알린다 |
 | GitHub Actions 실패 | Actions 탭에서 로그 확인 요청. NPM_TOKEN 시크릿 미설정 여부 점검 |
