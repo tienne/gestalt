@@ -87,11 +87,14 @@ pnpm verify:rules   # baseline 초과분이 있으면 여기서 걸린다
 
 `verify:rules`가 `CHANGELOG.md — S1 어투 패턴 N건 (허용 M건)`으로 걸리면 **새로 쓴 문장이 원인이다.** baseline을 낮추지 말고 문장을 고친다. 실제로 매번 `C-11`(연결어미 뒤 쉼표)이 걸린다.
 
-커밋은 3단계 뒤 5단계에서 매니페스트와 함께 한다 — `npm version`이 만드는 커밋에 얹으면 태그가 이미 지나간 뒤라 안 실린다.
+**여기서 바로 커밋한다.** `npm version`은 working tree가 깨끗하기를 요구해서 스테이징만 해두면 `Git working directory not clean`으로 막힌다.
 
 ```bash
-git add CHANGELOG.md   # 아직 커밋하지 않는다
+git add CHANGELOG.md
+git commit -m "docs(changelog): vX.Y.Z 항목을 쓴다"
 ```
+
+이 커밋이 5.5단계에서 옮길 태그의 조상이 되므로 태그에 그대로 실린다. 태그를 안 옮기면 CHANGELOG가 빠지니 5.5단계를 건너뛰지 않는다.
 
 ### 3. 버전 업데이트
 ```bash
@@ -112,8 +115,8 @@ pnpm build
 
 ```bash
 pnpm run version:sync            # 이미 postversion이 돌렸지만 멱등하다
-git add -u                       # sync-version이 건드린 자리와 2.5단계의 CHANGELOG가 함께 올라온다
-git status --short               # 일곱 자리 + CHANGELOG.md 가 다 올라왔는지 눈으로 본다
+git add -u                       # sync-version이 건드린 자리만 스테이징된다
+git status --short               # 일곱 자리가 다 올라왔는지 눈으로 본다
 git commit -m "chore(plugin): bump plugin manifest to vX.Y.Z"
 ```
 
@@ -126,8 +129,9 @@ git commit -m "chore(plugin): bump plugin manifest to vX.Y.Z"
 plugin/.codex-plugin/plugin.json
 .mcp.json                         .claude-plugin/.mcp.json
 plugin/mcp.json                   plugin/.mcp.json
-CHANGELOG.md                      ← 2.5단계에서 쓴 것
 ```
+
+CHANGELOG는 2.5단계에서 이미 커밋했으므로 여기 안 보인다.
 
 ### 5.5. 태그를 매니페스트 커밋으로 옮긴다 (빠뜨리면 안 됨)
 `npm version`이 찍은 태그는 5단계 커밋보다 **앞**을 가리킨다. GitHub Actions는 태그를 체크아웃해 빌드하므로, 그대로 두면 배포되는 패키지에 **한 버전 뒤처진 매니페스트**가 실린다. `plugin/`이 npm `files`에 포함되어 있어 Codex 사용자에게 그 값이 그대로 보인다 (v0.47.1 태그에 0.47.0 매니페스트가 실려 나간 실제 사례가 있다).
@@ -176,4 +180,5 @@ npm view @tienne/gestalt version   # npm 반영 확인 (보통 1~2분 소요)
 | `pnpm build` 실패 | 빌드 에러 보고, 배포 중단 |
 | `verify:rules`가 CHANGELOG로 걸림 | baseline을 낮추지 말고 새로 쓴 문장을 고친다 (대개 `C-11`) |
 | CHANGELOG를 안 쓰고 태그를 푸시함 | 태그는 옮기지 않는다. 다음 커밋으로 채우고 그 사실을 사용자에게 알린다 |
+| `npm version`이 `Git working directory not clean` | 2.5단계의 CHANGELOG를 스테이징만 하고 안 커밋한 것이다. 커밋하고 재시도 |
 | GitHub Actions 실패 | Actions 탭에서 로그 확인 요청. NPM_TOKEN 시크릿 미설정 여부 점검 |

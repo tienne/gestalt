@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.72.4] - 2026-08-31
+
+### Fixed
+
+- **`.claude/skills`의 파일명이 소문자 `skill.md`였어요.** macOS 파일시스템이 대소문자를 안 가려서 로컬에서는 안 드러났는데, 대소문자를 구분하는 환경에서는 스킬을 아예 못 찾아요. `plugin/skills`의 19개와 로더(`src/skills/registry.ts`의 `filename: 'SKILL.md'`)가 전부 대문자 기준이라 둘만 어긋나 있었어요.
+  - Grok과 Codex 스킬이 이 경로를 읽으라고 가리키고 있어서 참조 10곳도 함께 고쳤어요. 파일명만 바꾸면 그쪽이 대신 깨져요
+  - `git mv`가 rename으로 잡아줘서 이력은 이어져요
+
+### Changed
+
+- **릴리즈 스킬에 CHANGELOG 단계를 넣었어요.** 체크리스트에 없어서 0.72.2와 0.72.3이 연속으로 누락됐어요. 사람 기억에만 맡기는 구조라 다음에도 빠질 자리였어요.
+  - 버전 범프 **앞**에 2.5단계로 뒀어요. `npm version`이 찍는 태그가 CHANGELOG를 포함해야 GitHub Release 본문과 태그 내용이 안 어긋나요
+  - 커밋은 5단계에서 매니페스트와 함께 해요. `npm version`이 만드는 커밋에 얹으면 태그가 이미 지나간 뒤라 안 실려요
+  - 이전 태그부터의 커밋 **본문**을 훑으라고 적었어요. 제목만 옮기면 측정값과 판단 근거가 빠지는데 그게 CHANGELOG가 실어야 할 것이에요
+  - `verify:rules`가 CHANGELOG로 걸리면 baseline을 낮추지 말고 문장을 고치라고 못박았어요. 매번 `C-11`이 걸리고 원인은 늘 새로 쓴 문장이에요
+  - 처음엔 CHANGELOG를 스테이징만 해두라고 적었는데 `npm version`이 clean tree를 요구해서 막혀요. 0.72.4를 내면서 그 자리에서 걸렸고 바로 커밋하는 쪽으로 고쳤어요
+- **0.72.2와 0.72.3 항목을 뒤늦게 채웠어요.** 두 버전 다 릴리즈가 나간 뒤에도 CHANGELOG에 안 올라와 있었어요.
+
+### 남긴 것
+
+- 이번 버전에 런타임 동작 변경은 없어요. 문서와 스킬 정비예요
+
 ## [0.72.3] - 2026-08-31
 
 ### Added
