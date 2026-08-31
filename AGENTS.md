@@ -12,11 +12,11 @@ mechanics; they do not duplicate the procedure.
   modifications:
   - Grok: `.grok/skills/gestalt-develop/SKILL.md`
   - Codex: `codex-skills/gestalt-develop/SKILL.md`
-  - Claude Code: `.claude/skills/gestalt-develop/skill.md`
+  - Claude Code: `.claude/skills/gestalt-develop/SKILL.md`
 - Release, deploy, publish, version bump, or npm 배포:
   - Grok: `.grok/skills/gestalt-release/SKILL.md`
   - Codex: `codex-skills/gestalt-release/SKILL.md`
-  - Claude Code: `.claude/skills/gestalt-release/skill.md`
+  - Claude Code: `.claude/skills/gestalt-release/SKILL.md`
 
 Grok-specific execution constraints live in `.grok/rules/` and load
 automatically in Grok.

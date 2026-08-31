@@ -10,12 +10,12 @@ This is a Codex shim skill. Do not duplicate the development workflow here.
 The canonical development workflow lives at:
 
 ```text
-.claude/skills/gestalt-develop/skill.md
+.claude/skills/gestalt-develop/SKILL.md
 ```
 
 When this skill is triggered:
 
-1. Read `.claude/skills/gestalt-develop/skill.md` before taking action.
+1. Read `.claude/skills/gestalt-develop/SKILL.md` before taking action.
 2. Follow the workflow intent: analyze first, implement narrowly, verify with
    relevant tests, and report changed files plus remaining risks.
 3. Adapt Claude-only mechanics such as `Agent(...)` calls to Codex-native work:

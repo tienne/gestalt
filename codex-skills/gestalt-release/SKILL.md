@@ -10,12 +10,12 @@ This is a Codex shim skill. Do not duplicate the release procedure here.
 The canonical release workflow lives at:
 
 ```text
-.claude/skills/gestalt-release/skill.md
+.claude/skills/gestalt-release/SKILL.md
 ```
 
 When this skill is triggered:
 
-1. Read `.claude/skills/gestalt-release/skill.md` before taking action.
+1. Read `.claude/skills/gestalt-release/SKILL.md` before taking action.
 2. Follow that workflow exactly unless the user explicitly overrides it.
 3. Inspect `.github/workflows/release.yml` to confirm the active CI/CD path.
 4. Never run `npm publish`, `pnpm publish`, or any direct local publish command.
