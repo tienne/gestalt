@@ -38,6 +38,7 @@ const GATE: { name: string; ids: string[] }[] = [
   { name: '명사구 종결', ids: ['E-8'] },
   { name: '화자 소거', ids: ['G-4'] },
   { name: '결함 별칭', ids: ['F-9'] },
+  { name: '관용구 물리 동사', ids: ['F-10'] },
 ];
 
 /**
@@ -45,14 +46,37 @@ const GATE: { name: string; ids: string[] }[] = [
  * C-5(이모지 남발)처럼 칼럼·리포트 기준인 룰은 대화 어투와 충돌해서 뺐다.
  */
 const SPOTLIGHT = [
-  'A-1', 'A-2', 'A-3', 'A-5', 'A-7', 'A-8',
+  'A-1',
+  'A-2',
+  'A-3',
+  'A-5',
+  'A-7',
+  'A-8',
   'B-3',
-  'C-10', 'C-12', 'C-14',
-  'D-1', 'D-3', 'D-4', 'D-5', 'D-8', 'D-9',
+  'C-10',
+  'C-12',
+  'C-14',
+  'D-1',
+  'D-3',
+  'D-4',
+  'D-5',
+  'D-8',
+  'D-9',
   'E-8',
-  'F-4', 'F-5', 'F-6', 'F-7', 'F-8', 'F-9',
-  'G-4', 'H-1',
-  'I-1', 'I-5', 'I-6', 'I-7', 'I-8',
+  'F-4',
+  'F-5',
+  'F-6',
+  'F-7',
+  'F-8',
+  'F-9',
+  'F-10',
+  'G-4',
+  'H-1',
+  'I-1',
+  'I-5',
+  'I-6',
+  'I-7',
+  'I-8',
 ];
 
 const PATTERN_MAX = 44;
@@ -150,7 +174,9 @@ function example(id: string, pattern: string): string {
 function renderBanned(book: RuleBook): string {
   return SPOTLIGHT.map((id) => {
     const rule = book.rules.get(id)!;
-    const name = KEEP_MIDDLE_DOT.has(id) ? rule.pattern.split(' — ')[0]!.trim() : shortPattern(rule.pattern);
+    const name = KEEP_MIDDLE_DOT.has(id)
+      ? rule.pattern.split(' — ')[0]!.trim()
+      : shortPattern(rule.pattern);
     return `- **${id} ${clamp(name, PATTERN_MAX)}** → ${shortPrescription(rule.prescription)}`;
   }).join('\n');
 }
@@ -259,6 +285,8 @@ if (isDirectRun) {
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, rendered, 'utf-8');
     const lines = rendered.split('\n').length;
-    console.log(`output style 생성: ${outPath} (${lines}줄, 금지 ${SPOTLIGHT.length}개, 게이트 ${GATE.length}개)`);
+    console.log(
+      `output style 생성: ${outPath} (${lines}줄, 금지 ${SPOTLIGHT.length}개, 게이트 ${GATE.length}개)`,
+    );
   }
 }
