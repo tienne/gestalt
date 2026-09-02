@@ -54,6 +54,7 @@
 - 용어 일관성 — 같은 개념에 다른 단어 혼용 금지
 - 약어: 첫 등장 시 `SSR(Server-Side Rendering)` 형식
 - 가운뎃점(·) 절제 — 본문에서 "A·B·C" 압축 나열 대신 쉼표나 "A랑 B하고 C"로 푼다. 사람은 산문에서 가운뎃점을 거의 안 쓴다 (표·용어 목록은 예외). 자세히는 `ai-tell-quick-rules.md` C-12
+- "명시적으로" 절제 — `explicitly`를 그대로 옮긴 부사가 뒤 동사와 뜻이 겹치면 뺀다. "명시적으로 선언한다" → "선언한다". 추론이나 암묵 변환 같은 반대편이 문장 안에 있을 때만 남긴다. 자세히는 `ai-tell-quick-rules.md` A-20
 
 ### Technical Term Handling
 
