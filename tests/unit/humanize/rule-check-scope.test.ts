@@ -54,19 +54,53 @@ describe('검사 범위와 예외', () => {
   });
 
   describe('F-7 탐지기', () => {
+    it('기술 비유를 일상 대화에 쓴 자리를 잡는다', () => {
+      expect(detect('내용을 증류해서 뽑아낸다', ['F-7']).length).toBeGreaterThan(0);
+    });
+
+    it('자물쇠 비유는 이제 F-7이 아니다', () => {
+      expect(detect('경계를 테스트로 잠갔다', ['F-7'])).toEqual([]);
+    });
+
+    it('기술 비유는 F-10으로 안 샌다', () => {
+      expect(detect('내용을 증류해서 뽑아낸다', ['F-10'])).toEqual([]);
+    });
+  });
+
+  describe('F-10 탐지기', () => {
     it('테스트를 자물쇠에 빗댄 자리를 잡는다', () => {
       for (const line of ['경계를 테스트로 잠갔다', '기준으로 잠근다', '기준에 잠긴 문서']) {
-        const hit = detect(line, ['F-7']).find((d) => d.ruleId === 'F-7');
+        const hit = detect(line, ['F-10']).find((d) => d.ruleId === 'F-10');
         expect(hit?.count ?? 0).toBeGreaterThan(0);
       }
     });
 
-    it('굳은 말인 잠금 파일은 넘어간다', () => {
-      expect(detect('자동 생성 파일은 잠금 파일과 빌드 산출물이다', ['F-7'])).toEqual([]);
+    // 명사형이 빠지는 건 문자 클래스에 '금'이 없어서다. 뒤의 선읽기가 아니다 —
+    // 그건 '잠긴파일'처럼 붙여 쓴 꼴만 막고 띄어 쓴 '잠긴 파일'은 그대로 걸린다
+    it('명사로 굳은 잠금은 문자 클래스가 막는다', () => {
+      expect(detect('자동 생성 파일은 잠금 파일과 빌드 산출물이다', ['F-10'])).toEqual([]);
     });
 
-    it('기존 비유도 그대로 잡는다', () => {
-      expect(detect('내용을 증류해서 뽑아낸다', ['F-7']).length).toBeGreaterThan(0);
+    it('부정 부사가 앞에 붙은 잘못 박다는 안 걸린다', () => {
+      expect(detect('설정을 잘못 박아넣었다', ['F-10'])).toEqual([]);
+    });
+
+    it('관용구를 코드나 규칙에 씌운 자리를 잡는다', () => {
+      for (const line of ['타입을 못 박아주세요', '이 규칙은 1번으로 못박는다']) {
+        const hit = detect(line, ['F-10']).find((d) => d.ruleId === 'F-10');
+        expect(hit?.count ?? 0).toBeGreaterThan(0);
+      }
+    });
+
+    // 룰이 예외로 둔 자리는 형태로 못 가른다. 사람 사이 합의도 함께 걸리고 걸린 자리를
+    // 사람이 다시 본다. 하드코딩 갈래만 형태로 빠진다
+    it('못이 없는 박아두다는 안 걸린다', () => {
+      expect(detect('이 값 그냥 박아두죠', ['F-10'])).toEqual([]);
+    });
+
+    it('사람 사이 합의도 걸린다 — 걸린 뒤 사람이 가른다', () => {
+      const hit = detect('일정을 못 박았다', ['F-10']).find((d) => d.ruleId === 'F-10');
+      expect(hit?.count ?? 0).toBeGreaterThan(0);
     });
   });
 

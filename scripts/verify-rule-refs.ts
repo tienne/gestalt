@@ -48,19 +48,31 @@ const LOANWORDS: Record<string, string> = {
 const LOANWORD_HINT = 'style-guide.md §「음차를 옮길 때 — 한 단어로 정하지 않는다」';
 
 /**
- * 이 레포에서 만들어 쓰다가 굳어버린 비유. F-7 계열인데 문서 레지스터에서는 S2라
+ * 이 레포에서 만들어 쓰다가 굳어버린 비유. F-10 계열인데 문서 레지스터에서는 S2라
  * 어투 검사(residual-s1)에 안 걸려서 따로 본다.
  *
  * 테스트를 자물쇠에 빗댄 "잠그다"가 그 예다. 리뷰에서 네 번 반복된 결함을 정리하며
  * 쓰기 시작했는데, 팀에서 쓰는 말도 아니고 사람이 그 자리에서 고를 단어도 아니었다.
- * "잠금 파일"처럼 명사로 굳은 자리는 대상이 아니라서 동사형만 본다.
+ * 관용구를 코드나 규칙에 씌운 "못 박다"도 F-10의 같은 갈래라 함께 본다.
+ *
+ * 명사형 "잠금"이 빠지는 건 문자 클래스에 "금"이 없어서다. 뒤의 선읽기가 막는 건
+ * "잠긴파일"처럼 붙여 쓴 꼴뿐이고 띄어 쓴 "잠긴 파일"은 그대로 걸린다.
+ * 두 정규식은 detectors.ts 의 F-10 탐지기와 같은 자리를 보되 따로 적혀 있다 —
+ * 이쪽은 문서 레지스터 S2를 잡는 그물이라 대상 파일 목록이 다르다.
  */
 const COINED_TERMS: Array<{ pattern: RegExp; term: string; replacement: string }> = [
   {
-    // 능동형과 피동형을 함께 본다. `잠금 파일`은 굳은 말이라 뺀다
+    // 능동형과 피동형을 함께 본다. 명사형 `잠금`은 문자 클래스가 막는다
     pattern: /잠[그근갔글가긴겨겼기](?![가-힣]*파일)/,
     term: '잠그다(테스트·기준을 자물쇠에 빗댄 자리)',
     replacement: '관련 테스트가 있다 / 기준으로 둔다',
+  },
+  {
+    // 부정 부사가 앞에 붙은 `잘못 박아넣었다`는 뺀다. 사람들이 협의한 자리도 함께
+    // 걸리므로 걸린 자리는 사람이 룰북 F-10 축으로 다시 본다
+    pattern: /(?<!잘)못\s?박/,
+    term: '못 박다(타입·규칙을 관용구로 씌운 자리)',
+    replacement: '선언한다 / 정한다 / 고정한다',
   },
 ];
 
@@ -121,9 +133,7 @@ function proseLinesOf(file: string, content: string): { line: string; number: nu
 
 /** 따옴표와 백틱 안은 인용이라 판정 대상이 아니다 */
 export function stripQuoted(line: string): string {
-  return line
-    .replace(/`[^`\n]*`/g, ' ')
-    .replace(/"[^"\n]*"|“[^”\n]*”|'[^'\n]*'/g, ' ');
+  return line.replace(/`[^`\n]*`/g, ' ').replace(/"[^"\n]*"|“[^”\n]*”|'[^'\n]*'/g, ' ');
 }
 
 /**
@@ -195,12 +205,11 @@ function resolveDoc(from: string, target: string): string | null {
   const relative = resolve(dirname(from), target);
   if (existsSync(relative)) return relative;
 
-  const named = [...markdownFiles(PLUGIN), ...markdownFiles(DOCS)].filter(
-    (path) => path.endsWith(`${sep}${target}`),
+  const named = [...markdownFiles(PLUGIN), ...markdownFiles(DOCS)].filter((path) =>
+    path.endsWith(`${sep}${target}`),
   );
   return named.length === 1 ? named[0]! : null;
 }
-
 
 export function verifyRuleRefs(): RuleRefIssue[] {
   const issues: RuleRefIssue[] = [];
@@ -277,9 +286,7 @@ export function verifyRuleRefs(): RuleRefIssue[] {
       .split('\n')
       .forEach((line, index) => {
         if (!line.includes('S1')) return;
-        const stale = citedRuleIds(line).filter(
-          (id) => known.has(id) && !declaredAnyS1.has(id),
-        );
+        const stale = citedRuleIds(line).filter((id) => known.has(id) && !declaredAnyS1.has(id));
         if (stale.length > 0) {
           issues.push({
             level: 'error',
@@ -584,7 +591,12 @@ function trailingComment(raw: string): string | null {
 
   const lineAt = masked.indexOf('//');
   if (lineAt !== -1) {
-    return raw.slice(lineAt).replace(/^\/\/+\s?/, '').trim() || null;
+    return (
+      raw
+        .slice(lineAt)
+        .replace(/^\/\/+\s?/, '')
+        .trim() || null
+    );
   }
 
   const block = /\/\*([\s\S]*?)\*\//.exec(masked);
