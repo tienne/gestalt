@@ -52,7 +52,7 @@ function capturingAdapter(): { adapter: LLMAdapter; sent: LLMRequest[] } {
 }
 
 describe('결정론 축', () => {
-  it('LLM 없이 다섯 축을 낸다', () => {
+  it('LLM 없이 여섯 축을 낸다', () => {
     const report = runExplainCheck(SOURCE, '설명이에요.', { audience: 'peer' });
     expect(report.axes.map((a) => a.axis)).toEqual([...DETERMINISTIC_AXES]);
   });

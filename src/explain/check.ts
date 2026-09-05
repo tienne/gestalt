@@ -203,7 +203,10 @@ function checkLength(preset: AudiencePreset, sentences: readonly string[]): Axis
  * 용어를 허용한 대상에게만 핵심어 잔존을 묻는다.
  *
  * audience.md 가 용어를 전면 금지한 대상에게 이 축을 걸면 룰북과 검사가 서로 반대를
- * 지시한다. 그 자리는 프리셋이 'off' 로 끄고 사실이 틀렸는지는 accuracy 가 본다.
+ * 지시한다. 그 자리는 프리셋이 'off' 로 끈다.
+ *
+ * 끈 자리를 대신 막는 건 없다. accuracy 가 사실이 틀렸는지를 보지만 `--judge` 를 켰을 때만
+ * 돈다. 그래서 기본 실행은 내용 정합을 판정하지 않는다. 그 계약은 SKILL.md 4단계가 갖는다.
  */
 function checkCoverage(
   preset: AudiencePreset,

@@ -52,7 +52,8 @@ export interface Band {
  *
  * audience.md 가 용어를 전면 금지한 대상에게 핵심어를 남기라고 요구하면 두 규칙이 정면으로
  * 부딪힌다. 시킨 대로 쓰면 검사에 걸리고 안 걸리려면 룰북을 어겨야 하는 자리가 생긴다.
- * 그 대상은 축을 끄고 사실이 틀렸는지는 `--judge` 의 accuracy 가 본다.
+ * 그 대상은 축을 끈다. 사실이 틀렸는지는 `--judge` 의 accuracy 가 보는데 그건 기본으로
+ * 안 켜지므로, 기본 실행에서 그 세 대상의 내용 정합을 판정하는 축은 없다.
  */
 export type CoverageRule = Band | 'off';
 
