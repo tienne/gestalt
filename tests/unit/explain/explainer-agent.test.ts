@@ -30,8 +30,8 @@ describe('explainer 에이전트', () => {
     }
   });
 
-  it('라우팅 표가 explainer를 가리킨다', () => {
+  it('라우팅 표가 explainer 에이전트를 가리킨다', () => {
     const routing = readFileSync(resolve('plugin/skills/_shared/proactive-routing.md'), 'utf-8');
-    expect(routing).toMatch(/\|\s*`explainer`\s*\|/);
+    expect(routing).toMatch(/\|\s*`explainer` 에이전트\s*\|/);
   });
 });

@@ -151,7 +151,7 @@ claude plugin install gestalt@gestalt
 | 항목 | 내용 |
 |------|------|
 | **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
-| **슬래시 커맨드** | 워크플로 스킬 19개 — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send` 등 |
+| **슬래시 커맨드** | 워크플로 스킬 20개 — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send` 등 |
 | **에이전트** | 파이프라인 에이전트 5개 + Role 에이전트 22개 + Review 에이전트 4개 |
 | **CLAUDE.md** | 프로젝트 컨텍스트 및 MCP 사용 가이드 자동 추가 |
 
@@ -228,7 +228,7 @@ claude mcp add gestalt -- gestalt serve
 
 ### 옵션 4: OpenAI Codex 플러그인
 
-Claude Code 플러그인과 똑같이 MCP 서버랑 워크플로 스킬 19개를 한 번에 받아요.
+Claude Code 플러그인과 똑같이 MCP 서버랑 워크플로 스킬 20개를 한 번에 받아요.
 
 ```bash
 codex plugin marketplace add tienne/gestalt
@@ -240,7 +240,7 @@ codex plugin add gestalt@gestalt
 | 항목 | 내용 |
 |------|------|
 | **MCP 도구** | `ges_*` 12개 전부 |
-| **스킬** | 워크플로 스킬 19개 (`gestalt:review`, `gestalt:pr` 포함) |
+| **스킬** | 워크플로 스킬 20개 (`gestalt:review`, `gestalt:pr` 포함) |
 | **에이전트** | Role 에이전트 22개 + Review 에이전트 4개 (스킬이 읽을 수 있게 같이 들어감) |
 
 스킬은 다음 Codex 세션부터 잡혀요. 슬래시 커맨드랑 Claude Code Task 패널은 Claude Code 전용이라, Codex에서는 하려는 일을 말로 설명하면 Codex가 해당 `SKILL.md`를 읽어 진행해요.
