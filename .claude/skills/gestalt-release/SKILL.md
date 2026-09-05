@@ -91,7 +91,7 @@ pnpm verify:rules   # baseline 초과분이 있으면 여기서 걸린다
 
 ```bash
 git add CHANGELOG.md
-git commit -m "docs(changelog): vX.Y.Z 항목을 쓴다"
+git commit -m "docs(changelog): vX.Y.Z 항목 추가"
 ```
 
 이 커밋이 5.5단계에서 옮길 태그의 조상이 되므로 태그에 그대로 실린다. 태그를 안 옮기면 CHANGELOG가 빠지니 5.5단계를 건너뛰지 않는다.
