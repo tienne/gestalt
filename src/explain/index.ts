@@ -14,11 +14,19 @@ export {
   type Register,
 } from './audience.js';
 export {
+  EVIDENCE_WORDS,
+  MIN_CONTENT_WORDS,
+  contentWords,
+  groundingOf,
+  type Grounding,
+} from './grounding.js';
+export {
   coreTerms,
   extractTerms,
   findTermUses,
   sentenceSpans,
   type Span,
+  type ExtractResult,
   type Term,
   type TermKind,
   type TermUse,

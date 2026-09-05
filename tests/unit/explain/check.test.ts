@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  AUDIENCES,
   DETERMINISTIC_AXES,
   EXIT_CODE,
   MAX_ATTEMPTS,
@@ -254,7 +255,7 @@ describe('심판 축', () => {
   it('심판 축을 얹으면 판정을 다시 낸다', () => {
     const base = runExplainCheck(
       SOURCE,
-      'ERR_MODULE_NOT_FOUND 는 vitest.config.ts 의 alias 탓이에요. ESM 이라 확장자가 필요해요. finalizeResolution 에서 CJS 경로가 터져요.',
+      'ERR_MODULE_NOT_FOUND 는 vitest.config.ts 의 alias 가 확장자를 안 붙여서예요. ESM 로더는 확장자를 요구해서 CJS 시절 경로가 finalizeResolution 에서 터져요.',
       { audience: 'peer' },
     );
     expect(base.verdict).toBe('pass');
@@ -262,7 +263,7 @@ describe('심판 축', () => {
     const merged = withAxis(base, { axis: 'accuracy', verdict: 'abort', detail: '지어냈다' });
     expect(merged.verdict).toBe('abort');
     expect(merged.exitCode).toBe(EXIT_CODE.abort);
-    expect(merged.axes).toHaveLength(6);
+    expect(merged.axes).toHaveLength(7);
   });
 });
 
@@ -298,5 +299,45 @@ describe('다음 행동', () => {
     expect(text).toContain('exit 2');
     expect(text).toContain('[중단] coverage');
     expect(text).toContain('[다음] retry');
+  });
+});
+
+describe('grounding 축', () => {
+  const WAL = [
+    'EventStore 는 better-sqlite3 를 WAL 모드로 연다. journal_mode=WAL 이면 읽기와 쓰기가 서로',
+    '안 막아서 워크트리 여러 개가 같은 reviews.db 를 붙들어도 읽는 쪽이 대기하지 않는다.',
+    '',
+    '대신 -wal 과 -shm 파일이 함께 생기고 네트워크 파일 시스템에서는 잠금이 깨진다.',
+  ].join('\n');
+
+  /** 라운드 2 정합 심급이 실제로 넣어 본 글이다. 이게 통과하면 축이 내용을 안 본다는 뜻이다 */
+  const UNRELATED = '오늘 점심은 김치찌개였습니다. 값은 만원이었습니다. 다음에 또 갑니다.';
+
+  it('원문과 무관한 글은 어느 대상에서도 걸린다', () => {
+    for (const audience of AUDIENCES) {
+      const report = runExplainCheck(WAL, UNRELATED, { audience });
+      expect(axis(report, 'grounding').verdict, audience).toBe('abort');
+    }
+  });
+
+  it('비유 표지를 붙여도 안 넘어간다', () => {
+    // coverage 를 끈 대상에서 analogy 가 유일한 실질 축이던 시절 '어제처럼' 한 마디로 통과했다
+    const report = runExplainCheck(WAL, `어제처럼 ${UNRELATED}`, { audience: 'outsider' });
+    expect(axis(report, 'grounding').verdict).toBe('abort');
+  });
+
+  it('원문 말을 하나라도 담으면 통과한다', () => {
+    const grounded = '읽기랑 쓰기가 서로 안 막게 해두는 모드예요. 대신 로컬에서만 써야 해요.';
+    for (const audience of AUDIENCES) {
+      const report = runExplainCheck(WAL, grounded, { audience });
+      expect(axis(report, 'grounding').verdict, audience).toBe('pass');
+    }
+  });
+
+  it('원문에 한글 내용어가 모자라면 안 잰다', () => {
+    const englishOnly = "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/app/src/x'";
+    const report = runExplainCheck(englishOnly, UNRELATED, { audience: 'nontech' });
+    expect(axis(report, 'grounding').verdict).toBe('pass');
+    expect(axis(report, 'grounding').detail).toContain('안 잰다');
   });
 });

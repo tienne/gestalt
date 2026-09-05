@@ -10,8 +10,8 @@
  * 움직인 숫자를 읽을 때는 케이스 수를 함께 본다.
  */
 import matter from 'gray-matter';
-import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import { loadConfig } from '../../core/config.js';
 import { isReadFailure, readInput } from '../../humanize/read-input.js';
@@ -158,14 +158,46 @@ const MARKDOWN_LINK = /\]\(([^)\s:]+\.md)(?:#[^)\s]*)?\)/g;
  * 그래서 본문의 상대 링크를 따라가 그 마크다운을 프롬프트에 붙인다. 한 겹만 따라간다 —
  * 참조의 참조까지 열면 공유 룰북 전체가 딸려 와 무엇을 재는지 흐려진다.
  */
+/**
+ * 그 경로가 허용된 자리 안인지 본다.
+ *
+ * 변형 파일은 밖에서 받은 AGENT.md 후보일 수 있다. 링크를 그대로 따라가면 레포 밖 마크다운을
+ * 읽어 LLM 프롬프트에 실어 보낸다 — 리뷰에서 실제로 재현됐다. 심링크도 realpath 로 풀어
+ * 같은 기준을 적용한다. 안 풀면 레포 안 파일인 척하는 링크 하나로 그대로 새어 나간다.
+ */
+function withinRoots(roots: readonly string[], candidate: string): boolean {
+  let real: string;
+  try {
+    real = realpathSync(candidate);
+  } catch {
+    return false;
+  }
+  return roots.some((root) => {
+    const rel = relative(root, real);
+    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  });
+}
+
+/** 심링크를 미리 풀어 둔다. macOS 의 /tmp 처럼 루트 자신이 링크면 비교가 어긋난다 */
+function realOrSelf(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
 function inlineReferences(prompt: string, from: string): string {
   const base = dirname(from);
+  // 레포 안 AGENT.md 는 ../_shared/ 를 정당하게 가리키므로 cwd 아래를 함께 연다.
+  // 밖에서 받은 변형 파일은 자기 디렉토리 아래만 열린다
+  const roots = [realOrSelf(process.cwd()), realOrSelf(base)];
   const seen = new Set<string>();
   const blocks: string[] = [];
 
   for (const [, target] of prompt.matchAll(MARKDOWN_LINK)) {
     const full = resolve(base, target!);
-    if (seen.has(full) || !existsSync(full)) continue;
+    if (seen.has(full) || !existsSync(full) || !withinRoots(roots, full)) continue;
     seen.add(full);
     blocks.push(`\n\n=== ${target} ===\n${read(target!, full)}`);
   }
@@ -228,9 +260,19 @@ function worstOf(verdicts: readonly Verdict[]): Verdict {
   return verdicts.reduce((acc, v) => (WORST[v] > WORST[acc] ? v : acc), 'pass' as Verdict);
 }
 
-/** 그 축을 실제로 잰 케이스만 분모에 넣는다. 심판을 안 태운 판에서 accuracy 가 0%로 보이면 안 된다 */
+/**
+ * 그 축을 실제로 잰 케이스만 분모에 넣는다.
+ *
+ * 심판을 안 태운 판에서 accuracy 가 0%로 보이면 안 된다. coverage 도 같다 — 용어를 금지한
+ * 대상은 축이 꺼져 있어도 결과를 하나 내는데, 그걸 분모에 넣으면 통과율에 바닥이 생겨
+ * 실제로 잰 케이스의 변화가 절반으로 눌린다. 안 잰 자리는 detail 이 그렇게 말한다.
+ */
+const NOT_MEASURED = /안 (?:본다|잰다)/;
+
 function passRate(results: readonly CaseResult[], axis: EvalAxis): number {
-  const scored = results.filter((r) => r.axes.some((a) => a.axis === axis));
+  const scored = results.filter((r) =>
+    r.axes.some((a) => a.axis === axis && !NOT_MEASURED.test(a.detail)),
+  );
   if (scored.length === 0) return 0;
   const passed = scored.filter((r) => r.axes.some((a) => a.axis === axis && a.verdict === 'pass'));
   return passed.length / scored.length;

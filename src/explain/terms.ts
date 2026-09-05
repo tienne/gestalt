@@ -95,7 +95,14 @@ export interface Span {
   text: string;
 }
 
-/** 문장을 위치와 함께 자른다. 풀이 표지를 어느 문장에서 찾을지 정하려면 위치가 필요하다 */
+/**
+ * 문장을 위치와 함께 자른다. 풀이 표지를 어느 문장에서 찾을지 정하려면 위치가 필요하다.
+ *
+ * 분리 정규식이 humanize 의 splitSentences 와 같은 자리를 본다. 그쪽은 조각만 주고 위치를
+ * 안 줘서 그대로 못 쓴다. 같은 리포트 안에서 length 와 register 는 splitSentences 를,
+ * jargon 의 풀이 판정은 이 함수를 쓰므로 두 경계가 갈리면 축끼리 다른 문장을 본다.
+ * 그 갈라짐은 terms.test.ts 의 문장 경계 대조가 붙잡는다.
+ */
 export function sentenceSpans(text: string): Span[] {
   const spans: Span[] = [];
   const separator = /(?<=[.!?…])\s+|\n+/g;
@@ -139,7 +146,7 @@ const MAX_CANDIDATES = 1000;
  * 자리를 아직 안 걸렀기 때문이다. 상한을 넘겼을 때 무엇을 남길지 고르는 데만 쓰고
  * 정확한 건수는 findTermUses 가 다시 센다.
  */
-function candidates(source: string): Map<string, TermKind> {
+function candidates(source: string): { found: Map<string, TermKind>; truncated: boolean } {
   const found = new Map<string, { kind: TermKind; rough: number }>();
 
   for (const { kind, re, capture } of EXTRACTORS) {
@@ -153,14 +160,20 @@ function candidates(source: string): Map<string, TermKind> {
   }
 
   if (found.size <= MAX_CANDIDATES) {
-    return new Map([...found].map(([text, { kind }]) => [text, kind]));
+    return {
+      found: new Map([...found].map(([text, { kind }]) => [text, kind])),
+      truncated: false,
+    };
   }
-  return new Map(
-    [...found]
-      .sort((a, b) => b[1].rough - a[1].rough || a[0].localeCompare(b[0]))
-      .slice(0, MAX_CANDIDATES)
-      .map(([text, { kind }]) => [text, kind]),
-  );
+  return {
+    found: new Map(
+      [...found]
+        .sort((a, b) => b[1].rough - a[1].rough || a[0].localeCompare(b[0]))
+        .slice(0, MAX_CANDIDATES)
+        .map(([text, { kind }]) => [text, kind]),
+    ),
+    truncated: true,
+  };
 }
 
 function escapeRegExp(text: string): string {
@@ -205,7 +218,9 @@ function spanAt(spans: readonly Span[], index: number): Span | undefined {
 export function findTermUses(text: string, terms: readonly Term[]): TermUse[] {
   if (terms.length === 0) return [];
 
-  const sorted = [...terms].sort((a, b) => b.text.length - a.text.length);
+  // 상한을 함수 경계에서도 다시 건다. candidates() 를 거친 목록만 들어온다는 건 관례일 뿐이라
+  // 다른 호출자가 사전 같은 목록을 직접 넘기면 교대 정규식이 무제한으로 커진다
+  const sorted = [...terms].sort((a, b) => b.text.length - a.text.length).slice(0, MAX_CANDIDATES);
   const byText = new Map(sorted.map((term) => [term.text, term]));
   const spans = sentenceSpans(text);
   const uses: TermUse[] = [];
@@ -263,8 +278,19 @@ function excerptAt(text: string, at: number, term: string): string {
     .trim();
 }
 
-export function extractTerms(source: string): Term[] {
-  const found = candidates(source);
+export interface ExtractResult {
+  terms: Term[];
+  /**
+   * 후보가 상한에서 잘렸나.
+   *
+   * 잘렸다는 사실이 결과에 안 남으면 드물게 나오는 용어가 소리 없이 판정에서 빠진다.
+   * 부르는 쪽이 리포트에 그대로 실어 사람이 알게 한다.
+   */
+  truncated: boolean;
+}
+
+export function extractTerms(source: string): ExtractResult {
+  const { found, truncated } = candidates(source);
   const stubs: Term[] = [...found].map(([text, kind]) => ({ text, kind, count: 0 }));
   const counts = new Map<string, number>();
 
@@ -272,10 +298,12 @@ export function extractTerms(source: string): Term[] {
     counts.set(use.term, (counts.get(use.term) ?? 0) + 1);
   }
 
-  return stubs
+  const terms = stubs
     .map((term) => ({ ...term, count: counts.get(term.text) ?? 0 }))
     .filter((term) => term.count > 0)
     .sort(byWeight);
+
+  return { terms, truncated };
 }
 
 function byWeight(a: Term, b: Term): number {

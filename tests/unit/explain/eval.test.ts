@@ -1,4 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import {
   BASELINE_LABEL,
   BASELINE_PROMPT,
@@ -192,7 +196,7 @@ describe('집계', () => {
 
 describe('입력 읽기', () => {
   it('변형을 읽을 때 본문이 가리키는 룰북까지 함께 싣는다', () => {
-    // 에이전트 본문의 첫 지시가 audience.md 를 먼저 읽으라는 것이다. 그게 안 실리면
+    // 에이전트 본문의 첫 지시가 audience.md 를 먼저 읽으라고 한다. 그게 안 실리면
     // A 는 룰북 없이 겨루고 delta 가 에이전트의 효용을 못 가린다
     const variant = readVariant('plugin/role-agents/explainer/AGENT.md');
     expect(variant.prompt).toContain('=== references/audience.md ===');
@@ -205,5 +209,58 @@ describe('입력 읽기', () => {
 
   it('파일이 아닌 경로도 막는다', () => {
     expect(() => readVariant('src/explain')).toThrow(/파일이 아닙니다/);
+  });
+});
+
+describe('참조 인라인 경계', () => {
+  // cwd 밖에 둔다. 허용 루트가 cwd 와 변형 파일 디렉토리 둘이라 레포 안에서는 탈출이
+  // 애초에 성립하지 않는다 — 밖에서 받은 변형 파일이 이 검사가 노리는 자리다
+  const SCRATCH = resolve(tmpdir(), `gestalt-variant-${randomUUID()}`);
+
+  beforeAll(() => {
+    mkdirSync(resolve(SCRATCH, 'agent'), { recursive: true });
+    writeFileSync(resolve(SCRATCH, 'outside.md'), '레포 밖 비밀 문서\n', 'utf-8');
+    mkdirSync(resolve(SCRATCH, 'agent', 'references'), { recursive: true });
+    writeFileSync(resolve(SCRATCH, 'agent', 'references', 'ok.md'), '옆에 둔 참조\n', 'utf-8');
+  });
+
+  afterAll(() => {
+    rmSync(SCRATCH, { recursive: true, force: true });
+  });
+
+  function variantWith(body: string): string {
+    const path = resolve(SCRATCH, 'agent', `v-${randomUUID()}.md`);
+    writeFileSync(path, `---\nname: v\n---\n${body}\n`, 'utf-8');
+    return path;
+  }
+
+  it('자기 디렉토리 아래 참조는 싣는다', () => {
+    const path = variantWith(`[참조](references/ok.md)`);
+    expect(readVariant(path).prompt).toContain('옆에 둔 참조');
+  });
+
+  it('허용 루트 밖으로 나가는 링크는 안 싣는다', () => {
+    // 변형 파일은 밖에서 받은 AGENT.md 후보일 수 있다. 링크를 그대로 따라가면
+    // 레포 밖 마크다운이 LLM 프롬프트에 실려 나간다
+    const path = variantWith(`[탈출](../outside.md)`);
+    expect(readVariant(path).prompt).not.toContain('레포 밖 비밀 문서');
+  });
+
+  it('허용 루트 밖을 가리키는 심링크도 안 따라간다', () => {
+    const link = resolve(SCRATCH, 'agent', 'references', 'sneaky.md');
+    rmSync(link, { force: true });
+    symlinkSync(resolve(SCRATCH, 'outside.md'), link);
+    const path = variantWith(`[참조](references/sneaky.md)`);
+    expect(readVariant(path).prompt).not.toContain('레포 밖 비밀 문서');
+  });
+
+  it('원격 주소는 안 따라간다', () => {
+    const path = variantWith(`[문서](https://example.com/guide.md)`);
+    expect(readVariant(path).prompt).not.toContain('=== https');
+  });
+
+  it('앵커가 붙어도 파일만 뽑는다', () => {
+    const path = variantWith(`[참조](references/ok.md#어딘가)`);
+    expect(readVariant(path).prompt).toContain('=== references/ok.md ===');
   });
 });

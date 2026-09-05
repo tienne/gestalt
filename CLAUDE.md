@@ -37,6 +37,8 @@ pnpm verify:rules  # 룰북과 에이전트 문서의 룰 ID·심각도 정합 �
 pnpm build:output-style  # 룰북 → ~/.claude/output-styles/tienne-voice.md 생성
 pnpm tsx bin/gestalt.ts humanize-scan --file a.md --register chat   # 걸린 룰만 추린다
 pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register report
+pnpm tsx bin/gestalt.ts explain-check --source err.log --explain out.md --audience nontech
+pnpm tsx bin/gestalt.ts explain-eval --a plugin/role-agents/explainer/AGENT.md   # 비우면 베이스라인과 비교
 ```
 
 ## MCP Tools
