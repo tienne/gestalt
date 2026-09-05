@@ -152,7 +152,7 @@ claude plugin install gestalt@gestalt
 |------|------|
 | **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
 | **슬래시 커맨드** | 워크플로 스킬 19개 — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send` 등 |
-| **에이전트** | 파이프라인 에이전트 5개 + Role 에이전트 21개 + Review 에이전트 4개 |
+| **에이전트** | 파이프라인 에이전트 5개 + Role 에이전트 22개 + Review 에이전트 4개 |
 | **CLAUDE.md** | 프로젝트 컨텍스트 및 MCP 사용 가이드 자동 추가 |
 
 > **Node.js >= 20.0.0** 필요 — [nvm](https://github.com/nvm-sh/nvm) 사용 시: `nvm install 22 && nvm use 22`
@@ -241,7 +241,7 @@ codex plugin add gestalt@gestalt
 |------|------|
 | **MCP 도구** | `ges_*` 12개 전부 |
 | **스킬** | 워크플로 스킬 19개 (`gestalt:review`, `gestalt:pr` 포함) |
-| **에이전트** | Role 에이전트 21개 + Review 에이전트 4개 (스킬이 읽을 수 있게 같이 들어감) |
+| **에이전트** | Role 에이전트 22개 + Review 에이전트 4개 (스킬이 읽을 수 있게 같이 들어감) |
 
 스킬은 다음 Codex 세션부터 잡혀요. 슬래시 커맨드랑 Claude Code Task 패널은 Claude Code 전용이라, Codex에서는 하려는 일을 말로 설명하면 Codex가 해당 `SKILL.md`를 읽어 진행해요.
 
