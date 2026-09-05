@@ -37,6 +37,8 @@ pnpm verify:rules  # 룰북과 에이전트 문서의 룰 ID·심각도 정합 �
 pnpm build:output-style  # 룰북 → ~/.claude/output-styles/tienne-voice.md 생성
 pnpm tsx bin/gestalt.ts humanize-scan --file a.md --register chat   # 걸린 룰만 추린다
 pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register report
+pnpm tsx bin/gestalt.ts explain-check --source err.log --explain out.md --audience nontech
+pnpm tsx bin/gestalt.ts explain-eval --a plugin/role-agents/explainer/AGENT.md   # 비우면 베이스라인과 비교
 ```
 
 ## MCP Tools
@@ -85,12 +87,13 @@ src/events/        — EventStore (SQLite)
 src/skills/        — Skill System 엔진 (SKILL.md 파서·실행기, 최상위 skills/와는 별개)
 src/registry/      — 레지스트리 공통 베이스 클래스
 src/humanize/      — 룰북 읽기 + AI-tell 탐지기 + 윤문 코드 검사 (`gestalt humanize-check` 백엔드)
+src/explain/       — 대상별 설명 품질 검사 (`gestalt explain-check` 백엔드). 판정 구조만 humanize에서 빌려 쓴다
 src/utils/         — 알림 등 공용 유틸
 src/cli/           — commander 기반 CLI
 plugin/            — 배포 자산 전부. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다
-plugin/role-agents/    — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer, code-review-writer, code-review-responder 등) 총 21개 + `_shared/references/` 공유 룰북(author-voice, ai-tell-quick-rules, style-guide, comment-rules, truncation-rules — 에이전트 아님, 레지스트리가 건너뜀)
+plugin/role-agents/    — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer, code-review-writer, code-review-responder, explainer 등) 총 22개 + `_shared/references/` 공유 룰북(author-voice, ai-tell-quick-rules, style-guide, comment-rules, truncation-rules — 에이전트 아님, 레지스트리가 건너뜀)
 plugin/review-agents/  — 내장 Review Agent 6개 (security-reviewer, performance-reviewer, quality-reviewer, frontend-reviewer, comment-reviewer, writing-reviewer)
-plugin/skills/         — SKILL.md 19개 (interview, spec, execute, dispatch, agent, review, review-reply, pr, local-pr, ship, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, solve, setup) + `_shared/` 공유 규칙(스킬 아님, 레지스트리가 건너뜀)
+plugin/skills/         — SKILL.md 20개 (interview, spec, execute, dispatch, agent, review, review-reply, pr, local-pr, ship, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, explain, solve, setup) + `_shared/` 공유 규칙(스킬 아님, 레지스트리가 건너뜀)
 plugin/agents/         — 파이프라인 에이전트 5개
 plugin/personas/       — Lateral Thinking 페르소나
 ```
@@ -109,7 +112,7 @@ plugin/.mcp.json                  Grok MCP (plugin/mcp.json과 동일)
 ```
 
 - Orca는 `plugin.json`을 안 읽는다. 설치 경로 뒤에 `skills`를 하드코딩해 붙이고 그 아래만 훑는다. 루트 `skills` 심링크를 지우면 Orca 채팅의 스킬 피커에서 gestalt 스킬이 하나도 안 뜬다.
-- Claude는 `.claude-plugin/plugin.json`의 `skills` 필드와 루트 `skills/`를 둘 다 훑는다. 둘 다 있으면 같은 스킬을 두 번 로드한다 (19개가 38개가 되고 상시 토큰이 3k 늘어난다). 그래서 필드는 비워두고 심링크 한 곳만 남긴다.
+- Claude는 `.claude-plugin/plugin.json`의 `skills` 필드와 루트 `skills/`를 둘 다 훑는다. 둘 다 있으면 같은 스킬을 두 번 로드한다 (20개가 40개가 되고 상시 토큰이 3k 늘어난다). 그래서 필드는 비워두고 심링크 한 곳만 남긴다.
 - 그 심링크는 `plugin/` 밖이라 Codex와 Grok이 복사하는 범위에 안 들어간다. 둘은 `plugin/skills/` 실물을 그대로 읽으므로 심링크와 무관하다.
 - Codex는 마켓플레이스 매니페스트를 `.agents/plugins/marketplace.json`에서만 찾는다. `.codex-plugin/marketplace.json`은 인식하지 않는다.
 - Grok은 `.grok-plugin/marketplace.json`만 읽는다. 마켓플레이스를 고칠 일이 있으면 여기를 고친다. source는 반드시 `./plugin`이다. Claude 매니페스트(`source: "./"`)를 바꾸지 말 것.

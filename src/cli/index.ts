@@ -10,6 +10,8 @@ import { updateCommand } from './commands/update.js';
 import { usageReportCommand } from './commands/usage-report.js';
 import { humanizeCheckCommand } from './commands/humanize-check.js';
 import { humanizeScanCommand } from './commands/humanize-scan.js';
+import { explainCheckCommand } from './commands/explain-check.js';
+import { DEFAULT_CASES_PATH, explainEvalCommand } from './commands/explain-eval.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -250,6 +252,41 @@ export function createCli(): Command {
         humanizeCheckCommand(options);
       },
     );
+
+  program
+    .command('explain-check')
+    .description('설명본이 그 대상에게 읽히는 글인지 판정한다 (exit 0 통과 / 1 경고 / 2 중단)')
+    .requiredOption('--source <path>', '설명하려는 원문 파일')
+    .requiredOption('--explain <path>', '설명본 파일')
+    // 기본값을 여기 안 적는다. commander 가 채우면 audience.ts 의 DEFAULT_AUDIENCE 가
+    // CLI 경로에서 죽은 코드가 되고 기본값이 두 자리로 갈린다
+    .option('--audience <nontech|junior|peer|manager|exec|outsider>', '누가 읽는지 (기본 peer)')
+    .option('--judge', '사실 정확도 축을 심판 모델에게 맡긴다 (나머지 여섯 축은 항상 코드가 잰다)')
+    .option('--attempt <n>', '몇 번째 설명본인지 (기본 1)', '1')
+    .option('--json', '판정 결과를 JSON으로')
+    .action(
+      async (options: {
+        source: string;
+        explain: string;
+        audience?: string;
+        judge?: boolean;
+        attempt?: string;
+        json?: boolean;
+      }) => {
+        await explainCheckCommand(options);
+      },
+    );
+
+  program
+    .command('explain-eval')
+    .description('설명 프롬프트 두 벌을 같은 케이스로 돌려 항목별 통과율을 비교한다')
+    .requiredOption('--a <path>', '기준이 되는 AGENT.md')
+    .option('--b <path>', '비교할 AGENT.md. 비우면 에이전트 없이 돌린 베이스라인과 비교한다')
+    .option('--cases <path>', `케이스 파일 (기본 ${DEFAULT_CASES_PATH})`)
+    .option('--json', '결과를 JSON으로')
+    .action(async (options: { a: string; b?: string; cases?: string; json?: boolean }) => {
+      await explainEvalCommand(options);
+    });
 
   program
     .command('usage-report')
