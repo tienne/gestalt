@@ -189,3 +189,21 @@ describe('집계', () => {
     expect(text).toContain('+100%');
   });
 });
+
+describe('입력 읽기', () => {
+  it('변형을 읽을 때 본문이 가리키는 룰북까지 함께 싣는다', () => {
+    // 에이전트 본문의 첫 지시가 audience.md 를 먼저 읽으라는 것이다. 그게 안 실리면
+    // A 는 룰북 없이 겨루고 delta 가 에이전트의 효용을 못 가린다
+    const variant = readVariant('plugin/role-agents/explainer/AGENT.md');
+    expect(variant.prompt).toContain('=== references/audience.md ===');
+    expect(variant.prompt).toContain('핵심어 잔존을 안 재는 대상');
+  });
+
+  it('없는 파일은 읽은 척하지 않는다', () => {
+    expect(() => loadCases('evals/no-such-file.json')).toThrow(/파일이 없습니다/);
+  });
+
+  it('파일이 아닌 경로도 막는다', () => {
+    expect(() => readVariant('src/explain')).toThrow(/파일이 아닙니다/);
+  });
+});

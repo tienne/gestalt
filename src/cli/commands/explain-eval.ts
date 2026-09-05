@@ -2,15 +2,19 @@
  * 설명 프롬프트 두 벌을 같은 케이스로 돌려 비교한다.
  *
  * ELI5 의 run-evals.py 가 참고 대상인데 저쪽은 채점이 전부 심판 모델이라 같은 답에 다른
- * 점수가 나온다. 여기서는 여섯 항목 중 다섯이 결정론이라 재현된다 — 프롬프트를 고쳤을 때
- * 움직인 숫자가 프롬프트 때문인지 심판 모델의 그날 기분인지 가릴 수 있다는 뜻이다.
- * 심판이 필요한 자리는 사실 정확도 하나뿐이라 거기만 태운다.
+ * 점수가 나온다. 여기서는 EVAL_AXES 일곱 중 여섯이 결정론이라 **채점이** 재현된다 —
+ * 같은 설명문을 두 번 채점하면 같은 점수가 나온다. 심판이 필요한 자리는 사실 정확도 하나다.
+ *
+ * 재현되는 건 채점까지다. 설명문을 만드는 쪽은 모델이라 같은 프롬프트로도 답이 흔들린다.
+ * 케이스가 적으면 그 흔들림이 축별 통과율의 눈금보다 커질 수 있으니, 프롬프트를 고쳤을 때
+ * 움직인 숫자를 읽을 때는 케이스 수를 함께 본다.
  */
 import matter from 'gray-matter';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import { loadConfig } from '../../core/config.js';
+import { isReadFailure, readInput } from '../../humanize/read-input.js';
 import { createAdapter } from '../../llm/factory.js';
 import type { LLMAdapter } from '../../llm/types.js';
 import {
@@ -82,9 +86,21 @@ export interface Summary {
   overall: { a: number; b: number; delta: number };
 }
 
+/**
+ * 파일을 읽는 자리는 explain-check 와 같은 문을 쓴다.
+ *
+ * readFileSync 를 직접 부르면 2MB 상한과 파일 종류 검사가 안 걸린다. 한쪽만 막으면
+ * 다른 쪽이 우회로가 된다고 read-input.ts 가 적어둔 바로 그 자리다.
+ */
+function read(label: string, path: string): string {
+  const input = readInput(path, label);
+  if (isReadFailure(input)) throw new Error(input.message);
+  return input;
+}
+
 export function loadCases(path: string): EvalCase[] {
   const full = resolve(process.cwd(), path);
-  const parsed = fileSchema.safeParse(JSON.parse(readFileSync(full, 'utf-8')));
+  const parsed = fileSchema.safeParse(JSON.parse(read('케이스 파일', path)));
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
     throw new Error(`케이스 파일이 형식에 안 맞습니다: ${full}\n${issues.join('\n')}`);
@@ -125,11 +141,43 @@ const SYSTEM_TAIL = (audience: Audience): string => {
 export const BASELINE_PROMPT = '다음 내용을 읽는 사람에게 설명하세요.';
 export const BASELINE_LABEL = 'baseline';
 
+/**
+ * AGENT.md 본문이 가리키는 마크다운 링크. 첫 등장 순서를 지킨다.
+ *
+ * 콜론을 뺀 건 원격 주소를 거르려고 그런다. 앵커는 붙어 있어도 파일만 뽑는다.
+ */
+const MARKDOWN_LINK = /\]\(([^)\s:]+\.md)(?:#[^)\s]*)?\)/g;
+
+/**
+ * 에이전트가 실제로 읽는 것까지 함께 싣는다.
+ *
+ * explainer 본문의 첫 지시가 references/audience.md 를 작성 전에 읽으라고 한다. 그런데
+ * eval 은 chat 을 한 번 부를 뿐이라 그 파일을 못 읽는다. 본문만 넘기면 A 는 룰북이 빠진
+ * 채로 겨루고 delta 가 "이 에이전트를 쓰면 나아진다"의 근거가 못 된다.
+ *
+ * 그래서 본문의 상대 링크를 따라가 그 마크다운을 프롬프트에 붙인다. 한 겹만 따라간다 —
+ * 참조의 참조까지 열면 공유 룰북 전체가 딸려 와 무엇을 재는지 흐려진다.
+ */
+function inlineReferences(prompt: string, from: string): string {
+  const base = dirname(from);
+  const seen = new Set<string>();
+  const blocks: string[] = [];
+
+  for (const [, target] of prompt.matchAll(MARKDOWN_LINK)) {
+    const full = resolve(base, target!);
+    if (seen.has(full) || !existsSync(full)) continue;
+    seen.add(full);
+    blocks.push(`\n\n=== ${target} ===\n${read(target!, full)}`);
+  }
+
+  return prompt + blocks.join('');
+}
+
 export function readVariant(path?: string): { label: string; prompt: string } {
   if (!path) return { label: BASELINE_LABEL, prompt: BASELINE_PROMPT };
   const full = resolve(process.cwd(), path);
-  const { content } = matter(readFileSync(full, 'utf-8'));
-  return { label: path, prompt: content.trim() };
+  const { content } = matter(read('변형 파일', full));
+  return { label: path, prompt: inlineReferences(content.trim(), full) };
 }
 
 export async function runVariant(

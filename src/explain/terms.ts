@@ -192,10 +192,10 @@ function spanAt(spans: readonly Span[], index: number): Span | undefined {
  *
  * 용어 전부를 하나의 교대 정규식으로 합쳐 한 번만 훑는다. 용어마다 따로 전체를 재훑으면
  * 용어 수에 텍스트 길이가 곱해지는데, 후보 수는 텍스트가 길수록 함께 늘어서 제곱으로
- * 붕괴한다. 실측하면 그 꼴이 1.9MB 입력에서 수십 초였다 — readInput 이 허용하는 크기다.
+ * 붕괴한다. 그 꼴을 재보니 1.9MB 입력에서 수십 초가 걸렸다 — readInput 이 허용하는 크기다.
  *
  * 긴 용어를 교대 앞에 두는 건 정규식이 왼쪽부터 시도하기 때문이다. 그래서 같은 자리에서
- * `ERR_MODULE_NOT_FOUND` 가 `MODULE` 보다 먼저 잡히고, 매치가 소비되므로 안쪽 짧은 용어가
+ * `ERR_MODULE_NOT_FOUND` 가 `MODULE` 보다 먼저 잡힌다. 매치가 소비되므로 안쪽 짧은 용어가
  * 따로 세어지지 않는다. `src/explain/check.ts` 와 `explain/check.ts` 처럼 한쪽이 다른 쪽을
  * 품는 경로도 같은 이유로 한 번만 걸린다.
  *

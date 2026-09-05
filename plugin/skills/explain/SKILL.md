@@ -47,8 +47,6 @@ outputs:
 
 ## 왜 에이전트만으로는 안 되나
 
-두 가지다.
-
 1. **컨텍스트 격리.** `explainer`는 `references/audience.md`를 딸고 온다. 메인 세션에서 직접 부르면
    그 룰북이 매 턴 다시 실린다. `review` 스킬이 `humanize-monolith`를 서브에이전트로 미는 이유와 같다.
 2. **판정 뒤 재시도.** 에이전트는 자기 산출물을 자기가 판정하지 못한다. `explain-check`를 돌리고

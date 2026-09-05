@@ -258,11 +258,9 @@ export function createCli(): Command {
     .description('설명본이 그 대상에게 읽히는 글인지 판정한다 (exit 0 통과 / 1 경고 / 2 중단)')
     .requiredOption('--source <path>', '설명하려는 원문 파일')
     .requiredOption('--explain <path>', '설명본 파일')
-    .option(
-      '--audience <nontech|junior|peer|manager|exec|outsider>',
-      '누가 읽는지 (기본 peer)',
-      'peer',
-    )
+    // 기본값을 여기 안 적는다. commander 가 채우면 audience.ts 의 DEFAULT_AUDIENCE 가
+    // CLI 경로에서 죽은 코드가 되고 기본값이 두 자리로 갈린다
+    .option('--audience <nontech|junior|peer|manager|exec|outsider>', '누가 읽는지 (기본 peer)')
     .option('--judge', '사실 정확도 축을 심판 모델에게 맡긴다 (나머지 다섯 축은 항상 코드가 잰다)')
     .option('--attempt <n>', '몇 번째 설명본인지 (기본 1)', '1')
     .option('--json', '판정 결과를 JSON으로')

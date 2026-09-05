@@ -85,6 +85,7 @@ src/events/        — EventStore (SQLite)
 src/skills/        — Skill System 엔진 (SKILL.md 파서·실행기, 최상위 skills/와는 별개)
 src/registry/      — 레지스트리 공통 베이스 클래스
 src/humanize/      — 룰북 읽기 + AI-tell 탐지기 + 윤문 코드 검사 (`gestalt humanize-check` 백엔드)
+src/explain/       — 대상별 설명 품질 검사 (`gestalt explain-check` 백엔드). 판정 구조만 humanize에서 빌려 쓴다
 src/utils/         — 알림 등 공용 유틸
 src/cli/           — commander 기반 CLI
 plugin/            — 배포 자산 전부. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다

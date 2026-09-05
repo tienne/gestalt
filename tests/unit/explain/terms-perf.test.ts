@@ -3,7 +3,7 @@
  *
  * terms.test.ts 는 무엇이 걸리는지만 세고 얼마나 걸리는지는 안 본다. 그래서 용어마다
  * 전체를 재훑는 꼴로 되돌려도 그쪽은 초록불이다. 실제로 그랬다 — 1.9MB 입력에서
- * extractTerms 하나에 수십 초였고, 그게 readInput 이 허용하는 크기다.
+ * extractTerms 하나에 수십 초가 걸렸다. 그게 readInput 이 허용하는 크기다.
  * humanize 쪽 detector-perf.test.ts 가 같은 자리를 같은 방식으로 붙잡는다.
  *
  * 절대 시간은 기계마다 다르니 배수로 본다. 입력을 네 배 늘렸을 때 시간도 네 배 근처면
