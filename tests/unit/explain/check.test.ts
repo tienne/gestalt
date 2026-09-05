@@ -174,6 +174,23 @@ describe('analogy 축', () => {
     });
     expect(axis(report, 'analogy').verdict).toBe('pass');
   });
+
+  it('대입 갈래의 활용형도 통과한다', () => {
+    // '라고 생각하면'만 있던 동안 이 문장이 outsider 에서 채택 금지를 받았다
+    const report = runExplainCheck(
+      SOURCE,
+      '여러 사람이 같은 공책에 동시에 적는다고 생각해보세요.',
+      { audience: 'outsider' },
+    );
+    expect(axis(report, 'analogy').verdict).toBe('pass');
+  });
+
+  it('떠올려와 상상해도 같은 갈래로 센다', () => {
+    for (const prose of ['옆집 우편함을 떠올려 보세요.', '빈 서랍을 상상해보세요.']) {
+      const report = runExplainCheck(SOURCE, prose, { audience: 'outsider' });
+      expect(axis(report, 'analogy').verdict).toBe('pass');
+    }
+  });
 });
 
 describe('register 축', () => {
