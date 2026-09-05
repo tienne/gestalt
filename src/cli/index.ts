@@ -11,6 +11,7 @@ import { usageReportCommand } from './commands/usage-report.js';
 import { humanizeCheckCommand } from './commands/humanize-check.js';
 import { humanizeScanCommand } from './commands/humanize-scan.js';
 import { explainCheckCommand } from './commands/explain-check.js';
+import { DEFAULT_CASES_PATH, explainEvalCommand } from './commands/explain-eval.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -277,6 +278,17 @@ export function createCli(): Command {
         await explainCheckCommand(options);
       },
     );
+
+  program
+    .command('explain-eval')
+    .description('설명 프롬프트 두 벌을 같은 케이스로 돌려 항목별 통과율을 비교한다')
+    .requiredOption('--a <path>', '기준이 되는 AGENT.md')
+    .option('--b <path>', '비교할 AGENT.md. 비우면 에이전트 없이 돌린 베이스라인과 비교한다')
+    .option('--cases <path>', `케이스 파일 (기본 ${DEFAULT_CASES_PATH})`)
+    .option('--json', '결과를 JSON으로')
+    .action(async (options: { a: string; b?: string; cases?: string; json?: boolean }) => {
+      await explainEvalCommand(options);
+    });
 
   program
     .command('usage-report')

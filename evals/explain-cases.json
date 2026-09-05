@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "esm-module-not-found",
+      "title": "vitest ESM 경로 해석 실패",
+      "audience": "nontech",
+      "source": "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/app/src/humanize/detectors' imported from /app/src/explain/check.js\n    at finalizeResolution (node:internal/modules/esm/resolve:264:11)\n    at moduleResolve (node:internal/modules/esm/resolve:917:10)\n\nvitest.config.ts 의 resolve.alias 가 확장자를 안 붙여서 CJS 시절 경로가 그대로 남았다. ESM 로더는 확장자를 요구한다.",
+      "assertions": {
+        "mustMention": ["설정", "고치"],
+        "mustAvoid": ["스택 트레이스", "트랜스파일"]
+      }
+    },
+    {
+      "id": "n-plus-one-query",
+      "title": "목록 조회에서 터진 N+1",
+      "audience": "junior",
+      "source": "async function listOrders(userId: string) {\n  const orders = await db.orders.findMany({ where: { userId } });\n  for (const order of orders) {\n    order.items = await db.orderItems.findMany({ where: { orderId: order.id } });\n  }\n  return orders;\n}\n\n주문 50건이면 쿼리가 51번 나간다. findMany 를 한 번 더 도는 대신 orderId 를 모아 IN 절로 한 번에 받고 메모리에서 묶으면 2번으로 끝난다.",
+      "assertions": {
+        "mustMention": ["쿼리"],
+        "mustAvoid": ["압도적"]
+      }
+    },
+    {
+      "id": "event-store-wal",
+      "title": "이벤트 저장소를 WAL 모드로 둔 이유",
+      "audience": "peer",
+      "source": "EventStore 는 better-sqlite3 를 WAL 모드로 연다. journal_mode=WAL 이면 읽기와 쓰기가 서로 안 막아서, 워크트리 여러 개가 같은 reviews.db 를 붙들어도 읽는 쪽이 대기하지 않는다.\n\n대신 -wal 과 -shm 파일이 함께 생기고 네트워크 파일 시스템에서는 잠금이 깨진다. 로컬 디스크 전용이라는 전제가 붙는다. synchronous=NORMAL 로 낮춰 커밋 지연을 줄였는데, 전원이 나가면 마지막 몇 트랜잭션을 잃을 수 있다. 이벤트는 다시 만들 수 있어서 받아들인 트레이드오프다.",
+      "assertions": {
+        "mustMention": ["WAL"],
+        "mustAvoid": []
+      }
+    },
+    {
+      "id": "dependency-upgrade-cost",
+      "title": "미룬 의존성 업그레이드 비용",
+      "audience": "manager",
+      "source": "@modelcontextprotocol/sdk 를 1.12 에 고정해 둔 지 여덟 달이 됐다. 최신은 1.24 이고 그사이 transport 인터페이스가 두 번 바뀌었다.\n\n지금 올리면 stdio 어댑터와 tool handler 시그니처를 손봐야 한다. 사람 한 명이 사흘 정도다. 더 미루면 다음 major 에서 한 번에 올려야 하는데, 그때는 breaking change 가 겹쳐 이 주가 넘어간다. 보안 패치는 1.19 부터만 나온다.",
+      "assertions": {
+        "mustMention": ["사흘"],
+        "mustAvoid": []
+      }
+    },
+    {
+      "id": "release-incident",
+      "title": "결제 실패 장애 요약",
+      "audience": "exec",
+      "source": "2026-08-30 14:12 부터 47분간 결제 승인 API 가 5xx 를 냈다. 원인은 PG 사 인증서 만료였고 우리 쪽 재시도 로직이 실패 응답을 캐시해 복구 뒤에도 12분을 더 끌었다.\n\n영향은 결제 시도 3,180건 중 1,240건 실패, 추정 손실 매출 4,100만원이다. 재발 방지로 인증서 만료 알림을 30일 전으로 당기고 실패 응답 캐시를 걷는다. 두 가지 모두 이번 주 안에 끝난다. 결정이 필요한 건 PG 이중화 여부이고, 도입하면 월 고정비가 320만원 늘어난다.",
+      "assertions": {
+        "mustMention": ["결제"],
+        "mustAvoid": ["5xx", "캐시"]
+      }
+    },
+    {
+      "id": "what-is-an-api",
+      "title": "API 가 무엇인지",
+      "audience": "outsider",
+      "source": "API 는 프로그램끼리 정해진 형식으로 요청과 응답을 주고받는 창구다. 날씨 앱이 기상청 서버에 오늘 기온을 물으면 JSON 으로 답이 온다. 앱은 기상청 내부 DB 구조를 몰라도 되고 기상청은 앱이 몇 개든 같은 창구 하나만 열어 두면 된다.\n\n형식이 정해져 있어서 한쪽이 바뀌어도 창구 규격만 지키면 다른 쪽을 안 고쳐도 된다. 규격을 바꿀 때는 버전을 나눠 예전 규격을 한동안 함께 연다.",
+      "assertions": {
+        "mustMention": [],
+        "mustAvoid": ["JSON", "DB"]
+      }
+    }
+  ]
+}
