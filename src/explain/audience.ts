@@ -46,6 +46,15 @@ export interface Band {
   abort: number;
 }
 
+/**
+ * coverage 를 안 재는 대상.
+ *
+ * audience.md 가 용어를 전면 금지한 대상에게 핵심어를 남기라고 요구하면 두 규칙이 정면으로
+ * 부딪힌다. 시킨 대로 쓰면 검사에 걸리고 안 걸리려면 룰북을 어겨야 하는 자리가 생긴다.
+ * 그 대상은 축을 끄고 사실이 틀렸는지는 `--judge` 의 accuracy 가 본다.
+ */
+export type CoverageRule = Band | 'off';
+
 export interface AudiencePreset {
   audience: Audience;
   who: string;
@@ -53,18 +62,29 @@ export interface AudiencePreset {
   jargon: Band;
   /** 평균 문장 길이. 글자 수로 센다 */
   sentence: Band;
-  /** 원문 핵심어 중 다뤄야 하는 최소 비율 */
-  coverage: Band;
+  /** 원문 핵심어 중 다뤄야 하는 최소 비율. 용어를 금지한 대상은 'off' */
+  coverage: CoverageRule;
   analogy: AnalogyRule;
   register: Register;
 }
 
 /**
- * coverage 하한이 프리셋마다 크게 벌어지는 게 이 표의 핵심이다.
+ * 숫자를 고를 때 쓴 기준.
  *
- * 핵심어를 다섯 개 잡으므로 0.2 는 하나, 0.4 는 둘이다. `outsider`는 하나만 남겨도
- * 통과하고 `peer`는 넷을 요구한다. 이게 humanize 의 preservation 을 뒤집은 자리다 —
- * 거기서는 전부 살아남아야 하고 여기서는 몇 개를 남겼느냐만 본다.
+ * 이 값들은 audience.md 의 프리셋 표에서 옮겨온 게 아니다. 그 표는 용어와 비유, 깊이를
+ * 말로 정하고 숫자는 여기서 처음 정해진다 — 두 곳에 같은 숫자를 적으면 갈라지므로
+ * 문서는 방향을, 코드는 값을 갖는다. 값을 바꿀 때 대조할 곳은 아래 근거지 문서가 아니다.
+ *
+ * **jargon** — 용어를 금지한 대상(nontech, exec, outsider)은 어절 200개에 풀이 없는 용어가
+ * 하나 나오면 경고(0.005)다. 그보다 잦으면 풀이를 빠뜨린 것이다. peer 는 반대로 거의 안
+ * 걸려야 한다 — 실측하면 동료용 짧은 문장 하나에 용어 셋이 30% 근처라 그 위(0.35)에 둔다.
+ *
+ * **sentence** — 한글 산문에서 한 문장이 40자를 넘으면 소리 내 읽을 때 한 번 끊긴다.
+ * outsider 는 그 절반(35), peer 는 두 배 가까이(70) 허용한다.
+ *
+ * **coverage** — 용어를 허용한 대상만 잰다. 핵심어를 다섯 개 잡으므로 0.6 은 셋, 0.8 은
+ * 넷이다. peer 는 넷을 요구하고 manager 는 절반이면 된다. 나머지 셋은 아래 CoverageRule
+ * 주석대로 축을 끈다.
  */
 export const PRESETS: Record<Audience, AudiencePreset> = {
   nontech: {
@@ -72,7 +92,7 @@ export const PRESETS: Record<Audience, AudiencePreset> = {
     who: '기획, 디자인, 마케팅 동료',
     jargon: { warn: 0.005, abort: 0.02 },
     sentence: { warn: 45, abort: 60 },
-    coverage: { warn: 0.4, abort: 0.2 },
+    coverage: 'off',
     analogy: 'required',
     register: 'polite',
   },
@@ -108,7 +128,7 @@ export const PRESETS: Record<Audience, AudiencePreset> = {
     who: '경영진',
     jargon: { warn: 0.005, abort: 0.02 },
     sentence: { warn: 50, abort: 70 },
-    coverage: { warn: 0.4, abort: 0.2 },
+    coverage: 'off',
     analogy: 'off',
     register: 'formal',
   },
@@ -117,7 +137,7 @@ export const PRESETS: Record<Audience, AudiencePreset> = {
     who: '사외 비전문가, 가족',
     jargon: { warn: 0, abort: 0.01 },
     sentence: { warn: 35, abort: 50 },
-    coverage: { warn: 0.2, abort: 0.1 },
+    coverage: 'off',
     analogy: 'required',
     register: 'polite',
   },
@@ -127,9 +147,13 @@ export function isAudience(value: string): value is Audience {
   return (AUDIENCES as readonly string[]).includes(value);
 }
 
-/** 값이 없으면 기본값, 모르는 값이면 undefined. 종료 코드는 부르는 쪽이 정한다 */
+/**
+ * 값이 없으면 기본값, 모르는 값이면 undefined. 종료 코드는 부르는 쪽이 정한다.
+ *
+ * 빈 문자열도 안 준 것으로 본다. commander 가 `--audience` 를 값 없이 받으면 그 꼴로 온다.
+ */
 export function parseAudience(value?: string): Audience | undefined {
-  if (value === undefined) return DEFAULT_AUDIENCE;
+  if (value === undefined || value === '') return DEFAULT_AUDIENCE;
   return isAudience(value) ? value : undefined;
 }
 

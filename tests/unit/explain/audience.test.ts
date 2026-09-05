@@ -35,13 +35,24 @@ describe('대상 프리셋', () => {
 
   it('하한 축인 coverage는 방향이 반대다', () => {
     for (const preset of Object.values(PRESETS)) {
+      if (preset.coverage === 'off') continue;
       expect(preset.coverage.warn).toBeGreaterThan(preset.coverage.abort);
     }
   });
 
-  it('전문가 대상일수록 핵심어를 많이 남기라고 요구한다', () => {
-    expect(PRESETS.peer.coverage.warn).toBeGreaterThan(PRESETS.nontech.coverage.warn);
-    expect(PRESETS.nontech.coverage.warn).toBeGreaterThan(PRESETS.outsider.coverage.warn);
+  it('용어를 금지한 대상은 핵심어 잔존을 안 잰다', () => {
+    const off = AUDIENCES.filter((a) => PRESETS[a].coverage === 'off');
+    expect(off).toEqual(['nontech', 'exec', 'outsider']);
+  });
+
+  it('용어를 허용한 대상은 전문가일수록 핵심어를 많이 요구한다', () => {
+    const warnOf = (audience: (typeof AUDIENCES)[number]): number => {
+      const rule = PRESETS[audience].coverage;
+      if (rule === 'off') throw new Error(`${audience}는 coverage를 안 잰다`);
+      return rule.warn;
+    };
+    expect(warnOf('peer')).toBeGreaterThan(warnOf('junior'));
+    expect(warnOf('junior')).toBeGreaterThan(warnOf('manager'));
   });
 
   it('비전문가 대상일수록 용어 상한이 낮다', () => {

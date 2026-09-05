@@ -107,13 +107,20 @@ describe('coverage 축', () => {
     expect(report.metrics.coveredTerms).toEqual([]);
   });
 
-  it('사외 대상은 하나만 남겨도 통과한다', () => {
-    const report = runExplainCheck(
-      SOURCE,
-      'ESM(요즘 방식 불러오기)이 파일을 못 찾았어요. 자물쇠 열쇠가 안 맞는 것처럼요.',
-      { audience: 'outsider' },
-    );
-    expect(axis(report, 'coverage').verdict).toBe('pass');
+  it('용어를 금지한 대상에게는 축을 아예 안 건다', () => {
+    // 룰북이 전문용어를 금지한 자리라 핵심어를 남기라고 요구할 수 없다. 시킨 대로 쓴 글이
+    // 걸리면 재시도 루프가 라이터를 용어를 다시 집어넣는 방향으로 민다
+    const plain = '열쇠가 안 맞아서 문이 안 열린 것처럼 프로그램이 파일을 못 찾았어요.';
+    for (const audience of ['nontech', 'exec', 'outsider'] as const) {
+      const report = runExplainCheck(SOURCE, plain, { audience });
+      expect(axis(report, 'coverage').verdict).toBe('pass');
+      expect(axis(report, 'coverage').detail).toContain('안 본다');
+    }
+  });
+
+  it('용어를 허용한 대상은 그대로 잰다', () => {
+    const report = runExplainCheck(SOURCE, '뭔가 잘못돼서 멈췄어요.', { audience: 'junior' });
+    expect(axis(report, 'coverage').verdict).toBe('abort');
   });
 
   it('원문에 전문용어가 없으면 판정할 게 없다', () => {

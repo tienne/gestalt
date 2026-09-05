@@ -10,6 +10,7 @@ export {
   type Audience,
   type AudiencePreset,
   type Band,
+  type CoverageRule,
   type Register,
 } from './audience.js';
 export {
