@@ -31,7 +31,10 @@ export interface TermUse {
 
 /**
  * 왼쪽 경계를 후행 부정으로 막는 건 파일명이 잘려 두 용어가 되기 때문이다.
- * `\b` 만 쓰면 `vitest.config.ts` 에서 `config.ts` 가 따로 걸려 한 번 쓴 말이 두 번으로 잡힌다.
+ *
+ * 막는 자리는 앞에 경로 구분자나 `@`, 점이 붙은 꼴이다. `a/config.ts` 에서 `config.ts` 만
+ * 따로 걸리면 한 파일이 두 용어가 된다. `vitest.config.ts` 는 아래 정규식이 파일명 중간
+ * 점을 넘어서 이 장치가 없어도 통째로 잡히니 그 예시로 이 줄을 설명하면 안 된다.
  */
 const NOT_TOKEN_TAIL = '(?<![\\w.@/-])';
 const FILE_EXT = 'ts|tsx|js|jsx|mjs|cjs|json|ya?ml|md|py|go|rs|java|kt|sh|sql|toml|lock';
@@ -120,63 +123,117 @@ function boundaryOk(text: string, start: number, term: string): boolean {
   return true;
 }
 
-/** 원문에 나온 전문용어 후보. 같은 말이 여러 꼴에 걸리면 먼저 걸린 갈래로 둔다 */
+/**
+ * 후보 수 상한.
+ *
+ * readInput 이 막는 건 바이트 수지 유니크 후보 수가 아니다. 생성된 타입 파일이나 락파일은
+ * 2MB 안에서도 식별자가 수만 개 나오는데, 그만큼을 교대 정규식 하나로 합치면 패턴이
+ * 커져 컴파일 자체가 비싸진다. 자주 나온 것부터 남긴다 — 그 글이 붙들고 있는 말이 앞에 온다.
+ */
+const MAX_CANDIDATES = 1000;
+
+/**
+ * 원문에 나온 전문용어 후보. 같은 말이 여러 꼴에 걸리면 먼저 걸린 갈래로 둔다.
+ *
+ * 여기서 세는 건 정규식이 걸린 횟수라 실제 출현 수와 다를 수 있다 — 긴 용어에 먹히는
+ * 자리를 아직 안 걸렀기 때문이다. 상한을 넘겼을 때 무엇을 남길지 고르는 데만 쓰고
+ * 정확한 건수는 findTermUses 가 다시 센다.
+ */
 function candidates(source: string): Map<string, TermKind> {
-  const found = new Map<string, TermKind>();
+  const found = new Map<string, { kind: TermKind; rough: number }>();
 
   for (const { kind, re, capture } of EXTRACTORS) {
     for (const match of source.matchAll(re)) {
       const raw = (capture === undefined ? match[0] : match[capture])!.trim();
       if (raw.length < 2) continue;
-      if (!found.has(raw)) found.set(raw, kind);
+      const seen = found.get(raw);
+      if (seen) seen.rough += 1;
+      else found.set(raw, { kind, rough: 1 });
     }
   }
 
-  return found;
+  if (found.size <= MAX_CANDIDATES) {
+    return new Map([...found].map(([text, { kind }]) => [text, kind]));
+  }
+  return new Map(
+    [...found]
+      .sort((a, b) => b[1].rough - a[1].rough || a[0].localeCompare(b[0]))
+      .slice(0, MAX_CANDIDATES)
+      .map(([text, { kind }]) => [text, kind]),
+  );
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 그 위치를 품는 문장을 이분 탐색으로 찾는다.
+ *
+ * sentenceSpans 가 이미 위치 순으로 정렬된 배열을 주므로 앞에서부터 훑을 이유가 없다.
+ * 선형으로 찾으면 매치 수에 문장 수가 곱해진다.
+ */
+function spanAt(spans: readonly Span[], index: number): Span | undefined {
+  let low = 0;
+  let high = spans.length - 1;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const span = spans[mid]!;
+    if (index < span.start) high = mid - 1;
+    else if (index >= span.end) low = mid + 1;
+    else return span;
+  }
+  return undefined;
 }
 
 /**
  * 텍스트에서 용어가 실제로 쓰인 자리를 찾는다.
  *
- * 긴 용어부터 훑고 먹은 구간을 지운다. `ERR_MODULE_NOT_FOUND` 안의 `MODULE` 을 따로 세면
- * 한 번 쓴 말이 두 번으로 잡혀 밀도가 부풀기 때문이다.
+ * 용어 전부를 하나의 교대 정규식으로 합쳐 한 번만 훑는다. 용어마다 따로 전체를 재훑으면
+ * 용어 수에 텍스트 길이가 곱해지는데, 후보 수는 텍스트가 길수록 함께 늘어서 제곱으로
+ * 붕괴한다. 실측하면 그 꼴이 1.9MB 입력에서 수십 초였다 — readInput 이 허용하는 크기다.
+ *
+ * 긴 용어를 교대 앞에 두는 건 정규식이 왼쪽부터 시도하기 때문이다. 그래서 같은 자리에서
+ * `ERR_MODULE_NOT_FOUND` 가 `MODULE` 보다 먼저 잡히고, 매치가 소비되므로 안쪽 짧은 용어가
+ * 따로 세어지지 않는다. `src/explain/check.ts` 와 `explain/check.ts` 처럼 한쪽이 다른 쪽을
+ * 품는 경로도 같은 이유로 한 번만 걸린다.
+ *
+ * 포함이 아니라 앞뒤가 어긋나게 겹치는 두 용어(`abc` 와 `bcdef`)는 앞선 쪽이 이긴다.
+ * 여기서 뽑는 용어는 식별자와 경로라 그렇게 겹치는 짝이 안 나온다.
  */
 export function findTermUses(text: string, terms: readonly Term[]): TermUse[] {
+  if (terms.length === 0) return [];
+
   const sorted = [...terms].sort((a, b) => b.text.length - a.text.length);
-  const taken = new Array<boolean>(text.length).fill(false);
+  const byText = new Map(sorted.map((term) => [term.text, term]));
   const spans = sentenceSpans(text);
   const uses: TermUse[] = [];
 
-  for (const term of sorted) {
-    let from = 0;
-    for (;;) {
-      const at = text.indexOf(term.text, from);
-      if (at === -1) break;
-      from = at + 1;
+  const re = new RegExp(sorted.map((term) => escapeRegExp(term.text)).join('|'), 'g');
 
-      if (!boundaryOk(text, at, term.text)) continue;
-      let overlaps = false;
-      for (let i = at; i < at + term.text.length; i += 1) {
-        if (taken[i]) {
-          overlaps = true;
-          break;
-        }
-      }
-      if (overlaps) continue;
-      for (let i = at; i < at + term.text.length; i += 1) taken[i] = true;
+  for (let match = re.exec(text); match !== null; match = re.exec(text)) {
+    const found = match[0];
+    const at = match.index;
 
-      const span = spans.find((s) => at >= s.start && at < s.end);
-      uses.push({
-        term: term.text,
-        kind: term.kind,
-        index: at,
-        glossed: span ? isGlossed(span, at - span.start, term.text) : false,
-        excerpt: excerptAt(text, at, term.text),
-      });
+    if (!boundaryOk(text, at, found)) {
+      // 경계에 안 맞은 자리를 통째로 건너뛰면 거기서 시작하는 다른 용어를 놓친다
+      re.lastIndex = at + 1;
+      continue;
     }
+
+    const term = byText.get(found)!;
+    const span = spanAt(spans, at);
+    uses.push({
+      term: found,
+      kind: term.kind,
+      index: at,
+      glossed: span ? isGlossed(span, at - span.start, found) : false,
+      excerpt: excerptAt(text, at, found),
+    });
   }
 
-  return uses.sort((a, b) => a.index - b.index);
+  return uses;
 }
 
 /**

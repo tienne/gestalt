@@ -33,6 +33,26 @@ describe('전문용어 추출', () => {
     expect(module?.count).toBe(1);
   });
 
+  it('한쪽이 다른 쪽을 품는 경로를 한 번만 센다', () => {
+    // 교대 정규식이 긴 쪽부터 시도해 매치를 소비하므로 안쪽 경로가 따로 안 걸린다.
+    // 이 규칙이 깨지면 같은 자리가 두 용어로 잡혀 밀도와 잔존율이 함께 부푼다
+    const uses = findTermUses('src/explain/check.ts 를 고쳤다', [
+      { text: 'src/explain/check.ts', kind: 'path', count: 1 },
+      { text: 'explain/check.ts', kind: 'path', count: 1 },
+    ]);
+    expect(uses.map((u) => u.term)).toEqual(['src/explain/check.ts']);
+  });
+
+  it('시작점이 같은 두 용어에서 긴 쪽을 고른다', () => {
+    // 정규식 교대는 왼쪽부터 시도하므로 긴 용어를 앞에 둬야 짧은 쪽이 먼저 물어가지 않는다.
+    // 이게 뒤집히면 `src/explain` 이 잡히고 뒤의 `/check.ts` 가 버려진다
+    const uses = findTermUses('src/explain/check.ts 를 고쳤다', [
+      { text: 'src/explain', kind: 'path', count: 1 },
+      { text: 'src/explain/check.ts', kind: 'path', count: 1 },
+    ]);
+    expect(uses.map((u) => u.term)).toEqual(['src/explain/check.ts']);
+  });
+
   it('한 번도 안 나온 후보는 버린다', () => {
     expect(extractTerms('그냥 한국어 문장이에요.')).toEqual([]);
   });
@@ -74,5 +94,25 @@ describe('풀이 판정', () => {
   it('다른 문장의 풀이는 그 문장에 안 걸어준다', () => {
     const uses = findTermUses('ESM 로더가 멈췄어요. 캐시(저장해둔 자리)도 봤어요.', terms);
     expect(uses.find((u) => u.term === 'ESM')?.glossed).toBe(false);
+  });
+});
+
+describe('단어 경계', () => {
+  const esm = [{ text: 'ESM', kind: 'acronym' as const, count: 1 }];
+
+  it('다른 영문 토큰에 들러붙은 자리는 안 센다', () => {
+    expect(findTermUses('ESMCJS 로더가 멈췄어요.', esm)).toEqual([]);
+    expect(findTermUses('CJSESM 로더가 멈췄어요.', esm)).toEqual([]);
+  });
+
+  it('띄어 쓴 자리와 조사가 붙은 자리는 센다', () => {
+    expect(findTermUses('ESM 로더가 멈췄어요.', esm)).toHaveLength(1);
+    expect(findTermUses('ESM이 멈췄어요.', esm)).toHaveLength(1);
+  });
+
+  it('한 자리가 경계에 걸려도 그 뒤를 계속 훑는다', () => {
+    const uses = findTermUses('ESMX 는 아니고 ESM 로더가 멈췄어요.', esm);
+    expect(uses).toHaveLength(1);
+    expect(uses[0]!.index).toBe(11);
   });
 });
