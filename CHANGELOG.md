@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.72.8] - 2026-09-05
+
+### Fixed
+
+- **Orca 앱 채팅의 스킬 피커에 gestalt 스킬이 하나도 안 뜨던 걸 고쳤어요.** Orca는 `plugin.json`을 안 읽어요. `installed_plugins.json`에서 받은 설치 경로 뒤에 `skills`를 하드코딩해 붙인 뒤 그 아래만 훑어요. 실물이 `plugin/skills/`에만 있어서 결과가 0건이었고요.
+  - 루트에 상대 경로 심링크(`skills → plugin/skills`)를 걸어 그 경로를 열었어요. Orca 스캔이 `find -L`이고 앞단 존재 확인도 `[ ! -d ]`라 둘 다 심링크를 따라가요. 디렉토리를 새로 만들 필요 없이 링크 하나면 돼요
+  - 심링크만 추가하면 Claude Code 쪽에서 같은 스킬이 두 벌 올라와요. `plugin.json`의 `skills` 필드와 루트 `skills/`를 둘 다 훑거든요. 19개가 38개가 되고 상시 토큰이 ~3,071에서 ~6,137로 늘어요. 그래서 필드를 빼고 심링크 한 곳만 진입점으로 남겼어요
+  - 실물 파일은 하나도 안 옮겼어요. Codex와 Grok은 마켓플레이스 매니페스트가 `./plugin`을 가리켜 그 디렉토리만 복사해요. 실물을 루트로 빼면 두 클라이언트가 스킬 19개를 통째로 잃고요. 살리려면 path를 `./`로 되돌려야 하는데 그러면 `.git`과 `node_modules`까지 딸려가 1.6GB가 돼요
+  - `src/core/constants.ts`의 `SKILLS_DIR`, `src/core/config.ts`의 `skillsDir` 기본값, `plugin/.codex-plugin/plugin.json`의 `"skills": "./skills/"`는 전부 그대로 뒀어요. 심링크가 `plugin/` 밖이라 Codex와 Grok의 복사 범위 밖이거든요
+
+### Changed
+
+- **`CLAUDE.md`와 `AGENTS.md`의 배포 구조 절을 지금 구조에 맞췄어요.** 매니페스트 표가 `plugin.json`의 `skills` 필드를 그대로 적고 있어 어긋나 있었어요.
+  - 필드 줄을 심링크 줄로 바꾸고 대상 클라이언트를 "세 클라이언트"에서 "네 클라이언트"로 고쳐 Orca를 넣었어요
+  - 새로 적은 사실 셋이에요 — Orca가 `plugin.json`을 안 읽는다는 것, Claude가 양쪽을 다 훑어 중복 로드된다는 것, 심링크가 Codex나 Grok과는 무관하다는 것이에요
+
+### 검증 범위
+
+- `pnpm gate` exit 0 — 파일 124개, 테스트 1709개 통과
+- Orca가 실제로 돌리는 `find -L` 스캔을 캐시 경로에 그대로 재현해 SKILL.md 19개를 확인했어요
+- `claude plugin details gestalt`로 Skills 19개, Always-on ~3,071 토큰을 봤어요. 심링크만 있고 필드가 남아 있던 중간 상태에서는 38개, ~6,137 토큰이었고요
+- Orca 앱 스킬 피커에 실제로 뜨는 것까지 확인했어요
+
+### 남긴 것
+
+- 중복 로드는 `claude -p "스킬 목록 나열"`로 물으면 안 보여요. 중복이 있어도 19개로 답해서 정상처럼 읽혀요. 인벤토리는 `claude plugin details`로 뽑아야 38개가 드러나요. 이걸 자동으로 거는 자리는 안 만들었으니 다음에 스킬 경로를 건드리면 손으로 확인해야 해요
+
 ## [0.72.7] - 2026-09-05
 
 ### Added
