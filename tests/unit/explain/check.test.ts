@@ -1,0 +1,295 @@
+import { describe, it, expect } from 'vitest';
+import {
+  DETERMINISTIC_AXES,
+  EXIT_CODE,
+  MAX_ATTEMPTS,
+  decide,
+  formatExplainReport,
+  judgeAccuracy,
+  registerStats,
+  runExplainCheck,
+  withAxis,
+  type AxisResult,
+  type ExplainAxis,
+  type ExplainReport,
+} from '../../../src/explain/index.js';
+import type { LLMAdapter, LLMRequest, LLMResponse } from '../../../src/llm/types.js';
+
+const SOURCE = [
+  "Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'src/humanize/detectors'",
+  'vitest.config.ts 의 resolve.alias 가 ESM 확장자를 안 붙였다.',
+  'CJS 시절 경로가 finalizeResolution 에서 그대로 터진다.',
+].join('\n');
+
+const axis = (report: ExplainReport, name: ExplainAxis): AxisResult =>
+  report.axes.find((a) => a.axis === name)!;
+
+function fakeAdapter(content: string): LLMAdapter {
+  return {
+    chat: async (_request: LLMRequest): Promise<LLMResponse> => ({
+      content,
+      usage: { inputTokens: 0, outputTokens: 0 },
+    }),
+  };
+}
+
+describe('결정론 축', () => {
+  it('LLM 없이 다섯 축을 낸다', () => {
+    const report = runExplainCheck(SOURCE, '설명이에요.', { audience: 'peer' });
+    expect(report.axes.map((a) => a.axis)).toEqual([...DETERMINISTIC_AXES]);
+  });
+
+  it('같은 입력에 같은 결과가 나온다', () => {
+    const a = runExplainCheck(SOURCE, 'ESM 로더가 멈췄어요.', { audience: 'peer' });
+    const b = runExplainCheck(SOURCE, 'ESM 로더가 멈췄어요.', { audience: 'peer' });
+    expect(a).toEqual(b);
+  });
+
+  it('대상을 안 주면 peer로 잡는다', () => {
+    expect(runExplainCheck(SOURCE, '설명이에요.').audience).toBe('peer');
+  });
+});
+
+describe('jargon 축', () => {
+  it('풀이 없는 용어가 쌓이면 비전문가 대상에서 걸린다', () => {
+    const report = runExplainCheck(
+      SOURCE,
+      'ERR_MODULE_NOT_FOUND 때문에 ESM 로더가 CJS 경로를 못 읽었어요.',
+      { audience: 'nontech' },
+    );
+    expect(axis(report, 'jargon').verdict).toBe('abort');
+  });
+
+  it('첫 등장에 풀어주면 그 뒤 출현까지 풀린 것으로 센다', () => {
+    const report = runExplainCheck(
+      SOURCE,
+      'ESM(요즘 방식 불러오기)이 멈췄어요. ESM 쪽 설정만 고치면 돼요. ESM 말고는 안 건드려요.',
+      { audience: 'nontech' },
+    );
+    expect(report.metrics.unglossed).toBe(0);
+    expect(axis(report, 'jargon').verdict).toBe('pass');
+  });
+
+  it('동료 대상은 용어를 그대로 써도 안 걸린다', () => {
+    const report = runExplainCheck(
+      SOURCE,
+      'ERR_MODULE_NOT_FOUND 는 vitest.config.ts 의 alias 탓이에요. ESM 이라 확장자가 필요해요.',
+      { audience: 'peer' },
+    );
+    expect(axis(report, 'jargon').verdict).toBe('pass');
+  });
+});
+
+describe('length 축', () => {
+  it('사외 대상에게 긴 문장은 채택 금지다', () => {
+    const long = `${'가나다라마바사아자차'.repeat(7)}예요.`;
+    expect(axis(runExplainCheck(SOURCE, long, { audience: 'outsider' }), 'length').verdict).toBe(
+      'abort',
+    );
+  });
+
+  it('짧은 문장은 통과한다', () => {
+    const report = runExplainCheck(SOURCE, '파일을 못 찾았어요.', { audience: 'outsider' });
+    expect(axis(report, 'length').verdict).toBe('pass');
+  });
+
+  it('잴 문장이 없으면 중단이다', () => {
+    expect(axis(runExplainCheck(SOURCE, '```ts\nconst a = 1;\n```', {}), 'length').verdict).toBe(
+      'abort',
+    );
+  });
+});
+
+describe('coverage 축', () => {
+  it('핵심어를 하나도 안 남기면 채택 금지다', () => {
+    const report = runExplainCheck(SOURCE, '뭔가 잘못돼서 멈췄어요.', { audience: 'peer' });
+    expect(axis(report, 'coverage').verdict).toBe('abort');
+    expect(report.metrics.coveredTerms).toEqual([]);
+  });
+
+  it('사외 대상은 하나만 남겨도 통과한다', () => {
+    const report = runExplainCheck(
+      SOURCE,
+      'ESM(요즘 방식 불러오기)이 파일을 못 찾았어요. 자물쇠 열쇠가 안 맞는 것처럼요.',
+      { audience: 'outsider' },
+    );
+    expect(axis(report, 'coverage').verdict).toBe('pass');
+  });
+
+  it('원문에 전문용어가 없으면 판정할 게 없다', () => {
+    const report = runExplainCheck('그냥 한국어 원문이에요.', '설명이에요.', {});
+    expect(axis(report, 'coverage').verdict).toBe('pass');
+    expect(report.metrics.coverage).toBe(1);
+  });
+});
+
+describe('analogy 축', () => {
+  it('필수 대상인데 표지가 없으면 채택 금지다', () => {
+    const report = runExplainCheck(SOURCE, 'ESM(불러오기 방식)이 멈췄어요.', {
+      audience: 'nontech',
+    });
+    expect(axis(report, 'analogy').verdict).toBe('abort');
+  });
+
+  it('권장 대상은 없어도 경고까지다', () => {
+    const report = runExplainCheck(SOURCE, 'ESM(불러오기 방식)이 멈췄어요.', {
+      audience: 'junior',
+    });
+    expect(axis(report, 'analogy').verdict).toBe('warn');
+  });
+
+  it('동료 대상은 비유를 아예 안 본다', () => {
+    const report = runExplainCheck(SOURCE, 'ESM 로더가 멈췄어요.', { audience: 'peer' });
+    expect(axis(report, 'analogy').verdict).toBe('pass');
+  });
+
+  it('표지가 있으면 통과한다', () => {
+    const report = runExplainCheck(SOURCE, '이사 간 집에 전화한 것처럼 됐어요.', {
+      audience: 'nontech',
+    });
+    expect(axis(report, 'analogy').verdict).toBe('pass');
+  });
+});
+
+describe('register 축', () => {
+  it('어미를 갈래별로 센다', () => {
+    expect(registerStats('돼요. 그렇습니다. 그렇다.')).toEqual({
+      polite: 1,
+      formal: 1,
+      plain: 1,
+    });
+  });
+
+  it('두 문장 이상 섞이면 채택 금지다', () => {
+    const report = runExplainCheck(SOURCE, '멈췄어요. 확인했습니다. 고쳤습니다.', {
+      audience: 'peer',
+    });
+    expect(axis(report, 'register').verdict).toBe('abort');
+  });
+
+  it('긴 글에서 한 문장만 튀면 경고까지다', () => {
+    const body = `${'멈췄어요. '.repeat(11)}확인했습니다.`;
+    expect(axis(runExplainCheck(SOURCE, body, { audience: 'peer' }), 'register').verdict).toBe(
+      'warn',
+    );
+  });
+
+  it('짧은 글에서 한 문장이 튀면 섞어 쓴 것으로 본다', () => {
+    const report = runExplainCheck(SOURCE, '멈췄어요. 고쳤어요. 확인했습니다.', {
+      audience: 'peer',
+    });
+    expect(axis(report, 'register').verdict).toBe('abort');
+  });
+
+  it('대상표가 정한 어미가 아니면 경고다', () => {
+    const report = runExplainCheck(SOURCE, '멈췄어요. 고쳤어요.', { audience: 'exec' });
+    expect(axis(report, 'register').verdict).toBe('warn');
+  });
+
+  it('인용줄 어미는 안 센다', () => {
+    expect(registerStats('멈췄어요.\n> 확인했습니다.')).toEqual({
+      polite: 1,
+      formal: 0,
+      plain: 0,
+    });
+  });
+});
+
+describe('심판 축', () => {
+  it('JSON 판정을 축으로 옮긴다', async () => {
+    const result = await judgeAccuracy(
+      fakeAdapter(
+        '{"verdict":"abort","detail":"원인을 뒤집었다","evidence":["ESM 때문이 아니다"]}',
+      ),
+      { source: SOURCE, explanation: '설명이에요.', audience: 'peer' },
+    );
+    expect(result).toEqual({
+      axis: 'accuracy',
+      verdict: 'abort',
+      detail: '원인을 뒤집었다',
+      evidence: ['ESM 때문이 아니다'],
+    });
+  });
+
+  it('못 읽는 응답은 경고로 흘린다', async () => {
+    const result = await judgeAccuracy(fakeAdapter('음 잘 모르겠는데요'), {
+      source: SOURCE,
+      explanation: '설명이에요.',
+      audience: 'peer',
+    });
+    expect(result.verdict).toBe('warn');
+  });
+
+  it('모르는 판정 이름은 안 받는다', async () => {
+    const result = await judgeAccuracy(fakeAdapter('{"verdict":"maybe","detail":"글쎄"}'), {
+      source: SOURCE,
+      explanation: '설명이에요.',
+      audience: 'peer',
+    });
+    expect(result.verdict).toBe('warn');
+  });
+
+  it('호출이 터지면 검사를 멈추지 않는다', async () => {
+    const broken: LLMAdapter = {
+      chat: async () => {
+        throw new Error('no api key');
+      },
+    };
+    const result = await judgeAccuracy(broken, {
+      source: SOURCE,
+      explanation: '설명이에요.',
+      audience: 'peer',
+    });
+    expect(result.verdict).toBe('warn');
+    expect(result.detail).toContain('no api key');
+  });
+
+  it('심판 축을 얹으면 판정을 다시 낸다', () => {
+    const base = runExplainCheck(
+      SOURCE,
+      'ERR_MODULE_NOT_FOUND 는 vitest.config.ts 의 alias 탓이에요. ESM 이라 확장자가 필요해요. finalizeResolution 에서 CJS 경로가 터져요.',
+      { audience: 'peer' },
+    );
+    expect(base.verdict).toBe('pass');
+
+    const merged = withAxis(base, { axis: 'accuracy', verdict: 'abort', detail: '지어냈다' });
+    expect(merged.verdict).toBe('abort');
+    expect(merged.exitCode).toBe(EXIT_CODE.abort);
+    expect(merged.axes).toHaveLength(6);
+  });
+});
+
+describe('다음 행동', () => {
+  const report = (verdict: 'pass' | 'warn' | 'abort'): ExplainReport => ({
+    audience: 'peer',
+    verdict,
+    exitCode: EXIT_CODE[verdict],
+    metrics: runExplainCheck(SOURCE, '설명이에요.').metrics,
+    axes: [{ axis: 'coverage', verdict, detail: '테스트' }],
+  });
+
+  it('통과면 채택한다', () => {
+    expect(decide(report('pass')).action).toBe('accept');
+  });
+
+  it('경고면 걸린 축을 적고 채택한다', () => {
+    const decision = decide(report('warn'));
+    expect(decision.action).toBe('accept-with-warning');
+    expect(decision.message).toContain('coverage');
+  });
+
+  it('중단이면 다시 쓰게 한다', () => {
+    expect(decide(report('abort'), 1).action).toBe('retry');
+  });
+
+  it('재시도를 소진하면 사람에게 넘긴다', () => {
+    expect(decide(report('abort'), MAX_ATTEMPTS).action).toBe('fallback');
+  });
+
+  it('보고문에 축과 다음 행동이 함께 나온다', () => {
+    const text = formatExplainReport(report('abort'), 1);
+    expect(text).toContain('exit 2');
+    expect(text).toContain('[중단] coverage');
+    expect(text).toContain('[다음] retry');
+  });
+});

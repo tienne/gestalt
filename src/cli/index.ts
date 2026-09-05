@@ -10,6 +10,7 @@ import { updateCommand } from './commands/update.js';
 import { usageReportCommand } from './commands/usage-report.js';
 import { humanizeCheckCommand } from './commands/humanize-check.js';
 import { humanizeScanCommand } from './commands/humanize-scan.js';
+import { explainCheckCommand } from './commands/explain-check.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -248,6 +249,32 @@ export function createCli(): Command {
         json?: boolean;
       }) => {
         humanizeCheckCommand(options);
+      },
+    );
+
+  program
+    .command('explain-check')
+    .description('설명본이 그 대상에게 읽히는 글인지 판정한다 (exit 0 통과 / 1 경고 / 2 중단)')
+    .requiredOption('--source <path>', '설명하려는 원문 파일')
+    .requiredOption('--explain <path>', '설명본 파일')
+    .option(
+      '--audience <nontech|junior|peer|manager|exec|outsider>',
+      '누가 읽는지 (기본 peer)',
+      'peer',
+    )
+    .option('--judge', '사실 정확도 축을 심판 모델에게 맡긴다 (나머지 다섯 축은 항상 코드가 잰다)')
+    .option('--attempt <n>', '몇 번째 설명본인지 (기본 1)', '1')
+    .option('--json', '판정 결과를 JSON으로')
+    .action(
+      async (options: {
+        source: string;
+        explain: string;
+        audience?: string;
+        judge?: boolean;
+        attempt?: string;
+        json?: boolean;
+      }) => {
+        await explainCheckCommand(options);
       },
     );
 
