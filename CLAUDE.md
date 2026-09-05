@@ -97,16 +97,20 @@ plugin/personas/       — Lateral Thinking 페르소나
 
 ## 플러그인 배포 구조
 
-세 클라이언트가 같은 `plugin/`을 각자 매니페스트로 가리킨다. 복사도 심링크도 없다.
+네 클라이언트가 같은 스킬을 본다. 실물은 `plugin/skills/` 한 곳에 있고 복사본은 없다. 루트 `skills`만 심링크다.
 
 ```
-.claude-plugin/plugin.json        "skills": "./plugin/skills/"
+skills → plugin/skills            루트 심링크 — Claude와 Orca가 읽는다
+.claude-plugin/plugin.json        skills 필드 없음 (다시 넣으면 스킬이 두 번 로드된다)
 .agents/plugins/marketplace.json  path: "./plugin"        ← Codex
 .grok-plugin/marketplace.json     source: "./plugin"      ← Grok
 plugin/.codex-plugin/plugin.json  "skills": "./skills/"
 plugin/.mcp.json                  Grok MCP (plugin/mcp.json과 동일)
 ```
 
+- Orca는 `plugin.json`을 안 읽는다. 설치 경로 뒤에 `skills`를 하드코딩해 붙이고 그 아래만 훑는다. 루트 `skills` 심링크를 지우면 Orca 채팅의 스킬 피커에서 gestalt 스킬이 하나도 안 뜬다.
+- Claude는 `.claude-plugin/plugin.json`의 `skills` 필드와 루트 `skills/`를 둘 다 훑는다. 둘 다 있으면 같은 스킬을 두 번 로드한다 (19개가 38개가 되고 상시 토큰이 3k 늘어난다). 그래서 필드는 비워두고 심링크 한 곳만 남긴다.
+- 그 심링크는 `plugin/` 밖이라 Codex와 Grok이 복사하는 범위에 안 들어간다. 둘은 `plugin/skills/` 실물을 그대로 읽으므로 심링크와 무관하다.
 - Codex는 마켓플레이스 매니페스트를 `.agents/plugins/marketplace.json`에서만 찾는다. `.codex-plugin/marketplace.json`은 인식하지 않는다.
 - Grok은 `.grok-plugin/marketplace.json`만 읽는다. 마켓플레이스를 고칠 일이 있으면 여기를 고친다. source는 반드시 `./plugin`이다. Claude 매니페스트(`source: "./"`)를 바꾸지 말 것.
 - Grok은 `plugin/.mcp.json`(점 파일)을 읽는다. `plugin/mcp.json`과 내용을 같게 유지한다.

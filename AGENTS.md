@@ -49,11 +49,13 @@ retarget any of them. The reference is CLAUDE.md's
 ## Shipped skills live in `plugin/`
 
 The skills this package distributes are separate from the two repo-local ones
-above. They live in `plugin/skills/` and are shared by the Claude Code, Codex,
-and Grok plugin manifests — no copies, no symlinks.
+above. They live in `plugin/skills/` and are shared by the Claude Code, Orca,
+Codex, and Grok plugin manifests — one real copy, and the root `skills` symlink
+that points at it.
 
 ```
-.claude-plugin/plugin.json        "skills": "./plugin/skills/"
+skills → plugin/skills            root symlink — Claude and Orca read this
+.claude-plugin/plugin.json        no skills field (re-adding it double-loads)
 .agents/plugins/marketplace.json  path: "./plugin"        ← Codex reads this
 .grok-plugin/marketplace.json     source: "./plugin"      ← Grok reads this
 plugin/.codex-plugin/plugin.json  "skills": "./skills/"
@@ -62,6 +64,15 @@ plugin/.mcp.json                  Grok MCP (same as plugin/mcp.json)
 
 When changing anything under `plugin/`, keep these in mind.
 
+- Orca never reads `plugin.json`. It joins `skills` onto the install path and
+  walks only what is under there. Delete the root `skills` symlink and Orca's
+  chat skill picker shows no gestalt skills at all.
+- Claude Code walks both the `skills` field in `.claude-plugin/plugin.json` and
+  the root `skills/`. With both present it loads every skill twice — 19 become
+  38, and always-on cost grows by ~3k tokens. So the field stays out and the
+  symlink is the only entry point.
+- That symlink sits outside `plugin/`, so it never enters what Codex and Grok
+  copy. Both keep reading the real files under `plugin/skills/`.
 - Codex only finds a marketplace manifest at `.agents/plugins/marketplace.json`.
 - Grok marketplace is `.grok-plugin/marketplace.json`. Source must stay
   `./plugin`. Do not retarget `.claude-plugin/marketplace.json` (`source: "./"`).
