@@ -51,7 +51,7 @@ const fileSchema = z.object({
 
 export type EvalCase = z.infer<typeof caseSchema>;
 
-/** 결정론 다섯 축에 케이스별 어서션과 심판 축을 더한 것 */
+/** 결정론 여섯 축에 케이스별 어서션과 심판 축을 더한 것 */
 export type EvalAxis = ExplainAxis | 'assertions';
 
 export const EVAL_AXES: readonly EvalAxis[] = [...DETERMINISTIC_AXES, 'assertions', 'accuracy'];
@@ -109,7 +109,7 @@ export function loadCases(path: string): EvalCase[] {
 }
 
 /**
- * 케이스가 직접 적은 기대. 축 다섯이 못 보는 자리를 케이스마다 따로 잡는다.
+ * 케이스가 직접 적은 기대. 축 여섯이 못 보는 자리를 케이스마다 따로 잡는다.
  *
  * 있어야 할 말과 있으면 안 되는 말만 본다. 이걸 늘리기 시작하면 케이스 파일이 두 번째
  * 룰북이 되므로 두 갈래로 묶어 둔다.

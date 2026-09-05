@@ -239,14 +239,17 @@ function checkCoverage(
 // --- 원문에 발 붙였나 --------------------------------------------------------
 
 /**
- * 어느 대상에게나 거는 바닥.
+ * 원문에 발을 붙였는지 보는 지표.
  *
  * coverage 는 용어를 허용한 대상에게만 걸린다. 그 축이 꺼진 자리에 아무것도 안 두면 원문과
- * 무관한 글이 통과한다 — 실제로 WAL 저장소 설명 자리에서 점심 메뉴 이야기가 다섯 축을
+ * 무관한 글이 통과한다 — 실제로 WAL 저장소 설명 자리에서 점심 메뉴 이야기가 다른 축을
  * 전부 넘었다. 용어가 아니라 한글 내용어를 보므로 룰북의 용어 금지와 안 부딪힌다.
  *
- * 하나만 요구하는 건 좋은 설명일수록 원문 어휘를 버리기 때문이다. 재보면 잘 쓴 설명은
- * 몇 개를 담고 무관한 글은 0이다. 그 사이만 가른다.
+ * **채택 금지를 안 낸다.** 어휘 겹침으로는 좋은 의역과 무관한 글을 못 가른다 — 둘 다 원문
+ * 어휘를 안 남기기 때문이다. 재보면 WAL 원문을 냉장고 쪽지에 빗댄 정확한 설명이 겹침 0이다.
+ * 반대로 무관한 글이 흔한 부사 몇 개로 겹치기도 한다. 그래서 이 축은 사람에게 신호만 준다.
+ *
+ * 내용이 원문과 맞는지는 accuracy 가 본다. `--judge` 를 안 켜면 그 자리는 사람 몫이다.
  */
 function checkGrounding(grounding: Grounding): AxisResult {
   if (grounding.unmeasurable) {
@@ -266,8 +269,8 @@ function checkGrounding(grounding: Grounding): AxisResult {
   }
   return {
     axis: 'grounding',
-    verdict: 'abort',
-    detail: '원문 내용어를 하나도 안 담았다 — 원문과 다른 얘기일 수 있다',
+    verdict: 'warn',
+    detail: '원문 내용어를 하나도 안 담았다 — 완전히 풀어 쓴 것일 수도, 다른 얘기일 수도 있다',
     evidence: [`원문에 있던 말: ${grounding.source.slice(0, EVIDENCE_WORDS).join(', ')}`],
   };
 }
@@ -484,7 +487,9 @@ const VERDICTS: readonly string[] = ['pass', 'warn', 'abort'];
  * 심판에게 보여야 하기 때문이다 — JUDGE_SYSTEM 이 그 표시를 detail 에 적으라고 시킨다.
  */
 function sealTags(text: string): string {
-  return text.replace(/<\/?(?:source|explanation)>/gi, (tag) => `[escaped:${tag}]`);
+  // 이름 앞뒤 공백과 이름 뒤 임의 문자까지 연다. 공백 하나나 속성 하나로 빠져나가면
+  // 태그를 누른다는 말이 무색해진다
+  return text.replace(/<\s*\/?\s*(?:source|explanation)\b[^>]*>/gi, (tag) => `[escaped:${tag}]`);
 }
 
 /**

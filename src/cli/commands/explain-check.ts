@@ -53,7 +53,7 @@ export async function explainCheckCommand(options: ExplainCheckOptions): Promise
   const attempt = Math.max(1, Number(options.attempt ?? 1) || 1);
   let report = runExplainCheck(source, explanation, { audience });
 
-  // 심판은 옵트인이다. 안 켜면 결정론 다섯 축만으로 판정이 끝난다
+  // 심판은 옵트인이다. 안 켜면 결정론 여섯 축만으로 판정이 끝난다
   if (options.judge) {
     const config = loadConfig();
     if (!config.llm.apiKey) {

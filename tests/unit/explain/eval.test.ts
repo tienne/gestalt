@@ -149,14 +149,18 @@ describe('집계', () => {
     caseId,
     variant,
     explanation: '설명',
-    axes: Object.entries(verdicts).map(([axis, verdict]) => ({
-      axis: axis as CaseResult['axes'][number]['axis'],
-      verdict: verdict as CaseResult['verdict'],
-      detail: '',
-    })),
-    verdict: Object.values(verdicts).includes('abort')
+    axes: Object.entries(verdicts).map(([axis, spec]) => {
+      // verdict 만 주면 detail 이 빈다. `pass|안 잰다` 꼴로 주면 detail 까지 채운다
+      const [verdict, detail = ''] = spec.split('|');
+      return {
+        axis: axis as CaseResult['axes'][number]['axis'],
+        verdict: verdict as CaseResult['verdict'],
+        detail,
+      };
+    }),
+    verdict: Object.values(verdicts).some((v) => v.startsWith('abort'))
       ? 'abort'
-      : Object.values(verdicts).includes('warn')
+      : Object.values(verdicts).some((v) => v.startsWith('warn'))
         ? 'warn'
         : 'pass',
   });
@@ -172,10 +176,29 @@ describe('집계', () => {
     expect(jargon.delta).toBe(0.5);
   });
 
-  it('안 잰 축은 0%로 안 깎는다', () => {
+  it('축이 아예 없으면 0%로 안 깎는다', () => {
     const a = [result('c1', 'a', { jargon: 'pass' })];
     const summary = aggregate({ a: 'A', b: 'B' }, a, a);
     expect(summary.axes.find((row) => row.axis === 'accuracy')!.delta).toBe(0);
+  });
+
+  it('축은 있는데 안 잰 케이스도 분모에서 뺀다', () => {
+    // coverage 는 용어를 금지한 대상에도 결과를 하나 낸다. 그걸 분모에 넣으면 통과율에
+    // 바닥이 생겨 실제로 잰 케이스의 변화가 눌린다
+    const off = '핵심어 잔존을 안 본다';
+    const a = [
+      result('c1', 'a', { coverage: `pass|${off}` }),
+      result('c2', 'a', { coverage: 'abort|원문 핵심어 5개 중 0개' }),
+    ];
+    const b = [
+      result('c1', 'b', { coverage: `pass|${off}` }),
+      result('c2', 'b', { coverage: 'pass|원문 핵심어 5개 중 4개' }),
+    ];
+    const row = aggregate({ a: 'A', b: 'B' }, a, b).axes.find((x) => x.axis === 'coverage')!;
+
+    // 잰 케이스가 c2 하나뿐이라 0%에서 100%로 간다. off 를 분모에 넣으면 50%에서 100%다
+    expect(row.a).toBe(0);
+    expect(row.b).toBe(1);
   });
 
   it('전체 통과율은 축 하나라도 걸리면 안 센다', () => {

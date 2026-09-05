@@ -140,3 +140,21 @@ describe('문장 경계', () => {
     }
   });
 });
+
+describe('용어 목록 상한', () => {
+  it('candidates 를 안 거친 목록도 함수 경계에서 잘린다', () => {
+    // 상한이 candidates() 안에만 있으면 다른 호출자가 사전 같은 목록을 직접 넘길 때
+    // 교대 정규식이 무제한으로 커진다. 시간으로 재면 5000개도 몇 초 안에 끝나 안 걸리므로
+    // 잘린 자리가 결과에서 빠지는지로 본다
+    const long = Array.from({ length: 1000 }, (_, i) => ({
+      text: `VeryLongIdentifier${String(i).padStart(5, '0')}`,
+      kind: 'identifier' as const,
+      count: 1,
+    }));
+    const short = { text: 'Zz', kind: 'acronym' as const, count: 1 };
+
+    // 길이 내림차순으로 자르므로 짧은 Zz 가 상한 밖으로 밀린다
+    expect(findTermUses('Zz 하나만 있는 문장', [...long, short])).toEqual([]);
+    expect(findTermUses('Zz 하나만 있는 문장', [short])).toHaveLength(1);
+  });
+});
