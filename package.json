@@ -2,6 +2,14 @@
   "name": "@tienne/gestalt",
   "version": "0.72.9",
   "description": "TypeScript AI Development Harness - Gestalt psychology-driven requirement clarification",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tienne/gestalt.git"
+  },
+  "homepage": "https://github.com/tienne/gestalt#readme",
+  "bugs": {
+    "url": "https://github.com/tienne/gestalt/issues"
+  },
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
