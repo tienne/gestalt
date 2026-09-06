@@ -175,21 +175,30 @@ describe('analogy 축', () => {
     expect(axis(report, 'analogy').verdict).toBe('pass');
   });
 
-  it('대입 갈래의 활용형도 통과한다', () => {
+  // 표지마다 별도 케이스로 둔다. 한 it 안에서 루프를 돌리면 첫 문장이 깨질 때
+  // 나머지가 안 돌아 어느 표지가 빠졌는지 이름에서 안 보인다.
+  it.each([
     // '라고 생각하면'만 있던 동안 이 문장이 outsider 에서 채택 금지를 받았다
-    const report = runExplainCheck(
-      SOURCE,
-      '여러 사람이 같은 공책에 동시에 적는다고 생각해보세요.',
-      { audience: 'outsider' },
-    );
+    ['고 생각해보', '여러 사람이 같은 공책에 동시에 적는다고 생각해보세요.'],
+    ['고 생각해 보', '옆집 우편함이라고 생각해 보세요.'],
+    ['떠올려보', '옆집 우편함을 떠올려보세요.'],
+    ['떠올려 보', '옆집 우편함을 떠올려 보세요.'],
+    ['상상해보', '빈 서랍을 상상해보세요.'],
+    ['상상해 보', '빈 서랍을 상상해 보세요.'],
+  ])('대입과 그려보기 표지 %s 를 센다', (_marker, prose) => {
+    const report = runExplainCheck(SOURCE, prose, { audience: 'outsider' });
     expect(axis(report, 'analogy').verdict).toBe('pass');
   });
 
-  it('떠올려와 상상해도 같은 갈래로 센다', () => {
-    for (const prose of ['옆집 우편함을 떠올려 보세요.', '빈 서랍을 상상해보세요.']) {
-      const report = runExplainCheck(SOURCE, prose, { audience: 'outsider' });
-      expect(axis(report, 'analogy').verdict).toBe('pass');
-    }
+  // 넓히는 쪽만 고정하면 다음에 표지를 더 넣을 때 바닥이 언제 무너졌는지 모른다.
+  // 어간까지만 잘라 적었을 때 실제로 통과하던 문장들이다.
+  it.each([
+    '곰곰이 생각해보니 이 방법이 맞았어요.',
+    '지난 회의를 떠올려 봐도 그런 얘기는 없었어요.',
+    '그렇게까지 될 줄은 상상해 본 적 없어요.',
+  ])('비유가 없으면 여전히 채택 금지다 — %s', (prose) => {
+    const report = runExplainCheck(SOURCE, prose, { audience: 'outsider' });
+    expect(axis(report, 'analogy').verdict).toBe('abort');
   });
 });
 
