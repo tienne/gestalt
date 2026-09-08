@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.73.0] - 2026-09-09
+
+### Added
+
+- **게슈탈트 스킬을 쓴 세션에서 플러그인이 뒤처졌으면 알려줘요.** `ges_*` 도구를 처음 부를 때 응답에 알림 한 줄이 따라붙어요. 게슈탈트를 안 건드리는 세션에는 서버가 떠 있어도 안 뜹니다.
+  - **재는 기준을 npm 패키지 버전에서 플러그인 버전으로 옮겼어요.** `CLAUDE_PLUGIN_ROOT`가 MCP 서버 프로세스까지 상속되므로 서버가 그 아래 `.claude-plugin/plugin.json`을 직접 읽어요. 그 값이 없으면(CLI로 부른 경우) 서버 자기 버전으로 떨어집니다
+  - 안내 명령이 거기서 갈려요. 플러그인이 뒤처졌으면 `/plugin install gestalt@gestalt`이고 CLI면 `gestalt update`예요
+  - `ges_status`의 `versionInfo`에 `source`와 `server`를 더했어요. 두 축이 어긋났는지가 그 자리에서 보입니다
+  - 서버 기동 stderr 로그도 같은 문구를 쓰게 맞췄어요
+
+**두 축이 어긋날 수 있다는 게 이 작업의 출발점이었어요.** 이 레포를 여는 세션이 캐시에 0.72.9를 받아두고도 0.72.5 스킬을 로드하고 있었어요. `mcp-serve.sh`가 전역 `gestalt`를 핀보다 먼저 쓰기 때문에 서버만 최신이고 스킬은 옛 버전인 상태도 생겨요. 그때 알려야 하는 쪽은 플러그인이에요. 사용자가 읽는 지시문이 거기서 오거든요. npm 명령을 안내하면 서버만 올라가고 다음 세션에 같은 알림이 또 뜹니다.
+
+`checkForUpdates` 자체는 원래 있었어요. 결과가 닿는 곳이 서버 기동 stderr와 `ges_status` 응답 둘뿐이라, 앞은 로그를 일부러 열어야 보이고 뒤는 그 도구를 부를 때만 나왔어요.
+
+알림은 `result` 문자열에 안 붙이고 별도 content 블록으로 실어요. 스킬들이 `content[0]`을 파싱하거든요. 세션당 한 번만 나옵니다. 리뷰처럼 도구를 수십 번 부르는 스킬에서 매번 붙으면 같은 줄이 그만큼 쌓여요. 네트워크는 기동 때 한 번만 타고 도구 응답은 그 결과만 읽으므로 조회를 기다리지 않아요. `GESTALT_NO_UPDATE_CHECK=1`이면 조회도 알림도 없습니다.
+
+### 검증 범위
+
+`pnpm gate` 통과했고 테스트가 1835건에서 1852건으로 늘었어요.
+
+뮤테이션 6종으로 테스트가 실제로 잡는지 확인했어요. 플러그인 우선을 뒤집기, 1회 플래그 제거, `source` 분기 제거, 매니페스트 타입 검사 제거, 배너 미부착, 배너를 첫 블록에 이어 붙이기까지 전부 실패로 걸렸습니다. 마지막 하나는 두 건이 함께 걸렸어요. 블록 개수와 JSON 파싱을 따로 보고 있어서요.
+
+빌드한 서버를 실제로 띄워 0.72.5 플러그인이 로드된 세션을 흉내내 봤어요. npm에서 0.72.9를 받아와 배너를 냈고 두 번째 호출에는 안 붙었습니다.
+
+### 남긴 것
+
+**CLI(`gestalt pr` 등)에는 안 붙였어요.** 그 경로는 `CLAUDE_PLUGIN_ROOT`를 못 봐서 플러그인 버전을 알 방법이 없어요. `--json` 출력에 산문이 섞이면 스킬도 깨집니다. 스킬 20개 중 `local-pr` 하나만 MCP를 안 거치니 그 스킬만 알림 자리가 없어요.
+
+Codex와 Grok도 같은 MCP 서버를 쓰므로 알림은 그대로 받아요. 다만 그쪽은 `CLAUDE_PLUGIN_ROOT`가 없어 서버 버전을 기준으로 잽니다.
+
 ## [0.72.9] - 2026-09-06
 
 ### Fixed
