@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMcpServer } from '../../../src/mcp/server.js';
 import type { GestaltConfig } from '../../../src/core/config.js';
 
@@ -230,6 +230,114 @@ describe('createMcpServer', () => {
       expect(inputKeys(tools['ges_generate_spec'])).toContain('text');
       expect(tools['ges_execute']).toBeDefined();
       expect(tools['ges_code_graph']).toBeDefined();
+    } finally {
+      eventStore.close();
+    }
+  });
+});
+
+// ─── 업데이트 알림이 도구 응답에 실리는 자리 ─────────────────────────────────
+
+describe('업데이트 알림', () => {
+  /** 캐시가 남아 있으면 fetch를 안 타서 mock한 latest가 안 걸린다 */
+  async function clearUpdateCache() {
+    const { gestaltPath } = await import('../../../src/core/home.js');
+    rmSync(gestaltPath('.update-check'), { force: true });
+  }
+
+  /** 서버 기동 때 도는 조회를 흉내내 "새 버전 있음" 상태를 만든다 */
+  async function primeUpdateAvailable() {
+    await clearUpdateCache();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ version: '999.0.0' }),
+    } as Response);
+
+    const { checkForUpdates, resetUpdateBanner } = await import('../../../src/core/version.js');
+    resetUpdateBanner();
+    await checkForUpdates();
+    fetchSpy.mockRestore();
+    await clearUpdateCache();
+  }
+
+  /**
+   * "이미 최신" 상태를 만든다.
+   *
+   * `resetUpdateBanner()`만으로는 안 된다 — 그건 1회 플래그만 되돌리고 앞 테스트가
+   * 채워둔 조회 결과는 모듈에 그대로 남는다. latest를 낮은 값으로 다시 조회시켜 덮는다.
+   */
+  async function primeUpToDate() {
+    await clearUpdateCache();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ version: '0.0.1' }),
+    } as Response);
+
+    const { checkForUpdates, resetUpdateBanner } = await import('../../../src/core/version.js');
+    resetUpdateBanner();
+    await checkForUpdates();
+    fetchSpy.mockRestore();
+    await clearUpdateCache();
+  }
+
+  afterEach(async () => {
+    await clearUpdateCache();
+    const { resetUpdateBanner } = await import('../../../src/core/version.js');
+    resetUpdateBanner();
+  });
+
+  /** 배너를 붙이든 말든 첫 블록은 그대로 도구 결과여야 한다 */
+  function rawCall(server: unknown, name: string) {
+    const tool = registeredTools(server)[name];
+    if (!tool?.handler) throw new Error(`Tool ${name} has no handler`);
+    return tool.handler({ sessionType: 'all' }, {});
+  }
+
+  it('첫 도구 호출에 알림이 따라붙는다', async () => {
+    await primeUpdateAvailable();
+    const { server, eventStore } = await createMcpServer({ dbPath: dbPath() });
+
+    try {
+      const result = rawCall(server, 'ges_status');
+      expect(result.content).toHaveLength(2);
+      expect(result.content[1]?.text).toContain('999.0.0');
+    } finally {
+      eventStore.close();
+    }
+  });
+
+  // 스킬들이 content[0]을 JSON.parse 한다. 알림을 같은 블록에 이어 붙이면 전부 깨진다.
+  it('알림이 붙어도 첫 블록은 그대로 JSON이다', async () => {
+    await primeUpdateAvailable();
+    const { server, eventStore } = await createMcpServer({ dbPath: dbPath() });
+
+    try {
+      const result = rawCall(server, 'ges_status');
+      expect(() => JSON.parse(result.content[0]?.text ?? '')).not.toThrow();
+    } finally {
+      eventStore.close();
+    }
+  });
+
+  it('두 번째 호출부터는 안 붙는다', async () => {
+    await primeUpdateAvailable();
+    const { server, eventStore } = await createMcpServer({ dbPath: dbPath() });
+
+    try {
+      rawCall(server, 'ges_status');
+      expect(rawCall(server, 'ges_status').content).toHaveLength(1);
+    } finally {
+      eventStore.close();
+    }
+  });
+
+  // 게슈탈트를 안 쓰는 세션에 얹지 않는다는 게 이 방식을 고른 이유다.
+  it('최신이면 아무것도 안 붙는다', async () => {
+    await primeUpToDate();
+
+    const { server, eventStore } = await createMcpServer({ dbPath: dbPath() });
+    try {
+      expect(rawCall(server, 'ges_status').content).toHaveLength(1);
     } finally {
       eventStore.close();
     }

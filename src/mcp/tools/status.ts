@@ -3,7 +3,7 @@ import type { StatusInput } from '../schemas.js';
 import type { EventStore } from '../../events/store.js';
 import type { GestaltConfig } from '../../core/config.js';
 import { ExecuteSessionRepository } from '../../execute/repository.js';
-import { getVersion, getCachedUpdateResult } from '../../core/version.js';
+import { getVersion, getCachedUpdateResult, getSessionVersion } from '../../core/version.js';
 import { resolveStatusSessionId } from '../session-selector.js';
 
 /**
@@ -32,8 +32,13 @@ export function handleStatus(
   config?: GestaltConfig,
 ): string {
   const updateResult = getCachedUpdateResult();
+  // current 는 이 세션이 실제로 로드한 플러그인 버전이다. 서버 자기 버전과 어긋날 수
+  // 있어서 server 를 따로 싣는다 — 둘이 다르면 전역 설치가 핀을 이긴 상태다.
+  const session = getSessionVersion();
   const versionInfo = {
-    current: getVersion(),
+    current: session.version,
+    source: session.source,
+    server: getVersion(),
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
   };

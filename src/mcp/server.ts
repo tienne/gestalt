@@ -4,7 +4,14 @@ import { z } from 'zod';
 import { loadConfig, type GestaltConfig } from '../core/config.js';
 import { log } from '../core/log.js';
 import { logger } from '../core/logger.js';
-import { getVersion, checkForUpdates, getCachedUpdateResult } from '../core/version.js';
+import {
+  getVersion,
+  checkForUpdates,
+  getCachedUpdateResult,
+  getSessionVersion,
+  takeUpdateBanner,
+  formatUpdateBanner,
+} from '../core/version.js';
 import { EventStore } from '../events/store.js';
 import { createAdapter, createTierAdapter } from '../llm/factory.js';
 import { InterviewEngine } from '../interview/engine.js';
@@ -49,6 +56,23 @@ import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
 import { RoleAgentRegistry } from '../agent/role-agent-registry.js';
 import { setNotificationsEnabled } from '../utils/notifier.js';
+
+/**
+ * 도구 응답. 세션에 처음 한 번은 버전 알림을 함께 싣는다.
+ *
+ * **알림을 `result` 문자열에 이어 붙이지 않는다.** 도구 응답 대부분이 JSON이고 스킬들이
+ * 그걸 파싱한다. 앞뒤로 산문이 붙으면 파싱이 깨진다. 별도 content 블록으로 두면 첫
+ * 블록은 지금 그대로 남고 사람이 읽을 줄만 따로 실린다.
+ *
+ * 어느 도구가 처음 불리든 여기를 지나므로 게슈탈트를 실제로 쓴 세션에만 뜬다. 안 쓰는
+ * 세션은 서버가 떠 있어도 조용하다.
+ */
+function toolReply(result: string) {
+  const banner = takeUpdateBanner();
+  const content = [{ type: 'text' as const, text: result }];
+  if (banner !== null) content.push({ type: 'text' as const, text: banner });
+  return { content };
+}
 
 function shouldUsePassthroughInterview(config: GestaltConfig): boolean {
   return (
@@ -136,7 +160,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       (params) => {
         const input = interviewInputSchema.parse(params);
         const result = handleInterviewPassthrough(ptEngine, input);
-        return { content: [{ type: 'text' as const, text: result }] };
+        return toolReply(result);
       },
     );
 
@@ -173,7 +197,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       (params) => {
         const input = specInputSchema.parse(params);
         const result = handleSpecPassthrough(ptEngine, ptSpecGen, input, agentRegistry);
-        return { content: [{ type: 'text' as const, text: result }] };
+        return toolReply(result);
       },
     );
   } else {
@@ -206,7 +230,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       async (params) => {
         const input = interviewInputSchema.parse(params);
         const result = await handleInterview(engine, input);
-        return { content: [{ type: 'text' as const, text: result }] };
+        return toolReply(result);
       },
     );
 
@@ -226,7 +250,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       async (params) => {
         const input = specInputSchema.parse(params);
         const result = await handleSpec(engine, specGenerator, input);
-        return { content: [{ type: 'text' as const, text: result }] };
+        return toolReply(result);
       },
     );
 
@@ -249,7 +273,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       (params) => {
         const input = statusInputSchema.parse(params);
         const result = handleStatus(engine, input, eventStore, config);
-        return { content: [{ type: 'text' as const, text: result }] };
+        return toolReply(result);
       },
     );
   }
@@ -268,11 +292,11 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           roleAgentRegistry,
           input,
         );
-        return { content: [{ type: 'text' as const, text: result }] };
+        return toolReply(result);
       }
       const adapter = createHostAdapter(input.client ?? config.client, input.cwd);
       const result = await handleExecutePassthrough(ptExecuteEngine, input, adapter);
-      return { content: [{ type: 'text' as const, text: result }] };
+      return toolReply(result);
     },
   );
 
@@ -294,7 +318,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     (params) => {
       const input = agentCreateInputSchema.parse(params);
       const result = handleCreateAgentPassthrough(ptEngine, ptAgentGen, input);
-      return { content: [{ type: 'text' as const, text: result }] };
+      return toolReply(result);
     },
   );
 
@@ -319,7 +343,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         agentRegistry,
         config.tierModels,
       );
-      return { content: [{ type: 'text' as const, text: result }] };
+      return toolReply(result);
     },
   );
 
@@ -348,7 +372,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     async (params) => {
       const input = benchmarkInputSchema.parse(params);
       const result = await handleBenchmarkPassthrough(input);
-      return { content: [{ type: 'text' as const, text: result }] };
+      return toolReply(result);
     },
   );
 
@@ -368,7 +392,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       (params) => {
         const input = statusInputSchema.parse(params);
         const result = handleStatusPassthrough(ptEngine, ptExecuteEngine, input, config);
-        return { content: [{ type: 'text' as const, text: result }] };
+        return toolReply(result);
       },
     );
   }
@@ -401,7 +425,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     async (params) => {
       const input = codeGraphInputSchema.parse(params);
       const result = await handleCodeGraphPassthrough(input);
-      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      return toolReply(JSON.stringify(result, null, 2));
     },
   );
 
@@ -415,7 +439,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     async (params) => {
       const input = graphVisualizeInputSchema.parse(params);
       const result = await handleGraphVisualizePassthrough(input);
-      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+      return toolReply(JSON.stringify(result, null, 2));
     },
   );
 
@@ -437,7 +461,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
     async (params) => {
       const result = await handleGenerateKb(params, process.cwd(), config);
-      return { content: [{ type: 'text' as const, text: result }] };
+      return toolReply(result);
     },
   );
 
@@ -454,7 +478,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
     async (params) => {
       const result = await handleSearchKb(params, process.cwd());
-      return { content: [{ type: 'text' as const, text: result }] };
+      return toolReply(result);
     },
   );
 
@@ -467,7 +491,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
     async (params) => {
       const result = await handleSyncKb(params, process.cwd());
-      return { content: [{ type: 'text' as const, text: result }] };
+      return toolReply(result);
     },
   );
 
@@ -482,7 +506,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     async (params) => {
       const input = prInputSchema.parse(params);
       const result = await handlePr(input, process.cwd());
-      return { content: [{ type: 'text' as const, text: result }] };
+      return toolReply(result);
     },
   );
 
@@ -497,8 +521,13 @@ function handleStatusPassthrough(
   config?: GestaltConfig,
 ): string {
   const updateResult = getCachedUpdateResult();
+  // current 는 이 세션이 실제로 로드한 플러그인 버전이다. 서버 자기 버전과 어긋날 수
+  // 있어서 server 를 따로 싣는다 — 둘이 다르면 전역 설치가 핀을 이긴 상태다.
+  const session = getSessionVersion();
   const versionInfo = {
-    current: getVersion(),
+    current: session.version,
+    source: session.source,
+    server: getVersion(),
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
   };
@@ -728,8 +757,9 @@ export async function startMcpServer(configOverrides?: Partial<GestaltConfig>) {
   checkForUpdates()
     .then((result) => {
       if (result?.updateAvailable) {
-        log(`Update available: ${result.currentVersion} → ${result.latestVersion}`);
-        log(`Run: npx -y @tienne/gestalt@latest`);
+        // 도구 응답에 실리는 것과 같은 문구를 쓴다. 두 자리가 서로 다른 명령을 안내하면
+        // 로그를 보고 npm을 갱신했는데 세션에는 계속 플러그인 알림이 뜬다.
+        for (const line of formatUpdateBanner(result).split('\n')) log(line);
       }
     })
     .catch(() => {});

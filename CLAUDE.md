@@ -144,6 +144,18 @@ plugin/.mcp.json          Grok(배포) — plugin/mcp.json과 동일
 - 네 매니페스트의 버전 핀을 `scripts/sync-version.ts`가 릴리즈마다 함께 갱신한다. `plugin/*`는 인자 하나가 통째로 스펙이고 Claude 쪽은 `sh` 문자열 안에 박혀 있는데, 같은 정규식으로 둘 다 친다.
 - `command: "sh"`라서 Windows 호스트에서는 안 뜬다. 그쪽은 전역 설치 후 `command: "gestalt"`로 안내한다.
 
+### 버전이 뒤처졌을 때 알리는 자리
+
+`ges_*` 도구를 처음 부를 때 응답에 알림 한 줄이 따라붙는다. 게슈탈트를 실제로 쓴 세션에만 뜨고 안 쓰는 세션은 서버가 떠 있어도 조용하다. `src/mcp/server.ts`의 `toolReply()`가 그 자리다.
+
+- **재는 기준은 플러그인 버전이다.** `CLAUDE_PLUGIN_ROOT`가 서버 프로세스까지 상속되므로 서버가 그 아래 `.claude-plugin/plugin.json`을 직접 읽는다. 없으면(CLI로 부른 경우) 서버 자기 버전으로 떨어진다.
+- 둘은 어긋날 수 있다. `mcp-serve.sh`가 전역 `gestalt`를 핀보다 먼저 쓰므로 누가 `npm i -g`를 해두면 서버만 최신이고 스킬은 플러그인 캐시의 옛 버전이 된다. **그때 알려야 하는 쪽은 플러그인이다** — 사용자가 읽는 지시문이 거기서 온다.
+- 그래서 안내 명령도 갈린다. 플러그인이 뒤처졌으면 `/plugin install gestalt@gestalt`이고 CLI면 `gestalt update`다. 반대로 안내하면 사용자가 시킨 대로 해도 다음 세션에 같은 알림이 또 뜬다.
+- 알림은 `result` 문자열에 이어 붙이지 않고 **별도 content 블록**으로 싣는다. 스킬들이 `content[0]`을 파싱하기 때문이다.
+- 세션당 한 번만 나온다. 리뷰처럼 도구를 수십 번 부르는 스킬에서 매번 붙으면 같은 줄이 그만큼 쌓인다.
+- 네트워크는 기동 때 `checkForUpdates()`가 한 번 탄다. 도구 응답은 그 결과만 읽으므로 조회를 기다리지 않는다. `GESTALT_NO_UPDATE_CHECK=1`이면 조회도 알림도 없다.
+- **CLI(`gestalt pr` 등)에는 안 붙는다.** 그 경로는 `CLAUDE_PLUGIN_ROOT`를 못 봐서 플러그인 버전을 알 방법이 없다. `--json` 출력에 산문이 섞이면 스킬도 깨진다. 스킬 중 `local-pr` 하나만 MCP를 안 거치므로 그 스킬만 알림 자리가 없다.
+
 ## Conventions
 - MCP 서버에서 `console.log` 금지 → `log()` stderr 유틸 사용
 - `noUncheckedIndexedAccess` 환경 → 배열 인덱스·regex 캡처그룹에 `!` 단언 필수
