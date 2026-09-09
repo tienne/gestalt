@@ -384,8 +384,8 @@ describe('PR head 체크아웃', () => {
     const kept = engine.removeCheckout(pr.id);
 
     // `dirty`가 아니라 `stale`이다. `dirty`는 안을 읽어 커밋 안 된 변경을 확인한
-    // 상태고 여기는 읽을 방법이 없어 판단을 미룬 상태다. 부르는 쪽이 이 값으로 갈래를
-    // 타므로 같은 코드를 주면 문서 표가 조용히 거짓이 된다
+    // 상태고 여기는 읽을 방법이 없어 판단을 미룬 상태다. 부르는 쪽이 이 값으로 분기하므로
+    // 같은 코드를 주면 문서 표가 조용히 거짓이 된다
     expect(kept.status).toBe('stale');
     expect(existsSync(join(checkout.path, 'a.txt'))).toBe(true);
 
@@ -425,7 +425,7 @@ describe('PR head 체크아웃', () => {
 /**
  * `pr checkout --remove`가 status를 종료 코드로 옮기는 자리.
  *
- * 엔진의 `removeCheckout`은 갈래마다 테스트가 있지만 CLI가 그 값을 어느 종료 코드로
+ * 엔진의 `removeCheckout`은 분기마다 테스트가 있지만 CLI가 그 값을 어느 종료 코드로
  * 옮기는지는 안 걸렸다. 조건을 `!== 'removed'`로 좁혀 `absent`가 4를 뱉게 만들어도
  * 게이트가 전부 통과했다. 그러면 `--remove`를 두 번 부르는 `set -e` 스크립트가 두
  * 번째에 죽는다 — 지울 자리가 없는 건 실패가 아니라 목표가 이미 이뤄진 상태다.
@@ -487,7 +487,7 @@ describe('gestalt pr checkout --remove 종료 코드', () => {
     try {
       prCheckoutCommand({ id: pr.id, repoRoot: repo, remove: true });
 
-      // 에이전트가 stdout을 안 읽고도 갈래를 탄다
+      // 에이전트가 stdout을 안 읽고도 분기한다
       expect(exits).toEqual([4]);
     } finally {
       engine.removeCheckout(pr.id, { force: true });

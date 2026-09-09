@@ -64,7 +64,7 @@ describe('머지 중 base 경쟁 갱신', () => {
     writeFileSync(join(repo, 'a.txt'), 'line1\nline2\n');
     run(repo, ['commit', '-q', '-am', '두 번째 줄']);
 
-    // base를 아무 워크트리도 안 잡은 상태로 만든다 — 임시 워크트리 갈래를 타야 한다
+    // base를 아무 워크트리도 안 잡은 상태로 만든다 — 임시 워크트리 경로를 타야 한다
     run(repo, ['checkout', '--detach', '-q', 'HEAD']);
   });
 

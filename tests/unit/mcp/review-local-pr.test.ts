@@ -173,7 +173,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
     expect(parsed.kind).toBe('not_found');
   });
 
-  it('changedFiles + repoRoot 갈래는 그대로 돈다 (회귀)', () => {
+  it('changedFiles + repoRoot 분기는 그대로 돈다 (회귀)', () => {
     const parsed = call({
       action: 'review_start',
       changedFiles: ['src/x.ts'],
@@ -186,7 +186,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
     expect(parsed.reviewStartContext!.changedFiles).toEqual(['src/x.ts']);
   });
 
-  it('세 갈래 중 아무것도 없으면 셋을 다 알려준다', () => {
+  it('셋 중 아무것도 없으면 셋을 다 알려준다', () => {
     const parsed = call({ action: 'review_start' });
 
     expect(parsed.error).toContain('prId');
@@ -525,7 +525,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
   });
 
   it('prId가 sessionId 셀렉터보다 앞선다', () => {
-    // 실행 세션이 하나도 없어 latest는 해석되지 않는다. prId 갈래는 그것과 무관하다.
+    // 실행 세션이 하나도 없어 latest는 해석되지 않는다. prId 경로는 그것과 무관하다.
     const parsed = call({ action: 'review_start', prId, repoRoot: repo, sessionId: 'latest' });
 
     expect(parsed.error).toBeUndefined();

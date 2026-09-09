@@ -139,8 +139,8 @@ describe('LocalPrEngine.edit', () => {
     expect(after.status).toBe('changes_requested');
   });
 
-  it('changes_requested에서 고쳐도 상태만 접는 갈래가 안 갈린다', () => {
-    // `list(status)`는 `foldStatus`로 후보를 좁힌다. 두 갈래가 갈리면 목록과 상세가
+  it('changes_requested에서 고쳐도 상태만 접는 경로가 안 갈린다', () => {
+    // `list(status)`는 `foldStatus`로 후보를 좁힌다. 두 경로가 갈리면 목록과 상세가
     // 다른 상태를 보여준다 — `fold`가 판정을 지켰는데 `foldStatus`가 open으로 되돌리면
     // 위 테스트는 통과하면서 목록에서만 자리가 바뀐다
     const pr = engine.create({ title: 't', body: 'x', author: 'a' });

@@ -12,7 +12,7 @@ import type { PrInput } from '../schemas.js';
  *
  * 로직은 전부 LocalPrEngine에 있다. 여기는 action을 메서드 호출로 옮긴다.
  * 그리고 PrError를 MCP 응답 형태(`{ error, kind }`)로 접는 껍데기다. exitCode는
- * 프로세스 종료 코드로 갈래를 타는 CLI 전용이라 MCP에선 kind 문자열로 바꾼다.
+ * 프로세스 종료 코드로 분기하는 CLI 전용이라 MCP에선 kind 문자열로 바꾼다.
  */
 
 function actorOf(input: PrInput): Actor {
@@ -73,7 +73,7 @@ function dispatch(
     }
     case 'update':
       return engine.update(requireId(input), input.head);
-    // CLI에만 두는 갈래는 `prune`처럼 되돌릴 수 없는 것이다. 본문 수정은 다시 고쳐
+    // CLI에만 두는 액션은 `prune`처럼 되돌릴 수 없는 것이다. 본문 수정은 다시 고쳐
     // 되돌릴 수 있고 옛 값이 이벤트에 그대로 남는다. 이 문이 없어서 막힌 게
     // MCP로 도는 리뷰 에이전트였다 — 틀린 본문을 코멘트로만 정정하고 스레드를
     // 열어둔 채 머지에 실려 갔다. 여기 없으면 그 자리가 그대로다
@@ -101,7 +101,7 @@ function dispatch(
   }
 }
 
-/** PrError.exitCode(CLI 종료 코드)를 MCP 응답에서 갈래 타기 좋은 문자열로 바꾼다 */
+/** PrError.exitCode(CLI 종료 코드)를 MCP 응답에서 분기하기 좋은 문자열로 바꾼다 */
 export function errorKind(exitCode: number): string {
   switch (exitCode) {
     case 3:

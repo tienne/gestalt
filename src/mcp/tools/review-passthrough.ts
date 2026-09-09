@@ -20,7 +20,7 @@ export function handleReviewPassthrough(
   rawInput: ExecuteInput,
 ): string {
   // review_* 액션의 sessionId도 실행 세션이라 active/latest 셀렉터를 지원한다.
-  // 다만 prId를 함께 줬으면 셀렉터를 해석하지 않는다. prId 갈래는 실행 세션을 쓰지
+  // 다만 prId를 함께 줬으면 셀렉터를 해석하지 않는다. prId 경로는 실행 세션을 쓰지
   // 않는다. 여기서 해석에 실패해도 그 뒤 판단에 영향이 없다. 그런데 해석을 먼저 돌리면
   // 스키마에 적은 우선순위(prId > sessionId)가 뒤집힌다. 없는 sessionId를 명시하면
   // 통과하고 latest 셀렉터를 주면 막히는 갈림도 여기서 사라진다.
@@ -48,7 +48,7 @@ export function handleReviewPassthrough(
     }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    // LocalPrEngine이 던지는 PrError는 exitCode로 갈래를 실어 보낸다. ges_pr이 쓰는
+    // LocalPrEngine이 던지는 PrError는 exitCode로 종류를 실어 보낸다. ges_pr이 쓰는
     // 같은 변환기로 kind를 붙여 두 도구의 응답 규약을 하나로 맞춘다.
     if (e instanceof PrError)
       return JSON.stringify({ error: message, kind: errorKind(e.exitCode) });

@@ -58,7 +58,7 @@ export class PassthroughReviewEngine {
     let reviewContext: ReviewContext;
     let executeSessionId: string;
     let repoRoot: string | undefined;
-    // 로컬 PR에서 시작한 리뷰만 prId를 갖는다. 나머지 두 갈래는 undefined다.
+    // 로컬 PR에서 시작한 리뷰만 prId를 갖는다. 나머지 둘은 undefined다.
     const prId = 'executeSession' in source ? undefined : source.prId;
 
     if ('executeSession' in source) {

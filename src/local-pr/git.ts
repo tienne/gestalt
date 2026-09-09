@@ -145,7 +145,7 @@ export function resolveSha(repoRoot: string, rev: string): string {
   return git(repoRoot, ['rev-parse', '--verify', `${rev}^{commit}`]);
 }
 
-/** 두 갈래가 갈라진 지점. PR의 base가 된다 */
+/** 두 브랜치가 갈라진 지점. PR의 base가 된다 */
 export function mergeBase(repoRoot: string, base: string, head: string): string {
   assertRev(base, 'base');
   assertRev(head, 'head');
@@ -308,7 +308,7 @@ export function mergeIntoBase(
       git(repoRoot, ['merge', '--no-ff', headSha, '-m', message]);
     } catch (e) {
       // 충돌하면 부르는 사람의 워킹 트리에 MERGE_HEAD가 선 채 남는다. 임시 워크트리
-      // 갈래는 finally로 통째로 걷어내니 이쪽도 되돌려야 대칭이 맞는다. 안 그러면
+      // 경로는 finally로 통째로 걷어내니 이쪽도 되돌려야 대칭이 맞는다. 안 그러면
       // 실패를 받은 에이전트가 자기 자리가 머지 중간 상태인 걸 모른다
       try {
         git(repoRoot, ['merge', '--abort']);
@@ -480,7 +480,7 @@ function scrub(repoRoot: string, path: string): void {
 
   rmSync(path, { recursive: true, force: true });
   // `worktree remove`가 통했으면 등록은 이미 그 명령이 걷어갔다. prune은 손으로
-  // 치운 갈래에서만 필요하다 — 늘 부르면 프로세스가 한 번 더 뜬다
+  // 치운 경우에만 필요하다 — 늘 부르면 프로세스가 한 번 더 뜬다
   if (!removed) git(anchor, ['worktree', 'prune']);
 
   // 해시 칸에는 이 레포의 PR 자리만 들어간다. 비었으면 같이 치운다 — 안 그러면
@@ -503,7 +503,7 @@ function scrub(repoRoot: string, path: string): void {
  *
  * 같은 PR을 두 번 부르면 있는 워크트리를 그대로 돌려준다. 리뷰어가 거기서 하던
  * 작업을 날리지 않는다. 그 자리가 이미 워크트리로 등록돼 있는지를 먼저 본다. 등록만
- * 남고 속이 깨졌으면 치운 뒤 다시 뗀다. 어느 갈래로 가든 한 PR에 워크트리는 하나다.
+ * 남고 속이 깨졌으면 치운 뒤 다시 뗀다. 어느 쪽으로 가든 한 PR에 워크트리는 하나다.
  */
 export function checkoutPrHead(repoRoot: string, prId: string, headSha: string): PrCheckout {
   assertRev(headSha, 'head sha');
@@ -535,7 +535,7 @@ export function checkoutPrHead(repoRoot: string, prId: string, headSha: string):
  * 안 지운 이유를 식별자로 가른다.
  *
  * `reason`은 사람이 읽을 산문이라 부르는 쪽이 부분 문자열로 긁으면 문장을 손볼 때마다
- * 깨진다. 갈래는 이 값으로 탄다.
+ * 깨진다. 부르는 쪽은 이 값으로 분기한다.
  *
  * - `removed`  지웠다
  * - `absent`   지울 자리가 없었다 (정리의 목표가 이미 이뤄진 상태다)
@@ -545,8 +545,8 @@ export function checkoutPrHead(repoRoot: string, prId: string, headSha: string):
  *
  * `stale`을 `dirty`에 얹지 않는 이유는 둘이 다른 상태여서다. `dirty`는 안을 읽어서
  * 커밋 안 된 변경을 확인한 것이고 `stale`은 읽을 방법이 없어 판단을 미룬 것이다.
- * 부르는 쪽은 이 값으로 갈래를 타므로 같은 코드를 주면 "고칠 게 있으니 커밋해라"와
- * "지난 정리가 끊겼으니 안을 확인해라"가 한 갈래로 뭉개진다.
+ * 부르는 쪽은 이 값으로 분기하므로 같은 코드를 주면 "고칠 게 있으니 커밋해라"와
+ * "지난 정리가 끊겼으니 안을 확인해라"가 하나로 뭉개진다.
  */
 export type CheckoutRemovalStatus = 'removed' | 'absent' | 'dirty' | 'diverged' | 'stale';
 
@@ -575,7 +575,7 @@ function strandedRef(prId: string, sha: string): string {
  * 떼어 놓은 워크트리를 지운다.
  *
  * **지울 만하지 않으면 지우지 않는다.** 리뷰어가 뮤테이션 검증 중이면 그 워크트리는
- * 일부러 깨놓은 코드다. 여기서 날리면 무엇을 어떻게 깼는지가 사라진다. 두 갈래를 막는다.
+ * 일부러 깨놓은 코드다. 여기서 날리면 무엇을 어떻게 깼는지가 사라진다. 두 경우를 막는다.
  *
  * - 커밋 안 된 변경 (`dirty`)
  * - 여기서 커밋했는데 어느 ref도 안 품은 커밋 (`diverged`) — 떼어낸 자리는 detached
@@ -674,7 +674,7 @@ export function refsUnder(repoRoot: string, root: string): string[] {
   return out ? out.split('\n') : [];
 }
 
-/** 이 커밋이 저 갈래의 이력에 들어 있는가. 들어 있으면 ref를 놓아도 안 사라진다 */
+/** 이 커밋이 저 리비전의 이력에 들어 있는가. 들어 있으면 ref를 놓아도 안 사라진다 */
 export function isAncestor(repoRoot: string, sha: string, rev: string): boolean {
   try {
     assertRev(sha, 'sha');

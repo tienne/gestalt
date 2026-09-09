@@ -273,7 +273,7 @@ describe('PrWebServer', () => {
 
     try {
       // otherKey를 활성으로 두고 repoKey 배지를 본다. 활성 쪽은 이미 만든 목록에서
-      // 세므로 이 자리만 엔진에 따로 묻는 갈래다
+      // 세므로 이 자리만 엔진에 따로 묻는 경우다
       const html = await (await fetch(`http://127.0.0.1:${two.port}/r/${otherKey}`)).text();
       const badge = html.match(/r <span class="meta">(\d+)<\/span>/)?.[1];
 
@@ -349,7 +349,7 @@ describe('PrWebServer', () => {
  * 캐시가 예산을 지키는가.
  *
  * 셈이 어긋나도 화면은 정상으로 보인다 — 캐시가 좀 덜 맞거나 좀 더 먹을 뿐이다.
- * 그래서 테스트가 없으면 아무도 안 잡는다. 세 갈래를 따로 세운다.
+ * 그래서 테스트가 없으면 아무도 안 잡는다. 세 경우를 따로 세운다.
  */
 describe('DiffCache 예산', () => {
   it('같은 키를 다시 채우면 그게 가장 새 항목이 된다', () => {

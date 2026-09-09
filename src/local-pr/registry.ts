@@ -186,7 +186,7 @@ function alivePid(pid: number): boolean {
  * `fn`에는 `stillMine`을 준다. 부수기와 다시 잡기가 겹치는 좁은 틈이 남아 있어,
  * 쓰기 직전에 잠금이 아직 내 것인지 다시 확인할 수 있어야 한다.
  *
- * 잠금 소유권을 테스트에서 확인할 수 있게 내보낸다. 그 갈래는 잠금을 오래 쥔 쪽과
+ * 잠금 소유권을 테스트에서 확인할 수 있게 내보낸다. 그 경로는 잠금을 오래 쥔 쪽과
  * 부순 쪽이 겹쳐야 열리는데, `registerRepo`로는 그 상황을 만들 수 없다.
  */
 export function withLock<T>(fn: (ctx: { stillMine: () => boolean }) => T): T {

@@ -153,7 +153,7 @@ gestalt pr merge <id>
 gestalt pr close <id> --reason "..."
 ```
 
-**충돌이 나면 워킹 트리를 되돌리고 실패를 알린다.** 그때는 PR 갈래에서 base를 먼저 받아 충돌을 풀고 head를 옮긴 뒤 다시 머지한다.
+**충돌이 나면 워킹 트리를 되돌리고 실패를 알린다.** 그때는 PR 브랜치에서 base를 먼저 받아 충돌을 풀고 head를 옮긴 뒤 다시 머지한다.
 
 ```bash
 cd <PR 워크트리> && git merge --no-ff <base 브랜치>
