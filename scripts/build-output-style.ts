@@ -19,6 +19,13 @@ const DEFAULT_OUT = join(homedir(), '.claude/output-styles/tienne-voice.md');
 /**
  * 자가점검 게이트. 그룹 이름과 묶을 룰만 정하고 표기는 룰북에서 읽는다.
  * 여기 적힌 ID가 룰북에서 사라지거나 대화 S1이 아니게 되면 빌드가 멈춘다.
+ *
+ * 이 목록은 항상 켜진 프롬프트라 한 줄이 매 세션 비용이다. 룰을 더할 때 자동으로
+ * 따라오지 않는다 — 룰북에만 두는 것도 정상 상태다. 넣을지는 그 룰이 실제로
+ * 답변에서 반복해 나오는지를 보고 정한다.
+ *
+ * 넣기로 정했으면 SPOTLIGHT에도 같이 넣는다. 대화 기준 S1인 룰만 들어온다.
+ * 아래 verify가 두 조건을 검사 대상으로 삼는다.
  */
 const GATE: { name: string; ids: string[] }[] = [
   { name: '번역투', ids: ['A-1', 'A-3', 'A-7'] },
@@ -37,7 +44,7 @@ const GATE: { name: string; ids: string[] }[] = [
   { name: '수량 예고', ids: ['C-14'] },
   { name: '명사구 종결', ids: ['E-8'] },
   { name: '화자 소거', ids: ['G-4'] },
-  { name: '결함 별칭', ids: ['F-9'] },
+  { name: '결함·원인 비유', ids: ['F-9'] },
   { name: '관용구 물리 동사', ids: ['F-10'] },
 ];
 
