@@ -35,20 +35,45 @@ export interface ProseLine {
 }
 
 export interface ProseOptions {
-  /** 인용줄을 뺀다. 보고 본문 어미처럼 작성자 말투가 아닌 걸 셀 때만 쓴다 */
+  /**
+   * `>` 인용줄을 뺀다.
+   *
+   * 보고 본문 어미처럼 작성자 말투가 아닌 걸 셀 때 쓰고, 리뷰 코멘트와 답글 검사도 켠다 —
+   * 거기서 인용은 남이 쓴 원문이라 어휘를 고치라고 할 자리가 아니다.
+   */
   excludeQuotes?: boolean;
 }
 
+export interface DetectOptions extends ProseOptions {
+  /**
+   * 표 셀을 안 본다.
+   *
+   * 룰 문서를 검사하는 자리에서 켠다. 그 표는 "쓰지 말 것" 칸에 금지어를 그대로 적는 게
+   * 존재 이유라 전부 위반으로 걸린다. 검사기는 경로를 모르므로 호출자가 정한다.
+   */
+  skipTables?: boolean;
+}
+
+/** 산문 줄과 표 줄. 코드펜스 판정을 한 번만 돌려 둘로 가른다 */
+export interface SplitLines {
+  prose: ProseLine[];
+  table: ProseLine[];
+}
+
 /**
- * 룰을 적용할 산문 줄만 남긴다.
+ * 입력을 산문 줄과 표 줄로 가른다.
  *
  * 코드펜스는 언어 태그가 붙었을 때만 코드로 본다. 태그 없는 펜스에는 실행 코드가 아니라
  * 서브에이전트가 지시로 읽는 한글 산문이 들어 있어서, 통째로 빼면 그 안의 S1이 그대로 빠져나간다.
  * 인용줄도 마커만 떼고 산문으로 본다 — 스킬 문서 상단 규칙 블록이 전부 인용이라 빼면 검사가 비는다.
- * 표는 항목 압축이라 그대로 뺀다.
+ *
+ * **표 줄을 여기서 함께 가른다.** 표만 따로 훑으려고 원문을 다시 파싱하면 이 fence 판정이
+ * 두 곳으로 갈라진다. 실제로 그렇게 만들었다가 태그 붙은 펜스 안의 표 예시가 어휘 룰에
+ * 걸렸다 — 문서가 표를 코드로 인용한 자리인데 검사는 진짜 표로 봤다.
  */
-export function proseLines(text: string, options: ProseOptions = {}): ProseLine[] {
-  const lines: ProseLine[] = [];
+export function splitLines(text: string, options: ProseOptions = {}): SplitLines {
+  const prose: ProseLine[] = [];
+  const table: ProseLine[] = [];
   let inFence = false;
   let fenceIsCode = false;
 
@@ -61,24 +86,38 @@ export function proseLines(text: string, options: ProseOptions = {}): ProseLine[
       return;
     }
     if (inFence && fenceIsCode) return;
-    if (trimmed.startsWith('|')) return;
+
+    if (trimmed.startsWith('|')) {
+      table.push({ text: raw, number: index + 1 });
+      return;
+    }
 
     if (trimmed.startsWith('>')) {
       if (options.excludeQuotes) return;
-      lines.push({ text: raw.replace(/^\s*>+\s?/, ''), number: index + 1 });
+      prose.push({ text: raw.replace(/^\s*>+\s?/, ''), number: index + 1 });
       return;
     }
-    lines.push({ text: raw, number: index + 1 });
+    prose.push({ text: raw, number: index + 1 });
   });
 
-  return lines;
+  return { prose, table };
 }
 
-function proseOnly(text: string, options: ProseOptions = {}): string {
-  return proseLines(text, options)
+/** 룰을 적용할 산문 줄만 남긴다. 표는 항목 압축이라 여기서 빠진다 */
+export function proseLines(text: string, options: ProseOptions = {}): ProseLine[] {
+  return splitLines(text, options).prose;
+}
+
+/** 이미 가른 산문 줄을 룰이 볼 텍스트로 잇는다. 인라인 백틱은 인용이라 지운다 */
+function joinProse(lines: readonly ProseLine[]): string {
+  return lines
     .map((line) => line.text)
     .join('\n')
     .replace(/`[^`\n]+`/g, ' ');
+}
+
+function proseOnly(text: string, options: ProseOptions = {}): string {
+  return joinProse(proseLines(text, options));
 }
 
 /**
@@ -187,7 +226,8 @@ const DETECTORS: Detector[] = [
   // 의미론은 조사가 붙어 오므로 NOT_HANGUL을 못 쓴다. 형용사로 굳은 "의미론적"만 뺀다
   // "죽임"은 명사형만 건다 — "프로세스를 죽인다"는 실무에서 굳은 정상 용법이다
   // branch 를 옮긴 "갈래"는 앞말로 못 가른다. "두 갈래"가 코드 분기와 분류 양쪽에 다 나온다.
-  // 그래서 명백한 분류 연어(갈래로 갈리다·흩어지다, 갈래별)만 빼고 나머지를 전부 건다.
+  // 그래서 분류 뜻이 확실한 연어만 빼고 나머지를 전부 건다 — 갈리다, 흩어지다, 나뉘다,
+  // 나눠지다, 묶다에 갈래별과 "갈래에 몰아"다. 이 목록은 아래 정규식과 한 벌로 움직인다.
   // 분류 뜻으로 남은 자리는 걸린 채로 두고 파일별 베이스라인이 받는다 — F-10·I-5 와 같은 방식이다
   matcher(
     'B-5',
@@ -325,8 +365,17 @@ const DETECTORS: Detector[] = [
 
 export const DETECTABLE_RULE_IDS: string[] = DETECTORS.map((d) => d.ruleId);
 
-export function detect(text: string, ruleIds?: readonly string[]): Detection[] {
-  return mergeDetections(detectOn(proseOnly(text), ruleIds), detectInTables(text, ruleIds));
+export function detect(
+  text: string,
+  ruleIds?: readonly string[],
+  options: DetectOptions = {},
+): Detection[] {
+  const { prose, table } = splitLines(text, options);
+
+  return mergeDetections(
+    detectOn(joinProse(prose), ruleIds),
+    options.skipTables ? [] : detectInTables(table, ruleIds),
+  );
 }
 
 function detectOn(prose: string, ruleIds?: readonly string[]): Detection[] {
@@ -495,35 +544,55 @@ export function structureStats(text: string): StructureStats {
 /**
  * 표 셀 안에서도 틀린 어휘 룰.
  *
- * 표를 통째로 뺀 건 항목을 압축하는 자리라서다 — E-8 명사구 종결과 F-6 복합명사는
+ * 표를 산문에서 뺀 건 항목을 압축하는 자리라서다 — E-8 명사구 종결과 F-6 복합명사는
  * 표 셀에서 정상 문법이다. 어휘가 틀린 건 자리를 안 가린다. 생물학 용어로 옮긴 mutant 는
- * 표 안이라고 맞는 말이 되지 않는다. C-12 가운뎃점은 룰북이 표를 예외로 적어 뒀으므로 여기 없다.
+ * 표 안이라고 맞는 말이 되지 않는다.
+ *
+ * **여기 없는 어휘 룰이 셋이고 이유가 다르다.** C-12 가운뎃점은 룰북이 표를 예외로 적어 뒀다.
+ * B-3 음차는 탐지기 자체가 없어 넣어도 교집합에서 떨어진다 — 목록에 두면 표를 본다고
+ * 읽히지만 실제로는 한 건도 안 걸리는 죽은 항목이 된다. F-10과 I-5, I-6, D-1 은 표 셀에서
+ * 어떻게 걸리는지 코퍼스로 확인한 적이 없어 미뤘다. 넣을 때는 코퍼스 케이스를 함께 넣는다.
+ *
+ * **룰 문서의 예시 표는 이 스캔이 못 가린다.** ai-tell-quick-rules.md 의 대체어 표는
+ * "쓰지 말 것" 칸에 금지어를 그대로 적는 게 존재 이유인데 여기서는 위반으로 걸린다.
+ * 그 파일들을 검사하는 쪽이 `skipTables` 로 꺼야 한다 — 검사기가 경로를 모르기 때문이다.
  */
-export const TABLE_SCANNED_RULE_IDS: readonly string[] = ['B-3', 'B-5', 'D-3', 'D-4', 'F-7'];
+export const TABLE_SCANNED_RULE_IDS: readonly string[] = ['B-5', 'D-3', 'D-4', 'F-7'];
 
-/** 표 줄만 모아 셀 구분자와 정렬행을 걷어낸다 */
-function tableCells(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => line.trimStart())
-    .filter((line) => line.startsWith('|') && !/^\|[\s:|-]*\|?$/.test(line))
+/** 셀을 나눌 때 GFM 이스케이프 파이프를 살려 두는 자리표 */
+const ESCAPED_PIPE = '\u0000pipe\u0000';
+
+/**
+ * 표 줄에서 셀 구분자와 정렬행을 걷어낸다.
+ *
+ * 정렬행은 줄 전체 모양으로만 가른다. 표에서 몇 번째 줄인지는 안 보므로 모든 셀이
+ * `-` 나 공백뿐인 데이터 행도 함께 빠진다 — 플레이스홀더로 `-` 만 적은 행이 그렇다.
+ * 흔한 꼴이 아니라 그대로 뒀다.
+ */
+function tableCells(lines: readonly ProseLine[]): string {
+  return lines
+    .map((line) => line.text.trim())
+    .filter((line) => !/^\|[\s:|-]*\|?$/.test(line))
     .map((line) =>
       line
+        .replace(/\\\|/g, ESCAPED_PIPE)
         .replace(/^\||\|$/g, '')
         .split('|')
-        .join(' '),
+        .join(' ')
+        .split(ESCAPED_PIPE)
+        .join('|'),
     )
     .join('\n');
 }
 
 /** 표 셀을 어휘 룰로만 훑는다. 호출자가 룰을 좁혔으면 그 교집합만 본다 */
-function detectInTables(text: string, ruleIds?: readonly string[]): Detection[] {
+function detectInTables(lines: readonly ProseLine[], ruleIds?: readonly string[]): Detection[] {
   const wanted = ruleIds
     ? TABLE_SCANNED_RULE_IDS.filter((id) => ruleIds.includes(id))
     : TABLE_SCANNED_RULE_IDS;
-  if (wanted.length === 0) return [];
+  if (wanted.length === 0 || lines.length === 0) return [];
 
-  return detectOn(tableCells(text).replace(/`[^`\n]+`/g, ' '), wanted);
+  return detectOn(tableCells(lines).replace(/`[^`\n]+`/g, ' '), wanted);
 }
 
 /** 같은 룰이 산문과 표 양쪽에서 걸리면 건수를 합치고 사례를 이어 붙인다 */
@@ -543,9 +612,26 @@ function mergeDetections(base: Detection[], extra: Detection[]): Detection[] {
   return [...byRule.values()];
 }
 
+/**
+ * 어투와 맞춤법을 한 산문 위에서 함께 본다.
+ *
+ * detect 와 spacingIssues 를 따로 부르면 줄 분할과 인용 제거가 두 번 돈다. 비용은 작지만
+ * 진짜 문제는 나중에 한쪽만 산문 기준이 바뀌면 어투와 맞춤법이 서로 다른 텍스트를 보게 되는
+ * 것이다. 산문 정의를 여기 한 군데로 모은다. 그래서 splitLines 도 한 번만 돌려 나눠 쓴다.
+ */
 export function scanProse(
   text: string,
   ruleIds?: readonly string[],
+  options: DetectOptions = {},
 ): { detections: Detection[]; spacing: SpacingIssue[] } {
-  return { detections: detect(text, ruleIds), spacing: spacingOn(proseOnly(text)) };
+  const { prose, table } = splitLines(text, options);
+  const proseText = joinProse(prose);
+
+  return {
+    detections: mergeDetections(
+      detectOn(proseText, ruleIds),
+      options.skipTables ? [] : detectInTables(table, ruleIds),
+    ),
+    spacing: spacingOn(proseText),
+  };
 }

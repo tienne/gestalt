@@ -2,7 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { sep } from 'node:path';
 import { countBackticks, proseTargets, stripQuoted } from '../../../scripts/verify-rule-refs.js';
 import { raisedEntries } from '../../../scripts/humanize-baseline.js';
-import { detect } from '../../../src/humanize/detectors.js';
+import {
+  detect,
+  DETECTABLE_RULE_IDS,
+  TABLE_SCANNED_RULE_IDS,
+} from '../../../src/humanize/detectors.js';
 
 /**
  * 검사기 주석이 단언한 것마다 여기에 대응 케이스를 둔다.
@@ -116,6 +120,32 @@ describe('검사 범위와 예외', () => {
 
     it('처음 보는 파일은 0에서 올라간 것으로 본다', () => {
       expect(raisedEntries({}, { 'new.md': 1 })).toHaveLength(1);
+    });
+  });
+
+  describe('표 셀 어휘 스캔', () => {
+    it('TABLE_SCANNED_RULE_IDS 는 전부 탐지기가 있는 룰이다', () => {
+      // 탐지기 없는 id 를 넣으면 교집합에서 떨어져 표를 본다고 적어 놓고 한 건도 안 걸린다.
+      // B-3 을 그렇게 올렸다가 죽은 항목이 됐다
+      const missing = TABLE_SCANNED_RULE_IDS.filter((id) => !DETECTABLE_RULE_IDS.includes(id));
+      expect(missing).toEqual([]);
+    });
+
+    it('언어 태그 펜스 안의 표는 코드 인용이라 안 본다', () => {
+      expect(detect('```json\n| 물질화 | x |\n```\n', ['B-5'])).toEqual([]);
+    });
+
+    it('평범한 표 셀의 어휘는 본다', () => {
+      expect(detect('| 물질화 | x |\n', ['B-5']).length).toBe(1);
+    });
+
+    it('skipTables 를 주면 표를 안 본다', () => {
+      expect(detect('| 물질화 | x |\n', ['B-5'], { skipTables: true })).toEqual([]);
+    });
+
+    it('excludeQuotes 를 주면 블록인용을 안 본다', () => {
+      expect(detect('> 배선이 이상해요\n', ['F-7'], { excludeQuotes: true })).toEqual([]);
+      expect(detect('> 배선이 이상해요\n', ['F-7']).length).toBe(1);
     });
   });
 });
