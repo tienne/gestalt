@@ -74,6 +74,15 @@ const COINED_TERMS: Array<{ pattern: RegExp; term: string; replacement: string }
     term: '못 박다(타입·규칙을 관용구로 씌운 자리)',
     replacement: '선언한다 / 정한다 / 고정한다',
   },
+  {
+    // F-11은 뜻으로 가르는 룰이라 "뿌리" 단독은 못 건다 — 트리의 root를 부르는
+    // 이름이 이 레포 산문에 여럿 있고 그건 룰이 예외로 둔 자리다.
+    // 원인 뜻이 형태로 드러난 조합만 본다. "뿌리가 닫히고"처럼 다른 서술어가
+    // 붙은 자리는 여기 안 걸린다
+    pattern: /뿌리가\s*(?:같|하나|동일)|같은\s*뿌리/,
+    term: '뿌리(root cause를 직역해 원인을 가리킨 자리)',
+    replacement: '원인이 같다 / 원인이 하나다',
+  },
 ];
 
 export interface RuleRefIssue {
