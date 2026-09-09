@@ -186,6 +186,8 @@ export function s1Ids(book: RuleBook, register: Register): string[] {
 export interface RuleScanOptions {
   register?: Register;
   book?: RuleBook;
+  /** 표 셀을 안 본다. 룰 문서처럼 표에 금지어를 예시로 적는 파일에서 켠다 */
+  skipTables?: boolean;
 }
 
 /** CLI 인자를 말투로 읽는다. 모르는 값은 doc이다 — 검사를 막을 이유가 없다 */

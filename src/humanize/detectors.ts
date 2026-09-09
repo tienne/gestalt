@@ -49,7 +49,8 @@ export interface DetectOptions extends ProseOptions {
    * 표 셀을 안 본다.
    *
    * 룰 문서를 검사하는 자리에서 켠다. 그 표는 "쓰지 말 것" 칸에 금지어를 그대로 적는 게
-   * 존재 이유라 전부 위반으로 걸린다. 검사기는 경로를 모르므로 호출자가 정한다.
+   * 존재 이유라 전부 위반으로 걸린다. 검사기는 경로를 모르므로 호출자가 정한다 —
+   * `humanize-scan --skip-tables` 와 `verify-rule-refs.ts` 의 `isRulebook()` 이 그 자리다.
    */
   skipTables?: boolean;
 }
@@ -58,6 +59,13 @@ export interface DetectOptions extends ProseOptions {
 export interface SplitLines {
   prose: ProseLine[];
   table: ProseLine[];
+  /**
+   * `excludeQuotes` 로 버린 인용 줄 수.
+   *
+   * 게이트가 "인용만 있어 볼 게 없는" 상태를 가르려고 센다. 코멘트를 통째로 `>` 로 감싸면
+   * 산문이 0줄이 되어 걸릴 게 없는 것과 구분이 안 가는데, 그 둘은 정반대다.
+   */
+  droppedQuotes: number;
 }
 
 /**
@@ -76,6 +84,7 @@ export function splitLines(text: string, options: ProseOptions = {}): SplitLines
   const table: ProseLine[] = [];
   let inFence = false;
   let fenceIsCode = false;
+  let droppedQuotes = 0;
 
   text.split('\n').forEach((raw, index) => {
     const trimmed = raw.trimStart();
@@ -93,14 +102,17 @@ export function splitLines(text: string, options: ProseOptions = {}): SplitLines
     }
 
     if (trimmed.startsWith('>')) {
-      if (options.excludeQuotes) return;
+      if (options.excludeQuotes) {
+        droppedQuotes += 1;
+        return;
+      }
       prose.push({ text: raw.replace(/^\s*>+\s?/, ''), number: index + 1 });
       return;
     }
     prose.push({ text: raw, number: index + 1 });
   });
 
-  return { prose, table };
+  return { prose, table, droppedQuotes };
 }
 
 /** 룰을 적용할 산문 줄만 남긴다. 표는 항목 압축이라 여기서 빠진다 */
@@ -365,17 +377,35 @@ const DETECTORS: Detector[] = [
 
 export const DETECTABLE_RULE_IDS: string[] = DETECTORS.map((d) => d.ruleId);
 
+/**
+ * 가른 줄에 룰을 걸어 산문과 표 결과를 합친다.
+ *
+ * detect 와 scanProse 가 같은 병합 규칙을 써야 한다 — 앞은 검사기가, 뒤는 게시 게이트가
+ * 쓰는 자리라 여기가 두 벌이 되면 두 경로가 조용히 갈라진다. 이 리뷰가 막으려던 게
+ * 정확히 그 갈라짐이다. 산문 텍스트도 함께 돌려줘 맞춤법 검사가 다시 안 잇게 한다.
+ */
+function assemble(
+  split: SplitLines,
+  ruleIds?: readonly string[],
+  options: DetectOptions = {},
+): { detections: Detection[]; prose: string } {
+  const prose = joinProse(split.prose);
+
+  return {
+    detections: mergeDetections(
+      detectOn(prose, ruleIds),
+      options.skipTables ? [] : detectInTables(split.table, ruleIds),
+    ),
+    prose,
+  };
+}
+
 export function detect(
   text: string,
   ruleIds?: readonly string[],
   options: DetectOptions = {},
 ): Detection[] {
-  const { prose, table } = splitLines(text, options);
-
-  return mergeDetections(
-    detectOn(joinProse(prose), ruleIds),
-    options.skipTables ? [] : detectInTables(table, ruleIds),
-  );
+  return assemble(splitLines(text, options), ruleIds, options).detections;
 }
 
 function detectOn(prose: string, ruleIds?: readonly string[]): Detection[] {
@@ -535,27 +565,21 @@ export function structureStats(text: string): StructureStats {
 }
 
 /**
- * 어투와 맞춤법을 한 산문 위에서 함께 본다.
- *
- * detect 와 spacingIssues 를 따로 부르면 줄 분할과 인용 제거가 두 번 돈다. 비용은 작지만
- * (500KB 입력에서 12%) 진짜 문제는 나중에 한쪽만 산문 기준이 바뀌면 어투와 맞춤법이 서로
- * 다른 텍스트를 보게 되는 것이다. 산문 정의를 여기 한 군데로 모은다.
- */
-/**
  * 표 셀 안에서도 틀린 어휘 룰.
  *
  * 표를 산문에서 뺀 건 항목을 압축하는 자리라서다 — E-8 명사구 종결과 F-6 복합명사는
  * 표 셀에서 정상 문법이다. 어휘가 틀린 건 자리를 안 가린다. 생물학 용어로 옮긴 mutant 는
  * 표 안이라고 맞는 말이 되지 않는다.
  *
- * **여기 없는 어휘 룰이 셋이고 이유가 다르다.** C-12 가운뎃점은 룰북이 표를 예외로 적어 뒀다.
+ * **여기 없는 어휘 룰은 빠진 이유가 각각 다르다.** C-12 가운뎃점은 룰북이 표를 예외로 적어 뒀다.
  * B-3 음차는 탐지기 자체가 없어 넣어도 교집합에서 떨어진다 — 목록에 두면 표를 본다고
  * 읽히지만 실제로는 한 건도 안 걸리는 죽은 항목이 된다. F-10과 I-5, I-6, D-1 은 표 셀에서
  * 어떻게 걸리는지 코퍼스로 확인한 적이 없어 미뤘다. 넣을 때는 코퍼스 케이스를 함께 넣는다.
  *
  * **룰 문서의 예시 표는 이 스캔이 못 가린다.** ai-tell-quick-rules.md 의 대체어 표는
  * "쓰지 말 것" 칸에 금지어를 그대로 적는 게 존재 이유인데 여기서는 위반으로 걸린다.
- * 그 파일들을 검사하는 쪽이 `skipTables` 로 꺼야 한다 — 검사기가 경로를 모르기 때문이다.
+ * 검사기가 경로를 모르므로 부르는 쪽이 끈다 — `humanize-scan --skip-tables` 와
+ * `verify-rule-refs.ts` 의 `isRulebook()` 이 그 자리다.
  */
 export const TABLE_SCANNED_RULE_IDS: readonly string[] = ['B-5', 'D-3', 'D-4', 'F-7'];
 
@@ -569,7 +593,7 @@ const ESCAPED_PIPE = '\u0000pipe\u0000';
  * `-` 나 공백뿐인 데이터 행도 함께 빠진다 — 플레이스홀더로 `-` 만 적은 행이 그렇다.
  * 흔한 꼴이 아니라 그대로 뒀다.
  */
-function tableCells(lines: readonly ProseLine[]): string {
+export function tableCells(lines: readonly ProseLine[]): string {
   return lines
     .map((line) => line.text.trim())
     .filter((line) => !/^\|[\s:|-]*\|?$/.test(line))
@@ -623,15 +647,17 @@ export function scanProse(
   text: string,
   ruleIds?: readonly string[],
   options: DetectOptions = {},
-): { detections: Detection[]; spacing: SpacingIssue[] } {
-  const { prose, table } = splitLines(text, options);
-  const proseText = joinProse(prose);
+): { detections: Detection[]; spacing: SpacingIssue[]; allQuoted: boolean } {
+  const split = splitLines(text, options);
+  const { detections, prose } = assemble(split, ruleIds, options);
 
   return {
-    detections: mergeDetections(
-      detectOn(proseText, ruleIds),
-      options.skipTables ? [] : detectInTables(table, ruleIds),
-    ),
-    spacing: spacingOn(proseText),
+    detections,
+    spacing: spacingOn(prose),
+    // 인용이 남은 산문보다 많다. 0건과 뜻이 정반대라 부르는 쪽이 갈라 읽어야 한다.
+    // "산문이 0줄"로 재면 못 잡는다 — 게이트가 넣는 `=== <id>` 마커 줄이 인용 밖에 남아
+    // 코멘트를 통째로 감싸도 산문이 한 줄은 있는 걸로 세어진다
+    allQuoted:
+      split.droppedQuotes > split.prose.filter((line) => line.text.trim().length > 0).length,
   };
 }

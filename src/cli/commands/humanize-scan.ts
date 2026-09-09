@@ -5,6 +5,13 @@ export interface HumanizeScanOptions {
   file: string;
   register?: string;
   json?: boolean;
+  /**
+   * 표 셀을 안 본다.
+   *
+   * 룰 문서를 스캔할 때 켠다. 그 표는 "쓰지 말 것" 칸에 금지어를 그대로 적는 게 존재
+   * 이유라 전부 위반으로 걸린다. 검사기는 어느 파일인지 모르므로 부르는 쪽이 정한다.
+   */
+  skipTables?: boolean;
 }
 
 /**
@@ -24,6 +31,13 @@ export const SCAN_EXIT = {
   clean: 10,
   /** 어투는 안 걸렸고 맞춤법만 걸렸다. 어투를 건드리지 말고 그것만 고치는 자리다 */
   spacingOnly: 11,
+  /**
+   * 인용을 빼고 나니 검사할 산문이 안 남았다.
+   *
+   * clean 과 갈라 둔다. 코멘트를 통째로 인용으로 감싸면 이 상태가 되는데, 그걸 10으로
+   * 내면 게이트가 통과로 읽어 어투 검사를 우회하는 길이 열린다
+   */
+  allQuoted: 12,
 } as const;
 
 export function humanizeScanCommand(options: HumanizeScanOptions): void {
@@ -34,11 +48,15 @@ export function humanizeScanCommand(options: HumanizeScanOptions): void {
   }
   const text = input;
 
-  const report = scan(text, { register: parseRegister(options.register) });
+  const report = scan(text, {
+    register: parseRegister(options.register),
+    skipTables: options.skipTables,
+  });
 
   console.log(options.json ? JSON.stringify(report, null, 2) : formatScan(report));
   // 맞춤법만 걸린 원고를 clean 으로 닫으면 "윤문하지 않는다"로 읽혀 그대로 나간다.
   // 어투 0건과 맞춤법만 있는 상태는 다음 할 일이 달라서 코드를 가른다
   if (report.worthHumanizing) process.exit(SCAN_EXIT.found);
+  if (report.allQuoted) process.exit(SCAN_EXIT.allQuoted);
   process.exit(report.spacing.length > 0 ? SCAN_EXIT.spacingOnly : SCAN_EXIT.clean);
 }

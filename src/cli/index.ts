@@ -229,9 +229,12 @@ export function createCli(): Command {
     .requiredOption('--file <path>', '스캔할 텍스트 파일')
     .option('--register <doc|chat|report>', '어느 말투 기준으로 볼지 (기본 doc)', 'doc')
     .option('--json', '스캔 결과를 JSON으로')
-    .action((options: { file: string; register?: string; json?: boolean }) => {
-      humanizeScanCommand(options);
-    });
+    .option('--skip-tables', '표 셀을 안 본다 (룰 문서처럼 표에 금지어를 예시로 적는 파일)')
+    .action(
+      (options: { file: string; register?: string; json?: boolean; skipTables?: boolean }) => {
+        humanizeScanCommand(options);
+      },
+    );
 
   program
     .command('humanize-check')
