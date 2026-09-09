@@ -16,6 +16,10 @@ describe('explain 스킬', () => {
     expect(skill.frontmatter.outputs).toContain('explanation');
   });
 
+  it('audience를 플래그로 받는다고 description이 밝힌다', () => {
+    expect(skill.frontmatter.inputs.audience!.description).toMatch(/--audience/);
+  });
+
   it('description이 explainer 에이전트와의 경계를 밝힌다', () => {
     expect(skill.frontmatter.description).toContain('explainer 에이전트를 직접 호출한다');
   });
