@@ -25,7 +25,7 @@ const DEFAULT_OUT = join(homedir(), '.claude/output-styles/tienne-voice.md');
  * 답변에서 반복해 나오는지를 보고 정한다.
  *
  * 넣기로 정했으면 SPOTLIGHT에도 같이 넣는다. 대화 기준 S1인 룰만 들어온다.
- * 둘 다 아래 verify가 막는다.
+ * 아래 verify가 두 조건을 검사 대상으로 삼는다.
  */
 const GATE: { name: string; ids: string[] }[] = [
   { name: '번역투', ids: ['A-1', 'A-3', 'A-7'] },
@@ -44,7 +44,7 @@ const GATE: { name: string; ids: string[] }[] = [
   { name: '수량 예고', ids: ['C-14'] },
   { name: '명사구 종결', ids: ['E-8'] },
   { name: '화자 소거', ids: ['G-4'] },
-  { name: '결함 별칭', ids: ['F-9'] },
+  { name: '결함·원인 비유', ids: ['F-9'] },
   { name: '관용구 물리 동사', ids: ['F-10'] },
 ];
 
