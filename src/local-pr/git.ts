@@ -145,7 +145,7 @@ export function resolveSha(repoRoot: string, rev: string): string {
   return git(repoRoot, ['rev-parse', '--verify', `${rev}^{commit}`]);
 }
 
-/** 두 브랜치가 갈라진 지점. PR의 base가 된다 */
+/** 두 리비전이 갈라진 지점. PR의 base가 된다 — 양쪽 다 브랜치일 수도 sha일 수도 있다 */
 export function mergeBase(repoRoot: string, base: string, head: string): string {
   assertRev(base, 'base');
   assertRev(head, 'head');
