@@ -109,12 +109,20 @@ function createSpec(): Spec {
     ontologySchema: {
       entities: [
         { name: 'User', description: '시스템 사용자', attributes: ['email', 'password', 'role'] },
-        { name: 'Token', description: 'JWT 토큰', attributes: ['accessToken', 'refreshToken', 'expiresAt'] },
+        {
+          name: 'Token',
+          description: 'JWT 토큰',
+          attributes: ['accessToken', 'refreshToken', 'expiresAt'],
+        },
       ],
       relations: [{ from: 'User', to: 'Token', type: 'has_many' }],
     },
     gestaltAnalysis: [
-      { principle: GestaltPrinciple.CLOSURE, finding: '토큰 리프레시 로직이 암묵적으로 필요', confidence: 0.9 },
+      {
+        principle: GestaltPrinciple.CLOSURE,
+        finding: '토큰 리프레시 로직이 암묵적으로 필요',
+        confidence: 0.9,
+      },
     ],
     metadata: {
       specId: randomUUID(),
@@ -129,31 +137,95 @@ const planningSteps = {
   fg: {
     principle: 'figure_ground' as const,
     classifiedACs: [
-      { acIndex: 0, acText: '이메일/비밀번호로 회원가입 가능', classification: 'figure' as const, priority: 'critical' as const, reasoning: '핵심 기능' },
-      { acIndex: 1, acText: 'JWT 토큰으로 로그인 가능', classification: 'figure' as const, priority: 'critical' as const, reasoning: '핵심 기능' },
-      { acIndex: 2, acText: '토큰 리프레시 엔드포인트 존재', classification: 'ground' as const, priority: 'medium' as const, reasoning: '보조 기능' },
+      {
+        acIndex: 0,
+        acText: '이메일/비밀번호로 회원가입 가능',
+        classification: 'figure' as const,
+        priority: 'critical' as const,
+        reasoning: '핵심 기능',
+      },
+      {
+        acIndex: 1,
+        acText: 'JWT 토큰으로 로그인 가능',
+        classification: 'figure' as const,
+        priority: 'critical' as const,
+        reasoning: '핵심 기능',
+      },
+      {
+        acIndex: 2,
+        acText: '토큰 리프레시 엔드포인트 존재',
+        classification: 'ground' as const,
+        priority: 'medium' as const,
+        reasoning: '보조 기능',
+      },
     ],
   } satisfies FigureGroundResult,
   closure: {
     principle: 'closure' as const,
     atomicTasks: [
-      { taskId: 'task-0', title: 'User 모델 설정', description: 'User 엔티티 생성', sourceAC: [0], isImplicit: false, estimatedComplexity: 'low' as const, dependsOn: [] },
-      { taskId: 'task-1', title: '회원가입 구현', description: '회원가입 엔드포인트', sourceAC: [0], isImplicit: false, estimatedComplexity: 'medium' as const, dependsOn: ['task-0'] },
-      { taskId: 'task-2', title: '로그인 구현', description: 'JWT 로그인', sourceAC: [1], isImplicit: false, estimatedComplexity: 'medium' as const, dependsOn: ['task-0'] },
-      { taskId: 'task-3', title: '토큰 리프레시', description: '리프레시 엔드포인트', sourceAC: [2], isImplicit: false, estimatedComplexity: 'low' as const, dependsOn: ['task-2'] },
+      {
+        taskId: 'task-0',
+        title: 'User 모델 설정',
+        description: 'User 엔티티 생성',
+        sourceAC: [0],
+        isImplicit: false,
+        estimatedComplexity: 'low' as const,
+        dependsOn: [],
+      },
+      {
+        taskId: 'task-1',
+        title: '회원가입 구현',
+        description: '회원가입 엔드포인트',
+        sourceAC: [0],
+        isImplicit: false,
+        estimatedComplexity: 'medium' as const,
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-2',
+        title: '로그인 구현',
+        description: 'JWT 로그인',
+        sourceAC: [1],
+        isImplicit: false,
+        estimatedComplexity: 'medium' as const,
+        dependsOn: ['task-0'],
+      },
+      {
+        taskId: 'task-3',
+        title: '토큰 리프레시',
+        description: '리프레시 엔드포인트',
+        sourceAC: [2],
+        isImplicit: false,
+        estimatedComplexity: 'low' as const,
+        dependsOn: ['task-2'],
+      },
     ],
   } satisfies ClosureResult,
   proximity: {
     principle: 'proximity' as const,
     taskGroups: [
-      { groupId: 'group-0', name: '사용자 관리', domain: 'auth', taskIds: ['task-0', 'task-1'], reasoning: '사용자 관련' },
-      { groupId: 'group-1', name: '토큰 관리', domain: 'auth', taskIds: ['task-2', 'task-3'], reasoning: '토큰 관련' },
+      {
+        groupId: 'group-0',
+        name: '사용자 관리',
+        domain: 'auth',
+        taskIds: ['task-0', 'task-1'],
+        reasoning: '사용자 관련',
+      },
+      {
+        groupId: 'group-1',
+        name: '토큰 관리',
+        domain: 'auth',
+        taskIds: ['task-2', 'task-3'],
+        reasoning: '토큰 관련',
+      },
     ],
   } satisfies ProximityResult,
   continuity: {
     principle: 'continuity' as const,
     dagValidation: {
-      isValid: true, hasCycles: false, hasConflicts: false,
+      isValid: true,
+      hasCycles: false,
+      hasConflicts: false,
       topologicalOrder: ['task-0', 'task-1', 'task-2', 'task-3'],
       criticalPath: ['task-0', 'task-2', 'task-3'],
     },
@@ -244,7 +316,9 @@ function handleLateral(
 async function simulate() {
   const dbPath = `.gestalt-test/simulate-lateral-${randomUUID()}.db`;
 
-  console.log(`\n${C.bold}${C.bgMagenta}${C.white} Lateral Thinking Personas — E2E 시뮬레이션 ${C.reset}`);
+  console.log(
+    `\n${C.bold}${C.bgMagenta}${C.white} Lateral Thinking Personas — E2E 시뮬레이션 ${C.reset}`,
+  );
   console.log(`${C.dim}DB: ${dbPath}${C.reset}`);
 
   const store = new EventStore(dbPath);
@@ -279,7 +353,10 @@ async function simulate() {
     engine.startExecution(sessionId);
     for (const taskId of ['task-0', 'task-1', 'task-2', 'task-3']) {
       await engine.submitTaskResult(sessionId, {
-        taskId, status: 'completed', output: `${taskId} 구현 완료`, artifacts: [`src/${taskId}.ts`],
+        taskId,
+        status: 'completed',
+        output: `${taskId} 구현 완료`,
+        artifacts: [`src/${taskId}.ts`],
       });
     }
     ok('4개 태스크 실행 완료');
@@ -293,7 +370,7 @@ async function simulate() {
     engine.submitStructuralResult(sessionId, passingStructural);
     ok('Structural 통과 (lint, build, test)');
 
-    engine.submitEvaluation(sessionId, makeLowEval(0.50));
+    engine.submitEvaluation(sessionId, makeLowEval(0.5));
     warn('Contextual 평가: score=0.50, goalAlignment=0.60');
     info('AC[0]', `${C.green}충족${C.reset}`);
     info('AC[1]', `${C.red}미충족${C.reset} — JWT 토큰 생성 미완성`);
@@ -303,13 +380,18 @@ async function simulate() {
     // Phase 4: Evolution Loop → Stagnation 유발
     // ═══════════════════════════════════════════════════════
     header('Phase 4: Evolution Loop → Stagnation 유발');
-    console.log(`  ${C.dim}score를 거의 변하지 않게 유지하여 stagnation 조건을 트리거합니다${C.reset}\n`);
+    console.log(
+      `  ${C.dim}score를 거의 변하지 않게 유지하여 stagnation 조건을 트리거합니다${C.reset}\n`,
+    );
 
     // EVOLVE_MAX_CONTEXTUAL=3, EVOLVE_STAGNATION_COUNT=2 이므로
     // 3번의 contextual evolution (거의 동일한 score)으로 stagnation + hard_cap 유발
     for (let gen = 0; gen < 3; gen++) {
       const evolveResult = engine.startContextualEvolve(sessionId);
-      if (!evolveResult.ok) { warn(`실패: ${evolveResult.error.message}`); break; }
+      if (!evolveResult.ok) {
+        warn(`실패: ${evolveResult.error.message}`);
+        break;
+      }
 
       if (evolveResult.value.lateralContext) {
         // 일찍 lateral 진입 — Phase 5로 넘어감
@@ -318,7 +400,7 @@ async function simulate() {
       }
 
       if (evolveResult.value.evolveContext) {
-        const score = 0.50 + gen * 0.002; // 거의 변화 없는 점수
+        const score = 0.5 + gen * 0.002; // 거의 변화 없는 점수
         step(`Gen ${gen}: evolve → patch 제출 → re-evaluate (score=${score.toFixed(3)})`);
 
         engine.submitSpecPatch(sessionId, {
@@ -342,7 +424,9 @@ async function simulate() {
     // Phase 5: Lateral Thinking — 4 Personas 순회
     // ═══════════════════════════════════════════════════════
     header('Phase 5: Lateral Thinking Personas');
-    console.log(`  ${C.dim}stagnation/hard_cap 감지 시 4개 persona가 순차적으로 대안 접근을 시도합니다${C.reset}`);
+    console.log(
+      `  ${C.dim}stagnation/hard_cap 감지 시 4개 persona가 순차적으로 대안 접근을 시도합니다${C.reset}`,
+    );
     console.log(`  ${C.dim}Pattern → Persona 매핑:${C.reset}`);
     console.log(`    ${C.dim}spinning     → multistability (다른 각도로 보기)${C.reset}`);
     console.log(`    ${C.dim}oscillation  → simplicity     (단순하게 줄이기)${C.reset}`);
@@ -359,11 +443,15 @@ async function simulate() {
 
       // lateral을 이미 시도했으면 startLateralEvolve, 아니면 startContextualEvolve
       // (startContextualEvolve도 내부에서 lateral 자동 분기)
-      const result = session.lateralAttempts > 0
-        ? engine.startLateralEvolve(sessionId)
-        : engine.startContextualEvolve(sessionId);
+      const result =
+        session.lateralAttempts > 0
+          ? engine.startLateralEvolve(sessionId)
+          : engine.startContextualEvolve(sessionId);
 
-      if (!result.ok) { warn(`실패: ${result.error.message}`); break; }
+      if (!result.ok) {
+        warn(`실패: ${result.error.message}`);
+        break;
+      }
 
       // ── Human Escalation (4개 persona 소진) ──
       if (result.value.humanEscalation) {
@@ -373,7 +461,10 @@ async function simulate() {
         console.log();
         escalation(' HUMAN ESCALATION — 모든 Lateral Persona 소진 ');
         console.log();
-        info('시도한 Personas', esc.triedPersonas.map((p) => `${PERSONA_EMOJI[p] ?? ''} ${p}`).join(', '));
+        info(
+          '시도한 Personas',
+          esc.triedPersonas.map((p) => `${PERSONA_EMOJI[p] ?? ''} ${p}`).join(', '),
+        );
         info('최고 점수', `${C.yellow}${esc.bestScore.toFixed(2)}${C.reset} (threshold: 0.85)`);
         info('Termination', `${C.red}human_escalation${C.reset}`);
         console.log();
@@ -419,7 +510,7 @@ async function simulate() {
         engine.submitSpecPatch(sessionId, {
           acceptanceCriteria: ['회원가입', `JWT 로그인 (attempt-${attempt})`, '토큰 리프레시'],
         });
-        runEvaluation(engine, sessionId, 0.50);
+        runEvaluation(engine, sessionId, 0.5);
         continue;
       }
     }
@@ -430,19 +521,21 @@ async function simulate() {
     header('Final Session State');
     const final = engine.getSession(sessionId);
 
-    const statusColor = final.status === 'completed' ? C.green
-      : final.status === 'failed' ? C.red : C.yellow;
+    const statusColor =
+      final.status === 'completed' ? C.green : final.status === 'failed' ? C.red : C.yellow;
 
     info('Status', `${statusColor}${final.status}${C.reset}`);
     info('Termination Reason', `${final.terminationReason ?? 'none'}`);
     info('Evolution Generations', `${final.evolutionHistory.length}`);
     info('Lateral Attempts', `${final.lateralAttempts}`);
-    info('Tried Personas', final.lateralTriedPersonas.map((p) => `${PERSONA_EMOJI[p] ?? ''} ${p}`).join(', ') || 'none');
+    info(
+      'Tried Personas',
+      final.lateralTriedPersonas.map((p) => `${PERSONA_EMOJI[p] ?? ''} ${p}`).join(', ') || 'none',
+    );
     info('Current Generation', `${final.currentGeneration}`);
     info('Current Spec ACs', final.spec.acceptanceCriteria.join(' | '));
 
     console.log(`\n${C.bold}${C.bgGreen}${C.white} 시뮬레이션 완료 ${C.reset}\n`);
-
   } finally {
     if (existsSync(dbPath)) rmSync(dbPath, { force: true });
   }

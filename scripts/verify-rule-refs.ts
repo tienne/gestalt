@@ -9,7 +9,13 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { citedRuleIds, parseRuleBook, s1Ids, QUICK_RULES_PATH } from '../src/humanize/index.js';
+import {
+  citedRuleIds,
+  isRulebookPath,
+  parseRuleBook,
+  s1Ids,
+  QUICK_RULES_PATH,
+} from '../src/humanize/index.js';
 import {
   countByRule,
   proseLines,
@@ -614,16 +620,6 @@ function trailingComment(raw: string): string | null {
   return null;
 }
 
-/**
- * 룰 문서인가.
- *
- * 이 문서들의 표는 "쓰지 말 것" 칸에 금지어를 그대로 적는 게 존재 이유라 표 스캔을 끈다.
- * 검사기는 경로를 모르므로 여기서 정한다.
- */
-function isRulebook(file: string): boolean {
-  return file.includes(`${sep}_shared${sep}references${sep}`);
-}
-
 /** 파일별 S1 건수. 룰 예외(용어 목록, 룰 ID 나열)는 세지 않는다 */
 export function countS1ByFile(): Map<string, number> {
   const book = parseRuleBook();
@@ -641,7 +637,7 @@ export function countS1ByFile(): Map<string, number> {
     // 산문은 줄마다 세는데 표는 통째로 넘긴다. 산문 쪽이 줄 단위인 건 걸린 자리의 줄
     // 번호를 알아야 해서이고, 표는 셀을 이어 붙여야 어휘가 온전히 남는다. 어휘 룰만
     // 거는 자리라 여러 줄에 걸친 판정이 없어 이어 붙여도 셈이 안 어긋난다
-    if (file.endsWith('.md') && !isRulebook(file) && tableTargets.length > 0) {
+    if (file.endsWith('.md') && !isRulebookPath(file) && tableTargets.length > 0) {
       const cells = splitLines(content)
         .table.map(({ text }) => text)
         .join('\n');

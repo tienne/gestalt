@@ -77,6 +77,6 @@ if (missing.length > 0 || stale.length > 0 || differing.length > 0) {
 
 const total = ASSET_DIRS.reduce(
   (sum, dir) => sum + collectFiles(resolve(ROOT, 'plugin', dir)).length,
-  0
+  0,
 );
 console.log(`Verified ${total} plugin assets in dist/plugin (${ASSET_DIRS.join(', ')})`);

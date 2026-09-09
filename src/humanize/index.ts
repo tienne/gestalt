@@ -46,4 +46,11 @@ export {
   type AxisResult,
   type Verdict,
 } from './check.js';
-export { scan, formatScan, type ScanReport, type ScanHit, type ScanOptions } from './scan.js';
+export {
+  scan,
+  formatScan,
+  isRulebookPath,
+  type ScanReport,
+  type ScanHit,
+  type ScanOptions,
+} from './scan.js';

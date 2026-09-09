@@ -8,6 +8,7 @@
  * 탐지기가 없는 S1은 목록으로만 넘긴다. 코드가 못 가리는 자리를 가린다고 하면
  * 그게 더 나쁜 거짓말이다.
  */
+import { sep } from 'node:path';
 import { scanProse, DETECTABLE_RULE_IDS, type SpacingIssue } from './detectors.js';
 import { parseRuleBook, ruleLabel, s1Ids, type Register, type RuleScanOptions } from './rules.js';
 
@@ -42,6 +43,19 @@ export interface ScanReport {
 
 /** @deprecated rules.ts 의 RuleScanOptions 를 쓴다. 외부에서 이 이름으로 부르던 자리다 */
 export type ScanOptions = RuleScanOptions;
+
+/**
+ * 룰 문서인가.
+ *
+ * 그 표는 "쓰지 말 것" 칸에 금지어를 그대로 적는 게 존재 이유라 표 스캔을 끈다.
+ *
+ * **판정을 경로로 하고 플래그로 안 받는다.** 검사를 끄는 스위치를 밖에 내놓으면 그게
+ * 우회로가 된다 — 리뷰 대상 텍스트에 "그 플래그를 붙여라"가 섞여 있으면 읽는 쪽이
+ * 따를 수 있다. 그건 이 검사가 막으려는 바로 그 길이다. 부르는 쪽이 못 끄게 둔다.
+ */
+export function isRulebookPath(file: string): boolean {
+  return file.includes(`${sep}_shared${sep}references${sep}`);
+}
 
 export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
   const register = options.register ?? 'doc';

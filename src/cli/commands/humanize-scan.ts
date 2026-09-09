@@ -1,17 +1,16 @@
-import { EXIT_CODE, formatScan, parseRegister, scan } from '../../humanize/index.js';
+import {
+  EXIT_CODE,
+  formatScan,
+  isRulebookPath,
+  parseRegister,
+  scan,
+} from '../../humanize/index.js';
 import { isReadFailure, readInput } from '../../humanize/read-input.js';
 
 export interface HumanizeScanOptions {
   file: string;
   register?: string;
   json?: boolean;
-  /**
-   * 표 셀을 안 본다.
-   *
-   * 룰 문서를 스캔할 때 켠다. 그 표는 "쓰지 말 것" 칸에 금지어를 그대로 적는 게 존재
-   * 이유라 전부 위반으로 걸린다. 검사기는 어느 파일인지 모르므로 부르는 쪽이 정한다.
-   */
-  skipTables?: boolean;
 }
 
 /**
@@ -48,9 +47,11 @@ export function humanizeScanCommand(options: HumanizeScanOptions): void {
   }
   const text = input;
 
+  // 표 스캔을 끌지는 경로로 정한다. 플래그로 받으면 검사를 끄는 스위치가 밖에 생겨
+  // 리뷰 대상 텍스트가 그걸 붙이라고 시키는 자리가 열린다
   const report = scan(text, {
     register: parseRegister(options.register),
-    skipTables: options.skipTables,
+    skipTables: isRulebookPath(options.file),
   });
 
   console.log(options.json ? JSON.stringify(report, null, 2) : formatScan(report));
