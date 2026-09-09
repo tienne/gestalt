@@ -155,7 +155,8 @@ describe('리뷰 코멘트 audience 옵션', () => {
       // "쉽게 써줘"는 리포트를 짧게 해달라는 뜻일 수도 있어 explain과 갈린다
       expect(skill.frontmatter.triggers).not.toContain('리뷰 쉽게 써줘');
       expect(step05()).toMatch(/읽는 사람을 가리키는 말만 신호로 봅니다/);
-      expect(step05()).toContain('/explain');
+      // 처방부까지 잡는다. 4번째 불릿에 이미 있는 /explain 언급으로 공허하게 통과하면 안 된다
+      expect(step05()).toMatch(/그럴 때는 `peer`로 진행합니다[\s\S]{0,120}`\/explain`/);
     });
 
     it('junior 축약이 이 스킬 전용이라고 밝힌다', () => {
