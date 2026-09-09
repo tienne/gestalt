@@ -4,6 +4,9 @@ import { countBackticks, proseTargets, stripQuoted } from '../../../scripts/veri
 import { raisedEntries } from '../../../scripts/humanize-baseline.js';
 import {
   detect,
+  splitLines,
+  tableCells,
+  scanProse,
   DETECTABLE_RULE_IDS,
   TABLE_SCANNED_RULE_IDS,
 } from '../../../src/humanize/detectors.js';
@@ -146,6 +149,25 @@ describe('검사 범위와 예외', () => {
     it('excludeQuotes 를 주면 블록인용을 안 본다', () => {
       expect(detect('> 배선이 이상해요\n', ['F-7'], { excludeQuotes: true })).toEqual([]);
       expect(detect('> 배선이 이상해요\n', ['F-7']).length).toBe(1);
+    });
+
+    // 탐지 결과로는 이 회귀를 못 가른다. 이스케이프를 안 살린 구현도 그 자리에 역슬래시를
+    // 남겨 걸림말이 이어지지 않으므로 양쪽 다 0건이 된다. 나뉜 문자열을 직접 본다
+    it('GFM 이스케이프 파이프를 셀 구분자로 안 읽는다', () => {
+      const cells = tableCells(splitLines('| a\\|b | c |\n').table);
+
+      expect(cells).toContain('a|b');
+      expect(cells).not.toContain('\\');
+    });
+
+    it('인용이 남은 산문보다 많으면 allQuoted 로 알린다', () => {
+      // 코멘트를 통째로 인용으로 감싸 게이트를 우회하던 자리다. 0건과 뜻이 정반대라
+      // 부르는 쪽이 갈라 읽어야 한다
+      const wrapped = '=== issue-1\n> 결론적으로 이건 압도적입니다\n> 이 문제에 대해 고쳤어요\n';
+      expect(scanProse(wrapped, ['D-1'], { excludeQuotes: true }).allQuoted).toBe(true);
+
+      const normal = '> 원 댓글: 배선이 이상해요\n\n말씀하신 연결 부분 고쳤어요\n';
+      expect(scanProse(normal, ['F-7'], { excludeQuotes: true }).allQuoted).toBe(false);
     });
   });
 });

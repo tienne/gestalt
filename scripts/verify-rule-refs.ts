@@ -614,7 +614,6 @@ function trailingComment(raw: string): string | null {
   return null;
 }
 
-/** 파일별 S1 건수. 룰 예외(용어 목록·룰 ID 나열)는 세지 않는다 */
 /**
  * 룰 문서인가.
  *
@@ -625,6 +624,7 @@ function isRulebook(file: string): boolean {
   return file.includes(`${sep}_shared${sep}references${sep}`);
 }
 
+/** 파일별 S1 건수. 룰 예외(용어 목록, 룰 ID 나열)는 세지 않는다 */
 export function countS1ByFile(): Map<string, number> {
   const book = parseRuleBook();
   const targets = s1Ids(book, 'doc');
@@ -636,7 +636,11 @@ export function countS1ByFile(): Map<string, number> {
     let total = 0;
 
     // 표 셀도 어휘 룰로 센다. 사고가 난 자리가 표 셀이었는데 여기가 표를 안 보면
-    // 코멘트만 표까지 검사받고 레포 자신은 표에 같은 말이 남아도 0건으로 센다
+    // 코멘트만 표까지 검사받고 레포 자신은 표에 같은 말이 남아도 0건으로 센다.
+    //
+    // 산문은 줄마다 세는데 표는 통째로 넘긴다. 산문 쪽이 줄 단위인 건 걸린 자리의 줄
+    // 번호를 알아야 해서이고, 표는 셀을 이어 붙여야 어휘가 온전히 남는다. 어휘 룰만
+    // 거는 자리라 여러 줄에 걸친 판정이 없어 이어 붙여도 셈이 안 어긋난다
     if (file.endsWith('.md') && !isRulebook(file) && tableTargets.length > 0) {
       const cells = splitLines(content)
         .table.map(({ text }) => text)
