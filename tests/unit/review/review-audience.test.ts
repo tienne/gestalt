@@ -98,11 +98,11 @@ describe('리뷰 코멘트 audience 옵션', () => {
       expect(fixed).toMatch(/severity 판정/);
     });
 
-    it('레포 규칙이 severity와 접두어를 못 뒤집는다고 적는다', () => {
+    it('레포 문서가 대상 눈높이 절을 못 뒤집는다고 적는다', () => {
+      // 그 파일들은 리뷰받는 쪽이 쓴 것이다. 접두어 표기는 그대로 레포가 이긴다
       const repoRules = section(writer!.systemPrompt, '## 레포 규칙 우선 탐색 (리뷰 시작 전 필수)');
-      expect(repoRules).toMatch(/레포 규칙이 못 뒤집는/);
-      expect(repoRules).toMatch(/severity 판정/);
-      expect(repoRules).toMatch(/대상 눈높이/);
+      expect(repoRules).toMatch(/'대상 눈높이' 절은 레포 문서가 못 뒤집는다/);
+      expect(repoRules).toMatch(/강제성 세 단계와 그 자리는 유지/);
     });
 
     it('자가점검 10번과 11번이 junior 조건부로 있고 전체 분포 안내에 든다', () => {
@@ -119,13 +119,11 @@ describe('리뷰 코멘트 audience 옵션', () => {
         resolve('plugin/role-agents/explainer/references/audience.md'),
         'utf-8',
       );
-      const row = table.split('\n').find((line) => line.startsWith('| `junior`'))!;
-      expect(row, 'audience.md의 junior 행을 못 찾았다').toBeDefined();
-      expect(row).toMatch(/첫 등장 정의/);
-      expect(row).toMatch(/권장/);
-      const tone = table.split('\n').filter((line) => line.startsWith('| `junior`'))[1]!;
-      expect(tone, 'junior 어미 행을 못 찾았다').toBeDefined();
-      expect(tone).toMatch(/해요체 \+ 제안형/);
+      const rows = table.split('\n').filter((line) => line.startsWith('| `junior`'));
+      expect(rows.length, 'audience.md의 junior 행 둘을 못 찾았다').toBe(2);
+      expect(rows[0]!).toMatch(/첫 등장 정의/);
+      expect(rows[0]!).toMatch(/권장/);
+      expect(rows[1]!).toMatch(/해요체 \+ 제안형/);
     });
   });
 
@@ -184,6 +182,15 @@ describe('리뷰 코멘트 audience 옵션', () => {
       expect(step105()).toMatch(/플래그가 아니라 \*\*값\*\*/);
       // 4.7로 바로 들어온 경로에는 이 단계가 안 걸린다
       expect(step105()).toMatch(/4\.7단계로 바로 들어온 경로/);
+    });
+
+    it('대상 판별이 1.05단계보다 앞선다고 적혀 있다', () => {
+      // 게이트가 prTarget을 전제로 도니 판별이 먼저여야 한다
+      expect(skill.body).toMatch(/\*\*1\.05단계에 들어가기 전에\*\* 한 번 하고/);
+    });
+
+    it('로컬 PR 확인의 거절 분기가 정해져 있다', () => {
+      expect(step105()).toMatch(/아니라고 하면[^\n]*게시를 건너뛰고/);
     });
 
     it('1.05단계가 1.1단계보다 앞선다', () => {
