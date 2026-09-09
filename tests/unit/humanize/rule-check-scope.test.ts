@@ -160,14 +160,23 @@ describe('검사 범위와 예외', () => {
       expect(cells).not.toContain('\\');
     });
 
-    it('인용이 남은 산문보다 많으면 allQuoted 로 알린다', () => {
+    it('코멘트가 인용줄뿐이면 allQuoted 로 알린다', () => {
       // 코멘트를 통째로 인용으로 감싸 게이트를 우회하던 자리다. 0건과 뜻이 정반대라
-      // 부르는 쪽이 갈라 읽어야 한다
-      const wrapped = '=== issue-1\n> 결론적으로 이건 압도적입니다\n> 이 문제에 대해 고쳤어요\n';
-      expect(scanProse(wrapped, ['D-1'], { excludeQuotes: true }).allQuoted).toBe(true);
+      // 부르는 쪽이 갈라 읽어야 한다. 한 줄짜리를 감싼 꼴이 제일 흔하다
+      expect(
+        scanProse('> 결론적으로 압도적입니다\n', ['D-1'], { excludeQuotes: true }).allQuoted,
+      ).toBe(true);
 
       const normal = '> 원 댓글: 배선이 이상해요\n\n말씀하신 연결 부분 고쳤어요\n';
       expect(scanProse(normal, ['F-7'], { excludeQuotes: true }).allQuoted).toBe(false);
+    });
+
+    it('여러 코멘트를 이어 붙이면 이 판정이 안 선다', () => {
+      // 게이트가 코멘트마다 따로 부르는 이유를 여기 고정한다. 한 덩어리로 넘기면
+      // 인용으로 감싼 코멘트가 다른 코멘트의 산문에 묻혀 안 걸린다
+      const batch = '확인했어요\n> 결론적으로 압도적입니다\n';
+
+      expect(scanProse(batch, ['D-1'], { excludeQuotes: true }).allQuoted).toBe(false);
     });
   });
 });

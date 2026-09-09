@@ -655,8 +655,10 @@ export function scanProse(
     detections,
     spacing: spacingOn(prose),
     // 인용이 남은 산문보다 많다. 0건과 뜻이 정반대라 부르는 쪽이 갈라 읽어야 한다.
-    // "산문이 0줄"로 재면 못 잡는다 — 게이트가 넣는 `=== <id>` 마커 줄이 인용 밖에 남아
-    // 코멘트를 통째로 감싸도 산문이 한 줄은 있는 걸로 세어진다
+    //
+    // **이 판정은 코멘트 하나를 통째로 넘길 때만 뜻이 선다.** 여러 코멘트를 이어 붙여
+    // 넘기면 한 코멘트를 전부 인용으로 감싸도 다른 코멘트의 산문에 묻혀 안 걸린다.
+    // 게이트가 코멘트마다 따로 부르는 이유다 (review 와 review-reply SKILL.md)
     allQuoted:
       split.droppedQuotes > split.prose.filter((line) => line.text.trim().length > 0).length,
   };
