@@ -20,8 +20,8 @@ interface Detector {
   /**
    * prose 는 detect 가 한 번 계산해 모든 탐지기에 나눠 주는, 산문만 남긴 텍스트다.
    *
-   * 원문 그대로가 필요한 룰이 아직 없어 인자가 이것 하나다. 코드펜스나 표 안을
-   * 봐야 하는 룰이 생기면 그때 raw text 를 함께 넘긴다.
+   * 표 안까지 봐야 하는 어휘 룰은 `TABLE_SCANNED_RULE_IDS` 에 등록하면 scanProse 가
+   * 표 셀만 모아 한 번 더 돌린다. 탐지기 쪽은 그대로 두면 된다.
    */
   run: (prose: string) => string[];
 }
@@ -319,7 +319,7 @@ const DETECTORS: Detector[] = [
 export const DETECTABLE_RULE_IDS: string[] = DETECTORS.map((d) => d.ruleId);
 
 export function detect(text: string, ruleIds?: readonly string[]): Detection[] {
-  return detectOn(proseOnly(text), ruleIds);
+  return mergeDetections(detectOn(proseOnly(text), ruleIds), detectInTables(text, ruleIds));
 }
 
 function detectOn(prose: string, ruleIds?: readonly string[]): Detection[] {
@@ -485,10 +485,60 @@ export function structureStats(text: string): StructureStats {
  * (500KB 입력에서 12%) 진짜 문제는 나중에 한쪽만 산문 기준이 바뀌면 어투와 맞춤법이 서로
  * 다른 텍스트를 보게 되는 것이다. 산문 정의를 여기 한 군데로 모은다.
  */
+/**
+ * 표 셀 안에서도 틀린 어휘 룰.
+ *
+ * 표를 통째로 뺀 건 항목을 압축하는 자리라서다 — E-8 명사구 종결과 F-6 복합명사는
+ * 표 셀에서 정상 문법이다. 어휘가 틀린 건 자리를 안 가린다. 생물학 용어로 옮긴 mutant 는
+ * 표 안이라고 맞는 말이 되지 않는다. C-12 가운뎃점은 룰북이 표를 예외로 적어 뒀으므로 여기 없다.
+ */
+export const TABLE_SCANNED_RULE_IDS: readonly string[] = ['B-3', 'B-5', 'D-3', 'D-4', 'F-7'];
+
+/** 표 줄만 모아 셀 구분자와 정렬행을 걷어낸다 */
+function tableCells(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => line.trimStart())
+    .filter((line) => line.startsWith('|') && !/^\|[\s:|-]*\|?$/.test(line))
+    .map((line) =>
+      line
+        .replace(/^\||\|$/g, '')
+        .split('|')
+        .join(' '),
+    )
+    .join('\n');
+}
+
+/** 표 셀을 어휘 룰로만 훑는다. 호출자가 룰을 좁혔으면 그 교집합만 본다 */
+function detectInTables(text: string, ruleIds?: readonly string[]): Detection[] {
+  const wanted = ruleIds
+    ? TABLE_SCANNED_RULE_IDS.filter((id) => ruleIds.includes(id))
+    : TABLE_SCANNED_RULE_IDS;
+  if (wanted.length === 0) return [];
+
+  return detectOn(tableCells(text).replace(/`[^`\n]+`/g, ' '), wanted);
+}
+
+/** 같은 룰이 산문과 표 양쪽에서 걸리면 건수를 합치고 사례를 이어 붙인다 */
+function mergeDetections(base: Detection[], extra: Detection[]): Detection[] {
+  const byRule = new Map(base.map((d) => [d.ruleId, { ...d, samples: [...d.samples] }]));
+
+  for (const found of extra) {
+    const seen = byRule.get(found.ruleId);
+    if (!seen) {
+      byRule.set(found.ruleId, { ...found, samples: [...found.samples] });
+      continue;
+    }
+    seen.count += found.count;
+    seen.samples = [...new Set([...seen.samples, ...found.samples])].slice(0, SAMPLE_CAP);
+  }
+
+  return [...byRule.values()];
+}
+
 export function scanProse(
   text: string,
   ruleIds?: readonly string[],
 ): { detections: Detection[]; spacing: SpacingIssue[] } {
-  const prose = proseOnly(text);
-  return { detections: detectOn(prose, ruleIds), spacing: spacingOn(prose) };
+  return { detections: detect(text, ruleIds), spacing: spacingOn(proseOnly(text)) };
 }
