@@ -71,7 +71,7 @@
 | close (an issue, PR, thread) | 이슈를 닫는다 | 이슈를 종료한다 / 스레드를 종료한다 |
 | close (a connection, a repo) | 저장소를 닫는다 | 저장소 연결을 끊는다 |
 | leak (자주 나온다는 뜻으로) | 자주 새는 룰 | 자주 걸리는 룰 / 반복해서 틀리는 자리 |
-| mutant (mutation testing) | 돌연변이 | `mutant` 원어 그대로 |
+| mutant (mutation testing) | 돌연변이, 뮤턴트, 뮤테이션 | `mutant`, `mutation` 원어 그대로 |
 | kill (a mutant) | 죽임 | 제거한다 / 지운다 |
 | branch (of code) | 갈래 | 분기 |
 

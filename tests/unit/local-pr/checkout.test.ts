@@ -96,7 +96,7 @@ describe('PR head 체크아웃', () => {
     const first = engine.checkout(pr.id);
 
     try {
-      // 리뷰어가 뮤테이션으로 깨놓은 상태
+      // 리뷰어가 mutation 검증으로 망가뜨려 놓은 상태
       writeFileSync(join(first.path, 'a.txt'), 'mutated\n');
 
       const second = engine.checkout(pr.id);
@@ -260,7 +260,7 @@ describe('PR head 체크아웃', () => {
     const pr = engine.create({ title: 't', author: 'a' });
     const checkout = engine.checkout(pr.id);
 
-    writeFileSync(join(checkout.path, 'a.txt'), '뮤테이션\n');
+    writeFileSync(join(checkout.path, 'a.txt'), 'mutation\n');
     const kept = engine.removeCheckout(pr.id);
 
     const gone = engine.removeCheckout(pr.id, { force: true });
@@ -280,7 +280,7 @@ describe('PR head 체크아웃', () => {
     run(checkout.path, ['config', 'user.email', 't@e.st']);
     run(checkout.path, ['config', 'user.name', 'test']);
     writeFileSync(join(checkout.path, 'a.txt'), '깨놓은 코드\n');
-    run(checkout.path, ['commit', '-q', '-am', '뮤테이션 확인 중']);
+    run(checkout.path, ['commit', '-q', '-am', 'mutation 확인 중']);
 
     // detached HEAD라 git status는 깨끗하다고 답한다. 미커밋 검사만으로는 안 걸린다
     const result = engine.removeCheckout(pr.id);
@@ -299,7 +299,7 @@ describe('PR head 체크아웃', () => {
     run(checkout.path, ['config', 'user.email', 't@e.st']);
     run(checkout.path, ['config', 'user.name', 'test']);
     writeFileSync(join(checkout.path, 'a.txt'), '깨놓은 코드\n');
-    run(checkout.path, ['commit', '-q', '-am', '뮤테이션 확인 중']);
+    run(checkout.path, ['commit', '-q', '-am', 'mutation 확인 중']);
     const stranded = run(checkout.path, ['rev-parse', 'HEAD']);
 
     const result = engine.removeCheckout(pr.id, { force: true });
@@ -339,7 +339,7 @@ describe('PR head 체크아웃', () => {
   it('두 번째 force가 첫 번째로 구한 커밋을 덮지 않는다', () => {
     const pr = engine.create({ title: 't', author: 'a' });
 
-    // 뮤테이션 검증은 깨고 커밋하고 치우기를 여러 바퀴 돈다. 바퀴마다 구한 커밋이
+    // mutation 검증은 코드를 망가뜨리고 커밋하고 치우기를 여러 바퀴 돈다. 바퀴마다 구한 커밋이
     // 남아야 한다 — PR당 ref가 하나면 두 번째가 첫 번째를 조용히 가져간다
     const saved: string[] = [];
     for (const mark of ['첫 바퀴', '둘째 바퀴']) {

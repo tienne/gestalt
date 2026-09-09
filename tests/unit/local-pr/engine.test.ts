@@ -462,7 +462,7 @@ describe('LocalPrEngine', () => {
       const pr = engine.create({ title: 't', author: 'a' });
       const checkout = engine.checkout(pr.id);
       writeFileSync(join(checkout.path, 'a.txt'), '일부러 깬 코드\n');
-      run(checkout.path, ['commit', '-q', '-am', '뮤테이션']);
+      run(checkout.path, ['commit', '-q', '-am', 'mutation']);
       const saved = engine.removeCheckout(pr.id, { force: true }).savedRef!;
       run(repo, ['checkout', '-q', 'main']);
       engine.merge(pr.id, 'a');
@@ -483,7 +483,7 @@ describe('LocalPrEngine', () => {
       const pr = engine.create({ title: 't', author: 'a' });
       const checkout = engine.checkout(pr.id);
       writeFileSync(join(checkout.path, 'a.txt'), '일부러 깬 코드\n');
-      run(checkout.path, ['commit', '-q', '-am', '뮤테이션']);
+      run(checkout.path, ['commit', '-q', '-am', 'mutation']);
       const saved = engine.removeCheckout(pr.id, { force: true }).savedRef!;
 
       const result = engine.prune({ checkouts: true });
@@ -499,7 +499,7 @@ describe('LocalPrEngine', () => {
       const pr = engine.create({ title: 't', author: 'a' });
       const checkout = engine.checkout(pr.id);
       writeFileSync(join(checkout.path, 'a.txt'), '일부러 깬 코드\n');
-      run(checkout.path, ['commit', '-q', '-am', '뮤테이션']);
+      run(checkout.path, ['commit', '-q', '-am', 'mutation']);
       const saved = engine.removeCheckout(pr.id, { force: true }).savedRef!;
       engine.closePr(pr.id, 'a', '');
 

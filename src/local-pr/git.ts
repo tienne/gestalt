@@ -565,7 +565,7 @@ export interface CheckoutRemoval {
  *
  * 이름에 sha를 실어 바퀴마다 한 칸씩 남긴다. PR당 한 칸이면 두 번째 `--force`가
  * 첫 번째로 구한 커밋을 덮어써서, 그 커밋이 어느 ref도 안 품은 상태가 된다.
- * 뮤테이션 검증은 깨고 커밋하고 치우기를 여러 바퀴 도는 흐름이라 그 자리를 실제로 밟는다.
+ * mutation 검증은 코드를 망가뜨리고 커밋하고 치우기를 여러 바퀴 도는 흐름이라 그 자리를 실제로 밟는다.
  */
 function strandedRef(prId: string, sha: string): string {
   return `${CHECKOUT_REF_ROOT}/${prId}/${sha.slice(0, 8)}`;
@@ -574,8 +574,9 @@ function strandedRef(prId: string, sha: string): string {
 /**
  * 떼어 놓은 워크트리를 지운다.
  *
- * **지울 만하지 않으면 지우지 않는다.** 리뷰어가 뮤테이션 검증 중이면 그 워크트리는
- * 일부러 깨놓은 코드다. 여기서 날리면 무엇을 어떻게 깼는지가 사라진다. 두 경우를 막는다.
+ * **지울 만하지 않으면 지우지 않는다.** 리뷰어가 mutation 검증 중이면 그 워크트리는
+ * 일부러 망가뜨려 놓은 코드다. 여기서 날리면 무엇을 어떻게 망가뜨렸는지가 사라진다.
+ * 두 경우를 막는다.
  *
  * - 커밋 안 된 변경 (`dirty`)
  * - 여기서 커밋했는데 어느 ref도 안 품은 커밋 (`diverged`) — 떼어낸 자리는 detached
