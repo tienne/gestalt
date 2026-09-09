@@ -146,9 +146,22 @@ describe('리뷰 코멘트 audience 옵션', () => {
     });
 
     it('플래그 없이 말로 발동하는 트리거가 다 있다', () => {
-      for (const trigger of ['주니어한테 설명하듯 리뷰', '신입이 읽을 리뷰', '리뷰 쉽게 써줘']) {
+      for (const trigger of ['주니어한테 설명하듯 리뷰', '신입이 읽을 리뷰']) {
         expect(skill.frontmatter.triggers).toContain(trigger);
       }
+    });
+
+    it('대상이 안 드러난 말은 audience 신호로 안 읽는다', () => {
+      // "쉽게 써줘"는 리포트를 짧게 해달라는 뜻일 수도 있어 explain과 갈린다
+      expect(skill.frontmatter.triggers).not.toContain('리뷰 쉽게 써줘');
+      expect(step05()).toMatch(/읽는 사람을 가리키는 말만 신호로 봅니다/);
+      expect(step05()).toContain('/explain');
+    });
+
+    it('junior 축약이 이 스킬 전용이라고 밝힌다', () => {
+      expect(skill.frontmatter.inputs.audience!.description).toMatch(
+        /`--junior` 축약은 이 스킬 전용/,
+      );
     });
 
     it('아무 신호가 없으면 peer로 두고 따로 묻지 않는다', () => {

@@ -27,7 +27,7 @@ inputs:
   audience:
     type: string
     required: false
-    description: "누가 읽는지. nontech | junior | peer | manager | exec | outsider. `--audience <값>` 플래그가 이 값으로 들어온다. 비우면 물어본다. 답이 없으면 peer"
+    description: "누가 읽는지. nontech | junior | peer | manager | exec | outsider. 비우면 물어본다. 답이 없으면 peer"
   depth:
     type: string
     required: false
