@@ -260,7 +260,7 @@ describe('LocalPrEngine', () => {
     });
 
     it('충돌하는 머지는 워킹 트리를 되돌려 놓고 던진다', () => {
-      // main과 feat/x가 같은 줄을 다르게 고친다. 이 자리에서 곧장 머지하는 갈래라
+      // main과 feat/x가 같은 줄을 다르게 고친다. 이 자리에서 곧장 머지하는 분기라
       // 충돌이 부르는 사람의 워킹 트리에 MERGE_HEAD를 세운 채 남는다
       const pr = engine.create({ title: 't', author: 'a' });
       run(repo, ['checkout', '-q', 'main']);
@@ -325,7 +325,7 @@ describe('LocalPrEngine', () => {
     }
 
     it('네 상태를 모두 만들고 필터가 전체 목록을 거른 것과 같다', () => {
-      // `list(status)`는 상태만 접는 가벼운 갈래로 후보를 좁힌다. 그 갈래가 통째로
+      // `list(status)`는 상태만 접는 가벼운 경로로 후보를 좁힌다. 그 경로가 통째로
       // 접는 `fold`와 갈리면 목록과 필터가 어긋난다. 두 계산을 맞대는 자리다
       const open = prOn('s-open');
       const requested = prOn('s-requested');
@@ -337,7 +337,7 @@ describe('LocalPrEngine', () => {
       engine.merge(merged, 'a');
 
       // 코멘트를 붙이는 것도 approve 판정도 comment 판정도 상태를 안 옮긴다. 가벼운
-      // 갈래가 그렇게 적어 뒀는데 approve만 밟으면 판정 종류를 안 보고 changes_requested로 옮기는 갈래가
+      // 경로가 그렇게 적어 뒀는데 approve만 밟으면 판정 종류를 안 보고 changes_requested로 옮기는 분기가
       // 안 잡힌다. 두 판정을 다 지난다
       engine.comment(open, { author: 'r', path: 'a.txt', body: '의견' });
       engine.review(open, { reviewer: 'r', verdict: 'approve', summary: 'ok' });
@@ -371,8 +371,8 @@ describe('LocalPrEngine', () => {
     });
 
     it('고쳐서 update하면 다시 open으로 세어진다', () => {
-      // changes_requested를 되돌리는 갈래는 상태를 정하는 이벤트 중 유일하게
-      // 이전 상태를 보고 갈린다. 가벼운 갈래에서 빠뜨리기 쉬운 자리다
+      // changes_requested를 되돌리는 분기는 상태를 정하는 이벤트 중 유일하게
+      // 이전 상태를 보고 갈린다. 가벼운 경로에서 빠뜨리기 쉬운 자리다
       const id = prOn('s-again');
       engine.review(id, { reviewer: 'r', verdict: 'request_changes', summary: 'x' });
       expect(engine.countByStatus().changes_requested).toBe(1);
@@ -462,7 +462,7 @@ describe('LocalPrEngine', () => {
       const pr = engine.create({ title: 't', author: 'a' });
       const checkout = engine.checkout(pr.id);
       writeFileSync(join(checkout.path, 'a.txt'), '일부러 깬 코드\n');
-      run(checkout.path, ['commit', '-q', '-am', '뮤테이션']);
+      run(checkout.path, ['commit', '-q', '-am', 'mutation']);
       const saved = engine.removeCheckout(pr.id, { force: true }).savedRef!;
       run(repo, ['checkout', '-q', 'main']);
       engine.merge(pr.id, 'a');
@@ -483,7 +483,7 @@ describe('LocalPrEngine', () => {
       const pr = engine.create({ title: 't', author: 'a' });
       const checkout = engine.checkout(pr.id);
       writeFileSync(join(checkout.path, 'a.txt'), '일부러 깬 코드\n');
-      run(checkout.path, ['commit', '-q', '-am', '뮤테이션']);
+      run(checkout.path, ['commit', '-q', '-am', 'mutation']);
       const saved = engine.removeCheckout(pr.id, { force: true }).savedRef!;
 
       const result = engine.prune({ checkouts: true });
@@ -495,11 +495,11 @@ describe('LocalPrEngine', () => {
 
     it('닫힌 PR의 체크아웃 자국은 --checkouts로 놓는다', () => {
       // 상태 조건의 다른 쪽 항이다. 머지된 PR만으로는 'merged || closed'에서
-      // closed 갈래가 안 밟힌다
+      // closed 분기가 안 밟힌다
       const pr = engine.create({ title: 't', author: 'a' });
       const checkout = engine.checkout(pr.id);
       writeFileSync(join(checkout.path, 'a.txt'), '일부러 깬 코드\n');
-      run(checkout.path, ['commit', '-q', '-am', '뮤테이션']);
+      run(checkout.path, ['commit', '-q', '-am', 'mutation']);
       const saved = engine.removeCheckout(pr.id, { force: true }).savedRef!;
       engine.closePr(pr.id, 'a', '');
 

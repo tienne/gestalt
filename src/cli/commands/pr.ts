@@ -62,12 +62,12 @@ function summarize(pr: PullRequest): string {
   return `${pr.id}  [${pr.status}]  ${pr.title}  (라운드 ${round}, 미해결 ${unresolved})`;
 }
 
-/** 오류를 종료 코드로 옮긴다. 에이전트가 stdout을 안 읽고도 갈래를 탄다 */
+/** 오류를 종료 코드로 옮긴다. 에이전트가 stdout을 안 읽고도 분기한다 */
 function run(fn: () => void): void {
   try {
     fn();
   } catch (e) {
-    // `process.exit`이 여기서 흐름을 끊는 건 런타임의 성질이지 이 갈래가 한 약속이
+    // `process.exit`이 여기서 흐름을 끊는 건 런타임의 성질이지 이 함수가 한 약속이
     // 아니다. 갈라 두지 않으면 테스트가 exit을 가로챌 때 두 번 나간다
     if (e instanceof PrError) {
       console.error(e.message);
@@ -199,8 +199,8 @@ export function prCheckoutCommand(
           }
         });
         // 안 지운 건 실패가 아니라 판단을 되돌려준 것이다. 에이전트가 종료 코드로
-        // 갈래를 타게 4(상태 충돌)를 준다. 지킨 갈래는 `dirty`, `diverged`, `stale`
-        // 셋이고 앞으로 늘 수 있다. 그 셋을 나열하는 대신 "지운 두 갈래가 아니면"으로
+        // 분기하게 4(상태 충돌)를 준다. 지킨 쪽은 `dirty`, `diverged`, `stale`
+        // 셋이고 앞으로 늘 수 있다. 그 셋을 나열하는 대신 "지운 두 값이 아니면"으로
         // 적는다. `absent`를 뺀 이유는 지울 자리가 없는 게 정리의 목표가 이미 이뤄진
         // 상태여서다. 4로 주면 `--remove`를 두 번 부르는 `set -e` 스크립트가 두 번째에
         // 죽는다. 이 갈림은 --json의 status로도 읽을 수 있다 — 산문 reason을 부분
@@ -410,7 +410,7 @@ export function prCloseCommand(opts: PrCommonOptions & { id: string; reason?: st
  * `gestalt pr prune` — 붙잡아 둘 이유가 끝난 ref를 놓는다.
  *
  * `refs/gestalt/` 아래는 지금까지 늘기만 했다. 무엇을 언제 놓는지는 엔진의 `prune`
- * 주석에 있다. 되돌릴 수 없는 갈래(체크아웃 자국)는 `--checkouts`로 뜻을 밝혀야 놓는다.
+ * 주석에 있다. 되돌릴 수 없는 것(체크아웃 자국)은 `--checkouts`로 뜻을 밝혀야 놓는다.
  */
 export function prPruneCommand(
   opts: PrCommonOptions & { checkouts?: boolean; dryRun?: boolean },
@@ -450,7 +450,7 @@ export function prPruneCommand(
  * 목록에 넣는 호출 자체는 `local-pr-web/engine.ts`에 있다. 거기서 "cwd만 등록하고
  * 나머지는 조회만"으로 가르는 게 더 좁은 문이지만 그건 이 파일 밖이다.
  *
- * 서버를 안 띄우고 이 판단만 볼 수 있게 내보낸다. 통과 갈래를 `prServeCommand`로
+ * 서버를 안 띄우고 이 판단만 볼 수 있게 내보낸다. 통과 경로를 `prServeCommand`로
  * 확인하려면 진짜 서버가 떠 버린다.
  */
 export function assertServeRoot(repoRoot: string): void {

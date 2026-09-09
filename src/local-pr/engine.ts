@@ -89,7 +89,7 @@ export class LocalPrEngine {
    * 떼어 놓은 워크트리를 지운다.
    *
    * 지킬 변경이 있으면 지우지 않고 그 사실을 돌려준다. 부르는 쪽은 결과의 `status`로
-   * 갈래를 탄다. PR head를 함께 넘겨야 그 자리에서 쌓은 커밋을 가려낼 수 있다.
+   * 분기한다. PR head를 함께 넘겨야 그 자리에서 쌓은 커밋을 가려낼 수 있다.
    */
   removeCheckout(prId: string, options: { force?: boolean } = {}): git.CheckoutRemoval {
     const pr = this.require(prId);
@@ -452,7 +452,7 @@ export interface PruneResult {
 /**
  * 종료 코드를 달고 다니는 오류.
  *
- * 부르는 쪽이 에이전트라 stdout을 안 읽고도 갈래를 타야 한다.
+ * 부르는 쪽이 에이전트라 stdout을 안 읽고도 분기해야 한다.
  * 3은 못 찾음, 4는 상태 충돌이다.
  */
 export class PrError extends Error {

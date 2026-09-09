@@ -98,5 +98,5 @@ for (const { path, contents } of pending) {
 }
 
 console.log(
-  `Synced version ${version} → plugin.json, marketplace.json, .codex-plugin/plugin.json, and 4 MCP manifests`
+  `Synced version ${version} → plugin.json, marketplace.json, .codex-plugin/plugin.json, and 4 MCP manifests`,
 );

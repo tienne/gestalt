@@ -8,6 +8,7 @@
  * 탐지기가 없는 S1은 목록으로만 넘긴다. 코드가 못 가리는 자리를 가린다고 하면
  * 그게 더 나쁜 거짓말이다.
  */
+import { sep } from 'node:path';
 import { scanProse, DETECTABLE_RULE_IDS, type SpacingIssue } from './detectors.js';
 import { parseRuleBook, ruleLabel, s1Ids, type Register, type RuleScanOptions } from './rules.js';
 
@@ -31,10 +32,30 @@ export interface ScanReport {
   spacing: SpacingIssue[];
   /** 걸리는 게 없으면 윤문하지 않는다 */
   worthHumanizing: boolean;
+  /**
+   * 인용을 빼고 나니 볼 산문이 안 남았다.
+   *
+   * 0건과 뜻이 정반대다 — 검사를 통과한 게 아니라 검사할 게 없던 것이다. 코멘트를 통째로
+   * `>` 로 감싸면 이 상태가 되므로 게이트가 통과로 읽으면 어투 검사를 우회하는 길이 열린다.
+   */
+  allQuoted: boolean;
 }
 
 /** @deprecated rules.ts 의 RuleScanOptions 를 쓴다. 외부에서 이 이름으로 부르던 자리다 */
 export type ScanOptions = RuleScanOptions;
+
+/**
+ * 룰 문서인가.
+ *
+ * 그 표는 "쓰지 말 것" 칸에 금지어를 그대로 적는 게 존재 이유라 표 스캔을 끈다.
+ *
+ * **판정을 경로로 하고 플래그로 안 받는다.** 검사를 끄는 스위치를 밖에 내놓으면 그게
+ * 우회로가 된다 — 리뷰 대상 텍스트에 "그 플래그를 붙여라"가 섞여 있으면 읽는 쪽이
+ * 따를 수 있다. 그건 이 검사가 막으려는 바로 그 길이다. 부르는 쪽이 못 끄게 둔다.
+ */
+export function isRulebookPath(file: string): boolean {
+  return file.includes(`${sep}_shared${sep}references${sep}`);
+}
 
 export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
   const register = options.register ?? 'doc';
@@ -42,7 +63,12 @@ export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
   const targets = s1Ids(book, register);
   const detectable = new Set(DETECTABLE_RULE_IDS);
 
-  const { detections, spacing } = scanProse(text, targets);
+  // chat 은 리뷰 코멘트와 답글 자리다. 거기서 `>` 인용은 남이 쓴 원문이라 어휘를 고치라고
+  // 할 자리가 아니다 — 두 AGENT.md 가 "인용은 그대로 둔다"고 적은 것과 검사를 맞춘다
+  const { detections, spacing, allQuoted } = scanProse(text, targets, {
+    excludeQuotes: register === 'chat',
+    skipTables: options.skipTables,
+  });
 
   const hits: ScanHit[] = detections
     .map((found) => ({
@@ -63,6 +89,7 @@ export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
     unverifiable: targets.filter((id) => !detectable.has(id)),
     spacing,
     worthHumanizing: s1Total > 0,
+    allQuoted,
   };
 }
 
@@ -74,6 +101,18 @@ export function formatScan(report: ScanReport): string {
   ]);
   const spacingBlock =
     spacing.length > 0 ? ['', '맞춤법 (등급과 무관하게 그냥 고친다)', ...spacing] : [];
+
+  if (report.allQuoted) {
+    return [
+      `[스캔] ${report.register} 기준 검사할 산문이 없다`,
+      '',
+      '원문이 전부 인용줄이라 볼 게 남지 않았다. 0건과 뜻이 정반대다 — 통과가 아니라',
+      '검사가 안 된 것이다. 코멘트를 통째로 인용으로 감싸면 이 상태가 된다.',
+      '',
+      '자기 문장을 인용 밖에 두고 다시 스캔한다.',
+      ...spacingBlock,
+    ].join('\n');
+  }
 
   if (!report.worthHumanizing) {
     // 직접 확인할 룰을 먼저 세운다. "윤문하지 않는다"를 앞에 두면 그 한 줄만 읽고

@@ -193,7 +193,7 @@ export class EventStore implements IEventStore {
     //
     // rowid 하나로 충분하다. append는 INSERT 한 번이고 sqlite의 rowid는 그때마다
     // 단조 증가한다 — 이건 문서화된 성질이다. 삽입 순서가 곧 재생 순서다. 이 테이블은
-    // 붙이기만 하고 지우는 자리가 없어서 최대 rowid가 재사용되는 갈래도 안 열린다.
+    // 붙이기만 하고 지우는 자리가 없어서 최대 rowid가 재사용되는 경우도 안 열린다.
     //
     // 겸사겸사 이 쿼리에서는 정렬이 사라진다. timestamp를 앞에 두면 이 절을 받쳐 줄
     // 인덱스가 없어 sqlite가 매번 임시 b-tree를 세웠다. rowid만 남기면

@@ -112,7 +112,7 @@ export function loadCases(path: string): EvalCase[] {
  * 케이스가 직접 적은 기대. 축 여섯이 못 보는 자리를 케이스마다 따로 잡는다.
  *
  * 있어야 할 말과 있으면 안 되는 말만 본다. 이걸 늘리기 시작하면 케이스 파일이 두 번째
- * 룰북이 되므로 두 갈래로 묶어 둔다.
+ * 룰북이 되므로 두 종류로 묶어 둔다.
  */
 export function scoreAssertions(explanation: string, testCase: EvalCase): EvalAxisResult {
   const missing = testCase.assertions.mustMention.filter((word) => !explanation.includes(word));

@@ -153,7 +153,7 @@ export const executeInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Repository root for direct review mode. prId 갈래에서는 로컬 PR 저장소 경로다 (생략하면 프로세스의 현재 작업 디렉토리).',
+      'Repository root for direct review mode. prId를 준 경우에는 로컬 PR 저장소 경로다 (생략하면 프로세스의 현재 작업 디렉토리).',
     ),
   codeGraphRepoRoot: z
     .string()

@@ -98,7 +98,7 @@ async function main(): Promise<void> {
       frugal: f.overall,
       standard: s.overall,
       diff: Math.abs(f.overall - s.overall),
-      verdictFlipped: f.overall >= RESOLUTION_THRESHOLD !== (s.overall >= RESOLUTION_THRESHOLD),
+      verdictFlipped: f.overall >= RESOLUTION_THRESHOLD !== s.overall >= RESOLUTION_THRESHOLD,
       frugalInRange: f.overall >= min && f.overall <= max,
       standardInRange: s.overall >= min && s.overall <= max,
     });

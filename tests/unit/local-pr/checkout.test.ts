@@ -96,7 +96,7 @@ describe('PR head 체크아웃', () => {
     const first = engine.checkout(pr.id);
 
     try {
-      // 리뷰어가 뮤테이션으로 깨놓은 상태
+      // 리뷰어가 mutation 검증으로 망가뜨려 놓은 상태
       writeFileSync(join(first.path, 'a.txt'), 'mutated\n');
 
       const second = engine.checkout(pr.id);
@@ -260,7 +260,7 @@ describe('PR head 체크아웃', () => {
     const pr = engine.create({ title: 't', author: 'a' });
     const checkout = engine.checkout(pr.id);
 
-    writeFileSync(join(checkout.path, 'a.txt'), '뮤테이션\n');
+    writeFileSync(join(checkout.path, 'a.txt'), 'mutation\n');
     const kept = engine.removeCheckout(pr.id);
 
     const gone = engine.removeCheckout(pr.id, { force: true });
@@ -280,7 +280,7 @@ describe('PR head 체크아웃', () => {
     run(checkout.path, ['config', 'user.email', 't@e.st']);
     run(checkout.path, ['config', 'user.name', 'test']);
     writeFileSync(join(checkout.path, 'a.txt'), '깨놓은 코드\n');
-    run(checkout.path, ['commit', '-q', '-am', '뮤테이션 확인 중']);
+    run(checkout.path, ['commit', '-q', '-am', 'mutation 확인 중']);
 
     // detached HEAD라 git status는 깨끗하다고 답한다. 미커밋 검사만으로는 안 걸린다
     const result = engine.removeCheckout(pr.id);
@@ -299,7 +299,7 @@ describe('PR head 체크아웃', () => {
     run(checkout.path, ['config', 'user.email', 't@e.st']);
     run(checkout.path, ['config', 'user.name', 'test']);
     writeFileSync(join(checkout.path, 'a.txt'), '깨놓은 코드\n');
-    run(checkout.path, ['commit', '-q', '-am', '뮤테이션 확인 중']);
+    run(checkout.path, ['commit', '-q', '-am', 'mutation 확인 중']);
     const stranded = run(checkout.path, ['rev-parse', 'HEAD']);
 
     const result = engine.removeCheckout(pr.id, { force: true });
@@ -339,7 +339,7 @@ describe('PR head 체크아웃', () => {
   it('두 번째 force가 첫 번째로 구한 커밋을 덮지 않는다', () => {
     const pr = engine.create({ title: 't', author: 'a' });
 
-    // 뮤테이션 검증은 깨고 커밋하고 치우기를 여러 바퀴 돈다. 바퀴마다 구한 커밋이
+    // mutation 검증은 코드를 망가뜨리고 커밋하고 치우기를 여러 바퀴 돈다. 바퀴마다 구한 커밋이
     // 남아야 한다 — PR당 ref가 하나면 두 번째가 첫 번째를 조용히 가져간다
     const saved: string[] = [];
     for (const mark of ['첫 바퀴', '둘째 바퀴']) {
@@ -384,8 +384,8 @@ describe('PR head 체크아웃', () => {
     const kept = engine.removeCheckout(pr.id);
 
     // `dirty`가 아니라 `stale`이다. `dirty`는 안을 읽어 커밋 안 된 변경을 확인한
-    // 상태고 여기는 읽을 방법이 없어 판단을 미룬 상태다. 부르는 쪽이 이 값으로 갈래를
-    // 타므로 같은 코드를 주면 문서 표가 조용히 거짓이 된다
+    // 상태고 여기는 읽을 방법이 없어 판단을 미룬 상태다. 부르는 쪽이 이 값으로 분기하므로
+    // 같은 코드를 주면 문서 표가 조용히 거짓이 된다
     expect(kept.status).toBe('stale');
     expect(existsSync(join(checkout.path, 'a.txt'))).toBe(true);
 
@@ -425,7 +425,7 @@ describe('PR head 체크아웃', () => {
 /**
  * `pr checkout --remove`가 status를 종료 코드로 옮기는 자리.
  *
- * 엔진의 `removeCheckout`은 갈래마다 테스트가 있지만 CLI가 그 값을 어느 종료 코드로
+ * 엔진의 `removeCheckout`은 분기마다 테스트가 있지만 CLI가 그 값을 어느 종료 코드로
  * 옮기는지는 안 걸렸다. 조건을 `!== 'removed'`로 좁혀 `absent`가 4를 뱉게 만들어도
  * 게이트가 전부 통과했다. 그러면 `--remove`를 두 번 부르는 `set -e` 스크립트가 두
  * 번째에 죽는다 — 지울 자리가 없는 건 실패가 아니라 목표가 이미 이뤄진 상태다.
@@ -487,7 +487,7 @@ describe('gestalt pr checkout --remove 종료 코드', () => {
     try {
       prCheckoutCommand({ id: pr.id, repoRoot: repo, remove: true });
 
-      // 에이전트가 stdout을 안 읽고도 갈래를 탄다
+      // 에이전트가 stdout을 안 읽고도 분기한다
       expect(exits).toEqual([4]);
     } finally {
       engine.removeCheckout(pr.id, { force: true });

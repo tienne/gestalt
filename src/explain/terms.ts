@@ -53,7 +53,7 @@ const EXTRACTORS: Array<{ kind: TermKind; re: RegExp; capture?: number }> = [
 ];
 
 /**
- * 핵심어 순위에서 갈래가 갖는 무게.
+ * 핵심어 순위에서 종류가 갖는 무게.
  *
  * 건수가 같을 때 경로를 뒤로 미룬다. 스택 트레이스는 같은 경로를 여러 줄에 흘리는데 그게
  * 그 글의 주제인 경우는 드물다. 사람이 붙잡는 건 대개 에러 이름이나 함수 이름 쪽이다.
@@ -140,7 +140,7 @@ function boundaryOk(text: string, start: number, term: string): boolean {
 const MAX_CANDIDATES = 1000;
 
 /**
- * 원문에 나온 전문용어 후보. 같은 말이 여러 꼴에 걸리면 먼저 걸린 갈래로 둔다.
+ * 원문에 나온 전문용어 후보. 같은 말이 여러 꼴에 걸리면 먼저 걸린 종류로 둔다.
  *
  * 여기서 세는 건 정규식이 걸린 횟수라 실제 출현 수와 다를 수 있다 — 긴 용어에 먹히는
  * 자리를 아직 안 걸렀기 때문이다. 상한을 넘겼을 때 무엇을 남길지 고르는 데만 쓰고
@@ -309,7 +309,7 @@ export function extractTerms(source: string): ExtractResult {
 function byWeight(a: Term, b: Term): number {
   if (b.count !== a.count) return b.count - a.count;
   if (KIND_RANK[a.kind] !== KIND_RANK[b.kind]) return KIND_RANK[a.kind] - KIND_RANK[b.kind];
-  // 같은 갈래면 짧은 쪽이 개념 이름일 확률이 높다. 긴 쪽은 대개 그 개념이 놓인 자리다
+  // 같은 종류면 짧은 쪽이 개념 이름일 확률이 높다. 긴 쪽은 대개 그 개념이 놓인 자리다
   if (a.text.length !== b.text.length) return a.text.length - b.text.length;
   return a.text.localeCompare(b.text);
 }

@@ -4,7 +4,7 @@
  * 여기 있는 건 정규식으로 셀 수 있는 룰뿐이다. D-5 의인화 주어처럼 뜻을 봐야 판단되는
  * 룰은 일부러 뺐다 — 멀쩡한 문장에서 검사가 멈추면 아무도 안 쓴다.
  *
- * 전부 정확히 걸러내지는 못한다. 잘못 감지나 미탐이 남는 갈래는 그 자리 주석이 어디까지 잡고
+ * 전부 정확히 걸러내지는 못한다. 잘못 감지나 미탐이 남는 자리는 그 주석이 어디까지 잡고
  * 어디부터 놓치는지 적고 코퍼스가 그 경계를 잡는다.
  * 탐지기가 없는 룰은 모델이 자체검증으로 본다.
  */
@@ -20,8 +20,8 @@ interface Detector {
   /**
    * prose 는 detect 가 한 번 계산해 모든 탐지기에 나눠 주는, 산문만 남긴 텍스트다.
    *
-   * 원문 그대로가 필요한 룰이 아직 없어 인자가 이것 하나다. 코드펜스나 표 안을
-   * 봐야 하는 룰이 생기면 그때 raw text 를 함께 넘긴다.
+   * 표 안까지 봐야 하는 어휘 룰은 `TABLE_SCANNED_RULE_IDS` 에 등록하면 scanProse 가
+   * 표 셀만 모아 한 번 더 돌린다. 탐지기 쪽은 그대로 두면 된다.
    */
   run: (prose: string) => string[];
 }
@@ -35,22 +35,56 @@ export interface ProseLine {
 }
 
 export interface ProseOptions {
-  /** 인용줄을 뺀다. 보고 본문 어미처럼 작성자 말투가 아닌 걸 셀 때만 쓴다 */
+  /**
+   * `>` 인용줄을 뺀다.
+   *
+   * 보고 본문 어미처럼 작성자 말투가 아닌 걸 셀 때 쓰고, 리뷰 코멘트와 답글 검사도 켠다 —
+   * 거기서 인용은 남이 쓴 원문이라 어휘를 고치라고 할 자리가 아니다.
+   */
   excludeQuotes?: boolean;
 }
 
+export interface DetectOptions extends ProseOptions {
+  /**
+   * 표 셀을 안 본다.
+   *
+   * 룰 문서를 검사하는 자리에서 켠다. 그 표는 "쓰지 말 것" 칸에 금지어를 그대로 적는 게
+   * 존재 이유라 전부 위반으로 걸린다. 검사기는 경로를 모르므로 호출자가 정한다 —
+   * `humanize-scan --skip-tables` 와 `verify-rule-refs.ts` 의 `isRulebook()` 이 그 자리다.
+   */
+  skipTables?: boolean;
+}
+
+/** 산문 줄과 표 줄. 코드펜스 판정을 한 번만 돌려 둘로 가른다 */
+export interface SplitLines {
+  prose: ProseLine[];
+  table: ProseLine[];
+  /**
+   * `excludeQuotes` 로 버린 인용 줄 수.
+   *
+   * 게이트가 "인용만 있어 볼 게 없는" 상태를 가르려고 센다. 코멘트를 통째로 `>` 로 감싸면
+   * 산문이 0줄이 되어 걸릴 게 없는 것과 구분이 안 가는데, 그 둘은 정반대다.
+   */
+  droppedQuotes: number;
+}
+
 /**
- * 룰을 적용할 산문 줄만 남긴다.
+ * 입력을 산문 줄과 표 줄로 가른다.
  *
  * 코드펜스는 언어 태그가 붙었을 때만 코드로 본다. 태그 없는 펜스에는 실행 코드가 아니라
  * 서브에이전트가 지시로 읽는 한글 산문이 들어 있어서, 통째로 빼면 그 안의 S1이 그대로 빠져나간다.
  * 인용줄도 마커만 떼고 산문으로 본다 — 스킬 문서 상단 규칙 블록이 전부 인용이라 빼면 검사가 비는다.
- * 표는 항목 압축이라 그대로 뺀다.
+ *
+ * **표 줄을 여기서 함께 가른다.** 표만 따로 훑으려고 원문을 다시 파싱하면 이 fence 판정이
+ * 두 곳으로 갈라진다. 실제로 그렇게 만들었다가 태그 붙은 펜스 안의 표 예시가 어휘 룰에
+ * 걸렸다 — 문서가 표를 코드로 인용한 자리인데 검사는 진짜 표로 봤다.
  */
-export function proseLines(text: string, options: ProseOptions = {}): ProseLine[] {
-  const lines: ProseLine[] = [];
+export function splitLines(text: string, options: ProseOptions = {}): SplitLines {
+  const prose: ProseLine[] = [];
+  const table: ProseLine[] = [];
   let inFence = false;
   let fenceIsCode = false;
+  let droppedQuotes = 0;
 
   text.split('\n').forEach((raw, index) => {
     const trimmed = raw.trimStart();
@@ -61,24 +95,41 @@ export function proseLines(text: string, options: ProseOptions = {}): ProseLine[
       return;
     }
     if (inFence && fenceIsCode) return;
-    if (trimmed.startsWith('|')) return;
 
-    if (trimmed.startsWith('>')) {
-      if (options.excludeQuotes) return;
-      lines.push({ text: raw.replace(/^\s*>+\s?/, ''), number: index + 1 });
+    if (trimmed.startsWith('|')) {
+      table.push({ text: raw, number: index + 1 });
       return;
     }
-    lines.push({ text: raw, number: index + 1 });
+
+    if (trimmed.startsWith('>')) {
+      if (options.excludeQuotes) {
+        droppedQuotes += 1;
+        return;
+      }
+      prose.push({ text: raw.replace(/^\s*>+\s?/, ''), number: index + 1 });
+      return;
+    }
+    prose.push({ text: raw, number: index + 1 });
   });
 
-  return lines;
+  return { prose, table, droppedQuotes };
 }
 
-function proseOnly(text: string, options: ProseOptions = {}): string {
-  return proseLines(text, options)
+/** 룰을 적용할 산문 줄만 남긴다. 표는 항목 압축이라 여기서 빠진다 */
+export function proseLines(text: string, options: ProseOptions = {}): ProseLine[] {
+  return splitLines(text, options).prose;
+}
+
+/** 이미 가른 산문 줄을 룰이 볼 텍스트로 잇는다. 인라인 백틱은 인용이라 지운다 */
+function joinProse(lines: readonly ProseLine[]): string {
+  return lines
     .map((line) => line.text)
     .join('\n')
     .replace(/`[^`\n]+`/g, ' ');
+}
+
+function proseOnly(text: string, options: ProseOptions = {}): string {
+  return joinProse(proseLines(text, options));
 }
 
 /**
@@ -132,24 +183,24 @@ const NOT_HANGUL = '(?![가-힣])';
 const JOSA = '(?:는|도|만|요)?';
 
 /**
- * I-6 의 "산출" 갈래. 뒤에 무엇이 오는지로 판정 자리와 파생명사를 가른다.
+ * I-6 의 "산출" 분기. 뒤에 무엇이 오는지로 판정 자리와 파생명사를 가른다.
  *
  * 닫힌 목록인 이유는 반대쪽이 안 닫히기 때문이다. 산출 뒤에 붙는 파생어(산출물,
  * 산출량, 산출도구, 산출로직)는 합성 가능한 명사라 끝이 없는데, 활용 어미와 조사는
  * 한국어 형태론상 유한하다. 막을 것보다 열 것을 세는 쪽이 닫힌다.
  *
- * 오른쪽을 막는 갈래는 둘이다. 활용형 하, 한, 할, 함, 해는 뒤 글자를 함께 봐서
+ * 오른쪽을 막는 분기는 둘이다. 활용형 하, 한, 할, 함, 해는 뒤 글자를 함께 봐서
  * "산출하위", "산출한계", "산출할당량", "산출함수", "산출해상도"를 뺀다.
- * 조사 갈래(은, 는, 이, 을, 과, 와, 에, 도, 만, 로)는 통째로 NOT_HANGUL 을 붙여
+ * 조사 분기(은, 는, 이, 을, 과, 와, 에, 도, 만, 로)는 통째로 NOT_HANGUL 을 붙여
  * "산출도구", "산출로직", "산출과정"을 뺀다.
  * 했, 되, 된, 될, 됐, 돼는 합성어 첫 글자로 쓰일 일이 없어 안 막는다.
- * 에서, 까지, 부터는 두 글자라 같은 이유로 안 막는다. 그래서 이 갈래만 "산출에서는"처럼
+ * 에서, 까지, 부터는 두 글자라 같은 이유로 안 막는다. 그래서 이 분기만 "산출에서는"처럼
  * 보조사가 더 붙은 꼴을 잡는다.
  *
  * 어미를 하나 늘릴 때는 이 배열에 줄을 더하고 코퍼스에도 hit 과 반대편 miss 를 함께
  * 넣는다. 넓히면 합성어가 다시 열리는지는 코퍼스가 잡아 준다.
  *
- * 조사 갈래를 문자 클래스로 옮기면서 "으"를 뺐다. "산출으로"는 비문이라 잡을 자리가 아니다.
+ * 조사 분기를 문자 클래스로 옮기면서 "으"를 뺐다. "산출으로"는 비문이라 잡을 자리가 아니다.
  */
 const SANCHUL = [
   '하[여는지고자기며면니게였죠다라세려겠신십]',
@@ -185,7 +236,15 @@ const DETECTORS: Detector[] = [
   ),
   // 미덕(virtue)과 불투명(opaque)은 한국어에서 제 뜻으로도 쓰여 정규식이 잘못 감지한다. 표에만 두고 모델이 본다
   // 의미론은 조사가 붙어 오므로 NOT_HANGUL을 못 쓴다. 형용사로 굳은 "의미론적"만 뺀다
-  matcher('B-5', /물질화|내구성\s*있|의미론(?!적)/g),
+  // "죽임"은 명사형만 건다 — "프로세스를 죽인다"는 실무에서 굳은 정상 용법이다
+  // branch 를 옮긴 "갈래"는 앞말로 못 가른다. "두 갈래"가 코드 분기와 분류 양쪽에 다 나온다.
+  // 그래서 분류 뜻이 확실한 연어만 빼고 나머지를 전부 건다 — 갈리다, 흩어지다, 나뉘다,
+  // 나눠지다, 묶다에 갈래별과 "갈래에 몰아"다. 이 목록은 아래 정규식과 한 벌로 움직인다.
+  // 분류 뜻으로 남은 자리는 걸린 채로 두고 파일별 베이스라인이 받는다 — F-10·I-5 와 같은 방식이다
+  matcher(
+    'B-5',
+    /물질화|내구성\s*있|의미론(?!적)|돌연변이|죽임|갈래(?!로\s*(?:갈리|흩어|나뉘|나눠|묶)|별|에\s*몰아)/g,
+  ),
   matcher('C-11', /[가-힣](?:하고|하며|되고|되며|고|며|지만|면서|아서|어서),/g),
   matcher('C-12', /[가-힣A-Za-z0-9]·[가-힣A-Za-z0-9]/g),
   matcher('D-1', /(?:결론적으로|요약하자면|요약하면|정리하자면|정리하면|종합하면|이를\s*통해)/g),
@@ -207,7 +266,7 @@ const DETECTORS: Detector[] = [
     'F-8',
     /(?:근거|의견|판단|영향|의미|가치|리스크)(?:를|을)\s*(?:재(?=봤|봐|보니|보면|본다|보았|보고\s*있|본(?![가-힣]))|달아(?=[봤봐본보았뒀둔두])|달았)/g,
   ),
-  // 두 갈래를 한 룰이 본다. 룰북 F-10이 자물쇠 갈래를 F-7에서 넘겨받은 자리다.
+  // 두 분기를 한 룰이 본다. 룰북 F-10이 자물쇠 분기를 F-7에서 넘겨받은 자리다.
   //
   // `못 박-`은 어간까지만 열고 어미는 안 가린다 — "못 박았다", "못박아주세요", "못박은"이
   // 전부 걸린다. 띄어쓰기는 없어도 되고 하나까지 허용한다. 부정 부사가 앞에 붙은 "잘못
@@ -216,9 +275,9 @@ const DETECTORS: Detector[] = [
   // 룰이 가르는 축은 누가 정하는 자리냐인데 그건 형태로 안 보인다. 사람들이 협의해 정한
   // "팀이 일정을 못 박았다"도 여기 걸린다. 걸린 자리는 사람이 룰북 축으로 다시 본다 —
   // I-5가 같은 방식이다.
-  // 형태로 빠지는 건 앞에 "못"이 없는 하드코딩 갈래("이 값 그냥 박아두죠")뿐이다.
+  // 형태로 빠지는 건 앞에 "못"이 없는 하드코딩 분기("이 값 그냥 박아두죠")뿐이다.
   //
-  // 자물쇠 갈래에서 명사형 "잠금"이 빠지는 건 문자 클래스에 "금"이 없어서다. 뒤의 선읽기가
+  // 자물쇠 분기에서 명사형 "잠금"이 빠지는 건 문자 클래스에 "금"이 없어서다. 뒤의 선읽기가
   // 하는 일은 그게 아니라 "잠긴파일"처럼 붙여 쓴 꼴을 막는 것뿐이다 — 띄어 쓴 "잠긴 파일"은
   // 공백을 못 넘어 그대로 걸린다. F-7에서 옮겨오며 이 경계도 함께 왔다.
   // 문이나 물처럼 실제 물체를 대상으로 쓴 자리도 목적어를 안 가려서 함께 걸린다. 룰북이
@@ -230,7 +289,7 @@ const DETECTORS: Detector[] = [
   // "그"만 공백을 요구한다. 안 그러면 "그건"("것은"의 준말)이 걸리는데,
   // author-voice.md 가 그건 그대로 두라고 예외로 적어둔 자리다.
   //
-  // 마지막 갈래는 한글 한 글자 + 공백 + 건 + 조사면 다 건다. 수량인지 사무투 분류사인지,
+  // 마지막 분기는 한글 한 글자 + 공백 + 건 + 조사면 다 건다. 수량인지 사무투 분류사인지,
   // 곧 "코멘트 여섯 건은"도 "확인이 필요한 게 두 건은"도 같이 걸린다.
   // 준말 "것은"은 뒤에 조사가 안 붙어서 빠진다 — "놓친 건 맞아요"는 공백이 있어도 조사가 없다.
   // 붙여 쓴 "그건"은 위의 공백 요구가 막는다.
@@ -249,7 +308,7 @@ const DETECTORS: Detector[] = [
   //
   // 활용형을 지적하-까지 그냥 열면 "원칙 위반을 지적하고" 같은 일반 동사가 걸린다.
   // 그래서 뒤에 오는 명사로 묶는데, 그것만으로는 3인칭 서술을 못 가른다 —
-  // 그래서 주어 없는 갈래에도 lookbehind 를 붙였다. 앞이 한글 + 이, 가, 은, 는이면
+  // 그래서 주어 없는 분기에도 lookbehind 를 붙였다. 앞이 한글 + 이, 가, 은, 는이면
   // 3인칭 주어로 보고 뺀다 — "논문이 지적했던 부분", "논문은 지적했던 부분"이 빠지고
   // 주어를 생략한 "지적했던 부분"은 남는다.
   //
@@ -265,15 +324,15 @@ const DETECTORS: Detector[] = [
   // 더 좁은 문자 클래스로 의미 경계를 흉내 내면 반대편이 열린다. 더 좁히지 않는다.
   //
   // 그 lookbehind 는 "우리가", "저는"처럼 1인칭 화자의 꼬리도 함께 막는다. 그건 잡아야
-  // 하는 자리라 화자 갈래를 앞에 둬서 거기서 먼저 걸리게 한다. 그래서 화자 목록에
+  // 하는 자리라 화자 분기를 앞에 둬서 거기서 먼저 걸리게 한다. 그래서 화자 목록에
   // 1인칭 대명사와 주격, 주제격 조사의 조합 여덟을 다 적는다 — 하나라도 빠뜨리면
   // lookbehind 가 그 자리를 3인칭으로 오인한다. 실제로 "가" 꼴만 적었을 때
   // "저는 지적했던 부분"이 통째로 빠졌다.
   //
-  // 두 갈래의 활용형이 다르다. 화자 갈래는 한, 했던, 했었던을 열고 주어 없는 갈래는
+  // 두 분기의 활용형이 다르다. 화자 분기는 한, 했던, 했었던을 열고 주어 없는 분기는
   // 했던과 했었던만 연다. 주어가 없으면 "지적한"이 일반 동사와 구별이 안 돼서다.
   //
-  // 화자 갈래는 왼쪽을 lookbehind 로 막는다. 안 막으면 "문제가", "주제가"의 꼬리가
+  // 화자 분기는 왼쪽을 lookbehind 로 막는다. 안 막으면 "문제가", "주제가"의 꼬리가
   // 화자로 읽힌다. 단독 "제"는 "실제", "규제"의 꼬리까지 먹어서 아예 뺐다.
   //
   // 화자와 "지적" 사이는 토큰 셋까지 허용한다 — "제가 리뷰에서 여러 번 지적한 부분"이
@@ -318,8 +377,35 @@ const DETECTORS: Detector[] = [
 
 export const DETECTABLE_RULE_IDS: string[] = DETECTORS.map((d) => d.ruleId);
 
-export function detect(text: string, ruleIds?: readonly string[]): Detection[] {
-  return detectOn(proseOnly(text), ruleIds);
+/**
+ * 가른 줄에 룰을 걸어 산문과 표 결과를 합친다.
+ *
+ * detect 와 scanProse 가 같은 병합 규칙을 써야 한다 — 앞은 검사기가, 뒤는 게시 게이트가
+ * 쓰는 자리라 여기가 두 벌이 되면 두 경로가 조용히 갈라진다. 이 리뷰가 막으려던 게
+ * 정확히 그 갈라짐이다. 산문 텍스트도 함께 돌려줘 맞춤법 검사가 다시 안 잇게 한다.
+ */
+function assemble(
+  split: SplitLines,
+  ruleIds?: readonly string[],
+  options: DetectOptions = {},
+): { detections: Detection[]; prose: string } {
+  const prose = joinProse(split.prose);
+
+  return {
+    detections: mergeDetections(
+      detectOn(prose, ruleIds),
+      options.skipTables ? [] : detectInTables(split.table, ruleIds),
+    ),
+    prose,
+  };
+}
+
+export function detect(
+  text: string,
+  ruleIds?: readonly string[],
+  options: DetectOptions = {},
+): Detection[] {
+  return assemble(splitLines(text, options), ruleIds, options).detections;
 }
 
 function detectOn(prose: string, ruleIds?: readonly string[]): Detection[] {
@@ -479,16 +565,101 @@ export function structureStats(text: string): StructureStats {
 }
 
 /**
+ * 표 셀 안에서도 틀린 어휘 룰.
+ *
+ * 표를 산문에서 뺀 건 항목을 압축하는 자리라서다 — E-8 명사구 종결과 F-6 복합명사는
+ * 표 셀에서 정상 문법이다. 어휘가 틀린 건 자리를 안 가린다. 생물학 용어로 옮긴 mutant 는
+ * 표 안이라고 맞는 말이 되지 않는다.
+ *
+ * **여기 없는 어휘 룰은 빠진 이유가 각각 다르다.** C-12 가운뎃점은 룰북이 표를 예외로 적어 뒀다.
+ * B-3 음차는 탐지기 자체가 없어 넣어도 교집합에서 떨어진다 — 목록에 두면 표를 본다고
+ * 읽히지만 실제로는 한 건도 안 걸리는 죽은 항목이 된다. F-10과 I-5, I-6, D-1 은 표 셀에서
+ * 어떻게 걸리는지 코퍼스로 확인한 적이 없어 미뤘다. 넣을 때는 코퍼스 케이스를 함께 넣는다.
+ *
+ * **룰 문서의 예시 표는 이 스캔이 못 가린다.** ai-tell-quick-rules.md 의 대체어 표는
+ * "쓰지 말 것" 칸에 금지어를 그대로 적는 게 존재 이유인데 여기서는 위반으로 걸린다.
+ * 검사기가 경로를 모르므로 부르는 쪽이 끈다 — `humanize-scan --skip-tables` 와
+ * `verify-rule-refs.ts` 의 `isRulebook()` 이 그 자리다.
+ */
+export const TABLE_SCANNED_RULE_IDS: readonly string[] = ['B-5', 'D-3', 'D-4', 'F-7'];
+
+/** 셀을 나눌 때 GFM 이스케이프 파이프를 살려 두는 자리표 */
+const ESCAPED_PIPE = '\u0000pipe\u0000';
+
+/**
+ * 표 줄에서 셀 구분자와 정렬행을 걷어낸다.
+ *
+ * 정렬행은 줄 전체 모양으로만 가른다. 표에서 몇 번째 줄인지는 안 보므로 모든 셀이
+ * `-` 나 공백뿐인 데이터 행도 함께 빠진다 — 플레이스홀더로 `-` 만 적은 행이 그렇다.
+ * 흔한 꼴이 아니라 그대로 뒀다.
+ */
+export function tableCells(lines: readonly ProseLine[]): string {
+  return lines
+    .map((line) => line.text.trim())
+    .filter((line) => !/^\|[\s:|-]*\|?$/.test(line))
+    .map((line) =>
+      line
+        .replace(/\\\|/g, ESCAPED_PIPE)
+        .replace(/^\||\|$/g, '')
+        .split('|')
+        .join(' ')
+        .split(ESCAPED_PIPE)
+        .join('|'),
+    )
+    .join('\n');
+}
+
+/** 표 셀을 어휘 룰로만 훑는다. 호출자가 룰을 좁혔으면 그 교집합만 본다 */
+function detectInTables(lines: readonly ProseLine[], ruleIds?: readonly string[]): Detection[] {
+  const wanted = ruleIds
+    ? TABLE_SCANNED_RULE_IDS.filter((id) => ruleIds.includes(id))
+    : TABLE_SCANNED_RULE_IDS;
+  if (wanted.length === 0 || lines.length === 0) return [];
+
+  return detectOn(tableCells(lines).replace(/`[^`\n]+`/g, ' '), wanted);
+}
+
+/** 같은 룰이 산문과 표 양쪽에서 걸리면 건수를 합치고 사례를 이어 붙인다 */
+function mergeDetections(base: Detection[], extra: Detection[]): Detection[] {
+  const byRule = new Map(base.map((d) => [d.ruleId, { ...d, samples: [...d.samples] }]));
+
+  for (const found of extra) {
+    const seen = byRule.get(found.ruleId);
+    if (!seen) {
+      byRule.set(found.ruleId, { ...found, samples: [...found.samples] });
+      continue;
+    }
+    seen.count += found.count;
+    seen.samples = [...new Set([...seen.samples, ...found.samples])].slice(0, SAMPLE_CAP);
+  }
+
+  return [...byRule.values()];
+}
+
+/**
  * 어투와 맞춤법을 한 산문 위에서 함께 본다.
  *
  * detect 와 spacingIssues 를 따로 부르면 줄 분할과 인용 제거가 두 번 돈다. 비용은 작지만
- * (500KB 입력에서 12%) 진짜 문제는 나중에 한쪽만 산문 기준이 바뀌면 어투와 맞춤법이 서로
- * 다른 텍스트를 보게 되는 것이다. 산문 정의를 여기 한 군데로 모은다.
+ * 진짜 문제는 나중에 한쪽만 산문 기준이 바뀌면 어투와 맞춤법이 서로 다른 텍스트를 보게 되는
+ * 것이다. 산문 정의를 여기 한 군데로 모은다. 그래서 splitLines 도 한 번만 돌려 나눠 쓴다.
  */
 export function scanProse(
   text: string,
   ruleIds?: readonly string[],
-): { detections: Detection[]; spacing: SpacingIssue[] } {
-  const prose = proseOnly(text);
-  return { detections: detectOn(prose, ruleIds), spacing: spacingOn(prose) };
+  options: DetectOptions = {},
+): { detections: Detection[]; spacing: SpacingIssue[]; allQuoted: boolean } {
+  const split = splitLines(text, options);
+  const { detections, prose } = assemble(split, ruleIds, options);
+
+  return {
+    detections,
+    spacing: spacingOn(prose),
+    // 인용이 남은 산문보다 많다. 0건과 뜻이 정반대라 부르는 쪽이 갈라 읽어야 한다.
+    //
+    // **이 판정은 코멘트 하나를 통째로 넘길 때만 뜻이 선다.** 여러 코멘트를 이어 붙여
+    // 넘기면 한 코멘트를 전부 인용으로 감싸도 다른 코멘트의 산문에 묻혀 안 걸린다.
+    // 게이트가 코멘트마다 따로 부르는 이유다 (review 와 review-reply SKILL.md)
+    allQuoted:
+      split.droppedQuotes > split.prose.filter((line) => line.text.trim().length > 0).length,
+  };
 }

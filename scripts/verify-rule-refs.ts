@@ -9,8 +9,20 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { citedRuleIds, parseRuleBook, s1Ids, QUICK_RULES_PATH } from '../src/humanize/index.js';
-import { countByRule, proseLines, DETECTABLE_RULE_IDS } from '../src/humanize/detectors.js';
+import {
+  citedRuleIds,
+  isRulebookPath,
+  parseRuleBook,
+  s1Ids,
+  QUICK_RULES_PATH,
+} from '../src/humanize/index.js';
+import {
+  countByRule,
+  proseLines,
+  splitLines,
+  DETECTABLE_RULE_IDS,
+  TABLE_SCANNED_RULE_IDS,
+} from '../src/humanize/detectors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -53,7 +65,7 @@ const LOANWORD_HINT = 'style-guide.md §「음차를 옮길 때 — 한 단어�
  *
  * 테스트를 자물쇠에 빗댄 "잠그다"가 그 예다. 리뷰에서 네 번 반복된 결함을 정리하며
  * 쓰기 시작했는데, 팀에서 쓰는 말도 아니고 사람이 그 자리에서 고를 단어도 아니었다.
- * 관용구를 코드나 규칙에 씌운 "못 박다"도 F-10의 같은 갈래라 함께 본다.
+ * 관용구를 코드나 규칙에 씌운 "못 박다"도 F-10이 보는 같은 부류라 함께 본다.
  *
  * 명사형 "잠금"이 빠지는 건 문자 클래스에 "금"이 없어서다. 뒤의 선읽기가 막는 건
  * "잠긴파일"처럼 붙여 쓴 꼴뿐이고 띄어 쓴 "잠긴 파일"은 그대로 걸린다.
@@ -608,14 +620,30 @@ function trailingComment(raw: string): string | null {
   return null;
 }
 
-/** 파일별 S1 건수. 룰 예외(용어 목록·룰 ID 나열)는 세지 않는다 */
+/** 파일별 S1 건수. 룰 예외(용어 목록, 룰 ID 나열)는 세지 않는다 */
 export function countS1ByFile(): Map<string, number> {
-  const targets = s1Ids(parseRuleBook(), 'doc');
+  const book = parseRuleBook();
+  const targets = s1Ids(book, 'doc');
+  const tableTargets = targets.filter((id) => TABLE_SCANNED_RULE_IDS.includes(id));
   const counts = new Map<string, number>();
 
   for (const file of proseTargets()) {
     const content = readFileSync(file, 'utf-8');
     let total = 0;
+
+    // 표 셀도 어휘 룰로 센다. 사고가 난 자리가 표 셀이었는데 여기가 표를 안 보면
+    // 코멘트만 표까지 검사받고 레포 자신은 표에 같은 말이 남아도 0건으로 센다.
+    //
+    // 산문은 줄마다 세는데 표는 통째로 넘긴다. 산문 쪽이 줄 단위인 건 걸린 자리의 줄
+    // 번호를 알아야 해서이고, 표는 셀을 이어 붙여야 어휘가 온전히 남는다. 어휘 룰만
+    // 거는 자리라 여러 줄에 걸친 판정이 없어 이어 붙여도 셈이 안 어긋난다
+    if (file.endsWith('.md') && !isRulebookPath(file) && tableTargets.length > 0) {
+      const cells = splitLines(content)
+        .table.map(({ text }) => text)
+        .join('\n');
+      for (const n of countByRule(cells, tableTargets).values()) total += n;
+    }
+
     for (const { line } of proseLinesOf(file, content)) {
       // 굳어진 음차 화이트리스트는 C-12 예외다
       if (line.includes('화이트리스트')) continue;
