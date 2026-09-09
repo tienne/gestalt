@@ -42,7 +42,9 @@ export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
   const targets = s1Ids(book, register);
   const detectable = new Set(DETECTABLE_RULE_IDS);
 
-  const { detections, spacing } = scanProse(text, targets);
+  // chat 은 리뷰 코멘트와 답글 자리다. 거기서 `>` 인용은 남이 쓴 원문이라 어휘를 고치라고
+  // 할 자리가 아니다 — 두 AGENT.md 가 "인용은 그대로 둔다"고 적은 것과 검사를 맞춘다
+  const { detections, spacing } = scanProse(text, targets, { excludeQuotes: register === 'chat' });
 
   const hits: ScanHit[] = detections
     .map((found) => ({
