@@ -39,6 +39,7 @@ const GATE: { name: string; ids: string[] }[] = [
   { name: '화자 소거', ids: ['G-4'] },
   { name: '결함 별칭', ids: ['F-9'] },
   { name: '관용구 물리 동사', ids: ['F-10'] },
+  { name: '관용구 직역 명사', ids: ['F-11'] },
 ];
 
 /**
@@ -70,6 +71,7 @@ const SPOTLIGHT = [
   'F-8',
   'F-9',
   'F-10',
+  'F-11',
   'G-4',
   'H-1',
   'I-1',
