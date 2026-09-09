@@ -10,7 +10,13 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { citedRuleIds, parseRuleBook, s1Ids, QUICK_RULES_PATH } from '../src/humanize/index.js';
-import { countByRule, proseLines, DETECTABLE_RULE_IDS } from '../src/humanize/detectors.js';
+import {
+  countByRule,
+  proseLines,
+  splitLines,
+  DETECTABLE_RULE_IDS,
+  TABLE_SCANNED_RULE_IDS,
+} from '../src/humanize/detectors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -609,13 +615,35 @@ function trailingComment(raw: string): string | null {
 }
 
 /** 파일별 S1 건수. 룰 예외(용어 목록·룰 ID 나열)는 세지 않는다 */
+/**
+ * 룰 문서인가.
+ *
+ * 이 문서들의 표는 "쓰지 말 것" 칸에 금지어를 그대로 적는 게 존재 이유라 표 스캔을 끈다.
+ * 검사기는 경로를 모르므로 여기서 정한다.
+ */
+function isRulebook(file: string): boolean {
+  return file.includes(`${sep}_shared${sep}references${sep}`);
+}
+
 export function countS1ByFile(): Map<string, number> {
-  const targets = s1Ids(parseRuleBook(), 'doc');
+  const book = parseRuleBook();
+  const targets = s1Ids(book, 'doc');
+  const tableTargets = targets.filter((id) => TABLE_SCANNED_RULE_IDS.includes(id));
   const counts = new Map<string, number>();
 
   for (const file of proseTargets()) {
     const content = readFileSync(file, 'utf-8');
     let total = 0;
+
+    // 표 셀도 어휘 룰로 센다. 사고가 난 자리가 표 셀이었는데 여기가 표를 안 보면
+    // 코멘트만 표까지 검사받고 레포 자신은 표에 같은 말이 남아도 0건으로 센다
+    if (file.endsWith('.md') && !isRulebook(file) && tableTargets.length > 0) {
+      const cells = splitLines(content)
+        .table.map(({ text }) => text)
+        .join('\n');
+      for (const n of countByRule(cells, tableTargets).values()) total += n;
+    }
+
     for (const { line } of proseLinesOf(file, content)) {
       // 굳어진 음차 화이트리스트는 C-12 예외다
       if (line.includes('화이트리스트')) continue;
