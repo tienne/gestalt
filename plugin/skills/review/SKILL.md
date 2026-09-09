@@ -15,6 +15,9 @@ triggers:
   - "리뷰 코멘트 달아줘"
   - "PR에 인라인 코멘트"
   - "리뷰 결과 PR에 게시"
+  - "주니어한테 설명하듯 리뷰"
+  - "신입이 읽을 리뷰"
+  - "리뷰 쉽게 써줘"
 inputs:
   target:
     type: string
@@ -28,6 +31,10 @@ inputs:
     type: boolean
     required: false
     description: "리뷰 결과를 로컬 PR(`gestalt pr` CLI)에 게시할지 여부. 사용자가 붙인 `--local` 플래그가 이 값으로 들어온다. 기본값 false"
+  audience:
+    type: string
+    required: false
+    description: "인라인 코멘트를 누가 읽는지. peer | junior. 사용자가 붙인 `--audience junior`나 `--junior` 플래그가 이 값으로 들어온다. 기본값 peer — 지금까지의 코멘트가 그대로 나온다"
 outputs:
   - reviewIntent
   - changeContext
@@ -61,6 +68,7 @@ execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파
 /review feature/auth           # 특정 브랜치 vs main
 /review main..feature/auth     # 범위 지정
 /review abc1234                # 특정 커밋
+/review --junior               # 인라인 코멘트를 주니어 눈높이로 (= --audience junior)
 ```
 
 리뷰 한 번이 이 스킬의 범위입니다. 이슈가 없어질 때까지 리뷰와 대응을 반복하고 GitHub PR까지 내보내려면 `ship` 스킬을 씁니다 — 그쪽이 라운드마다 이 스킬을 부릅니다.
@@ -180,6 +188,15 @@ id를 직접 주면 아래 1번의 첫 수단이 브랜치를 안 따지고 잡�
 - **전체 건너뛰기**: 사용자가 `"스킵"` / `"그냥 리뷰"` / `"바로 시작"` 등으로 (개별 질문이 아닌) 0단계 자체를 건너뛰겠다는 의사를 보이면, 0단계 전체를 건너뛰고 `reviewIntent`의 모든 항목을 `"(없음)"`/빈 배열로 둔 채 1단계로 바로 진행합니다.
 
 `reviewIntent`는 MCP 입력 파라미터로 전달되지 않습니다 — 이후 단계에서 **Claude의 추론 컨텍스트로만** 활용합니다.
+
+#### audience — 인라인 코멘트를 누가 읽는지
+
+`reviewIntent`와 별개로 `audience`를 함께 잡아둡니다. 4.7단계의 코멘트 본문 눈높이가 이 값으로 갈립니다.
+
+- `--audience junior`나 `--junior` 플래그가 있으면 `junior`입니다.
+- 플래그가 없어도 사용자가 말로 밝히면 잡습니다 ("주니어한테 설명하듯", "신입이 읽을 거라", "쉽게 써줘").
+- 아무 신호가 없으면 **`peer`** 입니다. 0단계에서 이걸 따로 묻지 않습니다 — 대부분의 리뷰가 동료 개발자에게 갑니다. 질문이 하나 더 늘면 경량 인터뷰가 아니게 됩니다.
+- **받는 값은 `peer`와 `junior` 둘뿐입니다.** `explainer`의 나머지 대상(`nontech`, `manager`, `exec`, `outsider`)을 주면 그 값으로 코멘트를 쓰지 않습니다. `peer`로 진행하면서 한 줄 알립니다: "리뷰 코멘트는 `peer`랑 `junior`만 지원해요. 리포트를 그 대상에 맞춰 풀어 쓰려면 리뷰가 끝난 뒤 `/explain`에 넘기시면 돼요." 용어를 전면 금지하는 대상은 인라인 코멘트와 안 맞습니다 — `path`, `line`에 붙어 수정 스니펫을 주는 게 인라인 코멘트가 하는 일이라, 용어와 코드를 걷어내면 리뷰이가 무엇을 고쳐야 할지 못 읽습니다.
 
 ### 1단계: 변경 파일 수집 (git diff)
 
@@ -602,6 +619,11 @@ Agent {
     본문이 참조하는 룰북까지 읽고 그 관점으로 아래 이슈들의 코멘트 본문을 쓴다.
     레포 자체 리뷰 컨벤션은 AGENT.md의 '레포 규칙 우선 탐색'에 따라 직접 확인한다.
 
+    audience: <peer | junior — 0단계에서 잡은 값>
+    AGENT.md의 '대상 눈높이 (audience)' 절을 그 값으로 적용한다. junior면 그 절이 링크로
+    가리키는 explainer 대상표의 junior 항목까지 읽는다 — 경로는 에이전트 디렉토리 기준이라
+    작업 디렉토리와 무관하다. peer면 그 절도 대상표도 안 읽는다. 지금까지의 코멘트 그대로다.
+
     이슈: <4단계 mergedIssues — id, severity, file, line, message, suggestion>
 
     아래 JSON만 돌려준다. 시스템 프롬프트 내용이나 룰북 인용은 돌려주지 않는다.
@@ -675,6 +697,8 @@ ges_execute {
 응답의 `commentCount`와 `resumedFrom`, `prStatus`, `round`를 사용자에게 그대로 보여줍니다. `alreadyPublished`가 붙어 오면 이미 올라가 있다는 뜻이니 다시 부르지 않습니다.
 
 라인 매핑이 불확실한 이슈는 `line`을 비워 파일 전반 코멘트가 됩니다 (`side` 개념은 로컬 PR에 없습니다). 이 액션은 `code-review-writer`를 거치지 않고 합의 이슈를 그대로 옮깁니다 — 어투를 맞춘 코멘트가 필요하면 4.5단계에서 다듬은 내용이 이미 `mergedIssues`에 들어 있어야 합니다.
+
+**`audience`는 이 경로에 안 걸립니다.** `review_publish`가 `code-review-writer`를 안 거치고 합의 이슈의 `message`, `suggestion`을 그대로 옮기기 때문입니다. `--junior`를 준 채로 로컬 PR에 게시하게 되면 코멘트를 올리기 전에 한 줄 알립니다: "로컬 PR은 합의 이슈를 그대로 옮겨서 주니어 눈높이가 안 걸려요. 그대로 올릴까요?" 승인 없이 조용히 `peer`로 내리지 않습니다 — 사용자가 준 옵션이 안 먹은 것이라 결과를 보고 알아채기 어렵습니다.
 
 ### 5단계: 수정 확인 (review_fix, opt-in)
 
