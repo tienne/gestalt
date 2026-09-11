@@ -4,7 +4,12 @@ import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { parseSkillMd } from '../../../src/skills/parser.js';
-import { section, sectionStartingWith } from '../../helpers/skill-section.js';
+import {
+  section,
+  sectionStartingWith,
+  codeBlock,
+  codeBlockContaining,
+} from '../../helpers/skill-section.js';
 
 const reviewPath = resolve('plugin/skills/review/SKILL.md');
 const loopPath = resolve('plugin/skills/review-loop/SKILL.md');
@@ -85,12 +90,12 @@ describe('판정 게시 경계 (postVerdict)', () => {
     });
 
     it('버전 검사가 리뷰 호출보다 앞에 있다', () => {
-      const preflight = loop.body.indexOf('### 1.0 프리플라이트');
+      const preflight = loop.body.indexOf('### 1.1 사전 점검');
       const phase1 = loop.body.indexOf('## Phase 1');
-      expect(preflight, '프리플라이트 절을 못 찾았다').toBeGreaterThan(-1);
+      expect(preflight, '사전 점검 절을 못 찾았다').toBeGreaterThan(-1);
       for (const m of calls()) {
         if (m.index! > phase1) {
-          expect(m.index!, '리뷰 호출이 프리플라이트보다 앞에 있다').toBeGreaterThan(preflight);
+          expect(m.index!, '리뷰 호출이 사전 점검보다 앞에 있다').toBeGreaterThan(preflight);
         }
       }
     });
@@ -105,69 +110,112 @@ describe('판정 게시 경계 (postVerdict)', () => {
       expect(decide()).toMatch(/승인\(approve\) 낼까요\?/);
     });
 
-    it('게시 절이 ⓟ 확인을 전제로 둔다', () => {
-      expect(post(), '2.5가 ⓟ 없이 approve를 부를 수 있다').toMatch(/ⓟ/);
+    it('게시 절이 ⓟ 확인 없이는 approve를 못 부르게 한다', () => {
+      // 토큰만 보면 강제 문장을 참고용으로 바꿔도 통과한다. 조건을 거는 문구까지 본다.
+      expect(post(), '2.5가 ⓟ 없이 approve를 부를 수 있다').toMatch(
+        /`--approve`[^\n]*ⓟ[^\n]*경우에만/,
+      );
     });
 
-    it('멈추는 자리 표의 일곱 마커가 본문에도 있다', () => {
+    it('멈추는 자리 일곱 마커가 범례 밖 본문에도 있다', () => {
+      // 범례 절을 빼고 센다. 표 한 장만으로 임계값이 채워지면 실제 배선을 지워도 통과한다.
+      const legend = section(loop.body, '## 멈추는 자리');
+      const rest = loop.body.replace(legend, '');
+
       for (const mark of ['ⓢ', 'ⓓ', 'ⓝ', 'ⓔ', 'ⓦ', 'ⓟ', 'ⓡ']) {
-        const hits = loop.body.split(mark).length - 1;
-        expect(hits, `${mark}가 표에만 있고 본문에 없다`).toBeGreaterThanOrEqual(2);
+        const hits = rest.split(mark).length - 1;
+        expect(hits, `${mark}가 범례에만 있고 절차 본문에 없다`).toBeGreaterThanOrEqual(1);
       }
     });
   });
 
-  describe('reviewThreads 페이지네이션', () => {
-    it('쿼리가 pageInfo와 cursor를 받는다', () => {
-      expect(loop.body).toMatch(/pageInfo \{ hasNextPage endCursor \}/);
-      expect(loop.body).toMatch(/\$cursor/);
+  describe('스레드 조회와 pending 집계', () => {
+    const query = () => section(loop.body, '### 1) 쿼리와 좌표');
+    const fetch = () => section(loop.body, '### 2) 스레드를 전량 받는다');
+    const rest = () => section(loop.body, '### 4) 나머지 셋');
+
+    it('쿼리가 커서를 받고 comments를 뒤에서 가져온다', () => {
+      expect(query()).toMatch(/pageInfo\{hasNextPage endCursor\}/);
+      expect(query()).toMatch(/\$cursor/);
+      expect(query(), 'first:50이면 마지막 코멘트 작성자를 잘못 읽는다').toMatch(
+        /comments\(last:50\)/,
+      );
+      expect(loop.body).not.toMatch(/comments\(first:50\)/);
     });
 
-    it('pending을 세는 세 자리가 전량을 받은 뒤에 센다', () => {
-      const decide = sectionStartingWith(loop.body, '### 2.2 판정 결정');
-      const signal = section(loop.body, '### 신호 계산');
-      const watch = section(loop.body, '### `--watch` 모드 — 백그라운드로 지켜본다');
-
-      expect(decide, '2.2가 threads.jsonl을 안 쓴다').toMatch(/threads\.jsonl/);
-      expect(signal, '신호 계산이 threads.jsonl을 안 쓴다').toMatch(/threads\.jsonl/);
-      expect(watch, 'watch.sh가 커서로 이어받지 않는다').toMatch(/hasNextPage/);
+    it('전량을 받는 루프가 스냅샷을 매번 새로 쓰고 상한을 둔다', () => {
+      expect(fetch(), '스냅샷 truncate가 없다').toMatch(/rm -f "\$loopTmp\/threads\.jsonl"/);
+      expect(fetch(), '커서 루프가 없다').toMatch(/hasNextPage/);
+      expect(fetch(), '페이지 상한이 없다').toMatch(/pages/);
     });
 
-    it('스냅샷 파일을 조회할 때마다 지운다', () => {
-      expect(loop.body, 'threads.jsonl truncate가 없다').toMatch(
-        /rm -f "\$loopTmp\/threads\.jsonl"/,
-      );
-      expect(loop.body, 'watch.sh 쪽 truncate가 없다').toMatch(
-        /rm -f "\$TMP\/watch-threads\.jsonl"/,
-      );
+    it('집계가 fail-closed다', () => {
+      const b = codeBlock(loop.body, '### 3) `pending`을 센다 — 실패하면 멈춘다');
+      expect(b, '스냅샷 존재 검사가 없다').toMatch(/\[ -s "\$loopTmp\/threads\.jsonl" \]/);
+      expect(b, 'jq 실패를 안 잡는다').toMatch(/\|\|\s*\{[^}]*exit 1/);
     });
 
-    it('마지막 코멘트를 보려고 comments를 뒤에서 받는다', () => {
-      expect(loop.body, 'first:50이면 nodes[-1]이 실제 마지막이 아니다').not.toMatch(
-        /comments\(first:50\)/,
-      );
-      expect(loop.body).toMatch(/comments\(last:50\)/);
+    it('집계가 실제로 미대응만 센다', () => {
+      const jq = codeBlock(loop.body, '### 3) `pending`을 센다 — 실패하면 멈춘다')
+        .split('\n')
+        .filter((l) => !l.startsWith('['))
+        .join('\n');
+
+      const rows = [
+        // 내가 열고 답이 없다 → 미대응
+        '{"isResolved":false,"isOutdated":false,"comments":{"nodes":[{"author":{"login":"me"}}]}}',
+        // 답글이 왔다 → 대응
+        '{"isResolved":false,"isOutdated":false,"comments":{"nodes":[{"author":{"login":"me"}},{"author":{"login":"a"}}]}}',
+        // 닫혔다 / 줄이 바뀌었다 / 남이 열었다 → 전부 제외
+        '{"isResolved":true,"isOutdated":false,"comments":{"nodes":[{"author":{"login":"me"}}]}}',
+        '{"isResolved":false,"isOutdated":true,"comments":{"nodes":[{"author":{"login":"me"}}]}}',
+        '{"isResolved":false,"isOutdated":false,"comments":{"nodes":[{"author":{"login":"x"}}]}}',
+      ].join('\n');
+
+      const dir = mkdtempSync(join(tmpdir(), 'gestalt-pending-'));
+      try {
+        writeFileSync(join(dir, 'threads.jsonl'), rows + '\n');
+        const out = execFileSync(
+          'sh',
+          [
+            '-c',
+            `loopTmp='${dir}' me=me; ${jq.replace(/^pending=\$\(/m, 'pending=$(')}; printf '%s' "$pending"`,
+          ],
+          { encoding: 'utf-8' },
+        );
+        expect(out, '미대응 스레드 수가 1이어야 한다').toBe('1');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('PR 스칼라 값을 별도로 조회한다', () => {
+      expect(rest(), 'gh pr view로 다시 안 읽는다').toMatch(/gh pr view/);
+      expect(
+        codeBlock(loop.body, '### 4) 나머지 셋'),
+        '커서 루프의 $page를 블록 밖에서 쓴다',
+      ).not.toMatch(/\$page/);
+    });
+
+    it('pending 집계 사본이 하나뿐이다', () => {
+      const copies = loop.body.split('select(.isResolved | not)').length - 1;
+      expect(copies, `집계가 ${copies}곳에 있다 — 한쪽만 고쳐지면 판정이 갈린다`).toBe(1);
     });
   });
 
   describe('PR 번호 검증', () => {
-    /** 문서에 박힌 case 문을 그대로 떼어내 돌린다. 글자가 있는지가 아니라 거부하는지를 본다. */
-    const script = `
-t="$1"
-case "$t" in
-  */pull/*) prNumber=\${t##*/pull/}; prNumber=\${prNumber%%[!0-9]*} ;;
-  *)        prNumber=\${t#\\#} ;;
-esac
-case "$prNumber" in
-  ''|*[!0-9]*) exit 1 ;;
-esac
-printf '%s' "$prNumber"
-`;
+    /**
+     * 문서의 case 문을 그대로 떼어내 돌린다. 테스트에 사본을 두면 문서 쪽 검증을
+     * 통째로 없애도 사본이 통과해, 잡겠다고 만든 회귀를 그대로 흘려보낸다.
+     */
+    const script = () => codeBlockContaining(loop.body, '### PR 식별', 'prNumber');
 
-    it('문서의 검증 로직과 이 테스트가 같은 걸 본다', () => {
-      const s = section(loop.body, '### PR 식별');
-      expect(s).toMatch(/\*\[!0-9\]\*/);
-      expect(s).toMatch(/\*\/pull\/\*/);
+    /** 문서 블록이 마지막에 `prNumber=<값>`을 찍는다. 그 줄만 본다. */
+    const readNumber = (out: string) => out.trim().split('\n').pop()!.replace('prNumber=', '');
+
+    it('문서에서 뽑은 블록이 검증 로직이다', () => {
+      expect(script(), '거부 분기가 없다').toMatch(/\*\[!0-9\]\*/);
+      expect(script(), 'URL 분기가 없다').toMatch(/\*\/pull\/\*/);
     });
 
     it.each([
@@ -176,31 +224,48 @@ printf '%s' "$prNumber"
       ['https://github.com/o/r/pull/456', '456'],
       ['https://github.com/o/r/pull/456/files', '456'],
     ])('%s 를 %s 로 읽는다', (input, want) => {
-      const r = runShell(script, input);
+      const r = runShell(script().replace("t='<target>'", `t='${input}'`), input);
       expect(r.ok, `${input}이 거부됐다`).toBe(true);
-      expect(r.out).toBe(want);
+      expect(readNumber(r.out)).toBe(want);
     });
 
     it.each(['../../etc', '12; rm -rf /', '1 2', '', '##1', '#a', '$(id)'])(
       '%s 를 거부한다',
       (input) => {
-        expect(runShell(script, input).ok, `${input}이 통과했다`).toBe(false);
+        const r = runShell(
+          script().replace("t='<target>'", `t='${input.replace(/'/g, "'\\''")}'`),
+          input,
+        );
+        expect(r.ok, `${input}이 통과했다`).toBe(false);
       },
     );
   });
 
   describe('출력 규약', () => {
-    it('선언한 여섯 값을 본문이 전부 채운다', () => {
+    /**
+     * 출력 규약 표는 여섯 이름과 다섯 값을 전부 나열한다. 그 표를 포함한 채로 세면
+     * 실제로 채우는 자리를 지워도 표 문구만으로 통과한다. 표를 빼고 본다.
+     */
+    const outsideTable = () => loop.body.replace(section(loop.body, '## 출력 규약'), '');
+
+    it('선언한 여섯 값을 규약 표 밖에서 채운다', () => {
       for (const out of loop.frontmatter.outputs) {
-        expect(loop.body, `${out}을 채우는 자리가 본문에 없다`).toMatch(new RegExp(out));
+        expect(outsideTable(), `${out}을 채우는 자리가 절차 본문에 없다`).toMatch(new RegExp(out));
       }
     });
 
-    it('loopState 다섯 값이 본문에서 대입된다', () => {
+    it('loopState 다섯 값이 규약 표 밖에서 대입된다', () => {
       for (const v of ['approved', 'waiting', 'blocked', 'escalated', 'closed']) {
-        expect(loop.body, `loopState를 ${v}로 두는 자리가 없다`).toMatch(
-          new RegExp(`\`?loopState\`?[^\\n]*\`${v}\``),
+        expect(outsideTable(), `loopState를 ${v}로 두는 자리가 없다`).toMatch(
+          new RegExp(`loopState[^\\n]*\`${v}\``),
         );
+      }
+    });
+
+    it('Phase 5가 네 값을 셸로 대입한다', () => {
+      const fill = codeBlock(loop.body, '### 출력값 채우기 — 어느 경로로 끝나든 먼저 한다');
+      for (const v of ['rounds', 'verdicts', 'unresolvedAtEnd', 'finalDecision']) {
+        expect(fill, `${v} 대입이 없다`).toMatch(new RegExp(`^${v}=`, 'm'));
       }
     });
   });

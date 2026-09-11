@@ -51,3 +51,74 @@ export function sectionStartingWith(body: string, prefix: string): string {
   expect(heading, `${prefix} 로 시작하는 헤딩을 못 찾았다`).toBeDefined();
   return section(body, heading!);
 }
+
+/**
+ * 절 안의 n번째 코드펜스 내용을 꺼낸다.
+ *
+ * 테스트가 문서의 스크립트를 검증하려면 그 스크립트를 문서에서 가져와야 한다. 사본을
+ * 테스트에 베껴 두면 문서 쪽이 바뀌어도 사본이 그대로 통과해, 검증한다는 말만 남고
+ * 실제로는 자기가 쓴 코드를 자기가 돌리는 꼴이 된다.
+ */
+export function codeBlock(body: string, heading: string, index = 0): string {
+  const lines = section(body, heading).split('\n');
+  const fence = /^\s*(`{3,}|~{3,})/;
+  const blocks: string[] = [];
+  let open: string | null = null;
+  let buf: string[] = [];
+
+  for (const line of lines) {
+    const marker = line.match(fence)?.[1];
+    if (marker) {
+      if (open === null) {
+        open = marker;
+        buf = [];
+      } else if (marker[0] === open[0] && marker.length >= open.length) {
+        open = null;
+        blocks.push(buf.join('\n'));
+      }
+      continue;
+    }
+    if (open !== null) buf.push(line);
+  }
+
+  expect(open, `${heading} 안의 코드펜스가 안 닫혔다`).toBeNull();
+  expect(
+    blocks.length,
+    `${heading} 안에 코드블록이 ${blocks.length}개뿐인데 ${index}번째를 찾는다`,
+  ).toBeGreaterThan(index);
+  return blocks[index]!;
+}
+
+/**
+ * 절 안에서 특정 문자열을 품은 코드블록을 찾는다.
+ *
+ * 순번으로 집으면 문서에 블록이 하나 끼는 순간 엉뚱한 걸 돌리게 된다. 찾는 블록이
+ * 가진 고유한 글자로 집으면 위치가 바뀌어도 같은 걸 잡는다.
+ */
+export function codeBlockContaining(body: string, heading: string, needle: string): string {
+  const lines = section(body, heading).split('\n');
+  const fence = /^\s*(`{3,}|~{3,})/;
+  const hits: string[] = [];
+  let open: string | null = null;
+  let buf: string[] = [];
+
+  for (const line of lines) {
+    const marker = line.match(fence)?.[1];
+    if (marker) {
+      if (open === null) {
+        open = marker;
+        buf = [];
+      } else if (marker[0] === open[0] && marker.length >= open.length) {
+        open = null;
+        const block = buf.join('\n');
+        if (block.includes(needle)) hits.push(block);
+      }
+      continue;
+    }
+    if (open !== null) buf.push(line);
+  }
+
+  expect(open, `${heading} 안의 코드펜스가 안 닫혔다`).toBeNull();
+  expect(hits.length, `${heading} 안에 "${needle}"를 품은 블록이 ${hits.length}개다`).toBe(1);
+  return hits[0]!;
+}
