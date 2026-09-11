@@ -132,7 +132,6 @@ describe('판정 게시 경계 (postVerdict)', () => {
   describe('스레드 조회와 pending 집계', () => {
     const query = () => section(loop.body, '### 1) 쿼리와 좌표');
     const fetch = () => section(loop.body, '### 2) 스레드를 전량 받는다');
-    const rest = () => section(loop.body, '### 4) 나머지 셋');
 
     it('쿼리가 커서를 받고 comments를 뒤에서 가져온다', () => {
       expect(query()).toMatch(/pageInfo\{hasNextPage endCursor\}/);
@@ -144,14 +143,14 @@ describe('판정 게시 경계 (postVerdict)', () => {
     });
 
     it('전량을 받는 루프가 스냅샷을 매번 새로 쓰고 상한을 둔다', () => {
-      expect(fetch(), '스냅샷 truncate가 없다').toMatch(/rm -f "\$loopTmp\/threads\.jsonl"/);
+      expect(fetch(), '스냅샷을 비우고 시작하지 않는다').toMatch(/: > "\$loopTmp\/threads\.jsonl"/);
       expect(fetch(), '커서 루프가 없다').toMatch(/hasNextPage/);
       expect(fetch(), '페이지 상한이 없다').toMatch(/pages/);
     });
 
     it('집계가 fail-closed다', () => {
       const b = codeBlock(loop.body, '### 3) `pending`을 센다 — 실패하면 멈춘다');
-      expect(b, '스냅샷 존재 검사가 없다').toMatch(/\[ -s "\$loopTmp\/threads\.jsonl" \]/);
+      expect(b, '스냅샷 존재 검사가 없다').toMatch(/\[ -f "\$loopTmp\/threads\.jsonl" \]/);
       expect(b, 'jq 실패를 안 잡는다').toMatch(/\|\|\s*\{[^}]*exit 1/);
     });
 
@@ -189,12 +188,29 @@ describe('판정 게시 경계 (postVerdict)', () => {
       }
     });
 
-    it('PR 스칼라 값을 별도로 조회한다', () => {
-      expect(rest(), 'gh pr view로 다시 안 읽는다').toMatch(/gh pr view/);
-      expect(
-        codeBlock(loop.body, '### 4) 나머지 셋'),
-        '커서 루프의 $page를 블록 밖에서 쓴다',
-      ).not.toMatch(/\$page/);
+    it('PR 스칼라 값을 별도 GraphQL로 조회한다', () => {
+      const block = codeBlock(loop.body, '### 4) 나머지 셋');
+      expect(block, '커서 루프의 $page를 블록 밖에서 쓴다').not.toMatch(/\$page/);
+
+      // gh pr view 의 --jq 는 --arg 를 안 받고(accepts at most 1 arg), 그쪽
+      // reviewRequests 에는 login 이 없는 팀이 섞여 온다. 드라이런에서 확인했다.
+      expect(block, 'gh pr view 로는 내 로그인을 필터에 못 넘긴다').not.toMatch(/gh pr view/);
+      expect(block, '사람만 거르는 인라인 프래그먼트가 없다').toMatch(/\.\.\. on User/);
+    });
+
+    it('스레드 0개인 라운드를 조회 실패로 오판하지 않는다', () => {
+      const fetchBlock = codeBlock(loop.body, '### 2) 스레드를 전량 받는다');
+      const countBlock = codeBlock(loop.body, '### 3) `pending`을 센다 — 실패하면 멈춘다');
+
+      // 첫 라운드는 스레드가 0개다. >> 가 한 번도 안 돌면 파일이 안 생기므로
+      // 빈 파일을 먼저 만들어 둔다. 검사는 -s(내용 있음)가 아니라 -f(있음)로 한다.
+      expect(fetchBlock, '빈 파일을 먼저 만들지 않는다').toMatch(
+        /^: > "\$loopTmp\/threads\.jsonl"/m,
+      );
+      expect(countBlock, '-s 로 검사하면 스레드 0개인 정상 라운드가 막힌다').not.toMatch(
+        /\[ -s "\$loopTmp\/threads\.jsonl" \]/,
+      );
+      expect(countBlock).toMatch(/\[ -f "\$loopTmp\/threads\.jsonl" \]/);
     });
 
     it('pending 집계 사본이 하나뿐이다', () => {
