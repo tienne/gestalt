@@ -135,6 +135,7 @@ describe('리뷰 코멘트 audience 옵션', () => {
       expect(Object.keys(skill.frontmatter.inputs).sort()).toEqual([
         'audience',
         'local',
+        'postVerdict',
         'repoRoot',
         'target',
       ]);
