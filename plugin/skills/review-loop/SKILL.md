@@ -256,7 +256,7 @@ Q='query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
 ### 2) 스레드를 전량 받는다
 
 ```bash
-rm -f "$loopTmp/threads.jsonl"   # 지난 조회가 남으면 pending 이 그만큼 부풀어 오른다
+: > "$loopTmp/threads.jsonl"   # 비우고 시작한다. 지난 조회가 남으면 pending 이 부풀어 오른다
 cursor=null; pages=0
 while : ; do
   page=$(gh api graphql -f query="$Q" -F owner="$owner" -F repo="$repo" \
@@ -272,14 +272,15 @@ while : ; do
 done
 ```
 
-- 스냅샷이라 매번 지우고 새로 채운다. 라운드 사이에 이어 쓰지 않는다.
+- 스냅샷이라 매번 비우고 새로 채운다. 라운드 사이에 이어 쓰지 않는다.
+- **`rm -f`가 아니라 `: >`다.** 스레드가 0개인 PR에서는 아래 `>>`가 한 번도 안 돌아 파일이 안 생긴다. 그러면 3)의 검사가 "조회를 안 돌렸다"로 읽는데, **스레드 0개는 첫 리뷰 라운드의 정상 상태다.** 빈 파일을 먼저 만들어 "조회는 돌았고 결과가 없다"와 "조회를 안 돌렸다"를 가른다.
 - 페이지 상한 50장을 둔다. `hasNextPage`가 안 꺼지는 이상 응답에서 API를 무한히 두드리지 않는다.
 - **전량을 받기 전에 `pending`을 계산하지 않는다.** 잘린 수로 "미대응 0"을 판정하면 안 본 스레드를 두고 승인으로 넘어간다.
 
 ### 3) `pending`을 센다 — 실패하면 멈춘다
 
 ```bash
-[ -s "$loopTmp/threads.jsonl" ] || { echo "스레드 스냅샷이 없다 — 2)를 먼저 돌린다"; exit 1; }
+[ -f "$loopTmp/threads.jsonl" ] || { echo "스레드 스냅샷이 없다 — 2)를 먼저 돌린다"; exit 1; }
 
 pending=$(jq -s --arg me "$me" '
   [ .[]
@@ -289,22 +290,34 @@ pending=$(jq -s --arg me "$me" '
 ' "$loopTmp/threads.jsonl") || { echo "집계 실패 — 판정하지 않는다"; exit 1; }
 ```
 
-**`jq -s`는 파일이 없어도 stdout에 `0`을 찍고 종료 코드 2로 끝난다.** 명령 치환은 stdout만 가져가므로 그대로 두면 조회 실패가 "스레드 0개"로 읽혀 승인이 나간다. 앞의 `-s` 검사와 뒤의 `||`가 그 자리를 막는다. **수를 만드는 명령은 전부 이렇게 fail-closed로 둔다.**
+**`jq -s`는 파일이 없어도 stdout에 `0`을 찍고 종료 코드 2로 끝난다.** 명령 치환은 stdout만 가져가므로 그대로 두면 조회 실패가 "스레드 0개"로 읽혀 승인이 나간다. 앞의 `-f` 검사와 뒤의 `||`가 그 자리를 막는다. **수를 만드는 명령은 전부 이렇게 fail-closed로 둔다.**
+
+**`-s`(비어 있지 않음)가 아니라 `-f`(있음)로 본다.** 스레드 0개가 정상인 라운드가 있어서다 — 첫 리뷰는 항상 그렇다. 2)가 빈 파일을 먼저 만들어 두므로 파일이 아예 없다는 건 2)를 안 돌렸다는 뜻이다. 그때만 멈춘다.
 
 ### 4) 나머지 셋
 
 ```bash
-eval "$(gh pr view "$prNumber" --json state,headRefOid,reviewRequests \
-  --jq '@sh "state=\(.state) head=\(.headRefOid)"')" || { echo "PR 조회 실패"; exit 1; }
+S=$(gh api graphql -f query='query($owner:String!,$repo:String!,$number:Int!){
+  repository(owner:$owner,name:$repo){ pullRequest(number:$number){
+    state headRefOid
+    reviewRequests(first:20){nodes{requestedReviewer{... on User{login}}}}
+  }}}' -F owner="$owner" -F repo="$repo" -F number="$prNumber") \
+  || { echo "PR 상태 조회 실패"; exit 1; }
 
-[ "$head" = "$reviewed" ] && changed=false || changed=true
-rerequested=$(gh pr view "$prNumber" --json reviewRequests \
-  --jq --arg me "$me" '[.reviewRequests[].login] | index($me) != null' 2>/dev/null || echo false)
+eval "$(echo "$S" | jq -r --arg me "$me" --arg reviewed "$reviewed" '
+  .data.repository.pullRequest
+  | @sh "state=\(.state) head=\(.headRefOid) changed=\(.headRefOid != $reviewed) rerequested=\([.reviewRequests.nodes[].requestedReviewer.login] | index($me) != null)"')" \
+  || { echo "상태 파싱 실패"; exit 1; }
 
 echo "state=$state pending=$pending changed=$changed rerequested=$rerequested head=$head"
 ```
 
-**PR 스칼라 값을 위 GraphQL 루프의 `$page`에서 꺼내 쓰지 않는다.** 그 변수는 2)의 코드블록 안에서만 산다. 이 문서가 Phase 1에서 정해둔 대로, 블록이 갈리면 셸 상태가 안 넘어오는 런타임에서 빈 문자열로 풀린다. 여기서 한 번 더 조회하는 값이 세 개뿐이라 그 편이 싸다.
+**`gh pr view --json reviewRequests`를 쓰지 않는다.** 두 가지가 걸린다.
+
+- 그 명령의 `--jq`는 `--arg`를 안 받는다 (`accepts at most 1 arg(s)`). 내 로그인을 필터에 넘길 방법이 없다. `|| echo false`로 감싸면 실패가 조용히 `false`로 둔갑해 재리뷰 요청을 영영 못 본다.
+- 그쪽 `reviewRequests`에는 팀도 섞여 들어오는데 팀에는 `login`이 없다. GraphQL은 `... on User`로 사람만 걸러 준다.
+
+**이 조회는 2)의 커서 루프와 별개 호출이다.** 그 루프의 `page` 변수를 여기서 꺼내 쓰지 않는다 — 이 문서가 Phase 1에서 정해둔 대로 셸 상태는 블록을 안 넘는다. 받아오는 값이 셋뿐이라 다시 묻는 편이 싸다.
 
 ### 내가 연 스레드 가리기
 
