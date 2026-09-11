@@ -3,49 +3,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseSkillMd } from '../../../src/skills/parser.js';
 import { RoleAgentRegistry } from '../../../src/agent/role-agent-registry.js';
+import { section } from '../../helpers/skill-section.js';
 
 const SKILL_PATH = resolve('plugin/skills/review/SKILL.md');
 const skill = parseSkillMd(readFileSync(SKILL_PATH, 'utf-8'), SKILL_PATH);
-
-/**
- * 헤딩 하나가 덮는 범위만 잘라낸다. 파일 끝까지 흘러가면 절 단위 단언이 뜻을 잃는다.
- *
- * 코드펜스 안의 `# 주석` 줄을 헤딩으로 세지 않는다. 이 스킬 문서는 bash 블록을 많이 써서
- * 그걸 안 걸러내면 절이 첫 스니펫에서 끊긴다. 들여쓴 펜스와 백틱 넷으로 연 블록까지
- * 다루는 이유는 두 문서에 둘 다 있어서다 — 여는 마커보다 짧은 마커로는 안 닫는다.
- */
-function section(body: string, heading: string): string {
-  const lines = body.split('\n');
-  const fence = /^\s*(`{3,}|~{3,})/;
-  const level = heading.match(/^#+/)![0]!.length;
-  const boundary = new RegExp(`^#{1,${level}} `);
-
-  let open: string | null = null;
-  let start = -1;
-  let end = lines.length;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const marker = line.match(fence)?.[1];
-    if (marker) {
-      if (open === null) open = marker;
-      else if (marker[0] === open[0] && marker.length >= open.length) open = null;
-      continue;
-    }
-    if (open !== null) continue;
-
-    if (line === heading) {
-      expect(start, `${heading} 헤딩이 펜스 밖에 두 번 있다`).toBe(-1);
-      start = i;
-    } else if (start !== -1 && end === lines.length && boundary.test(line)) {
-      end = i;
-    }
-  }
-
-  expect(open, '코드펜스가 안 닫혔다').toBeNull();
-  expect(start, `${heading} 헤딩을 못 찾았다`).toBeGreaterThan(-1);
-  return lines.slice(start, end).join('\n');
-}
 
 /** 볼드 라벨이 여는 목록 하나만 잘라낸다. 다음 라벨이나 헤딩에서 끊는다. */
 function labelled(body: string, label: string): string {
