@@ -737,6 +737,8 @@ done
 
 이 값은 `prTarget`이 `github`일 때만 걸립니다. 로컬 PR은 `review_publish`가 파이프라인과 같은 경계로 판정을 정하므로 부르는 쪽이 그걸 억제할 이유가 없습니다.
 
+**부르는 쪽이 게시 결과를 확인할 수 있게 합니다.** `postVerdict: false`로 불렀는데 이 스킬이 그 값을 못 읽고 `APPROVE`나 `REQUEST_CHANGES`를 내보냈다면, 그쪽 판정이 도착하기 전에 리뷰 상태가 정해진 뒤입니다. 게시 직후 `gh pr view <번호> --json reviewDecision`으로 상태를 확인해 `postedReview`에 담아 돌려줍니다 — 부르는 쪽이 그 값으로 어긋남을 알아챕니다.
+
 **`reviewSummary`를 출력으로 돌려줍니다.** `code-review-writer`가 쓴 요약 한 줄입니다. `postVerdict: false`로 부른 쪽이 자기 판정 본문을 지을 때 이 값을 뼈대로 씁니다 — 같은 에이전트를 판정 본문만으로 한 번 더 부르면 룰북을 라운드마다 두 번 싣게 됩니다.
 
 > **본인 PR 예외 (github)**: GitHub는 PR 작성자 본인이 자기 PR을 `APPROVE`/`REQUEST_CHANGES`하는 걸 막습니다(422). `gh pr view --json author`와 `gh api user`로 작성자가 현재 사용자와 같은지 확인하고 같으면 `event=COMMENT`로 폴백해 게시합니다 (접두어 r/c/a는 본문에 그대로 유지). 이때 사용자에게 "본인 PR이라 승인/변경요청 상태는 못 걸어서 코멘트로 남겼어요"라고 한 줄 알립니다. **local**은 `gestalt pr review`가 이 제약을 두지 않습니다 — author가 본인과 같아도 verdict 그대로 게시하되, 사용자에게 그 사실만 한 줄 알립니다.
