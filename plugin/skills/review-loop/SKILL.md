@@ -31,14 +31,6 @@ inputs:
     type: number
     required: false
     description: "리뷰 라운드 상한. 기본값 5"
-  watch:
-    type: boolean
-    required: false
-    description: "대응을 백그라운드로 지켜볼지. `--watch`가 이 값으로 들어온다. 기본값 false — 부를 때마다 현재 상태를 한 번 본다"
-  pollInterval:
-    type: number
-    required: false
-    description: "`--watch`일 때 폴링 간격(초). 기본값 60. 30 미만으로 안 내려간다"
 outputs:
   - prNumber
   - rounds
@@ -117,12 +109,11 @@ PR 식별 → [리뷰 → 인라인 코멘트 → 판정 게시 → 대응 대�
 /review-loop 123                   # PR #123
 /review-loop https://github.com/o/r/pull/123
 /review-loop                       # 현재 브랜치에 대응하는 PR
-/review-loop 123 --watch           # 대응을 백그라운드로 지켜본다
 /review-loop 123 --peer            # 코멘트를 peer 눈높이로 (= --audience peer)
 /review-loop 123 --max-rounds 3
 ```
 
-첫 인자가 `target`이고 `--watch`가 `watch`, `--max-rounds`가 `maxRounds`, `--poll <초>`가 `pollInterval`이다.
+첫 인자가 `target`이고 `--max-rounds`가 `maxRounds`다.
 
 **`audience` 기본값이 `review` 스킬과 반대다.** 그쪽은 `peer`가 기본이고 여기는 `junior`다. 이 스킬은 작성자가 코멘트를 읽고 스스로 고쳐 오는 것이 루프의 전제라, 코멘트가 무엇을 왜 고쳐야 하는지까지 말해야 다음 라운드가 돈다. `--peer`로 되돌릴 수 있다.
 
@@ -132,14 +123,13 @@ PR 식별 → [리뷰 → 인라인 코멘트 → 판정 게시 → 대응 대�
 - `gh` 인증
 - 리뷰할 PR이 **내가 연 것이 아닐 것**
 
-## 두 가지 모드
+## 한 번 부르면 한 번 본다
 
-| 모드 | 무엇을 하나 |
-| --- | --- |
-| 기본 | Phase 3에서 현재 상태를 한 번 보고, 재리뷰할 수 있으면 돌고 아니면 지금 상태를 알리고 끝낸다 |
-| `--watch` | Phase 3에서 백그라운드 감시를 걸고 조건이 맞으면 그때 재리뷰로 이어간다 |
+Phase 3에서 현재 상태를 한 번 본다. 재리뷰할 수 있으면 돌고 아니면 지금 상태를 알리고 끝낸다. 사람이 다시 부를 때까지 아무것도 안 한다.
 
-기본 모드는 사람이 다시 부를 때까지 아무것도 안 한다. `--watch`는 세션이 살아 있는 동안 계속 본다.
+상태 자리가 라운드를 기억하므로 **나중에 다시 불러도 이어서 돈다.** 몇 시간 뒤든 다음 날이든 같은 PR 번호로 부르면 그 라운드부터다.
+
+> **백그라운드 감시(`--watch`)는 v1.0에 없다.** 독립 셸 스크립트로 돌아야 해서 메인 세션의 상태를 못 받는다. 그러면 스레드 판정 로직이 두 벌로 갈린다. 두 벌이 어긋나면 기본 모드와 감시 모드가 같은 PR을 보고 다른 판정을 낸다. 코어 루프가 실제 PR에서 한 번 돈 뒤에 v1.1로 다시 본다.
 
 ## 판정은 자동으로 나간다
 
@@ -237,62 +227,84 @@ echo "$loopTmp"
 
 **시작할 때 지난 실행의 잔재를 확인한다.** 이 자리는 세션이 끝나도 남는다. `round` 파일이 있으면 이어서 도는 것이고 없으면 1라운드다. 이어서 돌 때는 그 사실을 사용자에게 한 줄 알린다.
 
-## 상태 조회 — 모든 Phase가 이 쿼리를 쓴다
+## 상태 조회 — 판정에 쓰는 수는 전부 여기서 나온다
 
-PR 상태를 한 번에 가져온다. 조각조각 여러 번 묻지 않는다.
+**이 절차가 정본이다.** 2.2와 Phase 3과 Phase 5는 여기를 부를 뿐 자기 쪽에 조회나 집계를 따로 두지 않는다. 사본이 생기면 한쪽만 고쳐져 같은 PR을 보고 다른 수가 나온다.
 
-```bash
-gh api graphql -f query='
-query($owner:String!, $repo:String!, $number:Int!) {
-  repository(owner:$owner, name:$repo) {
-    pullRequest(number:$number) {
-      number title state isDraft headRefOid reviewDecision
-      author { login }
-      reviewRequests(first:20) { nodes { requestedReviewer { ... on User { login } } } }
-      latestReviews(first:20) { nodes { author { login } state submittedAt } }
-      reviewThreads(first:100, after:$cursor) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          id isResolved isOutdated path line
-          comments(last:50) { nodes { author { login } createdAt } }
-        }
-      }
-    }
-  }
-}' -F owner=<owner> -F repo=<repo> -F number=<prNumber> -F cursor=null
-```
+끝나면 값 넷이 선다 — `pending`, `state`, `changed`, `rerequested`.
 
-쿼리 첫 줄의 변수 선언에 `$cursor:String`을 함께 넣는다.
-
-```
-query($owner:String!, $repo:String!, $number:Int!, $cursor:String) {
-```
-
-`owner`와 `repo`는 아래에서 잡는다.
+### 1) 쿼리와 좌표
 
 ```bash
-gh repo view --json owner,name --jq '"\(.owner.login) \(.name)"'
-gh api user --jq .login          # 내 로그인 — my-login에 적어둔다
+loopTmp=<Phase 0에서 출력된 절대 경로>
+me=$(cat "$loopTmp/my-login")
+reviewed=$(cat "$loopTmp/reviewed-head" 2>/dev/null || echo none)
+read -r owner repo <<<"$(gh repo view --json owner,name --jq '"\(.owner.login) \(.name)"')"
+
+Q='query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
+  repository(owner:$owner,name:$repo){ pullRequest(number:$number){
+    state headRefOid
+    reviewRequests(first:20){nodes{requestedReviewer{... on User{login}}}}
+    reviewThreads(first:100,after:$cursor){
+      pageInfo{hasNextPage endCursor}
+      nodes{isResolved isOutdated path line comments(last:50){nodes{author{login}}}}
+    }}}}'
 ```
 
-**`pageInfo.hasNextPage`가 참이면 이어 받는다.** `endCursor`를 `-F cursor=<값>`으로 넘겨 다시 부르고 `nodes`를 합친다. 스레드 100개는 AI 리뷰어가 붙은 PR에서 드물지 않다.
+`comments`는 **`last:50`**이다. 마지막 코멘트 작성자로 대응 여부를 가르므로 앞 50개를 받으면 답글이 많은 스레드에서 판정이 뒤집힌다.
+
+### 2) 스레드를 전량 받는다
 
 ```bash
-rm -f "$loopTmp/threads.jsonl"   # 지난 조회가 남아 있으면 pending 이 그만큼 부풀어 오른다
-cursor=null
+rm -f "$loopTmp/threads.jsonl"   # 지난 조회가 남으면 pending 이 그만큼 부풀어 오른다
+cursor=null; pages=0
 while : ; do
-  page=$(gh api graphql -f query="$Q" -F owner=<owner> -F repo=<repo> \
-           -F number=<prNumber> -F cursor="$cursor")
+  page=$(gh api graphql -f query="$Q" -F owner="$owner" -F repo="$repo" \
+           -F number="$prNumber" -F cursor="$cursor") || { echo "조회 실패"; exit 1; }
+  echo "$page" | jq -e '.data.repository.pullRequest != null' >/dev/null \
+    || { echo "조회 응답에 오류: $(echo "$page" | jq -r '.errors[0].message // "pullRequest 가 null"')"; exit 1; }
+
   echo "$page" | jq '.data.repository.pullRequest.reviewThreads.nodes[]' >> "$loopTmp/threads.jsonl"
-  more=$(echo "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
-  [ "$more" = "true" ] || break
+  pages=$((pages+1))
+  [ "$pages" -lt 50 ] || { echo "페이지가 50장을 넘었다 — 조회를 멈춘다"; exit 1; }
+  [ "$(echo "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')" = "true" ] || break
   cursor=$(echo "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
 done
 ```
 
-**이 파일은 한 번의 조회가 만드는 스냅샷이다.** 라운드 사이에 남겨두고 이어 쓰지 않는다. 매번 지우고 새로 채운다.
+- 스냅샷이라 매번 지우고 새로 채운다. 라운드 사이에 이어 쓰지 않는다.
+- 페이지 상한 50장을 둔다. `hasNextPage`가 안 꺼지는 이상 응답에서 API를 무한히 두드리지 않는다.
+- **전량을 받기 전에 `pending`을 계산하지 않는다.** 잘린 수로 "미대응 0"을 판정하면 안 본 스레드를 두고 승인으로 넘어간다.
 
-**전량을 받기 전에 `pending`을 계산하지 않는다.** 잘린 수로 "미대응 0"을 판정하면 안 본 스레드를 두고 재리뷰나 승인으로 넘어간다. 이 스킬의 판정이 되돌리기 어려운 자리라 여기서 아끼지 않는다.
+### 3) `pending`을 센다 — 실패하면 멈춘다
+
+```bash
+[ -s "$loopTmp/threads.jsonl" ] || { echo "스레드 스냅샷이 없다 — 2)를 먼저 돌린다"; exit 1; }
+
+pending=$(jq -s --arg me "$me" '
+  [ .[]
+    | select(.isResolved | not)
+    | select(.comments.nodes[0].author.login == $me)
+    | select((.isOutdated | not) and (.comments.nodes[-1].author.login == $me)) ] | length
+' "$loopTmp/threads.jsonl") || { echo "집계 실패 — 판정하지 않는다"; exit 1; }
+```
+
+**`jq -s`는 파일이 없어도 stdout에 `0`을 찍고 종료 코드 2로 끝난다.** 명령 치환은 stdout만 가져가므로 그대로 두면 조회 실패가 "스레드 0개"로 읽혀 승인이 나간다. 앞의 `-s` 검사와 뒤의 `||`가 그 자리를 막는다. **수를 만드는 명령은 전부 이렇게 fail-closed로 둔다.**
+
+### 4) 나머지 셋
+
+```bash
+eval "$(gh pr view "$prNumber" --json state,headRefOid,reviewRequests \
+  --jq '@sh "state=\(.state) head=\(.headRefOid)"')" || { echo "PR 조회 실패"; exit 1; }
+
+[ "$head" = "$reviewed" ] && changed=false || changed=true
+rerequested=$(gh pr view "$prNumber" --json reviewRequests \
+  --jq --arg me "$me" '[.reviewRequests[].login] | index($me) != null' 2>/dev/null || echo false)
+
+echo "state=$state pending=$pending changed=$changed rerequested=$rerequested head=$head"
+```
+
+**PR 스칼라 값을 위 GraphQL 루프의 `$page`에서 꺼내 쓰지 않는다.** 그 변수는 2)의 코드블록 안에서만 산다. 이 문서가 Phase 1에서 정해둔 대로, 블록이 갈리면 셸 상태가 안 넘어오는 런타임에서 빈 문자열로 풀린다. 여기서 한 번 더 조회하는 값이 세 개뿐이라 그 편이 싸다.
 
 ### 내가 연 스레드 가리기
 
@@ -396,13 +408,13 @@ gh pr view <prNumber> --json author --jq .author.login
 ```
 #{prNumber} "{title}" ({author} / +{additions} -{deletions}, 파일 {N}개)
 
-리뷰 라운드를 최대 {maxRounds}번 돌립니다. 라운드마다 consensus 결과를 그대로 게시해요.
+리뷰 라운드를 최대 {maxRounds}번 돌립니다. 라운드마다 consensus 결과를 그대로 게시합니다.
 - Block → 변경 요청(request changes)
 - Pass인데 이슈가 남음 → 코멘트만
 - Pass에 이슈 0 → 승인(approve)
 
 인라인 코멘트는 {junior|peer} 눈높이로 나갑니다.
-변경 요청과 코멘트는 라운드마다 안 묻고 바로 게시해요. **승인은 낼 때마다 따로 여쭙니다.**
+변경 요청과 코멘트는 라운드마다 안 묻고 바로 게시합니다. **승인은 낼 때마다 따로 여쭙니다.**
 
 시작할까요?
 ```
@@ -433,9 +445,9 @@ loopTmp=<Phase 0에서 출력된 절대 경로>
 gh pr view <prNumber> --json headRefOid --jq .headRefOid > "$loopTmp/round-start-head"
 ```
 
-**셸 변수로 들고 가지 않는다.** 이 값을 잡는 자리와 쓰는 자리 사이에 리뷰 한 번과 승인 한 번과, `--watch`면 몇 시간의 대기가 들어간다. 셸 상태가 도구 호출 사이에 안 남는 런타임이면 빈 문자열로 풀린다.
+**셸 변수로 들고 가지 않는다.** 이 값을 잡는 자리와 쓰는 자리 사이에 리뷰 한 번과 승인 한 번이 들어간다. 셸 상태가 도구 호출 사이에 안 남는 런타임이면 빈 문자열로 풀린다.
 
-### 1.0 프리플라이트 — 설치된 `review`가 `postVerdict`를 받는지 (라운드 1에서만)
+### 1.1 사전 점검 — 설치된 `review`가 `postVerdict`를 받는지
 
 **부르기 전에 확인한다.** 이 검사가 `review` 호출 뒤에 있으면 아무것도 못 막는다 — 구버전은 이 지시를 무시하고 그 호출 안에서 이미 판정을 게시해버리기 때문이다. 계약이 성립하지 않는 환경은 계약을 쓰기 전에 걸러야 한다.
 
@@ -458,9 +470,9 @@ done
 `/plugin install gestalt@gestalt`로 플러그인을 올린 뒤 다시 불러주세요.
 ```
 
-**라운드 2부터는 안 돈다.** 같은 세션에서 설치본이 바뀌지 않는다. 라운드 1에서 확인한 결과를 그대로 쓴다.
+**이 스킬을 새로 부른 세션마다 한 번 돈다.** 같은 세션 안에서는 설치본이 안 바뀌므로 라운드 2부터 건너뛴다. 다만 `round` 파일이 있어 **이어서 도는 세션은 다시 돈다** — 지난 세션 뒤에 플러그인이 올라갔을 수 있다.
 
-### 1.1 리뷰 호출
+### 1.2 리뷰 호출
 
 `review` 스킬을 `prNumber` 대상으로 부른다. 0단계에 미리 답하는 규약은 위 "멈추는 자리"에 있다.
 
@@ -471,11 +483,23 @@ postVerdict: false
 
 **`postVerdict: false`를 빠뜨리지 않는다.** 위 "`review`를 반드시 `postVerdict: false`로 부른다" 절이 그 이유다 — 빠뜨리면 라운드마다 판정이 두 번 나가고 이 스킬의 판정 규칙이 무력화된다.
 
-`review` 스킬이 diff 수집부터 인라인 코멘트 게시까지 한다. 결과에서 `verdict`, `continuityVerdict`, 게시된 코멘트 수를 받는다.
+`review` 스킬이 diff 수집부터 인라인 코멘트 게시까지 한다. 결과에서 `verdict`, `continuityVerdict`, `reviewSummary`, `postedReview`, 게시된 코멘트 수를 받는다.
+
+**`postedReview`를 바로 본다.** `postVerdict: false`를 줬는데도 그 안에 `APPROVED`나 `CHANGES_REQUESTED`가 담겨 오면, 설치본이 그 입력을 못 읽고 이미 판정을 게시했다는 뜻이다. 1.1이 놓친 경우다.
+
+```
+#{prNumber}에 이미 판정이 게시됐어요 — {postedReview}.
+`postVerdict: false`로 불렀는데 설치된 review 가 그걸 못 읽은 것 같습니다.
+
+이 라운드는 여기서 멈출게요. 제가 판정을 또 내면 두 번 나갑니다.
+`/plugin install gestalt@gestalt`로 올린 뒤 다시 불러주세요.
+```
+
+`loopState`를 `blocked`로 두고 끝낸다. **2.5로 내려가지 않는다** — 이미 나간 판정 위에 하나 더 얹는 게 이 계약이 막으려던 바로 그 일이다.
 
 **이 스킬은 리뷰를 직접 하지 않는다.** 에이전트를 따로 부르거나 페르소나 없이 임의로 코드를 읽고 이슈를 짓는 경로는 없다.
 
-### 남은 이슈를 적어둔다
+### 1.3 남은 이슈를 적어둔다
 
 조기 종료 판정이 라운드 사이를 대조한다. 라운드마다 남은 이슈의 파일과 요지를 적는다.
 
@@ -506,18 +530,7 @@ Write <loopTmp의 절대 경로>/issues-r<N>.md
 
 위 "판정은 자동으로 나간다"의 표대로 정한다. **내가 연 열린 스레드 수**는 Phase 1의 게시가 끝난 뒤 상태 조회로 다시 센다 — 이번 라운드에 새로 단 코멘트가 그 수에 들어간다.
 
-**그 수를 세기 전에 스레드를 전량 받는다.** "상태 조회"의 커서 루프를 끝까지 돌려 `$loopTmp/threads.jsonl`을 만든 뒤 그 파일로 센다. 첫 페이지 응답의 `nodes`를 그대로 쓰지 않는다 — 100개에서 잘린 수로 approve가 나가는 자리가 여기다.
-
-```bash
-loopTmp=<Phase 0에서 출력된 절대 경로>
-me=$(cat "$loopTmp/my-login")
-jq -s --arg me "$me" '
-  [ .[]
-    | select(.isResolved | not)
-    | select(.comments.nodes[0].author.login == $me)
-    | select((.isOutdated | not) and (.comments.nodes[-1].author.login == $me)) ] | length
-' "$loopTmp/threads.jsonl"
-```
+**그 수를 세기 전에 "상태 조회" 절차를 돌린다.** 1)~3)이 `pending`을 만든다. 여기에 집계를 다시 적지 않는다 — 100개에서 잘린 수나 조회 실패가 낸 `0`으로 approve가 나가는 자리가 바로 여기라, 그 방어가 한 곳에만 있어야 빠뜨리지 않는다.
 
 #### ⓟ — 판정이 `--approve`면 여기서 멈춘다
 
@@ -546,7 +559,7 @@ jq -s --arg me "$me" '
 
 `reviewSummary`는 `review` 스킬의 **선언된 출력**이다. 그 스킬 내부에서만 도는 값에 기대지 않는다 — 선언 안 된 값에 붙으면 그쪽이 내부를 고칠 때 이 스킬이 조용히 깨진다.
 
-출력에 그 값이 없으면 1.0 프리플라이트가 놓친 경우다. 그때는 **이미 판정이 한 번 나갔을 수 있다는 사실을 함께 알리고** 멈춘다 — 여기서 이 스킬의 게시만 막는 건 뒤늦다.
+출력에 그 값이 없으면 1.2가 `postedReview`로 이미 걸렀어야 하는 경우다. 거기까지 통과했는데 여기서 비어 있으면 설치본이 두 출력 다 안 주는 것이므로, 이미 판정이 나갔을 수 있다는 사실을 함께 알리고 멈춘다.
 
 본문에 담을 것은 셋이다.
 
@@ -651,37 +664,9 @@ echo "<이번 판정>" >> "$loopTmp/verdicts"   # request_changes | comment | ap
 
 ### 신호 계산
 
-상태 조회 응답을 `jq`로 줄인다.
-
-> **이 필터는 아래 `watch.sh` 안에도 같은 내용으로 한 번 더 들어 있다.** 출력 형태만 다르다 — 여기는 `key=value`고 그쪽은 공백으로 나눈 위치 인자다. **한쪽을 고치면 반대쪽도 같이 고친다.** 안 그러면 기본 모드와 `--watch` 모드가 같은 PR을 보고 다른 판정을 낸다. 두 벌인 이유는 `watch.sh`가 독립 실행되는 셸 스크립트라 메인 세션의 변수를 못 받기 때문이다.
-
-**"상태 조회"의 커서 루프를 먼저 끝까지 돌린다.** 그 결과인 `threads.jsonl`로 `pending`을 센다. PR 자체 값(state, head, reviewRequests)은 마지막 페이지 응답에서 읽는다.
-
-```bash
-loopTmp=<Phase 0에서 출력된 절대 경로>
-me=$(cat "$loopTmp/my-login")
-reviewed=$(cat "$loopTmp/reviewed-head")
-
-# pending — 전량을 담은 threads.jsonl 로 센다
-pending=$(jq -s --arg me "$me" '
-  [ .[]
-    | select(.isResolved | not)
-    | select(.comments.nodes[0].author.login == $me)
-    | select((.isOutdated | not) and (.comments.nodes[-1].author.login == $me)) ] | length
-' "$loopTmp/threads.jsonl")
-
-# 나머지 — 마지막 페이지 응답($page)에서
-rest=$(echo "$page" | jq -r --arg me "$me" --arg reviewed "$reviewed" '
-  .data.repository.pullRequest as $pr
-  | ([$pr.reviewRequests.nodes[].requestedReviewer.login] | index($me) != null) as $rereq
-  | "state=\($pr.state) changed=\($pr.headRefOid != $reviewed) rerequested=\($rereq) head=\($pr.headRefOid)"')
-
-echo "$rest pending=$pending"
-```
+**"상태 조회" 절차를 그대로 돌린다.** 1)부터 4)까지 순서대로 가면 `pending`, `state`, `changed`, `rerequested` 넷이 선다. 여기 따로 적지 않는다 — 사본이 생기면 한쪽만 고쳐진다.
 
 `isResolved`가 참인 스레드는 첫 `select`에서 빠진다. 남은 것 중 `isOutdated`도 아니고 마지막 코멘트도 내 것인 스레드가 미대응이다.
-
-**`pending`을 첫 페이지 응답의 `nodes`로 세지 않는다.** 2.2와 여기와 `watch.sh` 셋 다 같은 규칙이다 — 이 스킬에서 `pending`을 세는 자리는 그 셋뿐이다. 전부 전량을 받은 뒤에 센다.
 
 ### 기본 모드 — 한 번 보고 끝낸다
 
@@ -693,113 +678,10 @@ echo "$rest pending=$pending"
 내가 남긴 스레드 {총}개 중 {대응}개 처리됨 / {pending}개 남음
 새 커밋: {있음 (abc1234) | 없음}
 
-지켜보려면 `--watch`로 다시 불러주세요. 아니면 나중에 다시 불러도 이어서 돕니다.
+나중에 다시 부르시면 이 라운드부터 이어서 돕니다.
 ```
 
 `loopState`를 `waiting`으로 두고 끝낸다. **상태 자리는 안 지운다** — 다음에 불렀을 때 이어서 돈다.
-
-### `--watch` 모드 — 백그라운드로 지켜본다
-
-감시 스크립트를 파일로 떨군다. 셸 한 줄로 넘기면 따옴표가 겹쳐 깨진다.
-
-```
-Write <loopTmp의 절대 경로>/watch.sh
-```
-
-```bash
-#!/bin/sh
-OWNER="$1"; REPO="$2"; NUM="$3"; ME="$4"; REVIEWED="$5"; INTERVAL="$6"; TMP="$7"
-Q='query($owner:String!,$repo:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){state headRefOid reviewRequests(first:20){nodes{requestedReviewer{... on User{login}}}} reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}nodes{isResolved isOutdated comments(last:50){nodes{author{login}}}}}}}}'
-fails=0
-prev=""
-while true; do
-  # 스레드를 전량 받는다. 첫 페이지만 세면 100개 넘는 PR 에서 거짓 READY 가 난다
-  rm -f "$TMP/watch-threads.jsonl"
-  cursor=null
-  page_err=""
-  while : ; do
-    raw=$(gh api graphql -f query="$Q" -F owner="$OWNER" -F repo="$REPO" \
-            -F number="$NUM" -F cursor="$cursor" 2>&1)
-    if [ $? -ne 0 ]; then page_err="net:$(echo "$raw" | head -1)"; break; fi
-    # 종료 코드가 0이어도 바디에 errors 가 실릴 수 있다 (권한 없음, 필드 오류)
-    if echo "$raw" | jq -e 'has("errors") or (.data.repository.pullRequest == null)' >/dev/null 2>&1; then
-      page_err="api:$(echo "$raw" | jq -r '.errors[0].message // "pullRequest 가 null"')"; break
-    fi
-    echo "$raw" | jq '.data.repository.pullRequest.reviewThreads.nodes[]' >> "$TMP/watch-threads.jsonl"
-    [ "$(echo "$raw" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')" = "true" ] || break
-    cursor=$(echo "$raw" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
-  done
-
-  if [ -n "$page_err" ]; then
-    fails=$((fails+1))
-    if [ "$fails" -ge 5 ]; then
-      echo "ERROR 조회가 5번 연속 실패했습니다: $page_err"
-      exit 1
-    fi
-    sleep "$INTERVAL"; continue
-  fi
-  fails=0
-
-  pending=$(jq -s --arg me "$ME" '
-    [ .[]
-      | select(.isResolved | not)
-      | select(.comments.nodes[0].author.login == $me)
-      | select((.isOutdated | not) and (.comments.nodes[-1].author.login == $me)) ] | length
-  ' "$TMP/watch-threads.jsonl")
-
-  sig=$(echo "$raw" | jq -r --arg me "$ME" --arg reviewed "$REVIEWED" --arg p "$pending" '
-    .data.repository.pullRequest as $pr
-    | ([$pr.reviewRequests.nodes[].requestedReviewer.login] | index($me) != null) as $r
-    | "\($pr.state) \($p) \($pr.headRefOid != $reviewed) \($r) \($pr.headRefOid)"')
-  set -- $sig
-  state="$1"; pending="$2"; changed="$3"; rereq="$4"; head="$5"
-  if [ "$state" != "OPEN" ]; then
-    echo "CLOSED PR이 $state 상태가 됐습니다. 감시를 끝냅니다"
-    exit 0
-  fi
-  if [ "$rereq" = "true" ]; then
-    echo "REREVIEW_REQUESTED 작성자가 재리뷰를 요청했습니다 (head=$head, 미대응 $pending개)"
-    exit 0
-  fi
-  if [ "$pending" = "0" ] && [ "$changed" = "true" ]; then
-    echo "READY 남긴 스레드가 전부 대응됐고 새 커밋이 있습니다 (head=$head)"
-    exit 0
-  fi
-  if [ "$pending" = "0" ] && [ "$changed" = "false" ]; then
-    echo "REPLIES_ONLY 스레드는 전부 답이 왔는데 코드는 그대로입니다 (head=$head)"
-    exit 0
-  fi
-  if [ "$sig" != "$prev" ]; then
-    echo "PROGRESS 미대응 $pending개 남음 (새 커밋 $changed)"
-    prev="$sig"
-  fi
-  sleep "$INTERVAL"
-done
-```
-
-`Monitor` 도구로 건다. `persistent: true`로 세션이 사는 동안 돌린다.
-
-```
-Monitor {
-  command: "sh '<loopTmp>/watch.sh' '<owner>' '<repo>' '<prNumber>' '<my-login>' '<reviewed-head>' '<pollInterval>' '<loopTmp>'",
-  description: "PR #<prNumber> 리뷰 대응 감시",
-  persistent: true
-}
-```
-
-**경로에 작은따옴표가 없는지 먼저 본다.** 작은따옴표로 감싸도 값 안의 작은따옴표는 못 막는다.
-
-```bash
-case "$loopTmp" in *"'"*) echo "경로에 작은따옴표가 있어 감시를 못 겁니다: $loopTmp"; exit 1 ;; esac
-```
-
-**치환값마다 작은따옴표로 감싼다.** `watch.sh` 안은 `"$OWNER"` 식으로 인용하지만 그 스크립트를 기동하는 이 줄에 인용이 없으면 소용없다. `loopTmp`는 사용자 홈 경로를 품어 공백이 섞일 수 있다. 나머지 값도 조회 결과라 이 스킬이 내용을 보증하지 못한다. PR 번호는 Phase 0에서 정수로 걸러졌지만 나머지 다섯은 안 걸러진다.
-
-- **간격은 60초가 기본이고 30초 밑으로 안 내려간다.** GitHub API 한도가 있고 사람이 코드를 고치는 시간은 분 단위다.
-- **끝나는 조건이 넷 다 들어 있다.** 닫힘, 재요청, 준비됨, 답글만. 넷 중 어느 것도 아닌 동안에는 미대응 수가 바뀔 때만 한 줄 낸다. 조회가 5번 연속 실패해도 한 줄 내고 끝낸다 — **조용한 채로 도는 감시는 죽은 것과 구별이 안 된다.**
-- `Monitor`가 없는 런타임이면 백그라운드 Bash로 같은 스크립트를 돌린다. **전경에서 `sleep`으로 세션을 붙잡지 않는다.**
-
-감시가 한 줄을 내면 그 신호를 들고 Phase 4로 간다. `PROGRESS`는 진행 상황일 뿐이라 사용자에게 그대로 전하고 계속 기다린다.
 
 ## Phase 4 — 재리뷰 판정
 
@@ -883,23 +765,19 @@ echo "$round"
 
 ### 출력값 채우기 — 어느 경로로 끝나든 먼저 한다
 
-`loopState`와 `verdicts`는 앞에서 이미 채워졌다. 나머지 넷을 여기서 읽는다.
+`prNumber`는 Phase 0에서, `loopState`는 아래 종료 분기에서 정해진다. 나머지 넷을 여기서 읽는다.
+
+**`unresolvedAtEnd`를 세기 전에 "상태 조회" 1)~3)을 한 번 더 돌린다.** 마지막 라운드 뒤에 작성자가 스레드를 닫았을 수 있다. 거기서 나온 `pending`이 이 값이다.
 
 ```bash
 loopTmp=<Phase 0에서 출력된 절대 경로>
-me=$(cat "$loopTmp/my-login")
 
-rounds=$(cat "$loopTmp/round")                    # 마지막으로 완료한 라운드
-verdicts=$(cat "$loopTmp/verdicts")               # 한 줄에 하나. 배열로 옮긴다
+rounds=$(cat "$loopTmp/round")                       # 마지막으로 완료한 라운드
+verdicts=$(cat "$loopTmp/verdicts")                  # 한 줄에 하나. 배열로 옮긴다
+unresolvedAtEnd=$pending                             # 방금 돌린 "상태 조회" 3)의 값
+finalDecision=$(gh pr view "$prNumber" --json reviewDecision \
+  --jq '.reviewDecision // "REVIEW_REQUIRED"') || { echo "판정 조회 실패"; exit 1; }
 ```
-
-`finalDecision`과 `unresolvedAtEnd`는 마지막 상태 조회에서 가져온다. **여기서도 스레드는 전량을 받은 뒤에 센다** — 커서 루프를 한 번 더 돌려 `threads.jsonl`을 새로 만들고 2.2와 같은 `jq -s`로 센다.
-
-```bash
-gh pr view <prNumber> --json reviewDecision --jq '.reviewDecision // "REVIEW_REQUIRED"'
-```
-
-`prNumber`는 Phase 0에서 잡은 값 그대로다.
 
 ### approve가 났을 때
 
@@ -933,8 +811,6 @@ gh pr view <prNumber> --json reviewDecision --jq '.reviewDecision // "REVIEW_REQ
 ```bash
 rm -rf "$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-review-loop/pr-<prNumber>"
 ```
-
-`--watch` 감시가 돌고 있으면 `TaskStop`으로 먼저 끈다.
 
 ## 출력 규약
 
