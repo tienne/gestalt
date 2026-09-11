@@ -169,12 +169,29 @@ function shortPrescription(prescription: string): string {
   return clamp(unchain(out.replace(/\.$/, '')), PRESCRIPTION_MAX);
 }
 
-/** 자가점검에 붙일 예시. 룰북이 따옴표나 괄호로 적어둔 걸린 말들을 그대로 쓴다 */
-function example(id: string, pattern: string): string {
-  const quoted = pattern.match(/"([^"]{2,})"/);
+/**
+ * 자가점검에 붙일 예시. 룰북이 따옴표나 괄호로 적어둔 걸린 말들을 그대로 쓴다.
+ * 하나만 싣던 자리였는데 F-9처럼 예시마다 걸리는 꼴이 다른 룰은 첫 예시만 보고
+ * 나머지를 놓친다. 길이가 허용하는 만큼 실어 게이트에서 눈에 걸리게 한다
+ */
+function example(id: string, pattern: string, max: number): string {
+  const quoted = [...pattern.matchAll(/"([^"]{2,})"/g)].map((match) => match[1]!);
   const parened = pattern.match(/\(([^)]{4,})\)/);
-  const raw = quoted?.[1] ?? parened?.[1] ?? shortPattern(pattern);
-  const shown = raw.split('/').slice(0, 3).join(' / ');
+  const raw = quoted.length > 0 ? quoted : [parened?.[1] ?? shortPattern(pattern)];
+  const parts = raw
+    .flatMap((part) => part.split('/'))
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, max);
+
+  let shown = '';
+  for (const part of parts) {
+    if (shown.includes(part)) continue;
+    const next = shown ? `${shown} / ${part}` : part;
+    if (shown && next.length > EXAMPLE_MAX) break;
+    shown = next;
+  }
+
   return clamp(KEEP_MIDDLE_DOT.has(id) ? shown : unchain(shown), EXAMPLE_MAX);
 }
 
@@ -190,7 +207,11 @@ function renderBanned(book: RuleBook): string {
 
 function renderSelfCheck(book: RuleBook): string {
   return GATE.map((group, index) => {
-    const shown = group.ids.map((id) => example(id, book.rules.get(id)!.pattern)).join(' / ');
+    // 룰을 묶은 그룹은 룰마다 예시를 실으면 한 줄이 길어진다. 묶인 만큼 덜 싣는다
+    const perRule = group.ids.length > 1 ? 2 : 3;
+    const shown = group.ids
+      .map((id) => example(id, book.rules.get(id)!.pattern, perRule))
+      .join(' / ');
     const ids = group.ids.join(', ');
     return `${index + 1}. ${group.name}(${shown}) 없는가 — ${ids}`;
   }).join('\n');
