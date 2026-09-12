@@ -228,7 +228,9 @@ describe('판정 게시 경계 (postVerdict)', () => {
       // 절차 본문이 "$loopTmp/..." 로 건드리는 파일이 전부 표에 있어야 한다
       const rest = loop.body.replace(table, '');
       const used = new Set(
-        [...rest.matchAll(/\$loopTmp\/([A-Za-z0-9_.<>-]+)/g)].map((m) => m[1]!.replace(/<N>/g, '')),
+        [...rest.matchAll(/\$stateDir\/([A-Za-z0-9_.<>-]+)/g)].map((m) =>
+          m[1]!.replace(/<N>/g, ''),
+        ),
       );
       for (const file of used) {
         expect(declared, `${file} 이 상태 자리 표에 없다`).toContain(file);
@@ -239,7 +241,9 @@ describe('판정 게시 경계 (postVerdict)', () => {
       const plain = rest.replace(/<N-?1?>/g, '');
       const written = (file: string) =>
         used.has(file) ||
-        new RegExp(`(>|Write |cp [^\n]*|--body-file |\\$root/)[^\n]*${escapeRe(file)}`).test(plain);
+        new RegExp(
+          `(>|Write |cp [^\n]*|--body-file |-F body=@|--file |\\$root/)[^\n]*${escapeRe(file)}`,
+        ).test(plain);
       for (const file of declared) {
         expect(
           written(file) || CODE_WRITTEN.has(file),
@@ -262,7 +266,9 @@ describe('판정 게시 경계 (postVerdict)', () => {
     for (const block of blocks) {
       // loopTmp 와 prNumber 는 문서가 "출력된 절대 경로를 적어둔다"로 채우는 자리표다.
       // CLAUDE_PLUGIN_ROOT 는 플러그인 런타임이 준다
-      expect(freeVariables(block, ['loopTmp', 'prNumber', 'CLAUDE_PLUGIN_ROOT'])).toEqual([]);
+      expect(freeVariables(block, ['prNumber', 'root', 'stateDir', 'CLAUDE_PLUGIN_ROOT'])).toEqual(
+        [],
+      );
     }
   });
 

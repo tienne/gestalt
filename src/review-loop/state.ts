@@ -36,7 +36,7 @@ export function stateDir(
     throw new Error(`PR 번호가 양의 정수가 아니다: ${target.prNumber}`);
   }
   // 레포까지 넣는다. 번호만으로 가르면 남의 레포 PR 을 볼 때 이쪽 같은 번호와 자리를
-  // 나눠 쓴다. 그 reviewed-head 로 새 커밋이 왔는지를 재는 순간 재리뷰 판정이 뒤집힌다
+  // 나눠 쓴다. 그 reviewed-head 로 새 커밋이 왔는지 보는 순간 재리뷰 판정이 뒤집힌다
   for (const part of [target.owner, target.repo]) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(part)) {
       throw new Error(`레포를 경로에 못 쓴다: ${JSON.stringify(part)}`);

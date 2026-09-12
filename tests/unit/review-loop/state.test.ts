@@ -35,7 +35,7 @@ describe('라운드 상태를 두는 자리', () => {
 
   /**
    * 번호만으로 가르면 남의 레포 PR 을 볼 때 이쪽 같은 번호와 자리를 나눠 쓴다. 그
-   * reviewed-head 로 새 커밋이 왔는지를 재는 순간 재리뷰 판정이 뒤집힌다.
+   * reviewed-head 로 새 커밋이 왔는지 보는 순간 재리뷰 판정이 뒤집힌다.
    */
   it('레포가 다르면 같은 번호라도 자리가 갈린다', () => {
     expect(stateDir(at({ owner: 'cli', repo: 'cli' }), repo)).not.toBe(stateDir(at(), repo));
@@ -75,6 +75,6 @@ describe('라운드 상태를 두는 자리', () => {
    * 이 값이 경로 조각이 되므로 정수가 아니면 `.git` 밖을 가리키거나 이름이 깨진다.
    */
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53])('%p 는 거부한다', (bad) => {
-    expect(() => stateDir(bad, repo)).toThrow(/양의 정수/);
+    expect(() => stateDir(at({ prNumber: bad }), repo)).toThrow(/양의 정수/);
   });
 });

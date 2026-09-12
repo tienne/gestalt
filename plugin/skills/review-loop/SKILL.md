@@ -270,9 +270,10 @@ gh pr list --limit 10 --json number,title,author,headRefName
 
 ```bash
 root=<Phase 0에서 출력된 뿌리 경로>
-read -r prNumber owner repo stateDir <<<"$(gestalt review-loop state --pr "$(cat "$root/target")" \
-  --json | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')" \
+state=$(gestalt review-loop state --pr "$(cat "$root/target")" --json) \
   || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$state" \
+  | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
 
 gh pr view "$prNumber" --repo "$owner/$repo" --json author --jq .author.login
 ```
@@ -317,17 +318,14 @@ gh pr view "$prNumber" --repo "$owner/$repo" --json author --jq .author.login
 
 동의하지 않으면 시작하지 않는다. **`review` 스킬 한 번을 대신 돌려주겠다고 제안한다** — 판정 없이 리뷰만 보는 자리가 그쪽이다.
 
-### 상태 자리 만들기
-
-위 "상태 자리" 절에 적힌 대로 만든다. `my-login`을 적어둔다.
-
-```bash
-gestalt review-loop dir --pr <prNumber> --create
-```
+### 재개인지 본다
 
 `round` 파일이 있으면 이어서 도는 것이다. 거기 적힌 값은 **마지막으로 완료한 라운드**이므로 **그 값+1부터** Phase 1을 시작하고 사용자에게 알린다. 파일이 없으면 1라운드다.
 
-이 규칙이 세션이 Phase 4와 다음 라운드의 2.5 사이에서 끊겼을 때도 그대로 선다 — 그 구간에는 아직 완료된 라운드가 없어 값이 안 올라가 있다. 재개하면 끊긴 그 라운드를 다시 돈다.
+PR별 자리는 따로 만들지 않는다 — 조회가 `stateDir`로 낸다.
+
+이 규칙이 세션이 Phase 4와 다음 라운드의 2.5 사이에서 끊겼을 때도 그대로 선다. 그 구간에는 아직 완료된 라운드가 없어 값이 안 올라가 있다. 재개하면 끊긴 그 라운드를 다시 돈다.
+
 
 ## Phase 1 — 리뷰 라운드
 
@@ -335,9 +333,10 @@ gestalt review-loop dir --pr <prNumber> --create
 
 ```bash
 root=<Phase 0에서 출력된 뿌리 경로>
-read -r prNumber owner repo stateDir <<<"$(gestalt review-loop state --pr "$(cat "$root/target")" \
-  --json | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')" \
+state=$(gestalt review-loop state --pr "$(cat "$root/target")" --json) \
   || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$state" \
+  | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
 
 gh pr view "$prNumber" --repo "$owner/$repo" --json headRefOid --jq .headRefOid \
   > "$stateDir/round-start-head"
@@ -516,17 +515,14 @@ pending=$(echo "$state" | jq -r .pending)
 
 본문을 게시 전에 스캔한다. `review` 4.7단계와 같은 이유다 — PR 본문과 diff에 있던 말이 그대로 딸려오는 자리는 에이전트 자가점검으로 안 걸린다.
 
-```bash
-stateDir=<상태 조회가 낸 stateDir 값>
-```
-
-본문을 `$loopTmp/verdict-r<N>.md`에 파일 쓰기 도구로 쓴다. **셸로 넘기지 않는다** — 한글과 백틱이 섞이고 리뷰 대상에서 온 문자열이 실린다.
+본문을 `$stateDir/verdict-r<N>.md`에 파일 쓰기 도구로 쓴다. 그 경로는 아래 블록이 낸다. **셸로 넘기지 않는다** — 한글과 백틱이 섞이고 리뷰 대상에서 온 문자열이 실린다.
 
 ```bash
 root=<Phase 0에서 출력된 뿌리 경로>
-read -r prNumber owner repo stateDir <<<"$(gestalt review-loop state --pr "$(cat "$root/target")" \
-  --json | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')" \
+state=$(gestalt review-loop state --pr "$(cat "$root/target")" --json) \
   || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$state" \
+  | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
 
 gestalt humanize-scan --file "$stateDir/verdict-r<N>.md" --register chat
 echo "EXIT=$?"
@@ -549,9 +545,10 @@ echo "EXIT=$?"
 
 ```bash
 root=<Phase 0에서 출력된 뿌리 경로>
-read -r prNumber owner repo stateDir <<<"$(gestalt review-loop state --pr "$(cat "$root/target")" \
-  --json | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')" \
+state=$(gestalt review-loop state --pr "$(cat "$root/target")" --json) \
   || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$state" \
+  | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
 
 gh pr review "$prNumber" --repo "$owner/$repo" --request-changes --body-file "$stateDir/verdict-r<N>.md"
 gh pr review "$prNumber" --repo "$owner/$repo" --comment         --body-file "$stateDir/verdict-r<N>.md"
@@ -611,7 +608,7 @@ echo "<이번 판정>" >> "$stateDir/verdicts"   # request_changes | comment | a
 ```bash
 state=$(gestalt review-loop state --pr <prNumber> --json) \
   || { echo "상태 조회 실패 — 판정하지 않는다"; exit 1; }
-echo "$state" | jq -r '"\(.signal) pending=\(.pending)/\(.totalThreads) changed=\(.changed)"'
+echo "$state" | jq -r '"\(.signal) pending=\(.pending)/\(.myThreads) changed=\(.changed)"'
 ```
 
 무엇을 미대응으로 세는지는 "상태 조회" 절에 있다. 여기 다시 적지 않는다.
@@ -674,13 +671,14 @@ echo "$state" | jq -r '"\(.signal) pending=\(.pending)/\(.totalThreads) changed=
 stateDir=<상태 조회가 낸 stateDir 값>
 ```
 
-사용자가 준 문장을 **파일 쓰기 도구로** `$loopTmp/reply.md`에 쓰고 그 파일을 넘긴다.
+사용자가 준 문장을 **파일 쓰기 도구로** `$stateDir/reply.md`에 쓰고 그 파일을 넘긴다.
 
 ```bash
 root=<Phase 0에서 출력된 뿌리 경로>
-read -r prNumber owner repo stateDir <<<"$(gestalt review-loop state --pr "$(cat "$root/target")" \
-  --json | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')" \
+state=$(gestalt review-loop state --pr "$(cat "$root/target")" --json) \
   || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$state" \
+  | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
 
 gh api "repos/$owner/$repo/pulls/$prNumber/comments/<코멘트id>/replies" \
   -F body=@"$stateDir/reply.md"
