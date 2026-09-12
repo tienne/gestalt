@@ -177,7 +177,7 @@ describe('리뷰 코멘트 audience 옵션', () => {
     });
 
     it('4.7단계 서브에이전트 프롬프트가 audience를 넘긴다', () => {
-      const guard = section(skill.body, '#### 신선도 가드 (stale consensus 게시 금지)');
+      const guard = section(skill.body, '#### 게시 전 최신 여부 확인 (옛 consensus 게시 금지)');
       expect(guard).toContain('audience: <peer | junior');
       expect(guard).toMatch(/audience\.md 같은 이름의 파일을 찾아 읽지 않는다/);
       // 1.05를 안 거치고 들어온 경로의 폴백
