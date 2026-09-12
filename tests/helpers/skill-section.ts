@@ -122,3 +122,45 @@ export function codeBlockContaining(body: string, heading: string, needle: strin
   expect(hits.length, `${heading} 안에 "${needle}"를 품은 블록이 ${hits.length}개다`).toBe(1);
   return hits[0]!;
 }
+
+/**
+ * 셸 코드블록이 자기 안에서 정의하지 않고 쓰는 변수를 찾는다.
+ *
+ * 스킬 문서의 코드블록은 각각 다른 Bash 호출로 실행된다. 셸 상태가 호출 사이에 안 남는
+ * 런타임에서는 앞 블록의 변수가 빈 문자열로 풀린다. 그 값이 판정에 쓰이면 조용히 틀린
+ * 수가 나온다. 중복을 걷어 통합할 때 이 자기완결성이 가장 먼저 깨진다.
+ *
+ * jq 의 `--arg me "$me"` 처럼 셸 값을 넘기는 자리도 셸 변수 참조로 센다. jq 필터 안쪽의
+ * `$me` 는 jq 변수라 세지 않는다 — 작은따옴표 안은 셸이 전개하지 않는다.
+ */
+export function freeVariables(block: string, allowed: readonly string[] = []): string[] {
+  // 작은따옴표 리터럴을 지운다. 그 안은 셸이 전개하지 않으므로 참조가 아니다.
+  const withoutLiterals = block.replace(/'[^']*'/g, "''");
+
+  const defined = new Set<string>(allowed);
+  // name=... / name+=... / read -r a b / for name in
+  for (const m of withoutLiterals.matchAll(
+    /^\s*(?:local\s+|export\s+)?([A-Za-z_][A-Za-z0-9_]*)\+?=/gm,
+  )) {
+    defined.add(m[1]!);
+  }
+  for (const m of withoutLiterals.matchAll(/\bread\s+(?:-r\s+)?([A-Za-z0-9_\s]+?)\s*<</g)) {
+    for (const name of m[1]!.trim().split(/\s+/)) defined.add(name);
+  }
+  for (const m of withoutLiterals.matchAll(/\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b/g)) {
+    defined.add(m[1]!);
+  }
+  // eval "$(... @sh "a=\(.x) b=\(.y)" ...)" 가 셸에 심는 이름. 원문(리터럴 포함)에서 찾는다.
+  if (/\beval\b/.test(block)) {
+    for (const m of block.matchAll(/([A-Za-z_][A-Za-z0-9_]*)=\\\(/g)) defined.add(m[1]!);
+  }
+
+  const used = new Set<string>();
+  for (const m of withoutLiterals.matchAll(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g)) {
+    used.add(m[1]!);
+  }
+
+  // 위치 인자와 특수 변수는 셸이 준다.
+  const builtin = new Set(['IFS', 'HOME', 'PATH', 'PWD', 'USER', 'SHELL', 'PS1', 'PS2']);
+  return [...used].filter((name) => !defined.has(name) && !builtin.has(name)).sort();
+}
