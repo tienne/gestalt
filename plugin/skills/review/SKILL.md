@@ -34,6 +34,10 @@ inputs:
     type: string
     required: false
     description: "인라인 코멘트를 누가 읽는지. peer | junior. 사용자가 붙인 `--audience junior`나 `--junior` 플래그가 이 값으로 들어온다 (`--junior` 축약은 이 스킬 전용이다 — 받는 값이 둘뿐이라 축약이 성립한다). 기본값 peer — 지금까지의 코멘트가 그대로 나온다"
+  postVerdict:
+    type: boolean
+    required: false
+    description: "GitHub PR에 리뷰 이벤트(APPROVE, REQUEST_CHANGES, COMMENT)까지 남길지. 기본값 true. false면 인라인 코멘트만 올리고 이벤트는 `COMMENT`로 고정한다 — PR의 리뷰 상태를 안 건드린다. 라운드를 도는 스킬이 판정을 자기가 내려고 이 스킬을 부를 때 쓴다. `prTarget`이 `local`이면 이 값을 안 본다"
 outputs:
   - reviewIntent
   - changeContext
@@ -41,6 +45,7 @@ outputs:
   - verdict
   - continuityVerdict
   - postedReview
+  - reviewSummary
 ---
 
 # Review Skill
@@ -70,7 +75,7 @@ execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파
 /review --junior               # 인라인 코멘트를 주니어 눈높이로 (= --audience junior)
 ```
 
-리뷰 한 번이 이 스킬의 범위입니다. 이슈가 없어질 때까지 리뷰와 대응을 반복하고 GitHub PR까지 내보내려면 `ship` 스킬을 씁니다 — 그쪽이 라운드마다 이 스킬을 부릅니다.
+리뷰 한 번이 이 스킬의 범위입니다. 반복은 부르는 쪽이 갈립니다. **내 PR**을 리뷰 통과 상태까지 밀어 GitHub에 내보내려면 `ship`입니다. **남의 PR**을 리뷰하고 대응을 지켜보다 재리뷰하려면 `review-loop`이고요. 둘 다 라운드마다 이 스킬을 부릅니다.
 
 ## 전제 조건
 
@@ -727,6 +732,14 @@ done
 - `suggestion`만 있거나 이슈가 없으면 → `APPROVE` (접두어 `a:`)
 
 4단계 `overallApproved`(결함 심급 blocking 여부)와도 일치합니다 — blocking 이슈가 있으면 critical이나 high가 존재하므로 `REQUEST_CHANGES`가 됩니다. 단 `APPROVE`/`REQUEST_CHANGES`는 리뷰 상태를 바꾸는 행위이므로, 위 **"게시 확인"**에서 사용자 동의를 받은 뒤에만 게시합니다.
+
+**`postVerdict`가 `false`면 위 계산을 하지 않고 `event=COMMENT`로 고정합니다.** 인라인 코멘트는 그대로 올라가고 PR의 리뷰 상태만 안 건드립니다. 부르는 쪽이 판정을 자기가 내겠다는 뜻이라, 여기서 `APPROVE`나 `REQUEST_CHANGES`를 먼저 내보내면 그쪽 판정이 도착하기 전에 리뷰 상태가 정해집니다. `COMMENT`는 기존 상태를 안 바꾸므로 뒤이어 오는 판정이 그대로 섭니다.
+
+이 값은 `prTarget`이 `github`일 때만 걸립니다. 로컬 PR은 `review_publish`가 파이프라인과 같은 경계로 판정을 정하므로 부르는 쪽이 그걸 억제할 이유가 없습니다.
+
+**부르는 쪽이 게시 결과를 확인할 수 있게 합니다.** `postVerdict: false`로 불렀는데 이 스킬이 그 값을 못 읽고 `APPROVE`나 `REQUEST_CHANGES`를 내보냈다면, 그쪽 판정이 도착하기 전에 리뷰 상태가 이미 정해집니다. 게시 직후 `gh pr view <번호> --json reviewDecision`으로 상태를 확인해 `postedReview`에 담아 돌려줍니다 — 부르는 쪽이 그 값으로 어긋남을 알아챕니다.
+
+**`reviewSummary`를 출력으로 돌려줍니다.** 위 서브에이전트가 돌려준 `{ comments, summary }`의 `summary`를 그대로 담습니다 — 따로 짓지 않습니다. `postVerdict: false`로 부른 쪽이 자기 판정 본문을 지을 때 이 값을 뼈대로 씁니다 — 같은 에이전트를 판정 본문만으로 한 번 더 부르면 룰북을 라운드마다 두 번 싣게 됩니다.
 
 > **본인 PR 예외 (github)**: GitHub는 PR 작성자 본인이 자기 PR을 `APPROVE`/`REQUEST_CHANGES`하는 걸 막습니다(422). `gh pr view --json author`와 `gh api user`로 작성자가 현재 사용자와 같은지 확인하고 같으면 `event=COMMENT`로 폴백해 게시합니다 (접두어 r/c/a는 본문에 그대로 유지). 이때 사용자에게 "본인 PR이라 승인/변경요청 상태는 못 걸어서 코멘트로 남겼어요"라고 한 줄 알립니다. **local**은 `gestalt pr review`가 이 제약을 두지 않습니다 — author가 본인과 같아도 verdict 그대로 게시하되, 사용자에게 그 사실만 한 줄 알립니다.
 
