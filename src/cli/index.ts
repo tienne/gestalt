@@ -242,15 +242,15 @@ export function createCli(): Command {
 
   reviewLoop
     .command('dir')
-    .description('라운드 상태를 두는 자리의 절대 경로')
-    .requiredOption('--pr <target>', 'PR 번호나 URL')
+    .description('상태 자리의 뿌리. PR별 자리는 state가 stateDir로 낸다')
     .option('--create', '없으면 만든다')
     .action((o) => reviewLoopDirCommand(o));
 
   reviewLoop
     .command('parse <target>')
-    .description('번호나 #번호나 PR URL에서 번호만')
-    .action((target) => reviewLoopParseCommand({ target }));
+    .description('번호나 #번호나 PR URL에서 번호와 레포를 읽는다')
+    .option('--json', 'prNumber와 owner와 repo를 JSON으로')
+    .action((target, o) => reviewLoopParseCommand({ target, ...o }));
 
   program
     .command('humanize-scan')

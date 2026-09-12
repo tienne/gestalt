@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fetchPrSnapshot, runGh, type GhRunner } from './fetch.js';
 import { deriveSignal, type LoopSignal } from './signal.js';
-import { countPending } from './threads.js';
+import { countPending, isMine } from './threads.js';
 import { LOGIN_FILE, REVIEWED_HEAD_FILE, stateDir } from './state.js';
 
 export interface LoopStateReport {
@@ -10,6 +10,8 @@ export interface LoopStateReport {
   /** 실제로 조회한 레포. 부르는 쪽이 게시할 때 같은 곳을 가리키려면 이 값을 쓴다 */
   owner: string;
   repo: string;
+  /** 상태 자리의 절대 경로. 부르는 쪽이 다시 계산하지 않게 함께 낸다 */
+  stateDir: string;
   prState: string;
   open: boolean;
   head: string;
@@ -17,7 +19,10 @@ export interface LoopStateReport {
   changed: boolean;
   rerequested: boolean;
   me: string;
-  totalThreads: number;
+  /** PR 에 달린 전체 스레드. 남이 연 것도 들어간다 */
+  prThreads: number;
+  /** 그중 내가 연 것. 사람에게 보이는 수는 이쪽이다 */
+  myThreads: number;
   pending: number;
   signal: LoopSignal;
 }
@@ -34,11 +39,11 @@ export function readLoopState(
   gh: GhRunner = runGh,
 ): LoopStateReport {
   const cwd = opts.cwd ?? process.cwd();
-  const dir = stateDir(opts.prNumber, cwd);
-  const me = validateLogin(opts.me?.trim() || resolveLogin(dir, gh));
   // 대상이 URL 로 왔으면 거기 적힌 레포를 본다. 번호만 왔을 때만 현재 레포로 떨어진다
   const { owner, repo } =
     opts.owner && opts.repo ? { owner: opts.owner, repo: opts.repo } : resolveRepo(gh);
+  const dir = stateDir({ owner, repo, prNumber: opts.prNumber }, cwd);
+  const me = validateLogin(opts.me?.trim() || resolveLogin(dir, gh));
 
   const snapshot = fetchPrSnapshot({ owner, repo, prNumber: opts.prNumber }, gh);
 
@@ -59,6 +64,7 @@ export function readLoopState(
     prNumber: opts.prNumber,
     owner,
     repo,
+    stateDir: dir,
     prState: snapshot.prState,
     open,
     head: snapshot.headRefOid,
@@ -66,19 +72,13 @@ export function readLoopState(
     changed,
     rerequested,
     me,
-    totalThreads: snapshot.threads.length,
+    prThreads: snapshot.threads.length,
+    myThreads: snapshot.threads.filter((th) => isMine(th, me)).length,
     pending,
     signal: deriveSignal({ open, pending, changed, rerequested }),
   };
 }
 
-/**
- * 내 로그인. 캐시가 있으면 그걸 쓰고 없으면 조회한다.
- *
- * 캐시 파일이 비어 있으면 조회로 떨어진다. 셸로 적던 때는 `gh api user > my-login` 이
- * 종료 코드를 안 봐서 인증이 끊긴 순간 0 바이트 파일이 남았다. 그 뒤 모든 라운드가
- * 빈 로그인으로 집계해 미대응이 영구히 0이 됐다.
- */
 /**
  * 로그인이 GitHub 이 실제로 낼 수 있는 꼴인지 본다.
  *
@@ -93,6 +93,13 @@ function validateLogin(login: string): string {
   return login;
 }
 
+/**
+ * 내 로그인. 캐시가 있으면 그걸 쓰고 없으면 조회한다.
+ *
+ * 캐시 파일이 비어 있으면 조회로 떨어진다. 셸로 적던 때는 `gh api user > my-login` 이
+ * 종료 코드를 안 봐서 인증이 끊긴 순간 0 바이트 파일이 남았다. 그 뒤 모든 라운드가
+ * 빈 로그인으로 집계해 미대응이 영구히 0이 됐다.
+ */
 function resolveLogin(dir: string, gh: GhRunner): string {
   const cached = join(dir, LOGIN_FILE);
   if (existsSync(cached)) {

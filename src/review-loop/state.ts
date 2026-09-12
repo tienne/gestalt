@@ -11,6 +11,8 @@ import { resolve } from 'node:path';
  * 스레드 스냅샷은 여기 없다. 조회와 집계가 한 프로세스 안에서 끝나므로 중간 파일이
  * 생기지 않는다. 그 파일이 이번 조회의 것인지 가리던 표식과 신선도 검사도 함께 사라졌다.
  */
+const ROOT_DIR = 'gestalt-review-loop';
+
 export const LOGIN_FILE = 'my-login';
 export const REVIEWED_HEAD_FILE = 'reviewed-head';
 
@@ -24,11 +26,21 @@ export const REVIEWED_HEAD_FILE = 'reviewed-head';
  * `--git-common-dir` 이라 워크트리 여럿이 같은 자리를 공유하지만 PR 번호가 하위
  * 디렉토리로 갈라 안 겹친다.
  */
-export function stateDir(prNumber: number, cwd = process.cwd()): string {
+export function stateDir(
+  target: { owner: string; repo: string; prNumber: number },
+  cwd = process.cwd(),
+): string {
   // 안전 정수 밖의 값은 자릿수가 뭉개져 이름이 지수 표기가 된다. 그러면 서로 다른 PR 이
   // 같은 자리를 공유한다
-  if (!Number.isSafeInteger(prNumber) || prNumber <= 0) {
-    throw new Error(`PR 번호가 양의 정수가 아니다: ${prNumber}`);
+  if (!Number.isSafeInteger(target.prNumber) || target.prNumber <= 0) {
+    throw new Error(`PR 번호가 양의 정수가 아니다: ${target.prNumber}`);
+  }
+  // 레포까지 넣는다. 번호만으로 가르면 남의 레포 PR 을 볼 때 이쪽 같은 번호와 자리를
+  // 나눠 쓴다. 그 reviewed-head 로 새 커밋이 왔는지를 재는 순간 재리뷰 판정이 뒤집힌다
+  for (const part of [target.owner, target.repo]) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(part)) {
+      throw new Error(`레포를 경로에 못 쓴다: ${JSON.stringify(part)}`);
+    }
   }
   // 레포 루트에서 부르면 `.git` 이라는 상대 경로가 온다. cwd 가 바뀐 단계에서 다른
   // 자리를 가리키므로 여기서 절대 경로로 굳힌다 (--path-format=absolute 는 git 2.31+).
@@ -36,5 +48,14 @@ export function stateDir(prNumber: number, cwd = process.cwd()): string {
     cwd,
     encoding: 'utf-8',
   }).trim();
-  return resolve(cwd, common, 'gestalt-review-loop', `pr-${prNumber}`);
+  return resolve(cwd, common, ROOT_DIR, `${target.owner}--${target.repo}--${target.prNumber}`);
+}
+
+/** 상태 자리의 뿌리. PR 을 아직 못 가린 단계가 대상 문자열을 여기 둔다 */
+export function stateRoot(cwd = process.cwd()): string {
+  const common = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+    cwd,
+    encoding: 'utf-8',
+  }).trim();
+  return resolve(cwd, common, ROOT_DIR);
 }

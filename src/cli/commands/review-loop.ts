@@ -1,10 +1,9 @@
 import { mkdirSync } from 'node:fs';
 import {
-  parsePrNumber,
   parseTarget,
   readLoopState,
   SIGNAL_ACTION,
-  stateDir,
+  stateRoot,
   type LoopStateReport,
 } from '../../review-loop/index.js';
 
@@ -34,22 +33,38 @@ export function reviewLoopStateCommand(opts: ReviewLoopStateOptions): void {
   });
 }
 
-export function reviewLoopDirCommand(opts: { pr: string; create?: boolean }): void {
+/**
+ * 상태 자리의 뿌리만 낸다. PR 별 자리는 `state` 가 `stateDir` 로 함께 낸다.
+ *
+ * 뿌리를 따로 내는 이유는 순서 때문이다 — 대상 문자열을 셸에 안 넘기려면 파일로
+ * 떨궈야 하는데, 그 파일을 PR 별 자리에 두면 자리 이름을 정하는 데 필요한 번호를
+ * 아직 모르는 단계다.
+ */
+export function reviewLoopDirCommand(opts: { create?: boolean }): void {
   run(() => {
-    const dir = stateDir(parsePrNumber(opts.pr));
+    const dir = stateRoot();
     if (opts.create) mkdirSync(dir, { recursive: true });
     console.log(dir);
   });
 }
 
-export function reviewLoopParseCommand(opts: { target: string }): void {
-  run(() => console.log(parsePrNumber(opts.target)));
+export function reviewLoopParseCommand(opts: { target: string; json?: boolean }): void {
+  run(() => {
+    const parsed = parseTarget(opts.target);
+    if (opts.json) {
+      console.log(JSON.stringify(parsed));
+      return;
+    }
+    console.log(parsed.prNumber);
+  });
 }
 
 function printReport(r: LoopStateReport): void {
   console.log(`${r.owner}/${r.repo}#${r.prNumber} ${r.prState} — ${r.signal}`);
   console.log(`  ${SIGNAL_ACTION[r.signal]}`);
-  console.log(`  내가 연 스레드 ${r.totalThreads}개 중 미대응 ${r.pending}개`);
+  console.log(
+    `  내가 연 스레드 ${r.myThreads}개 중 미대응 ${r.pending}개 (PR 전체 ${r.prThreads}개)`,
+  );
   console.log(`  head ${r.head.slice(0, 8)}${r.changed ? ' (리뷰 이후 바뀜)' : ''}`);
   if (r.rerequested) console.log('  작성자가 재리뷰를 요청했어요');
 }

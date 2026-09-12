@@ -24,8 +24,8 @@ export interface ReviewThread {
  * 셸 스크립트로 적던 때는 로그인이 빈 문자열이면 어떤 스레드와도 안 맞아 0과 종료
  * 코드 0이 함께 나왔다. 그 값이 승인 게이트를 그대로 통과했다.
  *
- * 대응으로 세는 건 셋이다. 스레드가 닫혔거나, 코드가 바뀌어 outdated 가 됐거나,
- * 마지막 코멘트가 내 것이 아니거나 — 마지막은 작성자가 답을 달았다는 뜻이다.
+ * 스레드가 닫혔거나, 코드가 바뀌어 outdated 가 됐거나, 마지막 코멘트가 내 것이 아니면
+ * 대응된 것으로 센다 — 마지막은 작성자가 답을 달았다는 뜻이다.
  */
 export function countPending(threads: readonly ReviewThread[], me: string): number {
   const login = me.trim().toLowerCase();
@@ -37,14 +37,21 @@ export function countPending(threads: readonly ReviewThread[], me: string): numb
   return threads.filter((t) => isPending(t, login)).length;
 }
 
+/**
+ * 내가 연 스레드인지.
+ *
+ * 남이 연 스레드는 이 루프가 판정할 자리가 아니다 — 그건 그 사람이 닫는다. 사람에게
+ * 보이는 스레드 수도 이 필터를 거친 것이라야 한다.
+ */
+export function isMine(thread: ReviewThread, me: string): boolean {
+  return thread.opener.nodes[0]?.author?.login?.toLowerCase() === me.trim().toLowerCase();
+}
+
 /** me 는 소문자로 정규화된 로그인이다 */
 function isPending(thread: ReviewThread, me: string): boolean {
   if (thread.isResolved) return false;
   if (thread.isOutdated) return false;
-
-  const opener = thread.opener.nodes[0]?.author?.login?.toLowerCase();
-  // 내가 안 연 스레드는 이 루프가 판정할 자리가 아니다 — 그건 그 사람이 닫는다
-  if (opener !== me) return false;
+  if (!isMine(thread, me)) return false;
 
   const last = thread.latest.nodes[0]?.author?.login?.toLowerCase();
   return last === me;
