@@ -94,21 +94,28 @@ PR 식별 → [리뷰 → 인라인 코멘트 → 판정 게시 → 대응 대�
 
 ## 상태 자리
 
-라운드 상태를 둘 자리는 `gestalt review-loop dir`이 정한다. git 디렉토리 아래라 git이 추적하지 않는 자리다. 절대 경로라 cwd가 어디든 같은 자리를 가리킨다.
+자리가 둘로 나뉜다. **뿌리**는 PR을 아직 못 가린 단계가 쓴다. **PR별 자리**는 그 뒤 전부가 쓴다.
 
 ```bash
-gestalt review-loop dir --pr <prNumber> --create
+gestalt review-loop dir --create     # 뿌리. 여기에 target 을 쓴다
 ```
 
-**출력된 절대 경로를 적어둔다.** 파일 쓰기 도구에 `$loopTmp` 같은 문자열을 적지 않는다 — 그 도구는 셸 확장을 안 해서 워킹트리 안에 그 이름의 디렉토리가 생긴다.
+PR별 자리는 따로 만들지 않는다. 상태 조회가 `stateDir`로 함께 낸다.
 
-**브랜치가 아니라 PR 번호로 가른다.** 리뷰어는 남의 브랜치를 체크아웃하지 않고 PR 번호로 일한다.
+**출력된 절대 경로를 적어둔다.** 파일 쓰기 도구에 `$stateDir` 같은 문자열을 적지 않는다 — 그 도구는 셸 확장을 안 해서 워킹트리 안에 그 이름의 디렉토리가 생긴다.
 
-여기 두는 파일은 아래와 같다.
+**레포와 PR 번호로 가른다.** 브랜치가 아니다 — 리뷰어는 남의 브랜치를 체크아웃하지 않는다. 레포까지 넣는 건 남의 레포 PR을 볼 때 이쪽 같은 번호와 자리를 나눠 쓰지 않으려는 것이다.
+
+뿌리에 두는 파일은 하나다.
 
 | 파일 | 누가 쓰나 | 무엇 |
 | --- | --- | --- |
-| `target` | Phase 0 | 사용자가 준 대상 문자열 그대로. 셸에 안 넘기려고 파일로 둔다 |
+| `target` | Phase 0 PR 식별 | 사용자가 준 대상 문자열 그대로. 셸에 안 넘기려고 파일로 둔다 |
+
+PR별 자리에 두는 파일은 아래와 같다.
+
+| 파일 | 누가 쓰나 | 무엇 |
+| --- | --- | --- |
 | `my-login` | 조회 | 내 GitHub 로그인. 비어 있으면 `gh`로 다시 조회한다 |
 | `reviewed-head` | 2.5 | 마지막으로 리뷰한 head sha. `changed`가 이 값과 비교해 정해진다 |
 | `round-start-head` | 1.1 | 이번 라운드를 시작할 때의 head. 2.5가 위로 옮긴다 |
@@ -135,6 +142,9 @@ gestalt review-loop state --pr <prNumber> --json
 ```json
 {
   "prNumber": 18,
+  "owner": "someone",
+  "repo": "their-repo",
+  "stateDir": "/abs/.git/gestalt-review-loop/someone--their-repo--18",
   "prState": "OPEN",
   "open": true,
   "head": "abc1234...",
@@ -142,11 +152,16 @@ gestalt review-loop state --pr <prNumber> --json
   "changed": true,
   "rerequested": false,
   "me": "my-login",
-  "totalThreads": 7,
+  "prThreads": 11,
+  "myThreads": 7,
   "pending": 2,
   "signal": "WAITING"
 }
 ```
+
+**`owner`와 `repo`를 게시할 때 그대로 쓴다.** 조회는 그 레포를 보는데 게시가 현재 레포로 가면 판정이 엉뚱한 PR에 남는다.
+
+**`stateDir`이 이 PR의 상태 자리다.** 부르는 쪽이 경로를 다시 계산하지 않는다. `myThreads`는 내가 연 스레드이고 `prThreads`는 남이 연 것까지 포함한 PR 전체다 — 사람에게 보이는 수는 앞쪽이다.
 
 **종료 코드가 0이 아니면 판정하지 않는다.** 실패할 때 stdout에 아무것도 안 낸다 — 명령 치환이 빈 문자열을 가져가 `pending`이 0으로 읽히면 승인이 조용히 나가기 때문이다. 조회 실패, 빈 로그인, 부분 성공 응답이 전부 여기서 멈춘다.
 
@@ -188,11 +203,20 @@ gh repo view --json owner,name,nameWithOwner
 **판정에 쓰는 수를 전부 이 명령이 낸다.** 없으면 첫 단계부터 아무것도 못 한다 — 설치본이 뒤처져 있으면 `unknown option` 으로 죽는데, 그걸 라운드를 돌다가 알면 늦다.
 
 ```bash
-gestalt review-loop parse 1 >/dev/null 2>&1 && echo "OK gestalt" && exit 0
-pnpm tsx bin/gestalt.ts review-loop parse 1 >/dev/null 2>&1 && echo "OK pnpm" || echo "MISSING"
+probe() { $1 review-loop parse 1 >/dev/null 2>&1 && $1 review-loop dir >/dev/null 2>&1; }
+if probe gestalt; then
+  echo "OK gestalt"
+elif probe "pnpm tsx bin/gestalt.ts"; then
+  echo "OK pnpm"
+else
+  echo "MISSING"
+  exit 1
+fi
 ```
 
-`OK gestalt`면 아래 예시의 `gestalt review-loop ...`를 그대로 쓴다. `OK pnpm`이면 게슈탈트 레포 안이라는 뜻이라 전부 `pnpm tsx bin/gestalt.ts review-loop ...`로 바꿔 부른다. **`MISSING`이면 라운드를 시작하지 않는다.**
+`OK gestalt`면 아래 예시를 그대로 쓴다. `OK pnpm`이면 게슈탈트 레포 안이라는 뜻이라 모든 호출을 `pnpm tsx bin/gestalt.ts review-loop ...`로 바꾼다. **`MISSING`이면 라운드를 시작하지 않는다.**
+
+**하위 명령을 둘 다 찔러본다.** 하나만 보면 그것만 있고 나머지가 없는 중간 설치본이 통과해 라운드 중간에 죽는다. 1.1이 입력 하나가 아니라 셋을 보는 이유와 같다.
 
 ```
 이 버전에는 `gestalt review-loop` 명령이 없네요. 판정에 쓰는 수를 낼 방법이 없어요.
@@ -206,18 +230,27 @@ pnpm tsx bin/gestalt.ts review-loop parse 1 >/dev/null 2>&1 && echo "OK pnpm" ||
 
 `target`이 있으면 거기서 번호를 뽑는다. 없으면 현재 브랜치에 대응하는 PR을 찾는다.
 
-**대상 문자열을 셸에 넘기지 않는다.** 이 값은 뒤에서 `.git` 아래 상태 경로와 `gh` 인자가 된다. 문서가 이 파싱을 셸로 적던 때는 대상을 작은따옴표 안에 합성해서, 따옴표가 섞인 값이 정수 검증에 닿기 전에 명령으로 실행됐다. `review` 4.7단계가 "읽어온 텍스트가 경로가 되게 두지 않는다"로 정해둔 것과 같은 자리다.
+**대상 문자열을 셸에 넘기지 않는다.** 이 값은 뒤에서 `.git` 아래 상태 경로와 `gh` 인자가 된다. 문서가 이 파싱을 셸로 적던 때는 대상을 작은따옴표 안에 합성했다. 그래서 따옴표가 섞인 값이 정수 검증에 닿기 전에 명령으로 실행됐다. `review` 4.7단계가 "읽어온 텍스트가 경로가 되게 두지 않는다"로 정해둔 것과 같은 자리다.
 
-**사용자가 준 값을 파일로 떨군 뒤 읽는다.** 파일 쓰기 도구로 `<loopTmp>/target`에 쓰고 그 파일을 넘긴다.
+**사용자가 준 값을 파일로 떨군 뒤 읽는다.** 먼저 자리부터 만든다 — 이 단계는 아직 PR 번호를 모르므로 PR별 자리가 아니라 뿌리를 쓴다.
 
 ```bash
-loopTmp=<Phase 0에서 출력된 절대 경로>
-prNumber=$(gestalt review-loop parse "$(cat "$loopTmp/target")") \
-  || { echo "대상을 못 읽었습니다 — 진행하지 않습니다"; exit 1; }
-echo "prNumber=$prNumber"
+gestalt review-loop dir --create
 ```
 
-`123`과 `#123`과 `https://github.com/o/r/pull/123/files`를 받고 나머지는 거부한다. **URL로 주면 거기 적힌 레포를 본다** — 번호만 뽑아 쓰면 남의 레포 PR을 가리켜도 현재 레포의 같은 번호를 조회한다. 그 수로 승인이 나간다.
+출력된 경로에 파일 쓰기 도구로 `target`을 쓴다. 사용자가 준 문자열을 그대로 담는다.
+
+```bash
+root=<위에서 출력된 절대 경로>
+target=$(gestalt review-loop parse --json "$(cat "$root/target")") \
+  || { echo "대상을 못 읽었습니다 — 진행하지 않습니다"; exit 1; }
+prNumber=$(echo "$target" | jq -r .prNumber)
+echo "$target"
+```
+
+`123`과 `#123`과 `https://github.com/o/r/pull/123/files`를 받고 나머지는 거부한다. **URL로 주면 `owner`와 `repo`가 함께 나온다.** 그 둘을 뒤 단계로 들고 간다 — 번호만 쓰면 남의 레포 PR을 가리켜도 현재 레포의 같은 번호를 조회한다. 그 수로 승인이 나간다.
+
+번호로만 줬으면 `owner`와 `repo`가 없다. 그때만 현재 레포를 쓴다.
 
 검증에 걸리면 **진행하지 않고 다시 묻는다.** 추측해서 고쳐 쓰지 않는다.
 
@@ -236,7 +269,12 @@ gh pr list --limit 10 --json number,title,author,headRefName
 ### 내 PR이면 멈춘다
 
 ```bash
-gh pr view <prNumber> --json author --jq .author.login
+root=<Phase 0에서 출력된 뿌리 경로>
+read -r prNumber owner repo stateDir <<<"$(gestalt review-loop state --pr "$(cat "$root/target")" \
+  --json | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')" \
+  || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
+
+gh pr view "$prNumber" --repo "$owner/$repo" --json author --jq .author.login
 ```
 
 이 값이 `my-login`과 같으면 멈춘다. GitHub은 자기 PR에 approve나 request changes를 안 받는다. `--comment`만 되는데 그러면 이 루프의 종료 조건인 approve가 영원히 안 난다.
@@ -296,8 +334,13 @@ gestalt review-loop dir --pr <prNumber> --create
 **라운드 시작 head를 먼저 잡는다.** Phase 3의 판정이 이 값을 쓴다.
 
 ```bash
-loopTmp=<Phase 0에서 출력된 절대 경로>
-gh pr view <prNumber> --json headRefOid --jq .headRefOid > "$loopTmp/round-start-head"
+root=<Phase 0에서 출력된 뿌리 경로>
+read -r prNumber owner repo stateDir <<<"$(gestalt review-loop state --pr "$(cat "$root/target")" \
+  --json | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')" \
+  || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
+
+gh pr view "$prNumber" --repo "$owner/$repo" --json headRefOid --jq .headRefOid \
+  > "$stateDir/round-start-head"
 ```
 
 **셸 변수로 들고 가지 않는다.** 이 값을 잡는 자리와 쓰는 자리 사이에 리뷰 한 번과 승인 한 번이 들어간다. 셸 상태가 도구 호출 사이에 안 남는 런타임이면 빈 문자열로 풀린다.
@@ -353,7 +396,7 @@ postVerdict: false
 `postVerdict: false`로 불렀는데 설치된 review 가 그걸 못 읽은 것 같습니다.
 
 이 라운드는 여기서 멈출게요. 제가 판정을 또 내면 두 번 나갑니다.
-`/plugin install gestalt@gestalt`로 올린 뒤 다시 불러주세요.
+`/plugin install gestalt@gestalt`로 플러그인을 올린 뒤 다시 불러주세요.
 ```
 
 `loopState`를 `blocked`로 두고 끝낸다. **2.5로 내려가지 않는다** — 이미 나간 판정 위에 하나 더 얹는 게 이 계약이 막으려던 바로 그 일이다.
@@ -381,7 +424,7 @@ postVerdict: false
 조기 종료 판정이 라운드 사이를 대조한다. 라운드마다 남은 이슈의 파일과 요지를 적는다.
 
 ```
-Write <loopTmp의 절대 경로>/issues-r<N>.md
+Write <상태 조회가 낸 stateDir 값>/issues-r<N>.md
 ```
 
 한 줄에 이슈 하나씩 `<severity> <file>:<line> — <요지>` 꼴로 적는다.
@@ -474,13 +517,18 @@ pending=$(echo "$state" | jq -r .pending)
 본문을 게시 전에 스캔한다. `review` 4.7단계와 같은 이유다 — PR 본문과 diff에 있던 말이 그대로 딸려오는 자리는 에이전트 자가점검으로 안 걸린다.
 
 ```bash
-loopTmp=<Phase 0에서 출력된 절대 경로>
+stateDir=<상태 조회가 낸 stateDir 값>
 ```
 
 본문을 `$loopTmp/verdict-r<N>.md`에 파일 쓰기 도구로 쓴다. **셸로 넘기지 않는다** — 한글과 백틱이 섞이고 리뷰 대상에서 온 문자열이 실린다.
 
 ```bash
-gestalt humanize-scan --file "$loopTmp/verdict-r<N>.md" --register chat
+root=<Phase 0에서 출력된 뿌리 경로>
+read -r prNumber owner repo stateDir <<<"$(gestalt review-loop state --pr "$(cat "$root/target")" \
+  --json | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')" \
+  || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
+
+gestalt humanize-scan --file "$stateDir/verdict-r<N>.md" --register chat
 echo "EXIT=$?"
 ```
 
@@ -495,16 +543,19 @@ echo "EXIT=$?"
 
 **ⓦ 두 번째도 걸리면** 무엇이 남았는지 알리고 게시할지 묻는다.
 
-`gestalt`가 없는 레포면 이 검사를 건너뛴다. **건너뛴 사실을 완료 보고에 적는다.**
+어느 형태로 부를지는 Phase 0의 `OK gestalt`와 `OK pnpm`에서 이미 정해졌다.
 
 ### 2.5 게시
 
 ```bash
-loopTmp=<Phase 0에서 출력된 절대 경로>
+root=<Phase 0에서 출력된 뿌리 경로>
+read -r prNumber owner repo stateDir <<<"$(gestalt review-loop state --pr "$(cat "$root/target")" \
+  --json | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')" \
+  || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
 
-gh pr review <prNumber> --request-changes --body-file "$loopTmp/verdict-r<N>.md"
-gh pr review <prNumber> --comment         --body-file "$loopTmp/verdict-r<N>.md"
-gh pr review <prNumber> --approve         --body-file "$loopTmp/verdict-r<N>.md"
+gh pr review "$prNumber" --repo "$owner/$repo" --request-changes --body-file "$stateDir/verdict-r<N>.md"
+gh pr review "$prNumber" --repo "$owner/$repo" --comment         --body-file "$stateDir/verdict-r<N>.md"
+gh pr review "$prNumber" --repo "$owner/$repo" --approve         --body-file "$stateDir/verdict-r<N>.md"
 ```
 
 셋 중 2.2에서 정한 하나만 부른다.
@@ -516,10 +567,10 @@ gh pr review <prNumber> --approve         --body-file "$loopTmp/verdict-r<N>.md"
 게시 후 상태를 다시 조회해 `reviewDecision`이 바뀌었는지 본다. `APPROVED`면 루프가 끝난 것이다 — Phase 5로 간다.
 
 ```bash
-loopTmp=<Phase 0에서 출력된 절대 경로>
-cp "$loopTmp/round-start-head" "$loopTmp/reviewed-head"
-echo "<N>" > "$loopTmp/round"
-echo "<이번 판정>" >> "$loopTmp/verdicts"   # request_changes | comment | approve
+stateDir=<상태 조회가 낸 stateDir 값>
+cp "$stateDir/round-start-head" "$stateDir/reviewed-head"
+echo "<N>" > "$stateDir/round"
+echo "<이번 판정>" >> "$stateDir/verdicts"   # request_changes | comment | approve
 ```
 
 **`verdicts`에 이번 판정을 덧붙인다.** 출력 규약의 그 값이 여기서 쌓인다. 라운드마다 한 줄이고 Phase 5가 이 파일을 읽어 배열로 돌려준다.
@@ -620,14 +671,19 @@ echo "$state" | jq -r '"\(.signal) pending=\(.pending)/\(.totalThreads) changed=
 "더 얘기한다"의 답글은 이렇게 남긴다.
 
 ```bash
-loopTmp=<Phase 0에서 출력된 절대 경로>
+stateDir=<상태 조회가 낸 stateDir 값>
 ```
 
 사용자가 준 문장을 **파일 쓰기 도구로** `$loopTmp/reply.md`에 쓰고 그 파일을 넘긴다.
 
 ```bash
-gh api "repos/<owner>/<repo>/pulls/<prNumber>/comments/<코멘트id>/replies" \
-  -F body=@"$loopTmp/reply.md"
+root=<Phase 0에서 출력된 뿌리 경로>
+read -r prNumber owner repo stateDir <<<"$(gestalt review-loop state --pr "$(cat "$root/target")" \
+  --json | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')" \
+  || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
+
+gh api "repos/$owner/$repo/pulls/$prNumber/comments/<코멘트id>/replies" \
+  -F body=@"$stateDir/reply.md"
 ```
 
 **셸로 문장을 직접 넘기지 않는다.** 2.5가 `--body-file`을 쓰는 것과 같은 이유다 — 한글과 백틱이 깨진다. 따옴표나 `$()`가 섞이면 인자 경계도 무너진다. 이 문장은 사용자가 방금 타이핑한 것이라 내용을 이 스킬이 보증하지 못한다.
@@ -639,8 +695,8 @@ gh api "repos/<owner>/<repo>/pulls/<prNumber>/comments/<코멘트id>/replies" \
 ### 재리뷰로 갈 때
 
 ```bash
-loopTmp=<Phase 0에서 출력된 절대 경로>
-round=$(( $(cat "$loopTmp/round") + 1 ))
+stateDir=<상태 조회가 낸 stateDir 값>
+round=$(( $(cat "$stateDir/round") + 1 ))
 echo "$round"
 ```
 
@@ -671,17 +727,17 @@ echo "$round"
 **`unresolvedAtEnd`는 지금 다시 센다.** 마지막 라운드 뒤에 작성자가 스레드를 닫았을 수 있다. 조회 명령이 매번 새로 받아오므로 묵은 수가 실릴 자리가 없다.
 
 ```bash
-loopTmp=<Phase 0에서 출력된 절대 경로>
-prNumber=$(gestalt review-loop parse "<target>")
+root=<Phase 0에서 출력된 뿌리 경로>
 
-state=$(gestalt review-loop state --pr "$prNumber" --json) \
+state=$(gestalt review-loop state --pr "$(cat "$root/target")" --json) \
   || { echo "상태 조회 실패 — 출력값을 채우지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$state" | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
 unresolvedAtEnd=$(echo "$state" | jq -r .pending)
 
-rounds=$(cat "$loopTmp/round" 2>/dev/null || echo 0)   # 완료한 라운드가 없으면 0
-verdicts=$(cat "$loopTmp/verdicts" 2>/dev/null)        # 한 줄에 하나. 없으면 빈 값
+rounds=$(cat "$stateDir/round" 2>/dev/null || echo 0)   # 완료한 라운드가 없으면 0
+verdicts=$(cat "$stateDir/verdicts" 2>/dev/null)        # 한 줄에 하나. 없으면 빈 값
 
-finalDecision=$(gh pr view "$prNumber" --json reviewDecision \
+finalDecision=$(gh pr view "$prNumber" --repo "$owner/$repo" --json reviewDecision \
   --jq '.reviewDecision // "REVIEW_REQUIRED"') || { echo "판정 조회 실패"; exit 1; }
 ```
 
@@ -717,10 +773,15 @@ finalDecision=$(gh pr view "$prNumber" --json reviewDecision \
 **approve로 끝났을 때만 지운다.** 나머지 경우는 다음에 불렀을 때 이어서 돌아야 한다.
 
 ```bash
-rm -rf "$(gestalt review-loop dir --pr "$prNumber")"
+root=<Phase 0에서 출력된 뿌리 경로>
+
+stateDir=$(gestalt review-loop state --pr "$(cat "$root/target")" --json | jq -r .stateDir) \
+  || { echo "상태 자리를 못 읽었습니다 — 지우지 않습니다"; exit 1; }
+[ -n "$stateDir" ] || { echo "상태 자리가 비었습니다 — 지우지 않습니다"; exit 1; }
+rm -rf "$stateDir"
 ```
 
-**경로를 셸로 다시 계산하지 않는다.** 만드는 쪽과 지우는 쪽이 갈리면 그 갈림이 `rm -rf`에서 드러난다. `dir`은 `--create` 없이는 만들지 않으므로 그대로 쓸 수 있다. 번호가 잘못되면 값을 안 내고 종료 코드로 답해 `rm`이 빈 경로를 받지 않는다.
+**경로를 셸로 다시 계산하지 않는다.** 만드는 쪽과 지우는 쪽이 갈리면 그 갈림이 `rm -rf`에서 드러난다. 조회가 내는 `stateDir`을 그대로 쓴다. 빈 값이면 지우지 않는다.
 
 ## 출력 규약
 
