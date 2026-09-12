@@ -159,19 +159,28 @@ function stripSingleQuoted(block: string): string {
  * `$me` 는 jq 변수라 세지 않는다 — 작은따옴표 안은 셸이 전개하지 않는다.
  */
 export function freeVariables(block: string, allowed: readonly string[] = []): string[] {
-  const withoutLiterals = stripSingleQuoted(block);
+  // 인용 heredoc 안은 셸이 전개하지 않는다. 그 구간을 먼저 걷어낸다
+  const body = stripQuotedHeredocs(block);
+  const withoutLiterals = stripSingleQuoted(body);
 
   const defined = new Set<string>(allowed);
-  // name=... / name+=... / read -r a b / for name in
+  // name=... / name+=... — local·export 말고 readonly·declare·typeset 도 대입이다
   for (const m of withoutLiterals.matchAll(
-    /^\s*(?:local\s+|export\s+)?([A-Za-z_][A-Za-z0-9_]*)\+?=/gm,
+    /^\s*(?:(?:local|export|readonly|declare|typeset)\s+)*([A-Za-z_][A-Za-z0-9_]*)\+?=/gm,
   )) {
     defined.add(m[1]!);
   }
-  for (const m of withoutLiterals.matchAll(/\bread\s+(?:-r\s+)?([A-Za-z0-9_\s]+?)\s*<</g)) {
-    for (const name of m[1]!.trim().split(/\s+/)) defined.add(name);
+  // read -r a b — herestring 이 뒤따르든 파이프로 받든 이름을 심는 건 같다
+  for (const m of withoutLiterals.matchAll(/\bread\s+((?:-\w+\s+)*)([A-Za-z0-9_][A-Za-z0-9_\s]*)/g)) {
+    for (const name of m[2]!.trim().split(/\s+/)) {
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) defined.add(name);
+    }
   }
   for (const m of withoutLiterals.matchAll(/\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b/g)) {
+    defined.add(m[1]!);
+  }
+  // for ((i=0; i<3; i++)) 의 i
+  for (const m of withoutLiterals.matchAll(/\bfor\s*\(\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/g)) {
     defined.add(m[1]!);
   }
   // eval "$(... @sh "a=\(.x) b=\(.y)" ...)" 가 셸에 심는 이름. 원문(리터럴 포함)에서 찾는다.
@@ -180,16 +189,70 @@ export function freeVariables(block: string, allowed: readonly string[] = []): s
   }
 
   const used = new Set<string>();
-  for (const m of withoutLiterals.matchAll(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g)) {
-    used.add(m[1]!);
-  }
+  // ${!ref} 와 ${arr[idx]} 의 안쪽 이름도 참조다
+  for (const m of withoutLiterals.matchAll(/\$\{!?([A-Za-z_][A-Za-z0-9_]*)/g)) used.add(m[1]!);
+  for (const m of withoutLiterals.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/g)) used.add(m[1]!);
+  for (const m of withoutLiterals.matchAll(/\[([A-Za-z_][A-Za-z0-9_]*)\]/g)) used.add(m[1]!);
   // 산술 전개 안에서는 `$` 없이 이름만 써도 셸이 값을 읽는다. `$((n + 1))` 의 n 이
   // 그 자리라, `$` 만 보면 선언을 지워도 안 걸린다
-  for (const m of withoutLiterals.matchAll(/\$\(\(([^)]*)\)\)/g)) {
-    for (const name of m[1]!.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) used.add(name[0]);
+  for (const inner of arithmeticBodies(withoutLiterals)) {
+    for (const name of inner.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) used.add(name[0]);
   }
 
   // 위치 인자와 특수 변수는 셸이 준다.
   const builtin = new Set(['IFS', 'HOME', 'PATH', 'PWD', 'USER', 'SHELL', 'PS1', 'PS2']);
   return [...used].filter((name) => !defined.has(name) && !builtin.has(name)).sort();
+}
+
+/**
+ * `$(( ... ))` 와 `(( ... ))` 의 안쪽을 꺼낸다.
+ *
+ * 괄호 깊이로 센다. `[^)]*` 로 잡으면 `$(( (a+b) * c ))` 처럼 중첩된 자리에서 매칭이
+ * 끊겨 안쪽 이름을 통째로 놓친다.
+ */
+function arithmeticBodies(text: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < text.length - 1; i++) {
+    const at = text[i] === '$' ? i + 1 : i;
+    if (text[at] !== '(' || text[at + 1] !== '(') continue;
+    // `$(` 뒤의 `(` 가 명령 치환 안의 그룹일 수 있으니 `$` 없는 자리는 줄 첫머리나
+    // 공백 뒤일 때만 산술로 본다
+    if (text[i] !== '$' && i > 0 && !/[\s;&|]/.test(text[i - 1]!)) continue;
+
+    let depth = 0;
+    let j = at;
+    for (; j < text.length; j++) {
+      if (text[j] === '(') depth++;
+      else if (text[j] === ')') {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    if (depth !== 0) continue;
+    out.push(text.slice(at + 2, j - 1));
+    i = j;
+  }
+  return out;
+}
+
+/**
+ * 인용 heredoc(`<<'MARK'`) 구간을 걷어낸다.
+ *
+ * 마커를 따옴표로 감싸면 셸이 그 안을 전개하지 않으므로 `$var` 가 참조가 아니다.
+ * 안 걷어내면 문서가 그 문법을 쓰는 순간 실체 없는 이유로 테스트가 막힌다.
+ */
+function stripQuotedHeredocs(block: string): string {
+  const lines = block.split('\n');
+  const out: string[] = [];
+  let marker: string | null = null;
+  for (const line of lines) {
+    if (marker !== null) {
+      if (line.trim() === marker) marker = null;
+      continue;
+    }
+    const m = /<<-?\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]/.exec(line);
+    out.push(line);
+    if (m) marker = m[1]!;
+  }
+  return out.join('\n');
 }
