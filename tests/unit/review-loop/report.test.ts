@@ -140,7 +140,8 @@ describe('판정에 쓰는 수를 만든다', () => {
     const r = readLoopState({ prNumber: PR, cwd: repo }, stub().run);
     expect(r.reviewedHead).toBeNull();
     expect(r.changed).toBe(false);
-    expect(r.signal).toBe('REPLIES_ONLY');
+    // 새 커밋이 온 건 아니지만 아직 안 본 PR 이라 볼 때다
+    expect(r.signal).toBe('READY');
   });
 
   it('리뷰한 head 와 다르면 새 커밋이 온 것이다', () => {

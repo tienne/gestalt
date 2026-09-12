@@ -75,7 +75,7 @@ export function readLoopState(
     prThreads: snapshot.threads.length,
     myThreads: snapshot.threads.filter((th) => isMine(th, me)).length,
     pending,
-    signal: deriveSignal({ open, pending, changed, rerequested }),
+    signal: deriveSignal({ open, reviewed: reviewedHead !== null, pending, changed, rerequested }),
   };
 }
 

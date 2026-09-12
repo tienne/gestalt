@@ -6,6 +6,8 @@
 export interface LoopState {
   /** PR 이 아직 열려 있는지. GraphQL `state` 가 OPEN 일 때만 참 */
   open: boolean;
+  /** 이 루프가 한 번이라도 리뷰했는지. `reviewed-head` 가 있으면 참 */
+  reviewed: boolean;
   /** 내가 연 열린 스레드 중 미대응 수 */
   pending: number;
   /** head 가 지난 라운드에 리뷰한 커밋과 다른지 */
@@ -30,6 +32,9 @@ export function deriveSignal(state: LoopState): LoopSignal {
   if (!state.open) return 'CLOSED';
   if (state.rerequested) return 'REREVIEW_REQUESTED';
   if (state.pending > 0) return 'WAITING';
+  // 아직 한 번도 안 본 PR 은 볼 때다. 이걸 안 가르면 첫 라운드가 "답만 오고 코드는
+  // 그대로" 로 읽혀 사람에게 넘어간다 — 실제 PR 에 돌려보고 나온 자리다
+  if (!state.reviewed) return 'READY';
   return state.changed ? 'READY' : 'REPLIES_ONLY';
 }
 

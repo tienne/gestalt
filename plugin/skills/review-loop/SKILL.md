@@ -203,16 +203,19 @@ gh repo view --json owner,name,nameWithOwner
 **판정에 쓰는 수를 전부 이 명령이 낸다.** 없으면 첫 단계부터 아무것도 못 한다 — 설치본이 뒤처져 있으면 `unknown option` 으로 죽는데, 그걸 라운드를 돌다가 알면 늦다.
 
 ```bash
-probe() { $1 review-loop parse 1 >/dev/null 2>&1 && $1 review-loop dir >/dev/null 2>&1; }
-if probe gestalt; then
+if gestalt review-loop parse 1 >/dev/null 2>&1 \
+  && gestalt review-loop dir >/dev/null 2>&1; then
   echo "OK gestalt"
-elif probe "pnpm tsx bin/gestalt.ts"; then
+elif pnpm tsx bin/gestalt.ts review-loop parse 1 >/dev/null 2>&1 \
+  && pnpm tsx bin/gestalt.ts review-loop dir >/dev/null 2>&1; then
   echo "OK pnpm"
 else
   echo "MISSING"
   exit 1
 fi
 ```
+
+**명령을 변수에 담아 함수로 넘기지 않는다.** zsh는 인용 안 한 변수 전개에서 단어 분리를 안 해 `$cmd`가 통째로 명령 이름이 된다. 그러면 실제로 깔려 있어도 `MISSING`이 나온다. 같은 코드가 bash에서는 도는 탓에 눈으로는 안 걸린다.
 
 `OK gestalt`면 아래 예시를 그대로 쓴다. `OK pnpm`이면 게슈탈트 레포 안이라는 뜻이라 모든 호출을 `pnpm tsx bin/gestalt.ts review-loop ...`로 바꾼다. **`MISSING`이면 라운드를 시작하지 않는다.**
 
