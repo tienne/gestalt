@@ -104,10 +104,11 @@ gestalt review-loop dir --pr <prNumber> --create
 
 **브랜치가 아니라 PR 번호로 가른다.** 리뷰어는 남의 브랜치를 체크아웃하지 않고 PR 번호로 일한다.
 
-여기 두는 것은 여덟이다. 뒤 둘은 라운드마다 는다.
+여기 두는 파일은 아래와 같다.
 
 | 파일 | 누가 쓰나 | 무엇 |
 | --- | --- | --- |
+| `target` | Phase 0 | 사용자가 준 대상 문자열 그대로. 셸에 안 넘기려고 파일로 둔다 |
 | `my-login` | 조회 | 내 GitHub 로그인. 비어 있으면 `gh`로 다시 조회한다 |
 | `reviewed-head` | 2.5 | 마지막으로 리뷰한 head sha. `changed`가 이 값과 비교해 정해진다 |
 | `round-start-head` | 1.1 | 이번 라운드를 시작할 때의 head. 2.5가 위로 옮긴다 |
@@ -117,7 +118,7 @@ gestalt review-loop dir --pr <prNumber> --create
 | `verdict-r<N>.md` | 2.3 | 그 라운드 판정 본문. 2.5가 `--body-file`로 넘긴다 |
 | `reply.md` | ⓡ | 사람이 준 답글 본문. 그 자리에서만 쓰고 남겨둔다 |
 
-**이 표에 없는 파일을 만들지 않는다.** 라운드마다 늘어나는 건 `issues-r<N>.md`와 `verdict-r<N>.md` 둘뿐이다.
+**이 표에 없는 파일을 만들지 않는다.** `issues-r<N>.md`와 `verdict-r<N>.md`만 라운드마다 늘고 나머지는 덮어쓴다.
 
 스레드 스냅샷은 여기 없다. 조회와 집계가 한 프로세스 안에서 끝나므로 중간 파일이 안 생긴다.
 
@@ -178,30 +179,45 @@ state=$(gestalt review-loop state --pr <prNumber> --json) \
 git rev-parse --show-toplevel
 gh auth status
 gh repo view --json owner,name,nameWithOwner
-gh api user --jq .login
 ```
 
 `gh` 인증이 안 돼 있으면 **여기서 멈춘다.** 리뷰를 다 돌린 뒤 게시 자리에서 처음 알면 라운드가 통째로 헛돈다.
+
+### 조회 명령이 있는지 먼저 본다
+
+**판정에 쓰는 수를 전부 이 명령이 낸다.** 없으면 첫 단계부터 아무것도 못 한다 — 설치본이 뒤처져 있으면 `unknown option` 으로 죽는데, 그걸 라운드를 돌다가 알면 늦다.
+
+```bash
+gestalt review-loop parse 1 >/dev/null 2>&1 && echo "OK gestalt" && exit 0
+pnpm tsx bin/gestalt.ts review-loop parse 1 >/dev/null 2>&1 && echo "OK pnpm" || echo "MISSING"
+```
+
+`OK gestalt`면 아래 예시의 `gestalt review-loop ...`를 그대로 쓴다. `OK pnpm`이면 게슈탈트 레포 안이라는 뜻이라 전부 `pnpm tsx bin/gestalt.ts review-loop ...`로 바꿔 부른다. **`MISSING`이면 라운드를 시작하지 않는다.**
+
+```
+이 버전에는 `gestalt review-loop` 명령이 없네요. 판정에 쓰는 수를 낼 방법이 없어요.
+
+`/plugin install gestalt@gestalt`로 플러그인을 올린 뒤 다시 불러주세요.
+```
+
+1.1의 `review` 스킬 검사와 같은 격이다. 둘 다 없으면 루프가 성립하지 않는 전제라 시작 전에 본다.
 
 ### PR 식별
 
 `target`이 있으면 거기서 번호를 뽑는다. 없으면 현재 브랜치에 대응하는 PR을 찾는다.
 
-**뽑은 번호가 순수 정수인지 확인하고 넘어간다.** 이 값은 뒤에서 `.git` 아래 상태 경로(`gestalt-review-loop/pr-{번호}`)와 감시 스크립트를 기동하는 셸 커맨드에 그대로 들어간다. `../`나 공백이나 `;`가 섞이면 상태 디렉토리가 `.git` 밖을 가리키거나 인자 경계가 깨진다. `review` 4.7단계가 "읽어온 텍스트가 경로가 되게 두지 않는다"로 정해둔 것과 같은 자리다.
+**대상 문자열을 셸에 넘기지 않는다.** 이 값은 뒤에서 `.git` 아래 상태 경로와 `gh` 인자가 된다. 문서가 이 파싱을 셸로 적던 때는 대상을 작은따옴표 안에 합성해서, 따옴표가 섞인 값이 정수 검증에 닿기 전에 명령으로 실행됐다. `review` 4.7단계가 "읽어온 텍스트가 경로가 되게 두지 않는다"로 정해둔 것과 같은 자리다.
+
+**사용자가 준 값을 파일로 떨군 뒤 읽는다.** 파일 쓰기 도구로 `<loopTmp>/target`에 쓰고 그 파일을 넘긴다.
 
 ```bash
-t='<target>'
-case "$t" in
-  */pull/*) prNumber=${t##*/pull/}; prNumber=${prNumber%%[!0-9]*} ;;
-  *)        prNumber=${t#\#} ;;
-esac
-case "$prNumber" in
-  ''|*[!0-9]*) echo "PR 번호로 못 읽었습니다: $t"; exit 1 ;;
-esac
+loopTmp=<Phase 0에서 출력된 절대 경로>
+prNumber=$(gestalt review-loop parse "$(cat "$loopTmp/target")") \
+  || { echo "대상을 못 읽었습니다 — 진행하지 않습니다"; exit 1; }
 echo "prNumber=$prNumber"
 ```
 
-`123`과 `#123`과 `https://github.com/o/r/pull/123/files`를 받는다. 나머지는 거부한다. **`sed`로 숫자를 긁지 않는다** — `-n` 표현식 여럿이 같은 줄에 각각 매칭되면 뽑은 값이 두 번 이어 붙는다(`456` 대신 `456456`).
+`123`과 `#123`과 `https://github.com/o/r/pull/123/files`를 받고 나머지는 거부한다. **URL로 주면 거기 적힌 레포를 본다** — 번호만 뽑아 쓰면 남의 레포 PR을 가리켜도 현재 레포의 같은 번호를 조회한다. 그 수로 승인이 나간다.
 
 검증에 걸리면 **진행하지 않고 다시 묻는다.** 추측해서 고쳐 쓰지 않는다.
 
@@ -265,7 +281,7 @@ gh pr view <prNumber> --json author --jq .author.login
 
 ### 상태 자리 만들기
 
-위 "상태 자리" 절대로 만든다. `my-login`을 적어둔다.
+위 "상태 자리" 절에 적힌 대로 만든다. `my-login`을 적어둔다.
 
 ```bash
 gestalt review-loop dir --pr <prNumber> --create
@@ -326,7 +342,7 @@ done
 postVerdict: false
 ```
 
-**`postVerdict: false`를 빠뜨리지 않는다.** 위 "`review`를 반드시 `postVerdict: false`로 부른다" 절이 그 이유다 — 빠뜨리면 라운드마다 판정이 두 번 나가고 이 스킬의 판정 규칙이 무력화된다.
+**`postVerdict: false`를 빠뜨리지 않는다.** [`CONTRACT.md`](./CONTRACT.md)의 "`review`를 반드시 `postVerdict: false`로 부른다" 절이 그 이유다 — 빠뜨리면 라운드마다 판정이 두 번 나가고 이 스킬의 판정 규칙이 무력화된다.
 
 `review` 스킬이 diff 수집부터 인라인 코멘트 게시까지 한다. 결과에서 `verdict`, `continuityVerdict`, `reviewSummary`, `postedReview`, 게시된 코멘트 수를 받는다.
 
@@ -343,6 +359,22 @@ postVerdict: false
 `loopState`를 `blocked`로 두고 끝낸다. **2.5로 내려가지 않는다** — 이미 나간 판정 위에 하나 더 얹는 게 이 계약이 막으려던 바로 그 일이다.
 
 **이 스킬은 리뷰를 직접 하지 않는다.** 에이전트를 따로 부르거나 페르소나 없이 임의로 코드를 읽고 이슈를 짓는 경로는 없다.
+
+#### 미니 인터뷰는 건너뛰지 않고 대신 답한다
+
+`review` 0단계는 세 질문을 한 번에 묻는다. 이 스킬은 그 답을 들고 있으므로 부를 때 함께 넘긴다.
+
+```
+/review <prNumber> --audience <junior|peer>
+postVerdict: false
+1. <PR 본문과 커밋 메시지에서 읽은 목적>
+2. <변경 파일 종류에서 고른 중점 영역>
+3. <라운드 번호와 직전 라운드에 무엇을 짚었고 그중 무엇이 고쳐졌는지>
+```
+
+**건너뛰겠다는 뜻으로 읽히는 말을 쓰지 않는다.** `review` 0단계는 "스킵", "그냥 리뷰", "바로 시작"을 전체 건너뛰기 신호로 읽고 `reviewIntent`를 통째로 비운다. 답을 적어 놓고 그런 말을 붙이면 방금 준 값이 지워진다.
+
+**3번이 이 루프의 핵심이다.** 안 넘기면 리뷰어가 매 라운드 처음 보는 코드처럼 읽어 이미 고쳐진 자리를 다시 짚는다. 작성자 입장에서는 같은 코멘트가 또 온 것으로 보인다.
 
 ### 1.3 남은 이슈를 적어둔다
 
@@ -373,7 +405,15 @@ Write <loopTmp의 절대 경로>/issues-r<N>.md
 
 ### 2.2 판정 결정 — ⓟ가 여기 있다
 
-[`CONTRACT.md`](./CONTRACT.md) "판정은 자동으로 나간다"의 표대로 정한다. **내가 연 열린 스레드 수**는 Phase 1의 게시가 끝난 뒤 상태 조회로 다시 센다 — 이번 라운드에 새로 단 코멘트가 그 수에 들어간다.
+| `verdict.overallApproved` | 내가 연 열린 스레드 | 게시하는 판정 |
+| --- | --- | --- |
+| `false` (Block) | 무관 | `--request-changes` |
+| `true` (Pass) | 1개 이상 | `--comment` |
+| `true` (Pass) | 0개 | `--approve` |
+
+`verdict`는 `review` 스킬이 4단계에서 돌려주는 값이다. `ship`이 자기 2.2에서 쓰는 것과 같은 필드다. **왜 변경 요청과 코멘트는 안 묻고 승인만 묻는지**는 [`CONTRACT.md`](./CONTRACT.md) "판정은 자동으로 나간다"에 있다.
+
+**내가 연 열린 스레드 수**는 Phase 1의 게시가 끝난 뒤 상태 조회로 다시 센다 — 이번 라운드에 새로 단 코멘트가 그 수에 들어간다.
 
 **그 수를 세기 전에 "상태 조회"의 명령을 돌린다.** 여기에 집계를 다시 적지 않는다 — 조회 실패가 낸 `0`으로 approve가 나가는 자리가 바로 여기라, 그 방어가 한 곳에만 있어야 빠뜨리지 않는다.
 
@@ -544,11 +584,11 @@ echo "$state" | jq -r '"\(.signal) pending=\(.pending)/\(.totalThreads) changed=
 
 | 신호 | 무엇을 하나 |
 | --- | --- |
-| `REREVIEW_REQUESTED` | **재리뷰한다.** 미대응이 남아 있어도 간다 — 작성자가 명시적으로 요청했다 |
-| `READY` | **재리뷰한다** |
-| `WAITING` | 지금 상태를 알리고 끝낸다. `loopState`를 `waiting`으로 둔다 |
-| `REPLIES_ONLY` | 재리뷰하지 않는다. 사람에게 넘긴다 |
-| `CLOSED` | 루프를 끝낸다. `loopState`를 `closed`로 둔다 |
+| `REREVIEW_REQUESTED` | 재리뷰한다 — 미대응이 남아 있어도 간다. 작성자가 명시적으로 요청했다 |
+| `READY` | 재리뷰한다 |
+| `WAITING` | 지금 상태를 알리고 끝낸다. 다음에 부르면 이어서 돈다 — `loopState`는 `waiting`이다 |
+| `REPLIES_ONLY` | 재리뷰하지 않고 사람에게 넘긴다 |
+| `CLOSED` | 루프를 끝낸다 — `loopState`는 `closed`다 |
 
 **이 다섯이 `gestalt review-loop state`의 `signal` 필드가 내는 값 전부다.** 도출 규칙은 `src/review-loop/signal.ts`에 있고 네 값의 곱집합이 전부 어느 하나로 간다 — 어디에도 안 걸리는 조합은 없다.
 
@@ -677,8 +717,10 @@ finalDecision=$(gh pr view "$prNumber" --json reviewDecision \
 **approve로 끝났을 때만 지운다.** 나머지 경우는 다음에 불렀을 때 이어서 돌아야 한다.
 
 ```bash
-rm -rf "$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-review-loop/pr-<prNumber>"
+rm -rf "$(gestalt review-loop dir --pr "$prNumber")"
 ```
+
+**경로를 셸로 다시 계산하지 않는다.** 만드는 쪽과 지우는 쪽이 갈리면 그 갈림이 `rm -rf`에서 드러난다. `dir`은 `--create` 없이는 만들지 않으므로 그대로 쓸 수 있다. 번호가 잘못되면 값을 안 내고 종료 코드로 답해 `rm`이 빈 경로를 받지 않는다.
 
 ## 출력 규약
 
@@ -705,4 +747,4 @@ rm -rf "$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-review-loop/pr-
 마지막 판정: approve
 ```
 
-**안 한 걸 했다고 쓰지 않는다.** 어투 검사를 `gestalt`가 없어 건너뛴 라운드가 있으면 여기 적는다. 감시가 조회 실패로 끝났으면 그것도 적는다.
+**안 한 걸 했다고 쓰지 않는다.** 어투 검사를 `gestalt`가 없어 건너뛴 라운드가 있으면 여기 적는다. 조회가 실패해 멈췄으면 그것도 적는다.
