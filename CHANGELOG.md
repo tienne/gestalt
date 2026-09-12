@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`review` 4.7단계의 절 이름이 '신선도 가드'에서 '게시 전 검사'로 바뀌었어요.** 코드 상태를 비유 명사로 부르면 그 자리에서 무엇을 보는지가 말에 안 남아서요(ai-tell F-9). 영어 `stale`은 문헌에 뜻이 박힌 말이라 그대로 뒀고 한국어 쪽만 걷었습니다. `review-loop`이 `state`를 부르는 자리도 '신선한 수'에서 '방금 조회한 수'로 옮겼어요 — 그쪽은 조회를 끝냈는지까지 보는 자리라 같은 말로 부를 게 아니었거든요.
+
 ## [0.76.0] - 2026-09-12
 
 ### Added

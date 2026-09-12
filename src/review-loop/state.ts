@@ -9,7 +9,7 @@ import { resolve } from 'node:path';
  * 표가 전체 목록이고 `review-verdict-gate.test.ts` 가 그 표와 절차를 대조한다.
  *
  * 스레드 스냅샷은 여기 없다. 조회와 집계가 한 프로세스 안에서 끝나므로 중간 파일이
- * 생기지 않는다. 그 파일이 이번 조회의 것인지 가리던 표식과 최신 여부 검사도 함께 사라졌다.
+ * 생기지 않는다.
  */
 const ROOT_DIR = 'gestalt-review-loop';
 

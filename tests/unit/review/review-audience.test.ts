@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseSkillMd } from '../../../src/skills/parser.js';
 import { RoleAgentRegistry } from '../../../src/agent/role-agent-registry.js';
-import { section } from '../../helpers/skill-section.js';
+import { section, sectionStartingWith } from '../../helpers/skill-section.js';
 
 const SKILL_PATH = resolve('plugin/skills/review/SKILL.md');
 const skill = parseSkillMd(readFileSync(SKILL_PATH, 'utf-8'), SKILL_PATH);
@@ -177,11 +177,11 @@ describe('리뷰 코멘트 audience 옵션', () => {
     });
 
     it('4.7단계 서브에이전트 프롬프트가 audience를 넘긴다', () => {
-      const guard = section(skill.body, '#### 게시 전 최신 여부 확인 (옛 consensus 게시 금지)');
-      expect(guard).toContain('audience: <peer | junior');
-      expect(guard).toMatch(/audience\.md 같은 이름의 파일을 찾아 읽지 않는다/);
+      const publish = sectionStartingWith(skill.body, '#### 게시 전 검사');
+      expect(publish).toContain('audience: <peer | junior');
+      expect(publish).toMatch(/audience\.md 같은 이름의 파일을 찾아 읽지 않는다/);
       // 1.05를 안 거치고 들어온 경로의 폴백
-      expect(guard).toMatch(/1\.05단계를 안 거치고/);
+      expect(publish).toMatch(/1\.05단계를 안 거치고/);
     });
 
     it('로컬 게시 절이 확인 자리를 1.05단계로 넘긴다', () => {
