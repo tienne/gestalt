@@ -168,11 +168,20 @@ describe('판정 게시 경계 (postVerdict)', () => {
     });
 
     it('조회 실패를 fail-closed로 다룬다', () => {
-      // 명령 치환은 stdout 만 가져간다. `||` 가 없으면 실패한 조회가 빈 문자열로 넘어간다
-      for (const m of loop.body.matchAll(/^(\s*)\w+=\$\(gestalt review-loop state[^\n]*$/gm)) {
-        const line = m[0];
-        expect(line, `조회에 실패 분기가 없다: ${line.trim()}`).toMatch(/\\$/);
-      }
+      // 명령 치환은 stdout 만 가져간다. 실패 분기가 없으면 실패한 조회가 빈 문자열로
+      // 넘어가고 그게 미대응 0 으로 읽혀 승인이 나간다
+      const lines = loop.body.split('\n');
+      let seen = 0;
+      lines.forEach((line, i) => {
+        if (!/\$\(gestalt review-loop state/.test(line)) return;
+        seen++;
+        // 줄이 이어지면 다음 줄까지 합쳐서 본다
+        const stmt = /\\$/.test(line) ? `${line}\n${lines[i + 1] ?? ''}` : line;
+        expect(stmt, `조회에 실패 분기가 없다: ${line.trim()}`).toMatch(
+          /\|\|\s*\{[^}]*exit\s+1\s*;?\s*\}/,
+        );
+      });
+      expect(seen, '조회를 부르는 자리를 하나도 못 찾았다').toBeGreaterThan(0);
     });
 
     it('집계를 문서가 다시 적지 않는다', () => {
@@ -186,14 +195,18 @@ describe('판정 게시 경계 (postVerdict)', () => {
       }
     });
 
-    it('재리뷰 판정 표가 코드가 내는 신호를 전부 담는다', () => {
+    it('재리뷰 판정 표가 코드가 내는 신호와 행동까지 같다', () => {
       const table = sectionStartingWith(loop.body, '## Phase 4');
-      for (const signal of Object.keys(SIGNAL_ACTION)) {
-        expect(table, `${signal} 이 판정 표에 없다`).toContain(`\`${signal}\``);
-      }
-      // 반대 방향 — 표에만 있고 코드가 안 내는 신호는 도달하지 못하는 분기다
-      for (const m of table.matchAll(/^\| `([A-Z_]+)` \|/gm)) {
-        expect(SIGNAL_ACTION, `${m[1]} 은 코드가 내지 않는 신호다`).toHaveProperty(m[1]!);
+      // 절 전체에서 토큰만 찾으면 하위 헤딩이 대신 만족해 표 행을 지워도 통과한다.
+      // 표 행만 뽑아 양쪽 집합을 통째로 비교한다
+      const rows = new Map(
+        [...table.matchAll(/^\| `([A-Z_]+)` \| (.+?) \|\s*$/gm)].map((m) => [m[1]!, m[2]!]),
+      );
+      expect([...rows.keys()].sort()).toEqual(Object.keys(SIGNAL_ACTION).sort());
+
+      // 이름만 맞추면 코드와 문서가 반대를 말해도 안 걸린다. 행동 문구까지 묶는다
+      for (const [signal, action] of Object.entries(SIGNAL_ACTION)) {
+        expect(rows.get(signal), `${signal} 행이 코드의 설명과 다르다`).toContain(action);
       }
     });
 
@@ -211,6 +224,14 @@ describe('판정 게시 경계 (postVerdict)', () => {
       );
       for (const file of used) {
         expect(declared, `${file} 이 상태 자리 표에 없다`).toContain(file);
+      }
+
+      // 반대 방향 — 선언만 하고 절차가 안 만드는 행은 영영 안 생기는 파일이다.
+      // 백틱으로만 적힌 자리도 쓰임으로 센다
+      const plain = rest.replace(/<N-?1?>/g, '');
+      for (const file of declared) {
+        const mentioned = used.has(file) || plain.includes(`\`${file}\``);
+        expect(mentioned, `${file} 을 표에 선언해 놓고 절차가 안 쓴다`).toBe(true);
       }
     });
   });

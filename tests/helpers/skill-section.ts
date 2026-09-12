@@ -124,6 +124,31 @@ export function codeBlockContaining(body: string, heading: string, needle: strin
 }
 
 /**
+ * 작은따옴표 리터럴만 지운다. 그 안은 셸이 전개하지 않으므로 참조가 아니다.
+ *
+ * 큰따옴표 안의 작은따옴표는 리터럴을 열지 않는다. 정규식으로 한 번에 지우면
+ * `echo "it's $a and it's $b"` 의 가운데가 통째로 사라져 `$a` 를 놓친다.
+ */
+function stripSingleQuoted(block: string): string {
+  let out = '';
+  let inDouble = false;
+  let inSingle = false;
+  for (const ch of block) {
+    if (inSingle) {
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (ch === '"') inDouble = !inDouble;
+    else if (ch === "'" && !inDouble) {
+      inSingle = true;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/**
  * 셸 코드블록이 자기 안에서 정의하지 않고 쓰는 변수를 찾는다.
  *
  * 스킬 문서의 코드블록은 각각 다른 Bash 호출로 실행된다. 셸 상태가 호출 사이에 안 남는
@@ -134,8 +159,7 @@ export function codeBlockContaining(body: string, heading: string, needle: strin
  * `$me` 는 jq 변수라 세지 않는다 — 작은따옴표 안은 셸이 전개하지 않는다.
  */
 export function freeVariables(block: string, allowed: readonly string[] = []): string[] {
-  // 작은따옴표 리터럴을 지운다. 그 안은 셸이 전개하지 않으므로 참조가 아니다.
-  const withoutLiterals = block.replace(/'[^']*'/g, "''");
+  const withoutLiterals = stripSingleQuoted(block);
 
   const defined = new Set<string>(allowed);
   // name=... / name+=... / read -r a b / for name in
