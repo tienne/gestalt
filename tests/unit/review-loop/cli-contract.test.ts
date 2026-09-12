@@ -46,14 +46,20 @@ describe('CLI 의 출력 계약', () => {
     expect(r.stderr.trim(), '무엇이 틀렸는지 안 알려준다').not.toBe('');
   });
 
-  it('상태 자리 경로도 값만 낸다', () => {
-    const r = run(['review-loop', 'dir', '--pr', '18']);
+  it('상태 자리 뿌리도 값만 낸다', () => {
+    const r = run(['review-loop', 'dir']);
     expect(r.status).toBe(0);
-    expect(r.stdout.trim().endsWith('gestalt-review-loop/pr-18')).toBe(true);
+    expect(r.stdout.trim().endsWith('gestalt-review-loop')).toBe(true);
   });
 
-  it('상태 자리도 잘못된 번호면 stdout 이 빈다', () => {
-    const r = run(['review-loop', 'dir', '--pr', '0']);
+  it('레포까지 읽어 JSON 으로 낸다', () => {
+    const r = run(['review-loop', 'parse', 'https://github.com/cli/cli/pull/9', '--json']);
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({ prNumber: 9, owner: 'cli', repo: 'cli' });
+  });
+
+  it('JSON 으로 낼 때도 실패하면 stdout 이 빈다', () => {
+    const r = run(['review-loop', 'parse', '../../etc', '--json']);
     expect(r.status).toBe(1);
     expect(r.stdout).toBe('');
   });

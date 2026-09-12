@@ -76,4 +76,14 @@ describe('URL 이면 레포까지 읽는다', () => {
     expect(() => parseTarget('https://github.com//r/pull/7')).toThrow();
     expect(() => parseTarget('https://github.com/pull/7')).toThrow();
   });
+
+  /** 이 값이 그대로 조회 인자와 상태 경로가 되므로 모양을 본다 */
+  it.each([
+    ['하이픈으로 시작하는 owner', 'https://github.com/-evil/r/pull/7'],
+    ['하이픈으로 시작하는 repo', 'https://github.com/o/-evil/pull/7'],
+    ['아주 긴 owner', `https://github.com/${'a'.repeat(120)}/r/pull/7`],
+    ['아주 긴 repo', `https://github.com/o/${'a'.repeat(120)}/pull/7`],
+  ])('%s 는 거부한다', (_name, target) => {
+    expect(() => parseTarget(target)).toThrow(/레포를 못 읽었습니다/);
+  });
 });

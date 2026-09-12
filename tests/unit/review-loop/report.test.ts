@@ -67,7 +67,7 @@ describe('판정에 쓰는 수를 만든다', () => {
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), 'gestalt-report-'));
     execFileSync('git', ['init', '-q'], { cwd: repo });
-    dir = stateDir(PR, repo);
+    dir = stateDir({ owner: 'o', repo: 'r', prNumber: PR }, repo);
     mkdirSync(dir, { recursive: true });
   });
 
@@ -77,6 +77,65 @@ describe('판정에 쓰는 수를 만든다', () => {
    * 첫 라운드는 비교할 이전 head 가 없다. changed 를 참으로 두면 리뷰한 적도 없는
    * 커밋을 "새 커밋이 왔다"로 읽어 재리뷰로 바로 넘어간다.
    */
+  /**
+   * 스텁이 인자를 안 보고 종류로만 답하면 조회 대상을 바꾸는 회귀가 라벨만 맞은 채
+   * 지나간다. 라운드 7 이 고친 '남의 레포 PR 을 현재 레포로 조회' 가 그 자리다.
+   */
+  it('조회가 실제로 그 레포 그 번호를 묻는다', () => {
+    const gh = stub();
+    readLoopState({ prNumber: PR, cwd: repo }, gh.run);
+    const graphql = gh.calls.find((c) => c[1] === 'graphql');
+    expect(graphql).toContain('owner=o');
+    expect(graphql).toContain('repo=r');
+    expect(graphql).toContain(`pr=${PR}`);
+  });
+
+  it('레포를 주면 그 레포를 묻는다', () => {
+    const gh = stub();
+    readLoopState({ prNumber: 1, owner: 'cli', repo: 'cli', cwd: repo }, gh.run);
+    const graphql = gh.calls.find((c) => c[1] === 'graphql');
+    expect(graphql).toContain('owner=cli');
+    expect(graphql).toContain('repo=cli');
+    expect(graphql).toContain('pr=1');
+  });
+
+  /** 개설자와 최신을 따로 받는 별칭이 뒤바뀌면 미대응 판정이 양방향으로 뒤집힌다 */
+  it('개설자와 최신 코멘트를 따로 묻는다', () => {
+    const gh = stub();
+    readLoopState({ prNumber: PR, cwd: repo }, gh.run);
+    const query = gh.calls.find((c) => c[1] === 'graphql')!.find((a) => a.startsWith('query='))!;
+    expect(query).toMatch(/opener:\s*comments\(first:\s*1\)/);
+    expect(query).toMatch(/latest:\s*comments\(last:\s*1\)/);
+  });
+
+  it('로그인을 직접 주면 캐시도 조회도 안 본다', () => {
+    writeFileSync(join(dir, 'my-login'), 'cached-user\n');
+    const gh = stub({ graphql: snapshot({ threads: [mine('given-user')] }) });
+    const r = readLoopState({ prNumber: PR, me: 'given-user', cwd: repo }, gh.run);
+    expect(r.me).toBe('given-user');
+    expect(r.pending).toBe(1);
+    expect(gh.calls.some((c) => c[1] === 'user')).toBe(false);
+  });
+
+  it('직접 준 로그인도 문법을 본다', () => {
+    expect(() => readLoopState({ prNumber: PR, me: 'two words', cwd: repo }, stub().run)).toThrow(
+      /로그인/,
+    );
+  });
+
+  it('내가 연 스레드와 PR 전체 스레드를 갈라 낸다', () => {
+    const gh = stub({ graphql: snapshot({ threads: [mine(), mine('other'), mine('other')] }) });
+    const r = readLoopState({ prNumber: PR, cwd: repo }, gh.run);
+    expect(r.prThreads).toBe(3);
+    expect(r.myThreads).toBe(1);
+    expect(r.pending).toBe(1);
+  });
+
+  it('상태 자리를 함께 낸다 — 부르는 쪽이 다시 계산하지 않는다', () => {
+    const r = readLoopState({ prNumber: PR, cwd: repo }, stub().run);
+    expect(r.stateDir).toBe(dir);
+  });
+
   it('리뷰한 적 없으면 새 커밋이 온 게 아니다', () => {
     const r = readLoopState({ prNumber: PR, cwd: repo }, stub().run);
     expect(r.reviewedHead).toBeNull();

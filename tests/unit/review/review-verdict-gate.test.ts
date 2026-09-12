@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { SIGNAL_ACTION } from '../../../src/review-loop/signal.js';
+import { LOGIN_FILE, REVIEWED_HEAD_FILE } from '../../../src/review-loop/state.js';
+
+/** 코드가 이름을 들고 있는 상태 파일. 절차가 셸로 안 써도 표에는 있어야 한다 */
+const CODE_WRITTEN = new Set([LOGIN_FILE, REVIEWED_HEAD_FILE]);
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseSkillMd } from '../../../src/skills/parser.js';
@@ -175,8 +181,9 @@ describe('판정 게시 경계 (postVerdict)', () => {
       lines.forEach((line, i) => {
         if (!/\$\(gestalt review-loop state/.test(line)) return;
         seen++;
-        // 줄이 이어지면 다음 줄까지 합쳐서 본다
-        const stmt = /\\$/.test(line) ? `${line}\n${lines[i + 1] ?? ''}` : line;
+        // 줄이 이어지면 끝날 때까지 합쳐서 본다. 한 줄만 더 보면 세 줄짜리를 놓친다
+        let stmt = line;
+        for (let j = i; /\\$/.test(lines[j] ?? ''); j++) stmt += `\n${lines[j + 1] ?? ''}`;
         expect(stmt, `조회에 실패 분기가 없다: ${line.trim()}`).toMatch(
           /\|\|\s*\{[^}]*exit\s+1\s*;?\s*\}/,
         );
@@ -211,6 +218,7 @@ describe('판정 게시 경계 (postVerdict)', () => {
     });
 
     it('상태 자리 표에 적힌 파일만 절차가 만든다', () => {
+      // 자리가 뿌리와 PR별로 갈려 표가 둘이다. 둘을 합쳐 본다
       const table = sectionStartingWith(loop.body, '## 상태 자리');
       const declared = new Set(
         [...table.matchAll(/^\| `([^`]+)` \|/gm)].map((m) => m[1]!.replace(/<N>/g, '')),
@@ -226,12 +234,22 @@ describe('판정 게시 경계 (postVerdict)', () => {
         expect(declared, `${file} 이 상태 자리 표에 없다`).toContain(file);
       }
 
-      // 반대 방향 — 선언만 하고 절차가 안 만드는 행은 영영 안 생기는 파일이다.
-      // 백틱으로만 적힌 자리도 쓰임으로 센다
+      // 반대 방향 — 선언만 하고 아무도 안 만드는 행은 영영 안 생기는 파일이다.
+      // 산문에 이름이 보이는지가 아니라 실제로 쓰는 자리가 있는지를 본다
       const plain = rest.replace(/<N-?1?>/g, '');
+      const written = (file: string) =>
+        used.has(file) ||
+        new RegExp(`(>|Write |cp [^\n]*|--body-file |\\$root/)[^\n]*${escapeRe(file)}`).test(plain);
       for (const file of declared) {
-        const mentioned = used.has(file) || plain.includes(`\`${file}\``);
-        expect(mentioned, `${file} 을 표에 선언해 놓고 절차가 안 쓴다`).toBe(true);
+        expect(
+          written(file) || CODE_WRITTEN.has(file),
+          `${file} 을 표에 선언해 놓고 아무도 안 쓴다`,
+        ).toBe(true);
+      }
+
+      // 코드가 읽는 파일은 상수로 잡혀 있다. 그 이름이 표에서 빠지면 절차와 코드가 갈린다
+      for (const name of CODE_WRITTEN) {
+        expect(declared, `${name} 이 상태 자리 표에 없다 — 코드가 그 이름을 쓴다`).toContain(name);
       }
     });
   });

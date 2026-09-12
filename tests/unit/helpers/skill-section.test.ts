@@ -49,6 +49,23 @@ describe('셸 블록이 자기 안에서 정의하지 않고 쓰는 변수', () 
     it('인용 안 한 heredoc 안은 전개된다', () => {
       expect(freeVariables('cat <<EOT\n$a\nEOT')).toEqual(['a']);
     });
+
+    /**
+     * 리터럴 안에 마커처럼 생긴 글자가 들어 있어도 heredoc 이 아니다. 속으면 그 뒤
+     * 블록을 통째로 삼켜 진짜 자유변수가 사라진다.
+     */
+    it('리터럴 안의 가짜 마커에 안 속는다', () => {
+      const block = `echo 'see <<"EOF" in docs'\necho "$after"\nn=$(( missing + 1 ))`;
+      expect(freeVariables(block)).toEqual(['after', 'missing']);
+    });
+
+    /** 이름 목록이 줄을 넘으면 다음 줄의 명령 이름까지 정의로 심어 자유변수를 감춘다 */
+    it('read 이름 수집이 줄을 안 넘는다', () => {
+      expect(freeVariables('read -r line\ncount $total\necho "$count"')).toEqual([
+        'count',
+        'total',
+      ]);
+    });
   });
 
   describe('정의로 센다', () => {

@@ -159,9 +159,7 @@ function stripSingleQuoted(block: string): string {
  * `$me` 는 jq 변수라 세지 않는다 — 작은따옴표 안은 셸이 전개하지 않는다.
  */
 export function freeVariables(block: string, allowed: readonly string[] = []): string[] {
-  // 인용 heredoc 안은 셸이 전개하지 않는다. 그 구간을 먼저 걷어낸다
-  const body = stripQuotedHeredocs(block);
-  const withoutLiterals = stripSingleQuoted(body);
+  const withoutLiterals = stripSingleQuoted(stripQuotedHeredocs(block));
 
   const defined = new Set<string>(allowed);
   // name=... 과 name+=... — local 과 export 말고 readonly 와 declare, typeset 도 대입이다
@@ -170,9 +168,10 @@ export function freeVariables(block: string, allowed: readonly string[] = []): s
   )) {
     defined.add(m[1]!);
   }
-  // read -r a b — herestring 이 뒤따르든 파이프로 받든 이름을 심는 건 같다
+  // read -r a b — herestring 이 뒤따르든 파이프로 받든 이름을 심는 건 같다.
+  // 공백에 줄바꿈을 넣으면 뒤따르는 줄의 명령 이름까지 정의로 심어 진짜 자유변수를 감춘다
   for (const m of withoutLiterals.matchAll(
-    /\bread\s+((?:-\w+\s+)*)([A-Za-z0-9_][A-Za-z0-9_\s]*)/g,
+    /\bread\s+((?:-\w+[ \t]+)*)([A-Za-z0-9_][A-Za-z0-9_ \t]*)/g,
   )) {
     for (const name of m[2]!.trim().split(/\s+/)) {
       if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) defined.add(name);
@@ -284,9 +283,40 @@ function stripQuotedHeredocs(block: string): string {
       if (line.trim() === marker) marker = null;
       continue;
     }
-    const m = /<<-?\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]/.exec(line);
     out.push(line);
-    if (m) marker = m[1]!;
+    marker = openingMarker(line);
   }
   return out.join('\n');
+}
+
+/**
+ * 그 줄이 인용 heredoc 을 여는지 본다. 따옴표 밖에서 시작한 것만 센다.
+ *
+ * 줄 전체에 정규식을 돌리면 `echo 'see <<\"EOF\" in docs'` 처럼 리터럴 안에 든 글자를
+ * 진짜 마커로 읽고 그 뒤 블록을 통째로 삼킨다. 그렇다고 리터럴을 먼저 걷어내면 진짜
+ * 마커의 따옴표까지 사라져 이번엔 못 찾는다 — 한 번 훑으면서 상태를 같이 본다.
+ */
+function openingMarker(line: string): string | null {
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inSingle) {
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = true;
+      continue;
+    }
+    if (!inDouble && ch === '<' && line[i + 1] === '<') {
+      const m = /^<<-?[ \t]*(['"])([A-Za-z_][A-Za-z0-9_]*)\1/.exec(line.slice(i));
+      return m ? m[2]! : null;
+    }
+  }
+  return null;
 }
