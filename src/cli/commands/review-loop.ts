@@ -2,7 +2,10 @@ import { mkdirSync } from 'node:fs';
 import {
   parseTarget,
   readLoopState,
+  resolveRepo,
+  runGh,
   SIGNAL_ACTION,
+  stateDir,
   stateRoot,
   type LoopStateReport,
 } from '../../review-loop/index.js';
@@ -34,17 +37,41 @@ export function reviewLoopStateCommand(opts: ReviewLoopStateOptions): void {
 }
 
 /**
- * 상태 자리의 뿌리만 낸다. PR 별 자리는 `state` 가 `stateDir` 로 함께 낸다.
+ * 상태 자리 경로를 낸다. 대상을 주면 그 PR 의 자리, 안 주면 뿌리다.
  *
- * 뿌리를 따로 내는 이유는 순서 때문이다 — 대상 문자열을 셸에 안 넘기려면 파일로
+ * 뿌리가 따로 있는 이유는 순서 때문이다 — 대상 문자열을 셸에 안 넘기려면 파일로
  * 떨궈야 하는데, 그 파일을 PR 별 자리에 두면 자리 이름을 정하는 데 필요한 번호를
  * 아직 모르는 단계다.
+ *
+ * **PR 별 자리는 네트워크를 안 탄다.** 경로는 대상과 git 디렉토리만으로 정해지는
+ * 순수 함수라, 그걸 얻으려고 조회를 부르면 좌표가 필요한 자리마다 GraphQL 왕복이
+ * 붙는다. 번호로만 준 경우에만 레포를 한 번 묻는다.
  */
 export function reviewLoopDirCommand(opts: { create?: boolean }): void {
   run(() => {
     const dir = stateRoot();
     if (opts.create) mkdirSync(dir, { recursive: true });
     console.log(dir);
+  });
+}
+
+/**
+ * 대상에서 좌표를 한 번에 푼다 — PR 번호와 레포와 상태 자리 경로.
+ *
+ * 라운드 내내 이 넷이 필요한데 전부 조회에서 뽑으면 좌표를 얻으려고 GraphQL 을
+ * 왕복하게 된다. 경로는 대상과 git 디렉토리만으로 정해지는 순수 함수이고 레포도
+ * URL 이면 거기 적혀 있다 — 번호로만 준 경우에만 한 번 묻는다.
+ *
+ * 부르는 쪽은 이 결과를 파일로 굳혀 두고 라운드 내내 읽는다.
+ */
+export function reviewLoopResolveCommand(opts: { pr: string; create?: boolean }): void {
+  run(() => {
+    const parsed = parseTarget(opts.pr);
+    const { owner, repo } =
+      parsed.owner && parsed.repo ? { owner: parsed.owner, repo: parsed.repo } : resolveRepo(runGh);
+    const dir = stateDir({ owner, repo, prNumber: parsed.prNumber });
+    if (opts.create) mkdirSync(dir, { recursive: true });
+    console.log(JSON.stringify({ prNumber: parsed.prNumber, owner, repo, stateDir: dir }));
   });
 }
 

@@ -63,4 +63,36 @@ describe('CLI 의 출력 계약', () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toBe('');
   });
+
+  /**
+   * 라운드 내내 좌표가 필요한 자리가 이 명령을 부른다. 문서가 `jq -r`로 뽑는 키
+   * 넷이 그대로 나와야 그 블록들이 선다.
+   */
+  it('좌표 넷을 한 번에 낸다', () => {
+    const r = run(['review-loop', 'resolve', '--pr', 'https://github.com/cli/cli/pull/9']);
+    expect(r.status).toBe(0);
+    const coords = JSON.parse(r.stdout) as Record<string, unknown>;
+    expect(Object.keys(coords).sort()).toEqual(['owner', 'prNumber', 'repo', 'stateDir']);
+    expect(coords.owner).toBe('cli');
+    expect(coords.repo).toBe('cli');
+    expect(coords.prNumber).toBe(9);
+    expect(String(coords.stateDir).endsWith('cli--cli--9')).toBe(true);
+  });
+
+  it('좌표도 실패하면 stdout 이 빈다', () => {
+    const r = run(['review-loop', 'resolve', '--pr', 'https://evil.example.com/x/pull/7']);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toBe('');
+    expect(r.stderr.trim()).not.toBe('');
+  });
+
+  /**
+   * 조회는 네트워크를 타므로 여기서는 그 앞단만 본다. 대상이 안 읽히면 조회에
+   * 닿기 전에 멈춰야 한다. 그때 stdout 이 비어야 부르는 쪽의 `|| exit 1` 이 선다.
+   */
+  it('조회도 대상이 안 읽히면 stdout 을 비우고 멈춘다', () => {
+    const r = run(['review-loop', 'state', '--pr', '18abc', '--json']);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toBe('');
+  });
 }, 60_000);

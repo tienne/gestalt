@@ -161,7 +161,7 @@ gestalt review-loop state --pr <prNumber> --json
 
 **`owner`와 `repo`를 게시할 때 그대로 쓴다.** 조회는 그 레포를 보는데 게시가 현재 레포로 가면 판정이 엉뚱한 PR에 남는다.
 
-**`stateDir`이 이 PR의 상태 자리다.** 부르는 쪽이 경로를 다시 계산하지 않는다. `myThreads`는 내가 연 스레드이고 `prThreads`는 남이 연 것까지 포함한 PR 전체다 — 사람에게 보이는 수는 앞쪽이다.
+**`stateDir`은 `resolve`가 내는 것과 같은 값이다.** 좌표만 필요하면 조회 대신 그쪽을 부른다 — 이 명령은 스레드를 전량 받으므로 좌표를 얻으려고 부르면 왕복이 헛돈다. `myThreads`는 내가 연 스레드이고 `prThreads`는 남이 연 것까지 포함한 PR 전체다 — 사람에게 보이는 수는 앞쪽이다.
 
 **종료 코드가 0이 아니면 판정하지 않는다.** 실패할 때 stdout에 아무것도 안 낸다 — 명령 치환이 빈 문자열을 가져가 `pending`이 0으로 읽히면 승인이 조용히 나가기 때문이다. 조회 실패, 빈 로그인, 부분 성공 응답이 전부 여기서 멈춘다.
 
@@ -242,11 +242,12 @@ gestalt review-loop dir --create
 
 ```bash
 root=<위에서 출력된 절대 경로>
-target=$(gestalt review-loop parse --json "$(cat "$root/target")") \
+coords=$(gestalt review-loop resolve --pr "$(cat "$root/target")" --create) \
   || { echo "대상을 못 읽었습니다 — 진행하지 않습니다"; exit 1; }
-prNumber=$(echo "$target" | jq -r .prNumber)
-echo "$target"
+echo "$coords"
 ```
+
+`resolve`가 PR 번호와 레포와 상태 자리를 한 번에 내고 `--create`로 그 자리를 만든다. **라운드 내내 좌표가 필요한 자리는 이 명령을 다시 부른다** — 대상을 URL로 줬으면 네트워크를 안 탄다. 번호로만 줬으면 레포를 한 번 묻는다. 조회(`state`)는 신선한 수가 필요한 자리에서만 부른다.
 
 `123`과 `#123`과 `https://github.com/o/r/pull/123/files`를 받고 나머지는 거부한다. **URL로 주면 `owner`와 `repo`가 함께 나온다.** 그 둘을 뒤 단계로 들고 간다 — 번호만 쓰면 남의 레포 PR을 가리켜도 현재 레포의 같은 번호를 조회한다. 그 수로 승인이 나간다.
 
@@ -270,9 +271,9 @@ gh pr list --limit 10 --json number,title,author,headRefName
 
 ```bash
 root=<Phase 0에서 출력된 뿌리 경로>
-state=$(gestalt review-loop state --pr "$(cat "$root/target")" --json) \
-  || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
-read -r prNumber owner repo stateDir <<<"$(echo "$state" \
+coords=$(gestalt review-loop resolve --pr "$(cat "$root/target")") \
+  || { echo "좌표를 못 읽었습니다 — 진행하지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$coords" \
   | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
 
 gh pr view "$prNumber" --repo "$owner/$repo" --json author --jq .author.login
@@ -333,9 +334,9 @@ PR별 자리는 따로 만들지 않는다 — 조회가 `stateDir`로 낸다.
 
 ```bash
 root=<Phase 0에서 출력된 뿌리 경로>
-state=$(gestalt review-loop state --pr "$(cat "$root/target")" --json) \
-  || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
-read -r prNumber owner repo stateDir <<<"$(echo "$state" \
+coords=$(gestalt review-loop resolve --pr "$(cat "$root/target")") \
+  || { echo "좌표를 못 읽었습니다 — 진행하지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$coords" \
   | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
 
 gh pr view "$prNumber" --repo "$owner/$repo" --json headRefOid --jq .headRefOid \
@@ -519,9 +520,9 @@ pending=$(echo "$state" | jq -r .pending)
 
 ```bash
 root=<Phase 0에서 출력된 뿌리 경로>
-state=$(gestalt review-loop state --pr "$(cat "$root/target")" --json) \
-  || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
-read -r prNumber owner repo stateDir <<<"$(echo "$state" \
+coords=$(gestalt review-loop resolve --pr "$(cat "$root/target")") \
+  || { echo "좌표를 못 읽었습니다 — 진행하지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$coords" \
   | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
 
 gestalt humanize-scan --file "$stateDir/verdict-r<N>.md" --register chat
@@ -545,9 +546,9 @@ echo "EXIT=$?"
 
 ```bash
 root=<Phase 0에서 출력된 뿌리 경로>
-state=$(gestalt review-loop state --pr "$(cat "$root/target")" --json) \
-  || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
-read -r prNumber owner repo stateDir <<<"$(echo "$state" \
+coords=$(gestalt review-loop resolve --pr "$(cat "$root/target")") \
+  || { echo "좌표를 못 읽었습니다 — 진행하지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$coords" \
   | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
 
 gh pr review "$prNumber" --repo "$owner/$repo" --request-changes --body-file "$stateDir/verdict-r<N>.md"
@@ -675,9 +676,9 @@ stateDir=<상태 조회가 낸 stateDir 값>
 
 ```bash
 root=<Phase 0에서 출력된 뿌리 경로>
-state=$(gestalt review-loop state --pr "$(cat "$root/target")" --json) \
-  || { echo "상태 조회 실패 — 진행하지 않는다"; exit 1; }
-read -r prNumber owner repo stateDir <<<"$(echo "$state" \
+coords=$(gestalt review-loop resolve --pr "$(cat "$root/target")") \
+  || { echo "좌표를 못 읽었습니다 — 진행하지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$coords" \
   | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
 
 gh api "repos/$owner/$repo/pulls/$prNumber/comments/<코멘트id>/replies" \

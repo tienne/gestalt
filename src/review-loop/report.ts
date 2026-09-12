@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fetchPrSnapshot, runGh, type GhRunner } from './fetch.js';
 import { deriveSignal, type LoopSignal } from './signal.js';
@@ -108,10 +108,18 @@ function resolveLogin(dir: string, gh: GhRunner): string {
   }
   const login = gh(['api', 'user', '--jq', '.login']).trim();
   if (!login) throw new Error('내 로그인을 못 읽었다 — gh 인증을 확인한다');
+  // 굳혀둔다. 안 그러면 조회할 때마다 왕복이 하나씩 더 붙는다. 상태 자리 표가 선언한
+  // 파일도 영영 안 생긴다
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(cached, `${login}\n`);
+  } catch {
+    // 캐시를 못 써도 조회는 성립한다. 다음 라운드가 다시 묻는다
+  }
   return login;
 }
 
-function resolveRepo(gh: GhRunner): { owner: string; repo: string } {
+export function resolveRepo(gh: GhRunner): { owner: string; repo: string } {
   const raw = gh(['repo', 'view', '--json', 'owner,name']).trim();
   const parsed = JSON.parse(raw) as { owner?: { login?: string }; name?: string };
   const owner = parsed.owner?.login;

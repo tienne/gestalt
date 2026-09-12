@@ -15,6 +15,7 @@ import { DEFAULT_CASES_PATH, explainEvalCommand } from './commands/explain-eval.
 import {
   reviewLoopDirCommand,
   reviewLoopParseCommand,
+  reviewLoopResolveCommand,
   reviewLoopStateCommand,
 } from './commands/review-loop.js';
 import { getVersion } from '../core/version.js';
@@ -242,9 +243,16 @@ export function createCli(): Command {
 
   reviewLoop
     .command('dir')
-    .description('상태 자리의 뿌리. PR별 자리는 state가 stateDir로 낸다')
+    .description('상태 자리의 뿌리. 대상을 아직 못 가린 단계가 쓴다')
     .option('--create', '없으면 만든다')
     .action((o) => reviewLoopDirCommand(o));
+
+  reviewLoop
+    .command('resolve')
+    .description('대상에서 PR 번호와 레포와 상태 자리를 한 번에 — 라운드 내내 이걸 읽는다')
+    .requiredOption('--pr <target>', 'PR 번호나 URL')
+    .option('--create', '상태 자리를 만든다')
+    .action((o) => reviewLoopResolveCommand(o));
 
   reviewLoop
     .command('parse <target>')
