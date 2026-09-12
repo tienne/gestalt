@@ -214,7 +214,7 @@ echo "$loopTmp"
 
 **출력된 절대 경로를 적어둔다.** 파일 쓰기 도구에 `$loopTmp`를 문자열로 적지 않는다 — 그 도구는 셸 확장을 안 해서 워킹트리 안에 그 이름의 디렉토리가 생긴다.
 
-여기 두는 것은 여섯이다.
+여기 두는 것은 일곱이다.
 
 | 파일 | 무엇 |
 | --- | --- |
@@ -224,6 +224,7 @@ echo "$loopTmp"
 | `issues-r<N>.md` | 그 라운드에 남은 이슈 요지. 조기 종료 판정이 이걸 대조한다 |
 | `verdicts` | 라운드마다 낸 판정 한 줄씩. 2.5가 덧붙이고 Phase 5가 읽는다 |
 | `threads.jsonl` | 스레드 조회 스냅샷. **조회할 때마다 지우고 새로 쓴다** — 라운드 사이에 이어 쓰면 `pending`이 부풀어 오른다 |
+| `count-pending.sh` | 미대응 스레드를 세는 스크립트. 세는 자리가 둘(2.2와 Phase 5)이라 필터를 문서에 두 번 안 적고 여기 한 번 둔다 |
 
 **시작할 때 지난 실행의 잔재를 확인한다.** 이 자리는 세션이 끝나도 남는다. `round` 파일이 있으면 이어서 도는 것이고 없으면 1라운드다. 이어서 돌 때는 그 사실을 사용자에게 한 줄 알린다.
 
@@ -235,8 +236,11 @@ echo "$loopTmp"
 
 ### 1) 쿼리와 좌표
 
+**아래 네 줄이 좌표다.** 2)와 3)과 4)가 각자 맨 위에 이걸 다시 쓴다. 블록이 갈리면 셸 상태가 안 넘어오므로 앞 블록의 값에 기대지 않는다 — 이 문서가 `loopTmp` 에 이미 쓰는 관용구를 나머지 변수에도 그대로 적용한다.
+
 ```bash
 loopTmp=<Phase 0에서 출력된 절대 경로>
+prNumber=${loopTmp##*/pr-}                                   # 디렉토리 이름이 pr-<번호>다
 me=$(cat "$loopTmp/my-login")
 reviewed=$(cat "$loopTmp/reviewed-head" 2>/dev/null || echo none)
 read -r owner repo <<<"$(gh repo view --json owner,name --jq '"\(.owner.login) \(.name)"')"
@@ -256,20 +260,32 @@ Q='query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
 ### 2) 스레드를 전량 받는다
 
 ```bash
+loopTmp=<Phase 0에서 출력된 절대 경로>                        # 1)의 좌표를 다시 세운다
+prNumber=${loopTmp##*/pr-}
+read -r owner repo <<<"$(gh repo view --json owner,name --jq '"\(.owner.login) \(.name)"')"
+Q=<1)의 쿼리 그대로>
+
 : > "$loopTmp/threads.jsonl"   # 비우고 시작한다. 지난 조회가 남으면 pending 이 부풀어 오른다
 cursor=null; pages=0
 while : ; do
   page=$(gh api graphql -f query="$Q" -F owner="$owner" -F repo="$repo" \
            -F number="$prNumber" -F cursor="$cursor") || { echo "조회 실패"; exit 1; }
-  echo "$page" | jq -e '.data.repository.pullRequest != null' >/dev/null \
-    || { echo "조회 응답에 오류: $(echo "$page" | jq -r '.errors[0].message // "pullRequest 가 null"')"; exit 1; }
 
-  echo "$page" | jq '.data.repository.pullRequest.reviewThreads.nodes[]' >> "$loopTmp/threads.jsonl"
+  # 부분 성공을 걸러낸다 — HTTP 200 에 data 가 있어도 errors 가 실리고 reviewThreads 만
+  # null 인 응답이 온다. pullRequest 만 보면 통과해 빈 스냅샷이 "조회 성공" 으로 남는다
+  echo "$page" | jq -e '(.errors | not) and .data.repository.pullRequest.reviewThreads != null' >/dev/null \
+    || { echo "조회 응답에 오류: $(echo "$page" | jq -r '.errors[0].message // "reviewThreads 가 null"')"; exit 1; }
+
+  echo "$page" | jq '.data.repository.pullRequest.reviewThreads.nodes[]' >> "$loopTmp/threads.jsonl" \
+    || { echo "스레드 파싱 실패 — 판정하지 않는다"; exit 1; }
   pages=$((pages+1))
   [ "$pages" -lt 50 ] || { echo "페이지가 50장을 넘었다 — 조회를 멈춘다"; exit 1; }
   [ "$(echo "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')" = "true" ] || break
   cursor=$(echo "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
 done
+
+# 여기까지 왔으면 전량을 받은 것이다. 3)이 이 표식을 보고 신선도를 가른다
+date -u +%Y-%m-%dT%H:%M:%SZ > "$loopTmp/threads.ok"
 ```
 
 - 스냅샷이라 매번 비우고 새로 채운다. 라운드 사이에 이어 쓰지 않는다.
@@ -279,15 +295,34 @@ done
 
 ### 3) `pending`을 센다 — 실패하면 멈춘다
 
-```bash
-[ -f "$loopTmp/threads.jsonl" ] || { echo "스레드 스냅샷이 없다 — 2)를 먼저 돌린다"; exit 1; }
+**2)를 안 돌리고 여기만 오면 멈춘다.** 파일이 남아 있어도 그게 이번 조회의 것이라는 보장이 없다 — 지난 라운드 스냅샷을 집계하면 이미 닫힌 스레드가 빠져 `pending`이 실제보다 작게 나온다. 2)가 끝에 남기는 `threads.ok`가 그 표식이다. **그게 `threads.jsonl`보다 오래됐으면 멈춘다.**
 
-pending=$(jq -s --arg me "$me" '
+**집계는 스크립트 파일 하나다.** Phase 0에서 이 파일을 만들어 두고 세는 자리마다 그걸 부른다. 문서에 필터를 두 번 적으면 한쪽만 고쳐져 같은 PR을 보고 다른 수가 나온다.
+
+파일 쓰기 도구로 `<loopTmp의 절대 경로>/count-pending.sh` 에 쓴다.
+
+```bash
+#!/bin/sh
+# 인자: <threads.jsonl 경로> <내 로그인>
+[ -f "$1" ] || { echo "스레드 스냅샷이 없다 — 상태 조회 2)를 먼저 돌린다" >&2; exit 1; }
+[ -f "$1.ok" ] || { echo "조회 완료 표식이 없다 — 상태 조회 2)를 먼저 돌린다" >&2; exit 1; }
+[ ! "$1" -nt "$1.ok" ] || { echo "스냅샷이 표식보다 새롭다 — 조회가 중간에 끊겼다" >&2; exit 1; }
+jq -s --arg me "$2" '
   [ .[]
     | select(.isResolved | not)
     | select(.comments.nodes[0].author.login == $me)
     | select((.isOutdated | not) and (.comments.nodes[-1].author.login == $me)) ] | length
-' "$loopTmp/threads.jsonl") || { echo "집계 실패 — 판정하지 않는다"; exit 1; }
+' "$1"
+```
+
+세는 자리는 이 두 줄이다.
+
+```bash
+loopTmp=<Phase 0에서 출력된 절대 경로>                        # 1)의 좌표를 다시 세운다
+me=$(cat "$loopTmp/my-login")
+
+pending=$(sh "$loopTmp/count-pending.sh" "$loopTmp/threads.jsonl" "$me") \
+  || { echo "집계 실패 — 판정하지 않는다"; exit 1; }
 ```
 
 **`jq -s`는 파일이 없어도 stdout에 `0`을 찍고 종료 코드 2로 끝난다.** 명령 치환은 stdout만 가져가므로 그대로 두면 조회 실패가 "스레드 0개"로 읽혀 승인이 나간다. 앞의 `-f` 검사와 뒤의 `||`가 그 자리를 막는다. **수를 만드는 명령은 전부 이렇게 fail-closed로 둔다.**
@@ -297,6 +332,12 @@ pending=$(jq -s --arg me "$me" '
 ### 4) 나머지 셋
 
 ```bash
+loopTmp=<Phase 0에서 출력된 절대 경로>                        # 1)의 좌표를 다시 세운다
+prNumber=${loopTmp##*/pr-}
+me=$(cat "$loopTmp/my-login")
+reviewed=$(cat "$loopTmp/reviewed-head" 2>/dev/null || echo none)
+read -r owner repo <<<"$(gh repo view --json owner,name --jq '"\(.owner.login) \(.name)"')"
+
 S=$(gh api graphql -f query='query($owner:String!,$repo:String!,$number:Int!){
   repository(owner:$owner,name:$repo){ pullRequest(number:$number){
     state headRefOid
@@ -304,12 +345,16 @@ S=$(gh api graphql -f query='query($owner:String!,$repo:String!,$number:Int!){
   }}}' -F owner="$owner" -F repo="$repo" -F number="$prNumber") \
   || { echo "PR 상태 조회 실패"; exit 1; }
 
-eval "$(echo "$S" | jq -r --arg me "$me" --arg reviewed "$reviewed" '
+# jq 를 eval 안에서 부르지 않는다. 빈 출력으로 실패하면 eval "" 이 되어 exit 0 이라
+# 뒤의 가드가 안 걸리고 네 값이 조용히 빈 문자열이 된다
+assigns=$(echo "$S" | jq -r --arg me "$me" --arg reviewed "$reviewed" '
   .data.repository.pullRequest
-  | @sh "state=\(.state) head=\(.headRefOid) changed=\(.headRefOid != $reviewed) rerequested=\([.reviewRequests.nodes[].requestedReviewer.login] | index($me) != null)"')" \
+  | @sh "state=\(.state) head=\(.headRefOid) changed=\(.headRefOid != $reviewed) rerequested=\([.reviewRequests.nodes[].requestedReviewer.login] | index($me) != null)"') \
   || { echo "상태 파싱 실패"; exit 1; }
+[ -n "$assigns" ] || { echo "상태 파싱 결과가 비었다"; exit 1; }
+eval "$assigns"
 
-echo "state=$state pending=$pending changed=$changed rerequested=$rerequested head=$head"
+echo "state=$state changed=$changed rerequested=$rerequested head=$head"   # pending 은 3)이 낸다
 ```
 
 **`gh pr view --json reviewRequests`를 쓰지 않는다.** 두 가지가 걸린다.
@@ -469,10 +514,16 @@ gh pr view <prNumber> --json headRefOid --jq .headRefOid > "$loopTmp/round-start
 ```bash
 # 플러그인으로 설치된 경우와 레포 안에서 도는 경우를 둘 다 본다
 for d in "$CLAUDE_PLUGIN_ROOT/skills/review" "$(git rev-parse --show-toplevel)/plugin/skills/review"; do
-  [ -f "$d/SKILL.md" ] && { sed -n '/^---$/,/^---$/p' "$d/SKILL.md" | grep -q '^  postVerdict:' \
-      && echo "OK $d" || echo "MISSING $d"; }
+  [ -f "$d/SKILL.md" ] || continue
+  fm=$(sed -n '/^---$/,/^---$/p' "$d/SKILL.md")
+  echo "$fm" | grep -q '^  postVerdict:' \
+    && echo "$fm" | grep -q '^  - postedReview$' \
+    && echo "$fm" | grep -q '^  - reviewSummary$' \
+    && echo "OK $d" || echo "MISSING $d"
 done
 ```
+
+**입력 하나가 아니라 셋을 본다.** `postVerdict` 입력만 있고 `postedReview` 출력 배관이 없는 중간 버전이 설치돼 있으면, 1.2가 빈 `postedReview`를 "판정 안 게시됨"으로 읽어 이미 나간 승인을 못 본다. 세 선언이 다 있어야 그 감지가 선다.
 
 **어느 경로에서도 `OK`가 안 나오면 라운드를 시작하지 않는다.**
 
@@ -778,16 +829,22 @@ echo "$round"
 
 ### 출력값 채우기 — 어느 경로로 끝나든 먼저 한다
 
-`prNumber`는 Phase 0에서, `loopState`는 아래 종료 분기에서 정해진다. 나머지 넷을 여기서 읽는다.
+`loopState`는 아래 종료 분기에서 정해진다. 나머지 다섯을 여기서 읽는다.
 
-**`unresolvedAtEnd`를 세기 전에 "상태 조회" 1)~3)을 한 번 더 돌린다.** 마지막 라운드 뒤에 작성자가 스레드를 닫았을 수 있다. 거기서 나온 `pending`이 이 값이다.
+**`unresolvedAtEnd`를 세려면 "상태 조회" 1)~3)을 한 번 더 돌려야 한다.** 마지막 라운드 뒤에 작성자가 스레드를 닫았을 수 있다. **아래 블록이 그 조회를 자기가 부른다** — 앞 블록에서 `pending`을 물려받지 않는다. 블록이 갈리면 빈 문자열이 된다.
 
 ```bash
-loopTmp=<Phase 0에서 출력된 절대 경로>
+loopTmp=<Phase 0에서 출력된 절대 경로>                        # 1)의 좌표를 다시 세운다
+prNumber=${loopTmp##*/pr-}
+me=$(cat "$loopTmp/my-login")
 
 rounds=$(cat "$loopTmp/round")                       # 마지막으로 완료한 라운드
 verdicts=$(cat "$loopTmp/verdicts")                  # 한 줄에 하나. 배열로 옮긴다
-unresolvedAtEnd=$pending                             # 방금 돌린 "상태 조회" 3)의 값
+
+# "상태 조회" 2)를 먼저 돌려 threads.jsonl 을 새로 만든 뒤 3)과 같은 스크립트로 센다
+unresolvedAtEnd=$(sh "$loopTmp/count-pending.sh" "$loopTmp/threads.jsonl" "$me") \
+  || { echo "집계 실패"; exit 1; }
+
 finalDecision=$(gh pr view "$prNumber" --json reviewDecision \
   --jq '.reviewDecision // "REVIEW_REQUIRED"') || { echo "판정 조회 실패"; exit 1; }
 ```
