@@ -7,6 +7,9 @@ import { LOGIN_FILE, REVIEWED_HEAD_FILE, stateDir } from './state.js';
 
 export interface LoopStateReport {
   prNumber: number;
+  /** 실제로 조회한 레포. 부르는 쪽이 게시할 때 같은 곳을 가리키려면 이 값을 쓴다 */
+  owner: string;
+  repo: string;
   prState: string;
   open: boolean;
   head: string;
@@ -27,13 +30,15 @@ export interface LoopStateReport {
  * 빈 문자열로 풀렸다. 그 빈 값이 미대응 0 으로 읽혀 승인이 나갔다.
  */
 export function readLoopState(
-  opts: { prNumber: number; me?: string; cwd?: string },
+  opts: { prNumber: number; owner?: string; repo?: string; me?: string; cwd?: string },
   gh: GhRunner = runGh,
 ): LoopStateReport {
   const cwd = opts.cwd ?? process.cwd();
   const dir = stateDir(opts.prNumber, cwd);
-  const me = opts.me?.trim() || resolveLogin(dir, gh);
-  const { owner, repo } = resolveRepo(gh);
+  const me = validateLogin(opts.me?.trim() || resolveLogin(dir, gh));
+  // 대상이 URL 로 왔으면 거기 적힌 레포를 본다. 번호만 왔을 때만 현재 레포로 떨어진다
+  const { owner, repo } =
+    opts.owner && opts.repo ? { owner: opts.owner, repo: opts.repo } : resolveRepo(gh);
 
   const snapshot = fetchPrSnapshot({ owner, repo, prNumber: opts.prNumber }, gh);
 
@@ -47,10 +52,13 @@ export function readLoopState(
   // 첫 라운드는 비교할 이전 head 가 없다. 그때 changed 를 참으로 두면 리뷰도 안 한
   // 커밋을 "새 커밋이 왔다"로 읽으므로 거짓으로 둔다
   const changed = reviewedHead !== null && snapshot.headRefOid !== reviewedHead;
-  const rerequested = snapshot.requestedReviewers.includes(me);
+  const lower = me.toLowerCase();
+  const rerequested = snapshot.requestedReviewers.some((r) => r.toLowerCase() === lower);
 
   return {
     prNumber: opts.prNumber,
+    owner,
+    repo,
     prState: snapshot.prState,
     open,
     head: snapshot.headRefOid,
@@ -69,8 +77,22 @@ export function readLoopState(
  *
  * 캐시 파일이 비어 있으면 조회로 떨어진다. 셸로 적던 때는 `gh api user > my-login` 이
  * 종료 코드를 안 봐서 인증이 끊긴 순간 0 바이트 파일이 남았다. 그 뒤 모든 라운드가
- * 빈 로그인으로 집계해 미대응이 영구히 0 이 됐다.
+ * 빈 로그인으로 집계해 미대응이 영구히 0이 됐다.
  */
+/**
+ * 로그인이 GitHub 이 실제로 낼 수 있는 꼴인지 본다.
+ *
+ * 공백만 걷어내고 그대로 쓰면 보이지 않는 문자가 섞인 값이 검사를 통과한 뒤 어떤
+ * 스레드와도 안 맞아 미대응이 0이 되고 승인이 열린다. 대소문자는 비교하는 쪽에서
+ * 맞추므로 여기서는 문법만 본다.
+ */
+function validateLogin(login: string): string {
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(login)) {
+    throw new Error(`내 로그인을 못 읽었다: ${JSON.stringify(login)}`);
+  }
+  return login;
+}
+
 function resolveLogin(dir: string, gh: GhRunner): string {
   const cached = join(dir, LOGIN_FILE);
   if (existsSync(cached)) {

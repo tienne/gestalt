@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import {
   parsePrNumber,
+  parseTarget,
   readLoopState,
   SIGNAL_ACTION,
   stateDir,
@@ -23,8 +24,8 @@ export interface ReviewLoopStateOptions {
 
 export function reviewLoopStateCommand(opts: ReviewLoopStateOptions): void {
   run(() => {
-    const prNumber = parsePrNumber(opts.pr);
-    const report = readLoopState({ prNumber, me: opts.me });
+    const { prNumber, owner, repo } = parseTarget(opts.pr);
+    const report = readLoopState({ prNumber, owner, repo, me: opts.me });
     if (opts.json) {
       console.log(JSON.stringify(report, null, 2));
       return;
@@ -46,7 +47,7 @@ export function reviewLoopParseCommand(opts: { target: string }): void {
 }
 
 function printReport(r: LoopStateReport): void {
-  console.log(`#${r.prNumber} ${r.prState} — ${r.signal}`);
+  console.log(`${r.owner}/${r.repo}#${r.prNumber} ${r.prState} — ${r.signal}`);
   console.log(`  ${SIGNAL_ACTION[r.signal]}`);
   console.log(`  내가 연 스레드 ${r.totalThreads}개 중 미대응 ${r.pending}개`);
   console.log(`  head ${r.head.slice(0, 8)}${r.changed ? ' (리뷰 이후 바뀜)' : ''}`);
