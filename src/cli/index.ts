@@ -12,6 +12,11 @@ import { humanizeCheckCommand } from './commands/humanize-check.js';
 import { humanizeScanCommand } from './commands/humanize-scan.js';
 import { explainCheckCommand } from './commands/explain-check.js';
 import { DEFAULT_CASES_PATH, explainEvalCommand } from './commands/explain-eval.js';
+import {
+  reviewLoopDirCommand,
+  reviewLoopParseCommand,
+  reviewLoopStateCommand,
+} from './commands/review-loop.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -222,6 +227,30 @@ export function createCli(): Command {
   pr.command('unregister <key>')
     .description('그 레포를 웹 UI 목록에서 뺀다. 레포 자체는 안 건드린다')
     .action((key, o, cmd) => prUnregisterCommand({ ...inherited(cmd), ...o, key }));
+
+  const reviewLoop = program
+    .command('review-loop')
+    .description('남의 PR 리뷰 루프가 쓰는 조회 — 판정에 쓰는 수를 여기서 낸다');
+
+  reviewLoop
+    .command('state')
+    .description('PR 상태와 미대응 스레드 수, 다음에 할 일을 한 번에')
+    .requiredOption('--pr <target>', 'PR 번호나 URL')
+    .option('--me <login>', '내 로그인. 없으면 상태 자리 캐시나 gh api user')
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action((o) => reviewLoopStateCommand(o));
+
+  reviewLoop
+    .command('dir')
+    .description('라운드 상태를 두는 자리의 절대 경로')
+    .requiredOption('--pr <target>', 'PR 번호나 URL')
+    .option('--create', '없으면 만든다')
+    .action((o) => reviewLoopDirCommand(o));
+
+  reviewLoop
+    .command('parse <target>')
+    .description('번호나 #번호나 PR URL에서 번호만')
+    .action((target) => reviewLoopParseCommand({ target }));
 
   program
     .command('humanize-scan')
