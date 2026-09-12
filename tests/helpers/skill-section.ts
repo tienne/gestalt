@@ -159,6 +159,11 @@ export function freeVariables(block: string, allowed: readonly string[] = []): s
   for (const m of withoutLiterals.matchAll(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g)) {
     used.add(m[1]!);
   }
+  // 산술 전개 안에서는 `$` 없이 이름만 써도 셸이 값을 읽는다. `$((n + 1))` 의 n 이
+  // 그 자리라, `$` 만 보면 선언을 지워도 안 걸린다
+  for (const m of withoutLiterals.matchAll(/\$\(\(([^)]*)\)\)/g)) {
+    for (const name of m[1]!.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) used.add(name[0]);
+  }
 
   // 위치 인자와 특수 변수는 셸이 준다.
   const builtin = new Set(['IFS', 'HOME', 'PATH', 'PWD', 'USER', 'SHELL', 'PS1', 'PS2']);
