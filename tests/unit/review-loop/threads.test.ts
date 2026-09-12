@@ -3,16 +3,20 @@ import { countPending, type ReviewThread } from '../../../src/review-loop/thread
 
 const ME = 'reviewer';
 
+/** 첫 로그인이 개설자, 마지막이 최신 코멘트다. 조회가 그 둘만 따로 받아 온다 */
 const thread = (
   logins: Array<string | null>,
   o: { isResolved?: boolean; isOutdated?: boolean } = {},
-): ReviewThread => ({
-  isResolved: o.isResolved ?? false,
-  isOutdated: o.isOutdated ?? false,
-  comments: {
-    nodes: logins.map((login) => ({ author: login === null ? null : { login } })),
-  },
-});
+): ReviewThread => {
+  const node = (login: string | null | undefined) =>
+    login === undefined ? [] : [{ author: login === null ? null : { login } }];
+  return {
+    isResolved: o.isResolved ?? false,
+    isOutdated: o.isOutdated ?? false,
+    opener: { nodes: node(logins[0]) },
+    latest: { nodes: node(logins[logins.length - 1]) },
+  };
+};
 
 describe('미대응 스레드를 센다', () => {
   it('내가 열고 아직 답이 없는 것만 센다', () => {
@@ -44,8 +48,8 @@ describe('미대응 스레드를 센다', () => {
   });
 
   /**
-   * 이 수가 0 이어야 승인이 나가므로 셀 수 없는 상태를 0 으로 답하면 안 된다.
-   * 셸 스크립트로 적던 때는 로그인이 비면 어떤 스레드와도 안 맞아 0 과 종료 코드 0 이
+   * 이 수가 0이어야 승인이 나가므로 셀 수 없는 상태를 0 으로 답하면 안 된다.
+   * 셸 스크립트로 적던 때는 로그인이 비면 어떤 스레드와도 안 맞아 0과 종료 코드 0 이
    * 함께 나왔다. 그 값이 승인 게이트를 그대로 통과했다.
    */
   it('로그인이 비면 0을 내지 않고 멈춘다', () => {
@@ -59,6 +63,30 @@ describe('미대응 스레드를 센다', () => {
 
   it('코멘트가 하나도 없는 스레드를 미대응으로 세지 않는다', () => {
     expect(countPending([thread([])], ME)).toBe(0);
+  });
+
+  /**
+   * GitHub 로그인은 대소문자를 안 가린다. 그대로 비교하면 캐시에 적힌 철자가 응답과
+   * 한 글자만 달라도 어떤 스레드와도 안 맞아 미대응이 0이 되고 승인이 열린다.
+   */
+  it('철자가 달라도 같은 사람으로 센다', () => {
+    expect(countPending([thread(['Reviewer'])], 'reviewer')).toBe(1);
+    expect(countPending([thread(['reviewer'])], 'REVIEWER')).toBe(1);
+    expect(countPending([thread(['REVIEWER', 'author'])], 'reviewer')).toBe(0);
+  });
+
+  /**
+   * 조회가 개설자와 마지막을 따로 받으므로 가운데가 몇 개든 판정이 안 흔들린다.
+   * 한 덩어리로 받던 때는 긴 스레드에서 마지막이 잘려 판정이 뒤집혔다.
+   */
+  it('가운데 코멘트가 몇 개든 개설자와 마지막만 본다', () => {
+    const long = {
+      isResolved: false,
+      isOutdated: false,
+      opener: { nodes: [{ author: { login: ME } }] },
+      latest: { nodes: [{ author: { login: ME } }] },
+    };
+    expect(countPending([long], ME)).toBe(1);
   });
 
   it('스레드가 없으면 0이다 — 첫 리뷰가 늘 그렇다', () => {

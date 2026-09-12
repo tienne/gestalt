@@ -24,10 +24,17 @@ const page = (o: {
     },
   });
 
-const stub = (pages: string[]): GhRunner => {
-  let i = 0;
-  return () => pages[Math.min(i++, pages.length - 1)]!;
+/** 호출 인자를 기록한다. 안 보면 커서를 안 넘겨도 순번 때문에 통과한다 */
+const recorder = (pages: string[]) => {
+  const calls: string[][] = [];
+  const run: GhRunner = (args) => {
+    calls.push([...args]);
+    return pages[Math.min(calls.length - 1, pages.length - 1)]!;
+  };
+  return { run, calls };
 };
+
+const stub = (pages: string[]): GhRunner => recorder(pages).run;
 
 describe('PR 상태와 스레드를 받는다', () => {
   const opts = { owner: 'o', repo: 'r', prNumber: 1 };
@@ -39,19 +46,22 @@ describe('PR 상태와 스레드를 받는다', () => {
     expect(snap.headRefOid).toBe('abc123');
   });
 
-  it('여러 페이지를 이어 붙인다', () => {
-    const snap = fetchPrSnapshot(
-      opts,
-      stub([
-        page({ threads: [{ a: 1 }], hasNext: true, cursor: 'c1' }),
-        page({ threads: [{ a: 2 }, { a: 3 }] }),
-      ]),
-    );
+  it('여러 페이지를 이어 붙이고 커서를 넘긴다', () => {
+    const gh = recorder([
+      page({ threads: [{ a: 1 }], hasNext: true, cursor: 'c1' }),
+      page({ threads: [{ a: 2 }, { a: 3 }] }),
+    ]);
+    const snap = fetchPrSnapshot(opts, gh.run);
     expect(snap.threads).toHaveLength(3);
+
+    // 커서를 안 넘기면 GitHub 이 같은 첫 페이지를 다시 줘서 같은 스레드를 두 번 센다
+    expect(gh.calls).toHaveLength(2);
+    expect(gh.calls[0]!.some((a) => a.startsWith('cursor='))).toBe(false);
+    expect(gh.calls[1]).toContain('cursor=c1');
   });
 
   /**
-   * GitHub 는 HTTP 200 에 data 를 채우고도 errors 를 함께 실어 reviewThreads 만 null 로
+   * GitHub 는 HTTP 200에 data 를 채우고도 errors 를 함께 실어 reviewThreads 만 null 로
    * 주는 응답을 낸다. 그걸 통과시키면 스레드 0 개가 조회 성공으로 읽혀 승인이 나간다.
    */
   it('errors가 실려 오면 멈춘다', () => {
@@ -107,6 +117,8 @@ describe('PR 상태와 스레드를 받는다', () => {
     let calls = 0;
     const counting: GhRunner = () => {
       calls++;
+      // 상한이 풀리면 여기가 먼저 멈춘다. 안 두면 타임아웃으로만 걸려 원인을 안 가리킨다
+      if (calls > PAGE_LIMIT * 2) throw new Error('상한이 안 걸려 계속 돈다');
       return forever;
     };
     expect(() => fetchPrSnapshot(opts, counting)).toThrow(/상한을 넘었다/);
