@@ -1,5 +1,7 @@
 /**
- * 대응 모니터링이 읽어낸 PR 상태. 넷 다 GitHub 조회에서 그대로 온다.
+ * 대응 모니터링이 읽어낸 PR 상태. 조회 결과와 라운드 상태를 합쳐 만든 판정 입력이다 —
+ * `changed` 는 조회한 head 를 지난 라운드에 리뷰한 sha 와 비교한 값이고 나머지 셋도
+ * 원시 응답이 아니라 거기서 뽑아낸 것이다.
  */
 export interface LoopState {
   /** PR 이 아직 열려 있는지. GraphQL `state` 가 OPEN 일 때만 참 */
@@ -31,7 +33,12 @@ export function deriveSignal(state: LoopState): LoopSignal {
   return state.changed ? 'READY' : 'REPLIES_ONLY';
 }
 
-/** 신호마다 루프가 다음에 하는 일. 문서의 재리뷰 판정 표가 이 설명을 쓴다 */
+/**
+ * 신호마다 루프가 다음에 하는 일.
+ *
+ * 문서의 재리뷰 판정 표가 이 문자열을 그대로 싣는다. 테스트가 표 행과 이 값을 대조하므로
+ * 한쪽만 고치면 게이트에서 걸린다.
+ */
 export const SIGNAL_ACTION: Record<LoopSignal, string> = {
   CLOSED: '루프를 끝낸다',
   REREVIEW_REQUESTED: '재리뷰한다 — 미대응이 남아 있어도 간다',
