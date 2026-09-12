@@ -164,14 +164,16 @@ export function freeVariables(block: string, allowed: readonly string[] = []): s
   const withoutLiterals = stripSingleQuoted(body);
 
   const defined = new Set<string>(allowed);
-  // name=... / name+=... — local·export 말고 readonly·declare·typeset 도 대입이다
+  // name=... 과 name+=... — local 과 export 말고 readonly 와 declare, typeset 도 대입이다
   for (const m of withoutLiterals.matchAll(
     /^\s*(?:(?:local|export|readonly|declare|typeset)\s+)*([A-Za-z_][A-Za-z0-9_]*)\+?=/gm,
   )) {
     defined.add(m[1]!);
   }
   // read -r a b — herestring 이 뒤따르든 파이프로 받든 이름을 심는 건 같다
-  for (const m of withoutLiterals.matchAll(/\bread\s+((?:-\w+\s+)*)([A-Za-z0-9_][A-Za-z0-9_\s]*)/g)) {
+  for (const m of withoutLiterals.matchAll(
+    /\bread\s+((?:-\w+\s+)*)([A-Za-z0-9_][A-Za-z0-9_\s]*)/g,
+  )) {
     for (const name of m[2]!.trim().split(/\s+/)) {
       if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) defined.add(name);
     }
@@ -196,12 +198,44 @@ export function freeVariables(block: string, allowed: readonly string[] = []): s
   // 산술 전개 안에서는 `$` 없이 이름만 써도 셸이 값을 읽는다. `$((n + 1))` 의 n 이
   // 그 자리라, `$` 만 보면 선언을 지워도 안 걸린다
   for (const inner of arithmeticBodies(withoutLiterals)) {
-    for (const name of inner.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) used.add(name[0]);
+    // 달러로 시작하는 조각은 앞의 규칙이 이미 봤다. 여기 남겨두면 `$(( $(cat f) + 1 ))`
+    // 의 명령 이름까지 산술 식별자로 세어 거짓 양성이 난다
+    for (const name of stripDollarSpans(inner).matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
+      used.add(name[0]);
+    }
   }
 
   // 위치 인자와 특수 변수는 셸이 준다.
   const builtin = new Set(['IFS', 'HOME', 'PATH', 'PWD', 'USER', 'SHELL', 'PS1', 'PS2']);
   return [...used].filter((name) => !defined.has(name) && !builtin.has(name)).sort();
+}
+
+/** `$(...)`, `${...}`, `$name` 을 지운다. 산술 본문에서 순수 식별자만 남기려는 자리다 */
+function stripDollarSpans(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '$') {
+      out += text[i];
+      continue;
+    }
+    const open = text[i + 1];
+    if (open === '(' || open === '{') {
+      const close = open === '(' ? ')' : '}';
+      let depth = 0;
+      let j = i + 1;
+      for (; j < text.length; j++) {
+        if (text[j] === open) depth++;
+        else if (text[j] === close) {
+          depth--;
+          if (depth === 0) break;
+        }
+      }
+      i = j;
+      continue;
+    }
+    while (i + 1 < text.length && /[A-Za-z0-9_]/.test(text[i + 1]!)) i++;
+  }
+  return out;
 }
 
 /**
