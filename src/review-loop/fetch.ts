@@ -33,7 +33,8 @@ query($owner:String!, $repo:String!, $pr:Int!, $cursor:String) {
         nodes {
           isResolved
           isOutdated
-          comments(first:100) { nodes { author { login } } }
+          opener: comments(first:1) { nodes { author { login } } }
+          latest: comments(last:1) { nodes { author { login } } }
         }
       }
     }
@@ -48,7 +49,7 @@ query($owner:String!, $repo:String!, $pr:Int!, $cursor:String) {
  * 것인지 가리는 표식과 신선도 검사가 따라붙었다. 한 프로세스 안에서 조회하고 세면
  * 그 중간 상태가 아예 없다.
  *
- * 부분 성공을 걸러낸다. GitHub 는 HTTP 200 에 `data` 를 채우고도 `errors` 를 함께
+ * 부분 성공을 걸러낸다. GitHub 는 HTTP 200에 `data` 를 채우고도 `errors` 를 함께
  * 실어 `reviewThreads` 만 `null` 로 주는 응답을 낸다. 그걸 통과시키면 스레드 0 개가
  * 조회 성공으로 읽혀 승인이 나간다.
  */
@@ -63,19 +64,21 @@ export function fetchPrSnapshot(
   let requestedReviewers: string[];
 
   for (let page = 0; page < PAGE_LIMIT; page++) {
+    // 문자열은 `-f` 로 넘긴다. `-F` 는 값이 특수 문자로 시작하면 파일을 읽거나 현재
+    // 레포 값으로 치환하는 매직이 있다. 거기 문자열을 태우면 값 모양에 기대는 안전이 된다
     const args = [
       'api',
       'graphql',
       '-f',
       `query=${QUERY}`,
-      '-F',
+      '-f',
       `owner=${opts.owner}`,
-      '-F',
+      '-f',
       `repo=${opts.repo}`,
       '-F',
       `pr=${opts.prNumber}`,
     ];
-    if (cursor) args.push('-F', `cursor=${cursor}`);
+    if (cursor) args.push('-f', `cursor=${cursor}`);
 
     const parsed = JSON.parse(gh(args)) as {
       errors?: Array<{ message?: string }>;
