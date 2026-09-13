@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { statSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { SQLITE_BUSY_TIMEOUT_MS } from '../core/constants.js';
-import type { CodeGraphNode, CodeGraphEdge, CodeGraphStats } from './types.js';
+import type { CodeGraphNode, CodeGraphEdge, CodeGraphStats, CoChangeMeta } from './types.js';
 import type { CodeNodeEmbedding } from './embedding-provider.js';
 
 const _require = createRequire(import.meta.url);
@@ -94,6 +94,44 @@ function toEdge(row: RawEdgeRow): CodeGraphEdge {
   };
 }
 
+interface RawCoChangeMetaRow {
+  id: number;
+  head_sha: string;
+  commits_used: number;
+  commits_scanned: number;
+  max_files_per_commit: number;
+  min_pair_count: number;
+  built_at: number;
+}
+
+export interface CoChangeNeighborRow {
+  other: string;
+  pairCount: number;
+  soloOther: number;
+}
+
+export interface CoChangePairRow {
+  fileA: string;
+  fileB: string;
+  pairCount: number;
+  soloA: number;
+  soloB: number;
+}
+
+export interface CoChangeMergeInput {
+  pairs: { fileA: string; fileB: string; count: number }[];
+  solos: { filePath: string; count: number }[];
+  meta: {
+    headSha: string;
+    commitsUsed: number;
+    commitsScanned: number;
+    maxFilesPerCommit: number;
+    minPairCount: number;
+  };
+  /** true면 세 테이블을 비우고 새로 쓴다 (전량 재수집). false면 카운터를 더한다 */
+  reset: boolean;
+}
+
 export class CodeGraphStore {
   private db: SqliteDb;
 
@@ -147,6 +185,30 @@ export class CodeGraphStore {
         created_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_embeddings_file ON node_embeddings(file_path);
+
+      CREATE TABLE IF NOT EXISTS cg_cochange (
+        file_a TEXT NOT NULL,
+        file_b TEXT NOT NULL,
+        pair_count INTEGER NOT NULL,
+        updated_at REAL NOT NULL,
+        PRIMARY KEY (file_a, file_b)
+      );
+      CREATE INDEX IF NOT EXISTS idx_cg_cochange_b ON cg_cochange(file_b);
+
+      CREATE TABLE IF NOT EXISTS cg_cochange_solo (
+        file_path TEXT PRIMARY KEY,
+        solo_count INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS cg_cochange_meta (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        head_sha TEXT NOT NULL,
+        commits_used INTEGER NOT NULL,
+        commits_scanned INTEGER NOT NULL,
+        max_files_per_commit INTEGER NOT NULL,
+        min_pair_count INTEGER NOT NULL,
+        built_at REAL NOT NULL
+      );
     `);
   }
 
@@ -347,6 +409,155 @@ export class CodeGraphStore {
 
   deleteEmbeddingsByFile(filePath: string): void {
     this.db.prepare(`DELETE FROM node_embeddings WHERE file_path = ?`).run(filePath);
+  }
+
+  // ─── Co-Change ─────────────────────────────────────────────────
+  //
+  // 점수(confidence/lift)는 저장하지 않고 조회 시점에 계산한다. lift 분모가
+  // commits_used라서 커밋 하나만 더 반영해도 저장된 점수가 전부 무효가 된다.
+  // 그러면 증분 갱신이 매번 전량 재계산으로 떨어진다. 원시 카운트만 두면
+  // 증분이 카운터 덧셈으로 끝난다.
+
+  mergeCoChange(input: CoChangeMergeInput): void {
+    const now = Date.now();
+
+    const deletePairs = this.db.prepare(`DELETE FROM cg_cochange`);
+    const deleteSolos = this.db.prepare(`DELETE FROM cg_cochange_solo`);
+    const deleteMeta = this.db.prepare(`DELETE FROM cg_cochange_meta`);
+
+    const upsertPair = this.db.prepare(`
+      INSERT INTO cg_cochange (file_a, file_b, pair_count, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(file_a, file_b) DO UPDATE SET
+        pair_count = pair_count + excluded.pair_count,
+        updated_at = excluded.updated_at
+    `);
+
+    const upsertSolo = this.db.prepare(`
+      INSERT INTO cg_cochange_solo (file_path, solo_count)
+      VALUES (?, ?)
+      ON CONFLICT(file_path) DO UPDATE SET solo_count = solo_count + excluded.solo_count
+    `);
+
+    const upsertMeta = this.db.prepare(`
+      INSERT INTO cg_cochange_meta
+        (id, head_sha, commits_used, commits_scanned, max_files_per_commit, min_pair_count, built_at)
+      VALUES (1, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        head_sha = excluded.head_sha,
+        commits_used = commits_used + excluded.commits_used,
+        commits_scanned = commits_scanned + excluded.commits_scanned,
+        max_files_per_commit = excluded.max_files_per_commit,
+        min_pair_count = excluded.min_pair_count,
+        built_at = excluded.built_at
+    `);
+
+    const run = this.db.transaction(() => {
+      if (input.reset) {
+        deletePairs.run();
+        deleteSolos.run();
+        deleteMeta.run();
+      }
+      for (const pair of input.pairs) {
+        upsertPair.run(pair.fileA, pair.fileB, pair.count, now);
+      }
+      for (const solo of input.solos) {
+        upsertSolo.run(solo.filePath, solo.count);
+      }
+      upsertMeta.run(
+        input.meta.headSha,
+        input.meta.commitsUsed,
+        input.meta.commitsScanned,
+        input.meta.maxFilesPerCommit,
+        input.meta.minPairCount,
+        now,
+      );
+    });
+
+    run();
+  }
+
+  getCoChangeMeta(): CoChangeMeta | null {
+    const row = this.db.prepare(`SELECT * FROM cg_cochange_meta WHERE id = 1`).get() as
+      | RawCoChangeMetaRow
+      | undefined;
+    if (!row) return null;
+    return {
+      headSha: row.head_sha,
+      commitsUsed: row.commits_used,
+      commitsScanned: row.commits_scanned,
+      maxFilesPerCommit: row.max_files_per_commit,
+      minPairCount: row.min_pair_count,
+      builtAt: row.built_at,
+    };
+  }
+
+  countCoChangePairs(): number {
+    const row = this.db.prepare(`SELECT COUNT(*) AS cnt FROM cg_cochange`).get() as { cnt: number };
+    return row.cnt;
+  }
+
+  getCoChangeSolo(filePath: string): number {
+    const row = this.db
+      .prepare(`SELECT solo_count FROM cg_cochange_solo WHERE file_path = ?`)
+      .get(filePath) as { solo_count: number } | undefined;
+    return row?.solo_count ?? 0;
+  }
+
+  /** 무방향 페어라 file_a/file_b 양쪽을 합쳐야 한 파일의 이웃이 전부 나온다 */
+  getCoChangeNeighbors(filePath: string, minPairCount: number): CoChangeNeighborRow[] {
+    const rows = this.db
+      .prepare(
+        `
+      SELECT p.other AS other, p.pair_count AS pair_count, COALESCE(s.solo_count, 0) AS solo_other
+      FROM (
+        SELECT file_b AS other, pair_count FROM cg_cochange WHERE file_a = ? AND pair_count >= ?
+        UNION ALL
+        SELECT file_a AS other, pair_count FROM cg_cochange WHERE file_b = ? AND pair_count >= ?
+      ) p
+      LEFT JOIN cg_cochange_solo s ON s.file_path = p.other
+    `,
+      )
+      .all(filePath, minPairCount, filePath, minPairCount) as {
+      other: string;
+      pair_count: number;
+      solo_other: number;
+    }[];
+    return rows.map((r) => ({
+      other: r.other,
+      pairCount: r.pair_count,
+      soloOther: r.solo_other,
+    }));
+  }
+
+  getTopCoChangePairs(minPairCount: number, limit: number): CoChangePairRow[] {
+    const rows = this.db
+      .prepare(
+        `
+      SELECT c.file_a AS file_a, c.file_b AS file_b, c.pair_count AS pair_count,
+             COALESCE(sa.solo_count, 0) AS solo_a, COALESCE(sb.solo_count, 0) AS solo_b
+      FROM cg_cochange c
+      LEFT JOIN cg_cochange_solo sa ON sa.file_path = c.file_a
+      LEFT JOIN cg_cochange_solo sb ON sb.file_path = c.file_b
+      WHERE c.pair_count >= ?
+      ORDER BY c.pair_count DESC
+      LIMIT ?
+    `,
+      )
+      .all(minPairCount, limit) as {
+      file_a: string;
+      file_b: string;
+      pair_count: number;
+      solo_a: number;
+      solo_b: number;
+    }[];
+    return rows.map((r) => ({
+      fileA: r.file_a,
+      fileB: r.file_b,
+      pairCount: r.pair_count,
+      soloA: r.solo_a,
+      soloB: r.solo_b,
+    }));
   }
 
   close(): void {
