@@ -19,7 +19,7 @@ export interface PrSnapshot {
 /** 페이지가 늘어도 끝나도록 두는 상한. 스레드 50개씩이라 5000개까지 본다 */
 export const PAGE_LIMIT = 100;
 
-/** 요청 리뷰어를 한 번에 받는 수. 쿼리와 넘침 검사가 같은 값을 봐야 한다 */
+/** 요청 리뷰어를 한 번에 받는 수. 쿼리와 '한 페이지를 채웠는지' 검사가 같은 값을 봐야 한다 */
 export const REVIEWER_PAGE = 50;
 
 const QUERY = `
@@ -51,7 +51,7 @@ query($owner:String!, $repo:String!, $pr:Int!, $cursor:String) {
  * 여기서 끝난다. 부르는 쪽은 스레드를 온전히 받거나 아무것도 못 받는다.
  *
  * `reviewRequests` 도 connection 이지만 커서를 안 돈다. GitHub 가 PR 당 요청 리뷰어를
- * 50보다 훨씬 아래로 제한해 한 페이지에 다 들어온다. 그 전제가 깨지면 아래에서 던진다 —
+ * `REVIEWER_PAGE` 보다 훨씬 아래로 제한해 한 페이지에 다 들어온다. 그 전제가 깨지면 아래에서 던진다 —
  * 목록이 잘리면 `rerequested` 가 거짓으로 읽혀, 작성자가 다시 봐달라고 눌러도 재리뷰를
  * 안 돈다.
  *

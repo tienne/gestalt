@@ -132,6 +132,8 @@ describe('PR 상태와 스레드를 받는다', () => {
     // 상수를 import 해 비교하므로 값을 키우면 이 단언도 같이 커진다. 사실상 상한이
     // 없는 값으로 바뀌는 것만은 여기서 막는다
     expect(PAGE_LIMIT).toBeLessThanOrEqual(1000);
+    // GraphQL connection 의 first 상한. 넘으면 쿼리가 통째로 거부된다
+    expect(REVIEWER_PAGE).toBeLessThanOrEqual(100);
   });
 
   /**

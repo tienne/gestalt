@@ -282,54 +282,66 @@ describe('판정 게시 경계 (postVerdict)', () => {
    * 돌기 때문에 그 어긋남이 남의 세션에서 드러난다.
    */
   describe('문서끼리 가리키는 자리', () => {
-    /** review 가 자기 번호를 정한다. 세 문서를 함께 올바르게 재번호해도 안 깨지게 */
-    const step = review.body.match(/^### (\d+\.\d+)단계: 인라인 코멘트 게시/m)![1]!;
+    /** review 가 자기 번호를 정한다. 세 문서의 번호를 한꺼번에 다시 매겨도 이 테스트는 안 깨진다 */
+    const stepMatch = review.body.match(/^### (\d+\.\d+)단계: 인라인 코멘트 게시/m);
+    expect(stepMatch, '인라인 코멘트 게시 단계의 헤딩을 못 찾았다').not.toBeNull();
+    const postStep = stepMatch![1]!;
+    /** 정규식에 넣을 때는 점을 막는다. 안 그러면 4X7단계 같은 오표기도 참조로 잡힌다 */
+    const stepRe = postStep.replace(/\./g, '\\.');
+
+    /** 이름마다 그 절이어야만 통하는 말. 여기 없는 이름은 절이 실재하는지만 본다 */
+    const EXPECTED = new Map([
+      ['consensus 일치 검사', /stale이므로/],
+      ['어투 검사', /humanize-scan/],
+    ]);
 
     /**
      * 부르는 자리마다 돈다. 첫 매치만 보면 같은 꼴 문장이 앞에 하나 끼는 순간 테스트가
      * 그리로 갈아타고 원래 지키던 참조가 조용히 풀린다.
      */
-    const eachCall = (body: string, anchor: RegExp, mustHave: RegExp) => {
+    const eachCall = (body: string, anchor: RegExp) => {
       const names = [...body.matchAll(anchor)].map((m) => m[1]!.trim());
       expect(names.length, `${anchor} 로 부르는 자리를 못 찾았다`).toBeGreaterThan(0);
       for (const name of names) {
-        expect(
-          sectionStartingWith(review.body, `#### ${name}`),
-          `'${name}' 절이 review 에 없거나 부르는 쪽이 기대한 일을 안 한다`,
-        ).toMatch(mustHave);
+        const section = sectionStartingWith(review.body, `#### ${name}`);
+        const mustHave = EXPECTED.get(name);
+        if (mustHave) {
+          expect(section, `'${name}' 절이 부르는 쪽이 기대한 일을 안 한다`).toMatch(mustHave);
+        }
       }
+      return names;
     };
 
     it('ship이 이름으로 부르는 review 절이 실재한다', () => {
-      eachCall(ship.body, new RegExp(`\`review\` ${step}단계가 \`([^\`]+)\``, 'g'), /stale이므로/);
+      const called = eachCall(
+        ship.body,
+        new RegExp(`\`review\` ${stepRe}단계가 \`([^\`]+)\``, 'g'),
+      );
+      expect(called, 'ship 이 부르는 절이 기대 목록에 없다').toContain('consensus 일치 검사');
     });
 
     it('review-loop이 이름으로 부르는 review 절이 실재한다', () => {
-      eachCall(
+      const called = eachCall(
         loop.body,
-        new RegExp(`\`review\` ${step}단계[의 ]\`([^\`]+)\``, 'g'),
-        /humanize-scan/,
+        new RegExp(`\`review\` ${stepRe}단계(?:의)? \`([^\`]+)\``, 'g'),
       );
+      expect(called, 'review-loop 이 부르는 절이 기대 목록에 없다').toContain('어투 검사');
     });
 
     /**
-     * 번호 앵커는 이름과 달리 여러 문서에서 한꺼번에 조용히 죽는다. 번호를 다시 매기는
-     * 순간이다. 하나라도 부르는 문서가 있는지 본 뒤 그 번호의 헤딩이 실재하는지 단언한다.
+     * 번호 앵커는 이름과 달리 여러 문서에서 한꺼번에 조용히 죽는다. 존재만 보면 일부만
+     * 고친 경우를 놓치므로, 부르는 번호가 전부 review 가 정한 번호와 같은지 본다.
      */
-    it('번호로 가리키는 자리가 전부 살아 있다', () => {
-      const referring = (
-        [
-          ['ship', ship.body],
-          ['review-loop', loop.body],
-          ['review-loop CONTRACT', contract.body],
-        ] as const
-      ).filter(([, body]) => body.includes(`\`review\` ${step}단계`));
+    it('번호로 가리키는 자리가 전부 같은 단계를 가리킨다', () => {
+      const cited = ([ship.body, loop.body, contract.body] as const).flatMap((body) =>
+        [...body.matchAll(/`review` (\d+\.\d+)단계/g)].map((m) => m[1]!),
+      );
 
+      expect(cited.length, '번호로 부르는 자리가 하나도 없다').toBeGreaterThan(0);
       expect(
-        referring.map(([label]) => label),
-        `${step}단계를 번호로 부르는 문서가 없다`,
-      ).not.toHaveLength(0);
-      expect(() => sectionStartingWith(review.body, `### ${step}단계:`)).not.toThrow();
+        [...new Set(cited)],
+        `review 는 ${postStep}단계인데 다른 번호를 부르는 자리가 있다`,
+      ).toEqual([postStep]);
     });
   });
 
