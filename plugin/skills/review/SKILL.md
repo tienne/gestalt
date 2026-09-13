@@ -608,6 +608,8 @@ pnpm tsx bin/gestalt.ts pr --json show <id>   # headSha 필드로 비교
 
 인라인 코멘트는 **언제 요청받든 항상 "현재 diff 기준 consensus + code-review-writer voice"** 로만 게시됩니다. 옛 리뷰 메모리를 그대로 옮겨 적거나 Claude가 손으로 코멘트를 짜는 경로는 없습니다.
 
+#### 게시 준비 (PR 식별과 게시 확인)
+
 **PR 식별.** 대상 판별은 1단계 직후에 이미 끝났습니다. 여기서는 그때 보관한 `prTarget`과 PR 식별자를 그대로 씁니다. **같은 조회를 다시 하지 않습니다.** `prTarget`이 `none`이면(GitHub에도 로컬에도 대응하는 PR이 없는 브랜치나 커밋 범위 리뷰) 이 단계를 통째로 건너뛰고 결과 표시로 갑니다.
 
 게시 직전에 그 PR이 아직 살아 있는지만 한 번 확인합니다.
@@ -626,7 +628,9 @@ pnpm tsx bin/gestalt.ts pr --json show <id> 2>/dev/null
 
 **게시 확인.** PR이 식별되면 사용자에게 한 번 확인합니다: **"발견된 이슈 N건을 PR #<number 또는 로컬 PR id>에 인라인 코멘트로 게시할까요?"** 동의하지 않으면 리포트만 보여주고 종료합니다.
 
-**코멘트 본문 작성 (code-review-writer).** **서브에이전트에 위임합니다.** 이 에이전트는 본문 18.8KB에 `author-voice.md` 19KB를 딸고 오는, 이 스킬에서 제일 무거운 자리입니다.
+#### 코멘트 본문 작성 (code-review-writer)
+
+**서브에이전트에 위임합니다.** 이 에이전트는 본문 18.8KB에 `author-voice.md` 19KB를 딸고 오는, 이 스킬에서 제일 무거운 자리입니다.
 
 ```
 Agent {

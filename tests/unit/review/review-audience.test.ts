@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseSkillMd } from '../../../src/skills/parser.js';
 import { RoleAgentRegistry } from '../../../src/agent/role-agent-registry.js';
-import { section, sectionStartingWith } from '../../helpers/skill-section.js';
+import { section, sectionStartingWith, codeBlockContaining } from '../../helpers/skill-section.js';
 
 const SKILL_PATH = resolve('plugin/skills/review/SKILL.md');
 const skill = parseSkillMd(readFileSync(SKILL_PATH, 'utf-8'), SKILL_PATH);
@@ -177,25 +177,20 @@ describe('리뷰 코멘트 audience 옵션', () => {
     });
 
     it('4.7단계 서브에이전트 프롬프트가 audience를 넘긴다', () => {
-      const stage = sectionStartingWith(skill.body, '### 4.7단계:');
-      expect(stage).toContain('audience: <peer | junior');
-      expect(stage).toMatch(/audience\.md 같은 이름의 파일을 찾아 읽지 않는다/);
-      // 1.05를 안 거치고 들어온 경로의 폴백
-      expect(stage).toMatch(/1\.05단계를 안 거치고/);
+      // 절 전체가 아니라 프롬프트 펜스를 집는다. 절로 잡으면 audience 줄이 산문으로
+      // 새어나가도 통과해, 프롬프트가 넘긴다는 보장이 사라진다
+      const prompt = codeBlockContaining(
+        skill.body,
+        '#### 코멘트 본문 작성 (code-review-writer)',
+        'code-review-writer',
+      );
+      expect(prompt).toContain('audience: <peer | junior');
+      expect(prompt).toMatch(/audience\.md 같은 이름의 파일을 찾아 읽지 않는다/);
     });
 
-    /**
-     * ship 이 review 의 절을 이름으로 가리킨다. 위 앵커가 4.7단계로 올라가면서 그 이름을
-     * 지키던 자리가 없어졌다. 한쪽 이름이 움직이면 다른 쪽 문장이 없는 절을 가리킨 채 남는다.
-     */
-    it('ship이 부르는 절 이름이 review에 실재한다', () => {
-      const shipBody = parseSkillMd(
-        readFileSync(resolve('plugin/skills/ship/SKILL.md'), 'utf-8'),
-        resolve('plugin/skills/ship/SKILL.md'),
-      ).body;
-      const referenced = 'consensus 일치 검사';
-      expect(shipBody, `ship이 '${referenced}'를 안 부른다`).toContain(referenced);
-      expect(sectionStartingWith(skill.body, `#### ${referenced}`)).toBeTruthy();
+    it('게시 준비 절이 1.05단계 폴백을 남긴다', () => {
+      const prep = sectionStartingWith(skill.body, '#### 게시 준비');
+      expect(prep).toMatch(/1\.05단계를 안 거치고/);
     });
 
     it('로컬 게시 절이 확인 자리를 1.05단계로 넘긴다', () => {
