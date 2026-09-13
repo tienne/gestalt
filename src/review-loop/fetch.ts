@@ -20,7 +20,7 @@ export interface PrSnapshot {
 export const PAGE_LIMIT = 100;
 
 /** 요청 리뷰어를 한 번에 받는 수. 쿼리와 넘침 검사가 같은 값을 봐야 한다 */
-const REVIEWER_PAGE = 50;
+export const REVIEWER_PAGE = 50;
 
 const QUERY = `
 query($owner:String!, $repo:String!, $pr:Int!, $cursor:String) {
@@ -52,7 +52,8 @@ query($owner:String!, $repo:String!, $pr:Int!, $cursor:String) {
  *
  * `reviewRequests` 도 connection 이지만 커서를 안 돈다. GitHub 가 PR 당 요청 리뷰어를
  * 50보다 훨씬 아래로 제한해 한 페이지에 다 들어온다. 그 전제가 깨지면 아래에서 던진다 —
- * 목록이 잘리면 재요청 여부를 '없음'으로 읽어 승인이 그대로 나간다.
+ * 목록이 잘리면 `rerequested` 가 거짓으로 읽혀, 작성자가 다시 봐달라고 눌러도 재리뷰를
+ * 안 돈다.
  *
  * 부분 성공을 걸러낸다. GitHub 는 HTTP 200에 `data` 를 채우고도 `errors` 를 함께
  * 실어 `reviewThreads` 만 `null` 로 주는 응답을 낸다. 그걸 통과시키면 스레드 0 개가
@@ -99,7 +100,7 @@ export function fetchPrSnapshot(
     prState = pr.state;
     headRefOid = pr.headRefOid;
     if (pr.reviewRequests.nodes.length >= REVIEWER_PAGE) {
-      throw new Error('요청 리뷰어가 한 페이지를 넘었다 — 판정하지 않는다');
+      throw new Error('요청 리뷰어가 한 페이지를 채웠다 — 목록이 잘렸을 수 있어 판정하지 않는다');
     }
     requestedReviewers = pr.reviewRequests.nodes
       .map((n) => n.requestedReviewer?.login)
