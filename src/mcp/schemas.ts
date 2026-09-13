@@ -556,9 +556,9 @@ export type BenchmarkInput = z.infer<typeof benchmarkInputSchema>;
 // ─── Code Graph Tool ────────────────────────────────────────────
 export const codeGraphInputSchema = z.object({
   action: z
-    .enum(['build', 'blast_radius', 'diff_radius', 'query', 'stats', 'db_exists'])
+    .enum(['build', 'blast_radius', 'diff_radius', 'query', 'stats', 'db_exists', 'cochange'])
     .describe(
-      'build: index codebase, blast_radius: committed changes, diff_radius: uncommitted changes, query: graph query, stats: show stats, db_exists: check DB',
+      'build: index codebase, blast_radius: committed changes, diff_radius: uncommitted changes, query: graph query, stats: show stats, db_exists: check DB, cochange: files that changed together in git history',
     ),
   repoRoot: z.string().describe('Absolute path to the repository root'),
   // build 전용
@@ -584,7 +584,22 @@ export const codeGraphInputSchema = z.object({
     .enum(['callers_of', 'callees_of', 'tests_for', 'imports_of'])
     .optional()
     .describe('Query pattern (required for query action)'),
-  target: z.string().optional().describe('Target function/file name (required for query action)'),
+  target: z
+    .string()
+    .optional()
+    .describe(
+      'Target function/file name. Required for query; optional for cochange (omit to list top pairs repo-wide)',
+    ),
+  // cochange 전용
+  limit: z.number().optional().describe('Max rows to return (cochange, default: 30 / 50)'),
+  minPairCount: z
+    .number()
+    .optional()
+    .describe('Drop pairs seen together fewer times than this (cochange, default: 3)'),
+  minConfidence: z
+    .number()
+    .optional()
+    .describe('Drop pairs below this confidence (cochange, default: 0.3)'),
 });
 
 export type CodeGraphInput = z.infer<typeof codeGraphInputSchema>;

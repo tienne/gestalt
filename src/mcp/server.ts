@@ -399,12 +399,12 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   server.tool(
     'ges_code_graph',
-    'Build and query the code knowledge graph for a repository. Actions: build (index codebase), blast_radius (find impacted files from committed changes), diff_radius (find impacted files from uncommitted changes), query (graph traversal), stats (show DB stats), db_exists (check if graph DB exists).',
+    'Build and query the code knowledge graph for a repository. Actions: build (index codebase), blast_radius (find impacted files from committed changes), diff_radius (find impacted files from uncommitted changes), query (graph traversal), stats (show DB stats), db_exists (check if graph DB exists), cochange (files that git history shows changing together).',
     {
       action: z
-        .enum(['build', 'blast_radius', 'diff_radius', 'query', 'stats', 'db_exists'])
+        .enum(['build', 'blast_radius', 'diff_radius', 'query', 'stats', 'db_exists', 'cochange'])
         .describe(
-          'build: index codebase into graph DB, blast_radius: find files impacted by committed changes, diff_radius: find files impacted by uncommitted changes, query: traverse graph, stats: show stats, db_exists: check if DB exists',
+          'build: index codebase into graph DB, blast_radius: find files impacted by committed changes, diff_radius: find files impacted by uncommitted changes, query: traverse graph, stats: show stats, db_exists: check if DB exists, cochange: files that changed together in git history',
         ),
       repoRoot: z.string(),
       include: z.array(z.string()).optional(),
@@ -420,7 +420,13 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           'diff_radius mode: staged=git diff --cached, unstaged=git diff, all=git diff HEAD (default: all)',
         ),
       pattern: z.enum(['callers_of', 'callees_of', 'tests_for', 'imports_of']).optional(),
-      target: z.string().optional(),
+      target: z
+        .string()
+        .optional()
+        .describe('(cochange: omit to list top co-changing pairs repo-wide)'),
+      limit: z.number().optional(),
+      minPairCount: z.number().optional(),
+      minConfidence: z.number().optional(),
     },
     async (params) => {
       const input = codeGraphInputSchema.parse(params);

@@ -3,7 +3,7 @@ import { codeGraphEngine } from '../../code-graph/index.js';
 import type { QueryPattern } from '../../code-graph/index.js';
 
 export type CodeGraphInput = {
-  action: 'build' | 'blast_radius' | 'diff_radius' | 'query' | 'stats' | 'db_exists';
+  action: 'build' | 'blast_radius' | 'diff_radius' | 'query' | 'stats' | 'db_exists' | 'cochange';
   repoRoot: string;
   // build 전용
   include?: string[];
@@ -15,9 +15,13 @@ export type CodeGraphInput = {
   maxDepth?: number;
   // diff_radius 전용
   diffMode?: 'staged' | 'unstaged' | 'all';
-  // query 전용
+  // query 전용 (target은 cochange와 공유한다)
   pattern?: QueryPattern;
   target?: string;
+  // cochange 전용
+  limit?: number;
+  minPairCount?: number;
+  minConfidence?: number;
 };
 
 export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise<object> {
@@ -53,6 +57,9 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
           // 개수는 늘 싣고 목록은 진단용으로 앞 20개만 — 전량은 응답만 키운다.
           skippedCount: result.skippedFiles.length,
           skippedFiles: result.skippedFiles.slice(0, 20),
+          // undefined면 수집을 건너뛴 것이다 (git 레포가 아니거나 repoRoot가
+          // 레포 최상위가 아님). 0과 구분돼야 한다.
+          coChange: result.coChange,
         };
       }
 
@@ -86,6 +93,16 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
 
       case 'stats': {
         const result = codeGraphEngine.stats(repoRoot);
+        return result;
+      }
+
+      case 'cochange': {
+        const result = codeGraphEngine.cochange(repoRoot, {
+          target: input.target,
+          limit: input.limit,
+          minPairCount: input.minPairCount,
+          minConfidence: input.minConfidence,
+        });
         return result;
       }
 
