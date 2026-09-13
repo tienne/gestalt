@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { fetchPrSnapshot, PAGE_LIMIT, type GhRunner } from '../../../src/review-loop/fetch.js';
+import {
+  fetchPrSnapshot,
+  PAGE_LIMIT,
+  REVIEWER_PAGE,
+  type GhRunner,
+} from '../../../src/review-loop/fetch.js';
 
 const page = (o: {
   threads?: unknown[];
@@ -127,6 +132,27 @@ describe('PR 상태와 스레드를 받는다', () => {
     // 상수를 import 해 비교하므로 값을 키우면 이 단언도 같이 커진다. 사실상 상한이
     // 없는 값으로 바뀌는 것만은 여기서 막는다
     expect(PAGE_LIMIT).toBeLessThanOrEqual(1000);
+    // GraphQL connection 의 first 상한. 넘으면 쿼리가 통째로 거부된다
+    expect(REVIEWER_PAGE).toBeLessThanOrEqual(100);
+  });
+
+  /**
+   * 리뷰어 목록은 커서를 안 돈다. 한 페이지가 꽉 차면 잘렸는지 알 수 없는데, 그대로
+   * 통과시키면 재요청을 '없음'으로 읽어 작성자가 다시 봐달라고 눌러도 재리뷰를 안 돈다.
+   */
+  it('요청 리뷰어가 한 페이지를 채우면 멈춘다', () => {
+    const full = Array.from({ length: REVIEWER_PAGE }, (_, i) => ({
+      requestedReviewer: { login: `u${i}` },
+    }));
+    expect(() => fetchPrSnapshot(opts, stub([page({ reviewers: full })]))).toThrow(
+      /잘렸을 수 있어/,
+    );
+
+    // 경계를 고정한다. >= 가 > 로 바뀌면 꽉 찬 페이지가 조용히 통과한다
+    const short = full.slice(0, REVIEWER_PAGE - 1);
+    expect(
+      fetchPrSnapshot(opts, stub([page({ reviewers: short })])).requestedReviewers,
+    ).toHaveLength(REVIEWER_PAGE - 1);
   });
 
   it('리뷰어 목록에 login 없는 팀이 섞여도 사람만 추린다', () => {

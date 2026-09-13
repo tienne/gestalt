@@ -19,13 +19,16 @@ export interface PrSnapshot {
 /** 페이지가 늘어도 끝나도록 두는 상한. 스레드 50개씩이라 5000개까지 본다 */
 export const PAGE_LIMIT = 100;
 
+/** 요청 리뷰어를 한 번에 받는 수. 쿼리와 '한 페이지를 채웠는지' 검사가 같은 값을 봐야 한다 */
+export const REVIEWER_PAGE = 50;
+
 const QUERY = `
 query($owner:String!, $repo:String!, $pr:Int!, $cursor:String) {
   repository(owner:$owner, name:$repo) {
     pullRequest(number:$pr) {
       state
       headRefOid
-      reviewRequests(first:50) {
+      reviewRequests(first:${REVIEWER_PAGE}) {
         nodes { requestedReviewer { ... on User { login } } }
       }
       reviewThreads(first:50, after:$cursor) {
@@ -44,10 +47,13 @@ query($owner:String!, $repo:String!, $pr:Int!, $cursor:String) {
 /**
  * PR 상태와 내가 볼 스레드를 한 번에 받는다.
  *
- * 판정에 쓰는 수가 전부 이 한 호출에서 나온다. 문서가 이걸 셸로 적던 때는 조회와
- * 집계가 다른 Bash 호출로 갈려 그 사이를 파일로 이어야 했다. 스냅샷이 이번 조회의
- * 것인지 가리는 표식과 신선도 검사가 따라붙었다. 한 프로세스 안에서 조회하고 세면
- * 그 중간 상태가 아예 없다.
+ * 판정에 쓸 원자료를 이 함수 하나가 모은다. 페이지를 도는 건 스레드뿐이라 합치는 건
+ * 여기서 끝난다. 부르는 쪽은 스레드를 온전히 받거나 아무것도 못 받는다.
+ *
+ * `reviewRequests` 도 connection 이지만 커서를 안 돈다. GitHub 가 PR 당 요청 리뷰어를
+ * `REVIEWER_PAGE` 보다 훨씬 아래로 제한해 한 페이지에 다 들어온다. 그 전제가 깨지면 아래에서 던진다 —
+ * 목록이 잘리면 `rerequested` 가 거짓으로 읽혀, 작성자가 다시 봐달라고 눌러도 재리뷰를
+ * 안 돈다.
  *
  * 부분 성공을 걸러낸다. GitHub 는 HTTP 200에 `data` 를 채우고도 `errors` 를 함께
  * 실어 `reviewThreads` 만 `null` 로 주는 응답을 낸다. 그걸 통과시키면 스레드 0 개가
@@ -93,6 +99,9 @@ export function fetchPrSnapshot(
 
     prState = pr.state;
     headRefOid = pr.headRefOid;
+    if (pr.reviewRequests.nodes.length >= REVIEWER_PAGE) {
+      throw new Error('요청 리뷰어가 한 페이지를 채웠다 — 목록이 잘렸을 수 있어 판정하지 않는다');
+    }
     requestedReviewers = pr.reviewRequests.nodes
       .map((n) => n.requestedReviewer?.login)
       .filter((l): l is string => typeof l === 'string');

@@ -19,8 +19,12 @@ import {
 
 const reviewPath = resolve('plugin/skills/review/SKILL.md');
 const loopPath = resolve('plugin/skills/review-loop/SKILL.md');
+const shipPath = resolve('plugin/skills/ship/SKILL.md');
 const review = parseSkillMd(readFileSync(reviewPath, 'utf-8'), reviewPath);
 const loop = parseSkillMd(readFileSync(loopPath, 'utf-8'), loopPath);
+const ship = parseSkillMd(readFileSync(shipPath, 'utf-8'), shipPath);
+const contractPath = resolve('plugin/skills/review-loop/CONTRACT.md');
+const contract = { body: readFileSync(contractPath, 'utf-8') };
 
 /**
  * review 4.7단계는 GitHub PR 대상이면 인라인 코멘트와 함께 리뷰 이벤트까지 게시한다.
@@ -42,7 +46,7 @@ describe('판정 게시 경계 (postVerdict)', () => {
     });
 
     it('이벤트를 정하는 절 안에서 postVerdict가 COMMENT로 고정한다', () => {
-      const s = section(review.body, '### 4.7단계: 인라인 코멘트 게시 (code-review-writer)');
+      const s = sectionStartingWith(review.body, '#### 리뷰 이벤트 결정');
       expect(s).toMatch(/postVerdict/);
       expect(s).toMatch(/COMMENT/);
     });
@@ -270,6 +274,75 @@ describe('판정 게시 경계 (postVerdict)', () => {
         [],
       );
     }
+  });
+
+  /**
+   * 문서가 서로를 가리키는 자리는 사람이 손으로 맞춘다. 한쪽에서 절 이름을 바꿔도 다른 쪽
+   * 문장은 그대로 남아 없는 절을 가리킨다. 세 스킬이 플러그인으로 배포돼 서로 다른 레포에서도
+   * 돌기 때문에 그 어긋남이 남의 세션에서 드러난다.
+   */
+  describe('문서끼리 가리키는 자리', () => {
+    /** review 가 자기 번호를 정한다. 세 문서의 번호를 한꺼번에 다시 매겨도 이 테스트는 안 깨진다 */
+    const stepMatch = review.body.match(/^### (\d+\.\d+)단계: 인라인 코멘트 게시/m);
+    expect(stepMatch, '인라인 코멘트 게시 단계의 헤딩을 못 찾았다').not.toBeNull();
+    const postStep = stepMatch![1]!;
+    /** 정규식에 넣을 때는 점을 막는다. 안 그러면 4X7단계 같은 오표기도 참조로 잡힌다 */
+    const stepRe = postStep.replace(/\./g, '\\.');
+
+    /** 이름마다 그 절이어야만 통하는 말. 여기 없는 이름은 절이 실재하는지만 본다 */
+    const EXPECTED = new Map([
+      ['consensus 일치 검사', /stale이므로/],
+      ['어투 검사', /humanize-scan/],
+    ]);
+
+    /**
+     * 부르는 자리마다 돈다. 첫 매치만 보면 같은 꼴 문장이 앞에 하나 끼는 순간 테스트가
+     * 그리로 갈아타고 원래 지키던 참조가 조용히 풀린다.
+     */
+    const eachCall = (body: string, anchor: RegExp) => {
+      const names = [...body.matchAll(anchor)].map((m) => m[1]!.trim());
+      expect(names.length, `${anchor} 로 부르는 자리를 못 찾았다`).toBeGreaterThan(0);
+      for (const name of names) {
+        const section = sectionStartingWith(review.body, `#### ${name}`);
+        const mustHave = EXPECTED.get(name);
+        if (mustHave) {
+          expect(section, `'${name}' 절이 부르는 쪽이 기대한 일을 안 한다`).toMatch(mustHave);
+        }
+      }
+      return names;
+    };
+
+    it('ship이 이름으로 부르는 review 절이 실재한다', () => {
+      const called = eachCall(
+        ship.body,
+        new RegExp(`\`review\` ${stepRe}단계가 \`([^\`]+)\``, 'g'),
+      );
+      expect(called, 'ship 이 부르는 절이 기대 목록에 없다').toContain('consensus 일치 검사');
+    });
+
+    it('review-loop이 이름으로 부르는 review 절이 실재한다', () => {
+      const called = eachCall(
+        loop.body,
+        new RegExp(`\`review\` ${stepRe}단계(?:의)? \`([^\`]+)\``, 'g'),
+      );
+      expect(called, 'review-loop 이 부르는 절이 기대 목록에 없다').toContain('어투 검사');
+    });
+
+    /**
+     * 번호 앵커는 이름과 달리 여러 문서에서 한꺼번에 조용히 죽는다. 존재만 보면 일부만
+     * 고친 경우를 놓치므로, 부르는 번호가 전부 review 가 정한 번호와 같은지 본다.
+     */
+    it('번호로 가리키는 자리가 전부 같은 단계를 가리킨다', () => {
+      const cited = ([ship.body, loop.body, contract.body] as const).flatMap((body) =>
+        [...body.matchAll(/`review` (\d+\.\d+)단계/g)].map((m) => m[1]!),
+      );
+
+      expect(cited.length, '번호로 부르는 자리가 하나도 없다').toBeGreaterThan(0);
+      expect(
+        [...new Set(cited)],
+        `review 는 ${postStep}단계인데 다른 번호를 부르는 자리가 있다`,
+      ).toEqual([postStep]);
+    });
   });
 
   describe('출력 규약', () => {

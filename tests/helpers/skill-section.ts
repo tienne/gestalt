@@ -320,3 +320,10 @@ function openingMarker(line: string): string | null {
   }
   return null;
 }
+
+/** 헤딩 꼬리를 안 외우고 블록을 집는다. 접두어 매칭이라는 점만 codeBlockContaining과 다르다 */
+export function codeBlockContainingIn(body: string, prefix: string, needle: string): string {
+  const heading = body.split('\n').find((l) => l.startsWith(prefix));
+  expect(heading, `${prefix} 로 시작하는 헤딩을 못 찾았다`).toBeDefined();
+  return codeBlockContaining(body, heading!, needle);
+}

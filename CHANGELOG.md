@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`review` 4.7단계의 절 이름이 '신선도 가드'에서 'consensus 일치 검사'로 바뀌었어요.** 코드 상태를 비유 명사로 부르면 그 자리에서 무엇을 보는지가 말에 안 남아서요(ai-tell F-9). 영어 `stale`은 문헌에 뜻이 박힌 말이라 그대로 뒀고 한국어 쪽만 걷었습니다. `review-loop`이 `state`를 부르는 자리도 같이 손봤어요 — 거기는 미대응 수나 `signal`이 판정에 바로 쓰이는 자리라 애초에 다른 말로 불렀어야 했습니다. `fetch.ts`와 `state.ts` 주석에 있던 '신선도 검사'도 함께 걷혔고요. 지난 릴리즈 노트가 그 이름으로 부르던 절이 이겁니다 — 거기는 발행된 기록이라 그대로 뒀어요.
+
 ## [0.76.0] - 2026-09-12
 
 ### Added
