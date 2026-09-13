@@ -4,7 +4,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { CodeGraphStore } from '../../../src/code-graph/storage.js';
 import { computeBlastRadius } from '../../../src/code-graph/blast-radius.js';
 import { NodeKind, EdgeKind } from '../../../src/code-graph/types.js';
-import type { CodeGraphNode, CodeGraphEdge } from '../../../src/code-graph/types.js';
+import type {
+  CodeGraphNode,
+  CodeGraphEdge,
+  CoChangeLookup,
+} from '../../../src/code-graph/types.js';
 
 function makeNode(id: string, filePath: string, isTest = false): CodeGraphNode {
   return {
@@ -269,6 +273,87 @@ describe('computeBlastRadius()', () => {
       const full = computeBlastRadius(store, ['src/a.ts'], 10);
 
       expect(truncated.riskScore).toBeLessThan(full.riskScore);
+    });
+  });
+
+  describe('co-change 병합', () => {
+    function buildImportGraph(): void {
+      store.upsertNode(makeNode('function:src/a.ts:fn', 'src/a.ts'));
+      store.upsertNode(makeNode('function:src/b.ts:fn', 'src/b.ts'));
+      store.upsertEdge(makeEdge('function:src/b.ts:fn', 'function:src/a.ts:fn'));
+    }
+
+    function lookup(neighbors: CoChangeLookup['neighbors']): CoChangeLookup {
+      return { available: true, pairsInDb: neighbors.length, neighbors };
+    }
+
+    it('3인자로 부르면 이력 신호 없이 import 출처만 남는다', () => {
+      buildImportGraph();
+
+      const result = computeBlastRadius(store, ['src/a.ts'], 2);
+
+      expect(result.coChangeAvailable).toBe(false);
+      expect(result.rankedFiles.length).toBeGreaterThan(0);
+      expect(result.rankedFiles.every((f) => f.origin === 'import')).toBe(true);
+      expect(result.summary).toContain('Git history signal unavailable');
+    });
+
+    it('빈 입력도 rankedFiles를 빈 배열로 낸다', () => {
+      const result = computeBlastRadius(store, []);
+
+      expect(result.rankedFiles).toEqual([]);
+      expect(result.coChangeAvailable).toBe(false);
+    });
+
+    it('두 신호에 모두 걸린 파일이 가장 위로 온다', () => {
+      buildImportGraph();
+
+      const result = computeBlastRadius(
+        store,
+        ['src/a.ts'],
+        2,
+        lookup([
+          { filePath: 'plugin/mcp.json', pairCount: 14, confidence: 0.7, lift: 8 },
+          { filePath: 'src/b.ts', pairCount: 18, confidence: 0.9, lift: 12 },
+        ]),
+      );
+
+      expect(result.coChangeAvailable).toBe(true);
+      expect(result.rankedFiles[0]).toMatchObject({ filePath: 'src/b.ts', origin: 'both' });
+      expect(result.rankedFiles[1]).toMatchObject({
+        filePath: 'plugin/mcp.json',
+        origin: 'history',
+      });
+      expect(result.rankedFiles.at(-1)!.origin).toBe('import');
+    });
+
+    it('이력에만 걸린 파일은 impactedFiles를 오염시키지 않는다', () => {
+      buildImportGraph();
+
+      const result = computeBlastRadius(
+        store,
+        ['src/a.ts'],
+        2,
+        lookup([{ filePath: 'docs/guide.md', pairCount: 9, confidence: 0.5, lift: 4 }]),
+      );
+
+      // impactedFiles는 소비자가 vitest 인자로 직결한다 — md가 섞이면 안 된다
+      expect(result.impactedFiles).not.toContain('docs/guide.md');
+      expect(result.rankedFiles.map((f) => f.filePath)).toContain('docs/guide.md');
+    });
+
+    it('available:false면 사유를 그대로 실어 조용한 0건을 막는다', () => {
+      buildImportGraph();
+
+      const result = computeBlastRadius(store, ['src/a.ts'], 2, {
+        available: false,
+        reason: 'co-change history has not been collected',
+        pairsInDb: 0,
+        neighbors: [],
+      });
+
+      expect(result.coChangeAvailable).toBe(false);
+      expect(result.coChangeReason).toContain('has not been collected');
     });
   });
 });
