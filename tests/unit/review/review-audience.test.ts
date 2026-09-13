@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseSkillMd } from '../../../src/skills/parser.js';
 import { RoleAgentRegistry } from '../../../src/agent/role-agent-registry.js';
-import { section, sectionStartingWith, codeBlockContaining } from '../../helpers/skill-section.js';
+import {
+  section,
+  sectionStartingWith,
+  codeBlockContainingIn,
+} from '../../helpers/skill-section.js';
 
 const SKILL_PATH = resolve('plugin/skills/review/SKILL.md');
 const skill = parseSkillMd(readFileSync(SKILL_PATH, 'utf-8'), SKILL_PATH);
@@ -177,11 +181,11 @@ describe('리뷰 코멘트 audience 옵션', () => {
     });
 
     it('4.7단계 서브에이전트 프롬프트가 audience를 넘긴다', () => {
-      // 절 전체가 아니라 프롬프트 펜스를 집는다. 절로 잡으면 audience 줄이 산문으로
-      // 새어나가도 통과해, 프롬프트가 넘긴다는 보장이 사라진다
-      const prompt = codeBlockContaining(
+      // 프롬프트 펜스만 집는다. 절로 잡으면 audience 줄이 산문으로 빠져나가도 통과해
+      // 프롬프트가 넘긴다는 보장이 사라진다
+      const prompt = codeBlockContainingIn(
         skill.body,
-        '#### 코멘트 본문 작성 (code-review-writer)',
+        '#### 코멘트 본문 작성',
         'code-review-writer',
       );
       expect(prompt).toContain('audience: <peer | junior');

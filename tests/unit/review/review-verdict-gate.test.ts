@@ -23,6 +23,8 @@ const shipPath = resolve('plugin/skills/ship/SKILL.md');
 const review = parseSkillMd(readFileSync(reviewPath, 'utf-8'), reviewPath);
 const loop = parseSkillMd(readFileSync(loopPath, 'utf-8'), loopPath);
 const ship = parseSkillMd(readFileSync(shipPath, 'utf-8'), shipPath);
+const contractPath = resolve('plugin/skills/review-loop/CONTRACT.md');
+const contract = { body: readFileSync(contractPath, 'utf-8') };
 
 /**
  * review 4.7단계는 GitHub PR 대상이면 인라인 코멘트와 함께 리뷰 이벤트까지 게시한다.
@@ -275,33 +277,52 @@ describe('판정 게시 경계 (postVerdict)', () => {
   });
 
   /**
-   * 문서가 서로를 가리키는 자리는 사람이 손으로 맞춘다. 한쪽이 움직여도 다른 쪽 문장은
-   * 그대로 남아 없는 절을 가리킨다. 세 스킬이 플러그인으로 배포돼 서로 다른 레포에서
-   * 도는 자산이라 그 어긋남이 남의 세션에서 드러난다.
+   * 문서가 서로를 가리키는 자리는 사람이 손으로 맞춘다. 한쪽에서 절 이름을 바꿔도 다른 쪽
+   * 문장은 그대로 남아 없는 절을 가리킨다. 세 스킬이 플러그인으로 배포돼 서로 다른 레포에서도
+   * 돌기 때문에 그 어긋남이 남의 세션에서 드러난다.
    */
   describe('문서끼리 가리키는 자리', () => {
-    it('ship이 이름으로 부르는 review 절이 실재한다', () => {
-      // ship 문장에서 이름을 뽑아 review 에서 찾는다. 리터럴을 여기 또 적으면 두 문서를
-      // 함께 고치는 정당한 개명에도 이 테스트가 깨져, 링크 검사가 아니라 변경 감지기가 된다
-      const called = ship.body.match(/`review` 4\.7단계가 (.+?)에서/);
-      expect(called, 'ship이 review 4.7단계의 절을 이름으로 안 부른다').not.toBeNull();
+    /** 부르는 쪽 문장에서 이름을 뽑는다. 백틱이 경계라 조사나 어순이 바뀌어도 이름만 잡힌다 */
+    const calledName = (body: string, anchor: RegExp) => {
+      const m = body.match(anchor);
+      expect(m, `${anchor} 로 부르는 자리를 못 찾았다`).not.toBeNull();
+      return m![1]!.trim();
+    };
 
-      const name = called![1]!.trim();
-      expect(sectionStartingWith(review.body, `#### ${name}`)).toMatch(/stale이므로/);
+    it('ship이 이름으로 부르는 review 절이 실재한다', () => {
+      const name = calledName(ship.body, /`review` 4\.7단계가 `([^`]+)`/);
+      expect(
+        () => sectionStartingWith(review.body, `#### ${name}`),
+        `ship이 부르는 '${name}' 절이 review 에 없다`,
+      ).not.toThrow();
     });
 
+    it('review-loop이 이름으로 부르는 review 절이 실재한다', () => {
+      const name = calledName(loop.body, /`review` 4\.7단계의 `([^`]+)`/);
+      expect(
+        () => sectionStartingWith(review.body, `#### ${name}`),
+        `review-loop이 부르는 '${name}' 절이 review 에 없다`,
+      ).not.toThrow();
+    });
+
+    /**
+     * 번호 앵커는 이름과 달리 여러 문서에서 한꺼번에 조용히 죽는다. 4.7 이 재번호되는 순간이다.
+     * 부르는 문서를 세어 단언하지 않으면 참조가 통째로 사라져도 초록이 뜬다.
+     */
     it('4.7단계를 번호로 가리키는 자리가 전부 살아 있다', () => {
-      // 번호 앵커는 이름과 달리 한 번에 아홉 곳이 조용히 죽는다. 4.7 이 재번호되는 순간이다
-      for (const [label, body] of [
-        ['ship', ship.body],
-        ['review-loop', loop.body],
-      ] as const) {
-        if (!body.includes('`review` 4.7단계')) continue;
-        expect(
-          sectionStartingWith(review.body, '### 4.7단계:'),
-          `${label}이 가리키는 4.7단계가 review 에 없다`,
-        ).toBeDefined();
-      }
+      const referring = (
+        [
+          ['ship', ship.body],
+          ['review-loop', loop.body],
+          ['review-loop CONTRACT', contract.body],
+        ] as const
+      ).filter(([, body]) => body.includes('`review` 4.7단계'));
+
+      expect(
+        referring.map(([label]) => label),
+        '4.7단계를 번호로 부르는 문서가 없다',
+      ).not.toHaveLength(0);
+      expect(() => sectionStartingWith(review.body, '### 4.7단계:')).not.toThrow();
     });
   });
 

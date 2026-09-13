@@ -95,6 +95,13 @@ export function codeBlock(body: string, heading: string, index = 0): string {
  * 순번으로 집으면 문서에 블록이 하나 끼는 순간 엉뚱한 걸 돌리게 된다. 찾는 블록이
  * 가진 고유한 글자로 집으면 위치가 바뀌어도 같은 걸 잡는다.
  */
+/** 헤딩 꼬리를 안 외우고 블록을 집는다. 접두어 매칭이라는 점만 codeBlockContaining과 다르다 */
+export function codeBlockContainingIn(body: string, prefix: string, needle: string): string {
+  const heading = body.split('\n').find((l) => l.startsWith(prefix));
+  expect(heading, `${prefix} 로 시작하는 헤딩을 못 찾았다`).toBeDefined();
+  return codeBlockContaining(body, heading!, needle);
+}
+
 export function codeBlockContaining(body: string, heading: string, needle: string): string {
   const lines = section(body, heading).split('\n');
   const fence = /^\s*(`{3,}|~{3,})/;
