@@ -6,6 +6,8 @@ import { execSync } from 'node:child_process';
 import { CodeGraphStore } from './storage.js';
 import { computeBlastRadius } from './blast-radius.js';
 import { getPluginForFile } from './plugins/index.js';
+import { syncCoChange, queryCoChange, buildCoChangeLookup } from './cochange.js';
+import type { CoChangeQueryOptions } from './cochange.js';
 import { NodeKind } from './types.js';
 import { logger } from '../core/logger.js';
 import type {
@@ -17,6 +19,9 @@ import type {
   QueryPattern,
   QueryResult,
   CodeGraphStats,
+  CoChangeBuildSummary,
+  CoChangeResult,
+  CoChangeLookup,
 } from './types.js';
 import type { EmbeddingProvider } from './embedding-provider.js';
 import type { SummaryProvider } from './summary-provider.js';
@@ -189,6 +194,19 @@ export class CodeGraphEngine {
       });
     }
 
+    // git 이력 신호는 노드나 엣지와 독립이다. 실패해도 그래프 빌드까지
+    // 무너뜨리면 안 되므로 여기서 가둔다.
+    let coChange: CoChangeBuildSummary | undefined;
+    try {
+      coChange = syncCoChange(store, repoRoot, { mode });
+    } catch (e) {
+      logger.warn('code_graph.cochange_failed', {
+        module: 'code-graph/engine',
+        repoRoot,
+        reason: e instanceof Error ? e.message : String(e),
+      });
+    }
+
     const timeTakenMs = Date.now() - start;
     logger.info('code_graph.build_completed', {
       module: 'code-graph/engine',
@@ -196,6 +214,7 @@ export class CodeGraphEngine {
       nodesBuilt,
       edgesBuilt,
       skippedCount: skippedFiles.length,
+      coChangePairs: coChange?.pairs,
       durationMs: timeTakenMs,
     });
 
@@ -205,6 +224,7 @@ export class CodeGraphEngine {
       timeTakenMs,
       installedHook: false, // Hook installation handled separately via GitHookManager
       skippedFiles,
+      coChange,
     };
   }
 
@@ -224,13 +244,15 @@ export class CodeGraphEngine {
     // Convert to absolute paths
     const absoluteFiles = files.map((f) => (f.startsWith('/') ? f : resolve(repoRoot, f)));
 
-    const result = computeBlastRadius(store, absoluteFiles, maxDepth);
+    const lookup = this.safeCoChangeLookup(store, repoRoot, absoluteFiles);
+    const result = computeBlastRadius(store, absoluteFiles, maxDepth, lookup);
     logger.info('code_graph.blast_radius_completed', {
       module: 'code-graph/engine',
       repoRoot,
       base,
       changedFiles: absoluteFiles.length,
       riskScore: result.riskScore,
+      coChangeAvailable: result.coChangeAvailable,
     });
     return result;
   }
@@ -268,7 +290,40 @@ export class CodeGraphEngine {
       files = [];
     }
 
-    return computeBlastRadius(store, files, maxDepth);
+    const lookup = this.safeCoChangeLookup(store, repoRoot, files);
+    return computeBlastRadius(store, files, maxDepth, lookup);
+  }
+
+  /**
+   * git 이력에서 함께 바뀐 파일을 조회한다.
+   * target을 주면 그 파일의 이웃, 생략하면 상위 페어 전역 목록.
+   */
+  cochange(repoRoot: string, opts: CoChangeQueryOptions = {}): CoChangeResult {
+    const store = this.getStore(repoRoot);
+    return queryCoChange(store, repoRoot, opts);
+  }
+
+  /**
+   * co-change 조회 실패가 blast-radius 전체를 막지 않게 가둔다.
+   * 실패는 undefined가 아니라 available:false로 내려보내 "수집 안 됨"이
+   * "함께 바뀐 게 없음"으로 읽히지 않게 한다.
+   */
+  private safeCoChangeLookup(
+    store: CodeGraphStore,
+    repoRoot: string,
+    seeds: string[],
+  ): CoChangeLookup {
+    try {
+      return buildCoChangeLookup(store, repoRoot, seeds);
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      logger.warn('code_graph.cochange_lookup_failed', {
+        module: 'code-graph/engine',
+        repoRoot,
+        reason,
+      });
+      return { available: false, reason, pairsInDb: 0, neighbors: [] };
+    }
   }
 
   /**
