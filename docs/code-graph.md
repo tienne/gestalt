@@ -2,6 +2,8 @@
 
 코드베이스를 정적 분석해 의존성 그래프를 빌드하고, 변경 영향 파일을 빠르게 추출해 AI 컨텍스트를 절약한다.
 
+신호는 둘이다. 소스를 파싱해 얻는 import 그래프가 하나고 git 이력에서 뽑는 co-change(함께 바뀐 파일)가 다른 하나다. 둘은 나란히 쌓이며 서로를 대체하지 않는다 — [git co-change 신호](#git-co-change-신호)를 본다.
+
 저장소: `.gestalt/code-graph.db` (WAL SQLite, EventStore DB와 별도)
 
 ---
@@ -16,6 +18,7 @@
 | `blast_radius` | 커밋 기준 영향 파일 분석 |
 | `diff_radius` | 미커밋 변경 기준 영향 파일 분석 |
 | `query` | 관련 파일 패턴 검색 |
+| `cochange` | git 이력에서 함께 바뀐 파일 조회 |
 | `stats` | 그래프 통계 조회 |
 | `db_exists` | DB 존재 여부 확인 |
 
@@ -31,6 +34,8 @@
 ### `build`
 
 코드 그래프를 빌드한다. 이미 DB가 존재하면 변경된 파일만 증분 갱신한다. `gestalt init` 실행 시 post-commit hook이 설치되어 이후 커밋마다 자동 갱신된다.
+
+파일 파싱이 끝나면 같은 호출에서 git 이력 co-change도 함께 갱신한다. `repoRoot`가 git 레포 최상위가 아니면 이 단계를 건너뛰고 응답에 `coChange`가 실리지 않는다.
 
 #### Parameters
 
@@ -49,9 +54,19 @@ ges_code_graph({ action: "build", repoRoot: "/path/to/repo" })
   "nodesBuilt": 342,
   "edgesBuilt": 1204,
   "timeTakenMs": 1820,
-  "installedHook": true
+  "installedHook": true,
+  "skippedCount": 0,
+  "skippedFiles": [],
+  "coChange": {
+    "pairs": 4577,
+    "commitsUsed": 548,
+    "commitsScanned": 892,
+    "mode": "full"
+  }
 }
 ```
+
+`coChange`가 아예 없으면(`undefined`) 수집을 건너뛴 것이다. 페어가 0건인 것과 다르다.
 
 ---
 
@@ -87,10 +102,52 @@ ges_code_graph({
     "src/routes/user.ts",
     "tests/auth.test.ts"
   ],
+  "rankedFiles": [
+    {
+      "filePath": "src/middleware/auth.ts",
+      "origin": "both",
+      "hopDistance": 1,
+      "coChangeCount": 12,
+      "confidence": 0.71,
+      "lift": 8.4,
+      "isTest": false
+    },
+    {
+      "filePath": "docs/auth-flow.md",
+      "origin": "history",
+      "coChangeCount": 7,
+      "confidence": 0.54,
+      "lift": 11.2,
+      "isTest": false
+    },
+    {
+      "filePath": "src/routes/user.ts",
+      "origin": "import",
+      "hopDistance": 2,
+      "isTest": false
+    }
+  ],
+  "coChangeAvailable": true,
   "riskScore": 0.62,
-  "summary": "1 changed file impacts 3 files. Medium risk."
+  "depthExhausted": false,
+  "unexploredNodes": 0,
+  "summary": "1 changed file impacts 3 files. Medium risk. Git history adds 1 file(s) imports cannot see, 1 confirmed by both signals."
 }
 ```
+
+#### 결과 필드
+
+| 필드 | 설명 |
+|------|------|
+| `impactedFiles` | import 그래프 역방향 BFS 결과. 이력 신호는 여기 안 들어간다 |
+| `rankedFiles` | 두 신호를 합쳐 출처를 붙인 목록. `both` → `history` → `import` 순 |
+| `coChangeAvailable` | 이력 신호가 실제로 실렸는지 |
+| `coChangeReason` | 신호가 없거나 이웃이 0건일 때 그 사유 |
+| `depthExhausted` | `maxDepth`에 걸려 탐색이 멈췄고 갈 곳이 남아 있었다 |
+| `unexploredNodes` | 그때 다음 홉에서 기다리던 노드 수 |
+| `riskScore` | 위험도 0~1. `depthExhausted`면 하한이다 |
+
+`rankedFiles`의 `origin`은 세 값이다. `both`는 import와 이력 양쪽에 걸린 파일이고 가장 먼저 읽어야 할 파일이다. `history`는 이력에만 걸려 import 그래프가 원리상 못 보는 파일이다. `import`는 import 신호만 있는 파일이다.
 
 ---
 
@@ -120,10 +177,17 @@ ges_code_graph({
 {
   "changedFiles": ["src/auth/oauth.ts", "src/config.ts"],
   "impactedFiles": ["src/middleware/auth.ts", "src/app.ts"],
+  "rankedFiles": [
+    { "filePath": "src/middleware/auth.ts", "origin": "both", "hopDistance": 1, "coChangeCount": 9, "confidence": 0.6, "lift": 7.1, "isTest": false },
+    { "filePath": "schemas/gestalt.schema.json", "origin": "history", "coChangeCount": 3, "confidence": 0.43, "lift": 14.0, "isTest": false }
+  ],
+  "coChangeAvailable": true,
   "riskScore": 0.45,
-  "summary": "2 staged files impact 2 files. Low-medium risk."
+  "summary": "2 staged files impact 2 files. Low-medium risk. Git history adds 1 file(s) imports cannot see, 1 confirmed by both signals."
 }
 ```
+
+결과 필드는 `blast_radius`와 같다.
 
 ---
 
@@ -161,6 +225,61 @@ ges_code_graph({
   ]
 }
 ```
+
+---
+
+### `cochange`
+
+git 이력이 함께 바뀌었다고 말하는 파일을 조회한다. `target`을 주면 그 파일의 이웃을, 생략하면 레포 전체 상위 페어를 돌려준다.
+
+#### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|:--------:|---------|-------------|
+| `repoRoot` | `string` | Y | — | 저장소 절대 경로 |
+| `target` | `string` | N | — | 기준 파일. 생략하면 레포 전체 상위 페어 |
+| `limit` | `number` | N | `30` / `50` | 반환 개수. `target`이 있으면 30, 없으면 50 |
+| `minPairCount` | `number` | N | `3` | 동시등장이 이 미만인 페어는 버린다 |
+| `minConfidence` | `number` | N | `0.3` | confidence가 이 미만인 페어는 버린다 |
+
+`target`은 절대 경로와 레포 상대 경로를 모두 받는다. 내부 저장은 절대 경로이므로 응답도 절대 경로로 돌아온다.
+
+#### Example
+
+```javascript
+ges_code_graph({
+  action: "cochange",
+  repoRoot: "/path/to/repo",
+  target: "src/humanize/index.ts"
+})
+```
+
+```json
+{
+  "target": "/path/to/repo/src/humanize/index.ts",
+  "neighbors": [
+    { "filePath": "/path/to/repo/src/humanize/check.ts", "pairCount": 8, "confidence": 0.67, "lift": 30.4 },
+    { "filePath": "/path/to/repo/plugin/role-agents/humanize-monolith/AGENT.md", "pairCount": 6, "confidence": 0.5, "lift": 13.0 }
+  ],
+  "pairs": [],
+  "commitsUsed": 548,
+  "commitsScanned": 892,
+  "pairsInDb": 4577,
+  "available": true
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `neighbors` | `target`을 준 경우의 이웃 목록 |
+| `pairs` | `target`을 생략한 경우의 상위 페어 목록 |
+| `commitsUsed` | 필터를 통과해 실제로 센 커밋 수 |
+| `commitsScanned` | 읽은 전체 커밋 수 |
+| `pairsInDb` | DB에 저장된 전체 페어 수 |
+| `available` | 수집이 됐는지 |
+| `reason` | 결과가 비었을 때 그 사유 |
+
+`available: false`면 수집 자체가 안 된 것이다. `available: true`인데 결과가 비었으면 임계를 넘는 페어가 없거나 경로가 안 맞는 것이다. `pairsInDb`가 그 둘을 가른다.
 
 ---
 
@@ -211,6 +330,107 @@ ges_code_graph({ action: "db_exists", repoRoot: "/path/to/repo" })
 ```json
 { "exists": true }
 ```
+
+---
+
+## git co-change 신호
+
+### import이 원리상 못 보는 관계
+
+import 그래프는 소스에 적힌 것만 안다. 매니페스트 JSON끼리의 약속, 코드와 그 코드를 설명하는 문서, 스키마와 그걸 읽는 설정 파일은 서로를 import하지 않으므로 파싱으로는 영영 안 잡힌다.
+
+이 레포 924커밋으로 재보면 강한 페어(동시등장 3회 이상, confidence 0.3 이상) 401개 중 **301개, 그러니까 75%가 import 그래프에 아예 없다.**
+
+가장 좋은 예가 이 레포 자신이다. CLAUDE.md에 사람이 손으로 적어둔 "네 매니페스트의 버전 핀을 릴리즈마다 함께 갱신한다"는 규칙을 co-change가 이력에서 그대로 찾아낸다.
+
+```javascript
+ges_code_graph({
+  action: "cochange",
+  repoRoot: "<경로>",
+  target: ".claude-plugin/plugin.json"
+})
+```
+
+```
+130회  .claude-plugin/marketplace.json
+ 45회  plugin/.codex-plugin/plugin.json
+ 14회  .claude-plugin/.mcp.json
+ 13회  plugin/mcp.json
+```
+
+confidence는 0.81에서 1.0 사이다. 넷 다 JSON이라 import 그래프에는 노드조차 없다. 문서로 관리하던 규칙을 이력이 이미 갖고 있었던 셈이다.
+
+### 스코어링 — 빈도가 아니라 confidence와 lift
+
+동시등장 횟수만으로 세우면 `package.json`이나 락파일처럼 아무 커밋에나 끼는 파일이 늘 맨 위에 온다. 그래서 두 값을 쓴다.
+
+- `confidence = 함께 바뀐 횟수 / 한쪽이 바뀐 횟수` — A가 바뀔 때 B도 바뀔 확률. A→B와 B→A가 다르므로 방향별로 계산하고 큰 쪽을 페어 점수로 쓴다
+- `lift = confidence / (상대 파일이 전체 커밋에서 등장하는 비율)` — 우연 대비 몇 배인지. 어디에나 끼는 파일일수록 분모가 커져 점수가 눌린다
+
+랭킹 키는 `confidence * lift`다. 보고되는 confidence는 소수 둘째 자리, lift는 첫째 자리에서 반올림한다. `cochange` 응답과 `rankedFiles`가 같은 값을 보고 같은 순서로 서도록 반올림한 값으로 랭킹까지 매긴다.
+
+실제로 눌리는 걸 확인한 예다.
+
+```
+src/humanize/index.ts 의 이웃
+  8회  conf 0.67  lift 30.4  src/humanize/check.ts
+  6회  conf 0.50  lift 13.0  plugin/role-agents/humanize-monolith/AGENT.md
+  4회  conf 0.24  lift  3.3  package.json          ← 흔한 파일이라 눌렸다
+```
+
+`package.json`은 네 번이나 함께 바뀌었지만 confidence 0.24로 기본 임계 0.3에 걸려 실제 조회 결과에는 나오지 않는다.
+
+### 무엇을 세고 무엇을 버리나
+
+| 규칙 | 상수 | 이유 |
+|------|------|------|
+| 한 커밋이 파일 21개 이상을 건드리면 통째로 제외 | `MAX_FILES_PER_COMMIT = 20` | 릴리즈나 일괄 포맷팅 커밋 하나가 그 안의 모든 파일을 서로 연결해버린다. 이 레포는 커밋당 변경 파일 중앙값이 2인데 최대가 135다 |
+| 파일이 하나뿐인 커밋 제외 | `MIN_FILES_PER_COMMIT = 2` | 페어를 만들 수 없다 |
+| 동시등장 3회 미만 제외 | `MIN_PAIR_COUNT = 3` | 우연으로 본다 |
+| confidence 0.3 미만 제외 | `DEFAULT_MIN_CONFIDENCE = 0.3` | 한쪽이 바뀔 때 열에 셋도 안 따라오면 같이 읽을 이유가 약하다 |
+| merge 커밋 제외 | `git log --no-merges` | 머지 커밋의 파일 목록은 함께 고친 흔적이 아니다 |
+
+임계 셋은 `cochange` 호출에서 `minPairCount`와 `minConfidence`로 낮출 수 있다. 커밋 21개 경계는 상수라 코드를 고쳐야 바뀐다.
+
+삭제되거나 이름이 바뀐 파일은 이력에만 남는다. 이런 경로는 **조회 시점에** 워킹트리 존재 여부로 거른다. 수집에서 빼면 그 파일이 살아 있던 시절의 solo 카운트가 함께 깎여 남은 파일들의 confidence가 부풀기 때문이다.
+
+### 수집과 갱신
+
+`build`가 파일 파싱을 끝낸 뒤 `git log --format=%H --name-only --no-merges`를 한 번 읽어 페어를 센다. 파일마다 git을 부르지 않는다. 이 레포 892커밋 기준 87ms에 548커밋 4,577페어가 나온다.
+
+증분 빌드는 `cg_cochange_meta`에 적힌 이전 HEAD가 지금 HEAD의 조상이면 그 사이 구간만 읽어 카운터에 더한다. HEAD가 그대로면 `git log`를 아예 안 읽는다. post-commit 훅이 부르는 자리라 수백 ms를 넘기면 안 되기 때문이다. rebase나 amend, shallow clone으로 이전 기준점에 못 닿으면 경고를 남기고 전량 재수집으로 내린다.
+
+점수는 저장하지 않고 조회할 때 계산한다. lift 분모가 사용 커밋 수라서 커밋 하나만 더 반영해도 저장된 점수가 전부 무효가 된다. 원시 카운트만 두면 증분 갱신이 덧셈으로 끝난다.
+
+테이블은 `cg_cochange`(페어 카운트), `cg_cochange_solo`(파일별 등장 횟수), `cg_cochange_meta`(기준 HEAD와 커밋 수) 셋이다. 기존 `cg_nodes`와 `cg_edges`는 손대지 않았다. co-change는 파일 단위 무방향 페어고 `cg_edges`는 노드 단위 방향 엣지라 성격이 다르다.
+
+`repoRoot`가 git 레포 최상위가 아니면 수집을 통째로 건너뛴다. 하위 디렉토리를 넘기면 `git log`가 부모 레포의 전체 이력을 끌어오기 때문이다.
+
+### `impactedFiles`와 `rankedFiles`는 다르다
+
+이력 신호는 `rankedFiles`에만 실린다. `impactedFiles`는 import 신호만 담은 채로 남는다.
+
+`impactedFiles`를 받아 `.test.`나 `.spec.`, `__tests__`로 걸러 테스트 러너 인자로 그대로 넘기는 자리가 있다(`src/execute/orchestrators/evaluation.ts`). 이력에만 걸린 md나 json이 거기 섞이면 vitest 인자가 오염된다. 그래서 두 목록을 나눠 뒀다.
+
+- `impactedFiles` — import 그래프 역방향 BFS 결과. 테스트 러너 인자로 그대로 써도 되는 목록
+- `rankedFiles` — 두 신호를 합쳐 출처를 붙인 목록. 사람과 에이전트가 읽을 순서를 정하는 자리
+
+혼동하면 조용히 깨진다. 사용자에게 보여줄 땐 `rankedFiles`를 쓴다. 명령줄에 넣을 땐 `impactedFiles`를 쓴다.
+
+### `coChangeAvailable` — 0건과 미수집을 가른다
+
+`rankedFiles`에 `history` 항목이 하나도 없을 때, 그게 "함께 바뀐 파일이 없다"인지 "이력 신호가 아예 안 실렸다"인지 구분해야 한다. 구분이 없으면 조용한 0건이 된다. 경로 표기가 어긋나 조인이 전부 빗나가도 결과는 똑같이 비어 보인다.
+
+- `coChangeAvailable: false` — 수집 자체가 안 됐다. git 레포가 아니거나, `repoRoot`가 레포 최상위가 아니거나, 아직 빌드를 안 돌렸다
+- `coChangeAvailable: true`인데 `history`가 0건 — 이력은 있는데 이 파일만 안 걸렸다. `coChangeReason`이 사유를 말한다. `cochange` 응답의 `pairsInDb`를 함께 보면 경로 불일치인지 가릴 수 있다
+
+`summary` 문구도 갈라 쓴다. 수집이 안 됐으면 `Git history signal unavailable (import graph only).`가 붙는다. 실렸으면 `Git history adds N file(s) imports cannot see, M confirmed by both signals.`가 붙는다.
+
+### 한계
+
+이력이 신호의 전부다. 이력이 없으면 아무것도 못 낸다. 갓 만든 레포, 커밋이 수십 개인 레포, squash로 히스토리를 접어버린 레포에서는 임계(3회, confidence 0.3)를 넘는 페어가 거의 안 나온다. 그런 곳에서는 import 그래프가 사실상 유일한 신호다. `coChangeAvailable`이 true인데도 이웃이 비어 있는 게 정상이다.
+
+커밋을 잘게 쪼개 쓰는 레포일수록 신호가 좋다. 반대로 기능 하나를 커밋 하나에 몰아넣는 레포는 대형 커밋 필터에 많이 걸려 쓸 수 있는 커밋이 줄어든다. 도입 직후에 약한 건 고장이 아니라 이력이 아직 안 쌓인 것이다.
 
 ---
 

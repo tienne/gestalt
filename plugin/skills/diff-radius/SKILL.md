@@ -1,6 +1,6 @@
 ---
 name: diff-radius
-version: "1.0.0"
+version: "1.1.0"
 description: "커밋 전 미저장 변경과 스테이징 변경의 영향범위를 분석한다. 작업 중인 코드가 어디까지 영향 주는지 바로 확인할 때 자동 발동한다. 이미 고친 변경이 대상이다. 아직 손대지 않은 코드의 영향범위를 미리 보려면 blast-radius를 쓴다."
 triggers:
   # 작업 중 변경 확인
@@ -34,6 +34,8 @@ inputs:
 outputs:
   - changedFiles
   - impactedFiles
+  - rankedFiles
+  - coChangeAvailable
   - riskScore
   - summary
 ---
@@ -96,9 +98,18 @@ ges_code_graph {
 | 필드 | 설명 |
 |------|------|
 | `changedFiles` | 변경된 파일 목록 |
-| `impactedFiles` | 영향받는 파일 목록 (테스트 파일 우선 정렬) |
+| `impactedFiles` | import 그래프로만 뽑은 영향 파일 (테스트 파일 우선 정렬) |
+| `rankedFiles` | import 신호와 git 이력 신호를 합쳐 출처를 붙인 목록 |
+| `coChangeAvailable` | git 이력 신호가 실제로 실렸는지 |
+| `coChangeReason` | 이력 신호가 없거나 이웃이 0건일 때 그 사유 |
 | `riskScore` | 위험도 점수 0~1 |
 | `summary` | 한 줄 요약 |
+
+`rankedFiles` 각 항목의 `origin`은 `both`(import와 이력 양쪽), `history`(이력 전용), `import`(import 전용) 셋이다. `history`는 매니페스트끼리의 약속이나 코드와 그 문서처럼 서로 import하지 않아 파싱으로는 영영 안 잡히는 관계다. 커밋 직전에 "이것도 같이 고쳐야 하지 않나"를 잡아주는 자리라 이 스킬에서 특히 쓸모가 있다.
+
+읽는 규칙은 `/blast-radius`와 같다. 사용자에게 보여줄 목록은 `rankedFiles`다. 테스트 러너 인자처럼 실행 명령에 그대로 넣는 자리에는 `impactedFiles`를 쓴다. 자세한 설명은 [`../blast-radius/SKILL.md`](../blast-radius/SKILL.md)의 "rankedFiles의 출처 표시" 절에 있다.
+
+**`coChangeAvailable: false`면 이력 신호 자체가 안 실린 것이다.** 함께 바뀐 파일이 없다는 뜻이 아니다.
 
 ## Skill Instructions
 
@@ -116,12 +127,20 @@ ges_code_graph {
 - src/auth.ts
 - src/middleware.ts
 
-**영향받는 파일** (M개):
-- src/auth.test.ts        ← 테스트 파일 우선
-- src/api/routes.ts
+**같이 봐야 할 파일** (M개):
+- [둘 다]   src/auth.test.ts       import 1홉 + 함께 바뀜 12회
+- [이력]    docs/auth-flow.md      함께 바뀜 7회 (import 관계 없음)
+- [import]  src/api/routes.ts      2홉
 
 **위험도**: 0.23 (낮음)
 **요약**: {summary}
+```
+
+`rankedFiles`가 온 순서를 그대로 씁니다. `coChangeAvailable: false`면 목록 아래에 한 줄을 덧붙입니다.
+
+```
+ℹ️ git 이력 신호 없이 import 그래프만 본 결과입니다 ({coChangeReason}).
+   레포 최상위에서 /build-graph를 다시 돌리면 함께 바뀐 파일까지 잡습니다.
 ```
 
 `depthExhausted: true`면 위 표시 바로 아래에 한 줄을 덧붙입니다. 빠뜨리지 않습니다.
@@ -131,5 +150,5 @@ ges_code_graph {
    위 목록과 위험도는 하한이며 전부가 아닙니다. 전체를 보려면 maxDepth를 올려 다시 부르세요.
 ```
 
-5. `impactedFiles` 목록을 컨텍스트로 활용합니다. 20개를 넘으면 읽는 순서를 서브에이전트에 맡깁니다 — 방식은 [`../blast-radius/SKILL.md`](../blast-radius/SKILL.md) 5번과 같습니다. 우선순위를 정하겠다고 세션이 20개 파일을 다 열면 이 스킬을 쓰는 이유가 없어집니다.
+5. `rankedFiles` 목록을 컨텍스트로 활용합니다. 20개를 넘으면 읽는 순서를 서브에이전트에 맡깁니다 — 방식은 [`../blast-radius/SKILL.md`](../blast-radius/SKILL.md) 5번과 같습니다. 우선순위를 정하겠다고 세션이 20개 파일을 다 열면 이 스킬을 쓰는 이유가 없어집니다.
 6. 변경된 파일이 없으면 "현재 미커밋 변경이 없습니다." 안내합니다.
