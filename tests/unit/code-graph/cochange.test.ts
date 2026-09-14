@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { CodeGraphStore } from '../../../src/code-graph/storage.js';
+import type { CoChangeNeighborRow } from '../../../src/code-graph/storage.js';
 import {
   parseGitLog,
   countPairs,
@@ -14,13 +15,17 @@ import {
   buildCoChangeLookup,
   MAX_FILES_PER_COMMIT,
   MIN_PAIR_COUNT,
-  candidateLimit,
   CONFIDENCE_DECIMALS,
   LIFT_DECIMALS,
 } from '../../../src/code-graph/cochange.js';
 import type { GitRunner } from '../../../src/code-graph/cochange.js';
 
 const ROOT = '/repo';
+
+/** 임계를 걷어낸 이웃 행 전량. 저장 자체를 보는 테스트가 쓴다 */
+function allNeighborRows(store: CodeGraphStore, filePath: string): CoChangeNeighborRow[] {
+  return store.getCoChangeNeighbors(filePath, 1, 0, store.getCoChangeSolo(filePath));
+}
 
 function sha(n: number): string {
   return n.toString(16).padStart(40, '0');
@@ -297,6 +302,23 @@ describe('co-change 저장과 조회', () => {
     expect(loosened.neighbors).toHaveLength(1);
   });
 
+  it('전역 페어 목록도 minPairCount 미만을 버린다', () => {
+    // 이웃 조회와 전역 조회는 질의가 따로다. 한쪽만 보면 다른 쪽 필터를
+    // 지워도 아무 불이 안 켜진다
+    const commits: string[][] = [];
+    for (let i = 0; i < 5; i++) commits.push(['src/a.ts', 'src/b.ts']);
+    for (let i = 0; i < 2; i++) commits.push(['src/c.ts', 'src/d.ts']);
+    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
+
+    const strict = queryCoChange(store, ROOT, { minPairCount: 5, exists: allExist });
+    const loose = queryCoChange(store, ROOT, { minPairCount: 2, exists: allExist });
+
+    expect(strict.pairs.map((p) => p.pairCount)).toEqual([5]);
+    expect(loose.pairs.map((p) => p.pairCount).sort()).toEqual([2, 5]);
+    expect(store.getCoChangePairs(5, 0)).toHaveLength(1);
+    expect(store.getCoChangePairs(2, 0)).toHaveLength(2);
+  });
+
   it('조회 결과의 점수는 반올림된 상태로 나온다', () => {
     seedCommonFileHistory();
 
@@ -400,7 +422,7 @@ describe('syncCoChange() — 수집 가드와 증분', () => {
     expect(after.commitsUsed).toBe(4);
     expect(after.headSha).toBe(sha(20));
 
-    const neighbors = store.getCoChangeNeighbors('/repo/src/a.ts', 1, 10);
+    const neighbors = allNeighborRows(store, '/repo/src/a.ts');
     expect(neighbors[0]!.pairCount).toBe(4);
   });
 
@@ -444,7 +466,7 @@ describe('syncCoChange() — 수집 가드와 증분', () => {
     expect(summary?.mode).toBe('full');
     expect(summary?.commitsUsed).toBe(2);
     // 리셋됐으니 옛 페어는 남아 있지 않다
-    expect(store.getCoChangeNeighbors('/repo/src/a.ts', 1, 10)).toHaveLength(0);
+    expect(allNeighborRows(store, '/repo/src/a.ts')).toHaveLength(0);
   });
 
   it('full 모드는 기존 카운트를 비우고 새로 쓴다', () => {
@@ -453,7 +475,7 @@ describe('syncCoChange() — 수집 가드와 증분', () => {
     syncCoChange(store, ROOT, { mode: 'full', runGit: run });
 
     expect(store.getCoChangeMeta()!.commitsUsed).toBe(1);
-    expect(store.getCoChangeNeighbors('/repo/src/a.ts', 1, 10)[0]!.pairCount).toBe(1);
+    expect(allNeighborRows(store, '/repo/src/a.ts')[0]!.pairCount).toBe(1);
   });
 });
 
@@ -588,7 +610,7 @@ describe('syncCoChange() — 실제 git 호출', () => {
   });
 });
 
-describe('자르는 자리 — 질의 상한과 잘림 표식', () => {
+describe('자르는 자리 — 임계는 질의, 개수는 한 곳', () => {
   let store: CodeGraphStore;
   let dbPath: string;
 
@@ -613,38 +635,119 @@ describe('자르는 자리 — 질의 상한과 잘림 표식', () => {
     syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
   }
 
-  it('이웃 조회가 SQL LIMIT으로 자르고 pair_count 상위를 남긴다', () => {
-    // 이웃마다 동시등장 횟수를 다르게 준다 — ORDER BY가 빠지면 상위가 안 남는다
+  it('돌려준 목록이 전체 순위의 상위 접두사다', () => {
+    // pair_count 순위와 점수 순위를 일부러 어긋내둔다. seed 전용으로만 바뀌는
+    // 파일은 카운트가 낮아도 confidence 1.0이라 점수가 높다. 반대로 아무 데나 끼는
+    // 파일은 카운트가 높아도 lift가 눌려 아래로 내려간다.
     const commits: string[][] = [];
-    for (let i = 0; i < 12; i++) {
-      for (let t = 0; t <= i; t++) commits.push(['src/a.ts', `src/n${i}.ts`]);
-    }
+    for (let i = 0; i < 12; i++) commits.push(['src/seed.ts', 'src/hub.ts']);
+    for (let i = 0; i < 12; i++) commits.push(['src/other.ts', 'src/hub.ts']);
+    for (let i = 0; i < 4; i++) commits.push(['src/seed.ts', 'src/tight.ts']);
+    for (let i = 0; i < 3; i++) commits.push(['src/seed.ts', 'src/mid.ts']);
+    for (let i = 0; i < 6; i++) commits.push(['src/mid.ts', 'src/noise.ts']);
     syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
 
-    const rows = store.getCoChangeNeighbors('/repo/src/a.ts', 1, 5);
+    const full = queryCoChange(store, ROOT, { target: 'src/seed.ts', limit: 30, exists: allExist });
+    const top1 = queryCoChange(store, ROOT, { target: 'src/seed.ts', limit: 1, exists: allExist });
+    const top2 = queryCoChange(store, ROOT, { target: 'src/seed.ts', limit: 2, exists: allExist });
 
-    expect(rows).toHaveLength(5);
-    expect(rows.map((r) => r.pairCount)).toEqual([12, 11, 10, 9, 8]);
+    // 전제가 성립하는지 먼저 본다 — 카운트 1위와 점수 1위가 다른 파일이어야
+    // 접두사 주장이 시험대에 오른다
+    const byCount = [...full.neighbors].sort((a, b) => b.pairCount - a.pairCount);
+    expect(byCount[0]!.filePath).not.toBe(full.neighbors[0]!.filePath);
+
+    expect(top1.neighbors).toEqual(full.neighbors.slice(0, 1));
+    expect(top2.neighbors).toEqual(full.neighbors.slice(0, 2));
+    expect(top1.totalMatched).toBe(full.neighbors.length);
+    expect(top2.totalMatched).toBe(full.neighbors.length);
   });
 
-  it('후보 상한이 존재 확인보다 먼저 걸려 버릴 행을 안 stat한다', () => {
-    const total = candidateLimit(1) + 10;
-    seedNeighbors('src/a.ts', total);
+  it('seed가 여럿인 합친 목록도 상위 접두사다', () => {
+    // blast-radius가 타는 경로다. seed마다 따로 자르면 여기서 어긋난다
+    const commits: string[][] = [];
+    for (let i = 0; i < 12; i++) commits.push(['src/a.ts', 'src/hub.ts']);
+    for (let i = 0; i < 12; i++) commits.push(['src/z.ts', 'src/hub.ts']);
+    for (let i = 0; i < 3; i++) commits.push(['src/a.ts', 'src/tight-a.ts']);
+    for (let i = 0; i < 5; i++) commits.push(['src/b.ts', 'src/hub.ts']);
+    for (let i = 0; i < 4; i++) commits.push(['src/b.ts', 'src/tight-b.ts']);
+    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
 
-    const checked: string[] = [];
-    const lookup = buildCoChangeLookup(store, ROOT, ['src/a.ts'], {
-      limit: 1,
-      exists: (p) => {
-        checked.push(p);
-        return true;
-      },
-    });
+    const seeds = ['src/a.ts', 'src/b.ts'];
+    const full = buildCoChangeLookup(store, ROOT, seeds, { limit: 30, exists: allExist });
 
-    // 상한을 넘은 행은 조회 단계에서 이미 잘렸다. JS단 slice였다면 total번 돈다
-    expect(checked).toHaveLength(candidateLimit(1));
+    for (let n = 1; n <= full.neighbors.length; n++) {
+      const cut = buildCoChangeLookup(store, ROOT, seeds, { limit: n, exists: allExist });
+      expect(cut.neighbors).toEqual(full.neighbors.slice(0, n));
+      expect(cut.totalMatched).toBe(full.neighbors.length);
+    }
+  });
+
+  it('이웃이 옛 후보 하한을 넘겨도 질의가 자르지 않는다', () => {
+    // 옛 구현은 후보를 max(limit*10, 200)까지만 떴다. 그 하한을 넘기는
+    // 픽스처라야 상한이 실제로 걸리는 자리를 지난다
+    seedNeighbors('src/a.ts', 250);
+
+    const rows = allNeighborRows(store, '/repo/src/a.ts');
+    const lookup = buildCoChangeLookup(store, ROOT, ['src/a.ts'], { limit: 1, exists: allExist });
+
+    expect(rows).toHaveLength(250);
     expect(lookup.neighbors).toHaveLength(1);
-    expect(lookup.totalMatched).toBe(candidateLimit(1));
+    expect(lookup.totalMatched).toBe(250);
     expect(lookup.truncated).toBe(true);
+  });
+
+  it('전역 페어 조회도 옛 후보 하한 너머를 전부 센다', () => {
+    seedNeighbors('src/a.ts', 250);
+
+    const result = queryCoChange(store, ROOT, { limit: 1, exists: allExist });
+
+    expect(result.pairs).toHaveLength(1);
+    expect(result.totalMatched).toBe(250);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('잘림 표식은 목록보다 하나라도 많을 때부터 켜진다', () => {
+    seedNeighbors('src/a.ts', 4);
+
+    const exact = queryCoChange(store, ROOT, { target: 'src/a.ts', limit: 4, exists: allExist });
+    const over = queryCoChange(store, ROOT, { target: 'src/a.ts', limit: 3, exists: allExist });
+
+    expect(exact.neighbors).toHaveLength(4);
+    expect(exact.truncated).toBe(false);
+    expect(over.neighbors).toHaveLength(3);
+    expect(over.truncated).toBe(true);
+    expect(over.totalMatched).toBe(4);
+  });
+
+  it('전역 페어 조회의 잘림 표식도 같은 경계를 쓴다', () => {
+    seedNeighbors('src/a.ts', 4);
+
+    const exact = queryCoChange(store, ROOT, { limit: 4, exists: allExist });
+    const over = queryCoChange(store, ROOT, { limit: 3, exists: allExist });
+
+    expect(exact.truncated).toBe(false);
+    expect(over.truncated).toBe(true);
+    expect(over.totalMatched).toBe(4);
+  });
+
+  it('합친 목록의 잘림 표식도 같은 경계를 쓴다', () => {
+    const commits: string[][] = [];
+    for (const n of ['na1', 'na2'])
+      for (let i = 0; i < 3; i++) commits.push(['src/a.ts', `src/${n}.ts`]);
+    for (const n of ['nb1', 'nb2'])
+      for (let i = 0; i < 3; i++) commits.push(['src/b.ts', `src/${n}.ts`]);
+    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
+
+    const seeds = ['src/a.ts', 'src/b.ts'];
+    const exact = buildCoChangeLookup(store, ROOT, seeds, { limit: 4, exists: allExist });
+    const over = buildCoChangeLookup(store, ROOT, seeds, { limit: 3, exists: allExist });
+
+    expect(exact.neighbors).toHaveLength(4);
+    expect(exact.totalMatched).toBe(4);
+    expect(exact.truncated).toBe(false);
+    expect(over.neighbors).toHaveLength(3);
+    expect(over.totalMatched).toBe(4);
+    expect(over.truncated).toBe(true);
   });
 
   it('존재 확인은 seed 전체에 걸쳐 한 경로당 한 번만 돈다', () => {
@@ -667,71 +770,6 @@ describe('자르는 자리 — 질의 상한과 잘림 표식', () => {
     expect([...calls.values()].every((n) => n === 1)).toBe(true);
   });
 
-  it('seed가 여럿이어도 합친 목록이 잘리면 표식이 켜진다', () => {
-    const commits: string[][] = [];
-    for (let i = 0; i < 3; i++) commits.push(['src/a.ts', 'src/na1.ts']);
-    for (let i = 0; i < 3; i++) commits.push(['src/a.ts', 'src/na2.ts']);
-    for (let i = 0; i < 3; i++) commits.push(['src/b.ts', 'src/nb1.ts']);
-    for (let i = 0; i < 3; i++) commits.push(['src/b.ts', 'src/nb2.ts']);
-    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
-
-    const cut = buildCoChangeLookup(store, ROOT, ['src/a.ts', 'src/b.ts'], {
-      limit: 2,
-      exists: allExist,
-    });
-
-    expect(cut.neighbors).toHaveLength(2);
-    expect(cut.totalMatched).toBe(4);
-    expect(cut.truncated).toBe(true);
-  });
-
-  it('안 잘렸으면 표식이 꺼지고 totalMatched가 목록 길이와 같다', () => {
-    const commits: string[][] = [];
-    for (let i = 0; i < 3; i++) commits.push(['src/a.ts', 'src/na1.ts']);
-    for (let i = 0; i < 3; i++) commits.push(['src/b.ts', 'src/nb1.ts']);
-    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
-
-    const full = buildCoChangeLookup(store, ROOT, ['src/a.ts', 'src/b.ts'], {
-      limit: 30,
-      exists: allExist,
-    });
-
-    expect(full.neighbors).toHaveLength(2);
-    expect(full.totalMatched).toBe(2);
-    expect(full.truncated).toBe(false);
-  });
-
-  it('target 조회도 잘린 사실을 응답에 담는다', () => {
-    seedNeighbors('src/a.ts', 4);
-
-    const cut = queryCoChange(store, ROOT, { target: 'src/a.ts', limit: 2, exists: allExist });
-    const full = queryCoChange(store, ROOT, { target: 'src/a.ts', limit: 30, exists: allExist });
-
-    expect(cut.neighbors).toHaveLength(2);
-    expect(cut.totalMatched).toBe(4);
-    expect(cut.truncated).toBe(true);
-    expect(full.truncated).toBe(false);
-    expect(full.totalMatched).toBe(4);
-  });
-
-  it('target 조회도 후보 상한을 질의에서 건다', () => {
-    seedNeighbors('src/a.ts', candidateLimit(1) + 10);
-
-    const checked: string[] = [];
-    const result = queryCoChange(store, ROOT, {
-      target: 'src/a.ts',
-      limit: 1,
-      exists: (p) => {
-        checked.push(p);
-        return true;
-      },
-    });
-
-    expect(checked).toHaveLength(candidateLimit(1));
-    expect(result.totalMatched).toBe(candidateLimit(1));
-    expect(result.truncated).toBe(true);
-  });
-
   it('전역 페어 조회도 같은 파일을 거듭 stat하지 않는다', () => {
     // 허브 파일 하나가 페어 여럿에 끼는 게 이 경로의 실제 모양이다
     const commits: string[][] = [];
@@ -751,14 +789,184 @@ describe('자르는 자리 — 질의 상한과 잘림 표식', () => {
     expect(calls.get('/repo/src/hub.ts')).toBe(1);
     expect([...calls.values()].every((n) => n === 1)).toBe(true);
   });
+});
 
-  it('전역 페어 조회도 같은 표식을 쓴다', () => {
-    seedNeighbors('src/a.ts', 4);
+describe('임계를 질의로 내린 자리', () => {
+  let store: CodeGraphStore;
+  let dbPath: string;
 
-    const cut = queryCoChange(store, ROOT, { limit: 2, exists: allExist });
+  beforeEach(() => {
+    dbPath = `.gestalt-test/cochange-threshold-${randomUUID()}.db`;
+    store = new CodeGraphStore(dbPath);
+  });
 
-    expect(cut.pairs).toHaveLength(2);
-    expect(cut.totalMatched).toBe(4);
-    expect(cut.truncated).toBe(true);
+  afterEach(() => {
+    store.close();
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (existsSync(`${dbPath}${suffix}`)) rmSync(`${dbPath}${suffix}`);
+    }
+  });
+
+  /**
+   * seed와 near가 `together`번 함께, 나머지는 따로 바뀌어 둘의 solo가
+   * 똑같이 `soloTotal`이 된다. confidence 분모를 정확한 값으로 박으려고 쓴다 —
+   * 한쪽만 키우면 작은 solo가 분모가 되어 confidence가 1로 올라간다.
+   */
+  function withConfidence(together: number, soloTotal: number): void {
+    const commits: string[][] = [];
+    for (let i = 0; i < together; i++) commits.push(['src/seed.ts', 'src/near.ts']);
+    for (let i = 0; i < soloTotal - together; i++) {
+      commits.push(['src/seed.ts', `src/f${i}.ts`]);
+      commits.push(['src/near.ts', `src/g${i}.ts`]);
+    }
+    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
+  }
+
+  it('임계는 반올림 전 값에 걸린다', () => {
+    // 8/27 = 0.2963… 이라 표시값은 0.30으로 올라간다. 표시값에 임계를 걸면
+    // 통과해버리는 자리다
+    withConfidence(8, 27);
+    const near = '/repo/src/near.ts';
+
+    const strict = queryCoChange(store, ROOT, {
+      target: 'src/seed.ts',
+      minConfidence: 0.3,
+      exists: allExist,
+    });
+    const loose = queryCoChange(store, ROOT, {
+      target: 'src/seed.ts',
+      minConfidence: 0.29,
+      exists: allExist,
+    });
+
+    expect(loose.neighbors.map((n) => n.filePath)).toContain(near);
+    expect(loose.neighbors.find((n) => n.filePath === near)!.confidence).toBe(0.3);
+    expect(strict.neighbors.map((n) => n.filePath)).not.toContain(near);
+  });
+
+  it('임계 경계값은 통과시킨다', () => {
+    // 3/10 = 0.3 정확히. `>` 로 쓰면 여기서 빠진다
+    withConfidence(3, 10);
+
+    const result = queryCoChange(store, ROOT, {
+      target: 'src/seed.ts',
+      minConfidence: 0.3,
+      exists: allExist,
+    });
+
+    expect(result.neighbors.map((n) => n.filePath)).toContain('/repo/src/near.ts');
+  });
+
+  it('임계에 걸린 행은 존재 확인까지 가지 않는다', () => {
+    withConfidence(8, 27);
+
+    const checked: string[] = [];
+    queryCoChange(store, ROOT, {
+      target: 'src/seed.ts',
+      minConfidence: 0.3,
+      exists: (p) => {
+        checked.push(p);
+        return true;
+      },
+    });
+
+    // JS단으로 임계를 되돌리면 버릴 행까지 stat이 돈다
+    expect(checked).not.toContain('/repo/src/near.ts');
+  });
+
+  it('confidence는 두 방향 중 큰 쪽으로 걸린다', () => {
+    // seed는 20번 바뀌고 이웃은 3번뿐이다. seed 방향은 3/20 = 0.15라 임계
+    // 아래지만 이웃 방향은 3/3 = 1.0이다
+    const commits: string[][] = [];
+    for (let i = 0; i < 3; i++) commits.push(['src/seed.ts', 'src/rare.ts']);
+    for (let i = 0; i < 17; i++) commits.push(['src/seed.ts', `src/f${i}.ts`]);
+    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
+
+    const result = queryCoChange(store, ROOT, {
+      target: 'src/seed.ts',
+      minConfidence: 0.9,
+      exists: allExist,
+    });
+
+    expect(result.neighbors.map((n) => n.filePath)).toEqual(['/repo/src/rare.ts']);
+  });
+
+  it('seed 쪽 solo가 비어도 이웃 쪽 solo로 임계를 건다', () => {
+    const commits: string[][] = [];
+    for (let i = 0; i < 4; i++) commits.push(['src/seed.ts', 'src/near.ts']);
+    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
+
+    // soloSelf를 0으로 넘긴다 — CASE의 "반대쪽만 살아 있는" 가지다
+    const kept = store.getCoChangeNeighbors('/repo/src/seed.ts', 1, 1, 0);
+    const dropped = store.getCoChangeNeighbors('/repo/src/seed.ts', 5, 1, 0);
+
+    expect(kept.map((r) => r.other)).toEqual(['/repo/src/near.ts']);
+    expect(dropped).toHaveLength(0);
+  });
+
+  it('양쪽 solo가 다 비면 confidence 0으로 본다', () => {
+    // solo 없이 페어만 심는다. LEFT JOIN이 0을 내는 가지다
+    store.mergeCoChange({
+      pairs: [{ fileA: '/repo/src/a.ts', fileB: '/repo/src/b.ts', count: 5 }],
+      solos: [],
+      meta: {
+        headSha: sha(1),
+        commitsUsed: 5,
+        commitsScanned: 5,
+        maxFilesPerCommit: MAX_FILES_PER_COMMIT,
+        defaultMinPairCount: MIN_PAIR_COUNT,
+      },
+      reset: true,
+    });
+
+    expect(store.getCoChangeNeighbors('/repo/src/a.ts', 1, 0, 0)).toHaveLength(1);
+    expect(store.getCoChangeNeighbors('/repo/src/a.ts', 1, 0.01, 0)).toHaveLength(0);
+    expect(store.getCoChangePairs(1, 0)).toHaveLength(1);
+    expect(store.getCoChangePairs(1, 0.01)).toHaveLength(0);
+  });
+
+  it('전역 페어 조회도 같은 임계를 질의에서 건다', () => {
+    withConfidence(8, 27);
+
+    const hasSeedNearPair = (minConfidence: number): boolean =>
+      store
+        .getCoChangePairs(1, minConfidence)
+        .some((r) => r.fileA === '/repo/src/near.ts' && r.fileB === '/repo/src/seed.ts');
+
+    expect(hasSeedNearPair(0.29)).toBe(true);
+    expect(hasSeedNearPair(0.3)).toBe(false);
+  });
+
+  it('점수가 같으면 동시등장이 많은 쪽을 먼저 세운다', () => {
+    // 둘 다 confidence 1.0에 lift 1.0이라 점수가 정확히 같다. 남는 열쇠는
+    // 동시등장뿐이다. 그게 빠지면 경로 순(a가 먼저)으로 밀린다
+    const commits: string[][] = [];
+    for (let i = 0; i < 3; i++) commits.push(['src/seed.ts', 'src/a-three.ts']);
+    for (let i = 0; i < 5; i++) commits.push(['src/seed.ts', 'src/z-five.ts']);
+    for (let i = 0; i < 12; i++) commits.push(['src/seed.ts', `src/f${i}.ts`]);
+    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
+
+    const result = queryCoChange(store, ROOT, { target: 'src/seed.ts', exists: allExist });
+    const tied = result.neighbors.filter((n) => n.pairCount > 1);
+
+    expect(tied.map((n) => n.confidence * n.lift)).toEqual([1, 1]);
+    expect(tied.map((n) => n.filePath)).toEqual(['/repo/src/z-five.ts', '/repo/src/a-three.ts']);
+  });
+
+  it('점수와 카운트가 같으면 경로 순으로 세운다', () => {
+    // 삽입 순서를 알파벳 역순으로 준다 — 마지막 열쇠가 빠지면 그 순서가 샌다
+    const commits: string[][] = [];
+    for (const n of ['src/z.ts', 'src/m.ts', 'src/a.ts']) {
+      for (let i = 0; i < 3; i++) commits.push(['src/seed.ts', n]);
+    }
+    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
+
+    const result = queryCoChange(store, ROOT, { target: 'src/seed.ts', exists: allExist });
+
+    expect(result.neighbors.map((n) => n.filePath)).toEqual([
+      '/repo/src/a.ts',
+      '/repo/src/m.ts',
+      '/repo/src/z.ts',
+    ]);
   });
 });

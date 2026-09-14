@@ -348,6 +348,26 @@ describe('computeBlastRadius()', () => {
       expect(result.rankedFiles.map((f) => f.filePath)).toContain('docs/guide.md');
     });
 
+    it('점수도 카운트도 같으면 경로 순으로 세운다', () => {
+      buildImportGraph();
+
+      // 입력을 알파벳 역순으로 준다 — 마지막 열쇠가 없으면 그 순서가 그대로 샌다
+      const result = computeBlastRadius(
+        store,
+        ['src/a.ts'],
+        2,
+        lookup([
+          { filePath: 'docs/z.md', pairCount: 4, confidence: 0.5, lift: 4 },
+          { filePath: 'docs/m.md', pairCount: 4, confidence: 0.5, lift: 4 },
+          { filePath: 'docs/a.md', pairCount: 4, confidence: 0.5, lift: 4 },
+        ]),
+      );
+
+      expect(
+        result.rankedFiles.filter((f) => f.origin === 'history').map((f) => f.filePath),
+      ).toEqual(['docs/a.md', 'docs/m.md', 'docs/z.md']);
+    });
+
     it('available:false면 사유를 그대로 실어 조용한 0건을 막는다', () => {
       buildImportGraph();
 
@@ -364,7 +384,7 @@ describe('computeBlastRadius()', () => {
       expect(result.coChangeReason).toContain('has not been collected');
     });
 
-    it('이력 이웃이 잘렸으면 summary가 하한이라고 말한다', () => {
+    it('이력 이웃이 잘렸으면 summary가 상위 몇 개인지 말한다', () => {
       buildImportGraph();
       const neighbors = [
         { filePath: 'docs/guide.md', pairCount: 5, confidence: 0.8, lift: 4 },
@@ -390,7 +410,10 @@ describe('computeBlastRadius()', () => {
       expect(cut.coChangeTotalMatched).toBe(40);
       expect(full.coChangeTruncated).toBe(false);
       expect(cut.summary).toContain('lower bound');
-      expect(cut.summary).toContain('2 shown out of at least 40');
+      // "at least"가 아니다. 자르는 자리가 랭킹 뒤 한 곳뿐이라 40은 정확한 수고
+      // 보인 2개는 그 40의 상위 둘이다
+      expect(cut.summary).toContain('showing the top 2 of 40 match(es)');
+      expect(cut.summary).not.toContain('at least');
       expect(full.summary).toContain('Git history adds');
       expect(full.summary).not.toContain('lower bound');
     });
