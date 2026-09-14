@@ -58,9 +58,9 @@ ges_code_graph({ action: "build", repoRoot: "/path/to/repo" })
   "skippedCount": 0,
   "skippedFiles": [],
   "coChange": {
-    "pairs": 4592,
-    "commitsUsed": 557,
-    "commitsScanned": 902,
+    "pairs": 4597,
+    "commitsUsed": 561,
+    "commitsScanned": 906,
     "mode": "full"
   }
 }
@@ -148,7 +148,7 @@ ges_code_graph({
 | `rankedFiles` | 두 신호를 합쳐 출처를 붙인 목록. `both` → `history` → `import` 순 |
 | `coChangeAvailable` | 이력 신호가 실제로 실렸는지 |
 | `coChangeReason` | 신호가 없거나 이웃이 0건일 때 그 사유 |
-| `coChangeTruncated` | 이력 이웃이 `limit`이나 질의 후보 상한에 잘렸다. 켜지면 `rankedFiles`의 `history` 항목은 하한이다 |
+| `coChangeTruncated` | 이력 이웃이 `limit`에 잘렸다. 켜지면 `rankedFiles`의 `history` 항목은 하한이다 — 다만 보인 것은 전체 순위의 상위 접두사다 |
 | `coChangeTotalMatched` | 임계를 통과한 이력 이웃 수. 얼마나 잘렸는지 가늠용 |
 | `depthExhausted` | `maxDepth`에 걸려 탐색이 멈췄고 갈 곳이 남아 있었다 |
 | `unexploredNodes` | 그때 다음 홉에서 기다리던 노드 수 |
@@ -274,9 +274,9 @@ ges_code_graph({
     { "filePath": "/path/to/repo/plugin/role-agents/humanize-monolith/AGENT.md", "pairCount": 6, "confidence": 0.5, "lift": 13.0 }
   ],
   "pairs": [],
-  "commitsUsed": 557,
-  "commitsScanned": 902,
-  "pairsInDb": 4592,
+  "commitsUsed": 561,
+  "commitsScanned": 906,
+  "pairsInDb": 4597,
   "totalMatched": 12,
   "truncated": false,
   "available": true
@@ -290,8 +290,8 @@ ges_code_graph({
 | `commitsUsed` | 필터를 통과해 실제로 센 커밋 수 |
 | `commitsScanned` | 읽은 전체 커밋 수 |
 | `pairsInDb` | DB에 저장된 전체 페어 수 |
-| `totalMatched` | 임계를 통과한 행 수. `truncated`면 이 값도 하한이다 |
-| `truncated` | 반환 목록이 `limit`이나 질의 후보 상한에 잘렸는지 |
+| `totalMatched` | 임계를 통과한 행 수. 하한이 아니라 정확한 수다 |
+| `truncated` | 반환 목록이 `limit`에 잘렸는지. 잘려도 돌려준 목록은 전체 순위의 상위 접두사다 |
 | `available` | 수집이 됐는지 |
 | `reason` | 결과가 비었을 때 그 사유 |
 
@@ -355,17 +355,25 @@ ges_code_graph({ action: "db_exists", repoRoot: "/path/to/repo" })
 
 import 그래프는 소스에 적힌 것만 안다. 매니페스트 JSON끼리의 약속, 코드와 그 코드를 설명하는 문서, 스키마와 그걸 읽는 설정 파일은 서로를 import하지 않으므로 파싱으로는 영영 안 잡힌다.
 
-이 레포로 재보면 강한 페어(동시등장 3회 이상, confidence 0.3 이상)가 406개다. 그중 양쪽 파일이 워킹트리에 다 남아 있는 390개를 실제 그래프의 `IMPORTS_FROM` 엣지와 맞대보면 **292개, 그러니까 75%에는 대응하는 import 엣지가 아예 없다.**
+이 레포로 재보면 강한 페어(동시등장 3회 이상, confidence 0.3 이상) 가운데 양쪽 파일이 워킹트리에 다 남아 있는 것을 실제 그래프의 `IMPORTS_FROM` 엣지와 맞대봤다. **넷 중 셋에는 대응하는 import 엣지가 아예 없다.**
 
-이 개수를 전체 이력에 붙여 읽으면 임계가 무엇 위에서 걸린 건지 어긋난다. 페어 계산의 입력은 전체 이력이 아니라 아래 마지막 단계이고 `confidence`와 `lift`의 분모(`commitsUsed`)도 같은 값이다.
+### 측정 스냅숏
 
-| 단계 | 커밋 수 |
+이 절의 숫자는 전부 **`c927188` 한 커밋에서 잰 값이다.** 커밋이 쌓이면 함께 움직이므로 이 문서를 읽는 시점의 값과 다르다. 숫자가 밀렸다고 문서가 틀린 게 아니라 스냅숏이 오래된 것이다. 지금 값이 필요하면 직접 재면 된다.
+
+```bash
+ges_code_graph({ action: "build", repoRoot: "<경로>" })   # 응답의 coChange가 커밋 수와 페어 수다
+```
+
+개수를 전체 이력에 붙여 읽으면 임계가 무엇 위에서 걸린 건지 어긋난다. 페어 계산의 입력은 전체 이력이 아니라 아래 마지막 단계이고 `confidence`와 `lift`의 분모(`commitsUsed`)도 같은 값이다.
+
+| 단계 | 커밋 수 (`c927188` 기준) |
 |---|---|
-| `git rev-list --count HEAD` — 전체 | 934 |
-| `--no-merges` 적용 | 902 |
-| 거기서 파일 2~20개인 커밋만 (`commitsUsed`) | 557 |
+| `git rev-list --count HEAD` — 전체 | 938 |
+| `--no-merges` 적용 | 906 |
+| 거기서 파일 2~20개인 커밋만 (`commitsUsed`) | 561 |
 
-세 숫자와 위의 406/390/292는 같은 스냅숏에서 잰 값이다. 커밋이 쌓이면 함께 움직인다.
+같은 커밋에서 강한 페어는 416개, 그중 양쪽이 워킹트리에 남은 것이 400개, 대응 import 엣지가 없는 것이 297개(74%)다.
 
 가장 좋은 예가 이 레포 자신이다. CLAUDE.md에 사람이 손으로 적어둔 "네 매니페스트의 버전 핀을 릴리즈마다 함께 갱신한다"는 규칙을 co-change가 이력에서 그대로 찾아낸다.
 
@@ -416,13 +424,15 @@ src/humanize/index.ts 의 이웃
 | confidence 0.3 미만 제외 | `DEFAULT_MIN_CONFIDENCE = 0.3` | 한쪽이 바뀔 때 열에 셋도 안 따라오면 같이 읽을 이유가 약하다 |
 | merge 커밋 제외 | `git log --no-merges` | 머지 커밋의 파일 목록은 함께 고친 흔적이 아니다 |
 
-임계 셋은 `minPairCount`와 `minConfidence`로 낮출 수 있다. `co_change`뿐 아니라 `blast_radius`와 `diff_radius`도 같은 파라미터를 받는다. 이력 신호를 쓰는 세 액션이 같은 튜닝 면을 공유한다. 반환 개수 상한은 `limit`이고 기본값은 `DEFAULT_NEIGHBOR_LIMIT`(30)과 `DEFAULT_PAIR_LIMIT`(50)이다. 커밋 21개 경계는 상수라 코드를 고쳐야 바뀐다.
+임계 셋은 `minPairCount`와 `minConfidence`로 낮출 수 있다. `co_change`뿐 아니라 `blast_radius`와 `diff_radius`도 같은 파라미터를 받는다. 이력 신호를 쓰는 세 액션이 같은 튜닝 면을 공유한다. 반환 개수 상한은 `limit`이고 기본값은 `DEFAULT_NEIGHBOR_LIMIT`(30)과 `DEFAULT_PAIR_LIMIT`(50)이다. 두 임계는 질의가 걸고 `limit`은 랭킹을 다 세운 뒤 걸린다. 커밋 21개 경계는 상수라 코드를 고쳐야 바뀐다.
+
+`minConfidence`는 반올림 전 값에 걸린다. 응답의 `confidence`는 소수 둘째 자리까지 보여주므로 0.30으로 보이는 페어의 원값이 0.296일 수 있고 그건 `minConfidence: 0.3`을 통과하지 못한다.
 
 삭제되거나 이름이 바뀐 파일은 이력에만 남는다. 이런 경로는 **조회 시점에** 워킹트리 존재 여부로 거른다. 수집에서 빼면 그 파일이 살아 있던 시절의 solo 카운트가 함께 깎여 남은 파일들의 confidence가 부풀기 때문이다.
 
 ### 수집과 갱신
 
-`build`가 파일 파싱을 끝낸 뒤 `git log --format=%H --name-only --no-merges`를 한 번 읽어 페어를 센다. 파일마다 git을 부르지는 않는다. 같은 스냅숏에서 merge를 뺀 902커밋을 읽는 데 37ms가 걸렸고 그중 파일 2~20개인 557커밋에서 4,592페어가 나왔다. 줄어드는 단계는 앞 절의 표에 적어뒀다.
+`build`가 파일 파싱을 끝낸 뒤 `git log --format=%H --name-only --no-merges`를 한 번 읽어 페어를 센다. 파일마다 git을 부르지는 않는다. [같은 스냅숏](#측정-스냅숏)에서 merge를 뺀 906커밋을 읽는 데 41ms가 걸렸고 그중 파일 2~20개인 561커밋에서 4,597페어가 나왔다. 줄어드는 단계는 앞 절의 표에 적어뒀다.
 
 증분 빌드는 `cg_cochange_meta`에 적힌 이전 HEAD가 지금 HEAD의 조상이면 그 사이 구간만 읽어 카운터에 더한다. HEAD가 그대로면 `git log`를 아예 안 읽는다. post-commit 훅이 부르는 자리라 수백 ms를 넘기면 안 되기 때문이다. rebase나 amend, shallow clone으로 이전 기준점에 못 닿으면 경고를 남기고 전량 재수집으로 내린다.
 
@@ -454,9 +464,11 @@ src/humanize/index.ts 의 이웃
 
 ### 잘린 이력은 잘렸다고 말한다
 
-이웃이 `limit`보다 많으면 `coChangeTruncated`가 켜지고 `summary`에 `History neighbors are a lower bound: N shown out of at least M match(es).`가 따라붙는다. `depthExhausted`가 import 신호를 두고 하는 말과 같은 자리다. 이 표식이 없으면 이웃 40개 중 30개만 받아놓고 그게 전부라고 읽게 된다.
+이웃이 `limit`보다 많으면 `coChangeTruncated`가 켜지고 `summary`에 `History neighbors are a lower bound: showing the top N of M match(es).`가 따라붙는다. `depthExhausted`가 import 신호를 두고 하는 말과 같은 자리다. 이 표식이 없으면 이웃 40개 중 30개만 받아놓고 그게 전부라고 읽게 된다.
 
-자르는 자리는 조회다. 이웃 상한을 SQL `LIMIT`으로 걸어두고 점수 상위를 놓치지 않도록 후보는 `limit`의 열 배(하한 200)까지 떠서 confidence × lift로 다시 세운다. 전역 페어 조회도 같은 식이라 `limit`을 키우면 조회가 뜨는 후보도 함께 늘어난다.
+**`M`은 하한이 아니라 정확한 수고 보인 `N`개는 그 `M`의 상위 `N`개다.** 자르는 자리가 랭킹을 다 세운 뒤 한 곳뿐이라 그렇다. 개수로 먼저 줄이고 점수로 다시 세우면 이 말이 성립하지 않는다 — 랭킹 키가 confidence × lift인데 `pair_count` 순으로 먼저 자르면 카운트는 낮고 점수는 높은 페어가 통째로 빠진다.
+
+대신 두 임계(`minPairCount`, `minConfidence`)를 질의로 내려 조회가 읽는 행을 줄인다. 임계는 개수와 달리 손실이 없다 — 어차피 결과에서 뺄 행을 애초에 안 뜨는 것뿐이다. 조회 비용은 임계를 통과한 행 수에 비례하므로 임계를 0으로 내리면 그만큼 더 읽는다. [스냅숏 기준](#측정-스냅숏)으로 기본 임계에서는 seed당 최대 22행, 전역 페어 416행이고 임계를 둘 다 0으로 내리면 seed당 최대 133행, 전역 4,597행이다.
 
 ### 한계
 
