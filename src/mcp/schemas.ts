@@ -556,9 +556,9 @@ export type BenchmarkInput = z.infer<typeof benchmarkInputSchema>;
 // ─── Code Graph Tool ────────────────────────────────────────────
 export const codeGraphInputSchema = z.object({
   action: z
-    .enum(['build', 'blast_radius', 'diff_radius', 'query', 'stats', 'db_exists'])
+    .enum(['build', 'blast_radius', 'diff_radius', 'query', 'stats', 'db_exists', 'co_change'])
     .describe(
-      'build: index codebase, blast_radius: committed changes, diff_radius: uncommitted changes, query: graph query, stats: show stats, db_exists: check DB',
+      'build: index codebase, blast_radius: committed changes, diff_radius: uncommitted changes, query: graph query, stats: show stats, db_exists: check DB, co_change: files that changed together in git history',
     ),
   repoRoot: z.string().describe('Absolute path to the repository root'),
   // build 전용
@@ -584,7 +584,34 @@ export const codeGraphInputSchema = z.object({
     .enum(['callers_of', 'callees_of', 'tests_for', 'imports_of'])
     .optional()
     .describe('Query pattern (required for query action)'),
-  target: z.string().optional().describe('Target function/file name (required for query action)'),
+  target: z
+    .string()
+    .optional()
+    .describe(
+      'Target function/file name. Required for query; optional for co_change (omit to list top pairs repo-wide)',
+    ),
+  // 이력 신호 임계. co_change, blast_radius, diff_radius가 함께 쓴다
+  limit: z
+    .number()
+    .int()
+    .min(0)
+    .max(500)
+    .optional()
+    .describe(
+      'Max rows to return (co_change default: 30 with target / 50 without, blast_radius and diff_radius: 30)',
+    ),
+  minPairCount: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe('Drop pairs seen together fewer times than this (default: 3)'),
+  minConfidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe('Drop pairs below this confidence (default: 0.3)'),
 });
 
 export type CodeGraphInput = z.infer<typeof codeGraphInputSchema>;

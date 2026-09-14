@@ -1,9 +1,9 @@
 /**
  * CodeGraphEngine 통합 테스트
  *
- * CodeGraphEngine은 `glob` 패키지에 의존하므로, engine을 직접 import하는 대신
- * CodeGraphStore + computeBlastRadius를 조합하여 engine의 핵심 로직을 검증한다.
- * (glob이 설치되면 import 방식으로 전환 가능)
+ * 여기서는 engine을 직접 import하지 않고 CodeGraphStore + computeBlastRadius로
+ * 핵심 로직만 조립해 본다. 파일 수집이나 git 호출 없이 그래프 순회만 보려는
+ * 자리라서다. engine 자체를 태우는 테스트는 engine-cochange.test.ts에 있다.
  */
 import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';

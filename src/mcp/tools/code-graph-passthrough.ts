@@ -1,9 +1,9 @@
 import { log } from '../../core/log.js';
 import { codeGraphEngine } from '../../code-graph/index.js';
-import type { QueryPattern } from '../../code-graph/index.js';
+import type { CoChangeTuning, QueryPattern } from '../../code-graph/index.js';
 
 export type CodeGraphInput = {
-  action: 'build' | 'blast_radius' | 'diff_radius' | 'query' | 'stats' | 'db_exists';
+  action: 'build' | 'blast_radius' | 'diff_radius' | 'query' | 'stats' | 'db_exists' | 'co_change';
   repoRoot: string;
   // build 전용
   include?: string[];
@@ -15,10 +15,26 @@ export type CodeGraphInput = {
   maxDepth?: number;
   // diff_radius 전용
   diffMode?: 'staged' | 'unstaged' | 'all';
-  // query 전용
+  // query 전용 (target은 co_change와 공유한다)
   pattern?: QueryPattern;
   target?: string;
+  // 이력 신호 임계. co_change, blast_radius, diff_radius가 함께 쓴다
+  limit?: number;
+  minPairCount?: number;
+  minConfidence?: number;
 };
+
+/**
+ * 임계 파라미터는 co_change 액션만의 것이 아니다. blast_radius와 diff_radius도
+ * 같은 신호를 쓰므로 여기서 갈라놓으면 튜닝이 조회에만 먹는다.
+ */
+function coChangeTuning(input: CodeGraphInput): CoChangeTuning {
+  return {
+    limit: input.limit,
+    minPairCount: input.minPairCount,
+    minConfidence: input.minConfidence,
+  };
+}
 
 export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise<object> {
   const { action, repoRoot } = input;
@@ -53,6 +69,9 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
           // 개수는 늘 싣고 목록은 진단용으로 앞 20개만 — 전량은 응답만 키운다.
           skippedCount: result.skippedFiles.length,
           skippedFiles: result.skippedFiles.slice(0, 20),
+          // undefined면 수집을 건너뛴 것이다 (git 레포가 아니거나 repoRoot가
+          // 레포 최상위가 아님). 0과 구분돼야 한다.
+          coChange: result.coChange,
         };
       }
 
@@ -61,6 +80,7 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
           changedFiles: input.changedFiles,
           base: input.base,
           maxDepth: input.maxDepth,
+          coChange: coChangeTuning(input),
         });
         return result;
       }
@@ -69,6 +89,7 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
         const result = codeGraphEngine.diffRadius(repoRoot, {
           mode: input.diffMode,
           maxDepth: input.maxDepth,
+          coChange: coChangeTuning(input),
         });
         return result;
       }
@@ -86,6 +107,14 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
 
       case 'stats': {
         const result = codeGraphEngine.stats(repoRoot);
+        return result;
+      }
+
+      case 'co_change': {
+        const result = codeGraphEngine.coChange(repoRoot, {
+          target: input.target,
+          ...coChangeTuning(input),
+        });
         return result;
       }
 

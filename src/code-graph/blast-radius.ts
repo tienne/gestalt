@@ -1,5 +1,10 @@
-import type { CodeGraphStore } from './storage.js';
-import type { BlastRadiusResult, BlastRadiusNode } from './types.js';
+import { MAX_MATCHED_ROWS, type CodeGraphStore } from './storage.js';
+import type {
+  BlastRadiusResult,
+  BlastRadiusNode,
+  CoChangeLookup,
+  RankedImpactFile,
+} from './types.js';
 import { NodeKind } from './types.js';
 
 /**
@@ -11,6 +16,7 @@ export function computeBlastRadius(
   store: CodeGraphStore,
   changedFiles: string[],
   maxDepth: number = 2,
+  coChange?: CoChangeLookup,
 ): BlastRadiusResult {
   if (changedFiles.length === 0) {
     return {
@@ -21,6 +27,12 @@ export function computeBlastRadius(
       maxDepthUsed: maxDepth,
       depthExhausted: false,
       unexploredNodes: 0,
+      rankedFiles: [],
+      coChangeAvailable: coChange?.available ?? false,
+      coChangeReason: coChange?.reason,
+      coChangeTruncated: coChange?.truncated ?? false,
+      coChangeMatchedCapped: coChange?.matchedCapped ?? false,
+      coChangeTotalMatched: coChange?.totalMatched ?? 0,
       summary: 'No changed files provided.',
     };
   }
@@ -108,7 +120,13 @@ export function computeBlastRadius(
   const totalNodes = stats.totalNodes;
   const riskScore = totalNodes > 0 ? Math.min(1, impactedNodeIds.size / totalNodes) : 0;
 
-  // 7. Build summary
+  // 7. import 신호와 이력 신호를 합쳐 출처를 붙인다.
+  //    impactedFiles는 건드리지 않는다 — 소비자가 vitest 인자로 직결한다.
+  const rankedFiles = buildRankedFiles(changedFiles, impactedFiles, impactedNodes, coChange);
+  const historyOnly = rankedFiles.filter((f) => f.origin === 'history').length;
+  const both = rankedFiles.filter((f) => f.origin === 'both').length;
+
+  // 8. Build summary
   const summary = buildSummary(
     changedFiles,
     impactedFiles,
@@ -117,6 +135,9 @@ export function computeBlastRadius(
     maxDepth,
     depthExhausted,
     unexploredNodes,
+    coChange,
+    historyOnly,
+    both,
   );
 
   return {
@@ -127,8 +148,82 @@ export function computeBlastRadius(
     maxDepthUsed: maxDepth,
     depthExhausted,
     unexploredNodes,
+    rankedFiles,
+    coChangeAvailable: coChange?.available ?? false,
+    coChangeReason: coChange?.reason,
+    coChangeTruncated: coChange?.truncated ?? false,
+    coChangeMatchedCapped: coChange?.matchedCapped ?? false,
+    coChangeTotalMatched: coChange?.totalMatched ?? 0,
     summary,
   };
+}
+
+/**
+ * both(두 신호 모두) → history(이력 전용) → import(import 전용) 순으로 세운다.
+ * 두 신호에 함께 걸린 파일이 가장 먼저 읽혀야 할 파일이다.
+ */
+function buildRankedFiles(
+  changedFiles: string[],
+  impactedFiles: string[],
+  impactedNodes: BlastRadiusNode[],
+  coChange?: CoChangeLookup,
+): RankedImpactFile[] {
+  const hopByFile = new Map<string, number>();
+  for (const f of changedFiles) hopByFile.set(f, 0);
+  for (const node of impactedNodes) {
+    const prev = hopByFile.get(node.filePath);
+    if (prev === undefined || node.hopDistance < prev)
+      hopByFile.set(node.filePath, node.hopDistance);
+  }
+
+  const importSet = new Set(impactedFiles);
+  const neighbors = coChange?.neighbors ?? [];
+
+  const both: RankedImpactFile[] = [];
+  const history: RankedImpactFile[] = [];
+  const seenFromHistory = new Set<string>();
+
+  for (const n of neighbors) {
+    seenFromHistory.add(n.filePath);
+    const entry: RankedImpactFile = {
+      filePath: n.filePath,
+      origin: importSet.has(n.filePath) ? 'both' : 'history',
+      coChangeCount: n.pairCount,
+      confidence: n.confidence,
+      lift: n.lift,
+      isTest: isTestFile(n.filePath),
+    };
+    if (entry.origin === 'both') {
+      entry.hopDistance = hopByFile.get(n.filePath);
+      both.push(entry);
+    } else {
+      history.push(entry);
+    }
+  }
+
+  // 경로까지 열쇠로 둔다. 점수와 카운트가 같은 행이 흔해 거기서 멈추면
+  // 순서가 입력 순서에 걸린다.
+  const byScore = (a: RankedImpactFile, b: RankedImpactFile): number =>
+    (b.confidence ?? 0) * (b.lift ?? 0) - (a.confidence ?? 0) * (a.lift ?? 0) ||
+    (b.coChangeCount ?? 0) - (a.coChangeCount ?? 0) ||
+    a.filePath.localeCompare(b.filePath);
+  both.sort(byScore);
+  history.sort(byScore);
+
+  const importOnly: RankedImpactFile[] = impactedFiles
+    .filter((f) => !seenFromHistory.has(f))
+    .map((f) => ({
+      filePath: f,
+      origin: 'import' as const,
+      hopDistance: hopByFile.get(f) ?? 0,
+      isTest: isTestFile(f),
+    }));
+  importOnly.sort((a, b) => {
+    if (a.isTest !== b.isTest) return a.isTest ? -1 : 1;
+    return (a.hopDistance ?? 0) - (b.hopDistance ?? 0) || a.filePath.localeCompare(b.filePath);
+  });
+
+  return [...both, ...history, ...importOnly];
 }
 
 /**
@@ -184,6 +279,9 @@ function buildSummary(
   maxDepth: number,
   depthExhausted: boolean,
   unexploredNodes: number,
+  coChange: CoChangeLookup | undefined,
+  historyOnly: number,
+  both: number,
 ): string {
   const testFileCount = impactedFiles.filter(isTestFile).length;
   const riskLabel = riskScore > 0.6 ? 'HIGH' : riskScore > 0.3 ? 'MEDIUM' : 'LOW';
@@ -194,13 +292,42 @@ function buildSummary(
     `(${testFileCount} test files, ${testNodes} test functions). ` +
     `Risk: ${riskLabel} (${(riskScore * 100).toFixed(1)}%).`;
 
+  // 이력 신호가 안 실린 것과 함께 바뀐 파일이 없는 것은 다르다. summary만 읽는
+  // 자리가 있으므로 여기서도 둘을 갈라 말한다.
+  //
+  // 잘린 사실도 같이 싣는다. depthExhausted가 import 쪽을 하한이라고 말하는
+  // 것과 같은 이유다 — 목록만 보면 40개 중 30개를 전부로 읽는다.
+  //
+  // "top N of M"이라고 단정할 수 있는 건 자르는 자리가 랭킹을 다 세운 뒤
+  // 한 곳뿐이어서다. 질의가 점수와 다른 키로 먼저 자르면 이 문장이 거짓이 된다.
+  //
+  // 질의 천장에 걸린 경우가 정확히 그 자리라 문장을 갈라 쓴다. 같은 "lower
+  // bound"로 뭉뜽그리면 고칠 손잡이가 limit이라고 잘못 읽게 되는데, 천장을
+  // 푸는 건 limit이 아니라 임계다.
+  let capped = '';
+  if (coChange?.matchedCapped === true) {
+    capped =
+      ` History neighbors hit the ${MAX_MATCHED_ROWS}-row query ceiling: showing ` +
+      `${coChange.neighbors.length} of at least ${coChange.totalMatched} match(es), ` +
+      `and the list is not a ranked prefix. ` +
+      `Raise minPairCount or minConfidence to get an exact ranking.`;
+  } else if (coChange?.truncated === true) {
+    capped =
+      ` History neighbors are a lower bound: showing the top ${coChange.neighbors.length} ` +
+      `of ${coChange.totalMatched} match(es). Raise limit to see more.`;
+  }
+  const history = !coChange?.available
+    ? ' Git history signal unavailable (import graph only).'
+    : ` Git history adds ${historyOnly} file(s) imports cannot see, ${both} confirmed by both signals.` +
+      capped;
+
   // 잘렸으면 요약에서 먼저 말한다. 사람은 summary만 읽고 판단하는 일이 잦은데
   // "영향 12개, 위험 낮음"만 보면 그게 전부인 줄 안다.
-  if (!depthExhausted) return base;
+  if (!depthExhausted) return `${base}${history}`;
 
   return (
     `${base} INCOMPLETE: search stopped at depth ${maxDepth} with ${unexploredNodes} node(s) ` +
     `still unexplored, so the impact list and risk are lower bounds, not totals. ` +
-    `Re-run with a higher maxDepth to see the rest.`
+    `Re-run with a higher maxDepth to see the rest.${history}`
   );
 }

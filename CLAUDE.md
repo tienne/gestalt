@@ -12,7 +12,7 @@
 - **Review Pipeline**: Code Review 6종 에이전트(보안/성능/품질/프론트엔드/주석/라이팅) + consensus → 자동 수정 루프
 - **MCP Server**: stdio transport, API 키 없으면 Passthrough 모드 자동 활성화 (Execute는 항상 Passthrough)
 - **Skill System**: SKILL.md 기반 확장, chokidar hot-reload
-- **Code Knowledge Graph**: 정적 분석 → 의존성 그래프 → Blast-Radius 영향 파일 추출, D3 시각화(`ges_graph_visualize`) 지원
+- **Code Knowledge Graph**: 정적 분석 → 의존성 그래프 → Blast-Radius 영향 파일 추출, D3 시각화(`ges_graph_visualize`) 지원. git 이력에서 뽑은 co-change(함께 바뀐 파일)를 나란히 실어 import가 원리상 못 보는 관계까지 잡는다
 - **Knowledge Base**: 코드 그래프·도메인 지식을 MD로 내보내고 로컬 임베딩으로 시맨틱 검색
 - **Memory**: 이전 스펙·실행 이력을 `.gestalt/memory.json`에 축적, 신규 인터뷰에 자동 주입
 - **Multi-Provider LLM**: frugal/standard/frontier 티어별로 Anthropic/OpenAI 호환 프로바이더 자유 조합
@@ -49,7 +49,7 @@ pnpm tsx bin/gestalt.ts explain-eval --a plugin/role-agents/explainer/AGENT.md  
 - `ges_agent`: action=[list|get], name?
 - `ges_status`: sessionId?, sessionType?, cwd?
 - `ges_benchmark`: action=[start|respond|status], scenario?, benchmarkSessionId?, response?
-- `ges_code_graph`: action=[build|blast_radius|diff_radius|query|stats|db_exists]
+- `ges_code_graph`: action=[build|blast_radius|diff_radius|query|co_change|stats|db_exists]
 - `ges_graph_visualize`: repoRoot, port?
 - `ges_generate_kb`: repoRoot?, outputPath?, types?, summarize?
 - `ges_search`: query, k?, kbPath?, types?
@@ -73,7 +73,7 @@ src/interview/     — InterviewEngine, ResolutionScorer
 src/spec/          — SpecGenerator, SpecExtractor
 src/execute/       — ExecuteEngine, DAG Validator
 src/resilience/    — Stagnation Detector, Lateral Thinking Personas
-src/code-graph/    — CodeGraphEngine, BlastRadius, 언어 플러그인 8개
+src/code-graph/    — CodeGraphEngine, BlastRadius, git 이력 co-change, 언어 플러그인 8개
 src/graph-viz/     — 코드 그래프 D3 시각화 (ges_graph_visualize 백엔드)
 src/local-pr/      — 로컬 PR 도메인 (이벤트 소싱, git 연산, gestalt pr·ges_pr 백엔드)
 src/local-pr-web/  — 로컬 PR 읽기 전용 웹 UI (gestalt pr serve 백엔드)
@@ -163,6 +163,7 @@ plugin/.mcp.json          Grok(배포) — plugin/mcp.json과 동일
 - LLM 호출: temperature 0.3, JSON 응답 파싱 + fallback
 - 해상도 점수 ≥ 0.8 = 요구사항 충분히 명확
 - 테스트 DB: `.gestalt-test/xxx-${randomUUID()}.db` 고유 경로 (병렬 안전)
+- blast-radius 결과에서 테스트 러너 인자로 넘기는 건 `impactedFiles`다. `rankedFiles`에는 git 이력으로만 걸린 md나 json이 섞여 있어 그대로 넘기면 vitest 인자가 오염된다
 - 한글 산문에서 가운뎃점(·) 나열 절제 → 쉼표나 "A랑 B하고 C"로 (표·용어 목록은 예외). 룰은 `ai-tell-quick-rules.md` C-12, `style-guide.md`에 정의
 
 ## 커밋 메시지, PR 제목

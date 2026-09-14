@@ -4,7 +4,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { CodeGraphStore } from '../../../src/code-graph/storage.js';
 import { computeBlastRadius } from '../../../src/code-graph/blast-radius.js';
 import { NodeKind, EdgeKind } from '../../../src/code-graph/types.js';
-import type { CodeGraphNode, CodeGraphEdge } from '../../../src/code-graph/types.js';
+import type {
+  CodeGraphNode,
+  CodeGraphEdge,
+  CoChangeLookup,
+} from '../../../src/code-graph/types.js';
 
 function makeNode(id: string, filePath: string, isTest = false): CodeGraphNode {
   return {
@@ -269,6 +273,202 @@ describe('computeBlastRadius()', () => {
       const full = computeBlastRadius(store, ['src/a.ts'], 10);
 
       expect(truncated.riskScore).toBeLessThan(full.riskScore);
+    });
+  });
+
+  describe('co-change 병합', () => {
+    function buildImportGraph(): void {
+      store.upsertNode(makeNode('function:src/a.ts:fn', 'src/a.ts'));
+      store.upsertNode(makeNode('function:src/b.ts:fn', 'src/b.ts'));
+      store.upsertEdge(makeEdge('function:src/b.ts:fn', 'function:src/a.ts:fn'));
+    }
+
+    function lookup(neighbors: CoChangeLookup['neighbors']): CoChangeLookup {
+      return {
+        available: true,
+        pairsInDb: neighbors.length,
+        neighbors,
+        totalMatched: neighbors.length,
+        truncated: false,
+        matchedCapped: false,
+      };
+    }
+
+    it('3인자로 부르면 이력 신호 없이 import 출처만 남는다', () => {
+      buildImportGraph();
+
+      const result = computeBlastRadius(store, ['src/a.ts'], 2);
+
+      expect(result.coChangeAvailable).toBe(false);
+      expect(result.rankedFiles.length).toBeGreaterThan(0);
+      expect(result.rankedFiles.every((f) => f.origin === 'import')).toBe(true);
+      expect(result.summary).toContain('Git history signal unavailable');
+    });
+
+    it('빈 입력도 rankedFiles를 빈 배열로 낸다', () => {
+      const result = computeBlastRadius(store, []);
+
+      expect(result.rankedFiles).toEqual([]);
+      expect(result.coChangeAvailable).toBe(false);
+    });
+
+    it('두 신호에 모두 걸린 파일이 가장 위로 온다', () => {
+      buildImportGraph();
+
+      const result = computeBlastRadius(
+        store,
+        ['src/a.ts'],
+        2,
+        lookup([
+          { filePath: 'plugin/mcp.json', pairCount: 14, confidence: 0.7, lift: 8 },
+          { filePath: 'src/b.ts', pairCount: 18, confidence: 0.9, lift: 12 },
+        ]),
+      );
+
+      expect(result.coChangeAvailable).toBe(true);
+      expect(result.rankedFiles[0]).toMatchObject({ filePath: 'src/b.ts', origin: 'both' });
+      expect(result.rankedFiles[1]).toMatchObject({
+        filePath: 'plugin/mcp.json',
+        origin: 'history',
+      });
+      expect(result.rankedFiles.at(-1)!.origin).toBe('import');
+    });
+
+    it('이력에만 걸린 파일은 impactedFiles를 오염시키지 않는다', () => {
+      buildImportGraph();
+
+      const result = computeBlastRadius(
+        store,
+        ['src/a.ts'],
+        2,
+        lookup([{ filePath: 'docs/guide.md', pairCount: 9, confidence: 0.5, lift: 4 }]),
+      );
+
+      // impactedFiles는 소비자가 vitest 인자로 직결한다 — md가 섞이면 안 된다
+      expect(result.impactedFiles).not.toContain('docs/guide.md');
+      expect(result.rankedFiles.map((f) => f.filePath)).toContain('docs/guide.md');
+    });
+
+    it('점수도 카운트도 같으면 경로 순으로 세운다', () => {
+      buildImportGraph();
+
+      // 입력을 알파벳 역순으로 준다 — 마지막 열쇠가 없으면 그 순서가 그대로 샌다
+      const result = computeBlastRadius(
+        store,
+        ['src/a.ts'],
+        2,
+        lookup([
+          { filePath: 'docs/z.md', pairCount: 4, confidence: 0.5, lift: 4 },
+          { filePath: 'docs/m.md', pairCount: 4, confidence: 0.5, lift: 4 },
+          { filePath: 'docs/a.md', pairCount: 4, confidence: 0.5, lift: 4 },
+        ]),
+      );
+
+      expect(
+        result.rankedFiles.filter((f) => f.origin === 'history').map((f) => f.filePath),
+      ).toEqual(['docs/a.md', 'docs/m.md', 'docs/z.md']);
+    });
+
+    it('available:false면 사유를 그대로 실어 조용한 0건을 막는다', () => {
+      buildImportGraph();
+
+      const result = computeBlastRadius(store, ['src/a.ts'], 2, {
+        available: false,
+        reason: 'co-change history has not been collected',
+        pairsInDb: 0,
+        neighbors: [],
+        totalMatched: 0,
+        truncated: false,
+        matchedCapped: false,
+      });
+
+      expect(result.coChangeAvailable).toBe(false);
+      expect(result.coChangeReason).toContain('has not been collected');
+    });
+
+    it('이력 이웃이 잘렸으면 summary가 상위 몇 개인지 말한다', () => {
+      buildImportGraph();
+      const neighbors = [
+        { filePath: 'docs/guide.md', pairCount: 5, confidence: 0.8, lift: 4 },
+        { filePath: 'docs/other.md', pairCount: 4, confidence: 0.7, lift: 3 },
+      ];
+
+      const cut = computeBlastRadius(store, ['src/a.ts'], 2, {
+        available: true,
+        pairsInDb: 40,
+        neighbors,
+        totalMatched: 40,
+        truncated: true,
+        matchedCapped: false,
+      });
+      const full = computeBlastRadius(store, ['src/a.ts'], 2, {
+        available: true,
+        pairsInDb: 2,
+        neighbors,
+        totalMatched: 2,
+        truncated: false,
+        matchedCapped: false,
+      });
+
+      expect(cut.coChangeTruncated).toBe(true);
+      expect(cut.coChangeTotalMatched).toBe(40);
+      expect(full.coChangeTruncated).toBe(false);
+      expect(cut.summary).toContain('lower bound');
+      // "at least"가 아니다. 자르는 자리가 랭킹 뒤 한 곳뿐이라 40은 정확한 수고
+      // 보인 2개는 그 40의 상위 둘이다
+      // 꼬리까지 전부 본다. 앞자락만 단언하면 문장이 반쯤 사라져도 통과한다
+      expect(cut.summary).toContain(
+        'History neighbors are a lower bound: showing the top 2 of 40 match(es). ' +
+          'Raise limit to see more.',
+      );
+      expect(cut.summary).not.toContain('at least');
+      expect(cut.coChangeMatchedCapped).toBe(false);
+      expect(full.summary).toContain('Git history adds');
+      expect(full.summary).not.toContain('lower bound');
+    });
+
+    it('질의 천장에 걸렸으면 접두사가 아니라고 말하고 손잡이를 임계로 가리킨다', () => {
+      buildImportGraph();
+      const neighbors = [{ filePath: 'docs/guide.md', pairCount: 5, confidence: 0.8, lift: 4 }];
+
+      const result = computeBlastRadius(store, ['src/a.ts'], 2, {
+        available: true,
+        pairsInDb: 99999,
+        neighbors,
+        totalMatched: 10000,
+        truncated: false,
+        matchedCapped: true,
+      });
+
+      expect(result.coChangeMatchedCapped).toBe(true);
+      expect(result.summary).toContain(
+        'History neighbors hit the 10000-row query ceiling: showing 1 of at least 10000 ' +
+          'match(es), and the list is not a ranked prefix. ' +
+          'Raise minPairCount or minConfidence to get an exact ranking.',
+      );
+      // limit을 올리라고 말하면 안 된다. 천장을 푸는 손잡이가 아니다
+      expect(result.summary).not.toContain('Raise limit to see more.');
+      expect(result.summary).not.toContain('showing the top');
+    });
+
+    it('천장과 limit에 둘 다 걸리면 천장 쪽을 말한다', () => {
+      buildImportGraph();
+      const neighbors = [{ filePath: 'docs/guide.md', pairCount: 5, confidence: 0.8, lift: 4 }];
+
+      const result = computeBlastRadius(store, ['src/a.ts'], 2, {
+        available: true,
+        pairsInDb: 99999,
+        neighbors,
+        totalMatched: 10000,
+        truncated: true,
+        matchedCapped: true,
+      });
+
+      // 둘 다 켜졌을 때 "top N of M"을 말하면 거짓이 된다 — M이 하한이다
+      expect(result.summary).toContain('query ceiling');
+      expect(result.summary).not.toContain('showing the top');
+      expect(result.coChangeTruncated).toBe(true);
+      expect(result.coChangeMatchedCapped).toBe(true);
     });
   });
 });

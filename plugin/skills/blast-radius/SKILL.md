@@ -1,6 +1,6 @@
 ---
 name: blast-radius
-version: "1.1.0"
+version: "1.2.0"
 description: "코드 변경 전 영향 범위를 파악해 읽어야 할 파일만 컨텍스트에 제공한다. 변경 범위가 불확실하거나 사이드 이펙트가 걱정될 때 자동 발동한다. 아직 고치지 않은 코드가 대상이다. 이미 고쳐서 미커밋이나 스테이징 상태인 변경의 영향범위는 diff-radius를 쓴다."
 triggers:
   # 영향범위 확인 의도
@@ -45,9 +45,27 @@ inputs:
     type: number
     required: false
     description: "BFS traversal depth (default: 2)"
+  limit:
+    type: number
+    required: false
+    description: "Max co-change neighbors pulled from git history, 0-500 (default: 30)"
+  minPairCount:
+    type: number
+    required: false
+    description: "Drop co-change pairs seen together fewer times than this (default: 3)"
+  minConfidence:
+    type: number
+    required: false
+    description: "Drop co-change pairs below this confidence, 0-1 (default: 0.3)"
 outputs:
   - changedFiles
   - impactedFiles
+  - rankedFiles
+  - coChangeAvailable
+  - coChangeReason
+  - coChangeTruncated
+  - coChangeMatchedCapped
+  - coChangeTotalMatched
   - riskScore
   - summary
 ---
@@ -102,11 +120,33 @@ ges_code_graph {
 | 필드 | 설명 |
 |------|------|
 | `changedFiles` | 변경된 파일 목록 |
-| `impactedFiles` | 영향받는 파일 목록 (테스트 파일 우선 정렬) |
+| `impactedFiles` | import 그래프로만 뽑은 영향 파일 (테스트 파일 우선 정렬) |
+| `rankedFiles` | import 신호와 git 이력 신호를 합쳐 출처를 붙인 목록 |
+| `coChangeAvailable` | git 이력 신호가 실제로 실렸는지 |
+| `coChangeReason` | 이력 신호가 없거나 이웃이 0건일 때 그 사유 |
+| `coChangeTruncated` | 이력 이웃이 `limit`에 잘렸다. 켜지면 `rankedFiles`의 `history` 항목은 하한이다 — 다만 보인 것은 전체 순위의 상위 접두사다 |
+| `coChangeMatchedCapped` | 조회가 질의 단 천장(10,000행)에 걸렸다. `coChangeTruncated`와 사유가 다르다 — 이쪽이 켜지면 접두사도 아니고 `coChangeTotalMatched`도 하한이다. 푸는 손잡이는 `limit`이 아니라 `minPairCount`와 `minConfidence`다 |
+| `coChangeTotalMatched` | 임계를 통과한 이력 이웃 수. `coChangeMatchedCapped`가 꺼져 있으면 하한이 아니라 정확한 수다 |
 | `riskScore` | 위험도 점수 0~1 (전체 대비 영향 노드 비율). `depthExhausted`면 하한이다 |
 | `depthExhausted` | `maxDepth`에 걸려 탐색이 멈췄고 갈 곳이 남아 있었다 |
 | `unexploredNodes` | 그때 다음 홉에서 기다리던 노드 수 |
 | `summary` | 한 줄 요약 |
+
+### `rankedFiles`의 출처 표시
+
+`rankedFiles`의 각 항목에는 `origin`이 붙어 있고 값은 셋이다.
+
+| `origin` | 뜻 | 함께 실리는 필드 |
+|------|------|------|
+| `both` | import와 git 이력 양쪽에 걸렸다. 가장 먼저 읽을 파일 | `hopDistance`, `coChangeCount`, `confidence`, `lift` |
+| `history` | 이력에만 걸렸다. import 그래프가 원리상 못 보는 관계 | `coChangeCount`, `confidence`, `lift` |
+| `import` | import 신호만 있다 | `hopDistance` |
+
+`history`가 잡는 건 매니페스트끼리의 약속, 코드와 그 코드를 설명하는 문서, 스키마와 그걸 읽는 설정처럼 서로 import하지 않는 관계다. 소스를 아무리 파싱해도 안 나오지만 사람은 늘 함께 고쳐온 파일이라 읽을 값어치가 있다.
+
+**사용자에게 보여줄 목록은 `rankedFiles`다.** `impactedFiles`는 import 신호만 담고 있어 이력에서 온 파일이 빠져 있다. 대신 테스트 러너 인자처럼 실행 명령에 그대로 넣는 자리에는 `impactedFiles`를 쓴다 — 이력에만 걸린 md나 json이 섞이면 명령이 깨진다.
+
+**`coChangeAvailable: false`면 이력 신호 자체가 안 실린 것이다.** "함께 바뀐 파일이 없다"와 다르다. git 레포가 아니거나, 그래프를 레포 최상위가 아닌 경로에서 빌드했거나, 아직 빌드를 안 돌린 경우다. 이 구분을 안 알리면 사용자는 import 그래프만 본 결과를 전부로 읽는다.
 
 **`depthExhausted: true`면 결과는 전부가 아니라 하한이다.** 기본 `maxDepth`가 2라 3홉 이상 떨어진 호출부는 목록에 없다. 이걸 안 알리면 사용자는 "영향받는 파일 12개, 위험도 낮음"을 완전한 답으로 읽고 나머지를 안 읽는다 — 이 스킬을 쓰는 이유가 사이드 이펙트를 놓치지 않으려는 것이므로 그 오해가 가장 비싸다.
 
@@ -126,13 +166,22 @@ ges_code_graph {
 - src/auth.ts
 - src/middleware.ts
 
-**영향받는 파일** (M개):
-- src/auth.test.ts        ← 테스트 파일 우선
-- src/api/routes.ts
-- src/api/middleware.ts
+**같이 봐야 할 파일** (M개):
+- [둘 다]   src/auth.test.ts       import 1홉 + 함께 바뀜 12회
+- [이력]    docs/auth-flow.md      함께 바뀜 7회 (import 관계 없음)
+- [import]  src/api/routes.ts      2홉
 
 **위험도**: 0.23 (낮음)
 **요약**: {summary}
+```
+
+`rankedFiles`가 온 순서를 그대로 씁니다. `both`가 맨 위에 오도록 이미 정렬돼 있으므로 다시 세우지 않습니다.
+
+`coChangeAvailable: false`면 목록 아래에 한 줄을 덧붙입니다.
+
+```
+ℹ️ git 이력 신호 없이 import 그래프만 본 결과입니다 ({coChangeReason}).
+   레포 최상위에서 /build-graph를 다시 돌리면 함께 바뀐 파일까지 잡습니다.
 ```
 
 `depthExhausted: true`면 위 표시 바로 아래에 한 줄을 덧붙입니다. 빠뜨리지 않습니다.
@@ -142,7 +191,7 @@ ges_code_graph {
    위 목록과 위험도는 하한이며 전부가 아닙니다. 전체를 보려면 maxDepth를 올려 다시 부르세요.
 ```
 
-5. `impactedFiles` 목록을 컨텍스트로 활용합니다:
+5. `rankedFiles` 목록을 컨텍스트로 활용합니다:
    - "아래 파일들이 영향을 받을 수 있습니다. 관련 작업 전 이 파일들을 먼저 읽어보겠습니다:" 형식으로 안내
    - 파일이 많으면 (10개 이상) 가장 중요한 파일(테스트 파일, 핵심 모듈)을 우선 읽도록 제안
 
@@ -161,13 +210,13 @@ ges_code_graph {
        아래는 <변경 파일>이 바뀌었을 때 영향받는 파일 목록이다. 각 파일을 훑고
        파일마다 한 줄로 적는다.
 
-       - 변경 파일과 어떻게 닿아 있나 (직접 import / 테스트 / 간접)
+       - 변경 파일과 어떻게 닿아 있나 (직접 import / 테스트 / 간접 / 이력상 동반 변경)
        - 먼저 읽어야 할 순서 (1이 가장 먼저)
 
        고쳐야 하는지는 판단하지 않는다 — 그건 이 목록을 받는 쪽이 정한다.
 
        변경 파일: <changedFiles>
-       영향받는 파일: <impactedFiles>
+       같이 봐야 할 파일: <rankedFiles의 filePath와 origin>
 
        아래 JSON만 돌려준다.
        { files: [{ path, relation, order, why }] }
