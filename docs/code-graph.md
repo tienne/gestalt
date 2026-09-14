@@ -58,9 +58,9 @@ ges_code_graph({ action: "build", repoRoot: "/path/to/repo" })
   "skippedCount": 0,
   "skippedFiles": [],
   "coChange": {
-    "pairs": 4577,
-    "commitsUsed": 548,
-    "commitsScanned": 892,
+    "pairs": 4592,
+    "commitsUsed": 557,
+    "commitsScanned": 902,
     "mode": "full"
   }
 }
@@ -82,7 +82,7 @@ ges_code_graph({ action: "build", repoRoot: "/path/to/repo" })
 | `base` | `string` | N | `"HEAD~1"` | 비교 기준 커밋 참조 |
 | `changedFiles` | `string[]` | N | git diff에서 자동 추출 | 분석할 변경 파일 목록 (직접 지정 시 git diff 생략) |
 | `maxDepth` | `number` | N | `2` | 의존성 탐색 최대 깊이 |
-| `limit` | `number` | N | `30` | 이력 신호에서 가져올 이웃 수 상한 |
+| `limit` | `number` | N | `30` | 이력 신호에서 가져올 이웃 수 상한(0~500) |
 | `minPairCount` | `number` | N | `3` | 동시등장이 이 미만인 페어는 버린다 |
 | `minConfidence` | `number` | N | `0.3` | confidence가 이 미만인 페어는 버린다 |
 
@@ -131,6 +131,8 @@ ges_code_graph({
     }
   ],
   "coChangeAvailable": true,
+  "coChangeTruncated": false,
+  "coChangeTotalMatched": 2,
   "riskScore": 0.62,
   "depthExhausted": false,
   "unexploredNodes": 0,
@@ -146,6 +148,8 @@ ges_code_graph({
 | `rankedFiles` | 두 신호를 합쳐 출처를 붙인 목록. `both` → `history` → `import` 순 |
 | `coChangeAvailable` | 이력 신호가 실제로 실렸는지 |
 | `coChangeReason` | 신호가 없거나 이웃이 0건일 때 그 사유 |
+| `coChangeTruncated` | 이력 이웃이 `limit`이나 질의 후보 상한에 잘렸다. 켜지면 `rankedFiles`의 `history` 항목은 하한이다 |
+| `coChangeTotalMatched` | 임계를 통과한 이력 이웃 수. 얼마나 잘렸는지 가늠용 |
 | `depthExhausted` | `maxDepth`에 걸려 탐색이 멈췄고 갈 곳이 남아 있었다 |
 | `unexploredNodes` | 그때 다음 홉에서 기다리던 노드 수 |
 | `riskScore` | 위험도 0~1. `depthExhausted`면 하한이다 |
@@ -165,7 +169,7 @@ ges_code_graph({
 | `repoRoot` | `string` | Y | — | 저장소 절대 경로 |
 | `diffMode` | `"staged" \| "unstaged" \| "all"` | N | `"all"` | 분석 대상 diff 범위 |
 | `maxDepth` | `number` | N | `2` | 의존성 탐색 최대 깊이 |
-| `limit` | `number` | N | `30` | 이력 신호에서 가져올 이웃 수 상한 |
+| `limit` | `number` | N | `30` | 이력 신호에서 가져올 이웃 수 상한(0~500) |
 | `minPairCount` | `number` | N | `3` | 동시등장이 이 미만인 페어는 버린다 |
 | `minConfidence` | `number` | N | `0.3` | confidence가 이 미만인 페어는 버린다 |
 
@@ -188,6 +192,8 @@ ges_code_graph({
     { "filePath": "schemas/gestalt.schema.json", "origin": "history", "coChangeCount": 3, "confidence": 0.43, "lift": 14.0, "isTest": false }
   ],
   "coChangeAvailable": true,
+  "coChangeTruncated": false,
+  "coChangeTotalMatched": 2,
   "riskScore": 0.45,
   "summary": "Changed 2 file(s) impact 2 file(s) (0 test files, 0 test functions). Risk: MEDIUM (45.0%). Git history adds 1 file(s) imports cannot see, 1 confirmed by both signals."
 }
@@ -244,7 +250,7 @@ git 이력이 함께 바뀌었다고 말하는 파일을 조회한다. `target`�
 |-----------|------|:--------:|---------|-------------|
 | `repoRoot` | `string` | Y | — | 저장소 절대 경로 |
 | `target` | `string` | N | — | 기준 파일. 생략하면 레포 전체 상위 페어 |
-| `limit` | `number` | N | `30` / `50` | 반환 개수. `target`이 있으면 `DEFAULT_NEIGHBOR_LIMIT`(30), 없으면 `DEFAULT_PAIR_LIMIT`(50) |
+| `limit` | `number` | N | `30` / `50` | 반환 개수(0~500). `target`이 있으면 `DEFAULT_NEIGHBOR_LIMIT`(30), 없으면 `DEFAULT_PAIR_LIMIT`(50) |
 | `minPairCount` | `number` | N | `3` | 동시등장이 이 미만인 페어는 버린다 |
 | `minConfidence` | `number` | N | `0.3` | confidence가 이 미만인 페어는 버린다 |
 
@@ -268,9 +274,11 @@ ges_code_graph({
     { "filePath": "/path/to/repo/plugin/role-agents/humanize-monolith/AGENT.md", "pairCount": 6, "confidence": 0.5, "lift": 13.0 }
   ],
   "pairs": [],
-  "commitsUsed": 548,
-  "commitsScanned": 892,
-  "pairsInDb": 4577,
+  "commitsUsed": 557,
+  "commitsScanned": 902,
+  "pairsInDb": 4592,
+  "totalMatched": 12,
+  "truncated": false,
   "available": true
 }
 ```
@@ -282,6 +290,8 @@ ges_code_graph({
 | `commitsUsed` | 필터를 통과해 실제로 센 커밋 수 |
 | `commitsScanned` | 읽은 전체 커밋 수 |
 | `pairsInDb` | DB에 저장된 전체 페어 수 |
+| `totalMatched` | 임계를 통과한 행 수. `truncated`면 이 값도 하한이다 |
+| `truncated` | 반환 목록이 `limit`이나 질의 후보 상한에 잘렸는지 |
 | `available` | 수집이 됐는지 |
 | `reason` | 결과가 비었을 때 그 사유 |
 
@@ -345,7 +355,17 @@ ges_code_graph({ action: "db_exists", repoRoot: "/path/to/repo" })
 
 import 그래프는 소스에 적힌 것만 안다. 매니페스트 JSON끼리의 약속, 코드와 그 코드를 설명하는 문서, 스키마와 그걸 읽는 설정 파일은 서로를 import하지 않으므로 파싱으로는 영영 안 잡힌다.
 
-이 레포 전체 이력 924커밋(merge 포함, 측정 시점 기준)으로 재보면 강한 페어(동시등장 3회 이상, confidence 0.3 이상) 401개 중 **301개, 그러니까 75%가 import 그래프에 아예 없다.**
+이 레포로 재보면 강한 페어(동시등장 3회 이상, confidence 0.3 이상)가 406개다. 그중 양쪽 파일이 워킹트리에 다 남아 있는 390개를 실제 그래프의 `IMPORTS_FROM` 엣지와 맞대보면 **292개, 그러니까 75%에는 대응하는 import 엣지가 아예 없다.**
+
+이 개수를 전체 이력에 붙여 읽으면 임계가 무엇 위에서 걸린 건지 어긋난다. 페어 계산의 입력은 전체 이력이 아니라 아래 마지막 단계이고 `confidence`와 `lift`의 분모(`commitsUsed`)도 같은 값이다.
+
+| 단계 | 커밋 수 |
+|---|---|
+| `git rev-list --count HEAD` — 전체 | 934 |
+| `--no-merges` 적용 | 902 |
+| 거기서 파일 2~20개인 커밋만 (`commitsUsed`) | 557 |
+
+세 숫자와 위의 406/390/292는 같은 스냅숏에서 잰 값이다. 커밋이 쌓이면 함께 움직인다.
 
 가장 좋은 예가 이 레포 자신이다. CLAUDE.md에 사람이 손으로 적어둔 "네 매니페스트의 버전 핀을 릴리즈마다 함께 갱신한다"는 규칙을 co-change가 이력에서 그대로 찾아낸다.
 
@@ -402,7 +422,7 @@ src/humanize/index.ts 의 이웃
 
 ### 수집과 갱신
 
-`build`가 파일 파싱을 끝낸 뒤 `git log --format=%H --name-only --no-merges`를 한 번 읽어 페어를 센다. 파일마다 git을 부르지 않는다. 같은 시점 기준으로 merge를 뺀 892커밋을 87ms에 읽어 548커밋 4,577페어가 나온다. 수집은 `--no-merges`라 전체 924커밋이 아니라 이 892가 입력이다.
+`build`가 파일 파싱을 끝낸 뒤 `git log --format=%H --name-only --no-merges`를 한 번 읽어 페어를 센다. 파일마다 git을 부르지는 않는다. 같은 스냅숏에서 merge를 뺀 902커밋을 읽는 데 37ms가 걸렸고 그중 파일 2~20개인 557커밋에서 4,592페어가 나왔다. 줄어드는 단계는 앞 절의 표에 적어뒀다.
 
 증분 빌드는 `cg_cochange_meta`에 적힌 이전 HEAD가 지금 HEAD의 조상이면 그 사이 구간만 읽어 카운터에 더한다. HEAD가 그대로면 `git log`를 아예 안 읽는다. post-commit 훅이 부르는 자리라 수백 ms를 넘기면 안 되기 때문이다. rebase나 amend, shallow clone으로 이전 기준점에 못 닿으면 경고를 남기고 전량 재수집으로 내린다.
 
@@ -428,9 +448,15 @@ src/humanize/index.ts 의 이웃
 `rankedFiles`에 `history` 항목이 하나도 없을 때, 그게 "함께 바뀐 파일이 없다"인지 "이력 신호가 아예 안 실렸다"인지 구분해야 한다. 구분이 없으면 조용한 0건이 된다. 경로 표기가 어긋나 조인이 전부 빗나가도 결과는 똑같이 비어 보인다.
 
 - `coChangeAvailable: false` — 수집 자체가 안 됐다. git 레포가 아니거나, `repoRoot`가 레포 최상위가 아니거나, 아직 빌드를 안 돌렸다
-- `coChangeAvailable: true`인데 `history`가 0건 — 이력은 있는데 이 파일만 안 걸렸다. `coChangeReason`이 사유를 말한다. `cochange` 응답의 `pairsInDb`를 함께 보면 경로 불일치인지 가릴 수 있다
+- `coChangeAvailable: true`인데 `history`가 0건 — 이력은 있는데 이 파일만 안 걸렸다. `coChangeReason`이 사유를 말한다. `co_change` 응답의 `pairsInDb`를 함께 보면 경로 불일치인지 가릴 수 있다
 
 `summary` 문구도 갈라 쓴다. 수집이 안 됐으면 `Git history signal unavailable (import graph only).`가 붙는다. 실렸으면 `Git history adds N file(s) imports cannot see, M confirmed by both signals.`가 붙는다.
+
+### 잘린 이력은 잘렸다고 말한다
+
+이웃이 `limit`보다 많으면 `coChangeTruncated`가 켜지고 `summary`에 `History neighbors are a lower bound: N shown out of at least M match(es).`가 따라붙는다. `depthExhausted`가 import 신호를 두고 하는 말과 같은 자리다. 이 표식이 없으면 이웃 40개 중 30개만 받아놓고 그게 전부라고 읽게 된다.
+
+자르는 자리는 조회다. 이웃 상한을 SQL `LIMIT`으로 걸어두고 점수 상위를 놓치지 않도록 후보는 `limit`의 열 배(하한 200)까지 떠서 confidence × lift로 다시 세운다. 전역 페어 조회도 같은 식이라 `limit`을 키우면 조회가 뜨는 후보도 함께 늘어난다.
 
 ### 한계
 

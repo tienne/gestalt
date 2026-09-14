@@ -45,12 +45,26 @@ inputs:
     type: number
     required: false
     description: "BFS traversal depth (default: 2)"
+  limit:
+    type: number
+    required: false
+    description: "Max co-change neighbors pulled from git history, 0-500 (default: 30)"
+  minPairCount:
+    type: number
+    required: false
+    description: "Drop co-change pairs seen together fewer times than this (default: 3)"
+  minConfidence:
+    type: number
+    required: false
+    description: "Drop co-change pairs below this confidence, 0-1 (default: 0.3)"
 outputs:
   - changedFiles
   - impactedFiles
   - rankedFiles
   - coChangeAvailable
   - coChangeReason
+  - coChangeTruncated
+  - coChangeTotalMatched
   - riskScore
   - summary
 ---
@@ -109,6 +123,8 @@ ges_code_graph {
 | `rankedFiles` | import 신호와 git 이력 신호를 합쳐 출처를 붙인 목록 |
 | `coChangeAvailable` | git 이력 신호가 실제로 실렸는지 |
 | `coChangeReason` | 이력 신호가 없거나 이웃이 0건일 때 그 사유 |
+| `coChangeTruncated` | 이력 이웃이 `limit`에 잘렸다. 켜지면 `rankedFiles`의 `history` 항목은 하한이다 |
+| `coChangeTotalMatched` | 임계를 통과한 이력 이웃 수. 얼마나 잘렸는지 가늠용 |
 | `riskScore` | 위험도 점수 0~1 (전체 대비 영향 노드 비율). `depthExhausted`면 하한이다 |
 | `depthExhausted` | `maxDepth`에 걸려 탐색이 멈췄고 갈 곳이 남아 있었다 |
 | `unexploredNodes` | 그때 다음 홉에서 기다리던 노드 수 |
