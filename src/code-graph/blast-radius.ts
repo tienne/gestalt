@@ -1,4 +1,4 @@
-import type { CodeGraphStore } from './storage.js';
+import { MAX_MATCHED_ROWS, type CodeGraphStore } from './storage.js';
 import type {
   BlastRadiusResult,
   BlastRadiusNode,
@@ -31,6 +31,7 @@ export function computeBlastRadius(
       coChangeAvailable: coChange?.available ?? false,
       coChangeReason: coChange?.reason,
       coChangeTruncated: coChange?.truncated ?? false,
+      coChangeMatchedCapped: coChange?.matchedCapped ?? false,
       coChangeTotalMatched: coChange?.totalMatched ?? 0,
       summary: 'No changed files provided.',
     };
@@ -151,6 +152,7 @@ export function computeBlastRadius(
     coChangeAvailable: coChange?.available ?? false,
     coChangeReason: coChange?.reason,
     coChangeTruncated: coChange?.truncated ?? false,
+    coChangeMatchedCapped: coChange?.matchedCapped ?? false,
     coChangeTotalMatched: coChange?.totalMatched ?? 0,
     summary,
   };
@@ -298,11 +300,22 @@ function buildSummary(
   //
   // "top N of M"이라고 단정할 수 있는 건 자르는 자리가 랭킹을 다 세운 뒤
   // 한 곳뿐이어서다. 질의가 점수와 다른 키로 먼저 자르면 이 문장이 거짓이 된다.
-  const capped =
-    coChange?.truncated === true
-      ? ` History neighbors are a lower bound: showing the top ${coChange.neighbors.length} ` +
-        `of ${coChange.totalMatched} match(es). Raise limit to see more.`
-      : '';
+  //
+  // 질의 천장에 걸린 경우가 정확히 그 자리라 문장을 갈라 쓴다. 같은 "lower
+  // bound"로 뭉뜽그리면 고칠 손잡이가 limit이라고 잘못 읽게 되는데, 천장을
+  // 푸는 건 limit이 아니라 임계다.
+  let capped = '';
+  if (coChange?.matchedCapped === true) {
+    capped =
+      ` History neighbors hit the ${MAX_MATCHED_ROWS}-row query ceiling: showing ` +
+      `${coChange.neighbors.length} of at least ${coChange.totalMatched} match(es), ` +
+      `and the list is not a ranked prefix. ` +
+      `Raise minPairCount or minConfidence to get an exact ranking.`;
+  } else if (coChange?.truncated === true) {
+    capped =
+      ` History neighbors are a lower bound: showing the top ${coChange.neighbors.length} ` +
+      `of ${coChange.totalMatched} match(es). Raise limit to see more.`;
+  }
   const history = !coChange?.available
     ? ' Git history signal unavailable (import graph only).'
     : ` Git history adds ${historyOnly} file(s) imports cannot see, ${both} confirmed by both signals.` +

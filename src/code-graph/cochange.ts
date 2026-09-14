@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { logger } from '../core/logger.js';
-import type { CodeGraphStore } from './storage.js';
+import { MAX_MATCHED_ROWS, type CodeGraphStore } from './storage.js';
 import type {
   BuildMode,
   CoChangeBuildSummary,
@@ -308,6 +308,14 @@ export interface CoChangeQueryOptions extends CoChangeTuning {
   target?: string;
   /** 워킹트리 존재 확인. 테스트에서 주입한다 */
   exists?: (filePath: string) => boolean;
+  /**
+   * 질의 단 절대 천장. 기본값은 `MAX_MATCHED_ROWS`다. 테스트에서 작은 값을
+   * 주입해 천장 분기를 찍는다.
+   *
+   * `CoChangeTuning`에 두지 않은 게 의도다 — 튜닝 면은 MCP 입력으로 그대로
+   * 열려 있는데, 안전판을 그 면에 올리면 외부 입력이 안전판을 푸는 자리가 된다.
+   */
+  maxMatchedRows?: number;
 }
 
 function absolutize(root: string, filePath: string): string {
@@ -317,10 +325,23 @@ function absolutize(root: string, filePath: string): string {
 const NOT_COLLECTED =
   'co-change history has not been collected for this repository — run a code graph build at the repo root';
 
+export interface NeighborScan {
+  neighbors: CoChangeNeighbor[];
+  /**
+   * 질의가 `maxMatchedRows` 천장에 걸렸다. 켜지면 `neighbors`는 임계를
+   * 통과한 전부가 아니고 점수 상위라는 보장도 없다 — 천장은 점수가 아니라
+   * 행을 읽은 순서로 걸리기 때문이다.
+   */
+  capped: boolean;
+}
+
 /**
- * 임계를 통과한 이웃을 전부 점수순으로 세운다. 개수를 여기서 자르지 않는
- * 게 요점이다 — 자른 뒤 다시 세우면 무엇이 잘렸는지 셀 수 없다. 목록이
- * 전체 상위의 접두사라는 말도 못 한다.
+ * 임계를 통과한 이웃을 전부 점수순으로 세운다. 점수순으로 세운 뒤 말고는
+ * 개수를 자르지 않는 게 요점이다 — 자른 뒤 다시 세우면 무엇이 잘렸는지 셀
+ * 수 없다. 목록이 전체 상위의 접두사라는 말도 못 한다.
+ *
+ * 예외가 절대 천장 하나뿐이고 그건 켜졌다는 사실을 `capped`로 내보낸다.
+ * 말없이 자르는 자리를 안 만드는 게 지난 라운드부터 지켜온 선이다.
  */
 function neighborsFor(
   store: CodeGraphStore,
@@ -329,14 +350,22 @@ function neighborsFor(
   minPairCount: number,
   minConfidence: number,
   exists: (filePath: string) => boolean,
-): CoChangeNeighbor[] {
+  maxMatchedRows: number,
+): NeighborScan {
   const soloSelf = store.getCoChangeSolo(absTarget);
   const out: CoChangeNeighbor[] = [];
 
   // 두 임계는 질의가 건다. 여기서 한 번 더 거르면 같은 규칙이 두 곳에 살아
-  // 어긋날 자리가 생긴다.
-  const rows = store.getCoChangeNeighbors(absTarget, minPairCount, minConfidence, soloSelf);
-  for (const row of rows) {
+  // 어긋날 자리가 생긴다. 천장도 질의가 건다 — 여기서 걸면 아래 exists가
+  // 이미 다 돈 뒤라 막으려던 stat 팬아웃을 못 막는다.
+  const scan = store.getCoChangeNeighbors(
+    absTarget,
+    minPairCount,
+    minConfidence,
+    soloSelf,
+    maxMatchedRows,
+  );
+  for (const row of scan.rows) {
     // 삭제되거나 이름이 바뀐 파일은 이력에만 남는다. 수집이 아니라 조회에서
     // 거른다 — 수집에서 빼면 그 시절 solo 카운트가 깎여 confidence가 부푼다.
     if (!exists(row.other)) continue;
@@ -345,7 +374,7 @@ function neighborsFor(
   }
 
   out.sort(compareNeighbors);
-  return out;
+  return { neighbors: out, capped: scan.capped };
 }
 
 /**
@@ -372,6 +401,7 @@ export function queryCoChange(
   const exists = memoizeExists(opts.exists ?? existsSync);
   const minPairCount = opts.minPairCount ?? MIN_PAIR_COUNT;
   const minConfidence = opts.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
+  const maxMatchedRows = opts.maxMatchedRows ?? MAX_MATCHED_ROWS;
 
   const meta = store.getCoChangeMeta();
   const pairsInDb = store.countCoChangePairs();
@@ -386,6 +416,7 @@ export function queryCoChange(
       pairsInDb,
       totalMatched: 0,
       truncated: false,
+      matchedCapped: false,
       available: false,
       reason: NOT_COLLECTED,
     };
@@ -394,14 +425,16 @@ export function queryCoChange(
   if (opts.target) {
     const absTarget = absolutize(root, opts.target);
     const neighborLimit = opts.limit ?? DEFAULT_NEIGHBOR_LIMIT;
-    const matched = neighborsFor(
+    const scan = neighborsFor(
       store,
       absTarget,
       meta.commitsUsed,
       minPairCount,
       minConfidence,
       exists,
+      maxMatchedRows,
     );
+    const matched = scan.neighbors;
     const neighbors = matched.slice(0, neighborLimit);
 
     let reason: string | undefined;
@@ -428,6 +461,7 @@ export function queryCoChange(
       pairsInDb,
       totalMatched: matched.length,
       truncated: matched.length > neighbors.length,
+      matchedCapped: scan.capped,
       available: true,
       reason,
     };
@@ -435,8 +469,8 @@ export function queryCoChange(
 
   const limit = opts.limit ?? DEFAULT_PAIR_LIMIT;
   const scored: CoChangePair[] = [];
-  const rows = store.getCoChangePairs(minPairCount, minConfidence);
-  for (const row of rows) {
+  const scan = store.getCoChangePairs(minPairCount, minConfidence, maxMatchedRows);
+  for (const row of scan.rows) {
     if (!exists(row.fileA) || !exists(row.fileB)) continue;
     const { confidence, lift } = scoreNeighbor(
       row.pairCount,
@@ -469,6 +503,7 @@ export function queryCoChange(
     pairsInDb,
     totalMatched: scored.length,
     truncated: scored.length > pairs.length,
+    matchedCapped: scan.capped,
     available: true,
     reason:
       scored.length === 0 && pairsInDb > 0
@@ -484,7 +519,8 @@ export function queryCoChange(
  * `truncated`로 알린다 — 목록만 보면 그게 전부인 줄 안다.
  *
  * 자르는 자리가 여기 하나뿐이라 돌려준 목록은 임계를 통과한 전체의 상위
- * 접두사다. `totalMatched`도 하한이 아니라 정확한 수다.
+ * 접두사다. `totalMatched`도 하한이 아니라 정확한 수다. 단 seed 중 하나라도
+ * 질의 천장에 걸리면(`matchedCapped`) 둘 다 성립하지 않는다.
  */
 export function buildCoChangeLookup(
   store: CodeGraphStore,
@@ -499,6 +535,7 @@ export function buildCoChangeLookup(
   const minPairCount = opts.minPairCount ?? MIN_PAIR_COUNT;
   const minConfidence = opts.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
   const limit = opts.limit ?? DEFAULT_NEIGHBOR_LIMIT;
+  const maxMatchedRows = opts.maxMatchedRows ?? MAX_MATCHED_ROWS;
 
   const meta = store.getCoChangeMeta();
   const pairsInDb = store.countCoChangePairs();
@@ -511,21 +548,28 @@ export function buildCoChangeLookup(
       neighbors: [],
       totalMatched: 0,
       truncated: false,
+      matchedCapped: false,
     };
   }
 
   const seedSet = new Set(seeds.map((s) => absolutize(root, s)));
   const best = new Map<string, CoChangeNeighbor>();
+  // 천장은 seed마다 따로 걸린다. 하나라도 걸리면 합친 목록도 전부가 아니므로
+  // 여기서 OR로 모은다.
+  let matchedCapped = false;
 
   for (const seed of seedSet) {
-    for (const n of neighborsFor(
+    const scan = neighborsFor(
       store,
       seed,
       meta.commitsUsed,
       minPairCount,
       minConfidence,
       exists,
-    )) {
+      maxMatchedRows,
+    );
+    if (scan.capped) matchedCapped = true;
+    for (const n of scan.neighbors) {
       if (seedSet.has(n.filePath)) continue;
       const prev = best.get(n.filePath);
       if (!prev || neighborScore(n) > neighborScore(prev)) best.set(n.filePath, n);
@@ -557,5 +601,6 @@ export function buildCoChangeLookup(
     neighbors,
     totalMatched: ranked.length,
     truncated: ranked.length > neighbors.length,
+    matchedCapped,
   };
 }

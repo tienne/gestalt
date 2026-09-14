@@ -331,6 +331,7 @@ export class CodeGraphEngine {
         neighbors: [],
         totalMatched: 0,
         truncated: false,
+        matchedCapped: false,
       };
     }
   }

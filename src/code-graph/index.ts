@@ -1,5 +1,6 @@
 export { CodeGraphEngine, codeGraphEngine } from './engine.js';
-export { CodeGraphStore } from './storage.js';
+export { CodeGraphStore, MAX_MATCHED_ROWS } from './storage.js';
+export type { CoChangeScan, CoChangeNeighborRow, CoChangePairRow } from './storage.js';
 export { computeBlastRadius } from './blast-radius.js';
 export {
   syncCoChange,

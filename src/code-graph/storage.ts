@@ -118,6 +118,70 @@ export interface CoChangePairRow {
   soloB: number;
 }
 
+/**
+ * 임계를 통과한 행의 절대 천장. 두 임계는 외부 입력이고 둘 다 0이 허용되므로
+ * 임계만으로는 조회가 읽는 행이 안 막힌다. 출력 `limit`은 랭킹을 다 세운
+ * 뒤에 걸려서 읽는 행과 워킹트리 stat 팬아웃을 못 막는다. 그 자리를 메운다.
+ *
+ * 10,000인 근거는 셋이다.
+ * 1. 정상 질의에 절대 안 걸린다. 이 레포는 임계를 둘 다 0으로 내려 전량을
+ *    떠도 4,597행이라(`c927188` 기준) 두 배 넘게 남는다
+ * 2. 출력 상한(`limit` 최대 500)의 20배다. 천장이 사용자가 보는 목록을
+ *    결정하는 자리가 되면 안 된다
+ * 3. 천장에 걸려도 동기 stat이 유한하다. 10,000회가 이 머신에서 16~28ms다
+ *
+ * 천장에 걸리면 접두사 보장이 깨지고 `totalMatched`가 다시 하한이 된다.
+ * 그래서 `capped`로 따로 알린다 — 출력 `limit`에 잘린 것과 사유가 다르다.
+ */
+export const MAX_MATCHED_ROWS = 10_000;
+
+/**
+ * 질의문을 상수로 뽑아둔다. `EXPLAIN QUERY PLAN` 테스트가 이 문자열을 그대로
+ * 설명해야 실제로 도는 질의의 계획을 고정하는 것이 된다. 테스트가 SQL을
+ * 베껴 쓰면 베낀 쪽만 검사하게 된다.
+ *
+ * 두 질의는 `pair_count` 범위와 `file_a`/`file_b` 동등 비교로 인덱스를 탄다.
+ * 인덱스를 건드리면 계획이 조용히 전체 스캔으로 떨어질 수 있어 테스트로 박았다.
+ */
+export const CO_CHANGE_NEIGHBORS_SQL = `
+      SELECT other, pair_count, solo_other FROM (
+        SELECT p.other AS other, p.pair_count AS pair_count, COALESCE(s.solo_count, 0) AS solo_other
+        FROM (
+          SELECT file_b AS other, pair_count FROM cg_cochange
+            WHERE file_a = @path AND pair_count >= @minPairCount
+          UNION ALL
+          SELECT file_a AS other, pair_count FROM cg_cochange
+            WHERE file_b = @path AND pair_count >= @minPairCount
+        ) p
+        LEFT JOIN cg_cochange_solo s ON s.file_path = p.other
+      )
+      WHERE ${CONFIDENCE_SQL('@soloSelf', 'solo_other')} >= @minConfidence
+      LIMIT @scanLimit
+    `;
+
+export const CO_CHANGE_PAIRS_SQL = `
+      SELECT file_a, file_b, pair_count, solo_a, solo_b FROM (
+        SELECT c.file_a AS file_a, c.file_b AS file_b, c.pair_count AS pair_count,
+               COALESCE(sa.solo_count, 0) AS solo_a, COALESCE(sb.solo_count, 0) AS solo_b
+        FROM cg_cochange c
+        LEFT JOIN cg_cochange_solo sa ON sa.file_path = c.file_a
+        LEFT JOIN cg_cochange_solo sb ON sb.file_path = c.file_b
+        WHERE c.pair_count >= @minPairCount
+      )
+      WHERE ${CONFIDENCE_SQL('solo_a', 'solo_b')} >= @minConfidence
+      LIMIT @scanLimit
+    `;
+
+/**
+ * `capped`는 천장에 걸려 `rows`가 임계 통과분 전부가 아니라는 뜻이다.
+ * 개수를 돌려받는 쪽이 "전부"인지 "일부"인지 구분 못 하면 하한을 정확한
+ * 수로 보고하게 된다.
+ */
+export interface CoChangeScan<Row> {
+  rows: Row[];
+  capped: boolean;
+}
+
 export interface CoChangeMergeInput {
   pairs: { fileA: string; fileB: string; count: number }[];
   solos: { filePath: string; count: number }[];
@@ -212,7 +276,9 @@ export class CodeGraphStore {
       );
       CREATE INDEX IF NOT EXISTS idx_cg_cochange_b ON cg_cochange(file_b);
       -- getCoChangePairs가 pair_count로 거른다. 이게 없으면 전역 페어 조회가
-      -- 매번 전체 스캔이다. 기본 임계에서 이 레포는 4,577행 중 470행만 남는다.
+      -- 매번 전체 스캔이다. 기본 임계(3회)에서 이 레포는 4,597행 중 485행만
+      -- 남는다 (c927188 기준 — 커밋이 쌓이면 함께 움직이는 스냅숏이다).
+      -- 계획이 이 인덱스를 타는지는 EXPLAIN QUERY PLAN 테스트가 고정한다.
       CREATE INDEX IF NOT EXISTS idx_cg_cochange_count ON cg_cochange(pair_count);
 
       CREATE TABLE IF NOT EXISTS cg_cochange_solo (
@@ -529,76 +595,69 @@ export class CodeGraphStore {
   /**
    * 무방향 페어라 file_a/file_b 양쪽을 합쳐야 한 파일의 이웃이 전부 나온다.
    *
-   * 임계를 통과한 행을 전부 돌려준다. 개수 상한이 없는 게 의도다 — 랭킹 키가
-   * confidence × lift라 `pair_count` 순으로 먼저 자르면 점수 상위가 창 밖으로
-   * 빠진다. 대신 두 임계를 질의로 내려 호출부가 버릴 행을 애초에 안 뜬다.
-   * 이 레포 실측으로 기본 임계에서 seed당 22행, 임계를 전부 0으로 내려도 133행이다.
+   * 임계를 통과한 행을 전부 돌려준다. 점수순 개수 창이 없는 게 의도다 — 랭킹
+   * 키가 confidence × lift라 `pair_count` 순으로 먼저 자르면 점수 상위가 창
+   * 밖으로 빠진다. 대신 두 임계를 질의로 내려 호출부가 버릴 행을 애초에 안
+   * 뜬다. 기본 임계에서 seed당 22행, 임계를 전부 0으로 내려도 133행이다
+   * (`c927188` 기준 — 커밋이 쌓이면 함께 움직이는 스냅숏이다).
+   *
+   * `maxRows`는 그 위에 얹은 절대 천장이라 성격이 다르다. 임계가 0이어도
+   * 읽는 행이 유한하도록 막는 자리고 정상 질의에는 안 걸린다. 걸리면
+   * `capped`로 알린다 — 조용히 자르면 하한이 정확한 수로 둔갑한다.
+   * 천장이 SQL에 있어야 호출부의 워킹트리 stat 팬아웃까지 함께 막힌다.
    */
   getCoChangeNeighbors(
     filePath: string,
     minPairCount: number,
     minConfidence: number,
     soloSelf: number,
-  ): CoChangeNeighborRow[] {
+    maxRows: number = MAX_MATCHED_ROWS,
+  ): CoChangeScan<CoChangeNeighborRow> {
     const rows = this.db
-      .prepare(
-        `
-      SELECT other, pair_count, solo_other FROM (
-        SELECT p.other AS other, p.pair_count AS pair_count, COALESCE(s.solo_count, 0) AS solo_other
-        FROM (
-          SELECT file_b AS other, pair_count FROM cg_cochange
-            WHERE file_a = @path AND pair_count >= @minPairCount
-          UNION ALL
-          SELECT file_a AS other, pair_count FROM cg_cochange
-            WHERE file_b = @path AND pair_count >= @minPairCount
-        ) p
-        LEFT JOIN cg_cochange_solo s ON s.file_path = p.other
-      )
-      WHERE ${CONFIDENCE_SQL('@soloSelf', 'solo_other')} >= @minConfidence
-    `,
-      )
-      .all({ path: filePath, minPairCount, minConfidence, soloSelf }) as {
+      .prepare(CO_CHANGE_NEIGHBORS_SQL)
+      // 한 행을 더 떠야 천장에 "닿은 것"과 "넘은 것"이 갈린다.
+      .all({ path: filePath, minPairCount, minConfidence, soloSelf, scanLimit: maxRows + 1 }) as {
       other: string;
       pair_count: number;
       solo_other: number;
     }[];
-    return rows.map((r) => ({
-      other: r.other,
-      pairCount: r.pair_count,
-      soloOther: r.solo_other,
-    }));
+    const capped = rows.length > maxRows;
+    return {
+      rows: (capped ? rows.slice(0, maxRows) : rows).map((r) => ({
+        other: r.other,
+        pairCount: r.pair_count,
+        soloOther: r.solo_other,
+      })),
+      capped,
+    };
   }
 
-  /** 이웃 조회와 같은 규율이다 — 임계는 질의가 걸고 개수는 자르지 않는다 */
-  getCoChangePairs(minPairCount: number, minConfidence: number): CoChangePairRow[] {
+  /** 이웃 조회와 같은 규율이다 — 임계는 질의가 걸고 점수순 창은 두지 않는다 */
+  getCoChangePairs(
+    minPairCount: number,
+    minConfidence: number,
+    maxRows: number = MAX_MATCHED_ROWS,
+  ): CoChangeScan<CoChangePairRow> {
     const rows = this.db
-      .prepare(
-        `
-      SELECT file_a, file_b, pair_count, solo_a, solo_b FROM (
-        SELECT c.file_a AS file_a, c.file_b AS file_b, c.pair_count AS pair_count,
-               COALESCE(sa.solo_count, 0) AS solo_a, COALESCE(sb.solo_count, 0) AS solo_b
-        FROM cg_cochange c
-        LEFT JOIN cg_cochange_solo sa ON sa.file_path = c.file_a
-        LEFT JOIN cg_cochange_solo sb ON sb.file_path = c.file_b
-        WHERE c.pair_count >= @minPairCount
-      )
-      WHERE ${CONFIDENCE_SQL('solo_a', 'solo_b')} >= @minConfidence
-    `,
-      )
-      .all({ minPairCount, minConfidence }) as {
+      .prepare(CO_CHANGE_PAIRS_SQL)
+      .all({ minPairCount, minConfidence, scanLimit: maxRows + 1 }) as {
       file_a: string;
       file_b: string;
       pair_count: number;
       solo_a: number;
       solo_b: number;
     }[];
-    return rows.map((r) => ({
-      fileA: r.file_a,
-      fileB: r.file_b,
-      pairCount: r.pair_count,
-      soloA: r.solo_a,
-      soloB: r.solo_b,
-    }));
+    const capped = rows.length > maxRows;
+    return {
+      rows: (capped ? rows.slice(0, maxRows) : rows).map((r) => ({
+        fileA: r.file_a,
+        fileB: r.file_b,
+        pairCount: r.pair_count,
+        soloA: r.solo_a,
+        soloB: r.solo_b,
+      })),
+      capped,
+    };
   }
 
   close(): void {

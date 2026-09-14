@@ -80,7 +80,17 @@ export interface BlastRadiusResult {
    * 말과 같다 — true면 rankedFiles의 history 항목이 하한이다.
    */
   coChangeTruncated: boolean;
-  /** 임계를 통과한 이력 이웃 수. 얼마나 잘렸는지 가늠용이고 정확한 수다 */
+  /**
+   * 조회가 질의 단 절대 천장(MAX_MATCHED_ROWS)에 걸렸다. coChangeTruncated와
+   * 사유가 다르다. 저쪽은 랭킹을 다 세운 뒤 limit이 자른 것이라 보인 것이
+   * 상위 접두사다. 이쪽은 점수를 매기기도 전에 행 수로 걸린 것이라
+   * 접두사가 아니고 coChangeTotalMatched도 하한이 된다.
+   */
+  coChangeMatchedCapped: boolean;
+  /**
+   * 임계를 통과한 이력 이웃 수. 얼마나 잘렸는지 가늠용이고 정확한 수다 —
+   * 단 coChangeMatchedCapped가 켜졌으면 하한이다.
+   */
   coChangeTotalMatched: number;
   summary: string;
 }
@@ -127,10 +137,16 @@ export interface CoChangeResult {
   commitsScanned: number;
   /** DB에 저장된 전체 페어 수. 0건이 경로 불일치인지 수집 미실행인지 가르는 단서 */
   pairsInDb: number;
-  /** 임계를 통과한 행 수. 하한이 아니라 정확한 수다 */
+  /** 임계를 통과한 행 수. 하한이 아니라 정확한 수다 — matchedCapped면 하한이다 */
   totalMatched: number;
-  /** 반환 목록이 limit에 잘렸는가 */
+  /** 반환 목록이 limit에 잘렸는가. 잘려도 보인 것은 전체 순위의 상위 접두사다 */
   truncated: boolean;
+  /**
+   * 질의가 절대 천장(MAX_MATCHED_ROWS)에 걸렸는가. truncated와 사유가 다르니
+   * 따로 읽어야 한다 — 켜지면 totalMatched가 하한이고 접두사 보장도 없다.
+   * 임계를 올리면 꺼진다.
+   */
+  matchedCapped: boolean;
   available: boolean;
   reason?: string;
 }
@@ -143,6 +159,7 @@ export interface CoChangeLookup {
   /**
    * 임계를 통과한 이웃 수. `neighbors`보다 클 수 있고 하한이 아닌 정확한
    * 수다 — 자르는 자리가 랭킹을 다 세운 뒤 한 곳뿐이라 셀 수 있다.
+   * `matchedCapped`가 켜졌으면 그 말이 성립하지 않고 하한이 된다.
    */
   totalMatched: number;
   /**
@@ -150,6 +167,11 @@ export interface CoChangeLookup {
    * 돌려준 목록은 전체 순위의 상위 접두사다.
    */
   truncated: boolean;
+  /**
+   * seed 중 하나라도 질의 천장(MAX_MATCHED_ROWS)에 걸렸는가. truncated와
+   * 사유가 다르다 — 켜지면 totalMatched가 하한이고 접두사 보장도 깨진다.
+   */
+  matchedCapped: boolean;
 }
 
 export interface CoChangeBuildSummary {
