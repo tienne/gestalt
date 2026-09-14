@@ -113,9 +113,7 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
       case 'co_change': {
         const result = codeGraphEngine.coChange(repoRoot, {
           target: input.target,
-          limit: input.limit,
-          minPairCount: input.minPairCount,
-          minConfidence: input.minConfidence,
+          ...coChangeTuning(input),
         });
         return result;
       }

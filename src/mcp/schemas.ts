@@ -597,7 +597,9 @@ export const codeGraphInputSchema = z.object({
     .min(0)
     .max(500)
     .optional()
-    .describe('Max rows to return (co_change default: 30 / 50, blast_radius: 30)'),
+    .describe(
+      'Max rows to return (co_change default: 30 with target / 50 without, blast_radius and diff_radius: 30)',
+    ),
   minPairCount: z
     .number()
     .int()
