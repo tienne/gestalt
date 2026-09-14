@@ -15,6 +15,7 @@ import type {
   BuildResult,
   BlastRadiusOptions,
   BlastRadiusResult,
+  CoChangeTuning,
   DiffRadiusOptions,
   QueryPattern,
   QueryResult,
@@ -234,7 +235,7 @@ export class CodeGraphEngine {
    */
   blastRadius(repoRoot: string, opts: BlastRadiusOptions = {}): BlastRadiusResult {
     const store = this.getStore(repoRoot);
-    const { changedFiles, base = 'HEAD~1', maxDepth = 2 } = opts;
+    const { changedFiles, base = 'HEAD~1', maxDepth = 2, coChange } = opts;
 
     let files = changedFiles;
     if (!files || files.length === 0) {
@@ -244,7 +245,7 @@ export class CodeGraphEngine {
     // Convert to absolute paths
     const absoluteFiles = files.map((f) => (f.startsWith('/') ? f : resolve(repoRoot, f)));
 
-    const lookup = this.safeCoChangeLookup(store, repoRoot, absoluteFiles);
+    const lookup = this.safeCoChangeLookup(store, repoRoot, absoluteFiles, coChange);
     const result = computeBlastRadius(store, absoluteFiles, maxDepth, lookup);
     logger.info('code_graph.blast_radius_completed', {
       module: 'code-graph/engine',
@@ -264,7 +265,7 @@ export class CodeGraphEngine {
    * - all (default): git diff HEAD --name-only
    */
   diffRadius(repoRoot: string, opts: DiffRadiusOptions = {}): BlastRadiusResult {
-    const { mode = 'all', maxDepth = 2 } = opts;
+    const { mode = 'all', maxDepth = 2, coChange } = opts;
     const store = this.getStore(repoRoot);
 
     const gitCmd =
@@ -290,7 +291,7 @@ export class CodeGraphEngine {
       files = [];
     }
 
-    const lookup = this.safeCoChangeLookup(store, repoRoot, files);
+    const lookup = this.safeCoChangeLookup(store, repoRoot, files, coChange);
     return computeBlastRadius(store, files, maxDepth, lookup);
   }
 
@@ -298,7 +299,7 @@ export class CodeGraphEngine {
    * git 이력에서 함께 바뀐 파일을 조회한다.
    * target을 주면 그 파일의 이웃, 생략하면 상위 페어 전역 목록.
    */
-  cochange(repoRoot: string, opts: CoChangeQueryOptions = {}): CoChangeResult {
+  coChange(repoRoot: string, opts: CoChangeQueryOptions = {}): CoChangeResult {
     const store = this.getStore(repoRoot);
     return queryCoChange(store, repoRoot, opts);
   }
@@ -312,9 +313,10 @@ export class CodeGraphEngine {
     store: CodeGraphStore,
     repoRoot: string,
     seeds: string[],
+    tuning: CoChangeTuning = {},
   ): CoChangeLookup {
     try {
-      return buildCoChangeLookup(store, repoRoot, seeds);
+      return buildCoChangeLookup(store, repoRoot, seeds, tuning);
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
       logger.warn('code_graph.cochange_lookup_failed', {

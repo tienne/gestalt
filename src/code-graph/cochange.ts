@@ -6,6 +6,7 @@ import type { CodeGraphStore } from './storage.js';
 import type {
   BuildMode,
   CoChangeBuildSummary,
+  CoChangeTuning,
   CoChangeLookup,
   CoChangeNeighbor,
   CoChangePair,
@@ -287,11 +288,8 @@ export function syncCoChange(
 
 // ─── 조회 ────────────────────────────────────────────────────────
 
-export interface CoChangeQueryOptions {
+export interface CoChangeQueryOptions extends CoChangeTuning {
   target?: string;
-  limit?: number;
-  minPairCount?: number;
-  minConfidence?: number;
   /** 워킹트리 존재 확인. 테스트에서 주입한다 */
   exists?: (filePath: string) => boolean;
 }
@@ -430,7 +428,8 @@ export function queryCoChange(
 
 /**
  * 여러 seed 파일의 이웃을 하나로 합친다. blast-radius가 쓰는 진입점이다.
- * 같은 파일이 여러 seed에 걸리면 점수가 높은 쪽을 남긴다.
+ * 같은 파일이 여러 seed에 걸리면 점수가 높은 쪽을 남긴다. 합친 목록은
+ * `opts.limit`(기본 `DEFAULT_NEIGHBOR_LIMIT`)까지만 돌려준다.
  */
 export function buildCoChangeLookup(
   store: CodeGraphStore,
@@ -442,6 +441,7 @@ export function buildCoChangeLookup(
   const exists = opts.exists ?? existsSync;
   const minPairCount = opts.minPairCount ?? MIN_PAIR_COUNT;
   const minConfidence = opts.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
+  const limit = opts.limit ?? DEFAULT_NEIGHBOR_LIMIT;
 
   const meta = store.getCoChangeMeta();
   const pairsInDb = store.countCoChangePairs();
@@ -468,9 +468,11 @@ export function buildCoChangeLookup(
     }
   }
 
-  const neighbors = [...best.values()].sort(
-    (a, b) => neighborScore(b) - neighborScore(a) || b.pairCount - a.pairCount,
-  );
+  // seed마다 임계를 통과한 이웃이 전부 들어오므로 여기서 자르지 않으면
+  // seed 개수만큼 부풀어 rankedFiles가 import 신호를 밀어낸다.
+  const neighbors = [...best.values()]
+    .sort((a, b) => neighborScore(b) - neighborScore(a) || b.pairCount - a.pairCount)
+    .slice(0, limit);
 
   let reason: string | undefined;
   if (neighbors.length === 0 && pairsInDb > 0) {

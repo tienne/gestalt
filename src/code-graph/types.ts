@@ -208,10 +208,21 @@ export interface BuildResult {
 }
 
 // ─── Blast Radius Options ────────────────────────────────────────
+/**
+ * co-change 조회 임계. co_change 액션이랑 blast-radius, diff-radius가 같은
+ * 면을 쓴다. 여기서 갈라지면 튜닝한 값이 조회에만 먹는다.
+ */
+export interface CoChangeTuning {
+  limit?: number;
+  minPairCount?: number;
+  minConfidence?: number;
+}
+
 export interface BlastRadiusOptions {
   changedFiles?: string[]; // explicit list, overrides git diff
   base?: string; // git base ref, default 'HEAD~1'
   maxDepth?: number; // BFS max depth, default 2
+  coChange?: CoChangeTuning;
 }
 
 // ─── Diff Radius ─────────────────────────────────────────────────
@@ -220,4 +231,5 @@ export type DiffMode = 'staged' | 'unstaged' | 'all';
 export interface DiffRadiusOptions {
   mode?: DiffMode; // default 'all'
   maxDepth?: number;
+  coChange?: CoChangeTuning;
 }

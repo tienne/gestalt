@@ -12,6 +12,8 @@ export {
   MIN_FILES_PER_COMMIT,
   MIN_PAIR_COUNT,
   DEFAULT_MIN_CONFIDENCE,
+  DEFAULT_NEIGHBOR_LIMIT,
+  DEFAULT_PAIR_LIMIT,
   CONFIDENCE_DECIMALS,
   LIFT_DECIMALS,
 } from './cochange.js';
@@ -38,5 +40,6 @@ export type {
   CoChangeLookup,
   CoChangeBuildSummary,
   CoChangeMeta,
+  CoChangeTuning,
 } from './types.js';
 export { NodeKind, EdgeKind } from './types.js';
