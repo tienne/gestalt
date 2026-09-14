@@ -126,7 +126,8 @@ export interface CoChangeMergeInput {
     commitsUsed: number;
     commitsScanned: number;
     maxFilesPerCommit: number;
-    minPairCount: number;
+    /** 수집 임계가 아니다. 빌드 시점의 조회 기본값을 기록만 한다 */
+    defaultMinPairCount: number;
   };
   /** true면 세 테이블을 비우고 새로 쓴다 (전량 재수집). false면 카운터를 더한다 */
   reset: boolean;
@@ -209,6 +210,8 @@ export class CodeGraphStore {
         commits_used INTEGER NOT NULL,
         commits_scanned INTEGER NOT NULL,
         max_files_per_commit INTEGER NOT NULL,
+        -- 수집이 강제하는 값이 아니다. 빌드 시점의 조회 기본 임계를 남겨둔
+        -- 기록일 뿐이라 실제 질의에 쓰인 값과 다를 수 있다.
         min_pair_count INTEGER NOT NULL,
         built_at REAL NOT NULL
       );
@@ -472,7 +475,7 @@ export class CodeGraphStore {
         input.meta.commitsUsed,
         input.meta.commitsScanned,
         input.meta.maxFilesPerCommit,
-        input.meta.minPairCount,
+        input.meta.defaultMinPairCount,
         now,
       );
     });
@@ -490,7 +493,7 @@ export class CodeGraphStore {
       commitsUsed: row.commits_used,
       commitsScanned: row.commits_scanned,
       maxFilesPerCommit: row.max_files_per_commit,
-      minPairCount: row.min_pair_count,
+      defaultMinPairCount: row.min_pair_count,
       builtAt: row.built_at,
     };
   }
@@ -507,8 +510,18 @@ export class CodeGraphStore {
     return row?.solo_count ?? 0;
   }
 
-  /** 무방향 페어라 file_a/file_b 양쪽을 합쳐야 한 파일의 이웃이 전부 나온다 */
-  getCoChangeNeighbors(filePath: string, minPairCount: number): CoChangeNeighborRow[] {
+  /**
+   * 무방향 페어라 file_a/file_b 양쪽을 합쳐야 한 파일의 이웃이 전부 나온다.
+   *
+   * `limit`은 필수다. 이력이 쌓인 파일은 이웃이 수백 개까지 가는데, 그걸 전부
+   * 뜬 뒤 호출부가 자르면 행마다 붙는 존재 확인과 점수 계산이 버려질 행에도
+   * 그대로 든다. 전역 페어 조회(`getTopCoChangePairs`)와 같은 자리에서 자른다.
+   */
+  getCoChangeNeighbors(
+    filePath: string,
+    minPairCount: number,
+    limit: number,
+  ): CoChangeNeighborRow[] {
     const rows = this.db
       .prepare(
         `
@@ -519,9 +532,11 @@ export class CodeGraphStore {
         SELECT file_a AS other, pair_count FROM cg_cochange WHERE file_b = ? AND pair_count >= ?
       ) p
       LEFT JOIN cg_cochange_solo s ON s.file_path = p.other
+      ORDER BY p.pair_count DESC
+      LIMIT ?
     `,
       )
-      .all(filePath, minPairCount, filePath, minPairCount) as {
+      .all(filePath, minPairCount, filePath, minPairCount, limit) as {
       other: string;
       pair_count: number;
       solo_other: number;

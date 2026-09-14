@@ -25,6 +25,21 @@ export const MIN_PAIR_COUNT = 3;
 export const DEFAULT_MIN_CONFIDENCE = 0.3;
 export const DEFAULT_NEIGHBOR_LIMIT = 30;
 export const DEFAULT_PAIR_LIMIT = 50;
+/** 후보를 뜰 때 반환 개수에 곱하는 배수와 그 하한 */
+export const CANDIDATE_MULTIPLIER = 10;
+export const CANDIDATE_FLOOR = 200;
+
+/**
+ * 질의에서 뜰 후보 행 수. 랭킹 키가 `pair_count`가 아니라 confidence*lift라
+ * 카운트 상위만 봐서는 점수 상위를 놓친다. 그래서 반환 개수의 열 배를 뜬 뒤
+ * 점수로 다시 세운다.
+ *
+ * 이웃 조회와 전역 페어 조회가 같은 식을 쓴다. 같은 `limit`이 한쪽은 질의
+ * 상한, 다른 쪽은 출력 상한으로 갈리면 같은 값으로 다른 결과가 나온다.
+ */
+export function candidateLimit(limit: number): number {
+  return Math.max(limit * CANDIDATE_MULTIPLIER, CANDIDATE_FLOOR);
+}
 
 const SHA_RE = /^[0-9a-f]{40}$/;
 
@@ -272,7 +287,7 @@ export function syncCoChange(
       commitsUsed: counts.commitsUsed,
       commitsScanned: counts.commitsScanned,
       maxFilesPerCommit: MAX_FILES_PER_COMMIT,
-      minPairCount: MIN_PAIR_COUNT,
+      defaultMinPairCount: MIN_PAIR_COUNT,
     },
     reset: range === null,
   });
@@ -301,6 +316,12 @@ function absolutize(root: string, filePath: string): string {
 const NOT_COLLECTED =
   'co-change history has not been collected for this repository — run a code graph build at the repo root';
 
+interface NeighborScan {
+  neighbors: CoChangeNeighbor[];
+  /** 후보 상한에 걸렸는가. 걸렸으면 이 seed의 이웃을 다 본 게 아니다 */
+  capped: boolean;
+}
+
 function neighborsFor(
   store: CodeGraphStore,
   absTarget: string,
@@ -308,11 +329,13 @@ function neighborsFor(
   minPairCount: number,
   minConfidence: number,
   exists: (filePath: string) => boolean,
-): CoChangeNeighbor[] {
+  candidates: number,
+): NeighborScan {
   const soloSelf = store.getCoChangeSolo(absTarget);
   const out: CoChangeNeighbor[] = [];
 
-  for (const row of store.getCoChangeNeighbors(absTarget, minPairCount)) {
+  const rows = store.getCoChangeNeighbors(absTarget, minPairCount, candidates);
+  for (const row of rows) {
     // 삭제되거나 이름이 바뀐 파일은 이력에만 남는다. 수집이 아니라 조회에서
     // 거른다 — 수집에서 빼면 그 시절 solo 카운트가 깎여 confidence가 부푼다.
     if (!exists(row.other)) continue;
@@ -322,7 +345,22 @@ function neighborsFor(
   }
 
   out.sort((a, b) => neighborScore(b) - neighborScore(a) || b.pairCount - a.pairCount);
-  return out;
+  return { neighbors: out, capped: rows.length >= candidates };
+}
+
+/**
+ * 같은 파일이 여러 seed의 이웃으로 거듭 나온다. 감싸지 않으면 그때마다
+ * 동기 stat이 한 번씩 더 돈다.
+ */
+function memoizeExists(exists: (filePath: string) => boolean): (filePath: string) => boolean {
+  const cache = new Map<string, boolean>();
+  return (filePath) => {
+    const hit = cache.get(filePath);
+    if (hit !== undefined) return hit;
+    const value = exists(filePath);
+    cache.set(filePath, value);
+    return value;
+  };
 }
 
 export function queryCoChange(
@@ -331,7 +369,7 @@ export function queryCoChange(
   opts: CoChangeQueryOptions = {},
 ): CoChangeResult {
   const root = resolve(repoRoot);
-  const exists = opts.exists ?? existsSync;
+  const exists = memoizeExists(opts.exists ?? existsSync);
   const minPairCount = opts.minPairCount ?? MIN_PAIR_COUNT;
   const minConfidence = opts.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
 
@@ -346,6 +384,8 @@ export function queryCoChange(
       commitsUsed: 0,
       commitsScanned: 0,
       pairsInDb,
+      totalMatched: 0,
+      truncated: false,
       available: false,
       reason: NOT_COLLECTED,
     };
@@ -353,14 +393,17 @@ export function queryCoChange(
 
   if (opts.target) {
     const absTarget = absolutize(root, opts.target);
-    const neighbors = neighborsFor(
+    const neighborLimit = opts.limit ?? DEFAULT_NEIGHBOR_LIMIT;
+    const scan = neighborsFor(
       store,
       absTarget,
       meta.commitsUsed,
       minPairCount,
       minConfidence,
       exists,
-    ).slice(0, opts.limit ?? DEFAULT_NEIGHBOR_LIMIT);
+      candidateLimit(neighborLimit),
+    );
+    const neighbors = scan.neighbors.slice(0, neighborLimit);
 
     let reason: string | undefined;
     if (neighbors.length === 0 && pairsInDb > 0) {
@@ -384,6 +427,8 @@ export function queryCoChange(
       commitsUsed: meta.commitsUsed,
       commitsScanned: meta.commitsScanned,
       pairsInDb,
+      totalMatched: scan.neighbors.length,
+      truncated: scan.capped || scan.neighbors.length > neighbors.length,
       available: true,
       reason,
     };
@@ -391,9 +436,9 @@ export function queryCoChange(
 
   const limit = opts.limit ?? DEFAULT_PAIR_LIMIT;
   const scored: CoChangePair[] = [];
-  // 점수 상위를 뽑으려면 카운트 상위만 봐서는 부족하다. 후보를 넉넉히 떠서
-  // 점수로 다시 세운다.
-  for (const row of store.getTopCoChangePairs(minPairCount, Math.max(limit * 10, 200))) {
+  const candidates = candidateLimit(limit);
+  const rows = store.getTopCoChangePairs(minPairCount, candidates);
+  for (const row of rows) {
     if (!exists(row.fileA) || !exists(row.fileB)) continue;
     const { confidence, lift } = scoreNeighbor(
       row.pairCount,
@@ -412,12 +457,16 @@ export function queryCoChange(
   }
   scored.sort((a, b) => neighborScore(b) - neighborScore(a) || b.pairCount - a.pairCount);
 
+  const pairs = scored.slice(0, limit);
+
   return {
     neighbors: [],
-    pairs: scored.slice(0, limit),
+    pairs,
     commitsUsed: meta.commitsUsed,
     commitsScanned: meta.commitsScanned,
     pairsInDb,
+    totalMatched: scored.length,
+    truncated: rows.length >= candidates || scored.length > pairs.length,
     available: true,
     reason:
       scored.length === 0 && pairsInDb > 0
@@ -429,7 +478,8 @@ export function queryCoChange(
 /**
  * 여러 seed 파일의 이웃을 하나로 합친다. blast-radius가 쓰는 진입점이다.
  * 같은 파일이 여러 seed에 걸리면 점수가 높은 쪽을 남긴다. 합친 목록은
- * `opts.limit`(기본 `DEFAULT_NEIGHBOR_LIMIT`)까지만 돌려준다.
+ * `opts.limit`(기본 `DEFAULT_NEIGHBOR_LIMIT`)까지만 돌려준다. 잘렸으면
+ * `truncated`로 알린다 — 목록만 보면 그게 전부인 줄 안다.
  */
 export function buildCoChangeLookup(
   store: CodeGraphStore,
@@ -438,7 +488,9 @@ export function buildCoChangeLookup(
   opts: CoChangeQueryOptions = {},
 ): CoChangeLookup {
   const root = resolve(repoRoot);
-  const exists = opts.exists ?? existsSync;
+  // seed 하나가 아니라 seed 전부에 걸쳐 메모이즈한다. 같은 파일이 여러 seed의
+  // 이웃으로 거듭 나오는 게 흔한 경우라 seed 안에서만 캐시하면 거의 못 줄인다.
+  const exists = memoizeExists(opts.exists ?? existsSync);
   const minPairCount = opts.minPairCount ?? MIN_PAIR_COUNT;
   const minConfidence = opts.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
   const limit = opts.limit ?? DEFAULT_NEIGHBOR_LIMIT;
@@ -447,21 +499,33 @@ export function buildCoChangeLookup(
   const pairsInDb = store.countCoChangePairs();
 
   if (!meta) {
-    return { available: false, reason: NOT_COLLECTED, pairsInDb, neighbors: [] };
+    return {
+      available: false,
+      reason: NOT_COLLECTED,
+      pairsInDb,
+      neighbors: [],
+      totalMatched: 0,
+      truncated: false,
+    };
   }
 
   const seedSet = new Set(seeds.map((s) => absolutize(root, s)));
   const best = new Map<string, CoChangeNeighbor>();
+  const candidates = candidateLimit(limit);
+  let capped = false;
 
   for (const seed of seedSet) {
-    for (const n of neighborsFor(
+    const scan = neighborsFor(
       store,
       seed,
       meta.commitsUsed,
       minPairCount,
       minConfidence,
       exists,
-    )) {
+      candidates,
+    );
+    if (scan.capped) capped = true;
+    for (const n of scan.neighbors) {
       if (seedSet.has(n.filePath)) continue;
       const prev = best.get(n.filePath);
       if (!prev || neighborScore(n) > neighborScore(prev)) best.set(n.filePath, n);
@@ -470,9 +534,10 @@ export function buildCoChangeLookup(
 
   // seed마다 임계를 통과한 이웃이 전부 들어오므로 여기서 자르지 않으면
   // seed 개수만큼 부풀어 rankedFiles가 import 신호를 밀어낸다.
-  const neighbors = [...best.values()]
-    .sort((a, b) => neighborScore(b) - neighborScore(a) || b.pairCount - a.pairCount)
-    .slice(0, limit);
+  const ranked = [...best.values()].sort(
+    (a, b) => neighborScore(b) - neighborScore(a) || b.pairCount - a.pairCount,
+  );
+  const neighbors = ranked.slice(0, limit);
 
   let reason: string | undefined;
   if (neighbors.length === 0 && pairsInDb > 0) {
@@ -487,5 +552,12 @@ export function buildCoChangeLookup(
     });
   }
 
-  return { available: true, reason, pairsInDb, neighbors };
+  return {
+    available: true,
+    reason,
+    pairsInDb,
+    neighbors,
+    totalMatched: ranked.length,
+    truncated: capped || ranked.length > neighbors.length,
+  };
 }

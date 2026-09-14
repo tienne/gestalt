@@ -324,7 +324,14 @@ export class CodeGraphEngine {
         repoRoot,
         reason,
       });
-      return { available: false, reason, pairsInDb: 0, neighbors: [] };
+      return {
+        available: false,
+        reason,
+        pairsInDb: 0,
+        neighbors: [],
+        totalMatched: 0,
+        truncated: false,
+      };
     }
   }
 

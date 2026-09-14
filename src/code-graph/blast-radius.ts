@@ -30,6 +30,8 @@ export function computeBlastRadius(
       rankedFiles: [],
       coChangeAvailable: coChange?.available ?? false,
       coChangeReason: coChange?.reason,
+      coChangeTruncated: coChange?.truncated ?? false,
+      coChangeTotalMatched: coChange?.totalMatched ?? 0,
       summary: 'No changed files provided.',
     };
   }
@@ -148,6 +150,8 @@ export function computeBlastRadius(
     rankedFiles,
     coChangeAvailable: coChange?.available ?? false,
     coChangeReason: coChange?.reason,
+    coChangeTruncated: coChange?.truncated ?? false,
+    coChangeTotalMatched: coChange?.totalMatched ?? 0,
     summary,
   };
 }
@@ -285,9 +289,18 @@ function buildSummary(
 
   // 이력 신호가 안 실린 것과 함께 바뀐 파일이 없는 것은 다르다. summary만 읽는
   // 자리가 있으므로 여기서도 둘을 갈라 말한다.
+  //
+  // 잘린 사실도 같이 싣는다. depthExhausted가 import 쪽을 하한이라고 말하는
+  // 것과 같은 이유다 — 목록만 보면 40개 중 30개를 전부로 읽는다.
+  const capped =
+    coChange?.truncated === true
+      ? ` History neighbors are a lower bound: ${coChange.neighbors.length} shown out of at least ` +
+        `${coChange.totalMatched} match(es). Raise limit to see more.`
+      : '';
   const history = !coChange?.available
     ? ' Git history signal unavailable (import graph only).'
-    : ` Git history adds ${historyOnly} file(s) imports cannot see, ${both} confirmed by both signals.`;
+    : ` Git history adds ${historyOnly} file(s) imports cannot see, ${both} confirmed by both signals.` +
+      capped;
 
   // 잘렸으면 요약에서 먼저 말한다. 사람은 summary만 읽고 판단하는 일이 잦은데
   // "영향 12개, 위험 낮음"만 보면 그게 전부인 줄 안다.
