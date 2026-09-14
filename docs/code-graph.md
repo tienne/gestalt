@@ -18,7 +18,7 @@
 | `blast_radius` | 커밋 기준 영향 파일 분석 |
 | `diff_radius` | 미커밋 변경 기준 영향 파일 분석 |
 | `query` | 관련 파일 패턴 검색 |
-| `cochange` | git 이력에서 함께 바뀐 파일 조회 |
+| `co_change` | git 이력에서 함께 바뀐 파일 조회 |
 | `stats` | 그래프 통계 조회 |
 | `db_exists` | DB 존재 여부 확인 |
 
@@ -82,6 +82,9 @@ ges_code_graph({ action: "build", repoRoot: "/path/to/repo" })
 | `base` | `string` | N | `"HEAD~1"` | 비교 기준 커밋 참조 |
 | `changedFiles` | `string[]` | N | git diff에서 자동 추출 | 분석할 변경 파일 목록 (직접 지정 시 git diff 생략) |
 | `maxDepth` | `number` | N | `2` | 의존성 탐색 최대 깊이 |
+| `limit` | `number` | N | `30` | 이력 신호에서 가져올 이웃 수 상한 |
+| `minPairCount` | `number` | N | `3` | 동시등장이 이 미만인 페어는 버린다 |
+| `minConfidence` | `number` | N | `0.3` | confidence가 이 미만인 페어는 버린다 |
 
 #### Example
 
@@ -131,7 +134,7 @@ ges_code_graph({
   "riskScore": 0.62,
   "depthExhausted": false,
   "unexploredNodes": 0,
-  "summary": "1 changed file impacts 3 files. Medium risk. Git history adds 1 file(s) imports cannot see, 1 confirmed by both signals."
+  "summary": "Changed 1 file(s) impact 3 file(s) (1 test files, 2 test functions). Risk: HIGH (62.0%). Git history adds 1 file(s) imports cannot see, 1 confirmed by both signals."
 }
 ```
 
@@ -162,6 +165,9 @@ ges_code_graph({
 | `repoRoot` | `string` | Y | — | 저장소 절대 경로 |
 | `diffMode` | `"staged" \| "unstaged" \| "all"` | N | `"all"` | 분석 대상 diff 범위 |
 | `maxDepth` | `number` | N | `2` | 의존성 탐색 최대 깊이 |
+| `limit` | `number` | N | `30` | 이력 신호에서 가져올 이웃 수 상한 |
+| `minPairCount` | `number` | N | `3` | 동시등장이 이 미만인 페어는 버린다 |
+| `minConfidence` | `number` | N | `0.3` | confidence가 이 미만인 페어는 버린다 |
 
 #### Example
 
@@ -183,7 +189,7 @@ ges_code_graph({
   ],
   "coChangeAvailable": true,
   "riskScore": 0.45,
-  "summary": "2 staged files impact 2 files. Low-medium risk. Git history adds 1 file(s) imports cannot see, 1 confirmed by both signals."
+  "summary": "Changed 2 file(s) impact 2 file(s) (0 test files, 0 test functions). Risk: MEDIUM (45.0%). Git history adds 1 file(s) imports cannot see, 1 confirmed by both signals."
 }
 ```
 
@@ -228,7 +234,7 @@ ges_code_graph({
 
 ---
 
-### `cochange`
+### `co_change`
 
 git 이력이 함께 바뀌었다고 말하는 파일을 조회한다. `target`을 주면 그 파일의 이웃을, 생략하면 레포 전체 상위 페어를 돌려준다.
 
@@ -238,7 +244,7 @@ git 이력이 함께 바뀌었다고 말하는 파일을 조회한다. `target`�
 |-----------|------|:--------:|---------|-------------|
 | `repoRoot` | `string` | Y | — | 저장소 절대 경로 |
 | `target` | `string` | N | — | 기준 파일. 생략하면 레포 전체 상위 페어 |
-| `limit` | `number` | N | `30` / `50` | 반환 개수. `target`이 있으면 30, 없으면 50 |
+| `limit` | `number` | N | `30` / `50` | 반환 개수. `target`이 있으면 `DEFAULT_NEIGHBOR_LIMIT`(30), 없으면 `DEFAULT_PAIR_LIMIT`(50) |
 | `minPairCount` | `number` | N | `3` | 동시등장이 이 미만인 페어는 버린다 |
 | `minConfidence` | `number` | N | `0.3` | confidence가 이 미만인 페어는 버린다 |
 
@@ -248,7 +254,7 @@ git 이력이 함께 바뀌었다고 말하는 파일을 조회한다. `target`�
 
 ```javascript
 ges_code_graph({
-  action: "cochange",
+  action: "co_change",
   repoRoot: "/path/to/repo",
   target: "src/humanize/index.ts"
 })
@@ -339,13 +345,13 @@ ges_code_graph({ action: "db_exists", repoRoot: "/path/to/repo" })
 
 import 그래프는 소스에 적힌 것만 안다. 매니페스트 JSON끼리의 약속, 코드와 그 코드를 설명하는 문서, 스키마와 그걸 읽는 설정 파일은 서로를 import하지 않으므로 파싱으로는 영영 안 잡힌다.
 
-이 레포 924커밋으로 재보면 강한 페어(동시등장 3회 이상, confidence 0.3 이상) 401개 중 **301개, 그러니까 75%가 import 그래프에 아예 없다.**
+이 레포 전체 이력 924커밋(merge 포함, 측정 시점 기준)으로 재보면 강한 페어(동시등장 3회 이상, confidence 0.3 이상) 401개 중 **301개, 그러니까 75%가 import 그래프에 아예 없다.**
 
 가장 좋은 예가 이 레포 자신이다. CLAUDE.md에 사람이 손으로 적어둔 "네 매니페스트의 버전 핀을 릴리즈마다 함께 갱신한다"는 규칙을 co-change가 이력에서 그대로 찾아낸다.
 
 ```javascript
 ges_code_graph({
-  action: "cochange",
+  action: "co_change",
   repoRoot: "<경로>",
   target: ".claude-plugin/plugin.json"
 })
@@ -367,7 +373,7 @@ confidence는 0.81에서 1.0 사이다. 넷 다 JSON이라 import 그래프에�
 - `confidence = 함께 바뀐 횟수 / 한쪽이 바뀐 횟수` — A가 바뀔 때 B도 바뀔 확률. A→B와 B→A가 다르므로 방향별로 계산하고 큰 쪽을 페어 점수로 쓴다
 - `lift = confidence / (상대 파일이 전체 커밋에서 등장하는 비율)` — 우연 대비 몇 배인지. 어디에나 끼는 파일일수록 분모가 커져 점수가 눌린다
 
-랭킹 키는 `confidence * lift`다. 보고되는 confidence는 소수 둘째 자리, lift는 첫째 자리에서 반올림한다. `cochange` 응답과 `rankedFiles`가 같은 값을 보고 같은 순서로 서도록 반올림한 값으로 랭킹까지 매긴다.
+랭킹 키는 `confidence * lift`다. 보고되는 confidence는 소수 둘째 자리, lift는 첫째 자리에서 반올림한다. `co_change` 응답과 `rankedFiles`가 같은 값을 보고 같은 순서로 서도록 반올림한 값으로 랭킹까지 매긴다.
 
 실제로 눌리는 걸 확인한 예다.
 
@@ -390,13 +396,13 @@ src/humanize/index.ts 의 이웃
 | confidence 0.3 미만 제외 | `DEFAULT_MIN_CONFIDENCE = 0.3` | 한쪽이 바뀔 때 열에 셋도 안 따라오면 같이 읽을 이유가 약하다 |
 | merge 커밋 제외 | `git log --no-merges` | 머지 커밋의 파일 목록은 함께 고친 흔적이 아니다 |
 
-임계 셋은 `cochange` 호출에서 `minPairCount`와 `minConfidence`로 낮출 수 있다. 커밋 21개 경계는 상수라 코드를 고쳐야 바뀐다.
+임계 셋은 `minPairCount`와 `minConfidence`로 낮출 수 있다. `co_change`뿐 아니라 `blast_radius`와 `diff_radius`도 같은 파라미터를 받는다. 이력 신호를 쓰는 세 액션이 같은 튜닝 면을 공유한다. 반환 개수 상한은 `limit`이고 기본값은 `DEFAULT_NEIGHBOR_LIMIT`(30)과 `DEFAULT_PAIR_LIMIT`(50)이다. 커밋 21개 경계는 상수라 코드를 고쳐야 바뀐다.
 
 삭제되거나 이름이 바뀐 파일은 이력에만 남는다. 이런 경로는 **조회 시점에** 워킹트리 존재 여부로 거른다. 수집에서 빼면 그 파일이 살아 있던 시절의 solo 카운트가 함께 깎여 남은 파일들의 confidence가 부풀기 때문이다.
 
 ### 수집과 갱신
 
-`build`가 파일 파싱을 끝낸 뒤 `git log --format=%H --name-only --no-merges`를 한 번 읽어 페어를 센다. 파일마다 git을 부르지 않는다. 이 레포 892커밋 기준 87ms에 548커밋 4,577페어가 나온다.
+`build`가 파일 파싱을 끝낸 뒤 `git log --format=%H --name-only --no-merges`를 한 번 읽어 페어를 센다. 파일마다 git을 부르지 않는다. 같은 시점 기준으로 merge를 뺀 892커밋을 87ms에 읽어 548커밋 4,577페어가 나온다. 수집은 `--no-merges`라 전체 924커밋이 아니라 이 892가 입력이다.
 
 증분 빌드는 `cg_cochange_meta`에 적힌 이전 HEAD가 지금 HEAD의 조상이면 그 사이 구간만 읽어 카운터에 더한다. HEAD가 그대로면 `git log`를 아예 안 읽는다. post-commit 훅이 부르는 자리라 수백 ms를 넘기면 안 되기 때문이다. rebase나 amend, shallow clone으로 이전 기준점에 못 닿으면 경고를 남기고 전량 재수집으로 내린다.
 

@@ -134,5 +134,5 @@ git 이력: {coChange.commitsUsed}개 커밋에서 {coChange.pairs}개 페어 ({
    이 파일들은 영향범위 분석에 잡히지 않습니다: {skippedFiles의 경로와 사유}
 ```
 
-4. "그래프 빌드 완료! 이제 `/blast-radius`로 변경 영향 파일을 분석할 수 있습니다." 안내를 포함합니다. `ges_code_graph { action: "cochange", repoRoot: "<repoRoot>", target: "<파일>" }`로 특정 파일과 늘 함께 바뀌어온 파일만 따로 볼 수도 있다는 것도 함께 알립니다.
+4. "그래프 빌드 완료! 이제 `/blast-radius`로 변경 영향 파일을 분석할 수 있습니다." 안내를 포함합니다. `ges_code_graph { action: "co_change", repoRoot: "<repoRoot>", target: "<파일>" }`로 특정 파일과 늘 함께 바뀌어온 파일만 따로 볼 수도 있다는 것도 함께 알립니다.
 5. 오류가 발생하면 오류 내용을 표시하고 지원 언어인지 확인하도록 안내합니다.

@@ -49,7 +49,7 @@ pnpm tsx bin/gestalt.ts explain-eval --a plugin/role-agents/explainer/AGENT.md  
 - `ges_agent`: action=[list|get], name?
 - `ges_status`: sessionId?, sessionType?, cwd?
 - `ges_benchmark`: action=[start|respond|status], scenario?, benchmarkSessionId?, response?
-- `ges_code_graph`: action=[build|blast_radius|diff_radius|query|cochange|stats|db_exists]
+- `ges_code_graph`: action=[build|blast_radius|diff_radius|query|co_change|stats|db_exists]
 - `ges_graph_visualize`: repoRoot, port?
 - `ges_generate_kb`: repoRoot?, outputPath?, types?, summarize?
 - `ges_search`: query, k?, kbPath?, types?

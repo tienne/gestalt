@@ -50,6 +50,7 @@ outputs:
   - impactedFiles
   - rankedFiles
   - coChangeAvailable
+  - coChangeReason
   - riskScore
   - summary
 ---
