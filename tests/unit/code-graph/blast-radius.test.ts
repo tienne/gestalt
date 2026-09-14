@@ -284,7 +284,13 @@ describe('computeBlastRadius()', () => {
     }
 
     function lookup(neighbors: CoChangeLookup['neighbors']): CoChangeLookup {
-      return { available: true, pairsInDb: neighbors.length, neighbors };
+      return {
+        available: true,
+        pairsInDb: neighbors.length,
+        neighbors,
+        totalMatched: neighbors.length,
+        truncated: false,
+      };
     }
 
     it('3인자로 부르면 이력 신호 없이 import 출처만 남는다', () => {
@@ -350,10 +356,43 @@ describe('computeBlastRadius()', () => {
         reason: 'co-change history has not been collected',
         pairsInDb: 0,
         neighbors: [],
+        totalMatched: 0,
+        truncated: false,
       });
 
       expect(result.coChangeAvailable).toBe(false);
       expect(result.coChangeReason).toContain('has not been collected');
+    });
+
+    it('이력 이웃이 잘렸으면 summary가 하한이라고 말한다', () => {
+      buildImportGraph();
+      const neighbors = [
+        { filePath: 'docs/guide.md', pairCount: 5, confidence: 0.8, lift: 4 },
+        { filePath: 'docs/other.md', pairCount: 4, confidence: 0.7, lift: 3 },
+      ];
+
+      const cut = computeBlastRadius(store, ['src/a.ts'], 2, {
+        available: true,
+        pairsInDb: 40,
+        neighbors,
+        totalMatched: 40,
+        truncated: true,
+      });
+      const full = computeBlastRadius(store, ['src/a.ts'], 2, {
+        available: true,
+        pairsInDb: 2,
+        neighbors,
+        totalMatched: 2,
+        truncated: false,
+      });
+
+      expect(cut.coChangeTruncated).toBe(true);
+      expect(cut.coChangeTotalMatched).toBe(40);
+      expect(full.coChangeTruncated).toBe(false);
+      expect(cut.summary).toContain('lower bound');
+      expect(cut.summary).toContain('2 shown out of at least 40');
+      expect(full.summary).toContain('Git history adds');
+      expect(full.summary).not.toContain('lower bound');
     });
   });
 });

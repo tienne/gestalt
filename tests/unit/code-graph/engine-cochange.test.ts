@@ -102,7 +102,7 @@ function seedCoChange(
       commitsUsed: 100,
       commitsScanned: 120,
       maxFilesPerCommit: 20,
-      minPairCount: 3,
+      defaultMinPairCount: 3,
     },
     reset: true,
   });
