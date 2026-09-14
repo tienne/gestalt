@@ -54,7 +54,8 @@ ges_code_graph({ action: "build", repoRoot: "/path/to/repo" })
   "nodesBuilt": 342,
   "edgesBuilt": 1204,
   "timeTakenMs": 1820,
-  "installedHook": true,
+  "installedHook": false,
+  "embeddingsBuilt": 0,
   "skippedCount": 0,
   "skippedFiles": [],
   "coChange": {
@@ -132,6 +133,7 @@ ges_code_graph({
   ],
   "coChangeAvailable": true,
   "coChangeTruncated": false,
+  "coChangeMatchedCapped": false,
   "coChangeTotalMatched": 2,
   "riskScore": 0.62,
   "depthExhausted": false,
@@ -149,7 +151,8 @@ ges_code_graph({
 | `coChangeAvailable` | 이력 신호가 실제로 실렸는지 |
 | `coChangeReason` | 신호가 없거나 이웃이 0건일 때 그 사유 |
 | `coChangeTruncated` | 이력 이웃이 `limit`에 잘렸다. 켜지면 `rankedFiles`의 `history` 항목은 하한이다 — 다만 보인 것은 전체 순위의 상위 접두사다 |
-| `coChangeTotalMatched` | 임계를 통과한 이력 이웃 수. 얼마나 잘렸는지 가늠용 |
+| `coChangeMatchedCapped` | 조회가 질의 단 천장(10,000행)에 걸렸다. `coChangeTruncated`와 사유가 다르다 — 이쪽이 켜지면 접두사 보장이 없고 `coChangeTotalMatched`도 하한이다 |
+| `coChangeTotalMatched` | 임계를 통과한 이력 이웃 수. 얼마나 잘렸는지 가늠하는 자리다. `coChangeMatchedCapped`가 꺼져 있을 때만 정확한 수다 |
 | `depthExhausted` | `maxDepth`에 걸려 탐색이 멈췄고 갈 곳이 남아 있었다 |
 | `unexploredNodes` | 그때 다음 홉에서 기다리던 노드 수 |
 | `riskScore` | 위험도 0~1. `depthExhausted`면 하한이다 |
@@ -193,6 +196,7 @@ ges_code_graph({
   ],
   "coChangeAvailable": true,
   "coChangeTruncated": false,
+  "coChangeMatchedCapped": false,
   "coChangeTotalMatched": 2,
   "riskScore": 0.45,
   "summary": "Changed 2 file(s) impact 2 file(s) (0 test files, 0 test functions). Risk: MEDIUM (45.0%). Git history adds 1 file(s) imports cannot see, 1 confirmed by both signals."
@@ -229,11 +233,26 @@ ges_code_graph({
 ```json
 {
   "nodes": [
-    { "id": "src/middleware/auth.ts::checkAuth", "type": "function", "file": "src/middleware/auth.ts" },
-    { "id": "src/routes/user.ts::getProfile", "type": "function", "file": "src/routes/user.ts" }
+    {
+      "id": "function:/path/to/repo:checkAuth",
+      "kind": "function",
+      "name": "checkAuth",
+      "filePath": "/path/to/repo/src/middleware/auth.ts",
+      "lineStart": 12,
+      "lineEnd": 28,
+      "isTest": false,
+      "updatedAt": 1780000000000
+    }
   ],
   "edges": [
-    { "from": "src/middleware/auth.ts::checkAuth", "to": "src/auth/oauth.ts::validateToken", "type": "calls" }
+    {
+      "id": 41,
+      "kind": "CALLS",
+      "sourceId": "function:/path/to/repo:checkAuth",
+      "targetId": "function:/path/to/repo:validateToken",
+      "line": 19,
+      "updatedAt": 1780000000000
+    }
   ]
 }
 ```
@@ -279,6 +298,7 @@ ges_code_graph({
   "pairsInDb": 4597,
   "totalMatched": 12,
   "truncated": false,
+  "matchedCapped": false,
   "available": true
 }
 ```
@@ -290,8 +310,9 @@ ges_code_graph({
 | `commitsUsed` | 필터를 통과해 실제로 센 커밋 수 |
 | `commitsScanned` | 읽은 전체 커밋 수 |
 | `pairsInDb` | DB에 저장된 전체 페어 수 |
-| `totalMatched` | 임계를 통과한 행 수. 하한이 아니라 정확한 수다 |
+| `totalMatched` | 임계를 통과한 행 수. 하한이 아니라 정확한 수다 — `matchedCapped`가 켜졌을 때만 예외다 |
 | `truncated` | 반환 목록이 `limit`에 잘렸는지. 잘려도 돌려준 목록은 전체 순위의 상위 접두사다 |
+| `matchedCapped` | 질의가 천장(10,000행)에 걸렸는지. `truncated`와 따로 읽어야 한다 |
 | `available` | 수집이 됐는지 |
 | `reason` | 결과가 비었을 때 그 사유 |
 
@@ -320,7 +341,7 @@ ges_code_graph({ action: "stats", repoRoot: "/path/to/repo" })
   "totalFiles": 87,
   "totalNodes": 342,
   "totalEdges": 1204,
-  "lastBuiltAt": "2026-05-31T09:12:00.000Z",
+  "lastBuiltAt": 1780000000000,
   "dbSizeBytes": 204800
 }
 ```
@@ -361,8 +382,8 @@ import 그래프는 소스에 적힌 것만 안다. 매니페스트 JSON끼리�
 
 이 절의 숫자는 전부 **`c927188` 한 커밋에서 잰 값이다.** 커밋이 쌓이면 함께 움직이므로 이 문서를 읽는 시점의 값과 다르다. 숫자가 밀렸다고 문서가 틀린 게 아니라 스냅숏이 오래된 것이다. 지금 값이 필요하면 직접 재면 된다.
 
-```bash
-ges_code_graph({ action: "build", repoRoot: "<경로>" })   # 응답의 coChange가 커밋 수와 페어 수다
+```javascript
+ges_code_graph({ action: "build", repoRoot: "<경로>" })   // 응답의 coChange가 커밋 수와 페어 수다
 ```
 
 개수를 전체 이력에 붙여 읽으면 임계가 무엇 위에서 걸린 건지 어긋난다. 페어 계산의 입력은 전체 이력이 아니라 아래 마지막 단계이고 `confidence`와 `lift`의 분모(`commitsUsed`)도 같은 값이다.
@@ -373,7 +394,9 @@ ges_code_graph({ action: "build", repoRoot: "<경로>" })   # 응답의 coChange
 | `--no-merges` 적용 | 906 |
 | 거기서 파일 2~20개인 커밋만 (`commitsUsed`) | 561 |
 
-같은 커밋에서 강한 페어는 416개, 그중 양쪽이 워킹트리에 남은 것이 400개, 대응 import 엣지가 없는 것이 297개(74%)다.
+같은 커밋에서 전체 페어는 4,597개, 그중 `minPairCount` 기본값(3회)만 통과한 것이 485개, confidence 0.3까지 통과한 강한 페어가 416개다. 강한 페어 중 양쪽이 워킹트리에 남은 것이 400개, 대응 import 엣지가 없는 것이 297개(74%)다.
+
+`src/code-graph/storage.ts`의 인덱스 주석과 이웃 조회 주석도 이 스냅숏의 값을 인용한다. **코드 주석에 실측 숫자를 적을 때는 문서와 같은 꼴로 커밋 sha를 함께 적는다** — 앵커가 없으면 다음 라운드에 또 밀린다.
 
 가장 좋은 예가 이 레포 자신이다. CLAUDE.md에 사람이 손으로 적어둔 "네 매니페스트의 버전 핀을 릴리즈마다 함께 갱신한다"는 규칙을 co-change가 이력에서 그대로 찾아낸다.
 
@@ -464,11 +487,39 @@ src/humanize/index.ts 의 이웃
 
 ### 잘린 이력은 잘렸다고 말한다
 
-이웃이 `limit`보다 많으면 `coChangeTruncated`가 켜지고 `summary`에 `History neighbors are a lower bound: showing the top N of M match(es).`가 따라붙는다. `depthExhausted`가 import 신호를 두고 하는 말과 같은 자리다. 이 표식이 없으면 이웃 40개 중 30개만 받아놓고 그게 전부라고 읽게 된다.
+이웃이 `limit`보다 많으면 `coChangeTruncated`가 켜지고 `summary`에 이 문장이 따라붙는다.
+
+```
+History neighbors are a lower bound: showing the top N of M match(es). Raise limit to see more.
+```
+
+`depthExhausted`가 import 신호를 두고 하는 말과 같은 자리다. 이 표식이 없으면 이웃 40개 중 30개만 받아놓고 그게 전부라고 읽게 된다.
 
 **`M`은 하한이 아니라 정확한 수고 보인 `N`개는 그 `M`의 상위 `N`개다.** 자르는 자리가 랭킹을 다 세운 뒤 한 곳뿐이라 그렇다. 개수로 먼저 줄이고 점수로 다시 세우면 이 말이 성립하지 않는다 — 랭킹 키가 confidence × lift인데 `pair_count` 순으로 먼저 자르면 카운트는 낮고 점수는 높은 페어가 통째로 빠진다.
 
 대신 두 임계(`minPairCount`, `minConfidence`)를 질의로 내려 조회가 읽는 행을 줄인다. 임계는 개수와 달리 손실이 없다 — 어차피 결과에서 뺄 행을 애초에 안 뜨는 것뿐이다. 조회 비용은 임계를 통과한 행 수에 비례하므로 임계를 0으로 내리면 그만큼 더 읽는다. [스냅숏 기준](#측정-스냅숏)으로 기본 임계에서는 seed당 최대 22행, 전역 페어 416행이고 임계를 둘 다 0으로 내리면 seed당 최대 133행, 전역 4,597행이다.
+
+### 천장 — 임계가 0이어도 읽는 행은 유한하다
+
+두 임계는 외부 입력이고 둘 다 0을 받는다. 둘 다 0이면 조회가 페어 테이블 전체를 뜬다. `limit`은 랭킹을 다 세운 뒤에 걸리므로 읽는 행도, 워킹트리 존재 확인(`stat`)이 도는 횟수도 못 막는다. 그래서 질의에 절대 천장을 하나 뒀다.
+
+**`MAX_MATCHED_ROWS`는 10,000행이고 `exists` 확인과 점수 계산보다 앞, SQL 안에 있다.** 뒤에 두면 stat은 이미 다 돈 뒤라 막을 것이 없다.
+
+정상 질의는 이 선에 못 닿는다. 이 레포는 임계를 둘 다 0으로 내려 전량을 떠도 4,597행이다. 출력 상한인 `limit`의 최대값(500)과 비교하면 20배다. 천장이 사용자가 보는 목록을 결정하는 자리가 되면 안 된다는 뜻이다.
+
+닿았으면 `matchedCapped`(blast-radius와 diff-radius에서는 `coChangeMatchedCapped`)가 켜지고 `summary`에 다른 문장이 붙는다.
+
+```
+History neighbors hit the 10000-row query ceiling: showing N of at least M match(es), and the list is not a ranked prefix. Raise minPairCount or minConfidence to get an exact ranking.
+```
+
+`truncated`와 갈라 쓰는 이유가 셋이다.
+
+- **사유가 다르다.** `truncated`는 랭킹을 다 세운 뒤 `limit`이 자른 것이고 `matchedCapped`는 점수를 매기기도 전에 행 수로 걸린 것이다
+- **접두사 보장이 다르다.** `truncated`만 켜졌으면 보인 목록은 여전히 전체 순위의 상위 접두사다. `matchedCapped`가 켜지면 아니다 — 천장은 점수가 아니라 행을 읽은 순서로 걸린다
+- **손잡이가 다르다.** `truncated`는 `limit`을 올려서 푼다. `matchedCapped`는 `limit`으로는 안 풀린다. 임계를 올려야 한다
+
+`matchedCapped`가 켜지면 `totalMatched`도 정확한 수가 아니라 하한이 된다. 둘이 함께 켜질 수도 있는데 그때 `summary`는 천장 쪽을 말한다 — `limit`을 올리라고 안내하면 사용자가 시킨 대로 해도 같은 자리에 다시 선다.
 
 ### 한계
 

@@ -50,6 +50,7 @@ outputs:
   - coChangeAvailable
   - coChangeReason
   - coChangeTruncated
+  - coChangeMatchedCapped
   - coChangeTotalMatched
   - riskScore
   - summary
@@ -117,8 +118,9 @@ ges_code_graph {
 | `rankedFiles` | import 신호와 git 이력 신호를 합쳐 출처를 붙인 목록 |
 | `coChangeAvailable` | git 이력 신호가 실제로 실렸는지 |
 | `coChangeReason` | 이력 신호가 없거나 이웃이 0건일 때 그 사유 |
-| `coChangeTruncated` | 이력 이웃이 `limit`에 잘렸다. 켜지면 `rankedFiles`의 `history` 항목은 하한이다 — 다만 보인 것은 전체 순위의 상위 몇 개다 |
-| `coChangeTotalMatched` | 임계를 통과한 이력 이웃 수. 하한이 아니라 정확한 수다 |
+| `coChangeTruncated` | 이력 이웃이 `limit`에 잘렸다. 켜지면 `rankedFiles`의 `history` 항목은 하한이다 — 다만 보인 것은 전체 순위의 상위 접두사다 |
+| `coChangeMatchedCapped` | 조회가 질의 단 천장(10,000행)에 걸렸다. `coChangeTruncated`와 사유가 다르다 — 이쪽이 켜지면 접두사도 아니고 `coChangeTotalMatched`도 하한이다. 푸는 손잡이는 `limit`이 아니라 `minPairCount`와 `minConfidence`다 |
+| `coChangeTotalMatched` | 임계를 통과한 이력 이웃 수. `coChangeMatchedCapped`가 꺼져 있으면 하한이 아니라 정확한 수다 |
 | `riskScore` | 위험도 점수 0~1 |
 | `summary` | 한 줄 요약 |
 
