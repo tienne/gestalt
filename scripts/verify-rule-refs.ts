@@ -70,7 +70,7 @@ const LOANWORD_HINT = 'style-guide.md §「음차를 옮길 때 — 한 단어�
  * 명사형 "잠금"이 빠지는 건 문자 클래스에 "금"이 없어서다. 뒤의 선읽기가 막는 건
  * "잠긴파일"처럼 붙여 쓴 꼴뿐이고 띄어 쓴 "잠긴 파일"은 그대로 걸린다.
  * 두 정규식은 detectors.ts 의 F-10 탐지기와 같은 자리를 보되 따로 적혀 있다 —
- * 이쪽은 문서 레지스터 S2를 잡는 탐지기라 대상 파일 목록이 다르다.
+ * 이쪽 정규식은 문서 레지스터 S2를 잡으므로 대상 파일 목록이 다르다.
  */
 const COINED_TERMS: Array<{ pattern: RegExp; term: string; replacement: string }> = [
   {
