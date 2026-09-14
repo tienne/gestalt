@@ -1,9 +1,15 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CodeGraphStore } from '../../../src/code-graph/storage.js';
+import {
+  CodeGraphStore,
+  MAX_MATCHED_ROWS,
+  CO_CHANGE_NEIGHBORS_SQL,
+  CO_CHANGE_PAIRS_SQL,
+} from '../../../src/code-graph/storage.js';
 import type { CoChangeNeighborRow } from '../../../src/code-graph/storage.js';
 import {
   parseGitLog,
@@ -24,7 +30,7 @@ const ROOT = '/repo';
 
 /** 임계를 걷어낸 이웃 행 전량. 저장 자체를 보는 테스트가 쓴다 */
 function allNeighborRows(store: CodeGraphStore, filePath: string): CoChangeNeighborRow[] {
-  return store.getCoChangeNeighbors(filePath, 1, 0, store.getCoChangeSolo(filePath));
+  return store.getCoChangeNeighbors(filePath, 1, 0, store.getCoChangeSolo(filePath)).rows;
 }
 
 function sha(n: number): string {
@@ -67,6 +73,20 @@ function fakeGit(config: FakeGitConfig = {}): GitRunner {
 
 /** 모든 경로가 워킹트리에 있다고 본다 */
 const allExist = (): boolean => true;
+
+interface RawDb {
+  prepare(s: string): { all(p: unknown): unknown[] };
+  close(): void;
+}
+
+/**
+ * 스토어를 거치지 않고 질의문을 직접 돈다. 스토어를 거치면 JS의 slice가
+ * 같은 행 수를 만들어내서 SQL이 실제로 몇 행을 읽었는지 안 보인다.
+ */
+function rawDb(dbPath: string): RawDb {
+  const Database = createRequire(import.meta.url)('better-sqlite3') as new (p: string) => RawDb;
+  return new Database(dbPath);
+}
 
 describe('parseGitLog()', () => {
   it('커밋 단위로 sha와 파일 목록을 분리한다', () => {
@@ -315,8 +335,8 @@ describe('co-change 저장과 조회', () => {
 
     expect(strict.pairs.map((p) => p.pairCount)).toEqual([5]);
     expect(loose.pairs.map((p) => p.pairCount).sort()).toEqual([2, 5]);
-    expect(store.getCoChangePairs(5, 0)).toHaveLength(1);
-    expect(store.getCoChangePairs(2, 0)).toHaveLength(2);
+    expect(store.getCoChangePairs(5, 0).rows).toHaveLength(1);
+    expect(store.getCoChangePairs(2, 0).rows).toHaveLength(2);
   });
 
   it('조회 결과의 점수는 반올림된 상태로 나온다', () => {
@@ -897,8 +917,8 @@ describe('임계를 질의로 내린 자리', () => {
     syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
 
     // soloSelf를 0으로 넘긴다 — CASE의 "반대쪽만 살아 있는" 가지다
-    const kept = store.getCoChangeNeighbors('/repo/src/seed.ts', 1, 1, 0);
-    const dropped = store.getCoChangeNeighbors('/repo/src/seed.ts', 5, 1, 0);
+    const kept = store.getCoChangeNeighbors('/repo/src/seed.ts', 1, 1, 0).rows;
+    const dropped = store.getCoChangeNeighbors('/repo/src/seed.ts', 5, 1, 0).rows;
 
     expect(kept.map((r) => r.other)).toEqual(['/repo/src/near.ts']);
     expect(dropped).toHaveLength(0);
@@ -919,10 +939,10 @@ describe('임계를 질의로 내린 자리', () => {
       reset: true,
     });
 
-    expect(store.getCoChangeNeighbors('/repo/src/a.ts', 1, 0, 0)).toHaveLength(1);
-    expect(store.getCoChangeNeighbors('/repo/src/a.ts', 1, 0.01, 0)).toHaveLength(0);
-    expect(store.getCoChangePairs(1, 0)).toHaveLength(1);
-    expect(store.getCoChangePairs(1, 0.01)).toHaveLength(0);
+    expect(store.getCoChangeNeighbors('/repo/src/a.ts', 1, 0, 0).rows).toHaveLength(1);
+    expect(store.getCoChangeNeighbors('/repo/src/a.ts', 1, 0.01, 0).rows).toHaveLength(0);
+    expect(store.getCoChangePairs(1, 0).rows).toHaveLength(1);
+    expect(store.getCoChangePairs(1, 0.01).rows).toHaveLength(0);
   });
 
   it('전역 페어 조회도 같은 임계를 질의에서 건다', () => {
@@ -931,7 +951,7 @@ describe('임계를 질의로 내린 자리', () => {
     const hasSeedNearPair = (minConfidence: number): boolean =>
       store
         .getCoChangePairs(1, minConfidence)
-        .some((r) => r.fileA === '/repo/src/near.ts' && r.fileB === '/repo/src/seed.ts');
+        .rows.some((r) => r.fileA === '/repo/src/near.ts' && r.fileB === '/repo/src/seed.ts');
 
     expect(hasSeedNearPair(0.29)).toBe(true);
     expect(hasSeedNearPair(0.3)).toBe(false);
@@ -968,5 +988,288 @@ describe('임계를 질의로 내린 자리', () => {
       '/repo/src/m.ts',
       '/repo/src/z.ts',
     ]);
+  });
+});
+
+describe('질의 단 천장 — 임계가 0이어도 읽는 행이 유한하다', () => {
+  let store: CodeGraphStore;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dbPath = `.gestalt-test/cochange-ceiling-${randomUUID()}.db`;
+    store = new CodeGraphStore(dbPath);
+  });
+
+  afterEach(() => {
+    store.close();
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (existsSync(`${dbPath}${suffix}`)) rmSync(`${dbPath}${suffix}`);
+    }
+  });
+
+  /** seed 하나에 이웃 `count`개를 각각 세 번씩 붙인다 */
+  function seedNeighbors(seed: string, count: number): void {
+    const commits: string[][] = [];
+    for (let i = 0; i < count; i++) {
+      for (let t = 0; t < 3; t++) commits.push([seed, `src/n${i}.ts`]);
+    }
+    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
+  }
+
+  /** 호출 횟수를 세는 exists. 천장이 이 루프 앞에 있는지 가른다 */
+  function countingExists(): { fn: (p: string) => boolean; calls: () => number } {
+    let calls = 0;
+    return {
+      fn: () => {
+        calls++;
+        return true;
+      },
+      calls: () => calls,
+    };
+  }
+
+  it('기본 천장은 출력 상한보다 크게 앞서 있어 정상 질의에 안 걸린다', () => {
+    // MCP가 받는 limit의 최대가 500이다. 천장이 그 근처면 사용자가 보는
+    // 목록을 천장이 결정하게 된다 — 그러면 접두사 주장이 매번 깨진다
+    expect(MAX_MATCHED_ROWS).toBe(10_000);
+    expect(MAX_MATCHED_ROWS).toBeGreaterThanOrEqual(500 * 20);
+  });
+
+  it('천장과 같은 수면 걸리지 않고 전량이 나온다', () => {
+    seedNeighbors('src/a.ts', 10);
+
+    const scan = store.getCoChangeNeighbors('/repo/src/a.ts', 1, 0, 0, 10);
+
+    expect(scan.rows).toHaveLength(10);
+    expect(scan.capped).toBe(false);
+  });
+
+  it('천장을 하나만 넘겨도 걸리고 천장만큼만 나온다', () => {
+    seedNeighbors('src/a.ts', 11);
+
+    const scan = store.getCoChangeNeighbors('/repo/src/a.ts', 1, 0, 0, 10);
+
+    expect(scan.rows).toHaveLength(10);
+    expect(scan.capped).toBe(true);
+  });
+
+  it('전역 페어 조회도 천장 경계를 양쪽에서 똑같이 본다', () => {
+    seedNeighbors('src/a.ts', 11);
+
+    const atCeiling = store.getCoChangePairs(1, 0, 11);
+    const overCeiling = store.getCoChangePairs(1, 0, 10);
+
+    expect(atCeiling.rows).toHaveLength(11);
+    expect(atCeiling.capped).toBe(false);
+    expect(overCeiling.rows).toHaveLength(10);
+    expect(overCeiling.capped).toBe(true);
+  });
+
+  it('이웃 질의문이 scanLimit에서 멈춘다', () => {
+    // 스토어를 거치면 JS slice가 같은 개수를 만들어내 SQL의 LIMIT이
+    // 사라진 걸 못 본다. 질의문을 직접 돌려야 읽은 행 수가 드러난다
+    seedNeighbors('src/a.ts', 40);
+    const db = rawDb(dbPath);
+    try {
+      const rows = db.prepare(CO_CHANGE_NEIGHBORS_SQL).all({
+        path: '/repo/src/a.ts',
+        minPairCount: 1,
+        minConfidence: 0,
+        soloSelf: 0,
+        scanLimit: 5,
+      });
+
+      expect(rows).toHaveLength(5);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('전역 페어 질의문도 scanLimit에서 멈춘다', () => {
+    seedNeighbors('src/a.ts', 40);
+    const db = rawDb(dbPath);
+    try {
+      const rows = db
+        .prepare(CO_CHANGE_PAIRS_SQL)
+        .all({ minPairCount: 1, minConfidence: 0, scanLimit: 5 });
+
+      expect(rows).toHaveLength(5);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('천장이 exists 루프보다 앞에 걸린다', () => {
+    // 뒤에 있으면 stat은 이미 40번 다 돈 뒤다. 천장을 둔 이유가 사라진다
+    seedNeighbors('src/a.ts', 40);
+    const counter = countingExists();
+
+    const result = queryCoChange(store, ROOT, {
+      target: 'src/a.ts',
+      limit: 30,
+      exists: counter.fn,
+      maxMatchedRows: 10,
+    });
+
+    expect(counter.calls()).toBe(10);
+    expect(result.neighbors.length).toBeLessThanOrEqual(10);
+    expect(result.matchedCapped).toBe(true);
+  });
+
+  it('전역 페어 경로의 exists 팬아웃도 천장 안에 갇힌다', () => {
+    // 페어마다 파일이 둘이라 서로 다른 경로는 천장 + seed 하나다
+    seedNeighbors('src/a.ts', 40);
+    const counter = countingExists();
+
+    const result = queryCoChange(store, ROOT, {
+      limit: 50,
+      exists: counter.fn,
+      maxMatchedRows: 10,
+    });
+
+    expect(counter.calls()).toBe(11);
+    expect(result.matchedCapped).toBe(true);
+  });
+
+  it('천장에 걸린 것과 limit에 잘린 것을 따로 알린다', () => {
+    seedNeighbors('src/a.ts', 40);
+
+    // limit이 천장보다 커서 자를 게 없다. truncated는 꺼져 있는데 목록은
+    // 여전히 전부가 아니다 — 그 자리를 matchedCapped가 메운다
+    const capped = queryCoChange(store, ROOT, {
+      target: 'src/a.ts',
+      limit: 30,
+      exists: allExist,
+      maxMatchedRows: 10,
+    });
+
+    expect(capped.matchedCapped).toBe(true);
+    expect(capped.truncated).toBe(false);
+    expect(capped.totalMatched).toBe(10);
+  });
+
+  it('천장에 안 닿으면 세 경로 다 matchedCapped가 꺼져 있다', () => {
+    seedNeighbors('src/a.ts', 40);
+
+    const target = queryCoChange(store, ROOT, { target: 'src/a.ts', exists: allExist });
+    const global = queryCoChange(store, ROOT, { exists: allExist });
+    const lookup = buildCoChangeLookup(store, ROOT, ['src/a.ts'], { exists: allExist });
+
+    expect(target.matchedCapped).toBe(false);
+    expect(global.matchedCapped).toBe(false);
+    expect(lookup.matchedCapped).toBe(false);
+    expect(target.totalMatched).toBe(40);
+  });
+
+  it('전역 페어 경로도 천장에 걸리면 matchedCapped를 켠다', () => {
+    seedNeighbors('src/a.ts', 40);
+
+    const result = queryCoChange(store, ROOT, {
+      limit: 50,
+      exists: allExist,
+      maxMatchedRows: 10,
+    });
+
+    expect(result.matchedCapped).toBe(true);
+    expect(result.totalMatched).toBe(10);
+  });
+
+  it('seed 하나만 천장에 걸려도 합친 목록이 알린다', () => {
+    // b는 이웃이 둘뿐이라 천장에 못 닿는다. a 하나 때문에 켜져야 한다
+    const commits: string[][] = [];
+    for (let i = 0; i < 40; i++) {
+      for (let t = 0; t < 3; t++) commits.push(['src/a.ts', `src/n${i}.ts`]);
+    }
+    for (let t = 0; t < 3; t++) commits.push(['src/b.ts', 'src/solo.ts']);
+    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
+
+    const onlyB = buildCoChangeLookup(store, ROOT, ['src/b.ts'], {
+      exists: allExist,
+      maxMatchedRows: 10,
+    });
+    const both = buildCoChangeLookup(store, ROOT, ['src/a.ts', 'src/b.ts'], {
+      exists: allExist,
+      maxMatchedRows: 10,
+    });
+
+    expect(onlyB.matchedCapped).toBe(false);
+    expect(both.matchedCapped).toBe(true);
+  });
+});
+
+describe('쿼리 플랜 — 인덱스를 타는지 고정한다', () => {
+  let store: CodeGraphStore;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dbPath = `.gestalt-test/cochange-plan-${randomUUID()}.db`;
+    store = new CodeGraphStore(dbPath);
+    store.mergeCoChange({
+      pairs: [{ fileA: '/repo/src/a.ts', fileB: '/repo/src/b.ts', count: 5 }],
+      solos: [
+        { filePath: '/repo/src/a.ts', count: 5 },
+        { filePath: '/repo/src/b.ts', count: 5 },
+      ],
+      meta: {
+        headSha: sha(1),
+        commitsUsed: 5,
+        commitsScanned: 5,
+        maxFilesPerCommit: MAX_FILES_PER_COMMIT,
+        defaultMinPairCount: MIN_PAIR_COUNT,
+      },
+      reset: true,
+    });
+  });
+
+  afterEach(() => {
+    store.close();
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (existsSync(`${dbPath}${suffix}`)) rmSync(`${dbPath}${suffix}`);
+    }
+  });
+
+  /**
+   * 스토어가 실제로 prepare하는 문자열을 그대로 설명시킨다. 테스트가 SQL을
+   * 베껴 쓰면 베낀 쪽 계획만 보게 된다.
+   *
+   * 계획 문장은 SQLite 버전마다 표현이 갈리므로 인덱스 이름만 본다. 그건
+   * 우리가 지은 식별자라 버전과 무관하다.
+   */
+  function planOf(sql: string, params: Record<string, unknown>): string[] {
+    const db = rawDb(dbPath);
+    try {
+      const rows = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(params) as { detail: string }[];
+      return rows.map((r) => r.detail);
+    } finally {
+      db.close();
+    }
+  }
+
+  it('전역 페어 질의가 pair_count 인덱스를 탄다', () => {
+    const plan = planOf(CO_CHANGE_PAIRS_SQL, {
+      minPairCount: 3,
+      minConfidence: 0.3,
+      scanLimit: 11,
+    });
+
+    expect(plan.join('\n')).toContain('idx_cg_cochange_count');
+    // 인덱스를 지우면 여기가 전체 스캔으로 떨어진다. 임계가 걸러주는 것처럼
+    // 보여도 읽는 행은 테이블 전체가 된다
+    expect(plan.filter((d) => /^SCAN\b/.test(d) && d.includes('cg_cochange'))).toEqual([]);
+  });
+
+  it('이웃 질의가 file_a와 file_b 양쪽에서 인덱스를 탄다', () => {
+    const plan = planOf(CO_CHANGE_NEIGHBORS_SQL, {
+      path: '/repo/src/a.ts',
+      minPairCount: 3,
+      minConfidence: 0.3,
+      soloSelf: 5,
+      scanLimit: 11,
+    });
+
+    // file_a는 PRIMARY KEY가, file_b는 따로 만든 인덱스가 받는다.
+    // 뒤쪽을 지우면 UNION의 반대 방향이 조용히 전체 스캔이 된다
+    expect(plan.join('\n')).toContain('idx_cg_cochange_b');
+    expect(plan.filter((d) => /^SCAN\b/.test(d) && d.includes('cg_cochange'))).toEqual([]);
   });
 });

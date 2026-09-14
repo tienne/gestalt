@@ -290,6 +290,7 @@ describe('computeBlastRadius()', () => {
         neighbors,
         totalMatched: neighbors.length,
         truncated: false,
+        matchedCapped: false,
       };
     }
 
@@ -378,6 +379,7 @@ describe('computeBlastRadius()', () => {
         neighbors: [],
         totalMatched: 0,
         truncated: false,
+        matchedCapped: false,
       });
 
       expect(result.coChangeAvailable).toBe(false);
@@ -397,6 +399,7 @@ describe('computeBlastRadius()', () => {
         neighbors,
         totalMatched: 40,
         truncated: true,
+        matchedCapped: false,
       });
       const full = computeBlastRadius(store, ['src/a.ts'], 2, {
         available: true,
@@ -404,6 +407,7 @@ describe('computeBlastRadius()', () => {
         neighbors,
         totalMatched: 2,
         truncated: false,
+        matchedCapped: false,
       });
 
       expect(cut.coChangeTruncated).toBe(true);
@@ -412,10 +416,59 @@ describe('computeBlastRadius()', () => {
       expect(cut.summary).toContain('lower bound');
       // "at least"가 아니다. 자르는 자리가 랭킹 뒤 한 곳뿐이라 40은 정확한 수고
       // 보인 2개는 그 40의 상위 둘이다
-      expect(cut.summary).toContain('showing the top 2 of 40 match(es)');
+      // 꼬리까지 전부 본다. 앞자락만 단언하면 문장이 반쯤 사라져도 통과한다
+      expect(cut.summary).toContain(
+        'History neighbors are a lower bound: showing the top 2 of 40 match(es). ' +
+          'Raise limit to see more.',
+      );
       expect(cut.summary).not.toContain('at least');
+      expect(cut.coChangeMatchedCapped).toBe(false);
       expect(full.summary).toContain('Git history adds');
       expect(full.summary).not.toContain('lower bound');
+    });
+
+    it('질의 천장에 걸렸으면 접두사가 아니라고 말하고 손잡이를 임계로 가리킨다', () => {
+      buildImportGraph();
+      const neighbors = [{ filePath: 'docs/guide.md', pairCount: 5, confidence: 0.8, lift: 4 }];
+
+      const result = computeBlastRadius(store, ['src/a.ts'], 2, {
+        available: true,
+        pairsInDb: 99999,
+        neighbors,
+        totalMatched: 10000,
+        truncated: false,
+        matchedCapped: true,
+      });
+
+      expect(result.coChangeMatchedCapped).toBe(true);
+      expect(result.summary).toContain(
+        'History neighbors hit the 10000-row query ceiling: showing 1 of at least 10000 ' +
+          'match(es), and the list is not a ranked prefix. ' +
+          'Raise minPairCount or minConfidence to get an exact ranking.',
+      );
+      // limit을 올리라고 말하면 안 된다. 천장을 푸는 손잡이가 아니다
+      expect(result.summary).not.toContain('Raise limit to see more.');
+      expect(result.summary).not.toContain('showing the top');
+    });
+
+    it('천장과 limit에 둘 다 걸리면 천장 쪽을 말한다', () => {
+      buildImportGraph();
+      const neighbors = [{ filePath: 'docs/guide.md', pairCount: 5, confidence: 0.8, lift: 4 }];
+
+      const result = computeBlastRadius(store, ['src/a.ts'], 2, {
+        available: true,
+        pairsInDb: 99999,
+        neighbors,
+        totalMatched: 10000,
+        truncated: true,
+        matchedCapped: true,
+      });
+
+      // 둘 다 켜졌을 때 "top N of M"을 말하면 거짓이 된다 — M이 하한이다
+      expect(result.summary).toContain('query ceiling');
+      expect(result.summary).not.toContain('showing the top');
+      expect(result.coChangeTruncated).toBe(true);
+      expect(result.coChangeMatchedCapped).toBe(true);
     });
   });
 });
