@@ -194,6 +194,9 @@ export class CodeGraphStore {
         PRIMARY KEY (file_a, file_b)
       );
       CREATE INDEX IF NOT EXISTS idx_cg_cochange_b ON cg_cochange(file_b);
+      -- getTopCoChangePairs가 pair_count로 거르고 정렬한다. 이게 없으면
+      -- 전역 페어 조회가 매번 전체 스캔에 메모리 정렬이다.
+      CREATE INDEX IF NOT EXISTS idx_cg_cochange_count ON cg_cochange(pair_count);
 
       CREATE TABLE IF NOT EXISTS cg_cochange_solo (
         file_path TEXT PRIMARY KEY,
