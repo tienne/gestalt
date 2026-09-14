@@ -76,11 +76,11 @@ export interface BlastRadiusResult {
   /** coChangeAvailable이 false거나 이웃이 0건일 때 그 사유 */
   coChangeReason?: string;
   /**
-   * 이력 이웃이 limit이나 질의 후보 상한에 잘렸다. depthExhausted가 import
-   * 신호를 두고 하는 말과 같다 — true면 rankedFiles의 history 항목이 하한이다.
+   * 이력 이웃이 limit에 잘렸다. depthExhausted가 import 신호를 두고 하는
+   * 말과 같다 — true면 rankedFiles의 history 항목이 하한이다.
    */
   coChangeTruncated: boolean;
-  /** 임계를 통과한 이력 이웃 수. 얼마나 잘렸는지 가늠용 */
+  /** 임계를 통과한 이력 이웃 수. 얼마나 잘렸는지 가늠용이고 정확한 수다 */
   coChangeTotalMatched: number;
   summary: string;
 }
@@ -127,9 +127,9 @@ export interface CoChangeResult {
   commitsScanned: number;
   /** DB에 저장된 전체 페어 수. 0건이 경로 불일치인지 수집 미실행인지 가르는 단서 */
   pairsInDb: number;
-  /** 임계를 통과한 행 수. `truncated`면 이 값도 하한이다 */
+  /** 임계를 통과한 행 수. 하한이 아니라 정확한 수다 */
   totalMatched: number;
-  /** 반환 목록이 limit이나 질의 후보 상한에 잘렸는가 */
+  /** 반환 목록이 limit에 잘렸는가 */
   truncated: boolean;
   available: boolean;
   reason?: string;
@@ -141,11 +141,14 @@ export interface CoChangeLookup {
   pairsInDb: number;
   neighbors: CoChangeNeighbor[];
   /**
-   * 임계를 통과한 이웃 수. `neighbors`보다 클 수 있다.
-   * `truncated`면 이 값도 하한이다 — 후보 상한 밖은 세지 못한다.
+   * 임계를 통과한 이웃 수. `neighbors`보다 클 수 있고 하한이 아닌 정확한
+   * 수다 — 자르는 자리가 랭킹을 다 세운 뒤 한 곳뿐이라 셀 수 있다.
    */
   totalMatched: number;
-  /** neighbors가 limit이나 질의 후보 상한에 잘렸는가. 켜지면 목록이 하한이다 */
+  /**
+   * neighbors가 limit에 잘렸는가. 켜지면 목록이 하한이다. 단 잘려도
+   * 돌려준 목록은 전체 순위의 상위 접두사다.
+   */
   truncated: boolean;
 }
 

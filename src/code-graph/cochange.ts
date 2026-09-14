@@ -25,21 +25,6 @@ export const MIN_PAIR_COUNT = 3;
 export const DEFAULT_MIN_CONFIDENCE = 0.3;
 export const DEFAULT_NEIGHBOR_LIMIT = 30;
 export const DEFAULT_PAIR_LIMIT = 50;
-/** 후보를 뜰 때 반환 개수에 곱하는 배수와 그 하한 */
-export const CANDIDATE_MULTIPLIER = 10;
-export const CANDIDATE_FLOOR = 200;
-
-/**
- * 질의에서 뜰 후보 행 수. 랭킹 키가 `pair_count`가 아니라 confidence*lift라
- * 카운트 상위만 봐서는 점수 상위를 놓친다. 그래서 반환 개수의 열 배를 뜬 뒤
- * 점수로 다시 세운다.
- *
- * 이웃 조회와 전역 페어 조회가 같은 식을 쓴다. 같은 `limit`이 한쪽은 질의
- * 상한, 다른 쪽은 출력 상한으로 갈리면 같은 값으로 다른 결과가 나온다.
- */
-export function candidateLimit(limit: number): number {
-  return Math.max(limit * CANDIDATE_MULTIPLIER, CANDIDATE_FLOOR);
-}
 
 const SHA_RE = /^[0-9a-f]{40}$/;
 
@@ -158,6 +143,22 @@ export function scoreNeighbor(
 /** 랭킹 키. 프로토타입이 검증한 정렬이다 */
 export function neighborScore(n: { confidence: number; lift: number }): number {
   return n.confidence * n.lift;
+}
+
+/**
+ * 점수와 동시등장 다음에 경로를 마지막 열쇠로 둔다. 앞의 둘이 같은 행은 흔한데
+ * (카운트가 같으면 점수도 같기 쉽다) 거기서 멈추면 순서가 DB가 돌려준 행
+ * 순서에 걸린다. 질의에 `ORDER BY`가 없으므로 그건 보장이 없다.
+ */
+export function compareNeighbors(
+  a: { confidence: number; lift: number; pairCount: number; filePath: string },
+  b: { confidence: number; lift: number; pairCount: number; filePath: string },
+): number {
+  return (
+    neighborScore(b) - neighborScore(a) ||
+    b.pairCount - a.pairCount ||
+    a.filePath.localeCompare(b.filePath)
+  );
 }
 
 // ─── 수집 ────────────────────────────────────────────────────────
@@ -316,12 +317,11 @@ function absolutize(root: string, filePath: string): string {
 const NOT_COLLECTED =
   'co-change history has not been collected for this repository — run a code graph build at the repo root';
 
-interface NeighborScan {
-  neighbors: CoChangeNeighbor[];
-  /** 후보 상한에 걸렸는가. 걸렸으면 이 seed의 이웃을 다 본 게 아니다 */
-  capped: boolean;
-}
-
+/**
+ * 임계를 통과한 이웃을 전부 점수순으로 세운다. 개수를 여기서 자르지 않는
+ * 게 요점이다 — 자른 뒤 다시 세우면 무엇이 잘렸는지 셀 수 없다. 목록이
+ * 전체 상위의 접두사라는 말도 못 한다.
+ */
 function neighborsFor(
   store: CodeGraphStore,
   absTarget: string,
@@ -329,23 +329,23 @@ function neighborsFor(
   minPairCount: number,
   minConfidence: number,
   exists: (filePath: string) => boolean,
-  candidates: number,
-): NeighborScan {
+): CoChangeNeighbor[] {
   const soloSelf = store.getCoChangeSolo(absTarget);
   const out: CoChangeNeighbor[] = [];
 
-  const rows = store.getCoChangeNeighbors(absTarget, minPairCount, candidates);
+  // 두 임계는 질의가 건다. 여기서 한 번 더 거르면 같은 규칙이 두 곳에 살아
+  // 어긋날 자리가 생긴다.
+  const rows = store.getCoChangeNeighbors(absTarget, minPairCount, minConfidence, soloSelf);
   for (const row of rows) {
     // 삭제되거나 이름이 바뀐 파일은 이력에만 남는다. 수집이 아니라 조회에서
     // 거른다 — 수집에서 빼면 그 시절 solo 카운트가 깎여 confidence가 부푼다.
     if (!exists(row.other)) continue;
     const { confidence, lift } = scoreNeighbor(row.pairCount, soloSelf, row.soloOther, commitsUsed);
-    if (confidence < minConfidence) continue;
     out.push({ filePath: row.other, pairCount: row.pairCount, confidence, lift });
   }
 
-  out.sort((a, b) => neighborScore(b) - neighborScore(a) || b.pairCount - a.pairCount);
-  return { neighbors: out, capped: rows.length >= candidates };
+  out.sort(compareNeighbors);
+  return out;
 }
 
 /**
@@ -394,16 +394,15 @@ export function queryCoChange(
   if (opts.target) {
     const absTarget = absolutize(root, opts.target);
     const neighborLimit = opts.limit ?? DEFAULT_NEIGHBOR_LIMIT;
-    const scan = neighborsFor(
+    const matched = neighborsFor(
       store,
       absTarget,
       meta.commitsUsed,
       minPairCount,
       minConfidence,
       exists,
-      candidateLimit(neighborLimit),
     );
-    const neighbors = scan.neighbors.slice(0, neighborLimit);
+    const neighbors = matched.slice(0, neighborLimit);
 
     let reason: string | undefined;
     if (neighbors.length === 0 && pairsInDb > 0) {
@@ -427,8 +426,8 @@ export function queryCoChange(
       commitsUsed: meta.commitsUsed,
       commitsScanned: meta.commitsScanned,
       pairsInDb,
-      totalMatched: scan.neighbors.length,
-      truncated: scan.capped || scan.neighbors.length > neighbors.length,
+      totalMatched: matched.length,
+      truncated: matched.length > neighbors.length,
       available: true,
       reason,
     };
@@ -436,8 +435,7 @@ export function queryCoChange(
 
   const limit = opts.limit ?? DEFAULT_PAIR_LIMIT;
   const scored: CoChangePair[] = [];
-  const candidates = candidateLimit(limit);
-  const rows = store.getTopCoChangePairs(minPairCount, candidates);
+  const rows = store.getCoChangePairs(minPairCount, minConfidence);
   for (const row of rows) {
     if (!exists(row.fileA) || !exists(row.fileB)) continue;
     const { confidence, lift } = scoreNeighbor(
@@ -446,7 +444,6 @@ export function queryCoChange(
       row.soloB,
       meta.commitsUsed,
     );
-    if (confidence < minConfidence) continue;
     scored.push({
       fileA: row.fileA,
       fileB: row.fileB,
@@ -455,7 +452,12 @@ export function queryCoChange(
       lift,
     });
   }
-  scored.sort((a, b) => neighborScore(b) - neighborScore(a) || b.pairCount - a.pairCount);
+  scored.sort((a, b) =>
+    compareNeighbors(
+      { ...a, filePath: `${a.fileA}\t${a.fileB}` },
+      { ...b, filePath: `${b.fileA}\t${b.fileB}` },
+    ),
+  );
 
   const pairs = scored.slice(0, limit);
 
@@ -466,7 +468,7 @@ export function queryCoChange(
     commitsScanned: meta.commitsScanned,
     pairsInDb,
     totalMatched: scored.length,
-    truncated: rows.length >= candidates || scored.length > pairs.length,
+    truncated: scored.length > pairs.length,
     available: true,
     reason:
       scored.length === 0 && pairsInDb > 0
@@ -480,6 +482,9 @@ export function queryCoChange(
  * 같은 파일이 여러 seed에 걸리면 점수가 높은 쪽을 남긴다. 합친 목록은
  * `opts.limit`(기본 `DEFAULT_NEIGHBOR_LIMIT`)까지만 돌려준다. 잘렸으면
  * `truncated`로 알린다 — 목록만 보면 그게 전부인 줄 안다.
+ *
+ * 자르는 자리가 여기 하나뿐이라 돌려준 목록은 임계를 통과한 전체의 상위
+ * 접두사다. `totalMatched`도 하한이 아니라 정확한 수다.
  */
 export function buildCoChangeLookup(
   store: CodeGraphStore,
@@ -511,21 +516,16 @@ export function buildCoChangeLookup(
 
   const seedSet = new Set(seeds.map((s) => absolutize(root, s)));
   const best = new Map<string, CoChangeNeighbor>();
-  const candidates = candidateLimit(limit);
-  let capped = false;
 
   for (const seed of seedSet) {
-    const scan = neighborsFor(
+    for (const n of neighborsFor(
       store,
       seed,
       meta.commitsUsed,
       minPairCount,
       minConfidence,
       exists,
-      candidates,
-    );
-    if (scan.capped) capped = true;
-    for (const n of scan.neighbors) {
+    )) {
       if (seedSet.has(n.filePath)) continue;
       const prev = best.get(n.filePath);
       if (!prev || neighborScore(n) > neighborScore(prev)) best.set(n.filePath, n);
@@ -534,9 +534,7 @@ export function buildCoChangeLookup(
 
   // seed마다 임계를 통과한 이웃이 전부 들어오므로 여기서 자르지 않으면
   // seed 개수만큼 부풀어 rankedFiles가 import 신호를 밀어낸다.
-  const ranked = [...best.values()].sort(
-    (a, b) => neighborScore(b) - neighborScore(a) || b.pairCount - a.pairCount,
-  );
+  const ranked = [...best.values()].sort(compareNeighbors);
   const neighbors = ranked.slice(0, limit);
 
   let reason: string | undefined;
@@ -558,6 +556,6 @@ export function buildCoChangeLookup(
     pairsInDb,
     neighbors,
     totalMatched: ranked.length,
-    truncated: capped || ranked.length > neighbors.length,
+    truncated: ranked.length > neighbors.length,
   };
 }

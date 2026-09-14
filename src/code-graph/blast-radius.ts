@@ -199,9 +199,12 @@ function buildRankedFiles(
     }
   }
 
+  // 경로까지 열쇠로 둔다. 점수와 카운트가 같은 행이 흔해 거기서 멈추면
+  // 순서가 입력 순서에 걸린다.
   const byScore = (a: RankedImpactFile, b: RankedImpactFile): number =>
     (b.confidence ?? 0) * (b.lift ?? 0) - (a.confidence ?? 0) * (a.lift ?? 0) ||
-    (b.coChangeCount ?? 0) - (a.coChangeCount ?? 0);
+    (b.coChangeCount ?? 0) - (a.coChangeCount ?? 0) ||
+    a.filePath.localeCompare(b.filePath);
   both.sort(byScore);
   history.sort(byScore);
 
@@ -292,10 +295,13 @@ function buildSummary(
   //
   // 잘린 사실도 같이 싣는다. depthExhausted가 import 쪽을 하한이라고 말하는
   // 것과 같은 이유다 — 목록만 보면 40개 중 30개를 전부로 읽는다.
+  //
+  // "top N of M"이라고 단정할 수 있는 건 자르는 자리가 랭킹을 다 세운 뒤
+  // 한 곳뿐이어서다. 질의가 점수와 다른 키로 먼저 자르면 이 문장이 거짓이 된다.
   const capped =
     coChange?.truncated === true
-      ? ` History neighbors are a lower bound: ${coChange.neighbors.length} shown out of at least ` +
-        `${coChange.totalMatched} match(es). Raise limit to see more.`
+      ? ` History neighbors are a lower bound: showing the top ${coChange.neighbors.length} ` +
+        `of ${coChange.totalMatched} match(es). Raise limit to see more.`
       : '';
   const history = !coChange?.available
     ? ' Git history signal unavailable (import graph only).'

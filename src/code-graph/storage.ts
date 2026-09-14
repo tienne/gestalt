@@ -133,6 +133,22 @@ export interface CoChangeMergeInput {
   reset: boolean;
 }
 
+/**
+ * `scoreNeighbor()`의 confidence를 SQL로 옮긴 것. 두 방향 중 큰 쪽이므로
+ * 작은 solo로 나눈다. solo가 0이면 그 방향은 0이라 반대쪽만 남는다. 둘 다 0이면 0이다.
+ *
+ * 임계를 반올림 전 값에 건다. 표시값(소수 두 자리)에 걸면 0.295가 0.3으로
+ * 올라 minConfidence 0.3을 통과한다.
+ */
+function CONFIDENCE_SQL(soloSelf: string, soloOther: string): string {
+  return `CASE
+    WHEN ${soloSelf} > 0 AND ${soloOther} > 0 THEN CAST(pair_count AS REAL) / MIN(${soloSelf}, ${soloOther})
+    WHEN ${soloSelf} > 0 THEN CAST(pair_count AS REAL) / ${soloSelf}
+    WHEN ${soloOther} > 0 THEN CAST(pair_count AS REAL) / ${soloOther}
+    ELSE 0.0
+  END`;
+}
+
 export class CodeGraphStore {
   private db: SqliteDb;
 
@@ -195,8 +211,8 @@ export class CodeGraphStore {
         PRIMARY KEY (file_a, file_b)
       );
       CREATE INDEX IF NOT EXISTS idx_cg_cochange_b ON cg_cochange(file_b);
-      -- getTopCoChangePairs가 pair_count로 거르고 정렬한다. 이게 없으면
-      -- 전역 페어 조회가 매번 전체 스캔에 메모리 정렬이다.
+      -- getCoChangePairs가 pair_count로 거른다. 이게 없으면 전역 페어 조회가
+      -- 매번 전체 스캔이다. 기본 임계에서 이 레포는 4,577행 중 470행만 남는다.
       CREATE INDEX IF NOT EXISTS idx_cg_cochange_count ON cg_cochange(pair_count);
 
       CREATE TABLE IF NOT EXISTS cg_cochange_solo (
@@ -513,30 +529,35 @@ export class CodeGraphStore {
   /**
    * 무방향 페어라 file_a/file_b 양쪽을 합쳐야 한 파일의 이웃이 전부 나온다.
    *
-   * `limit`은 필수다. 이력이 쌓인 파일은 이웃이 수백 개까지 가는데, 그걸 전부
-   * 뜬 뒤 호출부가 자르면 행마다 붙는 존재 확인과 점수 계산이 버려질 행에도
-   * 그대로 든다. 전역 페어 조회(`getTopCoChangePairs`)와 같은 자리에서 자른다.
+   * 임계를 통과한 행을 전부 돌려준다. 개수 상한이 없는 게 의도다 — 랭킹 키가
+   * confidence × lift라 `pair_count` 순으로 먼저 자르면 점수 상위가 창 밖으로
+   * 빠진다. 대신 두 임계를 질의로 내려 호출부가 버릴 행을 애초에 안 뜬다.
+   * 이 레포 실측으로 기본 임계에서 seed당 22행, 임계를 전부 0으로 내려도 133행이다.
    */
   getCoChangeNeighbors(
     filePath: string,
     minPairCount: number,
-    limit: number,
+    minConfidence: number,
+    soloSelf: number,
   ): CoChangeNeighborRow[] {
     const rows = this.db
       .prepare(
         `
-      SELECT p.other AS other, p.pair_count AS pair_count, COALESCE(s.solo_count, 0) AS solo_other
-      FROM (
-        SELECT file_b AS other, pair_count FROM cg_cochange WHERE file_a = ? AND pair_count >= ?
-        UNION ALL
-        SELECT file_a AS other, pair_count FROM cg_cochange WHERE file_b = ? AND pair_count >= ?
-      ) p
-      LEFT JOIN cg_cochange_solo s ON s.file_path = p.other
-      ORDER BY p.pair_count DESC
-      LIMIT ?
+      SELECT other, pair_count, solo_other FROM (
+        SELECT p.other AS other, p.pair_count AS pair_count, COALESCE(s.solo_count, 0) AS solo_other
+        FROM (
+          SELECT file_b AS other, pair_count FROM cg_cochange
+            WHERE file_a = @path AND pair_count >= @minPairCount
+          UNION ALL
+          SELECT file_a AS other, pair_count FROM cg_cochange
+            WHERE file_b = @path AND pair_count >= @minPairCount
+        ) p
+        LEFT JOIN cg_cochange_solo s ON s.file_path = p.other
+      )
+      WHERE ${CONFIDENCE_SQL('@soloSelf', 'solo_other')} >= @minConfidence
     `,
       )
-      .all(filePath, minPairCount, filePath, minPairCount, limit) as {
+      .all({ path: filePath, minPairCount, minConfidence, soloSelf }) as {
       other: string;
       pair_count: number;
       solo_other: number;
@@ -548,21 +569,23 @@ export class CodeGraphStore {
     }));
   }
 
-  getTopCoChangePairs(minPairCount: number, limit: number): CoChangePairRow[] {
+  /** 이웃 조회와 같은 규율이다 — 임계는 질의가 걸고 개수는 자르지 않는다 */
+  getCoChangePairs(minPairCount: number, minConfidence: number): CoChangePairRow[] {
     const rows = this.db
       .prepare(
         `
-      SELECT c.file_a AS file_a, c.file_b AS file_b, c.pair_count AS pair_count,
-             COALESCE(sa.solo_count, 0) AS solo_a, COALESCE(sb.solo_count, 0) AS solo_b
-      FROM cg_cochange c
-      LEFT JOIN cg_cochange_solo sa ON sa.file_path = c.file_a
-      LEFT JOIN cg_cochange_solo sb ON sb.file_path = c.file_b
-      WHERE c.pair_count >= ?
-      ORDER BY c.pair_count DESC
-      LIMIT ?
+      SELECT file_a, file_b, pair_count, solo_a, solo_b FROM (
+        SELECT c.file_a AS file_a, c.file_b AS file_b, c.pair_count AS pair_count,
+               COALESCE(sa.solo_count, 0) AS solo_a, COALESCE(sb.solo_count, 0) AS solo_b
+        FROM cg_cochange c
+        LEFT JOIN cg_cochange_solo sa ON sa.file_path = c.file_a
+        LEFT JOIN cg_cochange_solo sb ON sb.file_path = c.file_b
+        WHERE c.pair_count >= @minPairCount
+      )
+      WHERE ${CONFIDENCE_SQL('solo_a', 'solo_b')} >= @minConfidence
     `,
       )
-      .all(minPairCount, limit) as {
+      .all({ minPairCount, minConfidence }) as {
       file_a: string;
       file_b: string;
       pair_count: number;
