@@ -125,10 +125,13 @@ export interface CoChangePairRow {
  *
  * 10,000인 근거는 셋이다.
  * 1. 정상 질의에 절대 안 걸린다. 이 레포는 임계를 둘 다 0으로 내려 전량을
- *    떠도 4,597행이라(`c927188` 기준) 두 배 넘게 남는다
+ *    떠도 4,597행이라 두 배 넘게 남는다 (`c927188` 기준 — 커밋이 쌓이면
+ *    함께 움직이는 스냅숏이다)
  * 2. 출력 상한(`limit` 최대 500)의 20배다. 천장이 사용자가 보는 목록을
  *    결정하는 자리가 되면 안 된다
- * 3. 천장에 걸려도 동기 stat이 유한하다. 10,000회가 이 머신에서 16~28ms다
+ * 3. 천장에 걸려도 동기 stat 호출 수가 유한하다. 호출은 천장을 통과한 행에만
+ *    붙고 전역 경로는 페어당 파일이 둘이라 최악이 천장의 두 배다. 행 수가
+ *    아니라 천장이 이 팬아웃을 묶는다는 건 테스트가 지킨다
  *
  * 천장에 걸리면 접두사 보장이 깨지고 `totalMatched`가 다시 하한이 된다.
  * 그래서 `capped`로 따로 알린다 — 출력 `limit`에 잘린 것과 사유가 다르다.
@@ -203,8 +206,14 @@ export interface CoChangeMergeInput {
  *
  * 임계를 반올림 전 값에 건다. 표시값(소수 두 자리)에 걸면 0.295가 0.3으로
  * 올라 minConfidence 0.3을 통과한다.
+ *
+ * 인자는 SQL에 그대로 보간되므로 타입을 아는 컬럼과 바인딩 이름으로 좁혔다.
+ * 지금 호출부가 리터럴만 넘긴다는 사실에 기대는 대신 컴파일이 막게 한다.
+ * 열을 늘릴 일이 있으면 이 유니온에 먼저 적는다.
  */
-function CONFIDENCE_SQL(soloSelf: string, soloOther: string): string {
+type ConfidenceOperand = '@soloSelf' | 'solo_other' | 'solo_a' | 'solo_b';
+
+function CONFIDENCE_SQL(soloSelf: ConfidenceOperand, soloOther: ConfidenceOperand): string {
   return `CASE
     WHEN ${soloSelf} > 0 AND ${soloOther} > 0 THEN CAST(pair_count AS REAL) / MIN(${soloSelf}, ${soloOther})
     WHEN ${soloSelf} > 0 THEN CAST(pair_count AS REAL) / ${soloSelf}
@@ -277,7 +286,7 @@ export class CodeGraphStore {
       CREATE INDEX IF NOT EXISTS idx_cg_cochange_b ON cg_cochange(file_b);
       -- getCoChangePairs가 pair_count로 거른다. 이게 없으면 전역 페어 조회가
       -- 매번 전체 스캔이다. 기본 임계(3회)에서 이 레포는 4,597행 중 485행만
-      -- 남는다 (c927188 기준 — 커밋이 쌓이면 함께 움직이는 스냅숏이다).
+      -- 남는다 (\`c927188\` 기준 — 커밋이 쌓이면 함께 움직이는 스냅숏이다).
       -- 계획이 이 인덱스를 타는지는 EXPLAIN QUERY PLAN 테스트가 고정한다.
       CREATE INDEX IF NOT EXISTS idx_cg_cochange_count ON cg_cochange(pair_count);
 

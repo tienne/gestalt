@@ -234,8 +234,8 @@ ges_code_graph({
 {
   "nodes": [
     {
-      "id": "function:/path/to/repo:checkAuth",
-      "kind": "function",
+      "id": "function:/path/to/repo/src/middleware/auth.ts:checkAuth",
+      "kind": "Function",
       "name": "checkAuth",
       "filePath": "/path/to/repo/src/middleware/auth.ts",
       "lineStart": 12,
@@ -248,8 +248,8 @@ ges_code_graph({
     {
       "id": 41,
       "kind": "CALLS",
-      "sourceId": "function:/path/to/repo:checkAuth",
-      "targetId": "function:/path/to/repo:validateToken",
+      "sourceId": "function:/path/to/repo/src/middleware/auth.ts:checkAuth",
+      "targetId": "function:/path/to/repo/src/auth/token.ts:validateToken",
       "line": 19,
       "updatedAt": 1780000000000
     }
@@ -505,7 +505,7 @@ History neighbors are a lower bound: showing the top N of M match(es). Raise lim
 
 **`MAX_MATCHED_ROWS`는 10,000행이고 `exists` 확인과 점수 계산보다 앞, SQL 안에 있다.** 뒤에 두면 stat은 이미 다 돈 뒤라 막을 것이 없다.
 
-정상 질의는 이 선에 못 닿는다. 이 레포는 임계를 둘 다 0으로 내려 전량을 떠도 4,597행이다. 출력 상한인 `limit`의 최대값(500)과 비교하면 20배다. 천장이 사용자가 보는 목록을 결정하는 자리가 되면 안 된다는 뜻이다.
+정상 질의는 이 선에 못 닿는다. 이 레포는 임계를 둘 다 0으로 내려 전량을 떠도 4,597행이다([스냅숏 기준](#측정-스냅숏)). 출력 상한인 `limit`의 최대값(500)과 비교하면 20배다. 천장이 사용자가 보는 목록을 결정하는 자리가 되면 안 된다는 뜻이다.
 
 닿았으면 `matchedCapped`(blast-radius와 diff-radius에서는 `coChangeMatchedCapped`)가 켜지고 `summary`에 다른 문장이 붙는다.
 

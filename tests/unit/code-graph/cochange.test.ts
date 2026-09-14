@@ -1016,6 +1016,18 @@ describe('질의 단 천장 — 임계가 0이어도 읽는 행이 유한하다'
     syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
   }
 
+  /** 이웃 `weak`개는 세 번, `strong`개는 아홉 번 함께 바뀐 픽스처 */
+  function seedMixedNeighbors(seed: string, weak: number, strong: number): void {
+    const commits: string[][] = [];
+    for (let i = 0; i < weak; i++) {
+      for (let t = 0; t < 3; t++) commits.push([seed, `src/w${i}.ts`]);
+    }
+    for (let i = 0; i < strong; i++) {
+      for (let t = 0; t < 9; t++) commits.push([seed, `src/s${i}.ts`]);
+    }
+    syncCoChange(store, ROOT, { mode: 'full', runGit: fakeGit({ fullLog: gitLog(commits) }) });
+  }
+
   /** 호출 횟수를 세는 exists. 천장이 이 루프 앞에 있는지 가른다 */
   function countingExists(): { fn: (p: string) => boolean; calls: () => number } {
     let calls = 0;
@@ -1174,6 +1186,29 @@ describe('질의 단 천장 — 임계가 0이어도 읽는 행이 유한하다'
     expect(result.totalMatched).toBe(10);
   });
 
+  it('같은 데이터에서 임계를 올리면 천장이 꺼진다', () => {
+    // 필드 주석이 "임계를 올리면 꺼진다"고 말한다. 켜지는 쪽만 찍으면 그
+    // 문장에 집행기가 없다 — 손잡이가 실제로 도는지는 여기서만 드러난다
+    seedMixedNeighbors('src/a.ts', 12, 4);
+
+    const wideOpen = queryCoChange(store, ROOT, {
+      target: 'src/a.ts',
+      minPairCount: 1,
+      exists: allExist,
+      maxMatchedRows: 10,
+    });
+    const raised = queryCoChange(store, ROOT, {
+      target: 'src/a.ts',
+      minPairCount: 9,
+      exists: allExist,
+      maxMatchedRows: 10,
+    });
+
+    expect(wideOpen.matchedCapped).toBe(true);
+    expect(raised.matchedCapped).toBe(false);
+    expect(raised.totalMatched).toBe(4);
+  });
+
   it('seed 하나만 천장에 걸려도 합친 목록이 알린다', () => {
     // b는 이웃이 둘뿐이라 천장에 못 닿는다. a 하나 때문에 켜져야 한다
     const commits: string[][] = [];
@@ -1245,6 +1280,19 @@ describe('쿼리 플랜 — 인덱스를 타는지 고정한다', () => {
     }
   }
 
+  /**
+   * 계획에서 cg_cochange를 통째로 훑는 줄만 고른다. 질의문이 별칭을 쓰면
+   * 계획에도 별칭으로 나오므로(`SCAN c`) 테이블 이름만 찾으면 단언이 늘 빈
+   * 배열을 받아 조용히 죽는다. SCAN 뒤 첫 토큰을 떼어 이름과 별칭 둘 다 받는다.
+   */
+  function fullScansOfCoChange(plan: string[]): string[] {
+    const TARGETS = ['cg_cochange', 'c'];
+    return plan.filter((detail) => {
+      const scanned = /^SCAN (?:TABLE )?(\S+)/.exec(detail);
+      return scanned !== null && TARGETS.includes(scanned[1]!);
+    });
+  }
+
   it('전역 페어 질의가 pair_count 인덱스를 탄다', () => {
     const plan = planOf(CO_CHANGE_PAIRS_SQL, {
       minPairCount: 3,
@@ -1255,7 +1303,7 @@ describe('쿼리 플랜 — 인덱스를 타는지 고정한다', () => {
     expect(plan.join('\n')).toContain('idx_cg_cochange_count');
     // 인덱스를 지우면 여기가 전체 스캔으로 떨어진다. 임계가 걸러주는 것처럼
     // 보여도 읽는 행은 테이블 전체가 된다
-    expect(plan.filter((d) => /^SCAN\b/.test(d) && d.includes('cg_cochange'))).toEqual([]);
+    expect(fullScansOfCoChange(plan)).toEqual([]);
   });
 
   it('이웃 질의가 file_a와 file_b 양쪽에서 인덱스를 탄다', () => {
@@ -1270,6 +1318,6 @@ describe('쿼리 플랜 — 인덱스를 타는지 고정한다', () => {
     // file_a는 PRIMARY KEY가, file_b는 따로 만든 인덱스가 받는다.
     // 뒤쪽을 지우면 UNION의 반대 방향이 조용히 전체 스캔이 된다
     expect(plan.join('\n')).toContain('idx_cg_cochange_b');
-    expect(plan.filter((d) => /^SCAN\b/.test(d) && d.includes('cg_cochange'))).toEqual([]);
+    expect(fullScansOfCoChange(plan)).toEqual([]);
   });
 });

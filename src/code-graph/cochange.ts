@@ -341,7 +341,8 @@ export interface NeighborScan {
  * 수 없다. 목록이 전체 상위의 접두사라는 말도 못 한다.
  *
  * 예외가 절대 천장 하나뿐이고 그건 켜졌다는 사실을 `capped`로 내보낸다.
- * 말없이 자르는 자리를 안 만드는 게 지난 라운드부터 지켜온 선이다.
+ * 말없이 자르는 자리는 두지 않는다 — 조용히 자르면 하한이 정확한 수로
+ * 둔갑한다.
  */
 function neighborsFor(
   store: CodeGraphStore,
