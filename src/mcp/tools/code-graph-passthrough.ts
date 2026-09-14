@@ -1,9 +1,9 @@
 import { log } from '../../core/log.js';
 import { codeGraphEngine } from '../../code-graph/index.js';
-import type { QueryPattern } from '../../code-graph/index.js';
+import type { CoChangeTuning, QueryPattern } from '../../code-graph/index.js';
 
 export type CodeGraphInput = {
-  action: 'build' | 'blast_radius' | 'diff_radius' | 'query' | 'stats' | 'db_exists' | 'cochange';
+  action: 'build' | 'blast_radius' | 'diff_radius' | 'query' | 'stats' | 'db_exists' | 'co_change';
   repoRoot: string;
   // build 전용
   include?: string[];
@@ -15,14 +15,26 @@ export type CodeGraphInput = {
   maxDepth?: number;
   // diff_radius 전용
   diffMode?: 'staged' | 'unstaged' | 'all';
-  // query 전용 (target은 cochange와 공유한다)
+  // query 전용 (target은 co_change와 공유한다)
   pattern?: QueryPattern;
   target?: string;
-  // cochange 전용
+  // 이력 신호 임계. co_change, blast_radius, diff_radius가 함께 쓴다
   limit?: number;
   minPairCount?: number;
   minConfidence?: number;
 };
+
+/**
+ * 임계 파라미터는 co_change 액션만의 것이 아니다. blast_radius와 diff_radius도
+ * 같은 신호를 쓰므로 여기서 갈라놓으면 튜닝이 조회에만 먹는다.
+ */
+function coChangeTuning(input: CodeGraphInput): CoChangeTuning {
+  return {
+    limit: input.limit,
+    minPairCount: input.minPairCount,
+    minConfidence: input.minConfidence,
+  };
+}
 
 export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise<object> {
   const { action, repoRoot } = input;
@@ -68,6 +80,7 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
           changedFiles: input.changedFiles,
           base: input.base,
           maxDepth: input.maxDepth,
+          coChange: coChangeTuning(input),
         });
         return result;
       }
@@ -76,6 +89,7 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
         const result = codeGraphEngine.diffRadius(repoRoot, {
           mode: input.diffMode,
           maxDepth: input.maxDepth,
+          coChange: coChangeTuning(input),
         });
         return result;
       }
@@ -96,8 +110,8 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
         return result;
       }
 
-      case 'cochange': {
-        const result = codeGraphEngine.cochange(repoRoot, {
+      case 'co_change': {
+        const result = codeGraphEngine.coChange(repoRoot, {
           target: input.target,
           limit: input.limit,
           minPairCount: input.minPairCount,
