@@ -5,6 +5,9 @@
     "moduleResolution": "bundler",
     "lib": ["ES2022"],
     "outDir": "dist",
+    // emit 권한은 tsconfig.build.json 한 곳에만 둔다. 여기 include 는 검사 범위라
+    // 그대로 두면 npx tsc 한 번에 dist/scripts 가 되살아나 npm 패키지에 실린다
+    "noEmit": true,
     "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
