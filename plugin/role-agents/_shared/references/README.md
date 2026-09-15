@@ -21,16 +21,23 @@
 ```bash
 pnpm verify:rules
 pnpm verify:output-style
+pnpm build:output-style
 ```
-
-둘째 줄이 필요한 이유는 `scripts/build-output-style.ts`의 `HOIST`가 처방 칸의 특정 문장을
-조각 문자열로 가리키고 있어서다. 그 문장을 다듬으면 조각이 안 맞게 되고 `verify:rules`는
-그걸 모른다. 지금 걸린 건 F-9 한 자리다.
 
 에이전트 문서 14곳이 룰 ID와 금지 어휘를 손으로 옮겨 적고 있어서 룰북에서 ID를 지우거나
 심각도를 바꾸면 그 사본들이 조용히 어긋난다. 이 검사가 네 가지를 본다 — 없는 ID를 인용하는
 문서, 자체검증 목록에서 빠진 S1, 표와 목록의 심각도 불일치, 룰 문서 본문의 금지어 사용.
 `pnpm test`와 `pnpm build`에도 걸려 있다.
+
+**둘째 줄은 output style 생성기가 보는 것이다.** 두 가지를 본다 — 금지 목록과 자가점검이
+인용한 룰 ID가 룰북에 살아있고 대화 기준 S1인지, 그리고 `scripts/build-output-style.ts`의
+`HOIST`가 조각 문자열로 가리키는 처방 문장이 그대로인지. `verify:rules`는 둘 다 모른다.
+지금 `HOIST`에 걸린 건 F-9 한 자리다. 이것도 `pnpm test`와 `pnpm build`(postbuild)에
+걸려 있다. `pnpm gate`를 돌리면 따로 부를 일이 없다.
+
+**셋째 줄은 홈의 산출 파일을 다시 뽑는다.** 룰 문구나 심각도를 고쳐도
+`~/.claude/output-styles/tienne-voice.md`는 저절로 안 바뀐다. 위 둘은 그 파일을 안 보므로
+이걸 안 돌리면 룰북과 실제로 켜져 있는 어투 지시가 갈라진 채로 남는다.
 
 - **룰을 추가하면 그 문서가 스스로 그 룰을 지키는지 먼저 확인한다.** 룰 문서가 금지 어휘를
   본문에 쓰면 산출물로 샌다. 금지어를 넣었으면 같은 문서를 grep한다.
