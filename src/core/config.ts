@@ -53,6 +53,28 @@ const executeConfigSchema = z.object({
 const agentModelAliasSchema = z.enum(['fable', 'opus', 'sonnet', 'haiku']);
 const reasoningModelSchema = agentModelAliasSchema;
 
+/**
+ * 레포 밖에 있는 규칙 소스. 게슈탈트도 대상 레포도 소유하지 않은 기준을 가리킨다.
+ *
+ * 선언된 것만 읽는다 — 붙어 있는 MCP를 훑어 고르면 무엇을 근거로 삼았는지 사라진다.
+ * 적용 규칙은 `plugin/skills/_shared/rule-sources.md`가 원본이다.
+ */
+const ruleSourceSchema = z.object({
+  /** 보고에 쓰는 이름. 레포 안에서 고유해야 한다 */
+  id: z.string().min(1),
+  kind: z.enum(['mcp', 'file', 'skill']),
+  /** kind별 대상 — mcp면 도구 이름, file이면 경로, skill이면 스킬 이름 */
+  ref: z.string().min(1),
+  /** 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 */
+  scope: z.array(z.string()).default([]),
+  /** convention=형식을 따른다, delegate=그 작업을 넘긴다 */
+  trust: z.enum(['convention', 'delegate']).default('convention'),
+  /** 못 읽었을 때. warn 이상은 결과에 남는다 */
+  onMissing: z.enum(['skip', 'warn', 'stop']).default('warn'),
+});
+
+export type RuleSource = z.infer<typeof ruleSourceSchema>;
+
 /** 에이전트 tier를 Agent 도구 model 별칭으로 옮기는 표 */
 const tierModelsSchema = z.object({
   frugal: agentModelAliasSchema.default(DEFAULT_TIER_MODELS.frugal),
@@ -67,6 +89,18 @@ const configSchema = z.object({
   reasoningModel: reasoningModelSchema.default(DEFAULT_REASONING_MODEL),
   reasoningModelFallback: reasoningModelSchema.default(REASONING_MODEL_FALLBACK),
   tierModels: tierModelsSchema.default({}),
+  ruleSources: z
+    .array(ruleSourceSchema)
+    // id가 겹치면 "어느 기준으로 작업했나" 보고에서 둘을 구분할 수 없다
+    .refine((s) => new Set(s.map((r) => r.id)).size === s.length, {
+      message: 'ruleSources[].id는 서로 달라야 합니다',
+    })
+    .default([]),
+  /**
+   * ruleSources 선언이 깨졌을 때 그 이유. 사용자가 쓰는 필드가 아니라 loadConfig가 채운다.
+   * 비어 있지 않으면 선언은 있었는데 못 읽은 상태이므로 스킬은 진행하지 않는다.
+   */
+  ruleSourceErrors: z.array(z.string()).default([]),
   notifications: z.boolean().default(false),
   // 상수가 아니라 함수다. 모듈을 읽을 때 굳히면 테스트 setupFiles가 GESTALT_HOME을
   // 세우기 전에 값이 정해져서 진짜 홈을 가리킨다
@@ -319,16 +353,30 @@ export function loadConfig(
       merged,
       result.error.issues.map((issue) => issue.path),
     );
+    const brokenRuleSources = messages.filter((m) => m.startsWith('ruleSources'));
     const recovered = configSchema.safeParse(pruned);
     if (recovered.success) {
-      return applyPostProcessing(recovered.data);
+      return applyPostProcessing(withRuleSourceErrors(recovered.data, brokenRuleSources));
     }
 
     console.error('[gestalt] Warning: Failed to recover configuration, using defaults');
-    return applyPostProcessing(configSchema.parse({}));
+    return applyPostProcessing(withRuleSourceErrors(configSchema.parse({}), brokenRuleSources));
   }
 
   return applyPostProcessing(result.data);
+}
+
+/**
+ * 깨진 ruleSources 선언을 config에 실어 보낸다.
+ *
+ * 잘못된 항목 하나면 zod가 ruleSources 배열을 통째로 기본값(빈 배열)으로 되돌린다.
+ * 그 상태를 그냥 두면 스킬 쪽에서 "선언 안 한 레포"와 구분할 수 없어, 오타 하나가
+ * onMissing: "stop" 게이트까지 조용히 끄는 우회로가 된다. 그래서 왜 비었는지를
+ * 함께 싣고 스킬이 멈출 수 있게 한다.
+ */
+function withRuleSourceErrors(config: GestaltConfig, errors: string[]): GestaltConfig {
+  if (errors.length > 0) config.ruleSourceErrors = errors;
+  return config;
 }
 
 function applyPostProcessing(config: GestaltConfig): GestaltConfig {

@@ -157,6 +157,84 @@ describe('loadConfig — tierModels', () => {
   });
 });
 
+describe('loadConfig — ruleSources', () => {
+  const opts = { skipDotEnv: true, skipGestaltJson: true };
+
+  it('선언이 없으면 빈 배열이다 — 선언 안 한 레포는 아무것도 안 읽는다', () => {
+    const config = loadConfig({}, opts);
+    expect(config.ruleSources).toEqual([]);
+  });
+
+  it('kind와 ref만 줘도 나머지는 기본값으로 채워진다', () => {
+    const config = loadConfig(
+      { ruleSources: [{ id: 'design-tokens', kind: 'mcp', ref: 'mcp__plate__get_design_tokens' }] },
+      opts,
+    );
+    expect(config.ruleSources[0]).toEqual({
+      id: 'design-tokens',
+      kind: 'mcp',
+      ref: 'mcp__plate__get_design_tokens',
+      scope: [],
+      trust: 'convention',
+      onMissing: 'warn',
+    });
+  });
+
+  it('id가 겹치면 받지 않는다 — 보고에서 둘을 구분할 수 없다', () => {
+    const config = loadConfig(
+      {
+        ruleSources: [
+          { id: 'dup', kind: 'mcp', ref: 'a' },
+          { id: 'dup', kind: 'file', ref: 'b' },
+        ],
+      },
+      opts,
+    );
+    expect(config.ruleSources).toEqual([]);
+    expect(config.ruleSourceErrors.join()).toMatch(/서로 달라야/);
+  });
+
+  it('모르는 kind는 받지 않는다 — 스킬이 읽을 방법을 모르는 소스는 선언돼도 소용없다', () => {
+    const config = loadConfig(
+      { ruleSources: [{ id: 'x', kind: 'http', ref: 'https://example.com' }] },
+      opts,
+    );
+    expect(config.ruleSources).toEqual([]);
+    expect(config.ruleSourceErrors.join()).toMatch(/kind/);
+  });
+
+  it('onMissing은 정해진 세 값만 받는다', () => {
+    const config = loadConfig(
+      { ruleSources: [{ id: 'x', kind: 'file', ref: 'a.md', onMissing: 'ignore' }] },
+      opts,
+    );
+    expect(config.ruleSources).toEqual([]);
+    expect(config.ruleSourceErrors.join()).toMatch(/onMissing/);
+  });
+
+  // 오타 하나가 선언 전체를 날리는데, 그걸 "선언 없음"과 구분 못 하면
+  // onMissing: "stop" 게이트가 조용히 꺼진다
+  it('한 소스만 잘못돼도 배열 전체가 비지만 그 이유가 남는다', () => {
+    const config = loadConfig(
+      {
+        ruleSources: [
+          { id: 'good', kind: 'mcp', ref: 'ok', onMissing: 'stop' },
+          { id: 'bad', kind: 'http', ref: 'x' },
+        ],
+      },
+      opts,
+    );
+    expect(config.ruleSources).toEqual([]);
+    expect(config.ruleSourceErrors.length).toBeGreaterThan(0);
+  });
+
+  it('선언이 멀쩡하면 ruleSourceErrors는 비어 있다 — 선언 없는 레포와 같은 상태', () => {
+    const ok = loadConfig({ ruleSources: [{ id: 'a', kind: 'file', ref: 'x.md' }] }, opts);
+    expect(ok.ruleSourceErrors).toEqual([]);
+    expect(loadConfig({}, opts).ruleSourceErrors).toEqual([]);
+  });
+});
+
 describe('deepMerge', () => {
   it('merges nested objects', () => {
     const target = { a: { b: 1, c: 2 }, d: 3 };
