@@ -46,12 +46,33 @@ describe('prescriptionSentences', () => {
     expect(prescriptionSentences('3회 초과 시 쉼표로 푼다.')).toEqual(['쉼표로 푼다.']);
   });
 
+  it('한글만 든 예시 괄호는 그대로 둔다', () => {
+    const kept = '("맨몸 호출" → "접두 객체 없이 적혀 있다")로 쓴다.';
+    expect(prescriptionSentences(kept)).toEqual([kept]);
+  });
+
+  it('문장 중간의 빈도 조건은 안 걷는다', () => {
+    const mid = '본문 중간에 3회 초과 시 라고 적힌 문장이다.';
+    expect(prescriptionSentences(mid)).toEqual([mid]);
+  });
+
+  it('이상 시 꼴도 걷는다', () => {
+    expect(prescriptionSentences('3회 이상 시 쉼표로 푼다.')).toEqual(['쉼표로 푼다.']);
+  });
+
   it('조건을 걷고 남은 앞 쉼표도 지운다', () => {
     expect(prescriptionSentences('반복분만, 쉼표로 푼다.')).toEqual(['쉼표로 푼다.']);
   });
 });
 
 describe('shortPrescription', () => {
+  it('앞 요약을 채웠다고 볼 길이가 28자다', () => {
+    // 픽스처를 상수에서 뽑으면 상수를 바꿔도 따라가므로 값 자체를 박는다
+    expect(PRESCRIPTION_ENOUGH).toBe(28);
+    expect(shortPrescription([`${'가'.repeat(27)}.`, '둘째다.']).kept).toBe(1);
+    expect(shortPrescription([`${'가'.repeat(26)}.`, '둘째다.']).kept).toBe(2);
+  });
+
   it(`첫 문장이 ${PRESCRIPTION_ENOUGH}자를 넘으면 거기서 멈춘다`, () => {
     const sentences = prescriptionSentences(
       '이 첫 문장은 스물여덟 자를 넉넉히 넘기도록 길게 쓴다. 둘째 문장이다.',
@@ -68,6 +89,25 @@ describe('shortPrescription', () => {
     );
     expect(text).toBe('짧다. 둘째 문장이다. 셋째 문장이다');
     expect(kept).toBe(3);
+  });
+
+  it('담을지도 가운뎃점을 편 길이로 정한다', () => {
+    // 원문은 61자라 안 펴고 재면 상한 안이다. 펴면 89자라 넘는다
+    const dotted = `${'가·'.repeat(30)}.`;
+    expect(dotted.length).toBeLessThan(PRESCRIPTION_MAX);
+
+    // 원문 길이로 재면 담았다가 clamp 에 잘려 말줄임이 남는다
+    const { text, kept } = shortPrescription(['짧다.', dotted]);
+    expect(text).toBe('짧다');
+    expect(kept).toBe(1);
+  });
+
+  it('첫 문장이 근거 문장이어도 그건 담는다', () => {
+    // out 이 비었을 때는 근거 문장도 담는다. 안 그러면 처방 칸이 통째로 빈다
+    const first = `문서 산문에서만 보는 근거라 ${'가'.repeat(PRESCRIPTION_ENOUGH)}.`;
+    const { text, kept } = shortPrescription([first, '둘째다.']);
+    expect(text).toBe(first.replace(/\.$/, ''));
+    expect(kept).toBe(1);
   });
 
   it('문서 기준 근거 문장에서 멈춘다', () => {
@@ -136,6 +176,8 @@ describe('bannedPrescription', () => {
     const out = bannedPrescription(fakeRule('F-9', long), hoist);
     expect(out).toContain('…');
     expect(out.match(/올릴 문장/g)).toHaveLength(2);
+    // 잘린 요약 뒤에 마침표를 붙이면 "…. " 가 된다
+    expect(out).not.toContain('…. ');
   });
 
   it('올린 문장은 HOIST_MAX에서 자른다', () => {
@@ -144,14 +186,32 @@ describe('bannedPrescription', () => {
     expect(lifted.length).toBeLessThanOrEqual(HOIST_MAX);
   });
 
-  it('HOIST에 없는 룰은 앞 요약에서 끝난다', () => {
+  it('HOIST에 없는 룰은 맵이 있든 없든 같은 값이다', () => {
     const rule = fakeRule(
       'Z-1',
       '이 첫 문장은 스물여덟 자를 넉넉히 넘기도록 길게 쓴다. 둘째 문장이다.',
     );
-    expect(bannedPrescription(rule, hoist)).toBe(
+    const summary = shortPrescription(prescriptionSentences(rule.prescription)).text;
+    expect(bannedPrescription(rule, hoist)).toBe(summary);
+    expect(bannedPrescription(rule, {})).toBe(summary);
+  });
+
+  it('조각이 여러 문장에 걸리면 아무것도 안 잇는다', () => {
+    const rule = fakeRule(
+      'F-9',
+      '이 첫 문장은 스물여덟 자를 넉넉히 넘기도록 길게 쓴다. 조각이다. 또 조각이다.',
+    );
+    expect(bannedPrescription(rule, { 'F-9': '조각' })).toBe(
       '이 첫 문장은 스물여덟 자를 넉넉히 넘기도록 길게 쓴다',
     );
+  });
+
+  it('올린 문장의 가운뎃점을 쉼표로 편다', () => {
+    const rule = fakeRule(
+      'F-9',
+      `이 첫 문장은 스물여덟 자를 넉넉히 넘기도록 길게 쓴다. 올릴 문장은 ${['가', '나', '다'].join('·')}다.`,
+    );
+    expect(bannedPrescription(rule, hoist)).toContain('가, 나, 다다');
   });
 });
 
