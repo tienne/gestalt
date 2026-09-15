@@ -110,6 +110,19 @@
       "description": "Directory containing agent definitions (env: GESTALT_AGENTS_DIR)",
       "default": "agents"
     },
+    "ruleSources": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/ruleSource" },
+      "description": "Rule sources outside this repo that skills must read before producing work — declared per repo so Gestalt itself stays organization-agnostic. Only declared sources are read; Gestalt never scans attached MCP servers to pick one",
+      "default": []
+    },
+    "ruleSourceErrors": {
+      "type": "array",
+      "items": { "type": "string" },
+      "readOnly": true,
+      "description": "Filled by Gestalt, not by the author. Non-empty means ruleSources was declared but could not be parsed, so ruleSources fell back to empty — skills must not read that empty array as 'nothing declared'",
+      "default": []
+    },
     "notifications": {
       "type": "boolean",
       "description": "Enable OS desktop notifications for pipeline events (env: GESTALT_NOTIFICATIONS)",
@@ -153,6 +166,47 @@
         }
       },
       "required": ["provider", "model"],
+      "additionalProperties": false
+    },
+    "ruleSource": {
+      "type": "object",
+      "description": "A standard neither Gestalt nor the target repo owns — design tokens, org conventions, product principles. See plugin/skills/_shared/rule-sources.md",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name used in reporting. Must be unique within this config"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["mcp", "file", "skill"],
+          "description": "Where the rule lives — an MCP tool, a file path, or another skill that owns the task"
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Target for the given kind — MCP tool name, file path, or skill name"
+        },
+        "scope": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Read this source only for tasks tagged with one of these. Empty means always read",
+          "default": []
+        },
+        "trust": {
+          "type": "string",
+          "enum": ["convention", "delegate"],
+          "description": "'convention' follows the format it defines (token names, naming, required fields). 'delegate' hands the task to it instead. Neither lets the source widen the scope of work",
+          "default": "convention"
+        },
+        "onMissing": {
+          "type": "string",
+          "enum": ["skip", "warn", "stop"],
+          "description": "When the source cannot be read. 'skip' proceeds silently, 'warn' proceeds and records the gap in the completion report, 'stop' halts and explains what would unblock it",
+          "default": "warn"
+        }
+      },
+      "required": ["id", "kind", "ref"],
       "additionalProperties": false
     }
   }
