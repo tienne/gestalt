@@ -86,9 +86,31 @@ const SPOTLIGHT = [
   'I-8',
 ];
 
+/**
+ * 처방 칸에서 금지 목록에 꼭 실을 문장. 룰 ID와 그 문장을 가리키는 조각이다.
+ *
+ * 아래 shortPrescription은 처방을 앞 문장부터 담다가 멈춘다. 룰 68개 중 66개는 처방이
+ * 한두 문장이라 그걸로 충분한데 F-9와 F-10만 열세 문장까지 자라서 뒤쪽 판정 기준에
+ * 영영 안 닿는다. 상한을 올려도 사이 문장들이 먼저 자리를 채운다. 룰북의 문장 차례는
+ * 사람이 읽는 순서이지 중요도 순서가 아니라서 그렇다.
+ *
+ * GATE, SPOTLIGHT와 같은 성격이다 — 룰을 더할 때 자동으로 안 따라오고 룰북에만 두는
+ * 것도 정상 상태다. 여기 올리면 그 룰의 줄이 HOIST_MAX만큼 길어지고 그만큼이 매 세션
+ * 비용이다. 안 올린 룰의 줄은 한 글자도 안 바뀐다. 올릴지는 그 판정 기준이 실제로
+ * 답변에서 어긋나는지를 보고 정한다.
+ *
+ * 조각은 룰북을 안 고치고 문장 하나만 가리키게 쓴다. 처방에서 못 찾거나 두 문장에
+ * 걸리면 verify가 빌드를 세운다 — 룰북을 손보다 문장이 바뀌면 그 자리에서 드러난다.
+ */
+const HOIST: Record<string, string> = {
+  'F-9': '"뿌리"는 root 한 단어가',
+};
+
 const PATTERN_MAX = 44;
 const PRESCRIPTION_MAX = 76;
 const EXAMPLE_MAX = 40;
+/** HOIST가 올린 문장의 상한. 올린 룰의 줄만 이만큼 길어진다 */
+const HOIST_MAX = 76;
 
 /** 룰 ID 나열은 목록이라 C-12 예외다. 나머지 가운뎃점은 산문으로 새므로 쉼표로 편다 */
 const RULE_ID_CHAIN = /^[A-J]-\d{1,2}(?:·[A-J]-\d{1,2})+$/;
@@ -148,8 +170,8 @@ function shortPattern(pattern: string): string {
   return clamp(unchain(text), PATTERN_MAX);
 }
 
-/** 처방은 근거 문헌까지 이어진다. 무엇으로 바꾸는지까지만 남긴다 */
-function shortPrescription(prescription: string): string {
+/** 대화 어투 기준으로 처방을 씻어 문장으로 나눈다. 아래 셋이 같은 목록을 본다 */
+function prescriptionSentences(prescription: string): string[] {
   let text = prescription.replace(/\*\*/g, '').replace(/`/g, '').trim();
 
   // 영어 원문 예시는 대화 어투 참고에 쓸모가 없고 자리만 차지한다
@@ -158,15 +180,50 @@ function shortPrescription(prescription: string): string {
   for (const condition of DOC_FREQUENCY) text = text.replace(condition, '');
   text = text.trim().replace(/^,\s*/, '');
 
+  return text.split(/(?<=\.)\s+/);
+}
+
+/** 처방은 근거 문헌까지 이어진다. 무엇으로 바꾸는지까지만 남긴다 */
+function shortPrescription(sentences: string[]): { text: string; taken: number } {
   let out = '';
-  for (const sentence of text.split(/(?<=\.)\s+/)) {
+  let taken = 0;
+
+  for (const sentence of sentences) {
     if (out && DOC_ONLY_EVIDENCE.test(sentence)) break;
     if (out && out.length + sentence.length > PRESCRIPTION_MAX) break;
     out = out ? `${out} ${sentence}` : sentence;
+    taken += 1;
     if (out.length >= 28) break;
   }
 
-  return clamp(unchain(out.replace(/\.$/, '')), PRESCRIPTION_MAX);
+  return { text: clamp(unchain(out.replace(/\.$/, '')), PRESCRIPTION_MAX), taken };
+}
+
+/** HOIST 조각이 가리키는 문장의 자리. 하나만 가리켜야 하고 아니면 -1이다 */
+function hoistIndex(sentences: string[], needle: string): number {
+  const hits = sentences.flatMap((sentence, at) => (sentence.includes(needle) ? [at] : []));
+  return hits.length === 1 ? hits[0]! : -1;
+}
+
+/**
+ * 금지 목록 한 줄의 처방 칸. 앞 문장 요약 뒤에 HOIST가 올린 문장을 잇는다.
+ *
+ * 중복은 문자열이 아니라 문장 자리로 거른다. 앞 요약은 clamp와 unchain을 거쳐 원문과
+ * 달라지므로 포함 검사로는 같은 문장인지 못 가른다.
+ */
+function bannedPrescription(rule: Rule): string {
+  const sentences = prescriptionSentences(rule.prescription);
+  const { text, taken } = shortPrescription(sentences);
+
+  const needle = HOIST[rule.id];
+  if (needle === undefined) return text;
+
+  // verify가 -1을 이미 막는다. taken 안쪽이면 앞 요약이 그 문장을 이미 담았다
+  const at = hoistIndex(sentences, needle);
+  if (at < 0 || at < taken) return text;
+
+  const lifted = clamp(unchain(sentences[at]!.replace(/\.$/, '')), HOIST_MAX);
+  return text ? `${text}. ${lifted}` : lifted;
 }
 
 /** 자가점검에 붙일 예시. 룰북이 따옴표나 괄호로 적어둔 걸린 말들을 그대로 쓴다 */
@@ -184,7 +241,7 @@ function renderBanned(book: RuleBook): string {
     const name = KEEP_MIDDLE_DOT.has(id)
       ? rule.pattern.split(' — ')[0]!.trim()
       : shortPattern(rule.pattern);
-    return `- **${id} ${clamp(name, PATTERN_MAX)}** → ${shortPrescription(rule.prescription)}`;
+    return `- **${id} ${clamp(name, PATTERN_MAX)}** → ${bannedPrescription(rule)}`;
   }).join('\n');
 }
 
@@ -213,6 +270,27 @@ function verify(book: RuleBook, template: string): string[] {
   }
 
   const spotlight = new Set(SPOTLIGHT);
+
+  // 올려둔 조각이 실제로 문장 하나를 가리키는지 본다. 룰북 문장이 바뀌면 여기서 걸린다
+  for (const [id, needle] of Object.entries(HOIST)) {
+    const rule = book.rules.get(id);
+    if (!rule) {
+      errors.push(`${id}: HOIST가 룰북에 없는 ID를 가리킵니다`);
+      continue;
+    }
+    if (!spotlight.has(id)) {
+      errors.push(`${id}: HOIST에 올렸는데 금지 목록에 없습니다 (SPOTLIGHT에 추가하세요)`);
+    }
+
+    const sentences = prescriptionSentences(rule.prescription);
+    const hits = sentences.filter((sentence) => sentence.includes(needle)).length;
+    if (hits === 0) {
+      errors.push(`${id}: HOIST 조각 "${needle}" 을 처방에서 못 찾습니다`);
+    } else if (hits > 1) {
+      errors.push(`${id}: HOIST 조각 "${needle}" 이 처방 문장 ${hits}개에 걸립니다 (한 문장만 가리키게 좁히세요)`);
+    }
+  }
+
   for (const group of GATE) {
     for (const id of group.ids) {
       if (!spotlight.has(id)) {
