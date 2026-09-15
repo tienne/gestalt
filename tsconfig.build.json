@@ -1,0 +1,7 @@
+{
+  // 배포 산출물 범위. 루트 tsconfig 는 scripts 까지 검사하지만 emit 은 여기서만 한다 —
+  // 안 가르면 개발 도구가 dist 를 타고 npm 패키지에 실린다
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": false },
+  "include": ["src/**/*", "bin/**/*"]
+}
