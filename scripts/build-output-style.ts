@@ -10,7 +10,13 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { citedRuleIds, parseRuleBook, s1Ids, type RuleBook } from '../src/humanize/index.js';
+import {
+  citedRuleIds,
+  parseRuleBook,
+  s1Ids,
+  type Rule,
+  type RuleBook,
+} from '../src/humanize/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_PATH = join(__dirname, 'templates/tienne-voice.md');
@@ -89,28 +95,34 @@ const SPOTLIGHT = [
 /**
  * 처방 칸에서 금지 목록에 꼭 실을 문장. 룰 ID와 그 문장을 가리키는 조각이다.
  *
- * 아래 shortPrescription은 처방을 앞 문장부터 담다가 멈춘다. 룰 68개 중 66개는 처방이
- * 한두 문장이라 그걸로 충분한데 F-9와 F-10만 열세 문장까지 자라서 뒤쪽 판정 기준에
- * 영영 안 닿는다. 상한을 올려도 사이 문장들이 먼저 자리를 채운다. 룰북의 문장 차례는
- * 사람이 읽는 순서이지 중요도 순서가 아니라서 그렇다.
+ * shortPrescription은 처방을 앞 문장부터 담다가 멈춘다. 처방이 두 문장 이하인 룰이
+ * 46개고 세 문장 이상이 22개인데, F-9(13문장)와 F-10(13문장)은 그다음으로 긴 B-3보다도
+ * 갑절이라 뒤쪽 판정 기준에 영영 안 닿는다. 상한을 올려도 사이 문장들이 먼저 자리를
+ * 채운다. 룰북의 문장 차례는 사람이 읽는 순서이지 중요도 순서가 아니라서 그렇다.
+ *
+ * 세 문장 이상인 나머지 스무 개도 뒤쪽이 잘리기는 한다. E-8과 I-5가 그런 자리인데
+ * 잘리는 게 예외 조항이라 룰이 넓게 걸리는 쪽으로 어긋난다. 이번엔 안 올렸다.
  *
  * GATE, SPOTLIGHT와 같은 성격이다 — 룰을 더할 때 자동으로 안 따라오고 룰북에만 두는
  * 것도 정상 상태다. 여기 올리면 그 룰의 줄이 HOIST_MAX만큼 길어지고 그만큼이 매 세션
  * 비용이다. 안 올린 룰의 줄은 한 글자도 안 바뀐다. 올릴지는 그 판정 기준이 실제로
  * 답변에서 어긋나는지를 보고 정한다.
  *
+ * 올리는 룰은 SPOTLIGHT에도 있어야 한다. 금지 목록에 없는 룰은 올려도 한 글자도 안
+ * 실리고 verify가 그 자리를 본다.
+ *
  * 조각은 룰북을 안 고치고 문장 하나만 가리키게 쓴다. 처방에서 못 찾거나 두 문장에
  * 걸리면 verify가 빌드를 세운다 — 룰북을 손보다 문장이 바뀌면 그 자리에서 드러난다.
  */
-const HOIST: Record<string, string> = {
+export const HOIST: Record<string, string> = {
   'F-9': '"뿌리"는 root 한 단어가',
 };
 
 const PATTERN_MAX = 44;
-const PRESCRIPTION_MAX = 76;
+export const PRESCRIPTION_MAX = 76;
 const EXAMPLE_MAX = 40;
 /** HOIST가 올린 문장의 상한. 올린 룰의 줄만 이만큼 길어진다 */
-const HOIST_MAX = 76;
+export const HOIST_MAX = 76;
 
 /** 룰 ID 나열은 목록이라 C-12 예외다. 나머지 가운뎃점은 산문으로 새므로 쉼표로 편다 */
 const RULE_ID_CHAIN = /^[A-J]-\d{1,2}(?:·[A-J]-\d{1,2})+$/;
@@ -171,7 +183,7 @@ function shortPattern(pattern: string): string {
 }
 
 /** 대화 어투 기준으로 처방을 씻어 문장으로 나눈다. 아래 셋이 같은 목록을 본다 */
-function prescriptionSentences(prescription: string): string[] {
+export function prescriptionSentences(prescription: string): string[] {
   let text = prescription.replace(/\*\*/g, '').replace(/`/g, '').trim();
 
   // 영어 원문 예시는 대화 어투 참고에 쓸모가 없고 자리만 차지한다
@@ -183,8 +195,13 @@ function prescriptionSentences(prescription: string): string[] {
   return text.split(/(?<=\.)\s+/);
 }
 
-/** 처방은 근거 문헌까지 이어진다. 무엇으로 바꾸는지까지만 남긴다 */
-function shortPrescription(sentences: string[]): { text: string; taken: number } {
+/**
+ * 처방은 근거 문헌까지 이어진다. 무엇으로 바꾸는지까지만 남긴다.
+ *
+ * `kept`는 산출 문자열에 온전히 남은 문장 수다. 마지막 문장이 상한에 잘리면 담은 수보다
+ * 하나 적다 — 아래 중복 검사가 이 값을 봐야 잘린 문장을 실렸다고 오해하지 않는다.
+ */
+export function shortPrescription(sentences: string[]): { text: string; kept: number } {
   let out = '';
   let taken = 0;
 
@@ -196,13 +213,15 @@ function shortPrescription(sentences: string[]): { text: string; taken: number }
     if (out.length >= 28) break;
   }
 
-  return { text: clamp(unchain(out.replace(/\.$/, '')), PRESCRIPTION_MAX), taken };
+  const trimmed = unchain(out.replace(/\.$/, ''));
+  const text = clamp(trimmed, PRESCRIPTION_MAX);
+
+  return { text, kept: text === trimmed ? taken : taken - 1 };
 }
 
-/** HOIST 조각이 가리키는 문장의 자리. 하나만 가리켜야 하고 아니면 -1이다 */
-function hoistIndex(sentences: string[], needle: string): number {
-  const hits = sentences.flatMap((sentence, at) => (sentence.includes(needle) ? [at] : []));
-  return hits.length === 1 ? hits[0]! : -1;
+/** HOIST 조각이 걸리는 문장 자리를 전부 준다. 아래 둘이 이 하나를 같이 본다 */
+export function hoistHits(sentences: string[], needle: string): number[] {
+  return sentences.flatMap((sentence, at) => (sentence.includes(needle) ? [at] : []));
 }
 
 /**
@@ -211,19 +230,19 @@ function hoistIndex(sentences: string[], needle: string): number {
  * 중복은 문자열이 아니라 문장 자리로 거른다. 앞 요약은 clamp와 unchain을 거쳐 원문과
  * 달라지므로 포함 검사로는 같은 문장인지 못 가른다.
  */
-function bannedPrescription(rule: Rule): string {
+export function bannedPrescription(rule: Rule, hoist: Record<string, string> = HOIST): string {
   const sentences = prescriptionSentences(rule.prescription);
-  const { text, taken } = shortPrescription(sentences);
+  const { text, kept } = shortPrescription(sentences);
 
-  const needle = HOIST[rule.id];
+  const needle = hoist[rule.id];
   if (needle === undefined) return text;
 
-  // verify가 -1을 이미 막는다. taken 안쪽이면 앞 요약이 그 문장을 이미 담았다
-  const at = hoistIndex(sentences, needle);
-  if (at < 0 || at < taken) return text;
+  // verify가 조각이 문장 하나만 가리키는지 이미 봤다. kept 안쪽이면 앞 요약이 그 문장을 담았다
+  const hits = hoistHits(sentences, needle);
+  const at = hits.length === 1 ? hits[0]! : -1;
+  if (at < 0 || at < kept) return text;
 
-  const lifted = clamp(unchain(sentences[at]!.replace(/\.$/, '')), HOIST_MAX);
-  return text ? `${text}. ${lifted}` : lifted;
+  return `${text}. ${clamp(unchain(sentences[at]!.replace(/\.$/, '')), HOIST_MAX)}`;
 }
 
 /** 자가점검에 붙일 예시. 룰북이 따옴표나 괄호로 적어둔 걸린 말들을 그대로 쓴다 */
@@ -282,12 +301,13 @@ function verify(book: RuleBook, template: string): string[] {
       errors.push(`${id}: HOIST에 올렸는데 금지 목록에 없습니다 (SPOTLIGHT에 추가하세요)`);
     }
 
-    const sentences = prescriptionSentences(rule.prescription);
-    const hits = sentences.filter((sentence) => sentence.includes(needle)).length;
-    if (hits === 0) {
-      errors.push(`${id}: HOIST 조각 "${needle}" 을 처방에서 못 찾습니다`);
-    } else if (hits > 1) {
-      errors.push(`${id}: HOIST 조각 "${needle}" 이 처방 문장 ${hits}개에 걸립니다 (한 문장만 가리키게 좁히세요)`);
+    const hits = hoistHits(prescriptionSentences(rule.prescription), needle);
+    if (hits.length !== 1) {
+      const why = hits.length === 0 ? '못 찾습니다' : `문장 ${hits.length}개에 걸립니다`;
+      errors.push(
+        `${id}: scripts/build-output-style.ts 의 HOIST 조각을 처방에서 ${why}. ` +
+          `룰북 문장을 고쳤으면 조각도 맞추세요 — "${needle}"`,
+      );
     }
   }
 
