@@ -10,7 +10,7 @@ export default defineConfig({
     setupFiles: ['tests/env-setup.ts'],
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts'],
+      include: ['src/**/*.ts', 'scripts/**/*.ts'],
       exclude: ['src/**/types.ts', 'src/index.ts'],
       reporter: ['text', 'json-summary', 'lcov'],
     },
