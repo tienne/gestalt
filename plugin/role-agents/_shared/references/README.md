@@ -20,7 +20,12 @@
 
 ```bash
 pnpm verify:rules
+pnpm verify:output-style
 ```
+
+둘째 줄이 필요한 이유는 `scripts/build-output-style.ts`의 `HOIST`가 처방 칸의 특정 문장을
+조각 문자열로 가리키고 있어서다. 그 문장을 다듬으면 조각이 안 맞게 되고 `verify:rules`는
+그걸 모른다. 지금 걸린 건 F-9 한 자리다.
 
 에이전트 문서 14곳이 룰 ID와 금지 어휘를 손으로 옮겨 적고 있어서 룰북에서 ID를 지우거나
 심각도를 바꾸면 그 사본들이 조용히 어긋난다. 이 검사가 네 가지를 본다 — 없는 ID를 인용하는
