@@ -104,8 +104,9 @@ const SPOTLIGHT = [
  * 잘리는 게 예외 조항이라 룰이 넓게 걸리는 쪽으로 어긋난다. 이번엔 안 올렸다.
  *
  * GATE, SPOTLIGHT와 같은 성격이다 — 룰을 더할 때 자동으로 안 따라오고 룰북에만 두는
- * 것도 정상 상태다. 여기 올리면 그 룰의 줄이 올린 문장 길이에 이음말 두 자를 더한 만큼
- * 길어지고 그만큼이 매 세션 비용이다 (최대 HOIST_MAX + 2자. F-9는 65자 늘어 174자다). 안 올린 룰의 줄은 한 글자도 안 바뀐다. 올릴지는 그 판정 기준이 실제로
+ * 것도 정상 상태다. 여기 올리면 그 룰의 줄이 올린 문장 길이에 이음말 두 자를 더한
+ * 만큼 길어지고 그만큼이 매 세션 비용이다. 최대 HOIST_MAX + 2자이고 F-9는 65자
+ * 늘어 174자다. 안 올린 룰의 줄은 한 글자도 안 바뀐다. 올릴지는 그 판정 기준이 실제로
  * 답변에서 어긋나는지를 보고 정한다.
  *
  * 올리는 룰은 SPOTLIGHT에도 있어야 한다. 금지 목록에 없는 룰은 올려도 한 글자도 안
@@ -187,7 +188,7 @@ function shortPattern(pattern: string): string {
   return clamp(unchain(text), PATTERN_MAX);
 }
 
-/** 대화 어투 기준으로 처방을 씻어 문장으로 나눈다. 아래 셋이 같은 목록을 본다 */
+/** 대화 어투 기준으로 처방에서 서식과 영어 예시, 빈도 조건을 걷고 문장으로 나눈다 */
 export function prescriptionSentences(prescription: string): string[] {
   let text = prescription.replace(/\*\*/g, '').replace(/`/g, '').trim();
 
