@@ -27,7 +27,7 @@
   ],
   "scripts": {
     "dev": "tsx bin/gestalt.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "postbuild": "rm -rf dist/plugin && mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js && pnpm run verify:plugin && pnpm run verify:rules && pnpm run verify:output-style",
     "verify:plugin": "tsx scripts/verify-plugin-assets.ts",
     "prepublishOnly": "pnpm build",

@@ -1,0 +1,6 @@
+{
+  // 배포 산출물 범위. 루트 tsconfig 는 scripts 까지 타입 검사하지만
+  // build 는 emit 이라 그대로 두면 개발 도구가 dist 를 타고 npm 에 실린다
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*", "bin/**/*"]
+}
