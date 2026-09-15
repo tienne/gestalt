@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, beforeAll } from 'vitest';
 import {
   HOIST,
   HOIST_MAX,
+  PRESCRIPTION_ENOUGH,
   PRESCRIPTION_MAX,
   bannedPrescription,
   buildOutputStyle,
@@ -19,7 +20,9 @@ function bannedLine(rendered: string, id: string): string {
 }
 
 function prescriptionCell(line: string): string {
-  return line.split('** → ')[1] ?? '';
+  const cell = line.split('** → ')[1];
+  if (cell === undefined) throw new Error(`처방 칸 구분자가 없다: ${line}`);
+  return cell;
 }
 
 function fakeRule(id: string, prescription: string): Rule {
@@ -34,8 +37,22 @@ function fakeRule(id: string, prescription: string): Rule {
   };
 }
 
+describe('prescriptionSentences', () => {
+  it('영어 예시의 원문 쪽을 걷는다', () => {
+    expect(prescriptionSentences('("root cause" → "원인")로 쓴다.')).toEqual(['("원인")로 쓴다.']);
+  });
+
+  it('문서 기준 빈도 조건을 걷는다', () => {
+    expect(prescriptionSentences('3회 초과 시 쉼표로 푼다.')).toEqual(['쉼표로 푼다.']);
+  });
+
+  it('조건을 걷고 남은 앞 쉼표도 지운다', () => {
+    expect(prescriptionSentences('반복분만, 쉼표로 푼다.')).toEqual(['쉼표로 푼다.']);
+  });
+});
+
 describe('shortPrescription', () => {
-  it('첫 문장이 28자를 넘으면 거기서 멈춘다', () => {
+  it(`첫 문장이 ${PRESCRIPTION_ENOUGH}자를 넘으면 거기서 멈춘다`, () => {
     const sentences = prescriptionSentences(
       '이 첫 문장은 스물여덟 자를 넉넉히 넘기도록 길게 쓴다. 둘째 문장이다.',
     );
@@ -51,6 +68,27 @@ describe('shortPrescription', () => {
     );
     expect(text).toBe('짧다. 둘째 문장이다. 셋째 문장이다');
     expect(kept).toBe(3);
+  });
+
+  it('문서 기준 근거 문장에서 멈춘다', () => {
+    const { text, kept } = shortPrescription(['짧다.', '문서 산문에서는 세 번까지 봐준다.']);
+    expect(text).toBe('짧다');
+    expect(kept).toBe(1);
+  });
+
+  it('남은 자리보다 길면 안 담는다', () => {
+    const { kept } = shortPrescription(['짧다.', `${'나'.repeat(PRESCRIPTION_MAX)}.`]);
+    expect(kept).toBe(1);
+  });
+
+  it('빈 목록은 빈 결과다', () => {
+    expect(shortPrescription([])).toEqual({ text: '', kept: 0 });
+  });
+
+  it('길이가 상한과 같으면 안 자르고 센 수도 그대로다', () => {
+    const { text, kept } = shortPrescription([`${'가'.repeat(PRESCRIPTION_MAX)}.`]);
+    expect(text).toHaveLength(PRESCRIPTION_MAX);
+    expect(kept).toBe(1);
   });
 
   it('상한에 잘린 문장은 남은 것으로 안 센다', () => {
@@ -118,8 +156,13 @@ describe('bannedPrescription', () => {
 });
 
 describe('buildOutputStyle', () => {
-  const rendered = buildOutputStyle();
+  // describe 본문에서 부르면 룰북이 어긋날 때 이 파일의 순수 함수 테스트까지 수집 단계에서 죽는다
+  let rendered: string;
+  beforeAll(() => {
+    rendered = buildOutputStyle();
+  });
 
+  // HOIST 항목이 둘 이상 될 때를 위한 자리다. 지금은 아래 F-9 테스트에 포함된다
   it('HOIST에 올린 룰마다 그 조각이 금지 목록에 실린다', () => {
     const entries = Object.entries(HOIST);
     expect(entries.length).toBeGreaterThan(0);
@@ -136,11 +179,10 @@ describe('buildOutputStyle', () => {
     );
   });
 
-  it('올린 룰의 처방 칸도 두 상한 안에 있다', () => {
-    for (const id of Object.keys(HOIST)) {
-      const cell = prescriptionCell(bannedLine(rendered, id));
-      expect(cell.length, `${id} 처방 칸`).toBeLessThanOrEqual(PRESCRIPTION_MAX + HOIST_MAX + 2);
-    }
+  it('F-9 줄이 실측 예산 안에 있다', () => {
+    // PRESCRIPTION_MAX + HOIST_MAX + 2 는 clamp 가 무조건 보장해서 못 잡는다.
+    // 지금 값(174자)에 여유만 둬야 룰북 문장이 길어질 때 실제로 걸린다
+    expect(bannedLine(rendered, 'F-9').length).toBeLessThanOrEqual(180);
   });
 
   it('안 올린 룰의 처방 칸은 요약 상한에서 끝난다', () => {
@@ -167,5 +209,41 @@ describe('buildOutputStyle', () => {
       expect(rule.prescription, `${rule.id} 처방`).not.toContain('<!--');
       expect(rule.pattern, `${rule.id} 패턴`).not.toContain('<!--');
     }
+  });
+});
+
+describe('verify의 HOIST 검사', () => {
+  const restore = { ...HOIST };
+
+  afterEach(() => {
+    for (const key of Object.keys(HOIST)) delete HOIST[key];
+    Object.assign(HOIST, restore);
+  });
+
+  it('룰북에 없는 ID를 가리키면 멈춘다', () => {
+    HOIST['Z-9'] = '아무 조각';
+    expect(buildOutputStyle).toThrow(/룰북에 없는 ID/);
+  });
+
+  it('금지 목록 밖의 룰에 올리면 멈춘다', () => {
+    // C-5는 대화 어투와 충돌해 SPOTLIGHT에서 뺀 룰이다
+    HOIST['C-5'] = '이모지';
+    expect(buildOutputStyle).toThrow(/금지 목록에 없습니다/);
+  });
+
+  it('조각을 처방에서 못 찾으면 멈춘다', () => {
+    HOIST['F-9'] = '룰북에 없는 조각';
+    expect(buildOutputStyle).toThrow(/처방에서 못 찾습니다/);
+  });
+
+  it('조각이 여러 문장에 걸리면 멈춘다', () => {
+    HOIST['F-9'] = '다';
+    expect(buildOutputStyle).toThrow(/처방의 문장 \d+개에 걸립니다/);
+  });
+
+  it('올린 문장이 상한을 넘으면 멈춘다', () => {
+    // F-10 아홉째 문장은 HOIST_MAX 를 넘는다
+    HOIST['F-10'] = '탐지기는 "못 박" 어간과';
+    expect(buildOutputStyle).toThrow(/HOIST_MAX/);
   });
 });
