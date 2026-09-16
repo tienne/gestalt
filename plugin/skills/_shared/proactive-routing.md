@@ -6,6 +6,29 @@
 
 `/agent [이름] "태스크"` 또는 `ges_agent` MCP 도구로 호출한다.
 
+## 레포가 넘기라고 선언한 일은 넘긴다
+
+아래 표보다 먼저 보는 규칙이다. `gestalt.json`의 `ruleSources`에 `trust: "delegate"`로 선언된 소스가 이번 작업에 걸리면 **게슈탈트 에이전트를 부르지 않고 그쪽으로 넘긴다.**
+
+```jsonc
+{
+  "id": "b2c-screens",
+  "kind": "skill",
+  "ref": "kb-design-to-code",   // 이 레포가 쓰는 스킬 이름
+  "scope": ["ui", "css"],
+  "trust": "delegate",
+  "onMissing": "stop"
+}
+```
+
+조직 디자인 시스템이나 브랜드 가드레일을 물고 있는 스킬이 따로 있는데 게슈탈트의 범용 에이전트가 먼저 잡으면, 그 가드레일이 통째로 빠진 결과가 나온다. 범용 에이전트는 그런 게 있는 줄 모른다.
+
+**선언된 것만 본다.** 설치된 스킬 목록을 훑어 관련 있어 보이는 걸 고르지 않는다 — 무엇을 근거로 넘겼는지 사라진다. 이름만 비슷한 엉뚱한 데로 갈 수도 있다. 선언이 없으면 이 규칙은 아무 일도 하지 않고 아래 표가 그대로 적용된다.
+
+확인은 `ges_status`(sessionId 없이)의 `ruleSources`로 한다. `gestalt.json`을 직접 파싱하지 않는다. 표의 어느 줄로 갈지 정해진 뒤 그 작업에 `delegate` 소스가 걸리는지만 보면 되므로, 매 요청마다 부를 일은 없다.
+
+넘길 때는 어디로 넘기는지 사용자에게 알린다. 자세한 규칙은 [`rule-sources.md`](./rule-sources.md)가 원본이다.
+
 | 상황 | 에이전트 |
 |------|---------|
 | 영상/비디오 URL이 포함되거나 "요약해줘" 요청 | `video-summarizer` |
@@ -27,8 +50,8 @@
 | 슬랙 메시지 전송·예약 발송 요청 ("~라고 보내줘", "공지해줘", "예약 발송해줘") | `slack-send` 스킬 사용 (내부적으로 slack-messenger 다듬기 → 승인 단계 → 전송) |
 | 지라 티켓 본문 작성·구조화 (제목, 설명, 완료 조건, 이슈타입 추천) | `jira-writer` |
 | 지라 티켓 생성 요청 ("티켓 만들어줘", "이슈 생성해줘", "지라에 올려줘") | `jira-create` 스킬 사용 (내부적으로 jira-writer 구조화 → 프로젝트·필드 확정 → 승인 단계 → createJiraIssue) |
-| UI, React, 접근성, 컴포넌트 설계 | `frontend-developer` |
-| UI·React 코드 리뷰, 접근성·번들 최적화 검토 | `frontend-reviewer` |
+| UI, React, 접근성, 컴포넌트 설계 | `frontend-developer` — 단 레포가 이 범위를 `delegate`로 선언했으면 그쪽이 이긴다 (위 절) |
+| UI·React 코드 리뷰, 접근성·번들 최적화 검토 | `frontend-reviewer` — 단 레포가 이 범위를 `delegate`로 선언했으면 그쪽이 이긴다 (위 절) |
 | 주석 검토 ("주석 좀 봐줘", 불필요한 주석·죽은 코드·티켓 없는 TODO 확인) | `comment-reviewer` |
 | API, DB, 인증, 서버 로직 | `backend-developer` |
 | CI/CD, 인프라, 모니터링 | `devops-engineer` |
@@ -49,3 +72,7 @@
 
 여기 한 줄 추가하면 끝이다. `CLAUDE.md`와 `agent/SKILL.md`를 따라가서 고칠 필요가 없다 — 둘 다
 이 파일을 가리키기만 하기 때문이다.
+
+**특정 레포에서만 다른 데로 보내고 싶은 거라면 표를 고치지 않는다.** 그 레포 `gestalt.json`에
+`delegate` 소스를 선언한다. 이 표는 게슈탈트가 설치된 모든 레포가 보는 자리라, 한 조직에서만
+쓰는 스킬 이름이 들어가면 나머지 레포는 없는 데로 가라는 지시를 읽게 된다.
