@@ -46,9 +46,10 @@ outputs:
 사람이 스무 라운드를 답하고 나서 "기준을 못 읽어 Spec을 못 만듭니다"라고 하면 그 시간이 통째로 버려진다. Phase 1만 사람이 참여하는 구조라 더 그렇다. 판정을 맨 앞에 두는 게 이 스킬에서 특히 중요한 이유다.
 
 ```
-gestalt.json의 ruleSources 선언에 문제가 있어 규칙 소스를 하나도 못 읽었습니다.
+gestalt.json의 ruleSources 선언 일부를 읽지 못했습니다.
   ruleSources.1.kind: Invalid enum value. Expected 'mcp' | 'file' | 'skill', received 'http'
-고치고 다시 부르시거나, 기준 없이 진행할지 알려주세요.
+남은 소스: repo-voice
+고치고 다시 부르시거나, 빠진 기준 없이 진행할지 알려주세요.
 ```
 
 ### 세 Phase가 쓰는 법

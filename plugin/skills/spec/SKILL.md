@@ -56,12 +56,12 @@ This skill transforms completed interview data into a structured project specifi
 
 | 입력 | 이 절이 하는 일 |
 |---|---|
-| `sessionId` (인터뷰 거침) | 다시 읽어 `constraints`에 출처와 함께 넣는다. 인터뷰가 좁힌 전제는 넘어오지 않으므로 확인이 아니라 재확보다 |
+| `sessionId` (인터뷰 거침) | 다시 읽어 `constraints`에 출처와 함께 넣는다. 인터뷰가 좁힌 전제는 넘어오지 않으므로 다시 확보한다 |
 | `text` (인터뷰 안 거침) | 0.5단계가 안 돌았으므로 여기서 처음 읽는다 |
 
 인터뷰의 `ruleContext`는 그 스킬 런타임의 변수라 여기까지 안 넘어온다. 넘겨받으려 하지 말고 **다시 읽는다.** 읽는 비용이 싸다.
 
-다만 다시 읽어도 값이 새로워지지는 않는다. `ges_status`가 주는 `ruleSources`는 MCP 서버가 기동할 때 한 번 resolve한 스냅샷이라, 선언을 고쳤으면 서버를 다시 띄워야 반영된다. 여기서 다시 읽는 이유는 신선도가 아니라 **인터뷰가 잡은 값이 이 런타임에 없어서**다.
+다만 다시 읽어도 값이 새로워지지는 않는다. `ges_status`가 주는 `ruleSources`는 MCP 서버가 기동할 때 한 번 resolve한 스냅샷이라, 선언을 고쳤으면 서버를 다시 띄워야 반영된다. 여기서 다시 읽는 건 **인터뷰가 잡은 값이 이 런타임에 없어서**다.
 
 ### constraints에 넣을 때는 출처를 적는다
 

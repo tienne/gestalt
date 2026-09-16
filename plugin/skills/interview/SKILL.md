@@ -73,7 +73,7 @@ ges_status()  →  {
 }
 ```
 
-`ruleSourceErrors`가 비어 있지 않으면 멈춘다. 선언이 하나라도 잘못되면 `ruleSources`는 빈 배열로 떨어지는데, 그걸 "선언 안 한 레포"로 읽으면 오타 하나 때문에 `stop`으로 걸어둔 검사가 조용히 안 돈다.
+`ruleSourceErrors`가 비어 있지 않으면 멈춘다. 판정과 사용자에게 알릴 문구는 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)의 "선언이 깨졌을 때" 절이 원본이다. **`ruleSources`가 비어 있지 않아도 일부가 빠진 상태일 수 있으니 배열 길이로 판정하지 않는다.**
 
 ### 읽은 것은 질문의 배경이지 사용자의 답이 아니다
 
