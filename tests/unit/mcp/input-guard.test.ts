@@ -16,7 +16,7 @@ import {
   describeJsonParseFailure,
   formatReceived,
   guardShape,
-  probeZodInternals,
+  probeGuardReach,
   snippetAround,
 } from '../../../src/mcp/input-guard.js';
 
@@ -374,11 +374,53 @@ describe('라운드 2에서 나온 경계', () => {
     expect(formatReceived({ auth: 'Bearer\nAAAABBBBCCCCDDDD' })).not.toContain('AAAABBBBCCCCDDDD');
   });
 
-  it('깨진 지점은 마스킹에서 빼서 원인을 남긴다', () => {
+  it('깨진 지점이 토큰 밖이면 토큰을 가리고 원인을 남긴다', () => {
     const text = String.raw`x=ghp_AAAABBBBCCCCDDDD\uZZ`;
     const snippet = snippetAround(text, text.indexOf('\\u'));
 
     expect(snippet).toContain('uZZ');
+    expect(snippet).not.toContain('AAAABBBBCCCCDDDD');
+  });
+
+  it('깨진 지점이 토큰 안이면 그 토큰만 원문으로 남는다', () => {
+    // 토큰 둘을 두고 깨진 지점을 앞 토큰 안에 둔다. 뒤 토큰은 가려져야 한다.
+    const text = 'a=ghp_AAAABBBBCCCCDDDD b=sk-EEEEFFFFGGGGHHHH';
+    const snippet = snippetAround(text, text.indexOf('BBBB'));
+
+    expect(snippet).toContain('AAAABBBBCCCCDDDD');
+    expect(snippet).not.toContain('EEEEFFFFGGGGHHHH');
+  });
+
+  it('윈도우가 접두어를 잘라내도 토큰 몸통은 가린다', () => {
+    // 따옴표를 안 닫은 JSON 은 파서가 문자열 끝을 가리켜서 접두어가 윈도우 밖으로
+    // 밀려난다. 잘라낸 조각에 정규식을 걸면 이 자리가 통째로 샌다.
+    const token = `ghp_${'A'.repeat(60)}`;
+    const text = `{"t": "${token}`;
+    const snippet = snippetAround(text, text.length);
+
+    expect(snippet).not.toContain('A'.repeat(20));
+  });
+
+  it('새로 넣은 접두어와 PEM 블록도 가린다', () => {
+    expect(formatReceived({ k: `sk_live_${'AAAABBBBCCCC'}` })).not.toContain('AAAABBBBCCCC');
+    expect(formatReceived({ k: 'xoxb-AAAABBBBCCCC' })).not.toContain('AAAABBBBCCCC');
+    expect(formatReceived({ k: 'AIzaAAAABBBBCCCC' })).not.toContain('AAAABBBBCCCC');
+    expect(formatReceived({ k: 'npm_AAAABBBBCCCC' })).not.toContain('AAAABBBBCCCC');
+
+    const pem = '-----BEGIN RSA PRIVATE KEY-----AAAABBBBCCCC-----END RSA PRIVATE KEY-----';
+    expect(formatReceived({ k: pem })).not.toContain('AAAABBBBCCCC');
+  });
+
+  it('메시지 없는 refine 실패에도 받은 값이 실린다', () => {
+    const schema = z.object({ n: z.number().refine((v) => v > 10) });
+    attachErrorMap(schema);
+
+    const result = schema.safeParse({ n: 3 });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toContain('received: 3');
+    }
   });
 
   it('union 처럼 기본 문구가 빈약한 자리에도 값이 실린다', () => {
@@ -406,9 +448,10 @@ describe('라운드 2에서 나온 경계', () => {
     }
   });
 
-  it('zod 내부 구조가 그대로인지 본다', () => {
+  it('방어가 자식까지 닿는지 본다', () => {
     // 이 판정이 비어 있지 않으면 방어가 조용히 안 걸리는 상태다. 런타임은 경고만 내므로
-    // 여기서 막는다.
-    expect(probeZodInternals()).toEqual([]);
+    // 여기서 막는다. 스키마를 실제로 통과시켜 보므로 zod 의 필드 개명과 순회 코드의
+    // 오타가 같은 자리에서 걸린다.
+    expect(probeGuardReach()).toEqual([]);
   });
 });
