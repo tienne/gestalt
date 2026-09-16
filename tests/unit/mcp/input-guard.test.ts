@@ -16,6 +16,7 @@ import {
   describeJsonParseFailure,
   formatReceived,
   guardShape,
+  probeZodInternals,
   snippetAround,
 } from '../../../src/mcp/input-guard.js';
 
@@ -287,14 +288,24 @@ describe('리뷰에서 나온 경계', () => {
     }
   });
 
-  it('default는 호출마다 새 인스턴스를 받는다', () => {
-    const schema = z.object(guardShape({ tags: z.array(z.string()).default([]) }));
+  it('default 팩토리를 파싱마다 다시 부른다', () => {
+    // 결과를 비교하면 이 선택을 못 가른다 — zod 가 object 와 array 를 파싱할 때 컨테이너를
+    // 새로 조립하므로, 팩토리를 등록 때 한 번 부르고 값을 박아둬도 결과는 매번 새 배열이다.
+    // 갈리는 건 팩토리가 몇 번 불리느냐다.
+    let calls = 0;
+    const schema = z.object(
+      guardShape({
+        tags: z.array(z.string()).default(() => {
+          calls += 1;
+          return [];
+        }),
+      }),
+    );
 
-    const first = schema.parse({}) as { tags: string[] };
-    const second = schema.parse({}) as { tags: string[] };
-    first.tags.push('오염');
+    schema.parse({});
+    schema.parse({});
 
-    expect(second.tags).toEqual([]);
+    expect(calls).toBe(2);
   });
 
   it('모르는 키는 객체 전체가 아니라 키 이름만 알려준다', () => {
@@ -330,7 +341,10 @@ describe('리뷰에서 나온 경계', () => {
   it('값 샘플과 파싱 스니펫에서 토큰을 가린다', () => {
     expect(formatReceived({ token: 'ghp_abcdefgh12345678' })).toContain('ghp_***');
     expect(formatReceived({ token: 'ghp_abcdefgh12345678' })).not.toContain('abcdefgh12345678');
-    expect(snippetAround('key=sk-abcdefgh12345678 끝', 10)).toContain('sk-***');
+
+    // 깨진 지점에서 떨어져 있으면 REDACT_KEEP 밖이라 가려진다.
+    const text = `x${' '.repeat(20)}sk-abcdefgh12345678`;
+    expect(snippetAround(text, 0)).toContain('sk-***');
   });
 
   it('거대한 배열은 앞부분만 직렬화해 싣는다', () => {
@@ -338,5 +352,63 @@ describe('리뷰에서 나온 경계', () => {
 
     expect(sample).toContain('0,1,2,3,4');
     expect(sample.length).toBeLessThanOrEqual(121);
+  });
+});
+
+describe('라운드 2에서 나온 경계', () => {
+  it('파서 문구에 실려 온 원문도 가린다', () => {
+    const withToken = '{"token": ghp_AAAABBBBCCCCDDDD, "a":1}';
+    let message = '';
+    try {
+      JSON.parse(withToken);
+    } catch (error) {
+      message = describeJsonParseFailure('payload', withToken, error);
+    }
+
+    // V8 은 깨진 지점 원문을 자기 메시지 안에 인용한다. raw 만 가리면 그 경로가 남는다.
+    expect(message).not.toContain('AAAABBBBCCCCDDDD');
+  });
+
+  it('개행이 섞인 토큰도 가린다', () => {
+    // 이스케이프를 먼저 걸면 `Bearer\s+` 가 그 자리를 못 잡는다.
+    expect(formatReceived({ auth: 'Bearer\nAAAABBBBCCCCDDDD' })).not.toContain('AAAABBBBCCCCDDDD');
+  });
+
+  it('깨진 지점은 마스킹에서 빼서 원인을 남긴다', () => {
+    const text = String.raw`x=ghp_AAAABBBBCCCCDDDD\uZZ`;
+    const snippet = snippetAround(text, text.indexOf('\\u'));
+
+    expect(snippet).toContain('uZZ');
+  });
+
+  it('union 처럼 기본 문구가 빈약한 자리에도 값이 실린다', () => {
+    const schema = z.object({ target: z.union([z.string(), z.number()]) });
+    attachErrorMap(schema);
+
+    const result = schema.safeParse({ target: true });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.at(-1)?.message).toContain('received: true');
+    }
+  });
+
+  it('우리가 만든 메시지에는 값을 덧붙이지 않는다', () => {
+    const schema = z.object(guardShape({ payload: z.object({ a: z.string() }).optional() }));
+
+    const result = schema.safeParse({ payload: '{"a":' });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const message = result.error.issues[0]?.message ?? '';
+      expect(message).toContain('JSON으로 안 풀립니다');
+      expect(message).not.toContain('(received:');
+    }
+  });
+
+  it('zod 내부 구조가 그대로인지 본다', () => {
+    // 이 판정이 비어 있지 않으면 방어가 조용히 안 걸리는 상태다. 런타임은 경고만 내므로
+    // 여기서 막는다.
+    expect(probeZodInternals()).toEqual([]);
   });
 });
