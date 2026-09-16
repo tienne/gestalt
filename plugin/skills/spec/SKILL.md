@@ -48,6 +48,8 @@ This skill transforms completed interview data into a structured project specifi
 
 `gestalt.json`의 `ruleSources`에 선언된 것만 읽는다. 선언이 없으면 이 절을 통째로 건너뛴다.
 
+`solve`가 불러서 들어온 경우에는 그쪽 Phase 0이 이미 읽어 `ruleContext`를 넘겨준다. 다시 읽지 않는다.
+
 읽는 방법, `trust`와 `onMissing` 해석은 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)가 원본이다. **여기에 옮겨 적지 않는다.** `ges_status`(sessionId 없이)의 응답에서 읽고 `gestalt.json`을 직접 파싱하지 않는다. `ruleSourceErrors`가 비어 있지 않으면 멈춘다.
 
 ### 인터뷰를 거쳤는지에 따라 하는 일이 다르다

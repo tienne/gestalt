@@ -29,9 +29,43 @@ outputs:
 
 ---
 
+## Phase 0 — 규칙 확보 (인터뷰 시작 전, 한 번만)
+
+세 단계가 각자 규칙 소스를 읽는다. `interview` 0.5단계, `spec`의 규칙 확보, `execute` Phase 0이다. 따로 부르면 그게 맞다 — 스킬 런타임이 다르면 값이 안 넘어간다.
+
+**`solve`는 셋을 한 런타임에서 돈다.** 여기서 한 번 읽어 `ruleContext`로 고정하고 세 Phase가 그 값을 쓴다. 각 Phase의 규칙 확보 절은 건너뛴다.
+
+한 번만 읽는 이유는 비용이 아니라 **일관성**이다. 인터뷰는 사람이 답하는 동안 길어질 수 있는데, 그 사이에 선언이 바뀌면 Spec에 굳은 제약과 실행이 따르는 기준이 어긋난다. 한 흐름 안에서는 같은 기준이어야 한다.
+
+읽는 방법은 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)가 원본이다. **여기에 옮겨 적지 않는다.** `ges_status`(sessionId 없이)에서 읽고 `gestalt.json`을 직접 파싱하지 않는다.
+
+### 멈출 거면 인터뷰 전에 멈춘다
+
+`ruleSourceErrors`가 비어 있지 않거나 `onMissing: "stop"`인 소스를 못 읽었으면 **`ges_interview start`를 부르기 전에** 멈춘다.
+
+사람이 스무 라운드를 답하고 나서 "기준을 못 읽어 Spec을 못 만듭니다"라고 하면 그 시간이 통째로 버려진다. Phase 1만 사람이 참여하는 구조라 더 그렇다. 판정을 맨 앞에 두는 게 이 스킬에서 특히 중요한 이유다.
+
+```
+gestalt.json의 ruleSources 선언에 문제가 있어 규칙 소스를 하나도 못 읽었습니다.
+  ruleSources.1.kind: Invalid enum value. Expected 'mcp' | 'file' | 'skill', received 'http'
+고치고 다시 부르시거나, 기준 없이 진행할지 알려주세요.
+```
+
+### 세 Phase가 쓰는 법
+
+| Phase | `ruleContext`로 하는 일 |
+|---|---|
+| 1 인터뷰 | 이미 정해진 전제를 질문에서 뺀다. 빼면 뺐다고 사람에게 알린다 |
+| 2 스펙 | 조직 제약을 `constraints`에 출처와 함께 넣는다 |
+| 3 실행 | 만들 때 형식으로 따른다. 레포 안 규칙(`CLAUDE.md` 등)은 이때 따로 읽는다 |
+
+Phase 3의 레포 안 탐색까지 앞당기지는 않는다. 그건 실행 대상 파일이 정해진 뒤라야 "대상에 가까운 `CLAUDE.md`"를 고를 수 있다.
+
+---
+
 ## Phase 1 — Interview (사람 참여)
 
-`ges_interview`로 인터뷰를 진행한다. interview 스킬과 동일한 규칙을 따른다.
+`ges_interview`로 인터뷰를 진행한다. interview 스킬과 동일한 규칙을 따른다. **단 0.5단계 규칙 확보는 Phase 0이 이미 했으므로 다시 하지 않는다.**
 
 ### ⚠️ Never Self-Answer
 
@@ -169,6 +203,8 @@ description: "에스컬레이션 | 최고 점수: {bestScore} | {시도한 perso
 ```
 /solve "제품 문제"
     ↓
+[Phase 0] 규칙 확보 — 한 번만, 멈출 거면 여기서
+    ↓ 자동
 [Phase 1] 인터뷰 — 사람이 답변, 해상도 ≥ 0.8까지
     ↓ 자동
 [Phase 2] 스펙 생성 — AI 자율
