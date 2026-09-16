@@ -253,12 +253,82 @@ describe('마스킹 계약', () => {
     expect(sample).toContain('BEGIN RSA PRIVATE KEY');
   });
 
+  it('PEM 본문에 따옴표가 있어도 뒤가 안 남는다', () => {
+    // 따옴표를 경계로 쓰면 거기서 일찍 끊긴다. formatReceived 는 stringify 를 거치므로
+    // 값 안의 따옴표가 그 자리에 실제로 온다.
+    const quoted = '-----BEGIN RSA PRIVATE KEY-----AAA"BBBSECRETTAIL-----END RSA PRIVATE KEY-----';
+
+    expect(formatReceived({ k: quoted })).not.toContain('SECRETTAIL');
+  });
+
+  it('PEM 이 둘이면 사이 필드는 살아남는다', () => {
+    // lazy 라서 첫 END 에서 멈춘다. 첫 BEGIN 부터 마지막 END 까지 한 덩어리로 삼키면
+    // 사이에 있는 멀쩡한 값까지 가려진다.
+    const payload = {
+      a: '-----BEGIN RSA PRIVATE KEY-----AAAA-----END RSA PRIVATE KEY-----',
+      mid: 'KEEPME',
+      b: '-----BEGIN EC PRIVATE KEY-----BBBB-----END EC PRIVATE KEY-----',
+    };
+
+    const sample = formatReceived(payload);
+
+    expect(sample).toContain('KEEPME');
+    expect(sample).not.toContain('AAAA');
+    expect(sample).not.toContain('BBBB');
+  });
+
   it('PEM 본문에 토큰 접두어가 섞여도 뒤가 안 남는다', () => {
-    // 토큰 패턴이 먼저 돌면 그 치환 문자가 PEM 본문을 끊어 뒤가 통째로 남는다.
     const mixed =
       '-----BEGIN RSA PRIVATE KEY-----\nAAAA_BBBBnpm_CCCCCCCCDDDDREALTAIL\n-----END RSA PRIVATE KEY-----';
 
     expect(formatReceived({ k: mixed })).not.toContain('REALTAIL');
+  });
+
+  it('패턴 적용 순서가 결과를 안 바꾼다', () => {
+    // 본문을 base64 집합으로 좁혔던 동안에는 순서가 결과를 갈랐다. 클래스를 되돌려
+    // 의존이 사라졌는데, 그 사실이 주석에만 있으면 다음에 좁힐 때 조용히 되살아난다.
+    const patterns = secretPatternsForTest();
+    const text =
+      '-----BEGIN RSA PRIVATE KEY-----\nAAAA npm_CCCCCCCCDDDDREALTAIL\n-----END RSA PRIVATE KEY-----';
+
+    const apply = (order: RegExp[], preserve: boolean) =>
+      order.reduce(
+        (acc, pattern) =>
+          acc.replace(new RegExp(pattern.source, pattern.flags), (match, group: unknown) => {
+            const prefix = typeof group === 'string' ? group : '';
+            return preserve ? prefix + '*'.repeat(match.length - prefix.length) : `${prefix}***`;
+          }),
+        text,
+      );
+
+    const forward = [patterns[0]!, patterns[1]!];
+    const reversed = [patterns[1]!, patterns[0]!];
+    for (const preserve of [false, true]) {
+      expect(apply(forward, preserve)).toBe(apply(reversed, preserve));
+    }
+  });
+
+  it('접두어가 단어 한가운데면 안 가린다', () => {
+    // 하한이 낮은 파서 문구용 패턴에서 특히 도드라진다. task-runner 가 task-*** 가 되면
+    // 정작 보여주려던 원인이 사라진다.
+    for (const [raw, kept] of [
+      ['{"a": task-runner}', 'task-runner'],
+      ['{"a": desk-top}', 'desk-top'],
+    ] as const) {
+      let message = '';
+      try {
+        JSON.parse(raw);
+      } catch (error) {
+        message = describeJsonParseFailure('a', raw, error);
+      }
+      expect(message).toContain(kept);
+    }
+  });
+
+  it('단어 경계를 넣어도 진짜 토큰은 가린다', () => {
+    // 경계 앞이 공백이나 구분 문자면 매칭돼야 한다.
+    expect(formatReceived({ k: 'prefix sk-AAAABBBBCCCC' })).not.toContain('AAAABBBBCCCC');
+    expect(formatReceived({ k: 'https://x/?t=ghp_AAAABBBBCCCC' })).not.toContain('AAAABBBBCCCC');
   });
 
   it('파서 문구의 짧은 인용도 가린다', () => {
