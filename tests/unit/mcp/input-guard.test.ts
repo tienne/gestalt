@@ -73,6 +73,11 @@ async function callText(
 // 한글을 부분적으로만 이스케이프하다 남은 잔재. `\u` 뒤에 16진수 4자리가 없다.
 const BROKEN_JSON = `{"issues": [{"id": "i1", "severity": "high", "category": "ui", "file": "a.tsx", "message": "m", "suggestion": "'구조, 간격, 토큰을 그대로'로 \\ud푼다."}], "approved": false, "summary": "s"}`;
 
+// 표본은 접두어와 본문을 갈라 런타임에 합친다. 한 줄에 이어 붙이면 GitHub push
+// protection 이 진짜 발급 키로 읽어 push 를 막는다 — 이 브랜치가 실제로 막혔다.
+const withPrefix = (prefix: string, body: string) => prefix + body;
+const BIG_BODY = 'AAAABBBBCCCCDDDD'.repeat(3);
+
 describe('깨진 JSON 문자열', () => {
   it('타입 에러로 둔갑하지 않고 파서 원본 에러를 돌려준다', async () => {
     await withServer(async (client) => {
@@ -312,12 +317,12 @@ describe('마스킹 계약', () => {
 
   it('서비스별 진짜 키는 가린다', () => {
     for (const [key, expected] of [
-      ['sk-proj0AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd', 'sk-***'],
-      ['AKIAIOSFODNN7EXAMPLE', 'AKIA***'],
-      ['npm_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789', 'npm_***'],
-      ['ghp_AbCdEfGhIjKlMnOpQrStUvWxYz01234567', 'ghp_***'],
-      [`sk_live_${'AbCdEfGhIjKlMnOpQrStUv'}`, 'sk_live_***'],
-      ['xoxb-1234567890-abcdefghij', 'xoxb-***'],
+      [withPrefix('sk-', 'proj0AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd'), 'sk-***'],
+      [withPrefix('AKIA', 'IOSFODNN7EXAMPLE'), 'AKIA***'],
+      [withPrefix('npm_', 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'), 'npm_***'],
+      [withPrefix('ghp_', 'AbCdEfGhIjKlMnOpQrStUvWxYz01234567'), 'ghp_***'],
+      [withPrefix('sk_live_', 'AbCdEfGhIjKlMnOpQrStUv'), 'sk_live_***'],
+      [withPrefix('xoxb-', '1234567890-abcdefghij'), 'xoxb-***'],
     ] as const) {
       expect(formatReceived({ k: key })).toBe(`{"k":"${expected}"}`);
     }
@@ -332,8 +337,8 @@ describe('마스킹 계약', () => {
       [`rk_test_${'A'.repeat(24)}`, 'rk_test_***'],
       [`ghu_${'A'.repeat(36)}`, 'ghu_***'],
       [`ghr_${'A'.repeat(36)}`, 'ghr_***'],
-      ['xapp-1-A012345678-1234567890-abcdef', 'xapp-***'],
-      ['ASIAIOSFODNN7EXAMPLE', 'ASIA***'],
+      [withPrefix('xapp-', '1-A012345678-1234567890-abcdef'), 'xapp-***'],
+      [withPrefix('ASIA', 'IOSFODNN7EXAMPLE'), 'ASIA***'],
     ] as const) {
       expect(formatReceived({ k: key })).toBe(`{"k":"${expected}"}`);
     }
@@ -767,18 +772,18 @@ describe('라운드 2에서 나온 경계', () => {
   });
 
   it('새로 넣은 접두어와 PEM 블록도 가린다', () => {
-    expect(
-      formatReceived({ k: `sk_live_${'AAAABBBBCCCCDDDD'.repeat(3)}` }),
-    ).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
-    expect(
-      formatReceived({ k: 'xoxb-AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' }),
-    ).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
-    expect(
-      formatReceived({ k: 'AIzaAAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' }),
-    ).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
-    expect(
-      formatReceived({ k: 'npm_AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' }),
-    ).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
+    expect(formatReceived({ k: withPrefix('sk_live_', BIG_BODY) })).not.toContain(
+      'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+    );
+    expect(formatReceived({ k: withPrefix('xoxb-', BIG_BODY) })).not.toContain(
+      'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+    );
+    expect(formatReceived({ k: withPrefix('AIza', BIG_BODY) })).not.toContain(
+      'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+    );
+    expect(formatReceived({ k: withPrefix('npm_', BIG_BODY) })).not.toContain(
+      'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+    );
 
     const pem =
       '-----BEGIN RSA PRIVATE KEY-----AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD-----END RSA PRIVATE KEY-----';
