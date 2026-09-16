@@ -87,7 +87,11 @@ const SECRET_PATTERNS: RegExp[] = [
 function redactSecrets(text: string): string {
   return SECRET_PATTERNS.reduce(
     (acc, pattern) =>
-      acc.replace(pattern, (_match, prefix: string | undefined) => `${prefix ?? ''}***`),
+      acc.replace(pattern, (match: string, prefix: string | undefined) => {
+        const head = prefix ?? '';
+        // 길이를 보존한다. 줄이면 뒤 문자들의 자리가 밀려 스니펫이 깨진 지점을 못 짚는다.
+        return head + '*'.repeat(Math.max(match.length - head.length, 1));
+      }),
     text,
   );
 }
@@ -163,17 +167,15 @@ function extractPosition(reason: string): number | null {
  * 안 걸린다 — 따옴표를 안 닫은 JSON 이 그 자리다. V8 이 보고하는 위치가 문자열 끝이라
  * 접두어가 윈도우 앞으로 밀려난다.
  *
- * 깨진 지점이 자격증명 안이면 그 자리가 `***` 로 덮여 원인이 안 보인다. 드문 경우이고
+ * 깨진 지점이 자격증명 안이면 그 자리가 별표로 덮여 원인이 안 보인다. 드문 경우이고
  * 파서 사유와 line, column 은 그대로 남는다 — 노출을 막는 쪽을 택했다.
  */
 export function snippetAround(text: string, position: number, radius = SNIPPET_RADIUS): string {
+  // 마스킹이 길이를 보존하므로 위치가 그대로 쓰인다. 줄여 쓰면 자리가 밀려 보정이 필요해지고
+  // 그 보정은 근사라서 깨진 지점을 못 짚는다.
   const masked = redactSecrets(text);
-  // 가리면서 길이가 줄어드니 위치를 비율로 옮긴다. 정확한 자리를 못 잡아도 파서 사유에
-  // 위치가 남아 있다. 스니펫은 어디쯤인지 보여주는 자리다.
-  const shift = masked.length / Math.max(text.length, 1);
-  const focus = Math.min(masked.length, Math.round(position * shift));
-  const start = Math.max(0, focus - radius);
-  const end = Math.min(masked.length, focus + radius);
+  const start = Math.max(0, position - radius);
+  const end = Math.min(masked.length, position + radius);
   const body = escapeNewlines(masked.slice(start, end));
   return `${start > 0 ? '…' : ''}${body}${end < masked.length ? '…' : ''}`;
 }

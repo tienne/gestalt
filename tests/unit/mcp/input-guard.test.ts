@@ -407,6 +407,15 @@ describe('라운드 2에서 나온 경계', () => {
     expect(snippet).not.toContain('AAAABBBB');
   });
 
+  it('마스킹이 길이를 보존해 깨진 지점이 제자리에 남는다', () => {
+    // 줄여 쓰면 뒤 문자들의 자리가 밀려 스니펫이 엉뚱한 데를 짚는다.
+    const text = String.raw`{"t":"ghp_AAAABBBBCCCCDDDD","s":"\uZZ"}`;
+    const snippet = snippetAround(text, text.indexOf(String.raw`\u`));
+
+    expect(snippet).toContain('uZZ');
+    expect(snippet).not.toContain('AAAABBBB');
+  });
+
   it('새로 넣은 접두어와 PEM 블록도 가린다', () => {
     expect(formatReceived({ k: `sk_live_${'AAAABBBBCCCC'}` })).not.toContain('AAAABBBBCCCC');
     expect(formatReceived({ k: 'xoxb-AAAABBBBCCCC' })).not.toContain('AAAABBBBCCCC');
