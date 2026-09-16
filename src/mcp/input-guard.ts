@@ -20,21 +20,23 @@
  * 값이 붙어 원인은 읽힌다. 중첩까지 넓히려면 배열 요소 스키마를 재구성해야 하는데,
  * 실제로 문자열이 오는 자리는 최상위 파라미터라 거기까지 가지 않았다.
  *
- * **이 파일은 zod v3 내부 구조(`_def`)에 기댄다.** semver 보장 대상이 아니라 마이너
- * 업그레이드에도 깨질 수 있다. 깨지면 예외 없이 조용히 안 걸린다 — 에러 메시지만
- * 예전으로 돌아가고 아무도 모른다. 그래서 파일 끝의 `assertZodInternals()`가 기동
- * 때 한 번 실제로 주입해보고 안 먹으면 그 자리에서 실패시킨다. zod 버전을 올리면
+ * **이 파일은 zod v3 내부 구조(`_def`)에 기댄다.** 파일 끝 `probeZodInternals()`가 그
+ * 의존을 감시한다 — 근거는 그 함수 주석에 있다. zod 버전을 올리면
  * `tests/unit/mcp/input-guard.test.ts`를 반드시 다시 돌린다.
  */
 import { z } from 'zod';
+import { log } from '../core/log.js';
 
 const Kind = z.ZodFirstPartyTypeKind;
 
 /** 깨진 지점 앞뒤로 보여줄 글자 수. */
 const SNIPPET_RADIUS = 40;
+/** 그중 마스킹을 걸지 않는 폭 — 원인 바이트가 `***` 에 묻히지 않게 한다. */
+const REDACT_KEEP = 8;
 /** 에러 메시지에 실을 값 샘플의 최대 길이. */
 const SAMPLE_LIMIT = 120;
-/** 샘플로 훑고 들어갈 최대 깊이. */
+// 한 줄 메시지에 실을 샘플이라 깊이 2와 앞 몇 개면 어느 필드가 틀렸는지는 읽힌다.
+// 더 들어가도 어차피 SAMPLE_LIMIT 에서 잘린다.
 const SAMPLE_DEPTH = 2;
 const SAMPLE_ARRAY_ITEMS = 5;
 const SAMPLE_OBJECT_KEYS = 10;
@@ -57,22 +59,17 @@ const STRUCTURED_KINDS = new Set<z.ZodFirstPartyTypeKind>([
 ]);
 
 /**
- * 받은 값 샘플을 붙일 이슈 코드.
+ * 받은 값 샘플을 **안** 붙일 이슈 코드.
  *
- * `invalid_type`은 아래에서 따로 다룬다. 여기 있는 것들은 defaultError가 기대치만
- * 말하고 실제 값은 안 말해주는 자리다 — 최소 길이 위반에서 몇 자가 왔는지는 부르는
- * 쪽이 알아야 고친다.
+ * 허용 목록이 아니라 거부 목록이다. 허용 목록으로 두면 나중에 `z.union()`이나
+ * `z.date()` 필드가 붙었을 때 그 자리만 조용히 샘플을 잃는다 — 에러도 안 나서 아무도
+ * 모른다. 특히 union 의 zod 기본 문구는 `Invalid input` 이라 값이 없으면 읽을 게
+ * 없다.
+ *
+ * `custom`은 이미 완성된 문구다. `.refine()`의 커스텀 메시지와 이 파일이 던지는 파싱
+ * 실패 메시지가 거기 오는데, 값을 덧붙이면 같은 말이 두 번 실린다.
  */
-const SAMPLED_CODES = new Set<string>([
-  z.ZodIssueCode.invalid_enum_value,
-  z.ZodIssueCode.invalid_literal,
-  z.ZodIssueCode.invalid_string,
-  z.ZodIssueCode.invalid_union_discriminator,
-  z.ZodIssueCode.too_small,
-  z.ZodIssueCode.too_big,
-  z.ZodIssueCode.not_multiple_of,
-  z.ZodIssueCode.not_finite,
-]);
+const UNSAMPLED_CODES = new Set<string>([z.ZodIssueCode.custom]);
 
 /**
  * 에러 문구에 실리기 전에 가릴 토큰.
@@ -81,12 +78,25 @@ const SAMPLED_CODES = new Set<string>([
  * 사용자 콘텐츠를 담는 필드면 거기 섞인 자격증명이 로그에 영구히 남는다. 접두어는
  * 남겨서 무엇이 가려졌는지는 읽히게 한다.
  *
- * 끄는 수단은 두지 않는다. 검사를 끄는 스위치를 밖에 두면 그게 공격 표면이 된다.
+ * **알려진 접두어만 가린다.** 접두어가 없는 값(AWS 시크릿 액세스 키 같은 40자 난수)은
+ * 못 잡는다. 완전히 막는 장치가 아니라 흔한 실수를 줄이는 자리다.
+ *
+ * 끄는 수단은 두지 않았다. 이 값은 에러 문구에 실려 로그로 나가는 데이터라, 가리기를
+ * 끄는 스위치를 두면 그게 노출 경로가 된다.
  */
-const SECRET_PATTERN = /(sk-|ghp_|gho_|ghs_|github_pat_|AKIA|Bearer\s+)[A-Za-z0-9_-]{8,}/g;
+const SECRET_PATTERNS: RegExp[] = [
+  // `Bearer` 뒤는 공백류뿐 아니라 이스케이프된 개행(`\n` 두 글자)도 받는다.
+  // `formatReceived` 는 `JSON.stringify` 를 먼저 거치므로 그 자리에 실제 개행이 안 남는다.
+  /(sk-|sk_live_|sk_test_|ghp_|gho_|ghs_|github_pat_|xox[baprs]-|AIza|npm_|AKIA|Bearer(?:\s|\\n|\\r)+)[A-Za-z0-9_-]{8,}/g,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/g,
+];
 
 function redactSecrets(text: string): string {
-  return text.replace(SECRET_PATTERN, '$1***');
+  return SECRET_PATTERNS.reduce(
+    (acc, pattern) =>
+      acc.replace(pattern, (match, prefix: string | undefined) => `${prefix ?? match}***`),
+    text,
+  );
 }
 
 /** 한 줄 메시지에 실으므로 줄바꿈은 눈에 보이게 바꾼다. */
@@ -141,7 +151,8 @@ export function formatReceived(value: unknown): string {
     rendered = String(value);
   }
   if (rendered.length > SAMPLE_LIMIT) rendered = `${rendered.slice(0, SAMPLE_LIMIT)}…`;
-  return redactSecrets(escapeNewlines(rendered));
+  // 마스킹을 먼저 건다. 개행이 `\n` 두 글자로 바뀐 뒤에는 `Bearer\s+` 가 그 자리를 못 잡는다.
+  return escapeNewlines(redactSecrets(rendered));
 }
 
 /** JSON 파서 에러 문구에서 위치를 뽑는다. 런타임마다 문구가 달라 없을 수도 있다. */
@@ -152,18 +163,35 @@ function extractPosition(reason: string): number | null {
   return Number.isFinite(position) ? position : null;
 }
 
-/** 깨진 지점 주변만 잘라 보여준다. */
+/**
+ * 깨진 지점 주변만 잘라 보여준다.
+ *
+ * 그 지점 앞뒤 `REDACT_KEEP` 글자는 마스킹에서 뺀다. 파서가 문제 삼은 문자가 `***` 에
+ * 묻히면 스니펫을 붙이는 이유가 없어진다. 대신 토큰이 그 경계에 걸치면 앞뒤 일부가
+ * 남을 수 있다 — 원인을 보여주는 쪽을 택한 값이다.
+ */
 export function snippetAround(text: string, position: number, radius = SNIPPET_RADIUS): string {
   const start = Math.max(0, position - radius);
   const end = Math.min(text.length, position + radius);
-  const body = redactSecrets(escapeNewlines(text.slice(start, end)));
-  return `${start > 0 ? '…' : ''}${body}${end < text.length ? '…' : ''}`;
+  const slice = text.slice(start, end);
+
+  const focus = position - start;
+  const keepFrom = Math.max(0, focus - REDACT_KEEP);
+  const keepTo = Math.min(slice.length, focus + REDACT_KEEP);
+  const body =
+    redactSecrets(slice.slice(0, keepFrom)) +
+    slice.slice(keepFrom, keepTo) +
+    redactSecrets(slice.slice(keepTo));
+
+  return `${start > 0 ? '…' : ''}${escapeNewlines(body)}${end < text.length ? '…' : ''}`;
 }
 
 /** JSON 파싱 실패를 부르는 쪽이 바로 고칠 수 있는 한 줄로 만든다. */
 export function describeJsonParseFailure(label: string, raw: string, error: unknown): string {
   const reason = error instanceof Error ? error.message : String(error);
-  const head = `${label}: 문자열로 왔는데 JSON으로 안 풀립니다 — ${reason}`;
+  // 파서 문구도 부르는 쪽 바이트에서 나온다. 최신 V8 은 깨진 지점 원문을 그 안에
+  // 인용하므로 raw 와 같은 취급을 받아야 한다.
+  const head = `${label}: 문자열로 왔는데 JSON으로 안 풀립니다 — ${escapeNewlines(redactSecrets(reason))}`;
   const position = extractPosition(reason);
   if (position === null) return `${head} (길이 ${raw.length}자)`;
   return `${head}. 깨진 지점 주변: ${snippetAround(raw, position)}`;
@@ -195,11 +223,11 @@ export const verboseErrorMap: z.ZodErrorMap = (issue, ctx) => {
     return { message: `${ctx.defaultError}${at} (unrecognized: ${issue.keys.join(', ')})` };
   }
 
-  if (SAMPLED_CODES.has(issue.code)) {
-    return { message: `${ctx.defaultError}${at} (received: ${formatReceived(ctx.data)})` };
+  if (UNSAMPLED_CODES.has(issue.code)) {
+    return { message: `${ctx.defaultError}${at}` };
   }
 
-  return { message: `${ctx.defaultError}${at}` };
+  return { message: `${ctx.defaultError}${at} (received: ${formatReceived(ctx.data)})` };
 };
 
 /**
@@ -398,27 +426,65 @@ export function guardObject<S extends z.AnyZodObject>(schema: S): S {
 }
 
 /**
- * errorMap 주입이 실제로 먹는지 기동 때 한 번 확인한다.
+ * 이 모듈이 이름으로 집는 zod 내부 필드가 아직 그 자리에 있는지 본다.
  *
- * `_def`는 zod의 semver 보장 대상이 아니다. 필드 이름이나 위치가 바뀌면 위 할당은
- * 예외 없이 그냥 안 걸리는 속성을 하나 더 만들고 끝난다. 그러면 에러 메시지가 조용히
- * 예전으로 돌아가 이 모듈이 있으나 마나 해진다. 조용한 무력화보다 기동 실패가 낫다.
+ * `_def`는 zod 의 semver 보장 대상이 아니다. 필드 이름이 바뀌면 위 코드는 예외 없이
+ * 그냥 안 걸리는 속성을 하나 더 만들고 끝난다 — 에러 메시지만 조용히 예전으로
+ * 돌아가고 아무도 모른다.
+ *
+ * **errorMap 한 자리만 보면 부족하다.** 순회는 `innerType`과 `type`, `options`,
+ * `items`, `schema`, `valueType`, `shape` 를 이름으로 집고 `defaultValue` 가 팩토리라는
+ * 것에도 기댄다. 그중 하나만 개명되면 프로브는 통과하고 그 경로만 방어를 잃는다.
+ *
+ * 돌려주는 건 어긋난 자리의 목록이다. 비어 있으면 정상이다. 순수 함수로 둔 이유는
+ * 테스트가 이 판정 자체를 검증할 수 있게 했다 — 기동 경로에만 있으면 이
+ * 감시 장치가 깨졌을 때 잡을 방법이 없다.
  */
-function assertZodInternals(): void {
+export function probeZodInternals(): string[] {
+  const missing: string[] = [];
+
   const mark = 'gestalt-input-guard-self-check';
   const probe = z.string();
   (probe._def as { errorMap?: z.ZodErrorMap }).errorMap = () => ({ message: mark });
   const result = probe.safeParse(123);
-  const injected = !result.success && result.error.issues[0]?.message === mark;
+  if (result.success || result.error.issues[0]?.message !== mark) missing.push('errorMap');
 
-  if (!injected || typeNameOf(probe) !== Kind.ZodString) {
-    throw new Error(
-      'input-guard: zod 내부 구조가 바뀌어 errorMap 주입이 안 먹습니다. ' +
-        'MCP 도구 입력 검증이 실패 원인을 안 알려주던 상태로 돌아갑니다. ' +
-        'src/mcp/input-guard.ts를 zod 버전에 맞춰 고치고 ' +
-        'tests/unit/mcp/input-guard.test.ts를 다시 돌리세요.',
-    );
+  const fields: Array<[string, z.ZodTypeAny]> = [
+    ['typeName', z.string()],
+    ['innerType', z.string().optional()],
+    ['type', z.array(z.string())],
+    ['schema', z.string().refine(() => true)],
+    ['options', z.union([z.string(), z.number()])],
+    ['items', z.tuple([z.string()])],
+    ['valueType', z.record(z.string())],
+    ['shape', z.object({ a: z.string() })],
+  ];
+  for (const [field, schema] of fields) {
+    if ((schema._def as Record<string, unknown>)[field] === undefined) missing.push(field);
   }
+
+  // 껍질 복원이 이 값을 그대로 다시 넘긴다. 값이면 모든 요청이 한 인스턴스를 나눠 쓴다.
+  const withDefault = z.array(z.string()).default([]);
+  const defaultDef = withDefault._def as unknown as Record<string, unknown>;
+  if (typeof defaultDef['defaultValue'] !== 'function') {
+    missing.push('defaultValue(팩토리여야 한다)');
+  }
+
+  return missing;
 }
 
-assertZodInternals();
+/**
+ * 어긋난 자리가 있으면 stderr 로 알린다. 기동은 막지 않는다.
+ *
+ * 여기서 죽이면 폭발 반경이 MCP 서버 전체다. 사용자가 보는 건 `Connection closed`
+ * 한 줄이다. 원인을 알려주자는 모듈이 자기 실패에서는 원인을 감추는 꼴이 된다. 막고
+ * 싶은 건 조용한 퇴행인데 그건 `pnpm gate` 가 `probeZodInternals()` 를 직접 불러 잡는다.
+ */
+const missingInternals = probeZodInternals();
+if (missingInternals.length > 0) {
+  log(
+    `input-guard: zod 내부 구조가 바뀌어 입력 검증 방어가 안 걸립니다 — ${missingInternals.join(', ')}. ` +
+      '에러 메시지가 실패 원인을 안 알려주는 상태로 돌아갑니다. ' +
+      'src/mcp/input-guard.ts를 zod 버전에 맞춰 고치세요.',
+  );
+}
