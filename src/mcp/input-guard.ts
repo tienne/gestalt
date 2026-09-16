@@ -70,48 +70,51 @@ const STRUCTURED_KINDS = new Set<z.ZodFirstPartyTypeKind>([
  * 끄는 스위치를 두면 그게 노출 경로가 된다.
  */
 /**
- * 영단어 안에 흔히 들어가는 접두어. 본문 하한을 낮추면 멀쩡한 단어를 잘못 가린다 — `sk-` 는
- * `task-runner` 와 `desk-top` 한가운데에 걸린다. 그래서 이쪽만 하한을 안 내린다.
+ * 접두어와 그 뒤 본문의 최소 길이.
+ *
+ * **하한을 접두어마다 따로 잡는다.** 하나로 묶으면 둘 중 하나가 깨진다 — 낮게 잡으면
+ * `npm_package_name` 과 `task-scheduler` 처럼 꼬리가 긴 멀쩡한 식별자가 가려진다.
+ * 높게 잡으면 짧은 토큰을 놓친다. 값은 각 서비스가 발급하는 길이에서 왔다.
+ *
+ * `sk-` 와 `AKIA`, `npm_` 은 영단어 안에 흔히 들어간다. 그쪽 하한이 특히 실제 발급
+ * 길이에 붙어 있어야 `risk-assessment` 가 안 걸린다.
  */
-const AMBIGUOUS_PREFIXES = [
-  'sk-',
-  // AWS 액세스 키 ID 는 뒤에 16자가 붙는다. 하한을 내리면 `AKIActually` 같은 단어가 걸린다.
-  'AKIA',
-  // `npm_config` 처럼 흔한 식별자가 파서 문구에서 가려지면 원인을 못 읽는다.
-  'npm_',
-].join('|');
-
-/** 영단어에 잘 안 나오는 접두어. 파서 문구용으로 하한을 내려도 잘못 가릴 일이 드물다. */
-const DISTINCT_PREFIXES = [
-  'sk_live_',
-  'sk_test_',
-  'ghp_',
-  'gho_',
-  'ghs_',
-  'github_pat_',
-  'xox[baprs]-',
-  'AIza',
+const TOKEN_RULES: ReadonlyArray<readonly [prefix: string, minBody: number]> = [
+  // Stripe — 24자 이상
+  ['sk_live_', 20],
+  ['sk_test_', 20],
+  // GitHub — PAT 36자, fine-grained 82자
+  ['ghp_', 30],
+  ['gho_', 30],
+  ['ghs_', 30],
+  ['github_pat_', 30],
+  // Slack — 가변이라 낮게 잡는다. 영단어에 안 나오는 꼴이라 낮아도 안전하다.
+  ['xox[baprs]-', 10],
+  // Google API 키 — 35자
+  ['AIza', 30],
   // 뒤에 공백류뿐 아니라 이스케이프된 개행(`\n` 두 글자)도 받는다. `formatReceived` 는
   // `JSON.stringify` 를 먼저 거치므로 그 자리에 실제 개행이 안 남는다.
-  'Bearer(?:\\s|\\\\n|\\\\r)+',
-].join('|');
-
-/** 기본 본문 하한. 이보다 짧으면 토큰으로 안 본다. */
-const TOKEN_BODY_MIN = 8;
+  ['Bearer(?:\\s|\\\\n|\\\\r)+', 10],
+  // OpenAI — 48자 안팎. `task-`, `risk-`, `desk-` 한가운데에 걸린다.
+  ['sk-', 20],
+  // AWS 액세스 키 ID — 뒤에 16자. `AKIActually` 가 그 아래로 떨어진다.
+  ['AKIA', 16],
+  // npm 토큰 — 36자. `npm_config_registry` 류 환경변수 이름이 그 아래로 떨어진다.
+  ['npm_', 30],
+];
 
 /**
- * 접두어를 그룹 1 로 캡처한다. 본문 최소 길이만 달리해 두 벌을 만든다.
+ * 접두어를 그룹 1 로 캡처한다. 규칙마다 패턴 하나씩 만든다.
  *
  * **단어 경계는 두지 않는다.** `(?<![A-Za-z0-9_])` 를 붙이면 `my_ghp_REAL` 이나
  * `123ghp_REAL` 처럼 접두어 앞에 단어 문자가 붙은 진짜 토큰을 놓친다. 못 가리는 쪽이
- * 잘못 가리는 쪽보다 나쁘다 — 가리는 게 이 함수의 일이다. 잘못 가리는 건 애매한
- * 접두어의 하한으로 막는다.
+ * 잘못 가리는 쪽보다 나쁘다 — 가리는 게 이 함수의 일이다. 잘못 가리는 건 접두어별
+ * 하한으로 막는다.
  */
-function tokenPatterns(minBody: number): RegExp[] {
-  return [
-    new RegExp(`(${DISTINCT_PREFIXES})[A-Za-z0-9_-]{${minBody},}`, 'g'),
-    new RegExp(`(${AMBIGUOUS_PREFIXES})[A-Za-z0-9_-]{${TOKEN_BODY_MIN},}`, 'g'),
-  ];
+function tokenPatterns(): RegExp[] {
+  return TOKEN_RULES.map(
+    ([prefix, minBody]) => new RegExp(`(${prefix})[A-Za-z0-9_-]{${minBody},}`, 'g'),
+  );
 }
 
 /**
@@ -135,16 +138,7 @@ const PEM_PATTERN =
  * 끊어 뒤가 통째로 남았다 — 그 클래스를 되돌리면서 의존이 사라졌다. 순서 무관은
  * 테스트가 고정한다.
  */
-const SECRET_PATTERNS: RegExp[] = [PEM_PATTERN, ...tokenPatterns(TOKEN_BODY_MIN)];
-
-/**
- * 파서 문구 전용. 본문 하한을 뺐다.
- *
- * V8 은 `Unexpected token` 류에서 문제 지점 주변을 자기 문구 안에 여섯 자쯤만 인용한다.
- * 그 길이는 본문 하한 여덟 자에 안 닿아서 기본 패턴으로는 접두어와 앞 몇 글자가 늘
- * 새어나간다.
- */
-const LENIENT_PATTERNS: RegExp[] = [PEM_PATTERN, ...tokenPatterns(1)];
+const SECRET_PATTERNS: RegExp[] = [PEM_PATTERN, ...tokenPatterns()];
 
 /**
  * 토큰을 가린다. 접두어는 남겨 무엇이 가려졌는지는 읽히게 한다.
@@ -160,11 +154,8 @@ const LENIENT_PATTERNS: RegExp[] = [PEM_PATTERN, ...tokenPatterns(1)];
  * `preserveLength` 는 `snippetAround` 만 쓴다. 자리가 밀리면 깨진 지점을 못 짚기 때문이다.
  * 나머지 자리는 고정 길이로 덮어 별표 개수가 원문 길이를 드러내지 않게 한다.
  */
-function redactSecrets(
-  text: string,
-  options: { preserveLength?: boolean; patterns?: RegExp[] } = {},
-): string {
-  return (options.patterns ?? SECRET_PATTERNS).reduce(
+function redactSecrets(text: string, options: { preserveLength?: boolean } = {}): string {
+  return SECRET_PATTERNS.reduce(
     (acc, pattern) =>
       acc.replace(pattern, (match: string, group: unknown) => {
         const prefix = typeof group === 'string' ? group : '';
@@ -178,7 +169,7 @@ function redactSecrets(
 
 /** 패턴 계약을 테스트가 확인할 수 있게 내보낸다. 런타임 경로는 이 함수를 안 쓴다. */
 export function secretPatternsForTest(): RegExp[] {
-  return [...SECRET_PATTERNS, ...LENIENT_PATTERNS];
+  return [...SECRET_PATTERNS];
 }
 
 /** 한 줄 메시지에 실으므로 줄바꿈은 눈에 보이게 바꾼다. */
@@ -273,9 +264,14 @@ export function snippetAround(text: string, position: number, radius = SNIPPET_R
 export function describeJsonParseFailure(label: string, raw: string, error: unknown): string {
   const reason = error instanceof Error ? error.message : String(error);
   // 파서 문구도 부르는 쪽 바이트에서 나온다. 최신 V8 은 깨진 지점 원문을 그 안에
-  // 인용하므로 가려야 한다. 인용이 짧아 기본 하한에 안 닿으니 관대한 패턴을 쓴다.
-  // 스니펫과 달리 전량 마스킹이다 — 원인을 보여주는 자리는 스니펫 한 곳으로 몰아뒀다.
-  const masked = escapeNewlines(redactSecrets(reason, { patterns: LENIENT_PATTERNS }));
+  // 인용하므로 가려야 한다.
+  //
+  // **인용이 하한보다 짧으면 안 가려진다.** V8 은 여섯 자쯤만 인용하므로 접두어와 그
+  // 몇 글자가 남는다. 하한을 내려 그걸 잡으려 했더니 `npm_package_name` 같은 멀쩡한
+  // 식별자가 원인 설명에서 지워졌다 — 원인을 알려주자는 목적과 반대로 간다. 조각 여섯
+  // 자로는 키를 복원할 수 없다. 원문 전체를 보는 두 경로(값 샘플과 스니펫)는 정확히
+  // 가려진다. 그쪽을 택했다.
+  const masked = escapeNewlines(redactSecrets(reason));
   const head = `${label}: 문자열로 왔는데 JSON으로 안 풀립니다 — ${masked}`;
   const position = extractPosition(reason);
   if (position === null) return `${head} (길이 ${raw.length}자)`;
