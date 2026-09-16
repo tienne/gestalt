@@ -92,6 +92,8 @@ Success condition: `score ≥ 0.85` AND `goalAlignment ≥ 0.80`
 
 `gestalt.json`의 `ruleSources`에 선언된 것만 읽는다. 선언이 없으면 이 단계는 통째로 건너뛴다.
 
+`solve`가 불러서 들어온 경우에는 그쪽 Phase 0이 이미 읽어 `ruleContext`를 넘겨준다. 0-2는 다시 하지 않는다. **0-1 레포 안 탐색은 그대로 한다** — 대상 파일이 정해진 뒤라야 가까운 `CLAUDE.md`를 고를 수 있어서 앞당길 수 없다.
+
 읽는 방법, `trust`와 `onMissing` 해석, 결과에 뭘 남길지는 전부 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)가 원본이다. **여기에 옮겨 적지 않는다.**
 
 `ges_status`(sessionId 없이)의 응답에서 `ruleSources`를 읽는다. `gestalt.json`을 직접 파싱하지 않는다 — 서버가 resolve한 값이 기준이다.

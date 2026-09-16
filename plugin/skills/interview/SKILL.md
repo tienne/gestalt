@@ -59,6 +59,8 @@ topic에 아래 키워드가 포함되면 `/review` 스킬이 더 적합하다:
 
 `gestalt.json`의 `ruleSources`에 선언된 것만 읽는다. 선언이 없으면 이 단계를 통째로 건너뛰고 바로 인터뷰를 시작한다.
 
+`solve`가 불러서 들어온 경우에는 그쪽 Phase 0이 이미 읽어 `ruleContext`를 넘겨준다. 다시 읽지 않는다 — 한 흐름 안에서 두 번 읽으면 기준이 갈릴 수 있다.
+
 읽는 방법, `trust`와 `onMissing` 해석, 결과에 뭘 남길지는 전부 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)가 원본이다. **여기에 옮겨 적지 않는다.**
 
 `ges_status`(sessionId 없이)의 응답에서 읽는다. `gestalt.json`을 직접 파싱하지 않는다 — 서버가 resolve한 값이 기준이다.
