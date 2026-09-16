@@ -705,7 +705,9 @@ ges_agent({ action: "get", name: "architect" })
 
 `ruleSources`와 `ruleSourceErrors`도 같은 자리에 항상 실린다. `ruleSources`는 대상 레포가 `gestalt.json`에 선언한 레포 밖 규칙 소스를 서버가 resolve한 값이다. 스킬은 `gestalt.json`을 직접 파싱하지 않고 이 값을 읽는다 — 파싱을 스킬 쪽에도 두면 resolve 규칙이 두 벌이 된다. 필드의 뜻과 적용 규칙은 [`plugin/skills/_shared/rule-sources.md`](../plugin/skills/_shared/rule-sources.md)가 원본이다.
 
-`ruleSourceErrors`는 사용자가 쓰는 필드가 아니라 게슈탈트가 채운다. 선언 하나가 잘못되면 zod가 `ruleSources`를 통째로 빈 배열로 되돌린다. 그 상태를 "선언 안 한 레포"로 읽으면 오타 하나가 `onMissing: "stop"` 게이트를 조용히 끄는 우회로가 된다. 그래서 왜 비었는지를 여기 함께 싣고 스킬이 멈춘다. 빈 `ruleSources`는 두 가지 뜻이므로 이 필드로 가른다 — 이쪽까지 비어 있어야 "선언 안 함"이고 차 있으면 "선언이 깨짐"이다.
+두 값 모두 서버가 기동할 때 한 번 resolve한 스냅샷이다. 도구를 다시 불러도 같은 값이 온다. 선언을 고쳤으면 서버를 다시 띄워야 반영된다.
+
+`ruleSourceErrors`는 사용자가 쓰는 필드가 아니라 게슈탈트가 채운다. 잘못된 선언은 그 항목만 빠지고 나머지 소스와 다른 설정은 그대로 남는다. 빠진 자리를 모르면 `onMissing: "stop"`으로 걸어둔 검사가 안 돈 채로 지나간다. 그래서 무엇이 왜 빠졌는지를 여기 싣고 스킬이 멈춘다. 이 필드가 비어 있어야 선언을 그대로 읽은 것이다. 차 있으면 일부가 빠졌다.
 
 ---
 
@@ -725,7 +727,7 @@ ges_agent({ action: "get", name: "architect" })
 
 표의 마지막 줄은 스킬이 아니라 [`plugin/skills/_shared/proactive-routing.md`](../plugin/skills/_shared/proactive-routing.md)의 규칙이다. 인터뷰나 실행을 시작하기 전, 어느 에이전트를 부를지 고르는 자리에서 본다.
 
-조직 디자인 시스템이나 브랜드 가드레일을 물고 있는 스킬이 따로 있는데 게슈탈트의 범용 에이전트가 먼저 잡으면 그 가드레일이 통째로 빠진 결과가 나온다. `delegate` 선언은 그 자리를 막는다. 선언이 없으면 라우팅 표가 그대로 적용된다.
+조직 디자인 시스템이나 브랜드 규정을 물고 있는 스킬이 따로 있는데 게슈탈트의 범용 에이전트가 먼저 잡으면 그 규정이 통째로 빠진 결과가 나온다. `delegate` 선언은 그 자리를 막는다. 선언이 없으면 라우팅 표가 그대로 적용된다.
 
 ### `solve`로 들어오면 나머지 셋은 건너뛴다
 
