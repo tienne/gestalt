@@ -339,8 +339,10 @@ describe('마스킹 계약', () => {
     }
   });
 
-  it('ASIA 가 지역 이름을 가리지 않는다', () => {
-    // 하한 16 이 그 일을 한다. AWS 임시 자격증명은 뒤에 16자가 붙는다.
+  it('ASIA 로 시작하는 짧은 말은 하한 밑으로 떨어진다', () => {
+    // 하한 16 이 하는 일은 여기까지다. `ASIA_PACIFIC_SOUTHEAST_1` 처럼 열여섯 자를
+    // 넘는 이름은 가려진다 — 못 가리는 쪽이 잘못 가리는 쪽보다 나쁘다는 우선순위를
+    // 따른 결과다.
     for (const word of ['ASIA', 'ASIAN', 'ASIAPACIFIC', 'asia-region-1']) {
       expect(formatReceived({ k: word })).toContain(word);
     }
@@ -356,9 +358,9 @@ describe('마스킹 계약', () => {
   });
 
   it('하한 경계가 규칙 표와 맞는다', () => {
-    // 표본을 전부 넉넉한 길이로 두면 하한을 잘못 적어도 안 걸린다. 규칙마다 하한
-    // 바로 위와 바로 아래를 만들어 경계를 고정한다. AKIA 는 발급 길이와 하한이 같아
-    // 여유가 없으므로 특히 이 판정이 필요하다.
+    // 기대값을 같은 표에서 뽑으므로 하한 값 자체는 못 고정한다. 이 판정이 잡는 건
+    // 생성기가 표의 하한을 그대로 쓴다는 계약이다 — 단어 경계나 오프바이원이 다시
+    // 들어오면 걸린다. 값을 박는 건 아래 잘못 가리기 판정들이 맡는다.
     for (const [prefix, minBody] of tokenRulesForTest()) {
       const literal = prefix.startsWith('xox')
         ? 'xoxb-'
