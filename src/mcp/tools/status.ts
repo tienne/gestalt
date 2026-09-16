@@ -26,8 +26,8 @@ export function buildStatusConfigInfo(config?: GestaltConfig) {
     // 파싱하면 resolve 규칙이 두 벌이 되므로 서버가 resolve한 값만 내보낸다.
     // 적용 규칙은 _shared/rule-sources.md에 있다.
     ruleSources: config?.ruleSources ?? [],
-    // 비어 있지 않으면 선언은 있었는데 깨진 것이다. 빈 ruleSources를 "선언 없음"으로
-    // 읽으면 오타 하나가 stop 게이트를 끄는 자리가 되므로 이유를 함께 싣는다.
+    // 비어 있지 않으면 선언 일부가 빠진 것이다. 무엇이 빠졌는지 모르면
+    // onMissing: "stop"으로 걸어둔 검사가 안 돈 채 지나간다.
     ruleSourceErrors: config?.ruleSourceErrors ?? [],
   };
 }

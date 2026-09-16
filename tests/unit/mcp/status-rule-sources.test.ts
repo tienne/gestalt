@@ -35,25 +35,23 @@ describe('ges_status — ruleSources', () => {
     expect(out.ruleSourceErrors).toEqual([]);
   });
 
-  // 빈 ruleSources는 "선언 안 함"과 "선언이 깨짐" 두 가지 뜻이다. 구분이 없으면
-  // 오타 하나가 onMissing stop을 조용히 끄는 우회로가 된다
-  it('선언이 깨지면 빈 배열과 함께 이유가 나간다', () => {
+  // 무엇이 빠졌는지 안 알리면 onMissing stop으로 걸어둔 검사가 안 돈 채 지나간다
+  it('깨진 소스만 빠지고 이유가 함께 나간다', () => {
     const out = info({
       ruleSources: [
         { id: 'gate', kind: 'skill', ref: 'kb-design-to-code', onMissing: 'stop' },
         { id: 'typo', kind: 'http', ref: 'https://example.com' },
       ],
     });
-    expect(out.ruleSources).toEqual([]);
-    expect(out.ruleSourceErrors).not.toEqual([]);
+    expect(out.ruleSources.map((r) => r.id)).toEqual(['gate']);
     expect(out.ruleSourceErrors.join()).toContain('ruleSources.1.kind');
   });
 
-  it('선언 없는 레포와 깨진 레포가 서로 다르게 보인다', () => {
+  it('선언 없는 레포와 일부가 빠진 레포가 서로 다르게 보인다', () => {
     const none = info({});
     const broken = info({ ruleSources: [{ id: 'x', kind: 'http', ref: 'y' }] });
-    expect(none.ruleSources).toEqual(broken.ruleSources);
-    expect(none.ruleSourceErrors).not.toEqual(broken.ruleSourceErrors);
+    expect(none.ruleSourceErrors).toEqual([]);
+    expect(broken.ruleSourceErrors).not.toEqual([]);
   });
 
   it('기존 필드를 밀어내지 않는다', () => {

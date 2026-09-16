@@ -212,9 +212,9 @@ describe('loadConfig — ruleSources', () => {
     expect(config.ruleSourceErrors.join()).toMatch(/onMissing/);
   });
 
-  // 오타 하나가 선언 전체를 날리는데, 그걸 "선언 없음"과 구분 못 하면
-  // onMissing: "stop" 게이트가 조용히 꺼진다
-  it('한 소스만 잘못돼도 배열 전체가 비지만 그 이유가 남는다', () => {
+  // 깨진 선언을 "선언 없음"과 구분 못 하면 onMissing: "stop"으로 걸어둔 검사가
+  // 조용히 꺼진다. 그래서 빠진 소스가 있으면 이유를 남긴다
+  it('깨진 소스가 빠져도 그 이유는 남는다', () => {
     const config = loadConfig(
       {
         ruleSources: [
@@ -224,8 +224,41 @@ describe('loadConfig — ruleSources', () => {
       },
       opts,
     );
-    expect(config.ruleSources).toEqual([]);
+    expect(config.ruleSources.map((r) => r.id)).toEqual(['good']);
     expect(config.ruleSourceErrors.length).toBeGreaterThan(0);
+  });
+
+  // 오타 하나로 dbPath나 tierModels까지 날아가면, 없애려던 실패 양식을 필드에서
+  // 걷어내고 설정 전체로 옮긴 셈이 된다
+  it('깨진 소스가 있어도 나머지 설정은 살아남는다', () => {
+    const config = loadConfig(
+      {
+        notifications: true,
+        reasoningModel: 'sonnet',
+        logLevel: 'debug',
+        ruleSources: [{ id: 'bad', kind: 'http', ref: 'x' }],
+      },
+      opts,
+    );
+    expect(config.notifications).toBe(true);
+    expect(config.reasoningModel).toBe('sonnet');
+    expect(config.logLevel).toBe('debug');
+  });
+
+  it('깨진 소스만 빠지고 멀쩡한 소스는 남는다', () => {
+    const config = loadConfig(
+      {
+        ruleSources: [
+          { id: 'good', kind: 'file', ref: 'a' },
+          { id: 'bad1', kind: 'http', ref: 'b' },
+          { id: 'bad2', kind: 'ftp', ref: 'c' },
+          { id: 'good2', kind: 'mcp', ref: 'd' },
+        ],
+      },
+      opts,
+    );
+    expect(config.ruleSources.map((r) => r.id)).toEqual(['good', 'good2']);
+    expect(config.ruleSourceErrors).toHaveLength(2);
   });
 
   it('선언이 멀쩡하면 ruleSourceErrors는 비어 있다 — 선언 없는 레포와 같은 상태', () => {

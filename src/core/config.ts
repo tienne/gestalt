@@ -291,23 +291,54 @@ function normalizeInvalidPath(path: (string | number)[]): (string | number)[] {
   ) {
     return ['llm', path[1]];
   }
+
+  // 배열 원소 안의 필드가 잘못되면 그 원소를 통째로 뺀다. 필드만 지우면 남은 원소가
+  // required 검사에 다시 걸려 복구가 실패한다. 그러면 설정 전체가 기본값으로 떨어진다
+  const firstIndex = path.findIndex((segment) => typeof segment === 'number');
+  if (firstIndex >= 0 && firstIndex < path.length - 1) {
+    return path.slice(0, firstIndex + 1);
+  }
+
   return path;
 }
 
+/**
+ * 잘못된 값 하나를 걷어낸다. 걷어내면 나머지 설정이 기본값으로 안 되돌아간다.
+ *
+ * 경로 중간에 배열이 오는 경우를 함께 다룬다. 안 다루면 배열 안의 값 하나가 잘못됐을 때
+ * 아무것도 못 지운다. 재파싱도 실패해 loadConfig가 "전부 기본값" 분기로 떨어진다. 그러면
+ * ruleSources 오타 하나에 dbPath와 tierModels까지 조용히 갈아치워진다.
+ */
 function removePath(root: Record<string, unknown>, rawPath: (string | number)[]): boolean {
   const path = normalizeInvalidPath(rawPath);
   if (path.length === 0) return false;
 
   let current: unknown = root;
   for (const segment of path.slice(0, -1)) {
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index)) return false;
+      current = current[index];
+      continue;
+    }
     if (!isRecord(current)) return false;
     current = current[String(segment)];
   }
 
+  const finalSegment = path[path.length - 1]!;
+
+  // 배열 원소 하나가 잘못된 경우다. 그 원소만 빼면 나머지 원소와 다른 설정이 살아남는다
+  if (Array.isArray(current)) {
+    const index = Number(finalSegment);
+    if (!Number.isInteger(index) || index < 0 || index >= current.length) return false;
+    current.splice(index, 1);
+    return true;
+  }
+
   if (!isRecord(current)) return false;
-  const finalSegment = String(path[path.length - 1]);
-  if (!(finalSegment in current)) return false;
-  delete current[finalSegment];
+  const key = String(finalSegment);
+  if (!(key in current)) return false;
+  delete current[key];
   return true;
 }
 
@@ -316,10 +347,25 @@ function pruneInvalidConfig(
   paths: (string | number)[][],
 ): Record<string, unknown> {
   const pruned = cloneRecord(input);
-  for (const path of paths) {
+  // 배열 원소는 뒤에서부터 지운다. 앞에서 지우면 splice가 뒤 인덱스를 당겨서
+  // 두 번째 경로가 엉뚱한 원소를 가리킨다
+  for (const path of [...paths].sort(compareByTrailingIndexDesc)) {
     removePath(pruned, path);
   }
   return pruned;
+}
+
+/** 같은 부모를 가리키는 경로끼리 뒤쪽 인덱스가 먼저 오게 한다 */
+function compareByTrailingIndexDesc(a: (string | number)[], b: (string | number)[]): number {
+  const depth = Math.min(a.length, b.length);
+  for (let i = 0; i < depth; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (x === y) continue;
+    const bothIndex = typeof x === 'number' && typeof y === 'number';
+    return bothIndex ? Number(y) - Number(x) : 0;
+  }
+  return 0;
 }
 
 // ─── Public API ─────────────────────────────────────────────────
@@ -367,12 +413,11 @@ export function loadConfig(
 }
 
 /**
- * 깨진 ruleSources 선언을 config에 실어 보낸다.
+ * 빠진 ruleSources 선언의 이유를 config에 실어 보낸다.
  *
- * 잘못된 항목 하나면 zod가 ruleSources 배열을 통째로 기본값(빈 배열)으로 되돌린다.
- * 그 상태를 그냥 두면 스킬 쪽에서 "선언 안 한 레포"와 구분할 수 없어, 오타 하나가
- * onMissing: "stop" 게이트까지 조용히 끄는 우회로가 된다. 그래서 왜 비었는지를
- * 함께 싣고 스킬이 멈출 수 있게 한다.
+ * 잘못된 항목은 prune이 걷어내고 나머지는 살아남는다. 그런데 무엇이 빠졌는지를 안 알리면
+ * 스킬 쪽에서 처음부터 선언 안 한 것과 구분할 수 없다. onMissing: "stop"으로 걸어둔
+ * 검사가 그 상태로 안 돈 채 지나간다.
  */
 function withRuleSourceErrors(config: GestaltConfig, errors: string[]): GestaltConfig {
   if (errors.length > 0) config.ruleSourceErrors = errors;
