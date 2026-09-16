@@ -16,6 +16,7 @@ import {
   describeJsonParseFailure,
   formatReceived,
   guardShape,
+  secretPatternsForTest,
   verboseErrorMap,
   snippetAround,
 } from '../../../src/mcp/input-guard.js';
@@ -222,6 +223,84 @@ describe('도구 스키마 노출', () => {
       expect(schema.properties?.['reviewResult']?.description).toContain('review_submit');
       expect(schema.required).toEqual(['action']);
     });
+  });
+});
+
+describe('마스킹 계약', () => {
+  it('모든 패턴이 접두어를 그룹 1 로 캡처한다', () => {
+    // 그룹이 없는 패턴을 섞으면 String.replace 가 두 번째 인자로 매치 오프셋을 넘겨
+    // 접두어가 숫자로 바뀐다. 라운드 다섯에서 실제로 그랬다.
+    for (const pattern of secretPatternsForTest()) {
+      // 접두어가 맨 앞 그룹이어야 치환 뒤에도 남는다.
+      expect(pattern.source.startsWith('(')).toBe(true);
+      // 그룹이 하나여야 replacer 의 두 번째 인자가 늘 그 그룹이다. 빈 대안을 붙여
+      // 무조건 매치시키면 결과 배열 길이로 그룹 수를 셀 수 있다.
+      const groups = new RegExp(`${pattern.source}|`).exec('');
+      expect(groups).not.toBeNull();
+      expect(groups).toHaveLength(2);
+    }
+  });
+
+  it('암호화 PEM 도 본문과 푸터까지 가린다', () => {
+    // 본문을 base64 집합으로 좁히면 Proc-Type 과 DEK-Info 의 콜론, 쉼표에서 끊긴다.
+    const enc =
+      '-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,65C2F0AF\n\nMIIEvQSECRETBODY\n-----END RSA PRIVATE KEY-----';
+
+    const sample = formatReceived({ k: enc });
+
+    expect(sample).not.toContain('SECRETBODY');
+    expect(sample).not.toContain('AES-128-CBC');
+    expect(sample).toContain('BEGIN RSA PRIVATE KEY');
+  });
+
+  it('PEM 본문에 토큰 접두어가 섞여도 뒤가 안 남는다', () => {
+    // 토큰 패턴이 먼저 돌면 그 치환 문자가 PEM 본문을 끊어 뒤가 통째로 남는다.
+    const mixed =
+      '-----BEGIN RSA PRIVATE KEY-----\nAAAA_BBBBnpm_CCCCCCCCDDDDREALTAIL\n-----END RSA PRIVATE KEY-----';
+
+    expect(formatReceived({ k: mixed })).not.toContain('REALTAIL');
+  });
+
+  it('파서 문구의 짧은 인용도 가린다', () => {
+    // V8 은 문제 지점을 여섯 자쯤만 인용한다. 본문 하한 여덟 자로는 그 인용을 못 잡는다.
+    const raw = '{"t": ghp_AAAAAAAAAAAAAAAAAAAA}';
+    let message = '';
+    try {
+      JSON.parse(raw);
+    } catch (error) {
+      message = describeJsonParseFailure('t', raw, error);
+    }
+
+    // 부분 문자열이 아니라 패턴으로 본다. 앞 몇 글자만 새는 자리를 놓치지 않으려면 그래야 한다.
+    expect(/ghp_[A-Za-z0-9]/.test(message)).toBe(false);
+  });
+
+  it('본문 없는 PEM 헤더도 길이를 보존한다', () => {
+    // 하한을 두면 별표가 덧붙어 자리가 밀린다.
+    const text = '{"k":"-----BEGIN RSA PRIVATE KEY-----","s":"x"}';
+
+    expect(snippetAround(text, text.length - 1, 500)).toHaveLength(text.length);
+  });
+
+  it('guardShape 를 두 번 지나도 결과가 같다', () => {
+    // schemas.ts 의 guardObject 를 지난 스키마가 server.ts 의 guardedTool 에서 한 번 더
+    // 지나는 게 실제 경로다. 네 라운드 미룬 판정이다.
+    const base = { payload: z.object({ a: z.string() }).optional().describe('설명') };
+    const once = z.object(guardShape(base));
+    const twice = z.object(guardShape(guardShape(base)));
+
+    for (const schema of [once, twice]) {
+      expect(schema.safeParse({ payload: '{"a":"x"}' }).success).toBe(true);
+      const broken = schema.safeParse({ payload: '{"a":' });
+      expect(broken.success).toBe(false);
+      if (!broken.success) {
+        const message = broken.error.issues[0]?.message ?? '';
+        expect(message).toContain('JSON으로 안 풀립니다');
+        // 상한 검사와 파싱 실패 문구가 한 번만 실린다.
+        expect(message.match(/JSON으로 안 풀립니다/g)).toHaveLength(1);
+      }
+    }
+    expect((twice.shape.payload._def as { description?: string }).description).toBe('설명');
   });
 });
 
