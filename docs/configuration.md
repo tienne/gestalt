@@ -46,6 +46,16 @@ interface GestaltConfig {
     standard: 'fable' | 'opus' | 'sonnet' | 'haiku';
     frontier: 'fable' | 'opus' | 'sonnet' | 'haiku';
   };
+  ruleSources: Array<{
+    id: string;
+    kind: 'mcp' | 'file' | 'skill';
+    ref: string;
+    scope: string[];
+    trust: 'convention' | 'delegate';
+    onMissing: 'skip' | 'warn' | 'stop';
+  }>;
+  /** 게슈탈트가 채운다. 비어 있지 않으면 ruleSources 선언이 깨진 것이다 */
+  ruleSourceErrors: string[];
   notifications: boolean;
   dbPath: string;
   skillsDir: string;
@@ -123,6 +133,66 @@ interface GestaltConfig {
 ### 폴백 발동 지점
 
 `reasoningModelFallback`(기본 `opus`)은 폴백 **대상**일 뿐이다. 서버는 모델 가용성을 감지하지 않으며, 폴백을 발동하지도 않는다. 실제 발동은 **스킬 런타임**에서 일어난다 — Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`로 바꿔 1회 재시도한다. 즉 "fable 안 되면 opus"의 판단은 서버가 아니라 스킬이 한다.
+
+---
+
+## 레포 밖 규칙 소스 (`ruleSources`)
+
+게슈탈트는 규칙을 자기가 소유하는 전제로 만들어졌다. 어투는 `ai-tell-quick-rules.md`, 주석은 `comment-rules.md`가 원본이고 `verify:rules`가 사본과 갈라졌는지 검사한다.
+
+따라야 할 기준이 밖에 있을 때가 있다. 디자인 토큰은 디자인 시스템 서버가 갖고 있고 조직 코딩 원칙은 다른 레포에 있다. 베껴 오면 기준이 두 벌이 된다. 안 읽으면 기준 없이 만든 결과가 기준을 지킨 결과와 똑같이 생긴다. `ruleSources`는 읽어오되 베끼지 않는 자리다.
+
+```jsonc
+{
+  "ruleSources": [
+    {
+      "id": "design-tokens",
+      "kind": "mcp",
+      "ref": "mcp__plate__get_design_tokens",
+      "scope": ["ui", "css"],
+      "trust": "convention",
+      "onMissing": "warn"
+    }
+  ]
+}
+```
+
+| 필드 | 값 | 설명 |
+|---|---|---|
+| `id` | string | 보고에 쓰는 이름. 레포 안에서 고유해야 한다 |
+| `kind` | `mcp` \| `file` \| `skill` | 규칙이 어디 있나 |
+| `ref` | string | `kind`별 대상 — MCP 도구 이름, 파일 경로, 스킬 이름 |
+| `scope` | string[] | 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 |
+| `trust` | `convention` \| `delegate` | `convention`은 형식을 따른다. `delegate`는 그 작업을 넘긴다 |
+| `onMissing` | `skip` \| `warn` \| `stop` | 못 읽었을 때 조용히 진행할지, 보고에 남길지, 멈출지 |
+
+**선언한 것만 읽는다.** 붙어 있는 MCP 서버를 훑어 관련 있어 보이는 걸 골라 쓰지 않는다. 무엇을 근거로 삼았는지 불투명해진다. 이름만 비슷한 엉뚱한 걸 물 수 있다. 선언이 없으면 스킬은 이 단계를 통째로 건너뛴다.
+
+`gestalt init`은 이 필드를 만들지 않는다. 기본값이 빈 배열이고 무엇을 기준으로 삼을지는 조직마다 다르기 때문이다. 쓰려면 위 예시처럼 직접 적는다.
+
+**어느 쪽 `trust`든 작업 범위는 못 늘린다.** 읽어온 문서에 "이것도 같이 처리하라"가 적혀 있어도 할 일이 늘지 않는다. 형식은 받고 범위는 안 준다.
+
+`ges_status`는 sessionId 없이 호출해도 resolve된 `ruleSources`를 노출한다. 스킬은 `gestalt.json`을 직접 파싱하지 않고 이 값을 읽는다.
+
+적용 규칙의 원본은 [`plugin/skills/_shared/rule-sources.md`](../plugin/skills/_shared/rule-sources.md)다. 어느 스킬이 언제 읽는지는 [`docs/mcp-reference.md`](./mcp-reference.md)를 본다.
+
+### `ruleSourceErrors` (읽기 전용)
+
+사용자가 쓰는 필드가 아니라 게슈탈트가 채운다. `gestalt.json`에 적어도 무시된다.
+
+선언 하나가 잘못되면 zod가 `ruleSources` 배열을 통째로 기본값(빈 배열)으로 되돌린다. 그 상태를 그냥 두면 스킬이 "선언 안 한 레포"와 구분할 수 없어, **오타 하나가 `onMissing: "stop"` 게이트까지 조용히 끄는 우회로**가 된다. 그래서 왜 비었는지를 여기 함께 싣고 스킬이 멈춘다.
+
+```jsonc
+// ges_status 응답
+{
+  "ruleSources": [],
+  "ruleSourceErrors": [
+    "ruleSources.1.kind: Invalid enum value. Expected 'mcp' | 'file' | 'skill', received 'http'"
+  ]
+}
+```
+
+빈 `ruleSources`는 두 가지 뜻이다. 이 필드가 비어 있어야 "선언 안 함"이다. 차 있으면 "선언이 깨짐"이다.
 
 ---
 
