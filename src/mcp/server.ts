@@ -1,4 +1,4 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { loadConfig, type GestaltConfig } from '../core/config.js';
@@ -56,6 +56,7 @@ import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
 import { RoleAgentRegistry } from '../agent/role-agent-registry.js';
 import { setNotificationsEnabled } from '../utils/notifier.js';
+import { guardShape } from './input-guard.js';
 
 /**
  * 도구 응답. 세션에 처음 한 번은 버전 알림을 함께 싣는다.
@@ -101,6 +102,20 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     version: getVersion(),
   });
 
+  /**
+   * 도구 등록은 전부 여기를 지난다.
+   *
+   * `server.tool()`을 직접 부르면 그 도구만 방어를 안 입는다. 입력 검증은 SDK가
+   * 우리 핸들러보다 먼저 돌리므로, 빠뜨린 도구는 다시 `Expected object, received
+   * string` 한 줄만 돌려주는 자리가 된다. 통과 지점을 하나로 둔다.
+   */
+  const guardedTool = <S extends z.ZodRawShape>(
+    name: string,
+    description: string,
+    shape: S,
+    cb: ToolCallback<S>,
+  ) => server.tool(name, description, guardShape(shape), cb);
+
   const ptEngine = new PassthroughEngine(eventStore, agentRegistry);
   const ptSpecGen = new PassthroughSpecGenerator(eventStore, agentRegistry);
   const roleAgentRegistry = new RoleAgentRegistry(
@@ -126,7 +141,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     const interviewRemoved = ptEngine.getSessionManager().cleanup();
     logger.info('session.cleanup', { module: 'interview', removed: interviewRemoved });
 
-    server.tool(
+    guardedTool(
       'ges_interview',
       'Conduct a Gestalt-driven interview (passthrough mode — returns prompts for caller LLM to generate questions/scores). Actions: start, respond, score, complete.',
       {
@@ -164,7 +179,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
     );
 
-    server.tool(
+    guardedTool(
       'ges_generate_spec',
       'Generate a Spec specification (passthrough mode — returns prompt or validates externally generated spec).',
       {
@@ -207,7 +222,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     const engine = new InterviewEngine(llm, eventStore, frugalLlm);
     const specGenerator = new SpecGenerator(llm, eventStore);
 
-    server.tool(
+    guardedTool(
       'ges_interview',
       'Conduct a Gestalt-driven interview to clarify project requirements. Actions: start, respond, score, complete.',
       {
@@ -234,7 +249,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
     );
 
-    server.tool(
+    guardedTool(
       'ges_generate_spec',
       'Generate a Spec specification from a completed interview session.',
       {
@@ -254,7 +269,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
     );
 
-    server.tool(
+    guardedTool(
       'ges_status',
       'Check the status of interview and execute sessions.',
       {
@@ -278,7 +293,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     );
   }
 
-  server.tool(
+  guardedTool(
     'ges_execute',
     'Execute a Spec using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, resume, audit, spawn, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result, role_match, role_consensus, review_start, review_submit, review_consensus, review_fix, review_publish.',
     executeToolSchema,
@@ -302,7 +317,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   const ptAgentGen = new PassthroughAgentGenerator(eventStore, roleAgentRegistry);
 
-  server.tool(
+  guardedTool(
     'ges_create_agent',
     'Create a custom Role Agent from a completed interview session (passthrough mode). Actions: start, submit.',
     {
@@ -322,7 +337,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
   );
 
-  server.tool(
+  guardedTool(
     'ges_agent',
     "List available agents or retrieve a specific agent's system prompt for standalone use — no pipeline required. Actions: list (get all role/review agents), get (retrieve agent by name).",
     {
@@ -347,7 +362,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
   );
 
-  server.tool(
+  guardedTool(
     'ges_benchmark',
     'Run Gestalt pipeline benchmarks in passthrough mode. Actions: start (begin a scenario), respond (submit LLM response), status (check progress). No API key required — caller acts as the LLM.',
     {
@@ -377,7 +392,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   );
 
   if (usePassthroughInterview) {
-    server.tool(
+    guardedTool(
       'ges_status',
       'Check the status of interview and execute sessions.',
       {
@@ -397,7 +412,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     );
   }
 
-  server.tool(
+  guardedTool(
     'ges_code_graph',
     'Build and query the code knowledge graph for a repository. Actions: build (index codebase), blast_radius (find impacted files from committed changes), diff_radius (find impacted files from uncommitted changes), query (graph traversal), stats (show DB stats), db_exists (check if graph DB exists), co_change (files that git history shows changing together).',
     {
@@ -435,7 +450,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
   );
 
-  server.tool(
+  guardedTool(
     'ges_graph_visualize',
     'Start a local HTTP server that renders an interactive D3.js force-directed graph visualization of the code knowledge graph. Opens the browser automatically. Requires an existing or auto-buildable code-graph.db.',
     {
@@ -449,7 +464,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
   );
 
-  server.tool(
+  guardedTool(
     'ges_generate_kb',
     'Gestalt 코드 그래프 분석 결과 및 도메인 내용을 MD 파일로 내보내고 임베딩을 생성합니다',
     {
@@ -471,7 +486,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
   );
 
-  server.tool(
+  guardedTool(
     'ges_search',
     'Knowledge Base에서 시맨틱 검색을 수행합니다',
     {
@@ -488,7 +503,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
   );
 
-  server.tool(
+  guardedTool(
     'ges_sync',
     'Knowledge Base를 다른 경로로 동기화(복사)합니다',
     {
@@ -501,7 +516,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     },
   );
 
-  server.tool(
+  guardedTool(
     'ges_pr',
     `로컬 PR을 만들고 굴립니다. GitHub 없이 에이전트끼리 작업 단위를 리뷰하고 주고받는 자리입니다. Actions: ${PR_ACTIONS.join(', ')}.`,
     // 등록 인자는 스키마에서 그대로 가져온다. 손으로 다시 적으면 한쪽이 뒤처진다 —

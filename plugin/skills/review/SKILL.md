@@ -517,7 +517,18 @@ ges_execute {
   action: "review_consensus",
   reviewSessionId: "<reviewSessionId>",
   reviewConsensus: {
-    mergedIssues: [...전체 이슈 병합...],
+    mergedIssues: [
+      {
+        id: "...",
+        severity: "critical" | "high" | "warning",
+        category: "...",
+        file: "...",
+        line: 12,              // 선택 — 파일 전반이면 생략
+        message: "...",
+        suggestion: "...",
+        reportedBy: "quality-reviewer"   // 필수. 문자열 하나다
+      }
+    ],
     approvedBy: [...],
     blockedBy: [...],
     summary: "...",
@@ -526,6 +537,8 @@ ges_execute {
   continuityVerdict: { ...3.5단계 산출물... }
 }
 ```
+
+`line`만 선택이고 나머지는 전부 필수입니다. **`reportedBy`는 배열이 아니라 에이전트 이름 문자열 하나**입니다 — 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적습니다.
 
 엔진이 두 심급을 합쳐 판정합니다 — **결함(critical/high)이 없고 `coherent: true`여야 통과**입니다. `continuityVerdict`를 생략하면 결함 심급만으로 판정하는 기존 동작 그대로입니다.
 
