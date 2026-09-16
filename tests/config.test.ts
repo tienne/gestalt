@@ -1,4 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { loadConfig, _deepMerge } from '../src/core/config.js';
 
 describe('loadConfig', () => {
@@ -347,15 +350,78 @@ describe('loadConfig — ruleSources', () => {
   });
 
   // 스프레드로 배열을 되돌리면 인자 개수 한계에 걸려 스택이 터진다
-  it('원소가 많아도 걸러내기가 스택을 넘기지 않는다', () => {
-    const many: unknown[] = Array.from({ length: 200_000 }, (_, i) => ({
-      id: `s${i}`,
-      kind: 'file',
-      ref: 'a',
-    }));
-    many[0] = { id: 'bad', kind: 'http', ref: 'x' };
+  it('선언 수가 상한을 넘으면 통째로 거부하고 이유를 남긴다', () => {
+    const many = Array.from({ length: 33 }, (_, i) => ({ id: `s${i}`, kind: 'file', ref: 'a' }));
     const config = loadConfig({ ruleSources: many }, opts);
-    expect(config.ruleSources).toHaveLength(199_999);
+    expect(config.ruleSources).toEqual([]);
+    expect(config.ruleSourceErrors.join()).toContain('ruleSources');
+  });
+
+  it('긴 ref 는 잘리지 않고 거부된다 — 잘린 ref 는 못 읽는 경로가 된다', () => {
+    const config = loadConfig(
+      {
+        ruleSources: [
+          { id: 'long', kind: 'file', ref: `${'a'.repeat(513)}.md` },
+          { id: 'ok', kind: 'file', ref: 'docs/rules.md' },
+        ],
+      },
+      opts,
+    );
+    expect(config.ruleSources.map((s) => s.id)).toEqual(['ok']);
+    expect(config.ruleSourceErrors.join()).toContain('ruleSources.0.ref');
+  });
+
+  it('자격 증명이 담기는 자리는 레포 안이어도 거부한다', () => {
+    for (const ref of ['.env', '.env.local', '.git/config', 'certs/server.key', 'a/.ssh/id_rsa']) {
+      const config = loadConfig({ ruleSources: [{ id: 'x', kind: 'file', ref }] }, opts);
+      expect(config.ruleSources, ref).toEqual([]);
+      expect(config.ruleSourceErrors.length, ref).toBeGreaterThan(0);
+    }
+  });
+
+  it('mcp 와 skill 의 ref 도 이름 꼴을 지켜야 한다', () => {
+    const bad = loadConfig(
+      {
+        ruleSources: [
+          { id: 'a', kind: 'mcp', ref: '../../etc/passwd' },
+          { id: 'b', kind: 'skill', ref: 'Some Skill!' },
+        ],
+      },
+      opts,
+    );
+    expect(bad.ruleSources).toEqual([]);
+
+    const good = loadConfig(
+      {
+        ruleSources: [
+          { id: 'a', kind: 'mcp', ref: 'mcp__plate__get_design_tokens' },
+          { id: 'b', kind: 'skill', ref: 'kb-design-to-code' },
+        ],
+      },
+      opts,
+    );
+    expect(good.ruleSources).toHaveLength(2);
+    expect(good.ruleSourceErrors).toEqual([]);
+  });
+
+  it('최상위 키 이름을 틀리면 선언 안 한 것처럼 조용히 넘어가지 않는다', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dir = mkdtempSync(join(tmpdir(), 'gestalt-config-'));
+    const cwd = process.cwd();
+    try {
+      writeFileSync(
+        join(dir, 'gestalt.json'),
+        JSON.stringify({ ruleSource: [{ id: 'a', kind: 'file', ref: 'x.md' }] }),
+      );
+      process.chdir(dir);
+      const config = loadConfig({}, { skipDotEnv: true });
+      expect(config.ruleSources).toEqual([]);
+      expect(config.ruleSourceErrors.join()).toContain('ruleSource');
+    } finally {
+      process.chdir(cwd);
+      rmSync(dir, { recursive: true, force: true });
+      consoleSpy.mockRestore();
+    }
   });
 
   it('선언이 멀쩡하면 ruleSourceErrors는 비어 있다 — 선언 없는 레포와 같은 상태', () => {

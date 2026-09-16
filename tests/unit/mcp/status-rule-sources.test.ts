@@ -54,13 +54,26 @@ describe('ges_status — ruleSources', () => {
     expect(broken.ruleSourceErrors).not.toEqual([]);
   });
 
-  // 이 값은 매 응답에 실려 에이전트 컨텍스트로 들어간다. 대상 레포가 쓴 문자열이라
-  // 길이를 묶지 않으면 컨텍스트를 소진시키는 자리가 된다
-  it('긴 문자열을 잘라서 싣는다', () => {
+  // 스킬이 읽는 ref 가 이 값뿐이라 자르면 못 읽는 경로가 된다. 그 실패는
+  // onMissing 을 타고 조용히 지나간다. 길이는 스키마가 거부로 막는다
+  it('ref 는 자르지 않고 원본 그대로 싣는다', () => {
+    const ref = `docs/${'a'.repeat(400)}.md`;
+    const out = info({ ruleSources: [{ id: 'x', kind: 'file', ref }] });
+    expect(out.ruleSources[0]!.ref).toBe(ref);
+  });
+
+  // 이 값은 매 응답에 실려 에이전트 컨텍스트로 들어간다. 줄 수도 묶지 않으면
+  // 깨진 선언 수만큼 응답이 커진다
+  it('오류가 많으면 앞쪽만 싣고 나머지는 개수로 알린다', () => {
     const out = info({
-      ruleSources: [{ id: 'x', kind: 'file', ref: `docs/${'a'.repeat(400)}.md` }],
+      ruleSources: Array.from({ length: 25 }, (_, i) => ({
+        id: `s${i}`,
+        kind: 'http',
+        ref: 'x',
+      })),
     });
-    expect(out.ruleSources[0]!.ref.length).toBeLessThanOrEqual(120);
+    expect(out.ruleSourceErrors).toHaveLength(21);
+    expect(out.ruleSourceErrors.at(-1)).toContain('그 밖에');
   });
 
   it('기존 필드를 밀어내지 않는다', () => {

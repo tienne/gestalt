@@ -113,6 +113,7 @@
     "ruleSources": {
       "type": "array",
       "items": { "$ref": "#/definitions/ruleSource" },
+      "maxItems": 32,
       "description": "Rule sources outside this repo that skills must read before producing work — declared per repo so Gestalt itself stays organization-agnostic. Only declared sources are read; Gestalt never scans attached MCP servers to pick one",
       "default": []
     },
@@ -175,6 +176,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 64,
           "description": "Name used in reporting. Must be unique within this config"
         },
         "kind": {
@@ -185,11 +187,13 @@
         "ref": {
           "type": "string",
           "minLength": 1,
-          "description": "Target for the given kind — MCP tool name, repo-relative file path, or skill name. A file ref must stay inside the repo: absolute paths and .. are rejected"
+          "maxLength": 512,
+          "description": "Target for the given kind — MCP tool name, repo-relative file path, or skill name. A file ref must stay inside the repo: absolute paths, .., and credential files (.env, .ssh/, *.pem, ...) are rejected. Over the length limit the source is rejected rather than truncated, so a source is never silently unreadable"
         },
         "scope": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": { "type": "string", "minLength": 1, "maxLength": 32 },
+          "maxItems": 16,
           "description": "Read this source only for tasks tagged with one of these. Tags come from the files the task touches (ui, css, api, db, docs, test), not from the request wording. Empty means always read",
           "default": []
         },

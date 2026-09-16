@@ -54,6 +54,22 @@ const agentModelAliasSchema = z.enum(['fable', 'opus', 'sonnet', 'haiku']);
 const reasoningModelSchema = agentModelAliasSchema;
 
 /**
+ * 레포 안이어도 기준 문서일 리 없는 자리.
+ *
+ * 레포 밖을 막는 검사만으로는 부족하다. 남의 레포를 검사하러 들어갔을 때 그쪽
+ * gestalt.json 이 자기 `.env` 를 "조직 컨벤션"으로 선언하면, 스킬이 그걸 읽어
+ * "적용한 기준"으로 보고에 옮겨 적는다.
+ */
+const SECRET_FILE_REF =
+  /(^|\/)(\.env(\.|$)|\.git\/|\.ssh\/|\.npmrc$|id_rsa|[^/]+\.(pem|key|p12|pfx|crt)$)/i;
+
+/** MCP 도구 이름 꼴 */
+const MCP_REF = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+
+/** 스킬 이름 꼴 */
+const SKILL_REF = /^[a-z0-9][a-z0-9-]*$/;
+
+/**
  * 레포 밖에 있는 규칙 소스. 게슈탈트도 대상 레포도 소유하지 않은 기준을 가리킨다.
  *
  * 선언된 것만 읽는다 — 붙어 있는 MCP를 훑어 고르면 무엇을 근거로 삼았는지 사라진다.
@@ -62,12 +78,18 @@ const reasoningModelSchema = agentModelAliasSchema;
 const ruleSourceSchema = z
   .object({
     /** 보고에 쓰는 이름. 레포 안에서 고유해야 한다 */
-    id: z.string().min(1),
+    id: z.string().min(1).max(64),
     kind: z.enum(['mcp', 'file', 'skill']),
-    /** kind별 대상 — mcp면 도구 이름, file이면 경로, skill이면 스킬 이름 */
-    ref: z.string().min(1),
+    /**
+     * kind별 대상 — mcp면 도구 이름, file이면 경로, skill이면 스킬 이름.
+     *
+     * 상한이 있는 건 이 값이 ges_status 응답으로 매번 실려 나가서다. 넘으면 자르지
+     * 않고 거부한다 — 자른 ref 는 스킬이 가진 유일한 ref 라, 읽기에 실패한 뒤
+     * onMissing 을 타고 조용히 지나간다. 거부하면 ruleSourceErrors 로 드러난다
+     */
+    ref: z.string().min(1).max(512),
     /** 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 */
-    scope: z.array(z.string()).default([]),
+    scope: z.array(z.string().min(1).max(32)).max(16).default([]),
     /** convention=형식을 따른다, delegate=그 작업을 넘긴다 */
     trust: z.enum(['convention', 'delegate']).default('convention'),
     /** 못 읽었을 때. warn 이상은 결과에 남는다 */
@@ -94,7 +116,31 @@ const ruleSourceSchema = z
           path: ['ref'],
           message: 'file 소스의 ref 는 레포 밖을 가리킬 수 없습니다',
         });
+        // 구분자를 맞춰서 본다. 위의 .. 검사가 두 꼴을 다 받으므로 여기도 같아야 한다
+      } else if (SECRET_FILE_REF.test(source.ref.replace(/\\/g, '/'))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ref'],
+          message: 'file 소스의 ref 로 자격 증명이 담기는 자리를 가리킬 수 없습니다',
+        });
       }
+    }
+
+    // 이름 꼴만 본다. 이 도구가 읽기인지 쓰기인지는 코드가 알 방법이 없어서
+    // rule-sources.md 가 "쓰기 도구면 부르지 않고 사용자에게 알린다"로 받는다
+    if (source.kind === 'mcp' && !MCP_REF.test(source.ref)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ref'],
+        message: 'mcp 소스의 ref 는 도구 이름이어야 합니다',
+      });
+    }
+    if (source.kind === 'skill' && !SKILL_REF.test(source.ref)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ref'],
+        message: 'skill 소스의 ref 는 스킬 이름이어야 합니다',
+      });
     }
 
     // delegate 는 "이 작업을 저 스킬이 맡는다"는 뜻이라 kind 가 skill 이어야 성립한다.
@@ -126,6 +172,9 @@ const configSchema = z.object({
   tierModels: tierModelsSchema.default({}),
   ruleSources: z
     .array(ruleSourceSchema)
+    // 손으로 적는 선언이라 이 정도면 넉넉하다. 상한이 없으면 선언 수가 그대로
+    // 매 ges_status 응답 크기가 된다
+    .max(32)
     // id가 겹치면 "어느 기준으로 작업했나" 보고에서 둘을 구분할 수 없다
     .refine((s) => new Set(s.map((r) => r.id)).size === s.length, {
       message: 'ruleSources[].id는 서로 달라야 합니다',
@@ -436,6 +485,9 @@ export function loadConfig(
   // 세우거나 게슈탈트 경고를 사칭할 수 있다
   delete merged.ruleSourceErrors;
 
+  const misspelled = findMisspelledRuleSourcesKey(jsonConfig);
+  const declared = Array.isArray(merged.ruleSources) && merged.ruleSources.length > 0;
+
   // 5. Validate with Zod — warn + fallback on invalid values
   const result = configSchema.safeParse(merged);
   if (!result.success) {
@@ -447,17 +499,38 @@ export function loadConfig(
       merged,
       result.error.issues.map((issue) => issue.path),
     );
-    const brokenRuleSources = messages.filter((m) => m.startsWith('ruleSources'));
+    const broken = [...misspelled, ...messages.filter((m) => m.startsWith('ruleSources'))];
     const recovered = configSchema.safeParse(pruned);
     if (recovered.success) {
-      return applyPostProcessing(withRuleSourceErrors(recovered.data, brokenRuleSources));
+      return applyPostProcessing(withRuleSourceErrors(recovered.data, broken));
     }
 
     console.error('[gestalt] Warning: Failed to recover configuration, using defaults');
-    return applyPostProcessing(withRuleSourceErrors(configSchema.parse({}), brokenRuleSources));
+    // 여기서는 ruleSources 가 멀쩡했어도 함께 날아간다. 그 사실을 안 적으면
+    // "선언한 적 없는 레포"와 구분이 안 된다
+    if (declared && broken.length === 0) {
+      broken.push('ruleSources: 설정을 복구하지 못해 선언 전체가 빠졌습니다');
+    }
+    return applyPostProcessing(withRuleSourceErrors(configSchema.parse({}), broken));
   }
 
-  return applyPostProcessing(result.data);
+  return applyPostProcessing(withRuleSourceErrors(result.data, misspelled));
+}
+
+/**
+ * ruleSources 를 적으려다 키 이름을 틀린 자리를 찾는다.
+ *
+ * 최상위 스키마는 strict 가 아니다. `$schema` 가 들어와야 하고 예전 gestalt.json 을
+ * 쓰는 레포를 깨뜨릴 수도 없다. 그래서 모르는 키는 조용히 버려지는데, 하필 그 키가
+ * `ruleSource` 였으면 결과가 `ruleSources: []` 이고 이건 선언을 안 한 레포와 똑같다.
+ * onMissing: "stop" 으로 걸어둔 검사가 있었는지조차 아무도 모른 채 지나간다.
+ */
+function findMisspelledRuleSourcesKey(jsonConfig: Record<string, unknown>): string[] {
+  const known = new Set(Object.keys(configSchema.shape));
+  return Object.keys(jsonConfig)
+    .filter((key) => !known.has(key))
+    .filter((key) => key.toLowerCase().replace(/[_-]/g, '').startsWith('rulesource'))
+    .map((key) => `${key}: 모르는 키입니다. ruleSources 를 적으려던 것인지 확인해주세요`);
 }
 
 /**
@@ -468,8 +541,7 @@ export function loadConfig(
  * 검사가 그 상태로 안 돈 채 지나간다.
  */
 function withRuleSourceErrors(config: GestaltConfig, errors: string[]): GestaltConfig {
-  if (errors.length > 0) config.ruleSourceErrors = errors;
-  return config;
+  return errors.length > 0 ? { ...config, ruleSourceErrors: errors } : config;
 }
 
 function applyPostProcessing(config: GestaltConfig): GestaltConfig {
