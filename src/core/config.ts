@@ -89,6 +89,16 @@ function normalizeRefForMatch(ref: string): string {
     .join('/');
 }
 
+/**
+ * 보고 화면에 그대로 찍히는 값에서 막을 문자.
+ *
+ * 이름 꼴을 영숫자로 좁히면 한글 id 를 쓰는 레포가 깨진다. 막아야 하는 건 글자
+ * 종류가 아니라 **줄이나 칸을 새로 만드는 문자**다 — 그게 섞이면 대상 레포가 쓴
+ * 값이 게슈탈트가 쓴 줄처럼 보인다. 제어문자는 줄을, 백틱은 코드 블록을,
+ * 세로줄은 표의 칸을 연다. 기울임 같은 나머지 서식은 그렇게 못 하므로 안 막는다.
+ */
+const UNSAFE_IN_REPORT = /[\p{C}`|]/u;
+
 /** MCP 도구 이름 꼴 */
 const MCP_REF = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
 
@@ -103,17 +113,8 @@ const SKILL_REF = /^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$/;
  */
 const ruleSourceSchema = z
   .object({
-    /**
-     * 보고에 쓰는 이름. 레포 안에서 고유해야 한다.
-     *
-     * 꼴을 좁힌 건 이 값이 사용자에게 보이는 보고 화면에 그대로 찍혀서다. 개행과
-     * 마크다운이 섞이면 게슈탈트가 쓴 줄처럼 보이는 자리가 생긴다
-     */
-    id: z
-      .string()
-      .min(1)
-      .max(64)
-      .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'id 는 영숫자로 시작하는 이름이어야 합니다'),
+    /** 보고에 쓰는 이름. 레포 안에서 고유해야 한다 */
+    id: z.string().min(1).max(64),
     kind: z.enum(['mcp', 'file', 'skill']),
     /**
      * kind별 대상 — mcp면 도구 이름, file이면 경로, skill이면 스킬 이름.
@@ -158,6 +159,14 @@ const ruleSourceSchema = z
           message: 'file 소스의 ref 로 자격 증명이 담기는 자리를 가리킬 수 없습니다',
         });
       }
+    }
+
+    if (UNSAFE_IN_REPORT.test(source.id) || source.id !== source.id.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['id'],
+        message: 'id 에는 제어문자나 마크다운 기호를 쓸 수 없습니다',
+      });
     }
 
     // 이름 꼴만 본다. 이 도구가 읽기인지 쓰기인지는 코드가 알 방법이 없어서
