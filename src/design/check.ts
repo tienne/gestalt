@@ -87,6 +87,13 @@ export function judge(input: JudgeInput): DesignReport {
   };
 }
 
+/** 받침에 따라 "와/과"를 고른다. 컴포넌트 이름이 영문이라 마지막 글자로 판별한다 */
+function withParticle(word: string): string {
+  const last = word.at(-1) ?? '';
+  // 영문 자음으로 끝나면 받침이 있는 것처럼 읽힌다 (`button과`, `chip과`)
+  return /[a-z]/i.test(last) && !/[aeiouy]/i.test(last) ? '과' : '와';
+}
+
 /** 사람이 읽는 리포트. 고칠 수 있는 것을 먼저 놓는다 */
 export function formatReport(report: DesignReport): string {
   const out: string[] = [];
@@ -122,7 +129,9 @@ export function formatReport(report: DesignReport): string {
     }
     for (const [name, list] of grouped) {
       const first = list[0]!;
-      out.push(`  ${name} — 시스템의 \`${first.provided}\`와 같은 이름, 레포에 ${list.length}곳`);
+      out.push(
+        `  ${name} — 시스템의 \`${first.provided}\`${withParticle(first.provided)} 같은 이름, 레포에 ${list.length}곳`,
+      );
       for (const d of list) out.push(`      ${d.filePath}`);
     }
     out.push('  → 막지는 않는다. 쓰는 쪽을 옮겨야 지울 수 있어 이 변경에서 끝나지 않는다');

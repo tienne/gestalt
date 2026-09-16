@@ -164,8 +164,8 @@ function deepMerge<T extends Record<string, unknown>>(
 /**
  * Load gestalt.json from CWD. Returns empty object if not found.
  */
-function loadGestaltJson(): Record<string, unknown> {
-  const filePath = resolve('gestalt.json');
+function loadGestaltJson(cwd?: string): Record<string, unknown> {
+  const filePath = cwd ? resolve(cwd, 'gestalt.json') : resolve('gestalt.json');
   if (!existsSync(filePath)) return {};
 
   try {
@@ -326,7 +326,15 @@ function pruneInvalidConfig(
 
 export function loadConfig(
   overrides: Partial<Record<string, unknown>> = {},
-  options?: { skipDotEnv?: boolean; skipGestaltJson?: boolean },
+  options?: {
+    skipDotEnv?: boolean;
+    skipGestaltJson?: boolean;
+    /**
+     * gestalt.json을 찾을 디렉토리. 다른 레포를 대상으로 도는 명령이 쓴다
+     * (design-check --repo). 비우면 프로세스 작업 디렉토리다.
+     */
+    cwd?: string;
+  },
 ): GestaltConfig {
   // 1. Load .env (does not override existing env vars)
   if (!options?.skipDotEnv) {
@@ -334,7 +342,7 @@ export function loadConfig(
   }
 
   // 2. Load gestalt.json
-  const jsonConfig = options?.skipGestaltJson ? {} : loadGestaltJson();
+  const jsonConfig = options?.skipGestaltJson ? {} : loadGestaltJson(options?.cwd);
 
   // 3. Build env config from process.env
   const envConfig = buildEnvConfig();

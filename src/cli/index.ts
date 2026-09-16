@@ -11,6 +11,7 @@ import { usageReportCommand } from './commands/usage-report.js';
 import { humanizeCheckCommand } from './commands/humanize-check.js';
 import { humanizeScanCommand } from './commands/humanize-scan.js';
 import { explainCheckCommand } from './commands/explain-check.js';
+import { designCheckCommand } from './commands/design-check.js';
 import { DEFAULT_CASES_PATH, explainEvalCommand } from './commands/explain-eval.js';
 import {
   reviewLoopDirCommand,
@@ -313,6 +314,19 @@ export function createCli(): Command {
         await explainCheckCommand(options);
       },
     );
+
+  program
+    .command('design-check')
+    .description(
+      '디자인 시스템을 따랐는지 판정한다 — 타입 바깥으로 샌 값과 이미 있는 컴포넌트를 다시 만든 자리 (exit 0 통과 / 2 중단)',
+    )
+    .option('--repo <path>', '검사할 레포 루트 (기본 현재 디렉토리)')
+    .option('--tags <a,b>', '이번 작업 태그. ruleSources의 scope와 맞는 것만 읽는다')
+    .option('--ds-import <regex>', '디자인 시스템 import를 알아보는 정규식')
+    .option('--json', '판정 결과를 JSON으로')
+    .action((options: { repo?: string; tags?: string; dsImport?: string; json?: boolean }) => {
+      designCheckCommand(options);
+    });
 
   program
     .command('explain-eval')
