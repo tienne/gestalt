@@ -40,6 +40,7 @@ pnpm tsx bin/gestalt.ts humanize-scan --file a.md --register chat   # 걸린 룰
 pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register report
 pnpm tsx bin/gestalt.ts explain-check --source err.log --explain out.md --audience nontech
 pnpm tsx bin/gestalt.ts explain-eval --a plugin/role-agents/explainer/AGENT.md   # 비우면 베이스라인과 비교
+pnpm tsx bin/gestalt.ts design-check --repo ../some-app --tags ui   # 디자인 시스템 준수 판정
 ```
 
 ## MCP Tools
@@ -89,6 +90,7 @@ src/skills/        — Skill System 엔진 (SKILL.md 파서·실행기, 최상�
 src/registry/      — 레지스트리 공통 베이스 클래스
 src/humanize/      — 룰북 읽기 + AI-tell 탐지기 + 윤문 코드 검사 (`gestalt humanize-check` 백엔드)
 src/explain/       — 대상별 설명 품질 검사 (`gestalt explain-check` 백엔드). 판정 구조만 humanize에서 빌려 쓴다
+src/design/        — 디자인 시스템 준수 검사 (`gestalt design-check` 백엔드). 타입이 막는 건 안 보고 타입 바깥으로 샌 값과 중복 컴포넌트만 본다
 src/utils/         — 알림 등 공용 유틸
 src/cli/           — commander 기반 CLI
 plugin/            — 배포 자산 전부. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다
