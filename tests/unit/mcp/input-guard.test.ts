@@ -10,9 +10,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createMcpServer } from '../../../src/mcp/server.js';
+import { z } from 'zod';
 import {
+  attachErrorMap,
   describeJsonParseFailure,
   formatReceived,
+  guardShape,
   snippetAround,
 } from '../../../src/mcp/input-guard.js';
 
@@ -246,5 +249,94 @@ describe('메시지 조립', () => {
   it('값 샘플은 길면 자른다', () => {
     expect(formatReceived(['a', 'b'])).toBe('["a","b"]');
     expect(formatReceived('x'.repeat(500)).endsWith('…')).toBe(true);
+  });
+});
+
+describe('리뷰에서 나온 경계', () => {
+  it('refine이 얹힌 구조 파라미터도 JSON 문자열을 받는다', () => {
+    const shape = guardShape({
+      payload: z
+        .object({ count: z.number() })
+        .refine((v) => v.count > 0, { message: 'count는 양수여야 합니다' })
+        .optional(),
+    });
+    const schema = z.object(shape);
+
+    // 파싱된 뒤 refine이 그대로 돌아야 한다.
+    expect(schema.safeParse({ payload: '{"count": 3}' }).success).toBe(true);
+
+    const refused = schema.safeParse({ payload: '{"count": 0}' });
+    expect(refused.success).toBe(false);
+    if (!refused.success) {
+      expect(refused.error.issues[0]?.message).toContain('count는 양수여야 합니다');
+    }
+  });
+
+  it('상한을 넘는 문자열은 파싱을 시도하지 않고 길이를 알려준다', () => {
+    const schema = z.object(guardShape({ payload: z.object({ a: z.string() }).optional() }));
+    const huge = `{"a":"${'x'.repeat(1_000_100)}"}`;
+
+    const result = schema.safeParse({ payload: huge });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const message = result.error.issues[0]?.message ?? '';
+      expect(message).toContain('문자열이 너무 깁니다');
+      expect(message).toContain('파싱을 시도하지 않았습니다');
+      expect(message).not.toContain('JSON으로 안 풀립니다');
+    }
+  });
+
+  it('default는 호출마다 새 인스턴스를 받는다', () => {
+    const schema = z.object(guardShape({ tags: z.array(z.string()).default([]) }));
+
+    const first = schema.parse({}) as { tags: string[] };
+    const second = schema.parse({}) as { tags: string[] };
+    first.tags.push('오염');
+
+    expect(second.tags).toEqual([]);
+  });
+
+  it('모르는 키는 객체 전체가 아니라 키 이름만 알려준다', () => {
+    const schema = z
+      .object({ known: z.string(), secretish: z.string().optional() })
+      .strict()
+      .describe('x');
+    attachErrorMap(schema);
+
+    const result = schema.safeParse({ known: 'a', secretish: '옆-필드-값', 낯선키: 1 });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const message = result.error.issues[0]?.message ?? '';
+      expect(message).toContain('낯선키');
+      expect(message).not.toContain('옆-필드-값');
+    }
+  });
+
+  it('범위 위반에도 받은 값이 실린다', () => {
+    const schema = z.object({ score: z.number().min(0).max(1) });
+    attachErrorMap(schema);
+
+    const result = schema.safeParse({ score: 42 });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toContain('at score');
+      expect(result.error.issues[0]?.message).toContain('received: 42');
+    }
+  });
+
+  it('값 샘플과 파싱 스니펫에서 토큰을 가린다', () => {
+    expect(formatReceived({ token: 'ghp_abcdefgh12345678' })).toContain('ghp_***');
+    expect(formatReceived({ token: 'ghp_abcdefgh12345678' })).not.toContain('abcdefgh12345678');
+    expect(snippetAround('key=sk-abcdefgh12345678 끝', 10)).toContain('sk-***');
+  });
+
+  it('거대한 배열은 앞부분만 직렬화해 싣는다', () => {
+    const sample = formatReceived(Array.from({ length: 5000 }, (_, i) => i));
+
+    expect(sample).toContain('0,1,2,3,4');
+    expect(sample.length).toBeLessThanOrEqual(121);
   });
 });
