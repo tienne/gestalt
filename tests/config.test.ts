@@ -313,6 +313,39 @@ describe('loadConfig — ruleSources', () => {
     expect(config.ruleSourceErrors).toEqual([]);
   });
 
+  // ref 는 코드가 읽기 전에 에이전트가 읽고 결과 보고에 남긴다. 레포 밖을 가리킬 수
+  // 있으면 남의 레포를 검사할 때 그쪽 선언이 이쪽 파일을 읽게 하는 자리가 된다
+  it('file 소스의 ref 가 레포 밖을 가리키면 거부한다', () => {
+    for (const ref of ['../../../.ssh/id_rsa', '/Users/me/.env', 'a/../../b']) {
+      const config = loadConfig({ ruleSources: [{ id: 'x', kind: 'file', ref }] }, opts);
+      expect(config.ruleSources).toEqual([]);
+      expect(config.ruleSourceErrors.join()).toContain('ref');
+    }
+  });
+
+  it('레포 안 상대 경로는 받는다', () => {
+    const config = loadConfig(
+      { ruleSources: [{ id: 'x', kind: 'file', ref: 'docs/rules.md' }] },
+      opts,
+    );
+    expect(config.ruleSources).toHaveLength(1);
+  });
+
+  // delegate 는 무엇을 넘길지가 스킬 이름으로 정해져야 성립한다
+  it('delegate 는 kind 가 skill 일 때만 받는다', () => {
+    const bad = loadConfig(
+      { ruleSources: [{ id: 'x', kind: 'mcp', ref: 'mcp__a__b', trust: 'delegate' }] },
+      opts,
+    );
+    expect(bad.ruleSources).toEqual([]);
+
+    const good = loadConfig(
+      { ruleSources: [{ id: 'x', kind: 'skill', ref: 'kb-design', trust: 'delegate' }] },
+      opts,
+    );
+    expect(good.ruleSources).toHaveLength(1);
+  });
+
   it('선언이 멀쩡하면 ruleSourceErrors는 비어 있다 — 선언 없는 레포와 같은 상태', () => {
     const ok = loadConfig({ ruleSources: [{ id: 'a', kind: 'file', ref: 'x.md' }] }, opts);
     expect(ok.ruleSourceErrors).toEqual([]);

@@ -76,7 +76,37 @@ const ruleSourceSchema = z
     // stop 으로 걸어둔 검사가 warn 으로 강등된 사실을 어디서도 알 수 없다.
     // JSON 스키마의 additionalProperties: false 와 같은 선이다
   })
-  .strict();
+  .strict()
+  .superRefine((source, ctx) => {
+    // ref 는 코드가 읽기 전에 에이전트가 읽는다. rule-sources.md 가 선언된 소스를
+    // 읽고 결과 보고에 남기라고 지시하므로, 적대적인 gestalt.json 이 레포 밖 비밀
+    // 파일을 "조직 컨벤션"으로 선언하면 그게 보고에 실리는 경로가 열린다
+    if (source.kind === 'file') {
+      if (isAbsolute(source.ref)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ref'],
+          message: 'file 소스의 ref 는 레포 기준 상대 경로여야 합니다',
+        });
+      } else if (source.ref.split(/[/\\]/).includes('..')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ref'],
+          message: 'file 소스의 ref 는 레포 밖을 가리킬 수 없습니다',
+        });
+      }
+    }
+
+    // delegate 는 "이 작업을 저 스킬이 맡는다"는 뜻이라 kind 가 skill 이어야 성립한다.
+    // mcp 나 file 에 붙으면 무엇을 넘기라는 것인지 정의된 자리가 없다
+    if (source.trust === 'delegate' && source.kind !== 'skill') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['trust'],
+        message: 'delegate 는 kind 가 skill 일 때만 쓸 수 있습니다',
+      });
+    }
+  });
 
 export type RuleSource = z.infer<typeof ruleSourceSchema>;
 

@@ -1,10 +1,30 @@
 import type { InterviewEngine } from '../../interview/engine.js';
 import type { StatusInput } from '../schemas.js';
 import type { EventStore } from '../../events/store.js';
-import type { GestaltConfig } from '../../core/config.js';
+import type { GestaltConfig, RuleSource } from '../../core/config.js';
 import { ExecuteSessionRepository } from '../../execute/repository.js';
 import { getVersion, getCachedUpdateResult, getSessionVersion } from '../../core/version.js';
 import { resolveStatusSessionId } from '../session-selector.js';
+
+/**
+ * status 응답에 실을 꼴로 줄인다.
+ *
+ * 이 값은 매 응답에 실려 에이전트 컨텍스트로 들어간다. 대상 레포가 쓴 문자열이라
+ * 길이 상한이 필요하다. 스킬이 판정에 쓰는 건 id 와 scope, trust, onMissing 이라
+ * ref 는 짧게만 싣는다.
+ */
+function projectRuleSource(source: RuleSource): RuleSource {
+  return { ...source, ref: clamp(source.ref) };
+}
+
+/** zod 가 받은 값을 에러 문구에 되풀이하므로 그 길이를 묶는다 */
+function clampErrorLine(message: string): string {
+  return clamp(message, 200);
+}
+
+function clamp(value: string, max = 120): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+}
 
 /**
  * 두 status 경로가 공유하는 config 정보.
@@ -25,10 +45,10 @@ export function buildStatusConfigInfo(config?: GestaltConfig) {
     // execute Phase 0이 레포 밖 기준을 읽을 때 쓴다. 스킬이 gestalt.json을 직접
     // 파싱하면 resolve 규칙이 두 벌이 되므로 서버가 resolve한 값만 내보낸다.
     // 적용 규칙은 _shared/rule-sources.md에 있다.
-    ruleSources: config?.ruleSources ?? [],
+    ruleSources: (config?.ruleSources ?? []).map(projectRuleSource),
     // 비어 있지 않으면 선언 일부가 빠진 것이다. 무엇이 빠졌는지 모르면
     // onMissing: "stop"으로 걸어둔 검사가 안 돈 채 지나간다.
-    ruleSourceErrors: config?.ruleSourceErrors ?? [],
+    ruleSourceErrors: (config?.ruleSourceErrors ?? []).map(clampErrorLine),
   };
 }
 

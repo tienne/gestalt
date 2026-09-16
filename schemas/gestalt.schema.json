@@ -185,18 +185,18 @@
         "ref": {
           "type": "string",
           "minLength": 1,
-          "description": "Target for the given kind — MCP tool name, file path, or skill name"
+          "description": "Target for the given kind — MCP tool name, repo-relative file path, or skill name. A file ref must stay inside the repo: absolute paths and .. are rejected"
         },
         "scope": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Read this source only for tasks tagged with one of these. Empty means always read",
+          "description": "Read this source only for tasks tagged with one of these. Tags come from the files the task touches (ui, css, api, db, docs, test), not from the request wording. Empty means always read",
           "default": []
         },
         "trust": {
           "type": "string",
           "enum": ["convention", "delegate"],
-          "description": "'convention' follows the format it defines (token names, naming, required fields). 'delegate' hands the task to it instead. Neither lets the source widen the scope of work",
+          "description": "'convention' follows the format it defines (token names, naming, required fields). 'delegate' hands the task to it instead and requires kind: skill. Neither lets the source widen the scope of work",
           "default": "convention"
         },
         "onMissing": {

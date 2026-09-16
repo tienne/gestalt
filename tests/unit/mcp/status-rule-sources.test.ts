@@ -54,6 +54,15 @@ describe('ges_status — ruleSources', () => {
     expect(broken.ruleSourceErrors).not.toEqual([]);
   });
 
+  // 이 값은 매 응답에 실려 에이전트 컨텍스트로 들어간다. 대상 레포가 쓴 문자열이라
+  // 길이를 묶지 않으면 컨텍스트를 소진시키는 자리가 된다
+  it('긴 문자열을 잘라서 싣는다', () => {
+    const out = info({
+      ruleSources: [{ id: 'x', kind: 'file', ref: `docs/${'a'.repeat(400)}.md` }],
+    });
+    expect(out.ruleSources[0]!.ref.length).toBeLessThanOrEqual(120);
+  });
+
   it('기존 필드를 밀어내지 않는다', () => {
     const out = info({});
     expect(out).toHaveProperty('reasoningModel');
