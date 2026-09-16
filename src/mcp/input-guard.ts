@@ -69,22 +69,60 @@ const STRUCTURED_KINDS = new Set<z.ZodFirstPartyTypeKind>([
  * 끄는 수단은 두지 않았다. 이 값은 에러 문구에 실려 로그로 나가는 데이터라, 가리기를
  * 끄는 스위치를 두면 그게 노출 경로가 된다.
  */
-const SECRET_PATTERNS: RegExp[] = [
-  // `Bearer` 뒤는 공백류뿐 아니라 이스케이프된 개행(`\n` 두 글자)도 받는다.
-  // `formatReceived` 는 `JSON.stringify` 를 먼저 거치므로 그 자리에 실제 개행이 안 남는다.
-  /(sk-|sk_live_|sk_test_|ghp_|gho_|ghs_|github_pat_|xox[baprs]-|AIza|npm_|AKIA|Bearer(?:\s|\\n|\\r)+)[A-Za-z0-9_-]{8,}/g,
-  // 헤더만 잡으면 정작 키 본문이 남는다. 본문 클래스에 백슬래시를 넣어 이스케이프된
-  // 개행도 넘어간다 — 부르는 두 자리가 늘 그 형태를 넘긴다. 따옴표는 클래스에 없어서
-  // JSON 문자열 끝에서 멈춘다.
-  /(-----BEGIN [A-Z ]*PRIVATE KEY-----)[A-Za-z0-9+/=\s\\]*(?:-----END [A-Z ]*PRIVATE KEY-----)?/g,
-];
+const TOKEN_PREFIXES = [
+  'sk-',
+  'sk_live_',
+  'sk_test_',
+  'ghp_',
+  'gho_',
+  'ghs_',
+  'github_pat_',
+  'xox[baprs]-',
+  'AIza',
+  'npm_',
+  'AKIA',
+  // 뒤에 공백류뿐 아니라 이스케이프된 개행(`\n` 두 글자)도 받는다. `formatReceived` 는
+  // `JSON.stringify` 를 먼저 거치므로 그 자리에 실제 개행이 안 남는다.
+  'Bearer(?:\\s|\\\\n|\\\\r)+',
+].join('|');
+
+/** 접두어를 그룹 1 로 캡처한다. 본문 최소 길이만 달리해 두 벌을 만든다. */
+function tokenPattern(minBody: number): RegExp {
+  return new RegExp(`(${TOKEN_PREFIXES})[A-Za-z0-9_-]{${minBody},}`, 'g');
+}
+
+/**
+ * 헤더부터 END 마커까지, 없으면 JSON 문자열 경계나 끝까지 삼킨다.
+ *
+ * 본문을 base64 문자 집합으로 좁히면 암호화 PEM 을 못 덮는다 — `Proc-Type: 4,ENCRYPTED`
+ * 와 `DEK-Info: AES-128-CBC,<salt>` 에 든 콜론과 쉼표에서 매칭이 끊긴다. END 가 선택
+ * 그룹이라 그 자리에서 종료되고 본문과 푸터가 그대로 남는다.
+ */
+const PEM_PATTERN =
+  /(-----BEGIN [A-Z ]*PRIVATE KEY-----)[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|(?=")|$)/g;
+
+/**
+ * PEM 을 먼저 적용한다. 토큰 패턴이 먼저 돌면 그 치환 문자가 PEM 본문 한가운데를
+ * 끊어 뒤가 통째로 남는다.
+ */
+const SECRET_PATTERNS: RegExp[] = [PEM_PATTERN, tokenPattern(8)];
+
+/**
+ * 파서 문구 전용. 본문 하한을 뺐다.
+ *
+ * V8 은 `Unexpected token` 류에서 문제 지점 주변을 자기 문구 안에 여섯 자쯤만 인용한다.
+ * 그 길이는 본문 하한 여덟 자에 안 닿아서 기본 패턴으로는 접두어와 앞 몇 글자가 늘
+ * 새어나간다.
+ */
+const LENIENT_PATTERNS: RegExp[] = [PEM_PATTERN, tokenPattern(1)];
 
 /**
  * 토큰을 가린다. 접두어는 남겨 무엇이 가려졌는지는 읽히게 한다.
  *
  * **모든 패턴이 접두어를 그룹 1 로 캡처한다.** 그룹이 없는 패턴을 섞으면
  * `String.replace` 가 두 번째 인자로 매치 오프셋(숫자)을 넘겨, 접두어가 숫자로 바뀌고
- * 치환 길이가 무너진다. 규약이 패턴마다 갈리지 않게 구조로 묶었고 런타임 검사도 둔다.
+ * 치환 길이가 무너진다. 그 계약은 `tests/unit/mcp/input-guard.test.ts` 가 패턴 배열을
+ * 돌며 단언한다.
  *
  * **잘라낸 조각에 따로 걸지 않는다.** 접두어와 몸통이 서로 다른 조각에 놓이면 어느 쪽도
  * 패턴에 안 걸려 토큰이 통째로 남는다. 부르는 쪽은 언제나 원본 전체를 넘긴다.
@@ -92,16 +130,25 @@ const SECRET_PATTERNS: RegExp[] = [
  * `preserveLength` 는 `snippetAround` 만 쓴다. 자리가 밀리면 깨진 지점을 못 짚기 때문이다.
  * 나머지 자리는 고정 길이로 덮어 별표 개수가 원문 길이를 드러내지 않게 한다.
  */
-function redactSecrets(text: string, options: { preserveLength?: boolean } = {}): string {
-  return SECRET_PATTERNS.reduce(
+function redactSecrets(
+  text: string,
+  options: { preserveLength?: boolean; patterns?: RegExp[] } = {},
+): string {
+  return (options.patterns ?? SECRET_PATTERNS).reduce(
     (acc, pattern) =>
       acc.replace(pattern, (match: string, group: unknown) => {
         const prefix = typeof group === 'string' ? group : '';
         if (!options.preserveLength) return `${prefix}***`;
-        return prefix + '*'.repeat(Math.max(match.length - prefix.length, 1));
+        // 하한을 두지 않는다. 본문이 빈 헤더에 별표를 덧붙이면 그만큼 자리가 밀린다.
+        return prefix + '*'.repeat(match.length - prefix.length);
       }),
     text,
   );
+}
+
+/** 패턴 계약을 테스트가 확인할 수 있게 내보낸다. 런타임 경로는 이 함수를 안 쓴다. */
+export function secretPatternsForTest(): RegExp[] {
+  return [...SECRET_PATTERNS, ...LENIENT_PATTERNS];
 }
 
 /** 한 줄 메시지에 실으므로 줄바꿈은 눈에 보이게 바꾼다. */
@@ -124,7 +171,10 @@ function formatPath(path: ReadonlyArray<string | number>): string {
  * 직렬화 전에 값을 얕게 잘라낸다.
  *
  * 메시지에 실리는 건 120자뿐인데 거대한 배열을 통째로 문자열로 만들면 그 비용을 다
- * 문다. 잘릴 것을 미리 버리고 직렬화한다.
+ * 문다. 깊이와 개수를 미리 줄여 직렬화한다.
+ *
+ * **문자열 길이는 여기서 안 줄인다.** 자르기가 가리기보다 먼저 오면 경계에 걸친 토큰이
+ * 패턴에 안 걸린다. 최종 길이는 `formatReceived` 가 가린 뒤에 맞춘다.
  */
 function shallowSample(value: unknown, depth = 0): unknown {
   if (depth > SAMPLE_DEPTH) return '…';
@@ -140,9 +190,8 @@ function shallowSample(value: unknown, depth = 0): unknown {
     }
     return out;
   }
-  // 문자열은 자르지 않는다. 여기서 자르면 마스킹보다 자르기가 먼저 와서 경계에 걸친
-  // 토큰이 안 걸린다. 최종 길이는 `formatReceived` 가 가린 뒤에 맞춘다. 거대한 입력은
-  // `MAX_JSON_STRING_LENGTH` 가 앞에서 막는다.
+  // 문자열은 자르지 않는다. 이유는 위 주석에 있다. 비용은 입력 크기에 선형이다 —
+  // `MAX_JSON_STRING_LENGTH` 는 `tolerateJsonString` 경로만 막으므로 여기까지는 안 온다.
   return value;
 }
 
@@ -194,9 +243,10 @@ export function snippetAround(text: string, position: number, radius = SNIPPET_R
 export function describeJsonParseFailure(label: string, raw: string, error: unknown): string {
   const reason = error instanceof Error ? error.message : String(error);
   // 파서 문구도 부르는 쪽 바이트에서 나온다. 최신 V8 은 깨진 지점 원문을 그 안에
-  // 인용하므로 가려야 한다. 스니펫과 달리 여기는 전량 마스킹이다 — 원인을 보여주는
-  // 자리를 스니펫 한 곳으로 몰아뒀다.
-  const head = `${label}: 문자열로 왔는데 JSON으로 안 풀립니다 — ${escapeNewlines(redactSecrets(reason))}`;
+  // 인용하므로 가려야 한다. 인용이 짧아 기본 하한에 안 닿으니 관대한 패턴을 쓴다.
+  // 스니펫과 달리 전량 마스킹이다 — 원인을 보여주는 자리는 스니펫 한 곳으로 몰아뒀다.
+  const masked = escapeNewlines(redactSecrets(reason, { patterns: LENIENT_PATTERNS }));
+  const head = `${label}: 문자열로 왔는데 JSON으로 안 풀립니다 — ${masked}`;
   const position = extractPosition(reason);
   if (position === null) return `${head} (길이 ${raw.length}자)`;
   return `${head}. 깨진 지점 주변: ${snippetAround(raw, position)}`;
