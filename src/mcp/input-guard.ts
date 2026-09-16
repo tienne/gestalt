@@ -20,12 +20,12 @@
  * 값이 붙어 원인은 읽힌다. 중첩까지 넓히려면 배열 요소 스키마를 재구성해야 하는데,
  * 실제로 문자열이 오는 자리는 최상위 파라미터라 거기까지 가지 않았다.
  *
- * **이 파일은 zod v3 내부 구조(`_def`)에 기댄다.** 파일 끝 `probeZodInternals()`가 그
- * 의존을 감시한다 — 근거는 그 함수 주석에 있다. zod 버전을 올리면
- * `tests/unit/mcp/input-guard.test.ts`를 반드시 다시 돌린다.
+ * **이 파일은 zod v3 내부 구조(`_def`)에 기댄다.** semver 보장 대상이 아니라 마이너
+ * 업그레이드에도 깨질 수 있다. 깨지면 예외 없이 조용히 안 걸린다 — 에러 메시지만 예전으로
+ * 돌아가고 아무도 모른다. 그래서 `tests/unit/mcp/input-guard.test.ts`가 컨테이너 종류마다
+ * 잎을 심어 순회가 그 잎에 닿는지 본다. zod 버전을 올리면 그 테스트를 반드시 다시 돌린다.
  */
 import { z } from 'zod';
-import { log } from '../core/log.js';
 
 const Kind = z.ZodFirstPartyTypeKind;
 
@@ -73,78 +73,23 @@ const SECRET_PATTERNS: RegExp[] = [
   // `Bearer` 뒤는 공백류뿐 아니라 이스케이프된 개행(`\n` 두 글자)도 받는다.
   // `formatReceived` 는 `JSON.stringify` 를 먼저 거치므로 그 자리에 실제 개행이 안 남는다.
   /(sk-|sk_live_|sk_test_|ghp_|gho_|ghs_|github_pat_|xox[baprs]-|AIza|npm_|AKIA|Bearer(?:\s|\\n|\\r)+)[A-Za-z0-9_-]{8,}/g,
-  // 헤더만 잡으면 정작 키 본문이 남는다. END 까지 묶는다. 잘려서 END 가 없으면 뒤를 전부 가린다.
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|[\s\S]*)/g,
+  // 헤더만 잡으면 정작 키 본문이 남는다. base64 와 공백만 먹으므로 END 가 잘려 없어도
+  // JSON 구조 문자에서 멈춘다 — 뒤를 무제한으로 삼키지 않는다.
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[A-Za-z0-9+/=\s]*(?:-----END [A-Z ]*PRIVATE KEY-----)?/g,
 ];
 
-interface SecretSpan {
-  start: number;
-  end: number;
-  /** 있으면 가린 뒤에도 남겨 무엇이 가려졌는지 읽히게 한다. */
-  prefix: string | undefined;
-}
-
 /**
- * 토큰 구간을 **원본 좌표로** 모은다.
+ * 토큰을 가린다. 접두어는 남겨 무엇이 가려졌는지는 읽히게 한다.
  *
- * 잘라낸 조각에 정규식을 따로 걸면 안 된다. 접두어와 몸통이 서로 다른 조각에 놓이면
- * 어느 쪽도 패턴에 안 걸려 토큰이 통째로 남는다. 문자열을 안 닫은 JSON 이 그 자리다 —
- * V8 이 보고하는 위치가 문자열 끝이라 접두어가 스니펫 윈도우 앞으로 밀려난다.
+ * **잘라낸 조각에 따로 걸지 않는다.** 접두어와 몸통이 서로 다른 조각에 놓이면 어느 쪽도
+ * 패턴에 안 걸려 토큰이 통째로 남는다. 부르는 쪽은 언제나 원본 전체를 넘긴다.
  */
-function collectSecretSpans(text: string): SecretSpan[] {
-  const spans: SecretSpan[] = [];
-  for (const pattern of SECRET_PATTERNS) {
-    for (const match of text.matchAll(pattern)) {
-      if (match.index === undefined) continue;
-      spans.push({
-        start: match.index,
-        end: match.index + match[0].length,
-        prefix: match[1],
-      });
-    }
-  }
-  return spans.sort((a, b) => a.start - b.start);
-}
-
-/**
- * 토큰을 가린다. `keepAt` 이 어느 토큰 안을 가리키면 그 토큰만 원문으로 남긴다.
- *
- * `window` 를 주면 그 구간만 잘라 돌려주되 판정은 원본 전체로 한 결과를 쓴다.
- */
-function maskSecrets(
-  text: string,
-  options: { keepAt?: number; window?: { start: number; end: number } } = {},
-): string {
-  const { keepAt = -1, window } = options;
-  const from = window?.start ?? 0;
-  const to = window?.end ?? text.length;
-
-  let out = '';
-  let cursor = from;
-  for (const span of collectSecretSpans(text)) {
-    if (span.end <= cursor || span.start >= to) continue;
-    const visibleStart = Math.max(span.start, cursor);
-    const visibleEnd = Math.min(span.end, to);
-    out += text.slice(cursor, visibleStart);
-
-    // 깨진 지점이 이 토큰 안이면 원문을 남긴다. 원인 바이트가 별표에 묻히면 스니펫을
-    // 붙이는 이유가 없어진다. 노출은 그 토큰 하나로 묶인다.
-    if (keepAt >= span.start && keepAt < span.end) {
-      out += text.slice(visibleStart, visibleEnd);
-    } else {
-      // 접두어가 윈도우 안에 남아 있으면 그것까지는 보여준다.
-      const prefixEnd = span.start + (span.prefix?.length ?? 0);
-      if (visibleStart < prefixEnd)
-        out += text.slice(visibleStart, Math.min(prefixEnd, visibleEnd));
-      out += '***';
-    }
-    cursor = visibleEnd;
-  }
-  return out + text.slice(cursor, to);
-}
-
 function redactSecrets(text: string): string {
-  return maskSecrets(text);
+  return SECRET_PATTERNS.reduce(
+    (acc, pattern) =>
+      acc.replace(pattern, (_match, prefix: string | undefined) => `${prefix ?? ''}***`),
+    text,
+  );
 }
 
 /** 한 줄 메시지에 실으므로 줄바꿈은 눈에 보이게 바꾼다. */
@@ -214,15 +159,23 @@ function extractPosition(reason: string): number | null {
 /**
  * 깨진 지점 주변만 잘라 보여준다.
  *
- * 마스킹 판정은 원본 전체에서 하고 그 결과를 윈도우에 맞춰 자른다. 깨진 지점을 품은
- * 토큰 하나만 원문으로 남고 나머지는 가려진다 — 윈도우가 접두어를 잘라낸 경우에는
- * `***` 만 보인다.
+ * 가리기를 먼저 하고 자른다. 순서를 뒤집으면 윈도우가 접두어를 잘라낸 조각에서 패턴이
+ * 안 걸린다 — 따옴표를 안 닫은 JSON 이 그 자리다. V8 이 보고하는 위치가 문자열 끝이라
+ * 접두어가 윈도우 앞으로 밀려난다.
+ *
+ * 깨진 지점이 자격증명 안이면 그 자리가 `***` 로 덮여 원인이 안 보인다. 드문 경우이고
+ * 파서 사유와 line, column 은 그대로 남는다 — 노출을 막는 쪽을 택했다.
  */
 export function snippetAround(text: string, position: number, radius = SNIPPET_RADIUS): string {
-  const start = Math.max(0, position - radius);
-  const end = Math.min(text.length, position + radius);
-  const body = maskSecrets(text, { keepAt: position, window: { start, end } });
-  return `${start > 0 ? '…' : ''}${escapeNewlines(body)}${end < text.length ? '…' : ''}`;
+  const masked = redactSecrets(text);
+  // 가리면서 길이가 줄어드니 위치를 비율로 옮긴다. 정확한 자리를 못 잡아도 파서 사유에
+  // 위치가 남아 있다. 스니펫은 어디쯤인지 보여주는 자리다.
+  const shift = masked.length / Math.max(text.length, 1);
+  const focus = Math.min(masked.length, Math.round(position * shift));
+  const start = Math.max(0, focus - radius);
+  const end = Math.min(masked.length, focus + radius);
+  const body = escapeNewlines(masked.slice(start, end));
+  return `${start > 0 ? '…' : ''}${body}${end < masked.length ? '…' : ''}`;
 }
 
 /** JSON 파싱 실패를 부르는 쪽이 바로 고칠 수 있는 한 줄로 만든다. */
@@ -286,8 +239,9 @@ export function attachErrorMap<S extends z.ZodTypeAny>(
   schema: S,
   seen: WeakSet<object> = new WeakSet(),
 ): S {
-  // 순회가 집는 필드 이름이 어긋나면 undefined 가 온다. 그 자리는 `probeGuardReach()` 가
-  // 잡으므로 여기서는 조용히 물러난다 — 스키마 하나 때문에 기동을 세우지 않는다.
+  // 순회가 집는 필드 이름이 어긋나면 undefined 가 온다. 여기서는 조용히 물러난다 —
+  // 스키마 하나 때문에 기동을 세우지 않는다. 그 어긋남은
+  // `tests/unit/mcp/input-guard.test.ts` 가 컨테이너 종류마다 잎을 심어 잡는다.
   if (schema === undefined || schema === null) return schema;
   if (seen.has(schema)) return schema;
   seen.add(schema);
@@ -307,16 +261,18 @@ export function attachErrorMap<S extends z.ZodTypeAny>(
     case Kind.ZodArray:
       attachErrorMap(raw['type'] as z.ZodTypeAny, seen);
       break;
-    // ZodSet 은 배열과 달리 자식을 `valueType` 에 둔다. 같은 분기에 묶으면 undefined 가 넘어간다.
+    // 자식을 `type` 에 두는 것들. `innerType` 분기에 묶으면 undefined 가 넘어간다.
     case Kind.ZodSet:
       attachErrorMap(raw['valueType'] as z.ZodTypeAny, seen);
+      break;
+    case Kind.ZodPromise:
+    case Kind.ZodBranded:
+      attachErrorMap(raw['type'] as z.ZodTypeAny, seen);
       break;
     case Kind.ZodOptional:
     case Kind.ZodNullable:
     case Kind.ZodDefault:
     case Kind.ZodCatch:
-    case Kind.ZodPromise:
-    case Kind.ZodBranded:
     case Kind.ZodReadonly:
       attachErrorMap(raw['innerType'] as z.ZodTypeAny, seen);
       break;
@@ -473,161 +429,4 @@ export function guardShape<S extends z.ZodRawShape>(shape: S): S {
 /** 핸들러가 직접 `.parse()`하는 스키마에도 같은 방어를 입힌다. */
 export function guardObject<S extends z.AnyZodObject>(schema: S): S {
   return attachErrorMap(schema.extend(guardShape(schema.shape)) as S);
-}
-
-/**
- * 방어가 실제로 자식까지 닿는지 종단으로 본다.
- *
- * 필드 이름 목록을 따로 들고 비교하면 순회 코드의 오타를 못 잡는다 — zod 쪽 이름은
- * 그대로인데 우리가 다른 이름을 집고 있어도 목록끼리는 맞아 통과한다. 그래서 스키마를
- * 실제로 `attachErrorMap` 에 통과시켜 안쪽 잎에 errorMap 이 심겼는지 확인한다. 이러면
- * zod 의 필드 개명과 이 파일의 오타가 같은 자리에서 걸린다.
- *
- * 돌려주는 건 안 닿은 자리의 목록이다. 비어 있으면 정상이다. 순수 함수로 둔 이유는
- * 테스트가 이 판정 자체를 검증할 수 있게 했다 — 기동 경로에만 있으면 이 감시 장치가
- * 깨졌을 때 잡을 방법이 없다.
- */
-export function probeGuardReach(): string[] {
-  const gaps: string[] = [];
-
-  // 컨테이너 종류마다 잎을 하나 심어 순회가 그 잎에 닿았는지 본다.
-  const cases: Array<[string, () => { root: z.ZodTypeAny; leaves: z.ZodTypeAny[] }]> = [
-    [
-      'object',
-      () => {
-        const leaf = z.string();
-        return { root: z.object({ a: leaf }), leaves: [leaf] };
-      },
-    ],
-    [
-      'array',
-      () => {
-        const leaf = z.string();
-        return { root: z.array(leaf), leaves: [leaf] };
-      },
-    ],
-    [
-      'optional',
-      () => {
-        const leaf = z.string();
-        return { root: leaf.optional(), leaves: [leaf] };
-      },
-    ],
-    [
-      'nullable',
-      () => {
-        const leaf = z.string();
-        return { root: leaf.nullable(), leaves: [leaf] };
-      },
-    ],
-    [
-      'default',
-      () => {
-        const leaf = z.string();
-        return { root: leaf.default('x'), leaves: [leaf] };
-      },
-    ],
-    [
-      'catch',
-      () => {
-        const leaf = z.string();
-        return { root: leaf.catch('x'), leaves: [leaf] };
-      },
-    ],
-    [
-      'effects',
-      () => {
-        const leaf = z.string();
-        return { root: leaf.refine(() => true), leaves: [leaf] };
-      },
-    ],
-    [
-      'union',
-      () => {
-        const leaf = z.string();
-        const other = z.number();
-        return { root: z.union([leaf, other]), leaves: [leaf, other] };
-      },
-    ],
-    [
-      'intersection',
-      () => {
-        const left = z.object({ a: z.string() });
-        const right = z.object({ b: z.string() });
-        return { root: z.intersection(left, right), leaves: [left, right] };
-      },
-    ],
-    [
-      'record',
-      () => {
-        const key = z.string();
-        const value = z.number();
-        return { root: z.record(key, value), leaves: [key, value] };
-      },
-    ],
-    [
-      'tuple',
-      () => {
-        const item = z.string();
-        const rest = z.number();
-        return { root: z.tuple([item]).rest(rest), leaves: [item, rest] };
-      },
-    ],
-    [
-      'set',
-      () => {
-        const leaf = z.string();
-        return { root: z.set(leaf), leaves: [leaf] };
-      },
-    ],
-  ];
-
-  for (const [label, build] of cases) {
-    const { root, leaves } = build();
-    attachErrorMap(root);
-    const missed = leaves.filter(
-      (leaf) => (leaf._def as { errorMap?: z.ZodErrorMap }).errorMap !== verboseErrorMap,
-    );
-    if (missed.length > 0) gaps.push(label);
-  }
-
-  // errorMap 주입 자체가 먹는지. 위 판정은 우리가 심었는지만 보므로 zod 가 그 값을
-  // 실제로 읽는지는 따로 확인한다.
-  const mark = 'gestalt-input-guard-self-check';
-  const probe = z.string();
-  (probe._def as { errorMap?: z.ZodErrorMap }).errorMap = () => ({ message: mark });
-  const parsed = probe.safeParse(123);
-  if (parsed.success || parsed.error.issues[0]?.message !== mark) gaps.push('errorMap(주입)');
-
-  // 껍질 복원이 이 값을 그대로 다시 넘긴다. 값이면 모든 요청이 한 인스턴스를 나눠 쓴다.
-  const withDefault = z.array(z.string()).default([]);
-  const defaultDef = withDefault._def as unknown as Record<string, unknown>;
-  if (typeof defaultDef['defaultValue'] !== 'function') gaps.push('defaultValue(팩토리)');
-
-  // `describe()` 가 preprocess 재조립에서 살아남아야 도구 설명이 안 사라진다.
-  const described = tolerateJsonString(
-    z.object({ a: z.string() }).optional().describe('설명'),
-    'probe',
-  );
-  if ((described._def as { description?: string }).description !== '설명') {
-    gaps.push('description(재조립)');
-  }
-
-  return gaps;
-}
-
-/**
- * 어긋난 자리가 있으면 stderr 로 알린다. 기동은 막지 않는다.
- *
- * 여기서 죽이면 폭발 반경이 MCP 서버 전체다. 사용자가 보는 건 `Connection closed`
- * 한 줄이라, 원인을 알려주자는 모듈이 자기 실패에서는 원인을 감추는 꼴이 된다. 막고
- * 싶은 건 조용한 퇴행인데 그건 `pnpm gate` 가 `probeGuardReach()` 를 직접 불러 잡는다.
- */
-const guardGaps = probeGuardReach();
-if (guardGaps.length > 0) {
-  log(
-    `input-guard: 입력 검증 방어가 안 걸리는 자리가 있습니다 — ${guardGaps.join(', ')}. ` +
-      '에러 메시지가 실패 원인을 안 알려주는 상태로 돌아갑니다. ' +
-      'zod 버전을 올렸다면 src/mcp/input-guard.ts를 그에 맞춰 고치세요.',
-  );
 }
