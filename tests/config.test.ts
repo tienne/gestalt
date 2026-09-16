@@ -372,11 +372,31 @@ describe('loadConfig — ruleSources', () => {
   });
 
   it('자격 증명이 담기는 자리는 레포 안이어도 거부한다', () => {
-    for (const ref of ['.env', '.env.local', '.git/config', 'certs/server.key', 'a/.ssh/id_rsa']) {
+    // 뒤에 붙은 공백과 점은 윈도우가 떼고 파일을 연다. 그대로 두면 우회로가 된다
+    const refs = [
+      '.env',
+      '.env.local',
+      '.git/config',
+      'certs/server.key',
+      'a/.ssh/id_rsa',
+      '.env ',
+      '.env.',
+      '.git \\config',
+      'certs/a.pem ',
+    ];
+    for (const ref of refs) {
       const config = loadConfig({ ruleSources: [{ id: 'x', kind: 'file', ref }] }, opts);
       expect(config.ruleSources, ref).toEqual([]);
       expect(config.ruleSourceErrors.length, ref).toBeGreaterThan(0);
     }
+  });
+
+  it('시크릿처럼 생겼을 뿐인 경로는 그대로 받는다', () => {
+    const config = loadConfig(
+      { ruleSources: [{ id: 'a', kind: 'file', ref: 'docs/env.md' }] },
+      opts,
+    );
+    expect(config.ruleSources).toHaveLength(1);
   });
 
   it('mcp 와 skill 의 ref 도 이름 꼴을 지켜야 한다', () => {

@@ -63,6 +63,21 @@ const reasoningModelSchema = agentModelAliasSchema;
 const SECRET_FILE_REF =
   /(^|\/)(\.env(\.|$)|\.git\/|\.ssh\/|\.npmrc$|id_rsa|[^/]+\.(pem|key|p12|pfx|crt)$)/i;
 
+/**
+ * 위 정규식에 걸기 전에 경로를 맞춘다.
+ *
+ * 구분자를 통일하는 건 위의 `..` 검사가 두 꼴을 다 받기 때문이다. 조각 끝의 공백과
+ * 점을 떼는 건 윈도우가 그걸 떼고 파일을 여는 탓이다 — `".env "` 를 그대로 두면
+ * 위 정규식은 안 걸리는데 실제로는 `.env` 가 열린다.
+ */
+function normalizeRefForMatch(ref: string): string {
+  return ref
+    .replace(/\\/g, '/')
+    .split('/')
+    .map((segment) => segment.replace(/[\s.]+$/, ''))
+    .join('/');
+}
+
 /** MCP 도구 이름 꼴 */
 const MCP_REF = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
 
@@ -116,8 +131,7 @@ const ruleSourceSchema = z
           path: ['ref'],
           message: 'file 소스의 ref 는 레포 밖을 가리킬 수 없습니다',
         });
-        // 구분자를 맞춰서 본다. 위의 .. 검사가 두 꼴을 다 받으므로 여기도 같아야 한다
-      } else if (SECRET_FILE_REF.test(source.ref.replace(/\\/g, '/'))) {
+      } else if (SECRET_FILE_REF.test(normalizeRefForMatch(source.ref))) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['ref'],
