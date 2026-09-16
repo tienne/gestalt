@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.77.2] - 2026-09-16
+
+### Fixed
+
+- **MCP 도구가 입력 검증에 실패하면 왜 실패했는지 말해줍니다.** 전에는 원인이 무엇이든 `Expected object, received string at reviewResult` 한 줄이었어요. ct-catchtable-frontend에서 PR 리뷰를 돌리다 두 번 걸렸습니다. `reviewResult`에 보낸 JSON 문자열 안에 `\ud푼다`가 있어서 파싱이 깨졌는데 몇 번째 문자가 문제인지는 어디에도 안 나왔어요. `review_consensus`의 `reportedBy`는 필수인데 도구 설명에 없어서 이슈 17개짜리 페이로드를 세 번 보냈고요.
+  - **고칠 자리가 핸들러가 아니라 스키마였습니다.** 검증은 `@modelcontextprotocol/sdk`의 `validateToolInput`이 핸들러를 부르기 전에 돌립니다. 실패하면 첫 이슈의 message 한 줄만 뽑아 던져요. 핸들러 안에서는 못 끼어듭니다. 그래서 `src/mcp/input-guard.ts`에 방어를 모으고 스키마와 도구 등록이 전부 거기를 지나게 했어요.
+  - **문자열로 온 객체는 `JSON.parse`를 먼저 겁니다.** 성공하면 그 값으로 검증을 잇습니다. 실패하면 파서의 원본 에러와 깨진 지점 앞뒤 40자를 싣고요. `fatal`로 끊어서 뒤따라오던 `Required at reviewResult.issues` 같은 잡음도 없앴어요 — 고칠 건 파싱 하나뿐입니다.
+  - **타입이 어긋나면 경로와 받은 값 샘플이 함께 나옵니다.** SDK가 첫 이슈의 message만 꺼내가서 경로도 message 안에 있어야 살아남아요. `errorMap`은 스키마 트리 전 깊이에 심어서 `mergedIssues[0].reportedBy`처럼 배열 요소 안쪽 자리까지 닿습니다.
+  - **받은 값을 실으니 거기 섞인 토큰이 따라 나갑니다.** 이게 위 두 기능이 만든 위험이라 같은 파일에서 막아요. `redactSecrets()`가 나가는 모든 문구를 한 번 거르고 발급 주체별 접두어 19종과 PEM 개인키 블록을 가립니다. 하한을 하나로 묶으면 짧은 Slack 토큰을 놓치거나 `task-runner` 같은 멀쩡한 식별자를 가리게 돼서 접두어마다 따로 잡았어요 — GitHub PAT은 본문 30자, Slack은 10자, `Bearer`는 6자입니다. 단어 경계는 안 봅니다. `my_ghp_...`처럼 앞에 뭐가 붙어 와도 잡아야 해서예요.
+  - **`snippetAround`만 길이를 보존합니다.** 거기는 `position 133` 같은 좌표가 함께 나가는 자리라 글자 수가 바뀌면 좌표가 어긋나요. 나머지는 길이가 안 드러나게 `***` 고정입니다. 자르기보다 가리기가 먼저인 것도 같은 이유고요 — 120자 샘플을 먼저 자르면 경계에 걸친 토큰의 앞머리가 그대로 남습니다.
+  - **`server.tool()` 호출 열여섯 곳을 `guardedTool` 한 곳으로 모았어요.** `ges_execute`만 고치면 다음에 다른 도구에서 같은 일이 납니다. JSON 문자열 허용은 `preprocess`를 `optional()` 껍질 안쪽에 뒀어요. 바깥에 두면 SDK가 필수 파라미터로 잘못 노출하고 `describe()`도 날아갑니다.
+  - **`reportedBy`를 드러냈습니다.** `plugin/skills/review/SKILL.md`의 4단계 예시를 필드가 다 보이는 꼴로 펼치고 `line`만 선택이라고 적었어요. 스키마 `describe`에도 같은 내용을 넣어서 문서를 안 읽고 도구만 보는 호출자도 알 수 있습니다.
+  - **재현 케이스를 실제 MCP 클라이언트 왕복으로 돌려 남겼어요.** 스키마만 `.parse()`하면 부르는 쪽이 실제로 받는 문구를 못 봅니다. 테스트는 58개입니다. 마스킹 쪽은 주장을 문장이 아니라 테스트로 묶었어요 — 재귀 순회가 자식까지 닿는지를 컨테이너 18종으로 셉니다. 패턴마다 접두어를 캡처 그룹 하나로 잡는지, 접두어별 하한이 최소치와 그 한 자 아래에서 갈리는지를 각각 고정합니다.
+  - 접두어 표에 없는 발급 주체는 못 잡아요. 완결성은 이번에 질 자리가 아니라고 보고 한계를 파일에 적어 뒀습니다. `server.tool()`을 직접 부르는 도구가 새로 생기면 그 도구만 예전 문구로 돌아가는데, 지금은 그런 호출이 하나도 없지만 그걸 막는 검사도 없어요.
+
 ## [0.77.1] - 2026-09-15
 
 ### Fixed
