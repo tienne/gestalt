@@ -59,30 +59,41 @@ const reasoningModelSchema = agentModelAliasSchema;
  * 레포 밖을 막는 검사만으로는 부족하다. 남의 레포를 검사하러 들어갔을 때 그쪽
  * gestalt.json 이 자기 `.env` 를 "조직 컨벤션"으로 선언하면, 스킬이 그걸 읽어
  * "적용한 기준"으로 보고에 옮겨 적는다.
+ *
+ * 한 줄짜리 정규식으로 두면 항목을 더할 때마다 읽기 어려워져서 배열로 나눠 둔다.
  */
-const SECRET_FILE_REF =
-  /(^|\/)(\.env(\.|$)|\.git\/|\.ssh\/|\.npmrc$|id_rsa|[^/]+\.(pem|key|p12|pfx|crt)$)/i;
+const SECRET_FILE_REFS = [
+  // .env, .env.local, prod.env. env.md 처럼 env 를 설명하는 문서는 안 걸린다
+  /(^|\/)(\.env(\.[^/]*)?|[^/]*\.env)$/i,
+  /(^|\/)\.(git|ssh|aws|kube|docker|gnupg)\//i,
+  /(^|\/)(\.npmrc|\.netrc|\.pgpass|\.envrc|\.htpasswd)$/i,
+  /(^|\/)id_(rsa|dsa|ecdsa|ed25519)/i,
+  /\.(pem|key|p8|p12|pfx|crt|jks|keystore|asc)$/i,
+  /(^|\/)credentials$/i,
+];
 
 /**
- * 위 정규식에 걸기 전에 경로를 맞춘다.
+ * 위 목록에 걸기 전에 경로를 맞춘다.
  *
- * 구분자를 통일하는 건 위의 `..` 검사가 두 꼴을 다 받기 때문이다. 조각 끝의 공백과
- * 점을 떼는 건 윈도우가 그걸 떼고 파일을 여는 탓이다 — `".env "` 를 그대로 두면
- * 위 정규식은 안 걸리는데 실제로는 `.env` 가 열린다.
+ * 구분자를 통일하는 건 위의 `..` 검사가 두 꼴을 다 받기 때문이다. 공백을 떼는 건
+ * 이 값을 실제로 여는 주체가 fs 가 아니라 에이전트라서다 — `" .env"` 를 그대로 두면
+ * 목록에는 안 걸리는데 에이전트는 다듬어서 `.env` 를 연다. 조각 끝의 점을 떼는 건
+ * 윈도우가 그걸 떼고 파일을 열기 때문이다.
  */
 function normalizeRefForMatch(ref: string): string {
   return ref
     .replace(/\\/g, '/')
+    .trim()
     .split('/')
-    .map((segment) => segment.replace(/[\s.]+$/, ''))
+    .map((segment) => segment.trim().replace(/\.+$/, ''))
     .join('/');
 }
 
 /** MCP 도구 이름 꼴 */
 const MCP_REF = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
 
-/** 스킬 이름 꼴 */
-const SKILL_REF = /^[a-z0-9][a-z0-9-]*$/;
+/** 스킬 이름 꼴. `review` 와 `gestalt:review` 를 받는다 */
+const SKILL_REF = /^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$/;
 
 /**
  * 레포 밖에 있는 규칙 소스. 게슈탈트도 대상 레포도 소유하지 않은 기준을 가리킨다.
@@ -92,8 +103,17 @@ const SKILL_REF = /^[a-z0-9][a-z0-9-]*$/;
  */
 const ruleSourceSchema = z
   .object({
-    /** 보고에 쓰는 이름. 레포 안에서 고유해야 한다 */
-    id: z.string().min(1).max(64),
+    /**
+     * 보고에 쓰는 이름. 레포 안에서 고유해야 한다.
+     *
+     * 꼴을 좁힌 건 이 값이 사용자에게 보이는 보고 화면에 그대로 찍혀서다. 개행과
+     * 마크다운이 섞이면 게슈탈트가 쓴 줄처럼 보이는 자리가 생긴다
+     */
+    id: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'id 는 영숫자로 시작하는 이름이어야 합니다'),
     kind: z.enum(['mcp', 'file', 'skill']),
     /**
      * kind별 대상 — mcp면 도구 이름, file이면 경로, skill이면 스킬 이름.
@@ -131,7 +151,7 @@ const ruleSourceSchema = z
           path: ['ref'],
           message: 'file 소스의 ref 는 레포 밖을 가리킬 수 없습니다',
         });
-      } else if (SECRET_FILE_REF.test(normalizeRefForMatch(source.ref))) {
+      } else if (SECRET_FILE_REFS.some((p) => p.test(normalizeRefForMatch(source.ref)))) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['ref'],
@@ -464,7 +484,8 @@ function pruneInvalidConfig(
   }
 
   // 배열은 마지막에 한 번만 걸러낸다. 인덱스가 당겨지지 않으니 순서를 맞출 필요가 없다.
-  // 스프레드로 되돌리지 않는다 — 원소가 많으면 인자 개수 한계에 걸려 스택이 터진다
+  // 되돌릴 때 스프레드를 안 쓰는 건 원소 수가 그대로 인자 개수가 되기 때문이다.
+  // ruleSources 는 상한이 32라 이 경로로는 안 닿지만 여기는 설정 전체를 받는 자리다
   for (const [array, drops] of arrayDrops) {
     const kept = array.filter((_, index) => !drops.has(index));
     array.length = kept.length;
@@ -505,7 +526,9 @@ export function loadConfig(
   // 5. Validate with Zod — warn + fallback on invalid values
   const result = configSchema.safeParse(merged);
   if (!result.success) {
-    const messages = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
+    const messages = result.error.issues.map(
+      (i) => `${describeIssuePath(i.path, merged)}: ${i.message}`,
+    );
     console.error(
       `[gestalt] Warning: Invalid configuration, using defaults for invalid fields:\n${messages.join('\n')}`,
     );
@@ -538,13 +561,74 @@ export function loadConfig(
  * 쓰는 레포를 깨뜨릴 수도 없다. 그래서 모르는 키는 조용히 버려지는데, 하필 그 키가
  * `ruleSource` 였으면 결과가 `ruleSources: []` 이고 이건 선언을 안 한 레포와 똑같다.
  * onMissing: "stop" 으로 걸어둔 검사가 있었는지조차 아무도 모른 채 지나간다.
+ *
+ * **이름만으로 판정하지 않는다.** 이 결과가 ruleSourceErrors 로 가고 스킬 다섯 자리가
+ * 전부 거기서 멈추므로, 이름이 비슷하다는 것만으로 올리면 남의 레포 JSON 한 줄이
+ * 세션을 세우는 자리가 된다. 값이 선언 꼴일 때만 올린다.
+ *
+ * **gestalt.json 만 본다.** env 는 이 필드를 표현할 방법이 없고 overrides 는 호출한
+ * 코드가 만든 값이라 작성자의 오타로 볼 자리가 아니다.
  */
 function findMisspelledRuleSourcesKey(jsonConfig: Record<string, unknown>): string[] {
   const known = new Set(Object.keys(configSchema.shape));
   return Object.keys(jsonConfig)
     .filter((key) => !known.has(key))
-    .filter((key) => key.toLowerCase().replace(/[_-]/g, '').startsWith('rulesource'))
-    .map((key) => `${key}: 모르는 키입니다. ruleSources 를 적으려던 것인지 확인해주세요`);
+    .filter((key) => looksLikeRuleSources(key.toLowerCase().replace(/[_-]/g, '')))
+    .filter((key) => looksLikeDeclaration(jsonConfig[key]))
+    .map(
+      (key) =>
+        `${JSON.stringify(key.slice(0, 40))}: 모르는 키입니다. ruleSources 를 적으려던 것인지 확인해주세요`,
+    );
+}
+
+/**
+ * 오류 자리를 사람이 따라갈 수 있게 적는다.
+ *
+ * 인덱스만 적으면 못 따라간다 — 응답에 실리는 `ruleSources` 는 깨진 원소가 빠진 뒤
+ * 다시 매겨진 배열이라, `ruleSources.1` 을 세어 보면 멀쩡한 다른 소스를 짚는다.
+ * 그래서 원본 원소의 `id` 를 붙인다.
+ */
+function describeIssuePath(path: (string | number)[], merged: Record<string, unknown>): string {
+  const joined = path.join('.');
+  if (path[0] !== 'ruleSources' || typeof path[1] !== 'number') return joined;
+
+  const sources = merged['ruleSources'];
+  if (!Array.isArray(sources)) return joined;
+  const source = sources[path[1]];
+  if (!isRecord(source) || typeof source['id'] !== 'string') return joined;
+
+  return `${joined} (id: ${JSON.stringify(source['id'].slice(0, 64))})`;
+}
+
+/** 선언하려던 값인지 본다. 스칼라 하나가 들어 있으면 오타로 안 본다 */
+function looksLikeDeclaration(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.every((item) => isRecord(item) && ('kind' in item || 'ref' in item));
+}
+
+/**
+ * 접두 일치만 보면 `ruleSource` 는 잡아도 `ruleSorces` 같은 자리 바뀜은 놓친다.
+ * 두 글자까지 어긋난 것을 같은 의도로 본다.
+ */
+function looksLikeRuleSources(normalized: string): boolean {
+  return normalized.startsWith('rulesource') || editDistanceWithin(normalized, 'rulesources', 2);
+}
+
+function editDistanceWithin(a: string, b: string, limit: number): boolean {
+  if (Math.abs(a.length - b.length) > limit) return false;
+
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(current[j - 1]! + 1, previous[j]! + 1, previous[j - 1]! + cost);
+    }
+    // 이 행 전체가 한계를 넘었으면 남은 행도 줄어들지 않는다
+    if (Math.min(...current) > limit) return false;
+    previous = current;
+  }
+  return previous[b.length]! <= limit;
 }
 
 /**

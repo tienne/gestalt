@@ -72,8 +72,10 @@ describe('ges_status — ruleSources', () => {
         ref: 'x',
       })),
     });
-    expect(out.ruleSourceErrors).toHaveLength(21);
-    expect(out.ruleSourceErrors.at(-1)).toContain('그 밖에');
+    expect(out.ruleSourceErrors).toHaveLength(20);
+    // 안 실린 줄 수는 문자열이 아니라 수로 온다. 스킬이 이 배열을 사용자에게
+    // 옮겨 적으므로 문장으로 끼워 넣으면 그게 오류 한 건처럼 읽힌다
+    expect(out.ruleSourceErrorCount).toBe(25);
   });
 
   it('기존 필드를 밀어내지 않는다', () => {
