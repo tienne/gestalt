@@ -165,8 +165,22 @@ interface GestaltConfig {
 | `scope` | string[] | 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 |
 | `trust` | `convention` \| `delegate` | `convention`은 형식을 따른다. `delegate`는 그 작업을 넘긴다 |
 | `onMissing` | `skip` \| `warn` \| `stop` | 못 읽었을 때 조용히 진행할지, 보고에 남길지, 멈출지 |
+| `importPattern` | string (선택) | 이 소스를 쓰는 import를 알아보는 정규식. `design-check`가 시스템 안팎을 가를 때 쓴다 |
 
 **선언한 것만 읽는다.** 붙어 있는 MCP 서버를 훑어 관련 있어 보이는 걸 골라 쓰지 않는다. 무엇을 근거로 삼았는지 불투명해진다. 이름만 비슷한 엉뚱한 걸 물 수 있다. 선언이 없으면 스킬은 이 단계를 통째로 건너뛴다.
+
+**`importPattern`에 기본값을 두지 않는다.** 게슈탈트가 특정 조직의 패키지 이름을 들고 있으면, 다른 레포에서는 모든 파일이 시스템 바깥으로 판정돼 `design-check`가 0건을 보고한다. 기준 없이 통과한 것과 재서 깨끗한 것이 겉보기에 같아지는 자리다. 선언하지 않으면 검사가 "재지 못한 기준"으로 남기고 통과를 주지 않는다.
+
+```jsonc
+{
+  "id": "acme-ds",
+  "kind": "file",
+  "ref": "../design-system/components",
+  "importPattern": "from ['\"]@acme/design",
+  "scope": ["ui"],
+  "onMissing": "stop"
+}
+```
 
 `gestalt init`은 이 필드를 만들지 않는다. 기본값이 빈 배열이고 무엇을 기준으로 삼을지는 조직마다 다르기 때문이다. 쓰려면 위 예시처럼 직접 적는다.
 

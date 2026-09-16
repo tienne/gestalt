@@ -14,6 +14,7 @@ function source(over: Partial<RuleSource> = {}): RuleSource {
     scope: [],
     trust: 'convention',
     onMissing: 'warn',
+    importPattern: 'from [\'"]@acme/design',
     ...over,
   };
 }
@@ -95,7 +96,7 @@ describe('runDesignCheck', () => {
   it('시스템을 쓰는 파일에서 샌 값을 막는다', () => {
     writeFileSync(
       join(dir, 'src', 'Card.tsx'),
-      `import { Box } from '@catchtable/plate-recipe';\nexport const C = () => <Box style={{ padding: '13px' }} />;\n`,
+      `import { Box } from '@acme/design';\nexport const C = () => <Box style={{ padding: '13px' }} />;\n`,
     );
     const r = runDesignCheck({ repoRoot: dir, ruleSources: [source()] });
     expect(r.verdict).toBe('abort');
@@ -119,11 +120,25 @@ describe('runDesignCheck', () => {
     expect(r.notMeasured.join()).toContain('중복 컴포넌트');
   });
 
+  // 기본값을 두면 다른 조직 레포에서 누수가 0건으로 나와 조용히 통과한다
+  it('import 패턴 선언이 없으면 누수를 재지 못했다고 남긴다', () => {
+    writeFileSync(
+      join(dir, 'src', 'Card.tsx'),
+      `import { Box } from '@acme/design';\nexport const C = () => <Box style={{ padding: '13px' }} />;\n`,
+    );
+    const noPattern = { ...source(), importPattern: undefined };
+    const r = runDesignCheck({ repoRoot: dir, ruleSources: [noPattern] });
+    expect(r.counts.unknown).toBeGreaterThan(0);
+    expect(r.counts.leakFindings).toBe(0);
+    expect(r.notMeasured.join()).toContain('import 패턴');
+    expect(r.verdict).toBe('abort');
+  });
+
   it('세션이 넘긴 목록이 있으면 MCP 소스를 못 읽었다고 세지 않는다', () => {
     const r = runDesignCheck({
       repoRoot: dir,
-      ruleSources: [source({ id: 'plate', kind: 'mcp', ref: 'mcp__plate__x' })],
-      providedComponents: [{ id: 'plate', components: ['tooltip'] }],
+      ruleSources: [source({ id: 'ds-mcp', kind: 'mcp', ref: 'mcp__ds__list' })],
+      providedComponents: [{ id: 'ds-mcp', components: ['tooltip'] }],
     });
     expect(r.notMeasured).toEqual([]);
     expect(r.basis.join()).toContain('세션이 읽어 넘김');

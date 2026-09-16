@@ -16,7 +16,9 @@ export type Zone =
   /** 디자인 시스템을 안 쓰는 파일. 미채택이지 누수가 아니다 */
   | 'outside'
   /** 검사 대상이 아닌 파일 */
-  | 'excluded';
+  | 'excluded'
+  /** 디자인 시스템 import 패턴이 선언되지 않아 안팎을 못 가린 상태 */
+  | 'unknown';
 
 /**
  * 제품 화면이 아닌 자리.
@@ -29,13 +31,13 @@ const EXCLUDED_PATH =
 
 const EXCLUDED_FILE = /\.(test|spec|stories|e2e|figma\.stories|d)\.(tsx?|jsx?)$/;
 
-/** 디자인 시스템을 쓰는지 판별할 import 표기 */
-const DS_IMPORT = /from\s+['"]@catchtable\/plate/;
-
 export interface ZoneOptions {
   /**
-   * 디자인 시스템 import를 알아보는 정규식. 조직마다 패키지 이름이 다르므로 주입받는다.
-   * 게슈탈트가 특정 조직 이름을 갖고 있으면 다른 레포에서 못 쓴다.
+   * 디자인 시스템 import를 알아보는 정규식. **기본값이 없다.**
+   *
+   * 조직마다 패키지 이름이 다르다. 게슈탈트가 한 조직 이름을 기본값으로 들고 있으면
+   * 다른 레포에서는 모든 파일이 바깥으로 판정돼 누수가 0건으로 나온다. 기준 없이
+   * 통과한 것과 재서 깨끗한 것이 겉보기에 같아지는 자리라, 없으면 판별하지 않는다.
    */
   dsImport?: RegExp;
   /** 추가로 제외할 경로 */
@@ -52,5 +54,8 @@ export function zoneOf(filePath: string, source: string, options: ZoneOptions = 
   // 섞어서 세는 것보다 바깥으로 두고 미채택 지표에만 넣는 편이 정직하다
   if (/\.(css|scss|sass|less)$/.test(filePath)) return 'outside';
 
-  return (options.dsImport ?? DS_IMPORT).test(source) ? 'inside' : 'outside';
+  // 패턴이 없으면 안팎을 못 가린다. 바깥으로 두면 누수를 0건으로 보고하게 되므로
+  // 판별 불가를 그대로 돌려준다. 부르는 쪽이 "재지 못했다"로 다루게 한다
+  if (!options.dsImport) return 'unknown';
+  return options.dsImport.test(source) ? 'inside' : 'outside';
 }

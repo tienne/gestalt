@@ -71,6 +71,15 @@ const ruleSourceSchema = z.object({
   trust: z.enum(['convention', 'delegate']).default('convention'),
   /** 못 읽었을 때. warn 이상은 결과에 남는다 */
   onMissing: z.enum(['skip', 'warn', 'stop']).default('warn'),
+  /**
+   * 이 소스를 쓰는 import를 알아보는 정규식 문자열.
+   *
+   * 디자인 시스템 소스에 쓴다. 어떤 파일이 그 시스템을 쓰는지 알아야 "시스템 안에서
+   * 샌 값"과 "시스템을 아예 안 쓰는 파일"을 가를 수 있다. 조직마다 패키지 이름이
+   * 다르므로 게슈탈트가 기본값을 갖지 않는다 — 기본값을 두면 다른 조직 레포에서
+   * 전부 바깥으로 판정돼 검사가 조용히 아무것도 안 잡는다.
+   */
+  importPattern: z.string().optional(),
 });
 
 export type RuleSource = z.infer<typeof ruleSourceSchema>;

@@ -52,26 +52,33 @@ describe('detectors — 고칠 수 없는 값은 세지 않는다', () => {
 });
 
 describe('scope — 고칠 수 있는 것만 본다', () => {
-  const uses = `import { Box } from '@catchtable/plate-recipe';`;
+  const ds = { dsImport: /@acme\/design/ };
+  const uses = `import { Box } from '@acme/design';`;
 
   it('디자인 시스템을 쓰면 inside다', () => {
-    expect(zoneOf('src/Card.tsx', uses)).toBe('inside');
+    expect(zoneOf('src/Card.tsx', uses, ds)).toBe('inside');
   });
 
   it('안 쓰면 outside — 미채택이지 누수가 아니다', () => {
-    expect(zoneOf('src/Card.tsx', 'export const Card = () => null;')).toBe('outside');
+    expect(zoneOf('src/Card.tsx', 'export const Card = () => null;', ds)).toBe('outside');
   });
 
   it('스토리와 테스트는 일부러 하드코딩한다', () => {
-    expect(zoneOf('src/Card.stories.tsx', uses)).toBe('excluded');
-    expect(zoneOf('src/Card.test.tsx', uses)).toBe('excluded');
-    expect(zoneOf('packages/ui/.storybook/preview.tsx', uses)).toBe('excluded');
+    expect(zoneOf('src/Card.stories.tsx', uses, ds)).toBe('excluded');
+    expect(zoneOf('src/Card.test.tsx', uses, ds)).toBe('excluded');
+    expect(zoneOf('packages/ui/.storybook/preview.tsx', uses, ds)).toBe('excluded');
   });
 
-  it('패키지 이름은 주입받는다 — 게슈탈트가 특정 조직 이름을 갖고 있으면 안 된다', () => {
-    const src = `import { Stack } from '@acme/design';`;
-    expect(zoneOf('src/A.tsx', src)).toBe('outside');
-    expect(zoneOf('src/A.tsx', src, { dsImport: /@acme\/design/ })).toBe('inside');
+  // 기본값을 두면 다른 조직 레포에서 모든 파일이 바깥으로 판정돼 누수가 0건으로 나온다.
+  // 기준 없이 통과한 것과 재서 깨끗한 것이 겉보기에 같아지는 자리다
+  it('패턴이 없으면 판별하지 않는다 — 조직 이름 기본값을 두지 않는다', () => {
+    expect(zoneOf('src/A.tsx', uses)).toBe('unknown');
+  });
+
+  it('선언한 패턴만 쓴다', () => {
+    const other = `import { Stack } from '@other/ds';`;
+    expect(zoneOf('src/A.tsx', other, ds)).toBe('outside');
+    expect(zoneOf('src/A.tsx', other, { dsImport: /@other\/ds/ })).toBe('inside');
   });
 });
 

@@ -31,6 +31,7 @@ export interface DesignReport {
     scanned: number;
     inside: number;
     outside: number;
+    unknown: number;
     excluded: number;
     leakFindings: number;
     duplicateFindings: number;
@@ -69,6 +70,7 @@ export function judge(input: JudgeInput): DesignReport {
     scanned: input.files.length,
     inside: input.files.filter((f) => f.zone === 'inside').length,
     outside: input.files.filter((f) => f.zone === 'outside').length,
+    unknown: input.files.filter((f) => f.zone === 'unknown').length,
     excluded: input.files.filter((f) => f.zone === 'excluded').length,
     leakFindings,
     duplicateFindings: input.duplicates.length,
@@ -100,7 +102,9 @@ export function formatReport(report: DesignReport): string {
   const { counts } = report;
 
   out.push(
-    `[디자인 검사] 파일 ${counts.scanned}개 (시스템 안 ${counts.inside} / 밖 ${counts.outside} / 제외 ${counts.excluded})`,
+    `[디자인 검사] 파일 ${counts.scanned}개 (시스템 안 ${counts.inside} / 밖 ${counts.outside}` +
+      (counts.unknown > 0 ? ` / 판별 불가 ${counts.unknown}` : '') +
+      ` / 제외 ${counts.excluded})`,
   );
 
   if (report.notMeasured.length > 0) {

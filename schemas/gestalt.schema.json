@@ -204,6 +204,10 @@
           "enum": ["skip", "warn", "stop"],
           "description": "When the source cannot be read. 'skip' proceeds silently, 'warn' proceeds and records the gap in the completion report, 'stop' halts and explains what would unblock it",
           "default": "warn"
+        },
+        "importPattern": {
+          "type": "string",
+          "description": "Regex matching imports of this source, e.g. \"from ['\\\"]@acme/design\". Used by design-check to tell files that use the design system from files that do not. Gestalt ships no default: a built-in package name would mark every file in another organization's repo as outside and silently report zero findings"
         }
       },
       "required": ["id", "kind", "ref"],

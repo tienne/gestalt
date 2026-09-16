@@ -50,6 +50,12 @@ export function runDesignCheck(options: RunOptions): DesignReport {
   const { repoRoot, ruleSources } = options;
   const inv = resolveInventory(ruleSources, { cwd: repoRoot, tags: options.tags });
 
+  // 선언이 곧 기준이다. 게슈탈트가 패키지 이름을 기본값으로 들고 있으면 다른 조직
+  // 레포에서 모든 파일이 바깥으로 판정돼 누수가 0건으로 나온다
+  const patterns = ruleSources.filter((s) => s.importPattern).map((s) => s.importPattern as string);
+  const dsImport =
+    options.zone?.dsImport ?? (patterns.length > 0 ? new RegExp(patterns.join('|')) : undefined);
+
   const components = [...inv.components];
   const basis = [...inv.basis];
   let notMeasured = [...inv.notMeasured];
@@ -72,7 +78,7 @@ export function runDesignCheck(options: RunOptions): DesignReport {
       continue;
     }
     const filePath = relative(repoRoot, full);
-    const zone = zoneOf(filePath, source, options.zone);
+    const zone = zoneOf(filePath, source, { ...options.zone, dsImport });
     files.push({
       filePath,
       zone,
@@ -90,6 +96,12 @@ export function runDesignCheck(options: RunOptions): DesignReport {
     components.length > 0 ? findDuplicates([...new Set(components)], dupInput) : [];
   if (components.length === 0) {
     notMeasured.push('중복 컴포넌트: 제공 목록을 못 읽어 대조하지 못함');
+  }
+  if (!dsImport) {
+    notMeasured.push(
+      '누수: 디자인 시스템 import 패턴이 선언되지 않아 시스템 안팎을 가르지 못함 ' +
+        '(ruleSources[].importPattern 또는 --ds-import)',
+    );
   }
 
   return judge({ files, duplicates, basis, notMeasured });
