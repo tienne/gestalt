@@ -1,16 +1,3 @@
-it('서비스별 진짜 키는 가린다', () => {
-  for (const [key, expected] of [
-    ['sk-proj0AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd', 'sk-***'],
-    ['AKIAIOSFODNN7EXAMPLE', 'AKIA***'],
-    ['npm_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789', 'npm_***'],
-    ['ghp_AbCdEfGhIjKlMnOpQrStUvWxYz01234567', 'ghp_***'],
-    [`sk_live_${'AbCdEfGhIjKlMnOpQrStUv'}`, 'sk_live_***'],
-    ['xoxb-1234567890-abcdefghij', 'xoxb-***'],
-  ] as const) {
-    expect(formatReceived({ k: key })).toBe(`{"k":"${expected}"}`);
-  }
-});
-
 /**
  * MCP 입력 검증이 진짜 원인을 돌려주는지 본다.
  *
@@ -30,6 +17,7 @@ import {
   formatReceived,
   guardShape,
   secretPatternsForTest,
+  tokenRulesForTest,
   verboseErrorMap,
   snippetAround,
 } from '../../../src/mcp/input-guard.js';
@@ -320,6 +308,82 @@ describe('마스킹 계약', () => {
       '-----BEGIN RSA PRIVATE KEY-----\nAAAA_BBBBnpm_CCCCCCCCDDDDREALTAIL\n-----END RSA PRIVATE KEY-----';
 
     expect(formatReceived({ k: mixed })).not.toContain('REALTAIL');
+  });
+
+  it('서비스별 진짜 키는 가린다', () => {
+    for (const [key, expected] of [
+      ['sk-proj0AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd', 'sk-***'],
+      ['AKIAIOSFODNN7EXAMPLE', 'AKIA***'],
+      ['npm_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789', 'npm_***'],
+      ['ghp_AbCdEfGhIjKlMnOpQrStUvWxYz01234567', 'ghp_***'],
+      [`sk_live_${'AbCdEfGhIjKlMnOpQrStUv'}`, 'sk_live_***'],
+      ['xoxb-1234567890-abcdefghij', 'xoxb-***'],
+    ] as const) {
+      expect(formatReceived({ k: key })).toBe(`{"k":"${expected}"}`);
+    }
+  });
+
+  it('같은 서비스의 자매 접두어도 가린다', () => {
+    // API 키만 덮으면 웹훅 서명 시크릿과 임시 자격증명이 남는다. whsec_ 가 새면 서명을
+    // 위조해 임의 이벤트를 밀어넣을 수 있어 위험의 종류가 다르다.
+    for (const [key, expected] of [
+      [`whsec_${'A'.repeat(32)}`, 'whsec_***'],
+      [`rk_live_${'A'.repeat(24)}`, 'rk_live_***'],
+      [`rk_test_${'A'.repeat(24)}`, 'rk_test_***'],
+      [`ghu_${'A'.repeat(36)}`, 'ghu_***'],
+      [`ghr_${'A'.repeat(36)}`, 'ghr_***'],
+      ['xapp-1-A012345678-1234567890-abcdef', 'xapp-***'],
+      ['ASIAIOSFODNN7EXAMPLE', 'ASIA***'],
+    ] as const) {
+      expect(formatReceived({ k: key })).toBe(`{"k":"${expected}"}`);
+    }
+  });
+
+  it('ASIA 가 지역 이름을 가리지 않는다', () => {
+    // 하한 16 이 그 일을 한다. AWS 임시 자격증명은 뒤에 16자가 붙는다.
+    for (const word of ['ASIA', 'ASIAN', 'ASIAPACIFIC', 'asia-region-1']) {
+      expect(formatReceived({ k: word })).toContain(word);
+    }
+  });
+
+  it('Bearer 는 짧은 불투명 토큰도 가린다', () => {
+    // 서비스마다 꼴이 달라 8자짜리 공유 시크릿을 그대로 보내는 API 도 있다. 대문자로
+    // 시작하는 Bearer 는 HTTP 헤더 자리라 영어 문장의 소문자 bearer 와 안 겹친다.
+    expect(formatReceived({ a: 'Bearer a1b2c3' })).toBe('{"a":"Bearer ***"}');
+    expect(formatReceived({ a: 'Bearer abc123xyz' })).toBe('{"a":"Bearer ***"}');
+    // 하한 밑은 남는다.
+    expect(formatReceived({ a: 'Bearer token' })).toContain('token');
+  });
+
+  it('하한 경계가 규칙 표와 맞는다', () => {
+    // 표본을 전부 넉넉한 길이로 두면 하한을 잘못 적어도 안 걸린다. 규칙마다 하한
+    // 바로 위와 바로 아래를 만들어 경계를 고정한다. AKIA 는 발급 길이와 하한이 같아
+    // 여유가 없으므로 특히 이 판정이 필요하다.
+    for (const [prefix, minBody] of tokenRulesForTest()) {
+      const literal = prefix.startsWith('xox')
+        ? 'xoxb-'
+        : prefix.startsWith('Bearer')
+          ? 'Bearer '
+          : prefix;
+      const body = 'A';
+
+      const atMin = formatReceived({ k: `${literal}${body.repeat(minBody)}` });
+      expect(atMin).not.toContain(body.repeat(minBody));
+
+      const belowMin = `${literal}${body.repeat(minBody - 1)}`;
+      expect(formatReceived({ k: belowMin })).toContain(body.repeat(minBody - 1));
+    }
+  });
+
+  it('Bearer JWT 는 세 조각을 다 가린다', () => {
+    // 본문에 점을 안 받으면 헤더만 가려지고 payload 와 signature 가 남는다. 헤더는
+    // 추측 가능하니 남은 쪽이 사실상 자격증명 전체다.
+    const jwt =
+      'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r';
+
+    const sample = formatReceived({ auth: jwt });
+
+    expect(sample).toBe('{"auth":"Bearer ***"}');
   });
 
   it('END 가 없는 PEM 은 뒤를 통째로 가린다', () => {
