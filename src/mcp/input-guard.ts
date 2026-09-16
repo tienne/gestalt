@@ -80,25 +80,39 @@ const STRUCTURED_KINDS = new Set<z.ZodFirstPartyTypeKind>([
  * 길이에 붙어 있어야 `risk-assessment` 가 안 걸린다.
  */
 const TOKEN_RULES: ReadonlyArray<readonly [prefix: string, minBody: number]> = [
-  // Stripe — 24자 이상
+  // Stripe — API 키 24자 이상, 제한 키와 웹훅 서명 시크릿도 같은 꼴이다. 웹훅 시크릿이
+  // 새면 서명을 위조해 임의 이벤트를 밀어넣을 수 있어 API 키와 위험의 종류가 다르다.
   ['sk_live_', 20],
   ['sk_test_', 20],
-  // GitHub — PAT 36자, fine-grained 82자
+  ['rk_live_', 20],
+  ['rk_test_', 20],
+  ['whsec_', 20],
+  // GitHub — PAT 36자, fine-grained 82자. ghu_ 와 ghr_ 은 GitHub App 쪽이다.
   ['ghp_', 30],
   ['gho_', 30],
   ['ghs_', 30],
+  ['ghu_', 30],
+  ['ghr_', 30],
   ['github_pat_', 30],
   // Slack — 가변이라 낮게 잡는다. 영단어에 안 나오는 꼴이라 낮아도 안전하다.
+  // xapp- 은 Socket Mode 앱 레벨 토큰이다.
   ['xox[baprs]-', 10],
+  ['xapp-', 10],
   // Google API 키 — 35자
   ['AIza', 30],
   // 뒤에 공백류뿐 아니라 이스케이프된 개행(`\n` 두 글자)도 받는다. `formatReceived` 는
   // `JSON.stringify` 를 먼저 거치므로 그 자리에 실제 개행이 안 남는다.
-  ['Bearer(?:\\s|\\\\n|\\\\r)+', 10],
+  //
+  // 하한이 낮다. Bearer 뒤에 오는 토큰은 서비스마다 꼴이 달라 8자짜리 공유 시크릿을
+  // 그대로 보내는 API 도 있다. 대문자로 시작하는 `Bearer ` 는 HTTP 헤더 자리라, 영어
+  // 문장의 소문자 `bearer` 와 안 겹쳐서 낮게 잡아도 멀쩡한 말을 안 가린다.
+  ['Bearer(?:\\s|\\\\n|\\\\r)+', 6],
   // OpenAI — 48자 안팎. `task-`, `risk-`, `desk-` 한가운데에 걸린다.
   ['sk-', 20],
-  // AWS 액세스 키 ID — 뒤에 16자. `AKIActually` 가 그 아래로 떨어진다.
+  // AWS — 액세스 키 ID 는 뒤에 16자. ASIA 는 STS 임시 자격증명이라 운영에서 더 흔하다.
+  // `AKIActually` 같은 단어가 하한 밑으로 떨어진다.
   ['AKIA', 16],
+  ['ASIA', 16],
   // npm 토큰 — 36자. `npm_config_registry` 류 환경변수 이름이 그 아래로 떨어진다.
   ['npm_', 30],
 ];
@@ -112,9 +126,13 @@ const TOKEN_RULES: ReadonlyArray<readonly [prefix: string, minBody: number]> = [
  * 하한으로 막는다.
  */
 function tokenPatterns(): RegExp[] {
-  return TOKEN_RULES.map(
-    ([prefix, minBody]) => new RegExp(`(${prefix})[A-Za-z0-9_-]{${minBody},}`, 'g'),
-  );
+  return TOKEN_RULES.map(([prefix, minBody]) => {
+    // JWT 는 점으로 세 조각이다. 점을 안 받으면 헤더만 가려지고 payload 와 signature 가
+    // 남는데, 헤더는 추측 가능하니 남은 쪽이 사실상 자격증명 전체다. `Bearer` 뒤에만
+    // 허용하므로 `npm_package_name` 류 하한 보호에는 영향이 없다.
+    const body = prefix.startsWith('Bearer') ? '[A-Za-z0-9_.-]' : '[A-Za-z0-9_-]';
+    return new RegExp(`(${prefix})${body}{${minBody},}`, 'g');
+  });
 }
 
 /**
@@ -133,10 +151,12 @@ const PEM_PATTERN =
   /(-----BEGIN [A-Z ]*PRIVATE KEY-----)[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g;
 
 /**
- * 순서는 결과를 안 바꾼다. PEM 본문이 `[\s\S]*?` 라서 앞선 패턴이 남긴 별표도 삼키기
- * 때문이다. 본문을 base64 집합으로 좁혔던 동안에는 토큰 패턴의 치환 문자가 PEM 매칭을
- * 끊어 뒤가 통째로 남았다 — 그 클래스를 되돌리면서 의존이 사라졌다. 순서 무관은
- * 테스트가 고정한다.
+ * 순서가 바꾸는 건 어느 접두어가 남는지뿐이다. 가려지는지 여부와 남는 길이는 안 바뀐다.
+ * `Bearer ghp_…` 처럼 규칙이 겹치는 입력에서 앞 순서는 `Bearer ghp_***`, 역순은
+ * `Bearer ***` 를 낸다 — 둘 다 본문은 덮인다.
+ *
+ * 본문을 base64 집합으로 좁혔던 동안에는 순서가 노출 자체를 갈랐다. 토큰 패턴의 치환
+ * 문자가 PEM 매칭을 끊어 뒤가 통째로 남았다 — 그 클래스를 되돌리면서 사라졌다.
  */
 const SECRET_PATTERNS: RegExp[] = [PEM_PATTERN, ...tokenPatterns()];
 
@@ -165,6 +185,11 @@ function redactSecrets(text: string, options: { preserveLength?: boolean } = {})
       }),
     text,
   );
+}
+
+/** 규칙 표를 테스트가 확인할 수 있게 내보낸다. 런타임 경로는 이 함수를 안 쓴다. */
+export function tokenRulesForTest(): ReadonlyArray<readonly [string, number]> {
+  return TOKEN_RULES;
 }
 
 /** 패턴 계약을 테스트가 확인할 수 있게 내보낸다. 런타임 경로는 이 함수를 안 쓴다. */
