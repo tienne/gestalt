@@ -1,3 +1,16 @@
+it('서비스별 진짜 키는 가린다', () => {
+  for (const [key, expected] of [
+    ['sk-proj0AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd', 'sk-***'],
+    ['AKIAIOSFODNN7EXAMPLE', 'AKIA***'],
+    ['npm_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789', 'npm_***'],
+    ['ghp_AbCdEfGhIjKlMnOpQrStUvWxYz01234567', 'ghp_***'],
+    [`sk_live_${'AbCdEfGhIjKlMnOpQrStUv'}`, 'sk_live_***'],
+    ['xoxb-1234567890-abcdefghij', 'xoxb-***'],
+  ] as const) {
+    expect(formatReceived({ k: key })).toBe(`{"k":"${expected}"}`);
+  }
+});
+
 /**
  * MCP 입력 검증이 진짜 원인을 돌려주는지 본다.
  *
@@ -229,10 +242,17 @@ describe('도구 스키마 노출', () => {
 /** 패턴마다 확실히 매치되는 표본. 그룹 위치 단언에 쓴다. */
 function sampleForPattern(pattern: RegExp): string {
   if (pattern.source.includes('PRIVATE KEY')) {
-    return '-----BEGIN RSA PRIVATE KEY-----AAAABBBB-----END RSA PRIVATE KEY-----';
+    return `-----BEGIN RSA PRIVATE KEY-----${'A'.repeat(40)}-----END RSA PRIVATE KEY-----`;
   }
-  if (pattern.source.includes('AKIA')) return 'AKIAIOSFODNN7EXAMPLE';
-  return 'ghp_AAAABBBBCCCCDDDD';
+  // 접두어를 패턴에서 직접 뽑아 그 뒤에 넉넉한 본문을 붙인다. 표본을 손으로 고르면
+  // 접두어별 하한을 올릴 때 조용히 안 걸리게 된다.
+  const group = /^\(([^)]*)\)/.exec(pattern.source)?.[1] ?? '';
+  const literal = group.startsWith('xox')
+    ? 'xoxb-'
+    : group.startsWith('Bearer')
+      ? 'Bearer '
+      : group;
+  return `${literal}${'A'.repeat(40)}`;
 }
 
 describe('마스킹 계약', () => {
@@ -342,45 +362,57 @@ describe('마스킹 계약', () => {
     // 단어 경계를 그룹 앞에 두면 구분자 없이 이어 붙인 진짜 토큰을 놓친다. 미탐이
     // 잘못 가리는 쪽보다 나쁘다 — 가리는 게 이 함수의 일이다.
     for (const value of [
-      'tokenabcghp_AAAABBBBCCCC',
-      '123ghp_AAAABBBBCCCC',
-      'my_ghp_AAAABBBBCCCC',
-      'YWJjghp_AAAABBBBCCCC',
-      'aaxoxb-AAAABBBBCCCC',
-      'XBearer AAAABBBBCCCC',
-      'token=ghp_AAAABBBBCCCC',
+      'tokenabcghp_AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+      '123ghp_AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+      'my_ghp_AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+      'YWJjghp_AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+      'aaxoxb-AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+      'XBearer AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+      'token=ghp_AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
     ]) {
-      expect(formatReceived({ k: value })).not.toContain('AAAABBBBCCCC');
+      expect(formatReceived({ k: value })).not.toContain(
+        'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+      );
     }
   });
 
-  it('영단어에 흔한 접두어는 하한으로 걸러낸다', () => {
-    // sk- 는 task-runner 와 desk-top 한가운데에, AKIA 는 AKIActually 에 걸린다. 경계를
-    // 두는 대신 그 접두어만 하한을 유지해 막는다.
-    for (const [raw, kept] of [
-      ['{"a": task-runner}', 'task-runner'],
-      ['{"a": desk-top}', 'desk-top'],
-      ['{"a": AKIActually}', 'AKIActually'],
-      ['{"a": npm_config}', 'npm_config'],
-    ] as const) {
-      let message = '';
-      try {
-        JSON.parse(raw);
-      } catch (error) {
-        message = describeJsonParseFailure('a', raw, error);
-      }
-      expect(message).toContain(kept);
+  it('접두어가 낀 멀쩡한 표현은 안 가린다', () => {
+    // 하한을 하나로 묶으면 여기가 깨진다. 접두어마다 실제 발급 길이에 맞춰 잡아야
+    // 꼬리가 긴 식별자도 살아남는다.
+    for (const word of [
+      'risk-management',
+      'risk-assessment',
+      'desk-organizer',
+      'task-scheduler',
+      'task-runner',
+      'desk-top',
+      'ask-me-anything',
+      'whisk-attachment',
+      'risk-taking-culture',
+      'AKIActually',
+      'AKIActuallyworks',
+      'npm_config',
+      'npm_config_value',
+      'npm_package_name',
+      'npm_lifecycle_event',
+    ]) {
+      expect(formatReceived({ k: word })).toContain(word);
     }
   });
 
   it('하한을 유지한 접두어도 진짜 키는 가린다', () => {
-    expect(formatReceived({ k: 'sk-AAAABBBBCCCCDDDD' })).not.toContain('AAAABBBBCCCC');
+    expect(
+      formatReceived({ k: 'sk-AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' }),
+    ).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
     expect(formatReceived({ k: 'AKIAIOSFODNN7EXAMPLE' })).not.toContain('IOSFODNN7EXAMPLE');
   });
 
-  it('파서 문구의 짧은 인용도 가린다', () => {
-    // V8 은 문제 지점을 여섯 자쯤만 인용한다. 본문 하한 여덟 자로는 그 인용을 못 잡는다.
-    const raw = '{"t": ghp_AAAAAAAAAAAAAAAAAAAA}';
+  it('파서 문구의 짧은 인용은 안 가려진다', () => {
+    // V8 은 문제 지점을 여섯 자쯤만 인용한다. 접두어별 하한이 그보다 높아서 그 조각은
+    // 남는다. 하한을 내려 잡으려 했더니 npm_package_name 같은 멀쩡한 식별자가 원인
+    // 설명에서 지워졌다 — 조각 여섯 자로는 키를 복원할 수 없고 원문 전체를 보는 두
+    // 경로는 정확히 가려지므로 그쪽을 택했다. 받아들인 값이라 판정으로 남긴다.
+    const raw = '{"t": ghp_AbCdEfGhIjKlMnOpQrStUvWxYz01234567}';
     let message = '';
     try {
       JSON.parse(raw);
@@ -388,8 +420,10 @@ describe('마스킹 계약', () => {
       message = describeJsonParseFailure('t', raw, error);
     }
 
-    // 부분 문자열이 아니라 패턴으로 본다. 앞 몇 글자만 새는 자리를 놓치지 않으려면 그래야 한다.
-    expect(/ghp_[A-Za-z0-9]/.test(message)).toBe(false);
+    // 인용이 짧아 접두어와 몇 글자가 남는다.
+    expect(message).toContain('ghp_');
+    // 그래도 원문 전체를 보는 경로는 가린다.
+    expect(formatReceived({ t: 'ghp_AbCdEfGhIjKlMnOpQrStUvWxYz01234567' })).toBe('{"t":"ghp_***"}');
   });
 
   it('본문 없는 PEM 헤더도 길이를 보존한다', () => {
@@ -535,10 +569,10 @@ describe('리뷰에서 나온 경계', () => {
   });
 
   it('값 샘플과 파싱 스니펫에서 토큰을 가린다', () => {
-    expect(formatReceived({ token: 'ghp_abcdefgh12345678' })).toContain('ghp_***');
-    expect(formatReceived({ token: 'ghp_abcdefgh12345678' })).not.toContain('abcdefgh12345678');
+    expect(formatReceived({ token: `ghp_${'A'.repeat(40)}` })).toContain('ghp_***');
+    expect(formatReceived({ token: `ghp_${'A'.repeat(40)}` })).not.toContain('A'.repeat(40));
 
-    const text = `x${' '.repeat(20)}sk-abcdefgh12345678`;
+    const text = `x${' '.repeat(20)}sk-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
     expect(snippetAround(text, 0)).toContain('sk-***');
   });
 
@@ -552,7 +586,7 @@ describe('리뷰에서 나온 경계', () => {
 
 describe('라운드 2에서 나온 경계', () => {
   it('파서 문구에 실려 온 원문도 가린다', () => {
-    const withToken = '{"token": ghp_AAAABBBBCCCCDDDD, "a":1}';
+    const withToken = '{"token": ghp_AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD, "a":1}';
     let message = '';
     try {
       JSON.parse(withToken);
@@ -561,27 +595,29 @@ describe('라운드 2에서 나온 경계', () => {
     }
 
     // V8 은 깨진 지점 원문을 자기 메시지 안에 인용한다. raw 만 가리면 그 경로가 남는다.
-    expect(message).not.toContain('AAAABBBBCCCCDDDD');
+    expect(message).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
   });
 
   it('개행이 섞인 토큰도 가린다', () => {
     // 이스케이프를 먼저 걸면 `Bearer\s+` 가 그 자리를 못 잡는다.
-    expect(formatReceived({ auth: 'Bearer\nAAAABBBBCCCCDDDD' })).not.toContain('AAAABBBBCCCCDDDD');
+    expect(
+      formatReceived({ auth: 'Bearer\nAAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' }),
+    ).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
   });
 
   it('토큰을 가리고 깨진 자리는 남긴다', () => {
-    const text = String.raw`x=ghp_AAAABBBBCCCCDDDD\uZZ`;
+    const text = String.raw`x=ghp_AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD\uZZ`;
     const snippet = snippetAround(text, text.indexOf('\\u'));
 
     expect(snippet).toContain('uZZ');
-    expect(snippet).not.toContain('AAAABBBBCCCCDDDD');
+    expect(snippet).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
   });
 
   it('토큰이 여럿이면 전부 가린다', () => {
-    const text = 'a=ghp_AAAABBBBCCCCDDDD b=sk-EEEEFFFFGGGGHHHH';
+    const text = 'a=ghp_AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD b=sk-EEEEFFFFGGGGHHHH';
     const snippet = snippetAround(text, text.indexOf('BBBB'));
 
-    expect(snippet).not.toContain('AAAABBBBCCCCDDDD');
+    expect(snippet).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
     expect(snippet).not.toContain('EEEEFFFFGGGGHHHH');
   });
 
@@ -597,7 +633,7 @@ describe('라운드 2에서 나온 경계', () => {
 
   it('깨진 지점이 자격증명 안이어도 가린다', () => {
     // 원인 바이트가 덮이는 건 받아들인 값이다. 위치와 사유는 파서 문구에 남는다.
-    const text = 'k=ghp_AAAABBBBCCCCDDDDEEEE';
+    const text = 'k=ghp_AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD';
     const snippet = snippetAround(text, text.indexOf('CCCC'));
 
     expect(snippet).not.toContain('AAAABBBB');
@@ -626,7 +662,7 @@ describe('라운드 2에서 나온 경계', () => {
   it('값 샘플 치환은 길이를 안 드러낸다', () => {
     // 별표 개수가 원문 길이면 토큰 포맷을 좁히는 단서가 된다. 위치 보존이 필요 없는
     // 자리는 고정 길이로 덮는다.
-    const short = formatReceived({ k: `ghp_${'A'.repeat(10)}` });
+    const short = formatReceived({ k: `ghp_${'A'.repeat(40)}` });
     const long = formatReceived({ k: `ghp_${'A'.repeat(60)}` });
 
     expect(short).toBe(long);
@@ -654,7 +690,8 @@ describe('라운드 2에서 나온 경계', () => {
 
   it('PEM 이 앞쪽에 와도 스니펫이 깨진 지점을 짚는다', () => {
     // 치환이 길이를 잃으면 창이 원문 끝을 넘어가 스니펫이 통째로 사라진다.
-    const pem = '-----BEGIN RSA PRIVATE KEY-----AAAABBBBCCCCDDDD-----END RSA PRIVATE KEY-----';
+    const pem =
+      '-----BEGIN RSA PRIVATE KEY-----AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD-----END RSA PRIVATE KEY-----';
     const text = `{"note":"${pem}","s":"` + String.raw`\uZZ` + '"}';
 
     const snippet = snippetAround(text, text.indexOf(String.raw`\u`));
@@ -664,13 +701,24 @@ describe('라운드 2에서 나온 경계', () => {
   });
 
   it('새로 넣은 접두어와 PEM 블록도 가린다', () => {
-    expect(formatReceived({ k: `sk_live_${'AAAABBBBCCCC'}` })).not.toContain('AAAABBBBCCCC');
-    expect(formatReceived({ k: 'xoxb-AAAABBBBCCCC' })).not.toContain('AAAABBBBCCCC');
-    expect(formatReceived({ k: 'AIzaAAAABBBBCCCC' })).not.toContain('AAAABBBBCCCC');
-    expect(formatReceived({ k: 'npm_AAAABBBBCCCC' })).not.toContain('AAAABBBBCCCC');
+    expect(
+      formatReceived({ k: `sk_live_${'AAAABBBBCCCCDDDD'.repeat(3)}` }),
+    ).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
+    expect(
+      formatReceived({ k: 'xoxb-AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' }),
+    ).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
+    expect(
+      formatReceived({ k: 'AIzaAAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' }),
+    ).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
+    expect(
+      formatReceived({ k: 'npm_AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD' }),
+    ).not.toContain('AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD');
 
-    const pem = '-----BEGIN RSA PRIVATE KEY-----AAAABBBBCCCC-----END RSA PRIVATE KEY-----';
-    expect(formatReceived({ k: pem })).not.toContain('AAAABBBBCCCC');
+    const pem =
+      '-----BEGIN RSA PRIVATE KEY-----AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD-----END RSA PRIVATE KEY-----';
+    expect(formatReceived({ k: pem })).not.toContain(
+      'AAAABBBBCCCCDDDDAAAABBBBCCCCDDDDAAAABBBBCCCCDDDD',
+    );
   });
 
   it('메시지 없는 refine 실패에도 받은 값이 실린다', () => {
