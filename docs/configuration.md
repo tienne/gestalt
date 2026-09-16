@@ -174,7 +174,7 @@ interface GestaltConfig {
 
 `ges_status`는 sessionId 없이 호출해도 resolve된 `ruleSources`를 노출한다. 스킬은 `gestalt.json`을 직접 파싱하지 않고 이 값을 읽는다.
 
-적용 규칙의 원본은 [`plugin/skills/_shared/rule-sources.md`](../plugin/skills/_shared/rule-sources.md)다. 어느 스킬이 언제 읽는지는 [`docs/mcp-reference.md`](./mcp-reference.md)를 본다.
+적용 규칙의 원본은 [`plugin/skills/_shared/rule-sources.md`](../plugin/skills/_shared/rule-sources.md)다. 어느 스킬이 언제 읽는지는 [어느 스킬이 언제 규칙 소스를 읽나](./mcp-reference.md#어느-스킬이-언제-규칙-소스를-읽나)에 있다.
 
 ### `ruleSourceErrors` (읽기 전용)
 
