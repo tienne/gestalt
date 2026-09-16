@@ -745,7 +745,7 @@ ges_agent({ action: "get", name: "architect" })
 
 따로 부르면 각 스킬이 자기 차례에 읽는 게 맞다. 스킬 런타임이 다르면 변수가 안 넘어간다. 인터뷰가 `ruleContext`에 담아둔 값은 `spec`이 시작될 때 이미 없다.
 
-`execute`의 `resume`도 같은 이유로 Phase 0을 다시 한다. `resumeContext`는 `completedTaskIds` 같은 진행 상태만 돌려주고 `repoRules`는 안 들고 있다. 끊긴 사이에 선언이나 레포 규칙이 바뀌었을 수도 있어서 다시 읽는 게 맞기도 하다.
+`execute`의 `resume`도 같은 이유로 Phase 0을 다시 한다. `resumeContext`는 `completedTaskIds` 같은 진행 상태만 돌려주고 `repoRules`는 안 들고 있다. 끊긴 사이에 레포 규칙이 바뀌었을 수 있으니 0-1은 다시 읽는 게 맞기도 하다. 선언 쪽은 서버가 다시 떠야 바뀌므로 그 값은 그대로다.
 
 ---
 

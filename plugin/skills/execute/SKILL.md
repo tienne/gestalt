@@ -108,14 +108,8 @@ ges_status()  →  {
 
 **`ruleSourceErrors`가 비어 있지 않으면 멈춘다.** 판정과 사용자에게 알릴 문구는 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)의 "선언이 깨졌을 때" 절이 원본이다. **`ruleSources`가 비어 있지 않아도 일부가 빠진 상태일 수 있으니 배열 길이로 판정하지 않는다.**
 
-```
-gestalt.json의 ruleSources 선언 일부를 읽지 못했습니다.
-  ruleSources.1.kind: Invalid enum value. Expected 'mcp' | 'file' | 'skill', received 'http'
-남은 소스: repo-voice
-고치고 다시 부르시거나, 빠진 기준 없이 진행할지 알려주세요.
-```
 
-`scope`가 비어 있지 않으면 **이번 Spec에 해당하는 소스만** 읽는다. 백엔드 태스크만 있는 Spec에서 디자인 토큰을 물어볼 이유가 없다.
+`scope`가 비어 있지 않으면 **이번 Spec에 해당하는 소스만** 읽는다. 백엔드 태스크만 있는 Spec에서 디자인 토큰을 물어볼 이유가 없다. 여기는 건드릴 파일이 정해진 자리라 태그를 그 파일에서 뽑는다 — 앞 스킬이 파일을 모른 채 넓게 잡아 넘겼으면, 이 자리에서 새로 걸리는 소스만 더 읽는다.
 
 `trust: "delegate"`인 소스가 이번 작업 범위에 걸리면 그 부분은 게슈탈트가 직접 만들지 않고 넘긴다. 어디까지 넘기는지 사용자에게 알리고 진행한다.
 

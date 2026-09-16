@@ -33,7 +33,7 @@ outputs:
 
 세 단계가 각자 규칙 소스를 읽는다. `interview` 0.5단계, `spec`의 규칙 확보, `execute` Phase 0이다. 따로 부르면 그게 맞다 — 스킬 런타임이 다르면 값이 안 넘어간다.
 
-**`solve`는 셋을 한 런타임에서 돈다.** 여기서 한 번 읽어 `ruleContext`로 고정하고 세 Phase가 그 값을 쓴다. 각 Phase의 **레포 밖** 규칙 확보 절은 건너뛴다. `execute`의 0-1 레포 안 탐색은 그대로 한다 — 대상 파일이 정해진 뒤라야 가까운 `CLAUDE.md`를 고를 수 있다.
+**`solve`는 셋을 한 런타임에서 돈다.** 여기서 한 번 읽어 `ruleContext = { sources, missing }`으로 고정하고 세 Phase가 그 값을 쓴다. Phase 3은 그 둘을 `execute`의 `repoRules.sources`와 `repoRules.missing`으로 그대로 옮기고 `repoRules.files`만 0-1에서 새로 채운다. 각 Phase의 **레포 밖** 규칙 확보 절은 건너뛴다. `execute`의 0-1 레포 안 탐색은 그대로 한다 — 대상 파일이 정해진 뒤라야 가까운 `CLAUDE.md`를 고를 수 있다.
 
 한 번만 읽는 이유는 비용이 아니라 **일관성**이다. 세 Phase가 각자 읽으면 같은 흐름 안에서 서로 다른 값을 쓸 여지가 생긴다 — 태그가 달라 읽는 소스가 갈리거나, 사이에 서버가 다시 떠서 스냅샷이 바뀌는 경우다. Spec에 굳은 제약과 실행이 따르는 기준은 같아야 한다.
 
@@ -41,16 +41,10 @@ outputs:
 
 ### 멈출 거면 인터뷰 전에 멈춘다
 
-`ruleSourceErrors`가 비어 있지 않거나 `onMissing: "stop"`인 소스를 못 읽었으면 **`ges_interview start`를 부르기 전에** 멈춘다.
+`ruleSourceErrors`가 비어 있지 않거나 `onMissing: "stop"`인 소스를 못 읽었으면 **`ges_interview start`를 부르기 전에** 멈춘다. 알릴 문구는 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)의 "선언이 깨졌을 때" 절이 원본이다.
 
 사람이 스무 라운드를 답하고 나서 "기준을 못 읽어 Spec을 못 만듭니다"라고 하면 그 시간이 통째로 버려진다. Phase 1만 사람이 참여하는 구조라 더 그렇다. 판정을 맨 앞에 두는 게 이 스킬에서 특히 중요한 이유다.
 
-```
-gestalt.json의 ruleSources 선언 일부를 읽지 못했습니다.
-  ruleSources.1.kind: Invalid enum value. Expected 'mcp' | 'file' | 'skill', received 'http'
-남은 소스: repo-voice
-고치고 다시 부르시거나, 빠진 기준 없이 진행할지 알려주세요.
-```
 
 ### 세 Phase가 쓰는 법
 
