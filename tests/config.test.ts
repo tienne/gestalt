@@ -261,6 +261,58 @@ describe('loadConfig — ruleSources', () => {
     expect(config.ruleSourceErrors).toHaveLength(2);
   });
 
+  // 한 원소에 잘못된 필드가 둘이면 zod가 issue를 둘 낸다. 받는 대로 빼면 두 번째가
+  // 이미 당겨진 배열의 옆 원소를 지운다
+  it('한 원소에 잘못된 필드가 둘이어도 옆 소스는 안 빠진다', () => {
+    const config = loadConfig(
+      {
+        ruleSources: [
+          { id: 'bad', kind: 'http', ref: 'x', onMissing: 'ignore' },
+          { id: 'good1', kind: 'file', ref: 'a' },
+          { id: 'good2', kind: 'file', ref: 'b' },
+        ],
+      },
+      opts,
+    );
+    expect(config.ruleSources.map((r) => r.id)).toEqual(['good1', 'good2']);
+  });
+
+  it('required가 통째로 빠진 원소도 그 하나만 걷어낸다', () => {
+    const config = loadConfig({ ruleSources: [{}, { id: 'good', kind: 'file', ref: 'a' }] }, opts);
+    expect(config.ruleSources.map((r) => r.id)).toEqual(['good']);
+  });
+
+  it('배열 밖 오류가 섞여도 남는 소스가 달라지지 않는다', () => {
+    const config = loadConfig(
+      {
+        logLevel: 'nope',
+        ruleSources: [
+          { id: 'g1', kind: 'file', ref: 'a' },
+          { id: 'bad', kind: 'http', ref: 'b' },
+          { id: 'g2', kind: 'file', ref: 'c' },
+        ],
+      },
+      opts,
+    );
+    expect(config.ruleSources.map((r) => r.id)).toEqual(['g1', 'g2']);
+    expect(config.logLevel).toBe('info');
+  });
+
+  // 오타를 조용히 버리면 stop으로 걸어둔 검사가 warn으로 강등된 사실을 알 수 없다
+  it('모르는 키는 조용히 버리지 않고 이유를 남긴다', () => {
+    const config = loadConfig(
+      { ruleSources: [{ id: 'gate', kind: 'skill', ref: 'kb', onMising: 'stop' }] },
+      opts,
+    );
+    expect(config.ruleSourceErrors.join()).toContain('onMising');
+  });
+
+  // 스킬 여러 자리가 "비어 있지 않으면 멈춘다"로 읽으므로 작성자가 채우면 안 된다
+  it('작성자가 적은 ruleSourceErrors는 무시한다', () => {
+    const config = loadConfig({ ruleSourceErrors: ['forged'] }, opts);
+    expect(config.ruleSourceErrors).toEqual([]);
+  });
+
   it('선언이 멀쩡하면 ruleSourceErrors는 비어 있다 — 선언 없는 레포와 같은 상태', () => {
     const ok = loadConfig({ ruleSources: [{ id: 'a', kind: 'file', ref: 'x.md' }] }, opts);
     expect(ok.ruleSourceErrors).toEqual([]);

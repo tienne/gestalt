@@ -59,19 +59,24 @@ const reasoningModelSchema = agentModelAliasSchema;
  * 선언된 것만 읽는다 — 붙어 있는 MCP를 훑어 고르면 무엇을 근거로 삼았는지 사라진다.
  * 적용 규칙은 `plugin/skills/_shared/rule-sources.md`가 원본이다.
  */
-const ruleSourceSchema = z.object({
-  /** 보고에 쓰는 이름. 레포 안에서 고유해야 한다 */
-  id: z.string().min(1),
-  kind: z.enum(['mcp', 'file', 'skill']),
-  /** kind별 대상 — mcp면 도구 이름, file이면 경로, skill이면 스킬 이름 */
-  ref: z.string().min(1),
-  /** 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 */
-  scope: z.array(z.string()).default([]),
-  /** convention=형식을 따른다, delegate=그 작업을 넘긴다 */
-  trust: z.enum(['convention', 'delegate']).default('convention'),
-  /** 못 읽었을 때. warn 이상은 결과에 남는다 */
-  onMissing: z.enum(['skip', 'warn', 'stop']).default('warn'),
-});
+const ruleSourceSchema = z
+  .object({
+    /** 보고에 쓰는 이름. 레포 안에서 고유해야 한다 */
+    id: z.string().min(1),
+    kind: z.enum(['mcp', 'file', 'skill']),
+    /** kind별 대상 — mcp면 도구 이름, file이면 경로, skill이면 스킬 이름 */
+    ref: z.string().min(1),
+    /** 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 */
+    scope: z.array(z.string()).default([]),
+    /** convention=형식을 따른다, delegate=그 작업을 넘긴다 */
+    trust: z.enum(['convention', 'delegate']).default('convention'),
+    /** 못 읽었을 때. warn 이상은 결과에 남는다 */
+    onMissing: z.enum(['skip', 'warn', 'stop']).default('warn'),
+    // strict 다. 모르는 키를 조용히 버리면 onMising 같은 오타가 기본값으로 떨어져
+    // stop 으로 걸어둔 검사가 warn 으로 강등된 사실을 어디서도 알 수 없다.
+    // JSON 스키마의 additionalProperties: false 와 같은 선이다
+  })
+  .strict();
 
 export type RuleSource = z.infer<typeof ruleSourceSchema>;
 
@@ -305,12 +310,15 @@ function normalizeInvalidPath(path: (string | number)[]): (string | number)[] {
 /**
  * 잘못된 값 하나를 걷어낸다. 걷어내면 나머지 설정이 기본값으로 안 되돌아간다.
  *
- * 경로 중간에 배열이 오는 경우를 함께 다룬다. 안 다루면 배열 안의 값 하나가 잘못됐을 때
- * 아무것도 못 지운다. 재파싱도 실패해 loadConfig가 "전부 기본값" 분기로 떨어진다. 그러면
- * ruleSources 오타 하나에 dbPath와 tierModels까지 조용히 갈아치워진다.
+ * 배열 원소는 그 자리에서 빼지 않고 인덱스만 모은다. 한 원소에 잘못된 필드가 둘이면
+ * zod가 issue를 둘 내고 둘 다 같은 원소를 가리키는데, 받는 대로 빼면 두 번째가 이미
+ * 당겨진 배열의 옆 원소를 지운다. 그래서 전부 모은 뒤 한 번에 걸러낸다.
  */
-function removePath(root: Record<string, unknown>, rawPath: (string | number)[]): boolean {
-  const path = normalizeInvalidPath(rawPath);
+function removePath(
+  root: Record<string, unknown>,
+  path: (string | number)[],
+  arrayDrops: Map<unknown[], Set<number>>,
+): boolean {
   if (path.length === 0) return false;
 
   let current: unknown = root;
@@ -327,11 +335,12 @@ function removePath(root: Record<string, unknown>, rawPath: (string | number)[])
 
   const finalSegment = path[path.length - 1]!;
 
-  // 배열 원소 하나가 잘못된 경우다. 그 원소만 빼면 나머지 원소와 다른 설정이 살아남는다
   if (Array.isArray(current)) {
     const index = Number(finalSegment);
     if (!Number.isInteger(index) || index < 0 || index >= current.length) return false;
-    current.splice(index, 1);
+    const drops = arrayDrops.get(current) ?? new Set<number>();
+    drops.add(index);
+    arrayDrops.set(current, drops);
     return true;
   }
 
@@ -347,25 +356,28 @@ function pruneInvalidConfig(
   paths: (string | number)[][],
 ): Record<string, unknown> {
   const pruned = cloneRecord(input);
-  // 배열 원소는 뒤에서부터 지운다. 앞에서 지우면 splice가 뒤 인덱스를 당겨서
-  // 두 번째 경로가 엉뚱한 원소를 가리킨다
-  for (const path of [...paths].sort(compareByTrailingIndexDesc)) {
-    removePath(pruned, path);
-  }
-  return pruned;
-}
 
-/** 같은 부모를 가리키는 경로끼리 뒤쪽 인덱스가 먼저 오게 한다 */
-function compareByTrailingIndexDesc(a: (string | number)[], b: (string | number)[]): number {
-  const depth = Math.min(a.length, b.length);
-  for (let i = 0; i < depth; i++) {
-    const x = a[i]!;
-    const y = b[i]!;
-    if (x === y) continue;
-    const bothIndex = typeof x === 'number' && typeof y === 'number';
-    return bothIndex ? Number(y) - Number(x) : 0;
+  // 정규화한 뒤 같은 자리를 가리키는 경로를 하나로 접는다. 접지 않으면 한 원소의
+  // 필드 둘이 각각 삭제를 요구해 옆 원소까지 빠진다
+  const unique = new Map<string, (string | number)[]>();
+  for (const path of paths) {
+    const normalized = normalizeInvalidPath(path);
+    unique.set(JSON.stringify(normalized), normalized);
   }
-  return 0;
+
+  const arrayDrops = new Map<unknown[], Set<number>>();
+  for (const path of unique.values()) {
+    removePath(pruned, path, arrayDrops);
+  }
+
+  // 배열은 마지막에 한 번만 걸러낸다. 인덱스가 당겨지지 않으니 순서를 맞출 필요가 없다
+  for (const [array, drops] of arrayDrops) {
+    const kept = array.filter((_, index) => !drops.has(index));
+    array.length = 0;
+    array.push(...kept);
+  }
+
+  return pruned;
 }
 
 // ─── Public API ─────────────────────────────────────────────────
@@ -387,6 +399,11 @@ export function loadConfig(
 
   // 4. Merge: defaults ← gestalt.json ← envConfig ← overrides
   const merged = deepMerge(deepMerge(jsonConfig, envConfig), overrides as Record<string, unknown>);
+
+  // ruleSourceErrors 는 로더가 채우는 출력이다. 스킬 여러 자리가 "비어 있지 않으면
+  // 멈춘다"로 읽으므로, 작성자가 적은 값을 살려두면 gestalt.json 한 줄로 파이프라인을
+  // 세우거나 게슈탈트 경고를 사칭할 수 있다
+  delete merged.ruleSourceErrors;
 
   // 5. Validate with Zod — warn + fallback on invalid values
   const result = configSchema.safeParse(merged);
