@@ -86,9 +86,15 @@ const TOKEN_PREFIXES = [
   'Bearer(?:\\s|\\\\n|\\\\r)+',
 ].join('|');
 
-/** 접두어를 그룹 1 로 캡처한다. 본문 최소 길이만 달리해 두 벌을 만든다. */
+/**
+ * 접두어를 그룹 1 로 캡처한다. 본문 최소 길이만 달리해 두 벌을 만든다.
+ *
+ * 접두어 앞에 단어 경계를 둔다. 없으면 `sk-` 가 `task-runner` 와 `desk-top` 의 한가운데에
+ * 걸려 멀쩡한 단어를 가린다. 본문 하한이 낮은 쪽에서 특히 도드라진다 — 파서 사유가
+ * 통째로 가려지면 원인을 알려주자는 이 파일의 목적과 반대로 간다.
+ */
 function tokenPattern(minBody: number): RegExp {
-  return new RegExp(`(${TOKEN_PREFIXES})[A-Za-z0-9_-]{${minBody},}`, 'g');
+  return new RegExp(`(?<![A-Za-z0-9_])(${TOKEN_PREFIXES})[A-Za-z0-9_-]{${minBody},}`, 'g');
 }
 
 /**
@@ -97,13 +103,20 @@ function tokenPattern(minBody: number): RegExp {
  * 본문을 base64 문자 집합으로 좁히면 암호화 PEM 을 못 덮는다 — `Proc-Type: 4,ENCRYPTED`
  * 와 `DEK-Info: AES-128-CBC,<salt>` 에 든 콜론과 쉼표에서 매칭이 끊긴다. END 가 선택
  * 그룹이라 그 자리에서 종료되고 본문과 푸터가 그대로 남는다.
+ *
+ * **따옴표를 경계로 쓰지 않는다.** 본문에 따옴표가 있으면 거기서 일찍 끊겨 뒤가 남는다.
+ * `formatReceived` 는 `JSON.stringify` 를 거치므로 값 안의 따옴표가 그 자리에 실제로
+ * 온다. 대신 lazy 라서 END 가 있으면 거기서 멈춘다. 없으면 끝까지 삼킨다 — 헤더가
+ * 보였다는 건 그 값이 키라는 뜻이라 나머지를 보여줄 이유가 없다.
  */
 const PEM_PATTERN =
-  /(-----BEGIN [A-Z ]*PRIVATE KEY-----)[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|(?=")|$)/g;
+  /(-----BEGIN [A-Z ]*PRIVATE KEY-----)[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g;
 
 /**
- * PEM 을 먼저 적용한다. 토큰 패턴이 먼저 돌면 그 치환 문자가 PEM 본문 한가운데를
- * 끊어 뒤가 통째로 남는다.
+ * 순서는 결과를 안 바꾼다. PEM 본문이 `[\s\S]*?` 라서 앞선 패턴이 남긴 별표도 삼키기
+ * 때문이다. 본문을 base64 집합으로 좁혔던 동안에는 토큰 패턴의 치환 문자가 PEM 매칭을
+ * 끊어 뒤가 통째로 남았다 — 그 클래스를 되돌리면서 의존이 사라졌다. 순서 무관은
+ * 테스트가 고정한다.
  */
 const SECRET_PATTERNS: RegExp[] = [PEM_PATTERN, tokenPattern(8)];
 
