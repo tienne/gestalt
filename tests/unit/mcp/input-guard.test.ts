@@ -16,7 +16,7 @@ import {
   describeJsonParseFailure,
   formatReceived,
   guardShape,
-  probeGuardReach,
+  verboseErrorMap,
   snippetAround,
 } from '../../../src/mcp/input-guard.js';
 
@@ -342,7 +342,6 @@ describe('리뷰에서 나온 경계', () => {
     expect(formatReceived({ token: 'ghp_abcdefgh12345678' })).toContain('ghp_***');
     expect(formatReceived({ token: 'ghp_abcdefgh12345678' })).not.toContain('abcdefgh12345678');
 
-    // 깨진 지점에서 떨어져 있으면 REDACT_KEEP 밖이라 가려진다.
     const text = `x${' '.repeat(20)}sk-abcdefgh12345678`;
     expect(snippetAround(text, 0)).toContain('sk-***');
   });
@@ -374,7 +373,7 @@ describe('라운드 2에서 나온 경계', () => {
     expect(formatReceived({ auth: 'Bearer\nAAAABBBBCCCCDDDD' })).not.toContain('AAAABBBBCCCCDDDD');
   });
 
-  it('깨진 지점이 토큰 밖이면 토큰을 가리고 원인을 남긴다', () => {
+  it('토큰을 가리고 깨진 자리는 남긴다', () => {
     const text = String.raw`x=ghp_AAAABBBBCCCCDDDD\uZZ`;
     const snippet = snippetAround(text, text.indexOf('\\u'));
 
@@ -382,23 +381,30 @@ describe('라운드 2에서 나온 경계', () => {
     expect(snippet).not.toContain('AAAABBBBCCCCDDDD');
   });
 
-  it('깨진 지점이 토큰 안이면 그 토큰만 원문으로 남는다', () => {
-    // 토큰 둘을 두고 깨진 지점을 앞 토큰 안에 둔다. 뒤 토큰은 가려져야 한다.
+  it('토큰이 여럿이면 전부 가린다', () => {
     const text = 'a=ghp_AAAABBBBCCCCDDDD b=sk-EEEEFFFFGGGGHHHH';
     const snippet = snippetAround(text, text.indexOf('BBBB'));
 
-    expect(snippet).toContain('AAAABBBBCCCCDDDD');
+    expect(snippet).not.toContain('AAAABBBBCCCCDDDD');
     expect(snippet).not.toContain('EEEEFFFFGGGGHHHH');
   });
 
   it('윈도우가 접두어를 잘라내도 토큰 몸통은 가린다', () => {
     // 따옴표를 안 닫은 JSON 은 파서가 문자열 끝을 가리켜서 접두어가 윈도우 밖으로
-    // 밀려난다. 잘라낸 조각에 정규식을 걸면 이 자리가 통째로 샌다.
+    // 밀려난다. 자른 뒤 가리면 이 자리가 통째로 샌다.
     const token = `ghp_${'A'.repeat(60)}`;
     const text = `{"t": "${token}`;
     const snippet = snippetAround(text, text.length);
 
     expect(snippet).not.toContain('A'.repeat(20));
+  });
+
+  it('깨진 지점이 자격증명 안이어도 가린다', () => {
+    // 원인 바이트가 덮이는 건 받아들인 값이다. 위치와 사유는 파서 문구에 남는다.
+    const text = 'k=ghp_AAAABBBBCCCCDDDDEEEE';
+    const snippet = snippetAround(text, text.indexOf('CCCC'));
+
+    expect(snippet).not.toContain('AAAABBBB');
   });
 
   it('새로 넣은 접두어와 PEM 블록도 가린다', () => {
@@ -448,10 +454,172 @@ describe('라운드 2에서 나온 경계', () => {
     }
   });
 
-  it('방어가 자식까지 닿는지 본다', () => {
-    // 이 판정이 비어 있지 않으면 방어가 조용히 안 걸리는 상태다. 런타임은 경고만 내므로
-    // 여기서 막는다. 스키마를 실제로 통과시켜 보므로 zod 의 필드 개명과 순회 코드의
-    // 오타가 같은 자리에서 걸린다.
-    expect(probeGuardReach()).toEqual([]);
+  it('순회가 컨테이너 종류마다 자식까지 닿는다', () => {
+    // 필드 이름 목록을 따로 들고 비교하면 순회 코드의 오타를 못 잡는다 — zod 쪽 이름은
+    // 그대로인데 우리가 다른 이름을 집고 있어도 목록끼리는 맞아 통과한다. 그래서 스키마를
+    // 실제로 통과시켜 안쪽 잎에 errorMap 이 심겼는지 본다. 이러면 zod 의 필드 개명과 이
+    // 파일 안의 오타가 같은 자리에서 걸린다.
+    const cases: Array<[string, () => { root: z.ZodTypeAny; leaves: z.ZodTypeAny[] }]> = [
+      [
+        'object',
+        () => {
+          const leaf = z.string();
+          return { root: z.object({ a: leaf }), leaves: [leaf] };
+        },
+      ],
+      [
+        'array',
+        () => {
+          const leaf = z.string();
+          return { root: z.array(leaf), leaves: [leaf] };
+        },
+      ],
+      [
+        'optional',
+        () => {
+          const leaf = z.string();
+          return { root: leaf.optional(), leaves: [leaf] };
+        },
+      ],
+      [
+        'nullable',
+        () => {
+          const leaf = z.string();
+          return { root: leaf.nullable(), leaves: [leaf] };
+        },
+      ],
+      [
+        'default',
+        () => {
+          const leaf = z.string();
+          return { root: leaf.default('x'), leaves: [leaf] };
+        },
+      ],
+      [
+        'catch',
+        () => {
+          const leaf = z.string();
+          return { root: leaf.catch('x'), leaves: [leaf] };
+        },
+      ],
+      [
+        'readonly',
+        () => {
+          const leaf = z.string();
+          return { root: leaf.readonly(), leaves: [leaf] };
+        },
+      ],
+      [
+        'promise',
+        () => {
+          const leaf = z.string();
+          return { root: z.promise(leaf), leaves: [leaf] };
+        },
+      ],
+      [
+        'branded',
+        () => {
+          const leaf = z.string();
+          return { root: leaf.brand('b'), leaves: [leaf] };
+        },
+      ],
+      [
+        'effects',
+        () => {
+          const leaf = z.string();
+          return { root: leaf.refine(() => true), leaves: [leaf] };
+        },
+      ],
+      [
+        'union',
+        () => {
+          const leaf = z.string();
+          const other = z.number();
+          return { root: z.union([leaf, other]), leaves: [leaf, other] };
+        },
+      ],
+      [
+        'discriminatedUnion',
+        () => {
+          const a = z.object({ kind: z.literal('a'), v: z.string() });
+          const b = z.object({ kind: z.literal('b'), v: z.number() });
+          return { root: z.discriminatedUnion('kind', [a, b]), leaves: [a, b] };
+        },
+      ],
+      [
+        'intersection',
+        () => {
+          const left = z.object({ a: z.string() });
+          const right = z.object({ b: z.string() });
+          return { root: z.intersection(left, right), leaves: [left, right] };
+        },
+      ],
+      [
+        'record',
+        () => {
+          const key = z.string();
+          const value = z.number();
+          return { root: z.record(key, value), leaves: [key, value] };
+        },
+      ],
+      [
+        'tuple',
+        () => {
+          const item = z.string();
+          const rest = z.number();
+          return { root: z.tuple([item]).rest(rest), leaves: [item, rest] };
+        },
+      ],
+      [
+        'set',
+        () => {
+          const leaf = z.string();
+          return { root: z.set(leaf), leaves: [leaf] };
+        },
+      ],
+    ];
+
+    // 케이스가 줄어드는 것도 잡는다. 배열만 비우면 판정이 빈 배열로 통과한다.
+    expect(cases).toHaveLength(16);
+
+    const unreached = cases
+      .filter(([, build]) => {
+        const { root, leaves } = build();
+        attachErrorMap(root);
+        return leaves.some(
+          (leaf) => (leaf._def as { errorMap?: z.ZodErrorMap }).errorMap !== verboseErrorMap,
+        );
+      })
+      .map(([label]) => label);
+
+    expect(unreached).toEqual([]);
+  });
+
+  it('errorMap 주입이 zod 에서 실제로 먹는다', () => {
+    // 위 판정은 우리가 심었는지만 본다. zod 가 그 값을 읽는지는 따로 확인한다.
+    const mark = 'self-check';
+    const probe = z.string();
+    (probe._def as { errorMap?: z.ZodErrorMap }).errorMap = () => ({ message: mark });
+
+    const result = probe.safeParse(123);
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues[0]?.message).toBe(mark);
+  });
+
+  it('default 는 팩토리로 남아 있다', () => {
+    // 껍질 복원이 이 값을 그대로 다시 넘긴다. 값이면 모든 요청이 한 인스턴스를 나눠 쓴다.
+    const withDefault = z.array(z.string()).default([]);
+    const def = withDefault._def as unknown as Record<string, unknown>;
+
+    expect(typeof def['defaultValue']).toBe('function');
+  });
+
+  it('describe 가 preprocess 재조립에서 살아남는다', () => {
+    const guarded = z.object(
+      guardShape({ payload: z.object({ a: z.string() }).optional().describe('설명') }),
+    );
+
+    expect((guarded.shape.payload._def as { description?: string }).description).toBe('설명');
   });
 });
