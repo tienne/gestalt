@@ -226,18 +226,36 @@ describe('도구 스키마 노출', () => {
   });
 });
 
+/** 패턴마다 확실히 매치되는 표본. 그룹 위치 단언에 쓴다. */
+function sampleForPattern(pattern: RegExp): string {
+  if (pattern.source.includes('PRIVATE KEY')) {
+    return '-----BEGIN RSA PRIVATE KEY-----AAAABBBB-----END RSA PRIVATE KEY-----';
+  }
+  if (pattern.source.includes('AKIA')) return 'AKIAIOSFODNN7EXAMPLE';
+  return 'ghp_AAAABBBBCCCCDDDD';
+}
+
 describe('마스킹 계약', () => {
   it('모든 패턴이 접두어를 그룹 1 로 캡처한다', () => {
     // 그룹이 없는 패턴을 섞으면 String.replace 가 두 번째 인자로 매치 오프셋을 넘겨
     // 접두어가 숫자로 바뀐다. 라운드 다섯에서 실제로 그랬다.
     for (const pattern of secretPatternsForTest()) {
-      // 접두어가 맨 앞 그룹이어야 치환 뒤에도 남는다.
-      expect(pattern.source.startsWith('(')).toBe(true);
       // 그룹이 하나여야 replacer 의 두 번째 인자가 늘 그 그룹이다. 빈 대안을 붙여
       // 무조건 매치시키면 결과 배열 길이로 그룹 수를 셀 수 있다.
       const groups = new RegExp(`${pattern.source}|`).exec('');
       expect(groups).not.toBeNull();
       expect(groups).toHaveLength(2);
+
+      // 그룹이 매치의 맨 앞이어야 치환 뒤에도 접두어가 남는다. source 가 `(` 로
+      // 시작하는지 보는 것으로는 부족하다 — `(?<!` 나 `(?:` 도 그 검사를 통과한다.
+      // 실제로 매치시켜 그룹 1 이 매치의 앞부분인지 본다.
+      const sample = sampleForPattern(pattern);
+      const matched = new RegExp(pattern.source, pattern.flags).exec(sample);
+      expect(matched).not.toBeNull();
+      if (matched) {
+        expect(typeof matched[1]).toBe('string');
+        expect(matched[0].startsWith(matched[1]!)).toBe(true);
+      }
     }
   });
 
@@ -284,6 +302,18 @@ describe('마스킹 계약', () => {
     expect(formatReceived({ k: mixed })).not.toContain('REALTAIL');
   });
 
+  it('END 가 없는 PEM 은 뒤를 통째로 가린다', () => {
+    // 받은 값 샘플과 부딪히는 자리다. 헤더가 보였다는 건 그 값이 키라는 뜻이라 노출을
+    // 막는 쪽을 택했다. 다음에 종료 조건을 손댈 때 근거가 사라지지 않게 박아둔다.
+    const sample = formatReceived({
+      a: '-----BEGIN RSA PRIVATE KEY-----MIIabcdefgh',
+      keepme: 'VISIBLE',
+    });
+
+    expect(sample).not.toContain('MIIabcdefgh');
+    expect(sample).not.toContain('VISIBLE');
+  });
+
   it('패턴 적용 순서가 결과를 안 바꾼다', () => {
     // 본문을 base64 집합으로 좁혔던 동안에는 순서가 결과를 갈랐다. 클래스를 되돌려
     // 의존이 사라졌는데, 그 사실이 주석에만 있으면 다음에 좁힐 때 조용히 되살아난다.
@@ -301,19 +331,37 @@ describe('마스킹 계약', () => {
         text,
       );
 
-    const forward = [patterns[0]!, patterns[1]!];
-    const reversed = [patterns[1]!, patterns[0]!];
+    // 인덱스 둘만 집으면 배열이 늘어난 만큼 검사에서 빠진다.
+    const reversed = [...patterns].reverse();
     for (const preserve of [false, true]) {
-      expect(apply(forward, preserve)).toBe(apply(reversed, preserve));
+      expect(apply(patterns, preserve)).toBe(apply(reversed, preserve));
     }
   });
 
-  it('접두어가 단어 한가운데면 안 가린다', () => {
-    // 하한이 낮은 파서 문구용 패턴에서 특히 도드라진다. task-runner 가 task-*** 가 되면
-    // 정작 보여주려던 원인이 사라진다.
+  it('접두어 앞에 단어 문자가 붙어도 가린다', () => {
+    // 단어 경계를 그룹 앞에 두면 구분자 없이 이어 붙인 진짜 토큰을 놓친다. 미탐이
+    // 잘못 가리는 쪽보다 나쁘다 — 가리는 게 이 함수의 일이다.
+    for (const value of [
+      'tokenabcghp_AAAABBBBCCCC',
+      '123ghp_AAAABBBBCCCC',
+      'my_ghp_AAAABBBBCCCC',
+      'YWJjghp_AAAABBBBCCCC',
+      'aaxoxb-AAAABBBBCCCC',
+      'XBearer AAAABBBBCCCC',
+      'token=ghp_AAAABBBBCCCC',
+    ]) {
+      expect(formatReceived({ k: value })).not.toContain('AAAABBBBCCCC');
+    }
+  });
+
+  it('영단어에 흔한 접두어는 하한으로 걸러낸다', () => {
+    // sk- 는 task-runner 와 desk-top 한가운데에, AKIA 는 AKIActually 에 걸린다. 경계를
+    // 두는 대신 그 접두어만 하한을 유지해 막는다.
     for (const [raw, kept] of [
       ['{"a": task-runner}', 'task-runner'],
       ['{"a": desk-top}', 'desk-top'],
+      ['{"a": AKIActually}', 'AKIActually'],
+      ['{"a": npm_config}', 'npm_config'],
     ] as const) {
       let message = '';
       try {
@@ -325,10 +373,9 @@ describe('마스킹 계약', () => {
     }
   });
 
-  it('단어 경계를 넣어도 진짜 토큰은 가린다', () => {
-    // 경계 앞이 공백이나 구분 문자면 매칭돼야 한다.
-    expect(formatReceived({ k: 'prefix sk-AAAABBBBCCCC' })).not.toContain('AAAABBBBCCCC');
-    expect(formatReceived({ k: 'https://x/?t=ghp_AAAABBBBCCCC' })).not.toContain('AAAABBBBCCCC');
+  it('하한을 유지한 접두어도 진짜 키는 가린다', () => {
+    expect(formatReceived({ k: 'sk-AAAABBBBCCCCDDDD' })).not.toContain('AAAABBBBCCCC');
+    expect(formatReceived({ k: 'AKIAIOSFODNN7EXAMPLE' })).not.toContain('IOSFODNN7EXAMPLE');
   });
 
   it('파서 문구의 짧은 인용도 가린다', () => {
