@@ -69,8 +69,20 @@ const STRUCTURED_KINDS = new Set<z.ZodFirstPartyTypeKind>([
  * 끄는 수단은 두지 않았다. 이 값은 에러 문구에 실려 로그로 나가는 데이터라, 가리기를
  * 끄는 스위치를 두면 그게 노출 경로가 된다.
  */
-const TOKEN_PREFIXES = [
+/**
+ * 영단어 안에 흔히 들어가는 접두어. 본문 하한을 낮추면 멀쩡한 단어를 잘못 가린다 — `sk-` 는
+ * `task-runner` 와 `desk-top` 한가운데에 걸린다. 그래서 이쪽만 하한을 안 내린다.
+ */
+const AMBIGUOUS_PREFIXES = [
   'sk-',
+  // AWS 액세스 키 ID 는 뒤에 16자가 붙는다. 하한을 내리면 `AKIActually` 같은 단어가 걸린다.
+  'AKIA',
+  // `npm_config` 처럼 흔한 식별자가 파서 문구에서 가려지면 원인을 못 읽는다.
+  'npm_',
+].join('|');
+
+/** 영단어에 잘 안 나오는 접두어. 파서 문구용으로 하한을 내려도 잘못 가릴 일이 드물다. */
+const DISTINCT_PREFIXES = [
   'sk_live_',
   'sk_test_',
   'ghp_',
@@ -79,22 +91,27 @@ const TOKEN_PREFIXES = [
   'github_pat_',
   'xox[baprs]-',
   'AIza',
-  'npm_',
-  'AKIA',
   // 뒤에 공백류뿐 아니라 이스케이프된 개행(`\n` 두 글자)도 받는다. `formatReceived` 는
   // `JSON.stringify` 를 먼저 거치므로 그 자리에 실제 개행이 안 남는다.
   'Bearer(?:\\s|\\\\n|\\\\r)+',
 ].join('|');
 
+/** 기본 본문 하한. 이보다 짧으면 토큰으로 안 본다. */
+const TOKEN_BODY_MIN = 8;
+
 /**
  * 접두어를 그룹 1 로 캡처한다. 본문 최소 길이만 달리해 두 벌을 만든다.
  *
- * 접두어 앞에 단어 경계를 둔다. 없으면 `sk-` 가 `task-runner` 와 `desk-top` 의 한가운데에
- * 걸려 멀쩡한 단어를 가린다. 본문 하한이 낮은 쪽에서 특히 도드라진다 — 파서 사유가
- * 통째로 가려지면 원인을 알려주자는 이 파일의 목적과 반대로 간다.
+ * **단어 경계는 두지 않는다.** `(?<![A-Za-z0-9_])` 를 붙이면 `my_ghp_REAL` 이나
+ * `123ghp_REAL` 처럼 접두어 앞에 단어 문자가 붙은 진짜 토큰을 놓친다. 못 가리는 쪽이
+ * 잘못 가리는 쪽보다 나쁘다 — 가리는 게 이 함수의 일이다. 잘못 가리는 건 애매한
+ * 접두어의 하한으로 막는다.
  */
-function tokenPattern(minBody: number): RegExp {
-  return new RegExp(`(?<![A-Za-z0-9_])(${TOKEN_PREFIXES})[A-Za-z0-9_-]{${minBody},}`, 'g');
+function tokenPatterns(minBody: number): RegExp[] {
+  return [
+    new RegExp(`(${DISTINCT_PREFIXES})[A-Za-z0-9_-]{${minBody},}`, 'g'),
+    new RegExp(`(${AMBIGUOUS_PREFIXES})[A-Za-z0-9_-]{${TOKEN_BODY_MIN},}`, 'g'),
+  ];
 }
 
 /**
@@ -118,7 +135,7 @@ const PEM_PATTERN =
  * 끊어 뒤가 통째로 남았다 — 그 클래스를 되돌리면서 의존이 사라졌다. 순서 무관은
  * 테스트가 고정한다.
  */
-const SECRET_PATTERNS: RegExp[] = [PEM_PATTERN, tokenPattern(8)];
+const SECRET_PATTERNS: RegExp[] = [PEM_PATTERN, ...tokenPatterns(TOKEN_BODY_MIN)];
 
 /**
  * 파서 문구 전용. 본문 하한을 뺐다.
@@ -127,7 +144,7 @@ const SECRET_PATTERNS: RegExp[] = [PEM_PATTERN, tokenPattern(8)];
  * 그 길이는 본문 하한 여덟 자에 안 닿아서 기본 패턴으로는 접두어와 앞 몇 글자가 늘
  * 새어나간다.
  */
-const LENIENT_PATTERNS: RegExp[] = [PEM_PATTERN, tokenPattern(1)];
+const LENIENT_PATTERNS: RegExp[] = [PEM_PATTERN, ...tokenPatterns(1)];
 
 /**
  * 토큰을 가린다. 접두어는 남겨 무엇이 가려졌는지는 읽히게 한다.
