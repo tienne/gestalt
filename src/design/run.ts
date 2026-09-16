@@ -10,6 +10,7 @@ import type { RuleSource } from '../core/config.js';
 import { judge, type DesignReport, type FileFinding } from './check.js';
 import { detectBypasses } from './detectors.js';
 import { findDuplicates, type DuplicateInput } from './duplicates.js';
+import { inferImportPattern } from './import-pattern.js';
 import { resolveInventory } from './inventory.js';
 import { zoneOf, type ZoneOptions } from './scope.js';
 
@@ -50,15 +51,32 @@ export function runDesignCheck(options: RunOptions): DesignReport {
   const { repoRoot, ruleSources } = options;
   const inv = resolveInventory(ruleSources, { cwd: repoRoot, tags: options.tags });
 
-  // 선언이 곧 기준이다. 게슈탈트가 패키지 이름을 기본값으로 들고 있으면 다른 조직
-  // 레포에서 모든 파일이 바깥으로 판정돼 누수가 0건으로 나온다
-  const patterns = ruleSources.filter((s) => s.importPattern).map((s) => s.importPattern as string);
-  const dsImport =
-    options.zone?.dsImport ?? (patterns.length > 0 ? new RegExp(patterns.join('|')) : undefined);
-
   const components = [...inv.components];
   const basis = [...inv.basis];
   let notMeasured = [...inv.notMeasured];
+
+  // 선언이 곧 기준이다. 게슈탈트가 패키지 이름을 기본값으로 들고 있으면 다른 조직
+  // 레포에서 모든 파일이 바깥으로 판정돼 누수가 0건으로 나온다.
+  //
+  // 손으로 적은 게 없으면 ref가 가리킨 곳의 package.json에서 알아낸다. 훑어서 고르는
+  // 것과 다르다 — 사용자가 이미 그 소스를 지목했고 여기서는 그 경로가 어느 패키지인지만
+  // 읽는다. 추론했으면 어떻게 알았는지 보고에 남긴다
+  const patterns: string[] = [];
+  for (const rs of ruleSources) {
+    if (rs.importPattern) {
+      patterns.push(rs.importPattern);
+      basis.push(`${rs.id} import 패턴: 선언값`);
+      continue;
+    }
+    if (rs.kind !== 'file') continue;
+    const inferred = inferImportPattern(rs.ref, repoRoot);
+    if (inferred) {
+      patterns.push(inferred.pattern.source);
+      basis.push(`${rs.id} import 패턴: ${inferred.reason}`);
+    }
+  }
+  const dsImport =
+    options.zone?.dsImport ?? (patterns.length > 0 ? new RegExp(patterns.join('|')) : undefined);
 
   // 세션이 넘겨준 목록이 있으면 그 소스는 읽은 것으로 친다
   for (const p of options.providedComponents ?? []) {

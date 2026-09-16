@@ -120,8 +120,9 @@ describe('runDesignCheck', () => {
     expect(r.notMeasured.join()).toContain('중복 컴포넌트');
   });
 
-  // 기본값을 두면 다른 조직 레포에서 누수가 0건으로 나와 조용히 통과한다
-  it('import 패턴 선언이 없으면 누수를 재지 못했다고 남긴다', () => {
+  // 기본값을 두면 다른 조직 레포에서 누수가 0건으로 나와 조용히 통과한다.
+  // ref에서 추론도 못 하는 경우(package.json 없음)가 여기 해당한다
+  it('패턴을 선언도 추론도 못 하면 누수를 재지 못했다고 남긴다', () => {
     writeFileSync(
       join(dir, 'src', 'Card.tsx'),
       `import { Box } from '@acme/design';\nexport const C = () => <Box style={{ padding: '13px' }} />;\n`,
