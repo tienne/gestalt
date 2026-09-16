@@ -400,11 +400,12 @@ function pruneInvalidConfig(
     removePath(pruned, path, arrayDrops);
   }
 
-  // 배열은 마지막에 한 번만 걸러낸다. 인덱스가 당겨지지 않으니 순서를 맞출 필요가 없다
+  // 배열은 마지막에 한 번만 걸러낸다. 인덱스가 당겨지지 않으니 순서를 맞출 필요가 없다.
+  // 스프레드로 되돌리지 않는다 — 원소가 많으면 인자 개수 한계에 걸려 스택이 터진다
   for (const [array, drops] of arrayDrops) {
     const kept = array.filter((_, index) => !drops.has(index));
-    array.length = 0;
-    array.push(...kept);
+    array.length = kept.length;
+    for (let i = 0; i < kept.length; i++) array[i] = kept[i];
   }
 
   return pruned;

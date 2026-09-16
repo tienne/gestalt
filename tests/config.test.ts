@@ -346,6 +346,18 @@ describe('loadConfig — ruleSources', () => {
     expect(good.ruleSources).toHaveLength(1);
   });
 
+  // 스프레드로 배열을 되돌리면 인자 개수 한계에 걸려 스택이 터진다
+  it('원소가 많아도 걸러내기가 스택을 넘기지 않는다', () => {
+    const many: unknown[] = Array.from({ length: 200_000 }, (_, i) => ({
+      id: `s${i}`,
+      kind: 'file',
+      ref: 'a',
+    }));
+    many[0] = { id: 'bad', kind: 'http', ref: 'x' };
+    const config = loadConfig({ ruleSources: many }, opts);
+    expect(config.ruleSources).toHaveLength(199_999);
+  });
+
   it('선언이 멀쩡하면 ruleSourceErrors는 비어 있다 — 선언 없는 레포와 같은 상태', () => {
     const ok = loadConfig({ ruleSources: [{ id: 'a', kind: 'file', ref: 'x.md' }] }, opts);
     expect(ok.ruleSourceErrors).toEqual([]);
