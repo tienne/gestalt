@@ -470,7 +470,11 @@ export const executeInputSchema = guardObject(
             line: z.number().optional(),
             message: z.string(),
             suggestion: z.string(),
-            reportedBy: z.string(),
+            reportedBy: z
+              .string()
+              .describe(
+                '이 의견을 낸 에이전트 이름 하나. 배열이 아니다 — 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적는다.',
+              ),
           }),
         ),
         approvedBy: z.array(z.string()),
@@ -479,7 +483,9 @@ export const executeInputSchema = guardObject(
         overallApproved: z.boolean(),
       })
       .optional()
-      .describe('Merged review consensus (required for review_consensus)'),
+      .describe(
+        'Merged review consensus (required for review_consensus). mergedIssues[]의 각 항목은 id, severity, category, file, message, suggestion, reportedBy가 모두 필요하다 (line만 선택). reportedBy는 에이전트 이름 문자열 하나다.',
+      ),
     continuityVerdict: z
       .object({
         coherent: z.boolean(),
