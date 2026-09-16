@@ -408,8 +408,59 @@ describe('라운드 2에서 나온 경계', () => {
   });
 
   it('마스킹이 길이를 보존해 깨진 지점이 제자리에 남는다', () => {
-    // 줄여 쓰면 뒤 문자들의 자리가 밀려 스니펫이 엉뚱한 데를 짚는다.
-    const text = String.raw`{"t":"ghp_AAAABBBBCCCCDDDD","s":"\uZZ"}`;
+    // 시크릿을 깨진 지점보다 앞에 두고 전체가 창(2 * 40자)을 넘게 만든다. 치환이 줄여
+    // 쓰면 뒤 문자들의 자리가 그만큼 밀려 창이 깨진 지점을 벗어난다.
+    const token = `ghp_${'A'.repeat(60)}`;
+    const text = `{"t":"${token}","pad":"${'x'.repeat(30)}","s":"` + String.raw`\uZZ` + '"}';
+    const position = text.indexOf(String.raw`\u`);
+
+    const snippet = snippetAround(text, position);
+
+    expect(snippet).toContain('uZZ');
+    expect(snippet).not.toContain('AAAA');
+  });
+
+  it('스니펫 치환은 원문과 길이가 같다', () => {
+    const text = `k=ghp_${'A'.repeat(36)}`;
+
+    // 창을 넉넉히 줘서 잘림 표시 없이 전체를 본다.
+    expect(snippetAround(text, 0, 200)).toBe(`k=ghp_${'*'.repeat(36)}`);
+  });
+
+  it('값 샘플 치환은 길이를 안 드러낸다', () => {
+    // 별표 개수가 원문 길이면 토큰 포맷을 좁히는 단서가 된다. 위치 보존이 필요 없는
+    // 자리는 고정 길이로 덮는다.
+    const short = formatReceived({ k: `ghp_${'A'.repeat(10)}` });
+    const long = formatReceived({ k: `ghp_${'A'.repeat(60)}` });
+
+    expect(short).toBe(long);
+  });
+
+  it('자르는 경계에 걸친 토큰도 조각이 안 남는다', () => {
+    // 가리기보다 자르기가 먼저 오면 뒤 조각이 패턴의 최소 길이를 못 채워 접두어와 앞
+    // 몇 글자가 그대로 남는다.
+    for (let pad = 80; pad <= 118; pad += 1) {
+      const sample = formatReceived({ p: 'x'.repeat(pad), t: `ghp_${'S'.repeat(60)}` });
+      expect(sample).not.toContain('ghp_S');
+    }
+  });
+
+  it('여러 줄 PEM 도 본문까지 가린다', () => {
+    // 부르는 자리는 JSON.stringify 를 먼저 거치므로 개행이 두 글자로 이스케이프돼 온다.
+    const pem =
+      '-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADANBgkqSECRETBYTES\n-----END RSA PRIVATE KEY-----';
+
+    const sample = formatReceived({ k: pem });
+
+    expect(sample).not.toContain('SECRETBYTES');
+    expect(sample).toContain('BEGIN RSA PRIVATE KEY');
+  });
+
+  it('PEM 이 앞쪽에 와도 스니펫이 깨진 지점을 짚는다', () => {
+    // 치환이 길이를 잃으면 창이 원문 끝을 넘어가 스니펫이 통째로 사라진다.
+    const pem = '-----BEGIN RSA PRIVATE KEY-----AAAABBBBCCCCDDDD-----END RSA PRIVATE KEY-----';
+    const text = `{"note":"${pem}","s":"` + String.raw`\uZZ` + '"}';
+
     const snippet = snippetAround(text, text.indexOf(String.raw`\u`));
 
     expect(snippet).toContain('uZZ');
@@ -586,10 +637,26 @@ describe('라운드 2에서 나온 경계', () => {
           return { root: z.set(leaf), leaves: [leaf] };
         },
       ],
+      [
+        'map',
+        () => {
+          const key = z.string();
+          const value = z.number();
+          return { root: z.map(key, value), leaves: [key, value] };
+        },
+      ],
+      [
+        'pipeline',
+        () => {
+          const from = z.string();
+          const to = z.number();
+          return { root: from.transform(Number).pipe(to), leaves: [from, to] };
+        },
+      ],
     ];
 
     // 케이스가 줄어드는 것도 잡는다. 배열만 비우면 판정이 빈 배열로 통과한다.
-    expect(cases).toHaveLength(16);
+    expect(cases).toHaveLength(18);
 
     const unreached = cases
       .filter(([, build]) => {
