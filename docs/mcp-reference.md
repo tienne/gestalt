@@ -681,6 +681,17 @@ ges_agent({ action: "get", name: "architect" })
   "reasoningModel": "fable",
   "reasoningModelFallback": "opus",
   "tierModels": { "frugal": "haiku", "standard": "sonnet", "frontier": "opus" },
+  "ruleSources": [
+    {
+      "id": "design-tokens",
+      "kind": "mcp",
+      "ref": "mcp__plate__get_design_tokens",
+      "scope": ["ui", "css"],
+      "trust": "convention",
+      "onMissing": "warn"
+    }
+  ],
+  "ruleSourceErrors": [],
   "resumeHint": {
     "sessionId": "exec-456",
     "specId": "d9356d63-..."
@@ -691,6 +702,48 @@ ges_agent({ action: "get", name: "architect" })
 `resumeHint`는 `cwd`가 제공되고 `.gestalt/active-session.json`이 존재할 때만 포함된다.
 
 `reasoningModel`·`reasoningModelFallback`·`tierModels`는 세션 조회든 목록 조회든 오류 응답이든 항상 함께 온다. 앞의 둘은 spec과 execute 플래닝이 쓴다. `tierModels`는 **등록 에이전트가 없는 인라인 서브에이전트**가 tier 모델을 고를 때 쓴다 (`ges_agent { action: "get" }`은 에이전트 이름을 요구하므로 그런 자리에서는 조회 경로가 없다). 서버는 표만 알려줄 뿐 모델 가용성을 검사하지 않는다 — 폴백은 스킬 런타임 몫이다.
+
+`ruleSources`와 `ruleSourceErrors`도 같은 자리에 항상 실린다. `ruleSources`는 대상 레포가 `gestalt.json`에 선언한 레포 밖 규칙 소스를 서버가 resolve한 값이다. 스킬은 `gestalt.json`을 직접 파싱하지 않고 이 값을 읽는다 — 파싱을 스킬 쪽에도 두면 resolve 규칙이 두 벌이 된다. 필드의 뜻과 적용 규칙은 [`plugin/skills/_shared/rule-sources.md`](../plugin/skills/_shared/rule-sources.md)가 원본이다.
+
+`ruleSourceErrors`는 사용자가 쓰는 필드가 아니라 게슈탈트가 채운다. 선언 하나가 잘못되면 zod가 `ruleSources`를 통째로 빈 배열로 되돌린다. 그 상태를 "선언 안 한 레포"로 읽으면 오타 하나가 `onMissing: "stop"` 게이트를 조용히 끄는 우회로가 된다. 그래서 왜 비었는지를 여기 함께 싣고 스킬이 멈춘다. 빈 `ruleSources`는 두 가지 뜻이므로 이 필드로 가른다 — 이쪽까지 비어 있어야 "선언 안 함"이고 차 있으면 "선언이 깨짐"이다.
+
+---
+
+## 어느 스킬이 언제 규칙 소스를 읽나
+
+`ruleSources`를 응답에 싣는 건 서버지만 실제로 읽어 쓰는 건 스킬이다. 읽는 시점도 읽어서 하는 일도 서로 다르다. 읽는 방법과 `trust`와 `onMissing` 해석은 [`plugin/skills/_shared/rule-sources.md`](../plugin/skills/_shared/rule-sources.md)가 원본이다. 여기서는 누가 언제 읽는지만 다룬다.
+
+| 스킬 | 읽는 시점 | 읽어서 하는 일 |
+|------|-----------|----------------|
+| `interview` | 0.5단계 — 첫 질문을 만들기 전 | 이미 정해진 전제를 질문에서 뺀다. 빼면 뺐다고 사용자에게 알린다 |
+| `spec` | 규칙 확보 — 1단계 호출 전 | 조직 제약을 Spec의 `constraints`에 출처와 함께 굳힌다 |
+| `execute` | Phase 0의 0-2 — 플래닝 전 | 만들 때 형식으로 따른다. 레포 안 규칙은 0-1에서 따로 읽는다 |
+| `solve` | Phase 0 — 인터뷰를 시작하기 전 한 번 | 한 번 읽어 `ruleContext`로 고정한다. 세 Phase가 그 값을 쓴다 |
+| 자동 라우팅 | 어느 에이전트를 부를지 정해진 뒤 | `trust: "delegate"` 소스가 그 작업에 걸리면 게슈탈트 에이전트 대신 그쪽으로 넘긴다 |
+
+### 라우팅은 파이프라인 밖에서 본다
+
+표의 마지막 줄은 스킬이 아니라 [`plugin/skills/_shared/proactive-routing.md`](../plugin/skills/_shared/proactive-routing.md)의 규칙이다. 인터뷰나 실행을 시작하기 전, 어느 에이전트를 부를지 고르는 자리에서 본다.
+
+조직 디자인 시스템이나 브랜드 가드레일을 물고 있는 스킬이 따로 있는데 게슈탈트의 범용 에이전트가 먼저 잡으면 그 가드레일이 통째로 빠진 결과가 나온다. `delegate` 선언은 그 자리를 막는다. 선언이 없으면 라우팅 표가 그대로 적용된다.
+
+### `solve`로 들어오면 나머지 셋은 건너뛴다
+
+`solve`는 셋을 한 런타임에서 돈다. Phase 0에서 고정한 `ruleContext`를 세 Phase가 그대로 쓰고 각 스킬의 규칙 확보 절은 돌지 않는다.
+
+예외가 하나 있다. `execute`의 0-1 레포 안 탐색은 `solve`로 들어와도 그대로 한다. 대상 파일이 정해진 뒤라야 그 파일에 가까운 `CLAUDE.md`를 고를 수 있어서 앞당길 수 없다. 건너뛰는 건 0-2 레포 밖 읽기뿐이다.
+
+한 번만 읽는 이유는 비용이 아니라 **일관성**이다. 인터뷰는 사람이 답하는 동안 길어질 수 있는데 그사이에 선언이 바뀌면 Spec에 굳은 제약과 실행이 따르는 기준이 어긋난다. 한 흐름 안에서는 같은 기준이어야 한다.
+
+### `solve`는 멈출 거면 인터뷰 전에 멈춘다
+
+`ruleSourceErrors`가 비어 있지 않거나 `onMissing: "stop"`인 소스를 못 읽었으면 `ges_interview start`를 부르기 전에 멈춘다. 사람이 여러 라운드를 답하고 나서 "기준을 못 읽어 Spec을 못 만듭니다"라고 하면 그 시간이 통째로 버려진다.
+
+### 왜 전달하지 않고 각자 읽나
+
+따로 부르면 각 스킬이 자기 차례에 읽는 게 맞다. 스킬 런타임이 다르면 변수가 안 넘어간다. 인터뷰가 `ruleContext`에 담아둔 값은 `spec`이 시작될 때 이미 없다.
+
+`execute`의 `resume`도 같은 이유로 Phase 0을 다시 한다. `resumeContext`는 `completedTaskIds` 같은 진행 상태만 돌려주고 `repoRules`는 안 들고 있다. 끊긴 사이에 선언이나 레포 규칙이 바뀌었을 수도 있어서 다시 읽는 게 맞기도 하다.
 
 ---
 
