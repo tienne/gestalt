@@ -5,12 +5,42 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-
 jobs:
-  release:
+  # 태그 push 는 CI 를 안 깨운다. CI 는 `push: branches: [main]` 과 pull_request 에만
+  # 걸려 있어서, 이 잡이 없으면 깨진 커밋에 태그를 붙이는 순간 검사 없이 npm 으로 나간다.
+  #
+  # 매트릭스는 안 돈다. 두 아키텍처를 함께 보는 건 better-sqlite3 가 arch 마다 따로
+  # 깨져서인데, 그건 머지 전에 CI 가 잡는 자리다. 여기가 막을 건 그 커밋이 gate 를
+  # 통과하느냐 하나다.
+  verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 커밋 전에 사람이 부르는 것과 같은 명령이다 (typecheck, verify:rules, lint,
+      # format:check, build, test).
+      - name: Gate
+        run: pnpm gate
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
