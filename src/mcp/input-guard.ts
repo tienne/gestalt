@@ -73,24 +73,32 @@ const SECRET_PATTERNS: RegExp[] = [
   // `Bearer` 뒤는 공백류뿐 아니라 이스케이프된 개행(`\n` 두 글자)도 받는다.
   // `formatReceived` 는 `JSON.stringify` 를 먼저 거치므로 그 자리에 실제 개행이 안 남는다.
   /(sk-|sk_live_|sk_test_|ghp_|gho_|ghs_|github_pat_|xox[baprs]-|AIza|npm_|AKIA|Bearer(?:\s|\\n|\\r)+)[A-Za-z0-9_-]{8,}/g,
-  // 헤더만 잡으면 정작 키 본문이 남는다. base64 와 공백만 먹으므로 END 가 잘려 없어도
-  // JSON 구조 문자에서 멈춘다 — 뒤를 무제한으로 삼키지 않는다.
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[A-Za-z0-9+/=\s]*(?:-----END [A-Z ]*PRIVATE KEY-----)?/g,
+  // 헤더만 잡으면 정작 키 본문이 남는다. 본문 클래스에 백슬래시를 넣어 이스케이프된
+  // 개행도 넘어간다 — 부르는 두 자리가 늘 그 형태를 넘긴다. 따옴표는 클래스에 없어서
+  // JSON 문자열 끝에서 멈춘다.
+  /(-----BEGIN [A-Z ]*PRIVATE KEY-----)[A-Za-z0-9+/=\s\\]*(?:-----END [A-Z ]*PRIVATE KEY-----)?/g,
 ];
 
 /**
  * 토큰을 가린다. 접두어는 남겨 무엇이 가려졌는지는 읽히게 한다.
  *
+ * **모든 패턴이 접두어를 그룹 1 로 캡처한다.** 그룹이 없는 패턴을 섞으면
+ * `String.replace` 가 두 번째 인자로 매치 오프셋(숫자)을 넘겨, 접두어가 숫자로 바뀌고
+ * 치환 길이가 무너진다. 규약이 패턴마다 갈리지 않게 구조로 묶었고 런타임 검사도 둔다.
+ *
  * **잘라낸 조각에 따로 걸지 않는다.** 접두어와 몸통이 서로 다른 조각에 놓이면 어느 쪽도
  * 패턴에 안 걸려 토큰이 통째로 남는다. 부르는 쪽은 언제나 원본 전체를 넘긴다.
+ *
+ * `preserveLength` 는 `snippetAround` 만 쓴다. 자리가 밀리면 깨진 지점을 못 짚기 때문이다.
+ * 나머지 자리는 고정 길이로 덮어 별표 개수가 원문 길이를 드러내지 않게 한다.
  */
-function redactSecrets(text: string): string {
+function redactSecrets(text: string, options: { preserveLength?: boolean } = {}): string {
   return SECRET_PATTERNS.reduce(
     (acc, pattern) =>
-      acc.replace(pattern, (match: string, prefix: string | undefined) => {
-        const head = prefix ?? '';
-        // 길이를 보존한다. 줄이면 뒤 문자들의 자리가 밀려 스니펫이 깨진 지점을 못 짚는다.
-        return head + '*'.repeat(Math.max(match.length - head.length, 1));
+      acc.replace(pattern, (match: string, group: unknown) => {
+        const prefix = typeof group === 'string' ? group : '';
+        if (!options.preserveLength) return `${prefix}***`;
+        return prefix + '*'.repeat(Math.max(match.length - prefix.length, 1));
       }),
     text,
   );
@@ -132,9 +140,9 @@ function shallowSample(value: unknown, depth = 0): unknown {
     }
     return out;
   }
-  if (typeof value === 'string' && value.length > SAMPLE_LIMIT) {
-    return `${value.slice(0, SAMPLE_LIMIT)}…`;
-  }
+  // 문자열은 자르지 않는다. 여기서 자르면 마스킹보다 자르기가 먼저 와서 경계에 걸친
+  // 토큰이 안 걸린다. 최종 길이는 `formatReceived` 가 가린 뒤에 맞춘다. 거대한 입력은
+  // `MAX_JSON_STRING_LENGTH` 가 앞에서 막는다.
   return value;
 }
 
@@ -147,9 +155,11 @@ export function formatReceived(value: unknown): string {
   } catch {
     rendered = String(value);
   }
-  if (rendered.length > SAMPLE_LIMIT) rendered = `${rendered.slice(0, SAMPLE_LIMIT)}…`;
-  // 마스킹을 먼저 건다. 개행이 `\n` 두 글자로 바뀐 뒤에는 `Bearer\s+` 가 그 자리를 못 잡는다.
-  return escapeNewlines(redactSecrets(rendered));
+  // 가리기를 먼저 하고 자른다. 순서를 뒤집으면 자르는 경계에 걸친 토큰의 뒤 조각이 패턴의
+  // 최소 길이를 못 채워 접두어와 앞 몇 글자가 그대로 남는다. 스니펫에서 겪은 것과 같은
+  // 구조다.
+  const masked = escapeNewlines(redactSecrets(rendered));
+  return masked.length > SAMPLE_LIMIT ? `${masked.slice(0, SAMPLE_LIMIT)}…` : masked;
 }
 
 /** JSON 파서 에러 문구에서 위치를 뽑는다. 런타임마다 문구가 달라 없을 수도 있다. */
@@ -173,7 +183,7 @@ function extractPosition(reason: string): number | null {
 export function snippetAround(text: string, position: number, radius = SNIPPET_RADIUS): string {
   // 마스킹이 길이를 보존하므로 위치가 그대로 쓰인다. 줄여 쓰면 자리가 밀려 보정이 필요해지고
   // 그 보정은 근사라서 깨진 지점을 못 짚는다.
-  const masked = redactSecrets(text);
+  const masked = redactSecrets(text, { preserveLength: true });
   const start = Math.max(0, position - radius);
   const end = Math.min(masked.length, position + radius);
   const body = escapeNewlines(masked.slice(start, end));
@@ -214,6 +224,7 @@ export const verboseErrorMap: z.ZodErrorMap = (issue, ctx) => {
 
   // 어느 키가 남았는지는 이슈가 이미 들고 있다. 객체 전체를 찍으면 문제와 무관한
   // 옆 필드 값까지 메시지와 로그에 함께 실린다.
+  // 이 레포 스키마에는 `.strict()` 가 없어 지금은 안 지나간다. 나중에 붙을 자리로 남겨둔다.
   if (issue.code === z.ZodIssueCode.unrecognized_keys) {
     return { message: `${ctx.defaultError}${at} (unrecognized: ${issue.keys.join(', ')})` };
   }
@@ -295,8 +306,13 @@ export function attachErrorMap<S extends z.ZodTypeAny>(
       attachErrorMap(raw['right'] as z.ZodTypeAny, seen);
       break;
     case Kind.ZodRecord:
+    case Kind.ZodMap:
       attachErrorMap(raw['keyType'] as z.ZodTypeAny, seen);
       attachErrorMap(raw['valueType'] as z.ZodTypeAny, seen);
+      break;
+    case Kind.ZodPipeline:
+      attachErrorMap(raw['in'] as z.ZodTypeAny, seen);
+      attachErrorMap(raw['out'] as z.ZodTypeAny, seen);
       break;
     case Kind.ZodTuple: {
       for (const item of (raw['items'] as z.ZodTypeAny[]) ?? []) attachErrorMap(item, seen);
