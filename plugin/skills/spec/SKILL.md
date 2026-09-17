@@ -50,7 +50,7 @@ This skill transforms completed interview data into a structured project specifi
 
 `solve`가 불러서 들어온 경우에는 그쪽 Phase 0이 이미 읽어 `ruleContext`를 넘겨준다. 다시 읽지 않는다.
 
-읽는 방법, `trust`와 `onMissing` 해석은 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)가 원본이다. **여기에 옮겨 적지 않는다.** `ges_status`(sessionId 없이)의 응답에서 읽고 `gestalt.json`을 직접 파싱하지 않는다. `ruleSourceErrors`가 비어 있지 않으면 멈춘다.
+읽는 방법, `trust`와 `onMissing` 해석은 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)가 원본이다. **여기에 옮겨 적지 않는다.** `ges_status`(sessionId 없이)의 응답에서 읽고 `gestalt.json`을 직접 파싱하지 않는다. `ruleSourceErrors`가 비어 있지 않으면 멈춘다. `ruleSourceWarnings`는 알리고 진행한다.
 
 `scope`가 걸린 소스는 **Spec이 만들겠다는 산출물 종류로 고른다.** 그래도 애매한 소스가 남으면 rule-sources.md의 "파일이 아직 안 정해진 자리" 절을 따른다 — `convention`은 넓게 잡고 `stop`과 `delegate`는 미룬다.
 

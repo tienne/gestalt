@@ -692,7 +692,9 @@ ges_agent({ action: "get", name: "architect" })
     }
   ],
   "ruleSourceErrors": [],
+  "ruleSourceErrorCount": 0,
   "ruleSourceWarnings": [],
+  "ruleSourceWarningCount": 0,
   "resumeHint": {
     "sessionId": "exec-456",
     "specId": "d9356d63-..."
@@ -710,7 +712,7 @@ ges_agent({ action: "get", name: "architect" })
 
 `ruleSourceErrors`는 게슈탈트가 채우는 필드다. 잘못된 선언은 그 항목만 빠지고 나머지 소스와 다른 설정은 그대로 남는다. 빠진 자리를 모르면 `onMissing: "stop"`으로 걸어둔 검사가 안 돈 채로 지나간다. 그래서 무엇이 왜 빠졌는지를 여기 싣고 스킬이 멈춘다. 이 필드가 비어 있어야 선언을 그대로 읽은 것이다. 차 있으면 일부가 빠졌다.
 
-`ruleSourceWarnings`는 멈출 사유가 아닌 것이 온다. 최상위 키 이름이 `ruleSources`를 적으려던 것처럼 보이는 경우가 그렇다. 두 필드를 가른 건 확실하지 않은 판정이 세션을 세우지 않게 하려는 것이다. 응답에는 `ruleSourceErrorCount`와 `ruleSourceWarningCount`도 함께 실린다 — 각 배열은 20줄까지만 온다.
+`ruleSourceWarnings`는 멈출 사유가 아닌 것이 온다. 최상위 키 이름이 `ruleSources`를 적으려던 것처럼 보이는 경우가 그렇다. 두 필드를 가른 건 확실하지 않은 판정이 세션을 세우지 않게 하려는 것이다. 응답에는 `ruleSourceErrorCount`와 `ruleSourceWarningCount`도 함께 실린다 — 각 배열은 20줄까지, 각 줄은 200자까지만 온다.
 
 ---
 

@@ -43,7 +43,7 @@ outputs:
 
 ### 멈출 거면 인터뷰 전에 멈춘다
 
-`ruleSourceErrors`가 비어 있지 않거나 `onMissing: "stop"`인 소스를 못 읽었으면 **`ges_interview start`를 부르기 전에** 멈춘다. 알릴 문구는 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)의 "선언이 깨졌을 때" 절이 원본이다.
+`ruleSourceErrors`가 비어 있지 않거나 `onMissing: "stop"`인 소스를 못 읽었으면 **`ges_interview start`를 부르기 전에** 멈춘다. `ruleSourceWarnings`는 멈출 사유가 아니라 알리고 진행한다 — 사람이 답을 시작하기 전에 알려야 고칠 기회가 있으므로 이 자리에서 함께 보인다. 알릴 문구는 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)의 "선언이 깨졌을 때" 절이 원본이다.
 
 사람이 스무 라운드를 답하고 나서 "기준을 못 읽어 Spec을 못 만듭니다"라고 하면 그 시간이 통째로 버려진다. Phase 1만 사람이 참여하는 구조라 더 그렇다. 판정을 맨 앞에 두는 게 이 스킬에서 특히 중요한 이유다.
 
