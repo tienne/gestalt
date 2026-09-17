@@ -692,6 +692,7 @@ ges_agent({ action: "get", name: "architect" })
     }
   ],
   "ruleSourceErrors": [],
+  "ruleSourceWarnings": [],
   "resumeHint": {
     "sessionId": "exec-456",
     "specId": "d9356d63-..."
@@ -708,6 +709,8 @@ ges_agent({ action: "get", name: "architect" })
 두 값 모두 서버가 기동할 때 한 번 resolve한 스냅샷이다. 도구를 다시 불러도 같은 값이 온다. 선언을 고쳤으면 서버를 다시 띄워야 반영된다.
 
 `ruleSourceErrors`는 게슈탈트가 채우는 필드다. 잘못된 선언은 그 항목만 빠지고 나머지 소스와 다른 설정은 그대로 남는다. 빠진 자리를 모르면 `onMissing: "stop"`으로 걸어둔 검사가 안 돈 채로 지나간다. 그래서 무엇이 왜 빠졌는지를 여기 싣고 스킬이 멈춘다. 이 필드가 비어 있어야 선언을 그대로 읽은 것이다. 차 있으면 일부가 빠졌다.
+
+`ruleSourceWarnings`는 멈출 사유가 아닌 것이 온다. 최상위 키 이름이 `ruleSources`를 적으려던 것처럼 보이는 경우가 그렇다. 두 필드를 가른 건 확실하지 않은 판정이 세션을 세우지 않게 하려는 것이다. 응답에는 `ruleSourceErrorCount`와 `ruleSourceWarningCount`도 함께 실린다 — 각 배열은 20줄까지만 온다.
 
 ---
 
@@ -739,11 +742,13 @@ ges_agent({ action: "get", name: "architect" })
 
 ### `solve`는 멈출 거면 인터뷰 전에 멈춘다
 
-`ruleSourceErrors`가 비어 있지 않거나 `onMissing: "stop"`인 소스를 못 읽었으면 `ges_interview start`를 부르기 전에 멈춘다. 사람이 여러 라운드를 답하고 나서 "기준을 못 읽어 Spec을 못 만듭니다"라고 하면 그 시간이 통째로 버려진다.
+`ruleSourceErrors`가 비어 있지 않거나 `onMissing: "stop"`인 소스를 못 읽었으면 `ges_interview start`를 부르기 전에 멈춘다. `ruleSourceWarnings`는 알리고 진행한다. 사람이 여러 라운드를 답하고 나서 "기준을 못 읽어 Spec을 못 만듭니다"라고 하면 그 시간이 통째로 버려진다.
 
 ### 왜 전달하지 않고 각자 읽나
 
 따로 부르면 각 스킬이 자기 차례에 읽는 게 맞다. 스킬 런타임이 다르면 변수가 안 넘어간다. 인터뷰가 `ruleContext`에 담아둔 값은 `spec`이 시작될 때 이미 없다.
+
+`solve`가 건너뛰게 하는 건 **소스를 다시 읽는 일**이지 `scope` 판정이 아니다. 앞에서 미뤄둔 `stop`과 `delegate` 판정은 파일이 정해지는 `execute` 0-2에서 돈다.
 
 `execute`의 `resume`도 같은 이유로 Phase 0을 다시 한다. `resumeContext`는 `completedTaskIds` 같은 진행 상태만 돌려주고 `repoRules`는 안 들고 있다. 끊긴 사이에 레포 규칙이 바뀌었을 수 있으니 0-1은 다시 읽는 게 맞기도 하다. 선언 쪽은 서버가 다시 떠야 바뀌므로 그 값은 그대로다.
 

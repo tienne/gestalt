@@ -56,6 +56,7 @@ interface GestaltConfig {
   }>;
   /** 게슈탈트가 채운다. 비어 있지 않으면 ruleSources 선언이 깨진 것이다 */
   ruleSourceErrors: string[];
+  ruleSourceWarnings: string[];
   notifications: boolean;
   dbPath: string;
   skillsDir: string;
@@ -159,7 +160,7 @@ interface GestaltConfig {
 
 | 필드 | 값 | 설명 |
 |---|---|---|
-| `id` | string (≤64자) | 보고에 쓰는 이름. 레포 안에서 고유해야 한다 |
+| `id` | string (≤64자) | 보고에 쓰는 이름. 레포 안에서 고유해야 한다. 사용자에게 그대로 보이므로 줄이나 표의 칸을 새로 여는 문자는 못 쓴다 |
 | `kind` | `mcp` \| `file` \| `skill` | 규칙이 어디 있나 |
 | `ref` | string (≤512자) | `kind`별 대상 — MCP 도구 이름, 파일 경로, 스킬 이름 |
 | `scope` | string[] (≤16개) | 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 |
@@ -195,12 +196,21 @@ interface GestaltConfig {
 {
   "ruleSources": [],
   "ruleSourceErrors": [
-    "ruleSources.1.kind: Invalid enum value. Expected 'mcp' | 'file' | 'skill', received 'http'"
-  ]
+    "ruleSources.1.kind (id: \"design-tokens\"): Invalid enum value. Expected 'mcp' | 'file' | 'skill', received 'http'"
+  ],
+  "ruleSourceErrorCount": 1,
+  "ruleSourceWarnings": [],
+  "ruleSourceWarningCount": 0
 }
 ```
 
 빈 `ruleSources`는 두 가지 뜻이다. 이 필드가 비어 있어야 "선언 안 함"이다. 차 있으면 "선언이 깨짐"이다.
+
+인덱스 옆에 `id`가 붙는 건 응답의 `ruleSources`가 깨진 원소를 뺀 뒤 다시 매겨진 배열이라서다. 인덱스만 세어 가면 멀쩡한 다른 소스를 짚는다. `id`가 없는 원소는 `ref`로, 그것도 없으면 `kind`로 짚는다.
+
+### `ruleSourceWarnings` (읽기 전용)
+
+멈출 사유는 아닌데 짚어줄 것이 온다. 최상위 키 이름이 `ruleSources`를 적으려던 것처럼 보이는 경우가 그렇다. **멈춤 사유와 한 필드에 담지 않는다** — 담으면 탐지기를 한 번 넓힐 때마다 그게 세션을 세우는 레버가 된다.
 
 ---
 

@@ -35,6 +35,8 @@ outputs:
 
 **`solve`는 셋을 한 런타임에서 돈다.** 여기서 한 번 읽어 `ruleContext = { sources, missing }`으로 고정하고 세 Phase가 그 값을 쓴다. Phase 3은 그 둘을 `execute`의 `repoRules.sources`와 `repoRules.missing`으로 그대로 옮기고 `repoRules.files`만 0-1에서 새로 채운다. 각 Phase의 **레포 밖** 규칙 확보 절은 건너뛴다. `execute`의 0-1 레포 안 탐색은 그대로 한다 — 대상 파일이 정해진 뒤라야 가까운 `CLAUDE.md`를 고를 수 있다.
 
+**`execute` 0-2의 `scope` 판정은 건너뛰지 않는다.** 건너뛰는 건 소스를 다시 읽는 일이지 태그를 다시 보는 일이 아니다. 여기는 인터뷰 전이라 파일이 하나도 안 정해져 있다. 그래서 `onMissing: "stop"`과 `delegate` 소스 중 `scope`가 걸린 것은 판정을 미뤄둔 상태로 넘어간다. 그 판정이 실제로 도는 자리가 0-2다 — 안 돌면 멈추려고 걸어둔 검사가 조용히 안 돈 채 지나간다.
+
 한 번만 읽는 이유는 비용이 아니라 **일관성**이다. 세 Phase가 각자 읽으면 같은 흐름 안에서 서로 다른 값을 쓸 여지가 생긴다 — 태그가 달라 읽는 소스가 갈리거나, 사이에 서버가 다시 떠서 스냅샷이 바뀌는 경우다. Spec에 굳은 제약과 실행이 따르는 기준은 같아야 한다.
 
 읽는 방법은 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)가 원본이다. **여기에 옮겨 적지 않는다.** `ges_status`(sessionId 없이)에서 읽고 `gestalt.json`을 직접 파싱하지 않는다.
