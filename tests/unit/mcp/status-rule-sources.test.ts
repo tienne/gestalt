@@ -70,6 +70,16 @@ describe('ges_status — ruleSources', () => {
     expect(out.ruleSources[0]!.ref).toBe(ref);
   });
 
+  // 문서 셋이 "각 줄은 200자까지"를 사실로 적고 있다. 그 값을 여기서 검사한다
+  it('오류 한 줄이 길면 200자에서 자른다', () => {
+    // zod 가 받은 값을 문구에 되풀이하므로 대상 레포가 쓴 문자열이 그대로 길어진다
+    const out = info({
+      ruleSources: [{ id: 'x', kind: 'z'.repeat(400), ref: 'docs/a.md' }],
+    });
+    expect(out.ruleSourceErrors[0]!.length).toBeLessThanOrEqual(200);
+    expect(out.ruleSourceErrors[0]).toContain('…');
+  });
+
   // 이 값은 매 응답에 실려 에이전트 컨텍스트로 들어간다. 줄 수도 묶지 않으면
   // 깨진 선언 수만큼 응답이 커진다
   it('오류가 많으면 앞쪽만 싣고 나머지는 개수로 알린다', () => {

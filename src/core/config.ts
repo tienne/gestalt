@@ -66,7 +66,7 @@ const ENV_FILE_REF = /(^|\/)(\.env(\.[^/]*)?|[^/]*\.env)$/i;
  * 한 줄짜리 정규식으로 두면 항목을 더할 때마다 읽기 어려워져서 배열로 나눠 둔다.
  */
 const SECRET_FILE_REFS = [
-  ENV_FILE_REF, // 아래에 따로 선언돼 있다 — 예외를 이 패턴 하나에만 걸어야 해서다
+  ENV_FILE_REF, // 위에 따로 선언돼 있다 — 예외를 이 패턴 하나에만 걸어야 해서다
   /(^|\/)\.(git|ssh|aws|kube|docker|gnupg)\//i,
   /(^|\/)(\.npmrc|\.netrc|\.pgpass|\.envrc|\.htpasswd)$/i,
   // 뒤에 .pub 까지만 붙는다. id_rsa-rotation.md 같은 설명 문서는 안 걸린다
@@ -126,6 +126,10 @@ const UNSAFE_IN_REPORT = /[\p{C}\p{Zl}\p{Zp}`|]/u;
  * `\p{C}` 가 대부분 잡지만 U+200B 처럼 판이 갈리는 자리가 있어 범위로 직접 적는다.
  * 규칙 문서의 경로에 이 문자들이 들어갈 일은 없다.
  */
+const INVISIBLE_IN_REF =
+  // eslint-disable-next-line no-control-regex
+  /[\s\u0000-\u001F\u007F\u00A0\u180E\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/;
+
 /**
  * 정규화하면 다른 문자가 되는지 본다.
  *
@@ -134,16 +138,25 @@ const UNSAFE_IN_REPORT = /[\p{C}\p{Zl}\p{Zp}`|]/u;
  * 전각 `ｅ` 는 `.ｅnv` 를 `.env` 로 만든다. 검사하는 값과 여는 값이 갈라지는 자리가
  * 공백에서 여기로 옮겨간 것뿐이다.
  *
- * NFC 와 NFKC 를 견주면 이런 문자만 걸린다. 한글은 두 꼴이 같아서 안 걸린다 —
- * macOS 가 NFD 로 주는 경로도 마찬가지다.
+ * NFC 와 NFKC 를 견주면 호환 분해가 있는 문자가 걸린다. 한글은 두 꼴이 같아서 안
+ * 걸린다 — macOS 가 NFD 로 주는 경로도 마찬가지다.
+ *
+ * **여기까지가 이 검사의 범위다.** 키릴 `е` 처럼 분해가 없는 동형자는 안 걸린다. 그건
+ * 실제로 그런 이름의 파일이 없어서 읽기가 실패하고 onMissing 을 타므로 경계가 열리는
+ * 쪽은 아니다. 조용히 지나가지 않게 하는 건 거기서 받는다.
  */
 function hasNormalizationDrift(value: string): boolean {
   return value.normalize('NFC') !== value.normalize('NFKC');
 }
 
-const INVISIBLE_IN_REF =
-  // eslint-disable-next-line no-control-regex
-  /[\s\u0000-\u001F\u007F\u00A0\u180E\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/;
+/**
+ * 경로 구분자로 착각하기 쉬운 문자.
+ *
+ * NFC 와 NFKC 가 같아서 위 검사에 안 걸린다. 파일시스템은 이걸 구분자로 안 읽으므로
+ * `..\u2044x` 가 레포를 벗어나지는 않는다. 그래도 막는 건 규칙 문서 경로에 이런 글자가
+ * 들어갈 일이 없어서다 — 남겨두면 "구분자처럼 보이는데 아닌 값"을 사람이 판정해야 한다.
+ */
+const SLASH_LOOKALIKE = /[\u2044\u2215\u29f8\u29f9\uff3c\u2216]/;
 
 /** MCP 도구 이름 꼴 */
 const MCP_REF = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
@@ -167,9 +180,16 @@ const ruleSourceSchema = z
      *
      * 상한이 있는 건 이 값이 ges_status 응답으로 매번 실려 나가서다. 넘으면 자르지
      * 않고 거부한다 — 자른 ref 는 스킬이 가진 유일한 ref 라, 읽기에 실패한 뒤
-     * onMissing 을 타고 조용히 지나간다. 거부하면 ruleSourceErrors 로 드러난다
+     * onMissing 을 타고 조용히 지나간다. 거부하면 ruleSourceErrors 로 드러난다.
+     *
+     * NFC 로 맞춰 둔다. 검사만 정규화하고 원본을 저장하면 검사한 값과 스킬이 받는 값이
+     * 또 갈라진다 — 그 틈을 없애려고 고친 자리라 여기서 되풀이하지 않는다
      */
-    ref: z.string().min(1).max(512),
+    ref: z
+      .string()
+      .min(1)
+      .max(512)
+      .transform((value) => value.normalize('NFC')),
     /** 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 */
     scope: z.array(z.string().min(1).max(32)).max(16).default([]),
     /** convention=형식을 따른다, delegate=그 작업을 넘긴다 */
@@ -187,7 +207,11 @@ const ruleSourceSchema = z
     // 앞 공백 때문에 isAbsolute 가 false 다. `".. /x"` 는 조각이 `".. "` 라 .. 검사에
     // 안 걸린다. 다듬는 쪽과 검사하는 쪽이 다른 값을 보면 경계가 거기서 열린다.
     // 그래서 그런 문자가 들어 있으면 검사하기 전에 거부한다
-    if (INVISIBLE_IN_REF.test(source.ref) || hasNormalizationDrift(source.ref)) {
+    if (
+      INVISIBLE_IN_REF.test(source.ref) ||
+      SLASH_LOOKALIKE.test(source.ref) ||
+      hasNormalizationDrift(source.ref)
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['ref'],
@@ -197,8 +221,8 @@ const ruleSourceSchema = z
       return;
     }
 
-    // 여기서부터는 정규화한 값으로 본다. 위에서 바뀌는 문자를 걸렀으므로 NFC 만 맞춘다
-    const ref = source.ref.normalize('NFC');
+    // ref 는 스키마가 NFC 로 맞춰서 넘긴다. 저장되는 값도 같은 값이다
+    const ref = source.ref;
 
     // ref 는 코드가 읽기 전에 에이전트가 읽는다. rule-sources.md 가 선언된 소스를
     // 읽고 결과 보고에 남기라고 지시하므로, 적대적인 gestalt.json 이 레포 밖 비밀
@@ -225,15 +249,19 @@ const ruleSourceSchema = z
       }
     }
 
+    // 정규화 자체를 막지 않는다. id 는 경로가 아니라 보고에 찍히는 이름이라
+    // ㈜ 나 Ⅲ, 반각 가타카나를 쓰는 레포가 있다. 정규화한 결과가 줄이나 칸을
+    // 새로 여는지만 본다
     if (
       UNSAFE_IN_REPORT.test(source.id) ||
-      hasNormalizationDrift(source.id) ||
+      UNSAFE_IN_REPORT.test(source.id.normalize('NFKC')) ||
       source.id !== source.id.trim()
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['id'],
-        message: 'id 에는 제어문자나 마크다운 기호를 쓸 수 없습니다',
+        message:
+          'id 에는 줄이나 표의 칸을 새로 여는 문자(제어문자, 백틱, 세로줄)를 쓸 수 없고 앞뒤에 공백을 둘 수 없습니다',
       });
     }
 
@@ -301,7 +329,7 @@ const configSchema = z.object({
    *
    * **멈춤 사유와 한 필드에 담지 않는다.** 담으면 탐지기를 한 번 넓힐 때마다 그게
    * 세션을 세우는 레버가 된다 — 실제로 키 이름 오타 탐지를 넓혔더니 `resources` 같은
-   * 남의 키 하나로 스킬 다섯 자리가 전부 멈췄다. 확실하지 않은 판정은 여기로 온다.
+   * 남의 키 하나로 이 값을 읽는 자리가 전부 멈췄다. 확실하지 않은 판정은 여기로 온다.
    */
   ruleSourceWarnings: z.array(z.string()).default([]),
   notifications: z.boolean().default(false),

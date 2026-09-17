@@ -418,6 +418,10 @@ describe('loadConfig — ruleSources', () => {
       '..\uff0fsecrets',
       '.\uff45nv',
       '.\u3164env',
+      // 구분자로 착각하기 쉬운 글자. 규칙 문서 경로에 들어갈 일이 없다
+      '..\u2044secrets',
+      '..\u2215secrets',
+      '..\u29f8secrets',
     ];
     for (const ref of refs) {
       const config = loadConfig({ ruleSources: [{ id: 'a', kind: 'file', ref }] }, opts);
@@ -474,6 +478,14 @@ describe('loadConfig — ruleSources', () => {
     // 응답의 배열은 재색인되므로 인덱스만으로는 다른 소스를 짚게 된다
     expect(config.ruleSources.map((s) => s.id)).toEqual(['keep']);
     expect(config.ruleSourceErrors.join()).toContain('id: "typo"');
+  });
+
+  // 검사만 정규화하고 원본을 저장하면 검사한 값과 스킬이 받는 값이 또 갈라진다
+  it('저장되는 ref 는 검사한 값과 같은 꼴이다', () => {
+    const nfd = 'docs/설계.md'.normalize('NFD');
+    const config = loadConfig({ ruleSources: [{ id: 'a', kind: 'file', ref: nfd }] }, opts);
+    expect(config.ruleSources).toHaveLength(1);
+    expect(config.ruleSources[0]!.ref).toBe(nfd.normalize('NFC'));
   });
 
   it('id 가 빠진 원소는 ref 로 짚는다 — 인덱스만으로는 못 따라간다', () => {

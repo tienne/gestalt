@@ -184,7 +184,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 64,
-          "description": "Name used in reporting. Must be unique within this config. Shown to the user as-is, so control characters, backticks and pipes are rejected — they would open a new line or table cell. Non-ASCII names are fine"
+          "description": "Name used in reporting. Must be unique within this config. Shown to the user as-is, so anything that opens a new line or table cell is rejected — control characters, line/paragraph separators, backticks and pipes, including forms that normalize into them. Leading and trailing whitespace is rejected too. Non-ASCII names such as Korean are fine"
         },
         "kind": {
           "type": "string",
@@ -195,7 +195,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "description": "Target for the given kind — MCP tool name (mcp__plate__get_design_tokens), repo-relative file path, or skill name (review, gestalt:review). No whitespace or invisible characters: the agent trims them before opening, so a check on the untrimmed value would not hold. A file ref must stay inside the repo: absolute paths, .., and credential files are rejected. Over the length limit the source is rejected rather than truncated, so a source is never silently unreadable. The full list lives in plugin/skills/_shared/rule-sources.md"
+          "description": "Target for the given kind — MCP tool name (mcp__plate__get_design_tokens), repo-relative file path, or skill name (review, gestalt:review). No character that could make the checked value differ from the value actually opened: whitespace, invisible characters, forms that normalize into something else, and separator lookalikes. The stored ref is normalized to NFC so it matches what was checked. A file ref must stay inside the repo: absolute paths, .., and credential files are rejected. Over the length limit the source is rejected rather than truncated, so a source is never silently unreadable. The full list lives in plugin/skills/_shared/rule-sources.md"
         },
         "scope": {
           "type": "array",
