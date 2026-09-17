@@ -430,6 +430,15 @@ describe('loadConfig — ruleSources', () => {
       '..\u27cbsecrets',
       // NFC 로 길어지는 글자. 상한이 변환 앞에 걸려 있으면 1536자가 저장된다
       '\ufb2c'.repeat(512),
+      // 조각 끝에 붙은 공백. 조각 안의 공백(`a b.md`)은 그대로 열리므로 받는다
+      'docs/a.md ',
+      'docs/ a.md',
+      'docs /a.md',
+      // 화면에서 안 보이는데 \p{L} 안에 있다. 세지 말고 속성으로 뺀다
+      '.env\u1160',
+      '.\u1160env',
+      '.e\u115fnv',
+      'secrets\u1160.json',
     ];
     for (const ref of refs) {
       const config = loadConfig({ ruleSources: [{ id: 'a', kind: 'file', ref }] }, opts);
@@ -443,6 +452,11 @@ describe('loadConfig — ruleSources', () => {
       'docs/rules.md',
       'CONTRIBUTING.md',
       'docs/id_rsa-rotation.md',
+      // 흔치 않아도 실제로 있는 파일명이다. 거부하면 멀쩡한 선언을 막는 것이다
+      'docs/API (v2).md',
+      "docs/it's.md",
+      'docs/a+b@c.md',
+      'docs/日本語.md',
       // 한글 경로는 NFC 든 NFD 든 그대로 받는다
       'docs/설계.md',
       'docs/설계.md'.normalize('NFD'),

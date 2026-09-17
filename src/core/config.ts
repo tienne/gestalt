@@ -97,9 +97,11 @@ function isSecretRef(ref: string): boolean {
 /**
  * 위 목록에 걸기 전에 경로를 맞춘다.
  *
- * 구분자를 통일하는 건 앞의 `..` 검사가 두 꼴을 다 받기 때문이다. 조각 끝의 점을
- * 떼는 건 윈도우가 그걸 떼고 파일을 열기 때문이다 — `".env."` 를 그대로 두면 목록에는
- * 안 걸리는데 실제로는 `.env` 가 열린다. 공백과 정규화로 바뀌는 문자는 앞에서 막는다.
+ * 조각 끝의 점을 떼는 건 윈도우가 그걸 떼고 파일을 열기 때문이다 — `".env."` 를
+ * 그대로 두면 목록에는 안 걸리는데 실제로는 `.env` 가 열린다.
+ *
+ * 구분자 통일은 FILE_REF 가 이미 `\` 를 거부해서 이 함수로는 안 온다. file 밖에서
+ * 불릴 때를 대비해 둔다.
  */
 function normalizeRefForMatch(ref: string): string {
   return ref
@@ -129,8 +131,39 @@ const UNSAFE_IN_REPORT = /[\p{C}\p{Zl}\p{Zp}`|]/u;
  *
  * 글자와 숫자는 스크립트를 안 가린다. 한글 경로가 그대로 통과해야 해서다. 정규화하면
  * 다른 글자가 되는 꼴(전각 `ｅ`)은 글자이므로 여기를 지나가고 아래 drift 검사가 받는다.
+ *
+ * 문장부호는 ASCII 만 받는다. 여기만 열거인 건 **닫힌 집합**이라서다 — 구분자를 닮은
+ * 유니코드 글자는 새로 나오는데 ASCII 문장부호는 안 는다. `docs/API (v2).md` 나
+ * `it's.md` 같은 실제 파일명이 거부되면 그것도 멀쩡한 선언을 막는 것이다.
+ *
+ * 결합 문자를 받는 건 데바나가리나 태국어처럼 그게 글자의 일부인 경로가 있어서다.
+ * 구분자를 만들지도, 검사한 값과 여는 값을 갈라놓지도 않는다.
  */
-const FILE_REF = /^[\p{L}\p{N}_.\-/]+$/u;
+const FILE_REF = /^[\p{L}\p{N}\p{M}_.+@~#,'!&=()[\]%\- /]+$/u;
+
+/**
+ * 화면에 안 나오기로 유니코드가 정해둔 글자.
+ *
+ * 허용 목록이 `\p{L}` 을 받는데 그 안에 안 보이는 글자가 있다 — 한글 채움 문자
+ * U+1160 은 카테고리가 Lo 이고 호환 분해도 없어서 정규화 검사도 지나간다.
+ * `.env\u1160` 이 시크릿 목록을 그냥 통과한다. 읽는 쪽은 안 보이는 글자를 지우고
+ * `.env` 를 연다.
+ *
+ * **여기서도 글자를 세지 않는다.** 유니코드가 관리하는 속성 하나를 빼면 새 글자가
+ * 늘어도 이 자리를 다시 고칠 일이 없다.
+ */
+const IGNORABLE_IN_REF = /\p{Default_Ignorable_Code_Point}/u;
+
+/**
+ * 조각 끝에 공백이 붙었는지 본다.
+ *
+ * 조각 안의 공백은 괜찮다 — `a b.md` 는 그대로 열린다. 끝에 붙은 것만 위험하다.
+ * `" /etc/passwd"` 는 앞 공백 때문에 절대 경로로 안 보인다. `".. /x"` 는 조각이
+ * `".. "` 라 `..` 검사를 지나간다. 읽는 쪽은 둘 다 다듬어서 연다.
+ */
+function hasEdgeSpace(ref: string): boolean {
+  return ref.split('/').some((segment) => segment !== segment.trim());
+}
 
 /**
  * 정규화하면 다른 문자가 되는지 본다.
@@ -165,8 +198,12 @@ const SKILL_REF = /^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$/;
  */
 const ruleSourceSchema = z
   .object({
-    /** 보고에 쓰는 이름. 레포 안에서 고유해야 한다 */
-    id: z.string().min(1).max(64),
+    /** 보고에 쓰는 이름. 레포 안에서 고유해야 한다. ref 와 같이 NFC 로 맞춰 둔다 */
+    id: z
+      .string()
+      .min(1)
+      .transform((value) => value.normalize('NFC'))
+      .pipe(z.string().min(1).max(64)),
     kind: z.enum(['mcp', 'file', 'skill']),
     /**
      * kind별 대상 — mcp면 도구 이름, file이면 경로, skill이면 스킬 이름.
@@ -196,16 +233,20 @@ const ruleSourceSchema = z
   })
   .strict()
   .superRefine((source, ctx) => {
-    // 아래 세 검사가 전부 문자열을 그대로 본다. 그런데 이 값을 실제로 여는 주체는
-    // fs 가 아니라 에이전트라 눈에 안 보이는 문자를 다듬어서 연다. `" /etc/passwd"` 는
-    // 앞 공백 때문에 isAbsolute 가 false 다. `".. /x"` 는 조각이 `".. "` 라 .. 검사에
-    // 안 걸린다. 다듬는 쪽과 검사하는 쪽이 다른 값을 보면 경계가 거기서 열린다.
-    // 그래서 그런 문자가 들어 있으면 검사하기 전에 거부한다
     // ref 는 스키마가 NFC 로 맞춰서 넘긴다. 저장되는 값도 같은 값이다
     const ref = source.ref;
 
-    // 검사하는 값과 실제로 여는 값이 갈라지면 아래 경계가 전부 무의미해진다.
+    // 아래 경로 검사들은 전부 문자열을 그대로 본다. 그런데 이 값을 실제로 여는 주체는
+    // fs 가 아니라 에이전트라, 검사하는 값과 여는 값이 갈라지면 그 경계가 무의미해진다.
     // 받을 문자를 적어두고 나머지를 거부한다 — 막을 것을 세면 매번 다음 것이 남는다
+    if (IGNORABLE_IN_REF.test(ref)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ref'],
+        message: 'ref 에는 화면에 안 나오는 글자를 넣을 수 없습니다',
+      });
+      return;
+    }
     if (hasNormalizationDrift(ref)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -214,11 +255,12 @@ const ruleSourceSchema = z
       });
       return;
     }
-    if (source.kind === 'file' && !FILE_REF.test(ref)) {
+    if (source.kind === 'file' && (!FILE_REF.test(ref) || hasEdgeSpace(ref))) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['ref'],
-        message: 'file 소스의 ref 에는 글자와 숫자, `_ . - /` 만 쓸 수 있습니다',
+        message:
+          'file 소스의 ref 에는 글자와 숫자, ASCII 문장부호만 쓸 수 있고 경로 조각 끝에 공백을 둘 수 없습니다',
       });
       return;
     }
@@ -254,6 +296,7 @@ const ruleSourceSchema = z
     if (
       UNSAFE_IN_REPORT.test(source.id) ||
       UNSAFE_IN_REPORT.test(source.id.normalize('NFKC')) ||
+      IGNORABLE_IN_REF.test(source.id) ||
       source.id !== source.id.trim()
     ) {
       ctx.addIssue({
@@ -314,8 +357,8 @@ const configSchema = z.object({
     // 매 ges_status 응답 크기가 된다
     .max(32)
     // id가 겹치면 "어느 기준으로 작업했나" 보고에서 둘을 구분할 수 없다
-    // 눈에 같아 보이는 id 가 통과하면 안 된다. 바이트가 아니라 사람이 읽는 꼴로 센다
-    .refine((s) => new Set(s.map((r) => r.id.normalize('NFC'))).size === s.length, {
+    // 눈에 같아 보이는 id 가 통과하면 안 된다. 스키마가 NFC 로 맞춰 넘기므로 그대로 센다
+    .refine((s) => new Set(s.map((r) => r.id)).size === s.length, {
       message: 'ruleSources[].id는 서로 달라야 합니다',
     })
     .default([]),
