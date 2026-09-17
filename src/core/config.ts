@@ -120,15 +120,17 @@ function normalizeRefForMatch(ref: string): string {
 const UNSAFE_IN_REPORT = /[\p{C}\p{Zl}\p{Zp}`|]/u;
 
 /**
- * ref 에서 통째로 거부할 문자.
+ * file 소스의 ref 로 받을 문자.
  *
- * 공백을 막는 건 검사하는 값과 여는 값을 같게 만들기 위해서다. 보이지 않는 문자는
- * `\p{C}` 가 대부분 잡지만 U+200B 처럼 판이 갈리는 자리가 있어 범위로 직접 적는다.
- * 규칙 문서의 경로에 이 문자들이 들어갈 일은 없다.
+ * **막을 것을 세지 않고 받을 것을 적는다.** 검사하는 값과 실제로 여는 값을 갈라놓는
+ * 문자는 한 부류가 아니다 — 공백, 안 보이는 글자, 정규화하면 바뀌는 글자, 구분자처럼
+ * 보이는 글자가 차례로 나왔고 셀 때마다 다음 것이 남았다. 경로에 들어갈 글자를 적으면
+ * 나머지는 세지 않아도 전부 빠진다.
+ *
+ * 글자와 숫자는 스크립트를 안 가린다. 한글 경로가 그대로 통과해야 해서다. 정규화하면
+ * 다른 글자가 되는 꼴(전각 `ｅ`)은 글자이므로 여기를 지나가고 아래 drift 검사가 받는다.
  */
-const INVISIBLE_IN_REF =
-  // eslint-disable-next-line no-control-regex
-  /[\s\u0000-\u001F\u007F\u00A0\u180E\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/;
+const FILE_REF = /^[\p{L}\p{N}_.\-/]+$/u;
 
 /**
  * 정규화하면 다른 문자가 되는지 본다.
@@ -148,15 +150,6 @@ const INVISIBLE_IN_REF =
 function hasNormalizationDrift(value: string): boolean {
   return value.normalize('NFC') !== value.normalize('NFKC');
 }
-
-/**
- * 경로 구분자로 착각하기 쉬운 문자.
- *
- * NFC 와 NFKC 가 같아서 위 검사에 안 걸린다. 파일시스템은 이걸 구분자로 안 읽으므로
- * `..\u2044x` 가 레포를 벗어나지는 않는다. 그래도 막는 건 규칙 문서 경로에 이런 글자가
- * 들어갈 일이 없어서다 — 남겨두면 "구분자처럼 보이는데 아닌 값"을 사람이 판정해야 한다.
- */
-const SLASH_LOOKALIKE = /[\u2044\u2215\u29f8\u29f9\uff3c\u2216]/;
 
 /** MCP 도구 이름 꼴 */
 const MCP_REF = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
@@ -188,8 +181,9 @@ const ruleSourceSchema = z
     ref: z
       .string()
       .min(1)
-      .max(512)
-      .transform((value) => value.normalize('NFC')),
+      .transform((value) => value.normalize('NFC'))
+      // 상한은 변환 뒤에 건다. 앞에 두면 NFC 로 길어지는 글자가 상한을 넘겨 저장된다
+      .pipe(z.string().min(1).max(512)),
     /** 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 */
     scope: z.array(z.string().min(1).max(32)).max(16).default([]),
     /** convention=형식을 따른다, delegate=그 작업을 넘긴다 */
@@ -207,22 +201,27 @@ const ruleSourceSchema = z
     // 앞 공백 때문에 isAbsolute 가 false 다. `".. /x"` 는 조각이 `".. "` 라 .. 검사에
     // 안 걸린다. 다듬는 쪽과 검사하는 쪽이 다른 값을 보면 경계가 거기서 열린다.
     // 그래서 그런 문자가 들어 있으면 검사하기 전에 거부한다
-    if (
-      INVISIBLE_IN_REF.test(source.ref) ||
-      SLASH_LOOKALIKE.test(source.ref) ||
-      hasNormalizationDrift(source.ref)
-    ) {
+    // ref 는 스키마가 NFC 로 맞춰서 넘긴다. 저장되는 값도 같은 값이다
+    const ref = source.ref;
+
+    // 검사하는 값과 실제로 여는 값이 갈라지면 아래 경계가 전부 무의미해진다.
+    // 받을 문자를 적어두고 나머지를 거부한다 — 막을 것을 세면 매번 다음 것이 남는다
+    if (hasNormalizationDrift(ref)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['ref'],
-        message:
-          'ref 에는 공백이나 눈에 보이지 않는 문자, 정규화하면 바뀌는 문자를 넣을 수 없습니다',
+        message: 'ref 에는 정규화하면 다른 문자가 되는 글자를 넣을 수 없습니다',
       });
       return;
     }
-
-    // ref 는 스키마가 NFC 로 맞춰서 넘긴다. 저장되는 값도 같은 값이다
-    const ref = source.ref;
+    if (source.kind === 'file' && !FILE_REF.test(ref)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ref'],
+        message: 'file 소스의 ref 에는 글자와 숫자, `_ . - /` 만 쓸 수 있습니다',
+      });
+      return;
+    }
 
     // ref 는 코드가 읽기 전에 에이전트가 읽는다. rule-sources.md 가 선언된 소스를
     // 읽고 결과 보고에 남기라고 지시하므로, 적대적인 gestalt.json 이 레포 밖 비밀
@@ -315,7 +314,8 @@ const configSchema = z.object({
     // 매 ges_status 응답 크기가 된다
     .max(32)
     // id가 겹치면 "어느 기준으로 작업했나" 보고에서 둘을 구분할 수 없다
-    .refine((s) => new Set(s.map((r) => r.id)).size === s.length, {
+    // 눈에 같아 보이는 id 가 통과하면 안 된다. 바이트가 아니라 사람이 읽는 꼴로 센다
+    .refine((s) => new Set(s.map((r) => r.id.normalize('NFC'))).size === s.length, {
       message: 'ruleSources[].id는 서로 달라야 합니다',
     })
     .default([]),
