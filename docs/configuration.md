@@ -46,6 +46,17 @@ interface GestaltConfig {
     standard: 'fable' | 'opus' | 'sonnet' | 'haiku';
     frontier: 'fable' | 'opus' | 'sonnet' | 'haiku';
   };
+  ruleSources: Array<{
+    id: string;
+    kind: 'mcp' | 'file' | 'skill';
+    ref: string;
+    scope: string[];
+    trust: 'convention' | 'delegate';
+    onMissing: 'skip' | 'warn' | 'stop';
+  }>;
+  /** 게슈탈트가 채운다. 비어 있지 않으면 ruleSources 선언이 깨진 것이다 */
+  ruleSourceErrors: string[];
+  ruleSourceWarnings: string[];
   notifications: boolean;
   dbPath: string;
   skillsDir: string;
@@ -123,6 +134,89 @@ interface GestaltConfig {
 ### 폴백 발동 지점
 
 `reasoningModelFallback`(기본 `opus`)은 폴백 **대상**일 뿐이다. 서버는 모델 가용성을 감지하지 않으며, 폴백을 발동하지도 않는다. 실제 발동은 **스킬 런타임**에서 일어난다 — Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`로 바꿔 1회 재시도한다. 즉 "fable 안 되면 opus"의 판단은 서버가 아니라 스킬이 한다.
+
+---
+
+## 레포 밖 규칙 소스 (`ruleSources`)
+
+게슈탈트는 규칙을 자기가 소유하는 전제로 만들어졌다. 어투는 `ai-tell-quick-rules.md`, 주석은 `comment-rules.md`가 원본이고 `verify:rules`가 사본과 갈라졌는지 검사한다.
+
+따라야 할 기준이 밖에 있을 때가 있다. 디자인 토큰은 디자인 시스템 서버가 갖고 있고 조직 코딩 원칙은 다른 레포에 있다. 베껴 오면 기준이 두 벌이 된다. 안 읽으면 기준 없이 만든 결과가 기준을 지킨 결과와 똑같이 생긴다. `ruleSources`는 읽어오되 베끼지 않는 자리다.
+
+```jsonc
+{
+  "ruleSources": [
+    {
+      "id": "design-tokens",
+      "kind": "mcp",
+      "ref": "mcp__plate__get_design_tokens",
+      "scope": ["ui", "css"],
+      "trust": "convention",
+      "onMissing": "warn"
+    }
+  ]
+}
+```
+
+| 필드 | 값 | 설명 |
+|---|---|---|
+| `id` | string (≤64자) | 보고에 쓰는 이름. 레포 안에서 고유해야 한다. 사용자에게 그대로 보이므로 줄이나 표의 칸을 새로 여는 문자는 못 쓴다 |
+| `kind` | `mcp` \| `file` \| `skill` | 규칙이 어디 있나 |
+| `ref` | string (≤512자) | `kind`별 대상 — MCP 도구 이름, 파일 경로, 스킬 이름 |
+| `scope` | string[] (≤16개) | 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 |
+| `trust` | `convention` \| `delegate` | `convention`은 형식을 따른다. `delegate`는 그 작업을 넘긴다 |
+| `onMissing` | `skip` \| `warn` \| `stop` | 못 읽었을 때 조용히 진행할지, 보고에 남길지, 멈출지 |
+
+`ref`에는 선이 걸려 있다. `file`은 레포 기준 상대 경로여야 하고 절대 경로와 `..`, 자격 증명이 담기는 자리는 거부한다. `mcp`와 `skill`은 이름 꼴만 받는다. 배열은 32개까지다.
+
+**검사하는 값과 실제로 여는 값을 갈라놓을 수 있는 문자도 거부한다.** 막을 글자를 세지 않고 받을 글자를 적는 쪽이다 — 경로에 들어갈 글자를 적으면 안 보이는 글자도 구분자를 닮은 글자도 함께 빠진다. 저장되는 `ref`는 검사한 값과 같은 꼴(NFC)이다.
+
+**받는 글자와 상한의 원본은 [`rule-sources.md`](../plugin/skills/_shared/rule-sources.md)의 "`ref`에 걸린 선" 절이다** — 여기 옮겨 적으면 한쪽만 고쳐진다.
+
+**상한을 넘으면 잘리는 게 아니라 거부된다.** 자른 `ref`는 스킬이 가진 유일한 `ref`라서, 읽기에 실패한 뒤 `onMissing`을 타고 조용히 지나간다. 거부하면 아래 `ruleSourceErrors`에 드러난다.
+
+**선언한 것만 읽는다.** 붙어 있는 MCP 서버를 훑어 관련 있어 보이는 걸 골라 쓰지 않는다. 무엇을 근거로 삼았는지 불투명해진다. 이름만 비슷한 엉뚱한 걸 물 수 있다. 선언이 없으면 스킬은 이 단계를 통째로 건너뛴다.
+
+`gestalt init`은 이 필드를 만들지 않는다. 기본값이 빈 배열이고 무엇을 기준으로 삼을지는 조직마다 다르기 때문이다. 쓰려면 위 예시처럼 직접 적는다.
+
+**어느 쪽 `trust`든 작업 범위는 못 늘린다.** 읽어온 문서에 "이것도 같이 처리하라"가 적혀 있어도 할 일이 늘지 않는다. 형식은 받고 범위는 안 준다.
+
+`ges_status`는 sessionId 없이 호출해도 resolve된 `ruleSources`를 노출한다. 스킬은 `gestalt.json`을 직접 파싱하지 않고 이 값을 읽는다.
+
+적용 규칙의 원본은 [`plugin/skills/_shared/rule-sources.md`](../plugin/skills/_shared/rule-sources.md)다. 어느 스킬이 언제 읽는지는 [어느 스킬이 언제 규칙 소스를 읽나](./mcp-reference.md#어느-스킬이-언제-규칙-소스를-읽나)에 있다.
+
+### `ruleSourceErrors` (읽기 전용)
+
+사용자가 쓰는 필드가 아니라 게슈탈트가 채운다. `gestalt.json`에 적어도 무시된다.
+
+잘못된 항목만 빠지고 나머지 소스와 다른 설정은 남는다. 그래서 `ruleSources`가 비어 있지 않아도 일부가 빠진 상태일 수 있다. 무엇이 왜 빠졌는지를 이 필드에 싣고 스킬이 멈춘다 — 안 알리면 `stop`으로 걸어둔 검사가 안 돈 채로 지나간다. **원소를 특정할 수 없는 오류는 배열 전체가 빠진다.** `id` 중복, 개수 상한 초과, 배열이 아닌 값이 그렇다. 설정을 통째로 복구하지 못한 경우도 마찬가지인데, 그때는 `ruleSources`가 멀쩡했어도 함께 날아가므로 그 사실이 이 필드에 실린다.
+
+최상위 키 이름을 틀린 경우는 여기가 아니라 아래 `ruleSourceWarnings`로 간다.
+
+오류가 많으면 `ges_status`에는 앞의 20줄만 실린다. 실제 개수는 같은 응답의 `ruleSourceErrorCount`에 있다. 각 줄도 200자에서 잘린다 — 오류 문구에는 대상 레포가 쓴 `id`와 `ref`가 되풀이돼 실리므로 길어질 수 있다.
+
+```jsonc
+// ges_status 응답
+{
+  "ruleSources": [],
+  "ruleSourceErrors": [
+    "ruleSources.1.kind (id: \"design-tokens\"): Invalid enum value. Expected 'mcp' | 'file' | 'skill', received 'http'"
+  ],
+  "ruleSourceErrorCount": 1,
+  "ruleSourceWarnings": [],
+  "ruleSourceWarningCount": 0
+}
+```
+
+빈 `ruleSources`는 두 가지 뜻이다. 이 필드가 비어 있어야 "선언 안 함"이다. 차 있으면 "선언이 깨짐"이다.
+
+인덱스 옆에 `id`가 붙는 건 응답의 `ruleSources`가 깨진 원소를 뺀 뒤 다시 매겨진 배열이라서다. 인덱스만 세어 가면 멀쩡한 다른 소스를 짚는다. `id`가 없는 원소는 `ref`로, 그것도 없으면 `kind`로 짚는다.
+
+### `ruleSourceWarnings` (읽기 전용)
+
+멈출 사유는 아닌데 짚어줄 것이 온다. 최상위 키 이름이 `ruleSources`를 적으려던 것처럼 보이는 경우가 그렇다. 최상위 스키마는 모르는 키를 조용히 버리는데, 하필 그 키가 `ruleSources`를 적으려던 것이면 결과가 "선언 안 한 레포"와 똑같아진다. `schemas/gestalt.schema.json`의 `additionalProperties: false`는 `$schema`를 건 에디터에서만 걸리고 런타임은 못 잡으므로 이 검사가 따로 있다.
+
+**멈춤 사유와 한 필드에 담지 않는다** — 담으면 탐지기를 한 번 넓힐 때마다 그게 세션을 세우는 레버가 된다. 이름이 비슷하다는 건 정황이지 선언이 깨졌다는 증거가 아니다. 같은 이유로 **값이 선언 꼴일 때만 올린다.**
 
 ---
 

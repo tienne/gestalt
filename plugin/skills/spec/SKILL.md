@@ -42,6 +42,42 @@ This skill transforms completed interview data into a structured project specifi
 - Interview session must be in `completed` status
 - Resolution score must be ≥ 0.8 (unless `force` is true)
 
+## 규칙 확보 (1단계 호출 전)
+
+조직이 정한 제약은 **Spec의 `constraints`로 굳어야 실행까지 따라간다.** 인터뷰에서 전제로 좁혀놨어도 Spec에 안 적히면 거기서 증발한다. Spec만 받아 실행하는 쪽은 인터뷰 대화를 못 보기 때문이다.
+
+`gestalt.json`의 `ruleSources`에 선언된 것만 읽는다. 선언이 없으면 이 절을 통째로 건너뛴다.
+
+`solve`가 불러서 들어온 경우에는 그쪽 Phase 0이 이미 읽어 `ruleContext`를 넘겨준다. 다시 읽지 않는다.
+
+읽는 방법, `trust`와 `onMissing` 해석은 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)가 원본이다. **여기에 옮겨 적지 않는다.** `ges_status`(sessionId 없이)의 응답에서 읽고 `gestalt.json`을 직접 파싱하지 않는다. `ruleSourceErrors`가 비어 있지 않으면 멈춘다. `ruleSourceWarnings`는 알리고 진행한다.
+
+`scope`가 걸린 소스는 **Spec이 만들겠다는 산출물 종류로 고른다.** 그래도 애매한 소스가 남으면 rule-sources.md의 "파일이 아직 안 정해진 자리" 절을 따른다 — `convention`은 넓게 잡고 `stop`과 `delegate`는 미룬다.
+
+### 인터뷰를 거쳤는지에 따라 하는 일이 다르다
+
+| 입력 | 이 절이 하는 일 |
+|---|---|
+| `sessionId` (인터뷰 거침) | 다시 읽어 `constraints`에 출처와 함께 넣는다. 인터뷰가 좁힌 전제는 넘어오지 않으므로 다시 확보한다 |
+| `text` (인터뷰 안 거침) | 0.5단계가 안 돌았으므로 여기서 처음 읽는다 |
+
+인터뷰의 `ruleContext`는 그 스킬 런타임의 변수라 여기까지 안 넘어온다. 넘겨받으려 하지 말고 **다시 읽는다.** 읽는 비용이 싸다.
+
+다만 다시 읽어도 값이 새로워지지는 않는다. `ges_status`가 주는 `ruleSources`는 MCP 서버가 기동할 때 한 번 resolve한 스냅샷이라, 선언을 고쳤으면 서버를 다시 띄워야 반영된다. 여기서 다시 읽는 건 **인터뷰가 잡은 값이 이 런타임에 없어서**다.
+
+### constraints에 넣을 때는 출처를 적는다
+
+```json
+"constraints": [
+  "인증은 조직 표준 SSO만 사용 (auth-standard)",
+  "TypeScript 사용"
+]
+```
+
+출처를 적는 이유는 **나중에 이 제약을 풀 수 있는지 판단하려면 어디서 왔는지 알아야 하기 때문**이다. 사용자가 인터뷰에서 정한 제약은 사용자가 바꿀 수 있다. 조직 표준은 그렇지 않다. 둘이 섞여 있으면 구분이 안 된다.
+
+**읽은 내용을 `acceptanceCriteria`나 `goal`에 넣지 않는다.** 규칙 소스는 무엇을 만들지가 아니라 어떤 테두리 안에서 만들지를 정한다. 목표와 수용 기준은 사용자에게서 온다.
+
 ## Passthrough Mode
 
 API 키 없이 MCP 서버 실행 시 자동 활성화. Spec 생성을 caller가 직접 수행한다.

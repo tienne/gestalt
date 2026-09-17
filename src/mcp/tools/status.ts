@@ -6,14 +6,35 @@ import { ExecuteSessionRepository } from '../../execute/repository.js';
 import { getVersion, getCachedUpdateResult, getSessionVersion } from '../../core/version.js';
 import { resolveStatusSessionId } from '../session-selector.js';
 
+/** 응답 하나에 실어 보낼 오류 줄 수. 넘는 만큼은 개수로만 알린다 */
+const MAX_ERROR_LINES = 20;
+
 /**
- * 두 status 경로가 공유하는 모델 정보.
+ * 깨진 선언의 이유를 응답에 실을 꼴로 줄인다.
+ *
+ * zod 가 받은 값을 에러 문구에 되풀이하므로 줄 길이도 줄 수도 묶는다. 이 값은
+ * 매 응답에 실려 에이전트 컨텍스트로 들어간다.
+ *
+ * **ruleSources 는 자르지 않는다.** 스킬이 읽는 ref 가 이 값뿐이라 한 글자만 바뀌어도
+ * 못 읽는 경로가 된다. 그 실패는 onMissing 을 타고 조용히 지나간다. 길이는 스키마가
+ * 거부로 막는다.
+ */
+function projectErrorLines(lines: string[]): string[] {
+  return lines.slice(0, MAX_ERROR_LINES).map((message) => clamp(message, 200));
+}
+
+function clamp(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+}
+
+/**
+ * 두 status 경로가 공유하는 config 정보.
  *
  * claude-code는 항상 passthrough라 handleStatus가 아니라 server.ts의
  * handleStatusPassthrough를 탄다. 두 곳이 각자 이 객체를 만들면 한쪽에만 필드를
  * 넣어도 테스트는 통과하고 실제 호출에는 안 나온다. 그래서 한 곳에서 만든다.
  */
-export function buildReasoningModelInfo(config?: GestaltConfig) {
+export function buildStatusConfigInfo(config?: GestaltConfig) {
   return {
     reasoningModel: config?.reasoningModel ?? null,
     reasoningModelFallback: config?.reasoningModelFallback ?? null,
@@ -22,6 +43,21 @@ export function buildReasoningModelInfo(config?: GestaltConfig) {
     // 그런 자리에서는 이 표가 유일한 조회 경로다. 소비처 개수는 여기 적지 않는다 —
     // 스킬이 늘 때 같이 안 고쳐져서 어긋난다. 규칙은 _shared/agent-model.md에 있다.
     tierModels: config?.tierModels ?? null,
+    // execute Phase 0이 레포 밖 기준을 읽을 때 쓴다. 스킬이 gestalt.json을 직접
+    // 파싱하면 resolve 규칙이 두 벌이 되므로 서버가 resolve한 값만 내보낸다.
+    // 적용 규칙은 _shared/rule-sources.md에 있다.
+    ruleSources: config?.ruleSources ?? [],
+    // 비어 있지 않으면 선언 일부가 빠진 것이다. 무엇이 빠졌는지 모르면
+    // onMissing: "stop"으로 걸어둔 검사가 안 돈 채 지나간다.
+    // 안에 든 문구는 대상 레포가 쓴 값이다 — 읽는 쪽 규칙은 rule-sources.md에 있다.
+    ruleSourceErrors: projectErrorLines(config?.ruleSourceErrors ?? []),
+    // 멈출 사유는 아니고 짚어줄 거리다. 둘을 한 필드에 담으면 탐지기를 넓힐 때마다
+    // 그게 세션을 세우는 레버가 된다
+    ruleSourceWarnings: projectErrorLines(config?.ruleSourceWarnings ?? []),
+    // 몇 줄이 안 실렸는지는 문자열이 아니라 수로 싣는다. 스킬이 이 배열을 사용자에게
+    // 옮겨 적으므로, 문장으로 끼워 넣으면 그게 오류 한 건처럼 읽힌다
+    ruleSourceErrorCount: (config?.ruleSourceErrors ?? []).length,
+    ruleSourceWarningCount: (config?.ruleSourceWarnings ?? []).length,
   };
 }
 
@@ -42,7 +78,7 @@ export function handleStatus(
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
   };
-  const reasoningModelInfo = buildReasoningModelInfo(config);
+  const statusConfigInfo = buildStatusConfigInfo(config);
 
   const sessionType = rawInput.sessionType ?? 'all';
 
@@ -54,7 +90,7 @@ export function handleStatus(
       })
     : null;
   if (resolvedSessionId && !resolvedSessionId.ok) {
-    return JSON.stringify({ ...reasoningModelInfo, error: resolvedSessionId.error }, null, 2);
+    return JSON.stringify({ ...statusConfigInfo, error: resolvedSessionId.error }, null, 2);
   }
   const input: StatusInput = { ...rawInput, sessionId: resolvedSessionId?.sessionId };
 
@@ -71,7 +107,7 @@ export function handleStatus(
         return JSON.stringify(
           {
             versionInfo,
-            ...reasoningModelInfo,
+            ...statusConfigInfo,
             type: 'interview',
             summary: interviewSummary,
             session: {
@@ -110,7 +146,7 @@ export function handleStatus(
             return JSON.stringify(
               {
                 versionInfo,
-                ...reasoningModelInfo,
+                ...statusConfigInfo,
                 type: 'execute',
                 summary: formatted.summary,
                 session: formatted,
@@ -148,7 +184,7 @@ export function handleStatus(
     return JSON.stringify(
       {
         versionInfo,
-        ...reasoningModelInfo,
+        ...statusConfigInfo,
         interviewSessions,
         executeSessions,
         total: { interview: interviewSessions.length, execute: executeSessions.length },
@@ -159,7 +195,7 @@ export function handleStatus(
   } catch (e) {
     return JSON.stringify(
       {
-        ...reasoningModelInfo,
+        ...statusConfigInfo,
         error: e instanceof Error ? e.message : String(e),
       },
       null,

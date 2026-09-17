@@ -28,7 +28,7 @@ import { handleExecutePassthrough } from './tools/execute-passthrough.js';
 import { createHostAdapter } from './host-adapter.js';
 import { resolveStatusSessionId } from './session-selector.js';
 import { handleCreateAgentPassthrough } from './tools/create-agent-passthrough.js';
-import { handleStatus, buildReasoningModelInfo } from './tools/status.js';
+import { handleStatus, buildStatusConfigInfo } from './tools/status.js';
 import { handleBenchmarkPassthrough } from './tools/benchmark-passthrough.js';
 import { handleAgentPassthrough } from './tools/agent-passthrough.js';
 import { handleReviewPassthrough } from './tools/review-passthrough.js';
@@ -552,7 +552,7 @@ function handleStatusPassthrough(
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
   };
-  const reasoningModelInfo = buildReasoningModelInfo(config);
+  const statusConfigInfo = buildStatusConfigInfo(config);
   const sessionType = rawInput.sessionType ?? 'all';
 
   const resolvedSessionId = rawInput.sessionId
@@ -562,7 +562,7 @@ function handleStatusPassthrough(
       })
     : null;
   if (resolvedSessionId && !resolvedSessionId.ok) {
-    return JSON.stringify({ ...reasoningModelInfo, error: resolvedSessionId.error }, null, 2);
+    return JSON.stringify({ ...statusConfigInfo, error: resolvedSessionId.error }, null, 2);
   }
   const input = { ...rawInput, sessionId: resolvedSessionId?.sessionId };
 
@@ -574,7 +574,7 @@ function handleStatusPassthrough(
         return JSON.stringify(
           {
             versionInfo,
-            ...reasoningModelInfo,
+            ...statusConfigInfo,
             type: 'interview',
             session: {
               sessionId: session.sessionId,
@@ -602,7 +602,7 @@ function handleStatusPassthrough(
         return JSON.stringify(
           {
             versionInfo,
-            ...reasoningModelInfo,
+            ...statusConfigInfo,
             type: 'execute',
             session: formatExecuteSession(session),
           },
@@ -634,7 +634,7 @@ function handleStatusPassthrough(
     return JSON.stringify(
       {
         versionInfo,
-        ...reasoningModelInfo,
+        ...statusConfigInfo,
         interviewSessions,
         executeSessions,
         total: { interview: interviewSessions.length, execute: executeSessions.length },
@@ -645,7 +645,7 @@ function handleStatusPassthrough(
   } catch (e) {
     return JSON.stringify(
       {
-        ...reasoningModelInfo,
+        ...statusConfigInfo,
         error: e instanceof Error ? e.message : String(e),
       },
       null,

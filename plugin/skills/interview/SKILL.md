@@ -53,6 +53,57 @@ topic에 아래 키워드가 포함되면 `/review` 스킬이 더 적합하다:
 ### 라우팅 대상이 아닌 경우
 위 키워드가 없으면 기존 인터뷰 파이프라인을 정상 진행한다.
 
+## 0.5단계: 규칙 확보 (인터뷰 시작 전)
+
+**조직이 이미 정해둔 걸 모르고 물으면 같은 질문을 두 번 한다.** 인증 방식이 조직 표준으로 하나뿐인데 "어떤 인증을 쓰시겠어요"를 묻는 식이다. 사용자는 이미 답한 걸 또 답한다. 해상도 점수는 그 라운드만큼 헛돈다.
+
+`gestalt.json`의 `ruleSources`에 선언된 것만 읽는다. 선언이 없으면 이 단계를 통째로 건너뛰고 바로 인터뷰를 시작한다.
+
+`solve`가 불러서 들어온 경우에는 그쪽 Phase 0이 이미 읽어 `ruleContext`를 넘겨준다. 다시 읽지 않는다 — 한 흐름 안에서 두 번 읽으면 기준이 갈릴 수 있다.
+
+읽는 방법, `trust`와 `onMissing` 해석, 결과에 뭘 남길지는 전부 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)가 원본이다. **여기에 옮겨 적지 않는다.**
+
+`ges_status`(sessionId 없이)의 응답에서 읽는다. `gestalt.json`을 직접 파싱하지 않는다 — 서버가 resolve한 값이 기준이다.
+
+```
+ges_status()  →  {
+  ruleSources: [ { id, kind, ref, scope, trust, onMissing }, ... ],
+  ruleSourceErrors: [],   // 비어 있지 않으면 선언이 깨진 것이다 — 멈춘다
+  ruleSourceWarnings: [], // 짚어줄 거리. 멈출 사유는 아니지만 알리고 진행한다
+  ...
+}
+```
+
+`ruleSourceErrors`가 비어 있지 않으면 멈춘다. 판정과 사용자에게 알릴 문구는 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)의 "선언이 깨졌을 때" 절이 원본이다. **`ruleSources`가 비어 있지 않아도 일부가 빠진 상태일 수 있으니 배열 길이로 판정하지 않는다.**
+
+여기는 첫 질문 전이라 건드릴 파일이 하나도 안 정해져 있다. `scope`가 걸린 소스를 어떻게 할지는 rule-sources.md의 "파일이 아직 안 정해진 자리" 절이 정한다 — `convention`은 넓게 잡고 `stop`과 `delegate`는 미룬다.
+
+### 읽은 것은 질문의 배경이지 사용자의 답이 아니다
+
+여기서 읽은 내용으로 **질문을 대신 답하지 않는다.** 아래 Critical Rule은 그대로 적용된다.
+
+| | 규칙 소스가 하는 일 |
+|---|---|
+| 맞다 | 이미 정해진 전제를 질문에서 빼거나, 선택지를 조직이 실제로 쓰는 것으로 좁힌다 |
+| 아니다 | 사용자가 무엇을 원하는지를 대신 정한다 |
+
+조직 표준이 하나뿐이라 물을 게 없어졌으면 **물음을 없애되 그 사실을 사용자에게 알린다.** 조용히 값을 채워 넣고 넘어가면 사용자는 자기가 고르지 않은 게 스펙에 들어간 걸 모른다.
+
+> 인증은 조직 표준(`auth-standard`)에 하나로 정해져 있어서 묻지 않고 그걸로 뒀어요. 다르게 가야 하면 말씀해주세요.
+
+`trust: "delegate"`인 소스가 이번 주제에 걸리면 인터뷰를 시작하기 전에 알린다. 그 주제는 다른 스킬이 맡는다.
+
+### 보관
+
+```
+ruleContext = {
+  sources: [{ id, ref, readAt }],
+  missing:  [{ id, reason, onMissing }],
+}
+```
+
+`complete` 응답을 사용자에게 보여줄 때 `missing` 중 `onMissing`이 `skip`이 아닌 것을 함께 적는다. 어느 기준 없이 뽑은 요구사항인지가 Spec까지 따라가야 한다.
+
 ## ⚠️ Critical Rule: Never Self-Answer
 
 **You are the interviewer, not the interviewee.**
@@ -69,6 +120,8 @@ You must **NEVER**:
 - Suggest an answer while asking ("Would you like JWT? Most people use JWT")
 
 The interview only has value if the human's actual intent is captured. A self-answered interview produces a Spec that reflects your assumptions, not the user's requirements.
+
+0.5단계에서 읽은 규칙 소스도 여기서 예외가 아니다. 조직 문서에 적혀 있다는 것은 질문을 대신 답할 근거가 되지 않는다. 전제를 좁히는 데까지만 쓴다. 좁혀서 물음이 사라졌으면 그 사실을 사용자에게 알린다. 문서를 근거로 답을 채우기 시작하면 self-answer가 "출처가 있는 self-answer"로 바뀔 뿐이다.
 
 ## Process
 

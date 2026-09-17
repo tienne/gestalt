@@ -53,6 +53,290 @@ const executeConfigSchema = z.object({
 const agentModelAliasSchema = z.enum(['fable', 'opus', 'sonnet', 'haiku']);
 const reasoningModelSchema = agentModelAliasSchema;
 
+/** .env, .env.local, prod.env. env.md 처럼 env 를 설명하는 문서는 안 걸린다 */
+const ENV_FILE_REF = /(^|\/)(\.env(\.[^/]*)?|[^/]*\.env)$/i;
+
+/**
+ * 레포 안이어도 기준 문서일 리 없는 자리.
+ *
+ * 레포 밖을 막는 검사만으로는 부족하다. 남의 레포를 검사하러 들어갔을 때 그쪽
+ * gestalt.json 이 자기 `.env` 를 "조직 컨벤션"으로 선언하면, 스킬이 그걸 읽어
+ * "적용한 기준"으로 보고에 옮겨 적는다.
+ *
+ * 한 줄짜리 정규식으로 두면 항목을 더할 때마다 읽기 어려워져서 배열로 나눠 둔다.
+ */
+const SECRET_FILE_REFS = [
+  ENV_FILE_REF, // 위에 따로 선언돼 있다 — 예외를 이 패턴 하나에만 걸어야 해서다
+  /(^|\/)\.(git|ssh|aws|kube|docker|gnupg)\//i,
+  /(^|\/)(\.npmrc|\.netrc|\.pgpass|\.envrc|\.htpasswd)$/i,
+  // 뒤에 .pub 까지만 붙는다. id_rsa-rotation.md 같은 설명 문서는 안 걸린다
+  /(^|\/)id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$/i,
+  /\.(pem|key|p8|p12|pfx|der|cer|ppk|jks|keystore|kdbx)$/i,
+  /(^|\/)(credentials|secrets?)(\.(json|ya?ml|toml))?$/i,
+];
+
+/**
+ * `.env` 패턴에만 걸리는 예외.
+ *
+ * `.env.example` 은 값이 아니라 **키 목록**이라 레포에 커밋된다. 무엇을 채워야 하는지
+ * 적힌 파일이라 규칙 소스로 선언할 이유가 오히려 크다.
+ */
+const SECRET_FILE_ALLOW = /(^|\/)[^/]*\.env\.(example|sample|template|dist)$/i;
+
+/** 거부 목록과 그 예외를 함께 판정한다 */
+function isSecretRef(ref: string): boolean {
+  const matched = SECRET_FILE_REFS.filter((pattern) => pattern.test(ref));
+  if (matched.length === 0) return false;
+
+  // 예외는 .env 패턴 하나에만 건다. 목록 전체를 건너뛰게 두면 `.ssh/id_rsa.env.example`
+  // 이 예외를 타고 빠져나간다 — 이름 끝을 맞추는 것만으로 검사를 끌 수 있으면 안 된다
+  const onlyEnv = matched.length === 1 && matched[0] === ENV_FILE_REF;
+  return !(onlyEnv && SECRET_FILE_ALLOW.test(ref));
+}
+
+/**
+ * 위 목록에 걸기 전에 경로를 맞춘다.
+ *
+ * 조각 끝의 점을 떼는 건 윈도우가 그걸 떼고 파일을 열기 때문이다 — `".env."` 를
+ * 그대로 두면 목록에는 안 걸리는데 실제로는 `.env` 가 열린다.
+ *
+ * 구분자 통일은 FILE_REF 가 이미 `\` 를 거부해서 이 함수로는 안 온다. file 밖에서
+ * 불릴 때를 대비해 둔다.
+ */
+function normalizeRefForMatch(ref: string): string {
+  return ref
+    .replace(/\\/g, '/')
+    .split('/')
+    .map((segment) => segment.replace(/\.+$/, ''))
+    .join('/');
+}
+
+/**
+ * 보고 화면에 그대로 찍히는 값에서 막을 문자.
+ *
+ * 이름 꼴을 영숫자로 좁히면 한글 id 를 쓰는 레포가 깨진다. 막아야 하는 건 글자
+ * 종류가 아니라 **줄이나 칸을 새로 만드는 문자**다 — 그게 섞이면 대상 레포가 쓴
+ * 값이 게슈탈트가 쓴 줄처럼 보인다. 제어문자는 줄을, 백틱은 코드 블록을,
+ * 세로줄은 표의 칸을 연다. 기울임 같은 나머지 서식은 그렇게 못 하므로 안 막는다.
+ */
+const UNSAFE_IN_REPORT = /[\p{C}\p{Zl}\p{Zp}`|]/u;
+
+/**
+ * file 소스의 ref 로 받을 문자.
+ *
+ * **막을 것을 세지 않고 받을 것을 적는다.** 검사하는 값과 실제로 여는 값을 갈라놓는
+ * 문자는 한 부류가 아니다 — 공백, 안 보이는 글자, 정규화하면 바뀌는 글자, 구분자처럼
+ * 보이는 글자가 차례로 나왔고 셀 때마다 다음 것이 남았다. 경로에 들어갈 글자를 적으면
+ * 나머지는 세지 않아도 전부 빠진다.
+ *
+ * 글자와 숫자는 스크립트를 안 가린다. 한글 경로가 그대로 통과해야 해서다. 정규화하면
+ * 다른 글자가 되는 꼴(전각 `ｅ`)은 글자이므로 여기를 지나가고 아래 drift 검사가 받는다.
+ *
+ * 문장부호는 ASCII 만 받는다. 여기만 열거인 건 **닫힌 집합**이라서다 — 구분자를 닮은
+ * 유니코드 글자는 새로 나오는데 ASCII 문장부호는 안 는다. `docs/API (v2).md` 나
+ * `it's.md` 같은 실제 파일명이 거부되면 그것도 멀쩡한 선언을 막는 것이다.
+ *
+ * 결합 문자를 받는 건 데바나가리나 태국어처럼 그게 글자의 일부인 경로가 있어서다.
+ * 구분자를 만들지도, 검사한 값과 여는 값을 갈라놓지도 않는다.
+ */
+const FILE_REF = /^[\p{L}\p{N}\p{M}_.+@~#,'!&=()[\]%\- /]+$/u;
+
+/**
+ * 화면에 안 나오기로 유니코드가 정해둔 글자.
+ *
+ * 허용 목록이 `\p{L}` 을 받는데 그 안에 안 보이는 글자가 있다 — 한글 채움 문자
+ * U+1160 은 카테고리가 Lo 이고 호환 분해도 없어서 정규화 검사도 지나간다.
+ * `.env\u1160` 이 시크릿 목록을 그냥 통과한다. 읽는 쪽은 안 보이는 글자를 지우고
+ * `.env` 를 연다.
+ *
+ * **여기서도 글자를 세지 않는다.** 유니코드가 관리하는 속성 하나를 빼면 새 글자가
+ * 늘어도 이 자리를 다시 고칠 일이 없다.
+ */
+const IGNORABLE_IN_REF = /\p{Default_Ignorable_Code_Point}/u;
+
+/**
+ * 조각 끝에 공백이 붙었는지 본다.
+ *
+ * 조각 안의 공백은 괜찮다 — `a b.md` 는 그대로 열린다. 끝에 붙은 것만 위험하다.
+ * `" /etc/passwd"` 는 앞 공백 때문에 절대 경로로 안 보인다. `".. /x"` 는 조각이
+ * `".. "` 라 `..` 검사를 지나간다. 읽는 쪽은 둘 다 다듬어서 연다.
+ */
+function hasEdgeSpace(ref: string): boolean {
+  return ref.split('/').some((segment) => segment !== segment.trim());
+}
+
+/**
+ * 정규화하면 다른 문자가 되는지 본다.
+ *
+ * 안 보이는 문자를 막아도 **다른 문자로 바뀌는** 문자가 남는다. 전각 슬래시(`／`)는
+ * 눈에 보이고 경로 구분자도 아니라 `..` 검사를 그냥 지나가는데, 정규화하면 `../` 다.
+ * 전각 `ｅ` 는 `.ｅnv` 를 `.env` 로 만든다. 검사하는 값과 여는 값이 갈라지는 자리가
+ * 공백에서 여기로 옮겨간 것뿐이다.
+ *
+ * NFC 와 NFKC 를 견주면 호환 분해가 있는 문자가 걸린다. 한글은 두 꼴이 같아서 안
+ * 걸린다 — macOS 가 NFD 로 주는 경로도 마찬가지다.
+ *
+ * **여기까지가 이 검사의 범위다.** 키릴 `е` 처럼 분해가 없는 동형자는 안 걸린다. 그건
+ * 실제로 그런 이름의 파일이 없어서 읽기가 실패하고 onMissing 을 타므로 경계가 열리는
+ * 쪽은 아니다. 조용히 지나가지 않게 하는 건 거기서 받는다.
+ */
+function hasNormalizationDrift(value: string): boolean {
+  return value.normalize('NFC') !== value.normalize('NFKC');
+}
+
+/** MCP 도구 이름 꼴 */
+const MCP_REF = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+
+/** 스킬 이름 꼴. `review` 와 `gestalt:review` 를 받는다 */
+const SKILL_REF = /^[a-z0-9][a-z0-9-]*(:[a-z0-9][a-z0-9-]*)?$/;
+
+/**
+ * 레포 밖에 있는 규칙 소스. 게슈탈트도 대상 레포도 소유하지 않은 기준을 가리킨다.
+ *
+ * 선언된 것만 읽는다 — 붙어 있는 MCP를 훑어 고르면 무엇을 근거로 삼았는지 사라진다.
+ * 적용 규칙은 `plugin/skills/_shared/rule-sources.md`가 원본이다.
+ */
+const ruleSourceSchema = z
+  .object({
+    /** 보고에 쓰는 이름. 레포 안에서 고유해야 한다. ref 와 같이 NFC 로 맞춰 둔다 */
+    id: z
+      .string()
+      .min(1)
+      .transform((value) => value.normalize('NFC'))
+      .pipe(z.string().min(1).max(64)),
+    kind: z.enum(['mcp', 'file', 'skill']),
+    /**
+     * kind별 대상 — mcp면 도구 이름, file이면 경로, skill이면 스킬 이름.
+     *
+     * 상한이 있는 건 이 값이 ges_status 응답으로 매번 실려 나가서다. 넘으면 자르지
+     * 않고 거부한다 — 자른 ref 는 스킬이 가진 유일한 ref 라, 읽기에 실패한 뒤
+     * onMissing 을 타고 조용히 지나간다. 거부하면 ruleSourceErrors 로 드러난다.
+     *
+     * NFC 로 맞춰 둔다. 검사만 정규화하고 원본을 저장하면 검사한 값과 스킬이 받는 값이
+     * 또 갈라진다 — 그 틈을 없애려고 고친 자리라 여기서 되풀이하지 않는다
+     */
+    ref: z
+      .string()
+      .min(1)
+      .transform((value) => value.normalize('NFC'))
+      // 상한은 변환 뒤에 건다. 앞에 두면 NFC 로 길어지는 글자가 상한을 넘겨 저장된다
+      .pipe(z.string().min(1).max(512)),
+    /** 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 */
+    scope: z.array(z.string().min(1).max(32)).max(16).default([]),
+    /** convention=형식을 따른다, delegate=그 작업을 넘긴다 */
+    trust: z.enum(['convention', 'delegate']).default('convention'),
+    /** 못 읽었을 때. warn 이상은 결과에 남는다 */
+    onMissing: z.enum(['skip', 'warn', 'stop']).default('warn'),
+    // strict 다. 모르는 키를 조용히 버리면 onMising 같은 오타가 기본값으로 떨어져
+    // stop 으로 걸어둔 검사가 warn 으로 강등된 사실을 어디서도 알 수 없다.
+    // JSON 스키마의 additionalProperties: false 와 같은 선이다
+  })
+  .strict()
+  .superRefine((source, ctx) => {
+    // ref 는 스키마가 NFC 로 맞춰서 넘긴다. 저장되는 값도 같은 값이다
+    const ref = source.ref;
+
+    // 아래 경로 검사들은 전부 문자열을 그대로 본다. 그런데 이 값을 실제로 여는 주체는
+    // fs 가 아니라 에이전트라, 검사하는 값과 여는 값이 갈라지면 그 경계가 무의미해진다.
+    // 받을 문자를 적어두고 나머지를 거부한다 — 막을 것을 세면 매번 다음 것이 남는다
+    if (IGNORABLE_IN_REF.test(ref)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ref'],
+        message: 'ref 에는 화면에 안 나오는 글자를 넣을 수 없습니다',
+      });
+      return;
+    }
+    if (hasNormalizationDrift(ref)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ref'],
+        message: 'ref 에는 정규화하면 다른 문자가 되는 글자를 넣을 수 없습니다',
+      });
+      return;
+    }
+    if (source.kind === 'file' && (!FILE_REF.test(ref) || hasEdgeSpace(ref))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ref'],
+        message:
+          'file 소스의 ref 에는 글자와 숫자, ASCII 문장부호만 쓸 수 있고 경로 조각 끝에 공백을 둘 수 없습니다',
+      });
+      return;
+    }
+
+    // ref 는 코드가 읽기 전에 에이전트가 읽는다. rule-sources.md 가 선언된 소스를
+    // 읽고 결과 보고에 남기라고 지시하므로, 적대적인 gestalt.json 이 레포 밖 비밀
+    // 파일을 "조직 컨벤션"으로 선언하면 그게 보고에 실리는 경로가 열린다
+    if (source.kind === 'file') {
+      if (isAbsolute(ref)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ref'],
+          message: 'file 소스의 ref 는 레포 기준 상대 경로여야 합니다',
+        });
+      } else if (ref.split(/[/\\]/).includes('..')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ref'],
+          message: 'file 소스의 ref 는 레포 밖을 가리킬 수 없습니다',
+        });
+      } else if (isSecretRef(normalizeRefForMatch(ref))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ref'],
+          message: 'file 소스의 ref 로 자격 증명이 담기는 자리를 가리킬 수 없습니다',
+        });
+      }
+    }
+
+    // 정규화 자체를 막지 않는다. id 는 경로가 아니라 보고에 찍히는 이름이라
+    // ㈜ 나 Ⅲ, 반각 가타카나를 쓰는 레포가 있다. 정규화한 결과가 줄이나 칸을
+    // 새로 여는지만 본다
+    if (
+      UNSAFE_IN_REPORT.test(source.id) ||
+      UNSAFE_IN_REPORT.test(source.id.normalize('NFKC')) ||
+      IGNORABLE_IN_REF.test(source.id) ||
+      source.id !== source.id.trim()
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['id'],
+        message:
+          'id 에는 줄이나 표의 칸을 새로 여는 문자(제어문자, 백틱, 세로줄)를 쓸 수 없고 앞뒤에 공백을 둘 수 없습니다',
+      });
+    }
+
+    // 이름 꼴만 본다. 이 도구가 읽기인지 쓰기인지는 코드가 알 방법이 없어서
+    // rule-sources.md 가 "쓰기 도구면 부르지 않고 사용자에게 알린다"로 받는다
+    if (source.kind === 'mcp' && !MCP_REF.test(ref)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ref'],
+        message: 'mcp 소스의 ref 는 도구 이름이어야 합니다',
+      });
+    }
+    if (source.kind === 'skill' && !SKILL_REF.test(ref)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ref'],
+        message: 'skill 소스의 ref 는 스킬 이름이어야 합니다',
+      });
+    }
+
+    // delegate 는 "이 작업을 저 스킬이 맡는다"는 뜻이라 kind 가 skill 이어야 성립한다.
+    // mcp 나 file 에 붙으면 무엇을 넘기라는 것인지 정의된 자리가 없다
+    if (source.trust === 'delegate' && source.kind !== 'skill') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['trust'],
+        message: 'delegate 는 kind 가 skill 일 때만 쓸 수 있습니다',
+      });
+    }
+  });
+
+export type RuleSource = z.infer<typeof ruleSourceSchema>;
+
 /** 에이전트 tier를 Agent 도구 model 별칭으로 옮기는 표 */
 const tierModelsSchema = z.object({
   frugal: agentModelAliasSchema.default(DEFAULT_TIER_MODELS.frugal),
@@ -67,6 +351,30 @@ const configSchema = z.object({
   reasoningModel: reasoningModelSchema.default(DEFAULT_REASONING_MODEL),
   reasoningModelFallback: reasoningModelSchema.default(REASONING_MODEL_FALLBACK),
   tierModels: tierModelsSchema.default({}),
+  ruleSources: z
+    .array(ruleSourceSchema)
+    // 손으로 적는 선언이라 이 정도면 넉넉하다. 상한이 없으면 선언 수가 그대로
+    // 매 ges_status 응답 크기가 된다
+    .max(32)
+    // id가 겹치면 "어느 기준으로 작업했나" 보고에서 둘을 구분할 수 없다
+    // 눈에 같아 보이는 id 가 통과하면 안 된다. 스키마가 NFC 로 맞춰 넘기므로 그대로 센다
+    .refine((s) => new Set(s.map((r) => r.id)).size === s.length, {
+      message: 'ruleSources[].id는 서로 달라야 합니다',
+    })
+    .default([]),
+  /**
+   * ruleSources 선언이 깨졌을 때 그 이유. 사용자가 쓰는 필드가 아니라 loadConfig가 채운다.
+   * 비어 있지 않으면 선언은 있었는데 못 읽은 상태이므로 스킬은 진행하지 않는다.
+   */
+  ruleSourceErrors: z.array(z.string()).default([]),
+  /**
+   * 선언이 깨지진 않았는데 짚어줄 게 있을 때. 마찬가지로 loadConfig가 채운다.
+   *
+   * **멈춤 사유와 한 필드에 담지 않는다.** 담으면 탐지기를 한 번 넓힐 때마다 그게
+   * 세션을 세우는 레버가 된다 — 실제로 키 이름 오타 탐지를 넓혔더니 `resources` 같은
+   * 남의 키 하나로 이 값을 읽는 자리가 전부 멈췄다. 확실하지 않은 판정은 여기로 온다.
+   */
+  ruleSourceWarnings: z.array(z.string()).default([]),
   notifications: z.boolean().default(false),
   // 상수가 아니라 함수다. 모듈을 읽을 때 굳히면 테스트 setupFiles가 GESTALT_HOME을
   // 세우기 전에 값이 정해져서 진짜 홈을 가리킨다
@@ -257,23 +565,58 @@ function normalizeInvalidPath(path: (string | number)[]): (string | number)[] {
   ) {
     return ['llm', path[1]];
   }
+
+  // 배열 원소 안의 필드가 잘못되면 그 원소를 통째로 뺀다. 필드만 지우면 남은 원소가
+  // required 검사에 다시 걸려 복구가 실패한다. 그러면 설정 전체가 기본값으로 떨어진다
+  const firstIndex = path.findIndex((segment) => typeof segment === 'number');
+  if (firstIndex >= 0 && firstIndex < path.length - 1) {
+    return path.slice(0, firstIndex + 1);
+  }
+
   return path;
 }
 
-function removePath(root: Record<string, unknown>, rawPath: (string | number)[]): boolean {
-  const path = normalizeInvalidPath(rawPath);
+/**
+ * 잘못된 값 하나를 걷어낸다. 걷어내면 나머지 설정이 기본값으로 안 되돌아간다.
+ *
+ * 배열 원소는 그 자리에서 빼지 않고 인덱스만 모은다. 한 원소에 잘못된 필드가 둘이면
+ * zod가 issue를 둘 내고 둘 다 같은 원소를 가리키는데, 받는 대로 빼면 두 번째가 이미
+ * 당겨진 배열의 옆 원소를 지운다. 그래서 전부 모은 뒤 한 번에 걸러낸다.
+ */
+function removePath(
+  root: Record<string, unknown>,
+  path: (string | number)[],
+  arrayDrops: Map<unknown[], Set<number>>,
+): boolean {
   if (path.length === 0) return false;
 
   let current: unknown = root;
   for (const segment of path.slice(0, -1)) {
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index)) return false;
+      current = current[index];
+      continue;
+    }
     if (!isRecord(current)) return false;
     current = current[String(segment)];
   }
 
+  const finalSegment = path[path.length - 1]!;
+
+  if (Array.isArray(current)) {
+    const index = Number(finalSegment);
+    if (!Number.isInteger(index) || index < 0 || index >= current.length) return false;
+    const drops = arrayDrops.get(current) ?? new Set<number>();
+    drops.add(index);
+    arrayDrops.set(current, drops);
+    return true;
+  }
+
   if (!isRecord(current)) return false;
-  const finalSegment = String(path[path.length - 1]);
-  if (!(finalSegment in current)) return false;
-  delete current[finalSegment];
+  const key = String(finalSegment);
+  if (!(key in current)) return false;
+  delete current[key];
   return true;
 }
 
@@ -282,9 +625,29 @@ function pruneInvalidConfig(
   paths: (string | number)[][],
 ): Record<string, unknown> {
   const pruned = cloneRecord(input);
+
+  // 정규화한 뒤 같은 자리를 가리키는 경로를 하나로 접는다. 접지 않으면 한 원소의
+  // 필드 둘이 각각 삭제를 요구해 옆 원소까지 빠진다
+  const unique = new Map<string, (string | number)[]>();
   for (const path of paths) {
-    removePath(pruned, path);
+    const normalized = normalizeInvalidPath(path);
+    unique.set(JSON.stringify(normalized), normalized);
   }
+
+  const arrayDrops = new Map<unknown[], Set<number>>();
+  for (const path of unique.values()) {
+    removePath(pruned, path, arrayDrops);
+  }
+
+  // 배열은 마지막에 한 번만 걸러낸다. 인덱스가 당겨지지 않으니 순서를 맞출 필요가 없다.
+  // 되돌릴 때 스프레드를 안 쓰는 건 원소 수가 그대로 인자 개수가 되기 때문이다.
+  // ruleSources 는 상한이 32라 이 경로로는 안 닿지만 여기는 설정 전체를 받는 자리다
+  for (const [array, drops] of arrayDrops) {
+    const kept = array.filter((_, index) => !drops.has(index));
+    array.length = kept.length;
+    for (let i = 0; i < kept.length; i++) array[i] = kept[i];
+  }
+
   return pruned;
 }
 
@@ -308,10 +671,22 @@ export function loadConfig(
   // 4. Merge: defaults ← gestalt.json ← envConfig ← overrides
   const merged = deepMerge(deepMerge(jsonConfig, envConfig), overrides as Record<string, unknown>);
 
+  // ruleSourceErrors 는 로더가 채우는 출력이다. 스킬 여러 자리가 "비어 있지 않으면
+  // 멈춘다"로 읽으므로, 작성자가 적은 값을 살려두면 gestalt.json 한 줄로 파이프라인을
+  // 세우거나 게슈탈트 경고를 사칭할 수 있다
+  delete merged.ruleSourceErrors;
+  delete merged.ruleSourceWarnings;
+
+  // 이름이 비슷하다는 건 정황이지 선언이 깨졌다는 증거가 아니다. 경고로 간다
+  const misspelled = findMisspelledRuleSourcesKey(jsonConfig);
+  const declared = Array.isArray(merged.ruleSources) && merged.ruleSources.length > 0;
+
   // 5. Validate with Zod — warn + fallback on invalid values
   const result = configSchema.safeParse(merged);
   if (!result.success) {
-    const messages = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
+    const messages = result.error.issues.map(
+      (i) => `${describeIssuePath(i.path, merged)}: ${i.message}`,
+    );
     console.error(
       `[gestalt] Warning: Invalid configuration, using defaults for invalid fields:\n${messages.join('\n')}`,
     );
@@ -319,16 +694,129 @@ export function loadConfig(
       merged,
       result.error.issues.map((issue) => issue.path),
     );
+    const broken = messages.filter((m) => m.startsWith('ruleSources'));
     const recovered = configSchema.safeParse(pruned);
     if (recovered.success) {
-      return applyPostProcessing(recovered.data);
+      return applyPostProcessing(withRuleSourceNotes(recovered.data, broken, misspelled));
     }
 
     console.error('[gestalt] Warning: Failed to recover configuration, using defaults');
-    return applyPostProcessing(configSchema.parse({}));
+    // 여기서는 ruleSources 가 멀쩡했어도 함께 날아간다. 앞에 세워 두는 건 고칠 자리가
+    // 선언 안이 아니라 다른 필드라서다 — 안 적으면 "선언한 적 없는 레포"와 구분이 안 된다
+    if (declared) {
+      broken.unshift('ruleSources: 설정을 복구하지 못해 선언 전체가 빠졌습니다');
+    }
+    return applyPostProcessing(withRuleSourceNotes(configSchema.parse({}), broken, misspelled));
   }
 
-  return applyPostProcessing(result.data);
+  return applyPostProcessing(withRuleSourceNotes(result.data, [], misspelled));
+}
+
+/**
+ * ruleSources 를 적으려다 키 이름을 틀린 자리를 찾는다.
+ *
+ * 최상위 스키마는 strict 가 아니다. `$schema` 가 들어와야 하고 예전 gestalt.json 을
+ * 쓰는 레포를 깨뜨릴 수도 없다. 그래서 모르는 키는 조용히 버려지는데, 하필 그 키가
+ * `ruleSource` 였으면 결과가 `ruleSources: []` 이고 이건 선언을 안 한 레포와 똑같다.
+ * onMissing: "stop" 으로 걸어둔 검사가 있었는지조차 아무도 모른 채 지나간다.
+ *
+ * **이 결과는 ruleSourceWarnings 로 간다 — 멈추지 않는다.** 이름이 비슷하다는 건
+ * 정황이지 선언이 깨졌다는 증거가 아니다. 그래도 매 응답에 실려 사용자에게 보이므로
+ * 값이 선언 꼴일 때만 올린다.
+ *
+ * **gestalt.json 만 본다.** env 는 이 필드를 표현할 방법이 없고 overrides 는 호출한
+ * 코드가 만든 값이라 작성자의 오타로 볼 자리가 아니다.
+ */
+function findMisspelledRuleSourcesKey(jsonConfig: Record<string, unknown>): string[] {
+  const known = new Set(Object.keys(configSchema.shape));
+  return Object.keys(jsonConfig)
+    .filter((key) => !known.has(key))
+    .filter((key) => looksLikeRuleSources(key.toLowerCase().replace(/[_-]/g, '')))
+    .filter((key) => looksLikeDeclaration(jsonConfig[key]))
+    .map(
+      (key) =>
+        `${JSON.stringify(key.slice(0, 40))}: 모르는 키입니다. ruleSources 를 적으려던 것인지 확인해주세요`,
+    );
+}
+
+/**
+ * 오류 자리를 사람이 따라갈 수 있게 적는다.
+ *
+ * 인덱스만 적으면 못 따라간다 — 응답에 실리는 `ruleSources` 는 깨진 원소가 빠진 뒤
+ * 다시 매겨진 배열이라, `ruleSources.1` 을 세어 보면 멀쩡한 다른 소스를 짚는다.
+ * 그래서 원본 원소의 `id` 를 붙인다.
+ */
+function describeIssuePath(path: (string | number)[], merged: Record<string, unknown>): string {
+  const joined = path.join('.');
+  if (path[0] !== 'ruleSources' || typeof path[1] !== 'number') return joined;
+
+  const sources = merged['ruleSources'];
+  if (!Array.isArray(sources)) return joined;
+  const source = sources[path[1]];
+  if (!isRecord(source)) return joined;
+
+  // id 가 빠진 것 자체가 흔한 오타라 그때는 ref 로, 그것도 없으면 kind 로 짚는다
+  for (const field of ['id', 'ref', 'kind'] as const) {
+    const value = source[field];
+    if (typeof value === 'string') {
+      return `${joined} (${field}: ${JSON.stringify(value.slice(0, 64))})`;
+    }
+  }
+  return joined;
+}
+
+/**
+ * 선언하려던 값인지 본다. 스칼라 하나가 들어 있으면 오타로 안 본다.
+ *
+ * 빈 배열은 선언 꼴로 안 본다. `every` 가 true 를 주는 자리라 그냥 두면 `{"resources": []}`
+ * 한 줄이 판정을 타고 들어온다 — 어차피 빈 선언은 안 한 것과 결과가 같다.
+ */
+function looksLikeDeclaration(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  return value.every((item) => isRecord(item));
+}
+
+/**
+ * 접두 일치만 보면 `ruleSource` 는 잡아도 `ruleSorces` 같은 자리 바뀜은 놓친다.
+ * 두 글자까지 어긋난 것을 같은 의도로 본다.
+ */
+function looksLikeRuleSources(normalized: string): boolean {
+  return normalized === 'rulesource' || editDistanceWithin(normalized, 'rulesources', 2);
+}
+
+function editDistanceWithin(a: string, b: string, limit: number): boolean {
+  if (Math.abs(a.length - b.length) > limit) return false;
+
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(current[j - 1]! + 1, previous[j]! + 1, previous[j - 1]! + cost);
+    }
+    // 이 행 전체가 한계를 넘었으면 남은 행도 줄어들지 않는다
+    if (Math.min(...current) > limit) return false;
+    previous = current;
+  }
+  return previous[b.length]! <= limit;
+}
+
+/**
+ * 빠진 ruleSources 선언의 이유와 짚어줄 거리를 config에 실어 보낸다.
+ *
+ * 잘못된 항목은 prune이 걷어내고 나머지는 살아남는다. 그런데 무엇이 빠졌는지를 안 알리면
+ * 스킬 쪽에서 처음부터 선언 안 한 것과 구분할 수 없다. onMissing: "stop"으로 걸어둔
+ * 검사가 그 상태로 안 돈 채 지나간다.
+ *
+ * 둘을 갈라 싣는 건 `errors`만 멈춤 사유이기 때문이다.
+ */
+function withRuleSourceNotes(
+  config: GestaltConfig,
+  errors: string[],
+  warnings: string[],
+): GestaltConfig {
+  if (errors.length === 0 && warnings.length === 0) return config;
+  return { ...config, ruleSourceErrors: errors, ruleSourceWarnings: warnings };
 }
 
 function applyPostProcessing(config: GestaltConfig): GestaltConfig {
