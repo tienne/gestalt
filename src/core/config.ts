@@ -67,25 +67,36 @@ const SECRET_FILE_REFS = [
   /(^|\/)(\.env(\.[^/]*)?|[^/]*\.env)$/i,
   /(^|\/)\.(git|ssh|aws|kube|docker|gnupg)\//i,
   /(^|\/)(\.npmrc|\.netrc|\.pgpass|\.envrc|\.htpasswd)$/i,
-  /(^|\/)id_(rsa|dsa|ecdsa|ed25519)/i,
-  /\.(pem|key|p8|p12|pfx|crt|jks|keystore|asc)$/i,
-  /(^|\/)credentials$/i,
+  // 뒤에 .pub 까지만 붙는다. id_rsa-rotation.md 같은 설명 문서는 안 걸린다
+  /(^|\/)id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$/i,
+  /\.(pem|key|p8|p12|pfx|der|cer|ppk|jks|keystore|kdbx)$/i,
+  /(^|\/)(credentials|secrets?)(\.(json|ya?ml|toml))?$/i,
 ];
+
+/**
+ * 위 목록에 걸려도 통과시키는 자리.
+ *
+ * `.env.example` 은 값이 아니라 **키 목록**이라 레포에 커밋된다. 무엇을 채워야 하는지
+ * 적힌 파일이라 규칙 소스로 선언할 이유가 오히려 크다.
+ */
+const SECRET_FILE_ALLOW = /(^|\/)[^/]*\.env\.(example|sample|template|dist)$/i;
 
 /**
  * 위 목록에 걸기 전에 경로를 맞춘다.
  *
- * 구분자를 통일하는 건 위의 `..` 검사가 두 꼴을 다 받기 때문이다. 공백을 떼는 건
- * 이 값을 실제로 여는 주체가 fs 가 아니라 에이전트라서다 — `" .env"` 를 그대로 두면
- * 목록에는 안 걸리는데 에이전트는 다듬어서 `.env` 를 연다. 조각 끝의 점을 떼는 건
- * 윈도우가 그걸 떼고 파일을 열기 때문이다.
+ * 구분자를 통일하는 건 위의 `..` 검사가 두 꼴을 다 받기 때문이다. 조각 끝의 점을
+ * 떼는 건 윈도우가 그걸 떼고 파일을 열기 때문이다 — `".env."` 를 그대로 두면 목록에는
+ * 안 걸리는데 실제로는 `.env` 가 열린다. 공백은 INVISIBLE_IN_REF 가 앞에서 막는다.
  */
+function isSecretRef(ref: string): boolean {
+  return !SECRET_FILE_ALLOW.test(ref) && SECRET_FILE_REFS.some((pattern) => pattern.test(ref));
+}
+
 function normalizeRefForMatch(ref: string): string {
   return ref
     .replace(/\\/g, '/')
-    .trim()
     .split('/')
-    .map((segment) => segment.trim().replace(/\.+$/, ''))
+    .map((segment) => segment.replace(/\.+$/, ''))
     .join('/');
 }
 
@@ -98,6 +109,17 @@ function normalizeRefForMatch(ref: string): string {
  * 세로줄은 표의 칸을 연다. 기울임 같은 나머지 서식은 그렇게 못 하므로 안 막는다.
  */
 const UNSAFE_IN_REPORT = /[\p{C}`|]/u;
+
+/**
+ * ref 에서 통째로 거부할 문자.
+ *
+ * 공백을 막는 건 검사하는 값과 여는 값을 같게 만들기 위해서다. 보이지 않는 문자는
+ * `\p{C}` 가 대부분 잡지만 U+200B 처럼 판이 갈리는 자리가 있어 범위로 직접 적는다.
+ * 규칙 문서의 경로에 이 문자들이 들어갈 일은 없다.
+ */
+const INVISIBLE_IN_REF =
+  // eslint-disable-next-line no-control-regex
+  /[\s\u0000-\u001F\u007F\u00A0\u180E\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/;
 
 /** MCP 도구 이름 꼴 */
 const MCP_REF = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
@@ -136,6 +158,20 @@ const ruleSourceSchema = z
   })
   .strict()
   .superRefine((source, ctx) => {
+    // 아래 세 검사가 전부 문자열을 그대로 본다. 그런데 이 값을 실제로 여는 주체는
+    // fs 가 아니라 에이전트라 눈에 안 보이는 문자를 다듬어서 연다. `" /etc/passwd"` 는
+    // 앞 공백 때문에 isAbsolute 가 false 다. `".. /x"` 는 조각이 `".. "` 라 .. 검사에
+    // 안 걸린다. 다듬는 쪽과 검사하는 쪽이 다른 값을 보면 경계가 거기서 열린다.
+    // 그래서 그런 문자가 들어 있으면 검사하기 전에 거부한다
+    if (INVISIBLE_IN_REF.test(source.ref)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ref'],
+        message: 'ref 에는 공백이나 눈에 보이지 않는 문자를 넣을 수 없습니다',
+      });
+      return;
+    }
+
     // ref 는 코드가 읽기 전에 에이전트가 읽는다. rule-sources.md 가 선언된 소스를
     // 읽고 결과 보고에 남기라고 지시하므로, 적대적인 gestalt.json 이 레포 밖 비밀
     // 파일을 "조직 컨벤션"으로 선언하면 그게 보고에 실리는 경로가 열린다
@@ -152,7 +188,7 @@ const ruleSourceSchema = z
           path: ['ref'],
           message: 'file 소스의 ref 는 레포 밖을 가리킬 수 없습니다',
         });
-      } else if (SECRET_FILE_REFS.some((p) => p.test(normalizeRefForMatch(source.ref)))) {
+      } else if (isSecretRef(normalizeRefForMatch(source.ref))) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['ref'],
@@ -228,6 +264,14 @@ const configSchema = z.object({
    * 비어 있지 않으면 선언은 있었는데 못 읽은 상태이므로 스킬은 진행하지 않는다.
    */
   ruleSourceErrors: z.array(z.string()).default([]),
+  /**
+   * 선언이 깨지진 않았는데 짚어줄 게 있을 때. 마찬가지로 loadConfig가 채운다.
+   *
+   * **멈춤 사유와 한 필드에 담지 않는다.** 담으면 탐지기를 한 번 넓힐 때마다 그게
+   * 세션을 세우는 레버가 된다 — 실제로 키 이름 오타 탐지를 넓혔더니 `resources` 같은
+   * 남의 키 하나로 스킬 다섯 자리가 전부 멈췄다. 확실하지 않은 판정은 여기로 온다.
+   */
+  ruleSourceWarnings: z.array(z.string()).default([]),
   notifications: z.boolean().default(false),
   // 상수가 아니라 함수다. 모듈을 읽을 때 굳히면 테스트 setupFiles가 GESTALT_HOME을
   // 세우기 전에 값이 정해져서 진짜 홈을 가리킨다
@@ -528,7 +572,9 @@ export function loadConfig(
   // 멈춘다"로 읽으므로, 작성자가 적은 값을 살려두면 gestalt.json 한 줄로 파이프라인을
   // 세우거나 게슈탈트 경고를 사칭할 수 있다
   delete merged.ruleSourceErrors;
+  delete merged.ruleSourceWarnings;
 
+  // 이름이 비슷하다는 건 정황이지 선언이 깨졌다는 증거가 아니다. 경고로 간다
   const misspelled = findMisspelledRuleSourcesKey(jsonConfig);
   const declared = Array.isArray(merged.ruleSources) && merged.ruleSources.length > 0;
 
@@ -545,22 +591,22 @@ export function loadConfig(
       merged,
       result.error.issues.map((issue) => issue.path),
     );
-    const broken = [...misspelled, ...messages.filter((m) => m.startsWith('ruleSources'))];
+    const broken = messages.filter((m) => m.startsWith('ruleSources'));
     const recovered = configSchema.safeParse(pruned);
     if (recovered.success) {
-      return applyPostProcessing(withRuleSourceErrors(recovered.data, broken));
+      return applyPostProcessing(withRuleSourceNotes(recovered.data, broken, misspelled));
     }
 
     console.error('[gestalt] Warning: Failed to recover configuration, using defaults');
-    // 여기서는 ruleSources 가 멀쩡했어도 함께 날아간다. 그 사실을 안 적으면
-    // "선언한 적 없는 레포"와 구분이 안 된다
-    if (declared && broken.length === 0) {
-      broken.push('ruleSources: 설정을 복구하지 못해 선언 전체가 빠졌습니다');
+    // 여기서는 ruleSources 가 멀쩡했어도 함께 날아간다. 앞에 세워 두는 건 고칠 자리가
+    // 선언 안이 아니라 다른 필드라서다 — 안 적으면 "선언한 적 없는 레포"와 구분이 안 된다
+    if (declared) {
+      broken.unshift('ruleSources: 설정을 복구하지 못해 선언 전체가 빠졌습니다');
     }
-    return applyPostProcessing(withRuleSourceErrors(configSchema.parse({}), broken));
+    return applyPostProcessing(withRuleSourceNotes(configSchema.parse({}), broken, misspelled));
   }
 
-  return applyPostProcessing(withRuleSourceErrors(result.data, misspelled));
+  return applyPostProcessing(withRuleSourceNotes(result.data, [], misspelled));
 }
 
 /**
@@ -604,15 +650,27 @@ function describeIssuePath(path: (string | number)[], merged: Record<string, unk
   const sources = merged['ruleSources'];
   if (!Array.isArray(sources)) return joined;
   const source = sources[path[1]];
-  if (!isRecord(source) || typeof source['id'] !== 'string') return joined;
+  if (!isRecord(source)) return joined;
 
-  return `${joined} (id: ${JSON.stringify(source['id'].slice(0, 64))})`;
+  // id 가 빠진 것 자체가 흔한 오타라 그때는 ref 로, 그것도 없으면 kind 로 짚는다
+  for (const field of ['id', 'ref', 'kind'] as const) {
+    const value = source[field];
+    if (typeof value === 'string') {
+      return `${joined} (${field}: ${JSON.stringify(value.slice(0, 64))})`;
+    }
+  }
+  return joined;
 }
 
-/** 선언하려던 값인지 본다. 스칼라 하나가 들어 있으면 오타로 안 본다 */
+/**
+ * 선언하려던 값인지 본다. 스칼라 하나가 들어 있으면 오타로 안 본다.
+ *
+ * 빈 배열은 선언 꼴로 안 본다. `every` 가 true 를 주는 자리라 그냥 두면 `{"resources": []}`
+ * 한 줄이 판정을 타고 들어온다 — 어차피 빈 선언은 안 한 것과 결과가 같다.
+ */
 function looksLikeDeclaration(value: unknown): boolean {
-  if (!Array.isArray(value)) return false;
-  return value.every((item) => isRecord(item) && ('kind' in item || 'ref' in item));
+  if (!Array.isArray(value) || value.length === 0) return false;
+  return value.every((item) => isRecord(item));
 }
 
 /**
@@ -620,7 +678,7 @@ function looksLikeDeclaration(value: unknown): boolean {
  * 두 글자까지 어긋난 것을 같은 의도로 본다.
  */
 function looksLikeRuleSources(normalized: string): boolean {
-  return normalized.startsWith('rulesource') || editDistanceWithin(normalized, 'rulesources', 2);
+  return normalized === 'rulesource' || editDistanceWithin(normalized, 'rulesources', 2);
 }
 
 function editDistanceWithin(a: string, b: string, limit: number): boolean {
@@ -641,14 +699,21 @@ function editDistanceWithin(a: string, b: string, limit: number): boolean {
 }
 
 /**
- * 빠진 ruleSources 선언의 이유를 config에 실어 보낸다.
+ * 빠진 ruleSources 선언의 이유와 짚어줄 거리를 config에 실어 보낸다.
  *
  * 잘못된 항목은 prune이 걷어내고 나머지는 살아남는다. 그런데 무엇이 빠졌는지를 안 알리면
  * 스킬 쪽에서 처음부터 선언 안 한 것과 구분할 수 없다. onMissing: "stop"으로 걸어둔
  * 검사가 그 상태로 안 돈 채 지나간다.
+ *
+ * 둘을 갈라 싣는 건 `errors`만 멈춤 사유이기 때문이다.
  */
-function withRuleSourceErrors(config: GestaltConfig, errors: string[]): GestaltConfig {
-  return errors.length > 0 ? { ...config, ruleSourceErrors: errors } : config;
+function withRuleSourceNotes(
+  config: GestaltConfig,
+  errors: string[],
+  warnings: string[],
+): GestaltConfig {
+  if (errors.length === 0 && warnings.length === 0) return config;
+  return { ...config, ruleSourceErrors: errors, ruleSourceWarnings: warnings };
 }
 
 function applyPostProcessing(config: GestaltConfig): GestaltConfig {

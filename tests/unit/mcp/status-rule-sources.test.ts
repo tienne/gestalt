@@ -33,6 +33,14 @@ describe('ges_status — ruleSources', () => {
     const out = buildStatusConfigInfo(undefined);
     expect(out.ruleSources).toEqual([]);
     expect(out.ruleSourceErrors).toEqual([]);
+    expect(out.ruleSourceWarnings).toEqual([]);
+  });
+
+  // 둘을 한 필드에 담으면 탐지기를 넓힐 때마다 그게 세션을 세우는 레버가 된다
+  it('멈출 사유와 짚어줄 거리가 서로 다른 필드로 나간다', () => {
+    const out = info({ ruleSources: [{ id: 'x', kind: 'http', ref: 'y' }] });
+    expect(out.ruleSourceErrors).not.toEqual([]);
+    expect(out.ruleSourceWarnings).toEqual([]);
   });
 
   // 무엇이 빠졌는지 안 알리면 onMissing stop으로 걸어둔 검사가 안 돈 채 지나간다
@@ -80,8 +88,17 @@ describe('ges_status — ruleSources', () => {
 
   it('기존 필드를 밀어내지 않는다', () => {
     const out = info({});
-    expect(out).toHaveProperty('reasoningModel');
-    expect(out).toHaveProperty('reasoningModelFallback');
-    expect(out).toHaveProperty('tierModels');
+    for (const key of [
+      'reasoningModel',
+      'reasoningModelFallback',
+      'tierModels',
+      'ruleSources',
+      'ruleSourceErrors',
+      'ruleSourceWarnings',
+      'ruleSourceErrorCount',
+      'ruleSourceWarningCount',
+    ]) {
+      expect(out, key).toHaveProperty(key);
+    }
   });
 });

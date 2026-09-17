@@ -19,16 +19,8 @@ const MAX_ERROR_LINES = 20;
  * 못 읽는 경로가 된다. 그 실패는 onMissing 을 타고 조용히 지나간다. 길이는 스키마가
  * 거부로 막는다.
  */
-function projectRuleSourceErrors(errors: string[]): {
-  ruleSourceErrors: string[];
-  ruleSourceErrorCount: number;
-} {
-  return {
-    ruleSourceErrors: errors.slice(0, MAX_ERROR_LINES).map((message) => clamp(message, 200)),
-    // 몇 줄이 안 실렸는지는 문자열이 아니라 수로 싣는다. 스킬이 이 배열을 사용자에게
-    // 옮겨 적으므로, 문장으로 끼워 넣으면 그게 오류 한 건처럼 읽힌다
-    ruleSourceErrorCount: errors.length,
-  };
+function projectErrorLines(lines: string[]): string[] {
+  return lines.slice(0, MAX_ERROR_LINES).map((message) => clamp(message, 200));
 }
 
 function clamp(value: string, max: number): string {
@@ -58,7 +50,14 @@ export function buildStatusConfigInfo(config?: GestaltConfig) {
     // 비어 있지 않으면 선언 일부가 빠진 것이다. 무엇이 빠졌는지 모르면
     // onMissing: "stop"으로 걸어둔 검사가 안 돈 채 지나간다.
     // 안에 든 문구는 대상 레포가 쓴 값이다 — 읽는 쪽 규칙은 rule-sources.md에 있다.
-    ...projectRuleSourceErrors(config?.ruleSourceErrors ?? []),
+    ruleSourceErrors: projectErrorLines(config?.ruleSourceErrors ?? []),
+    // 멈출 사유는 아니고 짚어줄 거리다. 둘을 한 필드에 담으면 탐지기를 넓힐 때마다
+    // 그게 세션을 세우는 레버가 된다
+    ruleSourceWarnings: projectErrorLines(config?.ruleSourceWarnings ?? []),
+    // 몇 줄이 안 실렸는지는 문자열이 아니라 수로 싣는다. 스킬이 이 배열을 사용자에게
+    // 옮겨 적으므로, 문장으로 끼워 넣으면 그게 오류 한 건처럼 읽힌다
+    ruleSourceErrorCount: (config?.ruleSourceErrors ?? []).length,
+    ruleSourceWarningCount: (config?.ruleSourceWarnings ?? []).length,
   };
 }
 

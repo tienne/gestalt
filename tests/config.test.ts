@@ -382,7 +382,11 @@ describe('loadConfig — ruleSources', () => {
       'certs/server.key',
       'a/.ssh/id_rsa',
       '.ssh/id_ed25519',
+      '.ssh/id_rsa.pub',
       'keys/app.p12',
+      'config/credentials.json',
+      'k8s/secrets.yaml',
+      'a.ppk',
       '.env ',
       ' .env',
       '.env\n',
@@ -397,8 +401,26 @@ describe('loadConfig — ruleSources', () => {
     }
   });
 
+  // 검사하는 값과 여는 값이 다르면 경계가 거기서 열린다. " /etc/passwd" 는 앞 공백
+  // 때문에 절대 경로로 안 보이는데 읽는 쪽은 다듬어서 절대 경로를 연다
+  it('ref 에 공백이나 보이지 않는 문자가 있으면 검사 전에 거부한다', () => {
+    const refs = [' /etc/passwd', '.. /secrets/keys', '.env\u200b', '.env\u0000', 'a\nb'];
+    for (const ref of refs) {
+      const config = loadConfig({ ruleSources: [{ id: 'a', kind: 'file', ref }] }, opts);
+      expect(config.ruleSources, JSON.stringify(ref)).toEqual([]);
+    }
+  });
+
   it('시크릿처럼 생겼을 뿐인 경로는 그대로 받는다', () => {
-    for (const ref of ['docs/env.md', 'docs/secrets.md', 'CONTRIBUTING.md', 'docs/rules.md']) {
+    for (const ref of [
+      'docs/env.md',
+      'docs/rules.md',
+      'CONTRIBUTING.md',
+      'docs/id_rsa-rotation.md',
+      // 값이 아니라 채울 키 목록이라 레포에 커밋된다. 선언할 이유가 오히려 크다
+      '.env.example',
+      '.env.sample',
+    ]) {
       const config = loadConfig({ ruleSources: [{ id: 'a', kind: 'file', ref }] }, opts);
       expect(config.ruleSources, ref).toHaveLength(1);
     }
@@ -430,6 +452,12 @@ describe('loadConfig — ruleSources', () => {
     // 응답의 배열은 재색인되므로 인덱스만으로는 다른 소스를 짚게 된다
     expect(config.ruleSources.map((s) => s.id)).toEqual(['keep']);
     expect(config.ruleSourceErrors.join()).toContain('id: "typo"');
+  });
+
+  it('id 가 빠진 원소는 ref 로 짚는다 — 인덱스만으로는 못 따라간다', () => {
+    const config = loadConfig({ ruleSources: [{ kind: 'file', ref: 'docs/a.md' }] }, opts);
+    expect(config.ruleSources).toEqual([]);
+    expect(config.ruleSourceErrors.join()).toContain('ref: "docs/a.md"');
   });
 
   it('mcp 와 skill 의 ref 도 이름 꼴을 지켜야 한다', () => {
@@ -471,15 +499,26 @@ describe('loadConfig — ruleSources', () => {
       process.chdir(dir);
       const config = loadConfig({}, { skipDotEnv: true });
       expect(config.ruleSources).toEqual([]);
-      expect(config.ruleSourceErrors.join()).toContain('ruleSource');
+      // 멈출 사유가 아니라 짚어줄 거리다. 멈춤 쪽에 담으면 남의 키 한 줄이 세션을 세운다
+      expect(config.ruleSourceErrors).toEqual([]);
+      expect(config.ruleSourceWarnings.join()).toContain('ruleSource');
 
       // 자리가 바뀐 오타도 같은 의도로 본다
-      writeFileSync(join(dir, 'gestalt.json'), JSON.stringify({ ruleSorces: [] }));
-      expect(loadConfig({}, { skipDotEnv: true }).ruleSourceErrors.join()).toContain('ruleSorces');
+      writeFileSync(
+        join(dir, 'gestalt.json'),
+        JSON.stringify({ ruleSorces: [{ id: 'a', kind: 'file', ref: 'x.md' }] }),
+      );
+      expect(loadConfig({}, { skipDotEnv: true }).ruleSourceWarnings.join()).toContain(
+        'ruleSorces',
+      );
 
-      // 이름만 비슷한 키는 안 올린다. 올리면 JSON 한 줄이 다섯 스킬을 세운다
-      writeFileSync(join(dir, 'gestalt.json'), JSON.stringify({ ruleSourceX: 1 }));
-      expect(loadConfig({}, { skipDotEnv: true }).ruleSourceErrors).toEqual([]);
+      // 이름만 비슷하거나 값이 선언 꼴이 아니면 안 올린다
+      for (const bad of [{ ruleSourceX: 1 }, { resources: [] }, { ruleSorces: [] }]) {
+        writeFileSync(join(dir, 'gestalt.json'), JSON.stringify(bad));
+        const loaded = loadConfig({}, { skipDotEnv: true });
+        expect(loaded.ruleSourceErrors, JSON.stringify(bad)).toEqual([]);
+        expect(loaded.ruleSourceWarnings, JSON.stringify(bad)).toEqual([]);
+      }
 
       // 멀쩡한 남의 키까지 끌어오지는 않는다
       writeFileSync(join(dir, 'gestalt.json'), JSON.stringify({ notifications: true }));
