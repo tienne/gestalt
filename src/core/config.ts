@@ -53,6 +53,9 @@ const executeConfigSchema = z.object({
 const agentModelAliasSchema = z.enum(['fable', 'opus', 'sonnet', 'haiku']);
 const reasoningModelSchema = agentModelAliasSchema;
 
+/** .env, .env.local, prod.env. env.md 처럼 env 를 설명하는 문서는 안 걸린다 */
+const ENV_FILE_REF = /(^|\/)(\.env(\.[^/]*)?|[^/]*\.env)$/i;
+
 /**
  * 레포 안이어도 기준 문서일 리 없는 자리.
  *
@@ -63,8 +66,7 @@ const reasoningModelSchema = agentModelAliasSchema;
  * 한 줄짜리 정규식으로 두면 항목을 더할 때마다 읽기 어려워져서 배열로 나눠 둔다.
  */
 const SECRET_FILE_REFS = [
-  // .env, .env.local, prod.env. env.md 처럼 env 를 설명하는 문서는 안 걸린다
-  /(^|\/)(\.env(\.[^/]*)?|[^/]*\.env)$/i,
+  ENV_FILE_REF, // 아래에 따로 선언돼 있다 — 예외를 이 패턴 하나에만 걸어야 해서다
   /(^|\/)\.(git|ssh|aws|kube|docker|gnupg)\//i,
   /(^|\/)(\.npmrc|\.netrc|\.pgpass|\.envrc|\.htpasswd)$/i,
   // 뒤에 .pub 까지만 붙는다. id_rsa-rotation.md 같은 설명 문서는 안 걸린다
@@ -74,24 +76,31 @@ const SECRET_FILE_REFS = [
 ];
 
 /**
- * 위 목록에 걸려도 통과시키는 자리.
+ * `.env` 패턴에만 걸리는 예외.
  *
  * `.env.example` 은 값이 아니라 **키 목록**이라 레포에 커밋된다. 무엇을 채워야 하는지
  * 적힌 파일이라 규칙 소스로 선언할 이유가 오히려 크다.
  */
 const SECRET_FILE_ALLOW = /(^|\/)[^/]*\.env\.(example|sample|template|dist)$/i;
 
+/** 거부 목록과 그 예외를 함께 판정한다 */
+function isSecretRef(ref: string): boolean {
+  const matched = SECRET_FILE_REFS.filter((pattern) => pattern.test(ref));
+  if (matched.length === 0) return false;
+
+  // 예외는 .env 패턴 하나에만 건다. 목록 전체를 건너뛰게 두면 `.ssh/id_rsa.env.example`
+  // 이 예외를 타고 빠져나간다 — 이름 끝을 맞추는 것만으로 검사를 끌 수 있으면 안 된다
+  const onlyEnv = matched.length === 1 && matched[0] === ENV_FILE_REF;
+  return !(onlyEnv && SECRET_FILE_ALLOW.test(ref));
+}
+
 /**
  * 위 목록에 걸기 전에 경로를 맞춘다.
  *
- * 구분자를 통일하는 건 위의 `..` 검사가 두 꼴을 다 받기 때문이다. 조각 끝의 점을
+ * 구분자를 통일하는 건 앞의 `..` 검사가 두 꼴을 다 받기 때문이다. 조각 끝의 점을
  * 떼는 건 윈도우가 그걸 떼고 파일을 열기 때문이다 — `".env."` 를 그대로 두면 목록에는
- * 안 걸리는데 실제로는 `.env` 가 열린다. 공백은 INVISIBLE_IN_REF 가 앞에서 막는다.
+ * 안 걸리는데 실제로는 `.env` 가 열린다. 공백과 정규화로 바뀌는 문자는 앞에서 막는다.
  */
-function isSecretRef(ref: string): boolean {
-  return !SECRET_FILE_ALLOW.test(ref) && SECRET_FILE_REFS.some((pattern) => pattern.test(ref));
-}
-
 function normalizeRefForMatch(ref: string): string {
   return ref
     .replace(/\\/g, '/')
@@ -108,7 +117,7 @@ function normalizeRefForMatch(ref: string): string {
  * 값이 게슈탈트가 쓴 줄처럼 보인다. 제어문자는 줄을, 백틱은 코드 블록을,
  * 세로줄은 표의 칸을 연다. 기울임 같은 나머지 서식은 그렇게 못 하므로 안 막는다.
  */
-const UNSAFE_IN_REPORT = /[\p{C}`|]/u;
+const UNSAFE_IN_REPORT = /[\p{C}\p{Zl}\p{Zp}`|]/u;
 
 /**
  * ref 에서 통째로 거부할 문자.
@@ -117,6 +126,21 @@ const UNSAFE_IN_REPORT = /[\p{C}`|]/u;
  * `\p{C}` 가 대부분 잡지만 U+200B 처럼 판이 갈리는 자리가 있어 범위로 직접 적는다.
  * 규칙 문서의 경로에 이 문자들이 들어갈 일은 없다.
  */
+/**
+ * 정규화하면 다른 문자가 되는지 본다.
+ *
+ * 안 보이는 문자를 막아도 **다른 문자로 바뀌는** 문자가 남는다. 전각 슬래시(`／`)는
+ * 눈에 보이고 경로 구분자도 아니라 `..` 검사를 그냥 지나가는데, 정규화하면 `../` 다.
+ * 전각 `ｅ` 는 `.ｅnv` 를 `.env` 로 만든다. 검사하는 값과 여는 값이 갈라지는 자리가
+ * 공백에서 여기로 옮겨간 것뿐이다.
+ *
+ * NFC 와 NFKC 를 견주면 이런 문자만 걸린다. 한글은 두 꼴이 같아서 안 걸린다 —
+ * macOS 가 NFD 로 주는 경로도 마찬가지다.
+ */
+function hasNormalizationDrift(value: string): boolean {
+  return value.normalize('NFC') !== value.normalize('NFKC');
+}
+
 const INVISIBLE_IN_REF =
   // eslint-disable-next-line no-control-regex
   /[\s\u0000-\u001F\u007F\u00A0\u180E\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/;
@@ -163,32 +187,36 @@ const ruleSourceSchema = z
     // 앞 공백 때문에 isAbsolute 가 false 다. `".. /x"` 는 조각이 `".. "` 라 .. 검사에
     // 안 걸린다. 다듬는 쪽과 검사하는 쪽이 다른 값을 보면 경계가 거기서 열린다.
     // 그래서 그런 문자가 들어 있으면 검사하기 전에 거부한다
-    if (INVISIBLE_IN_REF.test(source.ref)) {
+    if (INVISIBLE_IN_REF.test(source.ref) || hasNormalizationDrift(source.ref)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['ref'],
-        message: 'ref 에는 공백이나 눈에 보이지 않는 문자를 넣을 수 없습니다',
+        message:
+          'ref 에는 공백이나 눈에 보이지 않는 문자, 정규화하면 바뀌는 문자를 넣을 수 없습니다',
       });
       return;
     }
+
+    // 여기서부터는 정규화한 값으로 본다. 위에서 바뀌는 문자를 걸렀으므로 NFC 만 맞춘다
+    const ref = source.ref.normalize('NFC');
 
     // ref 는 코드가 읽기 전에 에이전트가 읽는다. rule-sources.md 가 선언된 소스를
     // 읽고 결과 보고에 남기라고 지시하므로, 적대적인 gestalt.json 이 레포 밖 비밀
     // 파일을 "조직 컨벤션"으로 선언하면 그게 보고에 실리는 경로가 열린다
     if (source.kind === 'file') {
-      if (isAbsolute(source.ref)) {
+      if (isAbsolute(ref)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['ref'],
           message: 'file 소스의 ref 는 레포 기준 상대 경로여야 합니다',
         });
-      } else if (source.ref.split(/[/\\]/).includes('..')) {
+      } else if (ref.split(/[/\\]/).includes('..')) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['ref'],
           message: 'file 소스의 ref 는 레포 밖을 가리킬 수 없습니다',
         });
-      } else if (isSecretRef(normalizeRefForMatch(source.ref))) {
+      } else if (isSecretRef(normalizeRefForMatch(ref))) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['ref'],
@@ -197,7 +225,11 @@ const ruleSourceSchema = z
       }
     }
 
-    if (UNSAFE_IN_REPORT.test(source.id) || source.id !== source.id.trim()) {
+    if (
+      UNSAFE_IN_REPORT.test(source.id) ||
+      hasNormalizationDrift(source.id) ||
+      source.id !== source.id.trim()
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['id'],
@@ -207,14 +239,14 @@ const ruleSourceSchema = z
 
     // 이름 꼴만 본다. 이 도구가 읽기인지 쓰기인지는 코드가 알 방법이 없어서
     // rule-sources.md 가 "쓰기 도구면 부르지 않고 사용자에게 알린다"로 받는다
-    if (source.kind === 'mcp' && !MCP_REF.test(source.ref)) {
+    if (source.kind === 'mcp' && !MCP_REF.test(ref)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['ref'],
         message: 'mcp 소스의 ref 는 도구 이름이어야 합니다',
       });
     }
-    if (source.kind === 'skill' && !SKILL_REF.test(source.ref)) {
+    if (source.kind === 'skill' && !SKILL_REF.test(ref)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['ref'],
@@ -617,9 +649,9 @@ export function loadConfig(
  * `ruleSource` 였으면 결과가 `ruleSources: []` 이고 이건 선언을 안 한 레포와 똑같다.
  * onMissing: "stop" 으로 걸어둔 검사가 있었는지조차 아무도 모른 채 지나간다.
  *
- * **이름만으로 판정하지 않는다.** 이 결과가 ruleSourceErrors 로 가고 스킬 다섯 자리가
- * 전부 거기서 멈추므로, 이름이 비슷하다는 것만으로 올리면 남의 레포 JSON 한 줄이
- * 세션을 세우는 자리가 된다. 값이 선언 꼴일 때만 올린다.
+ * **이 결과는 ruleSourceWarnings 로 간다 — 멈추지 않는다.** 이름이 비슷하다는 건
+ * 정황이지 선언이 깨졌다는 증거가 아니다. 그래도 매 응답에 실려 사용자에게 보이므로
+ * 값이 선언 꼴일 때만 올린다.
  *
  * **gestalt.json 만 본다.** env 는 이 필드를 표현할 방법이 없고 overrides 는 호출한
  * 코드가 만든 값이라 작성자의 오타로 볼 자리가 아니다.
