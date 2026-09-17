@@ -167,7 +167,11 @@ interface GestaltConfig {
 | `trust` | `convention` \| `delegate` | `convention`은 형식을 따른다. `delegate`는 그 작업을 넘긴다 |
 | `onMissing` | `skip` \| `warn` \| `stop` | 못 읽었을 때 조용히 진행할지, 보고에 남길지, 멈출지 |
 
-`ref`에는 선이 걸려 있다. `file`은 레포 기준 상대 경로여야 하고 절대 경로와 `..`, 자격 증명이 담기는 자리는 거부한다. `mcp`와 `skill`은 이름 꼴만 받는다. 배열은 32개까지다. **거부 목록과 상한의 원본은 [`rule-sources.md`](../plugin/skills/_shared/rule-sources.md)의 "`ref`에 걸린 선" 절이다** — 여기 옮겨 적으면 한쪽만 고쳐진다.
+`ref`에는 선이 걸려 있다. `file`은 레포 기준 상대 경로여야 하고 절대 경로와 `..`, 자격 증명이 담기는 자리는 거부한다. `mcp`와 `skill`은 이름 꼴만 받는다. 배열은 32개까지다.
+
+**검사하는 값과 실제로 여는 값을 갈라놓을 수 있는 문자도 거부한다.** 공백이나 안 보이는 글자, 정규화하면 바뀌는 글자, 구분자처럼 보이는 글자가 그렇다. 저장되는 `ref`는 검사한 값과 같은 꼴(NFC)이다.
+
+**거부 목록과 상한의 원본은 [`rule-sources.md`](../plugin/skills/_shared/rule-sources.md)의 "`ref`에 걸린 선" 절이다** — 여기 옮겨 적으면 한쪽만 고쳐진다.
 
 **상한을 넘으면 잘리는 게 아니라 거부된다.** 자른 `ref`는 스킬이 가진 유일한 `ref`라서, 읽기에 실패한 뒤 `onMissing`을 타고 조용히 지나간다. 거부하면 아래 `ruleSourceErrors`에 드러난다.
 

@@ -102,7 +102,7 @@ Success condition: `score ≥ 0.85` AND `goalAlignment ≥ 0.80`
 ges_status()  →  {
   ruleSources: [ { id, kind, ref, scope, trust, onMissing }, ... ],
   ruleSourceErrors: [],   // 비어 있지 않으면 선언이 깨진 것이다 — 멈춘다
-  ruleSourceWarnings: [], // 짚어줄 거리. 멈출 사유는 아니다
+  ruleSourceWarnings: [], // 짚어줄 거리. 멈출 사유는 아니지만 알리고 진행한다
   ...
 }
 ```

@@ -69,7 +69,7 @@ topic에 아래 키워드가 포함되면 `/review` 스킬이 더 적합하다:
 ges_status()  →  {
   ruleSources: [ { id, kind, ref, scope, trust, onMissing }, ... ],
   ruleSourceErrors: [],   // 비어 있지 않으면 선언이 깨진 것이다 — 멈춘다
-  ruleSourceWarnings: [], // 짚어줄 거리. 멈출 사유는 아니다
+  ruleSourceWarnings: [], // 짚어줄 거리. 멈출 사유는 아니지만 알리고 진행한다
   ...
 }
 ```
