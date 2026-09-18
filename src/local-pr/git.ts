@@ -173,7 +173,7 @@ export function pinRefs(repoRoot: string, prId: string, baseSha: string, headSha
 /**
  * 붙잡아 둔 ref를 놓는다.
  *
- * **head는 안 놓는다.** PR을 닫아도 그 커밋은 되짚을 수 있어야 한다 — `checkout`이
+ * **head는 안 놓는다.** PR을 종료해도 그 커밋은 되짚을 수 있어야 한다 — `checkout`이
  * 닫힌 PR도 떼어낸다고 약속한다. 그게 "그때 그 코드가 맞았나"를 나중에 보는 자리다.
  * head까지 놓으면 브랜치도 지워진 PR은 gc가 한 번 돌고 나서 빈 껍데기가 된다.
  *

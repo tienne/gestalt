@@ -240,7 +240,7 @@ export class PullRequestRepository {
         };
         pr.reviews.push(review);
 
-        // comment 판정은 라운드를 닫지 않는다. 의견만 남기는 자리다
+        // comment 판정은 라운드를 종료하지 않는다. 의견만 남기는 자리다
         if (p.verdict === 'request_changes') {
           pr.status = 'changes_requested';
           round.verdict = p.verdict;

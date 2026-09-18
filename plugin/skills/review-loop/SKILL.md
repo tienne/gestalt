@@ -178,7 +178,7 @@ state=$(gestalt review-loop state --pr <prNumber> --json) \
 
 | 조건 | 뜻 |
 | --- | --- |
-| `isResolved` | 스레드가 닫혔다 |
+| `isResolved` | 스레드가 해결됐다 |
 | `isOutdated` | 그 줄의 코드가 바뀌었다 |
 | 마지막 코멘트가 내 것이 아니다 | 작성자가 답을 달았다 |
 
@@ -372,7 +372,7 @@ done
 
 ```
 설치된 `review` 스킬이 `postVerdict`를 안 받네요. 그대로 돌리면 라운드마다 판정이 두 번 나가요.
-이슈가 남았는데 승인으로 닫히는 경우도 생기고요.
+이슈가 남았는데 승인으로 끝나는 경우도 생기고요.
 
 `/plugin install gestalt@gestalt`로 플러그인을 올린 뒤 다시 불러주세요.
 ```
@@ -598,7 +598,7 @@ echo "<이번 판정>" >> "$stateDir/verdicts"   # request_changes | comment | a
 
 - src/auth.ts:42 — 코드가 바뀌었습니다 (outdated)
 - src/api.ts:11 — 작성자 답글: {요지 한 줄}
-- src/db.ts:7 — 작성자가 스레드를 닫았습니다
+- src/db.ts:7 — 작성자가 스레드를 해결했습니다
 
 라운드 {N+1} 들어갑니다.
 ```
@@ -656,7 +656,7 @@ echo "$state" | jq -r '"\(.signal) pending=\(.pending)/\(.myThreads) changed=\(.
 {스레드별로 한 줄씩 — path:line과 작성자 답변 요지}
 
 읽어보시고 정하시는 게 좋을 것 같아요.
-- 답변을 받아들인다 → 스레드를 닫고 approve 낼까요?
+- 답변을 받아들인다 → 스레드를 해결 처리하고 approve 낼까요?
 - 더 얘기한다 → 어떤 답글을 달지 알려주시면 남길게요
 - 그대로 재리뷰한다 → 같은 이슈가 다시 나올 수 있어요
 ```
@@ -726,7 +726,7 @@ echo "$round"
 
 `loopState`는 아래 종료 분기에서 정해진다. 나머지 다섯을 여기서 읽는다.
 
-**`unresolvedAtEnd`는 지금 다시 센다.** 마지막 라운드 뒤에 작성자가 스레드를 닫았을 수 있다. 조회 명령이 매번 새로 받아오므로 묵은 수가 실릴 자리가 없다.
+**`unresolvedAtEnd`는 지금 다시 센다.** 마지막 라운드 뒤에 작성자가 스레드를 해결했을 수 있다. 조회 명령이 매번 새로 받아오므로 묵은 수가 실릴 자리가 없다.
 
 ```bash
 root=<Phase 0에서 출력된 뿌리 경로>

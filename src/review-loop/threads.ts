@@ -24,7 +24,7 @@ export interface ReviewThread {
  * 셸 스크립트로 적던 때는 로그인이 빈 문자열이면 어떤 스레드와도 안 맞아 0과 종료
  * 코드 0이 함께 나왔다. 그 값이 승인 게이트를 그대로 통과했다.
  *
- * 스레드가 닫혔거나, 코드가 바뀌어 outdated 가 됐거나, 마지막 코멘트가 내 것이 아니면
+ * 스레드가 해결됐거나, 코드가 바뀌어 outdated 가 됐거나, 마지막 코멘트가 내 것이 아니면
  * 대응된 것으로 센다 — 마지막은 작성자가 답을 달았다는 뜻이다.
  */
 export function countPending(threads: readonly ReviewThread[], me: string): number {

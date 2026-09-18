@@ -968,12 +968,12 @@ ges_sync({ targetPath: "/other-repo/.gestalt-kb" })
 | `get` | PR 단건 조회 — 라운드, 코멘트, 리뷰가 함께 온다 |
 | `diff` | base와 head 사이의 diff |
 | `comment` | 인라인 코멘트를 단다 |
-| `resolve` | 코멘트 스레드를 닫는다 |
+| `resolve` | 코멘트 스레드를 해결 처리한다 |
 | `review` | 판정을 기록한다. `request_changes`면 라운드가 하나 늘어난다 |
 | `update` | head를 새 커밋으로 옮긴다. `changes_requested`였으면 `open`으로 돌아간다 |
 | `edit` | 제목과 본문을 고친다. head를 안 옮기고 리뷰 판정도 라운드도 안 건드린다 |
 | `merge` | 머지한다. 승인이 없어도 막지 않고 미해결 수를 이벤트에 남긴다 |
-| `close` | PR을 닫는다 |
+| `close` | PR을 종료한다 |
 | `checkout` | head를 임시 워크트리로 떼어낸다 — 코드를 일부러 깨서 테스트가 잡는지 보는 검증처럼 실제로 돌려야 할 때 쓴다 |
 | `checkout_remove` | 떼어낸 워크트리를 정리한다 |
 

@@ -83,7 +83,7 @@ export interface Review {
 export interface Round {
   number: number;
   openedAt: string;
-  /** 이 라운드를 닫은 판정. 아직 안 닫혔으면 null */
+  /** 이 라운드를 종료한 판정. 아직 안 끝났으면 null */
   verdict: ReviewVerdict | null;
   /** 이 라운드에서 새로 달린 코멘트 수 */
   commentCount: number;

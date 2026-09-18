@@ -142,7 +142,7 @@ describe('LocalPrEngine', () => {
   });
 
   describe('라운드', () => {
-    it('request_changes가 라운드를 닫고 새 라운드를 연다', () => {
+    it('request_changes가 라운드를 종료하고 새 라운드를 연다', () => {
       const pr = engine.create({ title: 't', author: 'a' });
       const after = engine.review(pr.id, {
         reviewer: 'r',
@@ -155,7 +155,7 @@ describe('LocalPrEngine', () => {
       expect(after.rounds[0]!.verdict).toBe('request_changes');
     });
 
-    it('comment 판정은 라운드를 닫지 않는다', () => {
+    it('comment 판정은 라운드를 종료하지 않는다', () => {
       const pr = engine.create({ title: 't', author: 'a' });
       const after = engine.review(pr.id, { reviewer: 'r', verdict: 'comment', summary: '의견' });
 
