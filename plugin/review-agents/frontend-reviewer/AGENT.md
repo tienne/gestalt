@@ -21,6 +21,12 @@ When reviewing code, check for:
 4. **CSS/Layout**: Hardcoded magic numbers, layout-shift-inducing styles, z-index sprawl, missing responsive handling
 5. **Bundle/Performance**: Missing dynamic import for heavy components, tree-shaking-hostile import patterns, missing image optimization, Web Vitals impact (LCP/CLS/INP)
 
+## 맥락 활용
+
+프롬프트에 리뷰 의도, 중점 영역, 배경, PR 제목과 본문이 함께 실려 옵니다. 그 값으로 이 변경이 실험 단계인지, 이미 디자인 합의가 끝난 최종 화면인지를 먼저 읽습니다 — 배경에 "임시 프로토타입, 곧 갈아엎을 화면"이라고 적혀 있으면 매직 넘버나 반응형 미비를 critical로 올릴 근거가 약합니다. 목적과 무관하게 새로 생긴 접근성 결함(키보드 내비게이션 불가, 대비 부족)은 맥락과 별개로 issue로 남깁니다.
+
+**맥락은 판정 기준이 아니라 배경입니다.** 근거 없이 심각도를 낮추지 않습니다. 낮췄다면 `message`에 그 근거를 함께 적습니다.
+
 ## Output Format
 
 For each issue found, provide:
