@@ -398,6 +398,28 @@ Agent {
 
 0단계에서 수집한 `reviewIntent.purpose`, `reviewIntent.background`가 `"(없음)"`이면 그 줄은 프롬프트에서 뺀다. `prContext`가 `"(없음)"`이면(PR이 아닌 리뷰) PR 두 줄을 뺀다.
 
+#### 기획 컨텍스트 어투 검사 (필수)
+
+사용자에게 표시하기 전에 스캔한다. `change-context-writer`가 자체 humanize를 거쳐도 별도 검증 없이 그대로 나가면, 리포트(4.5단계)보다 먼저 보이는 이 문서가 유일하게 어투 검사를 안 거친 자리로 남는다.
+
+```bash
+scanTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-review/<PR 식별자 또는 target>/$$"
+mkdir -p "$scanTmp"
+echo "$scanTmp"
+```
+
+작성된 컨텍스트 문서를 `"$scanTmp/change-context.md"`에 쓴다 (파일 쓰기 도구 사용, 셸로 넘기지 않는다).
+
+```bash
+pnpm tsx bin/gestalt.ts humanize-scan --file "$scanTmp/change-context.md" --register report
+```
+
+- **10 / 11** — 통과. 11이면 어투는 두고 맞춤법만 고친다.
+- **0 / 12** — 스캔 결과를 그대로 `change-context-writer`에 돌려주고 문서를 **한 번만** 다시 쓰게 한다. 두 번째도 걸리면 무엇이 남았는지 사용자에게 알리고 그대로 표시할지 묻는다.
+- 끝나면 `rm -rf "$scanTmp"`로 그 실행 칸만 치운다.
+
+`--register report`다. 근거는 4.5단계와 같다 — 서술체 문서라 평서체와 합니다체의 혼용 검사까지 본다. `>` 블록인용 제외는 `chat` 전용이라 diff나 PR 본문을 인용하는 자리는 함께 스캔된다.
+
 작성된 컨텍스트 문서를 **리뷰 결과보다 먼저** 사용자에게 표시한다.
 
 ### 2단계: 리뷰 시작 (review_start)
@@ -639,6 +661,30 @@ Agent {
 ```
 
 리뷰 파이프라인 리포트도 인라인 코멘트와 동일하게 voice와 음차가 함께 처리됩니다.
+
+#### 리포트 어투 검사 (필수)
+
+윤문된 리포트를 표시하기 전에 스캔합니다. humanize-monolith가 자체 룰을 적용해도, 리포트에 인용된 이슈 원문이나 PR 본문의 말이 그대로 살아남는 자리는 자가 적용만으로 안 걸립니다 — 4.7단계 인라인 코멘트와 같은 이유입니다.
+
+**셸로 넘기지 않고 파일 쓰기 도구를 씁니다.** 리포트에는 한글과 백틱, 코드펜스가 섞입니다.
+
+```bash
+scanTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-review/<PR 식별자 또는 target>/$$"
+mkdir -p "$scanTmp"
+echo "$scanTmp"
+```
+
+윤문된 리포트 전문을 `"$scanTmp/report.md"`에 씁니다.
+
+```bash
+pnpm tsx bin/gestalt.ts humanize-scan --file "$scanTmp/report.md" --register report
+```
+
+- **10 / 11** — 통과입니다. 11이면 어투는 안 걸렸고 맞춤법만 고칩니다.
+- **0 / 12** — 스캔 결과(걸린 룰, 사례, 처방)를 그대로 `humanize-monolith`에 돌려주고 리포트를 **한 번만** 다시 쓰게 합니다. 두 번째도 걸리면 무엇이 남았는지 사용자에게 알리고 그대로 표시할지 묻습니다.
+- 끝나면 `rm -rf "$scanTmp"`로 그 실행 칸만 치웁니다.
+
+`--register report`입니다. 리포트는 서술체 문서라 룰북이 `report`에서 함께 보는 평서체와 합니다체의 혼용 검사까지 봐야 합니다. 코드펜스 안쪽은 register와 무관하게 항상 스캔에서 빠집니다. **`>` 블록인용 제외는 `chat`에서만 켜지므로 여기서는 함께 스캔됩니다** — 리포트가 이슈 원문이나 PR 본문을 인용하는 자리에서 그 원문이 걸릴 수 있습니다. 걸리면 인용 표시는 유지한 채로 `humanize-monolith`가 그 문장만 다시 씁니다.
 
 윤문된 리포트를 사용자에게 표시합니다. 그다음 `prTarget`이 `github`이나 `local`이면 4.7단계로 넘어갑니다. `none`이면 결과 표시로 넘어갑니다.
 - `approved: true` → 리뷰 통과. 리포트를 보여줍니다.
