@@ -272,6 +272,30 @@ Agent {
 
 `humanize-monolith`는 기본 출력에 `[등급]`과 `[변경 요약]`을 붙입니다. PR 본문에 그게 섞이면 안 되므로 위 프롬프트에서 명시적으로 뺍니다.
 
+#### 어투 검사 (필수)
+
+미리보기로 표시하기 전에 스캔합니다. `humanize-monolith`가 자체 룰을 적용해도, 3단계 `changeContext`나 레포 템플릿에서 그대로 옮겨 붙은 문장이 살아남는 자리는 자가 적용만으로 안 걸립니다.
+
+**셸로 넘기지 않고 파일 쓰기 도구를 씁니다.** 본문에 한글과 백틱, 코드펜스가 섞입니다.
+
+```bash
+scanTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-pr/$$"
+mkdir -p "$scanTmp"
+echo "$scanTmp"
+```
+
+윤문된 제목과 본문을 합쳐 `"$scanTmp/description.md"`에 씁니다.
+
+```bash
+pnpm tsx bin/gestalt.ts humanize-scan --file "$scanTmp/description.md" --register report
+```
+
+- **10 / 11** — 통과입니다. 11이면 어투는 안 걸렸고 맞춤법만 고칩니다.
+- **0 / 12** — 스캔 결과(걸린 룰, 사례, 처방)를 그대로 `humanize-monolith`에 돌려주고 제목과 본문을 **한 번만** 다시 쓰게 합니다. 두 번째도 걸리면 무엇이 남았는지 사용자에게 알리고 그대로 진행할지 묻습니다.
+- 끝나면 `rm -rf "$scanTmp"`로 그 실행 칸만 치웁니다.
+
+`--register report`입니다. PR 본문은 서술체 문서라 룰북이 `report`에서 함께 보는 평서체와 합니다체의 혼용 검사까지 봐야 합니다. 코드펜스 안쪽은 항상 스캔에서 빠지지만 `>` 블록인용 제외는 `chat`에서만 켜지므로, 본문이 PR 본문 원문이나 이슈 문구를 인용하는 자리는 함께 스캔됩니다.
+
 윤문된 description을 **사용자에게 미리보기로 먼저 표시**합니다.
 
 ### 5단계: 제출 확인 및 실행
