@@ -262,11 +262,22 @@ export function createCli(): Command {
 
   program
     .command('humanize-scan')
-    .description('원문에서 실제로 걸린 S1 룰만 처방과 함께 추린다 (exit 0 걸림 / 10 없음)')
-    .requiredOption('--file <path>', '스캔할 텍스트 파일')
+    .description(
+      '원문에서 실제로 걸린 S1 룰만 처방과 함께 추린다 (exit 0 걸림 / 10 없음, 파일 여럿이면 우선순위로 하나로 합친다)',
+    )
+    .option(
+      '--file <path>',
+      '스캔할 텍스트 파일 (여러 번 지정 가능)',
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
     .option('--register <doc|chat|report>', '어느 말투 기준으로 볼지 (기본 doc)', 'doc')
     .option('--json', '스캔 결과를 JSON으로')
-    .action((options: { file: string; register?: string; json?: boolean }) => {
+    .action((options: { file: string[]; register?: string; json?: boolean }) => {
+      if (options.file.length === 0) {
+        console.error("required option '--file <path>' not specified");
+        process.exit(1);
+      }
       humanizeScanCommand(options);
     });
 

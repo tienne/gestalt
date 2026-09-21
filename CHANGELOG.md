@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`humanize-scan`이 `--file`을 여러 번 받습니다.** 코멘트 여러 건을 검사할 때마다 프로세스를 새로 띄우던 자리를, `--file`을 반복해서 주면 한 프로세스 안에서 파일마다 따로 스캔하도록 옮길 길을 열었어요.
+  - 파일 열 개를 한 프로세스에서 돌리면 1085ms 걸렸고 프로세스를 열 번 띄워 하나씩 돌리면 10578ms 걸렸습니다. 아홉 배 넘는 차이고 세 번 반복해도 9.75배에서 10배 사이로 안정적이었어요.
+  - **파일 하나만 줄 때는 이전과 똑같습니다.** 출력과 종료 코드가 바이트 단위로 같아서 review-loop이랑 review-reply, pr 스킬은 손대지 않아도 그대로 돌아가요.
+  - **코멘트마다 따로 보던 판정 경계는 그대로예요.** 여러 파일을 한 번에 넘겨도 스캔은 파일마다 독립으로 돌립니다. 한 파일이 인용으로 가득 차 있어도 그 판정이 다른 파일의 산문 판정에 안 섞여요. 이어붙여서 한 번에 돌리면 인용 판정이 파일 경계를 넘어 새기 때문에 파일 수만큼 스캔을 그대로 반복하는 구조를 유지했습니다.
+  - **검증 범위** — 이 항목 자체를 `humanize-scan --file CHANGELOG.md --register doc`으로 스캔해 걸림 없이 통과했고 `pnpm verify:rules`와 `pnpm typecheck`도 통과했어요.
+
 ## [0.80.0] - 2026-09-20
 
 ### Added

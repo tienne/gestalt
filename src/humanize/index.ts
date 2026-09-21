@@ -49,8 +49,10 @@ export {
 export {
   scan,
   formatScan,
+  formatScanBatch,
   isRulebookPath,
   type ScanReport,
   type ScanHit,
   type ScanOptions,
+  type ScanBatchEntry,
 } from './scan.js';
