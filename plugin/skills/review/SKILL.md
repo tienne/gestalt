@@ -416,7 +416,7 @@ echo "$scanTmp"
 pnpm tsx bin/gestalt.ts humanize-scan --file "$scanTmp/change-context.md" --register report
 ```
 
-- **10 / 11** — 통과. 11이면 어투는 두고 맞춤법만 고친다.
+- **10 / 11** — 통과. 11이면 어투는 두고 그 아래 적힌 것만 고친다 — 맞춤법이거나 어미가 섞인 자리다.
 - **0 / 12** — 스캔 결과를 그대로 `change-context-writer`에 돌려주고 문서를 **한 번만** 다시 쓰게 한다. 두 번째도 걸리면 무엇이 남았는지 사용자에게 알리고 그대로 표시할지 묻는다.
 - 끝나면 `rm -rf "$scanTmp"`로 그 실행 칸만 치운다.
 
@@ -720,7 +720,7 @@ Agent {
 pnpm tsx bin/gestalt.ts humanize-scan --file "$scanTmp/report.md" --register report
 ```
 
-- **10 / 11** — 통과입니다. 11이면 어투는 안 걸렸고 맞춤법만 고칩니다.
+- **10 / 11** — 통과입니다. 11이면 어투는 안 걸렸고 그 아래 적힌 것만 고칩니다 — 맞춤법이거나 평서체와 합니다체가 섞인 자리입니다. 어느 쪽인지는 출력이 절을 갈라 적습니다.
 - **0 / 12** — 스캔 결과(걸린 룰, 사례, 처방)를 그대로 `humanize-monolith`에 돌려주고 리포트를 **한 번만** 다시 쓰게 합니다. 두 번째도 걸리면 무엇이 남았는지 사용자에게 알리고 그대로 표시할지 묻습니다.
 - 끝나면 `rm -rf "$scanTmp"`로 그 실행 칸만 치웁니다.
 
