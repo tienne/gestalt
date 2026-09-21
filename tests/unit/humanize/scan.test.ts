@@ -69,7 +69,30 @@ describe('scan', () => {
     const report = scan('이 문제에 대해 검토했다.');
     const detectable = new Set(DETECTABLE_RULE_IDS);
     expect(report.unverifiable.length).toBeGreaterThan(0);
-    expect(report.unverifiable.every((id) => !detectable.has(id))).toBe(true);
+    expect(report.unverifiable.every((rule) => !detectable.has(rule.ruleId))).toBe(true);
+  });
+
+  it('탐지기가 없는 S1은 ID만이 아니라 라벨까지 싣는다', () => {
+    const report = scan('이 문제에 대해 검토했다.', { register: 'chat' });
+    // ID만 주면 읽는 쪽이 그게 무슨 룰인지 모른 채 "확인했다"로 지나간다
+    expect(report.unverifiable.every((rule) => rule.label.startsWith(rule.ruleId))).toBe(true);
+    expect(report.unverifiable.every((rule) => rule.label.length > rule.ruleId.length)).toBe(true);
+  });
+
+  it('직접 확인 목록을 한 줄에 하나씩 적는다', () => {
+    const report = scan('이 문제에 대해 검토했다.', { register: 'chat' });
+    const text = formatScan(report);
+    for (const rule of report.unverifiable) {
+      expect(text, `${rule.ruleId} 라벨이 출력에 없다`).toContain(`  ${rule.label}`);
+    }
+    // 한 줄에 몰아 쓰면 ID 나열로 읽혀 라벨을 실은 뜻이 사라진다
+    expect(text).not.toContain(report.unverifiable.map((r) => r.ruleId).join(' '));
+  });
+
+  it('걸린 게 없을 때도 직접 확인 목록에 라벨이 온다', () => {
+    const report = scan('배포는 내일입니다. 롤백 기준도 정했습니다.', { register: 'chat' });
+    expect(report.worthHumanizing).toBe(false);
+    expect(formatScan(report)).toContain(report.unverifiable[0]!.label);
   });
 
   it('탐지 가능과 직접 확인을 합치면 그 말투의 S1 전체가 된다', () => {
@@ -78,7 +101,7 @@ describe('scan', () => {
       const detectableS1 = s1Ids(book, register).filter((id) =>
         new Set(DETECTABLE_RULE_IDS).has(id),
       );
-      const covered = new Set([...detectableS1, ...report.unverifiable]);
+      const covered = new Set([...detectableS1, ...report.unverifiable.map((r) => r.ruleId)]);
       expect([...covered].sort()).toEqual(s1Ids(book, register).sort());
     }
   });

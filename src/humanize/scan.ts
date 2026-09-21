@@ -18,6 +18,12 @@ import {
 } from './detectors.js';
 import { parseRuleBook, ruleLabel, s1Ids, type Register, type RuleScanOptions } from './rules.js';
 
+/** 탐지기가 없는 룰 한 건. 라벨은 룰북의 패턴 칸에서 온다 */
+export interface UnverifiableRule {
+  ruleId: string;
+  label: string;
+}
+
 export interface ScanHit {
   ruleId: string;
   label: string;
@@ -32,8 +38,15 @@ export interface ScanReport {
   s1Total: number;
   /** 걸린 룰. 건수가 많은 순 */
   hits: ScanHit[];
-  /** 탐지기가 없어 모델이 직접 봐야 하는 S1 룰 ID */
-  unverifiable: string[];
+  /**
+   * 탐지기가 없어 모델이 직접 봐야 하는 S1.
+   *
+   * **ID만 주면 안 본다.** 그 자리에 A-16 과 J-2 를 늘어놓아도 읽는 쪽은 그게 무슨 룰인지
+   * 모른 채 "확인했다"로 지나간다. 룰북을 다시 열게 하는 것도 스캔이 막으려던 일이다.
+   * 그래서 라벨을 함께 싣는다 — 처방까지는 안 싣는다. 여기 담기는 룰이 최대 열넷이라
+   * 처방을 다 붙이면 룰북을 통째로 여는 것과 길이가 같아진다.
+   */
+  unverifiable: UnverifiableRule[];
   /** 어투가 아니라 맞춤법인 자리. s1Total 과 worthHumanizing 에는 안 섞는다 */
   spacing: SpacingIssue[];
   /**
@@ -116,7 +129,9 @@ export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
     register,
     s1Total,
     hits,
-    unverifiable: targets.filter((id) => !detectable.has(id)),
+    unverifiable: targets
+      .filter((id) => !detectable.has(id))
+      .map((id) => ({ ruleId: id, label: ruleLabel(book, id) })),
     spacing,
     registerMix: mixedRegister(text, register),
     worthHumanizing: s1Total > 0,
@@ -151,6 +166,11 @@ export function formatScanBatch(entries: ScanBatchEntry[]): string {
       return `${header}\n${body}`;
     })
     .join('\n\n');
+}
+
+/** 한 줄에 하나씩 적는다. 한 줄에 몰아 쓰면 ID 나열로 읽혀 라벨을 실은 뜻이 사라진다 */
+function unverifiableLines(report: ScanReport): string[] {
+  return report.unverifiable.map((rule) => `  ${rule.label}`);
 }
 
 export function formatScan(report: ScanReport): string {
@@ -192,7 +212,7 @@ export function formatScan(report: ScanReport): string {
       `[스캔] ${report.register} 기준 S1 0건 (탐지기가 가리는 범위)`,
       '',
       '아래 룰은 탐지기가 못 가린다. 직접 읽어서 확인한다.',
-      `  ${report.unverifiable.join(' ')}`,
+      ...unverifiableLines(report),
       ...spacingBlock,
       ...mixBlock,
       '',
@@ -219,7 +239,7 @@ export function formatScan(report: ScanReport): string {
   lines.push(
     '',
     '탐지기가 못 가리는 S1 (직접 확인)',
-    `  ${report.unverifiable.join(' ')}`,
+    ...unverifiableLines(report),
     ...spacingBlock,
     ...mixBlock,
     '',
