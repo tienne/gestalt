@@ -93,6 +93,35 @@ export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
   };
 }
 
+/**
+ * 배치 스캔 결과 한 건.
+ *
+ * cli 쪽 FileScanResult 와 필드가 같다. humanize 레이어가 cli 를 참조하면 방향이
+ * 거꾸로 되므로 형태만 여기 따로 두고 구조적 타이핑으로 맞춘다.
+ */
+export interface ScanBatchEntry {
+  file: string;
+  report: ScanReport | null;
+  exitCode: number;
+  error?: string;
+}
+
+/**
+ * 여러 파일의 스캔 결과를 파일별 헤더와 함께 이어 붙인다.
+ *
+ * 리뷰 스킬이 셸에서 `basename "$f" .md` 와 `EXIT=$?` 로 만들던 걸 여기서 대신
+ * 낸다. 헤더는 고정 접두사, 경로, `EXIT=<n>` 순으로 두어 파싱 가능하게 한다.
+ */
+export function formatScanBatch(entries: ScanBatchEntry[]): string {
+  return entries
+    .map((entry) => {
+      const header = `== ${entry.file} EXIT=${entry.exitCode}`;
+      const body = entry.report ? formatScan(entry.report) : (entry.error ?? '읽기 실패');
+      return `${header}\n${body}`;
+    })
+    .join('\n\n');
+}
+
 export function formatScan(report: ScanReport): string {
   const spacing = report.spacing.flatMap((issue) => [
     `- ${issue.label} ${issue.count}건`,
