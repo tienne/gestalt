@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync, rmSync, mkdirSync, existsSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { DETECTABLE_RULE_IDS } from '../../../src/humanize/detectors.js';
+import { DETECTABLE_RULE_IDS, reportRegisterStats } from '../../../src/humanize/detectors.js';
 import { parseRuleBook, s1Ids } from '../../../src/humanize/rules.js';
 import { formatScan, scan } from '../../../src/humanize/scan.js';
 import { EXIT_CODE } from '../../../src/humanize/check.js';
@@ -69,7 +69,30 @@ describe('scan', () => {
     const report = scan('이 문제에 대해 검토했다.');
     const detectable = new Set(DETECTABLE_RULE_IDS);
     expect(report.unverifiable.length).toBeGreaterThan(0);
-    expect(report.unverifiable.every((id) => !detectable.has(id))).toBe(true);
+    expect(report.unverifiable.every((rule) => !detectable.has(rule.ruleId))).toBe(true);
+  });
+
+  it('탐지기가 없는 S1은 ID만이 아니라 라벨까지 싣는다', () => {
+    const report = scan('이 문제에 대해 검토했다.', { register: 'chat' });
+    // ID만 주면 읽는 쪽이 그게 무슨 룰인지 모른 채 "확인했다"로 지나간다
+    expect(report.unverifiable.every((rule) => rule.label.startsWith(rule.ruleId))).toBe(true);
+    expect(report.unverifiable.every((rule) => rule.label.length > rule.ruleId.length)).toBe(true);
+  });
+
+  it('직접 확인 목록을 한 줄에 하나씩 적는다', () => {
+    const report = scan('이 문제에 대해 검토했다.', { register: 'chat' });
+    const text = formatScan(report);
+    for (const rule of report.unverifiable) {
+      expect(text, `${rule.ruleId} 라벨이 출력에 없다`).toContain(`  ${rule.label}`);
+    }
+    // 한 줄에 몰아 쓰면 ID 나열로 읽혀 라벨을 실은 뜻이 사라진다
+    expect(text).not.toContain(report.unverifiable.map((r) => r.ruleId).join(' '));
+  });
+
+  it('걸린 게 없을 때도 직접 확인 목록에 라벨이 온다', () => {
+    const report = scan('배포는 내일입니다. 롤백 기준도 정했습니다.', { register: 'chat' });
+    expect(report.worthHumanizing).toBe(false);
+    expect(formatScan(report)).toContain(report.unverifiable[0]!.label);
   });
 
   it('탐지 가능과 직접 확인을 합치면 그 말투의 S1 전체가 된다', () => {
@@ -78,7 +101,7 @@ describe('scan', () => {
       const detectableS1 = s1Ids(book, register).filter((id) =>
         new Set(DETECTABLE_RULE_IDS).has(id),
       );
-      const covered = new Set([...detectableS1, ...report.unverifiable]);
+      const covered = new Set([...detectableS1, ...report.unverifiable.map((r) => r.ruleId)]);
       expect([...covered].sort()).toEqual(s1Ids(book, register).sort());
     }
   });
@@ -138,6 +161,69 @@ describe('register 가 같은 원고를 다르게 판정한다', () => {
   });
 });
 
+/**
+ * `report` 가 `doc` 과 다른 일을 하는지 본다.
+ *
+ * 룰 심각도는 둘이 같다 — 룰북이 리포트를 문서 쪽으로 세워 뒀다. 그래서 한동안
+ * `humanize-scan --register report` 는 헤더 한 줄 빼고 `doc` 과 출력이 같았다.
+ * 스킬 문서 세 곳이 "report 는 문체 혼용까지 본다"를 근거로 적어 뒀는데 그 검사는
+ * `runCheck` 에만 있었다. 게이트가 있다고 적힌 자리에 게이트가 없던 셈이다.
+ *
+ * 문체 혼용은 어투 룰이 아니라 `spacing` 과 같은 자리다 — 룰 ID가 없고 윤문을 돌릴
+ * 일도 아니다. 그래서 s1Total 과 worthHumanizing 에는 안 섞고 종료 코드만 가른다.
+ */
+describe('report 가 doc 과 다른 일을 한다', () => {
+  const mixed = '리포트를 정리했습니다.\n\n캐시를 지운다.\n\n배포는 내일입니다.\n';
+
+  it('report 는 어미 혼용을 잡고 doc 과 chat 은 안 본다', () => {
+    expect(scan(mixed, { register: 'report' }).registerMix).toEqual({
+      plainEndings: 1,
+      formalEndings: 2,
+    });
+    expect(scan(mixed, { register: 'doc' }).registerMix).toBeNull();
+    expect(scan(mixed, { register: 'chat' }).registerMix).toBeNull();
+  });
+
+  it('어미가 한쪽으로 통일돼 있으면 안 걸린다', () => {
+    const formal = '리포트를 정리했습니다. 배포는 내일입니다.';
+    const plain = '리포트를 정리했다. 배포는 내일이다.';
+    expect(scan(formal, { register: 'report' }).registerMix).toBeNull();
+    expect(scan(plain, { register: 'report' }).registerMix).toBeNull();
+  });
+
+  it('혼용은 어투 총계에 안 섞인다 — 걸렸다고 윤문을 돌릴 자리가 아니다', () => {
+    const report = scan(mixed, { register: 'report' });
+    expect(report.s1Total).toBe(0);
+    expect(report.worthHumanizing).toBe(false);
+  });
+
+  it('혼용이 있으면 출력이 어투 절과 갈라 적는다', () => {
+    const text = formatScan(scan(mixed, { register: 'report' }));
+    expect(text).toContain('문체 혼용');
+    expect(text).toContain('평서체 1문장 / 합니다체 2문장');
+    expect(text).not.toContain('원문을 그대로 낸다');
+  });
+
+  it('혼용이 없으면 그 절을 안 만든다', () => {
+    expect(formatScan(scan('배포는 내일입니다.', { register: 'report' }))).not.toContain(
+      '문체 혼용',
+    );
+  });
+
+  it('runCheck 의 report-register 축과 같은 답을 낸다 — 두 자리가 갈리면 안 된다', () => {
+    const stats = reportRegisterStats(mixed);
+    const mix = scan(mixed, { register: 'report' }).registerMix;
+    expect(mix).toEqual(stats);
+  });
+
+  it('report 와 doc 의 출력이 헤더 말고도 갈린다', () => {
+    const asReport = formatScan(scan(mixed, { register: 'report' }));
+    const asDoc = formatScan(scan(mixed, { register: 'doc' }));
+    // 헤더만 다르던 때를 고정한다. 혼용 검사를 떼면 이 단언이 걸린다
+    expect(asReport.replace('report 기준', '기준')).not.toBe(asDoc.replace('doc 기준', '기준'));
+  });
+});
+
 describe('humanize-scan 종료 코드', () => {
   // humanize-check 는 판정을 종료 코드로 답한다. scan 도 같은 계약을 지켜야
   // 셸에서 stdout 을 파싱하지 않고 0단계 분기를 탈 수 있다.
@@ -151,14 +237,14 @@ describe('humanize-scan 종료 코드', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  const exitCodeOf = (file: string) => {
+  const exitCodeOf = (file: string, register?: string) => {
     const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     // process.exit 를 막아 뒀으니 커맨드가 그 뒤로도 흘러간다. 파일이 없는 경로에서
     // readFileSync 가 터지는 건 정상이다. 우리가 볼 건 이미 기록된 exit 인자다
     try {
-      humanizeScanCommand({ file });
+      humanizeScanCommand({ file, register });
     } catch {
       // 무시
     }
@@ -179,9 +265,16 @@ describe('humanize-scan 종료 코드', () => {
     expect(exitCodeOf(join(dir, '없는파일.md'))).toBe(EXIT_CODE.unknown);
   });
 
-  it('맞춤법만 걸리면 clean 이 아니라 spacingOnly 로 끝난다', () => {
+  it('맞춤법만 걸리면 clean 이 아니라 nonVoiceOnly 로 끝난다', () => {
     const file = write('spacing.md', 'Approve 합니다.\n');
-    expect(exitCodeOf(file)).toBe(SCAN_EXIT.spacingOnly);
+    expect(exitCodeOf(file)).toBe(SCAN_EXIT.nonVoiceOnly);
+  });
+
+  it('report 에서 어미만 섞였어도 clean 이 아니다 — 통과로 읽히면 게이트가 없는 것과 같다', () => {
+    const file = write('mixed.md', '리포트를 정리했습니다.\n\n캐시를 지운다.\n');
+    expect(exitCodeOf(file, 'report')).toBe(SCAN_EXIT.nonVoiceOnly);
+    // 같은 원고가 doc 에서는 clean 이다. register 가 종료 코드를 실제로 가른다
+    expect(exitCodeOf(file, 'doc')).toBe(SCAN_EXIT.clean);
   });
 
   it('상한을 넘는 파일은 읽지 않고 unknown 으로 끝난다', () => {
@@ -194,7 +287,7 @@ describe('humanize-scan 종료 코드', () => {
   });
 
   it('세 코드가 서로 다르다', () => {
-    expect(new Set([SCAN_EXIT.found, SCAN_EXIT.clean, SCAN_EXIT.spacingOnly]).size).toBe(3);
+    expect(new Set([SCAN_EXIT.found, SCAN_EXIT.clean, SCAN_EXIT.nonVoiceOnly]).size).toBe(3);
     rmSync(dir, { recursive: true, force: true });
   });
 });
@@ -238,8 +331,8 @@ describe('humanize-scan 다중 파일 하위호환', () => {
       body: '배포는 내일입니다. 롤백 기준도 정했습니다.\n',
     },
     {
-      label: 'spacingOnly',
-      exitCode: SCAN_EXIT.spacingOnly,
+      label: 'nonVoiceOnly',
+      exitCode: SCAN_EXIT.nonVoiceOnly,
       body: 'Approve 합니다.\n',
     },
     {
@@ -312,7 +405,7 @@ describe('humanize-scan 다중 파일 배치', () => {
     write(`found-${randomUUID()}.md`, '이 문제에 대해 검토했다. 결론적으로 캐시가 원인이다.\n');
   const clean = () =>
     write(`clean-${randomUUID()}.md`, '배포는 내일입니다. 롤백 기준도 정했습니다.\n');
-  const spacingOnly = () => write(`spacing-${randomUUID()}.md`, 'Approve 합니다.\n');
+  const nonVoiceOnly = () => write(`spacing-${randomUUID()}.md`, 'Approve 합니다.\n');
   const allQuoted = () => write(`quoted-${randomUUID()}.md`, '> 전부 인용줄이다.\n');
 
   it('found 와 clean 을 섞으면 전체가 found 로 닫힌다', () => {
@@ -327,10 +420,10 @@ describe('humanize-scan 다중 파일 배치', () => {
     expect(result.exitCode).toBe(SCAN_EXIT.allQuoted);
   });
 
-  it('spacingOnly 와 clean 을 섞으면 전체가 spacingOnly 로 닫힌다', () => {
-    const files = [clean(), spacingOnly()];
+  it('nonVoiceOnly 와 clean 을 섞으면 전체가 nonVoiceOnly 로 닫힌다', () => {
+    const files = [clean(), nonVoiceOnly()];
     const result = run(files);
-    expect(result.exitCode).toBe(SCAN_EXIT.spacingOnly);
+    expect(result.exitCode).toBe(SCAN_EXIT.nonVoiceOnly);
   });
 
   it('전부 clean 이면 전체도 clean 이다', () => {
@@ -340,7 +433,7 @@ describe('humanize-scan 다중 파일 배치', () => {
   });
 
   it('텍스트 출력에 파일 수만큼 == 경로 EXIT=코드 헤더가 붙는다', () => {
-    const files = [clean(), found(), spacingOnly()];
+    const files = [clean(), found(), nonVoiceOnly()];
     const result = run(files);
     const headers = files.map(
       (file) => new RegExp(`^== ${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} EXIT=\\d+$`, 'm'),
@@ -378,11 +471,11 @@ describe('humanize-scan 다중 파일 배치', () => {
     expect(quotedEntry.report.allQuoted).toBe(true);
   });
 
-  it('세 파일이 found, allQuoted, spacingOnly 로 서로 다르면 합산은 found 다 (some이 아니라 every로 바꾸면 깨진다)', () => {
+  it('세 파일이 found, allQuoted, nonVoiceOnly 로 서로 다르면 합산은 found 다 (some이 아니라 every로 바꾸면 깨진다)', () => {
     // aggregateExitCode 가 "코드 중 하나라도 found 면 found" (some) 대신
     // "전부 found 여야 found" (every) 로 바뀌면, 세 파일이 서로 다른 코드를 갖는 이 배치는
     // 어느 분기에도 안 걸려 기본값인 clean(10) 으로 잘못 떨어진다
-    const files = [found(), allQuoted(), spacingOnly()];
+    const files = [found(), allQuoted(), nonVoiceOnly()];
     const result = run(files, { register: 'chat' });
     expect(result.exitCode).toBe(SCAN_EXIT.found);
   });

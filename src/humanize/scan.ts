@@ -9,8 +9,20 @@
  * 그게 더 나쁜 거짓말이다.
  */
 import { sep } from 'node:path';
-import { scanProse, DETECTABLE_RULE_IDS, type SpacingIssue } from './detectors.js';
+import {
+  reportRegisterStats,
+  scanProse,
+  DETECTABLE_RULE_IDS,
+  type ReportRegisterStats,
+  type SpacingIssue,
+} from './detectors.js';
 import { parseRuleBook, ruleLabel, s1Ids, type Register, type RuleScanOptions } from './rules.js';
+
+/** 탐지기가 없는 룰 한 건. 라벨은 룰북의 패턴 칸에서 온다 */
+export interface UnverifiableRule {
+  ruleId: string;
+  label: string;
+}
 
 export interface ScanHit {
   ruleId: string;
@@ -26,10 +38,28 @@ export interface ScanReport {
   s1Total: number;
   /** 걸린 룰. 건수가 많은 순 */
   hits: ScanHit[];
-  /** 탐지기가 없어 모델이 직접 봐야 하는 S1 룰 ID */
-  unverifiable: string[];
+  /**
+   * 탐지기가 없어 모델이 직접 봐야 하는 S1.
+   *
+   * **ID만 주면 안 본다.** 그 자리에 A-16 과 J-2 를 늘어놓아도 읽는 쪽은 그게 무슨 룰인지
+   * 모른 채 "확인했다"로 지나간다. 룰북을 다시 열게 하는 것도 스캔이 막으려던 일이다.
+   * 그래서 라벨을 함께 싣는다 — 처방까지는 안 싣는다. 여기 담기는 룰이 최대 열넷이라
+   * 처방을 다 붙이면 룰북을 통째로 여는 것과 길이가 같아진다.
+   */
+  unverifiable: UnverifiableRule[];
   /** 어투가 아니라 맞춤법인 자리. s1Total 과 worthHumanizing 에는 안 섞는다 */
   spacing: SpacingIssue[];
+  /**
+   * 보고 본문에 평서체와 합니다체가 섞인 자리. 안 섞였거나 `report` 가 아니면 null 이다.
+   *
+   * `spacing` 과 같은 취급이다 — 룰 ID가 없고 s1Total 과 worthHumanizing 에도 안 섞는다.
+   * 어미를 어느 쪽으로 통일할지는 룰북이 정하는 게 아니라 그 문서가 정하는 것이라,
+   * 걸렸다고 윤문을 돌릴 자리가 아니라 한쪽으로 맞출 자리다.
+   *
+   * `runCheck` 의 report-register 축과 같은 것을 센다. 두 자리가 다른 답을 내면
+   * 어느 쪽이 맞는지 알 수 없게 되므로 같은 함수를 같은 입력으로 부른다.
+   */
+  registerMix: ReportRegisterStats | null;
   /** 걸리는 게 없으면 윤문하지 않는다 */
   worthHumanizing: boolean;
   /**
@@ -55,6 +85,19 @@ export type ScanOptions = RuleScanOptions;
  */
 export function isRulebookPath(file: string): boolean {
   return file.includes(`${sep}_shared${sep}references${sep}`);
+}
+
+/**
+ * 보고 본문의 어미가 섞였는지 본다. `report` 에서만 돈다.
+ *
+ * 다른 말투에서는 섞임 자체가 정상이다 — 대화는 한 코멘트 안에서 어미가 흔들려도
+ * 사람 말이다. 문서는 어느 쪽으로 쓸지를 그 문서가 정한다. 보고문만 한 벌로 읽히는
+ * 자리라 섞이면 두 사람이 쓴 것처럼 보인다.
+ */
+function mixedRegister(text: string, register: Register): ReportRegisterStats | null {
+  if (register !== 'report') return null;
+  const stats = reportRegisterStats(text);
+  return stats.plainEndings > 0 && stats.formalEndings > 0 ? stats : null;
 }
 
 export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
@@ -86,8 +129,11 @@ export function scan(text: string, options: RuleScanOptions = {}): ScanReport {
     register,
     s1Total,
     hits,
-    unverifiable: targets.filter((id) => !detectable.has(id)),
+    unverifiable: targets
+      .filter((id) => !detectable.has(id))
+      .map((id) => ({ ruleId: id, label: ruleLabel(book, id) })),
     spacing,
+    registerMix: mixedRegister(text, register),
     worthHumanizing: s1Total > 0,
     allQuoted,
   };
@@ -122,6 +168,11 @@ export function formatScanBatch(entries: ScanBatchEntry[]): string {
     .join('\n\n');
 }
 
+/** 한 줄에 하나씩 적는다. 한 줄에 몰아 쓰면 ID 나열로 읽혀 라벨을 실은 뜻이 사라진다 */
+function unverifiableLines(report: ScanReport): string[] {
+  return report.unverifiable.map((rule) => `  ${rule.label}`);
+}
+
 export function formatScan(report: ScanReport): string {
   const spacing = report.spacing.flatMap((issue) => [
     `- ${issue.label} ${issue.count}건`,
@@ -130,6 +181,16 @@ export function formatScan(report: ScanReport): string {
   ]);
   const spacingBlock =
     spacing.length > 0 ? ['', '맞춤법 (등급과 무관하게 그냥 고친다)', ...spacing] : [];
+
+  const mix = report.registerMix;
+  const mixBlock = mix
+    ? [
+        '',
+        '문체 혼용 (어투 룰과 별개다)',
+        `- 평서체 ${mix.plainEndings}문장 / 합니다체 ${mix.formalEndings}문장이 함께 있다`,
+        '    처방: 한쪽으로 통일한다. 어느 쪽으로 갈지는 그 문서가 정한다',
+      ]
+    : [];
 
   if (report.allQuoted) {
     return [
@@ -140,6 +201,7 @@ export function formatScan(report: ScanReport): string {
       '',
       '자기 문장을 인용 밖에 두고 다시 스캔한다.',
       ...spacingBlock,
+      ...mixBlock,
     ].join('\n');
   }
 
@@ -150,11 +212,12 @@ export function formatScan(report: ScanReport): string {
       `[스캔] ${report.register} 기준 S1 0건 (탐지기가 가리는 범위)`,
       '',
       '아래 룰은 탐지기가 못 가린다. 직접 읽어서 확인한다.',
-      `  ${report.unverifiable.join(' ')}`,
+      ...unverifiableLines(report),
       ...spacingBlock,
+      ...mixBlock,
       '',
-      report.spacing.length > 0
-        ? '어투는 그대로 두고 위 맞춤법만 고쳐서 낸다.'
+      report.spacing.length > 0 || mix
+        ? '어투는 그대로 두고 위에 적힌 것만 고쳐서 낸다.'
         : '여기서도 걸리는 게 없으면 윤문하지 않고 원문을 그대로 낸다.',
     ].join('\n');
   }
@@ -176,8 +239,9 @@ export function formatScan(report: ScanReport): string {
   lines.push(
     '',
     '탐지기가 못 가리는 S1 (직접 확인)',
-    `  ${report.unverifiable.join(' ')}`,
+    ...unverifiableLines(report),
     ...spacingBlock,
+    ...mixBlock,
     '',
     '위 목록 밖의 룰은 이번 텍스트에서 안 걸렸다. 찾아 나서지 않는다.',
   );

@@ -22,16 +22,21 @@ export interface HumanizeScanOptions {
  * 계약이 갈린다. AGENT.md 0단계가 "S1 0건이면 윤문하지 않는다"를 분기로 세워 뒀는데
  * 그걸 기계가 읽으려면 stdout 을 파싱해야 했다.
  *
- * scan 은 판정 도구가 아니라 자문 도구라 실패를 뜻하는 코드는 안 낸다. 걸림, 맞춤법만
- * 걸림, 아무것도 안 걸림 셋을 갈라 준다 — 뒤 둘은 다음에 할 일이 다르다.
+ * scan 은 판정 도구가 아니라 자문 도구라 실패를 뜻하는 코드는 안 낸다. 어투가 걸림,
+ * 어투 밖의 것만 걸림, 아무것도 안 걸림 셋을 갈라 준다 — 뒤 둘은 다음에 할 일이 다르다.
  */
 export const SCAN_EXIT = {
   /** 걸린 S1 이 있다. 윤문할 자리다 */
   found: 0,
   /** 탐지기가 가리는 범위에서는 0건이다. 비탐지 룰은 사람이 따로 본다 */
   clean: 10,
-  /** 어투는 안 걸렸고 맞춤법만 걸렸다. 어투를 건드리지 말고 그것만 고치는 자리다 */
-  spacingOnly: 11,
+  /**
+   * 어투 S1은 0건이고 어투가 아닌 자리만 걸렸다 — 맞춤법이나 보고 본문의 문체 혼용.
+   *
+   * 어투를 건드리지 말고 걸린 것만 고치는 자리다. 둘을 한 코드로 묶은 건 부르는 쪽이
+   * 할 일이 같아서다 — 어느 쪽이 걸렸는지는 출력이 블록을 갈라 적는다.
+   */
+  nonVoiceOnly: 11,
   /**
    * 인용을 빼고 나니 검사할 산문이 안 남았다.
    *
@@ -69,14 +74,14 @@ function scanOneFile(file: string, register?: string): FileScanResult {
     skipTables: isRulebookPath(file),
   });
 
-  // 맞춤법만 걸린 원고를 clean 으로 닫으면 "윤문하지 않는다"로 읽혀 그대로 나간다.
-  // 어투 0건과 맞춤법만 있는 상태는 다음 할 일이 달라서 코드를 가른다
+  // 맞춤법이나 문체 혼용만 걸린 원고를 clean 으로 닫으면 "윤문하지 않는다"로 읽혀
+  // 그대로 나간다. 어투 0건과 어투 밖의 것만 걸린 상태는 다음 할 일이 달라서 코드를 가른다
   const exitCode = report.worthHumanizing
     ? SCAN_EXIT.found
     : report.allQuoted
       ? SCAN_EXIT.allQuoted
-      : report.spacing.length > 0
-        ? SCAN_EXIT.spacingOnly
+      : report.spacing.length > 0 || report.registerMix
+        ? SCAN_EXIT.nonVoiceOnly
         : SCAN_EXIT.clean;
 
   return { file, report, exitCode };
@@ -90,13 +95,13 @@ export function scanFiles(files: string[], register?: string): FileScanResult[] 
 /**
  * 파일별 종료 코드를 하나로 합친다.
  *
- * 우선순위는 단일 파일 판정과 같은 순서다 — found > allQuoted > spacingOnly > clean.
+ * 우선순위는 단일 파일 판정과 같은 순서다 — found > allQuoted > nonVoiceOnly > clean.
  * 여러 파일 중 하나라도 걸리면 배치 전체를 "윤문할 자리가 있다"로 본다.
  */
 function aggregateExitCode(codes: number[]): number {
   if (codes.includes(SCAN_EXIT.found)) return SCAN_EXIT.found;
   if (codes.includes(SCAN_EXIT.allQuoted)) return SCAN_EXIT.allQuoted;
-  if (codes.includes(SCAN_EXIT.spacingOnly)) return SCAN_EXIT.spacingOnly;
+  if (codes.includes(SCAN_EXIT.nonVoiceOnly)) return SCAN_EXIT.nonVoiceOnly;
   return SCAN_EXIT.clean;
 }
 
