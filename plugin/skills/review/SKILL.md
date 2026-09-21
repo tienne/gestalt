@@ -59,6 +59,9 @@ execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파
 >
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 >
+> **`gestalt` CLI를 부르는 형태** → [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)
+> 본문의 셸 예시는 전부 `gestalt ...`입니다. 게슈탈트 레포 안에서는 `pnpm tsx bin/gestalt.ts ...`로 바꿔 부릅니다. 어투 검사(1.5, 4.5, 4.7단계)가 이 CLI에 매달려 있고 **그 셋은 필수 검사라 못 돌리면 멈춥니다.**
+>
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 >
 > **에이전트를 서브에이전트로 위임하기** → [`../_shared/agent-delegation.md`](../_shared/agent-delegation.md)
@@ -95,7 +98,7 @@ execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파
 `gestalt pr list`에는 브랜치 필터가 없습니다. `--status`만 받습니다. `headRef`도 못 믿습니다 — 워크트리에서 detached로 만든 PR은 거기에 브랜치 이름이 아니라 sha가 들어갑니다. 그래서 이름이 아니라 커밋으로 가릅니다.
 
 ```bash
-pnpm tsx bin/gestalt.ts pr --json list
+gestalt pr --json list
 git merge-base --is-ancestor <PR의 headSha> HEAD   # 종료 코드 0이면 내 브랜치의 PR
 ```
 
@@ -128,7 +131,7 @@ id를 직접 주면 아래 1번의 첫 수단이 브랜치를 안 따지고 잡�
 **명시 지정이 가장 셉니다. 그다음이 안 끝난 로컬 PR입니다.** 아래 순서대로 훑어 처음 걸리는 것을 택하고 나머지는 보지 않습니다.
 
 1. **로컬 지정** — `local` 입력이 true거나(`--local` 플래그) `target`이 로컬 PR id 형식(`gestalt pr list`에 뜨는 id)인 경우입니다. 이때는 로컬 PR을 두 수단으로 찾습니다.
-   - `target`에 id가 있으면 먼저 `pnpm tsx bin/gestalt.ts pr --json show <id>`로 실제 존재를 확인합니다. 사용자가 id를 짚었으면 그 PR이 현재 브랜치 것인지는 안 따집니다.
+   - `target`에 id가 있으면 먼저 `gestalt pr --json show <id>`로 실제 존재를 확인합니다. 사용자가 id를 짚었으면 그 PR이 현재 브랜치 것인지는 안 따집니다.
    - id가 없거나(`--local`만 준 경우) `show`가 빈 결과를 내면 위의 가리는 법으로 현재 브랜치의 로컬 PR을 찾습니다.
    - 둘 중 하나로 찾으면 `local`입니다. 어느 쪽으로도 못 찾으면 그 사실을 한 줄 알리고 2번으로 내려갑니다.
 
@@ -226,7 +229,7 @@ git diff --name-only <commit>^ <commit>
 **`target`이 로컬 PR id 형식(8자리 16진수)이면 git이 그 값을 리비전으로 못 읽습니다.** `git diff main...<id>`는 `fatal: ambiguous argument`로 죽습니다. 이 경우는 PR에서 sha를 받아 옵니다.
 
 ```bash
-pnpm tsx bin/gestalt.ts pr --json show <id>          # baseSha, headSha
+gestalt pr --json show <id>          # baseSha, headSha
 git diff --name-only <baseSha>..<headSha>            # 점 두 개 — pr diff와 같은 범위
 ```
 
@@ -263,14 +266,14 @@ git diff --name-only <baseSha>..<headSha>            # 점 두 개 — pr diff�
 리뷰어의 워크트리는 자기 브랜치에 올라타 있어서 PR 코드가 거기 없습니다. 떼어냅니다.
 
 ```bash
-pnpm tsx bin/gestalt.ts pr checkout <id> --json   # { path, created, headSha }
+gestalt pr checkout <id> --json   # { path, created, headSha }
 ```
 
 `path`로 옮겨 가 테스트를 돌리고 핵심 줄을 일부러 깨봅니다. 같은 PR을 두 번 불러도 워크트리는
 하나이고 그 안의 변경은 살아남습니다. 끝나면 정리합니다.
 
 ```bash
-pnpm tsx bin/gestalt.ts pr checkout <id> --remove --json
+gestalt pr checkout <id> --remove --json
 ```
 
 정리 결과는 `status`로 분기합니다 — 산문 `reason`을 부분 문자열로 긁지 않습니다.
@@ -306,7 +309,7 @@ pnpm tsx bin/gestalt.ts pr checkout <id> --remove --json
 - `local` — 1단계나 판별 1번의 `pr --json show <id>` 결과에 `title`과 `body`가 이미 들어 있습니다(`PullRequest` 전체가 그대로 나옵니다). 조회를 안 거쳐 왔으면 여기서 한 번 부릅니다.
 
   ```bash
-  pnpm tsx bin/gestalt.ts pr --json show <id>   # title, body
+  gestalt pr --json show <id>   # title, body
   ```
 
 - `none` — 이 단계를 건너뛰고 `prContext`를 `"(없음)"`으로 둡니다. 브랜치나 커밋 범위 리뷰에는 본문이랄 게 없습니다.
@@ -413,7 +416,21 @@ echo "$scanTmp"
 작성된 컨텍스트 문서를 `"$scanTmp/change-context.md"`에 쓴다 (파일 쓰기 도구 사용, 셸로 넘기지 않는다).
 
 ```bash
-pnpm tsx bin/gestalt.ts humanize-scan --file "$scanTmp/change-context.md" --register report
+if gestalt --version >/dev/null 2>&1; then
+  echo "OK gestalt"
+elif pnpm tsx bin/gestalt.ts --version >/dev/null 2>&1; then
+  echo "OK pnpm"
+else
+  echo "MISSING"
+fi
+```
+
+`OK pnpm`이면 아래 호출의 `gestalt`를 `pnpm tsx bin/gestalt.ts`로 바꿔 부릅니다. 한 번 확인하고 그 뒤로는(4.5, 4.7단계 포함) 같은 형태를 씁니다.
+
+**`MISSING`이면 검사를 건너뛰지 않고 멈춥니다.** 못 돌린 걸 통과로 읽으면 검사가 없는 것과 같습니다. `npm i -g @tienne/gestalt`를 함께 알리고 그대로 진행할지 사용자가 정하게 둡니다.
+
+```bash
+gestalt humanize-scan --file "$scanTmp/change-context.md" --register report
 ```
 
 - **10 / 11** — 통과. 11이면 어투는 두고 맞춤법만 고친다.
@@ -658,7 +675,7 @@ echo "$scanTmp"
 윤문 전 리포트 전문을 `"$scanTmp/consensus.md"`에 쓰고 스캔합니다.
 
 ```bash
-pnpm tsx bin/gestalt.ts humanize-scan --file "$scanTmp/consensus.md" --register report
+gestalt humanize-scan --file "$scanTmp/consensus.md" --register report
 ```
 
 출력 전문을 그대로 아래 윤문 프롬프트의 `사전 스캔` 자리에 싣습니다. 종료 코드로 걸러 내지 않습니다 — 0건일 때의 출력도 "무엇을 직접 확인해야 하는가"를 담고 있어서 윤문하는 쪽이 읽을 값이 있습니다.
@@ -717,7 +734,7 @@ Agent {
 윤문된 리포트 전문을 사전 스캔이 출력한 경로 아래 `report.md`에 씁니다.
 
 ```bash
-pnpm tsx bin/gestalt.ts humanize-scan --file "$scanTmp/report.md" --register report
+gestalt humanize-scan --file "$scanTmp/report.md" --register report
 ```
 
 - **10 / 11** — 통과입니다. 11이면 어투는 안 걸렸고 맞춤법만 고칩니다.
@@ -752,7 +769,7 @@ git rev-parse HEAD && git status --porcelain
 gh pr view <target> --json headRefOid
 
 # local: PR head도 함께 확인
-pnpm tsx bin/gestalt.ts pr --json show <id>   # headSha 필드로 비교
+gestalt pr --json show <id>   # headSha 필드로 비교
 ```
 
 판단 기준:
@@ -773,7 +790,7 @@ pnpm tsx bin/gestalt.ts pr --json show <id>   # headSha 필드로 비교
 gh pr view <number> --json number,headRefName,baseRefName,url 2>/dev/null
 
 # local
-pnpm tsx bin/gestalt.ts pr --json show <id> 2>/dev/null
+gestalt pr --json show <id> 2>/dev/null
 ```
 
 여기서 PR이 사라졌으면 게시하지 않고 그 사실을 알립니다. 판별을 다시 돌려 다른 자리에 옮겨 붙이지 않습니다.
@@ -868,7 +885,7 @@ echo "파일 $found 개"
 # 파일마다 프로세스를 새로 띄우지 않고 한 번의 호출에 전부 실어 보냅니다.
 # humanize-scan 은 넘겨받은 파일 각각을 읽고 스캔을 따로 돌리므로 결과는 파일별로 갈립니다.
 find "$scanTmp" -maxdepth 1 -name '*.md' | sort | sed 's/^/--file /' \
-  | xargs pnpm tsx bin/gestalt.ts humanize-scan --register chat
+  | xargs gestalt humanize-scan --register chat
 ```
 
 `found` 가 코멘트 수와 다르면 **검사 실패입니다.** 그 자리에서 멈추고 무엇이 어긋났는지 알립니다. 파일 쓰기가 어긋났는데 조용히 넘어가면 이 검사가 막으려던 상황이 그대로 재현됩니다.

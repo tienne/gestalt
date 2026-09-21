@@ -49,6 +49,9 @@ outputs:
 >
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 >
+> **`gestalt` CLI를 부르는 형태** → [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)
+> 본문의 셸 예시는 전부 `gestalt ...`다. 게슈탈트 레포 안에서는 `pnpm tsx bin/gestalt.ts ...`로 바꿔 부른다. 답글 어투 검사가 이 CLI에 매달려 있고 **그건 필수 검사라 못 돌리면 멈춘다.**
+>
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 > GitHub PR은 `gh` CLI(REST + GraphQL)에, 로컬 PR은 `gestalt pr` CLI에 의존한다 (대상 판별은 아래). 둘 다 실패하면 거기서 멈추고 알린다. 스레드 목록을 손으로 지어내지 않는다.
 
@@ -82,7 +85,7 @@ outputs:
 `gestalt pr list`에는 브랜치 필터가 없다. `--status`만 받는다. `headRef`도 못 믿는다 — 워크트리에서 detached로 만든 PR은 거기에 브랜치 이름이 아니라 sha가 들어간다. 그래서 이름이 아니라 커밋으로 가른다.
 
 ```bash
-pnpm tsx bin/gestalt.ts pr --json list
+gestalt pr --json list
 git merge-base --is-ancestor <PR의 headSha> HEAD   # 종료 코드 0이면 내 브랜치의 PR
 ```
 
@@ -115,7 +118,7 @@ id를 직접 주면 아래 1번의 첫 수단이 브랜치를 안 따지고 잡�
 **명시 지정이 가장 세다. 그다음이 안 끝난 로컬 PR이다.** 아래 순서대로 훑어 처음 걸리는 것을 택한다.
 
 1. **로컬 지정** — `local` 입력이 true거나(`--local` 플래그) `target`이 로컬 PR id 형식(`gestalt pr list`에 뜨는 id)인 경우다. 이때는 로컬 PR을 두 수단으로 찾는다.
-   - `target`에 id가 있으면 먼저 `pnpm tsx bin/gestalt.ts pr --json show <id>`로 실제 존재를 확인한다. 사용자가 id를 짚었으면 그 PR이 현재 브랜치 것인지는 안 따진다.
+   - `target`에 id가 있으면 먼저 `gestalt pr --json show <id>`로 실제 존재를 확인한다. 사용자가 id를 짚었으면 그 PR이 현재 브랜치 것인지는 안 따진다.
    - id가 없거나(`--local`만 준 경우) `show`가 빈 결과를 내면 위의 가리는 법으로 현재 브랜치의 로컬 PR을 찾는다.
    - 둘 중 하나로 찾으면 `local`. 어느 쪽으로도 못 찾으면 그 사실을 한 줄 알리고 2번으로 내려간다.
 
@@ -168,7 +171,7 @@ gh api user --jq .login
 **local**: 대상 PR은 판별에서 이미 정해졌다. 여기서 다시 조회하지 않고 그때 잡은 id를 그대로 쓴다. 본문과 상태가 필요하면 `show` 한 번이면 된다.
 
 ```bash
-pnpm tsx bin/gestalt.ts pr --json show <판별에서 잡은 id>
+gestalt pr --json show <판별에서 잡은 id>
 ```
 
 `prTarget`이 `none`이면 0단계에 들어오지 않는다. 판별 4번에서 이미 멈춘 뒤다.
@@ -238,7 +241,7 @@ gh api --paginate 'repos/<owner>/<repo>/issues/<number>/comments?per_page=100' \
 로컬 PR에는 GraphQL이 없다. `gestalt pr comments`가 resolved 여부를 이미 필드로 준다 — 페이지네이션 걱정도 없다(단일 프로세스, SQLite 기반이라 상한이 없다).
 
 ```bash
-pnpm tsx bin/gestalt.ts pr --json comments <id> --unresolved
+gestalt pr --json comments <id> --unresolved
 ```
 
 반환된 코멘트를 스레드로 재구성한다. `replyTo`로 이어지는 코멘트를 한 체인으로 묶는다. 체인의 마지막 작성자가 나 자신이면 제외한다(이미 답했음). `line`이 `null`인 항목이 PR 전반 코멘트다 — 별도 API가 없다. `isOutdated` 개념은 로컬 PR에 없으므로 그 필터는 건너뛴다.
@@ -391,12 +394,26 @@ echo "$scanTmp"
 **본문만 쓴다** — 표지 줄을 붙이면 그 줄이 산문으로 세어져 인용 판정이 어긋난다.
 
 ```bash
+if gestalt --version >/dev/null 2>&1; then
+  echo "OK gestalt"
+elif pnpm tsx bin/gestalt.ts --version >/dev/null 2>&1; then
+  echo "OK pnpm"
+else
+  echo "MISSING"
+fi
+```
+
+`OK pnpm`이면 아래 호출의 `gestalt`를 `pnpm tsx bin/gestalt.ts`로 바꿔 부른다.
+
+**`MISSING`이면 검사를 건너뛰지 않고 멈춘다.** 못 돌린 걸 통과로 읽으면 검사가 없는 것과 같다. `npm i -g @tienne/gestalt`를 함께 알리고 그대로 진행할지 사용자가 정하게 둔다.
+
+```bash
 # 개수를 먼저 센다. 글롭으로 바로 돌면 파일이 0개일 때 셸마다 다르게 죽는다
 found=$(find "$scanTmp" -maxdepth 1 -name '*.md' | wc -l | tr -d ' ')
 echo "파일 $found 개"
 
 find "$scanTmp" -maxdepth 1 -name '*.md' | sort | while read -r f; do
-  pnpm tsx bin/gestalt.ts humanize-scan --file "$f" --register chat
+  gestalt humanize-scan --file "$f" --register chat
   echo "$(basename "$f" .md) EXIT=$?"
 done
 ```
@@ -456,7 +473,7 @@ gh api repos/<owner>/<repo>/issues/<number>/comments -f body="..."
 **local**:
 
 ```bash
-pnpm tsx bin/gestalt.ts pr comment <id> \
+gestalt pr comment <id> \
   --path "<원 코멘트의 path>" \
   --line <원 코멘트의 line — 없으면 생략> \
   --reply-to <원 코멘트 id> \
@@ -487,7 +504,7 @@ mutation($threadId:ID!) {
 **local**:
 
 ```bash
-pnpm tsx bin/gestalt.ts pr resolve <id> <commentId>
+gestalt pr resolve <id> <commentId>
 ```
 
 종료하더라도 `accept`·`alternate`만 종료한다. `defer`·`clarify`는 대화가 남아 있으므로 열어둔다. (github·local 공통)

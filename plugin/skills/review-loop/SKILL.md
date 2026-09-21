@@ -202,13 +202,12 @@ gh repo view --json owner,name,nameWithOwner
 
 **판정에 쓰는 수를 전부 이 명령이 낸다.** 없으면 첫 단계부터 아무것도 못 한다 — 설치본이 뒤처져 있으면 `unknown option` 으로 죽는데, 그걸 라운드를 돌다가 알면 늦다.
 
+먼저 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)의 판정을 돌려 `gestalt`를 어떤 형태로 부르는지 정한다. 그다음 그 형태로 하위 명령을 찌른다.
+
 ```bash
 if gestalt review-loop parse 1 >/dev/null 2>&1 \
   && gestalt review-loop dir >/dev/null 2>&1; then
-  echo "OK gestalt"
-elif pnpm tsx bin/gestalt.ts review-loop parse 1 >/dev/null 2>&1 \
-  && pnpm tsx bin/gestalt.ts review-loop dir >/dev/null 2>&1; then
-  echo "OK pnpm"
+  echo "OK"
 else
   echo "MISSING"
   exit 1
@@ -217,7 +216,7 @@ fi
 
 **명령을 변수에 담아 함수로 넘기지 않는다.** zsh는 인용 안 한 변수 전개에서 단어 분리를 안 해 `$cmd`가 통째로 명령 이름이 된다. 그러면 실제로 깔려 있어도 `MISSING`이 나온다. 같은 코드가 bash에서는 도는 탓에 눈으로는 안 걸린다.
 
-`OK gestalt`면 아래 예시를 그대로 쓴다. `OK pnpm`이면 게슈탈트 레포 안이라는 뜻이라 모든 호출을 `pnpm tsx bin/gestalt.ts review-loop ...`로 바꾼다. **`MISSING`이면 라운드를 시작하지 않는다.**
+`OK`면 아래 예시를 앞의 판정에서 정한 형태로 쓴다. **`MISSING`이면 라운드를 시작하지 않는다.**
 
 **하위 명령을 둘 다 찔러본다.** 하나만 보면 그것만 있고 나머지가 없는 중간 설치본이 통과해 라운드 중간에 죽는다. 1.1이 입력 하나가 아니라 셋을 보는 이유와 같다.
 
@@ -532,7 +531,7 @@ gestalt humanize-scan --file "$stateDir/verdict-r<N>.md" --register chat
 echo "EXIT=$?"
 ```
 
-게슈탈트 레포 안에서는 `pnpm tsx bin/gestalt.ts humanize-scan ...`이다. 한 번 확인하고 그 뒤로는 같은 형태를 쓴다.
+부르는 형태는 위 "조회 명령이 있는지 먼저 본다"에서 판정한 것을 그대로 쓴다.
 
 | 종료 코드 | 무엇 |
 | --- | --- |

@@ -351,7 +351,7 @@ Phase 0에서 4번(사용자가 직접 준 명령)으로 정했으면 `verify-sr
 
 ### 명령 형태
 
-게슈탈트 레포 안에서는 전역 설치가 없을 수 있으므로 `pnpm tsx bin/gestalt.ts pr ...`이고 밖에서는 `gestalt pr ...`이다. 확인하고 그 뒤로는 같은 형태를 쓴다.
+예시는 `gestalt pr ...`이다. 부르는 형태는 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)의 판정을 따른다 — 게슈탈트 레포 안에서는 전역 설치가 없을 수 있어 형태가 갈린다. 확인하고 그 뒤로는 같은 형태를 쓴다.
 
 ## Phase 1 — 로컬 PR 확보
 

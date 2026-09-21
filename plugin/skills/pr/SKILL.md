@@ -30,6 +30,9 @@ outputs:
 # PR Skill
 
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
+>
+> **`gestalt` CLI를 부르는 형태** → [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)
+> 본문의 셸 예시는 `gestalt ...`입니다. 게슈탈트 레포 안에서는 `pnpm tsx bin/gestalt.ts ...`로 바꿔 부릅니다. description 어투 검사가 이 CLI에 매달려 있고 **그건 필수 검사라 못 돌리면 멈춥니다.**
 레포의 PR 규칙을 먼저 탐색하고 미니 인터뷰로 컨텍스트를 수집한 뒤, diff를 분석해 레포 규칙에 맞는 PR description을 생성하고 `gh pr create`로 제출합니다.
 
 ## 사용 방법
@@ -287,7 +290,21 @@ echo "$scanTmp"
 윤문된 제목과 본문을 합쳐 `"$scanTmp/description.md"`에 씁니다.
 
 ```bash
-pnpm tsx bin/gestalt.ts humanize-scan --file "$scanTmp/description.md" --register report
+if gestalt --version >/dev/null 2>&1; then
+  echo "OK gestalt"
+elif pnpm tsx bin/gestalt.ts --version >/dev/null 2>&1; then
+  echo "OK pnpm"
+else
+  echo "MISSING"
+fi
+```
+
+`OK pnpm`이면 아래 호출의 `gestalt`를 `pnpm tsx bin/gestalt.ts`로 바꿔 부릅니다.
+
+**`MISSING`이면 검사를 건너뛰지 않고 멈춥니다.** 못 돌린 걸 통과로 읽으면 검사가 없는 것과 같습니다. `npm i -g @tienne/gestalt`를 함께 알리고 그대로 진행할지 사용자가 정하게 둡니다.
+
+```bash
+gestalt humanize-scan --file "$scanTmp/description.md" --register report
 ```
 
 - **10 / 11** — 통과입니다. 11이면 어투는 안 걸렸고 맞춤법만 고칩니다.

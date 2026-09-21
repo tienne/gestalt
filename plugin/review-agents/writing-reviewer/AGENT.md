@@ -56,7 +56,7 @@ git diff --word-diff=porcelain -- <파일>
 **정적 탐지를 먼저 돌립니다.** 정규식으로 잡히는 룰은 사람이 눈으로 세는 것보다 정확합니다.
 
 ```bash
-pnpm tsx bin/gestalt.ts humanize-check --before <파일> --after <파일> --register doc --json
+gestalt humanize-check --before <파일> --after <파일> --register doc --json
 ```
 
 같은 파일을 `--before`와 `--after`에 둘 다 넘기면 윤문 전후 비교가 아니라 그 파일에 남아 있는 S1 패턴을 세어 줍니다. 잡히는 룰은 21개뿐이니 나머지는 읽고 판정합니다.

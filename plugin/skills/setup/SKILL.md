@@ -64,14 +64,10 @@ multiSelect: true
 **파일이 없으면**: Bash로 생성한다.
 
 ```bash
-! pnpm tsx bin/gestalt.ts setup
+! gestalt setup
 ```
 
-또는 npx로 설치된 환경이면:
-
-```bash
-! npx @tienne/gestalt setup
-```
+부르는 형태는 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)의 판정을 따른다. 전역 설치도 게슈탈트 레포도 아니면 `npx @tienne/gestalt setup`으로 부른다.
 
 **파일이 이미 존재하면**: 사용자에게 덮어쓸지 확인 후 진행한다.
 
@@ -107,14 +103,10 @@ ges_code_graph({ action: "build", repoRoot: "<현재 디렉토리 절대경로>"
 ### Step 4 — post-commit 훅 설치 (선택된 경우)
 
 ```bash
-! pnpm tsx bin/gestalt.ts init --skip-graph
+! gestalt init --skip-graph
 ```
 
-또는:
-
-```bash
-! npx @tienne/gestalt init --skip-graph
-```
+부르는 형태는 위 Step 2와 같다.
 
 성공 시 출력:
 ```
