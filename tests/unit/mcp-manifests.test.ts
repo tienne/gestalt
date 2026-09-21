@@ -146,6 +146,24 @@ describe('Claude MCP 매니페스트', () => {
 describe('scripts/mcp-serve.sh 분기 순서', () => {
   const launcher = resolve(ROOT, 'scripts/mcp-serve.sh');
 
+  // 분기가 어긋나 진짜 서버가 뜨면 stdio 서버라 stdin을 기다리며 안 죽는다. 그대로 두면
+  // 테스트가 실패하는 대신 멈춰서, 게이트를 돌린 사람이 원인을 못 보고 기다리게 된다.
+  const LAUNCHER_TIMEOUT_MS = 15_000;
+
+  /**
+   * 런처에 물려줄 환경을 셸 프로필에서 떼어낸다.
+   *
+   * BASH_ENV 가 걸려 있으면 bash 는 비대화형으로 뜰 때도 그 파일을 읽는다. 거기서 PATH 를
+   * 다시 깔면 이 테스트가 지정한 경로가 맨 뒤로 밀린다. 그러면 스텁 대신 그 PATH 에 있던
+   * 전역 gestalt 가 잡힌다. 그러면 진짜 stdio 서버가 떠서 stdin 을 기다리고 테스트가 끝나지
+   * 않는다. 개발자 머신에서만 재현되고 CI 는 BASH_ENV 가 없어 통과하므로 원인이 안 보인다.
+   */
+  const launcherEnv = (overrides: Record<string, string>): NodeJS.ProcessEnv => {
+    const env: NodeJS.ProcessEnv = { ...process.env, ...overrides };
+    delete env.BASH_ENV;
+    return env;
+  };
+
   function withStub<T>(body: (stub: string, dir: string) => T): T {
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-launcher-'));
     const stub = join(dir, 'fake-gestalt');
@@ -160,8 +178,9 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
   it('GESTALT_MCP_BIN이 있으면 npx를 안 거치고 그걸 실행한다', () => {
     withStub((stub) => {
       const out = execFileSync('bash', [launcher], {
-        env: { ...process.env, GESTALT_MCP_BIN: stub },
+        env: launcherEnv({ GESTALT_MCP_BIN: stub }),
         encoding: 'utf-8',
+        timeout: LAUNCHER_TIMEOUT_MS,
       });
       expect(out.trim()).toBe('STUB serve');
     });
@@ -183,12 +202,12 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
       });
       writeFileSync(join(pathDir, 'gestalt'), '#!/bin/sh\necho FROM_PATH\n', { mode: 0o755 });
       const run = spawnSync('bash', [launcher], {
-        env: {
-          ...process.env,
+        env: launcherEnv({
           PATH: `${pathDir}:${process.env.PATH ?? ''}`,
           GESTALT_NODE: join(overrideDir, 'node'),
-        },
+        }),
         encoding: 'utf-8',
+        timeout: LAUNCHER_TIMEOUT_MS,
       });
       expect(run.stdout.trim()).toBe('FROM_OVERRIDE');
     } finally {
@@ -204,13 +223,16 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-badnode-'));
     try {
       writeFileSync(join(dir, 'gestalt'), '#!/bin/sh\necho "STUB $*"\n', { mode: 0o755 });
+      // 런처는 pick_node가 고른 node의 디렉토리를 PATH 맨 앞에 다시 붙인다. 실제 PATH를
+      // 그대로 물려주면 node와 전역 gestalt가 같은 디렉토리에 깔린 머신(예: Homebrew)에서
+      // 그 디렉토리가 이 스텁을 밀어낸다. 그러면 진짜 stdio 서버가 떠 stdin을 기다리고
+      // 테스트가 끝나지 않는다. 탐색이 이 디렉토리 안에서 끝나도록 PATH를 좁힌다 —
+      // /usr/bin 과 /bin 은 런처가 쓰는 dirname 같은 외부 명령 몫이고 gestalt는 없다.
+      writeFileSync(join(dir, 'node'), '#!/bin/sh\necho 22\n', { mode: 0o755 });
       const run = spawnSync('bash', [launcher], {
-        env: {
-          ...process.env,
-          PATH: `${dir}:${process.env.PATH ?? ''}`,
-          GESTALT_NODE: '/bin/echo',
-        },
+        env: launcherEnv({ PATH: `${dir}:/usr/bin:/bin`, GESTALT_NODE: '/bin/echo' }),
         encoding: 'utf-8',
+        timeout: LAUNCHER_TIMEOUT_MS,
       });
       expect(run.stderr).toContain('is not Node >= 20');
       expect(run.stdout.trim()).toBe('STUB serve');
