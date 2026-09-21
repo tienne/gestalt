@@ -24,6 +24,47 @@ function collectFiles(root: string): string[] {
     .map((entry) => join(entry.parentPath, entry.name).slice(root.length + 1));
 }
 
+const report = (label: string, files: string[]) => {
+  if (files.length === 0) return;
+  console.error(`\n${label} (${files.length}건)`);
+  for (const file of files.sort()) console.error(`  ${file}`);
+};
+
+/**
+ * 플러그인 캐시에는 plugin/ 아래만 복사된다 — bin/ 도 node_modules 도 없다.
+ * 그래서 스킬이 `pnpm tsx bin/gestalt.ts <하위명령>` 을 유일한 호출로 적어두면
+ * 게슈탈트 레포 밖에서는 그 단계가 원리상 못 돈다. 어투 검사처럼 필수 게이트인
+ * 자리가 그렇게 건너뛰어지면 막으려던 문장이 그대로 나간다.
+ *
+ * 호출 형태는 _shared/cli-launcher.md 의 판정 한 곳에만 둔다. 여기서 막는 건
+ * 그 판정을 안 거치고 pnpm 형태를 직접 박은 자리다. 판정 블록의 `--version`,
+ * 산문의 `... ` 표기, 백틱으로 닫힌 인용은 하위 명령이 아니라 통과시킨다.
+ */
+const HARDCODED_LAUNCHER = /pnpm tsx bin\/gestalt\.ts[ \t]+(?!--version|\.\.\.)/;
+
+const launcherOffenders: string[] = [];
+for (const dir of ASSET_DIRS) {
+  const sourceRoot = resolve(ROOT, 'plugin', dir);
+  for (const file of collectFiles(sourceRoot)) {
+    if (!file.endsWith('.md')) continue;
+    const lines = readFileSync(join(sourceRoot, file), 'utf8').split('\n');
+    lines.forEach((line, index) => {
+      if (HARDCODED_LAUNCHER.test(line)) launcherOffenders.push(`${dir}/${file}:${index + 1}`);
+    });
+  }
+}
+
+if (launcherOffenders.length > 0) {
+  console.error('스킬 본문에 `pnpm tsx bin/gestalt.ts <하위명령>` 이 직접 박혀 있습니다.');
+  console.error('플러그인 캐시에는 bin/ 도 node_modules 도 없어 그 형태는 안 돕니다.');
+  report('고칠 자리', launcherOffenders);
+  console.error(
+    '\n예시는 `gestalt ...` 로 적고, 부르는 형태는 ' +
+      'plugin/skills/_shared/cli-launcher.md 의 판정을 참조하게 하세요.',
+  );
+  process.exit(1);
+}
+
 const missing: string[] = [];
 const stale: string[] = [];
 const differing: string[] = [];
@@ -59,12 +100,6 @@ for (const dir of ASSET_DIRS) {
     if (!sourceSet.has(file)) stale.push(`${dir}/${file}`);
   }
 }
-
-const report = (label: string, files: string[]) => {
-  if (files.length === 0) return;
-  console.error(`\n${label} (${files.length}건)`);
-  for (const file of files.sort()) console.error(`  ${file}`);
-};
 
 if (missing.length > 0 || stale.length > 0 || differing.length > 0) {
   console.error('dist/plugin 이 plugin/ 과 일치하지 않습니다.');
