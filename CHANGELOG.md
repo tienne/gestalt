@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.82.2] - 2026-09-22
+
+### Fixed
+
+- **solve 스킬의 진행 패널에 안전장치를 붙였어요.** 패널을 쓰는 스킬 다섯 개 중 solve만 없었습니다.
+  - `TaskCreate`랑 `TaskUpdate`는 게슈탈트가 주는 도구가 아니라 호스트가 주는 거예요. 레포 안에 구현이 없고 SKILL.md 다섯 개랑 CHANGELOG에만 이름이 나옵니다. 런타임에 따라 없을 수 있어요.
+  - interview와 spec, execute는 "best-effort — 실패가 흐름을 중단시켜서는 안 된다"를 적어뒀고 ship은 없는 런타임의 폴백까지 적어뒀는데 solve는 둘 다 없었어요. solve 문서만 보고 도는 에이전트는 없는 도구를 부르려다 인터뷰가 끊깁니다.
+  - ship이 쓰던 문장을 그대로 가져와 Phase 전환마다 한 줄로 대신 알리게 했어요.
+- **Phase 3에서 패널이 둘로 갈라지는 자리를 막았어요.** execute 파이프라인을 그대로 따르라고만 적혀 있어서 execute의 `TaskCreate`가 패널을 하나 더 만들 수 있었습니다. Phase 1에서 만든 taskId를 이어 쓰고 그 절은 건너뛴다고 명시했어요.
+
+### 검증 범위
+
+`pnpm gate` 전 항목을 통과했어요. 149개 파일 2340개 테스트입니다. `humanize-scan --register doc`도 S1 0건이고요.
+
+### 남긴 것
+
+도구 이름 자체는 안 건드렸어요. 다섯 스킬이 전부 `TaskCreate`를 부르는데 지금 호스트가 주는 건 `TaskOutput`이랑 `TaskStop`이라 이름이 안 맞습니다. 맞는 이름으로 바꾸려면 호스트마다 뭘 주는지 먼저 확인해야 하고 그건 문서 한 줄 고치는 범위가 아니에요. 지금은 없을 때 안 멈추는 것까지만 보장합니다.
+
 ## [0.82.1] - 2026-09-21
 
 ### Changed
