@@ -1,6 +1,6 @@
 {
   "name": "@tienne/gestalt",
-  "version": "0.82.1",
+  "version": "0.82.2",
   "description": "TypeScript AI Development Harness - Gestalt psychology-driven requirement clarification",
   "repository": {
     "type": "git",
