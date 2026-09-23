@@ -98,6 +98,44 @@ export const specInputSchema = guardObject(
 
 export type SpecInput = z.infer<typeof specInputSchema>;
 
+// ─── Review Consensus Sub-schemas ───────────────────────────────
+// review 스킬 3.7단계(제안 검증)의 판정을 싣는다. src/core/types.ts의 ReviewIssue와 정합.
+
+const reviewIssueVerificationSchema = z.object({
+  verdict: z
+    .enum(['keep', 'revise'])
+    .describe('drop은 여기 쓰지 않는다. 뺀 이슈는 droppedIssues로 옮긴다.'),
+  reason: z.string(),
+  originalSuggestion: z
+    .string()
+    .optional()
+    .describe('revise일 때 리뷰어가 처음 낸 제안. suggestion에는 고친 제안을 넣는다.'),
+  alsoCheck: z.array(z.string()).optional().describe('제안을 반영할 때 같이 바꿔야 하는 자리'),
+});
+
+const mergedIssueSchema = z.object({
+  id: z.string(),
+  severity: z.enum(['critical', 'high', 'warning']),
+  category: z.string(),
+  file: z.string(),
+  line: z.number().optional(),
+  message: z.string(),
+  suggestion: z.string(),
+  reportedBy: z
+    .string()
+    .describe(
+      '이 의견을 낸 에이전트 이름 하나. 배열이 아니다 — 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적는다.',
+    ),
+  verification: reviewIssueVerificationSchema
+    .optional()
+    .describe('제안 검증 결과. 검증을 안 거쳤으면 생략한다.'),
+});
+
+const droppedIssueSchema = mergedIssueSchema.extend({
+  dropReason: z.string().min(1).describe('전제가 사실과 다른 이유'),
+  dropEvidence: z.string().min(1).describe('그 판단의 증거. 파일:줄이나 명령 출력'),
+});
+
 // ─── Execute Tool ───────────────────────────────────────────────
 export const executeInputSchema = guardObject(
   z.object({
@@ -461,30 +499,21 @@ export const executeInputSchema = guardObject(
       .describe('Individual agent review result (required for review_submit)'),
     reviewConsensus: z
       .object({
-        mergedIssues: z.array(
-          z.object({
-            id: z.string(),
-            severity: z.enum(['critical', 'high', 'warning']),
-            category: z.string(),
-            file: z.string(),
-            line: z.number().optional(),
-            message: z.string(),
-            suggestion: z.string(),
-            reportedBy: z
-              .string()
-              .describe(
-                '이 의견을 낸 에이전트 이름 하나. 배열이 아니다 — 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적는다.',
-              ),
-          }),
-        ),
+        mergedIssues: z.array(mergedIssueSchema),
         approvedBy: z.array(z.string()),
         blockedBy: z.array(z.string()),
         summary: z.string(),
         overallApproved: z.boolean(),
+        droppedIssues: z
+          .array(droppedIssueSchema)
+          .optional()
+          .describe(
+            '제안 검증이 전제가 틀렸다는 증거를 찾아 판정에서 뺀 이슈. 판정과 게시에는 안 들어가고 리포트에 이유와 증거가 남는다. security category나 critical 이슈를 넣으면 거부된다.',
+          ),
       })
       .optional()
       .describe(
-        'Merged review consensus (required for review_consensus). mergedIssues[]의 각 항목은 id, severity, category, file, message, suggestion, reportedBy가 모두 필요하다 (line만 선택). reportedBy는 에이전트 이름 문자열 하나다.',
+        'Merged review consensus (required for review_consensus). mergedIssues[]의 각 항목은 id, severity, category, file, message, suggestion, reportedBy가 모두 필요하다 (line과 verification만 선택). reportedBy는 에이전트 이름 문자열 하나다. droppedIssues는 선택이고 생략하면 기존 동작 그대로다.',
       ),
     continuityVerdict: z
       .object({

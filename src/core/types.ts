@@ -451,6 +451,19 @@ export type ReviewSessionStatus =
   | 'escalated'
   | 'failed_with_report';
 
+/**
+ * 게시 전 제안 검증(review 스킬 3.7단계)이 이슈에 남긴 판정.
+ * drop은 여기 오지 않는다. 뺀 이슈는 `ReviewConsensusResult.droppedIssues`로 따로 간다.
+ */
+export interface ReviewIssueVerification {
+  verdict: 'keep' | 'revise';
+  reason: string;
+  /** revise일 때 리뷰어가 처음 낸 제안. `suggestion` 자리에는 고친 제안이 들어간다 */
+  originalSuggestion?: string;
+  /** 제안을 반영할 때 같이 바꿔야 하는 자리 */
+  alsoCheck?: string[];
+}
+
 export interface ReviewIssue {
   id: string;
   severity: ReviewIssueSeverity;
@@ -460,6 +473,7 @@ export interface ReviewIssue {
   message: string;
   suggestion: string;
   reportedBy: string;
+  verification?: ReviewIssueVerification;
 }
 
 export interface ReviewResult {
@@ -469,12 +483,16 @@ export interface ReviewResult {
   summary: string;
 }
 
+/** 제안 검증이 전제가 틀렸다는 증거를 찾아 판정에서 뺀 이슈. 리포트에 이유와 증거가 남는다 */
+export type DroppedReviewIssue = ReviewIssue & { dropReason: string; dropEvidence: string };
+
 export interface ReviewConsensusResult {
   mergedIssues: ReviewIssue[];
   approvedBy: string[];
   blockedBy: string[];
   summary: string;
   overallApproved: boolean;
+  droppedIssues?: DroppedReviewIssue[];
 }
 
 /** 정합 심급이 판단하는 세 축. goal=목표 정합, consistency=일관성, drift=이탈. */
