@@ -1,6 +1,6 @@
 # 공유 레퍼런스
 
-여러 에이전트가 함께 쓰는 어투, 문체, 코드 주석 룰북이다. 특정 에이전트 소유가 아니라서 `_shared/` 아래 둔다.
+여러 에이전트가 함께 쓰는 어투, 문체, 코드 주석 룰북과 리뷰 절차 문서다. 특정 에이전트 소유가 아니라서 `_shared/` 아래 둔다.
 `_shared`에는 `AGENT.md`가 없으므로 `RoleAgentRegistry`가 에이전트로 로드하지 않는다
 (`plugin/skills/_shared/`와 같은 규칙).
 
@@ -11,6 +11,7 @@
 | `style-guide.md` | 한국어 문장·용어·문서 구조 규칙 | `technical-writer`, `impact-writer`, `presentation-writer`, `presentation-designer`, `jira-writer` |
 | `comment-rules.md` | 코드 주석 위생 룰북 (`CM-` ID, 리뷰 파이프라인 심각도). 어투가 아니라 코드 품질 쪽 | `quality-reviewer` |
 | `truncation-rules.md` | 잘린 결과 룰북 (`TR-` ID, 리뷰 파이프라인 심각도). 일부만 가져와놓고 전부인 것처럼 돌려주는 코드 | `quality-reviewer` |
+| `rule-path-walk.md` | 규칙 문서 경로 따라가기 절차 (룰 ID 없음). 규칙 문서가 바뀐 PR에서 정상 경로 하나를 끝까지 따라가 막힘, 모순, 비어버림 같은 자리를 찾는다 | `/review` 3.5단계(`continuity-judge` 프롬프트), `suggestion-verifier` |
 
 ## 고칠 때
 
@@ -50,3 +51,4 @@ pnpm build:output-style
 - 경로를 참조하는 자리가 여러 곳이다. 파일을 옮기거나 이름을 바꾸면 `plugin/` 전체에서
   상대경로 참조를 다시 확인한다 (에이전트는 `../_shared/references/`, 에이전트의 `references/`
   하위 문서는 `../../_shared/references/`, 스킬은 `../../role-agents/_shared/references/`).
+  `rule-path-walk.md`는 review 스킬 1단계가 절대 경로를 찾는 셸 루프에도 경로가 적혀 있다.
