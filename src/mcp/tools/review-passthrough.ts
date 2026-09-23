@@ -188,7 +188,8 @@ function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: Exe
 
   if (!result.ok) return JSON.stringify({ error: result.error.message });
 
-  const { approved, report, needsFix, canFix, criticalHighCount, escalate } = result.value;
+  const { approved, report, needsFix, canFix, criticalHighCount, escalate, verification } =
+    result.value;
 
   // Save key findings as architecture decisions
   try {
@@ -226,6 +227,8 @@ function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: Exe
       approved,
       criticalHighCount,
       escalate,
+      // 결과 표시가 이 수를 그대로 옮긴다. 스킬이 따로 세면 리포트와 어긋난다
+      verification,
       report: report.markdown,
       needsFix,
       canFix,
@@ -374,7 +377,13 @@ function asMemoryNote(text: string): string {
 function issueBody(issue: ReviewIssue): string {
   const head = `**[${issue.severity}] ${issue.category}** — ${issue.reportedBy}`;
   const suggestion = issue.suggestion ? `\n\n제안: ${issue.suggestion}` : '';
-  return `${head}\n\n${issue.message}${suggestion}`;
+  // 로컬 PR 게시는 code-review-writer를 안 거친다. 여기 안 실으면 ship 경로에서 alsoCheck가 통째로 빠진다
+  const spots = issue.verification?.alsoCheck ?? [];
+  const alsoCheck =
+    spots.length > 0
+      ? `\n\n반영하실 때 같이 봐주세요.\n\n${spots.map((spot) => `- ${spot}`).join('\n')}`
+      : '';
+  return `${head}\n\n${issue.message}${suggestion}${alsoCheck}`;
 }
 
 function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: ExecuteInput): string {

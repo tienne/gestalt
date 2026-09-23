@@ -19,6 +19,7 @@ import { logger } from '../core/logger.js';
 import type { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { isConsensusApproved } from '../local-pr/policy.js';
+import { checkDroppedIssues, verificationStats, type VerificationStats } from './verification.js';
 
 const MAX_REVIEW_ATTEMPTS = 3;
 
@@ -238,9 +239,21 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     canFix: boolean;
     criticalHighCount: number;
     escalate: boolean;
+    verification: VerificationStats;
   }> {
     const session = this.sessions.get(sessionId);
     if (!session) return err(new Error(`Review session not found: ${sessionId}`));
+
+    // 세션을 덮어쓰기 전에 거른다. 거부된 호출이 앞서 받은 합의를 지우면 안 된다
+    const dropProblem = checkDroppedIssues(consensus, session.reviewResults);
+    if (dropProblem) {
+      logger.warn('review.consensus_rejected', {
+        module: 'review',
+        sessionId,
+        droppedCount: consensus.droppedIssues?.length ?? 0,
+      });
+      return err(new Error(dropProblem));
+    }
 
     session.consensus = consensus;
     session.continuityVerdict = continuityVerdict;
@@ -270,6 +283,8 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     );
     session.reports.push(report);
 
+    const verification = verificationStats(consensus);
+
     this.emitEvent(sessionId, EventType.REVIEW_CONSENSUS_COMPLETED, {
       totalIssues: consensus.mergedIssues.length,
       criticalHighCount: criticalHighIssues.length,
@@ -279,6 +294,8 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       continuityCoherent: continuityVerdict ? continuityVerdict.coherent : null,
       driftCount: continuityVerdict?.driftFindings.length ?? 0,
       escalate,
+      // 제안 검증이 라운드 수를 줄였는지 나중에 재려고 남긴다
+      verification,
     });
 
     if (approved) {
@@ -325,6 +342,7 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       canFix,
       criticalHighCount: criticalHighIssues.length,
       escalate,
+      verification,
     });
   }
 
@@ -413,10 +431,13 @@ Respond with ONLY a JSON object:
 }`;
 
     const issueList = criticalHighIssues
-      .map(
-        (i) =>
-          `- [${i.severity.toUpperCase()}] ${i.file}${i.line ? `:${i.line}` : ''}: ${i.message}\n  Suggestion: ${i.suggestion}`,
-      )
+      .map((i) => {
+        const head = `- [${i.severity.toUpperCase()}] ${i.file}${i.line ? `:${i.line}` : ''}: ${i.message}\n  Suggestion: ${i.suggestion}`;
+        // 제안 검증이 짚은 자리를 같이 안 고치면 다음 라운드에 그 자리가 새 이슈로 돌아온다
+        const alsoCheck = i.verification?.alsoCheck ?? [];
+        if (alsoCheck.length === 0) return head;
+        return `${head}\n  Also update when applying this fix:\n${alsoCheck.map((spot) => `    - ${spot}`).join('\n')}`;
+      })
       .join('\n');
 
     // 정합 심급이 Block했지만 escalate는 아닌 경우, 그 이탈 항목은 라인 수정으로
