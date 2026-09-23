@@ -15,7 +15,7 @@ ges_agent { action: "get", name: "architect" }
 |---|---|---|
 | `frugal` | `haiku` | proximity-worker |
 | `standard` | `sonnet` | 대부분 |
-| `frontier` | `opus` | architect, harness-architect, continuity-judge |
+| `frontier` | `opus` | architect, harness-architect, continuity-judge, suggestion-verifier |
 
 ## 등록 에이전트가 없는 자리
 
