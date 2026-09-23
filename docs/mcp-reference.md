@@ -351,6 +351,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `client` | `"claude-code" \| "codex" \| "both" \| "grok"` | N | 서버 `config.client` | 호출 단위 호스트 override. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고, `"both"`는 Claude와 Codex만 쓴다. |
 | `codeGraphRepoRoot` | `string` | N | — | `start`에서 설정 시 태스크 실행마다 관련 파일을 자동 추출해 `suggestedFiles`로 반환 |
 | `prId` | `string` | N | — | `review_start`에서 주면 그 로컬 PR의 변경 파일로 리뷰를 연다. `sessionId`와 `changedFiles + repoRoot`보다 우선한다 — 함께 주면 나머지는 안 본다. `review_publish`에서는 쓸 대상 PR이고, `review_start`를 `prId`로 열었으면 세션에서 이어받으므로 생략할 수 있다 |
+| `sinceSha` | `string` | N | — | `review_start` 전용. 재리뷰일 때 직전 리뷰가 본 head 커밋(7~64자리 16진수). 세션과 `REVIEW_STARTED` 이벤트에 남고 `reviewPrompt` 끝에 이번 라운드 비교 범위 한 줄이 붙는다. 빈 문자열이나 공백은 생략과 같고 16진수가 아니면 에러로 거부한다. 생략하면 기존 동작 그대로다 |
 | `repoRoot` | `string` | N | 프로세스 cwd | `prId`를 찾을 로컬 PR 저장소 |
 | `reviewSessionId` | `string` | `review_submit`, `review_consensus`, `review_publish` | — | `review_start`가 돌려준 리뷰 세션 ID |
 | `prReviewer` | `string` | N | `GESTALT_ACTOR` 또는 `gestalt:review` | `review_publish`가 판정을 남길 때 쓸 리뷰어 이름. 인라인 코멘트 작성자는 이 값이 아니라 이슈를 낸 에이전트다 (`agent:security-reviewer` 꼴) |

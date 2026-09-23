@@ -55,7 +55,9 @@ export class PassthroughReviewEngine {
       | { changedFiles: string[]; repoRoot: string; prId?: string },
     roleAgents: AgentDefinition[],
     reviewAgents: AgentDefinition[],
+    options: { sinceSha?: string } = {},
   ): Result<{ sessionId: string; reviewStartContext: ReviewStartContext }> {
+    const { sinceSha } = options;
     let reviewContext: ReviewContext;
     let executeSessionId: string;
     let repoRoot: string | undefined;
@@ -92,6 +94,7 @@ export class PassthroughReviewEngine {
       reviewContext,
       repoRoot,
       prId,
+      ...(sinceSha ? { sinceSha } : {}),
       matchedAgents: [],
       reviewResults: [],
       reports: [],
@@ -113,6 +116,8 @@ export class PassthroughReviewEngine {
       executeSessionId,
       changedFiles: reviewContext.changedFiles.length,
       dependencyFiles: reviewContext.dependencyFiles.length,
+      // 재리뷰 비율을 나중에 이벤트만으로 재려고 싣는다. 첫 리뷰에는 키가 없다.
+      ...(sinceSha ? { sinceSha } : {}),
     });
 
     const systemPrompt = `You are a code reviewer in the Gestalt pipeline.
@@ -156,6 +161,11 @@ Respond with ONLY a JSON object:
             .join('\n')}\n`
         : '';
 
+    // 리뷰어 워크트리의 HEAD는 리뷰 대상 head가 아닐 수 있어 ..HEAD로 쓰지 않는다.
+    const sinceBlock = sinceSha
+      ? `\n\nSince last review: ${sinceSha}. Changes in this round are \`git diff ${sinceSha}..<reviewed head>\`; prioritize them.`
+      : '';
+
     const reviewPrompt = `## Code Review
 
 **Spec Goal**: ${reviewContext.spec?.goal ?? 'Direct file review'}
@@ -168,7 +178,7 @@ ${constraintsBlock}
 
 Review the code changes from your assigned perspective. Focus on issues that matter, not nitpicks — but anything your agent rules explicitly require you to report is never a nitpick.
 
-**Changed lines**: the file list above does not tell you which lines changed. Run \`git diff\` before judging any rule that only applies to new or modified lines.`;
+**Changed lines**: the file list above does not tell you which lines changed. Run \`git diff\` before judging any rule that only applies to new or modified lines.${sinceBlock}`;
 
     return ok({
       sessionId,
