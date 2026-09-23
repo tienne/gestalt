@@ -544,6 +544,12 @@ export const executeInputSchema = guardObject(
       .describe(
         '로컬 PR id. review_start에 주면 그 PR의 변경 파일과 저장소 경로로 리뷰를 연다 (sessionId·changedFiles보다 우선). review_publish에 필요하며, review_start에서 이미 준 세션이면 생략할 수 있다.',
       ),
+    sinceSha: z
+      .string()
+      .optional()
+      .describe(
+        'review_start 전용. 재리뷰일 때 직전 리뷰가 본 head 커밋 sha(7~64자리 16진수). 세션과 REVIEW_STARTED 이벤트에 남고 reviewPrompt에 이번 라운드 비교 범위 한 줄이 붙는다. 빈 문자열이나 공백은 생략과 같다. 16진수가 아니면 거부한다. 생략하면 첫 리뷰와 같다.',
+      ),
     prReviewer: z
       .string()
       .optional()

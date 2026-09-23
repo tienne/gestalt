@@ -13,6 +13,8 @@ import type { ReviewVerdict } from '../../local-pr/types.js';
 import { log } from '../../core/log.js';
 import { resolveExecuteSessionInput } from './execute/utils.js';
 
+const SHA_PATTERN = /^[0-9a-f]{7,64}$/i;
+
 export function handleReviewPassthrough(
   reviewEngine: PassthroughReviewEngine,
   executeEngine: PassthroughExecuteEngine,
@@ -91,6 +93,14 @@ function handleReviewStart(
     });
   }
 
+  const sinceSha = input.sinceSha?.trim() || undefined;
+  // 리뷰어가 돌릴 git 명령에 그대로 들어가는 값이라 sha 모양이 아니면 받지 않는다.
+  if (sinceSha && !SHA_PATTERN.test(sinceSha)) {
+    return JSON.stringify({
+      error: `sinceSha must be a 7-64 character hex commit sha, got: ${JSON.stringify(sinceSha)}`,
+    });
+  }
+
   const roleAgents = roleAgentRegistry?.getAll() ?? [];
   // Get review-specific agents from role agent registry (pipeline: review)
   const allRoleAgents = roleAgentRegistry?.getAll() ?? [];
@@ -110,7 +120,7 @@ function handleReviewStart(
       ? { executeSession: executeEngine.getSession(input.sessionId) }
       : { changedFiles: input.changedFiles!, repoRoot: input.repoRoot! };
 
-  const result = reviewEngine.startReview(source, roleAgents, reviewAgents);
+  const result = reviewEngine.startReview(source, roleAgents, reviewAgents, { sinceSha });
   if (!result.ok) return JSON.stringify({ error: result.error.message });
 
   const { sessionId, reviewStartContext } = result.value;
@@ -121,6 +131,7 @@ function handleReviewStart(
       reviewSessionId: sessionId,
       executeSessionId: prSource ? null : (input.sessionId ?? null),
       prId: prSource?.prId ?? null,
+      sinceSha: sinceSha ?? null,
       reviewStartContext: {
         systemPrompt: reviewStartContext.systemPrompt,
         reviewPrompt: reviewStartContext.reviewPrompt,

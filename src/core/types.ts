@@ -578,6 +578,8 @@ export interface ReviewSession {
   repoRoot?: string;
   /** 이 리뷰가 로컬 PR에서 시작했으면 그 PR id. 합의 결과를 되돌려 쓸 자리다. */
   prId?: string;
+  /** 재리뷰면 직전 리뷰가 본 head. 이번 라운드 변경은 이 커밋부터 지금 head까지다. */
+  sinceSha?: string;
   /** review_publish가 PR에 쓴 진행 상태. 재실행 방어와 중단 재개의 근거다. */
   publishState?: ReviewPublishState;
   matchedAgents: string[];
