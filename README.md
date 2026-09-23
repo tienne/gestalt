@@ -125,7 +125,7 @@ What you get:
 |------|---------|
 | **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
 | **Slash Commands** | 21 workflow skills — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send`, and more |
-| **Agents** | 22 role agents + 4 review agents |
+| **Agents** | 23 role agents + 4 review agents |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
 
 ---
@@ -212,7 +212,7 @@ What you get:
 |------|---------|
 | **MCP Tools** | All 12 `ges_*` tools |
 | **Skills** | 21 workflow skills, including `gestalt:review` and `gestalt:pr` |
-| **Agents** | 22 role agents + 4 review agents (bundled for skills to read) |
+| **Agents** | 23 role agents + 4 review agents (bundled for skills to read) |
 
 Skills load on the next Codex session. Slash commands and the Claude Code Task
 panel are still Claude Code only — in Codex you invoke a skill by describing the
