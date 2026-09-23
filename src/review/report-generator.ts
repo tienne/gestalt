@@ -1,10 +1,12 @@
 import type {
   ContinuityVerdict,
+  DroppedReviewIssue,
   ReviewConsensusResult,
   ReviewIssue,
   ReviewReport,
 } from '../core/types.js';
 import { SnippetReader, type CodeSnippet } from './snippet-reader.js';
+import { verificationStats } from './verification.js';
 
 export class ReviewReportGenerator {
   generate(
@@ -84,6 +86,15 @@ export class ReviewReportGenerator {
       }
     }
 
+    // 거부하지 않고 드러낸다. 검증 없이 부르는 호출자가 따로 있어서다
+    const { unverifiedCriticalHigh } = verificationStats(consensus);
+    if (unverifiedCriticalHigh > 0) {
+      lines.push(
+        `**제안 검증**: 검증을 거치지 않은 critical/high 이슈 ${unverifiedCriticalHigh}개`,
+      );
+      lines.push('');
+    }
+
     // Issues by severity
     const criticals = consensus.mergedIssues.filter((i) => i.severity === 'critical');
     const highs = consensus.mergedIssues.filter((i) => i.severity === 'high');
@@ -114,6 +125,15 @@ export class ReviewReportGenerator {
       lines.push('');
     }
 
+    const dropped = consensus.droppedIssues ?? [];
+    if (dropped.length > 0) {
+      lines.push(`## 검증에서 뺀 이슈 (${dropped.length}개)`);
+      lines.push('');
+      lines.push('판정에 넣지 않았고 코멘트로도 올리지 않습니다.');
+      lines.push('');
+      this.renderDroppedList(lines, dropped);
+    }
+
     // Stats
     lines.push('---');
     lines.push('');
@@ -136,10 +156,49 @@ export class ReviewReportGenerator {
       lines.push(`- **Category**: ${issue.category}`);
       lines.push(`- **Reported by**: ${issue.reportedBy}`);
       lines.push(`- **Suggestion**: ${issue.suggestion}`);
+      this.renderVerification(lines, issue);
       lines.push('');
 
       const snippet = snippets.read(issue.file, issue.line);
       if (snippet) this.renderSnippet(lines, snippet);
+    }
+  }
+
+  private renderVerification(lines: string[], issue: ReviewIssue): void {
+    const verification = issue.verification;
+    if (!verification) return;
+    if (verification.verdict === 'revise') {
+      lines.push(`- **제안 검증**: 원래 제안을 고쳤습니다. ${verification.reason}`);
+      if (verification.originalSuggestion) {
+        lines.push(`- **원래 제안**: ${verification.originalSuggestion}`);
+      }
+    }
+    const alsoCheck = verification.alsoCheck ?? [];
+    if (alsoCheck.length > 0) {
+      lines.push('- **반영할 때 같이 볼 자리**:');
+      for (const spot of alsoCheck) lines.push(`  - ${spot}`);
+    }
+  }
+
+  /** 스니펫은 안 붙인다. 뺀 이슈는 코드가 아니라 근거를 봐야 하는 자리다 */
+  private renderDroppedList(lines: string[], issues: DroppedReviewIssue[]): void {
+    for (const issue of issues) {
+      const location = issue.line ? `${issue.file}:${issue.line}` : issue.file;
+      lines.push(`### ${issue.message}`);
+      lines.push('');
+      lines.push(`- **Location**: \`${location}\``);
+      lines.push(`- **Severity**: ${issue.severity}`);
+      lines.push(`- **Category**: ${issue.category}`);
+      lines.push(`- **Reported by**: ${issue.reportedBy}`);
+      lines.push(`- **Suggestion**: ${issue.suggestion}`);
+      lines.push(`- **뺀 이유**: ${issue.dropReason}`);
+      lines.push('');
+      // text 펜스에 넣어 4.5단계 윤문과 어투 스캔이 증거 원문을 건드리지 않게 한다
+      const fence = fenceFor(issue.dropEvidence);
+      lines.push(`${fence}text`);
+      lines.push(...issue.dropEvidence.split('\n'));
+      lines.push(fence);
+      lines.push('');
     }
   }
 
@@ -157,4 +216,10 @@ export class ReviewReportGenerator {
     lines.push('```');
     lines.push('');
   }
+}
+
+/** 증거 안에 백틱 펜스가 들어 있어도 닫히지 않게 한 칸 더 긴 펜스를 쓴다 */
+function fenceFor(text: string): string {
+  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  return '`'.repeat(Math.max(3, longest + 1));
 }
