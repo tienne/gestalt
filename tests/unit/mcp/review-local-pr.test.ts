@@ -614,4 +614,211 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
       process.chdir(cwd);
     }
   });
+
+  // ─── 3.7단계 제안 검증이 합의와 게시에 남기는 것 ──────────────
+
+  describe('제안 검증', () => {
+    type VerifiedIssue = {
+      id: string;
+      severity: 'critical' | 'high' | 'warning';
+      category: string;
+      file: string;
+      line?: number;
+      message: string;
+      suggestion: string;
+      reportedBy: string;
+      verification?: {
+        verdict: 'keep' | 'revise';
+        reason: string;
+        originalSuggestion?: string;
+        alsoCheck?: string[];
+      };
+    };
+    type DroppedIssue = VerifiedIssue & { dropReason: string; dropEvidence: string };
+
+    const base: VerifiedIssue = {
+      id: 'v-1',
+      severity: 'high',
+      category: 'quality',
+      file: 'a.txt',
+      line: 2,
+      message: '남길 문제',
+      suggestion: '고치는 법',
+      reportedBy: 'quality-reviewer',
+    };
+
+    function consensusCall(
+      reviewSessionId: string,
+      mergedIssues: VerifiedIssue[],
+      droppedIssues?: DroppedIssue[],
+    ): ReviewResponse & { verification?: Record<string, number> } {
+      return call({
+        action: 'review_consensus',
+        reviewSessionId,
+        reviewConsensus: {
+          mergedIssues,
+          ...(droppedIssues ? { droppedIssues } : {}),
+          approvedBy: [],
+          blockedBy: [],
+          summary: '합의 요약',
+          overallApproved: false,
+        },
+      } as Partial<ExecuteInput>);
+    }
+
+    function open(): string {
+      return call({ action: 'review_start', prId, repoRoot: repo }).reviewSessionId!;
+    }
+
+    it('consensus 응답에 검증 통계를 싣는다', () => {
+      const parsed = consensusCall(
+        open(),
+        [
+          { ...base, verification: { verdict: 'keep', reason: '안전' } },
+          { ...base, id: 'v-2', severity: 'high' },
+        ],
+        [{ ...base, id: 'v-3', dropReason: '규칙 폐지', dropEvidence: 'git log 출력' }],
+      );
+
+      expect(parsed.error).toBeUndefined();
+      expect(parsed.verification).toEqual({
+        keep: 1,
+        revise: 0,
+        drop: 1,
+        unverifiedCriticalHigh: 1,
+      });
+    });
+
+    it('뺄 수 없는 이슈를 넣으면 error로 돌려주고 판정 필드는 안 싣는다', () => {
+      const parsed = consensusCall(
+        open(),
+        [],
+        [{ ...base, category: 'Security:secrets', dropReason: 'r', dropEvidence: 'e' }],
+      );
+
+      expect(parsed.error).toContain('v-1');
+      expect(parsed.error).toContain('mergedIssues로 되돌려');
+      expect(parsed.status).toBeUndefined();
+      expect(parsed.verification).toBeUndefined();
+    });
+
+    it('거부된 합의 뒤에 게시하면 앞서 받은 합의가 올라간다', () => {
+      const reviewSessionId = open();
+      consensusCall(reviewSessionId, [{ ...base, message: '먼저 받은 문제' }]);
+      const rejected = consensusCall(
+        reviewSessionId,
+        [{ ...base, id: 'x', message: '거부된 합의의 문제' }],
+        [{ ...base, id: 'y', severity: 'critical', dropReason: 'r', dropEvidence: 'e' }],
+      );
+      expect(rejected.error).toBeDefined();
+
+      const published = call({ action: 'review_publish', reviewSessionId });
+
+      expect(published.commentCount).toBe(1);
+      const bodies = readPr().comments.map((c) => c.body);
+      expect(bodies[0]).toContain('먼저 받은 문제');
+      expect(bodies.join('\n')).not.toContain('거부된 합의의 문제');
+    });
+
+    it('alsoCheck가 있으면 코멘트 본문 끝에 목록으로 싣는다', () => {
+      const reviewSessionId = open();
+      consensusCall(reviewSessionId, [
+        {
+          ...base,
+          verification: {
+            verdict: 'keep',
+            reason: '',
+            alsoCheck: ['src/api.test.ts:88 단언', 'docs/api.md 예시'],
+          },
+        },
+      ]);
+
+      call({ action: 'review_publish', reviewSessionId });
+
+      const body = readPr().comments[0]!.body;
+      expect(
+        body.endsWith(
+          '\n\n반영하실 때 같이 봐주세요.\n\n- src/api.test.ts:88 단언\n- docs/api.md 예시',
+        ),
+      ).toBe(true);
+      expect(body.indexOf('제안: 고치는 법')).toBeLessThan(body.indexOf('반영하실 때'));
+    });
+
+    it('alsoCheck가 없거나 비면 본문에 안내 문장이 없다', () => {
+      const reviewSessionId = open();
+      consensusCall(reviewSessionId, [
+        base,
+        {
+          ...base,
+          id: 'v-2',
+          line: 1,
+          verification: { verdict: 'keep', reason: '', alsoCheck: [] },
+        },
+      ]);
+
+      call({ action: 'review_publish', reviewSessionId });
+
+      for (const comment of readPr().comments) {
+        expect(comment.body).not.toContain('반영하실 때');
+      }
+    });
+
+    it('revise한 이슈는 고친 제안이 본문에 실린다', () => {
+      const reviewSessionId = open();
+      consensusCall(reviewSessionId, [
+        {
+          ...base,
+          suggestion: '고친 제안',
+          verification: { verdict: 'revise', reason: '충돌', originalSuggestion: '처음 제안' },
+        },
+      ]);
+
+      call({ action: 'review_publish', reviewSessionId });
+
+      const body = readPr().comments[0]!.body;
+      expect(body).toContain('제안: 고친 제안');
+      expect(body).not.toContain('처음 제안');
+    });
+
+    it('뺀 이슈는 PR 코멘트로 올리지 않는다', () => {
+      const reviewSessionId = open();
+      consensusCall(
+        reviewSessionId,
+        [base],
+        [
+          {
+            ...base,
+            id: 'v-9',
+            line: 1,
+            message: '뺀 문제',
+            dropReason: '규칙 폐지',
+            dropEvidence: 'git log 출력',
+          },
+        ],
+      );
+
+      const published = call({ action: 'review_publish', reviewSessionId });
+
+      expect(published.commentCount).toBe(1);
+      const bodies = readPr().comments.map((c) => c.body);
+      expect(bodies).toHaveLength(1);
+      expect(bodies.join('\n')).not.toContain('뺀 문제');
+    });
+
+    it('alsoCheck가 붙은 같은 합의를 다시 게시해도 코멘트가 늘지 않는다', () => {
+      const reviewSessionId = open();
+      const issues: VerifiedIssue[] = [
+        { ...base, verification: { verdict: 'keep', reason: '', alsoCheck: ['b.ts:1'] } },
+      ];
+      consensusCall(reviewSessionId, issues);
+      call({ action: 'review_publish', reviewSessionId });
+      const afterFirst = readPr().comments.length;
+
+      consensusCall(reviewSessionId, issues);
+      const again = call({ action: 'review_publish', reviewSessionId });
+
+      expect(again.alreadyPublished).toBe(true);
+      expect(readPr().comments.length).toBe(afterFirst);
+    });
+  });
 });
