@@ -430,12 +430,17 @@ function extractHeadings(file: DiffFile, out: IdentifierSet) {
   }
 }
 
+/** 룰 문서에서 룰을 정의하는 줄이면 그 ID를 돌려준다. 규칙을 언급만 하는 줄은 정의로 안 본다 */
+export function ruleIdOfDefinitionLine(text: string): string | null {
+  const lead = /^\s*(?:[#>*|+-]+\s*)*(?:\*\*|`)?\[?([A-Z]{1,2}-\d{1,3})(?![\w-])/.exec(text);
+  return lead ? lead[1]! : null;
+}
+
 function ruleIdDefinitions(lines: DiffLine[]): string[] {
   const ids: string[] = [];
   for (const l of lines) {
-    // 정의 줄만 본다. 규칙을 언급만 하던 줄이 지워졌다고 규칙이 없어지진 않는다
-    const lead = /^\s*(?:[#>*|+-]+\s*)*(?:\*\*|`)?\[?([A-Z]{1,2}-\d{1,3})(?![\w-])/.exec(l.text);
-    if (lead) ids.push(lead[1]!);
+    const id = ruleIdOfDefinitionLine(l.text);
+    if (id) ids.push(id);
   }
   return ids;
 }

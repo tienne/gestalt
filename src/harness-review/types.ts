@@ -5,6 +5,7 @@ export const REFERENCE_CANDIDATE_KINDS = [
   'forwardRef',
   'backwardRef',
   'knowledgeDoc',
+  'ruleIdListGap',
 ] as const;
 
 export type ReferenceCandidateKind = (typeof REFERENCE_CANDIDATE_KINDS)[number];

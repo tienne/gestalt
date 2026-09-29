@@ -20,6 +20,7 @@ import type { BlockReason } from './github-backend.js';
 import { GithubCodeSearchAdapter, orgWildcard } from './github-code-search.js';
 import { extractIdentifiersFromGit, isHarnessPath, isRuleDocPath } from './identifiers.js';
 import { detectRelatedRepos, readOriginRepo } from './related-repos.js';
+import { findRuleIdListGapsFromGit } from './rule-id-lists.js';
 import { LocalCloneBackend, type CodeSearchBackend, type SkippedRepo } from './search-backend.js';
 import { findSelfContamination } from './self-contamination.js';
 import {
@@ -39,6 +40,7 @@ export const DETECTOR_NAMES = [
   'identifiers',
   'selfContamination',
   'copyDrift',
+  'ruleIdListGap',
   'forwardSearch',
   'backwardSearch',
 ] as const;
@@ -245,6 +247,10 @@ export async function collectReferenceCandidates(opts: CollectOptions): Promise<
     });
     addCandidates(drift.candidates);
     limitations.push(...drift.limitations);
+  });
+
+  run('ruleIdListGap', () => {
+    addCandidates(findRuleIdListGapsFromGit(repoRoot, opts.base, opts.head, repo));
   });
 
   // ── 순방향 ────────────────────────────────────────
