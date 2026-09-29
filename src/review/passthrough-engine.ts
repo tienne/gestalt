@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   ReviewSession,
   ReviewResult,
@@ -13,7 +15,13 @@ import type {
 } from '../core/types.js';
 import { type Result, ok, err } from '../core/result.js';
 import { ReviewContextCollector } from './context-collector.js';
-import { ReviewAgentMatcher, type ReviewMatchContext } from './agent-matcher.js';
+import {
+  HARNESS_REVIEWER,
+  ReviewAgentMatcher,
+  detectHarnessTargets,
+  ensureRequiredAgents,
+  type ReviewMatchContext,
+} from './agent-matcher.js';
 import { ReviewReportGenerator } from './report-generator.js';
 import { logger } from '../core/logger.js';
 import type { EventStore } from '../events/store.js';
@@ -38,6 +46,19 @@ export interface ReviewFixContext {
   driftFindings: ContinuityDriftFinding[];
   attempt: number;
   maxAttempts: number;
+}
+
+// 매칭 프롬프트로 요구만 하면 호출자가 빼먹어도 그대로 합의까지 간다. 합의 입구에서 막아야 강제가 된다
+function checkMissingRequiredReviews(session: ReviewSession): string | null {
+  const harnessTargets = session.reviewContext?.harnessTargets ?? [];
+  if (harnessTargets.length === 0) return null;
+  const submitted = new Set(session.reviewResults.map((r) => r.agentName));
+  if (submitted.has(HARNESS_REVIEWER)) return null;
+  return (
+    `review_consensus rejected: ${HARNESS_REVIEWER} review is missing. ` +
+    `Harness targets changed (${harnessTargets.join(', ')}), so submit ${HARNESS_REVIEWER} ` +
+    `with review_submit before calling review_consensus.`
+  );
 }
 
 export class PassthroughReviewEngine {
@@ -78,6 +99,18 @@ export class PassthroughReviewEngine {
       repoRoot = source.repoRoot;
     }
 
+    // 내용이 필요한 판정(MCP 도구 등록부, 공개 패키지)은 레포를 알 때만 한다
+    const readFile = repoRoot
+      ? (relPath: string) => {
+          try {
+            return readFileSync(join(repoRoot, relPath), 'utf-8');
+          } catch {
+            return undefined;
+          }
+        }
+      : undefined;
+    reviewContext.harnessTargets = detectHarnessTargets(reviewContext.changedFiles, readFile);
+
     const matchContext = this.agentMatcher.generateMatchContext(
       reviewContext,
       roleAgents,
@@ -95,7 +128,10 @@ export class PassthroughReviewEngine {
       repoRoot,
       prId,
       ...(sinceSha ? { sinceSha } : {}),
-      matchedAgents: [],
+      // 호출자가 매칭에서 필수 에이전트를 빼도 expectedCount에는 잡혀 있어야 누락이 드러난다
+      matchedAgents: ensureRequiredAgents([], matchContext.requiredAgents, (agentName) => ({
+        agentName,
+      })).map((m) => m.agentName),
       reviewResults: [],
       reports: [],
       createdAt: new Date().toISOString(),
@@ -255,6 +291,16 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     if (!session) return err(new Error(`Review session not found: ${sessionId}`));
 
     // 세션을 덮어쓰기 전에 거른다. 거부된 호출이 앞서 받은 합의를 지우면 안 된다
+    const missingProblem = checkMissingRequiredReviews(session);
+    if (missingProblem) {
+      logger.warn('review.consensus_rejected', {
+        module: 'review',
+        sessionId,
+        reason: 'missing_required_review',
+      });
+      return err(new Error(missingProblem));
+    }
+
     const dropProblem = checkDroppedIssues(consensus, session.reviewResults);
     if (dropProblem) {
       logger.warn('review.consensus_rejected', {

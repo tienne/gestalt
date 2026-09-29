@@ -689,4 +689,98 @@ describe('PassthroughReviewEngine', () => {
       expect(reviewSession.status).toBe('passed');
     });
   });
+
+  describe('harness-reviewer enforcement', () => {
+    const cleanReview = (agentName: string) => ({
+      agentName,
+      issues: [],
+      approved: true,
+      summary: 'ok',
+    });
+
+    function startHarnessReview() {
+      const { roleAgents, reviewAgents } = createMockAgents();
+      const result = engine.startReview(
+        { changedFiles: ['CLAUDE.md', 'src/a.ts'], repoRoot: '/nonexistent-repo' },
+        roleAgents,
+        reviewAgents,
+      );
+      if (!result.ok) throw result.error;
+      return result.value.sessionId;
+    }
+
+    it('counts harness-reviewer as expected even when the caller submits only other agents', () => {
+      const sessionId = startHarnessReview();
+
+      const submitted = engine.submitReview(
+        sessionId,
+        'security-reviewer',
+        cleanReview('security-reviewer'),
+      );
+
+      expect(submitted.ok).toBe(true);
+      if (!submitted.ok) return;
+      expect(engine.getSession(sessionId).matchedAgents).toContain('harness-reviewer');
+      expect(submitted.value.expectedCount).toBe(2);
+      expect(submitted.value.submittedCount).toBe(1);
+    });
+
+    it('rejects consensus when harness targets exist but harness-reviewer never submitted', () => {
+      const sessionId = startHarnessReview();
+      engine.submitReview(sessionId, 'security-reviewer', cleanReview('security-reviewer'));
+
+      const result = engine.submitConsensus(sessionId, createCleanConsensus());
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.message).toContain('harness-reviewer');
+      expect(result.error.message).toContain('CLAUDE.md');
+      // 거부된 호출이 세션을 합의 상태로 넘기면 안 된다
+      const session = engine.getSession(sessionId);
+      expect(session.consensus).toBeUndefined();
+      expect(session.status).toBe('reviewing');
+    });
+
+    it('accepts consensus once harness-reviewer has submitted', () => {
+      const sessionId = startHarnessReview();
+      engine.submitReview(sessionId, 'security-reviewer', cleanReview('security-reviewer'));
+      engine.submitReview(sessionId, 'harness-reviewer', cleanReview('harness-reviewer'));
+
+      const result = engine.submitConsensus(sessionId, createCleanConsensus());
+
+      expect(result.ok).toBe(true);
+      expect(engine.getSession(sessionId).matchedAgents).toEqual([
+        'harness-reviewer',
+        'security-reviewer',
+      ]);
+    });
+
+    it('requires harness-reviewer again after submitFix resets the reviews', () => {
+      const sessionId = startHarnessReview();
+      engine.submitReview(sessionId, 'harness-reviewer', cleanReview('harness-reviewer'));
+      engine.submitConsensus(sessionId, createBlockedConsensus());
+      engine.startFix(sessionId);
+      engine.submitFix(sessionId);
+
+      const result = engine.submitConsensus(sessionId, createCleanConsensus());
+
+      expect(result.ok).toBe(false);
+    });
+
+    it('leaves reviews without harness targets unchanged', () => {
+      const { roleAgents, reviewAgents } = createMockAgents();
+      const start = engine.startReview(
+        { changedFiles: ['src/a.ts'], repoRoot: '/nonexistent-repo' },
+        roleAgents,
+        reviewAgents,
+      );
+      if (!start.ok) throw start.error;
+      const sessionId = start.value.sessionId;
+
+      expect(engine.getSession(sessionId).matchedAgents).toEqual([]);
+      expect(start.value.reviewStartContext.matchContext.requiredAgents).toEqual([]);
+      const result = engine.submitConsensus(sessionId, createCleanConsensus());
+      expect(result.ok).toBe(true);
+    });
+  });
 });
