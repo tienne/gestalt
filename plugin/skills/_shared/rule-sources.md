@@ -221,7 +221,7 @@ ruleSources 선언도 함께 빠졌습니다 — 선언 자체는 문제가 없�
   repo-conventions CLAUDE.md @ 220a94e
 
 적용되지 않은 기준
-  design-principles  catchtable-design 못 잡음 (onMissing: warn)
+  design-principles  acme-design 못 잡음 (onMissing: warn)
 ```
 
 이걸 남기는 이유는 **기준 없이 만든 결과와 기준을 지킨 결과가 겉보기에 같기 때문**이다. 검사를 못 돌린 것과 통과한 것을 구분할 수 없으면 검사가 조용히 없어진다.
