@@ -617,6 +617,96 @@ describe('loadConfig — ruleSources', () => {
   });
 });
 
+describe('loadConfig — relatedRepos', () => {
+  const opts = { skipDotEnv: true, skipGestaltJson: true };
+
+  it('빈 배열이 기본값이다', () => {
+    const config = loadConfig({}, opts);
+    expect(config.relatedRepos).toEqual([]);
+  });
+
+  it('owner/name 꼴 문자열을 받는다', () => {
+    const config = loadConfig({ relatedRepos: ['tienne/gestalt', 'acme/widget-kit'] }, opts);
+    expect(config.relatedRepos).toEqual(['tienne/gestalt', 'acme/widget-kit']);
+  });
+
+  it('owner/name 꼴이 아니면 거부한다', () => {
+    const bad = loadConfig({ relatedRepos: ['invalid-format'] }, opts);
+    expect(bad.relatedRepos).toEqual([]);
+  });
+
+  it('슬래시가 하나가 아니면 거부한다', () => {
+    const bad = loadConfig({ relatedRepos: ['owner/name/extra', 'owner', 'no/slash/three'] }, opts);
+    expect(bad.relatedRepos).toEqual([]);
+  });
+
+  it('최대 64개까지 받는다', () => {
+    const repos = Array.from({ length: 64 }, (_, i) => `owner${i}/repo${i}`);
+    const config = loadConfig({ relatedRepos: repos }, opts);
+    expect(config.relatedRepos).toHaveLength(64);
+  });
+
+  it('64개를 넘으면 거부한다', () => {
+    const repos = Array.from({ length: 65 }, (_, i) => `owner${i}/repo${i}`);
+    const config = loadConfig({ relatedRepos: repos }, opts);
+    expect(config.relatedRepos).toEqual([]);
+  });
+
+  it('제외 키(excludeRepos)는 거부한다', () => {
+    const config = loadConfig({ excludeRepos: ['a/b'] }, opts);
+    expect(config.relatedRepos).toEqual([]);
+  });
+
+  it('제외를 뜻하는 모든 키를 거부한다', () => {
+    const exclusionKeys = [
+      'excludeRepos',
+      'excludedRepos',
+      'ignoreRepos',
+      'ignoredRepos',
+      'skipRepos',
+      'skippedRepos',
+      'disableRepos',
+      'disabledRepos',
+      'removeRepos',
+      'removedRepos',
+      'blacklistRepos',
+      'denyRepos',
+    ];
+
+    for (const key of exclusionKeys) {
+      const input: Record<string, unknown> = {};
+      input[key] = ['a/b'];
+      const config = loadConfig(input, opts);
+      expect(config.relatedRepos, `key: ${key}`).toEqual([]);
+    }
+  });
+
+  it('제외 키가 있으면 에러 메시지를 남긴다', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    loadConfig({ excludeRepos: ['a/b'] }, opts);
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('제외'));
+    consoleSpy.mockRestore();
+  });
+
+  it('relatedRepos와 ruleSources를 함께 선언할 수 있다', () => {
+    const config = loadConfig(
+      {
+        relatedRepos: ['owner/repo'],
+        ruleSources: [{ id: 'x', kind: 'file', ref: 'docs/rules.md' }],
+      },
+      opts,
+    );
+    expect(config.relatedRepos).toEqual(['owner/repo']);
+    expect(config.ruleSources).toHaveLength(1);
+  });
+
+  it('큰 문자열은 거부한다', () => {
+    const bigString = 'a'.repeat(257);
+    const config = loadConfig({ relatedRepos: [`${bigString}/repo`] }, opts);
+    expect(config.relatedRepos).toEqual([]);
+  });
+});
+
 describe('deepMerge', () => {
   it('merges nested objects', () => {
     const target = { a: { b: 1, c: 2 }, d: 3 };

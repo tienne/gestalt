@@ -351,6 +351,15 @@ const configSchema = z.object({
   reasoningModel: reasoningModelSchema.default(DEFAULT_REASONING_MODEL),
   reasoningModelFallback: reasoningModelSchema.default(REASONING_MODEL_FALLBACK),
   tierModels: tierModelsSchema.default({}),
+  relatedRepos: z
+    .array(
+      z
+        .string()
+        .regex(/^[^/]+\/[^/]+$/)
+        .max(256),
+    )
+    .max(64)
+    .default([]),
   ruleSources: z
     .array(ruleSourceSchema)
     // 손으로 적는 선언이라 이 정도면 넉넉하다. 상한이 없으면 선언 수가 그대로
@@ -676,6 +685,25 @@ export function loadConfig(
   // 세우거나 게슈탈트 경고를 사칭할 수 있다
   delete merged.ruleSourceErrors;
   delete merged.ruleSourceWarnings;
+
+  // 제외 키를 검사한다 (C2: relatedRepos는 추가만 가능)
+  const exclusionPatterns = [
+    /^exclude/i,
+    /^ignore/i,
+    /^skip/i,
+    /^disable/i,
+    /^remove/i,
+    /^blacklist/i,
+    /^deny/i,
+  ];
+  for (const key of Object.keys(merged)) {
+    if (exclusionPatterns.some((pattern) => pattern.test(key))) {
+      console.error(
+        `[gestalt] Warning: 제외 키 "${key}"는 받지 않습니다. relatedRepos는 추가만 가능합니다`,
+      );
+      delete merged[key];
+    }
+  }
 
   // 이름이 비슷하다는 건 정황이지 선언이 깨졌다는 증거가 아니다. 경고로 간다
   const misspelled = findMisspelledRuleSourcesKey(jsonConfig);
