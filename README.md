@@ -658,7 +658,7 @@ Nine built-in role agents provide multi-perspective review:
 
 ### Review Agents
 
-Four built-in review agents run focused code analysis:
+Seven built-in review agents run focused code analysis:
 
 | Agent | Focus |
 |-------|-------|
@@ -667,6 +667,8 @@ Four built-in review agents run focused code analysis:
 | `quality-reviewer` | Readability, SOLID, error handling, DRY |
 | `frontend-reviewer` | UI/React review, accessibility, bundle optimization |
 | `comment-reviewer` | Comment hygiene — restated code, dead code, stale comments, untracked TODOs |
+| `writing-reviewer` | Prose in changed docs and user-facing strings — wording, AI-tell rules |
+| `harness-reviewer` | Skill and agent docs, cross-repo references, self-contamination, copy drift |
 
 ### Custom Agents
 

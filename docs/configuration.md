@@ -25,6 +25,7 @@
   "reasoningModel": "fable",
   "reasoningModelFallback": "opus",
   "tierModels": { "frugal": "haiku", "standard": "sonnet", "frontier": "opus" },
+  "relatedRepos": ["acme/widget-kit"],
   "dbPath": ".gestalt/gestalt.db",
   "logLevel": "info"
 }
@@ -46,6 +47,7 @@ interface GestaltConfig {
     standard: 'fable' | 'opus' | 'sonnet' | 'haiku';
     frontier: 'fable' | 'opus' | 'sonnet' | 'haiku';
   };
+  relatedRepos: string[]; // 'owner/name' 형식, 최대 64개, 기본 []
   ruleSources: Array<{
     id: string;
     kind: 'mcp' | 'file' | 'skill';
@@ -134,6 +136,45 @@ interface GestaltConfig {
 ### 폴백 발동 지점
 
 `reasoningModelFallback`(기본 `opus`)은 폴백 **대상**일 뿐이다. 서버는 모델 가용성을 감지하지 않으며, 폴백을 발동하지도 않는다. 실제 발동은 **스킬 런타임**에서 일어난다 — Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`로 바꿔 1회 재시도한다. 즉 "fable 안 되면 opus"의 판단은 서버가 아니라 스킬이 한다.
+
+---
+
+## 관련 레포 (`relatedRepos`)
+
+하네스 리뷰(`harness-reviewer`)는 diff 밖에서 깨질 수 있는 다른 레포의 참조를 찾는다. 찾을 레포 목록은 자동 탐지가 기본이다. `relatedRepos`는 자동으로 못 찾은 레포를 손으로 더하는 자리다.
+
+| 항목 | 값 |
+|---|---|
+| 형식 | `owner/name` 문자열 배열 (예: `acme/widget-kit`) |
+| 기본값 | `[]` |
+| 상한 | 64개, 항목당 256자 |
+| 검증 | `src/core/config.ts`의 Zod 스키마와 `schemas/gestalt.schema.json` |
+
+```json
+{
+  "relatedRepos": ["acme/widget-kit", "acme/design-kit"]
+}
+```
+
+자동 탐지는 현재 레포 `origin` 원격의 owner를 조직으로 본다. 하네스 문서에서 `owner/repo` 표기, GitHub URL, `gh repo clone` 대상, 매니페스트의 플러그인 이름(marketplace 레포), MCP 패키지의 `package.json` `repository`를 순방향 언급으로 뽑아 같은 조직 레포만 남긴다. `relatedRepos`에 적은 레포는 이 결과에 합쳐진다.
+
+이 필드는 추가만 받는다. `excludeRepos`, `ignoreRepos`, `skipRepos`, `disableXxx`처럼 제외로 읽히는 키(`exclude*`, `ignore*`, `skip*`, `disable*`, `remove*`, `blacklist*`, `deny*`)는 `loadConfig()`가 경고를 찍고 버린다. 제외가 곧 리뷰를 끄는 스위치가 되기 때문이다. JSON Schema도 `additionalProperties: false`라 IDE에서 먼저 걸린다.
+
+### 탐지 결과 캐시
+
+| 항목 | 값 |
+|---|---|
+| 위치 | `.gestalt/harness-refs-cache.json` (`DETECTION_CACHE_PATH`) |
+| 커밋 | 안 한다. `.gestalt/`가 `.gitignore`에 걸려 있다 |
+| 담기는 것 | 관련 레포 목록, 식별자, 하네스 문서 해시, 만료 시각, 현재 레포 이름 |
+
+역방향 검색은 `gh search code`를 쓰고 속도 제한이 걸려 있다. 그래서 탐지를 매 리뷰마다 돌리지 않고 캐시를 쓴다. 다음 셋 중 하나면 다시 탐지한다.
+
+- 하네스 문서 해시가 캐시와 다를 때 (`SKILL.md`, `AGENT.md`, `CLAUDE.md`, 매니페스트 같은 탐지 입력이 바뀐 경우)
+- `expiresAt`이 지났을 때 (기본 24시간)
+- 캐시에 적힌 현재 레포가 지금 `origin` 원격과 다를 때
+
+`relatedRepos` 설정값은 캐시가 유효해도 매번 새로 합쳐지므로, 설정을 고친 뒤 캐시를 지울 필요는 없다. `origin`이 없거나 GitHub 주소가 아닌 레포는 조직을 정할 수 없어 탐지를 건너뛰고 리뷰는 참조 검사를 비워둘지 사용자에게 묻는다.
 
 ---
 

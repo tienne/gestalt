@@ -76,6 +76,8 @@ Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 | `performance-reviewer` | Memory leaks, N+1 queries, bundle size, async |
 | `quality-reviewer` | Readability, SOLID, error handling, DRY |
 | `comment-reviewer` | Comment hygiene — restated code, dead code, stale comments, untracked TODOs |
+| `writing-reviewer` | Prose in changed docs and user-facing strings — wording, AI-tell rules |
+| `harness-reviewer` | Skill and agent docs, cross-repo references, self-contamination, copy drift |
 
 ## Proactive Invocation
 

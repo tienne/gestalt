@@ -248,7 +248,7 @@ CLI를 먼저 만든 이유는 MCP가 없거나 끊긴 런타임에서도 돌아
 
 ## 리뷰 파이프라인과 잇기
 
-기존 Review 파이프라인(리뷰 에이전트 6종 + consensus)을 로컬 PR에 붙일 수 있다.
+기존 Review 파이프라인(리뷰 에이전트 7종 + consensus)을 로컬 PR에 붙일 수 있다.
 자세한 건 [`06-code-review.md`](./06-code-review.md)에 있다.
 
 ```
