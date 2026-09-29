@@ -110,6 +110,18 @@
       "description": "Directory containing agent definitions (env: GESTALT_AGENTS_DIR)",
       "default": "agents"
     },
+    "relatedRepos": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[^/]+/[^/]+$",
+        "maxLength": 256,
+        "description": "Related repository in 'owner/name' format"
+      },
+      "maxItems": 64,
+      "description": "Related repositories for reference detection in harness reviews. Gestalt automatically detects repos from forward mentions; use this field to add more. Only addition is permitted — no exclusion fields (excludeRepos, ignoreRepos, etc.) are accepted",
+      "default": []
+    },
     "ruleSources": {
       "type": "array",
       "items": { "$ref": "#/definitions/ruleSource" },
