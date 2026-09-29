@@ -209,7 +209,8 @@ describe('backwardSearch', () => {
     expect(r.skippedIdentifiers).toEqual([expect.objectContaining({ identifier: id })]);
   });
 
-  it('다른 이름의 일부로만 걸린 줄은 needsLlmJudgment로 표시한다', async () => {
+  // 재현 리플레이에서 이렇게 걸린 스킬 이름 70건이 전부 더 긴 다른 스킬 이름이었다
+  it('다른 이름의 일부로만 걸린 줄은 이름 식별자면 버린다', async () => {
     const s = buildReceiveOnlyOrg();
     const r = await backwardSearch({
       identifiers: [
@@ -218,8 +219,7 @@ describe('backwardSearch', () => {
       repos: othersOf(s.org, s.receiver),
       backend: backendFor(s.org),
     });
-    expect(r.backwardRefs).toHaveLength(1);
-    expect(r.backwardRefs[0]!.needsLlmJudgment).toBe(true);
+    expect(r.backwardRefs).toEqual([]);
   });
 });
 
@@ -312,5 +312,34 @@ describe('backwardSearch — 흔한 파일 이름', () => {
       selfRepo: 'acme/widget-kit',
     });
     expect(r.backwardRefs.map((c) => c.sourceLine)).toEqual([2]);
+  });
+});
+
+describe('backwardSearch — 흔한 헤딩', () => {
+  it('헤딩 글자만 나온 줄은 빼고 앵커나 이 레포 이름이 있는 줄은 남긴다', async () => {
+    const other = createFakeRepo({
+      name: 'gadget-kit',
+      files: {
+        'plugins/gadget/SKILL.md': [
+          '## 환경 변수',
+          '자세한 건 widget-kit의 환경 변수 절을 본다',
+          '설정은 `#환경-변수` 앵커로 건다',
+          '',
+        ].join('\n'),
+      },
+    });
+    const id: Identifier = {
+      kind: 'heading',
+      value: '환경 변수',
+      changeType: 'removed',
+      extractedBy: 'pattern',
+    };
+    const r = await backwardSearch({
+      identifiers: [id],
+      repos: ['acme/gadget-kit'],
+      backend: new LocalCloneBackend([{ repo: 'acme/gadget-kit', dir: other.root }]),
+      selfRepo: 'acme/widget-kit',
+    });
+    expect(r.backwardRefs.map((c) => c.sourceLine).sort()).toEqual([2, 3]);
   });
 });
