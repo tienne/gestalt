@@ -60,6 +60,8 @@ export interface SelfContaminationInput {
 
 const DEFAULT_CONTEXT = 2;
 const RULEBOOK_NAMES = ['ai-tell-quick-rules.md', 'style-guide.md'];
+// 변경 이력은 지난 표현을 그대로 옮겨 적는 자리라 지시문이 아니다. 라벨링한 27건이 전부 오염이 아니었다
+const CHANGE_LOG_NAME = /^CHANGELOG\.md$/i;
 const SKIP_DIRS = new Set(['node_modules', '.git', '.gestalt', '.gestalt-test', 'dist']);
 
 // 룰 ID 칸이면 패턴 칸만, 그 밖의 표는 헤더 이름으로 처방 칸을 뺀다
@@ -122,6 +124,28 @@ export function parseAddedLines(diff: string): Map<string, Map<number, string>> 
     } else if (raw.startsWith(' ')) {
       lineNo += 1;
     }
+  }
+  return files;
+}
+
+/** 파일별로 diff에서 지워진 줄. 고친 표 행의 옛 모습을 찾는 데만 쓴다 */
+export function parseRemovedLines(diff: string): Map<string, string[]> {
+  const files = new Map<string, string[]>();
+  let current: string[] | null = null;
+  for (const raw of diff.split('\n')) {
+    if (raw.startsWith('--- ')) {
+      const path = raw.slice(4).trim();
+      if (path === '/dev/null') {
+        current = null;
+      } else {
+        const name = path.replace(/^a\//, '');
+        current = files.get(name) ?? [];
+        files.set(name, current);
+      }
+      continue;
+    }
+    if (raw.startsWith('+++ ') || raw.startsWith('diff --git')) continue;
+    if (current && raw.startsWith('-')) current.push(raw.slice(1));
   }
   return files;
 }
@@ -267,9 +291,34 @@ function isConditional(row: TableRow): boolean {
   return CONDITIONAL_MARKER.test(row.fullText);
 }
 
+/**
+ * 고친 행에서 옛 행에도 있던 말을 뺀다. 행을 고쳤다고 행에 원래 있던 금지어까지 새로 금지한 건 아니다.
+ * 옛 행은 첫 칸(룰 ID나 원어)이 같은 지워진 줄로 찾고 못 찾으면 새로 더한 행으로 본다.
+ */
+function newTermsOnly(
+  row: TableRow,
+  markdown: string,
+  removed: string[] | undefined,
+): TableRow | null {
+  const key = splitRow(markdown.split('\n')[row.line - 1] ?? '')[0];
+  const before = removed?.find((l) => l.trim().startsWith('|') && splitRow(l)[0] === key);
+  if (before === undefined) return row;
+  const lines = markdown.split('\n');
+  lines[row.line - 1] = before;
+  const old = parseRuleTables(lines.join('\n')).find((r) => r.line === row.line);
+  if (!old) return row;
+  const had = new Set([...old.terms, ...old.roots].map(normalize));
+  const terms = row.terms.filter((t) => !had.has(normalize(t)));
+  const roots = row.roots.filter((t) => !had.has(normalize(t)));
+  // 원래 금지어가 있던 행인데 새로 더한 말이 없으면 처방이나 문구만 고친 것이다
+  if (terms.length === 0 && roots.length === 0 && had.size > 0) return null;
+  return { ...row, terms, roots };
+}
+
 export function extractAddedRules(
   repoRoot: string,
   added: Map<string, Map<number, string>>,
+  removed?: Map<string, string[]>,
 ): AddedRule[] {
   const rules: AddedRule[] = [];
 
@@ -282,8 +331,10 @@ export function extractAddedRules(
       continue;
     }
 
-    for (const row of parseRuleTables(markdown)) {
-      if (!addedLines.has(row.line)) continue;
+    for (const parsed of parseRuleTables(markdown)) {
+      if (!addedLines.has(parsed.line)) continue;
+      const row = newTermsOnly(parsed, markdown, removed?.get(file));
+      if (!row) continue;
       // 설명 표(파일 목록 등)와 룰 표를 가르는 신호가 룰 ID나 헤더 매핑인데,
       // 뒤쪽은 검색어가 뽑힌 행만 룰로 본다
       if (!row.ruleId && row.terms.length === 0 && row.roots.length === 0) continue;
@@ -381,7 +432,10 @@ export function expandSearchTerms(rules: AddedRule[], rulebookFiles: string[]): 
       for (const row of [...rulebookRows, ...ownRows]) {
         const rowTerms = [...row.terms, ...row.roots];
         if (!rowTerms.some((t) => normalize(t) === key)) continue;
-        for (const other of rowTerms) {
+        // 한 행에 "원어 → 번역어" 짝을 여럿 적은 룰이면 짝끼리만 동의어다. 행 전체를 넓히면 같은 룰의
+        // 다른 예시 원어(close, branch 같은 흔한 영어 낱말)가 딸려와 후보가 쏟아진다
+        const partners = arrowPartners(row.searchText || row.fullText, key);
+        for (const other of partners ?? rowTerms) {
           if (termKind(other) === literal.kind) continue;
           // 영어 원어는 첫 등장 병기처럼 정당하게 나올 수 있어 문맥 판정으로 넘긴다
           add({
@@ -395,6 +449,21 @@ export function expandSearchTerms(rules: AddedRule[], rulebookFiles: string[]): 
     }
   }
   return [...out.values()];
+}
+
+const ARROW_PAIR_RE = /([A-Za-z][A-Za-z ]*?)\s*→\s*[`"“]([^`"”\n]+)[`"”]/g;
+
+/** 행의 화살표 짝 중 key가 든 짝의 상대편. key가 어느 짝에도 없으면 null */
+export function arrowPartners(text: string, key: string): string[] | null {
+  const out: string[] = [];
+  for (const m of text.matchAll(ARROW_PAIR_RE)) {
+    const en = cleanTerm(m[1]!);
+    const ko = cleanTerm(m[2]!);
+    if (!en || !ko) continue;
+    if (normalize(en) === key) out.push(ko);
+    else if (normalize(ko) === key) out.push(en);
+  }
+  return out.length > 0 ? out : null;
 }
 
 const KO_VERB_TAIL = /(?:한다|하다|했다|합니다|이다)$/;
@@ -427,7 +496,7 @@ export function termPatterns(term: SearchTerm): Array<{ regex: RegExp; exact: bo
 function markdownFiles(repoRoot: string): string[] {
   const seen = new Set<string>();
   return readdirSync(repoRoot, { recursive: true, withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith('.md'))
+    .filter((e) => e.isFile() && e.name.endsWith('.md') && !CHANGE_LOG_NAME.test(e.name))
     .map((e) => join(e.parentPath, e.name))
     .filter(
       (abs) =>
@@ -458,7 +527,7 @@ export function findSelfContamination(input: SelfContaminationInput): SelfContam
   const repoName = input.repoName ?? basename(repoRoot);
 
   const added = parseAddedLines(diff);
-  const rules = extractAddedRules(repoRoot, added);
+  const rules = extractAddedRules(repoRoot, added, parseRemovedLines(diff));
   if (rules.length === 0) return [];
 
   const searchable = rules.filter((r) => !r.definitionOnly);
