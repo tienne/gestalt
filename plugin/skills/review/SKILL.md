@@ -147,7 +147,7 @@ id를 직접 주면 아래 1번의 첫 수단이 브랜치를 안 따지고 잡�
    **여기서 로컬로 갈아타지 않습니다.** 3번이 이미 같은 조회로 걸렀으므로 현재 브랜치의 안 끝난 로컬 PR은 없습니다. 없는 걸 다시 찾지 않습니다. 있지도 않은 자리에 게시하지도 않습니다. 리포트는 그대로 만들고 게시만 건너뛰면서 무엇이 없어서 못 올리는지 한 줄 알립니다: "GitHub에 못 올려요 — {gh 인증이 없어요 / 원격이 없어요}. 리포트는 아래 그대로 드릴게요. 로컬 PR로 남기려면 `local-pr` 스킬로 PR을 먼저 만들고 그 id로 다시 불러주세요."
 
    **`--local`로 다시 부르라고 하지 않습니다.** 그 플래그는 있는 로컬 PR을 찾는 것이지 없는 것을 만들지 않습니다. 여기까지 왔다는 건 찾을 게 없다는 뜻이라, 같은 조회가 한 번 더 돌아 같은 문장으로 되돌아옵니다.
-5. `gh pr view <target>`이 성공하면(GitHub PR이 실제로 존재) → `github`입니다. 이 조회는 `--json number,title,body,headRefName,baseRefName,baseRefOid,headRefOid,url`로 **본문까지 한 번에 받아둡니다** — 1.15단계가 본문을, 3.7단계가 base와 head의 sha를 다시 쓰므로 같은 PR을 두 번 묻지 않습니다.
+5. `gh pr view <target>`이 성공하면(GitHub PR이 실제로 존재) → `github`입니다. 이 조회는 `--json number,title,body,headRefName,baseRefName,headRefOid,url`로 **본문까지 한 번에 받아둡니다** — 1.15단계가 본문을, 3.7단계가 head의 sha를 다시 쓰므로 같은 PR을 두 번 묻지 않습니다. base 커밋은 `gh api repos/{owner}/{repo}/pulls/<번호> --jq .base.sha`로 따로 받습니다. `baseRefOid`는 gh 버전에 따라 없는 필드라(2.54에서 확인) `--json`에 넣으면 그 버전에서는 조회 전체가 실패합니다. REST 응답은 gh 버전을 안 탑니다.
 6. 여기까지 아무 데도 안 걸렸으면(GitHub에도 로컬에도 대응하는 PR이 없는 브랜치나 커밋 범위 리뷰) → `none`입니다. 4.7단계 전체를 건너뜁니다.
 
 **아래 표는 본문 1~6번을 그대로 펼친 것뿐입니다.** 표와 본문이 어긋나 보이면 본문을 따르고 표를 고칩니다. 각 행은 자기 위의 행에 안 걸린 경우입니다. "—"는 앞 행에서 이미 갈려 볼 필요가 없다는 뜻입니다.
@@ -284,7 +284,7 @@ done
 
 **돌리는 조건.** 1단계 변경 파일에 `ruleDocs`가 있거나, 다른 레포가 이름으로 부르는 코드(MCP 도구 정의, 공개 패키지의 `package.json`, 플러그인 매니페스트)가 있으면 돌립니다. 판정은 `agent-matcher`와 같은 기준이지만 `review_start`는 2단계라 아직 응답이 없습니다. 그래서 2단계 응답의 `matchContext.requiredAgents`에 `harness-reviewer`가 있는데 여기서 안 돌렸으면(매처가 더 넓게 잡은 경우) 2단계 직후 이 단계를 돌린 뒤 3단계로 넘어갑니다. 둘 다 아니면 이 단계를 통째로 건너뛰고 3단계 프롬프트의 참조 후보 블록도 싣지 않습니다.
 
-**범위.** 비교할 두 커밋이 필요합니다. `github`는 `gh pr view <번호> --json baseRefOid,headRefOid`의 두 값(1.03단계도 같은 값을 씁니다), `local`은 `gestalt pr --json show <id>`의 `baseSha`와 `headSha`, 브랜치나 커밋 target은 `git rev-parse`로 푼 sha를 씁니다. 결과는 파일로 받습니다. JSON이 크고 프롬프트에 통째로 싣지 않기 때문입니다.
+**범위.** 비교할 두 커밋이 필요합니다. `github`는 base가 `gh api repos/{owner}/{repo}/pulls/<번호> --jq .base.sha`, head가 `gh pr view <번호> --json headRefOid`입니다(1.03단계도 같은 값을 씁니다), `local`은 `gestalt pr --json show <id>`의 `baseSha`와 `headSha`, 브랜치나 커밋 target은 `git rev-parse`로 푼 sha를 씁니다. 결과는 파일로 받습니다. JSON이 크고 프롬프트에 통째로 싣지 않기 때문입니다.
 
 ```bash
 # 4.5단계와 같은 자리 규칙입니다. 대상으로 칸을 나누고 실행 단위로 한 겹 더 나눕니다
@@ -356,7 +356,7 @@ gestalt review-loop rounds --pr <번호>       # 로컬 PR이나 PR 없는 브�
 
   `--paginate`에 `--jq`를 붙이면 jq가 페이지마다 따로 돕니다. `last`로 고르면 페이지마다 하나씩 나오므로 `tail -n1`로 끝을 잡습니다. body가 빈 `COMMENTED` 리뷰는 뺍니다. 스레드에 답글을 달 때마다 GitHub이 그런 리뷰를 하나씩 만듭니다. 그걸 세면 답글만 단 시점의 head가 `sinceSha`로 잡혀 그 사이에 올라온 커밋을 이미 본 것으로 칩니다. 이 거르기가 틀려도 더 옛 커밋이 잡혀 범위가 넓어지는 쪽이라 안전합니다. `{owner}/{repo}`는 `gh`가 지금 레포의 원격으로 채웁니다. `target`이 다른 레포의 PR URL이면 그 URL의 owner와 repo를 직접 넣습니다.
 
-  대상 판별 2번으로 확정해 `gh pr view`를 안 거쳤으면 `headRefOid`가 아직 없습니다. 여기서 `gh pr view <번호> --json title,body,baseRefName,baseRefOid,headRefOid`로 한 번 받아 두면 1.15단계와 3.7단계가 그 값을 다시 씁니다.
+  대상 판별 2번으로 확정해 `gh pr view`를 안 거쳤으면 `headRefOid`가 아직 없습니다. 여기서 `gh pr view <번호> --json title,body,baseRefName,headRefOid`와 `gh api repos/{owner}/{repo}/pulls/<번호> --jq .base.sha`로 한 번 받아 두면 1.15단계와 3.7단계가 그 값을 다시 씁니다.
 - `local` — 1단계나 대상 판별 1번의 `gestalt pr --json show <id>` 결과에 `reviews`가 이미 있습니다. 새로 묻지 않습니다. 판별 3번으로 와서 `show`를 안 불렀으면 여기서 한 번 부르고 1.15단계가 그 결과를 다시 씁니다. `reviewer`가 PR `author`와 다른 리뷰 가운데 마지막 것의 `headSha`를 씁니다. `reviews`는 오래된 것부터 옵니다.
 
   현재 사용자로는 거르지 않습니다. 로컬 리뷰어 이름은 MCP 서버의 환경변수로 정해지고 기본값이 `gestalt:review`라서 이 리뷰를 돌리는 쪽과 이름이 맞는다는 보장이 없습니다. 작성자를 빼는 건 작성자가 스스로 남긴 메모 리뷰를 직전 리뷰로 집지 않으려는 것입니다.
@@ -1124,16 +1124,17 @@ continuityVerdict = {
 
    | 대상 | base | baseSha | headSha |
    | --- | --- | --- | --- |
-   | GitHub PR | `baseRefName` | `baseRefOid` | `headRefOid` |
+   | GitHub PR | `baseRefName` | REST `pulls/<번호>`의 `base.sha` | `headRefOid` |
    | 로컬 PR | `gestalt pr --json show`의 `baseRef` (null이면 `없음`) | `baseSha` | `headSha` |
    | 브랜치 또는 생략 | `main` | `git merge-base main <브랜치 또는 HEAD>` | `git rev-parse <브랜치 또는 HEAD>` |
    | 범위 `A..B` | A가 브랜치면 A, 아니면 `없음` | `git rev-parse A` | `git rev-parse B` |
    | 커밋 | `없음` | `<커밋>^` | `<커밋>` |
 
-   GitHub PR은 대상 판별 5번의 `gh pr view`가 `baseRefOid`와 `headRefOid`를 이미 받아 뒀습니다. 판별 2번으로 확정돼 그 조회를 안 거쳤으면 여기서 한 번 부릅니다.
+   GitHub PR은 대상 판별 5번에서 base와 head의 sha를 이미 받아 뒀습니다. 판별 2번으로 확정돼 그 조회를 안 거쳤으면 여기서 한 번 부릅니다. base sha를 `gh pr view --json`으로 받지 않는 이유는 대상 판별 5번에 있습니다.
 
    ```bash
-   gh pr view <번호> --json baseRefName,baseRefOid,headRefOid
+   gh pr view <번호> --json baseRefName,headRefOid
+   gh api repos/{owner}/{repo}/pulls/<번호> --jq .base.sha
    ```
 
    로컬 PR은 1단계나 판별 1번의 `show` 결과에 이미 들어 있습니다. 다시 묻지 않습니다.
