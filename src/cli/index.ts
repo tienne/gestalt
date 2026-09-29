@@ -18,6 +18,15 @@ import {
   reviewLoopResolveCommand,
   reviewLoopStateCommand,
 } from './commands/review-loop.js';
+import { approveGateCommand, reviewRoundsCommand } from './commands/approve-gate.js';
+import { harnessRefsCollectCommand } from './commands/harness-refs.js';
+import {
+  harnessRefsFollowupBuildCommand,
+  harnessRefsFollowupCheckCommand,
+  harnessRefsFollowupFindCommand,
+  harnessRefsRelatedPrsCommand,
+  harnessRefsThreeStateCommand,
+} from './commands/harness-refs-cross-pr.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -259,6 +268,150 @@ export function createCli(): Command {
     .description('번호나 #번호나 PR URL에서 번호와 레포를 읽는다')
     .option('--json', 'prNumber와 owner와 repo를 JSON으로')
     .action((target, o) => reviewLoopParseCommand({ target, ...o }));
+
+  reviewLoop
+    .command('rounds')
+    .description('라운드 기록과 원격 없는 레포에서 앞서 받은 답. 대상을 안 주면 현재 브랜치 자리')
+    .option('--pr <target>', 'PR 번호나 URL')
+    .option('--dir <path>', '기록을 둘 디렉토리')
+    .option('--branch <name>', 'PR 없는 리뷰의 브랜치')
+    .action((o) => reviewRoundsCommand(o));
+
+  reviewLoop
+    .command('approve-gate')
+    .description('이번 라운드에 APPROVE 를 내도 되는지. 막히면 COMMENT 로 내린다')
+    .option('--pr <target>', 'PR 번호나 URL')
+    .option('--dir <path>', '기록을 둘 디렉토리')
+    .option('--branch <name>', 'PR 없는 리뷰의 브랜치')
+    .option('--scope <scope>', '사용자 명시 범위 precondition|thisRound|none', 'none')
+    .option(
+      '--issue <name>',
+      '이번 라운드 이슈 lookupBlocked|noGitHubRemote|relatedPrUnconfirmed (여러 번)',
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
+    .option('--reference-check-skipped', '참조 검사를 비워둔 채 진행했다')
+    .option('--user-choice <choice>', '조회 막힘 질문의 답 proceedWithoutRefs|wait')
+    .option('--auto-consent', 'ⓢ 자동 판정 동의. 명시로 치지 않는다')
+    .option('--event <event>', '내려던 이벤트 APPROVE|COMMENT|REQUEST_CHANGES', 'APPROVE')
+    .option('--round <n>', '라운드 번호. 없으면 마지막 기록 다음')
+    .option('--record', '판정 결과를 라운드 기록에 남긴다')
+    .action((o) => approveGateCommand(o));
+
+  const harnessRefs = program
+    .command('harness-refs')
+    .description('하네스 PR의 레포 간 참조 후보. review 스킬 1단계 뒤에 부른다');
+
+  harnessRefs
+    .command('related-prs')
+    .description('연관 PR을 찾아 확정 수준을 매긴다. 조회가 막히면 status blocked')
+    .requiredOption('--mode <mode>', '확정 기준 표의 열 ship|reviewLoop')
+    .option('--pr <target>', '이번 PR 번호나 URL. ship은 PR이 없으면 비운다')
+    .option('--repo <owner/name>', '이번 PR의 레포. 없으면 --pr URL, collect 결과, origin 순')
+    .option('--candidates <path>', 'harness-refs collect --json 결과 파일')
+    .option(
+      '--related-repo <owner/name>',
+      '관련 레포 추가 (여러 번)',
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
+    .option('--branch <name>', '이번 PR 브랜치. 없으면 gh나 현재 브랜치')
+    .option('--author <login>', '이번 PR 작성자. 없으면 gh')
+    .option('--title <text>', 'PR이 아직 없을 때 제목')
+    .option('--body-file <path>', 'PR 본문 파일. PR이 아직 없을 때 쓴다')
+    .option('--json', 'stdout에 JSON만')
+    .action((o) => harnessRefsRelatedPrsCommand(o));
+
+  harnessRefs
+    .command('three-state')
+    .description('레포를 넘는 참조를 main, 연관 PR head, 둘 다 머지된 뒤에서 판정한다')
+    .requiredOption('--candidates <path>', 'harness-refs collect --json 결과 파일')
+    .requiredOption('--related-prs <path>', 'harness-refs related-prs --json 결과 파일')
+    .option('--repo <owner/name>', '이번 PR의 레포. 없으면 collect 결과')
+    .option(
+      '--repo-dir <path>',
+      '참조 대상 레포 로컬 clone. owner/name=경로 꼴도 받는다 (여러 번)',
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
+    .option(
+      '--default-branch <owner/name=branch>',
+      '대상 레포 기본 브랜치 (여러 번). 없으면 origin/HEAD',
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
+    .option(
+      '--confirm <owner/name#n>',
+      'ship ⓐ에서 사용자가 확인한 연관 PR (여러 번)',
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
+    .option('--json', 'stdout에 JSON만')
+    .action((o) => harnessRefsThreeStateCommand(o));
+
+  const followup = harnessRefs
+    .command('followup')
+    .description('다음 PR로 미룬 작업의 표시를 찾고 후속 PR이 이행하는지 본다');
+
+  followup
+    .command('build')
+    .description('다음 PR로 미룬 스레드를 resolve할 때 답글에 붙일 후속 마커를 만든다')
+    .requiredOption('--pr <target>', '지금 리뷰 중인 PR 번호나 URL (마커의 원래 PR)')
+    .option('--repo <owner/name>', '원래 PR의 레포. 없으면 --pr URL, origin 순')
+    .requiredOption('--thread-id <id>', 'resolve할 리뷰 스레드 id')
+    .requiredOption('--target-repo <owner/name>', '후속 작업을 할 레포')
+    .option('--work <text>', '후속 PR에서 할 작업 (500자 이하)')
+    .option('--work-file <path>', '작업 문장을 담은 파일. --work 대신 쓴다')
+    .option('--json', 'stdout에 JSON만')
+    .action((o) => harnessRefsFollowupBuildCommand(o));
+
+  followup
+    .command('find')
+    .description('관련 레포의 머지된 PR 코멘트에서 이번 레포를 가리키는 후속 마커를 찾는다')
+    .option('--repo <owner/name>', '후속 PR의 레포. 없으면 --pr URL, collect 결과, origin 순')
+    .option('--pr <target>', '후속 PR 번호나 URL. 이 PR로 이행된 마커도 남긴다')
+    .option('--candidates <path>', 'harness-refs collect --json 결과 파일 (관련 레포를 읽는다)')
+    .option(
+      '--related-repo <owner/name>',
+      '관련 레포 추가 (여러 번)',
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
+    .option(
+      '--trusted-author <login>',
+      '마커를 믿을 작성자 추가 (여러 번). 원래 PR 작성자와 gh 사용자는 늘 포함',
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
+    .option('--json', 'stdout에 JSON만')
+    .action((o) => harnessRefsFollowupFindCommand(o));
+
+  followup
+    .command('check')
+    .description('후속 PR 본문과 diff가 마커의 작업을 이행하는지 본다')
+    .requiredOption('--markers <path>', 'harness-refs followup find --json 결과 파일')
+    .option('--pr <target>', '후속 PR 번호나 URL')
+    .option('--repo <owner/name>', '후속 PR의 레포')
+    .option('--body-file <path>', 'PR 본문 파일. 주면 gh로 읽지 않는다')
+    .option('--diff-file <path>', 'PR diff 파일. 주면 gh로 읽지 않는다')
+    .option('--json', 'stdout에 JSON만')
+    .action((o) => harnessRefsFollowupCheckCommand(o));
+
+  harnessRefs
+    .command('collect')
+    .description('검출기 여섯 개의 후보와 조회 막힘을 JSON 하나로 모은다. 리뷰를 막지 않는다')
+    .requiredOption('--base <sha>', '비교 기준 커밋')
+    .requiredOption('--head <sha>', '리뷰할 커밋. 워킹트리가 이 커밋이어야 한다')
+    .option('--backend <kind>', '역방향 검색 백엔드 local|github', 'local')
+    .option(
+      '--repo-dir <path>',
+      '관련 레포 로컬 clone. owner/name=경로 꼴도 받는다 (여러 번)',
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
+    .option('--refresh', '관련 레포 탐지 캐시를 무시한다')
+    .option('--json', 'stdout에 JSON만')
+    .action((o) => harnessRefsCollectCommand(o));
 
   program
     .command('humanize-scan')
