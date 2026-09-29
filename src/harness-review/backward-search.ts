@@ -63,6 +63,8 @@ const DOC_EXT_RE = /\.(md|mdx|mdc|txt|rst|adoc)$/i;
 // 식별자에 쓰이는 글자가 앞뒤에 붙어 있으면 다른 이름의 일부다. widget-audit가 widget-audit-v2에 걸리는 경우
 const NAME_CHAR_RE = /[A-Za-z0-9_-]/;
 
+const NAME_KINDS = new Set<Identifier['kind']>(['skillName', 'agentName', 'pluginName']);
+
 function isDocPath(path: string): boolean {
   return DOC_EXT_RE.test(path);
 }
@@ -104,6 +106,20 @@ function pointsAtOwnFile(
   if (id.kind !== 'path' && id.kind !== 'uniqueFileName') return false;
   if (selfRepo && hit.text.includes(nameOf(selfRepo))) return false;
   return backend.hasFile?.(hit.repo, term) === true;
+}
+
+/**
+ * "플러그인", "환경 변수" 같은 헤딩은 흔한 말이라 다른 레포에 낱말로만 나와도 걸린다. 다른 레포가
+ * 이 레포의 절을 부르면 `#앵커`로 걸거나 레포 이름을 함께 적는다. 둘 다 없는 헤딩 글자 매치는 뺀다
+ */
+function isBareHeadingMention(
+  hit: SearchHit,
+  id: Identifier,
+  term: string,
+  selfRepo: string | undefined,
+): boolean {
+  if (id.kind !== 'heading' || term.startsWith('#')) return false;
+  return !(selfRepo && hit.text.includes(nameOf(selfRepo)));
 }
 
 function nameOf(repo: string): string {
@@ -170,6 +186,9 @@ export async function backwardSearch(input: BackwardSearchInput): Promise<Backwa
         for (const hit of hits) {
           const bounded = hasBoundedMatch(hit.text, term);
           if (pointsAtOwnFile(input.backend, hit, id, term, input.selfRepo)) continue;
+          if (isBareHeadingMention(hit, id, term, input.selfRepo)) continue;
+          // 이름은 더 긴 이름의 일부로 걸리면 다른 이름이다. widget-audit와 widget-audit-v2
+          if (!bounded && NAME_KINDS.has(id.kind)) continue;
           if (isHarnessPath(hit.path)) {
             const key = locationKey(hit);
             if (seenRefs.has(key)) continue;
