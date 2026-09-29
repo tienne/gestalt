@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { runGh, type GhRunner } from '../review-loop/fetch.js';
 import type { SearchBackend } from './types.js';
+import { resolveRemoteUrl } from './remote-url.js';
 
 export const BLOCK_REASONS = [
   'notLoggedIn',
@@ -87,7 +88,7 @@ export function resolveGithubOwner(repoRoot: string, git: GitRunner = defaultGit
   } catch {
     return null;
   }
-  const m = /github\.com[:/]([^/\s]+)\/[^/\s]+?(?:\.git)?$/.exec(url);
+  const m = /github\.com[:/]([^/\s]+)\/[^/\s]+?(?:\.git)?$/.exec(resolveRemoteUrl(url));
   return m ? m[1]! : null;
 }
 

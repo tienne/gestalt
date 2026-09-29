@@ -5,6 +5,7 @@ import { basename, join, relative, sep } from 'node:path';
 import { log } from '../core/log.js';
 import { isHarnessPath } from './identifiers.js';
 import type { DetectionCache, Identifier, RelatedRepo } from './types.js';
+import { resolveRemoteUrl } from './remote-url.js';
 
 export { isHarnessPath };
 
@@ -149,6 +150,7 @@ export function readOriginRepo(repoRoot: string): RepoRef | null {
   } catch {
     return null;
   }
+  url = resolveRemoteUrl(url);
   if (!/github\.com/i.test(url)) return null;
   return parseGitHubRepo(url);
 }
