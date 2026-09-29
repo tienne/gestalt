@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { LocalCloneBackend } from '../../../src/harness-review/search-backend.js';
 import { cleanupFakeRepos, createFakeOrg, createFakeRepo } from '../../helpers/fake-repo.js';
@@ -31,6 +34,19 @@ describe('LocalCloneBackend', () => {
         text: 'run SKILL_TOKEN here',
       },
     ]);
+  });
+
+  it('git 레포가 아닌 디렉토리도 파일을 직접 훑어 찾는다', async () => {
+    const dir = resolve('.gestalt-test', `plain-${randomUUID()}`);
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(join(dir, 'docs/a.md'), 'x\nPLAIN_TOKEN\n');
+    try {
+      const b = new LocalCloneBackend([{ repo: 'acme/plain', dir }]);
+      const r = await b.search('PLAIN_TOKEN', ['acme/plain']);
+      expect(r.hits.map((h) => `${h.path}:${h.line}`)).toEqual(['docs/a.md:2']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('정규식 문자를 고정 문자열로 취급한다', async () => {
