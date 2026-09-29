@@ -45,6 +45,7 @@ export const MAX_HIDDEN_COPY_PHRASES = 40;
 export const MAX_HITS_PER_PHRASE = 20;
 /** 이보다 짧은 구절은 흔한 말이라 다른 문서에 우연히 겹친다 */
 export const MIN_PHRASE_CHARS = 10;
+export const MIN_ASCII_PHRASE_WORDS = 4;
 
 /**
  * 문서에서 두 파일을 같게 유지하라고 적은 자리를 찾는 표현. "동일하게"는
@@ -265,7 +266,10 @@ export function extractKeyPhrase(line: string): string | null {
   const segments = body
     .split(/[`*_|"“”‘’()[\]{}<>.,;:!?。—]|\s-\s/)
     .map((s) => s.trim().replace(/\s+/g, ' '))
-    .filter((s) => s.replace(/\s/g, '').length >= MIN_PHRASE_CHARS && s.includes(' '));
+    .filter((s) => s.replace(/\s/g, '').length >= MIN_PHRASE_CHARS && s.includes(' '))
+    // 영어만 있는 짧은 구절은 코드 블록 안의 코드(`throw new Error`)나 흔한 용어라 사본 표지가 못 된다.
+    // 줄 하나만 봐서는 펜스 안인지 알 수 없어 낱말 수로 가른다
+    .filter((s) => /[^ -~]/.test(s) || s.split(' ').length >= MIN_ASCII_PHRASE_WORDS);
   if (segments.length === 0) return null;
   return segments.reduce((a, b) => (b.length > a.length ? b : a));
 }
