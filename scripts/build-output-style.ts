@@ -52,6 +52,7 @@ const GATE: { name: string; ids: string[] }[] = [
   { name: '화자 소거', ids: ['G-4'] },
   { name: '결함·원인 비유', ids: ['F-9'] },
   { name: '관용구 물리 동사', ids: ['F-10'] },
+  { name: '영어 개념어 한 단어 직역', ids: ['B-5'] },
 ];
 
 /**
@@ -66,6 +67,7 @@ const SPOTLIGHT = [
   'A-7',
   'A-8',
   'B-3',
+  'B-5',
   'C-10',
   'C-12',
   'C-14',
@@ -120,6 +122,7 @@ const SPOTLIGHT = [
  */
 export const HOIST: Record<string, string> = {
   'F-9': '"뿌리"는 root 한 단어가',
+  'B-5': '"정본"이나 "원본"이라는 딱지로',
 };
 
 const PATTERN_MAX = 44;
