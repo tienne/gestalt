@@ -293,7 +293,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **MCP 도구가 입력 검증에 실패하면 왜 실패했는지 말해줍니다.** 전에는 원인이 무엇이든 `Expected object, received string at reviewResult` 한 줄이었어요. ct-catchtable-frontend에서 PR 리뷰를 돌리다 두 번 걸렸습니다. `reviewResult`에 보낸 JSON 문자열 안에 `\ud푼다`가 있어서 파싱이 깨졌는데 몇 번째 문자가 문제인지는 어디에도 안 나왔어요. `review_consensus`의 `reportedBy`는 필수인데 도구 설명에 없어서 이슈 17개짜리 페이로드를 세 번 보냈고요.
+- **MCP 도구가 입력 검증에 실패하면 왜 실패했는지 말해줍니다.** 전에는 원인이 무엇이든 `Expected object, received string at reviewResult` 한 줄이었어요. 프론트엔드 레포에서 PR 리뷰를 돌리다 두 번 걸렸습니다. `reviewResult`에 보낸 JSON 문자열 안에 `\ud푼다`가 있어서 파싱이 깨졌는데 몇 번째 문자가 문제인지는 어디에도 안 나왔어요. `review_consensus`의 `reportedBy`는 필수인데 도구 설명에 없어서 이슈 17개짜리 페이로드를 세 번 보냈고요.
   - **고칠 자리가 핸들러가 아니라 스키마였습니다.** 검증은 `@modelcontextprotocol/sdk`의 `validateToolInput`이 핸들러를 부르기 전에 돌립니다. 실패하면 첫 이슈의 message 한 줄만 뽑아 던져요. 핸들러 안에서는 못 끼어듭니다. 그래서 `src/mcp/input-guard.ts`에 방어를 모으고 스키마와 도구 등록이 전부 거기를 지나게 했어요.
   - **문자열로 온 객체는 `JSON.parse`를 먼저 겁니다.** 성공하면 그 값으로 검증을 잇습니다. 실패하면 파서의 원본 에러와 깨진 지점 앞뒤 40자를 싣고요. `fatal`로 끊어서 뒤따라오던 `Required at reviewResult.issues` 같은 잡음도 없앴어요 — 고칠 건 파싱 하나뿐입니다.
   - **타입이 어긋나면 경로와 받은 값 샘플이 함께 나옵니다.** SDK가 첫 이슈의 message만 꺼내가서 경로도 message 안에 있어야 살아남아요. `errorMap`은 스키마 트리 전 깊이에 심어서 `mergedIssues[0].reportedBy`처럼 배열 요소 안쪽 자리까지 닿습니다.
