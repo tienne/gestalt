@@ -84,6 +84,15 @@ export function pathMatcher(value: string): RegExp {
   return new RegExp(`(?<![\\w./-])(?:\\./)?${body}(?![\\w.-])`);
 }
 
+// 스킬 이름이 `.context/widget-pick/` 같은 작업 디렉토리 이름에도 쓰인다. 경로 조각이면 바로 위가
+// 스킬이나 에이전트 디렉토리일 때만 그 스킬을 부르는 자리다
+const NAME_PARENT_RE = /(?:^|[/\s`'"(])(?:skills|agents|commands)\/$/;
+
+function isForeignPathSegment(line: string, index: number): boolean {
+  if (line[index - 1] !== '/') return false;
+  return !NAME_PARENT_RE.test(line.slice(0, index));
+}
+
 interface Term {
   identifier: Identifier;
   grep: string;
@@ -99,8 +108,15 @@ function termsOf(id: Identifier, isDir: boolean): Term[] {
     // 디렉토리 이름은 산문의 흔한 낱말과 겹칠 수 있어 문맥 판정으로 넘긴다
     return [{ identifier: id, grep, test: (l) => re.test(l), needsLlmJudgment: isDir }];
   }
-  const re = new RegExp(`(?<![\\w-])${escapeRe(id.value)}(?![\\w-])`);
-  return [{ identifier: id, grep: id.value, test: (l) => re.test(l), needsLlmJudgment: true }];
+  const re = new RegExp(`(?<![\\w-])${escapeRe(id.value)}(?![\\w-])`, 'g');
+  const nameKind = id.kind === 'skillName' || id.kind === 'agentName';
+  const test = (line: string): boolean => {
+    for (const m of line.matchAll(re)) {
+      if (!nameKind || !isForeignPathSegment(line, m.index)) return true;
+    }
+    return false;
+  };
+  return [{ identifier: id, grep: id.value, test, needsLlmJudgment: true }];
 }
 
 interface GrepHit {
@@ -174,6 +190,7 @@ export function findSelfReferences(input: SelfReferenceInput): ReferenceCandidat
         sourceLine: hit.line,
         targetRepo: input.repo,
         targetPath: hit.path,
+        targetLine: hit.line,
         matchedText: term.identifier.value,
         contextLines: [hit.text.trim()],
         needsLlmJudgment: term.needsLlmJudgment,

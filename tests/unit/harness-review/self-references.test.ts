@@ -81,6 +81,36 @@ describe('findSelfReferences', () => {
     expect(found[0]).toMatchObject({ kind: 'backwardRef', targetRepo: 'acme/widget-kit' });
   });
 
+  it('스킬 이름이 다른 경로의 조각으로만 나오면 버리고 스킬 디렉토리 경로면 남긴다', () => {
+    const repo = createFakeRepo({ name: 'widget-kit' });
+    const skill = (name: string) => `---\nname: ${name}\ndescription: 위젯 고르기\n---\n\n본문\n`;
+    const agent = [
+      '1. `.context/widget-pick/bundle.md`를 만든다',
+      '2. `skills/widget-pick/SKILL.md`를 따른다',
+      '',
+    ].join('\n');
+    const pair = createCommitPair(repo, {
+      base: {
+        '.claude/skills/widget-pick/SKILL.md': skill('widget-pick'),
+        '.claude/agents/picker.md': agent,
+      },
+      head: {
+        '.claude/skills/widget-pick/SKILL.md': null,
+        '.claude/skills/widget-choose/SKILL.md': skill('widget-choose'),
+      },
+    });
+    const found = findSelfReferences({
+      repoRoot: repo.root,
+      base: pair.baseSha,
+      head: pair.headSha,
+      repo: 'acme/widget-kit',
+      identifiers: extractIdentifiersFromGit(repo.root, pair.baseSha, pair.headSha),
+    });
+    expect(found.map((c) => `${c.sourceFile}:${c.sourceLine}`)).toEqual([
+      '.claude/agents/picker.md:2',
+    ]);
+  });
+
   it('지우거나 바꾼 식별자가 없으면 후보가 없다', () => {
     const repo = createFakeRepo();
     const pair = createCommitPair(repo, {
