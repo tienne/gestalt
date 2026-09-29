@@ -7,6 +7,7 @@ import { CodeGraphStore } from '../../../src/code-graph/storage.js';
 import {
   extractKeyPhrase,
   findCopyDrift,
+  findListInsertions,
   summarizeDiff,
 } from '../../../src/harness-review/copy-drift.js';
 import {
@@ -288,6 +289,22 @@ describe('findCopyDrift — 숨은 사본', () => {
     });
     expect(r.bySource.hiddenCopy).toEqual([]);
   });
+
+  it('중복을 한 곳으로 모은 PR이면 모인 자리는 빼고 diff 밖에 남은 사본만 낸다', () => {
+    const repo = createFakeRepo();
+    const doc = ['# 규칙', OLD, '- 다른 줄', ''].join('\n');
+    const { baseSha, headSha } = createCommitPair(repo, {
+      base: { 'CLAUDE.md': doc, 'docs/strategy.md': `${doc}- 전략 문서에만 있는 줄\n` },
+      head: { 'CLAUDE.md': '# 규칙\n\n- 규칙은 docs/rules.md에 있다\n', 'docs/rules.md': doc },
+    });
+    const r = findCopyDrift({
+      repoRoot: repo.root,
+      base: baseSha,
+      head: headSha,
+      codeGraphDbPath: noDb(),
+    });
+    expect(r.bySource.hiddenCopy.map((c) => c.targetPath)).toEqual(['docs/strategy.md']);
+  });
 });
 
 describe('findCopyDrift — 같게 유지 선언', () => {
@@ -443,5 +460,69 @@ describe('summarizeDiff', () => {
       ],
     });
     expect(files.get('gone.md')!.removed).toEqual([{ line: 1, text: 'bye' }]);
+  });
+});
+
+describe('findListInsertions', () => {
+  const summary = (removed: string, added: string) => ({
+    firstLine: 3,
+    removed: [{ line: 3, text: removed }],
+    added: [{ line: 3, text: added }],
+  });
+
+  it('목록 끝에 항목 하나를 더한 줄에서 원래 목록과 새 항목을 뽑는다', () => {
+    expect(
+      findListInsertions(
+        summary(
+          '지침(`AGENTS.md`·`CLAUDE.md`·`GEMINI.md`)을 먼저 읽는다',
+          '지침(`AGENTS.md`·`CLAUDE.md`·`GEMINI.md`·`.rules/`)을 먼저 읽는다',
+        ),
+      ),
+    ).toEqual([{ anchor: '`AGENTS.md`·`CLAUDE.md`·`GEMINI.md`', item: '.rules/', sourceLine: 3 }]);
+  });
+
+  it('한 줄의 두 목록에 각각 끼운 항목을 따로 뽑는다', () => {
+    const found = findListInsertions(
+      summary(
+        '(`a.md`·`b.md`·`c.md`)를 읽고 (`x.md`·`y.md`·`z.md`)를 본다',
+        '(`a.md`·`b.md`·`c.md`·`d/`)를 읽고 (`x.md`·`y.md`·`z.md`·`d/`)를 본다',
+      ),
+    );
+    expect(found.map((f) => f.anchor)).toEqual(['`a.md`·`b.md`·`c.md`', '`x.md`·`y.md`·`z.md`']);
+  });
+
+  it('항목이 둘뿐이거나 지운 글자가 있으면 끼움으로 안 본다', () => {
+    expect(findListInsertions(summary('A·B를 읽는다', 'A·B·C를 읽는다'))).toEqual([]);
+    expect(findListInsertions(summary('`a`·`b`·`c`를 읽는다', '`a`·`b`·`d`·`e`를 읽는다'))).toEqual(
+      [],
+    );
+  });
+});
+
+describe('findCopyDrift — 목록 끼움', () => {
+  afterEach(() => cleanupFakeRepos());
+
+  it('diff 밖의 같은 목록 중 새 항목이 없는 줄만 낸다', () => {
+    const repo = createFakeRepo();
+    const list = '지침(`AGENTS.md`·`CLAUDE.md`·`GEMINI.md`)을 먼저 읽는다';
+    const { baseSha, headSha } = createCommitPair(repo, {
+      base: {
+        'plugin/skills/a/SKILL.md': `# a\n\n${list}\n`,
+        'plugin/skills/b/SKILL.md': `# b\n\n배포 전 ${list}\n`,
+        'plugin/skills/c/SKILL.md': '# c\n\n`AGENTS.md`·`CLAUDE.md`·`GEMINI.md`·`.rules/`를 본다\n',
+      },
+      head: {
+        'plugin/skills/a/SKILL.md': `# a\n\n${list.replace('`GEMINI.md`', '`GEMINI.md`·`.rules/`')}\n`,
+      },
+    });
+    const r = findCopyDrift({
+      repoRoot: repo.root,
+      base: baseSha,
+      head: headSha,
+      codeGraphDbPath: noDb(),
+    });
+    expect(
+      r.bySource.hiddenCopy.map((c) => [c.targetPath, c.targetLine, c.needsLlmJudgment]),
+    ).toEqual([['plugin/skills/b/SKILL.md', 3, true]]);
   });
 });
