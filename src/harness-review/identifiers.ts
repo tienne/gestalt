@@ -432,7 +432,8 @@ function extractHeadings(file: DiffFile, out: IdentifierSet) {
 
 /** 룰 문서에서 룰을 정의하는 줄이면 그 ID를 돌려준다. 규칙을 언급만 하는 줄은 정의로 안 본다 */
 export function ruleIdOfDefinitionLine(text: string): string | null {
-  const lead = /^\s*(?:[#>*|+-]+\s*)*(?:\*\*|`)?\[?([A-Z]{1,2}-\d{1,3})(?![\w-])/.exec(text);
+  // 기호를 한 번에 한 글자씩 먹는다. `[...]+`를 반복으로 감싸면 표 구분선 같은 긴 기호 줄에서 백트래킹이 폭증한다
+  const lead = /^\s*(?:[#>*|+-]\s*)*(?:\*\*|`)?\[?([A-Z]{1,2}-\d{1,3})(?![\w-])/.exec(text);
   return lead ? lead[1]! : null;
 }
 

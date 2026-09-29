@@ -10,6 +10,7 @@ import {
   isPublicPackageJson,
   isRuleDocPath,
   parseUnifiedDiff,
+  ruleIdOfDefinitionLine,
 } from '../../../src/harness-review/identifiers.js';
 import type { Identifier } from '../../../src/harness-review/types.js';
 import { cleanupFakeRepos, createCommitPair, createFakeRepo } from '../../helpers/fake-repo.js';
@@ -499,5 +500,20 @@ describe('extractIdentifiers — MCP 도구 (하네스 문서가 아닌 코드 P
       head: { 'src/a.ts': "export const d = { description: 'y' };\n" },
     });
     expect(extractIdentifiersFromGit(repo.root, baseSha, headSha)).toEqual([]);
+  });
+});
+
+describe('ruleIdOfDefinitionLine', () => {
+  it('룰 정의 줄의 ID를 돌려주고 언급만 하는 줄은 null이다', () => {
+    expect(ruleIdOfDefinitionLine('## A-1 제목')).toBe('A-1');
+    expect(ruleIdOfDefinitionLine('- **B-3** 설명')).toBe('B-3');
+    expect(ruleIdOfDefinitionLine('| C-12 | 표 |')).toBe('C-12');
+    expect(ruleIdOfDefinitionLine('참고 A-1')).toBeNull();
+  });
+
+  it('긴 표 구분선에서도 바로 끝난다', () => {
+    const started = Date.now();
+    expect(ruleIdOfDefinitionLine(`|${'-'.repeat(200)}|${'-'.repeat(200)}|x`)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(100);
   });
 });
