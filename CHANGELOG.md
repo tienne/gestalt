@@ -5,14 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.83.2] - 2026-09-29
 
 ### Fixed
 
 - **Tienne Voice output style이 `정본`을 못 잡던 문제를 고쳤어요.** 사본 여럿 중 하나를 가리킬 때 명사를 붙이지 말라는 규칙이 `style-guide.md`에만 있었고 세션에 실리는 output style에는 없었어요. B-3 줄은 음차와 `SSOT`만 막는데 `정본`은 한자어라 그대로 지나갔고요.
   - canonical을 한자어 한 단어로 옮긴 말이라 B-5에 넣었어요. 예시 맨 앞에 두고 "파일 이름만 쓰거나 동사로 푼다"는 처방을 붙였습니다.
   - B-5를 output style 금지 목록과 자가점검(19번)에 올렸어요. 처방 문장은 `HOIST`로 올려서 요약이 잘려도 꼬리까지 실려요.
-  - B-5 탐지기가 `정본`을 걸어요. `원본`은 "생성물 말고 원본을 고친다" 같은 정상 용법과 형태로 못 가르니 표에만 두고 모델이 봐요.
+  - B-5 탐지기가 `정본`을 걸어요. 앞에 한글이 붙은 `수정본`, `확정본`, `개정본`은 다른 낱말이라 후방탐색으로 뺐어요. `원본`은 "생성물 말고 원본을 고친다" 같은 정상 용법과 형태로 못 가르니 표에만 두고 모델이 봐요.
+  - 사본을 함께 적어도 무엇이 원본인지를 명사로 지목하면 딱지로 본다는 기준을 룰북과 `style-guide.md`에 적었어요. 그 기준에 걸리던 `comment-rules.md`, `truncation-rules.md`, `rule-path-walk.md` 머리말은 "이 문서에만 적고"로 풀었습니다.
+
+### 검증 범위
+
+로컬 리뷰를 3라운드 돌렸어요. 1라운드에서 `정본`이 `수정본` 같은 합성어까지 부분일치한다는 코멘트가 high 2건 나왔어요. 2라운드에서는 경로 따라가기로 룰 문서 머리말이 딱지 금지와 사본 예외에 동시에 걸린다는 high 1건이 나왔고요. 3라운드에 0건으로 끝났습니다. `pnpm gate` 전 항목을 통과했어요(155개 파일 2696개 테스트).
+
+### 남긴 것
+
+- 스킬 문서(`plugin/skills/` 아래 SKILL.md와 `_shared/` 문서, `comment-reviewer`와 `writing-reviewer`의 AGENT.md)에 `…가 원본이다` 꼴이 10곳 정도 남았어요. 이번 PR이 안 건드린 줄이라 후속으로 걷을게요.
+- 소비 레포 문서에 남은 `정본`은 이 레포 범위 밖이에요.
 
 ## [0.83.1] - 2026-09-24
 
