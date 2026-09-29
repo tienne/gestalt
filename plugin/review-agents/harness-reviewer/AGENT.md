@@ -28,7 +28,7 @@ You are the Harness Reviewer agent.
 
 | 필드 | 뜻 |
 |---|---|
-| `kind` | `selfContamination`, `copyDrift`, `forwardRef`, `backwardRef`, `knowledgeDoc` 중 하나 |
+| `kind` | `selfContamination`, `copyDrift`, `ruleIdListGap`, `forwardRef`, `backwardRef`, `knowledgeDoc` 중 하나 |
 | `sourceFile`, `sourceLine` | 후보가 걸린 파일과 줄 |
 | `targetRepo`, `targetPath` | 참조가 가리키는 레포와 경로. 레포 안 후보면 이 레포 이름입니다 |
 | `matchedText` | 걸린 조각 |
@@ -83,6 +83,21 @@ You are the Harness Reviewer agent.
 `needsLlmJudgment`가 붙은 "같게 유지"가 적힌 쌍은 그 지시 문장을 먼저 읽습니다. 파일 전체를 같게 두라는 건지 어느 절만 같게 두라는 건지에 따라 판정이 바뀝니다.
 
 사본 하나를 기준이라는 딱지로 부르자고 제안하지 않습니다. 룰북 B-5가 막는 자리입니다. "이 파일만 고치고 나머지는 경로로 가리킨다"처럼 동사로 풉니다.
+
+### ruleIdListGap — 룰 ID를 골라 담은 코드 목록에 바뀐 룰이 없음
+
+이 PR이 룰북에서 정의하거나 고친 룰 ID가, 같은 룰북의 ID를 셋 이상 나열한 코드 목록에 없는 자리입니다. `matchedText`가 빠진 ID이고 `sourceLine`은 그 ID가 들어갈 줄입니다. 목록은 대개 룰 일부만 일부러 고른 것이라 전부 `needsLlmJudgment`로 옵니다.
+
+결함으로 올리는 자리입니다.
+
+- 이번 변경의 목적이 그 룰을 목록이 하는 일(금지 목록 펼치기, 자가점검, 게이트)에 올리는 것인데 목록에 안 넣었습니다. PR 설명이나 룰북 변경이 "이제 막는다", "대화에서도 걸린다"처럼 목록의 쓰임을 말하면 이 경우입니다
+- 목록 위 설명이 "이 조건의 룰은 전부 넣는다"처럼 고르는 기준을 적었고 바뀐 룰이 그 조건에 새로 들었습니다
+
+버리는 자리입니다.
+
+- 목록 위 설명이 일부만 고른다고 적었고 이번 변경이 그 기준에 닿지 않습니다
+- 룰 문구만 다듬은 변경입니다. 뜻과 심각도가 그대로면 목록을 바꿀 까닭이 없습니다
+- 테스트나 fixture에서 특정 룰만 골라 검사하는 목록입니다
 
 ### forwardRef — 바뀐 문서가 가리키는 경로, 헤딩, 링크, PR이 실제로 있는지
 
