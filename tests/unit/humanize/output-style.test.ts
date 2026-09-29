@@ -222,7 +222,6 @@ describe('buildOutputStyle', () => {
     rendered = buildOutputStyle();
   });
 
-  // HOIST 항목이 둘 이상 될 때를 위한 자리다. 지금은 아래 F-9 테스트에 포함된다
   it('HOIST에 올린 룰마다 그 조각이 금지 목록에 실린다', () => {
     const entries = Object.entries(HOIST);
     expect(entries.length).toBeGreaterThan(0);
@@ -237,6 +236,16 @@ describe('buildOutputStyle', () => {
     expect(bannedLine(rendered, 'F-9')).toContain(
       '"뿌리"는 root 한 단어가 그 대상 이름인 자리에서만 쓴다 — root cause처럼 수식하는 자리는 대상이다',
     );
+  });
+
+  it('B-5는 canonical 처방을 꼬리까지 싣는다', () => {
+    expect(bannedLine(rendered, 'B-5')).toContain(
+      `"정본"이나 "원본"이라는 딱지로 가리키지 않는다 — 파일 이름만 쓰거나 "이 파일만 읽는다"처럼 동사로 푼다`,
+    );
+  });
+
+  it('자가점검이 B-5 예시를 보인다', () => {
+    expect(rendered).toContain(`영어 개념어 한 단어 직역(정본) 없는가 — B-5`);
   });
 
   it('F-9 줄이 실측 예산 안에 있다', () => {
