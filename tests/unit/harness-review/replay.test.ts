@@ -57,6 +57,7 @@ describe('parseReplayArgs', () => {
       backend: 'local',
       relatedDirs: [],
       reviewCmd: null,
+      codeGraphDb: null,
     });
   });
 
@@ -80,6 +81,8 @@ describe('parseReplayArgs', () => {
           '/x',
           '--review-cmd',
           'echo "[]" > "$GESTALT_REPLAY_OUT"',
+          '--code-graph-db',
+          '/g/code-graph.db',
         ],
         '/work',
       ),
@@ -88,6 +91,7 @@ describe('parseReplayArgs', () => {
     expect(a.backend).toBe('github');
     expect(a.relatedDirs).toEqual(['acme/widget-kit=/w', '/x']);
     expect(a.reviewCmd).toContain('GESTALT_REPLAY_OUT');
+    expect(a.codeGraphDb).toBe('/g/code-graph.db');
   });
 
   it.each([
@@ -195,6 +199,32 @@ describe('commentsFromCollect', () => {
     });
   });
 
+  it('역방향 후보는 걸린 줄 내용이 본문에 실려 기대 문구와 맞춰볼 수 있다', () => {
+    const [c] = commentsFromCollect({
+      candidates: {
+        backwardRef: [
+          {
+            sourceFile: 'skills/pick/SKILL.md',
+            sourceLine: 7,
+            targetRepo: 'acme/widget-kit',
+            targetPath: 'skills/pick/SKILL.md',
+            matchedText: 'guides/',
+            contextLines: ['목록은 `find ./guides`로 만든다'],
+          },
+        ],
+      },
+    });
+    expect(
+      matchesExpectation(c!, {
+        id: 'x',
+        description: '',
+        path: 'skills/pick/SKILL.md',
+        line: 7,
+        text: 'find ./guides',
+      }),
+    ).toBe(true);
+  });
+
   it('모양이 다르면 빈 배열이다', () => {
     expect(commentsFromCollect(null)).toEqual([]);
     expect(commentsFromCollect({ candidates: [] })).toEqual([]);
@@ -259,6 +289,15 @@ describe('matchesExpectation', () => {
   it('text는 본문에 들어 있어야 한다', () => {
     expect(matchesExpectation(comment(), { id: 'x', description: '', text: '금지어' })).toBe(true);
     expect(matchesExpectation(comment(), { id: 'x', description: '', text: '사본' })).toBe(false);
+  });
+
+  it('리뷰 코멘트는 리뷰어 말로 쓰므로 text 없이 자리만 맞으면 잡은 것으로 본다', () => {
+    const review = comment({ source: 'review', kind: 'review', body: '옛 경로를 가리킨다' });
+    const e = { id: 'x', description: '', path: 'docs/rules.md', line: 11, lineTolerance: 3 };
+    expect(matchesExpectation(review, { ...e, text: '`components/a.md` 파일을 읽는다' })).toBe(
+      true,
+    );
+    expect(matchesExpectation(review, { ...e, path: 'other.md', text: 'x' })).toBe(false);
   });
 });
 
