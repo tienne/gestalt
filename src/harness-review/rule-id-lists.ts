@@ -29,6 +29,8 @@ export const MAX_LIST_GAP_LINES = 2;
 export const MAX_LIST_CONTEXT_LINES = 8;
 
 const CODE_EXT_RE = /\.(?:[cm]?[jt]sx?|json|ya?ml|py)$/;
+// 테스트와 fixture는 룰 일부만 골라 검사하는 게 정상이라 빠진 ID가 결함이 아니다
+const TEST_PATH_RE = /(?:^|\/)(?:tests?|__tests__|fixtures?)\/|\.(?:test|spec)\.[^/]+$/;
 const QUOTED_RULE_ID_RE = /(['"`])([A-Z]{1,2}-\d{1,3})\1/g;
 
 export interface RuleIdList {
@@ -135,16 +137,18 @@ export function findRuleIdListGaps(input: RuleIdListGapInput): ReferenceCandidat
 
   const candidates: ReferenceCandidate[] = [];
   for (const file of input.files) {
-    if (!CODE_EXT_RE.test(file)) continue;
+    if (!CODE_EXT_RE.test(file) || TEST_PATH_RE.test(file)) continue;
     const content = input.readFile(file);
     if (content === undefined) continue;
+    const quotedHere = new Set([...content.matchAll(QUOTED_RULE_ID_RE)].map((m) => m[2]!));
     for (const list of findRuleIdLists(file, content)) {
       for (const book of rulebooks) {
         // 다른 룰북의 ID 목록은 같은 접두 글자를 써도 이 룰과 무관하다
         const shared = [...list.ids].filter((id) => book.defined.has(id)).length;
         if (shared < MIN_LIST_IDS) continue;
         for (const id of book.ids) {
-          if (list.ids.has(id)) continue;
+          // 한 파일에서 여러 줄로 흩어진 목록(탐지기 등록부 같은 것)은 이미 그 ID를 다른 구간에 들고 있다
+          if (quotedHere.has(id)) continue;
           candidates.push({
             kind: 'ruleIdListGap',
             sourceFile: file,

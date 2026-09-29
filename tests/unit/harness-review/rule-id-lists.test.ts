@@ -115,6 +115,21 @@ describe('findRuleIdListGaps', () => {
     expect(gaps[0]!.contextLines).toContain("  'W-2',");
   });
 
+  it('테스트와 fixture 목록, 같은 파일 다른 구간에 ID가 이미 있는 목록은 건너뛴다', () => {
+    const more: Record<string, string> = {
+      ...files,
+      'tests/unit/rules.test.ts': sortedList,
+      'src/rules.spec.ts': sortedList,
+      'src/registry.ts': `${sortedList}\n\n\n\nconst EXTRA = ['W-3'];\n`,
+    };
+    const gaps = findRuleIdListGaps({
+      ...input(diffAdding(RULEBOOK, ['| W-3 | 셋째 룰 |'])),
+      files: Object.keys(more),
+      readFile: (p) => more[p],
+    });
+    expect(gaps.map((g) => g.sourceFile)).toEqual(['src/picked.ts', 'src/checks.ts']);
+  });
+
   it('목록에 이미 있는 ID면 후보가 없다', () => {
     expect(findRuleIdListGaps(input(diffAdding(RULEBOOK, ['| W-2 | 둘째 룰 |'])))).toEqual([]);
   });
