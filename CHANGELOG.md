@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tienne Voice output style이 `정본`을 못 잡던 문제를 고쳤어요.** 사본 여럿 중 하나를 가리킬 때 명사를 붙이지 말라는 규칙이 `style-guide.md`에만 있었고 세션에 실리는 output style에는 없었어요. B-3 줄은 음차와 `SSOT`만 막는데 `정본`은 한자어라 그대로 지나갔고요.
+  - canonical을 한자어 한 단어로 옮긴 말이라 B-5에 넣었어요. 예시 맨 앞에 두고 "파일 이름만 쓰거나 동사로 푼다"는 처방을 붙였습니다.
+  - B-5를 output style 금지 목록과 자가점검(19번)에 올렸어요. 처방 문장은 `HOIST`로 올려서 요약이 잘려도 꼬리까지 실려요.
+  - B-5 탐지기가 `정본`을 걸어요. `원본`은 "생성물 말고 원본을 고친다" 같은 정상 용법과 형태로 못 가르니 표에만 두고 모델이 봐요.
+
 ## [0.83.1] - 2026-09-24
 
 ### Fixed
