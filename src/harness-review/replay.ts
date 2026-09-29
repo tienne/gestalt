@@ -30,6 +30,8 @@ export interface ReplayArgs {
   relatedDirs: string[];
   /** 리뷰 리포트를 만드는 셸 명령. 없으면 collect 후보만 잰다 */
   reviewCmd: string | null;
+  /** 회차마다 워크트리의 `.gestalt/code-graph.db`로 복사할 DB. 없으면 co-change 경로를 못 돈다 */
+  codeGraphDb: string | null;
 }
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -43,6 +45,7 @@ export const REPLAY_USAGE = [
   '  --backend local|github  역방향 검색 백엔드 (기본: local)',
   '  --related-dir <spec>    collect --repo-dir로 넘길 관련 레포 (여러 번)',
   '  --review-cmd <shell>    워크트리에서 돌릴 리뷰 명령. $GESTALT_REPLAY_OUT에 JSON을 쓴다',
+  '  --code-graph-db <path>  회차마다 워크트리에 복사할 코드 그래프 DB (co-change 경로용)',
 ].join('\n');
 
 function isPositiveInteger(value: string): boolean {
@@ -58,6 +61,7 @@ export function parseReplayArgs(argv: string[], cwd: string): ParseResult<Replay
     backend: 'local',
     relatedDirs: [],
     reviewCmd: null,
+    codeGraphDb: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i]!;
@@ -100,6 +104,9 @@ export function parseReplayArgs(argv: string[], cwd: string): ParseResult<Replay
         break;
       case '--review-cmd':
         args.reviewCmd = value;
+        break;
+      case '--code-graph-db':
+        args.codeGraphDb = value;
         break;
       default:
         return { ok: false, error: `모르는 옵션: ${flag}` };
@@ -304,7 +311,16 @@ export function commentsFromCollect(json: unknown): ReplayComment[] {
         line: lineOf(c.sourceLine),
         relatedPath: targetPath,
         relatedLine: lineOf(c.targetLine),
-        body: [target, optionalString(c.matchedText)].filter(Boolean).join(' — '),
+        // 역방향 후보는 matchedText가 식별자라 걸린 줄 내용은 contextLines에만 있다
+        body: [
+          target,
+          optionalString(c.matchedText),
+          ...(Array.isArray(c.contextLines)
+            ? c.contextLines.filter((l) => typeof l === 'string')
+            : []),
+        ]
+          .filter(Boolean)
+          .join(' — '),
       });
     }
   }
@@ -383,7 +399,9 @@ export function matchesExpectation(c: ReplayComment, e: ReplayExpectation): bool
         (p.line !== null && Math.abs(p.line - e.line) <= (e.lineTolerance ?? 0))),
   );
   if (!placed) return false;
-  if (e.text !== undefined && !c.body.includes(e.text)) return false;
+  // 기대 항목의 text는 그 줄에 적힌 문자열이다. collect 후보 본문은 그 줄을 옮겨 오지만 리뷰 코멘트는
+  // 리뷰어 말로 쓰므로 자리만 맞으면 잡은 것으로 본다
+  if (e.text !== undefined && c.source === 'collect' && !c.body.includes(e.text)) return false;
   return true;
 }
 
