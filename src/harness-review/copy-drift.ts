@@ -133,6 +133,77 @@ export function summarizeDiff(raw: string): Map<string, FileDiffSummary> {
   return files;
 }
 
+/** 목록 끼움으로 볼 최소 항목 수. 둘짜리 나열은 산문에서도 흔해 같은 목록이라고 보기 어렵다 */
+export const MIN_LIST_ANCHOR_ITEMS = 3;
+/** 바뀐 줄 짝을 찾는 파일당 지운 줄 한도. 넘으면 문서를 갈아엎은 것이라 줄 짝이 뜻이 없다 */
+const MAX_PAIRING_LINES = 200;
+
+const LIST_ITEM = '(?:`[^`\\n]+`|[^\\s`·,、/()|]+)';
+const LIST_TAIL_RE = new RegExp(`${LIST_ITEM}(?:\\s?[·,、/]\\s?${LIST_ITEM})+$`);
+const LIST_ITEM_RE = new RegExp(LIST_ITEM, 'g');
+
+export interface ListInsertion {
+  /** 끼운 자리 바로 앞의 원래 목록. diff 밖에서 이 글을 찾는다 */
+  anchor: string;
+  /** 새로 끼운 항목 (구분자 뺀 것) */
+  item: string;
+  sourceLine: number;
+}
+
+const INSERTED_ITEM_RE = new RegExp(`^\\s?[·,、/]\\s?(${LIST_ITEM})`);
+
+/**
+ * 두 줄을 앞에서부터 함께 읽다가 어긋나는 자리마다 "구분자 + 항목"을 건너뛰어 본다.
+ * 건너뛴 뒤 다시 맞아떨어지면 끼운 것이다. 지운 쪽에 남는 글자가 생기면 바꾼 것이라 null이다
+ */
+function insertedItems(removed: string, added: string): { at: number; item: string }[] | null {
+  const out: { at: number; item: string }[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < removed.length) {
+    if (j < added.length && removed[i] === added[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    const m = INSERTED_ITEM_RE.exec(added.slice(j));
+    if (!m) return null;
+    out.push({ at: i, item: m[1]!.replace(/`/g, '') });
+    j += m[0].length;
+  }
+  if (j < added.length) {
+    const m = INSERTED_ITEM_RE.exec(added.slice(j));
+    if (!m || j + m[0].length !== added.length) return null;
+    out.push({ at: i, item: m[1]!.replace(/`/g, '') });
+  }
+  return out.length > 0 ? out : null;
+}
+
+/**
+ * 지운 줄과 추가 줄 짝에서 목록 끝에 항목을 더한 수정을 찾는다.
+ * 줄 전체에서 뽑은 구절은 새 줄에도 그대로 남아 숨은 사본 검색에 안 걸린다. 끼운 자리 앞의 목록만 떼어 찾는다
+ */
+export function findListInsertions(diff: FileDiffSummary): ListInsertion[] {
+  if (diff.removed.length > MAX_PAIRING_LINES) return [];
+  const out: ListInsertion[] = [];
+  const used = new Set<number>();
+  for (const r of diff.removed) {
+    for (const [i, a] of diff.added.entries()) {
+      if (used.has(i)) continue;
+      const items = insertedItems(r.text, a.text);
+      if (!items) continue;
+      used.add(i);
+      for (const { at, item } of items) {
+        const tail = LIST_TAIL_RE.exec(r.text.slice(0, at));
+        if (!tail || [...tail[0].matchAll(LIST_ITEM_RE)].length < MIN_LIST_ANCHOR_ITEMS) continue;
+        out.push({ anchor: tail[0], item, sourceLine: a.line });
+      }
+      break;
+    }
+  }
+  return out;
+}
+
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}\t${b}` : `${b}\t${a}`;
 }
@@ -346,31 +417,36 @@ export function findCopyDrift(opts: CopyDriftOptions): CopyDriftResult {
   try {
     const seen = new Set<string>();
     let phrases = 0;
-    // 지운 구절이 이번 diff의 추가 줄 어디에든 다시 나오면 문장이나 파일을 옮긴 것이다.
-    // --no-renames라 파일을 옮기면 옛 파일은 전부 지운 줄, 새 파일은 전부 추가 줄로 나온다
-    const addedText = [...diffs.values()].flatMap((d) => d.added.map((l) => l.text)).join('\n');
+    // 지운 구절이 이번 diff에서 추가된 파일은 그 구절이 옮겨간 자리라 사본이 아니다.
+    // --no-renames라 파일을 옮기면 옛 파일은 전부 지운 줄, 새 파일은 전부 추가 줄로 나온다.
+    // 구절을 통째로 건너뛰면 중복을 한 곳으로 모은 PR에서 diff 밖에 남은 사본까지 놓친다
+    const addedByPath = new Map(
+      [...diffs].map(([path, d]) => [path, d.added.map((l) => l.text).join('\n')]),
+    );
     outer: for (const [source, diff] of diffs) {
       if (!source.endsWith('.md')) continue;
       const sourceNow = headPaths.has(source) ? readHead(source).join('\n') : '';
       for (const removed of diff.removed) {
         const phrase = extractKeyPhrase(removed.text);
         // head의 같은 파일에 구절이 아직 있으면 문장을 옮긴 것일 뿐이다
-        if (!phrase || seen.has(phrase) || sourceNow.includes(phrase) || addedText.includes(phrase))
-          continue;
+        if (!phrase || seen.has(phrase) || sourceNow.includes(phrase)) continue;
         seen.add(phrase);
+        // 규칙 문장의 사본은 문서끼리의 일이다. 코드에 같은 명령어가 적힌 건 사본이 아니다
+        const hits = gitGrep(runGit, root, opts.head, ['-F', '-e', phrase], ['*.md']).filter(
+          (h) => h.path !== source && !addedByPath.get(h.path)?.includes(phrase),
+        );
+        if (hits.length === 0) continue;
         if (++phrases > MAX_HIDDEN_COPY_PHRASES) {
           limitations.push(
             `숨은 사본 검색 구절이 ${MAX_HIDDEN_COPY_PHRASES}개를 넘어 뒤쪽은 건너뛰었다`,
           );
           break outer;
         }
-        const hits = gitGrep(runGit, root, opts.head, ['-F', '-e', phrase]).filter(
-          (h) => h.path !== source,
-        );
         for (const hit of hits.slice(0, MAX_HITS_PER_PHRASE)) {
           bySource.hiddenCopy.push(
             make(source, hit.path, {
               sourceLine: removed.line,
+              targetLine: hit.line,
               matchedText: phrase,
               contextLines: contextAround(readHead(hit.path), hit.line, ctxN),
             }),
@@ -380,6 +456,44 @@ export function findCopyDrift(opts: CopyDriftOptions): CopyDriftResult {
     }
   } catch (e) {
     limitations.push(`숨은 사본 검색 실패: ${errMessage(e)}`);
+  }
+
+  // (3b) 목록에 항목을 끼웠는데 diff 밖의 같은 목록에는 안 끼운 자리. 목록이 원래 달라야 하는
+  // 자리일 수 있어 LLM 판정으로 넘긴다
+  try {
+    // 이번 diff가 이미 고친 줄은 리뷰어가 diff에서 읽는다
+    const addedLineSet = new Set(
+      [...diffs].flatMap(([path, d]) => d.added.map((l) => `${path}:${l.line}`)),
+    );
+    const reported = new Set<string>();
+    for (const [source, diff] of diffs) {
+      if (!source.endsWith('.md')) continue;
+      for (const ins of findListInsertions(diff)) {
+        const hits = gitGrep(runGit, root, opts.head, ['-F', '-e', ins.anchor], ['*.md']).filter(
+          (h) => !h.text.includes(ins.item) && !addedLineSet.has(`${h.path}:${h.line}`),
+        );
+        // 겹치는 목록(앞 셋과 앞 넷)이 같은 줄을 두 번 잡는다
+        const fresh = hits.filter((h) => {
+          const key = `${h.path}:${h.line}:${ins.item}`;
+          if (reported.has(key)) return false;
+          reported.add(key);
+          return true;
+        });
+        for (const hit of fresh.slice(0, MAX_HITS_PER_PHRASE)) {
+          bySource.hiddenCopy.push(
+            make(source, hit.path, {
+              sourceLine: ins.sourceLine,
+              targetLine: hit.line,
+              matchedText: `${ins.anchor} (이번 PR은 ${ins.item}를 더함)`,
+              contextLines: contextAround(readHead(hit.path), hit.line, ctxN),
+              needsLlmJudgment: true,
+            }),
+          );
+        }
+      }
+    }
+  } catch (e) {
+    limitations.push(`목록 끼움 검색 실패: ${errMessage(e)}`);
   }
 
   // (4) 문서가 같게 유지하라고 적은 쌍. 어느 쪽이 기준인지, 이번 변경이 그 약속을

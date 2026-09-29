@@ -16,6 +16,8 @@ export interface ReferenceCandidate {
   sourceLine: number;
   targetRepo: string;
   targetPath: string;
+  /** 대상 파일에서 걸린 줄. 파일 단위로만 짝을 짓는 후보는 없다 */
+  targetLine?: number;
   matchedText: string;
   contextLines: string[];
   needsLlmJudgment: boolean;
