@@ -23,6 +23,7 @@ import { detectRelatedRepos, readOriginRepo } from './related-repos.js';
 import { findRuleIdListGapsFromGit } from './rule-id-lists.js';
 import { LocalCloneBackend, type CodeSearchBackend, type SkippedRepo } from './search-backend.js';
 import { findSelfContamination } from './self-contamination.js';
+import { findSelfReferences } from './self-references.js';
 import {
   REFERENCE_CANDIDATE_KINDS,
   type Identifier,
@@ -43,6 +44,7 @@ export const DETECTOR_NAMES = [
   'ruleIdListGap',
   'forwardSearch',
   'backwardSearch',
+  'selfReferences',
 ] as const;
 
 export type DetectorName = (typeof DETECTOR_NAMES)[number];
@@ -251,6 +253,13 @@ export async function collectReferenceCandidates(opts: CollectOptions): Promise<
 
   run('ruleIdListGap', () => {
     addCandidates(findRuleIdListGapsFromGit(repoRoot, opts.base, opts.head, repo));
+  });
+
+  // 역방향 검색은 관련 레포만 본다. 같은 레포 안에 남은 옛 이름은 여기서 찾는다
+  run('selfReferences', () => {
+    addCandidates(
+      findSelfReferences({ repoRoot, base: opts.base, head: opts.head, repo, identifiers }),
+    );
   });
 
   // ── 순방향 ────────────────────────────────────────
