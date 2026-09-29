@@ -275,6 +275,22 @@ describe('라벨링 뒤 걸러낸 잡음', () => {
     expect(findSelfContamination({ repoRoot: repo.root, diff: pair.diff })).toEqual([]);
   });
 
+  it('허용과 금지를 나란히 적은 표에서는 허용 칸을 금지어로 안 쓴다', () => {
+    const repo = createFakeRepo();
+    const table =
+      '| 허용 | 금지 |\n|---|---|\n| 수치 강조 (`fg/brand-normal`) | "장식용 컬러" 텍스트 |\n';
+    const pair = createCommitPair(repo, {
+      base: {
+        'CLAUDE.md': '# 안내\n',
+        'plugin/skills/a/SKILL.md': '- #FFFFFF → fg/neutral-inverted\n',
+        'plugin/skills/b/SKILL.md': '장식용 컬러를 쓴다\n',
+      },
+      head: { 'CLAUDE.md': `# 안내\n\n${table}` },
+    });
+    const found = findSelfContamination({ repoRoot: repo.root, diff: pair.diff });
+    expect(found.map((c) => c.targetPath)).toEqual(['plugin/skills/b/SKILL.md']);
+  });
+
   it('CHANGELOG는 지난 표현을 옮겨 적는 자리라 찾지 않는다', () => {
     const found = modifyRow({
       'CHANGELOG.md': '- 정본이라는 말을 걷어냈다\n',
