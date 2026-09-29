@@ -432,6 +432,13 @@ describe('extractKeyPhrase', () => {
     expect(extractKeyPhrase('```ts')).toBeNull();
     expect(extractKeyPhrase('|---|:--:|')).toBeNull();
   });
+
+  it('영어만 있는 구절은 네 낱말 이상일 때만 쓴다', () => {
+    expect(extractKeyPhrase('  throw new Error(msg);')).toBeNull();
+    expect(extractKeyPhrase('- Always run the full review pipeline.')).toBe(
+      'Always run the full review pipeline',
+    );
+  });
 });
 
 describe('summarizeDiff', () => {
