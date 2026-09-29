@@ -90,6 +90,22 @@ function termsOf(id: Identifier): string[] {
   return terms;
 }
 
+/**
+ * INDEX.md나 plugin.json처럼 흔한 파일 이름은 다른 레포에도 제 파일이 있다. 그 레포에 같은 파일이 있고
+ * 줄에 이 레포 이름이 안 나오면 제 파일을 가리킨 줄이라 이번 PR과 무관하다
+ */
+function pointsAtOwnFile(
+  backend: CodeSearchBackend,
+  hit: SearchHit,
+  id: Identifier,
+  term: string,
+  selfRepo: string | undefined,
+): boolean {
+  if (id.kind !== 'path' && id.kind !== 'uniqueFileName') return false;
+  if (selfRepo && hit.text.includes(nameOf(selfRepo))) return false;
+  return backend.hasFile?.(hit.repo, term) === true;
+}
+
 function nameOf(repo: string): string {
   const slash = repo.lastIndexOf('/');
   return slash < 0 ? repo : repo.slice(slash + 1);
@@ -153,6 +169,7 @@ export async function backwardSearch(input: BackwardSearchInput): Promise<Backwa
         noteSkipped(skipped);
         for (const hit of hits) {
           const bounded = hasBoundedMatch(hit.text, term);
+          if (pointsAtOwnFile(input.backend, hit, id, term, input.selfRepo)) continue;
           if (isHarnessPath(hit.path)) {
             const key = locationKey(hit);
             if (seenRefs.has(key)) continue;
