@@ -2,6 +2,7 @@ import { symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  arrowPartners,
   extractCellTerms,
   extractPhraseRoots,
   findSelfContamination,
@@ -227,5 +228,48 @@ describe('자기오염 검색 (AC1)', () => {
       head: { 'README.md': '# 소개\n\n본질적으로 좋은 도구다\n' },
     });
     expect(findSelfContamination({ repoRoot: repo.root, diff: pair.diff })).toEqual([]);
+  });
+});
+
+describe('라벨링 뒤 걸러낸 잡음', () => {
+  const OLD_ROW = '| D-2 | 번역투 (materialize → "물질화", branch → "갈래") | S1 | 동사로 쓴다 |';
+  const NEW_ROW =
+    '| D-2 | 번역투 (materialize → "물질화", branch → "갈래", canonical → "정본") | S1 | 동사로 쓴다 |';
+
+  function modifyRow(docs: Record<string, string>) {
+    const repo = createFakeRepo({ name: 'widget-kit' });
+    const base = BASE_RULEBOOK.replace('| D-1 |', `${OLD_ROW}\n| D-1 |`);
+    const pair = createCommitPair(repo, {
+      base: { [RULEBOOK]: base, ...docs },
+      head: { [RULEBOOK]: base.replace(OLD_ROW, NEW_ROW) },
+    });
+    return findSelfContamination({ repoRoot: repo.root, diff: pair.diff });
+  }
+
+  it('고친 룰 행에서는 새로 더한 금지어만 찾는다', () => {
+    const found = modifyRow({
+      'plugin/skills/a/SKILL.md': '이 파일이 정본이다\n',
+      'plugin/skills/b/SKILL.md': 'git branch를 새로 딴다\n',
+      'plugin/skills/c/SKILL.md': '물질화 단계를 거친다\n',
+    });
+    expect(found.map((c) => c.targetPath)).toEqual(['plugin/skills/a/SKILL.md']);
+  });
+
+  it('화살표 짝이 있는 행은 짝끼리만 동의어로 넓힌다', () => {
+    const found = modifyRow({
+      'plugin/skills/a/SKILL.md': 'This is the canonical copy.\n',
+      'plugin/skills/b/SKILL.md': 'Run materialize first.\n',
+    });
+    expect(found.map((c) => c.targetPath)).toEqual(['plugin/skills/a/SKILL.md']);
+    expect(arrowPartners(NEW_ROW, '정본')).toEqual(['canonical']);
+    expect(arrowPartners(NEW_ROW, '없는말')).toBeNull();
+  });
+
+  it('CHANGELOG는 지난 표현을 옮겨 적는 자리라 찾지 않는다', () => {
+    const found = modifyRow({
+      'CHANGELOG.md': '- 정본이라는 말을 걷어냈다\n',
+      'plugin/skills/a/SKILL.md': '이 파일이 정본이다\n',
+    });
+    expect(found.map((c) => c.targetPath)).toEqual(['plugin/skills/a/SKILL.md']);
   });
 });
