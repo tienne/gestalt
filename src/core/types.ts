@@ -528,6 +528,8 @@ export interface ReviewReport {
 export interface ReviewContext {
   changedFiles: string[];
   dependencyFiles: string[];
+  /** ruleDocs 꼴 문서와 다른 레포가 이름으로 부르는 코드 파일. 있으면 harness-reviewer가 항상 붙는다. */
+  harnessTargets?: string[];
   spec?: Spec;
   taskResults?: TaskExecutionResult[];
 }

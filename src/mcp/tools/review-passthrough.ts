@@ -139,12 +139,18 @@ function handleReviewStart(
         changedFiles: reviewStartContext.reviewContext.changedFiles,
         dependencyFiles: reviewStartContext.reviewContext.dependencyFiles,
       },
-      message:
-        "Use matchContext to select review agents, then submit each agent's review with review_submit.",
+      message: reviewStartMessage(reviewStartContext.matchContext.requiredAgents),
     },
     null,
     2,
   );
+}
+
+function reviewStartMessage(requiredAgents: string[]): string {
+  const base =
+    "Use matchContext to select review agents, then submit each agent's review with review_submit.";
+  if (requiredAgents.length === 0) return base;
+  return `${base} matchContext.requiredAgents (${requiredAgents.join(', ')}) must be included even if your selection omits them.`;
 }
 
 function handleReviewSubmit(reviewEngine: PassthroughReviewEngine, input: ExecuteInput): string {

@@ -734,6 +734,14 @@ describe('경로 따라가기 이슈가 엔진을 지나간다', () => {
       summary: '없음',
     });
     expect(submitted.ok).toBe(true);
+    // SKILL.md는 하네스 대상이라 harness-reviewer 결과가 없으면 합의가 거절된다
+    const harness = engine.submitReview(sessionId, 'harness-reviewer', {
+      agentName: 'harness-reviewer',
+      issues: [],
+      approved: true,
+      summary: '없음',
+    });
+    expect(harness.ok).toBe(true);
     return sessionId;
   }
 
