@@ -11,6 +11,8 @@ dist/
 *.tsbuildinfo
 benchmarks/results/
 .gestalt-bench/
+scripts/local/
+.gestalt-replay/
 coverage/
 _workspace/
 .claude/worktrees/
