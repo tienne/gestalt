@@ -265,6 +265,16 @@ describe('라벨링 뒤 걸러낸 잡음', () => {
     expect(arrowPartners(NEW_ROW, '없는말')).toBeNull();
   });
 
+  it('룰 ID도 금지 칸도 없는 표는 칸 내용을 금지어로 안 쓴다', () => {
+    const repo = createFakeRepo();
+    const table = '| 경로 | 설명 |\n|---|---|\n| kit/components | 컴포넌트 문서 |\n';
+    const pair = createCommitPair(repo, {
+      base: { 'CLAUDE.md': '# 안내\n', 'plugin/skills/a/SKILL.md': 'kit/components를 읽는다\n' },
+      head: { 'CLAUDE.md': `# 안내\n\n${table}` },
+    });
+    expect(findSelfContamination({ repoRoot: repo.root, diff: pair.diff })).toEqual([]);
+  });
+
   it('CHANGELOG는 지난 표현을 옮겨 적는 자리라 찾지 않는다', () => {
     const found = modifyRow({
       'CHANGELOG.md': '- 정본이라는 말을 걷어냈다\n',

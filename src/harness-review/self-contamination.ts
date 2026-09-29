@@ -66,6 +66,9 @@ const SKIP_DIRS = new Set(['node_modules', '.git', '.gestalt', '.gestalt-test', 
 
 // 룰 ID 칸이면 패턴 칸만, 그 밖의 표는 헤더 이름으로 처방 칸을 뺀다
 const NON_SEARCH_HEADER = /처방|이렇게|쓰는 말|대체|심각도|가리키는|^id$/i;
+// 룰 ID가 없는 표는 헤더에 금지 칸이 있어야 룰 표다. 없으면 파일 목록이나 설정 표라 칸 내용이 금지어가 아니다.
+// 이 조건 없이 칸을 전부 검색어로 쓰면 CLAUDE.md의 경로 표에서 "kit", "md" 같은 말이 금지어가 된다
+const BANNED_HEADER = /쓰지 말|금지|피할|before|avoid|don'?t/i;
 const RULE_ID_CELL = /^[A-Z]-\d{1,2}$/;
 const CONDITIONAL_MARKER = /때만|경우에만|\d회\+|이상 반복|대상이 아니|예외/;
 const PLACEHOLDER_LETTER = /(^|[^A-Za-z])[A-Z](?![A-Za-z])/;
@@ -262,9 +265,12 @@ export function parseRuleTables(markdown: string): TableRow[] {
       const cells = splitRow(lines[j]!);
       const ruleId = RULE_ID_CELL.test(cells[0] ?? '') ? cells[0] : undefined;
 
+      const bannedTable = header.some((h) => BANNED_HEADER.test(h));
       const searchCells = ruleId
         ? [cells[1] ?? '']
-        : cells.filter((_, idx) => !NON_SEARCH_HEADER.test(header[idx] ?? ''));
+        : bannedTable
+          ? cells.filter((_, idx) => !NON_SEARCH_HEADER.test(header[idx] ?? ''))
+          : [];
 
       const terms = [
         ...new Set(searchCells.flatMap((cell) => extractCellTerms(cell, ruleId === undefined))),
