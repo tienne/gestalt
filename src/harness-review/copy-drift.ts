@@ -346,13 +346,17 @@ export function findCopyDrift(opts: CopyDriftOptions): CopyDriftResult {
   try {
     const seen = new Set<string>();
     let phrases = 0;
+    // 지운 구절이 이번 diff의 추가 줄 어디에든 다시 나오면 문장이나 파일을 옮긴 것이다.
+    // --no-renames라 파일을 옮기면 옛 파일은 전부 지운 줄, 새 파일은 전부 추가 줄로 나온다
+    const addedText = [...diffs.values()].flatMap((d) => d.added.map((l) => l.text)).join('\n');
     outer: for (const [source, diff] of diffs) {
       if (!source.endsWith('.md')) continue;
       const sourceNow = headPaths.has(source) ? readHead(source).join('\n') : '';
       for (const removed of diff.removed) {
         const phrase = extractKeyPhrase(removed.text);
         // head의 같은 파일에 구절이 아직 있으면 문장을 옮긴 것일 뿐이다
-        if (!phrase || seen.has(phrase) || sourceNow.includes(phrase)) continue;
+        if (!phrase || seen.has(phrase) || sourceNow.includes(phrase) || addedText.includes(phrase))
+          continue;
         seen.add(phrase);
         if (++phrases > MAX_HIDDEN_COPY_PHRASES) {
           limitations.push(

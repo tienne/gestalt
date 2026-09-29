@@ -272,6 +272,22 @@ describe('findCopyDrift — 숨은 사본', () => {
     });
     expect(r.bySource.hiddenCopy).toEqual([]);
   });
+
+  it('파일을 다른 디렉토리로 옮기기만 했으면 옮긴 파일을 사본으로 보지 않는다', () => {
+    const repo = createFakeRepo();
+    const doc = ['# 규칙', OLD, '- 다른 줄', ''].join('\n');
+    const { baseSha, headSha } = createCommitPair(repo, {
+      base: { 'docs/rules.md': doc },
+      head: { 'docs/rules.md': null, 'guide/docs/rules.md': doc },
+    });
+    const r = findCopyDrift({
+      repoRoot: repo.root,
+      base: baseSha,
+      head: headSha,
+      codeGraphDbPath: noDb(),
+    });
+    expect(r.bySource.hiddenCopy).toEqual([]);
+  });
 });
 
 describe('findCopyDrift — 같게 유지 선언', () => {
