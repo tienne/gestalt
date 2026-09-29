@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanupFakeRepos, type FakeOrg } from '../../helpers/fake-repo.js';
+import { cleanupFakeRepos, createFakeRepo, type FakeOrg } from '../../helpers/fake-repo.js';
 import {
   buildFileNameOnlyRefOrg,
   buildIsolatedOrg,
@@ -283,5 +283,34 @@ describe('참조 없는 레포와 받기만 하는 레포 (대칭)', () => {
       }),
     ]);
     expect(fwd.candidates).toEqual([]);
+  });
+});
+
+describe('backwardSearch — 흔한 파일 이름', () => {
+  it('다른 레포가 제 파일을 가리킨 줄은 빼고 이 레포 이름을 적은 줄은 남긴다', async () => {
+    const other = createFakeRepo({
+      name: 'gadget-kit',
+      files: {
+        'INDEX.md': '# 목차\n',
+        'plugins/gadget/SKILL.md': [
+          '1. `INDEX.md`에서 문서를 고른다',
+          '2. widget-kit의 `INDEX.md`도 본다',
+          '',
+        ].join('\n'),
+      },
+    });
+    const id: Identifier = {
+      kind: 'uniqueFileName',
+      value: 'INDEX.md',
+      changeType: 'modified',
+      extractedBy: 'pattern',
+    };
+    const r = await backwardSearch({
+      identifiers: [id],
+      repos: ['acme/gadget-kit'],
+      backend: new LocalCloneBackend([{ repo: 'acme/gadget-kit', dir: other.root }]),
+      selfRepo: 'acme/widget-kit',
+    });
+    expect(r.backwardRefs.map((c) => c.sourceLine)).toEqual([2]);
   });
 });
