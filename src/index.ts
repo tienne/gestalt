@@ -19,3 +19,4 @@ export * from './skills/registry.js';
 export * from './skills/parser.js';
 export * from './skills/executor.js';
 export * from './mcp/server.js';
+export * from './harness-review/types.js';
