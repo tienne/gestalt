@@ -550,7 +550,7 @@ review_start → 에이전트 관점 제출 → 합의 → 자동 수정
 | `researcher` | 분석, 데이터, 벤치마크 |
 | `technical-writer` | 문서화, API 문서, 가이드, README |
 
-4개의 내장 **Review 에이전트**가 코드를 집중 분석해요:
+7개의 내장 **Review 에이전트**가 코드를 집중 분석해요:
 
 | 에이전트 | 집중 영역 |
 |-------|-------|
@@ -559,6 +559,8 @@ review_start → 에이전트 관점 제출 → 합의 → 자동 수정
 | `quality-reviewer` | 가독성, SOLID, 에러 핸들링, DRY |
 | `frontend-reviewer` | UI·React 리뷰, 접근성, 번들 최적화 |
 | `comment-reviewer` | 주석 위생 — 코드 반복, 죽은 코드, 어긋난 주석, 티켓 없는 TODO |
+| `writing-reviewer` | 바뀐 문서와 사용자에게 보이는 문자열의 문장, 어투와 어휘 |
+| `harness-reviewer` | 스킬과 에이전트 문서, 레포 간 참조, 자기오염, 사본 어긋남 |
 
 파이프라인 밖에서도 `/agent`로 언제든 에이전트를 쓸 수 있어요:
 
