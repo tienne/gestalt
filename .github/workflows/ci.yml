@@ -45,6 +45,22 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # 사내 이름 금지 목록은 레포에 둘 수 없어 시크릿으로 받는다. 포크 PR에는 시크릿이
+      # 안 넘어오므로 그때는 검사가 건너뛰었다고만 남긴다. 로그가 공개라 항목마다 가린다
+      - name: Write hygiene denylist
+        env:
+          HYGIENE_DENYLIST: ${{ secrets.HYGIENE_DENYLIST }}
+        run: |
+          if [ -z "$HYGIENE_DENYLIST" ]; then
+            echo "HYGIENE_DENYLIST 시크릿이 없어 이름 검사를 건너뜁니다"
+            exit 0
+          fi
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then echo "::add-mask::$line"; fi
+          done <<< "$HYGIENE_DENYLIST"
+          mkdir -p .gestalt
+          printf '%s\n' "$HYGIENE_DENYLIST" > .gestalt/hygiene-denylist.txt
+
       - name: Test with coverage
         run: pnpm test -- --coverage
 
