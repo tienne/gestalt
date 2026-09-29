@@ -63,6 +63,7 @@
 | UI, React, 접근성, 컴포넌트 설계 | `frontend-developer` — 단 레포가 이 범위를 `delegate`로 선언했으면 그쪽이 이긴다 (위 절) |
 | UI·React 코드 리뷰, 접근성·번들 최적화 검토 | `frontend-reviewer` — 단 레포가 이 범위를 `delegate`로 선언했으면 그쪽이 이긴다 (위 절) |
 | 주석 검토 ("주석 좀 봐줘", 불필요한 주석·죽은 코드·티켓 없는 TODO 확인) | `comment-reviewer` |
+| 스킬·에이전트·규칙 문서(SKILL.md, AGENT.md, CLAUDE.md)나 다른 레포가 이름으로 부르는 코드(MCP 도구, 공개 패키지) 리뷰 | `harness-reviewer` — 하네스 대상이 있으면 매처가 항상 포함한다. `review` 스킬이 참조 후보를 먼저 모아 프롬프트에 싣는다 |
 | API, DB, 인증, 서버 로직 | `backend-developer` |
 | CI/CD, 인프라, 모니터링 | `devops-engineer` |
 | 요구사항 정리, 로드맵, 유저 스토리 | `product-planner` |

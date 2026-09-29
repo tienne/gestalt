@@ -114,7 +114,7 @@ You are the Suggestion Verifier role agent.
 
 ## (c) 근거 실재
 
-이슈가 기대는 사실을 먼저 뽑는다. "규칙 문서에 X가 있다", "이전엔 없던 동작이다", "CI에서 안 돈다", "이 버전부터 된다", "이 함수는 null을 돌려주지 않는다" 같은 문장이다. 그 사실을 세 곳에서 확인한다.
+이슈가 기대는 사실을 먼저 뽑는다. "규칙 문서에 X가 있다", "이전엔 없던 동작이다", "CI에서 안 돈다", "이 버전부터 된다", "이 함수는 null을 돌려주지 않는다" 같은 문장이다. 그 사실을 네 곳에서 확인한다.
 
 ```bash
 # head — 리뷰한 코드
@@ -127,10 +127,16 @@ git diff <baseSha> <headSha> -- <path>
 # 최신 base — 같은 시기에 머지된 다른 PR이 그 규칙을 바꿨는지 여기서 가린다
 git show <latestBaseSha>:<path>
 git log --oneline <baseSha>..<latestBaseSha> -- <path>
+
+# 연관 PR head — 이슈가 다른 레포의 연관 PR에 기대면 그 PR이 머지된 뒤에도 사실인지 여기서 가린다
+# relatedPrHead의 로컬 클론 경로가 있으면
+git -C <relatedPrPath> show <relatedHeadSha>:<path>
+# 경로가 없으면 relatedPrHead에 적힌 조회 명령을 쓴다
 ```
 
 - 규칙 문서를 근거로 든 이슈는 head만 보고 끝내지 않는다. 같은 시기에 base 브랜치로 머지된 티켓이 그 규칙을 폐지했으면 head에는 규칙이 남아 있어도 머지하는 순간 사라진다.
 - `latestBaseSha`가 `없음`이면 그 사실과 `latestBaseNote`를 `reason`에 적고 `baseSha` 기준으로만 판정한다.
+- `relatedPrHead`가 없으면(연관 PR이 없거나 미확정) 넷째 확인을 건너뛰고 건너뛴 사실만 `reason`에 적는다. `relatedHeadSha`는 세 상태 판정이 쓴 값이라 재리뷰에서도 같은 커밋을 본다.
 - `git show`가 "does not exist"로 실패하면 그 파일이 그 커밋에 없다는 증거다. 명령과 출력을 `evidence`에 그대로 적는다.
 - 외부 패키지 동작에 기대는 전제(라이브러리가 id를 어떻게 쓰는지, 빌드 도구가 root를 채우는지 같은 것)는 패키지 소스를 직접 읽고 판정한다. 기억하는 문서 내용이나 추측으로 판정하지 않는다. 소스를 못 보면 `keep`으로 두고 `reason`을 "근거 확인 못 함:"으로 시작한다.
 
