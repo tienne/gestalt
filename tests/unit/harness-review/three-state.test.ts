@@ -177,6 +177,17 @@ describe('judgeThreeState: 근거 제한', () => {
     expect(j!.limitations.join('\n')).toContain('확정 안 된');
   });
 
+  it('main에서 이미 풀린 참조는 미확정 연관 PR을 묻지 않는다', async () => {
+    const s = buildThreeStateOrg('relatedRemovesUsed');
+    const [j] = await judgeThreeState(
+      input(s, [relatedPr(s, { confirmation: 'needsAuthorAnswer' })]),
+    );
+    expect(j!.checked).toBe(true);
+    expect(j!.states?.onMain).toBe('ok');
+    expect(j!.unconfirmedRelatedPrs).toEqual([]);
+    expect(j!.limitations.join('\n')).not.toContain('확정 안 된');
+  });
+
   it('다른 레포의 연관 PR은 이 참조의 판정에 안 섞는다', async () => {
     const s = buildThreeStateOrg('mergeOrder');
     const [j] = await judgeThreeState(input(s, [relatedPr(s, { repo: 'acme/other' })]));
