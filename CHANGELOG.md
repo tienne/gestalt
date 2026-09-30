@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.1] - 2026-09-30
+
+### Changed
+
+- **하네스 리뷰 문서를 v0.84.0 동작에 맞췄어요.** `docs/06-code-review.md`의 레포 간 참조 검사 절에 연관 PR 찾기, 확정 기준, 세 상태 판정 결과, 작성자에게 묻는 조건, approve 게이트, 다음 PR로 미룬 작업을 하위 절로 붙였어요. `CLAUDE.md` 프로젝트 구조에는 `src/harness-review/`를 넣었습니다.
+- v0.84.0 항목의 머지된 PR 조회 기간을 코드대로 고쳤어요. "생성일 앞뒤 30일"이 아니라 "생성일 30일 전부터 머지된 것"이에요.
+
 ## [0.84.0] - 2026-09-30
 
 ### Added
@@ -14,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 새 리뷰 에이전트 `harness-reviewer`가 후보에서 결함과 잘못 잡힌 것을 가려요. 하네스 대상이 있는 PR에서는 필수라 제출 없이 합의를 부르면 거부해요. 하네스 대상이 없는 PR은 예전 흐름 그대로예요.
   - 설정 `relatedRepos`로 같은 조직 레포를 손으로 더할 수 있어요. 추가만 받고 제외로 읽히는 키는 경고를 찍고 버려요. 제외가 곧 리뷰를 끄는 스위치가 돼서요.
 - **다른 레포 참조는 연관 PR까지 넣어서 세 상태로 판정해요 (`gestalt harness-refs three-state`).** 대상 레포의 main, 연관 PR head, 둘 다 머지된 뒤를 비교해요. main에서만 깨지면 결함이 아니라 머지 순서 문제로 올려요. 연관 PR이 이번 PR이 쓰는 이름을 지우면 두 PR 모두에 알려요.
-  - 연관 PR 후보는 본문 링크, 같은 티켓, 참조 대상을 건드리는 PR, 같은 작성자의 비슷한 시기 PR로 찾아요 (`gestalt harness-refs related-prs`). 열린 PR과 머지된 PR(이번 PR 생성일 앞뒤 30일)을 따로 조회하고 열린 PR을 먼저 둬요.
+  - 연관 PR 후보는 본문 링크, 같은 티켓, 참조 대상을 건드리는 PR, 같은 작성자의 비슷한 시기 PR로 찾아요 (`gestalt harness-refs related-prs`). 열린 PR과 머지된 PR(이번 PR 생성일 30일 전부터 머지된 것)을 따로 조회하고 열린 PR을 먼저 둬요.
   - 작성자에게는 참조가 감지된 대상 레포의 main에서 깨졌거나 main을 못 봤을 때만 물어요. 이미 기본 브랜치에 머지된 후보(`inDefaultBranch`)는 안 물어요. 묻지 않는 열린 후보는 리포트에 "함께 보면 좋을 PR"로 한 줄만 적어요.
 - **approve 게이트가 생겼어요 (`gestalt review-loop approve-gate`).** 조회가 막혔거나 원격이 없거나 연관 PR이 미확정이면 approve를 보류하고 `COMMENT`로 내려요. `REQUEST_CHANGES`는 안 내요. 이전 라운드부터 이어진 이슈는 사용자가 approve를 명시하면 넘어가요.
 - **"다음 PR에서 한다"는 답을 이어받아요.** review-loop에 네 번째 선택지로 들어갔어요. CLI가 만든 후속 표시를 스레드에 달고 해결 처리하면, 후속 PR 리뷰(1.17단계)가 그 표시를 읽어 이어받아요.
