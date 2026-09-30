@@ -3,7 +3,9 @@ import { classifyGhFailure, type BlockReason } from './github-backend.js';
 import type { ConfirmationType, FoundByType, PrState, RelatedPR, RelatedRepo } from './types.js';
 
 /**
- * 머지된 연관 PR 후보를 거슬러 찾는 기간. 사용자 결정으로 30일에 고정했고 설정으로 열지 않는다.
+ * 머지된 연관 PR 후보를 거슬러 찾는 기간. 이번 PR 생성 시각에서 센다. 실행 시각에서 세면
+ * 오래 열린 PR이나 재현 실행에서 같은 시기에 머지된 PR이 전부 빠진다.
+ * 사용자 결정으로 30일에 고정했고 설정으로 열지 않는다.
  * 0이나 끄기 값을 받을 자리를 두면 그게 탐색을 끄는 스위치가 된다.
  */
 export const MERGED_LOOKBACK_DAYS = 30;
@@ -15,11 +17,22 @@ export const SAME_AUTHOR_NEARBY_DAYS = 14;
  * 참조 대상을 건드리는 열린 PR 중 이번 PR보다 이만큼 먼저 열린 건 연관 후보로 안 본다.
  * 이번 작업이 시작되기 전부터 열려 있던 PR이라, 파일이 겹쳐도 함께 진행한 작업이 아니다.
  * 몇 달째 열린 PR 하나가 그 파일을 건드리는 모든 PR에 후보로 붙는 걸 막는다.
+ * 머지된 PR은 이번 PR 앞뒤로 이만큼 안에 열린 것만 본다. 뒤쪽을 막지 않으면 오래 열린 PR이나
+ * 재현 실행에서 최근 머지된 PR이 조회 결과를 다 채워 같은 시기 PR이 밀려난다.
  */
 export const TOUCHES_TARGET_MAX_AGE_DAYS = 30;
 
-/** 한 단계에서 상세 조회까지 가는 후보 상한. 검색이 넓게 걸려도 gh 호출 수가 묶인다 */
+/**
+ * 한 단계에서 상세 조회까지 가는 후보 상한. 검색은 열린 PR과 머지된 PR로 나눠 두 번 하고
+ * 이 상한도 각각에 건다. 합쳐서 자르면 열린 PR이 먼저 차서 머지된 PR이 밀려난다
+ */
 export const MAX_CANDIDATES_PER_STEP = 30;
+
+/**
+ * 검색 한 번에 받아오는 결과 수. 상세 조회 상한보다 넉넉히 받아 생성일 거리로 줄 세운 뒤 자른다.
+ * GitHub 검색 기본 순서(best-match)대로 자르면 가까운 PR이 뒤로 밀려 빠진다
+ */
+export const SEARCH_FETCH_LIMIT = 100;
 
 /** 본문에서 따라가는 링크 상한 */
 export const MAX_BODY_LINKS = 20;
@@ -149,8 +162,13 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
   const skipped: RelatedPrSkip[] = [];
   const notices: RelatedPrNotice[] = [];
   const ticketKeys = extractTicketKeys([current.title, current.body, current.branch].join('\n'));
-  const mergedSince = isoDate(new Date(now.getTime() - MERGED_LOOKBACK_DAYS * DAY_MS));
   const center = current.createdAt ? new Date(current.createdAt) : now;
+  const mergedSinceMs = center.getTime() - MERGED_LOOKBACK_DAYS * DAY_MS;
+  const mergedSince = isoDate(new Date(mergedSinceMs));
+  const distanceMs = (createdAt: string | null) => {
+    const t = createdAt ? Date.parse(createdAt) : NaN;
+    return Number.isFinite(t) ? Math.abs(t - center.getTime()) : Number.POSITIVE_INFINITY;
+  };
 
   // ship은 PR 번호가 아직 없을 수 있어 같은 레포의 같은 브랜치도 자기 자신으로 본다
   const isSelf = (repo: string, number: number, branch?: string) =>
@@ -232,7 +250,7 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
       ['--state', 'open'],
       ['--merged', `--merged-at=>=${mergedSince}`],
     ];
-    const hits: { repo: string; number: number }[] = [];
+    const hits: SearchHit[] = [];
     for (const variant of variants) {
       const run = runJson(gh, [
         'search',
@@ -241,22 +259,25 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
         ...repoArgs,
         ...variant,
         '--json',
-        'number,repository',
+        'number,repository,createdAt',
         '--limit',
-        String(MAX_CANDIDATES_PER_STEP),
+        String(SEARCH_FETCH_LIMIT),
       ]);
       if (!run.ok) {
         skipped.push({ step, reason: run.reason, detail: run.detail });
         continue;
       }
-      hits.push(...parseSearchHits(run.value));
+      const nearest = parseSearchHits(run.value)
+        .sort((a, b) => distanceMs(a.createdAt) - distanceMs(b.createdAt))
+        .slice(0, MAX_CANDIDATES_PER_STEP);
+      hits.push(...nearest);
     }
-    for (const hit of dedupeHits(hits).slice(0, MAX_CANDIDATES_PER_STEP)) {
+    for (const hit of dedupeHits(hits)) {
       if (!allowed.has(hit.repo.toLowerCase()) || isSelf(hit.repo, hit.number)) continue;
       const existing = found.get(`${hit.repo.toLowerCase()}#${hit.number}`);
       const detail = existing?.detail ?? view(step, hit.repo, hit.number);
       if (!detail || isSelf(detail.repo, detail.number, detail.branch)) continue;
-      if (!isWithinWindow(detail, now) || !accept(detail)) continue;
+      if (!isWithinWindow(detail, mergedSinceMs) || !accept(detail)) continue;
       record(step, detail, {});
     }
   };
@@ -268,45 +289,71 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
     );
   }
 
-  // 3. 참조 대상을 건드리는 열린 PR
+  // 3. 참조 대상을 건드리는 PR. 목록 조회가 files를 함께 주므로 상세 조회 없이 거른다
   const openedSince = center.getTime() - TOUCHES_TARGET_MAX_AGE_DAYS * DAY_MS;
+  const openedUntil = center.getTime() + TOUCHES_TARGET_MAX_AGE_DAYS * DAY_MS;
+  const listVariants: { state: 'open' | 'merged'; args: string[] }[] = [
+    { state: 'open', args: ['--state', 'open', '--limit', String(MAX_CANDIDATES_PER_STEP)] },
+    {
+      state: 'merged',
+      args: [
+        '--state',
+        'merged',
+        '--search',
+        `merged:>=${mergedSince} created:${isoDate(new Date(openedSince))}..${isoDate(new Date(openedUntil))}`,
+        '--limit',
+        String(SEARCH_FETCH_LIMIT),
+      ],
+    },
+  ];
   for (const [repo, paths] of targetsByRepo) {
-    const run = runJson(gh, [
-      'pr',
-      'list',
-      '--repo',
-      repo,
-      '--state',
-      'open',
-      '--limit',
-      String(MAX_CANDIDATES_PER_STEP),
-      '--json',
-      VIEW_FIELDS,
-    ]);
-    if (!run.ok) {
-      skipped.push({ step: 'touchesTarget', repo, reason: run.reason, detail: run.detail });
-      continue;
-    }
-    if (!Array.isArray(run.value)) {
-      skipped.push({ step: 'touchesTarget', repo, reason: 'unparsable', detail: '배열이 아니다' });
-      continue;
-    }
-    for (const raw of run.value) {
-      const detail = toPrDetail(repo, raw);
-      if (!detail || detail.state !== 'open' || isSelf(detail.repo, detail.number, detail.branch))
+    for (const variant of listVariants) {
+      const run = runJson(gh, [
+        'pr',
+        'list',
+        '--repo',
+        repo,
+        ...variant.args,
+        '--json',
+        VIEW_FIELDS,
+      ]);
+      if (!run.ok) {
+        skipped.push({ step: 'touchesTarget', repo, reason: run.reason, detail: run.detail });
         continue;
-      const opened = detail.createdAt ? Date.parse(detail.createdAt) : NaN;
-      if (Number.isFinite(opened) && opened < openedSince) continue;
-      const touched = detail.files.filter((f) => paths.has(f));
-      if (touched.length === 0) continue;
-      record('touchesTarget', detail, { touchedTargets: touched });
+      }
+      if (!Array.isArray(run.value)) {
+        skipped.push({
+          step: 'touchesTarget',
+          repo,
+          reason: 'unparsable',
+          detail: '배열이 아니다',
+        });
+        continue;
+      }
+      const hits: { detail: PrDetail; touched: string[] }[] = [];
+      for (const raw of run.value) {
+        const detail = toPrDetail(repo, raw);
+        if (!detail || detail.state !== variant.state) continue;
+        if (isSelf(detail.repo, detail.number, detail.branch)) continue;
+        const opened = detail.createdAt ? Date.parse(detail.createdAt) : NaN;
+        if (Number.isFinite(opened) && opened < openedSince) continue;
+        if (variant.state === 'merged') {
+          if (Number.isFinite(opened) && opened > openedUntil) continue;
+          if (!isWithinWindow(detail, mergedSinceMs)) continue;
+        }
+        const touched = detail.files.filter((f) => paths.has(f));
+        if (touched.length > 0) hits.push({ detail, touched });
+      }
+      hits
+        .sort((a, b) => distanceMs(a.detail.createdAt) - distanceMs(b.detail.createdAt))
+        .slice(0, MAX_CANDIDATES_PER_STEP)
+        .forEach(({ detail, touched }) =>
+          record('touchesTarget', detail, { touchedTargets: touched }),
+        );
     }
   }
 
-  const distance = (d: PrDetail) => {
-    const t = d.createdAt ? Date.parse(d.createdAt) : NaN;
-    return Number.isFinite(t) ? Math.abs(t - center.getTime()) : Number.POSITIVE_INFINITY;
-  };
+  const distance = (d: PrDetail) => distanceMs(d.createdAt);
 
   // 4. 같은 작성자의 비슷한 시기 PR
   if (current.author) {
@@ -319,11 +366,40 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
     );
   }
 
+  // 기본 브랜치는 머지된 후보가 있는 레포만 한 번씩 묻는다. 못 알아내면 묻는 쪽으로 남긴다
+  const defaultBranches = new Map<string, string | null>();
+  const defaultBranchOf = (repo: string, step: FoundByType): string | null => {
+    const key = repo.toLowerCase();
+    if (defaultBranches.has(key)) return defaultBranches.get(key)!;
+    const run = runJson(gh, ['repo', 'view', repo, '--json', 'defaultBranchRef']);
+    let branch: string | null = null;
+    if (!run.ok) skipped.push({ step, repo, reason: run.reason, detail: run.detail });
+    else if (isRecord(run.value) && isRecord(run.value.defaultBranchRef)) {
+      const name = run.value.defaultBranchRef.name;
+      if (typeof name === 'string' && name) branch = name;
+    }
+    if (run.ok && branch === null)
+      skipped.push({ step, repo, reason: 'unparsable', detail: '기본 브랜치를 못 읽었다' });
+    defaultBranches.set(key, branch);
+    return branch;
+  };
+
+  // 열린 PR과 머지된 PR을 나눠 세운다. 머지된 PR이 열린 PR을 뒤로 밀지 않게 한다
   const candidates = [...found.values()]
     .sort(
-      (a, b) => rankOf(a.signals) - rankOf(b.signals) || distance(a.detail) - distance(b.detail),
+      (a, b) =>
+        stateGroup(a.detail.state) - stateGroup(b.detail.state) ||
+        rankOf(a.signals) - rankOf(b.signals) ||
+        distance(a.detail) - distance(b.detail),
     )
-    .map(({ detail, foundBy, signals }) => toCandidate(detail, foundBy, signals, mode));
+    .map(({ detail, foundBy, signals }) => {
+      const confirmation = decideConfirmation(signals, mode);
+      const inDefault =
+        confirmation !== 'confirmed' &&
+        detail.state === 'merged' &&
+        detail.baseBranch === defaultBranchOf(detail.repo, foundBy);
+      return toCandidate(detail, foundBy, signals, inDefault ? 'inDefaultBranch' : confirmation);
+    });
 
   return {
     mode,
@@ -341,6 +417,8 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
  * - 같은 작성자 + 같은 티켓: 양쪽 다 확정. review-loop는 근거를 리포트에 싣는다
  * - 같은 작성자 + 같은 브랜치명: ship만 확정
  * - 그 밖(참조 대상만 건드림, 같은 작성자만 등): ship은 ⓐ에서 확인, review-loop는 작성자 질문
+ * 확정 못 한 후보가 이미 기본 브랜치에 머지됐으면 findRelatedPrs가 inDefaultBranch로 바꾼다.
+ * 기본 브랜치 조회가 gh를 타야 해서 이 함수 밖에 둔다
  */
 export function decideConfirmation(
   signals: RelatedPrSignals,
@@ -432,6 +510,10 @@ function scanInstructionLikeText(detail: PrDetail): RelatedPrNotice | null {
  * 후보를 세우는 순서. 거르지 않고 순서만 바꾼다 — 신호가 약해도 진짜 연관인 PR이 있어서다.
  * 여러 레포에 같은 작업을 퍼뜨린 PR은 티켓도 경로도 다를 수 있다
  */
+function stateGroup(state: PrState): number {
+  return state === 'open' ? 0 : state === 'merged' ? 1 : 2;
+}
+
 function rankOf(signals: RelatedPrSignals): number {
   if (signals.bodyLink) return 0;
   if (signals.sharedTicketKeys.length > 0) return 1;
@@ -454,7 +536,7 @@ function toCandidate(
   detail: PrDetail,
   foundBy: FoundByType,
   signals: RelatedPrSignals,
-  mode: RelatedPrMode,
+  confirmation: ConfirmationType,
 ): RelatedPrCandidate {
   const evidence: string[] = [];
   if (signals.bodyLink) evidence.push('이번 PR 본문이 링크한다');
@@ -473,7 +555,7 @@ function toCandidate(
     state: detail.state,
     ...(detail.state === 'merged' ? { mergedBranch: detail.baseBranch } : {}),
     foundBy,
-    confirmation: decideConfirmation(signals, mode),
+    confirmation,
     url: detail.url,
     author: detail.author,
     branch: detail.branch,
@@ -483,11 +565,11 @@ function toCandidate(
 }
 
 // 머지된 PR만 기간을 본다. 열린 PR은 기간 제한이 없고 닫힌 PR은 본문 링크로만 들어온다
-function isWithinWindow(detail: PrDetail, now: Date): boolean {
+function isWithinWindow(detail: PrDetail, mergedSinceMs: number): boolean {
   if (detail.state === 'open') return true;
   if (detail.state !== 'merged' || !detail.mergedAt) return false;
   const merged = Date.parse(detail.mergedAt);
-  return Number.isFinite(merged) && now.getTime() - merged <= MERGED_LOOKBACK_DAYS * DAY_MS;
+  return Number.isFinite(merged) && merged >= mergedSinceMs;
 }
 
 type RunResult =
@@ -550,16 +632,23 @@ function normalizeState(v: unknown): PrState | null {
   return s === 'open' || s === 'merged' || s === 'closed' ? s : null;
 }
 
-function parseSearchHits(value: unknown): { repo: string; number: number }[] {
+interface SearchHit {
+  repo: string;
+  number: number;
+  createdAt: string | null;
+}
+
+function parseSearchHits(value: unknown): SearchHit[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((h) => {
     if (!isRecord(h) || typeof h.number !== 'number' || !isRecord(h.repository)) return [];
     const repo = h.repository.nameWithOwner;
-    return typeof repo === 'string' ? [{ repo, number: h.number }] : [];
+    const createdAt = typeof h.createdAt === 'string' ? h.createdAt : null;
+    return typeof repo === 'string' ? [{ repo, number: h.number, createdAt }] : [];
   });
 }
 
-function dedupeHits(hits: { repo: string; number: number }[]) {
+function dedupeHits(hits: SearchHit[]) {
   const seen = new Set<string>();
   return hits.filter((h) => {
     const key = `${h.repo.toLowerCase()}#${h.number}`;

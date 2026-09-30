@@ -149,8 +149,12 @@ describe('harness-review types', () => {
   });
 
   describe('CONFIRMATION_TYPES', () => {
-    it('should have 3 types', () => {
-      expect(CONFIRMATION_TYPES.length).toBe(3);
+    it('should have 4 types', () => {
+      expect(CONFIRMATION_TYPES.length).toBe(4);
+    });
+
+    it('should include inDefaultBranch', () => {
+      expect(CONFIRMATION_TYPES).toContain('inDefaultBranch');
     });
 
     it('should include confirmed', () => {

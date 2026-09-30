@@ -5,8 +5,10 @@ import {
   extractPrLinks,
   extractTicketKeys,
   findRelatedPrs,
+  MAX_CANDIDATES_PER_STEP,
   MERGED_LOOKBACK_DAYS,
   SAME_AUTHOR_NEARBY_DAYS,
+  SEARCH_FETCH_LIMIT,
   TOUCHES_TARGET_MAX_AGE_DAYS,
   type CurrentPr,
   type RelatedPrSignals,
@@ -31,7 +33,7 @@ interface FakePr {
 }
 
 /** gh 호출을 흉내 낸다. search는 query나 --author로 거르고 기간 필터는 모듈이 직접 거르는지 보려고 무시한다 */
-function fakeGh(prs: FakePr[]) {
+function fakeGh(prs: FakePr[], defaultBranches: Record<string, string | null> = {}) {
   const calls: string[][] = [];
   const toView = (p: FakePr) => ({
     number: p.number,
@@ -56,8 +58,9 @@ function fakeGh(prs: FakePr[]) {
       return JSON.stringify(toView(pr));
     }
     if (args[0] === 'pr' && args[1] === 'list') {
+      const state = args[args.indexOf('--state') + 1]!.toUpperCase();
       return JSON.stringify(
-        prs.filter((p) => p.repo === repos[0] && p.state === 'OPEN').map(toView),
+        prs.filter((p) => p.repo === repos[0] && p.state === state).map(toView),
       );
     }
     if (args[0] === 'search' && args[1] === 'prs') {
@@ -72,9 +75,20 @@ function fakeGh(prs: FakePr[]) {
           (query === null ||
             `${p.title ?? ''} ${p.body ?? ''} ${p.headRefName ?? ''}`.includes(query)),
       );
+      const limit = Number(args[args.indexOf('--limit') + 1]);
       return JSON.stringify(
-        hits.map((p) => ({ number: p.number, repository: { nameWithOwner: p.repo } })),
+        hits.slice(0, limit).map((p) => ({
+          number: p.number,
+          repository: { nameWithOwner: p.repo },
+          createdAt: p.createdAt ?? daysAgo(1),
+        })),
       );
+    }
+    if (args[0] === 'repo' && args[1] === 'view') {
+      const branch = args[2]! in defaultBranches ? defaultBranches[args[2]!] : 'main';
+      if (branch === null)
+        throw Object.assign(new Error('fail'), { stderr: 'HTTP 404: Not Found' });
+      return JSON.stringify({ defaultBranchRef: { name: branch } });
     }
     throw new Error(`unexpected gh ${args.join(' ')}`);
   };
@@ -259,21 +273,21 @@ describe('findRelatedPrs', () => {
     expect(out.candidates).toEqual([]);
   });
 
-  it('머지된 후보는 30일 안만 찾고 열린 PR은 기간 제한이 없다', () => {
+  it('머지된 후보는 이번 PR 생성 30일 전부터 찾고 열린 PR은 기간 제한이 없다', () => {
     const { gh, calls } = fakeGh([
       {
         repo: 'acme/widget-kit',
         number: 40,
         state: 'MERGED',
         title: 'PAY-5',
-        mergedAt: daysAgo(29),
+        mergedAt: daysAgo(30),
       },
       {
         repo: 'acme/widget-kit',
         number: 41,
         state: 'MERGED',
         title: 'PAY-5',
-        mergedAt: daysAgo(31),
+        mergedAt: daysAgo(32),
       },
       {
         repo: 'acme/widget-kit',
@@ -293,7 +307,8 @@ describe('findRelatedPrs', () => {
     expect(out.candidates.map((c) => c.number).sort()).toEqual([40, 42]);
     expect(out.candidates.find((c) => c.number === 40)!.mergedBranch).toBe('main');
     const mergedSearch = calls.find((c) => c[0] === 'search' && c.includes('--merged'))!;
-    expect(mergedSearch).toContain(`--merged-at=>=${daysAgo(30).slice(0, 10)}`);
+    // 이번 PR이 하루 전에 열렸으니 31일 전부터다
+    expect(mergedSearch).toContain(`--merged-at=>=${daysAgo(31).slice(0, 10)}`);
     const openSearch = calls.find((c) => c[0] === 'search' && c.includes('open'))!;
     expect(openSearch.some((a) => a.startsWith('--merged-at') || a.startsWith('--created'))).toBe(
       false,
@@ -345,6 +360,44 @@ describe('findRelatedPrs', () => {
     expect(loop.candidates[0]!.confirmation).toBe('needsAuthorAnswer');
   });
 
+  it('참조 대상을 건드린 머지된 PR은 이번 PR 앞뒤 30일 안에 열린 것만 찾는다', () => {
+    const touching = {
+      repo: 'acme/widget-kit',
+      state: 'MERGED' as const,
+      author: 'bob',
+      files: ['skills/pay/SKILL.md'],
+    };
+    const prs: FakePr[] = [
+      { ...touching, number: 80, createdAt: daysAgo(45), mergedAt: daysAgo(40) },
+      { ...touching, number: 81, createdAt: daysAgo(35), mergedAt: daysAgo(20) },
+      // 머지는 기간 안이지만 이번 PR보다 31일 뒤에 열렸다
+      { ...touching, number: 82, createdAt: daysAgo(29), mergedAt: daysAgo(28) },
+      // 머지가 이번 PR 생성 30일 전보다 앞이다
+      { ...touching, number: 83, createdAt: daysAgo(85), mergedAt: daysAgo(95) },
+      { ...touching, number: 84, createdAt: daysAgo(45), mergedAt: daysAgo(40), files: ['x.md'] },
+    ];
+    const { gh, calls } = fakeGh(prs);
+    const out = findRelatedPrs({
+      current: current({ author: '', createdAt: daysAgo(60) }),
+      mode: 'reviewLoop',
+      relatedRepos: RELATED,
+      referenceTargets: [{ repo: 'acme/widget-kit', path: 'skills/pay/SKILL.md' }],
+      gh,
+      now: NOW,
+    });
+    expect(out.candidates.map((c) => c.number)).toEqual([80, 81]);
+    expect(out.candidates[0]).toMatchObject({
+      foundBy: 'touchesTarget',
+      confirmation: 'inDefaultBranch',
+      mergedBranch: 'main',
+    });
+    const mergedList = calls.find((c) => c[1] === 'list' && c.includes('merged'))!;
+    const search = mergedList[mergedList.indexOf('--search') + 1];
+    expect(search).toBe(
+      `merged:>=${daysAgo(90).slice(0, 10)} created:${daysAgo(90).slice(0, 10)}..${daysAgo(30).slice(0, 10)}`,
+    );
+  });
+
   it('참조 대상을 건드려도 이번 PR보다 30일 넘게 먼저 열린 PR은 후보로 안 본다', () => {
     expect(TOUCHES_TARGET_MAX_AGE_DAYS).toBe(30);
     const prs: FakePr[] = [
@@ -375,8 +428,153 @@ describe('findRelatedPrs', () => {
     expect(out.skipped).toEqual([]);
   });
 
-  it('후보를 거르지 않고 참조 대상을 건드린 PR, 생성일이 가까운 PR 순으로 세운다', () => {
+  it('오래전에 열린 PR은 그 무렵 머지된 PR도 찾는다', () => {
+    const { gh, calls } = fakeGh([
+      {
+        repo: 'acme/widget-kit',
+        number: 43,
+        state: 'MERGED',
+        title: 'PAY-5',
+        mergedAt: daysAgo(70),
+      },
+      {
+        repo: 'acme/widget-kit',
+        number: 44,
+        state: 'MERGED',
+        title: 'PAY-5',
+        mergedAt: daysAgo(95),
+      },
+    ]);
+    const out = findRelatedPrs({
+      current: current({ title: 'PAY-5', author: '', createdAt: daysAgo(60) }),
+      mode: 'reviewLoop',
+      relatedRepos: RELATED,
+      gh,
+      now: NOW,
+    });
+    expect(out.candidates.map((c) => c.number)).toEqual([43]);
+    const mergedSearch = calls.find((c) => c[0] === 'search' && c.includes('--merged'))!;
+    expect(mergedSearch).toContain(`--merged-at=>=${daysAgo(90).slice(0, 10)}`);
+  });
+
+  it('검색 결과는 열린 PR과 머지된 PR 각각 생성일이 가까운 순으로 상한까지 상세 조회한다', () => {
+    const mine = { author: 'alice', title: 'x' };
+    // 검색 기본 순서에서 먼 PR이 앞에 오게 둔다. 열린 PR이 상한을 다 채워도 머지된 PR이 남아야 한다
+    const open: FakePr[] = Array.from({ length: MAX_CANDIDATES_PER_STEP + 5 }, (_, i) => ({
+      ...mine,
+      repo: 'acme/design-kit',
+      number: 100 + i,
+      state: 'OPEN' as const,
+      createdAt: daysAgo(14 - (i % 14)),
+    }));
+    const merged: FakePr[] = [
+      {
+        ...mine,
+        repo: 'acme/widget-kit',
+        number: 90,
+        state: 'MERGED',
+        createdAt: daysAgo(13),
+        mergedAt: daysAgo(2),
+      },
+      {
+        ...mine,
+        repo: 'acme/widget-kit',
+        number: 91,
+        state: 'MERGED',
+        createdAt: daysAgo(5),
+        mergedAt: daysAgo(2),
+      },
+    ];
+    const { gh, calls } = fakeGh([...open, ...merged]);
+    const out = findRelatedPrs({
+      current: current({ createdAt: daysAgo(5) }),
+      mode: 'reviewLoop',
+      relatedRepos: RELATED,
+      gh,
+      now: NOW,
+    });
+    const numbers = out.candidates.map((c) => c.number);
+    expect(numbers).toEqual(expect.arrayContaining([90, 91]));
+    expect(numbers.filter((n) => n >= 100)).toHaveLength(MAX_CANDIDATES_PER_STEP);
+    // 먼 열린 PR부터 잘린다. 5일 전과 가장 먼 건 14일 전에 열린 PR이다
+    const farOpen = open.filter((p) => p.createdAt === daysAgo(14)).map((p) => p.number);
+    expect(farOpen.some((n) => numbers.includes(n))).toBe(false);
+    const search = calls.filter((c) => c[0] === 'search');
+    expect(search.every((c) => c[c.indexOf('--limit') + 1] === String(SEARCH_FETCH_LIMIT))).toBe(
+      true,
+    );
+  });
+
+  it('기본 브랜치에 머지된 미확정 후보는 inDefaultBranch이고 다른 브랜치면 표대로 묻는다', () => {
     const mine = { author: 'alice', state: 'MERGED' as const, mergedAt: daysAgo(2) };
+    const prs: FakePr[] = [
+      { ...mine, repo: 'acme/widget-kit', number: 90, baseRefName: 'main' },
+      { ...mine, repo: 'acme/widget-kit', number: 91, baseRefName: 'develop' },
+      { ...mine, repo: 'acme/widget-kit', number: 92, baseRefName: 'main', title: 'PAY-5' },
+      { ...mine, repo: 'acme/design-kit', number: 93, baseRefName: 'main' },
+    ];
+    const { gh, calls } = fakeGh(prs, { 'acme/design-kit': null });
+    const out = findRelatedPrs({
+      current: current({ title: 'PAY-5' }),
+      mode: 'reviewLoop',
+      relatedRepos: RELATED,
+      gh,
+      now: NOW,
+    });
+    const byNumber = Object.fromEntries(out.candidates.map((c) => [c.number, c.confirmation]));
+    expect(byNumber).toEqual({
+      90: 'inDefaultBranch',
+      91: 'needsAuthorAnswer',
+      // 같은 티켓과 같은 작성자라 확정이다. 기본 브랜치에 머지돼도 그대로 둔다
+      92: 'confirmed',
+      // 기본 브랜치를 못 알아낸 레포는 묻는 쪽으로 남긴다
+      93: 'needsAuthorAnswer',
+    });
+    expect(out.skipped).toContainEqual(
+      expect.objectContaining({ repo: 'acme/design-kit', reason: 'noPermission' }),
+    );
+    const repoViews = calls.filter((c) => c[0] === 'repo' && c[1] === 'view');
+    expect(repoViews.map((c) => c[2]).sort()).toEqual(['acme/design-kit', 'acme/widget-kit']);
+  });
+
+  it('열린 PR을 먼저, 머지된 PR을 뒤에 세운다', () => {
+    const prs: FakePr[] = [
+      {
+        repo: 'acme/widget-kit',
+        number: 95,
+        state: 'MERGED',
+        author: 'alice',
+        mergedAt: daysAgo(2),
+        createdAt: daysAgo(5),
+        files: ['skills/pay/SKILL.md'],
+      },
+      {
+        repo: 'acme/design-kit',
+        number: 96,
+        state: 'OPEN',
+        author: 'alice',
+        createdAt: daysAgo(13),
+      },
+    ];
+    const out = findRelatedPrs({
+      current: current({ createdAt: daysAgo(5) }),
+      mode: 'reviewLoop',
+      relatedRepos: RELATED,
+      referenceTargets: [{ repo: 'acme/widget-kit', path: 'skills/pay/SKILL.md' }],
+      gh: fakeGh(prs).gh,
+      now: NOW,
+    });
+    // 머지된 95가 신호도 세고 생성일도 가깝지만 열린 96이 앞이다
+    expect(out.candidates.map((c) => c.number)).toEqual([96, 95]);
+  });
+
+  it('후보를 거르지 않고 참조 대상을 건드린 PR, 생성일이 가까운 PR 순으로 세운다', () => {
+    const mine = {
+      author: 'alice',
+      state: 'MERGED' as const,
+      mergedAt: daysAgo(2),
+      baseRefName: 'develop',
+    };
     const prs: FakePr[] = [
       { ...mine, repo: 'acme/design-kit', number: 70, createdAt: daysAgo(12) },
       { ...mine, repo: 'acme/design-kit', number: 71, createdAt: daysAgo(4) },
@@ -397,9 +595,9 @@ describe('findRelatedPrs', () => {
       now: NOW,
     });
     expect(out.candidates.map((c) => c.number)).toEqual([72, 71, 70]);
-    // 머지된 PR이 참조 대상을 건드렸다는 건 근거로만 싣고 확정 수준은 그대로다
+    // 같은 작성자 검색보다 참조 대상 단계가 먼저 찾는다. 확정 수준은 그대로다
     expect(out.candidates[0]).toMatchObject({
-      foundBy: 'sameAuthorNearby',
+      foundBy: 'touchesTarget',
       confirmation: 'needsAuthorAnswer',
       signals: { touchedTargets: ['skills/pay/SKILL.md'] },
     });
