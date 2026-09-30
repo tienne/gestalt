@@ -143,16 +143,20 @@ describe('harness-refs 교차 PR 서브커맨드의 CLI 계약', { timeout: 60_0
     const clone = join(dir, 'design-kit');
     execFileSync('git', ['clone', '-q', s.org.repos['design-kit']!.root, clone]);
     const candidates = join(dir, 'collect.json');
+    const identifier = {
+      kind: 'ruleId',
+      value: s.identifier,
+      changeType: 'modified',
+      extractedBy: 'pattern',
+    };
     writeFileSync(
       candidates,
       JSON.stringify({
         version: 1,
         repo: 'acme/widget-kit',
         relatedRepos: ['acme/design-kit'],
-        identifiers: [
-          { kind: 'ruleId', value: s.identifier, changeType: 'modified', extractedBy: 'pattern' },
-        ],
-        candidates: {},
+        identifiers: [identifier],
+        candidates: { backwardRef: [{ identifier, targetRepo: 'acme/design-kit' }] },
       }),
     );
     const relatedPrs = join(dir, 'related.json');
@@ -194,6 +198,7 @@ describe('harness-refs 교차 PR 서브커맨드의 CLI 계약', { timeout: 60_0
         'judgments',
         'limitations',
         'needsRecheck',
+        'referenceOnlyRelatedPrs',
         'relatedPrHeads',
         'relatedPrLookupBlocked',
         'relatedPrUnconfirmed',

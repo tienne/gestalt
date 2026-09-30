@@ -267,14 +267,20 @@ describe('three-state', () => {
     collectOver: Record<string, unknown> = {},
   ) {
     const dir = tempDir();
+    const identifier = {
+      kind: 'ruleId',
+      value: s.identifier,
+      changeType: 'modified',
+      extractedBy: 'pattern',
+    };
     return {
       candidates: writeJson(
         dir,
         'collect.json',
         collectJson({
-          identifiers: [
-            { kind: 'ruleId', value: s.identifier, changeType: 'modified', extractedBy: 'pattern' },
-          ],
+          identifiers: [identifier],
+          // 대상 레포가 이 식별자를 참조한다고 감지된 상황이다
+          candidates: { backwardRef: [{ identifier, targetRepo: TARGET }] },
           ...collectOver,
         }),
       ),
@@ -390,6 +396,75 @@ describe('three-state', () => {
     );
     expect(after.relatedPrUnconfirmed).toBe(false);
     expect(after.judgments[0]!.status).toBe('mergeOrder');
+  });
+
+  it('main에서 풀린 대상 레포와 참조 대상이 아닌 레포의 미확정 후보는 묻지 않고 목록으로만 낸다', async () => {
+    const s = buildThreeStateOrg('relatedRemovesUsed');
+    const clone = cloneProvider(s);
+    const prs = [
+      pr(s, { confirmation: 'needsAuthorAnswer' }),
+      pr(s, { repo: 'acme/other', number: 8, confirmation: 'needsAuthorAnswer' }),
+      pr(s, {
+        number: 9,
+        state: 'merged',
+        mergedBranch: 'develop',
+        confirmation: 'needsAuthorAnswer',
+      }),
+      pr(s, { number: 10, state: 'merged', mergedBranch: 'main', confirmation: 'inDefaultBranch' }),
+    ];
+    const r = await runThreeState(
+      { ...inputs(s, prs), repoDir: [`${TARGET}=${clone}`] },
+      { runGit: spawnGit },
+    );
+    expect(r.judgments[0]!.status).toBe('ok');
+    expect(r.relatedPrUnconfirmed).toBe(false);
+    expect(r.unconfirmedRelatedPrs).toEqual([]);
+    // 머지된 후보는 판정도 못 바꾸고 함께 볼 거리도 아니라 목록에서도 뺀다
+    expect(r.referenceOnlyRelatedPrs).toEqual([
+      { repo: TARGET, number: 7 },
+      { repo: 'acme/other', number: 8 },
+    ]);
+  });
+
+  it.each<[ThreeStateCase, string[]]>([
+    ['mergeOrder', []],
+    ['bothBroken', []],
+    ['relatedRemovesUsed', ['relatedRemovesUsed']],
+  ])(
+    '참조가 감지 안 된 레포에서 %s면 연관 PR이 쓰던 걸 지울 때만 판정을 남긴다',
+    async (kind, statuses) => {
+      const s = buildThreeStateOrg(kind);
+      const clone = cloneProvider(s);
+      const r = await runThreeState(
+        { ...inputs(s, [pr(s)], { candidates: {} }), repoDir: [`${TARGET}=${clone}`] },
+        { runGit: spawnGit },
+      );
+      expect(r.judgments.map((j) => j.status)).toEqual(statuses);
+      expect(r.counts.defect + r.counts.mergeOrder).toBe(0);
+    },
+  );
+
+  it('참조가 감지 안 된 레포의 clone이 없으면 막힘 없이 한계로만 적는다', async () => {
+    const s = buildThreeStateOrg('bothBroken');
+    const r = await runThreeState(
+      { ...inputs(s, [pr(s, { confirmation: 'needsAuthorAnswer' })], { candidates: {} }) },
+      { runGit: spawnGit },
+    );
+    expect(r.judgments).toEqual([]);
+    expect(r.needsRecheck).toBe(false);
+    expect(r.unconfirmedRelatedPrs).toEqual([]);
+    expect(r.limitations.some((l) => l.includes(TARGET))).toBe(true);
+  });
+
+  it('main을 못 본 대상 레포의 미확정 후보는 묻는다', async () => {
+    const s = buildThreeStateOrg('relatedRemovesUsed');
+    const r = await runThreeState(
+      { ...inputs(s, [pr(s, { confirmation: 'needsAuthorAnswer' })]) },
+      { runGit: spawnGit },
+    );
+    expect(r.judgments[0]!.status).toBe('blocked');
+    expect(r.unconfirmedRelatedPrs).toEqual([{ repo: TARGET, number: 7 }]);
+    expect(r.referenceOnlyRelatedPrs).toEqual([]);
   });
 
   it('대상 레포 clone이 없으면 막힘이다', async () => {

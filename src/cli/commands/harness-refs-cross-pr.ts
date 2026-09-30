@@ -24,6 +24,7 @@ import {
 import { readOriginRepo } from '../../harness-review/related-repos.js';
 import {
   judgeThreeState,
+  needsRelatedPr,
   type GitRunner,
   type ThreeStateJudgment,
 } from '../../harness-review/three-state.js';
@@ -32,6 +33,7 @@ import {
   CONFIRMATION_TYPES,
   FOUND_BY_TYPES,
   IDENTIFIER_KINDS,
+  isAwaitingConfirmation,
   PR_STATES,
   type ConfirmationType,
   type FollowUpMarker,
@@ -378,7 +380,7 @@ export function runRelatedPrs(
   if (relatedRepos.length === 0) limitations.push('관련 레포가 없어 본문 링크 밖은 찾지 않았다');
 
   const unconfirmed = result.candidates
-    .filter((c) => c.confirmation !== 'confirmed')
+    .filter((c) => isAwaitingConfirmation(c.confirmation))
     .map((c) => ({ repo: c.repo, number: c.number, confirmation: c.confirmation }));
 
   return {
@@ -457,9 +459,18 @@ export interface ThreeStateCliResult {
   counts: Record<ThreeStateStatus, number>;
   /** 못 본 판정이 있거나 연관 PR 조회가 막혔다. 참조 문제 없음으로 읽지 않는다 */
   needsRecheck: boolean;
-  /** 확정 안 된 연관 PR이 있다. approve-gate --issue relatedPrUnconfirmed로 넘긴다 */
+  /**
+   * 판정을 바꿀 수 있는 미확정 연관 PR이 있다. approve-gate --issue relatedPrUnconfirmed로 넘긴다.
+   * main에서 참조가 깨졌거나 main을 못 본 대상 레포의 후보만 센다
+   */
   relatedPrUnconfirmed: boolean;
+  /** 작성자에게 묻는 후보 */
   unconfirmedRelatedPrs: { repo: string; number: number }[];
+  /**
+   * 묻지 않는 열린 후보. main에서 이미 풀린 대상 레포나 참조 대상이 아닌 레포의 PR이다.
+   * 판정을 못 바꾸지만 함께 볼 만해서 리포트에 목록으로만 싣는다
+   */
+  referenceOnlyRelatedPrs: { repo: string; number: number }[];
   /** 재리뷰가 같은 기준으로 다시 보도록 판정에 쓴 연관 PR head */
   relatedPrHeads: { repo: string; number: number; state: PrState; headSha: string }[];
   relatedPrLookupBlocked: boolean;
@@ -544,6 +555,8 @@ function parseDefaultBranches(values: readonly string[]): Map<string, string> {
 interface Pair {
   identifier: Identifier;
   targetRepo: string;
+  /** 참조로 감지된 쌍. false면 연관 PR이 있는 레포라서 붙인 쌍이다 */
+  detected: boolean;
 }
 
 // 판정할 (식별자, 대상 레포) 쌍. 역방향 참조, 다른 레포 경로를 가리키는 순방향 참조,
@@ -555,17 +568,17 @@ function threeStatePairs(
 ): Pair[] {
   const pairs: Pair[] = [];
   const seen = new Set<string>();
-  const add = (identifier: Identifier, targetRepo: string) => {
+  const add = (identifier: Identifier, targetRepo: string, detected: boolean) => {
     if (targetRepo.toLowerCase() === selfRepo.toLowerCase() || !REPO_RE.test(targetRepo)) return;
     const key = `${targetRepo.toLowerCase()}\0${identifier.kind}\0${identifier.value}`;
     if (seen.has(key)) return;
     seen.add(key);
-    pairs.push({ identifier, targetRepo });
+    pairs.push({ identifier, targetRepo, detected });
   };
   for (const c of collect.candidates.backwardRef ?? []) {
     if (!isRecord(c) || typeof c.targetRepo !== 'string') continue;
     const id = toIdentifier(c.identifier);
-    if (id) add(id, c.targetRepo);
+    if (id) add(id, c.targetRepo, true);
   }
   for (const c of collect.candidates.forwardRef ?? []) {
     if (!isRecord(c) || typeof c.targetRepo !== 'string' || typeof c.targetPath !== 'string')
@@ -574,10 +587,11 @@ function threeStatePairs(
     add(
       { kind: 'path', value: c.targetPath, changeType: 'modified', extractedBy: 'pattern' },
       c.targetRepo,
+      true,
     );
   }
   for (const repo of reposWithPrs) {
-    for (const id of collect.identifiers) if (id.extractedBy !== 'llm') add(id, repo);
+    for (const id of collect.identifiers) if (id.extractedBy !== 'llm') add(id, repo, false);
   }
   return pairs;
 }
@@ -665,10 +679,14 @@ export async function runThreeState(
 
   const reposWithPrs = uniqueRepos(prs.map((p) => p.repo));
   let pairs = threeStatePairs(collect, currentRepo, reposWithPrs);
+  // 상한에 걸려 못 본 쌍의 레포는 main을 못 본 것과 같게 다룬다
+  const unjudgedRepos = new Set<string>();
   if (pairs.length > MAX_THREE_STATE_PAIRS) {
     limitations.push(
       `판정 쌍이 ${pairs.length}개라 앞의 ${MAX_THREE_STATE_PAIRS}개만 봤다. 나머지는 재확인이 필요하다`,
     );
+    for (const p of pairs.slice(MAX_THREE_STATE_PAIRS))
+      if (p.detected) unjudgedRepos.add(p.targetRepo.toLowerCase());
     pairs = pairs.slice(0, MAX_THREE_STATE_PAIRS);
   }
 
@@ -690,8 +708,15 @@ export async function runThreeState(
   }
 
   const judgments: ThreeStateCliJudgment[] = [];
+  // 참조로 감지된 대상 레포 중 main에서 깨졌거나 main을 못 본 레포. 이 레포의 미확정 후보만 묻는다
+  const askRepos = new Set(unjudgedRepos);
+  const noCloneUndetected = new Set<string>();
   for (const pair of pairs) {
     const target = targets.get(pair.targetRepo.toLowerCase());
+    if (!target && !pair.detected) {
+      noCloneUndetected.add(pair.targetRepo);
+      continue;
+    }
     if (!target) {
       judgments.push({
         identifier: pair.identifier,
@@ -704,12 +729,13 @@ export async function runThreeState(
           .filter(
             (p) =>
               p.repo.toLowerCase() === pair.targetRepo.toLowerCase() &&
-              p.confirmation !== 'confirmed',
+              isAwaitingConfirmation(p.confirmation),
           )
           .map((p) => ({ repo: p.repo, number: p.number })),
         limitations: [`${pair.targetRepo}의 로컬 clone이 없다. --repo-dir로 준다`],
         status: 'blocked',
       });
+      askRepos.add(pair.targetRepo.toLowerCase());
       continue;
     }
     const results = await judgeThreeState({
@@ -717,10 +743,22 @@ export async function runThreeState(
       identifier: pair.identifier,
       target: { ...target, repo: pair.targetRepo },
       relatedPrs: prs,
+      detectedTarget: pair.detected,
       runGit,
     });
-    for (const j of results) judgments.push({ ...j, status: statusOf(j) });
+    for (const j of results) {
+      const status = statusOf(j);
+      // 참조가 감지 안 된 레포에 이번 PR 식별자가 없는 건 당연하다. 연관 PR이 쓰던 걸 지우는 경우만 남긴다
+      if (!pair.detected && status !== 'relatedRemovesUsed') continue;
+      judgments.push({ ...j, status });
+    }
+    if (pair.detected && results.some(needsRelatedPr)) askRepos.add(pair.targetRepo.toLowerCase());
   }
+
+  if (noCloneUndetected.size > 0)
+    limitations.push(
+      `연관 PR이 있는 ${[...noCloneUndetected].join(', ')}의 로컬 clone이 없어 연관 PR이 이번 PR 식별자를 지우는지 못 봤다`,
+    );
 
   const counts: Record<ThreeStateStatus, number> = {
     ok: 0,
@@ -732,9 +770,13 @@ export async function runThreeState(
   for (const j of judgments) counts[j.status]++;
 
   const unconfirmedMap = new Map<string, { repo: string; number: number }>();
+  const referenceOnly: { repo: string; number: number }[] = [];
   for (const p of prs) {
-    if (p.confirmation !== 'confirmed')
-      unconfirmedMap.set(`${p.repo.toLowerCase()}#${p.number}`, { repo: p.repo, number: p.number });
+    if (!isAwaitingConfirmation(p.confirmation)) continue;
+    const entry = { repo: p.repo, number: p.number };
+    if (askRepos.has(p.repo.toLowerCase()))
+      unconfirmedMap.set(`${p.repo.toLowerCase()}#${p.number}`, entry);
+    else if (p.state === 'open') referenceOnly.push(entry);
   }
   const heads = new Map<string, ThreeStateCliResult['relatedPrHeads'][number]>();
   for (const j of judgments) {
@@ -750,6 +792,7 @@ export async function runThreeState(
     needsRecheck: counts.blocked > 0 || related.lookupBlocked,
     relatedPrUnconfirmed: unconfirmedMap.size > 0,
     unconfirmedRelatedPrs: [...unconfirmedMap.values()],
+    referenceOnlyRelatedPrs: referenceOnly,
     relatedPrHeads: [...heads.values()],
     relatedPrLookupBlocked: related.lookupBlocked,
     fetches,

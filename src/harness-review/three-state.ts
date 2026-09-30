@@ -1,12 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import { LocalCloneBackend } from './search-backend.js';
-import type {
-  Identifier,
-  PrState,
-  RelatedPR,
-  SingleStateValue,
-  ThreeStateVerdict,
-  VerdictType,
+import {
+  isAwaitingConfirmation,
+  type Identifier,
+  type PrState,
+  type RelatedPR,
+  type SingleStateValue,
+  type ThreeStateVerdict,
+  type VerdictType,
 } from './types.js';
 
 export type GitRunner = (dir: string, args: string[]) => { status: number; stdout: string };
@@ -26,6 +27,11 @@ export interface JudgeThreeStateInput {
   target: ThreeStateTarget;
   /** findRelatedPrs 후보를 그대로 넘겨도 된다. confirmed만 판정 근거로 쓴다 */
   relatedPrs: readonly RelatedPR[];
+  /**
+   * 참조로 감지된 대상 레포인가. 연관 PR이 있다는 이유만으로 붙인 레포면 false다.
+   * 그런 레포는 원래 이 식별자를 안 써서 main에서 안 보이는 게 정상이라 미확정 후보를 묻지 않는다
+   */
+  detectedTarget?: boolean;
   runGit?: GitRunner;
 }
 
@@ -54,7 +60,10 @@ export interface ThreeStateJudgment {
   verdict: ThreeStateVerdict | null;
   /** 연관 PR 없이 main만 봤으면 null */
   basis: ThreeStateBasis | null;
-  /** 이 대상 레포에서 아직 확정 안 된 연관 PR. 확정되면 판정이 바뀔 수 있다 */
+  /**
+   * 이 대상 레포에서 아직 확정 안 된 연관 PR. main에서 참조가 깨졌거나 main을 못 봤을 때만 채운다.
+   * main에서 이미 풀렸으면 확정돼도 판정이 안 바뀌어 묻지 않는다
+   */
   unconfirmedRelatedPrs: { repo: string; number: number }[];
   limitations: string[];
 }
@@ -99,30 +108,32 @@ export async function judgeThreeState(input: JudgeThreeStateInput): Promise<Thre
   const inTarget = input.relatedPrs.filter((pr) => pr.repo === target.repo);
   const confirmed = inTarget.filter((pr) => pr.confirmation === 'confirmed');
   const unconfirmed = inTarget
-    .filter((pr) => pr.confirmation !== 'confirmed')
+    .filter((pr) => isAwaitingConfirmation(pr.confirmation))
     .map((pr) => ({ repo: pr.repo, number: pr.number }));
 
-  const base = (): ThreeStateJudgment => {
-    const limitations: string[] = [];
-    if (unconfirmed.length > 0) {
-      limitations.push(`확정 안 된 연관 PR이 ${unconfirmed.length}개 있다. 확정되면 다시 판정한다`);
-    }
-    return {
-      identifier: input.identifier,
-      targetRepo: target.repo,
-      checked: false,
-      states: null,
-      verdict: null,
-      basis: null,
-      unconfirmedRelatedPrs: unconfirmed,
-      limitations,
-    };
+  const base = (): ThreeStateJudgment => ({
+    identifier: input.identifier,
+    targetRepo: target.repo,
+    checked: false,
+    states: null,
+    verdict: null,
+    basis: null,
+    unconfirmedRelatedPrs: [],
+    limitations: [],
+  });
+  const attachUnconfirmed = (j: ThreeStateJudgment): ThreeStateJudgment => {
+    if (unconfirmed.length === 0 || input.detectedTarget === false || !needsRelatedPr(j)) return j;
+    j.unconfirmedRelatedPrs = unconfirmed;
+    j.limitations.unshift(
+      `확정 안 된 연관 PR이 ${unconfirmed.length}개 있다. 확정되면 다시 판정한다`,
+    );
+    return j;
   };
 
   if (input.identifier.extractedBy === 'llm') {
     const j = base();
     j.limitations.push('LLM이 뽑은 식별자는 값이 검색어가 아니라서 LLM 판정으로 넘긴다');
-    return [j];
+    return [attachUnconfirmed(j)];
   }
 
   // 닫힌 PR은 머지되지 않으니 세 상태의 근거가 못 된다
@@ -139,7 +150,12 @@ export async function judgeThreeState(input: JudgeThreeStateInput): Promise<Thre
     for (const r of results)
       r.limitations.push(`닫힌 연관 PR(${closed.join(', ')})은 판정에서 뺐다`);
   }
-  return results;
+  return results.map(attachUnconfirmed);
+}
+
+/** main을 못 봤거나 main에서 깨졌으면 연관 PR이 판정을 바꿀 수 있다 */
+export function needsRelatedPr(j: Pick<ThreeStateJudgment, 'checked' | 'states'>): boolean {
+  return !j.checked || j.states?.onMain !== 'ok';
 }
 
 class StateUnavailable extends Error {}
