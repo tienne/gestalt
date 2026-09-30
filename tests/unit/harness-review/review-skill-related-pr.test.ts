@@ -7,6 +7,7 @@ import {
   type RelatedPrSignals,
 } from '../../../src/harness-review/related-pr.js';
 import { BLOCKING_ISSUES } from '../../../src/harness-review/approve-gate.js';
+import { CONFIRMATION_TYPES } from '../../../src/harness-review/types.js';
 import {
   section,
   sectionStartingWith,
@@ -58,12 +59,12 @@ describe('1.04단계 위치', () => {
     expect(at(PHASE)).toBeLessThan(at('### 3단계: 에이전트별 리뷰 제출'));
   });
 
-  it('찾는 순서가 본문 링크, 티켓 키, 참조 대상을 건드리는 열린 PR, 같은 작성자 순이다', () => {
+  it('찾는 순서가 본문 링크, 티켓 키, 참조 대상을 건드리는 PR, 같은 작성자 순이다', () => {
     const text = phase();
     const order = [
       '1. 이번 PR 본문의 연관 PR 링크',
       '2. 같은 티켓 키',
-      '3. 참조 대상 파일을 건드리는 열린 PR',
+      '3. 참조 대상 파일을 건드리는 PR',
       '4. 같은 작성자가 비슷한 시기에',
     ].map((needle) => text.indexOf(needle));
     for (const i of order) expect(i).toBeGreaterThan(-1);
@@ -134,7 +135,7 @@ describe('확정 기준 표', () => {
     '본문 링크': { ...base, bodyLink: true },
     '같은 티켓과 같은 작성자': { ...base, sharedTicketKeys: ['ACME-1'], sameAuthor: true },
     '같은 작성자와 같은 브랜치 이름': { ...base, sameAuthor: true, sameBranch: true },
-    '참조 대상을 건드리는 열린 PR만, 또는 같은 작성자의 비슷한 시기 PR만': {
+    '참조 대상을 건드리는 PR만, 또는 같은 작성자의 비슷한 시기 PR만': {
       ...base,
       touchedTargets: ['docs/a.md'],
     },
@@ -164,6 +165,15 @@ describe('확정 기준 표', () => {
     const row = rows().find((r) => r[0] === '같은 티켓과 같은 작성자')!;
     expect(row[2]).toContain('판정에 쓰되 근거');
     expect(row[2]).toContain('리포트에 남깁니다');
+  });
+
+  it('기본 브랜치에 머지된 미확정 후보는 묻지 않는다고 표 아래에 적는다', () => {
+    const text = phase();
+    expect(CONFIRMATION_TYPES).toContain('inDefaultBranch');
+    expect(text).toContain(
+      '`inDefaultBranch`로 옵니다. 양쪽 모드 모두 묻지 않고 `unconfirmed`에도 넣지 않습니다',
+    );
+    expect(text).toContain('기본 브랜치를 조회하지 못한 레포의 후보도 표대로 묻습니다');
   });
 
   it('참조 대상만 건드린 PR은 ship은 ⓐ 확인, review-loop는 작성자 질문이다', () => {
