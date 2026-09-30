@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.2] - 2026-09-30
+
+### Changed
+
+- **리뷰 게시 단계가 빨라졌어요.** consensus 다음 구간이 리뷰에서 제일 오래 걸렸어요. 9/24 이후 게시까지 간 리뷰 19번의 중앙값이 10분이었어요. 그런데 리포트를 다듬는 `humanize-monolith`와 코멘트를 쓰는 `code-review-writer`는 서로 결과를 안 받는데도 순서대로 돌고 있었어요.
+  - 이제 두 에이전트를 한 번에 띄우고 두 어투 검사도 같이 돌려요. 검사 기준(register)은 리포트는 `report`, 코멘트는 `chat` 그대로예요.
+  - stale 검사와 PR 확인은 에이전트를 띄우기 전에 끝내요. 코드가 바뀌었는데 리포트와 코멘트를 다 만들어 놓고 버리는 일이 없게 하려고요.
+  - 게시 확인은 코멘트를 다 쓴 다음 올리기 직전에 받아요. 확인하고 나서 에이전트를 또 기다릴 일이 없어요. 게시를 거절하면 써 둔 코멘트는 버려요.
+  - 대화 중에 "PR에 코멘트 남겨줘"처럼 게시만 요청한 경우는 예전 순서 그대로예요.
+
+### 검증 범위
+
+`pnpm gate` 전 항목을 통과했어요 (3309 passed, 1 skipped). 첫 실행에서는 `tests/unit/local-pr/registry.test.ts` 하나가 부하로 5초 타임아웃에 걸렸는데 다시 돌리니 통과했어요. 새로 넣은 병렬 전제 테스트 6개 중 4개는 바꾸기 전 SKILL.md에서 실패하는 걸 확인했어요.
+
+### 남긴 것
+
+- 실제로 얼마나 빨라지는지는 아직 몰라요. 새 흐름으로 리뷰가 몇 번 돈 뒤 같은 방법으로 consensus 다음 구간을 다시 재봐야 해요.
+- 로컬 PR 게시(`review_publish`)는 `code-review-writer` 결과를 안 쓰고 합의 이슈를 그대로 옮겨요. 그래서 ship 로컬 라운드마다 이 에이전트가 돌고 결과는 버려져요. 여기를 건너뛰게 하는 건 다음 변경으로 미뤘어요.
+
 ## [0.84.1] - 2026-09-30
 
 ### Changed
