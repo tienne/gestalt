@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.0] - 2026-09-30
+
+### Added
+
+- **하네스를 고친 PR이면 diff 밖까지 봐요.** 에이전트 규칙 문서나 스킬, CLAUDE.md를 고친 PR은 문제가 diff 밖에서 났어요. 금지어를 새로 정했는데 다른 문서가 그 말을 계속 쓰거나, 사본 한쪽만 바뀌거나, 다른 레포가 지워진 헤딩을 여전히 부르는 식이에요.
+  - review 스킬이 1.02단계에서 참조 후보를 먼저 모아요. `selfContamination`, `copyDrift`, `ruleIdListGap`, `forwardRef`, `backwardRef`, `knowledgeDoc` 여섯 종류이고 역방향 검색은 `gh search code`나 로컬 clone의 `git grep`으로 해요.
+  - 새 리뷰 에이전트 `harness-reviewer`가 후보에서 결함과 잘못 잡힌 것을 가려요. 하네스 대상이 있는 PR에서는 필수라 제출 없이 합의를 부르면 거부해요. 하네스 대상이 없는 PR은 예전 흐름 그대로예요.
+  - 설정 `relatedRepos`로 같은 조직 레포를 손으로 더할 수 있어요. 추가만 받고 제외로 읽히는 키는 경고를 찍고 버려요. 제외가 곧 리뷰를 끄는 스위치가 돼서요.
+- **다른 레포 참조는 연관 PR까지 넣어서 세 상태로 판정해요 (`gestalt harness-refs three-state`).** 대상 레포의 main, 연관 PR head, 둘 다 머지된 뒤를 비교해요. main에서만 깨지면 결함이 아니라 머지 순서 문제로 올려요. 연관 PR이 이번 PR이 쓰는 이름을 지우면 두 PR 모두에 알려요.
+  - 연관 PR 후보는 본문 링크, 같은 티켓, 참조 대상을 건드리는 PR, 같은 작성자의 비슷한 시기 PR로 찾아요 (`gestalt harness-refs related-prs`). 열린 PR과 머지된 PR(이번 PR 생성일 앞뒤 30일)을 따로 조회하고 열린 PR을 먼저 둬요.
+  - 작성자에게는 참조가 감지된 대상 레포의 main에서 깨졌거나 main을 못 봤을 때만 물어요. 이미 기본 브랜치에 머지된 후보(`inDefaultBranch`)는 안 물어요. 묻지 않는 열린 후보는 리포트에 "함께 보면 좋을 PR"로 한 줄만 적어요.
+- **approve 게이트가 생겼어요 (`gestalt review-loop approve-gate`).** 조회가 막혔거나 원격이 없거나 연관 PR이 미확정이면 approve를 보류하고 `COMMENT`로 내려요. `REQUEST_CHANGES`는 안 내요. 이전 라운드부터 이어진 이슈는 사용자가 approve를 명시하면 넘어가요.
+- **"다음 PR에서 한다"는 답을 이어받아요.** review-loop에 네 번째 선택지로 들어갔어요. CLI가 만든 후속 표시를 스레드에 달고 해결 처리하면, 후속 PR 리뷰(1.17단계)가 그 표시를 읽어 이어받아요.
+- **CI에 위생 검사를 넣었어요.** 공개 패키지라 내부 이름을 레포에 둘 수 없어서 금지 목록은 시크릿(`HYGIENE_DENYLIST`)으로 받고 로그에서는 가려요.
+
+### 검증 범위
+
+`pnpm gate` 전 항목을 통과했어요 (3303 passed, 1 skipped).
+
+과거 하네스 PR 29개를 다시 돌려 봤어요. 대상 레포의 main은 각 PR을 만든 시점의 커밋으로 잡았습니다.
+
+| 지표 | 개선 전 | 개선 후 |
+|---|---:|---:|
+| 작성자에게 묻는 연관 PR 후보 | 584 | 14 |
+| approve가 막힌 PR | 22 | 3 |
+| 잘못 올라오던 `defect` | 380 | 3 |
+
+남은 `defect` 3개도 재현 시점 차이로 생긴 거였어요. 참조 후보는 오늘의 대상 레포에서 찾고 판정은 과거 main을 봐서, PR을 만들 때는 없던 언급이 깨진 참조로 잡혔어요. 실제 리뷰에서는 둘 다 같은 main을 봐요.
+
+### 남긴 것
+
+- 재현한 29개에는 진짜 깨진 교차 레포 참조가 없었어요. "깨졌을 때 묻는다"는 쪽은 합성 시나리오 테스트로만 확인했습니다. 실사용에서 질문이 제대로 뜨는지 봐야 해요.
+- 연관 PR 탐색 기간 30일은 설정으로 안 열었어요.
+
 ## [0.83.2] - 2026-09-29
 
 ### Fixed
