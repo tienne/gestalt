@@ -112,9 +112,23 @@ export const FOUND_BY_TYPES = [
 
 export type FoundByType = (typeof FOUND_BY_TYPES)[number];
 
-export const CONFIRMATION_TYPES = ['confirmed', 'needsShipConfirm', 'needsAuthorAnswer'] as const;
+/**
+ * inDefaultBranch: 확정할 근거는 없지만 이미 그 레포 기본 브랜치에 머지됐다.
+ * 세 상태 판정의 main 쪽에 벌써 들어 있어 묻지 않고 판정 근거로 따로 쓰지도 않는다
+ */
+export const CONFIRMATION_TYPES = [
+  'confirmed',
+  'needsShipConfirm',
+  'needsAuthorAnswer',
+  'inDefaultBranch',
+] as const;
 
 export type ConfirmationType = (typeof CONFIRMATION_TYPES)[number];
+
+/** 답이나 확인을 기다리는 후보인가. 이 후보가 있으면 approve를 확정하지 못한다 */
+export function isAwaitingConfirmation(confirmation: ConfirmationType): boolean {
+  return confirmation === 'needsShipConfirm' || confirmation === 'needsAuthorAnswer';
+}
 
 export interface RelatedPR {
   repo: string;
