@@ -82,6 +82,7 @@ src/knowledge-base/— KB 생성·시맨틱 검색·동기화 (ges_generate_kb/g
 src/memory/        — Memory 피드백 루프 (ProjectMemoryStore, UserProfileStore)
 src/llm/           — 멀티 프로바이더 LLM 어댑터 (frugal/standard/frontier 티어 라우팅)
 src/review/        — Code Review 파이프라인 (agent-matcher, context-collector, report-generator)
+src/harness-review/— 하네스 PR 참조 후보 수집, 연관 PR 탐색, 세 상태 판정, approve 게이트 (gestalt harness-refs, gestalt review-loop approve-gate 백엔드)
 src/agent/         — AgentRegistry, RoleAgentRegistry (tier→모델 해석은 MCP 핸들러가 담당)
 src/mcp/           — MCP 서버 + 툴 핸들러
 src/events/        — EventStore (SQLite)
