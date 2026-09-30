@@ -375,6 +375,36 @@ describe('findRelatedPrs', () => {
     expect(out.skipped).toEqual([]);
   });
 
+  it('후보를 거르지 않고 참조 대상을 건드린 PR, 생성일이 가까운 PR 순으로 세운다', () => {
+    const mine = { author: 'alice', state: 'MERGED' as const, mergedAt: daysAgo(2) };
+    const prs: FakePr[] = [
+      { ...mine, repo: 'acme/design-kit', number: 70, createdAt: daysAgo(12) },
+      { ...mine, repo: 'acme/design-kit', number: 71, createdAt: daysAgo(4) },
+      {
+        ...mine,
+        repo: 'acme/widget-kit',
+        number: 72,
+        createdAt: daysAgo(13),
+        files: ['skills/pay/SKILL.md'],
+      },
+    ];
+    const out = findRelatedPrs({
+      current: current({ createdAt: daysAgo(5) }),
+      mode: 'reviewLoop',
+      relatedRepos: RELATED,
+      referenceTargets: [{ repo: 'acme/widget-kit', path: 'skills/pay/SKILL.md' }],
+      gh: fakeGh(prs).gh,
+      now: NOW,
+    });
+    expect(out.candidates.map((c) => c.number)).toEqual([72, 71, 70]);
+    // 머지된 PR이 참조 대상을 건드렸다는 건 근거로만 싣고 확정 수준은 그대로다
+    expect(out.candidates[0]).toMatchObject({
+      foundBy: 'sameAuthorNearby',
+      confirmation: 'needsAuthorAnswer',
+      signals: { touchedTargets: ['skills/pay/SKILL.md'] },
+    });
+  });
+
   it('같은 작성자 근처 PR은 생성 시각 앞뒤 14일로 찾고 ship은 같은 브랜치명이면 확정한다', () => {
     const prs: FakePr[] = [
       {

@@ -120,10 +120,11 @@ interface PrDetail {
   url: string;
   createdAt: string | null;
   mergedAt: string | null;
+  files: string[];
 }
 
 const VIEW_FIELDS =
-  'number,state,headRefOid,headRefName,baseRefName,author,title,body,url,createdAt,mergedAt';
+  'number,state,headRefOid,headRefName,baseRefName,author,title,body,url,createdAt,mergedAt,files';
 
 /**
  * 이번 PR의 연관 PR을 찾아 확정 수준을 매긴다.
@@ -156,11 +157,30 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
     repo.toLowerCase() === selfKey &&
     (number === current.number || (current.number === undefined && branch === current.branch));
 
+  const targetsByRepo = new Map<string, Set<string>>();
+  for (const t of opts.referenceTargets ?? []) {
+    const repo = t.repo.toLowerCase();
+    if (!allowed.has(repo)) {
+      skipped.push({
+        step: 'touchesTarget',
+        repo: t.repo,
+        reason: 'outsideRelatedRepos',
+        detail: '관련 레포 목록 밖이라 따라가지 않는다',
+      });
+      continue;
+    }
+    const set = targetsByRepo.get(repo) ?? new Set<string>();
+    set.add(t.path);
+    targetsByRepo.set(repo, set);
+  }
   const record = (step: FoundByType, detail: PrDetail, patch: Partial<RelatedPrSignals>) => {
     const key = `${detail.repo.toLowerCase()}#${detail.number}`;
     let entry = found.get(key);
     if (!entry) {
       entry = { detail, foundBy: step, signals: baseSignals(current, detail, ticketKeys) };
+      // 머지된 PR도 참조 대상을 건드렸는지 본다. 확정 수준은 안 바꾸고 순서에만 쓴다
+      const targets = targetsByRepo.get(detail.repo.toLowerCase());
+      if (targets) entry.signals.touchedTargets = detail.files.filter((f) => targets.has(f));
       found.set(key, entry);
       const notice = scanInstructionLikeText(detail);
       if (notice) notices.push(notice);
@@ -250,22 +270,6 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
 
   // 3. 참조 대상을 건드리는 열린 PR
   const openedSince = center.getTime() - TOUCHES_TARGET_MAX_AGE_DAYS * DAY_MS;
-  const targetsByRepo = new Map<string, Set<string>>();
-  for (const t of opts.referenceTargets ?? []) {
-    const repo = t.repo.toLowerCase();
-    if (!allowed.has(repo)) {
-      skipped.push({
-        step: 'touchesTarget',
-        repo: t.repo,
-        reason: 'outsideRelatedRepos',
-        detail: '관련 레포 목록 밖이라 따라가지 않는다',
-      });
-      continue;
-    }
-    const set = targetsByRepo.get(repo) ?? new Set<string>();
-    set.add(t.path);
-    targetsByRepo.set(repo, set);
-  }
   for (const [repo, paths] of targetsByRepo) {
     const run = runJson(gh, [
       'pr',
@@ -277,7 +281,7 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
       '--limit',
       String(MAX_CANDIDATES_PER_STEP),
       '--json',
-      `${VIEW_FIELDS},files`,
+      VIEW_FIELDS,
     ]);
     if (!run.ok) {
       skipped.push({ step: 'touchesTarget', repo, reason: run.reason, detail: run.detail });
@@ -293,11 +297,16 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
         continue;
       const opened = detail.createdAt ? Date.parse(detail.createdAt) : NaN;
       if (Number.isFinite(opened) && opened < openedSince) continue;
-      const touched = fileList(raw).filter((f) => paths.has(f));
+      const touched = detail.files.filter((f) => paths.has(f));
       if (touched.length === 0) continue;
       record('touchesTarget', detail, { touchedTargets: touched });
     }
   }
+
+  const distance = (d: PrDetail) => {
+    const t = d.createdAt ? Date.parse(d.createdAt) : NaN;
+    return Number.isFinite(t) ? Math.abs(t - center.getTime()) : Number.POSITIVE_INFINITY;
+  };
 
   // 4. 같은 작성자의 비슷한 시기 PR
   if (current.author) {
@@ -310,9 +319,11 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
     );
   }
 
-  const candidates = [...found.values()].map(({ detail, foundBy, signals }) =>
-    toCandidate(detail, foundBy, signals, mode),
-  );
+  const candidates = [...found.values()]
+    .sort(
+      (a, b) => rankOf(a.signals) - rankOf(b.signals) || distance(a.detail) - distance(b.detail),
+    )
+    .map(({ detail, foundBy, signals }) => toCandidate(detail, foundBy, signals, mode));
 
   return {
     mode,
@@ -417,6 +428,17 @@ function scanInstructionLikeText(detail: PrDetail): RelatedPrNotice | null {
   };
 }
 
+/**
+ * 후보를 세우는 순서. 거르지 않고 순서만 바꾼다 — 신호가 약해도 진짜 연관인 PR이 있어서다.
+ * 여러 레포에 같은 작업을 퍼뜨린 PR은 티켓도 경로도 다를 수 있다
+ */
+function rankOf(signals: RelatedPrSignals): number {
+  if (signals.bodyLink) return 0;
+  if (signals.sharedTicketKeys.length > 0) return 1;
+  if (signals.touchedTargets.length > 0) return 2;
+  return 3;
+}
+
 function baseSignals(current: CurrentPr, detail: PrDetail, ticketKeys: string[]): RelatedPrSignals {
   const theirKeys = extractTicketKeys([detail.title, detail.body, detail.branch].join('\n'));
   return {
@@ -518,6 +540,7 @@ function toPrDetail(fallbackRepo: string, raw: unknown): PrDetail | null {
     url: str(raw.url),
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : null,
     mergedAt: typeof raw.mergedAt === 'string' && raw.mergedAt !== '' ? raw.mergedAt : null,
+    files: fileList(raw),
   };
 }
 
