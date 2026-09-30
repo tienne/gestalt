@@ -7,6 +7,7 @@ import {
   findRelatedPrs,
   MERGED_LOOKBACK_DAYS,
   SAME_AUTHOR_NEARBY_DAYS,
+  TOUCHES_TARGET_MAX_AGE_DAYS,
   type CurrentPr,
   type RelatedPrSignals,
 } from '../../../src/harness-review/related-pr.js';
@@ -342,6 +343,36 @@ describe('findRelatedPrs', () => {
     );
     const loop = findRelatedPrs({ ...opts, mode: 'reviewLoop', gh: fakeGh(prs).gh });
     expect(loop.candidates[0]!.confirmation).toBe('needsAuthorAnswer');
+  });
+
+  it('참조 대상을 건드려도 이번 PR보다 30일 넘게 먼저 열린 PR은 후보로 안 본다', () => {
+    expect(TOUCHES_TARGET_MAX_AGE_DAYS).toBe(30);
+    const prs: FakePr[] = [
+      {
+        repo: 'acme/widget-kit',
+        number: 60,
+        state: 'OPEN',
+        createdAt: daysAgo(120),
+        files: ['skills/pay/SKILL.md'],
+      },
+      {
+        repo: 'acme/widget-kit',
+        number: 61,
+        state: 'OPEN',
+        createdAt: daysAgo(30),
+        files: ['skills/pay/SKILL.md'],
+      },
+    ];
+    const out = findRelatedPrs({
+      current: current({ author: '', createdAt: daysAgo(5) }),
+      mode: 'reviewLoop',
+      relatedRepos: RELATED,
+      referenceTargets: [{ repo: 'acme/widget-kit', path: 'skills/pay/SKILL.md' }],
+      gh: fakeGh(prs).gh,
+      now: NOW,
+    });
+    expect(out.candidates.map((c) => c.number)).toEqual([61]);
+    expect(out.skipped).toEqual([]);
   });
 
   it('같은 작성자 근처 PR은 생성 시각 앞뒤 14일로 찾고 ship은 같은 브랜치명이면 확정한다', () => {

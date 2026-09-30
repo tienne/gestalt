@@ -11,6 +11,13 @@ export const MERGED_LOOKBACK_DAYS = 30;
 /** "비슷한 시기"의 폭. 이번 PR 생성 시각 앞뒤로 이만큼 안에 만들어진 PR만 본다 */
 export const SAME_AUTHOR_NEARBY_DAYS = 14;
 
+/**
+ * 참조 대상을 건드리는 열린 PR 중 이번 PR보다 이만큼 먼저 열린 건 연관 후보로 안 본다.
+ * 이번 작업이 시작되기 전부터 열려 있던 PR이라, 파일이 겹쳐도 함께 진행한 작업이 아니다.
+ * 몇 달째 열린 PR 하나가 그 파일을 건드리는 모든 PR에 후보로 붙는 걸 막는다.
+ */
+export const TOUCHES_TARGET_MAX_AGE_DAYS = 30;
+
 /** 한 단계에서 상세 조회까지 가는 후보 상한. 검색이 넓게 걸려도 gh 호출 수가 묶인다 */
 export const MAX_CANDIDATES_PER_STEP = 30;
 
@@ -142,6 +149,7 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
   const notices: RelatedPrNotice[] = [];
   const ticketKeys = extractTicketKeys([current.title, current.body, current.branch].join('\n'));
   const mergedSince = isoDate(new Date(now.getTime() - MERGED_LOOKBACK_DAYS * DAY_MS));
+  const center = current.createdAt ? new Date(current.createdAt) : now;
 
   // ship은 PR 번호가 아직 없을 수 있어 같은 레포의 같은 브랜치도 자기 자신으로 본다
   const isSelf = (repo: string, number: number, branch?: string) =>
@@ -241,6 +249,7 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
   }
 
   // 3. 참조 대상을 건드리는 열린 PR
+  const openedSince = center.getTime() - TOUCHES_TARGET_MAX_AGE_DAYS * DAY_MS;
   const targetsByRepo = new Map<string, Set<string>>();
   for (const t of opts.referenceTargets ?? []) {
     const repo = t.repo.toLowerCase();
@@ -282,6 +291,8 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
       const detail = toPrDetail(repo, raw);
       if (!detail || detail.state !== 'open' || isSelf(detail.repo, detail.number, detail.branch))
         continue;
+      const opened = detail.createdAt ? Date.parse(detail.createdAt) : NaN;
+      if (Number.isFinite(opened) && opened < openedSince) continue;
       const touched = fileList(raw).filter((f) => paths.has(f));
       if (touched.length === 0) continue;
       record('touchesTarget', detail, { touchedTargets: touched });
@@ -290,7 +301,6 @@ export function findRelatedPrs(opts: FindRelatedPrsOptions): FindRelatedPrsResul
 
   // 4. 같은 작성자의 비슷한 시기 PR
   if (current.author) {
-    const center = current.createdAt ? new Date(current.createdAt) : now;
     const from = isoDate(new Date(center.getTime() - SAME_AUTHOR_NEARBY_DAYS * DAY_MS));
     const to = isoDate(new Date(center.getTime() + SAME_AUTHOR_NEARBY_DAYS * DAY_MS));
     searchStep(
