@@ -7,6 +7,7 @@ import {
   sectionStartingWith,
   codeBlock,
   codeBlockContaining,
+  codeBlockContainingIn,
 } from '../../helpers/skill-section.js';
 
 /**
@@ -199,5 +200,71 @@ describe('humanize-monolith AGENT.md 가 말투와 자리의 대응을 들고 �
     expect(agent, '스캔을 받았을 때 룰북을 다시 안 읽는다는 문장이 없다').toMatch(
       /스캔 결과를 프롬프트에 실어 보냈으면[\s\S]{0,40}다시 열지\s*\n?않는다/,
     );
+  });
+});
+
+/**
+ * 4.5단계 윤문과 4.7단계 코멘트 작성을 한 메시지로 띄운다. consensus 뒤 구간이 리뷰에서
+ * 제일 오래 걸렸다. 그 안에서 서로의 산출물을 안 받는 에이전트 둘이 차례로 돌고 있었다.
+ *
+ * 병렬이 안전한 건 두 프롬프트가 서로의 결과를 안 받을 때뿐이다. 나중에 누가 코멘트에
+ * 윤문한 리포트를 끼워 넣으면 그 즉시 걸리게 한다. 게시 확인을 코멘트 작성 앞으로
+ * 되돌려도 병렬이 풀리므로 순서도 함께 본다.
+ */
+describe('4.5단계 윤문과 4.7단계 코멘트 작성이 한 메시지로 뜬다', () => {
+  const phase45 = () => sectionStartingWith(review.body, '### 4.5단계');
+  const washPrompt = () => codeBlockContaining(review.body, '#### 윤문 위임', 'humanize-monolith');
+  const writerPrompt = () =>
+    codeBlockContainingIn(review.body, '#### 코멘트 본문 작성', 'code-review-writer');
+
+  it('4.5단계가 코멘트 작성과 같은 메시지에 담는다고 적는다', () => {
+    expect(phase45(), '두 호출을 한 메시지로 띄운다는 문장이 없다').toMatch(
+      /4\.7단계 코멘트 본문 작성을 한 메시지에 담아 병렬로 돌립니다/,
+    );
+    expect(phase45(), '서로의 산출물을 안 받는다는 근거가 없다').toMatch(
+      /두 호출은 서로의 산출물을 받지 않습니다/,
+    );
+  });
+
+  it('윤문 프롬프트가 코멘트 작성 결과를 받지 않는다', () => {
+    const prompt = washPrompt();
+    expect(prompt, '윤문 프롬프트가 code-review-writer를 참조한다').not.toMatch(
+      /code-review-writer/,
+    );
+    expect(prompt, '윤문 프롬프트가 코멘트 본문을 입력으로 받는다').not.toMatch(/comments/);
+  });
+
+  it('코멘트 프롬프트가 윤문한 리포트를 받지 않는다', () => {
+    const prompt = writerPrompt();
+    expect(prompt, '코멘트 프롬프트가 humanize-monolith 결과를 참조한다').not.toMatch(
+      /humanize-monolith/,
+    );
+    expect(prompt, '코멘트 프롬프트가 4.5단계 산출물을 참조한다').not.toMatch(/4\.5단계|윤문/);
+  });
+
+  it('stale 검사를 두 에이전트를 띄우기 전에 한다', () => {
+    expect(phase45(), '띄우기 전에 consensus 일치 검사를 한다는 말이 없다').toMatch(
+      /`consensus 일치 검사`를 합니다/,
+    );
+  });
+
+  it('게시 확인이 코멘트 작성과 어투 검사 뒤에 있다', () => {
+    const lines = review.body.split('\n');
+    const at = (h: string) => lines.findIndex((l) => l.startsWith(h));
+    const prep = at('#### 게시 준비');
+    const write = at('#### 코멘트 본문 작성');
+    const scan = at('#### 어투 검사 (필수)');
+    const confirm = at('#### 게시 확인');
+    expect(confirm, '#### 게시 확인 절이 없다').toBeGreaterThan(-1);
+    expect(write).toBeGreaterThan(prep);
+    expect(confirm, '게시 확인이 코멘트 작성보다 앞에 있다').toBeGreaterThan(write);
+    expect(confirm, '게시 확인이 어투 검사보다 앞에 있다').toBeGreaterThan(scan);
+  });
+
+  it('게시 준비 절에서 게시 확인을 받지 않는다', () => {
+    expect(
+      sectionStartingWith(review.body, '#### 게시 준비'),
+      '게시 준비 절에 게시 확인 질문이 남아 있다',
+    ).not.toMatch(/인라인 코멘트로 게시할까요/);
   });
 });
