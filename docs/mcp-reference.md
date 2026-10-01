@@ -72,7 +72,9 @@ Complete reference for all Gestalt MCP tools.
 | `contextClarity` | `number` (0–1) | N | 컨텍스트 이해도 |
 | `contradictions` | `string[]` | N | 감지된 모순 목록 |
 
-답변 라운드가 0인 세션에 기준을 넘는 점수를 넣으면 `score`가 거절한다. 기준 미만 점수는 받는다.
+답변 라운드가 0인 세션에 기준을 넘는 점수를 넣으면 `score`와 `respond`가 거절한다. 공백만 보낸 답은 답변으로 세지 않는다. 기준 미만 점수는 받는다.
+
+이 점수는 호스트 LLM이 매겨서 넘긴 값이다. 서버는 답변이 하나라도 있으면 점수가 맞는지 확인하지 않는다. 0.8 관문은 부풀려 신고한 점수까지 막지 못한다.
 
 ### Responses
 
