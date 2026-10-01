@@ -10,6 +10,7 @@ import type {
   RoleMatch,
   RolePerspective,
   RoleConsensus,
+  BaselineCapture,
 } from '../core/types.js';
 import { ExecuteError } from '../core/errors.js';
 import { type Result } from '../core/result.js';
@@ -130,8 +131,15 @@ export class PassthroughExecuteEngine {
 
   // ─── Execution ───────────────────────────────────────────────
 
-  startExecution(sessionId: string): Result<PassthroughExecutionStartResult, ExecuteError> {
-    return this.executionOrch.startExecution(sessionId);
+  captureBaseline(sessionId: string, cwd?: string): Promise<BaselineCapture> {
+    return this.executionOrch.captureBaseline(sessionId, cwd);
+  }
+
+  startExecution(
+    sessionId: string,
+    capture?: BaselineCapture,
+  ): Result<PassthroughExecutionStartResult, ExecuteError> {
+    return this.executionOrch.startExecution(sessionId, capture);
   }
 
   submitTaskResult(

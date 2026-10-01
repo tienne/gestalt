@@ -1,7 +1,14 @@
 import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../../schemas.js';
-import type { NextActionGuide, ProgressInfo } from '../../../core/types.js';
+import type {
+  ArtifactCheckStatus,
+  ArtifactVerification,
+  NextActionGuide,
+  ProgressInfo,
+} from '../../../core/types.js';
 import { gestaltNotify } from '../../../utils/notifier.js';
+import { log } from '../../../core/log.js';
+import { COMPRESSION_HINT_TASK_COUNT } from '../../../core/constants.js';
 import { writeActiveSession, formatRuleContent } from '../../../execute/rule-writer.js';
 import type { IHostAdapter } from '../../host-adapter.js';
 import {
@@ -20,8 +27,16 @@ export async function handleExecuteStart(
 
   if (!input.sessionId) return formatError('sessionId is required for execute_start action');
 
-  const result = engine.startExecution(input.sessionId);
+  const capture = await engine.captureBaseline(input.sessionId, input.cwd);
+  const result = engine.startExecution(input.sessionId, capture);
   if (!result.ok) return formatError(result.error.message);
+
+  // 대조를 안 하는 세션이면 호스트가 첫 응답에서 알 수 있게 한다
+  const artifactCheck = {
+    repoRoot: capture.repoRoot,
+    baseline: capture.baseline ? 'captured' : capture.skipped,
+    ...(capture.error ? { error: capture.error } : {}),
+  };
 
   const { session, allTasksCompleted } = result.value;
   let { taskContext } = result.value;
@@ -60,8 +75,9 @@ export async function handleExecuteStart(
       );
       await adapter.writeActiveContext(content);
       writeActiveSession(input.cwd, session.sessionId, session.specId);
-    } catch {
-      // Rule file creation failure should not block execution
+    } catch (e) {
+      // 규칙 파일을 못 써도 실행은 이어간다
+      log('execute_start: failed to write active context:', e);
     }
   }
 
@@ -77,6 +93,7 @@ export async function handleExecuteStart(
       taskContext: taskContext
         ? applyTaskContextFilters(taskContext as unknown as Record<string, unknown>, verbose)
         : taskContext,
+      artifactCheck,
       message: `Execution started. Use taskContext.taskPrompt to implement the task, then submit with execute_task.`,
       ...execStartGuide,
     },
@@ -98,8 +115,13 @@ export async function handleExecuteTask(
   const result = await engine.submitTaskResult(input.sessionId, input.taskResult);
   if (!result.ok) return formatError(result.error.message);
 
-  const { session, allTasksCompleted, driftScore, retrospectiveContext } = result.value;
+  const { session, allTasksCompleted, driftScore, retrospectiveContext, verification } =
+    result.value;
   let { taskContext } = result.value;
+
+  if (verification && !verification.verified) {
+    return formatVerificationFailure(session.sessionId, input.taskResult.taskId, verification);
+  }
 
   if (allTasksCompleted) {
     gestaltNotify({
@@ -124,6 +146,7 @@ export async function handleExecuteTask(
         sessionId: session.sessionId,
         completedTasks: session.taskResults.length,
         progress: doneProgress,
+        ...(verification ? { artifactCheck: verification.skipped ?? 'verified' } : {}),
         ...(driftScore ? { driftScore } : {}),
         ...(retrospectiveContext
           ? {
@@ -152,12 +175,13 @@ export async function handleExecuteTask(
         { taskId: taskContext.currentTask.taskId, title: taskContext.currentTask.title },
       );
       await adapter.writeActiveContext(content);
-    } catch {
-      // Rule file update failure should not block execution
+    } catch (e) {
+      // 규칙 파일을 못 써도 실행은 이어간다
+      log('execute_task: failed to update active context:', e);
     }
   }
 
-  const compressionAvailable = session.taskResults.length > 5;
+  const compressionAvailable = session.taskResults.length > COMPRESSION_HINT_TASK_COUNT;
 
   const execTaskNextId = taskContext?.currentTask.taskId ?? '';
   const execTaskGuide: NextActionGuide = {
@@ -184,6 +208,7 @@ export async function handleExecuteTask(
         ? applyTaskContextFilters(taskContext as unknown as Record<string, unknown>, verbose)
         : taskContext,
       ...(compressionAvailable ? { compressionAvailable: true } : {}),
+      ...(verification ? { artifactCheck: verification.skipped ?? 'verified' } : {}),
       ...(driftScore ? { driftScore } : {}),
       ...(retrospectiveContext
         ? {
@@ -194,6 +219,58 @@ export async function handleExecuteTask(
         : {}),
       message: `Task "${input.taskResult.taskId}" recorded.${driftScore?.thresholdExceeded ? ' WARNING: Drift threshold exceeded! Review retrospectiveContext.' : ''}${compressionAvailable ? ' TIP: Context is getting long — consider calling compress to summarize completed work.' : ''} Use taskContext.taskPrompt to implement the next task.${parallelHint(session.nextTaskIds)}`,
       ...execTaskGuide,
+    },
+    null,
+    2,
+  );
+}
+
+const VERIFICATION_STATUS_HINT: Record<ArtifactCheckStatus, string> = {
+  changed: '',
+  missing: '파일이 없고 실행 시작 때도 없었습니다',
+  unchanged: '실행 시작 뒤로 내용이 그대로입니다',
+  outside_repo: '작업 트리 밖 경로라 확인할 수 없습니다',
+  ignored: 'gitignore에 걸린 경로라 확인할 수 없습니다. 소스 파일을 적어주세요',
+  directory: '디렉토리입니다. 바꾼 파일을 하나씩 적어주세요',
+  invalid_path: '경로에 개행이나 NUL 문자가 있어 확인할 수 없습니다',
+  not_regular_file: 'FIFO나 소켓처럼 일반 파일이 아니라 확인할 수 없습니다',
+};
+
+function formatVerificationFailure(
+  sessionId: string,
+  taskId: string,
+  verification: ArtifactVerification,
+): string {
+  const problems = verification.files
+    .filter((f) => f.status !== 'changed')
+    .map((f) => ({ ...f, hint: VERIFICATION_STATUS_HINT[f.status] }));
+
+  let message: string;
+  if (verification.missingArtifacts) {
+    message =
+      'completed로 보고했지만 artifacts가 비어 있습니다. 바꾼 파일을 artifacts에 적거나, 파일을 바꾸지 않는 태스크(조사, 판단)라면 noCodeChange: true로 다시 제출하세요.';
+  } else if (verification.error) {
+    message = `서버가 git으로 작업 트리를 확인하지 못했습니다 (${verification.error}). 보고 내용 문제가 아니라 서버 쪽 실패입니다. 잠시 뒤 같은 결과를 다시 제출하고, 계속 실패하면 status를 failed로 내고 output에 이 오류를 적으세요.`;
+  } else {
+    message =
+      '보고한 artifacts 중 실행 시작 뒤로 바뀌지 않은 파일이 있습니다. 실제로 수정했는지 확인하고, 수정을 마쳤거나 목록을 바로잡은 뒤 다시 제출하세요. 끝내지 못했다면 status를 failed로 제출하세요.';
+  }
+
+  const guide: NextActionGuide = {
+    nextAction: 'execute_task',
+    nextActionParams: { sessionId },
+    hint: `태스크 ${taskId} 결과를 기록하지 않았습니다. 작업 트리를 확인하고 다시 제출하세요.`,
+  };
+  return JSON.stringify(
+    {
+      status: 'verification_failed',
+      sessionId,
+      taskId,
+      recorded: false,
+      ...(verification.error ? { serverError: true } : {}),
+      ...(problems.length > 0 ? { problems } : {}),
+      message,
+      ...guide,
     },
     null,
     2,

@@ -18,6 +18,8 @@ import type {
   RoleConsensus,
   SubTask,
   StructuralCommand,
+  WorkingTreeBaseline,
+  BaselineSkipReason,
 } from '../core/types.js';
 import { EventType } from '../events/types.js';
 import { computeReadyTaskIds } from './parallel-groups.js';
@@ -151,6 +153,12 @@ export class ExecuteSessionRepository {
 
       case EventType.EXECUTE_EXECUTION_STARTED:
         session.status = 'executing';
+        session.workingTreeBaseline = payload.workingTreeBaseline as
+          | WorkingTreeBaseline
+          | undefined;
+        session.workingTreeBaselineSkipped = payload.workingTreeBaselineSkipped as
+          | BaselineSkipReason
+          | undefined;
         break;
 
       case EventType.EXECUTE_TASK_COMPLETED: {
@@ -165,6 +173,7 @@ export class ExecuteSessionRepository {
           status: payload.status as TaskExecutionResult['status'],
           output: (payload.output as string) ?? '',
           artifacts: (payload.artifacts as string[]) ?? [],
+          ...(payload.noCodeChange ? { noCodeChange: true } : {}),
         };
         // Replace if retry, otherwise push
         const existingIdx = session.taskResults.findIndex((r) => r.taskId === taskResult.taskId);

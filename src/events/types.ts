@@ -17,6 +17,7 @@ export enum EventType {
   EXECUTE_SESSION_FAILED = 'execute.session.failed',
   EXECUTE_EXECUTION_STARTED = 'execute.execution.started',
   EXECUTE_TASK_COMPLETED = 'execute.task.completed',
+  EXECUTE_TASK_VERIFICATION_FAILED = 'execute.task.verification_failed',
   EXECUTE_EVALUATION_COMPLETED = 'execute.evaluation.completed',
   EXECUTE_SESSION_COMPLETED = 'execute.session.completed',
   EVALUATE_STRUCTURAL_STARTED = 'evaluate.structural.started',

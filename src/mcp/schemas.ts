@@ -276,7 +276,17 @@ export const executeInputSchema = guardObject(
         taskId: z.string(),
         status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'skipped']),
         output: z.string(),
-        artifacts: z.array(z.string()),
+        artifacts: z
+          .array(z.string())
+          .describe(
+            'Files this task changed. For completed results the server checks them against the git working tree captured at execute_start',
+          ),
+        noCodeChange: z
+          .boolean()
+          .optional()
+          .describe(
+            'Set true when a completed task changes no files by nature (research, decisions). Only honored when artifacts is empty',
+          ),
         suggestedFiles: z.array(z.string()).optional(),
       })
       .optional()

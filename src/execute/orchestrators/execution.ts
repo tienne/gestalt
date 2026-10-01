@@ -7,6 +7,8 @@ import type {
   RolePerspective,
   RoleConsensus,
   RoleGuidance,
+  ArtifactVerification,
+  BaselineCapture,
 } from '../../core/types.js';
 import {
   ExecuteError,
@@ -25,7 +27,9 @@ import {
   buildDriftRetrospectivePrompt,
 } from '../prompts.js';
 import { measureDrift } from '../drift-detector.js';
-import { DRIFT_THRESHOLD } from '../../core/constants.js';
+import { captureWorkingTreeBaseline, verifyArtifacts } from '../artifact-verifier.js';
+import { log } from '../../core/log.js';
+import { DRIFT_THRESHOLD, VERIFICATION_EVENT_FILE_LIMIT } from '../../core/constants.js';
 import type { AgentRegistry } from '../../agent/registry.js';
 import { mergeSystemPrompt } from '../../agent/prompt-resolver.js';
 import { codeGraphEngine } from '../../code-graph/index.js';
@@ -78,7 +82,13 @@ export class ExecutionOrchestrator {
     private roleAgentRegistry?: RoleAgentRegistry,
   ) {}
 
-  startExecution(sessionId: string): Result<PassthroughExecutionStartResult, ExecuteError> {
+  /**
+   * @param capture captureBaseline이 잡은 기준 트리. 없으면 완료 보고를 대조하지 않는다
+   */
+  startExecution(
+    sessionId: string,
+    capture?: BaselineCapture,
+  ): Result<PassthroughExecutionStartResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
 
@@ -94,7 +104,7 @@ export class ExecutionOrchestrator {
         return err(new TaskExecutionError('No execution plan found'));
       }
 
-      this.sessionManager.startExecution(sessionId);
+      this.sessionManager.startExecution(sessionId, capture);
 
       const taskContext = this.buildNextTaskContext(this.sessionManager.get(sessionId));
 
@@ -139,6 +149,22 @@ export class ExecutionOrchestrator {
         return err(
           new TaskExecutionError(`Task "${taskResult.taskId}" not found in execution plan`),
         );
+      }
+
+      const verification = await this.verifyCompletion(session, taskResult);
+      if (verification && !verification.verified) {
+        this.eventStore.append(
+          'execute',
+          sessionId,
+          EventType.EXECUTE_TASK_VERIFICATION_FAILED,
+          verificationEventPayload(taskResult.taskId, verification),
+        );
+        return ok({
+          session,
+          taskContext: null,
+          allTasksCompleted: false,
+          verification,
+        });
       }
 
       this.sessionManager.addTaskResult(sessionId, taskResult);
@@ -188,6 +214,7 @@ export class ExecutionOrchestrator {
         allTasksCompleted,
         driftScore,
         retrospectiveContext,
+        verification,
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
@@ -406,6 +433,67 @@ export class ExecutionOrchestrator {
     return null;
   }
 
+  /**
+   * startExecution에 넘길 기준 트리를 잡는다. git을 기다리는 동안 다른 도구 호출을 막지 않으려고
+   * startExecution과 따로 둔다.
+   * 기준 디렉토리는 cwd, 세션의 codeGraphRepoRoot, 서버 프로세스 cwd 순으로 정한다.
+   * 서버는 호스트 프로젝트 디렉토리에서 뜨므로 마지막 자리도 대개 호스트 레포다.
+   */
+  async captureBaseline(sessionId: string, cwd?: string): Promise<BaselineCapture> {
+    let repoRoot = cwd ?? process.cwd();
+    try {
+      repoRoot = cwd ?? this.sessionManager.get(sessionId).codeGraphRepoRoot ?? process.cwd();
+      const baseline = await captureWorkingTreeBaseline(repoRoot);
+      if (baseline) return { repoRoot, baseline };
+      log(`execute: ${repoRoot} is not a git work tree — completion claims will not be verified`);
+      return { repoRoot, skipped: 'no_baseline' };
+    } catch (e) {
+      log(`execute: failed to capture working tree baseline for ${sessionId}:`, e);
+      return {
+        repoRoot,
+        skipped: 'baseline_failed',
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  }
+
+  /**
+   * completed 보고만 대조한다. 기준 트리가 없으면 확인할 방법이 없어 통과시키되
+   * skipped에 이유를 담아 응답에서 드러나게 한다.
+   */
+  private async verifyCompletion(
+    session: ExecuteSession,
+    taskResult: TaskExecutionResult,
+  ): Promise<ArtifactVerification | undefined> {
+    if (taskResult.status !== 'completed') return undefined;
+
+    const baseline = session.workingTreeBaseline;
+    if (!baseline) {
+      return {
+        verified: true,
+        skipped: session.workingTreeBaselineSkipped ?? 'no_baseline',
+        files: [],
+      };
+    }
+
+    if (taskResult.artifacts.length === 0) {
+      return taskResult.noCodeChange
+        ? { verified: true, skipped: 'no_code_change', files: [] }
+        : { verified: false, missingArtifacts: true, files: [] };
+    }
+
+    try {
+      return await verifyArtifacts(baseline, taskResult.artifacts);
+    } catch (e) {
+      log(`execute: artifact verification failed for ${taskResult.taskId}:`, e);
+      return {
+        verified: false,
+        error: e instanceof Error ? e.message : String(e),
+        files: [],
+      };
+    }
+  }
+
   private buildNextTaskContext(session: ExecuteSession): TaskExecutionContext | null {
     const nextTask = this.getCurrentTask(session);
     if (!nextTask) return null;
@@ -493,4 +581,18 @@ export class ExecutionOrchestrator {
       return sharedAC || sameComplexity;
     });
   }
+}
+
+/** 대조 실패 이벤트는 재제출마다 쌓이므로 통과 못 한 파일만 상한까지 남긴다 */
+function verificationEventPayload(taskId: string, verification: ArtifactVerification) {
+  const failed = verification.files.filter((f) => f.status !== 'changed');
+  return {
+    taskId,
+    failed: failed.slice(0, VERIFICATION_EVENT_FILE_LIMIT),
+    failedCount: failed.length,
+    totalCount: verification.files.length,
+    ...(failed.length > VERIFICATION_EVENT_FILE_LIMIT ? { truncated: true } : {}),
+    ...(verification.missingArtifacts ? { missingArtifacts: true } : {}),
+    ...(verification.error ? { error: verification.error } : {}),
+  };
 }
