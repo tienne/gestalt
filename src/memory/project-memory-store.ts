@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { withFileLock } from '../core/file-lock.js';
-import { readJsonOrQuarantine, writeJsonAtomic } from '../core/json-file.js';
+import { isPlainObject, readJsonOrQuarantine, writeJsonAtomic } from '../core/json-file.js';
 import { log } from '../core/log.js';
 import type {
   ProjectMemory,
@@ -26,10 +26,6 @@ function detectRepoRoot(startDir: string): string {
     }
     dir = parent;
   }
-}
-
-function isPlainObject(value: unknown): boolean {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function createEmptyMemory(repoRoot: string): ProjectMemory {
@@ -57,18 +53,19 @@ export class ProjectMemoryStore {
    *
    * 인터뷰에 맥락을 끼워 넣는 자리라 여기서 던지면 인터뷰가 멈춘다. 고쳐 쓰는 경로는
    * 이 메서드 대신 `load()`를 직접 불러, 못 읽은 채로 빈 메모리를 덮어쓰지 않는다.
+   * 잠금 없이 읽으므로 깨진 파일을 옮기지 않는다. 옮기는 건 잠금을 쥔 `update()`만 한다.
    */
   read(): ProjectMemory {
     try {
-      return this.load();
+      return this.load({ quarantine: false });
     } catch (e) {
       log(`${this.memoryPath}를 읽지 못했어요:`, e);
       return createEmptyMemory(this.repoRoot);
     }
   }
 
-  private load(): ProjectMemory {
-    const raw = readJsonOrQuarantine(this.memoryPath, isPlainObject);
+  private load(options: { quarantine: boolean }): ProjectMemory {
+    const raw = readJsonOrQuarantine(this.memoryPath, isPlainObject, options);
     if (raw === undefined) return createEmptyMemory(this.repoRoot);
     const parsed = raw as Partial<ProjectMemory>;
     const memory: ProjectMemory = {
@@ -79,6 +76,9 @@ export class ProjectMemoryStore {
       architectureDecisions: Array.isArray(parsed.architectureDecisions)
         ? parsed.architectureDecisions
         : [],
+      compressedContexts: Array.isArray(parsed.compressedContexts)
+        ? parsed.compressedContexts
+        : undefined,
     };
     // v1 → v2 자동 마이그레이션: architectureDecisions string[] → ArchitectureDecision[]
     memory.architectureDecisions = memory.architectureDecisions.map((item: unknown) => {
@@ -105,7 +105,7 @@ export class ProjectMemoryStore {
     return withFileLock(
       `${this.memoryPath}.lock`,
       ({ stillMine }) => {
-        const memory = this.load();
+        const memory = this.load({ quarantine: true });
         mutate(memory);
         if (!stillMine()) {
           throw new Error('메모리 잠금을 뺏겨서 안 썼어요. 다시 불러주세요');

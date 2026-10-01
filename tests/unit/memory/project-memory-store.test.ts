@@ -1,12 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { ProjectMemoryStore } from '../../../src/memory/project-memory-store.js';
+
+// cwd가 레포 루트가 아니어도 같은 파일을 가리키게 이 테스트 파일 기준으로 잡는다
+const STORE_MODULE_URL = new URL('../../../src/memory/project-memory-store.ts', import.meta.url)
+  .href;
+const TSX_BIN = fileURLToPath(new URL('../../../node_modules/.bin/tsx', import.meta.url));
 
 describe('ProjectMemoryStore', () => {
   let tmpDir: string;
@@ -21,6 +26,7 @@ describe('ProjectMemoryStore', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (existsSync(tmpDir)) {
       rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -175,7 +181,6 @@ describe('ProjectMemoryStore', () => {
     const broken = '{"specHistory": [{"specId": "old"';
     writeFileSync(join(gestaltDir, 'memory.json'), broken, 'utf-8');
 
-    expect(store.read().specHistory).toHaveLength(0);
     store.addSpec({
       specId: 'new',
       goal: 'G',
@@ -187,7 +192,39 @@ describe('ProjectMemoryStore', () => {
     expect(backups).toHaveLength(1);
     expect(readFileSync(join(gestaltDir, backups[0]!), 'utf-8')).toBe(broken);
     expect(store.read().specHistory.map((s) => s.specId)).toEqual(['new']);
-    vi.restoreAllMocks();
+  });
+
+  it('잠금 없이 읽을 때는 깨진 memory.json을 옮기지 않는다', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const gestaltDir = join(tmpDir, '.gestalt');
+    mkdirSync(gestaltDir, { recursive: true });
+    writeFileSync(join(gestaltDir, 'memory.json'), '{"specHistory": [', 'utf-8');
+
+    expect(store.read().specHistory).toHaveLength(0);
+    expect(readdirSync(gestaltDir)).toEqual(['memory.json']);
+  });
+
+  it('읽기 자체가 실패하면 쓰기를 멈추고 파일을 옮기지 않는다', () => {
+    const gestaltDir = join(tmpDir, '.gestalt');
+    // 디렉토리를 파일 자리에 두면 readFileSync가 EISDIR로 실패한다
+    mkdirSync(join(gestaltDir, 'memory.json'), { recursive: true });
+
+    expect(() =>
+      store.addSpec({ specId: 'x', goal: 'G', createdAt: '', sourceType: 'text' }),
+    ).toThrow();
+    expect(readdirSync(gestaltDir)).toEqual(['memory.json']);
+  });
+
+  it('배열이 아닌 compressedContexts는 비우고 다시 기록한다', () => {
+    mkdirSync(join(tmpDir, '.gestalt'), { recursive: true });
+    writeFileSync(
+      join(tmpDir, '.gestalt', 'memory.json'),
+      '{"specHistory":[],"compressedContexts":"oops"}',
+      'utf-8',
+    );
+
+    store.addCompressedContext('s1', 'summary');
+    expect(store.read().compressedContexts?.map((c) => c.sessionId)).toEqual(['s1']);
   });
 
   it('배열이 빠진 memory.json은 빈 배열로 채워 읽는다', () => {
@@ -220,18 +257,16 @@ describe('ProjectMemoryStore', () => {
 
   it('여러 프로세스가 동시에 기록해도 항목이 안 사라진다', async () => {
     const script = join(tmpDir, 'add-specs.mjs');
-    const moduleUrl = pathToFileURL(resolve('src/memory/project-memory-store.ts')).href;
     writeFileSync(
       script,
-      `const { ProjectMemoryStore } = await import(${JSON.stringify(moduleUrl)});\n` +
+      `const { ProjectMemoryStore } = await import(${JSON.stringify(STORE_MODULE_URL)});\n` +
         `const store = new ProjectMemoryStore(process.argv[2]);\n` +
         `for (let i = 0; i < 15; i++) store.addSpec({ specId: process.argv[3] + '-' + i, goal: 'g', createdAt: '', sourceType: 'text' });\n`,
       'utf-8',
     );
 
-    const tsx = resolve('node_modules', '.bin', 'tsx');
     const workers = ['a', 'b', 'c', 'd'];
-    await Promise.all(workers.map((w) => promisify(execFile)(tsx, [script, tmpDir, w])));
+    await Promise.all(workers.map((w) => promisify(execFile)(TSX_BIN, [script, tmpDir, w])));
 
     // 잠금 없이 읽고 고쳐 쓰면 늦게 쓴 쪽이 먼저 쓴 쪽의 항목을 덮어 60개보다 적게 남는다
     expect(store.read().specHistory).toHaveLength(workers.length * 15);
