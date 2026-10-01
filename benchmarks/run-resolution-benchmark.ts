@@ -359,10 +359,12 @@ async function runBenchmark(opts: {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const prefix = isActualDryRun ? 'resolution-dry' : 'resolution';
   const jsonPath = join(outputDir, `${prefix}-${ts}.json`);
-  const latestPath = join(outputDir, 'resolution-latest.json');
+  // dry-run 수치는 mockJudge의 하드코딩 상수라 실측 latest를 덮으면 안 된다
+  const latestPath = join(outputDir, `${prefix}-latest.json`);
 
-  writeFileSync(jsonPath, JSON.stringify(benchmarkResult, null, 2), 'utf-8');
-  writeFileSync(latestPath, JSON.stringify(benchmarkResult, null, 2), 'utf-8');
+  const resultJson = JSON.stringify(benchmarkResult, null, 2);
+  writeFileSync(jsonPath, resultJson, 'utf-8');
+  writeFileSync(latestPath, resultJson, 'utf-8');
 
   // ─── 콘솔 요약 ───────────────────────────────────────────────────
 
@@ -370,20 +372,25 @@ async function runBenchmark(opts: {
   const lowPct = (avgReworkProbability.low * 100).toFixed(1);
   const midPct = (avgReworkProbability.mid * 100).toFixed(1);
   const highPct = (avgReworkProbability.high * 100).toFixed(1);
+  // 경고 줄 없이 결론 줄만 복사돼도 mock 값인 게 보이게 줄마다 붙인다
+  const mockTag = isActualDryRun ? ' (mock)' : '';
 
   console.log(`\n${'─'.repeat(60)}`);
   console.log('SUMMARY');
   console.log(`${'─'.repeat(60)}`);
+  if (isActualDryRun) {
+    console.log('⚠  DRY-RUN: 아래 수치는 mockJudge 상수에서 나온 값이다. 측정 결과로 인용하지 말 것.');
+  }
   console.log(`요구사항: ${results.length}개 분석`);
   console.log(`\n재작업 확률 (평균):`);
   console.log(`  해상도 0.5 (low):  ${lowPct}%`);
   console.log(`  해상도 0.65 (mid): ${midPct}%`);
   console.log(`  해상도 0.8 (high): ${highPct}%`);
-  console.log(`\n  --> 해상도 0.8 스펙은 0.5 대비 재작업률 ${reductionPct}% 감소`);
+  console.log(`\n  --> 해상도 0.8 스펙은 0.5 대비 재작업률 ${reductionPct}% 감소${mockTag}`);
   console.log(`\n단조성 충족률: ${(monotonicityRate * 100).toFixed(1)}% (기준: ${(thresholds.minMonotonicityRate * 100)}%)`);
-  console.log(`  단조성 조건: ${monotonicitySatisfied ? 'PASS' : 'FAIL'}`);
-  console.log(`인과성 조건 (감소 >= ${(thresholds.minReworkReduction_lowToHigh * 100)}%): ${causalitySatisfied ? 'PASS' : 'FAIL'}`);
-  console.log(`\n가설 검증 결과: ${hypothesisSupported ? 'SUPPORTED' : 'NOT SUPPORTED'}`);
+  console.log(`  단조성 조건: ${monotonicitySatisfied ? 'PASS' : 'FAIL'}${mockTag}`);
+  console.log(`인과성 조건 (감소 >= ${(thresholds.minReworkReduction_lowToHigh * 100)}%): ${causalitySatisfied ? 'PASS' : 'FAIL'}${mockTag}`);
+  console.log(`\n가설 검증 결과: ${hypothesisSupported ? 'SUPPORTED' : 'NOT SUPPORTED'}${mockTag}`);
   console.log(`  "${rubric.hypothesis}"`);
 
   console.log(`\n결과 저장: ${jsonPath}`);
