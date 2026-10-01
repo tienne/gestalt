@@ -358,7 +358,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `action` | `string` | Y | — | 수행할 액션 (위 테이블 참고) |
 | `sessionId` | `string` | 대부분의 액션 | — | 실행 세션 ID |
 | `spec` | `Spec` | `start` | — | `ges_generate_spec`에서 받은 완성된 Spec 객체 |
-| `cwd` | `string` | N | — | 작업 디렉터리. `execute_start`에서 client 설정에 맞는 active context(`.claude/rules/gestalt-active.md`, `AGENTS.md` managed section, `.grok/rules/gestalt-active.md`, 또는 Claude+Codex 둘 다)와 `.gestalt/active-session.json` 생성에 사용. `status`에서 `resumeHint` 읽기에 사용. |
+| `cwd` | `string` | N | — | 작업 디렉터리. `execute_start`에서 client 설정에 맞는 active context(`.claude/rules/gestalt-active.md`, `AGENTS.md` managed section, `.grok/rules/gestalt-active.md`, 또는 Claude+Codex 둘 다)와 `.gestalt/active-session.json` 생성에 사용. `execute_start`에서는 `completed` 보고의 `artifacts`를 대조할 git 작업 트리 기준점으로도 쓴다. 비우면 서버 프로세스의 cwd를 쓴다. `status`에서 `resumeHint` 읽기에 사용. |
 | `client` | `"claude-code" \| "codex" \| "both" \| "grok"` | N | 서버 `config.client` | 호출 단위 호스트 override. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고, `"both"`는 Claude와 Codex만 쓴다. |
 | `codeGraphRepoRoot` | `string` | N | — | `start`에서 설정 시 태스크 실행마다 관련 파일을 자동 추출해 `suggestedFiles`로 반환 |
 | `prId` | `string` | N | — | `review_start`에서 주면 그 로컬 PR의 변경 파일로 리뷰를 연다. `sessionId`와 `changedFiles + repoRoot`보다 우선한다 — 함께 주면 나머지는 안 본다. `review_publish`에서는 쓸 대상 PR이고, `review_start`를 `prId`로 열었으면 세션에서 이어받으므로 생략할 수 있다 |
@@ -465,6 +465,7 @@ ges_execute({
     status: "completed",   // "completed" | "failed" | "skipped"
     output: "Description of what was done",
     artifacts: ["src/auth/oauth.ts", "tests/auth.test.ts"]
+    // noCodeChange: true  — 조사나 판단처럼 파일을 안 바꾸는 태스크일 때 (artifacts가 비어 있을 때만 인정)
   }
 })
 ```
@@ -495,6 +496,20 @@ ges_execute({
 - `compressionAvailable`: `completedTasks > 5`일 때만 포함
 - `allTasksCompleted: true`: 모든 태스크 완료 시 포함
 - `suggestedFiles`: `codeGraphRepoRoot` 설정 시 포함 (최대 10개)
+- `artifactCheck`: `completed` 보고가 대조를 통과했을 때 포함. `verified`(대조 통과), `no_code_change`(`noCodeChange`로 넘어감), `no_baseline`(git 레포가 아니라 대조 안 함) 중 하나
+
+`completed` 보고는 `artifacts`의 파일이 `execute_start` 시점보다 실제로 바뀌었는지 대조한다. 수정, 새로 만듦, 커밋, 삭제 모두 바뀐 것으로 친다. 빈 `artifacts`는 `noCodeChange: true` 없이는 거절된다. 하나라도 안 바뀌었으면 결과를 기록하지 않고 다음처럼 돌려준다. `failed`와 `skipped`는 대조하지 않는다.
+
+```json
+{
+  "status": "verification_failed",
+  "recorded": false,
+  "problems": [{ "path": "src/auth/oauth.ts", "status": "unchanged", "hint": "실행 시작 뒤로 내용이 그대로입니다" }],
+  "nextAction": "execute_task"
+}
+```
+
+`problems[].status`는 `unchanged`, `missing`, `outside_repo`, `ignored`(gitignore), `directory` 중 하나다. 파일을 실제로 고치거나 목록을 바로잡아 같은 태스크를 다시 제출한다. 끝내지 못했으면 `status: "failed"`로 낸다. 기준점은 실행 시작 때 한 번이라 앞선 태스크가 바꾼 파일을 뒤 태스크가 적어도 통과한다.
 
 ### `evaluate` — Example Requests
 

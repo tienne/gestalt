@@ -226,10 +226,12 @@ ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ..
 `plan_complete` 이후 호출. 태스크 목록을 받아 실행 준비.
 
 ```json
-{ "action": "execute_start", "sessionId": "..." }
+{ "action": "execute_start", "sessionId": "...", "cwd": "/path/to/project" }
 ```
 
 → `{ status, sessionId, executionPlan, message }`
+
+`cwd`에는 프로젝트 루트를 넘긴다. 서버가 이 자리의 git 작업 트리를 기준점으로 잡아 두고 나중에 `completed` 보고의 `artifacts`를 여기에 대조한다. 비우면 서버 프로세스의 cwd를 쓴다. git 레포가 아니면 대조 없이 진행한다.
 
 ---
 
@@ -341,13 +343,13 @@ Agent {
 
 ```
 // 같은 메시지에서 동시 호출 — Agent 1
-Agent(task: "task-0 실행: {task-0 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출")
+Agent(task: "task-0 실행: {task-0 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출. 바꾼 파일은 전부 artifacts에 적는다")
 
 // 같은 메시지에서 동시 호출 — Agent 2
-Agent(task: "task-1 실행: {task-1 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출")
+Agent(task: "task-1 실행: {task-1 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출. 바꾼 파일은 전부 artifacts에 적는다")
 
 // 같은 메시지에서 동시 호출 — Agent 3
-Agent(task: "task-2 실행: {task-2 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출")
+Agent(task: "task-2 실행: {task-2 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출. 바꾼 파일은 전부 artifacts에 적는다")
 ```
 
 **각 Agent의 execute_task 제출:**
@@ -402,9 +404,44 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
 }
 ```
 
-→ `{ status, nextTaskId?, allTasksCompleted, driftResult? }`
+→ `{ status, nextTaskId?, allTasksCompleted, artifactCheck?, driftResult? }`
 
 `driftResult`가 반환되면 Spec과의 drift 경고 — 계속 진행하되 다음 태스크에서 방향 보정.
+
+**artifacts 대조.** `status: "completed"`로 보고하면 서버가 `artifacts`의 파일이 실행 시작 뒤로 실제로 바뀌었는지 확인한다. 수정하거나 새로 만들거나 커밋하거나 지운 파일은 모두 바뀐 것으로 친다. 상대 경로는 `execute_start`의 `cwd` 기준이다. 디렉토리나 gitignore에 걸린 경로는 확인할 수 없으니 바꾼 소스 파일을 하나씩 적는다. `failed`와 `skipped`는 대조하지 않는다.
+
+`artifacts`가 빈 `completed`는 거절된다. 조사나 판단처럼 원래 파일을 안 바꾸는 태스크는 `noCodeChange: true`를 같이 낸다. `artifacts`가 하나라도 있으면 `noCodeChange`와 상관없이 대조한다.
+
+```json
+{
+  "action": "execute_task",
+  "sessionId": "...",
+  "taskResult": {
+    "taskId": "task-1",
+    "status": "completed",
+    "output": "기존 인증 흐름 조사 결과 요약",
+    "artifacts": [],
+    "noCodeChange": true
+  }
+}
+```
+
+통과하면 응답에 `artifactCheck`가 붙는다. `verified`는 대조를 통과했다는 뜻이고 `no_code_change`는 `noCodeChange`로 넘어갔다는 뜻이다. `no_baseline`은 기준점이 없어(git 레포가 아님) 대조하지 않았다는 뜻이다.
+
+**`verification_failed`를 받으면.** 바뀌지 않은 파일이 하나라도 있으면 서버는 결과를 기록하지 않고 이렇게 돌려준다.
+
+```json
+{
+  "status": "verification_failed",
+  "recorded": false,
+  "problems": [{ "path": "src/auth.ts", "status": "unchanged", "hint": "실행 시작 뒤로 내용이 그대로입니다" }],
+  "nextAction": "execute_task"
+}
+```
+
+`problems[].status`는 `unchanged`, `missing`, `outside_repo`, `ignored`, `directory` 중 하나다. 태스크는 아직 끝나지 않은 상태로 남는다. 파일을 실제로 고쳤는지 확인하고 수정을 마치거나 `artifacts` 목록을 바로잡아 같은 태스크를 다시 제출한다. 끝내지 못했으면 `status: "failed"`로 낸다.
+
+> 기준점은 태스크마다가 아니라 `execute_start` 때 한 번 잡는다. 앞선 태스크가 바꾼 파일을 뒤 태스크가 `artifacts`에 적어도 통과한다.
 
 ---
 
