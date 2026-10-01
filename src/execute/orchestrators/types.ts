@@ -13,6 +13,7 @@ import type {
   DriftScore,
   TerminationReason,
   RoleGuidance,
+  ArtifactVerification,
 } from '../../core/types.js';
 import type { LateralContext, EscalationContext } from '../../resilience/types.js';
 import type { MatchContext } from '../../agent/role-match-engine.js';
@@ -93,6 +94,8 @@ export interface PassthroughTaskSubmitResult {
   allTasksCompleted: boolean;
   driftScore?: DriftScore;
   retrospectiveContext?: DriftRetrospectiveContext;
+  /** completed 보고를 작업 트리와 대조한 결과. verified가 false면 결과를 기록하지 않았다 */
+  verification?: ArtifactVerification;
 }
 
 export interface StructuralEvaluateContext {

@@ -18,6 +18,7 @@ import type {
   SubTask,
   AuditResult,
   StructuralCommand,
+  WorkingTreeBaseline,
 } from '../core/types.js';
 import { ExecuteSessionNotFoundError } from '../core/errors.js';
 import { DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
@@ -194,14 +195,16 @@ export class ExecuteSessionManager {
     });
   }
 
-  startExecution(sessionId: string): void {
+  startExecution(sessionId: string, workingTreeBaseline?: WorkingTreeBaseline): void {
     const session = this.get(sessionId);
     session.status = 'executing';
+    session.workingTreeBaseline = workingTreeBaseline;
     session.updatedAt = new Date().toISOString();
 
     this.record(sessionId, EventType.EXECUTE_EXECUTION_STARTED, {
       planId: session.executionPlan?.planId,
       taskCount: session.executionPlan?.atomicTasks.length,
+      workingTreeBaseline,
     });
   }
 
@@ -238,6 +241,7 @@ export class ExecuteSessionManager {
       status: taskResult.status,
       output: taskResult.output,
       artifacts: taskResult.artifacts,
+      ...(taskResult.noCodeChange ? { noCodeChange: true } : {}),
     });
 
     logger.info('execute.task_completed', {

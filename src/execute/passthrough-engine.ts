@@ -130,8 +130,11 @@ export class PassthroughExecuteEngine {
 
   // ─── Execution ───────────────────────────────────────────────
 
-  startExecution(sessionId: string): Result<PassthroughExecutionStartResult, ExecuteError> {
-    return this.executionOrch.startExecution(sessionId);
+  startExecution(
+    sessionId: string,
+    opts: { repoRoot?: string } = {},
+  ): Result<PassthroughExecutionStartResult, ExecuteError> {
+    return this.executionOrch.startExecution(sessionId, opts);
   }
 
   submitTaskResult(

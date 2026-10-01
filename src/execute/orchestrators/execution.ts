@@ -7,6 +7,7 @@ import type {
   RolePerspective,
   RoleConsensus,
   RoleGuidance,
+  ArtifactVerification,
 } from '../../core/types.js';
 import {
   ExecuteError,
@@ -25,6 +26,8 @@ import {
   buildDriftRetrospectivePrompt,
 } from '../prompts.js';
 import { measureDrift } from '../drift-detector.js';
+import { captureWorkingTreeBaseline, verifyArtifacts } from '../artifact-verifier.js';
+import { log } from '../../core/log.js';
 import { DRIFT_THRESHOLD } from '../../core/constants.js';
 import type { AgentRegistry } from '../../agent/registry.js';
 import { mergeSystemPrompt } from '../../agent/prompt-resolver.js';
@@ -78,7 +81,14 @@ export class ExecutionOrchestrator {
     private roleAgentRegistry?: RoleAgentRegistry,
   ) {}
 
-  startExecution(sessionId: string): Result<PassthroughExecutionStartResult, ExecuteError> {
+  /**
+   * @param opts.repoRoot 완료 보고를 대조할 작업 트리. 없으면 세션의 codeGraphRepoRoot를 쓴다.
+   *   둘 다 없거나 git 레포가 아니면 대조 없이 진행한다.
+   */
+  startExecution(
+    sessionId: string,
+    opts: { repoRoot?: string } = {},
+  ): Result<PassthroughExecutionStartResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
 
@@ -94,7 +104,10 @@ export class ExecutionOrchestrator {
         return err(new TaskExecutionError('No execution plan found'));
       }
 
-      this.sessionManager.startExecution(sessionId);
+      this.sessionManager.startExecution(
+        sessionId,
+        this.captureBaseline(sessionId, opts.repoRoot ?? session.codeGraphRepoRoot),
+      );
 
       const taskContext = this.buildNextTaskContext(this.sessionManager.get(sessionId));
 
@@ -139,6 +152,20 @@ export class ExecutionOrchestrator {
         return err(
           new TaskExecutionError(`Task "${taskResult.taskId}" not found in execution plan`),
         );
+      }
+
+      const verification = this.verifyCompletion(session, taskResult);
+      if (verification && !verification.verified) {
+        this.eventStore.append('execute', sessionId, EventType.EXECUTE_TASK_VERIFICATION_FAILED, {
+          taskId: taskResult.taskId,
+          verification,
+        });
+        return ok({
+          session,
+          taskContext: null,
+          allTasksCompleted: false,
+          verification,
+        });
       }
 
       this.sessionManager.addTaskResult(sessionId, taskResult);
@@ -188,6 +215,7 @@ export class ExecutionOrchestrator {
         allTasksCompleted,
         driftScore,
         retrospectiveContext,
+        verification,
       });
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
@@ -404,6 +432,50 @@ export class ExecutionOrchestrator {
     }
 
     return null;
+  }
+
+  private captureBaseline(sessionId: string, repoRoot: string | undefined) {
+    if (!repoRoot) return undefined;
+    try {
+      const baseline = captureWorkingTreeBaseline(repoRoot);
+      if (!baseline)
+        log(`execute: ${repoRoot} is not a git work tree — completion claims will not be verified`);
+      return baseline ?? undefined;
+    } catch (e) {
+      log(`execute: failed to capture working tree baseline for ${sessionId}:`, e);
+      return undefined;
+    }
+  }
+
+  /**
+   * completed 보고만 대조한다. 기준 트리가 없으면 확인할 방법이 없어 통과시키되
+   * skipped로 표시해 응답에서 드러나게 한다.
+   */
+  private verifyCompletion(
+    session: ExecuteSession,
+    taskResult: TaskExecutionResult,
+  ): ArtifactVerification | undefined {
+    if (taskResult.status !== 'completed') return undefined;
+
+    const baseline = session.workingTreeBaseline;
+    if (!baseline) return { verified: true, skipped: 'no_baseline', files: [] };
+
+    if (taskResult.artifacts.length === 0) {
+      return taskResult.noCodeChange
+        ? { verified: true, skipped: 'no_code_change', files: [] }
+        : { verified: false, missingArtifacts: true, files: [] };
+    }
+
+    try {
+      return verifyArtifacts(baseline, taskResult.artifacts);
+    } catch (e) {
+      log(`execute: artifact verification failed for ${taskResult.taskId}:`, e);
+      return {
+        verified: false,
+        error: e instanceof Error ? e.message : String(e),
+        files: [],
+      };
+    }
   }
 
   private buildNextTaskContext(session: ExecuteSession): TaskExecutionContext | null {
