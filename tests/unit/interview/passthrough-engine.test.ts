@@ -193,6 +193,16 @@ describe('PassthroughEngine', () => {
     expect(isErr(engine.complete(sessionId))).toBe(true);
   });
 
+  it('rejects a ready score sent with a blank response through respond', () => {
+    const startResult = engine.start('test project');
+    if (!startResult.ok) throw new Error('start failed');
+
+    const { sessionId } = startResult.value.session;
+    const result = engine.respond(sessionId, '   ', 'What is it?', READY_SCORE);
+    expect(isErr(result)).toBe(true);
+    expect(engine.getSession(sessionId).resolutionScore).toBeNull();
+  });
+
   it('accepts a below-threshold score before any answered round', () => {
     const startResult = engine.start('test project');
     if (!startResult.ok) throw new Error('start failed');
