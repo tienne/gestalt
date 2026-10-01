@@ -113,8 +113,6 @@ export interface ExecuteFixture {
     input: Partial<ExecuteInput> & { action: ExecuteInput['action'] },
     adapter?: IHostAdapter,
   ): Promise<T>;
-  /** 같은 DB로 엔진을 새로 띄운다. 이벤트 재생으로 복원되는 범위를 볼 때 쓴다 */
-  reopen(): PassthroughExecuteEngine;
   /** 엔진 메서드로 start만 마친 세션 */
   startedSession(spec?: Spec): { sessionId: string; spec: Spec };
   /** 플래닝 4단계와 plan_complete까지 마친 세션 */
@@ -131,7 +129,6 @@ export function createExecuteFixture(
   const dbPath = `.gestalt-test/${name}-${randomUUID()}.db`;
   const store = new EventStore(dbPath);
   const engine = new PassthroughExecuteEngine(store, undefined, roleAgentRegistry);
-  const extraStores: EventStore[] = [];
 
   const fixture: ExecuteFixture = {
     store,
@@ -144,11 +141,6 @@ export function createExecuteFixture(
         adapter ?? new RecordingAdapter(),
       );
       return JSON.parse(raw);
-    },
-    reopen() {
-      const s = new EventStore(dbPath);
-      extraStores.push(s);
-      return new PassthroughExecuteEngine(s, undefined, roleAgentRegistry);
     },
     startedSession(spec = makeSpec()) {
       const r = engine.start(spec);
@@ -172,7 +164,6 @@ export function createExecuteFixture(
       return planned;
     },
     close() {
-      for (const s of extraStores) s.close();
       store.close();
       for (const suffix of ['', '-wal', '-shm']) {
         if (existsSync(dbPath + suffix)) rmSync(dbPath + suffix);
