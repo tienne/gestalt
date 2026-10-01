@@ -118,7 +118,7 @@ Spec과 실행 결과는 레포 루트의 `.gestalt/memory.json`에 자동으로
 }
 ```
 
-- **커밋하세요** — `.gestalt/memory.json`은 일반 JSON 파일이에요. 커밋해두면 팀원도 `git pull` 후 이전 결정 사항을 그대로 이어받을 수 있어요.
+- **커밋하세요** — `.gestalt/memory.json`은 일반 JSON 파일이에요. 커밋해두면 팀원도 `git pull` 후 이전 결정 사항을 그대로 이어받을 수 있어요. 충돌을 피하려면 [merge driver를 등록](docs/memory-team-sharing.md)하세요.
 - **컨텍스트 반영** — 다음 Spec을 생성할 때 이전 목표와 아키텍처 결정 사항이 프롬프트에 자동으로 반영돼요.
 
 ---
