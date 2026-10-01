@@ -1,9 +1,4 @@
-import type {
-  ExecuteSession,
-  EvaluationResult,
-  StructuralCommand,
-  StructuralResult,
-} from '../../core/types.js';
+import type { ExecuteSession, EvaluationResult, StructuralResult } from '../../core/types.js';
 import { ExecuteError, ExecuteSessionNotFoundError, EvaluationError } from '../../core/errors.js';
 import { type Result, ok, err } from '../../core/result.js';
 import { EventStore } from '../../events/store.js';
@@ -13,6 +8,12 @@ import type { AgentRegistry } from '../../agent/registry.js';
 import { mergeSystemPrompt } from '../../agent/prompt-resolver.js';
 import { codeGraphEngine } from '../../code-graph/index.js';
 import type { RoleAgentRegistry } from '../../agent/role-agent-registry.js';
+import { log } from '../../core/log.js';
+import {
+  buildStructuralCommands,
+  collectChangedFiles,
+  findCommandMismatches,
+} from '../structural-commands.js';
 import type { ContextualEvaluateContext, PassthroughEvaluateResult } from './types.js';
 
 export class EvaluationOrchestrator {
@@ -26,7 +27,10 @@ export class EvaluationOrchestrator {
   /**
    * Call 1: Start evaluation → returns structural commands to run.
    */
-  startEvaluation(sessionId: string): Result<PassthroughEvaluateResult, ExecuteError> {
+  startEvaluation(
+    sessionId: string,
+    cwd?: string,
+  ): Result<PassthroughEvaluateResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
 
@@ -42,43 +46,9 @@ export class EvaluationOrchestrator {
         return err(new EvaluationError('No execution plan found'));
       }
 
-      this.sessionManager.startStructuralEvaluation(sessionId);
-
-      let commands: StructuralCommand[] = [
-        { name: 'lint', command: 'npm run lint' },
-        { name: 'build', command: 'npm run build' },
-        { name: 'test', command: 'npm test' },
-      ];
-
-      // blast-radius 기반 테스트 필터링: codeGraphRepoRoot가 설정되고 DB가 존재할 때
-      if (session.codeGraphRepoRoot && codeGraphEngine.dbExists(session.codeGraphRepoRoot)) {
-        try {
-          const blastResult = codeGraphEngine.blastRadius(session.codeGraphRepoRoot, {
-            base: 'HEAD~1',
-          });
-          const testFiles = blastResult.impactedFiles.filter(
-            (f) => f.includes('.test.') || f.includes('.spec.') || f.includes('__tests__'),
-          );
-          if (testFiles.length > 0) {
-            commands = commands.map((cmd) => {
-              if (cmd.name === 'test') {
-                return { ...cmd, command: `${cmd.command} -- ${testFiles.join(' ')}` };
-              }
-              return cmd;
-            });
-          } else {
-            // 변경된 테스트 파일 없음 → 테스트 스킵
-            commands = commands.map((cmd) => {
-              if (cmd.name === 'test') {
-                return { ...cmd, command: 'echo "No affected tests"' };
-              }
-              return cmd;
-            });
-          }
-        } catch {
-          // blast-radius 실패 시 기존 전체 테스트로 fallback (graceful degradation)
-        }
-      }
+      const projectRoot = session.codeGraphRepoRoot ?? cwd ?? process.cwd();
+      const commands = buildStructuralCommands(projectRoot, this.findAffectedTests(session));
+      this.sessionManager.startStructuralEvaluation(sessionId, commands);
 
       return ok({
         session: this.sessionManager.get(sessionId),
@@ -88,7 +58,7 @@ export class EvaluationOrchestrator {
           stage: 'structural',
           commands,
           message:
-            'Run these structural checks and submit results. Adapt commands to your project (e.g., pnpm/yarn). All must pass to proceed to contextual evaluation.',
+            'Run these structural checks exactly as given and submit each command string unchanged. Submissions with different commands are rejected. All must pass to proceed to contextual evaluation.',
         },
       });
     } catch (e) {
@@ -119,11 +89,29 @@ export class EvaluationOrchestrator {
         );
       }
 
-      this.sessionManager.completeStructuralStage(sessionId, structuralResult);
+      if (session.structuralCommands) {
+        const mismatches = findCommandMismatches(session.structuralCommands, structuralResult);
+        if (mismatches.length > 0) {
+          return err(
+            new EvaluationError(
+              `Submitted commands do not match the requested ones: ${mismatches.join('; ')}`,
+            ),
+          );
+        }
+      } else {
+        // 요청 명령을 이벤트에 싣기 전에 시작된 세션은 비교할 기준이 없다
+        log(`[evaluate] session ${sessionId} has no requested structural commands; skipping match`);
+      }
 
-      // Short-circuit if structural checks failed
-      if (!structuralResult.allPassed) {
-        const failedCommands = structuralResult.commands
+      // 호스트가 보고한 allPassed보다 종료 코드를 우선한다
+      const allPassed =
+        structuralResult.allPassed && structuralResult.commands.every((c) => c.exitCode === 0);
+      const verifiedResult: StructuralResult = { ...structuralResult, allPassed };
+
+      this.sessionManager.completeStructuralStage(sessionId, verifiedResult);
+
+      if (!allPassed) {
+        const failedCommands = verifiedResult.commands
           .filter((c) => c.exitCode !== 0)
           .map((c) => `${c.name} (exit ${c.exitCode})`)
           .join(', ');
@@ -218,6 +206,28 @@ export class EvaluationOrchestrator {
           `Failed to submit evaluation: ${e instanceof Error ? e.message : String(e)}`,
         ),
       );
+    }
+  }
+
+  /**
+   * 변경에 걸린 테스트 파일을 찾는다. 빈 배열이면 호출부가 전체 테스트를 돌린다.
+   */
+  private findAffectedTests(session: ExecuteSession): string[] {
+    const repoRoot = session.codeGraphRepoRoot;
+    if (!repoRoot || !codeGraphEngine.dbExists(repoRoot)) return [];
+    try {
+      const changedFiles = collectChangedFiles(repoRoot);
+      if (changedFiles.length === 0) return [];
+      // rankedFiles에는 co-change로만 걸린 md, json이 섞여 있어 테스트 러너 인자로 못 쓴다
+      const { impactedFiles } = codeGraphEngine.blastRadius(repoRoot, { changedFiles });
+      return impactedFiles.filter(
+        (f) => f.includes('.test.') || f.includes('.spec.') || f.includes('__tests__'),
+      );
+    } catch (e) {
+      log(
+        `[evaluate] blast-radius failed, running full test suite: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return [];
     }
   }
 

@@ -13,6 +13,7 @@ import type {
   StructuralResult,
   EvaluationResult,
 } from '../../../src/core/types.js';
+import { asRequested } from '../../helpers/structural.js';
 
 // ─── Test Helpers ─────────────────────────────────────────────
 
@@ -207,8 +208,10 @@ async function setupToEvaluationComplete(
   }
 
   // Evaluate: structural → contextual
-  engine.startEvaluation(sessionId);
-  engine.submitStructuralResult(sessionId, passingStructural);
+  engine.submitStructuralResult(
+    sessionId,
+    asRequested(engine.startEvaluation(sessionId), passingStructural),
+  );
   engine.submitEvaluation(sessionId, makeLowEval());
 
   return sessionId;
@@ -253,8 +256,10 @@ describe('Lateral Thinking Integration', () => {
     session.structuralResult = undefined;
     session.evaluationResult = undefined;
 
-    engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(sessionId, passingStructural);
+    engine.submitStructuralResult(
+      sessionId,
+      asRequested(engine.startEvaluation(sessionId), passingStructural),
+    );
     engine.submitEvaluation(sessionId, makeLowEval());
 
     // Do more generations to trigger stagnation (need STAGNATION_COUNT=2 consecutive)
@@ -271,8 +276,10 @@ describe('Lateral Thinking Integration', () => {
         s.evaluateStage = undefined;
         s.structuralResult = undefined;
         s.evaluationResult = undefined;
-        engine.startEvaluation(sessionId);
-        engine.submitStructuralResult(sessionId, passingStructural);
+        engine.submitStructuralResult(
+          sessionId,
+          asRequested(engine.startEvaluation(sessionId), passingStructural),
+        );
         engine.submitEvaluation(sessionId, makeLowEval());
       }
       if (ev.value.lateralContext) {
@@ -336,8 +343,10 @@ describe('Lateral Thinking Integration', () => {
     }
 
     // Evaluate
-    engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(sessionId, passingStructural);
+    engine.submitStructuralResult(
+      sessionId,
+      asRequested(engine.startEvaluation(sessionId), passingStructural),
+    );
     engine.submitEvaluation(sessionId, makeLowEval());
 
     // Manually start lateral

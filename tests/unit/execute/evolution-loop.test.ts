@@ -22,6 +22,7 @@ import type {
   StructuralResult,
   EvaluationResult,
 } from '../../../src/core/types.js';
+import { asRequested } from '../../helpers/structural.js';
 
 // ─── Test Helpers ─────────────────────────────────────────────
 
@@ -480,7 +481,7 @@ describe('Evolution Loop Engine Integration', () => {
       ],
       allPassed: false,
     };
-    engine.submitStructuralResult(sessionId, failResult);
+    engine.submitStructuralResult(sessionId, asRequested(evalStart, failResult));
 
     // Start structural fix (call 1: get fix context)
     const fixStart = engine.startStructuralFix(sessionId);
@@ -511,7 +512,7 @@ describe('Evolution Loop Engine Integration', () => {
     const sessionId = await setupCompletedExecution();
 
     // Run through evaluation
-    engine.startEvaluation(sessionId);
+    const evalStart = engine.startEvaluation(sessionId);
     const structural: StructuralResult = {
       commands: [
         { name: 'lint', command: 'npm run lint', exitCode: 0, output: 'OK' },
@@ -520,7 +521,7 @@ describe('Evolution Loop Engine Integration', () => {
       ],
       allPassed: true,
     };
-    engine.submitStructuralResult(sessionId, structural);
+    engine.submitStructuralResult(sessionId, asRequested(evalStart, structural));
 
     const evalResult: EvaluationResult = {
       verifications: [
@@ -572,11 +573,14 @@ describe('Evolution Loop Engine Integration', () => {
     const sessionId = await setupCompletedExecution();
 
     // Run evaluation
-    engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(sessionId, {
-      commands: [{ name: 'lint', command: 'lint', exitCode: 0, output: 'OK' }],
-      allPassed: true,
-    });
+    const evalStart = engine.startEvaluation(sessionId);
+    engine.submitStructuralResult(
+      sessionId,
+      asRequested(evalStart, {
+        commands: [{ name: 'lint', command: 'lint', exitCode: 0, output: 'OK' }],
+        allPassed: true,
+      }),
+    );
     engine.submitEvaluation(sessionId, {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
@@ -601,11 +605,14 @@ describe('Evolution Loop Engine Integration', () => {
   it('rejects invalid spec patch (goal modification)', async () => {
     const sessionId = await setupCompletedExecution();
 
-    engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(sessionId, {
-      commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
-      allPassed: true,
-    });
+    const evalStart = engine.startEvaluation(sessionId);
+    engine.submitStructuralResult(
+      sessionId,
+      asRequested(evalStart, {
+        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
+        allPassed: true,
+      }),
+    );
     engine.submitEvaluation(sessionId, {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
@@ -639,11 +646,14 @@ describe('Evolution Loop Engine Integration', () => {
     const sessionId = await setupCompletedExecution();
 
     // Evaluate
-    engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(sessionId, {
-      commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
-      allPassed: true,
-    });
+    const evalStart = engine.startEvaluation(sessionId);
+    engine.submitStructuralResult(
+      sessionId,
+      asRequested(evalStart, {
+        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
+        allPassed: true,
+      }),
+    );
     engine.submitEvaluation(sessionId, {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
@@ -696,11 +706,14 @@ describe('Evolution Loop Repository Replay', () => {
     const sessionId = await setupCompletedExecution();
 
     // Evaluate
-    engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(sessionId, {
-      commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
-      allPassed: true,
-    });
+    const evalStart = engine.startEvaluation(sessionId);
+    engine.submitStructuralResult(
+      sessionId,
+      asRequested(evalStart, {
+        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
+        allPassed: true,
+      }),
+    );
     engine.submitEvaluation(sessionId, {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },

@@ -142,7 +142,7 @@ export function handleEvaluate(
   }
 
   // Call 1: Start evaluation → return structural commands
-  const result = engine.startEvaluation(input.sessionId);
+  const result = engine.startEvaluation(input.sessionId, input.cwd);
   if (!result.ok) return formatError(result.error.message);
 
   const evalStructuralGuide: NextActionGuide = {
