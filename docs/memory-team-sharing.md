@@ -71,7 +71,7 @@ git config merge.gestalt-memory.driver "npx -y @tienne/gestalt@<버전> memory-m
 
 npx는 버전을 박아도 실행할 때마다 레지스트리를 조회합니다. 캐시가 비어 있으면 머지 한 번에 수십 초가 걸릴 수 있습니다.
 
-어느 방식이든 driver가 부르는 gestalt는 `memory-merge` 명령이 처음 들어간 버전 이상이어야 합니다. 0.84.2 이하에는 이 명령이 없으므로 0.84.2보다 높은 버전이 필요합니다. 그보다 옛 버전이면 명령이 없어서 머지할 때마다 driver가 실패합니다. 등록한 뒤 `gestalt --help`(devDependency라면 `pnpm exec gestalt --help`)를 실행해 명령 목록에 `memory-merge`가 있는지 확인하세요. npx라면 `<버전>`에 넣은 버전이 이 조건을 맞춰야 합니다.
+어느 방식이든 driver가 부르는 gestalt는 0.84.2보다 높은 버전이어야 합니다. 0.84.2 이하에는 `memory-merge` 명령이 없어서 머지할 때마다 driver가 실패합니다. 등록한 뒤 `gestalt --help`(devDependency라면 `pnpm exec gestalt --help`)를 실행해 명령 목록에 `memory-merge`가 있는지 확인하세요. npx라면 `<버전>`에 넣은 버전이 이 조건을 맞춰야 합니다.
 
 > ⚠️ **주의**: `.gitattributes`만 커밋하고 `git config`를 빠뜨린 팀원은 driver가 정의되지 않은 상태라 git 기본 머지로 돌아갑니다. 그 팀원에게는 예전처럼 충돌 표시가 남습니다.
 
@@ -84,27 +84,27 @@ git은 `%O`(공통 조상), `%A`(현재 브랜치, ours), `%B`(머지해 들어�
 - 합친 결과를 `%A` 파일에 쓰고 종료 코드 0으로 끝납니다. git은 이 결과를 머지 결과로 받습니다.
 - 어느 한쪽이라도 JSON으로 못 읽거나 구조가 맞지 않으면 종료 코드 1로 끝납니다. 이때 git은 파일에 충돌 마커를 넣지 않습니다. memory.json을 충돌 상태(unmerged)로 표시하고 파일에는 현재 브랜치 내용이 손대지 않은 채 남습니다. 구조 검사가 보는 항목은 아래와 같습니다.
 
-  | 대상 | 오류로 보는 경우 |
-  |------|----------------|
-  | 최상위 | `specHistory`, `executionHistory`, `architectureDecisions`, `compressedContexts` 중 배열이 아닌 필드가 있다. `null`도 오류이고 필드가 아예 없을 때만 빈 배열로 봅니다 |
-  | 최상위 | `lastUpdated`가 있는데 문자열이 아니다 |
-  | `specHistory` 항목 | `specId`, `goal`, `createdAt` 중 문자열이 아닌 것이 있다 |
-  | `executionHistory` 항목 | `executeSessionId`, `specId`, `completedAt` 중 문자열이 아닌 것이 있거나 `completedTasks`, `failedTasks` 중 배열이 아닌 것이 있다 |
-  | `architectureDecisions` 항목 | `decision`이 문자열이 아니거나 `rationale`, `outcome`이 있는데 문자열이 아니다 |
-  | `compressedContexts` 항목 | `sessionId`, `compressedAt` 중 문자열이 아닌 것이 있다 |
+  | 대상                         | 오류로 보는 경우                                                                                                                                                    |
+  | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | 최상위                       | `specHistory`, `executionHistory`, `architectureDecisions`, `compressedContexts` 중 배열이 아닌 필드가 있다. `null`도 오류로 본다. 필드가 아예 없으면 오류가 아니다 |
+  | 최상위                       | `lastUpdated`가 있는데 문자열이 아니다                                                                                                                              |
+  | `specHistory` 항목           | `specId`, `goal`, `createdAt` 중 문자열이 아닌 것이 있다                                                                                                            |
+  | `executionHistory` 항목      | `executeSessionId`, `specId`, `completedAt` 중 문자열이 아닌 것이 있거나 `completedTasks`, `failedTasks` 중 배열이 아닌 것이 있다                                   |
+  | `architectureDecisions` 항목 | `decision`이 문자열이 아니거나 `rationale`, `outcome`이 있는데 문자열이 아니다                                                                                      |
+  | `compressedContexts` 항목    | `sessionId`, `compressedAt` 중 문자열이 아닌 것이 있다                                                                                                              |
 
 - `%O`는 읽지 않습니다. `specHistory`, `executionHistory`, `architectureDecisions`는 쌓기만 하는 기록이라 공통 조상과 비교하지 않고 합집합으로 충분합니다. `compressedContexts`는 같은 세션의 요약을 덮어써서 갱신하는 기록이라, 같은 `sessionId`가 양쪽에 있으면 `compressedAt`이 더 최신인 쪽을 남깁니다. 둘이 같으면 theirs를 남깁니다.
 - v1 형식(아키텍처 결정이 문자열 배열인 파일)도 읽어서 v2 구조로 바꾼 뒤 합칩니다.
 
 ### 머지 전략
 
-| 필드 | 기준 키 | 전략 |
-|------|--------|------|
-| `specHistory` | `specId` | 양쪽 합집합 |
-| `executionHistory` | `executeSessionId` | 양쪽 합집합 |
-| `architectureDecisions` | `decision` 문자열 | 양쪽 합집합. `timestamp`는 비교하지 않습니다. 한쪽에만 `outcome`이 있으면 그쪽을 남깁니다 |
-| `compressedContexts` | `sessionId` | 양쪽 합집합. 같은 `sessionId`면 `compressedAt`이 더 최신인 쪽을 남기고, 같으면 theirs를 남깁니다 |
-| `lastUpdated` | — | 더 최신 값 사용 |
+| 필드                    | 기준 키            | 전략                                                                                             |
+| ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------ |
+| `specHistory`           | `specId`           | 양쪽 합집합                                                                                      |
+| `executionHistory`      | `executeSessionId` | 양쪽 합집합                                                                                      |
+| `architectureDecisions` | `decision` 문자열  | 양쪽 합집합. `timestamp`는 비교하지 않습니다. 한쪽에만 `outcome`이 있으면 그쪽을 남깁니다        |
+| `compressedContexts`    | `sessionId`        | 양쪽 합집합. 같은 `sessionId`면 `compressedAt`이 더 최신인 쪽을 남기고, 같으면 theirs를 남깁니다 |
+| `lastUpdated`           | —                  | 더 최신 값 사용                                                                                  |
 
 `compressedContexts`를 뺀 나머지 필드는 같은 키가 양쪽에 다 있으면 theirs(`%B`, 머지해 들어오는 쪽) 항목이 남습니다.
 
@@ -117,14 +117,15 @@ git은 `%O`(공통 조상), `%A`(현재 브랜치, ours), `%B`(머지해 들어�
 3. 충돌이 나면 merge driver가 자동으로 합칩니다. driver가 0이 아닌 코드로 끝나 `git status`에 충돌로 남았다면 머지할 때 git이 찍은 출력을 보고 아래 셋 중 무엇인지 먼저 가립니다.
    - driver 명령을 PATH에서 못 찾았다: 출력에 `command not found`가 보입니다. devDependency로 설치해 `pnpm exec`로 부르는 경우에는 그 대신 `Command "gestalt" not found` 같은 줄이 찍힙니다. 전역 `gestalt`나 `pnpm`이 git을 실행한 셸의 PATH에 있는지, devDependency라면 gestalt가 실제로 설치돼 있는지 확인하세요.
    - gestalt가 `memory-merge`가 들어가기 전 버전이다: `gestalt: memory.json merge ...` 줄 대신 `error: too many arguments for 'serve'`가 보입니다. gestalt를 올리거나 npx에 박은 버전을 올리세요.
-   - 양쪽 memory.json 중 깨진 JSON이나 구조가 틀린 파일이 있다: 출력에 `gestalt: memory.json merge failed` 줄이 보입니다. 양쪽 내용은 `git show :2:.gestalt/memory.json`(ours)과 `git show :3:.gestalt/memory.json`(theirs)으로 볼 수 있습니다.
+   - 양쪽 memory.json 중 깨진 JSON이나 구조가 틀린 파일이 있다: 출력에 `gestalt: memory.json merge failed` 줄이 보입니다. 양쪽 내용은 `git show :2:.gestalt/memory.json`(ours)과 `git show :3:.gestalt/memory.json`(theirs, rebase 중에는 둘이 반대입니다)으로 볼 수 있습니다.
 4. 원인을 고쳤으면 머지를 마무리합니다. 원인에 따라 방법이 다릅니다.
    - PATH나 버전 문제였다면 `git checkout -m .gestalt/memory.json`을 실행합니다. git이 driver를 다시 불러 합친 결과를 파일에 씁니다.
+
+     > ⚠️ **주의**: `git checkout -m`은 파일을 충돌 직후 상태로 되돌린 다음 다시 합칩니다. 그 전에 memory.json을 손으로 고친 내용이 있으면 전부 사라집니다.
+
    - 깨진 JSON이나 구조 문제였다면 위의 `git show :2:`와 `:3:` 내용을 보고 memory.json을 올바른 JSON으로 직접 고칩니다.
 
-   어느 쪽이든 git 인덱스에는 아직 충돌 상태로 남아 있습니다. `git add .gestalt/memory.json`으로 해결했다고 표시한 뒤 `git merge --continue`로 머지를 마칩니다. rebase 중이었다면 `git rebase --continue`를 실행합니다.
-
-> ⚠️ **주의**: `git checkout -m`은 파일을 충돌 직후 상태로 되돌린 다음 다시 합칩니다. 그 전에 memory.json을 손으로 고친 내용이 있으면 전부 사라집니다.
+   어느 쪽이든 memory.json은 git 인덱스에 아직 충돌로 남아 있습니다. `git add .gestalt/memory.json`으로 해결했다고 표시한 뒤 `git merge --continue`로 머지를 마칩니다. rebase 중이었다면 `git rebase --continue`를 실행합니다.
 
 ## 관련 파일
 
