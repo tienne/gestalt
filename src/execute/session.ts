@@ -25,6 +25,35 @@ import type { IEventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { ExecuteSessionRepository } from './repository.js';
 import { computeReadyTaskIds } from './parallel-groups.js';
+import { redactSecrets } from '../mcp/input-guard.js';
+
+// evolve_fix 프롬프트가 출력 끝 500자를 쓰므로 그보다 넉넉히 끝을 남긴다
+const EVENT_OUTPUT_TAIL = 2000;
+
+/**
+ * 구조 평가 결과를 이벤트에 싣는 꼴로 바꾼다. 원장은 지워지지 않으므로 빌드 로그 원문을
+ * 남기지 않는다. 토큰은 원문 전체에서 가린 뒤 자른다 — 잘린 조각에서는 패턴이 안 걸린다.
+ * 메모리의 세션은 원문을 그대로 둔다.
+ */
+function toEventStructuralResult(
+  result: StructuralResult | undefined,
+): StructuralResult | undefined {
+  if (!result) return undefined;
+  return {
+    ...result,
+    commands: result.commands.map((c) => {
+      const output = redactSecrets(c.output);
+      return {
+        ...c,
+        command: redactSecrets(c.command),
+        output:
+          output.length <= EVENT_OUTPUT_TAIL
+            ? output
+            : `…(앞 ${output.length - EVENT_OUTPUT_TAIL}자 생략)\n${output.slice(-EVENT_OUTPUT_TAIL)}`,
+      };
+    }),
+  };
+}
 
 /**
  * 실행 세션의 인메모리 캐시. 기준은 이벤트 스토어다.
@@ -235,8 +264,9 @@ export class ExecuteSessionManager {
 
     this.record(sessionId, EventType.EVALUATE_STRUCTURAL_COMPLETED, {
       allPassed: structuralResult.allPassed,
+      // 축약 commands는 structuralResult를 모르는 이전 버전이 이 원장을 읽을 때 쓴다
       commands: structuralResult.commands.map((c) => ({ name: c.name, exitCode: c.exitCode })),
-      structuralResult,
+      structuralResult: toEventStructuralResult(structuralResult),
     });
   }
 
@@ -269,7 +299,7 @@ export class ExecuteSessionManager {
 
     this.record(sessionId, EventType.EVALUATE_SHORT_CIRCUITED, {
       reason,
-      structuralResult: session.structuralResult,
+      structuralResult: toEventStructuralResult(session.structuralResult),
       evaluationResult: session.evaluationResult,
     });
 
@@ -330,7 +360,7 @@ export class ExecuteSessionManager {
 
     this.record(sessionId, EventType.EVOLVE_STRUCTURAL_FIX_STARTED, {
       generation: session.currentGeneration,
-      structuralResult: session.structuralResult,
+      structuralResult: toEventStructuralResult(session.structuralResult),
     });
   }
 
