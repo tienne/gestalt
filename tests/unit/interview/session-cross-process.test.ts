@@ -79,4 +79,14 @@ describe('SessionManager — 같은 DB를 쓰는 두 인스턴스', () => {
     expect(session.compressedContext).toEqual(compressedContext);
     expect(session.status).toBe('aborted');
   });
+
+  it('getLatest는 삽입 순서가 아니라 마지막 활동 기준으로 고른다', async () => {
+    const first = a.create('first', 'greenfield');
+    await new Promise((r) => setTimeout(r, 5));
+    a.create('second', 'greenfield');
+    await new Promise((r) => setTimeout(r, 5));
+    a.addQuestion(first.sessionId, 'Q1', GestaltPrinciple.CLOSURE);
+
+    expect(a.getLatest()?.sessionId).toBe(first.sessionId);
+  });
 });

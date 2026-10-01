@@ -113,7 +113,7 @@ export class SessionManager {
   getLatest(): InterviewSession | null {
     let latest: InterviewSession | null = null;
     for (const session of this.sessions.values()) {
-      latest = session;
+      if (!latest || session.updatedAt >= latest.updatedAt) latest = session;
     }
     return latest;
   }
