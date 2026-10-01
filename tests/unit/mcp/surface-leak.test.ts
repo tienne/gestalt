@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { EventStore } from '../../../src/events/store.js';
 import { AgentRegistry } from '../../../src/agent/registry.js';
@@ -26,8 +26,16 @@ describe('surface leak regression', () => {
   let engine: PassthroughEngine;
   let generator: PassthroughSpecGenerator;
   let dbPath: string;
+  // 개발자 로컬의 .gestalt/memory.json을 읽지 않게 한다. package.json을 두면
+  // ProjectMemoryStore가 레포 루트를 찾아 위로 올라가다 여기서 멈춘다
+  let cwd: string;
+  const start = (topic: string) =>
+    handleInterviewPassthrough(engine, { action: 'start', topic, cwd });
 
   beforeEach(() => {
+    cwd = `.gestalt-test/surface-leak-cwd-${randomUUID()}`;
+    mkdirSync(cwd, { recursive: true });
+    writeFileSync(`${cwd}/package.json`, '{}');
     dbPath = `.gestalt-test/surface-leak-${randomUUID()}.db`;
     store = new EventStore(dbPath);
     registry = new AgentRegistry('plugin/agents');
@@ -38,6 +46,7 @@ describe('surface leak regression', () => {
 
   afterEach(() => {
     store.close();
+    rmSync(cwd, { recursive: true, force: true });
     for (const suffix of ['', '-wal', '-shm']) {
       try {
         if (existsSync(dbPath + suffix)) rmSync(dbPath + suffix);
@@ -53,13 +62,7 @@ describe('surface leak regression', () => {
   });
 
   it('인터뷰 start 응답에 원리 용어가 새지 않는다', async () => {
-    const res = JSON.parse(
-      await handleInterviewPassthrough(engine, {
-        action: 'start',
-        topic: 'A payment checkout flow',
-        cwd: process.cwd(),
-      }),
-    );
+    const res = JSON.parse(await start('A payment checkout flow'));
     // 사용자 응답에는 currentPrinciple 대신 currentStage가 온다
     expect(res.gestaltContext.currentPrinciple).toBeUndefined();
     expect(typeof res.gestaltContext.currentStage).toBe('string');
@@ -67,9 +70,7 @@ describe('surface leak regression', () => {
   });
 
   it('인터뷰 respond 응답의 점수 라벨과 컨텍스트에 원리 용어가 없다', async () => {
-    const started = JSON.parse(
-      await handleInterviewPassthrough(engine, { action: 'start', topic: 'A search feature' }),
-    );
+    const started = JSON.parse(await start('A search feature'));
     const sessionId = started.sessionId as string;
 
     const res = JSON.parse(
@@ -99,9 +100,7 @@ describe('surface leak regression', () => {
   });
 
   it('인터뷰 score 응답에 원리 용어가 없다', async () => {
-    const started = JSON.parse(
-      await handleInterviewPassthrough(engine, { action: 'start', topic: 'A notification system' }),
-    );
+    const started = JSON.parse(await start('A notification system'));
     const sessionId = started.sessionId as string;
 
     const res = JSON.parse(

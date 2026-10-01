@@ -6,6 +6,7 @@ import { gestaltNotify } from '../../utils/notifier.js';
 import {
   MemoryContextInjector,
   formatMemoryContextForPrompt,
+  type RelatedSpecOptions,
 } from '../../memory/memory-context-injector.js';
 import { sanitizeSurfaceContext } from '../../gestalt/surface-labels.js';
 import { resolveInterviewSessionId } from '../session-selector.js';
@@ -13,6 +14,7 @@ import { resolveInterviewSessionId } from '../session-selector.js';
 export async function handleInterviewPassthrough(
   engine: PassthroughEngine,
   rawInput: InterviewInput,
+  memoryOptions?: RelatedSpecOptions,
 ): Promise<string> {
   const resolved = resolveInterviewSessionId(engine, rawInput.sessionId);
   if (!resolved.ok) return formatError(resolved.error);
@@ -23,7 +25,7 @@ export async function handleInterviewPassthrough(
       const topic = input.topic ?? 'Untitled project';
 
       const memoryInjector = new MemoryContextInjector(input.cwd);
-      const memoryCtx = await memoryInjector.getContextForTopic(topic);
+      const memoryCtx = await memoryInjector.getContextForTopic(topic, memoryOptions);
       const memoryStr = memoryCtx.hasContext ? formatMemoryContextForPrompt(memoryCtx) : undefined;
 
       const result = engine.start(topic, input.cwd, memoryStr);
