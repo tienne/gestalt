@@ -395,6 +395,8 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
 ```
 → `{ stage: "structural", structuralContext }` — lint/build/test 실행 지시
 
+`structuralContext.commands`의 `command` 문자열을 고치지 말고 그대로 실행한다. 패키지 매니저는 서버가 lockfile로 이미 골라뒀다. 제출할 때도 같은 문자열을 그대로 싣는다 — 명령이 다르거나 빠지면 서버가 거부한다. 종료 코드가 0이 아닌 명령이 있으면 `allPassed`를 `true`로 보내도 실패로 처리된다.
+
 **Call 2 — Structural 결과 제출**
 ```json
 {

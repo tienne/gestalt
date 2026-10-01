@@ -64,6 +64,8 @@ interface EvaluationResult {
 // Call 1: Evaluate 시작
 ges_execute({ action: "evaluate", sessionId: "<id>" })
 → structuralContext 반환 (실행할 명령어 목록)
+  패키지 매니저는 package.json의 packageManager 필드나 lockfile로 고른다.
+  영향받는 테스트를 못 찾으면 test는 전체 스위트로 돌린다.
 
 // Call 2: Structural 결과 제출
 ges_execute({
@@ -71,15 +73,17 @@ ges_execute({
   sessionId: "<id>",
   structuralResult: {
     commands: [
-      { name: "lint", command: "pnpm lint", exitCode: 0, output: "..." },
-      { name: "build", command: "pnpm build", exitCode: 0, output: "..." },
-      { name: "test", command: "pnpm test", exitCode: 0, output: "..." }
+      { name: "lint", command: "pnpm run lint", exitCode: 0, output: "..." },
+      { name: "build", command: "pnpm run build", exitCode: 0, output: "..." },
+      { name: "test", command: "pnpm run test", exitCode: 0, output: "..." }
     ],
     allPassed: true
   }
 })
 → contextualContext 반환 (scoringPrompt, AC 목록)
   allPassed === false 시 → evolveContext 반환 (Short-Circuit)
+  요청한 명령과 제출한 명령이 다르거나 빠지면 거부된다.
+  종료 코드가 0이 아닌 명령이 있으면 allPassed와 상관없이 실패로 본다.
 
 // Call 3: Contextual 결과 제출
 ges_execute({

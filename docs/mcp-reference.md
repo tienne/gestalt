@@ -505,9 +505,9 @@ ges_execute({
   sessionId: "exec-456",
   structuralResult: {
     commands: [
-      { name: "lint", command: "pnpm lint", exitCode: 0, output: "" },
-      { name: "build", command: "pnpm build", exitCode: 0, output: "" },
-      { name: "test", command: "pnpm test", exitCode: 0, output: "442 tests passed" }
+      { name: "lint", command: "pnpm run lint", exitCode: 0, output: "" },
+      { name: "build", command: "pnpm run build", exitCode: 0, output: "" },
+      { name: "test", command: "pnpm run test", exitCode: 0, output: "442 tests passed" }
     ],
     allPassed: true
   }
