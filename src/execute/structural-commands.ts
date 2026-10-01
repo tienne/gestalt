@@ -74,7 +74,7 @@ function scriptCommand(pm: PackageManager, script: string, args: string[]): stri
 function toTestArgs(root: string, testFiles: string[]): string[] {
   if (testFiles.length === 0 || testFiles.length > MAX_TEST_FILES) return [];
   const args = testFiles.map((f) => (isAbsolute(f) ? relative(root, f) : f));
-  const unsafe = args.some((a) => a.startsWith('..') || !SAFE_PATH.test(a));
+  const unsafe = args.some((a) => a.startsWith('..') || a.startsWith('-') || !SAFE_PATH.test(a));
   if (unsafe || args.join(' ').length > MAX_TEST_ARGS_LENGTH) return [];
   return args;
 }

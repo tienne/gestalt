@@ -79,6 +79,7 @@ describe('buildStructuralCommands', () => {
     ['a command substitution', 'tests/$(id).test.ts'],
     ['a space', 'tests/my file.test.ts'],
     ['a path outside the root', '../other/a.test.ts'],
+    ['a leading dash', '-x.test.ts'],
   ])('falls back to the full suite for %s', (_label, file) => {
     const repo = createFakeRepo({ files: { 'package.json': SCRIPTS, 'pnpm-lock.yaml': '' } });
     const files = [resolve(repo.root, 'tests/ok.test.ts'), resolve(repo.root, file)];
