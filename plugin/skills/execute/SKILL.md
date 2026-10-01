@@ -179,17 +179,17 @@ continuity에서 DAG가 무효면 `error`가 함께 실린 `status: "plan_rewoun
 
 ### ExecuteContext 필드
 
-| 필드                | 타입   | 설명                                                                                                 |
-| ------------------- | ------ | ---------------------------------------------------------------------------------------------------- |
-| `systemPrompt`      | string | 실행 계획 시스템 프롬프트                                                                            |
-| `planningPrompt`    | string | 현재 단계의 계획 프롬프트                                                                            |
-| `currentStage`      | string | 현재 단계를 풀어 쓴 문구 (예: `빠진 요구사항 채우기`). 서버 안의 원리 값은 응답에서 이 필드로 바뀐다 |
-| `principleStrategy` | string | 해당 원리의 전략 설명                                                                                |
-| `phase`             | string | 현재 단계 (`planning`)                                                                               |
-| `stepNumber`        | number | 현재 스텝 번호 (1-4)                                                                                 |
-| `totalSteps`        | number | 전체 스텝 수 (4)                                                                                     |
-| `spec`              | Spec   | 원본 Spec 스펙                                                                                       |
-| `previousSteps`     | array  | 이전 단계 결과들                                                                                     |
+| 필드                | 타입   | 설명                                                                                            |
+| ------------------- | ------ | ----------------------------------------------------------------------------------------------- |
+| `systemPrompt`      | string | 실행 계획 시스템 프롬프트                                                                       |
+| `planningPrompt`    | string | 현재 단계의 계획 프롬프트                                                                       |
+| `currentStage`      | string | 현재 단계를 풀어 쓴 문구 (예: `빠진 요구사항 채우기`). 서버 내부의 원리 이름 대신 응답에 실린다 |
+| `principleStrategy` | string | 해당 원리의 전략 설명                                                                           |
+| `phase`             | string | 현재 단계 (`planning`)                                                                          |
+| `stepNumber`        | number | 현재 스텝 번호 (1-4)                                                                            |
+| `totalSteps`        | number | 전체 스텝 수 (4)                                                                                |
+| `spec`              | Spec   | 원본 Spec 스펙                                                                                  |
+| `previousSteps`     | array  | 이전 단계 결과들                                                                                |
 
 ### Planning Principle 순서
 
@@ -228,7 +228,7 @@ continuity에서 DAG가 무효면 `error`가 함께 실린 `status: "plan_rewoun
 - `isValid: false`를 그대로 두고 continuity만 다시 내면 또 되감긴다. 호출자 보고가 무효여도 막는다.
 - 이 응답에는 `error` 필드가 함께 실린다. `plan_complete`나 `execute_start`로 넘어가지 않는다.
 - 되감은 뒤의 closure 프롬프트에는 순환 정보도 직전 `atomicTasks`도 없다. 서브에이전트로 다시 낼 때는 응답의 `cycleDetails`와 `conflictDetails`, 직전에 제출한 `atomicTasks`를 함께 넘기고 순환을 만든 `dependsOn`을 고치라고 적는다.
-- 같은 세션에서 두 번 연속 되감기면 세 번째로 내지 않는다. `cycleDetails`를 사용자에게 보여주고 어떻게 할지 묻는다.
+- 같은 세션에서 `plan_rewound`를 연속 두 번 받으면 closure를 다시 제출하지 않는다. `cycleDetails`를 사용자에게 보여주고 어떻게 할지 묻는다. 서버는 횟수를 세지 않으므로 스킬이 센다.
 
 ### Reasoning Model 서브에이전트로 플래닝 추론
 
