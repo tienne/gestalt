@@ -7,7 +7,7 @@ const RELATED_SPEC_TOP_K = 3;
 // all-MiniLM-L6-v2에서 주제가 겹치는 문장은 0.5 위로, 무관한 문장은 0.2 아래로 갈린다
 const RELATED_SPEC_MIN_SCORE = 0.4;
 // 모델을 처음 받는 환경에서는 수십 초가 걸린다. 인터뷰 시작을 그만큼 붙잡지 않고
-// 이번엔 최근 스펙만 넣는다. 로딩은 서버 프로세스 안에서 계속 돌아 다음 start부터 쓰인다
+// 이번엔 최근 스펙만 넣는다. 로딩은 서버 프로세스 안에서 계속 돌고 끝난 뒤의 start부터 쓰인다
 const RELATED_SPEC_TIMEOUT_MS = 3000;
 
 interface SpecSummary {
