@@ -15,7 +15,9 @@ Claude Code에서 한 번만 실행하면 돼요.
 
 설치가 끝나면 `/interview`, `/spec`, `/execute` 명령이 모든 세션에서 바로 쓸 수 있어요.
 
-> Node.js 20 이상이 필요해요. 버전이 낮다면 `nvm install 22 && nvm use 22`를 먼저 실행하세요.
+> Node.js 22 이상이 필요해요. 버전이 낮다면 `nvm install 22 && nvm use 22`를 먼저 실행하세요.
+
+> Windows 호스트는 지원하지 않아요. 플러그인이 MCP 서버를 `sh -c`로 띄워서 Windows에서는 서버가 안 떠요. CI도 Ubuntu와 macOS에서만 돌려요. 그래도 써보려면 `npm i -g @tienne/gestalt`로 전역 설치하고 MCP 설정에 `"command": "gestalt"`, `"args": ["serve"]`를 직접 넣으세요.
 
 **설치 후 명령이 보이지 않으면** Claude Code를 재시작한 뒤 Plugins 패널을 확인하세요.
 
@@ -103,41 +105,7 @@ ANTHROPIC_API_KEY=your-api-key-here
 
 ## claude.ai 웹에서 사용하기
 
-[claude.ai](https://claude.ai)에서도 Remote MCP 서버로 연결해 쓸 수 있어요.
-
-### 옵션 A: 직접 호스팅
-
-```bash
-# 전역 설치
-npm install -g @tienne/gestalt
-
-# HTTP 서버로 시작 (기본 포트 3000)
-gestalt serve --port 3000
-```
-
-[claude.ai](https://claude.ai) → **Settings → Integrations → Add MCP Server**에서:
-- **Name:** Gestalt
-- **URL:** `http://localhost:3000/sse` (또는 서버 공개 URL)
-
-### 옵션 B: 클라우드 배포
-
-Railway, Render, Fly.io 같은 플랫폼에 배포하고 공개 URL을 MCP 엔드포인트로 사용해요.
-
-```bash
-railway up
-# → https://your-app.railway.app
-# MCP URL: https://your-app.railway.app/sse
-```
-
-연결 후 채팅에서 MCP 툴을 직접 호출할 수 있어요:
-
-```
-ges_interview({ action: "start", topic: "프로젝트 아이디어" })
-```
-
-> `/interview`, `/spec`, `/execute` 슬래시 명령은 Claude Code 플러그인 전용이에요. claude.ai 웹에서는 MCP 툴 형태로 써야 해요.
-
-> 대부분의 경우 Claude Code + 플러그인이 가장 편해요. 웹 옵션은 팀 전체가 하나의 Gestalt 인스턴스를 공유하고 싶을 때 유용해요.
+지금 Gestalt MCP 서버는 stdio 전송만 지원해요. HTTP나 SSE로 띄우는 옵션이 없어서 claude.ai 웹의 Remote MCP 서버로는 바로 연결할 수 없어요. Claude Code나 Codex처럼 서버를 로컬 프로세스로 띄우는 클라이언트에서 쓰세요.
 
 ---
 
@@ -146,8 +114,23 @@ ges_interview({ action: "start", topic: "프로젝트 아이디어" })
 **인터뷰가 갑자기 멈췄어요**
 → 같은 주제로 `/interview`를 다시 실행하면 이어서 진행돼요.
 
-**"Node.js >= 20.0.0 required" 오류가 떠요**
-→ `nvm install 22 && nvm use 22`를 실행하거나 [nodejs.org](https://nodejs.org)에서 다운로드하세요.
+**`gestalt requires Node.js` 오류가 떠요**
+→ Node.js 22 이상이 필요해요. `nvm install 22 && nvm use 22`를 실행하거나 [nodejs.org](https://nodejs.org)에서 다운로드하세요.
+
+**MCP 서버가 붙었다 안 붙었다 하고 `Connection closed`로 끊겨요**
+→ 원인은 대개 Gestalt가 아니라 `npx`예요. `npx`는 버전을 박아도 기동할 때마다 레지스트리를 조회해요. 캐시가 비어 있으면 20초쯤 걸리고 레지스트리에 못 닿으면 70초를 매달리다 실패하는데, Claude Code는 stdio 서버가 `initialize`에 답할 때까지 30초만 기다려요. `npm i -g @tienne/gestalt`로 전역 설치하고 `gestalt serve`를 직접 부르면 이 조회가 아예 없어져요.
+
+**데스크톱 앱에서만 서버가 바로 죽어요**
+→ 데스크톱 앱이나 런처처럼 터미널 밖에서 띄운 세션은 PATH에 nvm 같은 버전 매니저가 안 들어 있어요. 그래서 `npx`나 `gestalt`를 못 찾고 바로 죽어요. MCP 설정의 `command`에 절대 경로를 주거나 서버 항목에 `env.PATH`를 넣으세요. 플러그인으로 설치했다면 `scripts/mcp-serve.sh`가 nvm, fnm, Volta, Homebrew에서 Node를 찾아줘서 이 문제를 안 겪어요.
+
+**기동 제한 시간을 늘리고 싶어요**
+→ Claude Code는 `startup_timeout_sec`를 안 읽어요. 그건 Codex 설정 키예요. Claude Code에서는 `settings.json`의 `env`에 `MCP_TIMEOUT`(밀리초)을 넣으세요.
+
+```json
+{
+  "env": { "MCP_TIMEOUT": "180000" }
+}
+```
 
 ---
 
