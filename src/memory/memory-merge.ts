@@ -111,9 +111,10 @@ function shapeError(path: string, at: PropertyKey[]): Error {
   return new Error(`${path}: unexpected memory.json shape at ${where}`);
 }
 
-// ProjectMemoryStore.read()의 v1 마이그레이션과 같은 일을 하되 두 군데가 다르다.
+// ProjectMemoryStore.load()의 v1 마이그레이션과 같은 일을 하되 두 군데가 다르다.
 // timestamp를 실행 시각 대신 파일의 lastUpdated로 채워 같은 입력이면 같은 머지 결과가 나오게 한다.
-// 배열 필드가 빠진 파일도 빈 배열로 채운다. 드라이버는 git이 넘겨준 임시 파일을 읽으므로 store를 거치지 못한다
+// store는 배열이 아닌 필드를 빈 배열로 바꿔 읽지만 여기서는 거부한다. 합친 결과가 그대로 커밋되므로
+// 망가진 값을 조용히 지우면 사람이 알아챌 자리가 없다. 드라이버는 git이 넘겨준 임시 파일을 읽으므로 store를 거치지 못한다
 function readMemoryFile(path: string): ProjectMemory {
   let raw: unknown;
   try {
