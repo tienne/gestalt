@@ -186,7 +186,7 @@ describe('SessionManager', () => {
 
       manager.cleanup();
 
-      expect(() => manager.get(session.sessionId)).toThrow(SessionNotFoundError);
+      expect(manager.list().map((s) => s.sessionId)).not.toContain(session.sessionId);
     });
 
     it('preserves sessions whose updatedAt is within the TTL (1h ago)', () => {

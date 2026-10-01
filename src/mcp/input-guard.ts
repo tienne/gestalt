@@ -180,7 +180,7 @@ const SECRET_PATTERNS: RegExp[] = [PEM_PATTERN, ...tokenPatterns()];
  * `preserveLength` 는 `snippetAround` 만 쓴다. 자리가 밀리면 깨진 지점을 못 짚기 때문이다.
  * 나머지 자리는 고정 길이로 덮어 별표 개수가 원문 길이를 드러내지 않게 한다.
  */
-function redactSecrets(text: string, options: { preserveLength?: boolean } = {}): string {
+export function redactSecrets(text: string, options: { preserveLength?: boolean } = {}): string {
   return SECRET_PATTERNS.reduce(
     (acc, pattern) =>
       acc.replace(pattern, (match: string, group: unknown) => {

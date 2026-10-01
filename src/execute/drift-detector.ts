@@ -9,6 +9,20 @@ import type { EmbeddingProvider } from '../code-graph/embedding-provider.js';
 import { DRIFT_WEIGHTS } from '../core/constants.js';
 import { log } from '../core/log.js';
 
+/** 편차 점수를 상태와 안내 문구로 나눈다. 이전 이벤트를 replay할 때도 같은 기준을 쓴다. */
+export function classifyDrift(
+  overall: number,
+  driftThreshold: number,
+): Pick<DriftScore, 'status' | 'hint'> {
+  const status =
+    overall < driftThreshold * 0.5 ? 'OK' : overall < driftThreshold ? 'WARNING' : 'CRITICAL';
+  const hint =
+    status === 'OK'
+      ? ''
+      : '스펙과의 편차가 감지되었습니다. evolve_patch로 스펙을 수정하거나 계속 진행하세요.';
+  return { status, hint };
+}
+
 /**
  * Drift Detection — 태스크 실행 결과가 원래 Spec에서 얼마나 벗어났는지 측정.
  *
@@ -41,19 +55,7 @@ export async function measureDrift(
 
   const roundedOverall = Math.round(overall * 1000) / 1000;
 
-  let status: 'OK' | 'WARNING' | 'CRITICAL';
-  if (roundedOverall < driftThreshold * 0.5) {
-    status = 'OK';
-  } else if (roundedOverall < driftThreshold) {
-    status = 'WARNING';
-  } else {
-    status = 'CRITICAL';
-  }
-
-  const hint =
-    status === 'OK'
-      ? ''
-      : '스펙과의 편차가 감지되었습니다. evolve_patch로 스펙을 수정하거나 계속 진행하세요.';
+  const { status, hint } = classifyDrift(roundedOverall, driftThreshold);
 
   return {
     taskId: taskResult.taskId,

@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createExecuteFixture, type ExecuteFixture } from '../../helpers/execute-fixture.js';
+import { EventStore } from '../../../src/events/store.js';
+import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
 
 interface AuditResponse {
   error?: string;
@@ -161,5 +163,22 @@ describe('ges_execute spawn 핸들러', () => {
     const after = fx.engine.getSession(sessionId);
     expect(after.completedTaskIds).toEqual(completedBefore);
     expect(after.taskResults).toHaveLength(resultsBefore);
+  });
+
+  it('spawn 뒤 같은 DB로 엔진을 다시 띄워도 하위 태스크가 남고 가짜 태스크 결과가 안 생긴다', async () => {
+    const { sessionId } = fx.executingSession();
+    const before = fx.engine.getSession(sessionId);
+    const resultIdsBefore = before.taskResults.map((r) => r.taskId);
+    await fx.call({ action: 'spawn', sessionId, parentTaskId: 'task-1', subTasks });
+    const spawned = fx.engine.getSession(sessionId).subTasks;
+
+    const store = new EventStore(fx.dbPath);
+    try {
+      const restarted = new PassthroughExecuteEngine(store).getSession(sessionId);
+      expect(restarted.subTasks).toEqual(spawned);
+      expect(restarted.taskResults.map((r) => r.taskId)).toEqual(resultIdsBefore);
+    } finally {
+      store.close();
+    }
   });
 });

@@ -4,6 +4,8 @@ export enum EventType {
   INTERVIEW_RESPONSE_RECORDED = 'interview.response.recorded',
   INTERVIEW_RESOLUTION_SCORED = 'interview.resolution.scored',
   INTERVIEW_SESSION_COMPLETED = 'interview.session.completed',
+  INTERVIEW_SESSION_ABORTED = 'interview.session.aborted',
+  INTERVIEW_CONTEXT_COMPRESSED = 'interview.context.compressed',
   GESTALT_PRINCIPLE_APPLIED = 'gestalt.principle.applied',
   SPEC_GENERATED = 'spec.generated',
   SPEC_FORCE_OVERRIDE = 'spec.force.override',
@@ -24,6 +26,7 @@ export enum EventType {
   EVALUATE_SHORT_CIRCUITED = 'evaluate.short.circuited',
   EXECUTE_DRIFT_MEASURED = 'execute.drift.measured',
   EXECUTE_DRIFT_RETROSPECTIVE = 'execute.drift.retrospective',
+  EXECUTE_AUDIT_COMPLETED = 'execute.audit.completed',
   // Evolution Loop
   EVOLVE_STRUCTURAL_FIX_STARTED = 'evolve.structural.fix.started',
   EVOLVE_STRUCTURAL_FIX_COMPLETED = 'evolve.structural.fix.completed',
@@ -40,6 +43,7 @@ export enum EventType {
   ROLE_MATCH_COMPLETED = 'role.match.completed',
   ROLE_CONSENSUS_STARTED = 'role.consensus.started',
   ROLE_CONSENSUS_COMPLETED = 'role.consensus.completed',
+  ROLE_STATE_CLEARED = 'role.state.cleared',
   // Agent Creation
   AGENT_CREATED = 'agent.created',
   // Code Review

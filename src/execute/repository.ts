@@ -13,9 +13,30 @@ import type {
   TerminationReason,
   EvaluateStage,
   ExecuteStatus,
+  AuditResult,
+  RoleMatch,
+  RoleConsensus,
+  SubTask,
 } from '../core/types.js';
 import { EventType } from '../events/types.js';
 import { computeReadyTaskIds } from './parallel-groups.js';
+import { classifyDrift } from './drift-detector.js';
+import { DRIFT_THRESHOLD } from '../core/constants.js';
+
+/** 구조 평가가 실패해 맥락 평가를 건너뛸 때의 평가 결과. 라이브와 replay가 같이 쓴다. */
+export function buildShortCircuitEvaluation(spec: Spec, reason: string): EvaluationResult {
+  return {
+    verifications: spec.acceptanceCriteria.map((_, i) => ({
+      acIndex: i,
+      satisfied: false,
+      evidence: 'Short-circuited due to structural failure',
+      gaps: [reason],
+    })),
+    overallScore: 0,
+    goalAlignment: 0,
+    recommendations: ['Fix structural issues before contextual evaluation'],
+  };
+}
 
 /**
  * ExecuteSessionRepository — Event Replay 기반 ExecuteSession 재구성.
@@ -28,10 +49,18 @@ export class ExecuteSessionRepository {
    * 이벤트를 fold하여 ExecuteSession 상태를 완전히 복원한다.
    */
   reconstruct(sessionId: string): ExecuteSession | null {
+    return this.load(sessionId)?.session ?? null;
+  }
+
+  /**
+   * 재구성한 세션과 그때 읽은 이벤트 수를 함께 돌려준다.
+   * 매니저는 이 수를 스토어의 현재 수와 비교해 다른 프로세스가 덧붙였는지 본다.
+   */
+  load(sessionId: string): { session: ExecuteSession; eventCount: number } | null {
     const events = this.eventStore.replay('execute', sessionId);
     if (events.length === 0) return null;
 
-    return this.foldEvents(sessionId, events);
+    return { session: this.foldEvents(sessionId, events), eventCount: events.length };
   }
 
   /**
@@ -124,6 +153,12 @@ export class ExecuteSessionRepository {
         break;
 
       case EventType.EXECUTE_TASK_COMPLETED: {
+        // addSubTasks()가 같은 이벤트 타입을 빌려 쓴다. 태스크 결과로 fold하면 taskId 없는 결과가 생긴다
+        if (payload.type === 'sub_tasks_spawned') {
+          const subTasks = payload.subTasks as SubTask[] | undefined;
+          if (subTasks) session.subTasks.push(...subTasks);
+          break;
+        }
         const taskResult: TaskExecutionResult = {
           taskId: payload.taskId as string,
           status: payload.status as TaskExecutionResult['status'],
@@ -167,8 +202,11 @@ export class ExecuteSessionRepository {
           allPassed: boolean;
           commands: Array<{ name: string; exitCode: number }>;
         };
-        // 전체 StructuralResult는 이벤트에 포함되지 않을 수 있으므로 최소 복원
-        if (structuralResult) {
+        const fullResult = payload.structuralResult as StructuralResult | undefined;
+        if (fullResult) {
+          session.structuralResult = fullResult;
+        } else if (structuralResult) {
+          // 전체 결과를 싣기 전에 쌓인 이벤트는 이름과 종료 코드만 있어 최소 복원한다
           session.structuralResult = session.structuralResult ?? {
             commands: (structuralResult.commands ?? []).map((c) => ({
               name: c.name,
@@ -195,6 +233,10 @@ export class ExecuteSessionRepository {
         if (shortCircuitResult) {
           session.structuralResult = shortCircuitResult;
         }
+        // 이전 이벤트에는 evaluationResult가 없어 라이브와 같은 함수로 다시 만든다
+        session.evaluationResult =
+          (payload.evaluationResult as EvaluationResult | undefined) ??
+          buildShortCircuitEvaluation(session.spec, (payload.reason as string | undefined) ?? '');
         break;
       }
 
@@ -216,9 +258,31 @@ export class ExecuteSessionRepository {
         break;
 
       case EventType.EXECUTE_DRIFT_MEASURED: {
-        const driftScore = payload as unknown as DriftScore;
-        if (driftScore?.taskId) {
-          session.driftHistory.push(driftScore);
+        const full = payload.driftScore as DriftScore | undefined;
+        if (full) {
+          session.driftHistory.push(full);
+          break;
+        }
+        // driftScore를 통째로 싣기 전의 이벤트에는 status, threshold, hint가 없다
+        const legacy = payload as unknown as Omit<DriftScore, 'status' | 'threshold' | 'hint'>;
+        if (legacy?.taskId) {
+          // 그때 쓴 임계값은 안 남아 기본값으로 근사한다. 넘었는지는 기록된 값을 따른다
+          const approx = classifyDrift(
+            legacy.thresholdExceeded ? DRIFT_THRESHOLD : legacy.overall,
+            DRIFT_THRESHOLD,
+          );
+          const recorded =
+            !legacy.thresholdExceeded && approx.status === 'CRITICAL'
+              ? { ...approx, status: 'WARNING' as const }
+              : approx;
+          session.driftHistory.push({
+            taskId: legacy.taskId,
+            overall: legacy.overall,
+            dimensions: legacy.dimensions,
+            thresholdExceeded: legacy.thresholdExceeded,
+            threshold: DRIFT_THRESHOLD,
+            ...recorded,
+          });
         }
         break;
       }
@@ -254,6 +318,19 @@ export class ExecuteSessionRepository {
         const patchedSpec = payload.spec as Spec | undefined;
         const delta = payload.delta as SpecDelta | undefined;
         const generation = payload.generation as number | undefined;
+
+        // 라이브는 패치를 적용하기 전에 recordEvolutionGeneration()으로 직전 세대를 남긴다.
+        // 그 호출은 이벤트가 없으므로 같은 스냅샷을 여기서 패치 적용 전에 만든다
+        if (delta && generation !== undefined) {
+          session.evolutionHistory.push({
+            generation: session.currentGeneration,
+            spec: session.spec,
+            evaluationScore: session.evaluationResult?.overallScore ?? 0,
+            goalAlignment: session.evaluationResult?.goalAlignment ?? 0,
+            delta,
+          });
+        }
+
         if (patchedSpec) {
           session.spec = patchedSpec;
         }
@@ -261,17 +338,6 @@ export class ExecuteSessionRepository {
           session.currentGeneration = generation;
         }
         session.evolveStage = 'patch';
-
-        // Record generation snapshot
-        if (delta && generation !== undefined) {
-          session.evolutionHistory.push({
-            generation: generation,
-            spec: session.spec,
-            evaluationScore: session.evaluationResult?.overallScore ?? 0,
-            goalAlignment: session.evaluationResult?.goalAlignment ?? 0,
-            delta,
-          });
-        }
         break;
       }
 
@@ -334,6 +400,31 @@ export class ExecuteSessionRepository {
         session.lateralCurrentPattern = undefined;
         break;
       }
+
+      case EventType.EXECUTE_AUDIT_COMPLETED:
+        session.auditResult = payload.auditResult as AuditResult;
+        break;
+
+      // ─── Role Agent ────────────────────────────────────────────
+
+      // matches, consensus를 싣기 전의 이벤트로는 역할 상태를 복원하지 못한다.
+      // 값이 있을 때만 반영해서 그 구간의 세션은 역할 상태가 빈 채로 재구성된다
+      case EventType.ROLE_MATCH_COMPLETED: {
+        const matches = payload.matches as RoleMatch[] | undefined;
+        if (matches) session.roleMatches = matches;
+        break;
+      }
+
+      case EventType.ROLE_CONSENSUS_COMPLETED: {
+        const consensus = payload.consensus as RoleConsensus | undefined;
+        if (consensus) session.roleConsensus = consensus;
+        break;
+      }
+
+      case EventType.ROLE_STATE_CLEARED:
+        session.roleMatches = undefined;
+        session.roleConsensus = undefined;
+        break;
 
       case EventType.EVOLVE_HUMAN_ESCALATION:
         session.terminationReason = 'human_escalation';
