@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readActiveSession, writeActiveSession } from '../../../src/execute/rule-writer.js';
+import { ExecuteSessionRepository } from '../../../src/execute/repository.js';
 import type { EvaluationResult } from '../../../src/core/types.js';
 import {
   createExecuteFixture,
@@ -224,7 +225,35 @@ describe('ges_execute evolve_lateral_result 핸들러', () => {
     });
 
     expect(res.error).toContain('Invalid spec patch');
-    expect(fx.engine.getSession(sessionId).spec.acceptanceCriteria).toEqual(before);
+    const session = fx.engine.getSession(sessionId);
+    expect(session.spec.acceptanceCriteria).toEqual(before);
+    expect(session.lateralTriedPersonas).toEqual([]);
+    expect(session.lateralAttempts).toBe(0);
+    expect(session.lateralCurrentPersona).toBe(persona);
+  });
+
+  it('검증에 걸린 뒤 같은 페르소나로 다시 내면 시도는 한 번만 센다', async () => {
+    const { sessionId, persona } = await lateralSession();
+    const submit = (specPatch: Record<string, unknown>) =>
+      fx.call<LateralResultResponse>({
+        action: 'evolve_lateral_result',
+        sessionId,
+        lateralResult: { persona: persona as 'multistability', specPatch, description: 'd' },
+      });
+
+    expect((await submit({ acceptanceCriteria: [] })).error).toContain('Invalid spec patch');
+    expect((await submit({ constraints: ['TypeScript', 'No new deps'] })).status).toBe(
+      'lateral_patch_applied',
+    );
+
+    const session = fx.engine.getSession(sessionId);
+    expect(session.lateralTriedPersonas).toEqual([persona]);
+    expect(session.lateralAttempts).toBe(1);
+
+    const restored = new ExecuteSessionRepository(fx.store).reconstruct(sessionId)!;
+    expect(restored.lateralTriedPersonas).toEqual(session.lateralTriedPersonas);
+    expect(restored.lateralAttempts).toBe(session.lateralAttempts);
+    expect(restored.spec.constraints).toEqual(session.spec.constraints);
   });
 
   it('없는 세션이면 에러를 돌려준다', async () => {
