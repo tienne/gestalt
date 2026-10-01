@@ -25,7 +25,7 @@ outputs:
 > `ges_*` 도구가 없거나 호출이 실패하면 직접 흉내내 진행하지 않고 무엇이 왜 안 되는지 말하고 멈춥니다.
 
 - **인터뷰**: 사람이 직접 답변 (큰 관점 정리 포함, 자동화하지 않음)
-- **스펙 생성 이후**: AI가 자율로 드라이빙 — 사람 개입 없이 루프를 돌린다
+- **스펙 생성 이후**: AI가 자율로 드라이빙 — 사람 개입 없이 루프를 돌린다. lateral persona를 다 써서 `awaiting_human`으로 멈췄을 때만 사람에게 묻는다
 
 ---
 
@@ -145,7 +145,7 @@ description: "Phase 2/3 — 스펙 완료 | AC {N}개"
 
 ## Phase 3 — Execute 루프 (자율)
 
-스펙을 받아 실행 → 평가 → 개선 루프를 자율로 드라이빙한다. **사람 개입 없이 루프를 돈다.**
+스펙을 받아 실행 → 평가 → 개선 루프를 자율로 드라이빙한다. **사람 개입 없이 루프를 돈다.** 예외는 lateral persona를 다 써서 세션이 사람 판단을 기다릴 때 하나다 (→ [사람 판단 대기](#사람-판단-대기-awaiting_human)).
 
 execute 스킬의 전체 파이프라인(Planning → Execution → Evaluate → Evolve)을 그대로 따른다. 단, 각 단계 사이에서 사람에게 확인을 구하지 않는다.
 
@@ -170,8 +170,20 @@ activeForm: "{현재 단계: 실행 중 / 평가 중 / 개선 중}"
 | 조건 | 대응 |
 |------|------|
 | `success` (score ≥ 0.85, goalAlignment ≥ 0.80) | 루프 종료 → 완료 보고 |
-| `human_escalation` (lateral 4개 소진) | 루프 종료 → 막힌 지점과 시도한 접근법 보고 |
+| `awaiting_human` (lateral 4개 소진) | 루프를 멈추고 사람에게 묻는다 → `gate_resolve` → `nextAction`대로 이어간다 (아래 참고) |
+| `human_escalation` (사람이 `restart`나 `abort`를 고름) | 루프 종료 → 막힌 지점과 시도한 접근법 보고 |
 | `caller` (사용자가 명시적으로 중단) | 즉시 종료 |
+
+### 사람 판단 대기 (`awaiting_human`)
+
+lateral persona 4개를 다 써도 점수가 안 오르면 세션은 끝나지 않고 `awaiting_human`으로 멈춘다. 여기는 인터뷰와 같다. **반드시 사람에게 묻고 답을 기다린다.** 스스로 고르지 않는다.
+
+1. `gate.question`과 막힌 지점(`gate.context`)을 보여주고 `gate.options`를 선택지로 띄운다.
+2. 고른 선택지와 함께 결정과 이유를 한 줄씩 받는다. 비어 있으면 서버가 거절한다. 대신 채우지 않는다 — 그대로 Memory에 남는 말이다.
+3. `ges_execute { action: "gate_resolve", sessionId, gateResolution: { gateId, optionId, decision, rationale } }`를 부른다.
+4. `patch_spec`이면 `evolve_patch`로, `manual_task`면 사람이 처리한 걸 확인하고 `evaluate`로 루프를 이어간다. `restart`나 `abort`면 세션이 종료되니 루프를 끝내고 아래 에스컬레이션 보고를 한다.
+
+자세한 흐름은 execute 스킬의 Flow D와 같다.
 
 ### 완료 보고
 
@@ -218,7 +230,8 @@ description: "에스컬레이션 | 최고 점수: {bestScore} | {시도한 perso
   execute → evaluate → evolve → re-execute → evaluate → ...
     ↓
   success → 완료 보고
-  human_escalation → 막힌 지점 보고
+  awaiting_human → 사람에게 묻고 gate_resolve → 이어가거나 종료
+  human_escalation (restart/abort) → 막힌 지점 보고
 ```
 
 인터뷰에서 사람과 큰 관점을 충분히 정리한 뒤, 그 이후는 AI가 목표를 향해 스스로 루프를 돈다.

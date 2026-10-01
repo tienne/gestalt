@@ -61,6 +61,7 @@ Success condition: `score ≥ 0.85` AND `goalAlignment ≥ 0.80`
 - **Flow A — Structural Fix**: fix lint/build/test failures → re-evaluate
 - **Flow B — Contextual Evolution**: patch Spec ACs/constraints → re-execute impacted tasks → re-evaluate
 - **Flow C — Lateral Thinking**: when stagnation detected, rotate through Multistability / Simplicity / Reification / Invariance personas
+- **Flow D — Human Decision**: when all four personas are exhausted, the session pauses as `awaiting_human` — ask the human, then `gate_resolve` and follow `nextAction`
 
 ## Phase 0 — 규칙 확보 (필수 — 스킵 불가)
 
@@ -628,18 +629,57 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
 | no_drift            | Reification    | 빠진 조각 채우기 |
 | diminishing_returns | Invariance     | 성공 패턴 복제   |
 
-4개 persona 소진 → `human_escalation` 반환으로 세션 종료.
+4개 persona를 다 써도 점수가 안 오르면 세션은 끝나지 않고 `awaiting_human`으로 멈춘다. 응답에 `gate`가 실려 온다.
+
+```json
+→ { status: "awaiting_human", gate: { gateId, question, options: [...], context }, escalationContext, nextAction: "gate_resolve", nextActionParams: { sessionId, gateResolution: { gateId } } }
+```
+
+### Flow D — 사람 판단 대기 (`awaiting_human`)
+
+여기서 스킬은 스스로 고르지 않는다. **반드시 사람에게 묻고 답을 기다린다.**
+
+1. `gate.question`과 `gate.context`(막힌 태스크, 시도한 persona, 최고 점수, 남은 문제)를 보여준다.
+2. `gate.options`를 선택지로 띄운다. 호스트에 선택형 질문 도구가 있으면(AskUserQuestion 등) 그걸 쓴다. 없으면 번호 목록으로 보여주고 답을 받는다. `restart`와 `abort`는 세션이 종료된다는 점을 함께 알린다.
+3. 고른 선택지에 더해 **결정(`decision`)과 이유(`rationale`)를 한 줄씩** 받는다. 둘 다 비면 서버가 거절한다. 사람이 이유를 안 적었으면 다시 묻는다. 대신 지어내지 않는다 — 이 두 줄이 그대로 Memory에 남는다.
+4. `gate_resolve`를 부른다.
+
+```json
+{
+  "action": "gate_resolve",
+  "sessionId": "...",
+  "gateResolution": {
+    "gateId": "gate-...",
+    "optionId": "patch_spec",
+    "decision": "사람이 내린 결정",
+    "rationale": "그렇게 정한 이유"
+  }
+}
+```
+
+5. 응답의 `nextAction`을 따른다.
+
+| `optionId` | 응답 | 다음 |
+|---|---|---|
+| `patch_spec` | `gate_resolved`, 세션 `executing` | 사람이 말한 대로 AC나 제약을 고쳐 `evolve_patch` (Flow B) |
+| `manual_task` | `gate_resolved`, 세션 `executing` | 사람이 태스크를 처리했는지 확인한 뒤 `evaluate` |
+| `restart` | `terminated` | 세션 종료. 태스크를 더 잘게 쪼갠 새 스펙으로 `start`를 안내 |
+| `abort` | `terminated` | 세션 종료. 막힌 지점과 시도한 접근을 보고 |
+
+이어간 뒤 다음 평가가 한 번만 성공 기준에 못 미쳐도 persona를 되풀이하지 않고 곧바로 새 `awaiting_human` 응답이 온다. 진화 이력과 이미 써본 persona 기록이 남아 있어서다. 그때도 1번부터 다시 한다.
+
+`awaiting_human`인 동안에는 `status`, `resume`, `gate_resolve`, `evolution_viz` 말고는 전부 에러로 거절된다. 세션을 이어받았는데 `resume`이 `awaiting_human`을 돌려주면 1번부터 다시 한다.
 
 ### 종료 조건
 
-| 조건               | 트리거                                            |
-| ------------------ | ------------------------------------------------- |
-| `success`          | score ≥ 0.85 AND goalAlignment ≥ 0.80             |
-| `stagnation`       | 2회 연속 delta < 0.05                             |
-| `oscillation`      | 2회 연속 점수 역전                                |
-| `hard_cap`         | structural 3회 + contextual 3회 실패              |
-| `caller`           | `{ action: "evolve", terminateReason: "caller" }` |
-| `human_escalation` | 4개 lateral persona 소진                          |
+| 조건               | 트리거                                                        |
+| ------------------ | ------------------------------------------------------------- |
+| `success`          | score ≥ 0.85 AND goalAlignment ≥ 0.80                         |
+| `stagnation`       | 2회 연속 delta < 0.05                                         |
+| `oscillation`      | 2회 연속 점수 역전                                            |
+| `hard_cap`         | structural 3회 + contextual 3회 실패                          |
+| `caller`           | `{ action: "evolve", terminateReason: "caller" }`             |
+| `human_escalation` | 4개 lateral persona 소진 후 사람이 `restart`나 `abort`를 고름 |
 
 ---
 
@@ -727,6 +767,14 @@ activeForm: "병렬 실행 중: 그룹 {groupIndex}/{totalGroups} — {agentCoun
 - structural 통과: "평가 중 — contextual 검사" 로 업데이트
 - 평가 완료(success): `TaskUpdate({ status: "completed", description: "완료 | score: {overallScore} | alignment: {goalAlignment}" })`
 - Evolve 진입: description에 "개선 중 (generation {N})" 추가
+
+### 사람 판단 대기 시 (`awaiting_human`)
+
+```
+description: "사람 판단 대기 | 최고 점수: {gate.context.bestScore}"
+```
+
+`gate_resolve`가 `gate_resolved`를 돌려주면 진화 단계 표시로 돌아간다.
 
 ### 오류/에스컬레이션 시
 
