@@ -307,4 +307,40 @@ describe('ExecuteSessionManager — 같은 DB를 쓰는 두 인스턴스', () =>
     expect(session.evaluationResult?.verifications[0]?.gaps).toEqual(['r']);
     expect(session.roleMatches).toBeUndefined();
   });
+
+  it('spawn 뒤 같은 DB로 다시 띄워도 하위 태스크가 남고 가짜 태스크 결과가 안 생긴다', () => {
+    const { sessionId } = a.create(spec());
+    const subTasks = ['sub-1', 'sub-2'].map((id) => ({
+      taskId: `task-0-${id}`,
+      parentTaskId: 'task-0',
+      title: id,
+      description: 'd',
+      inheritedContext: '',
+      dependsOn: [],
+      status: 'pending' as const,
+      createdAt: new Date().toISOString(),
+    }));
+    a.addTaskResult(sessionId, done('task-0'));
+    a.addSubTasks(sessionId, subTasks);
+
+    const restarted = new ExecuteSessionManager(storeB);
+    restarted.loadFromStore();
+    const session = restarted.get(sessionId);
+    expect(session.subTasks).toEqual(subTasks);
+    expect(session.taskResults.map((r) => r.taskId)).toEqual(['task-0']);
+  });
+
+  it('subTasks를 안 싣던 이전 spawn 이벤트도 태스크 결과로 읽지 않는다', () => {
+    const { sessionId } = a.create(spec());
+    storeA.append('execute', sessionId, EventType.EXECUTE_TASK_COMPLETED, {
+      type: 'sub_tasks_spawned',
+      parentTaskId: 'task-0',
+      count: 1,
+      taskIds: ['task-0-sub-1'],
+    });
+
+    const session = b.get(sessionId);
+    expect(session.taskResults).toEqual([]);
+    expect(session.completedTaskIds).toEqual([]);
+  });
 });
