@@ -93,7 +93,7 @@ describe('SessionManager — 같은 DB를 쓰는 두 인스턴스', () => {
 
   it('캐시가 최신이면 get()이 replay하지 않고 다른 인스턴스가 쓰면 한 번 replay한다', () => {
     const { sessionId } = a.create('topic', 'greenfield');
-    a.complete(sessionId);
+    a.complete(sessionId, { force: true });
     const replay = vi.spyOn(storeA, 'replay');
 
     a.get(sessionId);
@@ -124,7 +124,7 @@ describe('SessionManager — 같은 DB를 쓰는 두 인스턴스', () => {
       compressedAt: new Date().toISOString(),
       roundsCompressed: 1,
     });
-    a.complete(sessionId);
+    a.complete(sessionId, { force: true });
     expectSame();
   });
 });
