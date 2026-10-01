@@ -113,6 +113,8 @@ export const DRIFT_WEIGHTS = {
 } as const;
 
 // ─── Execution ─────────────────────────────────────────────────
+// 완료 보고된 artifacts를 git 작업 트리와 대조할 때 git 호출 하나에 주는 시간
+export const ARTIFACT_GIT_TIMEOUT_MS = 10_000;
 // 결과가 이만큼 쌓이면 execute_task 응답에 compress 안내를 붙인다
 export const COMPRESSION_HINT_TASK_COUNT = 5;
 

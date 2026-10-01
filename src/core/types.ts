@@ -218,6 +218,45 @@ export interface TaskExecutionResult {
   status: TaskExecutionStatus;
   output: string;
   artifacts: string[];
+  /** 조사나 판단처럼 파일을 원래 안 바꾸는 태스크. artifacts가 비어 있을 때만 의미가 있다 */
+  noCodeChange?: boolean;
+}
+
+/** 실행 시작 시점의 git 작업 트리. 완료 보고된 artifacts가 그 뒤로 바뀌었는지 비교할 기준이다 */
+export interface WorkingTreeBaseline {
+  /** git 최상위 디렉토리 */
+  repoRoot: string;
+  /** 상대 경로 artifacts를 풀 기준 디렉토리 (호스트가 넘긴 cwd) */
+  cwd: string;
+  /** 커밋이 하나도 없는 레포면 null */
+  head: string | null;
+  /** 시작 시점에 이미 HEAD와 달랐던 파일의 blob 해시. 지워진 상태였으면 null */
+  dirty: Record<string, string | null>;
+  capturedAt: string;
+}
+
+export type ArtifactCheckStatus =
+  | 'changed'
+  | 'missing'
+  | 'unchanged'
+  | 'outside_repo'
+  | 'ignored'
+  | 'directory';
+
+export interface ArtifactCheck {
+  path: string;
+  status: ArtifactCheckStatus;
+}
+
+export interface ArtifactVerification {
+  verified: boolean;
+  /** 확인을 건너뛴 이유. 건너뛰었으면 verified는 true다 */
+  skipped?: 'no_baseline' | 'no_code_change';
+  /** artifacts가 비었는데 noCodeChange 선언도 없을 때 */
+  missingArtifacts?: boolean;
+  /** git 호출 자체가 실패했을 때의 메시지 */
+  error?: string;
+  files: ArtifactCheck[];
 }
 
 // ─── Evaluate Phase ─────────────────────────────────────────────
@@ -392,6 +431,7 @@ export interface ExecuteSession {
   roleConsensus?: RoleConsensus;
   // Blast-radius based test filtering
   codeGraphRepoRoot?: string;
+  workingTreeBaseline?: WorkingTreeBaseline;
   createdAt: string;
   updatedAt: string;
 }
