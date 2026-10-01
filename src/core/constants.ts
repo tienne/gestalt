@@ -100,6 +100,15 @@ export const EXECUTION_PRINCIPLE_STRATEGY: Record<string, string> = {
     'Leverage Similarity: when executing a task, reference completed tasks with similar patterns to provide consistent implementation context.',
 };
 
+// 완료 보고된 artifacts를 git 작업 트리와 대조할 때 git 호출 하나에 주는 시간
+export const ARTIFACT_GIT_TIMEOUT_MS = 10_000;
+// 시작 시점 dirty 파일이 이보다 많으면 실행 시작 이벤트에 해시를 남기지 않는다. 메모리에서는 그대로 대조한다
+export const BASELINE_EVENT_DIRTY_LIMIT = 2_000;
+// 대조 실패 이벤트에 남기는 파일 수. 응답에는 전부 싣는다
+export const VERIFICATION_EVENT_FILE_LIMIT = 50;
+// 결과가 이 개수를 넘으면 execute_task 응답에 compress 안내를 붙인다
+export const COMPRESSION_HINT_TASK_COUNT = 5;
+
 // ─── Drift Detection ───────────────────────────────────────────
 // Goal Drift가 문장 단위 Jaccard 유사도에서 임베딩(Xenova/all-MiniLM-L6-v2) 코사인
 // 유사도로 교체되면서(src/execute/drift-detector.ts) 임계값도 새 척도에 맞게 재조정했다.
@@ -111,12 +120,6 @@ export const DRIFT_WEIGHTS = {
   constraint: 0.3,
   ontology: 0.2,
 } as const;
-
-// ─── Execution ─────────────────────────────────────────────────
-// 완료 보고된 artifacts를 git 작업 트리와 대조할 때 git 호출 하나에 주는 시간
-export const ARTIFACT_GIT_TIMEOUT_MS = 10_000;
-// 결과가 이만큼 쌓이면 execute_task 응답에 compress 안내를 붙인다
-export const COMPRESSION_HINT_TASK_COUNT = 5;
 
 // ─── Evolution Loop ────────────────────────────────────────────
 export const EVOLVE_MAX_STRUCTURAL_FIX = 3;
