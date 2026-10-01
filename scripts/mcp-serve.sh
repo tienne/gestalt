@@ -40,11 +40,11 @@ pick_node() {
   # the opposite of what someone setting this variable is asking for.
   if [[ -n "${GESTALT_NODE:-}" ]]; then
     major="$(node_major "$GESTALT_NODE")" || true
-    if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 20 )); then
+    if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 22 )); then
       printf '%s\n' "$GESTALT_NODE"
       return 0
     fi
-    echo "gestalt MCP: GESTALT_NODE=$GESTALT_NODE is not Node >= 20, searching instead." >&2
+    echo "gestalt MCP: GESTALT_NODE=$GESTALT_NODE is not Node >= 22, searching instead." >&2
   fi
 
   # Terminal-launched sessions almost always land here on the first try. Probing
@@ -52,7 +52,7 @@ pick_node() {
   if command -v node >/dev/null 2>&1; then
     candidate="$(command -v node)"
     major="$(node_major "$candidate")" || true
-    if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 20 )); then
+    if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 22 )); then
       printf '%s\n' "$candidate"
       return 0
     fi
@@ -64,7 +64,7 @@ pick_node() {
       # The directory name carries the version, so old installs get dropped
       # without paying for a process spawn to ask them.
       [[ "$(basename "$dir")" =~ ^v([0-9]+)\. ]] || continue
-      (( BASH_REMATCH[1] >= 20 )) || continue
+      (( BASH_REMATCH[1] >= 22 )) || continue
       candidates+=("$dir/bin/node")
     done
     shopt -u nullglob
@@ -87,7 +87,7 @@ pick_node() {
   for candidate in "${candidates[@]}"; do
     [[ -f "$candidate" ]] || continue
     major="$(node_major "$candidate")" || true
-    if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 20 && major >= best_major )); then
+    if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 22 && major >= best_major )); then
       best="$candidate"
       best_major="$major"
     fi
@@ -114,9 +114,9 @@ if [[ -n "${GESTALT_MCP_BIN:-}" ]]; then
 fi
 
 NODE="$(pick_node)" || {
-  echo "gestalt MCP: Node >= 20 required (package.json engines)." >&2
+  echo "gestalt MCP: Node >= 22 required (package.json engines)." >&2
   echo "PATH node: $(command -v node || echo missing) $(node -v 2>/dev/null || true)" >&2
-  echo "Set GESTALT_NODE to a Node >= 20 binary and retry." >&2
+  echo "Set GESTALT_NODE to a Node >= 22 binary and retry." >&2
   exit 1
 }
 export PATH="$(dirname "$NODE"):$PATH"

@@ -234,7 +234,7 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
         encoding: 'utf-8',
         timeout: LAUNCHER_TIMEOUT_MS,
       });
-      expect(run.stderr).toContain('is not Node >= 20');
+      expect(run.stderr).toContain('is not Node >= 22');
       expect(run.stdout.trim()).toBe('STUB serve');
     } finally {
       rmSync(dir, { recursive: true, force: true });
