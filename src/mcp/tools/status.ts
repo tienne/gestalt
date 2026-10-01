@@ -117,6 +117,7 @@ export function handleStatus(
               projectType: session.projectType,
               totalRounds: session.rounds.length,
               answeredRounds,
+              forcedComplete: session.forcedComplete === true,
               resolutionScore: session.resolutionScore
                 ? {
                     overall: session.resolutionScore.overall.toFixed(2),
