@@ -1,5 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { withFileLock } from '../core/file-lock.js';
+import { isPlainObject, readJsonOrQuarantine, writeJsonAtomic } from '../core/json-file.js';
+import { log } from '../core/log.js';
 import type {
   ProjectMemory,
   SpecHistoryEntry,
@@ -45,92 +48,122 @@ export class ProjectMemoryStore {
     this.memoryPath = join(this.repoRoot, MEMORY_FILENAME);
   }
 
+  /**
+   * 메모리를 읽는다. 읽기 자체가 실패하면 빈 메모리를 돌려준다.
+   *
+   * 인터뷰에 맥락을 끼워 넣는 자리라 여기서 던지면 인터뷰가 멈춘다. 고쳐 쓰는 경로는
+   * 이 메서드 대신 `load()`를 직접 불러, 못 읽은 채로 빈 메모리를 덮어쓰지 않는다.
+   * 잠금 없이 읽으므로 깨진 파일을 옮기지 않는다. 옮기는 건 잠금을 쥔 `update()`만 한다.
+   */
   read(): ProjectMemory {
-    if (!existsSync(this.memoryPath)) {
-      return createEmptyMemory(this.repoRoot);
-    }
     try {
-      const raw = readFileSync(this.memoryPath, 'utf-8');
-      const parsed = JSON.parse(raw) as ProjectMemory;
-      // v1 → v2 자동 마이그레이션: architectureDecisions string[] → ArchitectureDecision[]
-      if (Array.isArray(parsed.architectureDecisions)) {
-        parsed.architectureDecisions = parsed.architectureDecisions.map((item) => {
-          if (typeof item === 'string') {
-            return {
-              decision: item,
-              rationale: '',
-              specId: '',
-              timestamp: new Date().toISOString(),
-            } satisfies ArchitectureDecision;
-          }
-          return item as ArchitectureDecision;
-        });
-      }
-      return parsed;
-    } catch {
+      return this.load({ quarantine: false });
+    } catch (e) {
+      log(`${this.memoryPath}를 읽지 못했어요:`, e);
       return createEmptyMemory(this.repoRoot);
     }
   }
 
-  private write(memory: ProjectMemory): void {
-    const dir = dirname(this.memoryPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    memory.lastUpdated = new Date().toISOString();
-    writeFileSync(this.memoryPath, JSON.stringify(memory, null, 2), 'utf-8');
+  private load(options: { quarantine: boolean }): ProjectMemory {
+    const raw = readJsonOrQuarantine(this.memoryPath, isPlainObject, options);
+    if (raw === undefined) return createEmptyMemory(this.repoRoot);
+    const parsed = raw as Partial<ProjectMemory>;
+    const memory: ProjectMemory = {
+      ...createEmptyMemory(this.repoRoot),
+      ...parsed,
+      specHistory: Array.isArray(parsed.specHistory) ? parsed.specHistory : [],
+      executionHistory: Array.isArray(parsed.executionHistory) ? parsed.executionHistory : [],
+      architectureDecisions: Array.isArray(parsed.architectureDecisions)
+        ? parsed.architectureDecisions
+        : [],
+      compressedContexts: Array.isArray(parsed.compressedContexts)
+        ? parsed.compressedContexts
+        : undefined,
+    };
+    // v1 → v2 자동 마이그레이션: architectureDecisions string[] → ArchitectureDecision[]
+    memory.architectureDecisions = memory.architectureDecisions.map((item: unknown) => {
+      if (typeof item === 'string') {
+        return {
+          decision: item,
+          rationale: '',
+          specId: '',
+          timestamp: new Date().toISOString(),
+        } satisfies ArchitectureDecision;
+      }
+      return item as ArchitectureDecision;
+    });
+    return memory;
+  }
+
+  /**
+   * 잠금을 쥔 채 읽고 고쳐 쓴다.
+   *
+   * 워크트리나 프로세스 여럿이 같은 메모리에 동시에 기록하면, 잠금 없이는 늦게 쓴 쪽이
+   * 먼저 쓴 쪽의 항목을 덮는다.
+   */
+  private update(mutate: (memory: ProjectMemory) => void): ProjectMemory {
+    return withFileLock(
+      `${this.memoryPath}.lock`,
+      ({ stillMine }) => {
+        const memory = this.load({ quarantine: true });
+        mutate(memory);
+        if (!stillMine()) {
+          throw new Error('메모리 잠금을 뺏겨서 안 썼어요. 다시 불러주세요');
+        }
+        memory.lastUpdated = new Date().toISOString();
+        writeJsonAtomic(this.memoryPath, memory);
+        return memory;
+      },
+      { busyMessage: '메모리 파일이 잠겨 있어서 못 고쳤어요' },
+    );
   }
 
   addSpec(entry: SpecHistoryEntry): ProjectMemory {
-    const memory = this.read();
-    // Prevent duplicate specId entries
-    const exists = memory.specHistory.some((s) => s.specId === entry.specId);
-    if (!exists) {
-      memory.specHistory.push(entry);
-    }
-    this.write(memory);
-    return memory;
+    return this.update((memory) => {
+      // Prevent duplicate specId entries
+      const exists = memory.specHistory.some((s) => s.specId === entry.specId);
+      if (!exists) {
+        memory.specHistory.push(entry);
+      }
+    });
   }
 
   addExecution(record: MemoryExecutionRecord): ProjectMemory {
-    const memory = this.read();
-    // Prevent duplicate executeSessionId entries
-    const exists = memory.executionHistory.some(
-      (e) => e.executeSessionId === record.executeSessionId,
-    );
-    if (!exists) {
-      memory.executionHistory.push(record);
-    }
-    this.write(memory);
-    return memory;
+    return this.update((memory) => {
+      // Prevent duplicate executeSessionId entries
+      const exists = memory.executionHistory.some(
+        (e) => e.executeSessionId === record.executeSessionId,
+      );
+      if (!exists) {
+        memory.executionHistory.push(record);
+      }
+    });
   }
 
   addArchitectureDecision(decision: ArchitectureDecision): ProjectMemory {
-    const memory = this.read();
-    // decision 내용 기준 중복 방지 (같은 결정을 중복 기록하지 않음)
-    const exists = memory.architectureDecisions.some((d) => d.decision === decision.decision);
-    if (!exists) {
-      memory.architectureDecisions.push(decision);
-    }
-    this.write(memory);
-    return memory;
+    return this.update((memory) => {
+      // decision 내용 기준 중복 방지 (같은 결정을 중복 기록하지 않음)
+      const exists = memory.architectureDecisions.some((d) => d.decision === decision.decision);
+      if (!exists) {
+        memory.architectureDecisions.push(decision);
+      }
+    });
   }
 
   addCompressedContext(sessionId: string, summary: string): ProjectMemory {
-    const memory = this.read();
-    if (!memory.compressedContexts) {
-      memory.compressedContexts = [];
-    }
-    // Replace existing entry for same sessionId
-    const idx = memory.compressedContexts.findIndex((c) => c.sessionId === sessionId);
-    const entry = { sessionId, summary, compressedAt: new Date().toISOString() };
-    if (idx >= 0) {
-      memory.compressedContexts[idx] = entry;
-    } else {
-      memory.compressedContexts.push(entry);
-    }
-    this.write(memory);
-    return memory;
+    return this.update((memory) => {
+      if (!memory.compressedContexts) {
+        memory.compressedContexts = [];
+      }
+      // Replace existing entry for same sessionId
+      const idx = memory.compressedContexts.findIndex((c) => c.sessionId === sessionId);
+      const entry = { sessionId, summary, compressedAt: new Date().toISOString() };
+      if (idx >= 0) {
+        memory.compressedContexts[idx] = entry;
+      } else {
+        memory.compressedContexts.push(entry);
+      }
+    });
   }
 
   async searchSimilarSpecs(query: string, topK = 3): Promise<SpecHistoryEntry[]> {

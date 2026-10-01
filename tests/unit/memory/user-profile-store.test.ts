@@ -1,9 +1,23 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { execFile } from 'node:child_process';
+import {
+  mkdirSync,
+  rmSync,
+  existsSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { UserProfileStore } from '../../../src/memory/user-profile-store.js';
+
+const STORE_MODULE_URL = new URL('../../../src/memory/user-profile-store.ts', import.meta.url).href;
+const TSX_BIN = fileURLToPath(new URL('../../../node_modules/.bin/tsx', import.meta.url));
 
 describe('UserProfileStore', () => {
   let tmpProfilePath: string;
@@ -17,6 +31,7 @@ describe('UserProfileStore', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     const dir = join(tmpProfilePath, '..');
     if (existsSync(dir)) {
       rmSync(dir, { recursive: true, force: true });
@@ -82,5 +97,54 @@ describe('UserProfileStore', () => {
     store.setPreference('key', 'val');
     const profile = store.read();
     expect(profile.updatedAt >= before).toBe(true);
+  });
+  it('깨진 profile.json은 백업하고 다음 쓰기가 기존 기록을 덮지 않는다', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dir = join(tmpProfilePath, '..');
+    writeFileSync(tmpProfilePath, '{"crossRepoPatterns": [', 'utf-8');
+
+    store.setPreference('lang', 'ko');
+
+    const backups = readdirSync(dir).filter((n) => n.startsWith('profile.json.corrupt-'));
+    expect(backups).toHaveLength(1);
+    expect(readFileSync(join(dir, backups[0]!), 'utf-8')).toBe('{"crossRepoPatterns": [');
+    expect(store.read().personalPreferences['lang']).toBe('ko');
+  });
+
+  it('잠금 없이 읽을 때는 깨진 profile.json을 옮기지 않는다', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    writeFileSync(tmpProfilePath, '{"crossRepoPatterns": [', 'utf-8');
+
+    expect(store.read().crossRepoPatterns).toHaveLength(0);
+    expect(readdirSync(join(tmpProfilePath, '..'))).toEqual(['profile.json']);
+  });
+
+  it('profile.json은 본인만 읽을 수 있게 쓴다', () => {
+    store.setUserId('user-123');
+    expect(statSync(tmpProfilePath).mode & 0o777).toBe(0o600);
+  });
+
+  it('여러 프로세스가 동시에 기록해도 항목이 안 사라진다', async () => {
+    const dir = join(tmpProfilePath, '..');
+    const script = join(dir, 'add-patterns.mjs');
+    writeFileSync(
+      script,
+      `const { UserProfileStore } = await import(${JSON.stringify(STORE_MODULE_URL)});\n` +
+        `const store = new UserProfileStore(process.argv[2]);\n` +
+        `for (let i = 0; i < 15; i++) store.addCrossRepoPattern(process.argv[3] + '-' + i);\n`,
+      'utf-8',
+    );
+
+    const workers = ['a', 'b', 'c', 'd'];
+    await Promise.all(
+      workers.map((w) => promisify(execFile)(TSX_BIN, [script, tmpProfilePath, w])),
+    );
+
+    expect(store.read().crossRepoPatterns).toHaveLength(workers.length * 15);
+  }, 60_000);
+
+  it('쓰고 나면 임시 파일과 잠금이 안 남는다', () => {
+    store.setPreference('key', 'val');
+    expect(readdirSync(join(tmpProfilePath, '..'))).toEqual(['profile.json']);
   });
 });
