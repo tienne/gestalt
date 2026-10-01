@@ -111,9 +111,9 @@ export function handleEvaluate(
         message: 'Structural 검사 실패 — lint/build/test를 확인하세요',
       });
       const evalShortCircuitGuide: NextActionGuide = {
-        nextAction: 'evolve',
+        nextAction: 'evolve_fix',
         nextActionParams: { sessionId: result.value.session.sessionId },
-        hint: '점수 미달. evolve를 호출해 개선하세요.',
+        hint: 'Structural 검사 실패. evolve_fix를 호출해 실패한 명령을 고치세요.',
       };
       return JSON.stringify(
         {

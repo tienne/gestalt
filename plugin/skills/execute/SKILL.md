@@ -441,7 +441,7 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
 }
 ```
 
-→ structural 실패 시 `{ stage: "complete", shortCircuited: true, nextAction: "evolve" }` → Evolve Flow A 진입
+→ structural 실패 시 `{ stage: "complete", shortCircuited: true, nextAction: "evolve_fix" }` → Evolve Flow A 진입
 → structural 통과 시 `{ stage: "contextual", contextualContext }` — AC별 LLM 검증 지시
 
 **Call 3 — Contextual 결과 제출**

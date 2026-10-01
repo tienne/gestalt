@@ -16,6 +16,8 @@ import type {
   StructuralResult,
 } from '../../../src/core/types.js';
 import { asRequested } from '../../helpers/structural.js';
+import { handleEvaluate } from '../../../src/mcp/tools/execute/evaluate.js';
+import type { IHostAdapter } from '../../../src/mcp/host-adapter.js';
 import { createFakeRepo, cleanupFakeRepos } from '../../helpers/fake-repo.js';
 import { codeGraphEngine } from '../../../src/code-graph/index.js';
 import type { BlastRadiusResult } from '../../../src/code-graph/types.js';
@@ -533,6 +535,28 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
         expect(result.value.evaluationResult!.overallScore).toBe(0);
         expect(result.value.session.status).toBe('completed');
       }
+    });
+
+    it('points a short-circuited response to evolve_fix', async () => {
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
+      engine.startExecution(sessionId);
+      await executeAllTasks(engine, sessionId);
+      const structuralResult = asRequested(
+        engine.startEvaluation(sessionId),
+        failingStructuralResult,
+      );
+
+      const response = JSON.parse(
+        handleEvaluate(
+          engine,
+          { action: 'evaluate', sessionId, structuralResult },
+          {} as IHostAdapter,
+        ),
+      );
+
+      expect(response.shortCircuited).toBe(true);
+      expect(response.nextAction).toBe('evolve_fix');
     });
 
     it('rejects when not in structural stage', async () => {

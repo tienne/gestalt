@@ -82,7 +82,7 @@ ges_execute({
   }
 })
 → contextualContext 반환 (scoringPrompt, AC 목록)
-  allPassed === false 시 → evolveContext 반환 (Short-Circuit)
+  allPassed === false 시 → shortCircuited: true, nextAction: evolve_fix 반환 (Short-Circuit)
   요청한 명령과 제출한 명령이 다르거나 빠지면 거부된다.
   그때는 요청한 명령을 그대로 다시 돌려 그 결과로 제출한다. 명령 문자열만 바꿔 다시 내지 않는다.
   다른 사유로 거부되면 Call 1부터 다시 시작한다.
