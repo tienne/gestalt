@@ -237,6 +237,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           'User response to the current question (required for respond)',
         ),
         cwd: interviewShape.cwd.describe('Working directory for brownfield detection'),
+        force: interviewShape.force,
       },
       async (params) => {
         const input = interviewInputSchema.parse(params);
