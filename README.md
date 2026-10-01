@@ -675,7 +675,7 @@ Use any agent directly, outside the pipeline:
 
 ### Role Agents
 
-Nine built-in role agents provide multi-perspective review:
+Built-in role agents each review from their own domain. The table lists the main ones; skill-support agents such as `jira-writer` and `code-review-writer` live in the same `plugin/role-agents/` directory:
 
 | Agent | Domain |
 |-------|--------|
@@ -691,7 +691,7 @@ Nine built-in role agents provide multi-perspective review:
 
 ### Review Agents
 
-Seven built-in review agents run focused code analysis:
+Built-in review agents each analyze the code from one angle:
 
 | Agent | Focus |
 |-------|-------|
