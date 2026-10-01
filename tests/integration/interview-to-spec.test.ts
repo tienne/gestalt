@@ -107,7 +107,7 @@ describe('Interview → Spec Pipeline', () => {
     }
 
     // Step 3: Complete interview
-    const completeResult = engine.complete(session.sessionId);
+    const completeResult = engine.complete(session.sessionId, true);
     expect(isOk(completeResult)).toBe(true);
 
     // Step 4: Generate spec (force since we may not meet threshold with mock)

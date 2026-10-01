@@ -58,6 +58,7 @@ describe('handleCreateAgentPassthrough', () => {
       constraintClarity: 0.9,
       successCriteria: 0.9,
       priorityClarity: 0.9,
+      contextClarity: 0.9,
     });
 
     engine.complete(sessionId);

@@ -7,8 +7,12 @@ import type {
   GestaltPrinciple,
   CompressedContext,
 } from '../core/types.js';
-import { SessionNotFoundError, SessionAlreadyCompletedError } from '../core/errors.js';
-import { DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
+import {
+  SessionNotFoundError,
+  SessionAlreadyCompletedError,
+  InterviewNotReadyError,
+} from '../core/errors.js';
+import { DEFAULT_SESSION_TTL_MS, RESOLUTION_THRESHOLD } from '../core/constants.js';
 import { logger } from '../core/logger.js';
 import type { IEventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
@@ -162,14 +166,25 @@ export class SessionManager {
     session.updatedAt = new Date().toISOString();
   }
 
-  complete(sessionId: string): InterviewSession {
+  complete(sessionId: string, options: { force?: boolean } = {}): InterviewSession {
     const session = this.get(sessionId);
+    const ready = session.resolutionScore?.isReady === true;
+    if (!ready && !options.force) {
+      throw new InterviewNotReadyError(
+        session.resolutionScore?.overall ?? null,
+        RESOLUTION_THRESHOLD,
+      );
+    }
+    const forced = !ready;
+
     session.status = 'completed';
     session.updatedAt = new Date().toISOString();
+    if (forced) session.forcedComplete = true;
 
     this.eventStore.append('interview', sessionId, EventType.INTERVIEW_SESSION_COMPLETED, {
       totalRounds: session.rounds.length,
       finalResolutionScore: session.resolutionScore?.overall ?? null,
+      forced,
     });
 
     logger.info('interview.completed', {
@@ -177,6 +192,7 @@ export class SessionManager {
       sessionId,
       totalRounds: session.rounds.length,
       finalResolutionScore: session.resolutionScore?.overall ?? null,
+      forced,
     });
 
     return session;

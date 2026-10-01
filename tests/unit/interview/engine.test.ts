@@ -103,10 +103,14 @@ describe('InterviewEngine', () => {
     const start = await engine.start('test');
     if (!start.ok) throw new Error('start failed');
 
-    const result = engine.complete(start.value.session.sessionId);
+    const sessionId = start.value.session.sessionId;
+    expect(isErr(engine.complete(sessionId))).toBe(true);
+
+    const result = engine.complete(sessionId, true);
     expect(isOk(result)).toBe(true);
     if (result.ok) {
       expect(result.value.status).toBe('completed');
+      expect(result.value.forcedComplete).toBe(true);
     }
   });
 

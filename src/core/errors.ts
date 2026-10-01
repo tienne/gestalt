@@ -37,6 +37,16 @@ export class SessionAlreadyCompletedError extends InterviewError {
   }
 }
 
+export class InterviewNotReadyError extends InterviewError {
+  constructor(score: number | null, threshold: number) {
+    const current = score === null ? '측정 전' : score.toFixed(2);
+    super(
+      `해상도 점수(${current})가 임계값(${threshold})에 못 미쳐 인터뷰를 완료할 수 없습니다. 인터뷰를 계속 진행하거나 force=true로 넘기세요.`,
+    );
+    this.name = 'InterviewNotReadyError';
+  }
+}
+
 export class ResolutionThresholdError extends GestaltError {
   constructor(score: number, threshold: number) {
     super(

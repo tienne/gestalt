@@ -138,6 +138,7 @@ export class InterviewSessionRepository {
 
       case EventType.INTERVIEW_SESSION_COMPLETED:
         session.status = 'completed';
+        if (payload.forced === true) session.forcedComplete = true;
         break;
 
       // BROWNFIELD_DETECTED, GESTALT_PRINCIPLE_APPLIED — 세션 상태에는 직접 영향 없음
