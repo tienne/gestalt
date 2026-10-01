@@ -225,7 +225,7 @@ Orca CLI가 쓰는 하이브리드 스텁 패턴을 따른다.
 | `core/` 테스트 0% | Result 모나드와 config 로딩부터 테스트한다. 모든 것의 기반인데 테스트가 없다 | 지금 |
 | 태스크 단위 서킷브레이커 없음 | 재시도가 LLM 어댑터(`maxAttempts=3`)와 리뷰 fix 루프에만 있다. 한 태스크가 연속 실패할 때 끊어주는 장치가 없어 호스트가 같은 태스크를 무한히 물고 있을 수 있다. Orca는 3회 연속 실패 시 dispatch를 끊고 failed로 마킹한다 | Stagnation Detector 손댈 때 |
 | MCP 응답에 절삭 개념 없음 | 플랜과 스펙 전문이 그대로 나가 긴 세션에서 컨텍스트를 누른다. Orca `task-list --brief`처럼 요약 옵션과 `spec_truncated` 같은 절삭 표시를 둔다 — 잘랐다는 사실을 응답이 알려주지 않으면 호스트가 전체를 봤다고 착각한다 | 3번 사용 데이터 집계와 함께 |
-| 실행 완료를 확인 없이 신뢰 | `execute_start` 때 잡은 git 작업 트리 기준점과 `completed` 보고의 `artifacts`를 대조한다 (완료). 기준점은 실행 시작 때 한 번이라 앞선 태스크가 바꾼 파일을 뒤 태스크가 적어도 통과한다 | — |
+| 실행 완료를 확인 없이 신뢰 | `execute_start` 때 잡은 git 작업 트리 기준점과 `completed` 보고의 `artifacts`를 대조한다 (완료). 기준점은 실행 시작 때 한 번이라 앞선 태스크가 바꾼 파일을 뒤 태스크가 적어도 통과한다. `evolve_re_execute`와 `evolve_fix`는 아직 대조하지 않는다. 재실행 때 기준점을 새로 잡아야 의미가 있어서 다음 작업으로 남긴다 | — |
 | `.mcp.json` 절대경로 하드코딩 | `/Users/<you>/dev/gestalt/dist/bin/gestalt.js`가 커밋돼 있어 다른 사람이 플러그인을 설치하면 서버가 붙지 않는다. 배포 대상을 정하고 경로 해석 방식을 결정한다 | 6번과 함께 |
 | 거대 파일 분해 | `evolution.ts`(583줄), `server.ts`(665줄), `code-graph/engine.ts`(562줄)를 해당 기능을 손댈 때 함께 쪼갠다 | 3번 진행 중 |
 | KB 검색 O(n) | `search.ts`가 전체 엔트리를 선형 스캔한다. 4번에서 Memory에 붙일 때 함께 개선한다 | 4번과 동시 |

@@ -358,7 +358,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `action` | `string` | Y | — | 수행할 액션 (위 테이블 참고) |
 | `sessionId` | `string` | 대부분의 액션 | — | 실행 세션 ID |
 | `spec` | `Spec` | `start` | — | `ges_generate_spec`에서 받은 완성된 Spec 객체 |
-| `cwd` | `string` | N | — | 작업 디렉터리. `execute_start`에서 client 설정에 맞는 active context(`.claude/rules/gestalt-active.md`, `AGENTS.md` managed section, `.grok/rules/gestalt-active.md`, 또는 Claude+Codex 둘 다)와 `.gestalt/active-session.json` 생성에 사용. `execute_start`에서는 `completed` 보고의 `artifacts`를 대조할 git 작업 트리 기준점으로도 쓴다. 비우면 서버 프로세스의 cwd를 쓴다. `status`에서 `resumeHint` 읽기에 사용. |
+| `cwd` | `string` | N | — | 작업 디렉터리. `execute_start`에서 client 설정에 맞는 active context(`.claude/rules/gestalt-active.md`, `AGENTS.md` managed section, `.grok/rules/gestalt-active.md`, 또는 Claude+Codex 둘 다)와 `.gestalt/active-session.json` 생성에 사용. `execute_start`에서는 이 디렉터리에서 git 작업 트리가 실행 시작 시점에 어떤 상태였는지 잡아 두고 나중에 `completed` 보고의 `artifacts`를 그 상태와 대조한다. 비우면 세션의 `codeGraphRepoRoot`를 쓰고 그것도 없으면 서버 프로세스의 cwd를 쓴다. `status`에서 `resumeHint` 읽기에 사용. |
 | `client` | `"claude-code" \| "codex" \| "both" \| "grok"` | N | 서버 `config.client` | 호출 단위 호스트 override. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고, `"both"`는 Claude와 Codex만 쓴다. |
 | `codeGraphRepoRoot` | `string` | N | — | `start`에서 설정 시 태스크 실행마다 관련 파일을 자동 추출해 `suggestedFiles`로 반환 |
 | `prId` | `string` | N | — | `review_start`에서 주면 그 로컬 PR의 변경 파일로 리뷰를 연다. `sessionId`와 `changedFiles + repoRoot`보다 우선한다 — 함께 주면 나머지는 안 본다. `review_publish`에서는 쓸 대상 PR이고, `review_start`를 `prId`로 열었으면 세션에서 이어받으므로 생략할 수 있다 |
@@ -431,6 +431,12 @@ ges_execute({
 
 `cwd` 지정 시 client 설정에 맞는 active context와 `.gestalt/active-session.json`이 해당 디렉터리에 생성된다. `client: "claude-code"`는 `.claude/rules/gestalt-active.md`, `client: "codex"`는 `AGENTS.md` managed section, `client: "grok"`는 `.grok/rules/gestalt-active.md`, `client: "both"`는 Claude와 Codex만 사용한다 (`both`는 Grok 경로를 쓰지 않는다). 세션 종료 시 active context와 세션 힌트가 삭제된다.
 
+응답에는 `artifactCheck: { repoRoot, baseline, error? }`가 붙는다. `repoRoot`는 `completed` 보고를 대조할 디렉터리이고 `baseline`은 아래 셋 중 하나다.
+
+- `captured`: 시작 시점 상태를 잡았다. 이후 `completed` 보고를 대조한다
+- `no_baseline`: git 레포가 아니라 대조하지 않는다
+- `baseline_failed`: git 호출이 실패해 대조하지 않는다. 실패 내용은 `error`에 담긴다
+
 ```json
 {
   "status": "executing",
@@ -450,6 +456,7 @@ ges_execute({
     "pendingTasks": [{ "taskId": "task-1", "dependsOn": ["task-0"] }],
     "completedTaskIds": []
   },
+  "artifactCheck": { "repoRoot": "/path/to/project", "baseline": "captured" },
   "message": "Execution started. Use taskContext.taskPrompt with taskContext.systemPrompt to implement the task."
 }
 ```
@@ -496,7 +503,12 @@ ges_execute({
 - `compressionAvailable`: `completedTasks > 5`일 때만 포함
 - `allTasksCompleted: true`: 모든 태스크 완료 시 포함
 - `suggestedFiles`: `codeGraphRepoRoot` 설정 시 포함 (최대 10개)
-- `artifactCheck`: `completed` 보고가 대조를 통과했을 때 포함. `verified`(대조 통과), `no_code_change`(`noCodeChange`로 넘어감), `no_baseline`(git 레포가 아니라 대조 안 함) 중 하나
+- `artifactCheck`: `completed` 보고가 대조를 통과했을 때 포함. 값은 아래 중 하나다
+  - `verified`: 대조를 통과한 경우
+  - `no_code_change`: `noCodeChange: true`로 대조를 건너뛴 경우
+  - `no_baseline`: git 레포가 아니라 시작 시점 상태가 없는 경우
+  - `baseline_failed`: `execute_start` 때 git 호출이 실패해 시작 시점 상태를 못 잡은 경우
+  - `baseline_truncated`: 시작 시점에 커밋 안 된 파일이 2000개(`BASELINE_EVENT_DIRTY_LIMIT`)를 넘어 이벤트에 해시를 다 못 남겼고 그 뒤 서버가 재시작돼 대조하지 못한 경우. 재시작 전 같은 프로세스 안에서는 그대로 대조한다
 
 `completed` 보고는 `artifacts`의 파일이 `execute_start` 시점보다 실제로 바뀌었는지 대조한다. 수정, 새로 만듦, 커밋, 삭제 모두 바뀐 것으로 친다. 빈 `artifacts`는 `noCodeChange: true` 없이는 거절된다. 하나라도 안 바뀌었으면 결과를 기록하지 않고 다음처럼 돌려준다. `failed`와 `skipped`는 대조하지 않는다.
 
@@ -509,7 +521,13 @@ ges_execute({
 }
 ```
 
-`problems[].status`는 `unchanged`, `missing`, `outside_repo`, `ignored`(gitignore), `directory` 중 하나다. 파일을 실제로 고치거나 목록을 바로잡아 같은 태스크를 다시 제출한다. 끝내지 못했으면 `status: "failed"`로 낸다. 기준점은 실행 시작 때 한 번이라 앞선 태스크가 바꾼 파일을 뒤 태스크가 적어도 통과한다.
+`problems[].status`는 `unchanged`, `missing`, `outside_repo`, `ignored`(gitignore), `directory`, `invalid_path`(경로에 개행이나 NUL 문자) 중 하나다. 파일을 실제로 고치거나 목록을 바로잡아 같은 태스크를 다시 제출한다. 끝내지 못했으면 `status: "failed"`로 낸다. 시작 시점 상태는 실행 시작 때 한 번만 잡으므로 앞선 태스크가 바꾼 파일을 뒤 태스크가 적어도 통과한다.
+
+응답에 `serverError: true`가 있으면 보고 내용 문제가 아니라 서버 쪽 git 호출이 실패한 것이다. 잠시 뒤 같은 결과를 그대로 다시 내고 계속 실패하면 `status: "failed"`로 내면서 `output`에 오류 내용을 적는다.
+
+git은 `-c core.fsmonitor=false`로 부른다. 다만 `hash-object`의 clean 필터는 끄면 HEAD blob과 해시가 어긋나서 끌 수 없다. 대조 중에 `cwd` 레포의 `filter.*.clean` 설정이 실행되므로 믿지 않는 레포를 `cwd`로 넘기지 않는다.
+
+대조는 `execute_task`에만 있다. `evolve_re_execute`와 `evolve_fix`로 낸 결과는 대조하지 않는다.
 
 ### `evaluate` — Example Requests
 
