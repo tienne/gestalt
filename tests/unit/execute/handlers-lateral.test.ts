@@ -230,6 +230,10 @@ describe('ges_execute evolve_lateral_result 핸들러', () => {
     expect(session.lateralTriedPersonas).toEqual([]);
     expect(session.lateralAttempts).toBe(0);
     expect(session.lateralCurrentPersona).toBe(persona);
+
+    const restored = new ExecuteSessionRepository(fx.store).reconstruct(sessionId)!;
+    expect(restored.lateralTriedPersonas).toEqual([]);
+    expect(restored.lateralAttempts).toBe(0);
   });
 
   it('검증에 걸린 뒤 같은 페르소나로 다시 내면 시도는 한 번만 센다', async () => {
