@@ -5,6 +5,11 @@ import { ProjectMemoryStore } from '../../../memory/project-memory-store.js';
 import { gestaltNotify } from '../../../utils/notifier.js';
 import { deleteActiveSession } from '../../../execute/rule-writer.js';
 import type { IHostAdapter } from '../../host-adapter.js';
+import { log } from '../../../core/log.js';
+import {
+  EVOLVE_SUCCESS_THRESHOLD,
+  EVOLVE_GOAL_ALIGNMENT_THRESHOLD,
+} from '../../../core/constants.js';
 import { formatError, stripContextPrompts } from './utils.js';
 
 export function handleEvaluate(
@@ -43,22 +48,27 @@ export function handleEvaluate(
         resultSummary: `Score: ${score.toFixed(2)}, goalAlignment: ${goalAlign.toFixed(2)}`,
         completedAt: new Date().toISOString(),
       });
-    } catch {
-      // Memory update failure should not block the response
+    } catch (e) {
+      // 메모리 갱신이 실패해도 평가 응답은 돌려준다
+      log(`[evaluate] project memory update failed: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     if (input.cwd) {
       try {
         void adapter.clearActiveContext();
         deleteActiveSession(input.cwd);
-      } catch {
-        // Cleanup failure should not block the response
+      } catch (e) {
+        // 정리가 실패해도 평가 응답은 돌려준다
+        log(
+          `[evaluate] active session cleanup failed: ${e instanceof Error ? e.message : String(e)}`,
+        );
       }
     }
 
     const score = evaluationResult!.overallScore;
     const alignment = evaluationResult!.goalAlignment;
-    const success = score >= 0.85 && alignment >= 0.8;
+    const success =
+      score >= EVOLVE_SUCCESS_THRESHOLD && alignment >= EVOLVE_GOAL_ALIGNMENT_THRESHOLD;
     gestaltNotify({
       event: success ? 'evaluation_success' : 'evaluation_failed',
       message: success
@@ -66,7 +76,9 @@ export function handleEvaluate(
         : `평가 미달 score: ${score.toFixed(2)}, alignment: ${alignment.toFixed(2)} — Evolve 진입`,
     });
     const evalCompleteExtra = success
-      ? { hint: '구현 완료! score ≥ 0.85, alignment ≥ 0.80 달성.' }
+      ? {
+          hint: `구현 완료! score ≥ ${EVOLVE_SUCCESS_THRESHOLD}, alignment ≥ ${EVOLVE_GOAL_ALIGNMENT_THRESHOLD.toFixed(2)} 달성.`,
+        }
       : {
           nextAction: 'evolve',
           nextActionParams: { sessionId: completedSession.sessionId },
