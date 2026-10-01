@@ -112,6 +112,10 @@ export const DRIFT_WEIGHTS = {
   ontology: 0.2,
 } as const;
 
+// ─── Execution ─────────────────────────────────────────────────
+// 결과가 이만큼 쌓이면 execute_task 응답에 compress 안내를 붙인다
+export const COMPRESSION_HINT_TASK_COUNT = 5;
+
 // ─── Evolution Loop ────────────────────────────────────────────
 export const EVOLVE_MAX_STRUCTURAL_FIX = 3;
 export const EVOLVE_MAX_CONTEXTUAL = 3;

@@ -2,6 +2,8 @@ import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engi
 import type { ExecuteInput } from '../../schemas.js';
 import type { NextActionGuide, ProgressInfo } from '../../../core/types.js';
 import { gestaltNotify } from '../../../utils/notifier.js';
+import { log } from '../../../core/log.js';
+import { COMPRESSION_HINT_TASK_COUNT } from '../../../core/constants.js';
 import { writeActiveSession, formatRuleContent } from '../../../execute/rule-writer.js';
 import type { IHostAdapter } from '../../host-adapter.js';
 import {
@@ -60,8 +62,9 @@ export async function handleExecuteStart(
       );
       await adapter.writeActiveContext(content);
       writeActiveSession(input.cwd, session.sessionId, session.specId);
-    } catch {
-      // Rule file creation failure should not block execution
+    } catch (e) {
+      // 규칙 파일을 못 써도 실행은 이어간다
+      log('execute_start: failed to write active context:', e);
     }
   }
 
@@ -152,12 +155,13 @@ export async function handleExecuteTask(
         { taskId: taskContext.currentTask.taskId, title: taskContext.currentTask.title },
       );
       await adapter.writeActiveContext(content);
-    } catch {
-      // Rule file update failure should not block execution
+    } catch (e) {
+      // 규칙 파일을 못 써도 실행은 이어간다
+      log('execute_task: failed to update active context:', e);
     }
   }
 
-  const compressionAvailable = session.taskResults.length > 5;
+  const compressionAvailable = session.taskResults.length > COMPRESSION_HINT_TASK_COUNT;
 
   const execTaskNextId = taskContext?.currentTask.taskId ?? '';
   const execTaskGuide: NextActionGuide = {
