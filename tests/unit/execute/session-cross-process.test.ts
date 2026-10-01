@@ -251,7 +251,9 @@ describe('ExecuteSessionManager — 같은 DB를 쓰는 두 인스턴스', () =>
   it('구조 평가 출력은 토큰을 가리고 끝부분만 이벤트에 남긴다', () => {
     const { sessionId } = a.create(spec());
     const token = `ghp_${'a'.repeat(36)}`;
-    const output = `${'x'.repeat(5000)}\nAuthorization: ${token}\nFAIL at the end`;
+    // 끝 2000자 경계가 토큰 한가운데를 지나게 둔다. 자른 뒤에 가리면 조각이 그대로 남는다
+    const tail = '\nFAIL at the end';
+    const output = `${'x'.repeat(5000)}${token}${'y'.repeat(2000 - 20 - tail.length)}${tail}`;
     a.completeStructuralStage(sessionId, {
       commands: [{ name: 'test', command: 'pnpm test', exitCode: 1, output }],
       allPassed: false,
@@ -261,6 +263,7 @@ describe('ExecuteSessionManager — 같은 DB를 쓰는 두 인스턴스', () =>
     const stored = new ExecuteSessionRepository(storeB).reconstruct(sessionId)!.structuralResult!
       .commands[0]!.output;
     expect(stored).not.toContain(token);
+    expect(stored).not.toContain('a'.repeat(10));
     expect(stored.endsWith('FAIL at the end')).toBe(true);
     expect(stored.length).toBeLessThan(2100);
   });
