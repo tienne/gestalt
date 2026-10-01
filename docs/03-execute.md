@@ -117,8 +117,18 @@ stateDiagram-v2
   }
 
   Evolve --> Evaluate : re_execute_complete → evaluate 재실행
-  Evolve --> [*] : human_escalation (Lateral ×4 소진)
+  Evolve --> AwaitingHuman : Lateral ×4 소진 → 게이트 열림
+
+  state AwaitingHuman {
+    gate_resolve
+  }
+
+  AwaitingHuman --> Evolve : patch_spec → evolve_patch
+  AwaitingHuman --> Evaluate : manual_task → evaluate
+  AwaitingHuman --> [*] : restart / abort → failed (human_escalation)
 ```
+
+Lateral Persona 4개를 다 써도 점수가 안 오르면 세션은 `awaiting_human`으로 멈추고 사람의 판단을 기다려요. 이 동안은 `status`, `resume`, `gate_resolve`, `evolution_viz`만 받아요. 선택지별 전이는 [`05-evolve.md`](./05-evolve.md#human-escalation--사람-판단-게이트)를 참고하세요.
 
 ---
 
@@ -193,6 +203,7 @@ ges_execute({
 | `execute_task` | active context의 currentTask 업데이트 |
 | `evolve_patch` | active context의 Spec 정보 업데이트 |
 | 세션 종료 (`completed` / `terminated` / `human_escalation`) | 두 파일 삭제 |
+| `awaiting_human` (사람 판단 대기) | 그대로 둠. `gate_resolve`에서 `restart`나 `abort`를 고르면 그때 삭제 |
 
 소스: `src/execute/rule-writer.ts`
 

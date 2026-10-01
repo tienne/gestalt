@@ -152,23 +152,56 @@ ges_execute({
 // 점수 미달 시 다음 Persona 요청
 ges_execute({ action: "evolve_lateral", sessionId: "<id>" })
 → 다음 lateralContext 반환
-  모든 Persona 소진 시 → humanEscalation 반환
+  모든 Persona 소진 시 → { status: "awaiting_human", gate, ... } 반환
 ```
 
-### Human Escalation
+### Human Escalation — 사람 판단 게이트
 
-4개 Persona를 모두 소진해도 성공하지 못하면 `humanEscalation`을 반환하고 세션을 종료해요.
+4개 Persona를 모두 소진해도 성공하지 못하면 세션을 끝내지 않고 `awaiting_human` 상태로 멈춰요. 막힌 지점을 사람이 판단할 게이트로 열어 응답에 실어 보내요.
 
 ```typescript
 interface EscalationContext {
   triedPersonas: LateralPersonaName[];
   bestScore: number;
-  bestScoreGeneration: number;
-  suggestions: string[];   // 사람이 개입해야 할 구체적 제안
+  lastEvaluationResult: EvaluationResult;
+  suggestions: string[];             // 아직 못 푼 문제
+  blockedTask?: { taskId: string; title: string };
+  recommendedSolutions: string[];    // 권장 해결책 3개, 각각 대응하는 gate_resolve optionId를 적어요
 }
 ```
 
-세션 최종 상태는 `status: 'failed'`, `terminationReason: 'human_escalation'`이에요.
+```
+→ {
+    status: "awaiting_human",
+    gate: { gateId, question, options, context: { blockedTask, triedPersonas, bestScore, unresolved } },
+    escalationContext,
+    nextAction: "gate_resolve",
+    nextActionParams: { sessionId, gateResolution: { gateId } }
+  }
+```
+
+게이트가 열려 있는 동안 세션의 `terminationReason`은 비어 있고 `.gestalt/active-session.json`도 남아 있어요. `status`, `resume`, `gate_resolve`, `evolution_viz` 말고는 모든 액션이 거절돼요.
+
+사람이 고른 답은 `gate_resolve`로 넘겨요. `decision`과 `rationale`은 둘 다 필수예요.
+
+```
+ges_execute({
+  action: "gate_resolve",
+  sessionId: "<id>",
+  gateResolution: { gateId: "<gateId>", optionId: "patch_spec", decision: "...", rationale: "..." }
+})
+```
+
+| `optionId` | 세션 | 다음 액션 |
+|:---|:---|:---|
+| `patch_spec` | `executing`으로 돌아가요 | `evolve_patch` (Flow B) |
+| `manual_task` | `executing`으로 돌아가요 | 사람이 태스크를 처리한 뒤 `evaluate` |
+| `restart` | `failed` / `human_escalation`으로 종료돼요 | 더 잘게 쪼갠 새 스펙으로 `start` |
+| `abort` | `failed` / `human_escalation`으로 종료돼요 | 없음 |
+
+이어가도 진화 이력과 이미 써본 persona 기록은 그대로 남아요. 그래서 다음 평가가 한 번만 성공 기준에 못 미쳐도 persona를 되풀이하지 않고 곧바로 다시 사람에게 물어요.
+
+어느 선택지든 결정은 `.gestalt/memory.json`의 `architectureDecisions`에 `[Escalation:<optionId>] <decision>` 꼴로 쌓여요. 다음 인터뷰에 이 기록이 주입되니 같은 지점에서 다시 막힐 때 참고가 돼요. 요청과 응답 전체는 [`docs/mcp-reference.md`](./mcp-reference.md#gate_resolve--사람-판단-게이트-해소)를 참고하세요.
 
 ---
 
@@ -181,7 +214,7 @@ interface EscalationContext {
 | `oscillation` | 연속 2회 점수 up/down 반복 |
 | `hard_cap` | Structural Fix 3회 OR Contextual Evolution 3회 초과 |
 | `caller` | Caller가 직접 종료 요청 |
-| `human_escalation` | Lateral 4개 Persona 소진 |
+| `human_escalation` | Lateral 4개 Persona 소진 후 게이트에서 `restart`나 `abort`를 고름 |
 
 소스: `src/execute/termination-detector.ts`
 

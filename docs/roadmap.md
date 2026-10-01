@@ -112,6 +112,8 @@ Passthrough 모드(API 키 불필요)는 진입장벽을 낮추는 좋은 선택
 
 Orca는 이걸 `gate-create` / `gate-resolve` / `gate-list`로 레코드화해서, 질문과 선택지와 해소 내용을 저장하고 답이 오면 흐름을 이어간다. 워커가 막혀서 던지는 블로킹 질문(`ask`)과 코디네이터가 DAG 결정을 위해 만드는 게이트를 구분해 둔 것도 참고할 만하다.
 
+> ✅ 구현됨 — persona를 다 쓰면 세션이 `awaiting_human`으로 멈추고 `session.humanGates[]`에 게이트가 열린다. 사람의 답은 `ges_execute`의 `gate_resolve` 액션으로 받는다. 선택지가 `patch_spec`이나 `manual_task`면 세션이 이어지고 `restart`나 `abort`면 그때 종료된다. 해소할 때마다 `architectureDecisions`에 결정과 이유, 실제 `specId`가 쌓인다. 위 문단의 "지금은"은 구현 전 상태다. 상세는 [`mcp-reference.md`](./mcp-reference.md#gate_resolve--사람-판단-게이트-해소).
+
 ### 첫 액션
 
 ②부터 시작한다. `architectureDecisions`를 `{ decision, rationale, outcome?, specId, timestamp }` 구조로 바꾼다. 인터뷰 주입 시 "과거 결정과 그 결과"를 함께 넣어 "인터뷰가 점점 똑똑해진다"를 실체화한다. ④의 게이트 레코드가 이 구조를 그대로 채우는 입력이 되므로 스키마를 함께 설계한다.
