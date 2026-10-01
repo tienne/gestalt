@@ -26,21 +26,41 @@ import { EventType } from '../events/types.js';
 import { ExecuteSessionRepository } from './repository.js';
 import { computeReadyTaskIds } from './parallel-groups.js';
 
+/**
+ * 실행 세션의 인메모리 캐시. 기준은 이벤트 스토어다.
+ *
+ * 같은 DB를 여러 MCP 프로세스(dispatch 워커 등)가 함께 쓴다. 그래서 캐시가 담은
+ * 세션마다 그때까지 반영한 이벤트 수를 들고 있다가, get()에서 스토어의 수와 다르면
+ * 다시 재구성한다. 모든 변경 메서드가 get()부터 부르므로 쓰기도 최신 상태 위에서 한다.
+ */
 export class ExecuteSessionManager {
   private sessions = new Map<string, ExecuteSession>();
+  private eventCounts = new Map<string, number>();
+  private repo: ExecuteSessionRepository;
 
-  constructor(private eventStore: IEventStore) {}
+  constructor(private eventStore: IEventStore) {
+    this.repo = new ExecuteSessionRepository(eventStore);
+  }
 
   /**
    * EventStore에서 기존 세션을 복원하여 메모리 Map에 로드한다.
    * 서버 시작 시 한 번 호출.
    */
   loadFromStore(): void {
-    const repo = new ExecuteSessionRepository(this.eventStore);
-    const restored = repo.reconstructAll();
-    for (const session of restored) {
-      this.sessions.set(session.sessionId, session);
-    }
+    for (const id of this.repo.list()) this.reload(id);
+  }
+
+  private reload(sessionId: string): ExecuteSession | null {
+    const loaded = this.repo.load(sessionId);
+    if (!loaded) return null;
+    this.sessions.set(sessionId, loaded.session);
+    this.eventCounts.set(sessionId, loaded.eventCount);
+    return loaded.session;
+  }
+
+  private record(sessionId: string, eventType: EventType, payload: Record<string, unknown>): void {
+    this.eventStore.append('execute', sessionId, eventType, payload);
+    this.eventCounts.set(sessionId, (this.eventCounts.get(sessionId) ?? 0) + 1);
   }
 
   create(spec: Spec, opts: { codeGraphRepoRoot?: string } = {}): ExecuteSession {
@@ -68,7 +88,7 @@ export class ExecuteSessionManager {
 
     this.sessions.set(session.sessionId, session);
 
-    this.eventStore.append('execute', session.sessionId, EventType.EXECUTE_SESSION_STARTED, {
+    this.record(session.sessionId, EventType.EXECUTE_SESSION_STARTED, {
       specId: spec.metadata.specId,
       goal: spec.goal,
       acCount: spec.acceptanceCriteria.length,
@@ -88,7 +108,7 @@ export class ExecuteSessionManager {
 
   /**
    * updatedAt(마지막 활동) 기준으로 ttlMs를 초과한 인메모리 세션을 제거한다.
-   * SQLite 이벤트 원장은 보존되므로 재시작 시 loadFromStore로 복원 가능.
+   * SQLite 이벤트 원장은 보존되므로 지운 세션도 get()이 다시 재구성한다.
    * @returns 제거된 세션 수
    */
   cleanup(ttlMs = DEFAULT_SESSION_TTL_MS): number {
@@ -97,6 +117,7 @@ export class ExecuteSessionManager {
     for (const [id, session] of this.sessions) {
       if (now - new Date(session.updatedAt).getTime() > ttlMs) {
         this.sessions.delete(id);
+        this.eventCounts.delete(id);
         removed++;
       }
     }
@@ -104,7 +125,14 @@ export class ExecuteSessionManager {
   }
 
   get(sessionId: string): ExecuteSession {
-    const session = this.sessions.get(sessionId);
+    const cached = this.sessions.get(sessionId);
+    if (
+      cached &&
+      this.eventCounts.get(sessionId) === this.eventStore.countByAggregate('execute', sessionId)
+    ) {
+      return cached;
+    }
+    const session = this.reload(sessionId);
     if (!session) throw new ExecuteSessionNotFoundError(sessionId);
     return session;
   }
@@ -115,7 +143,7 @@ export class ExecuteSessionManager {
     session.currentStep = session.planningSteps.length + 1;
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EXECUTE_PLANNING_STEP_COMPLETED, {
+    this.record(sessionId, EventType.EXECUTE_PLANNING_STEP_COMPLETED, {
       principle: stepResult.principle,
       stepNumber: session.planningSteps.length,
       stepResult,
@@ -128,7 +156,7 @@ export class ExecuteSessionManager {
     session.status = 'plan_complete';
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EXECUTE_PLAN_COMPLETED, {
+    this.record(sessionId, EventType.EXECUTE_PLAN_COMPLETED, {
       planId: plan.planId,
       taskCount: plan.atomicTasks.length,
       groupCount: plan.taskGroups.length,
@@ -141,7 +169,7 @@ export class ExecuteSessionManager {
     session.status = 'executing';
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EXECUTE_EXECUTION_STARTED, {
+    this.record(sessionId, EventType.EXECUTE_EXECUTION_STARTED, {
       planId: session.executionPlan?.planId,
       taskCount: session.executionPlan?.atomicTasks.length,
     });
@@ -175,7 +203,7 @@ export class ExecuteSessionManager {
     }
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EXECUTE_TASK_COMPLETED, {
+    this.record(sessionId, EventType.EXECUTE_TASK_COMPLETED, {
       taskId: taskResult.taskId,
       status: taskResult.status,
       output: taskResult.output,
@@ -195,7 +223,7 @@ export class ExecuteSessionManager {
     session.evaluateStage = 'structural';
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVALUATE_STRUCTURAL_STARTED, {
+    this.record(sessionId, EventType.EVALUATE_STRUCTURAL_STARTED, {
       taskResultCount: session.taskResults.length,
     });
   }
@@ -205,9 +233,10 @@ export class ExecuteSessionManager {
     session.structuralResult = structuralResult;
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVALUATE_STRUCTURAL_COMPLETED, {
+    this.record(sessionId, EventType.EVALUATE_STRUCTURAL_COMPLETED, {
       allPassed: structuralResult.allPassed,
       commands: structuralResult.commands.map((c) => ({ name: c.name, exitCode: c.exitCode })),
+      structuralResult,
     });
   }
 
@@ -216,7 +245,7 @@ export class ExecuteSessionManager {
     session.evaluateStage = 'contextual';
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVALUATE_CONTEXTUAL_STARTED, {
+    this.record(sessionId, EventType.EVALUATE_CONTEXTUAL_STARTED, {
       structuralPassed: session.structuralResult?.allPassed ?? false,
     });
   }
@@ -238,12 +267,12 @@ export class ExecuteSessionManager {
     };
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVALUATE_SHORT_CIRCUITED, {
+    this.record(sessionId, EventType.EVALUATE_SHORT_CIRCUITED, {
       reason,
       structuralResult: session.structuralResult,
     });
 
-    this.eventStore.append('execute', sessionId, EventType.EXECUTE_SESSION_COMPLETED, {
+    this.record(sessionId, EventType.EXECUTE_SESSION_COMPLETED, {
       overallScore: 0,
       shortCircuited: true,
     });
@@ -256,7 +285,7 @@ export class ExecuteSessionManager {
     session.status = 'completed';
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EXECUTE_EVALUATION_COMPLETED, {
+    this.record(sessionId, EventType.EXECUTE_EVALUATION_COMPLETED, {
       overallScore: evaluationResult.overallScore,
       goalAlignment: evaluationResult.goalAlignment,
       satisfiedCount: evaluationResult.verifications.filter((v) => v.satisfied).length,
@@ -264,7 +293,7 @@ export class ExecuteSessionManager {
       evaluationResult,
     });
 
-    this.eventStore.append('execute', sessionId, EventType.EXECUTE_SESSION_COMPLETED, {
+    this.record(sessionId, EventType.EXECUTE_SESSION_COMPLETED, {
       overallScore: evaluationResult.overallScore,
     });
 
@@ -281,7 +310,7 @@ export class ExecuteSessionManager {
     session.driftHistory.push(driftScore);
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EXECUTE_DRIFT_MEASURED, {
+    this.record(sessionId, EventType.EXECUTE_DRIFT_MEASURED, {
       taskId: driftScore.taskId,
       overall: driftScore.overall,
       thresholdExceeded: driftScore.thresholdExceeded,
@@ -297,7 +326,7 @@ export class ExecuteSessionManager {
     session.status = 'executing';
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVOLVE_STRUCTURAL_FIX_STARTED, {
+    this.record(sessionId, EventType.EVOLVE_STRUCTURAL_FIX_STARTED, {
       generation: session.currentGeneration,
       structuralResult: session.structuralResult,
     });
@@ -314,7 +343,7 @@ export class ExecuteSessionManager {
     session.status = 'executing';
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVOLVE_STRUCTURAL_FIX_COMPLETED, {
+    this.record(sessionId, EventType.EVOLVE_STRUCTURAL_FIX_COMPLETED, {
       generation,
       fixCount: fixTasks.length,
       fixTasks,
@@ -335,7 +364,7 @@ export class ExecuteSessionManager {
     session.evolveStage = 'patch';
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVOLVE_SPEC_PATCHED, {
+    this.record(sessionId, EventType.EVOLVE_SPEC_PATCHED, {
       generation: session.currentGeneration,
       patch,
       spec: newSpec,
@@ -351,7 +380,7 @@ export class ExecuteSessionManager {
     session.taskResults = session.taskResults.filter((r) => !taskIds.includes(r.taskId));
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVOLVE_RE_EXECUTION_STARTED, {
+    this.record(sessionId, EventType.EVOLVE_RE_EXECUTION_STARTED, {
       generation: session.currentGeneration,
       taskIds,
     });
@@ -367,7 +396,7 @@ export class ExecuteSessionManager {
     }
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVOLVE_TASK_COMPLETED, {
+    this.record(sessionId, EventType.EVOLVE_TASK_COMPLETED, {
       generation: session.currentGeneration,
       taskId: taskResult.taskId,
       status: taskResult.status,
@@ -390,10 +419,11 @@ export class ExecuteSessionManager {
     session.roleMatches = matches;
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.ROLE_MATCH_COMPLETED, {
+    this.record(sessionId, EventType.ROLE_MATCH_COMPLETED, {
       taskId,
       matchCount: matches.length,
       agents: matches.map((m) => m.agentName),
+      matches,
     });
   }
 
@@ -402,10 +432,11 @@ export class ExecuteSessionManager {
     session.roleConsensus = consensus;
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.ROLE_CONSENSUS_COMPLETED, {
+    this.record(sessionId, EventType.ROLE_CONSENSUS_COMPLETED, {
       taskId,
       participatingAgents: consensus.perspectives.map((p) => p.agentName),
       conflictCount: consensus.conflictResolutions.length,
+      consensus,
     });
   }
 
@@ -414,6 +445,7 @@ export class ExecuteSessionManager {
     session.roleMatches = undefined;
     session.roleConsensus = undefined;
     session.updatedAt = new Date().toISOString();
+    this.record(sessionId, EventType.ROLE_STATE_CLEARED, {});
   }
 
   // ─── Sub-task Methods ───────────────────────────────────────
@@ -423,11 +455,12 @@ export class ExecuteSessionManager {
     session.subTasks.push(...subTasks);
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EXECUTE_TASK_COMPLETED, {
+    this.record(sessionId, EventType.EXECUTE_TASK_COMPLETED, {
       type: 'sub_tasks_spawned',
       parentTaskId: subTasks[0]?.parentTaskId,
       count: subTasks.length,
       taskIds: subTasks.map((t) => t.taskId),
+      subTasks,
     });
   }
 
@@ -435,6 +468,7 @@ export class ExecuteSessionManager {
     const session = this.get(sessionId);
     session.auditResult = auditResult;
     session.updatedAt = new Date().toISOString();
+    this.record(sessionId, EventType.EXECUTE_AUDIT_COMPLETED, { auditResult });
   }
 
   // ─── Lateral Thinking Methods ───────────────────────────────
@@ -447,7 +481,7 @@ export class ExecuteSessionManager {
     session.lateralCurrentPattern = pattern;
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVOLVE_LATERAL_STARTED, {
+    this.record(sessionId, EventType.EVOLVE_LATERAL_STARTED, {
       generation: session.currentGeneration,
       persona,
       pattern,
@@ -463,7 +497,7 @@ export class ExecuteSessionManager {
     session.lateralCurrentPattern = undefined;
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVOLVE_LATERAL_COMPLETED, {
+    this.record(sessionId, EventType.EVOLVE_LATERAL_COMPLETED, {
       generation: session.currentGeneration,
       persona,
       description,
@@ -478,7 +512,7 @@ export class ExecuteSessionManager {
     session.evolveStage = undefined;
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EVOLVE_TERMINATED, {
+    this.record(sessionId, EventType.EVOLVE_TERMINATED, {
       reason,
       generation: session.currentGeneration,
       scoreHistory: session.evolutionHistory.map((g) => g.evaluationScore),
@@ -491,7 +525,7 @@ export class ExecuteSessionManager {
     session.status = 'failed';
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('execute', sessionId, EventType.EXECUTE_SESSION_FAILED, {
+    this.record(sessionId, EventType.EXECUTE_SESSION_FAILED, {
       reason,
     });
 
