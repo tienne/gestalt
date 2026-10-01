@@ -1,4 +1,10 @@
-import type { ExecuteSession, TaskExecutionResult, FixTask, SpecPatch } from '../../core/types.js';
+import type {
+  ExecuteSession,
+  ExecutionPlan,
+  TaskExecutionResult,
+  FixTask,
+  SpecPatch,
+} from '../../core/types.js';
 import {
   ExecuteError,
   ExecuteSessionNotFoundError,
@@ -244,16 +250,9 @@ export class EvolutionOrchestrator {
     try {
       const session = this.sessionManager.get(sessionId);
 
-      if (!session.executionPlan) {
-        return err(new ExecuteError('No execution plan found'));
-      }
-
-      // Validate patch
-      const validation = validateSpecPatch(patch, session.spec);
-      if (!validation.valid) {
-        const msgs = validation.errors.map((e) => `${e.field}: ${e.message}`).join('; ');
-        return err(new ExecuteError(`Invalid spec patch: ${msgs}`));
-      }
+      const checked = this.precheckPatch(session, patch);
+      if (!checked.ok) return checked;
+      const plan = checked.value;
 
       // Apply patch
       const generation = session.currentGeneration + 1;
@@ -274,7 +273,7 @@ export class EvolutionOrchestrator {
       // Identify impacted tasks
       const driftThreshold = DRIFT_THRESHOLD;
       const impactedTaskIds = identifyImpactedTasks(
-        session.executionPlan.atomicTasks,
+        plan.atomicTasks,
         session.driftHistory,
         delta,
         driftThreshold,
@@ -449,17 +448,19 @@ export class EvolutionOrchestrator {
 
   /**
    * evolve_lateral_result: Lateral thinking 결과(specPatch) 제출.
-   * completeLateral() 후 기존 submitSpecPatch() 위임.
+   * 패치 검증을 통과해야 completeLateral()로 시도를 기록하고 submitSpecPatch()에 넘긴다.
    */
   submitLateralResult(
     sessionId: string,
     lateralResult: LateralResult,
   ): Result<PassthroughEvolvePatchResult, ExecuteError> {
     try {
-      // Validate session exists
-      this.sessionManager.get(sessionId);
+      const session = this.sessionManager.get(sessionId);
 
-      // Complete lateral phase
+      // 잘못된 패치 한 번에 페르소나 기회가 날아가지 않게, 시도 기록 전에 거른다
+      const checked = this.precheckPatch(session, lateralResult.specPatch);
+      if (!checked.ok) return checked;
+
       this.sessionManager.completeLateral(
         sessionId,
         lateralResult.persona,
@@ -476,6 +477,18 @@ export class EvolutionOrchestrator {
         ),
       );
     }
+  }
+
+  private precheckPatch(
+    session: ExecuteSession,
+    patch: SpecPatch,
+  ): Result<ExecutionPlan, ExecuteError> {
+    if (!session.executionPlan) return err(new ExecuteError('No execution plan found'));
+
+    const validation = validateSpecPatch(patch, session.spec);
+    if (validation.valid) return ok(session.executionPlan);
+    const msgs = validation.errors.map((e) => `${e.field}: ${e.message}`).join('; ');
+    return err(new ExecuteError(`Invalid spec patch: ${msgs}`));
   }
 
   private countStructuralFixes(session: ExecuteSession): number {
