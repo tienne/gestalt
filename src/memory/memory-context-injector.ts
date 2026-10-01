@@ -117,6 +117,16 @@ export function buildMemoryContext(
   };
 }
 
+// memory.json은 팀이 커밋해 공유하고 merge driver가 남의 브랜치 항목을 그대로 합친다.
+// 값 안의 개행이나 헤더가 시스템 프롬프트의 새 섹션으로 읽히지 않게 한 줄로 접는다
+const MAX_FIELD_LENGTH = 300;
+function oneLine(value: string): string {
+  return value
+    .replace(/\s*[\r\n]+\s*/g, ' ')
+    .replace(/^#+\s*/, '')
+    .slice(0, MAX_FIELD_LENGTH);
+}
+
 export function formatMemoryContextForPrompt(context: MemoryContext): string {
   if (!context.hasContext) return '';
 
@@ -125,23 +135,23 @@ export function formatMemoryContextForPrompt(context: MemoryContext): string {
   if (context.recentSpecs.length > 0) {
     lines.push('\n### Recent Specs');
     for (const s of context.recentSpecs) {
-      lines.push(`- [${s.createdAt.slice(0, 10)}] ${s.goal}`);
+      lines.push(`- [${s.createdAt.slice(0, 10)}] ${oneLine(s.goal)}`);
     }
   }
 
   if (context.relatedSpecs.length > 0) {
     lines.push('\n### Related Past Specs');
     for (const s of context.relatedSpecs) {
-      lines.push(`- [${s.createdAt.slice(0, 10)}] ${s.goal}`);
+      lines.push(`- [${s.createdAt.slice(0, 10)}] ${oneLine(s.goal)}`);
     }
   }
 
   if (context.architectureDecisions.length > 0) {
     lines.push('\n### Architecture Decisions');
     for (const d of context.architectureDecisions) {
-      const rationale = d.rationale ? ` (${d.rationale})` : '';
-      const outcome = d.outcome ? ` → Outcome: ${d.outcome}` : '';
-      lines.push(`- ${d.decision}${rationale}${outcome}`);
+      const rationale = d.rationale ? ` (${oneLine(d.rationale)})` : '';
+      const outcome = d.outcome ? ` → Outcome: ${oneLine(d.outcome)}` : '';
+      lines.push(`- ${oneLine(d.decision)}${rationale}${outcome}`);
     }
   }
 
