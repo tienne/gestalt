@@ -4,6 +4,7 @@ import { TextBasedSpecGenerator } from '../../spec/text-based-spec-generator.js'
 import type { SpecInput } from '../schemas.js';
 import type { AgentRegistry } from '../../agent/registry.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
+import { log } from '../../core/log.js';
 import { gestaltNotify } from '../../utils/notifier.js';
 import { sanitizeSurfaceContext } from '../../gestalt/surface-labels.js';
 import { resolveInterviewSessionId } from '../session-selector.js';
@@ -40,8 +41,9 @@ export function handleSpecPassthrough(
             createdAt: result.value.metadata.generatedAt,
             sourceType: 'text',
           });
-        } catch {
-          // Memory update failure should not block spec generation
+        } catch (e) {
+          // 메모리 기록이 실패해도 스펙 생성은 막지 않는다
+          log('스펙을 메모리에 기록하지 못했어요:', e);
         }
 
         gestaltNotify({
@@ -105,8 +107,9 @@ export function handleSpecPassthrough(
           interviewSessionId: session.sessionId,
           sourceType: 'interview',
         });
-      } catch {
-        // Memory update failure should not block spec generation
+      } catch (e) {
+        // 메모리 기록이 실패해도 스펙 생성은 막지 않는다
+        log('스펙을 메모리에 기록하지 못했어요:', e);
       }
 
       gestaltNotify({
