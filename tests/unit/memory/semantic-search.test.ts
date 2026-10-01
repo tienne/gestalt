@@ -85,7 +85,7 @@ describe('searchSimilarSpecs', () => {
     await expect(first).resolves.toHaveLength(1);
   });
 
-  it('로딩에 실패하면 한동안 다시 받으려 들지 않는다', async () => {
+  it('로딩에 실패하면 재시도 대기 동안 다시 받으려 들지 않는다', async () => {
     ensureLoaded.mockRejectedValueOnce(new Error('offline'));
     const memory = memoryOf(['Payment checkout']);
 

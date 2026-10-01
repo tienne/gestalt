@@ -77,6 +77,14 @@ describe('mergeMemory', () => {
     );
     expect(merged.lastUpdated).toBe('2026-02-01T00:00:00.000Z');
   });
+
+  it('한쪽에만 lastUpdated가 있으면 그 값을 남긴다', () => {
+    const merged = mergeMemory(
+      memory({ lastUpdated: '2026-01-01T00:00:00.000Z' }),
+      memory({ lastUpdated: undefined as never }),
+    );
+    expect(merged.lastUpdated).toBe('2026-01-01T00:00:00.000Z');
+  });
 });
 
 describe('runMemoryMergeDriver', () => {

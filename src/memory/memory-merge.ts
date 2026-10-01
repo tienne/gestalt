@@ -57,8 +57,9 @@ export function mergeMemory(local: ProjectMemory, remote: ProjectMemory): Projec
     return other && other.compressedAt > c.compressedAt ? other : c;
   });
 
+  // 스키마가 lastUpdated를 빠뜨린 파일도 받으므로 빈 값은 더 오래된 것으로 친다
   const lastUpdated =
-    local.lastUpdated > remote.lastUpdated ? local.lastUpdated : remote.lastUpdated;
+    (local.lastUpdated ?? '') > (remote.lastUpdated ?? '') ? local.lastUpdated : remote.lastUpdated;
 
   return {
     version: local.version,
