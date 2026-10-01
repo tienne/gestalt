@@ -30,6 +30,14 @@ interface LockOwner {
   pid: number;
 }
 
+function lockMtime(lockPath: string): number | null {
+  try {
+    return statSync(lockPath).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 function readOwner(ownerPath: string): LockOwner | null {
   try {
     const parsed: unknown = JSON.parse(readFileSync(ownerPath, 'utf-8'));
@@ -79,8 +87,12 @@ export interface FileLockOptions {
  * 타이머가 돌 틈이 없다 — 갱신이 필요한 바로 그 순간에 이벤트 루프가 막혀 있다.
  * 대신 주인이 살아 있는지를 직접 묻는다.
  *
- * `fn`에는 `stillMine`을 준다. 부수기와 다시 잡기가 겹치는 좁은 틈이 남아 있어,
- * 쓰기 직전에 잠금이 아직 내 것인지 다시 확인할 수 있어야 한다.
+ * 부수기 직전에 mtime과 주인 토큰을 다시 읽어 판정 때 본 잠금 그대로인지 확인한다.
+ * 그래도 다시 읽기와 삭제 사이의 아주 좁은 틈은 남는다. 그래서 `fn`에는 `stillMine`을
+ * 준다. 쓰기 직전에 잠금이 아직 내 것인지 다시 확인할 수 있어야 한다.
+ *
+ * 기다리는 동안은 `Atomics.wait`로 스레드를 멈춘다. 경합이 길면 이벤트 루프가 최대
+ * 2초(`LOCK_WAIT_MS`) 동안 아무것도 못 한다. MCP 서버도 그동안 다른 요청을 못 받는다.
  *
  * @param lockPath 잠금으로 쓸 디렉토리 경로. 부모 디렉토리는 없으면 만든다
  */
@@ -98,25 +110,33 @@ export function withFileLock<T>(
   let waitMs = LOCK_BACKOFF_START_MS;
 
   for (;;) {
+    let acquired = false;
     try {
       mkdirSync(lockPath);
+      acquired = true;
       writeFileSync(ownerPath, JSON.stringify({ token, pid: process.pid }), 'utf-8');
       break;
     } catch (e) {
+      // 디렉토리는 만들었는데 주인을 못 적었다. 그대로 두면 주인 없는 잠금이 남아
+      // 버려진 걸로 판정될 때까지 남들이 전부 기다리다 포기한다
+      if (acquired) {
+        rmSync(lockPath, { recursive: true, force: true });
+        throw e;
+      }
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
 
-      let heldFor: number;
-      try {
-        heldFor = Date.now() - statSync(lockPath).mtimeMs;
-      } catch {
-        // 그 사이에 풀렸다. 다음 바퀴에서 잡는다
-        heldFor = 0;
-      }
+      const seenMtime = lockMtime(lockPath);
+      // 그 사이에 풀렸으면 다음 바퀴에서 잡는다
+      const heldFor = seenMtime === null ? 0 : Date.now() - seenMtime;
       const owner = readOwner(ownerPath);
       const holderAlive = owner !== null && alivePid(owner.pid);
       const abandoned = heldFor > LOCK_HARD_STALE_MS || (!holderAlive && heldFor > LOCK_STALE_MS);
       if (abandoned) {
-        rmSync(lockPath, { recursive: true, force: true });
+        // 판정과 삭제 사이에 남이 먼저 부수고 새로 잡았을 수 있다. 그 잠금까지 지우면
+        // 둘이 나란히 들어간다. 판정 때 본 잠금 그대로일 때만 지운다
+        const same =
+          lockMtime(lockPath) === seenMtime && readOwner(ownerPath)?.token === owner?.token;
+        if (same) rmSync(lockPath, { recursive: true, force: true });
         continue;
       }
       if (Date.now() - start > LOCK_WAIT_MS) {
