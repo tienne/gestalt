@@ -59,6 +59,7 @@ Complete reference for all Gestalt MCP tools.
 | `resolutionScore` | `object` | N | — | 호출자가 계산한 해상도 점수 (아래 참고) |
 | `compressedSummary` | `string` | `compress` 두 번째 호출 | — | `compressionContext`로 호출자가 만든 요약. 첫 호출에선 생략한다 |
 | `record` | `boolean` | N | `false` | `complete` 시 GIF 녹화 생성 여부 |
+| `force` | `boolean` | `complete`만, N | `false` | 해상도 0.8 미만이어도 완료한다. 사용자가 직접 정했을 때만 넘긴다 |
 
 #### `resolutionScore` object
 
@@ -70,6 +71,8 @@ Complete reference for all Gestalt MCP tools.
 | `priorityClarity` | `number` (0–1) | Y | 우선순위 명확도 |
 | `contextClarity` | `number` (0–1) | N | 컨텍스트 이해도 |
 | `contradictions` | `string[]` | N | 감지된 모순 목록 |
+
+답변 라운드가 0인 세션에 기준을 넘는 점수를 넣으면 `score`가 거절한다. 기준 미만 점수는 받는다.
 
 ### Responses
 
@@ -117,12 +120,15 @@ Complete reference for all Gestalt MCP tools.
 
 **`complete`**
 
+점수가 없거나 `isReady !== true`인 세션은 거절한다. 거절 메시지에 "force=true로 넘기세요"가 붙는다. `force: true`로 넘기면 기준 미만이어도 완료하고 세션에 `forcedComplete: true`, `INTERVIEW_SESSION_COMPLETED` 이벤트에 `forced: true`가 남는다. 이미 준비된 세션은 `force`를 넘겨도 `forced`가 `false`다. 이렇게 끝낸 세션으로 Spec을 뽑으려면 `ges_generate_spec`에도 `force`를 따로 넘긴다.
+
 ```json
 {
   "status": "completed",
   "sessionId": "abc-123",
   "totalRounds": 8,
   "finalResolutionScore": "0.82",
+  "forced": false,
   "recordingPath": ".gestalt/recordings/my-topic-20260328.gif"
 }
 ```
