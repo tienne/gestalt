@@ -159,6 +159,8 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 
 → `{ status, sessionId, stepsCompleted, isLastStep, executeContext?, message }`
 
+continuity에서 DAG가 무효면 `error`가 함께 실린 `status: "plan_rewound"` 응답이 온다. [DAG가 무효일 때](#dag가-무효일-때--closure로-되감기)를 본다.
+
 **`plan_complete`** — 최종 실행 계획 조립
 
 ```json
@@ -166,6 +168,8 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 ```
 
 → `{ status, sessionId, executionPlan, message }`
+
+저장된 계획의 DAG가 무효면 확정하지 않고 같은 `plan_rewound` 응답을 돌려준다.
 
 **`status`** — 세션 상태 확인
 
@@ -175,17 +179,17 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 
 ### ExecuteContext 필드
 
-| 필드                | 타입   | 설명                         |
-| ------------------- | ------ | ---------------------------- |
-| `systemPrompt`      | string | 실행 계획 시스템 프롬프트    |
-| `planningPrompt`    | string | 현재 단계의 계획 프롬프트    |
-| `currentPrinciple`  | string | 현재 적용 중인 게슈탈트 원리 |
-| `principleStrategy` | string | 해당 원리의 전략 설명        |
-| `phase`             | string | 현재 단계 (`planning`)       |
-| `stepNumber`        | number | 현재 스텝 번호 (1-4)         |
-| `totalSteps`        | number | 전체 스텝 수 (4)             |
-| `spec`              | Spec   | 원본 Spec 스펙               |
-| `previousSteps`     | array  | 이전 단계 결과들             |
+| 필드                | 타입   | 설명                                                                                                 |
+| ------------------- | ------ | ---------------------------------------------------------------------------------------------------- |
+| `systemPrompt`      | string | 실행 계획 시스템 프롬프트                                                                            |
+| `planningPrompt`    | string | 현재 단계의 계획 프롬프트                                                                            |
+| `currentStage`      | string | 현재 단계를 풀어 쓴 문구 (예: `빠진 요구사항 채우기`). 서버 안의 원리 값은 응답에서 이 필드로 바뀐다 |
+| `principleStrategy` | string | 해당 원리의 전략 설명                                                                                |
+| `phase`             | string | 현재 단계 (`planning`)                                                                               |
+| `stepNumber`        | number | 현재 스텝 번호 (1-4)                                                                                 |
+| `totalSteps`        | number | 전체 스텝 수 (4)                                                                                     |
+| `spec`              | Spec   | 원본 Spec 스펙                                                                                       |
+| `previousSteps`     | array  | 이전 단계 결과들                                                                                     |
 
 ### Planning Principle 순서
 
@@ -209,10 +213,12 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 {
   "error": "Dependency DAG is invalid (...)",
   "status": "plan_rewound",
+  "sessionId": "...",
   "rewoundToStep": 2,
+  "hasCycles": true,
   "cycleDetails": ["Cycle detected involving tasks: task-0 → task-1"],
   "conflictDetails": [],
-  "executeContext": { "currentPrinciple": "closure", "...": "..." },
+  "executeContext": { "currentStage": "빠진 요구사항 채우기", "stepNumber": 2, "...": "..." },
   "nextAction": "plan_step"
 }
 ```
@@ -221,6 +227,8 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 - 응답의 `executeContext`로 closure부터 다시 낸다. 그다음 proximity와 continuity를 차례로 다시 제출한다.
 - `isValid: false`를 그대로 두고 continuity만 다시 내면 또 되감긴다. 호출자 보고가 무효여도 막는다.
 - 이 응답에는 `error` 필드가 함께 실린다. `plan_complete`나 `execute_start`로 넘어가지 않는다.
+- 되감은 뒤의 closure 프롬프트에는 순환 정보도 직전 `atomicTasks`도 없다. 서브에이전트로 다시 낼 때는 응답의 `cycleDetails`와 `conflictDetails`, 직전에 제출한 `atomicTasks`를 함께 넘기고 순환을 만든 `dependsOn`을 고치라고 적는다.
+- 같은 세션에서 두 번 연속 되감기면 세 번째로 내지 않는다. `cycleDetails`를 사용자에게 보여주고 어떻게 할지 묻는다.
 
 ### Reasoning Model 서브에이전트로 플래닝 추론
 
@@ -234,7 +242,7 @@ Phase 1 플래닝(`plan_step` 4단계 + `plan_complete`)은 Spec을 태스크 DA
 ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ... }
 ```
 
-**스폰.** 각 `plan_step`(그리고 `plan_complete` 조립을 위한 추론이 필요하면 그 단계)에서 Agent 도구로 서브에이전트를 띄우되 `model` 파라미터에 `reasoningModel` 값을 넘긴다. 서브에이전트에는 해당 단계의 `executeContext`(`systemPrompt`, `planningPrompt`, `currentPrinciple`, `spec`, `previousSteps`)를 전달하고 그 단계의 `stepResult`를 산출하게 한다. 결과를 `plan_step`으로 제출한다.
+**스폰.** 각 `plan_step`(그리고 `plan_complete` 조립을 위한 추론이 필요하면 그 단계)에서 Agent 도구로 서브에이전트를 띄우되 `model` 파라미터에 `reasoningModel` 값을 넘긴다. 서브에이전트에는 해당 단계의 `executeContext`(`systemPrompt`, `planningPrompt`, `currentStage`, `spec`, `previousSteps`)를 전달하고 그 단계의 `stepResult`를 산출하게 한다. 결과를 `plan_step`으로 제출한다.
 
 **폴백은 스킬 런타임에서 발동한다.** 서버는 폴백 대상(`reasoningModelFallback`)만 알려줄 뿐, 모델 가용성을 감지하거나 재시도하지 않는다. Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`(예: `opus`)로 바꿔 1회 재시도한다. 폴백 판단과 재시도는 전적으로 이 스킬 런타임의 책임이다.
 
@@ -654,7 +662,13 @@ activeForm: "실행 계획 수립 중"
 `TaskUpdate`로 현재 Planning 단계를 업데이트한다.
 
 ```
-description: "Planning 중 | 단계 {stepsCompleted}/4 | {currentPrinciple}"
+description: "Planning 중 | 단계 {stepsCompleted}/4 | {executeContext.currentStage}"
+```
+
+`plan_rewound`를 받으면 `stepsCompleted`가 없으므로 이렇게 바꾼다.
+
+```
+description: "Planning 되감김 | 단계 {rewoundToStep - 1}/4 | {executeContext.currentStage}"
 ```
 
 ### Execution 시작 후 (`execute_start` 응답 수신 후)
