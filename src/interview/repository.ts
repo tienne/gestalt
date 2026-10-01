@@ -6,6 +6,7 @@ import type {
   ResolutionScore,
   ProjectType,
   GestaltPrinciple,
+  CompressedContext,
 } from '../core/types.js';
 import { EventType } from '../events/types.js';
 import { RESOLUTION_THRESHOLD } from '../core/constants.js';
@@ -21,10 +22,18 @@ export class InterviewSessionRepository {
    * 이벤트를 fold하여 InterviewSession 상태를 완전히 복원한다.
    */
   reconstruct(sessionId: string): InterviewSession | null {
+    return this.load(sessionId)?.session ?? null;
+  }
+
+  /**
+   * 재구성한 세션과 그때 읽은 이벤트 수를 함께 돌려준다.
+   * 매니저는 이 수를 스토어의 현재 수와 비교해 다른 프로세스가 덧붙였는지 본다.
+   */
+  load(sessionId: string): { session: InterviewSession; eventCount: number } | null {
     const events = this.eventStore.replay('interview', sessionId);
     if (events.length === 0) return null;
 
-    return this.foldEvents(sessionId, events);
+    return { session: this.foldEvents(sessionId, events), eventCount: events.length };
   }
 
   /**
@@ -138,6 +147,14 @@ export class InterviewSessionRepository {
 
       case EventType.INTERVIEW_SESSION_COMPLETED:
         session.status = 'completed';
+        break;
+
+      case EventType.INTERVIEW_SESSION_ABORTED:
+        session.status = 'aborted';
+        break;
+
+      case EventType.INTERVIEW_CONTEXT_COMPRESSED:
+        session.compressedContext = payload.compressedContext as CompressedContext;
         break;
 
       // BROWNFIELD_DETECTED, GESTALT_PRINCIPLE_APPLIED — 세션 상태에는 직접 영향 없음

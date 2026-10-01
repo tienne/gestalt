@@ -4,6 +4,8 @@ export enum EventType {
   INTERVIEW_RESPONSE_RECORDED = 'interview.response.recorded',
   INTERVIEW_RESOLUTION_SCORED = 'interview.resolution.scored',
   INTERVIEW_SESSION_COMPLETED = 'interview.session.completed',
+  INTERVIEW_SESSION_ABORTED = 'interview.session.aborted',
+  INTERVIEW_CONTEXT_COMPRESSED = 'interview.context.compressed',
   GESTALT_PRINCIPLE_APPLIED = 'gestalt.principle.applied',
   SPEC_GENERATED = 'spec.generated',
   SPEC_FORCE_OVERRIDE = 'spec.force.override',
