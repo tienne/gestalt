@@ -103,6 +103,12 @@ describe('surface leak regression', () => {
       handleInterviewPassthrough(engine, { action: 'start', topic: 'A notification system' }),
     );
     const sessionId = started.sessionId as string;
+    handleInterviewPassthrough(engine, {
+      action: 'respond',
+      sessionId,
+      response: 'Email and push alerts for order updates',
+      generatedQuestion: 'What should it notify about?',
+    });
 
     const res = JSON.parse(
       handleInterviewPassthrough(engine, {

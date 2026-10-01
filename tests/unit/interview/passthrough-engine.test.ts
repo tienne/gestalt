@@ -182,6 +182,31 @@ describe('PassthroughEngine', () => {
     if (forced.ok) expect(forced.value.forcedComplete).toBe(true);
   });
 
+  it('rejects a ready score submitted before any answered round', () => {
+    const startResult = engine.start('test project');
+    if (!startResult.ok) throw new Error('start failed');
+
+    const { sessionId } = startResult.value.session;
+    const result = engine.score(sessionId, READY_SCORE);
+    expect(isErr(result)).toBe(true);
+    expect(engine.getSession(sessionId).resolutionScore).toBeNull();
+    expect(isErr(engine.complete(sessionId))).toBe(true);
+  });
+
+  it('accepts a below-threshold score before any answered round', () => {
+    const startResult = engine.start('test project');
+    if (!startResult.ok) throw new Error('start failed');
+
+    const { sessionId } = startResult.value.session;
+    const result = engine.score(sessionId, {
+      goalClarity: 0.2,
+      constraintClarity: 0.2,
+      successCriteria: 0.2,
+      priorityClarity: 0.2,
+    });
+    expect(isOk(result)).toBe(true);
+  });
+
   it('returns error for nonexistent session', () => {
     const result = engine.respond('nonexistent', 'hello', 'question');
     expect(isErr(result)).toBe(true);
