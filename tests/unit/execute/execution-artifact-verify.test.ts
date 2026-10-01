@@ -170,9 +170,10 @@ describe('execute_task 완료 보고 대조', { timeout: 30_000 }, () => {
   async function submit(
     sessionId: string,
     taskResult: Partial<TaskExecutionResult> & { taskId: string },
+    via: PassthroughExecuteEngine = engine,
   ): Promise<TaskResponse> {
     const raw = await handleExecutePassthrough(
-      engine,
+      via,
       {
         action: 'execute_task',
         sessionId,
@@ -360,5 +361,23 @@ describe('execute_task 완료 보고 대조', { timeout: 30_000 }, () => {
     const res = JSON.parse(raw) as TaskResponse;
     expect(res.status).toBe('executing');
     expect(res.artifactCheck).toBe('baseline_truncated');
+  });
+
+  it('dirty 파일이 상한을 넘어도 같은 프로세스에서는 이벤트가 쌓인 뒤에도 계속 대조한다', async () => {
+    mkdirSync(join(repo, 'gen'));
+    for (let i = 0; i <= BASELINE_EVENT_DIRTY_LIMIT; i++) {
+      writeFileSync(join(repo, 'gen', `f${i}.txt`), `${i}\n`);
+    }
+    const sessionId = await startInRepo();
+
+    // 대조 실패 이벤트가 쌓이면 세션 매니저가 스토어에서 세션을 다시 만든다. 그 뒤에도 기준 트리가 남아야 한다
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await submit(sessionId, { taskId: 'task-0', artifacts: ['app.ts'] });
+      expect(res.status).toBe('verification_failed');
+    }
+    writeFileSync(join(repo, 'app.ts'), 'export const app = 2;\n');
+    const ok = await submit(sessionId, { taskId: 'task-0', artifacts: ['app.ts'] });
+    expect(ok.status).toBe('executing');
+    expect(ok.artifactCheck).toBe('verified');
   });
 });

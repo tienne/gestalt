@@ -20,6 +20,7 @@ import type {
   StructuralCommand,
   BaselineCapture,
   BaselineSkipReason,
+  WorkingTreeBaseline,
 } from '../core/types.js';
 import { ExecuteSessionNotFoundError } from '../core/errors.js';
 import { BASELINE_EVENT_DIRTY_LIMIT, DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
@@ -68,6 +69,9 @@ function toEventStructuralResult(
 export class ExecuteSessionManager {
   private sessions = new Map<string, ExecuteSession>();
   private eventCounts = new Map<string, number>();
+  // 이벤트에 못 남긴 기준 트리(baseline_truncated). 재구성은 이벤트만 보므로 여기 따로 두고 다시 얹는다.
+  // 세션당 실행 시작은 한 번뿐이라 세션 id로 묶어도 다른 시작의 기준 트리와 섞이지 않는다
+  private memoryOnlyBaselines = new Map<string, WorkingTreeBaseline>();
   private repo: ExecuteSessionRepository;
 
   constructor(private eventStore: IEventStore) {
@@ -85,6 +89,11 @@ export class ExecuteSessionManager {
   private reload(sessionId: string): ExecuteSession | null {
     const loaded = this.repo.load(sessionId);
     if (!loaded) return null;
+    const kept = this.memoryOnlyBaselines.get(sessionId);
+    if (kept && loaded.session.workingTreeBaselineSkipped === 'baseline_truncated') {
+      loaded.session.workingTreeBaseline = kept;
+      loaded.session.workingTreeBaselineSkipped = undefined;
+    }
     this.sessions.set(sessionId, loaded.session);
     this.eventCounts.set(sessionId, loaded.eventCount);
     return loaded.session;
@@ -207,6 +216,7 @@ export class ExecuteSessionManager {
     // 해시가 너무 많으면 이벤트에는 사유만 남긴다. 이 프로세스가 사는 동안은 메모리의 기준 트리로 대조한다
     const dirtyCount = baseline ? Object.keys(baseline.dirty).length : 0;
     const truncated = dirtyCount > BASELINE_EVENT_DIRTY_LIMIT;
+    if (baseline && truncated) this.memoryOnlyBaselines.set(sessionId, baseline);
     const eventSkipped: BaselineSkipReason | undefined = truncated
       ? 'baseline_truncated'
       : session.workingTreeBaselineSkipped;
