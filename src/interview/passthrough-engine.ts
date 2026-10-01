@@ -149,7 +149,7 @@ export class PassthroughEngine {
       if (session.rounds.length >= MAX_INTERVIEW_ROUNDS) {
         return err(
           new InterviewError(
-            `Maximum interview rounds (${MAX_INTERVIEW_ROUNDS}) reached. Complete the session.`,
+            `Maximum interview rounds (${MAX_INTERVIEW_ROUNDS}) reached. Complete the session (pass force=true if resolution is still below the threshold).`,
           ),
         );
       }
@@ -168,6 +168,8 @@ export class PassthroughEngine {
           },
           session.projectType,
         );
+        const rejected = rejectUnbackedReadyScore(session, resolutionScore);
+        if (rejected) return err(rejected);
         this.sessionManager.updateResolutionScore(sessionId, resolutionScore);
       }
 
@@ -248,6 +250,8 @@ export class PassthroughEngine {
           },
           session.projectType,
         );
+        const rejected = rejectUnbackedReadyScore(session, resolutionScore);
+        if (rejected) return err(rejected);
         this.sessionManager.updateResolutionScore(sessionId, resolutionScore);
         return ok({ resolutionScore });
       }
@@ -266,9 +270,9 @@ export class PassthroughEngine {
     }
   }
 
-  complete(sessionId: string): Result<InterviewSession, InterviewError> {
+  complete(sessionId: string, force = false): Result<InterviewSession, InterviewError> {
     try {
-      return ok(this.sessionManager.complete(sessionId));
+      return ok(this.sessionManager.complete(sessionId, { force }));
     } catch (e) {
       return err(
         new InterviewError(`Failed to complete: ${e instanceof Error ? e.message : String(e)}`),
@@ -331,4 +335,19 @@ export class PassthroughEngine {
 
     return context;
   }
+}
+
+// 답을 하나도 안 받은 세션은 근거가 없으니 임계값 이상 점수를 받지 않는다.
+// 공백만 보낸 답은 답으로 치지 않는다.
+// 임계값 미만은 막지 않는다 — 시작 직전 상태를 낮게 기록하는 건 정상 흐름이다.
+function rejectUnbackedReadyScore(
+  session: InterviewSession,
+  resolutionScore: ResolutionScore,
+): InterviewError | null {
+  if (!resolutionScore.isReady) return null;
+  const answered = session.rounds.some((r) => (r.userResponse ?? '').trim() !== '');
+  if (answered) return null;
+  return new InterviewError(
+    `답변한 라운드가 없는 세션에 임계값 이상 해상도(${resolutionScore.overall.toFixed(2)})를 기록할 수 없습니다. 먼저 respond로 사용자 답변을 받으세요.`,
+  );
 }

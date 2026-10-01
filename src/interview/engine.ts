@@ -94,7 +94,7 @@ export class InterviewEngine {
       if (session.rounds.length >= MAX_INTERVIEW_ROUNDS) {
         return err(
           new InterviewError(
-            `Maximum interview rounds (${MAX_INTERVIEW_ROUNDS}) reached. Complete the session.`,
+            `Maximum interview rounds (${MAX_INTERVIEW_ROUNDS}) reached. Complete the session (pass force=true if resolution is still below the threshold).`,
           ),
         );
       }
@@ -162,9 +162,9 @@ export class InterviewEngine {
     }
   }
 
-  complete(sessionId: string): Result<InterviewSession, InterviewError> {
+  complete(sessionId: string, force = false): Result<InterviewSession, InterviewError> {
     try {
-      return ok(this.sessionManager.complete(sessionId));
+      return ok(this.sessionManager.complete(sessionId, { force }));
     } catch (e) {
       return err(
         new InterviewError(`Failed to complete: ${e instanceof Error ? e.message : String(e)}`),

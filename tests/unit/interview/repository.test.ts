@@ -85,11 +85,12 @@ describe('InterviewSessionRepository', () => {
     const session = manager.create('test', 'greenfield');
     manager.addQuestion(session.sessionId, 'Q1', GestaltPrinciple.CLOSURE);
     manager.recordResponse(session.sessionId, 'A1');
-    manager.complete(session.sessionId);
+    manager.complete(session.sessionId, { force: true });
 
     const reconstructed = repo.reconstruct(session.sessionId);
 
     expect(reconstructed!.status).toBe('completed');
+    expect(reconstructed!.forcedComplete).toBe(true);
   });
 
   it('lists all session IDs', () => {

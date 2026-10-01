@@ -41,6 +41,8 @@ This skill transforms completed interview data into a structured project specifi
 
 - Interview session must be in `completed` status
 - Resolution score must be ≥ 0.8 (unless `force` is true)
+- 0.8 미만 세션은 인터뷰 `complete`에 `force: true`를 넘겨야만 `completed`가 된다. 이때 세션에 `forcedComplete`가 남는다
+- `ges_generate_spec`이 해상도 기준으로 거절하면 `ges_status({ sessionId })`로 `forcedComplete`를 본다. `true`면 사용자가 인터뷰에서 넘어가기로 한 세션이니 `force: true`로 다시 부른다. `false`인데 0.8 미만이면 `force`를 스스로 넘기지 않는다. 현재 점수를 보여주고 사용자에게 묻는다
 
 ## 규칙 확보 (1단계 호출 전)
 

@@ -89,10 +89,18 @@ ges_interview({ action: "start", topic: "..." })
 ges_interview({ action: "respond", generatedQuestion: "...", response: "...", resolutionScore?: {...} })
 → 다음 gestaltContext + 현재 resolutionScore 반환
 
-// Step 4: 인터뷰 완료
+// Step 4: 인터뷰 완료 (isReady === true일 때만)
 ges_interview({ action: "complete", sessionId: "..." })
-→ 완료 상태 반환
+→ 완료 상태 반환 (forced: false)
+
+// 0.8 미만에서 사용자가 직접 끝내기로 한 경우
+ges_interview({ action: "complete", sessionId: "...", force: true })
+→ 완료 상태 반환 (forced: true)
 ```
+
+> 점수가 없거나 0.8 미만인 세션은 `complete`가 거절돼요. `force`는 사용자가 넘어가자고 직접 말했을 때만 넘겨요. 15라운드를 다 채운 경우에도 먼저 물어봐요. 에이전트가 혼자 정하면 안 돼요. 이렇게 끝낸 세션은 `ges_generate_spec`에도 `force`를 따로 넘겨야 Spec이 나와요.
+
+> Passthrough 모드의 해상도 점수는 호스트 LLM이 매겨서 넘긴 값이에요. 서버는 답변이 하나도 없는 세션에 0.8 이상 점수가 들어오는 것만 거절해요. 답변이 하나라도 있으면 그 점수가 맞는지까지는 확인하지 않아요. 0.8 관문이 막는 건 점수 없이 끝내는 길이지 점수를 부풀려 신고하는 길은 아니에요.
 
 > `generatedQuestion`은 respond 시 **필수**예요. 서버가 질문 히스토리를 기록하는 데 사용해요.
 
@@ -105,7 +113,7 @@ ges_interview({ action: "complete", sessionId: "..." })
 | `start` | topic, cwd? | sessionId, gestaltContext |
 | `respond` | sessionId, generatedQuestion, response | gestaltContext, resolutionScore |
 | `score` | sessionId, resolutionScore? | scoringPrompt 또는 점수 반영 |
-| `complete` | sessionId | 완료 상태 |
+| `complete` | sessionId, force? | 완료 상태, forced |
 
 ---
 

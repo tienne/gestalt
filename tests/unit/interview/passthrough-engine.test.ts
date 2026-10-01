@@ -5,6 +5,14 @@ import { isOk, isErr } from '../../../src/core/result.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
+const READY_SCORE = {
+  goalClarity: 0.95,
+  constraintClarity: 0.95,
+  successCriteria: 0.95,
+  priorityClarity: 0.95,
+  contextClarity: 0.95,
+};
+
 describe('PassthroughEngine', () => {
   let store: EventStore;
   let engine: PassthroughEngine;
@@ -141,12 +149,72 @@ describe('PassthroughEngine', () => {
     if (!startResult.ok) return;
 
     const { sessionId } = startResult.value.session;
+    engine.respond(sessionId, 'A fitness tracker', 'What is it?', READY_SCORE);
     const result = engine.complete(sessionId);
     expect(isOk(result)).toBe(true);
 
     if (result.ok) {
       expect(result.value.status).toBe('completed');
+      expect(result.value.forcedComplete).toBeUndefined();
     }
+  });
+
+  it('rejects completing a session below the threshold', () => {
+    const startResult = engine.start('test project');
+    if (!startResult.ok) throw new Error('start failed');
+
+    const { sessionId } = startResult.value.session;
+    engine.respond(sessionId, 'Not sure yet', 'What is it?', {
+      goalClarity: 0.3,
+      constraintClarity: 0.3,
+      successCriteria: 0.3,
+      priorityClarity: 0.3,
+      contextClarity: 0.3,
+    });
+
+    const rejected = engine.complete(sessionId);
+    expect(isErr(rejected)).toBe(true);
+    if (!rejected.ok) expect(rejected.error.message).toContain('force=true');
+    expect(engine.getSession(sessionId).status).toBe('in_progress');
+
+    const forced = engine.complete(sessionId, true);
+    expect(isOk(forced)).toBe(true);
+    if (forced.ok) expect(forced.value.forcedComplete).toBe(true);
+  });
+
+  it('rejects a ready score submitted before any answered round', () => {
+    const startResult = engine.start('test project');
+    if (!startResult.ok) throw new Error('start failed');
+
+    const { sessionId } = startResult.value.session;
+    const result = engine.score(sessionId, READY_SCORE);
+    expect(isErr(result)).toBe(true);
+    expect(engine.getSession(sessionId).resolutionScore).toBeNull();
+    expect(isErr(engine.complete(sessionId))).toBe(true);
+  });
+
+  it('rejects a ready score sent with a blank response through respond', () => {
+    const startResult = engine.start('test project');
+    if (!startResult.ok) throw new Error('start failed');
+
+    const { sessionId } = startResult.value.session;
+    const result = engine.respond(sessionId, '   ', 'What is it?', READY_SCORE);
+    expect(isErr(result)).toBe(true);
+    expect(engine.getSession(sessionId).resolutionScore).toBeNull();
+  });
+
+  it('accepts a below-threshold score before any answered round', () => {
+    const startResult = engine.start('test project');
+    if (!startResult.ok) throw new Error('start failed');
+
+    const { sessionId } = startResult.value.session;
+    const result = engine.score(sessionId, {
+      goalClarity: 0.2,
+      constraintClarity: 0.2,
+      successCriteria: 0.2,
+      priorityClarity: 0.2,
+    });
+    expect(isOk(result)).toBe(true);
   });
 
   it('returns error for nonexistent session', () => {

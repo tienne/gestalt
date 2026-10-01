@@ -188,7 +188,7 @@ export function handleInterviewPassthrough(
     case 'complete': {
       if (!input.sessionId) return formatError('sessionId is required for complete action');
 
-      const result = engine.complete(input.sessionId);
+      const result = engine.complete(input.sessionId, input.force);
       if (!result.ok) return formatError(result.error.message);
 
       gestaltNotify({
@@ -202,6 +202,7 @@ export function handleInterviewPassthrough(
           sessionId: result.value.sessionId,
           totalRounds: result.value.rounds.length,
           finalResolutionScore: result.value.resolutionScore?.overall.toFixed(2) ?? 'N/A',
+          forced: result.value.forcedComplete === true,
           message: 'Interview completed. Use ges_generate_spec to generate a spec.',
         },
         null,

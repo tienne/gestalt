@@ -61,6 +61,8 @@ export interface InterviewSession {
   rounds: InterviewRound[];
   resolutionScore: ResolutionScore | null;
   compressedContext?: CompressedContext;
+  /** 해상도 임계값을 못 넘긴 채 force로 완료한 세션 */
+  forcedComplete?: boolean;
   createdAt: string;
   updatedAt: string;
 }

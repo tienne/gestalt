@@ -4,6 +4,7 @@ import { EventStore } from '../../events/store.js';
 import { createAdapter, createTierAdapter } from '../../llm/factory.js';
 import { InterviewEngine } from '../../interview/engine.js';
 import { logger } from '../../core/logger.js';
+import { RESOLUTION_THRESHOLD } from '../../core/constants.js';
 
 export async function interviewCommand(topic: string): Promise<void> {
   logger.info('cli.interview', { module: 'cli/interview', topic });
@@ -76,11 +77,25 @@ export async function interviewCommand(topic: string): Promise<void> {
       currentQuestion = nextQuestion;
     }
 
-    const completeResult = engine.complete(sessionId);
-    if (completeResult.ok) {
-      console.log(`\n✅ Interview completed. Session ID: ${sessionId}`);
-      console.log('Run `gestalt spec ' + sessionId + '` to generate a spec.\n');
+    let force = false;
+    if (engine.getSession(sessionId).resolutionScore?.isReady !== true) {
+      const answer = await prompt(
+        `\n⚠️  Resolution is below ${RESOLUTION_THRESHOLD}. Complete anyway? (y/N) `,
+      );
+      if (answer.trim().toLowerCase() !== 'y') {
+        console.log(`Interview left in progress. Session ID: ${sessionId}\n`);
+        return;
+      }
+      force = true;
     }
+
+    const completeResult = engine.complete(sessionId, force);
+    if (!completeResult.ok) {
+      console.error(`Error: ${completeResult.error.message}`);
+      return;
+    }
+    console.log(`\n✅ Interview completed. Session ID: ${sessionId}`);
+    console.log('Run `gestalt spec ' + sessionId + '` to generate a spec.\n');
   } finally {
     rl.close();
     eventStore.close();

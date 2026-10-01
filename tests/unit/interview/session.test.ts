@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SessionManager } from '../../../src/interview/session.js';
 import { EventStore } from '../../../src/events/store.js';
 import { GestaltPrinciple } from '../../../src/core/types.js';
-import { SessionNotFoundError, SessionAlreadyCompletedError } from '../../../src/core/errors.js';
+import { EventType } from '../../../src/events/types.js';
+import {
+  SessionNotFoundError,
+  SessionAlreadyCompletedError,
+  InterviewNotReadyError,
+} from '../../../src/core/errors.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -59,15 +64,85 @@ describe('SessionManager', () => {
     expect(session.rounds[0]!.userResponse).toBe('Build a dashboard');
   });
 
-  it('completes a session', () => {
+  function completedEvent(sessionId: string) {
+    return store
+      .getByAggregate('interview', sessionId)
+      .find((e) => e.eventType === EventType.INTERVIEW_SESSION_COMPLETED);
+  }
+
+  it('completes a ready session', () => {
     const session = manager.create('test', 'greenfield');
+    manager.updateResolutionScore(session.sessionId, {
+      overall: 0.85,
+      isReady: true,
+      dimensions: [],
+    });
     const completed = manager.complete(session.sessionId);
     expect(completed.status).toBe('completed');
+    expect(completed.forcedComplete).toBeUndefined();
+    expect(completedEvent(session.sessionId)?.payload).toMatchObject({ forced: false });
+  });
+
+  it('rejects completing a session below the threshold', () => {
+    const session = manager.create('test', 'greenfield');
+    manager.updateResolutionScore(session.sessionId, {
+      overall: 0.5,
+      isReady: false,
+      dimensions: [],
+    });
+    expect(() => manager.complete(session.sessionId)).toThrow(InterviewNotReadyError);
+    expect(manager.get(session.sessionId).status).toBe('in_progress');
+    expect(completedEvent(session.sessionId)).toBeUndefined();
+  });
+
+  it('rejects completing an unscored session', () => {
+    const session = manager.create('test', 'greenfield');
+    expect(() => manager.complete(session.sessionId)).toThrow(InterviewNotReadyError);
+  });
+
+  it('completes a session below the threshold with force and records it', () => {
+    const session = manager.create('test', 'greenfield');
+    manager.updateResolutionScore(session.sessionId, {
+      overall: 0.5,
+      isReady: false,
+      dimensions: [],
+    });
+    const completed = manager.complete(session.sessionId, { force: true });
+    expect(completed.status).toBe('completed');
+    expect(completed.forcedComplete).toBe(true);
+    expect(completedEvent(session.sessionId)?.payload).toMatchObject({
+      forced: true,
+      finalResolutionScore: 0.5,
+    });
+  });
+
+  it('does not mark a ready session as forced even when force is passed', () => {
+    const session = manager.create('test', 'greenfield');
+    manager.updateResolutionScore(session.sessionId, {
+      overall: 0.9,
+      isReady: true,
+      dimensions: [],
+    });
+    const completed = manager.complete(session.sessionId, { force: true });
+    expect(completed.forcedComplete).toBeUndefined();
+  });
+
+  it('rejects completing an already completed session without another event', () => {
+    const session = manager.create('test', 'greenfield');
+    manager.complete(session.sessionId, { force: true });
+    expect(() => manager.complete(session.sessionId)).toThrow(SessionAlreadyCompletedError);
+    expect(() => manager.complete(session.sessionId, { force: true })).toThrow(
+      SessionAlreadyCompletedError,
+    );
+    const completedEvents = store
+      .getByAggregate('interview', session.sessionId)
+      .filter((e) => e.eventType === EventType.INTERVIEW_SESSION_COMPLETED);
+    expect(completedEvents).toHaveLength(1);
   });
 
   it('prevents questions on completed session', () => {
     const session = manager.create('test', 'greenfield');
-    manager.complete(session.sessionId);
+    manager.complete(session.sessionId, { force: true });
     expect(() =>
       manager.addQuestion(session.sessionId, 'Another?', GestaltPrinciple.CLOSURE),
     ).toThrow(SessionAlreadyCompletedError);
