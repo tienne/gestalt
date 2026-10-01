@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <strong>📊 Benchmark:</strong> Resolution 0.8 specs reduce rework rate by <strong>27%</strong> vs. 0.5 specs — <a href="./benchmarks/run-resolution-benchmark.ts">verified by LLM-as-judge on 20-item golden set</a>
+  <strong>📊 Benchmark:</strong> Not measured yet — an <a href="./benchmarks/run-resolution-benchmark.ts">LLM-as-judge harness</a> with a 20-item golden set and rubric is in place, but no real judge run has been recorded
 </p>
 
 ---
