@@ -38,7 +38,7 @@
 
 `benchmarks/`에 이미 인프라가 있다. 고정 요구사항 세트(golden set) 20개와 평가 루브릭부터 만든다. 채점은 LLM-as-judge로 자동화하되, 5개는 사람이 직접 라벨링해 judge를 보정한다.
 
-> 2026-10 기준: golden set 20개와 루브릭, judge 러너(`benchmarks/run-resolution-benchmark.ts`)는 있다. 실제 judge는 아직 한 번도 안 돌렸고 지금까지 나온 결과는 전부 dry-run(mock)이다. 사람 라벨 5개로 하는 보정도 아직이다.
+> 현재 상태: golden set 20개와 루브릭, judge 러너(`benchmarks/run-resolution-benchmark.ts`)는 있다. 실제 judge는 아직 한 번도 안 돌렸고 지금까지 나온 결과는 전부 dry-run(mock)이다. 사람 라벨 5개로 하는 보정도 아직이다. 실제 judge(`isDryRun: false`) 결과를 커밋된 문서에 기록하면 이 메모와 README 상단 Benchmark 문구를 함께 고친다. `benchmarks/results/`는 gitignore 대상이라 그 아래 파일은 근거로 삼지 않는다.
 
 ### 성공 기준
 
