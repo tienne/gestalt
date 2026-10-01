@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -82,5 +82,23 @@ describe('UserProfileStore', () => {
     store.setPreference('key', 'val');
     const profile = store.read();
     expect(profile.updatedAt >= before).toBe(true);
+  });
+  it('깨진 profile.json은 백업하고 다음 쓰기가 기존 기록을 덮지 않는다', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dir = join(tmpProfilePath, '..');
+    writeFileSync(tmpProfilePath, '{"crossRepoPatterns": [', 'utf-8');
+
+    store.setPreference('lang', 'ko');
+
+    const backups = readdirSync(dir).filter((n) => n.startsWith('profile.json.corrupt-'));
+    expect(backups).toHaveLength(1);
+    expect(readFileSync(join(dir, backups[0]!), 'utf-8')).toBe('{"crossRepoPatterns": [');
+    expect(store.read().personalPreferences['lang']).toBe('ko');
+    vi.restoreAllMocks();
+  });
+
+  it('쓰고 나면 임시 파일과 잠금이 안 남는다', () => {
+    store.setPreference('key', 'val');
+    expect(readdirSync(join(tmpProfilePath, '..'))).toEqual(['profile.json']);
   });
 });
