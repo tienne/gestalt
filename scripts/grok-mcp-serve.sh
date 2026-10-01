@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start this checkout's MCP server for Grok. Picks Node >= 20 even when the
+# Start this checkout's MCP server for Grok. Picks Node >= 22 even when the
 # parent PATH still points at an older nvm default.
 set -euo pipefail
 
@@ -43,7 +43,7 @@ pick_node() {
   for candidate in "${candidates[@]}"; do
     [[ -f "$candidate" ]] || continue
     major="$(node_major "$candidate")" || true
-    if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 20 && major >= best_major )); then
+    if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 22 && major >= best_major )); then
       best="$candidate"
       best_major="$major"
     fi
@@ -57,9 +57,9 @@ pick_node() {
 }
 
 NODE="$(pick_node)" || {
-  echo "gestalt MCP: Node >= 20 required (package.json engines)." >&2
+  echo "gestalt MCP: Node >= 22 required (package.json engines)." >&2
   echo "PATH node: $(command -v node || echo missing) $(node -v 2>/dev/null || true)" >&2
-  echo "Set GESTALT_NODE to a Node >= 20 binary and retry." >&2
+  echo "Set GESTALT_NODE to a Node >= 22 binary and retry." >&2
   exit 1
 }
 
