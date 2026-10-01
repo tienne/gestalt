@@ -12,8 +12,7 @@ import {
 
 /**
  * evolve_lateral, evolve_lateral_result 핸들러.
- * 평가 단계는 다른 작업이 동작을 바꾸고 있어 엔진의 evaluate 경로를 타지 않고
- * 세션에 evaluationResult를 직접 심어 lateral 진입 조건만 만든다.
+ * lateral 진입 조건(evaluationResult)만 필요하므로 evaluate 경로 대신 세션에 직접 심는다.
  */
 
 interface LateralResponse {
