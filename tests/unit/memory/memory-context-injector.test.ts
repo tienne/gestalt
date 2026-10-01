@@ -70,4 +70,28 @@ describe('formatMemoryContextForPrompt', () => {
     expect(prompt).toContain('### Related Past Specs\n- [2026-01-01] goal 1');
     expect(prompt.split('### Related Past Specs')[0]).not.toContain('goal 1');
   });
+
+  it('결정의 결과(outcome)가 있으면 함께 싣는다', () => {
+    const memory = memoryWith(0, {
+      architectureDecisions: [
+        {
+          decision: 'Use SQLite WAL',
+          rationale: 'concurrent reads',
+          outcome: 'lock contention gone',
+          specId: 'spec-1',
+          timestamp: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          decision: 'Use pnpm',
+          rationale: '',
+          specId: 'spec-2',
+          timestamp: '2026-01-02T00:00:00.000Z',
+        },
+      ],
+    });
+    const prompt = formatMemoryContextForPrompt(buildMemoryContext(memory));
+
+    expect(prompt).toContain('- Use SQLite WAL (concurrent reads) → Outcome: lock contention gone');
+    expect(prompt).toMatch(/^- Use pnpm$/m);
+  });
 });

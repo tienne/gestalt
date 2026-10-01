@@ -140,7 +140,8 @@ export function formatMemoryContextForPrompt(context: MemoryContext): string {
     lines.push('\n### Architecture Decisions');
     for (const d of context.architectureDecisions) {
       const rationale = d.rationale ? ` (${d.rationale})` : '';
-      lines.push(`- ${d.decision}${rationale}`);
+      const outcome = d.outcome ? ` → Outcome: ${d.outcome}` : '';
+      lines.push(`- ${d.decision}${rationale}${outcome}`);
     }
   }
 
