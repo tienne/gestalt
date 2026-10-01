@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -58,5 +66,18 @@ describe('json-file', () => {
 
     expect(readJsonOrQuarantine(file, (v) => typeof v === 'object' && v !== null)).toBeUndefined();
     expect(readdirSync(dir).some((n) => n.startsWith('data.json.corrupt-'))).toBe(true);
+  });
+
+  it('quarantine을 끄면 깨진 파일을 그대로 둔다', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    writeFileSync(file, '{"specHistory": [', 'utf-8');
+
+    expect(readJsonOrQuarantine(file, undefined, { quarantine: false })).toBeUndefined();
+    expect(readdirSync(dir)).toEqual(['data.json']);
+  });
+
+  it('mode를 주면 그 권한으로 쓴다', () => {
+    writeJsonAtomic(file, { a: 1 }, { mode: 0o600 });
+    expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 });
