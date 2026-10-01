@@ -163,6 +163,7 @@ export const executeInputSchema = guardObject(
       'evolve_re_execute',
       'evolve_lateral',
       'evolve_lateral_result',
+      'gate_resolve',
       'role_match',
       'role_consensus',
       'review_start',
@@ -453,6 +454,22 @@ export const executeInputSchema = guardObject(
       })
       .optional()
       .describe('Lateral thinking result (required for evolve_lateral_result)'),
+
+    // ─── Human Gate Fields ────────────────────────────────────
+    gateResolution: z
+      .object({
+        gateId: z
+          .string()
+          .optional()
+          .describe('해소할 게이트 id. 생략하면 세션에 열려 있는 게이트를 고른다'),
+        optionId: z
+          .enum(['patch_spec', 'manual_task', 'restart', 'abort'])
+          .describe('patch_spec, manual_task는 세션을 이어가고 restart, abort는 세션을 종료한다'),
+        decision: z.string().trim().min(1).describe('사람이 내린 결정. memory에 그대로 남는다'),
+        rationale: z.string().trim().min(1).describe('그렇게 결정한 이유'),
+      })
+      .optional()
+      .describe('사람의 답 (required for gate_resolve)'),
 
     // ─── Audit Fields ─────────────────────────────────────────
     codebaseSnapshot: z

@@ -93,3 +93,20 @@ export function parallelHint(nextTaskIds: string[]): string {
   if (nextTaskIds.length < 2) return '';
   return ` 착수 가능한 태스크 ${nextTaskIds.length}개 — 동시 진행 가능합니다: ${nextTaskIds.join(', ')}.`;
 }
+
+/**
+ * 프로젝트 메모리에 넣을 문장의 형태를 눌러 둔다.
+ *
+ * 메모리의 아키텍처 결정은 이후 모든 스펙 생성 프롬프트에 실린다. 리뷰 에이전트가 만든
+ * 문장은 diff와 코멘트를 읽고 만든 것이라 신뢰 경계 바깥이다. 사람이 게이트에 남긴 답도
+ * 붙여넣은 로그나 남의 문장이 섞일 수 있다 — 둘 다 그 경로로 프롬프트에 들어간다.
+ *
+ * 줄바꿈을 없애 프롬프트 안에서 새 절이나 목록을 만들지 못하게 한다. 길이를 잘라
+ * 긴 지시문이 통째로 실리지 않게 한다. 내용 자체는 판단하지 않는다 — 그건 여기서
+ * 할 수 있는 일이 아니다. 형태를 눌러 두는 것까지가 이 함수의 범위다.
+ */
+const MAX_MEMORY_CHARS = 300;
+
+export function asMemoryNote(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, MAX_MEMORY_CHARS);
+}

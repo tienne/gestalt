@@ -1,10 +1,15 @@
-import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engine.js';
+import type {
+  PassthroughExecuteEngine,
+  PassthroughEvolveFixResult,
+} from '../../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../../schemas.js';
 import type { NextActionGuide } from '../../../core/types.js';
+import { ProjectMemoryStore } from '../../../memory/project-memory-store.js';
 import { gestaltNotify } from '../../../utils/notifier.js';
 import { deleteActiveSession, formatRuleContent } from '../../../execute/rule-writer.js';
 import type { IHostAdapter } from '../../host-adapter.js';
-import { formatError } from './utils.js';
+import { logger } from '../../../core/logger.js';
+import { formatError, asMemoryNote } from './utils.js';
 
 export function handleEvolveFix(
   engine: PassthroughExecuteEngine,
@@ -85,36 +90,8 @@ export function handleEvolve(
     );
   }
 
-  if (evolveResult.value.humanEscalation) {
-    if (input.cwd) {
-      try {
-        void adapter.clearActiveContext();
-        deleteActiveSession(input.cwd);
-      } catch {
-        /* ignore */
-      }
-    }
-    gestaltNotify({
-      event: 'human_escalation',
-      message: '⚠️ Human Escalation — 모든 Lateral Thinking 소진, 수동 개입이 필요해요',
-    });
-    return JSON.stringify(
-      {
-        status: 'human_escalation',
-        sessionId: evolveResult.value.session.sessionId,
-        terminationReason: 'human_escalation',
-        escalationContext: evolveResult.value.humanEscalation,
-        evolutionHistory: evolveResult.value.session.evolutionHistory.map((g) => ({
-          generation: g.generation,
-          score: g.evaluationScore,
-          goalAlignment: g.goalAlignment,
-          fieldsChanged: g.delta.fieldsChanged,
-        })),
-        message: 'All lateral thinking personas exhausted. Human intervention required.',
-      },
-      null,
-      2,
-    );
+  if (evolveResult.value.gate) {
+    return formatHumanGate(evolveResult.value, true);
   }
 
   if (evolveResult.value.terminated) {
@@ -291,6 +268,10 @@ export function handleEvolveLateral(
   const lateralResult = engine.startLateralEvolve(input.sessionId);
   if (!lateralResult.ok) return formatError(lateralResult.error.message);
 
+  if (lateralResult.value.gate) {
+    return formatHumanGate(lateralResult.value, false);
+  }
+
   if (lateralResult.value.terminated) {
     if (input.cwd) {
       try {
@@ -302,19 +283,10 @@ export function handleEvolveLateral(
     }
     return JSON.stringify(
       {
-        status:
-          lateralResult.value.terminationReason === 'human_escalation'
-            ? 'human_escalation'
-            : 'terminated',
+        status: 'terminated',
         sessionId: lateralResult.value.session.sessionId,
         terminationReason: lateralResult.value.terminationReason,
-        ...(lateralResult.value.humanEscalation
-          ? { escalationContext: lateralResult.value.humanEscalation }
-          : {}),
-        message:
-          lateralResult.value.terminationReason === 'human_escalation'
-            ? 'All lateral thinking personas exhausted. Human intervention required.'
-            : `Evolution terminated: ${lateralResult.value.terminationReason}.`,
+        message: `Evolution terminated: ${lateralResult.value.terminationReason}.`,
       },
       null,
       2,
@@ -373,6 +345,114 @@ export function handleEvolveLateralResult(
       impactedTaskIds,
       reExecuteContext: lrReExecCtx,
       message: `Lateral spec patch applied. ${impactedTaskIds.length} tasks need re-execution. Use reExecuteContext to implement the task.`,
+    },
+    null,
+    2,
+  );
+}
+
+// 세션은 살아 있으므로 active-session을 지우지 않는다. 사람의 답은 gate_resolve로 받는다
+function formatHumanGate(result: PassthroughEvolveFixResult, withHistory: boolean): string {
+  const { session, gate, humanEscalation } = result;
+  gestaltNotify({
+    event: 'human_escalation',
+    message: '⚠️ Human Gate — 모든 Lateral Thinking 소진, 사람의 판단이 필요해요',
+  });
+  const guide: NextActionGuide = {
+    nextAction: 'gate_resolve',
+    nextActionParams: { sessionId: session.sessionId, gateResolution: { gateId: gate!.gateId } },
+    hint: 'gate.question과 gate.options를 사람에게 보여주고, 고른 optionId와 결정, 이유를 gateResolution에 담아 제출하세요.',
+  };
+  return JSON.stringify(
+    {
+      status: 'awaiting_human',
+      sessionId: session.sessionId,
+      gate,
+      escalationContext: humanEscalation,
+      ...(withHistory
+        ? {
+            evolutionHistory: session.evolutionHistory.map((g) => ({
+              generation: g.generation,
+              score: g.evaluationScore,
+              goalAlignment: g.goalAlignment,
+              fieldsChanged: g.delta.fieldsChanged,
+            })),
+          }
+        : {}),
+      message:
+        'All lateral thinking personas exhausted. The session is waiting for a human decision — call gate_resolve with the chosen option.',
+      ...guide,
+    },
+    null,
+    2,
+  );
+}
+
+export function handleGateResolve(
+  engine: PassthroughExecuteEngine,
+  input: ExecuteInput,
+  adapter: IHostAdapter,
+): string {
+  if (!input.sessionId) return formatError('sessionId is required for gate_resolve action');
+  if (!input.gateResolution)
+    return formatError('gateResolution is required for gate_resolve action');
+
+  const result = engine.resolveHumanGate(input.sessionId, input.gateResolution);
+  if (!result.ok) return formatError(result.error.message);
+
+  const { session, gate, nextAction, resumes } = result.value;
+  const resolution = gate.resolution!;
+
+  // 게이트는 이미 해소됐으므로 memory 기록이 실패해도 응답은 낸다. 대신 빠졌다는 사실을 응답에 싣는다
+  let memoryRecorded = true;
+  try {
+    const memoryStore = new ProjectMemoryStore(input.cwd);
+    memoryStore.addArchitectureDecision({
+      decision: `[Escalation:${resolution.optionId}] ${asMemoryNote(resolution.decision)}`,
+      rationale: asMemoryNote(resolution.rationale),
+      ...(resumes ? {} : { outcome: `execute session terminated (${resolution.optionId})` }),
+      specId: session.specId,
+      timestamp: resolution.resolvedAt,
+    });
+  } catch (e) {
+    memoryRecorded = false;
+    logger.warn('execute.gate_memory_failed', {
+      module: 'execute',
+      sessionId: session.sessionId,
+      gateId: gate.gateId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  if (!resumes && input.cwd) {
+    try {
+      void adapter.clearActiveContext();
+      deleteActiveSession(input.cwd);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const hints: Record<string, string> = {
+    patch_spec: '사람의 결정을 반영한 specPatch를 evolve_patch로 제출하세요.',
+    manual_task: '사람이 처리한 결과가 반영됐으면 evaluate로 다시 검증하세요.',
+    restart: '태스크를 더 잘게 쪼갠 새 스펙으로 start를 다시 부르세요.',
+    abort: '세션이 종료됐어요. 더 할 일이 없어요.',
+  };
+  return JSON.stringify(
+    {
+      status: resumes ? 'gate_resolved' : 'terminated',
+      sessionId: session.sessionId,
+      gateId: gate.gateId,
+      resolution,
+      sessionStatus: session.status,
+      ...(resumes ? {} : { terminationReason: session.terminationReason }),
+      memoryRecorded,
+      nextAction,
+      ...(nextAction && nextAction !== 'start'
+        ? { nextActionParams: { sessionId: session.sessionId } }
+        : {}),
+      hint: hints[resolution.optionId],
     },
     null,
     2,

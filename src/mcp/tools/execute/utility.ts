@@ -1,6 +1,6 @@
 import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../../schemas.js';
-import type { SubTask, ResumeContext } from '../../../core/types.js';
+import type { SubTask, ResumeContext, HumanGate } from '../../../core/types.js';
 import { AuditEngine } from '../../../execute/audit-engine.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -28,6 +28,25 @@ export function handleResume(
 
   try {
     const session = engine.getSession(input.sessionId);
+    if (session.status === 'awaiting_human') {
+      const gate = session.humanGates.find((g) => g.status === 'open');
+      return JSON.stringify(
+        {
+          status: 'awaiting_human',
+          sessionId: session.sessionId,
+          gate,
+          message:
+            'The session is waiting for a human decision. Show gate.question and gate.options, then call gate_resolve.',
+          nextAction: 'gate_resolve',
+          nextActionParams: {
+            sessionId: session.sessionId,
+            ...(gate ? { gateResolution: { gateId: gate.gateId } } : {}),
+          },
+        },
+        null,
+        2,
+      );
+    }
     if (session.status !== 'executing' && session.status !== 'planning') {
       return formatError(
         `Session status is "${session.status}". Resume is only available for in-progress sessions.`,
@@ -256,6 +275,13 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string, cwd?
             evolutionCount: session.evolutionHistory.length,
             terminationReason: session.terminationReason ?? null,
             ...(resumeContext ? { resumeContext } : {}),
+            ...openGateField(session.humanGates),
+            ...(session.humanGates.length > 0
+              ? {
+                  resolvedGateCount: session.humanGates.filter((g) => g.status === 'resolved')
+                    .length,
+                }
+              : {}),
             ...(session.auditResult ? { hasAuditResult: true } : {}),
             subTaskCount: session.subTasks.length,
             createdAt: session.createdAt,
@@ -306,6 +332,7 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string, cwd?
                 },
               }
             : {}),
+          ...openGateField(s.humanGates),
           createdAt: s.createdAt,
         })),
         total: sessions.length,
@@ -317,4 +344,9 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string, cwd?
   } catch (e) {
     return formatError(e instanceof Error ? e.message : String(e));
   }
+}
+
+function openGateField(gates: HumanGate[]): { openGate?: HumanGate } {
+  const open = gates.find((g) => g.status === 'open');
+  return open ? { openGate: open } : {};
 }

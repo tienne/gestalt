@@ -221,6 +221,8 @@ function formatExecuteSessionBasic(session: import('../../core/types.js').Execut
         ? `, alignment ${session.evaluationResult.goalAlignment.toFixed(2)}`
         : '';
     summary = `세션 ${shortId}: completed —${scoreStr}${alignStr}`;
+  } else if (session.status === 'awaiting_human') {
+    summary = `세션 ${shortId}: 사람 판단 대기 — ges_execute gate_resolve로 답을 넘겨야 이어져요`;
   } else if (totalTasks > 0) {
     const pct = Math.round((completedTasks / totalTasks) * 100);
     summary = `세션 ${shortId}: ${session.status} 단계, ${completedTasks}/${totalTasks} 태스크 완료 (${pct}%)`;
