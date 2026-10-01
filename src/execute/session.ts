@@ -23,7 +23,7 @@ import { DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
 import { logger } from '../core/logger.js';
 import type { IEventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
-import { ExecuteSessionRepository } from './repository.js';
+import { ExecuteSessionRepository, buildShortCircuitEvaluation } from './repository.js';
 import { computeReadyTaskIds } from './parallel-groups.js';
 import { redactSecrets } from '../mcp/input-guard.js';
 
@@ -284,17 +284,7 @@ export class ExecuteSessionManager {
     const session = this.get(sessionId);
     session.evaluateStage = 'complete';
     session.status = 'completed';
-    session.evaluationResult = {
-      verifications: session.spec.acceptanceCriteria.map((_, i) => ({
-        acIndex: i,
-        satisfied: false,
-        evidence: 'Short-circuited due to structural failure',
-        gaps: [reason],
-      })),
-      overallScore: 0,
-      goalAlignment: 0,
-      recommendations: ['Fix structural issues before contextual evaluation'],
-    };
+    session.evaluationResult = buildShortCircuitEvaluation(session.spec, reason);
     session.updatedAt = new Date().toISOString();
 
     this.record(sessionId, EventType.EVALUATE_SHORT_CIRCUITED, {

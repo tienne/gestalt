@@ -27,6 +27,21 @@ import { DRIFT_THRESHOLD } from '../core/constants.js';
  * ExecuteSessionRepository — Event Replay 기반 ExecuteSession 재구성.
  * 도메인 전용 Repository: aggregate_type='execute' 이벤트만 처리.
  */
+/** 구조 평가가 실패해 맥락 평가를 건너뛸 때의 평가 결과. 라이브와 replay가 같이 쓴다. */
+export function buildShortCircuitEvaluation(spec: Spec, reason: string): EvaluationResult {
+  return {
+    verifications: spec.acceptanceCriteria.map((_, i) => ({
+      acIndex: i,
+      satisfied: false,
+      evidence: 'Short-circuited due to structural failure',
+      gaps: [reason],
+    })),
+    overallScore: 0,
+    goalAlignment: 0,
+    recommendations: ['Fix structural issues before contextual evaluation'],
+  };
+}
+
 export class ExecuteSessionRepository {
   constructor(private eventStore: IEventStore) {}
 
@@ -218,19 +233,10 @@ export class ExecuteSessionRepository {
         if (shortCircuitResult) {
           session.structuralResult = shortCircuitResult;
         }
-        // 이전 이벤트에는 evaluationResult가 없어 shortCircuitEvaluation()과 같은 값을 다시 만든다
-        const reason = (payload.reason as string | undefined) ?? '';
-        session.evaluationResult = (payload.evaluationResult as EvaluationResult | undefined) ?? {
-          verifications: session.spec.acceptanceCriteria.map((_, i) => ({
-            acIndex: i,
-            satisfied: false,
-            evidence: 'Short-circuited due to structural failure',
-            gaps: [reason],
-          })),
-          overallScore: 0,
-          goalAlignment: 0,
-          recommendations: ['Fix structural issues before contextual evaluation'],
-        };
+        // 이전 이벤트에는 evaluationResult가 없어 라이브와 같은 함수로 다시 만든다
+        session.evaluationResult =
+          (payload.evaluationResult as EvaluationResult | undefined) ??
+          buildShortCircuitEvaluation(session.spec, (payload.reason as string | undefined) ?? '');
         break;
       }
 
@@ -265,8 +271,10 @@ export class ExecuteSessionRepository {
             overall: legacy.overall,
             dimensions: legacy.dimensions,
             thresholdExceeded: legacy.thresholdExceeded,
+            // 그때 쓴 임계값은 안 남아 기본값으로 근사한다. 넘었는지는 기록된 값을 따른다
             threshold: DRIFT_THRESHOLD,
             ...classifyDrift(legacy.overall, DRIFT_THRESHOLD),
+            ...(legacy.thresholdExceeded && { status: 'CRITICAL' as const }),
           });
         }
         break;
