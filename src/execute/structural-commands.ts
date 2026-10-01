@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { StructuralCommand, StructuralResult } from '../core/types.js';
+import { log } from '../core/log.js';
 
 export type PackageManager = 'pnpm' | 'yarn' | 'bun' | 'npm';
 
@@ -16,6 +17,14 @@ const LOCKFILES: ReadonlyArray<[string, PackageManager]> = [
 
 const STRUCTURAL_SCRIPTS = ['lint', 'build', 'test'] as const;
 
+// 호스트가 이 문자열을 셸에 그대로 넘긴다. 인용 규칙을 셸마다 맞추기보다 이 문자만 허용하고 나머지는 전체 테스트로 돌린다
+const SAFE_PATH = /^[\w@%+=:,./-]+$/;
+// 이보다 많으면 명령줄이 길어지고 이벤트에도 그대로 실린다. 그 정도면 전체를 돌리는 쪽이 낫다
+const MAX_TEST_FILES = 50;
+const MAX_TEST_ARGS_LENGTH = 4000;
+
+const GIT_OPTIONS = { maxBuffer: 64 * 1024 * 1024, timeout: 30_000 } as const;
+
 interface PackageJsonLike {
   packageManager?: unknown;
   scripts?: Record<string, unknown>;
@@ -24,7 +33,12 @@ interface PackageJsonLike {
 function readPackageJson(root: string): PackageJsonLike | null {
   try {
     return JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8')) as PackageJsonLike;
-  } catch {
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      log(
+        `[evaluate] could not read package.json in ${root}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
     return null;
   }
 }
@@ -38,6 +52,7 @@ export function detectPackageManager(root: string): PackageManager {
   if (typeof declared === 'string') {
     const name = declared.split('@')[0];
     if (name === 'pnpm' || name === 'yarn' || name === 'bun' || name === 'npm') return name;
+    log(`[evaluate] unsupported packageManager "${declared}", falling back to lockfile detection`);
   }
   for (const [file, pm] of LOCKFILES) {
     if (existsSync(join(root, file))) return pm;
@@ -53,6 +68,18 @@ function scriptCommand(pm: PackageManager, script: string, args: string[]): stri
 }
 
 /**
+ * 테스트 러너에 넘길 인자로 바꾼다. 경로는 root 기준 상대경로로 줄인다. 셸에 그대로 못 넘기는 경로가 있거나
+ * 너무 많으면 빈 배열을 돌려 전체 테스트로 돌린다.
+ */
+function toTestArgs(root: string, testFiles: string[]): string[] {
+  if (testFiles.length === 0 || testFiles.length > MAX_TEST_FILES) return [];
+  const args = testFiles.map((f) => (isAbsolute(f) ? relative(root, f) : f));
+  const unsafe = args.some((a) => a.startsWith('..') || !SAFE_PATH.test(a));
+  if (unsafe || args.join(' ').length > MAX_TEST_ARGS_LENGTH) return [];
+  return args;
+}
+
+/**
  * 구조 검사 명령을 만든다. testFiles가 비어 있으면 테스트를 좁히지 않고 전체를 돌린다.
  * package.json에 없는 스크립트는 빼지만 test는 남긴다 — 테스트를 안 돌리고 통과시키는 길을 막기 위해서다.
  */
@@ -62,37 +89,53 @@ export function buildStructuralCommands(
 ): StructuralCommand[] {
   const pm = detectPackageManager(root);
   const scripts = readPackageJson(root)?.scripts;
+  const testArgs = toTestArgs(root, testFiles);
   return STRUCTURAL_SCRIPTS.filter(
     (name) => name === 'test' || !scripts || scripts[name] !== undefined,
   ).map((name) => ({
     name,
-    command: scriptCommand(pm, name, name === 'test' ? testFiles : []),
+    command: scriptCommand(pm, name, name === 'test' ? testArgs : []),
   }));
 }
 
-function gitLines(repoRoot: string, args: string[]): string[] {
+// -z라서 core.quotePath가 켜져 있어도 한글 경로가 이스케이프되지 않는다. 실패는 호출부가 받아 전체 테스트로 돌린다
+function gitPaths(repoRoot: string, [subcommand, ...args]: [string, ...string[]]): string[] {
+  return execFileSync('git', [subcommand, '-z', ...args], {
+    ...GIT_OPTIONS,
+    cwd: repoRoot,
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+    .split('\0')
+    .filter(Boolean);
+}
+
+function hasParentCommit(repoRoot: string): boolean {
   try {
-    return execFileSync('git', args, {
+    execFileSync('git', ['rev-parse', '--verify', '-q', 'HEAD~1^{commit}'], {
+      ...GIT_OPTIONS,
       cwd: repoRoot,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
-      .split('\n')
-      .filter(Boolean);
+      stdio: 'ignore',
+    });
+    return true;
   } catch {
-    return [];
+    return false;
   }
 }
 
 /**
  * 직전 커밋과 작업 트리(스테이징, 미스테이징, 추적 안 된 새 파일)의 변경 파일을 합친다.
- * 첫 커밋뿐인 레포에서는 HEAD~1이 없어 그 조회만 빈 결과가 된다.
+ * 삭제된 파일도 남긴다. 그 파일을 import하던 테스트를 blast-radius가 찾아야 해서다.
+ * 첫 커밋뿐인 레포에서는 HEAD~1 조회만 건너뛴다. 그 밖의 git 실패는 그대로 던진다.
  */
 export function collectChangedFiles(repoRoot: string): string[] {
+  // --relative로 diff도 ls-files처럼 repoRoot 기준 경로를 낸다. repoRoot가 레포 하위 디렉터리여도 어긋나지 않는다
   const files = new Set<string>([
-    ...gitLines(repoRoot, ['diff', '--name-only', 'HEAD~1', 'HEAD']),
-    ...gitLines(repoRoot, ['diff', '--name-only', 'HEAD']),
-    ...gitLines(repoRoot, ['ls-files', '--others', '--exclude-standard']),
+    ...(hasParentCommit(repoRoot)
+      ? gitPaths(repoRoot, ['diff', '--name-only', '--relative', 'HEAD~1', 'HEAD'])
+      : []),
+    ...gitPaths(repoRoot, ['diff', '--name-only', '--relative', 'HEAD']),
+    ...gitPaths(repoRoot, ['ls-files', '--others', '--exclude-standard']),
   ]);
   return [...files].map((f) => resolve(repoRoot, f));
 }

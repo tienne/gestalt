@@ -39,6 +39,13 @@ describe('detectPackageManager', () => {
     expect(detectPackageManager(repo.root)).toBe('yarn');
   });
 
+  it('ignores an unsupported packageManager value and uses the lockfile', () => {
+    const repo = createFakeRepo({
+      files: { 'package.json': JSON.stringify({ packageManager: 'deno@2' }), 'yarn.lock': '' },
+    });
+    expect(detectPackageManager(repo.root)).toBe('yarn');
+  });
+
   it('falls back to npm without any hint', () => {
     expect(detectPackageManager(createFakeRepo().root)).toBe('npm');
   });
@@ -54,17 +61,34 @@ describe('buildStructuralCommands', () => {
     ]);
   });
 
-  it('narrows tests with the given files, adding -- only for npm', () => {
+  it('narrows tests with root-relative paths, adding -- only for npm', () => {
     const pnpmRepo = createFakeRepo({ files: { 'package.json': SCRIPTS, 'pnpm-lock.yaml': '' } });
     const npmRepo = createFakeRepo({ files: { 'package.json': SCRIPTS } });
-    const files = ['/r/a.test.ts', '/r/b.test.ts'];
+    const files = (root: string) => [resolve(root, 'a.test.ts'), resolve(root, 'tests/b.test.ts')];
 
-    expect(buildStructuralCommands(pnpmRepo.root, files).at(-1)!.command).toBe(
-      'pnpm run test /r/a.test.ts /r/b.test.ts',
+    expect(buildStructuralCommands(pnpmRepo.root, files(pnpmRepo.root)).at(-1)!.command).toBe(
+      'pnpm run test a.test.ts tests/b.test.ts',
     );
-    expect(buildStructuralCommands(npmRepo.root, files).at(-1)!.command).toBe(
-      'npm run test -- /r/a.test.ts /r/b.test.ts',
+    expect(buildStructuralCommands(npmRepo.root, files(npmRepo.root)).at(-1)!.command).toBe(
+      'npm run test -- a.test.ts tests/b.test.ts',
     );
+  });
+
+  it.each([
+    ['a shell metacharacter', 'tests/a;rm -rf.test.ts'],
+    ['a command substitution', 'tests/$(id).test.ts'],
+    ['a space', 'tests/my file.test.ts'],
+    ['a path outside the root', '../other/a.test.ts'],
+  ])('falls back to the full suite for %s', (_label, file) => {
+    const repo = createFakeRepo({ files: { 'package.json': SCRIPTS, 'pnpm-lock.yaml': '' } });
+    const files = [resolve(repo.root, 'tests/ok.test.ts'), resolve(repo.root, file)];
+    expect(buildStructuralCommands(repo.root, files).at(-1)!.command).toBe('pnpm run test');
+  });
+
+  it('falls back to the full suite when too many tests are affected', () => {
+    const repo = createFakeRepo({ files: { 'package.json': SCRIPTS, 'pnpm-lock.yaml': '' } });
+    const files = Array.from({ length: 51 }, (_, i) => resolve(repo.root, `t${i}.test.ts`));
+    expect(buildStructuralCommands(repo.root, files).at(-1)!.command).toBe('pnpm run test');
   });
 
   it('runs the full suite when no test files are given', () => {
@@ -97,6 +121,37 @@ describe('collectChangedFiles', () => {
     const repo = createFakeRepo({ files: { 'a.ts': '1' } });
     repo.write('a.ts', '2');
     expect(collectChangedFiles(repo.root)).toEqual([resolve(repo.root, 'a.ts')]);
+  });
+
+  it('keeps non-ASCII paths unescaped even with core.quotePath on', () => {
+    const repo = createFakeRepo({ files: { '한글.ts': '1' } });
+    repo.git('config', 'core.quotePath', 'true');
+    repo.write('한글.ts', '2');
+    repo.write('새파일.test.ts', 'x');
+    expect(collectChangedFiles(repo.root).sort()).toEqual(
+      ['새파일.test.ts', '한글.ts'].map((f) => resolve(repo.root, f)).sort(),
+    );
+  });
+
+  it('resolves paths against a repoRoot that is a subdirectory of the repo', () => {
+    const repo = createFakeRepo({ files: { 'pkg/a.ts': '1', 'other/b.ts': '1' } });
+    repo.write('pkg/a.ts', '2');
+    repo.write('other/b.ts', '2');
+    repo.write('pkg/new.test.ts', 'x');
+    const pkgRoot = resolve(repo.root, 'pkg');
+    expect(collectChangedFiles(pkgRoot).sort()).toEqual(
+      ['a.ts', 'new.test.ts'].map((f) => resolve(pkgRoot, f)).sort(),
+    );
+  });
+
+  it('keeps deleted files so blast-radius can find their importers', () => {
+    const repo = createFakeRepo({ files: { 'a.ts': '1', 'b.ts': '1' } });
+    repo.remove('a.ts');
+    expect(collectChangedFiles(repo.root)).toEqual([resolve(repo.root, 'a.ts')]);
+  });
+
+  it('throws when git fails so the caller can fall back to the full suite', () => {
+    expect(() => collectChangedFiles(resolve('.gestalt-test', 'not-a-repo-xyz'))).toThrow();
   });
 });
 
