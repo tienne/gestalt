@@ -197,6 +197,7 @@ describe('ges_execute plan_complete 핸들러', () => {
     const sessionId = await runAllSteps();
     const res = await fx.call<PlanCompleteResponse>({ action: 'plan_complete', sessionId });
 
+    expect(res.executionPlan!.atomicTasks).toHaveLength(3);
     for (const task of res.executionPlan!.atomicTasks) {
       expect(task.model).toEqual(expect.any(String));
     }
