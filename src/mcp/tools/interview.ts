@@ -93,7 +93,7 @@ export async function handleInterview(
     case 'complete': {
       if (!input.sessionId) return formatError('sessionId is required for complete action');
 
-      const result = engine.complete(input.sessionId);
+      const result = engine.complete(input.sessionId, input.force);
       if (!result.ok) return formatError(result.error.message);
 
       return JSON.stringify(
@@ -102,6 +102,7 @@ export async function handleInterview(
           sessionId: result.value.sessionId,
           totalRounds: result.value.rounds.length,
           finalResolutionScore: result.value.resolutionScore?.overall.toFixed(2) ?? 'N/A',
+          forced: result.value.forcedComplete === true,
           message: 'Interview completed. You can now generate a spec with ges_generate_spec.',
         },
         null,
