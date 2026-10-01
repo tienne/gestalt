@@ -69,6 +69,11 @@ function findProximityStep(session: ExecuteSession): ProximityResult | undefined
     | undefined;
 }
 
+// 호출자가 보고한 continuity를 믿지 않고 서버가 closure와 proximity 결과로 다시 계산한다
+function validateServerDAG(closure: ClosureResult, proximity: ProximityResult): DAGValidation {
+  return validateDAG(closure.atomicTasks, proximity.taskGroups);
+}
+
 export class PlanningOrchestrator {
   constructor(
     private sessionManager: ExecuteSessionManager,
@@ -127,14 +132,16 @@ export class PlanningOrchestrator {
       }
 
       if (stepResult.principle === 'continuity') {
-        const serverDAG = this.resolveServerDAG(session);
-        if (!serverDAG) {
+        const closureStep = findClosureStep(session);
+        const proximityStep = findProximityStep(session);
+        if (!closureStep || !proximityStep) {
           return err(
             new InvalidPlanningStepError(
               'Closure and Proximity steps must be completed before Continuity',
             ),
           );
         }
+        const serverDAG = validateServerDAG(closureStep, proximityStep);
         if (!stepResult.dagValidation.isValid || !serverDAG.isValid) {
           return err(this.rewindToClosure(session, stepResult.dagValidation, serverDAG));
         }
@@ -197,10 +204,11 @@ export class PlanningOrchestrator {
         | ContinuityResult
         | undefined;
 
-      const serverDAG = this.resolveServerDAG(session);
-      if (!fgStep || !closureStep || !proximityStep || !continuityStep || !serverDAG) {
+      if (!fgStep || !closureStep || !proximityStep || !continuityStep) {
         return err(new ExecuteError('Missing planning step results'));
       }
+
+      const serverDAG = validateServerDAG(closureStep, proximityStep);
 
       this.eventStore.append('execute', sessionId, EventType.EXECUTE_PLAN_VALIDATED, {
         callerValid: continuityStep.dagValidation.isValid,
@@ -386,13 +394,6 @@ export class PlanningOrchestrator {
     }
 
     return null;
-  }
-
-  private resolveServerDAG(session: ExecuteSession): DAGValidation | null {
-    const closureStep = findClosureStep(session);
-    const proximityStep = findProximityStep(session);
-    if (!closureStep || !proximityStep) return null;
-    return validateDAG(closureStep.atomicTasks, proximityStep.taskGroups);
   }
 
   /**
