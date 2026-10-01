@@ -71,26 +71,61 @@ export function mergeMemory(local: ProjectMemory, remote: ProjectMemory): Projec
   };
 }
 
-// 합친 결과는 사람 검토 없이 커밋되므로, 이후 읽는 쪽이 문자열 메서드를 부르는 필드만큼은
-// 여기서 막는다. 나머지 필드는 손대지 않고 그대로 넘긴다
+// 합친 결과는 사람 검토 없이 커밋된다. 머지 키와 날짜 비교에 쓰는 필드, 그리고 인터뷰 주입이
+// 프롬프트에 싣는 필드는 여기서 형태를 확인한다. 그 밖의 필드는 손대지 않고 그대로 넘긴다
 const memoryFileSchema = z
   .object({
     specHistory: z.array(
       z.object({ specId: z.string(), goal: z.string(), createdAt: z.string() }).passthrough(),
     ),
-    executionHistory: z.array(z.object({ executeSessionId: z.string() }).passthrough()),
-    architectureDecisions: z.array(z.object({ decision: z.string() }).passthrough()),
+    executionHistory: z.array(
+      z
+        .object({
+          executeSessionId: z.string(),
+          specId: z.string(),
+          completedAt: z.string(),
+          completedTasks: z.array(z.unknown()),
+          failedTasks: z.array(z.unknown()),
+        })
+        .passthrough(),
+    ),
+    architectureDecisions: z.array(
+      z
+        .object({
+          decision: z.string(),
+          rationale: z.string().optional(),
+          outcome: z.string().optional(),
+        })
+        .passthrough(),
+    ),
     compressedContexts: z
       .array(z.object({ sessionId: z.string(), compressedAt: z.string() }).passthrough())
       .optional(),
   })
   .passthrough();
 
+function shapeError(path: string, at: PropertyKey[]): Error {
+  const where = at.length > 0 ? at.map(String).join('.') : '(root)';
+  return new Error(`${path}: unexpected memory.json shape at ${where}`);
+}
+
 // ProjectMemoryStore.read()의 v1 마이그레이션과 같은 일을 하되 두 군데가 다르다.
 // timestamp를 실행 시각 대신 파일의 lastUpdated로 채워 같은 입력이면 같은 머지 결과가 나오게 한다.
 // 배열 필드가 빠진 파일도 빈 배열로 채운다. 드라이버는 git이 넘겨준 임시 파일을 읽으므로 store를 거치지 못한다
 function readMemoryFile(path: string): ProjectMemory {
-  const parsed = JSON.parse(readFileSync(path, 'utf-8')) as ProjectMemory;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, 'utf-8'));
+  } catch (e) {
+    throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+  }
+  // 마이그레이션이 필드를 건드리기 전에 막아야 원시 TypeError 대신 어디가 틀렸는지가 남는다
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw shapeError(path, []);
+  const parsed = raw as ProjectMemory;
+  if (parsed.architectureDecisions !== undefined && !Array.isArray(parsed.architectureDecisions)) {
+    throw shapeError(path, ['architectureDecisions']);
+  }
+
   parsed.architectureDecisions = (parsed.architectureDecisions ?? []).map((item) =>
     typeof item === 'string'
       ? { decision: item, rationale: '', specId: '', timestamp: parsed.lastUpdated ?? '' }
@@ -100,10 +135,7 @@ function readMemoryFile(path: string): ProjectMemory {
   parsed.executionHistory ??= [];
 
   const checked = memoryFileSchema.safeParse(parsed);
-  if (!checked.success) {
-    const issue = checked.error.issues[0];
-    throw new Error(`${path}: unexpected memory.json shape at ${issue?.path.join('.') ?? '?'}`);
-  }
+  if (!checked.success) throw shapeError(path, checked.error.issues[0]?.path ?? []);
   return parsed;
 }
 

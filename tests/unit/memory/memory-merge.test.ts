@@ -119,6 +119,24 @@ describe('runMemoryMergeDriver', () => {
     ['theirs JSON이 깨졌을 때', '{"broken"'],
     ['배열이어야 할 필드가 객체일 때', JSON.stringify({ ...memory(), specHistory: {} })],
     ['spec 항목에 goal이 없을 때', JSON.stringify(memory({ specHistory: [{}] as never }))],
+    [
+      '실행 이력에 completedTasks가 없을 때',
+      JSON.stringify(
+        memory({
+          executionHistory: [{ executeSessionId: 'x', specId: 's', completedAt: 't' }] as never,
+        }),
+      ),
+    ],
+    [
+      '결정의 rationale이 문자열이 아닐 때',
+      JSON.stringify(memory({ architectureDecisions: [{ decision: 'd', rationale: 1 }] as never })),
+    ],
+    ['루트가 null일 때', 'null'],
+    ['루트가 배열일 때', '[]'],
+    [
+      'architectureDecisions가 객체일 때',
+      JSON.stringify({ ...memory(), architectureDecisions: {} }),
+    ],
   ])('%s 던지고 ours를 건드리지 않는다', (_label, theirsContent) => {
     mkdirSync(dir, { recursive: true });
     const ours = join(dir, 'ours.json');
@@ -127,8 +145,18 @@ describe('runMemoryMergeDriver', () => {
     writeFileSync(ours, original);
     writeFileSync(theirs, theirsContent);
 
-    expect(() => runMemoryMergeDriver(ours, theirs)).toThrow();
+    expect(() => runMemoryMergeDriver(ours, theirs)).toThrow(/theirs\.json/);
     expect(readFileSync(ours, 'utf-8')).toBe(original);
+  });
+
+  it('루트 구조가 틀리면 어느 자리인지 메시지에 남긴다', () => {
+    mkdirSync(dir, { recursive: true });
+    const ours = join(dir, 'ours.json');
+    const theirs = join(dir, 'theirs.json');
+    writeFileSync(ours, JSON.stringify(memory()));
+    writeFileSync(theirs, '[]');
+
+    expect(() => runMemoryMergeDriver(ours, theirs)).toThrow(/shape at \(root\)$/);
   });
 });
 
