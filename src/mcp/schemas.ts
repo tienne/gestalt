@@ -279,7 +279,7 @@ export const executeInputSchema = guardObject(
         artifacts: z
           .array(z.string())
           .describe(
-            'Files this task changed. completed 보고면 서버가 실행 시작 시점의 git 작업 트리와 대조한다',
+            'Files this task changed. For completed results the server checks them against the git working tree captured at execute_start',
           ),
         noCodeChange: z
           .boolean()
