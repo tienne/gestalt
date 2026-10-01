@@ -960,6 +960,19 @@ describe('Evaluate Phase — structural command integrity', () => {
     expect(isErr(result)).toBe(true);
   });
 
+  it('sees commands requested by another process on a session it already cached', async () => {
+    const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+    const sessionId = await readyForEvaluation();
+    const other = new PassthroughExecuteEngine(store);
+    expect(other.getSession(sessionId).structuralCommands).toBeUndefined();
+
+    const commands = requestedCommands(sessionId, repo.root);
+
+    expect(other.getSession(sessionId).structuralCommands).toEqual(commands);
+    const result = other.submitStructuralResult(sessionId, passing(commands));
+    expect(isOk(result)).toBe(true);
+  });
+
   it('rejects an empty submission', async () => {
     const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
     const sessionId = await readyForEvaluation();
