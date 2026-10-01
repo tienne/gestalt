@@ -19,6 +19,7 @@ import type {
   AuditResult,
   StructuralCommand,
   BaselineCapture,
+  BaselineSkipReason,
 } from '../core/types.js';
 import { ExecuteSessionNotFoundError } from '../core/errors.js';
 import { BASELINE_EVENT_DIRTY_LIMIT, DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
@@ -206,17 +207,16 @@ export class ExecuteSessionManager {
     // 해시가 너무 많으면 이벤트에는 사유만 남긴다. 이 프로세스가 사는 동안은 메모리의 기준 트리로 대조한다
     const dirtyCount = baseline ? Object.keys(baseline.dirty).length : 0;
     const truncated = dirtyCount > BASELINE_EVENT_DIRTY_LIMIT;
+    const eventSkipped: BaselineSkipReason | undefined = truncated
+      ? 'baseline_truncated'
+      : session.workingTreeBaselineSkipped;
 
     this.record(sessionId, EventType.EXECUTE_EXECUTION_STARTED, {
       planId: session.executionPlan?.planId,
       taskCount: session.executionPlan?.atomicTasks.length,
       ...(baseline && !truncated ? { workingTreeBaseline: baseline } : {}),
-      ...(truncated
-        ? { workingTreeBaselineSkipped: 'baseline_truncated', baselineDirtyCount: dirtyCount }
-        : {}),
-      ...(session.workingTreeBaselineSkipped
-        ? { workingTreeBaselineSkipped: session.workingTreeBaselineSkipped }
-        : {}),
+      ...(eventSkipped ? { workingTreeBaselineSkipped: eventSkipped } : {}),
+      ...(truncated ? { baselineDirtyCount: dirtyCount } : {}),
     });
   }
 
