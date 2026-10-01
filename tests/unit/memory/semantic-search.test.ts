@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ProjectMemory } from '../../../src/core/types.js';
 
 const embedBatch = vi.fn(async (texts: string[]) => texts.map(() => [1, 0]));
+const ensureLoaded = vi.fn(async () => {});
 vi.mock('../../../src/knowledge-base/embedding.js', () => ({
   EmbeddingService: class {
     embedBatch = embedBatch;
+    ensureLoaded = ensureLoaded;
   },
 }));
 
@@ -32,6 +34,8 @@ describe('searchSimilarSpecs', () => {
     resetSemanticSearchState();
     embedBatch.mockReset();
     embedBatch.mockImplementation(async (texts: string[]) => texts.map(() => [1, 0]));
+    ensureLoaded.mockReset();
+    ensureLoaded.mockImplementation(async () => {});
   });
 
   it('한글 쿼리는 영어 전용 모델에 넘기지 않는다', async () => {
@@ -67,29 +71,35 @@ describe('searchSimilarSpecs', () => {
   });
 
   it('모델이 올라오는 중에 들어온 검색은 기다리지 않고 실패로 돌린다', async () => {
-    let finishLoading!: (v: number[][]) => void;
-    embedBatch.mockImplementationOnce(
-      () => new Promise<number[][]>((resolve) => (finishLoading = resolve)),
+    let finishLoading!: () => void;
+    ensureLoaded.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finishLoading = resolve)),
     );
     const memory = memoryOf(['Payment checkout']);
 
     const first = searchSimilarSpecs('Improve checkout', memory);
     await expect(searchSimilarSpecs('Improve checkout', memory)).rejects.toThrow(/still loading/);
-    expect(embedBatch).toHaveBeenCalledTimes(1);
+    expect(ensureLoaded).toHaveBeenCalledTimes(1);
 
-    finishLoading([
-      [1, 0],
-      [1, 0],
-    ]);
+    finishLoading();
     await expect(first).resolves.toHaveLength(1);
   });
 
   it('로딩에 실패하면 한동안 다시 받으려 들지 않는다', async () => {
-    embedBatch.mockRejectedValueOnce(new Error('offline'));
+    ensureLoaded.mockRejectedValueOnce(new Error('offline'));
     const memory = memoryOf(['Payment checkout']);
 
     await expect(searchSimilarSpecs('Improve checkout', memory)).rejects.toThrow('offline');
     await expect(searchSimilarSpecs('Improve checkout', memory)).rejects.toThrow(/recently/);
-    expect(embedBatch).toHaveBeenCalledTimes(1);
+    expect(ensureLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('모델이 올라온 뒤의 임베딩 실패는 쉬지 않고 다음 검색에서 다시 해본다', async () => {
+    embedBatch.mockRejectedValueOnce(new Error('bad input'));
+    const memory = memoryOf(['Payment checkout']);
+
+    await expect(searchSimilarSpecs('Improve checkout', memory)).rejects.toThrow('bad input');
+    await expect(searchSimilarSpecs('Improve checkout', memory)).resolves.toHaveLength(1);
+    expect(ensureLoaded).toHaveBeenCalledTimes(1);
   });
 });

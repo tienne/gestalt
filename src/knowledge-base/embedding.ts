@@ -28,6 +28,14 @@ export class EmbeddingService {
   }
 
   /**
+   * 모델을 미리 올린다. 이미 올라와 있으면 바로 끝난다.
+   * 로딩 실패와 임베딩 실패를 호출부가 나눠 다룰 수 있게 따로 둔다.
+   */
+  async ensureLoaded(): Promise<void> {
+    await this.getPipeline();
+  }
+
+  /**
    * 텍스트 하나를 임베딩 벡터로 변환한다.
    * embedBatch에 위임한다.
    */

@@ -46,26 +46,27 @@ function getEmbeddingService(): Promise<EmbeddingService> {
 }
 
 // 모델이 아직 안 올라왔으면 한 번에 하나만 받게 한다. 로딩 중에 들어온 호출은 기다리지 않고
-// 실패로 돌려 호출부가 바로 폴백하게 한다 — 기다려 봐야 호출부 제한 시간에 걸린다
+// 실패로 돌려 호출부가 바로 폴백하게 한다 — 기다려 봐야 호출부 제한 시간에 걸린다.
+// 쉬는 시간은 로딩 실패에만 건다. 올라온 뒤의 임베딩 실패는 다음 호출에서 그냥 다시 해본다
 async function embedTexts(texts: string[]): Promise<number[][]> {
   const service = await getEmbeddingService();
-  if (modelReady) return service.embedBatch(texts);
-  if (modelLoading) throw new Error('embedding model is still loading');
-  if (Date.now() - lastFailureAt < RETRY_AFTER_FAILURE_MS) {
-    throw new Error('embedding model failed to load recently');
+  if (!modelReady) {
+    if (modelLoading) throw new Error('embedding model is still loading');
+    if (Date.now() - lastFailureAt < RETRY_AFTER_FAILURE_MS) {
+      throw new Error('embedding model failed to load recently');
+    }
+    modelLoading = true;
+    try {
+      await service.ensureLoaded();
+      modelReady = true;
+    } catch (e) {
+      lastFailureAt = Date.now();
+      throw e;
+    } finally {
+      modelLoading = false;
+    }
   }
-
-  modelLoading = true;
-  try {
-    const vectors = await service.embedBatch(texts);
-    modelReady = true;
-    return vectors;
-  } catch (e) {
-    lastFailureAt = Date.now();
-    throw e;
-  } finally {
-    modelLoading = false;
-  }
+  return service.embedBatch(texts);
 }
 
 /** @internal 테스트에서 모듈 상태를 비운다 */
