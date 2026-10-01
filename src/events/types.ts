@@ -40,6 +40,7 @@ export enum EventType {
   EVOLVE_LATERAL_STARTED = 'evolve.lateral.started',
   EVOLVE_LATERAL_COMPLETED = 'evolve.lateral.completed',
   EVOLVE_HUMAN_ESCALATION = 'evolve.human.escalation',
+  EVOLVE_HUMAN_GATE_RESOLVED = 'evolve.human.gate.resolved',
   // Role Agent System
   ROLE_MATCH_STARTED = 'role.match.started',
   ROLE_MATCH_COMPLETED = 'role.match.completed',

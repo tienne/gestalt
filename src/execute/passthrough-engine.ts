@@ -11,6 +11,7 @@ import type {
   RolePerspective,
   RoleConsensus,
   BaselineCapture,
+  HumanGateOptionId,
 } from '../core/types.js';
 import { ExecuteError } from '../core/errors.js';
 import { type Result } from '../core/result.js';
@@ -35,6 +36,7 @@ import type {
   PassthroughEvolveFixResult,
   PassthroughEvolvePatchResult,
   PassthroughReExecuteResult,
+  PassthroughGateResolveResult,
   TaskExecutionContext,
 } from './orchestrators/types.js';
 
@@ -60,6 +62,7 @@ export type {
   PassthroughEvolveFixResult,
   PassthroughEvolvePatchResult,
   PassthroughReExecuteResult,
+  PassthroughGateResolveResult,
 } from './orchestrators/types.js';
 
 // ─── Engine (thin facade) ──────────────────────────────────────
@@ -244,5 +247,12 @@ export class PassthroughExecuteEngine {
     lateralResult: LateralResult,
   ): Result<PassthroughEvolvePatchResult, ExecuteError> {
     return this.evolutionOrch.submitLateralResult(sessionId, lateralResult);
+  }
+
+  resolveHumanGate(
+    sessionId: string,
+    answer: { gateId?: string; optionId: HumanGateOptionId; decision: string; rationale: string },
+  ): Result<PassthroughGateResolveResult, ExecuteError> {
+    return this.evolutionOrch.resolveHumanGate(sessionId, answer);
   }
 }

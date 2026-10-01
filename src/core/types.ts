@@ -125,7 +125,13 @@ export interface SkillDefinition {
 }
 
 // ─── Execute ────────────────────────────────────────────────────
-export type ExecuteStatus = 'planning' | 'plan_complete' | 'executing' | 'completed' | 'failed';
+export type ExecuteStatus =
+  | 'planning'
+  | 'plan_complete'
+  | 'executing'
+  | 'awaiting_human'
+  | 'completed'
+  | 'failed';
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 export type ACClassification = 'figure' | 'ground';
 
@@ -344,6 +350,44 @@ export type TerminationReason =
   | 'caller'
   | 'human_escalation';
 
+// ─── Human Gate ───────────────────────────────────────────────
+/**
+ * 사람이 고를 수 있는 해소 방향.
+ * patch_spec과 manual_task는 세션을 이어간다. restart와 abort는 세션을 종료한다.
+ */
+export type HumanGateOptionId = 'patch_spec' | 'manual_task' | 'restart' | 'abort';
+
+export interface HumanGateOption {
+  id: HumanGateOptionId;
+  label: string;
+  /** 고른 뒤 호출자가 부를 다음 action */
+  nextAction: string | null;
+}
+
+export interface HumanGateResolution {
+  optionId: HumanGateOptionId;
+  /** 사람이 내린 결정 */
+  decision: string;
+  /** 그렇게 결정한 이유 */
+  rationale: string;
+  resolvedAt: string;
+}
+
+export interface HumanGate {
+  gateId: string;
+  question: string;
+  options: HumanGateOption[];
+  context: {
+    blockedTask?: { taskId: string; title: string };
+    triedPersonas: string[];
+    bestScore: number;
+    unresolved: string[];
+  };
+  status: 'open' | 'resolved';
+  openedAt: string;
+  resolution?: HumanGateResolution;
+}
+
 export interface SpecPatch {
   acceptanceCriteria?: string[];
   constraints?: string[];
@@ -443,6 +487,8 @@ export interface ExecuteSession {
   lateralAttempts: number;
   lateralCurrentPersona?: string;
   lateralCurrentPattern?: string;
+  // Human Gate — 열린 게이트는 최대 하나(openHumanGate가 막는다), 해소된 것은 이력으로 남는다
+  humanGates: HumanGate[];
   // Role Agent System
   roleMatches?: RoleMatch[];
   roleConsensus?: RoleConsensus;

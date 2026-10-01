@@ -20,6 +20,8 @@ import type {
   StructuralCommand,
   WorkingTreeBaseline,
   BaselineSkipReason,
+  HumanGate,
+  HumanGateResolution,
 } from '../core/types.js';
 import { EventType } from '../events/types.js';
 import { computeReadyTaskIds } from './parallel-groups.js';
@@ -112,6 +114,7 @@ export class ExecuteSessionRepository {
       currentGeneration: 0,
       lateralTriedPersonas: [],
       lateralAttempts: 0,
+      humanGates: [],
       codeGraphRepoRoot: startPayload.codeGraphRepoRoot,
       createdAt: firstEvent.timestamp,
       updatedAt: firstEvent.timestamp,
@@ -448,11 +451,35 @@ export class ExecuteSessionRepository {
         session.roleConsensus = undefined;
         break;
 
-      case EventType.EVOLVE_HUMAN_ESCALATION:
-        session.terminationReason = 'human_escalation';
-        session.status = 'failed';
+      case EventType.EVOLVE_HUMAN_ESCALATION: {
+        const gate = payload.gate as HumanGate | undefined;
         session.evolveStage = undefined;
+        if (gate) {
+          session.humanGates.push(structuredClone(gate));
+          session.status = 'awaiting_human';
+        } else {
+          // 게이트가 생기기 전 이벤트는 그때처럼 실패 종료로 되살린다
+          session.terminationReason = 'human_escalation';
+          session.status = 'failed';
+        }
         break;
+      }
+
+      case EventType.EVOLVE_HUMAN_GATE_RESOLVED: {
+        const gate = session.humanGates.find((g) => g.gateId === payload.gateId);
+        if (gate) {
+          gate.status = 'resolved';
+          gate.resolution = payload.resolution as HumanGateResolution;
+        }
+        if (payload.resumes === true) {
+          session.status = 'executing';
+        } else {
+          // 뒤따르는 EVOLVE_TERMINATED 전에 프로세스가 끊겨도 대기 상태에 갇히지 않게 여기서 종료한다
+          session.status = 'failed';
+          session.terminationReason = 'human_escalation';
+        }
+        break;
+      }
 
       // EXECUTE_PLAN_VALIDATED 등 — 세션 상태에 직접 영향 없음
       default:
