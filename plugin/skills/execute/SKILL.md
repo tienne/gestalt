@@ -201,6 +201,27 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 - Continuity 단계에서는 서버 측 DAG 검증이 추가로 수행됨
 - 모든 AC가 분류되어야 하고 모든 Task가 그룹에 포함되어야 함
 
+### DAG가 무효일 때 — closure로 되감기
+
+순환은 closure 단계 `atomicTasks`의 `dependsOn`에서 생긴다. continuity만 다시 내서는 못 고친다. 그래서 `dagValidation.isValid: false`를 보고하거나 서버가 순환이나 충돌을 찾으면 `plan_step`(continuity)과 `plan_complete` 둘 다 계획을 확정하지 않는다. 대신 세션을 figure_ground까지만 남기고 되감은 뒤 이렇게 돌려준다.
+
+```json
+{
+  "error": "Dependency DAG is invalid (...)",
+  "status": "plan_rewound",
+  "rewoundToStep": 2,
+  "cycleDetails": ["Cycle detected involving tasks: task-0 → task-1"],
+  "conflictDetails": [],
+  "executeContext": { "currentPrinciple": "closure", "...": "..." },
+  "nextAction": "plan_step"
+}
+```
+
+- `cycleDetails`와 `conflictDetails`를 보고 문제가 된 태스크의 `dependsOn`을 고친다.
+- 응답의 `executeContext`로 closure부터 다시 낸다. 그다음 proximity와 continuity를 차례로 다시 제출한다.
+- `isValid: false`를 그대로 두고 continuity만 다시 내면 또 되감긴다. 호출자 보고가 무효여도 막는다.
+- 이 응답에는 `error` 필드가 함께 실린다. `plan_complete`나 `execute_start`로 넘어가지 않는다.
+
 ### Reasoning Model 서브에이전트로 플래닝 추론
 
 Phase 1 플래닝(`plan_step` 4단계 + `plan_complete`)은 Spec을 태스크 DAG로 분해하는 깊은 one-shot 추론이라, 게슈탈트에서 상위 추론 모델이 진짜 값을 하는 지점이다. 각 `plan_step`의 `stepResult`(classifiedACs / atomicTasks / taskGroups / dagValidation)를 만드는 추론은 현재 세션이 직접 하지 말고 별도 Agent 서브에이전트로 스폰한다.
