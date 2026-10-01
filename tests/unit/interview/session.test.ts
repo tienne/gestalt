@@ -127,6 +127,19 @@ describe('SessionManager', () => {
     expect(completed.forcedComplete).toBeUndefined();
   });
 
+  it('rejects completing an already completed session without another event', () => {
+    const session = manager.create('test', 'greenfield');
+    manager.complete(session.sessionId, { force: true });
+    expect(() => manager.complete(session.sessionId)).toThrow(SessionAlreadyCompletedError);
+    expect(() => manager.complete(session.sessionId, { force: true })).toThrow(
+      SessionAlreadyCompletedError,
+    );
+    const completedEvents = store
+      .getByAggregate('interview', session.sessionId)
+      .filter((e) => e.eventType === EventType.INTERVIEW_SESSION_COMPLETED);
+    expect(completedEvents).toHaveLength(1);
+  });
+
   it('prevents questions on completed session', () => {
     const session = manager.create('test', 'greenfield');
     manager.complete(session.sessionId, { force: true });

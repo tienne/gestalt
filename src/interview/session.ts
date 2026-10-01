@@ -168,6 +168,9 @@ export class SessionManager {
 
   complete(sessionId: string, options: { force?: boolean } = {}): InterviewSession {
     const session = this.get(sessionId);
+    if (session.status !== 'in_progress') {
+      throw new SessionAlreadyCompletedError(sessionId);
+    }
     const ready = session.resolutionScore?.isReady === true;
     if (!ready && !options.force) {
       throw new InterviewNotReadyError(
