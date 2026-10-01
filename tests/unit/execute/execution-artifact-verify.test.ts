@@ -380,4 +380,38 @@ describe('execute_task 완료 보고 대조', { timeout: 30_000 }, () => {
     expect(ok.status).toBe('executing');
     expect(ok.artifactCheck).toBe('verified');
   });
+
+  // dispatch 워커처럼 같은 DB를 쓰는 다른 서버 프로세스. loadFromStore 없이 get()이 스토어에서 세션을 연다
+  it('다른 프로세스가 같은 세션을 열어도 기준 트리와 noCodeChange 기록이 이어진다', async () => {
+    const sessionId = await startInRepo();
+    const worker = new PassthroughExecuteEngine(store);
+
+    expect(
+      (await submit(sessionId, { taskId: 'task-0', artifacts: ['app.ts'] }, worker)).status,
+    ).toBe('verification_failed');
+    const done = await submit(sessionId, { taskId: 'task-0', noCodeChange: true }, worker);
+    expect(done.artifactCheck).toBe('no_code_change');
+
+    // 시작한 쪽 캐시는 워커가 쓴 이벤트를 보고 다시 만들어진다
+    const session = engine.getSession(sessionId);
+    expect(session.completedTaskIds).toEqual(['task-0']);
+    expect(session.taskResults.find((r) => r.taskId === 'task-0')?.noCodeChange).toBe(true);
+    expect((await submit(sessionId, { taskId: 'task-1', artifacts: ['app.ts'] })).status).toBe(
+      'verification_failed',
+    );
+  });
+
+  it('다른 프로세스가 열어도 기준 트리를 못 잡은 사유가 그대로 보인다', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'gestalt-exec-nogit-'));
+    try {
+      const sessionId = await startInRepo(outside);
+      const worker = new PassthroughExecuteEngine(store);
+
+      const res = await submit(sessionId, { taskId: 'task-0', artifacts: ['x.ts'] }, worker);
+      expect(res.status).toBe('executing');
+      expect(res.artifactCheck).toBe('no_baseline');
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });
