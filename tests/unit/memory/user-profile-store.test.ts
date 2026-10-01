@@ -111,6 +111,14 @@ describe('UserProfileStore', () => {
     expect(store.read().personalPreferences['lang']).toBe('ko');
   });
 
+  it('잠금 없이 읽을 때는 깨진 profile.json을 옮기지 않는다', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    writeFileSync(tmpProfilePath, '{"crossRepoPatterns": [', 'utf-8');
+
+    expect(store.read().crossRepoPatterns).toHaveLength(0);
+    expect(readdirSync(join(tmpProfilePath, '..'))).toEqual(['profile.json']);
+  });
+
   it('profile.json은 본인만 읽을 수 있게 쓴다', () => {
     store.setUserId('user-123');
     expect(statSync(tmpProfilePath).mode & 0o777).toBe(0o600);
