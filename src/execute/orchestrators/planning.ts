@@ -8,7 +8,9 @@ import type {
   ClosureResult,
   ProximityResult,
   ContinuityResult,
+  DAGValidation,
 } from '../../core/types.js';
+import { GestaltPrinciple } from '../../core/types.js';
 import {
   ExecuteError,
   ExecuteSessionNotFoundError,
@@ -38,6 +40,39 @@ import type {
   PassthroughPlanStepResult,
   PassthroughPlanCompleteResult,
 } from './types.js';
+
+/**
+ * DAG가 무효라서 플래닝을 closure 이전으로 되감았다는 신호.
+ * 순환은 closure의 dependsOn에서 생기므로 continuity만 다시 내서는 못 고친다.
+ * executeContext는 다시 할 closure 단계의 프롬프트다.
+ */
+export class PlanningRewoundError extends InvalidPlanningStepError {
+  constructor(
+    message: string,
+    public readonly dagValidation: DAGValidation,
+    public readonly executeContext: ExecuteContext,
+  ) {
+    super(message);
+    this.name = 'PlanningRewoundError';
+  }
+}
+
+const REWIND_PRINCIPLE = GestaltPrinciple.CLOSURE;
+
+function findClosureStep(session: ExecuteSession): ClosureResult | undefined {
+  return session.planningSteps.find((s) => s.principle === 'closure') as ClosureResult | undefined;
+}
+
+function findProximityStep(session: ExecuteSession): ProximityResult | undefined {
+  return session.planningSteps.find((s) => s.principle === 'proximity') as
+    | ProximityResult
+    | undefined;
+}
+
+// 호출자가 보고한 continuity를 믿지 않고 서버가 closure와 proximity 결과로 다시 계산한다
+function validateServerDAG(closure: ClosureResult, proximity: ProximityResult): DAGValidation {
+  return validateDAG(closure.atomicTasks, proximity.taskGroups);
+}
 
 export class PlanningOrchestrator {
   constructor(
@@ -96,11 +131,19 @@ export class PlanningOrchestrator {
         return err(new InvalidPlanningStepError(validationError));
       }
 
-      // For Continuity step: server-side cross-validation
       if (stepResult.principle === 'continuity') {
-        const crossValidation = this.crossValidateDAG(session, stepResult);
-        if (crossValidation) {
-          return err(new InvalidPlanningStepError(crossValidation));
+        const closureStep = findClosureStep(session);
+        const proximityStep = findProximityStep(session);
+        if (!closureStep || !proximityStep) {
+          return err(
+            new InvalidPlanningStepError(
+              'Closure and Proximity steps must be completed before Continuity',
+            ),
+          );
+        }
+        const serverDAG = validateServerDAG(closureStep, proximityStep);
+        if (!stepResult.dagValidation.isValid || !serverDAG.isValid) {
+          return err(this.rewindToClosure(session, stepResult.dagValidation, serverDAG));
         }
       }
 
@@ -155,12 +198,8 @@ export class PlanningOrchestrator {
       const fgStep = session.planningSteps.find((s) => s.principle === 'figure_ground') as
         | FigureGroundResult
         | undefined;
-      const closureStep = session.planningSteps.find((s) => s.principle === 'closure') as
-        | ClosureResult
-        | undefined;
-      const proximityStep = session.planningSteps.find((s) => s.principle === 'proximity') as
-        | ProximityResult
-        | undefined;
+      const closureStep = findClosureStep(session);
+      const proximityStep = findProximityStep(session);
       const continuityStep = session.planningSteps.find((s) => s.principle === 'continuity') as
         | ContinuityResult
         | undefined;
@@ -169,13 +208,17 @@ export class PlanningOrchestrator {
         return err(new ExecuteError('Missing planning step results'));
       }
 
-      // Final DAG validation on server side
-      const serverDAG = validateDAG(closureStep.atomicTasks, proximityStep.taskGroups);
+      const serverDAG = validateServerDAG(closureStep, proximityStep);
 
       this.eventStore.append('execute', sessionId, EventType.EXECUTE_PLAN_VALIDATED, {
         callerValid: continuityStep.dagValidation.isValid,
         serverValid: serverDAG.isValid,
       });
+
+      // 저장된 continuity가 검증 없이 들어온 무효 DAG일 수 있다
+      if (!continuityStep.dagValidation.isValid || !serverDAG.isValid) {
+        return err(this.rewindToClosure(session, continuityStep.dagValidation, serverDAG));
+      }
 
       // Auto-assign per-task model hints for Passthrough sub-agent spawning
       const atomicTasks = assignModelHints(closureStep.atomicTasks);
@@ -353,32 +396,41 @@ export class PlanningOrchestrator {
     return null;
   }
 
-  private crossValidateDAG(
+  /**
+   * closure부터 다시 하도록 planningSteps를 figure_ground까지만 남긴다.
+   * 호출자와 서버 중 한쪽이라도 무효라고 하면 되감는다. 서버가 못 찾은 문제는 호출자 보고에서 가져온다.
+   */
+  private rewindToClosure(
     session: ExecuteSession,
-    continuityResult: ContinuityResult,
-  ): string | null {
-    const closureStep = session.planningSteps.find((s) => s.principle === 'closure') as
-      | ClosureResult
-      | undefined;
-    const proximityStep = session.planningSteps.find((s) => s.principle === 'proximity') as
-      | ProximityResult
-      | undefined;
+    callerDAG: DAGValidation,
+    serverDAG: DAGValidation,
+  ): PlanningRewoundError {
+    const dagValidation = serverDAG.isValid ? callerDAG : serverDAG;
+    const keepSteps = PLANNING_PRINCIPLE_SEQUENCE.indexOf(REWIND_PRINCIPLE);
+    const issues = [
+      ...(dagValidation.cycleDetails ?? []),
+      ...(dagValidation.conflictDetails ?? []),
+    ];
 
-    if (!closureStep || !proximityStep) {
-      return 'Closure and Proximity steps must be completed before Continuity';
-    }
+    this.sessionManager.rewindPlanning(session.sessionId, keepSteps, {
+      toPrinciple: REWIND_PRINCIPLE,
+      reason: serverDAG.isValid ? 'caller_reported_invalid' : 'server_detected_invalid',
+      dagValidation,
+    });
 
-    const serverDAG = validateDAG(closureStep.atomicTasks, proximityStep.taskGroups);
+    const rewound = this.sessionManager.get(session.sessionId);
+    const executeContext = this.buildExecuteContext(
+      rewound.spec,
+      keepSteps + 1,
+      rewound.planningSteps,
+    );
 
-    // If caller says valid but server finds issues, flag it
-    if (continuityResult.dagValidation.isValid && !serverDAG.isValid) {
-      const issues = [...(serverDAG.cycleDetails ?? []), ...(serverDAG.conflictDetails ?? [])].join(
-        '; ',
-      );
-      return `Server-side DAG validation disagrees: ${issues}`;
-    }
-
-    return null;
+    return new PlanningRewoundError(
+      `Dependency DAG is invalid (${issues.join('; ') || 'reported invalid without details'}). ` +
+        `Planning was rewound to step ${keepSteps + 1} — fix the dependsOn relations and resubmit every step from there.`,
+      dagValidation,
+      executeContext,
+    );
   }
 
   // ─── Context builder ──────────────────────────────────────────

@@ -142,6 +142,15 @@ export class ExecuteSessionRepository {
         break;
       }
 
+      case EventType.EXECUTE_PLANNING_REWOUND: {
+        const keepSteps = payload.keepSteps;
+        if (typeof keepSteps === 'number') {
+          session.planningSteps.splice(keepSteps);
+          session.currentStep = session.planningSteps.length + 1;
+        }
+        break;
+      }
+
       case EventType.EXECUTE_PLAN_COMPLETED: {
         const executionPlan = payload.executionPlan as ExecutionPlan | undefined;
         if (executionPlan) {

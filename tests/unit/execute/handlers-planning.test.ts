@@ -7,6 +7,7 @@ import {
   makeTask,
   type ExecuteFixture,
 } from '../../helpers/execute-fixture.js';
+import { BANNED_SURFACE_TERMS } from '../../../src/gestalt/surface-labels.js';
 
 /**
  * plan_step, plan_complete를 핸들러 입구(handleExecutePassthrough)에서 부른다.
@@ -21,6 +22,10 @@ interface PlanStepResponse {
   executeContext?: Record<string, unknown>;
   nextAction?: string;
   nextActionParams?: { sessionId: string };
+  rewoundToStep?: number;
+  cycleDetails?: string[];
+  conflictDetails?: string[];
+  hint?: string;
 }
 
 interface PlanCompleteResponse {
@@ -230,5 +235,128 @@ describe('ges_execute plan_complete 핸들러', () => {
 
     expect(res.executionPlan?.parallelGroups).toEqual([['task-0'], ['task-1', 'task-2']]);
     expect(res.planSummary?.parallelGroupCount).toBe(2);
+  });
+});
+
+describe('ges_execute 무효 DAG 되감기', () => {
+  let fx: ExecuteFixture;
+  const cyclic = [
+    makeTask('task-0', ['task-1'], 0),
+    makeTask('task-1', ['task-0'], 1),
+    makeTask('task-2', [], 2),
+  ];
+
+  beforeEach(() => {
+    fx = createExecuteFixture('handlers-dag-rewind');
+  });
+  afterEach(() => fx.close());
+
+  async function upToProximity(): Promise<string> {
+    const { sessionId, spec } = fx.startedSession();
+    const [fg, , proximity] = planningSteps(spec, cyclic);
+    await fx.call({ action: 'plan_step', sessionId, stepResult: fg });
+    await fx.call({
+      action: 'plan_step',
+      sessionId,
+      stepResult: { principle: 'closure', atomicTasks: cyclic },
+    });
+    await fx.call({ action: 'plan_step', sessionId, stepResult: proximity });
+    return sessionId;
+  }
+
+  function expectRewoundResponse(res: PlanStepResponse & { status?: string }, sessionId: string) {
+    expect(res.error).toContain('Dependency DAG is invalid');
+    expect(res.status).toBe('plan_rewound');
+    expect(res.rewoundToStep).toBe(2);
+    expect(res.nextAction).toBe('plan_step');
+    expect(res.nextActionParams).toEqual({ sessionId });
+    expect(res.executeContext).toBeDefined();
+    for (const term of BANNED_SURFACE_TERMS) {
+      expect(`${res.error} ${res.hint}`.toLowerCase()).not.toContain(term);
+    }
+    expect(fx.engine.getSession(sessionId).planningSteps).toHaveLength(1);
+  }
+
+  it('호출자가 isValid:false를 정직하게 보고하면 순환 경로를 담아 closure로 돌려보낸다', async () => {
+    const sessionId = await upToProximity();
+    const res = await fx.call<PlanStepResponse>({
+      action: 'plan_step',
+      sessionId,
+      stepResult: {
+        principle: 'continuity',
+        dagValidation: {
+          isValid: false,
+          hasCycles: true,
+          cycleDetails: ['task-0 → task-1 → task-0'],
+          hasConflicts: false,
+          topologicalOrder: [],
+          criticalPath: [],
+        },
+      },
+    });
+
+    expectRewoundResponse(res, sessionId);
+    expect(res.cycleDetails?.join(' ')).toContain('task-0');
+  });
+
+  it('서버만 순환을 찾아도 같은 응답으로 돌려보낸다', async () => {
+    const sessionId = await upToProximity();
+    const res = await fx.call<PlanStepResponse>({
+      action: 'plan_step',
+      sessionId,
+      stepResult: {
+        principle: 'continuity',
+        dagValidation: {
+          isValid: true,
+          hasCycles: false,
+          hasConflicts: false,
+          topologicalOrder: ['task-0', 'task-1', 'task-2'],
+          criticalPath: [],
+        },
+      },
+    });
+
+    expectRewoundResponse(res, sessionId);
+    expect(res.cycleDetails?.join(' ')).toContain('task-0');
+  });
+
+  it('plan_complete도 저장된 무효 계획을 확정하지 않고 되감는다', async () => {
+    const sessionId = await upToProximity();
+    fx.engine.getSessionManager().addPlanningStep(sessionId, {
+      principle: 'continuity',
+      dagValidation: {
+        isValid: false,
+        hasCycles: true,
+        hasConflicts: false,
+        topologicalOrder: [],
+        criticalPath: [],
+      },
+    });
+
+    const res = await fx.call<PlanStepResponse>({ action: 'plan_complete', sessionId });
+
+    expectRewoundResponse(res, sessionId);
+    expect(fx.engine.getSession(sessionId).status).toBe('planning');
+  });
+
+  it('verbose=false면 되감기 응답의 executeContext에서도 프롬프트를 걷어낸다', async () => {
+    const sessionId = await upToProximity();
+    const res = await fx.call<PlanStepResponse>({
+      action: 'plan_step',
+      sessionId,
+      verbose: false,
+      stepResult: {
+        principle: 'continuity',
+        dagValidation: {
+          isValid: false,
+          hasCycles: true,
+          hasConflicts: false,
+          topologicalOrder: [],
+          criticalPath: [],
+        },
+      },
+    });
+
+    expect(res.executeContext).not.toHaveProperty('planningPrompt');
   });
 });
