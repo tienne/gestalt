@@ -1,6 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { execFile } from 'node:child_process';
+import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { ProjectMemoryStore } from '../../../src/memory/project-memory-store.js';
@@ -164,6 +167,75 @@ describe('ProjectMemoryStore', () => {
     const memory = store.read();
     expect(memory.lastUpdated >= before).toBe(true);
   });
+
+  it('깨진 memory.json은 백업하고 다음 쓰기가 기존 기록을 덮지 않는다', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const gestaltDir = join(tmpDir, '.gestalt');
+    mkdirSync(gestaltDir, { recursive: true });
+    const broken = '{"specHistory": [{"specId": "old"';
+    writeFileSync(join(gestaltDir, 'memory.json'), broken, 'utf-8');
+
+    expect(store.read().specHistory).toHaveLength(0);
+    store.addSpec({
+      specId: 'new',
+      goal: 'G',
+      createdAt: new Date().toISOString(),
+      sourceType: 'text',
+    });
+
+    const backups = readdirSync(gestaltDir).filter((n) => n.startsWith('memory.json.corrupt-'));
+    expect(backups).toHaveLength(1);
+    expect(readFileSync(join(gestaltDir, backups[0]!), 'utf-8')).toBe(broken);
+    expect(store.read().specHistory.map((s) => s.specId)).toEqual(['new']);
+    vi.restoreAllMocks();
+  });
+
+  it('배열이 빠진 memory.json은 빈 배열로 채워 읽는다', () => {
+    mkdirSync(join(tmpDir, '.gestalt'), { recursive: true });
+    writeFileSync(join(tmpDir, '.gestalt', 'memory.json'), '{"version":"1.0.0"}', 'utf-8');
+
+    store.addExecution({
+      executeSessionId: 'e1',
+      specId: 's1',
+      completedTasks: [],
+      failedTasks: [],
+      resultSummary: '',
+      completedAt: new Date().toISOString(),
+    });
+
+    expect(store.read().executionHistory).toHaveLength(1);
+    expect(store.read().specHistory).toHaveLength(0);
+  });
+
+  it('쓰고 나면 임시 파일과 잠금이 안 남는다', () => {
+    store.addSpec({
+      specId: randomUUID(),
+      goal: 'G',
+      createdAt: new Date().toISOString(),
+      sourceType: 'text',
+    });
+
+    expect(readdirSync(join(tmpDir, '.gestalt'))).toEqual(['memory.json']);
+  });
+
+  it('여러 프로세스가 동시에 기록해도 항목이 안 사라진다', async () => {
+    const script = join(tmpDir, 'add-specs.mjs');
+    const moduleUrl = pathToFileURL(resolve('src/memory/project-memory-store.ts')).href;
+    writeFileSync(
+      script,
+      `const { ProjectMemoryStore } = await import(${JSON.stringify(moduleUrl)});\n` +
+        `const store = new ProjectMemoryStore(process.argv[2]);\n` +
+        `for (let i = 0; i < 15; i++) store.addSpec({ specId: process.argv[3] + '-' + i, goal: 'g', createdAt: '', sourceType: 'text' });\n`,
+      'utf-8',
+    );
+
+    const tsx = resolve('node_modules', '.bin', 'tsx');
+    const workers = ['a', 'b', 'c', 'd'];
+    await Promise.all(workers.map((w) => promisify(execFile)(tsx, [script, tmpDir, w])));
+
+    // 잠금 없이 읽고 고쳐 쓰면 늦게 쓴 쪽이 먼저 쓴 쪽의 항목을 덮어 60개보다 적게 남는다
+    expect(store.read().specHistory).toHaveLength(workers.length * 15);
+  }, 60_000);
 
   it('returns repoRoot', () => {
     expect(store.getRepoRoot()).toBe(tmpDir);
