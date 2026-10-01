@@ -75,6 +75,17 @@ function toolReply(result: string) {
   return { content };
 }
 
+// 등록 스키마는 schemas.ts 정의에서 파생한다. 손으로 따로 적었다가 compress가
+// 등록에서만 빠져, 핸들러가 안내한 호출이 SDK 입력 검증에서 거절된 적이 있다.
+const interviewShape = interviewInputSchema.shape;
+
+// compress는 passthrough 전용이다. normal 모드 핸들러는 에러만 돌려주므로 노출하지 않는다.
+const normalInterviewAction = interviewShape.action.exclude(['compress']);
+
+function listActions(action: z.ZodEnum<[string, ...string[]]>): string {
+  return action.options.join(', ');
+}
+
 function shouldUsePassthroughInterview(config: GestaltConfig): boolean {
   return (
     !config.llm.apiKey ||
@@ -143,34 +154,23 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
     guardedTool(
       'ges_interview',
-      'Conduct a Gestalt-driven interview (passthrough mode — returns prompts for caller LLM to generate questions/scores). Actions: start, respond, score, complete.',
+      `Conduct a Gestalt-driven interview (passthrough mode — returns prompts for caller LLM to generate questions/scores). Actions: ${listActions(interviewShape.action)}.`,
       {
-        action: z
-          .enum(['start', 'respond', 'score', 'complete'])
-          .describe(
-            'start: begin interview, respond: answer a question, score: check resolution, complete: finish interview',
-          ),
-        topic: z.string().optional(),
-        sessionId: z
-          .string()
-          .optional()
-          .describe(
-            "Session ID (required for respond/score/complete). 'latest'(가장 최근 갱신)도 가능.",
-          ),
-        response: z.string().optional().describe('(required for respond)'),
-        cwd: z.string().optional(),
-        generatedQuestion: z.string().optional().describe('(required for respond)'),
-        resolutionScore: z
-          .object({
-            goalClarity: z.number().min(0).max(1),
-            constraintClarity: z.number().min(0).max(1),
-            successCriteria: z.number().min(0).max(1),
-            priorityClarity: z.number().min(0).max(1),
-            contextClarity: z.number().min(0).max(1).optional(),
-            contradictions: z.array(z.string()).optional(),
-          })
-          .optional()
-          .describe('Resolution scores computed by the caller LLM'),
+        ...interviewShape,
+        action: interviewShape.action.describe(
+          'start: begin interview, respond: answer a question, score: check resolution, complete: finish interview, compress: summarize earlier rounds (call without compressedSummary to get the prompt, then with it to store)',
+        ),
+        sessionId: interviewShape.sessionId.describe(
+          "Session ID (required for respond/score/complete/compress). 'latest'(가장 최근 갱신)도 가능.",
+        ),
+        response: interviewShape.response.describe('(required for respond)'),
+        generatedQuestion: interviewShape.generatedQuestion.describe('(required for respond)'),
+        resolutionScore: interviewShape.resolutionScore.describe(
+          'Resolution scores computed by the caller LLM',
+        ),
+        compressedSummary: interviewShape.compressedSummary.describe(
+          '(compress) summary generated from compressionContext — omit on the first call',
+        ),
       },
       (params) => {
         const input = interviewInputSchema.parse(params);
@@ -224,23 +224,19 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
     guardedTool(
       'ges_interview',
-      'Conduct a Gestalt-driven interview to clarify project requirements. Actions: start, respond, score, complete.',
+      `Conduct a Gestalt-driven interview to clarify project requirements. Actions: ${listActions(normalInterviewAction)}.`,
       {
-        action: z
-          .enum(['start', 'respond', 'score', 'complete'])
-          .describe(
-            'start: begin interview, respond: answer a question, score: check resolution, complete: finish interview',
-          ),
-        topic: z.string().optional().describe('Topic for the interview (required for start)'),
-        sessionId: z
-          .string()
-          .optional()
-          .describe('Session ID (required for respond/score/complete)'),
-        response: z
-          .string()
-          .optional()
-          .describe('User response to the current question (required for respond)'),
-        cwd: z.string().optional().describe('Working directory for brownfield detection'),
+        action: normalInterviewAction.describe(
+          'start: begin interview, respond: answer a question, score: check resolution, complete: finish interview',
+        ),
+        topic: interviewShape.topic.describe('Topic for the interview (required for start)'),
+        sessionId: interviewShape.sessionId.describe(
+          'Session ID (required for respond/score/complete)',
+        ),
+        response: interviewShape.response.describe(
+          'User response to the current question (required for respond)',
+        ),
+        cwd: interviewShape.cwd.describe('Working directory for brownfield detection'),
       },
       async (params) => {
         const input = interviewInputSchema.parse(params);
@@ -295,7 +291,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   guardedTool(
     'ges_execute',
-    'Execute a Spec using Gestalt principles (passthrough mode). Actions: start, plan_step, plan_complete, execute_start, execute_task, evaluate, status, resume, audit, spawn, evolve_fix, evolve, evolve_patch, evolve_re_execute, evolve_lateral, evolve_lateral_result, role_match, role_consensus, review_start, review_submit, review_consensus, review_fix, review_publish.',
+    `Execute a Spec using Gestalt principles (passthrough mode). Actions: ${listActions(executeToolSchema.action)}.`,
     executeToolSchema,
     async (params) => {
       const input = executeInputSchema.parse(params);

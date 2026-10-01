@@ -44,18 +44,20 @@ Complete reference for all Gestalt MCP tools.
 | `respond` | 사용자 응답 제출 및 다음 라운드 진행 |
 | `score` | 해상도 점수 계산 또는 제출 |
 | `complete` | 인터뷰 종료 |
+| `compress` | 앞 라운드를 요약해 컨텍스트를 줄인다 (passthrough 전용). `compressedSummary` 없이 부르면 `compressionContext`를 돌려주고, 요약을 담아 다시 부르면 세션에 저장한다 |
 
 ### Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|:--------:|---------|-------------|
-| `action` | `"start" \| "respond" \| "score" \| "complete"` | Y | — | 수행할 액션 |
+| `action` | `"start" \| "respond" \| "score" \| "complete" \| "compress"` | Y | — | 수행할 액션. normal 모드에는 `compress`가 없다 |
 | `topic` | `string` | `start`만 | — | 인터뷰 주제 / 프로젝트 설명 |
 | `cwd` | `string` | N | — | 브라운필드 감지용 작업 디렉터리 |
-| `sessionId` | `string` | `respond`, `score`, `complete` | — | `start` 응답에서 받은 세션 ID |
+| `sessionId` | `string` | `respond`, `score`, `complete`, `compress` | — | `start` 응답에서 받은 세션 ID |
 | `response` | `string` | `respond` | — | 현재 질문에 대한 사용자 응답 |
 | `generatedQuestion` | `string` | `respond` (passthrough) | — | 호출자가 생성한 질문 텍스트 |
 | `resolutionScore` | `object` | N | — | 호출자가 계산한 해상도 점수 (아래 참고) |
+| `compressedSummary` | `string` | `compress` 두 번째 호출 | — | `compressionContext`로 호출자가 만든 요약. 첫 호출에선 생략한다 |
 | `record` | `boolean` | N | `false` | `complete` 시 GIF 녹화 생성 여부 |
 
 #### `resolutionScore` object
@@ -322,6 +324,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `evolve_re_execute` | 재실행 태스크 결과 제출 |
 | `evolve_lateral` | 다음 Lateral Thinking Persona 요청 |
 | `evolve_lateral_result` | Lateral Thinking 결과 제출 |
+| `evolution_viz` | 진화 이력을 HTML로 그려 임시 파일에 저장 |
 
 #### Role Agent
 
