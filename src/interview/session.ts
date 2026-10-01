@@ -50,9 +50,14 @@ export class SessionManager {
     return loaded.session;
   }
 
-  private record(sessionId: string, eventType: EventType, payload: Record<string, unknown>): void {
-    this.eventStore.append('interview', sessionId, eventType, payload);
+  private record(
+    sessionId: string,
+    eventType: EventType,
+    payload: Record<string, unknown>,
+  ): string {
+    const event = this.eventStore.append('interview', sessionId, eventType, payload);
     this.eventCounts.set(sessionId, (this.eventCounts.get(sessionId) ?? 0) + 1);
+    return event.timestamp;
   }
 
   create(topic: string, projectType: ProjectType): InterviewSession {
@@ -128,22 +133,25 @@ export class SessionManager {
       throw new SessionAlreadyCompletedError(sessionId);
     }
 
-    const round: InterviewRound = {
-      roundNumber: session.rounds.length + 1,
-      question,
-      userResponse: null,
-      gestaltFocus,
-      timestamp: new Date().toISOString(),
-    };
-
-    session.rounds.push(round);
-    session.updatedAt = new Date().toISOString();
-
-    this.record(sessionId, EventType.INTERVIEW_QUESTION_ASKED, {
-      roundNumber: round.roundNumber,
+    const roundNumber = session.rounds.length + 1;
+    // replay는 라운드 시각을 이벤트 timestamp로 복원한다. 여기서 시각을 따로 찍으면
+    // 밀리초 경계에 걸릴 때 라이브 세션과 replay 결과가 어긋난다
+    const timestamp = this.record(sessionId, EventType.INTERVIEW_QUESTION_ASKED, {
+      roundNumber,
       question,
       gestaltFocus,
     });
+
+    const round: InterviewRound = {
+      roundNumber,
+      question,
+      userResponse: null,
+      gestaltFocus,
+      timestamp,
+    };
+
+    session.rounds.push(round);
+    session.updatedAt = timestamp;
 
     return round;
   }

@@ -106,6 +106,25 @@ describe('SessionManager — 같은 DB를 쓰는 두 인스턴스', () => {
     expect(replay).toHaveBeenCalledTimes(1);
   });
 
+  it('라운드 시각을 찍는 사이 밀리초가 넘어가도 replay한 라운드와 같다', () => {
+    // toISOString을 부를 때마다 1ms씩 흐르게 해서 경계에 걸리는 상황을 매번 만든다
+    const toISOString = Date.prototype.toISOString;
+    const base = Date.parse('2026-01-01T00:00:00.000Z');
+    let tick = 0;
+    const spy = vi
+      .spyOn(Date.prototype, 'toISOString')
+      .mockImplementation(() => toISOString.call(new Date(base + tick++)));
+    try {
+      const { sessionId } = a.create('topic', 'greenfield');
+      a.addQuestion(sessionId, 'Q1', GestaltPrinciple.CLOSURE);
+
+      const replayed = new InterviewSessionRepository(storeB).reconstruct(sessionId)!;
+      expect(replayed.rounds).toEqual(a.get(sessionId).rounds);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('단계마다 라이브 세션과 다른 연결의 replay 결과가 같다', () => {
     const { sessionId } = a.create('topic', 'greenfield');
     const replayed = () => new InterviewSessionRepository(storeB).reconstruct(sessionId)!;
