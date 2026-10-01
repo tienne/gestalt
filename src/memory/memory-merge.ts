@@ -71,7 +71,7 @@ export function mergeMemory(local: ProjectMemory, remote: ProjectMemory): Projec
   };
 }
 
-// 합친 결과는 사람 검토 없이 커밋된다. 머지 키와 날짜 비교에 쓰는 필드, 그리고 인터뷰 주입이
+// 합친 결과는 사람 검토 없이 커밋된다. 머지 키와 날짜 비교에 쓰는 필드, 그리고 인터뷰를 시작할 때
 // 프롬프트에 싣는 필드는 여기서 형태를 확인한다. 그 밖의 필드는 손대지 않고 그대로 넘긴다
 const memoryFileSchema = z
   .object({
@@ -101,6 +101,7 @@ const memoryFileSchema = z
     compressedContexts: z
       .array(z.object({ sessionId: z.string(), compressedAt: z.string() }).passthrough())
       .optional(),
+    lastUpdated: z.string().optional(),
   })
   .passthrough();
 
@@ -131,8 +132,9 @@ function readMemoryFile(path: string): ProjectMemory {
       ? { decision: item, rationale: '', specId: '', timestamp: parsed.lastUpdated ?? '' }
       : item,
   );
-  parsed.specHistory ??= [];
-  parsed.executionHistory ??= [];
+  // null은 채우지 않고 스키마에 걸리게 둔다. 빠진 필드만 빈 배열로 본다
+  if (parsed.specHistory === undefined) parsed.specHistory = [];
+  if (parsed.executionHistory === undefined) parsed.executionHistory = [];
 
   const checked = memoryFileSchema.safeParse(parsed);
   if (!checked.success) throw shapeError(path, checked.error.issues[0]?.path ?? []);

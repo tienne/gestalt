@@ -137,6 +137,9 @@ describe('runMemoryMergeDriver', () => {
       'architectureDecisions가 객체일 때',
       JSON.stringify({ ...memory(), architectureDecisions: {} }),
     ],
+    ['specHistory가 null일 때', JSON.stringify({ ...memory(), specHistory: null })],
+    ['executionHistory가 null일 때', JSON.stringify({ ...memory(), executionHistory: null })],
+    ['lastUpdated가 숫자일 때', JSON.stringify({ ...memory(), lastUpdated: 1 })],
   ])('%s 던지고 ours를 건드리지 않는다', (_label, theirsContent) => {
     mkdirSync(dir, { recursive: true });
     const ours = join(dir, 'ours.json');
