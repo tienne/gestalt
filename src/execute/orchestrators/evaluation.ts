@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { ExecuteSession, EvaluationResult, StructuralResult } from '../../core/types.js';
 import { ExecuteError, ExecuteSessionNotFoundError, EvaluationError } from '../../core/errors.js';
 import { type Result, ok, err } from '../../core/result.js';
@@ -89,18 +91,24 @@ export class EvaluationOrchestrator {
         );
       }
 
-      if (session.structuralCommands) {
-        const mismatches = findCommandMismatches(session.structuralCommands, structuralResult);
-        if (mismatches.length > 0) {
-          return err(
-            new EvaluationError(
-              `Submitted commands do not match the requested ones: ${mismatches.join('; ')}`,
-            ),
-          );
-        }
-      } else {
-        // 요청 명령을 이벤트에 싣기 전에 시작된 세션은 비교할 기준이 없다
-        log(`[evaluate] session ${sessionId} has no requested structural commands; skipping match`);
+      if (structuralResult.commands.length === 0) {
+        return err(new EvaluationError('No structural commands were submitted'));
+      }
+      // 요청 명령을 이벤트에 싣기 전에 시작된 세션이다. 여기서 다시 만들면 cwd를 몰라 다른 프로젝트 기준이 될 수 있다
+      if (!session.structuralCommands || session.structuralCommands.length === 0) {
+        return err(
+          new EvaluationError(
+            'No requested structural commands for this session; call evaluate (Call 1) again to get them',
+          ),
+        );
+      }
+      const mismatches = findCommandMismatches(session.structuralCommands, structuralResult);
+      if (mismatches.length > 0) {
+        return err(
+          new EvaluationError(
+            `Submitted commands do not match the requested ones: ${mismatches.join('; ')}`,
+          ),
+        );
       }
 
       // 호스트가 보고한 allPassed보다 종료 코드를 우선한다
@@ -220,8 +228,11 @@ export class EvaluationOrchestrator {
       if (changedFiles.length === 0) return [];
       // rankedFiles에는 co-change로만 걸린 md, json이 섞여 있어 테스트 러너 인자로 못 쓴다
       const { impactedFiles } = codeGraphEngine.blastRadius(repoRoot, { changedFiles });
+      // 삭제된 테스트 파일도 변경으로 잡혀 넘어온다. 없는 파일을 러너에 넘기면 러너가 실패한다
       return impactedFiles.filter(
-        (f) => f.includes('.test.') || f.includes('.spec.') || f.includes('__tests__'),
+        (f) =>
+          (f.includes('.test.') || f.includes('.spec.') || f.includes('__tests__')) &&
+          existsSync(resolve(repoRoot, f)),
       );
     } catch (e) {
       log(

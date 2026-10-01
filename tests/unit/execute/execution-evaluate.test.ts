@@ -936,6 +936,27 @@ describe('Evaluate Phase — structural command integrity', () => {
     expect(isErr(result)).toBe(true);
   });
 
+  it('rejects an empty submission', async () => {
+    const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+    const sessionId = await readyForEvaluation();
+    requestedCommands(sessionId, repo.root);
+
+    const result = engine.submitStructuralResult(sessionId, { commands: [], allPassed: true });
+    expect(isErr(result)).toBe(true);
+  });
+
+  it('rejects a submission when the session has no requested commands', async () => {
+    const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+    const sessionId = await readyForEvaluation();
+    const commands = requestedCommands(sessionId, repo.root);
+    // 요청 명령을 이벤트에 싣기 전에 시작된 세션을 흉내 낸다
+    engine.getSession(sessionId).structuralCommands = undefined;
+
+    const result = engine.submitStructuralResult(sessionId, passing(commands));
+    expect(isErr(result)).toBe(true);
+    if (!result.ok) expect(result.error.message).toContain('call evaluate (Call 1) again');
+  });
+
   describe('blast-radius test selection', () => {
     function graphRepo() {
       const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
@@ -956,16 +977,52 @@ describe('Evaluate Phase — structural command integrity', () => {
     it('feeds uncommitted changes to blast-radius and passes only impactedFiles tests', async () => {
       const repo = graphRepo();
       repo.write('src/a.ts', 'uncommitted');
+      repo.write('tests/a.test.ts', 'x');
+      repo.write('tests/b.test.ts', 'x');
+      const at = (f: string) => resolve(repo.root, f);
       const blast = vi
         .spyOn(codeGraphEngine, 'blastRadius')
         .mockReturnValue(
-          fakeBlast(['/x/a.test.ts', '/x/src/a.ts'], ['/x/README.md', '/x/b.test.ts']),
+          fakeBlast(
+            [at('tests/a.test.ts'), at('src/a.ts')],
+            [at('README.md'), at('tests/b.test.ts')],
+          ),
         );
       const sessionId = await readyForEvaluation(repo.root);
 
       const test = requestedCommands(sessionId).find((c) => c.name === 'test')!;
-      expect(test.command).toBe('pnpm run test /x/a.test.ts');
-      expect(blast.mock.calls[0]![1]!.changedFiles).toContain(resolve(repo.root, 'src/a.ts'));
+      expect(test.command).toBe('pnpm run test tests/a.test.ts');
+      expect(blast.mock.calls[0]![1]!.changedFiles).toContain(at('src/a.ts'));
+    });
+
+    it('drops deleted test files and falls back to the full suite when none remain', async () => {
+      const repo = graphRepo();
+      repo.commit('add test', { 'tests/gone.test.ts': 'x' });
+      repo.remove('tests/gone.test.ts');
+      const blast = vi
+        .spyOn(codeGraphEngine, 'blastRadius')
+        .mockReturnValue(fakeBlast([resolve(repo.root, 'tests/gone.test.ts')]));
+      const sessionId = await readyForEvaluation(repo.root);
+
+      const test = requestedCommands(sessionId).find((c) => c.name === 'test')!;
+      expect(test.command).toBe('pnpm run test');
+      expect(blast.mock.calls[0]![1]!.changedFiles).toContain(
+        resolve(repo.root, 'tests/gone.test.ts'),
+      );
+    });
+
+    it('still selects tests of a deleted source file through blast-radius', async () => {
+      const repo = graphRepo();
+      repo.commit('add source', { 'src/old.ts': 'x', 'tests/old.test.ts': 'x' });
+      repo.remove('src/old.ts');
+      const blast = vi
+        .spyOn(codeGraphEngine, 'blastRadius')
+        .mockReturnValue(fakeBlast([resolve(repo.root, 'tests/old.test.ts')]));
+      const sessionId = await readyForEvaluation(repo.root);
+
+      const test = requestedCommands(sessionId).find((c) => c.name === 'test')!;
+      expect(test.command).toBe('pnpm run test tests/old.test.ts');
+      expect(blast.mock.calls[0]![1]!.changedFiles).toContain(resolve(repo.root, 'src/old.ts'));
     });
 
     it('runs the full suite when blast-radius throws', async () => {
