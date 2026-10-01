@@ -232,14 +232,20 @@ const planningSteps = {
   } satisfies ContinuityResult,
 };
 
-const passingStructural: StructuralResult = {
-  commands: [
-    { name: 'lint', command: 'npm run lint', exitCode: 0, output: 'No errors' },
-    { name: 'build', command: 'npm run build', exitCode: 0, output: 'Build success' },
-    { name: 'test', command: 'npm test', exitCode: 0, output: 'All tests passed' },
-  ],
-  allPassed: true,
-};
+// 서버가 요청한 명령 문자열을 그대로 실어야 제출이 받아들여진다
+function runEvaluationStart(engine: PassthroughExecuteEngine, sessionId: string): StructuralResult {
+  const start = engine.startEvaluation(sessionId);
+  if (!start.ok) throw new Error(`Evaluation start failed: ${start.error.message}`);
+  return {
+    commands: start.value.structuralContext!.commands.map((c) => ({
+      name: c.name,
+      command: c.command,
+      exitCode: 0,
+      output: 'ok',
+    })),
+    allPassed: true,
+  };
+}
 
 function makeLowEval(score = 0.5): EvaluationResult {
   return {
@@ -263,8 +269,7 @@ function runEvaluation(engine: PassthroughExecuteEngine, sessionId: string, scor
   s.structuralResult = undefined;
   s.evaluationResult = undefined;
 
-  engine.startEvaluation(sessionId);
-  engine.submitStructuralResult(sessionId, passingStructural);
+  engine.submitStructuralResult(sessionId, runEvaluationStart(engine, sessionId));
   engine.submitEvaluation(sessionId, makeLowEval(score));
 }
 
@@ -366,8 +371,7 @@ async function simulate() {
     // ═══════════════════════════════════════════════════════
     header('Phase 3: Evaluation');
 
-    engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(sessionId, passingStructural);
+    engine.submitStructuralResult(sessionId, runEvaluationStart(engine, sessionId));
     ok('Structural 통과 (lint, build, test)');
 
     engine.submitEvaluation(sessionId, makeLowEval(0.5));

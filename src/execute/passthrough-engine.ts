@@ -166,8 +166,11 @@ export class PassthroughExecuteEngine {
 
   // ─── Evaluation ──────────────────────────────────────────────
 
-  startEvaluation(sessionId: string): Result<PassthroughEvaluateResult, ExecuteError> {
-    return this.evaluationOrch.startEvaluation(sessionId);
+  startEvaluation(
+    sessionId: string,
+    cwd?: string,
+  ): Result<PassthroughEvaluateResult, ExecuteError> {
+    return this.evaluationOrch.startEvaluation(sessionId, cwd);
   }
 
   submitStructuralResult(

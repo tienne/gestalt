@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
 import { EventStore } from '../../../src/events/store.js';
 import { isOk, isErr } from '../../../src/core/result.js';
 import { existsSync, rmSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type {
   Spec,
@@ -14,6 +15,12 @@ import type {
   EvaluationResult,
   StructuralResult,
 } from '../../../src/core/types.js';
+import { asRequested } from '../../helpers/structural.js';
+import { handleEvaluate } from '../../../src/mcp/tools/execute/evaluate.js';
+import type { IHostAdapter } from '../../../src/mcp/host-adapter.js';
+import { createFakeRepo, cleanupFakeRepos } from '../../helpers/fake-repo.js';
+import { codeGraphEngine } from '../../../src/code-graph/index.js';
+import type { BlastRadiusResult } from '../../../src/code-graph/types.js';
 
 function createTestSpec(): Spec {
   return {
@@ -193,8 +200,12 @@ function createContinuityResult(): ContinuityResult {
   };
 }
 
-function completePlanningPhase(engine: PassthroughExecuteEngine, spec: Spec): string {
-  const startResult = engine.start(spec);
+function completePlanningPhase(
+  engine: PassthroughExecuteEngine,
+  spec: Spec,
+  opts: { codeGraphRepoRoot?: string } = {},
+): string {
+  const startResult = engine.start(spec, opts);
   if (!startResult.ok) throw new Error('start failed');
   const { sessionId } = startResult.value.session;
   engine.planStep(sessionId, createFigureGroundResult());
@@ -488,9 +499,10 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
       await executeAllTasks(engine, sessionId);
-      engine.startEvaluation(sessionId);
-
-      const result = engine.submitStructuralResult(sessionId, passingStructuralResult);
+      const result = engine.submitStructuralResult(
+        sessionId,
+        asRequested(engine.startEvaluation(sessionId), passingStructuralResult),
+      );
       expect(isOk(result)).toBe(true);
 
       if (result.ok) {
@@ -510,9 +522,10 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       const sessionId = completePlanningPhase(engine, spec);
       engine.startExecution(sessionId);
       await executeAllTasks(engine, sessionId);
-      engine.startEvaluation(sessionId);
-
-      const result = engine.submitStructuralResult(sessionId, failingStructuralResult);
+      const result = engine.submitStructuralResult(
+        sessionId,
+        asRequested(engine.startEvaluation(sessionId), failingStructuralResult),
+      );
       expect(isOk(result)).toBe(true);
 
       if (result.ok) {
@@ -522,6 +535,28 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
         expect(result.value.evaluationResult!.overallScore).toBe(0);
         expect(result.value.session.status).toBe('completed');
       }
+    });
+
+    it('points a short-circuited response to evolve_fix', async () => {
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
+      engine.startExecution(sessionId);
+      await executeAllTasks(engine, sessionId);
+      const structuralResult = asRequested(
+        engine.startEvaluation(sessionId),
+        failingStructuralResult,
+      );
+
+      const response = JSON.parse(
+        handleEvaluate(
+          engine,
+          { action: 'evaluate', sessionId, structuralResult },
+          {} as IHostAdapter,
+        ),
+      );
+
+      expect(response.shortCircuited).toBe(true);
+      expect(response.nextAction).toBe('evolve_fix');
     });
 
     it('rejects when not in structural stage', async () => {
@@ -538,8 +573,10 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
 
   describe('submitEvaluation (Contextual Stage)', () => {
     function advanceToContextual(engine: PassthroughExecuteEngine, sessionId: string): void {
-      engine.startEvaluation(sessionId);
-      engine.submitStructuralResult(sessionId, passingStructuralResult);
+      engine.submitStructuralResult(
+        sessionId,
+        asRequested(engine.startEvaluation(sessionId), passingStructuralResult),
+      );
     }
 
     it('completes session with contextual evaluation result', async () => {
@@ -761,7 +798,10 @@ describe('Full Pipeline: Planning → Execution → Evaluate', () => {
       allPassed: true,
     };
 
-    const structResult = engine.submitStructuralResult(sessionId, structuralResult);
+    const structResult = engine.submitStructuralResult(
+      sessionId,
+      asRequested(evalStart, structuralResult),
+    );
     expect(isOk(structResult)).toBe(true);
     if (structResult.ok) {
       expect(structResult.value.stage).toBe('contextual');
@@ -799,5 +839,239 @@ describe('Full Pipeline: Planning → Execution → Evaluate', () => {
     expect(finalSession.evaluationResult).toBeDefined();
     expect(finalSession.evaluationResult!.overallScore).toBe(1.0);
     expect(finalSession.evaluationResult!.goalAlignment).toBe(0.95);
+  });
+});
+
+describe('Evaluate Phase — structural command integrity', () => {
+  let store: EventStore;
+  let engine: PassthroughExecuteEngine;
+  let dbPath: string;
+
+  const PKG = JSON.stringify({ scripts: { lint: 'x', build: 'x', test: 'x' } });
+
+  beforeEach(() => {
+    dbPath = `.gestalt-test/eval-integrity-${randomUUID()}.db`;
+    store = new EventStore(dbPath);
+    engine = new PassthroughExecuteEngine(store);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cleanupFakeRepos();
+    store.close();
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (existsSync(dbPath + suffix)) rmSync(dbPath + suffix);
+    }
+  });
+
+  async function readyForEvaluation(codeGraphRepoRoot?: string): Promise<string> {
+    const sessionId = completePlanningPhase(engine, createTestSpec(), { codeGraphRepoRoot });
+    engine.startExecution(sessionId);
+    const order = engine.getSession(sessionId).executionPlan!.dagValidation.topologicalOrder;
+    for (const taskId of order) {
+      await engine.submitTaskResult(sessionId, createTaskResult(taskId));
+    }
+    return sessionId;
+  }
+
+  function requestedCommands(sessionId: string, cwd?: string) {
+    const start = engine.startEvaluation(sessionId, cwd);
+    if (!start.ok) throw start.error;
+    return start.value.structuralContext!.commands;
+  }
+
+  function passing(commands: Array<{ name: string; command: string }>): StructuralResult {
+    return {
+      commands: commands.map((c) => ({ ...c, exitCode: 0, output: 'ok' })),
+      allPassed: true,
+    };
+  }
+
+  function fakeBlast(impactedFiles: string[], rankedFiles: string[] = []): BlastRadiusResult {
+    return { impactedFiles, rankedFiles } as unknown as BlastRadiusResult;
+  }
+
+  it('detects the package manager from the project lockfile', async () => {
+    const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+    const sessionId = await readyForEvaluation();
+
+    const commands = requestedCommands(sessionId, repo.root);
+    expect(commands.map((c) => c.command)).toEqual([
+      'pnpm run lint',
+      'pnpm run build',
+      'pnpm run test',
+    ]);
+  });
+
+  it('rejects a submission whose commands differ from the requested ones', async () => {
+    const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+    const sessionId = await readyForEvaluation();
+    const commands = requestedCommands(sessionId, repo.root);
+
+    const swapped = passing(
+      commands.map((c) => (c.name === 'test' ? { ...c, command: 'echo "No affected tests"' } : c)),
+    );
+    const result = engine.submitStructuralResult(sessionId, swapped);
+    expect(isErr(result)).toBe(true);
+    if (!result.ok) expect(result.error.message).toContain('echo "No affected tests"');
+    expect(engine.getSession(sessionId).evaluateStage).toBe('structural');
+
+    expect(isOk(engine.submitStructuralResult(sessionId, passing(commands)))).toBe(true);
+  });
+
+  it('rejects a submission that leaves out a requested command', async () => {
+    const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+    const sessionId = await readyForEvaluation();
+    const commands = requestedCommands(sessionId, repo.root);
+
+    const result = engine.submitStructuralResult(
+      sessionId,
+      passing(commands.filter((c) => c.name !== 'test')),
+    );
+    expect(isErr(result)).toBe(true);
+  });
+
+  it('short-circuits on a non-zero exit code even when allPassed is reported true', async () => {
+    const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+    const sessionId = await readyForEvaluation();
+    const commands = requestedCommands(sessionId, repo.root);
+
+    const lying = passing(commands);
+    lying.commands[2]!.exitCode = 1;
+    const result = engine.submitStructuralResult(sessionId, lying);
+    expect(isOk(result)).toBe(true);
+    if (result.ok) {
+      expect(result.value.shortCircuited).toBe(true);
+      expect(engine.getSession(sessionId).structuralResult!.allPassed).toBe(false);
+    }
+  });
+
+  it('still checks commands after the session is restored from events', async () => {
+    const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+    const sessionId = await readyForEvaluation();
+    const commands = requestedCommands(sessionId, repo.root);
+
+    const restored = new PassthroughExecuteEngine(store);
+    expect(restored.getSession(sessionId).structuralCommands).toEqual(commands);
+    const result = restored.submitStructuralResult(
+      sessionId,
+      passing(commands.map((c) => ({ ...c, command: 'true' }))),
+    );
+    expect(isErr(result)).toBe(true);
+  });
+
+  it('sees commands requested by another process on a session it already cached', async () => {
+    const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+    const sessionId = await readyForEvaluation();
+    const other = new PassthroughExecuteEngine(store);
+    expect(other.getSession(sessionId).structuralCommands).toBeUndefined();
+
+    const commands = requestedCommands(sessionId, repo.root);
+
+    expect(other.getSession(sessionId).structuralCommands).toEqual(commands);
+    const result = other.submitStructuralResult(sessionId, passing(commands));
+    expect(isOk(result)).toBe(true);
+  });
+
+  it('rejects an empty submission', async () => {
+    const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+    const sessionId = await readyForEvaluation();
+    requestedCommands(sessionId, repo.root);
+
+    const result = engine.submitStructuralResult(sessionId, { commands: [], allPassed: true });
+    expect(isErr(result)).toBe(true);
+  });
+
+  it('rejects a submission when the session has no requested commands', async () => {
+    const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+    const sessionId = await readyForEvaluation();
+    const commands = requestedCommands(sessionId, repo.root);
+    // 요청 명령을 이벤트에 싣기 전에 시작된 세션을 흉내 낸다
+    engine.getSession(sessionId).structuralCommands = undefined;
+
+    const result = engine.submitStructuralResult(sessionId, passing(commands));
+    expect(isErr(result)).toBe(true);
+    if (!result.ok) expect(result.error.message).toContain('call evaluate (Call 1) again');
+  });
+
+  describe('blast-radius test selection', () => {
+    function graphRepo() {
+      const repo = createFakeRepo({ files: { 'package.json': PKG, 'pnpm-lock.yaml': '' } });
+      vi.spyOn(codeGraphEngine, 'dbExists').mockReturnValue(true);
+      return repo;
+    }
+
+    it('runs the full suite instead of skipping when no tests are affected', async () => {
+      const repo = graphRepo();
+      repo.write('src/a.ts', 'changed');
+      vi.spyOn(codeGraphEngine, 'blastRadius').mockReturnValue(fakeBlast(['/x/src/a.ts']));
+      const sessionId = await readyForEvaluation(repo.root);
+
+      const test = requestedCommands(sessionId).find((c) => c.name === 'test')!;
+      expect(test.command).toBe('pnpm run test');
+    });
+
+    it('feeds uncommitted changes to blast-radius and passes only impactedFiles tests', async () => {
+      const repo = graphRepo();
+      repo.write('src/a.ts', 'uncommitted');
+      repo.write('tests/a.test.ts', 'x');
+      repo.write('tests/b.test.ts', 'x');
+      const at = (f: string) => resolve(repo.root, f);
+      const blast = vi
+        .spyOn(codeGraphEngine, 'blastRadius')
+        .mockReturnValue(
+          fakeBlast(
+            [at('tests/a.test.ts'), at('src/a.ts')],
+            [at('README.md'), at('tests/b.test.ts')],
+          ),
+        );
+      const sessionId = await readyForEvaluation(repo.root);
+
+      const test = requestedCommands(sessionId).find((c) => c.name === 'test')!;
+      expect(test.command).toBe('pnpm run test tests/a.test.ts');
+      expect(blast.mock.calls[0]![1]!.changedFiles).toContain(at('src/a.ts'));
+    });
+
+    it('drops deleted test files and falls back to the full suite when none remain', async () => {
+      const repo = graphRepo();
+      repo.commit('add test', { 'tests/gone.test.ts': 'x' });
+      repo.remove('tests/gone.test.ts');
+      const blast = vi
+        .spyOn(codeGraphEngine, 'blastRadius')
+        .mockReturnValue(fakeBlast([resolve(repo.root, 'tests/gone.test.ts')]));
+      const sessionId = await readyForEvaluation(repo.root);
+
+      const test = requestedCommands(sessionId).find((c) => c.name === 'test')!;
+      expect(test.command).toBe('pnpm run test');
+      expect(blast.mock.calls[0]![1]!.changedFiles).toContain(
+        resolve(repo.root, 'tests/gone.test.ts'),
+      );
+    });
+
+    it('still selects tests of a deleted source file through blast-radius', async () => {
+      const repo = graphRepo();
+      repo.commit('add source', { 'src/old.ts': 'x', 'tests/old.test.ts': 'x' });
+      repo.remove('src/old.ts');
+      const blast = vi
+        .spyOn(codeGraphEngine, 'blastRadius')
+        .mockReturnValue(fakeBlast([resolve(repo.root, 'tests/old.test.ts')]));
+      const sessionId = await readyForEvaluation(repo.root);
+
+      const test = requestedCommands(sessionId).find((c) => c.name === 'test')!;
+      expect(test.command).toBe('pnpm run test tests/old.test.ts');
+      expect(blast.mock.calls[0]![1]!.changedFiles).toContain(resolve(repo.root, 'src/old.ts'));
+    });
+
+    it('runs the full suite when blast-radius throws', async () => {
+      const repo = graphRepo();
+      repo.write('src/a.ts', 'changed');
+      vi.spyOn(codeGraphEngine, 'blastRadius').mockImplementation(() => {
+        throw new Error('graph corrupted');
+      });
+      const sessionId = await readyForEvaluation(repo.root);
+
+      const test = requestedCommands(sessionId).find((c) => c.name === 'test')!;
+      expect(test.command).toBe('pnpm run test');
+    });
   });
 });

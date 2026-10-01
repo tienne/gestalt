@@ -17,6 +17,7 @@ import type {
   RoleConsensus,
   SubTask,
   AuditResult,
+  StructuralCommand,
 } from '../core/types.js';
 import { ExecuteSessionNotFoundError } from '../core/errors.js';
 import { DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
@@ -247,13 +248,15 @@ export class ExecuteSessionManager {
     });
   }
 
-  startStructuralEvaluation(sessionId: string): void {
+  startStructuralEvaluation(sessionId: string, commands: StructuralCommand[]): void {
     const session = this.get(sessionId);
     session.evaluateStage = 'structural';
+    session.structuralCommands = commands;
     session.updatedAt = new Date().toISOString();
 
     this.record(sessionId, EventType.EVALUATE_STRUCTURAL_STARTED, {
       taskResultCount: session.taskResults.length,
+      commands,
     });
   }
 

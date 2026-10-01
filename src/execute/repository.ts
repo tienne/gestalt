@@ -17,6 +17,7 @@ import type {
   RoleMatch,
   RoleConsensus,
   SubTask,
+  StructuralCommand,
 } from '../core/types.js';
 import { EventType } from '../events/types.js';
 import { computeReadyTaskIds } from './parallel-groups.js';
@@ -193,9 +194,12 @@ export class ExecuteSessionRepository {
         break;
       }
 
-      case EventType.EVALUATE_STRUCTURAL_STARTED:
+      case EventType.EVALUATE_STRUCTURAL_STARTED: {
         session.evaluateStage = 'structural';
+        const { commands } = payload as { commands?: StructuralCommand[] };
+        session.structuralCommands = commands;
         break;
+      }
 
       case EventType.EVALUATE_STRUCTURAL_COMPLETED: {
         const structuralResult = payload as unknown as {

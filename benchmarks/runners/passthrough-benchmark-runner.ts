@@ -4,7 +4,13 @@ import { PassthroughEngine } from '../../src/interview/passthrough-engine.js';
 import { PassthroughSpecGenerator } from '../../src/spec/passthrough-generator.js';
 import { PassthroughExecuteEngine } from '../../src/execute/passthrough-engine.js';
 import type { ExternalResolutionScore } from '../../src/interview/passthrough-engine.js';
-import type { BenchmarkScenario, StageMetrics, LLMCallMetric, LLMMetrics, PipelineMetrics } from '../types.js';
+import type {
+  BenchmarkScenario,
+  StageMetrics,
+  LLMCallMetric,
+  LLMMetrics,
+  PipelineMetrics,
+} from '../types.js';
 
 // ─── Step Types ─────────────────────────────────────────────────
 
@@ -20,11 +26,11 @@ export type BenchmarkStepType =
 export interface BenchmarkStepContext {
   benchmarkSessionId: string;
   step: BenchmarkStepType;
-  stage: string;          // human-readable: 'interview-question-1', 'plan-figure_ground', ...
+  stage: string; // human-readable: 'interview-question-1', 'plan-figure_ground', ...
   systemPrompt: string;
   prompt: string;
   scenario: string;
-  progress: string;       // e.g., '3/22'
+  progress: string; // e.g., '3/22'
   totalSteps: number;
   currentStepIndex: number;
 }
@@ -86,9 +92,17 @@ export class PassthroughBenchmarkRunner {
   private totalEstimatedSteps = 0;
 
   // Cached contexts
-  private interviewGestaltContext: { systemPrompt: string; questionPrompt: string; scoringPrompt?: string } | null = null;
+  private interviewGestaltContext: {
+    systemPrompt: string;
+    questionPrompt: string;
+    scoringPrompt?: string;
+  } | null = null;
   private executeContext: { systemPrompt: string; planningPrompt: string } | null = null;
-  private taskContext: { systemPrompt: string; taskPrompt: string; currentTask: { taskId: string } } | null = null;
+  private taskContext: {
+    systemPrompt: string;
+    taskPrompt: string;
+    currentTask: { taskId: string };
+  } | null = null;
   private contextualContext: { systemPrompt: string; evaluatePrompt: string } | null = null;
 
   constructor(scenario: BenchmarkScenario) {
@@ -162,14 +176,20 @@ export class PassthroughBenchmarkRunner {
 
   // ─── Interview ──────────────────────────────────────────────────
 
-  private advanceInterview(parsed: Record<string, unknown>, input: BenchmarkRespondInput): BenchmarkAdvanceResult {
+  private advanceInterview(
+    parsed: Record<string, unknown>,
+    input: BenchmarkRespondInput,
+  ): BenchmarkAdvanceResult {
     if (this.waitingForScore) {
       return this.handleInterviewScore(parsed as unknown as ExternalResolutionScore);
     }
     return this.handleInterviewQuestion(parsed, input);
   }
 
-  private handleInterviewQuestion(parsed: Record<string, unknown>, _input: BenchmarkRespondInput): BenchmarkAdvanceResult {
+  private handleInterviewQuestion(
+    parsed: Record<string, unknown>,
+    _input: BenchmarkRespondInput,
+  ): BenchmarkAdvanceResult {
     this.lastQuestion = (parsed.question as string) ?? 'Follow-up question';
 
     // Now need score
@@ -209,7 +229,8 @@ export class PassthroughBenchmarkRunner {
       this.lastQuestion,
       score,
     );
-    if (!respondResult.ok) throw new Error(`Interview respond failed: ${respondResult.error.message}`);
+    if (!respondResult.ok)
+      throw new Error(`Interview respond failed: ${respondResult.error.message}`);
 
     this.interviewRoundIndex++;
     const ctx = respondResult.value.gestaltContext;
@@ -344,7 +365,7 @@ export class PassthroughBenchmarkRunner {
     // Update total estimate with actual task count
     const actualTasks = planResult.value.executionPlan.atomicTasks.length;
     const estimatedTasks = this.scenario.planningSteps.closure.atomicTasks.length;
-    this.totalEstimatedSteps += (actualTasks - estimatedTasks);
+    this.totalEstimatedSteps += actualTasks - estimatedTasks;
 
     this.endTimer('planning', true);
     return this.startExecutionPhase();
@@ -421,18 +442,23 @@ export class PassthroughBenchmarkRunner {
     const evalStart = this.executeEngine.startEvaluation(this.executeSessionId);
     if (!evalStart.ok) throw new Error(`Evaluation start failed: ${evalStart.error.message}`);
 
-    // Simulate structural pass
+    // Simulate structural pass. 서버가 요청한 명령 문자열을 그대로 실어야 제출이 받아들여진다
     const structuralResult = {
-      commands: [
-        { name: 'lint', command: 'eslint src/', exitCode: 0, output: 'No errors found' },
-        { name: 'build', command: 'tsc --noEmit', exitCode: 0, output: '' },
-        { name: 'test', command: 'vitest run', exitCode: 0, output: 'Tests: all passed' },
-      ],
+      commands: evalStart.value.structuralContext!.commands.map((c) => ({
+        name: c.name,
+        command: c.command,
+        exitCode: 0,
+        output: 'ok',
+      })),
       allPassed: true,
     };
 
-    const structResult = this.executeEngine.submitStructuralResult(this.executeSessionId, structuralResult);
-    if (!structResult.ok) throw new Error(`Structural submit failed: ${structResult.error.message}`);
+    const structResult = this.executeEngine.submitStructuralResult(
+      this.executeSessionId,
+      structuralResult,
+    );
+    if (!structResult.ok)
+      throw new Error(`Structural submit failed: ${structResult.error.message}`);
 
     if (structResult.value.shortCircuited) {
       this.endTimer('evaluate', false);
@@ -522,7 +548,7 @@ export class PassthroughBenchmarkRunner {
   private logCall(usage?: { inputTokens: number; outputTokens: number }): void {
     this.callLog.push({
       stage: `step-${this.currentStepIndex}`,
-      latencyMs: 0,   // not measurable in passthrough (caller owns the timing)
+      latencyMs: 0, // not measurable in passthrough (caller owns the timing)
       inputTokens: usage?.inputTokens ?? 0,
       outputTokens: usage?.outputTokens ?? 0,
       jsonParseSuccess: true,

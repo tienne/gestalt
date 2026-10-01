@@ -372,6 +372,8 @@ export interface ExecuteSession {
   subTasks: SubTask[];
   auditResult?: AuditResult;
   evaluateStage?: EvaluateStage;
+  /** startEvaluation이 요청한 구조 검사 명령. 제출된 명령과 대조한다. */
+  structuralCommands?: StructuralCommand[];
   structuralResult?: StructuralResult;
   evaluationResult?: EvaluationResult;
   driftHistory: DriftScore[];

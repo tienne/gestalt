@@ -24,13 +24,13 @@ Evaluate는 **연속성(Continuity)** 원리가 주도해요.
 lint → build → test
 ```
 
-명령어는 Spec 또는 ExecutionPlan에서 파생돼요. 하나라도 실패하면 **Short-Circuit** — Contextual Stage를 건너뛰고 즉시 Evolve의 Structural Fix Flow로 전달해요.
+명령어는 서버가 프로젝트의 package.json과 lockfile을 보고 만들어요. 하나라도 실패하면 **Short-Circuit** — Contextual Stage를 건너뛰고 즉시 Evolve의 Structural Fix Flow로 전달해요.
 
 ```typescript
 interface StructuralResult {
   commands: {
-    name: string;       // "lint" | "build" | "test"
-    command: string;    // 실행된 명령어
+    name: string; // "lint" | "build" | "test"
+    command: string; // 실행된 명령어
     exitCode: number;
     output: string;
   }[];
@@ -47,11 +47,11 @@ interface EvaluationResult {
   verifications: {
     acIndex: number;
     satisfied: boolean;
-    evidence: string;   // 충족 근거 또는 미충족 이유
+    evidence: string; // 충족 근거 또는 미충족 이유
     gaps: string[];
   }[];
-  overallScore: number;         // 0~1 (AC 충족 비율)
-  goalAlignment: number;        // 0~1 (Spec.goal과의 정렬도)
+  overallScore: number; // 0~1 (AC 충족 비율)
+  goalAlignment: number; // 0~1 (Spec.goal과의 정렬도)
   recommendations: string[];
 }
 ```
@@ -64,6 +64,9 @@ interface EvaluationResult {
 // Call 1: Evaluate 시작
 ges_execute({ action: "evaluate", sessionId: "<id>" })
 → structuralContext 반환 (실행할 명령어 목록)
+  패키지 매니저는 package.json의 packageManager 필드나 lockfile로 고른다.
+  scripts에 없는 lint, build는 빠지고 test는 항상 남는다.
+  영향받는 테스트를 못 찾으면 test는 전체 스위트로 돌린다.
 
 // Call 2: Structural 결과 제출
 ges_execute({
@@ -71,15 +74,19 @@ ges_execute({
   sessionId: "<id>",
   structuralResult: {
     commands: [
-      { name: "lint", command: "pnpm lint", exitCode: 0, output: "..." },
-      { name: "build", command: "pnpm build", exitCode: 0, output: "..." },
-      { name: "test", command: "pnpm test", exitCode: 0, output: "..." }
+      { name: "lint", command: "pnpm run lint", exitCode: 0, output: "..." },
+      { name: "build", command: "pnpm run build", exitCode: 0, output: "..." },
+      { name: "test", command: "pnpm run test", exitCode: 0, output: "..." }
     ],
     allPassed: true
   }
 })
 → contextualContext 반환 (scoringPrompt, AC 목록)
-  allPassed === false 시 → evolveContext 반환 (Short-Circuit)
+  allPassed === false 시 → shortCircuited: true, nextAction: evolve_fix 반환 (Short-Circuit)
+  요청한 명령과 제출한 명령이 다르거나 빠지면 거부된다.
+  그때는 요청한 명령을 그대로 다시 돌려 그 결과로 제출한다. 명령 문자열만 바꿔 다시 내지 않는다.
+  다른 사유로 거부되면 Call 1부터 다시 시작한다.
+  종료 코드가 0이 아닌 명령이 있으면 allPassed와 상관없이 실패로 본다.
 
 // Call 3: Contextual 결과 제출
 ges_execute({
@@ -103,9 +110,9 @@ ges_execute({
 성공 조건: overallScore ≥ 0.85 AND goalAlignment ≥ 0.80
 ```
 
-| 조건 | 값 | 환경변수 |
-|:---|:---:|:---|
-| `overallScore` (AC 충족 비율) | ≥ 0.85 | `GESTALT_EVOLVE_SUCCESS_THRESHOLD` |
+| 조건                          |   값   | 환경변수                                  |
+| :---------------------------- | :----: | :---------------------------------------- |
+| `overallScore` (AC 충족 비율) | ≥ 0.85 | `GESTALT_EVOLVE_SUCCESS_THRESHOLD`        |
 | `goalAlignment` (목표 정렬도) | ≥ 0.80 | `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` |
 
 두 조건을 모두 충족하면 `status: 'success'` — Code Review 단계로 진행해요. 하나라도 미달이면 Evolve 단계로 전달해요.
@@ -116,11 +123,11 @@ ges_execute({
 
 ## MCP 액션 요약
 
-| 액션 | 설명 |
-|:---|:---|
-| `evaluate` (Call 1) | Evaluate 시작 → structuralContext 반환 |
+| 액션                                     | 설명                                                        |
+| :--------------------------------------- | :---------------------------------------------------------- |
+| `evaluate` (Call 1)                      | Evaluate 시작 → structuralContext 반환                      |
 | `evaluate` + `structuralResult` (Call 2) | Structural 결과 제출 → contextualContext 또는 Short-Circuit |
-| `evaluate` + `evaluationResult` (Call 3) | Contextual 결과 제출 → 최종 판정 |
+| `evaluate` + `evaluationResult` (Call 3) | Contextual 결과 제출 → 최종 판정                            |
 
 ---
 
@@ -142,10 +149,11 @@ Structural 실패 원인은 명확해요 — 코드 오류, 누락된 의존성,
 
 ## 소스 코드 참조
 
-| 파일 | 역할 |
-|:---|:---|
-| `src/execute/passthrough-engine.ts` | Evaluate 3-Call 핸들러 |
-| `src/execute/evaluate-context-builder.ts` | structuralContext, contextualContext 생성 |
-| `src/execute/session-manager.ts` | EvaluateStage 상태 관리 |
-| `src/core/constants.ts` | `EVOLVE_SUCCESS_THRESHOLD`, `EVOLVE_GOAL_ALIGNMENT_THRESHOLD` |
-| `src/mcp/tools/execute-passthrough.ts` | MCP 핸들러 |
+| 파일                                      | 역할                                                          |
+| :---------------------------------------- | :------------------------------------------------------------ |
+| `src/execute/passthrough-engine.ts`       | Evaluate 3-Call 핸들러                                        |
+| `src/execute/structural-commands.ts`      | 패키지 매니저 감지, 구조 검사 명령 생성, 제출 명령 대조       |
+| `src/execute/evaluate-context-builder.ts` | structuralContext, contextualContext 생성                     |
+| `src/execute/session-manager.ts`          | EvaluateStage 상태 관리                                       |
+| `src/core/constants.ts`                   | `EVOLVE_SUCCESS_THRESHOLD`, `EVOLVE_GOAL_ALIGNMENT_THRESHOLD` |
+| `src/mcp/tools/execute-passthrough.ts`    | MCP 핸들러                                                    |

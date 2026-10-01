@@ -1,16 +1,16 @@
 ---
 name: execute
-version: "1.3.0"
-description: "Gestalt-driven execution planner that transforms a Spec into a validated ExecutionPlan. Requires a Spec that already exists. Given only a problem statement, use solve instead — it drives interview → spec → execute as one loop."
+version: '1.3.0'
+description: 'Gestalt-driven execution planner that transforms a Spec into a validated ExecutionPlan. Requires a Spec that already exists. Given only a problem statement, use solve instead — it drives interview → spec → execute as one loop.'
 triggers:
-  - "execute"
-  - "plan execution"
-  - "create execution plan"
+  - 'execute'
+  - 'plan execution'
+  - 'create execution plan'
 inputs:
   spec:
     type: object
     required: true
-    description: "A validated Spec specification from the spec generation step"
+    description: 'A validated Spec specification from the spec generation step'
 outputs:
   - executionPlan
 ---
@@ -109,16 +109,15 @@ ges_status()  →  {
 
 **`ruleSourceErrors`가 비어 있지 않으면 멈춘다.** 판정과 사용자에게 알릴 문구는 [`../_shared/rule-sources.md`](../_shared/rule-sources.md)의 "선언이 깨졌을 때" 절이 원본이다. **`ruleSources`가 비어 있지 않아도 일부가 빠진 상태일 수 있으니 배열 길이로 판정하지 않는다.**
 
-
 `scope`가 비어 있지 않으면 **이번 Spec에 해당하는 소스만** 읽는다. 백엔드 태스크만 있는 Spec에서 디자인 토큰을 물어볼 이유가 없다. 여기는 건드릴 파일이 정해진 자리라 태그를 그 파일에서 뽑는다.
 
 **`solve`로 들어와 소스 읽기를 건너뛰는 경우에도 이 판정은 한다.** 건너뛰는 건 읽기지 판정이 아니다. 앞 스킬은 파일을 모른 채 넘겼으므로 여기서 세 가지가 정해진다.
 
-| 앞에서 넘어온 것 | 여기서 |
-|---|---|
+| 앞에서 넘어온 것                                               | 여기서                                                                                             |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | 넓게 잡아 읽어둔 `convention` 소스 중 파일을 보니 안 걸리는 것 | `repoRules.sources`에서 뺀다. 거기서 빠지면 서브에이전트 프롬프트와 완료 보고 양쪽에서 함께 빠진다 |
-| 판정을 미뤄둔 `stop`과 `delegate` 소스 | 여기서 판정한다. 걸리면 읽거나 멈추거나 넘긴다 |
-| 새로 걸리는 소스 | 그것만 더 읽는다 |
+| 판정을 미뤄둔 `stop`과 `delegate` 소스                         | 여기서 판정한다. 걸리면 읽거나 멈추거나 넘긴다                                                     |
+| 새로 걸리는 소스                                               | 그것만 더 읽는다                                                                                   |
 
 `trust: "delegate"`인 소스가 이번 작업 범위에 걸리면 그 부분은 게슈탈트가 직접 만들지 않고 넘긴다. 어디까지 넘기는지 사용자에게 알리고 진행한다.
 
@@ -145,41 +144,48 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 ### Action별 사용법
 
 **`start`** — 실행 계획 세션 시작
+
 ```json
 { "action": "start", "spec": { ... } }
 ```
+
 → `{ status, sessionId, specId, executeContext, message }`
 
 **`plan_step`** — 각 계획 단계 결과 제출
+
 ```json
 { "action": "plan_step", "sessionId": "...", "stepResult": { "principle": "figure_ground", "classifiedACs": [...] } }
 ```
+
 → `{ status, sessionId, stepsCompleted, isLastStep, executeContext?, message }`
 
 **`plan_complete`** — 최종 실행 계획 조립
+
 ```json
 { "action": "plan_complete", "sessionId": "..." }
 ```
+
 → `{ status, sessionId, executionPlan, message }`
 
 **`status`** — 세션 상태 확인
+
 ```json
 { "action": "status", "sessionId": "..." }
 ```
 
 ### ExecuteContext 필드
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `systemPrompt` | string | 실행 계획 시스템 프롬프트 |
-| `planningPrompt` | string | 현재 단계의 계획 프롬프트 |
-| `currentPrinciple` | string | 현재 적용 중인 게슈탈트 원리 |
-| `principleStrategy` | string | 해당 원리의 전략 설명 |
-| `phase` | string | 현재 단계 (`planning`) |
-| `stepNumber` | number | 현재 스텝 번호 (1-4) |
-| `totalSteps` | number | 전체 스텝 수 (4) |
-| `spec` | Spec | 원본 Spec 스펙 |
-| `previousSteps` | array | 이전 단계 결과들 |
+| 필드                | 타입   | 설명                         |
+| ------------------- | ------ | ---------------------------- |
+| `systemPrompt`      | string | 실행 계획 시스템 프롬프트    |
+| `planningPrompt`    | string | 현재 단계의 계획 프롬프트    |
+| `currentPrinciple`  | string | 현재 적용 중인 게슈탈트 원리 |
+| `principleStrategy` | string | 해당 원리의 전략 설명        |
+| `phase`             | string | 현재 단계 (`planning`)       |
+| `stepNumber`        | number | 현재 스텝 번호 (1-4)         |
+| `totalSteps`        | number | 전체 스텝 수 (4)             |
+| `spec`              | Spec   | 원본 Spec 스펙               |
+| `previousSteps`     | array  | 이전 단계 결과들             |
 
 ### Planning Principle 순서
 
@@ -222,6 +228,7 @@ ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ..
 ```json
 { "action": "execute_start", "sessionId": "..." }
 ```
+
 → `{ status, sessionId, executionPlan, message }`
 
 ---
@@ -236,6 +243,7 @@ ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ..
 // Call 1: 매칭 컨텍스트 요청
 { "action": "role_match", "sessionId": "..." }
 ```
+
 → `{ matchContext }` — 어떤 에이전트가 적합한지 판단하기 위한 프롬프트
 
 `matchContext.tierHint`는 `"frugal"`이다. `matchContext.availableAgents`에는 에이전트 20여 개의 description이 통째로 들어 있다. 그걸 세션 컨텍스트에 들이는 대신 **서브에이전트에 넘겨 1차 후보를 좁힌다.**
@@ -259,11 +267,22 @@ Agent {
   "action": "role_match",
   "sessionId": "...",
   "matchResult": [
-    { "agentName": "technical-writer", "domain": ["documentation"], "relevanceScore": 0.9, "reasoning": "..." },
-    { "agentName": "architect", "domain": ["architecture"], "relevanceScore": 0.7, "reasoning": "..." }
+    {
+      "agentName": "technical-writer",
+      "domain": ["documentation"],
+      "relevanceScore": 0.9,
+      "reasoning": "..."
+    },
+    {
+      "agentName": "architect",
+      "domain": ["architecture"],
+      "relevanceScore": 0.7,
+      "reasoning": "..."
+    }
   ]
 }
 ```
+
 → `{ perspectivePrompts }` — 각 에이전트별 관점 생성 프롬프트
 
 **`role_consensus` — 다중 관점 합의 (2-Call)**
@@ -279,6 +298,7 @@ Agent {
   ]
 }
 ```
+
 → `{ synthesisContext }` — 관점 통합 프롬프트
 
 ```json
@@ -293,6 +313,7 @@ Agent {
   }
 }
 ```
+
 → `{ roleGuidance }` — execute_task 시 참조할 최종 guidance
 
 ---
@@ -345,6 +366,7 @@ Agent(task: "task-2 실행: {task-2 title}\n컨텍스트: {taskContext}\n완료 
 ```
 
 실패 시:
+
 ```json
 {
   "action": "execute_task",
@@ -379,6 +401,7 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
   }
 }
 ```
+
 → `{ status, nextTaskId?, allTasksCompleted, driftResult? }`
 
 `driftResult`가 반환되면 Spec과의 drift 경고 — 계속 진행하되 다음 태스크에서 방향 보정.
@@ -390,12 +413,19 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
 모든 태스크 완료 후 3-Call 평가 진행.
 
 **Call 1 — Structural 단계 시작**
+
 ```json
 { "action": "evaluate", "sessionId": "..." }
 ```
+
 → `{ stage: "structural", structuralContext }` — lint/build/test 실행 지시
 
+`structuralContext.commands`의 `command` 문자열을 고치지 말고 그대로 실행한다. 패키지 매니저는 서버가 package.json의 `packageManager` 필드나 lockfile로 골라뒀다. scripts에 없는 lint, build는 목록에서 빠지고 test는 항상 남는다. 제출할 때도 같은 문자열을 그대로 싣는다 — 명령이 다르거나 빠지면 서버가 거부한다. 종료 코드가 0이 아닌 명령이 있으면 `allPassed`를 `true`로 보내도 실패로 처리된다.
+
+거부 메시지가 `Submitted commands do not match`로 시작하면 `structuralContext.commands`의 명령을 그대로 다시 실행해서 그 실행의 종료 코드와 출력으로 다시 제출한다. 이전 실행 결과에 명령 문자열만 바꿔 싣지 않는다. 다른 거부 메시지면 다시 제출하지 말고 Call 1부터 다시 시작한다.
+
 **Call 2 — Structural 결과 제출**
+
 ```json
 {
   "action": "evaluate",
@@ -410,24 +440,25 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
   }
 }
 ```
-→ structural 실패 시 `{ stage: "structural_failed", evolveContext }` → Evolve Flow A 진입
-→ structural 통과 시 `{ stage: "contextual", evaluationContext }` — AC별 LLM 검증 지시
+
+→ structural 실패 시 `{ stage: "complete", shortCircuited: true, nextAction: "evolve_fix" }` → Evolve Flow A 진입
+→ structural 통과 시 `{ stage: "contextual", contextualContext }` — AC별 LLM 검증 지시
 
 **Call 3 — Contextual 결과 제출**
+
 ```json
 {
   "action": "evaluate",
   "sessionId": "...",
   "evaluationResult": {
-    "verifications": [
-      { "acIndex": 0, "satisfied": true, "evidence": "...", "gaps": [] }
-    ],
+    "verifications": [{ "acIndex": 0, "satisfied": true, "evidence": "...", "gaps": [] }],
     "overallScore": 0.92,
     "goalAlignment": 0.88,
     "recommendations": []
   }
 }
 ```
+
 → `{ status: "completed" }` (score ≥ 0.85, goalAlignment ≥ 0.80)
 → 미달 시 `{ evolveContext }` → Evolve Flow B 진입
 
@@ -510,25 +541,25 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
 { "action": "evolve_lateral", "sessionId": "..." }
 ```
 
-| Stagnation 패턴 | Persona | 전략 |
-|---|---|---|
-| hard_cap | Multistability | 다른 각도로 보기 |
-| oscillation | Simplicity | 단순하게 줄이기 |
-| no_drift | Reification | 빠진 조각 채우기 |
-| diminishing_returns | Invariance | 성공 패턴 복제 |
+| Stagnation 패턴     | Persona        | 전략             |
+| ------------------- | -------------- | ---------------- |
+| hard_cap            | Multistability | 다른 각도로 보기 |
+| oscillation         | Simplicity     | 단순하게 줄이기  |
+| no_drift            | Reification    | 빠진 조각 채우기 |
+| diminishing_returns | Invariance     | 성공 패턴 복제   |
 
 4개 persona 소진 → `human_escalation` 반환으로 세션 종료.
 
 ### 종료 조건
 
-| 조건 | 트리거 |
-|------|--------|
-| `success` | score ≥ 0.85 AND goalAlignment ≥ 0.80 |
-| `stagnation` | 2회 연속 delta < 0.05 |
-| `oscillation` | 2회 연속 점수 역전 |
-| `hard_cap` | structural 3회 + contextual 3회 실패 |
-| `caller` | `{ action: "evolve", terminateReason: "caller" }` |
-| `human_escalation` | 4개 lateral persona 소진 |
+| 조건               | 트리거                                            |
+| ------------------ | ------------------------------------------------- |
+| `success`          | score ≥ 0.85 AND goalAlignment ≥ 0.80             |
+| `stagnation`       | 2회 연속 delta < 0.05                             |
+| `oscillation`      | 2회 연속 점수 역전                                |
+| `hard_cap`         | structural 3회 + contextual 3회 실패              |
+| `caller`           | `{ action: "evolve", terminateReason: "caller" }` |
+| `human_escalation` | 4개 lateral persona 소진                          |
 
 ---
 
@@ -584,12 +615,14 @@ activeForm: "병렬 실행 중: 그룹 {groupIndex}/{totalGroups} — {agentCoun
 `TaskUpdate`로 진행 상황과 현재 실행 태스크명을 업데이트한다.
 
 순차 실행 중:
+
 ```
 description: "{completedCount}/{totalTasks} 완료 | 실패: {failedCount}개 | 그룹 {groupIndex}/{totalGroups}"
 activeForm: "실행 중: {taskContext.currentTask.title}"
 ```
 
 병렬 그룹 실행 중 (각 Agent의 execute_task 완료 시):
+
 ```
 description: "{completedCount}/{totalTasks} 완료 | 실패: {failedCount}개 | 그룹 {groupIndex}/{totalGroups}"
 activeForm: "병렬 실행 중: 그룹 {groupIndex}/{totalGroups} — {agentCount}개 Agent 실행 중"
