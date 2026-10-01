@@ -1,8 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ExecuteSessionManager } from '../../../src/execute/session.js';
 import { EventStore } from '../../../src/events/store.js';
+import { ExecuteSessionRepository } from '../../../src/execute/repository.js';
 import { ExecuteSessionNotFoundError } from '../../../src/core/errors.js';
-import type { Spec, TaskExecutionResult } from '../../../src/core/types.js';
+import { EventType } from '../../../src/events/types.js';
+import type {
+  DriftScore,
+  ExecuteSession,
+  ExecutionPlan,
+  Spec,
+  TaskExecutionResult,
+} from '../../../src/core/types.js';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -27,6 +35,46 @@ const done = (taskId: string): TaskExecutionResult => ({
   output: 'ok',
   artifacts: [],
 });
+
+const plan = (specId: string): ExecutionPlan => ({
+  planId: `plan-${randomUUID()}`,
+  specId,
+  classifiedACs: [],
+  atomicTasks: [
+    {
+      taskId: 'task-0',
+      title: 't0',
+      description: 'd0',
+      sourceAC: [0],
+      isImplicit: false,
+      estimatedComplexity: 'low',
+      dependsOn: [],
+    },
+  ],
+  taskGroups: [],
+  dagValidation: {
+    isValid: true,
+    hasCycles: false,
+    hasConflicts: false,
+    topologicalOrder: ['task-0'],
+    criticalPath: ['task-0'],
+  },
+  parallelGroups: [['task-0']],
+  createdAt: new Date().toISOString(),
+});
+
+const drift = (taskId: string): DriftScore => ({
+  taskId,
+  overall: 0.7,
+  dimensions: [{ name: 'goal', score: 0.7, detail: 'd' }],
+  thresholdExceeded: true,
+  status: 'CRITICAL',
+  threshold: 0.6,
+  hint: '스펙과의 편차가 감지되었습니다. evolve_patch로 스펙을 수정하거나 계속 진행하세요.',
+});
+
+// 시각은 라이브와 replay가 원래 다르다
+const comparable = ({ createdAt: _c, updatedAt: _u, ...rest }: ExecuteSession) => rest;
 
 // MCP 프로세스 둘이 같은 DB를 쓰는 상황을 연결 두 개로 흉내 낸다
 describe('ExecuteSessionManager — 같은 DB를 쓰는 두 인스턴스', () => {
@@ -138,5 +186,106 @@ describe('ExecuteSessionManager — 같은 DB를 쓰는 두 인스턴스', () =>
     expect(session.roleConsensus).toEqual(consensus);
     expect(session.subTasks).toEqual([subTask]);
     expect(session.taskResults.map((r) => r.taskId)).toEqual(['task-x']);
+  });
+
+  it('캐시가 최신이면 get()이 replay하지 않고 다른 인스턴스가 쓰면 한 번 replay한다', () => {
+    const { sessionId } = a.create(spec());
+    a.startExecution(sessionId);
+    const replay = vi.spyOn(storeA, 'replay');
+
+    a.get(sessionId);
+    a.get(sessionId);
+    expect(replay).not.toHaveBeenCalled();
+
+    b.addTaskResult(sessionId, done('task-b'));
+    a.get(sessionId);
+    a.get(sessionId);
+    expect(replay).toHaveBeenCalledTimes(1);
+  });
+
+  it('단계마다 라이브 세션과 다른 연결의 replay 결과가 같다', () => {
+    const s = spec();
+    const { sessionId } = a.create(s);
+    const replayed = () => new ExecuteSessionRepository(storeB).reconstruct(sessionId)!;
+    const expectSame = () => expect(comparable(replayed())).toEqual(comparable(a.get(sessionId)));
+
+    a.completePlan(sessionId, plan(s.metadata.specId));
+    a.startExecution(sessionId);
+    a.addTaskResult(sessionId, done('task-0'));
+    a.addDriftScore(sessionId, drift('task-0'));
+    expectSame();
+
+    a.startStructuralEvaluation(sessionId);
+    a.completeStructuralStage(sessionId, {
+      commands: [{ name: 'test', command: 'pnpm test', exitCode: 1, output: 'FAIL' }],
+      allPassed: false,
+    });
+    a.shortCircuitEvaluation(sessionId, 'test 실패');
+    expectSame();
+
+    a.startStructuralFix(sessionId);
+    a.completeStructuralFix(sessionId, []);
+    expectSame();
+
+    // evolution.ts의 submitSpecPatch와 같은 순서로 부른다
+    const live = a.get(sessionId);
+    const newSpec = { ...live.spec, constraints: ['새 제약'] };
+    const delta = { fieldsChanged: ['constraints'], similarity: 0.9, generation: 1 };
+    a.recordEvolutionGeneration(sessionId, {
+      generation: live.currentGeneration,
+      spec: live.spec,
+      evaluationScore: live.evaluationResult?.overallScore ?? 0,
+      goalAlignment: live.evaluationResult?.goalAlignment ?? 0,
+      delta,
+    });
+    a.patchSpec(sessionId, { constraints: ['새 제약'] }, newSpec, delta);
+    a.startReExecution(sessionId, ['task-0']);
+    a.addEvolveTaskResult(sessionId, done('task-0'));
+    expectSame();
+    expect(replayed().evolutionHistory[0]?.generation).toBe(0);
+
+    a.terminate(sessionId, 'success');
+    expectSame();
+  });
+
+  it('구조 평가 출력은 토큰을 가리고 끝부분만 이벤트에 남긴다', () => {
+    const { sessionId } = a.create(spec());
+    const token = `ghp_${'a'.repeat(36)}`;
+    const output = `${'x'.repeat(5000)}\nAuthorization: ${token}\nFAIL at the end`;
+    a.completeStructuralStage(sessionId, {
+      commands: [{ name: 'test', command: 'pnpm test', exitCode: 1, output }],
+      allPassed: false,
+    });
+
+    expect(a.get(sessionId).structuralResult?.commands[0]?.output).toBe(output);
+    const stored = new ExecuteSessionRepository(storeB).reconstruct(sessionId)!.structuralResult!
+      .commands[0]!.output;
+    expect(stored).not.toContain(token);
+    expect(stored.endsWith('FAIL at the end')).toBe(true);
+    expect(stored.length).toBeLessThan(2100);
+  });
+
+  it('구형 payload로 쌓인 이벤트도 빠진 값을 채워 재구성한다', () => {
+    const s = spec();
+    const { sessionId } = a.create(s);
+    storeA.append('execute', sessionId, EventType.EXECUTE_DRIFT_MEASURED, {
+      taskId: 'task-0',
+      overall: 0.4,
+      thresholdExceeded: false,
+      dimensions: [{ name: 'goal', score: 0.4, detail: 'd' }],
+    });
+    storeA.append('execute', sessionId, EventType.EVALUATE_STRUCTURAL_COMPLETED, {
+      allPassed: false,
+      commands: [{ name: 'test', exitCode: 1 }],
+    });
+    storeA.append('execute', sessionId, EventType.EVALUATE_SHORT_CIRCUITED, { reason: 'r' });
+    storeA.append('execute', sessionId, EventType.ROLE_MATCH_COMPLETED, { taskId: 'task-0' });
+
+    const session = b.get(sessionId);
+    expect(session.driftHistory[0]).toMatchObject({ status: 'WARNING', threshold: 0.6 });
+    expect(session.structuralResult?.commands[0]).toMatchObject({ name: 'test', exitCode: 1 });
+    expect(session.evaluationResult?.verifications).toHaveLength(s.acceptanceCriteria.length);
+    expect(session.evaluationResult?.verifications[0]?.gaps).toEqual(['r']);
+    expect(session.roleMatches).toBeUndefined();
   });
 });

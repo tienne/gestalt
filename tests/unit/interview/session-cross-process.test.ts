@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SessionManager } from '../../../src/interview/session.js';
+import { InterviewSessionRepository } from '../../../src/interview/repository.js';
 import { EventStore } from '../../../src/events/store.js';
 import { GestaltPrinciple } from '../../../src/core/types.js';
 import { SessionNotFoundError } from '../../../src/core/errors.js';
@@ -88,5 +89,42 @@ describe('SessionManager — 같은 DB를 쓰는 두 인스턴스', () => {
     a.addQuestion(first.sessionId, 'Q1', GestaltPrinciple.CLOSURE);
 
     expect(a.getLatest()?.sessionId).toBe(first.sessionId);
+  });
+
+  it('캐시가 최신이면 get()이 replay하지 않고 다른 인스턴스가 쓰면 한 번 replay한다', () => {
+    const { sessionId } = a.create('topic', 'greenfield');
+    a.complete(sessionId);
+    const replay = vi.spyOn(storeA, 'replay');
+
+    a.get(sessionId);
+    a.get(sessionId);
+    expect(replay).not.toHaveBeenCalled();
+
+    b.abort(sessionId);
+    a.get(sessionId);
+    a.get(sessionId);
+    expect(replay).toHaveBeenCalledTimes(1);
+  });
+
+  it('단계마다 라이브 세션과 다른 연결의 replay 결과가 같다', () => {
+    const { sessionId } = a.create('topic', 'greenfield');
+    const replayed = () => new InterviewSessionRepository(storeB).reconstruct(sessionId)!;
+    const expectSame = () => {
+      const { createdAt: _c, updatedAt: _u, ...live } = a.get(sessionId);
+      const { createdAt: _rc, updatedAt: _ru, ...rest } = replayed();
+      expect(rest).toEqual(live);
+    };
+
+    a.addQuestion(sessionId, 'Q1', GestaltPrinciple.CLOSURE);
+    a.recordResponse(sessionId, 'A1');
+    expectSame();
+
+    a.setCompressedContext(sessionId, {
+      summary: 's',
+      compressedAt: new Date().toISOString(),
+      roundsCompressed: 1,
+    });
+    a.complete(sessionId);
+    expectSame();
   });
 });
