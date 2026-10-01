@@ -30,7 +30,7 @@ function git(cwd: string, args: string[], input?: string): Promise<string> {
       },
     );
     // git이 입력을 다 읽기 전에 끝나면 EPIPE가 stdin 스트림 에러로 따로 올라온다. 리스너가 없으면 서버가 죽는다.
-    // 실패 자체는 위 콜백이 reject하고, 덜 읽힌 출력은 splitLines가 줄 수로 잡는다
+    // 실패 자체는 위 콜백이 reject하고 덜 읽힌 출력은 splitLines가 줄 수로 잡는다
     child.stdin?.on('error', () => {});
     child.stdin?.end(input ?? '');
   });
