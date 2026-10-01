@@ -197,7 +197,7 @@ export class SessionManager {
     session.status = 'completed';
     session.updatedAt = new Date().toISOString();
 
-    this.eventStore.append('interview', sessionId, EventType.INTERVIEW_SESSION_COMPLETED, {
+    this.record(sessionId, EventType.INTERVIEW_SESSION_COMPLETED, {
       totalRounds: session.rounds.length,
       finalResolutionScore: session.resolutionScore?.overall ?? null,
     });
