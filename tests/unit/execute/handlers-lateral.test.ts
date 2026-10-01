@@ -22,6 +22,8 @@ interface LateralResponse {
   terminationReason?: string;
   escalationContext?: { stage: string; triedPersonas: string[] };
   lateralContext?: { persona: string; attemptNumber: number; stage: string };
+  gate?: { gateId: string; status: string };
+  nextAction?: string;
   message?: string;
 }
 
@@ -114,7 +116,7 @@ describe('ges_execute evolve_lateral 핸들러', () => {
     expect(fx.engine.getSession(sessionId).status).toBe('completed');
   });
 
-  it('페르소나 4개를 다 썼으면 human_escalation과 escalationContext를 돌려준다', async () => {
+  it('페르소나 4개를 다 썼으면 awaiting_human과 escalationContext, 게이트를 돌려준다', async () => {
     const sessionId = evaluatedSession(0.4);
     fx.engine.getSession(sessionId).lateralTriedPersonas = [...ALL_PERSONAS];
     const adapter = new RecordingAdapter();
@@ -124,12 +126,16 @@ describe('ges_execute evolve_lateral 핸들러', () => {
       adapter,
     );
 
-    expect(res.status).toBe('human_escalation');
+    expect(res.status).toBe('awaiting_human');
     expect(res.escalationContext?.stage).toBe('human_escalation');
     expect(res.escalationContext?.triedPersonas).toEqual(ALL_PERSONAS);
-    expect(res.message).toContain('Human intervention required');
-    expect(adapter.cleared).toBe(1);
-    expect(fx.engine.getSession(sessionId).terminationReason).toBe('human_escalation');
+    expect(res.gate?.status).toBe('open');
+    expect(res.nextAction).toBe('gate_resolve');
+    // 세션은 사람의 답을 기다리며 살아 있으므로 활성 컨텍스트를 지우지 않는다
+    expect(adapter.cleared).toBe(0);
+    const session = fx.engine.getSession(sessionId);
+    expect(session.status).toBe('awaiting_human');
+    expect(session.terminationReason).toBeUndefined();
   });
 
   it('cwd가 없으면 종료돼도 활성 컨텍스트를 건드리지 않는다', async () => {

@@ -615,6 +615,49 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
     }
   });
 
+  it('메모리에 남기는 결정에 실행 세션의 specId를 채운다', () => {
+    const cwd = process.cwd();
+    process.chdir(repo);
+    try {
+      const specId = `spec-${randomUUID()}`;
+      const started = executeEngine.start({
+        version: '1.0',
+        goal: 'g',
+        constraints: [],
+        acceptanceCriteria: ['ac'],
+        ontologySchema: { entities: [], relations: [] },
+        gestaltAnalysis: [],
+        metadata: { specId, interviewSessionId: 'i', resolutionScore: 0.9, generatedAt: '' },
+      });
+      if (!started.ok) throw new Error('start failed');
+      const reviewSessionId = call({
+        action: 'review_start',
+        sessionId: started.value.session.sessionId,
+      }).reviewSessionId!;
+      call({
+        action: 'review_consensus',
+        reviewSessionId,
+        reviewConsensus: {
+          mergedIssues: [],
+          approvedBy: [],
+          blockedBy: [],
+          summary: 'specId 확인용 요약',
+          overallApproved: true,
+        },
+      });
+
+      const memory = JSON.parse(readFileSync(join(repo, '.gestalt', 'memory.json'), 'utf-8')) as {
+        architectureDecisions: { decision: string; specId: string }[];
+      };
+      const recorded = memory.architectureDecisions.find((d) =>
+        d.decision.includes('specId 확인용'),
+      );
+      expect(recorded?.specId).toBe(specId);
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
   // ─── 3.7단계 제안 검증이 합의와 게시에 남기는 것 ──────────────
 
   describe('제안 검증', () => {

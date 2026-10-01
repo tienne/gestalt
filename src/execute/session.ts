@@ -21,6 +21,8 @@ import type {
   BaselineCapture,
   BaselineSkipReason,
   WorkingTreeBaseline,
+  HumanGate,
+  HumanGateResolution,
 } from '../core/types.js';
 import { ExecuteSessionNotFoundError } from '../core/errors.js';
 import { BASELINE_EVENT_DIRTY_LIMIT, DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
@@ -122,6 +124,7 @@ export class ExecuteSessionManager {
       currentGeneration: 0,
       lateralTriedPersonas: [],
       lateralAttempts: 0,
+      humanGates: [],
       codeGraphRepoRoot: opts.codeGraphRepoRoot,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -566,6 +569,48 @@ export class ExecuteSessionManager {
       persona,
       description,
       attemptNumber: session.lateralAttempts,
+    });
+  }
+
+  // ─── Human Gate Methods ─────────────────────────────────────
+
+  openHumanGate(
+    sessionId: string,
+    gate: HumanGate,
+    detail: { triedPersonas: string[]; bestScore: number },
+  ): void {
+    const session = this.get(sessionId);
+    const open = session.humanGates.find((g) => g.status === 'open');
+    if (open) throw new Error(`Human gate already open: ${open.gateId}`);
+    session.humanGates.push(gate);
+    session.status = 'awaiting_human';
+    session.evolveStage = undefined;
+    session.updatedAt = new Date().toISOString();
+
+    this.record(sessionId, EventType.EVOLVE_HUMAN_ESCALATION, {
+      ...detail,
+      gate,
+    });
+  }
+
+  resolveHumanGate(
+    sessionId: string,
+    gateId: string,
+    resolution: HumanGateResolution,
+    resumes: boolean,
+  ): void {
+    const session = this.get(sessionId);
+    const gate = session.humanGates.find((g) => g.gateId === gateId);
+    if (!gate) throw new Error(`Gate not found: ${gateId}`);
+    gate.status = 'resolved';
+    gate.resolution = resolution;
+    if (resumes) session.status = 'executing';
+    session.updatedAt = new Date().toISOString();
+
+    this.record(sessionId, EventType.EVOLVE_HUMAN_GATE_RESOLVED, {
+      gateId,
+      resolution,
+      resumes,
     });
   }
 

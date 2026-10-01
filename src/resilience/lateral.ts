@@ -1,4 +1,11 @@
-import type { Spec, EvaluationResult, EvolutionGeneration } from '../core/types.js';
+import { randomUUID } from 'node:crypto';
+import type {
+  Spec,
+  EvaluationResult,
+  EvolutionGeneration,
+  HumanGate,
+  HumanGateOptionId,
+} from '../core/types.js';
 import type {
   StagnationPattern,
   LateralPersonaName,
@@ -91,11 +98,11 @@ export function buildEscalationContext(
 
   const firstUnsatisfiedAC = unsatisfiedACs[0];
   const recommendedSolutions = [
-    '태스크를 더 작은 단위로 분해한 뒤 새 스펙으로 `execute start`를 재시작하세요.',
+    '태스크를 더 작은 단위로 분해한 뒤 새 스펙으로 `execute start`를 재시작하세요. (`gate_resolve` optionId=restart)',
     firstUnsatisfiedAC
-      ? `"${firstUnsatisfiedAC}" — 해당 acceptance criteria를 수정한 뒤 \`evolve_patch\`로 재실행하세요.`
-      : '해당 acceptance criteria를 수정한 뒤 `evolve_patch`로 재실행하세요.',
-    '이 태스크를 수동으로 처리한 뒤 `execute_task` 액션으로 결과를 제출하세요.',
+      ? `"${firstUnsatisfiedAC}" — 해당 acceptance criteria를 수정한 뒤 \`evolve_patch\`로 재실행하세요. (\`gate_resolve\` optionId=patch_spec)`
+      : '해당 acceptance criteria를 수정한 뒤 `evolve_patch`로 재실행하세요. (`gate_resolve` optionId=patch_spec)',
+    '이 태스크를 수동으로 처리한 뒤 `evaluate`로 다시 검증하세요. (`gate_resolve` optionId=manual_task)',
   ];
 
   return {
@@ -112,4 +119,53 @@ export function buildEscalationContext(
     blockedTask,
     recommendedSolutions,
   };
+}
+
+/**
+ * escalation을 사람이 답할 게이트로 바꾼다. 선택지는 recommendedSolutions의 세 방향에 abort를 더한 것이고
+ * 세션을 이어가는 쪽을 앞에 둔다.
+ */
+export function buildEscalationGate(escalation: EscalationContext): HumanGate {
+  const where = escalation.blockedTask
+    ? `"${escalation.blockedTask.title}" 태스크에서`
+    : '평가 단계에서';
+  return {
+    gateId: `gate-${randomUUID()}`,
+    question: `${where} lateral persona ${escalation.triedPersonas.length}개를 다 써도 성공 기준에 못 닿았어요 (최고 점수 ${escalation.bestScore.toFixed(2)}). 어떻게 진행할까요?`,
+    options: [
+      {
+        id: 'patch_spec',
+        label: 'acceptance criteria나 제약을 고쳐 evolve_patch로 다시 돌린다',
+        nextAction: 'evolve_patch',
+      },
+      {
+        id: 'manual_task',
+        label: '막힌 태스크를 사람이 직접 처리하고 evaluate로 다시 검증한다',
+        nextAction: 'evaluate',
+      },
+      {
+        id: 'restart',
+        label: '태스크를 더 잘게 쪼갠 새 스펙으로 다시 시작한다 (이 세션은 종료된다)',
+        nextAction: 'start',
+      },
+      {
+        id: 'abort',
+        label: '여기서 멈춘다 (이 세션은 실패로 종료된다)',
+        nextAction: null,
+      },
+    ],
+    context: {
+      blockedTask: escalation.blockedTask,
+      triedPersonas: escalation.triedPersonas,
+      bestScore: escalation.bestScore,
+      unresolved: escalation.suggestions,
+    },
+    status: 'open',
+    openedAt: new Date().toISOString(),
+  };
+}
+
+/** 이 선택지로 해소하면 세션이 이어지는가. 아니면 세션을 종료한다 */
+export function gateOptionResumesSession(optionId: HumanGateOptionId): boolean {
+  return optionId === 'patch_spec' || optionId === 'manual_task';
 }

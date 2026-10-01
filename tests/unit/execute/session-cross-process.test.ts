@@ -7,6 +7,7 @@ import { EventType } from '../../../src/events/types.js';
 import type {
   DriftScore,
   ExecuteSession,
+  HumanGate,
   ExecutionPlan,
   Spec,
   TaskExecutionResult,
@@ -71,6 +72,18 @@ const drift = (taskId: string): DriftScore => ({
   status: 'CRITICAL',
   threshold: 0.6,
   hint: '스펙과의 편차가 감지되었습니다. evolve_patch로 스펙을 수정하거나 계속 진행하세요.',
+});
+
+const gate = (): HumanGate => ({
+  gateId: `gate-${randomUUID()}`,
+  question: 'q',
+  options: [
+    { id: 'patch_spec', label: 'p', nextAction: 'evolve_patch' },
+    { id: 'abort', label: 'a', nextAction: null },
+  ],
+  context: { triedPersonas: ['multistability'], bestScore: 0.5, unresolved: [] },
+  status: 'open',
+  openedAt: new Date().toISOString(),
 });
 
 // 시각은 라이브와 replay가 원래 다르다
@@ -342,5 +355,99 @@ describe('ExecuteSessionManager — 같은 DB를 쓰는 두 인스턴스', () =>
     const session = b.get(sessionId);
     expect(session.taskResults).toEqual([]);
     expect(session.completedTaskIds).toEqual([]);
+  });
+  it('열린 사람 판단 게이트가 다른 인스턴스와 재시작 뒤에도 그대로 보인다', () => {
+    const { sessionId } = a.create(spec());
+    a.startExecution(sessionId);
+    const opened = gate();
+    a.openHumanGate(sessionId, opened, { triedPersonas: ['multistability'], bestScore: 0.5 });
+
+    const seen = b.get(sessionId);
+    expect(seen.status).toBe('awaiting_human');
+    expect(seen.humanGates).toEqual([opened]);
+
+    const restarted = new ExecuteSessionManager(storeB);
+    restarted.loadFromStore();
+    expect(comparable(restarted.get(sessionId))).toEqual(comparable(a.get(sessionId)));
+  });
+
+  it('다른 인스턴스가 해소한 게이트를 낡은 캐시 위에서 다시 열지 않는다', () => {
+    const { sessionId } = a.create(spec());
+    a.startExecution(sessionId);
+    const opened = gate();
+    a.openHumanGate(sessionId, opened, { triedPersonas: [], bestScore: 0.5 });
+    a.get(sessionId); // a 캐시에 열린 게이트가 올라간다
+
+    b.resolveHumanGate(
+      sessionId,
+      opened.gateId,
+      { optionId: 'patch_spec', decision: 'd', rationale: 'r', resolvedAt: '' },
+      true,
+    );
+
+    const session = a.get(sessionId);
+    expect(session.status).toBe('executing');
+    expect(session.humanGates[0]!.status).toBe('resolved');
+    // 해소된 걸 알았으므로 새 게이트를 열 수 있다
+    expect(() =>
+      a.openHumanGate(sessionId, gate(), { triedPersonas: [], bestScore: 0.5 }),
+    ).not.toThrow();
+    expect(b.get(sessionId).humanGates.map((g) => g.status)).toEqual(['resolved', 'open']);
+  });
+
+  it('되감기와 완료 검증 실패 이벤트가 섞여도 재시작 뒤 게이트와 기준 트리가 함께 복원된다', () => {
+    const { sessionId } = a.create(spec());
+    a.rewindPlanning(sessionId, 0, { reason: 'cycle' });
+    a.startExecution(sessionId, {
+      repoRoot: '/repo',
+      baseline: { repoRoot: '/repo', cwd: '/repo', head: 'abc', dirty: {}, capturedAt: 't' },
+    });
+    // 완료 검증 실패는 실행 오케스트레이터가 스토어에 직접 남긴다
+    storeA.append('execute', sessionId, EventType.EXECUTE_TASK_VERIFICATION_FAILED, {
+      taskId: 'task-0',
+      files: [{ path: 'a.ts', status: 'unchanged' }],
+    });
+    a.addTaskResult(sessionId, done('task-0'));
+    const opened = gate();
+    a.openHumanGate(sessionId, opened, { triedPersonas: [], bestScore: 0.5 });
+
+    const restarted = new ExecuteSessionManager(storeB);
+    restarted.loadFromStore();
+    const restored = restarted.get(sessionId);
+    expect(comparable(restored)).toEqual(comparable(a.get(sessionId)));
+    expect(restored.status).toBe('awaiting_human');
+    expect(restored.workingTreeBaseline?.head).toBe('abc');
+    expect(restored.completedTaskIds).toEqual(['task-0']);
+
+    restarted.resolveHumanGate(
+      sessionId,
+      opened.gateId,
+      { optionId: 'manual_task', decision: 'd', rationale: 'r', resolvedAt: '' },
+      true,
+    );
+    const again = new ExecuteSessionManager(storeA);
+    again.loadFromStore();
+    const resumed = again.get(sessionId);
+    expect(resumed.status).toBe('executing');
+    expect(resumed.humanGates[0]!.status).toBe('resolved');
+    expect(resumed.workingTreeBaseline?.head).toBe('abc');
+  });
+
+  it('게이트 이벤트도 캐시 이벤트 수에 잡혀 같은 인스턴스에서는 replay하지 않는다', () => {
+    const { sessionId } = a.create(spec());
+    a.startExecution(sessionId);
+    const opened = gate();
+    const replay = vi.spyOn(storeA, 'replay');
+
+    a.openHumanGate(sessionId, opened, { triedPersonas: [], bestScore: 0.5 });
+    a.resolveHumanGate(
+      sessionId,
+      opened.gateId,
+      { optionId: 'abort', decision: 'd', rationale: 'r', resolvedAt: '' },
+      false,
+    );
+    a.terminate(sessionId, 'human_escalation');
+    a.get(sessionId);
+    expect(replay).not.toHaveBeenCalled();
   });
 });

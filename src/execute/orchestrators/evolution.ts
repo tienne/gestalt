@@ -4,6 +4,7 @@ import type {
   TaskExecutionResult,
   FixTask,
   SpecPatch,
+  HumanGateOptionId,
 } from '../../core/types.js';
 import {
   ExecuteError,
@@ -35,6 +36,8 @@ import {
   suggestPersona,
   buildLateralContext,
   buildEscalationContext,
+  buildEscalationGate,
+  gateOptionResumesSession,
 } from '../../resilience/lateral.js';
 import type { LateralResult, LateralPersonaName } from '../../resilience/types.js';
 import type { RoleAgentRegistry } from '../../agent/role-agent-registry.js';
@@ -43,6 +46,7 @@ import type {
   PassthroughEvolveFixResult,
   PassthroughEvolvePatchResult,
   PassthroughReExecuteResult,
+  PassthroughGateResolveResult,
 } from './types.js';
 
 export class EvolutionOrchestrator {
@@ -180,37 +184,8 @@ export class EvolutionOrchestrator {
           });
         }
 
-        // All personas exhausted → human escalation
-        this.sessionManager.terminate(sessionId, 'human_escalation');
-        this.eventStore.append('execute', sessionId, EventType.EVOLVE_HUMAN_ESCALATION, {
-          triedPersonas: session.lateralTriedPersonas,
-          bestScore: Math.max(
-            ...session.evolutionHistory.map((g) => g.evaluationScore),
-            session.evaluationResult!.overallScore,
-          ),
-        });
-
-        logger.warn('execute.human_escalation', {
-          module: 'execute',
-          sessionId,
-          triedPersonas: session.lateralTriedPersonas,
-        });
-
-        const blockedTask = session.executionPlan?.atomicTasks.find(
-          (t) => t.taskId === session.nextTaskId,
-        );
-        const escalation = buildEscalationContext(
-          session.lateralTriedPersonas as LateralPersonaName[],
-          session.evaluationResult!,
-          session.evolutionHistory,
-          blockedTask ? { taskId: blockedTask.taskId, title: blockedTask.title } : undefined,
-        );
-        return ok({
-          session: this.sessionManager.get(sessionId),
-          humanEscalation: escalation,
-          terminated: true,
-          terminationReason: 'human_escalation',
-        });
+        // All personas exhausted → human gate
+        return ok(this.openEscalationGate(sessionId));
       }
 
       return ok({
@@ -407,37 +382,8 @@ export class EvolutionOrchestrator {
         });
       }
 
-      // All personas exhausted → human escalation
-      this.sessionManager.terminate(sessionId, 'human_escalation');
-      this.eventStore.append('execute', sessionId, EventType.EVOLVE_HUMAN_ESCALATION, {
-        triedPersonas: session.lateralTriedPersonas,
-        bestScore: Math.max(
-          ...session.evolutionHistory.map((g) => g.evaluationScore),
-          session.evaluationResult.overallScore,
-        ),
-      });
-
-      logger.warn('execute.human_escalation', {
-        module: 'execute',
-        sessionId,
-        triedPersonas: session.lateralTriedPersonas,
-      });
-
-      const blockedTask = session.executionPlan?.atomicTasks.find(
-        (t) => t.taskId === session.nextTaskId,
-      );
-      const escalation = buildEscalationContext(
-        session.lateralTriedPersonas as LateralPersonaName[],
-        session.evaluationResult,
-        session.evolutionHistory,
-        blockedTask ? { taskId: blockedTask.taskId, title: blockedTask.title } : undefined,
-      );
-      return ok({
-        session: this.sessionManager.get(sessionId),
-        humanEscalation: escalation,
-        terminated: true,
-        terminationReason: 'human_escalation',
-      });
+      // All personas exhausted → human gate
+      return ok(this.openEscalationGate(sessionId));
     } catch (e) {
       if (e instanceof ExecuteSessionNotFoundError) return err(e);
       return err(
@@ -489,6 +435,113 @@ export class EvolutionOrchestrator {
     if (validation.valid) return ok(session.executionPlan);
     const msgs = validation.errors.map((e) => `${e.field}: ${e.message}`).join('; ');
     return err(new ExecuteError(`Invalid spec patch: ${msgs}`));
+  }
+
+  /**
+   * gate_resolve: 열린 게이트에 사람의 답을 받아 세션을 잇거나 종료한다.
+   * patch_spec, manual_task는 executing으로 돌아가고 restart, abort는 human_escalation으로 종료한다.
+   * 이어가도 진화 이력과 lateral 이력은 지우지 않는다. 진화 횟수 상한에 이미 닿아 있으므로
+   * 다음 평가가 한 번만 성공 기준에 못 미쳐도 persona를 되풀이하지 않고 곧장 새 게이트를 연다.
+   */
+  resolveHumanGate(
+    sessionId: string,
+    answer: { gateId?: string; optionId: HumanGateOptionId; decision: string; rationale: string },
+  ): Result<PassthroughGateResolveResult, ExecuteError> {
+    try {
+      const session = this.sessionManager.get(sessionId);
+      if (session.status !== 'awaiting_human') {
+        return err(
+          new ExecuteError(
+            `Session status is "${session.status}". gate_resolve needs a session awaiting human input.`,
+          ),
+        );
+      }
+
+      const gate = answer.gateId
+        ? session.humanGates.find((g) => g.gateId === answer.gateId)
+        : session.humanGates.find((g) => g.status === 'open');
+      if (!gate) {
+        return err(new ExecuteError(`Gate not found: ${answer.gateId ?? '(open gate)'}`));
+      }
+      if (gate.status !== 'open') {
+        return err(new ExecuteError(`Gate ${gate.gateId} is already resolved.`));
+      }
+      const option = gate.options.find((o) => o.id === answer.optionId);
+      if (!option) {
+        return err(new ExecuteError(`Unknown option for gate ${gate.gateId}: ${answer.optionId}`));
+      }
+
+      const resumes = gateOptionResumesSession(answer.optionId);
+      this.sessionManager.resolveHumanGate(
+        sessionId,
+        gate.gateId,
+        {
+          optionId: answer.optionId,
+          decision: answer.decision,
+          rationale: answer.rationale,
+          resolvedAt: new Date().toISOString(),
+        },
+        resumes,
+      );
+      if (!resumes) this.sessionManager.terminate(sessionId, 'human_escalation');
+
+      logger.info('execute.human_gate_resolved', {
+        module: 'execute',
+        sessionId,
+        gateId: gate.gateId,
+        optionId: answer.optionId,
+      });
+
+      // 다른 프로세스가 그사이 이벤트를 남겼으면 get()이 세션을 다시 만든다. 앞서 찾은 gate는 그 이전 사본이다
+      const resolved = this.sessionManager.get(sessionId);
+      return ok({
+        session: resolved,
+        gate: resolved.humanGates.find((g) => g.gateId === gate.gateId) ?? gate,
+        nextAction: option.nextAction,
+        resumes,
+      });
+    } catch (e) {
+      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      return err(
+        new ExecuteError(`Failed to resolve gate: ${e instanceof Error ? e.message : String(e)}`),
+      );
+    }
+  }
+
+  private openEscalationGate(sessionId: string): PassthroughEvolveFixResult {
+    const session = this.sessionManager.get(sessionId);
+    const evaluationResult = session.evaluationResult!;
+    const blockedTask = session.executionPlan?.atomicTasks.find(
+      (t) => t.taskId === session.nextTaskId,
+    );
+    const escalation = buildEscalationContext(
+      session.lateralTriedPersonas as LateralPersonaName[],
+      evaluationResult,
+      session.evolutionHistory,
+      blockedTask ? { taskId: blockedTask.taskId, title: blockedTask.title } : undefined,
+    );
+    const gate = buildEscalationGate(escalation);
+
+    this.sessionManager.openHumanGate(sessionId, gate, {
+      triedPersonas: session.lateralTriedPersonas,
+      bestScore: Math.max(
+        ...session.evolutionHistory.map((g) => g.evaluationScore),
+        evaluationResult.overallScore,
+      ),
+    });
+
+    logger.warn('execute.human_escalation', {
+      module: 'execute',
+      sessionId,
+      gateId: gate.gateId,
+      triedPersonas: session.lateralTriedPersonas,
+    });
+
+    return {
+      session: this.sessionManager.get(sessionId),
+      humanEscalation: escalation,
+      gate,
+    };
   }
 
   private countStructuralFixes(session: ExecuteSession): number {

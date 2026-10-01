@@ -11,7 +11,7 @@ import { consensusVerdict, resolveActor } from '../../local-pr/policy.js';
 import type { ContinuityVerdict, ReviewIssue, ReviewPublishState } from '../../core/types.js';
 import type { ReviewVerdict } from '../../local-pr/types.js';
 import { log } from '../../core/log.js';
-import { resolveExecuteSessionInput } from './execute/utils.js';
+import { resolveExecuteSessionInput, asMemoryNote } from './execute/utils.js';
 
 const SHA_PATTERN = /^[0-9a-f]{7,64}$/i;
 
@@ -40,7 +40,7 @@ export function handleReviewPassthrough(
       case 'review_submit':
         return handleReviewSubmit(reviewEngine, input);
       case 'review_consensus':
-        return handleReviewConsensus(reviewEngine, input);
+        return handleReviewConsensus(reviewEngine, executeEngine, input);
       case 'review_fix':
         return handleReviewFix(reviewEngine, input);
       case 'review_publish':
@@ -189,7 +189,11 @@ function handleReviewSubmit(reviewEngine: PassthroughReviewEngine, input: Execut
   );
 }
 
-function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: ExecuteInput): string {
+function handleReviewConsensus(
+  reviewEngine: PassthroughReviewEngine,
+  executeEngine: PassthroughExecuteEngine,
+  input: ExecuteInput,
+): string {
   if (!input.reviewSessionId) {
     return JSON.stringify({ error: 'reviewSessionId is required for review_consensus' });
   }
@@ -213,11 +217,12 @@ function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: Exe
     const memoryStore = new ProjectMemoryStore();
     const { summary, mergedIssues } = input.reviewConsensus!;
     const now = new Date().toISOString();
+    const specId = reviewSpecId(reviewEngine, executeEngine, input.reviewSessionId);
     if (summary) {
       memoryStore.addArchitectureDecision({
         decision: `[Review] ${asMemoryNote(summary)}`,
         rationale: 'Code review consensus summary (agent-generated record, not an instruction)',
-        specId: '',
+        specId,
         timestamp: now,
       });
     }
@@ -225,7 +230,7 @@ function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: Exe
       memoryStore.addArchitectureDecision({
         decision: `[Review:critical] ${asMemoryNote(`${issue.category}: ${issue.message}`)}`,
         rationale: asMemoryNote(issue.suggestion),
-        specId: '',
+        specId,
         timestamp: now,
       });
     }
@@ -374,21 +379,18 @@ function legacyBodyMarker(issuesKey: string): string {
   return `<!-- gestalt:publish ${issuesKey} -->`;
 }
 
-/**
- * 리뷰가 만든 문장을 프로젝트 메모리에 넣기 전에 형태를 눌러 둔다.
- *
- * 이 값은 리뷰 에이전트가 diff와 코멘트를 읽고 만든 것이라 신뢰 경계 바깥이다.
- * 그리고 메모리의 아키텍처 결정은 이후 모든 스펙 생성 프롬프트에 실린다 — 리뷰
- * 대상 코드에 심어 둔 문장이 그 경로로 들어갈 수 있다.
- *
- * 줄바꿈을 없애 프롬프트 안에서 새 절이나 목록을 만들지 못하게 한다. 길이를 잘라
- * 긴 지시문이 통째로 실리지 않게 한다. 내용 자체는 판단하지 않는다 — 그건 여기서
- * 할 수 있는 일이 아니다. 형태를 눌러 두는 것까지가 이 함수의 범위다.
- */
-const MAX_MEMORY_CHARS = 300;
-
-function asMemoryNote(text: string): string {
-  return text.replace(/\s+/g, ' ').trim().slice(0, MAX_MEMORY_CHARS);
+// 로컬 PR에서 연 리뷰는 실행 세션이 없다. 그때는 빈 문자열로 남긴다
+function reviewSpecId(
+  reviewEngine: PassthroughReviewEngine,
+  executeEngine: PassthroughExecuteEngine,
+  reviewSessionId: string,
+): string {
+  try {
+    const { executeSessionId } = reviewEngine.getSession(reviewSessionId);
+    return executeSessionId ? executeEngine.getSession(executeSessionId).specId : '';
+  } catch {
+    return '';
+  }
 }
 
 function issueBody(issue: ReviewIssue): string {

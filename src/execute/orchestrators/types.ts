@@ -14,6 +14,7 @@ import type {
   TerminationReason,
   RoleGuidance,
   ArtifactVerification,
+  HumanGate,
 } from '../../core/types.js';
 import type { LateralContext, EscalationContext } from '../../resilience/types.js';
 import type { MatchContext } from '../../agent/role-match-engine.js';
@@ -160,8 +161,18 @@ export interface PassthroughEvolveFixResult {
   evolveContext?: ContextualEvolveContext;
   lateralContext?: LateralContext;
   humanEscalation?: EscalationContext;
+  /** escalation이 열어둔 게이트. 세션은 awaiting_human에서 gate_resolve를 기다린다 */
+  gate?: HumanGate;
   terminated?: boolean;
   terminationReason?: TerminationReason;
+}
+
+export interface PassthroughGateResolveResult {
+  session: ExecuteSession;
+  gate: HumanGate;
+  nextAction: string | null;
+  /** true면 세션이 executing으로 돌아갔다. false면 human_escalation으로 종료됐다 */
+  resumes: boolean;
 }
 
 export interface PassthroughEvolvePatchResult {

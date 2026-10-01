@@ -149,7 +149,7 @@ Orca 런타임이 붙지 않아 워커 디스패치는 못 합니다.
 
 ## 6단계: 막힌 것은 사람에게 올린다
 
-게슈탈트가 human escalation으로 세션을 끝냈으면(`terminationReason: 'human_escalation'`) 그 사실을 `orchestration gate-create`로 올려 사람 눈에 보이게 한다.
+lateral persona를 다 써서 게슈탈트 세션이 `awaiting_human`으로 멈췄으면 그 사실을 `orchestration gate-create`로 올려 사람 눈에 보이게 한다. evolve 응답의 `status: 'awaiting_human'`으로 알 수 있다. `status` 조회에 `openGate`가 실려 있어도 같은 뜻이다. 질문에는 `gate.question`과 `gate.options`의 `id`, `label`을 그대로 옮긴다.
 
 ```bash
 <실행파일> orchestration gate-create --task <task_id> --question "<막힌 지점과 필요한 판단>" --json
@@ -157,6 +157,18 @@ Orca 런타임이 붙지 않아 워커 디스패치는 못 합니다.
 ```
 
 카드 코멘트를 남기면 터미널을 열지 않고도 `worktree ps`나 모바일에서 상태가 보인다. 의미 있는 체크포인트마다 코멘트를 갱신한다.
+
+Orca 쪽에서 사람이 답해 해소되면(`gate-resolve`) 그 답을 게슈탈트에 넘겨야 세션이 움직인다. Orca 쪽 해소만으로는 게슈탈트 세션이 `awaiting_human`에 그대로 남는다. 그동안 `ges_execute`는 `status`, `resume`, `gate_resolve`, `evolution_viz` 말고는 다 거절한다.
+
+```json
+{
+  "action": "gate_resolve",
+  "sessionId": "<UUID>",
+  "gateResolution": { "gateId": "<gate.gateId>", "optionId": "<사람이 고른 id>", "decision": "<사람의 결정>", "rationale": "<그 이유>" }
+}
+```
+
+`decision`과 `rationale`은 사람이 적은 말을 쓴다. 비어 있으면 서버가 거절한다. 코디네이터가 지어 채우면 지어낸 판단이 Memory에 남는다. 응답의 `nextAction`이 `evolve_patch`나 `evaluate`면 execute 스킬로 돌려보낸다. `terminated`가 오면(`restart`, `abort`) 세션이 종료된 것이니 디스패치를 멈춘다.
 
 ## Do-NOT
 

@@ -333,6 +333,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `evolve_lateral` | 다음 Lateral Thinking Persona 요청 |
 | `evolve_lateral_result` | Lateral Thinking 결과 제출 |
 | `evolution_viz` | 진화 이력을 HTML로 그려 임시 파일에 저장 |
+| `gate_resolve` | persona를 다 써서 열린 사람 판단 게이트에 답을 제출 ([아래](#gate_resolve--사람-판단-게이트-해소) 참고) |
 
 #### Role Agent
 
@@ -365,6 +366,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 | `sinceSha` | `string` | N | — | `review_start` 전용. 재리뷰일 때 직전 리뷰가 본 head 커밋(7~64자리 16진수). 세션과 `REVIEW_STARTED` 이벤트에 남고 `reviewPrompt` 끝에 이번 라운드 비교 범위 한 줄이 붙는다. 빈 문자열이나 공백은 생략과 같고 16진수가 아니면 에러로 거부한다. 생략하면 기존 동작 그대로다 |
 | `repoRoot` | `string` | N | 프로세스 cwd | `prId`를 찾을 로컬 PR 저장소 |
 | `reviewSessionId` | `string` | `review_submit`, `review_consensus`, `review_publish` | — | `review_start`가 돌려준 리뷰 세션 ID |
+| `gateResolution` | `object` | `gate_resolve` | — | `{ gateId?, optionId, decision, rationale }`. 필드 설명은 [`gate_resolve`](#gate_resolve--사람-판단-게이트-해소) 참고 |
 | `prReviewer` | `string` | N | `GESTALT_ACTOR` 또는 `gestalt:review` | `review_publish`가 판정을 남길 때 쓸 리뷰어 이름. 인라인 코멘트 작성자는 이 값이 아니라 이슈를 낸 에이전트다 (`agent:security-reviewer` 꼴) |
 
 ### `start` — Example Request & Response
@@ -560,6 +562,102 @@ ges_execute({
   }
 })
 ```
+
+### `gate_resolve` — 사람 판단 게이트 해소
+
+`evolve`나 `evolve_lateral`에서 lateral persona 4개를 다 써도 성공 기준에 못 닿으면 세션은 실패로 끝나지 않는다. `awaiting_human` 상태로 멈추고 `session.humanGates[]`에 게이트를 하나 연다. 이때 응답은 이렇게 온다.
+
+```json
+{
+  "status": "awaiting_human",
+  "sessionId": "exec-456",
+  "gate": {
+    "gateId": "gate-…",
+    "question": "\"로그인 API\" 태스크에서 lateral persona 4개를 다 써도 성공 기준에 못 닿았어요 (최고 점수 0.62). 어떻게 진행할까요?",
+    "options": [
+      { "id": "patch_spec", "label": "…", "nextAction": "evolve_patch" },
+      { "id": "manual_task", "label": "…", "nextAction": "evaluate" },
+      { "id": "restart", "label": "…", "nextAction": "start" },
+      { "id": "abort", "label": "…", "nextAction": null }
+    ],
+    "context": { "blockedTask": { "…": "…" }, "triedPersonas": ["…"], "bestScore": 0.62, "unresolved": ["…"] },
+    "status": "open",
+    "openedAt": "…"
+  },
+  "escalationContext": { "…": "…" },
+  "message": "…",
+  "nextAction": "gate_resolve",
+  "nextActionParams": { "sessionId": "exec-456", "gateResolution": { "gateId": "gate-…" } },
+  "hint": "…"
+}
+```
+
+`evolutionHistory`는 `evolve`에서 열렸을 때만 실린다. 세션의 `terminationReason`은 비어 있고 `.gestalt/active-session.json`도 그대로 남는다. 이전 버전은 같은 자리에서 `status: "human_escalation"`, `terminationReason: "human_escalation"`으로 세션을 끝냈다.
+
+`awaiting_human`인 동안에는 `status`, `resume`, `gate_resolve`, `evolution_viz`만 받는다. 나머지 액션은 `gate_resolve`를 먼저 부르라는 에러로 거절한다. `resume`은 에러 대신 `{ status: "awaiting_human", gate, nextAction: "gate_resolve", nextActionParams }`를 돌려준다.
+
+#### 요청
+
+```javascript
+ges_execute({
+  action: "gate_resolve",
+  sessionId: "exec-456",
+  gateResolution: {
+    gateId: "gate-…",          // 생략하면 지금 열린 게이트
+    optionId: "patch_spec",    // patch_spec | manual_task | restart | abort
+    decision: "로그인 실패 응답 형식을 AC에서 빼고 별도 태스크로 넘긴다",
+    rationale: "외부 IdP 응답이 고정되지 않아 이번 스펙 범위에서 검증할 수 없다"
+  }
+})
+```
+
+| 필드 | 필수 | 설명 |
+|------|:----:|------|
+| `gateId` | N | 해소할 게이트. 생략하면 열린 게이트를 쓴다 |
+| `optionId` | Y | 게이트 `options[].id` 중 하나 |
+| `decision` | Y | 사람이 내린 결정. 공백만 있는 문자열도 거절한다 |
+| `rationale` | Y | 그렇게 정한 이유. 공백만 있는 문자열도 거절한다 |
+
+`cwd`는 선택이다.
+
+#### 선택지별 전이
+
+| `optionId` | 세션 | 응답 `status` | `nextAction` |
+|------------|------|---------------|--------------|
+| `patch_spec` | `executing`으로 복귀 | `gate_resolved` | `evolve_patch` |
+| `manual_task` | `executing`으로 복귀 | `gate_resolved` | `evaluate` |
+| `restart` | `failed`, `terminationReason: "human_escalation"`으로 종료됨 | `terminated` | `start` |
+| `abort` | `failed`, `terminationReason: "human_escalation"`으로 종료됨 | `terminated` | `null` |
+
+세션이 이어지는 두 경우는 `{ status: "gate_resolved", sessionId, gateId, resolution, sessionStatus: "executing", memoryRecorded, nextAction, nextActionParams: { sessionId }, hint }`가 온다. 종료되는 두 경우는 `status: "terminated"`와 `terminationReason: "human_escalation"`이 실리고 `.gestalt/active-session.json`이 지워진다. `memoryRecorded`는 네 경우 모두 실린다. `false`면 해소는 됐지만 Memory 기록이 빠진 것이다.
+
+#### Memory 기록
+
+해소할 때마다 결정이 프로젝트 Memory(`.gestalt/memory.json`의 `architectureDecisions`)에 한 줄 쌓인다.
+
+```json
+{
+  "decision": "[Escalation:patch_spec] 로그인 실패 응답 형식을 AC에서 빼고 별도 태스크로 넘긴다",
+  "rationale": "외부 IdP 응답이 고정되지 않아 이번 스펙 범위에서 검증할 수 없다",
+  "specId": "d9356d63-...",
+  "timestamp": "<resolvedAt>"
+}
+```
+
+`specId`는 세션이 실행 중인 스펙의 ID다. `outcome`은 `restart`와 `abort`일 때만 `execute session terminated (<optionId>)`로 붙는다. `decision`과 `rationale`은 공백을 한 칸으로 접고 300자에서 자른 뒤 저장한다.
+
+#### 에러
+
+- 세션이 `awaiting_human`이 아님
+- 이미 해소된 게이트
+- 없는 `gateId`나 `optionId`
+- `gateResolution` 누락
+
+#### 이벤트
+
+게이트를 열 때는 `evolve.human.escalation`(`EVOLVE_HUMAN_ESCALATION`)이 `{ triedPersonas, bestScore, gate }`를 싣고 남는다. 이때 `EVOLVE_TERMINATED`는 안 남는다. 해소하면 `evolve.human.gate.resolved`(`EVOLVE_HUMAN_GATE_RESOLVED`)가 `{ gateId, resolution, resumes }`로 남는다. `restart`와 `abort`는 `EVOLVE_TERMINATED`도 함께 남긴다. `gate`가 없는 예전 escalation 이벤트는 재생할 때 예전처럼 `failed`/`human_escalation`으로 복원된다.
+
+`status`로 단일 세션을 조회하면 열린 게이트가 있을 때 `openGate`가, 게이트가 하나라도 있으면 `resolvedGateCount`가 실린다. 세션 목록에서도 열린 게이트가 있는 항목에는 `openGate`가 붙는다.
 
 ### Progress Panel
 

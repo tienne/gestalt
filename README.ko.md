@@ -514,7 +514,7 @@ Spec 패치 범위: AC와 constraints는 자유롭게 수정할 수 있어요. o
 | 진전 없음 (no drift) | **Reification** | 빠진 것 채우기 |
 | 효과 감소 | **Invariance** | 성공한 패턴 복제 |
 
-4개 Persona를 모두 소진하면 세션이 **Human Escalation**으로 종료돼요. 직접 해결할 수 있도록 구체적인 제안도 함께 알려줘요.
+4개 Persona를 모두 소진하면 세션이 끝나지 않고 **Human Escalation** 게이트에서 멈춰요(`awaiting_human`). 막힌 지점과 선택지(스펙 수정, 직접 처리, 재시작, 중단)를 보여주고 사람의 결정과 이유를 `gate_resolve`로 받아요. 스펙 수정이나 직접 처리를 고르면 세션이 이어져요. 결정은 Memory에 남아 다음 인터뷰에 반영돼요.
 
 **종료 조건:**
 
@@ -525,7 +525,7 @@ Spec 패치 범위: AC와 constraints는 자유롭게 수정할 수 있어요. o
 | `oscillation` | 2회 연속 점수 역전 |
 | `hard_cap` | structural 3회 + contextual 3회 실패 |
 | `caller` | 수동 종료 |
-| `human_escalation` | 4개 lateral persona 모두 소진 |
+| `human_escalation` | 4개 lateral persona 소진 후 게이트에서 재시작이나 중단을 고름 |
 
 ---
 

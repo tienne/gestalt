@@ -600,7 +600,7 @@ Gestalt rotates through lateral thinking personas rather than terminating:
 | No progress (no drift) | **Reification** | Fill in what's missing |
 | Diminishing returns | **Invariance** | Replicate what worked |
 
-When all four personas are exhausted, the session ends with **Human Escalation** — a structured list of actionable suggestions for manual resolution.
+When all four personas are exhausted, the session doesn't end. It pauses at a **Human Escalation** gate (`awaiting_human`) that shows where it got stuck and offers four options: patch the spec, handle the task manually, restart, or abort. The human's decision and rationale go back through `gate_resolve`. Patching or manual handling resumes the session, and every decision is saved to Memory for future interviews.
 
 **Termination conditions:**
 
@@ -611,7 +611,7 @@ When all four personas are exhausted, the session ends with **Human Escalation**
 | `oscillation` | 2 consecutive score reversals |
 | `hard_cap` | 3 structural + 3 contextual failures |
 | `caller` | Manual termination |
-| `human_escalation` | All 4 lateral personas exhausted |
+| `human_escalation` | All 4 lateral personas exhausted, then the human picks restart or abort at the gate |
 
 ---
 
