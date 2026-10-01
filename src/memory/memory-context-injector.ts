@@ -97,8 +97,8 @@ export function buildMemoryContext(
 
   const recentExecutions = memory.executionHistory.slice(-3).map((e) => ({
     specId: e.specId,
-    completedTasks: e.completedTasks.length,
-    failedTasks: e.failedTasks.length,
+    completedTasks: Array.isArray(e.completedTasks) ? e.completedTasks.length : 0,
+    failedTasks: Array.isArray(e.failedTasks) ? e.failedTasks.length : 0,
     completedAt: e.completedAt,
   }));
 
@@ -120,11 +120,16 @@ export function buildMemoryContext(
 // memory.json은 팀이 커밋해 공유하고 merge driver가 남의 브랜치 항목을 그대로 합친다.
 // 값 안의 개행이나 헤더가 시스템 프롬프트의 새 섹션으로 읽히지 않게 한 줄로 접는다
 const MAX_FIELD_LENGTH = 300;
-function oneLine(value: string): string {
-  return value
-    .replace(/\s*[\r\n]+\s*/g, ' ')
-    .replace(/^#+\s*/, '')
-    .slice(0, MAX_FIELD_LENGTH);
+// 구조 검증은 merge driver에만 있어 fast-forward로 들어온 파일은 그대로 읽힌다.
+// 문자열이 아닌 값이 와도 인터뷰 시작이 죽지 않게 여기서 문자열로 바꾼다.
+// 먼저 잘라야 긴 공백 입력에서도 정규식 비용이 길이 상한 안에 머문다
+function oneLine(value: unknown, maxLength = MAX_FIELD_LENGTH): string {
+  return String(value ?? '')
+    .slice(0, maxLength * 2)
+    .replace(/\s+/g, ' ')
+    .replace(/^ ?#+ ?/, '')
+    .trim()
+    .slice(0, maxLength);
 }
 
 export function formatMemoryContextForPrompt(context: MemoryContext): string {
@@ -135,14 +140,14 @@ export function formatMemoryContextForPrompt(context: MemoryContext): string {
   if (context.recentSpecs.length > 0) {
     lines.push('\n### Recent Specs');
     for (const s of context.recentSpecs) {
-      lines.push(`- [${s.createdAt.slice(0, 10)}] ${oneLine(s.goal)}`);
+      lines.push(`- [${oneLine(s.createdAt, 10)}] ${oneLine(s.goal)}`);
     }
   }
 
   if (context.relatedSpecs.length > 0) {
     lines.push('\n### Related Past Specs');
     for (const s of context.relatedSpecs) {
-      lines.push(`- [${s.createdAt.slice(0, 10)}] ${oneLine(s.goal)}`);
+      lines.push(`- [${oneLine(s.createdAt, 10)}] ${oneLine(s.goal)}`);
     }
   }
 
@@ -159,7 +164,7 @@ export function formatMemoryContextForPrompt(context: MemoryContext): string {
     lines.push('\n### Recent Execution History');
     for (const e of context.recentExecutions) {
       lines.push(
-        `- Spec ${e.specId.slice(0, 8)}: ${e.completedTasks} tasks completed, ${e.failedTasks} failed (${e.completedAt.slice(0, 10)})`,
+        `- Spec ${oneLine(e.specId, 8)}: ${e.completedTasks} tasks completed, ${e.failedTasks} failed (${oneLine(e.completedAt, 10)})`,
       );
     }
   }
