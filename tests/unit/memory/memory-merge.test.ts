@@ -1,9 +1,11 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { ProjectMemory } from '../../../src/core/types.js';
 import { mergeMemory, runMemoryMergeDriver } from '../../../src/memory/memory-merge.js';
+import { memoryMergeCommand } from '../../../src/cli/commands/memory-merge.js';
+import { createCli } from '../../../src/cli/index.js';
 
 function memory(overrides: Partial<ProjectMemory> = {}): ProjectMemory {
   return {
@@ -40,6 +42,18 @@ describe('mergeMemory', () => {
     expect(merged.compressedContexts).toEqual([
       { sessionId: 's1', summary: 'remote', compressedAt: 't' },
     ]);
+  });
+
+  it('같은 세션 요약은 compressedAt이 더 최신인 쪽을 남긴다', () => {
+    const merged = mergeMemory(
+      memory({
+        compressedContexts: [{ sessionId: 's1', summary: 'newer', compressedAt: '2026-01-02' }],
+      }),
+      memory({
+        compressedContexts: [{ sessionId: 's1', summary: 'older', compressedAt: '2026-01-01' }],
+      }),
+    );
+    expect(merged.compressedContexts?.map((c) => c.summary)).toEqual(['newer']);
   });
 
   it('같은 결정은 timestamp가 달라도 하나만 남기고 outcome이 있는 쪽을 고른다', () => {
@@ -99,5 +113,67 @@ describe('runMemoryMergeDriver', () => {
 
     expect(() => runMemoryMergeDriver(ours, theirs)).toThrow();
     expect(readFileSync(ours, 'utf-8')).toBe('{"broken"');
+  });
+
+  it.each([
+    ['theirs JSON이 깨졌을 때', '{"broken"'],
+    ['배열이어야 할 필드가 객체일 때', JSON.stringify({ ...memory(), specHistory: {} })],
+    ['spec 항목에 goal이 없을 때', JSON.stringify(memory({ specHistory: [{}] as never }))],
+  ])('%s 던지고 ours를 건드리지 않는다', (_label, theirsContent) => {
+    mkdirSync(dir, { recursive: true });
+    const ours = join(dir, 'ours.json');
+    const theirs = join(dir, 'theirs.json');
+    const original = JSON.stringify(memory({ specHistory: [spec('a')] }));
+    writeFileSync(ours, original);
+    writeFileSync(theirs, theirsContent);
+
+    expect(() => runMemoryMergeDriver(ours, theirs)).toThrow();
+    expect(readFileSync(ours, 'utf-8')).toBe(original);
+  });
+});
+
+describe('gestalt memory-merge', () => {
+  const dir = join('.gestalt-test', `memory-merge-cli-${randomUUID()}`);
+
+  afterEach(() => {
+    process.exitCode = undefined;
+    vi.restoreAllMocks();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function files(oursContent: string, theirsContent: string) {
+    mkdirSync(dir, { recursive: true });
+    const paths = {
+      base: join(dir, 'base.json'),
+      ours: join(dir, 'ours.json'),
+      theirs: join(dir, 'theirs.json'),
+    };
+    writeFileSync(paths.base, JSON.stringify(memory()));
+    writeFileSync(paths.ours, oursContent);
+    writeFileSync(paths.theirs, theirsContent);
+    return paths;
+  }
+
+  it('git이 넘기는 %O %A %B 순서대로 받아 %A에 쓴다', async () => {
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const p = files(
+      JSON.stringify(memory({ specHistory: [spec('a')] })),
+      JSON.stringify(memory({ specHistory: [spec('b')] })),
+    );
+
+    await createCli().parseAsync(['node', 'gestalt', 'memory-merge', p.base, p.ours, p.theirs]);
+
+    const written = JSON.parse(readFileSync(p.ours, 'utf-8')) as ProjectMemory;
+    expect(written.specHistory.map((s) => s.specId)).toEqual(['b', 'a']);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('머지에 실패하면 종료 코드 1로 끝난다', () => {
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const p = files('{"broken"', JSON.stringify(memory()));
+
+    memoryMergeCommand(p.ours, p.theirs);
+
+    expect(process.exitCode).toBe(1);
   });
 });

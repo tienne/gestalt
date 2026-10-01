@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { z } from 'zod';
 import type {
   ProjectMemory,
   SpecHistoryEntry,
@@ -12,13 +13,14 @@ function unionBy<T>(remote: T[], local: T[], key: (item: T) => string): T[] {
 }
 
 /**
- * local과 remote ProjectMemory를 합친다. 양쪽 모두 쌓기만 하는 기록이라
- * 공통 조상 없이 합집합으로 충분하다.
+ * local과 remote ProjectMemory를 합친다. specHistory, executionHistory,
+ * architectureDecisions는 쌓기만 하는 기록이라 공통 조상 없이 합집합으로 충분하다.
+ * compressedContexts는 같은 세션 요약을 덮어써 갱신하므로 더 최신 쪽을 고른다.
  *
  * - specHistory: specId 기준, executionHistory: executeSessionId 기준
  * - architectureDecisions: decision 기준. 한쪽에만 outcome이 있으면 그쪽을 남긴다
- * - compressedContexts: sessionId 기준
- * - 같은 키가 양쪽에 있으면 remote가 이긴다. lastUpdated는 더 최신 값
+ * - compressedContexts: sessionId 기준. compressedAt이 더 최신인 쪽을 남긴다
+ * - 그 밖에 같은 키가 양쪽에 있으면 remote가 이긴다. lastUpdated는 더 최신 값
  */
 export function mergeMemory(local: ProjectMemory, remote: ProjectMemory): ProjectMemory {
   const specHistory: SpecHistoryEntry[] = unionBy(
@@ -45,11 +47,15 @@ export function mergeMemory(local: ProjectMemory, remote: ProjectMemory): Projec
     return !d.outcome && other?.outcome ? other : d;
   });
 
+  const localContexts = new Map((local.compressedContexts ?? []).map((c) => [c.sessionId, c]));
   const compressedContexts = unionBy(
     remote.compressedContexts ?? [],
     local.compressedContexts ?? [],
     (c) => c.sessionId,
-  );
+  ).map((c) => {
+    const other = localContexts.get(c.sessionId);
+    return other && other.compressedAt > c.compressedAt ? other : c;
+  });
 
   const lastUpdated =
     local.lastUpdated > remote.lastUpdated ? local.lastUpdated : remote.lastUpdated;
@@ -65,8 +71,24 @@ export function mergeMemory(local: ProjectMemory, remote: ProjectMemory): Projec
   };
 }
 
-// ProjectMemoryStore.read()와 같은 v1 마이그레이션. 드라이버는 저장소 경로가 아니라
-// git이 넘겨준 임시 파일을 읽으므로 store를 거치지 못한다
+// 합친 결과는 사람 검토 없이 커밋되므로, 이후 읽는 쪽이 문자열 메서드를 부르는 필드만큼은
+// 여기서 막는다. 나머지 필드는 손대지 않고 그대로 넘긴다
+const memoryFileSchema = z
+  .object({
+    specHistory: z.array(
+      z.object({ specId: z.string(), goal: z.string(), createdAt: z.string() }).passthrough(),
+    ),
+    executionHistory: z.array(z.object({ executeSessionId: z.string() }).passthrough()),
+    architectureDecisions: z.array(z.object({ decision: z.string() }).passthrough()),
+    compressedContexts: z
+      .array(z.object({ sessionId: z.string(), compressedAt: z.string() }).passthrough())
+      .optional(),
+  })
+  .passthrough();
+
+// ProjectMemoryStore.read()의 v1 마이그레이션과 같은 일을 하되 두 군데가 다르다.
+// timestamp를 실행 시각 대신 파일의 lastUpdated로 채워 같은 입력이면 같은 머지 결과가 나오게 한다.
+// 배열 필드가 빠진 파일도 빈 배열로 채운다. 드라이버는 git이 넘겨준 임시 파일을 읽으므로 store를 거치지 못한다
 function readMemoryFile(path: string): ProjectMemory {
   const parsed = JSON.parse(readFileSync(path, 'utf-8')) as ProjectMemory;
   parsed.architectureDecisions = (parsed.architectureDecisions ?? []).map((item) =>
@@ -76,16 +98,25 @@ function readMemoryFile(path: string): ProjectMemory {
   );
   parsed.specHistory ??= [];
   parsed.executionHistory ??= [];
+
+  const checked = memoryFileSchema.safeParse(parsed);
+  if (!checked.success) {
+    const issue = checked.error.issues[0];
+    throw new Error(`${path}: unexpected memory.json shape at ${issue?.path.join('.') ?? '?'}`);
+  }
   return parsed;
 }
 
 /**
  * git merge driver 진입점. `%A`(현재 브랜치) 자리에 합친 결과를 쓴다.
- * 어느 쪽이든 JSON으로 못 읽으면 던진다 — 호출부가 0이 아닌 코드로 끝내야
- * git이 충돌 표시를 남기고 사람에게 넘긴다.
+ * 어느 쪽이든 JSON으로 못 읽거나 구조가 맞지 않으면 쓰기 전에 던진다 — 호출부가
+ * 0이 아닌 코드로 끝내야 git이 그 경로를 충돌로 남기고 사람에게 넘긴다.
  */
 export function runMemoryMergeDriver(oursPath: string, theirsPath: string): ProjectMemory {
   const merged = mergeMemory(readMemoryFile(oursPath), readMemoryFile(theirsPath));
-  writeFileSync(oursPath, JSON.stringify(merged, null, 2), 'utf-8');
+  // 쓰다 끊겨도 ours가 반쯤 쓰인 채 남지 않게 같은 디렉토리에 쓰고 바꿔 끼운다
+  const tmpPath = `${oursPath}.${process.pid}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(merged, null, 2), 'utf-8');
+  renameSync(tmpPath, oursPath);
   return merged;
 }
