@@ -431,7 +431,7 @@ ges_execute({
 
 `cwd` 지정 시 client 설정에 맞는 active context와 `.gestalt/active-session.json`이 해당 디렉터리에 생성된다. `client: "claude-code"`는 `.claude/rules/gestalt-active.md`, `client: "codex"`는 `AGENTS.md` managed section, `client: "grok"`는 `.grok/rules/gestalt-active.md`, `client: "both"`는 Claude와 Codex만 사용한다 (`both`는 Grok 경로를 쓰지 않는다). 세션 종료 시 active context와 세션 힌트가 삭제된다.
 
-응답에는 `artifactCheck: { repoRoot, baseline, error? }`가 붙는다. `repoRoot`는 `completed` 보고를 대조할 디렉터리이고 `baseline`은 아래 셋 중 하나다.
+응답에는 `artifactCheck: { repoRoot, baseline, error? }`가 붙는다. `repoRoot`는 `completed` 보고를 대조할 디렉터리이고 `baseline`은 아래 셋 중 하나다. `execute_task` 응답의 `artifactCheck`는 `verified` 같은 문자열 하나라 꼴이 다르다.
 
 - `captured`: 시작 시점 상태를 잡았다. 이후 `completed` 보고를 대조한다
 - `no_baseline`: git 레포가 아니라 대조하지 않는다
@@ -508,7 +508,7 @@ ges_execute({
   - `no_code_change`: `noCodeChange: true`로 대조를 건너뛴 경우
   - `no_baseline`: git 레포가 아니라 시작 시점 상태가 없는 경우
   - `baseline_failed`: `execute_start` 때 git 호출이 실패해 시작 시점 상태를 못 잡은 경우
-  - `baseline_truncated`: 시작 시점에 커밋 안 된 파일이 2000개(`BASELINE_EVENT_DIRTY_LIMIT`)를 넘어 이벤트에 해시를 다 못 남겼고 그 뒤 서버가 재시작돼 대조하지 못한 경우. 재시작 전 같은 프로세스 안에서는 그대로 대조한다
+  - `baseline_truncated`: 시작 시점에 커밋 안 된 파일이 2000개(`BASELINE_EVENT_DIRTY_LIMIT`)를 넘어 이벤트에 해시를 다 못 남겼고 이 세션을 다른 서버 프로세스가 이벤트에서 불러와 대조하지 못한 경우. 해시는 실행을 시작한 프로세스 메모리에만 있고 이벤트에는 사유만 남는다. 그래서 서버가 재시작됐거나 MCP 서버를 따로 띄우는 dispatch 워커가 보고하면 대조 없이 통과한다. 시작한 프로세스는 상태를 잡았으므로 `execute_start` 응답의 `artifactCheck.baseline`은 이때도 `captured`로 나간다. dispatch를 쓸 땐 시작 전에 커밋 안 된 파일을 줄여 둔다
 
 `completed` 보고는 `artifacts`의 파일이 `execute_start` 시점보다 실제로 바뀌었는지 대조한다. 수정, 새로 만듦, 커밋, 삭제 모두 바뀐 것으로 친다. 빈 `artifacts`는 `noCodeChange: true` 없이는 거절된다. 하나라도 안 바뀌었으면 결과를 기록하지 않고 다음처럼 돌려준다. `failed`와 `skipped`는 대조하지 않는다.
 
@@ -521,7 +521,7 @@ ges_execute({
 }
 ```
 
-`problems[].status`는 `unchanged`, `missing`, `outside_repo`, `ignored`(gitignore), `directory`, `invalid_path`(경로에 개행이나 NUL 문자) 중 하나다. 파일을 실제로 고치거나 목록을 바로잡아 같은 태스크를 다시 제출한다. 끝내지 못했으면 `status: "failed"`로 낸다. 시작 시점 상태는 실행 시작 때 한 번만 잡으므로 앞선 태스크가 바꾼 파일을 뒤 태스크가 적어도 통과한다.
+`problems[].status`는 `unchanged`, `missing`, `outside_repo`, `ignored`(gitignore), `directory`, `invalid_path`(경로에 개행이나 NUL 문자), `not_regular_file`(FIFO나 소켓처럼 일반 파일이 아님) 중 하나다. 파일을 실제로 고치거나 목록을 바로잡아 같은 태스크를 다시 제출한다. 끝내지 못했으면 `status: "failed"`로 낸다. 시작 시점 상태는 실행 시작 때 한 번만 잡으므로 앞선 태스크가 바꾼 파일을 뒤 태스크가 적어도 통과한다.
 
 응답에 `serverError: true`가 있으면 보고 내용 문제가 아니라 서버 쪽 git 호출이 실패한 것이다. 잠시 뒤 같은 결과를 그대로 다시 내고 계속 실패하면 `status: "failed"`로 내면서 `output`에 오류 내용을 적는다.
 

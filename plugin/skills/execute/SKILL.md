@@ -229,11 +229,11 @@ ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ..
 { "action": "execute_start", "sessionId": "...", "cwd": "/path/to/project" }
 ```
 
-→ `{ status, sessionId, executionPlan, message }`
+→ `{ status, sessionId, executionPlan, artifactCheck, message }`
 
 `cwd`에는 프로젝트 루트를 넘긴다. 서버가 이 디렉토리에서 git 작업 트리가 실행 시작 시점에 어떤 상태였는지 잡아 두고 나중에 `completed` 보고의 `artifacts`를 그 상태와 대조한다. `cwd`를 비우면 세션의 `codeGraphRepoRoot`를 쓰고 그것도 없으면 서버 프로세스의 cwd를 쓴다. git 레포가 아니면 대조 없이 진행한다. 대조 중에는 그 레포의 `filter.*.clean` 설정이 실행되므로 믿지 않는 레포를 `cwd`로 넘기지 않는다.
 
-응답에는 `artifactCheck: { repoRoot, baseline, error? }`가 붙는다. `repoRoot`는 실제로 대조에 쓸 디렉토리다. `baseline`은 아래 셋 중 하나다.
+응답에는 `artifactCheck: { repoRoot, baseline, error? }`가 붙는다. `repoRoot`는 실제로 대조에 쓸 디렉토리다. `baseline`은 아래 셋 중 하나다. `execute_task` 응답의 `artifactCheck`는 `verified` 같은 문자열 하나라 꼴이 다르다.
 
 - `captured`: 시작 시점 상태를 잡았다. 이후 `completed` 보고를 대조한다
 - `no_baseline`: git 레포가 아니라 대조하지 않는다
@@ -349,13 +349,13 @@ Agent {
 
 ```
 // 같은 메시지에서 동시 호출 — Agent 1
-Agent(task: "task-0 실행: {task-0 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출. 바꾼 파일은 전부 artifacts에 적는다. 파일을 안 바꾸는 태스크면 noCodeChange: true를 같이 낸다. verification_failed가 오면 고쳐서 다시 제출하고 끝내지 못했으면 status: \"failed\"로 낸다")
+Agent(task: "task-0 실행: {task-0 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출. 바꾼 파일은 전부 artifacts에 적는다. 파일을 안 바꾸는 태스크면 noCodeChange: true를 같이 낸다. verification_failed가 오면 고쳐서 다시 제출하고 끝내지 못했으면 status: \"failed\"로 낸다. serverError: true가 함께 오면 고치지 말고 잠시 뒤 같은 결과를 다시 내고 계속 실패하면 status: \"failed\"로 낸다")
 
 // 같은 메시지에서 동시 호출 — Agent 2
-Agent(task: "task-1 실행: {task-1 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출. 바꾼 파일은 전부 artifacts에 적는다. 파일을 안 바꾸는 태스크면 noCodeChange: true를 같이 낸다. verification_failed가 오면 고쳐서 다시 제출하고 끝내지 못했으면 status: \"failed\"로 낸다")
+Agent(task: "task-1 실행: {task-1 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출. 바꾼 파일은 전부 artifacts에 적는다. 파일을 안 바꾸는 태스크면 noCodeChange: true를 같이 낸다. verification_failed가 오면 고쳐서 다시 제출하고 끝내지 못했으면 status: \"failed\"로 낸다. serverError: true가 함께 오면 고치지 말고 잠시 뒤 같은 결과를 다시 내고 계속 실패하면 status: \"failed\"로 낸다")
 
 // 같은 메시지에서 동시 호출 — Agent 3
-Agent(task: "task-2 실행: {task-2 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출. 바꾼 파일은 전부 artifacts에 적는다. 파일을 안 바꾸는 태스크면 noCodeChange: true를 같이 낸다. verification_failed가 오면 고쳐서 다시 제출하고 끝내지 못했으면 status: \"failed\"로 낸다")
+Agent(task: "task-2 실행: {task-2 title}\n컨텍스트: {taskContext}\n완료 후 execute_task로 결과 제출. 바꾼 파일은 전부 artifacts에 적는다. 파일을 안 바꾸는 태스크면 noCodeChange: true를 같이 낸다. verification_failed가 오면 고쳐서 다시 제출하고 끝내지 못했으면 status: \"failed\"로 낸다. serverError: true가 함께 오면 고치지 말고 잠시 뒤 같은 결과를 다시 내고 계속 실패하면 status: \"failed\"로 낸다")
 ```
 
 **각 Agent의 execute_task 제출:**
@@ -438,7 +438,7 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
 - `no_code_change`: `noCodeChange: true`로 대조를 건너뛴 경우
 - `no_baseline`: git 레포가 아니라 시작 시점 상태가 없는 경우
 - `baseline_failed`: `execute_start` 때 git 호출이 실패해 시작 시점 상태를 못 잡은 경우
-- `baseline_truncated`: 시작 시점에 커밋 안 된 파일이 2000개를 넘어 이벤트에 해시를 다 못 남겼고 그 뒤 서버가 재시작돼 대조하지 못한 경우. 재시작 전 같은 프로세스 안에서는 그대로 대조한다
+- `baseline_truncated`: 시작 시점에 커밋 안 된 파일이 2000개를 넘어 이벤트에 해시를 다 못 남겼고 이 세션을 다른 서버 프로세스가 이벤트에서 불러와 대조하지 못한 경우. 해시는 실행을 시작한 프로세스 메모리에만 있고 이벤트에는 사유만 남는다. 그래서 서버가 재시작됐거나 MCP 서버를 따로 띄우는 dispatch 워커가 보고하면 대조 없이 통과한다. 시작한 프로세스는 상태를 잡았으므로 `execute_start` 응답의 `artifactCheck.baseline`은 이때도 `captured`로 나간다. dispatch를 쓸 땐 시작 전에 커밋 안 된 파일을 줄여 둔다
 
 **`verification_failed`를 받으면.** 바뀌지 않은 파일이 하나라도 있으면 서버는 결과를 기록하지 않고 이렇게 돌려준다.
 
@@ -451,7 +451,7 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
 }
 ```
 
-`problems[].status`는 `unchanged`, `missing`, `outside_repo`, `ignored`, `directory`, `invalid_path`(경로에 개행이나 NUL 문자) 중 하나다. 태스크는 아직 끝나지 않은 상태로 남는다. 파일을 실제로 고쳤는지 확인하고 수정을 마치거나 `artifacts` 목록을 바로잡아 같은 태스크를 다시 제출한다. 끝내지 못했으면 `status: "failed"`로 낸다.
+`problems[].status`는 `unchanged`, `missing`, `outside_repo`, `ignored`, `directory`, `invalid_path`(경로에 개행이나 NUL 문자), `not_regular_file`(FIFO나 소켓처럼 일반 파일이 아님) 중 하나다. 태스크는 아직 끝나지 않은 상태로 남는다. 파일을 실제로 고쳤는지 확인하고 수정을 마치거나 `artifacts` 목록을 바로잡아 같은 태스크를 다시 제출한다. 끝내지 못했으면 `status: "failed"`로 낸다.
 
 응답에 `serverError: true`가 있으면 보고 내용 문제가 아니라 서버 쪽 git 호출이 실패한 것이다. 이때는 고칠 것이 없으니 잠시 뒤 같은 결과를 그대로 다시 낸다. 계속 실패하면 `status: "failed"`로 내고 `output`에 오류 내용을 적는다.
 

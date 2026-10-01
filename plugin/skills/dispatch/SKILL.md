@@ -119,7 +119,7 @@ Orca 런타임이 붙지 않아 워커 디스패치는 못 합니다.
 - 게슈탈트 실행 세션 ID(UUID 원문 — 워커는 다른 프로세스라 `active`가 다르게 해석될 수 있다)
 - 이 워커가 맡은 게슈탈트 taskId
 - `taskContext.taskPrompt` 내용
-- 완료 후 `ges_execute action=execute_task`로 결과를 제출하라는 지시. 바꾼 파일은 전부 `artifacts`에 적고 파일을 안 바꾸는 태스크면 `noCodeChange: true`를 같이 낸다. `verification_failed`가 오면 고쳐서 다시 제출하고 끝내지 못했으면 `status: "failed"`로 낸다
+- 완료 후 `ges_execute action=execute_task`로 결과를 제출하라는 지시. 바꾼 파일은 전부 `artifacts`에 적고 파일을 안 바꾸는 태스크면 `noCodeChange: true`를 같이 낸다. `verification_failed`가 오면 고쳐서 다시 제출하고 끝내지 못했으면 `status: "failed"`로 낸다. `serverError: true`가 함께 오면 고치지 말고 잠시 뒤 같은 결과를 다시 내고 계속 실패하면 `status: "failed"`로 낸다
 - **다른 태스크는 건드리지 말라는 경계** — 워커가 ready 집합을 보고 남의 태스크까지 하려 들면 충돌한다
 
 동시 워커 수는 `maxConcurrent`로 제한한다. 지정이 없으면 ready 집합 크기와 4 중 작은 값을 쓴다. 워커마다 에이전트 프로세스와 게슈탈트 MCP 서버가 하나씩 뜨므로 무제한으로 띄우지 않는다.
