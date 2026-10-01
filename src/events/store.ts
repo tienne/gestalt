@@ -48,6 +48,7 @@ export interface IEventStore {
   ): DomainEvent<T> | null;
   getByAggregate(aggregateType: string, aggregateId: string): DomainEvent<unknown>[];
   replay(aggregateType: string, aggregateId: string): DomainEvent<unknown>[];
+  countByAggregate(aggregateType: string, aggregateId: string): number;
   listAggregates(aggregateType: string): string[];
   getAllByAggregateType(aggregateType: string): Map<string, DomainEvent[]>;
   close(): void;
@@ -296,6 +297,19 @@ export class EventStore implements IEventStore {
    */
   replay(aggregateType: string, aggregateId: string): DomainEvent[] {
     return this.getByAggregate(aggregateType, aggregateId);
+  }
+
+  /**
+   * aggregate에 쌓인 이벤트 수. 세션 매니저가 캐시가 낡았는지 볼 때 쓴다.
+   * 이 테이블은 붙이기만 하므로 수가 같으면 내용도 같다.
+   */
+  countByAggregate(aggregateType: string, aggregateId: string): number {
+    if (!this.db) return this.getByAggregate(aggregateType, aggregateId).length;
+
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM events WHERE aggregate_type = ? AND aggregate_id = ?`)
+      .get(aggregateType, aggregateId) as { n: number };
+    return row.n;
   }
 
   /**
