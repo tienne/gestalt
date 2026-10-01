@@ -64,21 +64,19 @@ describe('ges_execute plan_step 핸들러', () => {
     expect(res.error).toContain('stepResult is required');
   });
 
-  it.each([
-    ['figure_ground', 'classifiedACs'],
-    ['closure', 'atomicTasks'],
-    ['proximity', 'taskGroups'],
-    ['continuity', 'dagValidation'],
-  ] as const)('%s 원리인데 %s가 빠지면 엔진까지 안 가고 막는다', async (principle) => {
-    const { sessionId } = fx.startedSession();
-    const res = await fx.call<PlanStepResponse>({
-      action: 'plan_step',
-      sessionId,
-      stepResult: { principle },
-    });
-    expect(res.error).toContain('Invalid stepResult');
-    expect(fx.engine.getSession(sessionId).planningSteps).toHaveLength(0);
-  });
+  it.each(['figure_ground', 'closure', 'proximity', 'continuity'] as const)(
+    '%s 원리의 결과 필드가 빠지면 엔진까지 안 가고 막는다',
+    async (principle) => {
+      const { sessionId } = fx.startedSession();
+      const res = await fx.call<PlanStepResponse>({
+        action: 'plan_step',
+        sessionId,
+        stepResult: { principle },
+      });
+      expect(res.error).toContain('Invalid stepResult');
+      expect(fx.engine.getSession(sessionId).planningSteps).toHaveLength(0);
+    },
+  );
 
   it('중간 단계면 planning 상태와 다음 단계 컨텍스트를 돌려준다', async () => {
     const { sessionId, spec } = fx.startedSession();
@@ -204,9 +202,10 @@ describe('ges_execute plan_complete 핸들러', () => {
     }
   });
 
-  it('완료 후 세션이 executing으로 넘어가 plan_step을 더 받지 않는다', async () => {
+  it('완료 후 세션이 plan_complete로 넘어가 plan_step을 더 받지 않는다', async () => {
     const sessionId = await runAllSteps();
     await fx.call({ action: 'plan_complete', sessionId });
+    expect(fx.engine.getSession(sessionId).status).toBe('plan_complete');
 
     const res = await fx.call<PlanStepResponse>({
       action: 'plan_step',

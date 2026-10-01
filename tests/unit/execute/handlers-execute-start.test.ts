@@ -73,6 +73,7 @@ describe('ges_execute execute_start 핸들러', () => {
 
     expect(res.taskContext).not.toHaveProperty('similarityStrategy');
     expect(res.taskContext?.consistencyHint).toBeDefined();
+    expect(res.taskContext?.pendingTasks).toHaveLength(2);
     for (const pending of res.taskContext?.pendingTasks ?? []) {
       expect(Object.keys(pending).sort()).toEqual(['dependsOn', 'taskId', 'title']);
     }
