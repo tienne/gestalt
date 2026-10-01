@@ -94,7 +94,7 @@ describe('searchSimilarSpecs', () => {
     expect(ensureLoaded).toHaveBeenCalledTimes(1);
   });
 
-  it('모델이 올라온 뒤의 임베딩 실패는 쉬지 않고 다음 검색에서 다시 해본다', async () => {
+  it('모델이 올라온 뒤의 임베딩 실패는 재시도 대기 없이 다음 검색에서 다시 해본다', async () => {
     embedBatch.mockRejectedValueOnce(new Error('bad input'));
     const memory = memoryOf(['Payment checkout']);
 

@@ -22,7 +22,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
 // 틀린 맥락을 넣느니 아예 안 넣는다
 const UNSUPPORTED_SCRIPT = /[\u1100-\u11FF\u3040-\u30FF\u3130-\u318F\u4E00-\u9FFF\uAC00-\uD7AF]/;
 
-// 모델을 못 받는 환경에서 start마다 다시 받으려 들지 않게 한동안 쉰다
+// 모델을 못 받는 환경에서 start마다 다시 받으려 들지 않게, 로딩에 실패하면 이 시간 동안 재시도하지 않는다
 const RETRY_AFTER_FAILURE_MS = 5 * 60 * 1000;
 
 type EmbeddingService = import('../knowledge-base/embedding.js').EmbeddingService;
@@ -47,7 +47,7 @@ function getEmbeddingService(): Promise<EmbeddingService> {
 
 // 모델이 아직 안 올라왔으면 한 번에 하나만 받게 한다. 로딩 중에 들어온 호출은 기다리지 않고
 // 실패로 돌려 호출부가 바로 폴백하게 한다 — 기다려 봐야 호출부 제한 시간에 걸린다.
-// 쉬는 시간은 로딩 실패에만 건다. 올라온 뒤의 임베딩 실패는 다음 호출에서 그냥 다시 해본다
+// 재시도 대기(RETRY_AFTER_FAILURE_MS)는 로딩 실패에만 건다. 올라온 뒤의 임베딩 실패는 다음 호출에서 그냥 다시 해본다
 async function embedTexts(texts: string[]): Promise<number[][]> {
   const service = await getEmbeddingService();
   if (!modelReady) {
