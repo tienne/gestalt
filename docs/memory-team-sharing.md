@@ -49,7 +49,7 @@ driver 정의는 `git config`에 들어가는데, `git config`는 커밋되지 �
 git config merge.gestalt-memory.name "Gestalt memory merge"
 ```
 
-driver 명령은 gestalt를 어떻게 설치했느냐에 따라 고릅니다. 위에 있는 것부터 씁니다.
+driver 명령은 gestalt를 어떻게 설치했느냐에 따라 고릅니다. 아래 셋 중 해당하는 것 가운데 맨 위 하나만 등록합니다.
 
 `gestalt`를 전역 설치했다면 그대로 부릅니다.
 
@@ -69,7 +69,9 @@ git config merge.gestalt-memory.driver "pnpm exec gestalt memory-merge %O %A %B"
 git config merge.gestalt-memory.driver "npx -y @tienne/gestalt@<버전> memory-merge %O %A %B"
 ```
 
-`<버전>`에는 `memory-merge` 명령이 처음 들어간 버전 이상을 넣습니다. 그보다 옛 버전이면 명령이 없어서 머지할 때마다 driver가 실패합니다. npx는 버전을 박아도 실행할 때마다 레지스트리를 조회하므로, 캐시가 비어 있으면 머지 한 번에 수십 초가 걸릴 수 있습니다.
+npx는 버전을 박아도 실행할 때마다 레지스트리를 조회합니다. 캐시가 비어 있으면 머지 한 번에 수십 초가 걸릴 수 있습니다.
+
+어느 방식이든 driver가 부르는 gestalt는 `memory-merge` 명령이 처음 들어간 버전 이상이어야 합니다. 그보다 옛 버전이면 명령이 없어서 머지할 때마다 driver가 실패합니다. 등록한 뒤 `gestalt --help`(devDependency라면 `pnpm exec gestalt --help`)를 실행해 명령 목록에 `memory-merge`가 있는지 확인하세요. npx라면 `<버전>`에 넣은 버전이 이 조건을 맞춰야 합니다.
 
 > ⚠️ **주의**: `.gitattributes`만 커밋하고 `git config`를 빠뜨린 팀원은 driver가 정의되지 않은 상태라 git 기본 머지로 돌아갑니다. 그 팀원에게는 예전처럼 충돌 표시가 남습니다.
 
@@ -80,7 +82,16 @@ git config merge.gestalt-memory.driver "npx -y @tienne/gestalt@<버전> memory-m
 git은 `%O`(공통 조상), `%A`(현재 브랜치, ours), `%B`(머지해 들어오는 쪽, theirs) 세 파일 경로를 넘깁니다.
 
 - 합친 결과를 `%A` 파일에 쓰고 종료 코드 0으로 끝납니다. git은 이 결과를 머지 결과로 받습니다.
-- 어느 한쪽이라도 JSON으로 못 읽거나 구조가 맞지 않으면 종료 코드 1로 끝납니다. 배열이어야 할 필드가 배열이 아니거나, spec 항목에 `specId`, `goal`, `createdAt` 문자열이 없을 때가 여기에 해당합니다. 이때 git은 파일에 충돌 마커를 넣지 않습니다. memory.json을 충돌 상태(unmerged)로 표시하고 파일에는 현재 브랜치 내용이 손대지 않은 채 남습니다.
+- 어느 한쪽이라도 JSON으로 못 읽거나 구조가 맞지 않으면 종료 코드 1로 끝납니다. 이때 git은 파일에 충돌 마커를 넣지 않습니다. memory.json을 충돌 상태(unmerged)로 표시하고 파일에는 현재 브랜치 내용이 손대지 않은 채 남습니다. 구조 검사가 보는 항목은 아래와 같습니다.
+
+  | 대상 | 오류로 보는 경우 |
+  |------|----------------|
+  | 최상위 | `specHistory`, `executionHistory`, `architectureDecisions`, `compressedContexts` 중 배열이 아닌 필드가 있다 |
+  | `specHistory` 항목 | `specId`, `goal`, `createdAt` 중 문자열이 아닌 것이 있다 |
+  | `executionHistory` 항목 | `executeSessionId`, `specId`, `completedAt` 중 문자열이 아닌 것이 있거나 `completedTasks`, `failedTasks` 중 배열이 아닌 것이 있다 |
+  | `architectureDecisions` 항목 | `decision`이 문자열이 아니거나 `rationale`, `outcome`이 있는데 문자열이 아니다 |
+  | `compressedContexts` 항목 | `sessionId`, `compressedAt` 중 문자열이 아닌 것이 있다 |
+
 - `%O`는 읽지 않습니다. `specHistory`, `executionHistory`, `architectureDecisions`는 쌓기만 하는 기록이라 공통 조상과 비교하지 않고 합집합으로 충분합니다. `compressedContexts`는 같은 세션의 요약을 덮어써서 갱신하는 기록이라, 같은 `sessionId`가 양쪽에 있으면 `compressedAt`이 더 최신인 쪽을 남깁니다. 둘이 같으면 theirs를 남깁니다.
 - v1 형식(아키텍처 결정이 문자열 배열인 파일)도 읽어서 v2 구조로 바꾼 뒤 합칩니다.
 
@@ -102,7 +113,10 @@ git은 `%O`(공통 조상), `%A`(현재 브랜치, ours), `%B`(머지해 들어�
 
 1. 작업 시작 전 `git pull`로 최신 memory.json 수신
 2. 작업 완료 후 `git add .gestalt/memory.json && git commit`
-3. 충돌이 나면 merge driver가 자동으로 합칩니다. driver가 종료 코드 1로 끝나 `git status`에 충돌로 남았다면 양쪽 memory.json 중 깨진 JSON이나 구조가 틀린 파일이 있는지 먼저 확인하세요. 양쪽 내용은 `git show :2:.gestalt/memory.json`(ours)과 `git show :3:.gestalt/memory.json`(theirs)으로 볼 수 있습니다
+3. 충돌이 나면 merge driver가 자동으로 합칩니다. driver가 0이 아닌 코드로 끝나 `git status`에 충돌로 남았다면 머지할 때 git이 찍은 출력을 보고 아래 셋 중 무엇인지 먼저 가립니다.
+   - driver 명령을 PATH에서 못 찾았다: 출력에 `command not found`가 보입니다. 전역 `gestalt`나 `pnpm`이 git을 실행한 셸의 PATH에 있는지 확인하세요.
+   - gestalt가 `memory-merge`가 들어가기 전 버전이다: `gestalt: memory.json merge ...` 줄 대신 `error: too many arguments for 'serve'`가 보입니다. gestalt를 올리거나 npx에 박은 버전을 올리세요.
+   - 양쪽 memory.json 중 깨진 JSON이나 구조가 틀린 파일이 있다: 출력에 `gestalt: memory.json merge failed` 줄이 보입니다. 양쪽 내용은 `git show :2:.gestalt/memory.json`(ours)과 `git show :3:.gestalt/memory.json`(theirs)으로 볼 수 있습니다
 
 ## 관련 파일
 
