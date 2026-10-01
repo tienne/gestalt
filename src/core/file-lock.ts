@@ -134,7 +134,7 @@ export function withFileLock<T>(
       if (abandoned) {
         // 판정과 삭제 사이에 남이 먼저 부수고 새로 잡았을 수 있다. 그 잠금까지 지우면
         // 둘이 나란히 들어간다. 판정 때 본 mtime과 토큰이 다시 읽은 값과 같을 때만
-        // 지운다. 다시 읽기와 삭제 사이의 틈은 쓰기 직전 stillMine 확인으로 좁힌다
+        // 지운다. 다시 읽기와 삭제 사이의 틈은 쓰기 직전에 stillMine으로 한 번 더 확인해서 좁힌다
         const same =
           lockMtime(lockPath) === seenMtime && readOwner(ownerPath)?.token === owner?.token;
         if (same) rmSync(lockPath, { recursive: true, force: true });
