@@ -266,15 +266,22 @@ export class ExecuteSessionRepository {
         // driftScore를 통째로 싣기 전의 이벤트에는 status, threshold, hint가 없다
         const legacy = payload as unknown as Omit<DriftScore, 'status' | 'threshold' | 'hint'>;
         if (legacy?.taskId) {
+          // 그때 쓴 임계값은 안 남아 기본값으로 근사한다. 넘었는지는 기록된 값을 따른다
+          const approx = classifyDrift(
+            legacy.thresholdExceeded ? DRIFT_THRESHOLD : legacy.overall,
+            DRIFT_THRESHOLD,
+          );
+          const recorded =
+            !legacy.thresholdExceeded && approx.status === 'CRITICAL'
+              ? { ...approx, status: 'WARNING' as const }
+              : approx;
           session.driftHistory.push({
             taskId: legacy.taskId,
             overall: legacy.overall,
             dimensions: legacy.dimensions,
             thresholdExceeded: legacy.thresholdExceeded,
-            // 그때 쓴 임계값은 안 남아 기본값으로 근사한다. 넘었는지는 기록된 값을 따른다
             threshold: DRIFT_THRESHOLD,
-            ...classifyDrift(legacy.overall, DRIFT_THRESHOLD),
-            ...(legacy.thresholdExceeded && { status: 'CRITICAL' as const }),
+            ...recorded,
           });
         }
         break;

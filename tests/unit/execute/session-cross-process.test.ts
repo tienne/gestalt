@@ -277,6 +277,19 @@ describe('ExecuteSessionManager — 같은 DB를 쓰는 두 인스턴스', () =>
       thresholdExceeded: false,
       dimensions: [{ name: 'goal', score: 0.4, detail: 'd' }],
     });
+    // 임계값을 낮춰 둔 세션이었다면 점수가 낮아도 넘었다고 기록돼 있다
+    storeA.append('execute', sessionId, EventType.EXECUTE_DRIFT_MEASURED, {
+      taskId: 'task-1',
+      overall: 0.1,
+      thresholdExceeded: true,
+      dimensions: [{ name: 'goal', score: 0.1, detail: 'd' }],
+    });
+    storeA.append('execute', sessionId, EventType.EXECUTE_DRIFT_MEASURED, {
+      taskId: 'task-2',
+      overall: 0.8,
+      thresholdExceeded: false,
+      dimensions: [{ name: 'goal', score: 0.8, detail: 'd' }],
+    });
     storeA.append('execute', sessionId, EventType.EVALUATE_STRUCTURAL_COMPLETED, {
       allPassed: false,
       commands: [{ name: 'test', exitCode: 1 }],
@@ -286,6 +299,9 @@ describe('ExecuteSessionManager — 같은 DB를 쓰는 두 인스턴스', () =>
 
     const session = b.get(sessionId);
     expect(session.driftHistory[0]).toMatchObject({ status: 'WARNING', threshold: 0.6 });
+    expect(session.driftHistory[1]?.status).toBe('CRITICAL');
+    expect(session.driftHistory[1]?.hint).not.toBe('');
+    expect(session.driftHistory[2]?.status).toBe('WARNING');
     expect(session.structuralResult?.commands[0]).toMatchObject({ name: 'test', exitCode: 1 });
     expect(session.evaluationResult?.verifications).toHaveLength(s.acceptanceCriteria.length);
     expect(session.evaluationResult?.verifications[0]?.gaps).toEqual(['r']);
