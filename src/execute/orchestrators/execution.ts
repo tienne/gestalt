@@ -105,7 +105,7 @@ export class ExecutionOrchestrator {
       }
 
       // 순환이 있는 계획은 착수 가능한 태스크가 하나도 없어 '전부 완료'로 읽힌다.
-      // 이 수정 전에 저장된 세션이 그 상태로 평가까지 넘어가지 않게 여기서 막는다.
+      // 플래닝 검증 없이 저장된 무효 계획이 그 상태로 평가까지 넘어가지 않게 여기서 막는다.
       const { dagValidation } = session.executionPlan;
       if (!dagValidation.isValid) {
         const issues = [

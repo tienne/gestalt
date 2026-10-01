@@ -59,6 +59,16 @@ export class PlanningRewoundError extends InvalidPlanningStepError {
 
 const REWIND_PRINCIPLE = GestaltPrinciple.CLOSURE;
 
+function findClosureStep(session: ExecuteSession): ClosureResult | undefined {
+  return session.planningSteps.find((s) => s.principle === 'closure') as ClosureResult | undefined;
+}
+
+function findProximityStep(session: ExecuteSession): ProximityResult | undefined {
+  return session.planningSteps.find((s) => s.principle === 'proximity') as
+    | ProximityResult
+    | undefined;
+}
+
 export class PlanningOrchestrator {
   constructor(
     private sessionManager: ExecuteSessionManager,
@@ -117,20 +127,14 @@ export class PlanningOrchestrator {
       }
 
       if (stepResult.principle === 'continuity') {
-        const closureStep = session.planningSteps.find((s) => s.principle === 'closure') as
-          | ClosureResult
-          | undefined;
-        const proximityStep = session.planningSteps.find((s) => s.principle === 'proximity') as
-          | ProximityResult
-          | undefined;
-        if (!closureStep || !proximityStep) {
+        const serverDAG = this.resolveServerDAG(session);
+        if (!serverDAG) {
           return err(
             new InvalidPlanningStepError(
               'Closure and Proximity steps must be completed before Continuity',
             ),
           );
         }
-        const serverDAG = validateDAG(closureStep.atomicTasks, proximityStep.taskGroups);
         if (!stepResult.dagValidation.isValid || !serverDAG.isValid) {
           return err(this.rewindToClosure(session, stepResult.dagValidation, serverDAG));
         }
@@ -187,29 +191,23 @@ export class PlanningOrchestrator {
       const fgStep = session.planningSteps.find((s) => s.principle === 'figure_ground') as
         | FigureGroundResult
         | undefined;
-      const closureStep = session.planningSteps.find((s) => s.principle === 'closure') as
-        | ClosureResult
-        | undefined;
-      const proximityStep = session.planningSteps.find((s) => s.principle === 'proximity') as
-        | ProximityResult
-        | undefined;
+      const closureStep = findClosureStep(session);
+      const proximityStep = findProximityStep(session);
       const continuityStep = session.planningSteps.find((s) => s.principle === 'continuity') as
         | ContinuityResult
         | undefined;
 
-      if (!fgStep || !closureStep || !proximityStep || !continuityStep) {
+      const serverDAG = this.resolveServerDAG(session);
+      if (!fgStep || !closureStep || !proximityStep || !continuityStep || !serverDAG) {
         return err(new ExecuteError('Missing planning step results'));
       }
-
-      // Final DAG validation on server side
-      const serverDAG = validateDAG(closureStep.atomicTasks, proximityStep.taskGroups);
 
       this.eventStore.append('execute', sessionId, EventType.EXECUTE_PLAN_VALIDATED, {
         callerValid: continuityStep.dagValidation.isValid,
         serverValid: serverDAG.isValid,
       });
 
-      // plan_step 게이트가 생기기 전에 저장된 continuity가 남아 있을 수 있다
+      // 저장된 continuity가 검증 없이 들어온 무효 DAG일 수 있다
       if (!continuityStep.dagValidation.isValid || !serverDAG.isValid) {
         return err(this.rewindToClosure(session, continuityStep.dagValidation, serverDAG));
       }
@@ -388,6 +386,13 @@ export class PlanningOrchestrator {
     }
 
     return null;
+  }
+
+  private resolveServerDAG(session: ExecuteSession): DAGValidation | null {
+    const closureStep = findClosureStep(session);
+    const proximityStep = findProximityStep(session);
+    if (!closureStep || !proximityStep) return null;
+    return validateDAG(closureStep.atomicTasks, proximityStep.taskGroups);
   }
 
   /**
