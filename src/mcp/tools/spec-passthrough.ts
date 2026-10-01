@@ -33,12 +33,16 @@ export function handleSpecPassthrough(
         }
 
         // Update project memory with this spec
-        memoryStore.addSpec({
-          specId: result.value.metadata.specId,
-          goal: result.value.goal,
-          createdAt: result.value.metadata.generatedAt,
-          sourceType: 'text',
-        });
+        try {
+          memoryStore.addSpec({
+            specId: result.value.metadata.specId,
+            goal: result.value.goal,
+            createdAt: result.value.metadata.generatedAt,
+            sourceType: 'text',
+          });
+        } catch {
+          // Memory update failure should not block spec generation
+        }
 
         gestaltNotify({
           event: 'spec_generated',
