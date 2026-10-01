@@ -20,6 +20,8 @@ import type {
 } from '../core/types.js';
 import { EventType } from '../events/types.js';
 import { computeReadyTaskIds } from './parallel-groups.js';
+import { classifyDrift } from './drift-detector.js';
+import { DRIFT_THRESHOLD } from '../core/constants.js';
 
 /**
  * ExecuteSessionRepository — Event Replay 기반 ExecuteSession 재구성.
@@ -216,6 +218,19 @@ export class ExecuteSessionRepository {
         if (shortCircuitResult) {
           session.structuralResult = shortCircuitResult;
         }
+        // 이전 이벤트에는 evaluationResult가 없어 shortCircuitEvaluation()과 같은 값을 다시 만든다
+        const reason = (payload.reason as string | undefined) ?? '';
+        session.evaluationResult = (payload.evaluationResult as EvaluationResult | undefined) ?? {
+          verifications: session.spec.acceptanceCriteria.map((_, i) => ({
+            acIndex: i,
+            satisfied: false,
+            evidence: 'Short-circuited due to structural failure',
+            gaps: [reason],
+          })),
+          overallScore: 0,
+          goalAlignment: 0,
+          recommendations: ['Fix structural issues before contextual evaluation'],
+        };
         break;
       }
 
@@ -237,9 +252,22 @@ export class ExecuteSessionRepository {
         break;
 
       case EventType.EXECUTE_DRIFT_MEASURED: {
-        const driftScore = payload as unknown as DriftScore;
-        if (driftScore?.taskId) {
-          session.driftHistory.push(driftScore);
+        const full = payload.driftScore as DriftScore | undefined;
+        if (full) {
+          session.driftHistory.push(full);
+          break;
+        }
+        // driftScore를 통째로 싣기 전의 이벤트에는 status, threshold, hint가 없다
+        const legacy = payload as unknown as Omit<DriftScore, 'status' | 'threshold' | 'hint'>;
+        if (legacy?.taskId) {
+          session.driftHistory.push({
+            taskId: legacy.taskId,
+            overall: legacy.overall,
+            dimensions: legacy.dimensions,
+            thresholdExceeded: legacy.thresholdExceeded,
+            threshold: DRIFT_THRESHOLD,
+            ...classifyDrift(legacy.overall, DRIFT_THRESHOLD),
+          });
         }
         break;
       }
@@ -275,6 +303,19 @@ export class ExecuteSessionRepository {
         const patchedSpec = payload.spec as Spec | undefined;
         const delta = payload.delta as SpecDelta | undefined;
         const generation = payload.generation as number | undefined;
+
+        // 라이브는 패치를 적용하기 전에 recordEvolutionGeneration()으로 직전 세대를 남긴다.
+        // 그 호출은 이벤트가 없으므로 같은 스냅샷을 여기서 패치 적용 전에 만든다
+        if (delta && generation !== undefined) {
+          session.evolutionHistory.push({
+            generation: session.currentGeneration,
+            spec: session.spec,
+            evaluationScore: session.evaluationResult?.overallScore ?? 0,
+            goalAlignment: session.evaluationResult?.goalAlignment ?? 0,
+            delta,
+          });
+        }
+
         if (patchedSpec) {
           session.spec = patchedSpec;
         }
@@ -282,17 +323,6 @@ export class ExecuteSessionRepository {
           session.currentGeneration = generation;
         }
         session.evolveStage = 'patch';
-
-        // Record generation snapshot
-        if (delta && generation !== undefined) {
-          session.evolutionHistory.push({
-            generation: generation,
-            spec: session.spec,
-            evaluationScore: session.evaluationResult?.overallScore ?? 0,
-            goalAlignment: session.evaluationResult?.goalAlignment ?? 0,
-            delta,
-          });
-        }
         break;
       }
 
@@ -362,6 +392,8 @@ export class ExecuteSessionRepository {
 
       // ─── Role Agent ────────────────────────────────────────────
 
+      // matches, consensus를 싣기 전의 이벤트로는 역할 상태를 복원하지 못한다.
+      // 값이 있을 때만 반영해서 그 구간의 세션은 역할 상태가 빈 채로 재구성된다
       case EventType.ROLE_MATCH_COMPLETED: {
         const matches = payload.matches as RoleMatch[] | undefined;
         if (matches) session.roleMatches = matches;

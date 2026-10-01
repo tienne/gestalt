@@ -270,6 +270,7 @@ export class ExecuteSessionManager {
     this.record(sessionId, EventType.EVALUATE_SHORT_CIRCUITED, {
       reason,
       structuralResult: session.structuralResult,
+      evaluationResult: session.evaluationResult,
     });
 
     this.record(sessionId, EventType.EXECUTE_SESSION_COMPLETED, {
@@ -315,6 +316,7 @@ export class ExecuteSessionManager {
       overall: driftScore.overall,
       thresholdExceeded: driftScore.thresholdExceeded,
       dimensions: driftScore.dimensions,
+      driftScore,
     });
   }
 

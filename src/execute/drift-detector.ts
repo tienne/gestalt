@@ -22,6 +22,20 @@ import { log } from '../core/log.js';
  * 잘 정렬된 산출물조차 거의 항상 임계값을 넘기는 문제가 있었다. 로컬 임베딩(Xenova/all-MiniLM-L6-v2)
  * 기반 코사인 유사도로 교체해 의미적 정렬을 측정한다(임베딩 로딩 실패 시 Jaccard로 폴백).
  */
+/** 편차 점수를 상태와 안내 문구로 나눈다. 이전 이벤트를 replay할 때도 같은 기준을 쓴다. */
+export function classifyDrift(
+  overall: number,
+  driftThreshold: number,
+): Pick<DriftScore, 'status' | 'hint'> {
+  const status =
+    overall < driftThreshold * 0.5 ? 'OK' : overall < driftThreshold ? 'WARNING' : 'CRITICAL';
+  const hint =
+    status === 'OK'
+      ? ''
+      : '스펙과의 편차가 감지되었습니다. evolve_patch로 스펙을 수정하거나 계속 진행하세요.';
+  return { status, hint };
+}
+
 export async function measureDrift(
   spec: Spec,
   _task: AtomicTask,
@@ -41,19 +55,7 @@ export async function measureDrift(
 
   const roundedOverall = Math.round(overall * 1000) / 1000;
 
-  let status: 'OK' | 'WARNING' | 'CRITICAL';
-  if (roundedOverall < driftThreshold * 0.5) {
-    status = 'OK';
-  } else if (roundedOverall < driftThreshold) {
-    status = 'WARNING';
-  } else {
-    status = 'CRITICAL';
-  }
-
-  const hint =
-    status === 'OK'
-      ? ''
-      : '스펙과의 편차가 감지되었습니다. evolve_patch로 스펙을 수정하거나 계속 진행하세요.';
+  const { status, hint } = classifyDrift(roundedOverall, driftThreshold);
 
   return {
     taskId: taskResult.taskId,
