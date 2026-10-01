@@ -242,7 +242,8 @@ export type ArtifactCheckStatus =
   | 'outside_repo'
   | 'ignored'
   | 'directory'
-  | 'invalid_path';
+  | 'invalid_path'
+  | 'not_regular_file';
 
 export interface ArtifactCheck {
   path: string;

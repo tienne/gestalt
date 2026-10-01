@@ -29,6 +29,9 @@ function git(cwd: string, args: string[], input?: string): Promise<string> {
         resolvePromise(stdout);
       },
     );
+    // git이 입력을 다 읽기 전에 끝나면 EPIPE가 stdin 스트림 에러로 따로 올라온다. 리스너가 없으면 서버가 죽는다.
+    // 실패 자체는 위 콜백이 reject하고, 덜 읽힌 출력은 splitLines가 줄 수로 잡는다
+    child.stdin?.on('error', () => {});
     child.stdin?.end(input ?? '');
   });
 }
@@ -42,6 +45,7 @@ async function tryGit(cwd: string, args: string[], input?: string): Promise<stri
 }
 
 const UNSAFE_PATH = /[\n\r\0]/;
+const BATCH_CHECK_LINE = /^([0-9a-f]{40}|[0-9a-f]{64}) (\w+) \d+$/;
 
 /** 줄 단위 stdin에 실을 수 없는 경로가 섞이면 출력 줄과 짝이 어긋난다 */
 function splitLines(raw: string, expected: number, what: string): string[] {
@@ -93,9 +97,10 @@ async function headBlobs(
     paths.map((p) => `${head}:${p}`).join('\n') + '\n',
   );
   const lines = splitLines(out, paths.length, 'cat-file');
+  // 없는 객체는 `<입력> missing`으로 나온다. 경로에 공백이 있으면 그 입력이 sha 자리처럼 읽히므로 hex로 확인한다
   paths.forEach((p, i) => {
-    const [sha, type] = lines[i]!.split(' ');
-    result.set(p, type === 'blob' && sha ? sha : null);
+    const m = BATCH_CHECK_LINE.exec(lines[i]!);
+    result.set(p, m && m[2] === 'blob' ? m[1]! : null);
   });
   return result;
 }
@@ -187,6 +192,10 @@ export async function verifyArtifacts(
       files.push({ path, status: 'directory' });
       continue;
     }
+    if (existsSync(abs) && !isHashable(abs)) {
+      files.push({ path, status: 'not_regular_file' });
+      continue;
+    }
     candidates.push({ path, rel });
   }
 
@@ -211,7 +220,7 @@ export async function verifyArtifacts(
     ? await headBlobs(
         baseline.repoRoot,
         baseline.head,
-        rels.filter((r) => !(r in baseline.dirty)),
+        rels.filter((r) => !Object.hasOwn(baseline.dirty, r)),
       )
     : new Map<string, string | null>();
 
@@ -221,8 +230,9 @@ export async function verifyArtifacts(
       continue;
     }
     const now = current.get(rel) ?? null;
-    const before =
-      rel in baseline.dirty ? (baseline.dirty[rel] ?? null) : (fromHead.get(rel) ?? null);
+    const before = Object.hasOwn(baseline.dirty, rel)
+      ? (baseline.dirty[rel] ?? null)
+      : (fromHead.get(rel) ?? null);
     if (now === null && before === null) files.push({ path, status: 'missing' });
     else if (now === before) files.push({ path, status: 'unchanged' });
     else files.push({ path, status: 'changed' });

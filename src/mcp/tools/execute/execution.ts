@@ -233,6 +233,7 @@ const VERIFICATION_STATUS_HINT: Record<ArtifactCheckStatus, string> = {
   ignored: 'gitignore에 걸린 경로라 확인할 수 없습니다. 소스 파일을 적어주세요',
   directory: '디렉토리입니다. 바꾼 파일을 하나씩 적어주세요',
   invalid_path: '경로에 개행이나 NUL 문자가 있어 확인할 수 없습니다',
+  not_regular_file: 'FIFO나 소켓처럼 일반 파일이 아니라 확인할 수 없습니다',
 };
 
 function formatVerificationFailure(

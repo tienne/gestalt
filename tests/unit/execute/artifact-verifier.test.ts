@@ -1,5 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -229,12 +237,57 @@ describe('artifact-verifier', { timeout: 30_000 }, () => {
     expect((await verifyArtifacts(baseline, ['tracked.ts'])).files[0]!.status).toBe('changed');
   });
 
-  it('FIFO는 읽지 않고 없는 파일처럼 다룬다', async () => {
+  it('FIFO는 읽지 않고 일반 파일이 아니라고 알린다', async () => {
     initRepo(dir);
     const baseline = (await captureWorkingTreeBaseline(dir))!;
     execFileSync('mkfifo', [join(dir, 'pipe')]);
 
-    expect((await verifyArtifacts(baseline, ['pipe'])).files[0]!.status).toBe('missing');
+    expect((await verifyArtifacts(baseline, ['pipe'])).files[0]!.status).toBe('not_regular_file');
+  });
+
+  it('공백과 blob이 든 없는 경로를 changed로 읽지 않는다', async () => {
+    initRepo(dir);
+    const baseline = (await captureWorkingTreeBaseline(dir))!;
+
+    expect((await verifyArtifacts(baseline, ['ghost blob'])).files[0]!.status).toBe('missing');
+  });
+
+  it('Object.prototype 속성 이름의 없는 경로를 changed로 읽지 않는다', async () => {
+    initRepo(dir);
+    const baseline = (await captureWorkingTreeBaseline(dir))!;
+
+    const result = await verifyArtifacts(baseline, ['toString', 'constructor']);
+    expect(result.files.map((f) => f.status)).toEqual(['missing', 'missing']);
+  });
+
+  it('core.fsmonitor에 적힌 명령을 안 부른다', async () => {
+    initRepo(dir);
+    const aside = mkdtempSync(join(tmpdir(), 'gestalt-artifact-aside-'));
+    try {
+      const marker = join(aside, 'RAN');
+      const script = join(aside, 'mark.sh');
+      writeFileSync(script, `#!/bin/sh\ntouch ${marker}\nexit 0\n`, 'utf-8');
+      chmodSync(script, 0o755);
+      git(dir, 'config', 'core.fsmonitor', script);
+      writeFileSync(join(dir, 'tracked.ts'), 'export const a = 2;\n');
+
+      const baseline = (await captureWorkingTreeBaseline(dir))!;
+      expect(baseline.dirty['tracked.ts']).toBeTruthy();
+      await verifyArtifacts(baseline, ['tracked.ts']);
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      rmSync(aside, { recursive: true, force: true });
+    }
+  });
+
+  it('git이 입력을 다 읽기 전에 죽어도 프로세스를 내리지 않고 거부한다', async () => {
+    initRepo(dir);
+    const baseline = (await captureWorkingTreeBaseline(dir))!;
+    rmSync(join(dir, '.git'), { recursive: true, force: true });
+    // 파이프 버퍼(64KB)를 넘겨야 git이 먼저 끝났을 때 쓰기가 EPIPE로 떨어진다
+    const many = Array.from({ length: 20_000 }, (_, i) => `src/generated/module-${i}.ts`);
+
+    await expect(verifyArtifacts(baseline, many)).rejects.toThrow();
   });
 
   it('작업 트리가 git 레포가 아니게 되면 예외를 던진다', async () => {
