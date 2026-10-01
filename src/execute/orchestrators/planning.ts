@@ -426,7 +426,7 @@ export class PlanningOrchestrator {
 
     return new PlanningRewoundError(
       `Dependency DAG is invalid (${issues.join('; ') || 'reported invalid without details'}). ` +
-        `Planning was rewound to the ${REWIND_PRINCIPLE} step — fix the dependsOn relations and resubmit ${REWIND_PRINCIPLE}, proximity, and continuity.`,
+        `Planning was rewound to step ${keepSteps + 1} — fix the dependsOn relations and resubmit every step from there.`,
       dagValidation,
       executeContext,
     );

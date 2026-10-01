@@ -177,7 +177,7 @@ function formatRewound(sessionId: string, error: PlanningRewoundError, verbose: 
   const guide: NextActionGuide = {
     nextAction: 'plan_step',
     nextActionParams: { sessionId },
-    hint: `의존 관계 DAG가 유효하지 않아 ${stage} 단계로 되돌렸습니다. cycleDetails를 보고 dependsOn을 고친 뒤 ${stage}부터 다시 제출하세요.`,
+    hint: `의존 관계 DAG가 유효하지 않아 ${stage} 단계로 되감았습니다. cycleDetails와 conflictDetails를 보고 dependsOn을 고친 뒤 ${stage}부터 다시 제출하세요.`,
   };
   const sanitizedContext = sanitizeSurfaceContext(
     executeContext as unknown as Record<string, unknown>,

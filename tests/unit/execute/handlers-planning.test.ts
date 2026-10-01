@@ -7,6 +7,7 @@ import {
   makeTask,
   type ExecuteFixture,
 } from '../../helpers/execute-fixture.js';
+import { BANNED_SURFACE_TERMS } from '../../../src/gestalt/surface-labels.js';
 
 /**
  * plan_step, plan_complete를 핸들러 입구(handleExecutePassthrough)에서 부른다.
@@ -24,6 +25,7 @@ interface PlanStepResponse {
   rewoundToStep?: number;
   cycleDetails?: string[];
   conflictDetails?: string[];
+  hint?: string;
 }
 
 interface PlanCompleteResponse {
@@ -269,6 +271,9 @@ describe('ges_execute 무효 DAG 되감기', () => {
     expect(res.nextAction).toBe('plan_step');
     expect(res.nextActionParams).toEqual({ sessionId });
     expect(res.executeContext).toBeDefined();
+    for (const term of BANNED_SURFACE_TERMS) {
+      expect(`${res.error} ${res.hint}`.toLowerCase()).not.toContain(term);
+    }
     expect(fx.engine.getSession(sessionId).planningSteps).toHaveLength(1);
   }
 

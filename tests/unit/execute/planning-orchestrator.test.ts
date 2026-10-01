@@ -319,7 +319,7 @@ describe('PlanningOrchestrator', () => {
           },
         }),
       );
-      expect(error.message).toContain('rewound to the closure step');
+      expect(error.message).toContain('rewound to step 2');
     });
 
     it('서버는 유효하다는데 호출자가 무효라고 하면 호출자 보고를 담아 되감는다', () => {
