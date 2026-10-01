@@ -23,10 +23,6 @@ import { computeReadyTaskIds } from './parallel-groups.js';
 import { classifyDrift } from './drift-detector.js';
 import { DRIFT_THRESHOLD } from '../core/constants.js';
 
-/**
- * ExecuteSessionRepository — Event Replay 기반 ExecuteSession 재구성.
- * 도메인 전용 Repository: aggregate_type='execute' 이벤트만 처리.
- */
 /** 구조 평가가 실패해 맥락 평가를 건너뛸 때의 평가 결과. 라이브와 replay가 같이 쓴다. */
 export function buildShortCircuitEvaluation(spec: Spec, reason: string): EvaluationResult {
   return {
@@ -42,6 +38,10 @@ export function buildShortCircuitEvaluation(spec: Spec, reason: string): Evaluat
   };
 }
 
+/**
+ * ExecuteSessionRepository — Event Replay 기반 ExecuteSession 재구성.
+ * 도메인 전용 Repository: aggregate_type='execute' 이벤트만 처리.
+ */
 export class ExecuteSessionRepository {
   constructor(private eventStore: IEventStore) {}
 
