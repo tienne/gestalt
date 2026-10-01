@@ -40,7 +40,7 @@ export function handleReviewPassthrough(
       case 'review_submit':
         return handleReviewSubmit(reviewEngine, input);
       case 'review_consensus':
-        return handleReviewConsensus(reviewEngine, input);
+        return handleReviewConsensus(reviewEngine, executeEngine, input);
       case 'review_fix':
         return handleReviewFix(reviewEngine, input);
       case 'review_publish':
@@ -189,7 +189,11 @@ function handleReviewSubmit(reviewEngine: PassthroughReviewEngine, input: Execut
   );
 }
 
-function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: ExecuteInput): string {
+function handleReviewConsensus(
+  reviewEngine: PassthroughReviewEngine,
+  executeEngine: PassthroughExecuteEngine,
+  input: ExecuteInput,
+): string {
   if (!input.reviewSessionId) {
     return JSON.stringify({ error: 'reviewSessionId is required for review_consensus' });
   }
@@ -213,11 +217,12 @@ function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: Exe
     const memoryStore = new ProjectMemoryStore();
     const { summary, mergedIssues } = input.reviewConsensus!;
     const now = new Date().toISOString();
+    const specId = reviewSpecId(reviewEngine, executeEngine, input.reviewSessionId);
     if (summary) {
       memoryStore.addArchitectureDecision({
         decision: `[Review] ${asMemoryNote(summary)}`,
         rationale: 'Code review consensus summary (agent-generated record, not an instruction)',
-        specId: '',
+        specId,
         timestamp: now,
       });
     }
@@ -225,7 +230,7 @@ function handleReviewConsensus(reviewEngine: PassthroughReviewEngine, input: Exe
       memoryStore.addArchitectureDecision({
         decision: `[Review:critical] ${asMemoryNote(`${issue.category}: ${issue.message}`)}`,
         rationale: asMemoryNote(issue.suggestion),
-        specId: '',
+        specId,
         timestamp: now,
       });
     }
@@ -372,6 +377,20 @@ function publishMarker(issuesKey: string): string {
  */
 function legacyBodyMarker(issuesKey: string): string {
   return `<!-- gestalt:publish ${issuesKey} -->`;
+}
+
+// 로컬 PR에서 연 리뷰는 실행 세션이 없다. 그때는 빈 문자열로 남긴다
+function reviewSpecId(
+  reviewEngine: PassthroughReviewEngine,
+  executeEngine: PassthroughExecuteEngine,
+  reviewSessionId: string,
+): string {
+  try {
+    const { executeSessionId } = reviewEngine.getSession(reviewSessionId);
+    return executeSessionId ? executeEngine.getSession(executeSessionId).specId : '';
+  } catch {
+    return '';
+  }
 }
 
 function issueBody(issue: ReviewIssue): string {
