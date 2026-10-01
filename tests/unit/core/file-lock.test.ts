@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { withFileLock } from '../../../src/core/file-lock.js';
 
-/** 지금 안 도는 pid. 0x7fffffff는 거의 확실히 비어 있다 */
-const DEAD_PID = 2147483646;
+/** 지금 안 도는 pid. int32 최댓값 바로 아래라 거의 확실히 비어 있다 */
+const DEAD_PID = 0x7ffffffe;
 
 describe('withFileLock', () => {
   let dir: string;
