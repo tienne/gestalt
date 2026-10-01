@@ -87,7 +87,7 @@ export interface FileLockOptions {
  * 타이머가 돌 틈이 없다 — 갱신이 필요한 바로 그 순간에 이벤트 루프가 막혀 있다.
  * 대신 주인이 살아 있는지를 직접 묻는다.
  *
- * 부수기 직전에 mtime과 주인 토큰을 다시 읽어 판정 때 본 잠금 그대로인지 확인한다.
+ * 부수기 직전에 mtime과 주인 토큰을 다시 읽어 판정 때 본 값과 같은지 비교한다.
  * 그래도 다시 읽기와 삭제 사이의 아주 좁은 틈은 남는다. 그래서 `fn`에는 `stillMine`을
  * 준다. 쓰기 직전에 잠금이 아직 내 것인지 다시 확인할 수 있어야 한다.
  *
@@ -133,7 +133,8 @@ export function withFileLock<T>(
       const abandoned = heldFor > LOCK_HARD_STALE_MS || (!holderAlive && heldFor > LOCK_STALE_MS);
       if (abandoned) {
         // 판정과 삭제 사이에 남이 먼저 부수고 새로 잡았을 수 있다. 그 잠금까지 지우면
-        // 둘이 나란히 들어간다. 판정 때 본 잠금 그대로일 때만 지운다
+        // 둘이 나란히 들어간다. 판정 때 본 mtime과 토큰이 다시 읽은 값과 같을 때만
+        // 지운다. 다시 읽기와 삭제 사이의 틈은 stillMine이 맡는다
         const same =
           lockMtime(lockPath) === seenMtime && readOwner(ownerPath)?.token === owner?.token;
         if (same) rmSync(lockPath, { recursive: true, force: true });
