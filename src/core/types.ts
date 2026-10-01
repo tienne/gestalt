@@ -241,17 +241,33 @@ export type ArtifactCheckStatus =
   | 'unchanged'
   | 'outside_repo'
   | 'ignored'
-  | 'directory';
+  | 'directory'
+  | 'invalid_path';
 
 export interface ArtifactCheck {
   path: string;
   status: ArtifactCheckStatus;
 }
 
+/**
+ * 기준 트리 없이 실행하는 이유.
+ * no_baseline은 git 레포가 아닌 경우, baseline_failed는 git 호출이 실패한 경우다.
+ * baseline_truncated는 dirty 파일이 너무 많아 이벤트에 못 남겨서 재시작 뒤로는 대조할 수 없는 경우다.
+ */
+export type BaselineSkipReason = 'no_baseline' | 'baseline_failed' | 'baseline_truncated';
+
+/** execute_start가 잡은 기준 트리. baseline이 없으면 skipped에 이유가 있다 */
+export interface BaselineCapture {
+  repoRoot: string;
+  baseline?: WorkingTreeBaseline;
+  skipped?: BaselineSkipReason;
+  error?: string;
+}
+
 export interface ArtifactVerification {
   verified: boolean;
   /** 확인을 건너뛴 이유. 건너뛰었으면 verified는 true다 */
-  skipped?: 'no_baseline' | 'no_code_change';
+  skipped?: BaselineSkipReason | 'no_code_change';
   /** artifacts가 비었는데 noCodeChange 선언도 없을 때 */
   missingArtifacts?: boolean;
   /** git 호출 자체가 실패했을 때의 메시지 */
@@ -432,6 +448,7 @@ export interface ExecuteSession {
   // Blast-radius based test filtering
   codeGraphRepoRoot?: string;
   workingTreeBaseline?: WorkingTreeBaseline;
+  workingTreeBaselineSkipped?: BaselineSkipReason;
   createdAt: string;
   updatedAt: string;
 }

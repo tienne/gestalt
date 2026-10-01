@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -8,6 +8,7 @@ import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engin
 import { EventStore } from '../../../src/events/store.js';
 import { handleExecutePassthrough } from '../../../src/mcp/tools/execute-passthrough.js';
 import { validateDAG } from '../../../src/execute/dag-validator.js';
+import { BASELINE_EVENT_DIRTY_LIMIT } from '../../../src/core/constants.js';
 import type { ExecuteInput } from '../../../src/mcp/schemas.js';
 import type {
   Spec,
@@ -87,11 +88,17 @@ const tasks: AtomicTask[] = [makeTask('task-0', [], 0), makeTask('task-1', ['tas
 interface TaskResponse {
   status: string;
   recorded?: boolean;
+  serverError?: boolean;
   problems?: Array<{ path: string; status: string }>;
   artifactCheck?: string;
   message?: string;
   nextAction?: string;
   completedTasks?: number;
+}
+
+interface StartResponse {
+  status: string;
+  artifactCheck?: { repoRoot: string; baseline: string; error?: string };
 }
 
 // git을 여러 번 띄우므로 부하가 걸린 머신에서는 기본 5초를 넘긴다
@@ -146,14 +153,18 @@ describe('execute_task 완료 보고 대조', { timeout: 30_000 }, () => {
     return sessionId;
   }
 
-  async function startInRepo(cwd = repo): Promise<string> {
+  async function startRaw(cwd = repo): Promise<{ sessionId: string; res: StartResponse }> {
     const sessionId = planSession();
-    await handleExecutePassthrough(
+    const raw = await handleExecutePassthrough(
       engine,
       { action: 'execute_start', sessionId, cwd } as ExecuteInput,
       'claude-code',
     );
-    return sessionId;
+    return { sessionId, res: JSON.parse(raw) as StartResponse };
+  }
+
+  async function startInRepo(cwd = repo): Promise<string> {
+    return (await startRaw(cwd)).sessionId;
   }
 
   async function submit(
@@ -294,5 +305,59 @@ describe('execute_task 완료 보고 대조', { timeout: 30_000 }, () => {
     );
 
     expect((JSON.parse(raw) as TaskResponse).status).toBe('verification_failed');
+  });
+
+  it('execute_start 응답에 대조 기준 루트와 기준 트리를 잡았는지 싣는다', async () => {
+    const { res } = await startRaw();
+    expect(res.artifactCheck).toEqual({ repoRoot: repo, baseline: 'captured' });
+
+    const plain = mkdtempSync(join(tmpdir(), 'gestalt-exec-plain-'));
+    try {
+      const { res: plainRes } = await startRaw(plain);
+      expect(plainRes.artifactCheck?.baseline).toBe('no_baseline');
+    } finally {
+      rmSync(plain, { recursive: true, force: true });
+    }
+  });
+
+  it('git 호출이 실패하면 서버 쪽 실패라고 알리고 기록하지 않는다', async () => {
+    const sessionId = await startInRepo();
+    writeFileSync(join(repo, 'app.ts'), 'export const v = 2;\n');
+    rmSync(join(repo, '.git'), { recursive: true, force: true });
+
+    const res = await submit(sessionId, { taskId: 'task-0', artifacts: ['app.ts'] });
+
+    expect(res.status).toBe('verification_failed');
+    expect(res.serverError).toBe(true);
+    expect(res.message).toContain('failed');
+    expect(engine.getSession(sessionId).completedTaskIds).toEqual([]);
+  });
+
+  it('dirty 파일이 상한을 넘으면 이벤트에 해시를 안 남기고 재시작 뒤에는 그 사유로 통과시킨다', async () => {
+    mkdirSync(join(repo, 'gen'));
+    for (let i = 0; i <= BASELINE_EVENT_DIRTY_LIMIT; i++) {
+      writeFileSync(join(repo, 'gen', `f${i}.txt`), `${i}\n`);
+    }
+    const sessionId = await startInRepo();
+
+    // 같은 프로세스에서는 메모리의 기준 트리로 그대로 대조한다
+    expect((await submit(sessionId, { taskId: 'task-0', artifacts: ['app.ts'] })).status).toBe(
+      'verification_failed',
+    );
+
+    const restored = new PassthroughExecuteEngine(store);
+    restored.getSessionManager().loadFromStore();
+    const raw = await handleExecutePassthrough(
+      restored,
+      {
+        action: 'execute_task',
+        sessionId,
+        taskResult: { taskId: 'task-0', status: 'completed', output: 'done', artifacts: [] },
+      } as ExecuteInput,
+      'claude-code',
+    );
+    const res = JSON.parse(raw) as TaskResponse;
+    expect(res.status).toBe('executing');
+    expect(res.artifactCheck).toBe('baseline_truncated');
   });
 });

@@ -18,10 +18,10 @@ import type {
   SubTask,
   AuditResult,
   StructuralCommand,
-  WorkingTreeBaseline,
+  BaselineCapture,
 } from '../core/types.js';
 import { ExecuteSessionNotFoundError } from '../core/errors.js';
-import { DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
+import { BASELINE_EVENT_DIRTY_LIMIT, DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
 import { logger } from '../core/logger.js';
 import type { IEventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
@@ -195,16 +195,28 @@ export class ExecuteSessionManager {
     });
   }
 
-  startExecution(sessionId: string, workingTreeBaseline?: WorkingTreeBaseline): void {
+  startExecution(sessionId: string, capture?: BaselineCapture): void {
     const session = this.get(sessionId);
+    const baseline = capture?.baseline;
     session.status = 'executing';
-    session.workingTreeBaseline = workingTreeBaseline;
+    session.workingTreeBaseline = baseline;
+    session.workingTreeBaselineSkipped = baseline ? undefined : capture?.skipped;
     session.updatedAt = new Date().toISOString();
+
+    // 해시가 너무 많으면 이벤트에는 사유만 남긴다. 이 프로세스가 사는 동안은 메모리의 기준 트리로 대조한다
+    const dirtyCount = baseline ? Object.keys(baseline.dirty).length : 0;
+    const truncated = dirtyCount > BASELINE_EVENT_DIRTY_LIMIT;
 
     this.record(sessionId, EventType.EXECUTE_EXECUTION_STARTED, {
       planId: session.executionPlan?.planId,
       taskCount: session.executionPlan?.atomicTasks.length,
-      workingTreeBaseline,
+      ...(baseline && !truncated ? { workingTreeBaseline: baseline } : {}),
+      ...(truncated
+        ? { workingTreeBaselineSkipped: 'baseline_truncated', baselineDirtyCount: dirtyCount }
+        : {}),
+      ...(session.workingTreeBaselineSkipped
+        ? { workingTreeBaselineSkipped: session.workingTreeBaselineSkipped }
+        : {}),
     });
   }
 

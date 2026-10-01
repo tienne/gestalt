@@ -19,6 +19,7 @@ import type {
   SubTask,
   StructuralCommand,
   WorkingTreeBaseline,
+  BaselineSkipReason,
 } from '../core/types.js';
 import { EventType } from '../events/types.js';
 import { computeReadyTaskIds } from './parallel-groups.js';
@@ -154,6 +155,9 @@ export class ExecuteSessionRepository {
         session.status = 'executing';
         session.workingTreeBaseline = payload.workingTreeBaseline as
           | WorkingTreeBaseline
+          | undefined;
+        session.workingTreeBaselineSkipped = payload.workingTreeBaselineSkipped as
+          | BaselineSkipReason
           | undefined;
         break;
 

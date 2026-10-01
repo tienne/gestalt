@@ -27,9 +27,16 @@ export async function handleExecuteStart(
 
   if (!input.sessionId) return formatError('sessionId is required for execute_start action');
 
-  // 완료 보고를 대조할 작업 트리. 서버는 호스트 프로젝트 디렉토리에서 뜨므로 cwd가 없으면 그 자리를 쓴다
-  const result = engine.startExecution(input.sessionId, { repoRoot: input.cwd ?? process.cwd() });
+  const capture = await engine.captureBaseline(input.sessionId, input.cwd);
+  const result = engine.startExecution(input.sessionId, capture);
   if (!result.ok) return formatError(result.error.message);
+
+  // 대조를 안 하는 세션이면 호스트가 첫 응답에서 알 수 있게 한다
+  const artifactCheck = {
+    repoRoot: capture.repoRoot,
+    baseline: capture.baseline ? 'captured' : capture.skipped,
+    ...(capture.error ? { error: capture.error } : {}),
+  };
 
   const { session, allTasksCompleted } = result.value;
   let { taskContext } = result.value;
@@ -86,6 +93,7 @@ export async function handleExecuteStart(
       taskContext: taskContext
         ? applyTaskContextFilters(taskContext as unknown as Record<string, unknown>, verbose)
         : taskContext,
+      artifactCheck,
       message: `Execution started. Use taskContext.taskPrompt to implement the task, then submit with execute_task.`,
       ...execStartGuide,
     },
@@ -224,6 +232,7 @@ const VERIFICATION_STATUS_HINT: Record<ArtifactCheckStatus, string> = {
   outside_repo: '작업 트리 밖 경로라 확인할 수 없습니다',
   ignored: 'gitignore에 걸린 경로라 확인할 수 없습니다. 소스 파일을 적어주세요',
   directory: '디렉토리입니다. 바꾼 파일을 하나씩 적어주세요',
+  invalid_path: '경로에 개행이나 NUL 문자가 있어 확인할 수 없습니다',
 };
 
 function formatVerificationFailure(
@@ -240,7 +249,7 @@ function formatVerificationFailure(
     message =
       'completed로 보고했지만 artifacts가 비어 있습니다. 바꾼 파일을 artifacts에 적거나, 파일을 바꾸지 않는 태스크(조사, 판단)라면 noCodeChange: true로 다시 제출하세요.';
   } else if (verification.error) {
-    message = `작업 트리를 확인하지 못했습니다 (${verification.error}). 파일 상태를 직접 확인한 뒤 다시 제출하세요.`;
+    message = `서버가 git으로 작업 트리를 확인하지 못했습니다 (${verification.error}). 보고 내용 문제가 아니라 서버 쪽 실패입니다. 잠시 뒤 같은 결과를 다시 제출하고, 계속 실패하면 status를 failed로 내고 output에 이 오류를 적으세요.`;
   } else {
     message =
       '보고한 artifacts 중 실행 시작 뒤로 바뀌지 않은 파일이 있습니다. 실제로 수정했는지 확인하고, 수정을 마쳤거나 목록을 바로잡은 뒤 다시 제출하세요. 끝내지 못했다면 status를 failed로 제출하세요.';
@@ -257,6 +266,7 @@ function formatVerificationFailure(
       sessionId,
       taskId,
       recorded: false,
+      ...(verification.error ? { serverError: true } : {}),
       ...(problems.length > 0 ? { problems } : {}),
       message,
       ...guide,
