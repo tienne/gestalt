@@ -374,6 +374,24 @@ describe('PlanningOrchestrator', () => {
       expect(session.currentStep).toBe(2);
     });
 
+    it('되감은 뒤 다시 내서 확정한 세션도 재시작 후 같은 상태로 복원된다', () => {
+      const { id, spec } = submitUpToContinuity(cyclic);
+      orch.planStep(id, { principle: 'continuity', dagValidation: claimsValid });
+      const fixed = [makeTask('task-0', [], 0), makeTask('task-1', ['task-0'], 1)];
+      const [, closure, proximity, continuity] = planningSteps(spec, fixed);
+      submit(id, [closure, proximity, continuity]);
+      expect(orch.planComplete(id).ok).toBe(true);
+
+      const live = sessions.get(id);
+      const reloaded = new ExecuteSessionManager(store);
+      reloaded.loadFromStore();
+      const session = reloaded.get(id);
+      expect(session.status).toBe(live.status);
+      expect(session.planningSteps).toEqual(live.planningSteps);
+      expect(session.currentStep).toBe(live.currentStep);
+      expect(session.executionPlan?.dagValidation.isValid).toBe(true);
+    });
+
     it('호출자가 틀린 위상 순서를 내도 서버 판정이 유효하면 받는다', () => {
       const { id } = submitUpToContinuity([makeTask('task-0', [], 0), makeTask('task-1', [], 1)]);
       const r = orch.planStep(id, {
