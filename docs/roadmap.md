@@ -38,6 +38,8 @@
 
 `benchmarks/`에 이미 인프라가 있다. 고정 요구사항 세트(golden set) 20개와 평가 루브릭부터 만든다. 채점은 LLM-as-judge로 자동화하되, 5개는 사람이 직접 라벨링해 judge를 보정한다.
 
+> 2026-10 기준: golden set 20개와 루브릭, judge 러너(`benchmarks/run-resolution-benchmark.ts`)는 있다. 실제 judge는 아직 한 번도 안 돌렸고 지금까지 나온 결과는 전부 dry-run(mock)이다. 사람 라벨 5개로 하는 보정도 아직이다.
+
 ### 성공 기준
 
 "해상도 0.8 스펙은 0.5 스펙 대비 재작업률 X% 감소"라는 한 문장을 README 최상단에 박을 수 있으면 성공이다. 이 문장은 마케팅 자산이자 회귀 테스트가 된다.
