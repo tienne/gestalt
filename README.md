@@ -721,7 +721,7 @@ ges_create_agent({ action: "submit", sessionId: "<id>", agentContent: "..." })
 
 ## CLI Mode
 
-Run Gestalt from a terminal without Claude Code. `interview` and `spec` call the LLM themselves, so they **require `ANTHROPIC_API_KEY`**. The other commands run without it.
+Run Gestalt from a terminal without Claude Code. `interview`, `spec`, and `explain-eval` call the LLM themselves, so they **require `ANTHROPIC_API_KEY`**. `explain-check` uses the key only with `--judge`. The other commands run without it.
 
 ```bash
 # Set up a repo once: gestalt.json + code graph + post-commit hook
@@ -754,7 +754,7 @@ npx @tienne/gestalt serve
 | `review-loop <subcommand>` | Lookups the `review-loop` skill relies on: PR state, review rounds, approve gate |
 | `harness-refs <subcommand>` | Cross-repo reference checks the `review` and `ship` skills rely on |
 | `humanize-scan`, `humanize-check` | Check prose against the AI-tell rulebook |
-| `explain-check`, `explain-eval` | Judge an explanation for its audience, and compare two explanation prompts |
+| `explain-check`, `explain-eval` | Judge an explanation for its audience, and compare two explanation prompts. `explain-eval` and `explain-check --judge` need `ANTHROPIC_API_KEY` |
 | `usage-report` | Event counts grouped by event type |
 
 `gestalt --help` lists every command, and `gestalt <command> --help` shows its options.
@@ -850,7 +850,7 @@ If no tiers are configured, all tiers fall back to the top-level `llm.model` wit
 
 | Variable | Config path | Default | Description |
 |----------|-------------|---------|-------------|
-| `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` | Required only for CLI direct mode |
+| `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` | Required only for CLI commands that call the LLM (`interview`, `spec`, `explain-eval`, `explain-check --judge`) |
 | `GESTALT_MODEL` | `llm.model` | `claude-sonnet-4-20250514` | LLM model |
 | `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` | `0.8` | Interview completion threshold |
 | `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` | Max interview rounds |

@@ -85,7 +85,7 @@ Gestalt는 Claude Code 안에서 MCP 서버로 동작해요. `/interview`나 `/s
 
 ### CLI 모드 (자동화 / CI)
 
-Claude Code 없이 스크립트나 CI 파이프라인에서 Gestalt를 돌리고 싶다면, API 키를 추가하면 돼요. Gestalt가 자체적으로 LLM 호출을 처리해요.
+Claude Code 없이 스크립트나 CI 파이프라인에서 `interview`나 `spec`, `explain-eval`을 돌리려면 API 키를 추가하면 돼요. 이 명령들은 Gestalt가 LLM을 직접 불러요. `explain-check`는 `--judge`를 켤 때만 키를 쓰고 나머지 CLI 명령은 키 없이 돌아요.
 
 프로젝트 루트에 `.env` 파일을 만들거나:
 

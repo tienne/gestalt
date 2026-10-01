@@ -100,7 +100,7 @@ Claude Code
   최종 Spec → 실행 계획
 ```
 
-> **참고해 주세요** — CLI 직접 실행 모드에서는 `ANTHROPIC_API_KEY`가 필요해요. Claude Code 없이 터미널에서 바로 사용할 경우에만 해당돼요.
+> **참고해 주세요** — Claude Code 없이 터미널에서 LLM을 직접 부르는 CLI 명령(`interview`, `spec`, `explain-eval`, `explain-check --judge`)을 실행할 때만 `ANTHROPIC_API_KEY`가 필요해요. 나머지 CLI 명령은 키 없이 돌아요.
 
 ---
 
@@ -624,7 +624,7 @@ Claude Code에서는 스킬마다 슬래시 커맨드로 불러요. Codex에서�
 
 ### CLI 모드 (Claude Code 없이 사용하기)
 
-Claude Code 없이 터미널에서 바로 쓰고 싶다면 CLI 모드를 이용할 수 있어요. `interview`와 `spec`은 LLM을 직접 부르기 때문에 **`ANTHROPIC_API_KEY`가 필요해요.** 나머지 명령은 키 없이 돌아요.
+Claude Code 없이 터미널에서 바로 쓰고 싶다면 CLI 모드를 이용할 수 있어요. `interview`, `spec`, `explain-eval`은 LLM을 직접 부르기 때문에 **`ANTHROPIC_API_KEY`가 필요해요.** `explain-check`는 `--judge`를 켤 때만 키를 써요. 나머지 명령은 키 없이 돌아요.
 
 ```bash
 # 레포 최초 설정: gestalt.json + 코드 그래프 + post-commit 훅
@@ -657,7 +657,7 @@ npx @tienne/gestalt serve
 | `review-loop <하위 명령>` | `review-loop` 스킬이 쓰는 조회 (PR 상태, 리뷰 라운드, approve 게이트) |
 | `harness-refs <하위 명령>` | `review`와 `ship` 스킬이 쓰는 레포 간 참조 검사 |
 | `humanize-scan`, `humanize-check` | 문장을 AI-tell 룰북으로 검사 |
-| `explain-check`, `explain-eval` | 설명본이 대상에게 읽히는지 판정하고, 설명 프롬프트 두 벌을 비교 |
+| `explain-check`, `explain-eval` | 설명본이 대상에게 읽히는지 판정하고 설명 프롬프트 두 벌을 비교. `explain-eval`과 `explain-check --judge`는 `ANTHROPIC_API_KEY` 필요 |
 | `usage-report` | 이벤트 종류별 발생 횟수 |
 
 전체 명령은 `gestalt --help`, 명령별 옵션은 `gestalt <명령> --help`로 볼 수 있어요.
@@ -740,7 +740,7 @@ Anthropic(standard/frontier)과 Ollama(frugal)를 혼합하는 예시예요:
 
 | 변수 | Config 경로 | 기본값 | 설명 |
 |----------|-------------|---------|-------------|
-| `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` | CLI 직접 모드에서만 필요 |
+| `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` | LLM을 직접 부르는 CLI 명령(`interview`, `spec`, `explain-eval`, `explain-check --judge`)에서만 필요 |
 | `GESTALT_MODEL` | `llm.model` | `claude-sonnet-4-20250514` | LLM 모델 (provider 모드) |
 | `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` | `0.8` | 인터뷰 완료 임계값 |
 | `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` | 최대 인터뷰 라운드 수 |
