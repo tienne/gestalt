@@ -329,7 +329,8 @@ describe('execute_task 완료 보고 대조', { timeout: 30_000 }, () => {
 
     expect(res.status).toBe('verification_failed');
     expect(res.serverError).toBe(true);
-    expect(res.message).toContain('failed');
+    expect(res.message).toContain('서버 쪽 실패');
+    expect(res.message).toContain('git ');
     expect(engine.getSession(sessionId).completedTaskIds).toEqual([]);
   });
 
