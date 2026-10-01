@@ -9,19 +9,6 @@ import type { EmbeddingProvider } from '../code-graph/embedding-provider.js';
 import { DRIFT_WEIGHTS } from '../core/constants.js';
 import { log } from '../core/log.js';
 
-/**
- * Drift Detection — 태스크 실행 결과가 원래 Spec에서 얼마나 벗어났는지 측정.
- *
- * 3차원 가중합:
- *   Goal Drift (임베딩 코사인 유사도, 50%) — 태스크 output이 Spec goal과 의미적으로 얼마나 정렬되는지
- *   Constraint Drift (violations×0.1, 30%) — 태스크 output이 constraint 위반 가능성
- *   Ontology Drift (Jaccard, 20%) — 태스크가 ontology entity/relation을 참조하는지
- *
- * Goal Drift는 원래 문장 단위 Jaccard 유사도(단어 집합 교집합/합집합)를 썼으나, 문장 간
- * Jaccard는 공유 단어 수에 좌우되어 구조적으로 낮게 나오는 경향이 있다 — 목표와 의미적으로
- * 잘 정렬된 산출물조차 거의 항상 임계값을 넘기는 문제가 있었다. 로컬 임베딩(Xenova/all-MiniLM-L6-v2)
- * 기반 코사인 유사도로 교체해 의미적 정렬을 측정한다(임베딩 로딩 실패 시 Jaccard로 폴백).
- */
 /** 편차 점수를 상태와 안내 문구로 나눈다. 이전 이벤트를 replay할 때도 같은 기준을 쓴다. */
 export function classifyDrift(
   overall: number,
@@ -36,6 +23,19 @@ export function classifyDrift(
   return { status, hint };
 }
 
+/**
+ * Drift Detection — 태스크 실행 결과가 원래 Spec에서 얼마나 벗어났는지 측정.
+ *
+ * 3차원 가중합:
+ *   Goal Drift (임베딩 코사인 유사도, 50%) — 태스크 output이 Spec goal과 의미적으로 얼마나 정렬되는지
+ *   Constraint Drift (violations×0.1, 30%) — 태스크 output이 constraint 위반 가능성
+ *   Ontology Drift (Jaccard, 20%) — 태스크가 ontology entity/relation을 참조하는지
+ *
+ * Goal Drift는 원래 문장 단위 Jaccard 유사도(단어 집합 교집합/합집합)를 썼으나, 문장 간
+ * Jaccard는 공유 단어 수에 좌우되어 구조적으로 낮게 나오는 경향이 있다 — 목표와 의미적으로
+ * 잘 정렬된 산출물조차 거의 항상 임계값을 넘기는 문제가 있었다. 로컬 임베딩(Xenova/all-MiniLM-L6-v2)
+ * 기반 코사인 유사도로 교체해 의미적 정렬을 측정한다(임베딩 로딩 실패 시 Jaccard로 폴백).
+ */
 export async function measureDrift(
   spec: Spec,
   _task: AtomicTask,
