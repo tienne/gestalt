@@ -4,6 +4,7 @@ import type { PlanningStepResult, NextActionGuide } from '../../../core/types.js
 import type { IHostAdapter } from '../../host-adapter.js';
 import { formatError, stripContextPrompts } from './utils.js';
 import { sanitizeSurfaceContext, getStageLabel } from '../../../gestalt/surface-labels.js';
+import { PlanningRewoundError } from '../../../execute/orchestrators/planning.js';
 
 export function handleStart(
   engine: PassthroughExecuteEngine,
@@ -57,7 +58,12 @@ export function handlePlanStep(
     return formatError('Invalid stepResult: missing required fields for the given principle');
 
   const result = engine.planStep(input.sessionId, stepResult);
-  if (!result.ok) return formatError(result.error.message);
+  if (!result.ok) {
+    if (result.error instanceof PlanningRewoundError) {
+      return formatRewound(input.sessionId, result.error, verbose);
+    }
+    return formatError(result.error.message);
+  }
 
   const { session, executeContext, isLastStep } = result.value;
 
@@ -111,9 +117,15 @@ export function handlePlanComplete(
   _adapter: IHostAdapter,
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for plan_complete action');
+  const verbose = input.verbose !== false;
 
   const result = engine.planComplete(input.sessionId);
-  if (!result.ok) return formatError(result.error.message);
+  if (!result.ok) {
+    if (result.error instanceof PlanningRewoundError) {
+      return formatRewound(input.sessionId, result.error, verbose);
+    }
+    return formatError(result.error.message);
+  }
 
   const { executionPlan } = result.value;
   const planSummary = {
@@ -152,6 +164,35 @@ export function handlePlanComplete(
       message:
         'Execution plan assembled and validated. Call execute_start to begin task execution.',
       ...planCompleteGuide,
+    },
+    null,
+    2,
+  );
+}
+
+// error 필드를 함께 실어 이 응답을 성공으로 읽고 다음 단계로 넘어가는 호출자를 막는다
+function formatRewound(sessionId: string, error: PlanningRewoundError, verbose: boolean): string {
+  const { dagValidation, executeContext } = error;
+  const stage = getStageLabel(executeContext.currentPrinciple);
+  const guide: NextActionGuide = {
+    nextAction: 'plan_step',
+    nextActionParams: { sessionId },
+    hint: `의존 관계 DAG가 유효하지 않아 ${stage} 단계로 되돌렸습니다. cycleDetails를 보고 dependsOn을 고친 뒤 ${stage}부터 다시 제출하세요.`,
+  };
+  const sanitizedContext = sanitizeSurfaceContext(
+    executeContext as unknown as Record<string, unknown>,
+  );
+  return JSON.stringify(
+    {
+      error: error.message,
+      status: 'plan_rewound',
+      sessionId,
+      rewoundToStep: executeContext.stepNumber,
+      hasCycles: dagValidation.hasCycles,
+      cycleDetails: dagValidation.cycleDetails ?? [],
+      conflictDetails: dagValidation.conflictDetails ?? [],
+      executeContext: verbose ? sanitizedContext : stripContextPrompts(sanitizedContext),
+      ...guide,
     },
     null,
     2,

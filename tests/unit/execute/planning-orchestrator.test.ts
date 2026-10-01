@@ -4,7 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
 import { ExecuteSessionManager } from '../../../src/execute/session.js';
-import { PlanningOrchestrator } from '../../../src/execute/orchestrators/planning.js';
+import {
+  PlanningOrchestrator,
+  PlanningRewoundError,
+} from '../../../src/execute/orchestrators/planning.js';
 import { ExecuteSessionNotFoundError, InvalidPlanningStepError } from '../../../src/core/errors.js';
 import { MAX_ATOMIC_TASKS, MAX_TASK_GROUPS } from '../../../src/core/constants.js';
 import type { AtomicTask, PlanningStepResult, Spec, TaskGroup } from '../../../src/core/types.js';
@@ -268,21 +271,107 @@ describe('PlanningOrchestrator', () => {
       return { id, spec };
     }
 
-    it('호출자는 유효하다는데 서버가 순환을 찾으면 막는다', () => {
-      const { id } = submitUpToContinuity(cyclic);
-      const r = orch.planStep(id, {
-        principle: 'continuity',
-        dagValidation: {
-          isValid: true,
-          hasCycles: false,
-          hasConflicts: false,
-          topologicalOrder: ['task-0', 'task-1'],
-          criticalPath: ['task-0', 'task-1'],
-        },
-      });
+    const claimsValid = {
+      isValid: true,
+      hasCycles: false,
+      hasConflicts: false,
+      topologicalOrder: ['task-0', 'task-1'],
+      criticalPath: ['task-0', 'task-1'],
+    };
+
+    function expectRewound(id: string, r: ReturnType<typeof orch.planStep>): PlanningRewoundError {
       expect(r.ok).toBe(false);
-      if (r.ok) return;
-      expect(r.error.message).toContain('Server-side DAG validation disagrees');
+      if (r.ok) throw new Error('expected rewind');
+      expect(r.error).toBeInstanceOf(PlanningRewoundError);
+      const session = sessions.get(id);
+      expect(session.status).toBe('planning');
+      expect(session.planningSteps.map((s) => s.principle)).toEqual(['figure_ground']);
+      expect(session.currentStep).toBe(2);
+      return r.error as PlanningRewoundError;
+    }
+
+    it('호출자는 유효하다는데 서버가 순환을 찾으면 closure 이전으로 되감는다', () => {
+      const { id } = submitUpToContinuity(cyclic);
+      const error = expectRewound(
+        id,
+        orch.planStep(id, { principle: 'continuity', dagValidation: claimsValid }),
+      );
+
+      expect(error.dagValidation.isValid).toBe(false);
+      expect(error.dagValidation.cycleDetails?.join(' ')).toContain('task-0');
+      expect(error.executeContext.currentPrinciple).toBe('closure');
+      expect(error.executeContext.stepNumber).toBe(2);
+    });
+
+    it('호출자가 순환을 정직하게 보고해도 통과시키지 않고 되감는다', () => {
+      const { id } = submitUpToContinuity(cyclic);
+      const error = expectRewound(
+        id,
+        orch.planStep(id, {
+          principle: 'continuity',
+          dagValidation: {
+            isValid: false,
+            hasCycles: true,
+            cycleDetails: ['task-0 → task-1 → task-0'],
+            hasConflicts: false,
+            topologicalOrder: [],
+            criticalPath: [],
+          },
+        }),
+      );
+      expect(error.message).toContain('rewound to the closure step');
+    });
+
+    it('서버는 유효하다는데 호출자가 무효라고 하면 호출자 보고를 담아 되감는다', () => {
+      const { id } = submitUpToContinuity([makeTask('task-0', [], 0), makeTask('task-1', [], 1)]);
+      const error = expectRewound(
+        id,
+        orch.planStep(id, {
+          principle: 'continuity',
+          dagValidation: {
+            ...claimsValid,
+            isValid: false,
+            hasConflicts: true,
+            conflictDetails: ['caller-side conflict'],
+          },
+        }),
+      );
+      expect(error.dagValidation.conflictDetails).toEqual(['caller-side conflict']);
+    });
+
+    it('되감은 뒤 dependsOn을 고쳐 closure부터 다시 내면 계획이 확정된다', () => {
+      const { id, spec } = submitUpToContinuity(cyclic);
+      orch.planStep(id, { principle: 'continuity', dagValidation: claimsValid });
+
+      const fixed = [makeTask('task-0', [], 0), makeTask('task-1', ['task-0'], 1)];
+      const [, closure, proximity, continuity] = planningSteps(spec, fixed);
+      submit(id, [closure, proximity, continuity]);
+
+      const r = orch.planComplete(id);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.value.executionPlan.dagValidation.isValid).toBe(true);
+    });
+
+    it('되감기를 이벤트로 남겨 재시작 후에도 figure_ground만 복원된다', () => {
+      const { id } = submitUpToContinuity(cyclic);
+      orch.planStep(id, { principle: 'continuity', dagValidation: claimsValid });
+
+      const rewound = store
+        .replay('execute', id)
+        .filter((e) => e.eventType === EventType.EXECUTE_PLANNING_REWOUND);
+      expect(rewound).toHaveLength(1);
+      expect(rewound[0]!.payload).toMatchObject({
+        keepSteps: 1,
+        toPrinciple: 'closure',
+        reason: 'server_detected_invalid',
+      });
+
+      const reloaded = new ExecuteSessionManager(store);
+      reloaded.loadFromStore();
+      const session = reloaded.get(id);
+      expect(session.planningSteps.map((s) => s.principle)).toEqual(['figure_ground']);
+      expect(session.currentStep).toBe(2);
     });
 
     it('호출자가 틀린 위상 순서를 내도 서버 판정이 유효하면 받는다', () => {
@@ -318,6 +407,37 @@ describe('PlanningOrchestrator', () => {
       expect(r.ok).toBe(false);
       if (r.ok) return;
       expect(r.error).toBeInstanceOf(ExecuteSessionNotFoundError);
+    });
+
+    it('저장된 continuity가 무효면 계획을 확정하지 않고 closure 이전으로 되감는다', () => {
+      const spec = makeSpec(['AC0', 'AC1']);
+      const cyclic = [makeTask('task-0', ['task-1'], 0), makeTask('task-1', ['task-0'], 1)];
+      const id = start(spec);
+      submit(id, [
+        figureGround(spec),
+        { principle: 'closure', atomicTasks: cyclic },
+        { principle: 'proximity', taskGroups: singleGroup(cyclic) },
+      ]);
+      // 게이트가 생기기 전에 저장된 continuity를 흉내 낸다 — 오케스트레이터 검증을 건너뛴다
+      sessions.addPlanningStep(id, {
+        principle: 'continuity',
+        dagValidation: {
+          isValid: false,
+          hasCycles: true,
+          hasConflicts: false,
+          topologicalOrder: [],
+          criticalPath: [],
+        },
+      });
+
+      const r = orch.planComplete(id);
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.error).toBeInstanceOf(PlanningRewoundError);
+      const session = sessions.get(id);
+      expect(session.status).toBe('planning');
+      expect(session.executionPlan).toBeUndefined();
+      expect(session.planningSteps.map((s) => s.principle)).toEqual(['figure_ground']);
     });
 
     it('호출자의 위상 순서 대신 서버가 다시 계산한 DAG로 계획을 짠다', () => {
