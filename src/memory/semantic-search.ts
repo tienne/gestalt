@@ -17,6 +17,10 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return denom === 0 ? 0 : dot / denom;
 }
 
+// EmbeddingService의 all-MiniLM-L6-v2는 영어로만 학습됐다. 한글 문장끼리는 주제가 달라도
+// 0.6~0.8이 나와 엉뚱한 스펙이 상위로 올라온다. 틀린 맥락을 넣느니 아예 안 넣는다
+const UNSUPPORTED_SCRIPT = /[\u1100-\u11FF\u3040-\u30FF\u3130-\u318F\u4E00-\u9FFF\uAC00-\uD7AF]/;
+
 /**
  * EmbeddingService lazy-load 래퍼.
  * 모델 로드가 무거우므로 첫 호출 시에만 import한다.
@@ -40,14 +44,17 @@ async function getEmbeddingService(): Promise<
  * @param query  검색 쿼리 문자열
  * @param memory ProjectMemory 인스턴스
  * @param topK   반환할 최대 항목 수 (기본값: 3)
+ * @param minScore 이 값보다 유사도가 낮은 항목은 버린다 (기본값: 0)
  * @returns      cosine similarity 내림차순으로 정렬된 SpecHistoryEntry[]
  */
 export async function searchSimilarSpecs(
   query: string,
   memory: ProjectMemory,
   topK = 3,
+  minScore = 0,
 ): Promise<SpecHistoryEntry[]> {
-  const entries = memory.specHistory;
+  if (UNSUPPORTED_SCRIPT.test(query)) return [];
+  const entries = memory.specHistory.filter((e) => !UNSUPPORTED_SCRIPT.test(e.goal));
   if (entries.length === 0) return [];
 
   const service = await getEmbeddingService();
@@ -64,5 +71,8 @@ export async function searchSimilarSpecs(
 
   scored.sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, topK).map((s) => s.entry);
+  return scored
+    .filter((s) => s.score >= minScore)
+    .slice(0, topK)
+    .map((s) => s.entry);
 }

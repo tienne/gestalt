@@ -166,12 +166,6 @@ export class ProjectMemoryStore {
     });
   }
 
-  async searchSimilarSpecs(query: string, topK = 3): Promise<SpecHistoryEntry[]> {
-    const { searchSimilarSpecs } = await import('./semantic-search.js');
-    const memory = this.read();
-    return searchSimilarSpecs(query, memory, topK);
-  }
-
   /**
    * local과 remote ProjectMemory를 머지한다.
    *

@@ -52,9 +52,9 @@ describe('surface leak regression', () => {
     expect(registry.getByPipeline('interview').length).toBeGreaterThan(0);
   });
 
-  it('인터뷰 start 응답에 원리 용어가 새지 않는다', () => {
+  it('인터뷰 start 응답에 원리 용어가 새지 않는다', async () => {
     const res = JSON.parse(
-      handleInterviewPassthrough(engine, {
+      await handleInterviewPassthrough(engine, {
         action: 'start',
         topic: 'A payment checkout flow',
         cwd: process.cwd(),
@@ -66,14 +66,14 @@ describe('surface leak regression', () => {
     assertNoLeak(res);
   });
 
-  it('인터뷰 respond 응답의 점수 라벨과 컨텍스트에 원리 용어가 없다', () => {
+  it('인터뷰 respond 응답의 점수 라벨과 컨텍스트에 원리 용어가 없다', async () => {
     const started = JSON.parse(
-      handleInterviewPassthrough(engine, { action: 'start', topic: 'A search feature' }),
+      await handleInterviewPassthrough(engine, { action: 'start', topic: 'A search feature' }),
     );
     const sessionId = started.sessionId as string;
 
     const res = JSON.parse(
-      handleInterviewPassthrough(engine, {
+      await handleInterviewPassthrough(engine, {
         action: 'respond',
         sessionId,
         response: 'It must return results within 200ms and support typo tolerance.',
@@ -98,14 +98,14 @@ describe('surface leak regression', () => {
     assertNoLeak(res);
   });
 
-  it('인터뷰 score 응답에 원리 용어가 없다', () => {
+  it('인터뷰 score 응답에 원리 용어가 없다', async () => {
     const started = JSON.parse(
-      handleInterviewPassthrough(engine, { action: 'start', topic: 'A notification system' }),
+      await handleInterviewPassthrough(engine, { action: 'start', topic: 'A notification system' }),
     );
     const sessionId = started.sessionId as string;
 
     const res = JSON.parse(
-      handleInterviewPassthrough(engine, {
+      await handleInterviewPassthrough(engine, {
         action: 'score',
         sessionId,
         resolutionScore: {
@@ -123,13 +123,16 @@ describe('surface leak regression', () => {
     assertNoLeak(res);
   });
 
-  it('스펙 컨텍스트 응답(specContext)에 원리 용어가 없다', () => {
+  it('스펙 컨텍스트 응답(specContext)에 원리 용어가 없다', async () => {
     const started = JSON.parse(
-      handleInterviewPassthrough(engine, { action: 'start', topic: 'An analytics dashboard' }),
+      await handleInterviewPassthrough(engine, {
+        action: 'start',
+        topic: 'An analytics dashboard',
+      }),
     );
     const sessionId = started.sessionId as string;
 
-    handleInterviewPassthrough(engine, {
+    await handleInterviewPassthrough(engine, {
       action: 'respond',
       sessionId,
       response: 'Show daily active users and revenue with a date range filter.',

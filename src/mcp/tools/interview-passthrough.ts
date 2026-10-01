@@ -10,10 +10,10 @@ import {
 import { sanitizeSurfaceContext } from '../../gestalt/surface-labels.js';
 import { resolveInterviewSessionId } from '../session-selector.js';
 
-export function handleInterviewPassthrough(
+export async function handleInterviewPassthrough(
   engine: PassthroughEngine,
   rawInput: InterviewInput,
-): string {
+): Promise<string> {
   const resolved = resolveInterviewSessionId(engine, rawInput.sessionId);
   if (!resolved.ok) return formatError(resolved.error);
   const input: InterviewInput = { ...rawInput, sessionId: resolved.sessionId };
@@ -23,7 +23,7 @@ export function handleInterviewPassthrough(
       const topic = input.topic ?? 'Untitled project';
 
       const memoryInjector = new MemoryContextInjector(input.cwd);
-      const memoryCtx = memoryInjector.getContext();
+      const memoryCtx = await memoryInjector.getContextForTopic(topic);
       const memoryStr = memoryCtx.hasContext ? formatMemoryContextForPrompt(memoryCtx) : undefined;
 
       const result = engine.start(topic, input.cwd, memoryStr);

@@ -172,9 +172,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
           '(compress) summary generated from compressionContext — omit on the first call',
         ),
       },
-      (params) => {
+      async (params) => {
         const input = interviewInputSchema.parse(params);
-        const result = handleInterviewPassthrough(ptEngine, input);
+        const result = await handleInterviewPassthrough(ptEngine, input);
         return toolReply(result);
       },
     );
