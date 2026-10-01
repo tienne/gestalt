@@ -6,16 +6,33 @@ import { log } from '../core/log.js';
  * 모델은 첫 호출 시 lazy 로딩된다.
  */
 export class EmbeddingService {
-  private pipelineInstance: FeatureExtractionPipeline | null = null;
+  private pipelinePromise: Promise<FeatureExtractionPipeline> | null = null;
   private readonly modelName = 'Xenova/all-MiniLM-L6-v2';
 
-  private async getPipeline(): Promise<FeatureExtractionPipeline> {
-    if (!this.pipelineInstance) {
+  // 로딩 중인 Promise를 들고 있어야 첫 로딩이 끝나기 전에 들어온 호출이 모델을 또 받지 않는다
+  private getPipeline(): Promise<FeatureExtractionPipeline> {
+    if (!this.pipelinePromise) {
       log(`embedding: loading model ${this.modelName}...`);
-      this.pipelineInstance = await pipeline('feature-extraction', this.modelName);
-      log('embedding: model loaded');
+      this.pipelinePromise = pipeline('feature-extraction', this.modelName).then(
+        (instance) => {
+          log('embedding: model loaded');
+          return instance;
+        },
+        (e: unknown) => {
+          this.pipelinePromise = null;
+          throw e;
+        },
+      );
     }
-    return this.pipelineInstance;
+    return this.pipelinePromise;
+  }
+
+  /**
+   * 모델을 미리 올린다. 이미 올라와 있으면 바로 끝난다.
+   * 로딩 실패와 임베딩 실패를 호출부가 나눠 다룰 수 있게 따로 둔다.
+   */
+  async ensureLoaded(): Promise<void> {
+    await this.getPipeline();
   }
 
   /**

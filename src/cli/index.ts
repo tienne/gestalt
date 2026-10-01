@@ -10,6 +10,7 @@ import { updateCommand } from './commands/update.js';
 import { usageReportCommand } from './commands/usage-report.js';
 import { humanizeCheckCommand } from './commands/humanize-check.js';
 import { humanizeScanCommand } from './commands/humanize-scan.js';
+import { memoryMergeCommand } from './commands/memory-merge.js';
 import { explainCheckCommand } from './commands/explain-check.js';
 import { DEFAULT_CASES_PATH, explainEvalCommand } from './commands/explain-eval.js';
 import {
@@ -110,6 +111,15 @@ export function createCli(): Command {
     .description('Check for updates and install the latest version')
     .action(async () => {
       await updateCommand();
+    });
+
+  program
+    .command('memory-merge <base> <ours> <theirs>')
+    .description(
+      'git merge driver for .gestalt/memory.json — writes the union into <ours> (use with %O %A %B)',
+    )
+    .action((_base: string, ours: string, theirs: string) => {
+      memoryMergeCommand(ours, theirs);
     });
 
   program

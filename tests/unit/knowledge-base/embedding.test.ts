@@ -193,3 +193,37 @@ describe('EmbeddingService.embed', () => {
     spy.mockRestore();
   });
 });
+
+describe('EmbeddingService 모델 로딩', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('로딩이 끝나기 전에 두 번 불러도 모델은 한 번만 받는다', async () => {
+    vi.mocked(pipeline).mockClear();
+    let resolveLoad!: (v: unknown) => void;
+    vi.mocked(pipeline).mockReturnValueOnce(
+      new Promise((resolve) => (resolveLoad = resolve)) as never,
+    );
+    const service = new EmbeddingService();
+
+    const a = service.embed('a');
+    const b = service.embed('b');
+    resolveLoad(makeMockExtractor(4, 0.1));
+    await Promise.all([a, b]);
+
+    expect(pipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it('로딩이 실패하면 다음 호출에서 다시 받는다', async () => {
+    vi.mocked(pipeline).mockClear();
+    vi.mocked(pipeline)
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce(makeMockExtractor(4, 0.1) as never);
+    const service = new EmbeddingService();
+
+    await expect(service.embed('a')).rejects.toThrow('network');
+    await expect(service.embed('a')).resolves.toHaveLength(4);
+    expect(pipeline).toHaveBeenCalledTimes(2);
+  });
+});

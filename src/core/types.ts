@@ -655,15 +655,6 @@ export interface ProjectMemory {
   lastUpdated: string;
 }
 
-export interface UserProfile {
-  userId?: string;
-  preferredModel?: string;
-  crossRepoPatterns: string[];
-  personalPreferences: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-}
-
 // ─── Shared Response Helpers ────────────────────────────────────
 export interface NextActionGuide {
   nextAction: string;

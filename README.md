@@ -434,9 +434,7 @@ Every spec and execution result is automatically recorded in `.gestalt/memory.js
 
 **The interview gets shorter over time.** When prior specs and execution history exist, Gestalt automatically injects that context into the `gestaltContext.systemPrompt` at the start of each new interview session. Prior goals, architecture decisions, and constraints become shared knowledge — the AI already knows what you've built and why.
 
-**Commit it.** `.gestalt/memory.json` is plain JSON. Teammates inherit all prior decisions on `git pull`.
-
-**User profile.** Personal preferences are stored in `~/.gestalt/profile.json` and are never committed.
+**Commit it.** `.gestalt/memory.json` is plain JSON. Teammates inherit all prior decisions on `git pull`. To avoid merge conflicts, register the memory merge driver — see [docs/memory-team-sharing.md](docs/memory-team-sharing.md).
 
 ---
 
