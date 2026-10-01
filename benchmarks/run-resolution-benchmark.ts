@@ -362,8 +362,9 @@ async function runBenchmark(opts: {
   // dry-run 수치는 mockJudge의 하드코딩 상수라 실측 latest를 덮으면 안 된다
   const latestPath = join(outputDir, `${prefix}-latest.json`);
 
-  writeFileSync(jsonPath, JSON.stringify(benchmarkResult, null, 2), 'utf-8');
-  writeFileSync(latestPath, JSON.stringify(benchmarkResult, null, 2), 'utf-8');
+  const resultJson = JSON.stringify(benchmarkResult, null, 2);
+  writeFileSync(jsonPath, resultJson, 'utf-8');
+  writeFileSync(latestPath, resultJson, 'utf-8');
 
   // ─── 콘솔 요약 ───────────────────────────────────────────────────
 
