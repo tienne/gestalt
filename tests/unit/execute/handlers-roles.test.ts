@@ -110,6 +110,20 @@ describe('ges_execute role_match / role_consensus 핸들러', () => {
       expect(res.perspectivePrompts?.map((p) => p.agentName)).toEqual(['frontend-developer']);
     });
 
+    it('매칭이 하나도 없으면 role_consensus를 건너뛰고 execute_task로 안내한다', async () => {
+      const { sessionId } = fx.executingSession();
+      const res = await fx.call<RoleMatchResponse>({
+        action: 'role_match',
+        sessionId,
+        matchResult: [],
+      });
+
+      expect(res.status).toBe('role_matched');
+      expect(res.matchCount).toBe(0);
+      expect(res.message).toContain('execute_task');
+      expect(res.nextAction).toBe('execute_task');
+    });
+
     it('레지스트리 없이 1차 호출하면 설정 에러를 돌려준다', async () => {
       const bare = createExecuteFixture('handlers-roles-bare');
       try {

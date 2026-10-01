@@ -36,11 +36,19 @@ export function handleRoleMatch(
     );
   }
 
-  const roleMatchCall2Guide: NextActionGuide = {
-    nextAction: 'role_consensus',
-    nextActionParams: { sessionId: rmResult.value.session.sessionId },
-    hint: '각 에이전트의 관점을 생성하고 perspectives를 제출하세요.',
-  };
+  // 관점이 하나도 없으면 role_consensus는 perspectives 없이 불려 에러로 끝난다
+  const hasPerspectives = (perspectivePrompts?.length ?? 0) > 0;
+  const roleMatchCall2Guide: NextActionGuide = hasPerspectives
+    ? {
+        nextAction: 'role_consensus',
+        nextActionParams: { sessionId: rmResult.value.session.sessionId },
+        hint: '각 에이전트의 관점을 생성하고 perspectives를 제출하세요.',
+      }
+    : {
+        nextAction: 'execute_task',
+        nextActionParams: { sessionId: rmResult.value.session.sessionId },
+        hint: '매칭된 에이전트가 없습니다. 바로 태스크를 실행하세요.',
+      };
   return JSON.stringify(
     {
       status: 'role_matched',
