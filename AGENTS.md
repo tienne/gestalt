@@ -28,7 +28,7 @@ or `npx -y @tienne/gestalt serve`. That runs the published package, not this
 checkout.
 
 - Grok: `.grok/config.toml` starts `scripts/grok-mcp-serve.sh` (local `tsx`,
-  Node >= 20).
+  Node >= 22).
 - Other hosts: `pnpm run serve` or `pnpm exec tsx bin/gestalt.ts serve`.
 
 Four manifests start the published package, never this checkout. Do not

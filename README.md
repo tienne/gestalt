@@ -31,7 +31,7 @@ The hardest part of building software isn't writing code — it's knowing what t
 /execute                                   # plan → execute → evaluate → evolve
 ```
 
-> **Requires Node.js >= 20.0.0.** Use `nvm install 22 && nvm use 22` if needed.
+> **Requires Node.js >= 22.0.0.** Use `nvm install 22 && nvm use 22` if needed.
 
 ---
 
@@ -50,6 +50,7 @@ The hardest part of building software isn't writing code — it's knowing what t
   - [4. Evaluate](#4-evaluate)
   - [5. Evolve](#5-evolve)
 - [Code Review](#code-review)
+- [Skills](#skills)
 - [Agents](#agents)
 - [CLI Mode](#cli-mode)
 - [Configuration](#configuration)
@@ -102,6 +103,8 @@ Then run the pipeline:
 
 ## Installation
 
+> **Windows hosts are not supported.** The plugin starts its MCP server through `sh -c`, which a Windows host cannot run, and CI covers only Ubuntu and macOS. If you want to try it on Windows anyway, install globally with `npm i -g @tienne/gestalt` and register the server yourself with `"command": "gestalt"` and `"args": ["serve"]`, as in [Option 3](#option-3-claude-code-cli).
+
 ### Option 1: Claude Code Plugin (Recommended)
 
 Bundles the MCP server, slash-command skills, Gestalt agents, and project context — pre-configured in a single install.
@@ -123,9 +126,9 @@ What you get:
 
 | Item | Details |
 |------|---------|
-| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
-| **Slash Commands** | 21 workflow skills — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send`, and more |
-| **Agents** | 23 role agents + 4 review agents |
+| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr` — see the [MCP reference](./docs/mcp-reference.md) |
+| **Slash Commands** | Workflow skills — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send`, and more. Full list in [Skills](#skills) |
+| **Agents** | Pipeline agents, [role agents](#role-agents), and [review agents](#review-agents) |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
 
 ---
@@ -199,7 +202,7 @@ The plugin install (Option 1) already handles the first two through `scripts/mcp
 
 ### Option 4: OpenAI Codex Plugin
 
-Bundles the MCP server and all 21 workflow skills, the same way the Claude Code plugin does.
+Bundles the MCP server and every workflow skill, the same way the Claude Code plugin does.
 
 ```bash
 codex plugin marketplace add tienne/gestalt
@@ -210,9 +213,9 @@ What you get:
 
 | Item | Details |
 |------|---------|
-| **MCP Tools** | All 12 `ges_*` tools |
-| **Skills** | 21 workflow skills, including `gestalt:review` and `gestalt:pr` |
-| **Agents** | 23 role agents + 4 review agents (bundled for skills to read) |
+| **MCP Tools** | All `ges_*` tools — see the [MCP reference](./docs/mcp-reference.md) |
+| **Skills** | Every skill in [Skills](#skills), including `gestalt:review` and `gestalt:pr` |
+| **Agents** | [Role agents](#role-agents) and [review agents](#review-agents) (bundled for skills to read) |
 
 Skills load on the next Codex session. Slash commands and the Claude Code Task
 panel are still Claude Code only — in Codex you invoke a skill by describing the
@@ -244,7 +247,7 @@ and Codex performs the reasoning, file edits, and command execution. When
 `client` is `"codex"`, this remains true even if `ANTHROPIC_API_KEY` exists in
 your shell.
 
-All 12 MCP tools (`ges_interview`, `ges_generate_spec`, `ges_execute`, etc.) are available immediately. This option ships no skills — the pipeline runs entirely through MCP tool calls. Use Option 4 if you want `gestalt:review` and the other workflow skills. During execution, active context is written to a managed section in `AGENTS.md`; continue following the current MCP response (`executeContext`, `taskContext`, etc.) in the active Codex turn.
+All MCP tools (`ges_interview`, `ges_generate_spec`, `ges_execute`, etc.) are available immediately. This option ships no skills — the pipeline runs entirely through MCP tool calls. Use Option 4 if you want `gestalt:review` and the other workflow skills. During execution, active context is written to a managed section in `AGENTS.md`; continue following the current MCP response (`executeContext`, `taskContext`, etc.) in the active Codex turn.
 
 ---
 
@@ -626,6 +629,36 @@ The review `context-collector` uses `blastRadius()` from the Code Knowledge Grap
 
 ---
 
+## Skills
+
+Each skill is a slash command in Claude Code. In Codex the same skill is `gestalt:<name>`, and Codex picks it from your description of the task.
+
+| Skill | Use it to |
+|-------|-----------|
+| `/interview` | Clarify requirements through Gestalt-driven Q&A until the resolution score reaches 0.8. Stops before the Spec |
+| `/spec` | Turn a finished interview into a Spec |
+| `/execute` | Turn an existing Spec into a validated execution plan, then execute, evaluate, and evolve |
+| `/solve` | Drive interview → spec → execute as one loop without stopping between steps |
+| `/dispatch` | Send ready tasks from an execute session to terminals in an external agent runtime (Orca). Opt-in — without one, `/execute`'s default parallel path is better |
+| `/setup` | First-time project setup: `gestalt.json`, code graph, and post-commit hook |
+| `/build-graph` | Build or rebuild the code knowledge graph only |
+| `/blast-radius` | Before changing code, find the files a change would reach and load only those |
+| `/diff-radius` | See how far uncommitted and staged changes reach |
+| `/review` | Review a PR, branch, or commit with the [review agents](#review-agents), and post inline comments when the target is a PR |
+| `/review-loop` | Follow someone else's GitHub PR as reviewer — review, post a verdict, wait for the author, and re-review until approve |
+| `/review-reply` | Work through review comments on your own PR: fix, commit, and post replies written by `code-review-responder` |
+| `/pr` | Write a PR description from the diff and the repo's conventions, then open it on GitHub with `gh` |
+| `/local-pr` | PRs that never leave the repo, for agents handing code to each other. No `gh`, auth, or remote needed |
+| `/ship` | Converge review on a local PR, then open a draft GitHub PR and collect Copilot review |
+| `/brief` | Performance reports, proposals, RFCs, and decision memos written as prose for stakeholders |
+| `/presentation` | Slide decks — `presentation-writer` writes the content and `presentation-designer` builds Reveal.js HTML |
+| `/explain` | Explain a concept, error, or code for a chosen audience, then check it with `explain-check` |
+| `/jira-create` | Draft a Jira ticket with `jira-writer` and create it after you approve the preview |
+| `/slack-send` | Draft a Slack message in the author's voice and send or schedule it after you approve |
+| `/agent` | Call any agent directly when no dedicated skill covers the task |
+
+---
+
 ## Agents
 
 Use any agent directly, outside the pipeline:
@@ -642,7 +675,7 @@ Use any agent directly, outside the pipeline:
 
 ### Role Agents
 
-Nine built-in role agents provide multi-perspective review:
+Built-in role agents each review from their own domain. The table lists the main ones; skill-support agents such as `jira-writer` and `code-review-writer` live in the same `plugin/role-agents/` directory:
 
 | Agent | Domain |
 |-------|--------|
@@ -658,7 +691,7 @@ Nine built-in role agents provide multi-perspective review:
 
 ### Review Agents
 
-Seven built-in review agents run focused code analysis:
+Built-in review agents each analyze the code from one angle:
 
 | Agent | Focus |
 |-------|-------|
@@ -688,9 +721,12 @@ ges_create_agent({ action: "submit", sessionId: "<id>", agentContent: "..." })
 
 ## CLI Mode
 
-Run Gestalt without Claude Code. **Requires `ANTHROPIC_API_KEY`.**
+Run Gestalt from a terminal without Claude Code. `interview`, `spec`, and `explain-eval` call the LLM themselves, so they **require `ANTHROPIC_API_KEY`**. `explain-check` uses the key only with `--judge`. The other commands run without it.
 
 ```bash
+# Set up a repo once: gestalt.json + code graph + post-commit hook
+npx @tienne/gestalt init
+
 # Start an interactive interview
 npx @tienne/gestalt interview "my topic"
 
@@ -700,12 +736,28 @@ npx @tienne/gestalt spec <session-id>
 # List all sessions
 npx @tienne/gestalt status
 
-# Generate gestalt.json config
-npx @tienne/gestalt setup
-
-# Start the MCP server manually
+# Start the MCP server manually (stdio)
 npx @tienne/gestalt serve
 ```
+
+| Command | What it does |
+|---------|--------------|
+| `serve` | Start the MCP server over stdio. Runs when no command is given |
+| `interview [topic]` | Interactive interview. Needs `ANTHROPIC_API_KEY` |
+| `spec <session-id>` | Generate a Spec from a completed interview. `--force` skips the resolution threshold. Needs `ANTHROPIC_API_KEY` |
+| `status [session-id]` | Status of one session, or every session when no id is given |
+| `init` | Create `gestalt.json`, build the code graph, and install the post-commit hook. `--skip-graph`, `--skip-hook` |
+| `setup` | Create `gestalt.json` only |
+| `update` | Check for and install the latest version |
+| `graph-visualize` | Open the code knowledge graph in the browser. `--port`, `--no-browser` |
+| `pr <subcommand>` | Local PRs inside the repo — `create`, `list`, `show`, `diff`, `comment`, `review`, `merge`, `serve` (read-only web UI), and more. See [Local PR](./docs/local-pr.md) |
+| `review-loop <subcommand>` | Lookups the `review-loop` skill relies on: PR state, review rounds, approve gate |
+| `harness-refs <subcommand>` | Cross-repo reference checks the `review` and `ship` skills rely on |
+| `humanize-scan`, `humanize-check` | Check prose against the AI-tell rulebook |
+| `explain-check`, `explain-eval` | Judge an explanation for its audience, and compare two explanation prompts. `explain-eval` and `explain-check --judge` need `ANTHROPIC_API_KEY` |
+| `usage-report` | Event counts grouped by event type |
+
+`gestalt --help` lists every command, and `gestalt <command> --help` shows its options.
 
 ---
 
@@ -798,7 +850,7 @@ If no tiers are configured, all tiers fall back to the top-level `llm.model` wit
 
 | Variable | Config path | Default | Description |
 |----------|-------------|---------|-------------|
-| `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` | Required only for CLI direct mode |
+| `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` | Required only for CLI commands that call the LLM (`interview`, `spec`, `explain-eval`, `explain-check --judge`) |
 | `GESTALT_MODEL` | `llm.model` | `claude-sonnet-4-20250514` | LLM model |
 | `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` | `0.8` | Interview completion threshold |
 | `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` | Max interview rounds |

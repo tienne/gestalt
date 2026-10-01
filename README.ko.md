@@ -23,7 +23,7 @@
 
 Gestalt는 Claude Code 안에서 실행되는 MCP(Model Context Protocol) 서버예요. 요구사항을 인터뷰로 구체화해 **Spec**(목표·제약조건·완료 기준)을 만들고, 그 Spec을 바탕으로 실행 계획을 짜요.
 
-> **시작 전 확인** — Node.js >= 20.0.0이 필요해요. `nvm install 22 && nvm use 22`로 설치할 수 있어요.
+> **시작 전 확인** — Node.js >= 22.0.0이 필요해요. `nvm install 22 && nvm use 22`로 설치할 수 있어요.
 
 ---
 
@@ -100,7 +100,7 @@ Claude Code
   최종 Spec → 실행 계획
 ```
 
-> **참고해 주세요** — CLI 직접 실행 모드에서는 `ANTHROPIC_API_KEY`가 필요해요. Claude Code 없이 터미널에서 바로 사용할 경우에만 해당돼요.
+> **참고해 주세요** — Claude Code 없이 터미널에서 LLM을 직접 부르는 CLI 명령(`interview`, `spec`, `explain-eval`, `explain-check --judge`)을 실행할 때만 `ANTHROPIC_API_KEY`가 필요해요. 나머지 CLI 명령은 키 없이 돌아요.
 
 ---
 
@@ -126,6 +126,8 @@ Spec과 실행 결과는 레포 루트의 `.gestalt/memory.json`에 자동으로
 
 ## 설치
 
+> **Windows 호스트는 지원하지 않아요.** 플러그인이 MCP 서버를 `sh -c`로 띄우는데 Windows 호스트에서는 이게 안 돌고 CI도 Ubuntu와 macOS에서만 돌려요. 그래도 Windows에서 써보려면 `npm i -g @tienne/gestalt`로 전역 설치한 다음 MCP 설정에 `"command": "gestalt"`, `"args": ["serve"]`를 직접 넣으세요. [옵션 3](#옵션-3-claude-code-cli)과 같은 방식이에요.
+
 ### 옵션 1: Claude Code 플러그인 (권장)
 
 설치 한 번에 MCP 서버, 슬래시 커맨드, Gestalt 에이전트, 프로젝트 컨텍스트를 모두 쓸 수 있어요.
@@ -150,12 +152,12 @@ claude plugin install gestalt@gestalt
 
 | 항목 | 내용 |
 |------|------|
-| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync` |
-| **슬래시 커맨드** | 워크플로 스킬 21개 — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send` 등 |
-| **에이전트** | 파이프라인 에이전트 5개 + Role 에이전트 23개 + Review 에이전트 4개 |
+| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr` — [MCP 레퍼런스](./docs/mcp-reference.md) 참고 |
+| **슬래시 커맨드** | 워크플로 스킬 — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send` 등. 전체 목록은 [스킬](#스킬) |
+| **에이전트** | 파이프라인 에이전트, [Role 에이전트와 Review 에이전트](#6단계--code-review-코드-리뷰) |
 | **CLAUDE.md** | 프로젝트 컨텍스트 및 MCP 사용 가이드 자동 추가 |
 
-> **Node.js >= 20.0.0** 필요 — [nvm](https://github.com/nvm-sh/nvm) 사용 시: `nvm install 22 && nvm use 22`
+> **Node.js >= 22.0.0** 필요 — [nvm](https://github.com/nvm-sh/nvm) 사용 시: `nvm install 22 && nvm use 22`
 
 ---
 
@@ -228,7 +230,7 @@ claude mcp add gestalt -- gestalt serve
 
 ### 옵션 4: OpenAI Codex 플러그인
 
-Claude Code 플러그인과 똑같이 MCP 서버랑 워크플로 스킬 21개를 한 번에 받아요.
+Claude Code 플러그인과 똑같이 MCP 서버랑 워크플로 스킬 전부를 한 번에 받아요.
 
 ```bash
 codex plugin marketplace add tienne/gestalt
@@ -239,9 +241,9 @@ codex plugin add gestalt@gestalt
 
 | 항목 | 내용 |
 |------|------|
-| **MCP 도구** | `ges_*` 12개 전부 |
-| **스킬** | 워크플로 스킬 21개 (`gestalt:review`, `gestalt:pr` 포함) |
-| **에이전트** | Role 에이전트 23개 + Review 에이전트 4개 (스킬이 읽을 수 있게 같이 들어감) |
+| **MCP 도구** | `ges_*` 전부 — [MCP 레퍼런스](./docs/mcp-reference.md) 참고 |
+| **스킬** | [스킬](#스킬)에 있는 것 전부 (`gestalt:review`, `gestalt:pr` 포함) |
+| **에이전트** | [Role 에이전트와 Review 에이전트](#6단계--code-review-코드-리뷰) (스킬이 읽을 수 있게 같이 들어감) |
 
 스킬은 다음 Codex 세션부터 잡혀요. 슬래시 커맨드랑 Claude Code Task 패널은 Claude Code 전용이라, Codex에서는 하려는 일을 말로 설명하면 Codex가 해당 `SKILL.md`를 읽어 진행해요.
 
@@ -536,7 +538,7 @@ Evolution 완료 후 코드 리뷰 파이프라인이 자동으로 실행돼요:
 review_start → 에이전트 관점 제출 → 합의 → 자동 수정
 ```
 
-9개의 내장 **Role 에이전트**가 다양한 관점에서 리뷰해요:
+내장 **Role 에이전트**가 각자 맡은 영역의 관점으로 리뷰해요. 표에는 대표 에이전트만 실었고 `jira-writer`나 `code-review-writer`처럼 스킬이 쓰는 에이전트도 같은 `plugin/role-agents/` 디렉토리에 들어 있어요:
 
 | 에이전트 | 도메인 |
 |-------|--------|
@@ -550,7 +552,7 @@ review_start → 에이전트 관점 제출 → 합의 → 자동 수정
 | `researcher` | 분석, 데이터, 벤치마크 |
 | `technical-writer` | 문서화, API 문서, 가이드, README |
 
-7개의 내장 **Review 에이전트**가 코드를 집중 분석해요:
+내장 **Review 에이전트**가 각자 한 관점으로 코드를 집중 분석해요:
 
 | 에이전트 | 집중 영역 |
 |-------|-------|
@@ -590,11 +592,44 @@ ges_create_agent  →  action: "submit", sessionId: "<id>", agentContent: "..."
 
 ---
 
+### 스킬
+
+Claude Code에서는 스킬마다 슬래시 커맨드로 불러요. Codex에서는 같은 스킬이 `gestalt:<이름>`이고 하려는 일을 말로 설명하면 Codex가 골라 읽어요.
+
+| 스킬 | 언제 쓰나요 |
+|------|-------------|
+| `/interview` | 게슈탈트 원리 기반 문답으로 해상도 점수가 0.8에 닿을 때까지 요구사항을 구체화해요. Spec은 만들지 않아요 |
+| `/spec` | 끝난 인터뷰로 Spec을 만들어요 |
+| `/execute` | 이미 있는 Spec을 검증된 실행 계획으로 바꾸고 실행, 평가, 진화까지 이어가요 |
+| `/solve` | 인터뷰, 스펙, 실행을 중간에 멈추지 않고 한 루프로 돌려요 |
+| `/dispatch` | 실행 세션에서 착수할 수 있는 태스크를 외부 에이전트 런타임(Orca)의 터미널로 나눠 보내요. 선택 기능이라 외부 런타임이 없으면 `/execute`의 기본 병렬 경로가 나아요 |
+| `/setup` | 레포를 처음 설정해요. `gestalt.json`을 만들고 코드 그래프를 빌드하고 post-commit 훅을 깔아요 |
+| `/build-graph` | 코드 지식 그래프만 빌드하거나 다시 빌드해요 |
+| `/blast-radius` | 코드를 고치기 전에 영향받을 파일을 찾아 그 파일만 컨텍스트에 올려요 |
+| `/diff-radius` | 커밋 안 한 변경과 스테이징한 변경이 어디까지 영향을 주는지 봐요 |
+| `/review` | PR이나 브랜치, 커밋을 [Review 에이전트](#6단계--code-review-코드-리뷰)로 검토해요. 대상이 PR이면 인라인 코멘트까지 남겨요 |
+| `/review-loop` | 남의 GitHub PR을 리뷰어로 끝까지 따라가요. 리뷰하고 판정을 남긴 뒤 작성자 대응을 기다렸다가 approve가 날 때까지 재리뷰해요 |
+| `/review-reply` | 내 PR에 달린 리뷰 코멘트를 처리해요. 고치고 커밋한 뒤 `code-review-responder`가 쓴 답글을 남겨요 |
+| `/pr` | diff와 레포 규칙으로 PR 본문을 써서 GitHub에 `gh`로 올려요 |
+| `/local-pr` | 레포 밖으로 안 나가는 PR이에요. 에이전트끼리 코드를 주고받을 때 쓰고 `gh`도 인증도 원격도 필요 없어요 |
+| `/ship` | 로컬 PR로 리뷰를 수렴시킨 뒤 GitHub에 draft PR로 올리고 Copilot 리뷰까지 받아요 |
+| `/brief` | 성과 보고, 제안서, RFC, 의사결정 메모를 이해관계자가 읽을 산문으로 써요 |
+| `/presentation` | 발표 자료를 만들어요. `presentation-writer`가 콘텐츠를 쓰고 `presentation-designer`가 Reveal.js HTML로 조립해요 |
+| `/explain` | 개념이나 에러, 코드를 정한 대상에게 맞춰 설명하고 `explain-check`로 판정해요 |
+| `/jira-create` | `jira-writer`로 지라 티켓을 쓰고 미리보기를 승인하면 생성해요 |
+| `/slack-send` | 슬랙 메시지를 작성자 어투로 다듬고 승인하면 보내거나 예약해요 |
+| `/agent` | 전용 스킬이 없는 일에 에이전트를 직접 불러요 |
+
+---
+
 ### CLI 모드 (Claude Code 없이 사용하기)
 
-Claude Code 없이 터미널에서 바로 쓰고 싶다면 CLI 모드를 이용할 수 있어요. **`ANTHROPIC_API_KEY`가 필요해요.**
+Claude Code 없이 터미널에서 바로 쓰고 싶다면 CLI 모드를 이용할 수 있어요. `interview`, `spec`, `explain-eval`은 LLM을 직접 부르기 때문에 **`ANTHROPIC_API_KEY`가 필요해요.** `explain-check`는 `--judge`를 켤 때만 키를 써요. 나머지 명령은 키 없이 돌아요.
 
 ```bash
+# 레포 최초 설정: gestalt.json + 코드 그래프 + post-commit 훅
+npx @tienne/gestalt init
+
 # 인터랙티브 인터뷰 시작
 npx @tienne/gestalt interview "주제"
 
@@ -604,12 +639,28 @@ npx @tienne/gestalt spec <session-id>
 # 전체 세션 목록 확인
 npx @tienne/gestalt status
 
-# gestalt.json 설정 파일 생성
-npx @tienne/gestalt setup
-
-# MCP 서버 수동 시작
+# MCP 서버 수동 시작 (stdio)
 npx @tienne/gestalt serve
 ```
+
+| 명령 | 하는 일 |
+|------|---------|
+| `serve` | MCP 서버를 stdio로 띄워요. 명령을 안 주면 이게 돌아요 |
+| `interview [topic]` | 인터랙티브 인터뷰. `ANTHROPIC_API_KEY` 필요 |
+| `spec <session-id>` | 끝난 인터뷰로 Spec 생성. `--force`면 해상도 기준을 건너뛰어요. `ANTHROPIC_API_KEY` 필요 |
+| `status [session-id]` | 세션 하나의 상태, id를 안 주면 전체 세션 목록 |
+| `init` | `gestalt.json` 생성, 코드 그래프 빌드, post-commit 훅 설치. `--skip-graph`, `--skip-hook` |
+| `setup` | `gestalt.json`만 생성 |
+| `update` | 최신 버전을 확인하고 설치 |
+| `graph-visualize` | 코드 지식 그래프를 브라우저로 열어요. `--port`, `--no-browser` |
+| `pr <하위 명령>` | 레포 안에서 끝나는 로컬 PR — `create`, `list`, `show`, `diff`, `comment`, `review`, `merge`, `serve`(읽기 전용 웹 UI) 등. [로컬 PR 문서](./docs/local-pr.md) 참고 |
+| `review-loop <하위 명령>` | `review-loop` 스킬이 쓰는 조회 (PR 상태, 리뷰 라운드, approve 게이트) |
+| `harness-refs <하위 명령>` | `review`와 `ship` 스킬이 쓰는 레포 간 참조 검사 |
+| `humanize-scan`, `humanize-check` | 문장을 AI-tell 룰북으로 검사 |
+| `explain-check`, `explain-eval` | 설명본이 대상에게 읽히는지 판정하고 설명 프롬프트 두 벌을 비교. `explain-eval`과 `explain-check --judge`는 `ANTHROPIC_API_KEY` 필요 |
+| `usage-report` | 이벤트 종류별 발생 횟수 |
+
+전체 명령은 `gestalt --help`, 명령별 옵션은 `gestalt <명령> --help`로 볼 수 있어요.
 
 ---
 
@@ -689,7 +740,7 @@ Anthropic(standard/frontier)과 Ollama(frugal)를 혼합하는 예시예요:
 
 | 변수 | Config 경로 | 기본값 | 설명 |
 |----------|-------------|---------|-------------|
-| `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` | CLI 직접 모드에서만 필요 |
+| `ANTHROPIC_API_KEY` | `llm.apiKey` | `""` | LLM을 직접 부르는 CLI 명령(`interview`, `spec`, `explain-eval`, `explain-check --judge`)에서만 필요 |
 | `GESTALT_MODEL` | `llm.model` | `claude-sonnet-4-20250514` | LLM 모델 (provider 모드) |
 | `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` | `0.8` | 인터뷰 완료 임계값 |
 | `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` | 최대 인터뷰 라운드 수 |
