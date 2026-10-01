@@ -6,8 +6,11 @@ import { readActiveSession } from '../../../src/execute/rule-writer.js';
 import type { IHostAdapter } from '../../../src/mcp/host-adapter.js';
 import { handleExecutePassthrough } from '../../../src/mcp/tools/execute-passthrough.js';
 import type { ExecuteInput } from '../../../src/mcp/schemas.js';
+import { validateDAG } from '../../../src/execute/dag-validator.js';
 import {
   createExecuteFixture,
+  makeTask,
+  singleGroup,
   RecordingAdapter,
   type ExecuteFixture,
 } from '../../helpers/execute-fixture.js';
@@ -161,5 +164,35 @@ describe('ges_execute execute_start 핸들러', () => {
     expect(res.status).toBe('all_tasks_completed');
     expect(res.nextAction).toBe('evaluate');
     expect(adapter.written).toHaveLength(0);
+  });
+
+  it('이미 저장된 계획의 DAG가 무효면 all_tasks_completed 대신 에러를 낸다', async () => {
+    const { sessionId } = fx.startedSession();
+    const cyclic = [
+      makeTask('task-0', ['task-1'], 0),
+      makeTask('task-1', ['task-0'], 1),
+      makeTask('task-2', [], 2),
+    ];
+    const dagValidation = validateDAG(cyclic, singleGroup(cyclic));
+    expect(dagValidation.isValid).toBe(false);
+
+    // 게이트가 생기기 전에 확정된 계획을 흉내 낸다 — 엔진 검증을 건너뛰고 바로 저장한다
+    fx.engine.getSessionManager().completePlan(sessionId, {
+      planId: 'stale-plan',
+      specId: fx.engine.getSession(sessionId).specId,
+      classifiedACs: [],
+      atomicTasks: cyclic,
+      taskGroups: singleGroup(cyclic),
+      dagValidation,
+      parallelGroups: [],
+      createdAt: new Date().toISOString(),
+    });
+
+    const res = await fx.call<ExecuteStartResponse>({ action: 'execute_start', sessionId });
+
+    expect(res.status).toBeUndefined();
+    expect(res.error).toContain('invalid dependency DAG');
+    expect(res.error).toContain('task-0');
+    expect(fx.engine.getSession(sessionId).status).toBe('plan_complete');
   });
 });

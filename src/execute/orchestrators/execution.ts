@@ -104,6 +104,21 @@ export class ExecutionOrchestrator {
         return err(new TaskExecutionError('No execution plan found'));
       }
 
+      // 순환이 있는 계획은 착수 가능한 태스크가 하나도 없어 '전부 완료'로 읽힌다.
+      // 이 수정 전에 저장된 세션이 그 상태로 평가까지 넘어가지 않게 여기서 막는다.
+      const { dagValidation } = session.executionPlan;
+      if (!dagValidation.isValid) {
+        const issues = [
+          ...(dagValidation.cycleDetails ?? []),
+          ...(dagValidation.conflictDetails ?? []),
+        ].join('; ');
+        return err(
+          new TaskExecutionError(
+            `Cannot start execution: the execution plan has an invalid dependency DAG (${issues || 'no details'}). Start a new execute session with a corrected plan.`,
+          ),
+        );
+      }
+
       this.sessionManager.startExecution(sessionId, capture);
 
       const taskContext = this.buildNextTaskContext(this.sessionManager.get(sessionId));
