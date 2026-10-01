@@ -79,7 +79,7 @@ src/graph-viz/     — 코드 그래프 D3 시각화 (ges_graph_visualize 백엔
 src/local-pr/      — 로컬 PR 도메인 (이벤트 소싱, git 연산, gestalt pr·ges_pr 백엔드)
 src/local-pr-web/  — 로컬 PR 읽기 전용 웹 UI (gestalt pr serve 백엔드)
 src/knowledge-base/— KB 생성·시맨틱 검색·동기화 (ges_generate_kb/ges_search/ges_sync 백엔드)
-src/memory/        — Memory 피드백 루프 (ProjectMemoryStore, UserProfileStore)
+src/memory/        — Memory 피드백 루프 (ProjectMemoryStore, 과거 스펙 시맨틱 검색, memory.json merge driver)
 src/llm/           — 멀티 프로바이더 LLM 어댑터 (frugal/standard/frontier 티어 라우팅)
 src/review/        — Code Review 파이프라인 (agent-matcher, context-collector, report-generator)
 src/harness-review/— 하네스 PR 참조 후보 수집, 연관 PR 탐색, 세 상태 판정, approve 게이트 (gestalt harness-refs, gestalt review-loop approve-gate 백엔드)

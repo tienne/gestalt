@@ -12,7 +12,6 @@ vi.mock('../../../src/core/file-lock.js', () => ({
 }));
 
 const { ProjectMemoryStore } = await import('../../../src/memory/project-memory-store.js');
-const { UserProfileStore } = await import('../../../src/memory/user-profile-store.js');
 
 describe('잠금을 뺏긴 쓰기', () => {
   let dir: string;
@@ -33,12 +32,5 @@ describe('잠금을 뺏긴 쓰기', () => {
       store.addSpec({ specId: 'x', goal: 'G', createdAt: '', sourceType: 'text' }),
     ).toThrow('메모리 잠금을 뺏겨서');
     expect(existsSync(join(dir, '.gestalt', 'memory.json'))).toBe(false);
-  });
-
-  it('profile.json을 쓰지 않고 던진다', () => {
-    const profilePath = join(dir, 'profile.json');
-    const store = new UserProfileStore(profilePath);
-    expect(() => store.setPreference('k', 'v')).toThrow('프로필 잠금을 뺏겨서');
-    expect(existsSync(profilePath)).toBe(false);
   });
 });

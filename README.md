@@ -436,8 +436,6 @@ Every spec and execution result is automatically recorded in `.gestalt/memory.js
 
 **Commit it.** `.gestalt/memory.json` is plain JSON. Teammates inherit all prior decisions on `git pull`.
 
-**User profile.** Personal preferences are stored in `~/.gestalt/profile.json` and are never committed.
-
 ---
 
 ## Code Knowledge Graph

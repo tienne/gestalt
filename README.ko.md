@@ -120,7 +120,6 @@ Spec과 실행 결과는 레포 루트의 `.gestalt/memory.json`에 자동으로
 
 - **커밋하세요** — `.gestalt/memory.json`은 일반 JSON 파일이에요. 커밋해두면 팀원도 `git pull` 후 이전 결정 사항을 그대로 이어받을 수 있어요.
 - **컨텍스트 반영** — 다음 Spec을 생성할 때 이전 목표와 아키텍처 결정 사항이 프롬프트에 자동으로 반영돼요.
-- **User Profile** — 개인 설정은 `~/.gestalt/profile.json`에 저장돼요. git에는 올라가지 않아요.
 
 ---
 
