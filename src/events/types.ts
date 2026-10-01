@@ -12,6 +12,7 @@ export enum EventType {
   BROWNFIELD_DETECTED = 'brownfield.detected',
   EXECUTE_SESSION_STARTED = 'execute.session.started',
   EXECUTE_PLANNING_STEP_COMPLETED = 'execute.planning.step.completed',
+  EXECUTE_PLANNING_REWOUND = 'execute.planning.rewound',
   EXECUTE_PLAN_VALIDATED = 'execute.plan.validated',
   EXECUTE_PLAN_COMPLETED = 'execute.plan.completed',
   EXECUTE_SESSION_FAILED = 'execute.session.failed',

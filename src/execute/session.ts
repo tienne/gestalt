@@ -191,6 +191,19 @@ export class ExecuteSessionManager {
     });
   }
 
+  /**
+   * planningSteps를 앞에서 keepSteps개만 남기고 잘라낸다. DAG가 무효일 때 closure부터 다시 받으려고 쓴다.
+   * replay도 같은 길이로 잘라야 하므로 keepSteps를 이벤트에 그대로 싣는다.
+   */
+  rewindPlanning(sessionId: string, keepSteps: number, detail: Record<string, unknown>): void {
+    const session = this.get(sessionId);
+    session.planningSteps.splice(keepSteps);
+    session.currentStep = session.planningSteps.length + 1;
+    session.updatedAt = new Date().toISOString();
+
+    this.record(sessionId, EventType.EXECUTE_PLANNING_REWOUND, { ...detail, keepSteps });
+  }
+
   completePlan(sessionId: string, plan: ExecutionPlan): void {
     const session = this.get(sessionId);
     session.executionPlan = plan;
