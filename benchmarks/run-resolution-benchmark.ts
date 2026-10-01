@@ -359,7 +359,8 @@ async function runBenchmark(opts: {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const prefix = isActualDryRun ? 'resolution-dry' : 'resolution';
   const jsonPath = join(outputDir, `${prefix}-${ts}.json`);
-  const latestPath = join(outputDir, 'resolution-latest.json');
+  // dry-run 수치는 mockJudge의 하드코딩 상수라 실측 latest를 덮으면 안 된다
+  const latestPath = join(outputDir, `${prefix}-latest.json`);
 
   writeFileSync(jsonPath, JSON.stringify(benchmarkResult, null, 2), 'utf-8');
   writeFileSync(latestPath, JSON.stringify(benchmarkResult, null, 2), 'utf-8');
@@ -374,6 +375,9 @@ async function runBenchmark(opts: {
   console.log(`\n${'─'.repeat(60)}`);
   console.log('SUMMARY');
   console.log(`${'─'.repeat(60)}`);
+  if (isActualDryRun) {
+    console.log('⚠  DRY-RUN: 아래 수치는 mockJudge 상수에서 나온 값이다. 측정 결과로 인용하지 말 것.');
+  }
   console.log(`요구사항: ${results.length}개 분석`);
   console.log(`\n재작업 확률 (평균):`);
   console.log(`  해상도 0.5 (low):  ${lowPct}%`);
