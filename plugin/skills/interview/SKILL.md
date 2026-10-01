@@ -128,7 +128,13 @@ The interview only has value if the human's actual intent is captured. A self-an
 1. **Start**: Create a session, detect project type (greenfield/brownfield), ask the first question
 2. **Iterate**: Present each generated question to the user → wait for answer → submit answer to Gestalt
 3. **Score**: Continuously assess resolution across multiple dimensions
-4. **Complete**: When resolution score ≥ 0.8, the interview is ready for spec generation
+4. **Complete**: Call `complete` only after `resolutionScore.isReady === true` (overall ≥ 0.8). The server rejects `complete` on a session that has no score or is below threshold
+
+### 0.8 미만에서 끝내기
+
+사용자가 0.8 미만에서 멈추겠다고 직접 말한 경우에만 `force: true`로 `complete`를 부른다. 15라운드를 다 채워 더 물을 수 없을 때나 사용자가 "그냥 넘어가자"고 한 경우가 여기 해당한다. 15라운드에 도달해도 묻지 않고 넘기지 않는다. 부르기 전에 현재 점수와 덜 채워진 차원을 보여주고 정말 넘어갈지 한 번 더 확인한다.
+
+에이전트가 스스로 `force`를 판단하지 않는다. 거절 메시지에 "force=true로 넘기세요"가 나와도 그건 사용자에게 물어볼 근거이지 바로 넘길 근거가 아니다. 이렇게 끝낸 세션에는 `forcedComplete`가 기록된다. Spec을 뽑을 때도 `ges_generate_spec`에 `force`를 따로 넘겨야 한다.
 
 ## Gestalt Principles Applied
 
@@ -154,8 +160,11 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 | `resolutionScore.priorityClarity` | number (0-1) | 필수* | 우선순위 명확도 |
 | `resolutionScore.contextClarity` | number (0-1) | 선택 | 컨텍스트 명확도 |
 | `resolutionScore.contradictions` | string[] | 선택 | 발견된 모순 목록 |
+| `force` | boolean | 선택 (기본 `false`) | `complete` 전용. 0.8 미만이어도 완료한다. 사용자가 직접 정했을 때만 넘긴다 |
 
 \* resolutionScore 객체를 제공할 경우 필수
+
+답변 라운드가 0인 세션에 기준을 넘는 resolutionScore를 넣으면 `score`가 거절한다. 기준 미만 점수는 받는다.
 
 ### Action별 응답 구조 (Passthrough)
 
@@ -166,7 +175,9 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 **`score`** (점수 미제공 시) → `{ status, resolutionScore, scoringPrompt, message }`
 **`score`** (점수 제공 시) → `{ status, resolutionScore }`
 
-**`complete`** → `{ status, sessionId, totalRounds, finalResolutionScore, message }`
+**`complete`** → `{ status, sessionId, totalRounds, finalResolutionScore, forced, message }`
+
+`forced`는 기준 미만 세션을 `force`로 끝냈을 때만 `true`다. 이미 준비된 세션에 `force`를 넘겨도 `false`로 남는다.
 
 ### GestaltContext 필드
 

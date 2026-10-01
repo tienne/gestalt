@@ -41,6 +41,7 @@ This skill transforms completed interview data into a structured project specifi
 
 - Interview session must be in `completed` status
 - Resolution score must be ≥ 0.8 (unless `force` is true)
+- 0.8 미만 세션은 인터뷰 `complete`에 `force: true`를 넘겨야만 `completed`가 된다. 이때 세션에 `forcedComplete`가 남는다
 
 ## 규칙 확보 (1단계 호출 전)
 

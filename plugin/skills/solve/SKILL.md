@@ -84,11 +84,13 @@ Phase 3의 레포 안 탐색까지 앞당기지는 않는다. 그건 실행 대�
 
 → resolutionScore.isReady === true 또는 overallScore ≥ 0.8이 될 때까지 반복한다.
 
-완료:
+완료 (`isReady === true`일 때만):
 
 ```json
 { "action": "complete", "sessionId": "..." }
 ```
+
+0.8 미만이면 서버가 `complete`를 거절한다. 자율 루프라도 `force`는 에이전트가 정하지 않는다. 15라운드를 다 채운 경우에도 사용자에게 현재 점수를 보여주고 넘어가기로 직접 답했을 때만 `{ "action": "complete", "sessionId": "...", "force": true }`로 부른다. 이렇게 끝낸 세션은 Phase 2에서 `ges_generate_spec`에도 `force: true`를 넘겨야 한다.
 
 ### 진행 패널
 
