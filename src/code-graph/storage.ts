@@ -442,6 +442,66 @@ export class CodeGraphStore {
     return rows.map((r) => r.file_path);
   }
 
+  /** getReferencingFiles와 같은 집합에 테스트 여부를 붙여 돌려준다 */
+  getReferencingFilesDetailed(filePath: string): { filePath: string; isTest: boolean }[] {
+    const rows = this.db
+      .prepare(
+        `
+      SELECT src.file_path AS file_path, MAX(src.is_test) AS is_test
+      FROM cg_edges e
+      JOIN cg_nodes tgt ON tgt.id = e.target_id
+      JOIN cg_nodes src ON src.id = e.source_id
+      WHERE tgt.file_path = ? AND src.file_path != ?
+      GROUP BY src.file_path
+    `,
+      )
+      .all(filePath, filePath) as { file_path: string; is_test: number }[];
+    return rows.map((r) => ({ filePath: r.file_path, isTest: r.is_test === 1 }));
+  }
+
+  /**
+   * 파일별로 그 파일을 import하는 파일 수. files를 주면 그 파일만, 생략하면 많은 순 상위 limit개.
+   */
+  getImporterCounts(opts: { files?: string[]; limit?: number } = {}): Map<string, number> {
+    const params: unknown[] = [];
+    let where = `e.kind = 'IMPORTS_FROM' AND e.target_id LIKE 'file:%'`;
+    if (opts.files) {
+      if (opts.files.length === 0) return new Map();
+      where += ` AND e.target_id IN (${opts.files.map(() => '?').join(',')})`;
+      params.push(...opts.files.map((f) => `file:${f}`));
+    }
+    let sql = `
+      SELECT substr(e.target_id, 6) AS file_path, COUNT(DISTINCT e.source_id) AS cnt
+      FROM cg_edges e WHERE ${where}
+      GROUP BY e.target_id ORDER BY cnt DESC`;
+    if (opts.limit !== undefined) {
+      sql += ` LIMIT ?`;
+      params.push(opts.limit);
+    }
+    const rows = this.db.prepare(sql).all(...params) as { file_path: string; cnt: number }[];
+    return new Map(rows.map((r) => [r.file_path, r.cnt]));
+  }
+
+  /**
+   * 이름이나 repoRoot 기준 상대 경로에 토큰 하나라도 들어간 노드를 고른다. 대소문자는 안 가린다.
+   * 상대 경로로 맞추는 건 절대 경로에 섞인 워크트리 이름 같은 조각이 걸리지 않게 하려는 것이다.
+   */
+  searchNodesByTokens(repoRoot: string, tokens: string[], limit: number): CodeGraphNode[] {
+    if (tokens.length === 0) return [];
+    const rel = `lower(substr(file_path, ${repoRoot.length + 2}))`;
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    for (const t of tokens) {
+      const pattern = `%${t.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      clauses.push(`lower(name) LIKE ? ESCAPE '\\'`, `${rel} LIKE ? ESCAPE '\\'`);
+      params.push(pattern, pattern);
+    }
+    const rows = this.db
+      .prepare(`SELECT * FROM cg_nodes WHERE ${clauses.join(' OR ')} LIMIT ?`)
+      .all(...params, limit) as RawNodeRow[];
+    return rows.map(toNode);
+  }
+
   getAllNodes(): CodeGraphNode[] {
     const stmt = this.db.prepare(`
       SELECT * FROM cg_nodes
