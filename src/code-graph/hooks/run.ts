@@ -246,7 +246,9 @@ function sessionMap(store: CodeGraphStore, repoRoot: string, dbPath: string, now
     );
   }
   const meta = store.getCoChangeMeta();
-  if (meta) lines.push(`git 이력 ${meta.commitsUsed}개 커밋에서 함께 바뀐 파일 쌍을 모아뒀어요.`);
+  // 쌍이 하나도 없으면 실을 신호가 없다. "0개 커밋에서 모아뒀다"는 안내만 자리를 먹는다
+  if (meta && store.countCoChangePairs() > 0)
+    lines.push(`git 이력 ${meta.commitsUsed}개 커밋에서 함께 바뀐 파일 쌍을 모아뒀어요.`);
   lines.push(
     '고치기 전에 영향 범위가 궁금하면 ges_code_graph의 blast_radius, 파일 구조만 보려면 skeleton 액션을 쓰면 돼요.',
   );

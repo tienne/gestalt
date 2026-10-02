@@ -175,6 +175,35 @@ describe('SessionStart', () => {
     expect(text.length).toBeLessThanOrEqual(SESSION_MAP_MAX_CHARS);
     expect(text).toContain('src/payment/');
     expect(text).toContain('src/payment/invoiceCalculator.ts (2곳에서 import)');
+    expect(text).toContain('git 이력 50개 커밋에서');
+  });
+
+  it('co-change 쌍이 0개면 이력 안내 줄을 뺀다', async () => {
+    const root = makeRepo('hooks-nocochange');
+    const local = new CodeGraphEngine();
+    try {
+      local.build(root, { mode: 'full' });
+      const store = new CodeGraphStore(join(root, '.gestalt', 'code-graph.db'));
+      store.mergeCoChange({
+        pairs: [],
+        solos: [],
+        meta: {
+          headSha: 'b'.repeat(40),
+          commitsUsed: 0,
+          commitsScanned: 3,
+          maxFilesPerCommit: 20,
+          defaultMinPairCount: 3,
+        },
+        reset: true,
+      });
+      store.close();
+      const raw = JSON.stringify({ session_id: 's', cwd: root, source: 'startup' });
+      const text = context(await runHook('SessionStart', raw, { env: ON }));
+      expect(text).not.toContain('git 이력');
+    } finally {
+      local.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
