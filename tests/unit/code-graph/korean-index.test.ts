@@ -327,8 +327,11 @@ describe('한국어 포인터', () => {
       commits.push({ files: ['src/app.ts'], subject: `${a} ${b} ${c} 레이아웃 손질` });
     }
     commits.push(
-      { files: ['src/interview/scorer.ts'], subject: 'fix(interview): 해상도 점수 경계값 보정' },
-      { files: ['src/interview/scorer.ts'], subject: '해상도 점수 반올림 오류' },
+      {
+        files: ['src/interview/scorer.ts'],
+        subject: 'fix(interview): 인터뷰 해상도 점수 경계값 보정',
+      },
+      { files: ['src/interview/scorer.ts'], subject: '인터뷰 해상도 점수 반올림 오류' },
       { files: ['src/interview/scorer.ts', 'src/app.ts'], subject: '인터뷰 해상도 점수 기준 상향' },
       { files: ['src/billing/refund.ts'], subject: '[PAY-123] 환불 정산 금액 오류' },
     );
@@ -348,9 +351,9 @@ describe('한국어 포인터', () => {
   const rank = (prompt: string) => rankPointers(store, root, tokenizePrompt(prompt), 3);
 
   it('한글로만 쓴 프롬프트가 그 말로 고친 파일을 찾는다', () => {
-    const picks = rank('해상도 점수가 0.8 넘었는데 완료가 안 돼요');
+    const picks = rank('인터뷰 해상도 점수가 0.8 넘었는데 완료가 안 돼요');
     expect(picks[0]?.relPath).toBe('src/interview/scorer.ts');
-    expect(evidenceLabel(picks[0]!)).toBe(' (커밋 "해상도 점수가" 3건)');
+    expect(evidenceLabel(picks[0]!)).toBe(' (커밋 "인터뷰 해상도 점수가" 3건)');
   });
 
   it('무관한 한글 프롬프트는 아무것도 안 넣는다', () => {
@@ -361,6 +364,17 @@ describe('한국어 포인터', () => {
     expect(rank('해상도 좀 알려줘요')).toEqual([]);
   });
 
+  it('한글 내용어가 둘 이상이면 영문이 섞여 걸린 포인터도 문턱을 넘어야 한다', () => {
+    // refund 조각과 커밋 한 건의 "환불 정산"이 맞지만 둘을 더해도 문턱에 못 미친다
+    expect(rank('refund 환불 정산 화면이 이상해요')).toEqual([]);
+  });
+
+  it('식별자를 통째로 적으면 문턱과 상관없이 넣는다', () => {
+    expect(rank('computeResolution 결과가 이상하게 나와요')[0]?.relPath).toBe(
+      'src/interview/scorer.ts',
+    );
+  });
+
   it('티켓 키는 다른 신호 없이도 그 파일을 1위로 올린다', () => {
     const picks = rank('PAY-123 다시 봐줘요');
     expect(picks[0]?.relPath).toBe('src/billing/refund.ts');
@@ -368,7 +382,7 @@ describe('한국어 포인터', () => {
   });
 
   it('korean을 끄면 한국어 신호를 안 쓴다', () => {
-    const t = tokenizePrompt('해상도 점수가 0.8 넘었는데 완료가 안 돼요');
+    const t = tokenizePrompt('인터뷰 해상도 점수가 0.8 넘었는데 완료가 안 돼요');
     expect(rankPointers(store, root, t, 3, { korean: false })).toEqual([]);
   });
 });

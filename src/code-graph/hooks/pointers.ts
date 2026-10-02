@@ -19,11 +19,15 @@ import { scoreNodes, splitIdentifier, type PromptTokens, type RankedNode } from 
  */
 export const MIN_POINTER_SCORE = 4;
 /**
- * 한국어로만 걸린 포인터가 넘어야 하는 점수를 IDF 최댓값 ln(1+N)의 배수로 둔다.
- * "가장 드문 bigram 두 개 몫"이라는 뜻이다. 고정값으로 두면 커밋 수에 따라 뜻이 달라진다.
- * gestalt 시점 분할 평가(N≈430)에서 12 근처였다. 그 아래는 정밀도가 5%대, 위는 26%였다
+ * 한글 내용어가 둘 이상인 프롬프트의 포인터가 넘어야 하는 점수를 IDF 최댓값 ln(1+N)의 배수로 둔다.
+ * 고정값으로 두면 커밋 수에 따라 뜻이 달라진다. N은 색인한 커밋 수와 주석 노드 수 중 큰 쪽이다.
+ *
+ * 영문으로 걸린 포인터에도 건다. 한국어 프롬프트에 섞인 영문은 `API`, `A/B`, `flag`처럼
+ * 흔한 기술 용어가 대부분이라서다. 모노레포 평가에서 영문 신호만의 정밀도가 2%였다.
+ * 배수는 gestalt(N≈430)와 모노레포(N≈8천) 시점 분할 평가에서 두 레포 모두
+ * 정밀도가 오르고 후속 응답 잡음이 내려가는 쪽으로 골랐다
  */
-export const KOREAN_SCORE_IDF_MULTIPLE = 2;
+export const TEXT_PROMPT_IDF_MULTIPLE = 3.5;
 /** 티켓 키가 맞으면 다른 신호 없이도 1위가 되게 준다 */
 const TICKET_SCORE = 12;
 /** 흔한 bigram 하나가 수만 행을 끌고 오지 않게 막는 조회 상한 */
@@ -55,7 +59,7 @@ export interface Pointer {
 }
 
 export interface PointerOptions {
-  /** 평가용. 끄면 영문 신호만 쓴다 */
+  /** 평가용. 끄면 영문 신호만 쓴다. 한국어와 티켓 키를 같이 끈다 */
   korean?: boolean;
   exists?: (filePath: string) => boolean;
 }
@@ -133,12 +137,12 @@ function scoreKorean(
   const byNode = new Map<string, KoHit>();
   const byFile = new Map<string, KoHit>();
   const allTerms = [...new Set(tokens.ko.flatMap((e) => e.terms))];
-  if (allTerms.length === 0) return { byNode, byFile, minScore: Infinity };
+  if (allTerms.length === 0) return { byNode, byFile, minScore: 0 };
 
   const st = store.getTextTermStats(allTerms);
   const minScore = Math.max(
     MIN_POINTER_SCORE,
-    KOREAN_SCORE_IDF_MULTIPLE * Math.log(1 + Math.max(st.commits, st.docs)),
+    TEXT_PROMPT_IDF_MULTIPLE * Math.log(1 + Math.max(st.commits, st.docs)),
   );
   const idf = (n: number, df: number | undefined) => Math.log(1 + n / (1 + (df ?? 0)));
 
@@ -219,11 +223,12 @@ export function rankPointers(
 
   // 한국어: 주석은 노드에, 커밋은 파일에
   let byFileKo = new Map<string, KoHit>();
-  let minKorean = Infinity;
+  let minText = 0;
   if (korean && tokens.ko.length > 0) {
     const { byNode, byFile, minScore } = scoreKorean(store, tokens);
     byFileKo = byFile;
-    minKorean = minScore;
+    // 한글 내용어가 한 어절뿐이면 영문 프롬프트에 한국어 토씨가 붙은 꼴이다. 문턱을 걸지 않는다
+    if (tokens.ko.length >= 2) minText = minScore;
     const missing = [...byNode.keys()].filter((id) => !nodeScores.has(id));
     for (const node of store.getNodesByIds(missing)) nodeScores.set(node.id, { node });
     for (const [id, hit] of byNode) {
@@ -258,7 +263,7 @@ export function rankPointers(
     }
   }
   for (const [filePath, hit] of byFileKo) agg(filePath).commit = hit;
-  if (tokens.tickets.length > 0) {
+  if (korean && tokens.tickets.length > 0) {
     for (const t of store.getTicketFiles(tokens.tickets)) {
       const a = agg(t.filePath);
       if (!a.ticket || t.count > a.ticket.count) a.ticket = { key: t.ticket, count: t.count };
@@ -288,11 +293,11 @@ export function rankPointers(
   }
   ranked.sort((x, y) => y.score - x.score || x.relPath.localeCompare(y.relPath));
 
-  // 영문 포인터는 1위가 MIN_POINTER_SCORE를 넘으면 나머지는 상대 컷으로만 거른다.
-  // 한국어로만 걸린 포인터는 순위와 상관없이 따로 문턱을 넘어야 한다
-  const koreanOnly = (p: Pointer) => p.matched.length === 0 && !p.ticket;
+  // 한글 내용어가 둘 이상인 프롬프트면 포인터마다 문턱을 넘어야 한다. 티켓 키나 식별자를 통째로 적은 경우는
+  // 사람이 대상을 짚은 것이라 문턱과 상관없이 둔다. 그 밖에는 1위만 MIN_POINTER_SCORE를
+  // 넘으면 되고 나머지는 상대 컷으로만 거른다
   const passes = (p: Pointer) =>
-    (!koreanOnly(p) || p.score >= minKorean) && hasEnoughEvidence(p, tokens);
+    hasEnoughEvidence(p, tokens) && (p.score >= minText || !!p.ticket || namedExactly(p, tokens));
   const top = ranked[0];
   if (!top || top.score < MIN_POINTER_SCORE) return [];
 
@@ -322,6 +327,11 @@ export function rankPointers(
 export function hasEnoughEvidence(p: Pointer, tokens: PromptTokens): boolean {
   if (p.ticket) return true;
   if (new Set(p.matched).size + p.koWords.length >= 2) return true;
+  return namedExactly(p, tokens);
+}
+
+/** 프롬프트에 조각 둘 이상짜리 식별자가 통째로 적혔고 그게 이 포인터의 심볼 이름이다 */
+function namedExactly(p: Pointer, tokens: PromptTokens): boolean {
   return (
     p.node.kind !== NodeKind.File &&
     splitIdentifier(p.node.name).length >= 2 &&
