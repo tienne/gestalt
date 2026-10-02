@@ -1,0 +1,337 @@
+thread_id,root_comment_id,pr,reviewer,resolved,has_reply,label,alt_label,confidence,summary_ko,rationale_ko
+a03455bb,a03455bb,079a497f,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,med,계획 유무 검사 중복,범위를 좁힌 의도된 최소 변경이었으나 리팩터로 반영
+0c5d9965,0c5d9965,21293ae9,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,replay와 라이브 evolutionHistory 내용 불일치,
+3eef2eb9,3eef2eb9,21293ae9,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,short-circuit evaluationResult가 재구성 시 복원 안 됨,
+76f549ef,76f549ef,21293ae9,agent:security-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,빌드 출력 원문이 append-only 원장에 남는 범위 확대,원장에 무엇을 얼마나 남길지는 사전 결정 사항일 수 있음
+dbcf0d37,dbcf0d37,21293ae9,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,med,payload에 축약 commands와 전체 결과 중복 적재,
+87b1518c,87b1518c,21293ae9,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,drift payload 필드 누락으로 재구성 결과가 라이브와 다름,
+e4ea7815,e4ea7815,21293ae9,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,라이브-replay 동등성과 구형 payload 하위호환 테스트 누락,
+6c2e9ed8,6c2e9ed8,21293ae9,agent:performance-reviewer,Y,Y,IMPL_DEFECT,,high,complete()가 record()를 안 거쳐 불필요한 재구성,
+7bc551b6,7bc551b6,21293ae9,agent:performance-reviewer,Y,Y,DOC_DRIFT,SPEC_GAP,med,구형 role 이벤트로는 role 상태 복원 불가함을 코드에 명시 필요,하위호환 범위는 PR 본문에 이미 정해져 있었고 코드 주석만 빠짐
+c6eb7b33,c6eb7b33,21293ae9,agent:performance-reviewer,Y,Y,IMPL_DEFECT,,high,캐시 적중 경로 테스트 누락,
+b4e3720a,b4e3720a,21293ae9,agent:performance-reviewer,N,Y,IMPL_DEFECT,SPEC_GAP,low,"get()마다 COUNT와 전체 replay 비용, 증분 replay 후속 과제","성능 허용 범위가 사전에 정해졌다면 후속 과제 기록으로 끝났을 사안, 유효하나 연기됨"
+948e202a,948e202a,21293ae9,agent:quality-reviewer,N,Y,OTHER,,med,두 매니저에 캐시 로직 복제 (후속 과제로 연기),"리팩터링 제안, 결함이나 규칙 위반 아님"
+3c225974,3c225974,21293ae9,"agent:quality-reviewer, comment-reviewer",Y,Y,CONVENTION,,high,JSDoc과 선언 사이에 함수 끼워 문서가 엉뚱한 함수에 붙음 (CM-5),
+bad3fad2,bad3fad2,21293ae9,agent:quality-reviewer,Y,Y,IMPL_DEFECT,OTHER,med,short-circuit 결과 합성 리터럴 중복으로 live/replay 분기 위험,중복 제거 리팩터링 성격도 있음
+7a645610,7a645610,21293ae9,agent:quality-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,구형 drift 복원이 상수 임계값으로 status 재계산해 어긋남,임계값이 저장 안 된 구형 이벤트의 복원 정책이 미정
+278de8fc,278de8fc,21293ae9,"agent:comment-reviewer, quality-reviewer",Y,Y,CONVENTION,,high,클래스 JSDoc과 선언 사이에 함수 삽입 (CM-5 재발),
+dead0f2f,dead0f2f,21293ae9,"agent:quality-reviewer, continuity-judge",Y,Y,SPEC_GAP,IMPL_DEFECT,low,구형 drift 복원에서 status와 hint 결정 규칙 재정립,"임계값 없는 구형 이벤트를 어떻게 복원할지 정하지 않고 시작해 48,50,51 세 라운드로 규칙이 바뀜. 개별 수정은 자명해 보일 수 있어 low"
+cdf1086f,cdf1086f,21293ae9,agent:quality-reviewer,N,Y,OTHER,CONVENTION,med,구형 drift 복원 흐름 가독성 (연기),"동작 변화 없는 가독성 제안, 후속으로 연기"
+2df1c076,2df1c076,224aa378,agent:writing-reviewer,N,Y,SPEC_GAP,CONVENTION,med,F-9 금지 예시 고아 노드가 같은 행 예외 조항과 모순,룰이 무엇을 잡고 무엇을 예외로 둘지 경계가 미정이라 저자가 예외 기준 자체를 다시 정의함
+d24bbcd1,d24bbcd1,224aa378,agent:quality-reviewer,N,Y,CONVENTION,,high,F-9가 SPOTLIGHT에만 있고 GATE에 빠짐 (레포 선례 위반),
+53f2c709,53f2c709,224aa378,agent:writing-reviewer,N,Y,CONVENTION,,high,은유 예시 한 칸 남았다가 무엇을 가리키는지 불명확,
+4f38ee3b,4f38ee3b,224aa378,agent:performance-reviewer,N,Y,CONVENTION,IMPL_DEFECT,med,F-9 처방 칸 559자로 파일 원칙(1줄 처방)과 토큰 비용 위반,파일 서술 원칙 위반이자 상시 토큰 비용 문제
+41c68ed6,41c68ed6,224aa378,agent:quality-reviewer,N,Y,DOC_DRIFT,,high,CHANGELOG에 F-9 항목 누락,
+3b4866fd,3b4866fd,2a55fb84,agent:quality-reviewer,Y,Y,CONVENTION,,high,주석이 변경 이력을 가리킴,
+e70071da,e70071da,2a55fb84,agent:quality-reviewer,Y,Y,CONVENTION,,high,주석이 변경 이력을 가리킴,
+1f1d8a8e,1f1d8a8e,2a55fb84,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,되감기 후 재제출 replay 테스트 없음,
+b9acd173,b9acd173,2a55fb84,agent:quality-reviewer,Y,Y,OTHER,CONVENTION,med,DAG 조회와 검증 코드 중복,중복 제거 리팩터링
+d74a07d2,d74a07d2,2a55fb84,agent:writing-reviewer,Y,Y,CONVENTION,IMPL_DEFECT,high,에러 메시지로 표면 금지어(게슈탈트 용어) 노출,표면/심층 분리 규칙 위반
+1b4f4da7,1b4f4da7,2a55fb84,agent:writing-reviewer,Y,Y,DOC_DRIFT,,med,"hint가 conflictDetails 누락, 동사 불일치",
+a59b76f7,a59b76f7,2a55fb84,agent:writing-reviewer,Y,Y,DOC_DRIFT,,high,SKILL.md 예시 키가 실제 응답과 다름,
+e6774790,e6774790,2a55fb84,agent:harness-reviewer,Y,Y,DOC_DRIFT,,high,응답 시그니처에 plan_rewound 분기 누락,
+b4d878ae,b4d878ae,2a55fb84,agent:harness-reviewer,Y,Y,DOC_DRIFT,SPEC_GAP,med,진행 패널 규칙이 plan_rewound 응답과 안 맞음,되감김 시 표시 규칙을 새로 정해야 했음
+5071593f,5071593f,2a55fb84,agent:harness-reviewer,Y,Y,SPEC_GAP,IMPL_DEFECT,med,"되감은 뒤 closure 재제출 시 순환 정보 미전달, 반복 상한 없음",되감기 후 무엇을 넘기고 몇 번까지 재시도할지가 사전에 안 정해진 동작 결정
+5e82c2ce,5e82c2ce,2a55fb84,agent:quality-reviewer,Y,Y,OTHER,,high,헬퍼 안에서 단계 탐색 중복과 가드 중첩,
+3437ddb4,3437ddb4,2a55fb84,agent:quality-reviewer,Y,Y,CONVENTION,DOC_DRIFT,med,'세 번째로 내지 않는다' 문장 해석이 갈림,문서 문장 명확성
+dbba0733,dbba0733,2a55fb84,agent:harness-reviewer,N,Y,DOC_DRIFT,,high,"diff 밖 문서의 currentPrinciple 불일치, 후속으로 보류",
+11796eb5,11796eb5,32033fe4,agent:quality-reviewer,Y,Y,IMPL_DEFECT,DOC_DRIFT,high,Grok 런처 Node 최소 버전이 20으로 남음,런처 판정 코드와 문서 둘 다 어긋남
+1f017193,1f017193,32033fe4,agent:quality-reviewer,Y,Y,DOC_DRIFT,,high,README 에이전트 개수가 실제와 다름,
+08a3d993,08a3d993,34ae034b,agent:performance-reviewer,Y,Y,IMPL_DEFECT,,high,findTermUses 제곱 스캔으로 2MB 입력에서 수십 초 블로킹,
+7c813b1b,7c813b1b,34ae034b,agent:performance-reviewer,Y,Y,IMPL_DEFECT,,high,explain 쪽 성능 회귀 테스트 부재,
+90fee2e7,90fee2e7,34ae034b,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,"explain-eval이 readInput 대신 readFileSync 사용, 상한 우회",
+c3db99ea,c3db99ea,34ae034b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,CONVENTION,med,마스킹 주석이 실제 동작과 다르고 겹침 테스트 없음,주석 오류지만 핵심은 미검증 로직
+d7502dab,d7502dab,34ae034b,agent:comment-reviewer,Y,Y,CONVENTION,,med,NOT_TOKEN_TAIL 주석 예시가 재현 안 됨,
+401c59ce,401c59ce,34ae034b,agent:comment-reviewer,Y,Y,DOC_DRIFT,,high,상단 주석의 결정론 축 개수가 코드와 다름,
+9da38696,9da38696,34ae034b,agent:writing-reviewer,Y,Y,CONVENTION,,high,JSON 문구에 C-11 연결어미 뒤 쉼표,
+f35d9f2c,f35d9f2c,34ae034b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,boundaryOk 무력화해도 통과하는 테스트 공백,
+d2e14d1b,d2e14d1b,34ae034b,agent:quality-reviewer,Y,Y,SPEC_GAP,CONVENTION,low,"audience 프리셋 임계값 수치에 근거 없음, 실측 보정 흔적 없음",수치 기준(수용 기준)이 사전에 안 정해져 근거를 사후에 붙임. 다만 해결은 주석 추가뿐
+b7ec4b25,b7ec4b25,34ae034b,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,judge 프롬프트에 원문을 방어 없이 주입,
+f993b192,f993b192,34ae034b,agent:performance-reviewer,Y,Y,IMPL_DEFECT,,high,explainProse 등 중복 패스,
+855d199f,855d199f,34ae034b,agent:performance-reviewer,N,Y,IMPL_DEFECT,REVIEWER_NOISE,low,"eval LLM 호출 24회 직렬, 병렬화 제안",작성자가 규모상 불필요하다며 보류. 유효성 자체는 인정
+378c683e,378c683e,34ae034b,agent:comment-reviewer,N,Y,CONVENTION,REVIEWER_NOISE,med,528줄 파일에 섹션 배너 8개,레포 선례와 같다며 범위 밖으로 보류
+7fa745bb,7fa745bb,34ae034b,agent:writing-reviewer,Y,Y,CONVENTION,,high,SKILL.md C-14 수량 예고 문장,
+7826437d,7826437d,34ae034b,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,inlineReferences 경로 탈출과 심링크로 레포 밖 파일 읽기,
+dd857583,dd857583,34ae034b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,후보 1000개 상한 절단 사실이 결과에 안 남음,
+139b0ad8,139b0ad8,34ae034b,agent:comment-reviewer,Y,Y,CONVENTION,DOC_DRIFT,high,임계값 근거 주석이 outsider를 잘못 묶음,주석 내용이 코드 값과 어긋남
+6fc2e526,6fc2e526,34ae034b,agent:comment-reviewer,Y,Y,CONVENTION,DOC_DRIFT,high,임계값 주석의 산술 오류(40의 절반 35),주석 내용이 코드 값과 어긋남
+1d79fa36,1d79fa36,34ae034b,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,findTermUses 경계에 상한 재확인 없음,
+c98cf897,c98cf897,34ae034b,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,judge 태그 구분자를 원문이 위조 가능,
+070067a0,070067a0,34ae034b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,앵커와 원격 주소 배제 테스트 없음,
+109a5095,109a5095,34ae034b,agent:performance-reviewer,N,Y,IMPL_DEFECT,,med,"perf 테스트 배수 문턱 근거 없음, 실제로 흔들림",
+a1f36e5e,a1f36e5e,34ae034b,agent:quality-reviewer,N,Y,SPEC_GAP,IMPL_DEFECT,low,grounding STOPWORDS가 좁아 무관한 글이 pass,어휘 겹침 축이 무엇을 막고 얼마나 강하게 판정할지 미정이었고 결국 판정 수준을 abort에서 warn으로 바꿈. 단순 목록 누락으로도 볼 수 있음
+12c2840b,12c2840b,34ae034b,agent:quality-reviewer,Y,Y,SPEC_GAP,IMPL_DEFECT,med,grounding이 좋은 의역 설명까지 abort시킴,'원문 어휘를 버린 좋은 비유는 통과'라는 엣지 케이스 기준이 사전에 없었고 축의 판정 의미 자체를 재결정함
+5886854d,5886854d,34ae034b,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,sealTags 정규식이 공백 변형 태그를 놓침,
+2c212310,2c212310,34ae034b,agent:quality-reviewer,Y,Y,DOC_DRIFT,,high,결정론 축 다섯 문구가 코드 네 곳에 남음,
+2317ac12,2317ac12,34ae034b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,med,상한 주석 단언을 덮는 테스트 없음,
+b0198d43,b0198d43,34ae034b,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,sealTags가 실제 프롬프트에 적용되는지 테스트 없음,
+86887f81,86887f81,34ae034b,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,NOT_MEASURED 분모 제외 로직이 테스트에서 실행 안 됨,
+7a0e3fcb,7a0e3fcb,34ae034b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,CONVENTION,low,JOSA 처리로 '속도' 같은 명사가 잘림,작성자가 한계를 주석으로 남기고 수용
+2f2328a3,2f2328a3,34ae034b,agent:security-reviewer,N,Y,IMPL_DEFECT,,med,withinRoots 검증과 읽기 사이 심링크 경합(TOCTOU),PR 범위 제약이 사전에 정해져 있어 보류. 스펙 공백 아님
+97b2b44c,97b2b44c,38fcfecb,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,공백만 있는 decision 통과,
+223aa872,223aa872,38fcfecb,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,med,"session이 resilience에 의존, resumes 이중 계산",
+8a6191be,8a6191be,38fcfecb,agent:quality-reviewer,Y,Y,SPEC_GAP,,high,재개 뒤 lateral 상태 유지가 의도인지 불명,작성자가 의도라고 답하고 문서·테스트로 고정. 사전에 정했으면 질문 자체가 없음
+f2738d39,f2738d39,38fcfecb,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,memory 저장 실패를 빈 catch로 삼킴,
+aababef1,aababef1,38fcfecb,agent:quality-reviewer,Y,Y,CONVENTION,,high,같은 모듈 import 두 줄,
+bd22dab1,bd22dab1,38fcfecb,agent:writing-reviewer,Y,Y,CONVENTION,,high,close를 닫다로 옮김(B-5),
+31f4a3ec,31f4a3ec,38fcfecb,agent:writing-reviewer,Y,Y,CONVENTION,,high,문서 전반 닫다 표현(B-5),
+a1d50c0a,a1d50c0a,38fcfecb,agent:security-reviewer,N,Y,IMPL_DEFECT,SPEC_GAP,low,memory 메모가 스펙 프롬프트에 실리는 주입 여지,작성자가 범위 밖으로 미룸. 유효한 지적이라 noise 아님
+76183687,76183687,38fcfecb,agent:comment-reviewer,Y,Y,IMPL_DEFECT,,high,열린 게이트 최대 하나 불변식 미강제,
+4bb9af6c,4bb9af6c,38fcfecb,agent:comment-reviewer,N,Y,REVIEWER_NOISE,CONVENTION,med,types.ts 섹션 배너 추가(CM-6),파일 기존 배너 관례를 근거로 반박
+e9c49c87,e9c49c87,38fcfecb,agent:comment-reviewer,N,Y,REVIEWER_NOISE,CONVENTION,med,session.ts 섹션 배너 추가(CM-6),파일 기존 관례로 반박
+e2a97883,e2a97883,38fcfecb,agent:comment-reviewer,N,Y,REVIEWER_NOISE,CONVENTION,med,schemas.ts 섹션 배너 추가(CM-6),파일 기존 관례로 반박
+48dda5e8,48dda5e8,38fcfecb,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,memoryRecorded 분기 테스트 부재,
+8c24c879,8c24c879,38fcfecb,agent:quality-reviewer,Y,Y,DOC_DRIFT,,high,memoryRecorded 공통 필드 문서 누락,
+9a72ce13,9a72ce13,3d2e96ed,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,테스트 경로를 셸 인용 없이 이어 붙여 주입 가능,
+7241602b,7241602b,3d2e96ed,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,삭제된 테스트 파일이 러너 인자로 넘어감,
+d2909097,d2909097,3d2e96ed,agent:harness-reviewer,Y,Y,IMPL_DEFECT,,high,"명령 대조 도입으로 diff 밖 호출부(벤치마크, simulate) 거부됨",
+dd38e112,dd38e112,3d2e96ed,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,git -z 미사용으로 비ASCII 경로 누락,
+f0e6becb,f0e6becb,3d2e96ed,agent:security-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,기준 명령 없는 세션과 빈 제출이 대조를 우회,기준 없는 기존 세션을 통과시킬지 거부할지는 하위호환 결정이지만 대조 도입 의도상 거부가 자연스러움
+9bdc2b60,9bdc2b60,3d2e96ed,agent:security-reviewer,Y,Y,IMPL_DEFECT,,med,packageManager 미지원 값 조용히 무시,
+bf3d26cd,bf3d26cd,3d2e96ed,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,diff와 ls-files 경로 기준 불일치,
+23c4531a,23c4531a,3d2e96ed,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,git 오류 삼켜 변경 일부 놓친 채 통과 가능,
+e492ebd7,e492ebd7,3d2e96ed,agent:harness-reviewer,Y,Y,DOC_DRIFT,,high,SKILL.md 응답 모양이 실제와 다르고 거부 경로 미기재,
+58151aec,58151aec,3d2e96ed,agent:harness-reviewer,Y,Y,DOC_DRIFT,,high,SKILL.md의 패키지 매니저 선택 서술이 코드와 다름,
+933fb749,933fb749,3d2e96ed,agent:continuity-judge,Y,Y,IMPL_DEFECT,DOC_DRIFT,high,short-circuit nextAction이 evolve로 잘못돼 Flow B 진입,main부터 있던 버그가 문서화하며 드러남
+a8fdb67c,a8fdb67c,3d2e96ed,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,맨 앞 - 경로가 러너 옵션으로 해석,
+307a669e,307a669e,476d423f,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,잠금 없는 read()에서 격리 rename이 새 유효 파일을 옮길 수 있음,
+15115cc4,15115cc4,476d423f,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,stale 잠금 부수는 경로의 TOCTOU,
+c90593af,c90593af,476d423f,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,"update() 경로 격리, IO 실패, stillMine 거부 테스트 부재",
+a864f31c,a864f31c,476d423f,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,compressedContexts 비배열 값 미정규화로 TypeError,
+1d565142,1d565142,476d423f,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,owner 쓰기 실패 시 주인 없는 잠금 디렉토리 잔존,
+c5c0b287,c5c0b287,476d423f,agent:quality-reviewer,Y,Y,OTHER,CONVENTION,med,isPlainObject 중복 복사,리팩터링 성격
+2ebd7be6,2ebd7be6,476d423f,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,같은 밀리초 격리 시 백업 덮어씀,
+b401e9bd,b401e9bd,476d423f,agent:security-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,low,잠금 실패 시 add*가 던져 본 응답이 바뀔 수 있음,부수 기능 실패가 본 흐름을 막으면 안 된다는 건 기존 호출부 패턴상 자명. 실패 정책 결정 면이 있어 alt
+9388983d,9388983d,476d423f,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,writeJsonAtomic이 모드 미지정이라 profile.json 권한 완화,
+41dc830d,41dc830d,476d423f,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,"다중 프로세스 테스트 cwd 의존, profile 동시성 테스트 부재",
+761f1bbe,761f1bbe,476d423f,agent:performance-reviewer,Y,Y,CONVENTION,IMPL_DEFECT,low,"Atomics.wait 대기로 이벤트 루프 최대 2초 정지, JSDoc 명시 요청",코드는 그대로 두고 주석만 추가
+d44ac782,d44ac782,476d423f,agent:comment-reviewer,Y,Y,CONVENTION,IMPL_DEFECT,med,CM-8 주석 단언을 받치는 테스트 부재,주석 룰 지적이지만 테스트 추가로 해소
+24db51ae,24db51ae,476d423f,agent:comment-reviewer,Y,Y,CONVENTION,IMPL_DEFECT,med,CM-8 profile 쪽 비격리 단언 테스트 부재,주석 룰 지적이지만 테스트 추가로 해소
+064a0bd3,064a0bd3,476d423f,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,addSpec catch 본문이 비어 로그 없음,
+db26c290,db26c290,476d423f,agent:comment-reviewer,Y,Y,CONVENTION,,high,주석 0x7fffffff와 상수 값 불일치,
+d91eea94,d91eea94,476d423f,agent:writing-reviewer,Y,Y,CONVENTION,,high,주석 F-6 복합명사 압축,
+658fa436,658fa436,54a1e381,agent:harness-architect,N,N,SPEC_GAP,,med,F-9 예외가 F-11 대표 예시를 면제,두 룰 간 우선순위 결정이 안 됨
+a949bed7,a949bed7,54a1e381,agent:harness-architect,N,N,IMPL_DEFECT,SPEC_GAP,med,판정 기준이 자기 예시를 예외로 떨굼,의도는 분명하고 기준 문구가 잘못됨
+2e2f1f77,2e2f1f77,54a1e381,agent:harness-architect,N,N,SPEC_GAP,,high,팀에서 굳은 표현 예외를 B-4/F-9 중 어느 쪽으로 볼지 미정,예외 정책 자체가 안 정해졌다고 명시
+1863222d,1863222d,54a1e381,agent:harness-architect,N,N,SPEC_GAP,,med,레포 내 root 직역 11곳이 전부 위반,자료구조 용어를 대상에서 뺄지 범위 결정 필요
+4cdcfbb1,4cdcfbb1,54a1e381,agent:harness-architect,N,N,SPEC_GAP,DOC_DRIFT,low,B-3 처방이 F-11 예시를 만듦,두 룰의 경계와 연결이 미결정
+3c8528d7,3c8528d7,54a1e381,agent:harness-architect,N,N,SPEC_GAP,,med,F-7과 겹치는 이공계 비유의 판정 우선순위 없음,룰 간 우선순위 결정 누락
+2311c144,2311c144,54a1e381,agent:harness-architect,N,N,CONVENTION,SPEC_GAP,med,S1 격상 근거 미기재,A-20 관례상 근거를 남겨야 함. 심각도 결정 자체의 근거 부족이기도
+07e8f08f,07e8f08f,54a1e381,agent:harness-architect,N,N,IMPL_DEFECT,,med,게이트 예시가 첫 따옴표 하나만 렌더,
+ea2c13da,ea2c13da,54a1e381,agent:harness-architect,N,N,OTHER,SPEC_GAP,med,SPOTLIGHT·게이트 편입 기준 부재,이 PR 이전부터 있던 정책 공백
+5e958545,5e958545,54a1e381,agent:quality-reviewer,N,N,CONVENTION,DOC_DRIFT,med,F-11 CHANGELOG 항목 누락,
+2c54dc25,2c54dc25,54a1e381,agent:quality-reviewer,N,N,IMPL_DEFECT,SPEC_GAP,med,F-11 실예문 회귀 테스트 없음,탐지기를 둘지는 범위 결정 여지
+6c17cea3,6c17cea3,54a1e381,agent:writing-reviewer,N,N,CONVENTION,,high,좌향 수식(A-18),
+c7230e26,c7230e26,74fce6f1,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,테스트 제목과 실제 상태 불일치,
+7f65811d,7f65811d,74fce6f1,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,안 쓰는 reopen과 extraStores,
+47ea7ef3,47ea7ef3,74fce6f1,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,빈 배열이면 루프가 무검사 통과,
+4b68e82f,4b68e82f,74fce6f1,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,it.each 제목이 검증 안 하는 필드명 표기,
+7ec76bec,7ec76bec,74fce6f1,agent:comment-reviewer,Y,Y,CONVENTION,,high,헤더 주석이 작업 맥락 기술,
+852cd633,852cd633,79f1f402,agent:comment-reviewer,Y,Y,DOC_DRIFT,,high,주석의 25초 수치가 파일 내 계산과 안 맞음,
+3e5300ff,3e5300ff,79f1f402,agent:quality-reviewer,Y,Y,DOC_DRIFT,,high,네 배 여유는 이론값 기준인데 조건 없이 서술,
+42f8dc89,42f8dc89,79f1f402,agent:quality-reviewer,Y,Y,CONVENTION,,high,주석에 이전 방식 이력과 오해 소지 표현 (WHY만),
+2adf8656,2adf8656,7d8a218e,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,개행 든 경로로 git stdin 줄 짝짓기가 어긋남,
+e0550a54,e0550a54,7d8a218e,agent:performance-reviewer,Y,Y,IMPL_DEFECT,,high,execFileSync로 MCP 이벤트 루프 블로킹,
+ecf067dc,ecf067dc,7d8a218e,agent:performance-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,기준점 dirty 전체가 이벤트 payload에 무상한으로 실림,상한 초과 시 동작(baseline_truncated)은 설계 결정이지만 작성자는 놓친 것으로 인정
+58c43a5b,58c43a5b,7d8a218e,agent:performance-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,기준점 캡처 실패가 no_baseline으로 조용히 통과,실패 상태 구분은 사전 정의 가능했던 엣지 케이스
+e4cd4bdc,e4cd4bdc,7d8a218e,agent:quality-reviewer,Y,Y,SPEC_GAP,DOC_DRIFT,high,evolve_re_execute 경로는 완료 주장 대조가 없음,검증 범위에 재실행 경로를 넣을지가 미정이었고 결국 범위 밖으로 결정하고 문서화함
+ad354b56,ad354b56,7d8a218e,agent:comment-reviewer,Y,Y,DOC_DRIFT,CONVENTION,high,상수 주석 '이만큼'과 > 비교 불일치,
+4b5b93a0,4b5b93a0,7d8a218e,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,git 로컬 설정 fsmonitor로 외부 명령 실행 가능,
+f177edc4,f177edc4,7d8a218e,agent:security-reviewer,N,Y,SPEC_GAP,IMPL_DEFECT,med,기준점이 세션 단위라 앞 태스크 변경을 뒤 태스크가 주장해도 통과,검증이 태스크 단위 보장인지 세션 단위 보장인지가 미정. 작성자가 한계로 남기고 반박하며 의견이 갈림
+8530fc1f,8530fc1f,7d8a218e,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,'..foo' 오판과 FIFO 해시 블로킹,
+12f39236,12f39236,7d8a218e,agent:performance-reviewer,Y,Y,IMPL_DEFECT,DOC_DRIFT,high,repoRoot 폴백 순서가 JSDoc과 다르게 동작,
+4372e566,4372e566,7d8a218e,agent:performance-reviewer,Y,Y,IMPL_DEFECT,,high,검증 실패 payload에 artifacts 무상한 적재,
+b013d392,b013d392,7d8a218e,agent:quality-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,git 예외 시 호스트에 출구가 없음,서버 장애 시 호스트 행동 규칙이 사전에 없었음
+89bfe718,89bfe718,7d8a218e,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,"rename, 중복, dirty 삭제, 예외 분기 테스트 없음",
+8614b39e,8614b39e,7d8a218e,agent:comment-reviewer,Y,Y,CONVENTION,,high,새 섹션 배너 추가,
+9cc613ed,9cc613ed,7d8a218e,agent:harness-reviewer,Y,Y,DOC_DRIFT,,high,execute 병렬 프롬프트에 noCodeChange 안내 누락(dispatch와 불일치),
+227583d7,227583d7,7d8a218e,agent:writing-reviewer,Y,Y,CONVENTION,,high,'~했다는 뜻이다' 반복 문형,
+9a91fdbc,9a91fdbc,7d8a218e,agent:writing-reviewer,Y,Y,CONVENTION,,high,describe 문구 영한 혼용,
+9a84fa9d,9a84fa9d,7d8a218e,agent:writing-reviewer,Y,Y,CONVENTION,,high,F-6 조사 없는 명사 나열,
+1ba69ece,1ba69ece,7d8a218e,agent:performance-reviewer,Y,Y,IMPL_DEFECT,,high,stdin error 리스너 없어 EPIPE로 서버 크래시 가능,
+58243c02,58243c02,7d8a218e,agent:comment-reviewer,Y,Y,IMPL_DEFECT,,high,fsmonitor 차단을 검증하는 테스트 없음,
+650fa503,650fa503,7d8a218e,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,cat-file missing 줄 파싱 오류로 변경 없는 주장 통과,
+55352de0,55352de0,7d8a218e,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,in 연산자가 프로토타입 체인까지 봄,
+55687132,55687132,7d8a218e,agent:quality-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,FIFO가 missing으로 오분류,새 상태 추가는 설계 결정이나 올바른 동작이 명백한 편
+6e069dcd,6e069dcd,7d8a218e,agent:quality-reviewer,Y,Y,OTHER,IMPL_DEFECT,med,payload 키를 spread 두 개가 덮어쓸 수 있는 구조,"불변식 의존 리팩터링 제안, 현재 버그 아님"
+2c2afff7,2c2afff7,7d8a218e,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,테스트 단언이 너무 느슨해 분기 구분 못함,
+66926359,66926359,7d8a218e,agent:harness-reviewer,Y,Y,DOC_DRIFT,,high,serverError 처리가 워커 프롬프트 사본에 없음,
+775c1683,775c1683,7d8a218e,agent:harness-reviewer,Y,Y,DOC_DRIFT,CONVENTION,med,artifactCheck 키 꼴이 응답마다 달라 문서 보강 필요,LLM 독자용 문서 명확성 문제
+ed24f226,ed24f226,8b79435b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,임베딩 파이프라인 로딩 Promise 미캐시로 중복 다운로드,
+47fc4019,47fc4019,8b79435b,agent:comment-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,compressedContexts는 덮어쓰기 기록인데 합집합 머지로 ours 갱신 유실,최신 우선이 자명하나 동률 처리 등 머지 정책 결정이 리뷰에서 이뤄짐
+97295794,97295794,8b79435b,agent:comment-reviewer,Y,Y,DOC_DRIFT,,high,store.read()와 같은 마이그레이션이라는 주석이 실제와 다름,
+3e3e0ecb,3e3e0ecb,8b79435b,agent:comment-reviewer,Y,Y,IMPL_DEFECT,,high,theirs만 깨진 경우 테스트 누락,
+ee990755,ee990755,8b79435b,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,문서의 npx 예시 버전 미고정으로 머지마다 최신 패키지 실행,
+c09e9619,c09e9619,8b79435b,agent:security-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,공유 memory.json 필드가 이스케이프 없이 프롬프트에 주입,"위협 모델이 미리 정해졌으면 처음부터 정규화했을 수 있음, 다만 수정 방향은 자명"
+a4425515,a4425515,8b79435b,agent:security-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,merge driver가 JSON 파싱만 하고 구조 검증 없음,"검증 범위가 사전에 안 정해져 이후 15,22,28,17로 라운드가 이어짐"
+a8877bda,a8877bda,8b79435b,agent:performance-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,low,모델 못 받는 환경에서 start마다 3초 지연과 Promise 누적,실패 시 재시도 정책은 결정 사항이나 지연 자체는 명백한 결함
+b91077cf,b91077cf,8b79435b,agent:performance-reviewer,Y,Y,IMPL_DEFECT,,high,start마다 과거 스펙 전체 재임베딩,
+82d0e295,82d0e295,8b79435b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,CLI exitCode와 인자 순서 테스트 누락,
+bf2eb787,bf2eb787,8b79435b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,"relatedSpecs 통합 테스트 누락, 테스트가 로컬 memory.json에 의존",
+cf34e0a4,cf34e0a4,8b79435b,agent:writing-reviewer,Y,Y,DOC_DRIFT,,high,driver 실패 시 충돌 마커가 생긴다는 문서 서술이 git 동작과 다름,
+c6d27e79,c6d27e79,8b79435b,agent:writing-reviewer,Y,Y,DOC_DRIFT,CONVENTION,med,충돌이 반드시 난다는 단정 서술,사실 정확도 문제지만 단정 어투 교정이기도 함
+54729aa5,54729aa5,8b79435b,agent:writing-reviewer,Y,Y,DOC_DRIFT,,high,README에 팀 공유 문서 링크 누락,
+3fdd9197,3fdd9197,8b79435b,agent:writing-reviewer,Y,Y,DOC_DRIFT,,high,"주석 범위(한글)와 실제 필터(가나, 한자) 불일치",
+0464f218,0464f218,8b79435b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,스키마가 injector가 쓰는 필드를 다 검증하지 않아 TypeError 가능,
+df1ba834,df1ba834,8b79435b,agent:continuity-judge,Y,Y,DOC_DRIFT,,high,버전 조건이 npx 문단에만 있고 실패 원인 안내 부족,
+3ef0702d,3ef0702d,8b79435b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,마이그레이션이 스키마 검증보다 먼저 돌아 원시 TypeError,
+9604daf6,9604daf6,8b79435b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,med,"로딩 상태 이중 관리, 추론 실패에도 쿨다운 적용",
+ca1efd01,ca1efd01,8b79435b,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,fast-forward 경로에서 rationale 숫자면 TypeError (이번 라운드 회귀),
+92cc6442,92cc6442,8b79435b,agent:security-reviewer,Y,Y,IMPL_DEFECT,,high,짧은 필드 정규화 누락과 U+2028 등 미처리,
+3c553455,3c553455,8b79435b,agent:performance-reviewer,Y,Y,IMPL_DEFECT,,high,oneLine 정규식 제곱 백트래킹,
+4ef37513,4ef37513,8b79435b,agent:comment-reviewer,Y,Y,IMPL_DEFECT,DOC_DRIFT,med,비교에 쓰는 lastUpdated가 스키마에 없음,주석과 스키마 불일치로 제기됐지만 실질은 검증 누락
+49a3128e,49a3128e,8b79435b,agent:writing-reviewer,Y,Y,CONVENTION,,high,쿨다운 직역어 쉬는 시간 (B-5),
+c19d6f51,c19d6f51,8b79435b,agent:writing-reviewer,Y,Y,CONVENTION,,high,"명사 덩어리 주어 (A-15, F-6)",
+00c2784d,00c2784d,8b79435b,agent:continuity-judge,Y,Y,DOC_DRIFT,,med,unmerged 상태 복구 절차가 문서에 없음,
+fd86c3b9,fd86c3b9,8b79435b,agent:continuity-judge,Y,Y,DOC_DRIFT,,high,pnpm exec 실패 메시지가 문서 단서와 다름,
+3bbbafc4,3bbbafc4,8b79435b,agent:continuity-judge,Y,Y,DOC_DRIFT,,med,memory-merge 최초 버전 하한이 문서에 없음,
+76e8776b,76e8776b,8b79435b,agent:continuity-judge,Y,Y,IMPL_DEFECT,,high,null 배열 필드를 ??=로 통과시켜 문서 표와 어긋남,
+4d0fbf5b,4d0fbf5b,8b79435b,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,한쪽 lastUpdated 없으면 값 유실,
+5a8c2c1b,5a8c2c1b,8b79435b,agent:writing-reviewer,Y,Y,CONVENTION,DOC_DRIFT,med,"표 칸 어미 혼용, compressedContexts에 안 맞는 서술",어투가 주지만 서술 부정확도 섞임
+c4fdbdc9,c4fdbdc9,8b79435b,agent:writing-reviewer,Y,Y,CONVENTION,,high,버전 조건 중복 서술과 지시어 모호,
+e53f123f,e53f123f,8b79435b,agent:writing-reviewer,Y,Y,CONVENTION,,high,문장 주어 누락,
+a3304ff4,a3304ff4,8b79435b,agent:writing-reviewer,Y,Y,CONVENTION,,med,checkout -m 경고 위치가 실행 뒤,
+56666436,56666436,8b79435b,agent:continuity-judge,Y,Y,DOC_DRIFT,,high,rebase 중 :2/:3 의미가 반대인데 누락,
+ce30a9c2,ce30a9c2,92632f8e,agent:writing-reviewer,Y,Y,IMPL_DEFECT,,high,B-5 '정본' 부분일치로 수정본 등 오탐,
+436c40fa,436c40fa,92632f8e,agent:continuity-judge,Y,Y,IMPL_DEFECT,,high,B-5 '정본' 오탐 시나리오(경로 따라가기),
+ca3a2dbb,ca3a2dbb,92632f8e,agent:continuity-judge,Y,Y,SPEC_GAP,CONVENTION,med,'원본' 머리말이 딱지 금지와 예외에 동시에 걸려 반대 판정,두 룰이 겹칠 때의 판정 기준이 룰북에 미정이라 경계 규칙을 새로 결정함
+0bcffd0c,0bcffd0c,b6765eee,agent:writing-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,F-9 root 예외 기준이 룰을 만든 사례(뿌리가 하나다)를 통과시킴,잡아야 할 사례는 정해져 있었고 문구가 못 잡음. 기준 자체를 이번에 다시 정한 면도 있어 alt
+d1c4bc8e,d1c4bc8e,b6765eee,agent:quality-reviewer,Y,Y,SPEC_GAP,IMPL_DEFECT,med,같은 행 일반 예외와 root 기준 사이 우선순위 부재,root cause에 두 예외가 겹칠 때 어느 쪽이 이기는지는 사전에 정할 규칙 결정이었음
+18386988,18386988,b6765eee,agent:technical-writer,Y,Y,CONVENTION,DOC_DRIFT,high,같은 root 기준이 23줄과 146줄에 따로 적혀 비대칭,문서 자체의 사본 한 자리 규범 위반
+e8e2b616,e8e2b616,b6765eee,agent:harness-architect,Y,Y,DOC_DRIFT,,high,responder AGENT.md의 F-9 요약이 새 기준을 반영 안 함,
+1156e373,1156e373,b6765eee,agent:technical-writer,Y,Y,CONVENTION,,med,F-9 표 행이 길어 새 기준이 묻힘(구조),
+722e2d7d,722e2d7d,b6765eee,agent:harness-architect,Y,Y,CONVENTION,DOC_DRIFT,med,새 사례 문장 근거가 레포에 없음,근거를 남긴다는 문서 규범 위반
+6db6b207,6db6b207,b6765eee,agent:quality-reviewer,Y,Y,IMPL_DEFECT,CONVENTION,low,예시 나열이 닫힌 목록처럼 읽힘,열린 목록 의도는 명확했고 문구만 빠짐
+2f12f805,2f12f805,b6765eee,agent:harness-architect,Y,Y,DOC_DRIFT,,high,code-review-writer 발췌 표 F-9 칸과 자가점검이 새 기준 미반영,
+499aadfe,499aadfe,b6765eee,agent:harness-architect,Y,Y,DOC_DRIFT,SPEC_GAP,low,root 쪽이 형태 판정이 됐는데 탐지기 미부착 이유 미기록,결정은 이미 있었고 기록만 빠짐. 탐지기 부착 여부는 설계 결정이라 alt
+99df68a3,99df68a3,b6765eee,agent:continuity-judge,Y,Y,DOC_DRIFT,,high,CHANGELOG 옛 기록과 이번 변경의 경계가 어긋남,
+856ca773,856ca773,b6765eee,agent:harness-architect,N,Y,DOC_DRIFT,,med,"PR 본문의 재생성 불필요 근거가 틀림(미해결, 이후 본문에서 고치기로)",
+942e8130,942e8130,b6765eee,agent:harness-architect,Y,Y,CONVENTION,,high,어투 출처로 바꾸며 조사 탈락,
+304c4988,304c4988,b6765eee,agent:continuity-judge,Y,Y,DOC_DRIFT,,high,"CHANGELOG 새 항목이 옛 판정을 안 본 자리로 잘못 기술, 자기모순",
+665c4bc7,665c4bc7,b6765eee,agent:technical-writer,Y,Y,DOC_DRIFT,,high,CHANGELOG 자기 인용 버전 번호 부정확,
+f4e8b794,f4e8b794,b6765eee,agent:harness-architect,Y,Y,DOC_DRIFT,,high,17곳과 35곳 셈 범위 설명 부재,
+f11aad79,f11aad79,b6765eee,agent:continuity-judge,Y,Y,DOC_DRIFT,,high,답글은 CHANGELOG에 남겼다 했지만 실제로 안 적음,
+2bd1e2ea,2bd1e2ea,b6765eee,agent:writing-reviewer,Y,Y,CONVENTION,,high,같은 구분을 반복하는 재진술 문장,
+8f0d06cb,8f0d06cb,b6765eee,agent:technical-writer,N,Y,CONVENTION,DOC_DRIFT,med,앵커 없는 산문 포인터라 검사 밖(범위 밖으로 보류),문서 구조 규칙 문제. 범위 밖 보류는 유효 지적
+083e9c71,083e9c71,b6765eee,agent:harness-architect,Y,Y,DOC_DRIFT,IMPL_DEFECT,med,발췌 세 곳이 한 단어 판별자를 잃고 예시 사본이 어긋남,발췌본과 룰북 정합 문제
+d7cc689c,d7cc689c,b6765eee,agent:writing-reviewer,Y,Y,CONVENTION,,high,CHANGELOG 문장 서술어 탈자,
+e7105182,e7105182,b6765eee,agent:technical-writer,Y,Y,DOC_DRIFT,,high,35곳 셈 제외 조건이 재현 안 됨,
+c91e23d1,c91e23d1,b6765eee,agent:harness-architect,Y,Y,CONVENTION,,high,CHANGELOG의 우선순위를 박았습니다가 F-10 대상,
+14053081,14053081,b6765eee,agent:harness-architect,Y,Y,CONVENTION,,high,같은 탐지기를 탐지기와 그물 두 이름으로 부름,
+bdc5bcbc,bdc5bcbc,b6765eee,agent:harness-architect,Y,Y,IMPL_DEFECT,CONVENTION,low,writer 314줄의 '만'을 315줄이 스스로 깸,룰 문장 논리 모순. 의도는 명확
+23386c83,23386c83,b6765eee,agent:continuity-judge,Y,Y,CONVENTION,,high,23줄만 '영어로'가 붙어 다섯 자리 꼴이 다름,
+334bb02c,334bb02c,b6765eee,agent:quality-reviewer,Y,Y,CONVENTION,,med,커밋 메시지가 diff 일부를 누락,
+b03c96e4,b03c96e4,b6765eee,agent:harness-architect,Y,Y,DOC_DRIFT,,med,"커밋 메시지가 레포 전체 통일을 과하게 주장, main의 그물 잔존",
+03e2ecc5,03e2ecc5,b6765eee,agent:harness-architect,N,Y,OTHER,IMPL_DEFECT,med,"F-10 형태 예외 소진 주장이 피동 박히다를 빠뜨림(기존 구멍, 후속 T1)",diff가 만든 게 아닌 main 기존 결함. 이후 같은 PR에서 F-10 작업이 시작되는 계기
+316ce9a3,316ce9a3,b6765eee,agent:harness-architect,Y,Y,CONVENTION,,high,314줄만 배타 표지가 없는 문장 꼴 차이,
+52773d71,52773d71,b6765eee,agent:harness-architect,Y,Y,SPEC_GAP,IMPL_DEFECT,med,F-10 넷째 예외 근거가 셀이 세운 판정 축과 반대,"예외를 판정 축 안에 둘지는 미리 정해야 할 룰 설계 결정. 37,38로 3라운드 이어짐"
+ab9adf78,ab9adf78,b6765eee,agent:writing-reviewer,Y,Y,CONVENTION,,high,"같은 논리가 룰북, 커밋, 테스트 주석 세 곳에 반복",
+bd210d5e,bd210d5e,b6765eee,agent:writing-reviewer,Y,Y,CONVENTION,,high,커밋 메시지 D-5 의인화 주어,
+a4fa346c,a4fa346c,b6765eee,agent:harness-architect,Y,Y,DOC_DRIFT,,high,detectors F-10 주석이 늘어난 형태 예외 미반영,
+cf720a77,cf720a77,b6765eee,agent:qa-engineer,Y,Y,IMPL_DEFECT,,high,새 테스트가 이름이 주장하는 메커니즘을 검증 못 함,
+aa5be079,aa5be079,b6765eee,agent:qa-engineer,Y,Y,IMPL_DEFECT,CONVENTION,low,루프 두 입력이 같은 사유를 중복 확인,테스트 품질 문제
+91167685,91167685,b6765eee,agent:qa-engineer,Y,Y,IMPL_DEFECT,,high,선언된 예외 넷 중 실물 잠금 케이스 테스트 누락,
+4cd90a61,4cd90a61,b6765eee,agent:qa-engineer,Y,Y,DOC_DRIFT,,high,F-10 넷째 예외 추가가 CHANGELOG에 없음,
+687ecbb4,687ecbb4,b6765eee,agent:harness-architect,Y,Y,SPEC_GAP,,med,새 근거(피동이라 주체 없음)도 셀의 폴백 축과 충돌,작성자와 리뷰어가 예외의 층위를 두고 라운드마다 갈림. 최종적으로 판정 예외에서 빼는 결정
+4fd38f6d,4fd38f6d,b6765eee,agent:harness-architect,Y,Y,IMPL_DEFECT,SPEC_GAP,med,피동 일반 예외가 못 박혀 있다까지 면제하는 통로가 됨,넓히지 않는다는 의도는 명확했고 문구가 과함. 예외 범위 결정 면도 있어 alt
+ede516a3,ede516a3,b6765eee,agent:harness-architect,Y,Y,DOC_DRIFT,,high,"룰북 형태 예외 문장이 탐지기 동작, detectors 주석과 다름",
+3ffc120b,3ffc120b,b6765eee,agent:quality-reviewer,Y,Y,CONVENTION,,high,CHANGELOG 불릿 마커 탈락으로 렌더 깨짐,
+58e1a54c,58e1a54c,b6765eee,agent:writing-reviewer,Y,Y,CONVENTION,,high,커밋 메시지 D-5 재발,
+876b68cb,876b68cb,b6765eee,agent:harness-architect,Y,Y,IMPL_DEFECT,DOC_DRIFT,med,회귀 코퍼스에 새 형태 예외 케이스 누락,테스트 커버리지 누락
+f8bd97fa,f8bd97fa,b6765eee,agent:harness-architect,Y,Y,DOC_DRIFT,,high,판정 범위는 안 넓어졌다가 탐지 층과 판정 층을 섞음,
+fb419570,fb419570,b6765eee,agent:harness-architect,Y,Y,CONVENTION,,high,한 문장에 탐지기가 둘이라 대비가 흐려짐,
+6f0bae1f,6f0bae1f,c33eb5f3,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,force가 ges_interview zod shape에 없어 MCP 경유 시 지워짐,
+b708be35,b708be35,c33eb5f3,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,complete가 이미 완료된 세션을 막지 않음,
+ec1edc76,ec1edc76,c33eb5f3,agent:security-reviewer,Y,Y,SPEC_GAP,DOC_DRIFT,med,"0.8 관문이 여전히 호스트 자기 신고 점수에 의존, 한계 미기재",관문을 어디까지 닫을지(수용 기준)가 미정. 작성자가 서버 검사는 트레이드오프로 안 넣고 문서화만 결정
+4486d26b,4486d26b,c33eb5f3,agent:quality-reviewer,Y,Y,OTHER,IMPL_DEFECT,med,"라운드 0 고득점 규칙이 score 분기에만 인라인, respond와 미공유",현재 우회는 없고 구조 정리 성격
+3f72bfd8,3f72bfd8,c33eb5f3,agent:harness-reviewer,Y,Y,DOC_DRIFT,SPEC_GAP,med,spec 스킬에 forcedComplete 세션의 force 처리 안내 누락,다른 문서와 사본 불일치가 주. forced 세션 처리 흐름 결정 면이 있어 alt
+17abaf31,17abaf31,c33eb5f3,agent:harness-reviewer,Y,Y,SPEC_GAP,CONVENTION,med,15라운드 도달을 force 허용 근거로 읽히게 하는 모순 문단,"언제 force를 허용할지(사용자 확인, 점수 제시) 흐름이 미정이었고 리뷰어 제안 정책을 그대로 채택"
+c23f710f,c23f710f,c33eb5f3,agent:harness-reviewer,Y,Y,IMPL_DEFECT,SPEC_GAP,med,거절 후 흐름이 15라운드 전/후를 안 나눔,세션이 in_progress라 같은 세션 이어가기는 자명. 엣지 흐름 미설계 면이 있어 alt
+8f0335fb,8f0335fb,c810fb3e,agent:quality-reviewer,Y,Y,IMPL_DEFECT,,high,dry-run에서도 SUMMARY가 실측처럼 결론 출력,
+a2dfd5a5,a2dfd5a5,c810fb3e,agent:quality-reviewer,Y,Y,DOC_DRIFT,CONVENTION,med,날짜 박은 상태 메모가 곧 거짓이 되고 갱신 지점 둘,문서 정합 유지 문제
+6d5a19c8,6d5a19c8,c810fb3e,agent:quality-reviewer,Y,Y,IMPL_DEFECT,OTHER,low,로컬 잔존 dry-run 결과 파일 안내와 stringify 중복,안내 누락과 리팩터링 혼합
+049afeba,049afeba,c9e142ac,agent:quality-reviewer,N,N,OTHER,,med,"두 헬퍼가 헤딩 탐색 코드 중복(답 없음, 미해결)",리팩터링 제안
+c5b1e903,c5b1e903,c9e142ac,agent:harness-architect,N,N,OTHER,,low,"다른 스킬 단계 참조는 여전히 앵커 없음, 범위 밖 후속(미해결)",범위 밖임을 리뷰어가 스스로 밝힌 후속 메모. 범위를 미리 정했어도 나올 지적
+457292a9,457292a9,c9e142ac,agent:harness-architect,N,N,OTHER,IMPL_DEFECT,low,"참조 테스트가 문장 가독성은 못 봄, 한계로 수용(미해결)",정규식 한계 수용 메모
+2759f68a,2759f68a,c9e142ac,agent:comment-reviewer,N,N,IMPL_DEFECT,CONVENTION,med,실패 메시지가 실제로 안 닿는 경우까지 덮는다고 주장(미해결),메시지 범위 주장이 동작과 다름
+0881ff7a,0881ff7a,dbe41a7c,agent:harness-architect,N,N,SPEC_GAP,IMPL_DEFECT,med,review가 이미 판정 이벤트를 게시해 이중 판정,review와 review-loop의 게시 책임 분담(계약)이 착수 전에 안 정해짐
+fad41902,fad41902,dbe41a7c,agent:harness-architect,N,N,SPEC_GAP,IMPL_DEFECT,med,두 스킬의 approve 판정 입력이 갈림(이번 라운드 vs 누적),approve 기준을 무엇으로 볼지가 제품 결정인데 미정
+ab7a73dd,ab7a73dd,dbe41a7c,agent:continuity-judge,N,N,IMPL_DEFECT,SPEC_GAP,med,escalate 홀드가 게시 뒤라 무력,의도(홀드)는 분명했고 배치 순서가 틀림. 0번 계약 미정과 연결
+1545f286,1545f286,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,reviewThreads 쿼리에 pageInfo 없음,
+0d4921ed,0d4921ed,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,high,PR 번호 검증 없이 경로·셸에 사용,
+fd916061,fd916061,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,high,Monitor 커맨드 인자 무인용,
+f0543a3f,f0543a3f,dbe41a7c,agent:security-reviewer,N,N,SPEC_GAP,,med,1회 동의로 여러 라운드 무인 approve 게시,라운드별 승인 게이트를 둘지는 범위·안전 정책 결정이었음
+6ef12a1d,6ef12a1d,dbe41a7c,agent:writing-reviewer,N,N,CONVENTION,IMPL_DEFECT,med,배포 스킬에 실명이 박힘,플레이스홀더 규칙 위반
+1b8cd2b4,1b8cd2b4,dbe41a7c,agent:writing-reviewer,N,N,DOC_DRIFT,,med,멈추는 자리 표가 본문과 불일치,
+6dedacea,6dedacea,dbe41a7c,agent:writing-reviewer,N,N,CONVENTION,,high,사무투 분류사 건 사용(I-5),
+73225c9e,73225c9e,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,med,jq와 쿼리가 두 곳에 중복,
+5b1094c1,5b1094c1,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,SPEC_GAP,med,gh pr review 실패 시 처리 미정,실패 시 멈춤이 자명한 fail-closed라 결함으로 봄
+e6c7141e,e6c7141e,dbe41a7c,agent:quality-reviewer,N,N,SPEC_GAP,IMPL_DEFECT,med,REPLIES_ONLY 선택지 후속 동작과 답글 게시 주체 부재,답글 게시가 스킬 범위인지가 안 정해짐
+919edf26,919edf26,dbe41a7c,agent:continuity-judge,N,N,IMPL_DEFECT,SPEC_GAP,med,review의 미선언 내부 값에 의존,
+9c1d3b20,9c1d3b20,dbe41a7c,agent:continuity-judge,N,N,DOC_DRIFT,,high,README 등 스킬 개수 20 그대로,
+20d9a4c5,20d9a4c5,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,loopState 일부 값 대입 자리 없음,
+ffca4336,ffca4336,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,CONVENTION,med,Block/Pass가 어느 출력 필드인지 미명시,
+b1d51a9c,b1d51a9c,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,SPEC_GAP,med,"round 파일 의미 모호, 재개 규칙 불명",
+1f5baa38,1f5baa38,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,high,graphql errors 시 CLOSED로 오종료,
+6ef0e7c8,6ef0e7c8,dbe41a7c,agent:security-reviewer,N,N,SPEC_GAP,IMPL_DEFECT,low,마지막 작성자만 보고 대응됨 판정,무엇을 대응됨으로 칠지 정의가 제품 결정
+9aadeb10,9aadeb10,dbe41a7c,agent:comment-reviewer,N,N,CONVENTION,,high,인자 주석이 변수 할당과 중복(CM-1),
+60493c43,60493c43,dbe41a7c,agent:harness-architect,N,N,DOC_DRIFT,,high,스킬 총량 하드코딩으로 문서 간 어긋남,
+0eb9d352,0eb9d352,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,high,indexOf로 실제 호출 자리 미검사,
+b23f7b68,b23f7b68,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,pending 계산이 첫 페이지만 봄,
+b24965b2,b24965b2,dbe41a7c,agent:harness-architect,N,N,IMPL_DEFECT,,high,ⓟ 게이트가 절차에 없음,
+6273c4d4,6273c4d4,dbe41a7c,agent:harness-architect,N,N,IMPL_DEFECT,,high,버전 감지가 게시 뒤에 돔,
+360598d9,360598d9,dbe41a7c,agent:harness-architect,N,N,DOC_DRIFT,,high,README.ko 스킬 개수 20,
+1c5ced56,1c5ced56,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,high,threads.jsonl 누적 append,
+4bee88c3,4bee88c3,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,high,사용자 문장을 --body-file 없이 전달,
+94458b73,94458b73,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,comments(first:50)로 마지막 작성자 판정,
+98e1b369,98e1b369,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,출력 넷을 아무 Phase도 안 채움,
+92f38104,92f38104,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,high,watch.sh 쿼리 페이지네이션 누락,
+19b3d208,19b3d208,dbe41a7c,agent:continuity-judge,N,N,DOC_DRIFT,SPEC_GAP,med,동의 문구가 새 ⓟ 게이트와 모순,게이트 정책이 리뷰 중 바뀌며 문구가 낡음
+fe8a91c2,fe8a91c2,dbe41a7c,agent:continuity-judge,N,N,IMPL_DEFECT,SPEC_GAP,med,ⓟ와 코멘트로만 남긴다 선택지 이행 모순,상태 전이를 사전 설계 안 한 영향도 있음
+4b7fc15b,4b7fc15b,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,SPEC_GAP,low,postVerdict 기본값 true라 fail-open,기본값 선택은 결정이지만 fail-closed가 자명
+5ab6ac9f,5ab6ac9f,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,med,loopTmp 내 작은따옴표 미처리,
+88103cae,88103cae,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,med,테스트가 정규식 매칭뿐,
+a0e95ece,a0e95ece,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,페이지네이션 테스트가 배선 미검증,
+a1eea052,a1eea052,dbe41a7c,agent:quality-reviewer,N,N,DOC_DRIFT,SPEC_GAP,med,postVerdict false여도 COMMENT 리뷰 게시 사실 미기재,
+396135c5,396135c5,dbe41a7c,agent:qa-engineer,N,N,CONVENTION,,med,section() 테스트 관례 미준수,
+d861af79,d861af79,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,high,PR 번호 검증 테스트가 실행 안 함,
+23c8cf84,23c8cf84,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,med,상태값·종료조건 회귀 테스트 부재,
+9276ea0b,9276ea0b,dbe41a7c,agent:harness-architect,N,N,DOC_DRIFT,,med,전수 표 마커가 본문에 없음,
+713648ad,713648ad,dbe41a7c,agent:harness-architect,N,N,IMPL_DEFECT,,high,ⓟ 테스트가 배선 미검증,
+48fc2f11,48fc2f11,dbe41a7c,agent:harness-architect,N,N,DOC_DRIFT,,med,Phase 1 참조 위치 불일치,
+212a512f,212a512f,dbe41a7c,agent:comment-reviewer,N,N,CONVENTION,,high,코드와 중복 주석(CM-1),
+594c9d45,594c9d45,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,$page 미정의로 재리뷰 판정 붕괴,
+e7c664a8,e7c664a8,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,high,테스트가 문서 대신 사본을 실행,
+b8d78406,b8d78406,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,high,jq -s 실패를 0개로 읽어 approve,
+2a4419b5,2a4419b5,dbe41a7c,agent:harness-architect,N,N,IMPL_DEFECT,,high,postedReview 출력을 소비하는 자리 없음,
+aa40ae3c,aa40ae3c,dbe41a7c,agent:harness-architect,N,N,IMPL_DEFECT,,high,finalDecision 등 대입 스니펫 없음,
+695b6e9a,695b6e9a,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,"jq 사본 셋, 동기화 주석 누락",
+71f40983,71f40983,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,high,마커 검사 임계값이 범례만으로 충족,
+c9491e2a,c9491e2a,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,high,loopState 검사가 표 한 줄로 충족,
+9392f0c6,9392f0c6,dbe41a7c,agent:harness-architect,N,N,IMPL_DEFECT,,high,ⓟ 검사가 토큰 존재만 봄,
+c39c5b2f,c39c5b2f,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,페이지네이션 검사가 $page 버그 못 잡음,
+05ab22a4,05ab22a4,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,출력 여섯 값 검사 동어반복,
+a4190488,a4190488,dbe41a7c,agent:writing-reviewer,N,N,IMPL_DEFECT,SPEC_GAP,med,사전 점검 기준이 라운드와 세션을 섞음,세션 기준이 의도임이 분명해 결함
+f5ac94b4,f5ac94b4,dbe41a7c,agent:writing-reviewer,N,N,CONVENTION,,high,C-8 대구 반복,
+0c70d477,0c70d477,dbe41a7c,agent:writing-reviewer,N,N,CONVENTION,,high,프리플라이트 음차(B-3),
+237bb709,237bb709,dbe41a7c,agent:quality-reviewer,N,N,CONVENTION,,med,하위 절 번호 체계 불일치,
+65591527,65591527,dbe41a7c,agent:quality-reviewer,N,N,DOC_DRIFT,,med,상태 파일 표에 watch-threads.jsonl 누락,
+933de671,933de671,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,med,커서 루프에 상한·스로틀 없음,
+dbed9189,dbed9189,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,low,사전 점검이 키 존재만 확인,
+0f6ac035,0f6ac035,dbe41a7c,agent:writing-reviewer,N,N,IMPL_DEFECT,CONVENTION,med,"출력값 채우기 절 자기모순(재조회, 미사용 변수)",
+75fec68d,75fec68d,dbe41a7c,agent:writing-reviewer,N,N,CONVENTION,,high,합쇼체와 해요체 혼용(E-7),
+7fd2fa72,7fd2fa72,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,med,sectionStartingWith가 코드펜스 미처리,
+66c12429,66c12429,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,me 재선언 누락으로 pending=0,
+e5b9e3e7,e5b9e3e7,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,high,GraphQL 부분 성공을 성공으로 처리,
+5180e10a,5180e10a,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,high,4) fail-closed 가드 테스트 부재,
+7f7909b4,7f7909b4,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,high,postedReview 감지 절 테스트 부재,
+b4575e44,b4575e44,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,prNumber 미정의,
+90cbaa03,90cbaa03,dbe41a7c,agent:quality-reviewer,N,N,IMPL_DEFECT,,high,unresolvedAtEnd가 조회 없이 참조,
+3f233693,3f233693,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,med,스냅샷 신선도 미확인,
+242d06ad,242d06ad,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,med,사전 점검이 outputs 선언 미검사,
+ba480534,ba480534,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,high,ⓟ 선택지 표 테스트 부재,
+2794056d,2794056d,dbe41a7c,agent:qa-engineer,N,N,IMPL_DEFECT,,high,grep 앵커 느슨화 미검출,
+fa97031e,fa97031e,dbe41a7c,agent:security-reviewer,N,N,IMPL_DEFECT,,low,eval 가드가 빈 stdout 실패에 미발동,
+4dba33c8,4dba33c8,dbe41a7c,agent:harness-architect,N,N,DOC_DRIFT,SPEC_GAP,high,--watch 제거 뒤 라우팅 표가 감시 동작 서술,리뷰 도중 --watch를 범위에서 뺀 여파
+0acf6f7c,0acf6f7c,dbe41a7c,agent:harness-architect,N,N,DOC_DRIFT,,med,reviewSummary와 summary 연결 미명시,
+3f21d9de,3f21d9de,dbe41a7c,agent:harness-architect,N,N,DOC_DRIFT,CONVENTION,med,CHANGELOG Unreleased 누락,
