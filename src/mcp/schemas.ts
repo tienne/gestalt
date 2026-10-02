@@ -648,9 +648,18 @@ export type BenchmarkInput = z.infer<typeof benchmarkInputSchema>;
 export const codeGraphInputSchema = guardObject(
   z.object({
     action: z
-      .enum(['build', 'blast_radius', 'diff_radius', 'query', 'stats', 'db_exists', 'co_change'])
+      .enum([
+        'build',
+        'blast_radius',
+        'diff_radius',
+        'query',
+        'stats',
+        'db_exists',
+        'co_change',
+        'skeleton',
+      ])
       .describe(
-        'build: index codebase, blast_radius: committed changes, diff_radius: uncommitted changes, query: graph query, stats: show stats, db_exists: check DB, co_change: files that changed together in git history',
+        'build: index codebase, blast_radius: committed changes, diff_radius: uncommitted changes, query: graph query, stats: show stats, db_exists: check DB, co_change: files that changed together in git history, skeleton: signatures and line numbers of one file without bodies',
       ),
     repoRoot: z.string().describe('Absolute path to the repository root'),
     // build 전용
@@ -704,6 +713,10 @@ export const codeGraphInputSchema = guardObject(
       .max(1)
       .optional()
       .describe('Drop pairs below this confidence (default: 0.3)'),
+    filePath: z
+      .string()
+      .optional()
+      .describe('File to summarize, absolute or relative to repoRoot (required for skeleton)'),
     refresh: z
       .boolean()
       .optional()

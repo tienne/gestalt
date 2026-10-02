@@ -3,7 +3,15 @@ import { codeGraphEngine } from '../../code-graph/index.js';
 import type { CoChangeTuning, FreshnessReport, QueryPattern } from '../../code-graph/index.js';
 
 export type CodeGraphInput = {
-  action: 'build' | 'blast_radius' | 'diff_radius' | 'query' | 'stats' | 'db_exists' | 'co_change';
+  action:
+    | 'build'
+    | 'blast_radius'
+    | 'diff_radius'
+    | 'query'
+    | 'stats'
+    | 'db_exists'
+    | 'co_change'
+    | 'skeleton';
   repoRoot: string;
   // build 전용
   include?: string[];
@@ -22,6 +30,8 @@ export type CodeGraphInput = {
   limit?: number;
   minPairCount?: number;
   minConfidence?: number;
+  // skeleton 전용
+  filePath?: string;
   // 질의 액션 공통. false면 질의 전 최신화를 건너뛴다
   refresh?: boolean;
 };
@@ -145,6 +155,23 @@ export async function handleCodeGraphPassthrough(input: CodeGraphInput): Promise
           ...coChangeTuning(input),
         });
         return { ...result, freshness };
+      }
+
+      case 'skeleton': {
+        if (!input.filePath) {
+          return { error: 'filePath is required for skeleton action' };
+        }
+        const freshness = await refreshBeforeQuery(input);
+        const result = codeGraphEngine.skeleton(repoRoot, input.filePath);
+        // 서버가 text를 그대로 응답 본문으로 쓴다. 첫 줄이 줄인 크기여야 해서다
+        const stale = freshness.status === 'stale' ? `\n(${freshness.message})` : '';
+        return {
+          text: result.text.replace('\n', `${stale}\n`),
+          source: result.source,
+          originalChars: result.originalChars,
+          skeletonChars: result.skeletonChars,
+          freshness,
+        };
       }
 
       case 'db_exists': {

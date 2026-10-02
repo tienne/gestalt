@@ -411,12 +411,21 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   guardedTool(
     'ges_code_graph',
-    'Build and query the code knowledge graph for a repository. Actions: build (index codebase), blast_radius (find impacted files from committed changes), diff_radius (find impacted files from uncommitted changes), query (graph traversal), stats (show DB stats), db_exists (check if graph DB exists), co_change (files that git history shows changing together).',
+    "Build and query the code knowledge graph for a repository. Actions: build (index codebase), blast_radius (find impacted files from committed changes), diff_radius (find impacted files from uncommitted changes), query (graph traversal), stats (show DB stats), db_exists (check if graph DB exists), co_change (files that git history shows changing together), skeleton (one file's signatures and line numbers without bodies — read this before reading the whole file). Query actions sync the graph with the working tree first.",
     {
       action: z
-        .enum(['build', 'blast_radius', 'diff_radius', 'query', 'stats', 'db_exists', 'co_change'])
+        .enum([
+          'build',
+          'blast_radius',
+          'diff_radius',
+          'query',
+          'stats',
+          'db_exists',
+          'co_change',
+          'skeleton',
+        ])
         .describe(
-          'build: index codebase into graph DB, blast_radius: find files impacted by committed changes, diff_radius: find files impacted by uncommitted changes, query: traverse graph, stats: show stats, db_exists: check if DB exists, co_change: files that changed together in git history',
+          'build: index codebase into graph DB, blast_radius: find files impacted by committed changes, diff_radius: find files impacted by uncommitted changes, query: traverse graph, stats: show stats, db_exists: check if DB exists, co_change: files that changed together in git history, skeleton: signatures and line numbers of one file without bodies',
         ),
       repoRoot: z.string(),
       include: z.array(z.string()).optional(),
@@ -439,6 +448,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       limit: z.number().int().min(0).max(500).optional(),
       minPairCount: z.number().int().min(0).optional(),
       minConfidence: z.number().min(0).max(1).optional(),
+      filePath: z.string().optional().describe('(skeleton: absolute or relative to repoRoot)'),
       refresh: z
         .boolean()
         .optional()
@@ -447,6 +457,10 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     async (params) => {
       const input = codeGraphInputSchema.parse(params);
       const result = await handleCodeGraphPassthrough(input);
+      // skeleton은 읽을 본문 자체라 JSON으로 감싸면 이스케이프만 늘고 첫 줄 표시도 묻힌다
+      if (input.action === 'skeleton' && 'text' in result && typeof result.text === 'string') {
+        return toolReply(result.text);
+      }
       return toolReply(JSON.stringify(result, null, 2));
     },
   );

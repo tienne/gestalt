@@ -1,7 +1,12 @@
 /**
  * ges_code_graph 질의 액션이 답하기 전에 최신화를 거치는지, 끄는 스위치가 먹는지.
  */
+import { randomUUID } from 'node:crypto';
+import { existsSync, rmSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ZodTypeAny } from 'zod';
+import { createMcpServer } from '../../../src/mcp/server.js';
+import { codeGraphInputSchema } from '../../../src/mcp/schemas.js';
 import { handleCodeGraphPassthrough } from '../../../src/mcp/tools/code-graph-passthrough.js';
 import { codeGraphEngine } from '../../../src/code-graph/index.js';
 import type { FreshnessReport } from '../../../src/code-graph/index.js';
@@ -101,5 +106,43 @@ describe('ges_code_graph 질의 전 최신화', () => {
     await handleCodeGraphPassthrough({ action: 'build', repoRoot: '/repo' });
 
     expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe('새 입력이 두 스키마에 다 선언돼 있다', () => {
+  const dbPath = `.gestalt-test/code-graph-refresh-${randomUUID()}.db`;
+
+  afterEach(() => {
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (existsSync(`${dbPath}${suffix}`)) rmSync(`${dbPath}${suffix}`, { force: true });
+    }
+  });
+
+  const input = { action: 'skeleton', repoRoot: '/repo', filePath: 'a.ts', refresh: false };
+
+  it('schemas.ts', () => {
+    expect(codeGraphInputSchema.parse(input)).toMatchObject(input);
+  });
+
+  it('server.ts 인라인 shape', async () => {
+    const { server, eventStore } = await createMcpServer({
+      dbPath,
+      llm: { apiKey: '', model: 'test-model' },
+    });
+    try {
+      const shape = (
+        server as unknown as {
+          _registeredTools: Record<
+            string,
+            { inputSchema?: { shape?: Record<string, ZodTypeAny> } }
+          >;
+        }
+      )._registeredTools['ges_code_graph']?.inputSchema?.shape;
+      for (const [field, value] of Object.entries(input)) {
+        expect(shape![field]!.safeParse(value).success, field).toBe(true);
+      }
+    } finally {
+      eventStore.close();
+    }
   });
 });
