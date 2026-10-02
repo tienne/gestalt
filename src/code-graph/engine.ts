@@ -102,6 +102,13 @@ function getFilesRecursively(
 
 const SCOPE_META_KEY = 'build_scope';
 
+/**
+ * 노드 주석 색인 버전. 파일이 안 바뀌면 다시 파싱하지 않으니, 색인이 생기기 전 DB나
+ * 추출 규칙이 바뀐 DB는 이 값이 다를 때 한 번 전량 파싱한다.
+ */
+const DOC_INDEX_KEY = 'doc_index_version';
+const DOC_INDEX_VERSION = '1';
+
 export const STALE_MESSAGE = '갱신 중이라 이전 그래프 기준';
 
 interface BuildScope {
@@ -178,7 +185,7 @@ export class CodeGraphEngine {
     const files = this.listScopeFiles(repoRoot, scope);
 
     let plan: ChangePlan;
-    if (mode === 'incremental') {
+    if (mode === 'incremental' && store.getMeta(DOC_INDEX_KEY) === DOC_INDEX_VERSION) {
       plan = planFromDrift(detectDrift(store, files));
     } else {
       const current = new Set(files);
@@ -191,7 +198,9 @@ export class CodeGraphEngine {
     }
     store.setMeta(SCOPE_META_KEY, JSON.stringify(scope));
 
-    return this.applyPlan(repoRoot, store, plan, mode, start);
+    const result = this.applyPlan(repoRoot, store, plan, mode, start);
+    store.setMeta(DOC_INDEX_KEY, DOC_INDEX_VERSION);
+    return result;
   }
 
   /**
@@ -210,7 +219,8 @@ export class CodeGraphEngine {
     const scope = this.resolveScope(store, {}, 'incremental');
 
     const drift = detectDrift(store, this.listScopeFiles(repoRoot, scope));
-    if (!hasAnyDrift(drift)) {
+    const reindex = store.getMeta(DOC_INDEX_KEY) !== DOC_INDEX_VERSION;
+    if (!hasAnyDrift(drift) && !reindex) {
       return { status: 'fresh', checkedFiles: drift.unchanged, durationMs: Date.now() - start };
     }
 
@@ -229,6 +239,25 @@ export class CodeGraphEngine {
     }
 
     try {
+      if (store.getMeta(DOC_INDEX_KEY) !== DOC_INDEX_VERSION) {
+        const files = this.listScopeFiles(repoRoot, scope);
+        const current = new Set(files);
+        const known = new Set([...store.getAllFileStats().keys(), ...store.getGraphFilePaths()]);
+        const result = this.applyPlan(
+          repoRoot,
+          store,
+          { toParse: files, removed: [...known].filter((f) => !current.has(f)), touched: [] },
+          'incremental',
+          Date.now(),
+        );
+        store.setMeta(DOC_INDEX_KEY, DOC_INDEX_VERSION);
+        return {
+          status: 'refreshed',
+          changed: driftCounts(drift),
+          skippedCount: result.skippedFiles.length,
+          durationMs: Date.now() - start,
+        };
+      }
       // 기다리는 사이 다른 프로세스가 같은 변경을 반영했을 수 있다
       const recheck = detectDrift(store, this.listScopeFiles(repoRoot, scope));
       if (!hasAnyDrift(recheck)) {
@@ -388,6 +417,7 @@ export class CodeGraphEngine {
         reason: e instanceof Error ? e.message : String(e),
       });
     }
+    store.refreshTextIndexStats();
 
     const timeTakenMs = Date.now() - start;
     logger.info('code_graph.build_completed', {

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { resolve, dirname, basename, extname } from 'node:path';
 import { log } from '../../core/log.js';
 import { extractTypeScriptSkeleton } from './typescript-skeleton.js';
+import { docText } from '../ko-text.js';
 import {
   NodeKind,
   EdgeKind,
@@ -22,6 +23,58 @@ function isTestFile(filePath: string): boolean {
 
 function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex');
+}
+
+/** 주석과 다음 토큰 사이가 빈 줄 없이 붙어 있는가 */
+function attached(text: string, from: number, to: number): boolean {
+  return (text.slice(from, to).match(/\n/g)?.length ?? 0) <= 1;
+}
+
+/**
+ * 선언 바로 앞에 붙은 주석 묶음. 빈 줄로 떨어진 주석은 그 선언 설명으로 보지 않는다
+ * (파일 머리 주석이나 앞 절의 구분 주석이기 쉽다).
+ * 화살표 함수는 주석이 `const x = () => …` 문 앞에 붙으므로 그 문을 기준으로 본다.
+ */
+function leadingDoc(node: ts.Node, sourceFile: ts.SourceFile): string | undefined {
+  let anchor: ts.Node = node;
+  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+    const p = node.parent;
+    if (ts.isVariableDeclaration(p) && ts.isVariableStatement(p.parent.parent))
+      anchor = p.parent.parent;
+    else if (ts.isPropertyDeclaration(p)) anchor = p;
+  }
+  const text = sourceFile.getFullText();
+  const ranges = ts.getLeadingCommentRanges(text, anchor.getFullStart()) ?? [];
+  const block: string[] = [];
+  let next = anchor.getStart(sourceFile);
+  for (let i = ranges.length - 1; i >= 0; i--) {
+    const r = ranges[i]!;
+    if (!attached(text, r.end, next)) break;
+    block.unshift(text.slice(r.pos, r.end));
+    next = r.pos;
+  }
+  return block.length > 0 ? docText(block.join('\n')) : undefined;
+}
+
+/**
+ * 파일 맨 위 주석. 첫 문장에 빈 줄 없이 붙어 있으면 그 문장의 설명이라 머리 주석이 아니다.
+ * 단 첫 문장이 import면 import를 설명하는 주석은 드무니 머리 주석으로 친다.
+ */
+function fileHeaderDoc(sourceFile: ts.SourceFile): string | undefined {
+  const text = sourceFile.getFullText();
+  // 위치 0에서 부르면 TS가 shebang을 알아서 건너뛴다. 그 다음 줄부터 부르면 오히려 못 찾는다
+  const ranges = ts.getLeadingCommentRanges(text, 0) ?? [];
+  if (ranges.length === 0) return undefined;
+  const first = sourceFile.statements[0];
+  const last = ranges[ranges.length - 1]!;
+  if (
+    first &&
+    !ts.isImportDeclaration(first) &&
+    attached(text, last.end, first.getStart(sourceFile))
+  ) {
+    return undefined;
+  }
+  return docText(ranges.map((r) => text.slice(r.pos, r.end)).join('\n'));
 }
 
 function getNodePosition(
@@ -105,6 +158,7 @@ export const typescriptPlugin: AnalyzerPlugin = {
       isTest,
       fileHash,
       updatedAt: now,
+      doc: fileHeaderDoc(sourceFile),
     });
 
     function visit(node: ts.Node): void {
@@ -136,6 +190,7 @@ export const typescriptPlugin: AnalyzerPlugin = {
               lineEnd,
               isTest,
               updatedAt: now,
+              doc: leadingDoc(node, sourceFile),
             });
             addEdge(EdgeKind.CONTAINS, fileNodeId, fnId, lineStart);
           }
@@ -159,6 +214,7 @@ export const typescriptPlugin: AnalyzerPlugin = {
               lineEnd,
               isTest,
               updatedAt: now,
+              doc: leadingDoc(node, sourceFile),
             });
             addEdge(EdgeKind.CONTAINS, fileNodeId, classId, lineStart);
 
@@ -196,6 +252,7 @@ export const typescriptPlugin: AnalyzerPlugin = {
               lineEnd,
               isTest,
               updatedAt: now,
+              doc: leadingDoc(node, sourceFile),
             });
           }
         }
@@ -218,6 +275,7 @@ export const typescriptPlugin: AnalyzerPlugin = {
               lineEnd,
               isTest,
               updatedAt: now,
+              doc: leadingDoc(node, sourceFile),
             });
           }
         }

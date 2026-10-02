@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { logger } from '../core/logger.js';
 import { MAX_MATCHED_ROWS, type CodeGraphStore } from './storage.js';
+import { extractTickets, koreanTerms } from './ko-text.js';
 import type {
   BuildMode,
   CoChangeBuildSummary,
@@ -33,6 +34,92 @@ export type GitRunner = (root: string, args: string[]) => string;
 export interface CommitRecord {
   sha: string;
   files: string[];
+  /** 제목과 본문. 메시지까지 읽은 로그에서만 있다 */
+  message?: string;
+  /** `%D` ref 이름. 브랜치 끝 커밋에만 붙는다 */
+  refs?: string;
+}
+
+/**
+ * 커밋 색인 형식 버전. 올리면 다음 증분 수집이 전량 재수집으로 내려가 예전 DB도 색인을 갖는다.
+ */
+export const COMMIT_TEXT_INDEX_VERSION = '1';
+export const COMMIT_TEXT_INDEX_KEY = 'commit_text_index_version';
+/** 본문이 긴 커밋 하나가 단어를 다 차지하지 않게 자른다 */
+const MAX_MESSAGE_CHARS = 2000;
+
+/**
+ * 해시와 파일 목록에 메시지까지 한 번에 받는 형식. 구분자는 메시지에 나올 일이 없는
+ * 제어 문자로 둔다. %b는 여러 줄이라 줄 단위로는 파일 목록과 못 가른다.
+ */
+export const GIT_LOG_FORMAT = '--format=%x1e%H%x1f%D%x1f%s%x1f%b%x1d';
+
+export function parseGitLogWithMessages(raw: string): CommitRecord[] {
+  // 구분자가 하나도 없으면 해시와 파일만 있는 옛 형식이다. 주입한 runGit이 옛 형식으로 답해도 페어는 센다
+  if (!raw.includes('\x1e')) return parseGitLog(raw);
+  const commits: CommitRecord[] = [];
+  for (const chunk of raw.split('\x1e')) {
+    const end = chunk.indexOf('\x1d');
+    if (end < 0) continue;
+    const [sha, refs, subject, body] = chunk.slice(0, end).split('\x1f');
+    if (!sha || !SHA_RE.test(sha.trim())) continue;
+    const files = chunk
+      .slice(end + 1)
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    commits.push({
+      sha: sha.trim(),
+      files,
+      message: `${subject ?? ''}\n${body ?? ''}`.trim(),
+      refs: refs?.trim() || undefined,
+    });
+  }
+  return commits;
+}
+
+export interface CommitTextIndex {
+  /** 오래된 커밋부터. 저장할 때 이 순서로 번호를 매겨 최근 커밋을 가린다 */
+  commits: { sha: string; terms: string[]; files: string[] }[];
+  tickets: { ticket: string; filePath: string; count: number }[];
+}
+
+/**
+ * 커밋 메시지의 한국어 bigram과 티켓 키를 커밋 단위로 모은다. 파일은 그 커밋이 건드린 것이다.
+ *
+ * 파일 단위로 bigram을 합치지 않는 이유가 있다. 커밋을 많이 탄 파일은 서로 무관한 커밋
+ * 수백 개에서 단어를 다 모아 아무 프롬프트에나 걸린다. 커밋 하나를 문서 하나로 두면
+ * "이 프롬프트와 비슷한 말로 고친 커밋"을 먼저 찾고 그 커밋의 파일을 내게 된다.
+ *
+ * co-change와 같은 상한(MAX_FILES_PER_COMMIT)을 넘는 커밋은 뺀다 — 대량 포맷이나 버전 범프
+ * 메시지가 모든 파일에 붙으면 아무 파일이나 걸린다. 파일 하나짜리 커밋은 쓴다. 페어는
+ * 못 만들지만 "이 말로 이 파일을 고쳤다"는 가장 깨끗한 신호라서다.
+ */
+export function buildCommitTextIndex(root: string, commits: CommitRecord[]): CommitTextIndex {
+  const out: CommitTextIndex['commits'] = [];
+  const tickets = new Map<string, number>();
+  // git log는 최신부터 낸다
+  for (const c of [...commits].reverse()) {
+    const files = [...new Set(c.files)];
+    if (files.length === 0 || files.length > MAX_FILES_PER_COMMIT) continue;
+    const text = (c.message ?? '').slice(0, MAX_MESSAGE_CHARS);
+    const terms = koreanTerms(text);
+    const abs = files.map((f) => resolve(root, f));
+    if (terms.length > 0) out.push({ sha: c.sha, terms, files: abs });
+    for (const k of extractTickets(`${text}\n${c.refs ?? ''}`)) {
+      for (const f of abs) {
+        const key = `${f}\t${k}`;
+        tickets.set(key, (tickets.get(key) ?? 0) + 1);
+      }
+    }
+  }
+  return {
+    commits: out,
+    tickets: [...tickets].map(([key, count]) => {
+      const tab = key.indexOf('\t');
+      return { ticket: key.slice(tab + 1), filePath: key.slice(0, tab), count };
+    }),
+  };
 }
 
 export interface PairCounts {
@@ -226,8 +313,10 @@ export function syncCoChange(
 
   const meta = store.getCoChangeMeta();
   let range: string | null = null;
+  // 커밋 색인이 없거나 형식이 바뀐 DB는 증분으로 이어 붙일 기준이 없다. 전량으로 내린다
+  const textIndexed = store.getMeta(COMMIT_TEXT_INDEX_KEY) === COMMIT_TEXT_INDEX_VERSION;
 
-  if (mode === 'incremental' && meta && SHA_RE.test(meta.headSha)) {
+  if (mode === 'incremental' && meta && SHA_RE.test(meta.headSha) && textIndexed) {
     if (meta.headSha === headSha) {
       return {
         pairs: store.countCoChangePairs(),
@@ -250,7 +339,7 @@ export function syncCoChange(
     }
   }
 
-  const args = ['log', '--format=%H', '--name-only', '--no-merges'];
+  const args = ['log', GIT_LOG_FORMAT, '--name-only', '--no-merges'];
   if (range) args.push(range);
 
   let raw: string;
@@ -265,7 +354,9 @@ export function syncCoChange(
     return undefined;
   }
 
-  const counts = countPairs(parseGitLog(raw));
+  const commits = parseGitLogWithMessages(raw);
+  const counts = countPairs(commits);
+  const text = buildCommitTextIndex(root, commits);
 
   // git은 repo 상대경로를 내고 cg_nodes는 절대경로를 쓴다. 경계에서 한 번에
   // 절대화하지 않으면 조인이 조용히 0건이 된다.
@@ -291,7 +382,10 @@ export function syncCoChange(
       defaultMinPairCount: MIN_PAIR_COUNT,
     },
     reset: range === null,
+    commitText: text.commits,
+    tickets: text.tickets,
   });
+  store.setMeta(COMMIT_TEXT_INDEX_KEY, COMMIT_TEXT_INDEX_VERSION);
 
   const merged = store.getCoChangeMeta();
   return {

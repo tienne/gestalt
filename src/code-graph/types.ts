@@ -24,6 +24,11 @@ export interface CodeGraphNode {
   isTest: boolean;
   fileHash?: string; // SHA-256 for incremental update
   updatedAt: number; // Unix timestamp ms
+  /**
+   * 선언 앞 주석(파일 노드는 파일 머리 주석). 한글이 든 것만 길이 상한까지 담는다.
+   * 한국어 프롬프트를 코드 위치에 잇는 색인의 원천이다
+   */
+  doc?: string;
 }
 
 export interface CodeGraphEdge {

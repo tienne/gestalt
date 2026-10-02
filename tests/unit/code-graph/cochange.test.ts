@@ -627,7 +627,9 @@ describe('syncCoChange() — 실제 git 호출', () => {
       expect(p.fileA.startsWith(`${toplevel}/`)).toBe(true);
       expect(p.fileB.startsWith(`${toplevel}/`)).toBe(true);
     }
-  });
+    // 이 레포 전체 이력을 메시지까지 읽고 커밋 색인을 쓴다. 혼자 돌면 2초 안쪽인데
+    // gate처럼 워커가 몰리면 기본 5초를 넘긴다
+  }, 30_000);
 });
 
 describe('자르는 자리 — 임계는 질의, 개수는 한 곳', () => {
