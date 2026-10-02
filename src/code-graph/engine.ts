@@ -55,23 +55,33 @@ function getFilesRecursively(
     ?.filter((p) => !p.startsWith('**'))
     .map((p) => p.replace(/\*\*.*$/, '').replace(/\/$/, ''));
 
+  // recursive 모드는 다 훑은 뒤에야 거를 수 있어 node_modules 같은 제외 디렉토리까지
+  // 내려간다. 이 레포에서 목록 하나 뽑는 데 0.5초가 넘게 걸려 질의마다 돌리기엔
+  // 무겁다. 그래서 직접 내려가며 제외 디렉토리는 아예 열지 않는다
   const results: string[] = [];
-  try {
-    const entries = readdirSync(repoRoot, { withFileTypes: true, recursive: true }) as Dirent[];
+  const walk = (dir: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // directory doesn't exist or not readable
+    }
     for (const entry of entries) {
+      if (excludeSegments.has(entry.name)) continue;
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+        continue;
+      }
       if (!entry.isFile()) continue;
-      const fullPath = join(entry.parentPath, entry.name);
-      const rel = fullPath.slice(repoRoot.length + 1);
-      const segments = rel.split('/');
-      if (segments.some((s) => excludeSegments.has(s))) continue;
       if (excludeSuffixes.some((s) => entry.name.endsWith(s))) continue;
+      const rel = fullPath.slice(repoRoot.length + 1);
       if (includeRoots && includeRoots.length > 0 && !includeRoots.some((r) => rel.startsWith(r)))
         continue;
       results.push(fullPath);
     }
-  } catch {
-    // directory doesn't exist or not readable
-  }
+  };
+  walk(repoRoot);
   return results;
 }
 
