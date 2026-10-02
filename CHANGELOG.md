@@ -5,6 +5,119 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.0] - 2026-10-02
+
+> **올리기 전에 확인할 동작 변경 세 가지**
+>
+> 1. Node 22 미만에서는 CLI와 MCP 런처가 아예 뜨지 않아요 (#37).
+> 2. 해상도 0.8 미만인 인터뷰는 `ges_interview complete`가 거절해요. 넘기려면 `force: true`를 직접 넘겨야 하고 그 사실이 기록에 남아요 (#39).
+> 3. human escalation이 세션을 `failed`로 끝내지 않고 `awaiting_human`으로 멈춰요. 사람의 답을 `ges_execute`의 `gate_resolve`로 받아야 이어가거나 끝나요 (#43).
+
+### Changed
+
+- **Node 22 미만이면 `bin/gestalt.ts`와 런처가 실행을 거부해요 (#37).** `package.json`의 `engines`는 원래 `>=22`였는데 코드의 검사는 20에 머물러 있었어요. better-sqlite3 13.x가 22를 요구해서 Node 20에서는 버전 안내 대신 네이티브 모듈 오류로 죽었고 런처도 Node 20을 골라 띄웠어요.
+  - `bin/gestalt.ts`는 `major < 22`면 `gestalt requires Node.js >= 22.0.0 (current: …)`와 `nvm install 22 && nvm use 22` 안내를 내고 끝나요.
+  - `scripts/mcp-serve.sh`와 `scripts/grok-mcp-serve.sh`는 `GESTALT_NODE`, PATH의 `node`, nvm 같은 버전 디렉토리 후보를 모두 22 이상만 받아요. `GESTALT_NODE`가 미달이면 `is not Node >= 22, searching instead.`를 stderr에 찍고 다른 후보를 찾아요. 22 이상이 하나도 없으면 종료 메시지를 내요.
+  - 문서도 같이 맞췄어요. README 두 벌과 `docs/getting-started.md`, `CLAUDE.md`, `AGENTS.md`, `.grok/rules/develop.md`가 이제 모두 22를 적어요.
+- **해상도가 임계값(0.8)에 못 미치면 `ges_interview complete`가 거절해요 (#39).** "0.8 이상이어야 스펙으로 간다"가 핵심 약속인데 `SessionManager.complete`는 `isReady`를 안 봤어요. 남은 관문은 스펙 단계의 `force` 하나뿐이었고요.
+  - 점수가 없거나 `isReady`가 아니면 `InterviewNotReadyError`로 거절해요. 넘기는 길은 `complete` 전용 `force`(기본 `false`) 하나예요. 이렇게 넘긴 세션에는 `forcedComplete: true`가, 완료 이벤트에는 `forced: true`가 남고 이벤트로 복원해도 유지돼요. 이미 준비된 세션에 `force`를 같이 넘긴 경우는 `forced`로 안 남겨요.
+  - 스펙 단계는 그대로예요. `force`로 끝낸 세션은 해상도가 여전히 0.8 미만이라 `ges_generate_spec`에도 `force`가 따로 필요해요. 일부러 넘기려면 두 번 명시하는 셈이에요.
+  - 답변한 라운드가 0개인데 0.8 이상 점수가 들어오면 `score`와 `respond` 둘 다 거부해요. 예전에는 zod 범위 검사만 해서 라운드 0에 1.0을 넣으면 그대로 `isReady`가 됐어요. 임계값 미만 점수는 라운드 0이어도 받고 공백만 보낸 답은 답변으로 안 세요.
+  - 라운드당 상승폭 제한이나 최소 라운드 수는 일부러 안 넣었어요. 답 하나로 요구사항이 다 나오는 주제도 있어서 정상 흐름까지 막을 수 있고 근거로 삼을 상수도 코드에 없었어요.
+  - 이미 끝난 세션에 `complete`를 다시 부르면 `SessionAlreadyCompletedError`로 거부해요. 완료 이벤트가 두 번 쌓이지 않아요.
+  - CLI `gestalt interview`는 미달인 상태로 `done`을 치면 그래도 끝낼지 묻고 `y`일 때만 `force`로 완료해요. 예전에는 `complete` 실패를 확인하지 않아 조용히 넘어갔어요. `ges_status` 세션 상세에는 `forcedComplete`가 실려요.
+  - 점수를 확인하지 않고 `complete`를 부르던 외부 MCP 호출자는 이제 에러를 받아요. 저장소 안의 호출처와 interview, solve, spec 스킬은 모두 맞췄어요.
+- **human escalation이 세션을 끝내지 않고 사람의 판단을 기다려요 (#43).** lateral persona 4개를 다 써도 막히면 예전에는 세션을 `failed`로 끝내고 `active-session.json`을 지웠어요. 이제 세션을 `awaiting_human`으로 멈추고 응답에 `gate`와 `nextAction: "gate_resolve"`를 실어요.
+  - `ges_execute`에 `gate_resolve` action과 `gateResolution { gateId?, optionId, decision, rationale }` 입력이 생겼어요. `patch_spec`은 `evolve_patch`로, `manual_task`는 `evaluate`로 세션을 이어가요. `restart`와 `abort`는 세션을 끝내요.
+  - 고른 선택지와 결정, 이유는 `ArchitectureDecision`(`[Escalation:<optionId>] <decision>`)으로 memory에 쌓여 다음 인터뷰가 참고해요. memory 저장이 실패해도 응답은 막지 않고 `memoryRecorded: false`로 알려요.
+  - 기다리는 동안에는 `status`, `resume`, `gate_resolve`, `evolution_viz`만 받아요. `resume`은 에러 대신 열린 게이트를 돌려줘요. 열린 게이트는 세션당 하나까지예요.
+  - execute, solve, dispatch 스킬은 이 지점에서 코디네이터가 스스로 고르지 않고 사람에게 물어요. solve의 "사람 개입 없음" 원칙에는 이 자리를 유일한 예외로 적었어요. dispatch에는 Orca의 `gate-resolve`만으로는 게슈탈트 세션이 안 풀린다는 안내를 넣었어요.
+  - 옛 이벤트(`gate` 없는 escalation)는 리플레이하면 예전처럼 `failed`와 `human_escalation`으로 되살아나요.
+  - 리뷰 결정 기록의 `specId`가 빈 문자열로 남던 것도 연결된 실행 세션의 `specId`로 채웠어요.
+- **README 맨 위의 "재작업률 27% 감소" 문구를 내렸어요 (#35).** 잰 적이 없는 숫자였어요. `benchmarks/results/resolution-*.json`은 전부 `isDryRun: true`였고 27%는 mockJudge 보정 상수 `levelAdjust.high = -0.28`에서 나온 값이에요.
+  - README 줄은 "아직 측정 전"으로 바꾸고 golden set 20건과 루브릭, judge 러너가 있다는 사실만 남겼어요.
+  - dry-run은 이제 `resolution-dry-latest.json`에 따로 써요. 예전에는 dry-run이 `resolution-latest.json`을 덮어써서 mock 결과가 최신 실측처럼 남았어요. 콘솔 요약 맨 위에 인용하지 말라는 경고를 붙이고 결론 줄 끝에는 `(mock)`을 달았어요.
+  - 로컬에 예전 dry-run이 남긴 `benchmarks/results/resolution-latest.json`이 있다면 mock 결과예요. gitignore 대상이라 이번 변경이 안 지우니 직접 지워 주세요.
+- **온보딩 문서를 실제 코드에 맞췄어요 (#37).** README 두 벌에 스킬 21개 표와 CLI 명령 표를 넣고 MCP 도구 목록에 빠져 있던 `ges_pr`을 더했어요. 에이전트 개수를 박아 두던 자리는 섹션 링크로 바꿔서 개수가 늘어도 다시 어긋나지 않아요.
+  - Windows 미지원과 우회 방법(`npm i -g @tienne/gestalt` 뒤 `"command": "gestalt"` 직접 등록)을 설치 섹션에 적었어요.
+  - `docs/getting-started.md`에서 코드에 없는 HTTP/SSE 서버 안내를 뺐어요. 지금 서버는 stdio만 지원해요. 대신 `Connection closed`나 `MCP_TIMEOUT` 같은 기동 문제 대응을 넣었어요.
+
+### Added
+
+- **`execute_task`가 `completed` 보고를 git 작업 트리와 대조해요 (#42).** 예전에는 아무것도 안 고치고 "완료"라고 내도 다음 태스크로 넘어갔어요. `src/execute` 아래에는 git을 확인하는 코드가 없었고 `artifacts`를 읽는 곳도 없었어요.
+  - `execute_start` 때 HEAD sha와 이미 커밋 안 된 파일의 blob 해시를 기준점으로 잡아요. 응답의 `artifactCheck`가 기준점 상태를 `captured`, `no_baseline`, `baseline_failed` 중 하나로 알려줘요. 기준점은 이벤트에도 남겨서 서버를 다시 띄워도 같은 기준으로 대조해요.
+  - `artifacts`에 적힌 파일이 기준점 뒤로 수정되거나 새로 생기거나 커밋되거나 지워졌으면 통과해요. 처음부터 없던 파일, 그대로인 파일, 작업 트리 밖이나 gitignore 경로는 걸려요. 하나라도 걸리면 `status: "verification_failed"`, `recorded: false`와 파일별 사유를 돌려주고 결과를 기록하지 않아요.
+  - 조사처럼 파일을 원래 안 바꾸는 태스크는 `noCodeChange: true`로 내요. 빈 `artifacts`만으로 대조를 피해 가지 못하게 선언을 따로 받아요.
+  - 서버 쪽 git 호출이 실패하면 `serverError: true`를 붙여 보고 내용 문제가 아님을 알려요. git은 비동기로 부르고 `core.fsmonitor`는 꺼서 레포 설정이 외부 명령을 돌리지 못하게 했어요.
+- **인터뷰를 시작할 때 주제와 비슷한 과거 스펙을 찾아 넣어요 (#44).** 만들어만 두고 부르지 않던 `searchSimilarSpecs`를 `ges_interview start`에 연결했어요. 최근 5개 밖의 스펙 중 유사도 0.4 이상 상위 3개를 `Related Past Specs`로 붙이고 응답 `priorContext`에 `relatedSpecs`를 실어요.
+  - start는 검색을 최대 3초만 기다려요. 임베딩 모델을 처음 받는 환경에서는 수십 초가 걸리는데 그동안은 예전처럼 최근 스펙만 넣어요. 로딩이 실패하면 5분 동안은 다시 받지 않아요.
+  - 한글과 CJK 주제는 검색에서 뺐어요. `all-MiniLM-L6-v2`가 영어로만 학습돼서 "결제 체크아웃 플로우 개선" 쿼리에 "로그인 세션 만료 처리"가 0.782로 1등이고 "장바구니 결제 단계 간소화"가 0.751이었어요. 영어는 관련 0.611, 무관 0.16 이하로 0.4에서 잘 갈렸어요.
+  - 아키텍처 결정을 넣을 때 `outcome`이 있으면 `→ Outcome: ...`으로 같이 실어요. memory.json 값은 팀이 커밋하는 파일에서 오므로 시스템 프롬프트에 넣기 전에 한 줄로 접고 300자에서 잘라요.
+- **memory.json 충돌을 푸는 git merge driver `gestalt memory-merge`가 생겼어요 (#44).** `.gitattributes`에 `merge=gestalt-memory`를 걸면 두 브랜치가 각각 더한 항목을 키 기준 합집합으로 합쳐요. 예전 문서의 예시 스크립트는 gestalt 소스 경로를 import해서 gestalt 레포 밖에서는 돌지 않았어요.
+  - 한쪽이라도 JSON으로 못 읽거나 구조가 틀리면 쓰기 전에 실패해서 git이 그 경로를 충돌로 남겨요. 합친 결과는 사람 검토 없이 커밋되는 자리라 zod로 형태를 확인해요.
+  - 결정 기록은 `decision` 문장만으로 겹침을 보고 한쪽에만 `outcome`이 있으면 그쪽을 남겨요. 세션 요약은 `compressedAt`이 최신인 쪽을 남겨요.
+  - 등록 절차와 설치 방식 셋, `git checkout -m`으로 driver를 다시 돌리는 복구 절차는 `docs/memory-team-sharing.md`에 적었어요.
+
+### Fixed
+
+- **`ges_interview`의 `compress`를 MCP에서 실제로 부를 수 있어요 (#34).** 핸들러와 `schemas.ts`에는 있었는데 `server.ts` 등록 스키마에서만 빠져 있었어요. respond가 compress를 부르라고 안내해도 SDK 입력 검증에서 거절돼 핸들러까지 못 갔어요.
+  - passthrough 등록 스키마는 이제 `interviewInputSchema.shape`를 펼쳐 써요. `schemas.ts`에 파라미터를 더하면 등록에도 같이 들어가요.
+  - 일반 모드(API 키 있음) `ges_interview`는 `compress`를 일부러 뺐어요. 그 모드 핸들러는 compress에 에러만 돌려줘요.
+  - 도구 설명의 action 목록을 enum에서 뽑게 해서 `ges_execute` 설명에 빠져 있던 `evolution_viz`도 나와요.
+- **memory.json이 깨져도 쌓인 기록이 사라지지 않아요 (#38).** 예전에는 파싱에 실패하면 빈 메모리를 돌려줬고 바로 다음 쓰기가 그 빈 값으로 파일을 덮어 스펙 이력과 실행 기록, 아키텍처 결정이 흔적 없이 날아갔어요.
+  - 깨진 파일은 `memory.json.corrupt-<시각>-<난수>`로 옮기고 stderr에 경로를 남겨요. 옮기는 건 잠금을 쥔 쓰기 경로만 해요. 잠금 없는 `read()`가 옮기면 다른 프로세스가 방금 쓴 정상 파일을 밀어낼 수 있어서요.
+  - 쓰기는 잠금 안에서 다시 읽고 임시 파일에 쓴 뒤 rename으로 바꿔요. 프로세스 넷이 15개씩 동시에 기록하는 테스트에서 60개가 다 남아요. 잠금을 빼면 45개만 남았어요.
+  - local-pr 레지스트리의 mkdir 잠금을 `src/core/file-lock.ts`로 꺼내 같이 써요. 옮기면서 버려진 잠금을 지우기 직전에 다시 확인하게 고쳤어요.
+- **다른 MCP 프로세스가 만든 세션도 찾아요 (#40).** 여러 프로세스(dispatch 워커 등)가 같은 SQLite DB를 쓰는데 `get()`은 인메모리 Map만 봤어요. 다른 프로세스가 만든 세션은 NotFound였고 같은 세션을 둘이 다루면 낡은 상태 위에 이벤트를 덧붙였어요.
+  - 세션마다 반영한 이벤트 수를 들고 있다가 스토어와 다르면 이벤트로 다시 지어요. 쓰기도 모두 `get()`을 거쳐 최신 상태 위에서 해요. TTL `cleanup()`이 지운 세션도 다시 찾아요.
+  - 메모리만 바꾸던 `setAuditResult`, `clearRoleState`, `setCompressedContext`, `abort`가 이벤트를 남겨서 재시작해도 안 사라져요. `getLatest`는 Map 삽입 순서가 아니라 `updatedAt`으로 골라요.
+  - spawn 뒤 재시작하면 하위 태스크가 사라지고 `taskId` 없는 가짜 태스크 결과가 생기던 문제도 고쳤어요. #36 테스트를 쓰다 드러난 버그예요.
+  - 구조 평가 출력을 이벤트에 실을 때는 토큰을 가리고 끝 2000자만 남겨요. 지워지지 않는 원장에 빌드 출력 원문이 쌓이지 않게 하려고요.
+- **평가 단계가 테스트를 안 돌리고 통과시키지 않아요 (#41).** 영향 테스트가 안 나오면 test 명령을 `echo "No affected tests"`로 바꿔 통과시켰어요. 변경 파일을 `git diff HEAD~1`로만 모아서 추적 안 된 새 파일이 빠졌고 커밋이 하나뿐인 레포에서는 목록이 통째로 비었어요.
+  - 변경 파일은 직전 커밋과 작업 트리(추적 안 된 파일 포함)를 합쳐 모아요. 영향 테스트가 0개이거나 blast-radius가 실패하면 전체 테스트를 돌려요.
+  - 패키지 매니저는 `packageManager` 필드와 lockfile로 골라요. 예전에는 `npm run ...`으로 고정돼 있었어요.
+  - 서버가 내려준 명령과 호스트가 제출한 명령이 다르면 거부해요. 실패로 처리하면 명령만 잘못 낸 경우까지 evolve 루프를 돌게 돼서 거부 쪽을 골랐어요. 이 변경 전에 시작된 세션은 요청 명령 기록이 없어 거부하고 Call 1을 다시 부르라고 안내해요.
+  - `allPassed: true`여도 종료 코드가 0이 아닌 명령이 있으면 실패로 봐요. 구조 검사 실패 응답의 `nextAction`도 `evolve`에서 `evolve_fix`로 바로잡았어요.
+- **검증에 걸린 lateral 패치가 페르소나 시도를 쓰지 않아요 (#46).** 시도를 먼저 기록하고 패치를 나중에 검증해서 `Invalid spec patch`를 돌려줘도 `lateralTriedPersonas`와 `lateralAttempts`가 이미 늘어 있었어요. 페르소나가 4개뿐이라 형식 실수가 쌓이면 human escalation에 더 빨리 닿았어요.
+  - 이제 `precheckPatch`로 검증부터 하고 통과해야 시도를 기록해요. 걸리면 이벤트도 안 남겨서 재시작 후 복원해도 횟수가 같고 같은 페르소나로 다시 낼 수 있어요.
+- **순환이 있는 DAG 계획이 실행 단계로 넘어가지 않아요 (#47).** 호스트가 continuity에서 `isValid: false`를 정직하게 보고해도 통과했고 plan_complete는 `dagValid: false` 계획을 확정했어요. execute_start는 착수할 태스크가 없으니 `all_tasks_completed`를 내고 태스크를 하나도 안 돌린 채 evaluate로 보냈어요.
+  - 호출자와 서버 중 한쪽이라도 무효라고 하면 계획을 확정하지 않고 closure 단계로 되감아요. 응답은 `status: plan_rewound`와 `cycleDetails`, `error` 필드를 함께 실어서 성공으로 읽히지 않아요.
+  - continuity가 아니라 closure로 되감는 이유가 있어요. 순환은 closure 단계 `atomicTasks`의 `dependsOn`에서 생기고 서버는 closure와 proximity 결과로 DAG를 다시 계산해요. continuity만 다시 내면 같은 순환이 또 나와요.
+  - 이 수정 전에 확정된 무효 계획은 execute_start가 순환 경로를 담은 에러로 막아요.
+- **인터뷰 라운드 시각이 replay와 1ms 어긋나던 문제를 고쳤어요 (#48).** `addQuestion`이 라운드 시각을 따로 찍고 이벤트 스토어도 따로 찍어서 그 사이에 밀리초가 넘어가면 어긋났어요. 이제 이벤트를 먼저 기록하고 그 시각을 라운드 `timestamp`와 `updatedAt`에 그대로 써요.
+- **매칭이 0건인 `role_match`가 엉뚱한 다음 단계를 안내하던 문제를 고쳤어요 (#36).** message는 `execute_task`로 가라는데 `nextAction`은 `role_consensus`였어요. 그대로 따르면 perspectives 없이 불러 에러가 났어요.
+
+### Removed
+
+- **호출처가 없던 `MiniInterviewEngine`과 `UserProfileStore`를 지웠어요 (#44).** `UserProfileStore`가 쓰는 `~/.gestalt/profile.json`은 한 번도 만들어진 적이 없는데 README는 개인 설정이 거기 저장된다고 안내하고 있었어요. `UserProfile` 타입도 함께 빠졌어요. `src/index.ts`가 내보내던 공개 타입이었지만 쓸 수 있는 API는 없었어요.
+
+### 검증 범위
+
+PR마다 로컬 PR 리뷰 라운드를 거쳤어요. 본문에 라운드 수를 적은 건 #38(4라운드, high 4건과 warning 12건 반영), #39(2라운드), #42(3라운드), #44(4라운드), #49(2라운드)예요.
+
+main에는 하나씩 머지하고 매번 main CI를 확인했어요. 각자 CI를 통과한 PR이 합쳐지면서 main에서만 드러난 문제가 셋 있었어요.
+
+- #39와 #40이 함께 들어가자 `session-cross-process.test.ts`의 두 테스트가 `InterviewNotReadyError`로 깨졌어요. #40 테스트가 점수를 매기지 않은 세션으로 `complete()`를 부르고 있었는데 #39가 그걸 막았어요. 두 테스트는 관문을 검증하는 게 아니라서 `force: true`로 넘기게 #45로 고쳤어요.
+- #42를 머지한 뒤 macOS(Node 24) 잡에서 replay 비교 테스트가 라운드 `timestamp` 1ms 차이(`.484Z`와 `.485Z`)로 깨졌어요. 원인은 #42가 아니라 #40 이후의 `addQuestion`이었고 #48로 고쳤어요. `toISOString`이 부를 때마다 1ms씩 흐르게 해서 경계를 매번 재현하는 테스트를 붙였어요.
+- 같은 macOS 잡에서 `detector-perf.test.ts`의 I-7 선형성 테스트가 하루에 두 번 기준(8배 미만)을 넘었어요(8.2배, 8.097배). 입력 4배로는 선형 4와 제곱 16 사이가 좁았어요. #49에서 입력 비를 16배로 벌리고 기준을 64로 두고 두 크기를 번갈아 7번씩 재 최솟값을 쓰게 했어요. 로컬 부하 조건에서 기존 방식은 20번 중 2번 실패했고 새 방식은 120번 중 64를 넘은 적이 없었어요. 정규식 상한을 풀어 제곱 회귀를 되살리면 266~323배로 잡혀요.
+
+#36은 테스트가 없던 `ges_execute` action 9개에 핸들러 테스트를 붙였어요. 그 과정에서 찾은 버그 넷 중 spawn 하위 태스크 유실과 audit 결과 유실은 #40이, 순환 DAG 통과는 #47이, lateral 시도 소모는 #46이 고쳤어요.
+
+작업 머신 load average가 400~500대라 여러 PR이 로컬에서 전체 테스트를 끝까지 초록으로 못 봤어요. 실패는 전부 git을 띄우는 테스트의 타임아웃이었고 해당 파일만 타임아웃을 늘려 다시 돌려 통과를 확인한 뒤 CI로 확정했어요.
+
+릴리즈 직전 `pnpm test`가 3606 passed, 1 skipped였고 lint와 format도 통과했어요.
+
+### 남긴 것
+
+- 해상도 벤치마크는 아직 실제 judge로 한 번도 안 돌렸어요. `ANTHROPIC_API_KEY`를 걸고 `pnpm tsx benchmarks/run-resolution-benchmark.ts`를 돌리고 5건을 사람이 라벨링해 judge를 보정해야 해요. 두 결과가 나오면 커밋된 문서에 수치를 남기고 README 상단 줄과 로드맵 메모를 함께 고쳐요.
+- `force`를 쓰지 않아도 답변이 하나라도 있으면 호스트 LLM이 부풀려 신고한 점수는 서버가 못 가려요. 이 한계는 `docs/01-interview.md`와 `docs/mcp-reference.md`에 적었어요.
+- escalation 게이트에서 이어가는 선택지(`patch_spec`, `manual_task`)는 결정의 `outcome`을 아직 안 채워요. 같은 결정을 두 번 내면 기록은 안 늘어도 `memoryRecorded`는 `true`로 와요. `awaiting_human`을 모르는 status 분기가 더 남아 있을 수 있어요.
+- 완료 보고 대조의 기준점은 태스크마다가 아니라 실행 시작 때 한 번만 잡아요. 앞선 태스크가 바꾼 파일을 뒤 태스크가 적어도 통과해요. `evolve_re_execute`와 `evolve_fix`는 아직 대조하지 않아요. 커밋 안 된 파일이 2000개를 넘으면 다른 프로세스에서는 `baseline_truncated`로 대조 없이 통과해요.
+- 세션 조회는 `get()`과 append 사이에 짧은 경합 창이 남아 있어요. 막으려면 EventStore에 기대 버전 비교를 넣어야 해서 범위를 나눴어요. `list()`와 `getLatest()`는 여전히 인메모리 Map만 보고 이벤트 수가 다르면 처음부터 다시 지어요.
+- 한글 주제에서는 과거 스펙 검색이 안 돌아요. `paraphrase-multilingual-MiniLM-L12-v2`는 순위는 맞지만 138MB에 첫 로딩 17초이고 무관한 한글 goal도 0.5대가 나와요. KB 검색과 같은 모델이라 교체는 같이 정해야 해요.
+- memory 쓰기가 죽으면서 남긴 `*.tmp`를 치우지 않아요. 레지스트리의 tmp+rename 쓰기도 `writeJsonAtomic`으로 아직 안 합쳤어요.
+- `docs/mcp-reference.md`와 `docs/03-execute.md`가 plan 응답 키를 아직 `currentPrinciple`로 적고 있어요. 실제 키는 `currentStage`예요.
+
 ## [0.84.2] - 2026-09-30
 
 ### Changed

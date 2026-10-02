@@ -71,7 +71,7 @@ git config merge.gestalt-memory.driver "npx -y @tienne/gestalt@<버전> memory-m
 
 npx는 버전을 박아도 실행할 때마다 레지스트리를 조회합니다. 캐시가 비어 있으면 머지 한 번에 수십 초가 걸릴 수 있습니다.
 
-어느 방식이든 driver가 부르는 gestalt는 0.84.2보다 높은 버전이어야 합니다. 0.84.2 이하에는 `memory-merge` 명령이 없어서 머지할 때마다 driver가 실패합니다. 등록한 뒤 `gestalt --help`(devDependency라면 `pnpm exec gestalt --help`)를 실행해 명령 목록에 `memory-merge`가 있는지 확인하세요. npx라면 `<버전>`에 넣은 버전이 이 조건을 맞춰야 합니다.
+어느 방식이든 driver가 부르는 gestalt는 0.85.0 이상이어야 합니다. 그보다 낮은 버전에는 `memory-merge` 명령이 없어서 머지할 때마다 driver가 실패합니다. 등록한 뒤 `gestalt --help`(devDependency라면 `pnpm exec gestalt --help`)를 실행해 명령 목록에 `memory-merge`가 있는지 확인하세요. npx라면 `<버전>`에 넣은 버전이 이 조건을 맞춰야 합니다.
 
 > ⚠️ **주의**: `.gitattributes`만 커밋하고 `git config`를 빠뜨린 팀원은 driver가 정의되지 않은 상태라 git 기본 머지로 돌아갑니다. 그 팀원에게는 예전처럼 충돌 표시가 남습니다.
 
