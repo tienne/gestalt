@@ -1,7 +1,7 @@
 /**
  * 참조 후보 수집 오케스트레이터.
  *
- * review 스킬 1단계 뒤에 한 번 돌아 검출기 여섯 개의 결과를 JSON 하나로 묶는다. 판정은 하지 않는다.
+ * review 스킬 1단계 뒤에 한 번 돌아 검출기 일곱 개의 결과를 JSON 하나로 묶는다. 판정은 하지 않는다.
  * 검출기 하나가 예외를 던져도 그 검출기만 skipped로 적고 나머지는 끝까지 돈다. 후보 수집이
  * 리뷰를 막으면 안 되기 때문이다(C0). 조회가 막혔거나 원격이 없으면 참조 검사 영역을 리뷰 불가로
  * 표시해 스킬이 사용자에게 물을 수 있게 한다(C7).
@@ -21,6 +21,7 @@ import { GithubCodeSearchAdapter, orgWildcard } from './github-code-search.js';
 import { extractIdentifiersFromGit, isHarnessPath, isRuleDocPath } from './identifiers.js';
 import { detectRelatedRepos, readOriginRepo } from './related-repos.js';
 import { findRuleIdListGapsFromGit } from './rule-id-lists.js';
+import { findRuleOverlapFromGit } from './rule-overlap.js';
 import { LocalCloneBackend, type CodeSearchBackend, type SkippedRepo } from './search-backend.js';
 import { findSelfContamination } from './self-contamination.js';
 import { findSelfReferences } from './self-references.js';
@@ -42,6 +43,7 @@ export const DETECTOR_NAMES = [
   'selfContamination',
   'copyDrift',
   'ruleIdListGap',
+  'ruleOverlap',
   'forwardSearch',
   'backwardSearch',
   'selfReferences',
@@ -253,6 +255,10 @@ export async function collectReferenceCandidates(opts: CollectOptions): Promise<
 
   run('ruleIdListGap', () => {
     addCandidates(findRuleIdListGapsFromGit(repoRoot, opts.base, opts.head, repo));
+  });
+
+  run('ruleOverlap', () => {
+    addCandidates(findRuleOverlapFromGit(repoRoot, opts.base, opts.head, repo));
   });
 
   // 역방향 검색은 관련 레포만 본다. 같은 레포 안에 남은 옛 이름은 여기서 찾는다

@@ -23,8 +23,8 @@ import {
 
 describe('harness-review types', () => {
   describe('REFERENCE_CANDIDATE_KINDS', () => {
-    it('should have 6 kinds', () => {
-      expect(REFERENCE_CANDIDATE_KINDS.length).toBe(6);
+    it('should have 7 kinds', () => {
+      expect(REFERENCE_CANDIDATE_KINDS.length).toBe(7);
     });
 
     it('should include selfContamination', () => {

@@ -28,7 +28,7 @@ You are the Harness Reviewer agent.
 
 | 필드 | 뜻 |
 |---|---|
-| `kind` | `selfContamination`, `copyDrift`, `ruleIdListGap`, `forwardRef`, `backwardRef`, `knowledgeDoc` 중 하나 |
+| `kind` | `selfContamination`, `copyDrift`, `ruleIdListGap`, `ruleOverlap`, `forwardRef`, `backwardRef`, `knowledgeDoc` 중 하나 |
 | `sourceFile`, `sourceLine` | 후보가 걸린 파일과 줄 |
 | `targetRepo`, `targetPath` | 참조가 가리키는 레포와 경로. 레포 안 후보면 이 레포 이름입니다 |
 | `matchedText` | 걸린 조각 |
@@ -100,6 +100,26 @@ You are the Harness Reviewer agent.
 - 목록 위 설명이 일부만 고른다고 적었고 이번 변경이 그 기준에 닿지 않습니다
 - 룰 문구만 다듬은 변경입니다. 뜻과 심각도가 그대로면 목록을 바꿀 까닭이 없습니다
 - 테스트나 fixture에서 특정 룰만 골라 검사하는 목록입니다
+
+### ruleOverlap — 룰북 룰끼리 겹치는 자리
+
+룰북 PR에서 이번에 새로 생긴 문장이 다른 룰이나 같은 룰의 다른 조항과 겹치는 자리입니다. `matchedText` 앞의 `[코드]`가 무엇이 겹쳤는지 알려 줍니다. `contextLines`는 겹친 두 문장입니다.
+
+`needsLlmJudgment`가 `false`인 후보는 탐지기로 확인이 끝났습니다. 처방이 다른 룰 탐지기에 걸리거나(`after-hit`), 형태로 빠진다고 적은 예외를 자기 탐지기가 잡거나(`form-exempt-hit`), 예외로 둔 말을 순서 문장 없이 다른 룰이 잡는(`exempt-hit-other`) 경우입니다. 룰북 문장을 고칠 자리라 결함으로 올립니다.
+
+`true`인 후보는 질문입니다. 결함으로 올리는 자리입니다.
+
+- `target-exempt-share`: 금지 예시가 같은 룰의 예외 조항으로 빠집니다. 금지 예시를 예외 기준에 그대로 대 보면 통과가 나옵니다
+- `exceptions-no-order`: 새 예외와 기존 예외나 판정 기준이 같은 입력에 함께 걸리고 판정이 반대로 납니다. 그 입력을 하나 만들어 코멘트에 적습니다
+- `cited-no-order`: 두 룰에 함께 걸리는 말이 있는데 어느 쪽으로 판정할지 없습니다. 그 말을 하나 대 보고 한쪽 룰의 예외가 다른 쪽 대상을 면제하는지 봅니다
+- `shared-source`: 한쪽 처방대로 옮긴 결과가 다른 쪽 금지 예시가 됩니다
+
+버리는 자리입니다.
+
+- 두 문장이 이미 같은 문장 안에서 경계를 갈랐거나 다른 곳에 순서를 정한 문장이 있습니다
+- 겹치는 입력을 직접 만들어 봤는데 두 룰 판정이 같은 쪽으로 납니다. 겹쳐도 모순이 아니면 코멘트를 안 냅니다
+
+이 후보는 문장의 형태만 보고 넓게 모읍니다. 재현해 보니 문제없던 룰북 커밋 12개에서도 2개가 나왔습니다(`docs/experiments/2026-10-rule-overlap-check.md`). 그래서 반대 판정이 나는 입력을 대지 못하면 올리지 않습니다.
 
 ### forwardRef — 바뀐 문서가 가리키는 경로, 헤딩, 링크, PR이 실제로 있는지
 
