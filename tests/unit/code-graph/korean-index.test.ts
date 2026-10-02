@@ -120,6 +120,7 @@ describe('한국어 토큰', () => {
     ]);
     expect(extractTickets('UTF-8 SHA-256 ISO-8601 ES-2022')).toEqual([]);
     expect(extractTickets('ct-123 xCT-1')).toEqual([]);
+    expect(extractTickets('룰 I-7과 C-11')).toEqual([]);
   });
 
   it('주석 기호를 걷고 한글 없는 주석은 버린다', () => {

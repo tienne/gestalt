@@ -210,24 +210,15 @@ export function koreanTerms(text: string): string[] {
 /**
  * 티켓 키로 보지 않는 접두어. `UTF-8`, `SHA-256`처럼 대문자-숫자 꼴인 표준 이름이다.
  */
-const NOT_TICKETS = new Set([
-  'UTF',
-  'SHA',
-  'ISO',
-  'ES',
-  'MD',
-  'RFC',
-  'HTTP',
-  'TLS',
-  'AES',
-  'RSA',
-  'P',
-]);
+const NOT_TICKETS = new Set(['UTF', 'SHA', 'ISO', 'ES', 'MD', 'RFC', 'HTTP', 'TLS', 'AES', 'RSA']);
 
-/** `CT-31408`, `BIZRES-12636` 꼴. 대문자로 정규화해 돌려준다 */
+/**
+ * `CT-31408`, `BIZRES-12636` 꼴. Jira 프로젝트 키처럼 접두어는 두 글자 이상이어야 한다.
+ * 한 글자를 받으면 `I-7`, `C-11` 같은 규칙 번호까지 티켓으로 잡힌다
+ */
 export function extractTickets(text: string): string[] {
   const out = new Set<string>();
-  for (const m of text.matchAll(/(?<![A-Za-z0-9])([A-Z][A-Z0-9]{0,15})-(\d{1,7})(?![0-9])/g)) {
+  for (const m of text.matchAll(/(?<![A-Za-z0-9])([A-Z][A-Z0-9]{1,15})-(\d{1,7})(?![0-9])/g)) {
     if (NOT_TICKETS.has(m[1]!)) continue;
     out.add(`${m[1]!}-${m[2]!}`);
   }
