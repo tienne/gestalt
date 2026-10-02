@@ -1,0 +1,51 @@
+{
+  "description": "gestalt 코드 그래프 컨텍스트 자동 주입. 기본은 꺼져 있고 gestalt.json의 codeGraph.hooks.enabled나 GESTALT_CODE_GRAPH_HOOKS=1로 켠다. 그래프 DB가 없는 레포에서는 Node를 띄우지 않고 끝난다.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/code-graph-hook.sh session-start",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/code-graph-hook.sh user-prompt-submit",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/code-graph-hook.sh post-tool-use",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/code-graph-hook.sh stop",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  }
+}
