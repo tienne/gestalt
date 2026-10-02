@@ -54,6 +54,7 @@ outputs:
   - coChangeTotalMatched
   - riskScore
   - summary
+  - freshness
 ---
 
 # Diff Radius Skill
@@ -69,6 +70,8 @@ outputs:
 ```
 /build-graph
 ```
+
+한 번 빌드해두면 그 뒤는 손대지 않아도 됩니다. 질의하기 전에 그래프를 작업 트리에 맞추므로 커밋 안 한 변경까지 반영된 그래프로 답합니다. 그래프 DB가 아예 없으면 자동으로 만들지 않으니 그때만 `/build-graph`를 돌립니다.
 
 ## 실행 방법
 
@@ -123,6 +126,7 @@ ges_code_graph {
 | `coChangeTotalMatched` | 임계를 통과한 이력 이웃 수. `coChangeMatchedCapped`가 꺼져 있으면 하한이 아니라 정확한 수다 |
 | `riskScore` | 위험도 점수 0~1 |
 | `summary` | 한 줄 요약 |
+| `freshness` | 질의 전 최신화 결과. `status`가 `fresh`(바뀐 것 없음), `refreshed`(반영하고 답함), `stale`(이전 그래프로 답함), `skipped`(DB가 없거나 최신화를 끔) 중 하나 |
 
 `rankedFiles` 각 항목의 `origin`은 `both`(import와 이력 양쪽), `history`(이력 전용), `import`(import 전용) 셋이다. `history`는 매니페스트끼리의 약속이나 코드와 그 문서처럼 서로 import하지 않아 파싱으로는 영영 안 잡히는 관계다. 커밋 직전에 "이것도 같이 고쳐야 하지 않나"를 잡아주는 자리라 이 스킬에서 특히 쓸모가 있다.
 
@@ -160,6 +164,13 @@ ges_code_graph {
 ```
 ℹ️ git 이력 신호 없이 import 그래프만 본 결과입니다 ({coChangeReason}).
    레포 최상위에서 /build-graph를 다시 돌리면 함께 바뀐 파일까지 잡습니다.
+```
+
+`freshness.status`가 `stale`이면 결과 표시 위에 안내를 붙입니다. 결과는 나오지만 최근에 고친 파일이 빠져 있을 수 있습니다.
+
+```
+⚠️ 이전 그래프 기준으로 본 결과입니다 ({freshness.message}).
+   최근에 고친 파일은 빠져 있을 수 있습니다. 잠시 뒤 다시 부르면 그때 다시 맞춥니다.
 ```
 
 `depthExhausted: true`면 위 표시 바로 아래에 한 줄을 덧붙입니다. 빠뜨리지 않습니다.

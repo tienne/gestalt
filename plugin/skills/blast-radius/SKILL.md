@@ -68,6 +68,7 @@ outputs:
   - coChangeTotalMatched
   - riskScore
   - summary
+  - freshness
 ---
 
 # Blast Radius Skill
@@ -83,6 +84,8 @@ outputs:
 ```
 /build-graph
 ```
+
+한 번 빌드해두면 그 뒤는 손대지 않아도 됩니다. 질의하기 전에 그래프를 작업 트리에 맞추므로 커밋 안 한 변경까지 반영된 그래프로 답합니다. 그래프 DB가 아예 없으면 자동으로 만들지 않으니 그때만 `/build-graph`를 돌립니다.
 
 ## 실행 방법
 
@@ -131,6 +134,7 @@ ges_code_graph {
 | `depthExhausted` | `maxDepth`에 걸려 탐색이 멈췄고 갈 곳이 남아 있었다 |
 | `unexploredNodes` | 그때 다음 홉에서 기다리던 노드 수 |
 | `summary` | 한 줄 요약 |
+| `freshness` | 질의 전 최신화 결과. `status`가 `fresh`(바뀐 것 없음), `refreshed`(반영하고 답함), `stale`(이전 그래프로 답함), `skipped`(DB가 없거나 최신화를 끔) 중 하나 |
 
 ### `rankedFiles`의 출처 표시
 
@@ -184,6 +188,13 @@ ges_code_graph {
    레포 최상위에서 /build-graph를 다시 돌리면 함께 바뀐 파일까지 잡습니다.
 ```
 
+`freshness.status`가 `stale`이면 결과 표시 위에 안내를 붙입니다. 결과는 나오지만 최근에 고친 파일이 빠져 있을 수 있습니다.
+
+```
+⚠️ 이전 그래프 기준으로 본 결과입니다 ({freshness.message}).
+   최근에 고친 파일은 빠져 있을 수 있습니다. 잠시 뒤 다시 부르면 그때 다시 맞춥니다.
+```
+
 `depthExhausted: true`면 위 표시 바로 아래에 한 줄을 덧붙입니다. 빠뜨리지 않습니다.
 
 ```
@@ -225,4 +236,3 @@ ges_code_graph {
    ```
 
    돌아온 순서대로 사용자에게 제시합니다. 스폰이 그 별칭을 거부하면 `sonnet`으로 1회 재시도합니다. 그것도 안 되면 기존 방식(테스트 파일 우선)으로 진행합니다. 폴백 절차는 [`../_shared/agent-model.md`](../_shared/agent-model.md)와 같습니다.
-6. 빌드된 그래프가 오래된 경우 `/build-graph --incremental` 실행을 권장합니다.
