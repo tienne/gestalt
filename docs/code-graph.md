@@ -20,7 +20,10 @@
 | `query` | 관련 파일 패턴 검색 |
 | `co_change` | git 이력에서 함께 바뀐 파일 조회 |
 | `stats` | 그래프 통계 조회 |
+| `skeleton` | 파일 하나의 시그니처와 줄 번호 조회 |
 | `db_exists` | DB 존재 여부 확인 |
+
+`build`와 `db_exists`를 뺀 나머지는 질의 액션이다. 질의 액션은 답하기 전에 그래프를 작업 트리에 맞추고 응답에 `freshness`를 싣는다 — [질의 시점 최신화](#질의-시점-최신화)를 본다.
 
 ### Common Parameters
 
@@ -28,12 +31,15 @@
 |-----------|------|:--------:|---------|-------------|
 | `action` | `string` | Y | — | 수행할 액션 (위 테이블 참고) |
 | `repoRoot` | `string` | Y | — | 저장소 절대 경로 |
+| `refresh` | `boolean` | N | `true` | 질의 액션 전용. `false`면 질의 전 최신화를 건너뛴다 |
 
 ---
 
 ### `build`
 
-코드 그래프를 빌드한다. 이미 DB가 존재하면 변경된 파일만 증분 갱신한다. `gestalt init` 실행 시 post-commit hook이 설치되어 이후 커밋마다 자동 갱신된다.
+코드 그래프를 빌드한다. `mode: "incremental"`이면 바뀐 파일만 다시 파싱한다. `gestalt init` 실행 시 post-commit hook이 설치되어 이후 커밋마다 자동 갱신된다. 커밋 사이의 변경은 질의 액션이 답하기 전에 직접 반영하므로 훅만 믿고 기다릴 필요는 없다.
+
+디스크에서 지워진 파일은 full과 incremental 모두에서 그래프에서도 지운다. 그 파일의 노드와 엣지, 파일 stat, 임베딩이 함께 빠진다. 범위(`include`, `exclude`)를 안 준 증분 빌드는 직전 빌드의 범위를 이어받는다. 범위는 `cg_meta` 테이블에 남는다.
 
 파일 파싱이 끝나면 같은 호출에서 git 이력 co-change도 함께 갱신한다. `repoRoot`가 git 레포 최상위가 아니면 이 단계를 건너뛰고 응답에 `coChange`가 실리지 않는다.
 
@@ -42,6 +48,9 @@
 | Parameter | Type | Required | Default | Description |
 |-----------|------|:--------:|---------|-------------|
 | `repoRoot` | `string` | Y | — | 저장소 절대 경로 |
+| `mode` | `"full" \| "incremental"` | N | `"full"` | 빌드 방식 |
+| `include` | `string[]` | N | `**/**` | 포함할 glob 패턴 |
+| `exclude` | `string[]` | N | — | 제외할 glob 패턴 |
 
 #### Example
 
@@ -138,7 +147,13 @@ ges_code_graph({
   "riskScore": 0.62,
   "depthExhausted": false,
   "unexploredNodes": 0,
-  "summary": "Changed 1 file(s) impact 3 file(s) (1 test files, 2 test functions). Risk: HIGH (62.0%). Git history adds 1 file(s) imports cannot see, 1 confirmed by both signals."
+  "summary": "Changed 1 file(s) impact 3 file(s) (1 test files, 2 test functions). Risk: HIGH (62.0%). Git history adds 1 file(s) imports cannot see, 1 confirmed by both signals.",
+  "freshness": {
+    "status": "refreshed",
+    "changed": { "added": 0, "modified": 1, "removed": 0, "touched": 0 },
+    "skippedCount": 0,
+    "durationMs": 52
+  }
 }
 ```
 
@@ -156,6 +171,7 @@ ges_code_graph({
 | `depthExhausted` | `maxDepth`에 걸려 탐색이 멈췄고 갈 곳이 남아 있었다 |
 | `unexploredNodes` | 그때 다음 홉에서 기다리던 노드 수 |
 | `riskScore` | 위험도 0~1. `depthExhausted`면 하한이다 |
+| `freshness` | 질의 전 최신화 결과. [`freshness` 필드](#freshness-필드)를 본다 |
 
 `rankedFiles`의 `origin`은 세 값이다. `both`는 import와 이력 양쪽에 걸린 파일이고 가장 먼저 읽어야 할 파일이다. `history`는 이력에만 걸려 import 그래프가 원리상 못 보는 파일이다. `import`는 import 신호만 있는 파일이다.
 
@@ -348,6 +364,59 @@ ges_code_graph({ action: "stats", repoRoot: "/path/to/repo" })
 
 ---
 
+### `skeleton`
+
+파일 하나의 시그니처와 줄 번호를 돌려준다. 함수와 클래스, 메서드, 타입(interface, type alias, enum, namespace), 그리고 최상위 변수가 대상이다. 본문과 import는 뺀다. 초기값이 60자를 넘으면 `…`로 접는다. 화살표 함수는 `=>`까지만 싣고 클래스와 인터페이스 멤버는 들여쓴다.
+
+파일을 통째로 읽기 전에 부른다. 구조와 줄 번호를 먼저 보고 필요한 구간만 offset과 limit로 읽으면 된다.
+
+#### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|:--------:|---------|-------------|
+| `repoRoot` | `string` | Y | — | 저장소 절대 경로 |
+| `filePath` | `string` | Y | — | 대상 파일. 절대 경로나 `repoRoot` 기준 상대 경로. `repoRoot` 밖이면 거절한다 |
+
+#### 언어별 동작
+
+| 언어 | 출처 | 내용 |
+|------|------|------|
+| TS/JS (`.ts` `.tsx` `.js` `.jsx` `.mjs` `.cjs`) | 디스크의 현재 내용 | TypeScript 컴파일러 API로 뽑은 시그니처 |
+| 그 밖의 언어 | 그래프 store | 노드 종류와 이름, 줄 범위만. 첫 줄 끝에 `[시그니처 미지원 언어라 그래프 노드 이름만]`이 붙는다 |
+
+#### Example
+
+```javascript
+ges_code_graph({
+  action: "skeleton",
+  repoRoot: "/path/to/repo",
+  filePath: "src/code-graph/lock.ts"
+})
+```
+
+응답은 JSON이 아니라 텍스트 그대로다.
+
+```
+원본 4,211자 → 899자 (78.7% 줄임) — src/code-graph/lock.ts
+L11 export const LOCK_STALE_MS = 10 * 60 * 1000
+L20-24 interface LockContent
+  L21 pid: number
+  L22 token: string
+  L23 acquiredAt: number
+L26-31 export interface LockHandle
+  L27 readonly path: string
+  L28 readonly token: string
+  L30 release(): boolean
+L81-115 export function tryAcquireLock(path: string, opts: LockOptions = {}): LockHandle | null
+L144-157 export async function acquireLock(path: string, opts: LockOptions & { timeoutMs?: number; pollMs?: number } = {}): Promise<LockHandle | null>
+```
+
+첫 줄은 줄인 크기와 파일 경로다. 그 아래로 한 줄에 하나씩 `L시작-끝 시그니처`가 온다. 한 줄짜리 선언은 `L11`처럼 시작 줄만 적는다. 뽑을 선언이 없으면 둘째 줄이 `(선언 없음)`이다. 최신화가 `stale`로 끝났으면 둘째 줄에 `(갱신 중이라 이전 그래프 기준)`이 끼어든다. 예시는 원래 출력에서 몇 줄을 덜어냈다.
+
+이 레포에서 `src` 아래 TS 파일 231개를 돌리면 평균 81.7%가 줄었다 (`aface68` 기준). 그때 잰 스냅숏이라 파일이 바뀌면 같이 움직인다.
+
+---
+
 ### `db_exists`
 
 코드 그래프 DB가 존재하는지 확인한다. `build` 전에 호출해 증분 갱신 여부를 판단할 때 사용한다.
@@ -367,6 +436,70 @@ ges_code_graph({ action: "db_exists", repoRoot: "/path/to/repo" })
 ```json
 { "exists": true }
 ```
+
+---
+
+## 질의 시점 최신화
+
+질의 액션(`blast_radius`, `diff_radius`, `query`, `co_change`, `stats`, `skeleton`)은 답하기 전에 그래프를 작업 트리에 맞춘다. 커밋 안 한 변경도 반영된다. 예전에는 post-commit 훅이 돌 때만 갱신돼서 커밋 사이에 고친 파일은 그래프에 없었다. 그 상태로 `diff_radius`를 부르면 방금 추가한 import가 영향 범위에서 빠졌다.
+
+`build`와 `db_exists`는 그대로다. 그래프 DB가 아직 없으면 질의가 처음부터 빌드하지 않는다. 그때는 `freshness.status`가 `skipped`로 오고 먼저 `build`를 불러야 한다.
+
+### 드리프트 검사
+
+파일마다 size와 mtime을 `cg_file_stat` 테이블에 둔다. 질의가 들어오면 지금 파일 목록과 이 표를 맞대본다.
+
+- size와 mtime이 둘 다 같으면 파일을 안 읽는다
+- 하나라도 다르면 읽어서 sha256으로 확정한다. 내용이 같으면(touch만 한 경우) stat만 고쳐 쓰고 다시 파싱하지 않는다
+- 표에 없는 파일은 added, 디스크에서 사라진 파일은 removed다
+- mtime이 마지막 확인 시각과 2초 안쪽인 행은 stat이 같아도 다시 읽는다. 같은 mtime 해상도 안에서 다시 쓰인 파일은 stat만으로 못 가른다 (git의 racy-clean과 같은 문제다)
+
+바뀐 게 있으면 증분 빌드를 돈다. 바뀌었거나 지워진 파일을 참조하던 파일도 1-hop까지 다시 파싱한다. 파일 F를 다시 파싱하면 F를 가리키던 A→F 엣지까지 같이 지워지는데, A는 안 바뀌었으니 다시 파싱하지 않으면 그 엣지가 영영 안 돌아온다.
+
+### 동시 갱신 락
+
+워크트리 여럿과 MCP 서버, CLI가 같은 DB를 갱신할 수 있다. 그래서 갱신은 `.gestalt/code-graph.lock`을 잡고 한다.
+
+- 락 파일은 `wx`로 배타 생성하고 pid와 토큰을 담는다
+- 해제할 때는 pid와 토큰이 둘 다 내 것일 때만 지운다. 오래 걸려 stale로 판정된 락은 다른 프로세스로 넘어갔을 수 있는데, 원래 주인이 그걸 지우면 안 된다
+- 주인 프로세스가 죽었거나 10분 넘게 잡힌 락은 넘겨받는다
+- 락을 못 잡으면 1.5초까지 기다린다. 그래도 안 되면 이전 그래프로 답하고 `freshness.status`를 `stale`로 단다
+- 락을 잡은 뒤 드리프트를 한 번 더 본다. 기다리는 사이 다른 쪽이 같은 변경을 반영했으면 다시 빌드하지 않는다
+
+최신화가 실패해도 질의는 막지 않는다. 이전 그래프로 답하고 `stale`(`reason: "refresh_failed"`)을 단다. 이전 그래프로라도 답하는 게 아예 못 답하는 것보다 낫다.
+
+### `freshness` 필드
+
+질의 액션 응답에 붙는다. `status`에 따라 실리는 필드가 다르다.
+
+| `status` | 뜻 | 함께 실리는 필드 |
+|----------|----|------------------|
+| `fresh` | 바뀐 게 없었다 | `checkedFiles`, `durationMs` |
+| `refreshed` | 바뀐 걸 반영하고 답했다 | `changed`(`added`, `modified`, `removed`, `touched` 개수), `skippedCount`, `durationMs` |
+| `stale` | 이전 그래프로 답했다 | `reason`(`locked` 또는 `refresh_failed`), `message`, `pending`, `durationMs` |
+| `skipped` | 최신화를 안 했다 | `reason`(`no_graph` 또는 `disabled`), `durationMs` |
+
+`pending`은 반영하지 못한 변경의 개수이고 락 대기에서 끝났을 때만 있다. `stale`이 오면 결과에 최근 변경이 빠져 있을 수 있다는 뜻이므로 사용자에게 알린다. 락 때문이었다면 잠시 뒤 다시 부르면 된다.
+
+### 끄는 법
+
+기본은 켜져 있다. 끄는 길은 둘이다.
+
+- 호출마다: 입력에 `refresh: false`
+- 프로세스 전체: 환경변수 `GESTALT_NO_REFRESH=1`
+
+둘 다 `freshness`는 `{ "status": "skipped", "reason": "disabled" }`로 온다.
+
+### 걸리는 시간
+
+이 레포(그래프 대상 파일 466개)의 `231106e`에서 잰 스냅숏이다. 파일 수가 늘면 함께 움직인다.
+
+| 상황 | 시간 |
+|------|------|
+| 바뀐 파일 없음, 드리프트 검사만 | 중앙값 약 14ms |
+| 파일 하나 고친 뒤 질의 (최신화 + `blast_radius`) | 약 66ms |
+
+질의마다 돌려도 되는 크기가 된 건 파일 목록 수집이 제외 디렉토리(`node_modules` 등)를 아예 열지 않게 바뀐 덕이다.
 
 ---
 
