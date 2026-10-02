@@ -264,9 +264,14 @@ export function rankPointers(
   }
   for (const [filePath, hit] of byFileKo) agg(filePath).commit = hit;
   if (korean && tokens.tickets.length > 0) {
-    for (const t of store.getTicketFiles(tokens.tickets)) {
+    // 그 티켓으로 가장 많이 고친 파일만 남긴다. 후속 PR은 앞 PR과 다른 파일을 고치는 일이 많아
+    // 한두 번 걸친 파일까지 넣으면 정밀도가 깎인다 (모노레포 롤링 평가 41% → 44%)
+    const rows = store.getTicketFiles(tokens.tickets);
+    const max = Math.max(0, ...rows.map((t) => t.count));
+    for (const t of rows) {
+      if (t.count < max) continue;
       const a = agg(t.filePath);
-      if (!a.ticket || t.count > a.ticket.count) a.ticket = { key: t.ticket, count: t.count };
+      if (!a.ticket) a.ticket = { key: t.ticket, count: t.count };
     }
   }
 

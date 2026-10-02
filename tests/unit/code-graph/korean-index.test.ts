@@ -334,6 +334,8 @@ describe('한국어 포인터', () => {
       { files: ['src/interview/scorer.ts'], subject: '인터뷰 해상도 점수 반올림 오류' },
       { files: ['src/interview/scorer.ts', 'src/app.ts'], subject: '인터뷰 해상도 점수 기준 상향' },
       { files: ['src/billing/refund.ts'], subject: '[PAY-123] 환불 정산 금액 오류' },
+      { files: ['src/billing/refund.ts', 'src/app.ts'], subject: '[PAY-77] 부분 환불' },
+      { files: ['src/billing/refund.ts'], subject: '[PAY-77] 부분 환불 반올림' },
     );
     syncCoChange(store, root, {
       mode: 'full',
@@ -379,6 +381,10 @@ describe('한국어 포인터', () => {
     const picks = rank('PAY-123 다시 봐줘요');
     expect(picks[0]?.relPath).toBe('src/billing/refund.ts');
     expect(evidenceLabel(picks[0]!)).toContain('티켓 PAY-123 1건');
+  });
+
+  it('티켓으로 가장 많이 고친 파일만 넣는다', () => {
+    expect(rank('PAY-77 다시 봐줘요').map((p) => p.relPath)).toEqual(['src/billing/refund.ts']);
   });
 
   it('korean을 끄면 한국어 신호를 안 쓴다', () => {
