@@ -1,4 +1,5 @@
 import { NodeKind, type CodeGraphNode } from '../types.js';
+import { extractTickets, koreanEojeols, type KoEojeol } from '../ko-text.js';
 
 /**
  * 프롬프트와 이름이 겹치는 노드를 어휘만으로 고른다. 임베딩은 안 쓴다 — 모델을 올리는 데만
@@ -131,6 +132,10 @@ export interface PromptTokens {
   parts: string[];
   /** 프롬프트에 식별자 통째로 적힌 이름 (소문자, 4자 이상) */
   wholeNames: Set<string>;
+  /** 한글 어절. 줄기와 bigram */
+  ko: KoEojeol[];
+  /** `CT-31408` 꼴 티켓 키 */
+  tickets: string[];
 }
 
 export function tokenizePrompt(prompt: string): PromptTokens {
@@ -148,7 +153,12 @@ export function tokenizePrompt(prompt: string): PromptTokens {
       parts.push(s);
     }
   }
-  return { parts: parts.slice(0, MAX_TOKENS), wholeNames };
+  return {
+    parts: parts.slice(0, MAX_TOKENS),
+    wholeNames,
+    ko: koreanEojeols(prompt).slice(0, MAX_TOKENS),
+    tickets: extractTickets(prompt),
+  };
 }
 
 export interface RankedNode {
@@ -226,47 +236,4 @@ export function scoreNodes(
     ranked.push({ node: c.node, relPath: c.relPath, score: baseScore + exact, baseScore, matched });
   }
   return ranked.sort((a, b) => b.score - a.score);
-}
-
-/**
- * 파일마다 가장 높은 노드 하나만 남기고 상위 limit개를 고른다. 같은 파일 포인터 셋보다
- * 서로 다른 파일 셋이 에이전트가 길을 찾는 데 더 쓸모 있다.
- *
- * 1위의 절반에 못 미치는 건 버린다. 상위 하나가 확실할 때 그 뒤에 매달린 약한 후보는
- * 컨텍스트만 먹는다. 비교는 통째 일치 가산을 뺀 점수로 한다. 프롬프트가 이름 하나를
- * 정확히 적었다고 같은 문장에 나온 다른 대상까지 밀려나면 안 된다.
- */
-export function pickPointers(ranked: RankedNode[], limit: number): RankedNode[] {
-  const top = ranked[0];
-  if (!top) return [];
-  const byFile = new Set<string>();
-  const out: RankedNode[] = [];
-  for (const r of ranked) {
-    if (r.baseScore < top.baseScore * 0.5) continue;
-    if (byFile.has(r.node.filePath)) continue;
-    byFile.add(r.node.filePath);
-    out.push(r);
-    if (out.length >= limit) break;
-  }
-  return out;
-}
-
-/**
- * 점수만으로는 못 거르는 경우를 막는 증거 조건. 둘 중 하나는 있어야 통과한다.
- *
- * - 고른 포인터 전체에서 서로 다른 프롬프트 토큰이 둘 이상 맞았다
- * - 프롬프트에 조각 둘 이상짜리 식별자가 통째로 적혔고 그게 고른 심볼 이름이다
- *
- * `push`나 `summarize`처럼 짧은 함수 이름은 드물어서 idf가 높다. 토큰 하나가 거기 맞았다고
- * 들어가면 "push는 하지 마" 같은 프롬프트에 엉뚱한 파일이 붙는다.
- */
-export function hasEnoughEvidence(picks: RankedNode[], tokens: PromptTokens): boolean {
-  const matched = new Set(picks.flatMap((p) => p.matched));
-  if (matched.size >= 2) return true;
-  return picks.some(
-    (p) =>
-      p.node.kind !== NodeKind.File &&
-      splitIdentifier(p.node.name).length >= 2 &&
-      tokens.wholeNames.has(p.node.name.toLowerCase()),
-  );
 }

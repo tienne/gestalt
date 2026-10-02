@@ -5,7 +5,8 @@ import { buildCoChangeLookup } from '../cochange.js';
 import { NodeKind } from '../types.js';
 import { logger } from '../../core/logger.js';
 import { isHooksEnabled } from './settings.js';
-import { hasEnoughEvidence, pickPointers, scoreNodes, tokenizePrompt } from './rank.js';
+import { tokenizePrompt } from './rank.js';
+import { evidenceLabel, rankPointers } from './pointers.js';
 import { pruneSessionStates, readSessionState, remember, writeSessionState } from './state.js';
 import { requestRefresh, type RefreshSpawner } from './background.js';
 
@@ -44,12 +45,6 @@ export const PROMPT_CONTEXT_MAX_CHARS = 800;
 export const EDIT_CONTEXT_MAX_CHARS = 1200;
 export const MAX_POINTERS = 3;
 export const MIN_PROMPT_CHARS = 12;
-/**
- * 관련성 게이트. 1위 점수가 이보다 낮으면 아무것도 안 넣는다.
- * 흔한 토큰 하나만 맞은 경우(idf 2~3)는 여기서 걸린다. 드문 토큰 하나나 흔한 토큰 둘은 넘는다.
- * 값은 rank 테스트의 관련, 무관 프롬프트 쌍으로 정했다.
- */
-export const MIN_POINTER_SCORE = 4;
 const IMPACT_SHOWN = 5;
 const COCHANGE_SHOWN = 5;
 /** 연달아 고칠 때 갱신 프로세스를 다시 띄우기까지의 간격 */
@@ -175,7 +170,7 @@ export async function runHook(
           text = sessionMap(store, repoRoot, dbPath, now());
           break;
         case 'UserPromptSubmit':
-          text = promptPointers(store, repoRoot, dbPath, sessionId, String(input.prompt), deadline);
+          text = promptPointers(store, repoRoot, sessionId, String(input.prompt), deadline);
           break;
         case 'PostToolUse':
           text = editImpact(store, repoRoot, sessionId, input, deadline);
@@ -279,37 +274,31 @@ export function pointerKey(relPath: string, name: string): string {
 function promptPointers(
   store: CodeGraphStore,
   repoRoot: string,
-  dbPath: string,
   sessionId: string,
   prompt: string,
   deadline: Deadline,
 ): string {
   const tokens = tokenizePrompt(prompt);
-  if (tokens.parts.length === 0) return '';
+  if (tokens.parts.length === 0 && tokens.ko.length === 0 && tokens.tickets.length === 0) return '';
 
-  const candidates = store.searchNodesByTokens(repoRoot, tokens.parts, 5000);
-  if (candidates.length === 0 || deadline.expired()) return '';
-
-  const ranked = scoreNodes(repoRoot, candidates, tokens, store.getStats(dbPath).totalNodes);
-  if (!ranked[0] || ranked[0].score < MIN_POINTER_SCORE) return '';
+  const top = rankPointers(store, repoRoot, tokens, MAX_POINTERS);
+  if (top.length === 0 || deadline.expired()) return '';
 
   // 상위를 먼저 고르고 이미 넣은 걸 뺀다. 순서를 뒤집으면 같은 프롬프트를 다시 보냈을 때
   // 빠진 자리를 그다음 약한 후보가 채워서 매번 뭔가가 들어간다
   const state = sessionId ? readSessionState(repoRoot, sessionId) : { pointers: [], impacts: [] };
   const seen = new Set(state.pointers);
-  const top = pickPointers(ranked, MAX_POINTERS);
-  if (!hasEnoughEvidence(top, tokens)) return '';
   const picks = top.filter((p) => !seen.has(pointerKey(p.relPath, p.node.name)));
   if (picks.length === 0) return '';
   const importers = store.getImporterCounts({ files: picks.map((p) => p.node.filePath) });
   const lines = [
-    '[gestalt 코드 그래프] 요청에 나온 이름과 겹치는 위치예요. 필요할 때만 열어보세요.',
+    '[gestalt 코드 그래프] 요청과 겹치는 위치예요. 필요할 때만 열어보세요.',
     ...picks.map((p) => {
       const line = p.node.lineStart ?? 1;
       const n = importers.get(p.node.filePath);
       const label =
         p.node.kind === NodeKind.File ? '파일' : `${kindLabel(p.node.kind)} ${p.node.name}`;
-      return `- ${p.relPath}:${line} — ${label}${n ? `, ${n}개 파일이 import` : ''}`;
+      return `- ${p.relPath}:${line} — ${label}${n ? `, ${n}개 파일이 import` : ''}${evidenceLabel(p)}`;
     }),
   ];
   const text = clampLines(lines, PROMPT_CONTEXT_MAX_CHARS);
