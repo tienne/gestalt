@@ -205,6 +205,28 @@ export interface AnalyzerPlugin {
   language: string;
   extensions: string[]; // e.g. ['.ts', '.tsx', '.js']
   parse(filePath: string, content: string): ParseResult;
+  /** 본문을 뺀 시그니처 목록. 없으면 store의 노드 이름과 줄 범위로 대신한다 */
+  skeleton?(filePath: string, content: string): SkeletonEntry[];
+}
+
+// ─── Skeleton Types ──────────────────────────────────────────────
+export interface SkeletonEntry {
+  lineStart: number;
+  lineEnd: number;
+  /** 0이 최상위. 클래스 멤버는 1 */
+  depth: number;
+  signature: string;
+}
+
+export interface SkeletonResult {
+  filePath: string;
+  /** signatures: 플러그인이 시그니처를 뽑았다. graph_nodes: store의 노드 이름만 돌려준다 */
+  source: 'signatures' | 'graph_nodes';
+  entries: SkeletonEntry[];
+  originalChars: number;
+  skeletonChars: number;
+  /** 첫 줄이 줄인 크기다. 그대로 응답 본문으로 쓴다 */
+  text: string;
 }
 
 // ─── Query Types ─────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import ts from 'typescript';
 import { createHash } from 'node:crypto';
 import { resolve, dirname, basename, extname } from 'node:path';
 import { log } from '../../core/log.js';
+import { extractTypeScriptSkeleton } from './typescript-skeleton.js';
 import {
   NodeKind,
   EdgeKind,
@@ -245,4 +246,6 @@ export const typescriptPlugin: AnalyzerPlugin = {
 
     return { nodes, edges, fileHash };
   },
+
+  skeleton: extractTypeScriptSkeleton,
 };

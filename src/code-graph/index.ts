@@ -45,6 +45,8 @@ export type {
   FreshnessCounts,
   FreshnessReport,
   RefreshOptions,
+  SkeletonEntry,
+  SkeletonResult,
 } from './types.js';
 export { detectDrift, RACY_WINDOW_MS } from './freshness.js';
 export type { DriftReport, FileStamp } from './freshness.js';

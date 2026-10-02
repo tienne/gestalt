@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import type { Dirent } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { CodeGraphStore } from './storage.js';
@@ -26,6 +26,8 @@ import type {
   FreshnessReport,
   ParseResult,
   RefreshOptions,
+  SkeletonEntry,
+  SkeletonResult,
   BlastRadiusOptions,
   BlastRadiusResult,
   CoChangeTuning,
@@ -580,6 +582,61 @@ export class CodeGraphEngine {
     }
 
     return { nodes, edges };
+  }
+
+  /**
+   * 파일의 시그니처와 줄 번호만 돌려준다. 본문은 뺀다.
+   * 플러그인이 skeleton을 지원하면 디스크의 현재 내용에서 뽑고 아니면 store의
+   * 노드 이름과 줄 범위로 대신한다. filePath는 repoRoot 안이어야 한다.
+   */
+  skeleton(repoRoot: string, filePath: string): SkeletonResult {
+    const root = resolve(repoRoot);
+    const abs = resolve(root, filePath);
+    if (abs !== root && !abs.startsWith(root + sep)) {
+      throw new Error(`filePath is outside repoRoot: ${filePath}`);
+    }
+    const content = readFileSync(abs, 'utf-8');
+    const plugin = getPluginForFile(abs);
+
+    let source: SkeletonResult['source'];
+    let entries: SkeletonEntry[];
+    if (plugin?.skeleton) {
+      source = 'signatures';
+      entries = plugin.skeleton(abs, content);
+    } else {
+      source = 'graph_nodes';
+      entries = this.getStore(repoRoot)
+        .getNodesByFile(abs)
+        .filter((n) => n.kind !== NodeKind.File)
+        .sort((a, b) => (a.lineStart ?? 0) - (b.lineStart ?? 0))
+        .map((n) => ({
+          lineStart: n.lineStart ?? 0,
+          lineEnd: n.lineEnd ?? n.lineStart ?? 0,
+          depth: 0,
+          signature: `${n.kind.toLowerCase()} ${n.name}`,
+        }));
+    }
+
+    const body = entries
+      .map((e) => {
+        const lines = e.lineEnd > e.lineStart ? `${e.lineStart}-${e.lineEnd}` : `${e.lineStart}`;
+        return `${'  '.repeat(e.depth)}L${lines} ${e.signature}`;
+      })
+      .join('\n');
+    const originalChars = content.length;
+    const skeletonChars = body.length;
+    const saved =
+      originalChars > 0
+        ? (((originalChars - skeletonChars) / originalChars) * 100).toFixed(1)
+        : '0';
+    const rel = abs.slice(root.length + 1);
+    const header =
+      `원본 ${originalChars.toLocaleString('en-US')}자 → ${skeletonChars.toLocaleString('en-US')}자 ` +
+      `(${saved}% 줄임) — ${rel}` +
+      (source === 'graph_nodes' ? ' [시그니처 미지원 언어라 그래프 노드 이름만]' : '');
+    const text = entries.length > 0 ? `${header}\n${body}` : `${header}\n(선언 없음)`;
+
+    return { filePath: abs, source, entries, originalChars, skeletonChars, text };
   }
 
   /**
