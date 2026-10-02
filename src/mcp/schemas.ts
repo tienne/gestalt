@@ -704,6 +704,12 @@ export const codeGraphInputSchema = guardObject(
       .max(1)
       .optional()
       .describe('Drop pairs below this confidence (default: 0.3)'),
+    refresh: z
+      .boolean()
+      .optional()
+      .describe(
+        'Refresh the graph against the working tree before answering (default: true). Query actions only; set false or GESTALT_NO_REFRESH=1 to skip',
+      ),
   }),
 );
 

@@ -439,6 +439,10 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       limit: z.number().int().min(0).max(500).optional(),
       minPairCount: z.number().int().min(0).optional(),
       minConfidence: z.number().min(0).max(1).optional(),
+      refresh: z
+        .boolean()
+        .optional()
+        .describe('(query actions: sync graph with working tree first, default true)'),
     },
     async (params) => {
       const input = codeGraphInputSchema.parse(params);
