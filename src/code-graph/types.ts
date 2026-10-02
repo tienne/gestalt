@@ -233,6 +233,43 @@ export interface BuildOptions {
   mode?: BuildMode;
 }
 
+export interface RefreshOptions {
+  /** 락을 기다리는 최대 시간. 기본 1500ms */
+  lockTimeoutMs?: number;
+}
+
+export interface FreshnessCounts {
+  added: number;
+  modified: number;
+  removed: number;
+  touched: number;
+}
+
+/**
+ * 질의 직전 최신화 결과. 질의 응답에 그대로 실린다.
+ * - fresh: 바뀐 게 없었다
+ * - refreshed: 바뀐 걸 반영하고 답했다
+ * - stale: 다른 프로세스가 갱신 중이라 이전 그래프로 답했다
+ * - skipped: 그래프 DB가 없거나 최신화를 껐다
+ */
+export type FreshnessReport =
+  | { status: 'fresh'; checkedFiles: number; durationMs: number }
+  | {
+      status: 'refreshed';
+      changed: FreshnessCounts;
+      skippedCount?: number;
+      durationMs: number;
+    }
+  | {
+      status: 'stale';
+      reason: 'locked' | 'refresh_failed';
+      message: string;
+      /** 반영하지 못한 변경. 락 대기에서 끝났을 때만 있다 */
+      pending?: FreshnessCounts;
+      durationMs: number;
+    }
+  | { status: 'skipped'; reason: 'no_graph' | 'disabled'; durationMs: number };
+
 export interface BuildResult {
   nodesBuilt: number;
   edgesBuilt: number;

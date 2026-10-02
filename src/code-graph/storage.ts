@@ -42,6 +42,22 @@ interface RawNodeRow {
   updated_at: number;
 }
 
+interface RawFileStatRow {
+  file_path: string;
+  size: number;
+  mtime_ms: number;
+  file_hash: string;
+  checked_at: number;
+}
+
+export interface FileStatRow {
+  filePath: string;
+  size: number;
+  mtimeMs: number;
+  fileHash: string;
+  checkedAt: number;
+}
+
 interface RawEdgeRow {
   id: number;
   kind: string;
@@ -306,7 +322,75 @@ export class CodeGraphStore {
         min_pair_count INTEGER NOT NULL,
         built_at REAL NOT NULL
       );
+
+      -- 질의 시점 드리프트 검사용. size와 mtime이 그대로면 파일을 읽지 않는다.
+      -- checked_at은 mtime이 기록 시각에 바짝 붙은 행을 가려내는 데 쓴다.
+      -- 같은 mtime 해상도 안에서 다시 쓰인 파일은 stat만으로 구분이 안 된다.
+      CREATE TABLE IF NOT EXISTS cg_file_stat (
+        file_path TEXT PRIMARY KEY,
+        size INTEGER NOT NULL,
+        mtime_ms REAL NOT NULL,
+        file_hash TEXT NOT NULL,
+        checked_at REAL NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS cg_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
     `);
+  }
+
+  getAllFileStats(): Map<string, FileStatRow> {
+    const rows = this.db.prepare(`SELECT * FROM cg_file_stat`).all() as RawFileStatRow[];
+    return new Map(
+      rows.map((r) => [
+        r.file_path,
+        {
+          filePath: r.file_path,
+          size: r.size,
+          mtimeMs: r.mtime_ms,
+          fileHash: r.file_hash,
+          checkedAt: r.checked_at,
+        },
+      ]),
+    );
+  }
+
+  upsertFileStat(row: FileStatRow): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO cg_file_stat (file_path, size, mtime_ms, file_hash, checked_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(row.filePath, row.size, row.mtimeMs, row.fileHash, row.checkedAt);
+  }
+
+  deleteFileStat(filePath: string): void {
+    this.db.prepare(`DELETE FROM cg_file_stat WHERE file_path = ?`).run(filePath);
+  }
+
+  /** 노드가 하나라도 있는 파일 경로. stat 행이 없던 옛 DB에서도 삭제를 잡으려면 이쪽도 봐야 한다 */
+  getGraphFilePaths(): string[] {
+    const rows = this.db.prepare(`SELECT DISTINCT file_path FROM cg_nodes`).all() as {
+      file_path: string;
+    }[];
+    return rows.map((r) => r.file_path);
+  }
+
+  getMeta(key: string): string | null {
+    const row = this.db.prepare(`SELECT value FROM cg_meta WHERE key = ?`).get(key) as
+      | { value: string }
+      | undefined;
+    return row?.value ?? null;
+  }
+
+  setMeta(key: string, value: string): void {
+    this.db.prepare(`INSERT OR REPLACE INTO cg_meta (key, value) VALUES (?, ?)`).run(key, value);
+  }
+
+  transaction(fn: () => void): void {
+    this.db.transaction(fn)();
   }
 
   getNodesByFile(filePath: string): CodeGraphNode[] {

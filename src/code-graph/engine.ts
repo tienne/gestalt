@@ -1,9 +1,17 @@
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { Dirent } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { CodeGraphStore } from './storage.js';
+import type { FileStatRow } from './storage.js';
+import {
+  detectDrift,
+  hasAnyDrift,
+  hasStructuralDrift,
+  hashContent,
+  type DriftReport,
+} from './freshness.js';
+import { acquireLock } from './lock.js';
 import { computeBlastRadius } from './blast-radius.js';
 import { getPluginForFile } from './plugins/index.js';
 import { syncCoChange, queryCoChange, buildCoChangeLookup } from './cochange.js';
@@ -11,8 +19,13 @@ import type { CoChangeQueryOptions } from './cochange.js';
 import { NodeKind } from './types.js';
 import { logger } from '../core/logger.js';
 import type {
+  BuildMode,
   BuildOptions,
   BuildResult,
+  FreshnessCounts,
+  FreshnessReport,
+  ParseResult,
+  RefreshOptions,
   BlastRadiusOptions,
   BlastRadiusResult,
   CoChangeTuning,
@@ -85,6 +98,38 @@ function getFilesRecursively(
   return results;
 }
 
+const SCOPE_META_KEY = 'build_scope';
+
+export const STALE_MESSAGE = '갱신 중이라 이전 그래프 기준';
+
+interface BuildScope {
+  include?: string[];
+  exclude?: string[];
+}
+
+interface ChangePlan {
+  toParse: string[];
+  removed: string[];
+  touched: FileStatRow[];
+}
+
+function planFromDrift(drift: DriftReport): ChangePlan {
+  return {
+    toParse: [...drift.added, ...drift.modified].map((f) => f.filePath),
+    removed: drift.removed,
+    touched: drift.touched,
+  };
+}
+
+function driftCounts(drift: DriftReport): FreshnessCounts {
+  return {
+    added: drift.added.length,
+    modified: drift.modified.length,
+    removed: drift.removed.length,
+    touched: drift.touched.length,
+  };
+}
+
 const DEFAULT_EXCLUDE = [
   'node_modules/**',
   '.git/**',
@@ -102,6 +147,10 @@ export class CodeGraphEngine {
     return join(repoRoot, '.gestalt', 'code-graph.db');
   }
 
+  private getLockPath(repoRoot: string): string {
+    return join(repoRoot, '.gestalt', 'code-graph.lock');
+  }
+
   private getStore(repoRoot: string): CodeGraphStore {
     const dbPath = this.getDbPath(repoRoot);
     if (!this.storeCache.has(dbPath)) {
@@ -112,81 +161,178 @@ export class CodeGraphEngine {
 
   /**
    * Build or incrementally update the code graph for a repository.
+   *
+   * incremental은 드리프트 검사로 바뀐 파일만 고른다. stat이 그대로인 파일은 읽지 않는다.
+   * 두 모드 모두 디스크에서 사라진 파일의 노드와 엣지를 지운다.
    */
   build(repoRoot: string, opts: BuildOptions = {}): BuildResult {
     const start = Date.now();
     const store = this.getStore(repoRoot);
-    const { include, exclude = [], mode = 'full' } = opts;
+    const { mode = 'full' } = opts;
 
     logger.info('code_graph.build_started', { module: 'code-graph/engine', repoRoot, mode });
 
-    // Collect files
-    const excludePatterns = [...DEFAULT_EXCLUDE, ...exclude];
-    const files = getFilesRecursively(repoRoot, excludePatterns, include);
+    const scope = this.resolveScope(store, opts, mode);
+    const files = this.listScopeFiles(repoRoot, scope);
 
-    // Filter files that have supported plugins
-    const supportedFiles = files.filter((f) => getPluginForFile(f) !== null);
-
-    let filesToProcess = supportedFiles;
-
+    let plan: ChangePlan;
     if (mode === 'incremental') {
-      const changedFiles: string[] = [];
-      for (const filePath of supportedFiles) {
-        const existingHash = store.getFileHash(filePath);
-        if (!existingHash) {
-          changedFiles.push(filePath);
-          continue;
-        }
+      plan = planFromDrift(detectDrift(store, files));
+    } else {
+      const current = new Set(files);
+      const known = new Set([...store.getAllFileStats().keys(), ...store.getGraphFilePaths()]);
+      plan = {
+        toParse: files,
+        removed: [...known].filter((f) => !current.has(f)),
+        touched: [],
+      };
+    }
+    store.setMeta(SCOPE_META_KEY, JSON.stringify(scope));
+
+    return this.applyPlan(repoRoot, store, plan, mode, start);
+  }
+
+  /**
+   * 질의 직전에 그래프를 디스크에 맞춘다. 그래프 DB가 없으면 아무것도 안 한다
+   * (처음부터 빌드하는 건 build 액션의 몫이다).
+   *
+   * 여러 워크트리와 MCP 서버, CLI가 같은 DB를 갱신할 수 있어서 락을 잡고 고친다.
+   * 락을 못 잡으면 기다렸다가 그래도 안 되면 이전 그래프로 답하게 stale을 돌려준다.
+   */
+  async refresh(repoRoot: string, opts: RefreshOptions = {}): Promise<FreshnessReport> {
+    const start = Date.now();
+    if (!this.dbExists(repoRoot)) {
+      return { status: 'skipped', reason: 'no_graph', durationMs: 0 };
+    }
+    const store = this.getStore(repoRoot);
+    const scope = this.resolveScope(store, {}, 'incremental');
+
+    const drift = detectDrift(store, this.listScopeFiles(repoRoot, scope));
+    if (!hasAnyDrift(drift)) {
+      return { status: 'fresh', checkedFiles: drift.unchanged, durationMs: Date.now() - start };
+    }
+
+    const lock = await acquireLock(this.getLockPath(repoRoot), {
+      timeoutMs: opts.lockTimeoutMs,
+    });
+    if (!lock) {
+      logger.warn('code_graph.refresh_locked', { module: 'code-graph/engine', repoRoot });
+      return {
+        status: 'stale',
+        reason: 'locked',
+        message: STALE_MESSAGE,
+        pending: driftCounts(drift),
+        durationMs: Date.now() - start,
+      };
+    }
+
+    try {
+      // 기다리는 사이 다른 프로세스가 같은 변경을 반영했을 수 있다
+      const recheck = detectDrift(store, this.listScopeFiles(repoRoot, scope));
+      if (!hasAnyDrift(recheck)) {
+        return {
+          status: 'fresh',
+          checkedFiles: recheck.unchanged,
+          durationMs: Date.now() - start,
+        };
+      }
+      const changed = driftCounts(recheck);
+      if (!hasStructuralDrift(recheck)) {
+        store.transaction(() => {
+          for (const row of recheck.touched) store.upsertFileStat(row);
+        });
+        return { status: 'refreshed', changed, durationMs: Date.now() - start };
+      }
+      const result = this.applyPlan(
+        repoRoot,
+        store,
+        planFromDrift(recheck),
+        'incremental',
+        Date.now(),
+      );
+      return {
+        status: 'refreshed',
+        changed,
+        skippedCount: result.skippedFiles.length,
+        durationMs: Date.now() - start,
+      };
+    } finally {
+      lock.release();
+    }
+  }
+
+  private resolveScope(store: CodeGraphStore, opts: BuildOptions, mode: BuildMode): BuildScope {
+    if (opts.include !== undefined || opts.exclude !== undefined) {
+      return { include: opts.include, exclude: opts.exclude ?? [] };
+    }
+    // 범위를 안 준 증분 빌드는 직전 빌드 범위를 이어받는다. 기본 범위로 돌리면
+    // include로 좁혀 만든 그래프에 범위 밖 파일이 전부 added로 쏟아진다
+    if (mode === 'incremental') {
+      const saved = store.getMeta(SCOPE_META_KEY);
+      if (saved) {
         try {
-          const content = readFileSync(filePath, 'utf-8');
-          const currentHash = createHash('sha256').update(content).digest('hex');
-          if (currentHash !== existingHash) changedFiles.push(filePath);
+          return JSON.parse(saved) as BuildScope;
         } catch {
-          // If can't read, skip (변경 여부 판단 불가 — 재파싱 대상에서 제외)
+          // 깨진 메타는 기본 범위로 간다
         }
       }
+    }
+    return { exclude: [] };
+  }
 
-      // 변경된 파일(F)을 참조하던 파일(A)들도 함께 재파싱 대상에 포함한다.
+  private listScopeFiles(repoRoot: string, scope: BuildScope): string[] {
+    const excludePatterns = [...DEFAULT_EXCLUDE, ...(scope.exclude ?? [])];
+    return getFilesRecursively(repoRoot, excludePatterns, scope.include).filter(
+      (f) => getPluginForFile(f) !== null,
+    );
+  }
+
+  private applyPlan(
+    repoRoot: string,
+    store: CodeGraphStore,
+    plan: ChangePlan,
+    mode: BuildMode,
+    start: number,
+  ): BuildResult {
+    const parseSet = new Set(plan.toParse);
+    const removedSet = new Set(plan.removed);
+
+    if (mode === 'incremental') {
+      // 바뀌거나 지워진 파일(F)을 참조하던 파일(A)들도 함께 재파싱 대상에 포함한다.
       // F 재파싱 시 deleteByFile(F)이 "A→F" 엣지까지 지우는데 A는 변경되지 않아
       // 재파싱 대상에서 빠지면 그 엣지가 영영 복원되지 않기 때문이다(1-hop만 전파).
       // 반드시 deleteByFile 호출 전에 조회해야 한다 — 지운 뒤에는 이미 늦다.
-      const changedSet = new Set(changedFiles);
-      const referencing = new Set<string>();
-      for (const filePath of changedFiles) {
+      for (const filePath of [...plan.toParse, ...plan.removed]) {
         for (const refFile of store.getReferencingFiles(filePath)) {
-          referencing.add(refFile);
+          if (!removedSet.has(refFile)) parseSet.add(refFile);
         }
       }
-      for (const refFile of referencing) {
-        if (!changedSet.has(refFile)) changedFiles.push(refFile);
-      }
-
-      filesToProcess = changedFiles;
     }
 
     let nodesBuilt = 0;
     let edgesBuilt = 0;
     const skippedFiles: { filePath: string; reason: string }[] = [];
+    const parsed: { filePath: string; result: ParseResult; stat: FileStatRow }[] = [];
 
-    for (const filePath of filesToProcess) {
+    for (const filePath of parseSet) {
       const plugin = getPluginForFile(filePath);
       if (!plugin) continue;
-
       try {
+        // stat을 먼저 뜬다. 읽은 뒤에 뜨면 그 사이 바뀐 내용이 옛 해시와 짝지어져
+        // 다음 검사에서 stat이 같다고 넘어간다
+        const st = statSync(filePath);
         const content = readFileSync(filePath, 'utf-8');
-        const result = plugin.parse(filePath, content);
-
-        // Delete old data for this file before updating
-        store.deleteByFile(filePath);
-
-        for (const node of result.nodes) {
-          store.upsertNode(node);
-          nodesBuilt++;
-        }
-        for (const edge of result.edges) {
-          store.upsertEdge(edge);
-          edgesBuilt++;
-        }
+        parsed.push({
+          filePath,
+          result: plugin.parse(filePath, content),
+          stat: {
+            filePath,
+            size: st.size,
+            mtimeMs: st.mtimeMs,
+            fileHash: hashContent(content),
+            checkedAt: Date.now(),
+          },
+        });
       } catch (e) {
         // 건너뛰되 조용히 넘어가지 않는다. 여기 빠진 파일은 그래프에 없으므로
         // 이후 blast-radius가 영향 범위에서 영영 누락한다.
@@ -196,6 +342,29 @@ export class CodeGraphEngine {
         });
       }
     }
+
+    // 지우기를 다 끝낸 뒤에 넣는다. deleteByFile(F)는 F로 들어오는 엣지까지 지우므로
+    // 파일마다 지우고 넣기를 번갈아 하면 먼저 넣은 A→F 엣지가 F 차례에 사라진다
+    store.transaction(() => {
+      for (const filePath of plan.removed) {
+        store.deleteByFile(filePath);
+        store.deleteFileStat(filePath);
+        store.deleteEmbeddingsByFile(filePath);
+      }
+      for (const row of plan.touched) store.upsertFileStat(row);
+      for (const { filePath } of parsed) store.deleteByFile(filePath);
+      for (const { result, stat } of parsed) {
+        for (const node of result.nodes) {
+          store.upsertNode(node);
+          nodesBuilt++;
+        }
+        for (const edge of result.edges) {
+          store.upsertEdge(edge);
+          edgesBuilt++;
+        }
+        store.upsertFileStat(stat);
+      }
+    });
 
     if (skippedFiles.length > 0) {
       logger.warn('code_graph.files_skipped', {
@@ -222,6 +391,9 @@ export class CodeGraphEngine {
     logger.info('code_graph.build_completed', {
       module: 'code-graph/engine',
       repoRoot,
+      mode,
+      parsedFiles: parseSet.size,
+      removedFiles: plan.removed.length,
       nodesBuilt,
       edgesBuilt,
       skippedCount: skippedFiles.length,
