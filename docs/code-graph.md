@@ -503,6 +503,167 @@ ges_code_graph({ action: "db_exists", repoRoot: "/path/to/repo" })
 
 ---
 
+## Claude Code 훅 (자동 주입)
+
+게슈탈트 플러그인에 Claude Code 훅이 들어 있다. 켜두면 묻지 않아도 세션에 코드 그래프 컨텍스트가 들어간다. 세션을 열 때 레포 맵이 붙는다. 프롬프트를 보내면 관련 심볼 위치가 붙는다. 파일을 고치면 그 파일의 영향 범위가 붙는다. 매번 `ges_code_graph`를 부르지 않아도 어디를 봐야 하는지 알 수 있다.
+
+**Claude만 지원한다.** Codex와 Grok 훅은 없다.
+
+### 켜는 법
+
+기본은 꺼져 있다. 플러그인 훅은 게슈탈트 플러그인이 깔린 모든 레포의 모든 프롬프트에 걸린다. 그래서 쓰려는 레포에서만 켠다.
+
+- 레포 단위: `gestalt.json`에 아래를 넣는다
+- 프로세스 단위: 환경변수 `GESTALT_CODE_GRAPH_HOOKS=1` (`true`도 된다)
+
+```json
+{
+  "codeGraph": { "hooks": { "enabled": true } }
+}
+```
+
+끄려면 설정을 지우거나 `false`로 둔다. `GESTALT_CODE_GRAPH_HOOKS=0`(또는 `false`)은 `gestalt.json` 설정보다 우선해서 끈다. 훅 말고 플러그인째 끄려면 `/plugin`에서 비활성화한다.
+
+사용자 전역 설정(`~/.claude/settings.json`)은 건드리지 않는다. 플러그인 훅만 쓴다.
+
+### 그래프 DB가 먼저 있어야 한다
+
+그래프 DB(`.gestalt/code-graph.db`)가 있어야 한다. 훅은 그래프를 새로 만들지 않는다. 처음 빌드는 `gestalt init`이나 `ges_code_graph build`(build-graph 스킬)로 한다.
+
+그래프 DB가 없거나 훅이 꺼져 있으면 셸 단계에서 Node를 띄우지 않고 exit 0으로 끝난다. 이때 걸리는 시간은 중앙값 18ms다.
+
+### 이벤트별로 넣는 것
+
+출력은 `hookSpecificOutput.additionalContext`로 나간다.
+
+| 이벤트 | matcher | 넣는 것 | 상한 |
+|--------|---------|---------|------|
+| `SessionStart` | `startup\|clear\|compact` | 레포 맵 | 1500자 |
+| `UserPromptSubmit` | — | 프롬프트와 이름이 겹치는 위치 포인터 최대 3개 | 800자 |
+| `PostToolUse` | `Write\|Edit\|MultiEdit` | 방금 고친 파일의 참조처와 co-change 파일 | 1200자 |
+| `Stop` | — | 없음. 백그라운드 갱신만 요청한다 | — |
+
+`SessionStart`의 레포 맵에는 이런 게 들어간다.
+
+- 파일 수, 노드 수, 갱신 시각
+- 디렉토리별 파일 수 상위 8개
+- 많이 import되는 파일 상위 6개 (테스트 제외)
+- co-change를 수집했는지
+- `blast_radius`와 `skeleton` 액션 안내
+
+`resume`은 matcher에서 뺐다. 이어 붙인 세션에는 이미 맥락이 있어서다.
+
+`UserPromptSubmit`의 포인터는 한 줄씩 이렇게 생겼다. 코드 본문은 넣지 않는다. 12자 미만 프롬프트는 건너뛴다.
+
+```text
+- path:line — 함수 이름, N개 파일이 import
+```
+
+`PostToolUse`는 방금 고친 파일을 기준으로 두 가지를 넣는다.
+
+- 이 파일을 참조하는 파일 수와 상위 5개. 구현 파일을 먼저 놓고 테스트 수는 따로 적는다
+- git 이력에서 함께 자주 바뀐(co-change) 파일 상위 5개와 횟수
+
+같은 세션에서 같은 파일은 한 번만 넣는다.
+
+### 프롬프트 랭킹
+
+`UserPromptSubmit`은 임베딩을 쓰지 않고 어휘 매칭만 쓴다. 임베딩 모델을 불러오는 비용 때문이다.
+
+1. 프롬프트의 영문 식별자를 camelCase, snake_case, kebab-case, 경로 단위로 쪼갠다. 불용어는 뺀다
+2. 남은 토큰을 심볼 이름과, repoRoot 기준 상대 경로의 조각에 맞춘다
+3. 점수는 맞은 토큰의 IDF 합이다. 아래로 가감한다
+   - 경로에서만 맞으면 절반
+   - 이름 조각을 많이 덮을수록 가산
+   - 프롬프트에 식별자가 통째로 적혔으면 가산
+   - 테스트 파일은 감점
+4. 파일마다 점수가 가장 높은 노드 하나만 남긴다. 1위 점수의 절반 미만은 버린다
+
+그래프 이웃(PageRank)으로 다시 줄 세우는 단계는 넣지 않았다.
+
+### 관련성 게이트
+
+점수가 나왔다고 다 넣지 않는다. 둘 다 통과해야 넣는다.
+
+- 1위 점수가 4 이상
+- 증거 조건: 서로 다른 프롬프트 토큰 2개 이상이 맞았거나, 조각 2개 이상짜리 식별자(예: `detectDrift`)가 프롬프트에 통째로 적혔다
+
+증거 조건은 `push`처럼 짧고 드문 이름 하나만 맞은 경우를 거르려고 넣었다.
+
+### 같은 포인터를 두 번 넣지 않는다
+
+세션마다 상태 파일 `.gestalt/hooks/sessions/<session_id>.json`을 두고 최근 넣은 포인터 40개를 기억한다.
+
+- 키는 줄 범위가 아니라 `파일#심볼이름`이다. 위에 줄이 추가돼 줄 번호가 밀려도 같은 심볼은 다시 넣지 않는다
+- 상위 3개를 먼저 고르고 그중 이미 넣은 걸 뺀다. 그래서 같은 프롬프트를 다시 보내면 약한 후보로 빈자리를 채우지 않고 아무것도 안 넣는다
+- 7일 넘게 안 쓰인 상태 파일은 `SessionStart` 때 지운다
+
+### 그래프 갱신은 백그라운드로
+
+훅 프로세스 안에서는 [질의 시점 최신화](#질의-시점-최신화)를 돌리지 않는다. 엔진이 typescript 파서까지 불러와서 기동만 260ms가 걸린다. 대신 `gestalt-hook refresh <repoRoot>`를 detached 프로세스로 띄우고 바로 끝난다.
+
+| 이벤트 | 갱신 요청 | 간격 제한 |
+|--------|-----------|-----------|
+| `SessionStart` | 한다 | — |
+| `PostToolUse` | 한다 | 5초 |
+| `UserPromptSubmit` | 한다 | 30초 |
+| `Stop` | 한다 | — |
+
+갱신 락(`.gestalt/code-graph.lock`)이 잡혀 있으면 띄우지 않는다. 10분 넘은 락은 무시한다. 첫 refresh가 오래 걸리는 큰 레포에서도 `UserPromptSubmit`은 갱신을 기다리지 않고 기존 그래프로 답한다.
+
+### 타임아웃과 실패
+
+`hooks.json`의 timeout과 훅 안의 자체 데드라인이 따로 있다. 자체 데드라인이 더 짧아서 Claude Code가 훅을 끊기 전에 먼저 끝낸다. 넘기면 아무것도 넣지 않고 조용히 끝난다.
+
+| 이벤트 | `hooks.json` timeout | 자체 데드라인 |
+|--------|----------------------|---------------|
+| `SessionStart` | 5초 | 2000ms |
+| `UserPromptSubmit` | 3초 | 1000ms |
+| `PostToolUse` | 3초 | 1000ms |
+| `Stop` | 2초 | 500ms |
+
+모든 경로가 exit 0으로 끝난다. 로그는 stderr로만 쓴다. Claude Code는 exit 0인 훅의 stderr를 디버그 로그에만 남기므로 화면에는 안 뜬다.
+
+### 실행 파일 찾기
+
+훅 명령은 `scripts/code-graph-hook.sh`를 거친다. 이 런처가 `gestalt-hook`을 찾는 순서는 이렇다.
+
+1. `GESTALT_HOOK_BIN`. 절대 경로만 받고 상대 경로는 거부한다
+2. 캐시해둔 경로
+3. 둘 다 없으면 백그라운드로 해석을 시작하고 이번 호출은 조용히 끝난다
+
+해석 순서는 `scripts/mcp-serve.sh`와 같다.
+
+1. Node >= 22를 찾는다 (nvm, fnm, Volta, Homebrew). 이 탐색은 `scripts/lib/pick-node.sh`를 mcp-serve.sh와 함께 쓴다
+2. 전역 `gestalt-hook`
+3. 플러그인 버전으로 핀한 `npx --offline`
+4. 네트워크
+
+결과는 `${CLAUDE_PLUGIN_DATA}/hook-launcher-<버전>`에 캐시한다. 해석에 실패하면 1시간 동안 다시 시도하지 않는다. 그래서 설치 직후 첫 프롬프트 한 번은 아무것도 안 들어갈 수 있다.
+
+`gestalt-hook`은 npm 패키지에 새로 생긴 bin이다(`dist/bin/gestalt-hook.js`). CLI(`gestalt`)를 거치지 않는 얇은 엔트리다.
+
+### 걸리는 시간
+
+이 레포(파일 467개, 노드 3454개)에서 훅을 처음 넣은 시점에 잰 스냅숏이다. 런처 sh를 띄울 때부터 출력이 나올 때까지를 이벤트마다 20회 쟀다.
+
+| 상황 | 중앙값 | 최대 |
+|------|--------|------|
+| `SessionStart` | 143ms | 400ms |
+| `UserPromptSubmit` | 146ms | 208ms |
+| `UserPromptSubmit`, 게이트에 걸려 안 넣음 | 130ms | 210ms |
+| `PostToolUse` | 139ms | 258ms |
+| `Stop` | 120ms | 163ms |
+| 훅이 꺼진 레포 | 18ms | 27ms |
+
+### 한계
+
+- 한글만 있는 프롬프트는 맞출 토큰이 없어서 포인터를 넣지 않는다. 영문 식별자나 경로가 한 단어라도 있어야 걸린다
+- 그래프가 없는 레포에서는 아무것도 안 한다. 먼저 빌드해야 한다
+- 설치 직후 첫 프롬프트 한 번은 런처 해석 중이라 주입이 빠질 수 있다
+
+---
+
 ## git co-change 신호
 
 ### import이 원리상 못 보는 관계
