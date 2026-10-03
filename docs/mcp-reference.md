@@ -21,7 +21,7 @@ Complete reference for all Gestalt MCP tools.
 | [`ges_search`](#ges_search) | Knowledge Base 시맨틱 검색 |
 | [`ges_sync`](#ges_sync) | Knowledge Base 파일 동기화 |
 | [`ges_pr`](#ges_pr) | 로컬 PR 생성, 리뷰, 머지 — 원격에 안 나간다 |
-| [`ges_architecture`](./architecture-view.md#ges_architecture-mcp-툴) | 세션이 쓴 아키텍처 IR을 검증하고 단일 HTML로 결정적으로 그린다. `service` 노드가 있으면 전체에서 서비스, 기능영역으로 들어가는 드릴다운 한 장으로 그린다. 서버는 LLM을 부르지 않는다 |
+| [`ges_architecture`](./architecture-view.md#ges_architecture-mcp-툴) | 세션이 쓴 아키텍처 IR을 검증하고 단일 HTML로 결정적으로 그린다. `service` 노드가 있으면 전체에서 서비스, 기능영역으로 들어가는 드릴다운 한 장으로 그린다. 서비스를 서빙하는 도메인, CDN, 버킷은 읽기 전용 클라우드 조회(`live` 근거)로 확인해 함께 싣는다. 서버는 LLM을 부르지 않는다 |
 
 ---
 

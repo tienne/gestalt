@@ -37,13 +37,13 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `schemaVersion` | `"1.0.0"` 고정 |
 | `view` | `screen-chain` 또는 `deploy-path` |
 | `repos` | `{ id, name, root, remote? }`. `root`는 로컬 경로다. 상대 경로면 `repoRoot` 기준으로 푼다 |
-| `nodes` | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, description?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서 설명한다 |
+| `nodes` | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, description?, environment?, account?, platforms?, platformEvidence?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서 설명한다 |
 | `edges` | `{ id, from, to, kind, evidence[], lineStyle }`. `lineStyle`은 `solid` 또는 `dashed` |
 | `unresolved` | `{ id, subject: { nodeId?, edgeId? }, question, answer? }` |
 | `sourcesUsed` | 이번 실행이 간 본 맥락 소스. `{ via, identifier, readOnly, probeHit, visibility }` |
 | `generatedAt` | 생성 시각 문자열. HTML에 그대로 찍힌다 |
 
-근거(`evidence`) 하나는 `{ type, location, visibility, updatedAt?, excerpt? }`다.
+근거(`evidence`) 하나는 `{ type, location, visibility, updatedAt?, excerpt?, command?, observedAt? }`다. 뒤의 두 필드는 `live` 근거에만 쓴다.
 
 짧은 예시다. 레포 이름과 경로는 가짜다.
 
@@ -111,9 +111,13 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `workflow` | deploy-path | 배포를 시작하는 CI 워크플로와 그 트리거 |
 | `build` | deploy-path | 빌드 잡이나 스텝 |
 | `artifact` | deploy-path | 이미지, 번들, 패키지 같은 빌드 산출물 |
-| `deploy_target` | deploy-path | 산출물이 올라가는 클러스터, CDN, 런타임 |
+| `deploy_target` | deploy-path | 산출물이 올라가는 클러스터, 런타임, 네이티브 앱 배포처 |
+| `domain` | 둘 다 | 사용자가 접속하는 도메인 |
+| `cdn` | 둘 다 | CDN 배포 |
+| `bucket` | 둘 다 | 정적 번들이나 코드푸시 번들이 올라가는 버킷 |
+| `cloud_account` | 둘 다 | 클라우드 계정. 다른 노드의 `account`가 이 노드를 가리킨다 |
 
-레이아웃은 kind마다 열을 정해 왼쪽부터 놓는다. screen-chain은 `service`, `feature`, `screen`이 한 열, 그다음 `gateway`, `endpoint`, `app_module`이고 `external_service`와 `db_table`이 마지막 한 열이다. deploy-path는 `workflow`, `build`, `artifact`, `deploy_target` 순이다.
+레이아웃은 kind마다 열을 정해 왼쪽부터 놓는다. screen-chain은 `service`, `feature`, `screen`이 한 열, 그다음 `gateway`, `endpoint`, `app_module`이고 `external_service`와 `db_table`이 마지막 한 열이다. deploy-path는 `workflow`, `build`, `artifact`, `deploy_target` 다음에 인프라 레인 `bucket`, `cdn`, `domain`, `cloud_account`가 붙는다.
 
 ### 엣지 kind
 
@@ -129,7 +133,10 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `triggers` | workflow → build | 워크플로의 트리거와 잡 정의 줄 |
 | `builds` | build → artifact | 빌드 명령 줄 |
 | `produces` | build → artifact | 산출물을 내보내는 줄 (이미지 push, 업로드) |
-| `deploys_to` | artifact → deploy_target | 배포 명령이나 매니페스트 줄 |
+| `deploys_to` | artifact → deploy_target, bucket | 배포 명령이나 매니페스트 줄 |
+| `resolves_to` | domain → cdn | 인프라 코드의 도메인 줄이나 CDN 별칭 조회 |
+| `origin` | cdn → bucket | 인프라 코드의 원본 정의 줄이나 CDN 원본 조회 |
+| `serves` | bucket → service | 그 서비스 번들을 버킷에 올리는 줄 |
 
 `routes`는 게이트웨이가 요청을 어디로 넘기는지다. 게이트웨이가 여러 단이면 앞 게이트웨이에서 뒤 게이트웨이로 `routes`를 긋고 엔드포인트로 가는 `routes`는 마지막 게이트웨이에만 단다. `gateway → app_module`은 엔드포인트를 노드로 펼치지 않은 클라이언트 호출 사슬에 쓴다.
 
@@ -162,11 +169,26 @@ parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없
 - `.shared.html`에도 이름은 그대로 보인다. 가리는 건 근거뿐이다.
 - 병합 키가 아니다. `displayName`을 바꾸거나 새로 달아도 노드 id는 유지된다. [재실행과 노드 id](#재실행과-노드-id)를 본다.
 
+### 서빙 인프라
+
+웹 서비스는 도메인 → CDN → 버킷 → 서비스 순으로 요청을 받는다. 이 사슬을 노드로 두면 서비스가 어디서 서빙되는지 그림에서 읽힌다. 범위는 AWS 하나이고 비용과 트래픽은 싣지 않는다.
+
+| 필드 | 쓰는 노드 | 뜻 |
+|---|---|---|
+| `environment` | `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target` | 환경 이름. 같은 레인 안에서 `prod`, `stage`, `qa`, `dev` 순으로 놓이고 그 밖의 환경, 환경 없음이 뒤에 선다 |
+| `account` | 아무 노드 (`cloud_account` 제외) | 이 노드가 속한 `cloud_account` 노드의 id. 양 끝 노드의 계정이 다른 선은 다른 색으로 그린다 |
+| `platforms` | `service` | `web`, `android`, `ios` 중 이 서비스가 배포되는 것 |
+| `platformEvidence` | `service` | 플랫폼별 근거 목록. `{ "android": [근거], "ios": [근거] }` 꼴 |
+
+플랫폼은 근거가 있어야 칩이 붙는다. 웹은 버킷이 `serves`로 그 서비스를 서빙하면 따로 적지 않아도 웹으로 친다. Android와 iOS는 `platforms`에 적고 `platformEvidence`에 근거를 달아야 한다. `platforms`에 적었는데 근거가 없으면 칩을 안 붙이고 `auto:platform:<노드 id>:<플랫폼>` 질문을 만든다.
+
+id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID를 넣지 않는다. id는 공유본에서도 가릴 수 없어서다. `prod-web`처럼 별칭으로 짓고 실제 ID는 `label`에 둔다.
+
 ---
 
 ## 근거와 선 모양
 
-근거는 네 종류다. 선 모양은 근거 종류로 정해진다.
+근거는 다섯 종류다. 선 모양은 근거 종류로 정해진다.
 
 | type | location | 선 |
 |---|---|---|
@@ -174,20 +196,29 @@ parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없
 | `spec` | OpenAPI, proto 같은 API 명세 안의 정의 위치 | 실선 |
 | `doc` | 문서 링크나 경로. `updatedAt`에 수정일 | 점선 |
 | `user` | 질문 id와 답한 날짜. 답 원문은 질문의 `answer`에 둔다 | 점선 |
+| `live` | 조회로 찾은 리소스 종류 (예: `aws:cloudfront`). `command`에 실행한 명령, `observedAt`에 조회 시각(ISO 8601, 시간대 포함) | 점선 |
 
 엣지에 `code`나 `spec` 근거가 하나라도 있으면 실선이고 없으면 점선이다. 서버는 IR에 적힌 `lineStyle`을 믿지 않고 근거로 다시 계산해 덮어쓴다. 사용자가 "그렇다"고 답한 연결도 점선이다. 코드로 확인했다는 뜻이 아니어서다.
+
+`live`도 같은 이유로 점선이다. 조회 결과는 지금 클라우드가 그렇게 돼 있다는 사실이지 코드가 그렇게 만든다는 증거는 아니다. 인프라 코드 줄이 함께 있으면 실선이 된다.
+
+`live` 근거는 `command`와 `observedAt`이 둘 다 있어야 한다. 다른 종류의 근거는 두 필드를 쓸 수 없다. 어기면 `IR_PARSE_ERROR`다. `command`는 서버가 [CLI 명령 판정](#cli-명령-판정)으로 다시 본다.
 
 ---
 
 ## 검증 규칙
 
-`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 일곱은 IR 전체를 거부한다.
+`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 열하나는 IR 전체를 거부한다.
 
 | 에러 코드 | 언제 |
 |---|---|
-| `SOLID_EDGE_WITHOUT_EVIDENCE` | `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다. 근거가 0개인 실선도, `doc`이나 `user` 근거만 있는 실선도 여기 걸린다 |
+| `SOLID_EDGE_WITHOUT_EVIDENCE` | `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다. 근거가 0개인 실선도, `doc`, `user`, `live` 근거만 있는 실선도 여기 걸린다 |
 | `CODE_EVIDENCE_NOT_FOUND` | `code` 근거의 위치가 `<repoId>:<relPath>:<line>` 꼴이 아니거나, `repoId`가 `repos`에 없거나, 경로가 절대 경로이거나 레포 루트 밖을 가리키거나, 파일이 없거나, 줄 번호가 파일 범위 밖이다 |
-| `PRIVATE_EXCERPT_PRESENT` | `visibility: "private"` 근거에 `excerpt`가 들어 있다 |
+| `PRIVATE_EXCERPT_PRESENT` | `visibility: "private"` 근거에 `excerpt`가 들어 있다. private `live` 근거면 조회 응답 원문을 넣었다는 문구가 따로 나온다 |
+| `LIVE_COMMAND_NOT_READ_ONLY` | `live` 근거의 `command`가 [CLI 명령 판정](#cli-명령-판정)에서 `allow`가 아니다 |
+| `ACCOUNT_NOT_FOUND` | `account`가 가리키는 노드가 `nodes`에 없다 |
+| `INVALID_ACCOUNT_KIND` | `account`가 `cloud_account`가 아닌 노드를 가리킨다 |
+| `CLOUD_ID_IN_ID` | 노드나 엣지 id에 계정 ID 꼴(12자리 숫자)이 들었거나, `cdn` 노드 id에 CDN 배포 ID 꼴이 들었다 |
 | `DANGLING_EDGE` | 엣지의 `from`이나 `to`가 `nodes`에 없다 |
 | `PARENT_NOT_FOUND` | `parent`가 가리키는 노드가 `nodes`에 없다 |
 | `PARENT_CYCLE` | `parent`를 따라가면 자기 자신으로 돌아온다 |
@@ -202,6 +233,7 @@ parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없
 - 근거가 0개인 점선 엣지. 질문 id는 `auto:edge:<엣지 id>`다.
 - 근거가 0개인 노드. 질문 id는 `auto:node:<노드 id>`다.
 - 근거가 있어도 양 끝 노드 중 하나가 그리기 대상에서 빠진 엣지. 이 엣지에는 질문을 따로 만들지 않는다.
+- `platforms`에 적었는데 근거가 없는 플랫폼. 질문 id는 `auto:platform:<노드 id>:<플랫폼>`이다. 웹은 그려지는 버킷이 `serves`로 서빙하면 묻지 않는다.
 
 자동 질문은 노드를 `displayName`(없으면 label)으로 부른다. 문장은 아래 꼴이다.
 
@@ -235,12 +267,15 @@ parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없
 | 홈 아래 파일 (`~/.claude/CLAUDE.md`, `~/.claude/projects/*/memory/`) | `private` | 금지 |
 | KB 검색 결과, MCP 도구 응답, 스킬 조회 결과 | `private` | 금지 |
 | 사용자 답 | `private` | 금지 |
+| 클라우드 조회 결과 (`live`) | `private` | 금지 |
 
 private 근거의 원문은 세 겹으로 막는다.
 
 1. `validate`가 private 근거의 `excerpt`를 `PRIVATE_EXCERPT_PRESENT`로 거부한다.
 2. 저장하는 IR에서 private 근거의 `excerpt`를 지운다 (`stripPrivateExcerpts`).
 3. 공유용 HTML(`.shared.html`)은 private 근거의 `location`까지 빼고 `type`과 `visibility`만 남긴다 (`redactForSharing`). 패널에는 출처 종류만 보인다.
+
+`live` 근거는 `public`으로 적었어도 공유본에서 `type`, `visibility`, `observedAt`만 남는다. 명령과 리소스 위치에 계정 ID나 리소스 이름이 들어가기 때문이다. 공유본은 노드 이름(`label`, `displayName`, `description`)과 질문 문장, 레벨 제목에 든 계정 ID도 가린다. `cdn` 노드는 CDN 배포 ID도 가린다. 자동 질문은 공유본에 싣지 않는다.
 
 두 HTML 모두 페이지가 쓰는 필드만 싣는다. `repos`는 `id`와 `name`만 들어가고 `root`와 `remote`는 빠진다. `sourcesUsed`도 HTML에 들어가지 않는다. 그래서 로컬 경로나 사용한 도구 이름이 공유본으로 새지 않는다.
 
@@ -271,7 +306,7 @@ private 근거의 원문은 세 겹으로 막는다.
 | 레벨 | id | 보이는 것 |
 |---|---|---|
 | 전체 | `root` | 서비스, 게이트웨이, 서버(앱 모듈)만. 엣지는 세부 엣지를 묶은 것이고 굵기와 숫자가 건수다 |
-| 서비스 | `service:<id>` | 그 서비스의 기능영역과 서비스에 바로 단 화면, 거기서 닿는 게이트웨이와 서버. 화면 이동은 기능영역 사이 묶음 엣지가 된다 |
+| 서비스 | `service:<id>` | 그 서비스의 기능영역과 서비스에 바로 단 화면, 거기서 닿는 게이트웨이와 서버. 화면 이동은 기능영역 사이 묶음 엣지가 된다. 서비스를 서빙하는 버킷이 있으면 그 버킷과 앞단 CDN, 도메인, 서비스 카드도 나온다 |
 | 기능영역 | `feature:<id>` | 그 기능영역의 화면, 화면이 부르는 엔드포인트, 거쳐 가는 게이트웨이, 받는 모듈. 세부 엣지 그대로 |
 | 서버 | `server:<id>` | 그 모듈이나 게이트웨이에 걸린 엔드포인트, 모듈이 읽고 쓰는 테이블, 쓰는 클라이언트와 그 클라이언트가 부르는 모듈 |
 
@@ -298,21 +333,28 @@ private 근거의 원문은 세 겹으로 막는다.
 | 그림 | 왼쪽부터 |
 |---|---|
 | 전체 레벨 | 앱 → 게이트웨이 → 서버 → 외부 서비스 |
-| 서비스 레벨 | 기능 영역 → 게이트웨이 → 서버 |
+| 서비스 레벨 | 기능 영역 → 게이트웨이 → 서버. 서빙 인프라가 있으면 도메인 → CDN → 버킷 → 기능 영역 → 게이트웨이 → 서버 |
 | 기능영역 레벨 | 화면 → 게이트웨이 → API → 서버 |
 | 서버 레벨 | API → 서버 → 클라이언트 → 외부 서비스 → DB |
 | screen-chain 평면 | 화면 → 게이트웨이 → API → 서버 → 클라이언트 → DB |
-| deploy-path | 트리거 → 빌드 → 산출물 → 배포 대상 |
+| deploy-path | 트리거 → 빌드 → 산출물 → 배포 대상 → 버킷 → CDN → 도메인 → 클라우드 계정 |
 
 - 전체 레벨의 **외부 서비스** 레인에는 서비스 쪽에서는 닿지 않고 서버에서 나가는 선으로만 닿는 게이트웨이와 서버가 선다.
 - 서비스 레벨의 **기능 영역** 레인에는 기능영역과 서비스에 바로 단 화면이 함께 선다. 평면 그림에서는 서비스와 기능영역이 **화면** 레인에 선다.
+- 서비스 레벨에 서빙 인프라가 있으면 서비스 카드가 **기능 영역** 레인 맨 위에 선다. 서비스에서 바로 단 기능영역과 화면으로 옅은 포함 선이 나간다. 포함 선은 `parent` 관계를 그린 것이라 세부 엣지가 없다.
+- 인프라 레인 안에서는 카드가 `environment` 순서(prod, stage, qa, dev)로 위에서부터 놓인다.
+- deploy-path는 레인을 버킷 → CDN → 도메인 순으로 오른쪽에 붙인다. 산출물이 버킷으로 가는 방향을 따른 것이다. 그래서 요청 방향인 `origin`과 `resolves_to` 선은 오른쪽 카드에서 왼쪽 카드로 그리고 화살촉이 왼쪽을 본다. 서비스에 안 붙는 인프라(에셋 버킷, 꺼 둔 배포)도 여기 선다.
 - 서버 레벨의 **외부 서비스** 레인은 이 서버가 클라이언트로 부르는 쪽(다른 서버, 엔드포인트, 게이트웨이)이다. 테이블은 그보다 오른쪽 맨 끝 **DB** 레인에 모은다. 고른 노드가 게이트웨이면 게이트웨이 → API 순서다.
 
 레인 제목은 카드 칩의 종류 이름과 같은 말을 쓴다 (`src/architecture/kind-text.ts`의 `LANE_TITLES`, `NODE_KIND_SHORT`).
 
 ### 카드와 위쪽 바
 
-카드 맨 위에는 종류 칩이 붙는다. 칩은 종류별 아이콘과 짧은 이름(앱, 기능 영역, 화면, 게이트웨이, API, 서버, 클라이언트, DB, 트리거, 빌드, 산출물, 배포 대상)이다. 종류마다 색도 다르지만 색만으로 구분하지 않는다. 색을 못 가리는 사람도 칩 글자로 종류를 읽는다. 한 단계 안으로 들어갈 수 있는 카드에는 오른쪽에 `›`가 붙는다.
+카드 맨 위에는 종류 칩이 붙는다. 칩은 종류별 아이콘과 짧은 이름(서비스, 기능 영역, 화면, 게이트웨이, API, 서버, 클라이언트, DB, 트리거, 빌드, 산출물, 배포 대상, 도메인, CDN, 버킷, 계정)이다. 종류마다 색도 다르지만 색만으로 구분하지 않는다. 색을 못 가리는 사람도 칩 글자로 종류를 읽는다. 한 단계 안으로 들어갈 수 있는 카드에는 오른쪽에 `›`가 붙는다.
+
+서비스 카드에는 플랫폼 칩(웹, AOS, iOS)이 붙는다. 아이콘은 브라우저 창과 휴대폰 외곽선이고 회사 로고는 쓰지 않는다. 칩마다 `aria-label`과 `title`에 "웹", "Android 앱", "iOS 앱"이 들어간다. prod 도메인이 닿는 서비스는 카드 둘째 줄에 그 도메인을 쓴다.
+
+계정이 다른 두 노드를 잇는 선은 다른 색이다. 그런 선이 있는 그림에서만 범례에 "색 선" 줄이 나온다.
 
 위쪽 바에는 왼쪽부터 제목, 빵부스러기(드릴다운일 때), 포커스 표시가 있고 오른쪽에 도구가 모여 있다.
 
@@ -330,7 +372,7 @@ private 근거의 원문은 세 겹으로 막는다.
 
 ### 조작
 
-- 노드를 누르면 오른쪽에 상세 패널이 열린다. 패널에는 종류와 레포, 이름, 설명, **출처** 목록이 있다. 들어갈 레벨이 있으면 **상세보기** 버튼이, 포커스할 수 있으면 **포커스** 버튼이 함께 뜬다. 더블클릭하면 상세보기를 누른 것처럼 바로 들어간다. 위쪽 빵부스러기로 위 레벨에 돌아간다.
+- 노드를 누르면 오른쪽에 상세 패널이 열린다. 패널에는 종류와 레포, 이름, 설명, **출처** 목록이 있다. 인프라 노드면 환경과 계정이, 서비스면 환경별 도메인 목록과 플랫폼별 근거가 함께 나온다. `live` 출처는 실행한 명령과 조회 시각을 보여준다. 들어갈 레벨이 있으면 **상세보기** 버튼이, 포커스할 수 있으면 **포커스** 버튼이 함께 뜬다. 더블클릭하면 상세보기를 누른 것처럼 바로 들어간다. 위쪽 빵부스러기로 위 레벨에 돌아간다.
 - 전체 레벨에서 Shift나 ⌘를 누른 채 두 번째 노드를 누르면 두 노드 사이 경로를 경유지까지 펼친다. 화면 → 게이트웨이(사슬 순서) → 엔드포인트 → 모듈 → 클라이언트 → 게이트웨이 → 받는 모듈 → 테이블 순서의 열로 놓고 세부 엣지 표를 함께 보여준다. 경로가 없으면 "두 항목은 서로 이어져 있지 않아요."라고 나온다.
 - 경로는 중간에 게이트웨이(몇 단이든)와 모듈 하나까지만 지난다. 출발이 모듈이면 중간 모듈 없이 게이트웨이만 지난다. 화면에서 모듈 하나를 지나 클라이언트로 다른 모듈에 닿는 데까지가 한 요청 흐름이다. 그보다 멀리 돌아가는 길까지 펼치면 두 노드와 상관없는 엔드포인트가 쏟아진다.
 - 전체 레벨의 묶음 엣지를 누르면 두 노드를 고른 것과 같은 화면이 뜬다. 다른 레벨에서 묶음 엣지를 누르면 그 묶음의 세부 엣지만 보여준다.
@@ -393,6 +435,7 @@ private 근거의 원문은 세 겹으로 막는다.
 | `contextCandidates` | 읽어볼 맥락 파일 후보 `{ via, identifier, exists, visibility }[]`. `identifier`는 절대 경로다. [글로벌 맥락 후보](#글로벌-맥락-후보) 참고 |
 | `schemaPath` | IR JSON Schema 파일의 절대 경로 |
 | `readOnlyRule` | `{ allow, deny }`. 읽기 전용 판정 단어 목록 |
+| `readOnlyCliRule` | `{ verbs }`. 클라우드 CLI 하위 명령이 시작해야 하는 동사(`list`, `get`, `describe`) |
 | `nextAction` | `"filter_tools"` |
 | `instructions` | 세션이 다음에 할 일 네 줄 |
 
@@ -549,6 +592,26 @@ label을 바꾸면 다른 노드가 된다. 엔드포인트 label을 `METHOD /�
 | `mcp__acme__run` | `ambiguous` |
 
 세션은 `allowed`만 부른다. `ambiguous`도 부르지 않는다.
+
+### CLI 명령 판정
+
+`live` 근거의 `command`는 `classifyCliCommand`가 다시 본다. 세션이 실제로 돌린 명령이 읽기 전용이었는지를 IR에 남은 문자열로 확인하는 자리다. `allow`가 아니면 `validate`가 `LIVE_COMMAND_NOT_READ_ONLY`로 거부한다.
+
+1. 셸 메타문자(`;`, `&`, `|`, 백틱, `<`, `>`, 줄바꿈, `$(`)가 있으면 `deny`다. 명령 둘을 이어 붙여 판정을 피하지 못하게 한다.
+2. `--with-decryption`이 있으면 `deny`다.
+3. `aws-vault`는 `list`만 `allow`이고 나머지는 `deny`다. `aws`도 `aws-vault`도 아닌 프로그램은 `ambiguous`다.
+4. `aws`는 전역 옵션(`--profile`, `--region` 등)을 건너뛰고 서비스와 동작을 찾는다. 동작이 없으면 `ambiguous`다.
+5. 동작이 `list`, `get`, `describe`로 시작하지 않으면 `deny`다. `aws configure`는 `list-profiles`만 `allow`다.
+6. 이름이 `get`이어도 `get-object`처럼 파일을 내려받거나, 동작 이름에 `secret`, `password`, `token`, `credential`이 들면 `deny`다.
+
+| 명령 | 결과 |
+|---|---|
+| `aws cloudfront list-distributions --profile acme-prod` | `allow` |
+| `aws s3api get-bucket-website --bucket example-web` | `allow` |
+| `aws s3 sync dist s3://example-web` | `deny` |
+| `aws secretsmanager get-secret-value --secret-id x` | `deny` |
+| `aws cloudfront list-distributions \| jq .` | `deny` |
+| `gcloud compute instances list` | `ambiguous` |
 
 ---
 
