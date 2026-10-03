@@ -446,3 +446,29 @@ describe('renderDrilldownHtml', () => {
     expect(await render(ir, 'private')).toBe(html);
   });
 });
+
+describe('renderArchitectureHtml — 제품 영역', () => {
+  it('그룹이 둘이면 영역 박스 둘과 같이 쓰는 띠를 그리고 카드에 띠 번호를 단다', async () => {
+    const ir = makeIr();
+    ir.groups = [
+      { id: 'g1', name: '쇼핑', members: ['home', 'api', 'orphan'] },
+      { id: 'g2', name: '운영', members: ['api', 'detail'] },
+    ];
+    const { v, layout } = await prepare(ir);
+    const html = renderArchitectureHtml(v, layout, { audience: 'private' });
+    expect(html).toContain('class="region region-0" data-group-id="g1"');
+    expect(html).toContain('class="region region-1" data-group-id="g2"');
+    expect(html).toContain('class="region-shared"');
+    expect(html).toContain('같이 쓰는 영역 (쇼핑, 운영)');
+    expect(html).toMatch(/data-node-id="api" data-band="1"/);
+    expect(html).toMatch(/data-node-id="detail" data-band="2"/);
+    expect(html).toContain('data-regions="[&quot;쇼핑&quot;,&quot;운영&quot;]"');
+  });
+
+  it('그룹이 없으면 영역을 안 그린다', async () => {
+    const { v, layout } = await prepare(makeIr());
+    const html = renderArchitectureHtml(v, layout, { audience: 'private' });
+    expect(html).not.toContain('class="region ');
+    expect(html).not.toContain('data-band=');
+  });
+});

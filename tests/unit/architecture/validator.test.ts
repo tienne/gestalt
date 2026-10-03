@@ -196,6 +196,25 @@ describe('validateArchitectureIr', () => {
   });
 });
 
+describe('validateArchitectureIr — 제품 그룹과 저장소', () => {
+  it('그룹 멤버가 nodes에 없거나 그룹 id가 겹치면 거부한다', () => {
+    const ir = makeIr([node('a'), node('b')]);
+    ir.groups = [
+      { id: 'g1', name: '쇼핑', members: ['a', 'ghost'] },
+      { id: 'g1', name: '운영', members: ['b'] },
+    ];
+    expect(errorCodes(ir).sort()).toEqual(['DUPLICATE_GROUP_ID', 'GROUP_MEMBER_NOT_FOUND']);
+  });
+
+  it('테이블의 parent는 저장소 클러스터일 수 있다', () => {
+    const store: ArchitectureNode = { ...node('ds:main'), kind: 'datastore', environment: 'prod' };
+    const table: ArchitectureNode = { ...node('t:orders'), kind: 'db_table', parent: 'ds:main' };
+    const wrong: ArchitectureNode = { ...node('t:items'), kind: 'db_table', parent: 'a' };
+    expect(errorCodes(makeIr([store, table]))).toEqual([]);
+    expect(errorCodes(makeIr([node('a'), wrong]))).toEqual(['INVALID_PARENT_KIND']);
+  });
+});
+
 describe('redactForSharing', () => {
   it('private 근거는 type과 visibility만 남기고 public은 그대로 둔다', () => {
     const pub: Evidence = { ...codeEv(), excerpt: 'export default Home' };

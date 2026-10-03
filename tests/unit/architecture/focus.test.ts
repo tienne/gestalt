@@ -21,10 +21,29 @@ type FocusLayout = (
   gap: number,
 ) => Record<string, { x: number; y: number; w: number; h: number }>;
 
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+type FocusBandLayout = (
+  boxes: Box[],
+  keep: Record<string, boolean>,
+  top: number,
+  gap: number,
+  bandOf: Record<string, number>,
+  names: string[],
+) => {
+  pos: Record<string, { x: number; y: number; w: number; h: number }>;
+  regions?: { groups: Array<Rect & { name: string }>; shared?: Rect };
+  bottom?: number;
+};
+
 // 브라우저에 싣는 바로 그 문자열을 실행한다
-const { focusSet, focusLayout } = new Function(
-  `${FOCUS_SOURCE}\nreturn { focusSet: focusSet, focusLayout: focusLayout };`,
-)() as { focusSet: FocusSet; focusLayout: FocusLayout };
+const { focusSet, focusLayout, focusBandLayout } = new Function(
+  `${FOCUS_SOURCE}\nreturn { focusSet: focusSet, focusLayout: focusLayout, focusBandLayout: focusBandLayout };`,
+)() as { focusSet: FocusSet; focusLayout: FocusLayout; focusBandLayout: FocusBandLayout };
 
 // 앱 셋이 게이트웨이 하나를 같이 쓰고 그 뒤로 서버와 외부 서비스가 이어지는 전체 화면 모양
 const rootEdges: Edge[] = [
@@ -92,5 +111,36 @@ describe('focusLayout', () => {
     expect(focusLayout([...boxes].reverse(), keep, 60, 24)).toEqual(
       focusLayout(boxes, keep, 60, 24),
     );
+  });
+});
+
+describe('focusBandLayout', () => {
+  // 위 제품 전용 앱, 같이 쓰는 게이트웨이, 아래 제품 전용 앱
+  const boxes: Box[] = [
+    { id: 'svc:shop', x: 40, y: 60, w: 160, h: 48 },
+    { id: 'svc:admin', x: 40, y: 132, w: 160, h: 48 },
+    { id: 'gw:shared', x: 300, y: 60, w: 180, h: 48 },
+  ];
+  const bandOf = { 'svc:shop': 0, 'gw:shared': 1, 'svc:admin': 2 };
+  const keep = { 'svc:shop': true, 'svc:admin': true, 'gw:shared': true };
+
+  it('띠 순서로 쌓고 두 영역이 같이 쓰는 띠에서 겹친다', () => {
+    const { pos, regions } = focusBandLayout(boxes, keep, 60, 24, bandOf, ['쇼핑', '운영']);
+    expect(pos['svc:shop']!.y).toBeLessThan(pos['gw:shared']!.y);
+    expect(pos['gw:shared']!.y).toBeLessThan(pos['svc:admin']!.y);
+    const [upper, lower] = regions!.groups;
+    expect([upper!.name, lower!.name]).toEqual(['쇼핑', '운영']);
+    const shared = regions!.shared!;
+    expect(shared.y).toBe(lower!.y);
+    expect(shared.y + shared.height).toBe(upper!.y + upper!.height);
+    expect(pos['gw:shared']!.y).toBeGreaterThan(shared.y);
+    expect(pos['gw:shared']!.y + 48).toBeLessThan(shared.y + shared.height);
+  });
+
+  it('한쪽 제품 전용 카드가 하나도 안 남으면 띠 없이 쌓는다', () => {
+    const only = { 'svc:shop': true, 'gw:shared': true };
+    const out = focusBandLayout(boxes, only, 60, 24, bandOf, ['쇼핑', '운영']);
+    expect(out.regions).toBeUndefined();
+    expect(out.pos).toEqual(focusLayout(boxes, only, 60, 24));
   });
 });

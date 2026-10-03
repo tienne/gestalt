@@ -449,3 +449,74 @@ describe('mergeArchitectureIrs — 결정성과 입력 검사', () => {
     }
   });
 });
+
+describe('mergeArchitectureIrs — 제품 그룹', () => {
+  function withStore(ir: ArchitectureIr, serverId: string): ArchitectureIr {
+    return {
+      ...ir,
+      nodes: [
+        ...ir.nodes,
+        // 두 분석이 id는 달리 지었어도 저장소 kind, aws 레포, label이 같으면 한 노드다
+        node(`ds:${serverId}-main`, 'datastore', 'aurora-mysql:acme-prod-main', 'aws', {
+          environment: 'prod',
+        }),
+      ],
+      edges: [
+        ...ir.edges,
+        edge('rw', serverId, `ds:${serverId}-main`, 'reads_writes', [code('api:src/db.yml:2')]),
+      ],
+    };
+  }
+
+  it('입력마다 그룹을 하나 남기고 두 분석에 다 있던 노드는 양쪽 그룹에 든다', () => {
+    const { ir } = merged([shopIr(), adminIr()]);
+    expect(ir.groups).toHaveLength(2);
+    const [a, b] = ir.groups!;
+    const both = a!.members.filter((m) => b!.members.includes(m));
+    const gw = byLabel(ir, 'gateway', 'acme-gateway')[0]!;
+    const api = byLabel(ir, 'app_module', 'acme-api')[0]!;
+    expect(both.sort()).toEqual([gw.id, api.id].sort());
+    expect(new Set([...a!.members, ...b!.members]).size).toBe(ir.nodes.length);
+  });
+
+  it('이름을 안 주면 서비스 표시 이름으로, 주면 넘긴 순서대로 짓는다', () => {
+    expect(
+      merged([shopIr(), adminIr()])
+        .ir.groups!.map((g) => g.name)
+        .sort(),
+    ).toEqual(['고객 웹', '운영 웹']);
+    const named = mergeArchitectureIrs([shopIr(), adminIr()], { groupNames: ['쇼핑', '운영'] });
+    if (!named.ok) throw new Error('merge failed');
+    const nameOf = (label: string) =>
+      named.ir.groups!.find((g) => g.members.includes(byLabel(named.ir, 'service', label)[0]!.id))!
+        .name;
+    expect(nameOf('acme-shop')).toBe('쇼핑');
+    expect(nameOf('acme-admin')).toBe('운영');
+  });
+
+  it('같은 저장소 클러스터는 id가 달라도 하나로 합쳐 공용이 된다', () => {
+    const { ir } = merged([withStore(shopIr(), 'mod:api'), withStore(adminIr(), 'mod:server')]);
+    const stores = ir.nodes.filter((n) => n.kind === 'datastore');
+    expect(stores).toHaveLength(1);
+    expect(ir.groups!.every((g) => g.members.includes(stores[0]!.id))).toBe(true);
+    expect(validateArchitectureIr(ir, { checkFiles: false }).ok).toBe(true);
+  });
+
+  it('이미 합친 IR을 다시 합치면 그 안의 그룹을 물려받는다', () => {
+    const first = merged([shopIr(), adminIr()]).ir;
+    const third = makeIr({
+      repos: [
+        {
+          id: 'ops',
+          name: 'acme-ops-web',
+          root: '/c/ops',
+          remote: 'git@github.com:acme/acme-ops-web.git',
+        },
+      ],
+      nodes: [node('svc:ops', 'service', 'acme-ops', 'ops', { displayName: '정산 웹' })],
+    });
+    const { ir } = merged([first, third]);
+    expect(ir.groups!.map((g) => g.name).sort()).toEqual(['고객 웹', '운영 웹', '정산 웹']);
+    expect(new Set(ir.groups!.map((g) => g.id)).size).toBe(3);
+  });
+});

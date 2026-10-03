@@ -154,6 +154,17 @@ describe('mergeWithPrevious', () => {
     expect(next.nodes[0]!.id).toBe('h');
   });
 
+  it('제품 그룹 멤버도 이전 id로 바꿔 단다', () => {
+    const prev = makeIr({ nodes: [node('old-home', 'Home')] });
+    const next = makeIr({
+      nodes: [node('h', 'home'), node('new', 'Settings')],
+      groups: [{ id: 'g1', name: '쇼핑', members: ['new', 'h'] }],
+    });
+    expect(mergeWithPrevious(prev, next).groups).toEqual([
+      { id: 'g1', name: '쇼핑', members: ['new', 'old-home'] },
+    ]);
+  });
+
   it('표시 이름은 병합 키에 안 들어가 바뀌어도 id를 물려받고 next 값을 쓴다', () => {
     const prev = makeIr({
       nodes: [node('old-home', 'Home', { displayName: '홈', displayNameInferred: true })],

@@ -308,3 +308,59 @@ describe('computeDrilldown 게이트웨이 사슬', () => {
     expect(level(levels, 'server:gw-front').edges.map((e) => e.id)).toEqual(['hop']);
   });
 });
+
+describe('computeDrilldown 전체보기의 prod 기준과 저장소', () => {
+  function storeFixture(): ArchitectureIr {
+    const ir = fixture();
+    const store = (id: string, environment: string): ArchitectureNode => ({
+      ...node(id, 'datastore'),
+      environment,
+    });
+    return {
+      ...ir,
+      nodes: [
+        ...ir.nodes.map((n) => (n.id === 't-orders' ? { ...n, parent: 'ds-main' } : n)),
+        store('ds-main', 'prod'),
+        store('ds-cache', 'prod'),
+        store('ds-dev', 'dev'),
+      ],
+      edges: [
+        ...ir.edges,
+        edge('rw2', 'm-cart', 'ds-cache', 'reads_writes'),
+        edge('rw3', 'm-cart', 'ds-dev', 'reads_writes'),
+      ],
+    };
+  }
+
+  it('root에 prod 저장소를 올리고 테이블에 걸린 선은 그 테이블의 클러스터로 묶는다', async () => {
+    const { levels } = await computeDrilldown(validated(storeFixture()));
+    const root = levels[0]!;
+    expect(root.nodeIds).toContain('ds-main');
+    expect(root.nodeIds).toContain('ds-cache');
+    expect(root.nodeIds).not.toContain('ds-dev');
+    expect(root.nodeIds).not.toContain('t-orders');
+    expect(summarize(root).filter(([, to]) => String(to).startsWith('ds-'))).toEqual([
+      ['m-cart', 'ds-cache', 1, 'rw2'],
+      ['m-orders', 'ds-main', 1, 'rw1'],
+    ]);
+  });
+
+  it('server 레벨은 환경과 상관없이 저장소를 다 그린다', async () => {
+    const { levels } = await computeDrilldown(validated(storeFixture()));
+    expect(level(levels, 'server:m-cart').nodeIds).toEqual(
+      expect.arrayContaining(['ds-cache', 'ds-dev']),
+    );
+  });
+
+  it('제품 그룹이 둘이면 root에 영역을 싣는다', async () => {
+    const ir = fixture();
+    ir.groups = [
+      { id: 'g1', name: '고객', members: ['svc-web', 'gw', 'm-orders', 'm-cart'] },
+      { id: 'g2', name: '운영', members: ['svc-admin', 'm-admin', 'm-orders'] },
+    ];
+    const root = (await computeDrilldown(validated(ir))).levels[0]!;
+    expect(root.layout.regions!.groups.map((g) => g.name)).toEqual(['고객', '운영']);
+    expect(root.layout.regions!.bandOf['m-orders']).toBe(1);
+    expect(root.layout.regions!.shared).toBeDefined();
+  });
+});

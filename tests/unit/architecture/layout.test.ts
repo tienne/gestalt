@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { computeLayout, measureNode } from '../../../src/architecture/layout.js';
+import {
+  computeLayout,
+  measureNode,
+  stackBands,
+  type LayoutResult,
+} from '../../../src/architecture/layout.js';
 import {
   ARCHITECTURE_IR_SCHEMA_VERSION,
   type ArchitectureEdge,
@@ -198,5 +203,73 @@ describe('computeLayout', () => {
         expect(Math.round(p.y * 100) / 100).toBe(p.y);
       }
     }
+  });
+});
+
+describe('stackBands', () => {
+  // elk가 낸 두 열. 위 제품 전용, 같이 씀, 아래 제품 전용이 열마다 섞여 있다
+  const laid = (): LayoutResult => ({
+    width: 600,
+    height: 260,
+    nodes: [
+      { id: 'a1', x: 0, y: 12, width: 200, height: 48 },
+      { id: 'b1', x: 0, y: 84, width: 200, height: 48 },
+      { id: 's1', x: 300, y: 12, width: 200, height: 48 },
+      { id: 'a2', x: 300, y: 84, width: 200, height: 48 },
+      { id: 'b2', x: 300, y: 156, width: 200, height: 48 },
+    ],
+    edges: [
+      {
+        id: 'e1',
+        points: [
+          { x: 200, y: 36 },
+          { x: 300, y: 36 },
+        ],
+      },
+    ],
+    lanes: [],
+  });
+  const groups = [
+    { id: 'g1', name: '쇼핑', members: new Set(['a1', 'a2', 's1']) },
+    { id: 'g2', name: '운영', members: new Set(['b1', 'b2', 's1']) },
+  ];
+  const yOf = (l: LayoutResult, id: string) => l.nodes.find((n) => n.id === id)!.y;
+
+  it('열은 그대로 두고 위 전용, 같이 씀, 아래 전용 순으로 다시 쌓는다', () => {
+    const out = stackBands(laid(), groups);
+    expect(out.nodes.map((n) => n.x)).toEqual(laid().nodes.map((n) => n.x));
+    // 띠 높이는 열끼리 맞춘다. 같은 띠 카드는 열이 달라도 같은 높이에서 시작한다
+    expect(yOf(out, 'a1')).toBe(yOf(out, 'a2'));
+    expect(yOf(out, 'b1')).toBe(yOf(out, 'b2'));
+    expect(yOf(out, 'a2')).toBeLessThan(yOf(out, 's1'));
+    expect(yOf(out, 's1')).toBeLessThan(yOf(out, 'b2'));
+    expect(out.movedNodeIds).toEqual(['a1', 'a2', 'b1', 'b2', 's1']);
+    expect(out.regions!.bandOf).toEqual({ a1: 0, a2: 0, b1: 2, b2: 2, s1: 1 });
+  });
+
+  it('두 영역 박스는 같이 쓰는 띠에서만 겹치고 그 띠가 shared다', () => {
+    const { regions, height } = stackBands(laid(), groups);
+    const [upper, lower] = regions!.groups;
+    expect([upper!.id, lower!.id]).toEqual(['g1', 'g2']);
+    expect(regions!.shared).toEqual({
+      x: Math.max(upper!.x, lower!.x),
+      y: lower!.y,
+      width: regions!.shared!.width,
+      height: upper!.y + upper!.height - lower!.y,
+    });
+    expect(lower!.y + lower!.height).toBeLessThanOrEqual(height);
+  });
+
+  it('한쪽 제품 전용 노드가 없거나 그룹이 둘이 아니면 그대로 돌려준다', () => {
+    const base = laid();
+    const noAdminOnly = [groups[0]!, { ...groups[1]!, members: new Set(['s1']) }];
+    expect(stackBands(base, noAdminOnly)).toBe(base);
+    expect(stackBands(base, [groups[0]!])).toBe(base);
+  });
+
+  it('같은 입력이면 같은 결과를 낸다', () => {
+    expect(JSON.stringify(stackBands(laid(), groups))).toBe(
+      JSON.stringify(stackBands(laid(), groups)),
+    );
   });
 });
