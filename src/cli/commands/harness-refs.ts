@@ -35,6 +35,11 @@ export function formatCollectSummary(r: CollectResult): string {
     `관련 레포: ${r.relatedRepos.length > 0 ? r.relatedRepos.join(', ') : '없음'}`,
     ...REFERENCE_CANDIDATE_KINDS.map((k) => `${k}: ${r.counts[k]}`),
   ];
+  const cov = r.backwardSearchCoverage;
+  if (cov) {
+    const ow = cov.orgWide ? `, 조직 전체 ${cov.orgWide.searched}/${cov.orgWide.planned}` : '';
+    lines.push(`역방향 검색: 질의 ${cov.searched}/${cov.planned}${ow}`);
+  }
   if (r.noGitHubRemote) lines.push('GitHub 원격이 없다');
   for (const b of r.lookupBlocked) lines.push(`조회 막힘 (${b.source}): ${b.reason}`);
   if (r.referenceCheckSkipped)
@@ -70,3 +75,4 @@ export async function harnessRefsCollectCommand(opts: HarnessRefsCollectOptions)
   });
   console.log(opts.json ? JSON.stringify(result) : formatCollectSummary(result));
 }
+

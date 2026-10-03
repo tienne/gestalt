@@ -11,14 +11,24 @@ import { basename, resolve } from 'node:path';
 import { runGh, type GhRunner } from '../review-loop/fetch.js';
 import {
   backwardSearch,
+  type BackwardSearchCoverage,
   type BackwardSearchResult,
   type LlmJudgmentTarget,
 } from './backward-search.js';
 import { findCopyDrift } from './copy-drift.js';
 import { forwardSearch } from './forward-search.js';
 import type { BlockReason } from './github-backend.js';
-import { GithubCodeSearchAdapter, orgWildcard } from './github-code-search.js';
+import { GithubCodeSearchAdapter, isOrgWildcard, orgWildcard } from './github-code-search.js';
+import { HybridSearchBackend } from './hybrid-search.js';
 import { extractIdentifiersFromGit, isHarnessPath, isRuleDocPath } from './identifiers.js';
+import {
+  defaultCloneRoot,
+  prepareRelatedClones,
+  pruneWorktreeClones,
+  worktreeCloneRoot,
+  type CloneGitRunner,
+  type CloneTarget,
+} from './related-clones.js';
 import { detectRelatedRepos, readOriginRepo } from './related-repos.js';
 import { findRuleIdListGapsFromGit } from './rule-id-lists.js';
 import { findRuleOverlapFromGit } from './rule-overlap.js';
@@ -83,6 +93,12 @@ export interface CollectOptions {
   /** 관련 레포 탐지 캐시를 무시한다 */
   refresh?: boolean;
   codeGraphDbPath?: string;
+  /** github 백엔드가 관련 레포를 받아 두는 자리. 기본은 `~/.gestalt/repos`이고 그 아래 워크트리마다 나뉜다 */
+  cloneRoot?: string;
+  /** 테스트에서 클론 준비의 git 호출을 바꾼다 */
+  cloneGit?: CloneGitRunner;
+  /** 테스트에서 코드 검색 한도 대기를 실제로 자지 않게 바꾼다 */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface CollectResult {
@@ -110,6 +126,8 @@ export interface CollectResult {
    */
   referenceCheckSkipped: boolean;
   skippedRepos: SkippedRepo[];
+  /** 역방향 검색이 질의를 몇 개 계획했고 몇 개를 봤는지. 검색을 안 돌렸으면 null */
+  backwardSearchCoverage: BackwardSearchCoverage | null;
   detectors: Record<DetectorName, DetectorStatus>;
   limitations: string[];
 }
@@ -301,10 +319,32 @@ export async function collectReferenceCandidates(opts: CollectOptions): Promise<
     skip('backwardSearch', 'GitHub 원격이 없어 검색할 조직을 모른다');
   } else {
     let backend: CodeSearchBackend;
-    if (opts.backend === 'github' && org !== null) {
-      adapter = new GithubCodeSearchAdapter({ owner: org, selfRepo: repo, gh });
-      backend = adapter;
-      searchedRepos = [...relatedRepos, orgWildcard(org)];
+    if (opts.backend === 'github' && found && org !== null) {
+      adapter = new GithubCodeSearchAdapter({ owner: org, selfRepo: repo, gh, sleep: opts.sleep });
+      // 관련 레포는 로컬 클론에서 찾고 GitHub 코드 검색(분당 10회)은 클론으로 못 덮는 자리에만 쓴다
+      const cloneBase = opts.cloneRoot ?? defaultCloneRoot();
+      // 이 워크트리의 쓴 시각을 먼저 갱신한다. 정리를 먼저 돌리면 오래 묵은 자기 클론을 지우고
+      // 바로 다시 받는다
+      const cloneRoot = worktreeCloneRoot(cloneBase, repoRoot);
+      pruneWorktreeClones(cloneBase, { now: opts.now });
+      const clones = prepareRelatedClones({
+        targets: cloneTargets(found.relatedRepos, repoDirs, repo),
+        cloneRoot,
+        gh,
+        git: opts.cloneGit,
+        now: opts.now,
+      });
+      limitations.push(...clones.limitations);
+      backend = new HybridSearchBackend({
+        local: new LocalCloneBackend(clones.sources),
+        localRepos: clones.sources.map((s) => s.repo),
+        github: adapter,
+        owner: org,
+      });
+      searchedRepos = [
+        ...new Set([...relatedRepos, ...repoDirs.map((d) => d.repo)]),
+        orgWildcard(org),
+      ];
       limitations.push(...adapter.limitations);
     } else {
       backend = new LocalCloneBackend(repoDirs);
@@ -327,7 +367,18 @@ export async function collectReferenceCandidates(opts: CollectOptions): Promise<
     } catch (e) {
       skip('backwardSearch', errorMessage(e));
     }
-    noteBlocked('backwardSearch', adapter?.blocked);
+    const scopedRepos = searchedRepos.filter((r) => !isOrgWildcard(r));
+    if (backward && onlyOrgWideRateLimited(adapter?.blocked, backward.skipped, scopedRepos)) {
+      // 관련 레포는 전부 찾았고 한도 때문에 조직 전체 검색만 덜 봤다. 막힘으로 올리면 이름이 수십 개인
+      // PR은 라운드마다 막힌다. 대신 얼마나 봤는지를 남겨 리포트가 그대로 보이게 한다
+      const ow = backward.coverage.orgWide;
+      limitations.push(
+        `조직 전체 검색은 질의 ${ow?.searched ?? 0}/${ow?.planned ?? 0}개만 봤다. 관련 레포는 전부 찾았다 (${adapter!.blocked!.detail})`,
+      );
+      backward.skipped = [];
+    } else {
+      noteBlocked('backwardSearch', adapter?.blocked);
+    }
   }
 
   if (backward) {
@@ -364,7 +415,45 @@ export async function collectReferenceCandidates(opts: CollectOptions): Promise<
     referenceCheckSkipped:
       noGitHubRemote || lookupBlocked.length > 0 || skippedRepos.length > 0 || crossRepoSkipped,
     skippedRepos,
+    backwardSearchCoverage: backward?.coverage ?? null,
     detectors,
     limitations,
   };
+}
+
+/** 관련 레포와 `--repo-dir` 레포를 클론 대상으로 합친다. 같은 레포면 사람이 준 클론을 쓴다 */
+function cloneTargets(
+  related: { owner: string; name: string; defaultBranch?: string }[],
+  repoDirs: RepoDir[],
+  self: string,
+): CloneTarget[] {
+  const byKey = new Map<string, CloneTarget>();
+  for (const r of related) {
+    const key = `${r.owner}/${r.name}`.toLowerCase();
+    byKey.set(key, { repo: `${r.owner}/${r.name}`, defaultBranch: r.defaultBranch });
+  }
+  for (const d of repoDirs) {
+    const key = d.repo.toLowerCase();
+    const prev = byKey.get(key);
+    byKey.set(key, { ...(prev ?? { repo: d.repo }), userDir: d.dir });
+  }
+  byKey.delete(self.toLowerCase());
+  return [...byKey.values()];
+}
+
+/**
+ * 한도 때문에 조직 와일드카드만 덜 봤는지. 관련 레포가 하나도 없으면 와일드카드가 검색의 전부라
+ * 여기에 안 든다. 받기만 하는 레포는 그 검색으로만 자기를 부르는 레포를 찾는다
+ */
+function onlyOrgWideRateLimited(
+  blocked: { reason: BlockReason } | null | undefined,
+  skipped: SkippedRepo[],
+  scopedRepos: string[],
+): boolean {
+  return (
+    blocked?.reason === 'rateLimited' &&
+    scopedRepos.length > 0 &&
+    skipped.length > 0 &&
+    skipped.every((s) => isOrgWildcard(s.repo))
+  );
 }

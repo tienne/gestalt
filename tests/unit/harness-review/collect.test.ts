@@ -1,5 +1,7 @@
-import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   collectReferenceCandidates,
@@ -151,6 +153,128 @@ describe('collectReferenceCandidates — e2e (로컬 clone 백엔드)', () => {
     expect(result.counts.backwardRef).toBe(0);
     // 한 번 막힌 뒤로는 검색을 다시 부르지 않는다
     expect(calls.filter((c) => c[0] === 'search')).toHaveLength(1);
+  });
+});
+
+describe('collectReferenceCandidates — github 백엔드와 관련 레포 클론', () => {
+  const cloneRoots: string[] = [];
+  afterEach(() => {
+    for (const r of cloneRoots.splice(0)) rmSync(r, { recursive: true, force: true });
+  });
+
+  function setup(opts: { remaining: number; resetInSec: number; cloneFails?: boolean }) {
+    const s = buildReceiveOnlyOrg();
+    const caller = s.org.repos[s.caller.repo]!;
+    const cloneRoot = resolve('.gestalt-test', `clones-${randomUUID()}`);
+    cloneRoots.push(cloneRoot);
+    const searches: string[] = [];
+    const clones: string[] = [];
+    const gh: GhRunner = (args) => {
+      if (args[0] === 'api' && args[1] === 'rate_limit') {
+        const reset = Math.floor(Date.now() / 1000) + opts.resetInSec;
+        return JSON.stringify({
+          resources: { code_search: { limit: 10, remaining: opts.remaining, reset } },
+        });
+      }
+      if (args[0] === 'search') {
+        searches.push(args[2]!);
+        return '[]';
+      }
+      if (args[0] === 'repo' && args[1] === 'view') return 'main\n';
+      if (args[0] === 'repo' && args[1] === 'clone') {
+        clones.push(args[2]!);
+        if (opts.cloneFails) throw Object.assign(new Error('x'), { stderr: 'HTTP 404' });
+        execFileSync('git', ['clone', '-q', '--depth', '1', `file://${caller.root}`, args[3]!], {
+          stdio: 'ignore',
+        });
+        return '';
+      }
+      throw new Error('not found');
+    };
+    const run = (repoRoot = s.org.repos[s.receiver]!.root) =>
+      collectReferenceCandidates({
+        repoRoot,
+        base: s.rename.baseSha,
+        head: s.rename.headSha,
+        backend: 'github',
+        extraRepos: ['acme/acme-app'],
+        cloneRoot,
+        gh,
+        sleep: async () => {},
+      });
+    return { s, run, searches, clones, cloneRoot };
+  }
+
+  it('워크트리마다 클론을 따로 받고 서로의 클론을 안 쓴다', async () => {
+    const { s, run, clones, cloneRoot } = setup({ remaining: 10, resetInSec: 60 });
+    const main = s.org.repos[s.receiver]!.root;
+    const other = resolve('.gestalt-test', `wt-${randomUUID()}`);
+    cloneRoots.push(other);
+    execFileSync('git', ['-C', main, 'worktree', 'add', '-q', '--detach', other], {
+      stdio: 'ignore',
+    });
+
+    const a = await run(main);
+    const b = await run(other);
+
+    expect(clones).toEqual(['acme/acme-app', 'acme/acme-app']);
+    const roots = readdirSync(cloneRoot).sort();
+    expect(roots).toHaveLength(2);
+    for (const root of roots) {
+      expect(existsSync(join(cloneRoot, root, 'acme', 'acme-app', '.git'))).toBe(true);
+    }
+    expect(a.limitations.join('\n')).not.toMatch(/fetch/);
+    expect(b.limitations.join('\n')).not.toMatch(/fetch/);
+
+    // 워크트리를 지우면 다음 수집이 그 클론을 치운다
+    execFileSync('git', ['-C', main, 'worktree', 'remove', '--force', other], { stdio: 'ignore' });
+    await run(main);
+    expect(readdirSync(cloneRoot)).toHaveLength(1);
+  });
+
+  it('관련 레포는 클론에서 찾고 GitHub에는 조직 와일드카드 질의만 보낸다', async () => {
+    const { s, run, searches, clones } = setup({ remaining: 10, resetInSec: 60 });
+    const result = await run();
+
+    expect(clones).toEqual(['acme/acme-app']);
+    expect(result.searchedRepos).toEqual(['acme/acme-app', orgWildcard('acme')]);
+    expect(result.candidates.backwardRef).toContainEqual(
+      expect.objectContaining({ targetRepo: 'acme/acme-app', targetPath: s.caller.file }),
+    );
+    // 로컬에서 찾은 참조는 줄 번호가 있다. GitHub 결과(줄 0)가 아니라는 뜻이다
+    expect(result.candidates.backwardRef.every((c) => c.sourceLine > 0)).toBe(true);
+    const cov = result.backwardSearchCoverage!;
+    expect(searches).toHaveLength(cov.orgWide!.planned);
+    expect(cov.byBackend.localClone!.searched).toBe(cov.planned);
+    expect(result.lookupBlocked).toEqual([]);
+    expect(result.referenceCheckSkipped).toBe(false);
+  });
+
+  it('한도 때문에 조직 와일드카드만 못 봤으면 막힘이 아니라 범위로 남긴다', async () => {
+    const { run, searches } = setup({ remaining: 0, resetInSec: 600 });
+    const result = await run();
+
+    expect(searches).toEqual([]);
+    expect(result.lookupBlocked).toEqual([]);
+    expect(result.skippedRepos).toEqual([]);
+    expect(result.referenceCheckSkipped).toBe(false);
+    expect(result.backwardSearchCoverage!.orgWide!.searched).toBe(0);
+    expect(result.limitations).toContainEqual(
+      expect.stringMatching(/^조직 전체 검색은 질의 0\/\d+개만 봤다\. 관련 레포는 전부 찾았다/),
+    );
+  });
+
+  it('클론을 못 받은 관련 레포가 한도에 걸리면 지금처럼 조회 막힘으로 올린다', async () => {
+    const { run } = setup({ remaining: 0, resetInSec: 600, cloneFails: true });
+    const result = await run();
+
+    expect(result.limitations).toContainEqual(
+      expect.stringMatching(/^acme\/acme-app: 로컬 클론을 못 얻어 GitHub 검색으로 넘겼다/),
+    );
+    expect(result.lookupBlocked).toEqual([
+      expect.objectContaining({ source: 'backwardSearch', reason: 'rateLimited' }),
+    ]);
+    expect(result.referenceCheckSkipped).toBe(true);
   });
 });
 
