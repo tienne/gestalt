@@ -24,6 +24,7 @@ import {
 import { log } from '../../core/log.js';
 import {
   READ_ONLY_ALLOW_WORDS,
+  READ_ONLY_CLI_VERBS,
   READ_ONLY_DENY_WORDS,
   filterReadOnlyTools,
 } from '../../utils/read-only-tools.js';
@@ -152,11 +153,13 @@ function handleStart(
     contextCandidates: collectGlobalContext({ repoRoot, ...opts }),
     schemaPath: SCHEMA_PATH,
     readOnlyRule: { allow: [...READ_ONLY_ALLOW_WORDS], deny: [...READ_ONLY_DENY_WORDS] },
+    readOnlyCliRule: { verbs: [...READ_ONLY_CLI_VERBS] },
     nextAction: 'filter_tools',
     instructions: [
       'contextCandidates 중 exists가 true인 파일을 읽어 맥락을 모은다. private 파일 내용은 excerpt에 옮기지 않는다.',
       '세션에 붙은 MCP 도구 이름을 filter_tools에 넘겨 allowed만 쓴다. ambiguous는 부르지 않는다.',
       'schemaPath의 JSON Schema대로 IR을 만든다. 실선 엣지에는 code나 spec 근거가 있어야 한다.',
+      '클라우드 조회 결과는 live 근거로 싣는다. 명령의 하위 명령은 readOnlyCliRule.verbs로 시작해야 하고 응답 원문은 excerpt에 넣지 않는다.',
       'FE 호출과 BE 라우트가 모이면 match_endpoints로 이어 붙이고, validate로 확인한 뒤 render한다.',
     ],
   };
