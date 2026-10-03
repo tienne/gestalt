@@ -1,0 +1,156 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "architecture-ir.schema.json",
+  "title": "Gestalt Architecture IR",
+  "description": "Intermediate representation for /architecture views (screen-chain, deploy-path)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion",
+    "view",
+    "repos",
+    "nodes",
+    "edges",
+    "unresolved",
+    "sourcesUsed",
+    "generatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "view": { "type": "string", "enum": ["screen-chain", "deploy-path"] },
+    "repos": { "type": "array", "items": { "$ref": "#/definitions/repo" } },
+    "nodes": { "type": "array", "items": { "$ref": "#/definitions/node" } },
+    "edges": { "type": "array", "items": { "$ref": "#/definitions/edge" } },
+    "unresolved": { "type": "array", "items": { "$ref": "#/definitions/unresolvedQuestion" } },
+    "sourcesUsed": { "type": "array", "items": { "$ref": "#/definitions/contextSource" } },
+    "generatedAt": { "type": "string" }
+  },
+  "definitions": {
+    "visibility": { "type": "string", "enum": ["public", "private"] },
+    "evidence": {
+      "type": "object",
+      "required": ["type", "location", "visibility"],
+      "properties": {
+        "type": { "type": "string", "enum": ["code", "spec", "doc", "user"] },
+        "location": {
+          "type": "string",
+          "minLength": 1,
+          "description": "code evidence uses <repoId>:<relPath>:<line>"
+        },
+        "updatedAt": { "type": "string" },
+        "visibility": { "$ref": "#/definitions/visibility" },
+        "excerpt": { "type": "string" }
+      }
+    },
+    "repo": {
+      "type": "object",
+      "required": ["id", "name", "root"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "root": { "type": "string", "minLength": 1 },
+        "remote": { "type": "string" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "kind", "label", "repo", "evidence"],
+      "dependencies": { "displayNameInferred": ["displayName"] },
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "screen",
+            "endpoint",
+            "app_module",
+            "external_service",
+            "db_table",
+            "workflow",
+            "build",
+            "artifact",
+            "deploy_target",
+            "service",
+            "feature",
+            "gateway"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "technical name; part of the merge key (kind, repo, normalized label)"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "human-facing name shown large on the box; not part of the merge key"
+        },
+        "displayNameInferred": {
+          "type": "boolean",
+          "description": "true when displayName was condensed from evidence text rather than found verbatim in a document"
+        },
+        "repo": { "type": "string" },
+        "parent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "containment: a screen points to a feature or service, a feature points to a service; other kinds have no parent"
+        },
+        "description": { "type": "string" },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["id", "from", "to", "kind", "evidence", "lineStyle"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "calls",
+            "handles",
+            "uses",
+            "reads_writes",
+            "triggers",
+            "builds",
+            "produces",
+            "deploys_to",
+            "routes",
+            "navigates"
+          ]
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
+        "lineStyle": { "type": "string", "enum": ["solid", "dashed"] }
+      }
+    },
+    "unresolvedQuestion": {
+      "type": "object",
+      "required": ["id", "subject", "question"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "subject": {
+          "type": "object",
+          "properties": {
+            "nodeId": { "type": "string" },
+            "edgeId": { "type": "string" }
+          }
+        },
+        "question": { "type": "string", "minLength": 1 },
+        "answer": { "type": "string" }
+      }
+    },
+    "contextSource": {
+      "type": "object",
+      "required": ["via", "identifier", "readOnly", "probeHit", "visibility"],
+      "properties": {
+        "via": { "type": "string", "enum": ["repo", "global", "mcp", "skill", "user"] },
+        "identifier": { "type": "string", "minLength": 1 },
+        "readOnly": { "type": "boolean" },
+        "probeHit": { "type": "boolean" },
+        "visibility": { "$ref": "#/definitions/visibility" }
+      }
+    }
+  }
+}
