@@ -1,7 +1,7 @@
 ---
 name: architecture
 version: '1.0.0'
-description: '코드와 실행할 때 찾아낸 맥락 소스를 근거로 아키텍처 그림을 그린다. 뷰는 둘이다. screen-chain은 화면에서 엔드포인트, 앱 모듈을 거쳐 외부 서비스와 DB 테이블까지, deploy-path는 배포 단위별 트리거에서 빌드, 산출물, 배포 대상까지다. 세션이 근거 달린 IR을 쓰면 서버가 검증해 단일 HTML로 그린다. 설계 리뷰나 설계 자문은 architect 에이전트를 쓴다. 파일 단위 의존성과 영향 범위는 build-graph와 blast-radius를 쓴다.'
+description: '코드와 실행할 때 찾아낸 맥락 소스를 근거로 아키텍처 그림을 그린다. 뷰는 둘이다. screen-chain은 화면에서 엔드포인트, 앱 모듈을 거쳐 외부 서비스와 DB 테이블까지, deploy-path는 배포 단위별 트리거에서 빌드, 산출물, 배포 대상까지다. 웹 서비스를 서빙하는 도메인, CDN, 버킷은 코드와 읽기 전용 AWS 조회로 확인해 두 뷰에 함께 싣는다. 세션이 근거 달린 IR을 쓰면 서버가 검증해 단일 HTML로 그린다. 설계 리뷰나 설계 자문은 architect 에이전트를 쓴다. 파일 단위 의존성과 영향 범위는 build-graph와 blast-radius를 쓴다.'
 triggers:
   - 'architecture'
   - '아키텍처 그려줘'
@@ -46,8 +46,8 @@ outputs:
 
 | 뷰 | 흐름 | 쓰는 노드 kind |
 |---|---|---|
-| `screen-chain` (뷰①) | 서비스와 기능영역 안의 화면 → `gateway` → 백엔드 엔드포인트 → 백엔드 앱 모듈 → 외부 서비스와 DB 테이블 | `service`, `feature`, `screen`, `gateway`, `endpoint`, `app_module`, `external_service`, `db_table` |
-| `deploy-path` (뷰②) | 배포 단위별 트리거 → 빌드 → 산출물 → 배포 대상 | `workflow`, `build`, `artifact`, `deploy_target` |
+| `screen-chain` (뷰①) | 서비스와 기능영역 안의 화면 → `gateway` → 백엔드 엔드포인트 → 백엔드 앱 모듈 → 외부 서비스와 DB 테이블. 서비스를 서빙하는 도메인 → CDN → 버킷은 서비스 앞에 붙는다 | `service`, `feature`, `screen`, `gateway`, `endpoint`, `app_module`, `external_service`, `db_table`, `domain`, `cdn`, `bucket`, `cloud_account` |
+| `deploy-path` (뷰②) | 배포 단위별 트리거 → 빌드 → 산출물 → 배포 대상. 산출물이 떨어지는 버킷과 그 앞 CDN, 도메인이 인프라 레인으로 붙는다 | `workflow`, `build`, `artifact`, `deploy_target`, `domain`, `cdn`, `bucket`, `cloud_account` |
 
 한 번 실행에 뷰 하나를 그린다. 사용자가 뷰를 말하지 않았으면 어느 쪽인지 묻는다. 둘 다 원하면 뷰마다 Step 0부터 따로 돈다.
 
@@ -55,7 +55,8 @@ outputs:
 
 ```
 Step 0 start → Step 1 소스 찾아내기 → Step 2 글로벌 맥락 → Step 3 또는 4 뷰 탐색
-→ Step 5 레포를 넘는 연결 → Step 6 IR 작성과 validate → Step 7 미해결 질문 루프
+→ Step 4.5 서빙 인프라와 클라우드 접근 → Step 5 레포를 넘는 연결
+→ Step 6 IR 작성과 validate → Step 7 미해결 질문 루프
 → Step 8 render와 보고
 (재실행이면 Step 9가 Step 1~5를 좁힌다)
 ```
@@ -77,6 +78,7 @@ Step 0 start → Step 1 소스 찾아내기 → Step 2 글로벌 맥락 → Step
 | `contextCandidates` | Step 2에서 읽을 파일 후보. `via`, `identifier`(절대경로), `exists`, `visibility` |
 | `schemaPath` | IR이 따라야 하는 JSON Schema 파일 경로. Step 6 전에 한 번 읽는다 |
 | `readOnlyRule` | 읽기 전용 판정에 쓰는 허용 단어와 금지 단어 |
+| `readOnlyCliRule` | 클라우드 CLI 하위 명령이 시작해야 하는 동사(`list`, `get`, `describe`). Step 4.5에서 쓴다 |
 
 ## Step 1 — 소스 찾아내기
 
@@ -190,7 +192,71 @@ FE와 BE 사이에서 요청을 받아 다른 서버로 넘기는 서버는 `gat
 2. **트리거**: `.github/workflows/`, 다른 CI 설정 파일에서 배포로 이어지는 워크플로를 `workflow`로 둔다. label에 트리거(push main, tag 등)를 함께 적는다.
 3. **빌드**: 워크플로 안의 빌드 잡이나 스텝을 `build`로 두고 `workflow → build`를 `triggers`로 잇는다.
 4. **산출물**: 컨테이너 이미지, 정적 번들, 패키지를 `artifact`로 두고 `build → artifact`를 잇는다. 근거가 이미지 push나 업로드 줄이면 `produces`, 빌드 명령 줄이면 `builds`다. 같은 쌍에 둘을 겹쳐 긋지 않는다. Dockerfile이나 빌드 출력 경로도 근거가 된다.
-5. **배포 대상**: 클러스터, CDN, 함수 런타임 같은 대상을 `deploy_target`으로 두고 `artifact → deploy_target`을 `deploys_to`로 잇는다. 배포 매니페스트가 다른 레포에 있으면 Step 5로 간다.
+5. **배포 대상**: 클러스터, 함수 런타임 같은 대상을 `deploy_target`으로 두고 `artifact → deploy_target`을 `deploys_to`로 잇는다. 배포 매니페스트가 다른 레포에 있으면 Step 5로 간다.
+   - 산출물이 S3 같은 버킷에 올라가면 `deploy_target` 대신 `bucket` 노드로 두고 `artifact → bucket`을 `deploys_to`로 잇는다. 그 버킷 앞의 CDN과 도메인은 Step 4.5에서 붙인다.
+   - 네이티브 앱 배포처(앱 배포 서비스, 스토어 테스트 트랙)는 `deploy_target`으로 둔다. 근거는 워크플로의 업로드 스텝 줄이다. 코드푸시 번들이 올라가는 버킷은 `bucket`이다.
+
+## Step 4.5 — 서빙 인프라와 클라우드 접근 파악
+
+웹 서비스가 정적 번들로 서빙되면 요청은 도메인 → CDN → 버킷 → 서비스 순으로 들어온다. 이 사슬을 코드에서 먼저 찾고 실제 클라우드 상태는 읽기 전용 조회로 확인한다. 범위는 AWS 하나다. 다른 클라우드, 비용, 트래픽은 다루지 않는다. 보안 설정을 좋다 나쁘다 판정하지 않고 확인한 사실만 싣는다.
+
+### 4.5-1. 코드에서 먼저 찾기
+
+- CDK, Terraform, CloudFormation 같은 인프라 코드에서 버킷 이름, CDN 배포 정의, 도메인(`domainNames`, `aliases`), 스택의 계정 ID와 환경 이름을 찾는다.
+- 배포 워크플로의 업로드 줄(`aws s3 sync` 등)에서 산출물이 어느 버킷으로 가는지 본다.
+- 여기서 찾은 것은 `code` 근거다. 계정 ID는 프로필과 맞춰 볼 때 쓰므로 어느 파일 몇 줄에 있었는지 적어 둔다.
+
+### 4.5-2. 인증 도구와 프로필 찾기
+
+로그인 상태를 바꾸지 않고 읽기만 한다.
+
+- 프로필 목록은 `aws configure list-profiles`로 본다. `~/.aws/config`에 `sso_start_url`이나 `sso_session`이 있으면 SSO 프로필이다.
+- 쓰는 인증 도구를 찾는다. `~/.saml2aws`가 있으면 saml2aws, `aws-vault list`가 돌면 aws-vault, `~/.granted`가 있으면 granted다.
+- 프로필마다 만료를 본다. saml2aws는 `~/.aws/credentials`의 `x_security_token_expires`, SSO는 `~/.aws/sso/cache/` 안 파일의 `expiresAt`이다.
+- **설정 파일에 적힌 역할과 실제로 쓰던 역할이 다를 수 있다.** `~/.saml2aws`의 `role`보다 `~/.aws/credentials`에서 프로필별 `x_principal_arn`을 먼저 본다. 마지막으로 실제로 맡은 역할이 거기 남는다.
+- **키 값은 절대 읽어 출력하지 않는다.** `~/.aws/credentials`는 필드 이름으로 줄을 골라 읽는다 (`grep -E '^\[|x_principal_arn|x_security_token_expires' ~/.aws/credentials`). `aws_access_key_id`, `aws_secret_access_key`, `aws_session_token` 줄은 화면에도 IR에도 옮기지 않는다.
+
+### 4.5-3. 실제 신원 확인
+
+만료되지 않은 프로필마다 `aws sts get-caller-identity --profile <프로필>`을 돌려 `Account`와 `Arn`을 본다. 4.5-1에서 찾은 계정 ID와 맞춰 프로필과 계정의 짝을 정한다. 레포에 적힌 계정 중 짝이 없는 것은 미해결 질문으로 남긴다.
+
+### 4.5-4. 만료됐으면 로그인 명령을 보여주고 멈춘다
+
+로그인은 브라우저 인증이 뜨므로 세션이 실행하지 않는다. 4.5-2에서 찾은 역할로 로그인 명령을 만들어 사용자에게 보여주고 멈춘다. 사용자가 로그인했다고 하면 4.5-3의 `get-caller-identity`로 다시 확인하고 이어 간다. 사용자가 건너뛰겠다고 하면 조회 없이 코드 근거만으로 그린다. 보고에는 "재로그인 필요"라고 적는다.
+
+아래 값은 전부 예시다. 실제 계정 이름과 역할은 4.5-2에서 찾은 값으로 바꾼다.
+
+| 도구 | 로그인 명령 모양 |
+|---|---|
+| saml2aws | `saml2aws login -a acme-prod --role arn:aws:iam::000000000000:role/ReadOnly --skip-prompt` |
+| aws-vault | `aws-vault login acme-prod` |
+| granted | `assume acme-prod` |
+| AWS SSO | `aws sso login --profile acme-prod` (시작 URL은 `https://example.awsapps.com/start` 꼴) |
+
+### 4.5-5. 읽기 전용으로 조회한다
+
+- **하위 명령은 `readOnlyCliRule.verbs`(`list`, `get`, `describe`)로 시작하는 것만 쓴다.** Step 1의 도구 이름 규칙과 같은 원리다. `aws s3 ls`처럼 읽기여도 동사가 다르면 쓰지 않는다.
+- 이름이 `get`이어도 비밀값이나 임시 자격증명을 내주는 명령(`get-secret-value`, `get-login-password`, `get-session-token`)과 파일을 내려받는 `s3api get-object`는 쓰지 않는다.
+- 명령은 한 줄에 하나만 쓴다. 파이프, `;`, `&&`, 리다이렉션으로 잇지 않는다. validate가 live 근거의 명령을 다시 판정해 `LIVE_COMMAND_NOT_READ_ONLY`로 거부한다.
+- 자주 쓰는 조회는 이렇다. `aws cloudfront list-distributions`(배포마다 별칭 도메인과 원본 버킷), `aws s3api list-buckets`, `aws s3api get-bucket-website`, `aws route53 list-hosted-zones`, `aws route53 list-resource-record-sets`.
+
+### 4.5-6. IR에 싣는다
+
+- 노드는 `domain`, `cdn`, `bucket`, `cloud_account`다. 인프라 노드에는 `environment`(prod, stage, qa, dev 등)를, 계정을 아는 노드에는 `account`(그 `cloud_account` 노드 id)를 단다. 양 끝 계정이 다른 선은 다른 색으로 그려진다.
+- 엣지는 `domain → cdn`이 `resolves_to`, `cdn → bucket`이 `origin`, `bucket → service`가 `serves`다. 산출물이 버킷에 올라가는 건 Step 4의 `deploys_to`다.
+- 조회로 확인한 것은 `live` 근거다. `location`은 조회로 찾은 리소스 종류(`aws:cloudfront` 등), `command`는 실행한 명령, `observedAt`은 조회한 시각(ISO 8601)이다. `visibility`는 `private`이고 응답 원문을 `excerpt`에 넣지 않는다.
+- **id에는 계정 ID와 CDN 배포 ID를 넣지 않는다.** `prod-customer`처럼 별칭으로 짓고 실제 ID는 `label`에 둔다. id는 공유본에서도 못 가리므로 validate가 `CLOUD_ID_IN_ID`로 거부한다.
+- 선 모양은 근거로 정해진다. 코드 근거가 함께 있으면 실선, `live` 근거만 있으면 점선이다. 조회 결과는 지금 상태일 뿐이고 코드가 그렇게 만든다는 증거는 아니라서다.
+- **서비스에 안 붙는 인프라**(에셋 버킷, 꺼 둔 배포)는 deploy-path에만 싣는다. screen-chain에는 서비스까지 이어지는 사슬만 싣는다.
+
+### 4.5-7. 서비스 플랫폼
+
+- 웹은 따로 적지 않아도 된다. 버킷이 `serves`로 서비스를 서빙하면 렌더가 웹으로 판정한다.
+- Android와 iOS는 `service` 노드의 `platforms`에 적고 `platformEvidence`에 플랫폼별 근거를 단다. 근거는 네이티브 배포 워크플로의 태그나 트리거 줄, 스토어 설정 파일 줄이다. 근거 없이 `platforms`에만 적으면 그 플랫폼은 칩이 안 붙고 미해결 질문으로 간다.
+
+### 4.5-8. 코드와 실제가 다르면
+
+코드에는 있는데 조회에 없거나, 조회에는 있는데 코드에 없으면 어느 쪽이 맞다고 고르지 않는다. 둘 다 근거로 남기고 `unresolved`에 질문으로 적는다 (예: 코드의 도메인이 조회한 배포 별칭에 없다).
 
 ## Step 5 — 레포를 넘는 연결
 
@@ -224,7 +290,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 
 ### 근거 규칙
 
-- **실선(`lineStyle: "solid"`)에는 `code`나 `spec` 근거가 반드시 있어야 한다.** 근거가 0개인 실선은 validate가 `SOLID_EDGE_WITHOUT_EVIDENCE`로 거부한다. `doc`이나 `user` 근거만 있는 실선도 같은 에러다.
+- **실선(`lineStyle: "solid"`)에는 `code`나 `spec` 근거가 반드시 있어야 한다.** 근거가 0개인 실선은 validate가 `SOLID_EDGE_WITHOUT_EVIDENCE`로 거부한다. `doc`, `user`, `live` 근거만 있는 실선도 같은 에러다.
 - **근거를 못 찾은 연결은 둘 중 하나로 처리한다.**
   - `lineStyle: "dashed"`, `evidence: []`로 IR에 넣는다. validate가 그리기 대상에서 빼고 미해결 질문을 자동으로 만든다(`autoUnresolved`).
   - 아니면 IR 엣지로 넣지 않고 `unresolved`에 질문으로만 남긴다.
@@ -283,6 +349,10 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 | `PARENT_NOT_FOUND` | parent가 가리키는 노드를 `nodes`에 넣거나 parent를 뺀다 |
 | `PARENT_CYCLE` | parent를 따라가면 자기로 돌아온다. 서비스에서 기능영역, 화면으로 내려가는 한 방향만 남긴다 |
 | `INVALID_PARENT_KIND` | 위 포함 규칙에 맞게 parent를 고친다. 화면이 화면을 담거나 엔드포인트에 parent를 달면 여기 걸린다 |
+| `LIVE_COMMAND_NOT_READ_ONLY` | live 근거의 명령을 `list`, `get`, `describe` 하위 명령 하나로 바꾼다. 그런 명령으로 확인할 수 없으면 근거에서 뺀다 |
+| `ACCOUNT_NOT_FOUND` | `account`가 가리키는 `cloud_account` 노드를 `nodes`에 넣거나 `account`를 뺀다 |
+| `INVALID_ACCOUNT_KIND` | `account`는 `cloud_account` 노드만 가리킨다 |
+| `CLOUD_ID_IN_ID` | id에서 계정 ID나 CDN 배포 ID를 빼고 별칭으로 짓는다. 실제 ID는 `label`에 둔다 |
 
 **최대 3회까지 고쳐 다시 validate한다.** 세 번째에도 같은 노드나 엣지에서 실패하면 더 붙잡지 않는다. 그 노드나 엣지를 IR에서 빼고 `unresolved`에 무엇을 왜 확인 못 했는지 질문으로 남긴다.
 
@@ -313,7 +383,7 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 | 레벨 | 보이는 것 |
 |---|---|
 | 전체 (`root`) | 서비스, `gateway`, 서버(앱 모듈)만. 세부 엣지를 묶은 선의 굵기와 숫자가 건수다 |
-| 서비스 (`service:<id>`) | 그 서비스의 기능영역과 서비스에 바로 단 화면, 거기서 닿는 `gateway`와 서버 |
+| 서비스 (`service:<id>`) | 그 서비스의 기능영역과 서비스에 바로 단 화면, 거기서 닿는 `gateway`와 서버. 서비스를 서빙하는 버킷이 있으면 왼쪽에 도메인, CDN, 버킷 레인이 붙고 서비스 카드가 기능영역 레인 맨 위에 선다 |
 | 기능영역 (`feature:<id>`) | 그 기능영역의 화면, 화면이 부르는 엔드포인트, 거쳐 가는 `gateway`와 받는 모듈 |
 | 서버 (`server:<id>`) | 그 모듈이나 `gateway`에 걸린 엔드포인트, 읽고 쓰는 테이블, 쓰는 클라이언트 |
 
@@ -324,6 +394,8 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 1. **stats**: `nodes`, `edges`, `drawnEdges`, `droppedEdges`, `unresolvedOpen`. screen-chain이면 `screenToEndpointRatio`(엔드포인트로 이어진 화면 비율)와 `endpointMatchRatio`(핸들러까지 이어진 엔드포인트 비율)도 적는다. 값이 `null`이면 분모가 0이라는 뜻이다.
 2. **미해결 목록**: 답이 안 달린 질문을 전부 적는다. 숨기지 않는다.
 3. **sourcesUsed**: `public` 소스는 이름이나 경로까지 적는다. **`private` 소스는 종류만 적는다** (예: "개인 메모리 2건, MCP 검색 1건"). 경로나 도구 이름을 보고에 옮기지 않는다.
+
+Step 4.5에서 클라우드를 조회했으면 어느 프로필로 언제 조회했는지 적는다. 만료로 조회를 못 했으면 "재로그인 필요"와 보여준 로그인 명령 모양을 적는다. 계정 ID는 보고에 적어도 되지만 공유본이나 커밋할 파일에는 옮기지 않는다.
 
 Step 5에서 레포를 새로 받았으면 무엇을 어디에 받았는지 한 줄로 덧붙인다 (예: "`org/api-server`를 `~/.gestalt/architecture/clones/github.com/org/api-server`에 받았다").
 
@@ -356,7 +428,11 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `workflow` | deploy-path | 배포를 시작하는 CI 워크플로와 그 트리거 |
 | `build` | deploy-path | 빌드 잡이나 스텝 |
 | `artifact` | deploy-path | 이미지, 번들, 패키지 같은 빌드 산출물 |
-| `deploy_target` | deploy-path | 산출물이 올라가는 클러스터, CDN, 런타임 |
+| `deploy_target` | deploy-path | 산출물이 올라가는 클러스터, 런타임, 네이티브 앱 배포처 |
+| `domain` | 둘 다 | 사용자가 접속하는 도메인 |
+| `cdn` | 둘 다 | CDN 배포. label은 배포 ID나 이름 |
+| `bucket` | 둘 다 | 정적 번들이나 코드푸시 번들이 올라가는 버킷 |
+| `cloud_account` | 둘 다 | 클라우드 계정. 다른 노드의 `account`가 이 노드를 가리킨다 |
 
 ### 2. 엣지 kind
 
@@ -372,7 +448,10 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `triggers` | workflow → build | 워크플로의 트리거와 잡 정의 줄 |
 | `builds` | build → artifact | 빌드 명령 줄 (빌드가 산출물을 직접 지을 때) |
 | `produces` | build → artifact | 산출물을 내보내는 줄 (이미지 push, 업로드) |
-| `deploys_to` | artifact → deploy_target | 배포 명령이나 매니페스트 줄 |
+| `deploys_to` | artifact → deploy_target, bucket | 배포 명령이나 매니페스트 줄 |
+| `resolves_to` | domain → cdn | 인프라 코드의 도메인 줄이나 CDN 별칭 조회 |
+| `origin` | cdn → bucket | 인프라 코드의 원본 정의 줄이나 CDN 원본 조회 |
+| `serves` | bucket → service | 그 서비스 번들을 버킷에 올리는 줄 |
 
 ### 3. 근거 종류와 선 모양
 
@@ -382,6 +461,7 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `spec` | OpenAPI, proto 같은 API 명세 안의 정의 위치 | 실선 |
 | `doc` | 문서 링크나 경로. `updatedAt`에 수정일 | 점선 |
 | `user` | 질문 id와 답한 날짜. 답 원문은 질문의 `answer`에 | 점선 |
+| `live` | 조회로 찾은 리소스 종류. `command`에 명령, `observedAt`에 조회 시각 | 점선 |
 
 선 모양은 validate가 근거 종류로 다시 계산한다. code나 spec 근거가 하나라도 있으면 실선, 없으면 점선이다. 근거가 0개면 그리지 않고 질문으로 돌린다.
 
@@ -393,5 +473,6 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | 홈 아래 파일 (`~/.claude/CLAUDE.md`, `~/.claude/projects/*/memory/`) | `private` | 금지 |
 | KB 검색 결과, MCP 도구 응답, 스킬 조회 결과 | `private` | 금지 |
 | 사용자 답 | `private` | 금지 |
+| 클라우드 조회 결과 (`live`) | `private` | 금지 |
 
-private 근거는 공유용 HTML에서 위치와 인용이 빠지고 출처 종류만 남는다. 저장되는 IR에도 private 본문은 들어가지 않는다.
+private 근거는 공유용 HTML에서 위치와 인용이 빠지고 출처 종류만 남는다. 저장되는 IR에도 private 본문은 들어가지 않는다. `live` 근거는 `public`으로 적어도 공유본에서 명령과 위치를 빼고 조회 시각만 남긴다. 노드 이름에 든 계정 ID와 CDN 배포 ID도 공유본에서 가려진다.
