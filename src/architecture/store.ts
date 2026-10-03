@@ -11,7 +11,7 @@ import type {
   ContextSource,
   UnresolvedQuestion,
 } from './types.js';
-import { stripPrivateExcerpts } from './validator.js';
+import { idCarriesCloudId, stripPrivateExcerpts } from './validator.js';
 
 export interface PreviousRunSummary {
   generatedAt: string;
@@ -116,6 +116,8 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     const prevId = prevNodeIdByKey.get(key);
     if (prevId === undefined || prevId === node.id || takenNodeIds.has(prevId)) continue;
     if (nodeIdMap.has(node.id)) continue;
+    // 지난 실행이 계정 ID나 배포 ID를 id에 박았으면 물려받지 않는다. 지금 검증기가 그런 id를 거부한다
+    if (idCarriesCloudId(prevId, node.kind)) continue;
     takenNodeIds.add(prevId);
     nodeIdMap.set(node.id, prevId);
   }
@@ -125,6 +127,7 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     ...n,
     id: mapNodeId(n.id),
     ...(n.parent !== undefined ? { parent: mapNodeId(n.parent) } : {}),
+    ...(n.account !== undefined ? { account: mapNodeId(n.account) } : {}),
   }));
 
   const prevEdgeIdByKey = new Map<string, string>();
@@ -147,6 +150,7 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     claimedEdgeKeys.add(key);
     const prevId = prevEdgeIdByKey.get(key);
     if (prevId === undefined || prevId === edge.id || takenEdgeIds.has(prevId)) continue;
+    if (idCarriesCloudId(prevId)) continue;
     if (edgeIdMap.has(edge.id)) continue;
     takenEdgeIds.add(prevId);
     edgeIdMap.set(edge.id, prevId);

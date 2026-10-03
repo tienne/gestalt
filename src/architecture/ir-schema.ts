@@ -6,9 +6,11 @@ import {
   ARCHITECTURE_VIEWS,
   CONTEXT_SOURCE_VIAS,
   EDGE_KINDS,
+  ENVIRONMENT_KINDS,
   EVIDENCE_TYPES,
   LINE_STYLES,
   NODE_KINDS,
+  PLATFORMS,
   VISIBILITIES,
   type ArchitectureIr,
 } from './types.js';
@@ -20,14 +22,46 @@ export const evidenceTypeSchema = z.enum(EVIDENCE_TYPES);
 export const visibilitySchema = z.enum(VISIBILITIES);
 export const lineStyleSchema = z.enum(LINE_STYLES);
 export const contextSourceViaSchema = z.enum(CONTEXT_SOURCE_VIAS);
+export const platformSchema = z.enum(PLATFORMS);
 
-const evidenceSchema = z.object({
-  type: evidenceTypeSchema,
-  location: z.string().min(1),
-  updatedAt: z.string().optional(),
-  visibility: visibilitySchema,
-  excerpt: z.string().optional(),
-});
+const evidenceSchema = z
+  .object({
+    type: evidenceTypeSchema,
+    location: z.string().min(1),
+    updatedAt: z.string().optional(),
+    visibility: visibilitySchema,
+    excerpt: z.string().optional(),
+    command: z.string().min(1).optional(),
+    observedAt: z.string().datetime({ offset: true }).optional(),
+  })
+  .superRefine((ev, ctx) => {
+    if (ev.type === 'live') {
+      if (ev.command === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['command'],
+          message: 'live 근거에는 실행한 명령(command)이 있어야 한다',
+        });
+      }
+      if (ev.observedAt === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['observedAt'],
+          message: 'live 근거에는 조회 시각(observedAt)이 있어야 한다',
+        });
+      }
+      return;
+    }
+    for (const key of ['command', 'observedAt'] as const) {
+      if (ev[key] !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key}는 live 근거에만 쓸 수 있다`,
+        });
+      }
+    }
+  });
 
 const nodeSchema = z
   .object({
@@ -40,8 +74,30 @@ const nodeSchema = z
     parent: z.string().min(1).optional(),
     description: z.string().optional(),
     evidence: z.array(evidenceSchema),
+    environment: z.string().min(1).optional(),
+    account: z.string().min(1).optional(),
+    platforms: z.array(platformSchema).optional(),
+    platformEvidence: z.record(platformSchema, z.array(evidenceSchema)).optional(),
   })
   .superRefine((node, ctx) => {
+    const custom = (path: string, message: string): void =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+    if (node.kind !== 'service') {
+      if (node.platforms !== undefined)
+        custom('platforms', 'platforms는 service 노드에만 쓸 수 있다');
+      if (node.platformEvidence !== undefined) {
+        custom('platformEvidence', 'platformEvidence는 service 노드에만 쓸 수 있다');
+      }
+    }
+    if (node.platforms !== undefined && new Set(node.platforms).size !== node.platforms.length) {
+      custom('platforms', 'platforms에 같은 값이 두 번 들어 있다');
+    }
+    if (node.environment !== undefined && !ENVIRONMENT_KINDS.includes(node.kind)) {
+      custom('environment', `environment는 ${ENVIRONMENT_KINDS.join(', ')} 노드에만 쓸 수 있다`);
+    }
+    if (node.account !== undefined && node.kind === 'cloud_account') {
+      custom('account', 'cloud_account 노드는 account를 가질 수 없다');
+    }
     if (node.displayNameInferred !== undefined && node.displayName === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

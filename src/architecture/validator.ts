@@ -1,5 +1,6 @@
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
+import { classifyCliCommand } from '../utils/read-only-tools.js';
 import {
   PARENT_KINDS,
   type ArchitectureEdge,
@@ -7,6 +8,8 @@ import {
   type ArchitectureNode,
   type Evidence,
   type LineStyle,
+  type NodeKind,
+  type Platform,
   type UnresolvedQuestion,
 } from './types.js';
 
@@ -17,7 +20,11 @@ export type ArchitectureValidationErrorCode =
   | 'DANGLING_EDGE'
   | 'PARENT_NOT_FOUND'
   | 'PARENT_CYCLE'
-  | 'INVALID_PARENT_KIND';
+  | 'INVALID_PARENT_KIND'
+  | 'LIVE_COMMAND_NOT_READ_ONLY'
+  | 'ACCOUNT_NOT_FOUND'
+  | 'INVALID_ACCOUNT_KIND'
+  | 'CLOUD_ID_IN_ID';
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -46,7 +53,13 @@ export type ValidateArchitectureIrResult =
   | { ok: false; errors: ArchitectureValidationError[] };
 
 const CODE_LOCATION_RE = /^([^:]+):(.+):(\d+)$/;
+/** AWS 계정 ID 꼴(숫자 12자리). 앞뒤가 숫자면 더 긴 수의 일부라 계정 ID로 보지 않는다 */
+export const ACCOUNT_ID_RE = /(?<!\d)\d{12}(?!\d)/g;
+// CloudFront 배포 ID 꼴. 대문자 id나 이름과 헷갈릴 수 있어 이름은 cdn 노드에서만, 질문 글자는 통째로 가린다
+const DISTRIBUTION_ID_RE = /\bE[0-9A-Z]{12,13}\b/g;
 
+// live 근거만 있는 선은 점선이다. 조회는 지금 그렇다는 사실이지 코드가 그렇게 만든다는 증거가 아니라서
+// 다음 배포에 바뀔 수 있다. 코드나 스펙이 함께 있어야 실선이 된다
 function deriveLineStyle(evidence: Evidence[]): LineStyle {
   return evidence.some((e) => e.type === 'code' || e.type === 'spec') ? 'solid' : 'dashed';
 }
@@ -118,10 +131,24 @@ function checkEvidenceList(
     if (ev.visibility === 'private' && ev.excerpt !== undefined) {
       errors.push({
         code: 'PRIVATE_EXCERPT_PRESENT',
-        message: `private 근거 "${ev.location}"에 excerpt가 들어 있다. private 근거는 원문을 싣지 않는다.`,
+        message:
+          ev.type === 'live'
+            ? `private live 근거 "${ev.location}"에 조회 응답 원문(excerpt)이 들어 있다. 명령과 조회 시각만 남긴다.`
+            : `private 근거 "${ev.location}"에 excerpt가 들어 있다. private 근거는 원문을 싣지 않는다.`,
         ...owner,
         evidenceIndex,
       });
+    }
+    if (ev.type === 'live' && ev.command !== undefined) {
+      const verdict = classifyCliCommand(ev.command);
+      if (verdict !== 'allow') {
+        errors.push({
+          code: 'LIVE_COMMAND_NOT_READ_ONLY',
+          message: `live 근거의 명령 "${ev.command}"이 읽기 전용 조회로 판정되지 않는다(${verdict}). 하위 명령은 list, get, describe만 쓴다.`,
+          ...owner,
+          evidenceIndex,
+        });
+      }
     }
     if (ev.type === 'code' && ctx.checkFiles) {
       const problem = checkCodeLocation(ev.location, ctx.repoRoots, ctx.cache);
@@ -130,6 +157,60 @@ function checkEvidenceList(
       }
     }
   });
+}
+
+function checkAccounts(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  const byId = new Map(ir.nodes.map((n) => [n.id, n]));
+  for (const node of ir.nodes) {
+    if (node.account === undefined) continue;
+    const account = byId.get(node.account);
+    if (!account) {
+      errors.push({
+        code: 'ACCOUNT_NOT_FOUND',
+        message: `노드 "${node.id}"의 account "${node.account}"가 nodes에 없다.`,
+        nodeId: node.id,
+      });
+    } else if (account.kind !== 'cloud_account') {
+      errors.push({
+        code: 'INVALID_ACCOUNT_KIND',
+        message: `노드 "${node.id}"의 account는 cloud_account 노드여야 하는데 ${account.kind}다.`,
+        nodeId: node.id,
+      });
+    }
+  }
+}
+
+// id는 HTML 속성과 주소창 해시에 그대로 실려 공유본에서도 못 가린다. 계정 ID와 배포 ID는 label에만 두고 id는 별칭으로 짓게 한다
+const accountLike = (id: string): boolean => new RegExp(ACCOUNT_ID_RE.source).test(id);
+const distributionLike = (id: string): boolean => new RegExp(DISTRIBUTION_ID_RE.source).test(id);
+
+/** 이 id가 공유본에서 못 가리는 클라우드 식별자를 담는지. kind를 모르면(엣지) 계정 ID만 본다 */
+export function idCarriesCloudId(id: string, kind?: NodeKind): boolean {
+  return accountLike(id) || (kind === 'cdn' && distributionLike(id));
+}
+
+function checkIdsForCloudIds(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  for (const node of ir.nodes) {
+    const what = accountLike(node.id)
+      ? '계정 ID로 보이는 12자리 숫자'
+      : idCarriesCloudId(node.id, node.kind)
+        ? 'CDN 배포 ID'
+        : undefined;
+    if (what === undefined) continue;
+    errors.push({
+      code: 'CLOUD_ID_IN_ID',
+      message: `노드 id "${node.id}"에 ${what}가 들어 있다. id는 별칭(prod-customer 같은)으로 짓고 실제 ID는 label에 둔다.`,
+      nodeId: node.id,
+    });
+  }
+  for (const edge of ir.edges) {
+    if (!accountLike(edge.id)) continue;
+    errors.push({
+      code: 'CLOUD_ID_IN_ID',
+      message: `엣지 id "${edge.id}"에 계정 ID로 보이는 12자리 숫자가 들어 있다. id는 별칭으로 짓는다.`,
+      edgeId: edge.id,
+    });
+  }
 }
 
 function checkParents(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
@@ -179,6 +260,27 @@ function nameOf(node: ArchitectureNode): string {
   return node.displayName ?? node.label;
 }
 
+const PLATFORM_QUESTION: Record<Platform, string> = {
+  web: '웹',
+  android: 'Android 앱',
+  ios: 'iOS 앱',
+};
+
+function isServedByBucket(
+  serviceId: string,
+  edges: ArchitectureEdge[],
+  nodeById: Map<string, ArchitectureNode>,
+  drawableEdgeIds: Set<string>,
+): boolean {
+  return edges.some(
+    (e) =>
+      e.kind === 'serves' &&
+      e.to === serviceId &&
+      drawableEdgeIds.has(e.id) &&
+      nodeById.get(e.from)?.kind === 'bucket',
+  );
+}
+
 function hasQuestionFor(
   unresolved: UnresolvedQuestion[],
   subject: UnresolvedQuestion['subject'],
@@ -205,8 +307,13 @@ export function validateArchitectureIr(
 
   for (const node of ir.nodes) {
     checkEvidenceList(node.evidence, { nodeId: node.id }, ctx, errors);
+    for (const platform of Object.keys(node.platformEvidence ?? {}).sort() as Platform[]) {
+      checkEvidenceList(node.platformEvidence![platform]!, { nodeId: node.id }, ctx, errors);
+    }
   }
   checkParents(ir, errors);
+  checkAccounts(ir, errors);
+  checkIdsForCloudIds(ir, errors);
 
   for (const edge of ir.edges) {
     const missing = [edge.from, edge.to].filter((id) => !nodeIds.has(id));
@@ -225,7 +332,7 @@ export function validateArchitectureIr(
         message:
           edge.evidence.length === 0
             ? `엣지 "${edge.id}"가 실선인데 근거가 하나도 없다. 근거를 달거나 점선으로 바꿔 미해결 질문으로 돌려야 한다.`
-            : `엣지 "${edge.id}"가 실선인데 code나 spec 근거가 없다. doc이나 user 근거만 있으면 점선이어야 한다.`,
+            : `엣지 "${edge.id}"가 실선인데 code나 spec 근거가 없다. doc, user, live 근거만 있으면 점선이어야 한다.`,
         edgeId: edge.id,
       });
     }
@@ -279,6 +386,25 @@ export function validateArchitectureIr(
     }
   }
 
+  for (const node of ir.nodes) {
+    if (node.kind !== 'service' || !drawableNodeIds.has(node.id)) continue;
+    for (const platform of node.platforms ?? []) {
+      if ((node.platformEvidence?.[platform] ?? []).length > 0) continue;
+      if (platform === 'web' && isServedByBucket(node.id, edges, nodeById, drawableEdgeIds))
+        continue;
+      // 한 서비스에 플랫폼 질문이 여럿 설 수 있어 대상이 아니라 id로 겹침을 본다
+      const id = `auto:platform:${node.id}:${platform}`;
+      if (known.some((q) => q.id === id)) continue;
+      const q: UnresolvedQuestion = {
+        id,
+        subject: { nodeId: node.id },
+        question: `"${nameOf(node)}"를 ${PLATFORM_QUESTION[platform]}으로 배포한다는 근거를 못 찾았어요. 배포 워크플로나 스토어 설정이 어디 있나요?`,
+      };
+      known.push(q);
+      autoUnresolved.push(q);
+    }
+  }
+
   return {
     ok: true,
     value: { ir: { ...ir, edges }, drawableNodeIds, drawableEdgeIds, autoUnresolved },
@@ -289,6 +415,13 @@ function mapEvidence(ir: ArchitectureIr, fn: (ev: Evidence) => Evidence): Archit
   const mapNode = (n: ArchitectureNode): ArchitectureNode => ({
     ...n,
     evidence: n.evidence.map(fn),
+    ...(n.platformEvidence !== undefined
+      ? {
+          platformEvidence: Object.fromEntries(
+            Object.entries(n.platformEvidence).map(([p, list]) => [p, list.map(fn)]),
+          ),
+        }
+      : {}),
   });
   const mapEdge = (e: ArchitectureEdge): ArchitectureEdge => ({
     ...e,
@@ -297,13 +430,61 @@ function mapEvidence(ir: ArchitectureIr, fn: (ev: Evidence) => Evidence): Archit
   return { ...ir, nodes: ir.nodes.map(mapNode), edges: ir.edges.map(mapEdge) };
 }
 
-/** 공유용 사본. private 근거는 type과 visibility만 남긴다. 입력은 바꾸지 않는다 */
+const MASKED_ACCOUNT_ID = '[계정 ID]';
+const MASKED_DISTRIBUTION_ID = '[배포 ID]';
+
+/** 공유본에 실을 글자에서 계정 ID 꼴 숫자를 가린다 */
+export function maskAccountIds(text: string): string {
+  return text.replace(ACCOUNT_ID_RE, MASKED_ACCOUNT_ID);
+}
+
+/** 질문처럼 어느 노드 이름이 섞였는지 모르는 글자. 계정 ID와 배포 ID 꼴을 둘 다 가린다 */
+export function maskSharedText(text: string): string {
+  return maskAccountIds(text).replace(DISTRIBUTION_ID_RE, MASKED_DISTRIBUTION_ID);
+}
+
+function maskNodeText(node: ArchitectureNode): ArchitectureNode {
+  const mask = (t: string): string => {
+    const masked = maskAccountIds(t);
+    return node.kind === 'cdn'
+      ? masked.replace(DISTRIBUTION_ID_RE, MASKED_DISTRIBUTION_ID)
+      : masked;
+  };
+  return {
+    ...node,
+    label: mask(node.label),
+    ...(node.displayName !== undefined ? { displayName: mask(node.displayName) } : {}),
+    ...(node.description !== undefined ? { description: mask(node.description) } : {}),
+  };
+}
+
+/**
+ * 공유용 사본. 입력은 바꾸지 않는다.
+ * private 근거는 type과 visibility만 남긴다. live 근거는 public이어도 명령과 리소스 식별자에 계정 ID나
+ * 리소스 ID가 담기므로 조회 시각만 남긴다. 노드 이름과 질문 글자의 계정 ID 꼴 숫자도 가린다
+ */
 export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
-  return mapEvidence(ir, (ev) =>
-    ev.visibility === 'private'
+  const redacted = mapEvidence(ir, (ev) => {
+    if (ev.type === 'live') {
+      return {
+        type: ev.type,
+        visibility: ev.visibility,
+        ...(ev.observedAt !== undefined ? { observedAt: ev.observedAt } : {}),
+      } as Evidence;
+    }
+    return ev.visibility === 'private'
       ? ({ type: ev.type, visibility: ev.visibility } as Evidence)
-      : { ...ev },
-  );
+      : { ...ev };
+  });
+  return {
+    ...redacted,
+    nodes: redacted.nodes.map(maskNodeText),
+    unresolved: redacted.unresolved.map((q) => ({
+      ...q,
+      question: maskSharedText(q.question),
+      ...(q.answer !== undefined ? { answer: maskSharedText(q.answer) } : {}),
+    })),
+  };
 }
 
 /** 저장용 사본. private 근거의 excerpt만 지운다. 입력은 바꾸지 않는다 */

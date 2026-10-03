@@ -31,17 +31,31 @@
       "type": "object",
       "required": ["type", "location", "visibility"],
       "properties": {
-        "type": { "type": "string", "enum": ["code", "spec", "doc", "user"] },
+        "type": { "type": "string", "enum": ["code", "spec", "doc", "user", "live"] },
         "location": {
           "type": "string",
           "minLength": 1,
-          "description": "code evidence uses <repoId>:<relPath>:<line>"
+          "description": "code evidence uses <repoId>:<relPath>:<line>; live evidence uses the resource identifier the query found"
         },
         "updatedAt": { "type": "string" },
         "visibility": { "$ref": "#/definitions/visibility" },
-        "excerpt": { "type": "string" }
-      }
+        "excerpt": { "type": "string" },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "live only: the read-only CLI command that ran (its subcommand starts with list, get or describe)"
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "live only: when the query ran (ISO 8601)"
+        }
+      },
+      "if": { "properties": { "type": { "const": "live" } } },
+      "then": { "required": ["command", "observedAt"] },
+      "else": { "not": { "anyOf": [{ "required": ["command"] }, { "required": ["observedAt"] }] } }
     },
+    "platform": { "type": "string", "enum": ["web", "android", "ios"] },
     "repo": {
       "type": "object",
       "required": ["id", "name", "root"],
@@ -72,7 +86,11 @@
             "deploy_target",
             "service",
             "feature",
-            "gateway"
+            "gateway",
+            "domain",
+            "cdn",
+            "bucket",
+            "cloud_account"
           ]
         },
         "label": {
@@ -96,7 +114,29 @@
           "description": "containment: a screen points to a feature or service, a feature points to a service; other kinds have no parent"
         },
         "description": { "type": "string" },
-        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } }
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "description": "domain, cdn, bucket, cloud_account and deploy_target only: prod, stage, qa, dev or another name"
+        },
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "description": "id of the cloud_account node this node belongs to; edges whose ends sit in different accounts get another color"
+        },
+        "platforms": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/platform" },
+          "description": "service only; web is also inferred from serves edges, android and ios need platformEvidence"
+        },
+        "platformEvidence": {
+          "type": "object",
+          "description": "service only: evidence per platform",
+          "propertyNames": { "$ref": "#/definitions/platform" },
+          "additionalProperties": { "type": "array", "items": { "$ref": "#/definitions/evidence" } }
+        }
       }
     },
     "edge": {
@@ -118,7 +158,10 @@
             "produces",
             "deploys_to",
             "routes",
-            "navigates"
+            "navigates",
+            "resolves_to",
+            "origin",
+            "serves"
           ]
         },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
