@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import type { SearchBackend } from './types.js';
+import type { SearchBackend, SearchBackendKind } from './types.js';
 
 export interface SearchHit {
   /** owner/name 표기 */
@@ -28,6 +28,18 @@ export interface SearchResult {
 export interface SearchOptions {
   /** 레포당 상한. 넘으면 앞쪽만 남긴다 */
   maxHitsPerRepo?: number;
+  /**
+   * 이 문자열도 함께 있는 결과만 쓸 질의. GitHub 백엔드는 질의에 AND로 붙여 서버가 거르게 하고
+   * 로컬 백엔드는 무시한다. 부르는 쪽이 어차피 결과를 다시 거르므로 로컬에서 더 찾아도 틀리지 않는다
+   */
+  requireAlso?: string;
+}
+
+export interface BackendCounts {
+  /** 실제로 찾은 질의 수 */
+  searched: number;
+  /** 한도나 막힘 때문에 보내지 않은 질의 수 */
+  skipped: number;
 }
 
 /** 식별자 문자열을 관련 레포에서 찾는 역방향 검색. 구현체를 바꿔 끼워도 호출부는 그대로다 */
@@ -39,6 +51,13 @@ export interface CodeSearchBackend extends SearchBackend {
    * 모르면 undefined다. 파일 목록을 싸게 못 얻는 백엔드는 구현하지 않는다
    */
   hasFile?(repo: string, path: string): boolean | undefined;
+  /**
+   * 앞으로 보낼 질의마다 넘길 레포 목록을 미리 알린다. 한도가 있는 백엔드가 남은 질의로
+   * 기다릴지 정하는 데 쓴다
+   */
+  plan?(queryRepos: string[][]): void;
+  /** 백엔드별 범위. refs.json에 그대로 싣는다 */
+  counts?(): Partial<Record<SearchBackendKind, BackendCounts>>;
 }
 
 export const DEFAULT_MAX_HITS_PER_REPO = 100;
@@ -65,6 +84,9 @@ export class LocalCloneBackend implements CodeSearchBackend {
   };
 
   private readonly sources = new Map<string, LocalRepoSource>();
+
+  private searchedCount = 0;
+  private skippedCount = 0;
 
   private readonly fileLists = new Map<string, { paths: Set<string>; names: Set<string> } | null>();
 
@@ -113,7 +135,22 @@ export class LocalCloneBackend implements CodeSearchBackend {
     const max = opts.maxHitsPerRepo ?? DEFAULT_MAX_HITS_PER_REPO;
     const result: SearchResult = { hits: [], skipped: [] };
     if (identifier === '') return result;
+    this.searchRepos(identifier, repos, max, result);
+    if (result.skipped.length > 0) this.skippedCount++;
+    else this.searchedCount++;
+    return result;
+  }
 
+  counts(): Partial<Record<SearchBackendKind, BackendCounts>> {
+    return { localClone: { searched: this.searchedCount, skipped: this.skippedCount } };
+  }
+
+  private searchRepos(
+    identifier: string,
+    repos: string[],
+    max: number,
+    result: SearchResult,
+  ): void {
     for (const repo of repos) {
       const source = this.sources.get(repo);
       if (!source) {
@@ -129,7 +166,6 @@ export class LocalCloneBackend implements CodeSearchBackend {
         result.skipped.push({ repo, reason: e instanceof Error ? e.message : String(e) });
       }
     }
-    return result;
   }
 }
 

@@ -6,9 +6,16 @@
  * 조회하지 못한 레포는 skipped에 그대로 실어, 후보가 비었을 때 "참조 없음"과 구분되게 한다.
  */
 import { githubSlug } from './forward-search.js';
+import { isOrgWildcard } from './github-code-search.js';
 import { isHarnessPath } from './identifiers.js';
-import type { CodeSearchBackend, SearchHit, SkippedRepo } from './search-backend.js';
-import type { Identifier, ReferenceCandidate } from './types.js';
+import type {
+  BackendCounts,
+  CodeSearchBackend,
+  SearchHit,
+  SearchOptions,
+  SkippedRepo,
+} from './search-backend.js';
+import type { Identifier, ReferenceCandidate, SearchBackendKind } from './types.js';
 
 export interface BackwardSearchInput {
   /** extractIdentifiers 결과. extractedBy가 llm인 것은 검색하지 않고 needsLlmJudgment로 넘긴다 */
@@ -44,6 +51,16 @@ export interface SkippedIdentifier {
   reason: string;
 }
 
+/** 질의를 몇 개 계획했고 몇 개를 다 찾았는지. 막힌 라운드가 얼마나 봤는지 보여 준다 */
+export interface BackwardSearchCoverage {
+  planned: number;
+  /** 넘긴 레포를 하나도 안 빠뜨리고 찾은 질의 수 */
+  searched: number;
+  byBackend: Partial<Record<SearchBackendKind, BackendCounts>>;
+  /** 조직 와일드카드를 실은 질의. 관련 레포 밖을 얼마나 봤는지다 */
+  orgWide?: { planned: number; searched: number };
+}
+
 export interface BackwardSearchResult {
   backwardRefs: BackwardRefCandidate[];
   /** 코드가 바뀌면 낡을 수 있는 문서. 결함 후보가 아니라 리포트의 다른 절에 싣는다 */
@@ -54,6 +71,7 @@ export interface BackwardSearchResult {
   skipped: SkippedRepo[];
   /** 너무 짧아 검색어로 쓰지 않은 식별자 */
   skippedIdentifiers: SkippedIdentifier[];
+  coverage: BackwardSearchCoverage;
 }
 
 /** 이보다 짧은 값은 흔한 낱말과 겹쳐 온 조직이 걸리므로 검색하지 않는다 */
@@ -122,6 +140,26 @@ function isBareHeadingMention(
   return !(selfRepo && hit.text.includes(nameOf(selfRepo)));
 }
 
+/**
+ * GitHub 한도 안에서 먼저 보낼 순서. 이름은 다른 레포가 그대로 적어 부르므로 걸리면 거의 참조다.
+ * 헤딩 원문은 레포 이름이 같이 적힌 줄만 남기므로(isBareHeadingMention) 건지는 게 가장 적다
+ */
+const enum QueryRank {
+  Name = 0,
+  HeadingAnchor = 1,
+  RepoName = 2,
+  HeadingText = 3,
+}
+
+interface PlannedQuery {
+  rank: QueryRank;
+  term: string;
+  /** 없으면 레포 이름 질의다 */
+  id?: Identifier;
+  repos: string[];
+  opts: SearchOptions;
+}
+
 function nameOf(repo: string): string {
   const slash = repo.lastIndexOf('/');
   return slash < 0 ? repo : repo.slice(slash + 1);
@@ -145,6 +183,7 @@ export async function backwardSearch(input: BackwardSearchInput): Promise<Backwa
     needsLlmJudgment: [],
     skipped: [],
     skippedIdentifiers: [],
+    coverage: { planned: 0, searched: 0, byBackend: {} },
   };
   const skippedRepos = new Map<string, string>();
   const noteSkipped = (list: SkippedRepo[]) => {
@@ -178,51 +217,62 @@ export async function backwardSearch(input: BackwardSearchInput): Promise<Backwa
     if (!docHits.has(key)) docHits.set(key, { hit, term });
   };
 
-  if (repos.length > 0) {
-    for (const id of searchable) {
-      for (const term of termsOf(id)) {
-        const { hits, skipped } = await input.backend.search(term, repos, opts);
-        noteSkipped(skipped);
-        for (const hit of hits) {
-          const bounded = hasBoundedMatch(hit.text, term);
-          if (pointsAtOwnFile(input.backend, hit, id, term, input.selfRepo)) continue;
-          if (isBareHeadingMention(hit, id, term, input.selfRepo)) continue;
-          // 이름은 더 긴 이름의 일부로 걸리면 다른 이름이다. widget-audit와 widget-audit-v2
-          if (!bounded && NAME_KINDS.has(id.kind)) continue;
-          if (isHarnessPath(hit.path)) {
-            const key = locationKey(hit);
-            if (seenRefs.has(key)) continue;
-            seenRefs.add(key);
-            result.backwardRefs.push({
-              kind: 'backwardRef',
-              sourceFile: hit.path,
-              sourceLine: hit.line,
-              targetRepo: hit.repo,
-              targetPath: hit.path,
-              matchedText: id.value,
-              contextLines: [hit.text],
-              needsLlmJudgment: !bounded,
-              identifier: id,
-              searchTerm: term,
-            });
-          } else if (bounded && isDocPath(hit.path)) {
-            noteDoc(hit, term);
-          }
-        }
-      }
+  const queries = repos.length > 0 ? planQueries(searchable, repos, input.selfRepo, opts) : [];
+  input.backend.plan?.(queries.map((q) => q.repos));
+
+  let searched = 0;
+  const orgWide = { planned: 0, searched: 0 };
+  for (const q of queries) {
+    const { hits, skipped } = await input.backend.search(q.term, q.repos, q.opts);
+    noteSkipped(skipped);
+    if (skipped.length === 0) searched++;
+    if (q.repos.some(isOrgWildcard)) {
+      orgWide.planned++;
+      if (!skipped.some((x) => isOrgWildcard(x.repo))) orgWide.searched++;
     }
 
-    if (input.selfRepo) {
-      const name = nameOf(input.selfRepo);
-      const { hits, skipped } = await input.backend.search(name, repos, opts);
-      noteSkipped(skipped);
+    const { id, term } = q;
+    if (!id) {
       for (const hit of hits) {
-        if (!isHarnessPath(hit.path) && isDocPath(hit.path) && hasBoundedMatch(hit.text, name)) {
-          noteDoc(hit, name);
+        if (!isHarnessPath(hit.path) && isDocPath(hit.path) && hasBoundedMatch(hit.text, term)) {
+          noteDoc(hit, term);
         }
+      }
+      continue;
+    }
+    for (const hit of hits) {
+      const bounded = hasBoundedMatch(hit.text, term);
+      if (pointsAtOwnFile(input.backend, hit, id, term, input.selfRepo)) continue;
+      if (isBareHeadingMention(hit, id, term, input.selfRepo)) continue;
+      // 이름은 더 긴 이름의 일부로 걸리면 다른 이름이다. widget-audit와 widget-audit-v2
+      if (!bounded && NAME_KINDS.has(id.kind)) continue;
+      if (isHarnessPath(hit.path)) {
+        const key = locationKey(hit);
+        if (seenRefs.has(key)) continue;
+        seenRefs.add(key);
+        result.backwardRefs.push({
+          kind: 'backwardRef',
+          sourceFile: hit.path,
+          sourceLine: hit.line,
+          targetRepo: hit.repo,
+          targetPath: hit.path,
+          matchedText: id.value,
+          contextLines: [hit.text],
+          needsLlmJudgment: !bounded,
+          identifier: id,
+          searchTerm: term,
+        });
+      } else if (bounded && isDocPath(hit.path)) {
+        noteDoc(hit, term);
       }
     }
   }
+  result.coverage = {
+    planned: queries.length,
+    searched,
+    byBackend: input.backend.counts?.() ?? {},
+    ...(orgWide.planned > 0 ? { orgWide } : {}),
+  };
 
   for (const { hit, term } of docHits.values()) {
     result.knowledgeDocs.push({
@@ -240,4 +290,42 @@ export async function backwardSearch(input: BackwardSearchInput): Promise<Backwa
   }
   result.skipped = [...skippedRepos].map(([repo, reason]) => ({ repo, reason }));
   return result;
+}
+
+/**
+ * 식별자와 검색어를 질의 목록으로 펼쳐 GitHub에 보낼 순서로 줄 세운다.
+ *
+ * 헤딩 질의에서는 조직 와일드카드를 뺀다. 관련 레포 밖에서 남의 레포 절을 부르는 일은 드물고
+ * 헤딩이 이름보다 훨씬 많아서(17개 파일 PR에 91개) 와일드카드에 실으면 한도를 혼자 다 쓴다.
+ */
+function planQueries(
+  identifiers: Identifier[],
+  repos: string[],
+  selfRepo: string | undefined,
+  opts: SearchOptions | undefined,
+): PlannedQuery[] {
+  const scoped = repos.filter((r) => !isOrgWildcard(r));
+  const selfName = selfRepo ? nameOf(selfRepo) : undefined;
+  const base = opts ?? {};
+  const out: PlannedQuery[] = [];
+  for (const id of identifiers) {
+    if (id.kind !== 'heading') {
+      out.push({ rank: QueryRank.Name, term: id.value, id, repos, opts: base });
+      continue;
+    }
+    for (const term of termsOf(id)) {
+      const anchor = term.startsWith('#');
+      out.push({
+        rank: anchor ? QueryRank.HeadingAnchor : QueryRank.HeadingText,
+        term,
+        id,
+        repos: scoped,
+        // 앵커 없이 헤딩 글자만 걸린 줄은 레포 이름이 같이 있어야 남긴다. GitHub에는 그 조건을 질의로 건다
+        opts: !anchor && selfName ? { ...base, requireAlso: selfName } : base,
+      });
+    }
+  }
+  if (selfName) out.push({ rank: QueryRank.RepoName, term: selfName, repos, opts: base });
+  // sort는 안정 정렬이라 같은 순위 안에서는 긴 값이 먼저인 기존 순서가 남는다
+  return out.filter((q) => q.repos.length > 0).sort((a, b) => a.rank - b.rank);
 }

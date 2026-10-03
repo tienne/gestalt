@@ -179,7 +179,7 @@ describe('GithubCodeSearchAdapter', () => {
       owner: 'acme',
       selfRepo: 'acme/widget-kit',
       gh: (args) => {
-        queries.push(args[2]!);
+        if (args[0] === 'search') queries.push(args[2]!);
         return searchJson;
       },
     });
