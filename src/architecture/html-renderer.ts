@@ -3,8 +3,9 @@ import type { RoutedEdge } from './canvas-geometry.js';
 import { ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
 import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import { iconUse, renderCss, renderIconSprite } from './html-theme.js';
-import { LANE_TITLES, NODE_KIND_SHORT } from './kind-text.js';
-import type { LayoutResult } from './layout.js';
+import { LANE_TITLES, NODE_KIND_SHORT, PLATFORM_CHIP_TEXT, PLATFORM_NAME } from './kind-text.js';
+import { FLAT_BACKWARD_EDGE_KINDS, type LayoutResult } from './layout.js';
+import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
   ArchitectureEdge,
   ArchitectureIr,
@@ -14,7 +15,7 @@ import type {
   NodeKind,
   UnresolvedQuestion,
 } from './types.js';
-import { redactForSharing, type ValidatedIr } from './validator.js';
+import { maskSharedText, redactForSharing, type ValidatedIr } from './validator.js';
 
 export type ArchitectureAudience = 'private' | 'shared';
 
@@ -45,8 +46,12 @@ const NODE_KIND_TEXT: Record<NodeKind, string> = {
   build: '빌드',
   artifact: '산출물',
   deploy_target: '배포 대상',
+  domain: '도메인',
+  cdn: 'CDN 배포',
+  bucket: '스토리지 버킷',
+  cloud_account: '클라우드 계정',
 };
-const EDGE_KIND_TEXT: Record<EdgeKind, string> = {
+const EDGE_KIND_TEXT: Record<EdgeKind | 'contains', string> = {
   calls: '호출',
   handles: '처리',
   uses: '사용',
@@ -57,12 +62,17 @@ const EDGE_KIND_TEXT: Record<EdgeKind, string> = {
   builds: '빌드',
   produces: '생성',
   deploys_to: '배포',
+  resolves_to: '도메인 연결',
+  origin: '원본',
+  serves: '서빙',
+  contains: '포함',
 };
 const EVIDENCE_TYPE_TEXT: Record<Evidence['type'], string> = {
   code: '코드',
   spec: '스펙',
   doc: '문서',
   user: '사용자 확인',
+  live: '실제 조회',
 };
 
 const HINT_DRILL =
@@ -114,15 +124,24 @@ function round2(v: number): number {
   return Math.round(v * 100) / 100;
 }
 
-function openQuestions(validated: ValidatedIr): UnresolvedQuestion[] {
-  const fromIr = validated.ir.unresolved.filter((q) => q.answer === undefined || q.answer === '');
-  return [...fromIr, ...validated.autoUnresolved].sort(byId);
+// ir은 공유본이면 이미 가린 사본이다. 자동 질문은 검증기가 원본 이름으로 지었으므로 여기서 한 번 더 가린다
+function openQuestions(
+  ir: ArchitectureIr,
+  validated: ValidatedIr,
+  shared: boolean,
+): UnresolvedQuestion[] {
+  const fromIr = ir.unresolved.filter((q) => q.answer === undefined || q.answer === '');
+  const auto = shared
+    ? validated.autoUnresolved.map((q) => ({ ...q, question: maskSharedText(q.question) }))
+    : validated.autoUnresolved;
+  return [...fromIr, ...auto].sort(byId);
 }
 
 // 페이지가 실제로 쓰는 필드만 싣는다. repo root 같은 로컬 경로와 sourcesUsed 식별자가 공유본으로 새지 않게 한다
-function buildPayload(ir: ArchitectureIr, validated: ValidatedIr) {
+function buildPayload(ir: ArchitectureIr, validated: ValidatedIr, shared: boolean) {
   const nodes = ir.nodes.filter((n) => validated.drawableNodeIds.has(n.id)).sort(byId);
   const edges = ir.edges.filter((e) => validated.drawableEdgeIds.has(e.id)).sort(byId);
+  const services = Object.fromEntries(computeServiceFacts(nodes, edges));
   return {
     schemaVersion: ir.schemaVersion,
     view: ir.view,
@@ -130,8 +149,19 @@ function buildPayload(ir: ArchitectureIr, validated: ValidatedIr) {
     repos: ir.repos.map((r) => ({ id: r.id, name: r.name })).sort(byId),
     nodes,
     edges,
-    unresolved: openQuestions(validated),
+    services,
+    unresolved: openQuestions(ir, validated, shared),
   };
+}
+
+/** 양 끝 노드가 서로 다른 계정에 속하면 계정을 넘는 선이다. 한쪽이라도 계정을 모르면 넘는다고 하지 않는다 */
+function crossesAccount(
+  nodeById: Map<string, ArchitectureNode>,
+  edge: Pick<CanvasEdge, 'from' | 'to'>,
+): boolean {
+  const a = nodeById.get(edge.from)?.account;
+  const b = nodeById.get(edge.to)?.account;
+  return a !== undefined && b !== undefined && a !== b;
 }
 
 function nodeName(node: Pick<ArchitectureNode, 'label' | 'displayName'>): string {
@@ -148,8 +178,8 @@ function edgeWidth(count: number): number {
 }
 
 /** 레벨에 그리는 선. 평면 그림의 IR 엣지도 건수 1짜리로 맞춰 같은 함수로 그린다 */
-type CanvasEdge = Pick<DrillEdge, 'id' | 'from' | 'to' | 'count' | 'lineStyle'> & {
-  kind: EdgeKind | 'bundle';
+type CanvasEdge = Pick<DrillEdge, 'id' | 'from' | 'to' | 'count' | 'lineStyle' | 'kind'> & {
+  backward?: boolean;
 };
 
 function asCanvasEdge(edge: ArchitectureEdge): CanvasEdge {
@@ -160,7 +190,19 @@ function asCanvasEdge(edge: ArchitectureEdge): CanvasEdge {
     kind: edge.kind,
     count: 1,
     lineStyle: edge.lineStyle,
+    ...(FLAT_BACKWARD_EDGE_KINDS.has(edge.kind) ? { backward: true } : {}),
   };
+}
+
+function platformChips(facts: ServiceFacts | undefined): string {
+  if (!facts) return '';
+  return facts.platforms
+    .map(
+      (p) =>
+        `<span class="pf pf-${p}" role="img" aria-label="${PLATFORM_NAME[p]}" title="${PLATFORM_NAME[p]}">` +
+        `${iconUse(`p-${p}`)}${PLATFORM_CHIP_TEXT[p]}</span>`,
+    )
+    .join('');
 }
 
 function renderCard(
@@ -168,17 +210,28 @@ function renderCard(
   box: LayoutResult['nodes'][number],
   enterable: boolean,
   focus: boolean,
+  facts: ServiceFacts | undefined,
 ): string {
   const name = nodeName(node);
   const guess = isGuess(node);
+  const platforms = facts?.platforms.map((p) => PLATFORM_NAME[p]) ?? [];
   const cls = ['node', `k-${node.kind}`];
   if (enterable) cls.push('enterable');
   if (focus) cls.push('is-focus');
-  const aria = `${name}, ${NODE_KIND_TEXT[node.kind]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}`;
+  const aria =
+    `${name}, ${NODE_KIND_TEXT[node.kind]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}` +
+    (platforms.length > 0 ? `, ${platforms.join(', ')}` : '');
   const tooltip =
-    node.displayName === undefined
+    (node.displayName === undefined
       ? node.label
-      : `${node.displayName}${guess ? ` (${INFERRED_BADGE})` : ''}\n${node.label}`;
+      : `${node.displayName}${guess ? ` (${INFERRED_BADGE})` : ''}\n${node.label}`) +
+    (facts?.prodDomain !== undefined ? `\n${facts.prodDomain}` : '');
+  const second =
+    facts?.prodDomain !== undefined
+      ? `<span class="tc dom">${escapeHtml(facts.prodDomain)}</span>`
+      : node.displayName !== undefined
+        ? `<span class="tc">${escapeHtml(node.label)}</span>`
+        : '';
   const x = round2(box.x + CANVAS_PAD_X);
   const y = round2(box.y + CANVAS_PAD_TOP);
   return (
@@ -186,8 +239,8 @@ function renderCard(
     `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
     `style="left:${x}px;top:${y}px;width:${box.width}px;height:${box.height}px">` +
     `<span class="kc">${iconUse(`i-${node.kind}`)}${escapeHtml(NODE_KIND_SHORT[node.kind])}</span>` +
-    `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}</span>` +
-    (node.displayName !== undefined ? `<span class="tc">${escapeHtml(node.label)}</span>` : '') +
+    `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}${platformChips(facts)}</span>` +
+    second +
     (enterable ? '<span class="go" aria-hidden="true">›</span>' : '') +
     `</div>`
   );
@@ -202,24 +255,31 @@ function renderPill(count: number, at: { x: number; y: number }): string {
   );
 }
 
-function renderLink(edge: CanvasEdge, route: RoutedEdge, labelOf: (id: string) => string): string {
+function renderLink(
+  edge: CanvasEdge,
+  route: RoutedEdge,
+  labelOf: (id: string) => string,
+  crossAccount: boolean,
+): string {
   const width = edgeWidth(edge.count);
   const dash = edge.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
   const ends = `data-from="${escapeHtml(edge.from)}" data-to="${escapeHtml(edge.to)}"`;
+  const xa = crossAccount ? ' x-account' : '';
+  const xaText = crossAccount ? ' (계정을 넘는 연결)' : '';
   const hit = `<path class="hit" d="${route.d}" stroke-width="${Math.max(12, width + 8)}"/>`;
   const tip = `<path class="tip" d="${route.tip}"/>`;
   if (edge.kind === 'bundle') {
-    const name = `${labelOf(edge.from)} → ${labelOf(edge.to)} ${edge.count}개`;
+    const name = `${labelOf(edge.from)} → ${labelOf(edge.to)} ${edge.count}개${xaText}`;
     return (
-      `<g class="link bundle" data-bundle-id="${escapeHtml(edge.id)}" ${ends} tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
+      `<g class="link bundle${xa}" data-bundle-id="${escapeHtml(edge.id)}" ${ends} tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
       `<title>${escapeHtml(name)}</title>${hit}` +
       `<path class="edge" d="${route.d}" stroke-width="${width}"${dash}/>${tip}` +
       `${renderPill(edge.count, route.mid)}</g>`
     );
   }
-  const name = `${EDGE_KIND_TEXT[edge.kind]}: ${labelOf(edge.from)} → ${labelOf(edge.to)}`;
+  const name = `${EDGE_KIND_TEXT[edge.kind]}: ${labelOf(edge.from)} → ${labelOf(edge.to)}${xaText}`;
   return (
-    `<g class="link e-${edge.kind}" ${ends}><title>${escapeHtml(name)}</title>${hit}` +
+    `<g class="link e-${edge.kind}${xa}" ${ends}><title>${escapeHtml(name)}</title>${hit}` +
     `<path class="edge" data-edge-id="${escapeHtml(edge.id)}" d="${route.d}" stroke-width="${width}"${dash}/>${tip}</g>`
   );
 }
@@ -234,6 +294,7 @@ interface CanvasSpec {
   enter: Record<string, string>;
   focusId?: string;
   hidden: boolean;
+  services: Record<string, ServiceFacts>;
 }
 
 /** 레벨 하나. 레인 띠와 선은 SVG, 카드는 그 위에 겹친 HTML이다. 좌표는 전부 서버가 박는다 */
@@ -260,7 +321,13 @@ function renderLevelSection(spec: CanvasSpec): string {
   const edges = [...spec.edges].sort(byId);
   const canvas = routeCanvas(
     layout,
-    edges.map((e) => ({ id: e.id, from: e.from, to: e.to, width: edgeWidth(e.count) })),
+    edges.map((e) => ({
+      id: e.id,
+      from: e.from,
+      to: e.to,
+      width: edgeWidth(e.count),
+      ...(e.backward ? { backward: true } : {}),
+    })),
   );
   const { width, height } = canvas;
   const laneRects = layout.lanes
@@ -280,7 +347,7 @@ function renderLevelSection(spec: CanvasSpec): string {
   const links = edges
     .map((e) => {
       const route = canvas.edges.get(e.id);
-      return route ? renderLink(e, route, labelOf) : '';
+      return route ? renderLink(e, route, labelOf, crossesAccount(nodeById, e)) : '';
     })
     .join('');
   const boxes = new Map(layout.nodes.map((n) => [n.id, n]));
@@ -294,6 +361,7 @@ function renderLevelSection(spec: CanvasSpec): string {
         box,
         target !== undefined && target !== spec.levelId,
         n.id === spec.focusId,
+        spec.services[n.id],
       );
     })
     .join('');
@@ -308,11 +376,13 @@ function renderLevelSection(spec: CanvasSpec): string {
 
 function renderLegend(
   nodes: ArchitectureNode[],
+  edges: ArchitectureEdge[],
   drill: boolean,
   generatedAt: string,
   nodeCount: number,
   edgeCount: number,
 ): string {
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const line = (extra: string): string =>
     `<svg width="36" height="12" aria-hidden="true"><line x1="3" y1="6" x2="33" y2="6" ${extra}/></svg>`;
   const kinds = [...new Set(nodes.map((n) => n.kind))]
@@ -326,7 +396,10 @@ function renderLegend(
     `<div id="legend" class="pop" role="dialog" aria-label="범례" tabindex="-1" hidden>` +
     `<h3>선</h3><ul class="legend-lines">` +
     `<li>${line('stroke-width="2"')}실선: 코드나 스펙으로 확인한 연결</li>` +
-    `<li>${line(`stroke-width="2" stroke-dasharray="${DASHED_PATTERN}"`)}점선: 문서나 사람 말로만 확인한 연결</li>` +
+    `<li>${line(`stroke-width="2" stroke-dasharray="${DASHED_PATTERN}"`)}점선: 문서나 사람 말, 실제 조회로만 확인한 연결</li>` +
+    (edges.some((e) => crossesAccount(nodeById, e))
+      ? `<li>${line('stroke-width="2" class="x-account-line"')}색 선: 클라우드 계정을 넘는 연결</li>`
+      : '') +
     (drill
       ? `<li>${line('stroke-width="6"')}굵은 선: 여러 연결을 묶은 선이에요. 올리면 묶인 수가 보여요</li>`
       : '') +
@@ -422,6 +495,9 @@ const CLIENT_SCRIPT = renderClientScript({
   evidenceText: EVIDENCE_TYPE_TEXT,
   laneTitles: LANE_TITLES,
   inferredBadge: INFERRED_BADGE,
+  platformChip: PLATFORM_CHIP_TEXT,
+  platformName: PLATFORM_NAME,
+  backwardKinds: [...FLAT_BACKWARD_EDGE_KINDS].sort(compareStr),
 });
 
 interface PageSpec {
@@ -469,7 +545,14 @@ function renderPage({ ir, payload, sections, drill }: PageSpec): string {
       `<button type="button" id="drawer-close" class="btn icon dr-close" aria-label="닫기">${iconUse('u-close')}</button>` +
       '<div id="panel" class="panel" aria-live="polite"></div></aside>',
     '</div>',
-    renderLegend(payload.nodes, drill, ir.generatedAt, payload.nodes.length, payload.edges.length),
+    renderLegend(
+      payload.nodes,
+      payload.edges,
+      drill,
+      ir.generatedAt,
+      payload.nodes.length,
+      payload.edges.length,
+    ),
     renderQuestions(payload.unresolved, nodeById, ir.edges),
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
     `<script>${CLIENT_SCRIPT}</script>`,
@@ -488,8 +571,9 @@ export function renderArchitectureHtml(
   layout: LayoutResult,
   opts: RenderArchitectureHtmlOptions,
 ): string {
-  const ir = opts.audience === 'shared' ? redactForSharing(validated.ir) : validated.ir;
-  const payload = buildPayload(ir, validated);
+  const shared = opts.audience === 'shared';
+  const ir = shared ? redactForSharing(validated.ir) : validated.ir;
+  const payload = buildPayload(ir, validated, shared);
   const section = renderLevelSection({
     levelId: ROOT_LEVEL_ID,
     svgId: 'canvas',
@@ -499,6 +583,7 @@ export function renderArchitectureHtml(
     layout,
     enter: {},
     hidden: false,
+    services: payload.services,
   });
   return renderPage({ ir, payload, sections: section, drill: false });
 }
@@ -512,10 +597,14 @@ export function renderDrilldownHtml(
   drilldown: Drilldown,
   opts: RenderArchitectureHtmlOptions,
 ): string {
-  const ir = opts.audience === 'shared' ? redactForSharing(validated.ir) : validated.ir;
-  const base = buildPayload(ir, validated);
+  const shared = opts.audience === 'shared';
+  const ir = shared ? redactForSharing(validated.ir) : validated.ir;
+  const base = buildPayload(ir, validated, shared);
   const nodeById = new Map(base.nodes.map((n) => [n.id, n]));
-  const levels = drilldown.levels;
+  // 레벨 제목은 원본 이름으로 지었으므로 공유본에서는 노드 이름과 같이 가린다
+  const levels = drilldown.levels.map((l) =>
+    shared ? { ...l, title: maskSharedText(l.title) } : l,
+  );
   const payload = {
     ...base,
     levels: levels.map((l) => ({
@@ -540,6 +629,7 @@ export function renderDrilldownHtml(
         enter: drilldown.enter,
         ...(l.focusId !== undefined ? { focusId: l.focusId } : {}),
         hidden: l.id !== ROOT_LEVEL_ID,
+        services: base.services,
       }),
     )
     .join('\n');

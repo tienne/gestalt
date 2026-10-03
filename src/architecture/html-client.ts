@@ -7,6 +7,10 @@ export interface ClientConstants {
   evidenceText: Record<string, string>;
   laneTitles: Record<LaneId, string>;
   inferredBadge: string;
+  platformChip: Record<string, string>;
+  platformName: Record<string, string>;
+  /** 평면 그림에서 오른쪽에서 왼쪽으로 그리는 엣지 kind */
+  backwardKinds: string[];
 }
 
 export const THEME_STORAGE_KEY = 'gestalt-architecture-theme';
@@ -36,6 +40,10 @@ export function renderClientScript(c: ClientConstants): string {
   var EVIDENCE_TEXT = ${JSON.stringify(c.evidenceText)};
   var LANE_TITLE = ${JSON.stringify(c.laneTitles)};
   var GUESS = ${JSON.stringify(c.inferredBadge)};
+  var PLATFORM_CHIP = ${JSON.stringify(c.platformChip)};
+  var PLATFORM_NAME = ${JSON.stringify(c.platformName)};
+  var BACKWARD = ${JSON.stringify(Object.fromEntries(c.backwardKinds.map((k) => [k, true])))};
+  var services = data.services || {};
   var THEME_KEY = '${THEME_STORAGE_KEY}';
   var HINT_KEY = '${HINT_STORAGE_KEY}';
   var SVG_NS = 'http://www.w3.org/2000/svg';
@@ -133,6 +141,7 @@ ${FOCUS_SOURCE}
     li.appendChild(el('span', 'badge t-' + ev.type, evidenceText(ev.type)));
     if (ev.location === undefined) {
       li.appendChild(el('span', 'loc', '공유본이라 출처를 가렸어요'));
+      if (ev.observedAt) li.appendChild(el('div', 'ev-meta', '조회 시각 ' + ev.observedAt));
       return li;
     }
     if (/^https?:\\/\\//i.test(ev.location)) {
@@ -144,9 +153,50 @@ ${FOCUS_SOURCE}
     } else {
       li.appendChild(el('span', 'loc', ev.location));
     }
-    if (ev.updatedAt) li.appendChild(el('div', 'ev-meta', '수정일 ' + ev.updatedAt));
+    if (ev.command) li.appendChild(el('code', 'cmd', ev.command));
+    if (ev.type === 'live' && ev.observedAt) li.appendChild(el('div', 'ev-meta', '조회 시각 ' + ev.observedAt));
+    else if (ev.updatedAt) li.appendChild(el('div', 'ev-meta', '수정일 ' + ev.updatedAt));
     if (ev.excerpt) li.appendChild(el('pre', null, ev.excerpt));
     return li;
+  }
+  function factRow(list, key, value) {
+    var li = el('li');
+    li.appendChild(el('span', 'env', key));
+    li.appendChild(el('span', 'val', value));
+    list.appendChild(li);
+  }
+  // 환경과 계정, 서비스의 도메인과 플랫폼. 그래프에서 끌어낸 사실이라 출처 목록 앞에 둔다
+  function renderFacts(n, body) {
+    var basics = el('ul', 'facts');
+    if (n.environment) factRow(basics, '환경', n.environment);
+    if (n.account) factRow(basics, '계정', label(n.account));
+    if (basics.childNodes.length) body.appendChild(basics);
+    var f = services[n.id];
+    if (!f) return;
+    if (f.domains.length) {
+      body.appendChild(el('h3', null, '도메인 ' + f.domains.length + '개'));
+      var dl = el('ul', 'facts');
+      f.domains.forEach(function (d) { factRow(dl, d.environment || '환경 모름', d.label); });
+      body.appendChild(dl);
+    }
+    if (!f.platforms.length) return;
+    body.appendChild(el('h3', null, '플랫폼'));
+    var pl = el('ul', 'evidence plat');
+    f.platforms.forEach(function (p) {
+      var li = el('li');
+      li.appendChild(el('span', 'badge', PLATFORM_NAME[p] || p));
+      var evs = (n.platformEvidence && n.platformEvidence[p]) || [];
+      if (p === 'web' && f.servingBuckets.length) {
+        li.appendChild(el('span', 'loc', '서빙 버킷: ' + f.servingBuckets.map(label).join(', ')));
+      }
+      if (evs.length) {
+        var inner = el('ul', 'evidence');
+        evs.forEach(function (ev) { inner.appendChild(renderEvidence(ev)); });
+        li.appendChild(inner);
+      }
+      pl.appendChild(li);
+    });
+    body.appendChild(pl);
   }
   function renderPanel(id) {
     var n = nodes[id];
@@ -194,6 +244,7 @@ ${FOCUS_SOURCE}
       body.appendChild(actions);
     }
     if (n.description) body.appendChild(el('p', 'desc', n.description));
+    renderFacts(n, body);
     body.appendChild(el('h3', null, '출처 ' + n.evidence.length + '개'));
     var ul = el('ul', 'evidence');
     n.evidence.forEach(function (ev) { ul.appendChild(renderEvidence(ev)); });
@@ -622,7 +673,23 @@ ${FOCUS_SOURCE}
     if (c < 800) return 'db_table';
     return '';
   }
-  function cardHeight(id) { return nodes[id] && nodes[id].displayName ? 60 : 48; }
+  function cardHeight(id) {
+    var f = services[id];
+    return (nodes[id] && nodes[id].displayName) || (f && f.prodDomain) ? 60 : 48;
+  }
+  function platformChips(id, nm) {
+    var f = services[id];
+    if (!f) return;
+    f.platforms.forEach(function (p) {
+      var chip = el('span', 'pf pf-' + p);
+      chip.setAttribute('role', 'img');
+      chip.setAttribute('aria-label', PLATFORM_NAME[p]);
+      chip.title = PLATFORM_NAME[p];
+      chip.appendChild(icon('p-' + p));
+      chip.appendChild(doc.createTextNode(PLATFORM_CHIP[p]));
+      nm.appendChild(chip);
+    });
+  }
   function buildCard(id, x, y, w, h) {
     var n = nodes[id];
     var kind = n ? n.kind : '';
@@ -642,8 +709,11 @@ ${FOCUS_SOURCE}
     nm.appendChild(el('span', 't', label(id)));
     var guess = n && n.displayName && n.displayNameInferred;
     if (guess) nm.appendChild(el('span', 'guess', GUESS));
+    platformChips(id, nm);
     d.appendChild(nm);
-    if (n && n.displayName) d.appendChild(el('span', 'tc', n.label));
+    var facts = services[id];
+    if (facts && facts.prodDomain) d.appendChild(el('span', 'tc dom', facts.prodDomain));
+    else if (n && n.displayName) d.appendChild(el('span', 'tc', n.label));
     d.title = n && n.displayName ? n.displayName + (guess ? ' (' + GUESS + ')' : '') + '\\n' + n.label : label(id);
     d.setAttribute('aria-label', label(id) + ', ' + kindText(kind));
     if (enterMap[id]) {
@@ -697,6 +767,13 @@ ${FOCUS_SOURCE}
       var len = 7 + w * 0.5, half = 3.5 + w * 0.45;
       var sx = a.x + a.w, sy = outY[e.id], tx = b.x, ty = inY[e.id], ex = tx - len + 1;
       var d, mid;
+      if (e.backward && b.x + b.w + 8 <= a.x) {
+        var fx = a.x, fy0 = outY[e.id], tipAt = b.x + b.w, toX = tipAt + len - 1, toY = inY[e.id];
+        var bdx = Math.max(16, (fx - toX) / 2);
+        d = 'M' + fx + ' ' + fy0 + 'C' + (fx - bdx) + ' ' + fy0 + ' ' + (toX + bdx) + ' ' + toY + ' ' + toX + ' ' + toY;
+        return { e: e, d: d, w: w, mid: { x: (fx + toX) / 2, y: (fy0 + toY) / 2 },
+          tip: 'M' + tipAt + ' ' + toY + 'L' + (tipAt + len) + ' ' + (toY - half) + 'L' + (tipAt + len) + ' ' + (toY + half) + 'Z' };
+      }
       if (stacked(e)) {
         var fy = a.y + a.h / 2;
         var bow = Math.min(30, 18 + Math.abs(ty - fy) * 0.2);
@@ -732,7 +809,8 @@ ${FOCUS_SOURCE}
     paths.forEach(function (p) {
       var e = p.e;
       var bundle = e.kind === 'bundle';
-      var g = svgEl('g', { 'class': bundle ? 'link bundle' : 'link e-' + e.kind, 'data-from': e.from, 'data-to': e.to });
+      var xa = nodes[e.from] && nodes[e.to] && nodes[e.from].account && nodes[e.to].account && nodes[e.from].account !== nodes[e.to].account;
+      var g = svgEl('g', { 'class': (bundle ? 'link bundle' : 'link e-' + e.kind) + (xa ? ' x-account' : ''), 'data-from': e.from, 'data-to': e.to });
       var name = bundle ? label(e.from) + ' → ' + label(e.to) + ' ' + e.count + '개' : kindText(e.kind) + ': ' + label(e.from) + ' → ' + label(e.to);
       if (bundle) {
         g.setAttribute('data-bundle-id', e.id);
@@ -886,7 +964,7 @@ ${FOCUS_SOURCE}
     return c.getAttribute('data-level-id') || c.getAttribute('data-focus-level');
   }
   function levelEdges(levelId) {
-    if (!drill) return data.edges.map(function (e) { return { id: e.id, from: e.from, to: e.to, kind: e.kind, count: 1, lineStyle: e.lineStyle }; });
+    if (!drill) return data.edges.map(function (e) { return { id: e.id, from: e.from, to: e.to, kind: e.kind, count: 1, lineStyle: e.lineStyle, backward: !!BACKWARD[e.kind] }; });
     return levels[levelId].edges;
   }
   function syncFocusBtn() {

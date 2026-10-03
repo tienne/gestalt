@@ -14,11 +14,16 @@ const KIND_COLORS: Record<NodeKind, { light: string; dark: string }> = {
   build: { light: '#0d9488', dark: '#2dd4bf' },
   artifact: { light: '#9333ea', dark: '#c084fc' },
   deploy_target: { light: '#ea580c', dark: '#fb923c' },
+  domain: { light: '#db2777', dark: '#f472b6' },
+  cdn: { light: '#4338ca', dark: '#a5b4fc' },
+  bucket: { light: '#16a34a', dark: '#4ade80' },
+  cloud_account: { light: '#57534e', dark: '#a8a29e' },
 };
 
 // 24 격자 선 아이콘. 이모지는 플랫폼마다 모양이 달라서 path로 직접 그린다
 const KIND_ICONS: Record<NodeKind, string> = {
-  service: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/>',
+  service:
+    '<path d="M12 3.5l8.5 4.3L12 12 3.5 7.8z"/><path d="M3.5 12.2L12 16.5l8.5-4.3"/><path d="M3.5 16.4L12 20.7l8.5-4.3"/>',
   feature:
     '<path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
   screen:
@@ -38,6 +43,20 @@ const KIND_ICONS: Record<NodeKind, string> = {
     '<path d="M12 2.8l8.5 4.7v9L12 21.2l-8.5-4.7v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9.2"/>',
   deploy_target:
     '<path d="M7 18.5a4.5 4.5 0 0 1-.7-8.95A6 6 0 0 1 17.8 8.6a4.95 4.95 0 0 1-.8 9.9z"/><path d="M12 11v5M9.8 13.2L12 11l2.2 2.2"/>',
+  domain:
+    '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  cdn: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.5 5.4 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.4-3.5-8.5s1-5.9 3.5-8.5z"/>',
+  bucket:
+    '<ellipse cx="12" cy="6.5" rx="8" ry="2.5"/><path d="M4 6.5l2 13a2 2 0 0 0 2 1.5h8a2 2 0 0 0 2-1.5l2-13"/>',
+  cloud_account:
+    '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16.2a3.5 3.5 0 0 1 6.4 0M14.5 10h3M14.5 13.5h3"/>',
+};
+
+// 플랫폼 칩 아이콘. 상표 로고 대신 중립 모양을 쓰고 어느 플랫폼인지는 옆 글자가 알린다
+const PLATFORM_ICONS: Record<string, string> = {
+  web: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9h18"/>',
+  android: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/>',
+  ios: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 5h3"/>',
 };
 
 const UI_ICONS: Record<string, string> = {
@@ -70,7 +89,10 @@ export function renderIconSprite(): string {
   const ui = Object.keys(UI_ICONS)
     .sort()
     .map((k) => symbol(`u-${k}`, UI_ICONS[k]!));
-  return `<svg class="sprite" aria-hidden="true" focusable="false"><defs>${[...kinds, ...ui].join('')}</defs></svg>`;
+  const platforms = Object.keys(PLATFORM_ICONS)
+    .sort()
+    .map((k) => symbol(`p-${k}`, PLATFORM_ICONS[k]!));
+  return `<svg class="sprite" aria-hidden="true" focusable="false"><defs>${[...kinds, ...ui, ...platforms].join('')}</defs></svg>`;
 }
 
 export function iconUse(id: string, cls = ''): string {
@@ -106,6 +128,9 @@ const LIGHT_TOKENS = `
   --warn-soft: #fef3c7;
   --ok: #15803d;
   --ok-soft: #dcfce7;
+  --live: #0369a1;
+  --live-soft: #e0f2fe;
+  --x-account: #c026d3;
   --hit: #f59e0b;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.04);
   --shadow-hover: 0 6px 16px rgba(16, 24, 40, 0.1);
@@ -133,6 +158,9 @@ const DARK_TOKENS = `
   --warn-soft: rgba(251, 191, 36, 0.14);
   --ok: #4ade80;
   --ok-soft: rgba(74, 222, 128, 0.12);
+  --live: #38bdf8;
+  --live-soft: rgba(56, 189, 248, 0.14);
+  --x-account: #e879f9;
   --hit: #fbbf24;
   --shadow: none;
   --shadow-hover: 0 6px 18px rgba(0, 0, 0, 0.4);
@@ -254,6 +282,16 @@ button { font: inherit; color: inherit; }
   color: var(--warn); background: var(--warn-soft);
 }
 .go { position: absolute; right: 8px; bottom: 4px; font-size: 14px; line-height: 1; color: var(--muted); }
+.pf {
+  flex: none; display: inline-flex; align-items: center; gap: 3px; height: 16px; margin-left: 4px; padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 4px;
+  font-size: 10px; font-weight: 650; line-height: 1; color: var(--muted);
+}
+.pf svg { width: 11px; height: 11px; flex: none; }
+.tc.dom { font-family: var(--font); color: var(--text); }
+.link.x-account .edge { stroke: var(--x-account); stroke-opacity: 0.85; }
+.link.x-account .tip { fill: var(--x-account); fill-opacity: 0.85; }
+.link.e-contains .edge { stroke-opacity: 0.35; }
 .link .edge { fill: none; stroke: var(--edge); stroke-opacity: var(--edge-alpha); stroke-linecap: round; transition: stroke 0.15s, stroke-opacity 0.15s; }
 .link .tip { fill: var(--edge); fill-opacity: 0.6; transition: fill 0.15s; }
 .link .hit { fill: none; stroke: transparent; pointer-events: stroke; }
@@ -313,6 +351,14 @@ button { font: inherit; color: inherit; }
 .badge { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; margin: 0 6px 4px 0; border-radius: 10px; font-size: 11px; font-weight: 600; vertical-align: middle; }
 .badge.t-code, .badge.t-spec { color: var(--ok); background: var(--ok-soft); }
 .badge.t-doc, .badge.t-user, .badge.guess { color: var(--warn); background: var(--warn-soft); }
+.badge.t-live { color: var(--live); background: var(--live-soft); }
+.cmd { display: block; margin-top: 4px; font: 12px/1.5 var(--mono); word-break: break-all; color: var(--text); }
+.facts { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.facts li { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; }
+.facts .env { flex: none; min-width: 44px; font-weight: 650; color: var(--muted); }
+.facts .val { min-width: 0; word-break: break-all; }
+.evidence.plat { margin-bottom: 18px; }
+.evidence .evidence { margin-top: 8px; }
 .loc { display: block; font: 12px/1.5 var(--mono); word-break: break-all; }
 a.loc { color: var(--accent); text-decoration: none; }
 a.loc:hover { text-decoration: underline; }
@@ -333,6 +379,7 @@ a.loc:hover { text-decoration: underline; }
 .legend-kinds { grid-template-columns: 1fr 1fr; }
 .legend-lines svg { flex: none; }
 .legend-lines line { stroke: var(--edge-strong); stroke-linecap: round; }
+.legend-lines line.x-account-line { stroke: var(--x-account); }
 .swatch { flex: none; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: var(--kind); background: color-mix(in srgb, var(--kind) 14%, transparent); }
 .swatch svg { width: 14px; height: 14px; }
 .legend-kinds { grid-template-columns: 1fr !important; }

@@ -23,6 +23,8 @@ export interface RouteInput {
   to: string;
   /** 선 굵기(px). 화살촉 크기를 여기에 맞춘다 */
   width: number;
+  /** 도착 카드가 왼쪽 열에 있는 엣지. 출발 카드 왼쪽에서 도착 카드 오른쪽으로 곧게 잇고 화살촉이 왼쪽을 본다 */
+  backward?: boolean;
 }
 
 export interface RoutedEdge {
@@ -157,6 +159,10 @@ function tipPath(x: number, y: number, len: number, half: number): string {
   return `M${r2(x)} ${r2(y)}L${r2(x - len)} ${r2(y - half)}L${r2(x - len)} ${r2(y + half)}Z`;
 }
 
+function tipPathLeft(x: number, y: number, len: number, half: number): string {
+  return `M${r2(x)} ${r2(y)}L${r2(x + len)} ${r2(y - half)}L${r2(x + len)} ${r2(y + half)}Z`;
+}
+
 /**
  * 출발 카드 오른쪽 가운데에서 도착 카드 왼쪽 가운데로 가는 곡선을 낸다.
  * 레인을 건너뛰는 선은 elk가 비워 둔 자리를 경유하고 왼쪽으로 돌아가는 선은 두 카드 아래로 감아 돈다.
@@ -165,6 +171,7 @@ function tipPath(x: number, y: number, len: number, half: number): string {
 export function routeCanvas(layout: LayoutResult, inputs: readonly RouteInput[]): RoutedCanvas {
   const boxes = new Map(layout.nodes.map((n) => [n.id, toBox(n)]));
   const elkPoints = new Map(layout.edges.map((e) => [e.id, e.points]));
+  const moved = new Set(layout.movedNodeIds ?? []);
   const edges = [...inputs]
     .filter((e) => e.from !== e.to && boxes.has(e.from) && boxes.has(e.to))
     .sort((a, b) => cmp(a.id, b.id));
@@ -194,6 +201,24 @@ export function routeCanvas(layout: LayoutResult, inputs: readonly RouteInput[])
     const reverse = dst.left < src.right + 8;
     let d: string;
     let mid: LayoutPoint;
+    if (e.backward && dst.right + 8 <= src.left) {
+      const from = { x: src.left, y: outPorts.get(e.id)! };
+      const tipAt = dst.right;
+      const to = { x: tipAt + len - 1, y: inPorts.get(e.id)! };
+      const dx = Math.max(16, (from.x - to.x) / 2);
+      d =
+        `M${r2(from.x)} ${r2(from.y)}` +
+        `C${r2(from.x - dx)} ${r2(from.y)} ${r2(to.x + dx)} ${r2(to.y)} ${r2(to.x)} ${r2(to.y)}`;
+      mid = bezierMid(from, to);
+      routed.set(e.id, {
+        id: e.id,
+        d,
+        tip: tipPathLeft(tipAt, to.y, len, half),
+        mid,
+        reverse: true,
+      });
+      continue;
+    }
     if (stacked(e)) {
       // 같은 열 카드끼리는 왼쪽 바깥으로 활처럼 휘어 잇는다. 오른쪽은 다음 레인으로 가는 선 자리다
       const from = { x: src.left, y: src.cy };
@@ -214,8 +239,9 @@ export function routeCanvas(layout: LayoutResult, inputs: readonly RouteInput[])
         `C${r2(back)} ${r2(drop)} ${r2(back)} ${r2(end.y)} ${r2(end.x)} ${r2(end.y)}`;
       mid = { x: r2((start.x + end.x) / 2), y: r2(drop) };
     } else {
+      const stale = moved.has(e.from) || moved.has(e.to);
       const vias = viasOf(
-        elkPoints.get(e.id) ?? [],
+        stale ? [] : (elkPoints.get(e.id) ?? []),
         columns,
         start.x + VIA_CLEARANCE,
         end.x - VIA_CLEARANCE,

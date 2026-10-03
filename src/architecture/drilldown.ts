@@ -1,21 +1,27 @@
 import {
   computeGraphLayout,
+  environmentRank,
   KIND_LANE,
   PARTITION_RANK,
+  pinToColumnTop,
   type LaneId,
   type LayoutResult,
 } from './layout.js';
-import type { ArchitectureEdge, ArchitectureNode, EdgeKind, LineStyle } from './types.js';
+import { computeServiceFacts } from './service-facts.js';
+import type { ArchitectureEdge, ArchitectureNode, EdgeKind, LineStyle, NodeKind } from './types.js';
 import type { ValidatedIr } from './validator.js';
 
 export type DrillLevelKind = 'root' | 'service' | 'server' | 'feature';
 
-/** 레벨에 그리는 선. 세부 엣지를 그대로 옮긴 것이면 count가 1이고 kind가 원래 엣지 kind다 */
+/**
+ * 레벨에 그리는 선. 세부 엣지를 그대로 옮긴 것이면 count가 1이고 kind가 원래 엣지 kind다.
+ * contains는 서비스 카드에서 그 안 기능 영역으로 가는 포함 선이고 IR 엣지가 아니라 parent에서 나온다
+ */
 export interface DrillEdge {
   id: string;
   from: string;
   to: string;
-  kind: EdgeKind | 'bundle';
+  kind: EdgeKind | 'bundle' | 'contains';
   count: number;
   memberEdgeIds: string[];
   lineStyle: LineStyle;
@@ -314,6 +320,8 @@ interface LevelDraft {
   laneOverride?: Map<string, LaneId>;
   /** 이 레벨에서 kind별 기본 레인. 없으면 평면 그림과 같은 레인을 쓴다 */
   laneOfKind?: Partial<Record<ArchitectureNode['kind'], LaneId>>;
+  /** 배치 뒤 제 열 맨 위로 올릴 노드 */
+  pinTop?: string;
 }
 
 /** 서비스에서 출발해 게이트웨이를 거쳐 닿는 노드. 서버에서 나가는 선은 따라가지 않는다 */
@@ -409,7 +417,8 @@ function serviceLevel(g: Graph, service: ArchitectureNode): LevelDraft {
     nodeIds.add(e.from);
     nodeIds.add(e.to);
   }
-  return {
+  const infra = infraChainOf(g, service.id);
+  const base: LevelDraft = {
     id,
     kind: 'service',
     focusId: service.id,
@@ -419,6 +428,53 @@ function serviceLevel(g: Graph, service: ArchitectureNode): LevelDraft {
     edges,
     laneOfKind: { feature: 'unit', screen: 'unit' },
   };
+  if (infra.length === 0) return base;
+
+  // 서빙 인프라가 붙으면 도메인부터 서버까지 한 줄로 읽히게 서비스 카드를 기능 영역 레인 맨 위에 세우고
+  // 포함 선으로 기능 영역에 잇는다. 포커스가 이 선을 타고 도메인에서 서버까지 이어진다
+  const units = [...nodeIds].filter((n) => g.parentOf.get(n) === service.id).sort(compareStr);
+  const contains: DrillEdge[] = units.map((u) => ({
+    id: `contains:${service.id}->${u}`,
+    from: service.id,
+    to: u,
+    kind: 'contains',
+    count: 1,
+    memberEdgeIds: [],
+    lineStyle: 'solid',
+  }));
+  const rankOverride = new Map<string, number>();
+  for (const n of nodeIds)
+    rankOverride.set(n, PARTITION_RANK[kindOf(g, n) as NodeKind] + INFRA_RANK_SHIFT);
+  rankOverride.set(service.id, PARTITION_RANK.service + INFRA_RANK_SHIFT);
+  nodeIds.add(service.id);
+  for (const e of infra) {
+    for (const n of [e.from, e.to]) {
+      nodeIds.add(n);
+      const r = SERVICE_INFRA_RANK[kindOf(g, n) as NodeKind];
+      if (r !== undefined) rankOverride.set(n, r);
+    }
+  }
+  return {
+    ...base,
+    edges: [...edges, ...contains, ...dedupe(infra).map(asDetail)].sort(byId),
+    rankOverride,
+    laneOfKind: { feature: 'unit', screen: 'unit', service: 'unit' },
+    pinTop: service.id,
+  };
+}
+
+// 서비스 레벨 왼쪽 인프라 레인. 요청이 들어오는 순서(도메인 → CDN → 버킷)대로 놓고 나머지는 그 뒤로 민다
+const SERVICE_INFRA_RANK: Partial<Record<NodeKind, number>> = { domain: 0, cdn: 1, bucket: 2 };
+const INFRA_RANK_SHIFT = 3;
+
+/** 서비스를 서빙하는 버킷에서 CDN, 도메인까지 거슬러 올라간 엣지 */
+function infraChainOf(g: Graph, serviceId: string): ArchitectureEdge[] {
+  const into = (kind: EdgeKind, to: string, fromKind: NodeKind): ArchitectureEdge[] =>
+    g.edges.filter((e) => e.kind === kind && e.to === to && kindOf(g, e.from) === fromKind);
+  const serves = into('serves', serviceId, 'bucket');
+  const origins = serves.flatMap((s) => into('origin', s.from, 'cdn'));
+  const resolves = origins.flatMap((o) => into('resolves_to', o.from, 'domain'));
+  return [...serves, ...origins, ...resolves];
 }
 
 function serverLevel(g: Graph, server: ArchitectureNode): LevelDraft {
@@ -545,6 +601,7 @@ export function shouldDrillDown(validated: ValidatedIr): boolean {
  */
 export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldown> {
   const g = buildGraph(validated);
+  const facts = computeServiceFacts([...g.nodeById.values()], g.edges);
   const sorted = [...g.nodeById.values()].sort(byId);
   const drafts: LevelDraft[] = [rootLevel(g)];
   const enter: Record<string, string> = {};
@@ -574,6 +631,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
     const nodeIds = [...d.nodeIds].filter((id) => g.nodeById.has(id)).sort(compareStr);
     const layoutNodes = nodeIds.map((id) => {
       const node = g.nodeById.get(id)!;
+      const f = facts.get(id);
       return {
         id,
         label: node.label,
@@ -582,9 +640,13 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         rank: d.rankOverride?.get(id) ?? PARTITION_RANK[node.kind],
         lane: d.laneOverride?.get(id) ?? d.laneOfKind?.[node.kind] ?? KIND_LANE[node.kind],
         kind: node.kind,
+        ...(node.environment !== undefined ? { order: environmentRank(node.environment) } : {}),
+        ...(f !== undefined && f.platforms.length > 0 ? { platforms: f.platforms } : {}),
+        ...(f?.prodDomain !== undefined ? { secondLine: f.prodDomain } : {}),
       };
     });
-    const layout = await computeGraphLayout(layoutNodes, d.edges);
+    const laid = await computeGraphLayout(layoutNodes, d.edges);
+    const layout = d.pinTop !== undefined ? pinToColumnTop(laid, d.pinTop) : laid;
     levels.push({
       id: d.id,
       kind: d.kind,
