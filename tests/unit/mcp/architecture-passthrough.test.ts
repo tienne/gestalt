@@ -349,3 +349,49 @@ describe('ges_architecture filter_tools / match_endpoints', () => {
     expect(result['ok']).toBe(false);
   });
 });
+
+describe('ges_architecture merge', () => {
+  function product(prefix: string, name: string): ArchitectureIr {
+    const ir = makeIr(prefix);
+    ir.repos = [{ id: 'web', name, root: '.', remote: `git@github.com:acme/${name}.git` }];
+    ir.nodes.push(node(`${prefix}-svc`, 'service', name));
+    ir.nodes[0]!.parent = `${prefix}-svc`;
+    return ir;
+  }
+
+  it('파일로 받은 IR을 합쳐 쓴 뒤 그 파일을 render하면 서비스마다 드릴다운이 선다', async () => {
+    const aPath = join(tmpRoot, 'a.json');
+    const bPath = join(tmpRoot, 'b.json');
+    writeFileSync(aPath, JSON.stringify(product('a', 'acme-shop')));
+    writeFileSync(bPath, JSON.stringify(product('b', 'acme-admin')));
+
+    const merged = await call({ action: 'merge', irPaths: [aPath, bPath], outPath: 'merged.json' });
+    expect(merged['ok']).toBe(true);
+    expect(merged['irPath']).toBe(join(repoRoot, 'merged.json'));
+    expect(merged['ir']).toBeUndefined();
+    expect(merged['report']).toMatchObject({ inputs: 2, islands: 2, sharedNodes: [] });
+
+    const rendered = await call({ action: 'render', irPath: 'merged.json' });
+    expect(rendered['ok']).toBe(true);
+    const levelIds = (rendered['levels'] as { id: string }[]).map((l) => l.id);
+    expect(levelIds).toEqual(expect.arrayContaining(['root', 'service:a-svc', 'service:b-svc']));
+    // 두 IR의 private 근거가 다른 레포 별칭으로 다시 매겨져도 공유본에는 남지 않는다
+    expect(readFileSync(rendered['sharedHtmlPath'] as string, 'utf-8')).not.toContain(
+      'internal-notes',
+    );
+  });
+
+  it('outPath가 없으면 합친 IR을 응답에 싣는다', async () => {
+    const result = await call({ action: 'merge', irs: [product('a', 'acme-shop'), makeIr('b')] });
+    expect(result['ok']).toBe(true);
+    expect((result['ir'] as ArchitectureIr).nodes.length).toBe(7);
+  });
+
+  it('입력 하나가 깨졌으면 몇 번째인지 알려준다', async () => {
+    const result = await call({ action: 'merge', irs: [makeIr('a'), { view: 'screen-chain' }] });
+    expect(result['ok']).toBe(false);
+    const errors = result['errors'] as { code: string; message: string }[];
+    expect(errors[0]!.code).toBe('IR_PARSE_ERROR');
+    expect(errors[0]!.message).toContain('입력 1');
+  });
+});
