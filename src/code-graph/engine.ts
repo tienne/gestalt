@@ -1,9 +1,17 @@
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { createHash } from 'node:crypto';
-import { join, resolve } from 'node:path';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import type { Dirent } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { CodeGraphStore } from './storage.js';
+import type { FileStatRow } from './storage.js';
+import {
+  detectDrift,
+  hasAnyDrift,
+  hasStructuralDrift,
+  hashContent,
+  type DriftReport,
+} from './freshness.js';
+import { acquireLock } from './lock.js';
 import { computeBlastRadius } from './blast-radius.js';
 import { getPluginForFile } from './plugins/index.js';
 import { syncCoChange, queryCoChange, buildCoChangeLookup } from './cochange.js';
@@ -11,8 +19,15 @@ import type { CoChangeQueryOptions } from './cochange.js';
 import { NodeKind } from './types.js';
 import { logger } from '../core/logger.js';
 import type {
+  BuildMode,
   BuildOptions,
   BuildResult,
+  FreshnessCounts,
+  FreshnessReport,
+  ParseResult,
+  RefreshOptions,
+  SkeletonEntry,
+  SkeletonResult,
   BlastRadiusOptions,
   BlastRadiusResult,
   CoChangeTuning,
@@ -55,24 +70,83 @@ function getFilesRecursively(
     ?.filter((p) => !p.startsWith('**'))
     .map((p) => p.replace(/\*\*.*$/, '').replace(/\/$/, ''));
 
+  // recursive 모드는 다 훑은 뒤에야 거를 수 있어 node_modules 같은 제외 디렉토리까지
+  // 내려간다. 이 레포에서 목록 하나 뽑는 데 0.5초가 넘게 걸려 질의마다 돌리기엔
+  // 무겁다. 그래서 직접 내려가며 제외 디렉토리는 아예 열지 않는다
   const results: string[] = [];
-  try {
-    const entries = readdirSync(repoRoot, { withFileTypes: true, recursive: true }) as Dirent[];
+  const walk = (dir: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // directory doesn't exist or not readable
+    }
     for (const entry of entries) {
+      if (excludeSegments.has(entry.name)) continue;
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+        continue;
+      }
       if (!entry.isFile()) continue;
-      const fullPath = join(entry.parentPath, entry.name);
-      const rel = fullPath.slice(repoRoot.length + 1);
-      const segments = rel.split('/');
-      if (segments.some((s) => excludeSegments.has(s))) continue;
       if (excludeSuffixes.some((s) => entry.name.endsWith(s))) continue;
+      const rel = fullPath.slice(repoRoot.length + 1);
       if (includeRoots && includeRoots.length > 0 && !includeRoots.some((r) => rel.startsWith(r)))
         continue;
       results.push(fullPath);
     }
-  } catch {
-    // directory doesn't exist or not readable
-  }
+  };
+  walk(repoRoot);
   return results;
+}
+
+const SCOPE_META_KEY = 'build_scope';
+
+/**
+ * 노드 주석 색인 버전. 파일이 안 바뀌면 다시 파싱하지 않으니, 색인이 생기기 전 DB나
+ * 추출 규칙이 바뀐 DB는 이 값이 다를 때 한 번 전량 파싱한다.
+ */
+const DOC_INDEX_KEY = 'doc_index_version';
+const DOC_INDEX_VERSION = '1';
+
+export const STALE_MESSAGE = '갱신 중이라 이전 그래프 기준';
+export const REINDEX_PENDING_MESSAGE =
+  '다시 파싱할 파일이 많아 백그라운드로 넘기고 이전 그래프 기준';
+
+/**
+ * 질의 직전 최신화가 그 자리에서 다시 파싱할 파일 수의 상한. 넘으면 질의를 붙잡지 않고
+ * 이전 그래프로 답한다. 락 대기 상한(1.5초)과 같은 시간을 넘기지 않게 잡았다.
+ * 파일당 파싱 비용은 gestalt(484개, 1.6초) 약 3.4ms, 모노레포(8118개, 56초) 약 6.9ms라
+ * 느린 쪽 기준 200개면 1.4초쯤이다.
+ */
+export const MAX_INLINE_PARSE = 200;
+
+interface BuildScope {
+  include?: string[];
+  exclude?: string[];
+}
+
+interface ChangePlan {
+  toParse: string[];
+  removed: string[];
+  touched: FileStatRow[];
+}
+
+function planFromDrift(drift: DriftReport): ChangePlan {
+  return {
+    toParse: [...drift.added, ...drift.modified].map((f) => f.filePath),
+    removed: drift.removed,
+    touched: drift.touched,
+  };
+}
+
+function driftCounts(drift: DriftReport): FreshnessCounts {
+  return {
+    added: drift.added.length,
+    modified: drift.modified.length,
+    removed: drift.removed.length,
+    touched: drift.touched.length,
+  };
 }
 
 const DEFAULT_EXCLUDE = [
@@ -92,6 +166,10 @@ export class CodeGraphEngine {
     return join(repoRoot, '.gestalt', 'code-graph.db');
   }
 
+  private getLockPath(repoRoot: string): string {
+    return join(repoRoot, '.gestalt', 'code-graph.lock');
+  }
+
   private getStore(repoRoot: string): CodeGraphStore {
     const dbPath = this.getDbPath(repoRoot);
     if (!this.storeCache.has(dbPath)) {
@@ -102,81 +180,228 @@ export class CodeGraphEngine {
 
   /**
    * Build or incrementally update the code graph for a repository.
+   *
+   * incremental은 드리프트 검사로 바뀐 파일만 고른다. stat이 그대로인 파일은 읽지 않는다.
+   * 두 모드 모두 디스크에서 사라진 파일의 노드와 엣지를 지운다.
    */
   build(repoRoot: string, opts: BuildOptions = {}): BuildResult {
     const start = Date.now();
     const store = this.getStore(repoRoot);
-    const { include, exclude = [], mode = 'full' } = opts;
+    const { mode = 'full' } = opts;
 
     logger.info('code_graph.build_started', { module: 'code-graph/engine', repoRoot, mode });
 
-    // Collect files
-    const excludePatterns = [...DEFAULT_EXCLUDE, ...exclude];
-    const files = getFilesRecursively(repoRoot, excludePatterns, include);
+    const scope = this.resolveScope(store, opts, mode);
+    const files = this.listScopeFiles(repoRoot, scope);
 
-    // Filter files that have supported plugins
-    const supportedFiles = files.filter((f) => getPluginForFile(f) !== null);
+    let plan: ChangePlan;
+    if (mode === 'incremental' && store.getMeta(DOC_INDEX_KEY) === DOC_INDEX_VERSION) {
+      plan = planFromDrift(detectDrift(store, files));
+    } else {
+      const current = new Set(files);
+      const known = new Set([...store.getAllFileStats().keys(), ...store.getGraphFilePaths()]);
+      plan = {
+        toParse: files,
+        removed: [...known].filter((f) => !current.has(f)),
+        touched: [],
+      };
+    }
+    store.setMeta(SCOPE_META_KEY, JSON.stringify(scope));
 
-    let filesToProcess = supportedFiles;
+    const result = this.applyPlan(repoRoot, store, plan, mode, start);
+    store.setMeta(DOC_INDEX_KEY, DOC_INDEX_VERSION);
+    return result;
+  }
 
+  /**
+   * 질의 직전에 그래프를 디스크에 맞춘다. 그래프 DB가 없으면 아무것도 안 한다
+   * (처음부터 빌드하는 건 build 액션의 몫이다).
+   *
+   * 여러 워크트리와 MCP 서버, CLI가 같은 DB를 갱신할 수 있어서 락을 잡고 고친다.
+   * 락을 못 잡으면 기다렸다가 그래도 안 되면 이전 그래프로 답하게 stale을 돌려준다.
+   *
+   * maxInlineParse를 주면 다시 파싱할 파일이 그보다 많을 때 손대지 않고 reindex_pending을
+   * 돌려준다. 색인 버전이 다른 옛 DB는 전량이 대상이다. 재색인은 호출한 쪽이 다른 프로세스로 넘긴다.
+   */
+  async refresh(repoRoot: string, opts: RefreshOptions = {}): Promise<FreshnessReport> {
+    const start = Date.now();
+    if (!this.dbExists(repoRoot)) {
+      return { status: 'skipped', reason: 'no_graph', durationMs: 0 };
+    }
+    const store = this.getStore(repoRoot);
+    const scope = this.resolveScope(store, {}, 'incremental');
+    const maxInlineParse = opts.maxInlineParse ?? Infinity;
+
+    const files = this.listScopeFiles(repoRoot, scope);
+    const reindex = store.getMeta(DOC_INDEX_KEY) !== DOC_INDEX_VERSION;
+    // 옛 DB는 stat 행이 없어 드리프트 검사가 파일을 전부 읽는다. 어차피 넘길 거면 그것도 건너뛴다
+    if (reindex && files.length > maxInlineParse) {
+      return this.reindexPending(files.length, undefined, start);
+    }
+    const drift = detectDrift(store, files);
+    if (!hasAnyDrift(drift) && !reindex) {
+      return { status: 'fresh', checkedFiles: drift.unchanged, durationMs: Date.now() - start };
+    }
+    const toParse = drift.added.length + drift.modified.length;
+    if (toParse > maxInlineParse) {
+      return this.reindexPending(toParse, driftCounts(drift), start);
+    }
+
+    const lock = await acquireLock(this.getLockPath(repoRoot), {
+      timeoutMs: opts.lockTimeoutMs,
+    });
+    if (!lock) {
+      logger.warn('code_graph.refresh_locked', { module: 'code-graph/engine', repoRoot });
+      return {
+        status: 'stale',
+        reason: 'locked',
+        message: STALE_MESSAGE,
+        pending: driftCounts(drift),
+        durationMs: Date.now() - start,
+      };
+    }
+
+    try {
+      if (store.getMeta(DOC_INDEX_KEY) !== DOC_INDEX_VERSION) {
+        const files = this.listScopeFiles(repoRoot, scope);
+        const current = new Set(files);
+        const known = new Set([...store.getAllFileStats().keys(), ...store.getGraphFilePaths()]);
+        const result = this.applyPlan(
+          repoRoot,
+          store,
+          { toParse: files, removed: [...known].filter((f) => !current.has(f)), touched: [] },
+          'incremental',
+          Date.now(),
+        );
+        store.setMeta(DOC_INDEX_KEY, DOC_INDEX_VERSION);
+        return {
+          status: 'refreshed',
+          changed: driftCounts(drift),
+          skippedCount: result.skippedFiles.length,
+          durationMs: Date.now() - start,
+        };
+      }
+      // 기다리는 사이 다른 프로세스가 같은 변경을 반영했을 수 있다
+      const recheck = detectDrift(store, this.listScopeFiles(repoRoot, scope));
+      if (!hasAnyDrift(recheck)) {
+        return {
+          status: 'fresh',
+          checkedFiles: recheck.unchanged,
+          durationMs: Date.now() - start,
+        };
+      }
+      const changed = driftCounts(recheck);
+      if (!hasStructuralDrift(recheck)) {
+        store.transaction(() => {
+          for (const row of recheck.touched) store.upsertFileStat(row);
+        });
+        return { status: 'refreshed', changed, durationMs: Date.now() - start };
+      }
+      const result = this.applyPlan(
+        repoRoot,
+        store,
+        planFromDrift(recheck),
+        'incremental',
+        Date.now(),
+      );
+      return {
+        status: 'refreshed',
+        changed,
+        skippedCount: result.skippedFiles.length,
+        durationMs: Date.now() - start,
+      };
+    } finally {
+      lock.release();
+    }
+  }
+
+  private reindexPending(
+    toParse: number,
+    pending: FreshnessCounts | undefined,
+    start: number,
+  ): FreshnessReport {
+    return {
+      status: 'stale',
+      reason: 'reindex_pending',
+      message: REINDEX_PENDING_MESSAGE,
+      toParse,
+      ...(pending && { pending }),
+      durationMs: Date.now() - start,
+    };
+  }
+
+  private resolveScope(store: CodeGraphStore, opts: BuildOptions, mode: BuildMode): BuildScope {
+    if (opts.include !== undefined || opts.exclude !== undefined) {
+      return { include: opts.include, exclude: opts.exclude ?? [] };
+    }
+    // 범위를 안 준 증분 빌드는 직전 빌드 범위를 이어받는다. 기본 범위로 돌리면
+    // include로 좁혀 만든 그래프에 범위 밖 파일이 전부 added로 쏟아진다
     if (mode === 'incremental') {
-      const changedFiles: string[] = [];
-      for (const filePath of supportedFiles) {
-        const existingHash = store.getFileHash(filePath);
-        if (!existingHash) {
-          changedFiles.push(filePath);
-          continue;
-        }
+      const saved = store.getMeta(SCOPE_META_KEY);
+      if (saved) {
         try {
-          const content = readFileSync(filePath, 'utf-8');
-          const currentHash = createHash('sha256').update(content).digest('hex');
-          if (currentHash !== existingHash) changedFiles.push(filePath);
+          return JSON.parse(saved) as BuildScope;
         } catch {
-          // If can't read, skip (변경 여부 판단 불가 — 재파싱 대상에서 제외)
+          // 깨진 메타는 기본 범위로 간다
         }
       }
+    }
+    return { exclude: [] };
+  }
 
-      // 변경된 파일(F)을 참조하던 파일(A)들도 함께 재파싱 대상에 포함한다.
+  private listScopeFiles(repoRoot: string, scope: BuildScope): string[] {
+    const excludePatterns = [...DEFAULT_EXCLUDE, ...(scope.exclude ?? [])];
+    return getFilesRecursively(repoRoot, excludePatterns, scope.include).filter(
+      (f) => getPluginForFile(f) !== null,
+    );
+  }
+
+  private applyPlan(
+    repoRoot: string,
+    store: CodeGraphStore,
+    plan: ChangePlan,
+    mode: BuildMode,
+    start: number,
+  ): BuildResult {
+    const parseSet = new Set(plan.toParse);
+    const removedSet = new Set(plan.removed);
+
+    if (mode === 'incremental') {
+      // 바뀌거나 지워진 파일(F)을 참조하던 파일(A)들도 함께 재파싱 대상에 포함한다.
       // F 재파싱 시 deleteByFile(F)이 "A→F" 엣지까지 지우는데 A는 변경되지 않아
       // 재파싱 대상에서 빠지면 그 엣지가 영영 복원되지 않기 때문이다(1-hop만 전파).
       // 반드시 deleteByFile 호출 전에 조회해야 한다 — 지운 뒤에는 이미 늦다.
-      const changedSet = new Set(changedFiles);
-      const referencing = new Set<string>();
-      for (const filePath of changedFiles) {
+      for (const filePath of [...plan.toParse, ...plan.removed]) {
         for (const refFile of store.getReferencingFiles(filePath)) {
-          referencing.add(refFile);
+          if (!removedSet.has(refFile)) parseSet.add(refFile);
         }
       }
-      for (const refFile of referencing) {
-        if (!changedSet.has(refFile)) changedFiles.push(refFile);
-      }
-
-      filesToProcess = changedFiles;
     }
 
     let nodesBuilt = 0;
     let edgesBuilt = 0;
     const skippedFiles: { filePath: string; reason: string }[] = [];
+    const parsed: { filePath: string; result: ParseResult; stat: FileStatRow }[] = [];
 
-    for (const filePath of filesToProcess) {
+    for (const filePath of parseSet) {
       const plugin = getPluginForFile(filePath);
       if (!plugin) continue;
-
       try {
+        // stat을 먼저 뜬다. 읽은 뒤에 뜨면 그 사이 바뀐 내용이 옛 해시와 짝지어져
+        // 다음 검사에서 stat이 같다고 넘어간다
+        const st = statSync(filePath);
         const content = readFileSync(filePath, 'utf-8');
-        const result = plugin.parse(filePath, content);
-
-        // Delete old data for this file before updating
-        store.deleteByFile(filePath);
-
-        for (const node of result.nodes) {
-          store.upsertNode(node);
-          nodesBuilt++;
-        }
-        for (const edge of result.edges) {
-          store.upsertEdge(edge);
-          edgesBuilt++;
-        }
+        parsed.push({
+          filePath,
+          result: plugin.parse(filePath, content),
+          stat: {
+            filePath,
+            size: st.size,
+            mtimeMs: st.mtimeMs,
+            fileHash: hashContent(content),
+            checkedAt: Date.now(),
+          },
+        });
       } catch (e) {
         // 건너뛰되 조용히 넘어가지 않는다. 여기 빠진 파일은 그래프에 없으므로
         // 이후 blast-radius가 영향 범위에서 영영 누락한다.
@@ -186,6 +411,29 @@ export class CodeGraphEngine {
         });
       }
     }
+
+    // 지우기를 다 끝낸 뒤에 넣는다. deleteByFile(F)는 F로 들어오는 엣지까지 지우므로
+    // 파일마다 지우고 넣기를 번갈아 하면 먼저 넣은 A→F 엣지가 F 차례에 사라진다
+    store.transaction(() => {
+      for (const filePath of plan.removed) {
+        store.deleteByFile(filePath);
+        store.deleteFileStat(filePath);
+        store.deleteEmbeddingsByFile(filePath);
+      }
+      for (const row of plan.touched) store.upsertFileStat(row);
+      for (const { filePath } of parsed) store.deleteByFile(filePath);
+      for (const { result, stat } of parsed) {
+        for (const node of result.nodes) {
+          store.upsertNode(node);
+          nodesBuilt++;
+        }
+        for (const edge of result.edges) {
+          store.upsertEdge(edge);
+          edgesBuilt++;
+        }
+        store.upsertFileStat(stat);
+      }
+    });
 
     if (skippedFiles.length > 0) {
       logger.warn('code_graph.files_skipped', {
@@ -207,11 +455,15 @@ export class CodeGraphEngine {
         reason: e instanceof Error ? e.message : String(e),
       });
     }
+    store.refreshTextIndexStats();
 
     const timeTakenMs = Date.now() - start;
     logger.info('code_graph.build_completed', {
       module: 'code-graph/engine',
       repoRoot,
+      mode,
+      parsedFiles: parseSet.size,
+      removedFiles: plan.removed.length,
       nodesBuilt,
       edgesBuilt,
       skippedCount: skippedFiles.length,
@@ -398,6 +650,61 @@ export class CodeGraphEngine {
     }
 
     return { nodes, edges };
+  }
+
+  /**
+   * 파일의 시그니처와 줄 번호만 돌려준다. 본문은 뺀다.
+   * 플러그인이 skeleton을 지원하면 디스크의 현재 내용에서 뽑고 아니면 store의
+   * 노드 이름과 줄 범위로 대신한다. filePath는 repoRoot 안이어야 한다.
+   */
+  skeleton(repoRoot: string, filePath: string): SkeletonResult {
+    const root = resolve(repoRoot);
+    const abs = resolve(root, filePath);
+    if (abs !== root && !abs.startsWith(root + sep)) {
+      throw new Error(`filePath is outside repoRoot: ${filePath}`);
+    }
+    const content = readFileSync(abs, 'utf-8');
+    const plugin = getPluginForFile(abs);
+
+    let source: SkeletonResult['source'];
+    let entries: SkeletonEntry[];
+    if (plugin?.skeleton) {
+      source = 'signatures';
+      entries = plugin.skeleton(abs, content);
+    } else {
+      source = 'graph_nodes';
+      entries = this.getStore(repoRoot)
+        .getNodesByFile(abs)
+        .filter((n) => n.kind !== NodeKind.File)
+        .sort((a, b) => (a.lineStart ?? 0) - (b.lineStart ?? 0))
+        .map((n) => ({
+          lineStart: n.lineStart ?? 0,
+          lineEnd: n.lineEnd ?? n.lineStart ?? 0,
+          depth: 0,
+          signature: `${n.kind.toLowerCase()} ${n.name}`,
+        }));
+    }
+
+    const body = entries
+      .map((e) => {
+        const lines = e.lineEnd > e.lineStart ? `${e.lineStart}-${e.lineEnd}` : `${e.lineStart}`;
+        return `${'  '.repeat(e.depth)}L${lines} ${e.signature}`;
+      })
+      .join('\n');
+    const originalChars = content.length;
+    const skeletonChars = body.length;
+    const saved =
+      originalChars > 0
+        ? (((originalChars - skeletonChars) / originalChars) * 100).toFixed(1)
+        : '0';
+    const rel = abs.slice(root.length + 1);
+    const header =
+      `원본 ${originalChars.toLocaleString('en-US')}자 → ${skeletonChars.toLocaleString('en-US')}자 ` +
+      `(${saved}% 줄임) — ${rel}` +
+      (source === 'graph_nodes' ? ' [시그니처 미지원 언어라 그래프 노드 이름만]' : '');
+    const text = entries.length > 0 ? `${header}\n${body}` : `${header}\n(선언 없음)`;
+
+    return { filePath: abs, source, entries, originalChars, skeletonChars, text };
   }
 
   /**

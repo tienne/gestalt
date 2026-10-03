@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { SQLITE_BUSY_TIMEOUT_MS } from '../core/constants.js';
 import type { CodeGraphNode, CodeGraphEdge, CodeGraphStats, CoChangeMeta } from './types.js';
 import type { CodeNodeEmbedding } from './embedding-provider.js';
+import { koreanTerms } from './ko-text.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -40,6 +41,23 @@ interface RawNodeRow {
   is_test: number;
   file_hash: string | null;
   updated_at: number;
+  doc?: string | null;
+}
+
+interface RawFileStatRow {
+  file_path: string;
+  size: number;
+  mtime_ms: number;
+  file_hash: string;
+  checked_at: number;
+}
+
+export interface FileStatRow {
+  filePath: string;
+  size: number;
+  mtimeMs: number;
+  fileHash: string;
+  checkedAt: number;
 }
 
 interface RawEdgeRow {
@@ -62,6 +80,7 @@ function toNode(row: RawNodeRow): CodeGraphNode {
     isTest: row.is_test === 1,
     fileHash: row.file_hash ?? undefined,
     updatedAt: row.updated_at,
+    doc: row.doc ?? undefined,
   };
 }
 
@@ -138,6 +157,21 @@ export interface CoChangePairRow {
  */
 export const MAX_MATCHED_ROWS = 10_000;
 
+const TEXT_DOCS_KEY = 'text_index_docs';
+const TEXT_COMMITS_KEY = 'text_index_commits';
+const TEXT_AVG_TERMS_KEY = 'text_index_avg_commit_terms';
+const TEXT_MAX_SEQ_KEY = 'text_index_max_seq';
+
+export interface TextTermStats {
+  docDf: Map<string, number>;
+  commitDf: Map<string, number>;
+  /** 주석이 붙은 노드 수 */
+  docs: number;
+  commits: number;
+  avgCommitTerms: number;
+  maxSeq: number;
+}
+
 /**
  * 질의문을 상수로 뽑아둔다. `EXPLAIN QUERY PLAN` 테스트가 이 문자열을 그대로
  * 설명해야 실제로 도는 질의의 계획을 고정하는 것이 된다. 테스트가 SQL을
@@ -198,6 +232,12 @@ export interface CoChangeMergeInput {
   };
   /** true면 세 테이블을 비우고 새로 쓴다 (전량 재수집). false면 카운터를 더한다 */
   reset: boolean;
+  /**
+   * 커밋 메시지에서 뽑은 한국어 bigram(커밋 단위, 오래된 것부터)과 티켓 키(파일마다 나온 커밋 수).
+   * reset이면 커밋 색인과 티켓 색인도 비우고 새로 쓴다. 생략하면 둘 다 건드리지 않는다
+   */
+  commitText?: { sha: string; terms: string[]; files: string[] }[];
+  tickets?: { ticket: string; filePath: string; count: number }[];
 }
 
 /**
@@ -306,7 +346,117 @@ export class CodeGraphStore {
         min_pair_count INTEGER NOT NULL,
         built_at REAL NOT NULL
       );
+
+      -- 질의 시점 드리프트 검사용. size와 mtime이 그대로면 파일을 읽지 않는다.
+      -- checked_at은 mtime이 기록 시각에 바짝 붙은 행을 가려내는 데 쓴다.
+      -- 같은 mtime 해상도 안에서 다시 쓰인 파일은 stat만으로 구분이 안 된다.
+      CREATE TABLE IF NOT EXISTS cg_file_stat (
+        file_path TEXT PRIMARY KEY,
+        size INTEGER NOT NULL,
+        mtime_ms REAL NOT NULL,
+        file_hash TEXT NOT NULL,
+        checked_at REAL NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS cg_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
+      -- 한국어 색인. 주석은 노드 단위, 커밋 메시지는 커밋 단위로 bigram을 둔다.
+      -- 주석 쪽 노드 키는 cg_nodes의 rowid다. 노드 id는 절대경로가 든 긴 문자열이라 행마다
+      -- 들고 있으면 색인이 그래프 본체보다 커진다. 노드를 다시 쓰면 rowid가 바뀌므로
+      -- upsertNode와 deleteByFile이 그 노드의 단어를 먼저 지운다.
+      -- 커밋 쪽은 이력이라 지울 일이 없다. 둘 다 PK가 term으로 시작해서 훅의
+      -- "term IN (...)" 조회가 그 인덱스를 탄다.
+      CREATE TABLE IF NOT EXISTS cg_doc_terms (
+        term TEXT NOT NULL,
+        node_rowid INTEGER NOT NULL,
+        PRIMARY KEY (term, node_rowid)
+      ) WITHOUT ROWID;
+      CREATE INDEX IF NOT EXISTS idx_cg_doc_terms_node ON cg_doc_terms(node_rowid);
+
+      -- seq는 넣은 순서(오래된 커밋이 작다), terms는 그 커밋 메시지의 bigram 수
+      CREATE TABLE IF NOT EXISTS cg_text_commits (
+        sha TEXT PRIMARY KEY,
+        seq INTEGER NOT NULL,
+        terms INTEGER NOT NULL
+      ) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS cg_commit_terms (
+        term TEXT NOT NULL,
+        sha TEXT NOT NULL,
+        PRIMARY KEY (term, sha)
+      ) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS cg_commit_files (
+        sha TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        PRIMARY KEY (sha, file_path)
+      ) WITHOUT ROWID;
+
+      CREATE TABLE IF NOT EXISTS cg_ticket_files (
+        ticket TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        count INTEGER NOT NULL,
+        PRIMARY KEY (ticket, file_path)
+      );
     `);
+    // doc 컬럼은 나중에 생겼다. 예전 DB에는 없으니 붙인다
+    const cols = this.db.prepare(`PRAGMA table_info(cg_nodes)`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === 'doc')) {
+      this.db.exec(`ALTER TABLE cg_nodes ADD COLUMN doc TEXT`);
+    }
+  }
+
+  getAllFileStats(): Map<string, FileStatRow> {
+    const rows = this.db.prepare(`SELECT * FROM cg_file_stat`).all() as RawFileStatRow[];
+    return new Map(
+      rows.map((r) => [
+        r.file_path,
+        {
+          filePath: r.file_path,
+          size: r.size,
+          mtimeMs: r.mtime_ms,
+          fileHash: r.file_hash,
+          checkedAt: r.checked_at,
+        },
+      ]),
+    );
+  }
+
+  upsertFileStat(row: FileStatRow): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO cg_file_stat (file_path, size, mtime_ms, file_hash, checked_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(row.filePath, row.size, row.mtimeMs, row.fileHash, row.checkedAt);
+  }
+
+  deleteFileStat(filePath: string): void {
+    this.db.prepare(`DELETE FROM cg_file_stat WHERE file_path = ?`).run(filePath);
+  }
+
+  /** 노드가 하나라도 있는 파일 경로. stat 행이 없던 옛 DB에서도 삭제를 잡으려면 이쪽도 봐야 한다 */
+  getGraphFilePaths(): string[] {
+    const rows = this.db.prepare(`SELECT DISTINCT file_path FROM cg_nodes`).all() as {
+      file_path: string;
+    }[];
+    return rows.map((r) => r.file_path);
+  }
+
+  getMeta(key: string): string | null {
+    const row = this.db.prepare(`SELECT value FROM cg_meta WHERE key = ?`).get(key) as
+      | { value: string }
+      | undefined;
+    return row?.value ?? null;
+  }
+
+  setMeta(key: string, value: string): void {
+    this.db.prepare(`INSERT OR REPLACE INTO cg_meta (key, value) VALUES (?, ?)`).run(key, value);
+  }
+
+  transaction(fn: () => void): void {
+    this.db.transaction(fn)();
   }
 
   getNodesByFile(filePath: string): CodeGraphNode[] {
@@ -358,6 +508,177 @@ export class CodeGraphStore {
     return rows.map((r) => r.file_path);
   }
 
+  /** getReferencingFiles와 같은 집합에 테스트 여부를 붙여 돌려준다 */
+  getReferencingFilesDetailed(filePath: string): { filePath: string; isTest: boolean }[] {
+    const rows = this.db
+      .prepare(
+        `
+      SELECT src.file_path AS file_path, MAX(src.is_test) AS is_test
+      FROM cg_edges e
+      JOIN cg_nodes tgt ON tgt.id = e.target_id
+      JOIN cg_nodes src ON src.id = e.source_id
+      WHERE tgt.file_path = ? AND src.file_path != ?
+      GROUP BY src.file_path
+    `,
+      )
+      .all(filePath, filePath) as { file_path: string; is_test: number }[];
+    return rows.map((r) => ({ filePath: r.file_path, isTest: r.is_test === 1 }));
+  }
+
+  /**
+   * 파일별로 그 파일을 import하는 파일 수. files를 주면 그 파일만, 생략하면 많은 순 상위 limit개.
+   */
+  getImporterCounts(opts: { files?: string[]; limit?: number } = {}): Map<string, number> {
+    const params: unknown[] = [];
+    let where = `e.kind = 'IMPORTS_FROM' AND e.target_id LIKE 'file:%'`;
+    if (opts.files) {
+      if (opts.files.length === 0) return new Map();
+      where += ` AND e.target_id IN (${opts.files.map(() => '?').join(',')})`;
+      params.push(...opts.files.map((f) => `file:${f}`));
+    }
+    let sql = `
+      SELECT substr(e.target_id, 6) AS file_path, COUNT(DISTINCT e.source_id) AS cnt
+      FROM cg_edges e WHERE ${where}
+      GROUP BY e.target_id ORDER BY cnt DESC`;
+    if (opts.limit !== undefined) {
+      sql += ` LIMIT ?`;
+      params.push(opts.limit);
+    }
+    const rows = this.db.prepare(sql).all(...params) as { file_path: string; cnt: number }[];
+    return new Map(rows.map((r) => [r.file_path, r.cnt]));
+  }
+
+  /**
+   * 이름이나 repoRoot 기준 상대 경로에 토큰 하나라도 들어간 노드를 고른다. 대소문자는 안 가린다.
+   * 상대 경로로 맞추는 건 절대 경로에 섞인 워크트리 이름 같은 조각이 걸리지 않게 하려는 것이다.
+   */
+  searchNodesByTokens(repoRoot: string, tokens: string[], limit: number): CodeGraphNode[] {
+    if (tokens.length === 0) return [];
+    const rel = `lower(substr(file_path, ${repoRoot.length + 2}))`;
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    for (const t of tokens) {
+      const pattern = `%${t.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      clauses.push(`lower(name) LIKE ? ESCAPE '\\'`, `${rel} LIKE ? ESCAPE '\\'`);
+      params.push(pattern, pattern);
+    }
+    const rows = this.db
+      .prepare(`SELECT * FROM cg_nodes WHERE ${clauses.join(' OR ')} LIMIT ?`)
+      .all(...params, limit) as RawNodeRow[];
+    return rows.map(toNode);
+  }
+
+  getNodesByIds(ids: string[]): CodeGraphNode[] {
+    if (ids.length === 0) return [];
+    const out: CodeGraphNode[] = [];
+    // SQLite 바인딩 변수 상한(기본 32766)보다 한참 작게 끊는다
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const rows = this.db
+        .prepare(`SELECT * FROM cg_nodes WHERE id IN (${chunk.map(() => '?').join(',')})`)
+        .all(...chunk) as RawNodeRow[];
+      out.push(...rows.map(toNode));
+    }
+    return out;
+  }
+
+  /** 주석 색인에서 terms 중 하나라도 걸린 행. limit은 흔한 bigram이 수만 행을 끌고 오지 않게 막는다 */
+  getDocTermHits(terms: string[], limit: number): { term: string; nodeId: string }[] {
+    if (terms.length === 0) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT t.term, n.id AS node_id FROM cg_doc_terms t JOIN cg_nodes n ON n.rowid = t.node_rowid
+         WHERE t.term IN (${terms.map(() => '?').join(',')}) LIMIT ?`,
+      )
+      .all(...terms, limit) as { term: string; node_id: string }[];
+    return rows.map((r) => ({ term: r.term, nodeId: r.node_id }));
+  }
+
+  /** 커밋 색인에서 terms 중 하나라도 걸린 행 */
+  getCommitTermHits(terms: string[], limit: number): { term: string; sha: string }[] {
+    if (terms.length === 0) return [];
+    return this.db
+      .prepare(
+        `SELECT term, sha FROM cg_commit_terms
+         WHERE term IN (${terms.map(() => '?').join(',')}) LIMIT ?`,
+      )
+      .all(...terms, limit) as { term: string; sha: string }[];
+  }
+
+  /** 커밋마다 순번, bigram 수, 건드린 파일 */
+  getTextCommits(shas: string[]): { sha: string; seq: number; terms: number; files: string[] }[] {
+    if (shas.length === 0) return [];
+    const ph = shas.map(() => '?').join(',');
+    const commits = this.db
+      .prepare(`SELECT sha, seq, terms FROM cg_text_commits WHERE sha IN (${ph})`)
+      .all(...shas) as { sha: string; seq: number; terms: number }[];
+    const files = this.db
+      .prepare(`SELECT sha, file_path FROM cg_commit_files WHERE sha IN (${ph})`)
+      .all(...shas) as { sha: string; file_path: string }[];
+    const bySha = new Map<string, string[]>();
+    for (const f of files) {
+      const list = bySha.get(f.sha) ?? [];
+      list.push(f.file_path);
+      bySha.set(f.sha, list);
+    }
+    return commits.map((c) => ({ ...c, files: bySha.get(c.sha) ?? [] }));
+  }
+
+  /**
+   * term마다 df(주석은 노드 수, 커밋은 커밋 수)와 전체 문서 수, 커밋 bigram 수 평균, 최신 커밋 순번.
+   * 전체 값은 매 프롬프트마다 세지 않고 색인을 쓸 때 cg_meta에 적어둔 값을 읽는다
+   */
+  getTextTermStats(terms: string[]): TextTermStats {
+    const num = (key: string, fallback: number) =>
+      Number(this.getMeta(key) ?? fallback) || fallback;
+    const stats: TextTermStats = {
+      docDf: new Map(),
+      commitDf: new Map(),
+      docs: num(TEXT_DOCS_KEY, 0),
+      commits: num(TEXT_COMMITS_KEY, 0),
+      avgCommitTerms: num(TEXT_AVG_TERMS_KEY, 1),
+      maxSeq: num(TEXT_MAX_SEQ_KEY, 0),
+    };
+    if (terms.length === 0) return stats;
+    const ph = terms.map(() => '?').join(',');
+    const doc = this.db
+      .prepare(`SELECT term, COUNT(*) AS cnt FROM cg_doc_terms WHERE term IN (${ph}) GROUP BY term`)
+      .all(...terms) as { term: string; cnt: number }[];
+    const commit = this.db
+      .prepare(
+        `SELECT term, COUNT(*) AS cnt FROM cg_commit_terms WHERE term IN (${ph}) GROUP BY term`,
+      )
+      .all(...terms) as { term: string; cnt: number }[];
+    for (const r of doc) stats.docDf.set(r.term, r.cnt);
+    for (const r of commit) stats.commitDf.set(r.term, r.cnt);
+    return stats;
+  }
+
+  /** 한국어 색인의 전체 값을 다시 세서 cg_meta에 적는다. 색인을 쓴 쪽이 끝에 한 번 부른다 */
+  refreshTextIndexStats(): void {
+    const docs = this.db
+      .prepare(`SELECT COUNT(DISTINCT node_rowid) AS cnt FROM cg_doc_terms`)
+      .get() as { cnt: number };
+    const commits = this.db
+      .prepare(`SELECT COUNT(*) AS cnt, AVG(terms) AS avg, MAX(seq) AS max FROM cg_text_commits`)
+      .get() as { cnt: number; avg: number | null; max: number | null };
+    this.setMeta(TEXT_DOCS_KEY, String(docs.cnt));
+    this.setMeta(TEXT_COMMITS_KEY, String(commits.cnt));
+    this.setMeta(TEXT_AVG_TERMS_KEY, String(commits.avg ?? 1));
+    this.setMeta(TEXT_MAX_SEQ_KEY, String(commits.max ?? 0));
+  }
+
+  getTicketFiles(tickets: string[]): { ticket: string; filePath: string; count: number }[] {
+    if (tickets.length === 0) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT ticket, file_path, count FROM cg_ticket_files
+         WHERE ticket IN (${tickets.map(() => '?').join(',')}) ORDER BY count DESC LIMIT 200`,
+      )
+      .all(...tickets) as { ticket: string; file_path: string; count: number }[];
+    return rows.map((r) => ({ ticket: r.ticket, filePath: r.file_path, count: r.count }));
+  }
+
   getAllNodes(): CodeGraphNode[] {
     const stmt = this.db.prepare(`
       SELECT * FROM cg_nodes
@@ -375,12 +696,18 @@ export class CodeGraphStore {
   }
 
   upsertNode(node: CodeGraphNode): void {
+    // REPLACE는 행을 지우고 새 rowid로 다시 넣는다. 옛 rowid에 걸린 주석 단어를 먼저 지운다
+    this.db
+      .prepare(
+        `DELETE FROM cg_doc_terms WHERE node_rowid = (SELECT rowid FROM cg_nodes WHERE id = ?)`,
+      )
+      .run(node.id);
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO cg_nodes
-        (id, kind, name, file_path, line_start, line_end, is_test, file_hash, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, kind, name, file_path, line_start, line_end, is_test, file_hash, updated_at, doc)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(
+    const info = stmt.run(
       node.id,
       node.kind,
       node.name,
@@ -390,7 +717,15 @@ export class CodeGraphStore {
       node.isTest ? 1 : 0,
       node.fileHash ?? null,
       node.updatedAt,
+      node.doc ?? null,
     );
+    const rowid = (info as { lastInsertRowid: number | bigint }).lastInsertRowid;
+    if (node.doc) {
+      const term = this.db.prepare(`
+        INSERT OR IGNORE INTO cg_doc_terms (term, node_rowid) VALUES (?, ?)
+      `);
+      for (const t of koreanTerms(node.doc)) term.run(t, rowid);
+    }
   }
 
   upsertEdge(edge: CodeGraphEdge): void {
@@ -418,11 +753,17 @@ export class CodeGraphStore {
     const deleteNodeStmt = this.db.prepare(`
       DELETE FROM cg_nodes WHERE file_path = ?
     `);
+    // 커밋 색인은 이력이라 파일을 다시 파싱해도 그대로 둔다. 주석 색인만 노드와 함께 지운다
+    const deleteDocTerms = this.db.prepare(`
+      DELETE FROM cg_doc_terms
+      WHERE node_rowid IN (SELECT rowid FROM cg_nodes WHERE file_path = ?)
+    `);
 
     const run = this.db.transaction(() => {
       for (const { id } of nodeIds) {
         deleteEdgesForNode.run(id, id);
       }
+      deleteDocTerms.run(filePath);
       deleteNodeStmt.run(filePath);
     });
 
@@ -549,12 +890,48 @@ export class CodeGraphStore {
         built_at = excluded.built_at
     `);
 
+    const insertCommit = this.db.prepare(`
+      INSERT OR IGNORE INTO cg_text_commits (sha, seq, terms) VALUES (?, ?, ?)
+    `);
+    const insertTerm = this.db.prepare(`
+      INSERT OR IGNORE INTO cg_commit_terms (term, sha) VALUES (?, ?)
+    `);
+    const insertFile = this.db.prepare(`
+      INSERT OR IGNORE INTO cg_commit_files (sha, file_path) VALUES (?, ?)
+    `);
+    const upsertTicket = this.db.prepare(`
+      INSERT INTO cg_ticket_files (ticket, file_path, count) VALUES (?, ?, ?)
+      ON CONFLICT(ticket, file_path) DO UPDATE SET count = count + excluded.count
+    `);
+
     const run = this.db.transaction(() => {
       if (input.reset) {
         deletePairs.run();
         deleteSolos.run();
         deleteMeta.run();
+        if (input.commitText) {
+          this.db.exec(
+            `DELETE FROM cg_text_commits; DELETE FROM cg_commit_terms; DELETE FROM cg_commit_files;`,
+          );
+        }
+        if (input.tickets) this.db.exec(`DELETE FROM cg_ticket_files`);
       }
+      if (input.commitText) {
+        const max = this.db.prepare(`SELECT MAX(seq) AS m FROM cg_text_commits`).get() as {
+          m: number | null;
+        };
+        let seq = max.m ?? 0;
+        // PK 순서로 넣으면 B-tree 끝에 이어 붙어서 페이지를 덜 쪼갠다
+        const rows: [string, string][] = [];
+        for (const c of input.commitText) {
+          insertCommit.run(c.sha, ++seq, c.terms.length);
+          for (const f of c.files) insertFile.run(c.sha, f);
+          for (const t of c.terms) rows.push([t, c.sha]);
+        }
+        rows.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] < y[1] ? -1 : 1));
+        for (const [t, sha] of rows) insertTerm.run(t, sha);
+      }
+      for (const t of input.tickets ?? []) upsertTicket.run(t.ticket, t.filePath, t.count);
       for (const pair of input.pairs) {
         upsertPair.run(pair.fileA, pair.fileB, pair.count, now);
       }

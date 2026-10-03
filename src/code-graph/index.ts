@@ -1,4 +1,4 @@
-export { CodeGraphEngine, codeGraphEngine } from './engine.js';
+export { CodeGraphEngine, codeGraphEngine, MAX_INLINE_PARSE } from './engine.js';
 export { CodeGraphStore, MAX_MATCHED_ROWS } from './storage.js';
 export type { CoChangeScan, CoChangeNeighborRow, CoChangePairRow } from './storage.js';
 export { computeBlastRadius } from './blast-radius.js';
@@ -42,5 +42,14 @@ export type {
   CoChangeBuildSummary,
   CoChangeMeta,
   CoChangeTuning,
+  FreshnessCounts,
+  FreshnessReport,
+  RefreshOptions,
+  SkeletonEntry,
+  SkeletonResult,
 } from './types.js';
+export { detectDrift, RACY_WINDOW_MS } from './freshness.js';
+export type { DriftReport, FileStamp } from './freshness.js';
+export { acquireLock, tryAcquireLock, LOCK_STALE_MS } from './lock.js';
+export type { LockHandle, LockOptions } from './lock.js';
 export { NodeKind, EdgeKind } from './types.js';

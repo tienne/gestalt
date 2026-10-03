@@ -148,6 +148,25 @@
       "description": "Enable OS desktop notifications for pipeline events (env: GESTALT_NOTIFICATIONS)",
       "default": false
     },
+    "codeGraph": {
+      "type": "object",
+      "description": "Code knowledge graph settings",
+      "properties": {
+        "hooks": {
+          "type": "object",
+          "description": "Claude Code plugin hooks that inject code graph pointers into the session. Claude Code only",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Inject a repo map at session start, related file pointers per prompt, and impact plus co-change after edits. Off by default because plugin hooks run in every repo (env: GESTALT_CODE_GRAPH_HOOKS=1|0)",
+              "default": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "logLevel": {
       "type": "string",
       "enum": ["debug", "info", "warn", "error"],

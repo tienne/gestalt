@@ -160,6 +160,26 @@ describe('loadConfig — tierModels', () => {
   });
 });
 
+describe('loadConfig — codeGraph.hooks', () => {
+  const originalEnv = { ...process.env };
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+  const opts = { skipDotEnv: true, skipGestaltJson: true };
+
+  it('기본은 꺼짐이다', () => {
+    delete process.env['GESTALT_CODE_GRAPH_HOOKS'];
+    expect(loadConfig({}, opts).codeGraph.hooks.enabled).toBe(false);
+  });
+
+  it('env 1이면 켜고 0이면 끈다', () => {
+    process.env['GESTALT_CODE_GRAPH_HOOKS'] = '1';
+    expect(loadConfig({}, opts).codeGraph.hooks.enabled).toBe(true);
+    process.env['GESTALT_CODE_GRAPH_HOOKS'] = '0';
+    expect(loadConfig({}, opts).codeGraph.hooks.enabled).toBe(false);
+  });
+});
+
 describe('loadConfig — ruleSources', () => {
   const opts = { skipDotEnv: true, skipGestaltJson: true };
 

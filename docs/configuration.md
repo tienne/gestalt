@@ -26,6 +26,7 @@
   "reasoningModelFallback": "opus",
   "tierModels": { "frugal": "haiku", "standard": "sonnet", "frontier": "opus" },
   "relatedRepos": ["acme/widget-kit"],
+  "codeGraph": { "hooks": { "enabled": false } },
   "dbPath": ".gestalt/gestalt.db",
   "logLevel": "info"
 }
@@ -60,6 +61,9 @@ interface GestaltConfig {
   ruleSourceErrors: string[];
   ruleSourceWarnings: string[];
   notifications: boolean;
+  codeGraph: {
+    hooks: { enabled: boolean }; // Claude Code 훅 자동 주입, 기본 false
+  };
   dbPath: string;
   skillsDir: string;
   agentsDir: string;
@@ -85,6 +89,7 @@ interface GestaltConfig {
 | `GESTALT_REASONING_MODEL` | `"fable"` \| `"opus"` \| `"sonnet"` \| `"haiku"` | `"fable"` | 스펙 생성과 실행 플래닝의 깊은 추론에 쓸 Agent 서브에이전트 모델. Interview는 대상이 아님 |
 | `GESTALT_REASONING_MODEL_FALLBACK` | `"fable"` \| `"opus"` \| `"sonnet"` \| `"haiku"` | `"opus"` | 위 모델을 Agent 도구가 지원하지 않을 때 쓸 폴백 모델 |
 | `GESTALT_NOTIFICATIONS` | boolean | `false` | 완료/실패 시 OS 알림 전송 여부 (`"true"` 문자열로 설정) |
+| `GESTALT_CODE_GRAPH_HOOKS` | `"1"` \| `"true"` \| `"0"` \| `"false"` | — | Claude Code 플러그인 훅의 코드 그래프 자동 주입을 켜고 끈다. `0`/`false`는 `gestalt.json` 설정보다 우선해서 끈다. 동작은 [Claude Code 훅 (자동 주입)](./code-graph.md#claude-code-훅-자동-주입) |
 | `GESTALT_DB_PATH` | string | `"~/.gestalt/events.db"` | SQLite 이벤트 스토어 파일 경로 |
 | `GESTALT_SKILLS_DIR` | string | `"skills"` | 스킬 SKILL.md 파일들이 위치한 디렉터리 |
 | `GESTALT_AGENTS_DIR` | string | `"agents"` | 커스텀 에이전트 정의 디렉터리 |
@@ -113,6 +118,7 @@ interface GestaltConfig {
 | `GESTALT_TIER_MODEL_STANDARD` | `tierModels.standard` |
 | `GESTALT_TIER_MODEL_FRONTIER` | `tierModels.frontier` |
 | `GESTALT_NOTIFICATIONS` | `notifications` |
+| `GESTALT_CODE_GRAPH_HOOKS` | `codeGraph.hooks.enabled` |
 | `GESTALT_DB_PATH` | `dbPath` |
 | `GESTALT_SKILLS_DIR` | `skillsDir` |
 | `GESTALT_AGENTS_DIR` | `agentsDir` |
@@ -136,6 +142,24 @@ interface GestaltConfig {
 ### 폴백 발동 지점
 
 `reasoningModelFallback`(기본 `opus`)은 폴백 **대상**일 뿐이다. 서버는 모델 가용성을 감지하지 않으며, 폴백을 발동하지도 않는다. 실제 발동은 **스킬 런타임**에서 일어난다 — Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`로 바꿔 1회 재시도한다. 즉 "fable 안 되면 opus"의 판단은 서버가 아니라 스킬이 한다.
+
+---
+
+## 코드 그래프 훅 (`codeGraph.hooks`)
+
+`codeGraph.hooks.enabled`를 `true`로 두면 Claude Code 플러그인 훅이 세션에 코드 그래프 컨텍스트를 넣는다. 세션을 열 때 레포 맵, 프롬프트마다 관련 심볼 위치, 파일을 고친 뒤 영향 범위가 들어간다. Claude만 지원한다.
+
+```json
+{
+  "codeGraph": { "hooks": { "enabled": true } }
+}
+```
+
+- 기본은 `false`다. 플러그인 훅은 게슈탈트 플러그인이 깔린 모든 레포의 모든 프롬프트에 걸리므로 쓰려는 레포에서만 켠다
+- 환경변수 `GESTALT_CODE_GRAPH_HOOKS=1`(또는 `true`)로도 켠다. `0`이나 `false`는 `gestalt.json` 설정보다 우선해서 끈다
+- 그래프 DB(`.gestalt/code-graph.db`)가 있어야 동작한다. 훅은 그래프를 새로 만들지 않으니 처음에는 `gestalt init`이나 `ges_code_graph build`로 빌드한다
+
+이벤트별로 넣는 내용과 랭킹, 타임아웃은 [Claude Code 훅 (자동 주입)](./code-graph.md#claude-code-훅-자동-주입)에 있다.
 
 ---
 

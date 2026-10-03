@@ -15,7 +15,7 @@ Complete reference for all Gestalt MCP tools.
 | [`ges_agent`](#ges_agent) | 에이전트 목록 조회 및 상세 조회 |
 | [`ges_status`](#ges_status) | 세션 상태 확인 |
 | [`ges_benchmark`](#ges_benchmark) | 파이프라인 벤치마크 실행 |
-| [`ges_code_graph`](./code-graph.md#ges_code_graph-mcp-툴) | 코드 그래프 빌드, 질의, blast radius 분석 |
+| [`ges_code_graph`](./code-graph.md#ges_code_graph-mcp-툴) | 코드 그래프 빌드, 질의, blast radius 분석, 파일 시그니처 요약. 질의 전에 그래프를 작업 트리에 맞춘다 |
 | [`ges_graph_visualize`](#ges_graph_visualize) | 코드 그래프를 로컬 브라우저에서 시각화 |
 | [`ges_generate_kb`](#ges_generate_kb) | 코드 그래프/도메인 내용을 Knowledge Base 문서로 생성 |
 | [`ges_search`](#ges_search) | Knowledge Base 시맨틱 검색 |

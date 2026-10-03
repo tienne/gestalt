@@ -24,6 +24,11 @@ export interface CodeGraphNode {
   isTest: boolean;
   fileHash?: string; // SHA-256 for incremental update
   updatedAt: number; // Unix timestamp ms
+  /**
+   * 선언 앞 주석(파일 노드는 파일 머리 주석). 한글이 든 것만 길이 상한까지 담는다.
+   * 한국어 프롬프트를 코드 위치에 잇는 색인의 원천이다
+   */
+  doc?: string;
 }
 
 export interface CodeGraphEdge {
@@ -205,6 +210,28 @@ export interface AnalyzerPlugin {
   language: string;
   extensions: string[]; // e.g. ['.ts', '.tsx', '.js']
   parse(filePath: string, content: string): ParseResult;
+  /** 본문을 뺀 시그니처 목록. 없으면 store의 노드 이름과 줄 범위로 대신한다 */
+  skeleton?(filePath: string, content: string): SkeletonEntry[];
+}
+
+// ─── Skeleton Types ──────────────────────────────────────────────
+export interface SkeletonEntry {
+  lineStart: number;
+  lineEnd: number;
+  /** 0이 최상위. 클래스 멤버는 1 */
+  depth: number;
+  signature: string;
+}
+
+export interface SkeletonResult {
+  filePath: string;
+  /** signatures: 플러그인이 시그니처를 뽑았다. graph_nodes: store의 노드 이름만 돌려준다 */
+  source: 'signatures' | 'graph_nodes';
+  entries: SkeletonEntry[];
+  originalChars: number;
+  skeletonChars: number;
+  /** 첫 줄이 줄인 크기다. 그대로 응답 본문으로 쓴다 */
+  text: string;
 }
 
 // ─── Query Types ─────────────────────────────────────────────────
@@ -232,6 +259,47 @@ export interface BuildOptions {
   exclude?: string[];
   mode?: BuildMode;
 }
+
+export interface RefreshOptions {
+  /** 락을 기다리는 최대 시간. 기본 1500ms */
+  lockTimeoutMs?: number;
+  /** 그 자리에서 다시 파싱할 파일 수 상한. 넘으면 reindex_pending으로 끝낸다. 기본은 상한 없음 */
+  maxInlineParse?: number;
+}
+
+export interface FreshnessCounts {
+  added: number;
+  modified: number;
+  removed: number;
+  touched: number;
+}
+
+/**
+ * 질의 직전 최신화 결과. 질의 응답에 그대로 실린다.
+ * - fresh: 바뀐 게 없었다
+ * - refreshed: 바뀐 걸 반영하고 답했다
+ * - stale: 다른 프로세스가 갱신 중이거나 다시 파싱할 게 많아 이전 그래프로 답했다
+ * - skipped: 그래프 DB가 없거나 최신화를 껐다
+ */
+export type FreshnessReport =
+  | { status: 'fresh'; checkedFiles: number; durationMs: number }
+  | {
+      status: 'refreshed';
+      changed: FreshnessCounts;
+      skippedCount?: number;
+      durationMs: number;
+    }
+  | {
+      status: 'stale';
+      reason: 'locked' | 'refresh_failed' | 'reindex_pending';
+      message: string;
+      /** 반영하지 못한 변경. 락 대기나 드리프트가 많아 넘긴 경우에만 있다 */
+      pending?: FreshnessCounts;
+      /** reindex_pending일 때 다시 파싱해야 하는 파일 수 */
+      toParse?: number;
+      durationMs: number;
+    }
+  | { status: 'skipped'; reason: 'no_graph' | 'disabled'; durationMs: number };
 
 export interface BuildResult {
   nodesBuilt: number;
