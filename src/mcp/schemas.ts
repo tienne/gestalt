@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { guardObject } from './input-guard.js';
+import { ARCHITECTURE_VIEWS } from '../architecture/types.js';
 
 // ─── Shared Spec Sub-schemas ────────────────────────────────────
 // Spec의 ontology/gestaltAnalysis 필드를 구체화한 로컬 스키마.
@@ -832,3 +833,61 @@ export const prInputSchema = guardObject(
 );
 
 export type PrInput = z.infer<typeof prInputSchema>;
+
+// ─── Architecture View Tool ───────────────────────────────────────
+/** `ges_architecture`가 받는 액션. 서버 등록이 이 배열을 그대로 쓴다 */
+export const ARCHITECTURE_ACTIONS = [
+  'start',
+  'filter_tools',
+  'match_endpoints',
+  'validate',
+  'render',
+  'status',
+] as const;
+
+const feCallSchema = z.object({
+  id: z.string(),
+  method: z.string(),
+  path: z.string(),
+  baseUrl: z.string().optional(),
+});
+
+const beRouteSchema = z.object({
+  id: z.string(),
+  method: z.string(),
+  path: z.string(),
+  repo: z.string(),
+});
+
+export const architectureInputSchema = guardObject(
+  z.object({
+    action: z
+      .enum(ARCHITECTURE_ACTIONS)
+      .describe(
+        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 두 뷰의 이전 실행 요약',
+      ),
+    repoRoot: z.string().optional().describe('저장소 경로 (기본값: 현재 작업 디렉토리)'),
+    view: z
+      .enum(ARCHITECTURE_VIEWS)
+      .optional()
+      .describe('start에 필요. validate와 render에서 주면 ir.view와 같아야 한다'),
+    ir: z.unknown().optional().describe('validate와 render에 필요. ArchitectureIR JSON'),
+    audience: z
+      .enum(['private', 'shared'])
+      .optional()
+      .describe('render: openPath가 가리킬 HTML. 기본 private. 파일은 늘 둘 다 쓴다'),
+    checkFiles: z
+      .boolean()
+      .optional()
+      .describe('validate, render: code 근거의 파일과 줄을 확인할지. 기본 true'),
+    toolNames: z.array(z.string()).optional().describe('filter_tools에 필요'),
+    feCalls: z.array(feCallSchema).optional().describe('match_endpoints에 필요'),
+    beRoutes: z.array(beRouteSchema).optional().describe('match_endpoints에 필요'),
+    prefixCandidates: z
+      .array(z.string())
+      .optional()
+      .describe('match_endpoints: FE 경로 앞에 붙는 게이트웨이 prefix 후보'),
+  }),
+);
+
+export type ArchitectureInput = z.infer<typeof architectureInputSchema>;
