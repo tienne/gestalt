@@ -76,7 +76,8 @@ function writeTextAtomic(path: string, content: string): void {
   }
 }
 
-function nodeKey(node: ArchitectureNode): string {
+/** 같은 노드를 알아보는 키. 재실행 병합과 분석 합치기가 같은 기준을 쓴다 */
+export function nodeKey(node: Pick<ArchitectureNode, 'kind' | 'repo' | 'label'>): string {
   const label = node.label.trim().replace(/\s+/g, ' ').toLowerCase();
   return `${node.kind}\u0000${node.repo}\u0000${label}`;
 }

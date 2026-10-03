@@ -60,7 +60,7 @@ const DISTRIBUTION_ID_RE = /\bE[0-9A-Z]{12,13}\b/g;
 
 // live 근거만 있는 선은 점선이다. 조회는 지금 그렇다는 사실이지 코드가 그렇게 만든다는 증거가 아니라서
 // 다음 배포에 바뀔 수 있다. 코드나 스펙이 함께 있어야 실선이 된다
-function deriveLineStyle(evidence: Evidence[]): LineStyle {
+export function deriveLineStyle(evidence: Evidence[]): LineStyle {
   return evidence.some((e) => e.type === 'code' || e.type === 'spec') ? 'solid' : 'dashed';
 }
 
