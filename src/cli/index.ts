@@ -20,7 +20,10 @@ import {
   reviewLoopStateCommand,
 } from './commands/review-loop.js';
 import { approveGateCommand, reviewRoundsCommand } from './commands/approve-gate.js';
-import { harnessRefsCollectCommand } from './commands/harness-refs.js';
+import {
+  harnessRefsClonesPruneCommand,
+  harnessRefsCollectCommand,
+} from './commands/harness-refs.js';
 import {
   harnessRefsFollowupBuildCommand,
   harnessRefsFollowupCheckCommand,
@@ -422,6 +425,18 @@ export function createCli(): Command {
     .option('--refresh', '관련 레포 탐지 캐시를 무시한다')
     .option('--json', 'stdout에 JSON만')
     .action((o) => harnessRefsCollectCommand(o));
+
+  harnessRefs
+    .command('clones')
+    .description('collect가 워크트리마다 받아 둔 관련 레포 클론')
+    .command('prune')
+    .description(
+      '워크트리가 지워졌거나 오래 안 쓴 클론을 지운다. collect도 시작할 때 같은 기준으로 지운다',
+    )
+    .option('--all', '기준과 상관없이 전부 지운다. 도는 수집이 있으면 그 수집의 검색이 빈다')
+    .option('--max-idle-days <n>', '이 일수 넘게 안 쓴 클론을 지운다 (기본 7)')
+    .option('--json', 'stdout에 JSON만')
+    .action((o) => harnessRefsClonesPruneCommand(o));
 
   program
     .command('humanize-scan')
