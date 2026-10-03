@@ -6,6 +6,7 @@ import { parseArchitectureIr } from './ir-schema.js';
 import { nodeKey } from './store.js';
 import type {
   ArchitectureEdge,
+  ArchitectureGroup,
   ArchitectureIr,
   ArchitectureNode,
   ArchitectureRepo,
@@ -24,6 +25,8 @@ import {
 export interface MergeArchitectureIrsOptions {
   /** 레포를 넘는 엔드포인트 매칭에서 FE 경로 앞에 붙는 게이트웨이 prefix 후보 */
   prefixCandidates?: string[];
+  /** 입력마다 붙일 제품 이름. 넘긴 순서와 같다. 비우면 입력의 서비스 이름으로 짓는다 */
+  groupNames?: string[];
 }
 
 export interface MergedSharedNode {
@@ -540,6 +543,25 @@ export function mergeArchitectureIrs(
     }
   }
 
+  // ── 제품 그룹 ──
+  // 이미 합친 IR을 다시 합치면 그 안의 그룹을 그대로 물려받는다. 아니면 입력 하나가 제품 하나다
+  const groups: ArchitectureGroup[] = [];
+  const takenGroupIds = new Set<string>();
+  for (const { ir, input } of ordered) {
+    const own = ir.groups ?? [
+      {
+        id: `group-${groups.length + 1}`,
+        name: opts.groupNames?.[input] ?? defaultGroupName(ir),
+        members: ir.nodes.map((n) => n.id),
+      },
+    ];
+    for (const g of own) {
+      const members = [...new Set(g.members.map((m) => mapNode(input, m)))].sort(byText);
+      if (members.length === 0) continue;
+      groups.push({ id: uniqueId(g.id, takenGroupIds), name: g.name, members });
+    }
+  }
+
   const generatedAt = ordered
     .map((o) => o.ir.generatedAt)
     .sort(byText)
@@ -553,6 +575,7 @@ export function mergeArchitectureIrs(
     unresolved,
     sourcesUsed: [...sources.values()],
     generatedAt,
+    ...(groups.length > 0 ? { groups } : {}),
   });
   // 스키마를 한 번 더 통과시키면 객체 키가 스키마 순서로 다시 놓인다. 입력의 키 순서가 바이트에 새지 않는다
   const reparsed = parseArchitectureIr(draft);
@@ -587,6 +610,15 @@ export function mergeArchitectureIrs(
       islands: countIslands(irs.length, slots, crossEdges, inputsOf),
     },
   };
+}
+
+function defaultGroupName(ir: ArchitectureIr): string {
+  const services = ir.nodes
+    .filter((n) => n.kind === 'service')
+    .sort((a, b) => byText(a.id, b.id))
+    .map((n) => n.displayName ?? n.label);
+  if (services.length === 0) return ir.repos[0]?.name ?? '분석';
+  return services.length === 1 ? services[0]! : `${services[0]!} 외 ${services.length - 1}`;
 }
 
 function countIslands(

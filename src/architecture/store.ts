@@ -194,7 +194,16 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     unresolved.push({ ...prevQ, id, subject: { ...prevQ.subject } });
   }
 
-  return { ...next, nodes, edges, unresolved, sourcesUsed: next.sourcesUsed };
+  return {
+    ...next,
+    nodes,
+    edges,
+    unresolved,
+    sourcesUsed: next.sourcesUsed,
+    ...(next.groups !== undefined
+      ? { groups: next.groups.map((g) => ({ ...g, members: g.members.map(mapNodeId).sort() })) }
+      : {}),
+  };
 }
 
 /** 이전 실행을 한 줄로 보여줄 때 쓰는 요약 */

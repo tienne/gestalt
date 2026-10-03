@@ -24,7 +24,9 @@ export type ArchitectureValidationErrorCode =
   | 'LIVE_COMMAND_NOT_READ_ONLY'
   | 'ACCOUNT_NOT_FOUND'
   | 'INVALID_ACCOUNT_KIND'
-  | 'CLOUD_ID_IN_ID';
+  | 'CLOUD_ID_IN_ID'
+  | 'GROUP_MEMBER_NOT_FOUND'
+  | 'DUPLICATE_GROUP_ID';
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -157,6 +159,25 @@ function checkEvidenceList(
       }
     }
   });
+}
+
+function checkGroups(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  const nodeIds = new Set(ir.nodes.map((n) => n.id));
+  const seen = new Set<string>();
+  for (const group of ir.groups ?? []) {
+    if (seen.has(group.id)) {
+      errors.push({ code: 'DUPLICATE_GROUP_ID', message: `그룹 id "${group.id}"가 겹친다.` });
+    }
+    seen.add(group.id);
+    for (const member of group.members) {
+      if (nodeIds.has(member)) continue;
+      errors.push({
+        code: 'GROUP_MEMBER_NOT_FOUND',
+        message: `그룹 "${group.id}"의 member "${member}"가 nodes에 없다.`,
+        nodeId: member,
+      });
+    }
+  }
 }
 
 function checkAccounts(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
@@ -313,6 +334,7 @@ export function validateArchitectureIr(
   }
   checkParents(ir, errors);
   checkAccounts(ir, errors);
+  checkGroups(ir, errors);
   checkIdsForCloudIds(ir, errors);
 
   for (const edge of ir.edges) {

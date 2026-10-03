@@ -141,6 +141,12 @@ const repoSchema = z.object({
   remote: z.string().optional(),
 });
 
+const groupSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  members: z.array(z.string().min(1)).min(1),
+});
+
 export const architectureIrSchema = z.object({
   schemaVersion: z.literal(ARCHITECTURE_IR_SCHEMA_VERSION),
   view: architectureViewSchema,
@@ -150,6 +156,7 @@ export const architectureIrSchema = z.object({
   unresolved: z.array(unresolvedQuestionSchema),
   sourcesUsed: z.array(contextSourceSchema),
   generatedAt: z.string(),
+  groups: z.array(groupSchema).optional(),
 });
 
 export function parseArchitectureIr(input: unknown): Result<ArchitectureIr, ValidationError> {

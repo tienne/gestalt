@@ -6,6 +6,7 @@ export const NODE_KINDS = [
   'app_module',
   'external_service',
   'db_table',
+  'datastore',
   'workflow',
   'build',
   'artifact',
@@ -41,7 +42,11 @@ export const PLATFORMS = ['web', 'android', 'ios'] as const;
 /** 서빙 인프라. 화면 흐름과 배포 경로 둘 다에 설 수 있다 */
 export const INFRA_KINDS = ['domain', 'cdn', 'bucket', 'cloud_account'] as const;
 /** environment를 가질 수 있는 kind. 네이티브 배포처는 deploy_target으로 그린다 */
-export const ENVIRONMENT_KINDS: readonly NodeKind[] = [...INFRA_KINDS, 'deploy_target'];
+export const ENVIRONMENT_KINDS: readonly NodeKind[] = [
+  ...INFRA_KINDS,
+  'deploy_target',
+  'datastore',
+];
 /** 환경 정렬 순서. 여기 없는 환경은 이름순으로 뒤에, 환경이 없으면 맨 뒤에 선다 */
 export const ENVIRONMENT_ORDER = ['prod', 'stage', 'qa', 'dev'] as const;
 export const ARCHITECTURE_IR_SCHEMA_VERSION = '1.0.0';
@@ -49,6 +54,7 @@ export const ARCHITECTURE_IR_SCHEMA_VERSION = '1.0.0';
 export const PARENT_KINDS: Partial<Record<NodeKind, readonly NodeKind[]>> = {
   screen: ['feature', 'service'],
   feature: ['service'],
+  db_table: ['datastore'],
 };
 
 export type ArchitectureView = (typeof ARCHITECTURE_VIEWS)[number];
@@ -87,7 +93,7 @@ export interface ArchitectureNode {
   parent?: string;
   description?: string;
   evidence: Evidence[];
-  /** 인프라 노드와 deploy_target만. prod, stage, qa, dev 같은 환경 이름 */
+  /** 인프라 노드와 deploy_target, datastore만. prod, stage, qa, dev 같은 환경 이름 */
   environment?: string;
   /** 이 노드가 속한 cloud_account 노드 id. 양 끝 계정이 다른 선을 가려 그리는 데 쓴다 */
   account?: string;
@@ -128,6 +134,16 @@ export interface ArchitectureRepo {
   remote?: string;
 }
 
+/**
+ * 합친 IR에서 한 제품 몫. 분석은 제 제품이 닿는 것만 적으므로 그 입력에 있던 노드가 곧 그 제품 영역이다.
+ * 엣지를 따라 펼쳐 정하면 게이트웨이 하나가 제품이 안 쓰는 서버까지 끌고 들어온다
+ */
+export interface ArchitectureGroup {
+  id: string;
+  name: string;
+  members: string[];
+}
+
 export interface ArchitectureIr {
   schemaVersion: typeof ARCHITECTURE_IR_SCHEMA_VERSION;
   view: ArchitectureView;
@@ -137,4 +153,6 @@ export interface ArchitectureIr {
   unresolved: UnresolvedQuestion[];
   sourcesUsed: ContextSource[];
   generatedAt: string;
+  /** merge가 남기는 제품 그룹. 둘 이상이면 렌더러가 제품끼리 겹치는 띠를 그린다 */
+  groups?: ArchitectureGroup[];
 }

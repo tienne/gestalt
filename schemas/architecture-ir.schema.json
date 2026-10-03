@@ -23,7 +23,12 @@
     "edges": { "type": "array", "items": { "$ref": "#/definitions/edge" } },
     "unresolved": { "type": "array", "items": { "$ref": "#/definitions/unresolvedQuestion" } },
     "sourcesUsed": { "type": "array", "items": { "$ref": "#/definitions/contextSource" } },
-    "generatedAt": { "type": "string" }
+    "generatedAt": { "type": "string" },
+    "groups": {
+      "type": "array",
+      "description": "product groups left by merge; members are the node ids that came from that product's analysis",
+      "items": { "$ref": "#/definitions/group" }
+    }
   },
   "definitions": {
     "visibility": { "type": "string", "enum": ["public", "private"] },
@@ -80,6 +85,7 @@
             "app_module",
             "external_service",
             "db_table",
+            "datastore",
             "workflow",
             "build",
             "artifact",
@@ -111,14 +117,14 @@
         "parent": {
           "type": "string",
           "minLength": 1,
-          "description": "containment: a screen points to a feature or service, a feature points to a service; other kinds have no parent"
+          "description": "containment: a screen points to a feature or service, a feature points to a service, a db_table points to a datastore; other kinds have no parent"
         },
         "description": { "type": "string" },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
         "environment": {
           "type": "string",
           "minLength": 1,
-          "description": "domain, cdn, bucket, cloud_account and deploy_target only: prod, stage, qa, dev or another name"
+          "description": "domain, cdn, bucket, cloud_account, deploy_target and datastore only: prod, stage, qa, dev or another name"
         },
         "account": {
           "type": "string",
@@ -182,6 +188,19 @@
         },
         "question": { "type": "string", "minLength": 1 },
         "answer": { "type": "string" }
+      }
+    },
+    "group": {
+      "type": "object",
+      "required": ["id", "name", "members"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
       }
     },
     "contextSource": {

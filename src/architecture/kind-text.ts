@@ -14,6 +14,7 @@ export const NODE_KIND_SHORT: Record<NodeKind, string> = {
   app_module: '서버',
   external_service: '클라이언트',
   db_table: 'DB',
+  datastore: '저장소',
   workflow: '트리거',
   build: '빌드',
   artifact: '산출물',
