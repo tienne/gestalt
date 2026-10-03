@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  classifyCliCommand,
   classifyToolName,
   filterReadOnlyTools,
   READ_ONLY_ALLOW_WORDS,
@@ -150,5 +151,62 @@ describe('상수 정의', () => {
     for (const word of allowSet) {
       expect(denySet.has(word)).toBe(false);
     }
+  });
+});
+
+describe('classifyCliCommand', () => {
+  it('하위 명령이 list, get, describe로 시작하는 aws 명령은 allow다', () => {
+    expect(classifyCliCommand('aws sts get-caller-identity --profile acme-prod')).toBe('allow');
+    expect(classifyCliCommand('aws cloudfront list-distributions --output json')).toBe('allow');
+    expect(classifyCliCommand('aws s3api get-bucket-website --bucket acme-web')).toBe('allow');
+    expect(classifyCliCommand('aws ec2 describe-instances')).toBe('allow');
+    expect(classifyCliCommand('aws configure list-profiles')).toBe('allow');
+    expect(classifyCliCommand('aws-vault list')).toBe('allow');
+  });
+
+  it('전역 옵션이 서비스 앞에 와도 서비스와 하위 명령을 찾는다', () => {
+    expect(
+      classifyCliCommand(
+        'aws --profile acme-prod --region us-east-1 cloudfront list-distributions',
+      ),
+    ).toBe('allow');
+    expect(classifyCliCommand('aws --no-cli-pager --output=json s3api list-buckets')).toBe('allow');
+    expect(classifyCliCommand('aws --profile acme-prod s3 rm s3://acme-web --recursive')).toBe(
+      'deny',
+    );
+  });
+
+  it('쓰기 하위 명령과 읽기 동사가 아닌 하위 명령은 deny다', () => {
+    expect(classifyCliCommand('aws s3api put-bucket-policy --bucket x')).toBe('deny');
+    expect(classifyCliCommand('aws cloudfront create-invalidation --distribution-id X')).toBe(
+      'deny',
+    );
+    expect(classifyCliCommand('aws s3 ls')).toBe('deny');
+    expect(classifyCliCommand('aws s3 sync dist s3://acme-web')).toBe('deny');
+    expect(classifyCliCommand('aws configure get aws_secret_access_key')).toBe('deny');
+    expect(classifyCliCommand('aws-vault exec acme-prod -- aws s3 ls')).toBe('deny');
+  });
+
+  it('이름은 get이어도 비밀값이나 자격증명을 내주거나 파일을 내려받는 동작은 deny다', () => {
+    expect(classifyCliCommand('aws secretsmanager get-secret-value --secret-id x')).toBe('deny');
+    expect(classifyCliCommand('aws ecr get-login-password')).toBe('deny');
+    expect(classifyCliCommand('aws sts get-session-token')).toBe('deny');
+    expect(classifyCliCommand('aws sso get-role-credentials --role-name r')).toBe('deny');
+    expect(classifyCliCommand('aws s3api get-object --bucket b --key k out.txt')).toBe('deny');
+    expect(classifyCliCommand('aws ssm get-parameter --name p --with-decryption')).toBe('deny');
+  });
+
+  it('셸 연결이나 치환, 리다이렉션이 섞이면 deny다', () => {
+    expect(classifyCliCommand('aws sts get-caller-identity; rm -rf /')).toBe('deny');
+    expect(classifyCliCommand('aws s3api list-buckets | tee out.json')).toBe('deny');
+    expect(classifyCliCommand('aws s3api list-buckets > out.json')).toBe('deny');
+    expect(classifyCliCommand('aws s3api list-buckets --profile $(whoami)')).toBe('deny');
+    expect(classifyCliCommand('aws sts get-caller-identity && aws s3 rb s3://x')).toBe('deny');
+  });
+
+  it('aws 밖의 CLI나 하위 명령이 없는 명령은 ambiguous다', () => {
+    expect(classifyCliCommand('gcloud compute instances list')).toBe('ambiguous');
+    expect(classifyCliCommand('aws cloudfront')).toBe('ambiguous');
+    expect(classifyCliCommand('')).toBe('ambiguous');
   });
 });
