@@ -1,0 +1,44 @@
+{
+  "_comment": "가짜 aws CLI 응답. 계정 ID, 배포 ID, 도메인은 전부 지어낸 값이다",
+  "aws sts get-caller-identity --profile acme-prod": {
+    "UserId": "AROAFAKEFAKEFAKE:dev@example.com",
+    "Account": "000000000000",
+    "Arn": "arn:aws:sts::000000000000:assumed-role/ReadOnly/dev@example.com"
+  },
+  "aws sts get-caller-identity --profile acme-dev": {
+    "UserId": "AROAFAKEFAKEFAKE:dev@example.com",
+    "Account": "111111111111",
+    "Arn": "arn:aws:sts::111111111111:assumed-role/ReadOnly/dev@example.com"
+  },
+  "aws cloudfront list-distributions --profile acme-prod": {
+    "DistributionList": {
+      "Items": [
+        {
+          "Id": "EFAKEPROD0001",
+          "Aliases": { "Items": ["shop.example.com"] },
+          "Origins": {
+            "Items": [{ "DomainName": "acme-shop-prod-web.s3.us-east-1.amazonaws.com" }]
+          },
+          "Enabled": true
+        },
+        {
+          "Id": "EFAKEDEV00001",
+          "Aliases": { "Items": ["shop.dev.example.com"] },
+          "Origins": {
+            "Items": [{ "DomainName": "acme-shop-dev-web.s3.us-east-1.amazonaws.com" }]
+          },
+          "Enabled": true
+        },
+        {
+          "Id": "EFAKEASSET001",
+          "Aliases": { "Items": ["assets.example.com"] },
+          "Origins": { "Items": [{ "DomainName": "acme-assets-prod.s3.us-east-1.amazonaws.com" }] },
+          "Enabled": true
+        }
+      ]
+    }
+  },
+  "aws s3api list-buckets --profile acme-dev": {
+    "Buckets": [{ "Name": "acme-shop-dev-web" }]
+  }
+}

@@ -62,6 +62,23 @@ const WEB_FILES: Record<string, string> = {
     '',
   ].join('\n'),
   '.env.example': 'API_BASE=https://api.acme.test\n',
+  'infra/serving.ts': [
+    '// acme-shop 웹 서빙 스택. 계정 ID는 지어낸 값이다',
+    "const PROD_ACCOUNT = '000000000000';",
+    "const DEV_ACCOUNT = '111111111111';",
+    "const prodStack = new Stack(app, 'ShopProd', { env: { account: PROD_ACCOUNT } });",
+    "const devStack = new Stack(app, 'ShopDev', { env: { account: DEV_ACCOUNT } });",
+    "export const prodBucket = new Bucket(prodStack, 'Web', { bucketName: 'acme-shop-prod-web' });",
+    "export const prodCdn = new Distribution(prodStack, 'Cdn', {",
+    '  defaultBehavior: { origin: new S3Origin(prodBucket) },',
+    "  domainNames: ['shop.example.com'],",
+    '});',
+    "export const devBucket = new Bucket(devStack, 'Web', { bucketName: 'acme-shop-dev-web' });",
+    "export const devCdn = new Distribution(prodStack, 'DevCdn', {",
+    '  defaultBehavior: { origin: new S3Origin(devBucket) },',
+    '});',
+    '',
+  ].join('\n'),
   '.github/workflows/deploy.yml': [
     'name: deploy-web',
     'on:',
@@ -348,6 +365,46 @@ describe('architecture e2e — 가짜 FE와 BE 레포에서 뷰 두 개 렌더',
     return { ir: irOf('screen-chain', nodes, edges), matches };
   }
 
+  /** 세션 역할: 앱 진입점에서 서비스와 기능영역을, 게이트웨이 설정에서 라우트를 찾아 IR에 더한다 */
+  function buildDrilldown(): ArchitectureIr {
+    const { ir } = buildScreenChain();
+    const app = 'src/app.tsx';
+    const gw = 'gateway/routes.yaml';
+    const parentOf: Record<string, string> = {
+      'scr-order': 'feat-orders',
+      'scr-cart': 'feat-cart',
+    };
+    const nodes = [
+      ...ir.nodes.map((n) => (parentOf[n.id] ? { ...n, parent: parentOf[n.id] } : n)),
+      node('svc-shop', 'service', 'Acme Shop', 'web', [
+        code('web', app, 'export function AcmeShopApp'),
+        { type: 'doc', location: PRIVATE_DOC_URL, visibility: 'private' },
+      ]),
+      {
+        ...node('feat-orders', 'feature', '주문', 'web', [code('web', app, 'orders 기능영역')]),
+        parent: 'svc-shop',
+      },
+      {
+        ...node('feat-cart', 'feature', '장바구니', 'web', [code('web', app, 'cart 기능영역')]),
+        parent: 'svc-shop',
+      },
+      node('gw-edge', 'gateway', 'edge-gateway', 'api', [code('api', gw, 'routes:')]),
+    ];
+    const edges = [
+      ...ir.edges,
+      edge('routes-order', 'gw-edge', 'ep-order', 'routes', [
+        code('api', gw, 'path: /api/v1/orders/**'),
+      ]),
+      edge('routes-cart', 'gw-edge', 'ep-cart', 'routes', [
+        code('api', gw, 'path: /api/v1/cart/**'),
+      ]),
+      edge('nav-cart-order', 'scr-cart', 'scr-order', 'navigates', [
+        code('web', 'src/pages/cart-link.tsx', '<Link to='),
+      ]),
+    ];
+    return { ...ir, nodes, edges };
+  }
+
   function buildDeployPath(): ArchitectureIr {
     const webWf = '.github/workflows/deploy.yml';
     const apiWf = '.github/workflows/build.yml';
@@ -491,46 +548,6 @@ describe('architecture e2e — 가짜 FE와 BE 레포에서 뷰 두 개 렌더',
   });
 
   describe('뷰① screen-chain 드릴다운', () => {
-    /** 세션 역할: 앱 진입점에서 서비스와 기능영역을, 게이트웨이 설정에서 라우트를 찾아 IR에 더한다 */
-    function buildDrilldown(): ArchitectureIr {
-      const { ir } = buildScreenChain();
-      const app = 'src/app.tsx';
-      const gw = 'gateway/routes.yaml';
-      const parentOf: Record<string, string> = {
-        'scr-order': 'feat-orders',
-        'scr-cart': 'feat-cart',
-      };
-      const nodes = [
-        ...ir.nodes.map((n) => (parentOf[n.id] ? { ...n, parent: parentOf[n.id] } : n)),
-        node('svc-shop', 'service', 'Acme Shop', 'web', [
-          code('web', app, 'export function AcmeShopApp'),
-          { type: 'doc', location: PRIVATE_DOC_URL, visibility: 'private' },
-        ]),
-        {
-          ...node('feat-orders', 'feature', '주문', 'web', [code('web', app, 'orders 기능영역')]),
-          parent: 'svc-shop',
-        },
-        {
-          ...node('feat-cart', 'feature', '장바구니', 'web', [code('web', app, 'cart 기능영역')]),
-          parent: 'svc-shop',
-        },
-        node('gw-edge', 'gateway', 'edge-gateway', 'api', [code('api', gw, 'routes:')]),
-      ];
-      const edges = [
-        ...ir.edges,
-        edge('routes-order', 'gw-edge', 'ep-order', 'routes', [
-          code('api', gw, 'path: /api/v1/orders/**'),
-        ]),
-        edge('routes-cart', 'gw-edge', 'ep-cart', 'routes', [
-          code('api', gw, 'path: /api/v1/cart/**'),
-        ]),
-        edge('nav-cart-order', 'scr-cart', 'scr-order', 'navigates', [
-          code('web', 'src/pages/cart-link.tsx', '<Link to='),
-        ]),
-      ];
-      return { ...ir, nodes, edges };
-    }
-
     it('service가 그려지면 레벨별 SVG를 한 파일에 담고 levels 요약을 낸다', async () => {
       const out = (await render(buildDrilldown())) as Awaited<ReturnType<typeof render>> & {
         levels: { id: string; title: string; nodes: number; edges: number }[];
@@ -612,6 +629,280 @@ describe('architecture e2e — 가짜 FE와 BE 레포에서 뷰 두 개 렌더',
       const htmlA = readFileSync(first.htmlPath);
       const second = await render(ir);
       expect(Buffer.compare(htmlA, readFileSync(second.htmlPath))).toBe(0);
+    });
+  });
+
+  describe('서빙 인프라와 live 근거', () => {
+    const AWS = JSON.parse(
+      readFileSync(resolve('tests/fixtures/architecture-aws/responses.json'), 'utf-8'),
+    ) as Record<string, unknown>;
+    const OBSERVED_AT = '2026-01-02T03:04:05Z';
+    const serving = 'infra/serving.ts';
+
+    /** 세션 역할: 읽기 전용 명령을 돌린 기록. 응답 원문은 근거에 싣지 않는다 */
+    const live = (command: string, location: string): Evidence => {
+      expect(AWS[command]).toBeDefined();
+      return { type: 'live', location, command, observedAt: OBSERVED_AT, visibility: 'private' };
+    };
+    const account = (profile: string): string =>
+      (AWS[`aws sts get-caller-identity --profile ${profile}`] as { Account: string }).Account;
+    const distributions = (): { Id: string; Aliases: { Items: string[] } }[] =>
+      (
+        AWS['aws cloudfront list-distributions --profile acme-prod'] as {
+          DistributionList: { Items: { Id: string; Aliases: { Items: string[] } }[] };
+        }
+      ).DistributionList.Items;
+    const distLabel = (alias: string): string =>
+      distributions().find((d) => d.Aliases.Items.includes(alias))!.Id;
+    const LIST_DIST = 'aws cloudfront list-distributions --profile acme-prod';
+
+    function infraNodes(): ArchitectureNode[] {
+      const infra = (
+        id: string,
+        kind: ArchitectureNode['kind'],
+        label: string,
+        evidence: Evidence[],
+        extra: Partial<ArchitectureNode>,
+      ): ArchitectureNode => ({ ...node(id, kind, label, 'web', evidence), ...extra });
+      return [
+        infra(
+          'acct-prod',
+          'cloud_account',
+          account('acme-prod'),
+          [live('aws sts get-caller-identity --profile acme-prod', 'aws:sts')],
+          {},
+        ),
+        infra(
+          'acct-dev',
+          'cloud_account',
+          account('acme-dev'),
+          [live('aws sts get-caller-identity --profile acme-dev', 'aws:sts')],
+          {},
+        ),
+        infra(
+          'b-prod',
+          'bucket',
+          'acme-shop-prod-web',
+          [code('web', serving, "bucketName: 'acme-shop-prod-web'")],
+          {
+            environment: 'prod',
+            account: 'acct-prod',
+          },
+        ),
+        infra(
+          'b-dev',
+          'bucket',
+          'acme-shop-dev-web',
+          [code('web', serving, "bucketName: 'acme-shop-dev-web'")],
+          {
+            environment: 'dev',
+            account: 'acct-dev',
+          },
+        ),
+        infra(
+          'cdn-prod',
+          'cdn',
+          distLabel('shop.example.com'),
+          [
+            code('web', serving, "new Distribution(prodStack, 'Cdn'"),
+            live(LIST_DIST, 'aws:cloudfront'),
+          ],
+          { environment: 'prod', account: 'acct-prod' },
+        ),
+        infra(
+          'cdn-dev',
+          'cdn',
+          distLabel('shop.dev.example.com'),
+          [code('web', serving, "new Distribution(prodStack, 'DevCdn'")],
+          { environment: 'dev', account: 'acct-prod' },
+        ),
+        infra(
+          'd-prod',
+          'domain',
+          'shop.example.com',
+          [code('web', serving, "domainNames: ['shop.example.com']")],
+          {
+            environment: 'prod',
+          },
+        ),
+        infra('d-dev', 'domain', 'shop.dev.example.com', [live(LIST_DIST, 'aws:cloudfront')], {
+          environment: 'dev',
+        }),
+      ];
+    }
+
+    function infraEdges(): ArchitectureEdge[] {
+      return [
+        edge('o-prod', 'cdn-prod', 'b-prod', 'origin', [
+          code('web', serving, 'origin: new S3Origin(prodBucket)'),
+        ]),
+        // 코드도 있고 조회도 했다. 실선이다
+        edge('o-dev', 'cdn-dev', 'b-dev', 'origin', [
+          code('web', serving, 'origin: new S3Origin(devBucket)'),
+          live(LIST_DIST, 'aws:cloudfront'),
+        ]),
+        edge('rs-prod', 'd-prod', 'cdn-prod', 'resolves_to', [
+          code('web', serving, "domainNames: ['shop.example.com']"),
+        ]),
+        // dev 도메인은 코드에 없고 조회로만 확인했다. 점선이다
+        edge('rs-dev', 'd-dev', 'cdn-dev', 'resolves_to', [live(LIST_DIST, 'aws:cloudfront')]),
+      ];
+    }
+
+    function buildServing(): ArchitectureIr {
+      const ir = buildDrilldown();
+      return {
+        ...ir,
+        nodes: [
+          ...ir.nodes.map((n) =>
+            n.id === 'svc-shop' ? { ...n, platforms: ['web' as const, 'android' as const] } : n,
+          ),
+          ...infraNodes(),
+        ],
+        edges: [
+          ...ir.edges,
+          ...infraEdges(),
+          edge('sv-prod', 'b-prod', 'svc-shop', 'serves', [
+            code('web', '.github/workflows/deploy.yml', 'name: deploy-web'),
+          ]),
+          edge('sv-dev', 'b-dev', 'svc-shop', 'serves', [
+            live('aws s3api list-buckets --profile acme-dev', 'aws:s3'),
+          ]),
+        ],
+      };
+    }
+
+    /** 서비스에 안 붙는 인프라(에셋 버킷)는 배포 경로의 인프라 레인에만 선다 */
+    function buildDeployInfra(): ArchitectureIr {
+      const ir = buildDeployPath();
+      return {
+        ...ir,
+        nodes: [
+          ...ir.nodes,
+          ...infraNodes(),
+          node('b-assets', 'bucket', 'acme-assets-prod', 'web', [
+            live(LIST_DIST, 'aws:cloudfront'),
+          ]),
+          {
+            ...node('cdn-assets', 'cdn', distLabel('assets.example.com'), 'web', [
+              live(LIST_DIST, 'aws:cloudfront'),
+            ]),
+            environment: 'prod',
+          },
+        ],
+        edges: [
+          ...ir.edges,
+          ...infraEdges(),
+          edge('dep-prod', 'art-dist', 'b-prod', 'deploys_to', [
+            code('web', '.github/workflows/deploy.yml', 'name: deploy-web'),
+          ]),
+          edge('o-assets', 'cdn-assets', 'b-assets', 'origin', [live(LIST_DIST, 'aws:cloudfront')]),
+        ],
+      };
+    }
+
+    function sectionOf(html: string, levelId: string): string {
+      const start = html.indexOf(`data-level-id="${levelId}"`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return html.slice(start, html.indexOf('</section>', start));
+    }
+
+    function laneTitles(section: string): string[] {
+      return [...section.matchAll(/<div class="lane-title"[^>]*>([^<]+)</g)].map((m) => m[1]!);
+    }
+
+    it('서비스 레벨이 도메인부터 서버까지 레인을 잇고 전체 화면 카드에 플랫폼과 prod 도메인을 싣는다', async () => {
+      const out = await render(buildServing());
+      expect(out.ok).toBe(true);
+      const html = readFileSync(out.htmlPath, 'utf-8');
+      expect(laneTitles(sectionOf(html, 'service:svc-shop'))).toEqual([
+        '도메인',
+        'CDN',
+        '버킷',
+        '기능 영역',
+        '게이트웨이',
+        '서버',
+      ]);
+      const root = sectionOf(html, 'root');
+      const card = root.slice(root.indexOf('data-node-id="svc-shop"'));
+      expect(card).toContain('aria-label="웹"');
+      expect(card).toContain('<span class="tc dom">shop.example.com</span>');
+      // android는 근거가 없어서 칩 대신 질문으로 간다
+      expect(card.slice(0, card.indexOf('</div>'))).not.toContain('Android 앱');
+      expect(html).toContain('Android 앱으로 배포한다는 근거를 못 찾았어요');
+    });
+
+    it('live만 있는 연결은 점선, 코드와 함께면 실선이고 계정을 넘는 선은 색이 다르다', async () => {
+      const out = await render(buildServing());
+      const section = sectionOf(readFileSync(out.htmlPath, 'utf-8'), 'service:svc-shop');
+      const linkOf = (from: string, to: string): string => {
+        const at = section.indexOf(`data-from="${from}" data-to="${to}"`);
+        expect(at).toBeGreaterThanOrEqual(0);
+        return section.slice(
+          section.lastIndexOf('<g class="link', at),
+          section.indexOf('</g>', at),
+        );
+      };
+      expect(linkOf('d-dev', 'cdn-dev')).toContain('stroke-dasharray');
+      expect(linkOf('cdn-dev', 'b-dev')).not.toContain('stroke-dasharray');
+      expect(linkOf('cdn-dev', 'b-dev')).toContain('x-account');
+      expect(linkOf('cdn-prod', 'b-prod')).not.toContain('x-account');
+    });
+
+    it('공유본에서 계정 ID, 배포 ID, 조회 명령을 가리고 다시 그려도 같은 바이트다', async () => {
+      const out = await render(buildServing());
+      const privateHtml = readFileSync(out.htmlPath, 'utf-8');
+      const shared = readFileSync(out.sharedHtmlPath, 'utf-8');
+      expect(privateHtml).toContain(LIST_DIST);
+      for (const secret of [
+        account('acme-prod'),
+        account('acme-dev'),
+        distLabel('shop.example.com'),
+        LIST_DIST,
+      ]) {
+        expect(shared).not.toContain(secret);
+      }
+      expect(shared).toContain(OBSERVED_AT);
+      const again = await render(buildServing());
+      expect(readFileSync(again.htmlPath, 'utf-8')).toBe(privateHtml);
+      expect(readFileSync(again.sharedHtmlPath, 'utf-8')).toBe(shared);
+    });
+
+    it('배포 경로에 버킷, CDN, 도메인 레인이 붙고 서비스에 안 붙는 인프라도 선다', async () => {
+      const ir = buildDeployInfra();
+      const out = await render(ir);
+      expect(out.ok).toBe(true);
+      const html = readFileSync(out.htmlPath, 'utf-8');
+      const titles = laneTitles(html);
+      expect(titles.slice(titles.indexOf('버킷'))).toEqual([
+        '버킷',
+        'CDN',
+        '도메인',
+        '클라우드 계정',
+      ]);
+      expect(edgeIdsInSvg(html)).toEqual(ir.edges.map((e) => e.id).sort());
+      expect(html).toContain('data-node-id="b-assets"');
+      expect(pathOfEdge(html, 'o-assets')).toContain('stroke-dasharray');
+    });
+
+    it('읽기 전용이 아닌 명령을 근거로 쓰면 render를 거부한다', async () => {
+      const ir = buildServing();
+      ir.nodes = ir.nodes.map((n) =>
+        n.id === 'cdn-prod'
+          ? {
+              ...n,
+              evidence: [
+                {
+                  ...live(LIST_DIST, 'aws:cloudfront'),
+                  command: 'aws s3 rm s3://acme-shop-prod-web --recursive',
+                },
+              ],
+            }
+          : n,
+      );
+      const out = await render(ir);
+      expect(out.ok).toBe(false);
+      expect(out.errors).toEqual([expect.objectContaining({ code: 'LIVE_COMMAND_NOT_READ_ONLY' })]);
     });
   });
 });

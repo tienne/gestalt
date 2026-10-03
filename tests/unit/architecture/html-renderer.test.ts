@@ -184,7 +184,7 @@ describe('renderArchitectureHtml', () => {
     const html = renderArchitectureHtml(v, layout, { audience: 'private' });
     expect(html).toContain('prefers-color-scheme: dark');
     expect(html).toContain('실선: 코드나 스펙으로 확인한 연결');
-    expect(html).toContain('점선: 문서나 사람 말로만 확인한 연결');
+    expect(html).toContain('점선: 문서나 사람 말, 실제 조회로만 확인한 연결');
     expect(html).toContain('class="swatch k-endpoint"');
     // 토글은 html의 data-theme로 덮고 저장 실패에도 동작해야 한다
     expect(html).toContain(':root[data-theme="dark"]');
