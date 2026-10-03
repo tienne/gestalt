@@ -805,6 +805,17 @@ ${FOCUS_SOURCE}
       laneLayer.appendChild(svgEl('rect', { 'class': 'lane', x: l.x, y: 12, width: l.width, height: height - 24, rx: 14 }));
     });
     svg.appendChild(laneLayer);
+    var regionLayer = svgEl('g', { 'class': 'regions' });
+    if (o.regions) {
+      o.regions.groups.forEach(function (r, i) {
+        regionLayer.appendChild(svgEl('rect', { 'class': 'region region-' + i, x: r.x, y: r.y, width: r.width, height: r.height, rx: 16 }));
+      });
+      if (o.regions.shared) {
+        var sh = o.regions.shared;
+        regionLayer.appendChild(svgEl('rect', { 'class': 'region-shared', x: sh.x, y: sh.y, width: sh.width, height: sh.height, rx: 12 }));
+      }
+    }
+    svg.appendChild(regionLayer);
     var linkLayer = svgEl('g', { 'class': 'edges' });
     paths.forEach(function (p) {
       var e = p.e;
@@ -850,6 +861,21 @@ ${FOCUS_SOURCE}
       title.style.width = l.width + 'px';
       host.appendChild(title);
     });
+    if (o.regions) {
+      // 서버 렌더와 같은 자리다. 위 영역 이름은 박스 안 위쪽, 아래 영역 이름은 안 아래쪽, 겹친 띠 이름은 띠 바로 위다
+      o.regions.groups.forEach(function (r, i) {
+        var rt = el('div', 'region-title r-' + i, r.name);
+        rt.style.left = r.x + 'px';
+        rt.style.top = (i === 0 ? r.y + 4 : r.y + r.height - 26) + 'px';
+        host.appendChild(rt);
+      });
+      if (o.regions.shared) {
+        var stl = el('div', 'region-title r-shared', '같이 쓰는 영역 (' + o.regions.groups.map(function (r) { return r.name; }).join(', ') + ')');
+        stl.style.left = o.regions.shared.x + 'px';
+        stl.style.top = (o.regions.shared.y - 26) + 'px';
+        host.appendChild(stl);
+      }
+    }
     Object.keys(pos).sort().forEach(function (id) { host.appendChild(o.card(id, pos[id])); });
   }
   function drawColumns(list, host) {
@@ -1002,9 +1028,19 @@ ${FOCUS_SOURCE}
       boxes.push(b);
       top = Math.min(top, b.y);
     });
-    var pos = focusLayout(boxes, keep, top, 24);
+    var names = src.getAttribute('data-regions');
+    var banded = null;
+    if (names) {
+      var bandOf = {};
+      src.querySelectorAll('.node[data-band]').forEach(function (c) {
+        bandOf[c.getAttribute('data-node-id')] = Number(c.getAttribute('data-band'));
+      });
+      banded = focusBandLayout(boxes, keep, top, 24, bandOf, JSON.parse(names));
+    }
+    var pos = banded ? banded.pos : focusLayout(boxes, keep, top, 24);
     var bottom = top;
     Object.keys(pos).forEach(function (id) { bottom = Math.max(bottom, pos[id].y + pos[id].h); });
+    if (banded && banded.bottom) bottom = Math.max(bottom, banded.bottom);
     var rects = src.querySelectorAll('rect.lane');
     var titles = src.querySelectorAll('.lane-title');
     var lanes = [];
@@ -1028,6 +1064,7 @@ ${FOCUS_SOURCE}
       pos: pos,
       edges: all.filter(function (e) { return keptEdge[e.id]; }),
       lanes: lanes,
+      regions: banded ? banded.regions : null,
       width: parseFloat(src.getAttribute('data-w')),
       height: bottom + 40,
       label: '이어진 연결: ' + label(nodeId),

@@ -10,6 +10,7 @@ const KIND_COLORS: Record<NodeKind, { light: string; dark: string }> = {
   app_module: { light: '#7c3aed', dark: '#a78bfa' },
   external_service: { light: '#d97706', dark: '#fbbf24' },
   db_table: { light: '#dc2626', dark: '#f87171' },
+  datastore: { light: '#be123c', dark: '#fb7185' },
   workflow: { light: '#0284c7', dark: '#38bdf8' },
   build: { light: '#0d9488', dark: '#2dd4bf' },
   artifact: { light: '#9333ea', dark: '#c084fc' },
@@ -36,6 +37,8 @@ const KIND_ICONS: Record<NodeKind, string> = {
     '<path d="M9 3v4.5M15 3v4.5"/><path d="M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0z"/><path d="M12 16.5V21"/>',
   db_table:
     '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13"/><path d="M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/>',
+  datastore:
+    '<ellipse cx="12" cy="5" rx="7.5" ry="2.5"/><path d="M4.5 5v4.5c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5V5"/><path d="M4.5 9.5V14c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5V9.5"/><path d="M4.5 14v4.5c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5V14"/>',
   workflow: '<path d="M13 2.5L4.5 13.5H11l-1 8 8.5-11H12z"/>',
   build:
     '<path d="M14.5 6.2a4 4 0 0 0-5.3 5.3L3.5 17.2l3.3 3.3 5.7-5.7a4 4 0 0 0 5.3-5.3l-2.6 2.6-2.5-.2-.2-2.5z"/>',
@@ -124,6 +127,11 @@ const LIGHT_TOKENS = `
   --edge-strong: #3f4753;
   --lane: rgba(100, 116, 139, 0.085);
   --lane-line: rgba(100, 116, 139, 0.16);
+  --region-a: rgba(13, 148, 136, 0.07);
+  --region-a-line: #0d9488;
+  --region-b: rgba(124, 58, 237, 0.06);
+  --region-b-line: #7c3aed;
+  --region-shared-line: #475569;
   --warn: #b45309;
   --warn-soft: #fef3c7;
   --ok: #15803d;
@@ -154,6 +162,11 @@ const DARK_TOKENS = `
   --edge-strong: #dde1e8;
   --lane: rgba(148, 163, 184, 0.06);
   --lane-line: rgba(148, 163, 184, 0.13);
+  --region-a: rgba(45, 212, 191, 0.08);
+  --region-a-line: #2dd4bf;
+  --region-b: rgba(167, 139, 250, 0.08);
+  --region-b-line: #a78bfa;
+  --region-shared-line: #cbd5e1;
   --warn: #fbbf24;
   --warn-soft: rgba(251, 191, 36, 0.14);
   --ok: #4ade80;
@@ -241,6 +254,17 @@ button { font: inherit; color: inherit; }
 .level[hidden] { display: none; }
 .links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
 .lane { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
+.region { stroke-width: 1.5; }
+.region-0 { fill: var(--region-a); stroke: var(--region-a-line); }
+.region-1 { fill: var(--region-b); stroke: var(--region-b-line); }
+.region-shared { fill: none; stroke: var(--region-shared-line); stroke-width: 1.5; stroke-dasharray: 6 5; }
+.region-title {
+  position: absolute; height: 22px; padding: 0 10px; display: flex; align-items: center;
+  font-size: 13px; font-weight: 700; white-space: nowrap; pointer-events: none;
+}
+.region-title.r-0 { color: var(--region-a-line); }
+.region-title.r-1 { color: var(--region-b-line); }
+.region-title.r-shared { color: var(--region-shared-line); }
 .lane-title {
   position: absolute; display: flex; align-items: center; gap: 8px; padding: 0 14px; height: 22px;
   font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden;

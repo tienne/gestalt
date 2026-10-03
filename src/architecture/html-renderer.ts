@@ -42,6 +42,7 @@ const NODE_KIND_TEXT: Record<NodeKind, string> = {
   app_module: '서버',
   external_service: '호출 클라이언트',
   db_table: '테이블',
+  datastore: '저장소 클러스터',
   workflow: '워크플로',
   build: '빌드',
   artifact: '산출물',
@@ -211,6 +212,7 @@ function renderCard(
   enterable: boolean,
   focus: boolean,
   facts: ServiceFacts | undefined,
+  band: number | undefined,
 ): string {
   const name = nodeName(node);
   const guess = isGuess(node);
@@ -235,7 +237,7 @@ function renderCard(
   const x = round2(box.x + CANVAS_PAD_X);
   const y = round2(box.y + CANVAS_PAD_TOP);
   return (
-    `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(node.id)}" role="button" tabindex="0" ` +
+    `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(node.id)}"${band !== undefined ? ` data-band="${band}"` : ''} role="button" tabindex="0" ` +
     `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
     `style="left:${x}px;top:${y}px;width:${box.width}px;height:${box.height}px">` +
     `<span class="kc">${iconUse(`i-${node.kind}`)}${escapeHtml(NODE_KIND_SHORT[node.kind])}</span>` +
@@ -297,6 +299,41 @@ interface CanvasSpec {
   services: Record<string, ServiceFacts>;
 }
 
+const REGION_TITLE_INSET = 4;
+
+/** 제품 영역 두 장과 그 겹친 띠. 위 영역 이름은 박스 안 위쪽, 아래 영역 이름은 박스 안 아래쪽, 겹친 띠 이름은 띠 바로 위에 단다 */
+function renderRegions(layout: LayoutResult): { regionRects: string; regionTitles: string } {
+  const regions = layout.regions;
+  if (!regions) return { regionRects: '', regionTitles: '' };
+  const left = (x: number): number => round2(x + CANVAS_PAD_X);
+  const top = (y: number): number => round2(y + CANVAS_PAD_TOP);
+  const rects = regions.groups.map(
+    (r, i) =>
+      `<rect class="region region-${i}" data-group-id="${escapeHtml(r.id)}" x="${left(r.x)}" y="${top(r.y)}" ` +
+      `width="${r.width}" height="${r.height}" rx="16"/>`,
+  );
+  const titles = regions.groups.map((r, i) => {
+    const y =
+      i === 0
+        ? top(r.y) + REGION_TITLE_INSET
+        : round2(top(r.y + r.height) - 22 - REGION_TITLE_INSET);
+    return `<div class="region-title r-${i}" style="left:${left(r.x)}px;top:${y}px">${escapeHtml(r.name)}</div>`;
+  });
+  const shared = regions.shared;
+  if (shared) {
+    rects.push(
+      `<rect class="region-shared" x="${left(shared.x)}" y="${top(shared.y)}" width="${shared.width}" ` +
+        `height="${shared.height}" rx="12"/>`,
+    );
+    const names = regions.groups.map((r) => r.name).join(', ');
+    titles.push(
+      `<div class="region-title r-shared" style="left:${left(shared.x)}px;top:${round2(top(shared.y) - 22 - REGION_TITLE_INSET)}px">` +
+        `${escapeHtml(`같이 쓰는 영역 (${names})`)}</div>`,
+    );
+  }
+  return { regionRects: rects.join(''), regionTitles: titles.join('') };
+}
+
 /** 레벨 하나. 레인 띠와 선은 SVG, 카드는 그 위에 겹친 HTML이다. 좌표는 전부 서버가 박는다 */
 function renderLevelSection(spec: CanvasSpec): string {
   const open = `<section class="level" data-level-id="${escapeHtml(spec.levelId)}" aria-label="${escapeHtml(spec.title)}"`;
@@ -344,6 +381,7 @@ function renderLevelSection(spec: CanvasSpec): string {
         `${escapeHtml(LANE_TITLES[l.id])}<span class="n">${l.count}</span></div>`,
     )
     .join('');
+  const { regionRects, regionTitles } = renderRegions(layout);
   const links = edges
     .map((e) => {
       const route = canvas.edges.get(e.id);
@@ -362,15 +400,20 @@ function renderLevelSection(spec: CanvasSpec): string {
         target !== undefined && target !== spec.levelId,
         n.id === spec.focusId,
         spec.services[n.id],
+        layout.regions?.bandOf[n.id],
       );
     })
     .join('');
+  // 포커스 화면이 영역 이름을 다시 달 때 읽는다
+  const regionNames = layout.regions
+    ? ` data-regions="${escapeHtml(JSON.stringify(layout.regions.groups.map((r) => r.name)))}"`
+    : '';
   return (
-    `${open} data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px"${hidden}>` +
+    `${open} data-w="${width}" data-h="${height}"${regionNames} style="width:${width}px;height:${height}px"${hidden}>` +
     `<svg class="links" id="${spec.svgId}" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
     `viewBox="0 0 ${width} ${height}" role="group" aria-label="${escapeHtml(`${spec.title} 연결`)}">` +
-    `<g class="lanes">${laneRects}</g><g class="edges">${links}</g></svg>` +
-    `${laneTitles}${cards}</section>`
+    `<g class="lanes">${laneRects}</g><g class="regions">${regionRects}</g><g class="edges">${links}</g></svg>` +
+    `${laneTitles}${regionTitles}${cards}</section>`
   );
 }
 

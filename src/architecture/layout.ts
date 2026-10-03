@@ -40,6 +40,30 @@ export interface LayoutResult {
   lanes: LayoutLane[];
   /** elk 배치 뒤 자리를 옮긴 노드. 이 노드에 붙은 elk 경로는 경유점으로 쓰지 않는다 */
   movedNodeIds?: string[];
+  /** 제품 영역. 두 제품을 합친 그림을 띠로 나눠 쌓았을 때만 있다 */
+  regions?: LayoutRegions;
+}
+
+/** 노드 좌표와 같은 기준의 사각형 */
+export interface LayoutRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface LayoutRegion extends LayoutRect {
+  id: string;
+  name: string;
+}
+
+export interface LayoutRegions {
+  /** 그룹 순서 그대로다. 첫째는 위, 둘째는 아래 */
+  groups: LayoutRegion[];
+  /** 두 영역이 겹치는 띠. 같이 쓰는 노드가 없으면 없다 */
+  shared?: LayoutRect;
+  /** 노드 id → 띠. 0은 첫째 전용, 1은 같이 씀, 2는 둘째 전용이다. 포커스 화면이 이걸로 다시 쌓는다 */
+  bandOf: Record<string, 0 | 1 | 2>;
 }
 
 /**
@@ -77,6 +101,8 @@ export const KIND_LANE: Record<NodeKind, LaneId> = {
   app_module: 'app_module',
   external_service: 'external_service',
   db_table: 'db_table',
+  // 클러스터는 테이블과 같은 rank라 같은 레인에 둔다
+  datastore: 'db_table',
   workflow: 'workflow',
   build: 'build',
   artifact: 'artifact',
@@ -120,6 +146,7 @@ export const PARTITION_RANK: Record<NodeKind, number> = {
   app_module: 3,
   external_service: 4,
   db_table: 5,
+  datastore: 5,
   workflow: 0,
   build: 1,
   artifact: 2,
@@ -295,7 +322,8 @@ export async function computeLayout(
       to: e.to,
       ...(FLAT_BACKWARD_EDGE_KINDS.has(e.kind) ? { backward: true } : {}),
     }));
-  return computeGraphLayout(nodes, edges);
+  const laid = await computeGraphLayout(nodes, edges);
+  return stackBands(laid, bandGroupsOf(ir));
 }
 
 /**
@@ -431,5 +459,131 @@ export function pinToColumnTop(layout: LayoutResult, nodeId: string): LayoutResu
     nodes,
     edges: layout.edges.map((e) => ({ ...e })),
     movedNodeIds: [...moved].sort(),
+  };
+}
+
+/** 띠로 나눌 제품 하나. members는 그 제품 분석에서 온 노드 id다 */
+export interface BandGroup {
+  id: string;
+  name: string;
+  members: ReadonlySet<string>;
+}
+
+export function bandGroupsOf(ir: ArchitectureIr): BandGroup[] {
+  return (ir.groups ?? []).map((g) => ({ id: g.id, name: g.name, members: new Set(g.members) }));
+}
+
+// 영역 테두리와 카드 사이 여백, 영역 이름이 들어갈 줄 높이. 포커스 화면 스크립트도 같은 값을 쓴다
+export const REGION_PAD_X = 10;
+export const REGION_PAD_Y = 14;
+export const REGION_LABEL_H = 26;
+const BAND_GAP = REGION_PAD_Y * 2 + REGION_LABEL_H;
+
+/**
+ * 두 제품을 합친 그림을 위(첫째 전용), 가운데(같이 씀), 아래(둘째 전용) 띠로 다시 쌓는다.
+ * 열(x)은 elk가 정한 그대로 두고 띠 안에서는 elk의 위아래 순서를 지킨다. 띠 높이는 모든 열에서 같게 맞춰야 영역 박스가 한 장으로 그려진다.
+ * 두 제품 다 이 레이아웃에 자기만 쓰는 노드가 있을 때만 쌓는다. 한쪽 전용이 비면 그 영역이 공용 띠와 거의 같아 나눠 보일 게 없다
+ */
+export function stackBands(layout: LayoutResult, groups: readonly BandGroup[]): LayoutResult {
+  if (groups.length !== 2 || layout.nodes.length === 0) return layout;
+  const [first, second] = groups as [BandGroup, BandGroup];
+  const bandOf = (id: string): 0 | 1 | 2 => {
+    const inFirst = first.members.has(id);
+    const inSecond = second.members.has(id);
+    if (inFirst && !inSecond) return 0;
+    if (inSecond && !inFirst) return 2;
+    return 1;
+  };
+  const counts = [0, 0, 0];
+  for (const n of layout.nodes) counts[bandOf(n.id)]! += 1;
+  if (counts[0] === 0 || counts[2] === 0) return layout;
+
+  const columns = new Map<number, LayoutNode[]>();
+  for (const n of layout.nodes) columns.set(n.x, [...(columns.get(n.x) ?? []), n]);
+  const bandHeight = [0, 0, 0];
+  for (const col of columns.values()) {
+    for (const band of [0, 1, 2] as const) {
+      const inBand = col.filter((n) => bandOf(n.id) === band);
+      if (inBand.length === 0) continue;
+      const h = inBand.reduce((sum, n) => sum + n.height, 0) + PIN_GAP * (inBand.length - 1);
+      bandHeight[band] = Math.max(bandHeight[band]!, h);
+    }
+  }
+
+  const top = Math.min(...layout.nodes.map((n) => n.y));
+  const bottomMargin = layout.height - Math.max(...layout.nodes.map((n) => n.y + n.height));
+  const bandTop: Array<number | undefined> = [undefined, undefined, undefined];
+  let cursor = top + REGION_PAD_Y + REGION_LABEL_H;
+  for (const band of [0, 1, 2] as const) {
+    if (counts[band] === 0) continue;
+    bandTop[band] = cursor;
+    cursor += bandHeight[band]! + BAND_GAP;
+  }
+  const contentBottom = cursor - BAND_GAP;
+
+  const placed = new Map<string, number>();
+  for (const col of columns.values()) {
+    for (const band of [0, 1, 2] as const) {
+      let y = bandTop[band];
+      if (y === undefined) continue;
+      const inBand = col
+        .filter((n) => bandOf(n.id) === band)
+        .sort((a, b) => a.y - b.y || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      for (const n of inBand) {
+        placed.set(n.id, round2(y));
+        y += n.height + PIN_GAP;
+      }
+    }
+  }
+  const nodes = layout.nodes.map((n) => ({ ...n, y: placed.get(n.id) ?? n.y }));
+  const moved = nodes.filter((n, i) => n.y !== layout.nodes[i]!.y).map((n) => n.id);
+
+  // 양 끝 띠(0, 2)는 비어 있지 않으니 영역마다 노드가 하나 이상 있다
+  const span = (bands: readonly (0 | 1 | 2)[]): LayoutRect => {
+    const members = nodes.filter((n) => bands.includes(bandOf(n.id)));
+    const used = bands.filter((b) => bandTop[b] !== undefined);
+    const left = Math.min(...members.map((n) => n.x)) - REGION_PAD_X;
+    const right = Math.max(...members.map((n) => n.x + n.width)) + REGION_PAD_X;
+    const y0 = bandTop[used[0]!]! - REGION_PAD_Y;
+    const last = used[used.length - 1]!;
+    const y1 = bandTop[last]! + bandHeight[last]! + REGION_PAD_Y;
+    return { x: round2(left), y: round2(y0), width: round2(right - left), height: round2(y1 - y0) };
+  };
+  const upper = span([0, 1]);
+  const lower = span([1, 2]);
+  // 위 영역 이름은 박스 안 위쪽에, 아래 영역 이름은 박스 안 아래쪽에 단다. 둘이 같은 띠에서 시작해도 안 부딪힌다
+  upper.y = round2(upper.y - REGION_LABEL_H);
+  upper.height = round2(upper.height + REGION_LABEL_H);
+  lower.height = round2(lower.height + REGION_LABEL_H);
+  const sharedTop = Math.max(upper.y, lower.y);
+  const sharedBottom = Math.min(upper.y + upper.height, lower.y + lower.height);
+  const sharedLeft = Math.max(upper.x, lower.x);
+  const sharedRight = Math.min(upper.x + upper.width, lower.x + lower.width);
+  const shared =
+    counts[1]! > 0 && sharedBottom > sharedTop && sharedRight > sharedLeft
+      ? {
+          x: round2(sharedLeft),
+          y: round2(sharedTop),
+          width: round2(sharedRight - sharedLeft),
+          height: round2(sharedBottom - sharedTop),
+        }
+      : undefined;
+
+  return {
+    ...layout,
+    height: round2(contentBottom + REGION_PAD_Y + REGION_LABEL_H + bottomMargin),
+    nodes,
+    edges: layout.edges.map((e) => ({ ...e })),
+    movedNodeIds: [...new Set([...(layout.movedNodeIds ?? []), ...moved])].sort(),
+    regions: {
+      groups: [
+        { id: first.id, name: first.name, ...upper },
+        { id: second.id, name: second.name, ...lower },
+      ],
+      ...(shared !== undefined ? { shared } : {}),
+      bandOf: Object.fromEntries(
+        nodes.map((n) => [n.id, bandOf(n.id)]).sort((a, b) => (a[0]! < b[0]! ? -1 : 1)),
+      ),
+    },
   };
 }

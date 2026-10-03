@@ -4,6 +4,8 @@ import {
   KIND_LANE,
   PARTITION_RANK,
   pinToColumnTop,
+  stackBands,
+  bandGroupsOf,
   type LaneId,
   type LayoutResult,
 } from './layout.js';
@@ -56,6 +58,8 @@ const TABLE_RANK_AFTER_RECEIVERS = 100;
 // 전체 레벨에서 서버를 거쳐서만 닿는 게이트웨이와 모듈. 같은 레인 안에서도 게이트웨이가 왼쪽에 선다
 const EXTERNAL_GATEWAY_RANK = PARTITION_RANK.app_module + 1;
 const EXTERNAL_MODULE_RANK = PARTITION_RANK.app_module + 2;
+// 저장소는 외부 서비스 레인 오른쪽 끝에 선다. 외부 서버도 같은 저장소를 쓰므로 그보다 뒤여야 선이 거꾸로 안 간다
+const DATASTORE_ROOT_RANK = EXTERNAL_MODULE_RANK + 1;
 
 function compareStr(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
@@ -363,22 +367,59 @@ function externalReach(g: Graph, edges: DrillEdge[], front: Set<string>): Set<st
   return ext;
 }
 
-function rootLevel(g: Graph): LevelDraft {
+const ROOT_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([
+  'service',
+  'gateway',
+  'app_module',
+  'datastore',
+]);
+
+/** 환경이 prod이거나 비어 있는 노드. 환경을 모르는 노드는 prod 쪽으로 친다 */
+function isProdOrUnknown(n: ArchitectureNode): boolean {
+  return n.environment === undefined || n.environment === 'prod';
+}
+
+/** prod가 아닌 노드와 거기 걸린 엣지를 뺀 그래프. 전체보기는 이걸로 묶어 dev 경로가 묶음 선 건수에 안 섞이게 한다 */
+function prodGraph(g: Graph): Graph {
+  const nodeById = new Map([...g.nodeById].filter(([, n]) => isProdOrUnknown(n)));
+  const edges = g.edges.filter((e) => nodeById.has(e.from) && nodeById.has(e.to));
+  const edgeById = new Map(edges.map((e) => [e.id, e]));
+  const parentOf = new Map([...g.parentOf].filter(([c, p]) => nodeById.has(c) && nodeById.has(p)));
+  return { nodeById, edgeById, edges, parentOf };
+}
+
+/** 서버가 읽고 쓰는 저장소. 테이블에 걸린 선은 그 테이블이 속한 저장소로 올려 묶는다 */
+function bundleDatastores(g: Graph, b: Bundler): void {
+  for (const e of g.edges) {
+    if (e.kind !== 'reads_writes' || kindOf(g, e.from) !== 'app_module') continue;
+    const toKind = kindOf(g, e.to);
+    const store =
+      toKind === 'datastore' ? e.to : toKind === 'db_table' ? g.parentOf.get(e.to) : undefined;
+    if (store === undefined || kindOf(g, store) !== 'datastore') continue;
+    b.add(e.from, store, e.id, [e.id]);
+  }
+}
+
+function rootLevel(full: Graph): LevelDraft {
+  const g = prodGraph(full);
   const nodeIds = new Set(
-    [...g.nodeById.values()]
-      .filter((n) => n.kind === 'service' || n.kind === 'gateway' || n.kind === 'app_module')
-      .map((n) => n.id),
+    [...g.nodeById.values()].filter((n) => ROOT_KINDS.has(n.kind)).map((n) => n.id),
   );
   const b = new Bundler();
   bundleCalls(g, b, screenCalls(g), (s) => serviceOf(g, s), false);
   bundleGatewayRoutes(g, b);
   bundleModuleToModule(g, b);
+  bundleDatastores(g, b);
   const edges = b.toEdges(g);
   const ext = externalReach(g, edges, frontReach(g, edges));
   const rankOverride = new Map<string, number>();
   const laneOverride = new Map<string, LaneId>();
   for (const id of ext) {
     const kind = kindOf(g, id);
+    if (kind === 'datastore') {
+      rankOverride.set(id, DATASTORE_ROOT_RANK);
+      continue;
+    }
     if (kind !== 'gateway' && kind !== 'app_module') continue;
     rankOverride.set(id, kind === 'gateway' ? EXTERNAL_GATEWAY_RANK : EXTERNAL_MODULE_RANK);
     laneOverride.set(id, 'external');
@@ -489,7 +530,10 @@ function serverLevel(g: Graph, server: ArchitectureNode): LevelDraft {
         (e) => e.kind === 'handles' && e.to === server.id && kindOf(g, e.from) === 'endpoint',
       ),
       ...g.edges.filter(
-        (e) => e.kind === 'reads_writes' && e.from === server.id && kindOf(g, e.to) === 'db_table',
+        (e) =>
+          e.kind === 'reads_writes' &&
+          e.from === server.id &&
+          (kindOf(g, e.to) === 'db_table' || kindOf(g, e.to) === 'datastore'),
       ),
     );
     for (const use of g.edges.filter(
@@ -530,7 +574,9 @@ function serverLevel(g: Graph, server: ArchitectureNode): LevelDraft {
   for (const id of rankOverride.keys()) laneOverride.set(id, 'external');
   // 테이블은 받는 쪽 모듈들 뒤 맨 오른쪽 레인에 모은다
   for (const id of nodeIds) {
-    if (kindOf(g, id) === 'db_table') rankOverride.set(id, TABLE_RANK_AFTER_RECEIVERS);
+    const kind = kindOf(g, id);
+    if (kind === 'db_table' || kind === 'datastore')
+      rankOverride.set(id, TABLE_RANK_AFTER_RECEIVERS);
   }
   const edges = dedupe(picked).map(asDetail);
   return {
@@ -603,6 +649,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
   const g = buildGraph(validated);
   const facts = computeServiceFacts([...g.nodeById.values()], g.edges);
   const sorted = [...g.nodeById.values()].sort(byId);
+  const bands = bandGroupsOf(validated.ir);
   const drafts: LevelDraft[] = [rootLevel(g)];
   const enter: Record<string, string> = {};
 
@@ -646,7 +693,8 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
       };
     });
     const laid = await computeGraphLayout(layoutNodes, d.edges);
-    const layout = d.pinTop !== undefined ? pinToColumnTop(laid, d.pinTop) : laid;
+    const pinned = d.pinTop !== undefined ? pinToColumnTop(laid, d.pinTop) : laid;
+    const layout = stackBands(pinned, bands);
     levels.push({
       id: d.id,
       kind: d.kind,
