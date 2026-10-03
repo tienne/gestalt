@@ -1,0 +1,1150 @@
+import { FOCUS_SOURCE } from './focus.js';
+import type { LaneId } from './layout.js';
+
+export interface ClientConstants {
+  kindShort: Record<string, string>;
+  kindText: Record<string, string>;
+  evidenceText: Record<string, string>;
+  laneTitles: Record<LaneId, string>;
+  inferredBadge: string;
+}
+
+export const THEME_STORAGE_KEY = 'gestalt-architecture-theme';
+const HINT_STORAGE_KEY = 'gestalt-architecture-hint';
+
+// 첫 화면을 그리기 전에 저장한 테마를 걸어야 밝은 화면이 한 번 번쩍이지 않는다
+export const THEME_BOOT_SCRIPT = `(function () {
+  try {
+    var t = localStorage.getItem('${THEME_STORAGE_KEY}');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();`;
+
+/**
+ * 페이지 동작 전부. 화면 이동, 확대와 이동, 서랍, 검색, 팝오버, 두 항목 화면을 맡는다.
+ * 문자열은 전부 textContent로만 넣는다. 근거 문자열은 외부 출처에서 온 값이라 HTML로 해석하면 스크립트가 실행될 수 있다.
+ * 템플릿 문자열 안이라 정규식과 문자열의 백슬래시는 두 번 적어야 브라우저에 한 번 남는다.
+ */
+export function renderClientScript(c: ClientConstants): string {
+  return `
+(function () {
+  var doc = document;
+  var root = doc.documentElement;
+  var data = JSON.parse(doc.getElementById('ir').textContent);
+  var KIND_SHORT = ${JSON.stringify(c.kindShort)};
+  var KIND_TEXT = ${JSON.stringify(c.kindText)};
+  var EVIDENCE_TEXT = ${JSON.stringify(c.evidenceText)};
+  var LANE_TITLE = ${JSON.stringify(c.laneTitles)};
+  var GUESS = ${JSON.stringify(c.inferredBadge)};
+  var THEME_KEY = '${THEME_STORAGE_KEY}';
+  var HINT_KEY = '${HINT_STORAGE_KEY}';
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  var nodes = {};
+  data.nodes.forEach(function (n) { nodes[n.id] = n; });
+  var edges = {};
+  data.edges.forEach(function (e) { edges[e.id] = e; });
+  var drill = !!data.levels;
+  var levels = {};
+  (data.levels || [{ id: 'root', kind: 'root', title: '전체', trail: ['root'], edges: [] }]).forEach(function (l) {
+    l.edgeById = {};
+    l.edges.forEach(function (e) { l.edgeById[e.id] = e; });
+    levels[l.id] = l;
+  });
+  var enterMap = data.enter || {};
+  function byId(id) { return doc.getElementById(id); }
+  var stage = byId('stage');
+  var viewport = byId('viewport');
+  var drawer = byId('drawer');
+  var panel = byId('panel');
+  var crumbs = byId('crumbs');
+  var pair = byId('pair');
+  var focusSec = byId('focus');
+  var focusChip = byId('focus-chip');
+  var focusName = byId('focus-name');
+  var focusBtn = byId('focus-btn');
+  var sheet = byId('sheet');
+  var sheetTitle = byId('sheet-title');
+  var sheetBody = byId('sheet-body');
+  var hint = byId('hint');
+  var zoomLevel = byId('zoom-level');
+  var search = byId('search');
+  var searchCount = byId('search-count');
+  var themeBtn = byId('theme-btn');
+  var sections = Array.prototype.slice.call(doc.querySelectorAll('.level[data-level-id]'));
+  var current = 'root';
+  var active = null;
+  var anchor = null;
+  var selectedId = null;
+  var focusId = null;
+  var pendingSelect = null;
+  var returnFocus = null;
+  var ready = false;
+  var view = { x: 0, y: 0, k: 1 };
+
+${FOCUS_SOURCE}
+  function kindText(k) { return KIND_TEXT[k] || k; }
+  function evidenceText(t) { return EVIDENCE_TEXT[t] || t; }
+  function el(tag, cls, text) {
+    var e = doc.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function svgEl(tag, attrs) {
+    var e = doc.createElementNS(SVG_NS, tag);
+    Object.keys(attrs).forEach(function (k) { e.setAttribute(k, attrs[k]); });
+    return e;
+  }
+  function icon(id) {
+    var s = svgEl('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' });
+    s.appendChild(svgEl('use', { href: '#' + id }));
+    return s;
+  }
+  function nameOf(n) { return n.displayName || n.label; }
+  function label(id) { return nodes[id] ? nameOf(nodes[id]) : id; }
+  function store(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+  function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+
+  // 테마. 저장한 값이 없으면 시스템 설정을 따른다
+  function systemDark() { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); }
+  function themeNow() { return root.getAttribute('data-theme') || (systemDark() ? 'dark' : 'light'); }
+  function syncTheme() {
+    var dark = themeNow() === 'dark';
+    var text = dark ? '밝은 화면으로 바꾸기' : '어두운 화면으로 바꾸기';
+    themeBtn.setAttribute('data-mode', dark ? 'dark' : 'light');
+    themeBtn.setAttribute('aria-label', text);
+    themeBtn.title = text;
+  }
+  themeBtn.addEventListener('click', function () {
+    var next = themeNow() === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    store(THEME_KEY, next);
+    syncTheme();
+  });
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', syncTheme);
+  }
+  syncTheme();
+
+  // 서랍 내용
+  function renderEvidence(ev) {
+    var li = el('li');
+    li.appendChild(el('span', 'badge t-' + ev.type, evidenceText(ev.type)));
+    if (ev.location === undefined) {
+      li.appendChild(el('span', 'loc', '공유본이라 출처를 가렸어요'));
+      return li;
+    }
+    if (/^https?:\\/\\//i.test(ev.location)) {
+      var a = el('a', 'loc', ev.location);
+      a.href = ev.location;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      li.appendChild(a);
+    } else {
+      li.appendChild(el('span', 'loc', ev.location));
+    }
+    if (ev.updatedAt) li.appendChild(el('div', 'ev-meta', '수정일 ' + ev.updatedAt));
+    if (ev.excerpt) li.appendChild(el('pre', null, ev.excerpt));
+    return li;
+  }
+  function renderPanel(id) {
+    var n = nodes[id];
+    panel.textContent = '';
+    var head = el('div', 'dr-head');
+    var chips = el('div', 'chips');
+    var chip = el('span', 'chip k-' + n.kind);
+    chip.appendChild(icon('i-' + n.kind));
+    chip.appendChild(doc.createTextNode(kindText(n.kind)));
+    chips.appendChild(chip);
+    chips.appendChild(el('span', 'repo', n.repo));
+    head.appendChild(chips);
+    var h = el('h2', null, nameOf(n));
+    h.id = 'drawer-title';
+    h.tabIndex = -1;
+    if (n.displayName && n.displayNameInferred) h.appendChild(el('span', 'badge guess', GUESS));
+    head.appendChild(h);
+    if (n.displayName) head.appendChild(el('div', 'tech', n.label));
+    if (n.displayName && n.displayNameInferred) {
+      head.appendChild(el('p', 'guess-note', GUESS + ': 문서에 정해진 이름이 없어서 설명 문장을 보고 붙인 이름이에요.'));
+    }
+    panel.appendChild(head);
+    var body = el('div', 'dr-body');
+    var target = enterMap[id];
+    var canEnter = target && target !== current;
+    var canFocus = id !== focusId && !!cardMap(sectionOf(current))[id] && pair.hidden;
+    if (canEnter || canFocus) {
+      var actions = el('div', 'actions');
+      if (canEnter) {
+        var b = el('button', 'enter');
+        b.type = 'button';
+        b.appendChild(doc.createTextNode('상세보기'));
+        b.addEventListener('click', function () { showLevel(target); });
+        actions.appendChild(b);
+      }
+      if (canFocus) {
+        var f = el('button', 'focus');
+        f.type = 'button';
+        f.title = '이 항목과 이어진 것만 보기 (F)';
+        f.appendChild(icon('u-focus'));
+        f.appendChild(doc.createTextNode('포커스'));
+        f.addEventListener('click', function () { showFocus(id); });
+        actions.appendChild(f);
+      }
+      body.appendChild(actions);
+    }
+    if (n.description) body.appendChild(el('p', 'desc', n.description));
+    body.appendChild(el('h3', null, '출처 ' + n.evidence.length + '개'));
+    var ul = el('ul', 'evidence');
+    n.evidence.forEach(function (ev) { ul.appendChild(renderEvidence(ev)); });
+    body.appendChild(ul);
+    panel.appendChild(body);
+  }
+  function drawerOpen() { return drawer.classList.contains('open'); }
+  function openDrawer() {
+    drawer.classList.add('open');
+    drawer.removeAttribute('inert');
+    drawer.setAttribute('aria-hidden', 'false');
+  }
+  function closeDrawer(restore) {
+    if (active) active.querySelectorAll('.node.selected').forEach(function (c) { c.classList.remove('selected'); });
+    selectedId = null;
+    syncFocusBtn();
+    restoreLit();
+    if (!drawerOpen()) return;
+    drawer.classList.remove('open');
+    drawer.setAttribute('inert', '');
+    drawer.setAttribute('aria-hidden', 'true');
+    if (restore && returnFocus && doc.contains(returnFocus)) returnFocus.focus({ preventScroll: true });
+  }
+  byId('drawer-close').addEventListener('click', function () { closeDrawer(true); });
+
+  // 확대와 이동. 좌표는 전부 레벨 캔버스 기준이고 viewport 하나에 transform으로 건다
+  function clampK(k) { return Math.min(2.5, Math.max(0.2, k)); }
+  function applyView() {
+    viewport.style.transform = 'translate(' + view.x + 'px,' + view.y + 'px) scale(' + view.k + ')';
+    zoomLevel.textContent = Math.round(view.k * 100) + '%';
+  }
+  var glideTimer = 0;
+  function glide() {
+    if (!ready) return;
+    viewport.classList.add('glide');
+    clearTimeout(glideTimer);
+    glideTimer = setTimeout(function () { viewport.classList.remove('glide'); }, 300);
+  }
+  function stopGlide() { viewport.classList.remove('glide'); }
+  function zoomAt(px, py, k) {
+    k = clampK(k);
+    view.x = px - (px - view.x) * k / view.k;
+    view.y = py - (py - view.y) * k / view.k;
+    view.k = k;
+    applyView();
+  }
+  function visibleWidth() { return stage.clientWidth - (drawerOpen() ? drawer.offsetWidth : 0); }
+  function zoomBy(f) { glide(); zoomAt(visibleWidth() / 2, stage.clientHeight / 2, view.k * f); }
+  function dims(sec) { return { w: Number(sec.getAttribute('data-w')) || 1, h: Number(sec.getAttribute('data-h')) || 1 }; }
+  function fit(mode) {
+    if (!active) return;
+    var s = dims(active);
+    var W = stage.clientWidth;
+    var H = stage.clientHeight - (sheet.hidden ? 0 : sheet.offsetHeight + 16);
+    var M = 24;
+    var kw = (W - M * 2) / s.w;
+    var kh = (H - M * 2) / s.h;
+    var k = Math.min(kw, kh, 1);
+    var top = false;
+    // 세로로 긴 레벨을 한 화면에 다 넣으면 글자가 안 읽힌다. 그때는 폭에 맞추고 위에서부터 보여준다
+    // 폰처럼 폭도 좁으면 일부만 보이더라도 읽히는 크기를 지킨다
+    if (mode === 'smart' && k < 0.5) { k = Math.max(Math.min(kw, 1), 0.45); top = true; }
+    k = clampK(k);
+    view.k = k;
+    view.x = Math.max(M, (W - s.w * k) / 2);
+    view.y = top ? M : Math.max(M, (H - s.h * k) / 2);
+    glide();
+    applyView();
+  }
+  function cardCenter(c) { return { x: c.offsetLeft + c.offsetWidth / 2, y: c.offsetTop + c.offsetHeight / 2 }; }
+  function centerOn(c, minK) {
+    if (minK && view.k < minK) view.k = clampK(minK);
+    var p = cardCenter(c);
+    view.x = visibleWidth() / 2 - p.x * view.k;
+    view.y = stage.clientHeight / 2 - p.y * view.k;
+    glide();
+    applyView();
+  }
+  function ensureVisible(c) {
+    var W = visibleWidth();
+    if (W < 200) return;
+    var p = cardCenter(c);
+    var sx = view.x + p.x * view.k;
+    var sy = view.y + p.y * view.k;
+    var M = 60;
+    if (sx < M || sx > W - M || sy < M || sy > stage.clientHeight - M) centerOn(c);
+  }
+  byId('zoom-in').addEventListener('click', function () { zoomBy(1.25); });
+  byId('zoom-out').addEventListener('click', function () { zoomBy(0.8); });
+  byId('zoom-fit').addEventListener('click', function () { fit('full'); });
+  stage.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    stopGlide();
+    var r = stage.getBoundingClientRect();
+    if (e.ctrlKey || e.metaKey) {
+      var d = Math.max(-60, Math.min(60, e.deltaY));
+      zoomAt(e.clientX - r.left, e.clientY - r.top, view.k * Math.exp(-d * 0.008));
+      return;
+    }
+    var unit = e.deltaMode === 1 ? 16 : 1;
+    view.x -= (e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX) * unit;
+    view.y -= (e.shiftKey && !e.deltaX ? 0 : e.deltaY) * unit;
+    applyView();
+  }, { passive: false });
+  // 포커스가 화면 밖 카드로 가면 브라우저가 stage를 스크롤한다. 스크롤은 되돌리고 화면 이동으로 바꾼다
+  stage.addEventListener('scroll', function () { stage.scrollLeft = 0; stage.scrollTop = 0; });
+  var drag = null;
+  var suppressClick = false;
+  stage.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0) return;
+    stopGlide();
+    drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false, id: e.pointerId };
+  });
+  stage.addEventListener('pointermove', function (e) {
+    if (!drag || drag.id !== e.pointerId) return;
+    var dx = e.clientX - drag.x;
+    var dy = e.clientY - drag.y;
+    if (!drag.moved) {
+      if (Math.abs(dx) + Math.abs(dy) < 4) return;
+      drag.moved = true;
+      stage.classList.add('panning');
+      try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+    }
+    view.x = drag.vx + dx;
+    view.y = drag.vy + dy;
+    applyView();
+  });
+  function endDrag(e) {
+    if (!drag || drag.id !== e.pointerId) return;
+    if (drag.moved) suppressClick = true;
+    drag = null;
+    stage.classList.remove('panning');
+  }
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+
+  // 강조. 카드나 선에 올리면 이웃만 남기고 나머지를 흐린다
+  function cardMap(c) {
+    if (!c) return {};
+    if (!c._cards) {
+      c._cards = {};
+      c.querySelectorAll('.node').forEach(function (n) { c._cards[n.getAttribute('data-node-id')] = n; });
+    }
+    return c._cards;
+  }
+  function linkIndex(c) {
+    if (!c._links) {
+      c._links = {};
+      c.querySelectorAll('.link').forEach(function (l) {
+        [l.getAttribute('data-from'), l.getAttribute('data-to')].forEach(function (id) {
+          (c._links[id] = c._links[id] || []).push(l);
+        });
+      });
+    }
+    return c._links;
+  }
+  function clearLit(c) {
+    if (!c) return;
+    c.classList.remove('dimmed');
+    c.querySelectorAll('.lit').forEach(function (x) { x.classList.remove('lit'); });
+  }
+  function lightNode(c, id) {
+    if (!c) return;
+    clearLit(c);
+    var cards = cardMap(c);
+    c.classList.add('dimmed');
+    if (cards[id]) cards[id].classList.add('lit');
+    (linkIndex(c)[id] || []).forEach(function (l) {
+      l.classList.add('lit');
+      var other = l.getAttribute('data-from') === id ? l.getAttribute('data-to') : l.getAttribute('data-from');
+      if (cards[other]) cards[other].classList.add('lit');
+    });
+  }
+  function lightLink(c, l) {
+    clearLit(c);
+    var cards = cardMap(c);
+    c.classList.add('dimmed');
+    l.classList.add('lit');
+    [l.getAttribute('data-from'), l.getAttribute('data-to')].forEach(function (id) {
+      if (cards[id]) cards[id].classList.add('lit');
+    });
+  }
+  function restoreLit() {
+    if (!active) return;
+    if (selectedId && cardMap(active)[selectedId]) lightNode(active, selectedId);
+    else clearLit(active);
+  }
+  function hoverTarget(t) { return t && t.closest ? t.closest('.node, .link') : null; }
+  stage.addEventListener('mouseover', function (e) {
+    if (drag && drag.moved) return;
+    var t = hoverTarget(e.target);
+    if (!t || !active || !active.contains(t)) return;
+    if (t.classList.contains('node')) lightNode(active, t.getAttribute('data-node-id'));
+    else lightLink(active, t);
+  });
+  stage.addEventListener('mouseout', function (e) {
+    var from = hoverTarget(e.target);
+    if (!from) return;
+    var to = hoverTarget(e.relatedTarget);
+    if (!to) restoreLit();
+  });
+  stage.addEventListener('focusin', function (e) {
+    var t = hoverTarget(e.target);
+    if (!t || !active || !active.contains(t)) return;
+    if (t.classList.contains('node')) {
+      lightNode(active, t.getAttribute('data-node-id'));
+      ensureVisible(t);
+    } else {
+      lightLink(active, t);
+    }
+  });
+  stage.addEventListener('focusout', function (e) {
+    if (!hoverTarget(e.relatedTarget)) restoreLit();
+  });
+
+  // 선택
+  function select(id, focusDrawer) {
+    var c = cardMap(active)[id];
+    active.querySelectorAll('.node.selected').forEach(function (x) { x.classList.remove('selected'); });
+    if (c) c.classList.add('selected');
+    selectedId = id;
+    syncFocusBtn();
+    returnFocus = c || null;
+    lightNode(active, id);
+    renderPanel(id);
+    openDrawer();
+    if (c) ensureVisible(c);
+    if (focusDrawer) {
+      var h = byId('drawer-title');
+      if (h) h.focus({ preventScroll: true });
+    }
+  }
+  function focusCard(id) {
+    var c = cardMap(active)[id];
+    if (!c) return;
+    select(id, false);
+    centerOn(c, 0.8);
+    c.focus({ preventScroll: true });
+  }
+  function setAnchor(id) {
+    active.querySelectorAll('.node.anchor').forEach(function (x) { x.classList.remove('anchor'); });
+    anchor = id;
+    var c = cardMap(active)[id];
+    if (c) c.classList.add('anchor');
+  }
+  function activateNode(id, ev, viaKeyboard) {
+    var pairable = drill && current === 'root' && pair.hidden;
+    if (pairable && (ev.shiftKey || ev.metaKey) && anchor && anchor !== id) {
+      showPair(anchor, id);
+      return;
+    }
+    if (pairable) setAnchor(id);
+    select(id, viaKeyboard);
+  }
+  function enter(id) {
+    var target = enterMap[id];
+    if (target && target !== current) showLevel(target);
+  }
+  function activateBundle(g) {
+    var levelId = levelIdOf(active);
+    var level = levels[levelId];
+    var bundle = level && level.edgeById[g.getAttribute('data-bundle-id')];
+    if (!bundle) return;
+    if (levelId === 'root') { showPair(bundle.from, bundle.to); return; }
+    go('#/bundle/' + enc(levelId) + '/' + enc(bundle.id));
+  }
+  stage.addEventListener('click', function (e) {
+    if (suppressClick) { suppressClick = false; return; }
+    var card = e.target.closest('.node');
+    if (card) { activateNode(card.getAttribute('data-node-id'), e, false); return; }
+    var link = e.target.closest('.link.bundle');
+    if (link) { activateBundle(link); return; }
+    if (drawerOpen()) closeDrawer(false);
+  });
+  stage.addEventListener('dblclick', function (e) {
+    var card = e.target.closest('.node');
+    if (card) enter(card.getAttribute('data-node-id'));
+  });
+  stage.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var card = e.target.closest('.node');
+    if (card) { e.preventDefault(); activateNode(card.getAttribute('data-node-id'), e, true); return; }
+    var link = e.target.closest('.link.bundle');
+    if (link) { e.preventDefault(); activateBundle(link); }
+  });
+
+  // 위치 표시
+  function renderCrumbs(items) {
+    crumbs.textContent = '';
+    if (!drill) { crumbs.hidden = true; return; }
+    items.forEach(function (it, i) {
+      if (i > 0) crumbs.appendChild(el('span', 'sep', '›'));
+      if (i === items.length - 1 || !it.level) {
+        var here = el('span', 'here', it.label);
+        here.setAttribute('aria-current', 'page');
+        crumbs.appendChild(here);
+        return;
+      }
+      var b = el('button', null, it.label);
+      b.type = 'button';
+      b.addEventListener('click', function () { showLevel(it.level); });
+      crumbs.appendChild(b);
+    });
+  }
+  function trailItems(levelId) {
+    return levels[levelId].trail.map(function (t) { return { label: levels[t].title, level: t }; });
+  }
+
+  // 레벨 이동과 두 항목 화면은 주소의 해시에 싣는다. 그래야 브라우저 뒤로가기와 새로고침, 링크 공유가 그 화면으로 돌아온다
+  function enc(s) { return encodeURIComponent(s); }
+  function go(hash) {
+    if (location.hash === hash) { route(); return; }
+    location.hash = hash;
+  }
+  function showLevel(id) {
+    if (!levels[id]) return;
+    go(id === 'root' ? '#/' : '#/level/' + enc(id));
+  }
+  function sectionOf(id) {
+    for (var i = 0; i < sections.length; i++) if (sections[i].getAttribute('data-level-id') === id) return sections[i];
+    return null;
+  }
+  function renderLevel(id) {
+    closeDrawer(false);
+    if (active) clearLit(active);
+    current = id;
+    anchor = null;
+    sections.forEach(function (s) { s.hidden = s.getAttribute('data-level-id') !== id; });
+    pair.hidden = true;
+    clearFocus();
+    sheet.hidden = true;
+    active = sectionOf(id);
+    if (active) active.querySelectorAll('.node.anchor').forEach(function (x) { x.classList.remove('anchor'); });
+    renderCrumbs(trailItems(id));
+    fit('smart');
+    runSearch(false);
+  }
+
+  // 두 항목 화면. 쌍마다 미리 그리면 노드 수의 제곱만큼 늘어서 브라우저에서 그린다.
+  // elkjs 없이 열 배치만 쓴다. 열 순서가 곧 요청 흐름이라 자동 배치가 없어도 읽힌다
+  // 경로 중간에는 게이트웨이와 모듈 하나까지만 둔다. 화면에서 출발해 모듈 하나를 지나 클라이언트로 다른 모듈에 닿는 데까지가 한 요청 흐름이고
+  // 그보다 길게 돌아가는 길까지 펼치면 두 노드와 상관없는 엔드포인트가 쏟아진다
+  function pathMembers(a, b) {
+    var rootLevel = levels.root;
+    var out = {};
+    rootLevel.edges.forEach(function (e) { (out[e.from] = out[e.from] || []).push(e); });
+    function collect(s, t) {
+      var picked = {};
+      var maxModules = isKind(s, 'app_module') ? 0 : 1;
+      var seen = {};
+      var path = [];
+      seen[s] = true;
+      function walk(at, modules) {
+        if (at === t) { path.forEach(function (e) { picked[e.id] = e; }); return; }
+        (out[at] || []).forEach(function (e) {
+          var next = e.to;
+          if (seen[next]) return;
+          var m = modules;
+          if (next !== t) {
+            if (isKind(next, 'app_module')) m++;
+            else if (!isKind(next, 'gateway')) return;
+            if (m > maxModules) return;
+          }
+          seen[next] = true;
+          path.push(e);
+          walk(next, m);
+          path.pop();
+          seen[next] = false;
+        });
+      }
+      walk(s, 0);
+      return Object.keys(picked).map(function (k) { return picked[k]; });
+    }
+    var picked = collect(a, b);
+    if (!picked.length) picked = collect(b, a);
+    var ids = {};
+    picked.forEach(function (e) { e.memberEdgeIds.forEach(function (m) { ids[m] = true; }); });
+    return Object.keys(ids).sort();
+  }
+  function isKind(id, kind) { return nodes[id] && nodes[id].kind === kind; }
+  function classify(list) {
+    var clientGw = {};
+    var receivers = {};
+    var fromClient = {};
+    list.forEach(function (e) {
+      if (e.kind !== 'calls' || !isKind(e.from, 'external_service')) return;
+      if (isKind(e.to, 'gateway')) clientGw[e.to] = true;
+      else { fromClient[e.to] = true; receivers[e.to] = true; }
+    });
+    var hops = list.filter(function (e) { return e.kind === 'routes' && isKind(e.from, 'gateway') && isKind(e.to, 'gateway'); });
+    var depth = {};
+    Object.keys(nodes).forEach(function (id) { if (isKind(id, 'gateway')) depth[id] = 0; });
+    // 사슬 단수를 구한다. 고리가 있어도 끝나도록 게이트웨이 수만큼만 돈다
+    for (var round = 0; round < hops.length; round++) {
+      hops.forEach(function (e) {
+        if (depth[e.to] < depth[e.from] + 1) depth[e.to] = depth[e.from] + 1;
+        if (clientGw[e.from]) clientGw[e.to] = true;
+      });
+    }
+    list.forEach(function (e) {
+      if (e.kind === 'routes' && clientGw[e.from]) {
+        if (isKind(e.to, 'app_module')) receivers[e.to] = true;
+        if (isKind(e.to, 'endpoint')) fromClient[e.to] = true;
+      }
+    });
+    list.forEach(function (e) {
+      if (e.kind === 'handles' && fromClient[e.from]) receivers[e.to] = true;
+    });
+    return { clientGw: clientGw, receivers: receivers, depth: depth };
+  }
+  // 열 번호에 틈을 둬서 게이트웨이 사슬이 단마다 한 열씩 끼어든다. 빈 번호는 그릴 때 접힌다
+  var COL = { screen: 0, gateway: 100, endpoint: 200, app_module: 300, external_service: 400, clientGateway: 500, receiver: 600, db_table: 700 };
+  function columnOf(id, info) {
+    var kind = nodes[id] ? nodes[id].kind : '';
+    if (kind === 'gateway') return (info.clientGw[id] ? COL.clientGateway : COL.gateway) + (info.depth[id] || 0);
+    if (kind === 'app_module' && info.receivers[id]) return COL.receiver;
+    return COL.hasOwnProperty(kind) ? COL[kind] : 800;
+  }
+  function laneOfColumn(c) {
+    if (c < 100) return 'screen';
+    if (c < 200) return 'gateway';
+    if (c < 300) return 'endpoint';
+    if (c < 400) return 'app_module';
+    if (c < 500) return 'external_service';
+    if (c < 700) return 'external';
+    if (c < 800) return 'db_table';
+    return '';
+  }
+  function cardHeight(id) { return nodes[id] && nodes[id].displayName ? 60 : 48; }
+  function buildCard(id, x, y, w, h) {
+    var n = nodes[id];
+    var kind = n ? n.kind : '';
+    var d = el('div', 'node k-' + kind);
+    d.setAttribute('data-node-id', id);
+    d.setAttribute('role', 'button');
+    d.tabIndex = 0;
+    d.style.left = x + 'px';
+    d.style.top = y + 'px';
+    d.style.width = w + 'px';
+    d.style.height = h + 'px';
+    var kc = el('span', 'kc');
+    kc.appendChild(icon('i-' + kind));
+    kc.appendChild(doc.createTextNode(KIND_SHORT[kind] || kind));
+    d.appendChild(kc);
+    var nm = el('span', 'nm');
+    nm.appendChild(el('span', 't', label(id)));
+    var guess = n && n.displayName && n.displayNameInferred;
+    if (guess) nm.appendChild(el('span', 'guess', GUESS));
+    d.appendChild(nm);
+    if (n && n.displayName) d.appendChild(el('span', 'tc', n.label));
+    d.title = n && n.displayName ? n.displayName + (guess ? ' (' + GUESS + ')' : '') + '\\n' + n.label : label(id);
+    d.setAttribute('aria-label', label(id) + ', ' + kindText(kind));
+    if (enterMap[id]) {
+      var more = el('span', 'go', '›');
+      more.setAttribute('aria-hidden', 'true');
+      d.appendChild(more);
+    }
+    return d;
+  }
+  // 서버 렌더와 같은 굵기 규칙이다. 건수의 제곱근을 따른다
+  function edgeWidth(count) {
+    return Math.round(Math.min(8, Math.max(1.5, 1.5 + (Math.sqrt(Math.max(count || 1, 1)) - 1) * 1.1)) * 100) / 100;
+  }
+  // 두 항목 화면과 포커스 화면이 같이 쓰는 캔버스. 카드 자리(pos)와 레인을 받아 곡선을 잇고 그린다.
+  // elk 경유점이 없으니 열을 건너뛰는 선은 베지어 하나로 바로 잇는다
+  function drawCanvas(host, o) {
+    var pos = o.pos;
+    var height = o.height;
+    var PAD_BOTTOM = 40;
+    var drawn = o.edges.filter(function (e) { return pos[e.from] && pos[e.to] && e.from !== e.to; });
+    function stacked(e) {
+      var a = pos[e.from], b = pos[e.to];
+      return b.x < a.x + a.w && b.x + b.w > a.x;
+    }
+    function ports(side) {
+      var groups = {};
+      drawn.forEach(function (e) {
+        if (side === 'out' && stacked(e)) return;
+        var key = side === 'out' ? e.from : e.to;
+        (groups[key] = groups[key] || []).push(e);
+      });
+      var res = {};
+      Object.keys(groups).forEach(function (id) {
+        var g = groups[id];
+        var p = pos[id];
+        g.sort(function (a, b) {
+          var oa = pos[side === 'out' ? a.to : a.from], ob = pos[side === 'out' ? b.to : b.from];
+          return (oa.y + oa.h / 2) - (ob.y + ob.h / 2) || oa.x - ob.x || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+        });
+        var n = g.length;
+        var step = n > 1 ? Math.min(9, (p.h - 28) / (n - 1)) : 0;
+        g.forEach(function (e, i) { res[e.id] = p.y + p.h / 2 + (i - (n - 1) / 2) * step; });
+      });
+      return res;
+    }
+    var outY = ports('out');
+    var inY = ports('in');
+    var paths = drawn.map(function (e) {
+      var a = pos[e.from], b = pos[e.to];
+      var w = edgeWidth(e.count);
+      var len = 7 + w * 0.5, half = 3.5 + w * 0.45;
+      var sx = a.x + a.w, sy = outY[e.id], tx = b.x, ty = inY[e.id], ex = tx - len + 1;
+      var d, mid;
+      if (stacked(e)) {
+        var fy = a.y + a.h / 2;
+        var bow = Math.min(30, 18 + Math.abs(ty - fy) * 0.2);
+        var ox = Math.min(a.x, ex) - bow;
+        d = 'M' + a.x + ' ' + fy + 'C' + ox + ' ' + fy + ' ' + ox + ' ' + ty + ' ' + ex + ' ' + ty;
+        mid = { x: ox + bow * 0.25, y: (fy + ty) / 2 };
+      } else if (b.x >= sx + 8) {
+        var dx = Math.max(16, (ex - sx) / 2);
+        d = 'M' + sx + ' ' + sy + 'C' + (sx + dx) + ' ' + sy + ' ' + (ex - dx) + ' ' + ty + ' ' + ex + ' ' + ty;
+        mid = { x: (sx + ex) / 2, y: (sy + ty) / 2 };
+      } else {
+        var drop = Math.max(a.y + a.h, b.y + b.h) + 28;
+        height = Math.max(height, drop + PAD_BOTTOM);
+        var back = ex - 36;
+        d = 'M' + sx + ' ' + sy + 'C' + (sx + 36) + ' ' + sy + ' ' + (sx + 36) + ' ' + drop + ' ' + sx + ' ' + drop +
+          'L' + ex + ' ' + drop + 'C' + back + ' ' + drop + ' ' + back + ' ' + ty + ' ' + ex + ' ' + ty;
+        mid = { x: (sx + ex) / 2, y: drop };
+      }
+      var tip = 'M' + tx + ' ' + ty + 'L' + (tx - len) + ' ' + (ty - half) + 'L' + (tx - len) + ' ' + (ty + half) + 'Z';
+      return { e: e, d: d, tip: tip, mid: mid, w: w };
+    });
+    host.setAttribute('data-w', o.width);
+    host.setAttribute('data-h', height);
+    host.style.width = o.width + 'px';
+    host.style.height = height + 'px';
+    var svg = svgEl('svg', { 'class': 'links', width: o.width, height: height, viewBox: '0 0 ' + o.width + ' ' + height, role: 'group', 'aria-label': o.label });
+    var laneLayer = svgEl('g', { 'class': 'lanes' });
+    o.lanes.forEach(function (l) {
+      laneLayer.appendChild(svgEl('rect', { 'class': 'lane', x: l.x, y: 12, width: l.width, height: height - 24, rx: 14 }));
+    });
+    svg.appendChild(laneLayer);
+    var linkLayer = svgEl('g', { 'class': 'edges' });
+    paths.forEach(function (p) {
+      var e = p.e;
+      var bundle = e.kind === 'bundle';
+      var g = svgEl('g', { 'class': bundle ? 'link bundle' : 'link e-' + e.kind, 'data-from': e.from, 'data-to': e.to });
+      var name = bundle ? label(e.from) + ' → ' + label(e.to) + ' ' + e.count + '개' : kindText(e.kind) + ': ' + label(e.from) + ' → ' + label(e.to);
+      if (bundle) {
+        g.setAttribute('data-bundle-id', e.id);
+        g.setAttribute('tabindex', '0');
+        g.setAttribute('role', 'button');
+        g.setAttribute('aria-label', name);
+      }
+      var t = svgEl('title', {});
+      t.textContent = name;
+      g.appendChild(t);
+      g.appendChild(svgEl('path', { 'class': 'hit', d: p.d, 'stroke-width': Math.max(12, p.w + 8) }));
+      var line = svgEl('path', { 'class': 'edge', d: p.d, 'stroke-width': p.w });
+      if (!bundle) line.setAttribute('data-edge-id', e.id);
+      if (e.lineStyle === 'dashed') line.setAttribute('stroke-dasharray', '6 4');
+      g.appendChild(line);
+      g.appendChild(svgEl('path', { 'class': 'tip', d: p.tip }));
+      if (bundle) {
+        var text = String(e.count);
+        var pw = 14 + text.length * 7;
+        var pill = svgEl('g', { 'class': 'pill', transform: 'translate(' + p.mid.x + ',' + p.mid.y + ')' });
+        pill.appendChild(svgEl('rect', { x: -pw / 2, y: -9, width: pw, height: 18, rx: 9 }));
+        var pt = svgEl('text', {});
+        pt.textContent = text;
+        pill.appendChild(pt);
+        g.appendChild(pill);
+      }
+      linkLayer.appendChild(g);
+    });
+    svg.appendChild(linkLayer);
+    host.appendChild(svg);
+    o.lanes.forEach(function (l) {
+      if (!l.title) return;
+      var title = el('div', 'lane-title', l.title);
+      title.appendChild(el('span', 'n', String(l.count)));
+      title.style.left = l.x + 'px';
+      title.style.top = '22px';
+      title.style.width = l.width + 'px';
+      host.appendChild(title);
+    });
+    Object.keys(pos).sort().forEach(function (id) { host.appendChild(o.card(id, pos[id])); });
+  }
+  function drawColumns(list, host) {
+    var NODE_W = 208, ROW_GAP = 20, COL_GAP = 56, LANE_GAP = 96, PAD_X = 32, PAD_TOP = 60, PAD_BOTTOM = 40, LANE_PAD = 20;
+    var info = classify(list);
+    var ids = {};
+    list.forEach(function (e) { ids[e.from] = true; ids[e.to] = true; });
+    var cols = {};
+    Object.keys(ids).forEach(function (id) {
+      var c = columnOf(id, info);
+      (cols[c] = cols[c] || []).push(id);
+    });
+    var order = Object.keys(cols).map(Number).sort(function (a, b) { return a - b; });
+    var colX = {};
+    var colH = {};
+    var lanes = [];
+    var x = PAD_X + LANE_PAD;
+    var maxH = 0;
+    var prevLane = null;
+    order.forEach(function (c, i) {
+      var lane = laneOfColumn(c);
+      if (i > 0) x += NODE_W + (lane === prevLane ? COL_GAP : LANE_GAP);
+      colX[c] = x;
+      if (lane !== prevLane) lanes.push({ id: lane, left: x, right: x + NODE_W, count: 0 });
+      else lanes[lanes.length - 1].right = x + NODE_W;
+      lanes[lanes.length - 1].count += cols[c].length;
+      cols[c].sort(function (a, b) {
+        var la = label(a), lb = label(b);
+        return la < lb ? -1 : la > lb ? 1 : a < b ? -1 : a > b ? 1 : 0;
+      });
+      var h = 0;
+      cols[c].forEach(function (id, ri) { h += cardHeight(id) + (ri ? ROW_GAP : 0); });
+      colH[c] = h;
+      maxH = Math.max(maxH, h);
+      prevLane = lane;
+    });
+    var pos = {};
+    order.forEach(function (c) {
+      var y = PAD_TOP + (maxH - colH[c]) / 2;
+      cols[c].forEach(function (id) {
+        pos[id] = { x: colX[c], y: y, w: NODE_W, h: cardHeight(id) };
+        y += cardHeight(id) + ROW_GAP;
+      });
+    });
+    drawCanvas(host, {
+      pos: pos,
+      edges: list.map(function (e) { return { id: e.id, from: e.from, to: e.to, kind: e.kind, count: 1, lineStyle: e.lineStyle }; }),
+      lanes: lanes.map(function (l) {
+        return { x: l.left - LANE_PAD, width: l.right - l.left + LANE_PAD * 2, title: LANE_TITLE[l.id] || '', count: l.count };
+      }),
+      width: x + NODE_W + LANE_PAD + PAD_X,
+      height: PAD_TOP + maxH + PAD_BOTTOM,
+      label: '두 항목 사이 연결',
+      card: function (id, p) { return buildCard(id, p.x, p.y, p.w, p.h); },
+    });
+  }
+  function evidenceCell(list) {
+    var td = el('td');
+    if (!list.length) { td.textContent = '-'; return td; }
+    list.forEach(function (ev) {
+      td.appendChild(el('span', 'loc', ev.location === undefined ? evidenceText(ev.type) + ' (공유본이라 가렸어요)' : evidenceText(ev.type) + ' ' + ev.location));
+    });
+    return td;
+  }
+  function drawPair(memberIds, title) {
+    closeDrawer(false);
+    sections.forEach(function (s) { s.hidden = true; });
+    clearFocus();
+    pair.hidden = false;
+    pair.textContent = '';
+    pair._cards = null;
+    pair._links = null;
+    active = pair;
+    var items = trailItems(current);
+    items.push({ label: title });
+    renderCrumbs(items);
+    var list = memberIds.map(function (id) { return edges[id]; }).filter(Boolean);
+    if (!list.length) {
+      pair.setAttribute('data-w', '560');
+      pair.setAttribute('data-h', '240');
+      pair.style.width = '560px';
+      pair.style.height = '240px';
+      pair.appendChild(el('p', 'empty-state', '두 항목은 서로 이어져 있지 않아요.'));
+      sheet.hidden = true;
+      fit('smart');
+      return;
+    }
+    drawColumns(list, pair);
+    sheetTitle.textContent = '세부 연결 ' + list.length + '개';
+    sheetBody.textContent = '';
+    var table = el('table');
+    var head = el('tr');
+    ['연결', '어디서 → 어디로', '출처'].forEach(function (h) { head.appendChild(el('th', null, h)); });
+    table.appendChild(head);
+    list.forEach(function (e) {
+      var tr = el('tr');
+      tr.appendChild(el('td', null, kindText(e.kind)));
+      tr.appendChild(el('td', null, label(e.from) + ' → ' + label(e.to)));
+      tr.appendChild(evidenceCell(e.evidence));
+      table.appendChild(tr);
+    });
+    sheetBody.appendChild(table);
+    sheet.open = false;
+    sheet.hidden = false;
+    fit('smart');
+    runSearch(false);
+  }
+  // 포커스 화면. 레벨에 그려 둔 카드 자리를 그대로 가져와 남는 카드만 레인 안에서 위로 당겨 쌓는다.
+  // 레인 x와 순서를 지켜야 원래 그림에서 보던 자리 감각이 이어진다
+  function levelIdOf(c) {
+    if (!c) return null;
+    return c.getAttribute('data-level-id') || c.getAttribute('data-focus-level');
+  }
+  function levelEdges(levelId) {
+    if (!drill) return data.edges.map(function (e) { return { id: e.id, from: e.from, to: e.to, kind: e.kind, count: 1, lineStyle: e.lineStyle }; });
+    return levels[levelId].edges;
+  }
+  function syncFocusBtn() {
+    focusBtn.hidden = !(selectedId && selectedId !== focusId && pair.hidden && cardMap(sectionOf(current))[selectedId]);
+  }
+  function clearFocus() {
+    focusId = null;
+    focusSec.hidden = true;
+    focusSec.textContent = '';
+    focusSec._cards = null;
+    focusSec._links = null;
+    focusSec.removeAttribute('data-focus-level');
+    focusChip.hidden = true;
+    syncFocusBtn();
+  }
+  function showFocus(id) {
+    if (!id) return;
+    go('#/focus/' + enc(current) + '/' + enc(id));
+  }
+  function renderFocus(levelId, nodeId) {
+    if (!levels[levelId]) return false;
+    var src = sectionOf(levelId);
+    if (!src || !cardMap(src)[nodeId]) return false;
+    renderLevel(levelId);
+    var all = levelEdges(levelId);
+    var set = focusSet(all, nodeId);
+    var keep = {};
+    set.nodes.forEach(function (n) { keep[n] = true; });
+    var keptEdge = {};
+    set.edges.forEach(function (e) { keptEdge[e] = true; });
+    var boxes = [];
+    var top = Infinity;
+    src.querySelectorAll('.node').forEach(function (c) {
+      var b = { id: c.getAttribute('data-node-id'), x: parseFloat(c.style.left), y: parseFloat(c.style.top), w: parseFloat(c.style.width), h: parseFloat(c.style.height) };
+      boxes.push(b);
+      top = Math.min(top, b.y);
+    });
+    var pos = focusLayout(boxes, keep, top, 24);
+    var bottom = top;
+    Object.keys(pos).forEach(function (id) { bottom = Math.max(bottom, pos[id].y + pos[id].h); });
+    var rects = src.querySelectorAll('rect.lane');
+    var titles = src.querySelectorAll('.lane-title');
+    var lanes = [];
+    Array.prototype.forEach.call(rects, function (r, i) {
+      var x = parseFloat(r.getAttribute('x'));
+      var w = parseFloat(r.getAttribute('width'));
+      var n = 0;
+      Object.keys(pos).forEach(function (id) { if (pos[id].x >= x && pos[id].x < x + w) n += 1; });
+      if (!n) return;
+      var t = titles[i];
+      lanes.push({ x: x, width: w, title: t ? t.firstChild.textContent : '', count: n });
+    });
+    var cards = cardMap(src);
+    src.hidden = true;
+    focusSec.textContent = '';
+    focusSec._cards = null;
+    focusSec._links = null;
+    focusSec.setAttribute('data-focus-level', levelId);
+    focusSec.setAttribute('aria-label', label(nodeId) + ' 포커스');
+    drawCanvas(focusSec, {
+      pos: pos,
+      edges: all.filter(function (e) { return keptEdge[e.id]; }),
+      lanes: lanes,
+      width: parseFloat(src.getAttribute('data-w')),
+      height: bottom + 40,
+      label: '이어진 연결: ' + label(nodeId),
+      card: function (id, p) {
+        var c = cards[id].cloneNode(true);
+        c.classList.remove('selected', 'anchor', 'lit', 'hit', 'current');
+        if (id === nodeId) c.classList.add('focus-root');
+        c.style.top = p.y + 'px';
+        return c;
+      },
+    });
+    focusSec.hidden = false;
+    active = focusSec;
+    focusId = nodeId;
+    focusName.textContent = label(nodeId);
+    focusChip.hidden = false;
+    syncFocusBtn();
+    fit('smart');
+    runSearch(false);
+    return true;
+  }
+  function releaseFocus() {
+    if (focusId === null) return false;
+    showLevel(current);
+    return true;
+  }
+  focusBtn.addEventListener('click', function () { showFocus(selectedId); });
+  byId('focus-clear').addEventListener('click', releaseFocus);
+  function showPair(a, b) {
+    go('#/pair/' + enc(a) + '/' + enc(b));
+  }
+  function renderPair(a, b) {
+    if (!nodes[a] || !nodes[b]) return false;
+    renderLevel('root');
+    drawPair(pathMembers(a, b), label(a) + ' ↔ ' + label(b));
+    return true;
+  }
+  function renderBundle(levelId, bundleId) {
+    var level = levels[levelId];
+    var bundle = level && level.edgeById[bundleId];
+    if (!bundle) return false;
+    renderLevel(levelId);
+    drawPair(bundle.memberEdgeIds, label(bundle.from) + ' → ' + label(bundle.to));
+    return true;
+  }
+  function route() {
+    var raw = location.hash.charAt(0) === '#' ? location.hash.slice(1) : location.hash;
+    if (raw.charAt(0) === '/') raw = raw.slice(1);
+    var parts = raw.split('/').map(function (p) {
+      try { return decodeURIComponent(p); } catch (e) { return ''; }
+    });
+    var ok = false;
+    if (drill) {
+      if (parts[0] === 'level' && parts.length === 2 && levels[parts[1]]) { renderLevel(parts[1]); ok = true; }
+      else if (parts[0] === 'pair' && parts.length === 3) ok = renderPair(parts[1], parts[2]);
+      else if (parts[0] === 'bundle' && parts.length === 3) ok = renderBundle(parts[1], parts[2]);
+    }
+    if (parts[0] === 'focus' && parts.length === 3) ok = renderFocus(parts[1], parts[2]);
+    if (!ok) {
+      renderLevel('root');
+      // 모르는 주소는 기록을 남기지 않고 전체로 바꿔 둔다. 남기면 뒤로가기가 같은 자리를 한 번 더 밟는다
+      if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/');
+    }
+    if (pendingSelect) {
+      var id = pendingSelect;
+      pendingSelect = null;
+      focusCard(id);
+    }
+  }
+
+  // 검색. 지금 보이는 화면의 카드만 찾는다
+  var hits = [];
+  var hitAt = -1;
+  function runSearch(move) {
+    if (active) {
+      active.classList.remove('searching');
+      active.querySelectorAll('.node.hit').forEach(function (c) { c.classList.remove('hit'); c.classList.remove('current'); });
+    }
+    hits = [];
+    hitAt = -1;
+    var q = search.value.trim().toLowerCase();
+    if (!q || !active) { searchCount.textContent = ''; return; }
+    active.querySelectorAll('.node').forEach(function (c) {
+      var n = nodes[c.getAttribute('data-node-id')];
+      if (!n) return;
+      var hay = ((n.displayName || '') + ' ' + n.label).toLowerCase();
+      if (hay.indexOf(q) >= 0) hits.push(c);
+    });
+    hits.sort(function (a, b) { return a.offsetLeft - b.offsetLeft || a.offsetTop - b.offsetTop; });
+    active.classList.add('searching');
+    hits.forEach(function (c) { c.classList.add('hit'); });
+    if (!hits.length) { searchCount.textContent = '없음'; return; }
+    if (move) stepSearch(1);
+    else searchCount.textContent = hits.length + '개';
+  }
+  function stepSearch(dir) {
+    if (!hits.length) return;
+    if (hitAt >= 0) hits[hitAt].classList.remove('current');
+    hitAt = (hitAt + dir + hits.length) % hits.length;
+    var c = hits[hitAt];
+    c.classList.add('current');
+    centerOn(c, 0.8);
+    searchCount.textContent = (hitAt + 1) + '/' + hits.length;
+  }
+  search.addEventListener('input', function () { runSearch(true); });
+  search.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); stepSearch(e.shiftKey ? -1 : 1); }
+    else if (e.key === 'Escape') { e.stopPropagation(); search.value = ''; runSearch(false); search.blur(); }
+  });
+
+  // 범례와 질문 팝오버
+  var pops = [];
+  function placePop(btn, pop) {
+    var r = btn.getBoundingClientRect();
+    pop.style.top = Math.round(r.bottom + 6) + 'px';
+    var left = Math.min(window.innerWidth - pop.offsetWidth - 8, r.right - pop.offsetWidth);
+    pop.style.left = Math.max(8, Math.round(left)) + 'px';
+  }
+  function anyPop() { return pops.some(function (p) { return !p.pop.hidden; }); }
+  function closePops(restore) {
+    pops.forEach(function (p) {
+      if (p.pop.hidden) return;
+      p.pop.hidden = true;
+      p.btn.setAttribute('aria-expanded', 'false');
+      if (restore) p.btn.focus();
+    });
+  }
+  function setupPop(btnId, popId) {
+    var btn = byId(btnId);
+    var pop = byId(popId);
+    if (!btn || !pop) return;
+    pops.push({ btn: btn, pop: pop });
+    btn.addEventListener('click', function () {
+      var willOpen = pop.hidden;
+      closePops(false);
+      if (!willOpen) return;
+      pop.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      placePop(btn, pop);
+      pop.focus();
+    });
+  }
+  setupPop('legend-btn', 'legend');
+  setupPop('q-btn', 'questions');
+  doc.addEventListener('pointerdown', function (e) {
+    if (!anyPop()) return;
+    if (e.target.closest && (e.target.closest('.pop') || e.target.closest('[aria-controls]'))) return;
+    closePops(false);
+  });
+  window.addEventListener('resize', function () {
+    pops.forEach(function (p) { if (!p.pop.hidden) placePop(p.btn, p.pop); });
+  });
+  function goToNode(id) {
+    if (!id) return;
+    if (active && cardMap(active)[id]) { focusCard(id); return; }
+    var target = null;
+    sections.forEach(function (s) { if (!target && cardMap(s)[id]) target = s.getAttribute('data-level-id'); });
+    if (!target) return;
+    pendingSelect = id;
+    showLevel(target);
+  }
+  byId('questions').addEventListener('click', function (e) {
+    var b = e.target.closest('button.q');
+    if (!b || b.disabled) return;
+    closePops(false);
+    goToNode(b.getAttribute('data-node-id'));
+  });
+
+  // 처음 쓰는 사람을 위한 안내. 한 번 닫으면 다시 안 띄운다
+  if (load(HINT_KEY) === 'off') hint.hidden = true;
+  byId('hint-close').addEventListener('click', function () {
+    hint.hidden = true;
+    store(HINT_KEY, 'off');
+  });
+
+  doc.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      if (anyPop()) { closePops(true); return; }
+      if (drawerOpen()) { closeDrawer(true); return; }
+      releaseFocus();
+      return;
+    }
+    var t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === '/') { e.preventDefault(); search.focus(); search.select(); }
+    else if (e.key === '+' || e.key === '=') zoomBy(1.25);
+    else if (e.key === '-' || e.key === '_') zoomBy(0.8);
+    else if (e.key === '0') fit('full');
+    else if ((e.key === 'f' || e.key === 'F') && !focusBtn.hidden) showFocus(selectedId);
+  });
+
+  window.addEventListener('hashchange', route);
+  route();
+  ready = true;
+})();
+`;
+}
