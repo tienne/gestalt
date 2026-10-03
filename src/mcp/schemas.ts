@@ -889,6 +889,12 @@ export const architectureInputSchema = guardObject(
       .string()
       .optional()
       .describe('merge: 합친 IR을 쓸 파일 경로. 주면 응답에 IR 대신 경로만 싣는다'),
+    groupNames: z
+      .array(z.string().min(1))
+      .optional()
+      .describe(
+        'merge: 입력마다 붙일 제품 이름. irs 다음 irPaths 순서다. 비우면 입력의 서비스 이름으로 짓는다',
+      ),
     audience: z
       .enum(['private', 'shared'])
       .optional()

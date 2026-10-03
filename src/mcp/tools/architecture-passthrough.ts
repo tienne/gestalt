@@ -301,7 +301,10 @@ function handleMerge(input: ArchitectureInput, repoRoot: string): object {
     if (!parsed.ok) return parsed;
     irs.push(parsed.ir);
   }
-  const result = mergeArchitectureIrs(irs, { prefixCandidates: input.prefixCandidates });
+  const result = mergeArchitectureIrs(irs, {
+    prefixCandidates: input.prefixCandidates,
+    groupNames: input.groupNames,
+  });
   if (!result.ok) return result;
   const nextAction =
     '합친 IR을 validate로 확인한 뒤 render한다. render는 repoRoot의 같은 뷰 IR과 병합하므로 원래 분석 레포가 아닌 따로 둔 디렉토리를 repoRoot로 준다.';
