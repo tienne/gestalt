@@ -6,7 +6,7 @@
  *
  * `--repo`를 안 주면 지금 디렉토리의 레포를 쓴다. 대상 레포 안에 워크트리를 만드니
  * 작업 중인 레포라면 `git clone --no-local`로 복제한 쪽을 넘긴다.
- * `--sessions`를 안 주면 ~/.claude/projects/-Users-kwon-david-dev-gestalt를 읽는다.
+ * `--sessions`를 안 주면 대상 레포 경로에 해당하는 ~/.claude/projects 아래 세션 디렉토리를 읽는다.
  * `--sessions-match`는 ~/.claude/projects 아래 이름에 그 문자열이 든 디렉토리를 다 읽는다.
  * 워크트리마다 세션 디렉토리가 따로 생겨서 메인 체크아웃 기록만으로는 표본이 작다.
  * `--all-sessions`는 `--sessions-match gestalt`와 같다.
@@ -52,6 +52,14 @@ function arg(name: string): string | undefined {
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8', maxBuffer: 256 * 1024 * 1024 });
+}
+
+/** Claude Code는 절대 경로의 영숫자 아닌 문자를 전부 `-`로 바꿔 세션 디렉토리 이름을 짓는다 */
+function defaultSessionDir(projects: string, repo: string): string {
+  const dir = join(projects, repo.replace(/[^a-zA-Z0-9]/g, '-'));
+  if (!existsSync(dir))
+    process.stderr.write(`세션 디렉토리가 없어 실제 프롬프트 평가를 건너뛴다: ${dir}\n`);
+  return dir;
 }
 
 /** 커밋 제목을 사람이 칠 법한 프롬프트로. conventional 접두어와 스쿼시 머지의 PR 번호를 뗀다 */
@@ -379,7 +387,7 @@ function main(): void {
         // replay는 다른 평가가 임시 워크트리에서 돌린 세션이라 사람이 친 프롬프트가 아니다
         .filter((d) => d.includes(match) && !d.includes('replay'))
         .map((d) => join(projects, d))
-    : [arg('--sessions') ?? join(projects, '-Users-kwon-david-dev-gestalt')].filter(existsSync);
+    : [arg('--sessions') ?? defaultSessionDir(projects, repo)].filter(existsSync);
   const t = git(repo, ['rev-list', '-1', `--before=${before}T00:00:00`, 'HEAD']).trim();
   if (!t) throw new Error(`${before} 이전 커밋이 없다`);
 
