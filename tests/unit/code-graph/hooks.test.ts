@@ -382,6 +382,8 @@ describe('기동 경계', () => {
   it('훅 모듈은 엔진, MCP, LLM, 임베딩을 import하지 않는다', () => {
     const forbidden = [
       /code-graph\/engine\.ts$/,
+      // HOOKS_ENV는 core/hooks-env.ts에 있다. config.ts는 zod와 dotenv를 끌고 온다
+      /core\/config\.ts$/,
       /\/mcp\//,
       /\/llm\//,
       /providers\//,

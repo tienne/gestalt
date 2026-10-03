@@ -1,16 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { HOOKS_ENV, parseHooksEnv } from '../../core/hooks-env.js';
 
-/** 켜고 끄는 환경변수. gestalt.json보다 우선한다 */
-export const HOOKS_ENV = 'GESTALT_CODE_GRAPH_HOOKS';
-
-/** 1/true면 true, 0/false면 false, 그 밖엔 판정을 gestalt.json에 넘긴다는 뜻으로 undefined */
-export function parseHooksEnv(raw: string | undefined): boolean | undefined {
-  const v = raw?.trim().toLowerCase();
-  if (v === '1' || v === 'true') return true;
-  if (v === '0' || v === 'false') return false;
-  return undefined;
-}
+export { HOOKS_ENV, parseHooksEnv };
 
 /**
  * 훅을 켤지 정한다. 환경변수가 1/true면 켜고 0/false면 끈다. 그 밖엔 gestalt.json의

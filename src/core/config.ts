@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
 import { gestaltPath } from './home.js';
-import { HOOKS_ENV, parseHooksEnv } from '../code-graph/hooks/settings.js';
+import { HOOKS_ENV, parseHooksEnv } from './hooks-env.js';
 import {
   DEFAULT_MODEL,
   DEFAULT_REASONING_MODEL,
@@ -349,7 +349,8 @@ const codeGraphConfigSchema = z.object({
   /**
    * Claude Code 플러그인 훅이 코드 그래프 컨텍스트를 넣을지. 훅은 플러그인이 깔린 모든 레포에
    * 걸리므로 기본은 꺼짐이다. 훅 프로세스는 기동 비용 때문에 이 스키마를 거치지 않고
-   * `src/code-graph/hooks/settings.ts`가 같은 값을 직접 읽는다.
+   * `src/code-graph/hooks/settings.ts`가 같은 값을 직접 읽는다. 환경변수 이름과 파싱은
+   * 양쪽이 `./hooks-env.ts`를 함께 쓴다.
    */
   hooks: z.object({ enabled: z.boolean().default(false) }).default({}),
 });
