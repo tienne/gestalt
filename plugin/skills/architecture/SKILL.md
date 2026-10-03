@@ -59,6 +59,7 @@ Step 0 start → Step 1 소스 찾아내기 → Step 2 글로벌 맥락 → Step
 → Step 6 IR 작성과 validate → Step 7 미해결 질문 루프
 → Step 8 render와 보고
 (재실행이면 Step 9가 Step 1~5를 좁힌다)
+(따로 돌린 분석을 한 그림으로 모으려면 분석 합치기)
 ```
 
 ---
@@ -408,6 +409,29 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 3. **`previousSourcesUsed`를 먼저 간 본다.** `probeHit`가 `true`였던 소스부터 본다. 이번에도 `filter_tools`는 다시 거친다. 도구 이름이 같아도 이번 세션에 붙은 서버가 다를 수 있다.
 4. **지난 실행 이후 바뀐 곳 주변만 다시 탐색한다.** `generatedAt` 이후의 `git log`와 `git diff`로 바뀐 파일을 뽑는다. 그 파일에 걸린 노드와 엣지만 근거 줄을 다시 확인한다. 안 바뀐 파일의 근거도 줄이 밀렸을 수 있으니 validate의 `CODE_EVIDENCE_NOT_FOUND`가 나면 그 근거는 다시 찾는다.
 5. 답이 달린 지난 질문은 render가 물려준다. 답 안 달린 질문은 Step 7에서 다시 묻는다. `user` 근거로 정해진 기능영역 경계는 Step 3-1대로 그대로 둔다.
+
+## 분석 합치기
+
+제품마다 따로 돌린 분석을 한 그림으로 보고 싶을 때 쓴다. 두 제품이 같이 쓰는 `gateway`와 서버가 한 노드로 모인다. 한쪽 분석에서 핸들러를 못 찾은 엔드포인트가 다른 쪽 분석의 핸들러에 이어진다. 같은 분석을 다시 돌리는 건 Step 9이고 이 절이 아니다.
+
+1. **합칠 IR을 모은다.** 각 분석의 `.gestalt/architecture/<view>.json`이다. 뷰가 같은 것끼리만 합친다. screen-chain과 deploy-path는 따로 합친다.
+2. **`repos[].remote`를 확인한다.** 레포가 같은지는 별칭이 아니라 remote로 판단한다. remote가 비어 있으면 같은 레포인데도 따로 그려진다. 비어 있으면 그 레포에서 `git remote get-url origin`으로 채운 뒤 합친다.
+3. **merge를 부른다.** 큰 IR은 요청과 응답에 통째로 싣지 말고 파일로 주고받는다.
+
+   ```json
+   { "action": "merge", "irPaths": ["<a>/screen-chain.json", "<b>/screen-chain.json"], "outPath": "<work>/merged.json", "prefixCandidates": ["/api"] }
+   ```
+
+   `prefixCandidates`는 Step 3-2에서 찾은 `gateway` prefix다. 한쪽 FE 경로에는 붙고 다른 쪽 BE 라우트에는 없는 prefix가 있으면 넣는다.
+4. **report를 읽는다.**
+   - `sharedNodes`: 두 분석에 다 있던 노드. 같이 쓰는 `gateway`와 서버가 여기 나온다. 기대한 노드가 빠졌으면 두 IR의 label 꼴이 다른 것이다. 합친 IR을 고치지 말고 원래 분석의 label을 Step 3 꼴로 맞춰 다시 render한 뒤 다시 합친다.
+   - `crossRepoEdges`: 레포를 넘는 매칭으로 새로 그은 `handles` 엣지
+   - `conflictQuestions`: 같은 노드인데 표시 이름이나 parent가 갈려서 만든 질문. merge는 한쪽을 고르지 않는다. 값을 비우고 묻는다. `user` 근거가 있는 쪽 값은 그대로 둔다.
+   - `islands`: 1보다 크면 서로 안 이어진 분석이 있다. 겹치는 게 정말 없는지, label이나 remote가 어긋난 건지 확인한다.
+5. **validate와 render를 그대로 탄다.** `irPath`로 합친 파일을 넘긴다. **`repoRoot`는 원래 분석 레포가 아닌 따로 둔 디렉토리로 준다.** render는 `repoRoot`의 같은 뷰 IR과 병합하므로 원래 레포를 주면 그 레포의 단독 분석이 합친 결과로 덮인다. 입력의 `root`가 상대 경로였으면 `checkFiles: false`로 그린다.
+6. **충돌 질문은 Step 7처럼 사용자에게 묻는다.** 답은 원래 분석 쪽에 `user` 근거로 남기고 다시 합친다. 합친 IR에만 고쳐 두면 다음에 합칠 때 같은 질문이 또 생긴다.
+
+보고에는 Step 8의 세 덩어리에 더해 `sharedNodes`(같이 쓰는 노드 이름과 레포), `crossRepoEdges` 수, 충돌 질문 목록을 적는다.
 
 ---
 
