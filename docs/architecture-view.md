@@ -411,6 +411,7 @@ private 근거의 원문은 세 겹으로 막는다.
 | `validate` | IR을 검증만 한다. 저장하지 않는다 |
 | `render` | 검증하고 이전 실행과 병합한 뒤 IR과 HTML 두 개를 저장한다. `service` 노드가 있으면 HTML이 드릴다운이 된다 |
 | `status` | 두 뷰의 이전 실행 요약을 돌려준다 |
+| `merge` | 따로 돌린 분석 IR 여럿을 하나로 합친다. 저장도 렌더도 안 한다 |
 
 ### Common Parameters
 
@@ -472,9 +473,12 @@ FE 경로는 그대로 한 번 비교한다. `baseUrl`의 경로 부분과 `pref
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|:--------:|---------|-------------|
-| `ir` | `object` | Y | — | ArchitectureIR JSON |
+| `ir` | `object` | Y* | — | ArchitectureIR JSON |
+| `irPath` | `string` | Y* | — | `ir` 대신 IR 파일 경로. `repoRoot` 기준으로 푼다 |
 | `view` | `string` | N | — | 주면 `ir.view`와 같아야 한다 |
 | `checkFiles` | `boolean` | N | `true` | `code` 근거의 파일과 줄을 확인할지 |
+
+`ir`과 `irPath` 중 하나는 있어야 한다. 둘 다 주면 `ir`을 쓴다. 합친 IR처럼 큰 IR은 응답과 요청에 통째로 싣지 말고 파일로 주고받는다.
 
 성공 응답이다.
 
@@ -491,7 +495,8 @@ FE 경로는 그대로 한 번 비교한다. `baseUrl`의 경로 부분과 `pref
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|:--------:|---------|-------------|
-| `ir` | `object` | Y | — | ArchitectureIR JSON |
+| `ir` | `object` | Y* | — | ArchitectureIR JSON |
+| `irPath` | `string` | Y* | — | `ir` 대신 IR 파일 경로. validate와 같다 |
 | `view` | `string` | N | — | 주면 `ir.view`와 같아야 한다 |
 | `audience` | `"private" \| "shared"` | N | `"private"` | `openPath`가 가리킬 HTML. 파일은 늘 둘 다 쓴다 |
 | `checkFiles` | `boolean` | N | `true` | `code` 근거의 파일과 줄을 확인할지 |
@@ -521,6 +526,32 @@ render는 이 순서로 돈다.
 ### `status`
 
 추가 파라미터가 없다. 응답은 `{ views: { "screen-chain": 요약 | null, "deploy-path": 요약 | null } }`다. 요약은 `{ generatedAt, nodeCount, edgeCount, unresolvedOpen, sourcesUsed }`다.
+
+### `merge`
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|:--------:|---------|-------------|
+| `irs` | `object[]` | Y* | — | 합칠 ArchitectureIR JSON 목록 |
+| `irPaths` | `string[]` | Y* | — | 합칠 IR 파일 경로 목록. `repoRoot` 기준으로 푼다. `irs`와 함께 주면 `irs` 뒤에 이어 붙인다 |
+| `prefixCandidates` | `string[]` | N | — | 레포를 넘는 엔드포인트 매칭에서 FE 경로 앞에 붙는 게이트웨이 prefix 후보 |
+| `outPath` | `string` | N | — | 합친 IR을 쓸 파일. 주면 응답에 IR 대신 경로를 싣는다 |
+
+입력은 둘 이상이고 뷰가 모두 같아야 한다. 입력마다 파일 확인을 뺀 검증을 먼저 돌려 끊긴 엣지나 private 원문이 있으면 거부한다. 에러 메시지에 몇 번째 입력인지 붙는다. 합치는 규칙은 [분석 합치기](#분석-합치기)에 있다.
+
+성공 응답이다.
+
+| 키 | 내용 |
+|---|---|
+| `ok` | `true` |
+| `ir` 또는 `irPath` | 합친 IR, `outPath`를 줬으면 쓴 경로 |
+| `report.inputs` | 입력 수 |
+| `report.sharedNodes` | 둘 이상의 입력에 있던 노드. `{ id, kind, label, repo, displayName?, inputs }`이고 `inputs`는 넘긴 순서의 번호다 |
+| `report.crossRepoEdges` | 레포를 넘는 매칭으로 새로 그은 엣지 id |
+| `report.conflictQuestions` | 충돌이나 애매한 매칭으로 새로 만든 질문 id |
+| `report.islands` | 공유 노드나 새 엣지로 이어지지 않은 입력 묶음 수. 1이면 한 덩어리다 |
+| `nextAction` | 다음에 할 일 |
+
+합친 IR은 `validate`와 `render`에 그대로 넘긴다. render는 `repoRoot`의 같은 뷰 IR과 병합하므로 **원래 분석 레포가 아닌 따로 둔 디렉토리를 `repoRoot`로 준다.** 원래 레포를 주면 그 레포의 단독 분석 IR이 합친 IR로 덮인다.
 
 ---
 
@@ -570,6 +601,24 @@ render는 이 순서로 돈다.
 - 이전 IR에서 답이 달린 질문은 대상 노드나 엣지가 병합 결과에 남아 있을 때만 이어 붙인다. 같은 대상에 같은 질문이 새로 왔으면 답만 옮긴다.
 
 label을 바꾸면 다른 노드가 된다. 엔드포인트 label을 `METHOD /정규화 경로` 꼴로 고정하는 이유다. 사람이 읽을 이름을 다듬고 싶으면 label 대신 `displayName`을 고친다. 병합 키에 안 들어가서 id가 그대로다.
+
+### 분석 합치기
+
+재실행 병합은 같은 분석의 앞뒤를 맞춘다. 제품마다 따로 돌린 분석을 한 그림으로 보려면 `merge`를 쓴다 (`mergeArchitectureIrs`). 두 제품이 같이 쓰는 게이트웨이와 서버가 한 노드로 모이고 그 노드를 거쳐 두 제품의 화면이 이어진다.
+
+- **레포**는 별칭(`repos[].id`)이 아니라 `remote`로 알아본다. `git@host:org/repo.git`과 `https://host/org/repo`는 같은 레포다. remote가 없는 레포(클라우드 조회용으로 둔 가짜 레포 등)는 `name`으로 알아본다. 별칭이 부딪히면 뒤에 `-2`를 붙여 다시 매기고 `code` 근거 위치 앞의 별칭도 함께 바꾼다.
+- **노드**는 재실행 병합과 같은 키(`kind`, 레포, 정규화한 `label`)로 알아본다. 레포는 위에서 묶은 기준이라 두 분석이 다른 별칭을 썼어도 같은 노드가 된다. 같은 노드면 하나로 합치고 근거는 합집합으로 남긴다. 한 입력 안에서 키가 겹친 노드끼리는 그 분석이 일부러 나눈 것으로 보고 합치지 않는다.
+- **id**는 먼저 합친 쪽 것을 쓴다. 다른 노드와 부딪히면 `-2`를 붙인다. `parent`, `account`, 엣지 양 끝, 질문 대상이 바뀐 id를 따라간다.
+- **엣지**는 바뀐 id 기준 `from`, `to`, `kind`가 같으면 하나로 합친다. 한쪽이라도 실선이면 실선이다. 근거는 합집합이라 실선의 근거가 줄지 않는다.
+- **레포를 넘는 연결**: 핸들러(`handles` → `app_module`)가 없는 엔드포인트를 다른 입력의 핸들러 달린 엔드포인트와 [`match_endpoints`](#match_endpoints)와 같은 규칙(method와 정규화한 경로)으로 맞춘다. 맞으면 FE 엔드포인트에서 그 모듈로 `handles`를 긋고 FE 쪽 경로 줄과 BE 쪽 라우트 줄을 둘 다 근거로 단다. 같은 입력 안의 쌍은 다시 맞추지 않는다. 그 분석이 이미 못 맞춘 쌍이라서다. 후보가 여럿이면 긋지 않고 질문으로 남긴다.
+- **충돌**: 같은 노드인데 `displayName`, `parent`, `environment`, `account`가 입력마다 다르면 어느 쪽도 고르지 않는다. 그 값을 비우고 후보를 담은 미해결 질문(`merge:<필드>:<노드 id>`)을 만든다. 단 `user` 근거가 있는 쪽 값은 그대로 둔다. 사람이 답해서 정한 값이라서다. 한쪽만 값을 줬으면 충돌이 아니라 그 값을 쓴다. `description`은 먼저 합친 쪽 것을 쓴다.
+- **겹치는 노드가 없으면** 입력이 섬처럼 나란히 선다. 서비스가 둘 이상이라 드릴다운 전체 화면에 서비스가 나란히 서고 서비스마다 레벨이 생긴다. 포커스도 그대로 쓸 수 있다.
+- **질문**은 대상을 바뀐 id로 옮긴다. 같은 대상에 같은 문장이면 하나만 남기고 답이 있는 쪽 답을 쓴다.
+- **맥락 소스**는 `via`와 `identifier`로 묶는다. 한쪽이라도 `private`이면 `private`로 남긴다. `generatedAt`은 입력 중 가장 늦은 시각이다.
+- **공개 범위**: private 근거의 원문은 입력 검증에서 거부하고 결과에서도 한 번 더 지운다. 근거는 원래 `visibility`를 그대로 갖고 가므로 shared 렌더의 가리기 규칙이 합친 결과에도 똑같이 걸린다.
+- **결정적이다.** 입력을 정규화한 JSON의 해시 순으로 정렬한 뒤 합치므로 넘긴 순서나 객체 키 순서와 상관없이 같은 바이트가 나온다. 보고서의 `inputs` 번호만 넘긴 순서를 따른다.
+
+상대 경로 `root`는 그 IR을 그린 위치 기준이라 합칠 때 풀 수 없다. 같은 레포를 두 입력이 다른 `root`로 적었으면 절대 경로 쪽을 쓴다. 합친 IR을 `checkFiles: true`로 그리려면 입력의 `root`를 절대 경로로 적어 둔다.
 
 ---
 

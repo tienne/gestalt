@@ -17,7 +17,7 @@
 - **Memory**: 이전 스펙·실행 이력을 `.gestalt/memory.json`에 축적, 신규 인터뷰에 자동 주입
 - **Multi-Provider LLM**: frugal/standard/frontier 티어별로 Anthropic/OpenAI 호환 프로바이더 자유 조합
 - **Local PR**: 에이전트끼리 레포 안에서 PR을 만들고 리뷰하고 머지하는 자리 — 원격에 안 나간다. 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유한다
-- **Architecture View**: 세션이 코드와 맥락 소스를 탐색해 근거 달린 IR을 쓰면 서버가 검증하고 elkjs 좌표로 단일 HTML을 그린다. 서비스 노드가 있으면 전체에서 서비스, 기능영역, 화면으로 들어가는 드릴다운이 된다. 노드 하나를 고르면 그와 위아래로 이어진 카드만 남기는 포커스도 된다. 근거 없는 실선은 거부하고 근거 없는 연결은 미해결 질문으로 돌린다. 저장은 `.gestalt/architecture/`
+- **Architecture View**: 세션이 코드와 맥락 소스를 탐색해 근거 달린 IR을 쓰면 서버가 검증하고 elkjs 좌표로 단일 HTML을 그린다. 서비스 노드가 있으면 전체에서 서비스, 기능영역, 화면으로 들어가는 드릴다운이 된다. 노드 하나를 고르면 그와 위아래로 이어진 카드만 남기는 포커스도 된다. 근거 없는 실선은 거부하고 근거 없는 연결은 미해결 질문으로 돌린다. 따로 돌린 분석 둘을 git remote 기준으로 합쳐 제품끼리 같이 쓰는 게이트웨이와 서버를 한 그림에 모을 수도 있다. 저장은 `.gestalt/architecture/`
 - **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱
 
 ## Tech Stack
@@ -57,7 +57,7 @@ pnpm tsx bin/gestalt.ts explain-eval --a plugin/role-agents/explainer/AGENT.md  
 - `ges_search`: query, k?, kbPath?, types?
 - `ges_sync`: sourcePath?, targetPath
 - `ges_pr`: action=[create|list|get|diff|comment|resolve|review|update|edit|merge|close|checkout|checkout_remove]
-- `ges_architecture`: action=[start|filter_tools|match_endpoints|validate|render|status]
+- `ges_architecture`: action=[start|filter_tools|match_endpoints|validate|render|status|merge]
 
 상세 플로우 → [`docs/mcp-reference.md`](./docs/mcp-reference.md)
 설정 레퍼런스 → [`docs/configuration.md`](./docs/configuration.md)
@@ -79,7 +79,7 @@ src/execute/       — ExecuteEngine, DAG Validator
 src/resilience/    — Stagnation Detector, Lateral Thinking Personas
 src/code-graph/    — CodeGraphEngine, BlastRadius, git 이력 co-change, 언어 플러그인 8개
 src/graph-viz/     — 코드 그래프 D3 시각화 (ges_graph_visualize 백엔드)
-src/architecture/  — 아키텍처 IR 스키마, 근거 검증, 이전 실행 병합, elkjs 레이아웃, HTML 렌더 (ges_architecture 백엔드)
+src/architecture/  — 아키텍처 IR 스키마, 근거 검증, 이전 실행 병합, 분석 합치기, elkjs 레이아웃, HTML 렌더 (ges_architecture 백엔드)
 src/local-pr/      — 로컬 PR 도메인 (이벤트 소싱, git 연산, gestalt pr·ges_pr 백엔드)
 src/local-pr-web/  — 로컬 PR 읽기 전용 웹 UI (gestalt pr serve 백엔드)
 src/knowledge-base/— KB 생성·시맨틱 검색·동기화 (ges_generate_kb/ges_search/ges_sync 백엔드)
