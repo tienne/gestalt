@@ -40,6 +40,7 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `nodes` | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, description?, environment?, account?, platforms?, platformEvidence?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서 설명한다 |
 | `edges` | `{ id, from, to, kind, evidence[], lineStyle }`. `lineStyle`은 `solid` 또는 `dashed` |
 | `unresolved` | `{ id, subject: { nodeId?, edgeId? }, question, answer? }` |
+| `groups` | 합친 IR에만 있다. `{ id, name, members }`이고 `members`는 그 제품 분석에 있던 노드 id다. [분석 합치기](#분석-합치기)에서 설명한다 |
 | `sourcesUsed` | 이번 실행이 간 본 맥락 소스. `{ via, identifier, readOnly, probeHit, visibility }` |
 | `generatedAt` | 생성 시각 문자열. HTML에 그대로 찍힌다 |
 
@@ -107,6 +108,7 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `endpoint` | screen-chain | 백엔드 HTTP 엔드포인트. label은 `METHOD /정규화 경로` 꼴 |
 | `app_module` | screen-chain | 엔드포인트를 처리하는 백엔드 모듈이나 컨트롤러 |
 | `external_service` | screen-chain | 모듈이 부르는 다른 서비스, 외부 API, 메시지 브로커 |
+| `datastore` | screen-chain | 테이블이 사는 DB 클러스터나 캐시 클러스터 (RDS, Aurora, Redis 등). `repo`는 클라우드 조회용 가짜 레포로 두고 label은 `<엔진>:<클러스터 식별자>` 꼴이다 |
 | `db_table` | screen-chain | 모듈이 읽고 쓰는 테이블 |
 | `workflow` | deploy-path | 배포를 시작하는 CI 워크플로와 그 트리거 |
 | `build` | deploy-path | 빌드 잡이나 스텝 |
@@ -117,7 +119,7 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `bucket` | 둘 다 | 정적 번들이나 코드푸시 번들이 올라가는 버킷 |
 | `cloud_account` | 둘 다 | 클라우드 계정. 다른 노드의 `account`가 이 노드를 가리킨다 |
 
-레이아웃은 kind마다 열을 정해 왼쪽부터 놓는다. screen-chain은 `service`, `feature`, `screen`이 한 열, 그다음 `gateway`, `endpoint`, `app_module`이고 `external_service`와 `db_table`이 마지막 한 열이다. deploy-path는 `workflow`, `build`, `artifact`, `deploy_target` 다음에 인프라 레인 `bucket`, `cdn`, `domain`, `cloud_account`가 붙는다.
+레이아웃은 kind마다 열을 정해 왼쪽부터 놓는다. screen-chain은 `service`, `feature`, `screen`이 한 열, 그다음 `gateway`, `endpoint`, `app_module`이고 `external_service`가 그 뒤, `datastore`와 `db_table`이 마지막 한 열이다. deploy-path는 `workflow`, `build`, `artifact`, `deploy_target` 다음에 인프라 레인 `bucket`, `cdn`, `domain`, `cloud_account`가 붙는다.
 
 ### 엣지 kind
 
@@ -129,7 +131,7 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `routes` | gateway → endpoint, gateway, app_module | 게이트웨이 라우트 설정의 `Path`나 `uri` 줄 |
 | `handles` | endpoint → app_module | 라우트 매핑 어노테이션이나 라우터 등록 줄 |
 | `uses` | app_module → external_service | 외부 클라이언트 호출 줄 |
-| `reads_writes` | app_module → db_table | 쿼리나 엔티티 매핑 줄 |
+| `reads_writes` | app_module → db_table, datastore | 쿼리나 엔티티 매핑 줄. 테이블 단위로 못 내려가는 캐시는 저장소로 바로 긋는다. 근거는 datasource URL이나 캐시 host 설정 줄이다 |
 | `triggers` | workflow → build | 워크플로의 트리거와 잡 정의 줄 |
 | `builds` | build → artifact | 빌드 명령 줄 |
 | `produces` | build → artifact | 산출물을 내보내는 줄 (이미지 push, 업로드) |
@@ -148,6 +150,7 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 |---|---|
 | `screen` | `feature`, `service` |
 | `feature` | `service` |
+| `db_table` | `datastore` |
 | 그 밖 | parent를 가질 수 없다 |
 
 parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없는 것으로 친다.
@@ -175,14 +178,14 @@ parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없
 
 | 필드 | 쓰는 노드 | 뜻 |
 |---|---|---|
-| `environment` | `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target` | 환경 이름. 같은 레인 안에서 `prod`, `stage`, `qa`, `dev` 순으로 놓이고 그 밖의 환경, 환경 없음이 뒤에 선다 |
+| `environment` | `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target`, `datastore` | 환경 이름. 같은 레인 안에서 `prod`, `stage`, `qa`, `dev` 순으로 놓이고 그 밖의 환경, 환경 없음이 뒤에 선다 |
 | `account` | 아무 노드 (`cloud_account` 제외) | 이 노드가 속한 `cloud_account` 노드의 id. 양 끝 노드의 계정이 다른 선은 다른 색으로 그린다 |
 | `platforms` | `service` | `web`, `android`, `ios` 중 이 서비스가 배포되는 것 |
 | `platformEvidence` | `service` | 플랫폼별 근거 목록. `{ "android": [근거], "ios": [근거] }` 꼴 |
 
 플랫폼은 근거가 있어야 칩이 붙는다. 웹은 버킷이 `serves`로 그 서비스를 서빙하면 따로 적지 않아도 웹으로 친다. Android와 iOS는 `platforms`에 적고 `platformEvidence`에 근거를 달아야 한다. `platforms`에 적었는데 근거가 없으면 칩을 안 붙이고 `auto:platform:<노드 id>:<플랫폼>` 질문을 만든다.
 
-id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID를 넣지 않는다. id는 공유본에서도 가릴 수 없어서다. `prod-web`처럼 별칭으로 짓고 실제 ID는 `label`에 둔다.
+id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 클러스터 식별자를 넣지 않는다. id는 공유본에서도 가릴 수 없어서다. `prod-web`이나 `ds:redis-common`처럼 별칭으로 짓고 실제 ID는 `label`에 둔다.
 
 ---
 
@@ -208,7 +211,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID를 넣지 않�
 
 ## 검증 규칙
 
-`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 열하나는 IR 전체를 거부한다.
+`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 열셋은 IR 전체를 거부한다.
 
 | 에러 코드 | 언제 |
 |---|---|
@@ -223,6 +226,8 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID를 넣지 않�
 | `PARENT_NOT_FOUND` | `parent`가 가리키는 노드가 `nodes`에 없다 |
 | `PARENT_CYCLE` | `parent`를 따라가면 자기 자신으로 돌아온다 |
 | `INVALID_PARENT_KIND` | [포함 관계](#포함-관계) 규칙에 어긋난다. parent를 가질 수 없는 kind에 달았거나 담을 수 없는 kind를 가리킨다 |
+| `DUPLICATE_GROUP_ID` | `groups`에 같은 id가 둘 있다 |
+| `GROUP_MEMBER_NOT_FOUND` | `groups[].members`의 id가 `nodes`에 없다 |
 
 `checkFiles: false`를 넘기면 `CODE_EVIDENCE_NOT_FOUND`의 파일 존재와 줄 범위 확인을 건너뛴다. 기본값은 `true`다.
 
@@ -305,10 +310,10 @@ private 근거의 원문은 세 겹으로 막는다.
 
 | 레벨 | id | 보이는 것 |
 |---|---|---|
-| 전체 | `root` | 서비스, 게이트웨이, 서버(앱 모듈)만. 엣지는 세부 엣지를 묶은 것이고 굵기와 숫자가 건수다 |
+| 전체 | `root` | 서비스, 게이트웨이, 서버(앱 모듈), 저장소만. prod 기준이다. 엣지는 세부 엣지를 묶은 것이고 굵기와 숫자가 건수다 |
 | 서비스 | `service:<id>` | 그 서비스의 기능영역과 서비스에 바로 단 화면, 거기서 닿는 게이트웨이와 서버. 화면 이동은 기능영역 사이 묶음 엣지가 된다. 서비스를 서빙하는 버킷이 있으면 그 버킷과 앞단 CDN, 도메인, 서비스 카드도 나온다 |
 | 기능영역 | `feature:<id>` | 그 기능영역의 화면, 화면이 부르는 엔드포인트, 거쳐 가는 게이트웨이, 받는 모듈. 세부 엣지 그대로 |
-| 서버 | `server:<id>` | 그 모듈이나 게이트웨이에 걸린 엔드포인트, 모듈이 읽고 쓰는 테이블, 쓰는 클라이언트와 그 클라이언트가 부르는 모듈 |
+| 서버 | `server:<id>` | 그 모듈이나 게이트웨이에 걸린 엔드포인트, 모듈이 읽고 쓰는 테이블과 저장소, 쓰는 클라이언트와 그 클라이언트가 부르는 모듈 |
 
 ### 묶음 엣지의 주인
 
@@ -320,9 +325,14 @@ private 근거의 원문은 세 겹으로 막는다.
 | `endpoint` | `handles`로 받는 `app_module`. 여럿이면 각각 |
 | `external_service` (클라이언트) | 그 클라이언트를 `uses`하는 `app_module` |
 | `service`, `gateway`, `app_module` | 자기 자신 |
-| `db_table` | 전체 레벨에 안 나온다 |
+| `db_table` | 자기 `parent` 저장소. parent가 없으면 전체 레벨에 안 나온다 |
+| `datastore` | 자기 자신 |
 
 화면이 부르는 엔드포인트에 게이트웨이 사슬이 있으면 서비스 → 맨 앞 게이트웨이 → … → 맨 뒤 게이트웨이 → 모듈로 묶인다. 사슬은 그 엔드포인트로 `routes`하는 게이트웨이에서 `gateway → gateway` `routes`를 거꾸로 따라 올라가, 들어오는 `routes`가 없는 게이트웨이까지다. 게이트웨이가 없는 엔드포인트는 서비스 → 모듈로 바로 묶인다. 모듈 A가 쓰는 클라이언트가 모듈 B를 부르면 A → B다. 클라이언트가 게이트웨이를 부르면 A → 게이트웨이 → B다.
+
+모듈이 테이블을 읽고 쓰면 모듈 → 그 테이블의 저장소로 묶인다. 저장소로 바로 그은 `reads_writes`도 같은 묶음에 들어간다. 테이블 카드는 서버 레벨에만 나온다.
+
+전체 레벨은 prod 기준이다. `environment`가 있고 `prod`가 아닌 노드(stage, qa, dev 저장소나 인프라)는 빼고 묶는다. 그래서 dev 저장소로 가는 호출은 묶음 건수에 안 들어간다. 환경이 비어 있는 노드는 prod로 쳐서 올린다. 서비스, 게이트웨이, 앱 모듈은 원래 환경을 안 적으므로 늘 올라간다. 아래 레벨은 환경 전부를 보여준다.
 
 묶음 엣지마다 건수와 멤버 세부 엣지 id 목록이 따라간다. 멤버 경로에 `doc`이나 `user` 근거만 있는 엣지가 하나라도 끼면 묶음 전체를 점선으로 그린다. 확인 안 된 고리가 낀 묶음을 실선으로 그리면 묶음 전체를 확인한 것처럼 읽히기 때문이다.
 
@@ -332,19 +342,20 @@ private 근거의 원문은 세 겹으로 막는다.
 
 | 그림 | 왼쪽부터 |
 |---|---|
-| 전체 레벨 | 앱 → 게이트웨이 → 서버 → 외부 서비스 |
+| 전체 레벨 | 앱 → 게이트웨이 → 서버 → 외부 서비스 → DB |
 | 서비스 레벨 | 기능 영역 → 게이트웨이 → 서버. 서빙 인프라가 있으면 도메인 → CDN → 버킷 → 기능 영역 → 게이트웨이 → 서버 |
 | 기능영역 레벨 | 화면 → 게이트웨이 → API → 서버 |
 | 서버 레벨 | API → 서버 → 클라이언트 → 외부 서비스 → DB |
 | screen-chain 평면 | 화면 → 게이트웨이 → API → 서버 → 클라이언트 → DB |
 | deploy-path | 트리거 → 빌드 → 산출물 → 배포 대상 → 버킷 → CDN → 도메인 → 클라우드 계정 |
 
+- 전체 레벨의 **DB** 레인에는 저장소 카드가 선다.
 - 전체 레벨의 **외부 서비스** 레인에는 서비스 쪽에서는 닿지 않고 서버에서 나가는 선으로만 닿는 게이트웨이와 서버가 선다.
 - 서비스 레벨의 **기능 영역** 레인에는 기능영역과 서비스에 바로 단 화면이 함께 선다. 평면 그림에서는 서비스와 기능영역이 **화면** 레인에 선다.
 - 서비스 레벨에 서빙 인프라가 있으면 서비스 카드가 **기능 영역** 레인 맨 위에 선다. 서비스에서 바로 단 기능영역과 화면으로 옅은 포함 선이 나간다. 포함 선은 `parent` 관계를 그린 것이라 세부 엣지가 없다.
 - 인프라 레인 안에서는 카드가 `environment` 순서(prod, stage, qa, dev)로 위에서부터 놓인다.
 - deploy-path는 레인을 버킷 → CDN → 도메인 순으로 오른쪽에 붙인다. 산출물이 버킷으로 가는 방향을 따른 것이다. 그래서 요청 방향인 `origin`과 `resolves_to` 선은 오른쪽 카드에서 왼쪽 카드로 그리고 화살촉이 왼쪽을 본다. 서비스에 안 붙는 인프라(에셋 버킷, 꺼 둔 배포)도 여기 선다.
-- 서버 레벨의 **외부 서비스** 레인은 이 서버가 클라이언트로 부르는 쪽(다른 서버, 엔드포인트, 게이트웨이)이다. 테이블은 그보다 오른쪽 맨 끝 **DB** 레인에 모은다. 고른 노드가 게이트웨이면 게이트웨이 → API 순서다.
+- 서버 레벨의 **외부 서비스** 레인은 이 서버가 클라이언트로 부르는 쪽(다른 서버, 엔드포인트, 게이트웨이)이다. 테이블과 저장소는 그보다 오른쪽 맨 끝 **DB** 레인에 모은다. 고른 노드가 게이트웨이면 게이트웨이 → API 순서다.
 
 레인 제목은 카드 칩의 종류 이름과 같은 말을 쓴다 (`src/architecture/kind-text.ts`의 `LANE_TITLES`, `NODE_KIND_SHORT`).
 
@@ -386,7 +397,7 @@ private 근거의 원문은 세 겹으로 막는다.
 
 하류로 내려갔다가 다시 상류로 꺾는 길은 타지 않는다. 화면 A에서 게이트웨이로 내려간 뒤 그 게이트웨이를 부르는 화면 B로 거슬러 올라가지 않는다는 뜻이다. 이 길까지 타면 같은 게이트웨이를 쓰는 다른 앱이 전부 딸려 와서 숨긴 의미가 없어진다. 계산은 `src/architecture/focus.ts`의 `focusSet`이다.
 
-남은 카드는 레벨에 그려 둔 자리에서 가져온다 (`focusLayout`). x는 그대로 두고 같은 열 안에서 원래 위아래 순서대로 위에서부터 다시 쌓는다. 그래서 레인 자리와 카드 순서가 원래 그림과 같다. 카드가 하나도 안 남은 레인은 숨긴다. 고른 노드 카드는 따로 강조한다.
+남은 카드는 레벨에 그려 둔 자리에서 가져온다 (`focusLayout`). x는 그대로 두고 같은 열 안에서 원래 위아래 순서대로 위에서부터 다시 쌓는다. 그래서 레인 자리와 카드 순서가 원래 그림과 같다. 카드가 하나도 안 남은 레인은 숨긴다. 고른 노드 카드는 따로 강조한다. 합친 그림의 [제품 영역](#제품-영역)도 포커스에서 그대로 쌓는다. 남은 카드 중 한쪽 제품 전용 카드가 하나도 없으면 영역 없이 쌓는다.
 
 - **들어가기**: 카드를 고른 뒤 상세 패널의 **포커스** 버튼이나 위쪽 바의 **포커스** 버튼을 누르거나 `F` 키를 누른다. 버튼은 지금 레벨에 그 카드가 있을 때만 보이고 두 항목 화면과 묶음 세부 화면에서는 안 뜬다.
 - **보이는 것**: 위쪽 바에 `포커스: <이름>` 표시와 ✕ 버튼이 뜬다.
@@ -533,6 +544,7 @@ render는 이 순서로 돈다.
 |-----------|------|:--------:|---------|-------------|
 | `irs` | `object[]` | Y* | — | 합칠 ArchitectureIR JSON 목록 |
 | `irPaths` | `string[]` | Y* | — | 합칠 IR 파일 경로 목록. `repoRoot` 기준으로 푼다. `irs`와 함께 주면 `irs` 뒤에 이어 붙인다 |
+| `groupNames` | `string[]` | N | 입력의 서비스 이름 | 입력마다 붙일 제품 이름. 넘긴 순서에 맞춘다. 결과 `groups[].name`이 되고 [제품 영역](#제품-영역) 라벨에 찍힌다 |
 | `prefixCandidates` | `string[]` | N | — | 레포를 넘는 엔드포인트 매칭에서 FE 경로 앞에 붙는 게이트웨이 prefix 후보 |
 | `outPath` | `string` | N | — | 합친 IR을 쓸 파일. 주면 응답에 IR 대신 경로를 싣는다 |
 
@@ -619,6 +631,25 @@ label을 바꾸면 다른 노드가 된다. 엔드포인트 label을 `METHOD /�
 - **결정적이다.** 입력을 정규화한 JSON의 해시 순으로 정렬한 뒤 합치므로 넘긴 순서나 객체 키 순서와 상관없이 같은 바이트가 나온다. 보고서의 `inputs` 번호만 넘긴 순서를 따른다.
 
 상대 경로 `root`는 그 IR을 그린 위치 기준이라 합칠 때 풀 수 없다. 같은 레포를 두 입력이 다른 `root`로 적었으면 절대 경로 쪽을 쓴다. 합친 IR을 `checkFiles: true`로 그리려면 입력의 `root`를 절대 경로로 적어 둔다.
+
+#### 제품 영역
+
+합친 IR에는 입력마다 그룹이 하나씩 붙는다 (`groups`). `members`는 그 입력에 있던 노드를 합친 뒤의 id로 적은 것이다. 엣지를 따라 소속을 정하지 않고 입력에 있었는지로만 정한다. 두 제품이 같이 부르는 게이트웨이가 다른 제품 엔드포인트로 가는 `routes`를 갖고 있으면 엣지를 따라가는 순간 한 제품이 다른 제품 영역까지 삼키기 때문이다. 이미 합친 IR을 다시 합치면 그 안의 그룹을 그대로 물려받는다. 그룹 이름은 `groupNames`로 주고 안 주면 입력의 서비스 이름을 쓴다.
+
+그룹이 정확히 둘이면 render가 그림을 가로 띠 셋으로 나눠 그린다 (`src/architecture/layout.ts`의 `stackBands`). 레인은 그대로 두고 각 열 안에서 카드를 다시 쌓는다.
+
+| 띠 | 카드 |
+|---|---|
+| 위 | 첫째 그룹에만 있는 노드 |
+| 가운데 | 두 그룹에 다 있는 노드, 그룹이 없는 노드 |
+| 아래 | 둘째 그룹에만 있는 노드 |
+
+위 띠부터 가운데 띠까지 첫째 제품 영역을, 가운데 띠부터 아래 띠까지 둘째 제품 영역을 색 박스로 감싼다. 두 박스가 겹치는 가운데 띠가 같이 쓰는 영역이고 점선 테두리와 `같이 쓰는 영역 (A, B)` 라벨이 붙는다. 띠 높이는 모든 열에서 같게 맞춘다. 그래야 가로로 한 줄이 같은 영역으로 읽힌다.
+
+- 그룹 순서는 합친 결과의 `groups` 순서다. 합치기가 입력을 정렬하므로 넘긴 순서와 상관없이 같다.
+- 레벨마다 따로 정한다. 그 레벨에 한쪽 제품 전용 카드가 하나도 없으면 띠를 나누지 않는다. 한 박스가 공용 띠와 거의 겹쳐 라벨이 부딪히기 때문이다.
+- 전체 레벨은 prod 기준이라 같이 쓰는지도 prod 노드끼리 본다.
+- 그룹이 하나거나 셋 이상이면 띠 없이 지금처럼 그린다.
 
 ---
 
