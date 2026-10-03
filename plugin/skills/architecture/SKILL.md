@@ -46,7 +46,7 @@ outputs:
 
 | 뷰 | 흐름 | 쓰는 노드 kind |
 |---|---|---|
-| `screen-chain` (뷰①) | 서비스와 기능영역 안의 화면 → `gateway` → 백엔드 엔드포인트 → 백엔드 앱 모듈 → 외부 서비스와 DB 테이블. 서비스를 서빙하는 도메인 → CDN → 버킷은 서비스 앞에 붙는다 | `service`, `feature`, `screen`, `gateway`, `endpoint`, `app_module`, `external_service`, `db_table`, `domain`, `cdn`, `bucket`, `cloud_account` |
+| `screen-chain` (뷰①) | 서비스와 기능영역 안의 화면 → `gateway` → 백엔드 엔드포인트 → 백엔드 앱 모듈 → 외부 서비스와 DB 테이블. 서비스를 서빙하는 도메인 → CDN → 버킷은 서비스 앞에 붙는다 | `service`, `feature`, `screen`, `gateway`, `endpoint`, `app_module`, `external_service`, `datastore`, `db_table`, `domain`, `cdn`, `bucket`, `cloud_account` |
 | `deploy-path` (뷰②) | 배포 단위별 트리거 → 빌드 → 산출물 → 배포 대상. 산출물이 떨어지는 버킷과 그 앞 CDN, 도메인이 인프라 레인으로 붙는다 | `workflow`, `build`, `artifact`, `deploy_target`, `domain`, `cdn`, `bucket`, `cloud_account` |
 
 한 번 실행에 뷰 하나를 그린다. 사용자가 뷰를 말하지 않았으면 어느 쪽인지 묻는다. 둘 다 원하면 뷰마다 Step 0부터 따로 돈다.
@@ -171,6 +171,12 @@ Step 0 start → Step 1 소스 찾아내기 → Step 2 글로벌 맥락 → Step
 4. **엔드포인트 노드**: label은 `METHOD /정규화 경로` 꼴로 쓴다. 경로 변수는 이름과 무관하게 `{}`로 맞춘다 (예: `GET /api/v1/orders/{}`). 재실행 때 같은 엔드포인트가 같은 노드로 잡히는 기준이 이 label이다.
 5. **앱 모듈**: 라우트를 받는 컨트롤러나 핸들러가 속한 모듈을 `app_module`로 두고 `endpoint → app_module`을 `handles`로 잇는다.
 6. **외부 서비스와 DB 테이블**: 모듈이 부르는 외부 HTTP 클라이언트, 메시지 발행, SDK 호출은 `external_service`로 `uses`, 엔티티 매핑이나 쿼리가 닿는 테이블은 `db_table`로 `reads_writes`다.
+7. **저장소**: 테이블이 사는 DB 클러스터와 캐시 클러스터(RDS, Aurora, Redis 등)는 `datastore`로 둔다. 근거는 datasource URL이나 캐시 host 설정 줄이다. 클러스터를 정하지 못하면 노드를 만들지 않고 질문으로 남긴다.
+   - `db_table`의 `parent`는 자기 `datastore`다. 그래야 전체 그림에 서버 → 저장소 묶음 선이 생긴다. parent 없는 테이블은 전체 그림에 안 올라간다.
+   - 테이블 단위로 내려가지 않는 캐시는 `app_module → datastore`로 `reads_writes`를 바로 긋는다.
+   - `repo`는 클라우드 조회용 가짜 레포 id로 두고 label은 `<엔진>:<클러스터 식별자>` 꼴(`aurora-mysql:<식별자>`, `redis:<식별자>`)로 쓴다. 다른 분석과 합칠 때 같은 클러스터가 한 노드로 모이는 기준이 이 label이다.
+   - **id에는 클러스터 식별자와 계정 ID를 넣지 않는다.** `ds:redis-common`처럼 별칭으로 짓는다.
+   - `environment`를 단다. 전체 그림은 prod 기준이라 `prod`가 아닌 저장소는 전체 그림에서 빠지고 아래 레벨에서만 보인다. 조회로 채울 때도 prod부터 채운다.
 
 ### 3-3. `gateway`
 
@@ -243,7 +249,7 @@ FE와 BE 사이에서 요청을 받아 다른 서버로 넘기는 서버는 `gat
 
 ### 4.5-6. IR에 싣는다
 
-- 노드는 `domain`, `cdn`, `bucket`, `cloud_account`다. 인프라 노드에는 `environment`(prod, stage, qa, dev 등)를, 계정을 아는 노드에는 `account`(그 `cloud_account` 노드 id)를 단다. 양 끝 계정이 다른 선은 다른 색으로 그려진다.
+- 노드는 `domain`, `cdn`, `bucket`, `cloud_account`, 그리고 Step 3-2의 `datastore`다. 인프라 노드에는 `environment`(prod, stage, qa, dev 등)를, 계정을 아는 노드에는 `account`(그 `cloud_account` 노드 id)를 단다. 양 끝 계정이 다른 선은 다른 색으로 그려진다.
 - 엣지는 `domain → cdn`이 `resolves_to`, `cdn → bucket`이 `origin`, `bucket → service`가 `serves`다. 산출물이 버킷에 올라가는 건 Step 4의 `deploys_to`다.
 - 조회로 확인한 것은 `live` 근거다. `location`은 조회로 찾은 리소스 종류(`aws:cloudfront` 등), `command`는 실행한 명령, `observedAt`은 조회한 시각(ISO 8601)이다. `visibility`는 `private`이고 응답 원문을 `excerpt`에 넣지 않는다.
 - **id에는 계정 ID와 CDN 배포 ID를 넣지 않는다.** `prod-customer`처럼 별칭으로 짓고 실제 ID는 `label`에 둔다. id는 공유본에서도 못 가리므로 validate가 `CLOUD_ID_IN_ID`로 거부한다.
@@ -419,16 +425,16 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 3. **merge를 부른다.** 큰 IR은 요청과 응답에 통째로 싣지 말고 파일로 주고받는다.
 
    ```json
-   { "action": "merge", "irPaths": ["<a>/screen-chain.json", "<b>/screen-chain.json"], "outPath": "<work>/merged.json", "prefixCandidates": ["/api"] }
+   { "action": "merge", "irPaths": ["<a>/screen-chain.json", "<b>/screen-chain.json"], "outPath": "<work>/merged.json", "groupNames": ["제품 A", "제품 B"], "prefixCandidates": ["/api"] }
    ```
 
-   `prefixCandidates`는 Step 3-2에서 찾은 `gateway` prefix다. 한쪽 FE 경로에는 붙고 다른 쪽 BE 라우트에는 없는 prefix가 있으면 넣는다.
+   `prefixCandidates`는 Step 3-2에서 찾은 `gateway` prefix다. 한쪽 FE 경로에는 붙고 다른 쪽 BE 라우트에는 없는 prefix가 있으면 넣는다. `groupNames`에 제품 이름을 `irPaths` 순서대로 넣는다. 안 넣으면 입력의 서비스 이름이 붙는다.
 4. **report를 읽는다.**
    - `sharedNodes`: 두 분석에 다 있던 노드. 같이 쓰는 `gateway`와 서버가 여기 나온다. 기대한 노드가 빠졌으면 두 IR의 label 꼴이 다른 것이다. 합친 IR을 고치지 말고 원래 분석의 label을 Step 3 꼴로 맞춰 다시 render한 뒤 다시 합친다.
    - `crossRepoEdges`: 레포를 넘는 매칭으로 새로 그은 `handles` 엣지
    - `conflictQuestions`: 같은 노드인데 표시 이름이나 parent가 갈려서 만든 질문. merge는 한쪽을 고르지 않는다. 값을 비우고 묻는다. `user` 근거가 있는 쪽 값은 그대로 둔다.
    - `islands`: 1보다 크면 서로 안 이어진 분석이 있다. 겹치는 게 정말 없는지, label이나 remote가 어긋난 건지 확인한다.
-5. **validate와 render를 그대로 탄다.** `irPath`로 합친 파일을 넘긴다. **`repoRoot`는 원래 분석 레포가 아닌 따로 둔 디렉토리로 준다.** render는 `repoRoot`의 같은 뷰 IR과 병합하므로 원래 레포를 주면 그 레포의 단독 분석이 합친 결과로 덮인다. 입력의 `root`가 상대 경로였으면 `checkFiles: false`로 그린다.
+5. **validate와 render를 그대로 탄다.** 합친 IR에는 제품마다 그룹(`groups`)이 붙는다. 제품이 둘이면 render가 첫째 제품 전용, 같이 쓰는 영역, 둘째 제품 전용 순으로 가로 띠를 나눠 그리고 가운데 띠에 같이 쓰는 `gateway`와 서버, 저장소가 모인다. `irPath`로 합친 파일을 넘긴다. **`repoRoot`는 원래 분석 레포가 아닌 따로 둔 디렉토리로 준다.** render는 `repoRoot`의 같은 뷰 IR과 병합하므로 원래 레포를 주면 그 레포의 단독 분석이 합친 결과로 덮인다. 입력의 `root`가 상대 경로였으면 `checkFiles: false`로 그린다.
 6. **충돌 질문은 Step 7처럼 사용자에게 묻는다.** 답은 원래 분석 쪽에 `user` 근거로 남기고 다시 합친다. 합친 IR에만 고쳐 두면 다음에 합칠 때 같은 질문이 또 생긴다.
 
 보고에는 Step 8의 세 덩어리에 더해 `sharedNodes`(같이 쓰는 노드 이름과 레포), `crossRepoEdges` 수, 충돌 질문 목록을 적는다.
@@ -448,7 +454,8 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `endpoint` | screen-chain | 백엔드 HTTP 엔드포인트. label은 `METHOD /정규화 경로` |
 | `app_module` | screen-chain | 엔드포인트를 처리하는 백엔드 모듈이나 컨트롤러 |
 | `external_service` | screen-chain | 모듈이 부르는 다른 서비스, 외부 API, 메시지 브로커 |
-| `db_table` | screen-chain | 모듈이 읽고 쓰는 테이블 |
+| `datastore` | screen-chain | 테이블이 사는 DB 클러스터나 캐시 클러스터. id는 별칭, label은 `<엔진>:<클러스터 식별자>` |
+| `db_table` | screen-chain | 모듈이 읽고 쓰는 테이블. `parent`는 자기 `datastore` |
 | `workflow` | deploy-path | 배포를 시작하는 CI 워크플로와 그 트리거 |
 | `build` | deploy-path | 빌드 잡이나 스텝 |
 | `artifact` | deploy-path | 이미지, 번들, 패키지 같은 빌드 산출물 |
@@ -468,7 +475,7 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `routes` | gateway → endpoint, gateway, app_module | `gateway` 라우트 설정의 `Path`나 `uri` 줄 |
 | `handles` | endpoint → app_module | 라우트 매핑 어노테이션이나 라우터 등록 줄 |
 | `uses` | app_module → external_service | 외부 클라이언트 호출 줄 |
-| `reads_writes` | app_module → db_table | 쿼리나 엔티티 매핑 줄 |
+| `reads_writes` | app_module → db_table, datastore | 쿼리나 엔티티 매핑 줄, 저장소로 바로 그을 때는 datasource URL이나 캐시 host 설정 줄 |
 | `triggers` | workflow → build | 워크플로의 트리거와 잡 정의 줄 |
 | `builds` | build → artifact | 빌드 명령 줄 (빌드가 산출물을 직접 지을 때) |
 | `produces` | build → artifact | 산출물을 내보내는 줄 (이미지 push, 업로드) |
