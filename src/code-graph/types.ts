@@ -263,6 +263,8 @@ export interface BuildOptions {
 export interface RefreshOptions {
   /** 락을 기다리는 최대 시간. 기본 1500ms */
   lockTimeoutMs?: number;
+  /** 그 자리에서 다시 파싱할 파일 수 상한. 넘으면 reindex_pending으로 끝낸다. 기본은 상한 없음 */
+  maxInlineParse?: number;
 }
 
 export interface FreshnessCounts {
@@ -276,7 +278,7 @@ export interface FreshnessCounts {
  * 질의 직전 최신화 결과. 질의 응답에 그대로 실린다.
  * - fresh: 바뀐 게 없었다
  * - refreshed: 바뀐 걸 반영하고 답했다
- * - stale: 다른 프로세스가 갱신 중이라 이전 그래프로 답했다
+ * - stale: 다른 프로세스가 갱신 중이거나 다시 파싱할 게 많아 이전 그래프로 답했다
  * - skipped: 그래프 DB가 없거나 최신화를 껐다
  */
 export type FreshnessReport =
@@ -289,10 +291,12 @@ export type FreshnessReport =
     }
   | {
       status: 'stale';
-      reason: 'locked' | 'refresh_failed';
+      reason: 'locked' | 'refresh_failed' | 'reindex_pending';
       message: string;
-      /** 반영하지 못한 변경. 락 대기에서 끝났을 때만 있다 */
+      /** 반영하지 못한 변경. 락 대기나 드리프트가 많아 넘긴 경우에만 있다 */
       pending?: FreshnessCounts;
+      /** reindex_pending일 때 다시 파싱해야 하는 파일 수 */
+      toParse?: number;
       durationMs: number;
     }
   | { status: 'skipped'; reason: 'no_graph' | 'disabled'; durationMs: number };

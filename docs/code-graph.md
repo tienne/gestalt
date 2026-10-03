@@ -468,6 +468,46 @@ ges_code_graph({ action: "db_exists", repoRoot: "/path/to/repo" })
 
 최신화가 실패해도 질의는 막지 않는다. 이전 그래프로 답하고 `stale`(`reason: "refresh_failed"`)을 단다. 이전 그래프로라도 답하는 게 아예 못 답하는 것보다 낫다.
 
+### 다시 파싱할 게 많을 때
+
+질의 전 최신화는 그 자리에서 다시 파싱할 파일이 200개(`MAX_INLINE_PARSE`)를 넘으면 반영하지 않는다. 이전 그래프로 바로 답하고 `freshness`를 `stale`(`reason: "reindex_pending"`)로 단다. 업그레이드 직후의 옛 DB나 큰 브랜치 전환이 여기에 걸린다.
+
+세는 기준은 이렇다.
+
+- 색인 버전이 다른 옛 DB(아래 [이전 버전 DB](#이전-버전-db))는 범위 안의 지원 파일 전부를 센다
+- 그 밖에는 드리프트의 added와 modified를 더한다
+- touch만 한 파일은 세지 않는다. 해시가 같아 stat만 고치고 파싱은 안 한다
+- 1-hop 참조 파일의 재파싱도 세지 않는다
+
+옛 DB는 `cg_file_stat` 행이 없어서 드리프트 검사가 파일을 전부 읽고 해시를 낸다. 어차피 넘길 거라면 그 비용도 아깝기 때문에 드리프트 검사까지 건너뛴다.
+
+넘긴 재색인은 MCP 서버가 `gestalt-hook reindex <repoRoot>`를 detached 프로세스로 띄워 처리한다. 훅의 [백그라운드 갱신](#그래프-갱신은-백그라운드로)과 엔트리도 같고 락도 같다. 다른 점은 훅 설정을 안 본다는 것이다. 훅은 기본이 꺼짐이라 `refresh` 명령은 대부분의 환경에서 아무것도 안 한다. 질의가 넘긴 재색인까지 거기 묶이면 영영 안 돈다.
+
+- 같은 레포에는 30초 안에 다시 띄우지 않는다. 간격 스탬프는 훅과 같은 `.gestalt/hooks/refresh.stamp`를 쓴다
+- 다른 프로세스가 갱신 락을 쥐고 있으면 띄우지 않는다
+
+재색인이 끝나기 전까지 들어오는 질의는 계속 `reindex_pending`과 함께 이전 그래프 기준으로 답을 받는다. 끝난 뒤에는 `fresh`가 온다. 백그라운드 프로세스 말고도 `build` 액션이나 post-commit 훅의 증분 빌드가 먼저 돌면 그쪽에서 끝난다.
+
+기준값 200은 락 대기 상한(1.5초)을 넘기지 않으려고 잡았다. 파일당 파싱 비용은 이 레포가 약 3.4ms(파일 484개 콜드 빌드 1.6초), 모노레포가 약 6.9ms(8,118개 파싱 56초)였다. 느린 쪽으로 200개면 약 1.4초다.
+
+### 이전 버전 DB
+
+이 버전 전에 빌드한 `.gestalt/code-graph.db`는 지우지 않고 그대로 써도 된다.
+
+- 새로 생긴 테이블과 `cg_nodes.doc` 컬럼은 DB를 열 때 붙는다
+- `cg_meta`의 색인 버전 키 두 개(`doc_index_version`, `commit_text_index_version`)가 없거나 지금 값과 다르면 한 번 전량 다시 색인한다. 주석 색인은 파일을 다시 파싱하고 커밋 메시지 색인은 git 이력을 처음부터 다시 읽는다
+
+이 전량 재색인은 질의 경로에서 돌지 않는다. 파일이 200개를 넘는 레포라면 위의 `reindex_pending` 흐름을 탄다. `build` 액션은 `mode: "incremental"`로 불러도 버전이 다르면 전량으로 돈다.
+
+main 코드로 빌드한 이 레포의 DB(파일 484개)를 이 버전으로 열어 잰 결과는 이렇다.
+
+| 상황 | 결과 |
+|------|------|
+| 첫 질의의 최신화 | 22ms, `stale`(`reindex_pending`). `blast_radius`는 이전 그래프로 정상 응답 |
+| 백그라운드 재색인 2.4초 뒤 다음 질의 | `fresh` |
+
+모노레포에서 이걸 질의 자리에서 돌렸다면 콜드 빌드만큼(약 56초) 질의가 멈췄을 것이다.
+
 ### `freshness` 필드
 
 질의 액션 응답에 붙는다. `status`에 따라 실리는 필드가 다르다.
@@ -476,10 +516,12 @@ ges_code_graph({ action: "db_exists", repoRoot: "/path/to/repo" })
 |----------|----|------------------|
 | `fresh` | 바뀐 게 없었다 | `checkedFiles`, `durationMs` |
 | `refreshed` | 바뀐 걸 반영하고 답했다 | `changed`(`added`, `modified`, `removed`, `touched` 개수), `skippedCount`, `durationMs` |
-| `stale` | 이전 그래프로 답했다 | `reason`(`locked` 또는 `refresh_failed`), `message`, `pending`, `durationMs` |
+| `stale` | 이전 그래프로 답했다 | `reason`(`locked`, `refresh_failed`, `reindex_pending` 중 하나), `message`, `pending`, `toParse`, `durationMs` |
 | `skipped` | 최신화를 안 했다 | `reason`(`no_graph` 또는 `disabled`), `durationMs` |
 
-`pending`은 반영하지 못한 변경의 개수이고 락 대기에서 끝났을 때만 있다. `stale`이 오면 결과에 최근 변경이 빠져 있을 수 있다는 뜻이므로 사용자에게 알린다. 락 때문이었다면 잠시 뒤 다시 부르면 된다.
+`pending`은 반영하지 못한 변경의 개수다. 락 대기에서 끝났을 때와 드리프트를 세어 보고 `reindex_pending`으로 넘겼을 때만 있다. 옛 DB라 드리프트 검사를 건너뛴 `reindex_pending`에는 없다. `toParse`는 `reindex_pending`일 때만 있고 다시 파싱해야 할 파일 수다.
+
+`stale`이 오면 결과에 최근 변경이 빠져 있을 수 있다는 뜻이므로 사용자에게 알린다. 락 때문이었거나 `reindex_pending`이면 잠시 뒤 다시 부르면 된다. `reindex_pending`은 백그라운드 재색인이 끝나면 `fresh`로 바뀐다.
 
 ### 끄는 법
 

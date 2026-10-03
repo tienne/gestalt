@@ -442,6 +442,35 @@ describe('bin 엔트리', () => {
     }
   });
 
+  it('reindex는 훅이 꺼져 있어도 다시 색인하고 refresh는 안 한다', () => {
+    const root = makeRepo('hooks-reindex');
+    const dbPath = join(root, '.gestalt', 'code-graph.db');
+    const builder = new CodeGraphEngine();
+    builder.build(root, { mode: 'full' });
+    builder.close();
+    const docVersion = () => {
+      const store = new CodeGraphStore(dbPath);
+      try {
+        return store.getMeta('doc_index_version');
+      } finally {
+        store.close();
+      }
+    };
+    const store = new CodeGraphStore(dbPath);
+    store.setMeta('doc_index_version', 'old');
+    store.close();
+    try {
+      const off = { [HOOKS_ENV]: '0' };
+      expect(run(['refresh', root], null, off).status).toBe(0);
+      expect(docVersion()).toBe('old');
+
+      expect(run(['reindex', root], null, off).status).toBe(0);
+      expect(docVersion()).not.toBe('old');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('관련 프롬프트면 훅 JSON을 stdout에 낸다', () => {
     const r = run(['user-prompt-submit'], input({ prompt: RELEVANT }), {
       ...ON,

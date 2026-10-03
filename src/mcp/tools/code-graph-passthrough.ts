@@ -1,6 +1,14 @@
+import { existsSync } from 'node:fs';
+import { extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { log } from '../../core/log.js';
-import { codeGraphEngine } from '../../code-graph/index.js';
+import { codeGraphEngine, MAX_INLINE_PARSE } from '../../code-graph/index.js';
 import type { CoChangeTuning, FreshnessReport, QueryPattern } from '../../code-graph/index.js';
+import {
+  detachedRefreshSpawner,
+  requestRefresh,
+  type RefreshSpawner,
+} from '../../code-graph/hooks/background.js';
 
 export type CodeGraphInput = {
   action:
@@ -36,16 +44,49 @@ export type CodeGraphInput = {
   refresh?: boolean;
 };
 
+/** 같은 레포에 재색인 프로세스를 연달아 띄우지 않는 간격. 띄운 쪽이 락을 잡기 전 틈을 메운다 */
+const REINDEX_REQUEST_INTERVAL_MS = 30_000;
+
+/**
+ * 재색인을 맡길 프로세스. 훅이 백그라운드 갱신에 쓰는 엔트리를 `reindex`로 띄운다.
+ * dist에서는 dist/bin/gestalt-hook.js, tsx로 띄운 개발 서버에서는 bin/gestalt-hook.ts다.
+ */
+function defaultReindexSpawner(): RefreshSpawner | undefined {
+  const self = fileURLToPath(import.meta.url);
+  const entry = fileURLToPath(
+    new URL(`../../../bin/gestalt-hook${extname(self)}`, import.meta.url),
+  );
+  if (!existsSync(entry)) return undefined;
+  return detachedRefreshSpawner(entry, 'reindex', process.execArgv);
+}
+
+let reindexSpawner: RefreshSpawner | undefined | null = null;
+
+/** 테스트가 재색인 프로세스 대신 끼워 넣는 자리. undefined를 주면 기본으로 돌아간다 */
+export function setReindexSpawner(spawner: RefreshSpawner | undefined): void {
+  reindexSpawner = spawner ?? null;
+}
+
 /**
  * 질의 전에 그래프를 디스크에 맞춘다. 입력 refresh:false나 GESTALT_NO_REFRESH=1이면 끈다.
  * 실패해도 질의는 막지 않는다. 이전 그래프로라도 답하는 게 아예 못 답하는 것보다 낫다.
+ *
+ * 다시 파싱할 파일이 MAX_INLINE_PARSE를 넘으면(업그레이드 직후 옛 DB, 큰 브랜치 전환)
+ * 이전 그래프로 바로 답하고 재색인은 다른 프로세스에 넘긴다. 큰 레포에서는 콜드 빌드만큼
+ * 걸려서 그 자리에서 돌리면 질의가 그만큼 멈춘다.
  */
 async function refreshBeforeQuery(input: CodeGraphInput): Promise<FreshnessReport> {
   if (input.refresh === false || process.env['GESTALT_NO_REFRESH'] === '1') {
     return { status: 'skipped', reason: 'disabled', durationMs: 0 };
   }
   try {
-    return await codeGraphEngine.refresh(input.repoRoot);
+    const freshness = await codeGraphEngine.refresh(input.repoRoot, {
+      maxInlineParse: MAX_INLINE_PARSE,
+    });
+    if (freshness.status === 'stale' && freshness.reason === 'reindex_pending') {
+      requestReindex(input.repoRoot);
+    }
+    return freshness;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     log('code-graph refresh failed:', message);
@@ -55,6 +96,19 @@ async function refreshBeforeQuery(input: CodeGraphInput): Promise<FreshnessRepor
       message: `최신화 실패로 이전 그래프 기준 (${message})`,
       durationMs: 0,
     };
+  }
+}
+
+function requestReindex(repoRoot: string): void {
+  try {
+    if (reindexSpawner === null) reindexSpawner = defaultReindexSpawner();
+    if (!reindexSpawner) {
+      log('code-graph reindex skipped: gestalt-hook entry not found');
+      return;
+    }
+    requestRefresh(repoRoot, reindexSpawner, REINDEX_REQUEST_INTERVAL_MS);
+  } catch (e) {
+    log('code-graph reindex request failed:', e instanceof Error ? e.message : String(e));
   }
 }
 

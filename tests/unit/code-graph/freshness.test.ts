@@ -14,10 +14,12 @@ vi.mock('node:fs', async (importOriginal) => {
   return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
 });
 
-const { CodeGraphEngine, STALE_MESSAGE } = await import('../../../src/code-graph/engine.js');
+const { CodeGraphEngine, STALE_MESSAGE, REINDEX_PENDING_MESSAGE } =
+  await import('../../../src/code-graph/engine.js');
 const { typescriptPlugin } = await import('../../../src/code-graph/plugins/typescript.js');
 const { tryAcquireLock } = await import('../../../src/code-graph/lock.js');
 const { CodeGraphStore } = await import('../../../src/code-graph/storage.js');
+const { default: Database } = await import('better-sqlite3');
 
 const PAST = Date.now() / 1000 - 3600;
 
@@ -353,5 +355,142 @@ describe('락 파일', () => {
     expect(tryAcquireLock(path)).toBeNull();
     fs.utimesSync(path, PAST, PAST);
     expect(tryAcquireLock(path)).not.toBeNull();
+  });
+});
+
+/**
+ * main에서 빌드한 DB 꼴로 되돌린다. 이 브랜치가 더한 건 테이블 일곱 개와 cg_nodes.doc 컬럼뿐이라
+ * 그걸 걷어내면 main 스키마와 같다. 노드와 엣지, co-change는 그대로 남는다.
+ */
+function downgradeToMainSchema(dbPath: string): void {
+  const db = new Database(dbPath);
+  try {
+    for (const t of [
+      'cg_file_stat',
+      'cg_meta',
+      'cg_doc_terms',
+      'cg_text_commits',
+      'cg_commit_terms',
+      'cg_commit_files',
+      'cg_ticket_files',
+    ]) {
+      db.exec(`DROP TABLE ${t}`);
+    }
+    db.exec('ALTER TABLE cg_nodes DROP COLUMN doc');
+  } finally {
+    db.close();
+  }
+}
+
+describe('옛 스키마 DB 업그레이드', () => {
+  let engine: InstanceType<typeof CodeGraphEngine>;
+  let repo: ReturnType<typeof setupRepo>;
+
+  beforeEach(() => {
+    repo = setupRepo();
+    const builder = new CodeGraphEngine();
+    builder.build(repo.repoRoot, { mode: 'full' });
+    builder.close();
+    downgradeToMainSchema(repo.dbPath);
+    engine = new CodeGraphEngine();
+    vi.mocked(fs.readFileSync).mockClear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    engine.close();
+    repo.cleanup();
+  });
+
+  it('지우지 않아도 refresh가 전량 다시 색인하고 질의가 된다', async () => {
+    expect(await engine.refresh(repo.repoRoot)).toMatchObject({ status: 'refreshed' });
+
+    const store = new CodeGraphStore(repo.dbPath);
+    expect(store.getMeta('doc_index_version')).not.toBeNull();
+    expect(store.getAllFileStats().size).toBe(3);
+    store.close();
+    expect(engine.query(repo.repoRoot, 'imports_of', 'f.ts').nodes.map((n) => n.filePath)).toEqual([
+      repo.a,
+    ]);
+    expect(engine.blastRadius(repo.repoRoot, { changedFiles: [repo.f] }).impactedFiles).toEqual(
+      expect.arrayContaining([repo.a, repo.b]),
+    );
+    expect((await engine.refresh(repo.repoRoot)).status).toBe('fresh');
+  });
+
+  it('지원 파일이 상한을 넘으면 손대지 않고 이전 그래프로 답한다', async () => {
+    const parse = vi.spyOn(typescriptPlugin, 'parse');
+
+    const report = await engine.refresh(repo.repoRoot, { maxInlineParse: 2 });
+
+    expect(report).toEqual({
+      status: 'stale',
+      reason: 'reindex_pending',
+      message: REINDEX_PENDING_MESSAGE,
+      toParse: 3,
+      durationMs: expect.any(Number),
+    });
+    // 옛 DB는 stat 행이 없어 드리프트 검사가 파일을 전부 읽는다. 넘길 거면 그것도 안 한다
+    expect(parse).not.toHaveBeenCalled();
+    expect(readsUnder(repo.repoRoot)).toEqual([]);
+    expect(engine.query(repo.repoRoot, 'imports_of', 'f.ts').nodes.map((n) => n.filePath)).toEqual([
+      repo.a,
+    ]);
+  });
+
+  it('지원 파일 수가 상한과 같으면 그 자리에서 색인한다', async () => {
+    expect(await engine.refresh(repo.repoRoot, { maxInlineParse: 3 })).toMatchObject({
+      status: 'refreshed',
+    });
+    expect((await engine.refresh(repo.repoRoot, { maxInlineParse: 3 })).status).toBe('fresh');
+  });
+});
+
+describe('다시 파싱할 파일 수 상한', () => {
+  let engine: InstanceType<typeof CodeGraphEngine>;
+  let repo: ReturnType<typeof setupRepo>;
+
+  beforeEach(() => {
+    engine = new CodeGraphEngine();
+    repo = setupRepo();
+    engine.build(repo.repoRoot, { mode: 'full' });
+    write(repo.f, 'export function helper() {\n  return 2;\n}\n');
+    write(join(repo.repoRoot, 'g.ts'), 'export const g = 1;\n');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    engine.close();
+    repo.cleanup();
+  });
+
+  it('추가와 수정을 합쳐 상한을 넘으면 반영하지 않고 넘긴다', async () => {
+    const parse = vi.spyOn(typescriptPlugin, 'parse');
+
+    expect(await engine.refresh(repo.repoRoot, { maxInlineParse: 1 })).toMatchObject({
+      status: 'stale',
+      reason: 'reindex_pending',
+      toParse: 2,
+      pending: { added: 1, modified: 1 },
+    });
+    expect(parse).not.toHaveBeenCalled();
+  });
+
+  it('상한과 같으면 그 자리에서 반영한다', async () => {
+    expect(await engine.refresh(repo.repoRoot, { maxInlineParse: 2 })).toMatchObject({
+      status: 'refreshed',
+      changed: { added: 1, modified: 1 },
+    });
+  });
+
+  it('touch만 한 파일은 다시 파싱하지 않으니 세지 않는다', async () => {
+    engine.build(repo.repoRoot, { mode: 'incremental' });
+    setMtime(repo.a, 60);
+    setMtime(repo.b, 60);
+
+    expect(await engine.refresh(repo.repoRoot, { maxInlineParse: 0 })).toMatchObject({
+      status: 'refreshed',
+      changed: { touched: 2 },
+    });
   });
 });

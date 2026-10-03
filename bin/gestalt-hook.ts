@@ -15,10 +15,14 @@ async function readStdin(): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  if (command === 'refresh') {
-    // 훅이 띄운 백그라운드 갱신. 여기서만 엔진을 불러온다
-    const { isHooksEnabled } = await import('../src/code-graph/hooks/settings.js');
-    if (!arg || !isHooksEnabled(arg)) return;
+  if (command === 'refresh' || command === 'reindex') {
+    // 백그라운드 갱신. 여기서만 엔진을 불러온다. refresh는 훅이 띄운 것이라 훅이 켜져 있어야 돈다.
+    // reindex는 MCP 질의가 다시 파싱할 게 많아 넘긴 것이라 훅 설정과 무관하다
+    if (!arg) return;
+    if (command === 'refresh') {
+      const { isHooksEnabled } = await import('../src/code-graph/hooks/settings.js');
+      if (!isHooksEnabled(arg)) return;
+    }
     const { codeGraphEngine } = await import('../src/code-graph/engine.js');
     await codeGraphEngine.refresh(arg);
     codeGraphEngine.close();

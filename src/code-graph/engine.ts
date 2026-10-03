@@ -110,6 +110,16 @@ const DOC_INDEX_KEY = 'doc_index_version';
 const DOC_INDEX_VERSION = '1';
 
 export const STALE_MESSAGE = '갱신 중이라 이전 그래프 기준';
+export const REINDEX_PENDING_MESSAGE =
+  '다시 파싱할 파일이 많아 백그라운드로 넘기고 이전 그래프 기준';
+
+/**
+ * 질의 직전 최신화가 그 자리에서 다시 파싱할 파일 수의 상한. 넘으면 질의를 붙잡지 않고
+ * 이전 그래프로 답한다. 락 대기 상한(1.5초)과 같은 시간을 넘기지 않게 잡았다.
+ * 파일당 파싱 비용은 gestalt(484개, 1.6초) 약 3.4ms, 모노레포(8118개, 56초) 약 6.9ms라
+ * 느린 쪽 기준 200개면 1.4초쯤이다.
+ */
+export const MAX_INLINE_PARSE = 200;
 
 interface BuildScope {
   include?: string[];
@@ -209,6 +219,9 @@ export class CodeGraphEngine {
    *
    * 여러 워크트리와 MCP 서버, CLI가 같은 DB를 갱신할 수 있어서 락을 잡고 고친다.
    * 락을 못 잡으면 기다렸다가 그래도 안 되면 이전 그래프로 답하게 stale을 돌려준다.
+   *
+   * maxInlineParse를 주면 다시 파싱할 파일이 그보다 많을 때 손대지 않고 reindex_pending을
+   * 돌려준다. 색인 버전이 다른 옛 DB는 전량이 대상이다. 재색인은 호출한 쪽이 다른 프로세스로 넘긴다.
    */
   async refresh(repoRoot: string, opts: RefreshOptions = {}): Promise<FreshnessReport> {
     const start = Date.now();
@@ -217,11 +230,21 @@ export class CodeGraphEngine {
     }
     const store = this.getStore(repoRoot);
     const scope = this.resolveScope(store, {}, 'incremental');
+    const maxInlineParse = opts.maxInlineParse ?? Infinity;
 
-    const drift = detectDrift(store, this.listScopeFiles(repoRoot, scope));
+    const files = this.listScopeFiles(repoRoot, scope);
     const reindex = store.getMeta(DOC_INDEX_KEY) !== DOC_INDEX_VERSION;
+    // 옛 DB는 stat 행이 없어 드리프트 검사가 파일을 전부 읽는다. 어차피 넘길 거면 그것도 건너뛴다
+    if (reindex && files.length > maxInlineParse) {
+      return this.reindexPending(files.length, undefined, start);
+    }
+    const drift = detectDrift(store, files);
     if (!hasAnyDrift(drift) && !reindex) {
       return { status: 'fresh', checkedFiles: drift.unchanged, durationMs: Date.now() - start };
+    }
+    const toParse = drift.added.length + drift.modified.length;
+    if (toParse > maxInlineParse) {
+      return this.reindexPending(toParse, driftCounts(drift), start);
     }
 
     const lock = await acquireLock(this.getLockPath(repoRoot), {
@@ -290,6 +313,21 @@ export class CodeGraphEngine {
     } finally {
       lock.release();
     }
+  }
+
+  private reindexPending(
+    toParse: number,
+    pending: FreshnessCounts | undefined,
+    start: number,
+  ): FreshnessReport {
+    return {
+      status: 'stale',
+      reason: 'reindex_pending',
+      message: REINDEX_PENDING_MESSAGE,
+      toParse,
+      ...(pending && { pending }),
+      durationMs: Date.now() - start,
+    };
   }
 
   private resolveScope(store: CodeGraphStore, opts: BuildOptions, mode: BuildMode): BuildScope {

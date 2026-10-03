@@ -2,13 +2,17 @@
  * ges_code_graph 질의 액션이 답하기 전에 최신화를 거치는지, 끄는 스위치가 먹는지.
  */
 import { randomUUID } from 'node:crypto';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ZodTypeAny } from 'zod';
 import { createMcpServer } from '../../../src/mcp/server.js';
 import { codeGraphInputSchema } from '../../../src/mcp/schemas.js';
-import { handleCodeGraphPassthrough } from '../../../src/mcp/tools/code-graph-passthrough.js';
-import { codeGraphEngine } from '../../../src/code-graph/index.js';
+import {
+  handleCodeGraphPassthrough,
+  setReindexSpawner,
+} from '../../../src/mcp/tools/code-graph-passthrough.js';
+import { codeGraphEngine, MAX_INLINE_PARSE } from '../../../src/code-graph/index.js';
 import type { FreshnessReport } from '../../../src/code-graph/index.js';
 
 const FRESH: FreshnessReport = { status: 'fresh', checkedFiles: 3, durationMs: 1 };
@@ -49,7 +53,7 @@ describe('ges_code_graph 질의 전 최신화', () => {
 
     const result = await handleCodeGraphPassthrough({ ...input, repoRoot: '/repo' });
 
-    expect(refresh).toHaveBeenCalledWith('/repo');
+    expect(refresh).toHaveBeenCalledWith('/repo', { maxInlineParse: MAX_INLINE_PARSE });
     expect(result).toMatchObject({ freshness: FRESH });
   });
 
@@ -85,6 +89,50 @@ describe('ges_code_graph 질의 전 최신화', () => {
 
     expect(result).not.toHaveProperty('error');
     expect(result).toMatchObject({ freshness: { status: 'stale', reason: 'refresh_failed' } });
+  });
+
+  it('다시 파싱할 게 많으면 이전 그래프로 답하고 재색인을 한 번만 띄운다', async () => {
+    stubQueries();
+    const repoRoot = resolve(process.cwd(), '.gestalt-test', `reindex-${randomUUID()}`);
+    mkdirSync(repoRoot, { recursive: true });
+    const pending: FreshnessReport = {
+      status: 'stale',
+      reason: 'reindex_pending',
+      message: 'm',
+      toParse: 5000,
+      durationMs: 1,
+    };
+    vi.spyOn(codeGraphEngine, 'refresh').mockResolvedValue(pending);
+    const spawner = vi.fn();
+    setReindexSpawner(spawner);
+    try {
+      const first = await handleCodeGraphPassthrough({ action: 'blast_radius', repoRoot });
+      await handleCodeGraphPassthrough({ action: 'stats', repoRoot });
+
+      expect(first).toMatchObject({ freshness: pending });
+      expect(spawner).toHaveBeenCalledTimes(1);
+      expect(spawner).toHaveBeenCalledWith(repoRoot);
+    } finally {
+      setReindexSpawner(undefined);
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('최신이거나 락 때문에 stale이면 재색인을 띄우지 않는다', async () => {
+    stubQueries();
+    const spawner = vi.fn();
+    setReindexSpawner(spawner);
+    try {
+      vi.spyOn(codeGraphEngine, 'refresh')
+        .mockResolvedValueOnce(FRESH)
+        .mockResolvedValueOnce({ status: 'stale', reason: 'locked', message: 'm', durationMs: 1 });
+      await handleCodeGraphPassthrough({ action: 'stats', repoRoot: '/repo' });
+      await handleCodeGraphPassthrough({ action: 'stats', repoRoot: '/repo' });
+
+      expect(spawner).not.toHaveBeenCalled();
+    } finally {
+      setReindexSpawner(undefined);
+    }
   });
 
   it('build와 db_exists는 최신화를 거치지 않는다', async () => {

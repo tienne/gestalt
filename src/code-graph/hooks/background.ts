@@ -9,10 +9,17 @@ export type RefreshSpawner = (repoRoot: string) => void;
 /**
  * 훅 엔트리를 `refresh` 인자로 다시 띄운다. 부모는 기다리지 않는다.
  * 엔진은 typescript 파서까지 불러와 기동만 200ms를 넘게 먹으니 훅 프로세스 안에서 돌리지 않는다.
+ *
+ * MCP 질의가 재색인을 넘길 때는 `reindex`로 띄운다. 그쪽은 훅이 꺼져 있어도 돌아야 한다.
+ * execArgv는 tsx로 띄운 개발 서버가 .ts 엔트리를 넘길 때 로더를 물려주는 자리다.
  */
-export function detachedRefreshSpawner(entry: string): RefreshSpawner {
+export function detachedRefreshSpawner(
+  entry: string,
+  command: 'refresh' | 'reindex' = 'refresh',
+  execArgv: string[] = [],
+): RefreshSpawner {
   return (repoRoot) => {
-    const child = spawn(process.execPath, [entry, 'refresh', repoRoot], {
+    const child = spawn(process.execPath, [...execArgv, entry, command, repoRoot], {
       detached: true,
       stdio: 'ignore',
       env: process.env,
