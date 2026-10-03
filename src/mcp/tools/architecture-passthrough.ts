@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectGlobalContext } from '../../architecture/global-context.js';
@@ -6,6 +7,7 @@ import { computeDrilldown, shouldDrillDown } from '../../architecture/drilldown.
 import { renderArchitectureHtml, renderDrilldownHtml } from '../../architecture/html-renderer.js';
 import { parseArchitectureIr } from '../../architecture/ir-schema.js';
 import { computeLayout } from '../../architecture/layout.js';
+import { mergeArchitectureIrs } from '../../architecture/merge.js';
 import {
   ArchitectureStore,
   mergeWithPrevious,
@@ -21,6 +23,7 @@ import {
   type ValidatedIr,
   type ValidateArchitectureIrResult,
 } from '../../architecture/validator.js';
+import { writeJsonAtomic } from '../../core/json-file.js';
 import { log } from '../../core/log.js';
 import {
   READ_ONLY_ALLOW_WORDS,
@@ -63,14 +66,40 @@ function ratio(numerator: number, denominator: number): number | null {
 
 type Prepared = { ok: true; ir: ArchitectureIr; repoRoot: string } | ArchitectureFailure;
 
-function prepareIr(input: ArchitectureInput, repoRoot: string): Prepared {
-  if (input.ir === undefined) return fail('MISSING_INPUT', `${input.action}에는 ir이 필요하다.`);
-  const parsed = parseArchitectureIr(input.ir);
-  if (!parsed.ok) {
-    const issues = parsed.error.issues.length > 0 ? parsed.error.issues : [parsed.error.message];
-    return { ok: false, errors: issues.map((message) => ({ code: 'IR_PARSE_ERROR', message })) };
+function readIrFile(
+  path: string,
+  repoRoot: string,
+): { ok: true; raw: unknown } | ArchitectureFailure {
+  const abs = resolve(repoRoot, path);
+  try {
+    return { ok: true, raw: JSON.parse(readFileSync(abs, 'utf-8')) as unknown };
+  } catch (e) {
+    return fail('IR_READ_ERROR', `IR 파일 "${abs}"를 읽지 못했다: ${(e as Error).message}`);
   }
-  const ir = parsed.value;
+}
+
+function parseIr(raw: unknown, label = ''): { ok: true; ir: ArchitectureIr } | ArchitectureFailure {
+  const parsed = parseArchitectureIr(raw);
+  if (parsed.ok) return { ok: true, ir: parsed.value };
+  const issues = parsed.error.issues.length > 0 ? parsed.error.issues : [parsed.error.message];
+  return {
+    ok: false,
+    errors: issues.map((message) => ({ code: 'IR_PARSE_ERROR', message: `${label}${message}` })),
+  };
+}
+
+function prepareIr(input: ArchitectureInput, repoRoot: string): Prepared {
+  let raw: unknown = input.ir;
+  if (raw === undefined && input.irPath !== undefined) {
+    const read = readIrFile(input.irPath, repoRoot);
+    if (!read.ok) return read;
+    raw = read.raw;
+  }
+  if (raw === undefined)
+    return fail('MISSING_INPUT', `${input.action}에는 ir이나 irPath가 필요하다.`);
+  const parsed = parseIr(raw);
+  if (!parsed.ok) return parsed;
+  const ir = parsed.ir;
   if (input.view !== undefined && input.view !== ir.view) {
     return fail('VIEW_MISMATCH', `view(${input.view})와 ir.view(${ir.view})가 다르다.`);
   }
@@ -259,6 +288,32 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
   };
 }
 
+function handleMerge(input: ArchitectureInput, repoRoot: string): object {
+  const raws: unknown[] = [...(input.irs ?? [])];
+  for (const path of input.irPaths ?? []) {
+    const read = readIrFile(path, repoRoot);
+    if (!read.ok) return read;
+    raws.push(read.raw);
+  }
+  const irs: ArchitectureIr[] = [];
+  for (const [i, raw] of raws.entries()) {
+    const parsed = parseIr(raw, `입력 ${i}: `);
+    if (!parsed.ok) return parsed;
+    irs.push(parsed.ir);
+  }
+  const result = mergeArchitectureIrs(irs, { prefixCandidates: input.prefixCandidates });
+  if (!result.ok) return result;
+  const nextAction =
+    '합친 IR을 validate로 확인한 뒤 render한다. render는 repoRoot의 같은 뷰 IR과 병합하므로 원래 분석 레포가 아닌 따로 둔 디렉토리를 repoRoot로 준다.';
+  if (input.outPath === undefined) {
+    return { ok: true, ir: result.ir, report: result.report, nextAction };
+  }
+  const outPath = resolve(repoRoot, input.outPath);
+  writeJsonAtomic(outPath, result.ir);
+  log(`architecture: merged ${irs.length} IRs → ${outPath}`);
+  return { ok: true, irPath: outPath, report: result.report, nextAction };
+}
+
 function handleStatus(repoRoot: string): object {
   const store = new ArchitectureStore(repoRoot);
   const views: Record<string, unknown> = {};
@@ -289,5 +344,7 @@ export async function handleArchitecturePassthrough(
       return handleRender(input, repoRoot);
     case 'status':
       return handleStatus(repoRoot);
+    case 'merge':
+      return handleMerge(input, repoRoot);
   }
 }

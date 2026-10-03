@@ -843,6 +843,7 @@ export const ARCHITECTURE_ACTIONS = [
   'validate',
   'render',
   'status',
+  'merge',
 ] as const;
 
 const feCallSchema = z.object({
@@ -864,7 +865,7 @@ export const architectureInputSchema = guardObject(
     action: z
       .enum(ARCHITECTURE_ACTIONS)
       .describe(
-        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 두 뷰의 이전 실행 요약',
+        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 두 뷰의 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기',
       ),
     repoRoot: z.string().optional().describe('저장소 경로 (기본값: 현재 작업 디렉토리)'),
     view: z
@@ -872,6 +873,22 @@ export const architectureInputSchema = guardObject(
       .optional()
       .describe('start에 필요. validate와 render에서 주면 ir.view와 같아야 한다'),
     ir: z.unknown().optional().describe('validate와 render에 필요. ArchitectureIR JSON'),
+    irPath: z
+      .string()
+      .optional()
+      .describe('validate, render: ir 대신 IR JSON 파일 경로. repoRoot 기준으로 푼다'),
+    irs: z
+      .array(z.unknown())
+      .optional()
+      .describe('merge: 합칠 ArchitectureIR JSON 목록. irPaths와 함께 주면 둘을 이어 붙인다'),
+    irPaths: z
+      .array(z.string())
+      .optional()
+      .describe('merge: 합칠 IR JSON 파일 경로 목록. repoRoot 기준으로 푼다'),
+    outPath: z
+      .string()
+      .optional()
+      .describe('merge: 합친 IR을 쓸 파일 경로. 주면 응답에 IR 대신 경로만 싣는다'),
     audience: z
       .enum(['private', 'shared'])
       .optional()
@@ -886,7 +903,7 @@ export const architectureInputSchema = guardObject(
     prefixCandidates: z
       .array(z.string())
       .optional()
-      .describe('match_endpoints: FE 경로 앞에 붙는 게이트웨이 prefix 후보'),
+      .describe('match_endpoints, merge: FE 경로 앞에 붙는 게이트웨이 prefix 후보'),
   }),
 );
 
