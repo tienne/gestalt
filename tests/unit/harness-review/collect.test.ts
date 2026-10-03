@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -12,6 +12,7 @@ import {
   GithubCodeSearchAdapter,
   orgWildcard,
 } from '../../../src/harness-review/github-code-search.js';
+import { worktreeCloneRoot } from '../../../src/harness-review/related-clones.js';
 import type { GhRunner } from '../../../src/review-loop/fetch.js';
 import {
   buildIsolatedOrg,
@@ -367,6 +368,41 @@ describe('parseRepoDirs', () => {
       { repo: `acme/${s.repo.root.split('/').pop()!}`, dir: s.repo.root },
     ]);
   });
+});
+
+describe('gestalt harness-refs clones prune CLI', () => {
+  it('GESTALT_HOME 아래 클론 중 워크트리가 사라진 것만 지우고 --all은 전부 지운다', () => {
+    const home = resolve('.gestalt-test', `home-${randomUUID()}`);
+    const wt = resolve('.gestalt-test', `wt-${randomUUID()}`);
+    mkdirSync(wt, { recursive: true });
+    try {
+      const base = join(home, '.gestalt', 'repos');
+      const alive = worktreeCloneRoot(base, wt);
+      const gone = worktreeCloneRoot(base, resolve('.gestalt-test', `gone-${randomUUID()}`));
+      const prune = (...args: string[]) =>
+        spawnSync(
+          resolve('node_modules/.bin/tsx'),
+          [resolve('bin/gestalt.ts'), 'harness-refs', 'clones', 'prune', '--json', ...args],
+          {
+            encoding: 'utf-8',
+            env: { ...process.env, GESTALT_HOME: home, GESTALT_NO_UPDATE_CHECK: '1' },
+          },
+        );
+
+      const r = prune();
+      expect(r.status).toBe(0);
+      const out = JSON.parse(r.stdout) as { pruned: { root: string; reason: string }[] };
+      expect(out.pruned).toEqual([expect.objectContaining({ root: gone, reason: 'worktreeGone' })]);
+      expect(existsSync(alive)).toBe(true);
+
+      expect(prune('--all').status).toBe(0);
+      expect(readdirSync(base)).toEqual([]);
+      expect(prune('--max-idle-days', 'x').status).toBe(1);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(wt, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 describe('gestalt harness-refs collect CLI', () => {

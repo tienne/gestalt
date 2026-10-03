@@ -5,6 +5,12 @@ import {
   type CollectBackend,
   type CollectResult,
 } from '../../harness-review/collect.js';
+import {
+  DEFAULT_CLONE_MAX_IDLE_MS,
+  defaultCloneRoot,
+  pruneWorktreeClones,
+  type PrunedClone,
+} from '../../harness-review/related-clones.js';
 import { REFERENCE_CANDIDATE_KINDS } from '../../harness-review/types.js';
 
 /**
@@ -76,3 +82,47 @@ export async function harnessRefsCollectCommand(opts: HarnessRefsCollectOptions)
   console.log(opts.json ? JSON.stringify(result) : formatCollectSummary(result));
 }
 
+export interface HarnessRefsClonesPruneOptions {
+  all?: boolean;
+  maxIdleDays?: string;
+  json?: boolean;
+}
+
+const PRUNE_REASON_LABEL: Record<PrunedClone['reason'], string> = {
+  worktreeGone: '워크트리 없음',
+  idle: '오래 안 씀',
+  all: '--all',
+};
+
+/**
+ * `gestalt harness-refs clones prune`. collect가 워크트리마다 받아 둔 관련 레포 클론을 지운다.
+ * collect도 시작할 때 같은 기준으로 정리하므로, 이 명령은 수집을 안 돌리는 동안 디스크를 비울 때 쓴다.
+ */
+export function harnessRefsClonesPruneCommand(opts: HarnessRefsClonesPruneOptions): void {
+  let maxIdleMs = DEFAULT_CLONE_MAX_IDLE_MS;
+  if (opts.maxIdleDays !== undefined) {
+    const days = Number(opts.maxIdleDays);
+    if (!Number.isFinite(days) || days < 0) {
+      console.error(`--max-idle-days는 0 이상의 숫자여야 한다: ${opts.maxIdleDays}`);
+      process.exit(1);
+    }
+    maxIdleMs = days * 24 * 60 * 60 * 1000;
+  }
+
+  const base = defaultCloneRoot();
+  const pruned = pruneWorktreeClones(base, { all: opts.all, maxIdleMs });
+  if (opts.json) {
+    console.log(JSON.stringify({ base, pruned }));
+    return;
+  }
+  if (pruned.length === 0) {
+    console.log(`지울 클론이 없다 (${base})`);
+    return;
+  }
+  for (const p of pruned) {
+    console.log(
+      `${PRUNE_REASON_LABEL[p.reason]}\t${p.root}${p.worktree ? `\t(${p.worktree})` : ''}`,
+    );
+  }
+  console.log(`클론 루트 ${pruned.length}개를 지웠다`);
+}
