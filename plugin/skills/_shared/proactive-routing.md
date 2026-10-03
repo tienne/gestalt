@@ -49,6 +49,7 @@
 | 슬라이드 Reveal.js 구조·템플릿·비주얼 디자인 자문 | `presentation-designer` |
 | 발표자료·슬라이드·프레젠테이션 제작 요청 ("발표자료 만들어줘", "슬라이드 만들어줘", "피치덱") | `presentation` 스킬 사용 (presentation-writer 콘텐츠 → 승인 단계 → presentation-designer 디자인 → Reveal.js HTML) |
 | 시스템 설계, 아키텍처 리뷰, 설계 패턴 | `architect` |
+| 근거 달린 아키텍처 그림 요청 ("아키텍처 그려줘", "화면에서 DB까지 그려줘", "배포 경로 그려줘") | `architecture` 스킬 사용 (맥락 소스 찾기 → 읽기 전용 걸러내기 → 탐색 → IR validate → 미해결 질문 → render). 설계 리뷰나 자문이면 `architect` |
 | 보안 취약점, 인증/인가, 시크릿 노출 검토 | `security-reviewer` |
 | 성능 병목, N+1, 메모리 누수 분석 | `performance-reviewer` |
 | 코드 가독성, SOLID, 에러 처리 리뷰 | `quality-reviewer` |
