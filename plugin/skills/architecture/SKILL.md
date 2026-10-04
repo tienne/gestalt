@@ -223,10 +223,11 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 2. **스킬**: SKILL.md 하나에 `skill` 하나다. 근거는 그 SKILL.md의 `name` 줄이다. `parent`는 스킬을 묶는 `feature`나 플러그인 `service`다. 스킬 묶음을 `feature`로 세웠으면 그 묶음이 적힌 README나 docs 줄을 `doc` 근거로 단다.
 3. **에이전트**: AGENT.md나 `agents/*.md` 하나에 `agent` 하나다. parent는 달지 않는다. 스킬이나 에이전트가 에이전트를 띄우면 `spawns`, 스킬이 다른 스킬을 부르면 `invokes`다. 근거는 지시문에서 그 이름을 부르는 줄이다.
 4. **MCP 도구**: 도구 하나에 `endpoint` 하나다. action마다 나누지 않는다. label은 도구 이름이고 `protocol: "mcp"`, `mcpServer`에 서버 이름, `actions`에 그 도구가 받는 action enum 값을 단다. 근거는 도구 등록 줄이다. 그림에는 API 대신 **MCP 도구** 칩으로 나오고 레인도 따로 선다.
+   - `parent`에는 그 도구를 내놓는 서비스 id를 단다. 서버 패키지가 따로 있으면 그 서비스이고 플러그인이 서버를 함께 담으면 플러그인 `service`다. 스킬 없이 클라이언트가 도구를 바로 부르는 순수 MCP 서버 레포는 이 parent가 있어야 전체 그림에 서비스 → 핸들러 묶음 선이 생긴다. HTTP 엔드포인트에는 parent를 달지 않는다.
 
    ```json
    { "id": "tool:plan", "kind": "endpoint", "label": "ges_plan", "protocol": "mcp",
-     "mcpServer": "gestalt", "actions": ["start", "submit"], "evidence": [ ... ] }
+     "mcpServer": "gestalt", "parent": "svc-gestalt", "actions": ["start", "submit"], "evidence": [ ... ] }
    ```
 
 5. **도구 호출 매칭**: SKILL.md와 AGENT.md에서 도구 이름과 `action=`, `action: '...'` 줄을 찾아 `skillToolCalls`로, 서버 코드의 도구 등록을 `serverTools`로 적어 `match_endpoints`에 넘긴다. HTTP 쪽 `feCalls`와 함께 넘겨도 된다.
@@ -243,7 +244,8 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 
 6. **핸들러와 엔진**: 도구를 받는 핸들러 모듈을 `app_module`로 두고 `endpoint → app_module`을 `handles`로 잇는다. 핸들러가 같은 프로세스 안에서 부르는 엔진 모듈도 `app_module`이고 `uses`로 잇는다. 엔진이 쓰는 저장소는 `datastore`이고 `reads_writes`다.
 7. **md 줄 근거**: SKILL.md와 AGENT.md 줄은 `code` 근거라 실선이 된다. 다만 `skill`, `agent` 노드와 그 둘에서 나가는 엣지에서만이다. 하네스 IR(`client`, `skill`, `agent`가 하나라도 있는 IR)에서 그 밖의 노드나 엣지에 md 줄을 `code`로 달면 `MD_CODE_EVIDENCE`다. README나 docs의 언급은 `doc` 근거로 단다.
-8. **배포 쪽은 이 그림에 넣지 않는다**: 스킬 디렉토리 심링크와 마켓플레이스 매니페스트는 배포 경로다. 릴리즈 워크플로에서 빌드, npm 패키지, 플러그인 매니페스트로 이어지는 사슬은 Step 4대로 deploy-path에 그린다.
+8. **그림 제목**: 화면이 하나도 없는 screen-chain은 제목이 "화면별 호출 흐름" 대신 바뀐다. 스킬이 있으면 "스킬별 호출 흐름", 스킬 없이 MCP 도구만 있으면 "MCP 도구 호출 흐름"이다.
+9. **배포 쪽은 이 그림에 넣지 않는다**: 스킬 디렉토리 심링크와 마켓플레이스 매니페스트는 배포 경로다. 릴리즈 워크플로에서 빌드, npm 패키지, 플러그인 매니페스트로 이어지는 사슬은 Step 4대로 deploy-path에 그린다.
 
 ## Step 3.5 — 도메인 흐름
 
@@ -422,7 +424,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 
 `parent`는 이 노드를 담는 노드의 id다. 드릴다운의 서비스와 기능영역 화면이 이 값으로 화면을 모은다.
 
-- `screen`의 parent는 `feature`, `micro_app`, `service` 중 하나다. `feature`의 parent는 `micro_app`이나 `service`, `micro_app`의 parent는 `service`만 된다. `skill`의 parent는 `feature`나 `service`다. 다른 kind에는 달지 않는다.
+- `screen`의 parent는 `feature`, `micro_app`, `service` 중 하나다. `feature`의 parent는 `micro_app`이나 `service`, `micro_app`의 parent는 `service`만 된다. `skill`의 parent는 `feature`나 `service`다. MCP 도구(`protocol: "mcp"`인 `endpoint`)의 parent는 그 도구를 내놓는 `service`다. HTTP 엔드포인트를 비롯해 다른 kind에는 달지 않는다.
 - parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없는 것으로 친다.
 - 재실행 병합이 노드 id를 물려주면 parent도 그 id를 따라간다.
 
@@ -462,7 +464,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 | `DANGLING_EDGE`               | 엣지가 가리키는 노드를 `nodes`에 넣거나 엣지를 뺀다                                                                |
 | `PARENT_NOT_FOUND`            | parent가 가리키는 노드를 `nodes`에 넣거나 parent를 뺀다                                                            |
 | `PARENT_CYCLE`                | parent를 따라가면 자기로 돌아온다. 서비스에서 기능영역, 화면으로 내려가는 한 방향만 남긴다                         |
-| `INVALID_PARENT_KIND`         | 위 포함 규칙에 맞게 parent를 고친다. 화면이 화면을 담거나 엔드포인트에 parent를 달면 여기 걸린다                   |
+| `INVALID_PARENT_KIND`         | 위 포함 규칙에 맞게 parent를 고친다. 화면이 화면을 담거나 HTTP 엔드포인트에 parent를 달면 여기 걸린다              |
 | `SERVES_SERVICE_WITH_APPS`    | `micro_app`이 달린 서비스를 `serves`로 가리켰다. 그 사슬이 서빙하는 호스트나 리모트 앱으로 `to`를 옮긴다           |
 | `INVALID_LOADS_ENDS`          | `loads`는 `micro_app → micro_app`이나 `client → service`만 된다. 서비스끼리 이었으면 앱 노드를 두고 다시 잇는다    |
 | `INVALID_HARNESS_EDGE_ENDS`   | `spawns`는 스킬이나 에이전트 → 에이전트, `invokes`는 스킬 → 스킬이다. 스킬과 에이전트의 `calls`는 endpoint만 가리킨다 |
@@ -589,7 +591,7 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `feature`          | screen-chain | 서비스 안의 기능영역. 페이지보다 한 단계 위인 제품 단위 (예: 등록모드, 대시보드, 설정)           |
 | `screen`           | screen-chain | 사용자가 보는 화면이나 페이지                                                                    |
 | `gateway`          | screen-chain | 요청을 받아 다른 서버로 넘기는 서버                                                              |
-| `endpoint`         | screen-chain | 백엔드 HTTP 엔드포인트. label은 `METHOD /정규화 경로`. MCP 도구면 `protocol: "mcp"`이고 label은 도구 이름 |
+| `endpoint`         | screen-chain | 백엔드 HTTP 엔드포인트. label은 `METHOD /정규화 경로`. MCP 도구면 `protocol: "mcp"`이고 label은 도구 이름, `parent`는 도구를 내놓는 서비스 |
 | `app_module`       | screen-chain | 엔드포인트를 처리하는 백엔드 모듈이나 컨트롤러                                                   |
 | `external_service` | screen-chain | 모듈이 부르는 다른 서비스, 외부 API, 메시지 브로커                                               |
 | `datastore`        | screen-chain | 테이블이 사는 DB 클러스터나 캐시 클러스터. id는 별칭, label은 `<엔진>:<클러스터 식별자>`         |
