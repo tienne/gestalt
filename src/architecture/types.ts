@@ -41,6 +41,12 @@ export const VISIBILITIES = ['public', 'private'] as const;
 export const LINE_STYLES = ['solid', 'dashed'] as const;
 export const CONTEXT_SOURCE_VIAS = ['repo', 'global', 'mcp', 'skill', 'user'] as const;
 export const PLATFORMS = ['web', 'android', 'ios'] as const;
+/** 흐름의 행위자. person은 고객이나 직원처럼 사람이 누르는 쪽, system은 배치나 타이머, 자동 발송이다 */
+export const FLOW_ACTOR_KINDS = ['person', 'system'] as const;
+/** main은 정상 흐름, side는 취소나 노쇼처럼 옆으로 빠지는 흐름이다 */
+export const FLOW_PATHS = ['main', 'side'] as const;
+/** 단계 refs가 가리킬 수 있는 kind. 사용자가 실제로 만나는 화면과 그 화면이 부르는 API까지만 잇는다 */
+export const FLOW_REF_KINDS: readonly NodeKind[] = ['screen', 'endpoint', 'feature', 'micro_app'];
 /** 서빙 인프라. 화면 흐름과 배포 경로 둘 다에 설 수 있다 */
 export const INFRA_KINDS = ['domain', 'cdn', 'bucket', 'cloud_account'] as const;
 /** environment를 가질 수 있는 kind. 네이티브 배포처는 deploy_target으로 그린다 */
@@ -72,6 +78,8 @@ export type Visibility = (typeof VISIBILITIES)[number];
 export type LineStyle = (typeof LINE_STYLES)[number];
 export type ContextSourceVia = (typeof CONTEXT_SOURCE_VIAS)[number];
 export type Platform = (typeof PLATFORMS)[number];
+export type FlowActorKind = (typeof FLOW_ACTOR_KINDS)[number];
+export type FlowPath = (typeof FLOW_PATHS)[number];
 /** 웹 서빙 방식. 버킷이 서빙하면 정적, 배포 대상(서버)이 서빙하면 SSR이다 */
 export type WebHosting = 'static' | 'ssr';
 
@@ -123,7 +131,8 @@ export interface ArchitectureEdge {
 
 export interface UnresolvedQuestion {
   id: string;
-  subject: { nodeId?: string; edgeId?: string };
+  /** stepId와 transitionId는 흐름의 단계와 전이를 가리킨다. 흐름 id끼리 겹치지 않아야 한다 */
+  subject: { nodeId?: string; edgeId?: string; stepId?: string; transitionId?: string };
   question: string;
   answer?: string;
 }
@@ -153,6 +162,52 @@ export interface ArchitectureGroup {
   members: string[];
 }
 
+export interface FlowActor {
+  id: string;
+  label: string;
+  kind: FlowActorKind;
+}
+
+export interface FlowStep {
+  id: string;
+  /** 이 단계를 하는 행위자 id. 같은 흐름의 actors에 있어야 한다 */
+  actor: string;
+  label: string;
+  description?: string;
+  /** 이 단계가 끝난 뒤의 업무 상태. 코드 enum 값을 그대로 적는다 */
+  state?: string;
+  /** 이 단계에서 만나는 화면이나 부르는 API 노드 id. 기술 그림으로 내려가는 입구다 */
+  refs?: string[];
+  evidence: Evidence[];
+}
+
+/** 단계에서 단계로 넘어가는 선. 상태가 바뀌는 자리이고 근거 규칙은 엣지와 같다 */
+export interface FlowTransition {
+  id: string;
+  from: string;
+  to: string;
+  path: FlowPath;
+  /** 넘어가는 조건. 선 위에 짧게 보인다 */
+  label?: string;
+  evidence: Evidence[];
+  lineStyle: LineStyle;
+}
+
+/**
+ * 도메인과 사용자 관점의 서비스 흐름. 행위자마다 가로줄, 단계는 왼쪽에서 오른쪽으로 그린다.
+ * 기술 그림의 노드와 엣지에 섞지 않고 따로 둔다. 섞으면 드릴다운과 병합 키, 포커스가 단계까지 훑는다
+ */
+export interface ArchitectureFlow {
+  id: string;
+  /** 이 흐름이 딸린 service 노드 id. 그 서비스 레벨 아래 레벨로 그린다 */
+  service: string;
+  title: string;
+  description?: string;
+  actors: FlowActor[];
+  steps: FlowStep[];
+  transitions: FlowTransition[];
+}
+
 export interface ArchitectureIr {
   schemaVersion: typeof ARCHITECTURE_IR_SCHEMA_VERSION;
   view: ArchitectureView;
@@ -164,4 +219,6 @@ export interface ArchitectureIr {
   generatedAt: string;
   /** merge가 남기는 제품 그룹. 둘 이상이면 렌더러가 제품끼리 겹치는 띠를 그린다 */
   groups?: ArchitectureGroup[];
+  /** 도메인 흐름. 없으면 기술 그림만 그린다 */
+  flows?: ArchitectureFlow[];
 }

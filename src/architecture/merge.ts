@@ -6,6 +6,7 @@ import { parseArchitectureIr } from './ir-schema.js';
 import { nodeKey } from './store.js';
 import type {
   ArchitectureEdge,
+  ArchitectureFlow,
   ArchitectureGroup,
   ArchitectureIr,
   ArchitectureNode,
@@ -508,6 +509,40 @@ export function mergeArchitectureIrs(
   }
   edges.push(...crossEdges);
 
+  // ── 도메인 흐름 ──
+  // 흐름은 한 분석이 자기 서비스를 보고 쓴 것이라 서로 합치지 않고 나란히 싣는다. id만 겹치지 않게 바꾼다
+  const flows: ArchitectureFlow[] = [];
+  const takenFlowIds = new Set<string>();
+  const takenStepIds = new Set<string>();
+  const stepIdOf = new Map<string, string>(); // `${input}\u0000${원래 id}` → 새 id. 단계와 전이가 함께 쓴다
+  const mapStep = (input: number, id: string): string => stepIdOf.get(`${input}\u0000${id}`) ?? id;
+  for (const { ir, input } of ordered) {
+    const map = repoMaps.get(input)!;
+    for (const f of ir.flows ?? []) {
+      for (const item of [...f.steps, ...f.transitions]) {
+        stepIdOf.set(`${input}\u0000${item.id}`, uniqueId(item.id, takenStepIds));
+      }
+      flows.push({
+        ...f,
+        id: uniqueId(f.id, takenFlowIds),
+        service: mapNode(input, f.service),
+        steps: f.steps.map((st) => ({
+          ...st,
+          id: mapStep(input, st.id),
+          ...(st.refs !== undefined ? { refs: st.refs.map((r) => mapNode(input, r)) } : {}),
+          evidence: remapEvidence(st.evidence, map),
+        })),
+        transitions: f.transitions.map((t) => ({
+          ...t,
+          id: mapStep(input, t.id),
+          from: mapStep(input, t.from),
+          to: mapStep(input, t.to),
+          evidence: remapEvidence(t.evidence, map),
+        })),
+      });
+    }
+  }
+
   // ── 미해결 질문 ──
   const unresolved: UnresolvedQuestion[] = [];
   const takenQuestionIds = new Set<string>();
@@ -517,8 +552,18 @@ export function mergeArchitectureIrs(
       const subject: UnresolvedQuestion['subject'] = {
         ...(q.subject.nodeId !== undefined ? { nodeId: mapNode(input, q.subject.nodeId) } : {}),
         ...(q.subject.edgeId !== undefined ? { edgeId: mapEdge(input, q.subject.edgeId) } : {}),
+        ...(q.subject.stepId !== undefined ? { stepId: mapStep(input, q.subject.stepId) } : {}),
+        ...(q.subject.transitionId !== undefined
+          ? { transitionId: mapStep(input, q.subject.transitionId) }
+          : {}),
       };
-      const key = `${subject.nodeId ?? ''}\u0000${subject.edgeId ?? ''}\u0000${q.question.trim()}`;
+      const key = [
+        subject.nodeId,
+        subject.edgeId,
+        subject.stepId,
+        subject.transitionId,
+        q.question.trim(),
+      ].join('\u0000');
       const twin = seenQuestion.get(key);
       if (twin) {
         if ((twin.answer ?? '').trim() === '' && q.answer !== undefined) twin.answer = q.answer;
@@ -586,6 +631,7 @@ export function mergeArchitectureIrs(
     sourcesUsed: [...sources.values()],
     generatedAt,
     ...(groups.length > 0 ? { groups } : {}),
+    ...(flows.length > 0 ? { flows } : {}),
   });
   // 스키마를 한 번 더 통과시키면 객체 키가 스키마 순서로 다시 놓인다. 입력의 키 순서가 바이트에 새지 않는다
   const reparsed = parseArchitectureIr(draft);

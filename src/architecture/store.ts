@@ -170,17 +170,33 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     },
   }));
 
+  // 흐름은 지난 실행과 키로 맞추지 않고 이번 실행 것을 그대로 쓴다. 노드 id가 바뀌었으면 가리키는 쪽만 따라 바꾼다
+  const flows = next.flows?.map((f) => ({
+    ...f,
+    service: mapNodeId(f.service),
+    steps: f.steps.map((st) =>
+      st.refs !== undefined ? { ...st, refs: st.refs.map(mapNodeId) } : { ...st },
+    ),
+  }));
+  const stepIds = new Set(flows?.flatMap((f) => f.steps.map((st) => st.id)) ?? []);
+  const transitionIds = new Set(flows?.flatMap((f) => f.transitions.map((t) => t.id)) ?? []);
+
   const nodeIds = new Set(nodes.map((n) => n.id));
   const edgeIds = new Set(edges.map((e) => e.id));
   const questionIds = new Set(unresolved.map((q) => q.id));
   const sameSubject = (a: UnresolvedQuestion, b: UnresolvedQuestion): boolean =>
-    a.subject.nodeId === b.subject.nodeId && a.subject.edgeId === b.subject.edgeId;
+    a.subject.nodeId === b.subject.nodeId &&
+    a.subject.edgeId === b.subject.edgeId &&
+    a.subject.stepId === b.subject.stepId &&
+    a.subject.transitionId === b.subject.transitionId;
 
   for (const prevQ of prev.unresolved) {
     if (!isAnswered(prevQ)) continue;
-    const { nodeId, edgeId } = prevQ.subject;
+    const { nodeId, edgeId, stepId, transitionId } = prevQ.subject;
     if (nodeId !== undefined && !nodeIds.has(nodeId)) continue;
     if (edgeId !== undefined && !edgeIds.has(edgeId)) continue;
+    if (stepId !== undefined && !stepIds.has(stepId)) continue;
+    if (transitionId !== undefined && !transitionIds.has(transitionId)) continue;
 
     // 같은 대상에 같은 질문을 다시 물었으면 새로 추가하지 않고 답만 옮긴다
     const twin = unresolved.find(
@@ -205,6 +221,7 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     ...(next.groups !== undefined
       ? { groups: next.groups.map((g) => ({ ...g, members: g.members.map(mapNodeId).sort() })) }
       : {}),
+    ...(flows !== undefined ? { flows } : {}),
   };
 }
 

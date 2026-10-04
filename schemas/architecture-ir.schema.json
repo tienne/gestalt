@@ -28,6 +28,11 @@
       "type": "array",
       "description": "product groups left by merge; members are the node ids that came from that product's analysis",
       "items": { "$ref": "#/definitions/group" }
+    },
+    "flows": {
+      "type": "array",
+      "description": "domain flows of one service: actor lanes, steps left to right, main and side transitions",
+      "items": { "$ref": "#/definitions/flow" }
     }
   },
   "definitions": {
@@ -185,7 +190,9 @@
           "type": "object",
           "properties": {
             "nodeId": { "type": "string" },
-            "edgeId": { "type": "string" }
+            "edgeId": { "type": "string" },
+            "stepId": { "type": "string" },
+            "transitionId": { "type": "string" }
           }
         },
         "question": { "type": "string", "minLength": 1 },
@@ -203,6 +210,58 @@
           "minItems": 1,
           "items": { "type": "string", "minLength": 1 }
         }
+      }
+    },
+    "flowActor": {
+      "type": "object",
+      "required": ["id", "label", "kind"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["person", "system"] }
+      }
+    },
+    "flowStep": {
+      "type": "object",
+      "required": ["id", "actor", "label", "evidence"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "actor": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "state": { "type": "string", "minLength": 1 },
+        "refs": {
+          "type": "array",
+          "description": "ids of screen, endpoint, feature or micro_app nodes this step touches",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } }
+      }
+    },
+    "flowTransition": {
+      "type": "object",
+      "required": ["id", "from", "to", "path", "evidence", "lineStyle"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "enum": ["main", "side"] },
+        "label": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
+        "lineStyle": { "type": "string", "enum": ["solid", "dashed"] }
+      }
+    },
+    "flow": {
+      "type": "object",
+      "required": ["id", "service", "title", "actors", "steps", "transitions"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "service": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "actors": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/flowActor" } },
+        "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/flowStep" } },
+        "transitions": { "type": "array", "items": { "$ref": "#/definitions/flowTransition" } }
       }
     },
     "contextSource": {

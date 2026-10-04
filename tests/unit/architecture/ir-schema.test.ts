@@ -6,6 +6,8 @@ import {
   contextSourceViaSchema,
   edgeKindSchema,
   evidenceTypeSchema,
+  FLOW_ACTOR_KINDS,
+  FLOW_PATHS,
   lineStyleSchema,
   nodeKindSchema,
   parseArchitectureIr,
@@ -150,6 +152,13 @@ describe('JSON Schema 파일과 zod 정합', () => {
       'contextSource.via',
       defs.contextSource?.properties?.via?.enum,
       contextSourceViaSchema.options,
+    ],
+    ['flowActor.kind', defs.flowActor?.properties?.kind?.enum, FLOW_ACTOR_KINDS],
+    ['flowTransition.path', defs.flowTransition?.properties?.path?.enum, FLOW_PATHS],
+    [
+      'flowTransition.lineStyle',
+      defs.flowTransition?.properties?.lineStyle?.enum,
+      lineStyleSchema.options,
     ],
   ];
 

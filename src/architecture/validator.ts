@@ -3,8 +3,10 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { classifyCliCommand } from '../utils/read-only-tools.js';
 import { indexMicroApps } from './micro-app.js';
 import {
+  FLOW_REF_KINDS,
   PARENT_KINDS,
   type ArchitectureEdge,
+  type ArchitectureFlow,
   type ArchitectureIr,
   type ArchitectureNode,
   type Evidence,
@@ -29,13 +31,23 @@ export type ArchitectureValidationErrorCode =
   | 'GROUP_MEMBER_NOT_FOUND'
   | 'DUPLICATE_GROUP_ID'
   | 'SERVES_SERVICE_WITH_APPS'
-  | 'INVALID_LOADS_ENDS';
+  | 'INVALID_LOADS_ENDS'
+  | 'FLOW_SERVICE_NOT_FOUND'
+  | 'DUPLICATE_FLOW_ID'
+  | 'FLOW_ACTOR_NOT_FOUND'
+  | 'FLOW_STEP_NOT_FOUND'
+  | 'FLOW_REF_NOT_FOUND'
+  | 'INVALID_FLOW_REF_KIND'
+  | 'SOLID_TRANSITION_WITHOUT_EVIDENCE';
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
   message: string;
   nodeId?: string;
   edgeId?: string;
+  flowId?: string;
+  stepId?: string;
+  transitionId?: string;
   evidenceIndex?: number;
 }
 
@@ -43,6 +55,10 @@ export interface ValidatedIr {
   ir: ArchitectureIr;
   drawableNodeIds: Set<string>;
   drawableEdgeIds: Set<string>;
+  /** 근거가 있는 흐름 단계. 없는 단계는 그리지 않고 질문으로 간다 */
+  drawableStepIds: Set<string>;
+  /** 근거가 있고 양 끝 단계가 그려지는 전이 */
+  drawableTransitionIds: Set<string>;
   autoUnresolved: UnresolvedQuestion[];
 }
 
@@ -128,7 +144,11 @@ function checkCodeLocation(
 
 function checkEvidenceList(
   evidence: Evidence[],
-  owner: { nodeId: string } | { edgeId: string },
+  owner:
+    | { nodeId: string }
+    | { edgeId: string }
+    | { flowId: string; stepId: string }
+    | { flowId: string; transitionId: string },
   ctx: { checkFiles: boolean; repoRoots: Record<string, string>; cache: LineCountCache },
   errors: ArchitectureValidationError[],
 ): void {
@@ -343,8 +363,153 @@ function hasQuestionFor(
   subject: UnresolvedQuestion['subject'],
 ): boolean {
   return unresolved.some(
-    (q) => q.subject.nodeId === subject.nodeId && q.subject.edgeId === subject.edgeId,
+    (q) =>
+      q.subject.nodeId === subject.nodeId &&
+      q.subject.edgeId === subject.edgeId &&
+      q.subject.stepId === subject.stepId &&
+      q.subject.transitionId === subject.transitionId,
   );
+}
+
+type EvidenceCtx = Parameters<typeof checkEvidenceList>[2];
+
+/**
+ * 흐름 구조 검사. 단계와 전이 id는 흐름을 넘어 겹치면 안 된다. 질문의 stepId, transitionId가 흐름 id 없이 가리키기 때문이다.
+ * refs는 기술 그림으로 내려가는 입구라 없는 노드나 화면, API가 아닌 노드를 가리키면 거부한다
+ */
+function checkFlows(
+  ir: ArchitectureIr,
+  ctx: EvidenceCtx,
+  errors: ArchitectureValidationError[],
+): void {
+  const byId = new Map(ir.nodes.map((n) => [n.id, n]));
+  const seen = new Set<string>();
+  const dup = (flowId: string, id: string, what: string): void => {
+    if (!seen.has(`${what}\u0000${id}`)) {
+      seen.add(`${what}\u0000${id}`);
+      return;
+    }
+    errors.push({
+      code: 'DUPLICATE_FLOW_ID',
+      message: `흐름 "${flowId}"의 ${what} id "${id}"가 다른 곳에서도 쓰인다. 흐름 전체에서 겹치지 않아야 한다.`,
+      flowId,
+    });
+  };
+  for (const flow of ir.flows ?? []) {
+    dup(flow.id, flow.id, '흐름');
+    if (byId.get(flow.service)?.kind !== 'service') {
+      errors.push({
+        code: 'FLOW_SERVICE_NOT_FOUND',
+        message: `흐름 "${flow.id}"의 service "${flow.service}"가 service 노드가 아니거나 nodes에 없다.`,
+        flowId: flow.id,
+      });
+    }
+    const actorIds = new Set<string>();
+    for (const a of flow.actors) {
+      if (actorIds.has(a.id)) {
+        errors.push({
+          code: 'DUPLICATE_FLOW_ID',
+          message: `흐름 "${flow.id}"에 행위자 id "${a.id}"가 두 번 있다.`,
+          flowId: flow.id,
+        });
+      }
+      actorIds.add(a.id);
+    }
+    const stepIds = new Set<string>();
+    for (const step of flow.steps) {
+      dup(flow.id, step.id, '단계');
+      stepIds.add(step.id);
+      const where = { flowId: flow.id, stepId: step.id };
+      if (!actorIds.has(step.actor)) {
+        errors.push({
+          code: 'FLOW_ACTOR_NOT_FOUND',
+          message: `단계 "${step.id}"의 actor "${step.actor}"가 흐름 "${flow.id}"의 actors에 없다.`,
+          ...where,
+        });
+      }
+      for (const ref of step.refs ?? []) {
+        const target = byId.get(ref);
+        if (!target) {
+          errors.push({
+            code: 'FLOW_REF_NOT_FOUND',
+            message: `단계 "${step.id}"의 refs "${ref}"가 nodes에 없다.`,
+            ...where,
+          });
+        } else if (!FLOW_REF_KINDS.includes(target.kind)) {
+          errors.push({
+            code: 'INVALID_FLOW_REF_KIND',
+            message: `단계 "${step.id}"의 refs "${ref}"는 ${target.kind}다. ${FLOW_REF_KINDS.join(', ')}만 가리킬 수 있다.`,
+            ...where,
+          });
+        }
+      }
+      checkEvidenceList(step.evidence, where, ctx, errors);
+    }
+    for (const t of flow.transitions) {
+      dup(flow.id, t.id, '전이');
+      const where = { flowId: flow.id, transitionId: t.id };
+      const missing = [t.from, t.to].filter((id) => !stepIds.has(id));
+      if (missing.length > 0) {
+        errors.push({
+          code: 'FLOW_STEP_NOT_FOUND',
+          message: `전이 "${t.id}"가 흐름 "${flow.id}"에 없는 단계 ${missing.map((id) => `"${id}"`).join(', ')}를 가리킨다.`,
+          ...where,
+        });
+      }
+      // 엣지와 같은 규칙이다. 실선은 상태를 바꾸는 코드를 봤다는 주장이라 기획서만으로는 못 긋는다
+      if (t.lineStyle === 'solid' && deriveLineStyle(t.evidence) !== 'solid') {
+        errors.push({
+          code: 'SOLID_TRANSITION_WITHOUT_EVIDENCE',
+          message:
+            t.evidence.length === 0
+              ? `전이 "${t.id}"가 실선인데 근거가 하나도 없다. 근거를 달거나 점선으로 바꿔 미해결 질문으로 돌려야 한다.`
+              : `전이 "${t.id}"가 실선인데 code나 spec 근거가 없다. 기획서나 지식베이스(doc)만 있으면 점선이어야 한다.`,
+          ...where,
+        });
+      }
+      checkEvidenceList(t.evidence, where, ctx, errors);
+    }
+  }
+}
+
+/** 근거로 다시 정한 선 모양을 싣는다. 그릴 단계와 전이를 고르고 근거 없는 것은 질문으로 돌린다 */
+function settleFlows(
+  flows: ArchitectureFlow[],
+  ask: (q: UnresolvedQuestion) => void,
+): { flows: ArchitectureFlow[]; steps: Set<string>; transitions: Set<string> } {
+  const steps = new Set<string>();
+  const transitions = new Set<string>();
+  const settled = flows.map((flow) => {
+    const stepName = new Map(flow.steps.map((s) => [s.id, s.label]));
+    for (const step of flow.steps) {
+      if (step.evidence.length > 0) {
+        steps.add(step.id);
+        continue;
+      }
+      ask({
+        id: `auto:step:${step.id}`,
+        subject: { stepId: step.id },
+        question: `"${flow.title}"의 "${step.label}" 단계를 코드나 지식베이스, 기획서에서 확인하지 못했어요. 실제로 있는 단계인가요?`,
+      });
+    }
+    const transitionsOut = flow.transitions.map((t) => ({
+      ...t,
+      lineStyle: deriveLineStyle(t.evidence),
+    }));
+    for (const t of transitionsOut) {
+      if (t.evidence.length === 0) {
+        ask({
+          id: `auto:transition:${t.id}`,
+          subject: { transitionId: t.id },
+          question: `"${stepName.get(t.from) ?? t.from}"에서 "${stepName.get(t.to) ?? t.to}"로 넘어가는 걸 코드나 문서에서 확인하지 못했어요. 실제로 이렇게 넘어가나요?`,
+        });
+        continue;
+      }
+      if (steps.has(t.from) && steps.has(t.to)) transitions.add(t.id);
+    }
+    return { ...flow, transitions: transitionsOut };
+  });
+  return { flows: settled, steps, transitions };
 }
 
 /**
@@ -373,6 +538,7 @@ export function validateArchitectureIr(
   checkGroups(ir, errors);
   checkIdsForCloudIds(ir, errors);
   checkMicroApps(ir, errors);
+  checkFlows(ir, ctx, errors);
 
   for (const edge of ir.edges) {
     const missing = [edge.from, edge.to].filter((id) => !nodeIds.has(id));
@@ -483,9 +649,17 @@ export function validateArchitectureIr(
     });
   }
 
+  const flowResult = settleFlows(ir.flows ?? [], ask);
   return {
     ok: true,
-    value: { ir: { ...ir, edges }, drawableNodeIds, drawableEdgeIds, autoUnresolved },
+    value: {
+      ir: { ...ir, edges, ...(ir.flows !== undefined ? { flows: flowResult.flows } : {}) },
+      drawableNodeIds,
+      drawableEdgeIds,
+      drawableStepIds: flowResult.steps,
+      drawableTransitionIds: flowResult.transitions,
+      autoUnresolved,
+    },
   };
 }
 
@@ -505,7 +679,38 @@ function mapEvidence(ir: ArchitectureIr, fn: (ev: Evidence) => Evidence): Archit
     ...e,
     evidence: e.evidence.map(fn),
   });
-  return { ...ir, nodes: ir.nodes.map(mapNode), edges: ir.edges.map(mapEdge) };
+  const mapFlow = (f: ArchitectureFlow): ArchitectureFlow => ({
+    ...f,
+    steps: f.steps.map((st) => ({ ...st, evidence: st.evidence.map(fn) })),
+    transitions: f.transitions.map((t) => ({ ...t, evidence: t.evidence.map(fn) })),
+  });
+  return {
+    ...ir,
+    nodes: ir.nodes.map(mapNode),
+    edges: ir.edges.map(mapEdge),
+    ...(ir.flows !== undefined ? { flows: ir.flows.map(mapFlow) } : {}),
+  };
+}
+
+// 흐름 글자도 노드 이름처럼 아무 글이나 들어올 수 있어 질문과 같은 기준으로 가린다
+function maskFlowText(f: ArchitectureFlow): ArchitectureFlow {
+  const opt = (t: string | undefined): { description?: string } =>
+    t !== undefined ? { description: maskSharedText(t) } : {};
+  return {
+    ...f,
+    title: maskSharedText(f.title),
+    ...opt(f.description),
+    actors: f.actors.map((a) => ({ ...a, label: maskSharedText(a.label) })),
+    steps: f.steps.map((st) => ({
+      ...st,
+      label: maskSharedText(st.label),
+      ...opt(st.description),
+    })),
+    transitions: f.transitions.map((t) => ({
+      ...t,
+      ...(t.label !== undefined ? { label: maskSharedText(t.label) } : {}),
+    })),
+  };
 }
 
 const MASKED_ACCOUNT_ID = '[계정 ID]';
@@ -557,6 +762,7 @@ export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
   return {
     ...redacted,
     nodes: redacted.nodes.map(maskNodeText),
+    ...(redacted.flows !== undefined ? { flows: redacted.flows.map(maskFlowText) } : {}),
     unresolved: redacted.unresolved.map((q) => ({
       ...q,
       question: maskSharedText(q.question),

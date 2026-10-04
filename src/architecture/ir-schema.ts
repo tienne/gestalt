@@ -8,6 +8,8 @@ import {
   EDGE_KINDS,
   ENVIRONMENT_KINDS,
   EVIDENCE_TYPES,
+  FLOW_ACTOR_KINDS,
+  FLOW_PATHS,
   LINE_STYLES,
   NODE_KINDS,
   PLATFORMS,
@@ -121,6 +123,8 @@ const unresolvedQuestionSchema = z.object({
   subject: z.object({
     nodeId: z.string().optional(),
     edgeId: z.string().optional(),
+    stepId: z.string().optional(),
+    transitionId: z.string().optional(),
   }),
   question: z.string().min(1),
   answer: z.string().optional(),
@@ -147,6 +151,42 @@ const groupSchema = z.object({
   members: z.array(z.string().min(1)).min(1),
 });
 
+const flowActorSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  kind: z.enum(FLOW_ACTOR_KINDS),
+});
+
+const flowStepSchema = z.object({
+  id: z.string().min(1),
+  actor: z.string().min(1),
+  label: z.string().min(1),
+  description: z.string().optional(),
+  state: z.string().min(1).optional(),
+  refs: z.array(z.string().min(1)).optional(),
+  evidence: z.array(evidenceSchema),
+});
+
+const flowTransitionSchema = z.object({
+  id: z.string().min(1),
+  from: z.string().min(1),
+  to: z.string().min(1),
+  path: z.enum(FLOW_PATHS),
+  label: z.string().min(1).optional(),
+  evidence: z.array(evidenceSchema),
+  lineStyle: lineStyleSchema,
+});
+
+const flowSchema = z.object({
+  id: z.string().min(1),
+  service: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  actors: z.array(flowActorSchema).min(1),
+  steps: z.array(flowStepSchema).min(1),
+  transitions: z.array(flowTransitionSchema),
+});
+
 export const architectureIrSchema = z.object({
   schemaVersion: z.literal(ARCHITECTURE_IR_SCHEMA_VERSION),
   view: architectureViewSchema,
@@ -157,6 +197,7 @@ export const architectureIrSchema = z.object({
   sourcesUsed: z.array(contextSourceSchema),
   generatedAt: z.string(),
   groups: z.array(groupSchema).optional(),
+  flows: z.array(flowSchema).optional(),
 });
 
 export function parseArchitectureIr(input: unknown): Result<ArchitectureIr, ValidationError> {
