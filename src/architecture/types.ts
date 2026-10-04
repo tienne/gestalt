@@ -12,6 +12,7 @@ export const NODE_KINDS = [
   'artifact',
   'deploy_target',
   'service',
+  'micro_app',
   'feature',
   'gateway',
   'domain',
@@ -33,6 +34,7 @@ export const EDGE_KINDS = [
   'resolves_to',
   'origin',
   'serves',
+  'loads',
 ] as const;
 export const EVIDENCE_TYPES = ['code', 'spec', 'doc', 'user', 'live'] as const;
 export const VISIBILITIES = ['public', 'private'] as const;
@@ -50,10 +52,15 @@ export const ENVIRONMENT_KINDS: readonly NodeKind[] = [
 /** 환경 정렬 순서. 여기 없는 환경은 이름순으로 뒤에, 환경이 없으면 맨 뒤에 선다 */
 export const ENVIRONMENT_ORDER = ['prod', 'stage', 'qa', 'dev'] as const;
 export const ARCHITECTURE_IR_SCHEMA_VERSION = '1.0.0';
-/** 포함 관계 규칙. 키에 없는 kind는 parent를 가질 수 없다 */
+/**
+ * 포함 관계 규칙. 키에 없는 kind는 parent를 가질 수 없다.
+ * micro_app은 Module Federation 같은 마이크로 프론트엔드의 호스트나 리모트다. 서비스가 그 묶음이고
+ * 기능 영역과 화면은 페이지 코드가 있는 앱 밑에 둔다
+ */
 export const PARENT_KINDS: Partial<Record<NodeKind, readonly NodeKind[]>> = {
-  screen: ['feature', 'service'],
-  feature: ['service'],
+  screen: ['feature', 'micro_app', 'service'],
+  feature: ['micro_app', 'service'],
+  micro_app: ['service'],
   db_table: ['datastore'],
 };
 
@@ -91,7 +98,7 @@ export interface ArchitectureNode {
   /** 문서에 그대로 있는 이름이 아니라 근거 문장을 줄여 지은 이름이면 true. displayName 없이는 못 온다 */
   displayNameInferred?: boolean;
   repo: string;
-  /** 포함 관계. screen은 feature나 service, feature는 service만 가리킬 수 있다 */
+  /** 포함 관계. 허용하는 parent kind는 PARENT_KINDS에 있다 */
   parent?: string;
   description?: string;
   evidence: Evidence[];

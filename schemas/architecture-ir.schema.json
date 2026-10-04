@@ -91,6 +91,7 @@
             "artifact",
             "deploy_target",
             "service",
+            "micro_app",
             "feature",
             "gateway",
             "domain",
@@ -102,7 +103,7 @@
         "label": {
           "type": "string",
           "minLength": 1,
-          "description": "technical name; part of the merge key (kind, repo, normalized label)"
+          "description": "technical name; part of the merge key (kind, repo, normalized label). micro_app uses the Module Federation name and leaves repo out of the key"
         },
         "displayName": {
           "type": "string",
@@ -117,7 +118,7 @@
         "parent": {
           "type": "string",
           "minLength": 1,
-          "description": "containment: a screen points to a feature or service, a feature points to a service, a db_table points to a datastore; other kinds have no parent"
+          "description": "containment: a screen points to a feature, micro_app or service, a feature points to a micro_app or service, a micro_app points to a service, a db_table points to a datastore; other kinds have no parent"
         },
         "description": { "type": "string" },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
@@ -167,7 +168,8 @@
             "navigates",
             "resolves_to",
             "origin",
-            "serves"
+            "serves",
+            "loads"
           ]
         },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },

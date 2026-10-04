@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { classifyCliCommand } from '../utils/read-only-tools.js';
+import { indexMicroApps } from './micro-app.js';
 import {
   PARENT_KINDS,
   type ArchitectureEdge,
@@ -26,7 +27,9 @@ export type ArchitectureValidationErrorCode =
   | 'INVALID_ACCOUNT_KIND'
   | 'CLOUD_ID_IN_ID'
   | 'GROUP_MEMBER_NOT_FOUND'
-  | 'DUPLICATE_GROUP_ID';
+  | 'DUPLICATE_GROUP_ID'
+  | 'SERVES_SERVICE_WITH_APPS'
+  | 'INVALID_LOADS_ENDS';
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -276,6 +279,34 @@ function checkParents(ir: ArchitectureIr, errors: ArchitectureValidationError[])
   }
 }
 
+/**
+ * 마이크로 프론트엔드 규칙. 호스트와 리모트는 버킷, CDN, 도메인을 따로 가지므로 서빙 사슬은 자기 앱을 가리켜야 한다.
+ * 앱이 달린 서비스를 serves로 가리키면 어느 앱 인프라인지 구조에서 사라져 거부한다
+ */
+function checkMicroApps(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  const byId = new Map(ir.nodes.map((n) => [n.id, n]));
+  const grouped = new Set(
+    ir.nodes.filter((n) => n.kind === 'micro_app' && n.parent !== undefined).map((n) => n.parent!),
+  );
+  for (const edge of ir.edges) {
+    if (edge.kind === 'serves' && grouped.has(edge.to)) {
+      errors.push({
+        code: 'SERVES_SERVICE_WITH_APPS',
+        message: `엣지 "${edge.id}"가 micro_app이 달린 서비스 "${edge.to}"를 serves로 가리킨다. 서빙 사슬은 그 인프라를 쓰는 호스트나 리모트 micro_app을 가리켜야 한다.`,
+        edgeId: edge.id,
+      });
+    }
+    if (edge.kind !== 'loads') continue;
+    const ends = [edge.from, edge.to].map((id) => byId.get(id)?.kind);
+    if (ends.every((k) => k === 'micro_app' || k === undefined)) continue;
+    errors.push({
+      code: 'INVALID_LOADS_ENDS',
+      message: `loads 엣지 "${edge.id}"는 micro_app에서 micro_app으로만 이을 수 있는데 ${ends.join(' → ')}다.`,
+      edgeId: edge.id,
+    });
+  }
+}
+
 // 자동 질문은 페이지에 그대로 보이므로 사람이 부르는 이름으로 묻는다
 function nameOf(node: ArchitectureNode): string {
   return node.displayName ?? node.label;
@@ -287,16 +318,21 @@ const PLATFORM_QUESTION: Record<Platform, string> = {
   ios: 'iOS 앱',
 };
 
+/** 서비스나 그 서비스에 달린 micro_app을 버킷이나 서버가 서빙하는지 */
 function isServedByWebHost(
   serviceId: string,
   edges: ArchitectureEdge[],
   nodeById: Map<string, ArchitectureNode>,
   drawableEdgeIds: Set<string>,
 ): boolean {
+  const target = (id: string): boolean => {
+    const n = nodeById.get(id);
+    return id === serviceId || (n?.kind === 'micro_app' && n.parent === serviceId);
+  };
   return edges.some(
     (e) =>
       e.kind === 'serves' &&
-      e.to === serviceId &&
+      target(e.to) &&
       drawableEdgeIds.has(e.id) &&
       (nodeById.get(e.from)?.kind === 'bucket' || nodeById.get(e.from)?.kind === 'deploy_target'),
   );
@@ -336,6 +372,7 @@ export function validateArchitectureIr(
   checkAccounts(ir, errors);
   checkGroups(ir, errors);
   checkIdsForCloudIds(ir, errors);
+  checkMicroApps(ir, errors);
 
   for (const edge of ir.edges) {
     const missing = [edge.from, edge.to].filter((id) => !nodeIds.has(id));
@@ -425,6 +462,25 @@ export function validateArchitectureIr(
       known.push(q);
       autoUnresolved.push(q);
     }
+  }
+
+  // 진입 앱을 못 정하면 사용자가 받는 도메인이 어느 사슬인지 그림이 말하지 못한다
+  const drawn = ir.nodes.filter((n) => drawableNodeIds.has(n.id));
+  const apps = indexMicroApps(
+    drawn,
+    edges.filter((e) => drawableEdgeIds.has(e.id)),
+  );
+  for (const [service, list] of [...apps.appsOf].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    if (apps.entryOf.has(service) || list.length < 2) continue;
+    const hosts = list.filter((a) => apps.hosts.has(a)).map(nameById);
+    ask({
+      id: `auto:entry:${service}`,
+      subject: { nodeId: service },
+      question:
+        hosts.length === 0
+          ? `"${nameById(service)}"의 앱이 모두 다른 앱에 불려 와요. 사용자가 처음 받는 호스트 앱은 어느 것인가요?`
+          : `"${nameById(service)}"에서 호스트로 보이는 앱이 여럿이에요 (${hosts.map((h) => `"${h}"`).join(', ')}). 리모트를 불러오는 remotes 설정은 어느 앱에 있나요?`,
+    });
   }
 
   return {
