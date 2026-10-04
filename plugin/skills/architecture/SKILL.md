@@ -1,7 +1,7 @@
 ---
 name: architecture
 version: '1.0.0'
-description: '코드와 실행할 때 찾아낸 맥락 소스를 근거로 아키텍처 그림을 그린다. 뷰는 둘이다. screen-chain은 화면에서 엔드포인트, 앱 모듈을 거쳐 외부 서비스와 DB 테이블까지, deploy-path는 배포 단위별 트리거에서 빌드, 산출물, 배포 대상까지다. 웹 서비스를 서빙하는 도메인, CDN, 버킷은 코드와 읽기 전용 AWS 조회로 확인해 두 뷰에 함께 싣는다. 세션이 근거 달린 IR을 쓰면 서버가 검증해 단일 HTML로 그린다. 설계 리뷰나 설계 자문은 architect 에이전트를 쓴다. 파일 단위 의존성과 영향 범위는 build-graph와 blast-radius를 쓴다.'
+description: '코드와 실행할 때 찾아낸 맥락 소스를 근거로 아키텍처 그림을 그린다. 뷰는 둘이다. screen-chain은 화면에서 엔드포인트, 앱 모듈을 거쳐 외부 서비스와 DB 테이블까지, deploy-path는 배포 단위별 트리거에서 빌드, 산출물, 배포 대상까지다. 웹 서비스를 서빙하는 도메인, CDN, 버킷은 코드와 읽기 전용 AWS 조회로 확인해 두 뷰에 함께 싣는다. AI 하네스나 MCP 서버 레포는 screen-chain에 스킬, 에이전트, MCP 도구를 싣는다. 세션이 근거 달린 IR을 쓰면 서버가 검증해 단일 HTML로 그린다. 설계 리뷰나 설계 자문은 architect 에이전트를 쓴다. 파일 단위 의존성과 영향 범위는 build-graph와 blast-radius를 쓴다.'
 triggers:
   - 'architecture'
   - '아키텍처 그려줘'
@@ -46,8 +46,10 @@ outputs:
 
 | 뷰                   | 흐름                                                                                                                                                                            | 쓰는 노드 kind                                                                                                                                                                |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `screen-chain` (뷰①) | 서비스와 기능영역 안의 화면 → `gateway` → 백엔드 엔드포인트 → 백엔드 앱 모듈 → 외부 서비스와 DB 테이블. 서비스를 서빙하는 도메인 → CDN → 버킷이나 SSR 서버는 서비스 앞에 붙는다 | `service`, `feature`, `screen`, `gateway`, `endpoint`, `app_module`, `external_service`, `datastore`, `db_table`, `domain`, `cdn`, `bucket`, `deploy_target`, `cloud_account` |
+| `screen-chain` (뷰①) | 서비스와 기능영역 안의 화면 → `gateway` → 백엔드 엔드포인트 → 백엔드 앱 모듈 → 외부 서비스와 DB 테이블. 서비스를 서빙하는 도메인 → CDN → 버킷이나 SSR 서버는 서비스 앞에 붙는다 | `service`, `feature`, `screen`, `gateway`, `endpoint`, `app_module`, `external_service`, `datastore`, `db_table`, `domain`, `cdn`, `bucket`, `deploy_target`, `cloud_account`, `client`, `skill`, `agent` |
 | `deploy-path` (뷰②)  | 배포 단위별 트리거 → 빌드 → 산출물 → 배포 대상. 산출물이 떨어지는 버킷과 그 앞 CDN, 도메인이 인프라 레인으로 붙는다                                                             | `workflow`, `build`, `artifact`, `deploy_target`, `domain`, `cdn`, `bucket`, `cloud_account`                                                                                  |
+
+AI 하네스나 MCP 서버 레포도 screen-chain으로 그린다. 화면 자리에 스킬이 서고 API 자리에 MCP 도구가 선다 ([3-4](#3-4-ai-하네스와-mcp-서버-레포)).
 
 한 번 실행에 뷰 하나를 그린다. 사용자가 뷰를 말하지 않았으면 어느 쪽인지 묻는다. 둘 다 원하면 뷰마다 Step 0부터 따로 돈다.
 
@@ -209,6 +211,40 @@ FE와 BE 사이에서 요청을 받아 다른 서버로 넘기는 서버는 `gat
 
 이 단계에서 다른 레포가 필요하면 Step 5를 따른다.
 
+### 3-4. AI 하네스와 MCP 서버 레포
+
+AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트, 그 뒤에서 도구를 받는 MCP 서버를 담은 레포다. 아래가 보이면 이 절을 따라 그린다.
+
+- **MCP 서버의 도구 등록**: `server.tool(`이나 `registerTool(` 호출, 도구 이름 목록, `action` 인자를 받는 zod enum
+- **플러그인 매니페스트**: `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, 마켓플레이스 json, `.mcp.json`
+- **스킬과 에이전트 파일**: `**/SKILL.md`, `**/AGENT.md`, `agents/*.md`
+
+1. **클라이언트와 플러그인**: 플러그인을 읽는 AI 클라이언트(Claude Code, Codex, Grok 등)를 `client`로 두고 근거는 그 클라이언트가 읽는 매니페스트 줄로 단다. 플러그인은 `service`다. `client → service`를 `loads`로 잇는다.
+2. **스킬**: SKILL.md 하나에 `skill` 하나다. 근거는 그 SKILL.md의 `name` 줄이다. `parent`는 스킬을 묶는 `feature`나 플러그인 `service`다. 스킬 묶음을 `feature`로 세웠으면 그 묶음이 적힌 README나 docs 줄을 `doc` 근거로 단다.
+3. **에이전트**: AGENT.md나 `agents/*.md` 하나에 `agent` 하나다. parent는 달지 않는다. 스킬이나 에이전트가 에이전트를 띄우면 `spawns`, 스킬이 다른 스킬을 부르면 `invokes`다. 근거는 지시문에서 그 이름을 부르는 줄이다.
+4. **MCP 도구**: 도구 하나에 `endpoint` 하나다. action마다 나누지 않는다. label은 도구 이름이고 `protocol: "mcp"`, `mcpServer`에 서버 이름, `actions`에 그 도구가 받는 action enum 값을 단다. 근거는 도구 등록 줄이다. 그림에는 API 대신 **MCP 도구** 칩으로 나오고 레인도 따로 선다.
+
+   ```json
+   { "id": "tool:plan", "kind": "endpoint", "label": "ges_plan", "protocol": "mcp",
+     "mcpServer": "gestalt", "actions": ["start", "submit"], "evidence": [ ... ] }
+   ```
+
+5. **도구 호출 매칭**: SKILL.md와 AGENT.md에서 도구 이름과 `action=`, `action: '...'` 줄을 찾아 `skillToolCalls`로, 서버 코드의 도구 등록을 `serverTools`로 적어 `match_endpoints`에 넘긴다. HTTP 쪽 `feCalls`와 함께 넘겨도 된다.
+
+   ```json
+   { "action": "match_endpoints",
+     "skillToolCalls": [{ "id": "c-1", "tool": "mcp__plugin_acme_gestalt__ges_plan", "action": "start" }],
+     "serverTools": [{ "id": "tool:plan", "server": "gestalt", "tool": "ges_plan", "actions": ["start", "submit"] }] }
+   ```
+
+   - 결과는 `tools.matches`와 `tools.unmatched`로 온다. `matches`에 든 호출만 `skill → endpoint`나 `agent → endpoint` 실선(`calls`)으로 잇고 그 스킬이 쓰는 action을 엣지 `actions`에 단다. 도구의 `actions`에 없는 값을 달면 validate가 `UNKNOWN_MCP_ACTION`으로 거부한다.
+   - 도구 이름은 정확히 같아야 맞는다. 클라이언트가 붙이는 `mcp__<서버>__<도구>` 접두는 걷어내고 비교한다. 플러그인으로 깔린 서버 이름 `plugin_<플러그인>_<서버>`는 `<서버>`와 맞는다.
+   - `unmatched`(`no_tool`, `multiple_tools`, `unknown_action`)는 실선을 긋지 않고 `candidates`를 담아 미해결 질문으로 남긴다.
+
+6. **핸들러와 엔진**: 도구를 받는 핸들러 모듈을 `app_module`로 두고 `endpoint → app_module`을 `handles`로 잇는다. 핸들러가 같은 프로세스 안에서 부르는 엔진 모듈도 `app_module`이고 `uses`로 잇는다. 엔진이 쓰는 저장소는 `datastore`이고 `reads_writes`다.
+7. **md 줄 근거**: SKILL.md와 AGENT.md 줄은 `code` 근거라 실선이 된다. 다만 `skill`, `agent` 노드와 그 둘에서 나가는 엣지에서만이다. 하네스 IR(`client`, `skill`, `agent`가 하나라도 있는 IR)에서 그 밖의 노드나 엣지에 md 줄을 `code`로 달면 `MD_CODE_EVIDENCE`다. README나 docs의 언급은 `doc` 근거로 단다.
+8. **배포 쪽은 이 그림에 넣지 않는다**: 스킬 디렉토리 심링크와 마켓플레이스 매니페스트는 배포 경로다. 릴리즈 워크플로에서 빌드, npm 패키지, 플러그인 매니페스트로 이어지는 사슬은 Step 4대로 deploy-path에 그린다.
+
 ## Step 3.5 — 도메인 흐름
 
 기술 그림은 화면이 어느 API를 부르는지 보여주지만 사람이 그 서비스를 어떤 순서로 쓰는지는 안 보여준다. 서비스마다 사용자 쪽 흐름을 `flows`에 적는다. 렌더하면 서비스 레벨 아래에 흐름 레벨이 하나 더 생기고 상단 **흐름** 버튼으로 들어간다.
@@ -235,7 +271,7 @@ FE와 BE 사이에서 요청을 받아 다른 서버로 넘기는 서버는 `gat
 }
 ```
 
-- **행위자**는 가로줄 하나씩이다. 사람은 `person`, 사람 손 없이 도는 배치나 자동 발송은 `system`이다. 위에서 아래로 적은 순서대로 쌓인다.
+- **행위자**는 가로줄 하나씩이다. 사람은 `person`, 사람 손 없이 도는 배치나 자동 발송은 `system`, 지시를 읽고 스스로 판단하는 서브에이전트는 `agent`다. 위에서 아래로 적은 순서대로 쌓인다.
 - **단계**는 행위자가 하는 일 하나다. 상태 값이 있으면 `state`에 코드의 enum 이름 그대로 적는다. 그림 위쪽 구간이 이 값으로 나뉜다. 그림에는 enum 이름 대신 흐름의 `stateLabels`에 단 이름이 찍힌다. 상태 값마다 사용자 언어로 이름을 단다 (`WAITING` → 대기). 안 달면 영어 enum이 구간 머리와 단계 칩에 그대로 나온다. 상태가 없는 단계는 앞 단계 구간에 붙고 옆 흐름 단계는 갈라져 나온 단계 옆에 서니 구간을 따로 적지 않는다. `refs`에는 그 단계에서 쓰는 화면, API, 기능영역, 앱 노드 id를 단다. 단계 서랍에서 그 카드로 건너가고 기술 카드 서랍에는 거꾸로 "이 항목이 나오는 흐름 단계"가 뜬다.
 - **전이**는 단계 사이 상태 변화다. 정상 흐름은 `main`, 취소나 노쇼처럼 정상 흐름을 벗어나는 전이는 `side`다.
 - **되돌리기와 정정은 단계가 아니라 전이로 적는다.** 새 상태가 생기지 않고 앞 상태로 돌아가기만 해서다. "되돌리기" 카드를 따로 만들지 말고 `매장 취소 → 호출`처럼 돌아가는 화살표 하나로 쓴다. 조건은 `label`에 적는다 (`되돌리기 (30분 이내)`). 그림에서는 두 카드 가까이로 지나가는 둥근 선에 ↩ 표시가 붙는다.
@@ -244,6 +280,7 @@ FE와 BE 사이에서 요청을 받아 다른 서버로 넘기는 서버는 `gat
 - **여러 행위자가 할 수 있는 전이에는 `actors`를 단다.** 되돌리기를 손님도 매장도 할 수 있으면 `"actors": ["guest", "staff"]`다. 선 글자 옆에 행위자 이름이 붙는다. 행위자 줄은 그 사람이 하는 일을 놓는 자리라, 여럿이 하는 동작을 한 줄에 단계로 넣으면 틀린 그림이 된다.
 - 근거 규칙은 엣지와 같다. 상태를 바꾸는 코드 줄을 봤으면 `code` 근거로 실선이다. 기획 문서나 KB로만 확인했으면 `doc` 근거로 점선이다. 그 단계 카드도 점선 테두리가 된다. 근거 없는 단계나 전이는 그리지 않고 질문이 된다.
 - **기획 문서에만 있는 단계도 넣는다.** 아직 안 만든 기능이나 만들다 만 기능이 흐름 그림에서 같이 보여야 기술 그림과의 차이가 드러난다. 대신 근거는 `doc`뿐이라 점선이다.
+- **하네스 흐름**은 사용자가 `person`, MCP 서버가 `system`, 세션 모델과 서브에이전트가 `agent`다. `refs`에는 스킬과 에이전트 노드 id도 단다. 인터뷰 → 스펙 → 실행 → 리뷰처럼 파이프라인 하나를 흐름 하나로 그린다. 세션이 도구를 두 번 불러 결과를 넘기는 2-Call Passthrough는 세션 모델 줄과 MCP 서버 줄을 오가는 지그재그 단계로 그린다. 시퀀스 다이어그램을 따로 그리지 않는다.
 - **기획 문서는 의도이지 동작이 아니다.** 문서와 코드가 다르게 말하면 둘 다 근거로 달고 그 차이를 `unresolved` 질문으로 남긴다. `subject`에는 `stepId`나 `transitionId`를 쓴다. 어느 쪽이 맞는지 정하지 않는다.
 
 흐름 단계를 채우는 순서는 이렇다. 먼저 상태 enum과 그 값을 바꾸는 서비스 메서드, 배치, 알림 발송 코드를 찾는다. 다음에 화면 코드에서 누가 그 동작을 일으키는지 본다. 그래도 빈 칸은 Step 7-1 순서로 채운다.
@@ -385,7 +422,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 
 `parent`는 이 노드를 담는 노드의 id다. 드릴다운의 서비스와 기능영역 화면이 이 값으로 화면을 모은다.
 
-- `screen`의 parent는 `feature`, `micro_app`, `service` 중 하나다. `feature`의 parent는 `micro_app`이나 `service`, `micro_app`의 parent는 `service`만 된다. 다른 kind에는 달지 않는다.
+- `screen`의 parent는 `feature`, `micro_app`, `service` 중 하나다. `feature`의 parent는 `micro_app`이나 `service`, `micro_app`의 parent는 `service`만 된다. `skill`의 parent는 `feature`나 `service`다. 다른 kind에는 달지 않는다.
 - parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없는 것으로 친다.
 - 재실행 병합이 노드 id를 물려주면 parent도 그 id를 따라간다.
 
@@ -427,7 +464,11 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 | `PARENT_CYCLE`                | parent를 따라가면 자기로 돌아온다. 서비스에서 기능영역, 화면으로 내려가는 한 방향만 남긴다                         |
 | `INVALID_PARENT_KIND`         | 위 포함 규칙에 맞게 parent를 고친다. 화면이 화면을 담거나 엔드포인트에 parent를 달면 여기 걸린다                   |
 | `SERVES_SERVICE_WITH_APPS`    | `micro_app`이 달린 서비스를 `serves`로 가리켰다. 그 사슬이 서빙하는 호스트나 리모트 앱으로 `to`를 옮긴다           |
-| `INVALID_LOADS_ENDS`          | `loads`의 양 끝은 `micro_app`이어야 한다. 서비스끼리 이었으면 앱 노드를 두고 다시 잇는다                           |
+| `INVALID_LOADS_ENDS`          | `loads`는 `micro_app → micro_app`이나 `client → service`만 된다. 서비스끼리 이었으면 앱 노드를 두고 다시 잇는다    |
+| `INVALID_HARNESS_EDGE_ENDS`   | `spawns`는 스킬이나 에이전트 → 에이전트, `invokes`는 스킬 → 스킬이다. 스킬과 에이전트의 `calls`는 endpoint만 가리킨다 |
+| `INVALID_CALL_ACTIONS`        | 엣지 `actions`는 MCP 도구로 가는 `calls`에만 단다                                                                  |
+| `UNKNOWN_MCP_ACTION`          | 엣지 `actions`에 도구 `actions`에 없는 값이 있다. 도구 등록의 enum을 다시 보거나 그 호출을 질문으로 돌린다         |
+| `MD_CODE_EVIDENCE`            | 하네스 IR에서 스킬과 에이전트 밖에 md 줄을 `code`로 달았다. `doc` 근거로 바꾼다                                   |
 | `LIVE_COMMAND_NOT_READ_ONLY`  | live 근거의 명령을 `list`, `get`, `describe` 하위 명령 하나로 바꾼다. 그런 명령으로 확인할 수 없으면 근거에서 뺀다 |
 | `ACCOUNT_NOT_FOUND`           | `account`가 가리키는 `cloud_account` 노드를 `nodes`에 넣거나 `account`를 뺀다                                      |
 | `INVALID_ACCOUNT_KIND`        | `account`는 `cloud_account` 노드만 가리킨다                                                                        |
@@ -548,11 +589,14 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `feature`          | screen-chain | 서비스 안의 기능영역. 페이지보다 한 단계 위인 제품 단위 (예: 등록모드, 대시보드, 설정)           |
 | `screen`           | screen-chain | 사용자가 보는 화면이나 페이지                                                                    |
 | `gateway`          | screen-chain | 요청을 받아 다른 서버로 넘기는 서버                                                              |
-| `endpoint`         | screen-chain | 백엔드 HTTP 엔드포인트. label은 `METHOD /정규화 경로`                                            |
+| `endpoint`         | screen-chain | 백엔드 HTTP 엔드포인트. label은 `METHOD /정규화 경로`. MCP 도구면 `protocol: "mcp"`이고 label은 도구 이름 |
 | `app_module`       | screen-chain | 엔드포인트를 처리하는 백엔드 모듈이나 컨트롤러                                                   |
 | `external_service` | screen-chain | 모듈이 부르는 다른 서비스, 외부 API, 메시지 브로커                                               |
 | `datastore`        | screen-chain | 테이블이 사는 DB 클러스터나 캐시 클러스터. id는 별칭, label은 `<엔진>:<클러스터 식별자>`         |
 | `db_table`         | screen-chain | 모듈이 읽고 쓰는 테이블. `parent`는 자기 `datastore`                                             |
+| `client`           | screen-chain | 플러그인을 읽어 들이는 AI 클라이언트 (Claude Code, Codex, Grok 등). 근거는 매니페스트 줄          |
+| `skill`            | screen-chain | SKILL.md 하나. `parent`는 `feature`나 `service`                                                 |
+| `agent`            | screen-chain | AGENT.md 하나. 스킬이나 다른 에이전트가 띄우는 서브에이전트                                      |
 | `workflow`         | deploy-path  | 배포를 시작하는 CI 워크플로와 그 트리거                                                          |
 | `build`            | deploy-path  | 빌드 잡이나 스텝                                                                                 |
 | `artifact`         | deploy-path  | 이미지, 번들, 패키지 같은 빌드 산출물                                                            |
@@ -569,9 +613,10 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `navigates`    | screen → screen                            | `navigate()`, `Link`, `history.push` 줄                                                           |
 | `calls`        | screen → endpoint                          | 화면 쪽 API 호출 줄                                                                               |
 | `calls`        | external_service → gateway                 | 클라이언트 base URL이 `gateway` 호스트를 가리키는 줄                                              |
+| `calls`        | skill, agent → endpoint (MCP 도구)         | 지시문의 도구 호출 줄. `actions`에 그 호출이 넘기는 action                                       |
 | `routes`       | gateway → endpoint, gateway, app_module    | `gateway` 라우트 설정의 `Path`나 `uri` 줄                                                         |
-| `handles`      | endpoint → app_module                      | 라우트 매핑 어노테이션이나 라우터 등록 줄                                                         |
-| `uses`         | app_module → external_service              | 외부 클라이언트 호출 줄                                                                           |
+| `handles`      | endpoint → app_module                      | 라우트 매핑 어노테이션이나 라우터 등록 줄. MCP 도구면 도구 등록에서 핸들러로 넘기는 줄            |
+| `uses`         | app_module → external_service, app_module  | 외부 클라이언트 호출 줄. 모듈끼리면 같은 프로세스 안의 호출 줄 (핸들러 → 엔진)                    |
 | `reads_writes` | app_module → db_table, datastore           | 쿼리나 엔티티 매핑 줄, 저장소로 바로 그을 때는 datasource URL이나 캐시 host 설정 줄               |
 | `triggers`     | workflow → build                           | 워크플로의 트리거와 잡 정의 줄                                                                    |
 | `builds`       | build → artifact                           | 빌드 명령 줄 (빌드가 산출물을 직접 지을 때)                                                       |
@@ -581,6 +626,9 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `origin`       | cdn → bucket                               | 인프라 코드의 원본 정의 줄이나 CDN 원본 조회                                                      |
 | `serves`       | bucket, deploy_target → service, micro_app | 그 번들을 버킷에 올리는 줄이나 서버로 띄우는 배포 매니페스트 줄. 앱이 달린 서비스면 앱을 가리킨다 |
 | `loads`        | micro_app → micro_app                      | 호스트 federation 설정의 `remotes` 항목 줄이나 single-spa `registerApplication` 줄                |
+| `loads`        | client → service                           | 클라이언트가 플러그인을 읽는 매니페스트 줄                                                        |
+| `spawns`       | skill, agent → agent                       | 지시문에서 그 에이전트를 띄우는 줄                                                                |
+| `invokes`      | skill → skill                              | 지시문에서 다른 스킬을 부르는 줄                                                                  |
 
 ### 3. 근거 종류와 선 모양
 

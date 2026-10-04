@@ -122,11 +122,14 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `feature`          | screen-chain | 서비스 안의 기능영역. 페이지보다 한 단계 위인 제품 단위 (예: 등록모드, 대시보드, 설정)                                                                 |
 | `screen`           | screen-chain | 사용자가 보는 화면이나 페이지                                                                                                                          |
 | `gateway`          | screen-chain | 요청을 받아 다른 서버로 넘기는 서버                                                                                                                    |
-| `endpoint`         | screen-chain | 백엔드 HTTP 엔드포인트. label은 `METHOD /정규화 경로` 꼴                                                                                               |
+| `endpoint`         | screen-chain | 백엔드 HTTP 엔드포인트. label은 `METHOD /정규화 경로` 꼴. `protocol: "mcp"`면 MCP 도구이고 label은 도구 이름이다 ([MCP 도구](#mcp-도구))                |
 | `app_module`       | screen-chain | 엔드포인트를 처리하는 백엔드 모듈이나 컨트롤러                                                                                                         |
 | `external_service` | screen-chain | 모듈이 부르는 다른 서비스, 외부 API, 메시지 브로커                                                                                                     |
 | `datastore`        | screen-chain | 테이블이 사는 DB 클러스터나 캐시 클러스터 (RDS, Aurora, Redis 등). `repo`는 클라우드 조회용 가짜 레포로 두고 label은 `<엔진>:<클러스터 식별자>` 꼴이다 |
 | `db_table`         | screen-chain | 모듈이 읽고 쓰는 테이블                                                                                                                                |
+| `client`           | screen-chain | 플러그인을 읽어 들이는 AI 클라이언트 (Claude Code, Codex, Grok 등). 근거는 그 클라이언트가 읽는 매니페스트 줄이다                                          |
+| `skill`            | screen-chain | SKILL.md 하나. 사용자가 고르는 입구라 웹의 화면 자리에 선다                                                                                             |
+| `agent`            | screen-chain | AGENT.md 하나. 스킬이나 다른 에이전트가 띄우는 서브에이전트                                                                                             |
 | `workflow`         | deploy-path  | 배포를 시작하는 CI 워크플로와 그 트리거                                                                                                                |
 | `build`            | deploy-path  | 빌드 잡이나 스텝                                                                                                                                       |
 | `artifact`         | deploy-path  | 이미지, 번들, 패키지 같은 빌드 산출물                                                                                                                  |
@@ -136,7 +139,7 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `bucket`           | 둘 다        | 정적 번들이나 코드푸시 번들이 올라가는 버킷                                                                                                            |
 | `cloud_account`    | 둘 다        | 클라우드 계정. 다른 노드의 `account`가 이 노드를 가리킨다                                                                                              |
 
-레이아웃은 kind마다 열을 정해 왼쪽부터 놓는다. screen-chain은 `service`, `micro_app`, `feature`, `screen`이 한 열, 그다음 `gateway`, `endpoint`, `app_module`이고 `external_service`가 그 뒤, `datastore`와 `db_table`이 마지막 한 열이다. deploy-path는 `workflow`, `build`, `artifact`, `deploy_target` 다음에 인프라 레인 `bucket`, `cdn`, `domain`, `cloud_account`가 붙는다.
+레이아웃은 kind마다 열을 정해 왼쪽부터 놓는다. screen-chain은 `service`, `micro_app`, `feature`, `screen`이 한 열, 그다음 `gateway`, `endpoint`, `app_module`이고 `external_service`가 그 뒤, `datastore`와 `db_table`이 마지막 한 열이다. deploy-path는 `workflow`, `build`, `artifact`, `deploy_target` 다음에 인프라 레인 `bucket`, `cdn`, `domain`, `cloud_account`가 붙는다. 하네스 kind는 웹과 열을 나눠 쓴다. `client`가 서비스보다 왼쪽, `skill`이 화면 열, `agent`가 게이트웨이 열이고 MCP 도구는 엔드포인트 열에 자기 레인으로 선다 (`src/architecture/layout.ts`의 `PARTITION_RANK`).
 
 ### 엣지 kind
 
@@ -145,9 +148,10 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `navigates`    | screen → screen                            | `navigate()`, `Link`, `history.push` 줄                                                                                       |
 | `calls`        | screen → endpoint                          | 화면 쪽 API 호출 줄                                                                                                           |
 | `calls`        | external_service → gateway                 | 클라이언트 base URL이 게이트웨이 호스트를 가리키는 줄                                                                         |
+| `calls`        | skill, agent → endpoint (MCP 도구)         | 지시문의 도구 호출 줄. `actions`에 그 호출이 넘기는 action 값을 단다                                                          |
 | `routes`       | gateway → endpoint, gateway, app_module    | 게이트웨이 라우트 설정의 `Path`나 `uri` 줄                                                                                    |
-| `handles`      | endpoint → app_module                      | 라우트 매핑 어노테이션이나 라우터 등록 줄                                                                                     |
-| `uses`         | app_module → external_service              | 외부 클라이언트 호출 줄                                                                                                       |
+| `handles`      | endpoint → app_module                      | 라우트 매핑 어노테이션이나 라우터 등록 줄. MCP 도구면 도구 등록에서 핸들러로 넘기는 줄                                        |
+| `uses`         | app_module → external_service, app_module  | 외부 클라이언트 호출 줄. 모듈끼리면 같은 프로세스 안의 호출 줄이다 (MCP 핸들러 → 엔진)                                        |
 | `reads_writes` | app_module → db_table, datastore           | 쿼리나 엔티티 매핑 줄. 테이블 단위로 못 내려가는 캐시는 저장소로 바로 긋는다. 근거는 datasource URL이나 캐시 host 설정 줄이다 |
 | `triggers`     | workflow → build                           | 워크플로의 트리거와 잡 정의 줄                                                                                                |
 | `builds`       | build → artifact                           | 빌드 명령 줄                                                                                                                  |
@@ -157,6 +161,9 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `origin`       | cdn → bucket, deploy_target                | 인프라 코드의 원본 정의 줄이나 CDN 원본 조회                                                                                  |
 | `serves`       | bucket, deploy_target → service, micro_app | 그 번들을 버킷에 올리는 줄이나 서버로 띄우는 배포 매니페스트 줄. `micro_app`이 달린 서비스는 가리킬 수 없고 앱을 가리킨다     |
 | `loads`        | micro_app → micro_app                      | 호스트 federation 설정의 `remotes` 항목 줄이나 single-spa `registerApplication` 줄                                            |
+| `loads`        | client → service                           | 클라이언트가 플러그인을 읽는 매니페스트 줄                                                                                    |
+| `spawns`       | skill, agent → agent                       | 지시문에서 그 에이전트를 띄우는 줄                                                                                            |
+| `invokes`      | skill → skill                              | 지시문에서 다른 스킬을 부르는 줄                                                                                              |
 
 `routes`는 게이트웨이가 요청을 어디로 넘기는지다. 게이트웨이가 여러 단이면 앞 게이트웨이에서 뒤 게이트웨이로 `routes`를 긋고 엔드포인트로 가는 `routes`는 마지막 게이트웨이에만 단다. `gateway → app_module`은 엔드포인트를 노드로 펼치지 않은 클라이언트 호출 사슬에 쓴다.
 
@@ -169,6 +176,7 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `screen`    | `feature`, `micro_app`, `service` |
 | `feature`   | `micro_app`, `service`            |
 | `micro_app` | `service`                         |
+| `skill`     | `feature`, `service`              |
 | `db_table`  | `datastore`                       |
 | 그 밖       | parent를 가질 수 없다             |
 
@@ -196,6 +204,20 @@ parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없
 - 패널 제목, 드릴다운 레벨 제목, 빵부스러기, 두 노드 선택 표도 `displayName`을 먼저 쓴다.
 - `.shared.html`에도 이름은 그대로 보인다. 가리는 건 근거뿐이다.
 - 병합 키가 아니다. `displayName`을 바꾸거나 새로 달아도 노드 id는 유지된다. [재실행과 노드 id](#재실행과-노드-id)를 본다.
+
+### MCP 도구
+
+AI 하네스나 MCP 서버 레포에서는 MCP 도구가 API 자리에 선다. 따로 kind를 두지 않고 `endpoint`에 필드를 단다. 매칭과 드릴다운, 핸들러로 가는 `handles`를 HTTP 엔드포인트와 같은 길로 태우려는 것이다. 읽는 사람에게만 API 대신 **MCP 도구** 칩과 레인으로 보인다 (`src/architecture/types.ts`의 `displayKindOf`).
+
+| 필드        | 쓰는 노드         | 뜻                                                                     |
+| ----------- | ----------------- | ---------------------------------------------------------------------- |
+| `protocol`  | `endpoint`        | `http`(기본) 또는 `mcp`. 다른 kind에 달면 `IR_PARSE_ERROR`다           |
+| `mcpServer` | `mcp` endpoint    | 도구를 등록한 MCP 서버 이름                                            |
+| `actions`   | `mcp` endpoint    | 도구가 `action` 인자로 받는 값. 서버의 enum이나 분기 그대로 적는다     |
+
+- 노드는 도구 하나에 하나다. action마다 나누면 카드가 action 수만큼 늘어 어느 스킬이 어느 도구를 쓰는지가 묻힌다.
+- 스킬이나 에이전트에서 도구로 가는 `calls`에는 그 호출이 넘기는 action을 엣지 `actions`에 단다. 도구의 `actions`에 없는 값이면 `UNKNOWN_MCP_ACTION`이다.
+- `client`, `skill`, `agent`가 하나라도 든 IR을 **하네스 IR**로 본다. 하네스에만 거는 규칙(아래 [근거와 선 모양](#근거와-선-모양)의 md 근거)이 이걸로 켜진다. 웹 IR은 예전대로 돈다.
 
 ### 서빙 인프라
 
@@ -235,13 +257,15 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 `live`도 같은 이유로 점선이다. 조회 결과는 지금 클라우드가 그렇게 돼 있다는 사실이지 코드가 그렇게 만든다는 증거는 아니다. 인프라 코드 줄이 함께 있으면 실선이 된다.
 
+하네스 IR에서는 SKILL.md와 AGENT.md 줄을 `code` 근거로 받는다. 세션이 실제로 읽고 따르는 지시문이라 코드와 같은 자리다. 다만 `skill`, `agent` 노드와 그 둘에서 나가는 엣지에서만이다. 그 밖의 노드나 엣지에 md 줄을 `code`로 달면 `MD_CODE_EVIDENCE`로 거부한다. README나 docs의 언급까지 실선이 되면 문서에 적힌 계획과 실제 동작이 그림에서 안 갈린다. 스킬 묶음 `feature`처럼 문서로만 확인한 것은 `doc` 근거로 단다. 웹 IR은 README 줄을 `code`로 써 온 결과가 있어 이 규칙을 걸지 않는다.
+
 `live` 근거는 `command`와 `observedAt`이 둘 다 있어야 한다. 다른 종류의 근거는 두 필드를 쓸 수 없다. 어기면 `IR_PARSE_ERROR`다. `command`는 서버가 [CLI 명령 판정](#cli-명령-판정)으로 다시 본다.
 
 ---
 
 ## 검증 규칙
 
-`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 스물다섯은 IR 전체를 거부한다.
+`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 스물아홉은 IR 전체를 거부한다.
 
 | 에러 코드                           | 언제                                                                                                                                                                                     |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -259,13 +283,17 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `DUPLICATE_GROUP_ID`                | `groups`에 같은 id가 둘 있다                                                                                                                                                             |
 | `GROUP_MEMBER_NOT_FOUND`            | `groups[].members`의 id가 `nodes`에 없다                                                                                                                                                 |
 | `SERVES_SERVICE_WITH_APPS`          | `serves`가 `micro_app`이 달린 서비스를 가리킨다                                                                                                                                          |
-| `INVALID_LOADS_ENDS`                | `loads`의 양 끝 중 하나가 `micro_app`이 아니다                                                                                                                                           |
+| `INVALID_LOADS_ENDS`                | `loads`가 `micro_app → micro_app`도 `client → service`도 아니다                                                                                                                         |
+| `INVALID_HARNESS_EDGE_ENDS`         | `spawns`가 스킬이나 에이전트에서 에이전트로 가지 않거나 `invokes`가 스킬끼리가 아니다. 스킬이나 에이전트의 `calls`가 `endpoint` 밖을 가리켜도 여기 걸린다                                |
+| `INVALID_CALL_ACTIONS`              | 엣지 `actions`를 MCP 도구로 가는 `calls`가 아닌 엣지에 달았다                                                                                                                            |
+| `UNKNOWN_MCP_ACTION`                | 엣지 `actions`에 도구 노드의 `actions`에 없는 값이 있다                                                                                                                                  |
+| `MD_CODE_EVIDENCE`                  | 하네스 IR에서 `skill`, `agent` 노드와 그 둘에서 나가는 엣지 밖에 md 파일 줄을 `code` 근거로 달았다                                                                                        |
 | `FLOW_SERVICE_NOT_FOUND`            | 흐름의 `service`가 `nodes`에 없거나 `service` 노드가 아니다                                                                                                                              |
 | `DUPLICATE_FLOW_ID`                 | 흐름, 단계, 전이 id가 흐름 전체에서 겹치거나 한 흐름 안에서 행위자 id가 겹친다                                                                                                           |
 | `FLOW_ACTOR_NOT_FOUND`              | 단계의 `actor`가 그 흐름의 `actors`에 없다                                                                                                                                               |
 | `FLOW_STEP_NOT_FOUND`               | 전이의 `from`이나 `to`가 그 흐름의 `steps`에 없다                                                                                                                                        |
 | `FLOW_REF_NOT_FOUND`                | 단계의 `refs`가 `nodes`에 없다                                                                                                                                                           |
-| `INVALID_FLOW_REF_KIND`             | 단계의 `refs`가 `screen`, `endpoint`, `feature`, `micro_app`이 아닌 노드를 가리킨다                                                                                                      |
+| `INVALID_FLOW_REF_KIND`             | 단계의 `refs`가 `screen`, `endpoint`, `feature`, `micro_app`, `skill`, `agent`가 아닌 노드를 가리킨다                                                                                    |
 | `SOLID_TRANSITION_WITHOUT_EVIDENCE` | 전이가 `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다                                                                                                                              |
 | `DUPLICATE_STAGE_ID`                | 구간 id가 겹친다                                                                                                                                                                         |
 | `STAGE_NODE_NOT_FOUND`              | 구간의 `nodes`가 `nodes`에 없다                                                                                                                                                          |
@@ -372,10 +400,12 @@ private 근거의 원문은 세 겹으로 막는다.
 
 | 세부 노드                                       | 주인                                                        |
 | ----------------------------------------------- | ----------------------------------------------------------- |
-| `screen`, `feature`                             | 조상 중 가장 가까운 `micro_app`. 없으면 `service`           |
+| `screen`, `feature`, `skill`                    | 조상 중 가장 가까운 `micro_app`. 없으면 `service`           |
+| `agent`                                         | `spawns`를 거슬러 올라가 닿는 스킬의 주인                   |
 | `endpoint`                                      | `handles`로 받는 `app_module`. 여럿이면 각각                |
 | `external_service` (클라이언트)                 | 그 클라이언트를 `uses`하는 `app_module`                     |
 | `service`, `micro_app`, `gateway`, `app_module` | 자기 자신                                                   |
+| `client`                                        | 자기 자신                                                   |
 | `db_table`                                      | 자기 `parent` 저장소. parent가 없으면 전체 레벨에 안 나온다 |
 | `datastore`                                     | 자기 자신                                                   |
 
@@ -398,6 +428,16 @@ private 근거의 원문은 세 겹으로 막는다.
 `loads` 선은 요청 선과 갈리게 굵은 점 무늬로 그린다. 근거가 약한 선은 일반 점선이 그대로 이긴다.
 
 묶음 엣지마다 건수와 멤버 세부 엣지 id 목록이 따라간다. 멤버 경로에 `doc`이나 `user` 근거만 있는 엣지가 하나라도 끼면 묶음 전체를 점선으로 그린다. 확인 안 된 고리가 낀 묶음을 실선으로 그리면 묶음 전체를 확인한 것처럼 읽히기 때문이다.
+
+#### 하네스 레포
+
+`client`, `skill`, `agent`가 든 그림은 플러그인 `service`를 서비스로 삼아 같은 레벨을 탄다.
+
+- **전체 레벨**: AI 클라이언트, 플러그인 서비스, 핸들러와 엔진 앱 모듈, 저장소가 선다. `client → service` `loads`는 묶지 않고 그대로 긋는다. 스킬의 도구 호출은 서비스 → 핸들러 모듈로 묶인다. 에이전트가 부른 도구는 그 에이전트를 띄운 스킬의 호출로 올려 묶는다. 핸들러 → 엔진 `uses`는 같은 프로세스 안의 호출이라 외부 서비스로 치지 않는다. 엔진도 서버 레인에 선다.
+- **서비스 레벨**: 스킬이 화면 열에, 스킬이 띄우는 에이전트가 그 다음 열에 선다. MCP 도구는 묶음으로 접지 않고 카드로 세운 뒤 핸들러로 잇는다. 웹 API처럼 수백 개가 되는 일이 없고 도구가 하네스 그림의 중심이라서다.
+- **기능영역 레벨**: 그 묶음의 스킬, 스킬이 띄우는 에이전트, `invokes`, 도구 호출, 핸들러를 세부 엣지 그대로 그린다.
+- **서버 레벨**: 엔진 모듈을 고르면 그 엔진을 `uses`하는 핸들러 모듈과 엔진이 읽고 쓰는 저장소가 나온다.
+- 스킬 디렉토리 심링크와 마켓플레이스 매니페스트는 이 그림에 싣지 않는다. 릴리즈 워크플로에서 빌드, npm 패키지, 플러그인 매니페스트로 이어지는 배포 경로라 deploy-path에 그린다. 그쪽 모델은 웹과 같다.
 
 ### 레인
 
@@ -553,11 +593,13 @@ private 근거의 원문은 세 겹으로 막는다.
 | 필드          | 내용                                                                                                                                                                                                                                                                                                       |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `stateLabels` | 상태 값마다 그림에 찍을 이름. `state`는 코드의 enum 그대로라 사용자 언어로 된 이름을 여기 단다. 구간 머리와 단계 칩에 이 이름이 나오고 단계 서랍에는 `대기 (WAITING)`처럼 둘 다 나온다. 이름이 없는 상태는 상태 값 그대로 찍는다                                                                           |
-| `actors`      | 가로줄 하나씩. `kind`는 `person`(손님, 직원) 또는 `system`(예약 발송, 배치). 적은 순서대로 위에서부터 놓인다                                                                                                                                                                                               |
-| `steps`       | 카드 하나씩. `state`는 그 단계를 지나면 바뀌는 상태값이다. `refs`는 기술 그림의 `screen`, `endpoint`, `feature`, `micro_app` 노드 id다. `terminal`은 흐름이 여기서 끝날 수 있다는 표시다. 카드에 "끝" 칩이 붙고 단계 서랍에 "다음" 줄이 나온다                                                             |
+| `actors`      | 가로줄 하나씩. `kind`는 `person`(손님, 직원), `system`(예약 발송, 배치), `agent`(서브에이전트) 중 하나다. 적은 순서대로 위에서부터 놓인다                                                                                                                                                                  |
+| `steps`       | 카드 하나씩. `state`는 그 단계를 지나면 바뀌는 상태값이다. `refs`는 기술 그림의 `screen`, `endpoint`, `feature`, `micro_app`, `skill`, `agent` 노드 id다. `terminal`은 흐름이 여기서 끝날 수 있다는 표시다. 카드에 "끝" 칩이 붙고 단계 서랍에 "다음" 줄이 나온다                                                             |
 | `transitions` | 단계 사이 화살표. `path`는 정상 흐름이면 `main`, 취소나 노쇼처럼 옆으로 빠지면 `side`다. `label`에 조건을 적는다. `actors`는 그 전이를 일으키는 행위자 id 목록이다. 되돌리기처럼 여럿이 할 수 있는 전이에 달고 선 글자 옆에 이름이 붙는다 (괄호 앞까지만). 없는 행위자를 가리키면 `FLOW_ACTOR_NOT_FOUND`다 |
 
 선 모양 규칙은 엣지와 같다. 상태를 바꾸는 코드를 봤으면 `code` 근거에 실선이다. 기획서나 지식베이스에만 있으면 `doc` 근거에 점선이다. 기획서에만 있고 코드에 없는 단계도 넣는다. 그 단계 카드는 테두리가 점선이다. 기획서와 코드가 다르게 말하면 둘 다 근거로 달고 차이를 `stepId`나 `transitionId`를 단 질문으로 남긴다. 기획서는 의도이고 코드는 동작이라 어느 쪽이 맞는지는 사람이 정해야 한다.
+
+하네스 흐름은 사용자가 `person`, MCP 서버가 `system`, 세션 모델과 서브에이전트가 `agent`다. 인터뷰 → 스펙 → 실행 → 리뷰처럼 파이프라인 하나를 흐름 하나로 그린다. 세션이 도구를 두 번 불러 결과를 넘기는 2-Call Passthrough는 세션 모델 줄과 MCP 서버 줄을 오가는 지그재그 단계로 그린다. 시퀀스 다이어그램을 따로 두지 않는 건 단계 카드가 `refs`로 스킬과 도구 카드에 건너가야 해서다.
 
 ### 배치
 
@@ -635,9 +677,13 @@ elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행
 
 | Parameter          | Type                               | Required | Description                              |
 | ------------------ | ---------------------------------- | :------: | ---------------------------------------- |
-| `feCalls`          | `{ id, method, path, baseUrl? }[]` |    Y     | FE 쪽 API 호출                           |
-| `beRoutes`         | `{ id, method, path, repo }[]`     |    Y     | BE 쪽 라우트 선언                        |
+| `feCalls`          | `{ id, method, path, baseUrl? }[]` |   Y\*    | FE 쪽 API 호출                           |
+| `beRoutes`         | `{ id, method, path, repo }[]`     |   Y\*    | BE 쪽 라우트 선언                        |
 | `prefixCandidates` | `string[]`                         |    N     | FE 경로 앞에 붙는 게이트웨이 prefix 후보 |
+| `skillToolCalls`   | `{ id, server?, tool, action? }[]` |   Y\*    | 스킬과 에이전트 문서에서 찾은 MCP 도구 호출 |
+| `serverTools`      | `{ id, server, tool, actions? }[]` |   Y\*    | MCP 서버 코드에서 찾은 도구 등록         |
+
+\* `feCalls`와 `beRoutes` 짝, `skillToolCalls`와 `serverTools` 짝 중 하나는 있어야 한다. 둘 다 없으면 `MISSING_INPUT`이다. 두 짝을 함께 넘겨도 된다.
 
 경로 변수 표기(`{id}`, `:id`, `${expr}`, `<int:id>`, `[id]` 등)는 이름과 무관하게 전부 `{}`로 맞춘 뒤 비교한다. 절대 URL의 스킴과 호스트, 쿼리 문자열, 끝 슬래시도 걷어낸다. method가 `*`, `ANY`, `ALL`인 라우트는 어떤 method로 불러도 받는다.
 
@@ -651,6 +697,15 @@ FE 경로는 그대로 한 번 비교한다. `baseUrl`의 경로 부분과 `pref
 | `unmatched` | `{ feCallId, reason, candidates }[]`. `reason`은 `no_route`, `ambiguous_prefix`, `multiple_routes` 중 하나 |
 
 `unmatched`는 눈으로 맞춰 실선을 긋지 않는다. `candidates`를 담아 미해결 질문으로 남긴다.
+
+MCP 짝을 넘기면 응답에 `tools: { matches, unmatched }`가 붙는다 (`src/architecture/mcp-tool-match.ts`).
+
+| 키                | 꼴                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `tools.matches`   | `{ callId, toolId, action }[]`. 호출에 action이 없었으면 `action`은 `null`                                          |
+| `tools.unmatched` | `{ callId, reason, candidates }[]`. `reason`은 `no_tool`, `multiple_tools`, `unknown_action` 중 하나               |
+
+도구 이름은 정확히 같아야 맞는다. 이름이 비슷하다고 잇지 않는 건 HTTP 경로 매칭과 같은 이유다. 클라이언트가 붙이는 `mcp__<서버>__<도구>` 접두는 걷어내고 서버 힌트로 쓴다. 플러그인으로 깔린 서버는 `plugin_<플러그인>_<서버>`로 불리는데 이 힌트는 `<서버>`와 맞는다. 도구에 `actions`가 있으면 호출의 `action`이 그 안에 있어야 하고 없으면 `unknown_action`이다. 여기서도 `unmatched`는 실선을 긋지 않고 질문으로 돌린다.
 
 ### `validate`
 
