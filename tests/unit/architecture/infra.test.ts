@@ -640,3 +640,48 @@ describe('이전 실행 병합', () => {
     expect(byId.has(`cdn:${DIST_ID}`)).toBe(false);
   });
 });
+
+describe('렌더 — 환경 고르기', () => {
+  it('환경 버튼을 prod, stage, dev 순으로 달고 처음엔 prod만 켠다', async () => {
+    const v = validated();
+    const html = renderDrilldownHtml(v, await computeDrilldown(v), { audience: 'private' });
+    const picker = html.slice(
+      html.indexOf('id="env-picker"'),
+      html.indexOf('</div>', html.indexOf('id="env-picker"')),
+    );
+    const buttons = [...picker.matchAll(/data-env="([^"]+)" aria-pressed="(true|false)"/g)].map(
+      (m) => [m[1], m[2]],
+    );
+    expect(buttons).toEqual([
+      ['prod', 'true'],
+      ['stage', 'false'],
+      ['dev', 'false'],
+    ]);
+  });
+
+  it('환경이 있는 카드에만 환경을 싣는다. 브라우저가 이걸 보고 숨긴다', async () => {
+    const v = validated();
+    const html = renderDrilldownHtml(v, await computeDrilldown(v), { audience: 'private' });
+    const level = html.slice(html.indexOf('data-level-id="service:svc-shop"'));
+    const section = level.slice(0, level.indexOf('</section>'));
+    expect(section).toMatch(/data-node-id="d-dev" data-env="dev"/);
+    expect(section).toMatch(/data-node-id="b-prod" data-env="prod"/);
+    expect(section).not.toMatch(/data-node-id="svc-shop"[^>]*data-env=/);
+  });
+
+  it('환경이 하나뿐이면 고를 게 없어서 버튼을 안 단다', async () => {
+    const ir = fixture();
+    const off = new Set(
+      ir.nodes
+        .filter((n) => n.environment !== undefined && n.environment !== 'prod')
+        .map((n) => n.id),
+    );
+    const v = validated({
+      ...ir,
+      nodes: ir.nodes.filter((n) => !off.has(n.id)),
+      edges: ir.edges.filter((e) => !off.has(e.from) && !off.has(e.to)),
+    });
+    const html = renderDrilldownHtml(v, await computeDrilldown(v), { audience: 'private' });
+    expect(html).not.toContain('id="env-picker"');
+  });
+});
