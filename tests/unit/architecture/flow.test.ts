@@ -453,6 +453,36 @@ describe('흐름 레벨 렌더', () => {
     expect(html).toMatch(/data-node-id="st-noshow"[^>]*>.*?class="qb"/);
   });
 
+  it('단계와 전이 패널이 쓰도록 질문 문장을 흐름 데이터에 싣는다', async () => {
+    const ir = fixture();
+    ir.unresolved.push({
+      id: 'q-2',
+      subject: { transitionId: 't-7' },
+      question: '되돌리기 제한이 30분인가요?',
+    });
+    ir.unresolved.push({
+      id: 'q-1',
+      subject: { stepId: 'st-noshow' },
+      question: '노쇼 기준이 몇 분인가요?',
+    });
+    const { html } = await render(ir);
+    const block = html.slice(html.indexOf('<script id="ir"'));
+    const data = JSON.parse(block.slice(block.indexOf('>') + 1, block.indexOf('</script>'))) as {
+      flows: {
+        steps: { id: string; questions?: string[] }[];
+        transitions: { id: string; questions?: string[] }[];
+      }[];
+    };
+    const flow = data.flows[0]!;
+    expect(flow.transitions.find((t) => t.id === 't-7')!.questions).toEqual([
+      '되돌리기 제한이 30분인가요?',
+    ]);
+    expect(flow.steps.find((st) => st.id === 'st-noshow')!.questions).toEqual([
+      '노쇼 기준이 몇 분인가요?',
+    ]);
+    expect(flow.transitions.find((t) => t.id === 't-1')!.questions).toBeUndefined();
+  });
+
   it('같은 입력이면 같은 바이트가 나온다', async () => {
     const a = await render(fixture());
     const b = await render(fixture());

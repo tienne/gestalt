@@ -579,8 +579,25 @@ function flowQuestionCount(
 }
 
 /** 클라이언트가 서랍과 흐름 버튼에 쓰는 흐름 데이터. 그린 단계와 전이만 싣는다 */
-function flowPayload(levels: readonly FlowLevel[], flows: readonly ArchitectureFlow[]) {
+function flowPayload(
+  levels: readonly FlowLevel[],
+  flows: readonly ArchitectureFlow[],
+  questions: readonly UnresolvedQuestion[],
+) {
   const byId = new Map(flows.map((f) => [f.id, f]));
+  // 패널에서 그 단계나 전이에 걸린 질문을 바로 보여주려고 문장만 붙인다. 배지 숫자만으로는 무엇을 물어야 하는지 모른다
+  const asked = new Map<string, string[]>();
+  const ask = (key: string, text: string): void => {
+    asked.set(key, [...(asked.get(key) ?? []), text]);
+  };
+  for (const q of questions) {
+    if (q.subject.stepId !== undefined) ask(`s:${q.subject.stepId}`, q.question);
+    else if (q.subject.transitionId !== undefined) ask(`t:${q.subject.transitionId}`, q.question);
+  }
+  const withQuestions = <T extends { id: string }>(prefix: string, item: T) => {
+    const list = asked.get(`${prefix}:${item.id}`);
+    return list ? { ...item, questions: list } : item;
+  };
   return levels.map((l) => {
     const f = byId.get(l.flowId)!;
     const drawnSteps = new Set(l.layout.steps.map((b) => b.id));
@@ -595,8 +612,10 @@ function flowPayload(levels: readonly FlowLevel[], flows: readonly ArchitectureF
       actors: f.actors,
       steps: f.steps
         .filter((st) => drawnSteps.has(st.id))
-        .map((st) => ({ ...st, path: pathOf.get(st.id)! })),
-      transitions: f.transitions.filter((t) => drawnTransitions.has(t.id)),
+        .map((st) => withQuestions('s', { ...st, path: pathOf.get(st.id)! })),
+      transitions: f.transitions
+        .filter((t) => drawnTransitions.has(t.id))
+        .map((t) => withQuestions('t', t)),
     };
   });
 }
@@ -933,7 +952,7 @@ export function renderDrilldownHtml(
           edges: [],
         })),
       ],
-      flows: flowPayload(drilldown.flows, drawnFlows),
+      flows: flowPayload(drilldown.flows, drawnFlows, base.unresolved),
     });
   }
   const sections = levels

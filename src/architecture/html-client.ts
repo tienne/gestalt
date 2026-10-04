@@ -257,6 +257,13 @@ ${FOCUS_SOURCE}
     list.forEach(function (ev) { ul.appendChild(renderEvidence(ev)); });
     body.appendChild(ul);
   }
+  function questionList(body, list) {
+    if (!list || !list.length) return;
+    body.appendChild(el('h3', null, '확인할 질문 ' + list.length + '개'));
+    var ul = el('ul', 'qlist');
+    list.forEach(function (q) { ul.appendChild(el('li', 'q-text', q)); });
+    body.appendChild(ul);
+  }
   // 단계와 기술 그림을 잇는 단추. 같은 서비스 레벨에 카드가 있으면 그쪽을 먼저 연다. 흐름을 보다 온 사람이 서비스 안에서 이어 보게 하려는 것이다
   function goToRef(id, svc) {
     var lv = 'service:' + svc;
@@ -296,6 +303,7 @@ ${FOCUS_SOURCE}
     factRow(facts, '갈래', st.path === 'side' ? '옆 흐름' : '정상 흐름');
     body.appendChild(facts);
     if (st.description) body.appendChild(el('p', 'desc', st.description));
+    questionList(body, st.questions);
     var refs = (st.refs || []).filter(function (r) { return !!nodes[r]; });
     if (refs.length) {
       body.appendChild(el('h3', null, '이어진 화면과 API ' + refs.length + '개'));
@@ -315,6 +323,7 @@ ${FOCUS_SOURCE}
     factRow(facts, '갈래', t.path === 'side' ? '옆 흐름' : '정상 흐름');
     factRow(facts, '선', t.lineStyle === 'dashed' ? '점선 (문서나 사람 말로만 확인)' : '실선 (코드나 스펙으로 확인)');
     body.appendChild(facts);
+    questionList(body, t.questions);
     refButtons(body, [t.from, t.to], focusCard, function () { return 'u-flow'; }, label);
     evidenceList(body, t.evidence);
     panel.appendChild(body);

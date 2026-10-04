@@ -490,6 +490,7 @@ a.loc:hover { text-decoration: underline; }
 .q:disabled { cursor: default; }
 .q-subj { display: block; font-size: 12px; font-weight: 600; color: var(--accent); word-break: break-all; }
 .q:disabled .q-subj { color: var(--muted); }
+.qlist { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .q-text { display: block; margin-top: 2px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .sheet {
   position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 10; max-height: 45%; display: flex; flex-direction: column;
