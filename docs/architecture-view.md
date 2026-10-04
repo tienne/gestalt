@@ -39,7 +39,8 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `repos` | `{ id, name, root, remote? }`. `root`는 로컬 경로다. 상대 경로면 `repoRoot` 기준으로 푼다 |
 | `nodes` | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, description?, environment?, account?, platforms?, platformEvidence?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서 설명한다 |
 | `edges` | `{ id, from, to, kind, evidence[], lineStyle }`. `lineStyle`은 `solid` 또는 `dashed` |
-| `unresolved` | `{ id, subject: { nodeId?, edgeId? }, question, answer? }` |
+| `unresolved` | `{ id, subject: { nodeId?, edgeId?, stepId?, transitionId? }, question, answer? }` |
+| `flows` | 선택. 서비스 하나의 도메인 흐름이다. [도메인 흐름](#도메인-흐름)에서 설명한다 |
 | `groups` | 합친 IR에만 있다. `{ id, name, members }`이고 `members`는 그 제품 분석에 있던 노드 id다. [분석 합치기](#분석-합치기)에서 설명한다 |
 | `sourcesUsed` | 이번 실행이 간 본 맥락 소스. `{ via, identifier, readOnly, probeHit, visibility }` |
 | `generatedAt` | 생성 시각 문자열. HTML에 그대로 찍힌다 |
@@ -224,7 +225,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 ## 검증 규칙
 
-`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 열다섯은 IR 전체를 거부한다.
+`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 스물둘은 IR 전체를 거부한다.
 
 | 에러 코드 | 언제 |
 |---|---|
@@ -243,6 +244,13 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `GROUP_MEMBER_NOT_FOUND` | `groups[].members`의 id가 `nodes`에 없다 |
 | `SERVES_SERVICE_WITH_APPS` | `serves`가 `micro_app`이 달린 서비스를 가리킨다 |
 | `INVALID_LOADS_ENDS` | `loads`의 양 끝 중 하나가 `micro_app`이 아니다 |
+| `FLOW_SERVICE_NOT_FOUND` | 흐름의 `service`가 `nodes`에 없거나 `service` 노드가 아니다 |
+| `DUPLICATE_FLOW_ID` | 흐름, 단계, 전이 id가 흐름 전체에서 겹치거나 한 흐름 안에서 행위자 id가 겹친다 |
+| `FLOW_ACTOR_NOT_FOUND` | 단계의 `actor`가 그 흐름의 `actors`에 없다 |
+| `FLOW_STEP_NOT_FOUND` | 전이의 `from`이나 `to`가 그 흐름의 `steps`에 없다 |
+| `FLOW_REF_NOT_FOUND` | 단계의 `refs`가 `nodes`에 없다 |
+| `INVALID_FLOW_REF_KIND` | 단계의 `refs`가 `screen`, `endpoint`, `feature`, `micro_app`이 아닌 노드를 가리킨다 |
+| `SOLID_TRANSITION_WITHOUT_EVIDENCE` | 전이가 `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다 |
 
 `checkFiles: false`를 넘기면 `CODE_EVIDENCE_NOT_FOUND`의 파일 존재와 줄 범위 확인을 건너뛴다. 기본값은 `true`다.
 
@@ -254,6 +262,8 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 - 근거가 0개인 노드. 질문 id는 `auto:node:<노드 id>`다.
 - 근거가 있어도 양 끝 노드 중 하나가 그리기 대상에서 빠진 엣지. 이 엣지에는 질문을 따로 만들지 않는다.
 - `platforms`에 적었는데 근거가 없는 플랫폼. 질문 id는 `auto:platform:<노드 id>:<플랫폼>`이다. 웹은 그려지는 버킷이 `serves`로 서빙하면 묻지 않는다.
+- 근거가 0개인 흐름 단계. 질문 id는 `auto:step:<단계 id>`다.
+- 근거가 0개인 흐름 전이. 질문 id는 `auto:transition:<전이 id>`다. 근거가 있어도 양 끝 단계 중 하나가 빠지면 그리지 않는다.
 - 앱이 둘 이상인 서비스에 호스트가 정확히 하나가 아닐 때. 질문 id는 `auto:entry:<서비스 id>`다. 호스트가 없으면 진입 앱을 묻고 여럿이면 그 후보 이름을 함께 보이며 `remotes` 설정이 어느 앱에 있는지 묻는다.
 
 자동 질문은 노드를 `displayName`(없으면 label)으로 부른다. 문장은 아래 꼴이다.
@@ -274,7 +284,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 }
 ```
 
-`errors[]` 항목에는 해당하면 `nodeId`, `edgeId`, `evidenceIndex`가 붙는다.
+`errors[]` 항목에는 해당하면 `nodeId`, `edgeId`, `flowId`, `stepId`, `transitionId`, `evidenceIndex`가 붙는다.
 
 ---
 
@@ -296,7 +306,7 @@ private 근거의 원문은 세 겹으로 막는다.
 2. 저장하는 IR에서 private 근거의 `excerpt`를 지운다 (`stripPrivateExcerpts`).
 3. 공유용 HTML(`.shared.html`)은 private 근거의 `location`까지 빼고 `type`과 `visibility`만 남긴다 (`redactForSharing`). 패널에는 출처 종류만 보인다.
 
-`live` 근거는 `public`으로 적었어도 공유본에서 `type`, `visibility`, `observedAt`만 남는다. 명령과 리소스 위치에 계정 ID나 리소스 이름이 들어가기 때문이다. 공유본은 노드 이름(`label`, `displayName`, `description`)과 질문 문장, 레벨 제목에 든 계정 ID도 가린다. `cdn` 노드는 CDN 배포 ID도 가린다. 자동 질문은 공유본에 싣지 않는다.
+`live` 근거는 `public`으로 적었어도 공유본에서 `type`, `visibility`, `observedAt`만 남는다. 명령과 리소스 위치에 계정 ID나 리소스 이름이 들어가기 때문이다. 공유본은 노드 이름(`label`, `displayName`, `description`)과 흐름의 제목, 행위자, 단계 글자, 전이 조건, 질문 문장, 레벨 제목에 든 계정 ID도 가린다. `cdn` 노드는 CDN 배포 ID도 가린다. 자동 질문은 공유본에 싣지 않는다.
 
 두 HTML 모두 페이지가 쓰는 필드만 싣는다. `repos`는 `id`와 `name`만 들어가고 `root`와 `remote`는 빠진다. `sourcesUsed`도 HTML에 들어가지 않는다. 그래서 로컬 경로나 사용한 도구 이름이 공유본으로 새지 않는다.
 
@@ -331,6 +341,7 @@ private 근거의 원문은 세 겹으로 막는다.
 | 앱 | `app:<id>` | 마이크로 프론트엔드 리모트 앱 하나. 서비스 레벨과 같은 구성(서빙 사슬, 앱, 기능영역, 화면, 게이트웨이, 서버)이다. 진입 앱은 서비스 레벨이 대신해서 이 레벨이 없다 |
 | 기능영역 | `feature:<id>` | 그 기능영역의 화면, 화면이 부르는 엔드포인트, 거쳐 가는 게이트웨이, 받는 모듈. 세부 엣지 그대로 |
 | 서버 | `server:<id>` | 그 모듈이나 게이트웨이에 걸린 엔드포인트, 모듈이 읽고 쓰는 테이블과 저장소, 쓰는 클라이언트와 그 클라이언트가 부르는 모듈 |
+| 흐름 | `flow:<흐름 id>` | 서비스 하나의 도메인 흐름. 서비스 레벨 아래에 선다. [도메인 흐름](#도메인-흐름)에서 설명한다 |
 
 ### 묶음 엣지의 주인
 
@@ -440,6 +451,78 @@ private 근거의 원문은 세 겹으로 막는다.
 - **두 항목 선택과 함께 쓰기**: 전체 레벨을 포커스한 화면에서도 Shift나 ⌘를 누른 채 두 카드를 고르면 두 항목 화면이 뜬다. 묶음 엣지를 누르는 것도 원래 레벨에서와 같다.
 - **검색**: 이름으로 찾기는 포커스 화면에 남은 카드만 찾는다.
 - **평면 그림**: 드릴다운이 아닌 평면 그림(deploy-path 포함)에서도 같은 규칙으로 동작한다. 평면 그림의 레벨 id는 `root`다.
+
+---
+
+## 도메인 흐름
+
+기술 그림은 화면이 어느 API를 부르는지 보여주지만 손님이 줄을 서고 직원이 호출하고 시스템이 알림을 보내는 순서는 안 보인다. 흐름은 그 순서를 사람 쪽에서 그린다. 서비스 하나에 흐름을 여럿 둘 수 있다 (`ir.flows`, 선택).
+
+```json
+{
+  "id": "queue",
+  "service": "svc-shop",
+  "title": "줄서기",
+  "actors": [
+    { "id": "guest", "label": "손님", "kind": "person" },
+    { "id": "staff", "label": "매장 직원", "kind": "person" },
+    { "id": "sys", "label": "자동 발송", "kind": "system" }
+  ],
+  "steps": [
+    {
+      "id": "st-register",
+      "actor": "guest",
+      "label": "줄서기 등록",
+      "state": "WAITING",
+      "refs": ["s-queue", "ep-register"],
+      "evidence": [{ "type": "code", "location": "acme-web:src/queue/register.tsx:12", "visibility": "public" }]
+    },
+    {
+      "id": "st-call",
+      "actor": "staff",
+      "label": "호출",
+      "state": "CALLED",
+      "evidence": [{ "type": "code", "location": "acme-api:src/queue/call.ts:30", "visibility": "public" }]
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t-1",
+      "from": "st-register",
+      "to": "st-call",
+      "path": "main",
+      "lineStyle": "solid",
+      "evidence": [{ "type": "code", "location": "acme-api:src/queue/call.ts:41", "visibility": "public" }]
+    }
+  ]
+}
+```
+
+| 필드 | 내용 |
+|---|---|
+| `actors` | 가로줄 하나씩. `kind`는 `person`(손님, 직원) 또는 `system`(예약 발송, 배치). 적은 순서대로 위에서부터 놓인다 |
+| `steps` | 카드 하나씩. `state`는 그 단계를 지나면 바뀌는 상태값이다. `refs`는 기술 그림의 `screen`, `endpoint`, `feature`, `micro_app` 노드 id다 |
+| `transitions` | 단계 사이 화살표. `path`는 정상 흐름이면 `main`, 취소나 노쇼처럼 옆으로 빠지면 `side`다. `label`에 조건을 적는다 |
+
+선 모양 규칙은 엣지와 같다. 상태를 바꾸는 코드를 봤으면 `code` 근거에 실선이다. 기획서나 지식베이스에만 있으면 `doc` 근거에 점선이다. 기획서에만 있고 코드에 없는 단계도 넣는다. 그 단계 카드는 테두리가 점선이다. 기획서와 코드가 다르게 말하면 둘 다 근거로 달고 차이를 `stepId`나 `transitionId`를 단 질문으로 남긴다. 기획서는 의도이고 코드는 동작이라 어느 쪽이 맞는지는 사람이 정해야 한다.
+
+### 배치
+
+elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행위자 줄과 단계 열이 곧 읽는 순서라 자동 배치가 오히려 그 순서를 흐트러뜨린다.
+
+- 열은 전이를 따라 가장 긴 경로로 정한다. 왼쪽으로 돌아가는 전이(되돌리기)는 열 계산에서 빼고 그림 맨 아래 여백으로 돌린다.
+- 정상 흐름 단계가 행위자 줄의 첫 줄에 선다. 옆 흐름 단계는 그 아래 줄로 내려간다. 같은 칸이 겹치면 한 줄 더 내린다.
+- 옆 흐름 화살표와 카드는 정상 흐름과 다른 색으로 그린다. 화살표는 카드 위나 아래에서 바로 꺾어 나간다. 오른쪽 변으로 나가면 정상 흐름 선과 같은 꺾임 자리를 겹쳐 쓴다.
+
+### 조작
+
+- **들어가기**: 서비스 레벨에서 위쪽 바의 **흐름** 버튼을 누른다. 흐름이 하나면 바로 들어가고 여럿이면 목록이 뜬다. 서비스 카드의 상세 패널에도 흐름 목록이 있다.
+- **단계 카드**: 누르면 행위자, 상태, 근거와 함께 `refs` 버튼이 뜬다. 버튼을 누르면 그 노드가 있는 서비스 레벨로 가서 노드를 고른다.
+- **거꾸로 오기**: 기술 그림의 노드 패널에 그 노드를 `refs`로 가진 단계가 나온다. 누르면 흐름 레벨로 돌아온다.
+- **전이**: 화살표를 누르면 조건과 근거가 뜬다.
+- 흐름 레벨에서는 포커스를 쓰지 않는다. 흐름이 이미 한 서비스의 한 이야기라서다.
+
+미해결 질문 목록은 질문의 `stepId`나 `transitionId`로 단계 카드를 찾아간다. 전이 질문은 그 전이가 시작하는 단계 카드에 배지로 붙는다.
 
 ---
 
@@ -611,6 +694,9 @@ render는 이 순서로 돈다.
 | `unresolvedOpen` | 답이 안 달린 질문 수. IR의 질문과 자동 질문을 합친다 |
 | `screenToEndpointRatio` | 화면 중 엔드포인트로 이어진 비율 |
 | `endpointMatchRatio` | 엔드포인트 중 앱 모듈까지 이어진 비율 |
+| `flows` | IR의 흐름 수. 흐름이 있을 때만 붙는다 |
+| `drawnSteps` | 그린 흐름 단계 수. 흐름이 있을 때만 붙는다 |
+| `drawnTransitions` | 그린 흐름 전이 수. 흐름이 있을 때만 붙는다 |
 
 두 비율은 그린 노드와 그린 엣지만 센다.
 
