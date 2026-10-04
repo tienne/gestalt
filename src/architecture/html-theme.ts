@@ -151,6 +151,8 @@ const LIGHT_TOKENS = `
   --frame-line: #0369a1;
   --loads: #0369a1;
   --hit: #f59e0b;
+  --brick-base: #ffffff;
+  --brick-tint: 16%;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.04);
   --shadow-hover: 0 6px 16px rgba(16, 24, 40, 0.1);
   --shadow-pop: 0 12px 32px rgba(16, 24, 40, 0.14), 0 2px 6px rgba(16, 24, 40, 0.06);
@@ -189,6 +191,8 @@ const DARK_TOKENS = `
   --frame-line: #7dd3fc;
   --loads: #7dd3fc;
   --hit: #fbbf24;
+  --brick-base: #171a21;
+  --brick-tint: 24%;
   --shadow: none;
   --shadow-hover: 0 6px 18px rgba(0, 0, 0, 0.4);
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
@@ -292,21 +296,28 @@ button { font: inherit; color: inherit; }
   font-size: 11px; font-weight: 600; color: var(--muted); background: var(--surface); border: 1px solid var(--border); font-variant-numeric: tabular-nums;
 }
 .node {
+  --brick: color-mix(in srgb, var(--kind) var(--brick-tint), var(--brick-base));
+  --brick-edge: color-mix(in srgb, var(--kind) 38%, var(--brick));
+  --thick: 0 3px 0 var(--brick-edge);
   position: absolute; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 2px; align-content: center;
-  padding: 0 20px 0 12px; overflow: hidden; cursor: pointer;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
+  padding: 0 20px 0 10px; cursor: pointer;
+  background: var(--brick); border: 1px solid var(--brick-edge); border-radius: 4px; box-shadow: var(--thick);
   transition: box-shadow 0.15s, border-color 0.15s, opacity 0.15s;
 }
-.node::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--kind); }
-.node:hover { box-shadow: var(--shadow-hover); border-color: var(--border-strong); }
+/* 카드 위 돌기. 하나를 그리고 box-shadow로 셋을 더 찍는다. 그림자 사본도 모서리 둥글기를 따라간다 */
+.node::before {
+  content: ''; position: absolute; left: 12px; top: -6px; width: 14px; height: 5px; border-radius: 3px 3px 0 0;
+  background: var(--brick-edge); box-shadow: 20px 0 var(--brick-edge), 40px 0 var(--brick-edge), 60px 0 var(--brick-edge);
+}
+.node:hover { box-shadow: var(--thick), var(--shadow-hover); }
 .node:focus { outline: none; }
 .node:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .node.is-focus { border-color: var(--kind); }
-.node.focus-root:not(.selected) { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow); }
-.node.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-hover); }
+.node.focus-root:not(.selected) { border-color: var(--accent); box-shadow: var(--thick), 0 0 0 3px var(--accent-soft); }
+.node.selected { border-color: var(--accent); box-shadow: var(--thick), 0 0 0 4px var(--accent-soft), var(--shadow-hover); }
 .node.anchor:not(.selected) { outline: 2px dashed var(--accent); outline-offset: 3px; }
-.node.hit { box-shadow: 0 0 0 2px var(--hit), var(--shadow); }
-.node.hit.current { box-shadow: 0 0 0 3px var(--hit), var(--shadow-hover); }
+.node.hit { box-shadow: var(--thick), 0 0 0 3px var(--hit); }
+.node.hit.current { box-shadow: var(--thick), 0 0 0 4px var(--hit), var(--shadow-hover); }
 .kc {
   grid-row: 1; display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 6px 0 4px; border-radius: 5px; align-self: center;
   font-size: 10.5px; font-weight: 650; line-height: 1; white-space: nowrap;
@@ -325,11 +336,13 @@ button { font: inherit; color: inherit; }
 }
 .flow-badge {
   flex: none; display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 0 6px; border-radius: 8px;
-  font-size: 10.5px; font-weight: 650; line-height: 16px; color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  font-size: 10.5px; font-weight: 700; line-height: 16px; color: var(--on-accent);
+  background: var(--accent); box-shadow: 0 2px 0 color-mix(in srgb, var(--accent) 60%, #000);
 }
 .flow-badge svg { width: 12px; height: 12px; flex: none; }
-.flow-badge:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.flow-badge:hover { background: color-mix(in srgb, var(--accent) 85%, var(--text)); }
+/* 파스텔 브릭 위에서 연한 배지는 묻힌다. 카드 안 추정 배지는 꽉 채운다 */
+.node .guess { color: var(--bg); background: var(--warn); }
 .go { position: absolute; right: 8px; bottom: 4px; font-size: 14px; line-height: 1; color: var(--muted); }
 .pf {
   flex: none; display: inline-flex; align-items: center; gap: 3px; height: 16px; margin-left: 4px; padding: 0 4px;
@@ -358,7 +371,7 @@ button { font: inherit; color: inherit; }
 }
 .flane-title span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; word-break: keep-all; }
 .flane-title svg { width: 15px; height: 15px; flex: none; margin-top: 1.5px; color: var(--muted); }
-.flow-step { --kind: var(--accent); padding: 0 12px 0 14px; }
+.flow-step { --kind: var(--accent); padding: 0 12px 0 12px; }
 .flow-step.p-side { --kind: var(--warn); }
 .flow-step.doc-only { border-style: dashed; }
 .flow-step .nm { grid-column: 1 / -1; white-space: normal; }
@@ -373,6 +386,7 @@ button { font: inherit; color: inherit; }
 }
 .flow-step .qb { color: var(--warn); }
 .flow-step .refs svg, .flow-step .qb svg { width: 11px; height: 11px; }
+.node .l2 { overflow: hidden; }
 .link.flow-t { cursor: pointer; }
 .legend-lines line.side-line { stroke: var(--warn); }
 .swatch-step { display: inline-block; width: 30px; height: 14px; margin-right: 8px; border: 1.5px dashed var(--border-strong); border-radius: 4px; vertical-align: middle; }
