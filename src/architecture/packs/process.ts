@@ -25,21 +25,22 @@ export const PROCESS_PACK = {
       rank: 0,
       parents: ['org_unit'],
     },
-    form: {
-      ...classLook('document', '양식', '업무에 쓰는 문서 양식'),
-      lane: 'biz_doc',
-      rank: 1,
-    },
+    // 시스템이 양식 앞에 선다. records는 사람과 시스템에서 양식으로 가서 이 순서여야 선이 뒤로 안 돈다
     system: {
       ...classLook('service', '업무 시스템', '업무를 기록하고 처리하는 시스템'),
       lane: 'biz_sys',
+      rank: 1,
+    },
+    form: {
+      ...classLook('document', '양식', '업무에 쓰는 문서 양식'),
+      lane: 'biz_doc',
       rank: 2,
     },
   },
   lanes: {
     biz_org: { title: '사람' },
-    biz_doc: { title: '양식' },
     biz_sys: { title: '시스템' },
+    biz_doc: { title: '양식' },
   },
   edgeKinds: {
     hands_over: { text: '넘김', ends: { from: ['org_unit', 'role'], to: ['org_unit', 'role'] } },
