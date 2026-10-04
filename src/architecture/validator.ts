@@ -515,10 +515,57 @@ function checkFlows(
   }
 }
 
+/**
+ * 사람이 두 단계 사이를 잇기만 하는 단계를 찾아 전이로 적을지 묻는다.
+ * 들어오고 나가는 선이 하나씩이고 나간 선이 이미 다른 길로 닿는 단계로 합류할 때가 그렇다.
+ * 그중 상태 값이 없거나 앞 단계로 되돌아가는 것만 고른다. 상태가 남고 앞으로 나아가는 단계는 진짜 단계라서다
+ */
+function askStepsAsTransitions(
+  flow: ArchitectureFlow,
+  drawable: Set<string>,
+  ask: (q: UnresolvedQuestion) => void,
+): void {
+  const people = new Set(flow.actors.filter((a) => a.kind === 'person').map((a) => a.id));
+  const name = new Map(flow.steps.map((s) => [s.id, s.label]));
+  const reaches = (from: string, target: string): boolean => {
+    const seen = new Set([from]);
+    const queue = [from];
+    while (queue.length > 0) {
+      const at = queue.shift()!;
+      if (at === target) return true;
+      for (const t of flow.transitions) {
+        if (t.from !== at || seen.has(t.to)) continue;
+        seen.add(t.to);
+        queue.push(t.to);
+      }
+    }
+    return false;
+  };
+  for (const step of flow.steps) {
+    if (!drawable.has(step.id) || !people.has(step.actor)) continue;
+    const ins = flow.transitions.filter((t) => t.to === step.id);
+    const outs = flow.transitions.filter((t) => t.from === step.id);
+    if (ins.length !== 1 || outs.length !== 1) continue;
+    const from = ins[0]!.from;
+    const to = outs[0]!.to;
+    // 들어온 단계로 바로 돌아가는 건 그 단계를 되돌린 것이지 이 단계가 잇는 게 아니다
+    if (from === to) continue;
+    const rejoins = flow.transitions.some((t) => t.to === to && t.from !== step.id);
+    if (!rejoins) continue;
+    if (step.state !== undefined && !reaches(to, from)) continue;
+    ask({
+      id: `auto:as-transition:${step.id}`,
+      subject: { stepId: step.id },
+      question: `"${step.label}" 단계는 "${name.get(from) ?? from}"에서 "${name.get(to) ?? to}"로 넘어가는 동작이라 전이로 적을 수 있어요. 이 단계에 머무는 상태가 따로 있나요? 없으면 전이의 label과 actors로 옮기는 게 읽기 편해요.`,
+    });
+  }
+}
+
 /** 근거로 다시 정한 선 모양을 싣는다. 그릴 단계와 전이를 고르고 근거 없는 것은 질문으로 돌린다 */
 function settleFlows(
   flows: ArchitectureFlow[],
   ask: (q: UnresolvedQuestion) => void,
+  askById: (q: UnresolvedQuestion) => void,
 ): { flows: ArchitectureFlow[]; steps: Set<string>; transitions: Set<string> } {
   const steps = new Set<string>();
   const transitions = new Set<string>();
@@ -535,6 +582,8 @@ function settleFlows(
         question: `"${flow.title}"의 "${step.label}" 단계를 코드나 지식베이스, 기획서에서 확인하지 못했어요. 실제로 있는 단계인가요?`,
       });
     }
+    // 세션이 그 단계에 다른 질문을 이미 달았어도 이 질문은 따로 선다
+    askStepsAsTransitions(flow, steps, askById);
     const transitionsOut = flow.transitions.map((t) => ({
       ...t,
       lineStyle: deriveLineStyle(t.evidence),
@@ -619,6 +668,12 @@ export function validateArchitectureIr(
     known.push(q);
     autoUnresolved.push(q);
   };
+  // 한 대상에 질문이 여럿 설 수 있는 자리다. 대상이 아니라 id로 겹침을 본다
+  const askById = (q: UnresolvedQuestion): void => {
+    if (known.some((k) => k.id === q.id)) return;
+    known.push(q);
+    autoUnresolved.push(q);
+  };
 
   for (const node of ir.nodes) {
     if (node.evidence.length > 0) {
@@ -661,16 +716,11 @@ export function validateArchitectureIr(
       if ((node.platformEvidence?.[platform] ?? []).length > 0) continue;
       if (platform === 'web' && isServedByWebHost(node.id, edges, nodeById, drawableEdgeIds))
         continue;
-      // 한 서비스에 플랫폼 질문이 여럿 설 수 있어 대상이 아니라 id로 겹침을 본다
-      const id = `auto:platform:${node.id}:${platform}`;
-      if (known.some((q) => q.id === id)) continue;
-      const q: UnresolvedQuestion = {
-        id,
+      askById({
+        id: `auto:platform:${node.id}:${platform}`,
         subject: { nodeId: node.id },
         question: `"${nameOf(node)}"를 ${PLATFORM_QUESTION[platform]}으로 배포한다는 근거를 못 찾았어요. 배포 워크플로나 스토어 설정이 어디 있나요?`,
-      };
-      known.push(q);
-      autoUnresolved.push(q);
+      });
     }
   }
 
@@ -693,7 +743,7 @@ export function validateArchitectureIr(
     });
   }
 
-  const flowResult = settleFlows(ir.flows ?? [], ask);
+  const flowResult = settleFlows(ir.flows ?? [], ask, askById);
   return {
     ok: true,
     value: {

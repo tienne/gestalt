@@ -287,6 +287,33 @@ describe('흐름 검증', () => {
     expect(ids).toContain('auto:transition:t-2');
   });
 
+  it('사람이 두 단계 사이를 잇기만 하는 단계는 전이로 적을지 묻는다', () => {
+    const ir = fixture();
+    // 세션이 단 다른 질문이 있어도 이 질문은 따로 선다
+    ir.unresolved.push({ id: 'q-undo', subject: { stepId: 'st-undo' }, question: '몇 분까지?' });
+    const ids = validated(ir).autoUnresolved.map((q) => q.id);
+    expect(ids).toContain('auto:as-transition:st-undo');
+    // 상태가 남고 앞으로 나아가는 단계는 진짜 단계다
+    expect(ids).not.toContain('auto:as-transition:st-seat');
+  });
+
+  it('상태가 있어도 앞 단계로 되돌아가면 묻고 들어온 단계로 바로 돌아가면 안 묻는다', () => {
+    const f = queueFlow();
+    f.steps[6] = { ...f.steps[6]!, state: 'UNDO' };
+    expect(validated(fixture(f)).autoUnresolved.map((q) => q.id)).toContain(
+      'auto:as-transition:st-undo',
+    );
+    const asTransition = queueFlow();
+    asTransition.steps = asTransition.steps.filter((s) => s.id !== 'st-undo');
+    asTransition.transitions = asTransition.transitions.filter((t) => t.id !== 't-6');
+    asTransition.transitions.find((t) => t.id === 't-7')!.from = 'st-noshow';
+    asTransition.transitions.find((t) => t.id === 't-5')!.from = 'st-notify';
+    asTransition.steps.find((s) => s.id === 'st-noshow')!.actor = 'staff';
+    asTransition.transitions.find((t) => t.id === 't-7')!.to = 'st-notify';
+    const ids = validated(fixture(asTransition)).autoUnresolved.map((q) => q.id);
+    expect(ids.filter((id) => id.startsWith('auto:as-transition'))).toEqual([]);
+  });
+
   it('선 모양은 근거로 다시 정한다', () => {
     const f = queueFlow();
     // 코드 근거가 있는데 점선으로 적은 전이는 실선으로 바로잡는다
