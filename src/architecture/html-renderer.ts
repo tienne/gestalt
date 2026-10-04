@@ -1,11 +1,12 @@
 import { CANVAS_PAD_TOP, CANVAS_PAD_X, LANE_INSET_Y, routeCanvas } from './canvas-geometry.js';
 import type { RoutedEdge } from './canvas-geometry.js';
-import { ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
+import { flowCountByService, ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
 import type { FlowLevel } from './flow-layout.js';
 import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import { iconUse, renderCss, renderIconSprite } from './html-theme.js';
 import {
   LANE_TITLES,
+  flowBadgeText,
   MICRO_HOST_SHORT,
   NODE_KIND_SHORT,
   PLATFORM_CHIP_TEXT,
@@ -242,6 +243,7 @@ function renderCard(
   facts: ServiceFacts | undefined,
   band: number | undefined,
   micro: { host: boolean; frame?: string },
+  flows = 0,
 ): string {
   const name = nodeName(node);
   const guess = isGuess(node);
@@ -251,7 +253,8 @@ function renderCard(
   if (focus) cls.push('is-focus');
   const aria =
     `${name}, ${NODE_KIND_TEXT[node.kind]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}` +
-    (platforms.length > 0 ? `, ${platforms.join(', ')}` : '');
+    (platforms.length > 0 ? `, ${platforms.join(', ')}` : '') +
+    (flows > 0 ? `, 사용자 흐름 ${flows}개` : '');
   const tooltip =
     (node.displayName === undefined
       ? node.label
@@ -274,7 +277,11 @@ function renderCard(
     `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
     `style="left:${x}px;top:${y}px;width:${box.width}px;height:${box.height}px">` +
     `<span class="kc">${iconUse(`i-${node.kind}`)}${escapeHtml(micro.host ? MICRO_HOST_SHORT : NODE_KIND_SHORT[node.kind])}</span>` +
-    `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}</span>` +
+    `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}` +
+    (flows > 0
+      ? `<span class="flow-badge" title="사용자 흐름 보기">${iconUse('u-flow')}${escapeHtml(flowBadgeText(flows))}</span>`
+      : '') +
+    `</span>` +
     second +
     (enterable ? '<span class="go" aria-hidden="true">›</span>' : '') +
     `</div>`
@@ -331,6 +338,8 @@ interface CanvasSpec {
   hidden: boolean;
   services: Record<string, ServiceFacts>;
   microHosts: ReadonlySet<string>;
+  /** 서비스 id → 흐름 수. 드릴다운 그림에만 있다 */
+  flows?: Record<string, number>;
 }
 
 const REGION_TITLE_INSET = 4;
@@ -450,6 +459,7 @@ function renderLevelSection(spec: CanvasSpec): string {
             ? { frame: frameOf.get(n.id) ?? frameOf.get(n.parent!)! }
             : {}),
         },
+        spec.flows?.[n.id] ?? 0,
       );
     })
     .join('');
@@ -958,6 +968,7 @@ export function renderDrilldownHtml(
   const drawnSteps = new Set(drilldown.flows.flatMap((l) => l.layout.steps.map((b) => b.id)));
   const questionCount = flowQuestionCount(base.unresolved, drawnFlows);
   const drawableNodes = new Set(base.nodes.map((n) => n.id));
+  const flowCount = flowCountByService(drilldown.flows);
   if (flowLevels.length > 0) {
     Object.assign(payload, {
       levels: [
@@ -987,6 +998,7 @@ export function renderDrilldownHtml(
         hidden: l.id !== ROOT_LEVEL_ID,
         services: base.services,
         microHosts: new Set(base.microHosts ?? []),
+        flows: flowCount,
       }),
     )
     .concat(

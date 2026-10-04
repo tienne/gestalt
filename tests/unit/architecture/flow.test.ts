@@ -467,6 +467,22 @@ describe('흐름 레벨 렌더', () => {
     expect(html).toContain('class="fstage side"');
   });
 
+  it('전체보기 서비스 카드에 흐름 배지를 달고 그 폭만큼 카드를 넓힌다', async () => {
+    const { html, drill } = await render(fixture());
+    const root = drill.levels.find((l) => l.id === 'root')!;
+    expect(html).toMatch(/data-node-id="svc-shop"[^>]*aria-label="[^"]*사용자 흐름 1개"/);
+    expect(html).toMatch(/data-node-id="svc-shop".*?<span class="flow-badge"[^>]*>.*?흐름<\/span>/);
+
+    const ir = fixture();
+    delete ir.flows;
+    const plain = await render(ir);
+    const width = (d: typeof drill, id: string) =>
+      d.levels.find((l) => l.id === 'root')!.layout.nodes.find((n) => n.id === id)!.width;
+    expect(width(drill, 'svc-shop')).toBeGreaterThan(width(plain.drill, 'svc-shop'));
+    expect(plain.html).not.toContain('class="flow-badge"');
+    expect(root.nodeIds).toContain('svc-shop');
+  });
+
   it('흐름이 없으면 흐름 단추를 안 단다', async () => {
     const ir = fixture();
     delete ir.flows;

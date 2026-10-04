@@ -661,6 +661,12 @@ ${FOCUS_SOURCE}
   }
   stage.addEventListener('click', function (e) {
     if (suppressClick) { suppressClick = false; return; }
+    // 흐름이 하나면 배지가 바로 그 흐름으로 간다. 여럿이면 카드를 누른 것처럼 패널을 열어 흐름 목록에서 고르게 한다
+    var badge = e.target.closest('.flow-badge');
+    if (badge) {
+      var fl = flowsBySvc[badge.closest('.node').getAttribute('data-node-id')] || [];
+      if (fl.length === 1) { showLevel(fl[0].level); return; }
+    }
     var card = e.target.closest('.node');
     if (card) { activateNode(card.getAttribute('data-node-id'), e, false); return; }
     var link = e.target.closest('.link.bundle');
@@ -670,6 +676,7 @@ ${FOCUS_SOURCE}
     if (drawerOpen()) closeDrawer(false);
   });
   stage.addEventListener('dblclick', function (e) {
+    if (e.target.closest('.flow-badge')) return;
     var card = e.target.closest('.node');
     if (card) enter(card.getAttribute('data-node-id'));
   });

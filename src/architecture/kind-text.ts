@@ -27,6 +27,11 @@ export const NODE_KIND_SHORT: Record<NodeKind, string> = {
   cloud_account: '계정',
 };
 
+/** 흐름이 달린 서비스 카드의 첫 줄 배지 글자. 하나면 수를 안 붙인다 */
+export function flowBadgeText(count: number): string {
+  return count === 1 ? '흐름' : `흐름 ${count}`;
+}
+
 /** 들어오는 loads가 없는 micro_app 칩 글자. NODE_KIND_SHORT.micro_app과 글자 수가 같다 */
 export const MICRO_HOST_SHORT = '호스트';
 

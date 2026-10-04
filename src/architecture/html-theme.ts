@@ -323,6 +323,13 @@ button { font: inherit; color: inherit; }
   flex: none; margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px;
   color: var(--warn); background: var(--warn-soft);
 }
+.flow-badge {
+  flex: none; display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 0 6px; border-radius: 8px;
+  font-size: 10.5px; font-weight: 650; line-height: 16px; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.flow-badge svg { width: 12px; height: 12px; flex: none; }
+.flow-badge:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 .go { position: absolute; right: 8px; bottom: 4px; font-size: 14px; line-height: 1; color: var(--muted); }
 .pf {
   flex: none; display: inline-flex; align-items: center; gap: 3px; height: 16px; margin-left: 4px; padding: 0 4px;

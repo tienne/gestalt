@@ -1,7 +1,7 @@
 // 워커 없는 번들판을 쓴다. 기본 진입점은 web-worker 패키지를 찾다가 MCP stdio 서버에서 경고를 찍을 수 있다
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode, LayoutOptions } from 'elkjs/lib/elk.bundled.js';
-import { LANE_TITLES, NODE_KIND_SHORT, platformChipText } from './kind-text.js';
+import { flowBadgeText, LANE_TITLES, NODE_KIND_SHORT, platformChipText } from './kind-text.js';
 import type { ArchitectureIr, EdgeKind, NodeKind, Platform, WebHosting } from './types.js';
 import { ENVIRONMENT_ORDER } from './types.js';
 
@@ -221,6 +221,8 @@ export interface GraphLayoutNode {
   webHosting?: WebHosting;
   /** 둘째 줄 글자. 없으면 displayName이 있을 때 label이 둘째 줄이다 */
   secondLine?: string;
+  /** 이 서비스에 달린 흐름 수. 첫 줄 끝에 흐름 배지가 붙는다 */
+  flows?: number;
 }
 
 export interface GraphLayoutEdge {
@@ -246,6 +248,16 @@ const CHIP_CHAR_WIDTH = 6.5;
 // 플랫폼 칩: 앞 여백, 테두리와 좌우 안쪽 여백, 아이콘과 글자 사이가 고정 폭이고 글자는 10px 글꼴 기준이다
 const PLATFORM_CHIP_FIXED_WIDTH = 4 + 2 + 8 + 11 + 3;
 const PLATFORM_CHIP_CHAR_WIDTH = 6;
+// 흐름 배지: 앞 여백, 좌우 안쪽 여백, 아이콘과 글자 사이가 고정 폭이고 글자는 10.5px 글꼴 기준이다
+const FLOW_BADGE_FIXED_WIDTH = 6 + 12 + 12 + 3;
+const FLOW_BADGE_CHAR_WIDTH = 6.5;
+
+/** 흐름 배지가 첫 줄에서 차지하는 폭(px) */
+export function flowBadgeWidth(count: number | undefined): number {
+  return count === undefined || count === 0
+    ? 0
+    : FLOW_BADGE_FIXED_WIDTH + textUnits(flowBadgeText(count)) * FLOW_BADGE_CHAR_WIDTH;
+}
 
 /** 플랫폼 칩들이 둘째 줄에서 차지하는 폭(px) */
 export function platformChipsWidth(
@@ -287,6 +299,7 @@ export interface MeasureExtras {
   platforms?: readonly Platform[];
   webHosting?: WebHosting;
   secondLine?: string;
+  flows?: number;
 }
 
 /**
@@ -306,7 +319,8 @@ export function measureNode(
     chipWidth(kind) +
     (textUnits(name) +
       (displayName !== undefined && displayNameInferred ? INFERRED_BADGE_UNITS : 0)) *
-      NARROW_CHAR_WIDTH;
+      NARROW_CHAR_WIDTH +
+    flowBadgeWidth(extras.flows);
   const second = extras.secondLine ?? (displayName !== undefined ? label : undefined);
   const chips = platformChipsWidth(extras.platforms, extras.webHosting);
   const twoLines = second !== undefined || chips > 0;
@@ -433,6 +447,7 @@ export async function computeGraphLayout(
         ...(n.platforms !== undefined ? { platforms: n.platforms } : {}),
         ...(n.webHosting !== undefined ? { webHosting: n.webHosting } : {}),
         ...(n.secondLine !== undefined ? { secondLine: n.secondLine } : {}),
+        ...(n.flows !== undefined ? { flows: n.flows } : {}),
       }),
       // 레이어 안 카드를 왼쪽에 맞춰야 레인이 들쭉날쭉한 열이 아니라 한 줄로 읽힌다
       layoutOptions: {

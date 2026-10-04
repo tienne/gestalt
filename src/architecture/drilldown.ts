@@ -834,6 +834,13 @@ export function shouldDrillDown(validated: ValidatedIr): boolean {
  * 검증된 IR에서 드릴다운 레벨과 묶음 엣지를 계산하고 레벨마다 elkjs 좌표를 미리 낸다.
  * 정렬은 전부 id 기준이라 같은 입력이면 같은 결과가 나온다.
  */
+/** 서비스 id → 그린 흐름 수. 카드 배지 폭과 글자가 같은 수를 써야 한다 */
+export function flowCountByService(flows: readonly FlowLevel[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const f of flows) out[f.service] = (out[f.service] ?? 0) + 1;
+  return out;
+}
+
 export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldown> {
   const g = buildGraph(validated);
   const facts = computeServiceFacts([...g.nodeById.values()], g.edges);
@@ -933,6 +940,8 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
   const ordered = [root!, ...rest.sort(byId)];
   const levels: DrillLevel[] = [];
   const staged = assignStages(validated.ir);
+  const flowLevels = computeFlowLevels(validated);
+  const flowCount = flowCountByService(flowLevels);
   for (const d of ordered) {
     const nodeIds = [...d.nodeIds].filter((id) => g.nodeById.has(id)).sort(compareStr);
     const layoutNodes = nodeIds.map((id) => {
@@ -955,6 +964,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         ...(f !== undefined && f.platforms.length > 0 ? { platforms: f.platforms } : {}),
         ...(f?.webHosting !== undefined ? { webHosting: f.webHosting } : {}),
         ...(f?.prodDomain !== undefined ? { secondLine: f.prodDomain } : {}),
+        ...(flowCount[id] !== undefined ? { flows: flowCount[id] } : {}),
       };
     });
     const laid = await computeGraphLayout(layoutNodes, d.edges, staged?.labels);
@@ -979,5 +989,5 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
       layout,
     });
   }
-  return { levels, enter, flows: computeFlowLevels(validated) };
+  return { levels, enter, flows: flowLevels };
 }
