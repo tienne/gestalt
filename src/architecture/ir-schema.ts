@@ -175,7 +175,7 @@ const contextSourceSchema = z.object({
 const repoSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  root: z.string().min(1),
+  root: z.string().min(1).optional(),
   remote: z.string().optional(),
 });
 
@@ -215,7 +215,7 @@ const flowTransitionSchema = z.object({
 
 const flowSchema = z.object({
   id: z.string().min(1),
-  service: z.string().min(1),
+  service: z.string().min(1).optional(),
   title: z.string().min(1),
   description: z.string().optional(),
   stateLabels: z.record(z.string().min(1), z.string().min(1)).optional(),

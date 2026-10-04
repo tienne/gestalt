@@ -44,6 +44,7 @@ export const FLOW_REF_KINDS: readonly NodeKind[] = [
   'micro_app',
   'skill',
   'agent',
+  'component',
 ];
 /** 하네스와 MCP 레포에만 나오는 kind. 이게 하나라도 있으면 하네스 IR로 보고 하네스 규칙을 건다 */
 export const HARNESS_KINDS: readonly NodeKind[] = Object.keys(HARNESS_PACK.nodeKinds) as NodeKind[];
@@ -180,7 +181,11 @@ export interface ContextSource {
 export interface ArchitectureRepo {
   id: string;
   name: string;
-  root: string;
+  /**
+   * 체크아웃 경로. 없으면 코드 없이 문서와 사람 말로만 엮은 문서 묶음이다.
+   * 문서 묶음을 가리키는 code 근거는 확인할 파일이 없어서 거부한다
+   */
+  root?: string;
   remote?: string;
 }
 
@@ -235,8 +240,11 @@ export interface FlowTransition {
  */
 export interface ArchitectureFlow {
   id: string;
-  /** 이 흐름이 딸린 service 노드 id. 그 서비스 레벨 아래 레벨로 그린다 */
-  service: string;
+  /**
+   * 이 흐름이 딸린 service 노드 id. 그 서비스 레벨 아래 레벨로 그린다.
+   * 없으면 전체 바로 아래 독립 흐름 레벨이 된다. 승인 절차나 장애 대응처럼 코드 서비스에 안 딸린 흐름이다
+   */
+  service?: string;
   title: string;
   description?: string;
   /** 상태 값 → 그림에 찍을 이름. 상태 값은 코드의 enum 그대로라 사용자 언어로 된 이름을 따로 받는다. 없는 값은 상태 값 그대로 찍는다 */

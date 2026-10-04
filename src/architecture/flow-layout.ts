@@ -60,9 +60,10 @@ export interface FlowLevel {
   /** `flow:<흐름 id>` */
   id: string;
   flowId: string;
-  service: string;
+  /** 없으면 전체 바로 아래 독립 흐름이다 */
+  service?: string;
   title: string;
-  /** 서비스 레벨 밑에 선다. 흐름은 한 서비스에 딸린 그림이라서다 */
+  /** 서비스 레벨 밑에 선다. 흐름은 한 서비스에 딸린 그림이라서다. 독립 흐름은 전체 바로 밑이다 */
   trail: string[];
   flow: ArchitectureFlow;
   layout: FlowLayout;
@@ -533,19 +534,26 @@ export function computeFlowLayout(
   };
 }
 
-/** 그릴 흐름 레벨. 서비스가 그려지지 않는 흐름은 들어갈 자리가 없어서 뺀다. 정렬은 흐름 id 순이다 */
+/**
+ * 그릴 흐름 레벨. 서비스가 그려지지 않는 흐름은 들어갈 자리가 없어서 뺀다.
+ * service가 없는 흐름은 전체 바로 아래 독립 레벨이다. 정렬은 흐름 id 순이다
+ */
 export function computeFlowLevels(validated: ValidatedIr): FlowLevel[] {
   const flows = [...(validated.ir.flows ?? [])].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
   return flows
-    .filter((f) => validated.drawableNodeIds.has(f.service))
+    .filter((f) => f.service === undefined || validated.drawableNodeIds.has(f.service))
     .map((f) => ({
       id: `${FLOW_LEVEL_PREFIX}${f.id}`,
       flowId: f.id,
-      service: f.service,
+      ...(f.service !== undefined ? { service: f.service } : {}),
       title: f.title,
-      trail: ['root', `service:${f.service}`, `${FLOW_LEVEL_PREFIX}${f.id}`],
+      trail: [
+        'root',
+        ...(f.service !== undefined ? [`service:${f.service}`] : []),
+        `${FLOW_LEVEL_PREFIX}${f.id}`,
+      ],
       flow: f,
       layout: computeFlowLayout(f, validated.drawableStepIds, validated.drawableTransitionIds),
     }));

@@ -110,7 +110,9 @@ function prepareIr(input: ArchitectureInput, repoRoot: string): Prepared {
 function validate(ir: ArchitectureIr, repoRoot: string, checkFiles: boolean | undefined) {
   // IR의 root는 상대경로로 적히기도 한다. 서버 cwd가 아니라 repoRoot 기준으로 풀어야 근거 파일을 찾는다
   const repoRoots = Object.fromEntries(
-    ir.repos.map((r) => [r.id, isAbsolute(r.root) ? r.root : resolve(repoRoot, r.root)]),
+    ir.repos.flatMap((r) =>
+      r.root === undefined ? [] : [[r.id, isAbsolute(r.root) ? r.root : resolve(repoRoot, r.root)]],
+    ),
   );
   return validateArchitectureIr(ir, { repoRoots, checkFiles });
 }

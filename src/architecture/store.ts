@@ -173,7 +173,7 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
   // 흐름은 지난 실행과 키로 맞추지 않고 이번 실행 것을 그대로 쓴다. 노드 id가 바뀌었으면 가리키는 쪽만 따라 바꾼다
   const flows = next.flows?.map((f) => ({
     ...f,
-    service: mapNodeId(f.service),
+    ...(f.service !== undefined ? { service: mapNodeId(f.service) } : {}),
     steps: f.steps.map((st) =>
       st.refs !== undefined ? { ...st, refs: st.refs.map(mapNodeId) } : { ...st },
     ),

@@ -49,7 +49,8 @@ export type ArchitectureValidationErrorCode =
   | 'STAGE_NODE_NOT_FOUND'
   | 'STAGE_NODE_TWICE'
   | 'UNKNOWN_PACK'
-  | 'KIND_NOT_IN_PACKS';
+  | 'KIND_NOT_IN_PACKS'
+  | 'CODE_EVIDENCE_IN_DOC_REPO';
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -373,6 +374,39 @@ function checkMicroApps(ir: ArchitectureIr, errors: ArchitectureValidationError[
   }
 }
 
+/** root 없는 레포는 문서 묶음이다. 그 레포를 가리키는 code 근거는 확인할 파일이 없으니 실선 근거로 못 쓴다 */
+function checkDocRepos(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  const docRepos = new Set(ir.repos.filter((r) => r.root === undefined).map((r) => r.id));
+  if (docRepos.size === 0) return;
+  const check = (
+    evidence: Evidence[],
+    owner:
+      | { nodeId: string }
+      | { edgeId: string }
+      | { flowId: string; stepId: string }
+      | { flowId: string; transitionId: string },
+  ): void =>
+    evidence.forEach((ev, evidenceIndex) => {
+      const repoId = ev.type === 'code' ? CODE_LOCATION_RE.exec(ev.location)?.[1] : undefined;
+      if (repoId === undefined || !docRepos.has(repoId)) return;
+      errors.push({
+        code: 'CODE_EVIDENCE_IN_DOC_REPO',
+        message: `code 근거 "${ev.location}"가 root 없는 문서 묶음 "${repoId}"를 가리킨다. 문서면 doc 근거로 적는다.`,
+        ...owner,
+        evidenceIndex,
+      });
+    });
+  for (const n of ir.nodes) {
+    check(n.evidence, { nodeId: n.id });
+    for (const list of Object.values(n.platformEvidence ?? {})) check(list, { nodeId: n.id });
+  }
+  for (const e of ir.edges) check(e.evidence, { edgeId: e.id });
+  for (const f of ir.flows ?? []) {
+    for (const st of f.steps) check(st.evidence, { flowId: f.id, stepId: st.id });
+    for (const t of f.transitions) check(t.evidence, { flowId: f.id, transitionId: t.id });
+  }
+}
+
 /** 노드와 엣지 kind는 IR이 적은 팩(requires 포함)에 있어야 한다. 안 적은 팩의 kind가 섞이면 어떤 범례로 읽을지 정할 수 없다 */
 function checkPacks(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
   for (const id of ir.packs ?? []) {
@@ -575,7 +609,7 @@ function checkFlows(
   };
   for (const flow of ir.flows ?? []) {
     dup(flow.id, flow.id, '흐름');
-    if (byId.get(flow.service)?.kind !== 'service') {
+    if (flow.service !== undefined && byId.get(flow.service)?.kind !== 'service') {
       errors.push({
         code: 'FLOW_SERVICE_NOT_FOUND',
         message: `흐름 "${flow.id}"의 service "${flow.service}"가 service 노드가 아니거나 nodes에 없다.`,
@@ -778,7 +812,9 @@ export function validateArchitectureIr(
   opts: ValidateArchitectureIrOptions = {},
 ): ValidateArchitectureIrResult {
   const checkFiles = opts.checkFiles ?? true;
-  const repoRoots = opts.repoRoots ?? Object.fromEntries(ir.repos.map((r) => [r.id, r.root]));
+  const repoRoots =
+    opts.repoRoots ??
+    Object.fromEntries(ir.repos.flatMap((r) => (r.root === undefined ? [] : [[r.id, r.root]])));
   const ctx = { checkFiles, repoRoots, cache: new Map<string, number | null>() };
   const errors: ArchitectureValidationError[] = [];
   const nodeIds = new Set(ir.nodes.map((n) => n.id));
@@ -790,6 +826,7 @@ export function validateArchitectureIr(
     }
   }
   checkPacks(ir, errors);
+  checkDocRepos(ir, errors);
   checkParents(ir, errors);
   checkAccounts(ir, errors);
   checkGroups(ir, errors);

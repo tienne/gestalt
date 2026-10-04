@@ -19,12 +19,15 @@ export interface ClientConstants {
   backwardKinds: string[];
   /** component를 쓸 수 있는 어휘면 true. 그때만 component 처리 코드를 싣는다 */
   components?: boolean;
+  /** service 없는 흐름이 있으면 true. 전체 레벨의 흐름 단추가 그 흐름을 연다 */
+  rootFlows?: boolean;
 }
 
 // component는 칩 글자를 노드의 displayKind에서, 색과 아이콘은 renderClass에서 가져온다. types.ts의 displayKindOf, chipTextOverride와 같은 규칙이다.
 // 이 조각은 component를 쓸 수 있는 어휘에만 싣는다. 늘 실으면 component가 없는 그림의 바이트까지 바뀐다
 const COMPONENT_DKIND = "n.kind === 'component' ? 'cx_' + (n.renderClass || 'service') : ";
 const COMPONENT_CHIP = "(n.kind === 'component' && n.displayKind) || ";
+const ROOT_FLOWS = "current === 'root' ? flows.filter(function (f) { return !f.service; }) : []";
 
 export const THEME_STORAGE_KEY = 'gestalt-architecture-theme';
 const HINT_STORAGE_KEY = 'gestalt-architecture-hint';
@@ -1501,7 +1504,7 @@ ${FOCUS_SOURCE}
   function flowsHere() {
     var lv = levels[current];
     var svc = lv && lv.kind !== 'flow' && lv.trail[1] && lv.trail[1].indexOf('service:') === 0 ? lv.trail[1].slice(8) : null;
-    return svc ? flowsBySvc[svc] || [] : [];
+    return svc ? flowsBySvc[svc] || [] : ${c.rootFlows ? ROOT_FLOWS : '[]'};
   }
   function syncFlowBtn() {
     if (flowBtn) flowBtn.hidden = flowsHere().length === 0;

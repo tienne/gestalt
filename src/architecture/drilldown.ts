@@ -991,8 +991,10 @@ function treeOrder(
 
 /** service 노드가 하나라도 그려지면 드릴다운으로 그린다 */
 export function shouldDrillDown(validated: ValidatedIr): boolean {
-  return validated.ir.nodes.some(
-    (n) => n.kind === 'service' && validated.drawableNodeIds.has(n.id),
+  return (
+    validated.ir.nodes.some((n) => n.kind === 'service' && validated.drawableNodeIds.has(n.id)) ||
+    // 독립 흐름은 레벨로만 그려지므로 서비스가 없어도 드릴다운 HTML이 필요하다
+    (validated.ir.flows ?? []).some((f) => f.service === undefined)
   );
 }
 
@@ -1003,7 +1005,7 @@ export function shouldDrillDown(validated: ValidatedIr): boolean {
 /** 서비스 id → 그린 흐름 수. 카드 배지 폭과 글자가 같은 수를 써야 한다 */
 export function flowCountByService(flows: readonly FlowLevel[]): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const f of flows) out[f.service] = (out[f.service] ?? 0) + 1;
+  for (const f of flows) if (f.service !== undefined) out[f.service] = (out[f.service] ?? 0) + 1;
   return out;
 }
 

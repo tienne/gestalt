@@ -236,7 +236,11 @@ export function mergeArchitectureIrs(
       } else {
         const existing = repos.find((r) => r.id === id)!;
         // 상대 경로 root는 그 IR을 그린 위치 기준이라 여기서는 못 푼다. 절대 경로가 있으면 그쪽을 쓴다
-        if (!isAbsolute(existing.root) && isAbsolute(repo.root)) existing.root = repo.root;
+        if (
+          repo.root !== undefined &&
+          (existing.root === undefined || (!isAbsolute(existing.root) && isAbsolute(repo.root)))
+        )
+          existing.root = repo.root;
         if (existing.remote === undefined && repo.remote !== undefined)
           existing.remote = repo.remote;
       }
@@ -536,7 +540,7 @@ export function mergeArchitectureIrs(
       flows.push({
         ...f,
         id: uniqueId(f.id, takenFlowIds),
-        service: mapNode(input, f.service),
+        ...(f.service !== undefined ? { service: mapNode(input, f.service) } : {}),
         steps: f.steps.map((st) => ({
           ...st,
           id: mapStep(input, st.id),

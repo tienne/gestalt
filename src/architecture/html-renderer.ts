@@ -76,6 +76,10 @@ function viewTitle(ir: ArchitectureIr): string {
   if (ir.nodes.some((n) => n.kind === 'skill')) return '스킬별 호출 흐름';
   if (ir.nodes.some((n) => n.kind === 'endpoint' && n.protocol === 'mcp'))
     return 'MCP 도구 호출 흐름';
+  // 팩을 적은 IR에서 web-product가 빠졌으면 화면도 호출도 없는 그림이다. 팩이 없는 옛 IR은 제목을 그대로 둔다
+  if (ir.packs && !ir.packs.includes('web-product')) {
+    return ir.nodes.length === 0 && (ir.flows?.length ?? 0) > 0 ? '업무 흐름' : '구성 요소 연결';
+  }
   return VIEW_TITLES[ir.view];
 }
 
@@ -394,6 +398,8 @@ interface CanvasSpec {
   microHosts: ReadonlySet<string>;
   /** 서비스 id → 흐름 수. 드릴다운 그림에만 있다 */
   flows?: Record<string, number>;
+  /** 카드가 없는 레벨에서 대신 보여줄 흐름 링크. 서비스 없는 흐름만 있는 그림의 전체 레벨이 그렇다 */
+  emptyLinks?: { level: string; title: string }[];
 }
 
 function productNames(layout: LayoutResult, id: string): string[] {
@@ -423,6 +429,20 @@ function renderBands(
   return { regionRects: lines.join(''), regionTitles: titles.join('') };
 }
 
+// 스타일을 인라인으로 두는 건 공용 CSS에 규칙을 더하면 기존 그림의 바이트가 바뀌어서다
+function emptyFlowLinks(links: { level: string; title: string }[]): string {
+  const items = links
+    .map(
+      (l) =>
+        `<li><a href="#/level/${encodeURIComponent(l.level)}" style="color:var(--text)">${escapeHtml(l.title)}</a></li>`,
+    )
+    .join('');
+  return (
+    `<div class="empty-state"><div><p style="margin:0 0 8px">이 그림은 흐름만 있어요. 볼 흐름을 고르세요.</p>` +
+    `<ul style="margin:0;padding-left:18px;line-height:1.8">${items}</ul></div></div>`
+  );
+}
+
 /** 레벨 하나. 레인 띠와 선은 SVG, 카드는 그 위에 겹친 HTML이다. 좌표는 전부 서버가 박는다 */
 function renderLevelSection(spec: CanvasSpec): string {
   const open = `<section class="level" data-level-id="${escapeHtml(spec.levelId)}" aria-label="${escapeHtml(spec.title)}"`;
@@ -431,7 +451,7 @@ function renderLevelSection(spec: CanvasSpec): string {
     const { width, height } = EMPTY_LEVEL_SIZE;
     return (
       `${open} data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px"${hidden}>` +
-      `<p class="empty-state">여기는 보여줄 항목이 없어요.</p></section>`
+      `${spec.emptyLinks?.length ? emptyFlowLinks(spec.emptyLinks) : '<p class="empty-state">여기는 보여줄 항목이 없어요.</p>'}</section>`
     );
   }
   const nodeById = new Map(spec.nodes.map((n) => [n.id, n]));
@@ -727,7 +747,7 @@ function flowPayload(
     return {
       level: l.id,
       id: f.id,
-      service: f.service,
+      ...(f.service !== undefined ? { service: f.service } : {}),
       title: f.title,
       ...(f.description !== undefined ? { description: f.description } : {}),
       ...(f.stateLabels !== undefined ? { stateLabels: f.stateLabels } : {}),
@@ -911,8 +931,8 @@ function renderBar(
 const clientScripts = new Map<string, string>();
 
 /** 칩 글자와 설명, 레인 제목은 IR이 쓰는 팩 것만 싣는다. 팩을 더해도 그 팩을 안 쓰는 그림의 바이트가 그대로다 */
-function clientScriptFor(vocab: Vocabulary): string {
-  const key = vocab.packIds.join(',');
+function clientScriptFor(vocab: Vocabulary, rootFlows: boolean): string {
+  const key = `${vocab.packIds.join(',')}|${rootFlows}`;
   const hit = clientScripts.get(key);
   if (hit !== undefined) return hit;
   const pick = <T>(table: Record<string, T>, keys: Iterable<string>): Record<string, T> =>
@@ -935,6 +955,7 @@ function clientScriptFor(vocab: Vocabulary): string {
       .filter((k) => k in vocab.edgeKinds)
       .sort(compareStr),
     components: 'component' in vocab.nodeKinds,
+    rootFlows,
   });
   clientScripts.set(key, script);
   return script;
@@ -1011,7 +1032,7 @@ function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
       ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
       : '',
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
-    `<script>${clientScriptFor(vocab)}</script>`,
+    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined))}</script>`,
     '</body>',
     '</html>',
     '',
@@ -1097,6 +1118,9 @@ export function renderDrilldownHtml(
       flows: flowPayload(drilldown.flows, drawnFlows, base.unresolved),
     });
   }
+  const rootFlowLinks = flowLevels
+    .filter(({ flow }) => flow.service === undefined)
+    .map(({ level, flow }) => ({ level: level.id, title: flow.title }));
   const sections = levels
     .map((l, i) =>
       renderLevelSection({
@@ -1112,6 +1136,9 @@ export function renderDrilldownHtml(
         services: base.services,
         microHosts: new Set(base.microHosts ?? []),
         flows: flowCount,
+        ...(l.id === ROOT_LEVEL_ID && l.nodeIds.length === 0 && rootFlowLinks.length > 0
+          ? { emptyLinks: rootFlowLinks }
+          : {}),
       }),
     )
     .concat(
