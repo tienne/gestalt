@@ -1,5 +1,6 @@
 import { GENERIC_PACK } from './generic.js';
 import { HARNESS_PACK } from './harness.js';
+import { INFRA_PACK } from './infra.js';
 import type {
   DrilldownStrategy,
   EdgeKindDef,
@@ -14,7 +15,7 @@ export * from './render-classes.js';
 export * from './types.js';
 
 /** 내장 팩. 이 순서로 표를 합친다. 새 팩은 뒤에 붙여야 기존 팩 표의 순서가 안 바뀐다 */
-export const BUILTIN_PACKS = [WEB_PRODUCT_PACK, HARNESS_PACK, GENERIC_PACK] as const;
+export const BUILTIN_PACKS = [WEB_PRODUCT_PACK, HARNESS_PACK, GENERIC_PACK, INFRA_PACK] as const;
 
 type BuiltinPack = (typeof BUILTIN_PACKS)[number];
 type KeysOf<P, F extends 'nodeKinds' | 'edgeKinds' | 'lanes' | 'displayKinds'> = P extends {
@@ -49,7 +50,7 @@ export interface Vocabulary {
   looks: Record<string, KindLook>;
   lanes: Record<string, LaneDef>;
   edgeKinds: Record<string, EdgeKindDef>;
-  /** 쓰는 팩 중 web-product 드릴다운이 하나라도 있으면 web-product, 아니면 첫 팩 것이다 */
+  /** 쓰는 팩 중 web-product 드릴다운이 하나라도 있으면 web-product, 그다음 tree, 둘 다 없으면 none이다 */
   drilldown: DrilldownStrategy;
   matchers: string[];
 }
@@ -96,7 +97,12 @@ export function vocabularyOf(ids: readonly string[] = LEGACY_PACK_IDS): Vocabula
     strategies.push(p.drilldown);
     for (const m of p.matchers) if (!v.matchers.includes(m)) v.matchers.push(m);
   }
-  v.drilldown = strategies.includes('web-product') ? 'web-product' : (strategies[0] ?? 'none');
+  // generic처럼 none인 팩을 requires로 끌어와도 tree 팩의 전략을 덮지 않게 순서 대신 우선순위로 고른다
+  v.drilldown = strategies.includes('web-product')
+    ? 'web-product'
+    : strategies.includes('tree')
+      ? 'tree'
+      : 'none';
   cache.set(key, v);
   return v;
 }

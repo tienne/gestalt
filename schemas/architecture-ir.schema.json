@@ -148,7 +148,12 @@
             "client",
             "skill",
             "agent",
-            "component"
+            "component",
+            "firewall",
+            "network",
+            "subnet",
+            "cluster",
+            "workload"
           ]
         },
         "label": {
@@ -263,7 +268,9 @@
             "invokes",
             "connects",
             "sends",
-            "depends_on"
+            "depends_on",
+            "peers",
+            "allows"
           ]
         },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },

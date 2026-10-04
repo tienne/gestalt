@@ -25,6 +25,9 @@ export const GENERIC_PACK = {
   ) as Record<`cx_${RenderClass}`, KindLook>,
   lanes: {
     component: { title: '구성 요소' },
+    // tree 드릴다운의 그룹 레벨에서 그 묶음 밖에 있는 상대 카드가 선다. 보내는 쪽은 왼쪽, 받는 쪽은 오른쪽이다
+    outside_from: { title: '밖에서 들어옴' },
+    outside_to: { title: '밖으로 나감' },
   },
   edgeKinds: {
     connects: { text: '연결' },

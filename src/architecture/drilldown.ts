@@ -19,12 +19,13 @@ import {
 } from './layout.js';
 import { computeFlowLevels, type FlowLevel } from './flow-layout.js';
 import { indexMicroApps, orderedApps, type MicroAppIndex } from './micro-app.js';
+import { irVocabulary } from './packs/index.js';
 import { computeServiceFacts } from './service-facts.js';
 import type { ArchitectureEdge, ArchitectureNode, EdgeKind, LineStyle, NodeKind } from './types.js';
 import { chipTextOverride, displayKindOf } from './types.js';
 import type { ValidatedIr } from './validator.js';
 
-export type DrillLevelKind = 'root' | 'service' | 'app' | 'server' | 'feature';
+export type DrillLevelKind = 'root' | 'service' | 'app' | 'server' | 'feature' | 'group';
 
 /**
  * 레벨에 그리는 선. 세부 엣지를 그대로 옮긴 것이면 count가 1이고 kind가 원래 엣지 kind다.
@@ -41,7 +42,7 @@ export interface DrillEdge {
 }
 
 export interface DrillLevel {
-  /** `root`, `service:<id>`, `app:<id>`, `server:<id>`, `feature:<id>` */
+  /** `root`, `service:<id>`, `app:<id>`, `server:<id>`, `feature:<id>`, `group:<id>` */
   id: string;
   kind: DrillLevelKind;
   focusId?: string;
@@ -999,6 +1000,96 @@ function treeOrder(
   return { root: tree.root, children };
 }
 
+/**
+ * tree 전략의 레벨. 전체는 parent 없는 노드를, 자식이 있는 노드마다 그 직속 자식을 세운다.
+ * 자손끼리의 선은 이 레벨에 선 카드까지 끌어올려 묶는다. 밖으로 나가는 선은 상대를 이 레벨의 형제 높이까지 올려 같이 세운다
+ */
+function groupDrafts(full: Graph): { drafts: LevelDraft[]; enter: Record<string, string> } {
+  const g = prodGraph(full);
+  const children = new Map<string, string[]>();
+  for (const [c, p] of [...g.parentOf].sort((a, b) => compareStr(a[0], b[0]))) {
+    children.set(p, [...(children.get(p) ?? []), c]);
+  }
+  const chainOf = (id: string): string[] => {
+    const out = [id];
+    for (let p = g.parentOf.get(id); p !== undefined; p = g.parentOf.get(p)) out.push(p);
+    return out;
+  };
+  const levelIdOf = (id: string): string => `group:${id}`;
+  const enter: Record<string, string> = {};
+  for (const id of children.keys()) enter[id] = levelIdOf(id);
+
+  const draftFor = (focus: string | undefined): LevelDraft => {
+    const members = new Set(
+      focus === undefined
+        ? [...g.nodeById.keys()].filter((id) => !g.parentOf.has(id))
+        : children.get(focus)!,
+    );
+    // 이 레벨에 선 카드 중 id를 품은 것. 없으면 이 레벨 밖이다
+    const lift = (id: string): string | undefined => chainOf(id).find((x) => members.has(x));
+    const around = new Set(focus === undefined ? [] : chainOf(focus));
+    // 밖의 끝점은 이 레벨을 품은 조상 바로 아래까지만 올린다. 그래야 옆 서브넷이나 옆 조직처럼 한 단계 위 형제로 보인다
+    const liftOutside = (id: string): string => {
+      let x = id;
+      for (let p = g.parentOf.get(x); p !== undefined && !around.has(p); p = g.parentOf.get(x))
+        x = p;
+      return x;
+    };
+    const nodeIds = new Set(members);
+    const sendsOut = new Set<string>();
+    const receives = new Set<string>();
+    const b = new Bundler();
+    const detail: DrillEdge[] = [];
+    const pairs = new Map<string, ArchitectureEdge[]>();
+    for (const e of g.edges) {
+      let from = lift(e.from);
+      let to = lift(e.to);
+      if (from === undefined && to === undefined) continue;
+      if (focus !== undefined && from === undefined) from = liftOutside(e.from);
+      if (focus !== undefined && to === undefined) to = liftOutside(e.to);
+      if (from === undefined || to === undefined || from === to) continue;
+      nodeIds.add(from);
+      nodeIds.add(to);
+      if (!members.has(from)) sendsOut.add(from);
+      if (!members.has(to)) receives.add(to);
+      const k = `${from}\u0000${to}`;
+      pairs.set(k, [...(pairs.get(k) ?? []), e]);
+    }
+    for (const [k, es] of pairs) {
+      const [from, to] = k.split('\u0000') as [string, string];
+      // 끌어올리지 않은 선 하나는 원래 kind 그대로 그려야 범례 글자가 맞는다
+      if (es.length === 1 && es[0]!.from === from && es[0]!.to === to)
+        detail.push(asDetail(es[0]!));
+      else for (const e of es) b.add(from, to, e.id, [e.id]);
+    }
+    // 바깥 카드를 kind 순위대로 두면 안쪽 카드 사이에 끼어 선이 크게 돈다. 받는 쪽은 오른쪽 끝, 보내기만 하는 쪽은 왼쪽 끝에 모은다
+    const ranks = [...members].map((id) => PARTITION_RANK[g.nodeById.get(id)!.kind]);
+    const rankOverride = new Map<string, number>();
+    const laneOverride = new Map<string, LaneId>();
+    for (const id of new Set([...sendsOut, ...receives])) {
+      rankOverride.set(id, receives.has(id) ? Math.max(...ranks) + 1 : Math.min(...ranks) - 1);
+      laneOverride.set(id, receives.has(id) ? 'outside_to' : 'outside_from');
+    }
+    const node = focus === undefined ? undefined : g.nodeById.get(focus)!;
+    const trail = [
+      ROOT_LEVEL_ID,
+      ...(focus === undefined ? [] : chainOf(focus).reverse().map(levelIdOf)),
+    ];
+    return {
+      id: focus === undefined ? ROOT_LEVEL_ID : levelIdOf(focus),
+      kind: focus === undefined ? 'root' : 'group',
+      ...(focus !== undefined ? { focusId: focus } : {}),
+      title: node === undefined ? '전체' : (node.displayName ?? node.label),
+      trail,
+      nodeIds,
+      edges: [...b.toEdges(g), ...detail].sort(byId),
+      ...(rankOverride.size > 0 ? { rankOverride, laneOverride } : {}),
+    };
+  };
+  const drafts = [draftFor(undefined), ...[...children.keys()].sort(compareStr).map(draftFor)];
+  return { drafts, enter };
+}
+
 /** service 노드가 하나라도 그려지면 드릴다운으로 그린다 */
 export function shouldDrillDown(validated: ValidatedIr): boolean {
   return (
@@ -1006,7 +1097,15 @@ export function shouldDrillDown(validated: ValidatedIr): boolean {
     // 독립 흐름은 레벨로만 그려지므로 서비스가 없어도 드릴다운 HTML이 필요하다
     (validated.ir.flows ?? []).some((f) => f.service === undefined) ||
     // 질문별 그림도 레벨로만 붙는다
-    (validated.drawableProjectionIds?.size ?? 0) > 0
+    (validated.drawableProjectionIds?.size ?? 0) > 0 ||
+    // tree 팩은 포함 관계가 하나라도 있으면 한 단계씩 들어가 본다
+    (irVocabulary(validated.ir).drilldown === 'tree' &&
+      validated.ir.nodes.some(
+        (n) =>
+          n.parent !== undefined &&
+          validated.drawableNodeIds.has(n.id) &&
+          validated.drawableNodeIds.has(n.parent),
+      ))
   );
 }
 
@@ -1027,8 +1126,9 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
   const sorted = [...g.nodeById.values()].sort(byId);
   const bands = bandGroupsOf(validated.ir);
   const apps = indexMicroApps(sorted, g.edges);
-  const drafts: LevelDraft[] = [rootLevel(g, apps)];
-  const enter: Record<string, string> = {};
+  const tree = irVocabulary(validated.ir).drilldown === 'tree' ? groupDrafts(g) : undefined;
+  const drafts: LevelDraft[] = tree?.drafts ?? [rootLevel(g, apps)];
+  const enter: Record<string, string> = tree?.enter ?? {};
   const entryApps = new Set(apps.entryOf.values());
   const trailOf = (ownerId: string): string[] | undefined => {
     const owner = g.nodeById.get(ownerId);
@@ -1058,7 +1158,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
       lineStyle: 'solid',
     }));
 
-  for (const n of sorted) {
+  for (const n of tree === undefined ? sorted : []) {
     if (n.kind === 'service') {
       const entry = g.nodeById.get(apps.entryOf.get(n.id) ?? '');
       const trail = trailOf(n.id)!;
