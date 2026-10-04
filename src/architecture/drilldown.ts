@@ -4,11 +4,12 @@ import {
   KIND_LANE,
   PARTITION_RANK,
   pinToColumnTop,
+  alignColumnsTo,
+  sinkToColumnBottom,
   stackBands,
   bandGroupsOf,
   stackFrames,
   frameRects,
-  type BandGroup,
   type FrameGroup,
   type LaneId,
   type LayoutResult,
@@ -32,13 +33,6 @@ export interface DrillEdge {
   count: number;
   memberEdgeIds: string[];
   lineStyle: LineStyle;
-  /**
-   * 호스트 앱이 리모트를 불러오는 선을 리모트 prod 도메인까지 이은 것. kind는 loads이고 멤버는 loads와 리모트 서빙 사슬이다.
-   * 리모트 코드는 사용자 진입 도메인이 아니라 리모트 CDN에서 내려오므로 그 도메인에 닿게 그린다
-   */
-  runtime?: true;
-  /** 레인 순서가 화살표 반대라 elk에 뒤집어 넘기는 선 */
-  backward?: true;
 }
 
 export interface DrillLevel {
@@ -340,12 +334,14 @@ interface LevelDraft {
   laneOfKind?: Partial<Record<ArchitectureNode['kind'], LaneId>>;
   /** 배치 뒤 제 열 맨 위로 올릴 노드 */
   pinTop?: string;
+  /** pinTop 카드와 같은 높이로 맞출 열의 노드. 그 열이 전부 이 노드일 때만 옮긴다 */
+  alignToPin?: string[];
+  /** 배치 뒤 제 열 맨 아래로 내릴 노드. 이 순서대로 쌓는다 */
+  sinkBottom?: string[];
   /** 레이어 안 위아래 순서. 환경 순서보다 먼저 본다 */
   orderOverride?: Map<string, number>;
   /** 테두리로 묶을 카드 */
   frames?: FrameGroup[];
-  /** 제품 띠 대신 쓸 띠 */
-  bands?: BandGroup[];
 }
 
 /** 서비스에서 출발해 게이트웨이를 거쳐 닿는 노드. 서버에서 나가는 선은 따라가지 않는다 */
@@ -468,6 +464,14 @@ function rootLevel(full: Graph, apps: MicroAppIndex): LevelDraft {
   };
 }
 
+/** 소유자 레벨에 더 얹을 것. 진입 앱을 서비스 레벨로 그릴 때와 앱 아래 앱 카드를 달 때 쓴다 */
+interface OwnerLevelExtra {
+  /** 레벨 제목을 가져올 노드. 진입 앱 레벨은 서비스 이름으로 연다 */
+  titleOf?: ArchitectureNode;
+  /** 소유자 카드에서 나가 기능 영역 레인 맨 아래에 서는 앱 카드 선. loads나 contains다 */
+  children?: DrillEdge[];
+}
+
 /**
  * 서비스나 앱 하나를 펼친 레벨. 그 소유자에 바로 달린 기능 영역과 화면, 그 화면이 부르는 API, 소유자를 서빙하는 인프라 사슬이다.
  * micro_app이 없는 서비스는 예전 서비스 레벨과 같은 그림이 나와야 해서 소유자만 바꿔 같은 길을 탄다
@@ -477,8 +481,10 @@ function ownerLevel(
   owner: ArchitectureNode,
   kind: 'service' | 'app',
   trail: string[],
+  extra: OwnerLevelExtra = {},
 ): LevelDraft {
   const id = trail[trail.length - 1]!;
+  const children = extra.children ?? [];
   const nodeIds = new Set<string>();
   for (const n of g.nodeById.values()) {
     if (n.kind === 'feature' && g.parentOf.get(n.id) === owner.id) nodeIds.add(n.id);
@@ -507,13 +513,13 @@ function ownerLevel(
     id,
     kind,
     focusId: owner.id,
-    title: owner.displayName ?? owner.label,
+    title: (extra.titleOf ?? owner).displayName ?? (extra.titleOf ?? owner).label,
     trail,
     nodeIds,
     edges,
     laneOfKind: { feature: 'unit', screen: 'unit' },
   };
-  if (infra.length === 0) return base;
+  if (infra.length === 0 && children.length === 0) return base;
 
   // 서빙 인프라가 붙으면 도메인부터 서버까지 한 줄로 읽히게 소유자 카드를 기능 영역 레인 맨 위에 세우고
   // 포함 선으로 기능 영역에 잇는다. 포커스가 이 선을 타고 도메인에서 서버까지 이어진다
@@ -532,6 +538,11 @@ function ownerLevel(
     rankOverride.set(n, PARTITION_RANK[kindOf(g, n) as NodeKind] + INFRA_RANK_SHIFT);
   rankOverride.set(owner.id, PARTITION_RANK.service + INFRA_RANK_SHIFT);
   nodeIds.add(owner.id);
+  // 앱 카드는 기능 영역과 같은 열에 세운다. 소유자 아래 한 단계라는 점이 기능 영역과 같아서다
+  for (const c of children) {
+    nodeIds.add(c.to);
+    rankOverride.set(c.to, PARTITION_RANK.feature + INFRA_RANK_SHIFT);
+  }
   for (const e of infra) {
     for (const n of [e.from, e.to]) {
       nodeIds.add(n);
@@ -541,96 +552,14 @@ function ownerLevel(
   }
   return {
     ...base,
-    edges: [...edges, ...contains, ...dedupe(infra).map(asDetail)].sort(byId),
+    edges: [...edges, ...contains, ...children, ...dedupe(infra).map(asDetail)].sort(byId),
     rankOverride,
     laneOfKind: { feature: 'unit', screen: 'unit', service: 'unit', micro_app: 'unit' },
     pinTop: owner.id,
-  };
-}
-
-const MFA_APP_RANK = 3;
-const HOST_BAND = '호스트 (사용자 진입)';
-const REMOTE_BAND = '리모트 (호스트가 런타임에 불러옴)';
-
-/**
- * micro_app이 달린 서비스 레벨. 앱마다 prod 서빙 사슬(도메인 → CDN → 버킷 → 앱)을 한 줄씩 세우고
- * 호스트 줄과 리모트 줄을 띠로 나눈다. 기능 영역과 API는 앱 레벨에서 본다. 여기서 같이 그리면 어느 줄 인프라인지가 묻힌다
- */
-function microServiceLevel(
-  full: Graph,
-  service: ArchitectureNode,
-  apps: MicroAppIndex,
-): LevelDraft {
-  const g = prodGraph(full);
-  const id = `service:${service.id}`;
-  const own = orderedApps(apps, service.id).filter((a) => g.nodeById.has(a));
-  const loads = apps.loads.filter(
-    (e) => own.includes(e.from) && g.nodeById.has(e.to) && e.from !== e.to,
-  );
-  // 다른 서비스에 달렸거나 parent가 없는 리모트도 이 서비스 호스트가 불러오면 이 그림에 선다
-  const lineup = [...own, ...loads.map((e) => e.to).filter((a) => !own.includes(a))].filter(
-    (a, i, all) => all.indexOf(a) === i,
-  );
-  const nodeIds = new Set<string>();
-  const rankOverride = new Map<string, number>();
-  const orderOverride = new Map<string, number>();
-  const chainOf = new Map<string, ArchitectureEdge[]>();
-  const edges: DrillEdge[] = [];
-  const host = new Set<string>();
-  const remote = new Set<string>();
-  lineup.forEach((app, order) => {
-    const chain = dedupe(infraChainOf(g, app));
-    chainOf.set(app, chain);
-    const band = apps.hosts.has(app) ? host : remote;
-    for (const n of [app, ...chain.flatMap((e) => [e.from, e.to])]) {
-      if (nodeIds.has(n)) continue;
-      nodeIds.add(n);
-      band.add(n);
-      orderOverride.set(n, order);
-      rankOverride.set(n, SERVICE_INFRA_RANK[kindOf(g, n) as NodeKind] ?? MFA_APP_RANK);
-    }
-    edges.push(...chain.map(asDetail));
-  });
-  for (const load of loads) {
-    const chain = chainOf.get(load.to) ?? [];
-    const domain = chain.find((e) => e.kind === 'resolves_to')?.from;
-    if (domain === undefined) {
-      edges.push(asDetail(load));
-      continue;
-    }
-    const memberEdgeIds = [load.id, ...ids(chain)].sort(compareStr);
-    const dashed = memberEdgeIds.some((m) => g.edgeById.get(m)?.lineStyle === 'dashed');
-    edges.push({
-      id: `runtime:${load.id}`,
-      from: load.from,
-      to: domain,
-      kind: 'loads',
-      count: 1,
-      memberEdgeIds,
-      lineStyle: dashed ? 'dashed' : 'solid',
-      runtime: true,
-      backward: true,
-    });
-  }
-  const bands: BandGroup[] =
-    host.size > 0 && remote.size > 0
-      ? [
-          { id: 'host', name: HOST_BAND, members: host },
-          { id: 'remote', name: REMOTE_BAND, members: remote },
-        ]
-      : [];
-  return {
-    id,
-    kind: 'service',
-    focusId: service.id,
-    title: service.displayName ?? service.label,
-    trail: [ROOT_LEVEL_ID, id],
-    nodeIds,
-    edges: edges.sort(byId),
-    rankOverride,
-    orderOverride,
-    laneOfKind: { micro_app: 'micro_app' },
-    bands,
+    alignToPin: dedupe(infra)
+      .flatMap((e) => [e.from, e.to])
+      .filter((n) => n !== owner.id),
+    ...(children.length > 0 ? { sinkBottom: children.map((c) => c.to) } : {}),
   };
 }
 
@@ -794,11 +723,14 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
   const apps = indexMicroApps(sorted, g.edges);
   const drafts: LevelDraft[] = [rootLevel(g, apps)];
   const enter: Record<string, string> = {};
+  const entryApps = new Set(apps.entryOf.values());
   const trailOf = (ownerId: string): string[] | undefined => {
     const owner = g.nodeById.get(ownerId);
     if (owner?.kind === 'service') return [ROOT_LEVEL_ID, `service:${owner.id}`];
     if (owner?.kind !== 'micro_app') return undefined;
     const parent = g.parentOf.get(owner.id);
+    // 진입 앱은 서비스 레벨이 곧 그 앱 레벨이다. 사용자가 서비스로 들어가면 처음 받는 게 이 앱이라서다
+    if (entryApps.has(owner.id)) return [ROOT_LEVEL_ID, `service:${parent!}`];
     return [
       ROOT_LEVEL_ID,
       ...(parent !== undefined && kindOf(g, parent) === 'service' ? [`service:${parent}`] : []),
@@ -806,15 +738,34 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
     ];
   };
 
+  const loadsFrom = (appId: string): DrillEdge[] =>
+    apps.loads.filter((e) => e.from === appId && e.to !== appId).map(asDetail);
+  // 진입 앱을 못 정한 서비스는 앱 카드를 서비스 아래에 포함 선으로 늘어놓고 하나씩 들어가게 한다
+  const appCardsOf = (serviceId: string): DrillEdge[] =>
+    orderedApps(apps, serviceId).map((a) => ({
+      id: `contains:${serviceId}->${a}`,
+      from: serviceId,
+      to: a,
+      kind: 'contains',
+      count: 1,
+      memberEdgeIds: [],
+      lineStyle: 'solid',
+    }));
+
   for (const n of sorted) {
     if (n.kind === 'service') {
-      const level = apps.appsOf.has(n.id)
-        ? microServiceLevel(g, n, apps)
-        : ownerLevel(g, n, 'service', trailOf(n.id)!);
+      const entry = g.nodeById.get(apps.entryOf.get(n.id) ?? '');
+      const trail = trailOf(n.id)!;
+      const level =
+        entry !== undefined
+          ? ownerLevel(g, entry, 'service', trail, { titleOf: n, children: loadsFrom(entry.id) })
+          : ownerLevel(g, n, 'service', trail, { children: appCardsOf(n.id) });
       drafts.push(level);
       enter[n.id] = level.id;
+      if (entry !== undefined) enter[entry.id] = level.id;
     } else if (n.kind === 'micro_app') {
-      const level = ownerLevel(g, n, 'app', trailOf(n.id)!);
+      if (entryApps.has(n.id)) continue;
+      const level = ownerLevel(g, n, 'app', trailOf(n.id)!, { children: loadsFrom(n.id) });
       drafts.push(level);
       enter[n.id] = level.id;
     } else if (n.kind === 'gateway' || n.kind === 'app_module') {
@@ -858,8 +809,13 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
     });
     const laid = await computeGraphLayout(layoutNodes, d.edges);
     const pinned = d.pinTop !== undefined ? pinToColumnTop(laid, d.pinTop) : laid;
-    const framed = d.frames !== undefined ? stackFrames(pinned, d.frames) : pinned;
-    const banded = stackBands(framed, d.bands ?? bands);
+    const aligned =
+      d.pinTop !== undefined && d.alignToPin !== undefined
+        ? alignColumnsTo(pinned, d.pinTop, d.alignToPin)
+        : pinned;
+    const sunk = d.sinkBottom !== undefined ? sinkToColumnBottom(aligned, d.sinkBottom) : aligned;
+    const framed = d.frames !== undefined ? stackFrames(sunk, d.frames) : sunk;
+    const banded = stackBands(framed, bands);
     const layout = d.frames !== undefined ? frameRects(banded, d.frames) : banded;
     levels.push({
       id: d.id,

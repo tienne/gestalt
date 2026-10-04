@@ -489,6 +489,75 @@ export function pinToColumnTop(layout: LayoutResult, nodeId: string): LayoutResu
   };
 }
 
+/**
+ * ids로만 이뤄진 열을 통째로 올리거나 내려 그 열 맨 위 카드가 기준 카드와 같은 높이에 서게 한다.
+ * 맨 위로 올린 소유자 카드와 그 서빙 사슬이 한 줄로 읽혀야 하는데, elk는 사슬을 소유자의 원래 자리 옆에 두기 때문이다
+ */
+export function alignColumnsTo(
+  layout: LayoutResult,
+  anchorId: string,
+  nodeIds: readonly string[],
+): LayoutResult {
+  const anchor = layout.nodes.find((n) => n.id === anchorId);
+  if (!anchor) return layout;
+  const members = new Set(nodeIds);
+  const columns = new Map<number, LayoutNode[]>();
+  for (const n of layout.nodes) columns.set(n.x, [...(columns.get(n.x) ?? []), n]);
+  const shift = new Map<string, number>();
+  for (const col of columns.values()) {
+    if (col.some((n) => n.id === anchorId) || !col.every((n) => members.has(n.id))) continue;
+    const dy = anchor.y - Math.min(...col.map((n) => n.y));
+    if (dy !== 0) for (const n of col) shift.set(n.id, dy);
+  }
+  if (shift.size === 0) return layout;
+  const nodes = layout.nodes.map((n) => ({ ...n, y: round2(n.y + (shift.get(n.id) ?? 0)) }));
+  const bottom = Math.max(...nodes.map((n) => n.y + n.height));
+  return {
+    ...layout,
+    height: round2(Math.max(layout.height, bottom)),
+    nodes,
+    edges: layout.edges.map((e) => ({ ...e })),
+    movedNodeIds: [...new Set([...(layout.movedNodeIds ?? []), ...shift.keys()])].sort(),
+  };
+}
+
+/**
+ * 노드를 제 열 맨 아래로 내려 받은 순서대로 쌓는다. 그 열의 나머지 카드는 elk가 정한 위아래 순서대로 위에서부터 다시 잇는다.
+ * 기능 영역과 같은 열에 서는 앱 카드가 기능 영역 사이에 끼면 어느 카드가 한 단계 아래 앱인지 안 읽혀서 쓴다
+ */
+export function sinkToColumnBottom(layout: LayoutResult, nodeIds: readonly string[]): LayoutResult {
+  const sinkOrder = new Map(nodeIds.map((id, i) => [id, i]));
+  const placed = new Map<string, number>();
+  const columns = new Map<number, LayoutNode[]>();
+  for (const n of layout.nodes) columns.set(n.x, [...(columns.get(n.x) ?? []), n]);
+  for (const col of columns.values()) {
+    if (!col.some((n) => sinkOrder.has(n.id))) continue;
+    const byY = [...col].sort((a, b) => a.y - b.y || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const stacked = [
+      ...byY.filter((n) => !sinkOrder.has(n.id)),
+      ...byY
+        .filter((n) => sinkOrder.has(n.id))
+        .sort((a, b) => sinkOrder.get(a.id)! - sinkOrder.get(b.id)!),
+    ];
+    let y = byY[0]!.y;
+    for (const n of stacked) {
+      placed.set(n.id, round2(y));
+      y += n.height + PIN_GAP;
+    }
+  }
+  if (placed.size === 0) return layout;
+  const nodes = layout.nodes.map((n) => ({ ...n, y: placed.get(n.id) ?? n.y }));
+  const moved = nodes.filter((n, i) => n.y !== layout.nodes[i]!.y).map((n) => n.id);
+  const bottom = Math.max(...nodes.map((n) => n.y + n.height));
+  return {
+    ...layout,
+    height: round2(Math.max(layout.height, bottom)),
+    nodes,
+    edges: layout.edges.map((e) => ({ ...e })),
+    movedNodeIds: [...new Set([...(layout.movedNodeIds ?? []), ...moved])].sort(),
+  };
+}
+
 /** 테두리로 묶을 카드. 머리 카드 바로 아래에 멤버를 순서대로 잇는다 */
 export interface FrameGroup {
   head: string;
