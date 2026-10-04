@@ -491,6 +491,14 @@ function checkFlows(
           ...where,
         });
       }
+      for (const actor of t.actors ?? []) {
+        if (actorIds.has(actor)) continue;
+        errors.push({
+          code: 'FLOW_ACTOR_NOT_FOUND',
+          message: `전이 "${t.id}"의 actors "${actor}"가 흐름 "${flow.id}"의 actors에 없다.`,
+          ...where,
+        });
+      }
       // 엣지와 같은 규칙이다. 실선은 상태를 바꾸는 코드를 봤다는 주장이라 기획서만으로는 못 긋는다
       if (t.lineStyle === 'solid' && deriveLineStyle(t.evidence) !== 'solid') {
         errors.push({

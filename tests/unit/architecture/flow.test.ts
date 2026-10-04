@@ -246,6 +246,12 @@ describe('흐름 검증', () => {
     expect(codes).toContain('FLOW_STEP_NOT_FOUND');
   });
 
+  it('전이 actors가 없는 행위자를 가리키면 거부한다', () => {
+    const f = queueFlow();
+    f.transitions[0] = { ...f.transitions[0]!, actors: ['guest', 'robot'] };
+    expect(errorsOf(fixture(f))).toContain('FLOW_ACTOR_NOT_FOUND');
+  });
+
   it('refs는 있는 화면이나 API, 기능, 앱만 가리킨다', () => {
     const missing = queueFlow();
     missing.steps[0] = { ...missing.steps[0]!, refs: ['s-ghost'] };
@@ -334,6 +340,34 @@ describe('흐름 배치', () => {
     expect(layout.transitions.find((t) => t.id === 't-7')!.back).toBe(true);
     expect(layout.transitions.find((t) => t.id === 't-1')!.back).toBe(false);
     expect(layout.height).toBeGreaterThan(layout.lanes.reduce((n, l) => n + l.height, 0));
+  });
+
+  // 되돌리기를 단계 대신 전이로 적은 모양. 새 상태가 없고 앞 상태로 돌아가기만 해서다
+  function undoAsTransition(): ArchitectureFlow {
+    const f = queueFlow();
+    f.steps = f.steps.filter((s) => s.id !== 'st-undo');
+    f.transitions = f.transitions.filter((t) => t.id !== 't-6' && t.id !== 't-7');
+    f.transitions.push({
+      id: 't-undo',
+      from: 'st-noshow',
+      to: 'st-call',
+      path: 'side',
+      label: '되돌리기',
+      actors: ['guest', 'staff'],
+      evidence: [code('web:src/undo.ts:9')],
+      lineStyle: 'solid',
+    });
+    return f;
+  }
+
+  it('되돌아가는 선은 막히지 않으면 그림 맨 아래로 안 내려가고 두 카드 가까이에서 건넌다', () => {
+    const layout = layoutOf(fixture(undoAsTransition()));
+    const undo = layout.transitions.find((t) => t.id === 't-undo')!;
+    expect(undo.back).toBe(true);
+    const lanesBottom = layout.lanes.reduce((n, l) => Math.max(n, l.y + l.height), 0);
+    expect(Math.max(...undo.points.map((p) => p.y))).toBeLessThan(lanesBottom);
+    expect(layout.height).toBe(lanesBottom);
+    expect(undo.labelAt).toBeDefined();
   });
 
   it('같은 입력이면 같은 좌표가 나온다', () => {
@@ -477,6 +511,32 @@ describe('흐름 레벨 렌더', () => {
     expect(html).toMatch(/aria-label="[^"]*상태 호출/);
     // 이름이 없는 상태는 상태 값 그대로다
     expect(html).toContain('<span class="st" title="SITTING">SITTING</span>');
+  });
+
+  it('되돌아가는 전이는 둥근 선에 표시를 달고 일으키는 행위자 이름을 선 글자 옆에 붙인다', async () => {
+    const flow = queueFlow();
+    flow.steps = flow.steps.filter((s) => s.id !== 'st-undo');
+    flow.transitions = flow.transitions.filter((t) => t.id !== 't-6' && t.id !== 't-7');
+    flow.transitions.push({
+      id: 't-undo',
+      from: 'st-noshow',
+      to: 'st-call',
+      path: 'side',
+      label: '되돌리기',
+      actors: ['guest', 'staff'],
+      evidence: [code('web:src/undo.ts:9')],
+      lineStyle: 'solid',
+    });
+    const { html } = await render(fixture(flow));
+    const g = html.match(
+      /<g class="link flow-t p-side back"[^>]*data-transition-id="t-undo".*?<\/g>/,
+    )![0];
+    expect(g).toContain('aria-label="옆 흐름, 앞 단계로 되돌아감: ');
+    expect(g).toContain('누가 손님, 직원');
+    expect(g).toMatch(/<path class="edge" d="[^"]* Q/);
+    expect(g).toContain(
+      '<tspan class="t-back">↩ </tspan>되돌리기<tspan class="t-who"> · 손님, 직원</tspan>',
+    );
   });
 
   it('공유본은 상태 이름도 계정 ID를 가린다', async () => {

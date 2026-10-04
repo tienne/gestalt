@@ -189,6 +189,8 @@ export interface FlowTransition {
   path: FlowPath;
   /** 넘어가는 조건. 선 위에 짧게 보인다 */
   label?: string;
+  /** 이 전이를 일으키는 행위자 id. 되돌리기처럼 여러 행위자가 할 수 있는 전이에 단다. 선 글자 옆에 이름이 붙는다 */
+  actors?: string[];
   evidence: Evidence[];
   lineStyle: LineStyle;
 }

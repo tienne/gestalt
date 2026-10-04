@@ -173,6 +173,7 @@ const flowTransitionSchema = z.object({
   to: z.string().min(1),
   path: z.enum(FLOW_PATHS),
   label: z.string().min(1).optional(),
+  actors: z.array(z.string().min(1)).min(1).optional(),
   evidence: z.array(evidenceSchema),
   lineStyle: lineStyleSchema,
 });

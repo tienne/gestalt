@@ -425,6 +425,8 @@ button { font: inherit; color: inherit; }
   font-size: 11px; font-weight: 600; text-anchor: middle; fill: var(--muted);
   paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
 }
+.link.flow-t .t-who { fill: var(--text); font-weight: 700; }
+.link.flow-t .t-back { fill: var(--accent); font-weight: 700; }
 .dr-body .refs-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; padding: 0; list-style: none; }
 .dr-body .refs-list button {
   display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 8px; border-radius: 6px; cursor: pointer;

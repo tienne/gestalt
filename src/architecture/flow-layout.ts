@@ -32,7 +32,7 @@ export interface FlowTransitionRoute {
   points: LayoutPoint[];
   /** 화살촉 꼭짓점 셋 */
   tip: LayoutPoint[];
-  /** 조건 글자를 놓을 자리. label이 없으면 없다 */
+  /** 조건 글자와 행위자 이름을 놓을 자리. 둘 다 없으면 없다 */
   labelAt?: LayoutPoint;
   /** 왼쪽 열로 돌아가는 전이. 되돌리기처럼 상태가 앞 단계로 돌아가는 자리다 */
   back: boolean;
@@ -326,6 +326,47 @@ function sideRoute(
   return candidates.find((c) => !collides(c, from, [a, b], boxes, placed)) ?? candidates[0]!;
 }
 
+/**
+ * 되돌아가는 전이의 가까운 길. 두 카드 중 위쪽 카드의 바로 위 빈 줄이나 아래쪽 카드의 바로 아래 빈 줄로 건너간다.
+ * 그 줄은 카드가 안 서는 여백이라 다른 카드를 안 뚫는다. 다른 선과 겹치면 몇 px씩 비켜 보고 그래도 안 되면 undefined를 돌려 맨 아래 길로 보낸다
+ */
+function nearBackRoute(
+  a: FlowStepBox,
+  b: FlowStepBox,
+  from: string,
+  boxes: readonly FlowStepBox[],
+  placed: readonly Segment[],
+): LayoutPoint[] | undefined {
+  const over = Math.min(a.y, b.y) - ROW_GAP / 2;
+  const under = Math.max(a.y + a.height, b.y + b.height) + ROW_GAP / 2;
+  // 옆 흐름 선이 카드 0.28과 0.72, 0.14와 0.86 자리로 드나드니 그 사이 자리를 먼저 본다
+  const ratios = [0.5, 0.4, 0.6, 0.34, 0.66];
+  for (let k = 0; k < 3; k += 1) {
+    const shift = k * BACK_LANE_GAP * 0.6;
+    for (const [gy, side] of [
+      [over - shift, 'top'],
+      [under + shift, 'bottom'],
+    ] as const) {
+      const fromEdge = side === 'top' ? a.y : a.y + a.height;
+      const toEdge = side === 'top' ? b.y : b.y + b.height;
+      for (const rs of ratios) {
+        for (const rt of ratios) {
+          const sx = a.x + a.width * rs;
+          const tx = b.x + b.width * rt;
+          const points = [
+            { x: sx, y: fromEdge },
+            { x: sx, y: gy },
+            { x: tx, y: gy },
+            { x: tx, y: toEdge },
+          ];
+          if (!collides(points, from, [a, b], boxes, placed)) return points;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 /** 꺾인 선의 글자 자리. 가장 긴 세로 구간 가운데에 둔다 */
 function longestVerticalMid(points: readonly LayoutPoint[]): LayoutPoint {
   let best = { x: points[0]!.x, y: points[0]!.y, len: -1 };
@@ -406,7 +447,7 @@ export function computeFlowLayout(
   const boxOf = new Map(boxes.map((b) => [b.id, b]));
   const height = y;
 
-  // 되돌아가는 선은 그림 맨 아래 여백으로 돌린다. 단계 사이를 가로지르면 정상 흐름 선과 엉킨다
+  // 되돌아가는 선은 두 카드 바로 위나 아래 빈 줄로 건넌다. 그 줄이 막히면 그림 맨 아래 여백으로 돌린다
   let backCount = 0;
   const placed: Segment[] = [];
   const routes: FlowTransitionRoute[] = transitions.map((t) => {
@@ -415,16 +456,21 @@ export function computeFlowLayout(
     const isBack = back.has(t.id) || b.column <= a.column;
     let points: LayoutPoint[];
     if (isBack) {
-      backCount += 1;
-      const floor = height + BACK_LANE_GAP * backCount;
-      const sx = a.x + a.width / 2 + 10;
-      const tx = b.x + b.width / 2 - 10;
-      points = [
-        { x: sx, y: a.y + a.height },
-        { x: sx, y: floor },
-        { x: tx, y: floor },
-        { x: tx, y: b.y + b.height },
-      ];
+      const near = nearBackRoute(a, b, t.from, boxes, placed);
+      if (near !== undefined) {
+        points = near;
+      } else {
+        backCount += 1;
+        const floor = height + BACK_LANE_GAP * backCount;
+        const sx = a.x + a.width / 2 + 10;
+        const tx = b.x + b.width / 2 - 10;
+        points = [
+          { x: sx, y: a.y + a.height },
+          { x: sx, y: floor },
+          { x: tx, y: floor },
+          { x: tx, y: b.y + b.height },
+        ];
+      }
     } else if (t.path === 'side' && b.y !== a.y) {
       points = sideRoute(a, b, t.from, boxes, placed);
     } else {
@@ -462,7 +508,7 @@ export function computeFlowLayout(
       path: t.path,
       points,
       tip: tipAt(last, prev),
-      ...(t.label !== undefined ? { labelAt: mid } : {}),
+      ...(t.label !== undefined || t.actors !== undefined ? { labelAt: mid } : {}),
       back: isBack,
     };
   });

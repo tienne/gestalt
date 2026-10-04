@@ -327,6 +327,13 @@ ${FOCUS_SOURCE}
     panel.appendChild(panelHead(t.path === 'side' ? 'flow side' : 'flow', 'u-flow', '상태 전이', t.label || '', title));
     var body = el('div', 'dr-body');
     var facts = el('ul', 'facts');
+    var f = stepFlow[t.from];
+    if (t.actors && f) {
+      factRow(facts, '누가', t.actors.map(function (a) {
+        var actor = f.actors.filter(function (x) { return x.id === a; })[0];
+        return actor ? actor.label : a;
+      }).join(', '));
+    }
     factRow(facts, '갈래', t.path === 'side' ? '옆 흐름' : '정상 흐름');
     factRow(facts, '선', t.lineStyle === 'dashed' ? '점선 (문서나 사람 말로만 확인)' : '실선 (코드나 스펙으로 확인)');
     body.appendChild(facts);

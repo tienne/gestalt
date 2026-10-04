@@ -111,6 +111,7 @@ const FLOW_TEXT = {
   transition: '상태 전이',
   main: '정상 흐름',
   side: '옆 흐름',
+  back: '앞 단계로 되돌아감',
   person: '사람',
   system: '시스템',
 };
@@ -538,6 +539,31 @@ function pathD(points: readonly { x: number; y: number }[]): string {
     .join(' ');
 }
 
+const BACK_CORNER = 12;
+
+/** 되돌아가는 선은 모서리를 둥글린다. 앞으로 가는 직각 선들 사이에서 뒤로 가는 선이 모양만으로 갈린다 */
+function roundedPathD(points: readonly { x: number; y: number }[]): string {
+  const at = (p: { x: number; y: number }): string =>
+    `${round2(p.x + FLOW_PAD)} ${round2(p.y + FLOW_PAD)}`;
+  let d = `M${at(points[0]!)}`;
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const p = points[i - 1]!;
+    const c = points[i]!;
+    const n = points[i + 1]!;
+    const r = Math.min(
+      BACK_CORNER,
+      Math.hypot(c.x - p.x, c.y - p.y) / 2,
+      Math.hypot(n.x - c.x, n.y - c.y) / 2,
+    );
+    const toward = (q: { x: number; y: number }) => {
+      const len = Math.hypot(q.x - c.x, q.y - c.y) || 1;
+      return { x: c.x + ((q.x - c.x) / len) * r, y: c.y + ((q.y - c.y) / len) * r };
+    };
+    d += ` L${at(toward(p))} Q${at(c)} ${at(toward(n))}`;
+  }
+  return `${d} L${at(points[points.length - 1]!)}`;
+}
+
 /**
  * 흐름 레벨 하나. 행위자마다 가로줄을 깔고 단계 카드를 왼쪽에서 오른쪽으로 놓는다.
  * 카드는 노드 카드와 같은 .node라 강조와 검색, 질문 이동을 그대로 탄다. data-node-id 자리에 단계 id가 들어간다
@@ -593,13 +619,25 @@ function renderFlowSection(
     .map((r) => {
       const t = flow.transitions.find((x) => x.id === r.id)!;
       const dash = t.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
-      const d = pathD(r.points);
+      const d = r.back ? roundedPathD(r.points) : pathD(r.points);
       const tip = r.tip.map((p) => `${round2(p.x + FLOW_PAD)},${round2(p.y + FLOW_PAD)}`).join(' ');
-      const name = `${FLOW_TEXT[r.path]}: ${labelOf(r.from)} → ${labelOf(r.to)}${t.label !== undefined ? ` (${t.label})` : ''}`;
-      const text =
-        t.label !== undefined && r.labelAt
-          ? `<text class="t-label" x="${round2(r.labelAt.x + FLOW_PAD)}" y="${round2(r.labelAt.y + FLOW_PAD - 5)}">${escapeHtml(t.label)}</text>`
-          : '';
+      const actorNames = (t.actors ?? []).map((id) => actorById.get(id)?.label ?? id);
+      const who = actorNames.join(', ');
+      // 선 위에는 괄호 앞 이름만 싣는다. "고객 (앱, QR, 알림톡 웹)"을 다 쓰면 선 글자가 카드 폭을 넘는다
+      const whoShort = actorNames.map((n) => n.replace(/\s*\([^)]*\)\s*$/, '')).join(', ');
+      const name =
+        `${FLOW_TEXT[r.path]}${r.back ? `, ${FLOW_TEXT.back}` : ''}: ${labelOf(r.from)} → ${labelOf(r.to)}` +
+        (t.label !== undefined ? ` (${t.label})` : '') +
+        (who !== '' ? `, 누가 ${who}` : '');
+      const text = r.labelAt
+        ? `<text class="t-label" x="${round2(r.labelAt.x + FLOW_PAD)}" y="${round2(r.labelAt.y + FLOW_PAD - 5)}">` +
+          (r.back ? '<tspan class="t-back">↩ </tspan>' : '') +
+          (t.label !== undefined ? escapeHtml(t.label) : '') +
+          (whoShort !== ''
+            ? `<tspan class="t-who">${t.label !== undefined ? ' · ' : ''}${escapeHtml(whoShort)}</tspan>`
+            : '') +
+          `</text>`
+        : '';
       return (
         `<g class="link flow-t p-${r.path}${r.back ? ' back' : ''}" data-from="${escapeHtml(r.from)}" data-to="${escapeHtml(r.to)}" ` +
         `data-transition-id="${escapeHtml(r.id)}" tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
