@@ -3,6 +3,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectGlobalContext } from '../../architecture/global-context.js';
 import { matchEndpoints } from '../../architecture/endpoint-match.js';
+import { matchMcpTools } from '../../architecture/mcp-tool-match.js';
 import { computeDrilldown, shouldDrillDown } from '../../architecture/drilldown.js';
 import { renderArchitectureHtml, renderDrilldownHtml } from '../../architecture/html-renderer.js';
 import { parseArchitectureIr } from '../../architecture/ir-schema.js';
@@ -226,14 +227,31 @@ function handleFilterTools(input: ArchitectureInput): object {
 }
 
 function handleMatchEndpoints(input: ArchitectureInput): object {
-  if (input.feCalls === undefined || input.beRoutes === undefined) {
-    return fail('MISSING_INPUT', 'match_endpoints에는 feCalls와 beRoutes가 필요하다.');
+  const http = input.feCalls !== undefined && input.beRoutes !== undefined;
+  const mcp = input.skillToolCalls !== undefined && input.serverTools !== undefined;
+  if (!http && !mcp) {
+    return fail(
+      'MISSING_INPUT',
+      'match_endpoints에는 feCalls와 beRoutes, 또는 skillToolCalls와 serverTools가 필요하다.',
+    );
   }
-  return matchEndpoints({
-    feCalls: input.feCalls,
-    beRoutes: input.beRoutes,
-    prefixCandidates: input.prefixCandidates,
-  });
+  return {
+    ...(http
+      ? matchEndpoints({
+          feCalls: input.feCalls!,
+          beRoutes: input.beRoutes!,
+          prefixCandidates: input.prefixCandidates,
+        })
+      : {}),
+    ...(mcp
+      ? {
+          tools: matchMcpTools({
+            skillToolCalls: input.skillToolCalls!,
+            serverTools: input.serverTools!,
+          }),
+        }
+      : {}),
+  };
 }
 
 function handleValidate(input: ArchitectureInput, repoRoot: string): object {

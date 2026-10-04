@@ -860,12 +860,26 @@ const beRouteSchema = z.object({
   repo: z.string(),
 });
 
+const skillToolCallSchema = z.object({
+  id: z.string(),
+  server: z.string().optional(),
+  tool: z.string(),
+  action: z.string().optional(),
+});
+
+const serverToolSchema = z.object({
+  id: z.string(),
+  server: z.string(),
+  tool: z.string(),
+  actions: z.array(z.string()).optional(),
+});
+
 export const architectureInputSchema = guardObject(
   z.object({
     action: z
       .enum(ARCHITECTURE_ACTIONS)
       .describe(
-        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 두 뷰의 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기',
+        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트, 스킬의 MCP 도구 호출과 서버 도구 등록 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 두 뷰의 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기',
       ),
     repoRoot: z.string().optional().describe('저장소 경로 (기본값: 현재 작업 디렉토리)'),
     view: z
@@ -904,8 +918,16 @@ export const architectureInputSchema = guardObject(
       .optional()
       .describe('validate, render: code 근거의 파일과 줄을 확인할지. 기본 true'),
     toolNames: z.array(z.string()).optional().describe('filter_tools에 필요'),
-    feCalls: z.array(feCallSchema).optional().describe('match_endpoints에 필요'),
-    beRoutes: z.array(beRouteSchema).optional().describe('match_endpoints에 필요'),
+    feCalls: z.array(feCallSchema).optional().describe('match_endpoints: beRoutes와 짝'),
+    beRoutes: z.array(beRouteSchema).optional().describe('match_endpoints: feCalls와 짝'),
+    skillToolCalls: z
+      .array(skillToolCallSchema)
+      .optional()
+      .describe('match_endpoints: 스킬과 에이전트 문서에서 찾은 MCP 도구 호출. serverTools와 짝'),
+    serverTools: z
+      .array(serverToolSchema)
+      .optional()
+      .describe('match_endpoints: MCP 서버 코드에서 찾은 도구 등록. skillToolCalls와 짝'),
     prefixCandidates: z
       .array(z.string())
       .optional()
