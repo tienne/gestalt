@@ -302,10 +302,12 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
   }
 
   // 자동 질문도 저장해 둬야 사람이 답을 달고 다음 실행이 그 답을 물려받는다
-  const irPath = store.save({
+  const toSave = {
     ...validated.ir,
     unresolved: [...validated.ir.unresolved, ...validated.autoUnresolved],
-  });
+  };
+  const irPath = store.save(toSave);
+  const viewPaths = store.saveViews(toSave);
   const view: ArchitectureView = validated.ir.view;
   const htmlPath = store.saveHtml(view, 'private', privateHtml);
   const sharedHtmlPath = store.saveHtml(view, 'shared', sharedHtml);
@@ -317,6 +319,7 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
     htmlPath,
     sharedHtmlPath,
     openPath: input.audience === 'shared' ? sharedHtmlPath : htmlPath,
+    ...(viewPaths.length > 0 ? { viewPaths } : {}),
     ...(drilldown
       ? {
           levels: drilldown.levels.map((l) => ({
