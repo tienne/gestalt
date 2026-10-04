@@ -112,6 +112,8 @@ export interface ArchitectureNode {
   evidence: Evidence[];
   /** 인프라 노드와 deploy_target, datastore만. prod, stage, qa, dev 같은 환경 이름 */
   environment?: string;
+  /** datastore만. mysql, redis 같은 엔진 이름. 아는 엔진이면 카드에 그 로고가 선다. 없으면 label에서 찾는다 */
+  engine?: string;
   /** 이 노드가 속한 cloud_account 노드 id. 양 끝 계정이 다른 선을 가려 그리는 데 쓴다 */
   account?: string;
   /** service만. web은 serves 엣지로도 판정하고 android와 ios는 platformEvidence가 있어야 그린다 */

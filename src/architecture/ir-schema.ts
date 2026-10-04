@@ -77,6 +77,7 @@ const nodeSchema = z
     description: z.string().optional(),
     evidence: z.array(evidenceSchema),
     environment: z.string().min(1).optional(),
+    engine: z.string().min(1).optional(),
     account: z.string().min(1).optional(),
     platforms: z.array(platformSchema).optional(),
     platformEvidence: z.record(platformSchema, z.array(evidenceSchema)).optional(),
@@ -96,6 +97,9 @@ const nodeSchema = z
     }
     if (node.environment !== undefined && !ENVIRONMENT_KINDS.includes(node.kind)) {
       custom('environment', `environment는 ${ENVIRONMENT_KINDS.join(', ')} 노드에만 쓸 수 있다`);
+    }
+    if (node.engine !== undefined && node.kind !== 'datastore') {
+      custom('engine', 'engine은 datastore 노드에만 쓸 수 있다');
     }
     if (node.account !== undefined && node.kind === 'cloud_account') {
       custom('account', 'cloud_account 노드는 account를 가질 수 없다');

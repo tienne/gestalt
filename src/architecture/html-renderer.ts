@@ -12,7 +12,13 @@ import type { RoutedEdge } from './canvas-geometry.js';
 import { flowCountByService, ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
 import type { FlowLevel } from './flow-layout.js';
 import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
-import { iconUse, PRODUCT_COLORS, renderCss, renderIconSprite } from './html-theme.js';
+import {
+  datastoreEngine,
+  iconUse,
+  PRODUCT_COLORS,
+  renderCss,
+  renderIconSprite,
+} from './html-theme.js';
 import {
   LANE_TITLES,
   flowBadgeText,
@@ -246,7 +252,7 @@ function platformChips(facts: ServiceFacts | undefined): string {
     .map(
       (p) =>
         `<span class="pf pf-${p}" role="img" aria-label="${platformName(p, facts.webHosting)}" title="${platformName(p, facts.webHosting)}">` +
-        `${iconUse(`p-${p}`)}${platformChipText(p, facts.webHosting)}</span>`,
+        `${iconUse(`p-${p}`, p === 'web' ? '' : `brand b-${p}`)}${platformChipText(p, facts.webHosting)}</span>`,
     )
     .join('');
 }
@@ -288,6 +294,7 @@ function renderCard(
         : '';
   const chips = platformChips(facts);
   const second = chips === '' ? subText : `<span class="l2">${subText}${chips}</span>`;
+  const engine = datastoreEngine(node);
   const x = round2(box.x + CANVAS_PAD_X);
   const y = round2(box.y + CANVAS_PAD_TOP);
   return (
@@ -297,7 +304,7 @@ function renderCard(
     `${micro.frame !== undefined ? ` data-frame="${escapeHtml(micro.frame)}"` : ''} role="button" tabindex="0" ` +
     `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
     `style="left:${x}px;top:${y}px;width:${box.width}px;height:${box.height}px">` +
-    `<span class="kc">${iconUse(`i-${node.kind}`)}${escapeHtml(micro.host ? MICRO_HOST_SHORT : NODE_KIND_SHORT[node.kind])}</span>` +
+    `<span class="kc">${engine !== undefined ? iconUse(`e-${engine}`, `brand b-${engine}`) : iconUse(`i-${node.kind}`)}${escapeHtml(micro.host ? MICRO_HOST_SHORT : NODE_KIND_SHORT[node.kind])}</span>` +
     `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}` +
     (flows > 0
       ? `<span class="flow-badge" title="사용자 흐름 보기">${iconUse('u-flow')}${escapeHtml(flowBadgeText(flows))}</span>`

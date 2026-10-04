@@ -22,6 +22,7 @@ import {
   pinToColumnTop,
   type LayoutResult,
 } from '../../../src/architecture/layout.js';
+import { datastoreEngine } from '../../../src/architecture/html-theme.js';
 import { computeServiceFacts } from '../../../src/architecture/service-facts.js';
 
 // 서빙 인프라(도메인 → CDN → 버킷 → 서비스)와 live 근거. 계정 ID와 도메인은 전부 가짜다
@@ -183,6 +184,13 @@ describe('IR 스키마 — live 근거와 인프라 필드', () => {
     expect(
       parseArchitectureIr(withNode(fixture(), 'svc-shop', { platforms: ['web', 'web'] })).ok,
     ).toBe(false);
+  });
+
+  it('engine은 datastore에만 쓴다', () => {
+    const ir = fixture();
+    ir.nodes.push(node('db', 'datastore', { engine: 'mysql' }));
+    expect(parseArchitectureIr(ir).ok).toBe(true);
+    expect(parseArchitectureIr(withNode(fixture(), 'gw', { engine: 'mysql' })).ok).toBe(false);
   });
 });
 
@@ -564,7 +572,7 @@ describe('routeCanvas backward', () => {
 });
 
 describe('렌더 — 서비스 카드와 결정성', () => {
-  it('전체 화면 서비스 카드에 플랫폼 칩과 prod 도메인을 싣고 칩은 중립 아이콘을 쓴다', async () => {
+  it('전체 화면 서비스 카드에 플랫폼 칩과 prod 도메인을 싣고 앱 칩은 브랜드 색 로고를 쓴다', async () => {
     const v = validated(
       withNode(fixture(), 'svc-shop', {
         platforms: ['ios', 'android'],
@@ -589,9 +597,15 @@ describe('렌더 — 서비스 카드와 결정성', () => {
     expect(card).toContain(
       '<span class="l2"><span class="tc dom">shop.example.com</span><span class="pf pf-',
     );
-    // 상표 로고 대신 스프라이트의 중립 아이콘을 쓴다
-    expect(card).toContain('href="#p-android"');
-    expect(card).toContain('href="#p-ios"');
+    expect(card).toContain(
+      '<svg class="brand b-android" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#p-android"/>',
+    );
+    expect(card).toContain(
+      '<svg class="brand b-ios" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#p-ios"/>',
+    );
+    expect(card).toContain(
+      '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#p-web"/>',
+    );
   });
 
   it('SSR 서비스 카드는 웹(SSR) 칩을 단다', async () => {
@@ -683,5 +697,52 @@ describe('렌더 — 환경 고르기', () => {
     });
     const html = renderDrilldownHtml(v, await computeDrilldown(v), { audience: 'private' });
     expect(html).not.toContain('id="env-picker"');
+  });
+});
+
+describe('렌더 — 데이터 저장소 엔진 로고', () => {
+  const engineOf = (extra: Partial<ArchitectureNode>) =>
+    datastoreEngine(node('db', 'datastore', extra));
+
+  it('engine이 없으면 label에서 엔진을 찾고 관리형 서비스 이름이 앞에 붙어도 잡는다', () => {
+    expect(engineOf({ label: 'aurora-mysql:orders-prod' })).toBe('mysql');
+    expect(engineOf({ label: 'redis:session-cache' })).toBe('redis');
+    expect(engineOf({ label: 'docdb:catalog' })).toBe('documentdb');
+    expect(engineOf({ label: 'elasticsearch:search' })).toBe('elasticsearch');
+    expect(engineOf({ label: 'mariadb-legacy' })).toBe('mariadb');
+    expect(engineOf({ label: 'orders-store' })).toBeUndefined();
+  });
+
+  it('engine이 있으면 label보다 먼저 보고 datastore가 아니면 엔진이 없다', () => {
+    expect(engineOf({ label: 'redis-like-queue', engine: 'PostgreSQL' })).toBe('postgresql');
+    expect(datastoreEngine(node('ep', 'endpoint', { label: 'mysql' }))).toBeUndefined();
+  });
+
+  it('아는 엔진은 종류 칩에 브랜드 색 로고를 달고 모르는 엔진은 원통 아이콘을 그대로 쓴다', async () => {
+    const ir = fixture();
+    ir.nodes.push(
+      node('db-orders', 'datastore', { label: 'aurora-mysql:orders' }),
+      node('db-misc', 'datastore', { label: 'orders-store' }),
+    );
+    ir.edges.push(
+      edge('rw1', 'm-orders', 'db-orders', 'reads_writes'),
+      edge('rw2', 'm-orders', 'db-misc', 'reads_writes'),
+    );
+    const v = validated(ir);
+    const html = renderArchitectureHtml(
+      v,
+      await computeLayout(v.ir, v.drawableNodeIds, v.drawableEdgeIds),
+      { audience: 'private' },
+    );
+    const card = (id: string) =>
+      html.slice(html.indexOf(`data-node-id="${id}"`)).split('</div>')[0]!;
+    expect(card('db-orders')).toContain(
+      '<svg class="brand b-mysql" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#e-mysql"/>',
+    );
+    expect(card('db-misc')).toContain('<use href="#i-datastore"/>');
+    expect(html).toContain('<symbol id="e-redis" viewBox="0 0 24 24"><g fill="currentColor">');
+    // 어두운 화면에서 검정 애플 로고가 묻히지 않게 흰색으로 바꾼다
+    expect(html).toContain('.b-ios{--brand:#000000;}');
+    expect(html).toContain(':root[data-theme="dark"] .b-ios{--brand:#ffffff;}');
   });
 });
