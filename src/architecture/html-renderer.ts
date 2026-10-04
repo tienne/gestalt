@@ -5,6 +5,7 @@ import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import { iconUse, renderCss, renderIconSprite } from './html-theme.js';
 import {
   LANE_TITLES,
+  MICRO_HOST_SHORT,
   NODE_KIND_SHORT,
   PLATFORM_CHIP_TEXT,
   PLATFORM_NAME,
@@ -14,6 +15,7 @@ import {
   platformName,
 } from './kind-text.js';
 import { FLAT_BACKWARD_EDGE_KINDS, type LayoutResult } from './layout.js';
+import { indexMicroApps } from './micro-app.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
   ArchitectureEdge,
@@ -44,6 +46,7 @@ const VIEW_TITLES: Record<ArchitectureIr['view'], string> = {
 // 페이지에 보이는 글자는 IR 식별자 대신 읽는 사람 말로 바꿔 보여준다
 const NODE_KIND_TEXT: Record<NodeKind, string> = {
   service: '서비스',
+  micro_app: '마이크로 프론트엔드 앱',
   feature: '기능 영역',
   screen: '화면',
   gateway: '게이트웨이',
@@ -75,6 +78,7 @@ const EDGE_KIND_TEXT: Record<EdgeKind | 'contains', string> = {
   resolves_to: '도메인 연결',
   origin: '원본',
   serves: '서빙',
+  loads: '런타임 로드',
   contains: '포함',
 };
 const EVIDENCE_TYPE_TEXT: Record<Evidence['type'], string> = {
@@ -152,6 +156,9 @@ function buildPayload(ir: ArchitectureIr, validated: ValidatedIr, shared: boolea
   const nodes = ir.nodes.filter((n) => validated.drawableNodeIds.has(n.id)).sort(byId);
   const edges = ir.edges.filter((e) => validated.drawableEdgeIds.has(e.id)).sort(byId);
   const services = Object.fromEntries(computeServiceFacts(nodes, edges));
+  const apps = indexMicroApps(nodes, edges);
+  // 호스트 칩 글자를 클라이언트가 새로 그리는 카드에도 달아야 해서 싣는다. 앱이 없는 IR은 키 자체를 안 넣어 바이트가 그대로다
+  const microHosts = [...apps.hosts].sort(compareStr);
   return {
     schemaVersion: ir.schemaVersion,
     view: ir.view,
@@ -160,6 +167,7 @@ function buildPayload(ir: ArchitectureIr, validated: ValidatedIr, shared: boolea
     nodes,
     edges,
     services,
+    ...(microHosts.length > 0 ? { microHosts } : {}),
     unresolved: openQuestions(ir, validated, shared),
   };
 }
@@ -190,6 +198,7 @@ function edgeWidth(count: number): number {
 /** 레벨에 그리는 선. 평면 그림의 IR 엣지도 건수 1짜리로 맞춰 같은 함수로 그린다 */
 type CanvasEdge = Pick<DrillEdge, 'id' | 'from' | 'to' | 'count' | 'lineStyle' | 'kind'> & {
   backward?: boolean;
+  runtime?: boolean;
 };
 
 function asCanvasEdge(edge: ArchitectureEdge): CanvasEdge {
@@ -222,6 +231,7 @@ function renderCard(
   focus: boolean,
   facts: ServiceFacts | undefined,
   band: number | undefined,
+  micro: { host: boolean; frame?: string },
 ): string {
   const name = nodeName(node);
   const guess = isGuess(node);
@@ -248,10 +258,11 @@ function renderCard(
   const x = round2(box.x + CANVAS_PAD_X);
   const y = round2(box.y + CANVAS_PAD_TOP);
   return (
-    `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(node.id)}"${band !== undefined ? ` data-band="${band}"` : ''} role="button" tabindex="0" ` +
+    `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(node.id)}"${band !== undefined ? ` data-band="${band}"` : ''}` +
+    `${micro.frame !== undefined ? ` data-frame="${escapeHtml(micro.frame)}"` : ''} role="button" tabindex="0" ` +
     `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
     `style="left:${x}px;top:${y}px;width:${box.width}px;height:${box.height}px">` +
-    `<span class="kc">${iconUse(`i-${node.kind}`)}${escapeHtml(NODE_KIND_SHORT[node.kind])}</span>` +
+    `<span class="kc">${iconUse(`i-${node.kind}`)}${escapeHtml(micro.host ? MICRO_HOST_SHORT : NODE_KIND_SHORT[node.kind])}</span>` +
     `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}</span>` +
     second +
     (enterable ? '<span class="go" aria-hidden="true">›</span>' : '') +
@@ -281,6 +292,14 @@ function renderLink(
   const xaText = crossAccount ? ' (계정을 넘는 연결)' : '';
   const hit = `<path class="hit" d="${route.d}" stroke-width="${Math.max(12, width + 8)}"/>`;
   const tip = `<path class="tip" d="${route.tip}"/>`;
+  if (edge.runtime) {
+    const name = `${EDGE_KIND_TEXT.loads}: ${labelOf(edge.from)} → ${labelOf(edge.to)}${xaText}`;
+    return (
+      `<g class="link bundle runtime${xa}" data-bundle-id="${escapeHtml(edge.id)}" ${ends} tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
+      `<title>${escapeHtml(name)}</title>${hit}` +
+      `<path class="edge" d="${route.d}" stroke-width="${width}"${dash}/>${tip}</g>`
+    );
+  }
   if (edge.kind === 'bundle') {
     const name = `${labelOf(edge.from)} → ${labelOf(edge.to)} ${edge.count}개${xaText}`;
     return (
@@ -308,6 +327,7 @@ interface CanvasSpec {
   focusId?: string;
   hidden: boolean;
   services: Record<string, ServiceFacts>;
+  microHosts: ReadonlySet<string>;
 }
 
 const REGION_TITLE_INSET = 4;
@@ -377,6 +397,15 @@ function renderLevelSection(spec: CanvasSpec): string {
       ...(e.backward ? { backward: true } : {}),
     })),
   );
+  const frameOf = new Map<string, string>();
+  for (const f of layout.frames ?? []) frameOf.set(f.id, f.id);
+  const frameRects = (layout.frames ?? [])
+    .map(
+      (f) =>
+        `<rect class="frame" data-frame-id="${escapeHtml(f.id)}" x="${round2(f.x + CANVAS_PAD_X)}" y="${round2(f.y + CANVAS_PAD_TOP)}" ` +
+        `width="${f.width}" height="${f.height}" rx="14"/>`,
+    )
+    .join('');
   const { width, height } = canvas;
   const laneRects = layout.lanes
     .map(
@@ -412,6 +441,12 @@ function renderLevelSection(spec: CanvasSpec): string {
         n.id === spec.focusId,
         spec.services[n.id],
         layout.regions?.bandOf[n.id],
+        {
+          host: n.kind === 'micro_app' && spec.microHosts.has(n.id),
+          ...(frameOf.has(n.id) || frameOf.has(n.parent ?? '')
+            ? { frame: frameOf.get(n.id) ?? frameOf.get(n.parent!)! }
+            : {}),
+        },
       );
     })
     .join('');
@@ -423,7 +458,8 @@ function renderLevelSection(spec: CanvasSpec): string {
     `${open} data-w="${width}" data-h="${height}"${regionNames} style="width:${width}px;height:${height}px"${hidden}>` +
     `<svg class="links" id="${spec.svgId}" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
     `viewBox="0 0 ${width} ${height}" role="group" aria-label="${escapeHtml(`${spec.title} 연결`)}">` +
-    `<g class="lanes">${laneRects}</g><g class="regions">${regionRects}</g><g class="edges">${links}</g></svg>` +
+    `<g class="lanes">${laneRects}</g><g class="regions">${regionRects}</g>` +
+    `${frameRects !== '' ? `<g class="frames">${frameRects}</g>` : ''}<g class="edges">${links}</g></svg>` +
     `${laneTitles}${regionTitles}${cards}</section>`
   );
 }
@@ -545,6 +581,7 @@ function renderBar(
 
 const CLIENT_SCRIPT = renderClientScript({
   kindShort: NODE_KIND_SHORT,
+  hostShort: MICRO_HOST_SHORT,
   kindText: { ...NODE_KIND_TEXT, ...EDGE_KIND_TEXT },
   evidenceText: EVIDENCE_TYPE_TEXT,
   laneTitles: LANE_TITLES,
@@ -640,6 +677,7 @@ export function renderArchitectureHtml(
     enter: {},
     hidden: false,
     services: payload.services,
+    microHosts: new Set(payload.microHosts ?? []),
   });
   return renderPage({ ir, payload, sections: section, drill: false });
 }
@@ -686,6 +724,7 @@ export function renderDrilldownHtml(
         ...(l.focusId !== undefined ? { focusId: l.focusId } : {}),
         hidden: l.id !== ROOT_LEVEL_ID,
         services: base.services,
+        microHosts: new Set(base.microHosts ?? []),
       }),
     )
     .join('\n');

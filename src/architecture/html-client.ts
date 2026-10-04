@@ -1,8 +1,10 @@
 import { FOCUS_SOURCE } from './focus.js';
-import type { LaneId } from './layout.js';
+import { FRAME_PAD, type LaneId } from './layout.js';
 
 export interface ClientConstants {
   kindShort: Record<string, string>;
+  /** 호스트 micro_app 칩 글자 */
+  hostShort: string;
   kindText: Record<string, string>;
   evidenceText: Record<string, string>;
   laneTitles: Record<LaneId, string>;
@@ -38,6 +40,10 @@ export function renderClientScript(c: ClientConstants): string {
   var root = doc.documentElement;
   var data = JSON.parse(doc.getElementById('ir').textContent);
   var KIND_SHORT = ${JSON.stringify(c.kindShort)};
+  var HOST_SHORT = ${JSON.stringify(c.hostShort)};
+  var FRAME_PAD = ${FRAME_PAD};
+  var MICRO_HOSTS = {};
+  (data.microHosts || []).forEach(function (id) { MICRO_HOSTS[id] = true; });
   var KIND_TEXT = ${JSON.stringify(c.kindText)};
   var EVIDENCE_TEXT = ${JSON.stringify(c.evidenceText)};
   var LANE_TITLE = ${JSON.stringify(c.laneTitles)};
@@ -717,7 +723,7 @@ ${FOCUS_SOURCE}
     d.style.height = h + 'px';
     var kc = el('span', 'kc');
     kc.appendChild(icon('i-' + kind));
-    kc.appendChild(doc.createTextNode(KIND_SHORT[kind] || kind));
+    kc.appendChild(doc.createTextNode(MICRO_HOSTS[id] ? HOST_SHORT : KIND_SHORT[kind] || kind));
     d.appendChild(kc);
     var nm = el('span', 'nm');
     nm.appendChild(el('span', 't', label(id)));
@@ -836,13 +842,20 @@ ${FOCUS_SOURCE}
       }
     }
     svg.appendChild(regionLayer);
+    var frameLayer = svgEl('g', { 'class': 'frames' });
+    (o.frames || []).forEach(function (f) {
+      frameLayer.appendChild(svgEl('rect', { 'class': 'frame', 'data-frame-id': f.id, x: f.x, y: f.y, width: f.width, height: f.height, rx: 14 }));
+    });
+    svg.appendChild(frameLayer);
     var linkLayer = svgEl('g', { 'class': 'edges' });
     paths.forEach(function (p) {
       var e = p.e;
-      var bundle = e.kind === 'bundle';
+      // 런타임 로드 선은 loads 하나와 리모트 서빙 사슬을 묶은 선이라 눌러서 펼치는 건 묶음과 같다. 건수 알약만 없다
+      var bundle = e.kind === 'bundle' || e.runtime === true;
       var xa = nodes[e.from] && nodes[e.to] && nodes[e.from].account && nodes[e.to].account && nodes[e.from].account !== nodes[e.to].account;
-      var g = svgEl('g', { 'class': (bundle ? 'link bundle' : 'link e-' + e.kind) + (xa ? ' x-account' : ''), 'data-from': e.from, 'data-to': e.to });
-      var name = bundle ? label(e.from) + ' → ' + label(e.to) + ' ' + e.count + '개' : kindText(e.kind) + ': ' + label(e.from) + ' → ' + label(e.to);
+      var cls = e.runtime ? 'link bundle runtime' : bundle ? 'link bundle' : 'link e-' + e.kind;
+      var g = svgEl('g', { 'class': cls + (xa ? ' x-account' : ''), 'data-from': e.from, 'data-to': e.to });
+      var name = e.kind === 'bundle' ? label(e.from) + ' → ' + label(e.to) + ' ' + e.count + '개' : kindText(e.kind) + ': ' + label(e.from) + ' → ' + label(e.to);
       if (bundle) {
         g.setAttribute('data-bundle-id', e.id);
         g.setAttribute('tabindex', '0');
@@ -858,7 +871,7 @@ ${FOCUS_SOURCE}
       if (e.lineStyle === 'dashed') line.setAttribute('stroke-dasharray', '6 4');
       g.appendChild(line);
       g.appendChild(svgEl('path', { 'class': 'tip', d: p.tip }));
-      if (bundle) {
+      if (e.kind === 'bundle') {
         var text = String(e.count);
         var pw = 14 + text.length * 7;
         var pill = svgEl('g', { 'class': 'pill', transform: 'translate(' + p.mid.x + ',' + p.mid.y + ')' });
@@ -1061,6 +1074,22 @@ ${FOCUS_SOURCE}
     var bottom = top;
     Object.keys(pos).forEach(function (id) { bottom = Math.max(bottom, pos[id].y + pos[id].h); });
     if (banded && banded.bottom) bottom = Math.max(bottom, banded.bottom);
+    // 남은 카드가 둘 이상인 테두리만 다시 두른다. 한 장만 남으면 무엇을 묶는지 안 보인다
+    var frameCards = {};
+    src.querySelectorAll('.node[data-frame]').forEach(function (c) {
+      var id = c.getAttribute('data-node-id');
+      if (!pos[id]) return;
+      var f = c.getAttribute('data-frame');
+      (frameCards[f] = frameCards[f] || []).push(pos[id]);
+    });
+    var frames = Object.keys(frameCards).sort().filter(function (f) { return frameCards[f].length > 1; }).map(function (f) {
+      var list = frameCards[f];
+      var x0 = Math.min.apply(null, list.map(function (p) { return p.x; })) - FRAME_PAD;
+      var y0 = Math.min.apply(null, list.map(function (p) { return p.y; })) - FRAME_PAD;
+      var x1 = Math.max.apply(null, list.map(function (p) { return p.x + p.w; })) + FRAME_PAD;
+      var y1 = Math.max.apply(null, list.map(function (p) { return p.y + p.h; })) + FRAME_PAD;
+      return { id: f, x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+    });
     var rects = src.querySelectorAll('rect.lane');
     var titles = src.querySelectorAll('.lane-title');
     var lanes = [];
@@ -1085,6 +1114,7 @@ ${FOCUS_SOURCE}
       edges: all.filter(function (e) { return keptEdge[e.id]; }),
       lanes: lanes,
       regions: banded ? banded.regions : null,
+      frames: frames,
       width: parseFloat(src.getAttribute('data-w')),
       height: bottom + 40,
       label: '이어진 연결: ' + label(nodeId),

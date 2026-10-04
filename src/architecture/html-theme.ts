@@ -3,6 +3,7 @@ import type { NodeKind } from './types.js';
 // 밝은 화면은 600 톤, 어두운 화면은 400 톤이다. 같은 색상환 자리라 테마를 바꿔도 같은 종류로 읽힌다
 const KIND_COLORS: Record<NodeKind, { light: string; dark: string }> = {
   service: { light: '#2563eb', dark: '#60a5fa' },
+  micro_app: { light: '#0369a1', dark: '#7dd3fc' },
   feature: { light: '#0891b2', dark: '#22d3ee' },
   screen: { light: '#4f46e5', dark: '#818cf8' },
   gateway: { light: '#475569', dark: '#94a3b8' },
@@ -25,6 +26,8 @@ const KIND_COLORS: Record<NodeKind, { light: string; dark: string }> = {
 const KIND_ICONS: Record<NodeKind, string> = {
   service:
     '<path d="M12 3.5l8.5 4.3L12 12 3.5 7.8z"/><path d="M3.5 12.2L12 16.5l8.5-4.3"/><path d="M3.5 16.4L12 20.7l8.5-4.3"/>',
+  micro_app:
+    '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M17 13.5v7M13.5 17h7"/>',
   feature:
     '<path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
   screen:
@@ -139,6 +142,9 @@ const LIGHT_TOKENS = `
   --live: #0369a1;
   --live-soft: #e0f2fe;
   --x-account: #c026d3;
+  --frame: rgba(3, 105, 161, 0.05);
+  --frame-line: #0369a1;
+  --runtime: #0369a1;
   --hit: #f59e0b;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.04);
   --shadow-hover: 0 6px 16px rgba(16, 24, 40, 0.1);
@@ -174,6 +180,9 @@ const DARK_TOKENS = `
   --live: #38bdf8;
   --live-soft: rgba(56, 189, 248, 0.14);
   --x-account: #e879f9;
+  --frame: rgba(125, 211, 252, 0.06);
+  --frame-line: #7dd3fc;
+  --runtime: #7dd3fc;
   --hit: #fbbf24;
   --shadow: none;
   --shadow-hover: 0 6px 18px rgba(0, 0, 0, 0.4);
@@ -257,6 +266,7 @@ button { font: inherit; color: inherit; }
 .region { stroke-width: 1.5; }
 .region-0 { fill: var(--region-a); stroke: var(--region-a-line); }
 .region-1 { fill: var(--region-b); stroke: var(--region-b-line); }
+.frame { fill: var(--frame); stroke: var(--frame-line); stroke-width: 1.25; stroke-opacity: 0.6; }
 .region-shared { fill: none; stroke: var(--region-shared-line); stroke-width: 1.5; stroke-dasharray: 6 5; }
 .region-title {
   position: absolute; height: 22px; padding: 0 10px; display: flex; align-items: center;
@@ -318,6 +328,10 @@ button { font: inherit; color: inherit; }
 .link.x-account .edge { stroke: var(--x-account); stroke-opacity: 0.85; }
 .link.x-account .tip { fill: var(--x-account); fill-opacity: 0.85; }
 .link.e-contains .edge { stroke-opacity: 0.35; }
+.link.runtime .edge { stroke: var(--runtime); stroke-opacity: 0.75; }
+.link.runtime .tip { fill: var(--runtime); fill-opacity: 0.8; }
+/* 근거가 확인된 런타임 로드는 점선으로 요청 흐름과 구분한다. 근거가 약한 선은 기존 파선이 그대로 이긴다 */
+.link.runtime .edge:not([stroke-dasharray]) { stroke-dasharray: 1 6; stroke-width: 2.5; }
 .link .edge { fill: none; stroke: var(--edge); stroke-opacity: var(--edge-alpha); stroke-linecap: round; transition: stroke 0.15s, stroke-opacity 0.15s; }
 .link .tip { fill: var(--edge); fill-opacity: 0.6; transition: fill 0.15s; }
 .link .hit { fill: none; stroke: transparent; pointer-events: stroke; }

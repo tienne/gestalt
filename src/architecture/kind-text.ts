@@ -7,6 +7,8 @@ import type { NodeKind, Platform, WebHosting } from './types.js';
  */
 export const NODE_KIND_SHORT: Record<NodeKind, string> = {
   service: '서비스',
+  // 호스트 카드는 렌더러가 '호스트'로 바꿔 단다. 두 글자 폭이 같아야 카드 폭 계산이 하나로 맞는다
+  micro_app: '리모트',
   feature: '기능 영역',
   screen: '화면',
   gateway: '게이트웨이',
@@ -25,9 +27,13 @@ export const NODE_KIND_SHORT: Record<NodeKind, string> = {
   cloud_account: '계정',
 };
 
+/** 들어오는 loads가 없는 micro_app 칩 글자. NODE_KIND_SHORT.micro_app과 글자 수가 같다 */
+export const MICRO_HOST_SHORT = '호스트';
+
 /** 레인 제목은 그 칸의 레이어 이름이다. 칩 이름과 맞춰야 카드와 레인이 같은 말로 읽힌다 */
 export const LANE_TITLES: Record<LaneId, string> = {
   service: '서비스',
+  micro_app: '호스트와 리모트',
   unit: '기능 영역',
   screen: '화면',
   gateway: '게이트웨이',
