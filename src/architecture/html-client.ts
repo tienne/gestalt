@@ -576,6 +576,7 @@ ${FOCUS_SOURCE}
   // 레벨 이동과 두 항목 화면은 주소의 해시에 싣는다. 그래야 브라우저 뒤로가기와 새로고침, 링크 공유가 그 화면으로 돌아온다
   function enc(s) { return encodeURIComponent(s); }
   function go(hash) {
+    hash += envQuery();
     if (location.hash === hash) { route(); return; }
     location.hash = hash;
   }
@@ -1160,6 +1161,12 @@ ${FOCUS_SOURCE}
   }
   function route() {
     var raw = location.hash.charAt(0) === '#' ? location.hash.slice(1) : location.hash;
+    var q = raw.indexOf('?');
+    var query = q >= 0 ? raw.slice(q + 1) : '';
+    if (q >= 0) raw = raw.slice(0, q);
+    setEnv(envFromQuery(query));
+    // 기본값과 같거나 모르는 환경만 적힌 주소는 정리해 둔다. 같은 화면이 주소 두 개로 갈리지 않게 한다
+    if ((q >= 0 ? '?' + query : '') !== envQuery()) history.replaceState(null, '', '#' + raw + envQuery());
     if (raw.charAt(0) === '/') raw = raw.slice(1);
     var parts = raw.split('/').map(function (p) {
       try { return decodeURIComponent(p); } catch (e) { return ''; }
@@ -1174,7 +1181,7 @@ ${FOCUS_SOURCE}
     if (!ok) {
       renderLevel('root');
       // 모르는 주소는 기록을 남기지 않고 전체로 바꿔 둔다. 남기면 뒤로가기가 같은 자리를 한 번 더 밟는다
-      if (location.hash && location.hash !== '#/') history.replaceState(null, '', '#/');
+      if (location.hash && location.hash !== '#/' + envQuery()) history.replaceState(null, '', '#/' + envQuery());
     }
     if (pendingSelect) {
       var id = pendingSelect;
@@ -1339,20 +1346,60 @@ ${FOCUS_SOURCE}
       if (count) count.textContent = n;
     });
   }
+  // 고른 환경은 주소 해시 뒤 ?env=prod,dev로 싣는다. 주소를 보내면 받은 사람도 같은 환경으로 본다.
+  // 처음 켜진 값(prod만)과 같으면 안 붙여서 환경 버튼이 생기기 전 주소와 같게 둔다
+  var envButtons = envPicker ? Array.prototype.slice.call(envPicker.querySelectorAll('button[data-env]')) : [];
+  var envDefault = {};
+  envButtons.forEach(function (b) {
+    var name = b.getAttribute('data-env');
+    envDefault[name] = b.getAttribute('aria-pressed') === 'true';
+    envOn[name] = envDefault[name];
+  });
+  function envNames() { return envButtons.map(function (b) { return b.getAttribute('data-env'); }); }
+  function envQuery() {
+    if (!envButtons.length) return '';
+    var names = envNames();
+    if (names.every(function (n) { return envOn[n] === envDefault[n]; })) return '';
+    return '?env=' + names.filter(function (n) { return envOn[n]; }).map(enc).join(',');
+  }
+  function envFromQuery(query) {
+    var m = /(?:^|&)env=([^&]*)/.exec(query);
+    if (!m) return envDefault;
+    var want = {};
+    var any = false;
+    m[1].split(',').forEach(function (p) {
+      var name;
+      try { name = decodeURIComponent(p); } catch (e) { return; }
+      if (Object.prototype.hasOwnProperty.call(envDefault, name)) { want[name] = true; any = true; }
+    });
+    return any ? want : envDefault;
+  }
+  function setEnv(next) {
+    var changed = false;
+    envButtons.forEach(function (b) {
+      var name = b.getAttribute('data-env');
+      var on = !!next[name];
+      if (envOn[name] !== on) changed = true;
+      envOn[name] = on;
+      b.setAttribute('aria-pressed', String(on));
+    });
+    if (changed) sections.forEach(applyEnv);
+  }
   if (envPicker) {
-    var envButtons = Array.prototype.slice.call(envPicker.querySelectorAll('button[data-env]'));
-    envButtons.forEach(function (b) { envOn[b.getAttribute('data-env')] = b.getAttribute('aria-pressed') === 'true'; });
     sections.forEach(applyEnv);
     envPicker.addEventListener('click', function (e) {
       var b = e.target.closest ? e.target.closest('button[data-env]') : null;
       if (!b) return;
       var env = b.getAttribute('data-env');
-      var next = !envOn[env];
       // 하나는 늘 켜 둔다. 다 끄면 인프라 열이 통째로 비어 무엇을 끈 건지 안 보인다
-      if (!next && envButtons.filter(function (x) { return envOn[x.getAttribute('data-env')]; }).length === 1) return;
-      envOn[env] = next;
-      b.setAttribute('aria-pressed', String(next));
-      sections.forEach(applyEnv);
+      if (envOn[env] && envNames().filter(function (n) { return envOn[n]; }).length === 1) return;
+      var next = {};
+      envNames().forEach(function (n) { next[n] = n === env ? !envOn[n] : envOn[n]; });
+      setEnv(next);
+      // 환경을 바꾼 건 뒤로가기 기록으로 남기지 않는다. 뒤로가기는 레벨을 오간 길만 되짚는 게 덜 헷갈린다
+      var h = location.hash;
+      var at = h.indexOf('?');
+      history.replaceState(null, '', (at >= 0 ? h.slice(0, at) : h || '#/') + envQuery());
       if (focusId !== null) route();
       else runSearch(false);
     });
