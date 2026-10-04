@@ -176,6 +176,8 @@ export interface FlowStep {
   description?: string;
   /** 이 단계가 끝난 뒤의 업무 상태. 코드 enum 값을 그대로 적는다 */
   state?: string;
+  /** 흐름이 여기서 끝날 수 있다. 착석이나 취소처럼 더 갈 곳이 없는 단계에 단다. 나가는 전이가 없는데 이 표시도 없으면 질문이 생긴다 */
+  terminal?: boolean;
   /** 이 단계에서 만나는 화면이나 부르는 API 노드 id. 기술 그림으로 내려가는 입구다 */
   refs?: string[];
   evidence: Evidence[];

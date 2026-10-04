@@ -163,6 +163,7 @@ const flowStepSchema = z.object({
   label: z.string().min(1),
   description: z.string().optional(),
   state: z.string().min(1).optional(),
+  terminal: z.boolean().optional(),
   refs: z.array(z.string().min(1)).optional(),
   evidence: z.array(evidenceSchema),
 });

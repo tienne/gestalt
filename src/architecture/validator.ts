@@ -561,6 +561,26 @@ function askStepsAsTransitions(
   }
 }
 
+/**
+ * 나가는 전이가 없는데 끝 단계로 표시하지 않은 단계를 묻는다.
+ * 미루기처럼 다시 줄로 돌아가는 단계가 선을 빠뜨리면 그림만 봐서는 흐름이 거기서 끝난 것처럼 읽힌다
+ */
+function askDeadEnds(
+  flow: ArchitectureFlow,
+  drawable: Set<string>,
+  ask: (q: UnresolvedQuestion) => void,
+): void {
+  const hasOut = new Set(flow.transitions.map((t) => t.from));
+  for (const step of flow.steps) {
+    if (step.terminal || hasOut.has(step.id) || !drawable.has(step.id)) continue;
+    ask({
+      id: `auto:dead-end:${step.id}`,
+      subject: { stepId: step.id },
+      question: `"${step.label}" 단계 다음에 어디로 가는지 못 찾았어요. 흐름이 여기서 끝나나요, 아니면 이어지는 단계가 있나요?`,
+    });
+  }
+}
+
 /** 근거로 다시 정한 선 모양을 싣는다. 그릴 단계와 전이를 고르고 근거 없는 것은 질문으로 돌린다 */
 function settleFlows(
   flows: ArchitectureFlow[],
@@ -584,6 +604,7 @@ function settleFlows(
     }
     // 세션이 그 단계에 다른 질문을 이미 달았어도 이 질문은 따로 선다
     askStepsAsTransitions(flow, steps, askById);
+    askDeadEnds(flow, steps, askById);
     const transitionsOut = flow.transitions.map((t) => ({
       ...t,
       lineStyle: deriveLineStyle(t.evidence),

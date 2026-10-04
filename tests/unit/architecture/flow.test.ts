@@ -314,6 +314,17 @@ describe('흐름 검증', () => {
     expect(ids.filter((id) => id.startsWith('auto:as-transition'))).toEqual([]);
   });
 
+  it('나가는 전이가 없는데 끝 단계 표시가 없으면 어디로 가는지 묻는다', () => {
+    const deadEnds = (f: ArchitectureFlow): string[] =>
+      validated(fixture(f))
+        .autoUnresolved.map((q) => q.id)
+        .filter((id) => id.startsWith('auto:dead-end'));
+    expect(deadEnds(queueFlow())).toEqual(['auto:dead-end:st-seat', 'auto:dead-end:st-cancel']);
+    const f = queueFlow();
+    f.steps.find((s) => s.id === 'st-seat')!.terminal = true;
+    expect(deadEnds(f)).toEqual(['auto:dead-end:st-cancel']);
+  });
+
   it('선 모양은 근거로 다시 정한다', () => {
     const f = queueFlow();
     // 코드 근거가 있는데 점선으로 적은 전이는 실선으로 바로잡는다
