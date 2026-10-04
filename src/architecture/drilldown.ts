@@ -530,6 +530,13 @@ function rootLevel(full: Graph, apps: MicroAppIndex): LevelDraft {
   const nodeIds = new Set(
     [...g.nodeById.values()].filter((n) => ROOT_KINDS.has(n.kind)).map((n) => n.id),
   );
+  // 범용 component는 묶을 위계가 없다. 부모 없는 것만 전체에 세우고 그 사이 선은 그대로 긋는다
+  const components = new Set(
+    [...g.nodeById.values()]
+      .filter((n) => n.kind === 'component' && !g.parentOf.has(n.id))
+      .map((n) => n.id),
+  );
+  for (const id of components) nodeIds.add(id);
   const b = new Bundler();
   bundleCalls(g, b, screenCalls(g), (s) => ownerOf(g, s), false);
   bundleGatewayRoutes(g, b);
@@ -550,7 +557,10 @@ function rootLevel(full: Graph, apps: MicroAppIndex): LevelDraft {
     .filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to))
     .filter((e) => g.parentOf.get(e.from) !== g.parentOf.get(e.to))
     .map(asDetail);
-  const edges = [...b.toEdges(g), ...crossing, ...clientLoads].sort(byId);
+  const componentEdges = g.edges
+    .filter((e) => components.has(e.from) && components.has(e.to))
+    .map(asDetail);
+  const edges = [...b.toEdges(g), ...crossing, ...clientLoads, ...componentEdges].sort(byId);
   const frames = [...apps.appsOf.keys()]
     .filter((svc) => nodeIds.has(svc))
     .sort(compareStr)
