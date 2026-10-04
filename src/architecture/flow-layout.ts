@@ -38,7 +38,7 @@ export interface FlowTransitionRoute {
   back: boolean;
 }
 
-/** 열 여러 개를 묶는 구간. 정상 흐름은 상태 값마다 하나, 옆 흐름은 맨 끝에 하나로 모인다 */
+/** 열 여러 개를 묶는 구간. 정상 흐름은 상태 값마다 하나다. 정상 흐름 마지막 열 너머로 나간 옆 흐름 단계는 맨 끝 구간 하나에 선다 */
 export interface FlowStage {
   label: string;
   x: number;
@@ -139,7 +139,7 @@ function columnsOf(
 
 /**
  * 구간이 있을 때의 열. 정상 흐름 단계는 상태 값으로 구간을 정하고 상태가 없는 단계는 앞 단계 구간을 따른다. 알림 발송처럼 상태를 안 바꾸는 단계가 그렇다.
- * 구간은 앞 구간의 마지막 열 다음에서 시작한다. 옆 흐름 단계는 정상 흐름이 끝난 뒤 한 구간에 모은다. 끝나는 상태를 한곳에서 보려는 것이다
+ * 구간은 앞 구간의 마지막 열 다음에서 시작한다. 옆 흐름 단계는 갈라져 나온 단계 옆에 서고 정상 흐름 너머로 나간 것만 맨 끝 구간을 받는다
  */
 function stagedColumns(
   steps: readonly FlowStep[],
@@ -202,19 +202,22 @@ function stagedColumns(
     stages.push({ label: keys[k]!, first: start, last, side: false });
     start = last + 1;
   }
-  const sideTopo = base.topo.filter((id) => !isMain(id));
-  if (sideTopo.length > 0) {
-    const depth = new Map<string, number>();
-    for (const id of sideTopo) {
-      let d = 0;
-      for (const p of preds.get(id) ?? []) {
-        if (!isMain(p.from) && depth.has(p.from)) d = Math.max(d, depth.get(p.from)! + 1);
-      }
-      depth.set(id, d);
-      column.set(id, start + d);
+  // 옆 흐름 단계는 갈라져 나온 단계 바로 다음 열에 선다. 맨 끝에 모으면 옆으로 빠지는 선이 그림을 가로질러 길어진다
+  let sideLast = -1;
+  for (const id of base.topo.filter((id) => !isMain(id))) {
+    let col = start;
+    let placed = false;
+    for (const p of preds.get(id) ?? []) {
+      if (!column.has(p.from)) continue;
+      col = placed ? Math.max(col, column.get(p.from)! + 1) : column.get(p.from)! + 1;
+      placed = true;
     }
-    const last = start + Math.max(...depth.values());
-    stages.push({ label: FLOW_SIDE_STAGE_LABEL, first: start, last, side: true });
+    column.set(id, col);
+    if (col >= start) sideLast = Math.max(sideLast, col);
+  }
+  // 정상 흐름 마지막 열 너머로 나간 옆 흐름 단계만 따로 구간을 받는다
+  if (sideLast >= start) {
+    stages.push({ label: FLOW_SIDE_STAGE_LABEL, first: start, last: sideLast, side: true });
   }
   return { column, stages };
 }

@@ -482,7 +482,7 @@ describe('흐름 구간', () => {
     return computeFlowLayout(v.ir.flows![0]!, v.drawableStepIds, v.drawableTransitionIds);
   };
 
-  it('정상 흐름은 상태 값마다 구간을 나누고 옆 흐름은 맨 끝 구간에 모은다', () => {
+  it('정상 흐름은 상태 값마다 구간을 나누고 그 너머로 나간 옆 흐름은 맨 끝 구간을 받는다', () => {
     const layout = layoutOf(fixture());
     expect(layout.stages.map((s) => s.label)).toEqual(['WAITING', 'CALL', 'SITTING', '옆 흐름']);
     expect(layout.stages.map((s) => s.side)).toEqual([false, false, false, true]);
@@ -496,15 +496,14 @@ describe('흐름 구간', () => {
     expect(notify.x + notify.width).toBeLessThanOrEqual(waiting.x + waiting.width);
   });
 
-  it('옆 흐름 단계는 전부 옆 흐름 구간 안에 선다', () => {
+  it('옆 흐름 단계는 맨 끝에 모이지 않고 갈라져 나온 단계 바로 다음 열에 선다', () => {
     const layout = layoutOf(fixture());
+    const col = (id: string) => layout.steps.find((s) => s.id === id)!.column;
+    expect(col('st-cancel')).toBe(col('st-notify') + 1);
+    expect(col('st-noshow')).toBe(col('st-call') + 1);
     const side = layout.stages.find((s) => s.side)!;
-    for (const step of layout.steps.filter((s) => s.path === 'side')) {
-      expect(step.x).toBeGreaterThanOrEqual(side.x);
-    }
-    for (const step of layout.steps.filter((s) => s.path === 'main')) {
-      expect(step.x + step.width).toBeLessThanOrEqual(side.x);
-    }
+    const cancel = layout.steps.find((s) => s.id === 'st-cancel')!;
+    expect(cancel.x + cancel.width).toBeLessThanOrEqual(side.x);
   });
 
   it('정상 흐름에 상태 값이 없으면 구간을 안 만든다', () => {
