@@ -89,6 +89,17 @@ describe('measureNode', () => {
       measureNode('a', '가나다라마바사아자').width,
     );
   });
+
+  it('플랫폼 칩은 둘째 줄에 재서 첫 줄 이름 폭을 줄이지 않는다', () => {
+    const platforms = ['web', 'android', 'ios'] as const;
+    // 칩만 있어도 두 줄 박스가 된다
+    expect(measureNode('svc', undefined, undefined, 'service', { platforms }).height).toBe(60);
+    // 둘째 줄이 짧으면 칩이 붙어도 폭은 첫 줄을 따른다
+    const name = '가나다라마바사아자차카타';
+    expect(
+      measureNode('svc', name, false, 'service', { platforms, secondLine: 'a.io' }).width,
+    ).toBe(measureNode('svc', name, false, 'service', { secondLine: 'a.io' }).width);
+  });
 });
 
 describe('computeLayout', () => {

@@ -517,6 +517,15 @@ describe('렌더 — 서비스 카드와 결정성', () => {
     );
     expect(labels.slice(0, 3)).toEqual(['웹', 'Android 앱', 'iOS 앱']);
     expect(card).toContain('<span class="tc dom">shop.example.com</span>');
+    // 칩은 이름 줄이 아니라 도메인 줄에 붙어 이름이 칩 몫만큼 잘리지 않는다
+    const nameLine = card.slice(
+      card.indexOf('<span class="nm">'),
+      card.indexOf('<span class="l2">'),
+    );
+    expect(nameLine).not.toContain('class="pf');
+    expect(card).toContain(
+      '<span class="l2"><span class="tc dom">shop.example.com</span><span class="pf pf-',
+    );
     // 상표 로고 대신 스프라이트의 중립 아이콘을 쓴다
     expect(card).toContain('href="#p-android"');
     expect(card).toContain('href="#p-ios"');
