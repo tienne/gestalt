@@ -33,7 +33,8 @@ export const MICRO_HOST_SHORT = '호스트';
 /** 레인 제목은 그 칸의 레이어 이름이다. 칩 이름과 맞춰야 카드와 레인이 같은 말로 읽힌다 */
 export const LANE_TITLES: Record<LaneId, string> = {
   service: '서비스',
-  micro_app: '호스트와 리모트',
+  host: '호스트',
+  remote: '리모트',
   unit: '기능 영역',
   screen: '화면',
   gateway: '게이트웨이',

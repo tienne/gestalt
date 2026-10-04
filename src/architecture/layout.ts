@@ -79,7 +79,8 @@ export interface LayoutRegions {
  */
 export const LANE_IDS = [
   'service',
-  'micro_app',
+  'host',
+  'remote',
   'unit',
   'screen',
   'gateway',
@@ -127,7 +128,8 @@ const LANE_PADDING_X = 20;
 // 화면끼리, 기능 영역끼리 잇는 화면 이동은 요청 흐름이 아니다. elk에 넘기면 같은 레인 안에서 열을 여러 개로 벌려 그림이 옆으로 늘어난다
 const STACKED_LANES: ReadonlySet<LaneId> = new Set<LaneId>([
   'service',
-  'micro_app',
+  'host',
+  'remote',
   'unit',
   'screen',
 ]);
@@ -486,6 +488,45 @@ export function pinToColumnTop(layout: LayoutResult, nodeId: string): LayoutResu
     nodes,
     edges: layout.edges.map((e) => ({ ...e })),
     movedNodeIds: [...moved].sort(),
+  };
+}
+
+/** 열을 나눠 세운 나무. 열(x)은 elk가 정한 그대로 두고 위아래 자리만 나무 순서로 다시 잡는다 */
+export interface TreeStack {
+  root: string;
+  /** 노드 id → 자식 id. 이 순서대로 위에서부터 쌓는다 */
+  children: ReadonlyMap<string, readonly string[]>;
+}
+
+/**
+ * 나무를 위에서부터 깊이 우선으로 쌓는다. 잎은 차례로 한 칸씩 내려가고 부모는 첫 자식과 같은 높이에 선다.
+ * 형제 하위 나무끼리 세로 구간이 안 겹쳐서 어느 화면이 어느 앱 것인지 블록으로 읽힌다. elk는 교차만 줄여서 앱끼리 섞어 놓는다
+ */
+export function stackTree(layout: LayoutResult, tree: TreeStack): LayoutResult {
+  const byId = new Map(layout.nodes.map((n) => [n.id, n]));
+  if (!byId.has(tree.root)) return layout;
+  const placed = new Map<string, number>();
+  const top = byId.get(tree.root)!.y;
+  let cursor = top;
+  const visit = (id: string, seen: Set<string>): void => {
+    const node = byId.get(id);
+    if (!node || seen.has(id)) return;
+    seen.add(id);
+    const start = cursor;
+    for (const c of tree.children.get(id) ?? []) visit(c, seen);
+    placed.set(id, round2(start));
+    cursor = Math.max(cursor, start + node.height + PIN_GAP);
+  };
+  visit(tree.root, new Set());
+  const nodes = layout.nodes.map((n) => ({ ...n, y: placed.get(n.id) ?? n.y }));
+  const moved = nodes.filter((n, i) => n.y !== layout.nodes[i]!.y).map((n) => n.id);
+  const bottom = Math.max(...nodes.map((n) => n.y + n.height));
+  return {
+    ...layout,
+    height: round2(Math.max(layout.height, bottom)),
+    nodes,
+    edges: layout.edges.map((e) => ({ ...e })),
+    movedNodeIds: [...new Set([...(layout.movedNodeIds ?? []), ...moved])].sort(),
   };
 }
 
