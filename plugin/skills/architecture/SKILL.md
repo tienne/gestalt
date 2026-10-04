@@ -53,11 +53,48 @@ AI 하네스나 MCP 서버 레포도 screen-chain으로 그린다. 화면 자리
 
 한 번 실행에 뷰 하나를 그린다. 사용자가 뷰를 말하지 않았으면 어느 쪽인지 묻는다. 둘 다 원하면 뷰마다 Step 0부터 따로 돈다.
 
+웹 제품이 아닌 대상도 screen-chain 뷰로 그린다. 네트워크나 데이터 파이프라인, 조직과 업무 시스템은 IR에 [어휘 팩](#어휘-팩을-적는다)을 적어 그 분야의 kind를 쓴다. 이때는 뷰를 묻지 않는다.
+
+질문 하나에 답하는 그림(`projections`)은 세 번째 뷰가 아니다. 같은 뷰 IR 안에서 지도의 노드와 엣지를 가리켜 다시 그린 그림이다. 질문별 그림을 몇 개 얹어도 실행은 한 번이고 뷰도 하나다.
+
+## 대상과 모양 고르기
+
+Step 0 전에 두 가지를 정한다. 대상에 맞는 어휘 팩과 질문에 맞는 그림 모양이다. 질문과 대상(레포, 문서, 대화)을 보고 세션이 고른다. 판단이 안 설 때만 사용자에게 묻는다.
+
+### 팩 고르기
+
+| 대상                                         | 팩                                                        |
+| -------------------------------------------- | --------------------------------------------------------- |
+| 웹 제품 레포 (화면, API, 서버, 저장소)        | `web-product`. `packs`를 안 적으면 이 팩과 `harness`다    |
+| AI 하네스나 MCP 서버 레포                     | `harness`. 위와 같이 `packs`를 안 적는다 ([3-4](#3-4-ai-하네스와-mcp-서버-레포)) |
+| 네트워크, 방화벽, 클러스터 같은 실행 환경     | `infra`                                                   |
+| ETL, 이벤트 토픽, 웨어하우스, 데이터 리니지   | `data`                                                    |
+| 조직, 역할, 결재 양식, 업무 시스템            | `process`                                                 |
+| 위 어디에도 안 맞는다                        | `generic`의 [`component`](#범용-component를-쓴다)          |
+
+- 한 대상에 여러 분야가 섞이면 팩도 여럿 적는다 (예: `["infra", "data"]`).
+- 어디에도 안 맞아 `component`로 그렸는데 같은 분야가 실행마다 되풀이되면 보고 끝에 그 분야 팩을 만들자고 사용자에게 제안한다. 팩은 `src/architecture/packs/` 아래 코드라서 세션이 IR 안에서 만들 수 없다.
+
+### 모양 고르기
+
+| 질문                                         | 모양                                                          |
+| -------------------------------------------- | ------------------------------------------------------------- |
+| 구조가 어떻게 생겼나                         | 지도(뷰 그대로)와 드릴다운                                    |
+| 누가 무엇을 누구에게 어떤 순서로 주고받나    | `sequence` [질문별 그림](#질문별-그림을-얹는다)                |
+| 데이터가 어디서 와서 어디로 가나             | `dataflow` 질문별 그림                                        |
+| 둘이 무엇이 같고 무엇이 다른가               | `compare` 질문별 그림                                         |
+| 상태나 단계, 업무 절차                       | `flows` ([Step 3.5](#step-35--도메인-흐름))                    |
+| 분명하지 않다                                | 지도를 그리고 Step 8 보고에서 포커스 쓰는 법을 안내한다         |
+
+- 질문별 그림은 지도 위에 얹는다. 지도를 먼저 그린다. 답에 필요한 사실이 지도에 없으면 먼저 탐색해 근거와 함께 `nodes`와 `edges`에 넣는다. 그다음에 질문별 그림에서 가리킨다. 끝내 못 찾은 사실은 그리지 않고 미해결 질문으로 남긴다.
+- 코드 밖 주제(업무 절차, 기획)는 근거가 문서나 사용자 답이라 선이 전부 점선이다. 그게 맞는 그림이다. 실선으로 바꾸려고 근거를 끌어오지 않는다.
+- 레포가 없는 주제면 `root` 없는 [문서 묶음 레포](#문서-묶음-레포를-쓴다)를 하나 적는다. `repoRoot`에는 결과를 둘 디렉토리를 준다.
+
 ## 전체 흐름
 
 ```
-Step 0 start → Step 1 소스 찾아내기 → Step 2 글로벌 맥락 → Step 3 또는 4 뷰 탐색
-→ Step 3.5 도메인 흐름 (screen-chain에서 서비스가 있을 때)
+대상과 모양 고르기 → Step 0 start → Step 1 소스 찾아내기 → Step 2 글로벌 맥락 → Step 3 또는 4 뷰 탐색
+→ Step 3.5 도메인 흐름 (screen-chain에서 상태나 단계, 업무 절차를 그릴 때)
 → Step 4.5 서빙 인프라와 클라우드 접근 → Step 5 레포를 넘는 연결
 → Step 6 IR 작성과 validate → Step 7 미해결 질문 루프
 → Step 8 render와 보고
@@ -274,7 +311,7 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 ```
 
 - **행위자**는 가로줄 하나씩이다. 사람은 `person`, 사람 손 없이 도는 배치나 자동 발송은 `system`, 지시를 읽고 스스로 판단하는 서브에이전트는 `agent`다. 위에서 아래로 적은 순서대로 쌓인다.
-- **단계**는 행위자가 하는 일 하나다. 상태 값이 있으면 `state`에 코드의 enum 이름 그대로 적는다. 그림 위쪽 구간이 이 값으로 나뉜다. 그림에는 enum 이름 대신 흐름의 `stateLabels`에 단 이름이 찍힌다. 상태 값마다 사용자 언어로 이름을 단다 (`WAITING` → 대기). 안 달면 영어 enum이 구간 머리와 단계 칩에 그대로 나온다. 상태가 없는 단계는 앞 단계 구간에 붙고 옆 흐름 단계는 갈라져 나온 단계 옆에 서니 구간을 따로 적지 않는다. `refs`에는 그 단계에서 쓰는 화면, API, 기능영역, 앱 노드 id를 단다. 단계 서랍에서 그 카드로 건너가고 기술 카드 서랍에는 거꾸로 "이 항목이 나오는 흐름 단계"가 뜬다.
+- **단계**는 행위자가 하는 일 하나다. 상태 값이 있으면 `state`에 코드의 enum 이름 그대로 적는다. 그림 위쪽 구간이 이 값으로 나뉜다. 그림에는 enum 이름 대신 흐름의 `stateLabels`에 단 이름이 찍힌다. 상태 값마다 사용자 언어로 이름을 단다 (`WAITING` → 대기). 안 달면 영어 enum이 구간 머리와 단계 칩에 그대로 나온다. 상태가 없는 단계는 앞 단계 구간에 붙고 옆 흐름 단계는 갈라져 나온 단계 옆에 서니 구간을 따로 적지 않는다. `refs`에는 그 단계에서 쓰는 화면, API, 기능영역, 앱 노드 id를 단다. 범용 `component` 노드도 단다. 단계 서랍에서 그 카드로 건너가고 기술 카드 서랍에는 거꾸로 "이 항목이 나오는 흐름 단계"가 뜬다.
 - **전이**는 단계 사이 상태 변화다. 정상 흐름은 `main`, 취소나 노쇼처럼 정상 흐름을 벗어나는 전이는 `side`다.
 - **되돌리기와 정정은 단계가 아니라 전이로 적는다.** 새 상태가 생기지 않고 앞 상태로 돌아가기만 해서다. "되돌리기" 카드를 따로 만들지 말고 `매장 취소 → 호출`처럼 돌아가는 화살표 하나로 쓴다. 조건은 `label`에 적는다 (`되돌리기 (30분 이내)`). 그림에서는 두 카드 가까이로 지나가는 둥근 선에 ↩ 표시가 붙는다.
 - **흐름이 끝나는 단계에는 `"terminal": true`를 단다.** 착석, 취소, 만료처럼 더 갈 곳이 없는 단계다. 나가는 전이가 없는데 이 표시도 없으면 validate가 `auto:dead-end` 질문을 남긴다. 미루기처럼 다시 줄로 돌아가는 단계가 선을 빠뜨렸을 때 그림이 거기서 끝난 것처럼 읽히는 걸 막으려는 표시다. 그 질문이 뜨면 끝 단계로 표시하기 전에 이어지는 전이를 코드에서 먼저 찾는다. 되돌릴 수 있는 취소처럼 끝 단계에서 나가는 전이가 있어도 된다.
@@ -282,7 +319,8 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 - **여러 행위자가 할 수 있는 전이에는 `actors`를 단다.** 되돌리기를 손님도 매장도 할 수 있으면 `"actors": ["guest", "staff"]`다. 선 글자 옆에 행위자 이름이 붙는다. 행위자 줄은 그 사람이 하는 일을 놓는 자리라, 여럿이 하는 동작을 한 줄에 단계로 넣으면 틀린 그림이 된다.
 - 근거 규칙은 엣지와 같다. 상태를 바꾸는 코드 줄을 봤으면 `code` 근거로 실선이다. 기획 문서나 KB로만 확인했으면 `doc` 근거로 점선이다. 그 단계 카드도 점선 테두리가 된다. 근거 없는 단계나 전이는 그리지 않고 질문이 된다.
 - **기획 문서에만 있는 단계도 넣는다.** 아직 안 만든 기능이나 만들다 만 기능이 흐름 그림에서 같이 보여야 기술 그림과의 차이가 드러난다. 대신 근거는 `doc`뿐이라 점선이다.
-- **하네스 흐름**은 사용자가 `person`, MCP 서버가 `system`, 세션 모델과 서브에이전트가 `agent`다. `refs`에는 스킬과 에이전트 노드 id도 단다. 인터뷰 → 스펙 → 실행 → 리뷰처럼 파이프라인 하나를 흐름 하나로 그린다. 세션이 도구를 두 번 불러 결과를 넘기는 2-Call Passthrough는 세션 모델 줄과 MCP 서버 줄을 오가는 지그재그 단계로 그린다. 시퀀스 다이어그램을 따로 그리지 않는다.
+- **하네스 흐름**은 사용자가 `person`, MCP 서버가 `system`, 세션 모델과 서브에이전트가 `agent`다. `refs`에는 스킬과 에이전트 노드 id도 단다. 인터뷰 → 스펙 → 실행 → 리뷰처럼 파이프라인 하나를 흐름 하나로 그린다. 세션이 도구를 두 번 불러 결과를 넘기는 2-Call Passthrough는 세션 모델 줄과 MCP 서버 줄을 오가는 지그재그 단계로 그린다. 시퀀스 다이어그램을 따로 그리지 않는다. 다만 도구 하나의 호출 순서처럼 질문이 좁으면 흐름 대신 [`sequence` 질문별 그림](#질문별-그림을-얹는다)을 얹는다.
+- **서비스 없는 업무 절차**는 `service`를 비운다. 환불 승인이나 장애 대응처럼 코드 서비스에 안 딸린 절차가 그렇다. 렌더하면 전체 바로 아래 독립 흐름 레벨이 되고 전체 레벨의 **흐름** 버튼으로 들어간다. 근거가 위키와 사용자 답이면 [문서 묶음 레포](#문서-묶음-레포를-쓴다)를 쓰고 선은 전부 점선이다. 노드 없이 흐름만 있는 IR도 된다. 그 절차에 나오는 조직과 역할, 시스템이 어디 속하는지까지 그리려면 `process` 팩 노드를 함께 싣는다.
 - **기획 문서는 의도이지 동작이 아니다.** 문서와 코드가 다르게 말하면 둘 다 근거로 달고 그 차이를 `unresolved` 질문으로 남긴다. `subject`에는 `stepId`나 `transitionId`를 쓴다. 어느 쪽이 맞는지 정하지 않는다.
 
 흐름 단계를 채우는 순서는 이렇다. 먼저 상태 enum과 그 값을 바꾸는 서비스 메서드, 배치, 알림 발송 코드를 찾는다. 다음에 화면 코드에서 누가 그 동작을 일으키는지 본다. 그래도 빈 칸은 Step 7-1 순서로 채운다.
@@ -420,11 +458,78 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 - **엣지 근거의 줄은 그 관계가 드러나는 줄이다.** 화면이 API를 부르면 호출 줄, 라우트가 핸들러로 가면 매핑 어노테이션 줄, 모듈이 테이블에 닿으면 쿼리나 엔티티 매핑 줄이다. import 줄은 관계가 아니다. 가져다 놓고 안 부르는 경우가 있다.
 - 공개 범위는 레포에 커밋된 파일이므로 `public`이다. `excerpt`는 그 줄을 짧게 옮긴다.
 
+### 어휘 팩을 적는다
+
+웹 제품이나 하네스가 아니면 최상위 `packs`에 쓸 팩을 적는다. 고르는 법은 [팩 고르기](#팩-고르기)에 있다.
+
+```json
+{ "schemaVersion": "1.0.0", "view": "screen-chain", "packs": ["infra"], "repos": [ ... ], "nodes": [ ... ] }
+```
+
+- 웹 제품과 하네스 레포는 `packs`를 적지 않는다. 안 적으면 `web-product`와 `harness`로 읽는다.
+- `infra`, `data`, `process`를 적으면 `generic`이 따라 들어온다. 그 팩 kind에 안 맞는 노드는 `component`로 둔다.
+- 적은 팩에 없는 kind를 쓰면 `KIND_NOT_IN_PACKS`다. 팩마다 쓰는 kind와 엣지는 [부록 1](#1-노드-kind)과 [부록 2](#2-엣지-kind)에 있다.
+- 엣지마다 양 끝으로 올 수 있는 kind가 정해져 있다. 어기면 이름과 달리 하네스가 아닌 팩에서도 `INVALID_HARNESS_EDGE_ENDS`가 온다.
+- `infra`, `data`, `process`는 parent 포함 관계로 드릴다운한다. 담는 노드를 누르면 그 안의 노드만 모인 레벨로 들어간다. 그래서 포함 관계를 아는 만큼 parent를 단다.
+
+### 범용 component를 쓴다
+
+맞는 팩이 없으면 `generic` 팩의 `component`로 그린다. 종류는 노드에 직접 단다.
+
+```json
+{ "id": "ledger", "kind": "component", "label": "ledger", "repo": "wiki", "displayKind": "원장", "renderClass": "store", "evidence": [ ... ] }
+```
+
+- `displayKind`는 카드 칩에 찍히는 종류 이름이다. [페이지 글](#페이지-글) 규칙대로 사용자 언어로 쓴다.
+- `renderClass`는 색과 아이콘을 고른다. `actor`, `client`, `service`, `gateway`, `store`, `queue`, `external`, `infra`, `step`, `state`, `document` 중 가장 가까운 것을 고른다.
+- 두 필드는 `component`에만 쓰고 `component`에는 둘 다 쓴다. 어기면 `IR_PARSE_ERROR`다.
+- `component`에는 parent를 달지 않는다. 엣지는 `connects`, `sends`, `depends_on` 중 하나이고 양 끝을 가리지 않는다.
+
+### 문서 묶음 레포를 쓴다
+
+코드 없는 대상은 근거가 위키 문서와 사용자 답뿐이다. 그런 출처는 `root` 없는 레포로 적는다.
+
+```json
+"repos": [{ "id": "wiki", "name": "acme-wiki" }]
+```
+
+- 노드의 `repo`는 이 별칭을 가리킨다.
+- 이 레포에 `code` 근거를 달면 `CODE_EVIDENCE_IN_DOC_REPO`다. 문서는 `doc` 근거로 단다.
+- 선은 전부 점선이 된다. 실선이 하나도 없어도 정상이다.
+
+### 질문별 그림을 얹는다
+
+[모양 고르기](#모양-고르기)에서 `sequence`, `dataflow`, `compare`를 골랐으면 지도를 다 쓴 뒤 `projections`에 그림을 단다. 질문별 그림은 지도의 노드와 엣지를 id로 가리킬 뿐이다. 새 사실을 여기에 먼저 적지 않는다.
+
+```json
+{
+  "id": "checkout", "shape": "sequence", "title": "결제 승인 순서",
+  "question": "앱에서 결제를 누르면 누가 무엇을 어떤 순서로 주고받나요?",
+  "participants": ["app", "api", "pg"],
+  "blocks": [{ "id": "b-result", "kind": "alt", "label": "승인 결과" }],
+  "messages": [
+    { "id": "m1", "from": "app", "to": "api", "label": "POST /orders/pay", "edge": "e-app-api", "evidence": [], "lineStyle": "solid" },
+    { "id": "m2", "from": "pg", "to": "api", "label": "승인됨", "edge": "e-api-pg", "evidence": [], "lineStyle": "solid", "reply": true, "block": "b-result", "branch": "승인" }
+  ]
+}
+```
+
+- `id`는 소문자, 숫자, 하이픈만 쓴다. 저장 파일 이름이 된다. 메시지 id는 모든 질문별 그림을 통틀어 겹치지 않게 짓는다.
+- `title`과 `question`, 메시지 `label`은 [페이지 글](#페이지-글)이다. `question`에는 사용자가 물은 문장을 그대로 옮긴다.
+- **메시지마다 지도의 엣지를 `edge`로 가리킨다.** 그 엣지의 근거가 메시지 근거로 따라오므로 `evidence`를 비워도 된다. 엣지는 메시지의 두 끝을 이어야 하고 방향은 상관없다. 응답처럼 엣지와 거꾸로 가는 메시지도 같은 엣지를 가리킨다.
+- 엣지로 안 잡히는 일(같은 노드 안의 검증, 문서에만 적힌 단계)은 `edge` 없이 자기 `evidence`를 단다. 자기 호출은 `from`과 `to`를 같게 쓴다.
+- 근거가 하나도 없는 메시지는 그려지지 않고 `auto:message:<id>` 질문이 된다. 메시지를 지어내 채우지 말고 Step 7로 넘긴다.
+- **sequence**: `participants`로 세로줄 순서를 정한다. 적으면 메시지 끝이 전부 여기 있어야 한다. 묶음은 `blocks`에 두고 메시지 `block`으로 건다. `alt`는 경우에 따라 하나만 도는 묶음, `opt`는 조건이 맞을 때만 도는 묶음, `loop`는 되풀이, `par`는 동시에 도는 묶음이다. `alt` 안의 경우 이름은 `branch`에 적는다. 한 묶음의 메시지는 붙여서 적는다.
+- **dataflow**: `messages`만 쓴다. 데이터가 한 노드에서 다른 노드로 옮겨 가는 것 하나가 메시지 하나다. `blocks`와 메시지의 `reply`, `block`, `branch`는 쓰지 않는다.
+- **compare**: `messages`는 빈 배열로 두고 `sides`에 견줄 두 묶음을 적는다. `{ id, label, nodes[] }` 둘이고 id는 달라야 한다. 그림은 "첫 묶음에만", "둘 다", "둘째 묶음에만" 세 열로 선다.
+- 질문 하나에 그림 하나다. 질문이 여럿이면 그림도 여럿 단다.
+
 ### parent로 포함 관계를 단다
 
 `parent`는 이 노드를 담는 노드의 id다. 드릴다운의 서비스와 기능영역 화면이 이 값으로 화면을 모은다.
 
 - `screen`의 parent는 `feature`, `micro_app`, `service` 중 하나다. `feature`의 parent는 `micro_app`이나 `service`, `micro_app`의 parent는 `service`만 된다. `skill`의 parent는 `feature`나 `service`다. MCP 도구(`protocol: "mcp"`인 `endpoint`)의 parent는 그 도구를 내놓는 `service`다. HTTP 엔드포인트를 비롯해 다른 kind에는 달지 않는다.
+- 팩을 적었으면 그 팩의 parent 규칙을 따른다. `infra`는 `subnet` → `network`, `cluster` → `network`나 `subnet`, `workload` → `network`나 `subnet`이나 `cluster`, `firewall` → `network`나 `subnet`이다. `data`는 `job` → `pipeline`, `dataset` → `warehouse`다. `process`는 `org_unit`과 `role` → `org_unit`이다. `component`는 parent를 갖지 않는다.
 - parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없는 것으로 친다.
 - 재실행 병합이 노드 id를 물려주면 parent도 그 id를 따라간다.
 
@@ -452,7 +557,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 ```
 
 - 성공하면 `{ ok: true, autoUnresolved, drawable }`이다. `drawable`에 빠진 노드와 엣지가 있으면 왜 빠졌는지 `autoUnresolved`에서 확인한다.
-- 실패하면 `errors[]`에 `code`와 `nodeId`나 `edgeId`가 온다.
+- 실패하면 `errors[]`에 `code`와 `nodeId`나 `edgeId`가 온다. 질문별 그림 에러면 `projectionId`와 `messageId`가 온다.
 
 | 에러 코드                     | 고치는 법                                                                                                          |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -467,7 +572,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 | `INVALID_PARENT_KIND`         | 위 포함 규칙에 맞게 parent를 고친다. 화면이 화면을 담거나 HTTP 엔드포인트에 parent를 달면 여기 걸린다              |
 | `SERVES_SERVICE_WITH_APPS`    | `micro_app`이 달린 서비스를 `serves`로 가리켰다. 그 사슬이 서빙하는 호스트나 리모트 앱으로 `to`를 옮긴다           |
 | `INVALID_LOADS_ENDS`          | `loads`는 `micro_app → micro_app`이나 `client → service`만 된다. 서비스끼리 이었으면 앱 노드를 두고 다시 잇는다    |
-| `INVALID_HARNESS_EDGE_ENDS`   | `spawns`는 스킬이나 에이전트 → 에이전트, `invokes`는 스킬 → 스킬이다. 스킬과 에이전트의 `calls`는 endpoint만 가리킨다 |
+| `INVALID_HARNESS_EDGE_ENDS`   | `spawns`는 스킬이나 에이전트 → 에이전트, `invokes`는 스킬 → 스킬이다. 스킬과 에이전트의 `calls`는 endpoint만 가리킨다. 다른 팩 엣지면 [부록 2](#2-엣지-kind)의 from → to를 본다 |
 | `INVALID_CALL_ACTIONS`        | 엣지 `actions`는 MCP 도구로 가는 `calls`에만 단다                                                                  |
 | `UNKNOWN_MCP_ACTION`          | 엣지 `actions`에 도구 `actions`에 없는 값이 있다. 도구 등록의 enum을 다시 보거나 그 호출을 질문으로 돌린다         |
 | `MD_CODE_EVIDENCE`            | 하네스 IR에서 스킬과 에이전트 밖에 md 줄을 `code`로 달았다. `doc` 근거로 바꾼다                                   |
@@ -475,6 +580,16 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 | `ACCOUNT_NOT_FOUND`           | `account`가 가리키는 `cloud_account` 노드를 `nodes`에 넣거나 `account`를 뺀다                                      |
 | `INVALID_ACCOUNT_KIND`        | `account`는 `cloud_account` 노드만 가리킨다                                                                        |
 | `CLOUD_ID_IN_ID`              | id에서 계정 ID나 CDN 배포 ID를 빼고 별칭으로 짓는다. 실제 ID는 `label`에 둔다                                      |
+| `UNKNOWN_PACK`                | `packs`의 팩 id를 `web-product`, `harness`, `generic`, `infra`, `data`, `process` 중에서 고른다                    |
+| `KIND_NOT_IN_PACKS`           | 그 kind가 든 팩을 `packs`에 더하거나 노드를 `component`로 바꾼다                                                   |
+| `CODE_EVIDENCE_IN_DOC_REPO`   | `root` 없는 레포에 `code` 근거를 달았다. `doc` 근거로 바꾸거나 코드가 있는 레포를 `root`와 함께 적는다              |
+| `DUPLICATE_PROJECTION_ID`, `DUPLICATE_MESSAGE_ID` | 질문별 그림 id나 메시지 id를 다시 짓는다. 메시지 id는 그림을 넘어서도 겹치면 안 된다         |
+| `PROJECTION_NODE_NOT_FOUND`   | 가리킨 노드를 지도에 먼저 넣는다. `participants`를 적었으면 메시지 끝이 다 들어 있는지 본다                        |
+| `PROJECTION_EDGE_NOT_FOUND`, `PROJECTION_EDGE_MISMATCH` | 메시지 `edge`를 그 두 노드를 잇는 지도 엣지로 고친다. 그런 엣지가 없으면 지도에 먼저 넣거나 `edge`를 뺀다 |
+| `PROJECTION_BLOCK_NOT_FOUND`, `PROJECTION_BLOCK_SPLIT` | 메시지 `block`을 `blocks`의 id로 고치고 한 묶음의 메시지를 붙여 적는다                       |
+| `SOLID_MESSAGE_WITHOUT_EVIDENCE` | 가리킨 엣지나 자기 근거에 code나 spec이 없다. 근거를 찾아 달거나 점선으로 바꾼다                                |
+| `PROJECTION_EMPTY`            | sequence와 dataflow에 메시지를 넣는다. 넣을 메시지가 없으면 그 그림을 뺀다                                         |
+| `PROJECTION_SHAPE_FIELD`      | 모양에 안 맞는 필드를 뺀다. [질문별 그림을 얹는다](#질문별-그림을-얹는다)의 모양별 설명을 본다                      |
 
 **최대 3회까지 고쳐 다시 validate한다.** 세 번째에도 같은 노드나 엣지에서 실패하면 더 붙잡지 않는다. 그 노드나 엣지를 IR에서 빼고 `unresolved`에 무엇을 왜 확인 못 했는지 질문으로 남긴다.
 
@@ -513,9 +628,10 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 - `htmlPath`: 근거 링크와 인용이 다 보이는 본인용
 - `sharedHtmlPath`: private 근거의 위치와 인용을 빼고 출처 종류만 남긴 공유용. 다른 사람에게 넘길 때는 이 파일만 넘긴다
 - `irPath`: 다음 실행의 출발점
-- `levels`: 드릴다운으로 그렸을 때만 온다. 항목마다 `id`, `title`, `nodes`, `edges`가 있다. `id`는 `root`(전체), `service:<id>`, `feature:<id>`, `server:<id>` 꼴이다
+- `levels`: 드릴다운으로 그렸을 때만 온다. 항목마다 `id`, `title`, `nodes`, `edges`가 있다. `id`는 `root`(전체), `service:<id>`, `feature:<id>`, `server:<id>`, `flow:<id>`, `group:<id>`, `view:<id>` 꼴이다
+- `viewPaths`: 질문별 그림이 있을 때만 온다. 그림마다 `.gestalt/architecture/views/<view>.<그림 id>.json`에 그 그림과 가리킨 노드, 엣지, 질문만 따로 저장한 경로다. 다른 세션이 질문 하나의 답만 읽어 갈 때 이 파일을 건넨다
 
-그려진 `service` 노드가 하나라도 있으면 HTML 한 장 안에 레벨을 나눠 담는다. 없으면 `levels` 없이 평면 그림 한 장이다. deploy-path는 늘 평면이다.
+그려진 `service` 노드가 하나라도 있으면 HTML 한 장 안에 레벨을 나눠 담는다. 서비스가 없어도 `service` 없는 흐름이나 질문별 그림이 있으면, 또는 `infra`, `data`, `process` 팩 노드 사이에 parent가 있으면 레벨로 나눈다. 그 밖에는 `levels` 없이 평면 그림 한 장이다. deploy-path는 질문별 그림을 얹지 않으면 늘 평면이다.
 
 | 레벨                      | 보이는 것                                                                                                                                                                                 |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -523,14 +639,16 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 | 서비스 (`service:<id>`)   | 그 서비스의 기능영역과 서비스에 바로 단 화면, 거기서 닿는 `gateway`와 서버. 서비스를 서빙하는 버킷이 있으면 왼쪽에 도메인, CDN, 버킷 레인이 붙고 서비스 카드가 기능영역 레인 맨 위에 선다 |
 | 기능영역 (`feature:<id>`) | 그 기능영역의 화면, 화면이 부르는 엔드포인트, 거쳐 가는 `gateway`와 받는 모듈                                                                                                             |
 | 서버 (`server:<id>`)      | 그 모듈이나 `gateway`에 걸린 엔드포인트, 읽고 쓰는 테이블, 쓰는 클라이언트                                                                                                                |
-| 흐름 (`flow:<id>`)        | Step 3.5의 흐름 하나. 행위자 가로줄 위에 단계 카드가 왼쪽에서 오른쪽으로 선다. 옆 흐름은 정상 흐름과 다른 색 선이다. 서비스 레벨의 **흐름** 버튼으로 들어간다                             |
+| 흐름 (`flow:<id>`)        | Step 3.5의 흐름 하나. 행위자 가로줄 위에 단계 카드가 왼쪽에서 오른쪽으로 선다. 옆 흐름은 정상 흐름과 다른 색 선이다. 서비스 레벨의 **흐름** 버튼으로 들어간다. `service` 없는 흐름은 전체 바로 아래 서고 전체 레벨의 **흐름** 버튼으로 들어간다 |
+| 묶음 (`group:<id>`)       | `infra`, `data`, `process` 팩에서 자식을 가진 노드 하나. 바로 아래 자식만 보이고 손자 사이 선은 자식 카드 사이 선으로 묶인다. 바깥과 잇는 카드는 보내기만 하면 왼쪽, 받으면 오른쪽에 선다 |
+| 질문 (`view:<id>`)        | 질문별 그림 하나. 전체 바로 아래 서고 위쪽 바의 **질문별 그림** 버튼으로 들어간다. 메시지를 누르면 보내는 쪽, 받는 쪽, 근거가 나오고 지도의 카드로 건너간다 |
 
 **드릴다운이면 `levels`를 요약해 먼저 안내한다.** 전체 1장, 서비스 몇 개, 기능영역 몇 개인지와 `htmlPath`를 알려준다. 조작법도 한두 줄 붙인다. 노드를 누르면 출처와 상세보기 버튼이 나오고 더블클릭하면 바로 들어간다. 브라우저 뒤로가기를 누르면 앞 화면으로 돌아온다. 전체 화면에서 Shift나 ⌘를 누른 채 두 노드를 고르면 그 사이 경로를 펼친다. 카드를 고르고 **포커스** 버튼이나 `F` 키를 누르면 그 노드와 위아래로 이어진 카드만 남는다. ✕나 ESC를 누르면 원래 그림에 돌아온다. 공유용을 원하면 `sharedHtmlPath`를 알려준다.
 
 보고는 이 세 덩어리로 한다.
 
 1. **stats**: `nodes`, `edges`, `drawnEdges`, `droppedEdges`, `unresolvedOpen`. screen-chain이면 `screenToEndpointRatio`(엔드포인트로 이어진 화면 비율)와 `endpointMatchRatio`(핸들러까지 이어진 엔드포인트 비율)도 적는다. 값이 `null`이면 분모가 0이라는 뜻이다. 흐름을 적었으면 `flows`, `drawnSteps`, `drawnTransitions`도 온다.
-2. **미해결 목록**: 답이 안 달린 질문을 전부 적는다. 숨기지 않는다.
+2. **미해결 목록**: 답이 안 달린 질문을 전부 적는다. 숨기지 않는다. 질문별 그림에서 근거가 없어 빠진 메시지(`auto:message:<id>`)도 여기 들어간다.
 3. **sourcesUsed**: `public` 소스는 이름이나 경로까지 적는다. **`private` 소스는 종류만 적는다** (예: "개인 메모리 2건, MCP 검색 1건"). 경로나 도구 이름을 보고에 옮기지 않는다.
 
 Step 4.5에서 클라우드를 조회했으면 어느 프로필로 언제 조회했는지 적는다. 만료로 조회를 못 했으면 "재로그인 필요"와 보여준 로그인 명령 모양을 적는다. 계정 ID는 보고에 적어도 되지만 공유본이나 커밋할 파일에는 옮기지 않는다.
@@ -545,7 +663,8 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 2. **노드 id를 유지한다.** 같은 노드는 같은 id로 쓴다. render가 kind와 repo와 label이 같은 노드에 이전 id를 물려주긴 한다. 그런데 label을 바꾸면 다른 노드로 본다. 엔드포인트 label은 Step 3의 꼴을 그대로 지킨다. 사람이 읽을 이름을 고치고 싶으면 label 대신 `displayName`을 고친다.
 3. **`previousSourcesUsed`를 먼저 간 본다.** `probeHit`가 `true`였던 소스부터 본다. 이번에도 `filter_tools`는 다시 거친다. 도구 이름이 같아도 이번 세션에 붙은 서버가 다를 수 있다.
 4. **지난 실행 이후 바뀐 곳 주변만 다시 탐색한다.** `generatedAt` 이후의 `git log`와 `git diff`로 바뀐 파일을 뽑는다. 그 파일에 걸린 노드와 엣지만 근거 줄을 다시 확인한다. 안 바뀐 파일의 근거도 줄이 밀렸을 수 있으니 validate의 `CODE_EVIDENCE_NOT_FOUND`가 나면 그 근거는 다시 찾는다.
-5. 답이 달린 지난 질문은 render가 물려준다. 답 안 달린 질문은 Step 7에서 다시 묻는다. `user` 근거로 정해진 기능영역 경계는 Step 3-1대로 그대로 둔다.
+5. **질문별 그림은 지난 것을 다시 적지 않아도 된다.** 새 IR에 같은 id 그림이 없으면 render가 지난 그림을 이어 붙인다. 단 가리킨 노드와 엣지가 다 남아 있고 그림 id와 메시지 id가 이번 것과 안 겹칠 때만이다. 하나라도 어긋나면 버려지니 응답의 `viewPaths`에서 빠진 그림이 있는지 본다. 빠졌으면 지도를 고친 뒤 다시 적는다.
+6. 답이 달린 지난 질문은 render가 물려준다. 답 안 달린 질문은 Step 7에서 다시 묻는다. `user` 근거로 정해진 기능영역 경계는 Step 3-1대로 그대로 둔다.
 
 ## 분석 합치기
 
@@ -574,7 +693,8 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
    - `micro_app`은 레포가 달라도 label이 같으면 한 노드로 모인다. 호스트 레포의 분석과 리모트 레포의 분석을 합치면 리모트 앱이 하나로 합쳐지고 리모트 쪽 기능영역과 사슬이 그 앱 아래 붙는다. 두 제품이 같은 리모트를 각자 자기 서비스에 달았으면 parent를 비운다. 이 경우는 질문을 만들지 않는다. 공유 리모트는 어느 한 서비스 것이 아니라서다.
    - `islands`: 1보다 크면 서로 안 이어진 분석이 있다. 겹치는 게 정말 없는지, label이나 remote가 어긋난 건지 확인한다.
 5. **validate와 render를 그대로 탄다.** 합친 IR에는 제품마다 그룹(`groups`)이 붙는다. render가 맨 위에 같이 쓰는 띠를, 그 아래로 제품마다 전용 띠를 나눠 그린다. 같이 쓰는 `gateway`와 서버, 저장소는 맨 위 띠에 모이고 카드 위에 그 카드를 쓰는 제품 브릭이 꽂힌다. 제품이 셋 이상이어도 같다. `irPath`로 합친 파일을 넘긴다. **`repoRoot`는 원래 분석 레포가 아닌 따로 둔 디렉토리로 준다.** render는 `repoRoot`의 같은 뷰 IR과 병합하므로 원래 레포를 주면 그 레포의 단독 분석이 합친 결과로 덮인다. 입력의 `root`가 상대 경로였으면 `checkFiles: false`로 그린다.
-6. **충돌 질문은 Step 7처럼 사용자에게 묻는다.** 답은 원래 분석 쪽에 `user` 근거로 남기고 다시 합친다. 합친 IR에만 고쳐 두면 다음에 합칠 때 같은 질문이 또 생긴다.
+6. **질문별 그림과 팩도 따라온다.** 입력마다의 질문별 그림은 나란히 들어가고 id가 부딪히면 `-2`가 붙는다. 입력 중 하나라도 `packs`를 적었으면 결과는 입력들 팩의 합집합이다. `packs`를 안 적은 입력은 `web-product`와 `harness`로 친다.
+7. **충돌 질문은 Step 7처럼 사용자에게 묻는다.** 답은 원래 분석 쪽에 `user` 근거로 남기고 다시 합친다. 합친 IR에만 고쳐 두면 다음에 합칠 때 같은 질문이 또 생긴다.
 
 보고에는 Step 8의 세 덩어리에 더해 `sharedNodes`(같이 쓰는 노드 이름과 레포), `crossRepoEdges` 수, 충돌 질문 목록을 적는다.
 
@@ -608,6 +728,28 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `bucket`           | 둘 다        | 정적 번들이나 코드푸시 번들이 올라가는 버킷                                                      |
 | `cloud_account`    | 둘 다        | 클라우드 계정. 다른 노드의 `account`가 이 노드를 가리킨다                                        |
 
+위 표는 `web-product`와 `harness` 팩이다. 아래는 `packs`에 적어야 쓰는 kind다. 뷰는 screen-chain으로 둔다.
+
+| kind        | 팩        | 뜻                                                                   |
+| ----------- | --------- | -------------------------------------------------------------------- |
+| `component` | `generic` | 맞는 팩이 없는 구성 요소. `displayKind`와 `renderClass`를 함께 단다   |
+| `network`   | `infra`   | 가상 네트워크                                                         |
+| `subnet`    | `infra`   | 네트워크 안의 서브넷. `parent`는 `network`                            |
+| `firewall`  | `infra`   | 방화벽이나 보안 그룹. `parent`는 `network`나 `subnet`                 |
+| `cluster`   | `infra`   | 실행 클러스터. `parent`는 `network`나 `subnet`                        |
+| `workload`  | `infra`   | 클러스터에서 도는 서비스나 잡. `parent`는 `network`, `subnet`, `cluster` |
+| `source`    | `data`    | 데이터가 처음 생기는 곳 (운영 DB, 로그 수집기)                        |
+| `topic`     | `data`    | 이벤트 토픽이나 큐                                                    |
+| `pipeline`  | `data`    | ETL 파이프라인이나 DAG                                                |
+| `job`       | `data`    | 파이프라인 안의 처리 작업. `parent`는 `pipeline`                      |
+| `warehouse` | `data`    | 데이터 웨어하우스나 레이크                                            |
+| `dataset`   | `data`    | 테이블이나 데이터셋. `parent`는 `warehouse`                          |
+| `report`    | `data`    | 대시보드나 리포트                                                     |
+| `org_unit`  | `process` | 조직이나 팀. `parent`는 상위 `org_unit`                               |
+| `role`      | `process` | 역할이나 담당. `parent`는 `org_unit`                                  |
+| `form`      | `process` | 결재 양식이나 신청서                                                  |
+| `system`    | `process` | 업무에 쓰는 시스템                                                    |
+
 ### 2. 엣지 kind
 
 | kind           | from → to                                  | 근거가 되는 줄                                                                                    |
@@ -631,6 +773,21 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `loads`        | client → service                           | 클라이언트가 플러그인을 읽는 매니페스트 줄                                                        |
 | `spawns`       | skill, agent → agent                       | 지시문에서 그 에이전트를 띄우는 줄                                                                |
 | `invokes`      | skill → skill                              | 지시문에서 다른 스킬을 부르는 줄                                                                  |
+
+팩 엣지다. 양 끝 규칙을 어기면 `INVALID_HARNESS_EDGE_ENDS`다.
+
+| kind         | 팩        | from → to                              | 뜻          |
+| ------------ | --------- | -------------------------------------- | ----------- |
+| `connects`   | `generic` | 가리지 않는다                          | 연결        |
+| `sends`      | `generic` | 가리지 않는다                          | 보냄        |
+| `depends_on` | `generic` | 가리지 않는다                          | 의존        |
+| `peers`      | `infra`   | network → network                      | 피어링      |
+| `allows`     | `infra`   | firewall → subnet, cluster, workload   | 통신 허용   |
+| `feeds`      | `data`    | 가리지 않는다                          | 데이터 공급 |
+| `publishes`  | `data`    | source, job → topic                    | 발행        |
+| `hands_over` | `process` | org_unit, role → org_unit, role        | 넘김        |
+| `approves`   | `process` | org_unit, role → form                  | 승인        |
+| `records`    | `process` | org_unit, role, system → form, system  | 기록        |
 
 ### 3. 근거 종류와 선 모양
 
