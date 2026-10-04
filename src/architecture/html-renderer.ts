@@ -38,7 +38,7 @@ import {
   type LayoutResult,
 } from './layout.js';
 import { indexMicroApps } from './micro-app.js';
-import { ALL_PACKS_VOCABULARY } from './packs/index.js';
+import { ALL_PACKS_VOCABULARY, irVocabulary, type Vocabulary } from './packs/index.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
   ArchitectureEdge,
@@ -50,7 +50,7 @@ import type {
   Evidence,
   UnresolvedQuestion,
 } from './types.js';
-import { displayKindOf } from './types.js';
+import { chipTextOverride, displayKindOf } from './types.js';
 import { maskSharedText, redactForSharing, type ValidatedIr } from './validator.js';
 
 export type ArchitectureAudience = 'private' | 'shared';
@@ -263,7 +263,7 @@ function renderCard(
   if (enterable) cls.push('enterable');
   if (focus) cls.push('is-focus');
   const aria =
-    `${name}, ${NODE_KIND_TEXT[dk]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}` +
+    `${name}, ${chipTextOverride(node) ?? NODE_KIND_TEXT[dk]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}` +
     (platforms.length > 0 ? `, ${platforms.join(', ')}` : '') +
     (flows > 0 ? `, 사용자 흐름 ${flows}개` : '') +
     (products.length > 1 ? `, 같이 쓰는 제품 ${products.join(', ')}` : '');
@@ -290,7 +290,7 @@ function renderCard(
     `${micro.frame !== undefined ? ` data-frame="${escapeHtml(micro.frame)}"` : ''} role="button" tabindex="0" ` +
     `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
     `style="left:${x}px;top:${y}px;width:${box.width}px;height:${box.height}px">` +
-    `<span class="kc">${engine !== undefined ? iconUse(`e-${engine}`, `brand b-${engine}`) : iconUse(`i-${dk}`)}${escapeHtml(micro.host ? MICRO_HOST_SHORT : NODE_KIND_SHORT[dk])}</span>` +
+    `<span class="kc">${engine !== undefined ? iconUse(`e-${engine}`, `brand b-${engine}`) : iconUse(`i-${dk}`)}${escapeHtml(micro.host ? MICRO_HOST_SHORT : (chipTextOverride(node) ?? NODE_KIND_SHORT[dk]))}</span>` +
     `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}` +
     (flows > 0
       ? `<span class="flow-badge" title="사용자 흐름 보기">${iconUse('u-flow')}${escapeHtml(flowBadgeText(flows))}</span>`
@@ -908,19 +908,37 @@ function renderBar(
   );
 }
 
-const CLIENT_SCRIPT = renderClientScript({
-  kindShort: NODE_KIND_SHORT,
-  hostShort: MICRO_HOST_SHORT,
-  kindText: { ...NODE_KIND_TEXT, ...EDGE_KIND_TEXT },
-  evidenceText: EVIDENCE_TYPE_TEXT,
-  laneTitles: LANE_TITLES,
-  inferredBadge: INFERRED_BADGE,
-  platformChip: PLATFORM_CHIP_TEXT,
-  platformName: PLATFORM_NAME,
-  webHostingChip: WEB_HOSTING_CHIP_TEXT,
-  webHostingName: WEB_HOSTING_NAME,
-  backwardKinds: [...FLAT_BACKWARD_EDGE_KINDS].sort(compareStr),
-});
+const clientScripts = new Map<string, string>();
+
+/** 칩 글자와 설명, 레인 제목은 IR이 쓰는 팩 것만 싣는다. 팩을 더해도 그 팩을 안 쓰는 그림의 바이트가 그대로다 */
+function clientScriptFor(vocab: Vocabulary): string {
+  const key = vocab.packIds.join(',');
+  const hit = clientScripts.get(key);
+  if (hit !== undefined) return hit;
+  const pick = <T>(table: Record<string, T>, keys: Iterable<string>): Record<string, T> =>
+    Object.fromEntries([...keys].map((k) => [k, table[k]!]));
+  const script = renderClientScript({
+    kindShort: pick(NODE_KIND_SHORT, Object.keys(vocab.looks)),
+    hostShort: MICRO_HOST_SHORT,
+    kindText: {
+      ...pick(NODE_KIND_TEXT, Object.keys(vocab.looks)),
+      ...pick(EDGE_KIND_TEXT, [...Object.keys(vocab.edgeKinds), 'contains']),
+    },
+    evidenceText: EVIDENCE_TYPE_TEXT,
+    laneTitles: pick(LANE_TITLES, Object.keys(vocab.lanes)) as typeof LANE_TITLES,
+    inferredBadge: INFERRED_BADGE,
+    platformChip: PLATFORM_CHIP_TEXT,
+    platformName: PLATFORM_NAME,
+    webHostingChip: WEB_HOSTING_CHIP_TEXT,
+    webHostingName: WEB_HOSTING_NAME,
+    backwardKinds: [...FLAT_BACKWARD_EDGE_KINDS]
+      .filter((k) => k in vocab.edgeKinds)
+      .sort(compareStr),
+    components: 'component' in vocab.nodeKinds,
+  });
+  clientScripts.set(key, script);
+  return script;
+}
 
 interface PageSpec {
   ir: ArchitectureIr;
@@ -933,6 +951,7 @@ interface PageSpec {
 
 function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
   const title = viewTitle(ir);
+  const vocab = irVocabulary(ir);
   const nodeById = new Map(payload.nodes.map((n) => [n.id, n]));
   const hasFlows = flows !== undefined && flows.flows.length > 0;
   return [
@@ -943,10 +962,10 @@ function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss()}</style>`,
+    `<style>${renderCss(vocab)}</style>`,
     '</head>',
     '<body>',
-    renderIconSprite(),
+    renderIconSprite(vocab),
     renderBar(
       title,
       drill,
@@ -992,7 +1011,7 @@ function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
       ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
       : '',
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
-    `<script>${CLIENT_SCRIPT}</script>`,
+    `<script>${clientScriptFor(vocab)}</script>`,
     '</body>',
     '</html>',
     '',

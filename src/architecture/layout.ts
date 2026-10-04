@@ -12,7 +12,7 @@ import type {
   WebHosting,
 } from './types.js';
 import { ALL_PACKS_VOCABULARY, type PackLaneId } from './packs/index.js';
-import { displayKindOf, EDGE_KINDS, ENVIRONMENT_ORDER } from './types.js';
+import { chipTextOverride, displayKindOf, EDGE_KINDS, ENVIRONMENT_ORDER } from './types.js';
 
 export interface LayoutNode {
   id: string;
@@ -171,6 +171,8 @@ export interface GraphLayoutNode {
   /** 구간 순번. 구간이 있는 그림에서는 rank보다 앞서 열 순서를 정한다 */
   stage?: number;
   kind?: DisplayKind;
+  /** 칩에 kind 표 대신 찍을 글자. component의 displayKind다 */
+  chip?: string;
   /** 같은 레이어 안에서 위에서부터 설 순서. 준 노드끼리만 지켜진다 */
   order?: number;
   /** 둘째 줄 끝 플랫폼 칩 */
@@ -232,10 +234,10 @@ export function platformChipsWidth(
 }
 
 /** 종류 칩이 첫 줄에서 차지하는 폭(px) */
-export function chipWidth(kind: DisplayKind | undefined): number {
+export function chipWidth(kind: DisplayKind | undefined, chip?: string): number {
   return kind === undefined
     ? 0
-    : CHIP_FIXED_WIDTH + textUnits(NODE_KIND_SHORT[kind]) * CHIP_CHAR_WIDTH;
+    : CHIP_FIXED_WIDTH + textUnits(chip ?? NODE_KIND_SHORT[kind]) * CHIP_CHAR_WIDTH;
 }
 export const NARROW_CHAR_WIDTH = 8;
 const MIN_NODE_WIDTH = 120;
@@ -254,6 +256,7 @@ export function textUnits(text: string): number {
 }
 
 export interface MeasureExtras {
+  chip?: string;
   platforms?: readonly Platform[];
   webHosting?: WebHosting;
   secondLine?: string;
@@ -274,7 +277,7 @@ export function measureNode(
 ): { width: number; height: number } {
   const name = displayName ?? label;
   const first =
-    chipWidth(kind) +
+    chipWidth(kind, extras.chip) +
     (textUnits(name) +
       (displayName !== undefined && displayNameInferred ? INFERRED_BADGE_UNITS : 0)) *
       NARROW_CHAR_WIDTH +
@@ -358,6 +361,7 @@ export async function computeLayout(
       lane: laneOfNode(n),
       ...(staged !== undefined ? { stage: staged.indexOf.get(n.id)! } : {}),
       kind: displayKindOf(n),
+      ...(chipTextOverride(n) !== undefined ? { chip: chipTextOverride(n)! } : {}),
       ...(n.environment !== undefined ? { order: environmentRank(n.environment) } : {}),
     }));
   const edges = ir.edges
@@ -402,6 +406,7 @@ export async function computeGraphLayout(
     children: nodes.map((n) => ({
       id: n.id,
       ...measureNode(n.label, n.displayName, n.displayNameInferred, n.kind, {
+        ...(n.chip !== undefined ? { chip: n.chip } : {}),
         ...(n.platforms !== undefined ? { platforms: n.platforms } : {}),
         ...(n.webHosting !== undefined ? { webHosting: n.webHosting } : {}),
         ...(n.secondLine !== undefined ? { secondLine: n.secondLine } : {}),

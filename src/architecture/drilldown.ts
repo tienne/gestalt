@@ -21,7 +21,7 @@ import { computeFlowLevels, type FlowLevel } from './flow-layout.js';
 import { indexMicroApps, orderedApps, type MicroAppIndex } from './micro-app.js';
 import { computeServiceFacts } from './service-facts.js';
 import type { ArchitectureEdge, ArchitectureNode, EdgeKind, LineStyle, NodeKind } from './types.js';
-import { displayKindOf } from './types.js';
+import { chipTextOverride, displayKindOf } from './types.js';
 import type { ValidatedIr } from './validator.js';
 
 export type DrillLevelKind = 'root' | 'service' | 'app' | 'server' | 'feature';
@@ -1122,6 +1122,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         lane: d.laneOverride?.get(id) ?? d.laneOfKind?.[node.kind] ?? laneOfNode(node),
         ...(staged !== undefined ? { stage: staged.indexOf.get(id)! } : {}),
         kind: displayKindOf(node),
+        ...(chipTextOverride(node) !== undefined ? { chip: chipTextOverride(node)! } : {}),
         ...(d.orderOverride?.has(id)
           ? { order: d.orderOverride.get(id)! }
           : node.environment !== undefined

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ValidationError } from '../core/errors.js';
 import { err, ok, type Result } from '../core/result.js';
+import { RENDER_CLASSES } from './packs/types.js';
 import {
   ARCHITECTURE_IR_SCHEMA_VERSION,
   ARCHITECTURE_VIEWS,
@@ -85,10 +86,23 @@ const nodeSchema = z
     protocol: z.enum(ENDPOINT_PROTOCOLS).optional(),
     mcpServer: z.string().min(1).optional(),
     actions: z.array(z.string().min(1)).optional(),
+    displayKind: z.string().min(1).optional(),
+    renderClass: z.enum(RENDER_CLASSES).optional(),
   })
   .superRefine((node, ctx) => {
     const custom = (path: string, message: string): void =>
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+    if (node.kind === 'component') {
+      if (node.displayKind === undefined)
+        custom('displayKind', 'component 노드는 displayKind가 있어야 한다');
+      if (node.renderClass === undefined)
+        custom('renderClass', 'component 노드는 renderClass가 있어야 한다');
+    } else {
+      if (node.displayKind !== undefined)
+        custom('displayKind', 'displayKind는 component 노드에만 쓸 수 있다');
+      if (node.renderClass !== undefined)
+        custom('renderClass', 'renderClass는 component 노드에만 쓸 수 있다');
+    }
     if (node.kind !== 'service') {
       if (node.platforms !== undefined)
         custom('platforms', 'platforms는 service 노드에만 쓸 수 있다');
@@ -221,6 +235,7 @@ const stageSchema = z.object({
 export const architectureIrSchema = z.object({
   schemaVersion: z.literal(ARCHITECTURE_IR_SCHEMA_VERSION),
   view: architectureViewSchema,
+  packs: z.array(z.string().min(1)).optional(),
   repos: z.array(repoSchema),
   nodes: z.array(nodeSchema),
   edges: z.array(edgeSchema),

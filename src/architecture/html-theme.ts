@@ -1,15 +1,10 @@
-import { ALL_PACKS_VOCABULARY } from './packs/index.js';
-import type { DisplayKind, NodeKind } from './types.js';
+import { LEGACY_PACK_IDS, vocabularyOf, type Vocabulary } from './packs/index.js';
+import type { NodeKind } from './types.js';
 
-// 색과 아이콘은 팩의 nodeKinds와 displayKinds에 있다
-const KIND_COLORS = Object.fromEntries(
-  Object.entries(ALL_PACKS_VOCABULARY.looks).map(([k, d]) => [k, d.color]),
-) as Record<DisplayKind, { light: string; dark: string }>;
-
-// 24 격자 선 아이콘. 이모지는 플랫폼마다 모양이 달라서 path로 직접 그린다
-const KIND_ICONS = Object.fromEntries(
-  Object.entries(ALL_PACKS_VOCABULARY.looks).map(([k, d]) => [k, d.icon]),
-) as Record<DisplayKind, string>;
+// 색과 아이콘은 팩의 nodeKinds와 displayKinds에 있다. 아이콘은 24 격자 선 그림이다.
+// 이모지는 플랫폼마다 모양이 달라서 path로 직접 그린다.
+// 페이지에는 IR이 쓰는 팩 것만 싣는다. 팩을 더해도 그 팩을 안 쓰는 그림의 바이트가 그대로다
+const LEGACY_VOCABULARY = vocabularyOf(LEGACY_PACK_IDS);
 
 // 플랫폼 칩 아이콘. 앱 둘은 칩만 보고 바로 알아보게 공식 로고를 브랜드 색으로 채워 그린다. 모양은 simple-icons에서 가져왔다
 const PLATFORM_ICONS: Record<string, string> = {
@@ -129,10 +124,10 @@ function filledSymbol(id: string, body: string, viewBox = '0 0 24 24'): string {
 }
 
 /** 페이지에 한 번만 싣는 아이콘 묶음. 카드와 단추는 use로 가져다 쓴다 */
-export function renderIconSprite(): string {
-  const kinds = (Object.keys(KIND_ICONS) as DisplayKind[])
+export function renderIconSprite(vocab: Vocabulary = LEGACY_VOCABULARY): string {
+  const kinds = Object.keys(vocab.looks)
     .sort()
-    .map((k) => symbol(`i-${k}`, KIND_ICONS[k]));
+    .map((k) => symbol(`i-${k}`, vocab.looks[k]!.icon));
   const ui = Object.keys(UI_ICONS)
     .sort()
     .map((k) => symbol(`u-${k}`, UI_ICONS[k]!));
@@ -167,10 +162,10 @@ function productRules(): string {
   return PRODUCT_PALETTE.map((c, i) => `.p-${i}{--p:${c};}`).join('');
 }
 
-function kindRules(theme: 'light' | 'dark'): string {
-  return (Object.keys(KIND_COLORS) as DisplayKind[])
+function kindRules(vocab: Vocabulary, theme: 'light' | 'dark'): string {
+  return Object.keys(vocab.looks)
     .sort()
-    .map((k) => `.k-${k}{--kind:${KIND_COLORS[k][theme]};}`)
+    .map((k) => `.k-${k}{--kind:${vocab.looks[k]!.color[theme]};}`)
     .join('');
 }
 
@@ -644,22 +639,22 @@ a.loc:hover { text-decoration: underline; }
 `;
 
 /** 테마 토큰과 레이아웃 CSS. 시스템 설정을 기본으로 따르고 html의 data-theme가 있으면 그걸 따른다 */
-export function renderCss(): string {
+export function renderCss(vocab: Vocabulary = LEGACY_VOCABULARY): string {
   return [
     `:root {${LIGHT_TOKENS}  --font: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;\n  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;\n}`,
-    `@media (prefers-color-scheme: dark) {\n:root:not([data-theme="light"]) {${DARK_TOKENS}}\n${scoped(':root:not([data-theme="light"])', 'dark')}\n}`,
+    `@media (prefers-color-scheme: dark) {\n:root:not([data-theme="light"]) {${DARK_TOKENS}}\n${scoped(vocab, ':root:not([data-theme="light"])', 'dark')}\n}`,
     `:root[data-theme="dark"] {${DARK_TOKENS}}`,
-    kindRules('light'),
+    kindRules(vocab, 'light'),
     brandRules('light'),
     productRules(),
-    scoped(':root[data-theme="dark"]', 'dark'),
+    scoped(vocab, ':root[data-theme="dark"]', 'dark'),
     LAYOUT_CSS,
   ].join('\n');
 }
 
-function scoped(prefix: string, theme: 'light' | 'dark'): string {
+function scoped(vocab: Vocabulary, prefix: string, theme: 'light' | 'dark'): string {
   return (
-    kindRules(theme).replace(/\.k-/g, `${prefix} .k-`) +
+    kindRules(vocab, theme).replace(/\.k-/g, `${prefix} .k-`) +
     brandRules(theme).replace(/\.b-/g, `${prefix} .b-`)
   );
 }

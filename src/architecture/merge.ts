@@ -1,3 +1,4 @@
+import { LEGACY_PACK_IDS, resolvePackIds } from './packs/index.js';
 import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { normalizeRemoteUrl } from '../utils/claude-projects.js';
@@ -658,9 +659,14 @@ export function mergeArchitectureIrs(
     .map((o) => o.ir.generatedAt)
     .sort(byText)
     .at(-1)!;
+  // 한쪽이라도 packs를 적었으면 양쪽 어휘를 다 담는다. 안 적은 쪽은 LEGACY_PACK_IDS로 읽는다
+  const packs = ordered.some((o) => o.ir.packs !== undefined)
+    ? resolvePackIds(ordered.flatMap((o) => o.ir.packs ?? LEGACY_PACK_IDS))
+    : undefined;
   const draft: ArchitectureIr = stripPrivateExcerpts({
     schemaVersion: ordered[0]!.ir.schemaVersion,
     view: ordered[0]!.ir.view,
+    ...(packs !== undefined ? { packs } : {}),
     repos,
     nodes,
     edges,

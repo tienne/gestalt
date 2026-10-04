@@ -1,10 +1,12 @@
 import {
   ALL_PACKS_VOCABULARY,
+  componentDisplayKind,
   type PackDisplayKind,
   type PackEdgeKind,
   type PackNodeKind,
 } from './packs/index.js';
 import { HARNESS_PACK } from './packs/harness.js';
+import type { RenderClass } from './packs/types.js';
 
 // 열거값은 배열 하나에서 타입과 zod 스키마를 함께 뽑는다. 두 곳에 따로 적으면 한쪽만 고쳐지기 쉽다.
 export const ARCHITECTURE_VIEWS = ['screen-chain', 'deploy-path'] as const;
@@ -80,8 +82,21 @@ export type EndpointProtocol = (typeof ENDPOINT_PROTOCOLS)[number];
  */
 export type DisplayKind = NodeKind | PackDisplayKind;
 
-export function displayKindOf(node: { kind: NodeKind; protocol?: EndpointProtocol }): DisplayKind {
+export function displayKindOf(node: {
+  kind: NodeKind;
+  protocol?: EndpointProtocol;
+  renderClass?: RenderClass;
+}): DisplayKind {
+  if (node.kind === 'component') return componentDisplayKind(node.renderClass ?? 'service');
   return node.kind === 'endpoint' && node.protocol === 'mcp' ? 'mcp_tool' : node.kind;
+}
+
+/** 칩에 kind 표 대신 노드가 직접 적은 글자를 쓰는 경우. component만 해당한다 */
+export function chipTextOverride(node: {
+  kind: NodeKind;
+  displayKind?: string;
+}): string | undefined {
+  return node.kind === 'component' ? node.displayKind : undefined;
 }
 /** 웹 서빙 방식. 버킷이 서빙하면 정적, 배포 대상(서버)이 서빙하면 SSR이다 */
 export type WebHosting = 'static' | 'ssr';
@@ -129,6 +144,10 @@ export interface ArchitectureNode {
   mcpServer?: string;
   /** mcp endpoint만. 도구가 action 인자로 나눠 받는 값. 서버의 enum이나 분기 그대로다 */
   actions?: string[];
+  /** component만. 읽는 사람이 보는 종류 이름(예: 배치 잡, 결재 문서). 칩에 그대로 찍힌다 */
+  displayKind?: string;
+  /** component만. 색과 아이콘을 고르는 렌더 분류 */
+  renderClass?: RenderClass;
 }
 
 export interface ArchitectureEdge {
@@ -243,6 +262,8 @@ export interface ArchitectureStage {
 export interface ArchitectureIr {
   schemaVersion: typeof ARCHITECTURE_IR_SCHEMA_VERSION;
   view: ArchitectureView;
+  /** 이 IR이 쓰는 어휘 팩 id. 없으면 web-product와 harness다. 여기 없는 팩의 kind를 쓰면 검증에서 막힌다 */
+  packs?: string[];
   repos: ArchitectureRepo[];
   nodes: ArchitectureNode[];
   edges: ArchitectureEdge[];

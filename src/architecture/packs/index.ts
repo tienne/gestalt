@@ -1,3 +1,4 @@
+import { GENERIC_PACK } from './generic.js';
 import { HARNESS_PACK } from './harness.js';
 import type {
   DrilldownStrategy,
@@ -9,10 +10,11 @@ import type {
 } from './types.js';
 import { WEB_PRODUCT_PACK } from './web-product.js';
 
+export * from './render-classes.js';
 export * from './types.js';
 
 /** 내장 팩. 이 순서로 표를 합친다. 새 팩은 뒤에 붙여야 기존 팩 표의 순서가 안 바뀐다 */
-export const BUILTIN_PACKS = [WEB_PRODUCT_PACK, HARNESS_PACK] as const;
+export const BUILTIN_PACKS = [WEB_PRODUCT_PACK, HARNESS_PACK, GENERIC_PACK] as const;
 
 type BuiltinPack = (typeof BUILTIN_PACKS)[number];
 type KeysOf<P, F extends 'nodeKinds' | 'edgeKinds' | 'lanes' | 'displayKinds'> = P extends {
@@ -27,7 +29,7 @@ export type PackDisplayKind = KeysOf<BuiltinPack, 'displayKinds'>;
 export type PackId = BuiltinPack['id'];
 
 /** packs를 안 적은 IR이 쓰는 팩. 팩을 나누기 전 어휘 전부라 옛 IR이 그대로 읽힌다 */
-export const LEGACY_PACK_IDS: readonly PackId[] = ['web-product', 'harness'];
+export const LEGACY_PACK_IDS: readonly string[] = ['web-product', 'harness'];
 
 const PACK_BY_ID: ReadonlyMap<string, VocabularyPack> = new Map(
   BUILTIN_PACKS.map((p) => [p.id, p as VocabularyPack]),
@@ -101,3 +103,8 @@ export function vocabularyOf(ids: readonly string[] = LEGACY_PACK_IDS): Vocabula
 
 /** 내장 팩 전부. kind 목록과 레인, 열 순위처럼 IR마다 안 갈리는 표가 이걸 쓴다 */
 export const ALL_PACKS_VOCABULARY: Vocabulary = vocabularyOf(BUILTIN_PACKS.map((p) => p.id));
+
+/** IR이 쓰는 어휘. packs를 안 적은 IR은 LEGACY_PACK_IDS로 읽는다 */
+export function irVocabulary(ir: { packs?: readonly string[] }): Vocabulary {
+  return vocabularyOf(ir.packs ?? LEGACY_PACK_IDS);
+}

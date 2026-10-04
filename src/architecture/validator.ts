@@ -2,7 +2,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { classifyCliCommand } from '../utils/read-only-tools.js';
 import { indexMicroApps } from './micro-app.js';
-import { ALL_PACKS_VOCABULARY } from './packs/index.js';
+import { ALL_PACKS_VOCABULARY, irVocabulary, packById } from './packs/index.js';
 import {
   FLOW_REF_KINDS,
   HARNESS_KINDS,
@@ -47,7 +47,9 @@ export type ArchitectureValidationErrorCode =
   | 'SOLID_TRANSITION_WITHOUT_EVIDENCE'
   | 'DUPLICATE_STAGE_ID'
   | 'STAGE_NODE_NOT_FOUND'
-  | 'STAGE_NODE_TWICE';
+  | 'STAGE_NODE_TWICE'
+  | 'UNKNOWN_PACK'
+  | 'KIND_NOT_IN_PACKS';
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -368,6 +370,35 @@ function checkMicroApps(ir: ArchitectureIr, errors: ArchitectureValidationError[
       message: `loads 엣지 "${edge.id}"는 micro_app에서 micro_app으로, 또는 client에서 service로만 이을 수 있는데 ${ends.join(' → ')}다.`,
       edgeId: edge.id,
     });
+  }
+}
+
+/** 노드와 엣지 kind는 IR이 적은 팩(requires 포함)에 있어야 한다. 안 적은 팩의 kind가 섞이면 어떤 범례로 읽을지 정할 수 없다 */
+function checkPacks(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  for (const id of ir.packs ?? []) {
+    if (packById(id) === undefined) {
+      errors.push({ code: 'UNKNOWN_PACK', message: `packs의 "${id}"는 없는 팩이다.` });
+    }
+  }
+  const vocab = irVocabulary(ir);
+  const declared = vocab.packIds.join(', ');
+  for (const node of ir.nodes) {
+    if (!(node.kind in vocab.nodeKinds)) {
+      errors.push({
+        code: 'KIND_NOT_IN_PACKS',
+        message: `노드 "${node.id}"의 kind ${node.kind}는 이 IR의 팩(${declared})에 없다. packs에 그 kind가 든 팩을 더한다.`,
+        nodeId: node.id,
+      });
+    }
+  }
+  for (const edge of ir.edges) {
+    if (!(edge.kind in vocab.edgeKinds)) {
+      errors.push({
+        code: 'KIND_NOT_IN_PACKS',
+        message: `엣지 "${edge.id}"의 kind ${edge.kind}는 이 IR의 팩(${declared})에 없다. packs에 그 kind가 든 팩을 더한다.`,
+        edgeId: edge.id,
+      });
+    }
   }
 }
 
@@ -758,6 +789,7 @@ export function validateArchitectureIr(
       checkEvidenceList(node.platformEvidence![platform]!, { nodeId: node.id }, ctx, errors);
     }
   }
+  checkPacks(ir, errors);
   checkParents(ir, errors);
   checkAccounts(ir, errors);
   checkGroups(ir, errors);

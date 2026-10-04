@@ -18,6 +18,11 @@
   "properties": {
     "schemaVersion": { "type": "string", "const": "1.0.0" },
     "view": { "type": "string", "enum": ["screen-chain", "deploy-path"] },
+    "packs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "vocabulary pack ids this IR uses. Defaults to web-product and harness"
+    },
     "repos": { "type": "array", "items": { "$ref": "#/definitions/repo" } },
     "nodes": { "type": "array", "items": { "$ref": "#/definitions/node" } },
     "edges": { "type": "array", "items": { "$ref": "#/definitions/edge" } },
@@ -133,7 +138,8 @@
             "cloud_account",
             "client",
             "skill",
-            "agent"
+            "agent",
+            "component"
           ]
         },
         "label": {
@@ -195,6 +201,28 @@
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 },
           "description": "mcp endpoint only: values the tool dispatches on through its action argument"
+        },
+        "displayKind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "component only: kind name the reader sees on the chip"
+        },
+        "renderClass": {
+          "type": "string",
+          "enum": [
+            "actor",
+            "client",
+            "service",
+            "gateway",
+            "store",
+            "queue",
+            "external",
+            "infra",
+            "step",
+            "state",
+            "document"
+          ],
+          "description": "component only: render class that picks color and icon"
         }
       }
     },
@@ -223,7 +251,10 @@
             "serves",
             "loads",
             "spawns",
-            "invokes"
+            "invokes",
+            "connects",
+            "sends",
+            "depends_on"
           ]
         },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },

@@ -17,7 +17,14 @@ export interface ClientConstants {
   webHostingName: Record<string, string>;
   /** 평면 그림에서 오른쪽에서 왼쪽으로 그리는 엣지 kind */
   backwardKinds: string[];
+  /** component를 쓸 수 있는 어휘면 true. 그때만 component 처리 코드를 싣는다 */
+  components?: boolean;
 }
+
+// component는 칩 글자를 노드의 displayKind에서, 색과 아이콘은 renderClass에서 가져온다. types.ts의 displayKindOf, chipTextOverride와 같은 규칙이다.
+// 이 조각은 component를 쓸 수 있는 어휘에만 싣는다. 늘 실으면 component가 없는 그림의 바이트까지 바뀐다
+const COMPONENT_DKIND = "n.kind === 'component' ? 'cx_' + (n.renderClass || 'service') : ";
+const COMPONENT_CHIP = "(n.kind === 'component' && n.displayKind) || ";
 
 export const THEME_STORAGE_KEY = 'gestalt-architecture-theme';
 const HINT_STORAGE_KEY = 'gestalt-architecture-hint';
@@ -131,7 +138,7 @@ export function renderClientScript(c: ClientConstants): string {
 ${FOCUS_SOURCE}
   function kindText(k) { return KIND_TEXT[k] || k; }
   // MCP 도구는 IR에선 endpoint지만 칩과 색은 따로 단다. types.ts의 displayKindOf와 같은 규칙이다
-  function dkind(n) { return !n ? '' : n.kind === 'endpoint' && n.protocol === 'mcp' ? 'mcp_tool' : n.kind; }
+  function dkind(n) { return !n ? '' : ${c.components ? COMPONENT_DKIND : ''}n.kind === 'endpoint' && n.protocol === 'mcp' ? 'mcp_tool' : n.kind; }
   function evidenceText(t) { return EVIDENCE_TEXT[t] || t; }
   function el(tag, cls, text) {
     var e = doc.createElement(tag);
@@ -357,7 +364,7 @@ ${FOCUS_SOURCE}
     var chips = el('div', 'chips');
     var chip = el('span', 'chip k-' + dkind(n));
     chip.appendChild(icon('i-' + dkind(n)));
-    chip.appendChild(doc.createTextNode(kindText(dkind(n))));
+    chip.appendChild(doc.createTextNode(${c.components ? COMPONENT_CHIP : ''}kindText(dkind(n))));
     chips.appendChild(chip);
     chips.appendChild(el('span', 'repo', n.repo));
     head.appendChild(chips);
@@ -947,7 +954,7 @@ ${FOCUS_SOURCE}
     d.style.height = h + 'px';
     var kc = el('span', 'kc');
     kc.appendChild(icon('i-' + kind));
-    kc.appendChild(doc.createTextNode(MICRO_HOSTS[id] ? HOST_SHORT : KIND_SHORT[kind] || kind));
+    kc.appendChild(doc.createTextNode(MICRO_HOSTS[id] ? HOST_SHORT : ${c.components ? COMPONENT_CHIP : ''}KIND_SHORT[kind] || kind));
     d.appendChild(kc);
     var nm = el('span', 'nm');
     nm.appendChild(el('span', 't', label(id)));
