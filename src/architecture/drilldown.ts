@@ -514,6 +514,31 @@ function bundleDirectTools(g: Graph, b: Bundler): void {
   }
 }
 
+/**
+ * MCP 도구 핸들러가 같은 프로세스에서 부르는 엔진 모듈. 전체 그림에서 핸들러와 엔진을 한 열에 두면 elk가 나가는 선 없는 핸들러를
+ * 엔진 층으로 밀어 버려 엔진에 따로 한 열을 준다. 핸들러를 겸하는 모듈은 핸들러 열에 남긴다
+ */
+function mcpEngines(g: Graph): Set<string> {
+  const handlers = new Set(
+    g.edges
+      .filter((e) => e.kind === 'handles' && g.nodeById.get(e.from)?.protocol === 'mcp')
+      .filter((e) => kindOf(g, e.to) === 'app_module')
+      .map((e) => e.to),
+  );
+  const engines = new Set<string>();
+  const queue = [...handlers];
+  const uses = moduleUses(g);
+  while (queue.length > 0) {
+    const at = queue.shift()!;
+    for (const u of uses) {
+      if (u.from !== at || handlers.has(u.to) || engines.has(u.to)) continue;
+      engines.add(u.to);
+      queue.push(u.to);
+    }
+  }
+  return engines;
+}
+
 function bundleDatastores(g: Graph, b: Bundler): void {
   for (const e of g.edges) {
     if (e.kind !== 'reads_writes' || kindOf(g, e.from) !== 'app_module') continue;
@@ -558,14 +583,21 @@ function rootLevel(full: Graph, apps: MicroAppIndex): LevelDraft {
   const ext = externalReach(g, edges, frontReach(g, edges, inProcessUses));
   const rankOverride = new Map<string, number>();
   const laneOverride = new Map<string, LaneId>();
+  const engines = mcpEngines(g);
+  // 엔진에 한 열을 내주면 그 뒤 열이 한 칸씩 밀린다. MCP 핸들러가 없는 그림은 예전 열 번호 그대로다
+  const shift = engines.size > 0 ? 1 : 0;
+  for (const id of engines) if (!ext.has(id)) rankOverride.set(id, PARTITION_RANK.app_module + 1);
   for (const id of ext) {
     const kind = kindOf(g, id);
     if (kind === 'datastore') {
-      rankOverride.set(id, DATASTORE_ROOT_RANK);
+      rankOverride.set(id, DATASTORE_ROOT_RANK + shift);
       continue;
     }
     if (kind !== 'gateway' && kind !== 'app_module') continue;
-    rankOverride.set(id, kind === 'gateway' ? EXTERNAL_GATEWAY_RANK : EXTERNAL_MODULE_RANK);
+    rankOverride.set(
+      id,
+      (kind === 'gateway' ? EXTERNAL_GATEWAY_RANK : EXTERNAL_MODULE_RANK) + shift,
+    );
     laneOverride.set(id, 'external');
   }
   return {

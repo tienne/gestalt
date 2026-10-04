@@ -388,6 +388,45 @@ describe('하네스 드릴다운', () => {
     expect(laneOf(engine, 'mod:plan-handler')).toBe('app_module');
   });
 
+  it('전체보기에서 나가는 선 없는 핸들러도 엔진 열이 아니라 핸들러 열에 선다', async () => {
+    // elk는 같은 열 묶음 안에서 나가는 선 없는 카드를 뒤쪽 층으로 민다. 엔진이 저장소로 이어지는 모양에서 드러난다
+    const tool = (id: string, line: number) =>
+      node(id, 'endpoint', `src/server.ts:${line}`, {
+        protocol: 'mcp',
+        mcpServer: 'acme',
+        parent: 'svc',
+      });
+    const ir: ArchitectureIr = {
+      ...pureMcpServer(),
+      nodes: [
+        node('svc', 'service', 'package.json:2'),
+        tool('tool:sync', 10),
+        tool('tool:review', 20),
+        node('mod:sync-handler', 'app_module', 'src/tools/sync.ts:1'),
+        node('mod:review-handler', 'app_module', 'src/tools/review.ts:1'),
+        node('mod:memory', 'app_module', 'src/memory/index.ts:1'),
+        node('mod:pr', 'app_module', 'src/pr/index.ts:1'),
+        node('mod:graph', 'app_module', 'src/graph/index.ts:1'),
+        node('store:memory', 'datastore', 'src/memory/index.ts:5'),
+        node('store:reviews', 'datastore', 'src/pr/index.ts:5'),
+        node('store:graph', 'datastore', 'src/graph/index.ts:5'),
+      ],
+      edges: [
+        edge('e:sync-h', 'tool:sync', 'mod:sync-handler', 'handles', 'src/server.ts:11'),
+        edge('e:review-h', 'tool:review', 'mod:review-handler', 'handles', 'src/server.ts:21'),
+        edge('e:u-mem', 'mod:review-handler', 'mod:memory', 'uses', 'src/tools/review.ts:2'),
+        edge('e:u-pr', 'mod:review-handler', 'mod:pr', 'uses', 'src/tools/review.ts:3'),
+        edge('e:rw-mem', 'mod:memory', 'store:memory', 'reads_writes', 'src/memory/index.ts:6'),
+        edge('e:rw-pr', 'mod:pr', 'store:reviews', 'reads_writes', 'src/pr/index.ts:6'),
+        edge('e:rw-graph', 'mod:graph', 'store:graph', 'reads_writes', 'src/graph/index.ts:6'),
+      ],
+    };
+    const root = level((await computeDrilldown(validated(ir))).levels, 'root');
+    const x = (id: string) => root.layout.nodes.find((n) => n.id === id)!.x;
+    expect(x('mod:sync-handler')).toBe(x('mod:review-handler'));
+    expect(x('mod:memory')).toBeGreaterThan(x('mod:review-handler'));
+  });
+
   it('흐름 레벨에서 에이전트 행위자 줄을 그리고 단계가 스킬과 도구 카드를 가리킨다', async () => {
     const v = validated(fixture());
     const drill = await computeDrilldown(v);
