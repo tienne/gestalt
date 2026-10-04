@@ -119,7 +119,14 @@ function asFailure(result: Extract<ValidateArchitectureIrResult, { ok: false }>)
 }
 
 function computeStats(validated: ValidatedIr) {
-  const { ir, drawableNodeIds, drawableEdgeIds, autoUnresolved } = validated;
+  const {
+    ir,
+    drawableNodeIds,
+    drawableEdgeIds,
+    drawableStepIds,
+    drawableTransitionIds,
+    autoUnresolved,
+  } = validated;
   const drawnEdges = ir.edges.filter((e) => drawableEdgeIds.has(e.id));
   const kindOf = new Map(ir.nodes.map((n) => [n.id, n.kind]));
   const drawnNodes = ir.nodes.filter((n) => drawableNodeIds.has(n.id));
@@ -152,6 +159,14 @@ function computeStats(validated: ValidatedIr) {
       endpoints.filter((n) => handledEndpoints.has(n.id)).length,
       endpoints.length,
     ),
+    // 흐름이 없는 IR은 키를 안 넣는다. 기존 응답을 읽는 쪽이 그대로 돈다
+    ...(ir.flows !== undefined && ir.flows.length > 0
+      ? {
+          flows: ir.flows.length,
+          drawnSteps: drawableStepIds.size,
+          drawnTransitions: drawableTransitionIds.size,
+        }
+      : {}),
   };
 }
 

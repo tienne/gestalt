@@ -76,6 +76,24 @@ export function renderClientScript(c: ClientConstants): string {
     levels[l.id] = l;
   });
   var enterMap = data.enter || {};
+  // 흐름 단계는 노드가 아니지만 nodes에 같이 넣는다. 강조와 검색, 질문 이동이 nodes와 카드 id만 보고 돌아서다
+  var flows = data.flows || [];
+  var flowsBySvc = {};
+  var stepFlow = {};
+  var transitions = {};
+  var stepsByRef = {};
+  flows.forEach(function (f) {
+    (flowsBySvc[f.service] = flowsBySvc[f.service] || []).push(f);
+    var actors = {};
+    f.actors.forEach(function (a) { actors[a.id] = a; });
+    f.steps.forEach(function (st) {
+      nodes[st.id] = { id: st.id, kind: 'flow_step', label: st.label, repo: '', evidence: st.evidence, step: st, actor: actors[st.actor] };
+      stepFlow[st.id] = f;
+      (st.refs || []).forEach(function (r) { (stepsByRef[r] = stepsByRef[r] || []).push(st.id); });
+    });
+    f.transitions.forEach(function (t) { transitions[t.id] = t; });
+  });
+  function isStep(id) { return !!stepFlow[id]; }
   function byId(id) { return doc.getElementById(id); }
   var stage = byId('stage');
   var viewport = byId('viewport');
@@ -218,7 +236,92 @@ ${FOCUS_SOURCE}
     });
     body.appendChild(pl);
   }
+  function panelHead(chipKind, chipIcon, chipText, sub, title) {
+    var head = el('div', 'dr-head');
+    var chips = el('div', 'chips');
+    var chip = el('span', 'chip ' + chipKind);
+    chip.appendChild(icon(chipIcon));
+    chip.appendChild(doc.createTextNode(chipText));
+    chips.appendChild(chip);
+    if (sub) chips.appendChild(el('span', 'repo', sub));
+    head.appendChild(chips);
+    var h = el('h2', null, title);
+    h.id = 'drawer-title';
+    h.tabIndex = -1;
+    head.appendChild(h);
+    return head;
+  }
+  function evidenceList(body, list) {
+    body.appendChild(el('h3', null, '출처 ' + list.length + '개'));
+    var ul = el('ul', 'evidence');
+    list.forEach(function (ev) { ul.appendChild(renderEvidence(ev)); });
+    body.appendChild(ul);
+  }
+  // 단계와 기술 그림을 잇는 단추. 같은 서비스 레벨에 카드가 있으면 그쪽을 먼저 연다. 흐름을 보다 온 사람이 서비스 안에서 이어 보게 하려는 것이다
+  function goToRef(id, svc) {
+    var lv = 'service:' + svc;
+    var sec = sectionOf(lv);
+    if (sec && cardMap(sec)[id]) {
+      if (current === lv) { focusCard(id); return; }
+      pendingSelect = id;
+      showLevel(lv);
+      return;
+    }
+    goToNode(id);
+  }
+  function refButtons(body, ids, onClick, iconOf, textOf) {
+    var ul = el('ul', 'refs-list');
+    ids.forEach(function (id) {
+      var li = el('li');
+      var b = el('button');
+      b.type = 'button';
+      b.appendChild(icon(iconOf(id)));
+      b.appendChild(doc.createTextNode(textOf(id)));
+      b.addEventListener('click', function () { onClick(id); });
+      li.appendChild(b);
+      ul.appendChild(li);
+    });
+    body.appendChild(ul);
+  }
+  function renderStepPanel(id) {
+    var n = nodes[id];
+    var st = n.step;
+    var f = stepFlow[id];
+    panel.textContent = '';
+    panel.appendChild(panelHead(st.path === 'side' ? 'flow side' : 'flow', 'u-flow', '흐름 단계', f.title, st.label));
+    var body = el('div', 'dr-body');
+    var facts = el('ul', 'facts');
+    if (n.actor) factRow(facts, '누가', n.actor.label);
+    if (st.state) factRow(facts, '상태', st.state);
+    factRow(facts, '갈래', st.path === 'side' ? '옆 흐름' : '정상 흐름');
+    body.appendChild(facts);
+    if (st.description) body.appendChild(el('p', 'desc', st.description));
+    var refs = (st.refs || []).filter(function (r) { return !!nodes[r]; });
+    if (refs.length) {
+      body.appendChild(el('h3', null, '이어진 화면과 API ' + refs.length + '개'));
+      refButtons(body, refs, function (r) { goToRef(r, f.service); }, function (r) { return 'i-' + nodes[r].kind; }, label);
+    }
+    evidenceList(body, st.evidence);
+    panel.appendChild(body);
+  }
+  function renderTransitionPanel(t) {
+    selectedId = null;
+    syncFocusBtn();
+    panel.textContent = '';
+    var title = label(t.from) + ' → ' + label(t.to);
+    panel.appendChild(panelHead(t.path === 'side' ? 'flow side' : 'flow', 'u-flow', '상태 전이', t.label || '', title));
+    var body = el('div', 'dr-body');
+    var facts = el('ul', 'facts');
+    factRow(facts, '갈래', t.path === 'side' ? '옆 흐름' : '정상 흐름');
+    factRow(facts, '선', t.lineStyle === 'dashed' ? '점선 (문서나 사람 말로만 확인)' : '실선 (코드나 스펙으로 확인)');
+    body.appendChild(facts);
+    refButtons(body, [t.from, t.to], focusCard, function () { return 'u-flow'; }, label);
+    evidenceList(body, t.evidence);
+    panel.appendChild(body);
+    openDrawer();
+  }
   function renderPanel(id) {
+    if (isStep(id)) { renderStepPanel(id); return; }
     var n = nodes[id];
     panel.textContent = '';
     var head = el('div', 'dr-head');
@@ -265,6 +368,14 @@ ${FOCUS_SOURCE}
     }
     if (n.description) body.appendChild(el('p', 'desc', n.description));
     renderFacts(n, body);
+    if (flowsBySvc[id]) {
+      body.appendChild(el('h3', null, '흐름 ' + flowsBySvc[id].length + '개'));
+      refButtons(body, flowsBySvc[id].map(function (f) { return f.level; }), showLevel, function () { return 'u-flow'; }, function (lv) { return levels[lv].title; });
+    }
+    if (stepsByRef[id]) {
+      body.appendChild(el('h3', null, '이 항목이 나오는 흐름 단계 ' + stepsByRef[id].length + '개'));
+      refButtons(body, stepsByRef[id], goToNode, function () { return 'u-flow'; }, function (sid) { return stepFlow[sid].title + ' › ' + label(sid); });
+    }
     body.appendChild(el('h3', null, '출처 ' + n.evidence.length + '개'));
     var ul = el('ul', 'evidence');
     n.evidence.forEach(function (ev) { ul.appendChild(renderEvidence(ev)); });
@@ -531,12 +642,22 @@ ${FOCUS_SOURCE}
     if (levelId === 'root') { showPair(bundle.from, bundle.to); return; }
     go('#/bundle/' + enc(levelId) + '/' + enc(bundle.id));
   }
+  function activateTransition(g) {
+    var t = transitions[g.getAttribute('data-transition-id')];
+    if (!t) return;
+    active.querySelectorAll('.node.selected').forEach(function (x) { x.classList.remove('selected'); });
+    lightLink(active, g);
+    returnFocus = g;
+    renderTransitionPanel(t);
+  }
   stage.addEventListener('click', function (e) {
     if (suppressClick) { suppressClick = false; return; }
     var card = e.target.closest('.node');
     if (card) { activateNode(card.getAttribute('data-node-id'), e, false); return; }
     var link = e.target.closest('.link.bundle');
     if (link) { activateBundle(link); return; }
+    var ft = e.target.closest('.link.flow-t');
+    if (ft) { activateTransition(ft); return; }
     if (drawerOpen()) closeDrawer(false);
   });
   stage.addEventListener('dblclick', function (e) {
@@ -548,7 +669,9 @@ ${FOCUS_SOURCE}
     var card = e.target.closest('.node');
     if (card) { e.preventDefault(); activateNode(card.getAttribute('data-node-id'), e, true); return; }
     var link = e.target.closest('.link.bundle');
-    if (link) { e.preventDefault(); activateBundle(link); }
+    if (link) { e.preventDefault(); activateBundle(link); return; }
+    var ft = e.target.closest('.link.flow-t');
+    if (ft) { e.preventDefault(); activateTransition(ft); }
   });
 
   // 위치 표시
@@ -570,7 +693,8 @@ ${FOCUS_SOURCE}
     });
   }
   function trailItems(levelId) {
-    return levels[levelId].trail.map(function (t) { return { label: levels[t].title, level: t }; });
+    // 흐름 레벨은 서비스 레벨이 없는 서비스에도 붙을 수 있다. 없는 레벨은 건너뛴다
+    return levels[levelId].trail.filter(function (t) { return !!levels[t]; }).map(function (t) { return { label: levels[t].title, level: t }; });
   }
 
   // 레벨 이동과 두 항목 화면은 주소의 해시에 싣는다. 그래야 브라우저 뒤로가기와 새로고침, 링크 공유가 그 화면으로 돌아온다
@@ -600,6 +724,7 @@ ${FOCUS_SOURCE}
     active = sectionOf(id);
     if (active) active.querySelectorAll('.node.anchor').forEach(function (x) { x.classList.remove('anchor'); });
     renderCrumbs(trailItems(id));
+    syncFlowBtn();
     fit('smart');
     runSearch(false);
   }
@@ -1026,7 +1151,7 @@ ${FOCUS_SOURCE}
     return levels[levelId].edges;
   }
   function syncFocusBtn() {
-    focusBtn.hidden = !(selectedId && selectedId !== focusId && pair.hidden && cardMap(sectionOf(current))[selectedId]);
+    focusBtn.hidden = !(selectedId && !isStep(selectedId) && selectedId !== focusId && pair.hidden && cardMap(sectionOf(current))[selectedId]);
   }
   function clearFocus() {
     focusId = null;
@@ -1264,6 +1389,41 @@ ${FOCUS_SOURCE}
   }
   setupPop('legend-btn', 'legend');
   setupPop('q-btn', 'questions');
+  // 흐름 단추는 서비스 아래 레벨에서만 보인다. 흐름이 하나면 바로 가고 여럿이면 고르게 한다
+  var flowBtn = byId('flow-btn');
+  var flowPop = byId('flow-pop');
+  function flowsHere() {
+    var lv = levels[current];
+    var svc = lv && lv.kind !== 'flow' && lv.trail[1] && lv.trail[1].indexOf('service:') === 0 ? lv.trail[1].slice(8) : null;
+    return svc ? flowsBySvc[svc] || [] : [];
+  }
+  function syncFlowBtn() {
+    if (flowBtn) flowBtn.hidden = flowsHere().length === 0;
+  }
+  if (flowBtn && flowPop) {
+    pops.push({ btn: flowBtn, pop: flowPop });
+    flowBtn.addEventListener('click', function () {
+      var list = flowsHere();
+      if (list.length === 1) { closePops(false); showLevel(list[0].level); return; }
+      var willOpen = flowPop.hidden;
+      closePops(false);
+      if (!willOpen) return;
+      var ul = flowPop.querySelector('.flow-list');
+      ul.textContent = '';
+      list.forEach(function (f) {
+        var li = el('li');
+        var b = el('button', null, f.title);
+        b.type = 'button';
+        b.addEventListener('click', function () { closePops(false); showLevel(f.level); });
+        li.appendChild(b);
+        ul.appendChild(li);
+      });
+      flowPop.hidden = false;
+      flowBtn.setAttribute('aria-expanded', 'true');
+      placePop(flowBtn, flowPop);
+      flowPop.focus();
+    });
+  }
   doc.addEventListener('pointerdown', function (e) {
     if (!anyPop()) return;
     if (e.target.closest && (e.target.closest('.pop') || e.target.closest('[aria-controls]'))) return;

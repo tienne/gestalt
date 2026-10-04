@@ -78,6 +78,11 @@ const UI_ICONS: Record<string, string> = {
   legend: '<path d="M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10"/>',
   question:
     '<circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.5a2.5 2.5 0 0 1 4.8 1c0 1.7-2.4 2.2-2.4 3.6M12 17h.01"/>',
+  person: '<circle cx="12" cy="8" r="3.8"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
+  system:
+    '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9zM9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  flow: '<path d="M3.5 7h9M3.5 17h5M12.5 7l3 3-3 3M8.5 17l3-3"/><circle cx="18.5" cy="10" r="2"/>',
 };
 
 function symbol(id: string, body: string): string {
@@ -328,6 +333,52 @@ button { font: inherit; color: inherit; }
 .tc.dom { font-family: var(--font); color: var(--text); }
 .l2 { grid-row: 2; grid-column: 1 / -1; display: flex; align-items: center; min-width: 0; }
 .l2 .pf:first-child { margin-left: 0; }
+/* 도메인 흐름. 행위자 줄은 번갈아 옅게 칠해 줄 경계를 읽히게 하고, 옆 흐름은 정상 흐름과 색으로 가른다 */
+.flane { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
+.flane.alt { fill: color-mix(in srgb, var(--lane) 55%, var(--bg)); }
+.flane-title {
+  position: absolute; display: flex; align-items: center; gap: 6px; max-width: 112px; height: 22px;
+  font-size: 13px; font-weight: 700; color: var(--text); pointer-events: none;
+}
+.flane-title span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.flane-title svg { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.flow-step { --kind: var(--accent); padding: 0 12px 0 14px; }
+.flow-step.p-side { --kind: var(--warn); }
+.flow-step.doc-only { border-style: dashed; }
+.flow-step .nm { grid-column: 1 / -1; white-space: normal; }
+.flow-step .nm .t { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 17px; }
+.flow-step .l2 { gap: 6px; }
+.flow-step .st {
+  min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font: 10.5px/16px var(--mono); padding: 0 5px; border-radius: 4px; color: var(--muted); background: var(--lane);
+}
+.flow-step .refs, .flow-step .qb {
+  flex: none; display: inline-flex; align-items: center; gap: 2px; font-size: 10.5px; font-weight: 650; color: var(--muted);
+}
+.flow-step .qb { color: var(--warn); }
+.flow-step .refs svg, .flow-step .qb svg { width: 11px; height: 11px; }
+.link.flow-t { cursor: pointer; }
+.legend-lines line.side-line { stroke: var(--warn); }
+.swatch-step { display: inline-block; width: 30px; height: 14px; margin-right: 8px; border: 1.5px dashed var(--border-strong); border-radius: 4px; vertical-align: middle; }
+.link.flow-t.p-side .edge { stroke: var(--warn); }
+.link.flow-t.p-side .tip { fill: var(--warn); }
+.link.flow-t .t-label {
+  font-size: 11px; font-weight: 600; text-anchor: middle; fill: var(--muted);
+  paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
+}
+.dr-body .refs-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; padding: 0; list-style: none; }
+.dr-body .refs-list button {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 8px; border-radius: 6px; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border);
+}
+.dr-body .refs-list button:hover { border-color: var(--accent); }
+.dr-body .refs-list button svg { width: 12px; height: 12px; flex: none; color: var(--kind, var(--muted)); }
+.flow-list { margin: 8px 0 0; padding: 0; list-style: none; }
+.flow-list button {
+  display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px; text-align: left; cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--text); background: none;
+}
+.flow-list button:hover { background: var(--lane); }
 .link.x-account .edge { stroke: var(--x-account); stroke-opacity: 0.85; }
 .link.x-account .tip { fill: var(--x-account); fill-opacity: 0.85; }
 .link.e-contains .edge { stroke-opacity: 0.35; }
@@ -374,6 +425,8 @@ button { font: inherit; color: inherit; }
   font-size: 12px; font-weight: 600; color: var(--kind); background: color-mix(in srgb, var(--kind) 13%, transparent);
 }
 .chip svg { width: 12px; height: 12px; }
+.chip.flow { --kind: var(--accent); }
+.chip.flow.side { --kind: var(--warn); }
 .repo { font: 11px var(--mono); color: var(--muted); word-break: break-all; }
 .dr-head h2 { margin: 0; font-size: 17px; line-height: 1.4; word-break: break-word; outline: none; }
 .dr-head h2 .guess { vertical-align: 2px; }

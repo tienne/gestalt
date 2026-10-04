@@ -1,6 +1,7 @@
 import { CANVAS_PAD_TOP, CANVAS_PAD_X, LANE_INSET_Y, routeCanvas } from './canvas-geometry.js';
 import type { RoutedEdge } from './canvas-geometry.js';
 import { ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
+import type { FlowLevel } from './flow-layout.js';
 import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import { iconUse, renderCss, renderIconSprite } from './html-theme.js';
 import {
@@ -19,6 +20,7 @@ import { indexMicroApps } from './micro-app.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
   ArchitectureEdge,
+  ArchitectureFlow,
   ArchitectureIr,
   ArchitectureNode,
   EdgeKind,
@@ -87,6 +89,15 @@ const EVIDENCE_TYPE_TEXT: Record<Evidence['type'], string> = {
   doc: '문서',
   user: '사용자 확인',
   live: '실제 조회',
+};
+
+const FLOW_TEXT = {
+  step: '흐름 단계',
+  transition: '상태 전이',
+  main: '정상 흐름',
+  side: '옆 흐름',
+  person: '사람',
+  system: '시스템',
 };
 
 const HINT_DRILL =
@@ -456,6 +467,140 @@ function renderLevelSection(spec: CanvasSpec): string {
   );
 }
 
+const FLOW_PAD = 24;
+
+function pathD(points: readonly { x: number; y: number }[]): string {
+  return points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'}${round2(p.x + FLOW_PAD)} ${round2(p.y + FLOW_PAD)}`)
+    .join(' ');
+}
+
+/**
+ * 흐름 레벨 하나. 행위자마다 가로줄을 깔고 단계 카드를 왼쪽에서 오른쪽으로 놓는다.
+ * 카드는 노드 카드와 같은 .node라 강조와 검색, 질문 이동을 그대로 탄다. data-node-id 자리에 단계 id가 들어간다
+ */
+function renderFlowSection(
+  level: FlowLevel,
+  flow: ArchitectureFlow,
+  questionCount: ReadonlyMap<string, number>,
+  drawableNodes: ReadonlySet<string>,
+): string {
+  const { layout } = level;
+  const width = round2(layout.width + FLOW_PAD * 2);
+  const height = round2(layout.height + FLOW_PAD * 2);
+  const stepById = new Map(flow.steps.map((st) => [st.id, st]));
+  const actorById = new Map(flow.actors.map((a) => [a.id, a]));
+  const lanes = layout.lanes
+    .map(
+      (l, i) =>
+        `<rect class="flane${i % 2 === 1 ? ' alt' : ''}" x="${FLOW_PAD}" y="${round2(l.y + FLOW_PAD)}" width="${layout.width}" height="${l.height}" rx="12"/>`,
+    )
+    .join('');
+  const heads = layout.lanes
+    .map(
+      (l) =>
+        `<div class="flane-title a-${l.actor.kind}" style="left:${FLOW_PAD + 12}px;top:${round2(l.y + FLOW_PAD + 12)}px">` +
+        `${iconUse(l.actor.kind === 'person' ? 'u-person' : 'u-system')}<span>${escapeHtml(l.actor.label)}</span></div>`,
+    )
+    .join('');
+  const labelOf = (id: string): string => stepById.get(id)?.label ?? id;
+  const links = layout.transitions
+    .map((r) => {
+      const t = flow.transitions.find((x) => x.id === r.id)!;
+      const dash = t.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
+      const d = pathD(r.points);
+      const tip = r.tip.map((p) => `${round2(p.x + FLOW_PAD)},${round2(p.y + FLOW_PAD)}`).join(' ');
+      const name = `${FLOW_TEXT[r.path]}: ${labelOf(r.from)} → ${labelOf(r.to)}${t.label !== undefined ? ` (${t.label})` : ''}`;
+      const text =
+        t.label !== undefined && r.labelAt
+          ? `<text class="t-label" x="${round2(r.labelAt.x + FLOW_PAD)}" y="${round2(r.labelAt.y + FLOW_PAD - 5)}">${escapeHtml(t.label)}</text>`
+          : '';
+      return (
+        `<g class="link flow-t p-${r.path}${r.back ? ' back' : ''}" data-from="${escapeHtml(r.from)}" data-to="${escapeHtml(r.to)}" ` +
+        `data-transition-id="${escapeHtml(r.id)}" tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
+        `<title>${escapeHtml(name)}</title><path class="hit" d="${d}" stroke-width="12"/>` +
+        `<path class="edge" d="${d}" stroke-width="2"${dash}/><polygon class="tip" points="${tip}"/>${text}</g>`
+      );
+    })
+    .join('');
+  const cards = layout.steps
+    .map((b) => {
+      const st = stepById.get(b.id)!;
+      const actor = actorById.get(st.actor);
+      const refs = (st.refs ?? []).filter((id) => drawableNodes.has(id));
+      const qs = questionCount.get(st.id) ?? 0;
+      const dashed = st.evidence.every((ev) => ev.type !== 'code' && ev.type !== 'spec');
+      const cls = ['node', 'flow-step', `p-${b.path}`];
+      if (dashed) cls.push('doc-only');
+      const aria =
+        `${st.label}, ${FLOW_TEXT.step}, ${actor?.label ?? st.actor}` +
+        (st.state !== undefined ? `, 상태 ${st.state}` : '') +
+        (dashed ? ', 문서로만 확인' : '');
+      return (
+        `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(st.id)}" role="button" tabindex="0" ` +
+        `aria-label="${escapeHtml(aria)}" title="${escapeHtml(st.description ?? st.label)}" ` +
+        `style="left:${round2(b.x + FLOW_PAD)}px;top:${round2(b.y + FLOW_PAD)}px;width:${b.width}px;height:${b.height}px">` +
+        `<span class="nm"><span class="t">${escapeHtml(st.label)}</span></span>` +
+        `<span class="l2">` +
+        (st.state !== undefined ? `<span class="st">${escapeHtml(st.state)}</span>` : '') +
+        (refs.length > 0
+          ? `<span class="refs" title="이어진 화면과 API">${iconUse('u-link')}${refs.length}</span>`
+          : '') +
+        (qs > 0
+          ? `<span class="qb" title="확인할 질문">${iconUse('u-question')}${qs}</span>`
+          : '') +
+        `</span></div>`
+      );
+    })
+    .join('');
+  return (
+    `<section class="level flow-level" data-level-id="${escapeHtml(level.id)}" data-flow-id="${escapeHtml(level.flowId)}" ` +
+    `aria-label="${escapeHtml(flow.title)}" data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px" hidden>` +
+    `<svg class="links" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
+    `role="group" aria-label="${escapeHtml(`${flow.title} 전이`)}"><g class="lanes">${lanes}</g><g class="edges">${links}</g></svg>` +
+    `${heads}${cards}</section>`
+  );
+}
+
+/** 흐름 단계와 전이마다 열린 질문 수. 카드 배지에 쓴다. 전이 질문은 출발 단계에 센다 */
+function flowQuestionCount(
+  questions: readonly UnresolvedQuestion[],
+  flows: readonly ArchitectureFlow[],
+): Map<string, number> {
+  const fromOf = new Map(flows.flatMap((f) => f.transitions.map((t) => [t.id, t.from] as const)));
+  const out = new Map<string, number>();
+  for (const q of questions) {
+    const at =
+      q.subject.stepId ??
+      (q.subject.transitionId !== undefined ? fromOf.get(q.subject.transitionId) : undefined);
+    if (at !== undefined) out.set(at, (out.get(at) ?? 0) + 1);
+  }
+  return out;
+}
+
+/** 클라이언트가 서랍과 흐름 버튼에 쓰는 흐름 데이터. 그린 단계와 전이만 싣는다 */
+function flowPayload(levels: readonly FlowLevel[], flows: readonly ArchitectureFlow[]) {
+  const byId = new Map(flows.map((f) => [f.id, f]));
+  return levels.map((l) => {
+    const f = byId.get(l.flowId)!;
+    const drawnSteps = new Set(l.layout.steps.map((b) => b.id));
+    const pathOf = new Map(l.layout.steps.map((b) => [b.id, b.path]));
+    const drawnTransitions = new Set(l.layout.transitions.map((r) => r.id));
+    return {
+      level: l.id,
+      id: f.id,
+      service: f.service,
+      title: f.title,
+      ...(f.description !== undefined ? { description: f.description } : {}),
+      actors: f.actors,
+      steps: f.steps
+        .filter((st) => drawnSteps.has(st.id))
+        .map((st) => ({ ...st, path: pathOf.get(st.id)! })),
+      transitions: f.transitions.filter((t) => drawnTransitions.has(t.id)),
+    };
+  });
+}
+
 function renderLegend(
   nodes: ArchitectureNode[],
   edges: ArchitectureEdge[],
@@ -463,6 +608,7 @@ function renderLegend(
   generatedAt: string,
   nodeCount: number,
   edgeCount: number,
+  hasFlows = false,
 ): string {
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const line = (extra: string): string =>
@@ -485,6 +631,10 @@ function renderLegend(
     (drill
       ? `<li>${line('stroke-width="6"')}굵은 선: 여러 연결을 묶은 선이에요. 올리면 묶인 수가 보여요</li>`
       : '') +
+    (hasFlows
+      ? `<li>${line('stroke-width="2" class="side-line"')}주황 선: 흐름에서 정상 흐름을 벗어나는 옆 흐름</li>` +
+        `<li><span class="swatch-step"></span>점선 테두리 카드: 기획 문서로만 확인한 흐름 단계</li>`
+      : '') +
     `</ul>` +
     (kinds ? `<h3>항목</h3><ul class="legend-kinds">${kinds}</ul>` : '') +
     `<p class="foot">만든 시각 ${escapeHtml(generatedAt)}<br>항목 ${nodeCount}개, 연결 ${edgeCount}개</p></div>`
@@ -495,8 +645,15 @@ function renderQuestions(
   questions: UnresolvedQuestion[],
   nodeById: Map<string, ArchitectureNode>,
   allEdges: ArchitectureEdge[],
+  flows: readonly ArchitectureFlow[],
+  drawnSteps: ReadonlySet<string>,
 ): string {
   const edgeById = new Map(allEdges.map((e) => [e.id, e]));
+  const stepById = new Map(flows.flatMap((f) => f.steps.map((st) => [st.id, st] as const)));
+  const transitionById = new Map(
+    flows.flatMap((f) => f.transitions.map((t) => [t.id, t] as const)),
+  );
+  const stepName = (id: string): string => stepById.get(id)?.label ?? id;
   const nameOr = (id: string): string => {
     const node = nodeById.get(id);
     return node ? nodeName(node) : id;
@@ -505,8 +662,20 @@ function renderQuestions(
     .map((q) => {
       let subject: string | undefined;
       let target: string | undefined;
-      const { nodeId, edgeId } = q.subject;
-      if (nodeId !== undefined) {
+      const { nodeId, edgeId, stepId, transitionId } = q.subject;
+      // 전이 질문은 출발 단계로 데려간다. 선은 카드처럼 고를 자리가 없어서다
+      if (stepId !== undefined) {
+        subject = stepName(stepId);
+        if (drawnSteps.has(stepId)) target = stepId;
+      } else if (transitionId !== undefined) {
+        const t = transitionById.get(transitionId);
+        if (t) {
+          subject = `${stepName(t.from)} → ${stepName(t.to)}`;
+          target = drawnSteps.has(t.from) ? t.from : drawnSteps.has(t.to) ? t.to : undefined;
+        } else {
+          subject = transitionId;
+        }
+      } else if (nodeId !== undefined) {
         subject = nameOr(nodeId);
         if (nodeById.has(nodeId)) target = nodeId;
       } else if (edgeId !== undefined) {
@@ -568,6 +737,7 @@ function renderBar(
   edgeCount: number,
   questionCount: number,
   envs: readonly string[],
+  hasFlows: boolean,
 ): string {
   const qClass = questionCount > 0 ? 'n warn' : 'n';
   return (
@@ -578,6 +748,10 @@ function renderBar(
     `<button type="button" id="focus-clear" aria-label="포커스 해제" title="포커스 해제 (Esc)">${iconUse('u-close')}</button></span>` +
     `<div class="spacer"></div>` +
     `<button type="button" class="btn" id="focus-btn" hidden title="고른 항목과 이어진 것만 보기 (F)">${iconUse('u-focus')}<span class="label">포커스</span></button>` +
+    (hasFlows
+      ? `<button type="button" class="btn" id="flow-btn" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="flow-pop" ` +
+        `title="이 서비스를 쓰는 사람 쪽 흐름 보기">${iconUse('u-flow')}<span class="label">흐름</span></button>`
+      : '') +
     renderEnvPicker(envs) +
     `<label class="search">${iconUse('u-search')}<input id="search" type="search" placeholder="이름으로 찾기" aria-label="이름으로 찾기" autocomplete="off" spellcheck="false"><span id="search-count" class="count" aria-live="polite"></span></label>` +
     `<div class="seg" role="group" aria-label="크기">` +
@@ -612,11 +786,14 @@ interface PageSpec {
   payload: ReturnType<typeof buildPayload> & Record<string, unknown>;
   sections: string;
   drill: boolean;
+  /** 그린 흐름. 공유본이면 가린 사본이다 */
+  flows?: { flows: ArchitectureFlow[]; drawnSteps: Set<string> };
 }
 
-function renderPage({ ir, payload, sections, drill }: PageSpec): string {
+function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
   const title = VIEW_TITLES[ir.view];
   const nodeById = new Map(payload.nodes.map((n) => [n.id, n]));
+  const hasFlows = flows !== undefined && flows.flows.length > 0;
   return [
     '<!doctype html>',
     '<html lang="ko">',
@@ -637,6 +814,7 @@ function renderPage({ ir, payload, sections, drill }: PageSpec): string {
       payload.edges.length,
       payload.unresolved.length,
       environmentsOf(payload.nodes),
+      hasFlows,
     ),
     '<div class="main">',
     '<div id="stage" class="stage" aria-label="구조도">',
@@ -660,8 +838,18 @@ function renderPage({ ir, payload, sections, drill }: PageSpec): string {
       ir.generatedAt,
       payload.nodes.length,
       payload.edges.length,
+      hasFlows,
     ),
-    renderQuestions(payload.unresolved, nodeById, ir.edges),
+    renderQuestions(
+      payload.unresolved,
+      nodeById,
+      ir.edges,
+      flows?.flows ?? [],
+      flows?.drawnSteps ?? new Set(),
+    ),
+    hasFlows
+      ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
+      : '',
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
     `<script>${CLIENT_SCRIPT}</script>`,
     '</body>',
@@ -726,6 +914,28 @@ export function renderDrilldownHtml(
     })),
     enter: drilldown.enter,
   };
+  // 좌표는 원본으로 냈고 글자만 공유본에서 가린다. 단계 id는 가리지 않아 그대로 맞물린다
+  const flowById = new Map((ir.flows ?? []).map((f) => [f.id, f]));
+  const flowLevels = drilldown.flows.map((l) => ({ level: l, flow: flowById.get(l.flowId)! }));
+  const drawnFlows = flowLevels.map((x) => x.flow);
+  const drawnSteps = new Set(drilldown.flows.flatMap((l) => l.layout.steps.map((b) => b.id)));
+  const questionCount = flowQuestionCount(base.unresolved, drawnFlows);
+  const drawableNodes = new Set(base.nodes.map((n) => n.id));
+  if (flowLevels.length > 0) {
+    Object.assign(payload, {
+      levels: [
+        ...payload.levels,
+        ...flowLevels.map(({ level, flow }) => ({
+          id: level.id,
+          kind: 'flow',
+          title: flow.title,
+          trail: level.trail,
+          edges: [],
+        })),
+      ],
+      flows: flowPayload(drilldown.flows, drawnFlows),
+    });
+  }
   const sections = levels
     .map((l, i) =>
       renderLevelSection({
@@ -742,6 +952,17 @@ export function renderDrilldownHtml(
         microHosts: new Set(base.microHosts ?? []),
       }),
     )
+    .concat(
+      flowLevels.map(({ level, flow }) =>
+        renderFlowSection(level, flow, questionCount, drawableNodes),
+      ),
+    )
     .join('\n');
-  return renderPage({ ir, payload, sections, drill: true });
+  return renderPage({
+    ir,
+    payload,
+    sections,
+    drill: true,
+    ...(flowLevels.length > 0 ? { flows: { flows: drawnFlows, drawnSteps } } : {}),
+  });
 }
