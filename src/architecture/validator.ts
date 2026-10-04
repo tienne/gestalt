@@ -2,6 +2,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { classifyCliCommand } from '../utils/read-only-tools.js';
 import { indexMicroApps } from './micro-app.js';
+import { ALL_PACKS_VOCABULARY } from './packs/index.js';
 import {
   FLOW_REF_KINDS,
   HARNESS_KINDS,
@@ -370,13 +371,14 @@ function checkMicroApps(ir: ArchitectureIr, errors: ArchitectureValidationError[
   }
 }
 
-/** 하네스 엣지가 잇는 kind. 키에 없는 엣지 kind는 여기서 보지 않는다 */
+/** 양 끝 kind를 정해둔 엣지. 규칙은 팩의 edgeKinds.ends에 있고 키에 없는 엣지 kind는 여기서 보지 않는다 */
 const HARNESS_EDGE_ENDS: Partial<
-  Record<ArchitectureEdge['kind'], { from: readonly NodeKind[]; to: readonly NodeKind[] }>
-> = {
-  spawns: { from: ['skill', 'agent'], to: ['agent'] },
-  invokes: { from: ['skill'], to: ['skill'] },
-};
+  Record<ArchitectureEdge['kind'], { from: readonly string[]; to: readonly string[] }>
+> = Object.fromEntries(
+  Object.entries(ALL_PACKS_VOCABULARY.edgeKinds).flatMap(([k, d]) =>
+    d.ends === undefined ? [] : [[k, d.ends]],
+  ),
+);
 
 function isMcpEndpoint(node: ArchitectureNode | undefined): boolean {
   return node?.kind === 'endpoint' && node.protocol === 'mcp';

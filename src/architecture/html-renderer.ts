@@ -38,6 +38,7 @@ import {
   type LayoutResult,
 } from './layout.js';
 import { indexMicroApps } from './micro-app.js';
+import { ALL_PACKS_VOCABULARY } from './packs/index.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
   ArchitectureEdge,
@@ -79,49 +80,15 @@ function viewTitle(ir: ArchitectureIr): string {
 }
 
 // 페이지에 보이는 글자는 IR 식별자 대신 읽는 사람 말로 바꿔 보여준다
-const NODE_KIND_TEXT: Record<DisplayKind, string> = {
-  service: '서비스',
-  micro_app: '마이크로 프론트엔드 앱',
-  feature: '기능 영역',
-  screen: '화면',
-  gateway: '게이트웨이',
-  endpoint: 'API',
-  app_module: '서버',
-  external_service: '호출 클라이언트',
-  db_table: '테이블',
-  datastore: '저장소 클러스터',
-  workflow: '워크플로',
-  build: '빌드',
-  artifact: '산출물',
-  deploy_target: '배포 대상',
-  domain: '도메인',
-  cdn: 'CDN 배포',
-  bucket: '스토리지 버킷',
-  cloud_account: '클라우드 계정',
-  client: 'AI 클라이언트',
-  skill: '스킬',
-  agent: '에이전트',
-  mcp_tool: 'MCP 도구',
-};
-const EDGE_KIND_TEXT: Record<EdgeKind | 'contains', string> = {
-  calls: '호출',
-  handles: '처리',
-  uses: '사용',
-  reads_writes: '읽기와 쓰기',
-  routes: '전달',
-  navigates: '화면 이동',
-  triggers: '실행',
-  builds: '빌드',
-  produces: '생성',
-  deploys_to: '배포',
-  resolves_to: '도메인 연결',
-  origin: '원본',
-  serves: '서빙',
-  loads: '런타임 로드',
-  spawns: '에이전트 실행',
-  invokes: '스킬 호출',
+const NODE_KIND_TEXT = Object.fromEntries(
+  Object.entries(ALL_PACKS_VOCABULARY.looks).map(([k, d]) => [k, d.text]),
+) as Record<DisplayKind, string>;
+const EDGE_KIND_TEXT = {
+  ...Object.fromEntries(
+    Object.entries(ALL_PACKS_VOCABULARY.edgeKinds).map(([k, d]) => [k, d.text]),
+  ),
   contains: '포함',
-};
+} as Record<EdgeKind | 'contains', string>;
 const EVIDENCE_TYPE_TEXT: Record<Evidence['type'], string> = {
   code: '코드',
   spec: '스펙',

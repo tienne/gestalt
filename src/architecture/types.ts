@@ -1,46 +1,22 @@
+import {
+  ALL_PACKS_VOCABULARY,
+  type PackDisplayKind,
+  type PackEdgeKind,
+  type PackNodeKind,
+} from './packs/index.js';
+import { HARNESS_PACK } from './packs/harness.js';
+
 // 열거값은 배열 하나에서 타입과 zod 스키마를 함께 뽑는다. 두 곳에 따로 적으면 한쪽만 고쳐지기 쉽다.
 export const ARCHITECTURE_VIEWS = ['screen-chain', 'deploy-path'] as const;
-export const NODE_KINDS = [
-  'screen',
-  'endpoint',
-  'app_module',
-  'external_service',
-  'db_table',
-  'datastore',
-  'workflow',
-  'build',
-  'artifact',
-  'deploy_target',
-  'service',
-  'micro_app',
-  'feature',
-  'gateway',
-  'domain',
-  'cdn',
-  'bucket',
-  'cloud_account',
-  'client',
-  'skill',
-  'agent',
-] as const;
-export const EDGE_KINDS = [
-  'calls',
-  'handles',
-  'uses',
-  'reads_writes',
-  'triggers',
-  'builds',
-  'produces',
-  'deploys_to',
-  'routes',
-  'navigates',
-  'resolves_to',
-  'origin',
-  'serves',
-  'loads',
-  'spawns',
-  'invokes',
-] as const;
+/** kind 목록은 팩에서 온다. 새 카테고리는 packs/에 팩을 더하면 여기 따라 붙는다 */
+export const NODE_KINDS = Object.keys(ALL_PACKS_VOCABULARY.nodeKinds) as unknown as readonly [
+  PackNodeKind,
+  ...PackNodeKind[],
+];
+export const EDGE_KINDS = Object.keys(ALL_PACKS_VOCABULARY.edgeKinds) as unknown as readonly [
+  PackEdgeKind,
+  ...PackEdgeKind[],
+];
 /** endpoint가 받는 호출 방식. 없으면 http다. mcp면 label이 도구 이름이다 */
 export const ENDPOINT_PROTOCOLS = ['http', 'mcp'] as const;
 export const EVIDENCE_TYPES = ['code', 'spec', 'doc', 'user', 'live'] as const;
@@ -68,7 +44,7 @@ export const FLOW_REF_KINDS: readonly NodeKind[] = [
   'agent',
 ];
 /** 하네스와 MCP 레포에만 나오는 kind. 이게 하나라도 있으면 하네스 IR로 보고 하네스 규칙을 건다 */
-export const HARNESS_KINDS: readonly NodeKind[] = ['client', 'skill', 'agent'];
+export const HARNESS_KINDS: readonly NodeKind[] = Object.keys(HARNESS_PACK.nodeKinds) as NodeKind[];
 /** 서빙 인프라. 화면 흐름과 배포 경로 둘 다에 설 수 있다 */
 export const INFRA_KINDS = ['domain', 'cdn', 'bucket', 'cloud_account'] as const;
 /** environment를 가질 수 있는 kind. 네이티브 배포처는 deploy_target으로 그린다 */
@@ -80,25 +56,16 @@ export const ENVIRONMENT_KINDS: readonly NodeKind[] = [
 /** 환경 정렬 순서. 여기 없는 환경은 이름순으로 뒤에, 환경이 없으면 맨 뒤에 선다 */
 export const ENVIRONMENT_ORDER = ['prod', 'stage', 'qa', 'dev'] as const;
 export const ARCHITECTURE_IR_SCHEMA_VERSION = '1.0.0';
-/**
- * 포함 관계 규칙. 키에 없는 kind는 parent를 가질 수 없다.
- * micro_app은 Module Federation 같은 마이크로 프론트엔드의 호스트나 리모트다. 서비스가 그 묶음이고
- * 기능 영역과 화면은 페이지 코드가 있는 앱 밑에 둔다
- */
-export const PARENT_KINDS: Partial<Record<NodeKind, readonly NodeKind[]>> = {
-  screen: ['feature', 'micro_app', 'service'],
-  // 하네스는 플러그인이 서비스이고 스킬 묶음이 기능 영역이다
-  skill: ['feature', 'service'],
-  feature: ['micro_app', 'service'],
-  micro_app: ['service'],
-  db_table: ['datastore'],
-  // MCP 도구만 받는다. 스킬 없이 클라이언트가 바로 부르는 도구가 어느 서버 패키지 것인지 적는 자리다
-  endpoint: ['service'],
-};
+/** 포함 관계 규칙. 키에 없는 kind는 parent를 가질 수 없다. 규칙은 팩의 nodeKinds.parents에 있다 */
+export const PARENT_KINDS: Partial<Record<NodeKind, readonly NodeKind[]>> = Object.fromEntries(
+  Object.entries(ALL_PACKS_VOCABULARY.nodeKinds).flatMap(([k, d]) =>
+    d.parents === undefined ? [] : [[k, d.parents]],
+  ),
+);
 
 export type ArchitectureView = (typeof ARCHITECTURE_VIEWS)[number];
-export type NodeKind = (typeof NODE_KINDS)[number];
-export type EdgeKind = (typeof EDGE_KINDS)[number];
+export type NodeKind = PackNodeKind;
+export type EdgeKind = PackEdgeKind;
 export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
 export type Visibility = (typeof VISIBILITIES)[number];
 export type LineStyle = (typeof LINE_STYLES)[number];
@@ -111,7 +78,7 @@ export type EndpointProtocol = (typeof ENDPOINT_PROTOCOLS)[number];
  * 카드 칩과 아이콘, 색을 고르는 종류. MCP 도구는 IR에서는 endpoint라 매칭과 드릴다운을 그대로 타고
  * 읽는 사람에게만 API 대신 MCP 도구로 보인다
  */
-export type DisplayKind = NodeKind | 'mcp_tool';
+export type DisplayKind = NodeKind | PackDisplayKind;
 
 export function displayKindOf(node: { kind: NodeKind; protocol?: EndpointProtocol }): DisplayKind {
   return node.kind === 'endpoint' && node.protocol === 'mcp' ? 'mcp_tool' : node.kind;
