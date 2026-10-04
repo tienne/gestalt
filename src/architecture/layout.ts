@@ -42,7 +42,7 @@ export interface LayoutResult {
   lanes: LayoutLane[];
   /** elk 배치 뒤 자리를 옮긴 노드. 이 노드에 붙은 elk 경로는 경유점으로 쓰지 않는다 */
   movedNodeIds?: string[];
-  /** 제품 영역. 두 제품을 합친 그림을 띠로 나눠 쌓았을 때만 있다 */
+  /** 제품 띠. 여러 제품을 합친 그림을 띠로 나눠 쌓았을 때만 있다 */
   regions?: LayoutRegions;
   /** 머리 카드와 그 아래 멤버 카드를 두르는 테두리. 마이크로 프론트엔드 서비스를 앱 묶음으로 보일 때만 있다 */
   frames?: LayoutFrame[];
@@ -56,23 +56,28 @@ export interface LayoutRect {
   height: number;
 }
 
-export interface LayoutRegion extends LayoutRect {
-  id: string;
-  name: string;
-}
-
 export interface LayoutFrame extends LayoutRect {
   /** 머리 카드 id */
   id: string;
 }
 
+/** 가로 띠 한 줄. y는 띠 머리(구분선과 이름이 들어가는 줄)부터다 */
+export interface LayoutBand {
+  /** 0은 같이 쓰는 띠, i+1은 groups[i] 전용 띠 */
+  band: number;
+  y: number;
+  height: number;
+}
+
 export interface LayoutRegions {
-  /** 그룹 순서 그대로다. 첫째는 위, 둘째는 아래 */
-  groups: LayoutRegion[];
-  /** 두 영역이 겹치는 띠. 같이 쓰는 노드가 없으면 없다 */
-  shared?: LayoutRect;
-  /** 노드 id → 띠. 0은 첫째 전용, 1은 같이 씀, 2는 둘째 전용이다. 포커스 화면이 이걸로 다시 쌓는다 */
-  bandOf: Record<string, 0 | 1 | 2>;
+  /** 그룹 순서 그대로다. 제품 색도 이 순서로 정한다 */
+  groups: Array<{ id: string; name: string }>;
+  /** 위에서부터. 카드가 없는 띠는 없다 */
+  bands: LayoutBand[];
+  /** 노드 id → 띠 번호. 포커스 화면이 이걸로 다시 쌓는다 */
+  bandOf: Record<string, number>;
+  /** 둘 이상의 제품이 같이 쓰는 노드 id → 쓰는 제품 번호. 카드 위 제품 브릭이 이걸 그린다 */
+  productsOf: Record<string, number[]>;
 }
 
 /**
@@ -762,36 +767,39 @@ export function bandGroupsOf(ir: ArchitectureIr): BandGroup[] {
   return (ir.groups ?? []).map((g) => ({ id: g.id, name: g.name, members: new Set(g.members) }));
 }
 
-// 영역 테두리와 카드 사이 여백, 영역 이름이 들어갈 줄 높이. 포커스 화면 스크립트도 같은 값을 쓴다
-export const REGION_PAD_X = 10;
-export const REGION_PAD_Y = 14;
-export const REGION_LABEL_H = 26;
-const BAND_GAP = REGION_PAD_Y * 2 + REGION_LABEL_H;
+// 띠 머리 높이와 띠 끝 여백. 머리에는 구분선과 띠 이름, 그 아래 첫 카드의 제품 브릭이 들어간다. 포커스 화면 스크립트도 같은 값을 쓴다
+export const BAND_HEAD = 40;
+export const BAND_TAIL = 14;
 
 /**
- * 두 제품을 합친 그림을 위(첫째 전용), 가운데(같이 씀), 아래(둘째 전용) 띠로 다시 쌓는다.
- * 열(x)은 elk가 정한 그대로 두고 띠 안에서는 elk의 위아래 순서를 지킨다. 띠 높이는 모든 열에서 같게 맞춰야 영역 박스가 한 장으로 그려진다.
- * 두 제품 다 이 레이아웃에 자기만 쓰는 노드가 있을 때만 쌓는다. 한쪽 전용이 비면 그 영역이 공용 띠와 거의 같아 나눠 보일 게 없다
+ * 여러 제품을 합친 그림을 가로 띠로 다시 쌓는다. 맨 위가 둘 이상의 제품이 같이 쓰는 띠이고 그 아래로 그룹 순서대로 제품마다 전용 띠가 이어진다.
+ * 어느 그룹에도 없는 노드는 같이 쓰는 띠에 둔다. 한 제품 몫이라고 말할 근거가 없어서다.
+ * 열(x)은 elk가 정한 그대로 둔다. 같이 쓰는 띠 안에서는 쓰는 제품이 많은 카드가 위로 가고 그 밖에는 elk의 위아래 순서를 지킨다.
+ * 띠 높이는 모든 열에서 같게 맞춰야 구분선 한 줄로 띠가 갈린다. 카드가 있는 띠가 하나뿐이면 나눠 보일 게 없어 그대로 돌려준다
  */
 export function stackBands(layout: LayoutResult, groups: readonly BandGroup[]): LayoutResult {
-  if (groups.length !== 2 || layout.nodes.length === 0) return layout;
-  const [first, second] = groups as [BandGroup, BandGroup];
-  const bandOf = (id: string): 0 | 1 | 2 => {
-    const inFirst = first.members.has(id);
-    const inSecond = second.members.has(id);
-    if (inFirst && !inSecond) return 0;
-    if (inSecond && !inFirst) return 2;
-    return 1;
+  if (groups.length < 2 || layout.nodes.length === 0) return layout;
+  const productsOf = new Map<string, number[]>();
+  for (const n of layout.nodes) {
+    productsOf.set(
+      n.id,
+      groups.flatMap((g, i) => (g.members.has(n.id) ? [i] : [])),
+    );
+  }
+  const bandOf = (id: string): number => {
+    const ps = productsOf.get(id)!;
+    return ps.length === 1 ? ps[0]! + 1 : 0;
   };
-  const counts = [0, 0, 0];
+  const bandCount = groups.length + 1;
+  const counts = Array.from({ length: bandCount }, () => 0);
   for (const n of layout.nodes) counts[bandOf(n.id)]! += 1;
-  if (counts[0] === 0 || counts[2] === 0) return layout;
+  if (counts.filter((c) => c > 0).length < 2) return layout;
 
   const columns = new Map<number, LayoutNode[]>();
   for (const n of layout.nodes) columns.set(n.x, [...(columns.get(n.x) ?? []), n]);
-  const bandHeight = [0, 0, 0];
+  const bandHeight = Array.from({ length: bandCount }, () => 0);
   for (const col of columns.values()) {
-    for (const band of [0, 1, 2] as const) {
+    for (let band = 0; band < bandCount; band++) {
       const inBand = col.filter((n) => bandOf(n.id) === band);
       if (inBand.length === 0) continue;
       const h = inBand.reduce((sum, n) => sum + n.height, 0) + PIN_GAP * (inBand.length - 1);
@@ -801,23 +809,29 @@ export function stackBands(layout: LayoutResult, groups: readonly BandGroup[]): 
 
   const top = Math.min(...layout.nodes.map((n) => n.y));
   const bottomMargin = layout.height - Math.max(...layout.nodes.map((n) => n.y + n.height));
-  const bandTop: Array<number | undefined> = [undefined, undefined, undefined];
-  let cursor = top + REGION_PAD_Y + REGION_LABEL_H;
-  for (const band of [0, 1, 2] as const) {
+  const bands: LayoutBand[] = [];
+  let cursor = top;
+  for (let band = 0; band < bandCount; band++) {
     if (counts[band] === 0) continue;
-    bandTop[band] = cursor;
-    cursor += bandHeight[band]! + BAND_GAP;
+    const height = BAND_HEAD + bandHeight[band]! + BAND_TAIL;
+    bands.push({ band, y: round2(cursor), height: round2(height) });
+    cursor += height;
   }
-  const contentBottom = cursor - BAND_GAP;
+  const bandTop = new Map(bands.map((b) => [b.band, b.y + BAND_HEAD]));
 
+  const share = (n: LayoutNode): number => productsOf.get(n.id)!.length;
   const placed = new Map<string, number>();
   for (const col of columns.values()) {
-    for (const band of [0, 1, 2] as const) {
-      let y = bandTop[band];
-      if (y === undefined) continue;
+    for (const [band, start] of bandTop) {
+      let y = start;
       const inBand = col
         .filter((n) => bandOf(n.id) === band)
-        .sort((a, b) => a.y - b.y || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        .sort(
+          (a, b) =>
+            (band === 0 ? share(b) - share(a) : 0) ||
+            a.y - b.y ||
+            (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+        );
       for (const n of inBand) {
         placed.set(n.id, round2(y));
         y += n.height + PIN_GAP;
@@ -826,52 +840,22 @@ export function stackBands(layout: LayoutResult, groups: readonly BandGroup[]): 
   }
   const nodes = layout.nodes.map((n) => ({ ...n, y: placed.get(n.id) ?? n.y }));
   const moved = nodes.filter((n, i) => n.y !== layout.nodes[i]!.y).map((n) => n.id);
-
-  // 양 끝 띠(0, 2)는 비어 있지 않으니 영역마다 노드가 하나 이상 있다
-  const span = (bands: readonly (0 | 1 | 2)[]): LayoutRect => {
-    const members = nodes.filter((n) => bands.includes(bandOf(n.id)));
-    const used = bands.filter((b) => bandTop[b] !== undefined);
-    const left = Math.min(...members.map((n) => n.x)) - REGION_PAD_X;
-    const right = Math.max(...members.map((n) => n.x + n.width)) + REGION_PAD_X;
-    const y0 = bandTop[used[0]!]! - REGION_PAD_Y;
-    const last = used[used.length - 1]!;
-    const y1 = bandTop[last]! + bandHeight[last]! + REGION_PAD_Y;
-    return { x: round2(left), y: round2(y0), width: round2(right - left), height: round2(y1 - y0) };
-  };
-  const upper = span([0, 1]);
-  const lower = span([1, 2]);
-  // 위 영역 이름은 박스 안 위쪽에, 아래 영역 이름은 박스 안 아래쪽에 단다. 둘이 같은 띠에서 시작해도 안 부딪힌다
-  upper.y = round2(upper.y - REGION_LABEL_H);
-  upper.height = round2(upper.height + REGION_LABEL_H);
-  lower.height = round2(lower.height + REGION_LABEL_H);
-  const sharedTop = Math.max(upper.y, lower.y);
-  const sharedBottom = Math.min(upper.y + upper.height, lower.y + lower.height);
-  const sharedLeft = Math.max(upper.x, lower.x);
-  const sharedRight = Math.min(upper.x + upper.width, lower.x + lower.width);
-  const shared =
-    counts[1]! > 0 && sharedBottom > sharedTop && sharedRight > sharedLeft
-      ? {
-          x: round2(sharedLeft),
-          y: round2(sharedTop),
-          width: round2(sharedRight - sharedLeft),
-          height: round2(sharedBottom - sharedTop),
-        }
-      : undefined;
+  const sortedIds = nodes.map((n) => n.id).sort();
 
   return {
     ...layout,
-    height: round2(contentBottom + REGION_PAD_Y + REGION_LABEL_H + bottomMargin),
+    height: round2(cursor + bottomMargin),
     nodes,
     edges: layout.edges.map((e) => ({ ...e })),
     movedNodeIds: [...new Set([...(layout.movedNodeIds ?? []), ...moved])].sort(),
     regions: {
-      groups: [
-        { id: first.id, name: first.name, ...upper },
-        { id: second.id, name: second.name, ...lower },
-      ],
-      ...(shared !== undefined ? { shared } : {}),
-      bandOf: Object.fromEntries(
-        nodes.map((n) => [n.id, bandOf(n.id)]).sort((a, b) => (a[0]! < b[0]! ? -1 : 1)),
+      groups: groups.map((g) => ({ id: g.id, name: g.name })),
+      bands,
+      bandOf: Object.fromEntries(sortedIds.map((id) => [id, bandOf(id)])),
+      productsOf: Object.fromEntries(
+        sortedIds
+          .filter((id) => productsOf.get(id)!.length > 1)
+          .map((id) => [id, productsOf.get(id)!]),
       ),
     },
   };

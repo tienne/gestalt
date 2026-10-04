@@ -111,6 +111,23 @@ export function iconUse(id: string, cls = ''): string {
   return `<svg${c} viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#${id}"/></svg>`;
 }
 
+// 제품 브릭 색. 흰 글자를 올리므로 두 테마 다 같은 진한 색을 쓴다. 제품이 이보다 많으면 처음 색부터 다시 돈다
+const PRODUCT_PALETTE = [
+  '#0f766e',
+  '#c2410c',
+  '#be185d',
+  '#0369a1',
+  '#4d7c0f',
+  '#92400e',
+  '#6d28d9',
+  '#475569',
+] as const;
+export const PRODUCT_COLORS = PRODUCT_PALETTE.length;
+
+function productRules(): string {
+  return PRODUCT_PALETTE.map((c, i) => `.p-${i}{--p:${c};}`).join('');
+}
+
 function kindRules(theme: 'light' | 'dark'): string {
   return (Object.keys(KIND_COLORS) as NodeKind[])
     .sort()
@@ -135,11 +152,6 @@ const LIGHT_TOKENS = `
   --edge-strong: #3f4753;
   --lane: rgba(100, 116, 139, 0.085);
   --lane-line: rgba(100, 116, 139, 0.16);
-  --region-a: rgba(13, 148, 136, 0.07);
-  --region-a-line: #0d9488;
-  --region-b: rgba(124, 58, 237, 0.06);
-  --region-b-line: #7c3aed;
-  --region-shared-line: #475569;
   --warn: #b45309;
   --warn-soft: #fef3c7;
   --ok: #15803d;
@@ -175,11 +187,6 @@ const DARK_TOKENS = `
   --edge-strong: #dde1e8;
   --lane: rgba(148, 163, 184, 0.06);
   --lane-line: rgba(148, 163, 184, 0.13);
-  --region-a: rgba(45, 212, 191, 0.08);
-  --region-a-line: #2dd4bf;
-  --region-b: rgba(167, 139, 250, 0.08);
-  --region-b-line: #a78bfa;
-  --region-shared-line: #cbd5e1;
   --warn: #fbbf24;
   --warn-soft: rgba(251, 191, 36, 0.14);
   --ok: #4ade80;
@@ -275,18 +282,13 @@ button { font: inherit; color: inherit; }
 .level[hidden] { display: none; }
 .links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
 .lane { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
-.region { stroke-width: 1.5; }
-.region-0 { fill: var(--region-a); stroke: var(--region-a-line); }
-.region-1 { fill: var(--region-b); stroke: var(--region-b-line); }
 .frame { fill: var(--frame); stroke: var(--frame-line); stroke-width: 1.25; stroke-opacity: 0.6; }
-.region-shared { fill: none; stroke: var(--region-shared-line); stroke-width: 1.5; stroke-dasharray: 6 5; }
-.region-title {
-  position: absolute; height: 22px; padding: 0 10px; display: flex; align-items: center;
-  font-size: 13px; font-weight: 700; white-space: nowrap; pointer-events: none;
+.band-line { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 4 4; }
+.band-title {
+  position: absolute; height: 20px; padding: 0 6px; display: flex; align-items: center; gap: 6px; border-radius: 4px;
+  font-size: 12px; font-weight: 700; color: var(--text); background: var(--bg); white-space: nowrap; pointer-events: none;
 }
-.region-title.r-0 { color: var(--region-a-line); }
-.region-title.r-1 { color: var(--region-b-line); }
-.region-title.r-shared { color: var(--region-shared-line); }
+.band-title .sw { width: 10px; height: 10px; border-radius: 2px; background: var(--p); }
 .lane-title {
   position: absolute; display: flex; align-items: center; gap: 8px; padding: 0 14px; height: 22px;
   font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden;
@@ -309,6 +311,31 @@ button { font: inherit; color: inherit; }
   content: ''; position: absolute; left: 12px; top: -6px; width: 14px; height: 5px; border-radius: 3px 3px 0 0;
   background: var(--brick-edge); box-shadow: 20px 0 var(--brick-edge), 40px 0 var(--brick-edge), 60px 0 var(--brick-edge);
 }
+/* 같이 쓰는 카드는 돌기 자리에 제품 브릭을 꽂는다 */
+.node.shared::before { display: none; }
+.pbricks { position: absolute; left: 8px; right: 8px; bottom: calc(100% + 1px); display: flex; gap: 2px; }
+.pb {
+  flex: none; height: 17px; padding: 0 6px; border-radius: 3px 3px 0 0;
+  font: 700 10.5px/17px var(--font); color: #fff; background: var(--p); white-space: nowrap;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--p) 70%, #000);
+}
+.pb.more {
+  border: 1px solid var(--border-strong); border-bottom: 0; line-height: 15px; cursor: pointer;
+  color: var(--text); background: var(--surface); box-shadow: none;
+}
+.pb.more:hover, .pb.more[aria-expanded="true"] { color: var(--bg); background: var(--text); border-color: var(--text); }
+.pb.more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* +N 드롭다운. 캔버스는 확대와 스크롤 상자 안이라 그 안에 두면 잘린다. 화면 기준으로 띄운다 */
+.pmenu {
+  position: fixed; z-index: 40; min-width: 168px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 3px 0 var(--border-strong);
+}
+.pmenu[hidden] { display: none; }
+.pmenu h3 { margin: 2px 6px 6px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.pmenu ul { margin: 0; padding: 0; list-style: none; }
+.pmenu li { display: flex; align-items: center; gap: 8px; padding: 4px 6px; font-size: 13px; font-weight: 600; color: var(--text); }
+.pmenu .pb { height: 15px; padding: 0 5px; font-size: 10px; line-height: 15px; }
+.pmenu small { margin-left: auto; font-weight: 500; color: var(--muted); }
 .node:hover { box-shadow: var(--thick), var(--shadow-hover); }
 .node:focus { outline: none; }
 .node:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -557,6 +584,7 @@ export function renderCss(): string {
     `@media (prefers-color-scheme: dark) {\n:root:not([data-theme="light"]) {${DARK_TOKENS}}\n${scoped(':root:not([data-theme="light"])', 'dark')}\n}`,
     `:root[data-theme="dark"] {${DARK_TOKENS}}`,
     kindRules('light'),
+    productRules(),
     scoped(':root[data-theme="dark"]', 'dark'),
     LAYOUT_CSS,
   ].join('\n');

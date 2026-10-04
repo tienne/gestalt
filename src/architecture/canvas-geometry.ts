@@ -6,6 +6,11 @@ export const CANVAS_PAD_TOP = 60;
 export const CANVAS_PAD_BOTTOM = 40;
 /** 레인 띠의 위아래 여백 */
 export const LANE_INSET_Y = 12;
+/** 제품 띠 구분선. 선은 캔버스 양끝에서 BAND_LINE_X만큼 들이고 띠 머리에서 BAND_LINE_Y 아래에 긋는다. 띠 이름은 그 선에 걸쳐 단다 */
+export const BAND_LINE_X = 8;
+export const BAND_LINE_Y = 10;
+export const BAND_TITLE_X = 16;
+export const BAND_TITLE_HALF = 10;
 
 const PORT_INSET = 14;
 const PORT_STEP = 9;

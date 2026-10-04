@@ -1,4 +1,6 @@
+import { BAND_LINE_X, BAND_LINE_Y, BAND_TITLE_HALF, BAND_TITLE_X } from './canvas-geometry.js';
 import { FOCUS_SOURCE } from './focus.js';
+import { PRODUCT_COLORS } from './html-theme.js';
 import { FRAME_PAD, type LaneId } from './layout.js';
 
 export interface ClientConstants {
@@ -42,6 +44,8 @@ export function renderClientScript(c: ClientConstants): string {
   var KIND_SHORT = ${JSON.stringify(c.kindShort)};
   var HOST_SHORT = ${JSON.stringify(c.hostShort)};
   var FRAME_PAD = ${FRAME_PAD};
+  var BAND_LINE_X = ${BAND_LINE_X}, BAND_LINE_Y = ${BAND_LINE_Y}, BAND_TITLE_X = ${BAND_TITLE_X}, BAND_TITLE_HALF = ${BAND_TITLE_HALF};
+  var PRODUCT_COLORS = ${PRODUCT_COLORS};
   var MICRO_HOSTS = {};
   (data.microHosts || []).forEach(function (id) { MICRO_HOSTS[id] = true; });
   var KIND_TEXT = ${JSON.stringify(c.kindText)};
@@ -413,6 +417,7 @@ ${FOCUS_SOURCE}
   // 확대와 이동. 좌표는 전부 레벨 캔버스 기준이고 viewport 하나에 transform으로 건다
   function clampK(k) { return Math.min(2.5, Math.max(0.2, k)); }
   function applyView() {
+    closeProducts(false);
     viewport.style.transform = 'translate(' + view.x + 'px,' + view.y + 'px) scale(' + view.k + ')';
     zoomLevel.textContent = Math.round(view.k * 100) + '%';
   }
@@ -661,6 +666,8 @@ ${FOCUS_SOURCE}
   }
   stage.addEventListener('click', function (e) {
     if (suppressClick) { suppressClick = false; return; }
+    var more = e.target.closest('.pb.more');
+    if (more) { toggleProducts(more); return; }
     // 흐름이 하나면 배지가 바로 그 흐름으로 간다. 여럿이면 카드를 누른 것처럼 패널을 열어 흐름 목록에서 고르게 한다
     var badge = e.target.closest('.flow-badge');
     if (badge) {
@@ -676,12 +683,14 @@ ${FOCUS_SOURCE}
     if (drawerOpen()) closeDrawer(false);
   });
   stage.addEventListener('dblclick', function (e) {
-    if (e.target.closest('.flow-badge')) return;
+    if (e.target.closest('.flow-badge, .pb.more')) return;
     var card = e.target.closest('.node');
     if (card) enter(card.getAttribute('data-node-id'));
   });
   stage.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    // +N 버튼은 브라우저가 Enter와 스페이스를 클릭으로 바꿔 준다. 카드 선택으로 새면 안 된다
+    if (e.target.closest('.pb.more')) return;
     var card = e.target.closest('.node');
     if (card) { e.preventDefault(); activateNode(card.getAttribute('data-node-id'), e, true); return; }
     var link = e.target.closest('.link.bundle');
@@ -723,6 +732,58 @@ ${FOCUS_SOURCE}
   function showLevel(id) {
     if (!levels[id]) return;
     go(id === 'root' ? '#/' : '#/level/' + enc(id));
+  }
+  // 같이 쓰는 카드의 +N 드롭다운. 메뉴 하나를 body에 두고 누른 버튼마다 내용을 바꿔 띄운다
+  var productMenu = el('div', 'pmenu');
+  productMenu.hidden = true;
+  productMenu.setAttribute('role', 'dialog');
+  doc.body.appendChild(productMenu);
+  var productBtn = null;
+  function closeProducts(restore) {
+    // 화면 맞춤이 메뉴를 만들기 전에도 불린다
+    if (!productMenu || productMenu.hidden) return;
+    productMenu.hidden = true;
+    if (productBtn) {
+      productBtn.setAttribute('aria-expanded', 'false');
+      if (restore) productBtn.focus();
+    }
+    productBtn = null;
+  }
+  function toggleProducts(btn) {
+    if (productBtn === btn) { closeProducts(false); return; }
+    closeProducts(false);
+    var card = btn.closest('.node');
+    var sec = btn.closest('.level');
+    // 포커스 화면은 카드 일부만 남으니 전용 카드 수는 원래 레벨에서 센다
+    if (sec === focusSec) sec = sectionOf(focusSec.getAttribute('data-focus-level'));
+    if (!card || !sec) return;
+    var names = JSON.parse(sec.getAttribute('data-regions') || '[]');
+    var ids = (card.getAttribute('data-products') || '').split(' ').filter(Boolean).map(Number);
+    productMenu.textContent = '';
+    productMenu.appendChild(el('h3', '', josa(label(card.getAttribute('data-node-id'))) + ' 같이 쓰는 제품'));
+    var list = el('ul', '');
+    ids.forEach(function (i) {
+      var li = el('li', '');
+      li.appendChild(el('span', 'pb p-' + (i % PRODUCT_COLORS), names[i] || ''));
+      li.appendChild(doc.createTextNode(names[i] || ''));
+      li.appendChild(el('small', '', '전용 카드 ' + sec.querySelectorAll('.node[data-band="' + (i + 1) + '"]').length + '개'));
+      list.appendChild(li);
+    });
+    productMenu.appendChild(list);
+    productMenu.setAttribute('aria-label', productMenu.firstChild.textContent);
+    productMenu.hidden = false;
+    var r = btn.getBoundingClientRect();
+    productMenu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - productMenu.offsetWidth - 8)) + 'px';
+    productMenu.style.top = (r.bottom + 4) + 'px';
+    btn.setAttribute('aria-expanded', 'true');
+    productBtn = btn;
+  }
+  // 받침이 있으면 '을', 없으면 '를'. 끝의 괄호 설명은 건너뛰고 보고, 한글로 안 끝나면 받침을 모르니 '을(를)'
+  function josa(word) {
+    var stem = word.replace(/\\s*\\([^()]*\\)$/, '') || word;
+    var c = stem.charCodeAt(stem.length - 1) - 0xac00;
+    if (c < 0 || c > 11171) return word + '을(를)';
+    return word + (c % 28 ? '을' : '를');
   }
   function sectionOf(id) {
     for (var i = 0; i < sections.length; i++) if (sections[i].getAttribute('data-level-id') === id) return sections[i];
@@ -974,15 +1035,10 @@ ${FOCUS_SOURCE}
     });
     svg.appendChild(laneLayer);
     var regionLayer = svgEl('g', { 'class': 'regions' });
-    if (o.regions) {
-      o.regions.groups.forEach(function (r, i) {
-        regionLayer.appendChild(svgEl('rect', { 'class': 'region region-' + i, x: r.x, y: r.y, width: r.width, height: r.height, rx: 16 }));
-      });
-      if (o.regions.shared) {
-        var sh = o.regions.shared;
-        regionLayer.appendChild(svgEl('rect', { 'class': 'region-shared', x: sh.x, y: sh.y, width: sh.width, height: sh.height, rx: 12 }));
-      }
-    }
+    (o.bands || []).forEach(function (b) {
+      var ly = b.y + BAND_LINE_Y;
+      regionLayer.appendChild(svgEl('line', { 'class': 'band-line', x1: BAND_LINE_X, y1: ly, x2: o.width - BAND_LINE_X, y2: ly }));
+    });
     svg.appendChild(regionLayer);
     var frameLayer = svgEl('g', { 'class': 'frames' });
     (o.frames || []).forEach(function (f) {
@@ -1034,21 +1090,18 @@ ${FOCUS_SOURCE}
       title.style.width = l.width + 'px';
       host.appendChild(title);
     });
-    if (o.regions) {
-      // 서버 렌더와 같은 자리다. 위 영역 이름은 박스 안 위쪽, 아래 영역 이름은 안 아래쪽, 겹친 띠 이름은 띠 바로 위다
-      o.regions.groups.forEach(function (r, i) {
-        var rt = el('div', 'region-title r-' + i, r.name);
-        rt.style.left = r.x + 'px';
-        rt.style.top = (i === 0 ? r.y + 4 : r.y + r.height - 26) + 'px';
-        host.appendChild(rt);
-      });
-      if (o.regions.shared) {
-        var stl = el('div', 'region-title r-shared', '같이 쓰는 영역 (' + o.regions.groups.map(function (r) { return r.name; }).join(', ') + ')');
-        stl.style.left = o.regions.shared.x + 'px';
-        stl.style.top = (o.regions.shared.y - 26) + 'px';
-        host.appendChild(stl);
+    // 서버 렌더와 같은 자리다. 띠 이름은 구분선에 걸쳐 단다
+    (o.bands || []).forEach(function (b) {
+      var bt = el('div', 'band-title', b.band === 0 ? '같이 쓰는 카드' : '');
+      if (b.band > 0) {
+        bt.appendChild(el('i', 'sw p-' + ((b.band - 1) % PRODUCT_COLORS)));
+        bt.appendChild(doc.createTextNode((o.groups[b.band - 1] || '') + ' 전용'));
       }
-    }
+      bt.setAttribute('data-band', b.band);
+      bt.style.left = BAND_TITLE_X + 'px';
+      bt.style.top = (b.y + BAND_LINE_Y - BAND_TITLE_HALF) + 'px';
+      host.appendChild(bt);
+    });
     Object.keys(pos).sort().forEach(function (id) { host.appendChild(o.card(id, pos[id])); });
   }
   function drawColumns(list, host) {
@@ -1205,10 +1258,14 @@ ${FOCUS_SOURCE}
     var banded = null;
     if (names) {
       var bandOf = {};
+      var shareOf = {};
       src.querySelectorAll('.node[data-band]').forEach(function (c) {
-        bandOf[c.getAttribute('data-node-id')] = Number(c.getAttribute('data-band'));
+        var id = c.getAttribute('data-node-id');
+        bandOf[id] = Number(c.getAttribute('data-band'));
+        var ps = c.getAttribute('data-products');
+        if (ps) shareOf[id] = ps.split(' ').length;
       });
-      banded = focusBandLayout(boxes, keep, top, 24, bandOf, JSON.parse(names));
+      banded = focusBandLayout(boxes, keep, top, 24, bandOf, shareOf);
     }
     var pos = banded ? banded.pos : focusLayout(boxes, keep, top, 24);
     var bottom = top;
@@ -1248,12 +1305,15 @@ ${FOCUS_SOURCE}
     focusSec._cards = null;
     focusSec._links = null;
     focusSec.setAttribute('data-focus-level', levelId);
+    if (names) focusSec.setAttribute('data-regions', names);
+    else focusSec.removeAttribute('data-regions');
     focusSec.setAttribute('aria-label', label(nodeId) + ' 포커스');
     drawCanvas(focusSec, {
       pos: pos,
       edges: all.filter(function (e) { return keptEdge[e.id]; }),
       lanes: lanes,
-      regions: banded ? banded.regions : null,
+      bands: banded && banded.bands ? banded.bands : null,
+      groups: names ? JSON.parse(names) : [],
       frames: frames,
       width: parseFloat(src.getAttribute('data-w')),
       height: bottom + 40,
@@ -1261,6 +1321,8 @@ ${FOCUS_SOURCE}
       card: function (id, p) {
         var c = cards[id].cloneNode(true);
         c.classList.remove('selected', 'anchor', 'lit', 'hit', 'current');
+        var more = c.querySelector('.pb.more');
+        if (more) more.setAttribute('aria-expanded', 'false');
         if (id === nodeId) c.classList.add('focus-root');
         c.style.top = p.y + 'px';
         return c;
@@ -1441,6 +1503,7 @@ ${FOCUS_SOURCE}
     });
   }
   doc.addEventListener('pointerdown', function (e) {
+    if (!productMenu.hidden && !(e.target.closest && e.target.closest('.pmenu, .pb.more'))) closeProducts(false);
     if (!anyPop()) return;
     if (e.target.closest && (e.target.closest('.pop') || e.target.closest('[aria-controls]'))) return;
     closePops(false);
@@ -1473,6 +1536,7 @@ ${FOCUS_SOURCE}
 
   doc.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
+      if (!productMenu.hidden) { closeProducts(true); return; }
       if (anyPop()) { closePops(true); return; }
       if (drawerOpen()) { closeDrawer(true); return; }
       releaseFocus();

@@ -1,9 +1,18 @@
-import { CANVAS_PAD_TOP, CANVAS_PAD_X, LANE_INSET_Y, routeCanvas } from './canvas-geometry.js';
+import {
+  BAND_LINE_X,
+  BAND_LINE_Y,
+  BAND_TITLE_HALF,
+  BAND_TITLE_X,
+  CANVAS_PAD_TOP,
+  CANVAS_PAD_X,
+  LANE_INSET_Y,
+  routeCanvas,
+} from './canvas-geometry.js';
 import type { RoutedEdge } from './canvas-geometry.js';
 import { flowCountByService, ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
 import type { FlowLevel } from './flow-layout.js';
 import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
-import { iconUse, renderCss, renderIconSprite } from './html-theme.js';
+import { iconUse, PRODUCT_COLORS, renderCss, renderIconSprite } from './html-theme.js';
 import {
   LANE_TITLES,
   flowBadgeText,
@@ -16,7 +25,12 @@ import {
   platformChipText,
   platformName,
 } from './kind-text.js';
-import { compareEnvironment, FLAT_BACKWARD_EDGE_KINDS, type LayoutResult } from './layout.js';
+import {
+  compareEnvironment,
+  FLAT_BACKWARD_EDGE_KINDS,
+  textUnits,
+  type LayoutResult,
+} from './layout.js';
 import { indexMicroApps } from './micro-app.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
@@ -244,17 +258,21 @@ function renderCard(
   band: number | undefined,
   micro: { host: boolean; frame?: string },
   flows = 0,
+  products: readonly string[] = [],
+  productIds: readonly number[] = [],
 ): string {
   const name = nodeName(node);
   const guess = isGuess(node);
   const platforms = facts?.platforms.map((p) => platformName(p, facts.webHosting)) ?? [];
   const cls = ['node', `k-${node.kind}`];
+  if (products.length > 1) cls.push('shared');
   if (enterable) cls.push('enterable');
   if (focus) cls.push('is-focus');
   const aria =
     `${name}, ${NODE_KIND_TEXT[node.kind]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}` +
     (platforms.length > 0 ? `, ${platforms.join(', ')}` : '') +
-    (flows > 0 ? `, 사용자 흐름 ${flows}개` : '');
+    (flows > 0 ? `, 사용자 흐름 ${flows}개` : '') +
+    (products.length > 1 ? `, 같이 쓰는 제품 ${products.join(', ')}` : '');
   const tooltip =
     (node.displayName === undefined
       ? node.label
@@ -272,6 +290,7 @@ function renderCard(
   const y = round2(box.y + CANVAS_PAD_TOP);
   return (
     `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(node.id)}"${band !== undefined ? ` data-band="${band}"` : ''}` +
+    `${productIds.length > 1 ? ` data-products="${productIds.join(' ')}"` : ''}` +
     `${node.environment !== undefined ? ` data-env="${escapeHtml(node.environment)}"` : ''}` +
     `${micro.frame !== undefined ? ` data-frame="${escapeHtml(micro.frame)}"` : ''} role="button" tabindex="0" ` +
     `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
@@ -284,8 +303,48 @@ function renderCard(
     `</span>` +
     second +
     (enterable ? '<span class="go" aria-hidden="true">›</span>' : '') +
+    (products.length > 1 ? renderProductBricks(products, productIds, box.width) : '') +
     `</div>`
   );
+}
+
+// 제품 브릭 폭 어림값. 카드 폭처럼 글자 수로 재야 서버 결과가 폰트에 안 흔들린다
+const BRICK_PAD = 12;
+const BRICK_UNIT = 5.6;
+const BRICK_GAP = 2;
+const BRICK_ROW_INSET = 16;
+const BRICK_MORE = 30;
+
+/**
+ * 같이 쓰는 카드 위에 꽂는 제품 브릭 한 줄. 카드 폭에 들어가는 만큼만 꽂고 남은 수는 +N 버튼에 적는다.
+ * +N을 누르면 스크립트가 그 카드를 같이 쓰는 제품 전부를 드롭다운으로 띄운다
+ */
+function renderProductBricks(
+  names: readonly string[],
+  ids: readonly number[],
+  cardWidth: number,
+): string {
+  const room = cardWidth - BRICK_ROW_INSET;
+  let used = 0;
+  let shown = 0;
+  for (let i = 0; i < names.length; i++) {
+    const w = BRICK_PAD + textUnits(names[i]!) * BRICK_UNIT;
+    const reserve = i < names.length - 1 ? BRICK_MORE : 0;
+    if (used + w + reserve > room) break;
+    used += w + BRICK_GAP;
+    shown += 1;
+  }
+  const bricks = names
+    .slice(0, shown)
+    .map((n, i) => `<span class="pb p-${ids[i]! % PRODUCT_COLORS}">${escapeHtml(n)}</span>`)
+    .join('');
+  const rest = names.length - shown;
+  const more =
+    rest > 0
+      ? `<button type="button" class="pb more" aria-haspopup="true" aria-expanded="false" ` +
+        `aria-label="${escapeHtml(`같이 쓰는 제품 ${names.length}개 모두 보기`)}">+${rest}</button>`
+      : '';
+  return `<span class="pbricks" aria-hidden="${rest > 0 ? 'false' : 'true'}">${bricks}${more}</span>`;
 }
 
 function renderPill(count: number, at: { x: number; y: number }): string {
@@ -342,39 +401,31 @@ interface CanvasSpec {
   flows?: Record<string, number>;
 }
 
-const REGION_TITLE_INSET = 4;
+function productNames(layout: LayoutResult, id: string): string[] {
+  const regions = layout.regions;
+  return (regions?.productsOf[id] ?? []).map((i) => regions!.groups[i]!.name);
+}
 
-/** 제품 영역 두 장과 그 겹친 띠. 위 영역 이름은 박스 안 위쪽, 아래 영역 이름은 박스 안 아래쪽, 겹친 띠 이름은 띠 바로 위에 단다 */
-function renderRegions(layout: LayoutResult): { regionRects: string; regionTitles: string } {
+/** 맨 위 같이 쓰는 띠와 제품마다 전용 띠. 띠마다 머리에 점선 구분선과 이름을 단다 */
+function renderBands(
+  layout: LayoutResult,
+  width: number,
+): { regionRects: string; regionTitles: string } {
   const regions = layout.regions;
   if (!regions) return { regionRects: '', regionTitles: '' };
-  const left = (x: number): number => round2(x + CANVAS_PAD_X);
-  const top = (y: number): number => round2(y + CANVAS_PAD_TOP);
-  const rects = regions.groups.map(
-    (r, i) =>
-      `<rect class="region region-${i}" data-group-id="${escapeHtml(r.id)}" x="${left(r.x)}" y="${top(r.y)}" ` +
-      `width="${r.width}" height="${r.height}" rx="16"/>`,
-  );
-  const titles = regions.groups.map((r, i) => {
-    const y =
-      i === 0
-        ? top(r.y) + REGION_TITLE_INSET
-        : round2(top(r.y + r.height) - 22 - REGION_TITLE_INSET);
-    return `<div class="region-title r-${i}" style="left:${left(r.x)}px;top:${y}px">${escapeHtml(r.name)}</div>`;
+  const lines = regions.bands.map((b) => {
+    const y = round2(b.y + CANVAS_PAD_TOP + BAND_LINE_Y);
+    return `<line class="band-line" x1="${BAND_LINE_X}" y1="${y}" x2="${round2(width - BAND_LINE_X)}" y2="${y}"/>`;
   });
-  const shared = regions.shared;
-  if (shared) {
-    rects.push(
-      `<rect class="region-shared" x="${left(shared.x)}" y="${top(shared.y)}" width="${shared.width}" ` +
-        `height="${shared.height}" rx="12"/>`,
-    );
-    const names = regions.groups.map((r) => r.name).join(', ');
-    titles.push(
-      `<div class="region-title r-shared" style="left:${left(shared.x)}px;top:${round2(top(shared.y) - 22 - REGION_TITLE_INSET)}px">` +
-        `${escapeHtml(`같이 쓰는 영역 (${names})`)}</div>`,
-    );
-  }
-  return { regionRects: rects.join(''), regionTitles: titles.join('') };
+  const titles = regions.bands.map((b) => {
+    const top = round2(b.y + CANVAS_PAD_TOP + BAND_LINE_Y - BAND_TITLE_HALF);
+    const name =
+      b.band === 0
+        ? '같이 쓰는 카드'
+        : `<i class="sw p-${(b.band - 1) % PRODUCT_COLORS}"></i>${escapeHtml(regions.groups[b.band - 1]!.name)} 전용`;
+    return `<div class="band-title" data-band="${b.band}" style="left:${BAND_TITLE_X}px;top:${top}px">${name}</div>`;
+  });
+  return { regionRects: lines.join(''), regionTitles: titles.join('') };
 }
 
 /** 레벨 하나. 레인 띠와 선은 SVG, 카드는 그 위에 겹친 HTML이다. 좌표는 전부 서버가 박는다 */
@@ -433,7 +484,7 @@ function renderLevelSection(spec: CanvasSpec): string {
         `${escapeHtml(l.title)}<span class="n">${l.count}</span></div>`,
     )
     .join('');
-  const { regionRects, regionTitles } = renderRegions(layout);
+  const { regionRects, regionTitles } = renderBands(layout, width);
   const links = edges
     .map((e) => {
       const route = canvas.edges.get(e.id);
@@ -460,10 +511,12 @@ function renderLevelSection(spec: CanvasSpec): string {
             : {}),
         },
         spec.flows?.[n.id] ?? 0,
+        productNames(layout, n.id),
+        layout.regions?.productsOf[n.id] ?? [],
       );
     })
     .join('');
-  // 포커스 화면이 영역 이름을 다시 달 때 읽는다
+  // 포커스 화면이 띠 이름을 다시 달 때, +N 드롭다운이 제품 이름을 띄울 때 읽는다
   const regionNames = layout.regions
     ? ` data-regions="${escapeHtml(JSON.stringify(layout.regions.groups.map((r) => r.name)))}"`
     : '';

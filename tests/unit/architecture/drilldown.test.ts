@@ -380,7 +380,7 @@ describe('computeDrilldown 전체보기의 prod 기준과 저장소', () => {
     );
   });
 
-  it('제품 그룹이 둘이면 root에 영역을 싣는다', async () => {
+  it('제품 그룹이 둘이면 root에 제품 띠를 싣는다', async () => {
     const ir = fixture();
     ir.groups = [
       { id: 'g1', name: '고객', members: ['svc-web', 'gw', 'm-orders', 'm-cart'] },
@@ -388,7 +388,8 @@ describe('computeDrilldown 전체보기의 prod 기준과 저장소', () => {
     ];
     const root = (await computeDrilldown(validated(ir))).levels[0]!;
     expect(root.layout.regions!.groups.map((g) => g.name)).toEqual(['고객', '운영']);
-    expect(root.layout.regions!.bandOf['m-orders']).toBe(1);
-    expect(root.layout.regions!.shared).toBeDefined();
+    expect(root.layout.regions!.bandOf['m-orders']).toBe(0);
+    expect(root.layout.regions!.productsOf['m-orders']).toEqual([0, 1]);
+    expect(root.layout.regions!.bands[0]!.band).toBe(0);
   });
 });

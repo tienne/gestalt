@@ -447,8 +447,8 @@ describe('renderDrilldownHtml', () => {
   });
 });
 
-describe('renderArchitectureHtml — 제품 영역', () => {
-  it('그룹이 둘이면 영역 박스 둘과 같이 쓰는 띠를 그리고 카드에 띠 번호를 단다', async () => {
+describe('renderArchitectureHtml — 제품 띠', () => {
+  it('그룹이 둘 이상이면 띠마다 구분선과 이름을 달고 카드에 띠 번호를 단다', async () => {
     const ir = makeIr();
     ir.groups = [
       { id: 'g1', name: '쇼핑', members: ['home', 'api', 'orphan'] },
@@ -456,19 +456,43 @@ describe('renderArchitectureHtml — 제품 영역', () => {
     ];
     const { v, layout } = await prepare(ir);
     const html = renderArchitectureHtml(v, layout, { audience: 'private' });
-    expect(html).toContain('class="region region-0" data-group-id="g1"');
-    expect(html).toContain('class="region region-1" data-group-id="g2"');
-    expect(html).toContain('class="region-shared"');
-    expect(html).toContain('같이 쓰는 영역 (쇼핑, 운영)');
-    expect(html).toMatch(/data-node-id="api" data-band="1"/);
+    expect(html).toContain('class="band-line"');
+    expect(html).toContain('>같이 쓰는 카드</div>');
+    expect(html).toContain('<i class="sw p-1"></i>운영 전용</div>');
+    expect(html).toMatch(/data-node-id="api" data-band="0" data-products="0 1"/);
     expect(html).toMatch(/data-node-id="detail" data-band="2"/);
     expect(html).toContain('data-regions="[&quot;쇼핑&quot;,&quot;운영&quot;]"');
   });
 
-  it('그룹이 없으면 영역을 안 그린다', async () => {
+  it('같이 쓰는 카드 위에 제품 브릭을 꽂고 폭을 넘치면 +N 버튼에 넘긴다', async () => {
+    const ir = makeIr();
+    const names = ['웨이팅', '파트너센터', 'POS', '예약', '쿠폰', '리뷰'];
+    ir.groups = names.map((name, i) => ({
+      id: `g${i}`,
+      name,
+      members: i === 0 ? ['api', 'home'] : i === 1 ? ['api', 'detail'] : ['api'],
+    }));
+    const { v, layout } = await prepare(ir);
+    const html = renderArchitectureHtml(v, layout, { audience: 'private' });
+    const card = html.slice(html.indexOf('data-node-id="api"'));
+    const bricks = card.slice(
+      card.indexOf('<span class="pbricks"'),
+      card.indexOf('</span></div>') + 7,
+    );
+    expect(card.slice(0, card.indexOf('>'))).toContain('data-products="0 1 2 3 4 5"');
+    expect(bricks).toContain('<span class="pb p-0">웨이팅</span>');
+    const shown = bricks.match(/class="pb p-\d"/g)!.length;
+    expect(shown).toBeLessThan(names.length);
+    expect(bricks).toContain(`>+${names.length - shown}</button>`);
+    expect(bricks).toContain('aria-label="같이 쓰는 제품 6개 모두 보기"');
+    expect(html).toMatch(/class="node k-[a-z_]+ shared/);
+  });
+
+  it('그룹이 없으면 띠를 안 그린다', async () => {
     const { v, layout } = await prepare(makeIr());
     const html = renderArchitectureHtml(v, layout, { audience: 'private' });
-    expect(html).not.toContain('class="region ');
-    expect(html).not.toContain('data-band=');
+    expect(html).not.toContain('class="band-line"');
+    expect(html).not.toMatch(/data-band="\d/);
+    expect(html).not.toContain('class="pbricks"');
   });
 });
