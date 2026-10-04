@@ -411,6 +411,16 @@ describe('하네스 드릴다운', () => {
     const shared = renderDrilldownHtml(v, drill, { audience: 'shared' });
     expect(shared).not.toContain('wiki.acme.test/secret');
   });
+
+  it('그림 제목은 화면이 없으면 스킬이나 MCP 도구 기준으로 고른다', async () => {
+    const title = async (ir: ArchitectureIr) => {
+      const v = validated(ir);
+      const html = renderDrilldownHtml(v, await computeDrilldown(v), { audience: 'private' });
+      return /<title>([^<]*)<\/title>/.exec(html)![1];
+    };
+    expect(await title(fixture())).toContain('스킬별 호출 흐름');
+    expect(await title(pureMcpServer())).toContain('MCP 도구 호출 흐름');
+  });
 });
 
 describe('MCP 도구 매칭', () => {

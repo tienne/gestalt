@@ -67,6 +67,17 @@ const VIEW_TITLES: Record<ArchitectureIr['view'], string> = {
   'deploy-path': '배포 경로',
 };
 
+/** 하네스 레포는 화면이 없어 '화면별'이 틀린 말이 된다. 화면이 하나라도 있으면 웹 그림으로 친다 */
+function viewTitle(ir: ArchitectureIr): string {
+  if (ir.view !== 'screen-chain' || ir.nodes.some((n) => n.kind === 'screen')) {
+    return VIEW_TITLES[ir.view];
+  }
+  if (ir.nodes.some((n) => n.kind === 'skill')) return '스킬별 호출 흐름';
+  if (ir.nodes.some((n) => n.kind === 'endpoint' && n.protocol === 'mcp'))
+    return 'MCP 도구 호출 흐름';
+  return VIEW_TITLES[ir.view];
+}
+
 // 페이지에 보이는 글자는 IR 식별자 대신 읽는 사람 말로 바꿔 보여준다
 const NODE_KIND_TEXT: Record<DisplayKind, string> = {
   service: '서비스',
@@ -954,7 +965,7 @@ interface PageSpec {
 }
 
 function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
-  const title = VIEW_TITLES[ir.view];
+  const title = viewTitle(ir);
   const nodeById = new Map(payload.nodes.map((n) => [n.id, n]));
   const hasFlows = flows !== undefined && flows.flows.length > 0;
   return [
@@ -1036,7 +1047,7 @@ export function renderArchitectureHtml(
   const section = renderLevelSection({
     levelId: ROOT_LEVEL_ID,
     svgId: 'canvas',
-    title: VIEW_TITLES[ir.view],
+    title: viewTitle(ir),
     nodes: payload.nodes,
     edges: payload.edges.map(asCanvasEdge),
     layout,
