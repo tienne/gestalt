@@ -339,6 +339,69 @@ describe('흐름 배치', () => {
   it('같은 입력이면 같은 좌표가 나온다', () => {
     expect(JSON.stringify(layoutOf(fixture()))).toBe(JSON.stringify(layoutOf(fixture())));
   });
+
+  // 실제 서비스처럼 등록 경로가 여럿이고 옆 흐름이 길게 이어지다 정상 흐름으로 돌아오는 모양
+  function branchyFlow(): ArchitectureFlow {
+    const f = queueFlow();
+    const step = (id: string, actor: string) => ({
+      id,
+      actor,
+      label: id,
+      evidence: [code(`web:src/${id}.ts:1`)],
+    });
+    const side = (id: string, from: string, to: string) => ({
+      id,
+      from,
+      to,
+      path: 'side' as const,
+      evidence: [code(`web:src/${id}.ts:1`)],
+      lineStyle: 'solid' as const,
+    });
+    f.steps.push(
+      step('st-walkin', 'guest'),
+      step('st-hold-1', 'guest'),
+      step('st-hold-2', 'staff'),
+      step('st-hold-3', 'sys'),
+    );
+    f.transitions.push(
+      { ...side('t-w', 'st-walkin', 'st-notify'), path: 'main' },
+      side('t-h1', 'st-register', 'st-hold-1'),
+      side('t-h2', 'st-hold-1', 'st-hold-2'),
+      side('t-h3', 'st-hold-2', 'st-hold-3'),
+      side('t-h4', 'st-hold-3', 'st-seat'),
+    );
+    return f;
+  }
+
+  it('옆 흐름이 길게 이어져 정상 단계로 돌아와도 정상 흐름 열은 안 밀린다', () => {
+    const layout = layoutOf(fixture(branchyFlow()));
+    const col = (id: string) => layout.steps.find((s) => s.id === id)!.column;
+    expect([col('st-register'), col('st-notify'), col('st-call'), col('st-seat')]).toEqual([
+      0, 1, 2, 3,
+    ]);
+    expect(col('st-hold-1')).toBeGreaterThan(col('st-register'));
+  });
+
+  it('옆 흐름 선은 양 끝이 아닌 카드를 뚫고 지나가지 않는다', () => {
+    const layout = layoutOf(fixture(branchyFlow()));
+    const crosses = (
+      p: { x: number; y: number },
+      q: { x: number; y: number },
+      b: { x: number; y: number; width: number; height: number },
+    ) => {
+      const [x1, x2] = [Math.min(p.x, q.x), Math.max(p.x, q.x)];
+      const [y1, y2] = [Math.min(p.y, q.y), Math.max(p.y, q.y)];
+      return x1 < b.x + b.width && x2 > b.x && y1 < b.y + b.height && y2 > b.y;
+    };
+    for (const r of layout.transitions.filter((t) => t.path === 'side' && !t.back)) {
+      const others = layout.steps.filter((s) => s.id !== r.from && s.id !== r.to);
+      for (let i = 1; i < r.points.length; i += 1) {
+        for (const b of others) {
+          expect(crosses(r.points[i - 1]!, r.points[i]!, b), `${r.id} → ${b.id}`).toBe(false);
+        }
+      }
+    }
+  });
 });
 
 describe('흐름 레벨 렌더', () => {

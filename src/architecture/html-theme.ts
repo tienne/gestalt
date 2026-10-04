@@ -337,11 +337,11 @@ button { font: inherit; color: inherit; }
 .flane { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
 .flane.alt { fill: color-mix(in srgb, var(--lane) 55%, var(--bg)); }
 .flane-title {
-  position: absolute; display: flex; align-items: center; gap: 6px; max-width: 112px; height: 22px;
-  font-size: 13px; font-weight: 700; color: var(--text); pointer-events: none;
+  position: absolute; display: flex; align-items: flex-start; gap: 6px; max-width: 112px;
+  font-size: 13px; font-weight: 700; line-height: 18px; color: var(--text); pointer-events: none;
 }
-.flane-title span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.flane-title svg { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.flane-title span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; word-break: keep-all; }
+.flane-title svg { width: 15px; height: 15px; flex: none; margin-top: 1.5px; color: var(--muted); }
 .flow-step { --kind: var(--accent); padding: 0 12px 0 14px; }
 .flow-step.p-side { --kind: var(--warn); }
 .flow-step.doc-only { border-style: dashed; }
