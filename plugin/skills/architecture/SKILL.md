@@ -242,7 +242,7 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
    - 도구 이름은 정확히 같아야 맞는다. 클라이언트가 붙이는 `mcp__<서버>__<도구>` 접두는 걷어내고 비교한다. 플러그인으로 깔린 서버 이름 `plugin_<플러그인>_<서버>`는 `<서버>`와 맞는다.
    - `unmatched`(`no_tool`, `multiple_tools`, `unknown_action`)는 실선을 긋지 않고 `candidates`를 담아 미해결 질문으로 남긴다.
 
-6. **핸들러와 엔진**: 도구를 받는 핸들러 모듈을 `app_module`로 두고 `endpoint → app_module`을 `handles`로 잇는다. 핸들러가 같은 프로세스 안에서 부르는 엔진 모듈도 `app_module`이고 `uses`로 잇는다. 엔진이 쓰는 저장소는 `datastore`이고 `reads_writes`다.
+6. **핸들러와 엔진**: 도구를 받는 핸들러 모듈을 `app_module`로 두고 `endpoint → app_module`을 `handles`로 잇는다. 핸들러가 같은 프로세스 안에서 부르는 엔진 모듈도 `app_module`이고 `uses`로 잇는다. 엔진은 렌더할 때 핸들러 오른쪽 열에 따로 선다. 엔진이 쓰는 저장소는 `datastore`이고 `reads_writes`다. 에이전트 디렉토리를 훑어 AGENT.md를 읽어 들이는 레지스트리 모듈이 있으면 `app_module → agent`를 `loads`로 잇는다. 근거는 그 디렉토리를 훑는 `code` 줄(`readdirSync` 같은 줄)이다. 스킬이 띄우는 에이전트든 아니든 모든 에이전트에 단다. 이 선이 없으면 스킬이 안 띄우는 에이전트는 그림 어디에도 안 선다.
 7. **md 줄 근거**: SKILL.md와 AGENT.md 줄은 `code` 근거라 실선이 된다. 다만 `skill`, `agent` 노드와 그 둘에서 나가는 엣지에서만이다. 하네스 IR(`client`, `skill`, `agent`가 하나라도 있는 IR)에서 그 밖의 노드나 엣지에 md 줄을 `code`로 달면 `MD_CODE_EVIDENCE`다. README나 docs의 언급은 `doc` 근거로 단다.
 8. **그림 제목**: 화면이 하나도 없는 screen-chain은 제목이 "화면별 호출 흐름" 대신 바뀐다. 스킬이 있으면 "스킬별 호출 흐름", 스킬 없이 MCP 도구만 있으면 "MCP 도구 호출 흐름"이다.
 9. **배포 쪽은 이 그림에 넣지 않는다**: 스킬 디렉토리 심링크와 마켓플레이스 매니페스트는 배포 경로다. 릴리즈 워크플로에서 빌드, npm 패키지, 플러그인 매니페스트로 이어지는 사슬은 Step 4대로 deploy-path에 그린다.
@@ -466,7 +466,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 | `PARENT_CYCLE`                | parent를 따라가면 자기로 돌아온다. 서비스에서 기능영역, 화면으로 내려가는 한 방향만 남긴다                         |
 | `INVALID_PARENT_KIND`         | 위 포함 규칙에 맞게 parent를 고친다. 화면이 화면을 담거나 HTTP 엔드포인트에 parent를 달면 여기 걸린다              |
 | `SERVES_SERVICE_WITH_APPS`    | `micro_app`이 달린 서비스를 `serves`로 가리켰다. 그 사슬이 서빙하는 호스트나 리모트 앱으로 `to`를 옮긴다           |
-| `INVALID_LOADS_ENDS`          | `loads`는 `micro_app → micro_app`이나 `client → service`만 된다. 서비스끼리 이었으면 앱 노드를 두고 다시 잇는다    |
+| `INVALID_LOADS_ENDS`          | `loads`는 `micro_app → micro_app`, `client → service`, `app_module → agent`만 된다. 서비스끼리 이었으면 앱 노드를 두고 다시 잇는다. 스킬에서 에이전트로 그었으면 `spawns`로 바꾼다 |
 | `INVALID_HARNESS_EDGE_ENDS`   | `spawns`는 스킬이나 에이전트 → 에이전트, `invokes`는 스킬 → 스킬이다. 스킬과 에이전트의 `calls`는 endpoint만 가리킨다 |
 | `INVALID_CALL_ACTIONS`        | 엣지 `actions`는 MCP 도구로 가는 `calls`에만 단다                                                                  |
 | `UNKNOWN_MCP_ACTION`          | 엣지 `actions`에 도구 `actions`에 없는 값이 있다. 도구 등록의 enum을 다시 보거나 그 호출을 질문으로 돌린다         |
@@ -629,6 +629,7 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `serves`       | bucket, deploy_target → service, micro_app | 그 번들을 버킷에 올리는 줄이나 서버로 띄우는 배포 매니페스트 줄. 앱이 달린 서비스면 앱을 가리킨다 |
 | `loads`        | micro_app → micro_app                      | 호스트 federation 설정의 `remotes` 항목 줄이나 single-spa `registerApplication` 줄                |
 | `loads`        | client → service                           | 클라이언트가 플러그인을 읽는 매니페스트 줄                                                        |
+| `loads`        | app_module → agent                         | 레지스트리가 에이전트 디렉토리를 훑어 AGENT.md를 읽는 줄                                          |
 | `spawns`       | skill, agent → agent                       | 지시문에서 그 에이전트를 띄우는 줄                                                                |
 | `invokes`      | skill → skill                              | 지시문에서 다른 스킬을 부르는 줄                                                                  |
 
