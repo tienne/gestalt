@@ -392,13 +392,15 @@ function serviceLevel(levels: DrillLevel[]): DrillLevel {
 }
 
 describe('서비스 레벨 인프라 레인', () => {
-  it('레인이 도메인, CDN, 버킷, 기능 영역, 게이트웨이, 서버 순으로 선다', async () => {
+  it('레인이 도메인, CDN, 버킷, 서비스, 기능 영역, 화면, 게이트웨이, 서버 순으로 선다', async () => {
     const level = serviceLevel((await computeDrilldown(validated())).levels);
     expect(level.layout.lanes.map((l) => l.id)).toEqual([
       'domain',
       'cdn',
       'bucket',
+      'service',
       'unit',
+      'screen',
       'gateway',
       'app_module',
     ]);
@@ -413,12 +415,13 @@ describe('서비스 레벨 인프라 레인', () => {
     );
   });
 
-  it('서비스 카드가 기능 영역 레인 맨 위에 서고 기능 영역으로 포함 선을 낸다', async () => {
+  it('서비스 카드가 버킷 다음 열에서 버킷과 같은 높이에 서고 기능 영역으로 포함 선을 낸다', async () => {
     const level = serviceLevel((await computeDrilldown(validated())).levels);
     const box = (id: string) => level.layout.nodes.find((n) => n.id === id)!;
-    expect(box('svc-shop').x).toBe(box('f-orders').x);
-    expect(box('svc-shop').y).toBeLessThan(box('f-orders').y);
-    expect(level.edges.find((e) => e.kind === 'contains')).toMatchObject({
+    expect(box('svc-shop').x).toBeGreaterThan(box('b-prod').x);
+    expect(box('svc-shop').x).toBeLessThan(box('f-orders').x);
+    expect(box('svc-shop').y).toBe(box('b-prod').y);
+    expect(level.edges.find((e) => e.kind === 'contains' && e.from === 'svc-shop')).toMatchObject({
       from: 'svc-shop',
       to: 'f-orders',
       memberEdgeIds: [],
@@ -439,11 +442,11 @@ describe('서비스 레벨 인프라 레인', () => {
     ]);
   });
 
-  it('서빙 인프라가 없는 서비스는 예전처럼 서비스 카드 없이 그린다', async () => {
+  it('서빙 인프라가 없는 서비스도 서비스 카드에서 위계를 시작한다', async () => {
     const levels = (await computeDrilldown(validated())).levels;
     const admin = levels.find((l) => l.id === 'service:svc-admin')!;
-    expect(admin.nodeIds).not.toContain('svc-admin');
-    expect(admin.edges.some((e) => e.kind === 'contains')).toBe(false);
+    expect(admin.nodeIds).toContain('svc-admin');
+    expect(admin.layout.lanes[0]!.id).toBe('service');
   });
 
   it('포함 선 덕에 도메인에서 출발한 포커스가 서버까지 닿는다', async () => {

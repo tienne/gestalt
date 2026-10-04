@@ -149,21 +149,41 @@ describe('computeDrilldown', () => {
     });
   });
 
-  it('service 레벨은 feature 단위로 묶고 화면 이동도 feature 사이 묶음으로 만든다', async () => {
+  it('service 레벨은 서비스 → 기능 영역 → 화면을 포함 선으로 잇고 호출은 화면에서 바로 묶는다', async () => {
     const { levels } = await computeDrilldown(validated(fixture()));
     const web = level(levels, 'service:svc-web');
     expect(web.trail).toEqual(['root', 'service:svc-web']);
-    expect(web.nodeIds).toEqual(['f-cart', 'f-orders', 'gw', 'm-cart', 'm-orders']);
+    expect(web.nodeIds).toEqual([
+      'f-cart',
+      'f-orders',
+      'gw',
+      'm-cart',
+      'm-orders',
+      's-cart',
+      's-detail',
+      's-list',
+      'svc-web',
+    ]);
     expect(summarize(web)).toEqual([
-      ['f-cart', 'f-orders', 1, 'n1'],
-      ['f-cart', 'gw', 1, 'c3,r2'],
-      ['f-orders', 'gw', 2, 'c1,c2,r1'],
       ['gw', 'm-cart', 1, 'h2,r2'],
       ['gw', 'm-orders', 1, 'h1,r1'],
+      ['s-cart', 'gw', 1, 'c3,r2'],
+      ['s-detail', 'gw', 1, 'c2,r1'],
+      ['s-list', 'gw', 1, 'c1,r1'],
+      ['f-cart', 's-cart', 1, ''],
+      ['f-orders', 's-detail', 1, ''],
+      ['f-orders', 's-list', 1, ''],
+      ['svc-web', 'f-cart', 1, ''],
+      ['svc-web', 'f-orders', 1, ''],
     ]);
-    // feature 없이 서비스에 바로 달린 화면은 그 화면이 칸이 된다
+    // 화면 사이 이동은 기능 영역 레벨에서 본다. 화면 열 안에서 휘는 선이 쌓이면 위계가 안 읽혀서다
+    expect(web.edges.some((e) => e.kind === 'navigates')).toBe(false);
+    // feature 없이 서비스에 바로 달린 화면은 기능 영역 열을 건너 서비스에서 바로 이어진다
     const admin = level(levels, 'service:svc-admin');
-    expect(summarize(admin)).toEqual([['s-admin', 'm-admin', 1, 'c4,h3']]);
+    expect(summarize(admin)).toEqual([
+      ['s-admin', 'm-admin', 1, 'c4,h3'],
+      ['svc-admin', 's-admin', 1, ''],
+    ]);
   });
 
   it('server 레벨은 모듈의 엔드포인트, 테이블, 클라이언트와 그 클라이언트가 부르는 모듈을 그린다', async () => {
@@ -184,12 +204,18 @@ describe('computeDrilldown', () => {
     expect(level(levels, 'server:gw').edges.map((e) => e.id)).toEqual(['r1', 'r2']);
   });
 
-  it('레벨마다 레인 구성이 다르다. 서비스는 기능 영역 칸, 서버는 테이블을 맨 오른쪽에 둔다', async () => {
+  it('레벨마다 레인 구성이 다르다. 서비스는 서비스, 기능 영역, 화면 열, 서버는 테이블을 맨 오른쪽에 둔다', async () => {
     const { levels } = await computeDrilldown(validated(fixture()));
     const lanes = (id: string) => level(levels, id).layout.lanes.map((l) => l.id);
     // m-orders는 클라이언트로도 닿지만 게이트웨이에서도 닿아 서버 레인에 남는다
     expect(lanes('root')).toEqual(['service', 'gateway', 'app_module']);
-    expect(lanes('service:svc-web')).toEqual(['unit', 'gateway', 'app_module']);
+    expect(lanes('service:svc-web')).toEqual([
+      'service',
+      'unit',
+      'screen',
+      'gateway',
+      'app_module',
+    ]);
     expect(lanes('feature:f-orders')).toEqual(['screen', 'gateway', 'endpoint', 'app_module']);
     expect(lanes('server:m-orders')).toEqual(['endpoint', 'app_module', 'db_table']);
     expect(lanes('server:m-cart')).toEqual([
@@ -271,9 +297,11 @@ describe('computeDrilldown 게이트웨이 사슬', () => {
   it('service와 feature 레벨도 사슬을 그대로 따른다', async () => {
     const { levels } = await computeDrilldown(validated(chainFixture()));
     expect(summarize(level(levels, 'service:svc'))).toEqual([
-      ['feat', 'gw-front', 1, 'c1,hop,r-ep'],
       ['gw-back', 'm-a', 1, 'h1,r-ep'],
       ['gw-front', 'gw-back', 1, 'hop'],
+      ['scr', 'gw-front', 1, 'c1,hop,r-ep'],
+      ['feat', 'scr', 1, ''],
+      ['svc', 'feat', 1, ''],
     ]);
     expect(level(levels, 'feature:feat').edges.map((e) => e.id)).toEqual([
       'c1',

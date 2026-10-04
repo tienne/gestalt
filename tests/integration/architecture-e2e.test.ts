@@ -564,9 +564,10 @@ describe('architecture e2e — 가짜 FE와 BE 레포에서 뷰 두 개 렌더',
       ]);
       // root: 서비스 → 게이트웨이 하나, 게이트웨이 → 모듈 둘
       expect(out.levels[0]).toEqual({ id: 'root', title: '전체', nodes: 4, edges: 3 });
+      // 서비스 카드에서 기능영역, 화면으로 이어지는 포함 선이 더해진다
       expect(out.levels.find((l) => l.id === 'service:svc-shop')).toMatchObject({
-        nodes: 5,
-        edges: 5,
+        nodes: 8,
+        edges: 8,
       });
       expect(out.levels.find((l) => l.id === 'server:mod-orders')).toMatchObject({
         nodes: 4,
@@ -819,7 +820,9 @@ describe('architecture e2e — 가짜 FE와 BE 레포에서 뷰 두 개 렌더',
         '도메인',
         'CDN',
         '버킷',
+        '서비스',
         '기능 영역',
+        '화면',
         '게이트웨이',
         '서버',
       ]);
