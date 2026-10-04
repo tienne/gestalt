@@ -4,6 +4,8 @@ import {
   KIND_LANE,
   PARTITION_RANK,
   pinToColumnTop,
+  stackTree,
+  type TreeStack,
   alignColumnsTo,
   sinkToColumnBottom,
   stackBands,
@@ -334,6 +336,8 @@ interface LevelDraft {
   laneOfKind?: Partial<Record<ArchitectureNode['kind'], LaneId>>;
   /** 배치 뒤 제 열 맨 위로 올릴 노드 */
   pinTop?: string;
+  /** 위아래 자리를 나무 순서로 다시 잡을 노드. 자식 순서는 elk가 정한 높이를 따르되 이 함수가 넘긴 순서 키가 먼저다 */
+  tree?: { root: string; children: Map<string, string[]>; sortKey: Map<string, number> };
   /** pinTop 카드와 같은 높이로 맞출 열의 노드. 그 열이 전부 이 노드일 때만 옮긴다 */
   alignToPin?: string[];
   /** 배치 뒤 제 열 맨 아래로 내릴 노드. 이 순서대로 쌓는다 */
@@ -464,10 +468,8 @@ function rootLevel(full: Graph, apps: MicroAppIndex): LevelDraft {
   };
 }
 
-/** 소유자 레벨에 더 얹을 것. 진입 앱을 서비스 레벨로 그릴 때와 앱 아래 앱 카드를 달 때 쓴다 */
+/** 소유자 레벨에 더 얹을 것. 앱 아래 앱 카드를 달 때 쓴다 */
 interface OwnerLevelExtra {
-  /** 레벨 제목을 가져올 노드. 진입 앱 레벨은 서비스 이름으로 연다 */
-  titleOf?: ArchitectureNode;
   /** 소유자 카드에서 나가 기능 영역 레인 맨 아래에 서는 앱 카드 선. loads나 contains다 */
   children?: DrillEdge[];
 }
@@ -513,7 +515,7 @@ function ownerLevel(
     id,
     kind,
     focusId: owner.id,
-    title: (extra.titleOf ?? owner).displayName ?? (extra.titleOf ?? owner).label,
+    title: owner.displayName ?? owner.label,
     trail,
     nodeIds,
     edges,
@@ -560,6 +562,92 @@ function ownerLevel(
       .flatMap((e) => [e.from, e.to])
       .filter((n) => n !== owner.id),
     ...(children.length > 0 ? { sinkBottom: children.map((c) => c.to) } : {}),
+  };
+}
+
+// 진입 앱 서비스 레벨의 열 순서. 서빙 사슬(0~2) 뒤로 호스트, 리모트, 기능 영역, 화면을 한 열씩 세우고 게이트웨이부터는 그 뒤로 민다
+const TREE_RANK = { host: 3, remote: 4, feature: 5, screen: 6 } as const;
+const TREE_RANK_SHIFT = TREE_RANK.screen;
+
+/**
+ * 진입 앱이 정해진 서비스 레벨. 호스트 → 리모트 → 기능 영역 → 화면을 열로 나눠 위계가 왼쪽에서 오른쪽으로 읽히게 하고
+ * 앞에는 진입 앱 서빙 사슬, 뒤에는 화면이 부르는 게이트웨이와 서버를 잇는다.
+ * 호스트에 바로 달린 기능 영역과 화면은 리모트 열을 건너 호스트에서 바로 이어진다
+ */
+function appTreeLevel(
+  g: Graph,
+  service: ArchitectureNode,
+  entry: ArchitectureNode,
+  apps: MicroAppIndex,
+): LevelDraft {
+  const id = `service:${service.id}`;
+  const loads = apps.loads.filter((e) => e.from === entry.id && e.to !== entry.id);
+  const remotes = new Set(loads.map((e) => e.to));
+  const owners = new Set([entry.id, ...remotes]);
+  const nodeIds = new Set<string>(owners);
+  const rankOverride = new Map<string, number>([[entry.id, TREE_RANK.host]]);
+  const laneOverride = new Map<string, LaneId>([[entry.id, 'host']]);
+  for (const r of remotes) {
+    rankOverride.set(r, TREE_RANK.remote);
+    laneOverride.set(r, 'remote');
+  }
+  const tree: DrillEdge[] = [];
+  const children = new Map<string, string[]>([[entry.id, [...remotes]]]);
+  // 리모트 블록을 먼저 쌓고 호스트 자기 기능 영역, 호스트에 바로 단 화면 순으로 잇는다. 첫 줄이 호스트 → 리모트 → 기능 → 화면으로 읽힌다
+  const sortKey = new Map<string, number>();
+  for (const r of remotes) sortKey.set(r, 0);
+  for (const n of [...g.nodeById.values()].sort(byId)) {
+    if (n.kind !== 'feature' && n.kind !== 'screen') continue;
+    const owner = ownerOf(g, n.id);
+    const parent = g.parentOf.get(n.id);
+    if (owner === undefined || !owners.has(owner) || parent === undefined) continue;
+    nodeIds.add(n.id);
+    rankOverride.set(n.id, TREE_RANK[n.kind]);
+    children.set(parent, [...(children.get(parent) ?? []), n.id]);
+    sortKey.set(n.id, n.kind === 'feature' ? 1 : 2);
+    tree.push({
+      id: `contains:${parent}->${n.id}`,
+      from: parent,
+      to: n.id,
+      kind: 'contains',
+      count: 1,
+      memberEdgeIds: [],
+      lineStyle: 'solid',
+    });
+  }
+  const b = new Bundler();
+  const calls = screenCalls(g).filter((c) => nodeIds.has(c.from));
+  bundleCalls(g, b, calls, (s) => s, true);
+  const bundles = b.toEdges(g);
+  for (const e of bundles) {
+    for (const n of [e.from, e.to]) {
+      if (nodeIds.has(n)) continue;
+      nodeIds.add(n);
+      rankOverride.set(n, PARTITION_RANK[kindOf(g, n) as NodeKind] + TREE_RANK_SHIFT);
+    }
+  }
+  const infra = dedupe(infraChainOf(g, entry.id));
+  for (const e of infra) {
+    for (const n of [e.from, e.to]) {
+      nodeIds.add(n);
+      const r = SERVICE_INFRA_RANK[kindOf(g, n) as NodeKind];
+      if (r !== undefined) rankOverride.set(n, r);
+    }
+  }
+  return {
+    id,
+    kind: 'service',
+    focusId: entry.id,
+    title: service.displayName ?? service.label,
+    trail: [ROOT_LEVEL_ID, id],
+    nodeIds,
+    edges: [...bundles, ...tree, ...loads.map(asDetail), ...infra.map(asDetail)].sort(byId),
+    rankOverride,
+    laneOverride,
+    laneOfKind: { feature: 'unit', screen: 'screen' },
+    pinTop: entry.id,
+    tree: { root: entry.id, children, sortKey },
+    alignToPin: infra.flatMap((e) => [e.from, e.to]).filter((n) => n !== entry.id),
   };
 }
 
@@ -704,6 +792,27 @@ function dedupe(edges: ArchitectureEdge[]): ArchitectureEdge[] {
   return [...seen.values()].sort(byId);
 }
 
+/** 자식을 순서 키, elk가 정한 높이, id 순으로 줄 세운다. 같은 블록 안에서는 elk가 줄인 교차를 그대로 살린다 */
+function treeOrder(
+  layout: LayoutResult,
+  tree: { root: string; children: Map<string, string[]>; sortKey: Map<string, number> },
+): TreeStack {
+  const yOf = new Map(layout.nodes.map((n) => [n.id, n.y]));
+  const children = new Map<string, string[]>();
+  for (const [parent, list] of tree.children) {
+    children.set(
+      parent,
+      [...list].sort(
+        (a, b) =>
+          (tree.sortKey.get(a) ?? 0) - (tree.sortKey.get(b) ?? 0) ||
+          (yOf.get(a) ?? 0) - (yOf.get(b) ?? 0) ||
+          compareStr(a, b),
+      ),
+    );
+  }
+  return { root: tree.root, children };
+}
+
 /** service 노드가 하나라도 그려지면 드릴다운으로 그린다 */
 export function shouldDrillDown(validated: ValidatedIr): boolean {
   return validated.ir.nodes.some(
@@ -758,7 +867,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
       const trail = trailOf(n.id)!;
       const level =
         entry !== undefined
-          ? ownerLevel(g, entry, 'service', trail, { titleOf: n, children: loadsFrom(entry.id) })
+          ? appTreeLevel(g, n, entry, apps)
           : ownerLevel(g, n, 'service', trail, { children: appCardsOf(n.id) });
       drafts.push(level);
       enter[n.id] = level.id;
@@ -809,10 +918,11 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
     });
     const laid = await computeGraphLayout(layoutNodes, d.edges);
     const pinned = d.pinTop !== undefined ? pinToColumnTop(laid, d.pinTop) : laid;
+    const treed = d.tree !== undefined ? stackTree(pinned, treeOrder(pinned, d.tree)) : pinned;
     const aligned =
       d.pinTop !== undefined && d.alignToPin !== undefined
-        ? alignColumnsTo(pinned, d.pinTop, d.alignToPin)
-        : pinned;
+        ? alignColumnsTo(treed, d.pinTop, d.alignToPin)
+        : treed;
     const sunk = d.sinkBottom !== undefined ? sinkToColumnBottom(aligned, d.sinkBottom) : aligned;
     const framed = d.frames !== undefined ? stackFrames(sunk, d.frames) : sunk;
     const banded = stackBands(framed, bands);
