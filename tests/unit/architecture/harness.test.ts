@@ -49,7 +49,7 @@ function pipelineFlow(): ArchitectureFlow {
     title: '계획에서 리뷰까지',
     actors: [
       { id: 'user', label: '사용자', kind: 'person' },
-      { id: 'model', label: '세션 모델', kind: 'system' },
+      { id: 'model', label: '세션 모델', kind: 'agent' },
       { id: 'server', label: 'MCP 서버', kind: 'system' },
       { id: 'reviewer', label: '리뷰 에이전트', kind: 'agent' },
     ],
@@ -270,6 +270,21 @@ describe('하네스 드릴다운', () => {
     );
     expect(laneOf(root, 'mod:engine')).toBe('app_module');
     expect(laneOf(root, 'client:claude')).toBe('client');
+  });
+
+  it('스킬이 안 부르는 도구의 핸들러가 쓰는 엔진도 외부 레인으로 보내지 않는다', async () => {
+    const ir = fixture();
+    ir.nodes.push(
+      node('tool:sync', 'endpoint', 'src/server.ts:30', { protocol: 'mcp', mcpServer: 'acme' }),
+      node('mod:sync-handler', 'app_module', 'src/tools/sync.ts:1'),
+      node('mod:sync-engine', 'app_module', 'src/sync/index.ts:1'),
+    );
+    ir.edges.push(
+      edge('e:sync-handles', 'tool:sync', 'mod:sync-handler', 'handles', 'src/server.ts:31'),
+      edge('e:sync-uses', 'mod:sync-handler', 'mod:sync-engine', 'uses', 'src/tools/sync.ts:2'),
+    );
+    const root = level((await computeDrilldown(validated(ir))).levels, 'root');
+    expect(laneOf(root, 'mod:sync-engine')).toBe('app_module');
   });
 
   it('서비스 레벨은 스킬과 에이전트, 도구를 열로 나누고 띄우기와 스킬 호출 선을 그린다', async () => {

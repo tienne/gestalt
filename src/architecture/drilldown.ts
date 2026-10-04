@@ -434,6 +434,8 @@ function frontReach(
   const front = new Set(
     [...g.nodeById.values()].filter((n) => n.kind === 'service').map((n) => n.id),
   );
+  // 스킬이 안 부르고 세션이 바로 부르는 도구의 핸들러는 서비스에서 안 닿는다. 그 핸들러가 부르는 엔진도 같은 프로세스라 출발점에 넣는다
+  for (const e of edges) if (inProcess.has(e.id)) front.add(e.from);
   const queue = [...front];
   while (queue.length > 0) {
     const at = queue.shift()!;
