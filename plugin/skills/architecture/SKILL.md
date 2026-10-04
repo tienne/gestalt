@@ -140,7 +140,21 @@ Step 0 start → Step 1 소스 찾아내기 → Step 2 글로벌 맥락 → Step
 ### 3-1. 제품 구조
 
 1. **서비스**: 사용자가 쓰는 FE 앱이나 제품을 `service`로 둔다. 앱 진입점(`main`, `index`), 앱 매니페스트나 설정(capacitor 설정, 웹 매니페스트, `package.json`의 `name`), README에서 제품 이름을 찾는다. 근거는 진입점 줄이다. 모노레포에 앱이 여럿이면 앱마다 하나씩 둔다 (예: `admin`, `shop`).
-2. **기능영역**: 서비스 안에서 페이지보다 한 단계 위인 제품 단위를 `feature`로 두고 `parent`에 서비스 id를 단다 (예: 등록모드, 대시보드, 설정).
+2. **마이크로 프론트엔드 앱**: 서비스 하나가 따로 빌드하고 따로 배포하는 앱 여럿으로 이뤄져 있으면 앱마다 `micro_app`을 두고 `parent`에 서비스 id를 단다. 아래 설정에서 찾는다.
+   - `module-federation.config.*` 파일
+   - webpack 설정의 `ModuleFederationPlugin`(`@module-federation/enhanced`나 `webpack/lib/container` 포함)
+   - Vite 설정의 federation 플러그인(`@originjs/vite-plugin-federation`, `@module-federation/vite`)
+   - single-spa 설정의 `registerApplication` 호출이나 import map
+
+   label은 그 설정의 `name` 값이다. 레포가 갈려도 같은 앱이면 같은 label이 나와야 [분석 합치기](#분석-합치기)가 한 노드로 모은다. 근거는 `name` 줄이다.
+
+   **호스트가 리모트를 불러오는 건 `loads` 엣지다.** 호스트 설정의 `remotes` 항목 줄(single-spa면 `registerApplication` 줄)을 근거로 호스트 `micro_app`에서 리모트 `micro_app`으로 긋는다. 호스트와 리모트를 따로 적지 않는다. 들어오는 `loads`가 없는 앱을 렌더가 호스트로 친다. 서비스 안에 호스트가 정확히 하나여야 그 앱이 사용자 진입 앱이 된다. 하나가 아니면 `auto:entry:<서비스 id>` 질문이 생긴다.
+
+   - `remotes`에 이름만 있고 그 리모트 레포나 설정을 못 찾았으면 `loads`를 점선으로 긋지 말고 리모트 노드도 만들지 않는다. "X 리모트가 어느 레포에서 빌드되는지" 미해결 질문으로 남긴다.
+   - 리모트 URL이 환경변수나 런타임 매니페스트로 정해지면 그 정의 줄을 찾는다. 못 찾으면 `loads`는 근거가 있어도 어느 CDN에서 오는지는 질문으로 남긴다.
+   - 리모트 레포만 따로 분석할 때는 서비스를 모르니 `micro_app`의 `parent`를 비운다. 호스트 쪽 분석과 합치면 parent가 채워진다.
+   - 기능영역과 화면은 그걸 담은 앱에 단다. 리모트 하나가 기능영역 하나와 겹치면 기능영역을 따로 만들지 않고 화면의 parent를 그 앱으로 둬도 된다.
+3. **기능영역**: 서비스 안에서 페이지보다 한 단계 위인 제품 단위를 `feature`로 두고 `parent`에 서비스 id를 단다 (예: 등록모드, 대시보드, 설정). 마이크로 프론트엔드면 그 기능영역을 담은 `micro_app` id를 단다.
    - **경계는 아래 순서로 본다.** 앞에서 정해지면 뒤로 내려가지 않는다. 라우트 트리와 레이아웃만 보고 나누면 메뉴 정의 한 번이면 풀릴 질문이 미해결로 남는다.
      1. 앱 메뉴나 네비게이션 정의. 사이드 메뉴, 탭 바, 메뉴 설정 파일이 여기다 (예: `admin-menu.tsx`, `navigation.ts`). 사용자가 앱에서 보는 묶음이 이것이다.
      2. 라우트 트리의 중첩 구조
@@ -150,8 +164,8 @@ Step 0 start → Step 1 소스 찾아내기 → Step 2 글로벌 맥락 → Step
    - **메뉴와 라우트가 엇갈리면** 두 화면이 같은 API를 부르는지도 본다. 같은 엔드포인트를 공유하면 같은 기능영역 쪽에 무게를 둔다. 그래도 정할 수 없을 때만 가까운 쪽에 두고 미해결 질문으로 남긴다.
    - **사용자가 답한 경계는 `user` 근거로 남긴다.** 그 화면 노드의 `evidence`에 질문 id를 단 `user` 근거를 넣는다. 다음 실행은 저장된 IR에서 시작하므로 (Step 9) 같은 질문을 다시 만들지 않는다. `user` 근거로 정해진 `parent`는 재실행 때 바꾸지 않는다. 바꿀 근거가 새로 생겼으면(메뉴 정의가 바뀌었다든지) 직접 고치지 말고 그 근거를 담아 다시 질문으로 돌린다.
    - 서비스당 3~7개가 보통이다.
-3. **화면**: FE 레포의 라우트 정의나 페이지 디렉토리에서 화면을 찾는다. 노드 kind는 `screen`, label은 사람이 알아볼 화면 이름이나 라우트 경로다. `parent`에 기능영역 id를 단다. 어느 기능영역에도 안 들어가는 화면은 서비스 id를 단다.
-4. **화면 이동**: `navigate()`, `Link`, `history.push` 줄을 근거로 `screen → screen`을 `navigates`로 잇는다. 대상이 실행 중에 정해지는 이동과 여러 화면이 같이 쓰는 훅 안의 이동은 뺀다. 줄만 봐서는 어느 화면에서 어느 화면으로 가는지 정할 수 없어서다.
+4. **화면**: FE 레포의 라우트 정의나 페이지 디렉토리에서 화면을 찾는다. 노드 kind는 `screen`, label은 사람이 알아볼 화면 이름이나 라우트 경로다. `parent`에 기능영역 id를 단다. 어느 기능영역에도 안 들어가는 화면은 앱이나 서비스 id를 단다.
+5. **화면 이동**: `navigate()`, `Link`, `history.push` 줄을 근거로 `screen → screen`을 `navigates`로 잇는다. 대상이 실행 중에 정해지는 이동과 여러 화면이 같이 쓰는 훅 안의 이동은 뺀다. 줄만 봐서는 어느 화면에서 어느 화면으로 가는지 정할 수 없어서다.
 
 ### 3-2. 호출 사슬
 
@@ -252,6 +266,8 @@ FE와 BE 사이에서 요청을 받아 다른 서버로 넘기는 서버는 `gat
 - 노드는 `domain`, `cdn`, `bucket`, `cloud_account`, 그리고 Step 3-2의 `datastore`다. 인프라 노드에는 `environment`(prod, stage, qa, dev 등)를, 계정을 아는 노드에는 `account`(그 `cloud_account` 노드 id)를 단다. 양 끝 계정이 다른 선은 다른 색으로 그려진다.
 - 엣지는 `domain → cdn`이 `resolves_to`, `cdn → bucket`이 `origin`, `bucket → service`가 `serves`다. 산출물이 버킷에 올라가는 건 Step 4의 `deploys_to`다.
 - SSR 웹은 서버가 서빙한다. 그 서버를 `deploy_target`으로 두고 `environment`를 달아 `deploy_target → service`를 `serves`로 잇는다. CDN이 서버를 원본으로 두면 `cdn → deploy_target`이 `origin`이고 도메인이 서버를 바로 가리키면 `domain → deploy_target`이 `resolves_to`다.
+- **마이크로 프론트엔드면 `serves`는 서비스가 아니라 앱을 가리킨다.** 호스트와 리모트는 따로 배포되므로 사슬도 앱마다 따로 싣는다. 호스트 사슬의 도메인이 사용자가 들어오는 진입 도메인이고 리모트 사슬의 도메인이나 CDN은 호스트가 런타임에 번들을 받아 오는 곳이다. `micro_app`이 달린 서비스를 `serves`로 가리키면 validate가 `SERVES_SERVICE_WITH_APPS`로 거부한다. 서비스 카드는 진입 앱의 칩과 도메인을 그대로 보인다.
+- 리모트 URL의 호스트가 어느 도메인이나 CDN인지는 리모트 설정 줄이나 그 URL을 정하는 환경 설정 줄로 확인한다. 리모트 사슬을 못 찾았으면 그 앱 사슬은 비워 두고 미해결 질문으로 남긴다. 호스트 사슬을 리모트 앱에 함께 잇지 않는다.
 - 조회로 확인한 것은 `live` 근거다. `location`은 조회로 찾은 리소스 종류(`aws:cloudfront` 등), `command`는 실행한 명령, `observedAt`은 조회한 시각(ISO 8601)이다. `visibility`는 `private`이고 응답 원문을 `excerpt`에 넣지 않는다.
 - **id에는 계정 ID와 CDN 배포 ID를 넣지 않는다.** `prod-customer`처럼 별칭으로 짓고 실제 ID는 `label`에 둔다. id는 공유본에서도 못 가리므로 validate가 `CLOUD_ID_IN_ID`로 거부한다.
 - 선 모양은 근거로 정해진다. 코드 근거가 함께 있으면 실선, `live` 근거만 있으면 점선이다. 조회 결과는 지금 상태일 뿐이고 코드가 그렇게 만든다는 증거는 아니라서다.
@@ -259,7 +275,7 @@ FE와 BE 사이에서 요청을 받아 다른 서버로 넘기는 서버는 `gat
 
 ### 4.5-7. 서비스 플랫폼
 
-- 웹은 따로 적지 않아도 된다. 버킷이나 `deploy_target`이 `serves`로 서비스를 서빙하면 렌더가 웹으로 판정한다. prod 서빙 노드에 `deploy_target`이 있으면 "웹(SSR)", 버킷만 있으면 "웹(정적)" 칩이 붙는다.
+- 웹은 따로 적지 않아도 된다. 버킷이나 `deploy_target`이 `serves`로 서비스를 서빙하면 렌더가 웹으로 판정한다. prod 서빙 노드에 `deploy_target`이 있으면 "웹(SSR)", 버킷만 있으면 "웹(정적)" 칩이 붙는다. 마이크로 프론트엔드면 앱 카드마다 자기 사슬로 칩이 따로 붙는다.
 - 정적인지 SSR인지는 빌드 설정과 실행 명령으로 가린다. Next.js `next.config`의 `output: 'export'`나 `next export`, 빌드 결과를 버킷에 올리는 워크플로는 정적이다. `next start`, Node 서버를 띄우는 Dockerfile이나 배포 매니페스트, 함수 런타임 어댑터는 SSR이다. 근거는 그 설정 줄이나 명령 줄이다.
 - Android와 iOS는 `service` 노드의 `platforms`에 적고 `platformEvidence`에 플랫폼별 근거를 단다. 근거는 네이티브 배포 워크플로의 태그나 트리거 줄, 스토어 설정 파일 줄이다. 근거 없이 `platforms`에만 적으면 그 플랫폼은 칩이 안 붙고 미해결 질문으로 간다.
 
@@ -317,7 +333,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 
 `parent`는 이 노드를 담는 노드의 id다. 드릴다운의 서비스와 기능영역 화면이 이 값으로 화면을 모은다.
 
-- `screen`의 parent는 `feature`나 `service`, `feature`의 parent는 `service`만 된다. 다른 kind에는 달지 않는다.
+- `screen`의 parent는 `feature`, `micro_app`, `service` 중 하나다. `feature`의 parent는 `micro_app`이나 `service`, `micro_app`의 parent는 `service`만 된다. 다른 kind에는 달지 않는다.
 - parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없는 것으로 친다.
 - 재실행 병합이 노드 id를 물려주면 parent도 그 id를 따라간다.
 
@@ -358,6 +374,8 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 | `PARENT_NOT_FOUND` | parent가 가리키는 노드를 `nodes`에 넣거나 parent를 뺀다 |
 | `PARENT_CYCLE` | parent를 따라가면 자기로 돌아온다. 서비스에서 기능영역, 화면으로 내려가는 한 방향만 남긴다 |
 | `INVALID_PARENT_KIND` | 위 포함 규칙에 맞게 parent를 고친다. 화면이 화면을 담거나 엔드포인트에 parent를 달면 여기 걸린다 |
+| `SERVES_SERVICE_WITH_APPS` | `micro_app`이 달린 서비스를 `serves`로 가리켰다. 그 사슬이 서빙하는 호스트나 리모트 앱으로 `to`를 옮긴다 |
+| `INVALID_LOADS_ENDS` | `loads`의 양 끝은 `micro_app`이어야 한다. 서비스끼리 이었으면 앱 노드를 두고 다시 잇는다 |
 | `LIVE_COMMAND_NOT_READ_ONLY` | live 근거의 명령을 `list`, `get`, `describe` 하위 명령 하나로 바꾼다. 그런 명령으로 확인할 수 없으면 근거에서 뺀다 |
 | `ACCOUNT_NOT_FOUND` | `account`가 가리키는 `cloud_account` 노드를 `nodes`에 넣거나 `account`를 뺀다 |
 | `INVALID_ACCOUNT_KIND` | `account`는 `cloud_account` 노드만 가리킨다 |
@@ -435,6 +453,7 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
    - `sharedNodes`: 두 분석에 다 있던 노드. 같이 쓰는 `gateway`와 서버가 여기 나온다. 기대한 노드가 빠졌으면 두 IR의 label 꼴이 다른 것이다. 합친 IR을 고치지 말고 원래 분석의 label을 Step 3 꼴로 맞춰 다시 render한 뒤 다시 합친다.
    - `crossRepoEdges`: 레포를 넘는 매칭으로 새로 그은 `handles` 엣지
    - `conflictQuestions`: 같은 노드인데 표시 이름이나 parent가 갈려서 만든 질문. merge는 한쪽을 고르지 않는다. 값을 비우고 묻는다. `user` 근거가 있는 쪽 값은 그대로 둔다.
+   - `micro_app`은 레포가 달라도 label이 같으면 한 노드로 모인다. 호스트 레포의 분석과 리모트 레포의 분석을 합치면 리모트 앱이 하나로 합쳐지고 리모트 쪽 기능영역과 사슬이 그 앱 아래 붙는다. 두 제품이 같은 리모트를 각자 자기 서비스에 달았으면 parent를 비운다. 이 경우는 질문을 만들지 않는다. 공유 리모트는 어느 한 서비스 것이 아니라서다.
    - `islands`: 1보다 크면 서로 안 이어진 분석이 있다. 겹치는 게 정말 없는지, label이나 remote가 어긋난 건지 확인한다.
 5. **validate와 render를 그대로 탄다.** 합친 IR에는 제품마다 그룹(`groups`)이 붙는다. 제품이 둘이면 render가 첫째 제품 전용, 같이 쓰는 영역, 둘째 제품 전용 순으로 가로 띠를 나눠 그리고 가운데 띠에 같이 쓰는 `gateway`와 서버, 저장소가 모인다. `irPath`로 합친 파일을 넘긴다. **`repoRoot`는 원래 분석 레포가 아닌 따로 둔 디렉토리로 준다.** render는 `repoRoot`의 같은 뷰 IR과 병합하므로 원래 레포를 주면 그 레포의 단독 분석이 합친 결과로 덮인다. 입력의 `root`가 상대 경로였으면 `checkFiles: false`로 그린다.
 6. **충돌 질문은 Step 7처럼 사용자에게 묻는다.** 답은 원래 분석 쪽에 `user` 근거로 남기고 다시 합친다. 합친 IR에만 고쳐 두면 다음에 합칠 때 같은 질문이 또 생긴다.
@@ -450,6 +469,7 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | kind | 뷰 | 뜻 |
 |---|---|---|
 | `service` | screen-chain | 사용자가 쓰는 FE 앱이나 제품 |
+| `micro_app` | screen-chain | 서비스를 이루는 마이크로 프론트엔드 앱 하나. label은 federation 설정의 `name`, `parent`는 서비스 |
 | `feature` | screen-chain | 서비스 안의 기능영역. 페이지보다 한 단계 위인 제품 단위 (예: 등록모드, 대시보드, 설정) |
 | `screen` | screen-chain | 사용자가 보는 화면이나 페이지 |
 | `gateway` | screen-chain | 요청을 받아 다른 서버로 넘기는 서버 |
@@ -484,7 +504,8 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `deploys_to` | artifact → deploy_target, bucket | 배포 명령이나 매니페스트 줄 |
 | `resolves_to` | domain → cdn | 인프라 코드의 도메인 줄이나 CDN 별칭 조회 |
 | `origin` | cdn → bucket | 인프라 코드의 원본 정의 줄이나 CDN 원본 조회 |
-| `serves` | bucket → service | 그 서비스 번들을 버킷에 올리는 줄 |
+| `serves` | bucket, deploy_target → service, micro_app | 그 번들을 버킷에 올리는 줄이나 서버로 띄우는 배포 매니페스트 줄. 앱이 달린 서비스면 앱을 가리킨다 |
+| `loads` | micro_app → micro_app | 호스트 federation 설정의 `remotes` 항목 줄이나 single-spa `registerApplication` 줄 |
 
 ### 3. 근거 종류와 선 모양
 
