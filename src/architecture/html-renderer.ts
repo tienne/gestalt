@@ -3,7 +3,16 @@ import type { RoutedEdge } from './canvas-geometry.js';
 import { ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
 import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import { iconUse, renderCss, renderIconSprite } from './html-theme.js';
-import { LANE_TITLES, NODE_KIND_SHORT, PLATFORM_CHIP_TEXT, PLATFORM_NAME } from './kind-text.js';
+import {
+  LANE_TITLES,
+  NODE_KIND_SHORT,
+  PLATFORM_CHIP_TEXT,
+  PLATFORM_NAME,
+  WEB_HOSTING_CHIP_TEXT,
+  WEB_HOSTING_NAME,
+  platformChipText,
+  platformName,
+} from './kind-text.js';
 import { FLAT_BACKWARD_EDGE_KINDS, type LayoutResult } from './layout.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
@@ -200,8 +209,8 @@ function platformChips(facts: ServiceFacts | undefined): string {
   return facts.platforms
     .map(
       (p) =>
-        `<span class="pf pf-${p}" role="img" aria-label="${PLATFORM_NAME[p]}" title="${PLATFORM_NAME[p]}">` +
-        `${iconUse(`p-${p}`)}${PLATFORM_CHIP_TEXT[p]}</span>`,
+        `<span class="pf pf-${p}" role="img" aria-label="${platformName(p, facts.webHosting)}" title="${platformName(p, facts.webHosting)}">` +
+        `${iconUse(`p-${p}`)}${platformChipText(p, facts.webHosting)}</span>`,
     )
     .join('');
 }
@@ -216,7 +225,7 @@ function renderCard(
 ): string {
   const name = nodeName(node);
   const guess = isGuess(node);
-  const platforms = facts?.platforms.map((p) => PLATFORM_NAME[p]) ?? [];
+  const platforms = facts?.platforms.map((p) => platformName(p, facts.webHosting)) ?? [];
   const cls = ['node', `k-${node.kind}`];
   if (enterable) cls.push('enterable');
   if (focus) cls.push('is-focus');
@@ -542,6 +551,8 @@ const CLIENT_SCRIPT = renderClientScript({
   inferredBadge: INFERRED_BADGE,
   platformChip: PLATFORM_CHIP_TEXT,
   platformName: PLATFORM_NAME,
+  webHostingChip: WEB_HOSTING_CHIP_TEXT,
+  webHostingName: WEB_HOSTING_NAME,
   backwardKinds: [...FLAT_BACKWARD_EDGE_KINDS].sort(compareStr),
 });
 

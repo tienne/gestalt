@@ -65,6 +65,8 @@ export type Visibility = (typeof VISIBILITIES)[number];
 export type LineStyle = (typeof LINE_STYLES)[number];
 export type ContextSourceVia = (typeof CONTEXT_SOURCE_VIAS)[number];
 export type Platform = (typeof PLATFORMS)[number];
+/** 웹 서빙 방식. 버킷이 서빙하면 정적, 배포 대상(서버)이 서빙하면 SSR이다 */
+export type WebHosting = 'static' | 'ssr';
 
 export interface Evidence {
   type: EvidenceType;

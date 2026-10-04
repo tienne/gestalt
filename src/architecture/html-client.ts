@@ -9,6 +9,8 @@ export interface ClientConstants {
   inferredBadge: string;
   platformChip: Record<string, string>;
   platformName: Record<string, string>;
+  webHostingChip: Record<string, string>;
+  webHostingName: Record<string, string>;
   /** 평면 그림에서 오른쪽에서 왼쪽으로 그리는 엣지 kind */
   backwardKinds: string[];
 }
@@ -42,6 +44,15 @@ export function renderClientScript(c: ClientConstants): string {
   var GUESS = ${JSON.stringify(c.inferredBadge)};
   var PLATFORM_CHIP = ${JSON.stringify(c.platformChip)};
   var PLATFORM_NAME = ${JSON.stringify(c.platformName)};
+  var WEB_HOSTING_CHIP = ${JSON.stringify(c.webHostingChip)};
+  var WEB_HOSTING_NAME = ${JSON.stringify(c.webHostingName)};
+  // 서버의 platformChipText, platformName과 같은 규칙이다
+  function chipText(p, f) {
+    return p === 'web' && f && f.webHosting ? WEB_HOSTING_CHIP[f.webHosting] : PLATFORM_CHIP[p];
+  }
+  function platName(p, f) {
+    return p === 'web' && f && f.webHosting ? WEB_HOSTING_NAME[f.webHosting] : PLATFORM_NAME[p] || p;
+  }
   var BACKWARD = ${JSON.stringify(Object.fromEntries(c.backwardKinds.map((k) => [k, true])))};
   var services = data.services || {};
   var THEME_KEY = '${THEME_STORAGE_KEY}';
@@ -184,10 +195,13 @@ ${FOCUS_SOURCE}
     var pl = el('ul', 'evidence plat');
     f.platforms.forEach(function (p) {
       var li = el('li');
-      li.appendChild(el('span', 'badge', PLATFORM_NAME[p] || p));
+      li.appendChild(el('span', 'badge', platName(p, f)));
       var evs = (n.platformEvidence && n.platformEvidence[p]) || [];
       if (p === 'web' && f.servingBuckets.length) {
         li.appendChild(el('span', 'loc', '서빙 버킷: ' + f.servingBuckets.map(label).join(', ')));
+      }
+      if (p === 'web' && f.servingTargets && f.servingTargets.length) {
+        li.appendChild(el('span', 'loc', '서빙 서버: ' + f.servingTargets.map(label).join(', ')));
       }
       if (evs.length) {
         var inner = el('ul', 'evidence');
@@ -683,10 +697,10 @@ ${FOCUS_SOURCE}
     f.platforms.forEach(function (p) {
       var chip = el('span', 'pf pf-' + p);
       chip.setAttribute('role', 'img');
-      chip.setAttribute('aria-label', PLATFORM_NAME[p]);
-      chip.title = PLATFORM_NAME[p];
+      chip.setAttribute('aria-label', platName(p, f));
+      chip.title = platName(p, f);
       chip.appendChild(icon('p-' + p));
-      chip.appendChild(doc.createTextNode(PLATFORM_CHIP[p]));
+      chip.appendChild(doc.createTextNode(chipText(p, f)));
       parent.appendChild(chip);
     });
   }

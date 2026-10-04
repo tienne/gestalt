@@ -504,17 +504,28 @@ function serviceLevel(g: Graph, service: ArchitectureNode): LevelDraft {
   };
 }
 
-// 서비스 레벨 왼쪽 인프라 레인. 요청이 들어오는 순서(도메인 → CDN → 버킷)대로 놓고 나머지는 그 뒤로 민다
-const SERVICE_INFRA_RANK: Partial<Record<NodeKind, number>> = { domain: 0, cdn: 1, bucket: 2 };
+// 서비스 레벨 왼쪽 인프라 레인. 요청이 들어오는 순서(도메인 → CDN → 버킷이나 SSR 서버)대로 놓고 나머지는 그 뒤로 민다
+const SERVICE_INFRA_RANK: Partial<Record<NodeKind, number>> = {
+  domain: 0,
+  cdn: 1,
+  bucket: 2,
+  deploy_target: 2,
+};
 const INFRA_RANK_SHIFT = 3;
 
-/** 서비스를 서빙하는 버킷에서 CDN, 도메인까지 거슬러 올라간 엣지 */
+/** 서비스를 서빙하는 버킷이나 SSR 서버에서 CDN, 도메인까지 거슬러 올라간 엣지 */
 function infraChainOf(g: Graph, serviceId: string): ArchitectureEdge[] {
   const into = (kind: EdgeKind, to: string, fromKind: NodeKind): ArchitectureEdge[] =>
     g.edges.filter((e) => e.kind === kind && e.to === to && kindOf(g, e.from) === fromKind);
-  const serves = into('serves', serviceId, 'bucket');
+  const serves = [
+    ...into('serves', serviceId, 'bucket'),
+    ...into('serves', serviceId, 'deploy_target'),
+  ];
   const origins = serves.flatMap((s) => into('origin', s.from, 'cdn'));
-  const resolves = origins.flatMap((o) => into('resolves_to', o.from, 'domain'));
+  const resolves = [
+    ...origins,
+    ...serves.filter((s) => kindOf(g, s.from) === 'deploy_target'),
+  ].flatMap((o) => into('resolves_to', o.from, 'domain'));
   return [...serves, ...origins, ...resolves];
 }
 
@@ -689,6 +700,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         kind: node.kind,
         ...(node.environment !== undefined ? { order: environmentRank(node.environment) } : {}),
         ...(f !== undefined && f.platforms.length > 0 ? { platforms: f.platforms } : {}),
+        ...(f?.webHosting !== undefined ? { webHosting: f.webHosting } : {}),
         ...(f?.prodDomain !== undefined ? { secondLine: f.prodDomain } : {}),
       };
     });

@@ -1,5 +1,5 @@
 import type { LaneId } from './layout.js';
-import type { NodeKind, Platform } from './types.js';
+import type { NodeKind, Platform, WebHosting } from './types.js';
 
 /**
  * 카드 칩에 쓰는 짧은 종류 이름. 색을 못 가리는 사람도 종류를 읽을 수 있게 색 띠와 함께 싣는다.
@@ -52,6 +52,28 @@ export const PLATFORM_CHIP_TEXT: Record<Platform, string> = {
   android: 'AOS',
   ios: 'iOS',
 };
+
+/** 웹 칩 글자. 서빙 방식을 알면 웹 대신 이 글자를 쓴다 */
+export const WEB_HOSTING_CHIP_TEXT: Record<WebHosting, string> = {
+  static: '웹(정적)',
+  ssr: '웹(SSR)',
+};
+
+/** 서빙 방식을 아는 웹 칩의 aria-label과 툴팁, 상세 패널 이름 */
+export const WEB_HOSTING_NAME: Record<WebHosting, string> = {
+  static: '정적 웹 (버킷과 CDN)',
+  ssr: 'SSR 웹 (서버 렌더)',
+};
+
+export function platformChipText(p: Platform, hosting?: WebHosting): string {
+  return p === 'web' && hosting !== undefined
+    ? WEB_HOSTING_CHIP_TEXT[hosting]
+    : PLATFORM_CHIP_TEXT[p];
+}
+
+export function platformName(p: Platform, hosting?: WebHosting): string {
+  return p === 'web' && hosting !== undefined ? WEB_HOSTING_NAME[hosting] : PLATFORM_NAME[p];
+}
 
 /** 칩의 aria-label과 툴팁, 상세 패널에 쓰는 이름 */
 export const PLATFORM_NAME: Record<Platform, string> = {

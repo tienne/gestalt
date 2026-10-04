@@ -287,7 +287,7 @@ const PLATFORM_QUESTION: Record<Platform, string> = {
   ios: 'iOS 앱',
 };
 
-function isServedByBucket(
+function isServedByWebHost(
   serviceId: string,
   edges: ArchitectureEdge[],
   nodeById: Map<string, ArchitectureNode>,
@@ -298,7 +298,7 @@ function isServedByBucket(
       e.kind === 'serves' &&
       e.to === serviceId &&
       drawableEdgeIds.has(e.id) &&
-      nodeById.get(e.from)?.kind === 'bucket',
+      (nodeById.get(e.from)?.kind === 'bucket' || nodeById.get(e.from)?.kind === 'deploy_target'),
   );
 }
 
@@ -412,7 +412,7 @@ export function validateArchitectureIr(
     if (node.kind !== 'service' || !drawableNodeIds.has(node.id)) continue;
     for (const platform of node.platforms ?? []) {
       if ((node.platformEvidence?.[platform] ?? []).length > 0) continue;
-      if (platform === 'web' && isServedByBucket(node.id, edges, nodeById, drawableEdgeIds))
+      if (platform === 'web' && isServedByWebHost(node.id, edges, nodeById, drawableEdgeIds))
         continue;
       // 한 서비스에 플랫폼 질문이 여럿 설 수 있어 대상이 아니라 id로 겹침을 본다
       const id = `auto:platform:${node.id}:${platform}`;

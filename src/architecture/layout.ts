@@ -1,8 +1,8 @@
 // 워커 없는 번들판을 쓴다. 기본 진입점은 web-worker 패키지를 찾다가 MCP stdio 서버에서 경고를 찍을 수 있다
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode, LayoutOptions } from 'elkjs/lib/elk.bundled.js';
-import { NODE_KIND_SHORT, PLATFORM_CHIP_TEXT } from './kind-text.js';
-import type { ArchitectureIr, EdgeKind, NodeKind, Platform } from './types.js';
+import { NODE_KIND_SHORT, platformChipText } from './kind-text.js';
+import type { ArchitectureIr, EdgeKind, NodeKind, Platform, WebHosting } from './types.js';
 import { ENVIRONMENT_ORDER } from './types.js';
 
 export interface LayoutNode {
@@ -194,8 +194,10 @@ export interface GraphLayoutNode {
   kind?: NodeKind;
   /** 같은 레이어 안에서 위에서부터 설 순서. 준 노드끼리만 지켜진다 */
   order?: number;
-  /** 첫 줄 이름 뒤 플랫폼 칩 */
+  /** 둘째 줄 끝 플랫폼 칩 */
   platforms?: readonly Platform[];
+  /** 웹 칩 글자를 정하는 서빙 방식 */
+  webHosting?: WebHosting;
   /** 둘째 줄 글자. 없으면 displayName이 있을 때 label이 둘째 줄이다 */
   secondLine?: string;
 }
@@ -225,10 +227,15 @@ const PLATFORM_CHIP_FIXED_WIDTH = 4 + 2 + 8 + 11 + 3;
 const PLATFORM_CHIP_CHAR_WIDTH = 6;
 
 /** 플랫폼 칩들이 둘째 줄에서 차지하는 폭(px) */
-export function platformChipsWidth(platforms: readonly Platform[] | undefined): number {
+export function platformChipsWidth(
+  platforms: readonly Platform[] | undefined,
+  webHosting?: WebHosting,
+): number {
   let w = 0;
   for (const p of platforms ?? []) {
-    w += PLATFORM_CHIP_FIXED_WIDTH + textUnits(PLATFORM_CHIP_TEXT[p]) * PLATFORM_CHIP_CHAR_WIDTH;
+    w +=
+      PLATFORM_CHIP_FIXED_WIDTH +
+      textUnits(platformChipText(p, webHosting)) * PLATFORM_CHIP_CHAR_WIDTH;
   }
   return w;
 }
@@ -257,6 +264,7 @@ export function textUnits(text: string): number {
 
 export interface MeasureExtras {
   platforms?: readonly Platform[];
+  webHosting?: WebHosting;
   secondLine?: string;
 }
 
@@ -279,7 +287,7 @@ export function measureNode(
       (displayName !== undefined && displayNameInferred ? INFERRED_BADGE_UNITS : 0)) *
       NARROW_CHAR_WIDTH;
   const second = extras.secondLine ?? (displayName !== undefined ? label : undefined);
-  const chips = platformChipsWidth(extras.platforms);
+  const chips = platformChipsWidth(extras.platforms, extras.webHosting);
   const twoLines = second !== undefined || chips > 0;
   const inner = twoLines
     ? Math.max(first, textUnits(second ?? '') * NARROW_CHAR_WIDTH + chips)
@@ -355,6 +363,7 @@ export async function computeGraphLayout(
       id: n.id,
       ...measureNode(n.label, n.displayName, n.displayNameInferred, n.kind, {
         ...(n.platforms !== undefined ? { platforms: n.platforms } : {}),
+        ...(n.webHosting !== undefined ? { webHosting: n.webHosting } : {}),
         ...(n.secondLine !== undefined ? { secondLine: n.secondLine } : {}),
       }),
       // 레이어 안 카드를 왼쪽에 맞춰야 레인이 들쭉날쭉한 열이 아니라 한 줄로 읽힌다
