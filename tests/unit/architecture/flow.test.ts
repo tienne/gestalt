@@ -467,6 +467,25 @@ describe('흐름 레벨 렌더', () => {
     expect(html).toContain('class="fstage side"');
   });
 
+  it('상태 이름이 있으면 구간 머리와 단계 칩에 상태 값 대신 그 이름을 찍는다', async () => {
+    const flow = queueFlow();
+    flow.stateLabels = { WAITING: '대기', CALL: '호출' };
+    const { html } = await render(fixture(flow));
+    expect(html).toContain('<div class="fstage named"');
+    expect(html).toMatch(/class="fstage named"[^>]*title="대기"><span>대기<\/span>/);
+    expect(html).toContain('<span class="st named" title="WAITING">대기</span>');
+    expect(html).toMatch(/aria-label="[^"]*상태 호출/);
+    // 이름이 없는 상태는 상태 값 그대로다
+    expect(html).toContain('<span class="st" title="SITTING">SITTING</span>');
+  });
+
+  it('공유본은 상태 이름도 계정 ID를 가린다', async () => {
+    const flow = queueFlow();
+    flow.stateLabels = { WAITING: '대기 123456789012' };
+    const { html } = await render(fixture(flow), 'shared');
+    expect(html).not.toContain('123456789012');
+  });
+
   it('전체보기 서비스 카드에 흐름 배지를 달고 그 폭만큼 카드를 넓힌다', async () => {
     const { html, drill } = await render(fixture());
     const root = drill.levels.find((l) => l.id === 'root')!;

@@ -736,6 +736,13 @@ function maskFlowText(f: ArchitectureFlow): ArchitectureFlow {
     ...f,
     title: maskSharedText(f.title),
     ...opt(f.description),
+    ...(f.stateLabels !== undefined
+      ? {
+          stateLabels: Object.fromEntries(
+            Object.entries(f.stateLabels).map(([k, v]) => [k, maskSharedText(v)]),
+          ),
+        }
+      : {}),
     actors: f.actors.map((a) => ({ ...a, label: maskSharedText(a.label) })),
     steps: f.steps.map((st) => ({
       ...st,

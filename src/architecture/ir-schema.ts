@@ -182,6 +182,7 @@ const flowSchema = z.object({
   service: z.string().min(1),
   title: z.string().min(1),
   description: z.string().optional(),
+  stateLabels: z.record(z.string().min(1), z.string().min(1)).optional(),
   actors: z.array(flowActorSchema).min(1),
   steps: z.array(flowStepSchema).min(1),
   transitions: z.array(flowTransitionSchema),

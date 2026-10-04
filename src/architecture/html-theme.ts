@@ -390,6 +390,7 @@ button { font: inherit; color: inherit; }
 }
 .fstage span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .fstage.side { font-family: inherit; color: var(--muted); border-style: dashed; }
+.fstage.named { font-family: inherit; }
 .fstage-line { stroke: var(--lane-line); stroke-width: 1; stroke-dasharray: 4 4; }
 .fstage-line.side { stroke-width: 1.5; stroke-dasharray: none; }
 .flane-title {
@@ -408,6 +409,7 @@ button { font: inherit; color: inherit; }
   min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   font: 10.5px/16px var(--mono); padding: 0 5px; border-radius: 4px; color: var(--muted); background: var(--lane);
 }
+.flow-step .st.named { font-family: inherit; font-weight: 600; }
 .flow-step .refs, .flow-step .qb {
   flex: none; display: inline-flex; align-items: center; gap: 2px; font-size: 10.5px; font-weight: 650; color: var(--muted);
 }

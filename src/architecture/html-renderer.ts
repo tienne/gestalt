@@ -553,6 +553,10 @@ function renderFlowSection(
   const height = round2(layout.height + FLOW_PAD * 2);
   const stepById = new Map(flow.steps.map((st) => [st.id, st]));
   const actorById = new Map(flow.actors.map((a) => [a.id, a]));
+  const stateText = (state: string): string => flow.stateLabels?.[state] ?? state;
+  // 이름이 붙은 상태는 코드 값이 아니라서 고정폭 글꼴을 안 쓴다
+  const named = (state: string): string =>
+    flow.stateLabels?.[state] !== undefined ? ' named' : '';
   const lanes = layout.lanes
     .map(
       (l, i) =>
@@ -573,8 +577,8 @@ function renderFlowSection(
   const stageHeads = layout.stages
     .map(
       (st) =>
-        `<div class="fstage${st.side ? ' side' : ''}" style="left:${round2(st.x + FLOW_PAD + 8)}px;top:${FLOW_PAD}px;width:${round2(st.width - 16)}px" ` +
-        `title="${escapeHtml(st.label)}"><span>${escapeHtml(st.label)}</span></div>`,
+        `<div class="fstage${st.side ? ' side' : named(st.label)}" style="left:${round2(st.x + FLOW_PAD + 8)}px;top:${FLOW_PAD}px;width:${round2(st.width - 16)}px" ` +
+        `title="${escapeHtml(st.side ? st.label : stateText(st.label))}"><span>${escapeHtml(st.side ? st.label : stateText(st.label))}</span></div>`,
     )
     .join('');
   const heads = layout.lanes
@@ -615,7 +619,7 @@ function renderFlowSection(
       if (dashed) cls.push('doc-only');
       const aria =
         `${st.label}, ${FLOW_TEXT.step}, ${actor?.label ?? st.actor}` +
-        (st.state !== undefined ? `, 상태 ${st.state}` : '') +
+        (st.state !== undefined ? `, 상태 ${stateText(st.state)}` : '') +
         (dashed ? ', 문서로만 확인' : '');
       return (
         `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(st.id)}" role="button" tabindex="0" ` +
@@ -623,7 +627,9 @@ function renderFlowSection(
         `style="left:${round2(b.x + FLOW_PAD)}px;top:${round2(b.y + FLOW_PAD)}px;width:${b.width}px;height:${b.height}px">` +
         `<span class="nm"><span class="t">${escapeHtml(st.label)}</span></span>` +
         `<span class="l2">` +
-        (st.state !== undefined ? `<span class="st">${escapeHtml(st.state)}</span>` : '') +
+        (st.state !== undefined
+          ? `<span class="st${named(st.state)}" title="${escapeHtml(st.state)}">${escapeHtml(stateText(st.state))}</span>`
+          : '') +
         (refs.length > 0
           ? `<span class="refs" title="이어진 화면과 API">${iconUse('u-link')}${refs.length}</span>`
           : '') +
@@ -690,6 +696,7 @@ function flowPayload(
       service: f.service,
       title: f.title,
       ...(f.description !== undefined ? { description: f.description } : {}),
+      ...(f.stateLabels !== undefined ? { stateLabels: f.stateLabels } : {}),
       actors: f.actors,
       steps: f.steps
         .filter((st) => drawnSteps.has(st.id))

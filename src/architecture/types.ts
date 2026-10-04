@@ -203,6 +203,8 @@ export interface ArchitectureFlow {
   service: string;
   title: string;
   description?: string;
+  /** 상태 값 → 그림에 찍을 이름. 상태 값은 코드의 enum 그대로라 사용자 언어로 된 이름을 따로 받는다. 없는 값은 상태 값 그대로 찍는다 */
+  stateLabels?: Record<string, string>;
   actors: FlowActor[];
   steps: FlowStep[];
   transitions: FlowTransition[];

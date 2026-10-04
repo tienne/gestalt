@@ -303,7 +303,10 @@ ${FOCUS_SOURCE}
     var body = el('div', 'dr-body');
     var facts = el('ul', 'facts');
     if (n.actor) factRow(facts, '누가', n.actor.label);
-    if (st.state) factRow(facts, '상태', st.state);
+    if (st.state) {
+      var stateName = f.stateLabels && f.stateLabels[st.state];
+      factRow(facts, '상태', stateName ? stateName + ' (' + st.state + ')' : st.state);
+    }
     factRow(facts, '갈래', st.path === 'side' ? '옆 흐름' : '정상 흐름');
     body.appendChild(facts);
     if (st.description) body.appendChild(el('p', 'desc', st.description));
