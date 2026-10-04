@@ -228,12 +228,14 @@ function renderCard(
       ? node.label
       : `${node.displayName}${guess ? ` (${INFERRED_BADGE})` : ''}\n${node.label}`) +
     (facts?.prodDomain !== undefined ? `\n${facts.prodDomain}` : '');
-  const second =
+  const subText =
     facts?.prodDomain !== undefined
       ? `<span class="tc dom">${escapeHtml(facts.prodDomain)}</span>`
       : node.displayName !== undefined
         ? `<span class="tc">${escapeHtml(node.label)}</span>`
         : '';
+  const chips = platformChips(facts);
+  const second = chips === '' ? subText : `<span class="l2">${subText}${chips}</span>`;
   const x = round2(box.x + CANVAS_PAD_X);
   const y = round2(box.y + CANVAS_PAD_TOP);
   return (
@@ -241,7 +243,7 @@ function renderCard(
     `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
     `style="left:${x}px;top:${y}px;width:${box.width}px;height:${box.height}px">` +
     `<span class="kc">${iconUse(`i-${node.kind}`)}${escapeHtml(NODE_KIND_SHORT[node.kind])}</span>` +
-    `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}${platformChips(facts)}</span>` +
+    `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}</span>` +
     second +
     (enterable ? '<span class="go" aria-hidden="true">›</span>' : '') +
     `</div>`

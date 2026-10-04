@@ -675,9 +675,9 @@ ${FOCUS_SOURCE}
   }
   function cardHeight(id) {
     var f = services[id];
-    return (nodes[id] && nodes[id].displayName) || (f && f.prodDomain) ? 60 : 48;
+    return (nodes[id] && nodes[id].displayName) || (f && (f.prodDomain || f.platforms.length > 0)) ? 60 : 48;
   }
-  function platformChips(id, nm) {
+  function platformChips(id, parent) {
     var f = services[id];
     if (!f) return;
     f.platforms.forEach(function (p) {
@@ -687,7 +687,7 @@ ${FOCUS_SOURCE}
       chip.title = PLATFORM_NAME[p];
       chip.appendChild(icon('p-' + p));
       chip.appendChild(doc.createTextNode(PLATFORM_CHIP[p]));
-      nm.appendChild(chip);
+      parent.appendChild(chip);
     });
   }
   function buildCard(id, x, y, w, h) {
@@ -709,11 +709,17 @@ ${FOCUS_SOURCE}
     nm.appendChild(el('span', 't', label(id)));
     var guess = n && n.displayName && n.displayNameInferred;
     if (guess) nm.appendChild(el('span', 'guess', GUESS));
-    platformChips(id, nm);
     d.appendChild(nm);
     var facts = services[id];
-    if (facts && facts.prodDomain) d.appendChild(el('span', 'tc dom', facts.prodDomain));
-    else if (n && n.displayName) d.appendChild(el('span', 'tc', n.label));
+    var sub = null;
+    if (facts && facts.prodDomain) sub = el('span', 'tc dom', facts.prodDomain);
+    else if (n && n.displayName) sub = el('span', 'tc', n.label);
+    if (facts && facts.platforms.length > 0) {
+      var l2 = el('span', 'l2');
+      if (sub) l2.appendChild(sub);
+      platformChips(id, l2);
+      d.appendChild(l2);
+    } else if (sub) d.appendChild(sub);
     d.title = n && n.displayName ? n.displayName + (guess ? ' (' + GUESS + ')' : '') + '\\n' + n.label : label(id);
     d.setAttribute('aria-label', label(id) + ', ' + kindText(kind));
     if (enterMap[id]) {

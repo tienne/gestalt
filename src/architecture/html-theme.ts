@@ -313,6 +313,8 @@ button { font: inherit; color: inherit; }
 }
 .pf svg { width: 11px; height: 11px; flex: none; }
 .tc.dom { font-family: var(--font); color: var(--text); }
+.l2 { grid-row: 2; grid-column: 1 / -1; display: flex; align-items: center; min-width: 0; }
+.l2 .pf:first-child { margin-left: 0; }
 .link.x-account .edge { stroke: var(--x-account); stroke-opacity: 0.85; }
 .link.x-account .tip { fill: var(--x-account); fill-opacity: 0.85; }
 .link.e-contains .edge { stroke-opacity: 0.35; }

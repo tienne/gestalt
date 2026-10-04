@@ -224,7 +224,7 @@ const CHIP_CHAR_WIDTH = 6.5;
 const PLATFORM_CHIP_FIXED_WIDTH = 4 + 2 + 8 + 11 + 3;
 const PLATFORM_CHIP_CHAR_WIDTH = 6;
 
-/** 이름 뒤 플랫폼 칩들이 첫 줄에서 차지하는 폭(px) */
+/** 플랫폼 칩들이 둘째 줄에서 차지하는 폭(px) */
 export function platformChipsWidth(platforms: readonly Platform[] | undefined): number {
   let w = 0;
   for (const p of platforms ?? []) {
@@ -261,7 +261,8 @@ export interface MeasureExtras {
 }
 
 /**
- * 첫 줄은 종류 칩과 이름(과 플랫폼 칩), 둘째 줄은 secondLine이 있으면 그것, 없고 표시 이름이 있으면 기술 이름이다.
+ * 첫 줄은 종류 칩과 이름, 둘째 줄은 secondLine이 있으면 그것, 없고 표시 이름이 있으면 기술 이름이다.
+ * 플랫폼 칩은 둘째 줄 끝에 붙는다. 첫 줄에 두면 칩 몫만큼 이름이 먼저 잘린다.
  * 폭은 두 줄 중 긴 쪽을 따른다
  */
 export function measureNode(
@@ -271,20 +272,22 @@ export function measureNode(
   kind?: NodeKind,
   extras: MeasureExtras = {},
 ): { width: number; height: number } {
-  const chip = chipWidth(kind) + platformChipsWidth(extras.platforms);
   const name = displayName ?? label;
   const first =
-    chip +
+    chipWidth(kind) +
     (textUnits(name) +
       (displayName !== undefined && displayNameInferred ? INFERRED_BADGE_UNITS : 0)) *
       NARROW_CHAR_WIDTH;
   const second = extras.secondLine ?? (displayName !== undefined ? label : undefined);
-  const inner =
-    second === undefined ? first : Math.max(first, textUnits(second) * NARROW_CHAR_WIDTH);
+  const chips = platformChipsWidth(extras.platforms);
+  const twoLines = second !== undefined || chips > 0;
+  const inner = twoLines
+    ? Math.max(first, textUnits(second ?? '') * NARROW_CHAR_WIDTH + chips)
+    : first;
   const raw = Math.ceil(NODE_TEXT_LEFT + NODE_TEXT_RIGHT + inner);
   return {
     width: Math.min(MAX_NODE_WIDTH, Math.max(MIN_NODE_WIDTH, raw)),
-    height: second !== undefined ? NODE_HEIGHT_TWO_LINES : NODE_HEIGHT,
+    height: twoLines ? NODE_HEIGHT_TWO_LINES : NODE_HEIGHT,
   };
 }
 
