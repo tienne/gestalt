@@ -1,0 +1,465 @@
+import { describe, expect, it } from 'vitest';
+import {
+  computeDrilldown,
+  computeFlowLayout,
+  mergeArchitectureIrs,
+  mergeWithPrevious,
+  parseArchitectureIr,
+  renderDrilldownHtml,
+  validateArchitectureIr,
+  type ArchitectureFlow,
+  type ArchitectureIr,
+  type ArchitectureNode,
+  type Evidence,
+  type ValidatedIr,
+} from '../../../src/architecture/index.js';
+
+// 가짜 매장 줄서기 서비스. 손님이 줄을 서고 직원이 부르고 시스템이 알림을 보낸다.
+// 노쇼는 기획서에만 있어서 점선이다. 되돌리기는 앞 단계로 돌아가는 선이다.
+
+const code = (location: string): Evidence => ({ type: 'code', location, visibility: 'public' });
+const doc = (location: string): Evidence => ({ type: 'doc', location, visibility: 'public' });
+
+function node(id: string, kind: ArchitectureNode['kind'], parent?: string): ArchitectureNode {
+  return {
+    id,
+    kind,
+    label: id,
+    repo: 'web',
+    evidence: [code(`web:src/${id}.ts:1`)],
+    ...(parent ? { parent } : {}),
+  };
+}
+
+function queueFlow(): ArchitectureFlow {
+  return {
+    id: 'queue',
+    service: 'svc-shop',
+    title: '줄서기',
+    actors: [
+      { id: 'guest', label: '손님', kind: 'person' },
+      { id: 'staff', label: '직원', kind: 'person' },
+      { id: 'sys', label: '자동 발송', kind: 'system' },
+    ],
+    steps: [
+      {
+        id: 'st-register',
+        actor: 'guest',
+        label: '줄 등록',
+        state: 'WAITING',
+        refs: ['s-queue', 'ep-register'],
+        evidence: [code('web:src/register.ts:10')],
+      },
+      {
+        id: 'st-notify',
+        actor: 'sys',
+        label: '등록 알림',
+        evidence: [code('web:src/notify.ts:3')],
+      },
+      {
+        id: 'st-call',
+        actor: 'staff',
+        label: '호출',
+        state: 'CALL',
+        evidence: [code('web:src/call.ts:1')],
+      },
+      {
+        id: 'st-seat',
+        actor: 'staff',
+        label: '입장',
+        state: 'SITTING',
+        evidence: [code('web:src/seat.ts:1')],
+      },
+      {
+        id: 'st-cancel',
+        actor: 'guest',
+        label: '직접 취소',
+        evidence: [code('web:src/cancel.ts:1')],
+      },
+      {
+        id: 'st-noshow',
+        actor: 'sys',
+        label: '노쇼 처리',
+        evidence: [doc('https://docs.acme.test/queue#noshow')],
+      },
+      { id: 'st-undo', actor: 'staff', label: '되돌리기', evidence: [code('web:src/undo.ts:1')] },
+    ],
+    transitions: [
+      {
+        id: 't-1',
+        from: 'st-register',
+        to: 'st-notify',
+        path: 'main',
+        evidence: [code('web:src/register.ts:20')],
+        lineStyle: 'solid',
+      },
+      {
+        id: 't-2',
+        from: 'st-notify',
+        to: 'st-call',
+        path: 'main',
+        evidence: [code('web:src/call.ts:5')],
+        lineStyle: 'solid',
+      },
+      {
+        id: 't-3',
+        from: 'st-call',
+        to: 'st-seat',
+        path: 'main',
+        label: '착석',
+        evidence: [code('web:src/seat.ts:5')],
+        lineStyle: 'solid',
+      },
+      {
+        id: 't-4',
+        from: 'st-notify',
+        to: 'st-cancel',
+        path: 'side',
+        evidence: [code('web:src/cancel.ts:5')],
+        lineStyle: 'solid',
+      },
+      {
+        id: 't-5',
+        from: 'st-call',
+        to: 'st-noshow',
+        path: 'side',
+        label: 'N분 경과',
+        evidence: [doc('https://docs.acme.test/queue#noshow')],
+        lineStyle: 'dashed',
+      },
+      {
+        id: 't-6',
+        from: 'st-noshow',
+        to: 'st-undo',
+        path: 'side',
+        evidence: [code('web:src/undo.ts:5')],
+        lineStyle: 'solid',
+      },
+      {
+        id: 't-7',
+        from: 'st-undo',
+        to: 'st-notify',
+        path: 'side',
+        label: '30분 안',
+        evidence: [code('web:src/undo.ts:9')],
+        lineStyle: 'solid',
+      },
+    ],
+  };
+}
+
+function fixture(flow: ArchitectureFlow = queueFlow()): ArchitectureIr {
+  return {
+    schemaVersion: '1.0.0',
+    view: 'screen-chain',
+    repos: [
+      {
+        id: 'web',
+        name: 'acme-web',
+        root: '/srv/acme-web',
+        remote: 'git@github.com:acme/acme-web.git',
+      },
+    ],
+    nodes: [
+      node('svc-shop', 'service'),
+      node('f-queue', 'feature', 'svc-shop'),
+      node('s-queue', 'screen', 'f-queue'),
+      node('ep-register', 'endpoint'),
+      node('m-queue', 'app_module'),
+    ],
+    edges: [
+      {
+        id: 'e-1',
+        from: 's-queue',
+        to: 'ep-register',
+        kind: 'calls',
+        evidence: [code('web:src/api.ts:1')],
+        lineStyle: 'solid',
+      },
+      {
+        id: 'e-2',
+        from: 'ep-register',
+        to: 'm-queue',
+        kind: 'handles',
+        evidence: [code('web:src/api.ts:2')],
+        lineStyle: 'solid',
+      },
+    ],
+    unresolved: [],
+    sourcesUsed: [],
+    generatedAt: '2026-10-01T00:00:00.000Z',
+    flows: [flow],
+  };
+}
+
+function validated(ir: ArchitectureIr): ValidatedIr {
+  const r = validateArchitectureIr(ir, { checkFiles: false });
+  if (!r.ok) throw new Error(JSON.stringify(r.errors));
+  return r.value;
+}
+
+function errorsOf(ir: ArchitectureIr): string[] {
+  const r = validateArchitectureIr(ir, { checkFiles: false });
+  return r.ok ? [] : r.errors.map((e) => e.code);
+}
+
+describe('흐름 스키마', () => {
+  it('flows가 있는 IR을 읽는다', () => {
+    const parsed = parseArchitectureIr(fixture());
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('path는 main이나 side만 받는다', () => {
+    const bad = fixture();
+    (bad.flows![0]!.transitions[0] as { path: string }).path = 'detour';
+    expect(parseArchitectureIr(bad).ok).toBe(false);
+  });
+
+  it('행위자 없는 흐름은 거부한다', () => {
+    const bad = fixture({ ...queueFlow(), actors: [] });
+    expect(parseArchitectureIr(bad).ok).toBe(false);
+  });
+});
+
+describe('흐름 검증', () => {
+  it('정상 픽스처는 단계와 전이를 전부 그린다', () => {
+    const v = validated(fixture());
+    expect(v.drawableStepIds.size).toBe(7);
+    expect(v.drawableTransitionIds.size).toBe(7);
+  });
+
+  it('service가 service 노드가 아니면 거부한다', () => {
+    expect(errorsOf(fixture({ ...queueFlow(), service: 'f-queue' }))).toContain(
+      'FLOW_SERVICE_NOT_FOUND',
+    );
+    expect(errorsOf(fixture({ ...queueFlow(), service: 'nope' }))).toContain(
+      'FLOW_SERVICE_NOT_FOUND',
+    );
+  });
+
+  it('없는 행위자와 없는 단계를 가리키면 거부한다', () => {
+    const f = queueFlow();
+    f.steps[0] = { ...f.steps[0]!, actor: 'robot' };
+    f.transitions[0] = { ...f.transitions[0]!, to: 'st-ghost' };
+    const codes = errorsOf(fixture(f));
+    expect(codes).toContain('FLOW_ACTOR_NOT_FOUND');
+    expect(codes).toContain('FLOW_STEP_NOT_FOUND');
+  });
+
+  it('refs는 있는 화면이나 API, 기능, 앱만 가리킨다', () => {
+    const missing = queueFlow();
+    missing.steps[0] = { ...missing.steps[0]!, refs: ['s-ghost'] };
+    expect(errorsOf(fixture(missing))).toContain('FLOW_REF_NOT_FOUND');
+    const wrongKind = queueFlow();
+    wrongKind.steps[0] = { ...wrongKind.steps[0]!, refs: ['m-queue'] };
+    expect(errorsOf(fixture(wrongKind))).toContain('INVALID_FLOW_REF_KIND');
+  });
+
+  it('기획서만 있는 전이를 실선으로 적으면 거부한다', () => {
+    const f = queueFlow();
+    f.transitions[4] = { ...f.transitions[4]!, lineStyle: 'solid' };
+    expect(errorsOf(fixture(f))).toContain('SOLID_TRANSITION_WITHOUT_EVIDENCE');
+  });
+
+  it('흐름 사이에서 단계 id가 겹치면 거부한다', () => {
+    const ir = fixture();
+    ir.flows!.push({ ...queueFlow(), id: 'queue-2' });
+    expect(errorsOf(ir)).toContain('DUPLICATE_FLOW_ID');
+  });
+
+  it('근거 없는 단계와 전이는 빼고 질문으로 돌린다', () => {
+    const f = queueFlow();
+    f.steps[6] = { ...f.steps[6]!, evidence: [] };
+    f.transitions[1] = { ...f.transitions[1]!, evidence: [], lineStyle: 'dashed' };
+    const v = validated(fixture(f));
+    expect(v.drawableStepIds.has('st-undo')).toBe(false);
+    // 끝 단계가 빠진 전이도 같이 빠진다
+    expect(v.drawableTransitionIds.has('t-6')).toBe(false);
+    expect(v.drawableTransitionIds.has('t-2')).toBe(false);
+    const ids = v.autoUnresolved.map((q) => q.id);
+    expect(ids).toContain('auto:step:st-undo');
+    expect(ids).toContain('auto:transition:t-2');
+  });
+
+  it('선 모양은 근거로 다시 정한다', () => {
+    const f = queueFlow();
+    // 코드 근거가 있는데 점선으로 적은 전이는 실선으로 바로잡는다
+    f.transitions[0] = { ...f.transitions[0]!, lineStyle: 'dashed' };
+    const v = validated(fixture(f));
+    const t = v.ir.flows![0]!.transitions;
+    expect(t.find((x) => x.id === 't-1')!.lineStyle).toBe('solid');
+    expect(t.find((x) => x.id === 't-5')!.lineStyle).toBe('dashed');
+  });
+});
+
+describe('흐름 배치', () => {
+  const layoutOf = (ir: ArchitectureIr) => {
+    const v = validated(ir);
+    return computeFlowLayout(v.ir.flows![0]!, v.drawableStepIds, v.drawableTransitionIds);
+  };
+
+  it('정상 흐름은 왼쪽에서 오른쪽으로 한 열씩 나아간다', () => {
+    const layout = layoutOf(fixture());
+    const col = (id: string) => layout.steps.find((s) => s.id === id)!.column;
+    expect([col('st-register'), col('st-notify'), col('st-call'), col('st-seat')]).toEqual([
+      0, 1, 2, 3,
+    ]);
+  });
+
+  it('단계는 자기 행위자 줄 안에 선다', () => {
+    const layout = layoutOf(fixture());
+    const lane = (actor: string) => layout.lanes.find((l) => l.actor.id === actor)!;
+    for (const [step, actor] of [
+      ['st-register', 'guest'],
+      ['st-notify', 'sys'],
+      ['st-call', 'staff'],
+    ] as const) {
+      const box = layout.steps.find((s) => s.id === step)!;
+      const l = lane(actor);
+      expect(box.y).toBeGreaterThanOrEqual(l.y);
+      expect(box.y + box.height).toBeLessThanOrEqual(l.y + l.height);
+    }
+  });
+
+  it('옆 흐름 단계는 side로 표시하고 정상 흐름 줄 아래로 내린다', () => {
+    const layout = layoutOf(fixture());
+    const cancel = layout.steps.find((s) => s.id === 'st-cancel')!;
+    expect(cancel.path).toBe('side');
+    expect(cancel.row).toBeGreaterThanOrEqual(1);
+    expect(layout.steps.find((s) => s.id === 'st-register')!.path).toBe('main');
+  });
+
+  it('앞 단계로 돌아가는 전이는 back으로 표시한다', () => {
+    const layout = layoutOf(fixture());
+    expect(layout.transitions.find((t) => t.id === 't-7')!.back).toBe(true);
+    expect(layout.transitions.find((t) => t.id === 't-1')!.back).toBe(false);
+    expect(layout.height).toBeGreaterThan(layout.lanes.reduce((n, l) => n + l.height, 0));
+  });
+
+  it('같은 입력이면 같은 좌표가 나온다', () => {
+    expect(JSON.stringify(layoutOf(fixture()))).toBe(JSON.stringify(layoutOf(fixture())));
+  });
+});
+
+describe('흐름 레벨 렌더', () => {
+  async function render(ir: ArchitectureIr, audience: 'private' | 'shared' = 'private') {
+    const v = validated(ir);
+    const drill = await computeDrilldown(v);
+    return { drill, html: renderDrilldownHtml(v, drill, { audience }) };
+  }
+
+  it('서비스 아래에 흐름 레벨을 만든다', async () => {
+    const { drill } = await render(fixture());
+    expect(drill.flows.map((l) => l.id)).toEqual(['flow:queue']);
+    expect(drill.flows[0]!.trail).toEqual(['root', 'service:svc-shop', 'flow:queue']);
+  });
+
+  it('흐름 섹션과 전이, 흐름 단추를 그린다', async () => {
+    const { html } = await render(fixture());
+    expect(html).toContain('data-level-id="flow:queue"');
+    expect(html).toContain('data-transition-id="t-5"');
+    expect(html).toContain('id="flow-btn"');
+    expect(html).toContain('class="node flow-step p-side doc-only" data-node-id="st-noshow"');
+    expect(html).toMatch(/data-transition-id="t-5"[^>]*>.*?stroke-dasharray/);
+  });
+
+  it('흐름이 없으면 흐름 단추를 안 단다', async () => {
+    const ir = fixture();
+    delete ir.flows;
+    const { html, drill } = await render(ir);
+    expect(drill.flows).toEqual([]);
+    expect(html).not.toContain('id="flow-btn"');
+    expect(html).not.toContain('id="flow-pop"');
+  });
+
+  it('단계 질문은 그 단계 카드로 데려간다', async () => {
+    const ir = fixture();
+    ir.unresolved.push({
+      id: 'q-1',
+      subject: { stepId: 'st-noshow' },
+      question: '노쇼 기준이 몇 분인가요?',
+    });
+    ir.unresolved.push({
+      id: 'q-2',
+      subject: { transitionId: 't-7' },
+      question: '되돌리기 제한이 30분인가요?',
+    });
+    const { html } = await render(ir);
+    expect(html).toMatch(/class="q" data-node-id="st-noshow"/);
+    expect(html).toMatch(/class="q" data-node-id="st-undo"/);
+    expect(html).toMatch(/data-node-id="st-noshow"[^>]*>.*?class="qb"/);
+  });
+
+  it('같은 입력이면 같은 바이트가 나온다', async () => {
+    const a = await render(fixture());
+    const b = await render(fixture());
+    expect(a.html).toBe(b.html);
+  });
+
+  it('공유본은 단계 글자의 계정 ID와 private 출처를 가린다', async () => {
+    const f = queueFlow();
+    f.steps[5] = {
+      ...f.steps[5]!,
+      label: '노쇼 123456789012',
+      evidence: [{ ...doc('https://wiki.acme.test/private/noshow'), visibility: 'private' }],
+    };
+    const priv = await render(fixture(f), 'private');
+    expect(priv.html).toContain('https://wiki.acme.test/private/noshow');
+    const { html } = await render(fixture(f), 'shared');
+    expect(html).not.toContain('123456789012');
+    expect(html).not.toContain('wiki.acme.test/private');
+  });
+
+  it('private 출처에 발췌를 실으면 거부한다', () => {
+    const f = queueFlow();
+    f.steps[0] = {
+      ...f.steps[0]!,
+      evidence: [{ ...code('web:src/register.ts:10'), visibility: 'private', excerpt: 'body' }],
+    };
+    expect(errorsOf(fixture(f))).toContain('PRIVATE_EXCERPT_PRESENT');
+  });
+});
+
+describe('흐름 병합', () => {
+  it('이전 실행과 합쳐도 흐름이 남는다', () => {
+    const prev = fixture();
+    const next = fixture();
+    const merged = mergeWithPrevious(prev, next);
+    expect(merged.flows?.map((f) => f.id)).toEqual(['queue']);
+    expect(validateArchitectureIr(merged, { checkFiles: false }).ok).toBe(true);
+  });
+
+  it('분석 둘을 합치면 흐름을 나란히 두고 겹치는 id를 바꾼다', () => {
+    const a = fixture();
+    const b = fixture();
+    b.repos = [
+      {
+        id: 'web2',
+        name: 'acme-admin',
+        root: '/srv/acme-admin',
+        remote: 'git@github.com:acme/acme-admin.git',
+      },
+    ];
+    b.nodes = b.nodes.map((n) => ({
+      ...n,
+      repo: 'web2',
+      evidence: n.evidence.map((e) => ({ ...e, location: e.location.replace(/^web:/, 'web2:') })),
+    }));
+    b.edges = b.edges.map((e) => ({
+      ...e,
+      evidence: e.evidence.map((ev) => ({
+        ...ev,
+        location: ev.location.replace(/^web:/, 'web2:'),
+      })),
+    }));
+    const result = mergeArchitectureIrs([a, b]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flows = result.ir.flows!;
+    expect(flows).toHaveLength(2);
+    expect(new Set(flows.map((f) => f.id)).size).toBe(2);
+    const stepIds = flows.flatMap((f) => f.steps.map((s) => s.id));
+    expect(new Set(stepIds).size).toBe(stepIds.length);
+    expect(validateArchitectureIr(result.ir, { checkFiles: false }).ok).toBe(true);
+  });
+});
