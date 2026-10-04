@@ -190,6 +190,7 @@ Step 0 start → Step 1 소스 찾아내기 → Step 2 글로벌 맥락 → Step
    - `db_table`의 `parent`는 자기 `datastore`다. 그래야 전체 그림에 서버 → 저장소 묶음 선이 생긴다. parent 없는 테이블은 전체 그림에 안 올라간다.
    - 테이블 단위로 내려가지 않는 캐시는 `app_module → datastore`로 `reads_writes`를 바로 긋는다.
    - `repo`는 클라우드 조회용 가짜 레포 id로 두고 label은 `<엔진>:<클러스터 식별자>` 꼴(`aurora-mysql:<식별자>`, `redis:<식별자>`)로 쓴다. 다른 분석과 합칠 때 같은 클러스터가 한 노드로 모이는 기준이 이 label이다.
+   - `engine`에 엔진 이름(`mysql`, `postgresql`, `redis`, `elasticsearch`, `mongodb`, `documentdb`, `dynamodb`, `mariadb`)을 단다. 카드에 그 엔진 로고가 선다. Aurora MySQL은 `mysql`, ElastiCache Redis는 `redis`다. 안 달면 label 앞부분으로 찾지만 label을 다르게 적으면 로고가 안 붙는다.
    - **id에는 클러스터 식별자와 계정 ID를 넣지 않는다.** `ds:redis-common`처럼 별칭으로 짓는다.
    - `environment`를 단다. 전체 그림은 prod 기준이라 `prod`가 아닌 저장소는 전체 그림에서 빠지고 아래 레벨에서만 보인다. 조회로 채울 때도 prod부터 채운다.
 
