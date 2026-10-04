@@ -496,6 +496,24 @@ function renderFlowSection(
         `<rect class="flane${i % 2 === 1 ? ' alt' : ''}" x="${FLOW_PAD}" y="${round2(l.y + FLOW_PAD)}" width="${layout.width}" height="${l.height}" rx="12"/>`,
     )
     .join('');
+  // 구간 경계는 행위자 줄 위에 세로 점선으로 긋는다. 첫 구간 왼쪽은 머리 칸과 맞닿아 따로 안 긋는다
+  const laneTop = layout.lanes[0]?.y ?? 0;
+  const laneBottom = layout.lanes.reduce((n, l) => Math.max(n, l.y + l.height), 0);
+  const dividers = layout.stages
+    .slice(1)
+    .map(
+      (st) =>
+        `<line class="fstage-line${st.side ? ' side' : ''}" x1="${round2(st.x + FLOW_PAD)}" x2="${round2(st.x + FLOW_PAD)}" ` +
+        `y1="${round2(laneTop + FLOW_PAD)}" y2="${round2(laneBottom + FLOW_PAD)}"/>`,
+    )
+    .join('');
+  const stageHeads = layout.stages
+    .map(
+      (st) =>
+        `<div class="fstage${st.side ? ' side' : ''}" style="left:${round2(st.x + FLOW_PAD + 8)}px;top:${FLOW_PAD}px;width:${round2(st.width - 16)}px" ` +
+        `title="${escapeHtml(st.label)}"><span>${escapeHtml(st.label)}</span></div>`,
+    )
+    .join('');
   const heads = layout.lanes
     .map(
       (l) =>
@@ -557,8 +575,8 @@ function renderFlowSection(
     `<section class="level flow-level" data-level-id="${escapeHtml(level.id)}" data-flow-id="${escapeHtml(level.flowId)}" ` +
     `aria-label="${escapeHtml(flow.title)}" data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px" hidden>` +
     `<svg class="links" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
-    `role="group" aria-label="${escapeHtml(`${flow.title} 전이`)}"><g class="lanes">${lanes}</g><g class="edges">${links}</g></svg>` +
-    `${heads}${cards}</section>`
+    `role="group" aria-label="${escapeHtml(`${flow.title} 전이`)}"><g class="lanes">${lanes}${dividers}</g><g class="edges">${links}</g></svg>` +
+    `${stageHeads}${heads}${cards}</section>`
   );
 }
 

@@ -404,6 +404,45 @@ describe('흐름 배치', () => {
   });
 });
 
+describe('흐름 구간', () => {
+  const layoutOf = (ir: ArchitectureIr) => {
+    const v = validated(ir);
+    return computeFlowLayout(v.ir.flows![0]!, v.drawableStepIds, v.drawableTransitionIds);
+  };
+
+  it('정상 흐름은 상태 값마다 구간을 나누고 옆 흐름은 맨 끝 구간에 모은다', () => {
+    const layout = layoutOf(fixture());
+    expect(layout.stages.map((s) => s.label)).toEqual(['WAITING', 'CALL', 'SITTING', '옆 흐름']);
+    expect(layout.stages.map((s) => s.side)).toEqual([false, false, false, true]);
+  });
+
+  it('상태가 없는 단계는 앞 단계의 구간에 붙는다', () => {
+    const layout = layoutOf(fixture());
+    const waiting = layout.stages[0]!;
+    const notify = layout.steps.find((s) => s.id === 'st-notify')!;
+    expect(notify.x).toBeGreaterThanOrEqual(waiting.x);
+    expect(notify.x + notify.width).toBeLessThanOrEqual(waiting.x + waiting.width);
+  });
+
+  it('옆 흐름 단계는 전부 옆 흐름 구간 안에 선다', () => {
+    const layout = layoutOf(fixture());
+    const side = layout.stages.find((s) => s.side)!;
+    for (const step of layout.steps.filter((s) => s.path === 'side')) {
+      expect(step.x).toBeGreaterThanOrEqual(side.x);
+    }
+    for (const step of layout.steps.filter((s) => s.path === 'main')) {
+      expect(step.x + step.width).toBeLessThanOrEqual(side.x);
+    }
+  });
+
+  it('정상 흐름에 상태 값이 없으면 구간을 안 만든다', () => {
+    const flow = queueFlow();
+    for (const step of flow.steps) delete step.state;
+    const layout = layoutOf(fixture(flow));
+    expect(layout.stages).toEqual([]);
+  });
+});
+
 describe('흐름 레벨 렌더', () => {
   async function render(ir: ArchitectureIr, audience: 'private' | 'shared' = 'private') {
     const v = validated(ir);
@@ -424,6 +463,8 @@ describe('흐름 레벨 렌더', () => {
     expect(html).toContain('id="flow-btn"');
     expect(html).toContain('class="node flow-step p-side doc-only" data-node-id="st-noshow"');
     expect(html).toMatch(/data-transition-id="t-5"[^>]*>.*?stroke-dasharray/);
+    expect(html).toContain('class="fstage"');
+    expect(html).toContain('class="fstage side"');
   });
 
   it('흐름이 없으면 흐름 단추를 안 단다', async () => {

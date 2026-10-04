@@ -336,6 +336,15 @@ button { font: inherit; color: inherit; }
 /* 도메인 흐름. 행위자 줄은 번갈아 옅게 칠해 줄 경계를 읽히게 하고, 옆 흐름은 정상 흐름과 색으로 가른다 */
 .flane { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
 .flane.alt { fill: color-mix(in srgb, var(--lane) 55%, var(--bg)); }
+.fstage {
+  position: absolute; height: 26px; display: flex; align-items: center; justify-content: center; padding: 0 10px;
+  border-radius: 999px; background: var(--lane); border: 1px solid var(--lane-line);
+  font: 600 12px/1 var(--mono); color: var(--text); pointer-events: none; box-sizing: border-box;
+}
+.fstage span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.fstage.side { font-family: inherit; color: var(--muted); border-style: dashed; }
+.fstage-line { stroke: var(--lane-line); stroke-width: 1; stroke-dasharray: 4 4; }
+.fstage-line.side { stroke-width: 1.5; stroke-dasharray: none; }
 .flane-title {
   position: absolute; display: flex; align-items: flex-start; gap: 6px; max-width: 112px;
   font-size: 13px; font-weight: 700; line-height: 18px; color: var(--text); pointer-events: none;

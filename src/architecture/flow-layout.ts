@@ -38,10 +38,20 @@ export interface FlowTransitionRoute {
   back: boolean;
 }
 
+/** 열 여러 개를 묶는 구간. 정상 흐름은 상태 값마다 하나, 옆 흐름은 맨 끝에 하나로 모인다 */
+export interface FlowStage {
+  label: string;
+  x: number;
+  width: number;
+  side: boolean;
+}
+
 export interface FlowLayout {
   width: number;
   height: number;
   lanes: FlowLane[];
+  /** 정상 흐름 단계에 상태 값이 하나도 없으면 빈 배열이다 */
+  stages: FlowStage[];
   steps: FlowStepBox[];
   transitions: FlowTransitionRoute[];
 }
@@ -68,6 +78,8 @@ const PAD_RIGHT = 32;
 const BACK_LANE_GAP = 10;
 const TIP_LENGTH = 8;
 const TIP_HALF = 4.5;
+export const FLOW_STAGE_HEAD = 34;
+export const FLOW_SIDE_STAGE_LABEL = '옆 흐름';
 
 function round2(v: number): number {
   return Math.round(v * 100) / 100;
@@ -82,7 +94,7 @@ function columnsOf(
   steps: readonly FlowStep[],
   edges: readonly { id: string; from: string; to: string; path: FlowPath }[],
   isMain: (id: string) => boolean,
-): { column: Map<string, number>; back: Set<string> } {
+): { column: Map<string, number>; back: Set<string>; topo: string[] } {
   const out = new Map<string, { id: string; to: string }[]>();
   const indeg = new Map<string, number>(steps.map((s) => [s.id, 0]));
   for (const e of edges) {
@@ -122,7 +134,89 @@ function columnsOf(
       column.set(e.to, Math.max(column.get(e.to)!, column.get(id)! + 1));
     }
   }
-  return { column, back };
+  return { column, back, topo };
+}
+
+/**
+ * 구간이 있을 때의 열. 정상 흐름 단계는 상태 값으로 구간을 정하고 상태가 없는 단계는 앞 단계 구간을 따른다. 알림 발송처럼 상태를 안 바꾸는 단계가 그렇다.
+ * 구간은 앞 구간의 마지막 열 다음에서 시작한다. 옆 흐름 단계는 정상 흐름이 끝난 뒤 한 구간에 모은다. 끝나는 상태를 한곳에서 보려는 것이다
+ */
+function stagedColumns(
+  steps: readonly FlowStep[],
+  edges: readonly { id: string; from: string; to: string; path: FlowPath }[],
+  isMain: (id: string) => boolean,
+  base: { column: Map<string, number>; back: Set<string>; topo: string[] },
+):
+  | {
+      column: Map<string, number>;
+      stages: { label: string; first: number; last: number; side: boolean }[];
+    }
+  | undefined {
+  const stepOf = new Map(steps.map((s) => [s.id, s]));
+  const preds = new Map<string, { from: string; main: boolean }[]>();
+  for (const e of edges) {
+    if (base.back.has(e.id)) continue;
+    preds.set(e.to, [...(preds.get(e.to) ?? []), { from: e.from, main: e.path === 'main' }]);
+  }
+  const mainTopo = base.topo.filter((id) => isMain(id));
+  if (!mainTopo.some((id) => stepOf.get(id)?.state !== undefined)) return undefined;
+
+  // 구간 순서는 그 상태를 처음 가진 단계의 열 순서다
+  const firstCol = new Map<string, number>();
+  for (const id of mainTopo) {
+    const state = stepOf.get(id)!.state;
+    if (state === undefined) continue;
+    const col = base.column.get(id)!;
+    if (!firstCol.has(state) || col < firstCol.get(state)!) firstCol.set(state, col);
+  }
+  const keys = [...firstCol.keys()].sort((a, b) => firstCol.get(a)! - firstCol.get(b)!);
+  const rank = new Map(keys.map((k, i) => [k, i]));
+  const stageOf = new Map<string, number>();
+  for (const id of mainTopo) {
+    const state = stepOf.get(id)!.state;
+    if (state !== undefined) {
+      stageOf.set(id, rank.get(state)!);
+      continue;
+    }
+    const inherited = (preds.get(id) ?? [])
+      .filter((p) => p.main && stageOf.has(p.from))
+      .map((p) => stageOf.get(p.from)!);
+    stageOf.set(id, inherited.length > 0 ? Math.max(...inherited) : 0);
+  }
+
+  const column = new Map<string, number>();
+  const stages: { label: string; first: number; last: number; side: boolean }[] = [];
+  let start = 0;
+  for (let k = 0; k < keys.length; k += 1) {
+    let last = start;
+    for (const id of mainTopo) {
+      if (stageOf.get(id) !== k) continue;
+      let col = start;
+      for (const p of preds.get(id) ?? []) {
+        if (!p.main || (stageOf.get(p.from) ?? 0) > k || !column.has(p.from)) continue;
+        col = Math.max(col, column.get(p.from)! + 1);
+      }
+      column.set(id, col);
+      last = Math.max(last, col);
+    }
+    stages.push({ label: keys[k]!, first: start, last, side: false });
+    start = last + 1;
+  }
+  const sideTopo = base.topo.filter((id) => !isMain(id));
+  if (sideTopo.length > 0) {
+    const depth = new Map<string, number>();
+    for (const id of sideTopo) {
+      let d = 0;
+      for (const p of preds.get(id) ?? []) {
+        if (!isMain(p.from) && depth.has(p.from)) d = Math.max(d, depth.get(p.from)! + 1);
+      }
+      depth.set(id, d);
+      column.set(id, start + d);
+    }
+    const last = start + Math.max(...depth.values());
+    stages.push({ label: FLOW_SIDE_STAGE_LABEL, first: start, last, side: true });
+  }
+  return { column, stages };
 }
 
 function tipAt(end: LayoutPoint, from: LayoutPoint): LayoutPoint[] {
@@ -264,7 +358,11 @@ export function computeFlowLayout(
   // 전이가 하나도 안 닿는 단계는 정상 흐름 줄에 둔다. 옆 흐름으로 그리면 어디서 빠졌는지 묻게 된다
   const touched = new Set(transitions.flatMap((t) => [t.from, t.to]));
   const pathOf = (id: string): FlowPath => (onMain.has(id) || !touched.has(id) ? 'main' : 'side');
-  const { column, back } = columnsOf(steps, transitions, (id) => pathOf(id) === 'main');
+  const base = columnsOf(steps, transitions, (id) => pathOf(id) === 'main');
+  const { back } = base;
+  const staged = stagedColumns(steps, transitions, (id) => pathOf(id) === 'main', base);
+  const column = staged?.column ?? base.column;
+  const top = staged !== undefined ? FLOW_STAGE_HEAD : 0;
 
   // 행위자 줄 안에서 칸이 겹치면 아래 줄로 내린다. 정상 흐름 단계를 먼저 놓아야 옆 흐름이 그 아래로 간다
   const taken = new Set<string>();
@@ -282,7 +380,7 @@ export function computeFlowLayout(
 
   const lanes: FlowLane[] = [];
   const laneY = new Map<string, number>();
-  let y = 0;
+  let y = top;
   for (const actor of flow.actors) {
     const rows = rowsOfActor.get(actor.id) ?? 1;
     const height = LANE_PAD_Y * 2 + rows * FLOW_STEP_HEIGHT + (rows - 1) * ROW_GAP;
@@ -370,10 +468,17 @@ export function computeFlowLayout(
   });
 
   const width = FLOW_HEAD_WIDTH + columns * (FLOW_STEP_WIDTH + COLUMN_GAP) + PAD_RIGHT;
+  const stages: FlowStage[] = (staged?.stages ?? []).map((st) => ({
+    label: st.label,
+    x: round2(FLOW_HEAD_WIDTH + st.first * (FLOW_STEP_WIDTH + COLUMN_GAP)),
+    width: round2((st.last - st.first + 1) * (FLOW_STEP_WIDTH + COLUMN_GAP)),
+    side: st.side,
+  }));
   return {
     width: round2(width),
     height: round2(height + (backCount > 0 ? BACK_LANE_GAP * (backCount + 1) : 0)),
     lanes,
+    stages,
     steps: boxes,
     transitions: routes,
   };
