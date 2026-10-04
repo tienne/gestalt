@@ -1,6 +1,8 @@
+import { DATA_PACK } from './data.js';
 import { GENERIC_PACK } from './generic.js';
 import { HARNESS_PACK } from './harness.js';
 import { INFRA_PACK } from './infra.js';
+import { PROCESS_PACK } from './process.js';
 import type {
   DrilldownStrategy,
   EdgeKindDef,
@@ -15,7 +17,14 @@ export * from './render-classes.js';
 export * from './types.js';
 
 /** 내장 팩. 이 순서로 표를 합친다. 새 팩은 뒤에 붙여야 기존 팩 표의 순서가 안 바뀐다 */
-export const BUILTIN_PACKS = [WEB_PRODUCT_PACK, HARNESS_PACK, GENERIC_PACK, INFRA_PACK] as const;
+export const BUILTIN_PACKS = [
+  WEB_PRODUCT_PACK,
+  HARNESS_PACK,
+  GENERIC_PACK,
+  INFRA_PACK,
+  DATA_PACK,
+  PROCESS_PACK,
+] as const;
 
 type BuiltinPack = (typeof BUILTIN_PACKS)[number];
 type KeysOf<P, F extends 'nodeKinds' | 'edgeKinds' | 'lanes' | 'displayKinds'> = P extends {
