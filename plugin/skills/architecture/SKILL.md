@@ -46,7 +46,7 @@ outputs:
 
 | 뷰 | 흐름 | 쓰는 노드 kind |
 |---|---|---|
-| `screen-chain` (뷰①) | 서비스와 기능영역 안의 화면 → `gateway` → 백엔드 엔드포인트 → 백엔드 앱 모듈 → 외부 서비스와 DB 테이블. 서비스를 서빙하는 도메인 → CDN → 버킷은 서비스 앞에 붙는다 | `service`, `feature`, `screen`, `gateway`, `endpoint`, `app_module`, `external_service`, `datastore`, `db_table`, `domain`, `cdn`, `bucket`, `cloud_account` |
+| `screen-chain` (뷰①) | 서비스와 기능영역 안의 화면 → `gateway` → 백엔드 엔드포인트 → 백엔드 앱 모듈 → 외부 서비스와 DB 테이블. 서비스를 서빙하는 도메인 → CDN → 버킷이나 SSR 서버는 서비스 앞에 붙는다 | `service`, `feature`, `screen`, `gateway`, `endpoint`, `app_module`, `external_service`, `datastore`, `db_table`, `domain`, `cdn`, `bucket`, `deploy_target`, `cloud_account` |
 | `deploy-path` (뷰②) | 배포 단위별 트리거 → 빌드 → 산출물 → 배포 대상. 산출물이 떨어지는 버킷과 그 앞 CDN, 도메인이 인프라 레인으로 붙는다 | `workflow`, `build`, `artifact`, `deploy_target`, `domain`, `cdn`, `bucket`, `cloud_account` |
 
 한 번 실행에 뷰 하나를 그린다. 사용자가 뷰를 말하지 않았으면 어느 쪽인지 묻는다. 둘 다 원하면 뷰마다 Step 0부터 따로 돈다.
@@ -251,6 +251,7 @@ FE와 BE 사이에서 요청을 받아 다른 서버로 넘기는 서버는 `gat
 
 - 노드는 `domain`, `cdn`, `bucket`, `cloud_account`, 그리고 Step 3-2의 `datastore`다. 인프라 노드에는 `environment`(prod, stage, qa, dev 등)를, 계정을 아는 노드에는 `account`(그 `cloud_account` 노드 id)를 단다. 양 끝 계정이 다른 선은 다른 색으로 그려진다.
 - 엣지는 `domain → cdn`이 `resolves_to`, `cdn → bucket`이 `origin`, `bucket → service`가 `serves`다. 산출물이 버킷에 올라가는 건 Step 4의 `deploys_to`다.
+- SSR 웹은 서버가 서빙한다. 그 서버를 `deploy_target`으로 두고 `environment`를 달아 `deploy_target → service`를 `serves`로 잇는다. CDN이 서버를 원본으로 두면 `cdn → deploy_target`이 `origin`이고 도메인이 서버를 바로 가리키면 `domain → deploy_target`이 `resolves_to`다.
 - 조회로 확인한 것은 `live` 근거다. `location`은 조회로 찾은 리소스 종류(`aws:cloudfront` 등), `command`는 실행한 명령, `observedAt`은 조회한 시각(ISO 8601)이다. `visibility`는 `private`이고 응답 원문을 `excerpt`에 넣지 않는다.
 - **id에는 계정 ID와 CDN 배포 ID를 넣지 않는다.** `prod-customer`처럼 별칭으로 짓고 실제 ID는 `label`에 둔다. id는 공유본에서도 못 가리므로 validate가 `CLOUD_ID_IN_ID`로 거부한다.
 - 선 모양은 근거로 정해진다. 코드 근거가 함께 있으면 실선, `live` 근거만 있으면 점선이다. 조회 결과는 지금 상태일 뿐이고 코드가 그렇게 만든다는 증거는 아니라서다.
@@ -258,7 +259,8 @@ FE와 BE 사이에서 요청을 받아 다른 서버로 넘기는 서버는 `gat
 
 ### 4.5-7. 서비스 플랫폼
 
-- 웹은 따로 적지 않아도 된다. 버킷이 `serves`로 서비스를 서빙하면 렌더가 웹으로 판정한다.
+- 웹은 따로 적지 않아도 된다. 버킷이나 `deploy_target`이 `serves`로 서비스를 서빙하면 렌더가 웹으로 판정한다. prod 서빙 노드에 `deploy_target`이 있으면 "웹(SSR)", 버킷만 있으면 "웹(정적)" 칩이 붙는다.
+- 정적인지 SSR인지는 빌드 설정과 실행 명령으로 가린다. Next.js `next.config`의 `output: 'export'`나 `next export`, 빌드 결과를 버킷에 올리는 워크플로는 정적이다. `next start`, Node 서버를 띄우는 Dockerfile이나 배포 매니페스트, 함수 런타임 어댑터는 SSR이다. 근거는 그 설정 줄이나 명령 줄이다.
 - Android와 iOS는 `service` 노드의 `platforms`에 적고 `platformEvidence`에 플랫폼별 근거를 단다. 근거는 네이티브 배포 워크플로의 태그나 트리거 줄, 스토어 설정 파일 줄이다. 근거 없이 `platforms`에만 적으면 그 플랫폼은 칩이 안 붙고 미해결 질문으로 간다.
 
 ### 4.5-8. 코드와 실제가 다르면
