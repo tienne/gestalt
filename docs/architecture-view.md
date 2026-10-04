@@ -4,10 +4,10 @@
 
 뷰는 둘이다.
 
-| 뷰 | 흐름 |
-|---|---|
+| 뷰             | 흐름                                                                |
+| -------------- | ------------------------------------------------------------------- |
 | `screen-chain` | 화면 → 백엔드 엔드포인트 → 백엔드 앱 모듈 → 외부 서비스와 DB 테이블 |
-| `deploy-path` | 배포 단위별 트리거 → 빌드 → 산출물 → 배포 대상 |
+| `deploy-path`  | 배포 단위별 트리거 → 빌드 → 산출물 → 배포 대상                      |
 
 `/architecture` 스킬이 이 흐름을 드라이빙하고 `ges_architecture` MCP 도구가 검증과 렌더를 맡는다. 스킬 절차는 [`plugin/skills/architecture/SKILL.md`](../plugin/skills/architecture/SKILL.md)에 있다.
 
@@ -19,9 +19,9 @@
 
 `ges_architecture`는 Passthrough 도구다. 서버는 LLM을 부르지 않는다.
 
-| 맡는 쪽 | 하는 일 |
-|---|---|
-| 세션 (Claude Code 등) | 맥락 소스를 고르고 코드를 탐색한다. 근거 달린 IR을 JSON으로 쓴다. 미해결 질문을 사용자에게 묻는다 |
+| 맡는 쪽                   | 하는 일                                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 세션 (Claude Code 등)     | 맥락 소스를 고르고 코드를 탐색한다. 근거 달린 IR을 JSON으로 쓴다. 미해결 질문을 사용자에게 묻는다                  |
 | 서버 (`ges_architecture`) | IR을 스키마로 검증하고 근거 파일과 줄을 확인한다. 이전 실행과 병합해 노드 id를 물려준다. 좌표를 계산해 HTML을 쓴다 |
 
 탐색은 세션 모델의 판단이 필요한 일이라 세션에 둔다. 검증과 렌더는 같은 입력에 같은 결과가 나와야 하는 일이라 서버에 둔다. 세션이 그린 그림을 서버가 다시 보지 않으면 근거 없는 실선이 그대로 나가게 된다.
@@ -32,19 +32,19 @@
 
 IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`schemas/architecture-ir.schema.json`](../schemas/architecture-ir.schema.json)에 있고 `start` 응답의 `schemaPath`가 이 파일의 절대 경로를 준다. 서버는 같은 구조를 zod로 다시 파싱한다 (`src/architecture/ir-schema.ts`).
 
-| 필드 | 내용 |
-|---|---|
-| `schemaVersion` | `"1.0.0"` 고정 |
-| `view` | `screen-chain` 또는 `deploy-path` |
-| `repos` | `{ id, name, root, remote? }`. `root`는 로컬 경로다. 상대 경로면 `repoRoot` 기준으로 푼다 |
-| `nodes` | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, description?, environment?, account?, platforms?, platformEvidence?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서 설명한다 |
-| `edges` | `{ id, from, to, kind, evidence[], lineStyle }`. `lineStyle`은 `solid` 또는 `dashed` |
-| `unresolved` | `{ id, subject: { nodeId?, edgeId?, stepId?, transitionId? }, question, answer? }` |
-| `flows` | 선택. 서비스 하나의 도메인 흐름이다. [도메인 흐름](#도메인-흐름)에서 설명한다 |
-| `stages` | 선택. 기술 그림을 왼쪽에서 오른쪽으로 나누는 구간이다. `{ id, label, nodes?, kinds?, repos? }`이고 배열 순서가 왼쪽부터다. [구간](#구간)에서 설명한다 |
-| `groups` | 합친 IR에만 있다. `{ id, name, members }`이고 `members`는 그 제품 분석에 있던 노드 id다. [분석 합치기](#분석-합치기)에서 설명한다 |
-| `sourcesUsed` | 이번 실행이 간 본 맥락 소스. `{ via, identifier, readOnly, probeHit, visibility }` |
-| `generatedAt` | 생성 시각 문자열. HTML에 그대로 찍힌다 |
+| 필드            | 내용                                                                                                                                                                                                                                                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `schemaVersion` | `"1.0.0"` 고정                                                                                                                                                                                                                                                                                                                             |
+| `view`          | `screen-chain` 또는 `deploy-path`                                                                                                                                                                                                                                                                                                          |
+| `repos`         | `{ id, name, root, remote? }`. `root`는 로컬 경로다. 상대 경로면 `repoRoot` 기준으로 푼다                                                                                                                                                                                                                                                  |
+| `nodes`         | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, description?, environment?, account?, platforms?, platformEvidence?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서 설명한다 |
+| `edges`         | `{ id, from, to, kind, evidence[], lineStyle }`. `lineStyle`은 `solid` 또는 `dashed`                                                                                                                                                                                                                                                       |
+| `unresolved`    | `{ id, subject: { nodeId?, edgeId?, stepId?, transitionId? }, question, answer? }`                                                                                                                                                                                                                                                         |
+| `flows`         | 선택. 서비스 하나의 도메인 흐름이다. [도메인 흐름](#도메인-흐름)에서 설명한다                                                                                                                                                                                                                                                              |
+| `stages`        | 선택. 기술 그림을 왼쪽에서 오른쪽으로 나누는 구간이다. `{ id, label, nodes?, kinds?, repos? }`이고 배열 순서가 왼쪽부터다. [구간](#구간)에서 설명한다                                                                                                                                                                                      |
+| `groups`        | 합친 IR에만 있다. `{ id, name, members }`이고 `members`는 그 제품 분석에 있던 노드 id다. [분석 합치기](#분석-합치기)에서 설명한다                                                                                                                                                                                                          |
+| `sourcesUsed`   | 이번 실행이 간 본 맥락 소스. `{ via, identifier, readOnly, probeHit, visibility }`                                                                                                                                                                                                                                                         |
+| `generatedAt`   | 생성 시각 문자열. HTML에 그대로 찍힌다                                                                                                                                                                                                                                                                                                     |
 
 근거(`evidence`) 하나는 `{ type, location, visibility, updatedAt?, excerpt?, command?, observedAt? }`다. 뒤의 두 필드는 `live` 근거에만 쓴다.
 
@@ -64,14 +64,22 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
       "kind": "screen",
       "label": "/orders",
       "repo": "acme-web",
-      "evidence": [{ "type": "code", "location": "acme-web:src/routes.tsx:42", "visibility": "public" }]
+      "evidence": [
+        { "type": "code", "location": "acme-web:src/routes.tsx:42", "visibility": "public" }
+      ]
     },
     {
       "id": "e-orders-get",
       "kind": "endpoint",
       "label": "GET /api/v1/orders/{}",
       "repo": "acme-api",
-      "evidence": [{ "type": "code", "location": "acme-api:src/orders/controller.ts:18", "visibility": "public" }]
+      "evidence": [
+        {
+          "type": "code",
+          "location": "acme-api:src/orders/controller.ts:18",
+          "visibility": "public"
+        }
+      ]
     }
   ],
   "edges": [
@@ -93,7 +101,13 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
   ],
   "unresolved": [],
   "sourcesUsed": [
-    { "via": "repo", "identifier": "CLAUDE.md", "readOnly": true, "probeHit": true, "visibility": "public" }
+    {
+      "via": "repo",
+      "identifier": "CLAUDE.md",
+      "readOnly": true,
+      "probeHit": true,
+      "visibility": "public"
+    }
   ],
   "generatedAt": "2026-10-01T09:00:00Z"
 }
@@ -101,48 +115,48 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 
 ### 노드 kind
 
-| kind | 뷰 | 뜻 |
-|---|---|---|
-| `service` | screen-chain | 사용자가 쓰는 FE 앱이나 제품 |
-| `micro_app` | screen-chain | 서비스를 이루는 마이크로 프론트엔드 앱 하나. label은 federation 설정의 `name`이다 |
-| `feature` | screen-chain | 서비스 안의 기능영역. 페이지보다 한 단계 위인 제품 단위 (예: 등록모드, 대시보드, 설정) |
-| `screen` | screen-chain | 사용자가 보는 화면이나 페이지 |
-| `gateway` | screen-chain | 요청을 받아 다른 서버로 넘기는 서버 |
-| `endpoint` | screen-chain | 백엔드 HTTP 엔드포인트. label은 `METHOD /정규화 경로` 꼴 |
-| `app_module` | screen-chain | 엔드포인트를 처리하는 백엔드 모듈이나 컨트롤러 |
-| `external_service` | screen-chain | 모듈이 부르는 다른 서비스, 외부 API, 메시지 브로커 |
-| `datastore` | screen-chain | 테이블이 사는 DB 클러스터나 캐시 클러스터 (RDS, Aurora, Redis 등). `repo`는 클라우드 조회용 가짜 레포로 두고 label은 `<엔진>:<클러스터 식별자>` 꼴이다 |
-| `db_table` | screen-chain | 모듈이 읽고 쓰는 테이블 |
-| `workflow` | deploy-path | 배포를 시작하는 CI 워크플로와 그 트리거 |
-| `build` | deploy-path | 빌드 잡이나 스텝 |
-| `artifact` | deploy-path | 이미지, 번들, 패키지 같은 빌드 산출물 |
-| `deploy_target` | deploy-path | 산출물이 올라가는 클러스터, 런타임, 네이티브 앱 배포처 |
-| `domain` | 둘 다 | 사용자가 접속하는 도메인 |
-| `cdn` | 둘 다 | CDN 배포 |
-| `bucket` | 둘 다 | 정적 번들이나 코드푸시 번들이 올라가는 버킷 |
-| `cloud_account` | 둘 다 | 클라우드 계정. 다른 노드의 `account`가 이 노드를 가리킨다 |
+| kind               | 뷰           | 뜻                                                                                                                                                     |
+| ------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `service`          | screen-chain | 사용자가 쓰는 FE 앱이나 제품                                                                                                                           |
+| `micro_app`        | screen-chain | 서비스를 이루는 마이크로 프론트엔드 앱 하나. label은 federation 설정의 `name`이다                                                                      |
+| `feature`          | screen-chain | 서비스 안의 기능영역. 페이지보다 한 단계 위인 제품 단위 (예: 등록모드, 대시보드, 설정)                                                                 |
+| `screen`           | screen-chain | 사용자가 보는 화면이나 페이지                                                                                                                          |
+| `gateway`          | screen-chain | 요청을 받아 다른 서버로 넘기는 서버                                                                                                                    |
+| `endpoint`         | screen-chain | 백엔드 HTTP 엔드포인트. label은 `METHOD /정규화 경로` 꼴                                                                                               |
+| `app_module`       | screen-chain | 엔드포인트를 처리하는 백엔드 모듈이나 컨트롤러                                                                                                         |
+| `external_service` | screen-chain | 모듈이 부르는 다른 서비스, 외부 API, 메시지 브로커                                                                                                     |
+| `datastore`        | screen-chain | 테이블이 사는 DB 클러스터나 캐시 클러스터 (RDS, Aurora, Redis 등). `repo`는 클라우드 조회용 가짜 레포로 두고 label은 `<엔진>:<클러스터 식별자>` 꼴이다 |
+| `db_table`         | screen-chain | 모듈이 읽고 쓰는 테이블                                                                                                                                |
+| `workflow`         | deploy-path  | 배포를 시작하는 CI 워크플로와 그 트리거                                                                                                                |
+| `build`            | deploy-path  | 빌드 잡이나 스텝                                                                                                                                       |
+| `artifact`         | deploy-path  | 이미지, 번들, 패키지 같은 빌드 산출물                                                                                                                  |
+| `deploy_target`    | deploy-path  | 산출물이 올라가는 클러스터, 런타임, 네이티브 앱 배포처                                                                                                 |
+| `domain`           | 둘 다        | 사용자가 접속하는 도메인                                                                                                                               |
+| `cdn`              | 둘 다        | CDN 배포                                                                                                                                               |
+| `bucket`           | 둘 다        | 정적 번들이나 코드푸시 번들이 올라가는 버킷                                                                                                            |
+| `cloud_account`    | 둘 다        | 클라우드 계정. 다른 노드의 `account`가 이 노드를 가리킨다                                                                                              |
 
 레이아웃은 kind마다 열을 정해 왼쪽부터 놓는다. screen-chain은 `service`, `micro_app`, `feature`, `screen`이 한 열, 그다음 `gateway`, `endpoint`, `app_module`이고 `external_service`가 그 뒤, `datastore`와 `db_table`이 마지막 한 열이다. deploy-path는 `workflow`, `build`, `artifact`, `deploy_target` 다음에 인프라 레인 `bucket`, `cdn`, `domain`, `cloud_account`가 붙는다.
 
 ### 엣지 kind
 
-| kind | from → to | 근거가 되는 줄 |
-|---|---|---|
-| `navigates` | screen → screen | `navigate()`, `Link`, `history.push` 줄 |
-| `calls` | screen → endpoint | 화면 쪽 API 호출 줄 |
-| `calls` | external_service → gateway | 클라이언트 base URL이 게이트웨이 호스트를 가리키는 줄 |
-| `routes` | gateway → endpoint, gateway, app_module | 게이트웨이 라우트 설정의 `Path`나 `uri` 줄 |
-| `handles` | endpoint → app_module | 라우트 매핑 어노테이션이나 라우터 등록 줄 |
-| `uses` | app_module → external_service | 외부 클라이언트 호출 줄 |
-| `reads_writes` | app_module → db_table, datastore | 쿼리나 엔티티 매핑 줄. 테이블 단위로 못 내려가는 캐시는 저장소로 바로 긋는다. 근거는 datasource URL이나 캐시 host 설정 줄이다 |
-| `triggers` | workflow → build | 워크플로의 트리거와 잡 정의 줄 |
-| `builds` | build → artifact | 빌드 명령 줄 |
-| `produces` | build → artifact | 산출물을 내보내는 줄 (이미지 push, 업로드) |
-| `deploys_to` | artifact → deploy_target, bucket | 배포 명령이나 매니페스트 줄 |
-| `resolves_to` | domain → cdn, deploy_target | 인프라 코드의 도메인 줄이나 CDN 별칭 조회 |
-| `origin` | cdn → bucket, deploy_target | 인프라 코드의 원본 정의 줄이나 CDN 원본 조회 |
-| `serves` | bucket, deploy_target → service, micro_app | 그 번들을 버킷에 올리는 줄이나 서버로 띄우는 배포 매니페스트 줄. `micro_app`이 달린 서비스는 가리킬 수 없고 앱을 가리킨다 |
-| `loads` | micro_app → micro_app | 호스트 federation 설정의 `remotes` 항목 줄이나 single-spa `registerApplication` 줄 |
+| kind           | from → to                                  | 근거가 되는 줄                                                                                                                |
+| -------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `navigates`    | screen → screen                            | `navigate()`, `Link`, `history.push` 줄                                                                                       |
+| `calls`        | screen → endpoint                          | 화면 쪽 API 호출 줄                                                                                                           |
+| `calls`        | external_service → gateway                 | 클라이언트 base URL이 게이트웨이 호스트를 가리키는 줄                                                                         |
+| `routes`       | gateway → endpoint, gateway, app_module    | 게이트웨이 라우트 설정의 `Path`나 `uri` 줄                                                                                    |
+| `handles`      | endpoint → app_module                      | 라우트 매핑 어노테이션이나 라우터 등록 줄                                                                                     |
+| `uses`         | app_module → external_service              | 외부 클라이언트 호출 줄                                                                                                       |
+| `reads_writes` | app_module → db_table, datastore           | 쿼리나 엔티티 매핑 줄. 테이블 단위로 못 내려가는 캐시는 저장소로 바로 긋는다. 근거는 datasource URL이나 캐시 host 설정 줄이다 |
+| `triggers`     | workflow → build                           | 워크플로의 트리거와 잡 정의 줄                                                                                                |
+| `builds`       | build → artifact                           | 빌드 명령 줄                                                                                                                  |
+| `produces`     | build → artifact                           | 산출물을 내보내는 줄 (이미지 push, 업로드)                                                                                    |
+| `deploys_to`   | artifact → deploy_target, bucket           | 배포 명령이나 매니페스트 줄                                                                                                   |
+| `resolves_to`  | domain → cdn, deploy_target                | 인프라 코드의 도메인 줄이나 CDN 별칭 조회                                                                                     |
+| `origin`       | cdn → bucket, deploy_target                | 인프라 코드의 원본 정의 줄이나 CDN 원본 조회                                                                                  |
+| `serves`       | bucket, deploy_target → service, micro_app | 그 번들을 버킷에 올리는 줄이나 서버로 띄우는 배포 매니페스트 줄. `micro_app`이 달린 서비스는 가리킬 수 없고 앱을 가리킨다     |
+| `loads`        | micro_app → micro_app                      | 호스트 federation 설정의 `remotes` 항목 줄이나 single-spa `registerApplication` 줄                                            |
 
 `routes`는 게이트웨이가 요청을 어디로 넘기는지다. 게이트웨이가 여러 단이면 앞 게이트웨이에서 뒤 게이트웨이로 `routes`를 긋고 엔드포인트로 가는 `routes`는 마지막 게이트웨이에만 단다. `gateway → app_module`은 엔드포인트를 노드로 펼치지 않은 클라이언트 호출 사슬에 쓴다.
 
@@ -150,13 +164,13 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 
 노드의 `parent`는 이 노드를 담는 노드의 id다. 엣지가 아니라서 선으로 그리지 않는다. [드릴다운](#드릴다운) 레벨을 나누는 데만 쓴다.
 
-| kind | parent로 가리킬 수 있는 kind |
-|---|---|
-| `screen` | `feature`, `micro_app`, `service` |
-| `feature` | `micro_app`, `service` |
-| `micro_app` | `service` |
-| `db_table` | `datastore` |
-| 그 밖 | parent를 가질 수 없다 |
+| kind        | parent로 가리킬 수 있는 kind      |
+| ----------- | --------------------------------- |
+| `screen`    | `feature`, `micro_app`, `service` |
+| `feature`   | `micro_app`, `service`            |
+| `micro_app` | `service`                         |
+| `db_table`  | `datastore`                       |
+| 그 밖       | parent를 가질 수 없다             |
 
 parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없는 것으로 친다.
 
@@ -172,9 +186,9 @@ parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없
 
 `label`은 기술 이름이다. 모듈 이름이나 레포 이름처럼 코드에 있는 그대로 쓴다. 사람이 그 서버를 부르는 이름은 따로 있는 경우가 많아서 `displayName`에 담는다.
 
-| 필드 | 뜻 |
-|---|---|
-| `displayName` | 사람이 부르는 이름. 예: label이 `acme-order-api`면 `주문 서버` |
+| 필드                  | 뜻                                                                                                                   |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `displayName`         | 사람이 부르는 이름. 예: label이 `acme-order-api`면 `주문 서버`                                                       |
 | `displayNameInferred` | `true`면 문서에 그대로 있던 이름이 아니라 근거 문장을 줄여 지은 이름이다. `displayName` 없이 쓰면 `IR_PARSE_ERROR`다 |
 
 - 박스는 첫 줄에 `displayName`을 굵게, 둘째 줄에 `label`을 작게 쓴다. `displayName`이 없으면 `label` 한 줄이다.
@@ -187,12 +201,12 @@ parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없
 
 정적 웹 서비스는 도메인 → CDN → 버킷 → 서비스 순으로 요청을 받는다. SSR 웹 서비스는 버킷 자리에 서버(`deploy_target`)가 서고 CDN 없이 도메인이 서버를 바로 가리키기도 한다. 이 사슬을 노드로 두면 서비스가 어디서 서빙되는지 그림에서 읽힌다. 범위는 AWS 하나이고 비용과 트래픽은 싣지 않는다.
 
-| 필드 | 쓰는 노드 | 뜻 |
-|---|---|---|
-| `environment` | `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target`, `datastore` | 환경 이름. 같은 레인 안에서 `prod`, `stage`, `qa`, `dev` 순으로 놓이고 그 밖의 환경, 환경 없음이 뒤에 선다 |
-| `account` | 아무 노드 (`cloud_account` 제외) | 이 노드가 속한 `cloud_account` 노드의 id. 양 끝 노드의 계정이 다른 선은 다른 색으로 그린다 |
-| `platforms` | `service` | `web`, `android`, `ios` 중 이 서비스가 배포되는 것 |
-| `platformEvidence` | `service` | 플랫폼별 근거 목록. `{ "android": [근거], "ios": [근거] }` 꼴 |
+| 필드               | 쓰는 노드                                                                | 뜻                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `environment`      | `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target`, `datastore` | 환경 이름. 같은 레인 안에서 `prod`, `stage`, `qa`, `dev` 순으로 놓이고 그 밖의 환경, 환경 없음이 뒤에 선다 |
+| `account`          | 아무 노드 (`cloud_account` 제외)                                         | 이 노드가 속한 `cloud_account` 노드의 id. 양 끝 노드의 계정이 다른 선은 다른 색으로 그린다                 |
+| `platforms`        | `service`                                                                | `web`, `android`, `ios` 중 이 서비스가 배포되는 것                                                         |
+| `platformEvidence` | `service`                                                                | 플랫폼별 근거 목록. `{ "android": [근거], "ios": [근거] }` 꼴                                              |
 
 마이크로 프론트엔드면 사슬을 앱마다 따로 싣고 `serves`는 각자 자기 앱을 가리킨다. 호스트 사슬의 도메인이 사용자가 들어오는 진입 도메인이고 리모트 사슬은 호스트가 런타임에 번들을 받아 오는 곳이다. 앱이 달린 서비스를 `serves`로 가리키면 거부한다. 서비스 하나로 모으면 어느 도메인이 진입이고 어느 CDN이 리모트인지 그림에서 안 갈려서다.
 
@@ -208,12 +222,12 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 근거는 다섯 종류다. 선 모양은 근거 종류로 정해진다.
 
-| type | location | 선 |
-|---|---|---|
-| `code` | `<repoId>:<relPath>:<line>`. `repoId`는 `repos[].id`, `relPath`는 레포 루트 기준 상대 경로 | 실선 |
-| `spec` | OpenAPI, proto 같은 API 명세 안의 정의 위치 | 실선 |
-| `doc` | 문서 링크나 경로. `updatedAt`에 수정일 | 점선 |
-| `user` | 질문 id와 답한 날짜. 답 원문은 질문의 `answer`에 둔다 | 점선 |
+| type   | location                                                                                                                 | 선   |
+| ------ | ------------------------------------------------------------------------------------------------------------------------ | ---- |
+| `code` | `<repoId>:<relPath>:<line>`. `repoId`는 `repos[].id`, `relPath`는 레포 루트 기준 상대 경로                               | 실선 |
+| `spec` | OpenAPI, proto 같은 API 명세 안의 정의 위치                                                                              | 실선 |
+| `doc`  | 문서 링크나 경로. `updatedAt`에 수정일                                                                                   | 점선 |
+| `user` | 질문 id와 답한 날짜. 답 원문은 질문의 `answer`에 둔다                                                                    | 점선 |
 | `live` | 조회로 찾은 리소스 종류 (예: `aws:cloudfront`). `command`에 실행한 명령, `observedAt`에 조회 시각(ISO 8601, 시간대 포함) | 점선 |
 
 엣지에 `code`나 `spec` 근거가 하나라도 있으면 실선이고 없으면 점선이다. 서버는 IR에 적힌 `lineStyle`을 믿지 않고 근거로 다시 계산해 덮어쓴다. 사용자가 "그렇다"고 답한 연결도 점선이다. 코드로 확인했다는 뜻이 아니어서다.
@@ -228,33 +242,33 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 `validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 스물다섯은 IR 전체를 거부한다.
 
-| 에러 코드 | 언제 |
-|---|---|
-| `SOLID_EDGE_WITHOUT_EVIDENCE` | `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다. 근거가 0개인 실선도, `doc`, `user`, `live` 근거만 있는 실선도 여기 걸린다 |
-| `CODE_EVIDENCE_NOT_FOUND` | `code` 근거의 위치가 `<repoId>:<relPath>:<line>` 꼴이 아니거나, `repoId`가 `repos`에 없거나, 경로가 절대 경로이거나 레포 루트 밖을 가리키거나, 파일이 없거나, 줄 번호가 파일 범위 밖이다 |
-| `PRIVATE_EXCERPT_PRESENT` | `visibility: "private"` 근거에 `excerpt`가 들어 있다. private `live` 근거면 조회 응답 원문을 넣었다는 문구가 따로 나온다 |
-| `LIVE_COMMAND_NOT_READ_ONLY` | `live` 근거의 `command`가 [CLI 명령 판정](#cli-명령-판정)에서 `allow`가 아니다 |
-| `ACCOUNT_NOT_FOUND` | `account`가 가리키는 노드가 `nodes`에 없다 |
-| `INVALID_ACCOUNT_KIND` | `account`가 `cloud_account`가 아닌 노드를 가리킨다 |
-| `CLOUD_ID_IN_ID` | 노드나 엣지 id에 계정 ID 꼴(12자리 숫자)이 들었거나, `cdn` 노드 id에 CDN 배포 ID 꼴이 들었다 |
-| `DANGLING_EDGE` | 엣지의 `from`이나 `to`가 `nodes`에 없다 |
-| `PARENT_NOT_FOUND` | `parent`가 가리키는 노드가 `nodes`에 없다 |
-| `PARENT_CYCLE` | `parent`를 따라가면 자기 자신으로 돌아온다 |
-| `INVALID_PARENT_KIND` | [포함 관계](#포함-관계) 규칙에 어긋난다. parent를 가질 수 없는 kind에 달았거나 담을 수 없는 kind를 가리킨다 |
-| `DUPLICATE_GROUP_ID` | `groups`에 같은 id가 둘 있다 |
-| `GROUP_MEMBER_NOT_FOUND` | `groups[].members`의 id가 `nodes`에 없다 |
-| `SERVES_SERVICE_WITH_APPS` | `serves`가 `micro_app`이 달린 서비스를 가리킨다 |
-| `INVALID_LOADS_ENDS` | `loads`의 양 끝 중 하나가 `micro_app`이 아니다 |
-| `FLOW_SERVICE_NOT_FOUND` | 흐름의 `service`가 `nodes`에 없거나 `service` 노드가 아니다 |
-| `DUPLICATE_FLOW_ID` | 흐름, 단계, 전이 id가 흐름 전체에서 겹치거나 한 흐름 안에서 행위자 id가 겹친다 |
-| `FLOW_ACTOR_NOT_FOUND` | 단계의 `actor`가 그 흐름의 `actors`에 없다 |
-| `FLOW_STEP_NOT_FOUND` | 전이의 `from`이나 `to`가 그 흐름의 `steps`에 없다 |
-| `FLOW_REF_NOT_FOUND` | 단계의 `refs`가 `nodes`에 없다 |
-| `INVALID_FLOW_REF_KIND` | 단계의 `refs`가 `screen`, `endpoint`, `feature`, `micro_app`이 아닌 노드를 가리킨다 |
-| `SOLID_TRANSITION_WITHOUT_EVIDENCE` | 전이가 `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다 |
-| `DUPLICATE_STAGE_ID` | 구간 id가 겹친다 |
-| `STAGE_NODE_NOT_FOUND` | 구간의 `nodes`가 `nodes`에 없다 |
-| `STAGE_NODE_TWICE` | 한 노드가 두 구간의 `nodes`에 함께 올라 있다 |
+| 에러 코드                           | 언제                                                                                                                                                                                     |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SOLID_EDGE_WITHOUT_EVIDENCE`       | `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다. 근거가 0개인 실선도, `doc`, `user`, `live` 근거만 있는 실선도 여기 걸린다                                                          |
+| `CODE_EVIDENCE_NOT_FOUND`           | `code` 근거의 위치가 `<repoId>:<relPath>:<line>` 꼴이 아니거나, `repoId`가 `repos`에 없거나, 경로가 절대 경로이거나 레포 루트 밖을 가리키거나, 파일이 없거나, 줄 번호가 파일 범위 밖이다 |
+| `PRIVATE_EXCERPT_PRESENT`           | `visibility: "private"` 근거에 `excerpt`가 들어 있다. private `live` 근거면 조회 응답 원문을 넣었다는 문구가 따로 나온다                                                                 |
+| `LIVE_COMMAND_NOT_READ_ONLY`        | `live` 근거의 `command`가 [CLI 명령 판정](#cli-명령-판정)에서 `allow`가 아니다                                                                                                           |
+| `ACCOUNT_NOT_FOUND`                 | `account`가 가리키는 노드가 `nodes`에 없다                                                                                                                                               |
+| `INVALID_ACCOUNT_KIND`              | `account`가 `cloud_account`가 아닌 노드를 가리킨다                                                                                                                                       |
+| `CLOUD_ID_IN_ID`                    | 노드나 엣지 id에 계정 ID 꼴(12자리 숫자)이 들었거나, `cdn` 노드 id에 CDN 배포 ID 꼴이 들었다                                                                                             |
+| `DANGLING_EDGE`                     | 엣지의 `from`이나 `to`가 `nodes`에 없다                                                                                                                                                  |
+| `PARENT_NOT_FOUND`                  | `parent`가 가리키는 노드가 `nodes`에 없다                                                                                                                                                |
+| `PARENT_CYCLE`                      | `parent`를 따라가면 자기 자신으로 돌아온다                                                                                                                                               |
+| `INVALID_PARENT_KIND`               | [포함 관계](#포함-관계) 규칙에 어긋난다. parent를 가질 수 없는 kind에 달았거나 담을 수 없는 kind를 가리킨다                                                                              |
+| `DUPLICATE_GROUP_ID`                | `groups`에 같은 id가 둘 있다                                                                                                                                                             |
+| `GROUP_MEMBER_NOT_FOUND`            | `groups[].members`의 id가 `nodes`에 없다                                                                                                                                                 |
+| `SERVES_SERVICE_WITH_APPS`          | `serves`가 `micro_app`이 달린 서비스를 가리킨다                                                                                                                                          |
+| `INVALID_LOADS_ENDS`                | `loads`의 양 끝 중 하나가 `micro_app`이 아니다                                                                                                                                           |
+| `FLOW_SERVICE_NOT_FOUND`            | 흐름의 `service`가 `nodes`에 없거나 `service` 노드가 아니다                                                                                                                              |
+| `DUPLICATE_FLOW_ID`                 | 흐름, 단계, 전이 id가 흐름 전체에서 겹치거나 한 흐름 안에서 행위자 id가 겹친다                                                                                                           |
+| `FLOW_ACTOR_NOT_FOUND`              | 단계의 `actor`가 그 흐름의 `actors`에 없다                                                                                                                                               |
+| `FLOW_STEP_NOT_FOUND`               | 전이의 `from`이나 `to`가 그 흐름의 `steps`에 없다                                                                                                                                        |
+| `FLOW_REF_NOT_FOUND`                | 단계의 `refs`가 `nodes`에 없다                                                                                                                                                           |
+| `INVALID_FLOW_REF_KIND`             | 단계의 `refs`가 `screen`, `endpoint`, `feature`, `micro_app`이 아닌 노드를 가리킨다                                                                                                      |
+| `SOLID_TRANSITION_WITHOUT_EVIDENCE` | 전이가 `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다                                                                                                                              |
+| `DUPLICATE_STAGE_ID`                | 구간 id가 겹친다                                                                                                                                                                         |
+| `STAGE_NODE_NOT_FOUND`              | 구간의 `nodes`가 `nodes`에 없다                                                                                                                                                          |
+| `STAGE_NODE_TWICE`                  | 한 노드가 두 구간의 `nodes`에 함께 올라 있다                                                                                                                                             |
 
 `checkFiles: false`를 넘기면 `CODE_EVIDENCE_NOT_FOUND`의 파일 존재와 줄 범위 확인을 건너뛴다. 기본값은 `true`다.
 
@@ -269,6 +283,8 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 - 근거가 0개인 흐름 단계. 질문 id는 `auto:step:<단계 id>`다.
 - 근거가 0개인 흐름 전이. 질문 id는 `auto:transition:<전이 id>`다. 근거가 있어도 양 끝 단계 중 하나가 빠지면 그리지 않는다.
 - 앱이 둘 이상인 서비스에 호스트가 정확히 하나가 아닐 때. 질문 id는 `auto:entry:<서비스 id>`다. 호스트가 없으면 진입 앱을 묻고 여럿이면 그 후보 이름을 함께 보이며 `remotes` 설정이 어느 앱에 있는지 묻는다.
+
+그리기 대상은 그대로 두고 질문만 더하는 경우도 있다. 사람이 하는 단계인데 들어오고 나가는 전이가 하나씩이고 나가는 전이가 다른 길로도 닿는 단계로 합류하면 그 단계는 두 상태를 잇기만 하는 동작일 수 있다. 상태 값이 없거나 앞 단계로 되돌아가면 `auto:as-transition:<단계 id>` 질문을 만들어 전이로 적을지 묻는다. 정정이나 되돌리기, 결제처럼 끼어드는 동작이 여기 걸린다. 들어온 단계로 바로 돌아가는 단계는 그 단계를 되돌린 것이라 묻지 않는다. 세션이 그 단계에 다른 질문을 달았어도 이 질문은 따로 선다.
 
 자동 질문은 노드를 `displayName`(없으면 label)으로 부른다. 문장은 아래 꼴이다.
 
@@ -296,13 +312,13 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 근거와 맥락 소스마다 `visibility`가 붙는다.
 
-| 출처 | visibility | excerpt |
-|---|---|---|
-| 레포에 커밋된 파일 (코드, `CLAUDE.md`, `AGENTS.md`, `docs/`, `.gestalt/memory.json`) | `public` | 실어도 된다 |
-| 홈 아래 파일 (`~/.claude/CLAUDE.md`, `~/.claude/projects/*/memory/`) | `private` | 금지 |
-| KB 검색 결과, MCP 도구 응답, 스킬 조회 결과 | `private` | 금지 |
-| 사용자 답 | `private` | 금지 |
-| 클라우드 조회 결과 (`live`) | `private` | 금지 |
+| 출처                                                                                 | visibility | excerpt     |
+| ------------------------------------------------------------------------------------ | ---------- | ----------- |
+| 레포에 커밋된 파일 (코드, `CLAUDE.md`, `AGENTS.md`, `docs/`, `.gestalt/memory.json`) | `public`   | 실어도 된다 |
+| 홈 아래 파일 (`~/.claude/CLAUDE.md`, `~/.claude/projects/*/memory/`)                 | `private`  | 금지        |
+| KB 검색 결과, MCP 도구 응답, 스킬 조회 결과                                          | `private`  | 금지        |
+| 사용자 답                                                                            | `private`  | 금지        |
+| 클라우드 조회 결과 (`live`)                                                          | `private`  | 금지        |
 
 private 근거의 원문은 세 겹으로 막는다.
 
@@ -338,27 +354,27 @@ private 근거의 원문은 세 겹으로 막는다.
 
 ### 레벨
 
-| 레벨 | id | 보이는 것 |
-|---|---|---|
-| 전체 | `root` | 서비스, 게이트웨이, 서버(앱 모듈), 저장소만. prod 기준이다. 엣지는 세부 엣지를 묶은 것이고 굵기와 숫자가 건수다. 마이크로 프론트엔드 서비스는 서비스 카드 아래 앱 카드를 이어 쌓고 테두리로 한 묶음을 그린다 |
-| 서비스 | `service:<id>` | 서비스 카드에서 기능영역, 화면으로 이어지는 위계와 화면이 부르는 게이트웨이와 서버. 화면 호출은 화면에서 바로 묶인다. 서비스를 서빙하는 버킷이나 배포 대상이 있으면 그 노드와 앞단 CDN, 도메인이 서비스 카드 왼쪽에 선다. 화면 사이 이동은 기능영역 레벨에서 본다 |
-| 앱 | `app:<id>` | 마이크로 프론트엔드 리모트 앱 하나. 서비스 레벨과 같은 구성(서빙 사슬, 앱, 기능영역, 화면, 게이트웨이, 서버)이다. 진입 앱은 서비스 레벨이 대신해서 이 레벨이 없다 |
-| 기능영역 | `feature:<id>` | 그 기능영역의 화면, 화면이 부르는 엔드포인트, 거쳐 가는 게이트웨이, 받는 모듈. 세부 엣지 그대로 |
-| 서버 | `server:<id>` | 그 모듈이나 게이트웨이에 걸린 엔드포인트, 모듈이 읽고 쓰는 테이블과 저장소, 쓰는 클라이언트와 그 클라이언트가 부르는 모듈 |
-| 흐름 | `flow:<흐름 id>` | 서비스 하나의 도메인 흐름. 서비스 레벨 아래에 선다. [도메인 흐름](#도메인-흐름)에서 설명한다 |
+| 레벨     | id               | 보이는 것                                                                                                                                                                                                                                                         |
+| -------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 전체     | `root`           | 서비스, 게이트웨이, 서버(앱 모듈), 저장소만. prod 기준이다. 엣지는 세부 엣지를 묶은 것이고 굵기와 숫자가 건수다. 마이크로 프론트엔드 서비스는 서비스 카드 아래 앱 카드를 이어 쌓고 테두리로 한 묶음을 그린다                                                      |
+| 서비스   | `service:<id>`   | 서비스 카드에서 기능영역, 화면으로 이어지는 위계와 화면이 부르는 게이트웨이와 서버. 화면 호출은 화면에서 바로 묶인다. 서비스를 서빙하는 버킷이나 배포 대상이 있으면 그 노드와 앞단 CDN, 도메인이 서비스 카드 왼쪽에 선다. 화면 사이 이동은 기능영역 레벨에서 본다 |
+| 앱       | `app:<id>`       | 마이크로 프론트엔드 리모트 앱 하나. 서비스 레벨과 같은 구성(서빙 사슬, 앱, 기능영역, 화면, 게이트웨이, 서버)이다. 진입 앱은 서비스 레벨이 대신해서 이 레벨이 없다                                                                                                 |
+| 기능영역 | `feature:<id>`   | 그 기능영역의 화면, 화면이 부르는 엔드포인트, 거쳐 가는 게이트웨이, 받는 모듈. 세부 엣지 그대로                                                                                                                                                                   |
+| 서버     | `server:<id>`    | 그 모듈이나 게이트웨이에 걸린 엔드포인트, 모듈이 읽고 쓰는 테이블과 저장소, 쓰는 클라이언트와 그 클라이언트가 부르는 모듈                                                                                                                                         |
+| 흐름     | `flow:<흐름 id>` | 서비스 하나의 도메인 흐름. 서비스 레벨 아래에 선다. [도메인 흐름](#도메인-흐름)에서 설명한다                                                                                                                                                                      |
 
 ### 묶음 엣지의 주인
 
 전체 레벨의 묶음 엣지는 세부 노드마다 전체 레벨의 어느 노드에 속하는지(주인)를 정한 뒤 만든다.
 
-| 세부 노드 | 주인 |
-|---|---|
-| `screen`, `feature` | 조상 중 가장 가까운 `micro_app`. 없으면 `service` |
-| `endpoint` | `handles`로 받는 `app_module`. 여럿이면 각각 |
-| `external_service` (클라이언트) | 그 클라이언트를 `uses`하는 `app_module` |
-| `service`, `micro_app`, `gateway`, `app_module` | 자기 자신 |
-| `db_table` | 자기 `parent` 저장소. parent가 없으면 전체 레벨에 안 나온다 |
-| `datastore` | 자기 자신 |
+| 세부 노드                                       | 주인                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------- |
+| `screen`, `feature`                             | 조상 중 가장 가까운 `micro_app`. 없으면 `service`           |
+| `endpoint`                                      | `handles`로 받는 `app_module`. 여럿이면 각각                |
+| `external_service` (클라이언트)                 | 그 클라이언트를 `uses`하는 `app_module`                     |
+| `service`, `micro_app`, `gateway`, `app_module` | 자기 자신                                                   |
+| `db_table`                                      | 자기 `parent` 저장소. parent가 없으면 전체 레벨에 안 나온다 |
+| `datastore`                                     | 자기 자신                                                   |
 
 화면이 부르는 엔드포인트에 게이트웨이 사슬이 있으면 서비스 → 맨 앞 게이트웨이 → … → 맨 뒤 게이트웨이 → 모듈로 묶인다. 사슬은 그 엔드포인트로 `routes`하는 게이트웨이에서 `gateway → gateway` `routes`를 거꾸로 따라 올라가, 들어오는 `routes`가 없는 게이트웨이까지다. 게이트웨이가 없는 엔드포인트는 서비스 → 모듈로 바로 묶인다. 모듈 A가 쓰는 클라이언트가 모듈 B를 부르면 A → B다. 클라이언트가 게이트웨이를 부르면 A → 게이트웨이 → B다.
 
@@ -384,16 +400,16 @@ private 근거의 원문은 세 겹으로 막는다.
 
 그림은 세로 띠(레인)로 나뉜다. 레인 하나가 레이어 하나이고 왼쪽에서 오른쪽으로 요청이 흐르는 순서로 놓인다. 레인 위쪽에 제목과 그 레인의 카드 수가 붙는다. 카드가 없는 레인은 아예 그리지 않는다. 드릴다운이 아닌 평면 그림도 같은 레인을 쓴다.
 
-| 그림 | 왼쪽부터 |
-|---|---|
-| 전체 레벨 | 앱 → 게이트웨이 → 서버 → 외부 서비스 → DB. 마이크로 프론트엔드 앱 카드는 서비스와 같은 **앱** 레인에 선다 |
-| 서비스 레벨 | 서비스 → 기능 영역 → 화면 → 게이트웨이 → 서버. 서빙 인프라가 있으면 그 앞에 도메인 → CDN → 버킷 또는 배포 대상 |
-| 마이크로 프론트엔드 서비스 레벨 | 도메인 → CDN → 버킷 또는 배포 대상 → 호스트 → 리모트 → 기능 영역 → 화면 → 게이트웨이 → 서버 |
-| 앱 레벨 | 도메인 → CDN → 버킷 또는 배포 대상 → 리모트 → 기능 영역 → 화면 → 게이트웨이 → 서버 |
-| 기능영역 레벨 | 화면 → 게이트웨이 → API → 서버 |
-| 서버 레벨 | API → 서버 → 클라이언트 → 외부 서비스 → DB |
-| screen-chain 평면 | 화면 → 게이트웨이 → API → 서버 → 클라이언트 → DB |
-| deploy-path | 트리거 → 빌드 → 산출물 → 배포 대상 → 버킷 → CDN → 도메인 → 클라우드 계정 |
+| 그림                            | 왼쪽부터                                                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 전체 레벨                       | 앱 → 게이트웨이 → 서버 → 외부 서비스 → DB. 마이크로 프론트엔드 앱 카드는 서비스와 같은 **앱** 레인에 선다      |
+| 서비스 레벨                     | 서비스 → 기능 영역 → 화면 → 게이트웨이 → 서버. 서빙 인프라가 있으면 그 앞에 도메인 → CDN → 버킷 또는 배포 대상 |
+| 마이크로 프론트엔드 서비스 레벨 | 도메인 → CDN → 버킷 또는 배포 대상 → 호스트 → 리모트 → 기능 영역 → 화면 → 게이트웨이 → 서버                    |
+| 앱 레벨                         | 도메인 → CDN → 버킷 또는 배포 대상 → 리모트 → 기능 영역 → 화면 → 게이트웨이 → 서버                             |
+| 기능영역 레벨                   | 화면 → 게이트웨이 → API → 서버                                                                                 |
+| 서버 레벨                       | API → 서버 → 클라이언트 → 외부 서비스 → DB                                                                     |
+| screen-chain 평면               | 화면 → 게이트웨이 → API → 서버 → 클라이언트 → DB                                                               |
+| deploy-path                     | 트리거 → 빌드 → 산출물 → 배포 대상 → 버킷 → CDN → 도메인 → 클라우드 계정                                       |
 
 - 전체 레벨의 **DB** 레인에는 저장소 카드가 선다.
 - 전체 레벨의 **외부 서비스** 레인에는 서비스 쪽에서는 닿지 않고 서버에서 나가는 선으로만 닿는 게이트웨이와 서버가 선다.
@@ -436,15 +452,15 @@ private 근거의 원문은 세 겹으로 막는다.
 
 위쪽 바에는 왼쪽부터 제목, 빵부스러기(드릴다운일 때), 포커스 표시가 있고 오른쪽에 도구가 모여 있다.
 
-| 도구 | 하는 일 | 키 |
-|---|---|---|
-| **포커스** | 고른 카드가 있을 때만 보인다. [포커스](#포커스) 화면으로 바꾼다 | `F` |
-| 이름으로 찾기 | 지금 보이는 화면의 카드만 찾는다. 찾은 수가 옆에 나오고 Enter로 다음 카드, Shift+Enter로 앞 카드로 옮긴다 | `/` |
-| 작게 보기, 크게 보기 | 가운데를 기준으로 줄이고 키운다. 사이에 배율이 나온다 | `-`, `+` |
-| **맞춤** | 그림 전체를 화면에 맞춘다 | `0` |
-| **범례** | 선 모양(실선, 점선, 묶음 선)과 이 그림에 나온 종류의 칩을 보여준다 | |
-| **확인할 질문** | 미해결 질문 목록과 건수. 질문을 누르면 그 노드가 있는 레벨로 가서 카드를 고른다 | |
-| 테마 | 밝은 화면과 어두운 화면을 바꾼다 | |
+| 도구                 | 하는 일                                                                                                   | 키       |
+| -------------------- | --------------------------------------------------------------------------------------------------------- | -------- |
+| **포커스**           | 고른 카드가 있을 때만 보인다. [포커스](#포커스) 화면으로 바꾼다                                           | `F`      |
+| 이름으로 찾기        | 지금 보이는 화면의 카드만 찾는다. 찾은 수가 옆에 나오고 Enter로 다음 카드, Shift+Enter로 앞 카드로 옮긴다 | `/`      |
+| 작게 보기, 크게 보기 | 가운데를 기준으로 줄이고 키운다. 사이에 배율이 나온다                                                     | `-`, `+` |
+| **맞춤**             | 그림 전체를 화면에 맞춘다                                                                                 | `0`      |
+| **범례**             | 선 모양(실선, 점선, 묶음 선)과 이 그림에 나온 종류의 칩을 보여준다                                        |          |
+| **확인할 질문**      | 미해결 질문 목록과 건수. 질문을 누르면 그 노드가 있는 레벨로 가서 카드를 고른다                           |          |
+| 테마                 | 밝은 화면과 어두운 화면을 바꾼다                                                                          |          |
 
 테마는 처음에 시스템 설정을 따른다. 토글로 바꾸면 그 값을 브라우저 `localStorage`에 남겨 다음에 열 때도 쓴다. 남긴 값이 없으면 시스템 설정이 바뀔 때 함께 바뀐다.
 
@@ -500,14 +516,18 @@ private 근거의 원문은 세 겹으로 막는다.
       "label": "줄서기 등록",
       "state": "WAITING",
       "refs": ["s-queue", "ep-register"],
-      "evidence": [{ "type": "code", "location": "acme-web:src/queue/register.tsx:12", "visibility": "public" }]
+      "evidence": [
+        { "type": "code", "location": "acme-web:src/queue/register.tsx:12", "visibility": "public" }
+      ]
     },
     {
       "id": "st-call",
       "actor": "staff",
       "label": "호출",
       "state": "CALLED",
-      "evidence": [{ "type": "code", "location": "acme-api:src/queue/call.ts:30", "visibility": "public" }]
+      "evidence": [
+        { "type": "code", "location": "acme-api:src/queue/call.ts:30", "visibility": "public" }
+      ]
     }
   ],
   "transitions": [
@@ -517,17 +537,19 @@ private 근거의 원문은 세 겹으로 막는다.
       "to": "st-call",
       "path": "main",
       "lineStyle": "solid",
-      "evidence": [{ "type": "code", "location": "acme-api:src/queue/call.ts:41", "visibility": "public" }]
+      "evidence": [
+        { "type": "code", "location": "acme-api:src/queue/call.ts:41", "visibility": "public" }
+      ]
     }
   ]
 }
 ```
 
-| 필드 | 내용 |
-|---|---|
-| `stateLabels` | 상태 값마다 그림에 찍을 이름. `state`는 코드의 enum 그대로라 사용자 언어로 된 이름을 여기 단다. 구간 머리와 단계 칩에 이 이름이 나오고 단계 서랍에는 `대기 (WAITING)`처럼 둘 다 나온다. 이름이 없는 상태는 상태 값 그대로 찍는다 |
-| `actors` | 가로줄 하나씩. `kind`는 `person`(손님, 직원) 또는 `system`(예약 발송, 배치). 적은 순서대로 위에서부터 놓인다 |
-| `steps` | 카드 하나씩. `state`는 그 단계를 지나면 바뀌는 상태값이다. `refs`는 기술 그림의 `screen`, `endpoint`, `feature`, `micro_app` 노드 id다 |
+| 필드          | 내용                                                                                                                                                                                                                                                                                                       |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stateLabels` | 상태 값마다 그림에 찍을 이름. `state`는 코드의 enum 그대로라 사용자 언어로 된 이름을 여기 단다. 구간 머리와 단계 칩에 이 이름이 나오고 단계 서랍에는 `대기 (WAITING)`처럼 둘 다 나온다. 이름이 없는 상태는 상태 값 그대로 찍는다                                                                           |
+| `actors`      | 가로줄 하나씩. `kind`는 `person`(손님, 직원) 또는 `system`(예약 발송, 배치). 적은 순서대로 위에서부터 놓인다                                                                                                                                                                                               |
+| `steps`       | 카드 하나씩. `state`는 그 단계를 지나면 바뀌는 상태값이다. `refs`는 기술 그림의 `screen`, `endpoint`, `feature`, `micro_app` 노드 id다                                                                                                                                                                     |
 | `transitions` | 단계 사이 화살표. `path`는 정상 흐름이면 `main`, 취소나 노쇼처럼 옆으로 빠지면 `side`다. `label`에 조건을 적는다. `actors`는 그 전이를 일으키는 행위자 id 목록이다. 되돌리기처럼 여럿이 할 수 있는 전이에 달고 선 글자 옆에 이름이 붙는다 (괄호 앞까지만). 없는 행위자를 가리키면 `FLOW_ACTOR_NOT_FOUND`다 |
 
 선 모양 규칙은 엣지와 같다. 상태를 바꾸는 코드를 봤으면 `code` 근거에 실선이다. 기획서나 지식베이스에만 있으면 `doc` 근거에 점선이다. 기획서에만 있고 코드에 없는 단계도 넣는다. 그 단계 카드는 테두리가 점선이다. 기획서와 코드가 다르게 말하면 둘 다 근거로 달고 차이를 `stepId`나 `transitionId`를 단 질문으로 남긴다. 기획서는 의도이고 코드는 동작이라 어느 쪽이 맞는지는 사람이 정해야 한다.
@@ -559,58 +581,58 @@ elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행
 
 ### Actions
 
-| Action | Description |
-|--------|-------------|
-| `start` | 이전 실행 요약과 맥락 파일 후보, 스키마 경로, 읽기 전용 판정 단어를 돌려준다 |
-| `filter_tools` | 도구 이름을 보고 읽기 전용인지 판정해 `allowed`, `denied`, `ambiguous`로 나눈다 |
-| `match_endpoints` | FE 호출과 BE 라우트를 method와 정규화한 경로로 맞춘다 |
-| `validate` | IR을 검증만 한다. 저장하지 않는다 |
-| `render` | 검증하고 이전 실행과 병합한 뒤 IR과 HTML 두 개를 저장한다. `service` 노드가 있으면 HTML이 드릴다운이 된다 |
-| `status` | 두 뷰의 이전 실행 요약을 돌려준다 |
-| `merge` | 따로 돌린 분석 IR 여럿을 하나로 합친다. 저장도 렌더도 안 한다 |
+| Action            | Description                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------------- |
+| `start`           | 이전 실행 요약과 맥락 파일 후보, 스키마 경로, 읽기 전용 판정 단어를 돌려준다                              |
+| `filter_tools`    | 도구 이름을 보고 읽기 전용인지 판정해 `allowed`, `denied`, `ambiguous`로 나눈다                           |
+| `match_endpoints` | FE 호출과 BE 라우트를 method와 정규화한 경로로 맞춘다                                                     |
+| `validate`        | IR을 검증만 한다. 저장하지 않는다                                                                         |
+| `render`          | 검증하고 이전 실행과 병합한 뒤 IR과 HTML 두 개를 저장한다. `service` 노드가 있으면 HTML이 드릴다운이 된다 |
+| `status`          | 두 뷰의 이전 실행 요약을 돌려준다                                                                         |
+| `merge`           | 따로 돌린 분석 IR 여럿을 하나로 합친다. 저장도 렌더도 안 한다                                             |
 
 ### Common Parameters
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|:--------:|---------|-------------|
-| `action` | `string` | Y | — | 수행할 액션 (위 테이블 참고) |
-| `repoRoot` | `string` | N | 현재 작업 디렉토리 | 그림의 기준 레포. 저장 위치와 상대 `root`의 기준이 된다 |
+| Parameter  | Type     | Required | Default            | Description                                             |
+| ---------- | -------- | :------: | ------------------ | ------------------------------------------------------- |
+| `action`   | `string` |    Y     | —                  | 수행할 액션 (위 테이블 참고)                            |
+| `repoRoot` | `string` |    N     | 현재 작업 디렉토리 | 그림의 기준 레포. 저장 위치와 상대 `root`의 기준이 된다 |
 
 ### `start`
 
-| Parameter | Type | Required | Description |
-|-----------|------|:--------:|-------------|
-| `view` | `"screen-chain" \| "deploy-path"` | Y | 그릴 뷰 |
+| Parameter | Type                              | Required | Description |
+| --------- | --------------------------------- | :------: | ----------- |
+| `view`    | `"screen-chain" \| "deploy-path"` |    Y     | 그릴 뷰     |
 
 응답 키는 이렇다.
 
-| 키 | 내용 |
-|---|---|
-| `view` | 요청한 뷰 |
-| `previous` | 이전 실행 요약 `{ generatedAt, nodeCount, edgeCount, unresolvedOpen }`. 처음이면 `null` |
-| `previousSourcesUsed` | 지난 실행의 `sourcesUsed`. 처음이면 `[]` |
-| `contextCandidates` | 읽어볼 맥락 파일 후보 `{ via, identifier, exists, visibility }[]`. `identifier`는 절대 경로다. [글로벌 맥락 후보](#글로벌-맥락-후보) 참고 |
-| `schemaPath` | IR JSON Schema 파일의 절대 경로 |
-| `readOnlyRule` | `{ allow, deny }`. 읽기 전용 판정 단어 목록 |
-| `readOnlyCliRule` | `{ verbs }`. 클라우드 CLI 하위 명령이 시작해야 하는 동사(`list`, `get`, `describe`) |
-| `nextAction` | `"filter_tools"` |
-| `instructions` | 세션이 다음에 할 일 네 줄 |
+| 키                    | 내용                                                                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `view`                | 요청한 뷰                                                                                                                                 |
+| `previous`            | 이전 실행 요약 `{ generatedAt, nodeCount, edgeCount, unresolvedOpen }`. 처음이면 `null`                                                   |
+| `previousSourcesUsed` | 지난 실행의 `sourcesUsed`. 처음이면 `[]`                                                                                                  |
+| `contextCandidates`   | 읽어볼 맥락 파일 후보 `{ via, identifier, exists, visibility }[]`. `identifier`는 절대 경로다. [글로벌 맥락 후보](#글로벌-맥락-후보) 참고 |
+| `schemaPath`          | IR JSON Schema 파일의 절대 경로                                                                                                           |
+| `readOnlyRule`        | `{ allow, deny }`. 읽기 전용 판정 단어 목록                                                                                               |
+| `readOnlyCliRule`     | `{ verbs }`. 클라우드 CLI 하위 명령이 시작해야 하는 동사(`list`, `get`, `describe`)                                                       |
+| `nextAction`          | `"filter_tools"`                                                                                                                          |
+| `instructions`        | 세션이 다음에 할 일 네 줄                                                                                                                 |
 
 ### `filter_tools`
 
-| Parameter | Type | Required | Description |
-|-----------|------|:--------:|-------------|
-| `toolNames` | `string[]` | Y | 세션에 붙은 도구 이름 |
+| Parameter   | Type       | Required | Description           |
+| ----------- | ---------- | :------: | --------------------- |
+| `toolNames` | `string[]` |    Y     | 세션에 붙은 도구 이름 |
 
 응답은 `{ allowed, denied, ambiguous }`다. 각각 `string[]`이고 입력 순서를 유지한다. 판정 규칙은 [읽기 전용 도구 걸러내기](#읽기-전용-도구-걸러내기)에 있다.
 
 ### `match_endpoints`
 
-| Parameter | Type | Required | Description |
-|-----------|------|:--------:|-------------|
-| `feCalls` | `{ id, method, path, baseUrl? }[]` | Y | FE 쪽 API 호출 |
-| `beRoutes` | `{ id, method, path, repo }[]` | Y | BE 쪽 라우트 선언 |
-| `prefixCandidates` | `string[]` | N | FE 경로 앞에 붙는 게이트웨이 prefix 후보 |
+| Parameter          | Type                               | Required | Description                              |
+| ------------------ | ---------------------------------- | :------: | ---------------------------------------- |
+| `feCalls`          | `{ id, method, path, baseUrl? }[]` |    Y     | FE 쪽 API 호출                           |
+| `beRoutes`         | `{ id, method, path, repo }[]`     |    Y     | BE 쪽 라우트 선언                        |
+| `prefixCandidates` | `string[]`                         |    N     | FE 경로 앞에 붙는 게이트웨이 prefix 후보 |
 
 경로 변수 표기(`{id}`, `:id`, `${expr}`, `<int:id>`, `[id]` 등)는 이름과 무관하게 전부 `{}`로 맞춘 뒤 비교한다. 절대 URL의 스킴과 호스트, 쿼리 문자열, 끝 슬래시도 걷어낸다. method가 `*`, `ANY`, `ALL`인 라우트는 어떤 method로 불러도 받는다.
 
@@ -618,44 +640,44 @@ FE 경로는 그대로 한 번 비교한다. `baseUrl`의 경로 부분과 `pref
 
 응답은 `{ matches, unmatched }`다.
 
-| 키 | 꼴 |
-|---|---|
-| `matches` | `{ feCallId, beRouteId, viaPrefix }[]`. prefix 없이 맞았으면 `viaPrefix`는 `null` |
+| 키          | 꼴                                                                                                         |
+| ----------- | ---------------------------------------------------------------------------------------------------------- |
+| `matches`   | `{ feCallId, beRouteId, viaPrefix }[]`. prefix 없이 맞았으면 `viaPrefix`는 `null`                          |
 | `unmatched` | `{ feCallId, reason, candidates }[]`. `reason`은 `no_route`, `ambiguous_prefix`, `multiple_routes` 중 하나 |
 
 `unmatched`는 눈으로 맞춰 실선을 긋지 않는다. `candidates`를 담아 미해결 질문으로 남긴다.
 
 ### `validate`
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|:--------:|---------|-------------|
-| `ir` | `object` | Y* | — | ArchitectureIR JSON |
-| `irPath` | `string` | Y* | — | `ir` 대신 IR 파일 경로. `repoRoot` 기준으로 푼다 |
-| `view` | `string` | N | — | 주면 `ir.view`와 같아야 한다 |
-| `checkFiles` | `boolean` | N | `true` | `code` 근거의 파일과 줄을 확인할지 |
+| Parameter    | Type      | Required | Default | Description                                      |
+| ------------ | --------- | :------: | ------- | ------------------------------------------------ |
+| `ir`         | `object`  |   Y\*    | —       | ArchitectureIR JSON                              |
+| `irPath`     | `string`  |   Y\*    | —       | `ir` 대신 IR 파일 경로. `repoRoot` 기준으로 푼다 |
+| `view`       | `string`  |    N     | —       | 주면 `ir.view`와 같아야 한다                     |
+| `checkFiles` | `boolean` |    N     | `true`  | `code` 근거의 파일과 줄을 확인할지               |
 
 `ir`과 `irPath` 중 하나는 있어야 한다. 둘 다 주면 `ir`을 쓴다. 합친 IR처럼 큰 IR은 응답과 요청에 통째로 싣지 말고 파일로 주고받는다.
 
 성공 응답이다.
 
-| 키 | 내용 |
-|---|---|
-| `ok` | `true` |
-| `errors` | `[]` |
-| `autoUnresolved` | 근거가 없어 자동으로 만든 질문 |
-| `drawable` | `{ nodeIds, edgeIds }`. 그리기 대상 id, 정렬됨 |
+| 키               | 내용                                           |
+| ---------------- | ---------------------------------------------- |
+| `ok`             | `true`                                         |
+| `errors`         | `[]`                                           |
+| `autoUnresolved` | 근거가 없어 자동으로 만든 질문                 |
+| `drawable`       | `{ nodeIds, edgeIds }`. 그리기 대상 id, 정렬됨 |
 
 실패하면 [검증 규칙](#검증-규칙)의 `{ ok: false, errors }`다.
 
 ### `render`
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|:--------:|---------|-------------|
-| `ir` | `object` | Y* | — | ArchitectureIR JSON |
-| `irPath` | `string` | Y* | — | `ir` 대신 IR 파일 경로. validate와 같다 |
-| `view` | `string` | N | — | 주면 `ir.view`와 같아야 한다 |
-| `audience` | `"private" \| "shared"` | N | `"private"` | `openPath`가 가리킬 HTML. 파일은 늘 둘 다 쓴다 |
-| `checkFiles` | `boolean` | N | `true` | `code` 근거의 파일과 줄을 확인할지 |
+| Parameter    | Type                    | Required | Default     | Description                                    |
+| ------------ | ----------------------- | :------: | ----------- | ---------------------------------------------- |
+| `ir`         | `object`                |   Y\*    | —           | ArchitectureIR JSON                            |
+| `irPath`     | `string`                |   Y\*    | —           | `ir` 대신 IR 파일 경로. validate와 같다        |
+| `view`       | `string`                |    N     | —           | 주면 `ir.view`와 같아야 한다                   |
+| `audience`   | `"private" \| "shared"` |    N     | `"private"` | `openPath`가 가리킬 HTML. 파일은 늘 둘 다 쓴다 |
+| `checkFiles` | `boolean`               |    N     | `true`      | `code` 근거의 파일과 줄을 확인할지             |
 
 render는 이 순서로 돈다.
 
@@ -668,16 +690,16 @@ render는 이 순서로 돈다.
 
 성공 응답이다.
 
-| 키 | 내용 |
-|---|---|
-| `ok` | `true` |
-| `irPath` | 저장한 IR 경로 |
-| `htmlPath` | 본인용 HTML 경로 |
-| `sharedHtmlPath` | 공유용 HTML 경로 |
-| `openPath` | `audience`에 따라 둘 중 하나 |
-| `levels` | `{ id, title, nodes, edges }[]`. 드릴다운으로 그렸을 때만 온다. `nodes`와 `edges`는 그 레벨에 그린 수다. 엣지는 묶음 엣지 하나를 하나로 센다 |
-| `stats` | [render stats](#render-stats) |
-| `sourcesUsed` | 병합 결과의 `sourcesUsed` |
+| 키               | 내용                                                                                                                                         |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`             | `true`                                                                                                                                       |
+| `irPath`         | 저장한 IR 경로                                                                                                                               |
+| `htmlPath`       | 본인용 HTML 경로                                                                                                                             |
+| `sharedHtmlPath` | 공유용 HTML 경로                                                                                                                             |
+| `openPath`       | `audience`에 따라 둘 중 하나                                                                                                                 |
+| `levels`         | `{ id, title, nodes, edges }[]`. 드릴다운으로 그렸을 때만 온다. `nodes`와 `edges`는 그 레벨에 그린 수다. 엣지는 묶음 엣지 하나를 하나로 센다 |
+| `stats`          | [render stats](#render-stats)                                                                                                                |
+| `sourcesUsed`    | 병합 결과의 `sourcesUsed`                                                                                                                    |
 
 ### `status`
 
@@ -685,28 +707,28 @@ render는 이 순서로 돈다.
 
 ### `merge`
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|:--------:|---------|-------------|
-| `irs` | `object[]` | Y* | — | 합칠 ArchitectureIR JSON 목록 |
-| `irPaths` | `string[]` | Y* | — | 합칠 IR 파일 경로 목록. `repoRoot` 기준으로 푼다. `irs`와 함께 주면 `irs` 뒤에 이어 붙인다 |
-| `groupNames` | `string[]` | N | 입력의 서비스 이름 | 입력마다 붙일 제품 이름. 넘긴 순서에 맞춘다. 결과 `groups[].name`이 되고 [제품 띠](#제품-띠) 이름과 제품 브릭에 찍힌다 |
-| `prefixCandidates` | `string[]` | N | — | 레포를 넘는 엔드포인트 매칭에서 FE 경로 앞에 붙는 게이트웨이 prefix 후보 |
-| `outPath` | `string` | N | — | 합친 IR을 쓸 파일. 주면 응답에 IR 대신 경로를 싣는다 |
+| Parameter          | Type       | Required | Default            | Description                                                                                                            |
+| ------------------ | ---------- | :------: | ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `irs`              | `object[]` |   Y\*    | —                  | 합칠 ArchitectureIR JSON 목록                                                                                          |
+| `irPaths`          | `string[]` |   Y\*    | —                  | 합칠 IR 파일 경로 목록. `repoRoot` 기준으로 푼다. `irs`와 함께 주면 `irs` 뒤에 이어 붙인다                             |
+| `groupNames`       | `string[]` |    N     | 입력의 서비스 이름 | 입력마다 붙일 제품 이름. 넘긴 순서에 맞춘다. 결과 `groups[].name`이 되고 [제품 띠](#제품-띠) 이름과 제품 브릭에 찍힌다 |
+| `prefixCandidates` | `string[]` |    N     | —                  | 레포를 넘는 엔드포인트 매칭에서 FE 경로 앞에 붙는 게이트웨이 prefix 후보                                               |
+| `outPath`          | `string`   |    N     | —                  | 합친 IR을 쓸 파일. 주면 응답에 IR 대신 경로를 싣는다                                                                   |
 
 입력은 둘 이상이고 뷰가 모두 같아야 한다. 입력마다 파일 확인을 뺀 검증을 먼저 돌려 끊긴 엣지나 private 원문이 있으면 거부한다. 에러 메시지에 몇 번째 입력인지 붙는다. 합치는 규칙은 [분석 합치기](#분석-합치기)에 있다.
 
 성공 응답이다.
 
-| 키 | 내용 |
-|---|---|
-| `ok` | `true` |
-| `ir` 또는 `irPath` | 합친 IR, `outPath`를 줬으면 쓴 경로 |
-| `report.inputs` | 입력 수 |
-| `report.sharedNodes` | 둘 이상의 입력에 있던 노드. `{ id, kind, label, repo, displayName?, inputs }`이고 `inputs`는 넘긴 순서의 번호다 |
-| `report.crossRepoEdges` | 레포를 넘는 매칭으로 새로 그은 엣지 id |
-| `report.conflictQuestions` | 충돌이나 애매한 매칭으로 새로 만든 질문 id |
-| `report.islands` | 공유 노드나 새 엣지로 이어지지 않은 입력 묶음 수. 1이면 한 덩어리다 |
-| `nextAction` | 다음에 할 일 |
+| 키                         | 내용                                                                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `ok`                       | `true`                                                                                                          |
+| `ir` 또는 `irPath`         | 합친 IR, `outPath`를 줬으면 쓴 경로                                                                             |
+| `report.inputs`            | 입력 수                                                                                                         |
+| `report.sharedNodes`       | 둘 이상의 입력에 있던 노드. `{ id, kind, label, repo, displayName?, inputs }`이고 `inputs`는 넘긴 순서의 번호다 |
+| `report.crossRepoEdges`    | 레포를 넘는 매칭으로 새로 그은 엣지 id                                                                          |
+| `report.conflictQuestions` | 충돌이나 애매한 매칭으로 새로 만든 질문 id                                                                      |
+| `report.islands`           | 공유 노드나 새 엣지로 이어지지 않은 입력 묶음 수. 1이면 한 덩어리다                                             |
+| `nextAction`               | 다음에 할 일                                                                                                    |
 
 합친 IR은 `validate`와 `render`에 그대로 넘긴다. render는 `repoRoot`의 같은 뷰 IR과 병합하므로 **원래 분석 레포가 아닌 따로 둔 디렉토리를 `repoRoot`로 준다.** 원래 레포를 주면 그 레포의 단독 분석 IR이 합친 IR로 덮인다.
 
@@ -714,20 +736,20 @@ render는 이 순서로 돈다.
 
 ## render stats
 
-| 키 | 뜻 |
-|---|---|
-| `nodes` | IR의 노드 수 (그리지 않은 것 포함) |
-| `edges` | IR의 엣지 수 (그리지 않은 것 포함) |
-| `drawnEdges` | 그린 엣지 수 |
-| `droppedEdges` | `edges - drawnEdges` |
-| `unresolvedOpen` | 답이 안 달린 질문 수. IR의 질문과 자동 질문을 합친다 |
-| `screenToEndpointRatio` | 화면 중 엔드포인트로 이어진 비율 |
-| `endpointMatchRatio` | 엔드포인트 중 앱 모듈까지 이어진 비율 |
-| `flows` | IR의 흐름 수. 흐름이 있을 때만 붙는다 |
-| `drawnSteps` | 그린 흐름 단계 수. 흐름이 있을 때만 붙는다 |
-| `drawnTransitions` | 그린 흐름 전이 수. 흐름이 있을 때만 붙는다 |
-| `stages` | IR의 구간 수. 구간이 있을 때만 붙는다 |
-| `unstagedNodes` | 어느 구간에도 안 맞아 **그 밖**으로 간 그린 노드 수. 구간이 있을 때만 붙는다 |
+| 키                      | 뜻                                                                           |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| `nodes`                 | IR의 노드 수 (그리지 않은 것 포함)                                           |
+| `edges`                 | IR의 엣지 수 (그리지 않은 것 포함)                                           |
+| `drawnEdges`            | 그린 엣지 수                                                                 |
+| `droppedEdges`          | `edges - drawnEdges`                                                         |
+| `unresolvedOpen`        | 답이 안 달린 질문 수. IR의 질문과 자동 질문을 합친다                         |
+| `screenToEndpointRatio` | 화면 중 엔드포인트로 이어진 비율                                             |
+| `endpointMatchRatio`    | 엔드포인트 중 앱 모듈까지 이어진 비율                                        |
+| `flows`                 | IR의 흐름 수. 흐름이 있을 때만 붙는다                                        |
+| `drawnSteps`            | 그린 흐름 단계 수. 흐름이 있을 때만 붙는다                                   |
+| `drawnTransitions`      | 그린 흐름 전이 수. 흐름이 있을 때만 붙는다                                   |
+| `stages`                | IR의 구간 수. 구간이 있을 때만 붙는다                                        |
+| `unstagedNodes`         | 어느 구간에도 안 맞아 **그 밖**으로 간 그린 노드 수. 구간이 있을 때만 붙는다 |
 
 두 비율은 그린 노드와 그린 엣지만 센다.
 
@@ -742,11 +764,11 @@ render는 이 순서로 돈다.
 
 `<repoRoot>/.gestalt/architecture/` 아래 뷰마다 파일 세 개가 생긴다. 드릴다운도 레벨을 전부 HTML 한 파일에 담는다.
 
-| 파일 | 내용 |
-|---|---|
-| `<view>.json` | 병합된 IR. private 근거의 `excerpt`는 지워져 있다 |
-| `<view>.html` | 본인용 HTML |
-| `<view>.shared.html` | 공유용 HTML |
+| 파일                 | 내용                                              |
+| -------------------- | ------------------------------------------------- |
+| `<view>.json`        | 병합된 IR. private 근거의 `excerpt`는 지워져 있다 |
+| `<view>.html`        | 본인용 HTML                                       |
+| `<view>.shared.html` | 공유용 HTML                                       |
 
 파일은 전부 임시 파일에 쓴 뒤 이름을 바꿔 갈아 끼운다. 브라우저가 열어둔 HTML을 새로고침해도 반쯤 쓰인 파일을 보지 않는다. 저장된 IR이 깨졌거나 스키마에 안 맞으면 `.corrupt-*`로 옮기고 처음 실행처럼 다룬다.
 
@@ -789,10 +811,10 @@ label을 바꾸면 다른 노드가 된다. 엔드포인트 label을 `METHOD /�
 
 그룹이 둘 이상이면 render가 그림을 가로 띠로 나눠 그린다 (`src/architecture/layout.ts`의 `stackBands`). 레인은 그대로 두고 각 열 안에서 카드를 다시 쌓는다.
 
-| 띠 | 카드 |
-|---|---|
-| 맨 위 | 둘 이상의 그룹에 있는 노드, 그룹이 없는 노드 |
-| 그 아래로 그룹마다 하나 | 그 그룹에만 있는 노드. 그룹 순서대로 쌓는다 |
+| 띠                      | 카드                                         |
+| ----------------------- | -------------------------------------------- |
+| 맨 위                   | 둘 이상의 그룹에 있는 노드, 그룹이 없는 노드 |
+| 그 아래로 그룹마다 하나 | 그 그룹에만 있는 노드. 그룹 순서대로 쌓는다  |
 
 띠마다 머리에 점선 구분선을 긋고 그 선에 띠 이름을 단다. 맨 위는 `같이 쓰는 카드`, 나머지는 제품 색 네모와 `A 전용`이다. 띠 높이는 모든 열에서 같게 맞춘다. 그래야 구분선 한 줄로 띠가 갈린다. 같이 쓰는 띠 안에서는 쓰는 제품이 많은 카드가 위로 간다. 여러 제품이 기대는 카드부터 눈에 들어오게 하려는 것이다.
 
@@ -816,12 +838,12 @@ label을 바꾸면 다른 노드가 된다. 엔드포인트 label을 `METHOD /�
 
 금지 단어가 허용 단어보다 먼저다. `getOrCreate`는 `get`이 있어도 `create` 때문에 `denied`다. 토큰 단위로 보므로 `listing`처럼 허용 단어를 품은 다른 단어는 걸리지 않는다.
 
-| 이름 | 결과 |
-|---|---|
-| `mcp__kb__search_docs` | `allowed` |
-| `mcp__kb__create_page` | `denied` |
-| `getOrCreateUser` | `denied` |
-| `mcp__acme__run` | `ambiguous` |
+| 이름                   | 결과        |
+| ---------------------- | ----------- |
+| `mcp__kb__search_docs` | `allowed`   |
+| `mcp__kb__create_page` | `denied`    |
+| `getOrCreateUser`      | `denied`    |
+| `mcp__acme__run`       | `ambiguous` |
 
 세션은 `allowed`만 부른다. `ambiguous`도 부르지 않는다.
 
@@ -836,14 +858,14 @@ label을 바꾸면 다른 노드가 된다. 엔드포인트 label을 `METHOD /�
 5. 동작이 `list`, `get`, `describe`로 시작하지 않으면 `deny`다. `aws configure`는 `list-profiles`만 `allow`다.
 6. 이름이 `get`이어도 `get-object`처럼 파일을 내려받거나, 동작 이름에 `secret`, `password`, `token`, `credential`이 들면 `deny`다.
 
-| 명령 | 결과 |
-|---|---|
-| `aws cloudfront list-distributions --profile acme-prod` | `allow` |
-| `aws s3api get-bucket-website --bucket example-web` | `allow` |
-| `aws s3 sync dist s3://example-web` | `deny` |
-| `aws secretsmanager get-secret-value --secret-id x` | `deny` |
-| `aws cloudfront list-distributions \| jq .` | `deny` |
-| `gcloud compute instances list` | `ambiguous` |
+| 명령                                                    | 결과        |
+| ------------------------------------------------------- | ----------- |
+| `aws cloudfront list-distributions --profile acme-prod` | `allow`     |
+| `aws s3api get-bucket-website --bucket example-web`     | `allow`     |
+| `aws s3 sync dist s3://example-web`                     | `deny`      |
+| `aws secretsmanager get-secret-value --secret-id x`     | `deny`      |
+| `aws cloudfront list-distributions \| jq .`             | `deny`      |
+| `gcloud compute instances list`                         | `ambiguous` |
 
 ---
 
@@ -851,12 +873,12 @@ label을 바꾸면 다른 노드가 된다. 엔드포인트 label을 `METHOD /�
 
 `start`의 `contextCandidates`는 세션이 읽어볼 파일 목록이다. 서버는 경로만 모으고 본문은 읽지 않는다 (`src/architecture/global-context.ts`).
 
-| via | 파일 | visibility |
-|---|---|---|
-| `repo` | `<repoRoot>/CLAUDE.md`, `<repoRoot>/AGENTS.md`, `<repoRoot>/.gestalt/memory.json` | `public` |
-| `repo` | `<repoRoot>/docs/` 아래 `.md` 전부 | `public` |
-| `global` | `~/.claude/CLAUDE.md` | `private` |
-| `global` | 같은 레포로 묶인 `~/.claude/projects/*/memory/` 바로 아래 `.md` | `private` |
+| via      | 파일                                                                              | visibility |
+| -------- | --------------------------------------------------------------------------------- | ---------- |
+| `repo`   | `<repoRoot>/CLAUDE.md`, `<repoRoot>/AGENTS.md`, `<repoRoot>/.gestalt/memory.json` | `public`   |
+| `repo`   | `<repoRoot>/docs/` 아래 `.md` 전부                                                | `public`   |
+| `global` | `~/.claude/CLAUDE.md`                                                             | `private`  |
+| `global` | 같은 레포로 묶인 `~/.claude/projects/*/memory/` 바로 아래 `.md`                   | `private`  |
 
 정렬은 `repo`가 먼저고 그 안에서는 경로순이다. 홈 아래에서 레포를 연 경우처럼 같은 파일이 두 번 잡히면 `repo` 쪽 하나만 남긴다.
 
@@ -889,8 +911,8 @@ render는 자동 질문까지 IR에 저장한다. 답이 안 달린 질문은 HT
 
 ## Skills
 
-| 슬래시 커맨드 | 파일 | 설명 |
-|---|---|---|
+| 슬래시 커맨드   | 파일                           | 설명                                       |
+| --------------- | ------------------------------ | ------------------------------------------ |
 | `/architecture` | `skills/architecture/SKILL.md` | 뷰 하나를 탐색부터 render까지 드라이빙한다 |
 
 설계 리뷰나 설계 자문은 `architect` 에이전트를 쓴다. 파일 단위 의존성과 영향 범위는 [코드 그래프](./code-graph.md)를 쓴다.
