@@ -262,7 +262,11 @@ export interface ArchitectureFlow {
 }
 
 /** 투영의 답 모양. 지도(nodes, edges)는 그대로 두고 질문 하나에 맞게 골라 그린다 */
-export const PROJECTION_SHAPES = ['sequence'] as const;
+/**
+ * 투영 모양. sequence는 주고받는 순서, dataflow는 데이터가 어디서 어디로 옮겨 가는지, compare는 두 묶음의 같고 다른 점이다.
+ * 팩과 무관하게 어느 카테고리든 이 중 하나로 답한다
+ */
+export const PROJECTION_SHAPES = ['sequence', 'dataflow', 'compare'] as const;
 export type ProjectionShape = (typeof PROJECTION_SHAPES)[number];
 /** sequence 묶음 종류. alt는 경우 나누기, opt는 조건이 맞을 때만, loop는 반복, par는 동시 실행이다 */
 export const SEQUENCE_BLOCK_KINDS = ['alt', 'opt', 'loop', 'par'] as const;
@@ -304,8 +308,18 @@ export interface ArchitectureProjection {
   question: string;
   /** 왼쪽부터 놓을 참여자. 없으면 메시지에 처음 나온 순서다 */
   participants?: string[];
+  /** sequence와 dataflow의 선. compare는 비워 둔다 */
   messages: ProjectionMessage[];
   blocks?: ProjectionBlock[];
+  /** compare가 견주는 두 묶음. 전과 후, 제품 둘처럼 왼쪽과 오른쪽에 선다 */
+  sides?: ProjectionSide[];
+}
+
+/** compare 묶음 하나. nodes는 지도의 노드 id다. 두 묶음에 다 있는 노드는 가운데 열에 선다 */
+export interface ProjectionSide {
+  id: string;
+  label: string;
+  nodes: string[];
 }
 
 /**

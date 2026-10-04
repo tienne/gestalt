@@ -1006,7 +1006,7 @@ export function shouldDrillDown(validated: ValidatedIr): boolean {
     // 독립 흐름은 레벨로만 그려지므로 서비스가 없어도 드릴다운 HTML이 필요하다
     (validated.ir.flows ?? []).some((f) => f.service === undefined) ||
     // 질문별 그림도 레벨로만 붙는다
-    (validated.drawableMessageIds?.size ?? 0) > 0
+    (validated.drawableProjectionIds?.size ?? 0) > 0
   );
 }
 

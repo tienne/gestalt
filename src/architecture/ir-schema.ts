@@ -256,13 +256,22 @@ const projectionSchema = z.object({
   title: z.string().min(1),
   question: z.string().min(1),
   participants: z.array(z.string().min(1)).optional(),
-  messages: z.array(projectionMessageSchema).min(1),
+  messages: z.array(projectionMessageSchema),
   blocks: z
     .array(
       z.object({
         id: z.string().min(1),
         kind: z.enum(SEQUENCE_BLOCK_KINDS),
         label: z.string().min(1),
+      }),
+    )
+    .optional(),
+  sides: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        label: z.string().min(1),
+        nodes: z.array(z.string().min(1)),
       }),
     )
     .optional(),

@@ -60,7 +60,9 @@ export type ArchitectureValidationErrorCode =
   | 'PROJECTION_EDGE_MISMATCH'
   | 'PROJECTION_BLOCK_NOT_FOUND'
   | 'PROJECTION_BLOCK_SPLIT'
-  | 'SOLID_MESSAGE_WITHOUT_EVIDENCE';
+  | 'SOLID_MESSAGE_WITHOUT_EVIDENCE'
+  | 'PROJECTION_EMPTY'
+  | 'PROJECTION_SHAPE_FIELD';
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -85,6 +87,8 @@ export interface ValidatedIr {
   drawableTransitionIds: Set<string>;
   /** 근거가 있고 양 끝 노드가 그려지는 투영 메시지. 투영이 없으면 비어 있다 */
   drawableMessageIds?: Set<string>;
+  /** 그릴 것이 하나라도 남는 투영. compare는 묶음 노드 중 하나라도 그려지면 남는다 */
+  drawableProjectionIds?: Set<string>;
   autoUnresolved: UnresolvedQuestion[];
 }
 
@@ -646,6 +650,10 @@ function checkProjections(
       });
     };
     for (const id of p.participants ?? []) missingNode(id, 'participants');
+    checkProjectionShape(p, errors);
+    for (const side of p.sides ?? []) {
+      for (const id of side.nodes) missingNode(id, `묶음 "${side.id}"의 nodes`);
+    }
     const participants = p.participants !== undefined ? new Set(p.participants) : undefined;
     const blockIds = new Set((p.blocks ?? []).map((b) => b.id));
     const closedBlocks = new Set<string>();
@@ -723,6 +731,44 @@ function checkProjections(
   }
 }
 
+/** 모양마다 쓰는 필드가 다르다. 안 쓰는 필드에 값이 있으면 세션이 모양을 잘못 고른 것이라 거부한다 */
+function checkProjectionShape(
+  p: ArchitectureProjection,
+  errors: ArchitectureValidationError[],
+): void {
+  const misuse = (field: string): void => {
+    errors.push({
+      code: 'PROJECTION_SHAPE_FIELD',
+      message: `투영 "${p.id}"는 ${p.shape}인데 ${field}`,
+      projectionId: p.id,
+    });
+  };
+  if (p.shape === 'compare') {
+    if (p.messages.length > 0) misuse('messages가 있다. compare는 sides만 쓴다.');
+    if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
+    const sides = p.sides ?? [];
+    if (sides.length !== 2) misuse(`sides가 ${sides.length}개다. 두 개를 견준다.`);
+    else if (sides[0]!.id === sides[1]!.id) misuse(`두 sides의 id가 "${sides[0]!.id}"로 같다.`);
+    return;
+  }
+  if (p.sides !== undefined) misuse('sides가 있다. 묶음 견주기는 compare만 쓴다.');
+  if (p.messages.length === 0) {
+    errors.push({
+      code: 'PROJECTION_EMPTY',
+      message: `투영 "${p.id}"에 메시지가 없다. ${p.shape}는 메시지를 하나 이상 적는다.`,
+      projectionId: p.id,
+    });
+  }
+  if (p.shape === 'dataflow') {
+    if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
+    const seqOnly = p.messages.find(
+      (m) => m.reply !== undefined || m.block !== undefined || m.branch !== undefined,
+    );
+    if (seqOnly)
+      misuse(`메시지 "${seqOnly.id}"에 reply, block, branch가 있다. 순서 표시는 sequence만 쓴다.`);
+  }
+}
+
 /**
  * 투영에서 그릴 메시지를 고른다. 근거가 없으면 그리지 않고 질문으로 돌린다.
  * 양 끝 노드가 안 그려지는 메시지도 뺀다. 선은 근거로 다시 정한다
@@ -733,25 +779,34 @@ function settleProjections(
   drawableNodeIds: ReadonlySet<string>,
   nameById: (id: string) => string,
   ask: (q: UnresolvedQuestion) => void,
-): { projections: ArchitectureProjection[]; messages: Set<string> } {
+): { projections: ArchitectureProjection[]; messages: Set<string>; drawable: Set<string> } {
   const messages = new Set<string>();
+  const drawable = new Set<string>();
   const settled = projections.map((p) => ({
     ...p,
     messages: p.messages.map((m) => {
       const evidence = messageEvidence(m, edgeById);
       if (evidence.length === 0) {
+        const verb = p.shape === 'dataflow' ? '옮겨 가나요' : '주고받나요';
         ask({
           id: `auto:message:${m.id}`,
           subject: { messageId: m.id },
-          question: `"${nameById(m.from)}"에서 "${nameById(m.to)}"로 가는 "${m.label}"를 코드나 문서에서 확인하지 못했어요. 실제로 주고받나요?`,
+          question: `"${nameById(m.from)}"에서 "${nameById(m.to)}"로 가는 "${m.label}"를 코드나 문서에서 확인하지 못했어요. 실제로 ${verb}?`,
         });
       } else if (drawableNodeIds.has(m.from) && drawableNodeIds.has(m.to)) {
         messages.add(m.id);
+        drawable.add(p.id);
       }
       return { ...m, lineStyle: deriveLineStyle(evidence) };
     }),
   }));
-  return { projections: settled, messages };
+  // compare는 선이 없다. 견줄 노드가 하나라도 그려지면 그린다
+  for (const p of projections) {
+    if (p.sides?.some((side) => side.nodes.some((id) => drawableNodeIds.has(id)))) {
+      drawable.add(p.id);
+    }
+  }
+  return { projections: settled, messages, drawable };
 }
 
 /**
@@ -1141,7 +1196,12 @@ export function validateArchitectureIr(
       drawableEdgeIds,
       drawableStepIds: flowResult.steps,
       drawableTransitionIds: flowResult.transitions,
-      ...(projectionResult !== undefined ? { drawableMessageIds: projectionResult.messages } : {}),
+      ...(projectionResult !== undefined
+        ? {
+            drawableMessageIds: projectionResult.messages,
+            drawableProjectionIds: projectionResult.drawable,
+          }
+        : {}),
       autoUnresolved,
     },
   };
@@ -1196,6 +1256,9 @@ function maskProjectionText(p: ArchitectureProjection): ArchitectureProjection {
     })),
     ...(p.blocks !== undefined
       ? { blocks: p.blocks.map((b) => ({ ...b, label: maskSharedText(b.label) })) }
+      : {}),
+    ...(p.sides !== undefined
+      ? { sides: p.sides.map((side) => ({ ...side, label: maskSharedText(side.label) })) }
       : {}),
   };
 }

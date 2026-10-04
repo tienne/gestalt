@@ -579,6 +579,14 @@ export function mergeArchitectureIrs(
         ...(pr.participants !== undefined
           ? { participants: pr.participants.map((id) => mapNode(input, id)) }
           : {}),
+        ...(pr.sides !== undefined
+          ? {
+              sides: pr.sides.map((side) => ({
+                ...side,
+                nodes: side.nodes.map((id) => mapNode(input, id)),
+              })),
+            }
+          : {}),
         messages: pr.messages.map((m) => ({
           ...m,
           id: mapMessage(input, m.id),

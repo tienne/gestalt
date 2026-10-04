@@ -40,6 +40,8 @@ import {
 } from './layout.js';
 import { indexMicroApps } from './micro-app.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, type Vocabulary } from './packs/index.js';
+import { computeCompareLayout, type CompareLayout } from './compare-layout.js';
+import { computeDataflowLayout, type DataflowLayout } from './dataflow-layout.js';
 import { computeSequenceLayout, type SequenceLayout } from './sequence-layout.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
@@ -738,6 +740,7 @@ function messagePayload(
           ...m.evidence,
           ...(m.edge !== undefined ? (edgeById.get(m.edge)?.evidence ?? []) : []),
         ],
+        ...(projection.shape === 'dataflow' ? { shape: 'dataflow' } : {}),
         ...(m.edge !== undefined ? { edge: m.edge } : {}),
         ...(m.reply ? { reply: true } : {}),
         ...(m.block !== undefined ? { block: blockLabel.get(m.block) } : {}),
@@ -756,6 +759,59 @@ const SEQUENCE_BLOCK_TEXT: Record<SequenceBlockKind, string> = {
   par: '동시',
 };
 const ARROW = 8;
+
+/** 투영 그림의 카드. 지도 카드를 그대로 써서 누르면 같은 서랍이 열린다 */
+function viewCards(
+  boxes: readonly { id: string; x: number; y: number; width: number; height: number }[],
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  services: Record<string, ServiceFacts>,
+): string {
+  return boxes
+    .map((b) =>
+      renderCard(
+        nodeById.get(b.id)!,
+        {
+          id: b.id,
+          x: b.x,
+          y: b.y,
+          width: b.width,
+          height: b.height,
+        } as LayoutResult['nodes'][number],
+        false,
+        false,
+        services[b.id],
+        undefined,
+        { host: false },
+      ),
+    )
+    .join('');
+}
+
+const VIEW_SVG_LABEL: Record<ArchitectureProjection['shape'], string> = {
+  sequence: '메시지',
+  dataflow: '데이터 이동',
+  compare: '견주기',
+};
+
+/** 투영 레벨 하나. 맨 위에 답하는 질문을 적고 그 아래 모양별 선과 카드를 얹는다 */
+function viewSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  width: number,
+  height: number,
+  under: string,
+  links: string,
+  cards: string,
+): string {
+  return (
+    `<section class="level view-level" data-level-id="${escapeHtml(levelId)}" aria-label="${escapeHtml(projection.title)}" ` +
+    `data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px" hidden>` +
+    `<p class="view-q" style="left:${CANVAS_PAD_X}px">${escapeHtml(projection.question)}</p>` +
+    `<svg class="links" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
+    `role="group" aria-label="${escapeHtml(`${projection.title} ${VIEW_SVG_LABEL[projection.shape]}`)}"><g class="lanes">${under}</g><g class="edges">${links}</g></svg>` +
+    `${cards}</section>`
+  );
+}
 
 /** 질문 하나에 답하는 sequence 그림. 머리 카드는 지도 카드를 그대로 써서 누르면 같은 서랍이 열린다 */
 function renderSequenceSection(
@@ -851,32 +907,102 @@ function renderSequenceSection(
       );
     })
     .join('');
-  const cards = layout.heads
-    .map((h) =>
-      renderCard(
-        nodeById.get(h.id)!,
-        {
-          id: h.id,
-          x: h.x,
-          y: h.y,
-          width: h.width,
-          height: h.height,
-        } as LayoutResult['nodes'][number],
-        false,
-        false,
-        services[h.id],
-        undefined,
-        { host: false },
-      ),
+  return viewSection(
+    levelId,
+    projection,
+    width,
+    height,
+    `${lifelines}${blocks}`,
+    links,
+    viewCards(layout.heads, nodeById, services),
+  );
+}
+
+/** 데이터가 어디서 어디로 옮겨 가는지. 선 라벨이 옮겨 가는 데이터 이름이다 */
+function renderDataflowSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  layout: DataflowLayout,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  services: Record<string, ServiceFacts>,
+): string {
+  const px = (x: number): number => round2(x + CANVAS_PAD_X);
+  const py = (y: number): number => round2(y + CANVAS_PAD_TOP);
+  const shift = (d: string): string =>
+    d.replace(
+      /(-?[\d.]+) (-?[\d.]+)/g,
+      (_, x: string, y: string) => `${px(Number(x))} ${py(Number(y))}`,
+    );
+  const shiftPt = (p: string): string => {
+    const [x, y] = p.split(',');
+    return `${px(Number(x))},${py(Number(y))}`;
+  };
+  const width = round2(layout.width + CANVAS_PAD_X * 2);
+  const height = round2(layout.height + CANVAS_PAD_TOP);
+  const messageById = new Map(projection.messages.map((m) => [m.id, m]));
+  const nameOf = (id: string): string => {
+    const n = nodeById.get(id);
+    return n ? nodeName(n) : id;
+  };
+  const links = layout.edges
+    .map((e) => {
+      const m = messageById.get(e.id)!;
+      const dash = m.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
+      const d = shift(e.d);
+      const name =
+        `${nameOf(m.from)} → ${nameOf(m.to)}: ${m.label}` +
+        (m.lineStyle === 'dashed' ? ', 문서로만 확인' : '');
+      return (
+        `<g class="link seq-m df-m" data-from="${escapeHtml(m.from)}" data-to="${escapeHtml(m.to)}" ` +
+        `data-message-id="${escapeHtml(m.id)}" tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
+        `<title>${escapeHtml(name)}</title><path class="hit" d="${d}" stroke-width="12"/>` +
+        `<path class="edge" d="${d}" stroke-width="1.6"${dash}/><polygon class="tip" points="${e.tip.map(shiftPt).join(' ')}"/>` +
+        `<text class="m-label" x="${px(e.labelX)}" y="${py(e.labelY)}" text-anchor="middle">${escapeHtml(m.label)}</text></g>`
+      );
+    })
+    .join('');
+  return viewSection(
+    levelId,
+    projection,
+    width,
+    height,
+    '',
+    links,
+    viewCards(layout.cards, nodeById, services),
+  );
+}
+
+/** 두 묶음 견주기. 왼쪽에만, 둘 다, 오른쪽에만 세 열로 세운다 */
+function renderCompareSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  layout: CompareLayout,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  services: Record<string, ServiceFacts>,
+): string {
+  const px = (x: number): number => round2(x + CANVAS_PAD_X);
+  const py = (y: number): number => round2(y + CANVAS_PAD_TOP);
+  const width = round2(layout.width + CANVAS_PAD_X * 2);
+  const height = round2(layout.height + CANVAS_PAD_TOP);
+  const columns = layout.columns
+    .map(
+      (c) =>
+        `<g class="cmp-col cmp-${c.key}"><rect x="${px(c.x)}" y="${py(0)}" width="${c.width}" height="${c.height}" rx="10"/>` +
+        `<text class="cmp-head" x="${px(c.x + 16)}" y="${py(25)}">${escapeHtml(c.title)}<tspan class="cmp-n" dx="8">${c.count}</tspan></text>` +
+        (c.count === 0
+          ? `<text class="cmp-empty" x="${px(c.x + c.width / 2)}" y="${py(66)}" text-anchor="middle">없음</text>`
+          : '') +
+        '</g>',
     )
     .join('');
-  return (
-    `<section class="level view-level" data-level-id="${escapeHtml(levelId)}" aria-label="${escapeHtml(projection.title)}" ` +
-    `data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px" hidden>` +
-    `<p class="view-q" style="left:${CANVAS_PAD_X}px">${escapeHtml(projection.question)}</p>` +
-    `<svg class="links" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
-    `role="group" aria-label="${escapeHtml(`${projection.title} 메시지`)}"><g class="lanes">${lifelines}${blocks}</g><g class="edges">${links}</g></svg>` +
-    `${cards}</section>`
+  return viewSection(
+    levelId,
+    projection,
+    width,
+    height,
+    columns,
+    '',
+    viewCards(layout.cards, nodeById, services),
   );
 }
 
@@ -1324,13 +1450,10 @@ export function renderDrilldownHtml(
     });
   }
   const drawnMessages = validated.drawableMessageIds ?? new Set<string>();
+  const drawnViews = validated.drawableProjectionIds ?? new Set<string>();
   const views = (ir.projections ?? [])
-    .filter((p) => p.messages.some((m) => drawnMessages.has(m.id)))
-    .map((projection) => ({
-      level: `${VIEW_LEVEL_PREFIX}${projection.id}`,
-      projection,
-      layout: computeSequenceLayout(projection, drawnMessages, nodeById),
-    }));
+    .filter((p) => drawnViews.has(p.id))
+    .map((projection) => ({ level: `${VIEW_LEVEL_PREFIX}${projection.id}`, projection }));
   if (views.length > 0) {
     Object.assign(payload, {
       levels: [
@@ -1376,9 +1499,19 @@ export function renderDrilldownHtml(
       ),
     )
     .concat(
-      views.map((v) =>
-        renderSequenceSection(v.level, v.projection, v.layout, nodeById, base.services),
-      ),
+      views.map((v) => {
+        const p = v.projection;
+        if (p.shape === 'dataflow') {
+          const layout = computeDataflowLayout(p, drawnMessages, nodeById);
+          return renderDataflowSection(v.level, p, layout, nodeById, base.services);
+        }
+        if (p.shape === 'compare') {
+          const layout = computeCompareLayout(p, drawableNodes, nodeById);
+          return renderCompareSection(v.level, p, layout, nodeById, base.services);
+        }
+        const layout = computeSequenceLayout(p, drawnMessages, nodeById);
+        return renderSequenceSection(v.level, p, layout, nodeById, base.services);
+      }),
     )
     .join('\n');
   return renderPage({

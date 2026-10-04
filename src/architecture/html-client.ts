@@ -48,7 +48,7 @@ const VIEW_FUNCS = `  var messages = data.messages || {};
     selectedId = null;
     syncFocusBtn();
     panel.textContent = '';
-    panel.appendChild(panelHead('flow', 'u-flow', '주고받기', m.view, m.label));
+    panel.appendChild(panelHead('flow', 'u-flow', m.shape === 'dataflow' ? '데이터 이동' : '주고받기', m.view, m.label));
     var body = el('div', 'dr-body');
     var facts = el('ul', 'facts');
     factRow(facts, '보내는 쪽', label(m.from));

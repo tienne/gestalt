@@ -100,6 +100,7 @@ export interface ProjectionSlice {
 function projectionSlice(ir: ArchitectureIr, pr: ArchitectureProjection): ProjectionSlice {
   const nodeIds = new Set([
     ...(pr.participants ?? []),
+    ...(pr.sides ?? []).flatMap((side) => side.nodes),
     ...pr.messages.flatMap((m) => [m.from, m.to]),
   ]);
   const edgeIds = new Set(pr.messages.flatMap((m) => (m.edge !== undefined ? [m.edge] : [])));
@@ -239,6 +240,9 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
   const projections = next.projections?.map((pr) => ({
     ...pr,
     ...(pr.participants !== undefined ? { participants: pr.participants.map(mapNodeId) } : {}),
+    ...(pr.sides !== undefined
+      ? { sides: pr.sides.map((side) => ({ ...side, nodes: side.nodes.map(mapNodeId) })) }
+      : {}),
     messages: pr.messages.map((m) => ({
       ...m,
       from: mapNodeId(m.from),
@@ -324,7 +328,8 @@ function carryProjections(
   for (const pr of prev) {
     if (projectionIds.has(pr.id)) continue;
     if (pr.messages.some((m) => messageIds.has(m.id))) continue;
-    if (!(pr.participants ?? []).every((id) => nodeIds.has(id))) continue;
+    const listed = [...(pr.participants ?? []), ...(pr.sides ?? []).flatMap((side) => side.nodes)];
+    if (!listed.every((id) => nodeIds.has(id))) continue;
     const alive = pr.messages.every((m) => {
       if (!nodeIds.has(m.from) || !nodeIds.has(m.to)) return false;
       if (m.edge === undefined) return true;

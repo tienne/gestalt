@@ -656,7 +656,11 @@ export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; fon
 .link.seq-m .m-n { fill: var(--muted); }
 .view-list a { display: block; padding: 8px 10px; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 13px; }
 .view-list a:hover { background: var(--lane); }
-.view-list a span { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }`;
+.view-list a span { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.cmp-col rect { fill: var(--lane); stroke: var(--border); stroke-width: 1; }
+.cmp-col.cmp-both rect { stroke: var(--border-strong); stroke-width: 1.5; }
+.cmp-head { font-size: 12.5px; font-weight: 700; fill: var(--text); }
+.cmp-n, .cmp-empty { font-size: 12px; font-weight: 400; fill: var(--muted); }`;
 
 /** 테마 토큰과 레이아웃 CSS. 시스템 설정을 기본으로 따르고 html의 data-theme가 있으면 그걸 따른다 */
 export function renderCss(vocab: Vocabulary = LEGACY_VOCABULARY): string {

@@ -413,7 +413,7 @@
       "required": ["id", "shape", "title", "question", "messages"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
-        "shape": { "type": "string", "enum": ["sequence"] },
+        "shape": { "type": "string", "enum": ["sequence", "dataflow", "compare"] },
         "title": { "type": "string", "minLength": 1 },
         "question": {
           "type": "string",
@@ -423,10 +423,24 @@
         "participants": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "messages": {
           "type": "array",
-          "minItems": 1,
+          "description": "lines of sequence and dataflow. Leave empty for compare",
           "items": { "$ref": "#/definitions/projectionMessage" }
         },
-        "blocks": { "type": "array", "items": { "$ref": "#/definitions/projectionBlock" } }
+        "blocks": { "type": "array", "items": { "$ref": "#/definitions/projectionBlock" } },
+        "sides": {
+          "type": "array",
+          "description": "the two groups compare puts side by side, such as before and after",
+          "items": { "$ref": "#/definitions/projectionSide" }
+        }
+      }
+    },
+    "projectionSide": {
+      "type": "object",
+      "required": ["id", "label", "nodes"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "nodes": { "type": "array", "items": { "type": "string", "minLength": 1 } }
       }
     }
   }
