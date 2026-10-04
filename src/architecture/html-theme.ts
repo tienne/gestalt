@@ -192,7 +192,7 @@ const DARK_TOKENS = `
   --loads: #7dd3fc;
   --hit: #fbbf24;
   --brick-base: #171a21;
-  --brick-tint: 32%;
+  --brick-tint: 44%;
   --shadow: none;
   --shadow-hover: 0 6px 18px rgba(0, 0, 0, 0.4);
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
