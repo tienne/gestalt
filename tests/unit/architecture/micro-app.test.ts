@@ -194,40 +194,57 @@ describe('micro_app 드릴다운', () => {
     expect(d.levels.some((l) => l.id === 'app:app-shell')).toBe(false);
   });
 
-  it('서비스 레벨은 진입 앱의 사슬과 기능 영역, 리모트 앱 카드를 보인다', async () => {
+  it('서비스 레벨은 진입 앱 사슬 뒤로 호스트, 리모트, 기능 영역, 화면을 열로 나눠 세운다', async () => {
     const svc = level(await computeDrilldown(validated()), 'service:svc-console');
     expect(svc.title).toBe('Acme 콘솔');
     expect(svc.focusId).toBe('app-shell');
-    expect(svc.nodeIds).toEqual(
-      expect.arrayContaining([
-        'app-shell',
-        'f-shell',
-        'b-shell-prod',
-        'b-shell-dev',
-        'd-shell-prod',
-      ]),
-    );
+    expect(svc.nodeIds).not.toContain('b-coupon-prod');
+    const box = (id: string) => svc.layout.nodes.find((n) => n.id === id)!;
+    const columns = [
+      'd-shell-prod',
+      'cdn-shell-prod',
+      'b-shell-prod',
+      'app-shell',
+      'app-coupon',
+      'f-coupon',
+      's-coupon',
+      'gw',
+    ];
+    for (const [i, id] of columns.entries()) {
+      if (i > 0) expect(box(id).x).toBeGreaterThan(box(columns[i - 1]!).x);
+    }
+    // 호스트 자기 기능 영역은 리모트 열을 건너 바로 이어진다
+    expect(box('f-shell').x).toBe(box('f-coupon').x);
+    expect(svc.edges.find((e) => e.id === 'contains:app-shell->f-shell')).toBeDefined();
+    expect(svc.edges.find((e) => e.id === 'contains:app-coupon->f-coupon')).toBeDefined();
+    expect(svc.edges.find((e) => e.id === 'contains:f-coupon->s-coupon')).toBeDefined();
+    expect(svc.edges.find((e) => e.id === 'bundle:s-coupon->gw')).toBeDefined();
     for (const r of REMOTES) {
-      expect(svc.nodeIds).toContain(`app-${r}`);
-      expect(svc.nodeIds).not.toContain(`f-${r}`);
-      expect(svc.nodeIds).not.toContain(`b-${r}-prod`);
       expect(svc.edges.find((e) => e.id === `ld-${r}`)).toMatchObject({
         from: 'app-shell',
         to: `app-${r}`,
         kind: 'loads',
       });
     }
+    expect(svc.layout.lanes.map((l) => l.id)).toEqual(
+      expect.arrayContaining(['host', 'remote', 'unit', 'screen']),
+    );
   });
 
-  it('서비스 레벨 리모트 카드는 기능 영역 열 맨 아래에 선다', async () => {
+  it('서비스 레벨은 리모트 블록을 먼저 쌓고 부모 카드를 첫 자식 높이에 맞춘다', async () => {
     const svc = level(await computeDrilldown(validated()), 'service:svc-console');
     const box = (id: string) => svc.layout.nodes.find((n) => n.id === id)!;
-    const remotes = REMOTES.map((r) => box(`app-${r}`));
-    for (const b of remotes) {
-      expect(b.x).toBe(box('f-shell').x);
-      expect(b.y).toBeGreaterThan(box('f-shell').y);
+    for (const r of REMOTES) {
+      expect(box(`app-${r}`).y).toBe(box(`f-${r}`).y);
+      expect(box(`f-${r}`).y).toBe(box(`s-${r}`).y);
+      expect(box(`s-${r}`).y).toBeLessThan(box('s-shell').y);
     }
-    expect(box('app-shell').y).toBeLessThanOrEqual(box('f-shell').y);
+    expect(box('app-shell').y).toBe(Math.min(...REMOTES.map((r) => box(`app-${r}`).y)));
+    expect(box('d-shell-prod').y).toBe(box('app-shell').y);
+    const screens = svc.layout.nodes.filter((n) => n.id.startsWith('s-')).sort((x, y) => x.y - y.y);
+    for (let i = 1; i < screens.length; i++) {
+      expect(screens[i]!.y).toBeGreaterThanOrEqual(screens[i - 1]!.y + screens[i - 1]!.height);
+    }
   });
 
   it('리모트 레벨은 그 앱의 기능 영역과 서빙 사슬만 보이고 빵부스러기는 서비스를 거친다', async () => {
