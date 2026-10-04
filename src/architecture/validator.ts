@@ -362,9 +362,11 @@ function checkMicroApps(ir: ArchitectureIr, errors: ArchitectureValidationError[
     if (ends.every((k) => k === 'micro_app' || k === undefined)) continue;
     // 하네스 클라이언트가 플러그인을 읽어 들이는 것도 런타임 로드다
     if (ends[0] === 'client' && (ends[1] === 'service' || ends[1] === undefined)) continue;
+    // MCP 서버의 레지스트리가 AGENT.md를 읽어 세션에 넘기는 자리다. 스킬이 안 띄우는 에이전트는 이 선으로만 그림에 닿는다
+    if (ends[0] === 'app_module' && (ends[1] === 'agent' || ends[1] === undefined)) continue;
     errors.push({
       code: 'INVALID_LOADS_ENDS',
-      message: `loads 엣지 "${edge.id}"는 micro_app에서 micro_app으로, 또는 client에서 service로만 이을 수 있는데 ${ends.join(' → ')}다.`,
+      message: `loads 엣지 "${edge.id}"는 micro_app에서 micro_app으로, client에서 service로, app_module에서 agent로만 이을 수 있는데 ${ends.join(' → ')}다.`,
       edgeId: edge.id,
     });
   }

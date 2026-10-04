@@ -388,6 +388,31 @@ describe('하네스 드릴다운', () => {
     expect(laneOf(engine, 'mod:plan-handler')).toBe('app_module');
   });
 
+  it('스킬이 안 띄우는 에이전트는 읽어 들이는 레지스트리 서버 레벨에 선다', async () => {
+    const ir = fixture();
+    ir.nodes.push(
+      node('agent:writer', 'agent', 'agents/writer/AGENT.md:1'),
+      node('mod:registry', 'app_module', 'src/agent/registry.ts:1'),
+    );
+    ir.edges.push(
+      edge('e:plan-registry', 'mod:plan-handler', 'mod:registry', 'uses', 'src/tools/plan.ts:4'),
+      edge('e:loads-writer', 'mod:registry', 'agent:writer', 'loads', 'src/agent/registry.ts:12'),
+    );
+    const registry = level((await computeDrilldown(validated(ir))).levels, 'server:mod:registry');
+    expect(registry.nodeIds).toContain('agent:writer');
+    expect(registry.edges.map((e) => e.id)).toContain('e:loads-writer');
+    expect(laneOf(registry, 'agent:writer')).toBe('agent');
+  });
+
+  it('loads는 서버 모듈에서 에이전트로는 잇지만 스킬에서 에이전트로는 거부한다', () => {
+    const ok = fixture();
+    ok.edges.push(edge('e:l', 'mod:engine', 'agent:reviewer', 'loads', 'src/engine/index.ts:4'));
+    expect(errorCodes(ok)).not.toContain('INVALID_LOADS_ENDS');
+    const bad = fixture();
+    bad.edges.push(edge('e:l', 'skill:plan', 'agent:reviewer', 'loads', 'src/engine/index.ts:4'));
+    expect(errorCodes(bad)).toContain('INVALID_LOADS_ENDS');
+  });
+
   it('전체보기에서 나가는 선 없는 핸들러도 엔진 열이 아니라 핸들러 열에 선다', async () => {
     // elk는 같은 열 묶음 안에서 나가는 선 없는 카드를 뒤쪽 층으로 민다. 엔진이 저장소로 이어지는 모양에서 드러난다
     const tool = (id: string, line: number) =>

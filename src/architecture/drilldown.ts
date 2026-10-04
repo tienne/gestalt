@@ -935,6 +935,16 @@ function serverLevel(g: Graph, server: ArchitectureNode): LevelDraft {
       laneOverride.set(other, 'app_module');
     }
   }
+  // 레지스트리가 읽어 들이는 에이전트는 받는 쪽 열에 세운다. 스킬이 안 띄우는 에이전트가 드릴다운에 서는 유일한 자리다
+  if (server.kind === 'app_module') {
+    for (const l of edgesOf(g, 'loads', 'app_module', 'agent')) {
+      if (l.from !== server.id) continue;
+      picked.push(l);
+      nodeIds.add(l.to);
+      rankOverride.set(l.to, RECEIVER_RANK);
+      laneOverride.set(l.to, 'agent');
+    }
+  }
   // 테이블은 받는 쪽 모듈들 뒤 맨 오른쪽 레인에 모은다
   for (const id of nodeIds) {
     const kind = kindOf(g, id);
