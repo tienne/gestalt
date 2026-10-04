@@ -184,79 +184,84 @@ describe('micro_app 드릴다운', () => {
     expect(root.edges.some((e) => e.kind === 'loads')).toBe(false);
   });
 
-  it('앱 카드를 누르면 앱 레벨로, 서비스 카드를 누르면 서비스 레벨로 들어간다', async () => {
+  it('서비스 카드와 진입 앱 카드는 서비스 레벨로, 리모트 카드는 앱 레벨로 들어간다', async () => {
     const d = await computeDrilldown(validated());
     expect(d.enter['svc-console']).toBe('service:svc-console');
+    expect(d.enter['app-shell']).toBe('service:svc-console');
     expect(d.enter['app-coupon']).toBe('app:app-coupon');
     expect(d.enter['f-coupon']).toBe('feature:f-coupon');
+    // 진입 앱 레벨은 서비스 레벨이 대신한다
+    expect(d.levels.some((l) => l.id === 'app:app-shell')).toBe(false);
   });
 
-  it('서비스 레벨은 앱마다 prod 서빙 사슬을 따로 세우고 사슬은 자기 앱으로 이어진다', async () => {
+  it('서비스 레벨은 진입 앱의 사슬과 기능 영역, 리모트 앱 카드를 보인다', async () => {
     const svc = level(await computeDrilldown(validated()), 'service:svc-console');
-    for (const a of APPS) {
-      for (const id of [`app-${a}`, `b-${a}-prod`, `cdn-${a}-prod`, `d-${a}-prod`]) {
-        expect(svc.nodeIds).toContain(id);
-      }
+    expect(svc.title).toBe('Acme 콘솔');
+    expect(svc.focusId).toBe('app-shell');
+    expect(svc.nodeIds).toEqual(
+      expect.arrayContaining([
+        'app-shell',
+        'f-shell',
+        'b-shell-prod',
+        'b-shell-dev',
+        'd-shell-prod',
+      ]),
+    );
+    for (const r of REMOTES) {
+      expect(svc.nodeIds).toContain(`app-${r}`);
+      expect(svc.nodeIds).not.toContain(`f-${r}`);
+      expect(svc.nodeIds).not.toContain(`b-${r}-prod`);
+      expect(svc.edges.find((e) => e.id === `ld-${r}`)).toMatchObject({
+        from: 'app-shell',
+        to: `app-${r}`,
+        kind: 'loads',
+      });
     }
-    expect(svc.nodeIds).not.toContain('b-shell-dev');
-    const serves = svc.edges.filter((e) => e.kind === 'serves');
-    expect(serves).toHaveLength(APPS.length);
-    for (const e of serves) expect(e.to).toBe(`app-${e.from.split('-')[1]}`);
   });
 
-  it('런타임 로드 선은 호스트에서 리모트 prod 도메인으로 가고 그 리모트 사슬만 담는다', async () => {
+  it('서비스 레벨 리모트 카드는 기능 영역 열 맨 아래에 선다', async () => {
     const svc = level(await computeDrilldown(validated()), 'service:svc-console');
-    const runtime = svc.edges.filter((e) => e.runtime);
-    expect(runtime.map((e) => e.id).sort()).toEqual(REMOTES.map((r) => `runtime:ld-${r}`).sort());
-    const coupon = runtime.find((e) => e.id === 'runtime:ld-coupon')!;
-    expect(coupon).toMatchObject({ from: 'app-shell', to: 'd-coupon-prod', kind: 'loads' });
-    expect(coupon.memberEdgeIds).toEqual([
-      'ld-coupon',
-      'o-coupon-prod',
-      'rs-coupon-prod',
-      'sv-coupon-prod',
-    ]);
+    const box = (id: string) => svc.layout.nodes.find((n) => n.id === id)!;
+    const remotes = REMOTES.map((r) => box(`app-${r}`));
+    for (const b of remotes) {
+      expect(b.x).toBe(box('f-shell').x);
+      expect(b.y).toBeGreaterThan(box('f-shell').y);
+    }
+    expect(box('app-shell').y).toBeLessThanOrEqual(box('f-shell').y);
   });
 
-  it('서비스 레벨은 호스트 줄과 리모트 줄을 띠로 나눈다', async () => {
-    const svc = level(await computeDrilldown(validated()), 'service:svc-console');
-    const regions = svc.layout.regions!;
-    expect(regions.groups.map((g) => g.name)).toEqual([
-      '호스트 (사용자 진입)',
-      '리모트 (호스트가 런타임에 불러옴)',
-    ]);
-    expect(regions.bandOf['d-shell-prod']).toBe(0);
-    expect(regions.bandOf['app-shell']).toBe(0);
-    for (const r of REMOTES) expect(regions.bandOf[`b-${r}-prod`]).toBe(2);
-  });
-
-  it('앱 레벨은 그 앱의 기능 영역과 모든 환경 서빙 사슬만 보인다', async () => {
+  it('리모트 레벨은 그 앱의 기능 영역과 서빙 사슬만 보이고 빵부스러기는 서비스를 거친다', async () => {
     const d = await computeDrilldown(validated());
     const coupon = level(d, 'app:app-coupon');
     expect(coupon.trail).toEqual(['root', 'service:svc-console', 'app:app-coupon']);
     expect(coupon.nodeIds).toEqual(
-      expect.arrayContaining(['app-coupon', 'f-coupon', 'gw', 'b-coupon-prod']),
+      expect.arrayContaining(['app-coupon', 'f-coupon', 'gw', 'b-coupon-prod', 'd-coupon-prod']),
     );
     expect(coupon.nodeIds).not.toContain('f-shell');
     expect(coupon.nodeIds).not.toContain('b-shell-prod');
-    expect(level(d, 'app:app-shell').nodeIds).toContain('b-shell-dev');
     expect(level(d, 'feature:f-coupon').trail).toEqual([
       'root',
       'service:svc-console',
       'app:app-coupon',
       'feature:f-coupon',
     ]);
+    expect(level(d, 'feature:f-shell').trail).toEqual([
+      'root',
+      'service:svc-console',
+      'feature:f-shell',
+    ]);
   });
 
-  it('리모트 사슬이 없으면 런타임 선 대신 앱 사이 로드 선을 그린다', async () => {
+  it('진입 앱을 못 정하면 서비스 레벨에 앱 카드를 늘어놓고 앱마다 들어간다', async () => {
     const ir = fixture();
-    ir.edges = ir.edges.filter((e) => e.id !== 'rs-review-prod');
-    const svc = level(await computeDrilldown(validated(ir)), 'service:svc-console');
-    expect(svc.edges.find((e) => e.id === 'ld-review')).toMatchObject({
-      from: 'app-shell',
-      to: 'app-review',
-      kind: 'loads',
-    });
+    ir.edges = ir.edges.filter((e) => e.id !== 'ld-coupon');
+    const d = await computeDrilldown(validated(ir));
+    const svc = level(d, 'service:svc-console');
+    for (const a of APPS) {
+      expect(svc.edges.find((e) => e.id === `contains:svc-console->app-${a}`)).toBeDefined();
+    }
+    expect(d.enter['app-shell']).toBe('app:app-shell');
+    expect(level(d, 'app:app-shell').edges.map((e) => e.id)).toContain('ld-review');
   });
 });
 
@@ -266,11 +271,11 @@ describe('micro_app 렌더', () => {
     return renderDrilldownHtml(v, await computeDrilldown(v), { audience });
   }
 
-  it('테두리와 호스트 칩, 런타임 로드 선을 그린다', async () => {
+  it('테두리와 호스트 칩, 로드 선을 그린다', async () => {
     const html = await render(fixture(), 'private');
     expect(html).toContain('class="frame" data-frame-id="svc-console"');
     expect(html).toContain('data-frame="svc-console"');
-    expect(html).toContain('class="link bundle runtime"');
+    expect(html).toContain('class="link e-loads"');
     expect(html).toContain('"microHosts":["app-shell"]');
     expect(html).toMatch(/data-node-id="app-shell"[^>]*>.*?<span class="kc">.*?호스트<\/span>/);
     expect(html).toMatch(/data-node-id="app-coupon"[^>]*>.*?<span class="kc">.*?리모트<\/span>/);
