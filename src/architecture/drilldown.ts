@@ -500,6 +500,20 @@ function moduleUses(g: Graph): ArchitectureEdge[] {
   return edgesOf(g, 'uses', 'app_module', 'app_module');
 }
 
+/**
+ * 아무도 calls로 부르지 않는 MCP 도구를 parent 서비스에서 핸들러로 잇는다. 스킬 없는 MCP 서버 레포는 클라이언트가 도구를 바로 불러
+ * 서비스에서 서버로 가는 선이 하나도 안 생기기 때문이다. 스킬이 부르는 도구는 그 호출로 이미 묶이니 건수가 두 번 세지지 않게 뺀다
+ */
+function bundleDirectTools(g: Graph, b: Bundler): void {
+  const called = new Set(g.edges.filter((e) => e.kind === 'calls').map((e) => e.to));
+  for (const n of g.nodeById.values()) {
+    if (n.kind !== 'endpoint' || n.protocol !== 'mcp' || called.has(n.id)) continue;
+    const owner = g.parentOf.get(n.id);
+    if (owner === undefined || kindOf(g, owner) !== 'service') continue;
+    for (const h of handlersOf(g, n.id)) b.add(owner, h.to, n.id, [h.id]);
+  }
+}
+
 function bundleDatastores(g: Graph, b: Bundler): void {
   for (const e of g.edges) {
     if (e.kind !== 'reads_writes' || kindOf(g, e.from) !== 'app_module') continue;
@@ -520,6 +534,7 @@ function rootLevel(full: Graph, apps: MicroAppIndex): LevelDraft {
   bundleCalls(g, b, screenCalls(g), (s) => ownerOf(g, s), false);
   bundleGatewayRoutes(g, b);
   bundleModuleToModule(g, b);
+  bundleDirectTools(g, b);
   const inProcessUses = new Set<string>();
   for (const u of moduleUses(g)) {
     b.add(u.from, u.to, u.id, [u.id]);

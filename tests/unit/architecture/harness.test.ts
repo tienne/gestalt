@@ -177,6 +177,36 @@ function level(levels: DrillLevel[], id: string): DrillLevel {
   return found;
 }
 
+// 스킬 없이 도구만 내놓는 MCP 서버 레포. 클라이언트가 도구를 바로 부른다
+function pureMcpServer(): ArchitectureIr {
+  const tool = (id: string, line: number) =>
+    node(id, 'endpoint', `src/index.ts:${line}`, {
+      protocol: 'mcp',
+      mcpServer: 'memory',
+      parent: 'svc:memory',
+    });
+  return {
+    schemaVersion: '1.0.0',
+    view: 'screen-chain',
+    repos: [{ id: 'acme', name: 'acme-mcp', root: '/repo' }],
+    nodes: [
+      node('client:desktop', 'client', 'mcp.json:1'),
+      node('svc:memory', 'service', 'package.json:2'),
+      tool('tool:create', 10),
+      tool('tool:read', 20),
+      node('mod:memory', 'app_module', 'src/index.ts:1'),
+    ],
+    edges: [
+      edge('e:loads', 'client:desktop', 'svc:memory', 'loads', 'mcp.json:3'),
+      edge('e:create-handles', 'tool:create', 'mod:memory', 'handles', 'src/index.ts:11'),
+      edge('e:read-handles', 'tool:read', 'mod:memory', 'handles', 'src/index.ts:21'),
+    ],
+    unresolved: [],
+    sourcesUsed: [],
+    generatedAt: '2026-10-04T00:00:00.000Z',
+  };
+}
+
 describe('하네스 IR 스키마와 검증', () => {
   it('클라이언트, 스킬, 에이전트, MCP 도구가 든 IR을 받는다', () => {
     expect(parseArchitectureIr(fixture()).ok).toBe(true);
@@ -200,6 +230,20 @@ describe('하네스 IR 스키마와 검증', () => {
     const tool = onHttp.nodes.find((n) => n['id'] === 'tool:plan')!;
     tool['protocol'] = 'http';
     expect(parseArchitectureIr(onHttp).ok).toBe(false);
+  });
+
+  it('서비스를 parent로 두는 건 MCP 도구만 받는다', () => {
+    const mcp = fixture();
+    mcp.nodes.find((n) => n.id === 'tool:plan')!.parent = 'svc';
+    expect(errorCodes(mcp)).not.toContain('INVALID_PARENT_KIND');
+
+    const http = fixture();
+    http.nodes.push(node('api:health', 'endpoint', 'src/server.ts:40', { parent: 'svc' }));
+    expect(errorCodes(http)).toContain('INVALID_PARENT_KIND');
+
+    const underFeature = fixture();
+    underFeature.nodes.find((n) => n.id === 'tool:plan')!.parent = 'feat:pipeline';
+    expect(errorCodes(underFeature)).toContain('INVALID_PARENT_KIND');
   });
 
   it('도구에 없는 action으로 부르면 거부한다', () => {
@@ -285,6 +329,25 @@ describe('하네스 드릴다운', () => {
     );
     const root = level((await computeDrilldown(validated(ir))).levels, 'root');
     expect(laneOf(root, 'mod:sync-engine')).toBe('app_module');
+  });
+
+  it('스킬 없이 세션이 바로 부르는 도구는 parent 서비스에서 핸들러로 잇는다', async () => {
+    const ir = pureMcpServer();
+    const root = level((await computeDrilldown(validated(ir))).levels, 'root');
+    const bundle = root.edges.find((e) => e.id === 'bundle:svc:memory->mod:memory')!;
+    expect(bundle.count).toBe(2);
+    expect(bundle.memberEdgeIds).toEqual(['e:create-handles', 'e:read-handles']);
+    expect(laneOf(root, 'mod:memory')).toBe('app_module');
+  });
+
+  it('스킬이 부르는 도구는 parent가 있어도 서비스 묶음 건수를 늘리지 않는다', async () => {
+    const before = level((await computeDrilldown(validated(fixture()))).levels, 'root');
+    const ir = fixture();
+    ir.nodes.find((n) => n.id === 'tool:plan')!.parent = 'svc';
+    const after = level((await computeDrilldown(validated(ir))).levels, 'root');
+    const count = (l: DrillLevel) => l.edges.find((e) => e.id === 'bundle:svc->mod:plan-handler')!;
+    expect(count(after).count).toBe(count(before).count);
+    expect(count(after).memberEdgeIds).toEqual(count(before).memberEdgeIds);
   });
 
   it('서비스 레벨은 스킬과 에이전트, 도구를 열로 나누고 띄우기와 스킬 호출 선을 그린다', async () => {

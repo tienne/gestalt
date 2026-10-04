@@ -92,6 +92,8 @@ export const PARENT_KINDS: Partial<Record<NodeKind, readonly NodeKind[]>> = {
   feature: ['micro_app', 'service'],
   micro_app: ['service'],
   db_table: ['datastore'],
+  // MCP 도구만 받는다. 스킬 없이 클라이언트가 바로 부르는 도구가 어느 서버 패키지 것인지 적는 자리다
+  endpoint: ['service'],
 };
 
 export type ArchitectureView = (typeof ARCHITECTURE_VIEWS)[number];

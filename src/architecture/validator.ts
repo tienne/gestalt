@@ -326,7 +326,8 @@ function checkParents(ir: ArchitectureIr, errors: ArchitectureValidationError[])
       seen.add(cursor.id);
       cursor = byId.get(cursor.parent);
     }
-    const allowed = PARENT_KINDS[node.kind];
+    const allowed =
+      node.kind === 'endpoint' && node.protocol !== 'mcp' ? undefined : PARENT_KINDS[node.kind];
     if (!allowed?.includes(parent.kind)) {
       errors.push({
         code: 'INVALID_PARENT_KIND',
