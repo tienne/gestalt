@@ -112,6 +112,7 @@ const FLOW_TEXT = {
   main: '정상 흐름',
   side: '옆 흐름',
   back: '앞 단계로 되돌아감',
+  end: '흐름 끝',
   person: '사람',
   system: '시스템',
 };
@@ -658,6 +659,7 @@ function renderFlowSection(
       const aria =
         `${st.label}, ${FLOW_TEXT.step}, ${actor?.label ?? st.actor}` +
         (st.state !== undefined ? `, 상태 ${stateText(st.state)}` : '') +
+        (st.terminal ? `, ${FLOW_TEXT.end}` : '') +
         (dashed ? ', 문서로만 확인' : '');
       return (
         `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(st.id)}" role="button" tabindex="0" ` +
@@ -668,6 +670,7 @@ function renderFlowSection(
         (st.state !== undefined
           ? `<span class="st${named(st.state)}" title="${escapeHtml(st.state)}">${escapeHtml(stateText(st.state))}</span>`
           : '') +
+        (st.terminal ? `<span class="end" title="${FLOW_TEXT.end}">끝</span>` : '') +
         (refs.length > 0
           ? `<span class="refs" title="이어진 화면과 API">${iconUse('u-link')}${refs.length}</span>`
           : '') +

@@ -414,6 +414,10 @@ button { font: inherit; color: inherit; }
   flex: none; display: inline-flex; align-items: center; gap: 2px; font-size: 10.5px; font-weight: 650; color: var(--muted);
 }
 .flow-step .qb { color: var(--warn); }
+.flow-step .end {
+  flex: none; font-size: 10.5px; line-height: 16px; font-weight: 700; padding: 0 5px; border-radius: 4px;
+  color: var(--surface); background: var(--text);
+}
 .flow-step .refs svg, .flow-step .qb svg { width: 11px; height: 11px; }
 .node .l2 { overflow: hidden; }
 .link.flow-t { cursor: pointer; }

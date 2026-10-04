@@ -522,6 +522,17 @@ describe('흐름 레벨 렌더', () => {
     return { drill, html: renderDrilldownHtml(v, drill, { audience }) };
   }
 
+  it('끝 단계 카드에 끝 표시를 달고 읽어주는 글에도 넣는다', async () => {
+    const f = queueFlow();
+    f.steps.find((s) => s.id === 'st-seat')!.terminal = true;
+    const { html } = await render(fixture(f));
+    const card = (id: string): string =>
+      html.match(new RegExp(`data-node-id="${id}"[^]*?</div>`))![0];
+    expect(card('st-seat')).toContain('<span class="end" title="흐름 끝">끝</span>');
+    expect(card('st-seat')).toMatch(/aria-label="입장, [^"]*, 흐름 끝"/);
+    expect(card('st-cancel')).not.toContain('class="end"');
+  });
+
   it('서비스 아래에 흐름 레벨을 만든다', async () => {
     const { drill } = await render(fixture());
     expect(drill.flows.map((l) => l.id)).toEqual(['flow:queue']);
