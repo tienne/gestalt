@@ -1049,7 +1049,7 @@ ${FOCUS_SOURCE}
     var all = levelEdges(levelId);
     var set = focusSet(all, nodeId);
     var keep = {};
-    set.nodes.forEach(function (n) { keep[n] = true; });
+    set.nodes.forEach(function (n) { if (n === nodeId || !envHidden(n)) keep[n] = true; });
     var keptEdge = {};
     set.edges.forEach(function (e) { keptEdge[e] = true; });
     var boxes = [];
@@ -1197,7 +1197,7 @@ ${FOCUS_SOURCE}
     if (!q || !active) { searchCount.textContent = ''; return; }
     active.querySelectorAll('.node').forEach(function (c) {
       var n = nodes[c.getAttribute('data-node-id')];
-      if (!n) return;
+      if (!n || c.classList.contains('env-off')) return;
       var hay = ((n.displayName || '') + ' ' + n.label).toLowerCase();
       if (hay.indexOf(q) >= 0) hits.push(c);
     });
@@ -1304,6 +1304,59 @@ ${FOCUS_SOURCE}
     else if (e.key === '0') fit('full');
     else if ((e.key === 'f' || e.key === 'F') && !focusBtn.hidden) showFocus(selectedId);
   });
+
+  // 환경 고르기. 서버가 그린 자리는 그대로 두고 고르지 않은 환경의 카드와 거기 걸린 선만 숨긴다.
+  // 환경이 prod부터 위에서 아래로 쌓여 있어서 prod만 남겨도 열 중간에 빈 자리가 안 생긴다
+  var envPicker = byId('env-picker');
+  var envOn = {};
+  function envHidden(id) {
+    var n = nodes[id];
+    return !!(envPicker && n && n.environment && !envOn[n.environment]);
+  }
+  function applyEnv(sec) {
+    sec.querySelectorAll('.node[data-env]').forEach(function (c) {
+      c.classList.toggle('env-off', !envOn[c.getAttribute('data-env')]);
+    });
+    sec.querySelectorAll('.link').forEach(function (l) {
+      l.classList.toggle('env-off', envHidden(l.getAttribute('data-from')) || envHidden(l.getAttribute('data-to')));
+    });
+    // 레인 제목 숫자는 보이는 카드만 센다. 다 숨으면 빈 레인도 같이 접는다
+    var cards = sec.querySelectorAll('.node');
+    var titles = sec.querySelectorAll('.lane-title');
+    Array.prototype.forEach.call(sec.querySelectorAll('rect.lane'), function (r, i) {
+      var t = titles[i];
+      var x = parseFloat(r.getAttribute('x'));
+      var w = parseFloat(r.getAttribute('width'));
+      var n = 0;
+      Array.prototype.forEach.call(cards, function (c) {
+        var left = parseFloat(c.style.left);
+        if (left >= x && left < x + w && !c.classList.contains('env-off')) n += 1;
+      });
+      r.classList.toggle('env-off', n === 0);
+      if (!t) return;
+      t.classList.toggle('env-off', n === 0);
+      var count = t.querySelector('.n');
+      if (count) count.textContent = n;
+    });
+  }
+  if (envPicker) {
+    var envButtons = Array.prototype.slice.call(envPicker.querySelectorAll('button[data-env]'));
+    envButtons.forEach(function (b) { envOn[b.getAttribute('data-env')] = b.getAttribute('aria-pressed') === 'true'; });
+    sections.forEach(applyEnv);
+    envPicker.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('button[data-env]') : null;
+      if (!b) return;
+      var env = b.getAttribute('data-env');
+      var next = !envOn[env];
+      // 하나는 늘 켜 둔다. 다 끄면 인프라 열이 통째로 비어 무엇을 끈 건지 안 보인다
+      if (!next && envButtons.filter(function (x) { return envOn[x.getAttribute('data-env')]; }).length === 1) return;
+      envOn[env] = next;
+      b.setAttribute('aria-pressed', String(next));
+      sections.forEach(applyEnv);
+      if (focusId !== null) route();
+      else runSearch(false);
+    });
+  }
 
   window.addEventListener('hashchange', route);
   route();

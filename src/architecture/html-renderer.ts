@@ -14,7 +14,7 @@ import {
   platformChipText,
   platformName,
 } from './kind-text.js';
-import { FLAT_BACKWARD_EDGE_KINDS, type LayoutResult } from './layout.js';
+import { compareEnvironment, FLAT_BACKWARD_EDGE_KINDS, type LayoutResult } from './layout.js';
 import { indexMicroApps } from './micro-app.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
@@ -258,6 +258,7 @@ function renderCard(
   const y = round2(box.y + CANVAS_PAD_TOP);
   return (
     `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(node.id)}"${band !== undefined ? ` data-band="${band}"` : ''}` +
+    `${node.environment !== undefined ? ` data-env="${escapeHtml(node.environment)}"` : ''}` +
     `${micro.frame !== undefined ? ` data-frame="${escapeHtml(micro.frame)}"` : ''} role="button" tabindex="0" ` +
     `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
     `style="left:${x}px;top:${y}px;width:${box.width}px;height:${box.height}px">` +
@@ -539,6 +540,26 @@ function renderQuestions(
   );
 }
 
+/** 그림에 나오는 환경. 둘 이상일 때만 고르는 버튼을 단다 */
+function environmentsOf(nodes: readonly ArchitectureNode[]): string[] {
+  const envs = new Set<string>();
+  for (const n of nodes) if (n.environment !== undefined) envs.add(n.environment);
+  return [...envs].sort((a, b) => compareEnvironment(a, b));
+}
+
+// 처음엔 prod만 켠다. 장애나 배포 경로를 볼 때 사람이 먼저 찾는 게 prod라서다. prod가 없으면 맨 앞 환경을 켠다
+function renderEnvPicker(envs: readonly string[]): string {
+  if (envs.length < 2) return '';
+  const on = envs.includes('prod') ? 'prod' : envs[0]!;
+  const buttons = envs
+    .map(
+      (e) =>
+        `<button type="button" class="btn" data-env="${escapeHtml(e)}" aria-pressed="${e === on}">${escapeHtml(e)}</button>`,
+    )
+    .join('');
+  return `<div id="env-picker" class="seg env-picker" role="group" aria-label="보일 환경" title="보일 환경 고르기">${buttons}</div>`;
+}
+
 function renderBar(
   title: string,
   drill: boolean,
@@ -546,6 +567,7 @@ function renderBar(
   nodeCount: number,
   edgeCount: number,
   questionCount: number,
+  envs: readonly string[],
 ): string {
   const qClass = questionCount > 0 ? 'n warn' : 'n';
   return (
@@ -556,6 +578,7 @@ function renderBar(
     `<button type="button" id="focus-clear" aria-label="포커스 해제" title="포커스 해제 (Esc)">${iconUse('u-close')}</button></span>` +
     `<div class="spacer"></div>` +
     `<button type="button" class="btn" id="focus-btn" hidden title="고른 항목과 이어진 것만 보기 (F)">${iconUse('u-focus')}<span class="label">포커스</span></button>` +
+    renderEnvPicker(envs) +
     `<label class="search">${iconUse('u-search')}<input id="search" type="search" placeholder="이름으로 찾기" aria-label="이름으로 찾기" autocomplete="off" spellcheck="false"><span id="search-count" class="count" aria-live="polite"></span></label>` +
     `<div class="seg" role="group" aria-label="크기">` +
     `<button type="button" class="btn icon" id="zoom-out" aria-label="작게 보기" title="작게 보기 (-)">${iconUse('u-minus')}</button>` +
@@ -613,6 +636,7 @@ function renderPage({ ir, payload, sections, drill }: PageSpec): string {
       payload.nodes.length,
       payload.edges.length,
       payload.unresolved.length,
+      environmentsOf(payload.nodes),
     ),
     '<div class="main">',
     '<div id="stage" class="stage" aria-label="구조도">',

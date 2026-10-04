@@ -247,6 +247,9 @@ button { font: inherit; color: inherit; }
 .btn .n.warn { background: var(--warn-soft); color: var(--warn); }
 .seg { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); flex: none; }
 .seg .btn { border: 0; height: 30px; }
+.env-picker .btn { padding: 0 9px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.env-picker .btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.env-off { display: none !important; }
 .zoom-level { min-width: 44px; text-align: center; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 #theme-btn .sun { display: none; }
 #theme-btn[data-mode="dark"] .sun { display: block; }
