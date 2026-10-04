@@ -108,6 +108,23 @@ function fixture(): ArchitectureIr {
   };
 }
 
+// svc-admin을 SSR 서버가 서빙한다. CDN 없이 도메인이 서버를 바로 가리킨다
+function withSsr(ir: ArchitectureIr = fixture()): ArchitectureIr {
+  return {
+    ...ir,
+    nodes: [
+      ...ir.nodes,
+      node('dt-admin', 'deploy_target', { environment: 'prod', account: 'acct-prod' }),
+      node('d-admin', 'domain', { label: 'admin.example.com', environment: 'prod' }),
+    ],
+    edges: [
+      ...ir.edges,
+      edge('sv-admin', 'dt-admin', 'svc-admin', 'serves'),
+      edge('rs-admin', 'd-admin', 'dt-admin', 'resolves_to'),
+    ],
+  };
+}
+
 function validated(ir: ArchitectureIr = fixture()): ValidatedIr {
   const result = validateArchitectureIr(ir, { checkFiles: false });
   if (!result.ok) throw new Error(JSON.stringify(result.errors));
@@ -251,6 +268,11 @@ describe('검증기 — 선 모양과 live 규칙', () => {
     expect(questions[0]!.question).toContain('Android 앱');
   });
 
+  it('SSR 서버가 서빙하는 web도 묻지 않는다', () => {
+    const v = validated(withNode(withSsr(), 'svc-admin', { platforms: ['web'] }));
+    expect(v.autoUnresolved.map((q) => q.id)).not.toContain('auto:platform:svc-admin:web');
+  });
+
   it('platformEvidence가 있으면 묻지 않고 그 근거도 검증한다', () => {
     const ir = withNode(fixture(), 'svc-shop', {
       platforms: ['android'],
@@ -317,6 +339,34 @@ describe('서비스 사실', () => {
     expect(f.servingBuckets).toEqual(['b-dev', 'b-prod', 'b-stage']);
   });
 
+  it('버킷이 서빙하면 정적, 배포 대상이 서빙하면 SSR이고 도메인은 서버에서 바로 찾는다', () => {
+    const v = validated(withSsr());
+    const facts = computeServiceFacts(v.ir.nodes, v.ir.edges);
+    expect(facts.get('svc-shop')!.webHosting).toBe('static');
+    const admin = facts.get('svc-admin')!;
+    expect(admin.webHosting).toBe('ssr');
+    expect(admin.platforms).toEqual(['web']);
+    expect(admin.servingTargets).toEqual(['dt-admin']);
+    expect(admin.prodDomain).toBe('admin.example.com');
+  });
+
+  it('서빙 방식은 prod 서빙 노드로 정하고 prod에 버킷과 서버가 둘 다 있으면 SSR이다', () => {
+    const ir = withSsr();
+    const stageSsr: ArchitectureIr = {
+      ...ir,
+      nodes: [...ir.nodes, node('dt-shop-stage', 'deploy_target', { environment: 'stage' })],
+      edges: [...ir.edges, edge('sv-shop-stage', 'dt-shop-stage', 'svc-shop', 'serves')],
+    };
+    let v = validated(stageSsr);
+    expect(computeServiceFacts(v.ir.nodes, v.ir.edges).get('svc-shop')!.webHosting).toBe('static');
+    const prodBoth: ArchitectureIr = {
+      ...ir,
+      edges: [...ir.edges, edge('sv-shop-ssr', 'dt-admin', 'svc-shop', 'serves')],
+    };
+    v = validated(prodBoth);
+    expect(computeServiceFacts(v.ir.nodes, v.ir.edges).get('svc-shop')!.webHosting).toBe('ssr');
+  });
+
   it('환경 순위는 정한 순서, 그 밖의 환경, 환경 없음 순이다', () => {
     expect(['dev', undefined, 'alpha', 'qa', 'prod', 'stage'].sort(compareEnvironment)).toEqual([
       'prod',
@@ -352,6 +402,15 @@ describe('서비스 레벨 인프라 레인', () => {
       'gateway',
       'app_module',
     ]);
+  });
+
+  it('SSR 서버가 서빙하면 도메인, 배포 대상 레인이 앞에 선다', async () => {
+    const levels = (await computeDrilldown(validated(withSsr()))).levels;
+    const level = levels.find((l) => l.id === 'service:svc-admin')!;
+    expect(level.layout.lanes.map((l) => l.id).slice(0, 2)).toEqual(['domain', 'deploy_target']);
+    expect(level.layout.nodes.map((n) => n.id)).toEqual(
+      expect.arrayContaining(['d-admin', 'dt-admin', 'svc-admin']),
+    );
   });
 
   it('서비스 카드가 기능 영역 레인 맨 위에 서고 기능 영역으로 포함 선을 낸다', async () => {
@@ -515,7 +574,8 @@ describe('렌더 — 서비스 카드와 결정성', () => {
     const labels = [...card.matchAll(/class="pf pf-[a-z]+" role="img" aria-label="([^"]+)"/g)].map(
       (m) => m[1],
     );
-    expect(labels.slice(0, 3)).toEqual(['웹', 'Android 앱', 'iOS 앱']);
+    expect(labels.slice(0, 3)).toEqual(['정적 웹 (버킷과 CDN)', 'Android 앱', 'iOS 앱']);
+    expect(card).toContain('웹(정적)</span>');
     expect(card).toContain('<span class="tc dom">shop.example.com</span>');
     // 칩은 이름 줄이 아니라 도메인 줄에 붙어 이름이 칩 몫만큼 잘리지 않는다
     const nameLine = card.slice(
@@ -529,6 +589,15 @@ describe('렌더 — 서비스 카드와 결정성', () => {
     // 상표 로고 대신 스프라이트의 중립 아이콘을 쓴다
     expect(card).toContain('href="#p-android"');
     expect(card).toContain('href="#p-ios"');
+  });
+
+  it('SSR 서비스 카드는 웹(SSR) 칩을 단다', async () => {
+    const v = validated(withSsr());
+    const html = renderDrilldownHtml(v, await computeDrilldown(v), { audience: 'private' });
+    const root = html.slice(html.indexOf('data-level-id="root"'), html.indexOf('</section>'));
+    const card = root.slice(root.indexOf('data-node-id="svc-admin"'));
+    expect(card).toContain('aria-label="SSR 웹 (서버 렌더)"');
+    expect(card).toContain('웹(SSR)</span>');
   });
 
   it('공유본에는 계정 ID, 배포 ID, 조회 명령이 없고 개인본에는 명령이 있다', async () => {
