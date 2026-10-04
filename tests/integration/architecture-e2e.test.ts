@@ -828,7 +828,7 @@ describe('architecture e2e — 가짜 FE와 BE 레포에서 뷰 두 개 렌더',
       ]);
       const root = sectionOf(html, 'root');
       const card = root.slice(root.indexOf('data-node-id="svc-shop"'));
-      expect(card).toContain('aria-label="정적 웹 (버킷과 CDN)"');
+      expect(card).toContain('aria-label="웹"');
       expect(card).toContain('<span class="tc dom">shop.example.com</span>');
       // android는 근거가 없어서 칩 대신 질문으로 간다
       expect(card.slice(0, card.indexOf('</div>'))).not.toContain('Android 앱');

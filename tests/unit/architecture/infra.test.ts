@@ -577,8 +577,8 @@ describe('렌더 — 서비스 카드와 결정성', () => {
     const labels = [...card.matchAll(/class="pf pf-[a-z]+" role="img" aria-label="([^"]+)"/g)].map(
       (m) => m[1],
     );
-    expect(labels.slice(0, 3)).toEqual(['정적 웹 (버킷과 CDN)', 'Android 앱', 'iOS 앱']);
-    expect(card).toContain('웹(정적)</span>');
+    expect(labels.slice(0, 3)).toEqual(['웹', 'Android 앱', 'iOS 앱']);
+    expect(card).toContain('>웹</span>');
     expect(card).toContain('<span class="tc dom">shop.example.com</span>');
     // 칩은 이름 줄이 아니라 도메인 줄에 붙어 이름이 칩 몫만큼 잘리지 않는다
     const nameLine = card.slice(

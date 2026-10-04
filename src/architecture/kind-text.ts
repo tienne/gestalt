@@ -67,13 +67,13 @@ export const PLATFORM_CHIP_TEXT: Record<Platform, string> = {
 
 /** 웹 칩 글자. 서빙 방식을 알면 웹 대신 이 글자를 쓴다 */
 export const WEB_HOSTING_CHIP_TEXT: Record<WebHosting, string> = {
-  static: '웹(정적)',
+  static: '웹',
   ssr: '웹(SSR)',
 };
 
 /** 서빙 방식을 아는 웹 칩의 aria-label과 툴팁, 상세 패널 이름 */
 export const WEB_HOSTING_NAME: Record<WebHosting, string> = {
-  static: '정적 웹 (버킷과 CDN)',
+  static: '웹',
   ssr: 'SSR 웹 (서버 렌더)',
 };
 
