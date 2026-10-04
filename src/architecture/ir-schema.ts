@@ -6,6 +6,7 @@ import {
   ARCHITECTURE_VIEWS,
   CONTEXT_SOURCE_VIAS,
   EDGE_KINDS,
+  ENDPOINT_PROTOCOLS,
   ENVIRONMENT_KINDS,
   EVIDENCE_TYPES,
   FLOW_ACTOR_KINDS,
@@ -81,6 +82,9 @@ const nodeSchema = z
     account: z.string().min(1).optional(),
     platforms: z.array(platformSchema).optional(),
     platformEvidence: z.record(platformSchema, z.array(evidenceSchema)).optional(),
+    protocol: z.enum(ENDPOINT_PROTOCOLS).optional(),
+    mcpServer: z.string().min(1).optional(),
+    actions: z.array(z.string().min(1)).optional(),
   })
   .superRefine((node, ctx) => {
     const custom = (path: string, message: string): void =>
@@ -104,6 +108,17 @@ const nodeSchema = z
     if (node.account !== undefined && node.kind === 'cloud_account') {
       custom('account', 'cloud_account 노드는 account를 가질 수 없다');
     }
+    if (node.protocol !== undefined && node.kind !== 'endpoint') {
+      custom('protocol', 'protocol은 endpoint 노드에만 쓸 수 있다');
+    }
+    if (node.protocol !== 'mcp') {
+      if (node.mcpServer !== undefined)
+        custom('mcpServer', 'mcpServer는 mcp endpoint에만 쓸 수 있다');
+      if (node.actions !== undefined) custom('actions', 'actions는 mcp endpoint에만 쓸 수 있다');
+    }
+    if (node.actions !== undefined && new Set(node.actions).size !== node.actions.length) {
+      custom('actions', 'actions에 같은 값이 두 번 들어 있다');
+    }
     if (node.displayNameInferred !== undefined && node.displayName === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -120,6 +135,7 @@ const edgeSchema = z.object({
   kind: edgeKindSchema,
   evidence: z.array(evidenceSchema),
   lineStyle: lineStyleSchema,
+  actions: z.array(z.string().min(1)).min(1).optional(),
 });
 
 const unresolvedQuestionSchema = z.object({

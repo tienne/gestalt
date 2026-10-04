@@ -1,11 +1,11 @@
 import type { LaneId } from './layout.js';
-import type { NodeKind, Platform, WebHosting } from './types.js';
+import type { DisplayKind, Platform, WebHosting } from './types.js';
 
 /**
  * 카드 칩에 쓰는 짧은 종류 이름. 색을 못 가리는 사람도 종류를 읽을 수 있게 색 띠와 함께 싣는다.
  * service는 웹과 앱을 함께 담으므로 "서비스"로 쓰고 어느 쪽인지는 플랫폼 칩이 따로 알린다
  */
-export const NODE_KIND_SHORT: Record<NodeKind, string> = {
+export const NODE_KIND_SHORT: Record<DisplayKind, string> = {
   service: '서비스',
   // 호스트 카드는 렌더러가 '호스트'로 바꿔 단다. 두 글자 폭이 같아야 카드 폭 계산이 하나로 맞는다
   micro_app: '리모트',
@@ -25,6 +25,11 @@ export const NODE_KIND_SHORT: Record<NodeKind, string> = {
   cdn: 'CDN',
   bucket: '버킷',
   cloud_account: '계정',
+  // 클라이언트는 HTTP 호출 클라이언트(external_service)와 칩이 겹치지 않게 AI를 붙인다
+  client: 'AI 클라이언트',
+  skill: '스킬',
+  agent: '에이전트',
+  mcp_tool: 'MCP 도구',
 };
 
 /** 흐름이 달린 서비스 카드의 첫 줄 배지 글자. 하나면 수를 안 붙인다 */
@@ -56,6 +61,10 @@ export const LANE_TITLES: Record<LaneId, string> = {
   cdn: 'CDN',
   bucket: '버킷',
   cloud_account: '클라우드 계정',
+  client: 'AI 클라이언트',
+  skill: '스킬',
+  agent: '에이전트',
+  tool: 'MCP 도구',
 };
 
 /** 카드 첫 줄 플랫폼 칩 글자. 브랜드 로고 대신 중립 아이콘과 이 글자를 함께 쓴다 */

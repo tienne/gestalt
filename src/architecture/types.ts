@@ -19,6 +19,9 @@ export const NODE_KINDS = [
   'cdn',
   'bucket',
   'cloud_account',
+  'client',
+  'skill',
+  'agent',
 ] as const;
 export const EDGE_KINDS = [
   'calls',
@@ -35,18 +38,37 @@ export const EDGE_KINDS = [
   'origin',
   'serves',
   'loads',
+  'spawns',
+  'invokes',
 ] as const;
+/** endpoint가 받는 호출 방식. 없으면 http다. mcp면 label이 도구 이름이다 */
+export const ENDPOINT_PROTOCOLS = ['http', 'mcp'] as const;
 export const EVIDENCE_TYPES = ['code', 'spec', 'doc', 'user', 'live'] as const;
 export const VISIBILITIES = ['public', 'private'] as const;
 export const LINE_STYLES = ['solid', 'dashed'] as const;
 export const CONTEXT_SOURCE_VIAS = ['repo', 'global', 'mcp', 'skill', 'user'] as const;
 export const PLATFORMS = ['web', 'android', 'ios'] as const;
-/** 흐름의 행위자. person은 고객이나 직원처럼 사람이 누르는 쪽, system은 배치나 타이머, 자동 발송이다 */
-export const FLOW_ACTOR_KINDS = ['person', 'system'] as const;
+/**
+ * 흐름의 행위자. person은 고객이나 직원처럼 사람이 누르는 쪽, system은 배치나 타이머, 자동 발송이다.
+ * agent는 세션 모델이나 서브에이전트처럼 지시를 읽고 스스로 판단하는 AI 쪽이다
+ */
+export const FLOW_ACTOR_KINDS = ['person', 'system', 'agent'] as const;
 /** main은 정상 흐름, side는 취소나 노쇼처럼 옆으로 빠지는 흐름이다 */
 export const FLOW_PATHS = ['main', 'side'] as const;
-/** 단계 refs가 가리킬 수 있는 kind. 사용자가 실제로 만나는 화면과 그 화면이 부르는 API까지만 잇는다 */
-export const FLOW_REF_KINDS: readonly NodeKind[] = ['screen', 'endpoint', 'feature', 'micro_app'];
+/**
+ * 단계 refs가 가리킬 수 있는 kind. 사용자가 실제로 만나는 화면과 그 화면이 부르는 API까지만 잇는다.
+ * 하네스에서는 사용자가 부르는 스킬과 스킬이 띄우는 에이전트가 화면 자리다. MCP 도구는 endpoint로 들어온다
+ */
+export const FLOW_REF_KINDS: readonly NodeKind[] = [
+  'screen',
+  'endpoint',
+  'feature',
+  'micro_app',
+  'skill',
+  'agent',
+];
+/** 하네스와 MCP 레포에만 나오는 kind. 이게 하나라도 있으면 하네스 IR로 보고 하네스 규칙을 건다 */
+export const HARNESS_KINDS: readonly NodeKind[] = ['client', 'skill', 'agent'];
 /** 서빙 인프라. 화면 흐름과 배포 경로 둘 다에 설 수 있다 */
 export const INFRA_KINDS = ['domain', 'cdn', 'bucket', 'cloud_account'] as const;
 /** environment를 가질 수 있는 kind. 네이티브 배포처는 deploy_target으로 그린다 */
@@ -65,6 +87,8 @@ export const ARCHITECTURE_IR_SCHEMA_VERSION = '1.0.0';
  */
 export const PARENT_KINDS: Partial<Record<NodeKind, readonly NodeKind[]>> = {
   screen: ['feature', 'micro_app', 'service'],
+  // 하네스는 플러그인이 서비스이고 스킬 묶음이 기능 영역이다
+  skill: ['feature', 'service'],
   feature: ['micro_app', 'service'],
   micro_app: ['service'],
   db_table: ['datastore'],
@@ -80,6 +104,16 @@ export type ContextSourceVia = (typeof CONTEXT_SOURCE_VIAS)[number];
 export type Platform = (typeof PLATFORMS)[number];
 export type FlowActorKind = (typeof FLOW_ACTOR_KINDS)[number];
 export type FlowPath = (typeof FLOW_PATHS)[number];
+export type EndpointProtocol = (typeof ENDPOINT_PROTOCOLS)[number];
+/**
+ * 카드 칩과 아이콘, 색을 고르는 종류. MCP 도구는 IR에서는 endpoint라 매칭과 드릴다운을 그대로 타고
+ * 읽는 사람에게만 API 대신 MCP 도구로 보인다
+ */
+export type DisplayKind = NodeKind | 'mcp_tool';
+
+export function displayKindOf(node: { kind: NodeKind; protocol?: EndpointProtocol }): DisplayKind {
+  return node.kind === 'endpoint' && node.protocol === 'mcp' ? 'mcp_tool' : node.kind;
+}
 /** 웹 서빙 방식. 버킷이 서빙하면 정적, 배포 대상(서버)이 서빙하면 SSR이다 */
 export type WebHosting = 'static' | 'ssr';
 
@@ -120,6 +154,12 @@ export interface ArchitectureNode {
   platforms?: Platform[];
   /** service만. 플랫폼별 근거 */
   platformEvidence?: Partial<Record<Platform, Evidence[]>>;
+  /** endpoint만. 없으면 http다 */
+  protocol?: EndpointProtocol;
+  /** mcp endpoint만. 도구를 등록한 MCP 서버 이름 */
+  mcpServer?: string;
+  /** mcp endpoint만. 도구가 action 인자로 나눠 받는 값. 서버의 enum이나 분기 그대로다 */
+  actions?: string[];
 }
 
 export interface ArchitectureEdge {
@@ -129,6 +169,8 @@ export interface ArchitectureEdge {
   kind: EdgeKind;
   evidence: Evidence[];
   lineStyle: LineStyle;
+  /** mcp endpoint를 부르는 calls만. 이 호출이 실제로 넘기는 action 값 */
+  actions?: string[];
 }
 
 export interface UnresolvedQuestion {

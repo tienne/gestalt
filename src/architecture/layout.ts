@@ -2,8 +2,16 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode, LayoutOptions } from 'elkjs/lib/elk.bundled.js';
 import { flowBadgeText, LANE_TITLES, NODE_KIND_SHORT, platformChipText } from './kind-text.js';
-import type { ArchitectureIr, EdgeKind, NodeKind, Platform, WebHosting } from './types.js';
-import { ENVIRONMENT_ORDER } from './types.js';
+import type {
+  ArchitectureIr,
+  ArchitectureNode,
+  DisplayKind,
+  EdgeKind,
+  NodeKind,
+  Platform,
+  WebHosting,
+} from './types.js';
+import { displayKindOf, ENVIRONMENT_ORDER } from './types.js';
 
 export interface LayoutNode {
   id: string;
@@ -104,6 +112,10 @@ export const LANE_IDS = [
   'cdn',
   'bucket',
   'cloud_account',
+  'client',
+  'skill',
+  'agent',
+  'tool',
 ] as const;
 export type LaneId = (typeof LANE_IDS)[number];
 
@@ -128,7 +140,15 @@ export const KIND_LANE: Record<NodeKind, LaneId> = {
   cdn: 'cdn',
   bucket: 'bucket',
   cloud_account: 'cloud_account',
+  client: 'client',
+  skill: 'skill',
+  agent: 'agent',
 };
+
+/** 노드가 기본으로 서는 레인. MCP 도구는 endpoint와 같은 열이지만 레인 이름이 달라야 API로 안 읽힌다 */
+export function laneOfNode(node: Pick<ArchitectureNode, 'kind' | 'protocol'>): LaneId {
+  return displayKindOf(node) === 'mcp_tool' ? 'tool' : KIND_LANE[node.kind];
+}
 
 const LANE_PADDING_X = 20;
 
@@ -139,6 +159,7 @@ const STACKED_LANES: ReadonlySet<LaneId> = new Set<LaneId>([
   'remote',
   'unit',
   'screen',
+  'skill',
 ]);
 
 const GRAPH_OPTIONS: LayoutOptions = {
@@ -179,6 +200,11 @@ export const PARTITION_RANK: Record<NodeKind, number> = {
   cdn: 5,
   domain: 6,
   cloud_account: 7,
+  // 하네스는 클라이언트가 스킬을 읽고 스킬이 에이전트를 띄운 뒤 도구를 부른다. 스킬은 화면 열, 에이전트는 게이트웨이 열에 선다.
+  // 웹과 하네스가 한 그림에 같이 서는 일은 드물어 같은 열을 나눠 쓴다. 클라이언트는 서비스보다 왼쪽이라 음수다
+  client: -1,
+  skill: 0,
+  agent: 1,
 };
 
 /** 평면 그림에서 레인 순서가 화살표 반대라 오른쪽에서 왼쪽으로 그리는 엣지 */
@@ -217,7 +243,7 @@ export interface GraphLayoutNode {
   lane: LaneId;
   /** 구간 순번. 구간이 있는 그림에서는 rank보다 앞서 열 순서를 정한다 */
   stage?: number;
-  kind?: NodeKind;
+  kind?: DisplayKind;
   /** 같은 레이어 안에서 위에서부터 설 순서. 준 노드끼리만 지켜진다 */
   order?: number;
   /** 둘째 줄 끝 플랫폼 칩 */
@@ -279,7 +305,7 @@ export function platformChipsWidth(
 }
 
 /** 종류 칩이 첫 줄에서 차지하는 폭(px) */
-export function chipWidth(kind: NodeKind | undefined): number {
+export function chipWidth(kind: DisplayKind | undefined): number {
   return kind === undefined
     ? 0
     : CHIP_FIXED_WIDTH + textUnits(NODE_KIND_SHORT[kind]) * CHIP_CHAR_WIDTH;
@@ -316,7 +342,7 @@ export function measureNode(
   label: string,
   displayName?: string,
   displayNameInferred?: boolean,
-  kind?: NodeKind,
+  kind?: DisplayKind,
   extras: MeasureExtras = {},
 ): { width: number; height: number } {
   const name = displayName ?? label;
@@ -402,9 +428,9 @@ export async function computeLayout(
       ...(n.displayName !== undefined ? { displayName: n.displayName } : {}),
       ...(n.displayNameInferred ? { displayNameInferred: true } : {}),
       rank: PARTITION_RANK[n.kind],
-      lane: KIND_LANE[n.kind],
+      lane: laneOfNode(n),
       ...(staged !== undefined ? { stage: staged.indexOf.get(n.id)! } : {}),
-      kind: n.kind,
+      kind: displayKindOf(n),
       ...(n.environment !== undefined ? { order: environmentRank(n.environment) } : {}),
     }));
   const edges = ir.edges

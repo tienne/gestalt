@@ -1,7 +1,7 @@
-import type { NodeKind } from './types.js';
+import type { DisplayKind, NodeKind } from './types.js';
 
 // 밝은 화면은 600 톤, 어두운 화면은 400 톤이다. 같은 색상환 자리라 테마를 바꿔도 같은 종류로 읽힌다
-const KIND_COLORS: Record<NodeKind, { light: string; dark: string }> = {
+const KIND_COLORS: Record<DisplayKind, { light: string; dark: string }> = {
   service: { light: '#2563eb', dark: '#60a5fa' },
   micro_app: { light: '#0369a1', dark: '#7dd3fc' },
   feature: { light: '#0891b2', dark: '#22d3ee' },
@@ -20,10 +20,15 @@ const KIND_COLORS: Record<NodeKind, { light: string; dark: string }> = {
   cdn: { light: '#4338ca', dark: '#a5b4fc' },
   bucket: { light: '#16a34a', dark: '#4ade80' },
   cloud_account: { light: '#57534e', dark: '#a8a29e' },
+  client: { light: '#a16207', dark: '#facc15' },
+  skill: { light: '#c026d3', dark: '#e879f9' },
+  agent: { light: '#65a30d', dark: '#a3e635' },
+  // 도구는 API와 같은 자리라 같은 초록 계열에서 한 톤 진하게 간다
+  mcp_tool: { light: '#047857', dark: '#6ee7b7' },
 };
 
 // 24 격자 선 아이콘. 이모지는 플랫폼마다 모양이 달라서 path로 직접 그린다
-const KIND_ICONS: Record<NodeKind, string> = {
+const KIND_ICONS: Record<DisplayKind, string> = {
   service:
     '<path d="M12 3.5l8.5 4.3L12 12 3.5 7.8z"/><path d="M3.5 12.2L12 16.5l8.5-4.3"/><path d="M3.5 16.4L12 20.7l8.5-4.3"/>',
   micro_app:
@@ -56,6 +61,13 @@ const KIND_ICONS: Record<NodeKind, string> = {
     '<ellipse cx="12" cy="6.5" rx="8" ry="2.5"/><path d="M4 6.5l2 13a2 2 0 0 0 2 1.5h8a2 2 0 0 0 2-1.5l2-13"/>',
   cloud_account:
     '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16.2a3.5 3.5 0 0 1 6.4 0M14.5 10h3M14.5 13.5h3"/>',
+  client:
+    '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7 10l3 2.5L7 15M12.5 15h4.5"/>',
+  skill: '<path d="M6 3.5h9.5l3 3v14H6z"/><path d="M15.5 3.5v3h3M9 11h6M9 14.5h6M9 18h3.5"/>',
+  agent:
+    '<rect x="4.5" y="7.5" width="15" height="12" rx="3"/><path d="M12 4v3.5M9 12.5h.01M15 12.5h.01M9.5 16h5"/>',
+  mcp_tool:
+    '<rect x="3.5" y="8" width="17" height="11.5" rx="2"/><path d="M9 8V5.5h6V8M3.5 13h17M11 12v2.5h2V12"/>',
 };
 
 // 플랫폼 칩 아이콘. 앱 둘은 칩만 보고 바로 알아보게 공식 로고를 브랜드 색으로 채워 그린다. 모양은 simple-icons에서 가져왔다
@@ -177,7 +189,7 @@ function filledSymbol(id: string, body: string, viewBox = '0 0 24 24'): string {
 
 /** 페이지에 한 번만 싣는 아이콘 묶음. 카드와 단추는 use로 가져다 쓴다 */
 export function renderIconSprite(): string {
-  const kinds = (Object.keys(KIND_ICONS) as NodeKind[])
+  const kinds = (Object.keys(KIND_ICONS) as DisplayKind[])
     .sort()
     .map((k) => symbol(`i-${k}`, KIND_ICONS[k]));
   const ui = Object.keys(UI_ICONS)
@@ -215,7 +227,7 @@ function productRules(): string {
 }
 
 function kindRules(theme: 'light' | 'dark'): string {
-  return (Object.keys(KIND_COLORS) as NodeKind[])
+  return (Object.keys(KIND_COLORS) as DisplayKind[])
     .sort()
     .map((k) => `.k-${k}{--kind:${KIND_COLORS[k][theme]};}`)
     .join('');

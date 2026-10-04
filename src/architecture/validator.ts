@@ -4,6 +4,7 @@ import { classifyCliCommand } from '../utils/read-only-tools.js';
 import { indexMicroApps } from './micro-app.js';
 import {
   FLOW_REF_KINDS,
+  HARNESS_KINDS,
   PARENT_KINDS,
   type ArchitectureEdge,
   type ArchitectureFlow,
@@ -32,6 +33,10 @@ export type ArchitectureValidationErrorCode =
   | 'DUPLICATE_GROUP_ID'
   | 'SERVES_SERVICE_WITH_APPS'
   | 'INVALID_LOADS_ENDS'
+  | 'INVALID_HARNESS_EDGE_ENDS'
+  | 'INVALID_CALL_ACTIONS'
+  | 'UNKNOWN_MCP_ACTION'
+  | 'MD_CODE_EVIDENCE'
   | 'FLOW_SERVICE_NOT_FOUND'
   | 'DUPLICATE_FLOW_ID'
   | 'FLOW_ACTOR_NOT_FOUND'
@@ -354,11 +359,115 @@ function checkMicroApps(ir: ArchitectureIr, errors: ArchitectureValidationError[
     if (edge.kind !== 'loads') continue;
     const ends = [edge.from, edge.to].map((id) => byId.get(id)?.kind);
     if (ends.every((k) => k === 'micro_app' || k === undefined)) continue;
+    // 하네스 클라이언트가 플러그인을 읽어 들이는 것도 런타임 로드다
+    if (ends[0] === 'client' && (ends[1] === 'service' || ends[1] === undefined)) continue;
     errors.push({
       code: 'INVALID_LOADS_ENDS',
-      message: `loads 엣지 "${edge.id}"는 micro_app에서 micro_app으로만 이을 수 있는데 ${ends.join(' → ')}다.`,
+      message: `loads 엣지 "${edge.id}"는 micro_app에서 micro_app으로, 또는 client에서 service로만 이을 수 있는데 ${ends.join(' → ')}다.`,
       edgeId: edge.id,
     });
+  }
+}
+
+/** 하네스 엣지가 잇는 kind. 키에 없는 엣지 kind는 여기서 보지 않는다 */
+const HARNESS_EDGE_ENDS: Partial<
+  Record<ArchitectureEdge['kind'], { from: readonly NodeKind[]; to: readonly NodeKind[] }>
+> = {
+  spawns: { from: ['skill', 'agent'], to: ['agent'] },
+  invokes: { from: ['skill'], to: ['skill'] },
+};
+
+function isMcpEndpoint(node: ArchitectureNode | undefined): boolean {
+  return node?.kind === 'endpoint' && node.protocol === 'mcp';
+}
+
+function checkHarnessEdges(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  const byId = new Map(ir.nodes.map((n) => [n.id, n]));
+  for (const edge of ir.edges) {
+    const from = byId.get(edge.from);
+    const to = byId.get(edge.to);
+    // 끝점이 없는 엣지는 DANGLING_EDGE가 따로 잡는다
+    if (from === undefined || to === undefined) continue;
+    const ends = HARNESS_EDGE_ENDS[edge.kind];
+    if (ends !== undefined && (!ends.from.includes(from.kind) || !ends.to.includes(to.kind))) {
+      errors.push({
+        code: 'INVALID_HARNESS_EDGE_ENDS',
+        message: `${edge.kind} 엣지 "${edge.id}"는 ${ends.from.join(', ')}에서 ${ends.to.join(', ')}로만 이을 수 있는데 ${from.kind} → ${to.kind}다.`,
+        edgeId: edge.id,
+      });
+    }
+    if (edge.kind === 'calls' && (from.kind === 'skill' || from.kind === 'agent')) {
+      if (to.kind !== 'endpoint') {
+        errors.push({
+          code: 'INVALID_HARNESS_EDGE_ENDS',
+          message: `calls 엣지 "${edge.id}"는 ${from.kind}에서 endpoint로만 이을 수 있는데 ${to.kind}를 가리킨다. 다른 스킬은 invokes, 에이전트는 spawns로 잇는다.`,
+          edgeId: edge.id,
+        });
+      }
+    }
+    if (edge.actions === undefined) continue;
+    if (edge.kind !== 'calls' || !isMcpEndpoint(to)) {
+      errors.push({
+        code: 'INVALID_CALL_ACTIONS',
+        message: `엣지 "${edge.id}"에 actions가 있다. actions는 mcp endpoint로 가는 calls에만 단다.`,
+        edgeId: edge.id,
+      });
+      continue;
+    }
+    if (to.actions === undefined) continue;
+    const unknown = edge.actions.filter((a) => !to.actions!.includes(a));
+    if (unknown.length === 0) continue;
+    errors.push({
+      code: 'UNKNOWN_MCP_ACTION',
+      message: `엣지 "${edge.id}"가 도구 "${to.label}"에 없는 action ${unknown.map((a) => `"${a}"`).join(', ')}을 부른다. 도구의 actions는 ${to.actions.join(', ')}이다.`,
+      edgeId: edge.id,
+    });
+  }
+}
+
+const MD_PATH_RE = /\.mdx?$/i;
+
+/**
+ * 하네스 IR에서 md 파일 줄을 code 근거로 받는 자리를 스킬과 에이전트로 좁힌다. 세션이 실행하는 지시문만 코드로 친다.
+ * README나 docs의 언급까지 실선이 되면 문서에 적힌 계획과 실제 동작이 그림에서 안 갈린다.
+ * 웹 IR은 README 줄을 code로 써 온 결과가 있어 하네스 kind가 있을 때만 건다
+ */
+function checkMdCodeEvidence(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  if (!ir.nodes.some((n) => HARNESS_KINDS.includes(n.kind))) return;
+  const byId = new Map(ir.nodes.map((n) => [n.id, n]));
+  const instructionKind = (id: string): boolean => {
+    const kind = byId.get(id)?.kind;
+    return kind === 'skill' || kind === 'agent';
+  };
+  const mdIndexes = (evidence: Evidence[]): number[] =>
+    evidence.flatMap((ev, i) => {
+      if (ev.type !== 'code') return [];
+      const match = CODE_LOCATION_RE.exec(ev.location);
+      return match && MD_PATH_RE.test(match[2]!) ? [i] : [];
+    });
+  const message = (location: string, subject: string): string =>
+    `${subject}의 code 근거 "${location}"가 md 파일이다. md 줄을 code로 받는 건 skill, agent 노드와 그 둘에서 나가는 엣지뿐이다. 문서 언급이면 doc 근거로 바꾼다.`;
+  for (const node of ir.nodes) {
+    if (instructionKind(node.id)) continue;
+    for (const i of mdIndexes(node.evidence)) {
+      errors.push({
+        code: 'MD_CODE_EVIDENCE',
+        message: message(node.evidence[i]!.location, `노드 "${node.id}"`),
+        nodeId: node.id,
+        evidenceIndex: i,
+      });
+    }
+  }
+  for (const edge of ir.edges) {
+    if (instructionKind(edge.from)) continue;
+    for (const i of mdIndexes(edge.evidence)) {
+      errors.push({
+        code: 'MD_CODE_EVIDENCE',
+        message: message(edge.evidence[i]!.location, `엣지 "${edge.id}"`),
+        edgeId: edge.id,
+        evidenceIndex: i,
+      });
+    }
   }
 }
 
@@ -652,6 +761,8 @@ export function validateArchitectureIr(
   checkStages(ir, errors);
   checkIdsForCloudIds(ir, errors);
   checkMicroApps(ir, errors);
+  checkHarnessEdges(ir, errors);
+  checkMdCodeEvidence(ir, errors);
   checkFlows(ir, ctx, errors);
 
   for (const edge of ir.edges) {

@@ -45,10 +45,11 @@ import type {
   ArchitectureIr,
   ArchitectureNode,
   EdgeKind,
+  DisplayKind,
   Evidence,
-  NodeKind,
   UnresolvedQuestion,
 } from './types.js';
+import { displayKindOf } from './types.js';
 import { maskSharedText, redactForSharing, type ValidatedIr } from './validator.js';
 
 export type ArchitectureAudience = 'private' | 'shared';
@@ -67,7 +68,7 @@ const VIEW_TITLES: Record<ArchitectureIr['view'], string> = {
 };
 
 // 페이지에 보이는 글자는 IR 식별자 대신 읽는 사람 말로 바꿔 보여준다
-const NODE_KIND_TEXT: Record<NodeKind, string> = {
+const NODE_KIND_TEXT: Record<DisplayKind, string> = {
   service: '서비스',
   micro_app: '마이크로 프론트엔드 앱',
   feature: '기능 영역',
@@ -86,6 +87,10 @@ const NODE_KIND_TEXT: Record<NodeKind, string> = {
   cdn: 'CDN 배포',
   bucket: '스토리지 버킷',
   cloud_account: '클라우드 계정',
+  client: 'AI 클라이언트',
+  skill: '스킬',
+  agent: '에이전트',
+  mcp_tool: 'MCP 도구',
 };
 const EDGE_KIND_TEXT: Record<EdgeKind | 'contains', string> = {
   calls: '호출',
@@ -102,6 +107,8 @@ const EDGE_KIND_TEXT: Record<EdgeKind | 'contains', string> = {
   origin: '원본',
   serves: '서빙',
   loads: '런타임 로드',
+  spawns: '에이전트 실행',
+  invokes: '스킬 호출',
   contains: '포함',
 };
 const EVIDENCE_TYPE_TEXT: Record<Evidence['type'], string> = {
@@ -272,12 +279,13 @@ function renderCard(
   const name = nodeName(node);
   const guess = isGuess(node);
   const platforms = facts?.platforms.map((p) => platformName(p, facts.webHosting)) ?? [];
-  const cls = ['node', `k-${node.kind}`];
+  const dk = displayKindOf(node);
+  const cls = ['node', `k-${dk}`];
   if (products.length > 1) cls.push('shared');
   if (enterable) cls.push('enterable');
   if (focus) cls.push('is-focus');
   const aria =
-    `${name}, ${NODE_KIND_TEXT[node.kind]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}` +
+    `${name}, ${NODE_KIND_TEXT[dk]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}` +
     (platforms.length > 0 ? `, ${platforms.join(', ')}` : '') +
     (flows > 0 ? `, 사용자 흐름 ${flows}개` : '') +
     (products.length > 1 ? `, 같이 쓰는 제품 ${products.join(', ')}` : '');
@@ -304,7 +312,7 @@ function renderCard(
     `${micro.frame !== undefined ? ` data-frame="${escapeHtml(micro.frame)}"` : ''} role="button" tabindex="0" ` +
     `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
     `style="left:${x}px;top:${y}px;width:${box.width}px;height:${box.height}px">` +
-    `<span class="kc">${engine !== undefined ? iconUse(`e-${engine}`, `brand b-${engine}`) : iconUse(`i-${node.kind}`)}${escapeHtml(micro.host ? MICRO_HOST_SHORT : NODE_KIND_SHORT[node.kind])}</span>` +
+    `<span class="kc">${engine !== undefined ? iconUse(`e-${engine}`, `brand b-${engine}`) : iconUse(`i-${dk}`)}${escapeHtml(micro.host ? MICRO_HOST_SHORT : NODE_KIND_SHORT[dk])}</span>` +
     `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}` +
     (flows > 0
       ? `<span class="flow-badge" title="사용자 흐름 보기">${iconUse('u-flow')}${escapeHtml(flowBadgeText(flows))}</span>`
@@ -619,7 +627,7 @@ function renderFlowSection(
     .map(
       (l) =>
         `<div class="flane-title a-${l.actor.kind}" style="left:${FLOW_PAD + 12}px;top:${round2(l.y + FLOW_PAD + 12)}px">` +
-        `${iconUse(l.actor.kind === 'person' ? 'u-person' : 'u-system')}<span>${escapeHtml(l.actor.label)}</span></div>`,
+        `${iconUse(l.actor.kind === 'person' ? 'u-person' : l.actor.kind === 'agent' ? 'i-agent' : 'u-system')}<span>${escapeHtml(l.actor.label)}</span></div>`,
     )
     .join('');
   const labelOf = (id: string): string => stepById.get(id)?.label ?? id;
@@ -768,7 +776,7 @@ function renderLegend(
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const line = (extra: string): string =>
     `<svg width="36" height="12" aria-hidden="true"><line x1="3" y1="6" x2="33" y2="6" ${extra}/></svg>`;
-  const kinds = [...new Set(nodes.map((n) => n.kind))]
+  const kinds = [...new Set(nodes.map(displayKindOf))]
     .sort(compareStr)
     .map(
       (k) =>

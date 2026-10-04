@@ -130,7 +130,10 @@
             "domain",
             "cdn",
             "bucket",
-            "cloud_account"
+            "cloud_account",
+            "client",
+            "skill",
+            "agent"
           ]
         },
         "label": {
@@ -151,7 +154,7 @@
         "parent": {
           "type": "string",
           "minLength": 1,
-          "description": "containment: a screen points to a feature, micro_app or service, a feature points to a micro_app or service, a micro_app points to a service, a db_table points to a datastore; other kinds have no parent"
+          "description": "containment: a screen points to a feature, micro_app or service, a skill points to a feature or service, a feature points to a micro_app or service, a micro_app points to a service, a db_table points to a datastore; other kinds have no parent"
         },
         "description": { "type": "string" },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
@@ -176,6 +179,22 @@
           "description": "service only: evidence per platform",
           "propertyNames": { "$ref": "#/definitions/platform" },
           "additionalProperties": { "type": "array", "items": { "$ref": "#/definitions/evidence" } }
+        },
+        "protocol": {
+          "type": "string",
+          "enum": ["http", "mcp"],
+          "description": "endpoint only; http when omitted. An mcp endpoint is one MCP tool and its label is the tool name"
+        },
+        "mcpServer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "mcp endpoint only: name of the MCP server that registers the tool"
+        },
+        "actions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "mcp endpoint only: values the tool dispatches on through its action argument"
         }
       }
     },
@@ -202,11 +221,19 @@
             "resolves_to",
             "origin",
             "serves",
-            "loads"
+            "loads",
+            "spawns",
+            "invokes"
           ]
         },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
-        "lineStyle": { "type": "string", "enum": ["solid", "dashed"] }
+        "lineStyle": { "type": "string", "enum": ["solid", "dashed"] },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "calls into an mcp endpoint only: action values this call passes"
+        }
       }
     },
     "unresolvedQuestion": {
@@ -246,7 +273,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "label": { "type": "string", "minLength": 1 },
-        "kind": { "type": "string", "enum": ["person", "system"] }
+        "kind": { "type": "string", "enum": ["person", "system", "agent"] }
       }
     },
     "flowStep": {

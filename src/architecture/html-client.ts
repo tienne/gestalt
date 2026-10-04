@@ -130,6 +130,8 @@ export function renderClientScript(c: ClientConstants): string {
 
 ${FOCUS_SOURCE}
   function kindText(k) { return KIND_TEXT[k] || k; }
+  // MCP 도구는 IR에선 endpoint지만 칩과 색은 따로 단다. types.ts의 displayKindOf와 같은 규칙이다
+  function dkind(n) { return !n ? '' : n.kind === 'endpoint' && n.protocol === 'mcp' ? 'mcp_tool' : n.kind; }
   function evidenceText(t) { return EVIDENCE_TEXT[t] || t; }
   function el(tag, cls, text) {
     var e = doc.createElement(tag);
@@ -209,6 +211,8 @@ ${FOCUS_SOURCE}
     var basics = el('ul', 'facts');
     if (n.environment) factRow(basics, '환경', n.environment);
     if (n.account) factRow(basics, '계정', label(n.account));
+    if (n.mcpServer) factRow(basics, 'MCP 서버', n.mcpServer);
+    if (n.actions) factRow(basics, 'action', n.actions.join(', '));
     if (basics.childNodes.length) body.appendChild(basics);
     var f = services[n.id];
     if (!f) return;
@@ -314,8 +318,9 @@ ${FOCUS_SOURCE}
     questionList(body, st.questions);
     var refs = (st.refs || []).filter(function (r) { return !!nodes[r]; });
     if (refs.length) {
-      body.appendChild(el('h3', null, '이어진 화면과 API ' + refs.length + '개'));
-      refButtons(body, refs, function (r) { goToRef(r, f.service); }, function (r) { return 'i-' + nodes[r].kind; }, label);
+      var web = refs.every(function (r) { return nodes[r].kind === 'screen' || nodes[r].kind === 'endpoint'; });
+      body.appendChild(el('h3', null, (web ? '이어진 화면과 API ' : '이어진 카드 ') + refs.length + '개'));
+      refButtons(body, refs, function (r) { goToRef(r, f.service); }, function (r) { return 'i-' + dkind(nodes[r]); }, label);
     }
     evidenceList(body, st.evidence);
     panel.appendChild(body);
@@ -350,9 +355,9 @@ ${FOCUS_SOURCE}
     panel.textContent = '';
     var head = el('div', 'dr-head');
     var chips = el('div', 'chips');
-    var chip = el('span', 'chip k-' + n.kind);
-    chip.appendChild(icon('i-' + n.kind));
-    chip.appendChild(doc.createTextNode(kindText(n.kind)));
+    var chip = el('span', 'chip k-' + dkind(n));
+    chip.appendChild(icon('i-' + dkind(n)));
+    chip.appendChild(doc.createTextNode(kindText(dkind(n))));
     chips.appendChild(chip);
     chips.appendChild(el('span', 'repo', n.repo));
     head.appendChild(chips);
@@ -890,17 +895,22 @@ ${FOCUS_SOURCE}
     return { clientGw: clientGw, receivers: receivers, depth: depth };
   }
   // 열 번호에 틈을 둬서 게이트웨이 사슬이 단마다 한 열씩 끼어든다. 빈 번호는 그릴 때 접힌다
-  var COL = { screen: 0, gateway: 100, endpoint: 200, app_module: 300, external_service: 400, clientGateway: 500, receiver: 600, db_table: 700 };
+  // 하네스 카드는 화면보다 앞에 둔다. 클라이언트가 스킬을 싣고 스킬이 에이전트를 띄운 뒤 도구를 부르는 순서다
+  var COL = { client: -300, skill: -200, agent: -100, screen: 0, gateway: 100, endpoint: 200, mcp_tool: 250, app_module: 300, external_service: 400, clientGateway: 500, receiver: 600, db_table: 700 };
   function columnOf(id, info) {
-    var kind = nodes[id] ? nodes[id].kind : '';
+    var kind = dkind(nodes[id]);
     if (kind === 'gateway') return (info.clientGw[id] ? COL.clientGateway : COL.gateway) + (info.depth[id] || 0);
     if (kind === 'app_module' && info.receivers[id]) return COL.receiver;
     return COL.hasOwnProperty(kind) ? COL[kind] : 800;
   }
   function laneOfColumn(c) {
+    if (c < -200) return 'client';
+    if (c < -100) return 'skill';
+    if (c < 0) return 'agent';
     if (c < 100) return 'screen';
     if (c < 200) return 'gateway';
-    if (c < 300) return 'endpoint';
+    if (c < 250) return 'endpoint';
+    if (c < 300) return 'tool';
     if (c < 400) return 'app_module';
     if (c < 500) return 'external_service';
     if (c < 700) return 'external';
@@ -926,7 +936,7 @@ ${FOCUS_SOURCE}
   }
   function buildCard(id, x, y, w, h) {
     var n = nodes[id];
-    var kind = n ? n.kind : '';
+    var kind = dkind(n);
     var d = el('div', 'node k-' + kind);
     d.setAttribute('data-node-id', id);
     d.setAttribute('role', 'button');
@@ -1209,7 +1219,7 @@ ${FOCUS_SOURCE}
     table.appendChild(head);
     list.forEach(function (e) {
       var tr = el('tr');
-      tr.appendChild(el('td', null, kindText(e.kind)));
+      tr.appendChild(el('td', null, kindText(e.kind) + (e.actions ? ' (' + e.actions.join(', ') + ')' : '')));
       tr.appendChild(el('td', null, label(e.from) + ' → ' + label(e.to)));
       tr.appendChild(evidenceCell(e.evidence));
       table.appendChild(tr);
