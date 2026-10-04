@@ -475,8 +475,8 @@ interface OwnerLevelExtra {
 }
 
 /**
- * 서비스나 앱 하나를 펼친 레벨. 그 소유자에 바로 달린 기능 영역과 화면, 그 화면이 부르는 API, 소유자를 서빙하는 인프라 사슬이다.
- * micro_app이 없는 서비스는 예전 서비스 레벨과 같은 그림이 나와야 해서 소유자만 바꿔 같은 길을 탄다
+ * 진입 앱을 못 정한 마이크로 프론트엔드 서비스 레벨. 앱 카드를 늘어놓고 하나씩 들어가게 한다.
+ * 어느 앱이 위계 맨 위인지 모르니 treeLevel처럼 한 나무로 세우지 못한다
  */
 function ownerLevel(
   g: Graph,
@@ -565,30 +565,36 @@ function ownerLevel(
   };
 }
 
-// 진입 앱 서비스 레벨의 열 순서. 서빙 사슬(0~2) 뒤로 호스트, 리모트, 기능 영역, 화면을 한 열씩 세우고 게이트웨이부터는 그 뒤로 민다
-const TREE_RANK = { host: 3, remote: 4, feature: 5, screen: 6 } as const;
+// 나무 레벨의 열 순서. 서빙 사슬(0~2) 뒤로 소유자, 불러온 앱, 기능 영역, 화면을 한 열씩 세우고 게이트웨이부터는 그 뒤로 민다
+const TREE_RANK = { owner: 3, loaded: 4, feature: 5, screen: 6 } as const;
 const TREE_RANK_SHIFT = TREE_RANK.screen;
 
+interface TreeLevelSpec {
+  id: string;
+  kind: DrillLevelKind;
+  title: string;
+  trail: string[];
+  /** 맨 왼쪽 위계 카드. 진입 앱, 리모트 앱, 앱이 없는 서비스 자신이다 */
+  root: ArchitectureNode;
+  rootLane: LaneId;
+  /** root에서 나가는 loads. 불러온 앱은 리모트 열에 선다 */
+  loads: ArchitectureEdge[];
+}
+
 /**
- * 진입 앱이 정해진 서비스 레벨. 호스트 → 리모트 → 기능 영역 → 화면을 열로 나눠 위계가 왼쪽에서 오른쪽으로 읽히게 하고
- * 앞에는 진입 앱 서빙 사슬, 뒤에는 화면이 부르는 게이트웨이와 서버를 잇는다.
- * 호스트에 바로 달린 기능 영역과 화면은 리모트 열을 건너 호스트에서 바로 이어진다
+ * 소유자 하나를 펼친 레벨. 소유자 → 불러온 앱 → 기능 영역 → 화면을 열로 나눠 위계가 왼쪽에서 오른쪽으로 읽히게 하고
+ * 앞에는 소유자 서빙 사슬, 뒤에는 화면이 부르는 게이트웨이와 서버를 잇는다.
+ * 마이크로 프론트엔드든 아니든 같은 열 구성이라야 서비스끼리 오가며 봐도 자리 감각이 안 바뀐다
  */
-function appTreeLevel(
-  g: Graph,
-  service: ArchitectureNode,
-  entry: ArchitectureNode,
-  apps: MicroAppIndex,
-): LevelDraft {
-  const id = `service:${service.id}`;
-  const loads = apps.loads.filter((e) => e.from === entry.id && e.to !== entry.id);
+function treeLevel(g: Graph, spec: TreeLevelSpec): LevelDraft {
+  const { id, root: entry, loads } = spec;
   const remotes = new Set(loads.map((e) => e.to));
   const owners = new Set([entry.id, ...remotes]);
   const nodeIds = new Set<string>(owners);
-  const rankOverride = new Map<string, number>([[entry.id, TREE_RANK.host]]);
-  const laneOverride = new Map<string, LaneId>([[entry.id, 'host']]);
+  const rankOverride = new Map<string, number>([[entry.id, TREE_RANK.owner]]);
+  const laneOverride = new Map<string, LaneId>([[entry.id, spec.rootLane]]);
   for (const r of remotes) {
-    rankOverride.set(r, TREE_RANK.remote);
+    rankOverride.set(r, TREE_RANK.loaded);
     laneOverride.set(r, 'remote');
   }
   const tree: DrillEdge[] = [];
@@ -636,10 +642,10 @@ function appTreeLevel(
   }
   return {
     id,
-    kind: 'service',
+    kind: spec.kind,
     focusId: entry.id,
-    title: service.displayName ?? service.label,
-    trail: [ROOT_LEVEL_ID, id],
+    title: spec.title,
+    trail: spec.trail,
     nodeIds,
     edges: [...bundles, ...tree, ...loads.map(asDetail), ...infra.map(asDetail)].sort(byId),
     rankOverride,
@@ -847,8 +853,8 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
     ];
   };
 
-  const loadsFrom = (appId: string): DrillEdge[] =>
-    apps.loads.filter((e) => e.from === appId && e.to !== appId).map(asDetail);
+  const loadsFrom = (appId: string): ArchitectureEdge[] =>
+    apps.loads.filter((e) => e.from === appId && e.to !== appId);
   // 진입 앱을 못 정한 서비스는 앱 카드를 서비스 아래에 포함 선으로 늘어놓고 하나씩 들어가게 한다
   const appCardsOf = (serviceId: string): DrillEdge[] =>
     orderedApps(apps, serviceId).map((a) => ({
@@ -865,16 +871,45 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
     if (n.kind === 'service') {
       const entry = g.nodeById.get(apps.entryOf.get(n.id) ?? '');
       const trail = trailOf(n.id)!;
+      const id = trail[trail.length - 1]!;
+      const title = n.displayName ?? n.label;
       const level =
         entry !== undefined
-          ? appTreeLevel(g, n, entry, apps)
-          : ownerLevel(g, n, 'service', trail, { children: appCardsOf(n.id) });
+          ? treeLevel(g, {
+              id,
+              kind: 'service',
+              title,
+              trail,
+              root: entry,
+              rootLane: 'host',
+              loads: loadsFrom(entry.id),
+            })
+          : apps.appsOf.has(n.id)
+            ? ownerLevel(g, n, 'service', trail, { children: appCardsOf(n.id) })
+            : treeLevel(g, {
+                id,
+                kind: 'service',
+                title,
+                trail,
+                root: n,
+                rootLane: 'service',
+                loads: [],
+              });
       drafts.push(level);
       enter[n.id] = level.id;
       if (entry !== undefined) enter[entry.id] = level.id;
     } else if (n.kind === 'micro_app') {
       if (entryApps.has(n.id)) continue;
-      const level = ownerLevel(g, n, 'app', trailOf(n.id)!, { children: loadsFrom(n.id) });
+      const trail = trailOf(n.id)!;
+      const level = treeLevel(g, {
+        id: trail[trail.length - 1]!,
+        kind: 'app',
+        title: n.displayName ?? n.label,
+        trail,
+        root: n,
+        rootLane: 'remote',
+        loads: loadsFrom(n.id),
+      });
       drafts.push(level);
       enter[n.id] = level.id;
     } else if (n.kind === 'gateway' || n.kind === 'app_module') {
