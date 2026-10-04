@@ -5,3 +5,4 @@ export * from './store.js';
 export * from './html-renderer.js';
 export * from './drilldown.js';
 export * from './merge.js';
+export * from './flow-layout.js';

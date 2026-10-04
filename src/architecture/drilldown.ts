@@ -16,6 +16,7 @@ import {
   type LaneId,
   type LayoutResult,
 } from './layout.js';
+import { computeFlowLevels, type FlowLevel } from './flow-layout.js';
 import { indexMicroApps, orderedApps, type MicroAppIndex } from './micro-app.js';
 import { computeServiceFacts } from './service-facts.js';
 import type { ArchitectureEdge, ArchitectureNode, EdgeKind, LineStyle, NodeKind } from './types.js';
@@ -55,6 +56,8 @@ export interface Drilldown {
   levels: DrillLevel[];
   /** 노드 id → 그 노드를 눌러 들어갈 레벨 id */
   enter: Record<string, string>;
+  /** 도메인 흐름 레벨. 노드 그래프가 아니라 행위자 줄 격자라 levels와 따로 싣는다 */
+  flows: FlowLevel[];
 }
 
 export const ROOT_LEVEL_ID = 'root';
@@ -973,5 +976,5 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
       layout,
     });
   }
-  return { levels, enter };
+  return { levels, enter, flows: computeFlowLevels(validated) };
 }
