@@ -638,6 +638,26 @@ a.loc:hover { text-decoration: underline; }
 }
 `;
 
+/** 질문별 그림이 있을 때만 붙이는 스타일. 공용 CSS에 넣으면 투영 없는 그림의 바이트가 바뀐다 */
+export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; font-size: 13px; color: var(--muted); }
+.lifeline { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 4 5; }
+.seq-block rect { fill: var(--lane); stroke: var(--border-strong); stroke-width: 1; }
+.seq-block .b-tab { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1; }
+.seq-block .b-kind { font-size: 11px; font-weight: 700; fill: var(--text); }
+.seq-block .b-label { font-size: 11px; fill: var(--muted); }
+.seq-block .b-branch { stroke: var(--border-strong); stroke-dasharray: 5 4; }
+.link.seq-m { cursor: pointer; }
+.link.seq-m .tip.open { fill: none; stroke: var(--edge); stroke-width: 1.6; }
+.link.seq-m.lit .tip.open, .link.seq-m:hover .tip.open { fill: none; stroke: var(--edge-strong); }
+.link.seq-m .m-label {
+  font-size: 11.5px; font-weight: 600; fill: var(--text);
+  paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
+}
+.link.seq-m .m-n { fill: var(--muted); }
+.view-list a { display: block; padding: 8px 10px; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 13px; }
+.view-list a:hover { background: var(--lane); }
+.view-list a span { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }`;
+
 /** 테마 토큰과 레이아웃 CSS. 시스템 설정을 기본으로 따르고 html의 data-theme가 있으면 그걸 따른다 */
 export function renderCss(vocab: Vocabulary = LEGACY_VOCABULARY): string {
   return [

@@ -178,6 +178,17 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
       st.refs !== undefined ? { ...st, refs: st.refs.map(mapNodeId) } : { ...st },
     ),
   }));
+  const projections = next.projections?.map((pr) => ({
+    ...pr,
+    ...(pr.participants !== undefined ? { participants: pr.participants.map(mapNodeId) } : {}),
+    messages: pr.messages.map((m) => ({
+      ...m,
+      from: mapNodeId(m.from),
+      to: mapNodeId(m.to),
+      ...(m.edge !== undefined ? { edge: mapEdgeId(m.edge) } : {}),
+    })),
+  }));
+  const messageIds = new Set(projections?.flatMap((pr) => pr.messages.map((m) => m.id)) ?? []);
   const stepIds = new Set(flows?.flatMap((f) => f.steps.map((st) => st.id)) ?? []);
   const transitionIds = new Set(flows?.flatMap((f) => f.transitions.map((t) => t.id)) ?? []);
 
@@ -188,15 +199,17 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     a.subject.nodeId === b.subject.nodeId &&
     a.subject.edgeId === b.subject.edgeId &&
     a.subject.stepId === b.subject.stepId &&
-    a.subject.transitionId === b.subject.transitionId;
+    a.subject.transitionId === b.subject.transitionId &&
+    a.subject.messageId === b.subject.messageId;
 
   for (const prevQ of prev.unresolved) {
     if (!isAnswered(prevQ)) continue;
-    const { nodeId, edgeId, stepId, transitionId } = prevQ.subject;
+    const { nodeId, edgeId, stepId, transitionId, messageId } = prevQ.subject;
     if (nodeId !== undefined && !nodeIds.has(nodeId)) continue;
     if (edgeId !== undefined && !edgeIds.has(edgeId)) continue;
     if (stepId !== undefined && !stepIds.has(stepId)) continue;
     if (transitionId !== undefined && !transitionIds.has(transitionId)) continue;
+    if (messageId !== undefined && !messageIds.has(messageId)) continue;
 
     // 같은 대상에 같은 질문을 다시 물었으면 새로 추가하지 않고 답만 옮긴다
     const twin = unresolved.find(
@@ -222,6 +235,7 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
       ? { groups: next.groups.map((g) => ({ ...g, members: g.members.map(mapNodeId).sort() })) }
       : {}),
     ...(flows !== undefined ? { flows } : {}),
+    ...(projections !== undefined ? { projections } : {}),
     ...(next.stages !== undefined
       ? {
           stages: next.stages.map((st) =>

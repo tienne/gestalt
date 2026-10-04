@@ -165,7 +165,14 @@ export interface ArchitectureEdge {
 export interface UnresolvedQuestion {
   id: string;
   /** stepId와 transitionId는 흐름의 단계와 전이를 가리킨다. 흐름 id끼리 겹치지 않아야 한다 */
-  subject: { nodeId?: string; edgeId?: string; stepId?: string; transitionId?: string };
+  subject: {
+    nodeId?: string;
+    edgeId?: string;
+    stepId?: string;
+    transitionId?: string;
+    /** 투영 메시지 id. 투영끼리 겹치지 않아야 한다 */
+    messageId?: string;
+  };
   question: string;
   answer?: string;
 }
@@ -254,6 +261,53 @@ export interface ArchitectureFlow {
   transitions: FlowTransition[];
 }
 
+/** 투영의 답 모양. 지도(nodes, edges)는 그대로 두고 질문 하나에 맞게 골라 그린다 */
+export const PROJECTION_SHAPES = ['sequence'] as const;
+export type ProjectionShape = (typeof PROJECTION_SHAPES)[number];
+/** sequence 묶음 종류. alt는 경우 나누기, opt는 조건이 맞을 때만, loop는 반복, par는 동시 실행이다 */
+export const SEQUENCE_BLOCK_KINDS = ['alt', 'opt', 'loop', 'par'] as const;
+export type SequenceBlockKind = (typeof SEQUENCE_BLOCK_KINDS)[number];
+
+export interface ProjectionBlock {
+  id: string;
+  kind: SequenceBlockKind;
+  label: string;
+}
+
+/**
+ * 투영 안의 메시지 하나. from과 to는 지도의 노드 id다.
+ * edge를 적으면 그 엣지의 근거를 함께 쓴다. edge도 evidence도 없으면 unresolved에 이 메시지를 묻는 질문이 있어야 한다
+ */
+export interface ProjectionMessage {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  edge?: string;
+  evidence: Evidence[];
+  lineStyle: LineStyle;
+  /** 응답이면 true. 화살표를 열린 꼴로 그린다 */
+  reply?: boolean;
+  block?: string;
+  /** alt 묶음 안에서 이 메시지가 속한 경우의 이름. 경우가 바뀌는 자리에 가로 점선을 긋는다 */
+  branch?: string;
+}
+
+/**
+ * 질문 하나에 답하는 그림. 지도에서 노드를 골라 순서와 묶음을 붙인다.
+ * 지도에 없는 노드는 못 가리킨다. 필요하면 근거와 함께 지도에 먼저 넣는다
+ */
+export interface ArchitectureProjection {
+  id: string;
+  shape: ProjectionShape;
+  title: string;
+  question: string;
+  /** 왼쪽부터 놓을 참여자. 없으면 메시지에 처음 나온 순서다 */
+  participants?: string[];
+  messages: ProjectionMessage[];
+  blocks?: ProjectionBlock[];
+}
+
 /**
  * 기술 그림을 왼쪽에서 오른쪽으로 나누는 구간. 세션이 분석하면서 정한다 (예: 앱, 웨이팅 서버, 알림 서버, DB).
  * 노드는 nodes에 이름이 오른 구간에 먼저 들어간다. 없으면 kinds와 repos가 맞는 첫 구간에 들어간다
@@ -283,5 +337,6 @@ export interface ArchitectureIr {
   /** 도메인 흐름. 없으면 기술 그림만 그린다 */
   flows?: ArchitectureFlow[];
   /** 기술 그림 구간. 배열 순서가 왼쪽부터다. 없으면 종류별 레인만 그린다 */
-  stages?: ArchitectureStage[];
+  stages?: ArchitectureStage[]; /** 질문별 그림. 드릴다운 끝에 레벨로 붙고 저장할 때 views/<id>.json으로도 남는다 */
+  projections?: ArchitectureProjection[];
 }

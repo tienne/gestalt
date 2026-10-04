@@ -18,6 +18,7 @@ import {
   PRODUCT_COLORS,
   renderCss,
   renderIconSprite,
+  VIEW_CSS,
 } from './html-theme.js';
 import {
   LANE_TITLES,
@@ -39,12 +40,16 @@ import {
 } from './layout.js';
 import { indexMicroApps } from './micro-app.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, type Vocabulary } from './packs/index.js';
+import { computeSequenceLayout, type SequenceLayout } from './sequence-layout.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
   ArchitectureEdge,
   ArchitectureFlow,
   ArchitectureIr,
   ArchitectureNode,
+  ArchitectureProjection,
+  ProjectionMessage,
+  SequenceBlockKind,
   EdgeKind,
   DisplayKind,
   Evidence,
@@ -703,6 +708,178 @@ function renderFlowSection(
   );
 }
 
+/** 투영 레벨 id 앞머리. 흐름 레벨의 flow:처럼 지도 레벨 id와 안 겹치게 한다 */
+const VIEW_LEVEL_PREFIX = 'view:';
+
+/** 서랍이 메시지를 누를 때 쓰는 데이터. 그린 메시지만 싣고 걸린 질문 문장을 붙인다 */
+function messagePayload(
+  views: readonly { projection: ArchitectureProjection }[],
+  drawn: ReadonlySet<string>,
+  questions: readonly UnresolvedQuestion[],
+  edges: readonly ArchitectureEdge[],
+): Record<string, unknown> {
+  const edgeById = new Map(edges.map((e) => [e.id, e]));
+  const out: Record<string, unknown> = {};
+  for (const { projection } of views) {
+    const blockLabel = new Map(
+      (projection.blocks ?? []).map((b) => [b.id, `${SEQUENCE_BLOCK_TEXT[b.kind]} [${b.label}]`]),
+    );
+    for (const m of projection.messages) {
+      if (!drawn.has(m.id)) continue;
+      const asked = questions.filter((q) => q.subject.messageId === m.id).map((q) => q.question);
+      out[m.id] = {
+        id: m.id,
+        view: projection.title,
+        from: m.from,
+        to: m.to,
+        label: m.label,
+        lineStyle: m.lineStyle,
+        evidence: [
+          ...m.evidence,
+          ...(m.edge !== undefined ? (edgeById.get(m.edge)?.evidence ?? []) : []),
+        ],
+        ...(m.edge !== undefined ? { edge: m.edge } : {}),
+        ...(m.reply ? { reply: true } : {}),
+        ...(m.block !== undefined ? { block: blockLabel.get(m.block) } : {}),
+        ...(m.branch !== undefined ? { branch: m.branch } : {}),
+        ...(asked.length > 0 ? { questions: asked } : {}),
+      };
+    }
+  }
+  return out;
+}
+
+const SEQUENCE_BLOCK_TEXT: Record<SequenceBlockKind, string> = {
+  alt: '분기',
+  opt: '조건',
+  loop: '반복',
+  par: '동시',
+};
+const ARROW = 8;
+
+/** 질문 하나에 답하는 sequence 그림. 머리 카드는 지도 카드를 그대로 써서 누르면 같은 서랍이 열린다 */
+function renderSequenceSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  layout: SequenceLayout,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  services: Record<string, ServiceFacts>,
+): string {
+  const px = (x: number): number => round2(x + CANVAS_PAD_X);
+  const py = (y: number): number => round2(y + CANVAS_PAD_TOP);
+  const width = round2(layout.width + CANVAS_PAD_X * 2);
+  const height = round2(layout.height + CANVAS_PAD_TOP);
+  const messageById = new Map(projection.messages.map((m) => [m.id, m]));
+  const nameOf = (id: string): string => {
+    const n = nodeById.get(id);
+    return n ? nodeName(n) : id;
+  };
+  const lifelines = layout.lifelines
+    .map(
+      (l) =>
+        `<line class="lifeline" x1="${px(l.x)}" x2="${px(l.x)}" y1="${py(l.y1)}" y2="${py(l.y2)}"/>`,
+    )
+    .join('');
+  const blocks = layout.blocks
+    .map((b) => {
+      const tag = SEQUENCE_BLOCK_TEXT[b.kind];
+      const tagW = textUnits(tag) * 7 + 16;
+      const branches = b.branches
+        .map(
+          (br) =>
+            `<line class="b-branch" x1="${px(b.x)}" x2="${px(b.x + b.width)}" y1="${py(br.y)}" y2="${py(br.y)}"/>` +
+            (br.label !== ''
+              ? `<text class="b-label" x="${px(b.x + 10)}" y="${py(br.y + 16)}">[${escapeHtml(br.label)}]</text>`
+              : ''),
+        )
+        .join('');
+      return (
+        `<g class="seq-block b-${b.kind}"><rect x="${px(b.x)}" y="${py(b.y)}" width="${b.width}" height="${b.height}" rx="6"/>` +
+        `<path class="b-tab" d="M${px(b.x)} ${py(b.y + 20)}H${px(b.x + tagW)}L${px(b.x + tagW + 8)} ${py(b.y + 12)}V${py(b.y)}"/>` +
+        `<text class="b-kind" x="${px(b.x + 8)}" y="${py(b.y + 14)}">${tag}</text>` +
+        `<text class="b-label" x="${px(b.x + tagW + 16)}" y="${py(b.y + 14)}">[${escapeHtml(b.label)}]</text>` +
+        `${branches}</g>`
+      );
+    })
+    .join('');
+  const links = layout.messages
+    .map((box) => {
+      const m = messageById.get(box.id)!;
+      const dash = m.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
+      const y = py(box.y);
+      let d: string;
+      let tip: [string, string, string];
+      let labelX: number;
+      let anchor = 'middle';
+      if (box.self) {
+        const x = px(box.x1);
+        const yb = round2(y + 10);
+        d = `M${x} ${round2(y - 10)}H${round2(x + 36)}V${yb}H${x}`;
+        tip = [
+          `${x},${yb}`,
+          `${round2(x + ARROW)},${round2(yb - ARROW / 2)}`,
+          `${round2(x + ARROW)},${round2(yb + ARROW / 2)}`,
+        ];
+        labelX = round2(x + 44);
+        anchor = 'start';
+      } else {
+        const x1 = px(box.x1);
+        const x2 = px(box.x2);
+        const back = round2(x2 - (x2 > x1 ? 1 : -1) * ARROW);
+        d = `M${x1} ${y}H${x2}`;
+        tip = [
+          `${x2},${y}`,
+          `${back},${round2(y - ARROW / 2)}`,
+          `${back},${round2(y + ARROW / 2)}`,
+        ];
+        labelX = round2((x1 + x2) / 2);
+      }
+      const name =
+        `${box.n}. ${nameOf(m.from)} → ${nameOf(m.to)}: ${m.label}` +
+        (m.reply ? ', 응답' : '') +
+        (m.lineStyle === 'dashed' ? ', 문서로만 확인' : '');
+      // 응답은 열린 화살촉으로 그린다. 요청과 응답이 같은 두 줄 사이를 오갈 때 방향만으로는 구분이 안 된다
+      const head = m.reply
+        ? `<polyline class="tip open" points="${tip[1]} ${tip[0]} ${tip[2]}"/>`
+        : `<polygon class="tip" points="${tip.join(' ')}"/>`;
+      return (
+        `<g class="link seq-m${m.reply ? ' reply' : ''}" data-from="${escapeHtml(m.from)}" data-to="${escapeHtml(m.to)}" ` +
+        `data-message-id="${escapeHtml(m.id)}" tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
+        `<title>${escapeHtml(name)}</title><path class="hit" d="${d}" stroke-width="12"/>` +
+        `<path class="edge" d="${d}" stroke-width="1.6"${dash}/>${head}` +
+        `<text class="m-label" x="${labelX}" y="${round2(y - 7)}" text-anchor="${anchor}"><tspan class="m-n">${box.n}.</tspan> ${escapeHtml(m.label)}</text></g>`
+      );
+    })
+    .join('');
+  const cards = layout.heads
+    .map((h) =>
+      renderCard(
+        nodeById.get(h.id)!,
+        {
+          id: h.id,
+          x: h.x,
+          y: h.y,
+          width: h.width,
+          height: h.height,
+        } as LayoutResult['nodes'][number],
+        false,
+        false,
+        services[h.id],
+        undefined,
+        { host: false },
+      ),
+    )
+    .join('');
+  return (
+    `<section class="level view-level" data-level-id="${escapeHtml(levelId)}" aria-label="${escapeHtml(projection.title)}" ` +
+    `data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px" hidden>` +
+    `<p class="view-q" style="left:${CANVAS_PAD_X}px">${escapeHtml(projection.question)}</p>` +
+    `<svg class="links" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
+    `role="group" aria-label="${escapeHtml(`${projection.title} 메시지`)}"><g class="lanes">${lifelines}${blocks}</g><g class="edges">${links}</g></svg>` +
+    `${cards}</section>`
+  );
+}
+
 /** 흐름 단계와 전이마다 열린 질문 수. 카드 배지에 쓴다. 전이 질문은 출발 단계에 센다 */
 function flowQuestionCount(
   questions: readonly UnresolvedQuestion[],
@@ -808,8 +985,10 @@ function renderQuestions(
   allEdges: ArchitectureEdge[],
   flows: readonly ArchitectureFlow[],
   drawnSteps: ReadonlySet<string>,
+  messages: readonly ProjectionMessage[] = [],
 ): string {
   const edgeById = new Map(allEdges.map((e) => [e.id, e]));
+  const messageById = new Map(messages.map((m) => [m.id, m]));
   const stepById = new Map(flows.flatMap((f) => f.steps.map((st) => [st.id, st] as const)));
   const transitionById = new Map(
     flows.flatMap((f) => f.transitions.map((t) => [t.id, t] as const)),
@@ -823,7 +1002,7 @@ function renderQuestions(
     .map((q) => {
       let subject: string | undefined;
       let target: string | undefined;
-      const { nodeId, edgeId, stepId, transitionId } = q.subject;
+      const { nodeId, edgeId, stepId, transitionId, messageId } = q.subject;
       // 전이 질문은 출발 단계로 데려간다. 선은 카드처럼 고를 자리가 없어서다
       if (stepId !== undefined) {
         subject = stepName(stepId);
@@ -851,6 +1030,9 @@ function renderQuestions(
         } else {
           subject = edgeId;
         }
+      } else if (messageId !== undefined) {
+        const m = messageById.get(messageId);
+        subject = m ? `${nameOr(m.from)} → ${nameOr(m.to)}: ${m.label}` : messageId;
       }
       const attr = target !== undefined ? ` data-node-id="${escapeHtml(target)}"` : ' disabled';
       return (
@@ -899,6 +1081,7 @@ function renderBar(
   questionCount: number,
   envs: readonly string[],
   hasFlows: boolean,
+  hasViews = false,
 ): string {
   const qClass = questionCount > 0 ? 'n warn' : 'n';
   return (
@@ -912,6 +1095,10 @@ function renderBar(
     (hasFlows
       ? `<button type="button" class="btn" id="flow-btn" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="flow-pop" ` +
         `title="이 서비스를 쓰는 사람 쪽 흐름 보기">${iconUse('u-flow')}<span class="label">흐름</span></button>`
+      : '') +
+    (hasViews
+      ? `<button type="button" class="btn" id="views-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="views" ` +
+        `title="질문 하나에 답하는 그림 보기">${iconUse('u-flow')}<span class="label">질문별 그림</span></button>`
       : '') +
     renderEnvPicker(envs) +
     `<label class="search">${iconUse('u-search')}<input id="search" type="search" placeholder="이름으로 찾기" aria-label="이름으로 찾기" autocomplete="off" spellcheck="false"><span id="search-count" class="count" aria-live="polite"></span></label>` +
@@ -931,8 +1118,8 @@ function renderBar(
 const clientScripts = new Map<string, string>();
 
 /** 칩 글자와 설명, 레인 제목은 IR이 쓰는 팩 것만 싣는다. 팩을 더해도 그 팩을 안 쓰는 그림의 바이트가 그대로다 */
-function clientScriptFor(vocab: Vocabulary, rootFlows: boolean): string {
-  const key = `${vocab.packIds.join(',')}|${rootFlows}`;
+function clientScriptFor(vocab: Vocabulary, rootFlows: boolean, views: boolean): string {
+  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}`;
   const hit = clientScripts.get(key);
   if (hit !== undefined) return hit;
   const pick = <T>(table: Record<string, T>, keys: Iterable<string>): Record<string, T> =>
@@ -956,9 +1143,22 @@ function clientScriptFor(vocab: Vocabulary, rootFlows: boolean): string {
       .sort(compareStr),
     components: 'component' in vocab.nodeKinds,
     rootFlows,
+    views,
   });
   clientScripts.set(key, script);
   return script;
+}
+
+/** 그림 단추가 여는 목록. 링크라서 주소 해시로 바로 그 레벨로 간다 */
+function renderViewsPop(views: { level: string; projection: ArchitectureProjection }[]): string {
+  const items = views
+    .map(
+      (v) =>
+        `<li><a href="#/level/${encodeURIComponent(v.level)}"><b>${escapeHtml(v.projection.title)}</b>` +
+        `<span>${escapeHtml(v.projection.question)}</span></a></li>`,
+    )
+    .join('');
+  return `<div id="views" class="pop" role="dialog" aria-label="질문별 그림" tabindex="-1" hidden><h3>질문별 그림</h3><ul class="flow-list view-list">${items}</ul></div>`;
 }
 
 interface PageSpec {
@@ -968,13 +1168,16 @@ interface PageSpec {
   drill: boolean;
   /** 그린 흐름. 공유본이면 가린 사본이다 */
   flows?: { flows: ArchitectureFlow[]; drawnSteps: Set<string> };
+  /** 그린 투영. 있을 때만 그림 단추와 메시지 서랍 코드를 싣는다 */
+  views?: { level: string; projection: ArchitectureProjection }[];
 }
 
-function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
+function renderPage({ ir, payload, sections, drill, flows, views }: PageSpec): string {
   const title = viewTitle(ir);
   const vocab = irVocabulary(ir);
   const nodeById = new Map(payload.nodes.map((n) => [n.id, n]));
   const hasFlows = flows !== undefined && flows.flows.length > 0;
+  const hasViews = views !== undefined && views.length > 0;
   return [
     '<!doctype html>',
     '<html lang="ko">',
@@ -983,7 +1186,7 @@ function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab),
@@ -996,6 +1199,7 @@ function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
       payload.unresolved.length,
       environmentsOf(payload.nodes),
       hasFlows,
+      hasViews,
     ),
     '<div class="main">',
     '<div id="stage" class="stage" aria-label="구조도">',
@@ -1027,12 +1231,13 @@ function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
       ir.edges,
       flows?.flows ?? [],
       flows?.drawnSteps ?? new Set(),
+      views?.flatMap((v) => v.projection.messages),
     ),
-    hasFlows
+    (hasFlows
       ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
-      : '',
+      : '') + (hasViews ? `\n${renderViewsPop(views)}` : ''),
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
-    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined))}</script>`,
+    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews)}</script>`,
     '</body>',
     '</html>',
     '',
@@ -1118,9 +1323,33 @@ export function renderDrilldownHtml(
       flows: flowPayload(drilldown.flows, drawnFlows, base.unresolved),
     });
   }
+  const drawnMessages = validated.drawableMessageIds ?? new Set<string>();
+  const views = (ir.projections ?? [])
+    .filter((p) => p.messages.some((m) => drawnMessages.has(m.id)))
+    .map((projection) => ({
+      level: `${VIEW_LEVEL_PREFIX}${projection.id}`,
+      projection,
+      layout: computeSequenceLayout(projection, drawnMessages, nodeById),
+    }));
+  if (views.length > 0) {
+    Object.assign(payload, {
+      levels: [
+        ...(payload as { levels: unknown[] }).levels,
+        ...views.map((v) => ({
+          id: v.level,
+          kind: 'view',
+          title: v.projection.title,
+          trail: [ROOT_LEVEL_ID, v.level],
+          edges: [],
+        })),
+      ],
+      messages: messagePayload(views, drawnMessages, base.unresolved, ir.edges),
+    });
+  }
   const rootFlowLinks = flowLevels
     .filter(({ flow }) => flow.service === undefined)
-    .map(({ level, flow }) => ({ level: level.id, title: flow.title }));
+    .map(({ level, flow }) => ({ level: level.id, title: flow.title }))
+    .concat(views.map((v) => ({ level: v.level, title: v.projection.title })));
   const sections = levels
     .map((l, i) =>
       renderLevelSection({
@@ -1146,6 +1375,11 @@ export function renderDrilldownHtml(
         renderFlowSection(level, flow, questionCount, drawableNodes),
       ),
     )
+    .concat(
+      views.map((v) =>
+        renderSequenceSection(v.level, v.projection, v.layout, nodeById, base.services),
+      ),
+    )
     .join('\n');
   return renderPage({
     ir,
@@ -1153,5 +1387,6 @@ export function renderDrilldownHtml(
     sections,
     drill: true,
     ...(flowLevels.length > 0 ? { flows: { flows: drawnFlows, drawnSteps } } : {}),
+    ...(views.length > 0 ? { views } : {}),
   });
 }

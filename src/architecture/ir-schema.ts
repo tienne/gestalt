@@ -12,6 +12,8 @@ import {
   EVIDENCE_TYPES,
   FLOW_ACTOR_KINDS,
   FLOW_PATHS,
+  PROJECTION_SHAPES,
+  SEQUENCE_BLOCK_KINDS,
   LINE_STYLES,
   NODE_KINDS,
   PLATFORMS,
@@ -159,6 +161,7 @@ const unresolvedQuestionSchema = z.object({
     edgeId: z.string().optional(),
     stepId: z.string().optional(),
     transitionId: z.string().optional(),
+    messageId: z.string().optional(),
   }),
   question: z.string().min(1),
   answer: z.string().optional(),
@@ -232,6 +235,39 @@ const stageSchema = z.object({
   repos: z.array(z.string().min(1)).optional(),
 });
 
+const projectionMessageSchema = z.object({
+  id: z.string().min(1),
+  from: z.string().min(1),
+  to: z.string().min(1),
+  label: z.string().min(1),
+  edge: z.string().min(1).optional(),
+  evidence: z.array(evidenceSchema),
+  lineStyle: lineStyleSchema,
+  reply: z.boolean().optional(),
+  block: z.string().min(1).optional(),
+  branch: z.string().min(1).optional(),
+});
+
+const projectionSchema = z.object({
+  id: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]*$/, '투영 id는 소문자, 숫자, 하이픈만 쓴다. 파일 이름이 된다'),
+  shape: z.enum(PROJECTION_SHAPES),
+  title: z.string().min(1),
+  question: z.string().min(1),
+  participants: z.array(z.string().min(1)).optional(),
+  messages: z.array(projectionMessageSchema).min(1),
+  blocks: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        kind: z.enum(SEQUENCE_BLOCK_KINDS),
+        label: z.string().min(1),
+      }),
+    )
+    .optional(),
+});
+
 export const architectureIrSchema = z.object({
   schemaVersion: z.literal(ARCHITECTURE_IR_SCHEMA_VERSION),
   view: architectureViewSchema,
@@ -245,6 +281,7 @@ export const architectureIrSchema = z.object({
   groups: z.array(groupSchema).optional(),
   flows: z.array(flowSchema).optional(),
   stages: z.array(stageSchema).optional(),
+  projections: z.array(projectionSchema).optional(),
 });
 
 export function parseArchitectureIr(input: unknown): Result<ArchitectureIr, ValidationError> {

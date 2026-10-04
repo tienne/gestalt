@@ -8,6 +8,8 @@ import {
   evidenceTypeSchema,
   FLOW_ACTOR_KINDS,
   FLOW_PATHS,
+  PROJECTION_SHAPES,
+  SEQUENCE_BLOCK_KINDS,
   lineStyleSchema,
   nodeKindSchema,
   parseArchitectureIr,
@@ -158,6 +160,13 @@ describe('JSON Schema 파일과 zod 정합', () => {
     [
       'flowTransition.lineStyle',
       defs.flowTransition?.properties?.lineStyle?.enum,
+      lineStyleSchema.options,
+    ],
+    ['projection.shape', defs.projection?.properties?.shape?.enum, PROJECTION_SHAPES],
+    ['projectionBlock.kind', defs.projectionBlock?.properties?.kind?.enum, SEQUENCE_BLOCK_KINDS],
+    [
+      'projectionMessage.lineStyle',
+      defs.projectionMessage?.properties?.lineStyle?.enum,
       lineStyleSchema.options,
     ],
   ];

@@ -43,6 +43,11 @@
       "type": "array",
       "description": "left-to-right stages of the technical view, defined by the session (e.g. app, server, another server, DB)",
       "items": { "$ref": "#/definitions/stage" }
+    },
+    "projections": {
+      "type": "array",
+      "description": "pictures that each answer one question, drawn over the same nodes and edges",
+      "items": { "$ref": "#/definitions/projection" }
     }
   },
   "definitions": {
@@ -282,7 +287,8 @@
             "nodeId": { "type": "string" },
             "edgeId": { "type": "string" },
             "stepId": { "type": "string" },
-            "transitionId": { "type": "string" }
+            "transitionId": { "type": "string" },
+            "messageId": { "type": "string" }
           }
         },
         "question": { "type": "string", "minLength": 1 },
@@ -371,6 +377,56 @@
         "readOnly": { "type": "boolean" },
         "probeHit": { "type": "boolean" },
         "visibility": { "$ref": "#/definitions/visibility" }
+      }
+    },
+    "projectionMessage": {
+      "type": "object",
+      "required": ["id", "from", "to", "label", "evidence", "lineStyle"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "edge": {
+          "type": "string",
+          "minLength": 1,
+          "description": "edge this message travels on. Its evidence counts for the message"
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
+        "lineStyle": { "type": "string", "enum": ["solid", "dashed"] },
+        "reply": { "type": "boolean" },
+        "block": { "type": "string", "minLength": 1 },
+        "branch": { "type": "string", "minLength": 1 }
+      }
+    },
+    "projectionBlock": {
+      "type": "object",
+      "required": ["id", "kind", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["alt", "opt", "loop", "par"] },
+        "label": { "type": "string", "minLength": 1 }
+      }
+    },
+    "projection": {
+      "type": "object",
+      "required": ["id", "shape", "title", "question", "messages"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "shape": { "type": "string", "enum": ["sequence"] },
+        "title": { "type": "string", "minLength": 1 },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the one question this picture answers"
+        },
+        "participants": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "messages": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/projectionMessage" }
+        },
+        "blocks": { "type": "array", "items": { "$ref": "#/definitions/projectionBlock" } }
       }
     }
   }

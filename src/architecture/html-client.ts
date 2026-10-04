@@ -21,6 +21,8 @@ export interface ClientConstants {
   components?: boolean;
   /** service 없는 흐름이 있으면 true. 전체 레벨의 흐름 단추가 그 흐름을 연다 */
   rootFlows?: boolean;
+  /** 질문별 그림이 있으면 true. 메시지 서랍과 그림 단추 코드를 싣는다 */
+  views?: boolean;
 }
 
 // component는 칩 글자를 노드의 displayKind에서, 색과 아이콘은 renderClass에서 가져온다. types.ts의 displayKindOf, chipTextOverride와 같은 규칙이다.
@@ -28,6 +30,44 @@ export interface ClientConstants {
 const COMPONENT_DKIND = "n.kind === 'component' ? 'cx_' + (n.renderClass || 'service') : ";
 const COMPONENT_CHIP = "(n.kind === 'component' && n.displayKind) || ";
 const ROOT_FLOWS = "current === 'root' ? flows.filter(function (f) { return !f.service; }) : []";
+
+// 질문별 그림 조각. 투영이 있는 그림에만 싣는다
+const VIEW_CLICK = `var vm = e.target.closest('.link.seq-m');
+    if (vm) { activateMessage(vm); return; }
+    `;
+const VIEW_KEY = `var vm = e.target.closest('.link.seq-m');
+    if (vm) { e.preventDefault(); activateMessage(vm); return; }
+    `;
+const VIEW_FUNCS = `  var messages = data.messages || {};
+  function activateMessage(g) {
+    var m = messages[g.getAttribute('data-message-id')];
+    if (!m) return;
+    active.querySelectorAll('.node.selected').forEach(function (x) { x.classList.remove('selected'); });
+    lightLink(active, g);
+    returnFocus = g;
+    selectedId = null;
+    syncFocusBtn();
+    panel.textContent = '';
+    panel.appendChild(panelHead('flow', 'u-flow', '주고받기', m.view, m.label));
+    var body = el('div', 'dr-body');
+    var facts = el('ul', 'facts');
+    factRow(facts, '보내는 쪽', label(m.from));
+    factRow(facts, '받는 쪽', label(m.to));
+    if (m.reply) factRow(facts, '종류', '응답');
+    if (m.block) factRow(facts, '묶음', m.branch ? m.block + ', ' + m.branch : m.block);
+    factRow(facts, '선', m.lineStyle === 'dashed' ? '점선 (문서나 사람 말로만 확인)' : '실선 (코드나 스펙으로 확인)');
+    body.appendChild(facts);
+    questionList(body, m.questions);
+    refButtons(body, m.from === m.to ? [m.from] : [m.from, m.to], focusCard, function (r) { return 'i-' + dkind(nodes[r]); }, label);
+    evidenceList(body, m.evidence);
+    panel.appendChild(body);
+    openDrawer();
+  }
+`;
+const VIEW_POP = `  setupPop('views-btn', 'views');
+  var viewsPop = byId('views');
+  if (viewsPop) viewsPop.addEventListener('click', function (e) { if (e.target.closest('a')) closePops(false); });
+`;
 
 export const THEME_STORAGE_KEY = 'gestalt-architecture-theme';
 const HINT_STORAGE_KEY = 'gestalt-architecture-hint';
@@ -690,7 +730,7 @@ ${FOCUS_SOURCE}
     returnFocus = g;
     renderTransitionPanel(t);
   }
-  stage.addEventListener('click', function (e) {
+${c.views ? VIEW_FUNCS : ''}  stage.addEventListener('click', function (e) {
     if (suppressClick) { suppressClick = false; return; }
     var more = e.target.closest('.pb.more');
     if (more) { toggleProducts(more); return; }
@@ -700,7 +740,7 @@ ${FOCUS_SOURCE}
       var fl = flowsBySvc[badge.closest('.node').getAttribute('data-node-id')] || [];
       if (fl.length === 1) { showLevel(fl[0].level); return; }
     }
-    var card = e.target.closest('.node');
+    ${c.views ? VIEW_CLICK : ''}var card = e.target.closest('.node');
     if (card) { activateNode(card.getAttribute('data-node-id'), e, false); return; }
     var link = e.target.closest('.link.bundle');
     if (link) { activateBundle(link); return; }
@@ -717,7 +757,7 @@ ${FOCUS_SOURCE}
     if (e.key !== 'Enter' && e.key !== ' ') return;
     // +N 버튼은 브라우저가 Enter와 스페이스를 클릭으로 바꿔 준다. 카드 선택으로 새면 안 된다
     if (e.target.closest('.pb.more')) return;
-    var card = e.target.closest('.node');
+    ${c.views ? VIEW_KEY : ''}var card = e.target.closest('.node');
     if (card) { e.preventDefault(); activateNode(card.getAttribute('data-node-id'), e, true); return; }
     var link = e.target.closest('.link.bundle');
     if (link) { e.preventDefault(); activateBundle(link); return; }
@@ -1498,7 +1538,7 @@ ${FOCUS_SOURCE}
   }
   setupPop('legend-btn', 'legend');
   setupPop('q-btn', 'questions');
-  // 흐름 단추는 서비스 아래 레벨에서만 보인다. 흐름이 하나면 바로 가고 여럿이면 고르게 한다
+${c.views ? VIEW_POP : ''}  // 흐름 단추는 서비스 아래 레벨에서만 보인다. 흐름이 하나면 바로 가고 여럿이면 고르게 한다
   var flowBtn = byId('flow-btn');
   var flowPop = byId('flow-pop');
   function flowsHere() {
