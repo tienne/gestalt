@@ -76,7 +76,7 @@ export interface LayoutRegions {
   bands: LayoutBand[];
   /** 노드 id → 띠 번호. 포커스 화면이 이걸로 다시 쌓는다 */
   bandOf: Record<string, number>;
-  /** 둘 이상의 제품이 같이 쓰는 노드 id → 쓰는 제품 번호. 카드 위 제품 브릭이 이걸 그린다 */
+  /** 둘 이상의 제품이 같이 쓰는 노드 id → 쓰는 제품 번호. 바로 이어진 전용 카드가 많은 제품부터다. 카드 위 제품 브릭이 이 순서로 그린다 */
   productsOf: Record<string, number[]>;
 }
 
@@ -416,7 +416,7 @@ export async function computeLayout(
       ...(FLAT_BACKWARD_EDGE_KINDS.has(e.kind) ? { backward: true } : {}),
     }));
   const laid = await computeGraphLayout(nodes, edges, staged?.labels);
-  return stackBands(laid, bandGroupsOf(ir));
+  return stackBands(laid, bandGroupsOf(ir), ir.edges);
 }
 
 /**
@@ -767,6 +767,33 @@ export function bandGroupsOf(ir: ArchitectureIr): BandGroup[] {
   return (ir.groups ?? []).map((g) => ({ id: g.id, name: g.name, members: new Set(g.members) }));
 }
 
+function rankProductsByLinks(
+  productsOf: Map<string, number[]>,
+  groups: readonly BandGroup[],
+  links: ReadonlyArray<{ from: string; to: string }>,
+): void {
+  const ownerOf = (id: string): number | undefined => {
+    const owners = groups.flatMap((g, i) => (g.members.has(id) ? [i] : []));
+    return owners.length === 1 ? owners[0] : undefined;
+  };
+  const weight = new Map<string, Map<number, number>>();
+  const add = (shared: string, other: string): void => {
+    if ((productsOf.get(shared)?.length ?? 0) < 2) return;
+    const owner = ownerOf(other);
+    if (owner === undefined) return;
+    const w = weight.get(shared) ?? new Map<number, number>();
+    w.set(owner, (w.get(owner) ?? 0) + 1);
+    weight.set(shared, w);
+  };
+  for (const l of links) {
+    add(l.from, l.to);
+    add(l.to, l.from);
+  }
+  for (const [id, w] of weight) {
+    productsOf.get(id)!.sort((a, b) => (w.get(b) ?? 0) - (w.get(a) ?? 0) || a - b);
+  }
+}
+
 // 띠 머리 높이와 띠 끝 여백. 머리에는 구분선과 띠 이름, 그 아래 첫 카드의 제품 브릭이 들어간다. 포커스 화면 스크립트도 같은 값을 쓴다
 export const BAND_HEAD = 40;
 export const BAND_TAIL = 14;
@@ -775,9 +802,14 @@ export const BAND_TAIL = 14;
  * 여러 제품을 합친 그림을 가로 띠로 다시 쌓는다. 맨 위가 둘 이상의 제품이 같이 쓰는 띠이고 그 아래로 그룹 순서대로 제품마다 전용 띠가 이어진다.
  * 어느 그룹에도 없는 노드는 같이 쓰는 띠에 둔다. 한 제품 몫이라고 말할 근거가 없어서다.
  * 열(x)은 elk가 정한 그대로 둔다. 같이 쓰는 띠 안에서는 쓰는 제품이 많은 카드가 위로 가고 그 밖에는 elk의 위아래 순서를 지킨다.
- * 띠 높이는 모든 열에서 같게 맞춰야 구분선 한 줄로 띠가 갈린다. 카드가 있는 띠가 하나뿐이면 나눠 보일 게 없어 그대로 돌려준다
+ * 띠 높이는 모든 열에서 같게 맞춰야 구분선 한 줄로 띠가 갈린다. 카드가 있는 띠가 하나뿐이면 나눠 보일 게 없어 그대로 돌려준다.
+ * 같이 쓰는 카드의 제품 순서는 그 카드와 바로 이어진 그 제품 전용 카드가 많은 순이다. 게이트웨이라면 그 제품 API로 가는 선이 많은 쪽이 앞에 온다. 같으면 그룹 순서다
  */
-export function stackBands(layout: LayoutResult, groups: readonly BandGroup[]): LayoutResult {
+export function stackBands(
+  layout: LayoutResult,
+  groups: readonly BandGroup[],
+  links: ReadonlyArray<{ from: string; to: string }> = [],
+): LayoutResult {
   if (groups.length < 2 || layout.nodes.length === 0) return layout;
   const productsOf = new Map<string, number[]>();
   for (const n of layout.nodes) {
@@ -786,6 +818,7 @@ export function stackBands(layout: LayoutResult, groups: readonly BandGroup[]): 
       groups.flatMap((g, i) => (g.members.has(n.id) ? [i] : [])),
     );
   }
+  rankProductsByLinks(productsOf, groups, links);
   const bandOf = (id: string): number => {
     const ps = productsOf.get(id)!;
     return ps.length === 1 ? ps[0]! + 1 : 0;

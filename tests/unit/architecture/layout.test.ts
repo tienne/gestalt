@@ -267,6 +267,19 @@ describe('stackBands', () => {
     expect(out.regions!.productsOf).toEqual({ s2: [0, 1], s3: [0, 1, 2] });
   });
 
+  it('같이 쓰는 카드의 제품은 바로 이어진 그 제품 전용 카드가 많은 순이고 같으면 그룹 순서다', () => {
+    const links = [
+      { from: 'c1', to: 's3' },
+      { from: 's3', to: 'c1' },
+      { from: 'b1', to: 's3' },
+      // 같이 쓰는 카드끼리 이은 선은 어느 제품 몫도 아니다
+      { from: 's2', to: 's3' },
+      { from: 'b1', to: 's2' },
+    ];
+    const out = stackBands(laid(), groups, links);
+    expect(out.regions!.productsOf).toEqual({ s2: [1, 0], s3: [2, 1, 0] });
+  });
+
   it('띠는 위에서부터 이어 붙고 카드는 자기 띠 머리 아래에 들어간다', () => {
     const { regions, nodes, height } = stackBands(laid(), groups);
     const bands = regions!.bands;
