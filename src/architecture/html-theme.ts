@@ -152,7 +152,7 @@ const LIGHT_TOKENS = `
   --loads: #0369a1;
   --hit: #f59e0b;
   --brick-base: #ffffff;
-  --brick-tint: 16%;
+  --brick-tint: 24%;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.04);
   --shadow-hover: 0 6px 16px rgba(16, 24, 40, 0.1);
   --shadow-pop: 0 12px 32px rgba(16, 24, 40, 0.14), 0 2px 6px rgba(16, 24, 40, 0.06);
@@ -192,7 +192,7 @@ const DARK_TOKENS = `
   --loads: #7dd3fc;
   --hit: #fbbf24;
   --brick-base: #171a21;
-  --brick-tint: 24%;
+  --brick-tint: 32%;
   --shadow: none;
   --shadow-hover: 0 6px 18px rgba(0, 0, 0, 0.4);
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
@@ -297,7 +297,7 @@ button { font: inherit; color: inherit; }
 }
 .node {
   --brick: color-mix(in srgb, var(--kind) var(--brick-tint), var(--brick-base));
-  --brick-edge: color-mix(in srgb, var(--kind) 38%, var(--brick));
+  --brick-edge: color-mix(in srgb, var(--kind) 42%, var(--brick));
   --thick: 0 3px 0 var(--brick-edge);
   position: absolute; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 2px; align-content: center;
   padding: 0 20px 0 10px; cursor: pointer;
