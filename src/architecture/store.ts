@@ -79,6 +79,8 @@ function writeTextAtomic(path: string, content: string): void {
 /** 같은 노드를 알아보는 키. 재실행 병합과 분석 합치기가 같은 기준을 쓴다 */
 export function nodeKey(node: Pick<ArchitectureNode, 'kind' | 'repo' | 'label'>): string {
   const label = node.label.trim().replace(/\s+/g, ' ').toLowerCase();
+  // 호스트 분석은 리모트를 자기 레포 노드로 적고 리모트 분석은 리모트 레포로 적는다. Module Federation 이름은 런타임에서 하나라 레포를 빼야 둘이 만난다
+  if (node.kind === 'micro_app') return `${node.kind}\u0000\u0000${label}`;
   return `${node.kind}\u0000${node.repo}\u0000${label}`;
 }
 

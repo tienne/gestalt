@@ -120,6 +120,8 @@ interface Slot {
   parent: { input: number; id: string; user: boolean }[];
   account: { input: number; id: string; user: boolean }[];
   environment: Claim[];
+  /** micro_app을 자기 레포에서 분석한 입력이 적은 레포. 그 입력에는 이 앱으로 들어오는 loads가 없다 */
+  ownRepo?: string;
 }
 
 type ConflictField = 'displayName' | 'parent' | 'environment' | 'account';
@@ -263,6 +265,7 @@ export function mergeArchitectureIrs(
   const slotOf = new Map<string, Slot>(); // `${input}\u0000${원래 id}` → slot
   for (const { ir, input } of ordered) {
     const map = repoMaps.get(input)!;
+    const loaded = new Set(ir.edges.filter((e) => e.kind === 'loads').map((e) => e.to));
     for (const raw of ir.nodes) {
       const repo = map.get(raw.repo)!;
       const evidence = remapEvidence(raw.evidence, map);
@@ -308,6 +311,11 @@ export function mergeArchitectureIrs(
       }
       slot.inputs.add(input);
       slot.node.evidence = unionEvidence(slot.node.evidence, evidence);
+      // 호스트 분석이 리모트를 먼저 들여왔어도 리모트 레포 분석이 있으면 그쪽 레포를 쓴다
+      if (raw.kind === 'micro_app' && !loaded.has(raw.id) && slot.ownRepo === undefined) {
+        slot.ownRepo = repo;
+        slot.node.repo = repo;
+      }
       if (slot.node.description === undefined && raw.description !== undefined) {
         slot.node.description = raw.description;
       }
@@ -377,6 +385,8 @@ export function mergeArchitectureIrs(
       const claims = slot[field].map((c) => ({ value: mapNode(c.input, c.id), user: c.user }));
       const settled = settle(claims);
       if (settled.value !== undefined) node[field] = settled.value;
+      // 호스트 여럿이 같이 쓰는 리모트는 서비스가 갈리는 게 맞다. 묻지 않고 어느 서비스에도 안 넣어 따로 세운다
+      else if (settled.conflict && field === 'parent' && node.kind === 'micro_app') continue;
       else if (settled.conflict)
         ask(
           field,
