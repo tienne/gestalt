@@ -850,12 +850,10 @@ ${FOCUS_SOURCE}
     var linkLayer = svgEl('g', { 'class': 'edges' });
     paths.forEach(function (p) {
       var e = p.e;
-      // 런타임 로드 선은 loads 하나와 리모트 서빙 사슬을 묶은 선이라 눌러서 펼치는 건 묶음과 같다. 건수 알약만 없다
-      var bundle = e.kind === 'bundle' || e.runtime === true;
+      var bundle = e.kind === 'bundle';
       var xa = nodes[e.from] && nodes[e.to] && nodes[e.from].account && nodes[e.to].account && nodes[e.from].account !== nodes[e.to].account;
-      var cls = e.runtime ? 'link bundle runtime' : bundle ? 'link bundle' : 'link e-' + e.kind;
-      var g = svgEl('g', { 'class': cls + (xa ? ' x-account' : ''), 'data-from': e.from, 'data-to': e.to });
-      var name = e.kind === 'bundle' ? label(e.from) + ' → ' + label(e.to) + ' ' + e.count + '개' : kindText(e.kind) + ': ' + label(e.from) + ' → ' + label(e.to);
+      var g = svgEl('g', { 'class': (bundle ? 'link bundle' : 'link e-' + e.kind) + (xa ? ' x-account' : ''), 'data-from': e.from, 'data-to': e.to });
+      var name = bundle ? label(e.from) + ' → ' + label(e.to) + ' ' + e.count + '개' : kindText(e.kind) + ': ' + label(e.from) + ' → ' + label(e.to);
       if (bundle) {
         g.setAttribute('data-bundle-id', e.id);
         g.setAttribute('tabindex', '0');
@@ -871,7 +869,7 @@ ${FOCUS_SOURCE}
       if (e.lineStyle === 'dashed') line.setAttribute('stroke-dasharray', '6 4');
       g.appendChild(line);
       g.appendChild(svgEl('path', { 'class': 'tip', d: p.tip }));
-      if (e.kind === 'bundle') {
+      if (bundle) {
         var text = String(e.count);
         var pw = 14 + text.length * 7;
         var pill = svgEl('g', { 'class': 'pill', transform: 'translate(' + p.mid.x + ',' + p.mid.y + ')' });

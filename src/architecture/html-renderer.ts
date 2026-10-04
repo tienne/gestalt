@@ -198,7 +198,6 @@ function edgeWidth(count: number): number {
 /** 레벨에 그리는 선. 평면 그림의 IR 엣지도 건수 1짜리로 맞춰 같은 함수로 그린다 */
 type CanvasEdge = Pick<DrillEdge, 'id' | 'from' | 'to' | 'count' | 'lineStyle' | 'kind'> & {
   backward?: boolean;
-  runtime?: boolean;
 };
 
 function asCanvasEdge(edge: ArchitectureEdge): CanvasEdge {
@@ -292,14 +291,6 @@ function renderLink(
   const xaText = crossAccount ? ' (계정을 넘는 연결)' : '';
   const hit = `<path class="hit" d="${route.d}" stroke-width="${Math.max(12, width + 8)}"/>`;
   const tip = `<path class="tip" d="${route.tip}"/>`;
-  if (edge.runtime) {
-    const name = `${EDGE_KIND_TEXT.loads}: ${labelOf(edge.from)} → ${labelOf(edge.to)}${xaText}`;
-    return (
-      `<g class="link bundle runtime${xa}" data-bundle-id="${escapeHtml(edge.id)}" ${ends} tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
-      `<title>${escapeHtml(name)}</title>${hit}` +
-      `<path class="edge" d="${route.d}" stroke-width="${width}"${dash}/>${tip}</g>`
-    );
-  }
   if (edge.kind === 'bundle') {
     const name = `${labelOf(edge.from)} → ${labelOf(edge.to)} ${edge.count}개${xaText}`;
     return (

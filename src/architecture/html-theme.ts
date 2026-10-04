@@ -144,7 +144,7 @@ const LIGHT_TOKENS = `
   --x-account: #c026d3;
   --frame: rgba(3, 105, 161, 0.05);
   --frame-line: #0369a1;
-  --runtime: #0369a1;
+  --loads: #0369a1;
   --hit: #f59e0b;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.04);
   --shadow-hover: 0 6px 16px rgba(16, 24, 40, 0.1);
@@ -182,7 +182,7 @@ const DARK_TOKENS = `
   --x-account: #e879f9;
   --frame: rgba(125, 211, 252, 0.06);
   --frame-line: #7dd3fc;
-  --runtime: #7dd3fc;
+  --loads: #7dd3fc;
   --hit: #fbbf24;
   --shadow: none;
   --shadow-hover: 0 6px 18px rgba(0, 0, 0, 0.4);
@@ -328,10 +328,10 @@ button { font: inherit; color: inherit; }
 .link.x-account .edge { stroke: var(--x-account); stroke-opacity: 0.85; }
 .link.x-account .tip { fill: var(--x-account); fill-opacity: 0.85; }
 .link.e-contains .edge { stroke-opacity: 0.35; }
-.link.runtime .edge { stroke: var(--runtime); stroke-opacity: 0.75; }
-.link.runtime .tip { fill: var(--runtime); fill-opacity: 0.8; }
-/* 근거가 확인된 런타임 로드는 점선으로 요청 흐름과 구분한다. 근거가 약한 선은 기존 파선이 그대로 이긴다 */
-.link.runtime .edge:not([stroke-dasharray]) { stroke-dasharray: 1 6; stroke-width: 2.5; }
+.link.e-loads .edge { stroke: var(--loads); stroke-opacity: 0.75; }
+.link.e-loads .tip { fill: var(--loads); fill-opacity: 0.8; }
+/* 근거가 확인된 로드 선은 점선으로 요청 흐름과 구분한다. 근거가 약한 선은 기존 파선이 그대로 이긴다 */
+.link.e-loads .edge:not([stroke-dasharray]) { stroke-dasharray: 1 6; stroke-width: 2.5; }
 .link .edge { fill: none; stroke: var(--edge); stroke-opacity: var(--edge-alpha); stroke-linecap: round; transition: stroke 0.15s, stroke-opacity 0.15s; }
 .link .tip { fill: var(--edge); fill-opacity: 0.6; transition: fill 0.15s; }
 .link .hit { fill: none; stroke: transparent; pointer-events: stroke; }
