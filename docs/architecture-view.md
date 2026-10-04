@@ -41,6 +41,7 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `edges` | `{ id, from, to, kind, evidence[], lineStyle }`. `lineStyle`은 `solid` 또는 `dashed` |
 | `unresolved` | `{ id, subject: { nodeId?, edgeId?, stepId?, transitionId? }, question, answer? }` |
 | `flows` | 선택. 서비스 하나의 도메인 흐름이다. [도메인 흐름](#도메인-흐름)에서 설명한다 |
+| `stages` | 선택. 기술 그림을 왼쪽에서 오른쪽으로 나누는 구간이다. `{ id, label, nodes?, kinds?, repos? }`이고 배열 순서가 왼쪽부터다. [구간](#구간)에서 설명한다 |
 | `groups` | 합친 IR에만 있다. `{ id, name, members }`이고 `members`는 그 제품 분석에 있던 노드 id다. [분석 합치기](#분석-합치기)에서 설명한다 |
 | `sourcesUsed` | 이번 실행이 간 본 맥락 소스. `{ via, identifier, readOnly, probeHit, visibility }` |
 | `generatedAt` | 생성 시각 문자열. HTML에 그대로 찍힌다 |
@@ -225,7 +226,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 ## 검증 규칙
 
-`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 스물둘은 IR 전체를 거부한다.
+`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 스물다섯은 IR 전체를 거부한다.
 
 | 에러 코드 | 언제 |
 |---|---|
@@ -251,6 +252,9 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `FLOW_REF_NOT_FOUND` | 단계의 `refs`가 `nodes`에 없다 |
 | `INVALID_FLOW_REF_KIND` | 단계의 `refs`가 `screen`, `endpoint`, `feature`, `micro_app`이 아닌 노드를 가리킨다 |
 | `SOLID_TRANSITION_WITHOUT_EVIDENCE` | 전이가 `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다 |
+| `DUPLICATE_STAGE_ID` | 구간 id가 겹친다 |
+| `STAGE_NODE_NOT_FOUND` | 구간의 `nodes`가 `nodes`에 없다 |
+| `STAGE_NODE_TWICE` | 한 노드가 두 구간의 `nodes`에 함께 올라 있다 |
 
 `checkFiles: false`를 넘기면 `CODE_EVIDENCE_NOT_FOUND`의 파일 존재와 줄 범위 확인을 건너뛴다. 기본값은 `true`다.
 
@@ -400,6 +404,24 @@ private 근거의 원문은 세 겹으로 막는다.
 
 레인 제목은 카드 칩의 종류 이름과 같은 말을 쓴다 (`src/architecture/kind-text.ts`의 `LANE_TITLES`, `NODE_KIND_SHORT`).
 
+### 구간
+
+종류별 레인은 서버가 둘이어도 한 열에 겹쳐 세운다. 요청이 앱에서 줄서기 서버로, 거기서 알림 서버로, 다시 DB로 가는 순서를 보이려면 세션이 `stages`로 구간을 정한다. 구간이 있으면 위 표 대신 레인 하나가 구간 하나가 되고 레인 제목이 구간 이름이 된다. 전체 레벨과 드릴다운 레벨, 평면 그림이 같은 구간을 쓴다.
+
+```json
+"stages": [
+  { "id": "app", "label": "앱", "kinds": ["service", "micro_app", "feature", "screen"] },
+  { "id": "queue", "label": "줄서기 서버", "kinds": ["endpoint", "app_module"], "repos": ["api"] },
+  { "id": "notify", "label": "알림 서버", "kinds": ["endpoint", "app_module"] },
+  { "id": "db", "label": "DB", "kinds": ["db_table", "datastore"] }
+]
+```
+
+- 노드는 자기 id가 `nodes`에 오른 구간에 먼저 들어간다. 없으면 `kinds`가 맞는 첫 구간에 들어가는데, `repos`를 준 구간은 레포까지 맞아야 한다.
+- 어느 구간에도 안 맞은 노드는 맨 끝 **그 밖** 구간에 모인다. 그 수가 render 응답의 `unstagedNodes`로 돌아온다.
+- 구간 순번이 elk 열 순위의 앞자리가 된다 (`src/architecture/layout.ts`의 `assignStages`). 구간 안에서는 원래 종류 순서가 그대로 남는다. 구간 순서가 요청 방향과 반대면 선이 왼쪽으로 꺾여 돌아간다.
+- 분석 둘을 합치면 같은 id 구간은 하나로 묶는다. 한쪽이 `repos`를 안 줬으면 합친 구간도 레포를 가리지 않는다.
+
 ### 카드와 위쪽 바
 
 카드 맨 위에는 종류 칩이 붙는다. 칩은 종류별 아이콘과 짧은 이름(서비스, 기능 영역, 화면, 게이트웨이, API, 서버, 클라이언트, DB, 트리거, 빌드, 산출물, 배포 대상, 도메인, CDN, 버킷, 계정)이다. 종류마다 색도 다르지만 색만으로 구분하지 않는다. 색을 못 가리는 사람도 칩 글자로 종류를 읽는다. 한 단계 안으로 들어갈 수 있는 카드에는 오른쪽에 `›`가 붙는다.
@@ -512,6 +534,8 @@ elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행
 
 - 열은 전이를 따라 가장 긴 경로로 정한다. 왼쪽으로 돌아가는 전이(되돌리기)는 열 계산에서 빼고 그림 맨 아래 여백으로 돌린다.
 - 정상 흐름 단계가 행위자 줄의 첫 줄에 선다. 옆 흐름 단계는 그 아래 줄로 내려간다. 같은 칸이 겹치면 한 줄 더 내린다.
+- 정상 흐름 단계에 `state`가 있으면 상태 값 순서로 열을 묶어 구간을 나누고 위에 상태 이름을 붙인다. 상태가 없는 단계(알림 발송 같은)는 앞 단계의 구간에 붙는다. 상태 값이 하나도 없으면 구간 없이 그린다.
+- 구간이 있으면 옆 흐름 단계는 전부 맨 끝 **옆 흐름** 구간에 모인다. 정상 흐름 줄이 옆 흐름 때문에 밀리지 않는 대신 옆 흐름으로 가는 선이 길어진다.
 - 옆 흐름 화살표와 카드는 정상 흐름과 다른 색으로 그린다. 화살표는 카드 위나 아래에서 바로 꺾어 나간다. 오른쪽 변으로 나가면 정상 흐름 선과 같은 꺾임 자리를 겹쳐 쓴다.
 
 ### 조작
@@ -697,6 +721,8 @@ render는 이 순서로 돈다.
 | `flows` | IR의 흐름 수. 흐름이 있을 때만 붙는다 |
 | `drawnSteps` | 그린 흐름 단계 수. 흐름이 있을 때만 붙는다 |
 | `drawnTransitions` | 그린 흐름 전이 수. 흐름이 있을 때만 붙는다 |
+| `stages` | IR의 구간 수. 구간이 있을 때만 붙는다 |
+| `unstagedNodes` | 어느 구간에도 안 맞아 **그 밖**으로 간 그린 노드 수. 구간이 있을 때만 붙는다 |
 
 두 비율은 그린 노드와 그린 엣지만 센다.
 
