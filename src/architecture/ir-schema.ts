@@ -187,6 +187,14 @@ const flowSchema = z.object({
   transitions: z.array(flowTransitionSchema),
 });
 
+const stageSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  nodes: z.array(z.string().min(1)).optional(),
+  kinds: z.array(nodeKindSchema).optional(),
+  repos: z.array(z.string().min(1)).optional(),
+});
+
 export const architectureIrSchema = z.object({
   schemaVersion: z.literal(ARCHITECTURE_IR_SCHEMA_VERSION),
   view: architectureViewSchema,
@@ -198,6 +206,7 @@ export const architectureIrSchema = z.object({
   generatedAt: z.string(),
   groups: z.array(groupSchema).optional(),
   flows: z.array(flowSchema).optional(),
+  stages: z.array(stageSchema).optional(),
 });
 
 export function parseArchitectureIr(input: unknown): Result<ArchitectureIr, ValidationError> {

@@ -208,6 +208,19 @@ export interface ArchitectureFlow {
   transitions: FlowTransition[];
 }
 
+/**
+ * 기술 그림을 왼쪽에서 오른쪽으로 나누는 구간. 세션이 분석하면서 정한다 (예: 앱, 웨이팅 서버, 알림 서버, DB).
+ * 노드는 nodes에 이름이 오른 구간에 먼저 들어간다. 없으면 kinds와 repos가 맞는 첫 구간에 들어간다
+ */
+export interface ArchitectureStage {
+  id: string;
+  label: string;
+  nodes?: string[];
+  kinds?: NodeKind[];
+  /** kinds와 함께 쓰면 둘 다 맞아야 한다 */
+  repos?: string[];
+}
+
 export interface ArchitectureIr {
   schemaVersion: typeof ARCHITECTURE_IR_SCHEMA_VERSION;
   view: ArchitectureView;
@@ -221,4 +234,6 @@ export interface ArchitectureIr {
   groups?: ArchitectureGroup[];
   /** 도메인 흐름. 없으면 기술 그림만 그린다 */
   flows?: ArchitectureFlow[];
+  /** 기술 그림 구간. 배열 순서가 왼쪽부터다. 없으면 종류별 레인만 그린다 */
+  stages?: ArchitectureStage[];
 }

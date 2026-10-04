@@ -7,6 +7,7 @@ import { nodeKey } from './store.js';
 import type {
   ArchitectureEdge,
   ArchitectureFlow,
+  ArchitectureStage,
   ArchitectureGroup,
   ArchitectureIr,
   ArchitectureNode,
@@ -543,6 +544,33 @@ export function mergeArchitectureIrs(
     }
   }
 
+  // ── 기술 그림 구간 ──
+  // 같은 id면 한 구간으로 합친다. 두 분석이 같은 이름으로 나눴으면 같은 칸이라고 보는 게 그림을 덜 쪼갠다
+  const stages: ArchitectureStage[] = [];
+  for (const { ir, input } of ordered) {
+    const map = repoMaps.get(input)!;
+    for (const st of ir.stages ?? []) {
+      const nodesOf = st.nodes?.map((id) => mapNode(input, id));
+      const reposOf = st.repos?.map((r) => map.get(r) ?? r);
+      const existing = stages.find((x) => x.id === st.id);
+      if (existing === undefined) {
+        stages.push({
+          ...st,
+          ...(nodesOf !== undefined ? { nodes: nodesOf } : {}),
+          ...(reposOf !== undefined ? { repos: reposOf } : {}),
+        });
+        continue;
+      }
+      if (nodesOf !== undefined)
+        existing.nodes = [...new Set([...(existing.nodes ?? []), ...nodesOf])];
+      if (st.kinds !== undefined)
+        existing.kinds = [...new Set([...(existing.kinds ?? []), ...st.kinds])];
+      // 한쪽이 레포를 안 가렸으면 그 구간은 모든 레포를 받는다. 합친 뒤에도 그쪽 노드가 빠지지 않게 가림을 푼다
+      if (existing.repos === undefined || reposOf === undefined) delete existing.repos;
+      else existing.repos = [...new Set([...existing.repos, ...reposOf])];
+    }
+  }
+
   // ── 미해결 질문 ──
   const unresolved: UnresolvedQuestion[] = [];
   const takenQuestionIds = new Set<string>();
@@ -632,6 +660,7 @@ export function mergeArchitectureIrs(
     generatedAt,
     ...(groups.length > 0 ? { groups } : {}),
     ...(flows.length > 0 ? { flows } : {}),
+    ...(stages.length > 0 ? { stages } : {}),
   });
   // 스키마를 한 번 더 통과시키면 객체 키가 스키마 순서로 다시 놓인다. 입력의 키 순서가 바이트에 새지 않는다
   const reparsed = parseArchitectureIr(draft);

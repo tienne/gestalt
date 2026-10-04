@@ -222,6 +222,13 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
       ? { groups: next.groups.map((g) => ({ ...g, members: g.members.map(mapNodeId).sort() })) }
       : {}),
     ...(flows !== undefined ? { flows } : {}),
+    ...(next.stages !== undefined
+      ? {
+          stages: next.stages.map((st) =>
+            st.nodes !== undefined ? { ...st, nodes: st.nodes.map(mapNodeId) } : { ...st },
+          ),
+        }
+      : {}),
   };
 }
 

@@ -38,7 +38,10 @@ export type ArchitectureValidationErrorCode =
   | 'FLOW_STEP_NOT_FOUND'
   | 'FLOW_REF_NOT_FOUND'
   | 'INVALID_FLOW_REF_KIND'
-  | 'SOLID_TRANSITION_WITHOUT_EVIDENCE';
+  | 'SOLID_TRANSITION_WITHOUT_EVIDENCE'
+  | 'DUPLICATE_STAGE_ID'
+  | 'STAGE_NODE_NOT_FOUND'
+  | 'STAGE_NODE_TWICE';
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -199,6 +202,38 @@ function checkGroups(ir: ArchitectureIr, errors: ArchitectureValidationError[]):
         message: `그룹 "${group.id}"의 member "${member}"가 nodes에 없다.`,
         nodeId: member,
       });
+    }
+  }
+}
+
+// 한 노드를 두 구간에 이름으로 올리면 어느 칸에 설지 입력 순서가 정하게 된다. 세션이 의도를 밝히게 거부한다
+function checkStages(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  const nodeIds = new Set(ir.nodes.map((n) => n.id));
+  const seen = new Set<string>();
+  const listedIn = new Map<string, string>();
+  for (const stage of ir.stages ?? []) {
+    if (seen.has(stage.id)) {
+      errors.push({ code: 'DUPLICATE_STAGE_ID', message: `구간 id "${stage.id}"가 겹친다.` });
+    }
+    seen.add(stage.id);
+    for (const id of stage.nodes ?? []) {
+      if (!nodeIds.has(id)) {
+        errors.push({
+          code: 'STAGE_NODE_NOT_FOUND',
+          message: `구간 "${stage.id}"의 노드 "${id}"가 nodes에 없다.`,
+          nodeId: id,
+        });
+        continue;
+      }
+      const other = listedIn.get(id);
+      if (other !== undefined && other !== stage.id) {
+        errors.push({
+          code: 'STAGE_NODE_TWICE',
+          message: `노드 "${id}"가 구간 "${other}"와 "${stage.id}"에 함께 올라 있다. 한 구간에만 둔다.`,
+          nodeId: id,
+        });
+      }
+      listedIn.set(id, stage.id);
     }
   }
 }
@@ -536,6 +571,7 @@ export function validateArchitectureIr(
   checkParents(ir, errors);
   checkAccounts(ir, errors);
   checkGroups(ir, errors);
+  checkStages(ir, errors);
   checkIdsForCloudIds(ir, errors);
   checkMicroApps(ir, errors);
   checkFlows(ir, ctx, errors);

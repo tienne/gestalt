@@ -33,9 +33,37 @@
       "type": "array",
       "description": "domain flows of one service: actor lanes, steps left to right, main and side transitions",
       "items": { "$ref": "#/definitions/flow" }
+    },
+    "stages": {
+      "type": "array",
+      "description": "left-to-right stages of the technical view, defined by the session (e.g. app, server, another server, DB)",
+      "items": { "$ref": "#/definitions/stage" }
     }
   },
   "definitions": {
+    "stage": {
+      "type": "object",
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "nodes": {
+          "type": "array",
+          "description": "node ids placed in this stage; wins over kinds and repos",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "kinds": {
+          "type": "array",
+          "description": "node kinds placed in this stage when the node is not listed by id in any stage",
+          "items": { "$ref": "#/definitions/node/properties/kind" }
+        },
+        "repos": {
+          "type": "array",
+          "description": "with kinds, both must match",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "visibility": { "type": "string", "enum": ["public", "private"] },
     "evidence": {
       "type": "object",
@@ -259,7 +287,11 @@
         "service": { "type": "string", "minLength": 1 },
         "title": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
-        "actors": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/flowActor" } },
+        "actors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/flowActor" }
+        },
         "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/flowStep" } },
         "transitions": { "type": "array", "items": { "$ref": "#/definitions/flowTransition" } }
       }
