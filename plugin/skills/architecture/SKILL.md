@@ -308,7 +308,7 @@ FE와 BE 사이에서 요청을 받아 다른 서버로 넘기는 서버는 `gat
 
 ### 4.5-7. 서비스 플랫폼
 
-- 웹은 따로 적지 않아도 된다. 버킷이나 `deploy_target`이 `serves`로 서비스를 서빙하면 렌더가 웹으로 판정한다. prod 서빙 노드에 `deploy_target`이 있으면 "웹(SSR)", 버킷만 있으면 "웹(정적)" 칩이 붙는다. 마이크로 프론트엔드면 앱 카드마다 자기 사슬로 칩이 따로 붙는다.
+- 웹은 따로 적지 않아도 된다. 버킷이나 `deploy_target`이 `serves`로 서비스를 서빙하면 렌더가 웹으로 판정한다. prod 서빙 노드에 `deploy_target`이 있으면 "웹(SSR)", 버킷만 있으면 "웹" 칩이 붙는다. 마이크로 프론트엔드면 앱 카드마다 자기 사슬로 칩이 따로 붙는다.
 - 정적인지 SSR인지는 빌드 설정과 실행 명령으로 가린다. Next.js `next.config`의 `output: 'export'`나 `next export`, 빌드 결과를 버킷에 올리는 워크플로는 정적이다. `next start`, Node 서버를 띄우는 Dockerfile이나 배포 매니페스트, 함수 런타임 어댑터는 SSR이다. 근거는 그 설정 줄이나 명령 줄이다.
 - Android와 iOS는 `service` 노드의 `platforms`에 적고 `platformEvidence`에 플랫폼별 근거를 단다. 근거는 네이티브 배포 워크플로의 태그나 트리거 줄, 스토어 설정 파일 줄이다. 근거 없이 `platforms`에만 적으면 그 플랫폼은 칩이 안 붙고 미해결 질문으로 간다.
 
