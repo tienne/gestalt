@@ -42,6 +42,8 @@ export interface LayoutResult {
   movedNodeIds?: string[];
   /** 제품 영역. 두 제품을 합친 그림을 띠로 나눠 쌓았을 때만 있다 */
   regions?: LayoutRegions;
+  /** 머리 카드와 그 아래 멤버 카드를 두르는 테두리. 마이크로 프론트엔드 서비스를 앱 묶음으로 보일 때만 있다 */
+  frames?: LayoutFrame[];
 }
 
 /** 노드 좌표와 같은 기준의 사각형 */
@@ -55,6 +57,11 @@ export interface LayoutRect {
 export interface LayoutRegion extends LayoutRect {
   id: string;
   name: string;
+}
+
+export interface LayoutFrame extends LayoutRect {
+  /** 머리 카드 id */
+  id: string;
 }
 
 export interface LayoutRegions {
@@ -72,6 +79,7 @@ export interface LayoutRegions {
  */
 export const LANE_IDS = [
   'service',
+  'micro_app',
   'unit',
   'screen',
   'gateway',
@@ -94,6 +102,7 @@ export type LaneId = (typeof LANE_IDS)[number];
 /** 평면 그림의 레인. rank가 같은 kind는 같은 레인에 둬야 띠가 겹치지 않는다 */
 export const KIND_LANE: Record<NodeKind, LaneId> = {
   service: 'screen',
+  micro_app: 'screen',
   feature: 'screen',
   screen: 'screen',
   gateway: 'gateway',
@@ -116,7 +125,12 @@ export const KIND_LANE: Record<NodeKind, LaneId> = {
 const LANE_PADDING_X = 20;
 
 // 화면끼리, 기능 영역끼리 잇는 화면 이동은 요청 흐름이 아니다. elk에 넘기면 같은 레인 안에서 열을 여러 개로 벌려 그림이 옆으로 늘어난다
-const STACKED_LANES: ReadonlySet<LaneId> = new Set<LaneId>(['service', 'unit', 'screen']);
+const STACKED_LANES: ReadonlySet<LaneId> = new Set<LaneId>([
+  'service',
+  'micro_app',
+  'unit',
+  'screen',
+]);
 
 const GRAPH_OPTIONS: LayoutOptions = {
   'elk.algorithm': 'layered',
@@ -139,6 +153,7 @@ const ORDERED_GRAPH_OPTIONS: LayoutOptions = {
 // 인프라는 배포 경로에서 산출물이 떨어지는 버킷부터 CDN, 도메인 순으로 오른쪽에 붙는다. 요청 방향(도메인→CDN→버킷)과 반대라 그 선은 거꾸로 그린다
 export const PARTITION_RANK: Record<NodeKind, number> = {
   service: 0,
+  micro_app: 0,
   feature: 0,
   screen: 0,
   gateway: 1,
@@ -472,6 +487,79 @@ export function pinToColumnTop(layout: LayoutResult, nodeId: string): LayoutResu
     edges: layout.edges.map((e) => ({ ...e })),
     movedNodeIds: [...moved].sort(),
   };
+}
+
+/** 테두리로 묶을 카드. 머리 카드 바로 아래에 멤버를 순서대로 잇는다 */
+export interface FrameGroup {
+  head: string;
+  members: readonly string[];
+}
+
+// 테두리와 카드 사이 여백. 카드 사이 간격(PIN_GAP)의 절반보다 작아야 이웃 카드와 테두리가 안 겹친다
+export const FRAME_PAD = 8;
+
+/**
+ * 멤버 카드를 머리 카드 열로 옮겨 머리 바로 아래에 잇는다. 그 열의 나머지 카드는 elk가 정한 위아래 순서를 지키며 아래로 민다.
+ * 멤버가 다른 열에 있었으면 그 열은 빈자리를 그대로 둔다. 다른 카드 자리를 건드리면 elk 경로가 더 많이 틀어진다
+ */
+export function stackFrames(layout: LayoutResult, frames: readonly FrameGroup[]): LayoutResult {
+  const byNode = new Map(layout.nodes.map((n) => [n.id, n]));
+  const live = frames
+    .map((f) => ({ head: f.head, members: f.members.filter((m) => byNode.has(m)) }))
+    .filter((f) => byNode.has(f.head) && f.members.length > 0);
+  if (live.length === 0) return layout;
+  const memberOf = new Set(live.flatMap((f) => f.members));
+  const placed = new Map<string, { x: number; y: number; width: number }>();
+  for (const x of [...new Set(live.map((f) => byNode.get(f.head)!.x))].sort((a, b) => a - b)) {
+    const column = layout.nodes
+      .filter((n) => n.x === x && !memberOf.has(n.id))
+      .sort((a, b) => a.y - b.y || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const order = column.flatMap((n) => [
+      n,
+      ...(live.find((f) => f.head === n.id)?.members.map((m) => byNode.get(m)!) ?? []),
+    ]);
+    const width = Math.max(...order.map((n) => n.width));
+    let y = Math.min(...order.map((n) => n.y));
+    for (const n of order) {
+      placed.set(n.id, { x, y: round2(y), width });
+      y += n.height + PIN_GAP;
+    }
+  }
+  const nodes = layout.nodes.map((n) => ({ ...n, ...placed.get(n.id) }));
+  const moved = nodes
+    .filter((n, i) => n.y !== layout.nodes[i]!.y || n.x !== layout.nodes[i]!.x)
+    .map((n) => n.id);
+  const bottom = Math.max(...nodes.map((n) => n.y + n.height));
+  return {
+    ...layout,
+    height: round2(Math.max(layout.height, bottom + FRAME_PAD)),
+    nodes,
+    edges: layout.edges.map((e) => ({ ...e })),
+    movedNodeIds: [...new Set([...(layout.movedNodeIds ?? []), ...moved])].sort(),
+  };
+}
+
+/** 쌓기가 다 끝난 좌표에서 테두리를 낸다. 띠로 다시 쌓으면 카드가 움직이므로 맨 마지막에 부른다 */
+export function frameRects(layout: LayoutResult, frames: readonly FrameGroup[]): LayoutResult {
+  const byNode = new Map(layout.nodes.map((n) => [n.id, n]));
+  const rects: LayoutFrame[] = [];
+  for (const f of [...frames].sort((a, b) => (a.head < b.head ? -1 : a.head > b.head ? 1 : 0))) {
+    const boxes = [f.head, ...f.members].map((id) => byNode.get(id));
+    if (boxes[0] === undefined || boxes.slice(1).every((b) => b === undefined)) continue;
+    const present = boxes.filter((b): b is LayoutNode => b !== undefined);
+    const left = Math.min(...present.map((n) => n.x)) - FRAME_PAD;
+    const top = Math.min(...present.map((n) => n.y)) - FRAME_PAD;
+    const right = Math.max(...present.map((n) => n.x + n.width)) + FRAME_PAD;
+    const bottom = Math.max(...present.map((n) => n.y + n.height)) + FRAME_PAD;
+    rects.push({
+      id: f.head,
+      x: round2(left),
+      y: round2(top),
+      width: round2(right - left),
+      height: round2(bottom - top),
+    });
+  }
+  return rects.length === 0 ? layout : { ...layout, frames: rects };
 }
 
 /** 띠로 나눌 제품 하나. members는 그 제품 분석에서 온 노드 id다 */
