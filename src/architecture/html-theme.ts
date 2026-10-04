@@ -221,10 +221,16 @@ function kindRules(theme: 'light' | 'dark'): string {
     .join('');
 }
 
+// 종류 칩의 로고는 흰 바탕 위에 서서 어두운 화면에서도 밝은 화면 색을 그대로 쓴다
 function brandRules(theme: 'light' | 'dark'): string {
   return Object.keys(BRAND_COLORS)
     .sort()
-    .map((k) => `.b-${k}{--brand:${BRAND_COLORS[k as keyof typeof BRAND_COLORS][theme]};}`)
+    .map((k) => {
+      const c = BRAND_COLORS[k as keyof typeof BRAND_COLORS];
+      return theme === 'light'
+        ? `.b-${k}{--brand:${c.light};--brand-on-white:${c.light};}`
+        : `.b-${k}{--brand:${c.dark};}`;
+    })
     .join('');
 }
 
@@ -445,7 +451,11 @@ button { font: inherit; color: inherit; }
 }
 .kc svg { width: 12px; height: 12px; flex: none; color: var(--kind); }
 .kc svg.brand, .pf svg.brand { color: var(--brand); }
-.kc svg.brand { width: 14px; height: 14px; }
+/* 붉은 저장소 칩 위에서 파란 로고가 흐려져서 흰 바탕을 깐다 */
+.kc svg.brand {
+  width: 16px; height: 16px; padding: 2px; margin-left: -2px; border-radius: 4px;
+  color: var(--brand-on-white); background: #fff;
+}
 .nm { grid-row: 1; grid-column: 2; display: flex; align-items: center; min-width: 0; font-size: 13px; font-weight: 600; line-height: 18px; }
 .nm .t { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tc {

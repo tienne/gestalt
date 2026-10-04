@@ -742,7 +742,7 @@ describe('렌더 — 데이터 저장소 엔진 로고', () => {
     expect(card('db-misc')).toContain('<use href="#i-datastore"/>');
     expect(html).toContain('<symbol id="e-redis" viewBox="0 0 24 24"><g fill="currentColor">');
     // 어두운 화면에서 검정 애플 로고가 묻히지 않게 흰색으로 바꾼다
-    expect(html).toContain('.b-ios{--brand:#000000;}');
+    expect(html).toContain('.b-ios{--brand:#000000;--brand-on-white:#000000;}');
     expect(html).toContain(':root[data-theme="dark"] .b-ios{--brand:#ffffff;}');
   });
 });
