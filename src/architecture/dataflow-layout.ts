@@ -54,6 +54,22 @@ function pt(p: Pt): string {
   return `${round2(p[0])} ${round2(p[1])}`;
 }
 
+/** x가 한 방향으로만 늘어나는 3차 베지어에서 주어진 x의 y. 이분법이라 같은 입력이면 같은 값이다 */
+function bezierYAt(p0: Pt, c1: Pt, c2: Pt, p3: Pt, x: number): number {
+  const at = (t: number, i: 0 | 1): number => {
+    const u = 1 - t;
+    return u * u * u * p0[i] + 3 * u * u * t * c1[i] + 3 * u * t * t * c2[i] + t * t * t * p3[i];
+  };
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (at(mid, 0) < x) lo = mid;
+    else hi = mid;
+  }
+  return at((lo + hi) / 2, 1);
+}
+
 /** 끝 접선 방향으로 화살촉을 세운다. 뒤로 가는 선은 아래에서 올라와 닿으므로 방향을 계산으로 구한다 */
 function tipOf(from: Pt, to: Pt): [string, string, string] {
   const dx = to[0] - from[0];
@@ -141,9 +157,10 @@ export function computeDataflowLayout(
   for (const id of order) columns[rank.get(id)!]!.push(id);
 
   const colWidth = columns.map((ids) => Math.max(0, ...ids.map((id) => sizes.get(id)!.width)));
+  // 열을 건너뛰는 선도 라벨은 출발 열 바로 뒤 틈에 앉으므로 그 틈 너비에 같이 센다
   const gapAfter = columns.slice(0, -1).map((_, r) => {
     const label = messages
-      .filter((m) => rank.get(m.from) === r && rank.get(m.to) === r + 1)
+      .filter((m) => rank.get(m.from) === r && rank.get(m.to)! > r)
       .reduce((w, m) => Math.max(w, textUnits(m.label) * LABEL_CHAR), 0);
     return Math.max(MIN_GAP, label + LABEL_PAD);
   });
@@ -212,12 +229,18 @@ export function computeDataflowLayout(
       const c = Math.max(40, (p3[0] - p0[0]) / 2);
       const c1: Pt = [p0[0] + c, p0[1]];
       const c2: Pt = [p3[0] - c, p3[1]];
+      const from = rank.get(m.from)!;
+      // 가운데 열 카드 위에 라벨이 앉지 않게, 열을 건너뛰는 선은 출발 열 바로 뒤 틈에서 선 위에 단다
+      const labelX =
+        rank.get(m.to)! - from > 1
+          ? colX[from]! + colWidth[from]! + gapAfter[from]! / 2
+          : (p0[0] + p3[0]) / 2;
       return {
         id: m.id,
         d: `M${pt(p0)}C${pt(c1)} ${pt(c2)} ${pt(p3)}`,
         tip: tipOf(c2, p3),
-        labelX: round2((p0[0] + p3[0]) / 2),
-        labelY: round2((p0[1] + p3[1]) / 2 - 5),
+        labelX: round2(labelX),
+        labelY: round2(bezierYAt(p0, c1, c2, p3, labelX) - 5),
       };
     }
     // 되돌아가거나 같은 열로 가는 선은 카드 아래로 돌아 들어간다. 겹치지 않게 한 줄씩 더 내려간다

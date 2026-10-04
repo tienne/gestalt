@@ -53,6 +53,29 @@ describe('dataflow 투영', () => {
     expect(back.labelY).toBeGreaterThan(bottom);
   });
 
+  it('열을 건너뛰는 선의 라벨은 가운데 열 카드에 겹치지 않고 첫 틈에 앉는다', () => {
+    const ir = orderDataflowIr();
+    const p = ir.projections![0]!;
+    const span = { ...p.messages[0]!, id: 'skip', to: 'db', label: '건너뛰는 꽤 긴 라벨' };
+    const projection = { ...p, messages: [p.messages[0]!, p.messages[1]!, span] };
+    const layout = computeDataflowLayout(
+      projection,
+      new Set(['d1', 'd2', 'skip']),
+      new Map(ir.nodes.map((n) => [n.id, n])),
+    );
+    const card = new Map(layout.cards.map((c) => [c.id, c]));
+    const e = layout.edges.find((x) => x.id === 'skip')!;
+    const app = card.get('app')!;
+    const api = card.get('api')!;
+    expect(e.labelX).toBeGreaterThan(app.x + app.width);
+    expect(e.labelX).toBeLessThan(api.x);
+    for (const c of layout.cards) {
+      const inside =
+        e.labelX > c.x && e.labelX < c.x + c.width && e.labelY > c.y && e.labelY < c.y + c.height;
+      expect(inside).toBe(false);
+    }
+  });
+
   it.each<[string, (ir: ArchitectureIr) => void]>([
     ['PROJECTION_SHAPE_FIELD', (ir) => (ir.projections![0]!.messages[0]!.reply = true)],
     [
