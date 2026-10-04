@@ -61,6 +61,11 @@ export type MergeArchitectureIrsResult =
 
 const ENDPOINT_LABEL_RE = /^([A-Za-z*]+)\s+(\S.*)$/;
 
+/** 분석마다 찾은 action이 다를 수 있어 합집합을 정렬해 둔다. 순서가 입력 순서를 따르면 같은 결과가 안 나온다 */
+function unionActions(a: readonly string[] | undefined, b: readonly string[]): string[] {
+  return [...new Set([...(a ?? []), ...b])].sort(byText);
+}
+
 function byText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -321,6 +326,8 @@ export function mergeArchitectureIrs(
       if (slot.node.description === undefined && raw.description !== undefined) {
         slot.node.description = raw.description;
       }
+      if (raw.actions !== undefined)
+        slot.node.actions = unionActions(slot.node.actions, raw.actions);
       if (raw.platforms !== undefined) {
         const merged = new Set([...(slot.node.platforms ?? []), ...raw.platforms]);
         slot.node.platforms = [...merged].sort(byText) as Platform[];
@@ -420,6 +427,8 @@ export function mergeArchitectureIrs(
       slot.inputs.add(input);
       slot.edge.evidence = unionEvidence(slot.edge.evidence, evidence);
       if (raw.lineStyle === 'solid') slot.edge.lineStyle = 'solid';
+      if (raw.actions !== undefined)
+        slot.edge.actions = unionActions(slot.edge.actions, raw.actions);
       edgeSlotOf.set(`${input}\u0000${raw.id}`, slot);
     }
   }

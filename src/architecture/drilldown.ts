@@ -2,7 +2,7 @@ import {
   assignStages,
   computeGraphLayout,
   environmentRank,
-  KIND_LANE,
+  laneOfNode,
   PARTITION_RANK,
   pinToColumnTop,
   stackTree,
@@ -21,6 +21,7 @@ import { computeFlowLevels, type FlowLevel } from './flow-layout.js';
 import { indexMicroApps, orderedApps, type MicroAppIndex } from './micro-app.js';
 import { computeServiceFacts } from './service-facts.js';
 import type { ArchitectureEdge, ArchitectureNode, EdgeKind, LineStyle, NodeKind } from './types.js';
+import { displayKindOf } from './types.js';
 import type { ValidatedIr } from './validator.js';
 
 export type DrillLevelKind = 'root' | 'service' | 'app' | 'server' | 'feature';
@@ -138,8 +139,62 @@ function edgesOf(g: Graph, kind: EdgeKind, fromKind: string, toKind: string): Ar
   );
 }
 
+/** 화면 자리에 서는 카드. 하네스의 스킬은 사용자가 고르는 입구라 웹의 화면과 같은 자리에 둔다 */
+function isSurface(g: Graph, id: string): boolean {
+  const kind = kindOf(g, id);
+  return kind === 'screen' || kind === 'skill';
+}
+
+/** 엔드포인트를 부르는 선. 화면과 스킬, 에이전트가 부른다 */
 function screenCalls(g: Graph): ArchitectureEdge[] {
-  return edgesOf(g, 'calls', 'screen', 'endpoint');
+  return g.edges.filter(
+    (e) =>
+      e.kind === 'calls' &&
+      kindOf(g, e.to) === 'endpoint' &&
+      (isSurface(g, e.from) || kindOf(g, e.from) === 'agent'),
+  );
+}
+
+/**
+ * 에이전트를 띄운 스킬까지 spawns를 거슬러 올라간다. 에이전트는 소유자가 없어서 묶을 때 띄운 스킬의 소유자를 빌린다.
+ * 아무도 안 띄운 에이전트나 화면, 스킬은 자기 자신을 낸다
+ */
+function callerRoots(g: Graph, id: string): Array<{ id: string; via: string[] }> {
+  if (kindOf(g, id) !== 'agent') return [{ id, via: [] }];
+  const out: Array<{ id: string; via: string[] }> = [];
+  const seen = new Set<string>([id]);
+  const queue: Array<{ id: string; via: string[] }> = [{ id, via: [] }];
+  while (queue.length > 0) {
+    const at = queue.shift()!;
+    const ups = g.edges.filter((e) => e.kind === 'spawns' && e.to === at.id);
+    if (ups.length === 0 && at.id !== id) out.push(at);
+    for (const e of ups) {
+      const via = [e.id, ...at.via];
+      if (kindOf(g, e.from) === 'skill') out.push({ id: e.from, via });
+      else if (!seen.has(e.from)) {
+        seen.add(e.from);
+        queue.push({ id: e.from, via });
+      }
+    }
+  }
+  return out.length > 0 ? out : [{ id, via: [] }];
+}
+
+/** 띄운 쪽에서 spawns를 따라 내려가 닿는 에이전트와 그 선 */
+function spawnedFrom(g: Graph, starts: Iterable<string>): ArchitectureEdge[] {
+  const out: ArchitectureEdge[] = [];
+  const seen = new Set<string>(starts);
+  const queue = [...seen];
+  while (queue.length > 0) {
+    const at = queue.shift()!;
+    for (const e of g.edges.filter((x) => x.kind === 'spawns' && x.from === at)) {
+      out.push(e);
+      if (seen.has(e.to)) continue;
+      seen.add(e.to);
+      queue.push(e.to);
+    }
+  }
+  return out;
 }
 
 function routesInto(g: Graph, endpointId: string): ArchitectureEdge[] {
@@ -250,25 +305,40 @@ function bundleCalls(
   calls: ArchitectureEdge[],
   ownerOf: (screenId: string) => string | undefined,
   withGatewayHops: boolean,
+  liftAgents = true,
 ): void {
   for (const call of calls) {
-    const owner = ownerOf(call.from);
-    if (owner === undefined) continue;
-    const routes = routesInto(g, call.to);
-    const handlers = handlersOf(g, call.to);
-    if (routes.length === 0) {
-      for (const h of handlers) b.add(owner, h.to, call.id, [call.id, h.id]);
-      continue;
+    const roots = liftAgents ? callerRoots(g, call.from) : [{ id: call.from, via: [] }];
+    for (const root of roots) {
+      const owner = ownerOf(root.id);
+      if (owner === undefined) continue;
+      bundleCall(g, b, call, owner, root.via, withGatewayHops);
     }
-    for (const r of routes) {
-      for (const chain of chainsUp(g, r.from)) {
-        b.add(owner, chain.head, call.id, [call.id, r.id, ...ids(chain.hops)]);
-        if (!withGatewayHops) continue;
-        for (const hop of chain.hops) b.add(hop.from, hop.to, hop.id, [hop.id]);
-      }
+  }
+}
+
+function bundleCall(
+  g: Graph,
+  b: Bundler,
+  call: ArchitectureEdge,
+  owner: string,
+  via: string[],
+  withGatewayHops: boolean,
+): void {
+  const routes = routesInto(g, call.to);
+  const handlers = handlersOf(g, call.to);
+  if (routes.length === 0) {
+    for (const h of handlers) b.add(owner, h.to, call.id, [...via, call.id, h.id]);
+    return;
+  }
+  for (const r of routes) {
+    for (const chain of chainsUp(g, r.from)) {
+      b.add(owner, chain.head, call.id, [...via, call.id, r.id, ...ids(chain.hops)]);
       if (!withGatewayHops) continue;
-      for (const h of handlers) b.add(r.from, h.to, h.id, [r.id, h.id]);
+      for (const hop of chain.hops) b.add(hop.from, hop.to, hop.id, [hop.id]);
     }
+    if (!withGatewayHops) continue;
+    for (const h of handlers) b.add(r.from, h.to, h.id, [r.id, h.id]);
   }
 }
 
@@ -352,8 +422,15 @@ interface LevelDraft {
   frames?: FrameGroup[];
 }
 
-/** 서비스에서 출발해 게이트웨이를 거쳐 닿는 노드. 서버에서 나가는 선은 따라가지 않는다 */
-function frontReach(g: Graph, edges: DrillEdge[]): Set<string> {
+/**
+ * 서비스에서 출발해 게이트웨이를 거쳐 닿는 노드. 서버에서 나가는 선은 따라가지 않는다.
+ * 다만 inProcess 선은 한 프로세스 안에서 핸들러가 엔진을 부르는 것이라 외부로 치지 않고 따라간다
+ */
+function frontReach(
+  g: Graph,
+  edges: DrillEdge[],
+  inProcess: ReadonlySet<string> = new Set(),
+): Set<string> {
   const front = new Set(
     [...g.nodeById.values()].filter((n) => n.kind === 'service').map((n) => n.id),
   );
@@ -361,9 +438,10 @@ function frontReach(g: Graph, edges: DrillEdge[]): Set<string> {
   while (queue.length > 0) {
     const at = queue.shift()!;
     const kind = kindOf(g, at);
-    if (kind !== 'service' && kind !== 'gateway') continue;
+    const open = kind === 'service' || kind === 'gateway';
     for (const e of edges) {
       if (e.from !== at || front.has(e.to)) continue;
+      if (!open && !inProcess.has(e.id)) continue;
       front.add(e.to);
       queue.push(e.to);
     }
@@ -392,6 +470,7 @@ function externalReach(g: Graph, edges: DrillEdge[], front: Set<string>): Set<st
 }
 
 const ROOT_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>([
+  'client',
   'service',
   'micro_app',
   'gateway',
@@ -414,6 +493,11 @@ function prodGraph(g: Graph): Graph {
 }
 
 /** 서버가 읽고 쓰는 저장소. 테이블에 걸린 선은 그 테이블이 속한 저장소로 올려 묶는다 */
+/** 핸들러 모듈이 같은 프로세스의 엔진 모듈을 쓰는 선. 하네스 MCP 서버에서 도구 핸들러가 엔진을 부르는 자리다 */
+function moduleUses(g: Graph): ArchitectureEdge[] {
+  return edgesOf(g, 'uses', 'app_module', 'app_module');
+}
+
 function bundleDatastores(g: Graph, b: Bundler): void {
   for (const e of g.edges) {
     if (e.kind !== 'reads_writes' || kindOf(g, e.from) !== 'app_module') continue;
@@ -434,18 +518,27 @@ function rootLevel(full: Graph, apps: MicroAppIndex): LevelDraft {
   bundleCalls(g, b, screenCalls(g), (s) => ownerOf(g, s), false);
   bundleGatewayRoutes(g, b);
   bundleModuleToModule(g, b);
+  const inProcessUses = new Set<string>();
+  for (const u of moduleUses(g)) {
+    b.add(u.from, u.to, u.id, [u.id]);
+    inProcessUses.add(`bundle:${u.from}->${u.to}`);
+  }
   bundleDatastores(g, b);
+  // 클라이언트가 플러그인을 싣는 선은 테두리를 넘는 일이 없어 그대로 그린다
+  const clientLoads = g.edges
+    .filter((e) => e.kind === 'loads' && kindOf(g, e.from) === 'client' && nodeIds.has(e.to))
+    .map(asDetail);
   // 같은 서비스 안 로드는 테두리가 이미 말해준다. 테두리를 넘는 로드(여러 호스트가 같이 쓰는 리모트)만 선으로 남긴다
   const crossing = apps.loads
     .filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to))
     .filter((e) => g.parentOf.get(e.from) !== g.parentOf.get(e.to))
     .map(asDetail);
-  const edges = [...b.toEdges(g), ...crossing].sort(byId);
+  const edges = [...b.toEdges(g), ...crossing, ...clientLoads].sort(byId);
   const frames = [...apps.appsOf.keys()]
     .filter((svc) => nodeIds.has(svc))
     .sort(compareStr)
     .map((svc) => ({ head: svc, members: orderedApps(apps, svc).filter((a) => nodeIds.has(a)) }));
-  const ext = externalReach(g, edges, frontReach(g, edges));
+  const ext = externalReach(g, edges, frontReach(g, edges, inProcessUses));
   const rankOverride = new Map<string, number>();
   const laneOverride = new Map<string, LaneId>();
   for (const id of ext) {
@@ -494,7 +587,7 @@ function ownerLevel(
   const nodeIds = new Set<string>();
   for (const n of g.nodeById.values()) {
     if (n.kind === 'feature' && g.parentOf.get(n.id) === owner.id) nodeIds.add(n.id);
-    if (n.kind === 'screen' && g.parentOf.get(n.id) === owner.id) nodeIds.add(n.id);
+    if (isSurface(g, n.id) && g.parentOf.get(n.id) === owner.id) nodeIds.add(n.id);
   }
   const b = new Bundler();
   const mine = (screenId: string): boolean => {
@@ -523,7 +616,7 @@ function ownerLevel(
     trail,
     nodeIds,
     edges,
-    laneOfKind: { feature: 'unit', screen: 'unit' },
+    laneOfKind: { feature: 'unit', screen: 'unit', skill: 'unit' },
   };
   if (infra.length === 0 && children.length === 0) return base;
 
@@ -560,7 +653,13 @@ function ownerLevel(
     ...base,
     edges: [...edges, ...contains, ...children, ...dedupe(infra).map(asDetail)].sort(byId),
     rankOverride,
-    laneOfKind: { feature: 'unit', screen: 'unit', service: 'unit', micro_app: 'unit' },
+    laneOfKind: {
+      feature: 'unit',
+      screen: 'unit',
+      skill: 'unit',
+      service: 'unit',
+      micro_app: 'unit',
+    },
     pinTop: owner.id,
     alignToPin: dedupe(infra)
       .flatMap((e) => [e.from, e.to])
@@ -607,12 +706,12 @@ function treeLevel(g: Graph, spec: TreeLevelSpec): LevelDraft {
   const sortKey = new Map<string, number>();
   for (const r of remotes) sortKey.set(r, 0);
   for (const n of [...g.nodeById.values()].sort(byId)) {
-    if (n.kind !== 'feature' && n.kind !== 'screen') continue;
+    if (n.kind !== 'feature' && !isSurface(g, n.id)) continue;
     const owner = ownerOf(g, n.id);
     const parent = g.parentOf.get(n.id);
     if (owner === undefined || !owners.has(owner) || parent === undefined) continue;
     nodeIds.add(n.id);
-    rankOverride.set(n.id, TREE_RANK[n.kind]);
+    rankOverride.set(n.id, n.kind === 'feature' ? TREE_RANK.feature : TREE_RANK.screen);
     children.set(parent, [...(children.get(parent) ?? []), n.id]);
     sortKey.set(n.id, n.kind === 'feature' ? 1 : 2);
     tree.push({
@@ -625,9 +724,39 @@ function treeLevel(g: Graph, spec: TreeLevelSpec): LevelDraft {
       lineStyle: 'solid',
     });
   }
+  // 스킬이 띄우는 에이전트는 스킬 바로 뒤 열에 세우고 띄운 선을 그대로 그린다
+  const spawns = spawnedFrom(
+    g,
+    [...nodeIds].filter((n) => kindOf(g, n) === 'skill'),
+  );
+  for (const e of spawns) {
+    if (nodeIds.has(e.to)) continue;
+    nodeIds.add(e.to);
+    rankOverride.set(e.to, PARTITION_RANK.agent + TREE_RANK_SHIFT);
+  }
+  const invokes = g.edges.filter(
+    (e) => e.kind === 'invokes' && nodeIds.has(e.from) && nodeIds.has(e.to),
+  );
   const b = new Bundler();
   const calls = screenCalls(g).filter((c) => nodeIds.has(c.from));
-  bundleCalls(g, b, calls, (s) => s, true);
+  // MCP 도구는 하네스 그림의 중심이라 묶어 접지 않고 카드로 세운다. 웹 API처럼 수백 개가 되는 일이 없다
+  const toolCalls = calls.filter((c) => g.nodeById.get(c.to)?.protocol === 'mcp');
+  const toolEdges = dedupe([...toolCalls, ...toolCalls.flatMap((c) => handlersOf(g, c.to))]);
+  for (const e of toolEdges) {
+    for (const n of [e.from, e.to]) {
+      if (nodeIds.has(n)) continue;
+      nodeIds.add(n);
+      rankOverride.set(n, PARTITION_RANK[kindOf(g, n) as NodeKind] + TREE_RANK_SHIFT);
+    }
+  }
+  bundleCalls(
+    g,
+    b,
+    calls.filter((c) => !toolCalls.includes(c)),
+    (s) => s,
+    true,
+    false,
+  );
   const bundles = b.toEdges(g);
   for (const e of bundles) {
     for (const n of [e.from, e.to]) {
@@ -651,7 +780,13 @@ function treeLevel(g: Graph, spec: TreeLevelSpec): LevelDraft {
     title: spec.title,
     trail: spec.trail,
     nodeIds,
-    edges: [...bundles, ...tree, ...loads.map(asDetail), ...infra.map(asDetail)].sort(byId),
+    edges: [
+      ...bundles,
+      ...tree,
+      ...loads.map(asDetail),
+      ...infra.map(asDetail),
+      ...dedupe([...spawns, ...invokes, ...toolEdges]).map(asDetail),
+    ].sort(byId),
     rankOverride,
     laneOverride,
     laneOfKind: { feature: 'unit', screen: 'screen' },
@@ -740,6 +875,17 @@ function serverLevel(g: Graph, server: ArchitectureNode): LevelDraft {
   }
   const laneOverride = new Map<string, LaneId>();
   for (const id of rankOverride.keys()) laneOverride.set(id, 'external');
+  // 같은 프로세스 안 모듈은 외부가 아니다. 부르는 핸들러는 엔드포인트 열에, 불리는 엔진은 받는 쪽 열에 둔다
+  if (server.kind === 'app_module') {
+    for (const u of moduleUses(g)) {
+      if (u.from !== server.id && u.to !== server.id) continue;
+      picked.push(u);
+      const other = u.from === server.id ? u.to : u.from;
+      nodeIds.add(other);
+      rankOverride.set(other, u.from === server.id ? RECEIVER_RANK : PARTITION_RANK.endpoint);
+      laneOverride.set(other, 'app_module');
+    }
+  }
   // 테이블은 받는 쪽 모듈들 뒤 맨 오른쪽 레인에 모은다
   for (const id of nodeIds) {
     const kind = kindOf(g, id);
@@ -764,11 +910,14 @@ function featureLevel(g: Graph, feature: ArchitectureNode, ownerTrail: string[])
   const id = `feature:${feature.id}`;
   const screens = new Set(
     [...g.nodeById.values()]
-      .filter((n) => n.kind === 'screen' && featureOf(g, n.id) === feature.id)
+      .filter((n) => isSurface(g, n.id) && featureOf(g, n.id) === feature.id)
       .map((n) => n.id),
   );
   const picked: ArchitectureEdge[] = [];
-  for (const call of screenCalls(g).filter((c) => screens.has(c.from))) {
+  const spawns = spawnedFrom(g, screens);
+  const callers = new Set([...screens, ...spawns.map((e) => e.to)]);
+  picked.push(...spawns, ...g.edges.filter((e) => e.kind === 'invokes' && screens.has(e.from)));
+  for (const call of screenCalls(g).filter((c) => callers.has(c.from))) {
     const routes = routesInto(g, call.to);
     picked.push(call, ...routes, ...handlersOf(g, call.to));
     for (const r of routes) {
@@ -953,9 +1102,9 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         ...(node.displayName !== undefined ? { displayName: node.displayName } : {}),
         ...(node.displayNameInferred ? { displayNameInferred: true } : {}),
         rank: d.rankOverride?.get(id) ?? PARTITION_RANK[node.kind],
-        lane: d.laneOverride?.get(id) ?? d.laneOfKind?.[node.kind] ?? KIND_LANE[node.kind],
+        lane: d.laneOverride?.get(id) ?? d.laneOfKind?.[node.kind] ?? laneOfNode(node),
         ...(staged !== undefined ? { stage: staged.indexOf.get(id)! } : {}),
-        kind: node.kind,
+        kind: displayKindOf(node),
         ...(d.orderOverride?.has(id)
           ? { order: d.orderOverride.get(id)! }
           : node.environment !== undefined
