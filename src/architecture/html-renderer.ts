@@ -421,7 +421,7 @@ function renderLevelSection(spec: CanvasSpec): string {
     .map(
       (l) =>
         `<div class="lane-title" style="left:${round2(l.x + CANVAS_PAD_X)}px;top:${LANE_INSET_Y + 10}px;width:${l.width}px">` +
-        `${escapeHtml(LANE_TITLES[l.id])}<span class="n">${l.count}</span></div>`,
+        `${escapeHtml(l.title)}<span class="n">${l.count}</span></div>`,
     )
     .join('');
   const { regionRects, regionTitles } = renderRegions(layout);

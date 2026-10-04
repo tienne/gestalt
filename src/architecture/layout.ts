@@ -1,7 +1,7 @@
 // 워커 없는 번들판을 쓴다. 기본 진입점은 web-worker 패키지를 찾다가 MCP stdio 서버에서 경고를 찍을 수 있다
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode, LayoutOptions } from 'elkjs/lib/elk.bundled.js';
-import { NODE_KIND_SHORT, platformChipText } from './kind-text.js';
+import { LANE_TITLES, NODE_KIND_SHORT, platformChipText } from './kind-text.js';
 import type { ArchitectureIr, EdgeKind, NodeKind, Platform, WebHosting } from './types.js';
 import { ENVIRONMENT_ORDER } from './types.js';
 
@@ -23,9 +23,11 @@ export interface LayoutEdge {
   points: LayoutPoint[];
 }
 
-/** 레인 한 칸. 같은 레인 노드들의 좌우 끝에 여백을 붙인 범위다 */
+/** 레인 한 칸. 같은 레인 노드들의 좌우 끝에 여백을 붙인 범위다. 구간이 있으면 레인 하나가 구간 하나다 */
 export interface LayoutLane {
-  id: LaneId;
+  /** 종류 레인이면 LaneId, 구간이면 `stage:<순번>` */
+  id: string;
+  title: string;
   x: number;
   width: number;
   count: number;
@@ -208,6 +210,8 @@ export interface GraphLayoutNode {
   displayNameInferred?: boolean;
   rank: number;
   lane: LaneId;
+  /** 구간 순번. 구간이 있는 그림에서는 rank보다 앞서 열 순서를 정한다 */
+  stage?: number;
   kind?: NodeKind;
   /** 같은 레이어 안에서 위에서부터 설 순서. 준 노드끼리만 지켜진다 */
   order?: number;
@@ -325,11 +329,52 @@ function byId<T extends { id: string }>(a: T, b: T): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+// 레벨마다 덧대는 rank 보정은 다 합쳐도 이보다 작다. 구간 순번에 곱해 앞자리로 두면 구간 안에서는 원래 순서가 그대로 남는다
+const STAGE_RANK_STRIDE = 100;
+/** 어느 구간에도 안 맞은 노드를 모으는 맨 끝 구간 이름 */
+export const UNSTAGED_LABEL = '그 밖';
+
+export interface StageAssignment {
+  /** 노드 id → 구간 순번 */
+  indexOf: Map<string, number>;
+  /** 순번 순 구간 이름. 안 맞은 노드가 있으면 끝에 UNSTAGED_LABEL이 붙는다 */
+  labels: string[];
+  unstaged: number;
+}
+
+/** 노드마다 구간을 정한다. 이름으로 올린 구간이 먼저다. 그다음은 kinds와 repos가 맞는 첫 구간이다 */
+export function assignStages(ir: ArchitectureIr): StageAssignment | undefined {
+  const stages = ir.stages ?? [];
+  if (stages.length === 0) return undefined;
+  const named = new Map<string, number>();
+  stages.forEach((st, i) => {
+    for (const id of st.nodes ?? []) if (!named.has(id)) named.set(id, i);
+  });
+  const indexOf = new Map<string, number>();
+  let unstaged = 0;
+  for (const n of ir.nodes) {
+    const byName = named.get(n.id);
+    const byRule = stages.findIndex(
+      (st) =>
+        st.kinds !== undefined &&
+        st.kinds.includes(n.kind) &&
+        (st.repos === undefined || st.repos.includes(n.repo)),
+    );
+    const index = byName ?? (byRule >= 0 ? byRule : stages.length);
+    if (index === stages.length) unstaged += 1;
+    indexOf.set(n.id, index);
+  }
+  const labels = stages.map((st) => st.label);
+  if (unstaged > 0) labels.push(UNSTAGED_LABEL);
+  return { indexOf, labels, unstaged };
+}
+
 export async function computeLayout(
   ir: ArchitectureIr,
   drawableNodeIds: ReadonlySet<string>,
   drawableEdgeIds: ReadonlySet<string>,
 ): Promise<LayoutResult> {
+  const staged = assignStages(ir);
   const nodes = ir.nodes
     .filter((n) => drawableNodeIds.has(n.id))
     .map((n) => ({
@@ -339,6 +384,7 @@ export async function computeLayout(
       ...(n.displayNameInferred ? { displayNameInferred: true } : {}),
       rank: PARTITION_RANK[n.kind],
       lane: KIND_LANE[n.kind],
+      ...(staged !== undefined ? { stage: staged.indexOf.get(n.id)! } : {}),
       kind: n.kind,
       ...(n.environment !== undefined ? { order: environmentRank(n.environment) } : {}),
     }));
@@ -350,7 +396,7 @@ export async function computeLayout(
       to: e.to,
       ...(FLAT_BACKWARD_EDGE_KINDS.has(e.kind) ? { backward: true } : {}),
     }));
-  const laid = await computeGraphLayout(nodes, edges);
+  const laid = await computeGraphLayout(nodes, edges, staged?.labels);
   return stackBands(laid, bandGroupsOf(ir));
 }
 
@@ -361,8 +407,13 @@ export async function computeLayout(
 export async function computeGraphLayout(
   nodeList: readonly GraphLayoutNode[],
   edgeList: readonly GraphLayoutEdge[],
+  stageLabels?: readonly string[],
 ): Promise<LayoutResult> {
   const nodes = [...nodeList].sort(byId);
+  const rankOf = (n: GraphLayoutNode): number =>
+    stageLabels !== undefined && n.stage !== undefined
+      ? n.stage * STAGE_RANK_STRIDE + n.rank
+      : n.rank;
   const laneOf = new Map(nodes.map((n) => [n.id, n.lane]));
   // 끝점이 하나라도 빠진 엣지를 넘기면 ELK가 예외를 던진다
   const edges = edgeList
@@ -385,7 +436,7 @@ export async function computeGraphLayout(
       }),
       // 레이어 안 카드를 왼쪽에 맞춰야 레인이 들쭉날쭉한 열이 아니라 한 줄로 읽힌다
       layoutOptions: {
-        'elk.partitioning.partition': String(n.rank),
+        'elk.partitioning.partition': String(rankOf(n)),
         'elk.alignment': 'LEFT',
         ...(n.order !== undefined ? { 'elk.position': `(0,${n.order})` } : {}),
       },
@@ -429,7 +480,7 @@ export async function computeGraphLayout(
     height: round2(laid.height ?? 0),
     nodes: outNodes,
     edges: outEdges,
-    lanes: computeLanes(nodes, outNodes),
+    lanes: computeLanes(nodes, outNodes, stageLabels),
   };
 }
 
@@ -437,9 +488,21 @@ export async function computeGraphLayout(
 function computeLanes(
   input: readonly GraphLayoutNode[],
   placed: readonly LayoutNode[],
+  stageLabels?: readonly string[],
 ): LayoutLane[] {
-  const laneOf = new Map(input.map((n) => [n.id, n.lane]));
-  const spans = new Map<LaneId, { left: number; right: number; count: number }>();
+  const titleOf = new Map<string, string>();
+  const laneOf = new Map(
+    input.map((n) => {
+      if (stageLabels !== undefined && n.stage !== undefined) {
+        const id = `stage:${n.stage}`;
+        titleOf.set(id, stageLabels[n.stage] ?? UNSTAGED_LABEL);
+        return [n.id, id];
+      }
+      titleOf.set(n.lane, LANE_TITLES[n.lane]);
+      return [n.id, n.lane];
+    }),
+  );
+  const spans = new Map<string, { left: number; right: number; count: number }>();
   for (const box of placed) {
     const lane = laneOf.get(box.id);
     if (lane === undefined) continue;
@@ -455,6 +518,7 @@ function computeLanes(
   return [...spans.entries()]
     .map(([id, s]) => ({
       id,
+      title: titleOf.get(id)!,
       x: round2(s.left - LANE_PADDING_X),
       width: round2(s.right - s.left + LANE_PADDING_X * 2),
       count: s.count,

@@ -6,7 +6,7 @@ import { matchEndpoints } from '../../architecture/endpoint-match.js';
 import { computeDrilldown, shouldDrillDown } from '../../architecture/drilldown.js';
 import { renderArchitectureHtml, renderDrilldownHtml } from '../../architecture/html-renderer.js';
 import { parseArchitectureIr } from '../../architecture/ir-schema.js';
-import { computeLayout } from '../../architecture/layout.js';
+import { assignStages, computeLayout } from '../../architecture/layout.js';
 import { mergeArchitectureIrs } from '../../architecture/merge.js';
 import {
   ArchitectureStore,
@@ -141,6 +141,7 @@ function computeStats(validated: ValidatedIr) {
       .filter((e) => e.kind === 'handles' && kindOf.get(e.to) === 'app_module')
       .map((e) => e.from),
   );
+  const staged = assignStages(ir);
   const open = [...ir.unresolved, ...autoUnresolved].filter(
     (q) => q.answer === undefined || q.answer.trim() === '',
   );
@@ -165,6 +166,14 @@ function computeStats(validated: ValidatedIr) {
           flows: ir.flows.length,
           drawnSteps: drawableStepIds.size,
           drawnTransitions: drawableTransitionIds.size,
+        }
+      : {}),
+    // 세션이 구간 규칙을 빠뜨린 노드는 맨 끝 "그 밖"으로 간다. 숫자로 알려야 세션이 규칙을 보탠다
+    ...(staged !== undefined
+      ? {
+          stages: ir.stages!.length,
+          unstagedNodes: drawnNodes.filter((n) => staged.indexOf.get(n.id) === ir.stages!.length)
+            .length,
         }
       : {}),
   };

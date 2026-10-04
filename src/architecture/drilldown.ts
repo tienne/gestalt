@@ -1,4 +1,5 @@
 import {
+  assignStages,
   computeGraphLayout,
   environmentRank,
   KIND_LANE,
@@ -931,6 +932,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
   const [root, ...rest] = drafts;
   const ordered = [root!, ...rest.sort(byId)];
   const levels: DrillLevel[] = [];
+  const staged = assignStages(validated.ir);
   for (const d of ordered) {
     const nodeIds = [...d.nodeIds].filter((id) => g.nodeById.has(id)).sort(compareStr);
     const layoutNodes = nodeIds.map((id) => {
@@ -943,6 +945,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         ...(node.displayNameInferred ? { displayNameInferred: true } : {}),
         rank: d.rankOverride?.get(id) ?? PARTITION_RANK[node.kind],
         lane: d.laneOverride?.get(id) ?? d.laneOfKind?.[node.kind] ?? KIND_LANE[node.kind],
+        ...(staged !== undefined ? { stage: staged.indexOf.get(id)! } : {}),
         kind: node.kind,
         ...(d.orderOverride?.has(id)
           ? { order: d.orderOverride.get(id)! }
@@ -954,7 +957,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         ...(f?.prodDomain !== undefined ? { secondLine: f.prodDomain } : {}),
       };
     });
-    const laid = await computeGraphLayout(layoutNodes, d.edges);
+    const laid = await computeGraphLayout(layoutNodes, d.edges, staged?.labels);
     const pinned = d.pinTop !== undefined ? pinToColumnTop(laid, d.pinTop) : laid;
     const treed = d.tree !== undefined ? stackTree(pinned, treeOrder(pinned, d.tree)) : pinned;
     const aligned =
