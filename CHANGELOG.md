@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.89.0] - 2026-10-05
+
+### Added
+
+- **`/architecture` 스킬과 `ges_architecture` 도구가 생겼어요 (#53).** 세션이 코드와 맥락 소스를 훑어 근거 달린 IR을 쓰면 서버가 검증해서 단일 HTML로 그려요. 서버는 LLM을 부르지 않고 같은 입력이면 같은 바이트가 나와요.
+  - 실선은 `code`나 `spec` 근거가 있을 때만 그려요. `doc`, `user`, `live` 근거는 점선이고 근거를 못 찾은 연결은 그리지 않고 미해결 질문으로 남겨요. 근거 없는 실선이 들어오면 IR 전체를 거부해요.
+  - 액션은 `start`, `filter_tools`, `match_endpoints`, `validate`, `render`, `status`, `merge`, `scan_docs`, `link_docs`, `stale_docs` 열 개예요.
+  - 다시 돌리면 이전 IR과 합쳐서 노드 id와 사람이 단 답을 그대로 물려받아요. 저장은 `.gestalt/architecture/`예요.
+  - 본인용 `.html`과 공유용 `.shared.html`을 같이 써요. 공유본은 레포 밖 근거의 인용과 계정 ID를 가리고 문서 노드의 제목과 경로만 보여요.
+- **웹 제품 그림을 전체 → 서비스 → 기능영역 → 화면으로 들어가며 봐요 (#53).** FE 호출과 BE 라우트는 method와 정규화한 경로로 맞춰요. 노드 하나를 고르면 위아래로 이어진 카드만 남기는 포커스도 있어요.
+  - 도메인, CDN, 버킷, 클라우드 계정 같은 서빙 인프라를 따로 띠로 그려요. 실제 클라우드 조회 결과는 `live` 근거로 싣고 읽기 전용 명령만 받아요.
+  - 따로 돌린 분석 여럿을 `merge`로 합쳐요. 충돌은 고르지 않고 질문으로 남겨요.
+  - 마이크로 프론트엔드는 `micro_app`과 `loads` 엣지로 앱마다 서빙 경로를 나눠 그려요.
+- **도메인 흐름(`flows`)을 행위자 줄과 단계로 그려요 (#53).** 단계 카드에서 기술 그림의 화면과 API로 건너갈 수 있어요.
+- **하네스와 MCP 레포도 그려요 (#53).** `client`, `skill`, `agent` 노드가 생겼고 MCP 도구는 `endpoint`에 `protocol: "mcp"`로 달아요. SKILL.md와 AGENT.md 줄은 스킬과 에이전트 노드에서만 코드 근거로 쳐요.
+- **어휘 팩과 질문별 그림이 생겼어요 (#53).** 노드 종류를 팩 일곱 개로 묶어서 새 카테고리는 팩만 더하면 돼요. 처음 보는 개념은 범용 `component`로 그려요. `sequence`, `dataflow`, `compare` 그림은 지도의 노드와 엣지를 id로 가리켜 같은 HTML 안에 그려요.
+- **문서 레포를 기술 그림에 엮어요 (#53).** `scan_docs`가 문서의 근거 표시와 구멍 표시, 질문 안내 표를 뽑아요. `link_docs`가 기술 카드에 `describes` 점선으로 문서를 엮고 빈 곳과 오래된 곳, 어긋난 곳, 담당을 알려줘요. `stale_docs`는 바뀐 파일로 손볼 문서를 골라요.
+- **의존성 `elkjs`를 더했어요 (#53).** 레이아웃을 결정적으로 계산하려고 넣었어요.
+
+### 검증 범위
+
+- 마지막 gate에서 테스트 4299개가 통과했어요.
+- 팩 구조로 옮긴 뒤에도 기존 그림 다섯 종이 바이트까지 같은지 해시 스냅샷 테스트로 확인해요.
+- 실제 레포는 레포 밖 복제본에서만 돌렸고 산출물과 수치는 넣지 않았어요.
+
+### 남긴 것
+
+- 공유본에서 공개 코드 근거의 인용은 그대로 실려요. 설정 문자열 같은 인용도 가릴지는 다음에 봐요.
+- 신선도 히트맵, 팀 색 토글, 기간 비교 그림은 데이터만 있고 그림은 아직 없어요.
+
 ## [0.88.0] - 2026-10-03
 
 > **올리기 전에 확인할 동작 변경**
