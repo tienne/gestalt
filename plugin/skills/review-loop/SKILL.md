@@ -13,7 +13,7 @@ triggers:
   - "approve 날 때까지"
   - "리뷰어로 끝까지"
   - "재리뷰 반복"
-  - "PR 리뷰 계속 봐줘"
+  - "PR 계속 지켜봐줘"
 inputs:
   target:
     type: string
@@ -38,6 +38,8 @@ outputs:
   - finalDecision
   - unresolvedAtEnd
   - loopState
+routing:
+  note: "리뷰 → 인라인 코멘트 → 판정 게시 → 대응 확인 → 재리뷰. **한 번 부르면 한 번 본다** — 이어 보려면 사람이 다시 부른다. 리뷰 한 번만이면 `review`, 내 PR을 밀어 올리는 쪽은 `ship`"
 ---
 
 # Review Loop Skill

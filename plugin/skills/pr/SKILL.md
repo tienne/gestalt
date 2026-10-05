@@ -25,6 +25,8 @@ outputs:
   - changeContext
   - prDescription
   - prUrl
+routing:
+  note: "다른 레포의 PR 스킬과 이름이 겹치면 `gestalt:pr`로 부른다"
 ---
 
 # PR Skill

@@ -7,11 +7,9 @@ triggers:
   - "ship"
   - "PR 올릴 때까지"
   - "리뷰 통과할 때까지"
-  - "리뷰 반복"
   - "코파일럿 리뷰까지"
   - "copilot 리뷰 받아줘"
   - "draft PR 올리고 리뷰"
-  - "리뷰 루프 돌려줘"
 inputs:
   base:
     type: string
@@ -36,6 +34,8 @@ outputs:
   - copilotRounds
   - unresolvedAtReady
   - prState
+routing:
+  note: "로컬 PR → 리뷰 수렴 루프 → 승인 → draft PR → Copilot 수렴 루프 → ready. 리뷰 한 번만이면 `review`"
 ---
 
 # Ship Skill

@@ -14,8 +14,8 @@ triggers:
   - "무슨 뜻이야"
   - "ELI5"
   # 대상 지정
-  - "한테 설명"
-  - "에게 설명"
+  - "한테 설명해줘"
+  - "에게 설명해줘"
   - "기획팀한테"
   - "비개발자한테"
   - "경영진 보고용으로 설명"
@@ -35,6 +35,8 @@ inputs:
 outputs:
   - explanation
   - explain_check_report
+routing:
+  note: "소스 확보 → 대상 확정 → explainer 위임 → explain-check → 재시도. 설명 문장만 빠르게 필요하면 `explainer` 에이전트"
 ---
 
 # Explain Skill

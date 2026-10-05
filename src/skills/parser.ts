@@ -16,6 +16,7 @@ const skillFrontmatterSchema = z.object({
   triggers: z.array(z.string()).default([]),
   inputs: z.record(z.string(), skillInputSchema).default({}),
   outputs: z.array(z.string()).default([]),
+  routing: z.object({ note: z.string().optional() }).optional(),
 });
 
 export function parseSkillMd(content: string, filePath: string): SkillDefinition {

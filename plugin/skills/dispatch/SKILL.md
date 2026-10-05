@@ -27,6 +27,8 @@ inputs:
 outputs:
   - dispatched_tasks
   - worker_results
+routing:
+  note: "런타임 감지 → 같은 워크트리에 터미널 → worker_done 대기 → ready 재계산. 런타임 없으면 execute의 기본 병렬 경로"
 ---
 
 # Dispatch Skill
