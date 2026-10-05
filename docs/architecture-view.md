@@ -906,7 +906,7 @@ elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행
 
 모양마다 배치가 다르다. 셋 다 지도의 elkjs 배치를 쓰지 않는다.
 
-- **sequence**: 고정 격자다. 노드마다 세로줄이 서고 메시지가 위에서 아래로 차례대로 놓인다. 세로줄 순서는 `participants`를 따르고 없으면 처음 나온 순서다. IR의 `repos`가 둘 이상이면 세로줄 머리 카드 둘째 줄에 그 노드가 있는 레포 이름을 적는다. MCP 도구(`mcpServer`가 있는 `endpoint`)는 어느 레포에 기록됐는지보다 어느 서버의 도구인지가 궁금한 자리라 레포 대신 `<서버 이름> MCP`를 적는다 (`src/architecture/html-renderer.ts`의 `whereFn`). 레포가 하나인 그림은 그대로고 dataflow와 compare에는 아직 안 붙는다.
+- **sequence**: 고정 격자다. 노드마다 세로줄이 서고 메시지가 위에서 아래로 차례대로 놓인다. 세로줄 순서는 `participants`를 따르고 없으면 처음 나온 순서다. IR의 `repos`가 둘 이상이면 세로줄 머리 카드 둘째 줄에 그 노드가 있는 레포 이름을 적는다. MCP 도구(`mcpServer`가 있는 `endpoint`)는 어느 레포에 기록됐는지보다 어느 서버의 도구인지가 궁금한 자리라 레포 대신 `<서버 이름> MCP`를 적는다 (`src/architecture/html-renderer.ts`의 `whereFn`). 레포가 하나인 그림은 그대로고 dataflow와 compare에는 아직 안 붙는다. 확대해서 아래로 내려도 머리 카드는 화면 위에 붙어 따라오고 그림 끝에 닿으면 거기서 멈춘다. 머리 카드 뒤에는 띠를 깔아 그 밑을 지나는 선과 글자를 가린다. 확대와 이동이 캔버스 하나에 transform으로 걸려 CSS sticky가 안 먹기 때문에 이동할 때마다 스크립트가 머리 카드를 내린다 (`src/architecture/html-client.ts`의 `stickHeads`).
 - **dataflow**: 왼쪽에서 오른쪽으로 흐른다. 되돌아가는 선을 빼고 가장 긴 경로로 열을 정한다. 되돌아가는 선은 카드 아래로 돌아간다. 같은 두 노드 사이에 선이 여럿이면 위아래로 벌린다.
 - **compare**: 세 열이다. 왼쪽부터 "첫 묶음에만", "둘 다", "둘째 묶음에만" 순이다. 열 제목은 `sides[].label` 뒤에 "에만"을 붙인다. 열 배경은 가장 긴 열 높이에 맞춘다.
 
