@@ -27,6 +27,8 @@ export interface KindLook {
   renderClass: RenderClass;
   short: string;
   text: string;
+  /** 서랍의 "이 종류는" 문장. 없으면 text를 문장으로 맺어 쓴다. text가 이름뿐인 kind만 채운다 */
+  about?: string;
   color: KindColor;
   icon: string;
 }
@@ -42,12 +44,16 @@ export interface NodeKindDef extends KindLook {
 
 export interface LaneDef {
   title: string;
+  /** 레인 제목을 눌렀을 때 서랍에 뜨는 그 칸 설명 */
+  about: string;
   /** 같은 레인끼리 잇는 선을 elk에 안 넘기고 세로로 쌓는다. 화면 이동처럼 요청 흐름이 아닌 선이 그 레인 안에 있다 */
   stacked?: boolean;
 }
 
 export interface EdgeKindDef {
   text: string;
+  /** 연결을 눌렀을 때 서랍에 뜨는 그 종류 설명 */
+  about: string;
   /** 평면 그림에서 레인 순서가 화살표 반대라 오른쪽에서 왼쪽으로 그린다 */
   backward?: boolean;
   /** 양 끝에 올 수 있는 kind. 없으면 끝을 가리지 않는다 */

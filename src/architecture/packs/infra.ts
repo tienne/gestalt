@@ -44,14 +44,19 @@ export const INFRA_PACK = {
     },
   },
   lanes: {
-    infra_edge: { title: '경계' },
-    infra_net: { title: '네트워크' },
-    infra_run: { title: '실행' },
+    infra_edge: { title: '경계', about: '드나드는 통신을 거르는 방화벽이 서는 칸이에요.' },
+    infra_net: { title: '네트워크', about: '네트워크와 서브넷이 서는 칸이에요.' },
+    infra_run: { title: '실행', about: '클러스터와 워크로드가 서는 칸이에요.' },
   },
   edgeKinds: {
-    peers: { text: '피어링', ends: { from: ['network'], to: ['network'] } },
+    peers: {
+      text: '피어링',
+      about: '두 네트워크를 피어링으로 이은 연결이에요.',
+      ends: { from: ['network'], to: ['network'] },
+    },
     allows: {
       text: '통신 허용',
+      about: '방화벽이 그 대상으로 가는 통신을 허용하는 연결이에요.',
       ends: { from: ['firewall'], to: ['subnet', 'cluster', 'workload'] },
     },
   },

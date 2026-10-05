@@ -16,6 +16,7 @@ export const GENERIC_PACK = {
       ...RENDER_CLASS_LOOKS.service,
       short: '구성 요소',
       text: '구성 요소',
+      about: '맞는 종류가 없어 범용으로 그린 구성 요소예요.',
       lane: 'component',
       rank: 2,
     },
@@ -24,14 +25,20 @@ export const GENERIC_PACK = {
     RENDER_CLASSES.map((rc) => [`cx_${rc}`, RENDER_CLASS_LOOKS[rc]]),
   ) as Record<`cx_${RenderClass}`, KindLook>,
   lanes: {
-    component: { title: '구성 요소' },
+    component: { title: '구성 요소', about: '구성 요소가 서는 칸이에요.' },
     // tree 드릴다운의 그룹 레벨에서 그 묶음 밖에 있는 상대 카드가 선다. 보내는 쪽은 왼쪽, 받는 쪽은 오른쪽이다
-    outside_from: { title: '밖에서 들어옴' },
-    outside_to: { title: '밖으로 나감' },
+    outside_from: {
+      title: '밖에서 들어옴',
+      about: '이 묶음 밖에서 안으로 연결을 보내는 카드가 서는 칸이에요.',
+    },
+    outside_to: {
+      title: '밖으로 나감',
+      about: '이 묶음 안에서 나간 연결을 받는 바깥 카드가 서는 칸이에요.',
+    },
   },
   edgeKinds: {
-    connects: { text: '연결' },
-    sends: { text: '보냄' },
-    depends_on: { text: '의존' },
+    connects: { text: '연결', about: '두 구성 요소가 서로 이어진 연결이에요.' },
+    sends: { text: '보냄', about: '앞쪽이 뒤쪽으로 데이터나 메시지를 보내는 연결이에요.' },
+    depends_on: { text: '의존', about: '앞쪽이 뒤쪽 없이는 돌지 않는 의존 연결이에요.' },
   },
 } as const satisfies VocabularyPack;

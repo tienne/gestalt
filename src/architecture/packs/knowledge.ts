@@ -33,16 +33,20 @@ export const KNOWLEDGE_PACK = {
     },
   },
   lanes: {
-    kn_group: { title: '묶음' },
-    kn_doc: { title: '문서' },
-    kn_screen: { title: '화면 문서' },
+    kn_group: { title: '묶음', about: '문서를 모은 묶음이 서는 칸이에요.' },
+    kn_doc: { title: '문서', about: '파일 하나로 된 문서가 서는 칸이에요.' },
+    kn_screen: { title: '화면 문서', about: '디자인 화면 문서가 서는 칸이에요.' },
   },
   edgeKinds: {
     // 문서가 말한 것이지 코드가 증명한 게 아니라서 늘 점선이다. 가리킨 파일이 있는지는 docLink에 적는다.
     // 받는 쪽은 어느 kind든 되므로 ends 대신 검증기가 보내는 쪽만 따로 본다
-    describes: { text: '설명' },
+    describes: {
+      text: '설명',
+      about: '문서가 그 노드를 설명하는 연결이에요. 문서가 말한 것이라 늘 점선으로 그려요.',
+    },
     indexes: {
       text: '안내',
+      about: '문서가 다른 문서나 화면 문서로 안내하는 연결이에요.',
       ends: { from: ['document'], to: ['document', 'design_screen', 'doc_group'] },
     },
   },
