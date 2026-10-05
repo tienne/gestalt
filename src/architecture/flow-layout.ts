@@ -38,7 +38,7 @@ export interface FlowTransitionRoute {
   back: boolean;
 }
 
-/** 열 여러 개를 묶는 구간. 정상 흐름은 상태 값마다 하나다. 정상 흐름 마지막 열 너머로 나간 옆 흐름 단계는 맨 끝 구간 하나에 선다 */
+/** 열 여러 개를 묶는 구간. 정상 흐름은 상태 값마다 하나다. 옆 흐름 구간은 정상 흐름 마지막 열 너머에 하나, 열 머리와 상태가 다른 옆 흐름 카드가 갈라져 나온 구간 뒤에 하나씩 선다 */
 export interface FlowStage {
   label: string;
   x: number;
@@ -60,9 +60,10 @@ export interface FlowLevel {
   /** `flow:<흐름 id>` */
   id: string;
   flowId: string;
-  service: string;
+  /** 없으면 전체 바로 아래 독립 흐름이다 */
+  service?: string;
   title: string;
-  /** 서비스 레벨 밑에 선다. 흐름은 한 서비스에 딸린 그림이라서다 */
+  /** 서비스 레벨 밑에 선다. 흐름은 한 서비스에 딸린 그림이라서다. 독립 흐름은 전체 바로 밑이다 */
   trail: string[];
   flow: ArchitectureFlow;
   layout: FlowLayout;
@@ -139,7 +140,8 @@ function columnsOf(
 
 /**
  * 구간이 있을 때의 열. 정상 흐름 단계는 상태 값으로 구간을 정하고 상태가 없는 단계는 앞 단계 구간을 따른다. 알림 발송처럼 상태를 안 바꾸는 단계가 그렇다.
- * 구간은 앞 구간의 마지막 열 다음에서 시작한다. 옆 흐름 단계는 갈라져 나온 단계 옆에 서고 정상 흐름 너머로 나간 것만 맨 끝 구간을 받는다
+ * 구간은 앞 구간의 마지막 열 다음에서 시작한다. 옆 흐름 단계는 갈라져 나온 단계 옆에 서고 정상 흐름 너머로 나간 것만 맨 끝 구간을 받는다.
+ * 옆 흐름 카드의 상태가 선 자리 열 머리와 다르면 그 카드가 갈라져 나온 구간 바로 뒤에 옆 흐름 구간을 끼운다
  */
 function stagedColumns(
   steps: readonly FlowStep[],
@@ -184,8 +186,8 @@ function stagedColumns(
     stageOf.set(id, inherited.length > 0 ? Math.max(...inherited) : 0);
   }
 
-  const column = new Map<string, number>();
-  const stages: { label: string; first: number; last: number; side: boolean }[] = [];
+  const mainCol = new Map<string, number>();
+  const mainStages: { label: string; first: number; last: number }[] = [];
   let start = 0;
   for (let k = 0; k < keys.length; k += 1) {
     let last = start;
@@ -193,31 +195,95 @@ function stagedColumns(
       if (stageOf.get(id) !== k) continue;
       let col = start;
       for (const p of preds.get(id) ?? []) {
-        if (!p.main || (stageOf.get(p.from) ?? 0) > k || !column.has(p.from)) continue;
-        col = Math.max(col, column.get(p.from)! + 1);
+        if (!p.main || (stageOf.get(p.from) ?? 0) > k || !mainCol.has(p.from)) continue;
+        col = Math.max(col, mainCol.get(p.from)! + 1);
       }
-      column.set(id, col);
+      mainCol.set(id, col);
       last = Math.max(last, col);
     }
-    stages.push({ label: keys[k]!, first: start, last, side: false });
+    mainStages.push({ label: keys[k]!, first: start, last });
     start = last + 1;
   }
-  // 옆 흐름 단계는 갈라져 나온 단계 바로 다음 열에 선다. 맨 끝에 모으면 옆으로 빠지는 선이 그림을 가로질러 길어진다
-  let sideLast = -1;
-  for (const id of base.topo.filter((id) => !isMain(id))) {
-    let col = start;
-    let placed = false;
+
+  // 옆 흐름 단계는 원래 갈라져 나온 단계 바로 다음 열에 선다. 맨 끝에 모으면 옆으로 빠지는 선이 그림을 가로질러 길어져서다.
+  // 다만 그 열 머리의 상태 값과 카드의 상태 값이 다르면 머리가 카드 상태를 잘못 알려준다. 그런 카드가 하나라도 갈라져 나온 구간은 바로 뒤에 옆 흐름 열을 따로 받는다
+  const sideIds = base.topo.filter((id) => !isMain(id));
+  const stageAtCol = (col: number): number => mainStages.findIndex((g) => col <= g.last);
+  const nextTo = (id: string, col: ReadonlyMap<string, number>, fallback: number): number => {
+    let at: number | undefined;
     for (const p of preds.get(id) ?? []) {
-      if (!column.has(p.from)) continue;
-      col = placed ? Math.max(col, column.get(p.from)! + 1) : column.get(p.from)! + 1;
-      placed = true;
+      if (col.has(p.from)) at = Math.max(at ?? -Infinity, col.get(p.from)! + 1);
     }
-    column.set(id, col);
-    if (col >= start) sideLast = Math.max(sideLast, col);
+    return at ?? fallback;
+  };
+  const origin = new Map<string, { stage: number; depth: number }>();
+  const plain = new Map(mainCol);
+  const own = new Set<number>();
+  for (const id of sideIds) {
+    let at: { stage: number; depth: number } | undefined;
+    for (const p of preds.get(id) ?? []) {
+      const from = origin.get(p.from);
+      const cand = mainCol.has(p.from)
+        ? { stage: stageAtCol(mainCol.get(p.from)!), depth: 1 }
+        : from !== undefined
+          ? { stage: from.stage, depth: from.depth + 1 }
+          : undefined;
+      if (cand === undefined) continue;
+      if (
+        at === undefined ||
+        cand.stage > at.stage ||
+        (cand.stage === at.stage && cand.depth > at.depth)
+      ) {
+        at = cand;
+      }
+    }
+    const o = at ?? { stage: mainStages.length - 1, depth: 1 };
+    origin.set(id, o);
+    const col = nextTo(id, plain, start);
+    plain.set(id, col);
+    const state = stepOf.get(id)!.state;
+    if (state !== undefined && col < start && mainStages[stageAtCol(col)]!.label !== state) {
+      own.add(o.stage);
+    }
   }
-  // 정상 흐름 마지막 열 너머로 나간 옆 흐름 단계만 따로 구간을 받는다
-  if (sideLast >= start) {
-    stages.push({ label: FLOW_SIDE_STAGE_LABEL, first: start, last: sideLast, side: true });
+  const sideWidth = mainStages.map((_, k) =>
+    own.has(k)
+      ? Math.max(...[...origin.values()].filter((v) => v.stage === k).map((v) => v.depth))
+      : 0,
+  );
+
+  const column = new Map<string, number>();
+  const stages: { label: string; first: number; last: number; side: boolean }[] = [];
+  const shift: number[] = [];
+  const sideFirst: number[] = [];
+  let pushed = 0;
+  mainStages.forEach((g, k) => {
+    shift.push(pushed);
+    stages.push({ label: g.label, first: g.first + pushed, last: g.last + pushed, side: false });
+    sideFirst.push(g.last + pushed + 1);
+    if (sideWidth[k]! > 0) {
+      const first = sideFirst[k]!;
+      stages.push({
+        label: FLOW_SIDE_STAGE_LABEL,
+        first,
+        last: first + sideWidth[k]! - 1,
+        side: true,
+      });
+      pushed += sideWidth[k]!;
+    }
+  });
+  for (const [id, col] of mainCol) column.set(id, col + shift[stageAtCol(col)]!);
+  const end = start + pushed;
+  let sideLast = -1;
+  for (const id of sideIds) {
+    const o = origin.get(id)!;
+    const col = own.has(o.stage) ? sideFirst[o.stage]! + o.depth - 1 : nextTo(id, column, end);
+    column.set(id, col);
+    if (col >= end) sideLast = Math.max(sideLast, col);
+  }
+  // 정상 흐름 마지막 열 너머로 나간 옆 흐름 단계는 맨 끝 구간을 받는다
+  if (sideLast >= end) {
+    stages.push({ label: FLOW_SIDE_STAGE_LABEL, first: end, last: sideLast, side: true });
   }
   return { column, stages };
 }
@@ -533,19 +599,26 @@ export function computeFlowLayout(
   };
 }
 
-/** 그릴 흐름 레벨. 서비스가 그려지지 않는 흐름은 들어갈 자리가 없어서 뺀다. 정렬은 흐름 id 순이다 */
+/**
+ * 그릴 흐름 레벨. 서비스가 그려지지 않는 흐름은 들어갈 자리가 없어서 뺀다.
+ * service가 없는 흐름은 전체 바로 아래 독립 레벨이다. 정렬은 흐름 id 순이다
+ */
 export function computeFlowLevels(validated: ValidatedIr): FlowLevel[] {
   const flows = [...(validated.ir.flows ?? [])].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
   return flows
-    .filter((f) => validated.drawableNodeIds.has(f.service))
+    .filter((f) => f.service === undefined || validated.drawableNodeIds.has(f.service))
     .map((f) => ({
       id: `${FLOW_LEVEL_PREFIX}${f.id}`,
       flowId: f.id,
-      service: f.service,
+      ...(f.service !== undefined ? { service: f.service } : {}),
       title: f.title,
-      trail: ['root', `service:${f.service}`, `${FLOW_LEVEL_PREFIX}${f.id}`],
+      trail: [
+        'root',
+        ...(f.service !== undefined ? [`service:${f.service}`] : []),
+        `${FLOW_LEVEL_PREFIX}${f.id}`,
+      ],
       flow: f,
       layout: computeFlowLayout(f, validated.drawableStepIds, validated.drawableTransitionIds),
     }));

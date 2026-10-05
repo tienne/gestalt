@@ -506,6 +506,21 @@ describe('흐름 구간', () => {
     expect(cancel.x + cancel.width).toBeLessThanOrEqual(side.x);
   });
 
+  it('옆 흐름 카드 상태가 선 자리 열 머리와 다르면 갈라져 나온 구간 뒤에 옆 흐름 구간을 끼운다', () => {
+    const flow = queueFlow();
+    flow.steps.find((s) => s.id === 'st-noshow')!.state = 'NOSHOW';
+    const layout = layoutOf(fixture(flow));
+    const stage = (id: string) => {
+      const b = layout.steps.find((s) => s.id === id)!;
+      return layout.stages.find((g) => b.x >= g.x && b.x + b.width <= g.x + g.width)!;
+    };
+    expect(layout.stages.map((g) => g.label)).toEqual(['WAITING', 'CALL', '옆 흐름', 'SITTING']);
+    expect(stage('st-noshow').side).toBe(true);
+    expect(stage('st-seat').label).toBe('SITTING');
+    // 상태 없는 옆 흐름 카드는 원래처럼 갈라져 나온 단계 바로 다음 열에 선다
+    expect(stage('st-cancel').label).toBe('CALL');
+  });
+
   it('정상 흐름에 상태 값이 없으면 구간을 안 만든다', () => {
     const flow = queueFlow();
     for (const step of flow.steps) delete step.state;

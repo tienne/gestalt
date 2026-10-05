@@ -1,3 +1,4 @@
+import { LEGACY_PACK_IDS, resolvePackIds } from './packs/index.js';
 import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { normalizeRemoteUrl } from '../utils/claude-projects.js';
@@ -7,6 +8,7 @@ import { nodeKey } from './store.js';
 import type {
   ArchitectureEdge,
   ArchitectureFlow,
+  ArchitectureProjection,
   ArchitectureStage,
   ArchitectureGroup,
   ArchitectureIr,
@@ -235,7 +237,11 @@ export function mergeArchitectureIrs(
       } else {
         const existing = repos.find((r) => r.id === id)!;
         // 상대 경로 root는 그 IR을 그린 위치 기준이라 여기서는 못 푼다. 절대 경로가 있으면 그쪽을 쓴다
-        if (!isAbsolute(existing.root) && isAbsolute(repo.root)) existing.root = repo.root;
+        if (
+          repo.root !== undefined &&
+          (existing.root === undefined || (!isAbsolute(existing.root) && isAbsolute(repo.root)))
+        )
+          existing.root = repo.root;
         if (existing.remote === undefined && repo.remote !== undefined)
           existing.remote = repo.remote;
       }
@@ -535,7 +541,7 @@ export function mergeArchitectureIrs(
       flows.push({
         ...f,
         id: uniqueId(f.id, takenFlowIds),
-        service: mapNode(input, f.service),
+        ...(f.service !== undefined ? { service: mapNode(input, f.service) } : {}),
         steps: f.steps.map((st) => ({
           ...st,
           id: mapStep(input, st.id),
@@ -548,6 +554,46 @@ export function mergeArchitectureIrs(
           from: mapStep(input, t.from),
           to: mapStep(input, t.to),
           evidence: remapEvidence(t.evidence, map),
+        })),
+      });
+    }
+  }
+
+  // ── 질문별 투영 ──
+  // 투영도 한 분석이 자기 지도를 보고 쓴 것이라 나란히 싣는다. 노드와 엣지는 합친 id로 바꾸고 투영과 메시지 id만 겹치지 않게 한다
+  const projections: ArchitectureProjection[] = [];
+  const takenProjectionIds = new Set<string>();
+  const takenMessageIds = new Set<string>();
+  const messageIdOf = new Map<string, string>();
+  const mapMessage = (input: number, id: string): string =>
+    messageIdOf.get(`${input}\u0000${id}`) ?? id;
+  for (const { ir, input } of ordered) {
+    const map = repoMaps.get(input)!;
+    for (const pr of ir.projections ?? []) {
+      for (const m of pr.messages) {
+        messageIdOf.set(`${input}\u0000${m.id}`, uniqueId(m.id, takenMessageIds));
+      }
+      projections.push({
+        ...pr,
+        id: uniqueId(pr.id, takenProjectionIds),
+        ...(pr.participants !== undefined
+          ? { participants: pr.participants.map((id) => mapNode(input, id)) }
+          : {}),
+        ...(pr.sides !== undefined
+          ? {
+              sides: pr.sides.map((side) => ({
+                ...side,
+                nodes: side.nodes.map((id) => mapNode(input, id)),
+              })),
+            }
+          : {}),
+        messages: pr.messages.map((m) => ({
+          ...m,
+          id: mapMessage(input, m.id),
+          from: mapNode(input, m.from),
+          to: mapNode(input, m.to),
+          ...(m.edge !== undefined ? { edge: mapEdge(input, m.edge) } : {}),
+          evidence: remapEvidence(m.evidence, map),
         })),
       });
     }
@@ -593,12 +639,16 @@ export function mergeArchitectureIrs(
         ...(q.subject.transitionId !== undefined
           ? { transitionId: mapStep(input, q.subject.transitionId) }
           : {}),
+        ...(q.subject.messageId !== undefined
+          ? { messageId: mapMessage(input, q.subject.messageId) }
+          : {}),
       };
       const key = [
         subject.nodeId,
         subject.edgeId,
         subject.stepId,
         subject.transitionId,
+        subject.messageId,
         q.question.trim(),
       ].join('\u0000');
       const twin = seenQuestion.get(key);
@@ -658,9 +708,14 @@ export function mergeArchitectureIrs(
     .map((o) => o.ir.generatedAt)
     .sort(byText)
     .at(-1)!;
+  // 한쪽이라도 packs를 적었으면 양쪽 어휘를 다 담는다. 안 적은 쪽은 LEGACY_PACK_IDS로 읽는다
+  const packs = ordered.some((o) => o.ir.packs !== undefined)
+    ? resolvePackIds(ordered.flatMap((o) => o.ir.packs ?? LEGACY_PACK_IDS))
+    : undefined;
   const draft: ArchitectureIr = stripPrivateExcerpts({
     schemaVersion: ordered[0]!.ir.schemaVersion,
     view: ordered[0]!.ir.view,
+    ...(packs !== undefined ? { packs } : {}),
     repos,
     nodes,
     edges,
@@ -670,6 +725,7 @@ export function mergeArchitectureIrs(
     ...(groups.length > 0 ? { groups } : {}),
     ...(flows.length > 0 ? { flows } : {}),
     ...(stages.length > 0 ? { stages } : {}),
+    ...(projections.length > 0 ? { projections } : {}),
   });
   // 스키마를 한 번 더 통과시키면 객체 키가 스키마 순서로 다시 놓인다. 입력의 키 순서가 바이트에 새지 않는다
   const reparsed = parseArchitectureIr(draft);

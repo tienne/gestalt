@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ValidationError } from '../core/errors.js';
 import { err, ok, type Result } from '../core/result.js';
+import { RENDER_CLASSES } from './packs/types.js';
 import {
   ARCHITECTURE_IR_SCHEMA_VERSION,
   ARCHITECTURE_VIEWS,
@@ -11,6 +12,8 @@ import {
   EVIDENCE_TYPES,
   FLOW_ACTOR_KINDS,
   FLOW_PATHS,
+  PROJECTION_SHAPES,
+  SEQUENCE_BLOCK_KINDS,
   LINE_STYLES,
   NODE_KINDS,
   PLATFORMS,
@@ -85,10 +88,23 @@ const nodeSchema = z
     protocol: z.enum(ENDPOINT_PROTOCOLS).optional(),
     mcpServer: z.string().min(1).optional(),
     actions: z.array(z.string().min(1)).optional(),
+    displayKind: z.string().min(1).optional(),
+    renderClass: z.enum(RENDER_CLASSES).optional(),
   })
   .superRefine((node, ctx) => {
     const custom = (path: string, message: string): void =>
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+    if (node.kind === 'component') {
+      if (node.displayKind === undefined)
+        custom('displayKind', 'component 노드는 displayKind가 있어야 한다');
+      if (node.renderClass === undefined)
+        custom('renderClass', 'component 노드는 renderClass가 있어야 한다');
+    } else {
+      if (node.displayKind !== undefined)
+        custom('displayKind', 'displayKind는 component 노드에만 쓸 수 있다');
+      if (node.renderClass !== undefined)
+        custom('renderClass', 'renderClass는 component 노드에만 쓸 수 있다');
+    }
     if (node.kind !== 'service') {
       if (node.platforms !== undefined)
         custom('platforms', 'platforms는 service 노드에만 쓸 수 있다');
@@ -145,6 +161,7 @@ const unresolvedQuestionSchema = z.object({
     edgeId: z.string().optional(),
     stepId: z.string().optional(),
     transitionId: z.string().optional(),
+    messageId: z.string().optional(),
   }),
   question: z.string().min(1),
   answer: z.string().optional(),
@@ -161,7 +178,7 @@ const contextSourceSchema = z.object({
 const repoSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  root: z.string().min(1),
+  root: z.string().min(1).optional(),
   remote: z.string().optional(),
 });
 
@@ -201,7 +218,7 @@ const flowTransitionSchema = z.object({
 
 const flowSchema = z.object({
   id: z.string().min(1),
-  service: z.string().min(1),
+  service: z.string().min(1).optional(),
   title: z.string().min(1),
   description: z.string().optional(),
   stateLabels: z.record(z.string().min(1), z.string().min(1)).optional(),
@@ -218,9 +235,52 @@ const stageSchema = z.object({
   repos: z.array(z.string().min(1)).optional(),
 });
 
+const projectionMessageSchema = z.object({
+  id: z.string().min(1),
+  from: z.string().min(1),
+  to: z.string().min(1),
+  label: z.string().min(1),
+  edge: z.string().min(1).optional(),
+  evidence: z.array(evidenceSchema),
+  lineStyle: lineStyleSchema,
+  reply: z.boolean().optional(),
+  block: z.string().min(1).optional(),
+  branch: z.string().min(1).optional(),
+});
+
+const projectionSchema = z.object({
+  id: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]*$/, '투영 id는 소문자, 숫자, 하이픈만 쓴다. 파일 이름이 된다'),
+  shape: z.enum(PROJECTION_SHAPES),
+  title: z.string().min(1),
+  question: z.string().min(1),
+  participants: z.array(z.string().min(1)).optional(),
+  messages: z.array(projectionMessageSchema),
+  blocks: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        kind: z.enum(SEQUENCE_BLOCK_KINDS),
+        label: z.string().min(1),
+      }),
+    )
+    .optional(),
+  sides: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        label: z.string().min(1),
+        nodes: z.array(z.string().min(1)),
+      }),
+    )
+    .optional(),
+});
+
 export const architectureIrSchema = z.object({
   schemaVersion: z.literal(ARCHITECTURE_IR_SCHEMA_VERSION),
   view: architectureViewSchema,
+  packs: z.array(z.string().min(1)).optional(),
   repos: z.array(repoSchema),
   nodes: z.array(nodeSchema),
   edges: z.array(edgeSchema),
@@ -230,6 +290,7 @@ export const architectureIrSchema = z.object({
   groups: z.array(groupSchema).optional(),
   flows: z.array(flowSchema).optional(),
   stages: z.array(stageSchema).optional(),
+  projections: z.array(projectionSchema).optional(),
 });
 
 export function parseArchitectureIr(input: unknown): Result<ArchitectureIr, ValidationError> {

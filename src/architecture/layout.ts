@@ -11,7 +11,8 @@ import type {
   Platform,
   WebHosting,
 } from './types.js';
-import { displayKindOf, ENVIRONMENT_ORDER } from './types.js';
+import { ALL_PACKS_VOCABULARY, type PackLaneId } from './packs/index.js';
+import { chipTextOverride, displayKindOf, EDGE_KINDS, ENVIRONMENT_ORDER } from './types.js';
 
 export interface LayoutNode {
   id: string;
@@ -92,58 +93,13 @@ export interface LayoutRegions {
  * 화면에 세로 띠로 그리는 칸. 레벨마다 같은 kind도 다른 레인에 설 수 있어서 kind와 따로 둔다.
  * unit은 서비스 레벨의 기능 영역 칸, external은 서버를 거쳐서만 닿는 칸이다
  */
-export const LANE_IDS = [
-  'service',
-  'host',
-  'remote',
-  'unit',
-  'screen',
-  'gateway',
-  'endpoint',
-  'app_module',
-  'external_service',
-  'external',
-  'db_table',
-  'workflow',
-  'build',
-  'artifact',
-  'deploy_target',
-  'domain',
-  'cdn',
-  'bucket',
-  'cloud_account',
-  'client',
-  'skill',
-  'agent',
-  'tool',
-] as const;
-export type LaneId = (typeof LANE_IDS)[number];
+export const LANE_IDS = Object.keys(ALL_PACKS_VOCABULARY.lanes) as PackLaneId[];
+export type LaneId = PackLaneId;
 
 /** 평면 그림의 레인. rank가 같은 kind는 같은 레인에 둬야 띠가 겹치지 않는다 */
-export const KIND_LANE: Record<NodeKind, LaneId> = {
-  service: 'screen',
-  micro_app: 'screen',
-  feature: 'screen',
-  screen: 'screen',
-  gateway: 'gateway',
-  endpoint: 'endpoint',
-  app_module: 'app_module',
-  external_service: 'external_service',
-  db_table: 'db_table',
-  // 클러스터는 테이블과 같은 rank라 같은 레인에 둔다
-  datastore: 'db_table',
-  workflow: 'workflow',
-  build: 'build',
-  artifact: 'artifact',
-  deploy_target: 'deploy_target',
-  domain: 'domain',
-  cdn: 'cdn',
-  bucket: 'bucket',
-  cloud_account: 'cloud_account',
-  client: 'client',
-  skill: 'skill',
-  agent: 'agent',
-};
+export const KIND_LANE = Object.fromEntries(
+  Object.entries(ALL_PACKS_VOCABULARY.nodeKinds).map(([k, d]) => [k, d.lane]),
+) as Record<NodeKind, LaneId>;
 
 /** 노드가 기본으로 서는 레인. MCP 도구는 endpoint와 같은 열이지만 레인 이름이 달라야 API로 안 읽힌다 */
 export function laneOfNode(node: Pick<ArchitectureNode, 'kind' | 'protocol'>): LaneId {
@@ -153,14 +109,9 @@ export function laneOfNode(node: Pick<ArchitectureNode, 'kind' | 'protocol'>): L
 const LANE_PADDING_X = 20;
 
 // 화면끼리, 기능 영역끼리 잇는 화면 이동은 요청 흐름이 아니다. elk에 넘기면 같은 레인 안에서 열을 여러 개로 벌려 그림이 옆으로 늘어난다
-const STACKED_LANES: ReadonlySet<LaneId> = new Set<LaneId>([
-  'service',
-  'host',
-  'remote',
-  'unit',
-  'screen',
-  'skill',
-]);
+const STACKED_LANES: ReadonlySet<LaneId> = new Set<LaneId>(
+  LANE_IDS.filter((l) => ALL_PACKS_VOCABULARY.lanes[l]!.stacked === true),
+);
 
 const GRAPH_OPTIONS: LayoutOptions = {
   'elk.algorithm': 'layered',
@@ -179,39 +130,15 @@ const ORDERED_GRAPH_OPTIONS: LayoutOptions = {
   'elk.layered.crossingMinimization.semiInteractive': 'true',
 };
 
-// 두 뷰의 kind가 겹치지 않아 표 하나로 둘 다 덮는다. 뷰①은 service→feature→screen→gateway→endpoint→module→클라이언트→테이블, 뷰②는 workflow→build→artifact→배포처 순서로 왼쪽부터 놓인다.
-// 인프라는 배포 경로에서 산출물이 떨어지는 버킷부터 CDN, 도메인 순으로 오른쪽에 붙는다. 요청 방향(도메인→CDN→버킷)과 반대라 그 선은 거꾸로 그린다
-export const PARTITION_RANK: Record<NodeKind, number> = {
-  service: 0,
-  micro_app: 0,
-  feature: 0,
-  screen: 0,
-  gateway: 1,
-  endpoint: 2,
-  app_module: 3,
-  external_service: 4,
-  db_table: 5,
-  datastore: 5,
-  workflow: 0,
-  build: 1,
-  artifact: 2,
-  deploy_target: 3,
-  bucket: 4,
-  cdn: 5,
-  domain: 6,
-  cloud_account: 7,
-  // 하네스는 클라이언트가 스킬을 읽고 스킬이 에이전트를 띄운 뒤 도구를 부른다. 스킬은 화면 열, 에이전트는 게이트웨이 열에 선다.
-  // 웹과 하네스가 한 그림에 같이 서는 일은 드물어 같은 열을 나눠 쓴다. 클라이언트는 서비스보다 왼쪽이라 음수다
-  client: -1,
-  skill: 0,
-  agent: 1,
-};
+// 열 순위는 팩의 nodeKinds.rank에 있다
+export const PARTITION_RANK = Object.fromEntries(
+  Object.entries(ALL_PACKS_VOCABULARY.nodeKinds).map(([k, d]) => [k, d.rank]),
+) as Record<NodeKind, number>;
 
 /** 평면 그림에서 레인 순서가 화살표 반대라 오른쪽에서 왼쪽으로 그리는 엣지 */
-export const FLAT_BACKWARD_EDGE_KINDS: ReadonlySet<EdgeKind> = new Set<EdgeKind>([
-  'origin',
-  'resolves_to',
-]);
+export const FLAT_BACKWARD_EDGE_KINDS: ReadonlySet<EdgeKind> = new Set<EdgeKind>(
+  EDGE_KINDS.filter((k) => ALL_PACKS_VOCABULARY.edgeKinds[k]!.backward === true),
+);
 
 /** 환경 정렬 순위. 정한 환경이 앞이고 그 밖의 환경, 환경 없음 순이다 */
 export function environmentRank(env: string | undefined): number {
@@ -244,6 +171,8 @@ export interface GraphLayoutNode {
   /** 구간 순번. 구간이 있는 그림에서는 rank보다 앞서 열 순서를 정한다 */
   stage?: number;
   kind?: DisplayKind;
+  /** 칩에 kind 표 대신 찍을 글자. component의 displayKind다 */
+  chip?: string;
   /** 같은 레이어 안에서 위에서부터 설 순서. 준 노드끼리만 지켜진다 */
   order?: number;
   /** 둘째 줄 끝 플랫폼 칩 */
@@ -305,10 +234,10 @@ export function platformChipsWidth(
 }
 
 /** 종류 칩이 첫 줄에서 차지하는 폭(px) */
-export function chipWidth(kind: DisplayKind | undefined): number {
+export function chipWidth(kind: DisplayKind | undefined, chip?: string): number {
   return kind === undefined
     ? 0
-    : CHIP_FIXED_WIDTH + textUnits(NODE_KIND_SHORT[kind]) * CHIP_CHAR_WIDTH;
+    : CHIP_FIXED_WIDTH + textUnits(chip ?? NODE_KIND_SHORT[kind]) * CHIP_CHAR_WIDTH;
 }
 export const NARROW_CHAR_WIDTH = 8;
 const MIN_NODE_WIDTH = 120;
@@ -327,6 +256,7 @@ export function textUnits(text: string): number {
 }
 
 export interface MeasureExtras {
+  chip?: string;
   platforms?: readonly Platform[];
   webHosting?: WebHosting;
   secondLine?: string;
@@ -347,7 +277,7 @@ export function measureNode(
 ): { width: number; height: number } {
   const name = displayName ?? label;
   const first =
-    chipWidth(kind) +
+    chipWidth(kind, extras.chip) +
     (textUnits(name) +
       (displayName !== undefined && displayNameInferred ? INFERRED_BADGE_UNITS : 0)) *
       NARROW_CHAR_WIDTH +
@@ -431,6 +361,7 @@ export async function computeLayout(
       lane: laneOfNode(n),
       ...(staged !== undefined ? { stage: staged.indexOf.get(n.id)! } : {}),
       kind: displayKindOf(n),
+      ...(chipTextOverride(n) !== undefined ? { chip: chipTextOverride(n)! } : {}),
       ...(n.environment !== undefined ? { order: environmentRank(n.environment) } : {}),
     }));
   const edges = ir.edges
@@ -475,6 +406,7 @@ export async function computeGraphLayout(
     children: nodes.map((n) => ({
       id: n.id,
       ...measureNode(n.label, n.displayName, n.displayNameInferred, n.kind, {
+        ...(n.chip !== undefined ? { chip: n.chip } : {}),
         ...(n.platforms !== undefined ? { platforms: n.platforms } : {}),
         ...(n.webHosting !== undefined ? { webHosting: n.webHosting } : {}),
         ...(n.secondLine !== undefined ? { secondLine: n.secondLine } : {}),

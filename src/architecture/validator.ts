@@ -2,12 +2,15 @@ import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { classifyCliCommand } from '../utils/read-only-tools.js';
 import { indexMicroApps } from './micro-app.js';
+import { ALL_PACKS_VOCABULARY, irVocabulary, packById } from './packs/index.js';
 import {
   FLOW_REF_KINDS,
   HARNESS_KINDS,
   PARENT_KINDS,
   type ArchitectureEdge,
   type ArchitectureFlow,
+  type ArchitectureProjection,
+  type ProjectionMessage,
   type ArchitectureIr,
   type ArchitectureNode,
   type Evidence,
@@ -46,7 +49,20 @@ export type ArchitectureValidationErrorCode =
   | 'SOLID_TRANSITION_WITHOUT_EVIDENCE'
   | 'DUPLICATE_STAGE_ID'
   | 'STAGE_NODE_NOT_FOUND'
-  | 'STAGE_NODE_TWICE';
+  | 'STAGE_NODE_TWICE'
+  | 'UNKNOWN_PACK'
+  | 'KIND_NOT_IN_PACKS'
+  | 'CODE_EVIDENCE_IN_DOC_REPO'
+  | 'DUPLICATE_PROJECTION_ID'
+  | 'DUPLICATE_MESSAGE_ID'
+  | 'PROJECTION_NODE_NOT_FOUND'
+  | 'PROJECTION_EDGE_NOT_FOUND'
+  | 'PROJECTION_EDGE_MISMATCH'
+  | 'PROJECTION_BLOCK_NOT_FOUND'
+  | 'PROJECTION_BLOCK_SPLIT'
+  | 'SOLID_MESSAGE_WITHOUT_EVIDENCE'
+  | 'PROJECTION_EMPTY'
+  | 'PROJECTION_SHAPE_FIELD';
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -56,6 +72,8 @@ export interface ArchitectureValidationError {
   flowId?: string;
   stepId?: string;
   transitionId?: string;
+  projectionId?: string;
+  messageId?: string;
   evidenceIndex?: number;
 }
 
@@ -67,6 +85,10 @@ export interface ValidatedIr {
   drawableStepIds: Set<string>;
   /** 근거가 있고 양 끝 단계가 그려지는 전이 */
   drawableTransitionIds: Set<string>;
+  /** 근거가 있고 양 끝 노드가 그려지는 투영 메시지. 투영이 없으면 비어 있다 */
+  drawableMessageIds?: Set<string>;
+  /** 그릴 것이 하나라도 남는 투영. compare는 묶음 노드 중 하나라도 그려지면 남는다 */
+  drawableProjectionIds?: Set<string>;
   autoUnresolved: UnresolvedQuestion[];
 }
 
@@ -156,7 +178,8 @@ function checkEvidenceList(
     | { nodeId: string }
     | { edgeId: string }
     | { flowId: string; stepId: string }
-    | { flowId: string; transitionId: string },
+    | { flowId: string; transitionId: string }
+    | { projectionId: string; messageId: string },
   ctx: { checkFiles: boolean; repoRoots: Record<string, string>; cache: LineCountCache },
   errors: ArchitectureValidationError[],
 ): void {
@@ -372,13 +395,80 @@ function checkMicroApps(ir: ArchitectureIr, errors: ArchitectureValidationError[
   }
 }
 
-/** 하네스 엣지가 잇는 kind. 키에 없는 엣지 kind는 여기서 보지 않는다 */
+/** root 없는 레포는 문서 묶음이다. 그 레포를 가리키는 code 근거는 확인할 파일이 없으니 실선 근거로 못 쓴다 */
+function checkDocRepos(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  const docRepos = new Set(ir.repos.filter((r) => r.root === undefined).map((r) => r.id));
+  if (docRepos.size === 0) return;
+  const check = (
+    evidence: Evidence[],
+    owner:
+      | { nodeId: string }
+      | { edgeId: string }
+      | { flowId: string; stepId: string }
+      | { flowId: string; transitionId: string }
+      | { projectionId: string; messageId: string },
+  ): void =>
+    evidence.forEach((ev, evidenceIndex) => {
+      const repoId = ev.type === 'code' ? CODE_LOCATION_RE.exec(ev.location)?.[1] : undefined;
+      if (repoId === undefined || !docRepos.has(repoId)) return;
+      errors.push({
+        code: 'CODE_EVIDENCE_IN_DOC_REPO',
+        message: `code 근거 "${ev.location}"가 root 없는 문서 묶음 "${repoId}"를 가리킨다. 문서면 doc 근거로 적는다.`,
+        ...owner,
+        evidenceIndex,
+      });
+    });
+  for (const n of ir.nodes) {
+    check(n.evidence, { nodeId: n.id });
+    for (const list of Object.values(n.platformEvidence ?? {})) check(list, { nodeId: n.id });
+  }
+  for (const e of ir.edges) check(e.evidence, { edgeId: e.id });
+  for (const f of ir.flows ?? []) {
+    for (const st of f.steps) check(st.evidence, { flowId: f.id, stepId: st.id });
+    for (const t of f.transitions) check(t.evidence, { flowId: f.id, transitionId: t.id });
+  }
+  for (const p of ir.projections ?? []) {
+    for (const m of p.messages) check(m.evidence, { projectionId: p.id, messageId: m.id });
+  }
+}
+
+/** 노드와 엣지 kind는 IR이 적은 팩(requires 포함)에 있어야 한다. 안 적은 팩의 kind가 섞이면 어떤 범례로 읽을지 정할 수 없다 */
+function checkPacks(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  for (const id of ir.packs ?? []) {
+    if (packById(id) === undefined) {
+      errors.push({ code: 'UNKNOWN_PACK', message: `packs의 "${id}"는 없는 팩이다.` });
+    }
+  }
+  const vocab = irVocabulary(ir);
+  const declared = vocab.packIds.join(', ');
+  for (const node of ir.nodes) {
+    if (!(node.kind in vocab.nodeKinds)) {
+      errors.push({
+        code: 'KIND_NOT_IN_PACKS',
+        message: `노드 "${node.id}"의 kind ${node.kind}는 이 IR의 팩(${declared})에 없다. packs에 그 kind가 든 팩을 더한다.`,
+        nodeId: node.id,
+      });
+    }
+  }
+  for (const edge of ir.edges) {
+    if (!(edge.kind in vocab.edgeKinds)) {
+      errors.push({
+        code: 'KIND_NOT_IN_PACKS',
+        message: `엣지 "${edge.id}"의 kind ${edge.kind}는 이 IR의 팩(${declared})에 없다. packs에 그 kind가 든 팩을 더한다.`,
+        edgeId: edge.id,
+      });
+    }
+  }
+}
+
+/** 양 끝 kind를 정해둔 엣지. 규칙은 팩의 edgeKinds.ends에 있고 키에 없는 엣지 kind는 여기서 보지 않는다 */
 const HARNESS_EDGE_ENDS: Partial<
-  Record<ArchitectureEdge['kind'], { from: readonly NodeKind[]; to: readonly NodeKind[] }>
-> = {
-  spawns: { from: ['skill', 'agent'], to: ['agent'] },
-  invokes: { from: ['skill'], to: ['skill'] },
-};
+  Record<ArchitectureEdge['kind'], { from: readonly string[]; to: readonly string[] }>
+> = Object.fromEntries(
+  Object.entries(ALL_PACKS_VOCABULARY.edgeKinds).flatMap(([k, d]) =>
+    d.ends === undefined ? [] : [[k, d.ends]],
+  ),
+);
 
 function isMcpEndpoint(node: ArchitectureNode | undefined): boolean {
   return node?.kind === 'endpoint' && node.protocol === 'mcp';
@@ -514,11 +604,212 @@ function hasQuestionFor(
       q.subject.nodeId === subject.nodeId &&
       q.subject.edgeId === subject.edgeId &&
       q.subject.stepId === subject.stepId &&
-      q.subject.transitionId === subject.transitionId,
+      q.subject.transitionId === subject.transitionId &&
+      q.subject.messageId === subject.messageId,
   );
 }
 
 type EvidenceCtx = Parameters<typeof checkEvidenceList>[2];
+
+/** 메시지가 기대는 근거. 자기 근거에 가리킨 엣지의 근거를 더한다 */
+function messageEvidence(
+  m: ProjectionMessage,
+  edgeById: ReadonlyMap<string, ArchitectureEdge>,
+): Evidence[] {
+  const edge = m.edge !== undefined ? edgeById.get(m.edge) : undefined;
+  return edge ? [...m.evidence, ...edge.evidence] : m.evidence;
+}
+
+/**
+ * 투영 구조 검사. 투영은 지도를 가리키기만 하므로 지도에 없는 노드와 엣지를 적으면 거부한다.
+ * 메시지 id는 투영을 넘어 겹치면 안 된다. 질문의 messageId가 투영 id 없이 가리키기 때문이다
+ */
+function checkProjections(
+  ir: ArchitectureIr,
+  ctx: EvidenceCtx,
+  errors: ArchitectureValidationError[],
+): void {
+  const nodeIds = new Set(ir.nodes.map((n) => n.id));
+  const edgeById = new Map(ir.edges.map((e) => [e.id, e]));
+  const projectionIds = new Set<string>();
+  const messageIds = new Set<string>();
+  for (const p of ir.projections ?? []) {
+    if (projectionIds.has(p.id)) {
+      errors.push({
+        code: 'DUPLICATE_PROJECTION_ID',
+        message: `투영 id "${p.id}"가 두 번 나온다.`,
+        projectionId: p.id,
+      });
+    }
+    projectionIds.add(p.id);
+    const missingNode = (id: string, where: string, messageId?: string): void => {
+      if (nodeIds.has(id)) return;
+      errors.push({
+        code: 'PROJECTION_NODE_NOT_FOUND',
+        message: `투영 "${p.id}"의 ${where} "${id}"가 nodes에 없다. 지도에 근거와 함께 먼저 넣는다.`,
+        projectionId: p.id,
+        ...(messageId !== undefined ? { messageId } : {}),
+      });
+    };
+    for (const id of p.participants ?? []) missingNode(id, 'participants');
+    checkProjectionShape(p, errors);
+    for (const side of p.sides ?? []) {
+      for (const id of side.nodes) missingNode(id, `묶음 "${side.id}"의 nodes`);
+    }
+    const participants = p.participants !== undefined ? new Set(p.participants) : undefined;
+    const blockIds = new Set((p.blocks ?? []).map((b) => b.id));
+    const closedBlocks = new Set<string>();
+    let openBlock: string | undefined;
+    for (const m of p.messages) {
+      const at = { projectionId: p.id, messageId: m.id };
+      if (messageIds.has(m.id)) {
+        errors.push({
+          code: 'DUPLICATE_MESSAGE_ID',
+          message: `메시지 id "${m.id}"가 두 번 나온다. 투영을 넘어서도 겹치면 안 된다.`,
+          ...at,
+        });
+      }
+      messageIds.add(m.id);
+      missingNode(m.from, `메시지 "${m.id}"의 from`, m.id);
+      missingNode(m.to, `메시지 "${m.id}"의 to`, m.id);
+      for (const end of [m.from, m.to]) {
+        if (participants && nodeIds.has(end) && !participants.has(end)) {
+          errors.push({
+            code: 'PROJECTION_NODE_NOT_FOUND',
+            message: `메시지 "${m.id}"의 "${end}"가 투영 "${p.id}"의 participants에 없다.`,
+            ...at,
+          });
+        }
+      }
+      if (m.edge !== undefined) {
+        const edge = edgeById.get(m.edge);
+        if (!edge) {
+          errors.push({
+            code: 'PROJECTION_EDGE_NOT_FOUND',
+            message: `메시지 "${m.id}"의 edge "${m.edge}"가 edges에 없다.`,
+            ...at,
+          });
+        } else {
+          const same =
+            (edge.from === m.from && edge.to === m.to) ||
+            (edge.from === m.to && edge.to === m.from);
+          if (!same) {
+            errors.push({
+              code: 'PROJECTION_EDGE_MISMATCH',
+              message: `메시지 "${m.id}"는 "${m.from}"와 "${m.to}"를 잇는데 edge "${m.edge}"는 "${edge.from}"에서 "${edge.to}"로 간다.`,
+              ...at,
+            });
+          }
+        }
+      }
+      // 묶음은 이어진 메시지 한 덩이다. 중간에 끊겼다가 다시 나오면 사각형 하나로 못 그린다
+      if (m.block !== undefined && !blockIds.has(m.block)) {
+        errors.push({
+          code: 'PROJECTION_BLOCK_NOT_FOUND',
+          message: `메시지 "${m.id}"의 block "${m.block}"가 투영 "${p.id}"의 blocks에 없다.`,
+          ...at,
+        });
+      }
+      if (openBlock !== m.block) {
+        if (openBlock !== undefined) closedBlocks.add(openBlock);
+        if (m.block !== undefined && closedBlocks.has(m.block)) {
+          errors.push({
+            code: 'PROJECTION_BLOCK_SPLIT',
+            message: `투영 "${p.id}"의 묶음 "${m.block}" 메시지가 이어져 있지 않다. 한 묶음의 메시지는 붙여 적는다.`,
+            ...at,
+          });
+        }
+        openBlock = m.block;
+      }
+      if (m.lineStyle === 'solid' && deriveLineStyle(messageEvidence(m, edgeById)) !== 'solid') {
+        errors.push({
+          code: 'SOLID_MESSAGE_WITHOUT_EVIDENCE',
+          message: `메시지 "${m.id}"가 실선인데 자기 근거와 가리킨 엣지 근거 어디에도 code나 spec이 없다.`,
+          ...at,
+        });
+      }
+      checkEvidenceList(m.evidence, at, ctx, errors);
+    }
+  }
+}
+
+/** 모양마다 쓰는 필드가 다르다. 안 쓰는 필드에 값이 있으면 세션이 모양을 잘못 고른 것이라 거부한다 */
+function checkProjectionShape(
+  p: ArchitectureProjection,
+  errors: ArchitectureValidationError[],
+): void {
+  const misuse = (field: string): void => {
+    errors.push({
+      code: 'PROJECTION_SHAPE_FIELD',
+      message: `투영 "${p.id}"는 ${p.shape}인데 ${field}`,
+      projectionId: p.id,
+    });
+  };
+  if (p.shape === 'compare') {
+    if (p.messages.length > 0) misuse('messages가 있다. compare는 sides만 쓴다.');
+    if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
+    const sides = p.sides ?? [];
+    if (sides.length !== 2) misuse(`sides가 ${sides.length}개다. 두 개를 견준다.`);
+    else if (sides[0]!.id === sides[1]!.id) misuse(`두 sides의 id가 "${sides[0]!.id}"로 같다.`);
+    return;
+  }
+  if (p.sides !== undefined) misuse('sides가 있다. 묶음 견주기는 compare만 쓴다.');
+  if (p.messages.length === 0) {
+    errors.push({
+      code: 'PROJECTION_EMPTY',
+      message: `투영 "${p.id}"에 메시지가 없다. ${p.shape}는 메시지를 하나 이상 적는다.`,
+      projectionId: p.id,
+    });
+  }
+  if (p.shape === 'dataflow') {
+    if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
+    const seqOnly = p.messages.find(
+      (m) => m.reply !== undefined || m.block !== undefined || m.branch !== undefined,
+    );
+    if (seqOnly)
+      misuse(`메시지 "${seqOnly.id}"에 reply, block, branch가 있다. 순서 표시는 sequence만 쓴다.`);
+  }
+}
+
+/**
+ * 투영에서 그릴 메시지를 고른다. 근거가 없으면 그리지 않고 질문으로 돌린다.
+ * 양 끝 노드가 안 그려지는 메시지도 뺀다. 선은 근거로 다시 정한다
+ */
+function settleProjections(
+  projections: readonly ArchitectureProjection[],
+  edgeById: ReadonlyMap<string, ArchitectureEdge>,
+  drawableNodeIds: ReadonlySet<string>,
+  nameById: (id: string) => string,
+  ask: (q: UnresolvedQuestion) => void,
+): { projections: ArchitectureProjection[]; messages: Set<string>; drawable: Set<string> } {
+  const messages = new Set<string>();
+  const drawable = new Set<string>();
+  const settled = projections.map((p) => ({
+    ...p,
+    messages: p.messages.map((m) => {
+      const evidence = messageEvidence(m, edgeById);
+      if (evidence.length === 0) {
+        const verb = p.shape === 'dataflow' ? '옮겨 가나요' : '주고받나요';
+        ask({
+          id: `auto:message:${m.id}`,
+          subject: { messageId: m.id },
+          question: `"${nameById(m.from)}"에서 "${nameById(m.to)}"로 가는 "${m.label}"를 코드나 문서에서 확인하지 못했어요. 실제로 ${verb}?`,
+        });
+      } else if (drawableNodeIds.has(m.from) && drawableNodeIds.has(m.to)) {
+        messages.add(m.id);
+        drawable.add(p.id);
+      }
+      return { ...m, lineStyle: deriveLineStyle(evidence) };
+    }),
+  }));
+  // compare는 선이 없다. 견줄 노드가 하나라도 그려지면 그린다
+  for (const p of projections) {
+    if (p.sides?.some((side) => side.nodes.some((id) => drawableNodeIds.has(id)))) {
+      drawable.add(p.id);
+    }
+  }
+  return { projections: settled, messages, drawable };
+}
 
 /**
  * 흐름 구조 검사. 단계와 전이 id는 흐름을 넘어 겹치면 안 된다. 질문의 stepId, transitionId가 흐름 id 없이 가리키기 때문이다.
@@ -544,7 +835,7 @@ function checkFlows(
   };
   for (const flow of ir.flows ?? []) {
     dup(flow.id, flow.id, '흐름');
-    if (byId.get(flow.service)?.kind !== 'service') {
+    if (flow.service !== undefined && byId.get(flow.service)?.kind !== 'service') {
       errors.push({
         code: 'FLOW_SERVICE_NOT_FOUND',
         message: `흐름 "${flow.id}"의 service "${flow.service}"가 service 노드가 아니거나 nodes에 없다.`,
@@ -747,7 +1038,9 @@ export function validateArchitectureIr(
   opts: ValidateArchitectureIrOptions = {},
 ): ValidateArchitectureIrResult {
   const checkFiles = opts.checkFiles ?? true;
-  const repoRoots = opts.repoRoots ?? Object.fromEntries(ir.repos.map((r) => [r.id, r.root]));
+  const repoRoots =
+    opts.repoRoots ??
+    Object.fromEntries(ir.repos.flatMap((r) => (r.root === undefined ? [] : [[r.id, r.root]])));
   const ctx = { checkFiles, repoRoots, cache: new Map<string, number | null>() };
   const errors: ArchitectureValidationError[] = [];
   const nodeIds = new Set(ir.nodes.map((n) => n.id));
@@ -758,6 +1051,8 @@ export function validateArchitectureIr(
       checkEvidenceList(node.platformEvidence![platform]!, { nodeId: node.id }, ctx, errors);
     }
   }
+  checkPacks(ir, errors);
+  checkDocRepos(ir, errors);
   checkParents(ir, errors);
   checkAccounts(ir, errors);
   checkGroups(ir, errors);
@@ -767,6 +1062,7 @@ export function validateArchitectureIr(
   checkHarnessEdges(ir, errors);
   checkMdCodeEvidence(ir, errors);
   checkFlows(ir, ctx, errors);
+  checkProjections(ir, ctx, errors);
 
   for (const edge of ir.edges) {
     const missing = [edge.from, edge.to].filter((id) => !nodeIds.has(id));
@@ -879,14 +1175,35 @@ export function validateArchitectureIr(
   }
 
   const flowResult = settleFlows(ir.flows ?? [], ask, askById);
+  const projectionResult =
+    ir.projections !== undefined
+      ? settleProjections(
+          ir.projections,
+          new Map(ir.edges.map((e) => [e.id, e])),
+          drawableNodeIds,
+          nameById,
+          ask,
+        )
+      : undefined;
   return {
     ok: true,
     value: {
-      ir: { ...ir, edges, ...(ir.flows !== undefined ? { flows: flowResult.flows } : {}) },
+      ir: {
+        ...ir,
+        edges,
+        ...(ir.flows !== undefined ? { flows: flowResult.flows } : {}),
+        ...(projectionResult !== undefined ? { projections: projectionResult.projections } : {}),
+      },
       drawableNodeIds,
       drawableEdgeIds,
       drawableStepIds: flowResult.steps,
       drawableTransitionIds: flowResult.transitions,
+      ...(projectionResult !== undefined
+        ? {
+            drawableMessageIds: projectionResult.messages,
+            drawableProjectionIds: projectionResult.drawable,
+          }
+        : {}),
       autoUnresolved,
     },
   };
@@ -918,6 +1235,33 @@ function mapEvidence(ir: ArchitectureIr, fn: (ev: Evidence) => Evidence): Archit
     nodes: ir.nodes.map(mapNode),
     edges: ir.edges.map(mapEdge),
     ...(ir.flows !== undefined ? { flows: ir.flows.map(mapFlow) } : {}),
+    ...(ir.projections !== undefined
+      ? {
+          projections: ir.projections.map((p) => ({
+            ...p,
+            messages: p.messages.map((m) => ({ ...m, evidence: m.evidence.map(fn) })),
+          })),
+        }
+      : {}),
+  };
+}
+
+function maskProjectionText(p: ArchitectureProjection): ArchitectureProjection {
+  return {
+    ...p,
+    title: maskSharedText(p.title),
+    question: maskSharedText(p.question),
+    messages: p.messages.map((m) => ({
+      ...m,
+      label: maskSharedText(m.label),
+      ...(m.branch !== undefined ? { branch: maskSharedText(m.branch) } : {}),
+    })),
+    ...(p.blocks !== undefined
+      ? { blocks: p.blocks.map((b) => ({ ...b, label: maskSharedText(b.label) })) }
+      : {}),
+    ...(p.sides !== undefined
+      ? { sides: p.sides.map((side) => ({ ...side, label: maskSharedText(side.label) })) }
+      : {}),
   };
 }
 
@@ -999,6 +1343,9 @@ export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
     ...redacted,
     nodes: redacted.nodes.map(maskNodeText),
     ...(redacted.flows !== undefined ? { flows: redacted.flows.map(maskFlowText) } : {}),
+    ...(redacted.projections !== undefined
+      ? { projections: redacted.projections.map(maskProjectionText) }
+      : {}),
     unresolved: redacted.unresolved.map((q) => ({
       ...q,
       question: maskSharedText(q.question),

@@ -18,6 +18,11 @@
   "properties": {
     "schemaVersion": { "type": "string", "const": "1.0.0" },
     "view": { "type": "string", "enum": ["screen-chain", "deploy-path"] },
+    "packs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "vocabulary pack ids this IR uses. Defaults to web-product and harness"
+    },
     "repos": { "type": "array", "items": { "$ref": "#/definitions/repo" } },
     "nodes": { "type": "array", "items": { "$ref": "#/definitions/node" } },
     "edges": { "type": "array", "items": { "$ref": "#/definitions/edge" } },
@@ -38,6 +43,11 @@
       "type": "array",
       "description": "left-to-right stages of the technical view, defined by the session (e.g. app, server, another server, DB)",
       "items": { "$ref": "#/definitions/stage" }
+    },
+    "projections": {
+      "type": "array",
+      "description": "pictures that each answer one question, drawn over the same nodes and edges",
+      "items": { "$ref": "#/definitions/projection" }
     }
   },
   "definitions": {
@@ -96,11 +106,15 @@
     "platform": { "type": "string", "enum": ["web", "android", "ios"] },
     "repo": {
       "type": "object",
-      "required": ["id", "name", "root"],
+      "required": ["id", "name"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "name": { "type": "string", "minLength": 1 },
-        "root": { "type": "string", "minLength": 1 },
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "description": "checkout path. Omit for a document bundle; code evidence into it is rejected"
+        },
         "remote": { "type": "string" }
       }
     },
@@ -133,7 +147,24 @@
             "cloud_account",
             "client",
             "skill",
-            "agent"
+            "agent",
+            "component",
+            "firewall",
+            "network",
+            "subnet",
+            "cluster",
+            "workload",
+            "source",
+            "topic",
+            "pipeline",
+            "job",
+            "warehouse",
+            "dataset",
+            "report",
+            "org_unit",
+            "role",
+            "form",
+            "system"
           ]
         },
         "label": {
@@ -195,6 +226,28 @@
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 },
           "description": "mcp endpoint only: values the tool dispatches on through its action argument"
+        },
+        "displayKind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "component only: kind name the reader sees on the chip"
+        },
+        "renderClass": {
+          "type": "string",
+          "enum": [
+            "actor",
+            "client",
+            "service",
+            "gateway",
+            "store",
+            "queue",
+            "external",
+            "infra",
+            "step",
+            "state",
+            "document"
+          ],
+          "description": "component only: render class that picks color and icon"
         }
       }
     },
@@ -223,7 +276,17 @@
             "serves",
             "loads",
             "spawns",
-            "invokes"
+            "invokes",
+            "connects",
+            "sends",
+            "depends_on",
+            "peers",
+            "allows",
+            "feeds",
+            "publishes",
+            "hands_over",
+            "approves",
+            "records"
           ]
         },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
@@ -247,7 +310,8 @@
             "nodeId": { "type": "string" },
             "edgeId": { "type": "string" },
             "stepId": { "type": "string" },
-            "transitionId": { "type": "string" }
+            "transitionId": { "type": "string" },
+            "messageId": { "type": "string" }
           }
         },
         "question": { "type": "string", "minLength": 1 },
@@ -308,10 +372,14 @@
     },
     "flow": {
       "type": "object",
-      "required": ["id", "service", "title", "actors", "steps", "transitions"],
+      "required": ["id", "title", "actors", "steps", "transitions"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "service": { "type": "string", "minLength": 1 },
+        "service": {
+          "type": "string",
+          "minLength": 1,
+          "description": "service node this flow belongs to. Omit for a standalone flow under the overview"
+        },
         "title": { "type": "string", "minLength": 1 },
         "description": { "type": "string" },
         "actors": {
@@ -332,6 +400,70 @@
         "readOnly": { "type": "boolean" },
         "probeHit": { "type": "boolean" },
         "visibility": { "$ref": "#/definitions/visibility" }
+      }
+    },
+    "projectionMessage": {
+      "type": "object",
+      "required": ["id", "from", "to", "label", "evidence", "lineStyle"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "edge": {
+          "type": "string",
+          "minLength": 1,
+          "description": "edge this message travels on. Its evidence counts for the message"
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
+        "lineStyle": { "type": "string", "enum": ["solid", "dashed"] },
+        "reply": { "type": "boolean" },
+        "block": { "type": "string", "minLength": 1 },
+        "branch": { "type": "string", "minLength": 1 }
+      }
+    },
+    "projectionBlock": {
+      "type": "object",
+      "required": ["id", "kind", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["alt", "opt", "loop", "par"] },
+        "label": { "type": "string", "minLength": 1 }
+      }
+    },
+    "projection": {
+      "type": "object",
+      "required": ["id", "shape", "title", "question", "messages"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "shape": { "type": "string", "enum": ["sequence", "dataflow", "compare"] },
+        "title": { "type": "string", "minLength": 1 },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the one question this picture answers"
+        },
+        "participants": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "messages": {
+          "type": "array",
+          "description": "lines of sequence and dataflow. Leave empty for compare",
+          "items": { "$ref": "#/definitions/projectionMessage" }
+        },
+        "blocks": { "type": "array", "items": { "$ref": "#/definitions/projectionBlock" } },
+        "sides": {
+          "type": "array",
+          "description": "the two groups compare puts side by side, such as before and after",
+          "items": { "$ref": "#/definitions/projectionSide" }
+        }
+      }
+    },
+    "projectionSide": {
+      "type": "object",
+      "required": ["id", "label", "nodes"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "nodes": { "type": "array", "items": { "type": "string", "minLength": 1 } }
       }
     }
   }

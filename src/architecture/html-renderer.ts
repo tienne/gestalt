@@ -18,6 +18,7 @@ import {
   PRODUCT_COLORS,
   renderCss,
   renderIconSprite,
+  VIEW_CSS,
 } from './html-theme.js';
 import {
   LANE_TITLES,
@@ -38,18 +39,25 @@ import {
   type LayoutResult,
 } from './layout.js';
 import { indexMicroApps } from './micro-app.js';
+import { ALL_PACKS_VOCABULARY, irVocabulary, type Vocabulary } from './packs/index.js';
+import { computeCompareLayout, type CompareLayout } from './compare-layout.js';
+import { computeDataflowLayout, type DataflowLayout } from './dataflow-layout.js';
+import { computeSequenceLayout, type SequenceLayout } from './sequence-layout.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
   ArchitectureEdge,
   ArchitectureFlow,
   ArchitectureIr,
   ArchitectureNode,
+  ArchitectureProjection,
+  ProjectionMessage,
+  SequenceBlockKind,
   EdgeKind,
   DisplayKind,
   Evidence,
   UnresolvedQuestion,
 } from './types.js';
-import { displayKindOf } from './types.js';
+import { chipTextOverride, displayKindOf } from './types.js';
 import { maskSharedText, redactForSharing, type ValidatedIr } from './validator.js';
 
 export type ArchitectureAudience = 'private' | 'shared';
@@ -75,53 +83,23 @@ function viewTitle(ir: ArchitectureIr): string {
   if (ir.nodes.some((n) => n.kind === 'skill')) return '스킬별 호출 흐름';
   if (ir.nodes.some((n) => n.kind === 'endpoint' && n.protocol === 'mcp'))
     return 'MCP 도구 호출 흐름';
+  // 팩을 적은 IR에서 web-product가 빠졌으면 화면도 호출도 없는 그림이다. 팩이 없는 옛 IR은 제목을 그대로 둔다
+  if (ir.packs && !ir.packs.includes('web-product')) {
+    return ir.nodes.length === 0 && (ir.flows?.length ?? 0) > 0 ? '업무 흐름' : '구성 요소 연결';
+  }
   return VIEW_TITLES[ir.view];
 }
 
 // 페이지에 보이는 글자는 IR 식별자 대신 읽는 사람 말로 바꿔 보여준다
-const NODE_KIND_TEXT: Record<DisplayKind, string> = {
-  service: '서비스',
-  micro_app: '마이크로 프론트엔드 앱',
-  feature: '기능 영역',
-  screen: '화면',
-  gateway: '게이트웨이',
-  endpoint: 'API',
-  app_module: '서버',
-  external_service: '호출 클라이언트',
-  db_table: '테이블',
-  datastore: '저장소 클러스터',
-  workflow: '워크플로',
-  build: '빌드',
-  artifact: '산출물',
-  deploy_target: '배포 대상',
-  domain: '도메인',
-  cdn: 'CDN 배포',
-  bucket: '스토리지 버킷',
-  cloud_account: '클라우드 계정',
-  client: 'AI 클라이언트',
-  skill: '스킬',
-  agent: '에이전트',
-  mcp_tool: 'MCP 도구',
-};
-const EDGE_KIND_TEXT: Record<EdgeKind | 'contains', string> = {
-  calls: '호출',
-  handles: '처리',
-  uses: '사용',
-  reads_writes: '읽기와 쓰기',
-  routes: '전달',
-  navigates: '화면 이동',
-  triggers: '실행',
-  builds: '빌드',
-  produces: '생성',
-  deploys_to: '배포',
-  resolves_to: '도메인 연결',
-  origin: '원본',
-  serves: '서빙',
-  loads: '런타임 로드',
-  spawns: '에이전트 실행',
-  invokes: '스킬 호출',
+const NODE_KIND_TEXT = Object.fromEntries(
+  Object.entries(ALL_PACKS_VOCABULARY.looks).map(([k, d]) => [k, d.text]),
+) as Record<DisplayKind, string>;
+const EDGE_KIND_TEXT = {
+  ...Object.fromEntries(
+    Object.entries(ALL_PACKS_VOCABULARY.edgeKinds).map(([k, d]) => [k, d.text]),
+  ),
   contains: '포함',
-};
+} as Record<EdgeKind | 'contains', string>;
 const EVIDENCE_TYPE_TEXT: Record<Evidence['type'], string> = {
   code: '코드',
   spec: '스펙',
@@ -248,7 +226,10 @@ function edgeWidth(count: number): number {
 }
 
 /** 레벨에 그리는 선. 평면 그림의 IR 엣지도 건수 1짜리로 맞춰 같은 함수로 그린다 */
-type CanvasEdge = Pick<DrillEdge, 'id' | 'from' | 'to' | 'count' | 'lineStyle' | 'kind'> & {
+type CanvasEdge = Pick<
+  DrillEdge,
+  'id' | 'from' | 'to' | 'count' | 'lineStyle' | 'kind' | 'inferred'
+> & {
   backward?: boolean;
 };
 
@@ -296,7 +277,7 @@ function renderCard(
   if (enterable) cls.push('enterable');
   if (focus) cls.push('is-focus');
   const aria =
-    `${name}, ${NODE_KIND_TEXT[dk]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}` +
+    `${name}, ${chipTextOverride(node) ?? NODE_KIND_TEXT[dk]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}` +
     (platforms.length > 0 ? `, ${platforms.join(', ')}` : '') +
     (flows > 0 ? `, 사용자 흐름 ${flows}개` : '') +
     (products.length > 1 ? `, 같이 쓰는 제품 ${products.join(', ')}` : '');
@@ -323,7 +304,7 @@ function renderCard(
     `${micro.frame !== undefined ? ` data-frame="${escapeHtml(micro.frame)}"` : ''} role="button" tabindex="0" ` +
     `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
     `style="left:${x}px;top:${y}px;width:${box.width}px;height:${box.height}px">` +
-    `<span class="kc">${engine !== undefined ? iconUse(`e-${engine}`, `brand b-${engine}`) : iconUse(`i-${dk}`)}${escapeHtml(micro.host ? MICRO_HOST_SHORT : NODE_KIND_SHORT[dk])}</span>` +
+    `<span class="kc">${engine !== undefined ? iconUse(`e-${engine}`, `brand b-${engine}`) : iconUse(`i-${dk}`)}${escapeHtml(micro.host ? MICRO_HOST_SHORT : (chipTextOverride(node) ?? NODE_KIND_SHORT[dk]))}</span>` +
     `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}` +
     (flows > 0
       ? `<span class="flow-badge" title="사용자 흐름 보기">${iconUse('u-flow')}${escapeHtml(flowBadgeText(flows))}</span>`
@@ -375,12 +356,20 @@ function renderProductBricks(
   return `<span class="pbricks" aria-hidden="${rest > 0 ? 'false' : 'true'}">${bricks}${more}</span>`;
 }
 
-function renderPill(count: number, at: { x: number; y: number }): string {
+// 근거가 섞인 묶음의 배지는 테두리를 점선으로 둔다. 공용 CSS를 고치면 섞인 묶음이 없는 그림까지 바이트가 바뀌어 속성으로 단다
+const MIXED_PILL = ` stroke-dasharray="3 2"`;
+
+/** 묶음 이름 뒤에 붙는 말. 코드로 확인된 고리와 문서나 사용자 근거뿐인 고리가 섞였을 때만 붙는다 */
+export function inferredNote(inferred: number | undefined): string {
+  return inferred !== undefined ? ` (문서 근거만 있는 연결 ${inferred}개 포함)` : '';
+}
+
+function renderPill(count: number, at: { x: number; y: number }, mixed = false): string {
   const text = String(count);
   const w = 14 + text.length * 7;
   return (
     `<g class="pill" transform="translate(${at.x},${at.y})">` +
-    `<rect x="${round2(-w / 2)}" y="-9" width="${w}" height="18" rx="9"/><text>${text}</text></g>`
+    `<rect x="${round2(-w / 2)}" y="-9" width="${w}" height="18" rx="9"${mixed ? MIXED_PILL : ''}/><text>${text}</text></g>`
   );
 }
 
@@ -398,12 +387,12 @@ function renderLink(
   const hit = `<path class="hit" d="${route.d}" stroke-width="${Math.max(12, width + 8)}"/>`;
   const tip = `<path class="tip" d="${route.tip}"/>`;
   if (edge.kind === 'bundle') {
-    const name = `${labelOf(edge.from)} → ${labelOf(edge.to)} ${edge.count}개${xaText}`;
+    const name = `${labelOf(edge.from)} → ${labelOf(edge.to)} ${edge.count}개${inferredNote(edge.inferred)}${xaText}`;
     return (
       `<g class="link bundle${xa}" data-bundle-id="${escapeHtml(edge.id)}" ${ends} tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
       `<title>${escapeHtml(name)}</title>${hit}` +
       `<path class="edge" d="${route.d}" stroke-width="${width}"${dash}/>${tip}` +
-      `${renderPill(edge.count, route.mid)}</g>`
+      `${renderPill(edge.count, route.mid, edge.inferred !== undefined)}</g>`
     );
   }
   const name = `${EDGE_KIND_TEXT[edge.kind]}: ${labelOf(edge.from)} → ${labelOf(edge.to)}${xaText}`;
@@ -427,6 +416,8 @@ interface CanvasSpec {
   microHosts: ReadonlySet<string>;
   /** 서비스 id → 흐름 수. 드릴다운 그림에만 있다 */
   flows?: Record<string, number>;
+  /** 카드가 없는 레벨에서 대신 보여줄 흐름 링크. 서비스 없는 흐름만 있는 그림의 전체 레벨이 그렇다 */
+  emptyLinks?: { level: string; title: string }[];
 }
 
 function productNames(layout: LayoutResult, id: string): string[] {
@@ -456,6 +447,20 @@ function renderBands(
   return { regionRects: lines.join(''), regionTitles: titles.join('') };
 }
 
+// 스타일을 인라인으로 두는 건 공용 CSS에 규칙을 더하면 기존 그림의 바이트가 바뀌어서다
+function emptyFlowLinks(links: { level: string; title: string }[]): string {
+  const items = links
+    .map(
+      (l) =>
+        `<li><a href="#/level/${encodeURIComponent(l.level)}" style="color:var(--text)">${escapeHtml(l.title)}</a></li>`,
+    )
+    .join('');
+  return (
+    `<div class="empty-state"><div><p style="margin:0 0 8px">이 그림은 흐름만 있어요. 볼 흐름을 고르세요.</p>` +
+    `<ul style="margin:0;padding-left:18px;line-height:1.8">${items}</ul></div></div>`
+  );
+}
+
 /** 레벨 하나. 레인 띠와 선은 SVG, 카드는 그 위에 겹친 HTML이다. 좌표는 전부 서버가 박는다 */
 function renderLevelSection(spec: CanvasSpec): string {
   const open = `<section class="level" data-level-id="${escapeHtml(spec.levelId)}" aria-label="${escapeHtml(spec.title)}"`;
@@ -464,7 +469,7 @@ function renderLevelSection(spec: CanvasSpec): string {
     const { width, height } = EMPTY_LEVEL_SIZE;
     return (
       `${open} data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px"${hidden}>` +
-      `<p class="empty-state">여기는 보여줄 항목이 없어요.</p></section>`
+      `${spec.emptyLinks?.length ? emptyFlowLinks(spec.emptyLinks) : '<p class="empty-state">여기는 보여줄 항목이 없어요.</p>'}</section>`
     );
   }
   const nodeById = new Map(spec.nodes.map((n) => [n.id, n]));
@@ -716,6 +721,302 @@ function renderFlowSection(
   );
 }
 
+/** 투영 레벨 id 앞머리. 흐름 레벨의 flow:처럼 지도 레벨 id와 안 겹치게 한다 */
+const VIEW_LEVEL_PREFIX = 'view:';
+
+/** 서랍이 메시지를 누를 때 쓰는 데이터. 그린 메시지만 싣고 걸린 질문 문장을 붙인다 */
+function messagePayload(
+  views: readonly { projection: ArchitectureProjection }[],
+  drawn: ReadonlySet<string>,
+  questions: readonly UnresolvedQuestion[],
+  edges: readonly ArchitectureEdge[],
+): Record<string, unknown> {
+  const edgeById = new Map(edges.map((e) => [e.id, e]));
+  const out: Record<string, unknown> = {};
+  for (const { projection } of views) {
+    const blockLabel = new Map(
+      (projection.blocks ?? []).map((b) => [b.id, `${SEQUENCE_BLOCK_TEXT[b.kind]} [${b.label}]`]),
+    );
+    for (const m of projection.messages) {
+      if (!drawn.has(m.id)) continue;
+      const asked = questions.filter((q) => q.subject.messageId === m.id).map((q) => q.question);
+      out[m.id] = {
+        id: m.id,
+        view: projection.title,
+        from: m.from,
+        to: m.to,
+        label: m.label,
+        lineStyle: m.lineStyle,
+        evidence: [
+          ...m.evidence,
+          ...(m.edge !== undefined ? (edgeById.get(m.edge)?.evidence ?? []) : []),
+        ],
+        ...(projection.shape === 'dataflow' ? { shape: 'dataflow' } : {}),
+        ...(m.edge !== undefined ? { edge: m.edge } : {}),
+        ...(m.reply ? { reply: true } : {}),
+        ...(m.block !== undefined ? { block: blockLabel.get(m.block) } : {}),
+        ...(m.branch !== undefined ? { branch: m.branch } : {}),
+        ...(asked.length > 0 ? { questions: asked } : {}),
+      };
+    }
+  }
+  return out;
+}
+
+const SEQUENCE_BLOCK_TEXT: Record<SequenceBlockKind, string> = {
+  alt: '분기',
+  opt: '조건',
+  loop: '반복',
+  par: '동시',
+};
+const ARROW = 8;
+
+/** 투영 그림의 카드. 지도 카드를 그대로 써서 누르면 같은 서랍이 열린다 */
+function viewCards(
+  boxes: readonly { id: string; x: number; y: number; width: number; height: number }[],
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  services: Record<string, ServiceFacts>,
+): string {
+  return boxes
+    .map((b) =>
+      renderCard(
+        nodeById.get(b.id)!,
+        {
+          id: b.id,
+          x: b.x,
+          y: b.y,
+          width: b.width,
+          height: b.height,
+        } as LayoutResult['nodes'][number],
+        false,
+        false,
+        services[b.id],
+        undefined,
+        { host: false },
+      ),
+    )
+    .join('');
+}
+
+const VIEW_SVG_LABEL: Record<ArchitectureProjection['shape'], string> = {
+  sequence: '메시지',
+  dataflow: '데이터 이동',
+  compare: '견주기',
+};
+
+/** 투영 레벨 하나. 맨 위에 답하는 질문을 적고 그 아래 모양별 선과 카드를 얹는다 */
+function viewSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  width: number,
+  height: number,
+  under: string,
+  links: string,
+  cards: string,
+): string {
+  return (
+    `<section class="level view-level" data-level-id="${escapeHtml(levelId)}" aria-label="${escapeHtml(projection.title)}" ` +
+    `data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px" hidden>` +
+    `<p class="view-q" style="left:${CANVAS_PAD_X}px">${escapeHtml(projection.question)}</p>` +
+    `<svg class="links" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
+    `role="group" aria-label="${escapeHtml(`${projection.title} ${VIEW_SVG_LABEL[projection.shape]}`)}"><g class="lanes">${under}</g><g class="edges">${links}</g></svg>` +
+    `${cards}</section>`
+  );
+}
+
+/** 질문 하나에 답하는 sequence 그림. 머리 카드는 지도 카드를 그대로 써서 누르면 같은 서랍이 열린다 */
+function renderSequenceSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  layout: SequenceLayout,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  services: Record<string, ServiceFacts>,
+): string {
+  const px = (x: number): number => round2(x + CANVAS_PAD_X);
+  const py = (y: number): number => round2(y + CANVAS_PAD_TOP);
+  const width = round2(layout.width + CANVAS_PAD_X * 2);
+  const height = round2(layout.height + CANVAS_PAD_TOP);
+  const messageById = new Map(projection.messages.map((m) => [m.id, m]));
+  const nameOf = (id: string): string => {
+    const n = nodeById.get(id);
+    return n ? nodeName(n) : id;
+  };
+  const lifelines = layout.lifelines
+    .map(
+      (l) =>
+        `<line class="lifeline" x1="${px(l.x)}" x2="${px(l.x)}" y1="${py(l.y1)}" y2="${py(l.y2)}"/>`,
+    )
+    .join('');
+  const blocks = layout.blocks
+    .map((b) => {
+      const tag = SEQUENCE_BLOCK_TEXT[b.kind];
+      const tagW = textUnits(tag) * 7 + 16;
+      const branches = b.branches
+        .map(
+          (br) =>
+            `<line class="b-branch" x1="${px(b.x)}" x2="${px(b.x + b.width)}" y1="${py(br.y)}" y2="${py(br.y)}"/>` +
+            (br.label !== ''
+              ? `<text class="b-label" x="${px(b.x + 10)}" y="${py(br.y + 16)}">[${escapeHtml(br.label)}]</text>`
+              : ''),
+        )
+        .join('');
+      return (
+        `<g class="seq-block b-${b.kind}"><rect x="${px(b.x)}" y="${py(b.y)}" width="${b.width}" height="${b.height}" rx="6"/>` +
+        `<path class="b-tab" d="M${px(b.x)} ${py(b.y + 20)}H${px(b.x + tagW)}L${px(b.x + tagW + 8)} ${py(b.y + 12)}V${py(b.y)}"/>` +
+        `<text class="b-kind" x="${px(b.x + 8)}" y="${py(b.y + 14)}">${tag}</text>` +
+        `<text class="b-label" x="${px(b.x + tagW + 16)}" y="${py(b.y + 14)}">[${escapeHtml(b.label)}]</text>` +
+        `${branches}</g>`
+      );
+    })
+    .join('');
+  const links = layout.messages
+    .map((box) => {
+      const m = messageById.get(box.id)!;
+      const dash = m.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
+      const y = py(box.y);
+      let d: string;
+      let tip: [string, string, string];
+      let labelX: number;
+      let anchor = 'middle';
+      if (box.self) {
+        const x = px(box.x1);
+        const yb = round2(y + 10);
+        d = `M${x} ${round2(y - 10)}H${round2(x + 36)}V${yb}H${x}`;
+        tip = [
+          `${x},${yb}`,
+          `${round2(x + ARROW)},${round2(yb - ARROW / 2)}`,
+          `${round2(x + ARROW)},${round2(yb + ARROW / 2)}`,
+        ];
+        labelX = round2(x + 44);
+        anchor = 'start';
+      } else {
+        const x1 = px(box.x1);
+        const x2 = px(box.x2);
+        const back = round2(x2 - (x2 > x1 ? 1 : -1) * ARROW);
+        d = `M${x1} ${y}H${x2}`;
+        tip = [
+          `${x2},${y}`,
+          `${back},${round2(y - ARROW / 2)}`,
+          `${back},${round2(y + ARROW / 2)}`,
+        ];
+        labelX = round2((x1 + x2) / 2);
+      }
+      const name =
+        `${box.n}. ${nameOf(m.from)} → ${nameOf(m.to)}: ${m.label}` +
+        (m.reply ? ', 응답' : '') +
+        (m.lineStyle === 'dashed' ? ', 문서로만 확인' : '');
+      // 응답은 열린 화살촉으로 그린다. 요청과 응답이 같은 두 줄 사이를 오갈 때 방향만으로는 구분이 안 된다
+      const head = m.reply
+        ? `<polyline class="tip open" points="${tip[1]} ${tip[0]} ${tip[2]}"/>`
+        : `<polygon class="tip" points="${tip.join(' ')}"/>`;
+      return (
+        `<g class="link seq-m${m.reply ? ' reply' : ''}" data-from="${escapeHtml(m.from)}" data-to="${escapeHtml(m.to)}" ` +
+        `data-message-id="${escapeHtml(m.id)}" tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
+        `<title>${escapeHtml(name)}</title><path class="hit" d="${d}" stroke-width="12"/>` +
+        `<path class="edge" d="${d}" stroke-width="1.6"${dash}/>${head}` +
+        `<text class="m-label" x="${labelX}" y="${round2(y - 7)}" text-anchor="${anchor}"><tspan class="m-n">${box.n}.</tspan> ${escapeHtml(m.label)}</text></g>`
+      );
+    })
+    .join('');
+  return viewSection(
+    levelId,
+    projection,
+    width,
+    height,
+    `${lifelines}${blocks}`,
+    links,
+    viewCards(layout.heads, nodeById, services),
+  );
+}
+
+/** 데이터가 어디서 어디로 옮겨 가는지. 선 라벨이 옮겨 가는 데이터 이름이다 */
+function renderDataflowSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  layout: DataflowLayout,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  services: Record<string, ServiceFacts>,
+): string {
+  const px = (x: number): number => round2(x + CANVAS_PAD_X);
+  const py = (y: number): number => round2(y + CANVAS_PAD_TOP);
+  const shift = (d: string): string =>
+    d.replace(
+      /(-?[\d.]+) (-?[\d.]+)/g,
+      (_, x: string, y: string) => `${px(Number(x))} ${py(Number(y))}`,
+    );
+  const shiftPt = (p: string): string => {
+    const [x, y] = p.split(',');
+    return `${px(Number(x))},${py(Number(y))}`;
+  };
+  const width = round2(layout.width + CANVAS_PAD_X * 2);
+  const height = round2(layout.height + CANVAS_PAD_TOP);
+  const messageById = new Map(projection.messages.map((m) => [m.id, m]));
+  const nameOf = (id: string): string => {
+    const n = nodeById.get(id);
+    return n ? nodeName(n) : id;
+  };
+  const links = layout.edges
+    .map((e) => {
+      const m = messageById.get(e.id)!;
+      const dash = m.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
+      const d = shift(e.d);
+      const name =
+        `${nameOf(m.from)} → ${nameOf(m.to)}: ${m.label}` +
+        (m.lineStyle === 'dashed' ? ', 문서로만 확인' : '');
+      return (
+        `<g class="link seq-m df-m" data-from="${escapeHtml(m.from)}" data-to="${escapeHtml(m.to)}" ` +
+        `data-message-id="${escapeHtml(m.id)}" tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
+        `<title>${escapeHtml(name)}</title><path class="hit" d="${d}" stroke-width="12"/>` +
+        `<path class="edge" d="${d}" stroke-width="1.6"${dash}/><polygon class="tip" points="${e.tip.map(shiftPt).join(' ')}"/>` +
+        `<text class="m-label" x="${px(e.labelX)}" y="${py(e.labelY)}" text-anchor="middle">${escapeHtml(m.label)}</text></g>`
+      );
+    })
+    .join('');
+  return viewSection(
+    levelId,
+    projection,
+    width,
+    height,
+    '',
+    links,
+    viewCards(layout.cards, nodeById, services),
+  );
+}
+
+/** 두 묶음 견주기. 왼쪽에만, 둘 다, 오른쪽에만 세 열로 세운다 */
+function renderCompareSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  layout: CompareLayout,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  services: Record<string, ServiceFacts>,
+): string {
+  const px = (x: number): number => round2(x + CANVAS_PAD_X);
+  const py = (y: number): number => round2(y + CANVAS_PAD_TOP);
+  const width = round2(layout.width + CANVAS_PAD_X * 2);
+  const height = round2(layout.height + CANVAS_PAD_TOP);
+  const columns = layout.columns
+    .map(
+      (c) =>
+        `<g class="cmp-col cmp-${c.key}"><rect x="${px(c.x)}" y="${py(0)}" width="${c.width}" height="${c.height}" rx="10"/>` +
+        `<text class="cmp-head" x="${px(c.x + 16)}" y="${py(25)}">${escapeHtml(c.title)}<tspan class="cmp-n" dx="8">${c.count}</tspan></text>` +
+        (c.count === 0
+          ? `<text class="cmp-empty" x="${px(c.x + c.width / 2)}" y="${py(66)}" text-anchor="middle">없음</text>`
+          : '') +
+        '</g>',
+    )
+    .join('');
+  return viewSection(
+    levelId,
+    projection,
+    width,
+    height,
+    columns,
+    '',
+    viewCards(layout.cards, nodeById, services),
+  );
+}
+
 /** 흐름 단계와 전이마다 열린 질문 수. 카드 배지에 쓴다. 전이 질문은 출발 단계에 센다 */
 function flowQuestionCount(
   questions: readonly UnresolvedQuestion[],
@@ -760,7 +1061,7 @@ function flowPayload(
     return {
       level: l.id,
       id: f.id,
-      service: f.service,
+      ...(f.service !== undefined ? { service: f.service } : {}),
       title: f.title,
       ...(f.description !== undefined ? { description: f.description } : {}),
       ...(f.stateLabels !== undefined ? { stateLabels: f.stateLabels } : {}),
@@ -821,8 +1122,10 @@ function renderQuestions(
   allEdges: ArchitectureEdge[],
   flows: readonly ArchitectureFlow[],
   drawnSteps: ReadonlySet<string>,
+  messages: readonly ProjectionMessage[] = [],
 ): string {
   const edgeById = new Map(allEdges.map((e) => [e.id, e]));
+  const messageById = new Map(messages.map((m) => [m.id, m]));
   const stepById = new Map(flows.flatMap((f) => f.steps.map((st) => [st.id, st] as const)));
   const transitionById = new Map(
     flows.flatMap((f) => f.transitions.map((t) => [t.id, t] as const)),
@@ -836,7 +1139,7 @@ function renderQuestions(
     .map((q) => {
       let subject: string | undefined;
       let target: string | undefined;
-      const { nodeId, edgeId, stepId, transitionId } = q.subject;
+      const { nodeId, edgeId, stepId, transitionId, messageId } = q.subject;
       // 전이 질문은 출발 단계로 데려간다. 선은 카드처럼 고를 자리가 없어서다
       if (stepId !== undefined) {
         subject = stepName(stepId);
@@ -864,6 +1167,9 @@ function renderQuestions(
         } else {
           subject = edgeId;
         }
+      } else if (messageId !== undefined) {
+        const m = messageById.get(messageId);
+        subject = m ? `${nameOr(m.from)} → ${nameOr(m.to)}: ${m.label}` : messageId;
       }
       const attr = target !== undefined ? ` data-node-id="${escapeHtml(target)}"` : ' disabled';
       return (
@@ -912,6 +1218,7 @@ function renderBar(
   questionCount: number,
   envs: readonly string[],
   hasFlows: boolean,
+  hasViews = false,
 ): string {
   const qClass = questionCount > 0 ? 'n warn' : 'n';
   return (
@@ -925,6 +1232,10 @@ function renderBar(
     (hasFlows
       ? `<button type="button" class="btn" id="flow-btn" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="flow-pop" ` +
         `title="이 서비스를 쓰는 사람 쪽 흐름 보기">${iconUse('u-flow')}<span class="label">흐름</span></button>`
+      : '') +
+    (hasViews
+      ? `<button type="button" class="btn" id="views-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="views" ` +
+        `title="질문 하나에 답하는 그림 보기">${iconUse('u-flow')}<span class="label">질문별 그림</span></button>`
       : '') +
     renderEnvPicker(envs) +
     `<label class="search">${iconUse('u-search')}<input id="search" type="search" placeholder="이름으로 찾기" aria-label="이름으로 찾기" autocomplete="off" spellcheck="false"><span id="search-count" class="count" aria-live="polite"></span></label>` +
@@ -941,19 +1252,57 @@ function renderBar(
   );
 }
 
-const CLIENT_SCRIPT = renderClientScript({
-  kindShort: NODE_KIND_SHORT,
-  hostShort: MICRO_HOST_SHORT,
-  kindText: { ...NODE_KIND_TEXT, ...EDGE_KIND_TEXT },
-  evidenceText: EVIDENCE_TYPE_TEXT,
-  laneTitles: LANE_TITLES,
-  inferredBadge: INFERRED_BADGE,
-  platformChip: PLATFORM_CHIP_TEXT,
-  platformName: PLATFORM_NAME,
-  webHostingChip: WEB_HOSTING_CHIP_TEXT,
-  webHostingName: WEB_HOSTING_NAME,
-  backwardKinds: [...FLAT_BACKWARD_EDGE_KINDS].sort(compareStr),
-});
+const clientScripts = new Map<string, string>();
+
+/** 칩 글자와 설명, 레인 제목은 IR이 쓰는 팩 것만 싣는다. 팩을 더해도 그 팩을 안 쓰는 그림의 바이트가 그대로다 */
+function clientScriptFor(
+  vocab: Vocabulary,
+  rootFlows: boolean,
+  views: boolean,
+  mixedBundles: boolean,
+): string {
+  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}|${mixedBundles}`;
+  const hit = clientScripts.get(key);
+  if (hit !== undefined) return hit;
+  const pick = <T>(table: Record<string, T>, keys: Iterable<string>): Record<string, T> =>
+    Object.fromEntries([...keys].map((k) => [k, table[k]!]));
+  const script = renderClientScript({
+    kindShort: pick(NODE_KIND_SHORT, Object.keys(vocab.looks)),
+    hostShort: MICRO_HOST_SHORT,
+    kindText: {
+      ...pick(NODE_KIND_TEXT, Object.keys(vocab.looks)),
+      ...pick(EDGE_KIND_TEXT, [...Object.keys(vocab.edgeKinds), 'contains']),
+    },
+    evidenceText: EVIDENCE_TYPE_TEXT,
+    laneTitles: pick(LANE_TITLES, Object.keys(vocab.lanes)) as typeof LANE_TITLES,
+    inferredBadge: INFERRED_BADGE,
+    platformChip: PLATFORM_CHIP_TEXT,
+    platformName: PLATFORM_NAME,
+    webHostingChip: WEB_HOSTING_CHIP_TEXT,
+    webHostingName: WEB_HOSTING_NAME,
+    backwardKinds: [...FLAT_BACKWARD_EDGE_KINDS]
+      .filter((k) => k in vocab.edgeKinds)
+      .sort(compareStr),
+    components: 'component' in vocab.nodeKinds,
+    rootFlows,
+    views,
+    mixedBundles,
+  });
+  clientScripts.set(key, script);
+  return script;
+}
+
+/** 그림 단추가 여는 목록. 링크라서 주소 해시로 바로 그 레벨로 간다 */
+function renderViewsPop(views: { level: string; projection: ArchitectureProjection }[]): string {
+  const items = views
+    .map(
+      (v) =>
+        `<li><a href="#/level/${encodeURIComponent(v.level)}"><b>${escapeHtml(v.projection.title)}</b>` +
+        `<span>${escapeHtml(v.projection.question)}</span></a></li>`,
+    )
+    .join('');
+  return `<div id="views" class="pop" role="dialog" aria-label="질문별 그림" tabindex="-1" hidden><h3>질문별 그림</h3><ul class="flow-list view-list">${items}</ul></div>`;
+}
 
 interface PageSpec {
   ir: ArchitectureIr;
@@ -962,12 +1311,26 @@ interface PageSpec {
   drill: boolean;
   /** 그린 흐름. 공유본이면 가린 사본이다 */
   flows?: { flows: ArchitectureFlow[]; drawnSteps: Set<string> };
+  /** 그린 투영. 있을 때만 그림 단추와 메시지 서랍 코드를 싣는다 */
+  views?: { level: string; projection: ArchitectureProjection }[];
+  /** 근거가 섞인 묶음 선이 있으면 true. 그때만 그 표시 코드를 싣는다 */
+  mixedBundles?: boolean;
 }
 
-function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
+function renderPage({
+  ir,
+  payload,
+  sections,
+  drill,
+  flows,
+  views,
+  mixedBundles = false,
+}: PageSpec): string {
   const title = viewTitle(ir);
+  const vocab = irVocabulary(ir);
   const nodeById = new Map(payload.nodes.map((n) => [n.id, n]));
   const hasFlows = flows !== undefined && flows.flows.length > 0;
+  const hasViews = views !== undefined && views.length > 0;
   return [
     '<!doctype html>',
     '<html lang="ko">',
@@ -976,10 +1339,10 @@ function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss()}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
-    renderIconSprite(),
+    renderIconSprite(vocab),
     renderBar(
       title,
       drill,
@@ -989,6 +1352,7 @@ function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
       payload.unresolved.length,
       environmentsOf(payload.nodes),
       hasFlows,
+      hasViews,
     ),
     '<div class="main">',
     '<div id="stage" class="stage" aria-label="구조도">',
@@ -1020,12 +1384,13 @@ function renderPage({ ir, payload, sections, drill, flows }: PageSpec): string {
       ir.edges,
       flows?.flows ?? [],
       flows?.drawnSteps ?? new Set(),
+      views?.flatMap((v) => v.projection.messages),
     ),
-    hasFlows
+    (hasFlows
       ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
-      : '',
+      : '') + (hasViews ? `\n${renderViewsPop(views)}` : ''),
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
-    `<script>${CLIENT_SCRIPT}</script>`,
+    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles)}</script>`,
     '</body>',
     '</html>',
     '',
@@ -1111,6 +1476,30 @@ export function renderDrilldownHtml(
       flows: flowPayload(drilldown.flows, drawnFlows, base.unresolved),
     });
   }
+  const drawnMessages = validated.drawableMessageIds ?? new Set<string>();
+  const drawnViews = validated.drawableProjectionIds ?? new Set<string>();
+  const views = (ir.projections ?? [])
+    .filter((p) => drawnViews.has(p.id))
+    .map((projection) => ({ level: `${VIEW_LEVEL_PREFIX}${projection.id}`, projection }));
+  if (views.length > 0) {
+    Object.assign(payload, {
+      levels: [
+        ...(payload as { levels: unknown[] }).levels,
+        ...views.map((v) => ({
+          id: v.level,
+          kind: 'view',
+          title: v.projection.title,
+          trail: [ROOT_LEVEL_ID, v.level],
+          edges: [],
+        })),
+      ],
+      messages: messagePayload(views, drawnMessages, base.unresolved, ir.edges),
+    });
+  }
+  const rootFlowLinks = flowLevels
+    .filter(({ flow }) => flow.service === undefined)
+    .map(({ level, flow }) => ({ level: level.id, title: flow.title }))
+    .concat(views.map((v) => ({ level: v.level, title: v.projection.title })));
   const sections = levels
     .map((l, i) =>
       renderLevelSection({
@@ -1126,12 +1515,30 @@ export function renderDrilldownHtml(
         services: base.services,
         microHosts: new Set(base.microHosts ?? []),
         flows: flowCount,
+        ...(l.id === ROOT_LEVEL_ID && l.nodeIds.length === 0 && rootFlowLinks.length > 0
+          ? { emptyLinks: rootFlowLinks }
+          : {}),
       }),
     )
     .concat(
       flowLevels.map(({ level, flow }) =>
         renderFlowSection(level, flow, questionCount, drawableNodes),
       ),
+    )
+    .concat(
+      views.map((v) => {
+        const p = v.projection;
+        if (p.shape === 'dataflow') {
+          const layout = computeDataflowLayout(p, drawnMessages, nodeById);
+          return renderDataflowSection(v.level, p, layout, nodeById, base.services);
+        }
+        if (p.shape === 'compare') {
+          const layout = computeCompareLayout(p, drawableNodes, nodeById);
+          return renderCompareSection(v.level, p, layout, nodeById, base.services);
+        }
+        const layout = computeSequenceLayout(p, drawnMessages, nodeById);
+        return renderSequenceSection(v.level, p, layout, nodeById, base.services);
+      }),
     )
     .join('\n');
   return renderPage({
@@ -1140,5 +1547,7 @@ export function renderDrilldownHtml(
     sections,
     drill: true,
     ...(flowLevels.length > 0 ? { flows: { flows: drawnFlows, drawnSteps } } : {}),
+    ...(views.length > 0 ? { views } : {}),
+    mixedBundles: levels.some((l) => l.edges.some((e) => e.inferred !== undefined)),
   });
 }

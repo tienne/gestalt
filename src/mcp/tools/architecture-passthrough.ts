@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { collectGlobalContext } from '../../architecture/global-context.js';
 import { matchEndpoints } from '../../architecture/endpoint-match.js';
 import { matchMcpTools } from '../../architecture/mcp-tool-match.js';
+import { matchNameRefs } from '../../architecture/name-ref-match.js';
 import { computeDrilldown, shouldDrillDown } from '../../architecture/drilldown.js';
 import { renderArchitectureHtml, renderDrilldownHtml } from '../../architecture/html-renderer.js';
 import { parseArchitectureIr } from '../../architecture/ir-schema.js';
@@ -110,7 +111,9 @@ function prepareIr(input: ArchitectureInput, repoRoot: string): Prepared {
 function validate(ir: ArchitectureIr, repoRoot: string, checkFiles: boolean | undefined) {
   // IR의 root는 상대경로로 적히기도 한다. 서버 cwd가 아니라 repoRoot 기준으로 풀어야 근거 파일을 찾는다
   const repoRoots = Object.fromEntries(
-    ir.repos.map((r) => [r.id, isAbsolute(r.root) ? r.root : resolve(repoRoot, r.root)]),
+    ir.repos.flatMap((r) =>
+      r.root === undefined ? [] : [[r.id, isAbsolute(r.root) ? r.root : resolve(repoRoot, r.root)]],
+    ),
   );
   return validateArchitectureIr(ir, { repoRoots, checkFiles });
 }
@@ -229,10 +232,11 @@ function handleFilterTools(input: ArchitectureInput): object {
 function handleMatchEndpoints(input: ArchitectureInput): object {
   const http = input.feCalls !== undefined && input.beRoutes !== undefined;
   const mcp = input.skillToolCalls !== undefined && input.serverTools !== undefined;
-  if (!http && !mcp) {
+  const names = input.nameRefs !== undefined;
+  if (!http && !mcp && !names) {
     return fail(
       'MISSING_INPUT',
-      'match_endpoints에는 feCalls와 beRoutes, 또는 skillToolCalls와 serverTools가 필요하다.',
+      'match_endpoints에는 feCalls와 beRoutes, skillToolCalls와 serverTools, nameRefs 중 하나가 필요하다.',
     );
   }
   return {
@@ -251,6 +255,7 @@ function handleMatchEndpoints(input: ArchitectureInput): object {
           }),
         }
       : {}),
+    ...(names ? { refs: matchNameRefs(input.nameRefs!) } : {}),
   };
 }
 
@@ -300,10 +305,12 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
   }
 
   // 자동 질문도 저장해 둬야 사람이 답을 달고 다음 실행이 그 답을 물려받는다
-  const irPath = store.save({
+  const toSave = {
     ...validated.ir,
     unresolved: [...validated.ir.unresolved, ...validated.autoUnresolved],
-  });
+  };
+  const irPath = store.save(toSave);
+  const viewPaths = store.saveViews(toSave);
   const view: ArchitectureView = validated.ir.view;
   const htmlPath = store.saveHtml(view, 'private', privateHtml);
   const sharedHtmlPath = store.saveHtml(view, 'shared', sharedHtml);
@@ -315,6 +322,7 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
     htmlPath,
     sharedHtmlPath,
     openPath: input.audience === 'shared' ? sharedHtmlPath : htmlPath,
+    ...(viewPaths.length > 0 ? { viewPaths } : {}),
     ...(drilldown
       ? {
           levels: drilldown.levels.map((l) => ({

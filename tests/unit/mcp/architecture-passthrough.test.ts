@@ -344,6 +344,22 @@ describe('ges_architecture filter_tools / match_endpoints', () => {
     expect(result['unmatched']).toEqual([]);
   });
 
+  it('match_endpoints는 nameRefs를 팩 matcher 규칙으로 잇는다', async () => {
+    const result = await call({
+      action: 'match_endpoints',
+      nameRefs: {
+        matcher: 'dataset-io',
+        refs: [{ id: 'job-read', name: "ref('orders')" }],
+        decls: [{ id: 'tbl-orders', name: 'mart.orders' }],
+      },
+    });
+    expect(result['refs']).toEqual({
+      matcher: 'dataset-io',
+      matches: [{ refId: 'job-read', declId: 'tbl-orders' }],
+      unmatched: [],
+    });
+  });
+
   it('match_endpoints에 beRoutes가 없으면 거부한다', async () => {
     const result = await call({ action: 'match_endpoints', feCalls: [] });
     expect(result['ok']).toBe(false);

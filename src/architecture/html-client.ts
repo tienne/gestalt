@@ -17,7 +17,67 @@ export interface ClientConstants {
   webHostingName: Record<string, string>;
   /** 평면 그림에서 오른쪽에서 왼쪽으로 그리는 엣지 kind */
   backwardKinds: string[];
+  /** component를 쓸 수 있는 어휘면 true. 그때만 component 처리 코드를 싣는다 */
+  components?: boolean;
+  /** service 없는 흐름이 있으면 true. 전체 레벨의 흐름 단추가 그 흐름을 연다 */
+  rootFlows?: boolean;
+  /** 질문별 그림이 있으면 true. 메시지 서랍과 그림 단추 코드를 싣는다 */
+  views?: boolean;
+  /** 근거가 섞인 묶음 선이 있으면 true. 묶음 이름과 배지에 섞였다는 표시를 다는 코드를 싣는다 */
+  mixedBundles?: boolean;
 }
+
+// component는 칩 글자를 노드의 displayKind에서, 색과 아이콘은 renderClass에서 가져온다. types.ts의 displayKindOf, chipTextOverride와 같은 규칙이다.
+// 이 조각은 component를 쓸 수 있는 어휘에만 싣는다. 늘 실으면 component가 없는 그림의 바이트까지 바뀐다
+const COMPONENT_DKIND = "n.kind === 'component' ? 'cx_' + (n.renderClass || 'service') : ";
+const COMPONENT_CHIP = "(n.kind === 'component' && n.displayKind) || ";
+const ROOT_FLOWS = "current === 'root' ? flows.filter(function (f) { return !f.service; }) : []";
+
+// 근거가 섞인 묶음 조각. 그런 묶음이 있는 그림에만 싣는다. 문구는 html-renderer.ts의 inferredNote와 같다
+const MIXED_NOTE =
+  " + (e.inferred !== undefined ? ' (문서 근거만 있는 연결 ' + e.inferred + '개 포함)' : '')";
+const MIXED_PANEL_NOTE =
+  " + (bundle.inferred !== undefined ? ' (문서 근거만 있는 연결 ' + bundle.inferred + '개 포함)' : '')";
+const MIXED_PILL = `
+        if (e.inferred !== undefined) pill.lastChild.setAttribute('stroke-dasharray', '3 2');`;
+
+// 질문별 그림 조각. 투영이 있는 그림에만 싣는다
+const VIEW_CLICK = `var vm = e.target.closest('.link.seq-m');
+    if (vm) { activateMessage(vm); return; }
+    `;
+const VIEW_KEY = `var vm = e.target.closest('.link.seq-m');
+    if (vm) { e.preventDefault(); activateMessage(vm); return; }
+    `;
+const VIEW_FUNCS = `  var messages = data.messages || {};
+  function activateMessage(g) {
+    var m = messages[g.getAttribute('data-message-id')];
+    if (!m) return;
+    active.querySelectorAll('.node.selected').forEach(function (x) { x.classList.remove('selected'); });
+    lightLink(active, g);
+    returnFocus = g;
+    selectedId = null;
+    syncFocusBtn();
+    panel.textContent = '';
+    panel.appendChild(panelHead('flow', 'u-flow', m.shape === 'dataflow' ? '데이터 이동' : '주고받기', m.view, m.label));
+    var body = el('div', 'dr-body');
+    var facts = el('ul', 'facts');
+    factRow(facts, '보내는 쪽', label(m.from));
+    factRow(facts, '받는 쪽', label(m.to));
+    if (m.reply) factRow(facts, '종류', '응답');
+    if (m.block) factRow(facts, '묶음', m.branch ? m.block + ', ' + m.branch : m.block);
+    factRow(facts, '선', m.lineStyle === 'dashed' ? '점선 (문서나 사람 말로만 확인)' : '실선 (코드나 스펙으로 확인)');
+    body.appendChild(facts);
+    questionList(body, m.questions);
+    refButtons(body, m.from === m.to ? [m.from] : [m.from, m.to], focusCard, function (r) { return 'i-' + dkind(nodes[r]); }, label);
+    evidenceList(body, m.evidence);
+    panel.appendChild(body);
+    openDrawer();
+  }
+`;
+const VIEW_POP = `  setupPop('views-btn', 'views');
+  var viewsPop = byId('views');
+  if (viewsPop) viewsPop.addEventListener('click', function (e) { if (e.target.closest('a')) closePops(false); });
+`;
 
 export const THEME_STORAGE_KEY = 'gestalt-architecture-theme';
 const HINT_STORAGE_KEY = 'gestalt-architecture-hint';
@@ -131,7 +191,7 @@ export function renderClientScript(c: ClientConstants): string {
 ${FOCUS_SOURCE}
   function kindText(k) { return KIND_TEXT[k] || k; }
   // MCP 도구는 IR에선 endpoint지만 칩과 색은 따로 단다. types.ts의 displayKindOf와 같은 규칙이다
-  function dkind(n) { return !n ? '' : n.kind === 'endpoint' && n.protocol === 'mcp' ? 'mcp_tool' : n.kind; }
+  function dkind(n) { return !n ? '' : ${c.components ? COMPONENT_DKIND : ''}n.kind === 'endpoint' && n.protocol === 'mcp' ? 'mcp_tool' : n.kind; }
   function evidenceText(t) { return EVIDENCE_TEXT[t] || t; }
   function el(tag, cls, text) {
     var e = doc.createElement(tag);
@@ -357,7 +417,7 @@ ${FOCUS_SOURCE}
     var chips = el('div', 'chips');
     var chip = el('span', 'chip k-' + dkind(n));
     chip.appendChild(icon('i-' + dkind(n)));
-    chip.appendChild(doc.createTextNode(kindText(dkind(n))));
+    chip.appendChild(doc.createTextNode(${c.components ? COMPONENT_CHIP : ''}kindText(dkind(n))));
     chips.appendChild(chip);
     chips.appendChild(el('span', 'repo', n.repo));
     head.appendChild(chips);
@@ -680,7 +740,7 @@ ${FOCUS_SOURCE}
     returnFocus = g;
     renderTransitionPanel(t);
   }
-  stage.addEventListener('click', function (e) {
+${c.views ? VIEW_FUNCS : ''}  stage.addEventListener('click', function (e) {
     if (suppressClick) { suppressClick = false; return; }
     var more = e.target.closest('.pb.more');
     if (more) { toggleProducts(more); return; }
@@ -690,7 +750,7 @@ ${FOCUS_SOURCE}
       var fl = flowsBySvc[badge.closest('.node').getAttribute('data-node-id')] || [];
       if (fl.length === 1) { showLevel(fl[0].level); return; }
     }
-    var card = e.target.closest('.node');
+    ${c.views ? VIEW_CLICK : ''}var card = e.target.closest('.node');
     if (card) { activateNode(card.getAttribute('data-node-id'), e, false); return; }
     var link = e.target.closest('.link.bundle');
     if (link) { activateBundle(link); return; }
@@ -707,7 +767,7 @@ ${FOCUS_SOURCE}
     if (e.key !== 'Enter' && e.key !== ' ') return;
     // +N 버튼은 브라우저가 Enter와 스페이스를 클릭으로 바꿔 준다. 카드 선택으로 새면 안 된다
     if (e.target.closest('.pb.more')) return;
-    var card = e.target.closest('.node');
+    ${c.views ? VIEW_KEY : ''}var card = e.target.closest('.node');
     if (card) { e.preventDefault(); activateNode(card.getAttribute('data-node-id'), e, true); return; }
     var link = e.target.closest('.link.bundle');
     if (link) { e.preventDefault(); activateBundle(link); return; }
@@ -947,7 +1007,7 @@ ${FOCUS_SOURCE}
     d.style.height = h + 'px';
     var kc = el('span', 'kc');
     kc.appendChild(icon('i-' + kind));
-    kc.appendChild(doc.createTextNode(MICRO_HOSTS[id] ? HOST_SHORT : KIND_SHORT[kind] || kind));
+    kc.appendChild(doc.createTextNode(MICRO_HOSTS[id] ? HOST_SHORT : ${c.components ? COMPONENT_CHIP : ''}KIND_SHORT[kind] || kind));
     d.appendChild(kc);
     var nm = el('span', 'nm');
     nm.appendChild(el('span', 't', label(id)));
@@ -1072,7 +1132,7 @@ ${FOCUS_SOURCE}
       var bundle = e.kind === 'bundle';
       var xa = nodes[e.from] && nodes[e.to] && nodes[e.from].account && nodes[e.to].account && nodes[e.from].account !== nodes[e.to].account;
       var g = svgEl('g', { 'class': (bundle ? 'link bundle' : 'link e-' + e.kind) + (xa ? ' x-account' : ''), 'data-from': e.from, 'data-to': e.to });
-      var name = bundle ? label(e.from) + ' → ' + label(e.to) + ' ' + e.count + '개' : kindText(e.kind) + ': ' + label(e.from) + ' → ' + label(e.to);
+      var name = bundle ? label(e.from) + ' → ' + label(e.to) + ' ' + e.count + '개'${c.mixedBundles ? MIXED_NOTE : ''} : kindText(e.kind) + ': ' + label(e.from) + ' → ' + label(e.to);
       if (bundle) {
         g.setAttribute('data-bundle-id', e.id);
         g.setAttribute('tabindex', '0');
@@ -1092,7 +1152,7 @@ ${FOCUS_SOURCE}
         var text = String(e.count);
         var pw = 14 + text.length * 7;
         var pill = svgEl('g', { 'class': 'pill', transform: 'translate(' + p.mid.x + ',' + p.mid.y + ')' });
-        pill.appendChild(svgEl('rect', { x: -pw / 2, y: -9, width: pw, height: 18, rx: 9 }));
+        pill.appendChild(svgEl('rect', { x: -pw / 2, y: -9, width: pw, height: 18, rx: 9 }));${c.mixedBundles ? MIXED_PILL : ''}
         var pt = svgEl('text', {});
         pt.textContent = text;
         pill.appendChild(pt);
@@ -1380,7 +1440,7 @@ ${FOCUS_SOURCE}
     var bundle = level && level.edgeById[bundleId];
     if (!bundle) return false;
     renderLevel(levelId);
-    drawPair(bundle.memberEdgeIds, label(bundle.from) + ' → ' + label(bundle.to));
+    drawPair(bundle.memberEdgeIds, label(bundle.from) + ' → ' + label(bundle.to)${c.mixedBundles ? MIXED_PANEL_NOTE : ''});
     return true;
   }
   function route() {
@@ -1488,13 +1548,13 @@ ${FOCUS_SOURCE}
   }
   setupPop('legend-btn', 'legend');
   setupPop('q-btn', 'questions');
-  // 흐름 단추는 서비스 아래 레벨에서만 보인다. 흐름이 하나면 바로 가고 여럿이면 고르게 한다
+${c.views ? VIEW_POP : ''}  // 흐름 단추는 서비스 아래 레벨에서만 보인다. 흐름이 하나면 바로 가고 여럿이면 고르게 한다
   var flowBtn = byId('flow-btn');
   var flowPop = byId('flow-pop');
   function flowsHere() {
     var lv = levels[current];
     var svc = lv && lv.kind !== 'flow' && lv.trail[1] && lv.trail[1].indexOf('service:') === 0 ? lv.trail[1].slice(8) : null;
-    return svc ? flowsBySvc[svc] || [] : [];
+    return svc ? flowsBySvc[svc] || [] : ${c.rootFlows ? ROOT_FLOWS : '[]'};
   }
   function syncFlowBtn() {
     if (flowBtn) flowBtn.hidden = flowsHere().length === 0;

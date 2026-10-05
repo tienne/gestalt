@@ -1,46 +1,24 @@
+import {
+  ALL_PACKS_VOCABULARY,
+  componentDisplayKind,
+  type PackDisplayKind,
+  type PackEdgeKind,
+  type PackNodeKind,
+} from './packs/index.js';
+import { HARNESS_PACK } from './packs/harness.js';
+import type { RenderClass } from './packs/types.js';
+
 // 열거값은 배열 하나에서 타입과 zod 스키마를 함께 뽑는다. 두 곳에 따로 적으면 한쪽만 고쳐지기 쉽다.
 export const ARCHITECTURE_VIEWS = ['screen-chain', 'deploy-path'] as const;
-export const NODE_KINDS = [
-  'screen',
-  'endpoint',
-  'app_module',
-  'external_service',
-  'db_table',
-  'datastore',
-  'workflow',
-  'build',
-  'artifact',
-  'deploy_target',
-  'service',
-  'micro_app',
-  'feature',
-  'gateway',
-  'domain',
-  'cdn',
-  'bucket',
-  'cloud_account',
-  'client',
-  'skill',
-  'agent',
-] as const;
-export const EDGE_KINDS = [
-  'calls',
-  'handles',
-  'uses',
-  'reads_writes',
-  'triggers',
-  'builds',
-  'produces',
-  'deploys_to',
-  'routes',
-  'navigates',
-  'resolves_to',
-  'origin',
-  'serves',
-  'loads',
-  'spawns',
-  'invokes',
-] as const;
+/** kind 목록은 팩에서 온다. 새 카테고리는 packs/에 팩을 더하면 여기 따라 붙는다 */
+export const NODE_KINDS = Object.keys(ALL_PACKS_VOCABULARY.nodeKinds) as unknown as readonly [
+  PackNodeKind,
+  ...PackNodeKind[],
+];
+export const EDGE_KINDS = Object.keys(ALL_PACKS_VOCABULARY.edgeKinds) as unknown as readonly [
+  PackEdgeKind,
+  ...PackEdgeKind[],
+];
 /** endpoint가 받는 호출 방식. 없으면 http다. mcp면 label이 도구 이름이다 */
 export const ENDPOINT_PROTOCOLS = ['http', 'mcp'] as const;
 export const EVIDENCE_TYPES = ['code', 'spec', 'doc', 'user', 'live'] as const;
@@ -66,9 +44,10 @@ export const FLOW_REF_KINDS: readonly NodeKind[] = [
   'micro_app',
   'skill',
   'agent',
+  'component',
 ];
 /** 하네스와 MCP 레포에만 나오는 kind. 이게 하나라도 있으면 하네스 IR로 보고 하네스 규칙을 건다 */
-export const HARNESS_KINDS: readonly NodeKind[] = ['client', 'skill', 'agent'];
+export const HARNESS_KINDS: readonly NodeKind[] = Object.keys(HARNESS_PACK.nodeKinds) as NodeKind[];
 /** 서빙 인프라. 화면 흐름과 배포 경로 둘 다에 설 수 있다 */
 export const INFRA_KINDS = ['domain', 'cdn', 'bucket', 'cloud_account'] as const;
 /** environment를 가질 수 있는 kind. 네이티브 배포처는 deploy_target으로 그린다 */
@@ -80,25 +59,16 @@ export const ENVIRONMENT_KINDS: readonly NodeKind[] = [
 /** 환경 정렬 순서. 여기 없는 환경은 이름순으로 뒤에, 환경이 없으면 맨 뒤에 선다 */
 export const ENVIRONMENT_ORDER = ['prod', 'stage', 'qa', 'dev'] as const;
 export const ARCHITECTURE_IR_SCHEMA_VERSION = '1.0.0';
-/**
- * 포함 관계 규칙. 키에 없는 kind는 parent를 가질 수 없다.
- * micro_app은 Module Federation 같은 마이크로 프론트엔드의 호스트나 리모트다. 서비스가 그 묶음이고
- * 기능 영역과 화면은 페이지 코드가 있는 앱 밑에 둔다
- */
-export const PARENT_KINDS: Partial<Record<NodeKind, readonly NodeKind[]>> = {
-  screen: ['feature', 'micro_app', 'service'],
-  // 하네스는 플러그인이 서비스이고 스킬 묶음이 기능 영역이다
-  skill: ['feature', 'service'],
-  feature: ['micro_app', 'service'],
-  micro_app: ['service'],
-  db_table: ['datastore'],
-  // MCP 도구만 받는다. 스킬 없이 클라이언트가 바로 부르는 도구가 어느 서버 패키지 것인지 적는 자리다
-  endpoint: ['service'],
-};
+/** 포함 관계 규칙. 키에 없는 kind는 parent를 가질 수 없다. 규칙은 팩의 nodeKinds.parents에 있다 */
+export const PARENT_KINDS: Partial<Record<NodeKind, readonly NodeKind[]>> = Object.fromEntries(
+  Object.entries(ALL_PACKS_VOCABULARY.nodeKinds).flatMap(([k, d]) =>
+    d.parents === undefined ? [] : [[k, d.parents]],
+  ),
+);
 
 export type ArchitectureView = (typeof ARCHITECTURE_VIEWS)[number];
-export type NodeKind = (typeof NODE_KINDS)[number];
-export type EdgeKind = (typeof EDGE_KINDS)[number];
+export type NodeKind = PackNodeKind;
+export type EdgeKind = PackEdgeKind;
 export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
 export type Visibility = (typeof VISIBILITIES)[number];
 export type LineStyle = (typeof LINE_STYLES)[number];
@@ -111,10 +81,23 @@ export type EndpointProtocol = (typeof ENDPOINT_PROTOCOLS)[number];
  * 카드 칩과 아이콘, 색을 고르는 종류. MCP 도구는 IR에서는 endpoint라 매칭과 드릴다운을 그대로 타고
  * 읽는 사람에게만 API 대신 MCP 도구로 보인다
  */
-export type DisplayKind = NodeKind | 'mcp_tool';
+export type DisplayKind = NodeKind | PackDisplayKind;
 
-export function displayKindOf(node: { kind: NodeKind; protocol?: EndpointProtocol }): DisplayKind {
+export function displayKindOf(node: {
+  kind: NodeKind;
+  protocol?: EndpointProtocol;
+  renderClass?: RenderClass;
+}): DisplayKind {
+  if (node.kind === 'component') return componentDisplayKind(node.renderClass ?? 'service');
   return node.kind === 'endpoint' && node.protocol === 'mcp' ? 'mcp_tool' : node.kind;
+}
+
+/** 칩에 kind 표 대신 노드가 직접 적은 글자를 쓰는 경우. component만 해당한다 */
+export function chipTextOverride(node: {
+  kind: NodeKind;
+  displayKind?: string;
+}): string | undefined {
+  return node.kind === 'component' ? node.displayKind : undefined;
 }
 /** 웹 서빙 방식. 버킷이 서빙하면 정적, 배포 대상(서버)이 서빙하면 SSR이다 */
 export type WebHosting = 'static' | 'ssr';
@@ -162,6 +145,10 @@ export interface ArchitectureNode {
   mcpServer?: string;
   /** mcp endpoint만. 도구가 action 인자로 나눠 받는 값. 서버의 enum이나 분기 그대로다 */
   actions?: string[];
+  /** component만. 읽는 사람이 보는 종류 이름(예: 배치 잡, 결재 문서). 칩에 그대로 찍힌다 */
+  displayKind?: string;
+  /** component만. 색과 아이콘을 고르는 렌더 분류 */
+  renderClass?: RenderClass;
 }
 
 export interface ArchitectureEdge {
@@ -178,7 +165,14 @@ export interface ArchitectureEdge {
 export interface UnresolvedQuestion {
   id: string;
   /** stepId와 transitionId는 흐름의 단계와 전이를 가리킨다. 흐름 id끼리 겹치지 않아야 한다 */
-  subject: { nodeId?: string; edgeId?: string; stepId?: string; transitionId?: string };
+  subject: {
+    nodeId?: string;
+    edgeId?: string;
+    stepId?: string;
+    transitionId?: string;
+    /** 투영 메시지 id. 투영끼리 겹치지 않아야 한다 */
+    messageId?: string;
+  };
   question: string;
   answer?: string;
 }
@@ -194,7 +188,11 @@ export interface ContextSource {
 export interface ArchitectureRepo {
   id: string;
   name: string;
-  root: string;
+  /**
+   * 체크아웃 경로. 없으면 코드 없이 문서와 사람 말로만 엮은 문서 묶음이다.
+   * 문서 묶음을 가리키는 code 근거는 확인할 파일이 없어서 거부한다
+   */
+  root?: string;
   remote?: string;
 }
 
@@ -249,8 +247,11 @@ export interface FlowTransition {
  */
 export interface ArchitectureFlow {
   id: string;
-  /** 이 흐름이 딸린 service 노드 id. 그 서비스 레벨 아래 레벨로 그린다 */
-  service: string;
+  /**
+   * 이 흐름이 딸린 service 노드 id. 그 서비스 레벨 아래 레벨로 그린다.
+   * 없으면 전체 바로 아래 독립 흐름 레벨이 된다. 승인 절차나 장애 대응처럼 코드 서비스에 안 딸린 흐름이다
+   */
+  service?: string;
   title: string;
   description?: string;
   /** 상태 값 → 그림에 찍을 이름. 상태 값은 코드의 enum 그대로라 사용자 언어로 된 이름을 따로 받는다. 없는 값은 상태 값 그대로 찍는다 */
@@ -258,6 +259,67 @@ export interface ArchitectureFlow {
   actors: FlowActor[];
   steps: FlowStep[];
   transitions: FlowTransition[];
+}
+
+/** 투영의 답 모양. 지도(nodes, edges)는 그대로 두고 질문 하나에 맞게 골라 그린다 */
+/**
+ * 투영 모양. sequence는 주고받는 순서, dataflow는 데이터가 어디서 어디로 옮겨 가는지, compare는 두 묶음의 같고 다른 점이다.
+ * 팩과 무관하게 어느 카테고리든 이 중 하나로 답한다
+ */
+export const PROJECTION_SHAPES = ['sequence', 'dataflow', 'compare'] as const;
+export type ProjectionShape = (typeof PROJECTION_SHAPES)[number];
+/** sequence 묶음 종류. alt는 경우 나누기, opt는 조건이 맞을 때만, loop는 반복, par는 동시 실행이다 */
+export const SEQUENCE_BLOCK_KINDS = ['alt', 'opt', 'loop', 'par'] as const;
+export type SequenceBlockKind = (typeof SEQUENCE_BLOCK_KINDS)[number];
+
+export interface ProjectionBlock {
+  id: string;
+  kind: SequenceBlockKind;
+  label: string;
+}
+
+/**
+ * 투영 안의 메시지 하나. from과 to는 지도의 노드 id다.
+ * edge를 적으면 그 엣지의 근거를 함께 쓴다. edge도 evidence도 없으면 unresolved에 이 메시지를 묻는 질문이 있어야 한다
+ */
+export interface ProjectionMessage {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  edge?: string;
+  evidence: Evidence[];
+  lineStyle: LineStyle;
+  /** 응답이면 true. 화살표를 열린 꼴로 그린다 */
+  reply?: boolean;
+  block?: string;
+  /** alt 묶음 안에서 이 메시지가 속한 경우의 이름. 경우가 바뀌는 자리에 가로 점선을 긋는다 */
+  branch?: string;
+}
+
+/**
+ * 질문 하나에 답하는 그림. 지도에서 노드를 골라 순서와 묶음을 붙인다.
+ * 지도에 없는 노드는 못 가리킨다. 필요하면 근거와 함께 지도에 먼저 넣는다
+ */
+export interface ArchitectureProjection {
+  id: string;
+  shape: ProjectionShape;
+  title: string;
+  question: string;
+  /** 왼쪽부터 놓을 참여자. 없으면 메시지에 처음 나온 순서다 */
+  participants?: string[];
+  /** sequence와 dataflow의 선. compare는 비워 둔다 */
+  messages: ProjectionMessage[];
+  blocks?: ProjectionBlock[];
+  /** compare가 견주는 두 묶음. 전과 후, 제품 둘처럼 왼쪽과 오른쪽에 선다 */
+  sides?: ProjectionSide[];
+}
+
+/** compare 묶음 하나. nodes는 지도의 노드 id다. 두 묶음에 다 있는 노드는 가운데 열에 선다 */
+export interface ProjectionSide {
+  id: string;
+  label: string;
+  nodes: string[];
 }
 
 /**
@@ -276,6 +338,8 @@ export interface ArchitectureStage {
 export interface ArchitectureIr {
   schemaVersion: typeof ARCHITECTURE_IR_SCHEMA_VERSION;
   view: ArchitectureView;
+  /** 이 IR이 쓰는 어휘 팩 id. 없으면 web-product와 harness다. 여기 없는 팩의 kind를 쓰면 검증에서 막힌다 */
+  packs?: string[];
   repos: ArchitectureRepo[];
   nodes: ArchitectureNode[];
   edges: ArchitectureEdge[];
@@ -287,5 +351,6 @@ export interface ArchitectureIr {
   /** 도메인 흐름. 없으면 기술 그림만 그린다 */
   flows?: ArchitectureFlow[];
   /** 기술 그림 구간. 배열 순서가 왼쪽부터다. 없으면 종류별 레인만 그린다 */
-  stages?: ArchitectureStage[];
+  stages?: ArchitectureStage[]; /** 질문별 그림. 드릴다운 끝에 레벨로 붙고 저장할 때 views/<id>.json으로도 남는다 */
+  projections?: ArchitectureProjection[];
 }

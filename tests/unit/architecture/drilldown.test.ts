@@ -10,6 +10,7 @@ import {
   type Evidence,
   type ValidatedIr,
 } from '../../../src/architecture/index.js';
+import { renderBoth } from '../../fixtures/architecture-legacy/render.js';
 
 const codeEv: Evidence = { type: 'code', location: 'web:src/a.ts:1', visibility: 'public' };
 const docEv: Evidence = { type: 'doc', location: 'https://docs.acme.test/a', visibility: 'public' };
@@ -118,10 +119,29 @@ describe('computeDrilldown', () => {
       ['svc-web', 'gw', 3, 'c1,c2,c3,r1,r2'],
     ]);
     expect(root.edges.every((e) => e.kind === 'bundle')).toBe(true);
-    // 문서 근거뿐인 고리가 끼면 묶음도 점선이다
-    expect(root.edges.find((e) => e.from === 'm-cart')!.lineStyle).toBe('dashed');
-    expect(root.edges.find((e) => e.from === 'svc-web')!.lineStyle).toBe('solid');
+    // 코드로 확인된 고리가 하나라도 있으면 실선이다. 문서 근거뿐인 고리 수는 따로 단다
+    const mixed = root.edges.find((e) => e.from === 'm-cart')!;
+    expect([mixed.lineStyle, mixed.inferred]).toEqual(['solid', 1]);
+    const pure = root.edges.find((e) => e.from === 'svc-web')!;
+    expect([pure.lineStyle, pure.inferred]).toEqual(['solid', undefined]);
     expect(root.layout.nodes.map((n) => n.id)).toEqual(root.nodeIds);
+  });
+
+  it('묶음 안이 전부 문서 근거일 때만 점선이다', async () => {
+    const ir = fixture();
+    ir.edges = ir.edges.map((e) =>
+      e.id === 'u1' ? { ...e, evidence: [docEv], lineStyle: 'dashed' } : e,
+    );
+    const { levels } = await computeDrilldown(validated(ir));
+    const bundle = levels[0]!.edges.find((e) => e.from === 'm-cart')!;
+    expect([bundle.lineStyle, bundle.inferred]).toEqual(['dashed', undefined]);
+  });
+
+  it('섞인 묶음은 배지 테두리를 점선으로 그리고 이름에 문서 근거 수를 단다', async () => {
+    const html = (await renderBoth(fixture())).private;
+    expect(html).toContain('m-cart → m-orders 1개 (문서 근거만 있는 연결 1개 포함)</title>');
+    expect(html).toContain('rx="9" stroke-dasharray="3 2"/>');
+    expect(html).toContain("' (문서 근거만 있는 연결 ' + e.inferred");
   });
 
   it('레벨 목록과 들어갈 곳을 id 순으로 낸다', async () => {

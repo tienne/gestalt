@@ -1,74 +1,10 @@
-import type { DisplayKind, NodeKind } from './types.js';
+import { LEGACY_PACK_IDS, vocabularyOf, type Vocabulary } from './packs/index.js';
+import type { NodeKind } from './types.js';
 
-// 밝은 화면은 600 톤, 어두운 화면은 400 톤이다. 같은 색상환 자리라 테마를 바꿔도 같은 종류로 읽힌다
-const KIND_COLORS: Record<DisplayKind, { light: string; dark: string }> = {
-  service: { light: '#2563eb', dark: '#60a5fa' },
-  micro_app: { light: '#0369a1', dark: '#7dd3fc' },
-  feature: { light: '#0891b2', dark: '#22d3ee' },
-  screen: { light: '#4f46e5', dark: '#818cf8' },
-  gateway: { light: '#475569', dark: '#94a3b8' },
-  endpoint: { light: '#059669', dark: '#34d399' },
-  app_module: { light: '#7c3aed', dark: '#a78bfa' },
-  external_service: { light: '#d97706', dark: '#fbbf24' },
-  db_table: { light: '#dc2626', dark: '#f87171' },
-  datastore: { light: '#be123c', dark: '#fb7185' },
-  workflow: { light: '#0284c7', dark: '#38bdf8' },
-  build: { light: '#0d9488', dark: '#2dd4bf' },
-  artifact: { light: '#9333ea', dark: '#c084fc' },
-  deploy_target: { light: '#ea580c', dark: '#fb923c' },
-  domain: { light: '#db2777', dark: '#f472b6' },
-  cdn: { light: '#4338ca', dark: '#a5b4fc' },
-  bucket: { light: '#16a34a', dark: '#4ade80' },
-  cloud_account: { light: '#57534e', dark: '#a8a29e' },
-  client: { light: '#a16207', dark: '#facc15' },
-  skill: { light: '#c026d3', dark: '#e879f9' },
-  agent: { light: '#65a30d', dark: '#a3e635' },
-  // 도구는 API와 같은 자리라 같은 초록 계열에서 한 톤 진하게 간다
-  mcp_tool: { light: '#047857', dark: '#6ee7b7' },
-};
-
-// 24 격자 선 아이콘. 이모지는 플랫폼마다 모양이 달라서 path로 직접 그린다
-const KIND_ICONS: Record<DisplayKind, string> = {
-  service:
-    '<path d="M12 3.5l8.5 4.3L12 12 3.5 7.8z"/><path d="M3.5 12.2L12 16.5l8.5-4.3"/><path d="M3.5 16.4L12 20.7l8.5-4.3"/>',
-  micro_app:
-    '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M17 13.5v7M13.5 17h7"/>',
-  feature:
-    '<path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
-  screen:
-    '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M3 9h18"/><path d="M6.5 6.8h.01M9 6.8h.01"/>',
-  gateway: '<path d="M12 3l7.5 3v5.5c0 4.4-3.1 8-7.5 9.5-4.4-1.5-7.5-5.1-7.5-9.5V6z"/>',
-  endpoint: '<path d="M8.5 7.5L4 12l4.5 4.5M15.5 7.5L20 12l-4.5 4.5M13.5 5.5l-3 13"/>',
-  app_module:
-    '<rect x="3.5" y="4" width="17" height="7" rx="1.8"/><rect x="3.5" y="13" width="17" height="7" rx="1.8"/><path d="M7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/>',
-  external_service:
-    '<path d="M9 3v4.5M15 3v4.5"/><path d="M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0z"/><path d="M12 16.5V21"/>',
-  db_table:
-    '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13"/><path d="M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/>',
-  datastore:
-    '<ellipse cx="12" cy="5" rx="7.5" ry="2.5"/><path d="M4.5 5v4.5c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5V5"/><path d="M4.5 9.5V14c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5V9.5"/><path d="M4.5 14v4.5c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5V14"/>',
-  workflow: '<path d="M13 2.5L4.5 13.5H11l-1 8 8.5-11H12z"/>',
-  build:
-    '<path d="M14.5 6.2a4 4 0 0 0-5.3 5.3L3.5 17.2l3.3 3.3 5.7-5.7a4 4 0 0 0 5.3-5.3l-2.6 2.6-2.5-.2-.2-2.5z"/>',
-  artifact:
-    '<path d="M12 2.8l8.5 4.7v9L12 21.2l-8.5-4.7v-9z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9.2"/>',
-  deploy_target:
-    '<path d="M7 18.5a4.5 4.5 0 0 1-.7-8.95A6 6 0 0 1 17.8 8.6a4.95 4.95 0 0 1-.8 9.9z"/><path d="M12 11v5M9.8 13.2L12 11l2.2 2.2"/>',
-  domain:
-    '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
-  cdn: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.5 5.4 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.4-3.5-8.5s1-5.9 3.5-8.5z"/>',
-  bucket:
-    '<ellipse cx="12" cy="6.5" rx="8" ry="2.5"/><path d="M4 6.5l2 13a2 2 0 0 0 2 1.5h8a2 2 0 0 0 2-1.5l2-13"/>',
-  cloud_account:
-    '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16.2a3.5 3.5 0 0 1 6.4 0M14.5 10h3M14.5 13.5h3"/>',
-  client:
-    '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7 10l3 2.5L7 15M12.5 15h4.5"/>',
-  skill: '<path d="M6 3.5h9.5l3 3v14H6z"/><path d="M15.5 3.5v3h3M9 11h6M9 14.5h6M9 18h3.5"/>',
-  agent:
-    '<rect x="4.5" y="7.5" width="15" height="12" rx="3"/><path d="M12 4v3.5M9 12.5h.01M15 12.5h.01M9.5 16h5"/>',
-  mcp_tool:
-    '<rect x="3.5" y="8" width="17" height="11.5" rx="2"/><path d="M9 8V5.5h6V8M3.5 13h17M11 12v2.5h2V12"/>',
-};
+// 색과 아이콘은 팩의 nodeKinds와 displayKinds에 있다. 아이콘은 24 격자 선 그림이다.
+// 이모지는 플랫폼마다 모양이 달라서 path로 직접 그린다.
+// 페이지에는 IR이 쓰는 팩 것만 싣는다. 팩을 더해도 그 팩을 안 쓰는 그림의 바이트가 그대로다
+const LEGACY_VOCABULARY = vocabularyOf(LEGACY_PACK_IDS);
 
 // 플랫폼 칩 아이콘. 앱 둘은 칩만 보고 바로 알아보게 공식 로고를 브랜드 색으로 채워 그린다. 모양은 simple-icons에서 가져왔다
 const PLATFORM_ICONS: Record<string, string> = {
@@ -188,10 +124,10 @@ function filledSymbol(id: string, body: string, viewBox = '0 0 24 24'): string {
 }
 
 /** 페이지에 한 번만 싣는 아이콘 묶음. 카드와 단추는 use로 가져다 쓴다 */
-export function renderIconSprite(): string {
-  const kinds = (Object.keys(KIND_ICONS) as DisplayKind[])
+export function renderIconSprite(vocab: Vocabulary = LEGACY_VOCABULARY): string {
+  const kinds = Object.keys(vocab.looks)
     .sort()
-    .map((k) => symbol(`i-${k}`, KIND_ICONS[k]));
+    .map((k) => symbol(`i-${k}`, vocab.looks[k]!.icon));
   const ui = Object.keys(UI_ICONS)
     .sort()
     .map((k) => symbol(`u-${k}`, UI_ICONS[k]!));
@@ -226,10 +162,10 @@ function productRules(): string {
   return PRODUCT_PALETTE.map((c, i) => `.p-${i}{--p:${c};}`).join('');
 }
 
-function kindRules(theme: 'light' | 'dark'): string {
-  return (Object.keys(KIND_COLORS) as DisplayKind[])
+function kindRules(vocab: Vocabulary, theme: 'light' | 'dark'): string {
+  return Object.keys(vocab.looks)
     .sort()
-    .map((k) => `.k-${k}{--kind:${KIND_COLORS[k][theme]};}`)
+    .map((k) => `.k-${k}{--kind:${vocab.looks[k]!.color[theme]};}`)
     .join('');
 }
 
@@ -702,23 +638,47 @@ a.loc:hover { text-decoration: underline; }
 }
 `;
 
+/** 질문별 그림이 있을 때만 붙이는 스타일. 공용 CSS에 넣으면 투영 없는 그림의 바이트가 바뀐다 */
+export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; font-size: 13px; color: var(--muted); }
+.lifeline { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 4 5; }
+.seq-block rect { fill: var(--lane); stroke: var(--border-strong); stroke-width: 1; }
+.seq-block .b-tab { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1; }
+.seq-block .b-kind { font-size: 11px; font-weight: 700; fill: var(--text); }
+.seq-block .b-label { font-size: 11px; fill: var(--muted); }
+.seq-block .b-branch { stroke: var(--border-strong); stroke-dasharray: 5 4; }
+.link.seq-m { cursor: pointer; }
+.link.seq-m .tip.open { fill: none; stroke: var(--edge); stroke-width: 1.6; }
+.link.seq-m.lit .tip.open, .link.seq-m:hover .tip.open { fill: none; stroke: var(--edge-strong); }
+.link.seq-m .m-label {
+  font-size: 11.5px; font-weight: 600; fill: var(--text);
+  paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
+}
+.link.seq-m .m-n { fill: var(--muted); }
+.view-list a { display: block; padding: 8px 10px; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 13px; }
+.view-list a:hover { background: var(--lane); }
+.view-list a span { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.cmp-col rect { fill: var(--lane); stroke: var(--border); stroke-width: 1; }
+.cmp-col.cmp-both rect { stroke: var(--border-strong); stroke-width: 1.5; }
+.cmp-head { font-size: 12.5px; font-weight: 700; fill: var(--text); }
+.cmp-n, .cmp-empty { font-size: 12px; font-weight: 400; fill: var(--muted); }`;
+
 /** 테마 토큰과 레이아웃 CSS. 시스템 설정을 기본으로 따르고 html의 data-theme가 있으면 그걸 따른다 */
-export function renderCss(): string {
+export function renderCss(vocab: Vocabulary = LEGACY_VOCABULARY): string {
   return [
     `:root {${LIGHT_TOKENS}  --font: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;\n  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;\n}`,
-    `@media (prefers-color-scheme: dark) {\n:root:not([data-theme="light"]) {${DARK_TOKENS}}\n${scoped(':root:not([data-theme="light"])', 'dark')}\n}`,
+    `@media (prefers-color-scheme: dark) {\n:root:not([data-theme="light"]) {${DARK_TOKENS}}\n${scoped(vocab, ':root:not([data-theme="light"])', 'dark')}\n}`,
     `:root[data-theme="dark"] {${DARK_TOKENS}}`,
-    kindRules('light'),
+    kindRules(vocab, 'light'),
     brandRules('light'),
     productRules(),
-    scoped(':root[data-theme="dark"]', 'dark'),
+    scoped(vocab, ':root[data-theme="dark"]', 'dark'),
     LAYOUT_CSS,
   ].join('\n');
 }
 
-function scoped(prefix: string, theme: 'light' | 'dark'): string {
+function scoped(vocab: Vocabulary, prefix: string, theme: 'light' | 'dark'): string {
   return (
-    kindRules(theme).replace(/\.k-/g, `${prefix} .k-`) +
+    kindRules(vocab, theme).replace(/\.k-/g, `${prefix} .k-`) +
     brandRules(theme).replace(/\.b-/g, `${prefix} .b-`)
   );
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { readJsonOrQuarantine, writeJsonAtomic } from '../core/json-file.js';
 import { parseArchitectureIr } from './ir-schema.js';
@@ -7,6 +7,7 @@ import type {
   ArchitectureEdge,
   ArchitectureIr,
   ArchitectureNode,
+  ArchitectureProjection,
   ArchitectureView,
   ContextSource,
   UnresolvedQuestion,
@@ -52,11 +53,69 @@ export class ArchitectureStore {
     return path;
   }
 
+  viewPath(view: ArchitectureView, projectionId: string): string {
+    return join(this.dir, 'views', `${view}.${projectionId}.json`);
+  }
+
+  /**
+   * 투영 하나를 `views/<그림>.<투영 id>.json`에 따로 쌓는다. 질문 하나로 그림을 다시 열거나 남에게 넘길 때
+   * 전체 IR 없이 읽히게 투영이 가리키는 노드와 엣지, 그 메시지에 걸린 질문만 함께 담는다.
+   * 이번 IR에 없는 같은 그림의 옛 파일은 지운다. 저장한 경로를 돌려준다
+   */
+  saveViews(ir: ArchitectureIr): string[] {
+    const stripped = stripPrivateExcerpts(ir);
+    const paths = (stripped.projections ?? []).map((pr) => {
+      const path = this.viewPath(ir.view, pr.id);
+      writeJsonAtomic(path, projectionSlice(stripped, pr));
+      return path;
+    });
+    const dir = join(this.dir, 'views');
+    if (!existsSync(dir)) return paths;
+    const keep = new Set(paths);
+    for (const name of readdirSync(dir)) {
+      if (!name.startsWith(`${ir.view}.`) || !name.endsWith('.json')) continue;
+      const path = join(dir, name);
+      if (!keep.has(path)) unlinkSync(path);
+    }
+    return paths;
+  }
+
   saveHtml(view: ArchitectureView, audience: 'private' | 'shared', html: string): string {
     const path = this.htmlPath(view, audience);
     writeTextAtomic(path, html);
     return path;
   }
+}
+
+export interface ProjectionSlice {
+  schemaVersion: string;
+  view: ArchitectureView;
+  generatedAt: string;
+  projection: ArchitectureProjection;
+  nodes: ArchitectureNode[];
+  edges: ArchitectureEdge[];
+  unresolved: UnresolvedQuestion[];
+}
+
+function projectionSlice(ir: ArchitectureIr, pr: ArchitectureProjection): ProjectionSlice {
+  const nodeIds = new Set([
+    ...(pr.participants ?? []),
+    ...(pr.sides ?? []).flatMap((side) => side.nodes),
+    ...pr.messages.flatMap((m) => [m.from, m.to]),
+  ]);
+  const edgeIds = new Set(pr.messages.flatMap((m) => (m.edge !== undefined ? [m.edge] : [])));
+  const messageIds = new Set(pr.messages.map((m) => m.id));
+  return {
+    schemaVersion: ir.schemaVersion,
+    view: ir.view,
+    generatedAt: ir.generatedAt,
+    projection: pr,
+    nodes: ir.nodes.filter((n) => nodeIds.has(n.id)),
+    edges: ir.edges.filter((e) => edgeIds.has(e.id)),
+    unresolved: ir.unresolved.filter(
+      (q) => q.subject.messageId !== undefined && messageIds.has(q.subject.messageId),
+    ),
+  };
 }
 
 // 브라우저가 열어둔 HTML을 새로고침할 때 반쯤 쓰인 파일을 보지 않게 json과 같은 방식으로 갈아 끼운다
@@ -173,30 +232,53 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
   // 흐름은 지난 실행과 키로 맞추지 않고 이번 실행 것을 그대로 쓴다. 노드 id가 바뀌었으면 가리키는 쪽만 따라 바꾼다
   const flows = next.flows?.map((f) => ({
     ...f,
-    service: mapNodeId(f.service),
+    ...(f.service !== undefined ? { service: mapNodeId(f.service) } : {}),
     steps: f.steps.map((st) =>
       st.refs !== undefined ? { ...st, refs: st.refs.map(mapNodeId) } : { ...st },
     ),
   }));
+  const projections = next.projections?.map((pr) => ({
+    ...pr,
+    ...(pr.participants !== undefined ? { participants: pr.participants.map(mapNodeId) } : {}),
+    ...(pr.sides !== undefined
+      ? { sides: pr.sides.map((side) => ({ ...side, nodes: side.nodes.map(mapNodeId) })) }
+      : {}),
+    messages: pr.messages.map((m) => ({
+      ...m,
+      from: mapNodeId(m.from),
+      to: mapNodeId(m.to),
+      ...(m.edge !== undefined ? { edge: mapEdgeId(m.edge) } : {}),
+    })),
+  }));
+  const nodeIds = new Set(nodes.map((n) => n.id));
+  const edgeIds = new Set(edges.map((e) => e.id));
+  const edgeById = new Map(edges.map((e) => [e.id, e]));
+  // 질문 하나에 답한 그림은 다음 실행이 다른 질문을 물어도 남아야 한다. 이번에 안 나온 지난 투영은 가리키는 것이 다 살아 있을 때만 이어 싣는다
+  const carried = carryProjections(prev.projections ?? [], projections ?? [], nodeIds, edgeById);
+  const allProjections =
+    projections !== undefined || carried.length > 0
+      ? [...(projections ?? []), ...carried]
+      : undefined;
+  const messageIds = new Set(allProjections?.flatMap((pr) => pr.messages.map((m) => m.id)) ?? []);
   const stepIds = new Set(flows?.flatMap((f) => f.steps.map((st) => st.id)) ?? []);
   const transitionIds = new Set(flows?.flatMap((f) => f.transitions.map((t) => t.id)) ?? []);
 
-  const nodeIds = new Set(nodes.map((n) => n.id));
-  const edgeIds = new Set(edges.map((e) => e.id));
   const questionIds = new Set(unresolved.map((q) => q.id));
   const sameSubject = (a: UnresolvedQuestion, b: UnresolvedQuestion): boolean =>
     a.subject.nodeId === b.subject.nodeId &&
     a.subject.edgeId === b.subject.edgeId &&
     a.subject.stepId === b.subject.stepId &&
-    a.subject.transitionId === b.subject.transitionId;
+    a.subject.transitionId === b.subject.transitionId &&
+    a.subject.messageId === b.subject.messageId;
 
   for (const prevQ of prev.unresolved) {
     if (!isAnswered(prevQ)) continue;
-    const { nodeId, edgeId, stepId, transitionId } = prevQ.subject;
+    const { nodeId, edgeId, stepId, transitionId, messageId } = prevQ.subject;
     if (nodeId !== undefined && !nodeIds.has(nodeId)) continue;
     if (edgeId !== undefined && !edgeIds.has(edgeId)) continue;
     if (stepId !== undefined && !stepIds.has(stepId)) continue;
     if (transitionId !== undefined && !transitionIds.has(transitionId)) continue;
+    if (messageId !== undefined && !messageIds.has(messageId)) continue;
 
     // 같은 대상에 같은 질문을 다시 물었으면 새로 추가하지 않고 답만 옮긴다
     const twin = unresolved.find(
@@ -222,6 +304,7 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
       ? { groups: next.groups.map((g) => ({ ...g, members: g.members.map(mapNodeId).sort() })) }
       : {}),
     ...(flows !== undefined ? { flows } : {}),
+    ...(allProjections !== undefined ? { projections: allProjections } : {}),
     ...(next.stages !== undefined
       ? {
           stages: next.stages.map((st) =>
@@ -233,6 +316,37 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
 }
 
 /** 이전 실행을 한 줄로 보여줄 때 쓰는 요약 */
+function carryProjections(
+  prev: readonly ArchitectureProjection[],
+  next: readonly ArchitectureProjection[],
+  nodeIds: ReadonlySet<string>,
+  edgeById: ReadonlyMap<string, ArchitectureEdge>,
+): ArchitectureProjection[] {
+  const projectionIds = new Set(next.map((pr) => pr.id));
+  const messageIds = new Set(next.flatMap((pr) => pr.messages.map((m) => m.id)));
+  const out: ArchitectureProjection[] = [];
+  for (const pr of prev) {
+    if (projectionIds.has(pr.id)) continue;
+    if (pr.messages.some((m) => messageIds.has(m.id))) continue;
+    const listed = [...(pr.participants ?? []), ...(pr.sides ?? []).flatMap((side) => side.nodes)];
+    if (!listed.every((id) => nodeIds.has(id))) continue;
+    const alive = pr.messages.every((m) => {
+      if (!nodeIds.has(m.from) || !nodeIds.has(m.to)) return false;
+      if (m.edge === undefined) return true;
+      const e = edgeById.get(m.edge);
+      return (
+        e !== undefined &&
+        ((e.from === m.from && e.to === m.to) || (e.from === m.to && e.to === m.from))
+      );
+    });
+    if (!alive) continue;
+    projectionIds.add(pr.id);
+    for (const m of pr.messages) messageIds.add(m.id);
+    out.push(pr);
+  }
+  return out;
+}
+
 export function previousRunSummary(prev: ArchitectureIr): PreviousRunSummary {
   return {
     generatedAt: prev.generatedAt,
