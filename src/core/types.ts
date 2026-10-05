@@ -110,6 +110,8 @@ export interface SkillFrontmatter {
   triggers: string[];
   inputs: Record<string, SkillInput>;
   outputs: string[];
+  /** 있으면 proactive-routing.md 스킬 표에 triggers와 함께 실린다 */
+  routing?: { note?: string };
 }
 
 export interface SkillInput {
