@@ -74,6 +74,14 @@ export interface ScannedDoc {
   screens: DocScreenRow[];
   /** 본문의 상대 md 링크. 레포 기준 경로로 편 것 */
   mdLinks: string[];
+  /** 본문이 말한 `METHOD /path`. 기술 그림 엔드포인트와 맞춰 보는 데 쓴다. 예전 스캔 결과에는 없다 */
+  apiRefs?: DocApiRef[];
+}
+
+export interface DocApiRef {
+  method: string;
+  path: string;
+  line: number;
 }
 
 export interface DocScanResult {
@@ -113,6 +121,8 @@ const COMMIT_RE = /^[0-9a-f]{7,40}$/i;
 const CODE_HOST_URL_RE =
   /https?:\/\/(?:github\.com|gitlab\.com|bitbucket\.org)\/[^/\s]+\/([^/\s]+)\/(?:-\/)?(?:blob|tree|src)\/([^/\s]+)\/([^\s)#?]+)(?:#L(\d+))?/g;
 
+// 예시 요청은 코드 블록에 자주 있어서 API 언급만은 코드 블록 안도 센다
+const API_RE = /\b(GET|POST|PUT|PATCH|DELETE)\s+`?(\/[\w\-./{}:<>[\]]*[\w}\]>])/g;
 const toPosix = (p: string): string => p.split(sep).join('/');
 
 function clip(text: string): string {
@@ -275,7 +285,9 @@ export function scanMarkdown(
     routes: [],
     screens: [],
     mdLinks: [],
+    apiRefs: [],
   };
+  const apiSeen = new Set<string>();
   const title = typeof fm['title'] === 'string' ? fm['title'] : undefined;
   if (title !== undefined) out.title = clip(title);
   for (const key of ['updated', 'last_updated', 'updatedAt', 'lastUpdated']) {
@@ -306,6 +318,12 @@ export function scanMarkdown(
     if (/^\s*(```|~~~)/.test(line)) {
       fenced = !fenced;
       continue;
+    }
+    for (const m of line.matchAll(API_RE)) {
+      const key = `${m[1]} ${m[2]}`;
+      if (apiSeen.has(key)) continue;
+      apiSeen.add(key);
+      out.apiRefs!.push({ method: m[1]!, path: m[2]!, line: lineNo });
     }
     if (fenced) continue;
 
@@ -645,6 +663,7 @@ export interface DocScanSummary {
   unverifiedCount: number;
   evidenceMix: Record<string, number>;
   codeRefCount: number;
+  apiRefCount: number;
   routeCount: number;
   unresolvedRouteCount: number;
   screenCount: number;
@@ -670,6 +689,7 @@ export function summarizeScan(scan: DocScanResult): DocScanSummary {
     ),
     evidenceMix: Object.fromEntries(Object.entries(mix).sort(([a], [b]) => (a < b ? -1 : 1))),
     codeRefCount: scan.docs.reduce((a, d) => a + d.codeRefs.length, 0),
+    apiRefCount: scan.docs.reduce((a, d) => a + (d.apiRefs?.length ?? 0), 0),
     routeCount: routes,
     unresolvedRouteCount: unresolvedRoutes,
     screenCount: scan.docs.reduce((a, d) => a + d.screens.length, 0),

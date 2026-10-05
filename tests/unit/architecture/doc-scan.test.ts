@@ -164,6 +164,18 @@ describe('scanMarkdown', () => {
     expect(d.screens).toEqual([]);
   });
 
+  it('본문과 코드 블록의 METHOD /path를 한 번씩만 뽑는다', () => {
+    const d = scanMarkdown(
+      'kb',
+      'a.md',
+      '조회는 `GET /api/orders/{id}`로 한다.\n\n```\nGET /api/orders/{id}\nPOST /api/orders\n```\n',
+    );
+    expect(d.apiRefs).toEqual([
+      { method: 'GET', path: '/api/orders/{id}', line: 1 },
+      { method: 'POST', path: '/api/orders', line: 5 },
+    ]);
+  });
+
   it('패턴을 바꾸면 다른 표시 형식도 읽는다', () => {
     const d = scanMarkdown('kb', 'a.md', 'TODO(src): acme-api:src/x.ts\n', {
       evidence: String.raw`TODO\(src\):\s*(\S+)`,
