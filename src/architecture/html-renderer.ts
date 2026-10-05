@@ -226,7 +226,10 @@ function edgeWidth(count: number): number {
 }
 
 /** 레벨에 그리는 선. 평면 그림의 IR 엣지도 건수 1짜리로 맞춰 같은 함수로 그린다 */
-type CanvasEdge = Pick<DrillEdge, 'id' | 'from' | 'to' | 'count' | 'lineStyle' | 'kind'> & {
+type CanvasEdge = Pick<
+  DrillEdge,
+  'id' | 'from' | 'to' | 'count' | 'lineStyle' | 'kind' | 'inferred'
+> & {
   backward?: boolean;
 };
 
@@ -353,12 +356,20 @@ function renderProductBricks(
   return `<span class="pbricks" aria-hidden="${rest > 0 ? 'false' : 'true'}">${bricks}${more}</span>`;
 }
 
-function renderPill(count: number, at: { x: number; y: number }): string {
+// 근거가 섞인 묶음의 배지는 테두리를 점선으로 둔다. 공용 CSS를 고치면 섞인 묶음이 없는 그림까지 바이트가 바뀌어 속성으로 단다
+const MIXED_PILL = ` stroke-dasharray="3 2"`;
+
+/** 묶음 이름 뒤에 붙는 말. 코드로 확인된 고리와 문서나 사용자 근거뿐인 고리가 섞였을 때만 붙는다 */
+export function inferredNote(inferred: number | undefined): string {
+  return inferred !== undefined ? ` (문서 근거만 있는 연결 ${inferred}개 포함)` : '';
+}
+
+function renderPill(count: number, at: { x: number; y: number }, mixed = false): string {
   const text = String(count);
   const w = 14 + text.length * 7;
   return (
     `<g class="pill" transform="translate(${at.x},${at.y})">` +
-    `<rect x="${round2(-w / 2)}" y="-9" width="${w}" height="18" rx="9"/><text>${text}</text></g>`
+    `<rect x="${round2(-w / 2)}" y="-9" width="${w}" height="18" rx="9"${mixed ? MIXED_PILL : ''}/><text>${text}</text></g>`
   );
 }
 
@@ -376,12 +387,12 @@ function renderLink(
   const hit = `<path class="hit" d="${route.d}" stroke-width="${Math.max(12, width + 8)}"/>`;
   const tip = `<path class="tip" d="${route.tip}"/>`;
   if (edge.kind === 'bundle') {
-    const name = `${labelOf(edge.from)} → ${labelOf(edge.to)} ${edge.count}개${xaText}`;
+    const name = `${labelOf(edge.from)} → ${labelOf(edge.to)} ${edge.count}개${inferredNote(edge.inferred)}${xaText}`;
     return (
       `<g class="link bundle${xa}" data-bundle-id="${escapeHtml(edge.id)}" ${ends} tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
       `<title>${escapeHtml(name)}</title>${hit}` +
       `<path class="edge" d="${route.d}" stroke-width="${width}"${dash}/>${tip}` +
-      `${renderPill(edge.count, route.mid)}</g>`
+      `${renderPill(edge.count, route.mid, edge.inferred !== undefined)}</g>`
     );
   }
   const name = `${EDGE_KIND_TEXT[edge.kind]}: ${labelOf(edge.from)} → ${labelOf(edge.to)}${xaText}`;
@@ -1244,8 +1255,13 @@ function renderBar(
 const clientScripts = new Map<string, string>();
 
 /** 칩 글자와 설명, 레인 제목은 IR이 쓰는 팩 것만 싣는다. 팩을 더해도 그 팩을 안 쓰는 그림의 바이트가 그대로다 */
-function clientScriptFor(vocab: Vocabulary, rootFlows: boolean, views: boolean): string {
-  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}`;
+function clientScriptFor(
+  vocab: Vocabulary,
+  rootFlows: boolean,
+  views: boolean,
+  mixedBundles: boolean,
+): string {
+  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}|${mixedBundles}`;
   const hit = clientScripts.get(key);
   if (hit !== undefined) return hit;
   const pick = <T>(table: Record<string, T>, keys: Iterable<string>): Record<string, T> =>
@@ -1270,6 +1286,7 @@ function clientScriptFor(vocab: Vocabulary, rootFlows: boolean, views: boolean):
     components: 'component' in vocab.nodeKinds,
     rootFlows,
     views,
+    mixedBundles,
   });
   clientScripts.set(key, script);
   return script;
@@ -1296,9 +1313,19 @@ interface PageSpec {
   flows?: { flows: ArchitectureFlow[]; drawnSteps: Set<string> };
   /** 그린 투영. 있을 때만 그림 단추와 메시지 서랍 코드를 싣는다 */
   views?: { level: string; projection: ArchitectureProjection }[];
+  /** 근거가 섞인 묶음 선이 있으면 true. 그때만 그 표시 코드를 싣는다 */
+  mixedBundles?: boolean;
 }
 
-function renderPage({ ir, payload, sections, drill, flows, views }: PageSpec): string {
+function renderPage({
+  ir,
+  payload,
+  sections,
+  drill,
+  flows,
+  views,
+  mixedBundles = false,
+}: PageSpec): string {
   const title = viewTitle(ir);
   const vocab = irVocabulary(ir);
   const nodeById = new Map(payload.nodes.map((n) => [n.id, n]));
@@ -1363,7 +1390,7 @@ function renderPage({ ir, payload, sections, drill, flows, views }: PageSpec): s
       ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
       : '') + (hasViews ? `\n${renderViewsPop(views)}` : ''),
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
-    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews)}</script>`,
+    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles)}</script>`,
     '</body>',
     '</html>',
     '',
@@ -1521,5 +1548,6 @@ export function renderDrilldownHtml(
     drill: true,
     ...(flowLevels.length > 0 ? { flows: { flows: drawnFlows, drawnSteps } } : {}),
     ...(views.length > 0 ? { views } : {}),
+    mixedBundles: levels.some((l) => l.edges.some((e) => e.inferred !== undefined)),
   });
 }

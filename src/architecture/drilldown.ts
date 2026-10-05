@@ -39,6 +39,8 @@ export interface DrillEdge {
   count: number;
   memberEdgeIds: string[];
   lineStyle: LineStyle;
+  /** 묶음 안에 코드 근거와 문서나 사용자 근거가 섞였을 때만 붙는다. memberEdgeIds 중 점선인 고리 수다 */
+  inferred?: number;
 }
 
 export interface DrillLevel {
@@ -264,8 +266,11 @@ class Bundler {
     return [...this.bundles.entries()]
       .map(([id, b]) => {
         const memberEdgeIds = [...b.members].sort(compareStr);
-        // 한 고리라도 문서나 사용자 근거뿐이면 그 묶음 전체가 확인되지 않은 연결이다
-        const dashed = memberEdgeIds.some((m) => g.edgeById.get(m)?.lineStyle === 'dashed');
+        // 코드로 확인된 고리가 하나라도 있으면 실선이다. 문서나 사용자 근거만 섞였다는 건 inferred 건수로 따로 알린다
+        const inferred = memberEdgeIds.filter(
+          (m) => g.edgeById.get(m)?.lineStyle === 'dashed',
+        ).length;
+        const allInferred = inferred === memberEdgeIds.length;
         return {
           id,
           from: b.from,
@@ -273,7 +278,8 @@ class Bundler {
           kind: 'bundle' as const,
           count: b.keys.size,
           memberEdgeIds,
-          lineStyle: dashed ? ('dashed' as const) : ('solid' as const),
+          lineStyle: allInferred ? ('dashed' as const) : ('solid' as const),
+          ...(inferred > 0 && !allInferred ? { inferred } : {}),
         };
       })
       .sort(byId);

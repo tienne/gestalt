@@ -23,6 +23,8 @@ export interface ClientConstants {
   rootFlows?: boolean;
   /** 질문별 그림이 있으면 true. 메시지 서랍과 그림 단추 코드를 싣는다 */
   views?: boolean;
+  /** 근거가 섞인 묶음 선이 있으면 true. 묶음 이름과 배지에 섞였다는 표시를 다는 코드를 싣는다 */
+  mixedBundles?: boolean;
 }
 
 // component는 칩 글자를 노드의 displayKind에서, 색과 아이콘은 renderClass에서 가져온다. types.ts의 displayKindOf, chipTextOverride와 같은 규칙이다.
@@ -30,6 +32,14 @@ export interface ClientConstants {
 const COMPONENT_DKIND = "n.kind === 'component' ? 'cx_' + (n.renderClass || 'service') : ";
 const COMPONENT_CHIP = "(n.kind === 'component' && n.displayKind) || ";
 const ROOT_FLOWS = "current === 'root' ? flows.filter(function (f) { return !f.service; }) : []";
+
+// 근거가 섞인 묶음 조각. 그런 묶음이 있는 그림에만 싣는다. 문구는 html-renderer.ts의 inferredNote와 같다
+const MIXED_NOTE =
+  " + (e.inferred !== undefined ? ' (문서 근거만 있는 연결 ' + e.inferred + '개 포함)' : '')";
+const MIXED_PANEL_NOTE =
+  " + (bundle.inferred !== undefined ? ' (문서 근거만 있는 연결 ' + bundle.inferred + '개 포함)' : '')";
+const MIXED_PILL = `
+        if (e.inferred !== undefined) pill.lastChild.setAttribute('stroke-dasharray', '3 2');`;
 
 // 질문별 그림 조각. 투영이 있는 그림에만 싣는다
 const VIEW_CLICK = `var vm = e.target.closest('.link.seq-m');
@@ -1122,7 +1132,7 @@ ${c.views ? VIEW_FUNCS : ''}  stage.addEventListener('click', function (e) {
       var bundle = e.kind === 'bundle';
       var xa = nodes[e.from] && nodes[e.to] && nodes[e.from].account && nodes[e.to].account && nodes[e.from].account !== nodes[e.to].account;
       var g = svgEl('g', { 'class': (bundle ? 'link bundle' : 'link e-' + e.kind) + (xa ? ' x-account' : ''), 'data-from': e.from, 'data-to': e.to });
-      var name = bundle ? label(e.from) + ' → ' + label(e.to) + ' ' + e.count + '개' : kindText(e.kind) + ': ' + label(e.from) + ' → ' + label(e.to);
+      var name = bundle ? label(e.from) + ' → ' + label(e.to) + ' ' + e.count + '개'${c.mixedBundles ? MIXED_NOTE : ''} : kindText(e.kind) + ': ' + label(e.from) + ' → ' + label(e.to);
       if (bundle) {
         g.setAttribute('data-bundle-id', e.id);
         g.setAttribute('tabindex', '0');
@@ -1142,7 +1152,7 @@ ${c.views ? VIEW_FUNCS : ''}  stage.addEventListener('click', function (e) {
         var text = String(e.count);
         var pw = 14 + text.length * 7;
         var pill = svgEl('g', { 'class': 'pill', transform: 'translate(' + p.mid.x + ',' + p.mid.y + ')' });
-        pill.appendChild(svgEl('rect', { x: -pw / 2, y: -9, width: pw, height: 18, rx: 9 }));
+        pill.appendChild(svgEl('rect', { x: -pw / 2, y: -9, width: pw, height: 18, rx: 9 }));${c.mixedBundles ? MIXED_PILL : ''}
         var pt = svgEl('text', {});
         pt.textContent = text;
         pill.appendChild(pt);
@@ -1430,7 +1440,7 @@ ${c.views ? VIEW_FUNCS : ''}  stage.addEventListener('click', function (e) {
     var bundle = level && level.edgeById[bundleId];
     if (!bundle) return false;
     renderLevel(levelId);
-    drawPair(bundle.memberEdgeIds, label(bundle.from) + ' → ' + label(bundle.to));
+    drawPair(bundle.memberEdgeIds, label(bundle.from) + ' → ' + label(bundle.to)${c.mixedBundles ? MIXED_PANEL_NOTE : ''});
     return true;
   }
   function route() {
