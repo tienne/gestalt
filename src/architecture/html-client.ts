@@ -250,6 +250,7 @@ const SEQ_FUNCS = `  var seqBar = byId('seq-bar');
   var seqSteps = byId('seq-steps');
   var seqCap = seqBar.querySelector('.seq-cap');
   var seqPlayBtn = seqBar.querySelector('.sw-play');
+  var seqSay = seqCap.querySelector('.sw-say');
   var seqModeBtns = Array.prototype.slice.call(seqBar.querySelectorAll('button[data-seq-mode]'));
   var seqAlts = Array.prototype.slice.call(doc.querySelectorAll('.seq-alt'));
   var seqBase = null;
@@ -291,8 +292,12 @@ const SEQ_FUNCS = `  var seqBar = byId('seq-bar');
   function seqStop() {
     if (seqTimer) clearInterval(seqTimer);
     seqTimer = 0;
-    seqPlayBtn.textContent = '재생';
     seqPlayBtn.setAttribute('aria-pressed', 'false');
+    seqSay.setAttribute('aria-live', 'polite');
+  }
+  // 보기 바가 두 줄로 접히면 목록이 그 아래에서 시작해야 안 겹친다. 창 폭이 바뀌면 다시 잰다
+  function seqPlaceSteps() {
+    seqSteps.style.top = !seqSteps.hidden && !seqNarrow() ? seqTop() + 8 + 'px' : '';
   }
   function seqLeave() {
     seqStop();
@@ -351,8 +356,7 @@ const SEQ_FUNCS = `  var seqBar = byId('seq-bar');
     seqSteps.hidden = !walking;
     var list = seqList();
     seqSteps.querySelectorAll('.ss-list').forEach(function (l) { l.hidden = l !== list; });
-    // 보기 바가 두 줄로 접히면 목록이 그 아래에서 시작해야 안 겹친다
-    seqSteps.style.top = walking && !seqNarrow() ? seqTop() + 8 + 'px' : '';
+    seqPlaceSteps();
     if (walking) showStep(seqAt[seqBaseId()] || 1);
     syncFocusBtn();
     if (refit) {
@@ -373,8 +377,10 @@ const SEQ_FUNCS = `  var seqBar = byId('seq-bar');
   function seqPlay() {
     if (seqTimer) { seqStop(); return; }
     if (seqN >= seqTotal()) showStep(1);
-    seqPlayBtn.textContent = '멈춤';
+    // 단추 이름은 '재생' 그대로 두고 눌림 상태로만 알린다. 이름까지 바꾸면 낭독기가 상태를 거꾸로 읽는다
     seqPlayBtn.setAttribute('aria-pressed', 'true');
+    // 재생 중에 단계마다 읽어 주면 낭독이 밀려 쌓인다. 멈추면 seqStop이 되돌린다
+    seqSay.setAttribute('aria-live', 'off');
     seqTimer = setInterval(function () {
       if (seqN >= seqTotal()) { seqStop(); return; }
       showStep(seqN + 1);
@@ -384,7 +390,8 @@ const SEQ_FUNCS = `  var seqBar = byId('seq-bar');
     var b = e.target.closest('button');
     if (!b) return;
     var mode = b.getAttribute('data-seq-mode');
-    if (mode) { if (mode !== seqMode) applySeqMode(mode, true); return; }
+    // 보기를 바꾸면 fit이 화면을 다시 그리며 포커스를 놓친다. 누른 단추로 돌려준다
+    if (mode) { if (mode !== seqMode) { applySeqMode(mode, true); b.focus(); } return; }
     if (b.classList.contains('sw-prev')) { seqStop(); showStep(seqN - 1); }
     else if (b.classList.contains('sw-next')) { seqStop(); showStep(seqN + 1); }
     else if (b.classList.contains('sw-play')) seqPlay();
@@ -395,13 +402,17 @@ const SEQ_FUNCS = `  var seqBar = byId('seq-bar');
     seqStop();
     showStep(Number(b.getAttribute('data-n')));
   });
+  // 다른 탭에 가 있는 동안 단계가 혼자 넘어가 있지 않게 멈춘다
+  doc.addEventListener('visibilitychange', function () { if (doc.hidden) seqStop(); });
 `;
 const SEQ_FIT = `
     var sq = seqInset();
     W -= sq.r;
     H -= sq.t + sq.b;`;
-// ←, →는 따라가기 보기가 떠 있을 때만 단계를 넘긴다. 다른 화면에서는 브라우저 기본 동작을 그대로 둔다
-const SEQ_KEYS = `    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && seqBase && seqMode === 'walk' && !seqBar.hidden) {
+// ←, →는 따라가기 보기가 떠 있고 포커스가 보기 바, 단계 목록, 따라가기 지도 안이거나 아무 데도 없을 때만 단계를 넘긴다.
+// 그 밖의 자리에서는 스크롤 같은 브라우저 기본 동작을 그대로 둔다
+export const SEQ_KEYS = `    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && seqBase && seqMode === 'walk' && !seqBar.hidden &&
+      (t === doc.body || seqBar.contains(t) || seqSteps.contains(t) || !!(seqAlt('walk') && seqAlt('walk').contains(t)))) {
       e.preventDefault();
       seqStop();
       showStep(seqN + (e.key === 'ArrowRight' ? 1 : -1));
@@ -2028,7 +2039,7 @@ ${c.views ? VIEW_POP : ''}  // 흐름 단추는 서비스 아래 레벨에서만
   });
   window.addEventListener('resize', function () {
     pops.forEach(function (p) { if (!p.pop.hidden) placePop(p.btn, p.pop); });
-  });
+${c.sequences ? '    seqPlaceSteps();\n' : ''}  });
   function goToNode(id) {
     if (!id) return;
     if (active && cardMap(active)[id]) { focusCard(id); return; }

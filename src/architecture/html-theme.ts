@@ -727,7 +727,7 @@ export const SEQ_VIEW_CSS = `.seq-bar {
 .w-step.on { display: inline; }
 .w-tip { fill: var(--hit); }
 @keyframes seq-run { to { stroke-dashoffset: -26; } }
-.view-level .node.w-dim { opacity: 0.35; }
+.view-level .node.w-dim { opacity: 0.55; }
 .seq-phase {
   position: absolute; box-sizing: border-box; padding: 12px 14px; overflow: visible;
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--shadow);
