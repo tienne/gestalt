@@ -19,6 +19,7 @@ import {
   renderCss,
   renderIconSprite,
   VIEW_CSS,
+  DOC_CSS,
 } from './html-theme.js';
 import {
   LANE_TITLES,
@@ -73,6 +74,8 @@ const EMPTY_LEVEL_SIZE = { width: 560, height: 240 };
 const VIEW_TITLES: Record<ArchitectureIr['view'], string> = {
   'screen-chain': '화면별 호출 흐름',
   'deploy-path': '배포 경로',
+  knowledge: '지식 문서 지도',
+  'knowledge-link': '지식과 아키텍처',
 };
 
 /** 하네스 레포는 화면이 없어 '화면별'이 틀린 말이 된다. 화면이 하나라도 있으면 웹 그림으로 친다 */
@@ -256,6 +259,20 @@ function platformChips(facts: ServiceFacts | undefined): string {
     .join('');
 }
 
+/** 문서 카드의 열린 구멍 수와 깨진 근거 링크 수. 문서가 아닌 카드에는 아무것도 안 붙인다 */
+function docBadges(node: ArchitectureNode): string {
+  const doc = node.doc;
+  if (doc === undefined) return '';
+  const gaps = doc.gaps?.length ?? 0;
+  const broken = doc.links?.broken ?? 0;
+  return (
+    (gaps > 0 ? `<span class="doc-badge" title="열린 구멍 ${gaps}개">구멍 ${gaps}</span>` : '') +
+    (broken > 0
+      ? `<span class="doc-badge broken" title="깨진 근거 링크 ${broken}개">깨짐 ${broken}</span>`
+      : '')
+  );
+}
+
 function renderCard(
   node: ArchitectureNode,
   box: LayoutResult['nodes'][number],
@@ -309,6 +326,7 @@ function renderCard(
     (flows > 0
       ? `<span class="flow-badge" title="사용자 흐름 보기">${iconUse('u-flow')}${escapeHtml(flowBadgeText(flows))}</span>`
       : '') +
+    docBadges(node) +
     `</span>` +
     second +
     (enterable ? '<span class="go" aria-hidden="true">›</span>' : '') +
@@ -1287,6 +1305,7 @@ function clientScriptFor(
     rootFlows,
     views,
     mixedBundles,
+    docs: vocab.packIds.includes('knowledge'),
   });
   clientScripts.set(key, script);
   return script;
@@ -1339,7 +1358,7 @@ function renderPage({
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab),

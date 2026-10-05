@@ -2,6 +2,7 @@ import { DATA_PACK } from './data.js';
 import { GENERIC_PACK } from './generic.js';
 import { HARNESS_PACK } from './harness.js';
 import { INFRA_PACK } from './infra.js';
+import { KNOWLEDGE_PACK } from './knowledge.js';
 import { PROCESS_PACK } from './process.js';
 import type {
   DrilldownStrategy,
@@ -24,6 +25,7 @@ export const BUILTIN_PACKS = [
   INFRA_PACK,
   DATA_PACK,
   PROCESS_PACK,
+  KNOWLEDGE_PACK,
 ] as const;
 
 type BuiltinPack = (typeof BUILTIN_PACKS)[number];

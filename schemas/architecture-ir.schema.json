@@ -17,7 +17,10 @@
   ],
   "properties": {
     "schemaVersion": { "type": "string", "const": "1.0.0" },
-    "view": { "type": "string", "enum": ["screen-chain", "deploy-path"] },
+    "view": {
+      "type": "string",
+      "enum": ["screen-chain", "deploy-path", "knowledge", "knowledge-link"]
+    },
     "packs": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
@@ -164,7 +167,10 @@
             "org_unit",
             "role",
             "form",
-            "system"
+            "system",
+            "doc_group",
+            "document",
+            "design_screen"
           ]
         },
         "label": {
@@ -248,6 +254,93 @@
             "document"
           ],
           "description": "component only: render class that picks color and icon"
+        },
+        "doc": {
+          "type": "object",
+          "required": ["path"],
+          "description": "doc_group, document and design_screen only. Shared HTML keeps path, numbers, dates and booleans and drops text taken from the document body",
+          "properties": {
+            "path": { "type": "string", "minLength": 1, "description": "repo-relative path" },
+            "updatedAt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "last-updated date the document states in its header"
+            },
+            "committedAt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "date of the last git commit that touched the file"
+            },
+            "sections": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "gaps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": {
+                  "kind": { "type": "string", "enum": ["gap", "unverified"] },
+                  "text": { "type": "string" },
+                  "owner": { "type": "string", "minLength": 1 },
+                  "line": { "type": "integer", "minimum": 1 }
+                }
+              }
+            },
+            "evidenceMix": {
+              "type": "object",
+              "additionalProperties": { "type": "integer", "minimum": 0 },
+              "description": "evidence marker count per kind"
+            },
+            "links": {
+              "type": "object",
+              "required": ["total", "broken", "branchOnly", "pinned", "unchecked"],
+              "properties": {
+                "total": { "type": "integer", "minimum": 0 },
+                "broken": { "type": "integer", "minimum": 0 },
+                "branchOnly": { "type": "integer", "minimum": 0 },
+                "pinned": { "type": "integer", "minimum": 0 },
+                "unchecked": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "routes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["keywords", "targetPath"],
+                "properties": {
+                  "keywords": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "type": "string", "minLength": 1 }
+                  },
+                  "targetPath": { "type": "string", "minLength": 1 },
+                  "target": { "type": "string", "minLength": 1 }
+                }
+              }
+            },
+            "screen": {
+              "type": "object",
+              "properties": {
+                "route": { "type": "string", "minLength": 1 },
+                "screenType": { "type": "string", "minLength": 1 },
+                "frame": { "type": "string", "minLength": 1 },
+                "frameNode": { "type": "string", "minLength": 1 },
+                "symbolized": { "type": "boolean" },
+                "hasSpec": { "type": "boolean" },
+                "synonyms": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "thumbnail": {
+                  "type": "string",
+                  "pattern": "^data:image/(png|jpeg|webp);base64,",
+                  "description": "private HTML only"
+                }
+              }
+            },
+            "reads": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "owners": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "owning team or person from a sourced file such as CODEOWNERS or an ownership table; dropped from shared HTML"
         }
       }
     },
@@ -286,7 +379,9 @@
             "publishes",
             "hands_over",
             "approves",
-            "records"
+            "records",
+            "describes",
+            "indexes"
           ]
         },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
@@ -296,6 +391,31 @@
           "minItems": 1,
           "items": { "type": "string", "minLength": 1 },
           "description": "calls into an mcp endpoint only: action values this call passes"
+        },
+        "docLink": {
+          "type": "object",
+          "required": ["via", "refs"],
+          "description": "describes only: files the document points at and whether each exists",
+          "properties": {
+            "via": { "type": "string", "enum": ["code-ref", "screen-route", "session"] },
+            "refs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["target", "verified"],
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "<repoId>:<relPath>"
+                  },
+                  "verified": { "type": "boolean" },
+                  "pinned": { "type": "string", "enum": ["branch", "commit", "none"] },
+                  "committedAt": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
         }
       }
     },

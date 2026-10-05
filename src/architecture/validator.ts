@@ -13,6 +13,7 @@ import {
   type ProjectionMessage,
   type ArchitectureIr,
   type ArchitectureNode,
+  type DocInfo,
   type Evidence,
   type LineStyle,
   type NodeKind,
@@ -62,7 +63,9 @@ export type ArchitectureValidationErrorCode =
   | 'PROJECTION_BLOCK_SPLIT'
   | 'SOLID_MESSAGE_WITHOUT_EVIDENCE'
   | 'PROJECTION_EMPTY'
-  | 'PROJECTION_SHAPE_FIELD';
+  | 'PROJECTION_SHAPE_FIELD'
+  | 'INVALID_DESCRIBES_FROM'
+  | 'SOLID_DESCRIBES';
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -515,6 +518,32 @@ function checkHarnessEdges(ir: ArchitectureIr, errors: ArchitectureValidationErr
       message: `엣지 "${edge.id}"가 도구 "${to.label}"에 없는 action ${unknown.map((a) => `"${a}"`).join(', ')}을 부른다. 도구의 actions는 ${to.actions.join(', ')}이다.`,
       edgeId: edge.id,
     });
+  }
+}
+
+/**
+ * describes는 문서가 말한 연결이다. 보내는 쪽은 문서여야 하고 선은 늘 점선이다.
+ * 가리킨 파일이 있어도 문서 서술이 코드와 맞는지는 모르기 때문이다. 확인 여부는 docLink.refs의 verified로 따로 보인다
+ */
+function checkDescribes(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  const byId = new Map(ir.nodes.map((n) => [n.id, n]));
+  for (const edge of ir.edges) {
+    if (edge.kind !== 'describes') continue;
+    const from = byId.get(edge.from);
+    if (from !== undefined && from.kind !== 'document' && from.kind !== 'design_screen') {
+      errors.push({
+        code: 'INVALID_DESCRIBES_FROM',
+        message: `describes 엣지 "${edge.id}"는 document나 design_screen에서 나가야 하는데 ${from.kind}에서 나간다.`,
+        edgeId: edge.id,
+      });
+    }
+    if (edge.lineStyle === 'solid') {
+      errors.push({
+        code: 'SOLID_DESCRIBES',
+        message: `describes 엣지 "${edge.id}"가 실선이다. 문서가 가리킨 연결은 파일이 있어도 점선으로 그린다.`,
+        edgeId: edge.id,
+      });
+    }
   }
 }
 
@@ -1061,6 +1090,7 @@ export function validateArchitectureIr(
   checkMicroApps(ir, errors);
   checkHarnessEdges(ir, errors);
   checkMdCodeEvidence(ir, errors);
+  checkDescribes(ir, errors);
   checkFlows(ir, ctx, errors);
   checkProjections(ir, ctx, errors);
 
@@ -1306,6 +1336,58 @@ export function maskSharedText(text: string): string {
   return maskAccountIds(text).replace(DISTRIBUTION_ID_RE, MASKED_DISTRIBUTION_ID);
 }
 
+/**
+ * 공유본의 문서 정보. 문서 제목(displayName)과 경로(label, doc.path)는 공유본에도 남긴다.
+ * 본문에서 온 글자(절 제목, 구멍 설명과 담당, 안내 키워드, 화면 이름과 썸네일)는 빼고 숫자와 날짜, 참거짓만 둔다
+ */
+function maskDocInfo(doc: DocInfo): DocInfo {
+  const { sections: _sections, gaps, routes, screen, evidenceMix, ...rest } = doc;
+  return {
+    ...rest,
+    path: doc.path,
+    ...(evidenceMix !== undefined ? { evidenceMix: { ...evidenceMix } } : {}),
+    ...(gaps !== undefined ? { gaps: gaps.map((g) => ({ kind: g.kind })) } : {}),
+    ...(routes !== undefined
+      ? {
+          routes: routes.map((r) => ({
+            keywords: [MASKED_KEYWORD],
+            targetPath: r.targetPath,
+            ...(r.target !== undefined ? { target: r.target } : {}),
+          })),
+        }
+      : {}),
+    ...(screen !== undefined
+      ? {
+          screen: {
+            ...(screen.route !== undefined ? { route: screen.route } : {}),
+            ...(screen.screenType !== undefined ? { screenType: screen.screenType } : {}),
+            ...(screen.symbolized !== undefined ? { symbolized: screen.symbolized } : {}),
+            ...(screen.hasSpec !== undefined ? { hasSpec: screen.hasSpec } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+const MASKED_KEYWORD = '(공유본이라 가림)';
+
+/** describes가 가리킨 파일 경로는 문서 밖 레포의 경로라 공유본에서 가리고 확인 여부만 남긴다 */
+function maskDocLink(edge: ArchitectureEdge): ArchitectureEdge {
+  if (edge.docLink === undefined) return edge;
+  return {
+    ...edge,
+    docLink: {
+      via: edge.docLink.via,
+      refs: edge.docLink.refs.map((r) => ({
+        target: MASKED_KEYWORD,
+        verified: r.verified,
+        ...(r.pinned !== undefined ? { pinned: r.pinned } : {}),
+        ...(r.committedAt !== undefined ? { committedAt: r.committedAt } : {}),
+      })),
+    },
+  };
+}
+
 function maskNodeText(node: ArchitectureNode): ArchitectureNode {
   const mask = (t: string): string => {
     const masked = maskAccountIds(t);
@@ -1313,11 +1395,13 @@ function maskNodeText(node: ArchitectureNode): ArchitectureNode {
       ? masked.replace(DISTRIBUTION_ID_RE, MASKED_DISTRIBUTION_ID)
       : masked;
   };
+  const { owners: _owners, doc, ...rest } = node;
   return {
-    ...node,
+    ...rest,
     label: mask(node.label),
     ...(node.displayName !== undefined ? { displayName: mask(node.displayName) } : {}),
     ...(node.description !== undefined ? { description: mask(node.description) } : {}),
+    ...(doc !== undefined ? { doc: maskDocInfo(doc) } : {}),
   };
 }
 
@@ -1342,6 +1426,7 @@ export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
   return {
     ...redacted,
     nodes: redacted.nodes.map(maskNodeText),
+    edges: redacted.edges.map(maskDocLink),
     ...(redacted.flows !== undefined ? { flows: redacted.flows.map(maskFlowText) } : {}),
     ...(redacted.projections !== undefined
       ? { projections: redacted.projections.map(maskProjectionText) }

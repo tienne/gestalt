@@ -9,7 +9,13 @@ import { HARNESS_PACK } from './packs/harness.js';
 import type { RenderClass } from './packs/types.js';
 
 // 열거값은 배열 하나에서 타입과 zod 스키마를 함께 뽑는다. 두 곳에 따로 적으면 한쪽만 고쳐지기 쉽다.
-export const ARCHITECTURE_VIEWS = ['screen-chain', 'deploy-path'] as const;
+/** knowledge는 문서 지도, knowledge-link는 기술 그림에 문서를 엮은 그림이다 */
+export const ARCHITECTURE_VIEWS = [
+  'screen-chain',
+  'deploy-path',
+  'knowledge',
+  'knowledge-link',
+] as const;
 /** kind 목록은 팩에서 온다. 새 카테고리는 packs/에 팩을 더하면 여기 따라 붙는다 */
 export const NODE_KINDS = Object.keys(ALL_PACKS_VOCABULARY.nodeKinds) as unknown as readonly [
   PackNodeKind,
@@ -115,6 +121,99 @@ export interface Evidence {
   observedAt?: string;
 }
 
+/** 문서가 스스로 적은 구멍. gap은 비었다고 밝힌 자리, unverified는 확인 안 된 서술이다 */
+export const DOC_GAP_KINDS = ['gap', 'unverified'] as const;
+export type DocGapKind = (typeof DOC_GAP_KINDS)[number];
+
+export interface DocGap {
+  kind: DocGapKind;
+  /** 표시 뒤에 적힌 설명. 본문 조각이라 공유본에서 뺀다 */
+  text?: string;
+  /** 표시에 적힌 담당. 공유본에서 뺀다 */
+  owner?: string;
+  line?: number;
+}
+
+/** 안내 문서(INDEX)의 길 하나. 질문 키워드에서 문서로 간다 */
+export interface DocRoute {
+  keywords: string[];
+  /** 표에 적힌 경로. 레포 기준으로 푼 값이다 */
+  targetPath: string;
+  /** 그 경로의 노드 id. 없는 문서를 가리키면 비운다 */
+  target?: string;
+}
+
+/** 디자인 화면 색인의 한 행에서 읽은 값 */
+export interface DocScreen {
+  route?: string;
+  screenType?: string;
+  /** 디자인 도구의 프레임 이름과 노드 id */
+  frame?: string;
+  frameNode?: string;
+  /** 컴포넌트로 묶였는지(심볼화) */
+  symbolized?: boolean;
+  /** 화면별 설계 문서가 있는지 */
+  hasSpec?: boolean;
+  synonyms?: string[];
+  /** private 산출물에만 싣는 썸네일 data URI */
+  thumbnail?: string;
+}
+
+/** 문서 안 근거 표시가 가리킨 곳의 상태. 레포 클론과 읽기 명령으로만 확인한다 */
+export interface DocLinkHealth {
+  total: number;
+  /** 가리킨 레포나 파일이 없다 */
+  broken: number;
+  /** 브랜치 이름만 적어 시간이 지나면 다른 내용을 가리킨다 */
+  branchOnly: number;
+  /** 커밋에 고정했다 */
+  pinned: number;
+  /** 클론이 없어 확인 못 했다 */
+  unchecked: number;
+}
+
+/**
+ * 지식 팩 노드(doc_group, document, design_screen)만 갖는 문서 정보.
+ * 공유본은 path와 숫자, 날짜, 참거짓만 남기고 본문에서 온 글자는 뺀다
+ */
+export interface DocInfo {
+  /** 레포 기준 경로 */
+  path: string;
+  /** 문서가 머리줄에 적은 최종 수정일 */
+  updatedAt?: string;
+  /** git이 아는 마지막 커밋 날짜 */
+  committedAt?: string;
+  /** 절 제목. 문서 노드는 파일 단위라 절은 패널에서만 보인다 */
+  sections?: string[];
+  gaps?: DocGap[];
+  /** 근거 종류별 수. 종류 이름은 스캐너 설정이 정한다 */
+  evidenceMix?: Record<string, number>;
+  links?: DocLinkHealth;
+  routes?: DocRoute[];
+  screen?: DocScreen;
+  /** 읽힌 횟수. 사용량 도구가 읽기로 열려 있을 때만 */
+  reads?: number;
+}
+
+/** describes 엣지가 가리키는 파일 하나 */
+export interface DocLinkRef {
+  /** `<repoId>:<relPath>` */
+  target: string;
+  /** 가리킨 파일이 클론에 있다 */
+  verified: boolean;
+  /** 근거 표시가 적은 ref 종류 */
+  pinned?: 'branch' | 'commit' | 'none';
+  /** 가리킨 파일의 마지막 커밋 날짜 */
+  committedAt?: string;
+}
+
+/** describes 엣지만. 문서가 무엇을 보고 그 기술 노드에 이어졌는지 */
+export interface DocLink {
+  /** code-ref는 근거 표시의 파일 경로, screen-route는 화면 색인의 라우트, session은 세션이 직접 이었다 */
+  via: 'code-ref' | 'screen-route' | 'session';
+  refs: DocLinkRef[];
+}
+
 export interface ArchitectureNode {
   id: string;
   kind: NodeKind;
@@ -149,6 +248,10 @@ export interface ArchitectureNode {
   displayKind?: string;
   /** component만. 색과 아이콘을 고르는 렌더 분류 */
   renderClass?: RenderClass;
+  /** 지식 팩 노드만. 경로, 수정일, 구멍, 근거 구성 */
+  doc?: DocInfo;
+  /** 담당 팀이나 사람. CODEOWNERS나 소유 표처럼 출처가 있는 값만 적는다. 공유본에서 뺀다 */
+  owners?: string[];
 }
 
 export interface ArchitectureEdge {
@@ -160,6 +263,8 @@ export interface ArchitectureEdge {
   lineStyle: LineStyle;
   /** mcp endpoint를 부르는 calls만. 이 호출이 실제로 넘기는 action 값 */
   actions?: string[];
+  /** describes만. 가리킨 파일과 그 파일이 있는지 */
+  docLink?: DocLink;
 }
 
 export interface UnresolvedQuestion {

@@ -256,9 +256,14 @@ describe('ges_architecture render', () => {
 });
 
 describe('ges_architecture status', () => {
-  it('두 뷰의 이전 실행 요약을 돌려준다', async () => {
+  it('뷰마다 이전 실행 요약을 돌려준다', async () => {
     const before = await call({ action: 'status' });
-    expect(before['views']).toEqual({ 'screen-chain': null, 'deploy-path': null });
+    expect(before['views']).toEqual({
+      'screen-chain': null,
+      'deploy-path': null,
+      knowledge: null,
+      'knowledge-link': null,
+    });
 
     await call({ action: 'render', ir: makeIr() });
     const after = await call({ action: 'status' });

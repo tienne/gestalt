@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import { ValidationError } from '../core/errors.js';
 import { err, ok, type Result } from '../core/result.js';
+import { KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
 import { RENDER_CLASSES } from './packs/types.js';
 import {
   ARCHITECTURE_IR_SCHEMA_VERSION,
   ARCHITECTURE_VIEWS,
   CONTEXT_SOURCE_VIAS,
+  DOC_GAP_KINDS,
   EDGE_KINDS,
   ENDPOINT_PROTOCOLS,
   ENVIRONMENT_KINDS,
@@ -69,6 +71,70 @@ const evidenceSchema = z
     }
   });
 
+const docInfoSchema = z.object({
+  path: z.string().min(1),
+  updatedAt: z.string().min(1).optional(),
+  committedAt: z.string().min(1).optional(),
+  sections: z.array(z.string().min(1)).optional(),
+  gaps: z
+    .array(
+      z.object({
+        kind: z.enum(DOC_GAP_KINDS),
+        text: z.string().optional(),
+        owner: z.string().min(1).optional(),
+        line: z.number().int().positive().optional(),
+      }),
+    )
+    .optional(),
+  evidenceMix: z.record(z.string().min(1), z.number().int().nonnegative()).optional(),
+  links: z
+    .object({
+      total: z.number().int().nonnegative(),
+      broken: z.number().int().nonnegative(),
+      branchOnly: z.number().int().nonnegative(),
+      pinned: z.number().int().nonnegative(),
+      unchecked: z.number().int().nonnegative(),
+    })
+    .optional(),
+  routes: z
+    .array(
+      z.object({
+        keywords: z.array(z.string().min(1)).min(1),
+        targetPath: z.string().min(1),
+        target: z.string().min(1).optional(),
+      }),
+    )
+    .optional(),
+  screen: z
+    .object({
+      route: z.string().min(1).optional(),
+      screenType: z.string().min(1).optional(),
+      frame: z.string().min(1).optional(),
+      frameNode: z.string().min(1).optional(),
+      symbolized: z.boolean().optional(),
+      hasSpec: z.boolean().optional(),
+      synonyms: z.array(z.string().min(1)).optional(),
+      thumbnail: z
+        .string()
+        .regex(/^data:image\/(png|jpeg|webp);base64,/)
+        .optional(),
+    })
+    .optional(),
+  reads: z.number().int().nonnegative().optional(),
+});
+
+const docLinkSchema = z.object({
+  via: z.enum(['code-ref', 'screen-route', 'session']),
+  refs: z.array(
+    z.object({
+      target: z.string().min(1),
+      verified: z.boolean(),
+      pinned: z.enum(['branch', 'commit', 'none']).optional(),
+      committedAt: z.string().min(1).optional(),
+    }),
+  ),
+});
+
 const nodeSchema = z
   .object({
     id: z.string().min(1),
@@ -90,6 +156,8 @@ const nodeSchema = z
     actions: z.array(z.string().min(1)).optional(),
     displayKind: z.string().min(1).optional(),
     renderClass: z.enum(RENDER_CLASSES).optional(),
+    doc: docInfoSchema.optional(),
+    owners: z.array(z.string().min(1)).optional(),
   })
   .superRefine((node, ctx) => {
     const custom = (path: string, message: string): void =>
@@ -135,6 +203,9 @@ const nodeSchema = z
     if (node.actions !== undefined && new Set(node.actions).size !== node.actions.length) {
       custom('actions', 'actions에 같은 값이 두 번 들어 있다');
     }
+    if (node.doc !== undefined && !KNOWLEDGE_DOC_KINDS.includes(node.kind)) {
+      custom('doc', `doc는 ${KNOWLEDGE_DOC_KINDS.join(', ')} 노드에만 쓸 수 있다`);
+    }
     if (node.displayNameInferred !== undefined && node.displayName === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -144,15 +215,26 @@ const nodeSchema = z
     }
   });
 
-const edgeSchema = z.object({
-  id: z.string().min(1),
-  from: z.string().min(1),
-  to: z.string().min(1),
-  kind: edgeKindSchema,
-  evidence: z.array(evidenceSchema),
-  lineStyle: lineStyleSchema,
-  actions: z.array(z.string().min(1)).min(1).optional(),
-});
+const edgeSchema = z
+  .object({
+    id: z.string().min(1),
+    from: z.string().min(1),
+    to: z.string().min(1),
+    kind: edgeKindSchema,
+    evidence: z.array(evidenceSchema),
+    lineStyle: lineStyleSchema,
+    actions: z.array(z.string().min(1)).min(1).optional(),
+    docLink: docLinkSchema.optional(),
+  })
+  .superRefine((edge, ctx) => {
+    if (edge.docLink !== undefined && edge.kind !== 'describes') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['docLink'],
+        message: 'docLink는 describes 엣지에만 쓸 수 있다',
+      });
+    }
+  });
 
 const unresolvedQuestionSchema = z.object({
   id: z.string().min(1),

@@ -662,6 +662,24 @@ export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; fon
 .cmp-head { font-size: 12.5px; font-weight: 700; fill: var(--text); }
 .cmp-n, .cmp-empty { font-size: 12px; font-weight: 400; fill: var(--muted); }`;
 
+/** 지식 문서 팩을 쓰는 그림에만 붙이는 스타일. 카드 배지와 서랍의 근거 구성 막대 */
+export const DOC_CSS = `.doc-badge {
+  flex: none; margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; font-weight: 700; line-height: 16px;
+  color: var(--bg); background: var(--warn);
+}
+.doc-badge.broken { background: var(--text); }
+.badge.doc-gap, .badge.doc-unverified { color: var(--warn); background: var(--warn-soft); }
+.doc-mix { display: flex; height: 10px; margin: 4px 0 8px; border-radius: 5px; overflow: hidden; background: var(--lane); }
+.doc-mix span { display: block; height: 100%; }
+.doc-mix .mix-0 { background: var(--accent); }
+.doc-mix .mix-1 { background: var(--ok); }
+.doc-mix .mix-2 { background: var(--warn); }
+.doc-mix .mix-3 { background: var(--live); }
+.doc-mix .mix-4 { background: var(--muted); }
+.doc-mix .mix-5 { background: var(--border-strong); }
+.doc-thumb { display: block; max-width: 100%; margin: 8px 0; border: 1px solid var(--border); border-radius: 6px; }
+.doc-routes .loc { font-size: 12px; color: var(--muted); }`;
+
 /** 테마 토큰과 레이아웃 CSS. 시스템 설정을 기본으로 따르고 html의 data-theme가 있으면 그걸 따른다 */
 export function renderCss(vocab: Vocabulary = LEGACY_VOCABULARY): string {
   return [

@@ -25,6 +25,8 @@ export interface ClientConstants {
   views?: boolean;
   /** 근거가 섞인 묶음 선이 있으면 true. 묶음 이름과 배지에 섞였다는 표시를 다는 코드를 싣는다 */
   mixedBundles?: boolean;
+  /** 지식 문서 팩을 쓰면 true. 서랍에 문서 정보를 그리는 코드를 싣는다 */
+  docs?: boolean;
 }
 
 // component는 칩 글자를 노드의 displayKind에서, 색과 아이콘은 renderClass에서 가져온다. types.ts의 displayKindOf, chipTextOverride와 같은 규칙이다.
@@ -40,6 +42,98 @@ const MIXED_PANEL_NOTE =
   " + (bundle.inferred !== undefined ? ' (문서 근거만 있는 연결 ' + bundle.inferred + '개 포함)' : '')";
 const MIXED_PILL = `
         if (e.inferred !== undefined) pill.lastChild.setAttribute('stroke-dasharray', '3 2');`;
+
+// 문서 정보 조각. 지식 문서 팩을 쓰는 그림에만 싣는다. 공유본은 본문 글자가 가려진 채로 온다
+const DOC_FUNCS = `  var GAP_TEXT = { gap: '빈 곳', unverified: '확인 안 됨' };
+  function renderDoc(n, body) {
+    var d = n.doc;
+    if (!d) return;
+    var facts = el('ul', 'facts');
+    factRow(facts, '경로', d.path);
+    if (d.updatedAt) factRow(facts, '최종 수정', d.updatedAt);
+    if (d.committedAt) factRow(facts, '마지막 커밋', d.committedAt);
+    if (d.reads !== undefined) factRow(facts, '읽힌 횟수', String(d.reads));
+    var sc = d.screen;
+    if (sc) {
+      if (sc.route) factRow(facts, '라우트', sc.route);
+      if (sc.screenType) factRow(facts, '화면 종류', sc.screenType);
+      if (sc.frame) factRow(facts, '피그마 프레임', sc.frame);
+      if (sc.symbolized !== undefined) factRow(facts, '심볼화', sc.symbolized ? '됨' : '안 됨');
+      if (sc.hasSpec !== undefined) factRow(facts, '화면 설계 문서', sc.hasSpec ? '있음' : '없음');
+      if (sc.synonyms && sc.synonyms.length) factRow(facts, '동의어', sc.synonyms.join(', '));
+    }
+    if (n.owners && n.owners.length) factRow(facts, '담당', n.owners.join(', '));
+    body.appendChild(facts);
+    if (sc && sc.thumbnail) {
+      var img = el('img', 'doc-thumb');
+      img.src = sc.thumbnail;
+      img.alt = nameOf(n) + ' 화면';
+      body.appendChild(img);
+    }
+    var mix = d.evidenceMix ? Object.keys(d.evidenceMix).sort() : [];
+    if (mix.length) {
+      var total = mix.reduce(function (a, k) { return a + d.evidenceMix[k]; }, 0);
+      body.appendChild(el('h3', null, '근거 구성 ' + total + '개'));
+      var bar = el('div', 'doc-mix');
+      var legend = el('ul', 'facts');
+      mix.forEach(function (k, i) {
+        var seg = el('span', 'mix-' + (i % 6));
+        seg.style.width = (d.evidenceMix[k] / total * 100).toFixed(1) + '%';
+        seg.title = k + ' ' + d.evidenceMix[k];
+        bar.appendChild(seg);
+        factRow(legend, k, String(d.evidenceMix[k]));
+      });
+      body.appendChild(bar);
+      body.appendChild(legend);
+    }
+    var lk = d.links;
+    if (lk && lk.total) {
+      body.appendChild(el('h3', null, '근거 링크 ' + lk.total + '개'));
+      var ll = el('ul', 'facts');
+      if (lk.broken) factRow(ll, '깨짐', String(lk.broken));
+      if (lk.branchOnly) factRow(ll, '브랜치만 가리킴', String(lk.branchOnly));
+      if (lk.pinned) factRow(ll, '커밋 고정', String(lk.pinned));
+      if (lk.unchecked) factRow(ll, '확인 못 함', String(lk.unchecked));
+      body.appendChild(ll);
+    }
+    if (d.gaps && d.gaps.length) {
+      body.appendChild(el('h3', null, '열린 구멍 ' + d.gaps.length + '개'));
+      var gl = el('ul', 'evidence');
+      d.gaps.forEach(function (g) {
+        var li = el('li');
+        li.appendChild(el('span', 'badge doc-' + g.kind, GAP_TEXT[g.kind] || g.kind));
+        var who = [g.owner, g.line !== undefined ? g.line + '줄' : ''].filter(Boolean).join(', ');
+        li.appendChild(el('span', 'loc', (g.text || '공유본이라 내용을 가렸어요') + (who ? ' (' + who + ')' : '')));
+        gl.appendChild(li);
+      });
+      body.appendChild(gl);
+    }
+    if (d.routes && d.routes.length) {
+      body.appendChild(el('h3', null, '질문 안내 ' + d.routes.length + '줄'));
+      var rl = el('ul', 'refs-list doc-routes');
+      d.routes.forEach(function (r) {
+        var li = el('li');
+        var text = r.keywords.join(', ') + ' → ' + (r.target && nodes[r.target] ? label(r.target) : r.targetPath);
+        if (r.target && nodes[r.target]) {
+          var b = el('button', null, text);
+          b.type = 'button';
+          b.addEventListener('click', function () { goToNode(r.target); });
+          li.appendChild(b);
+        } else {
+          li.appendChild(el('span', 'loc', text + ' (그림에 없는 문서)'));
+        }
+        rl.appendChild(li);
+      });
+      body.appendChild(rl);
+    }
+    if (d.sections && d.sections.length) {
+      body.appendChild(el('h3', null, '절 ' + d.sections.length + '개'));
+      var sl = el('ul', 'facts');
+      d.sections.forEach(function (t) { factRow(sl, '#', t); });
+      body.appendChild(sl);
+    }
+  }
+`;
 
 // 질문별 그림 조각. 투영이 있는 그림에만 싣는다
 const VIEW_CLICK = `var vm = e.target.closest('.link.seq-m');
@@ -456,7 +550,7 @@ ${FOCUS_SOURCE}
       body.appendChild(actions);
     }
     if (n.description) body.appendChild(el('p', 'desc', n.description));
-    renderFacts(n, body);
+    renderFacts(n, body);${c.docs ? '\n    renderDoc(n, body);' : ''}
     if (flowsBySvc[id]) {
       body.appendChild(el('h3', null, '흐름 ' + flowsBySvc[id].length + '개'));
       refButtons(body, flowsBySvc[id].map(function (f) { return f.level; }), showLevel, function () { return 'u-flow'; }, function (lv) { return levels[lv].title; });
@@ -740,7 +834,7 @@ ${FOCUS_SOURCE}
     returnFocus = g;
     renderTransitionPanel(t);
   }
-${c.views ? VIEW_FUNCS : ''}  stage.addEventListener('click', function (e) {
+${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('click', function (e) {
     if (suppressClick) { suppressClick = false; return; }
     var more = e.target.closest('.pb.more');
     if (more) { toggleProducts(more); return; }
