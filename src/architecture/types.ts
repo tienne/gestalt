@@ -197,6 +197,8 @@ export interface DocInfo {
   staleSince?: string;
   /** 진입 문서(README, CLAUDE, SKILL 등)에서 링크와 질문 안내를 따라가도 안 닿는다 */
   orphan?: true;
+  /** 마지막으로 손댄 날(머리줄 수정일과 커밋 날짜 중 늦은 쪽)이 그림을 만든 날보다 반년 넘게 앞선다 */
+  aged?: true;
   /** 질문 안내 표가 이 문서로 보내는 말 */
   keywords?: string[];
 }

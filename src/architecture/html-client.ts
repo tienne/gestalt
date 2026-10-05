@@ -80,6 +80,7 @@ const DOC_FUNCS = `  var GAP_TEXT = { gap: '빈 곳', unverified: '확인 안 �
     if (d.committedAt) factRow(facts, '마지막 커밋', d.committedAt);
     if (d.reads !== undefined) factRow(facts, '읽힌 횟수', String(d.reads));
     if (d.orphan) factRow(facts, '질문 길', '진입 문서에서 안 닿음');
+    if (d.aged) factRow(facts, '신선도', '반년 넘게 안 고침');
     if (d.keywords && d.keywords.length) factRow(facts, '찾는 말', d.keywords.join(', '));
     var sc = d.screen;
     if (sc) {

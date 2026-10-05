@@ -10,6 +10,7 @@ import {
   type DocRoot,
 } from '../../architecture/doc-scan.js';
 import { analyzeDocRoutes } from '../../architecture/doc-routes.js';
+import { docCommitDates, summarizeFreshness } from '../../architecture/doc-fresh.js';
 import { findStaleDocs, type ChangedFile } from '../../architecture/doc-stale.js';
 import { ownersOf, readCodeowners, type CodeownersRule } from '../../architecture/codeowners.js';
 import { linkDocs, type FileFacts } from '../../architecture/doc-link.js';
@@ -397,6 +398,15 @@ function handleScanDocs(input: ArchitectureInput, repoRoot: string): object {
   } catch (err) {
     return fail('SCAN_FAILED', `문서 레포를 못 읽었다: ${String(err)}`);
   }
+  // 머리줄에 수정일을 안 적는 문서가 많아서 git이 아는 마지막 커밋 날짜를 함께 싣는다. 루트마다 log 한 번이다
+  for (const r of roots) {
+    const dates = docCommitDates(r.path);
+    for (const d of scan.docs) {
+      const at = d.repoId === r.repoId ? dates.get(d.path) : undefined;
+      if (at !== undefined) d.committedAt = at;
+    }
+  }
+  const now = new Date().toISOString();
   const dir = resolve(repoRoot, '.gestalt', 'architecture');
   const scanPath = resolve(dir, 'doc-scan.json');
   const draftPath = resolve(dir, 'knowledge.draft.json');
@@ -404,7 +414,7 @@ function handleScanDocs(input: ArchitectureInput, repoRoot: string): object {
     ...scan,
     roots: roots.map((r) => ({ repoId: r.repoId, name: r.name, path: r.path })),
   });
-  writeJsonAtomic(draftPath, buildKnowledgeIr(roots, scan, new Date().toISOString()));
+  writeJsonAtomic(draftPath, buildKnowledgeIr(roots, scan, now));
   const routes = analyzeDocRoutes(scan);
   const routesPath = resolve(dir, 'doc-routes.json');
   writeJsonAtomic(routesPath, routes);
@@ -416,7 +426,11 @@ function handleScanDocs(input: ArchitectureInput, repoRoot: string): object {
     keywordConflicts: routes.conflicts.length,
   };
   return {
-    summary: { ...summarizeScan(scan), questionRoutes },
+    summary: {
+      ...summarizeScan(scan),
+      questionRoutes,
+      freshness: summarizeFreshness(scan.docs, now),
+    },
     skipped: scan.skipped,
     scanPath,
     draftPath,

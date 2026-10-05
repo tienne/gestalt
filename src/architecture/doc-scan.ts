@@ -14,6 +14,7 @@ import type {
 import { ARCHITECTURE_IR_SCHEMA_VERSION } from './types.js';
 import { docPathKey } from './name-ref-match.js';
 import { analyzeDocRoutes, docResolver, resolveDocLink } from './doc-routes.js';
+import { isAged } from './doc-fresh.js';
 
 export { resolveDocLink };
 
@@ -69,6 +70,8 @@ export interface ScannedDoc {
   path: string;
   title?: string;
   updatedAt?: string;
+  /** 문서 파일의 마지막 커밋 날짜. scan_docs가 git에서 채운다. 순수 스캔에는 없다 */
+  committedAt?: string;
   sections: string[];
   gaps: DocGap[];
   evidenceMix: Record<string, number>;
@@ -584,6 +587,8 @@ export function buildKnowledgeIr(
     const id = docNodeId(d.repoId, d.path);
     const doc: DocInfo = { path: d.path };
     if (d.updatedAt !== undefined) doc.updatedAt = d.updatedAt;
+    if (d.committedAt !== undefined) doc.committedAt = d.committedAt;
+    if (isAged(d, generatedAt)) doc.aged = true;
     if (d.sections.length) doc.sections = d.sections;
     if (d.gaps.length) doc.gaps = d.gaps;
     if (Object.keys(d.evidenceMix).length) doc.evidenceMix = d.evidenceMix;

@@ -364,6 +364,9 @@ function docBadges(node: ArchitectureNode): string {
       : '') +
     (doc.orphan
       ? '<span class="doc-badge none" title="README나 SKILL 같은 진입 문서에서 링크를 따라가도 안 닿아요">고립</span>'
+      : '') +
+    (doc.aged
+      ? '<span class="doc-badge none" title="반년 넘게 아무도 안 고친 문서예요">오래됨</span>'
       : '')
   );
 }
