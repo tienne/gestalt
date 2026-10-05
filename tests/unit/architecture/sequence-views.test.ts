@@ -340,7 +340,8 @@ describe('따라가기 지도 좌표', () => {
   });
 
   it('단계는 메시지마다 1부터 세고 구간과 자기 호출 고리를 함께 싣는다', () => {
-    const { walk } = walkOf();
+    const { walk, p } = walkOf();
+    expect(walk.steps).toHaveLength(p.messages.length);
     expect(walk.steps.map((s) => s.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     expect(walk.steps.map((s) => s.phaseId)).toEqual([
       ...Array<string>(6).fill('auto-1'),
