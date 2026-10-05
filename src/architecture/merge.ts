@@ -595,6 +595,15 @@ export function mergeArchitectureIrs(
           ...(m.edge !== undefined ? { edge: mapEdge(input, m.edge) } : {}),
           evidence: remapEvidence(m.evidence, map),
         })),
+        ...(pr.phases !== undefined
+          ? {
+              phases: pr.phases.map((ph) => ({
+                ...ph,
+                from: mapMessage(input, ph.from),
+                to: mapMessage(input, ph.to),
+              })),
+            }
+          : {}),
       });
     }
   }

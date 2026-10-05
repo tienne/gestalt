@@ -66,6 +66,11 @@ export type ArchitectureValidationErrorCode =
   | 'SOLID_MESSAGE_WITHOUT_EVIDENCE'
   | 'PROJECTION_EMPTY'
   | 'PROJECTION_SHAPE_FIELD'
+  | 'DUPLICATE_PHASE_ID'
+  | 'PROJECTION_PHASE_MESSAGE_NOT_FOUND'
+  | 'PROJECTION_PHASE_REVERSED'
+  | 'PROJECTION_PHASE_OVERLAP'
+  | 'PROJECTION_PHASE_GAP'
   | 'INVALID_DESCRIBES_FROM'
   | 'SOLID_DESCRIBES';
 
@@ -79,6 +84,7 @@ export interface ArchitectureValidationError {
   transitionId?: string;
   projectionId?: string;
   messageId?: string;
+  phaseId?: string;
   evidenceIndex?: number;
 }
 
@@ -769,6 +775,91 @@ function checkProjections(
       }
       checkEvidenceList(m.evidence, at, ctx, errors);
     }
+    checkProjectionPhases(p, errors);
+  }
+}
+
+/**
+ * 구간은 메시지를 빈틈없이 순서대로 나눈다. 인덱스는 근거로 거르기 전 원본 messages 기준이다.
+ * 없는 id를 가리킨 구간은 순서 검사에서 건너뛴다. 같은 자리를 두 번 알리지 않으려고다.
+ * 구간 경계가 묶음 한가운데를 지나는 건 허용한다. 카드마다 묶음 조각을 따로 그리면 된다
+ */
+function checkProjectionPhases(
+  p: ArchitectureProjection,
+  errors: ArchitectureValidationError[],
+): void {
+  if (p.phases === undefined || p.shape !== 'sequence') return;
+  const index = new Map(p.messages.map((m, i) => [m.id, i]));
+  const seen = new Set<string>();
+  const spans: { id: string; from: number; to: number }[] = [];
+  for (const ph of p.phases) {
+    const at = { projectionId: p.id, phaseId: ph.id };
+    if (seen.has(ph.id)) {
+      errors.push({
+        code: 'DUPLICATE_PHASE_ID',
+        message: `투영 "${p.id}"의 구간 id "${ph.id}"가 두 번 나온다.`,
+        ...at,
+      });
+    }
+    seen.add(ph.id);
+    const from = index.get(ph.from);
+    const to = index.get(ph.to);
+    for (const [field, id, i] of [
+      ['from', ph.from, from],
+      ['to', ph.to, to],
+    ] as const) {
+      if (i !== undefined) continue;
+      errors.push({
+        code: 'PROJECTION_PHASE_MESSAGE_NOT_FOUND',
+        message: `투영 "${p.id}"의 구간 "${ph.id}" ${field} "${id}"가 이 투영의 messages에 없다.`,
+        ...at,
+      });
+    }
+    if (from === undefined || to === undefined) continue;
+    if (from > to) {
+      errors.push({
+        code: 'PROJECTION_PHASE_REVERSED',
+        message: `투영 "${p.id}"의 구간 "${ph.id}"는 from "${ph.from}"가 to "${ph.to}"보다 뒤에 있다.`,
+        ...at,
+      });
+      continue;
+    }
+    spans.push({ id: ph.id, from, to });
+  }
+  // 빠진 구간 자리를 빈틈으로 세면 멀쩡한 이웃 구간에 엉뚱한 오류가 붙는다. 앞 오류부터 고치게 한다
+  if (spans.length === 0 || spans.length !== p.phases.length) return;
+  const gap = (phaseId: string, message: string): void => {
+    errors.push({ code: 'PROJECTION_PHASE_GAP', message, projectionId: p.id, phaseId });
+  };
+  const first = spans[0]!;
+  const last = spans[spans.length - 1]!;
+  if (first.from !== 0) {
+    gap(
+      first.id,
+      `투영 "${p.id}"의 첫 구간 "${first.id}"가 첫 메시지 "${p.messages[0]!.id}"에서 시작하지 않는다.`,
+    );
+  }
+  spans.slice(1).forEach((cur, i) => {
+    const prev = spans[i]!;
+    if (cur.from <= prev.to) {
+      errors.push({
+        code: 'PROJECTION_PHASE_OVERLAP',
+        message: `투영 "${p.id}"의 구간 "${prev.id}"와 "${cur.id}"가 겹친다. 구간은 메시지 순서대로 적고 한 메시지는 한 구간에만 든다.`,
+        projectionId: p.id,
+        phaseId: cur.id,
+      });
+    } else if (cur.from > prev.to + 1) {
+      gap(
+        cur.id,
+        `투영 "${p.id}"의 구간 "${prev.id}"와 "${cur.id}" 사이에 어느 구간에도 안 든 메시지가 있다.`,
+      );
+    }
+  });
+  if (last.to !== p.messages.length - 1) {
+    gap(
+      last.id,
+      `투영 "${p.id}"의 마지막 구간 "${last.id}"가 마지막 메시지 "${p.messages[p.messages.length - 1]!.id}"에서 끝나지 않는다.`,
+    );
   }
 }
 
@@ -787,6 +878,7 @@ function checkProjectionShape(
   if (p.shape === 'compare') {
     if (p.messages.length > 0) misuse('messages가 있다. compare는 sides만 쓴다.');
     if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
+    if (p.phases !== undefined) misuse('phases가 있다. 구간은 sequence만 쓴다.');
     const sides = p.sides ?? [];
     if (sides.length !== 2) misuse(`sides가 ${sides.length}개다. 두 개를 견준다.`);
     else if (sides[0]!.id === sides[1]!.id) misuse(`두 sides의 id가 "${sides[0]!.id}"로 같다.`);
@@ -802,6 +894,7 @@ function checkProjectionShape(
   }
   if (p.shape === 'dataflow') {
     if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
+    if (p.phases !== undefined) misuse('phases가 있다. 구간은 sequence만 쓴다.');
     const seqOnly = p.messages.find(
       (m) => m.reply !== undefined || m.block !== undefined || m.branch !== undefined,
     );
@@ -1325,6 +1418,9 @@ function maskProjectionText(p: ArchitectureProjection): ArchitectureProjection {
       : {}),
     ...(p.sides !== undefined
       ? { sides: p.sides.map((side) => ({ ...side, label: maskSharedText(side.label) })) }
+      : {}),
+    ...(p.phases !== undefined
+      ? { phases: p.phases.map((ph) => ({ ...ph, label: maskSharedText(ph.label) })) }
       : {}),
   };
 }

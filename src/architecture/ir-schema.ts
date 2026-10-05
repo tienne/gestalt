@@ -361,6 +361,17 @@ const projectionSchema = z.object({
       }),
     )
     .optional(),
+  phases: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        label: z.string().min(1),
+        from: z.string().min(1),
+        to: z.string().min(1),
+      }),
+    )
+    .min(1)
+    .optional(),
 });
 
 export const architectureIrSchema = z.object({

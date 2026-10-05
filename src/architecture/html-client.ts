@@ -30,6 +30,8 @@ export interface ClientConstants {
   views?: boolean;
   /** 근거가 섞인 묶음 선이 있으면 true. 묶음 이름과 배지에 섞였다는 표시를 다는 코드를 싣는다 */
   mixedBundles?: boolean;
+  /** 순서도가 있으면 true. 보기 전환과 따라가기 코드를 싣는다 */
+  sequences?: boolean;
   /** 지식 문서 팩을 쓰면 true. 서랍에 문서 정보를 그리는 코드를 싣는다 */
   docs?: boolean;
 }
@@ -189,7 +191,10 @@ const VIEW_CLICK = `var vm = e.target.closest('.link.seq-m');
 const VIEW_KEY = `var vm = e.target.closest('.link.seq-m');
     if (vm) { e.preventDefault(); activateMessage(vm); return; }
     `;
-const VIEW_FUNCS = `  var messages = data.messages || {};
+// 순서도 보기 바가 화면 위를 덮으면 머리 카드는 그 바 아래에 붙인다
+const STICK_FROM = '-view.y / view.k';
+const SEQ_STICK_FROM = '(seqTop() - view.y) / view.k';
+const viewFuncs = (sequences: boolean): string => `  var messages = data.messages || {};
   // 전체 레벨은 지도 위 카드 줄만큼 내려가 있다. 같은 이름으로 다시 선언해 그 거리를 더한 쪽이 쓰이게 한다
   function cardCenter(c) {
     var s = c.closest('.level');
@@ -201,7 +206,7 @@ const VIEW_FUNCS = `  var messages = data.messages || {};
     if (!bar) return;
     var top = parseFloat(bar.style.top);
     var end = Number(active.getAttribute('data-h')) - top - bar.offsetHeight;
-    var dy = Math.min(Math.max(0, -view.y / view.k - top), Math.max(0, end));
+    var dy = Math.min(Math.max(0, ${sequences ? SEQ_STICK_FROM : STICK_FROM} - top), Math.max(0, end));
     var t = dy > 0 ? 'translateY(' + dy + 'px)' : '';
     bar.style.transform = t;
     bar.classList.toggle('stuck', dy > 0);
@@ -236,6 +241,185 @@ const VIEW_FUNCS = `  var messages = data.messages || {};
 const VIEW_POP = `  setupPop('views-btn', 'views');
   var viewsPop = byId('views');
   if (viewsPop) viewsPop.addEventListener('click', function (e) { if (e.target.closest('a')) closePops(false); });
+`;
+
+// 순서도 보기 조각. 순서도가 있는 그림에만 싣는다.
+// 단계별 카드와 따라가기는 순서도 섹션 옆 형제 섹션(.seq-alt)이고 data-level-id가 없어 레벨 목록에 안 잡힌다.
+// 보기는 레벨마다 페이지 메모리에만 둔다. 주소에 실으면 보기 전환이 뒤로가기 기록을 채운다
+const SEQ_FUNCS = `  var seqBar = byId('seq-bar');
+  var seqSteps = byId('seq-steps');
+  var seqCap = seqBar.querySelector('.seq-cap');
+  var seqPlayBtn = seqBar.querySelector('.sw-play');
+  var seqSay = seqCap.querySelector('.sw-say');
+  var seqModeBtns = Array.prototype.slice.call(seqBar.querySelectorAll('button[data-seq-mode]'));
+  var seqAlts = Array.prototype.slice.call(doc.querySelectorAll('.seq-alt'));
+  var seqBase = null;
+  var seqMode = 'seq';
+  var seqModes = {};
+  var seqAt = {};
+  var seqN = 0;
+  var seqTimer = 0;
+  function seqNarrow() { return window.matchMedia('(max-width: 860px)').matches; }
+  function seqTop() { return seqBar.hidden ? 0 : seqBar.offsetTop + seqBar.offsetHeight; }
+  function seqInset() {
+    var r = { t: 0, r: 0, b: 0 };
+    if (seqBar.hidden) return r;
+    r.t = seqTop();
+    if (!seqSteps.hidden) {
+      if (seqNarrow()) r.b = seqSteps.offsetHeight + 16;
+      else r.r = seqSteps.offsetWidth + 16;
+    }
+    return r;
+  }
+  function seqBaseId() { return seqBase ? seqBase.getAttribute('data-level-id') : null; }
+  function seqAlt(mode) {
+    var id = seqBaseId();
+    for (var i = 0; i < seqAlts.length; i++) {
+      if (seqAlts[i].getAttribute('data-seq-of') === id && seqAlts[i].getAttribute('data-seq-mode') === mode) return seqAlts[i];
+    }
+    return null;
+  }
+  function seqList() {
+    var id = seqBaseId();
+    var lists = seqSteps.querySelectorAll('.ss-list');
+    for (var i = 0; i < lists.length; i++) if (lists[i].getAttribute('data-seq-of') === id) return lists[i];
+    return null;
+  }
+  function seqTotal() {
+    var walk = seqAlt('walk');
+    return walk ? walk.querySelectorAll('.w-step').length : 0;
+  }
+  function seqStop() {
+    if (seqTimer) clearInterval(seqTimer);
+    seqTimer = 0;
+    seqPlayBtn.setAttribute('aria-pressed', 'false');
+    seqSay.setAttribute('aria-live', 'polite');
+  }
+  // 보기 바가 두 줄로 접히면 목록이 그 아래에서 시작해야 안 겹친다. 창 폭이 바뀌면 다시 잰다
+  function seqPlaceSteps() {
+    seqSteps.style.top = !seqSteps.hidden && !seqNarrow() ? seqTop() + 8 + 'px' : '';
+  }
+  function seqLeave() {
+    seqStop();
+    seqAlts.forEach(function (s) { s.hidden = true; });
+    seqBar.hidden = true;
+    seqSteps.hidden = true;
+    seqBase = null;
+  }
+  function showStep(n) {
+    var walk = seqAlt('walk');
+    var total = seqTotal();
+    if (!walk || !total) return;
+    seqN = Math.max(1, Math.min(total, n));
+    seqAt[seqBaseId()] = seqN;
+    var on = null;
+    walk.querySelectorAll('.w-step').forEach(function (p) {
+      var hit = Number(p.getAttribute('data-n')) === seqN;
+      p.classList.toggle('on', hit);
+      if (hit) on = p;
+    });
+    var from = on.getAttribute('data-from');
+    var to = on.getAttribute('data-to');
+    walk.querySelectorAll('.node').forEach(function (c) {
+      var id = c.getAttribute('data-node-id');
+      c.classList.toggle('w-dim', id !== from && id !== to);
+    });
+    var item = null;
+    var list = seqList();
+    if (list) list.querySelectorAll('button[data-n]').forEach(function (b) {
+      if (Number(b.getAttribute('data-n')) === seqN) { b.setAttribute('aria-current', 'step'); item = b; }
+      else b.removeAttribute('aria-current');
+    });
+    seqCap.querySelector('.sw-n').textContent = seqN + ' / ' + total;
+    seqCap.querySelector('.sw-p').textContent = item ? item.getAttribute('data-phase') : '';
+    seqCap.querySelector('.sw-t').textContent = item ? item.getAttribute('data-say') : '';
+    var block = seqCap.querySelector('.sw-b');
+    block.textContent = item ? item.getAttribute('data-block') : '';
+    block.hidden = !block.textContent;
+    if (item) item.scrollIntoView({ block: 'nearest' });
+  }
+  function applySeqMode(mode, refit) {
+    if (!seqBase) return;
+    seqStop();
+    closeDrawer(false);
+    if (active) clearLit(active);
+    seqMode = mode;
+    seqModes[seqBaseId()] = mode;
+    seqBase.hidden = mode !== 'seq';
+    var alt = mode === 'seq' ? null : seqAlt(mode);
+    seqAlts.forEach(function (s) { s.hidden = s !== alt; });
+    active = alt || seqBase;
+    if (envPicker) applyEnv(active);
+    seqModeBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-seq-mode') === mode)); });
+    var walking = mode === 'walk';
+    seqCap.hidden = !walking;
+    seqSteps.hidden = !walking;
+    var list = seqList();
+    seqSteps.querySelectorAll('.ss-list').forEach(function (l) { l.hidden = l !== list; });
+    seqPlaceSteps();
+    if (walking) showStep(seqAt[seqBaseId()] || 1);
+    syncFocusBtn();
+    if (refit) {
+      fit('smart');
+      runSearch(false);
+    }
+  }
+  function syncSeqBar(id) {
+    seqStop();
+    var base = sectionOf(id);
+    var has = !!base && seqAlts.some(function (s) { return s.getAttribute('data-seq-of') === id; });
+    seqAlts.forEach(function (s) { s.hidden = true; });
+    seqBar.hidden = !has;
+    seqSteps.hidden = true;
+    seqBase = has ? base : null;
+    if (has) applySeqMode(seqModes[id] || 'seq', false);
+  }
+  function seqPlay() {
+    if (seqTimer) { seqStop(); return; }
+    if (seqN >= seqTotal()) showStep(1);
+    // 단추 이름은 '재생' 그대로 두고 눌림 상태로만 알린다. 이름까지 바꾸면 낭독기가 상태를 거꾸로 읽는다
+    seqPlayBtn.setAttribute('aria-pressed', 'true');
+    // 재생 중에 단계마다 읽어 주면 낭독이 밀려 쌓인다. 멈추면 seqStop이 되돌린다
+    seqSay.setAttribute('aria-live', 'off');
+    seqTimer = setInterval(function () {
+      // 마지막 단계는 재생을 먼저 끝내고 그린다. aria-live가 polite로 돌아온 뒤에 써야 낭독기가 읽는다
+      var next = seqN + 1;
+      if (next >= seqTotal()) { seqStop(); showStep(next); return; }
+      showStep(next);
+    }, 900);
+  }
+  seqBar.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    var mode = b.getAttribute('data-seq-mode');
+    // 보기를 바꾼 뒤에도 키보드로 같은 바에서 이어 고를 수 있게 누른 단추에 포커스를 둔다
+    if (mode) { if (mode !== seqMode) { applySeqMode(mode, true); b.focus(); } return; }
+    if (b.classList.contains('sw-prev')) { seqStop(); showStep(seqN - 1); }
+    else if (b.classList.contains('sw-next')) { seqStop(); showStep(seqN + 1); }
+    else if (b.classList.contains('sw-play')) seqPlay();
+  });
+  seqSteps.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-n]');
+    if (!b) return;
+    seqStop();
+    showStep(Number(b.getAttribute('data-n')));
+  });
+  // 다른 탭에 가 있는 동안 단계가 혼자 넘어가 있지 않게 멈춘다
+  doc.addEventListener('visibilitychange', function () { if (doc.hidden) seqStop(); });
+`;
+const SEQ_FIT = `
+    var sq = seqInset();
+    W -= sq.r;
+    H -= sq.t + sq.b;`;
+// ←, →는 따라가기 보기가 떠 있고 포커스가 보기 바, 단계 목록, 따라가기 지도 안이거나 아무 데도 없을 때만 단계를 넘긴다.
+// 그 밖의 자리에서는 스크롤 같은 브라우저 기본 동작을 그대로 둔다
+export const SEQ_KEYS = `    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && seqBase && seqMode === 'walk' && !seqBar.hidden &&
+      (t === doc.body || seqBar.contains(t) || seqSteps.contains(t) || !!(seqAlt('walk') && seqAlt('walk').contains(t)))) {
+      e.preventDefault();
+      seqStop();
+      showStep(seqN + (e.key === 'ArrowRight' ? 1 : -1));
+      return;
+    }
 `;
 
 export const THEME_STORAGE_KEY = 'gestalt-architecture-theme';
@@ -770,7 +954,7 @@ ${FOCUS_SOURCE}
     var s = dims(active);
     var W = stage.clientWidth;
     var H = stage.clientHeight - (sheet.hidden ? 0 : sheet.offsetHeight + 16);
-    var M = 24;
+    var M = 24;${c.sequences ? SEQ_FIT : ''}
     var kw = (W - M * 2) / s.w;
     var kh = (H - M * 2) / s.h;
     var k = Math.min(kw, kh, 1);
@@ -781,7 +965,7 @@ ${FOCUS_SOURCE}
     k = clampK(k);
     view.k = k;
     view.x = Math.max(M, (W - s.w * k) / 2);
-    view.y = top ? M : Math.max(M, (H - s.h * k) / 2);
+    view.y = ${c.sequences ? 'sq.t + (' : ''}top ? M : Math.max(M, (H - s.h * k) / 2)${c.sequences ? ')' : ''};
     glide();
     applyView();
   }
@@ -990,7 +1174,7 @@ ${FOCUS_SOURCE}
     returnFocus = g;
     renderTransitionPanel(t);
   }
-${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('click', function (e) {
+${c.views ? viewFuncs(!!c.sequences) : ''}${c.sequences ? SEQ_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('click', function (e) {
     if (suppressClick) { suppressClick = false; return; }
     var more = e.target.closest('.pb.more');
     if (more) { toggleProducts(more); return; }
@@ -1136,7 +1320,7 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
     if (active) active.querySelectorAll('.node.anchor').forEach(function (x) { x.classList.remove('anchor'); });
     renderCrumbs(trailItems(id));
     syncFlowBtn();
-    fit('smart');
+${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
     runSearch(false);
   }
 
@@ -1516,7 +1700,7 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
   function drawPair(memberIds, title) {
     closeDrawer(false);
     sections.forEach(function (s) { s.hidden = true; });
-    clearFocus();
+${c.sequences ? '    seqLeave();\n' : ''}    clearFocus();
     pair.hidden = false;
     pair.textContent = '';
     pair._cards = null;
@@ -1648,7 +1832,7 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
     });
     var cards = cardMap(src);
     src.hidden = true;
-    focusSec.textContent = '';
+${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     focusSec._cards = null;
     focusSec._links = null;
     focusSec.setAttribute('data-focus-level', levelId);
@@ -1857,7 +2041,7 @@ ${c.views ? VIEW_POP : ''}  // 흐름 단추는 서비스 아래 레벨에서만
   });
   window.addEventListener('resize', function () {
     pops.forEach(function (p) { if (!p.pop.hidden) placePop(p.btn, p.pop); });
-  });
+${c.sequences ? '    seqPlaceSteps();\n' : ''}  });
   function goToNode(id) {
     if (!id) return;
     if (active && cardMap(active)[id]) { focusCard(id); return; }
@@ -1883,7 +2067,7 @@ ${c.views ? VIEW_POP : ''}  // 흐름 단추는 서비스 아래 레벨에서만
 
   doc.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {
-      if (!productMenu.hidden) { closeProducts(true); return; }
+${c.sequences ? '      seqStop();\n' : ''}      if (!productMenu.hidden) { closeProducts(true); return; }
       if (anyPop()) { closePops(true); return; }
       if (drawerOpen()) { closeDrawer(true); return; }
       releaseFocus();
@@ -1892,7 +2076,7 @@ ${c.views ? VIEW_POP : ''}  // 흐름 단추는 서비스 아래 레벨에서만
     var t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === '/') { e.preventDefault(); search.focus(); search.select(); }
+${c.sequences ? SEQ_KEYS : ''}    if (e.key === '/') { e.preventDefault(); search.focus(); search.select(); }
     else if (e.key === '+' || e.key === '=') zoomBy(1.25);
     else if (e.key === '-' || e.key === '_') zoomBy(0.8);
     else if (e.key === '0') fit('full');
