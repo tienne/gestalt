@@ -497,7 +497,7 @@ describe('평면 그림 인프라 레인', () => {
     const box = (id: string) => layout.nodes.find((n) => n.id === id)!;
     // 화살촉이 도착 카드(버킷) 오른쪽 끝에 붙는다
     const tip =
-      /class="link e-origin[^"]*" data-from="cdn-prod" data-to="b-prod">.*?<path class="tip" d="M([\d.]+) /.exec(
+      /class="link e-origin[^"]*" data-from="cdn-prod" data-to="b-prod" [^>]*>.*?<path class="tip" d="M([\d.]+) /.exec(
         html,
       );
     expect(tip).not.toBeNull();

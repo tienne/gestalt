@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeGraphLayout,
   computeLayout,
   measureNode,
+  NODE_DESC_LINE,
   stackBands,
   BAND_HEAD,
   type LayoutResult,
 } from '../../../src/architecture/layout.js';
+import { computeCompareLayout } from '../../../src/architecture/compare-layout.js';
+import { computeDataflowLayout } from '../../../src/architecture/dataflow-layout.js';
+import { computeSequenceLayout } from '../../../src/architecture/sequence-layout.js';
+import { checkoutSequenceIr } from '../../fixtures/architecture-categories/sequence.js';
+import {
+  orderDataflowIr,
+  paymentCompareIr,
+} from '../../fixtures/architecture-categories/projection-shapes.js';
 import {
   ARCHITECTURE_IR_SCHEMA_VERSION,
   type ArchitectureEdge,
@@ -311,5 +321,116 @@ describe('stackBands', () => {
     expect(JSON.stringify(stackBands(laid(), groups))).toBe(
       JSON.stringify(stackBands(laid(), groups)),
     );
+  });
+});
+
+describe('카드 설명 줄 높이', () => {
+  const DESC = '주문 목록을 한 번에 불러오는 조회예요.';
+
+  it('설명이 있으면 한 줄 카드는 66, 두 줄 카드는 78이다', () => {
+    expect(NODE_DESC_LINE).toBe(18);
+    expect(
+      measureNode('GET /orders', undefined, undefined, undefined, { description: DESC }).height,
+    ).toBe(66);
+    expect(
+      measureNode('GET /orders', '주문 목록', undefined, undefined, { description: DESC }).height,
+    ).toBe(78);
+  });
+
+  it('설명이 없거나 비었거나 공백뿐이면 높이도 폭도 그대로다', () => {
+    const base = measureNode('GET /orders');
+    for (const description of [undefined, '', '   ', '\n\t ']) {
+      expect(measureNode('GET /orders', undefined, undefined, undefined, { description })).toEqual(
+        base,
+      );
+    }
+  });
+
+  it('긴 설명은 폭을 안쪽 200px 상한까지만 넓힌다', () => {
+    const short = measureNode('a', undefined, undefined, undefined, { description: '짧음' });
+    const long = measureNode('a', undefined, undefined, undefined, {
+      description: '가'.repeat(60),
+    });
+    const huge = measureNode('a', undefined, undefined, undefined, {
+      description: '가'.repeat(600),
+    });
+    expect(long.width).toBeGreaterThan(short.width);
+    // 앞 여백 12 + 뒤 여백 20 + 안쪽 200
+    expect(long.width).toBe(232);
+    expect(huge.width).toBe(long.width);
+  });
+
+  it('이름이 설명보다 길면 폭은 이름을 따른다', () => {
+    const name = 'x'.repeat(60);
+    expect(measureNode(name, undefined, undefined, undefined, { description: '짧음' }).width).toBe(
+      measureNode(name).width,
+    );
+  });
+
+  it('computeGraphLayout이 설명을 받아 카드 높이에 반영한다', async () => {
+    const result = await computeGraphLayout(
+      [
+        { id: 'a', label: 'A', rank: 0, lane: 'screen', description: DESC },
+        { id: 'b', label: 'B', rank: 1, lane: 'screen', description: '   ' },
+        { id: 'c', label: 'C', rank: 2, lane: 'screen' },
+      ],
+      [],
+    );
+    const h = (id: string): number => result.nodes.find((n) => n.id === id)!.height;
+    expect(h('a')).toBe(66);
+    expect(h('b')).toBe(48);
+    expect(h('c')).toBe(48);
+  });
+
+  it('computeLayout이 IR 노드의 description을 높이에 반영한다', async () => {
+    const ir = screenChainIr();
+    ir.nodes[0] = { ...ir.nodes[0]!, description: DESC };
+    const { nodes, edges } = allIds(ir);
+    const result = await computeLayout(ir, nodes, edges);
+    expect(result.nodes.find((n) => n.id === 'screen-home')!.height).toBe(66);
+    expect(result.nodes.find((n) => n.id === 'screen-cart')!.height).toBe(48);
+  });
+});
+
+describe('질문별 그림 세 모양의 설명 줄 높이', () => {
+  const DESC = '이 노드가 무엇인지 한 줄로 적어요.';
+
+  it('compare 카드가 설명만큼 높아진다', () => {
+    const ir = paymentCompareIr();
+    const byId = new Map(ir.nodes.map((n) => [n.id, n]));
+    const drawable = new Set(ir.nodes.map((n) => n.id));
+    const before = computeCompareLayout(ir.projections![0]!, drawable, byId);
+    byId.set('pg', { ...byId.get('pg')!, description: DESC });
+    const after = computeCompareLayout(ir.projections![0]!, drawable, byId);
+    const h = (l: typeof before, id: string): number => l.cards.find((c) => c.id === id)!.height;
+    expect(h(after, 'pg')).toBe(h(before, 'pg') + NODE_DESC_LINE);
+    expect(h(after, 'ledger')).toBe(h(before, 'ledger'));
+    expect(after.height).toBeGreaterThan(before.height);
+  });
+
+  it('dataflow 카드가 설명만큼 높아진다', () => {
+    const ir = orderDataflowIr();
+    const byId = new Map(ir.nodes.map((n) => [n.id, n]));
+    const drawn = new Set(['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7']);
+    const before = computeDataflowLayout(ir.projections![0]!, drawn, byId);
+    byId.set('api', { ...byId.get('api')!, description: DESC });
+    const after = computeDataflowLayout(ir.projections![0]!, drawn, byId);
+    const h = (l: typeof before, id: string): number => l.cards.find((c) => c.id === id)!.height;
+    expect(h(after, 'api')).toBe(h(before, 'api') + NODE_DESC_LINE);
+    expect(h(after, 'db')).toBe(h(before, 'db'));
+  });
+
+  it('sequence 머리 카드가 설명만큼 높아진다', () => {
+    const ir = checkoutSequenceIr();
+    const p = ir.projections![0]!;
+    const byId = new Map(ir.nodes.map((n) => [n.id, n]));
+    const drawn = new Set(p.messages.map((m) => m.id));
+    const before = computeSequenceLayout(p, drawn, byId);
+    const target = before.heads[0]!.id;
+    byId.set(target, { ...byId.get(target)!, description: DESC });
+    const after = computeSequenceLayout(p, drawn, byId);
+    const h = (l: typeof before, id: string): number => l.heads.find((c) => c.id === id)!.height;
+    expect(h(after, target)).toBe(h(before, target) + NODE_DESC_LINE);
+    expect(h(after, before.heads[1]!.id)).toBe(h(before, before.heads[1]!.id));
   });
 });

@@ -98,6 +98,11 @@ export function displayKindOf(node: {
   return node.kind === 'endpoint' && node.protocol === 'mcp' ? 'mcp_tool' : node.kind;
 }
 
+/** 카드에 설명 줄을 붙일지. 공백뿐인 설명은 없는 것으로 친다. 레이아웃 높이와 validate 경고가 같은 판정을 써야 한다 */
+export function hasCardDescription(description: string | undefined): boolean {
+  return description !== undefined && description.trim() !== '';
+}
+
 /** 칩에 kind 표 대신 노드가 직접 적은 글자를 쓰는 경우. component만 해당한다 */
 export function chipTextOverride(node: {
   kind: NodeKind;

@@ -52,14 +52,18 @@ export const DATA_PACK = {
     },
   },
   lanes: {
-    data_src: { title: '원천' },
-    data_move: { title: '통로' },
-    data_proc: { title: '처리' },
-    data_store: { title: '저장' },
-    data_out: { title: '활용' },
+    data_src: { title: '원천', about: '데이터가 처음 생기는 원천이 서는 칸이에요.' },
+    data_move: { title: '통로', about: '데이터를 흘려보내는 토픽이 서는 칸이에요.' },
+    data_proc: { title: '처리', about: '파이프라인과 처리 작업이 서는 칸이에요.' },
+    data_store: { title: '저장', about: '웨어하우스와 데이터셋이 서는 칸이에요.' },
+    data_out: { title: '활용', about: '사람이 보는 리포트가 서는 칸이에요.' },
   },
   edgeKinds: {
-    feeds: { text: '데이터 공급' },
-    publishes: { text: '발행', ends: { from: ['source', 'job'], to: ['topic'] } },
+    feeds: { text: '데이터 공급', about: '앞쪽 데이터가 뒤쪽으로 흘러 들어가는 연결이에요.' },
+    publishes: {
+      text: '발행',
+      about: '원천이나 처리 작업이 토픽에 데이터를 올리는 연결이에요.',
+      ends: { from: ['source', 'job'], to: ['topic'] },
+    },
   },
 } as const satisfies VocabularyPack;

@@ -148,6 +148,7 @@ export function computeDataflowLayout(
         id,
         measureNode(n.label, n.displayName, n.displayNameInferred, displayKindOf(n), {
           ...(chip !== undefined ? { chip } : {}),
+          ...(n.description !== undefined ? { description: n.description } : {}),
         }),
       ] as const;
     }),

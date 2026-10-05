@@ -8,6 +8,7 @@ import {
   FLOW_REF_KINDS,
   HARNESS_KINDS,
   PARENT_KINDS,
+  hasCardDescription,
   type ArchitectureEdge,
   type ArchitectureFlow,
   type ArchitectureProjection,
@@ -81,6 +82,13 @@ export interface ArchitectureValidationError {
   evidenceIndex?: number;
 }
 
+/** 렌더를 막지 않는 알림. 저장하지 않고 validate와 render 응답에만 싣는다 */
+export interface ArchitectureValidationWarning {
+  code: 'NODE_DESCRIPTION_MISSING';
+  message: string;
+  nodeIds: string[];
+}
+
 export interface ValidatedIr {
   ir: ArchitectureIr;
   drawableNodeIds: Set<string>;
@@ -94,6 +102,7 @@ export interface ValidatedIr {
   /** 그릴 것이 하나라도 남는 투영. compare는 묶음 노드 중 하나라도 그려지면 남는다 */
   drawableProjectionIds?: Set<string>;
   autoUnresolved: UnresolvedQuestion[];
+  warnings: ArchitectureValidationWarning[];
 }
 
 export interface ValidateArchitectureIrOptions {
@@ -1240,8 +1249,28 @@ export function validateArchitectureIr(
           }
         : {}),
       autoUnresolved,
+      warnings: descriptionWarnings(ir.nodes, drawableNodeIds),
     },
   };
+}
+
+// 노드마다 한 건씩 내면 큰 그림에서 응답이 그만큼 불어나 코드 하나에 묶는다
+function descriptionWarnings(
+  nodes: readonly ArchitectureNode[],
+  drawableNodeIds: ReadonlySet<string>,
+): ArchitectureValidationWarning[] {
+  const missing = nodes
+    .filter((n) => drawableNodeIds.has(n.id) && !hasCardDescription(n.description))
+    .map((n) => n.id)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  if (missing.length === 0) return [];
+  return [
+    {
+      code: 'NODE_DESCRIPTION_MISSING',
+      message: `description이 빈 노드 ${missing.length}개는 카드에 설명 줄이 없고 서랍에도 무엇인지가 안 나온다. 한 줄씩 채운다.`,
+      nodeIds: missing,
+    },
+  ];
 }
 
 function mapEvidence(ir: ArchitectureIr, fn: (ev: Evidence) => Evidence): ArchitectureIr {

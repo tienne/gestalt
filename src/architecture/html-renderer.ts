@@ -22,7 +22,11 @@ import {
   DOC_CSS,
 } from './html-theme.js';
 import {
+  EDGE_KIND_ABOUT,
+  LANE_ABOUT,
   LANE_TITLES,
+  NODE_KIND_ABOUT,
+  STAGE_LANE_ABOUT,
   flowBadgeText,
   MICRO_HOST_SHORT,
   NODE_KIND_SHORT,
@@ -59,7 +63,7 @@ import type {
   Evidence,
   UnresolvedQuestion,
 } from './types.js';
-import { chipTextOverride, displayKindOf } from './types.js';
+import { chipTextOverride, displayKindOf, hasCardDescription } from './types.js';
 import { maskSharedText, redactForSharing, type ValidatedIr } from './validator.js';
 
 export type ArchitectureAudience = 'private' | 'shared';
@@ -124,9 +128,9 @@ const FLOW_TEXT = {
 };
 
 const HINT_DRILL =
-  '항목을 누르면 출처가 보여요. 더블클릭하거나 상세보기를 누르면 한 단계 안으로 들어가고 뒤로가기로 돌아와요. 전체 화면에서 Shift나 ⌘를 누른 채 두 항목을 고르면 그 사이 경로를 보여줘요.';
+  '카드나 선, 칸 제목을 누르면 설명과 출처가 보여요. 더블클릭하거나 상세보기를 누르면 한 단계 안으로 들어가고 뒤로가기로 돌아와요. 전체 화면에서 Shift나 ⌘를 누른 채 두 항목을 고르면 그 사이 경로를 보여줘요.';
 const HINT_FLAT =
-  '항목을 누르면 출처가 보여요. 끌어서 옮기고 ⌘나 Ctrl을 누른 채 휠을 굴리면 크게 볼 수 있어요.';
+  '카드나 선, 칸 제목을 누르면 설명과 출처가 보여요. 끌어서 옮기고 ⌘나 Ctrl을 누른 채 휠을 굴리면 크게 볼 수 있어요.';
 
 function compareStr(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
@@ -391,6 +395,11 @@ function docCoverBadge(cover: DocCover | undefined): string {
   );
 }
 
+/** 레인 제목의 aria-label. 클라이언트가 환경 필터로 수를 바꿀 때도 같은 꼴로 다시 단다 */
+function laneAria(title: string, count: number): string {
+  return `${title} 레인, 카드 ${count}개`;
+}
+
 function renderCard(
   node: ArchitectureNode,
   box: LayoutResult['nodes'][number],
@@ -407,6 +416,7 @@ function renderCard(
 ): string {
   const name = nodeName(node);
   const guess = isGuess(node);
+  const desc = hasCardDescription(node.description);
   const platforms = facts?.platforms.map((p) => platformName(p, facts.webHosting)) ?? [];
   const dk = displayKindOf(node);
   const cls = ['node', `k-${dk}`];
@@ -422,7 +432,8 @@ function renderCard(
     (node.displayName === undefined
       ? node.label
       : `${node.displayName}${guess ? ` (${INFERRED_BADGE})` : ''}\n${node.label}`) +
-    (facts?.prodDomain !== undefined ? `\n${facts.prodDomain}` : '');
+    (facts?.prodDomain !== undefined ? `\n${facts.prodDomain}` : '') +
+    (desc ? `\n${node.description!}` : '');
   const subText =
     where !== undefined
       ? `<span class="tc">${escapeHtml(where)}</span>`
@@ -452,6 +463,7 @@ function renderCard(
     docCoverBadge(cover) +
     `</span>` +
     second +
+    (desc ? `<span class="ds">${escapeHtml(node.description!)}</span>` : '') +
     (enterable ? '<span class="go" aria-hidden="true">›</span>' : '') +
     (products.length > 1 ? renderProductBricks(products, productIds, box.width) : '') +
     `</div>`
@@ -538,7 +550,7 @@ function renderLink(
   }
   const name = `${EDGE_KIND_TEXT[edge.kind]}: ${labelOf(edge.from)} → ${labelOf(edge.to)}${xaText}`;
   return (
-    `<g class="link e-${edge.kind}${xa}" ${ends}><title>${escapeHtml(name)}</title>${hit}` +
+    `<g class="link e-${edge.kind}${xa}" ${ends} data-link-id="${escapeHtml(edge.id)}" tabindex="0" role="button" aria-label="${escapeHtml(name)}"><title>${escapeHtml(name)}</title>${hit}` +
     `<path class="edge" data-edge-id="${escapeHtml(edge.id)}" d="${route.d}" stroke-width="${width}"${dash}/>${tip}</g>`
   );
 }
@@ -696,7 +708,8 @@ function renderLevelSection(spec: CanvasSpec): string {
   const laneTitles = layout.lanes
     .map(
       (l) =>
-        `<div class="lane-title" style="left:${round2(l.x + CANVAS_PAD_X)}px;top:${LANE_INSET_Y + 10}px;width:${l.width}px">` +
+        `<div class="lane-title" data-lane-id="${escapeHtml(l.id)}" role="button" tabindex="0" aria-label="${escapeHtml(laneAria(l.title, l.count))}" ` +
+        `style="left:${round2(l.x + CANVAS_PAD_X)}px;top:${LANE_INSET_Y + 10}px;width:${l.width}px">` +
         `${escapeHtml(l.title)}<span class="n">${l.count}</span></div>`,
     )
     .join('');
@@ -1498,8 +1511,14 @@ function clientScriptFor(
       ...pick(NODE_KIND_TEXT, Object.keys(vocab.looks)),
       ...pick(EDGE_KIND_TEXT, [...Object.keys(vocab.edgeKinds), 'contains']),
     },
+    kindAbout: {
+      ...pick(NODE_KIND_ABOUT, Object.keys(vocab.looks)),
+      ...pick(EDGE_KIND_ABOUT, [...Object.keys(vocab.edgeKinds), 'contains']),
+    },
     evidenceText: EVIDENCE_TYPE_TEXT,
     laneTitles: pick(LANE_TITLES, Object.keys(vocab.lanes)) as typeof LANE_TITLES,
+    laneAbout: pick(LANE_ABOUT, Object.keys(vocab.lanes)),
+    stageLaneAbout: STAGE_LANE_ABOUT,
     inferredBadge: INFERRED_BADGE,
     platformChip: PLATFORM_CHIP_TEXT,
     platformName: PLATFORM_NAME,

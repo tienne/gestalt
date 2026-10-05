@@ -38,15 +38,24 @@ export const PROCESS_PACK = {
     },
   },
   lanes: {
-    biz_org: { title: '사람' },
-    biz_sys: { title: '시스템' },
-    biz_doc: { title: '양식' },
+    biz_org: { title: '사람', about: '조직과 역할이 서는 칸이에요.' },
+    biz_sys: { title: '시스템', about: '업무 시스템이 서는 칸이에요.' },
+    biz_doc: { title: '양식', about: '업무에 쓰는 양식이 서는 칸이에요.' },
   },
   edgeKinds: {
-    hands_over: { text: '넘김', ends: { from: ['org_unit', 'role'], to: ['org_unit', 'role'] } },
-    approves: { text: '승인', ends: { from: ['org_unit', 'role'], to: ['form'] } },
+    hands_over: {
+      text: '넘김',
+      about: '한 조직이나 역할이 다음 쪽으로 일을 넘기는 연결이에요.',
+      ends: { from: ['org_unit', 'role'], to: ['org_unit', 'role'] },
+    },
+    approves: {
+      text: '승인',
+      about: '조직이나 역할이 양식을 승인하는 연결이에요.',
+      ends: { from: ['org_unit', 'role'], to: ['form'] },
+    },
     records: {
       text: '기록',
+      about: '사람이나 시스템이 양식이나 시스템에 기록을 남기는 연결이에요.',
       ends: { from: ['org_unit', 'role', 'system'], to: ['form', 'system'] },
     },
   },

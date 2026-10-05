@@ -72,6 +72,7 @@ export function computeCompareLayout(
     const chip = chipTextOverride(n);
     return measureNode(n.label, n.displayName, n.displayNameInferred, displayKindOf(n), {
       ...(chip !== undefined ? { chip } : {}),
+      ...(n.description !== undefined ? { description: n.description } : {}),
     });
   };
   const columns: CompareColumn[] = [];

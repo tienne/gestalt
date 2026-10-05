@@ -255,6 +255,50 @@ describe('ges_architecture render', () => {
   });
 });
 
+describe('ges_architecture description 경고', () => {
+  function described(): ArchitectureIr {
+    const ir = makeIr();
+    for (const n of ir.nodes) n.description = `${n.label}가 무엇인지 적은 한 줄이에요.`;
+    return ir;
+  }
+
+  it('validate는 description이 빈 노드를 warnings로 알리고 ok는 그대로 true다', async () => {
+    const ir = makeIr();
+    ir.nodes[0]!.description = '홈 화면이에요.';
+    const result = await call({ action: 'validate', ir });
+    expect(result['ok']).toBe(true);
+    expect(result['warnings']).toEqual([
+      expect.objectContaining({
+        code: 'NODE_DESCRIPTION_MISSING',
+        nodeIds: ['n-orders-api', 'n-orders-module'],
+      }),
+    ]);
+  });
+
+  it('render도 warnings를 싣고 HTML은 그대로 쓴다', async () => {
+    const result = await call({ action: 'render', ir: makeIr() });
+    expect(existsSync(result['htmlPath'] as string)).toBe(true);
+    const warnings = result['warnings'] as Array<{ code: string; nodeIds: string[] }>;
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.code).toBe('NODE_DESCRIPTION_MISSING');
+    expect(warnings[0]!.nodeIds).toEqual(['n-home', 'n-orders-api', 'n-orders-module']);
+  });
+
+  it('모든 노드에 description이 있으면 validate와 render 응답에 warnings 키가 없다', async () => {
+    const validated = await call({ action: 'validate', ir: described() });
+    expect(validated['ok']).toBe(true);
+    expect(validated).not.toHaveProperty('warnings');
+    const rendered = await call({ action: 'render', ir: described() });
+    expect(rendered).not.toHaveProperty('warnings');
+  });
+
+  it('경고는 저장한 IR 파일에 남지 않는다', async () => {
+    const result = await call({ action: 'render', ir: makeIr() });
+    const saved = readFileSync(result['irPath'] as string, 'utf-8');
+    expect(saved).not.toContain('NODE_DESCRIPTION_MISSING');
+  });
+});
+
 describe('ges_architecture status', () => {
   it('뷰마다 이전 실행 요약을 돌려준다', async () => {
     const before = await call({ action: 'status' });

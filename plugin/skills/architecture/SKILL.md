@@ -295,7 +295,8 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 
    ```json
    { "id": "tool:plan", "kind": "endpoint", "label": "ges_plan", "protocol": "mcp",
-     "mcpServer": "gestalt", "parent": "svc-gestalt", "actions": ["start", "submit"], "evidence": [ ... ] }
+     "mcpServer": "gestalt", "parent": "svc-gestalt", "actions": ["start", "submit"],
+     "description": "실행 계획을 세우고 단계별로 제출받는 도구예요.", "evidence": [ ... ] }
    ```
 
 5. **도구 호출 매칭**: SKILL.md와 AGENT.md에서 도구 이름과 `action=`, `action: '...'` 줄을 찾아 `skillToolCalls`로, 서버 코드의 도구 등록을 `serverTools`로 적어 `match_endpoints`에 넘긴다. HTTP 쪽 `feCalls`와 함께 넘겨도 된다.
@@ -501,6 +502,15 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 - render 응답의 `unstagedNodes`가 0이 아니면 규칙이 빠진 노드가 **그 밖**에 모인 것이다. 인프라처럼 일부러 뺀 게 아니면 규칙을 보탠다.
 - 구간 이름은 페이지에 그대로 보이니 아래 해요체 규칙처럼 읽는 사람 말로 쓴다.
 
+### 노드 설명
+
+**모든 노드에 `description`을 한 줄씩 단다.** 카드 이름 밑에 한 줄로 붙고 카드를 누르면 열리는 서랍 맨 위에 그대로 나온다. 이름만 봐서는 무엇인지 모르는 사람이 이 줄을 읽고 그림을 따라간다.
+
+- 그 노드가 무엇을 하는지 한 문장으로 쓴다. 카드에서는 한 줄을 넘으면 말줄임표로 잘리고 전체는 툴팁과 서랍에서 보인다. 그래서 앞쪽에 핵심을 둔다.
+- 출처가 이미 있는 노드는 거기서 가져와 한 줄로 줄인다. 스킬은 SKILL.md 프런트매터의 `description`, MCP 도구는 도구 등록의 description, 에이전트는 AGENT.md의 `description`이나 첫 문단이다. 트리거 문구나 사용 예시는 걷어내고 하는 일만 남긴다.
+- 출처가 없으면 코드에서 읽은 대로 쓴다. 화면은 사용자가 거기서 하는 일, API는 무엇을 돌려주거나 바꾸는지, 테이블은 무엇을 담는지다.
+- 빈 채로 두면 validate가 `warnings`에 `NODE_DESCRIPTION_MISSING`을 싣는다. 에러가 아니라 render는 막지 않는다. 경고에 실린 `nodeIds`를 채워 다시 validate한다.
+
 ### 페이지 글
 
 페이지에 그대로 보이는 글은 **사용자가 이 분석을 시킨 프롬프트의 언어로** 쓴다. 코드와 주석, 기획 문서가 영어여도 옮겨 쓴다. 미해결 질문(`question`), 노드 `description`, 기능영역 이름, `displayName`, 구간 `label`, 흐름의 `title`과 `description`, 행위자와 단계와 전이의 `label`, `stateLabels` 값이 그 자리다. 코드 식별자인 노드 `label`과 단계 `state`만 코드에 있는 그대로 둔다. 한국어라면 읽는 사람에게 말하는 해요체로 쓴다. 번역투나 AI 말투는 피하고 [`ai-tell-quick-rules.md`](../../role-agents/_shared/references/ai-tell-quick-rules.md)를 따른다.
@@ -640,6 +650,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 ```
 
 - 성공하면 `{ ok: true, autoUnresolved, drawable }`이다. `drawable`에 빠진 노드와 엣지가 있으면 왜 빠졌는지 `autoUnresolved`에서 확인한다.
+- 성공해도 `warnings`가 올 수 있다. 지금은 `NODE_DESCRIPTION_MISSING` 하나이고 그리는 노드 중 `description`이 빈 노드를 `nodeIds`에 모아 준다. render는 그대로 되지만 그 카드에는 설명 줄이 없다. [노드 설명](#노드-설명)대로 채운다. render 응답에도 같은 `warnings`가 실린다.
 - 실패하면 `errors[]`에 `code`와 `nodeId`나 `edgeId`가 온다. 질문별 그림 에러면 `projectionId`와 `messageId`가 온다.
 
 | 에러 코드                     | 고치는 법                                                                                                          |

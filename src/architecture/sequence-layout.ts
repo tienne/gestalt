@@ -93,6 +93,7 @@ export function computeSequenceLayout(
     return measureNode(n.label, n.displayName, n.displayNameInferred, displayKindOf(n), {
       ...(chip !== undefined ? { chip } : {}),
       ...(where !== undefined ? { secondLine: where } : {}),
+      ...(n.description !== undefined ? { description: n.description } : {}),
     });
   });
   const col = new Map(order.map((id, i) => [id, i]));

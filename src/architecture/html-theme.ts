@@ -340,6 +340,8 @@ button { font: inherit; color: inherit; }
   position: absolute; display: flex; align-items: center; gap: 8px; padding: 0 14px; height: 22px;
   font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden;
 }
+.lane-title[data-lane-id] { cursor: pointer; border-radius: 4px; }
+.lane-title[data-lane-id]:hover { color: var(--accent); }
 .lane-title .n {
   min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 600; color: var(--muted); background: var(--surface); border: 1px solid var(--border); font-variant-numeric: tabular-nums;
@@ -432,6 +434,11 @@ button { font: inherit; color: inherit; }
 .pf svg { width: 11px; height: 11px; flex: none; }
 .tc.dom { font-family: var(--font); color: var(--text); }
 .l2 { grid-row: 2; grid-column: 1 / -1; display: flex; align-items: center; min-width: 0; }
+/* 설명 줄은 행을 정하지 않는다. 둘째 줄이 있으면 셋째 줄, 없으면 둘째 줄로 자동 배치된다 */
+.ds {
+  grid-column: 1 / -1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font: 11px/16px var(--font); color: var(--muted);
+}
 .l2 .pf:first-child { margin-left: 0; }
 /* 도메인 흐름. 행위자 줄은 번갈아 옅게 칠해 줄 경계를 읽히게 하고, 옆 흐름은 정상 흐름과 색으로 가른다 */
 .flane { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
@@ -507,7 +514,7 @@ button { font: inherit; color: inherit; }
 .link .edge { fill: none; stroke: var(--edge); stroke-opacity: var(--edge-alpha); stroke-linecap: round; transition: stroke 0.15s, stroke-opacity 0.15s; }
 .link .tip { fill: var(--edge); fill-opacity: 0.6; transition: fill 0.15s; }
 .link .hit { fill: none; stroke: transparent; pointer-events: stroke; }
-.link.bundle { cursor: pointer; }
+.link.bundle, .link[data-link-id] { cursor: pointer; }
 .link:focus { outline: none; }
 .link.lit .edge, .link:hover .edge { stroke: var(--edge-strong); stroke-opacity: 0.9; }
 .link.lit .tip, .link:hover .tip { fill: var(--edge-strong); fill-opacity: 1; }
