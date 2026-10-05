@@ -11,7 +11,7 @@ export const PROCESS_PACK = {
   description: '조직, 역할, 업무 시스템, 문서 양식',
   requires: ['generic'],
   drilldown: 'tree',
-  matchers: [],
+  matchers: ['state-value'],
   nodeKinds: {
     org_unit: {
       ...classLook('actor', '조직', '팀이나 부서'),

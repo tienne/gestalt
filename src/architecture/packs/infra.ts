@@ -11,7 +11,7 @@ export const INFRA_PACK = {
   description: '네트워크, 서브넷, 클러스터, 워크로드, 방화벽',
   requires: ['generic'],
   drilldown: 'tree',
-  matchers: [],
+  matchers: ['iac-ref'],
   nodeKinds: {
     firewall: {
       ...classLook('gateway', '방화벽', '드나드는 통신을 거르는 관문'),

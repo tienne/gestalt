@@ -10,7 +10,7 @@ export const GENERIC_PACK = {
   title: '범용',
   description: '맞는 팩이 없는 구성 요소를 렌더 분류만으로 그린다',
   drilldown: 'none',
-  matchers: [],
+  matchers: ['name-ref'],
   nodeKinds: {
     component: {
       ...RENDER_CLASS_LOOKS.service,

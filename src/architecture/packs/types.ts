@@ -71,7 +71,7 @@ export interface VocabularyPack {
   /** 이 팩이 kind나 엣지를 빌려 쓰는 팩. 해석할 때 먼저 들어간다 */
   requires?: readonly string[];
   drilldown: DrilldownStrategy;
-  /** 이 팩 IR에 거는 매칭 이름. http-endpoint는 match_endpoints, mcp-tool은 스킬의 도구 호출 매칭이다 */
+  /** 이 팩 IR에 거는 매칭 이름. http-endpoint는 FE 호출과 BE 라우트, mcp-tool은 스킬의 도구 호출, 나머지는 match_endpoints의 nameRefs로 돈다 */
   matchers: readonly string[];
   nodeKinds: Readonly<Record<string, NodeKindDef>>;
   /** IR kind는 아니지만 카드에 따로 보이는 종류. MCP 도구는 IR에서 endpoint다 */

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { guardObject } from './input-guard.js';
 import { ARCHITECTURE_VIEWS } from '../architecture/types.js';
+import { NAME_REF_MATCHERS } from '../architecture/name-ref-match.js';
 
 // ─── Shared Spec Sub-schemas ────────────────────────────────────
 // Spec의 ontology/gestaltAnalysis 필드를 구체화한 로컬 스키마.
@@ -867,6 +868,18 @@ const skillToolCallSchema = z.object({
   action: z.string().optional(),
 });
 
+const nameRefSchema = z.object({ id: z.string().min(1), name: z.string().min(1) });
+
+const nameRefsSchema = z.object({
+  matcher: z
+    .enum(NAME_REF_MATCHERS)
+    .describe('팩의 matchers 중 하나. 이름을 비교 키로 펴는 규칙이 matcher마다 다르다'),
+  refs: z
+    .array(nameRefSchema)
+    .describe('참조하는 쪽. 잡이 읽는 테이블, IaC 속성 참조, 코드의 상태 값'),
+  decls: z.array(nameRefSchema).describe('선언된 쪽. 테이블 정의, IaC 리소스, 흐름 단계의 상태 값'),
+});
+
 const serverToolSchema = z.object({
   id: z.string(),
   server: z.string(),
@@ -928,6 +941,11 @@ export const architectureInputSchema = guardObject(
       .array(serverToolSchema)
       .optional()
       .describe('match_endpoints: MCP 서버 코드에서 찾은 도구 등록. skillToolCalls와 짝'),
+    nameRefs: nameRefsSchema
+      .optional()
+      .describe(
+        'match_endpoints: 이름으로 가리키는 참조와 선언. infra, data, process, generic 팩의 짝 맞추기',
+      ),
     prefixCandidates: z
       .array(z.string())
       .optional()

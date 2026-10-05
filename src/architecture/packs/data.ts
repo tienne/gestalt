@@ -11,7 +11,7 @@ export const DATA_PACK = {
   description: '원천, 토픽, 처리 작업, 데이터셋, 리포트',
   requires: ['generic'],
   drilldown: 'tree',
-  matchers: [],
+  matchers: ['dataset-io'],
   nodeKinds: {
     source: {
       ...classLook('external', '원천', '데이터가 처음 생기는 곳'),

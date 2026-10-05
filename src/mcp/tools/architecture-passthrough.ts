@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { collectGlobalContext } from '../../architecture/global-context.js';
 import { matchEndpoints } from '../../architecture/endpoint-match.js';
 import { matchMcpTools } from '../../architecture/mcp-tool-match.js';
+import { matchNameRefs } from '../../architecture/name-ref-match.js';
 import { computeDrilldown, shouldDrillDown } from '../../architecture/drilldown.js';
 import { renderArchitectureHtml, renderDrilldownHtml } from '../../architecture/html-renderer.js';
 import { parseArchitectureIr } from '../../architecture/ir-schema.js';
@@ -231,10 +232,11 @@ function handleFilterTools(input: ArchitectureInput): object {
 function handleMatchEndpoints(input: ArchitectureInput): object {
   const http = input.feCalls !== undefined && input.beRoutes !== undefined;
   const mcp = input.skillToolCalls !== undefined && input.serverTools !== undefined;
-  if (!http && !mcp) {
+  const names = input.nameRefs !== undefined;
+  if (!http && !mcp && !names) {
     return fail(
       'MISSING_INPUT',
-      'match_endpoints에는 feCalls와 beRoutes, 또는 skillToolCalls와 serverTools가 필요하다.',
+      'match_endpoints에는 feCalls와 beRoutes, skillToolCalls와 serverTools, nameRefs 중 하나가 필요하다.',
     );
   }
   return {
@@ -253,6 +255,7 @@ function handleMatchEndpoints(input: ArchitectureInput): object {
           }),
         }
       : {}),
+    ...(names ? { refs: matchNameRefs(input.nameRefs!) } : {}),
   };
 }
 

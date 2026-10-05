@@ -7,6 +7,7 @@ import {
   resolvePackIds,
   vocabularyOf,
 } from '../../../src/architecture/packs/index.js';
+import { NAME_REF_MATCHERS } from '../../../src/architecture/name-ref-match.js';
 import { genericIr } from '../../fixtures/architecture-categories/generic.js';
 import { renderBoth } from '../../fixtures/architecture-legacy/render.js';
 
@@ -32,6 +33,14 @@ describe('어휘 팩', () => {
         expect(vocab.lanes[d.lane], `${p.id}.${k}`).toBeDefined();
         expect(RENDER_CLASSES).toContain(d.renderClass);
       }
+    }
+  });
+
+  it('팩마다 matcher가 있고 전부 서버가 아는 이름이다', () => {
+    const known = new Set<string>(['http-endpoint', 'mcp-tool', ...NAME_REF_MATCHERS]);
+    for (const p of BUILTIN_PACKS) {
+      expect(p.matchers.length, p.id).toBeGreaterThan(0);
+      for (const m of p.matchers) expect(known.has(m), `${p.id}:${m}`).toBe(true);
     }
   });
 
