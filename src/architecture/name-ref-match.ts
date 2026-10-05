@@ -93,7 +93,7 @@ function stateKey(name: string): string {
 }
 
 /**
- * 문서가 적은 파일 경로를 비교 키로 편다. `./src/a.ts:12`, `src/a.ts#L12`, `src/a.ts@main`을 같은 파일로 본다.
+ * 문서가 적은 파일 경로를 비교 키로 편다. `./src/a.ts:12-30`, `src/a.ts#L12`, `src/a.ts@main`을 같은 파일로 본다.
  * 경로는 대소문자를 가리는 파일 시스템이 있어 그대로 둔다
  */
 export function docPathKey(name: string): string {
@@ -101,8 +101,8 @@ export function docPathKey(name: string): string {
     .trim()
     .replace(/^['"`<(]+|['"`>)]+$/g, '')
     .replace(/@[^/@\s]+$/, '')
-    .replace(/#L?\d+(?:-L?\d+)?$/, '')
-    .replace(/:\d+(?::\d+)?$/, '')
+    .replace(/#.*$/, '')
+    .replace(/:\d+(?:[-:]\d+)?$/, '')
     .replace(/\\/g, '/')
     .replace(/^\.\//, '')
     .replace(/\/{2,}/g, '/')

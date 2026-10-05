@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { computeDrilldown } from '../../../src/architecture/drilldown.js';
@@ -55,7 +55,7 @@ const INDEX_MD = `# 주문 안내
 
 const SCREENS_MD = `# 상점 화면
 
-| 타입 | 화면명 | URL 또는 진입 조건 | Figma 프레임 | node_id | component_key | DESIGN.md | 동의어 |
+| 타입 | 화면 | URL 또는 진입 조건 | Figma 프레임 | node_id | component_key | DESIGN.md | 동의어 |
 |---|---|---|---|---|---|---|---|
 | 화면 | 장바구니 | /cart | Cart / Default | 12:34 | abc123 | [보기](cart/DESIGN.md) | 카트, 바구니 |
 | 바텀시트 | 결제 | /pay/:id | Pay | 12:35 | - | ❌ | - |
@@ -69,6 +69,18 @@ describe('parseEvidenceMarker', () => {
     });
     expect(parseEvidenceMarker('acme-web:src/b.tsx@3f2a9c1', 1).ref?.pinned).toBe('commit');
     expect(parseEvidenceMarker('acme-web:src/b.tsx', 1).ref?.pinned).toBe('none');
+  });
+
+  it('종류 없이 레포/경로:줄로 쓴 근거도 코드로 읽고 자리표시는 버린다', () => {
+    expect(parseEvidenceMarker('acme-dags/dags/a.py:78-95', 2).ref).toEqual({
+      repo: 'acme-dags',
+      path: 'dags/a.py',
+      ref: undefined,
+      pinned: 'none',
+      line: 2,
+    });
+    expect(parseEvidenceMarker('acme-api/docs/adr.md#1.-결정', 1).ref?.path).toBe('docs/adr.md');
+    expect(parseEvidenceMarker('<repo>/<path>', 1)).toEqual({ group: 'other', ref: null });
   });
 
   it('코드가 아닌 종류는 막대 묶음으로만 접는다', () => {
@@ -142,6 +154,16 @@ describe('scanMarkdown', () => {
     ]);
   });
 
+  it('설명 없는 [GAP]은 그 줄 나머지를 설명으로 삼고 프레임이나 타입 열 없는 표는 화면 색인으로 안 본다', () => {
+    const d = scanMarkdown(
+      'design',
+      'a/DESIGN.md',
+      '- **[GAP]** 알림 규약의 현행성.\n\n| 영역 | 화면 | URL |\n|---|---|---|\n| 홈 | 메인 | /main |\n',
+    );
+    expect(d.gaps).toEqual([{ kind: 'gap', text: '알림 규약의 현행성.', line: 1 }]);
+    expect(d.screens).toEqual([]);
+  });
+
   it('패턴을 바꾸면 다른 표시 형식도 읽는다', () => {
     const d = scanMarkdown('kb', 'a.md', 'TODO(src): acme-api:src/x.ts\n', {
       evidence: String.raw`TODO\(src\):\s*(\S+)`,
@@ -165,6 +187,8 @@ describe('ges_architecture scan_docs', () => {
     put('acme-kb/domains/orders/references/status.md', STATUS_MD);
     put('acme-kb/domains/orders/references/refund.md', '# 환불\n');
     put('acme-kb/node_modules/x/README.md', '# 건너뛴다\n');
+    // 심링크 폴더로 같은 파일이 한 번 더 보여도 숨김 폴더 밖 경로 하나만 남는다
+    symlinkSync('domains', join(tmpRoot, 'acme-kb/.mirror'), 'dir');
     put('acme-design/products/store/screens.md', SCREENS_MD);
     mkdirSync(join(tmpRoot, 'work'), { recursive: true });
   });

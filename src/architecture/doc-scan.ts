@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join, posix, relative, sep } from 'node:path';
 import matter from 'gray-matter';
 import type {
@@ -12,6 +12,7 @@ import type {
   Evidence,
 } from './types.js';
 import { ARCHITECTURE_IR_SCHEMA_VERSION } from './types.js';
+import { docPathKey } from './name-ref-match.js';
 
 /**
  * 근거 표시와 구멍 표시, 머리줄을 찾는 정규식. 레포마다 형식이 달라 바꿀 수 있게 열어 둔다.
@@ -34,7 +35,7 @@ const DEFAULT_PATTERNS: Required<DocScanPatterns> = {
   updated: String.raw`^>\s*(?:최종\s*수정|마지막\s*수정|last\s*updated|updated)\s*[:：]?\s*(\d{4}-\d{2}-\d{2})`,
   keywordHeader: String.raw`키워드|질문|keyword|question|trigger`,
   routeHeader: String.raw`url|라우트|route|진입|path`,
-  screenNameHeader: String.raw`화면\s*명|화면\s*이름|screen|name`,
+  screenNameHeader: String.raw`^화면$|화면\s*명|화면\s*이름|screen|name`,
 };
 
 export interface DocRoot {
@@ -102,6 +103,7 @@ const KIND_GROUPS: Record<string, string> = {
   ui: 'ui',
   figma: 'ui',
   url: 'url',
+  svc: 'data',
   doc: 'doc',
   docs: 'doc',
   kb: 'doc',
@@ -129,7 +131,21 @@ export function parseEvidenceMarker(
   line: number,
 ): { group: string; ref: DocCodeRef | null } {
   const raw = body.trim();
+  if (raw.includes('<')) return { group: 'other', ref: null };
   const colon = raw.indexOf(':');
+  // 종류 없이 `레포/경로:줄@ref`로 쓴 꼴. 첫 콜론 앞에 /가 있으면 종류가 아니라 경로다
+  const head = colon > 0 ? raw.slice(0, colon) : raw;
+  if (head.includes('/') && !/^https?$/i.test(head)) {
+    const at = raw.lastIndexOf('@');
+    const ref = at > 0 ? raw.slice(at + 1).trim() : undefined;
+    const loc = docPathKey(at > 0 ? raw.slice(0, at) : raw);
+    const slash = loc.indexOf('/');
+    if (slash <= 0 || /\s/.test(loc)) return { group: 'other', ref: null };
+    return {
+      group: 'code',
+      ref: { repo: loc.slice(0, slash), path: loc.slice(slash + 1), ref, pinned: pinOf(ref), line },
+    };
+  }
   const kind = (colon > 0 ? raw.slice(0, colon) : raw).trim().toLowerCase();
   const rest = colon > 0 ? raw.slice(colon + 1).trim() : '';
   const known = KIND_GROUPS[kind];
@@ -148,7 +164,10 @@ export function parseEvidenceMarker(
   }
   // 종류 자리에 레포 이름을 바로 쓴 꼴. 위치가 경로처럼 생겼을 때만 코드로 본다
   if (/[/.]/.test(location) && !/\s/.test(location)) {
-    return { group: 'code', ref: { repo: kind, path: location, ref, pinned: pinOf(ref), line } };
+    return {
+      group: 'code',
+      ref: { repo: kind, path: docPathKey(location), ref, pinned: pinOf(ref), line },
+    };
   }
   return { group: 'other', ref: null };
 }
@@ -197,6 +216,8 @@ export function resolveDocLink(fromPath: string, link: string): string | undefin
     : posix.normalize(posix.join(posix.dirname(fromPath), clean));
   return joined.startsWith('..') ? undefined : joined;
 }
+
+const blank = (cell: string): boolean => /^[-—–]?$/.test(cell.trim());
 
 function truthy(cell: string): boolean | undefined {
   const t = plain(cell).toLowerCase();
@@ -307,8 +328,11 @@ export function scanMarkdown(
       out.codeRefs.push({ repo: m[1]!, path: m[3]!, ref, pinned: pinOf(ref), line: lineNo });
       bump('code');
     }
+    // `[GAP]`만 쓰고 설명은 뒤에 잇는 문서가 많아 캡처가 비면 그 줄의 나머지를 설명으로 본다
+    const after = (m: RegExpMatchArray): string =>
+      m[1] ?? plain(line.slice((m.index ?? 0) + m[0].length).replace(/^[\s*:—–-]+/, ''));
     for (const m of line.matchAll(gapRe)) {
-      const text = m[1] ?? '';
+      const text = after(m);
       const owner = ownerOf(text);
       out.gaps.push({
         kind: 'gap',
@@ -318,7 +342,7 @@ export function scanMarkdown(
       });
     }
     for (const m of line.matchAll(unverifiedRe)) {
-      const text = m[1] ?? '';
+      const text = after(m);
       out.gaps.push({
         kind: 'unverified',
         ...(text.trim() !== '' ? { text: clip(text) } : {}),
@@ -342,7 +366,9 @@ export function scanMarkdown(
       const kw = c.find(keywordRe);
       const route = c.find(routeRe);
       const name = c.find(screenNameRe);
-      const kind = route >= 0 && name >= 0 ? 'screen' : kw >= 0 ? 'route' : 'other';
+      // 화면 설계 문서 안의 작은 표까지 화면 색인으로 잡지 않게 프레임이나 타입 열도 있어야 색인으로 본다
+      const screenish = c.find(/프레임|frame|타입|유형|type/) >= 0;
+      const kind = route >= 0 && name >= 0 && screenish ? 'screen' : kw >= 0 ? 'route' : 'other';
       table = { cols: c, kind };
       i++;
       continue;
@@ -371,11 +397,11 @@ export function scanMarkdown(
       if (name === '') continue;
       const row: DocScreenRow = { name: clip(name), line: lineNo };
       const route = plain(at(routeRe) ?? '');
-      if (route !== '' && route !== '-') row.route = clip(route);
+      if (!blank(route)) row.route = clip(route);
       const type = plain(at(/타입|유형|type|종류/) ?? '');
       if (type !== '') row.screenType = clip(type);
       const frame = plain(at(/프레임|frame/) ?? '');
-      if (frame !== '' && frame !== '-') row.frame = clip(frame);
+      if (!blank(frame)) row.frame = clip(frame);
       const nodeId = plain(at(/node.?id|노드/) ?? '');
       if (/^\d+[:-]\d+$/.test(nodeId)) row.frameNode = nodeId;
       const key = at(/component.?key|컴포넌트|심볼/);
@@ -383,7 +409,7 @@ export function scanMarkdown(
       const spec = at(/design\.md|설계|스펙|spec/);
       if (spec !== undefined) row.hasSpec = truthy(spec) ?? false;
       const syn = plain(at(/동의어|별칭|synonym|alias/) ?? '');
-      if (syn !== '' && syn !== '-') {
+      if (!blank(syn)) {
         row.synonyms = syn
           .split(/[,/·、;]/)
           .map((s) => s.trim())
@@ -407,7 +433,26 @@ function listMarkdown(root: DocRoot): { rel: string; abs: string }[] {
     if (root.exclude?.some((p) => rel.startsWith(p))) continue;
     files.push({ rel, abs });
   }
-  return files.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+  // 심링크 폴더를 따라가면 같은 파일이 두 경로로 잡힌다. 실제 파일 하나에 경로 하나만 남기고 숨김 폴더 밖 경로를 고른다
+  const hidden = (rel: string): number => (rel.split('/').some((s) => s.startsWith('.')) ? 1 : 0);
+  const best = new Map<string, { rel: string; abs: string }>();
+  for (const f of files) {
+    let real = f.abs;
+    try {
+      real = realpathSync(f.abs);
+    } catch {
+      // 끊긴 링크는 경로 그대로 둔다
+    }
+    const prev = best.get(real);
+    if (
+      prev === undefined ||
+      hidden(f.rel) - hidden(prev.rel) < 0 ||
+      (hidden(f.rel) === hidden(prev.rel) && f.rel.length < prev.rel.length)
+    ) {
+      best.set(real, f);
+    }
+  }
+  return [...best.values()].sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
 }
 
 /** 문서 루트들의 md를 전부 훑는다. 읽기만 한다 */
