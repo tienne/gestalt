@@ -111,4 +111,40 @@ describe('지식 팩', () => {
     expect(legacy.private).not.toContain('renderDoc');
     expect(legacy.private).not.toContain('.doc-badge');
   });
+
+  it('묶음 카드 검색은 아래 레벨 문서의 이름과 찾는 말까지 본다', async () => {
+    const kn = await renderBoth(knowledgeIr());
+    const start = kn.private.indexOf('var levelHay = {};');
+    const end = kn.private.indexOf('return (levelHay[id] = out);', start);
+    expect(start).toBeGreaterThan(0);
+    // 브라우저에 싣는 바로 그 문자열을 레벨 셋짜리 가짜 화면 위에서 돌린다
+    const card = (id: string) => ({ getAttribute: () => id });
+    const sections: Record<string, ReturnType<typeof card>[]> = {
+      root: [card('g:orders')],
+      'group:g:orders': [card('g:refund'), card('d:pay')],
+      'group:g:refund': [card('d:refund')],
+    };
+    const levelHay = new Function(
+      'nodes',
+      'enterMap',
+      'sectionOf',
+      'current',
+      `${kn.private.slice(start, end)}return (levelHay[id] = out);\n  }\nreturn docLevelHay;`,
+    )(
+      {
+        'g:orders': { id: 'g:orders', label: 'orders/' },
+        'g:refund': { id: 'g:refund', label: 'refund/' },
+        'd:pay': { id: 'd:pay', label: 'pay.md', doc: { keywords: ['결제'] } },
+        'd:refund': { id: 'd:refund', label: 'refund.md', doc: { keywords: ['환불 규정'] } },
+      },
+      { 'g:orders': 'group:g:orders', 'g:refund': 'group:g:refund' },
+      (id: string) => (sections[id] ? { querySelectorAll: () => sections[id] } : null),
+      'root',
+    ) as (id: string) => string;
+    expect(levelHay('group:g:orders')).toContain('환불 규정');
+    expect(levelHay('group:g:orders')).toContain('결제');
+    expect(levelHay('root')).toBe('');
+    const legacy = await renderBoth(LEGACY_IRS.web!());
+    expect(legacy.private).not.toContain('docLevelHay');
+  });
 });

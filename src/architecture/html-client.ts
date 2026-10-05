@@ -43,8 +43,9 @@ const MIXED_PANEL_NOTE =
 const MIXED_PILL = `
         if (e.inferred !== undefined) pill.lastChild.setAttribute('stroke-dasharray', '3 2');`;
 
-// 질문 안내 표가 문서로 보내는 말도 검색에 넣는다
-const DOC_HAY = " + (n.doc && n.doc.keywords ? ' ' + n.doc.keywords.join(' ') : '')";
+// 질문 안내 표가 문서로 보내는 말도 검색에 넣는다. 묶음 카드는 아래 레벨 문서의 이름과 말까지 품어서 전체보기에서 찾아도 들어갈 길이 켜진다
+const DOC_HAY =
+  " + (n.doc && n.doc.keywords ? ' ' + n.doc.keywords.join(' ') : '') + docLevelHay(enterMap[n.id])";
 
 // 문서 정보 조각. 지식 문서 팩을 쓰는 그림에만 싣는다. 공유본은 본문 글자가 가려진 채로 온다
 const DOC_FUNCS = `  var GAP_TEXT = { gap: '빈 곳', unverified: '확인 안 됨' };
@@ -159,6 +160,19 @@ const DOC_FUNCS = `  var GAP_TEXT = { gap: '빈 곳', unverified: '확인 안 �
       d.sections.forEach(function (t) { factRow(sl, '#', t); });
       body.appendChild(sl);
     }
+  }
+  var levelHay = {};
+  function docLevelHay(id) {
+    if (!id || id === current) return '';
+    if (levelHay[id] !== undefined) return levelHay[id];
+    levelHay[id] = '';
+    var s = sectionOf(id);
+    var out = '';
+    if (s) s.querySelectorAll('.node').forEach(function (c) {
+      var n = nodes[c.getAttribute('data-node-id')];
+      if (n) out += ' ' + (n.displayName || '') + ' ' + n.label${DOC_HAY};
+    });
+    return (levelHay[id] = out);
   }
 `;
 
