@@ -29,6 +29,8 @@ inputs:
     description: "목표 슬라이드 수. 없으면 발표 시간 기준(1분/슬라이드)으로 제안한다."
 outputs:
   - presentation_html_path
+routing:
+  note: "presentation-writer 콘텐츠 → 승인 단계 → presentation-designer 디자인 → Reveal.js HTML"
 ---
 
 # Presentation Skill

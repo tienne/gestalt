@@ -47,6 +47,7 @@ outputs:
   - continuityVerdict
   - postedReview
   - reviewSummary
+routing: {}
 ---
 
 # Review Skill

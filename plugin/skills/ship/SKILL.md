@@ -36,6 +36,8 @@ outputs:
   - copilotRounds
   - unresolvedAtReady
   - prState
+routing:
+  note: "로컬 PR → 리뷰 수렴 루프 → 승인 → draft PR → Copilot 수렴 루프 → ready. 리뷰 한 번만이면 `review`"
 ---
 
 # Ship Skill

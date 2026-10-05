@@ -36,6 +36,7 @@ outputs:
   - docType
   - draft
   - finalDoc
+routing: {}
 ---
 
 # Brief Skill

@@ -35,6 +35,8 @@ inputs:
 outputs:
   - explanation
   - explain_check_report
+routing:
+  note: "소스 확보 → 대상 확정 → explainer 위임 → explain-check → 재시도. 설명 문장만 빠르게 필요하면 `explainer` 에이전트"
 ---
 
 # Explain Skill

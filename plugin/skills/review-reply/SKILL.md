@@ -36,6 +36,8 @@ outputs:
   - responsePlan
   - appliedCommits
   - postedReplies
+routing:
+  note: "스레드 수집 → 유형 분류 승인 → 수정·커밋 → 답글 승인 → 게시"
 ---
 
 # Review Reply Skill

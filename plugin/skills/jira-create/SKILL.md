@@ -30,6 +30,8 @@ inputs:
     description: "이슈타입(Bug/Story/Task/Epic). 비우면 jira-writer 추천값으로 확인"
 outputs:
   - created_issue_key_and_link
+routing:
+  note: "내부적으로 jira-writer 구조화 → 프로젝트·필드 확정 → 승인 단계 → createJiraIssue"
 ---
 
 # Jira Create Skill

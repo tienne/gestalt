@@ -35,6 +35,8 @@ inputs:
     description: "발송 시각. 비우면 즉시 전송, 지정 시 예약"
 outputs:
   - sent_or_scheduled_message_link
+routing:
+  note: "내부적으로 slack-messenger 다듬기 → 승인 단계 → 전송"
 ---
 
 # Slack Send Skill
