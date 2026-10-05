@@ -382,15 +382,17 @@ const SEQ_FUNCS = `  var seqBar = byId('seq-bar');
     // 재생 중에 단계마다 읽어 주면 낭독이 밀려 쌓인다. 멈추면 seqStop이 되돌린다
     seqSay.setAttribute('aria-live', 'off');
     seqTimer = setInterval(function () {
-      if (seqN >= seqTotal()) { seqStop(); return; }
-      showStep(seqN + 1);
+      // 마지막 단계는 재생을 먼저 끝내고 그린다. aria-live가 polite로 돌아온 뒤에 써야 낭독기가 읽는다
+      var next = seqN + 1;
+      if (next >= seqTotal()) { seqStop(); showStep(next); return; }
+      showStep(next);
     }, 900);
   }
   seqBar.addEventListener('click', function (e) {
     var b = e.target.closest('button');
     if (!b) return;
     var mode = b.getAttribute('data-seq-mode');
-    // 보기를 바꾸면 fit이 화면을 다시 그리며 포커스를 놓친다. 누른 단추로 돌려준다
+    // 보기를 바꾼 뒤에도 키보드로 같은 바에서 이어 고를 수 있게 누른 단추에 포커스를 둔다
     if (mode) { if (mode !== seqMode) { applySeqMode(mode, true); b.focus(); } return; }
     if (b.classList.contains('sw-prev')) { seqStop(); showStep(seqN - 1); }
     else if (b.classList.contains('sw-next')) { seqStop(); showStep(seqN + 1); }
