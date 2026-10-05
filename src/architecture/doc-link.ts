@@ -71,7 +71,7 @@ const MODULE_KINDS = new Set(['service', 'micro_app', 'app_module']);
 const NO_OWNER = '(담당 없음)';
 
 /** `repo:path:line` 근거를 레포와 경로로 나눈다 */
-function splitCodeLocation(location: string): { repo: string; path: string } | undefined {
+export function splitCodeLocation(location: string): { repo: string; path: string } | undefined {
   const i = location.indexOf(':');
   if (i <= 0) return undefined;
   return { repo: location.slice(0, i), path: docPathKey(location.slice(i + 1)) };

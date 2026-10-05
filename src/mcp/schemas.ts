@@ -847,6 +847,7 @@ export const ARCHITECTURE_ACTIONS = [
   'merge',
   'scan_docs',
   'link_docs',
+  'stale_docs',
 ] as const;
 
 const feCallSchema = z.object({
@@ -912,7 +913,7 @@ export const architectureInputSchema = guardObject(
     action: z
       .enum(ARCHITECTURE_ACTIONS)
       .describe(
-        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트, 스킬의 MCP 도구 호출과 서버 도구 등록 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 뷰마다 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기, scan_docs: 문서 레포의 md를 훑어 근거 표시와 구멍, 질문 안내 표, 화면 색인을 뽑고 지식 문서 지도 초안 쓰기, link_docs: scan_docs 결과를 기술 IR(irPath)에 엮어 지식과 아키텍처 초안과 빈 곳, 낡은 곳, 어긋난 곳 신호 쓰기',
+        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트, 스킬의 MCP 도구 호출과 서버 도구 등록 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 뷰마다 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기, scan_docs: 문서 레포의 md를 훑어 근거 표시와 구멍, 질문 안내 표, 화면 색인을 뽑고 지식 문서 지도 초안 쓰기, link_docs: scan_docs 결과를 기술 IR(irPath)에 엮어 지식과 아키텍처 초안과 빈 곳, 낡은 곳, 어긋난 곳 신호 쓰기, stale_docs: 바뀐 파일(changedFiles나 diffBase)로 손봐야 할 문서 고르기',
       ),
     repoRoot: z.string().optional().describe('저장소 경로 (기본값: 현재 작업 디렉토리)'),
     view: z
@@ -992,6 +993,20 @@ export const architectureInputSchema = guardObject(
       .describe(
         'link_docs: 화면 색인으로 쓸 design_screen의 `<repoId>/<경로 접두>`. 비우면 화면은 잇지 않는다',
       ),
+    changedFiles: z
+      .array(z.string().min(1))
+      .optional()
+      .describe(
+        'stale_docs: 바뀐 파일 목록. `<레포 이름>:<경로>` 꼴. 비우면 diffBase로 git diff를 돌린다',
+      ),
+    changedRepo: z
+      .string()
+      .optional()
+      .describe('stale_docs: diffBase를 돌릴 레포 이름. codeRoots에서 체크아웃 경로를 찾는다'),
+    diffBase: z
+      .string()
+      .optional()
+      .describe('stale_docs: 이 커밋이나 브랜치부터 HEAD까지 바뀐 파일을 본다. 예: origin/main'),
   }),
 );
 

@@ -10,6 +10,7 @@ import {
   type DocRoot,
 } from '../../architecture/doc-scan.js';
 import { analyzeDocRoutes } from '../../architecture/doc-routes.js';
+import { findStaleDocs, type ChangedFile } from '../../architecture/doc-stale.js';
 import { ownersOf, readCodeowners, type CodeownersRule } from '../../architecture/codeowners.js';
 import { linkDocs, type FileFacts } from '../../architecture/doc-link.js';
 import type { DocScanResult } from '../../architecture/doc-scan.js';
@@ -547,6 +548,97 @@ function handleLinkDocs(input: ArchitectureInput, repoRoot: string): object {
   };
 }
 
+function changedFilesOf(
+  input: ArchitectureInput,
+  repoRoot: string,
+): { ok: true; files: ChangedFile[] } | ReturnType<typeof fail> {
+  if (input.changedFiles !== undefined) {
+    const files: ChangedFile[] = [];
+    for (const f of input.changedFiles) {
+      const i = f.indexOf(':');
+      if (i <= 0)
+        return fail('INVALID_INPUT', `changedFiles는 \`<레포 이름>:<경로>\` 꼴이어야 한다: ${f}`);
+      files.push({ repo: f.slice(0, i), path: f.slice(i + 1) });
+    }
+    return { ok: true, files };
+  }
+  const repo = input.changedRepo;
+  const root = repo !== undefined ? input.codeRoots?.[repo] : undefined;
+  if (input.diffBase === undefined || repo === undefined || root === undefined) {
+    return fail(
+      'MISSING_INPUT',
+      'stale_docs에는 changedFiles나 diffBase, changedRepo, codeRoots[changedRepo]가 필요하다.',
+    );
+  }
+  try {
+    const out = execFileSync(
+      'git',
+      [
+        '-C',
+        isAbsolute(root) ? root : resolve(repoRoot, root),
+        'diff',
+        '--name-only',
+        `${input.diffBase}...HEAD`,
+      ],
+      // 큰 레포는 몇백 커밋만 넘어가도 파일 목록이 기본 버퍼(1MB)를 넘는다
+      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 },
+    );
+    return {
+      ok: true,
+      files: out
+        .split('\n')
+        .filter(Boolean)
+        .map((path) => ({ repo, path })),
+    };
+  } catch (err) {
+    return fail('DIFF_FAILED', `git diff를 못 돌렸다: ${String(err)}`);
+  }
+}
+
+/** 바뀐 파일로 손봐야 할 문서를 고른다. link_docs를 돌렸으면 기술 노드를 거쳐 닿는 문서까지 본다 */
+function handleStaleDocs(input: ArchitectureInput, repoRoot: string): object {
+  const changed = changedFilesOf(input, repoRoot);
+  if (!changed.ok) return changed;
+  const dir = resolve(repoRoot, '.gestalt', 'architecture');
+  let scan: DocScanResult;
+  try {
+    scan = JSON.parse(readFileSync(resolve(dir, 'doc-scan.json'), 'utf-8')) as DocScanResult;
+  } catch {
+    return fail('MISSING_INPUT', 'stale_docs 전에 scan_docs를 먼저 돌려야 한다.');
+  }
+  const linkPath = resolve(dir, 'knowledge-link.draft.json');
+  let linkIr: ArchitectureIr | undefined;
+  if (existsSync(linkPath)) {
+    const parsed = parseIr(
+      JSON.parse(readFileSync(linkPath, 'utf-8')),
+      'knowledge-link.draft.json: ',
+    );
+    if (!parsed.ok) return parsed;
+    linkIr = parsed.ir;
+  }
+  const docs = findStaleDocs(scan.docs, changed.files, {
+    ...(input.repoAliases !== undefined ? { repoAliases: input.repoAliases } : {}),
+    ...(linkIr !== undefined ? { linkIr } : {}),
+  });
+  const stalePath = resolve(dir, 'stale-docs.json');
+  writeJsonAtomic(stalePath, { changedFiles: changed.files, docs });
+  return {
+    summary: {
+      changedFiles: changed.files.length,
+      staleDocs: docs.length,
+      viaCodeRef: docs.filter((d) => d.reasons.some((r) => r.kind === 'code-ref')).length,
+      viaNode: docs.filter((d) => d.reasons.some((r) => r.kind === 'node')).length,
+      linkedIr: linkIr !== undefined,
+    },
+    sample: docs.slice(0, SIGNAL_SAMPLE).map((d) => ({
+      doc: d.doc,
+      ...(d.title !== undefined ? { title: d.title } : {}),
+      files: [...new Set(d.reasons.map((r) => r.file))],
+    })),
+    stalePath,
+  };
+}
+
 function handleStatus(repoRoot: string): object {
   const store = new ArchitectureStore(repoRoot);
   const views: Record<string, unknown> = {};
@@ -583,5 +675,7 @@ export async function handleArchitecturePassthrough(
       return handleScanDocs(input, repoRoot);
     case 'link_docs':
       return handleLinkDocs(input, repoRoot);
+    case 'stale_docs':
+      return handleStaleDocs(input, repoRoot);
   }
 }
