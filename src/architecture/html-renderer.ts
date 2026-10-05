@@ -558,6 +558,46 @@ interface CanvasSpec {
   flows?: Record<string, number>;
   /** 카드가 없는 레벨에서 대신 보여줄 흐름 링크. 서비스 없는 흐름만 있는 그림의 전체 레벨이 그렇다 */
   emptyLinks?: { level: string; title: string }[];
+  /** 전체 레벨 지도 위에 한 줄로 놓는 질문별 그림 카드. 투영이 있는 그림에만 있다 */
+  viewStrip?: ViewCard[];
+}
+
+interface ViewCard {
+  level: string;
+  projection: ArchitectureProjection;
+  steps: number;
+  /** participants를 비운 투영은 메시지 양 끝에서 센다 */
+  actors: number;
+}
+
+const VIEW_SHAPE_NAME: Record<ArchitectureProjection['shape'], string> = {
+  sequence: '순서도',
+  dataflow: '데이터 이동',
+  compare: '견주기',
+};
+const STRIP_CARD_W = 240;
+const STRIP_GAP = 12;
+/** 제목 줄과 카드, 지도와 띄우는 여백까지 합친 높이 */
+const STRIP_H = 136;
+
+/** 질문별 그림이 몇 개 있는지 헤더 단추를 안 눌러도 보이게 지도 위에 카드로 깐다. 섹션을 이만큼 내리고 그 위 빈자리에 둔다 */
+function renderViewStrip(cards: ViewCard[]): { html: string; width: number } {
+  const items = cards
+    .map(
+      (c, i) =>
+        `<a class="view-card" href="#/level/${encodeURIComponent(c.level)}" style="left:${i * (STRIP_CARD_W + STRIP_GAP)}px;width:${STRIP_CARD_W}px">` +
+        `<span class="vc-shape">${VIEW_SHAPE_NAME[c.projection.shape]}</span>` +
+        `<b>${escapeHtml(c.projection.title)}</b>` +
+        `<span class="vc-q">${escapeHtml(c.projection.question)}</span>` +
+        `<span class="vc-n">단계 ${c.steps}${c.actors > 0 ? `, 참여 ${c.actors}` : ''}</span></a>`,
+    )
+    .join('');
+  return {
+    html:
+      `<nav class="view-strip" aria-label="질문별 그림" style="left:${CANVAS_PAD_X}px;top:-${STRIP_H}px">` +
+      `<h3>질문별 그림 <span class="n">${cards.length}</span></h3><div class="vs-row">${items}</div></nav>`,
+    width: CANVAS_PAD_X * 2 + cards.length * (STRIP_CARD_W + STRIP_GAP) - STRIP_GAP,
+  };
 }
 
 function productNames(layout: LayoutResult, id: string): string[] {
@@ -694,13 +734,18 @@ function renderLevelSection(spec: CanvasSpec): string {
   const regionNames = layout.regions
     ? ` data-regions="${escapeHtml(JSON.stringify(layout.regions.groups.map((r) => r.name)))}"`
     : '';
+  const strip = spec.viewStrip?.length ? renderViewStrip(spec.viewStrip) : undefined;
+  // 카드 줄은 섹션 위 여백에 있으므로 화면 맞추기가 그 높이와 폭까지 넣어 재게 크기를 늘려 적는다
+  const size = strip
+    ? `data-w="${Math.max(width, strip.width)}" data-h="${height + STRIP_H}"${regionNames} style="width:${width}px;height:${height}px;margin-top:${STRIP_H}px"`
+    : `data-w="${width}" data-h="${height}"${regionNames} style="width:${width}px;height:${height}px"`;
   return (
-    `${open} data-w="${width}" data-h="${height}"${regionNames} style="width:${width}px;height:${height}px"${hidden}>` +
+    `${open} ${size}${hidden}>` +
     `<svg class="links" id="${spec.svgId}" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
     `viewBox="0 0 ${width} ${height}" role="group" aria-label="${escapeHtml(`${spec.title} 연결`)}">` +
     `<g class="lanes">${laneRects}</g><g class="regions">${regionRects}</g>` +
     `${frameRects !== '' ? `<g class="frames">${frameRects}</g>` : ''}<g class="edges">${links}</g></svg>` +
-    `${laneTitles}${regionTitles}${cards}</section>`
+    `${laneTitles}${regionTitles}${cards}${strip?.html ?? ''}</section>`
   );
 }
 
@@ -1668,6 +1713,20 @@ export function renderDrilldownHtml(
         flows: flowCount,
         ...(l.id === ROOT_LEVEL_ID && l.nodeIds.length === 0 && rootFlowLinks.length > 0
           ? { emptyLinks: rootFlowLinks }
+          : {}),
+        ...(l.id === ROOT_LEVEL_ID && views.length > 0
+          ? {
+              viewStrip: views.map((v) => {
+                const drawn = v.projection.messages.filter((m) => drawnMessages.has(m.id));
+                return {
+                  ...v,
+                  steps: drawn.length,
+                  actors:
+                    v.projection.participants?.length ??
+                    new Set(drawn.flatMap((m) => [m.from, m.to])).size,
+                };
+              }),
+            }
           : {}),
       }),
     )

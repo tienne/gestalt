@@ -185,6 +185,11 @@ const VIEW_KEY = `var vm = e.target.closest('.link.seq-m');
     if (vm) { e.preventDefault(); activateMessage(vm); return; }
     `;
 const VIEW_FUNCS = `  var messages = data.messages || {};
+  // 전체 레벨은 지도 위 카드 줄만큼 내려가 있다. 같은 이름으로 다시 선언해 그 거리를 더한 쪽이 쓰이게 한다
+  function cardCenter(c) {
+    var s = c.closest('.level');
+    return { x: s.offsetLeft + c.offsetLeft + c.offsetWidth / 2, y: s.offsetTop + c.offsetTop + c.offsetHeight / 2 };
+  }
   function activateMessage(g) {
     var m = messages[g.getAttribute('data-message-id')];
     if (!m) return;

@@ -660,7 +660,21 @@ export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; fon
 .cmp-col rect { fill: var(--lane); stroke: var(--border); stroke-width: 1; }
 .cmp-col.cmp-both rect { stroke: var(--border-strong); stroke-width: 1.5; }
 .cmp-head { font-size: 12.5px; font-weight: 700; fill: var(--text); }
-.cmp-n, .cmp-empty { font-size: 12px; font-weight: 400; fill: var(--muted); }`;
+.cmp-n, .cmp-empty { font-size: 12px; font-weight: 400; fill: var(--muted); }
+.view-strip { position: absolute; }
+.view-strip h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--text); }
+.view-strip h3 .n { margin-left: 4px; color: var(--muted); font-weight: 600; }
+.view-strip .vs-row { position: relative; height: 92px; }
+.view-card {
+  position: absolute; top: 0; box-sizing: border-box; height: 92px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 2px; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px;
+  color: var(--text); text-decoration: none; font-size: 13px;
+}
+.view-card:hover, .view-card:focus-visible { border-color: var(--accent); }
+.view-card .vc-shape { font-size: 11px; font-weight: 700; color: var(--accent); }
+.view-card .vc-q { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.view-card .vc-n { margin-top: auto; font-size: 11.5px; color: var(--muted); }`;
 
 /** 지식 문서 팩을 쓰는 그림에만 붙이는 스타일. 카드 배지와 서랍의 근거 구성 막대 */
 export const DOC_CSS = `.doc-badge {

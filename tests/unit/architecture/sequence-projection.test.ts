@@ -84,6 +84,24 @@ describe('질문별 sequence 투영', () => {
     expect(html).toContain('data-node-id="ledger"');
   });
 
+  it('전체 지도 위 카드 줄에 그림마다 카드를 깔고 그린 메시지만 단계로 센다', async () => {
+    const html = (await renderBoth(checkoutSequenceIr())).private;
+    const root = html.slice(html.indexOf('data-level-id="root"'), html.indexOf('</section>'));
+    expect(root).toContain('margin-top:136px');
+    expect(root).toContain('질문별 그림 <span class="n">1</span>');
+    expect(root).toContain('<a class="view-card" href="#/level/view%3Acheckout"');
+    expect(root).toContain('<span class="vc-shape">순서도</span>');
+    expect(root).toContain('단계 6, 참여 4');
+  });
+
+  it('투영이 없으면 카드 줄을 싣지 않는다', async () => {
+    const ir = checkoutSequenceIr();
+    delete ir.projections;
+    const html = (await renderBoth(ir)).private;
+    expect(html).not.toContain('view-strip');
+    expect(html).not.toContain('margin-top:136px');
+  });
+
   it('같은 입력이면 같은 HTML이 나온다', async () => {
     const a = await renderBoth(checkoutSequenceIr());
     const b = await renderBoth(checkoutSequenceIr());
