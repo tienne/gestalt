@@ -275,6 +275,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `infra`       | `generic`     | `tree`        | 네트워크, 서브넷, 클러스터, 워크로드, 방화벽                 |
 | `data`        | `generic`     | `tree`        | 원천, 토픽, 처리 작업, 데이터셋, 리포트                      |
 | `process`     | `generic`     | `tree`        | 조직, 역할, 양식, 업무 시스템                                |
+| `knowledge`   | `generic`     | `tree`        | 문서 묶음, 문서, 화면 문서. [knowledge 팩](#knowledge-팩)    |
 
 드릴다운 전략은 팩마다 하나다. `web-product`는 전체에서 서비스, 기능영역, 화면으로 내려가는 지금 그림이고 `tree`는 parent 포함 관계로 레벨을 나눈다([tree 드릴다운](#tree-드릴다운)). `none`은 평면 한 장이다. 팩을 섞으면 `web-product`, `tree`, `none` 순으로 앞선 것을 고른다 (`packs/index.ts`의 `vocabularyOf`). `generic`을 끌어와도 `tree` 팩의 전략이 덮이지 않는다.
 
@@ -356,6 +357,24 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `records`    | 기록 | org_unit, role, system → form, system       |
 
 엣지 양 끝 규칙을 어기면 하네스 엣지와 같은 `INVALID_HARNESS_EDGE_ENDS`로 거부한다. 규칙을 팩의 `edgeKinds.ends` 한 곳에서 읽어서다.
+
+### knowledge 팩
+
+문서 레포를 지도로 그린다. 분류나 도메인 같은 묶음 안에 문서가, 디자인 영역 안에 화면 문서가 들어간다. 세션이 IR을 손으로 쓰지 않는다. [`scan_docs`](#scan_docs)와 [`link_docs`](#link_docs)가 이 팩으로 초안을 쓴다.
+
+| kind            | 칩        | 레인      | parent로 가리킬 수 있는 kind |
+| --------------- | --------- | --------- | ---------------------------- |
+| `doc_group`     | 문서 묶음 | 묶음      | `doc_group`                  |
+| `document`      | 문서      | 문서      | `doc_group`                  |
+| `design_screen` | 화면 문서 | 화면 문서 | `doc_group`                  |
+
+| 엣지 kind   | 뜻   | from → to                                  |
+| ----------- | ---- | ------------------------------------------ |
+| `describes` | 설명 | 지식 문서 → 기술 노드. 늘 점선이다          |
+| `indexes`   | 안내 | document → document, design_screen, doc_group |
+
+- 문서 노드는 파일 하나이고 label이 레포 기준 경로다. 그래서 재실행 병합 키가 경로를 따른다.
+- 뷰는 둘이다. `knowledge`는 문서 지도만 그리고 `knowledge-link`는 기술 그림에 문서를 엮는다. `knowledge-link`에서 문서는 카드로 서지 않고 기술 카드의 배지와 서랍으로 보인다.
 
 ### 문서 묶음 레포
 
@@ -503,6 +522,15 @@ private 근거의 원문은 세 겹으로 막는다.
 3. 공유용 HTML(`.shared.html`)은 private 근거의 `location`까지 빼고 `type`과 `visibility`만 남긴다 (`redactForSharing`). 패널에는 출처 종류만 보인다.
 
 `live` 근거는 `public`으로 적었어도 공유본에서 `type`, `visibility`, `observedAt`만 남는다. 명령과 리소스 위치에 계정 ID나 리소스 이름이 들어가기 때문이다. 공유본은 노드 이름(`label`, `displayName`, `description`)과 흐름의 제목, 행위자, 단계 글자, 전이 조건, 질문 문장, 레벨 제목에 든 계정 ID도 가린다. `cdn` 노드는 CDN 배포 ID도 가린다. 자동 질문은 공유본에 싣지 않는다.
+
+지식 문서 그림(`knowledge`, `knowledge-link`)의 공유본은 문서 정보도 줄인다 (`maskDocInfo`).
+
+- 문서 제목(`displayName`)과 경로(`label`, `doc.path`)는 남긴다.
+- 본문에서 온 글자는 뺀다. 절 제목, 구멍 설명과 담당, 화면 이름과 썸네일이 여기 든다. 남는 건 숫자와 날짜, 참거짓뿐이다.
+- 질문 안내 표의 키워드는 `(공유본이라 가림)` 하나로 바꾼다. 안내가 어느 문서를 가리키는지는 남는다.
+- 문서 노드 자기 근거는 `private`이라 위치가 빠지고 `type`과 `visibility`만 남는다.
+- `describes` 선이 가리킨 파일 경로는 문서 밖 레포의 경로라 가린다. 확인 여부와 커밋 날짜만 남는다.
+- 노드의 CODEOWNERS 담당도 빠진다. 그래서 공유본에는 "담당 없음" 배지가 안 붙는다.
 
 두 HTML 모두 페이지가 쓰는 필드만 싣는다. `repos`는 `id`와 `name`만 들어가고 `root`와 `remote`는 빠진다. `sourcesUsed`도 HTML에 들어가지 않는다. 그래서 로컬 경로나 사용한 도구 이름이 공유본으로 새지 않는다.
 
@@ -925,6 +953,9 @@ render는 질문별 그림마다 `views/<view>.<투영 id>.json`을 따로 쓴�
 | `render`          | 검증하고 이전 실행과 병합한 뒤 IR과 HTML 두 개를 저장한다. `service` 노드가 있으면 HTML이 드릴다운이 된다. 질문별 그림이 있으면 그림마다 파일을 하나씩 더 쓴다 |
 | `status`          | 두 뷰의 이전 실행 요약을 돌려준다                                                                         |
 | `merge`           | 따로 돌린 분석 IR 여럿을 하나로 합친다. 저장도 렌더도 안 한다                                             |
+| `scan_docs`       | 문서 레포의 md를 읽어 근거 표시와 구멍, 질문 안내 표, 화면 색인을 뽑고 지식 문서 지도 초안을 쓴다          |
+| `link_docs`       | `scan_docs` 결과를 기술 IR에 엮어 지식과 아키텍처 초안을 쓰고 빈 곳, 낡은 곳, 어긋난 곳 신호를 낸다        |
+| `stale_docs`      | 바뀐 파일 목록이나 git diff로 손봐야 할 문서를 고른다                                                     |
 
 ### Common Parameters
 
@@ -1106,6 +1137,156 @@ render는 이 순서로 돈다.
 | `nextAction`               | 다음에 할 일                                                                                                    |
 
 합친 IR은 `validate`와 `render`에 그대로 넘긴다. render는 `repoRoot`의 같은 뷰 IR과 병합하므로 **원래 분석 레포가 아닌 따로 둔 디렉토리를 `repoRoot`로 준다.** 원래 레포를 주면 그 레포의 단독 분석 IR이 합친 IR로 덮인다.
+
+### `scan_docs`
+
+문서 레포의 md를 읽기만 한다. 문서 레포에는 아무것도 쓰지 않는다.
+
+| Parameter     | Type       | Required | Default   | Description                                         |
+| ------------- | ---------- | :------: | --------- | --------------------------------------------------- |
+| `docRoots`    | `object[]` |    Y     | —         | 훑을 문서 레포 목록. 필드는 아래 표                 |
+| `docPatterns` | `object`   |    N     | 기본 형식 | 레포마다 다른 표시 형식을 맞출 정규식. 필드는 아래 표 |
+
+`docRoots` 항목이다.
+
+| 필드      | Required | 뜻                                                    |
+| --------- | :------: | ----------------------------------------------------- |
+| `repoId`  |    Y     | IR의 repo id. 노드 id와 근거 위치 앞에 붙는다          |
+| `name`    |    N     | 전체보기 카드에 쓸 이름. 비우면 `repoId`               |
+| `path`    |    Y     | 문서 레포 체크아웃 경로. `repoRoot` 기준으로 푼다      |
+| `include` |    N     | 이 접두로 시작하는 경로만 훑는다                       |
+| `exclude` |    N     | 이 접두로 시작하는 경로는 건너뛴다                     |
+
+기본으로 알아보는 표시 형식은 이렇다. `docPatterns`의 같은 이름 필드에 정규식을 주면 바꿀 수 있다.
+
+| 표시                                               | 기본 형식                                                | `docPatterns` 필드                   |
+| -------------------------------------------------- | -------------------------------------------------------- | ------------------------------------ |
+| 근거                                               | `[evidence: 종류:위치@ref]`                              | `evidence`                           |
+| 구멍                                               | `[GAP: 설명]`                                            | `gap`                                |
+| 확인 안 된 사실                                    | `[UNVERIFIED: 설명]`                                     | `unverified`                         |
+| 최종 수정일                                        | `> 최종 수정: YYYY-MM-DD` 머리줄. front matter `updated`도 읽는다 | `updated`                   |
+| 질문 안내 표                                       | 키워드 열과 문서 링크로 된 표                            | `keywordHeader`                      |
+| 화면 색인 표                                       | 라우트 열과 프레임 열로 된 표                            | `routeHeader`, `screenNameHeader`    |
+
+문서 루트마다 `git log`를 한 번 돌려 파일별 마지막 커밋 날짜를 `doc.committedAt`에 싣는다. 머리줄에 수정일을 안 적는 문서가 많아서다. git 레포가 아니면 비운다.
+
+쓰는 파일은 `<repoRoot>/.gestalt/architecture/` 아래 셋이다.
+
+| 파일                    | 내용                                                                                    |
+| ----------------------- | --------------------------------------------------------------------------------------- |
+| `doc-scan.json`         | 문서마다 뽑은 근거, 구멍, 안내, 화면, 날짜. `link_docs`와 `stale_docs`가 읽는다          |
+| `knowledge.draft.json`  | `view: "knowledge"` IR 초안. 폴더 구조대로 [tree 드릴다운](#tree-드릴다운)이 된다       |
+| `doc-routes.json`       | 질문 길 분석 결과                                                                       |
+
+질문 길은 에이전트가 문서를 찾아가는 길이다. `README.md`, `CLAUDE.md`, `AGENTS.md`, `SKILL.md`, `KNOWLEDGE_INDEX.md` 같은 진입 문서와 들어오는 링크가 없는 `INDEX.md`에서 출발한다. 거기서 md 링크와 질문 안내 표를 따라간다. 끝까지 안 닿는 문서는 `doc.orphan`이 된다. 질문 안내 표가 가리킨 문서를 못 찾으면 막다른 안내이고 같은 키워드가 서로 다른 문서를 가리키면 충돌이다.
+
+응답은 요약과 경로만 싣는다.
+
+| 키                       | 내용                                                                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `summary`                | 문서 수(`docCount`), 머리줄 수정일이 있는 문서 수(`withUpdatedAt`), 구멍 수(`gapCount`, `unverifiedCount`), 근거 구성(`evidenceMix`), 코드와 API 참조 수, 안내 수와 못 푼 안내 수, 화면 수 |
+| `summary.questionRoutes` | `{ entries, reachable, orphans, deadRoutes, keywordConflicts }`. 진입 문서 수, 닿는 문서 수, 고립 문서 수, 막다른 안내 수, 키워드 충돌 수 |
+| `summary.freshness`      | `{ dated, undated, agedDays, aged, headerBehind, byMonth, oldest }`. `agedDays`는 180이다. `headerBehind`는 커밋이 머리줄 수정일보다 30일 넘게 늦은 문서 수다. `oldest`는 가장 오래된 문서 10개다 |
+| `skipped`                | 못 읽고 건너뛴 파일                                                                                                           |
+| `scanPath`, `draftPath`, `routesPath` | 쓴 파일 세 개의 경로                                                                                             |
+
+`docRoots`가 비면 `MISSING_INPUT`이고 문서 레포를 못 읽으면 `SCAN_FAILED`다.
+
+지식 그림의 문서 카드에는 배지가 붙는다.
+
+| 배지     | 붙는 때                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------- |
+| 구멍 N   | 열린 `[GAP]` 표시가 N개                                                                      |
+| 깨짐 N   | 가리킨 곳을 못 찾은 근거 링크가 N개                                                          |
+| 고립     | 질문 길로 안 닿는다                                                                          |
+| 오래됨   | 머리줄 수정일과 커밋 날짜 중 늦은 쪽이 그림 만든 날보다 180일 넘게 앞선다                    |
+
+그림 위쪽 검색은 문서 이름과 질문 안내 키워드로 찾는다. 묶음 카드는 아래 레벨 문서의 이름과 키워드까지 보고 걸린다.
+
+### `link_docs`
+
+기술 IR과 `scan_docs` 결과를 엮는다. `scan_docs`를 먼저 돌려야 한다. 안 돌렸으면 `MISSING_INPUT`이다.
+
+| Parameter             | Type                     | Required | Default | Description                                                                                         |
+| --------------------- | ------------------------ | :------: | ------- | --------------------------------------------------------------------------------------------------- |
+| `ir` / `irPath`       | `object` / `string`      |    Y     | —       | 엮을 기술 IR. 보통 `render`가 저장한 `<view>.json`이다                                               |
+| `codeRoots`           | `Record<string, string>` |    N     | —       | 문서가 적은 레포 이름 → 그 레포 체크아웃 경로. 가리킨 파일이 있는지와 마지막 커밋 날짜를 읽는다      |
+| `repoAliases`         | `Record<string, string>` |    N     | —       | 문서가 적은 레포 이름 → 기술 IR의 repo id. 비우면 `repos[].name`이 같은 레포로 본다                  |
+| `screenIndexPrefixes` | `string[]`               |    N     | —       | 화면 색인으로 쓸 `design_screen`의 `<repoId>/<경로 접두>`. 비우면 화면은 잇지 않는다                 |
+
+문서에서 기술 노드로 `describes` 선을 긋는다. 문서가 말한 것이지 코드가 증명한 게 아니라서 늘 점선이다. 잇는 근거(`via`)는 넷이다.
+
+| `via`          | 잇는 방법                                       |
+| -------------- | ----------------------------------------------- |
+| `code-ref`     | 문서의 코드 근거가 가리킨 파일이 기술 노드의 근거 파일이다 |
+| `api-path`     | 문서가 적은 API 경로가 엔드포인트와 맞는다      |
+| `screen-route` | 화면 색인의 라우트가 화면과 맞는다              |
+| `session`      | 세션이 직접 이었다                              |
+
+`codeRoots`를 안 주면 가리킨 파일을 확인할 수 없어 그 링크를 unchecked로 센다. 담당은 CODEOWNERS를 문서 레포와 `codeRoots`에서 찾아 단다. 문서 레포는 `scan_docs` 때 준 경로에서 찾는다.
+
+쓰는 파일이다.
+
+| 파일                         | 내용                                                                               |
+| ---------------------------- | ---------------------------------------------------------------------------------- |
+| `knowledge-link.draft.json`  | `view: "knowledge-link"` IR 초안. 기술 IR의 팩에 `knowledge`를 더한다             |
+| `doc-link.json`              | 빈 곳, 낡은 곳, 어긋난 곳 신호 전체                                                |
+| `knowledge.draft.json`       | 링크 상태와 담당을 다시 센 값으로 갱신한다. 두 그림의 깨진 링크 수를 맞추려는 것이다 |
+
+응답의 `summary`다.
+
+| 키                                         | 내용                                                    |
+| ------------------------------------------ | ------------------------------------------------------- |
+| `linkedDocs`                               | 기술 노드와 이어진 문서 수                              |
+| `describes`                                | 그은 `describes` 선 수                                  |
+| `coverage`                                 | kind마다 `{ total, covered }`. 문서가 있어야 할 kind(`service`, `micro_app`, `app_module`, `feature`, `screen`) 중 문서가 붙은 수 |
+| `links`                                    | 근거 링크 확인 결과 `{ total, broken, branchOnly, pinned, unchecked }` |
+| `staleCount`                               | 코드가 문서보다 늦게 바뀐 곳 수                         |
+| `apiMismatchCount`                         | 문서의 API 경로와 기술 IR이 어긋난 곳 수                |
+| `screensOnlyInCode`, `screensOnlyInIndex`  | 코드에만 있는 화면 수, 화면 색인에만 있는 화면 수       |
+| `uncoveredCount`                           | 설명하는 문서가 없는 기술 노드 수                       |
+| `ownership`                                | 담당이 달린 기술 노드와 문서 수. CODEOWNERS가 있을 때만 |
+| `gapsByOwner`                              | 담당별 열린 구멍 수. 구멍이 있을 때만                   |
+
+`summary` 밖에 `uncoveredSample`(문서 없는 노드 최대 20개)과 `draftPath`, `knowledgeDraftPath`, `signalsPath`가 온다.
+
+지식과 아키텍처 그림의 기술 카드 배지다.
+
+| 배지      | 붙는 때                                          |
+| --------- | ------------------------------------------------ |
+| 문서 N    | 이 카드를 설명하는 문서가 N개                    |
+| 낡음 N    | 코드가 문서보다 늦게 바뀐 문서가 N개             |
+| 문서 없음 | 설명하는 문서가 없다                             |
+| 담당 없음 | CODEOWNERS에 이 자리를 맡은 담당이 없다          |
+
+### `stale_docs`
+
+바뀐 파일로 손봐야 할 문서를 고른다. `scan_docs`를 먼저 돌려야 한다.
+
+| Parameter      | Type                     | Required | Description                                                                 |
+| -------------- | ------------------------ | :------: | --------------------------------------------------------------------------- |
+| `changedFiles` | `string[]`               |   Y\*    | 바뀐 파일 목록. `<레포 이름>:<경로>` 꼴 (예: `acme-api:src/orders/service.ts`) |
+| `diffBase`     | `string`                 |   Y\*    | 이 커밋이나 브랜치부터 HEAD까지 바뀐 파일을 본다 (예: `origin/main`)          |
+| `changedRepo`  | `string`                 |   Y\*    | `diffBase`로 git diff를 돌릴 레포 이름                                       |
+| `codeRoots`    | `Record<string, string>` |   Y\*    | `codeRoots[changedRepo]`에서 체크아웃 경로를 찾는다                          |
+| `repoAliases`  | `Record<string, string>` |    N     | 문서가 적은 레포 이름 → 기술 IR의 repo id                                    |
+
+\* `changedFiles`를 주거나 `diffBase`, `changedRepo`, `codeRoots[changedRepo]`를 함께 준다. 둘 다 없으면 `MISSING_INPUT`이다. `changedFiles` 꼴이 틀리면 `INVALID_INPUT`이고 git diff가 실패하면 `DIFF_FAILED`다.
+
+문서를 고르는 이유는 둘이다.
+
+- `code-ref`: 문서가 직접 가리킨 파일이 바뀌었거나 가리킨 폴더 아래 파일이 바뀌었다.
+- `node`: 문서가 설명하는 기술 노드의 근거 파일이 바뀌었다. `knowledge-link.draft.json`이 있을 때만 본다.
+
+결과는 `stale-docs.json`에 쓴다. 응답의 `summary`는 `{ changedFiles, staleDocs, viaCodeRef, viaNode, linkedIr }`다. `linkedIr`는 `node` 이유까지 봤는지다. `sample`에 문서와 제목, 걸린 파일을 최대 20개 싣고 `stalePath`가 따라온다.
+
+### 지식 그림 렌더
+
+렌더는 기존 [`render`](#render) 그대로다. `knowledge.draft.json`이나 `knowledge-link.draft.json`을 `irPath`로 준다. 결과 파일은 다른 뷰처럼 `knowledge.html`, `knowledge-link.html`과 각 `.shared.html`이다.
+
+```json
+{ "action": "render", "irPath": ".gestalt/architecture/knowledge-link.draft.json" }
+```
 
 ---
 

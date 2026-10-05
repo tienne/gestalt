@@ -57,7 +57,7 @@ pnpm tsx bin/gestalt.ts explain-eval --a plugin/role-agents/explainer/AGENT.md  
 - `ges_search`: query, k?, kbPath?, types?
 - `ges_sync`: sourcePath?, targetPath
 - `ges_pr`: action=[create|list|get|diff|comment|resolve|review|update|edit|merge|close|checkout|checkout_remove]
-- `ges_architecture`: action=[start|filter_tools|match_endpoints|validate|render|status|merge]
+- `ges_architecture`: action=[start|filter_tools|match_endpoints|validate|render|status|merge|scan_docs|link_docs|stale_docs]
 
 상세 플로우 → [`docs/mcp-reference.md`](./docs/mcp-reference.md)
 설정 레퍼런스 → [`docs/configuration.md`](./docs/configuration.md)
