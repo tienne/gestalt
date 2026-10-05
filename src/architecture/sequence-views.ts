@@ -101,8 +101,8 @@ export function resolveSequencePhases(
 }
 
 /**
- * 맨 위 참여자에서 몇 번 건너 불리는지. 응답과 자기 호출은 길로 안 친다.
- * 가장 짧은 홉 수이고 맨 위에서 못 닿는 참여자는 0이다
+ * 맨 위 참여자에서 몇 번 건너 불리는지. 가장 짧은 경로로 세고 응답과 자기 호출은 세지 않는다.
+ * 맨 위에서 못 닿는 참여자는 0이다
  */
 export function sequenceCallDepths(
   messages: readonly PhaseMessage[],
@@ -171,7 +171,8 @@ const WALK_LOOP = 44;
 
 /**
  * 따라가기 지도 좌표. 열은 호출 깊이이고 띠는 그 참여자가 처음 나온 구간이다.
- * 열 폭은 그 열에서 가장 넓은 카드 폭을 따른다. 좌표는 (0, 0)에서 시작한다
+ * 열 폭은 그 열에서 가장 넓은 카드 폭을 따른다. 좌표는 (0, 0)에서 시작한다.
+ * 단계 번호는 numberOf로 순서도 번호를 그대로 받는다. 단계 목록과 같은 번호여야 목록을 눌러 그 단계로 간다
  */
 export function computeWalkLayout(
   phases: readonly SequencePhase[],
@@ -179,6 +180,7 @@ export function computeWalkLayout(
   depths: ReadonlyMap<string, number>,
   sizeOf: (id: string) => { width: number; height: number },
   edgeById: ReadonlyMap<string, { from: string; to: string }>,
+  numberOf: (messageId: string) => number,
 ): WalkLayout {
   const placed = new Map<string, { col: number; band: number; row: number }>();
   const bandCols: Map<number, string[]>[] = [];
@@ -247,9 +249,9 @@ export function computeWalkLayout(
   const phaseOf = new Map(phases.flatMap((ph) => ph.messageIds.map((id) => [id, ph.id])));
   const steps: WalkStep[] = messages
     .filter((m) => boxes.has(m.from) && boxes.has(m.to))
-    .map((m, i) => ({
+    .map((m) => ({
       messageId: m.id,
-      n: i + 1,
+      n: numberOf(m.id),
       phaseId: phaseOf.get(m.id) ?? '',
       from: m.from,
       to: m.to,

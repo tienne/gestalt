@@ -1231,6 +1231,7 @@ function renderSequenceAlts(
     services,
     whereOf,
     edges,
+    numberOf,
   );
   const phaseOf = new Map(phases.flatMap((ph) => ph.messageIds.map((id) => [id, ph])));
   const messageById = new Map(messages.map((m) => [m.id, m]));
@@ -1429,6 +1430,7 @@ function renderWalk(
   services: Record<string, ServiceFacts>,
   whereOf: (id: string) => string | undefined,
   edges: readonly ArchitectureEdge[],
+  numberOf: (messageId: string) => number,
 ): string {
   const sizes = new Map(layout.heads.map((h) => [h.id, { width: h.width, height: h.height }]));
   const depths = sequenceCallDepths(messages, layout.heads[0]?.id);
@@ -1438,10 +1440,11 @@ function renderWalk(
     depths,
     (id) => sizes.get(id)!,
     new Map(edges.map((e) => [e.id, e])),
+    numberOf,
   );
   const width = round2(walk.width + CANVAS_PAD_X * 2);
   const height = round2(walk.height + CANVAS_PAD_TOP + SEQ_ALT_BOTTOM);
-  const tipId = `walk-tip-${projection.id}`;
+  const tipId = escapeHtml(`walk-tip-${projection.id}`);
   const bands = walk.bands
     .map((b) => `<text class="w-band" x="${b.x}" y="${b.y}">${escapeHtml(b.label)}</text>`)
     .join('');

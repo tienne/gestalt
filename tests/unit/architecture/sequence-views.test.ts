@@ -269,6 +269,7 @@ describe('따라가기 지도 좌표', () => {
       depths,
       sizeOf,
       new Map(ir.edges.map((e) => [e.id, e])),
+      (id) => p.messages.findIndex((m) => m.id === id) + 1,
     );
     return { phases, walk, p };
   }
@@ -333,6 +334,7 @@ describe('따라가기 지도 좌표', () => {
       sequenceCallDepths(p.messages, 'user'),
       () => ({ width: 160, height: 40 }),
       new Map([['e-user-gw', { from: 'user', to: 'ghost' }]]),
+      () => 0,
     );
     expect(walk.edges).toEqual([]);
   });
@@ -351,6 +353,20 @@ describe('따라가기 지도 좌표', () => {
     expect(self.d).toBe(walkPath(user, user));
     expect(self.d.startsWith(`M${user.x + user.width - 30} ${user.y}C`)).toBe(true);
     expect(walk.steps.filter((s) => s.self).map((s) => s.messageId)).toEqual(['s5']);
+  });
+
+  it('단계 번호는 넘겨받은 순서도 번호를 그대로 쓴다', () => {
+    const { ir, p } = intake();
+    const phases = resolveSequencePhases(p, allDrawn(p), p.participants!, nameOfIr(ir));
+    const walk = computeWalkLayout(
+      phases,
+      p.messages,
+      sequenceCallDepths(p.messages, 'user'),
+      () => ({ width: 160, height: 40 }),
+      new Map(ir.edges.map((e) => [e.id, e])),
+      (id) => (p.messages.findIndex((m) => m.id === id) + 1) * 10,
+    );
+    expect(walk.steps.map((s) => s.n)).toEqual(p.messages.map((_, i) => (i + 1) * 10));
   });
 
   it('지도 폭과 높이가 모든 카드와 자기 호출 고리를 품는다', () => {
