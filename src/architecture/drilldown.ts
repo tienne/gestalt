@@ -72,6 +72,8 @@ export const ROOT_LEVEL_ID = 'root';
 const RECEIVER_RANK = 10;
 const TABLE_RANK_AFTER_RECEIVERS = 100;
 // 전체 레벨에서 서버를 거쳐서만 닿는 게이트웨이와 모듈. 같은 레인 안에서도 게이트웨이가 왼쪽에 선다
+// tree 드릴다운에서 바깥 카드 한 열에 세우는 최대 장수
+const OUTSIDE_PER_COLUMN = 4;
 const EXTERNAL_GATEWAY_RANK = PARTITION_RANK.app_module + 1;
 const EXTERNAL_MODULE_RANK = PARTITION_RANK.app_module + 2;
 // 저장소는 외부 서비스 레인 오른쪽 끝에 선다. 외부 서버도 같은 저장소를 쓰므로 그보다 뒤여야 선이 거꾸로 안 간다
@@ -1068,14 +1070,40 @@ function groupDrafts(full: Graph): { drafts: LevelDraft[]; enter: Record<string,
         detail.push(asDetail(es[0]!));
       else for (const e of es) b.add(from, to, e.id, [e.id]);
     }
-    // 바깥 카드를 kind 순위대로 두면 안쪽 카드 사이에 끼어 선이 크게 돈다. 받는 쪽은 오른쪽 끝, 보내기만 하는 쪽은 왼쪽 끝에 모은다
+    // 바깥 카드를 kind 순위대로 두면 안쪽 카드 사이에 끼어 선이 크게 돈다. 받는 쪽은 오른쪽 끝, 보내기만 하는 쪽은 왼쪽 끝에 모은다.
+    // 한 열에 다 쌓으면 바깥 카드가 많을 때 그림이 세로로만 길어진다. 그래서 kind 순위마다 열을 나누고 한 열이 넘치면 옆 열로 넘긴다
     const ranks = [...members].map((id) => PARTITION_RANK[g.nodeById.get(id)!.kind]);
     const rankOverride = new Map<string, number>();
     const laneOverride = new Map<string, LaneId>();
-    for (const id of new Set([...sendsOut, ...receives])) {
-      rankOverride.set(id, receives.has(id) ? Math.max(...ranks) + 1 : Math.min(...ranks) - 1);
-      laneOverride.set(id, receives.has(id) ? 'outside_to' : 'outside_from');
-    }
+    const outsideColumns = (ids: readonly string[]): string[][] => {
+      const byRank = new Map<number, string[]>();
+      for (const id of [...ids].sort(compareStr)) {
+        const r = PARTITION_RANK[g.nodeById.get(id)!.kind];
+        byRank.set(r, [...(byRank.get(r) ?? []), id]);
+      }
+      return [...byRank.keys()]
+        .sort((x, y) => x - y)
+        .flatMap((r) => {
+          const list = byRank.get(r)!;
+          return Array.from({ length: Math.ceil(list.length / OUTSIDE_PER_COLUMN) }, (_, i) =>
+            list.slice(i * OUTSIDE_PER_COLUMN, (i + 1) * OUTSIDE_PER_COLUMN),
+          );
+        });
+    };
+    const right = outsideColumns([...receives]);
+    right.forEach((col, i) => {
+      for (const id of col) {
+        rankOverride.set(id, Math.max(...ranks) + 1 + i);
+        laneOverride.set(id, 'outside_to');
+      }
+    });
+    const left = outsideColumns([...sendsOut].filter((id) => !receives.has(id)));
+    left.forEach((col, i) => {
+      for (const id of col) {
+        rankOverride.set(id, Math.min(...ranks) - left.length + i);
+        laneOverride.set(id, 'outside_from');
+      }
+    });
     const node = focus === undefined ? undefined : g.nodeById.get(focus)!;
     const trail = [
       ROOT_LEVEL_ID,

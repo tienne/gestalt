@@ -62,6 +62,33 @@ describe('tree 드릴다운', () => {
     expect(main.edges.find((e) => e.from === 'fw-edge')?.kind).toBe('allows');
   });
 
+  it('바깥 끝점은 kind 순위마다 열을 나누고 한 열에 네 장이 넘으면 옆 열로 넘긴다', async () => {
+    const ir = infraIr();
+    for (let i = 1; i <= 5; i += 1) {
+      ir.nodes.push({
+        ...ir.nodes.find((n) => n.id === 'saas')!,
+        id: `saas-${i}`,
+        label: `saas-${i}`,
+      });
+      ir.edges.push({
+        ...ir.edges.find((e) => e.id === 'e-worker-saas')!,
+        id: `e-saas-${i}`,
+        to: `saas-${i}`,
+      });
+    }
+    const d = await computeDrilldown(validated(ir));
+    const k8s = d.levels.find((l) => l.id === 'group:k8s')!;
+    const x = (id: string) => k8s.layout.nodes.find((n) => n.id === id)!.x;
+    const saas = ['saas', 'saas-1', 'saas-2', 'saas-3', 'saas-4', 'saas-5'];
+    // 받는 쪽 바깥 카드는 vpc-data(network)와 SaaS(component) 여섯 장이다. kind마다 열이 갈리고 SaaS는 두 열로 나뉜다
+    expect(new Set(saas.map(x)).size).toBe(2);
+    expect(saas.every((id) => x(id) !== x('vpc-data'))).toBe(true);
+    const inside = Math.max(x('api'), x('worker'));
+    expect(Math.min(x('vpc-data'), ...saas.map(x))).toBeGreaterThan(inside);
+    // 보내기만 하는 바깥 카드는 안쪽 카드보다 왼쪽에 선다
+    expect(x('sn-public')).toBeLessThan(Math.min(x('api'), x('worker')));
+  });
+
   it('그룹 레벨을 HTML에 싣고 같은 입력이면 같은 HTML이 나온다', async () => {
     const a = await renderBoth(infraIr());
     const b = await renderBoth(infraIr());
