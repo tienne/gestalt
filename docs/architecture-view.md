@@ -1331,7 +1331,7 @@ render는 이 순서로 돈다.
 
 파일은 전부 임시 파일에 쓴 뒤 이름을 바꿔 갈아 끼운다. 브라우저가 열어둔 HTML을 새로고침해도 반쯤 쓰인 파일을 보지 않는다. 저장된 IR이 깨졌거나 스키마에 안 맞으면 `.corrupt-*`로 옮기고 처음 실행처럼 다룬다.
 
-레포를 넘는 연결에 필요한 레포가 이 머신에 없으면 세션이 묻지 않고 `~/.gestalt/architecture/clones/<host>/<org>/<repo>`에 `git clone --depth 1`로 받는다. 분석 대상 레포 안에 받지 않는 건 그 레포가 `.gestalt`를 ignore하지 않으면 받은 레포가 커밋에 섞이기 때문이다. 이미 있으면 `git fetch --depth 1` 뒤 기본 브랜치로 맞춰 다시 쓴다. 사용자가 체크아웃해 둔 레포는 읽기만 한다. 받기에 실패하면 미해결 질문으로 남는다. 절차는 스킬 Step 5에 있다.
+레포를 넘는 연결에 필요한 레포가 이 머신에 없으면 세션이 묻지 않고 `~/.gestalt/architecture/clones/<host>/<org>/<repo>`에 `git clone --depth 1`로 받는다. 분석 대상 레포 안에 받지 않는 건 그 레포가 `.gestalt`를 ignore하지 않으면 받은 레포가 커밋에 섞이기 때문이다. 이미 있으면 `git fetch --depth 1 origin HEAD` 뒤 `git reset --hard FETCH_HEAD`로 원격 기본 브랜치의 최신 커밋에 맞춰 다시 쓴다. 사용자가 체크아웃해 둔 레포는 브랜치와 작업 트리를 건드리지 않는다. `git fetch origin`으로 원격 ref만 갱신한다. 지금 체크아웃이 원격 기본 브랜치와 다르면 `~/.gestalt/architecture/worktrees/<host>/<org>/<repo>`에 분리된 워크트리를 만들어 거기서 읽는다. 기능 브랜치나 pull 안 한 상태로 읽으면 그 시점 코드로 그림이 나오기 때문이다. 받기에 실패하면 미해결 질문으로 남는다. 절차는 스킬 Step 5에 있다.
 
 ### 재실행과 노드 id
 
