@@ -277,11 +277,12 @@ function handleValidate(input: ArchitectureInput, repoRoot: string): object {
   if (!prepared.ok) return prepared;
   const result = validate(prepared.ir, repoRoot, input.checkFiles);
   if (!result.ok) return asFailure(result);
-  const { drawableNodeIds, drawableEdgeIds, autoUnresolved } = result.value;
+  const { drawableNodeIds, drawableEdgeIds, autoUnresolved, warnings } = result.value;
   return {
     ok: true,
     errors: [],
     autoUnresolved,
+    ...(warnings.length > 0 ? { warnings } : {}),
     drawable: { nodeIds: [...drawableNodeIds].sort(), edgeIds: [...drawableEdgeIds].sort() },
   };
 }
@@ -347,6 +348,7 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
         }
       : {}),
     stats: computeStats(validated),
+    ...(validated.warnings.length > 0 ? { warnings: validated.warnings } : {}),
     sourcesUsed: validated.ir.sourcesUsed,
   };
 }
