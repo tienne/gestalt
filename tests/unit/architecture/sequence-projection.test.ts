@@ -15,6 +15,7 @@ import {
   orderIntakeSequenceIr,
 } from '../../fixtures/architecture-categories/sequence.js';
 import { renderBoth, sha256 } from '../../fixtures/architecture-legacy/render.js';
+import { SEQ_KEYS } from '../../../src/architecture/html-client.js';
 
 function errorCodes(ir: ArchitectureIr): string[] {
   const r = validateArchitectureIr(ir, { checkFiles: false });
@@ -419,8 +420,94 @@ describe('순서도 보기 UI를 싣는 조건', () => {
   });
 });
 
+describe('따라가기 화살표 키', () => {
+  interface Fake {
+    hidden?: boolean;
+    contains: (n: unknown) => boolean;
+  }
+  type Handler = (...args: unknown[]) => string | undefined;
+  // 브라우저에 싣는 바로 그 조각을 돌린다. 둘러싼 keydown 처리기에서 받는 이름은 인자로 넘긴다
+  const handler = new Function(
+    'e',
+    't',
+    'doc',
+    'seqBase',
+    'seqMode',
+    'seqBar',
+    'seqSteps',
+    'seqAlt',
+    'seqStop',
+    'showStep',
+    'seqN',
+    `${SEQ_KEYS}    return 'pass';`,
+  ) as Handler;
+
+  const body = { name: 'body' };
+  const stepButton = { name: 'step' };
+  const walkCard = { name: 'walk-card' };
+  const elsewhere = { name: 'search' };
+  const box = (inside: unknown[], hidden = false): Fake => ({
+    hidden,
+    contains: (n) => inside.includes(n),
+  });
+
+  function press(
+    key: string,
+    opts: { target?: unknown; mode?: string; barHidden?: boolean } = {},
+  ): { result: string | undefined; prevented: boolean; stopped: boolean; shown: number[] } {
+    let prevented = false;
+    let stopped = false;
+    const shown: number[] = [];
+    const walk = box([walkCard]);
+    const result = handler(
+      { key, preventDefault: () => (prevented = true) },
+      opts.target ?? body,
+      { body },
+      { id: 'level' },
+      opts.mode ?? 'walk',
+      box([], opts.barHidden),
+      box([stepButton]),
+      (mode: string) => (mode === 'walk' ? walk : null),
+      () => (stopped = true),
+      (n: number) => shown.push(n),
+      3,
+    );
+    return { result, prevented, stopped, shown };
+  }
+
+  it('따라가기에서 포커스가 없으면 →와 ←로 한 단계씩 옮긴다', () => {
+    const right = press('ArrowRight');
+    expect(right).toEqual({ result: undefined, prevented: true, stopped: true, shown: [4] });
+    expect(press('ArrowLeft').shown).toEqual([2]);
+  });
+
+  it('단계 목록이나 따라가기 지도 안에 포커스가 있어도 옮긴다', () => {
+    expect(press('ArrowRight', { target: stepButton }).shown).toEqual([4]);
+    expect(press('ArrowRight', { target: walkCard }).shown).toEqual([4]);
+  });
+
+  it('따라가기가 아니면 기본 동작을 막지 않는다', () => {
+    for (const mode of ['seq', 'cards']) {
+      const r = press('ArrowRight', { mode });
+      expect(r).toEqual({ result: 'pass', prevented: false, stopped: false, shown: [] });
+    }
+  });
+
+  it('보기 바가 숨어 있으면 기본 동작을 막지 않는다', () => {
+    const r = press('ArrowLeft', { barHidden: true });
+    expect(r.result).toBe('pass');
+    expect(r.prevented).toBe(false);
+  });
+
+  it('포커스가 다른 자리에 있으면 기본 동작을 막지 않는다', () => {
+    const r = press('ArrowRight', { target: elsewhere });
+    expect(r.result).toBe('pass');
+    expect(r.prevented).toBe(false);
+  });
+});
+
 describe('기존 순서도 섹션의 바이트 유지', () => {
-  // 보기 전환을 넣기 전 렌더러(9b98179)로 뽑은 checkout 순서도 섹션 해시다.
+  // phases와 보기 전환이 없던 렌더러로 checkoutSequenceIr()를 그린 순서도 섹션의 sha256이다. 다시 뽑을 때는 9b98179의 렌더러를 쓴다.
   // 형제 섹션은 뒤에 붙을 뿐 순서도 섹션 자체는 한 바이트도 안 바뀌어야 한다
   const BEFORE = '1695982449f22f5927cbe33dafead04c44177a49134e5f91b036bb7edf8a227c';
 
