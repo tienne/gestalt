@@ -13,7 +13,7 @@ triggers:
   - "approve 날 때까지"
   - "리뷰어로 끝까지"
   - "재리뷰 반복"
-  - "PR 리뷰 계속 봐줘"
+  - "PR 계속 지켜봐줘"
 inputs:
   target:
     type: string

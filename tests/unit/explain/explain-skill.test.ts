@@ -23,7 +23,7 @@ describe('explain 스킬', () => {
   it('설명 요청과 대상 지정을 둘 다 잡는 트리거가 있다', () => {
     expect(skill.frontmatter.triggers).toContain('쉽게 풀어줘');
     expect(skill.frontmatter.triggers).toContain('ELI5');
-    expect(skill.frontmatter.triggers).toContain('한테 설명');
+    expect(skill.frontmatter.triggers).toContain('한테 설명해줘');
   });
 
   it('대상 여섯 개를 본문이 모두 적는다', () => {
