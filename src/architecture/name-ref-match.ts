@@ -3,7 +3,16 @@
  * 서버가 같은 규칙으로 짝을 찾는다. 팩마다 이름을 적는 습관이 달라서 비교 키를 만드는 규칙만 다르다
  */
 
-export const NAME_REF_MATCHERS = ['name-ref', 'iac-ref', 'dataset-io', 'state-value'] as const;
+import { normalizePathTemplate } from './endpoint-match.js';
+
+export const NAME_REF_MATCHERS = [
+  'name-ref',
+  'iac-ref',
+  'dataset-io',
+  'state-value',
+  'doc-path',
+  'screen-route',
+] as const;
 export type NameRefMatcher = (typeof NAME_REF_MATCHERS)[number];
 
 /** 참조하는 쪽. 잡이 읽는 테이블, 리소스가 쓰는 다른 리소스 속성, 코드의 상태 값 */
@@ -83,6 +92,23 @@ function stateKey(name: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
+/**
+ * 문서가 적은 파일 경로를 비교 키로 편다. `./src/a.ts:12`, `src/a.ts#L12`, `src/a.ts@main`을 같은 파일로 본다.
+ * 경로는 대소문자를 가리는 파일 시스템이 있어 그대로 둔다
+ */
+export function docPathKey(name: string): string {
+  return name
+    .trim()
+    .replace(/^['"`<(]+|['"`>)]+$/g, '')
+    .replace(/@[^/@\s]+$/, '')
+    .replace(/#L?\d+(?:-L?\d+)?$/, '')
+    .replace(/:\d+(?::\d+)?$/, '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .replace(/\/{2,}/g, '/')
+    .replace(/^\/+/, '');
+}
+
 function keyOf(matcher: NameRefMatcher, name: string): string {
   switch (matcher) {
     case 'iac-ref':
@@ -91,6 +117,11 @@ function keyOf(matcher: NameRefMatcher, name: string): string {
       return datasetKey(name);
     case 'state-value':
       return stateKey(name);
+    case 'doc-path':
+      return docPathKey(name);
+    // 화면 색인의 라우트와 코드의 화면 라우트. 경로 변수 표기(:id, [id], {id})를 같은 꼴로 편다
+    case 'screen-route':
+      return normalizePathTemplate(name).toLowerCase();
     case 'name-ref':
       return name.trim().toLowerCase();
   }

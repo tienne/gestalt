@@ -68,4 +68,24 @@ describe('matchNameRefs', () => {
     expect(r.matches).toEqual([{ refId: 'r0', declId: 'd0' }]);
     expect(r.unmatched.map((u) => u.refId)).toEqual(['r1']);
   });
+
+  it('doc-path는 줄 번호와 앵커, 브랜치 표기, 앞의 ./를 떼고 같은 파일로 본다', () => {
+    const r = run(
+      'doc-path',
+      [
+        './src/orders/status.ts:12',
+        'src/orders/status.ts#L3-L9',
+        'src/orders/status.ts@main',
+        'src/Orders/status.ts',
+      ],
+      ['src/orders/status.ts'],
+    );
+    expect(r.matches.map((m) => m.refId)).toEqual(['r0', 'r1', 'r2']);
+    expect(r.unmatched.map((u) => u.refId)).toEqual(['r3']);
+  });
+
+  it('screen-route는 경로 변수 표기가 달라도 같은 화면으로 본다', () => {
+    const r = run('screen-route', ['/pay/:id', '/Cart'], ['/pay/[orderId]', '/cart']);
+    expect(r.matches.map((m) => m.declId)).toEqual(['d0', 'd1']);
+  });
 });
