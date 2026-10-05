@@ -9,6 +9,7 @@ import {
   summarizeScan,
   type DocRoot,
 } from '../../architecture/doc-scan.js';
+import { analyzeDocRoutes } from '../../architecture/doc-routes.js';
 import { ownersOf, readCodeowners, type CodeownersRule } from '../../architecture/codeowners.js';
 import { linkDocs, type FileFacts } from '../../architecture/doc-link.js';
 import type { DocScanResult } from '../../architecture/doc-scan.js';
@@ -403,7 +404,23 @@ function handleScanDocs(input: ArchitectureInput, repoRoot: string): object {
     roots: roots.map((r) => ({ repoId: r.repoId, name: r.name, path: r.path })),
   });
   writeJsonAtomic(draftPath, buildKnowledgeIr(roots, scan, new Date().toISOString()));
-  return { summary: summarizeScan(scan), skipped: scan.skipped, scanPath, draftPath };
+  const routes = analyzeDocRoutes(scan);
+  const routesPath = resolve(dir, 'doc-routes.json');
+  writeJsonAtomic(routesPath, routes);
+  const questionRoutes = {
+    entries: routes.entries.length,
+    reachable: routes.reachable,
+    orphans: routes.orphans.length,
+    deadRoutes: routes.deadRoutes.length,
+    keywordConflicts: routes.conflicts.length,
+  };
+  return {
+    summary: { ...summarizeScan(scan), questionRoutes },
+    skipped: scan.skipped,
+    scanPath,
+    draftPath,
+    routesPath,
+  };
 }
 
 // 같은 파일을 여러 문서가 가리키므로 파일마다 한 번만 git을 부른다

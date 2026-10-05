@@ -130,9 +130,21 @@ describe('scanMarkdown', () => {
   it('질문 안내 표의 키워드와 대상 문서를 줄마다 뽑는다', () => {
     const d = scanMarkdown('kb', 'domains/orders/INDEX.md', INDEX_MD);
     expect(d.routes).toEqual([
-      { keywords: ['주문 상태', '상태 값'], targetPath: 'domains/orders/references/status.md' },
-      { keywords: ['환불'], targetPath: 'domains/orders/references/refund.md' },
-      { keywords: ['정산'], targetPath: 'domains/orders/references/settle.md' },
+      {
+        keywords: ['주문 상태', '상태 값'],
+        targetPath: 'domains/orders/references/status.md',
+        link: 'references/status.md',
+      },
+      {
+        keywords: ['환불'],
+        targetPath: 'domains/orders/references/refund.md',
+        link: 'references/refund.md',
+      },
+      {
+        keywords: ['정산'],
+        targetPath: 'domains/orders/references/settle.md',
+        link: 'references/settle.md',
+      },
     ]);
   });
 

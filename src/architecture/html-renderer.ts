@@ -361,6 +361,9 @@ function docBadges(node: ArchitectureNode): string {
     (gaps > 0 ? `<span class="doc-badge" title="열린 구멍 ${gaps}개">구멍 ${gaps}</span>` : '') +
     (broken > 0
       ? `<span class="doc-badge broken" title="깨진 근거 링크 ${broken}개">깨짐 ${broken}</span>`
+      : '') +
+    (doc.orphan
+      ? '<span class="doc-badge none" title="README나 SKILL 같은 진입 문서에서 링크를 따라가도 안 닿아요">고립</span>'
       : '')
   );
 }

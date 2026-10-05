@@ -43,6 +43,9 @@ const MIXED_PANEL_NOTE =
 const MIXED_PILL = `
         if (e.inferred !== undefined) pill.lastChild.setAttribute('stroke-dasharray', '3 2');`;
 
+// 질문 안내 표가 문서로 보내는 말도 검색에 넣는다
+const DOC_HAY = " + (n.doc && n.doc.keywords ? ' ' + n.doc.keywords.join(' ') : '')";
+
 // 문서 정보 조각. 지식 문서 팩을 쓰는 그림에만 싣는다. 공유본은 본문 글자가 가려진 채로 온다
 const DOC_FUNCS = `  var GAP_TEXT = { gap: '빈 곳', unverified: '확인 안 됨' };
   var VIA_TEXT = { 'code-ref': '코드 경로', 'api-path': 'API', 'screen-route': '화면 라우트', session: '세션' };
@@ -75,6 +78,8 @@ const DOC_FUNCS = `  var GAP_TEXT = { gap: '빈 곳', unverified: '확인 안 �
     if (d.updatedAt) factRow(facts, '최종 수정', d.updatedAt);
     if (d.committedAt) factRow(facts, '마지막 커밋', d.committedAt);
     if (d.reads !== undefined) factRow(facts, '읽힌 횟수', String(d.reads));
+    if (d.orphan) factRow(facts, '질문 길', '진입 문서에서 안 닿음');
+    if (d.keywords && d.keywords.length) factRow(facts, '찾는 말', d.keywords.join(', '));
     var sc = d.screen;
     if (sc) {
       if (sc.route) factRow(facts, '라우트', sc.route);
@@ -1605,7 +1610,7 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
     active.querySelectorAll('.node').forEach(function (c) {
       var n = nodes[c.getAttribute('data-node-id')];
       if (!n || c.classList.contains('env-off')) return;
-      var hay = ((n.displayName || '') + ' ' + n.label).toLowerCase();
+      var hay = ((n.displayName || '') + ' ' + n.label${c.docs ? DOC_HAY : ''}).toLowerCase();
       if (hay.indexOf(q) >= 0) hits.push(c);
     });
     hits.sort(function (a, b) { return a.offsetLeft - b.offsetLeft || a.offsetTop - b.offsetTop; });

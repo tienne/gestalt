@@ -13,6 +13,9 @@ import type {
 } from './types.js';
 import { ARCHITECTURE_IR_SCHEMA_VERSION } from './types.js';
 import { docPathKey } from './name-ref-match.js';
+import { analyzeDocRoutes, docResolver, resolveDocLink } from './doc-routes.js';
+
+export { resolveDocLink };
 
 /**
  * 근거 표시와 구멍 표시, 머리줄을 찾는 정규식. 레포마다 형식이 달라 바꿀 수 있게 열어 둔다.
@@ -70,12 +73,19 @@ export interface ScannedDoc {
   gaps: DocGap[];
   evidenceMix: Record<string, number>;
   codeRefs: DocCodeRef[];
-  routes: DocRoute[];
+  routes: ScannedRoute[];
   screens: DocScreenRow[];
   /** 본문의 상대 md 링크. 레포 기준 경로로 편 것 */
   mdLinks: string[];
   /** 본문이 말한 `METHOD /path`. 기술 그림 엔드포인트와 맞춰 보는 데 쓴다. 예전 스캔 결과에는 없다 */
   apiRefs?: DocApiRef[];
+  /** 링크 문법 없이 백틱이나 맨 글자로 적은 md 경로. 어디를 기준으로 적었는지 몰라 편 경로가 아니라 적힌 그대로 둔다 */
+  mdRefs?: string[];
+}
+
+/** 질문 안내 표 한 줄. link는 표에 적힌 그대로라 옆 폴더 기준으로 적은 경로도 나중에 풀 수 있다 */
+export interface ScannedRoute extends DocRoute {
+  link?: string;
 }
 
 export interface DocApiRef {
@@ -125,6 +135,8 @@ const CODE_HOST_URL_RE =
 
 // 예시 요청은 코드 블록에 자주 있어서 API 언급만은 코드 블록 안도 센다
 const API_RE = /\b(GET|POST|PUT|PATCH|DELETE)\s+`?(\/[\w\-./{}:<>[\]]*[\w}\]>])/g;
+// 링크 문법 밖에 적힌 md 경로. `skills/a/references/b.md`나 표 칸의 `01-intro.md` 같은 자리다
+const MD_REF_RE = /(?:^|[\s`'"(|*])((?:\.{1,2}\/)*[\w][\w./-]*\.md)\b/g;
 const toPosix = (p: string): string => p.split(sep).join('/');
 
 function clip(text: string): string {
@@ -219,17 +231,6 @@ function linkTargets(cell: string): string[] {
   return out;
 }
 
-/** 상대 링크를 레포 기준 경로로 편다. 레포 밖이나 바깥 주소면 undefined */
-export function resolveDocLink(fromPath: string, link: string): string | undefined {
-  if (/^[a-z]+:/i.test(link) || link.startsWith('#')) return undefined;
-  const clean = link.replace(/[#?].*$/, '');
-  if (clean === '') return undefined;
-  const joined = clean.startsWith('/')
-    ? posix.normalize(clean.slice(1))
-    : posix.normalize(posix.join(posix.dirname(fromPath), clean));
-  return joined.startsWith('..') ? undefined : joined;
-}
-
 const blank = (cell: string): boolean => /^[-—–]?$/.test(cell.trim());
 
 function truthy(cell: string): boolean | undefined {
@@ -289,6 +290,7 @@ export function scanMarkdown(
     screens: [],
     mdLinks: [],
     apiRefs: [],
+    mdRefs: [],
   };
   const apiSeen = new Set<string>();
   const title = typeof fm['title'] === 'string' ? fm['title'] : undefined;
@@ -313,6 +315,7 @@ export function scanMarkdown(
 
   const lines = body.split('\n');
   const links = new Set<string>();
+  const refs = new Set<string>();
   let fenced = false;
   let table: { cols: TableCols; kind: 'route' | 'screen' | 'other' } | null = null;
   for (let i = 0; i < lines.length; i++) {
@@ -374,6 +377,9 @@ export function scanMarkdown(
       const target = resolveDocLink(path, m[1]!);
       if (target !== undefined) links.add(target);
     }
+    for (const m of line.replace(/\]\([^)]*\)/g, '').matchAll(MD_REF_RE)) {
+      if (!/^[a-z]+:/i.test(m[1]!)) refs.add(m[1]!.replace(/^\.\//, ''));
+    }
 
     const cells = splitRow(line);
     if (cells === null) {
@@ -400,13 +406,12 @@ export function scanMarkdown(
         .split(/[,/·、;]/)
         .map((k) => k.trim())
         .filter(Boolean);
-      const target = cells
+      const link = cells
         .filter((_, j) => j !== kw)
         .flatMap(linkTargets)
-        .map((l) => resolveDocLink(path, l))
-        .find((t): t is string => t !== undefined && t.endsWith('.md'));
-      if (keywords.length > 0 && target !== undefined) {
-        out.routes.push({ keywords, targetPath: target });
+        .find((l) => resolveDocLink(path, l)?.endsWith('.md'));
+      if (keywords.length > 0 && link !== undefined) {
+        out.routes.push({ keywords, targetPath: resolveDocLink(path, link)!, link });
       }
     } else if (table.kind === 'screen') {
       const c = table.cols;
@@ -440,6 +445,7 @@ export function scanMarkdown(
     }
   }
   out.mdLinks = [...links].sort();
+  out.mdRefs = [...refs].sort();
   return out;
 }
 
@@ -530,6 +536,9 @@ export function buildKnowledgeIr(
   const edges: ArchitectureEdge[] = [];
   const byKey = new Map(scan.docs.map((d) => [`${d.repoId}/${d.path}`, d]));
   const groups = new Map<string, ArchitectureNode>();
+  const routes = analyzeDocRoutes(scan);
+  const resolve = docResolver(scan);
+  const orphans = new Set(routes.orphans);
 
   // 레포마다 묶음 하나를 맨 위에 둔다. 전체보기가 레포 카드만 보여 주고 그 아래로 폴더를 따라 들어간다
   const rootGroup = (repoId: string): string => {
@@ -580,12 +589,16 @@ export function buildKnowledgeIr(
     if (Object.keys(d.evidenceMix).length) doc.evidenceMix = d.evidenceMix;
     const links = linkHealth(d.codeRefs);
     if (links !== undefined) doc.links = links;
+    const key = `${d.repoId}/${d.path}`;
+    if (orphans.has(key)) doc.orphan = true;
+    const kws = routes.keywords[key];
+    if (kws !== undefined) doc.keywords = kws;
     if (d.routes.length) {
-      doc.routes = d.routes.map((r) => {
-        const target = byKey.has(`${d.repoId}/${r.targetPath}`)
-          ? docNodeId(d.repoId, r.targetPath)
-          : undefined;
-        return { ...r, ...(target !== undefined ? { target } : {}) };
+      doc.routes = d.routes.map(({ link, ...r }) => {
+        const hit = resolve(d, link ?? r.targetPath);
+        if (hit === undefined) return r;
+        const targetPath = hit.slice(d.repoId.length + 1);
+        return { ...r, targetPath, target: docNodeId(d.repoId, targetPath) };
       });
     }
     nodes.push({
@@ -673,14 +686,16 @@ export interface DocScanSummary {
 }
 
 export function summarizeScan(scan: DocScanResult): DocScanSummary {
-  const keys = new Set(scan.docs.map((d) => `${d.repoId}/${d.path}`));
+  const resolve = docResolver(scan);
   const mix: Record<string, number> = {};
   let routes = 0;
   let unresolvedRoutes = 0;
   for (const d of scan.docs) {
     for (const [k, v] of Object.entries(d.evidenceMix)) mix[k] = (mix[k] ?? 0) + v;
     routes += d.routes.length;
-    unresolvedRoutes += d.routes.filter((r) => !keys.has(`${d.repoId}/${r.targetPath}`)).length;
+    unresolvedRoutes += d.routes.filter(
+      (r) => resolve(d, r.link ?? r.targetPath) === undefined,
+    ).length;
   }
   return {
     docCount: scan.docs.length,

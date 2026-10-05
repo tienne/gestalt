@@ -335,7 +335,9 @@
               }
             },
             "reads": { "type": "integer", "minimum": 0 },
-            "staleSince": { "type": "string", "minLength": 1 }
+            "staleSince": { "type": "string", "minLength": 1 },
+            "orphan": { "const": true },
+            "keywords": { "type": "array", "items": { "type": "string", "minLength": 1 } }
           }
         },
         "owners": {

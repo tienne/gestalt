@@ -1346,7 +1346,15 @@ export function maskSharedText(text: string): string {
  * 본문에서 온 글자(절 제목, 구멍 설명과 담당, 안내 키워드, 화면 이름과 썸네일)는 빼고 숫자와 날짜, 참거짓만 둔다
  */
 function maskDocInfo(doc: DocInfo): DocInfo {
-  const { sections: _sections, gaps, routes, screen, evidenceMix, ...rest } = doc;
+  const {
+    sections: _sections,
+    keywords: _keywords,
+    gaps,
+    routes,
+    screen,
+    evidenceMix,
+    ...rest
+  } = doc;
   return {
     ...rest,
     path: doc.path,

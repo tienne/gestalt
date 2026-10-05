@@ -195,6 +195,10 @@ export interface DocInfo {
   reads?: number;
   /** 문서 날짜보다 늦게 바뀐, 문서가 가리킨 파일 중 가장 최근 커밋 날짜. 이 값이 있으면 문서가 낡았을 수 있다 */
   staleSince?: string;
+  /** 진입 문서(README, CLAUDE, SKILL 등)에서 링크와 질문 안내를 따라가도 안 닿는다 */
+  orphan?: true;
+  /** 질문 안내 표가 이 문서로 보내는 말 */
+  keywords?: string[];
 }
 
 /** describes 엣지가 가리키는 파일 하나 */

@@ -122,6 +122,8 @@ const docInfoSchema = z.object({
     .optional(),
   reads: z.number().int().nonnegative().optional(),
   staleSince: z.string().min(1).optional(),
+  orphan: z.literal(true).optional(),
+  keywords: z.array(z.string().min(1)).optional(),
 });
 
 const docLinkSchema = z.object({
