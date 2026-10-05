@@ -2,6 +2,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectGlobalContext } from '../../architecture/global-context.js';
+import {
+  buildKnowledgeIr,
+  scanDocRoots,
+  summarizeScan,
+  type DocRoot,
+} from '../../architecture/doc-scan.js';
 import { matchEndpoints } from '../../architecture/endpoint-match.js';
 import { matchMcpTools } from '../../architecture/mcp-tool-match.js';
 import { matchNameRefs } from '../../architecture/name-ref-match.js';
@@ -367,6 +373,32 @@ function handleMerge(input: ArchitectureInput, repoRoot: string): object {
   return { ok: true, irPath: outPath, report: result.report, nextAction };
 }
 
+/**
+ * 문서 레포를 읽기만 하고 결과는 `.gestalt/architecture/` 아래 파일로 남긴다. md 수백 개를 응답에 실으면
+ * 세션 맥락이 넘치니 응답은 요약과 경로만 돌려준다
+ */
+function handleScanDocs(input: ArchitectureInput, repoRoot: string): object {
+  if (input.docRoots === undefined || input.docRoots.length === 0) {
+    return fail('MISSING_INPUT', 'scan_docs에는 docRoots가 필요하다.');
+  }
+  const roots: DocRoot[] = input.docRoots.map((r) => ({
+    ...r,
+    path: isAbsolute(r.path) ? r.path : resolve(repoRoot, r.path),
+  }));
+  let scan;
+  try {
+    scan = scanDocRoots(roots, input.docPatterns);
+  } catch (err) {
+    return fail('SCAN_FAILED', `문서 레포를 못 읽었다: ${String(err)}`);
+  }
+  const dir = resolve(repoRoot, '.gestalt', 'architecture');
+  const scanPath = resolve(dir, 'doc-scan.json');
+  const draftPath = resolve(dir, 'knowledge.draft.json');
+  writeJsonAtomic(scanPath, scan);
+  writeJsonAtomic(draftPath, buildKnowledgeIr(roots, scan, new Date().toISOString()));
+  return { summary: summarizeScan(scan), skipped: scan.skipped, scanPath, draftPath };
+}
+
 function handleStatus(repoRoot: string): object {
   const store = new ArchitectureStore(repoRoot);
   const views: Record<string, unknown> = {};
@@ -399,5 +431,7 @@ export async function handleArchitecturePassthrough(
       return handleStatus(repoRoot);
     case 'merge':
       return handleMerge(input, repoRoot);
+    case 'scan_docs':
+      return handleScanDocs(input, repoRoot);
   }
 }

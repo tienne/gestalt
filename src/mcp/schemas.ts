@@ -845,6 +845,7 @@ export const ARCHITECTURE_ACTIONS = [
   'render',
   'status',
   'merge',
+  'scan_docs',
 ] as const;
 
 const feCallSchema = z.object({
@@ -880,6 +881,24 @@ const nameRefsSchema = z.object({
   decls: z.array(nameRefSchema).describe('선언된 쪽. 테이블 정의, IaC 리소스, 흐름 단계의 상태 값'),
 });
 
+const docRootSchema = z.object({
+  repoId: z.string().min(1).describe('IR의 repo id. 노드 id와 근거 위치 앞에 붙는다'),
+  name: z.string().optional().describe('전체보기 카드에 쓸 이름. 비우면 repoId'),
+  path: z.string().min(1).describe('문서 레포 체크아웃 경로. repoRoot 기준으로 푼다'),
+  include: z.array(z.string()).optional().describe('이 접두로 시작하는 경로만 훑는다'),
+  exclude: z.array(z.string()).optional().describe('이 접두로 시작하는 경로는 건너뛴다'),
+});
+
+const docPatternsSchema = z.object({
+  evidence: z.string().optional().describe('근거 표시 정규식. 첫 캡처가 `종류:위치@ref`'),
+  gap: z.string().optional().describe('빈 곳 표시 정규식. 첫 캡처가 설명'),
+  unverified: z.string().optional().describe('확인 안 된 사실 표시 정규식. 첫 캡처가 설명'),
+  updated: z.string().optional().describe('최종 수정 머리줄 정규식. 첫 캡처가 YYYY-MM-DD'),
+  keywordHeader: z.string().optional().describe('질문 안내 표의 키워드 열 이름 정규식'),
+  routeHeader: z.string().optional().describe('화면 색인 표의 라우트 열 이름 정규식'),
+  screenNameHeader: z.string().optional().describe('화면 색인 표의 화면 이름 열 정규식'),
+});
+
 const serverToolSchema = z.object({
   id: z.string(),
   server: z.string(),
@@ -892,7 +911,7 @@ export const architectureInputSchema = guardObject(
     action: z
       .enum(ARCHITECTURE_ACTIONS)
       .describe(
-        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트, 스킬의 MCP 도구 호출과 서버 도구 등록 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 두 뷰의 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기',
+        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트, 스킬의 MCP 도구 호출과 서버 도구 등록 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 뷰마다 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기, scan_docs: 문서 레포의 md를 훑어 근거 표시와 구멍, 질문 안내 표, 화면 색인을 뽑고 지식 문서 지도 초안 쓰기',
       ),
     repoRoot: z.string().optional().describe('저장소 경로 (기본값: 현재 작업 디렉토리)'),
     view: z
@@ -950,6 +969,10 @@ export const architectureInputSchema = guardObject(
       .array(z.string())
       .optional()
       .describe('match_endpoints, merge: FE 경로 앞에 붙는 게이트웨이 prefix 후보'),
+    docRoots: z.array(docRootSchema).optional().describe('scan_docs에 필요. 훑을 문서 레포 목록'),
+    docPatterns: docPatternsSchema
+      .optional()
+      .describe('scan_docs: 레포마다 다른 표시 형식을 맞출 정규식. 비우면 기본 형식'),
   }),
 );
 
