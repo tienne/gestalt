@@ -1,0 +1,596 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "architecture-ir.schema.json",
+  "title": "Gestalt Architecture IR",
+  "description": "Intermediate representation for /architecture views (screen-chain, deploy-path)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schemaVersion",
+    "view",
+    "repos",
+    "nodes",
+    "edges",
+    "unresolved",
+    "sourcesUsed",
+    "generatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "view": {
+      "type": "string",
+      "enum": ["screen-chain", "deploy-path", "knowledge", "knowledge-link"]
+    },
+    "packs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "vocabulary pack ids this IR uses. Defaults to web-product and harness"
+    },
+    "repos": { "type": "array", "items": { "$ref": "#/definitions/repo" } },
+    "nodes": { "type": "array", "items": { "$ref": "#/definitions/node" } },
+    "edges": { "type": "array", "items": { "$ref": "#/definitions/edge" } },
+    "unresolved": { "type": "array", "items": { "$ref": "#/definitions/unresolvedQuestion" } },
+    "sourcesUsed": { "type": "array", "items": { "$ref": "#/definitions/contextSource" } },
+    "generatedAt": { "type": "string" },
+    "groups": {
+      "type": "array",
+      "description": "product groups left by merge; members are the node ids that came from that product's analysis",
+      "items": { "$ref": "#/definitions/group" }
+    },
+    "flows": {
+      "type": "array",
+      "description": "domain flows of one service: actor lanes, steps left to right, main and side transitions",
+      "items": { "$ref": "#/definitions/flow" }
+    },
+    "stages": {
+      "type": "array",
+      "description": "left-to-right stages of the technical view, defined by the session (e.g. app, server, another server, DB)",
+      "items": { "$ref": "#/definitions/stage" }
+    },
+    "projections": {
+      "type": "array",
+      "description": "pictures that each answer one question, drawn over the same nodes and edges",
+      "items": { "$ref": "#/definitions/projection" }
+    }
+  },
+  "definitions": {
+    "stage": {
+      "type": "object",
+      "required": ["id", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "nodes": {
+          "type": "array",
+          "description": "node ids placed in this stage; wins over kinds and repos",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "kinds": {
+          "type": "array",
+          "description": "node kinds placed in this stage when the node is not listed by id in any stage",
+          "items": { "$ref": "#/definitions/node/properties/kind" }
+        },
+        "repos": {
+          "type": "array",
+          "description": "with kinds, both must match",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "visibility": { "type": "string", "enum": ["public", "private"] },
+    "evidence": {
+      "type": "object",
+      "required": ["type", "location", "visibility"],
+      "properties": {
+        "type": { "type": "string", "enum": ["code", "spec", "doc", "user", "live"] },
+        "location": {
+          "type": "string",
+          "minLength": 1,
+          "description": "code evidence uses <repoId>:<relPath>:<line>; live evidence uses the resource identifier the query found"
+        },
+        "updatedAt": { "type": "string" },
+        "visibility": { "$ref": "#/definitions/visibility" },
+        "excerpt": { "type": "string" },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "live only: the read-only CLI command that ran (its subcommand starts with list, get or describe)"
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "live only: when the query ran (ISO 8601)"
+        }
+      },
+      "if": { "properties": { "type": { "const": "live" } } },
+      "then": { "required": ["command", "observedAt"] },
+      "else": { "not": { "anyOf": [{ "required": ["command"] }, { "required": ["observedAt"] }] } }
+    },
+    "platform": { "type": "string", "enum": ["web", "android", "ios"] },
+    "repo": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "description": "checkout path. Omit for a document bundle; code evidence into it is rejected"
+        },
+        "remote": { "type": "string" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "kind", "label", "repo", "evidence"],
+      "dependencies": { "displayNameInferred": ["displayName"] },
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "screen",
+            "endpoint",
+            "app_module",
+            "external_service",
+            "db_table",
+            "datastore",
+            "workflow",
+            "build",
+            "artifact",
+            "deploy_target",
+            "service",
+            "micro_app",
+            "feature",
+            "gateway",
+            "domain",
+            "cdn",
+            "bucket",
+            "cloud_account",
+            "client",
+            "skill",
+            "agent",
+            "component",
+            "firewall",
+            "network",
+            "subnet",
+            "cluster",
+            "workload",
+            "source",
+            "topic",
+            "pipeline",
+            "job",
+            "warehouse",
+            "dataset",
+            "report",
+            "org_unit",
+            "role",
+            "form",
+            "system",
+            "doc_group",
+            "document",
+            "design_screen"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "technical name; part of the merge key (kind, repo, normalized label). micro_app uses the Module Federation name and leaves repo out of the key"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "human-facing name shown large on the box; not part of the merge key"
+        },
+        "displayNameInferred": {
+          "type": "boolean",
+          "description": "true when displayName was condensed from evidence text rather than found verbatim in a document"
+        },
+        "repo": { "type": "string" },
+        "parent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "containment: a screen points to a feature, micro_app or service, a skill points to a feature or service, a feature points to a micro_app or service, a micro_app points to a service, a db_table points to a datastore; other kinds have no parent"
+        },
+        "description": { "type": "string" },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "description": "domain, cdn, bucket, cloud_account, deploy_target and datastore only: prod, stage, qa, dev or another name"
+        },
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "description": "id of the cloud_account node this node belongs to; edges whose ends sit in different accounts get another color"
+        },
+        "platforms": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/platform" },
+          "description": "service only; web is also inferred from serves edges, android and ios need platformEvidence"
+        },
+        "platformEvidence": {
+          "type": "object",
+          "description": "service only: evidence per platform",
+          "propertyNames": { "$ref": "#/definitions/platform" },
+          "additionalProperties": { "type": "array", "items": { "$ref": "#/definitions/evidence" } }
+        },
+        "protocol": {
+          "type": "string",
+          "enum": ["http", "mcp"],
+          "description": "endpoint only; http when omitted. An mcp endpoint is one MCP tool and its label is the tool name"
+        },
+        "mcpServer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "mcp endpoint only: name of the MCP server that registers the tool"
+        },
+        "actions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "mcp endpoint only: values the tool dispatches on through its action argument"
+        },
+        "displayKind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "component only: kind name the reader sees on the chip"
+        },
+        "renderClass": {
+          "type": "string",
+          "enum": [
+            "actor",
+            "client",
+            "service",
+            "gateway",
+            "store",
+            "queue",
+            "external",
+            "infra",
+            "step",
+            "state",
+            "document"
+          ],
+          "description": "component only: render class that picks color and icon"
+        },
+        "doc": {
+          "type": "object",
+          "required": ["path"],
+          "description": "doc_group, document and design_screen only. Shared HTML keeps path, numbers, dates and booleans and drops text taken from the document body",
+          "properties": {
+            "path": { "type": "string", "minLength": 1, "description": "repo-relative path" },
+            "updatedAt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "last-updated date the document states in its header"
+            },
+            "committedAt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "date of the last git commit that touched the file"
+            },
+            "sections": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "gaps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["kind"],
+                "properties": {
+                  "kind": { "type": "string", "enum": ["gap", "unverified"] },
+                  "text": { "type": "string" },
+                  "owner": { "type": "string", "minLength": 1 },
+                  "line": { "type": "integer", "minimum": 1 }
+                }
+              }
+            },
+            "evidenceMix": {
+              "type": "object",
+              "additionalProperties": { "type": "integer", "minimum": 0 },
+              "description": "evidence marker count per kind"
+            },
+            "links": {
+              "type": "object",
+              "required": ["total", "broken", "branchOnly", "pinned", "unchecked"],
+              "properties": {
+                "total": { "type": "integer", "minimum": 0 },
+                "broken": { "type": "integer", "minimum": 0 },
+                "branchOnly": { "type": "integer", "minimum": 0 },
+                "pinned": { "type": "integer", "minimum": 0 },
+                "unchecked": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "routes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["keywords", "targetPath"],
+                "properties": {
+                  "keywords": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "type": "string", "minLength": 1 }
+                  },
+                  "targetPath": { "type": "string", "minLength": 1 },
+                  "target": { "type": "string", "minLength": 1 }
+                }
+              }
+            },
+            "screen": {
+              "type": "object",
+              "properties": {
+                "route": { "type": "string", "minLength": 1 },
+                "screenType": { "type": "string", "minLength": 1 },
+                "frame": { "type": "string", "minLength": 1 },
+                "frameNode": { "type": "string", "minLength": 1 },
+                "symbolized": { "type": "boolean" },
+                "hasSpec": { "type": "boolean" },
+                "synonyms": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "thumbnail": {
+                  "type": "string",
+                  "pattern": "^data:image/(png|jpeg|webp);base64,",
+                  "description": "private HTML only"
+                }
+              }
+            },
+            "reads": { "type": "integer", "minimum": 0 },
+            "staleSince": { "type": "string", "minLength": 1 },
+            "orphan": { "const": true },
+            "keywords": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "owners": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "owning team or person from a sourced file such as CODEOWNERS or an ownership table; dropped from shared HTML"
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["id", "from", "to", "kind", "evidence", "lineStyle"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "calls",
+            "handles",
+            "uses",
+            "reads_writes",
+            "triggers",
+            "builds",
+            "produces",
+            "deploys_to",
+            "routes",
+            "navigates",
+            "resolves_to",
+            "origin",
+            "serves",
+            "loads",
+            "spawns",
+            "invokes",
+            "connects",
+            "sends",
+            "depends_on",
+            "peers",
+            "allows",
+            "feeds",
+            "publishes",
+            "hands_over",
+            "approves",
+            "records",
+            "describes",
+            "indexes"
+          ]
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
+        "lineStyle": { "type": "string", "enum": ["solid", "dashed"] },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "calls into an mcp endpoint only: action values this call passes"
+        },
+        "docLink": {
+          "type": "object",
+          "required": ["via", "refs"],
+          "description": "describes only: files the document points at and whether each exists",
+          "properties": {
+            "via": {
+              "type": "string",
+              "enum": ["code-ref", "api-path", "screen-route", "session"]
+            },
+            "refs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["target", "verified"],
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "<repoId>:<relPath>"
+                  },
+                  "verified": { "type": "boolean" },
+                  "pinned": { "type": "string", "enum": ["branch", "commit", "none"] },
+                  "committedAt": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "unresolvedQuestion": {
+      "type": "object",
+      "required": ["id", "subject", "question"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "subject": {
+          "type": "object",
+          "properties": {
+            "nodeId": { "type": "string" },
+            "edgeId": { "type": "string" },
+            "stepId": { "type": "string" },
+            "transitionId": { "type": "string" },
+            "messageId": { "type": "string" }
+          }
+        },
+        "question": { "type": "string", "minLength": 1 },
+        "answer": { "type": "string" }
+      }
+    },
+    "group": {
+      "type": "object",
+      "required": ["id", "name", "members"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "flowActor": {
+      "type": "object",
+      "required": ["id", "label", "kind"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["person", "system", "agent"] }
+      }
+    },
+    "flowStep": {
+      "type": "object",
+      "required": ["id", "actor", "label", "evidence"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "actor": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "state": { "type": "string", "minLength": 1 },
+        "refs": {
+          "type": "array",
+          "description": "ids of screen, endpoint, feature or micro_app nodes this step touches",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } }
+      }
+    },
+    "flowTransition": {
+      "type": "object",
+      "required": ["id", "from", "to", "path", "evidence", "lineStyle"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "enum": ["main", "side"] },
+        "label": { "type": "string", "minLength": 1 },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
+        "lineStyle": { "type": "string", "enum": ["solid", "dashed"] }
+      }
+    },
+    "flow": {
+      "type": "object",
+      "required": ["id", "title", "actors", "steps", "transitions"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "service": {
+          "type": "string",
+          "minLength": 1,
+          "description": "service node this flow belongs to. Omit for a standalone flow under the overview"
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "actors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/flowActor" }
+        },
+        "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/flowStep" } },
+        "transitions": { "type": "array", "items": { "$ref": "#/definitions/flowTransition" } }
+      }
+    },
+    "contextSource": {
+      "type": "object",
+      "required": ["via", "identifier", "readOnly", "probeHit", "visibility"],
+      "properties": {
+        "via": { "type": "string", "enum": ["repo", "global", "mcp", "skill", "user"] },
+        "identifier": { "type": "string", "minLength": 1 },
+        "readOnly": { "type": "boolean" },
+        "probeHit": { "type": "boolean" },
+        "visibility": { "$ref": "#/definitions/visibility" }
+      }
+    },
+    "projectionMessage": {
+      "type": "object",
+      "required": ["id", "from", "to", "label", "evidence", "lineStyle"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "edge": {
+          "type": "string",
+          "minLength": 1,
+          "description": "edge this message travels on. Its evidence counts for the message"
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
+        "lineStyle": { "type": "string", "enum": ["solid", "dashed"] },
+        "reply": { "type": "boolean" },
+        "block": { "type": "string", "minLength": 1 },
+        "branch": { "type": "string", "minLength": 1 }
+      }
+    },
+    "projectionBlock": {
+      "type": "object",
+      "required": ["id", "kind", "label"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["alt", "opt", "loop", "par"] },
+        "label": { "type": "string", "minLength": 1 }
+      }
+    },
+    "projection": {
+      "type": "object",
+      "required": ["id", "shape", "title", "question", "messages"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "shape": { "type": "string", "enum": ["sequence", "dataflow", "compare"] },
+        "title": { "type": "string", "minLength": 1 },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "description": "the one question this picture answers"
+        },
+        "participants": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "messages": {
+          "type": "array",
+          "description": "lines of sequence and dataflow. Leave empty for compare",
+          "items": { "$ref": "#/definitions/projectionMessage" }
+        },
+        "blocks": { "type": "array", "items": { "$ref": "#/definitions/projectionBlock" } },
+        "sides": {
+          "type": "array",
+          "description": "the two groups compare puts side by side, such as before and after",
+          "items": { "$ref": "#/definitions/projectionSide" }
+        }
+      }
+    },
+    "projectionSide": {
+      "type": "object",
+      "required": ["id", "label", "nodes"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "nodes": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  }
+}

@@ -17,6 +17,7 @@
 - **Memory**: 이전 스펙·실행 이력을 `.gestalt/memory.json`에 축적, 신규 인터뷰에 자동 주입
 - **Multi-Provider LLM**: frugal/standard/frontier 티어별로 Anthropic/OpenAI 호환 프로바이더 자유 조합
 - **Local PR**: 에이전트끼리 레포 안에서 PR을 만들고 리뷰하고 머지하는 자리 — 원격에 안 나간다. 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유한다
+- **Architecture View**: 세션이 코드와 맥락 소스를 탐색해 근거 달린 IR을 쓰면 서버가 검증하고 elkjs 좌표로 단일 HTML을 그린다. 서비스 노드가 있으면 전체에서 서비스, 기능영역, 화면으로 들어가는 드릴다운이 된다. 노드 하나를 고르면 그와 위아래로 이어진 카드만 남기는 포커스도 된다. 서비스 아래에는 손님, 직원, 시스템을 가로줄로 나눠 정상 흐름과 취소나 노쇼 같은 옆 흐름을 함께 그리는 도메인 흐름 레벨을 둘 수 있다. 흐름 그림은 상태 값으로, 기술 그림은 세션이 정한 구간으로 왼쪽에서 오른쪽을 나눈다. 단계 카드에서 기술 그림의 화면과 API로 건너간다. 근거 없는 실선은 거부하고 근거 없는 연결은 미해결 질문으로 돌린다. 따로 돌린 분석 둘을 git remote 기준으로 합쳐 제품끼리 같이 쓰는 게이트웨이와 서버, 저장소를 한 그림에 모을 수도 있다. 합친 그림은 맨 위에 같이 쓰는 카드를, 그 아래로 제품마다 전용 카드를 띠로 나눠 그리고 같이 쓰는 카드 위에 제품 브릭을 꽂는다. 전체보기는 prod 기준이다. 저장은 `.gestalt/architecture/`
 - **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱
 
 ## Tech Stack
@@ -56,11 +57,13 @@ pnpm tsx bin/gestalt.ts explain-eval --a plugin/role-agents/explainer/AGENT.md  
 - `ges_search`: query, k?, kbPath?, types?
 - `ges_sync`: sourcePath?, targetPath
 - `ges_pr`: action=[create|list|get|diff|comment|resolve|review|update|edit|merge|close|checkout|checkout_remove]
+- `ges_architecture`: action=[start|filter_tools|match_endpoints|validate|render|status|merge|scan_docs|link_docs|stale_docs]
 
 상세 플로우 → [`docs/mcp-reference.md`](./docs/mcp-reference.md)
 설정 레퍼런스 → [`docs/configuration.md`](./docs/configuration.md)
 코드 그래프 → [`docs/code-graph.md`](./docs/code-graph.md)
 로컬 PR → [`docs/local-pr.md`](./docs/local-pr.md)
+아키텍처 그림 → [`docs/architecture-view.md`](./docs/architecture-view.md)
 
 ## Role Agent 자동 라우팅
 
@@ -76,6 +79,7 @@ src/execute/       — ExecuteEngine, DAG Validator
 src/resilience/    — Stagnation Detector, Lateral Thinking Personas
 src/code-graph/    — CodeGraphEngine, BlastRadius, git 이력 co-change, 언어 플러그인 8개
 src/graph-viz/     — 코드 그래프 D3 시각화 (ges_graph_visualize 백엔드)
+src/architecture/  — 아키텍처 IR 스키마, 근거 검증, 이전 실행 병합, 분석 합치기, elkjs 레이아웃, HTML 렌더 (ges_architecture 백엔드)
 src/local-pr/      — 로컬 PR 도메인 (이벤트 소싱, git 연산, gestalt pr·ges_pr 백엔드)
 src/local-pr-web/  — 로컬 PR 읽기 전용 웹 UI (gestalt pr serve 백엔드)
 src/knowledge-base/— KB 생성·시맨틱 검색·동기화 (ges_generate_kb/ges_search/ges_sync 백엔드)
@@ -90,12 +94,12 @@ src/skills/        — Skill System 엔진 (SKILL.md 파서·실행기, 최상�
 src/registry/      — 레지스트리 공통 베이스 클래스
 src/humanize/      — 룰북 읽기 + AI-tell 탐지기 + 윤문 코드 검사 (`gestalt humanize-check` 백엔드)
 src/explain/       — 대상별 설명 품질 검사 (`gestalt explain-check` 백엔드). 판정 구조만 humanize에서 빌려 쓴다
-src/utils/         — 알림 등 공용 유틸
+src/utils/         — 알림, 읽기 전용 도구 이름 걸러내기(read-only-tools), git remote로 ~/.claude/projects 메모리 묶기(claude-projects) 등 공용 유틸
 src/cli/           — commander 기반 CLI
 plugin/            — 배포 자산 전부. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다
 plugin/role-agents/    — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer, code-review-writer, code-review-responder, suggestion-verifier, explainer 등) 총 23개 + `_shared/references/` 공유 룰북(author-voice, ai-tell-quick-rules, style-guide, comment-rules, truncation-rules)과 리뷰 절차 문서(rule-path-walk) — 에이전트 아님, 레지스트리가 건너뜀
 plugin/review-agents/  — 내장 Review Agent 7개 (security-reviewer, performance-reviewer, quality-reviewer, frontend-reviewer, comment-reviewer, writing-reviewer, harness-reviewer)
-plugin/skills/         — SKILL.md 21개 (interview, spec, execute, dispatch, agent, review, review-reply, review-loop, pr, local-pr, ship, build-graph, blast-radius, diff-radius, jira-create, slack-send, brief, presentation, explain, solve, setup) + `_shared/` 공유 규칙(스킬 아님, 레지스트리가 건너뜀)
+plugin/skills/         — SKILL.md 22개 (interview, spec, execute, dispatch, agent, review, review-reply, review-loop, pr, local-pr, ship, build-graph, blast-radius, diff-radius, architecture, jira-create, slack-send, brief, presentation, explain, solve, setup) + `_shared/` 공유 규칙(스킬 아님, 레지스트리가 건너뜀)
 plugin/agents/         — 파이프라인 에이전트 5개
 plugin/personas/       — Lateral Thinking 페르소나
 ```

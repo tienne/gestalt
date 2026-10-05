@@ -34,6 +34,7 @@ import { handleAgentPassthrough } from './tools/agent-passthrough.js';
 import { handleReviewPassthrough } from './tools/review-passthrough.js';
 import { handleCodeGraphPassthrough } from './tools/code-graph-passthrough.js';
 import { handleGraphVisualizePassthrough } from './tools/graph-visualize-passthrough.js';
+import { handleArchitecturePassthrough } from './tools/architecture-passthrough.js';
 import { handleGenerateKb } from './tools/generate-kb.js';
 import { handlePr } from './tools/pr.js';
 import { handleSearchKb } from './tools/search-kb.js';
@@ -51,6 +52,8 @@ import {
   graphVisualizeInputSchema,
   prInputSchema,
   PR_ACTIONS,
+  architectureInputSchema,
+  ARCHITECTURE_ACTIONS,
 } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
@@ -475,6 +478,17 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     async (params) => {
       const input = graphVisualizeInputSchema.parse(params);
       const result = await handleGraphVisualizePassthrough(input);
+      return toolReply(JSON.stringify(result, null, 2));
+    },
+  );
+
+  guardedTool(
+    'ges_architecture',
+    `Validate a session-built ArchitectureIR and render screen-chain or deploy-path views as single-file HTML under .gestalt/architecture. Actions: ${ARCHITECTURE_ACTIONS.join(', ')}.`,
+    architectureInputSchema.shape,
+    async (params) => {
+      const input = architectureInputSchema.parse(params);
+      const result = await handleArchitecturePassthrough(input, process.cwd());
       return toolReply(JSON.stringify(result, null, 2));
     },
   );

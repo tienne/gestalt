@@ -1,0 +1,57 @@
+import type { LaneId } from './layout.js';
+import { ALL_PACKS_VOCABULARY } from './packs/index.js';
+import type { DisplayKind, Platform, WebHosting } from './types.js';
+
+/** 카드 칩에 쓰는 짧은 종류 이름. 색을 못 가리는 사람도 종류를 읽을 수 있게 색 띠와 함께 싣는다 */
+export const NODE_KIND_SHORT = Object.fromEntries(
+  Object.entries(ALL_PACKS_VOCABULARY.looks).map(([k, d]) => [k, d.short]),
+) as Record<DisplayKind, string>;
+
+/** 흐름이 달린 서비스 카드의 첫 줄 배지 글자. 하나면 수를 안 붙인다 */
+export function flowBadgeText(count: number): string {
+  return count === 1 ? '흐름' : `흐름 ${count}`;
+}
+
+/** 들어오는 loads가 없는 micro_app 칩 글자. NODE_KIND_SHORT.micro_app과 글자 수가 같다 */
+export const MICRO_HOST_SHORT = '호스트';
+
+/** 레인 제목은 그 칸의 레이어 이름이다. 칩 이름과 맞춰야 카드와 레인이 같은 말로 읽힌다 */
+export const LANE_TITLES = Object.fromEntries(
+  Object.entries(ALL_PACKS_VOCABULARY.lanes).map(([k, d]) => [k, d.title]),
+) as Record<LaneId, string>;
+
+/** 카드 첫 줄 플랫폼 칩 글자. 브랜드 로고 대신 중립 아이콘과 이 글자를 함께 쓴다 */
+export const PLATFORM_CHIP_TEXT: Record<Platform, string> = {
+  web: '웹',
+  android: 'AOS',
+  ios: 'iOS',
+};
+
+/** 웹 칩 글자. 서빙 방식을 알면 웹 대신 이 글자를 쓴다 */
+export const WEB_HOSTING_CHIP_TEXT: Record<WebHosting, string> = {
+  static: '웹',
+  ssr: '웹(SSR)',
+};
+
+/** 서빙 방식을 아는 웹 칩의 aria-label과 툴팁, 상세 패널 이름 */
+export const WEB_HOSTING_NAME: Record<WebHosting, string> = {
+  static: '웹',
+  ssr: 'SSR 웹 (서버 렌더)',
+};
+
+export function platformChipText(p: Platform, hosting?: WebHosting): string {
+  return p === 'web' && hosting !== undefined
+    ? WEB_HOSTING_CHIP_TEXT[hosting]
+    : PLATFORM_CHIP_TEXT[p];
+}
+
+export function platformName(p: Platform, hosting?: WebHosting): string {
+  return p === 'web' && hosting !== undefined ? WEB_HOSTING_NAME[hosting] : PLATFORM_NAME[p];
+}
+
+/** 칩의 aria-label과 툴팁, 상세 패널에 쓰는 이름 */
+export const PLATFORM_NAME: Record<Platform, string> = {
+  web: '웹',
+  android: 'Android 앱',
+  ios: 'iOS 앱',
+};

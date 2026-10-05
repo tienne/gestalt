@@ -147,3 +147,13 @@ export class AgentCreationError extends GestaltError {
     this.name = 'AgentCreationError';
   }
 }
+
+export class ValidationError extends GestaltError {
+  constructor(
+    message: string,
+    public readonly issues: string[] = [],
+  ) {
+    super(message, 'VALIDATION_ERROR');
+    this.name = 'ValidationError';
+  }
+}

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { guardObject } from './input-guard.js';
+import { ARCHITECTURE_VIEWS } from '../architecture/types.js';
+import { NAME_REF_MATCHERS } from '../architecture/name-ref-match.js';
 
 // ─── Shared Spec Sub-schemas ────────────────────────────────────
 // Spec의 ontology/gestaltAnalysis 필드를 구체화한 로컬 스키마.
@@ -832,3 +834,180 @@ export const prInputSchema = guardObject(
 );
 
 export type PrInput = z.infer<typeof prInputSchema>;
+
+// ─── Architecture View Tool ───────────────────────────────────────
+/** `ges_architecture`가 받는 액션. 서버 등록이 이 배열을 그대로 쓴다 */
+export const ARCHITECTURE_ACTIONS = [
+  'start',
+  'filter_tools',
+  'match_endpoints',
+  'validate',
+  'render',
+  'status',
+  'merge',
+  'scan_docs',
+  'link_docs',
+  'stale_docs',
+] as const;
+
+const feCallSchema = z.object({
+  id: z.string(),
+  method: z.string(),
+  path: z.string(),
+  baseUrl: z.string().optional(),
+});
+
+const beRouteSchema = z.object({
+  id: z.string(),
+  method: z.string(),
+  path: z.string(),
+  repo: z.string(),
+});
+
+const skillToolCallSchema = z.object({
+  id: z.string(),
+  server: z.string().optional(),
+  tool: z.string(),
+  action: z.string().optional(),
+});
+
+const nameRefSchema = z.object({ id: z.string().min(1), name: z.string().min(1) });
+
+const nameRefsSchema = z.object({
+  matcher: z
+    .enum(NAME_REF_MATCHERS)
+    .describe('팩의 matchers 중 하나. 이름을 비교 키로 펴는 규칙이 matcher마다 다르다'),
+  refs: z
+    .array(nameRefSchema)
+    .describe('참조하는 쪽. 잡이 읽는 테이블, IaC 속성 참조, 코드의 상태 값'),
+  decls: z.array(nameRefSchema).describe('선언된 쪽. 테이블 정의, IaC 리소스, 흐름 단계의 상태 값'),
+});
+
+const docRootSchema = z.object({
+  repoId: z.string().min(1).describe('IR의 repo id. 노드 id와 근거 위치 앞에 붙는다'),
+  name: z.string().optional().describe('전체보기 카드에 쓸 이름. 비우면 repoId'),
+  path: z.string().min(1).describe('문서 레포 체크아웃 경로. repoRoot 기준으로 푼다'),
+  include: z.array(z.string()).optional().describe('이 접두로 시작하는 경로만 훑는다'),
+  exclude: z.array(z.string()).optional().describe('이 접두로 시작하는 경로는 건너뛴다'),
+});
+
+const docPatternsSchema = z.object({
+  evidence: z.string().optional().describe('근거 표시 정규식. 첫 캡처가 `종류:위치@ref`'),
+  gap: z.string().optional().describe('빈 곳 표시 정규식. 첫 캡처가 설명'),
+  unverified: z.string().optional().describe('확인 안 된 사실 표시 정규식. 첫 캡처가 설명'),
+  updated: z.string().optional().describe('최종 수정 머리줄 정규식. 첫 캡처가 YYYY-MM-DD'),
+  keywordHeader: z.string().optional().describe('질문 안내 표의 키워드 열 이름 정규식'),
+  routeHeader: z.string().optional().describe('화면 색인 표의 라우트 열 이름 정규식'),
+  screenNameHeader: z.string().optional().describe('화면 색인 표의 화면 이름 열 정규식'),
+});
+
+const serverToolSchema = z.object({
+  id: z.string(),
+  server: z.string(),
+  tool: z.string(),
+  actions: z.array(z.string()).optional(),
+});
+
+export const architectureInputSchema = guardObject(
+  z.object({
+    action: z
+      .enum(ARCHITECTURE_ACTIONS)
+      .describe(
+        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트, 스킬의 MCP 도구 호출과 서버 도구 등록 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 뷰마다 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기, scan_docs: 문서 레포의 md를 훑어 근거 표시와 구멍, 질문 안내 표, 화면 색인을 뽑고 지식 문서 지도 초안 쓰기, link_docs: scan_docs 결과를 기술 IR(irPath)에 엮어 지식과 아키텍처 초안과 빈 곳, 낡은 곳, 어긋난 곳 신호 쓰기, stale_docs: 바뀐 파일(changedFiles나 diffBase)로 손봐야 할 문서 고르기',
+      ),
+    repoRoot: z.string().optional().describe('저장소 경로 (기본값: 현재 작업 디렉토리)'),
+    view: z
+      .enum(ARCHITECTURE_VIEWS)
+      .optional()
+      .describe('start에 필요. validate와 render에서 주면 ir.view와 같아야 한다'),
+    ir: z.unknown().optional().describe('validate와 render에 필요. ArchitectureIR JSON'),
+    irPath: z
+      .string()
+      .optional()
+      .describe('validate, render: ir 대신 IR JSON 파일 경로. repoRoot 기준으로 푼다'),
+    irs: z
+      .array(z.unknown())
+      .optional()
+      .describe('merge: 합칠 ArchitectureIR JSON 목록. irPaths와 함께 주면 둘을 이어 붙인다'),
+    irPaths: z
+      .array(z.string())
+      .optional()
+      .describe('merge: 합칠 IR JSON 파일 경로 목록. repoRoot 기준으로 푼다'),
+    outPath: z
+      .string()
+      .optional()
+      .describe('merge: 합친 IR을 쓸 파일 경로. 주면 응답에 IR 대신 경로만 싣는다'),
+    groupNames: z
+      .array(z.string().min(1))
+      .optional()
+      .describe(
+        'merge: 입력마다 붙일 제품 이름. irs 다음 irPaths 순서다. 비우면 입력의 서비스 이름으로 짓는다',
+      ),
+    audience: z
+      .enum(['private', 'shared'])
+      .optional()
+      .describe('render: openPath가 가리킬 HTML. 기본 private. 파일은 늘 둘 다 쓴다'),
+    checkFiles: z
+      .boolean()
+      .optional()
+      .describe('validate, render: code 근거의 파일과 줄을 확인할지. 기본 true'),
+    toolNames: z.array(z.string()).optional().describe('filter_tools에 필요'),
+    feCalls: z.array(feCallSchema).optional().describe('match_endpoints: beRoutes와 짝'),
+    beRoutes: z.array(beRouteSchema).optional().describe('match_endpoints: feCalls와 짝'),
+    skillToolCalls: z
+      .array(skillToolCallSchema)
+      .optional()
+      .describe('match_endpoints: 스킬과 에이전트 문서에서 찾은 MCP 도구 호출. serverTools와 짝'),
+    serverTools: z
+      .array(serverToolSchema)
+      .optional()
+      .describe('match_endpoints: MCP 서버 코드에서 찾은 도구 등록. skillToolCalls와 짝'),
+    nameRefs: nameRefsSchema
+      .optional()
+      .describe(
+        'match_endpoints: 이름으로 가리키는 참조와 선언. infra, data, process, generic 팩의 짝 맞추기',
+      ),
+    prefixCandidates: z
+      .array(z.string())
+      .optional()
+      .describe('match_endpoints, merge: FE 경로 앞에 붙는 게이트웨이 prefix 후보'),
+    docRoots: z.array(docRootSchema).optional().describe('scan_docs에 필요. 훑을 문서 레포 목록'),
+    docPatterns: docPatternsSchema
+      .optional()
+      .describe('scan_docs: 레포마다 다른 표시 형식을 맞출 정규식. 비우면 기본 형식'),
+    codeRoots: z
+      .record(z.string(), z.string())
+      .optional()
+      .describe(
+        'link_docs: 문서가 적은 레포 이름 → 그 레포 체크아웃 경로. 가리킨 파일이 있는지와 마지막 커밋 날짜를 읽는다. 비우면 링크를 확인 못 함으로 센다',
+      ),
+    repoAliases: z
+      .record(z.string(), z.string())
+      .optional()
+      .describe(
+        'link_docs: 문서가 적은 레포 이름 → 기술 IR의 repo id. 비우면 repos[].name이 같은 레포',
+      ),
+    screenIndexPrefixes: z
+      .array(z.string())
+      .optional()
+      .describe(
+        'link_docs: 화면 색인으로 쓸 design_screen의 `<repoId>/<경로 접두>`. 비우면 화면은 잇지 않는다',
+      ),
+    changedFiles: z
+      .array(z.string().min(1))
+      .optional()
+      .describe(
+        'stale_docs: 바뀐 파일 목록. `<레포 이름>:<경로>` 꼴. 비우면 diffBase로 git diff를 돌린다',
+      ),
+    changedRepo: z
+      .string()
+      .optional()
+      .describe('stale_docs: diffBase를 돌릴 레포 이름. codeRoots에서 체크아웃 경로를 찾는다'),
+    diffBase: z
+      .string()
+      .optional()
+      .describe('stale_docs: 이 커밋이나 브랜치부터 HEAD까지 바뀐 파일을 본다. 예: origin/main'),
+  }),
+);
+
+export type ArchitectureInput = z.infer<typeof architectureInputSchema>;

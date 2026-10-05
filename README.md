@@ -126,7 +126,7 @@ What you get:
 
 | Item | Details |
 |------|---------|
-| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr` — see the [MCP reference](./docs/mcp-reference.md) |
+| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_architecture` — see the [MCP reference](./docs/mcp-reference.md) |
 | **Slash Commands** | Workflow skills — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send`, and more. Full list in [Skills](#skills) |
 | **Agents** | Pipeline agents, [role agents](#role-agents), and [review agents](#review-agents) |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
@@ -642,6 +642,7 @@ Each skill is a slash command in Claude Code. In Codex the same skill is `gestal
 | `/build-graph` | Build or rebuild the code knowledge graph only |
 | `/blast-radius` | Before changing code, find the files a change would reach and load only those |
 | `/diff-radius` | See how far uncommitted and staged changes reach |
+| `/architecture` | Draw a screen-to-DB or deploy-path architecture view where every solid line cites code or an API spec. Unproven links stay dashed or become open questions |
 | `/review` | Review a PR, branch, or commit with the [review agents](#review-agents), and post inline comments when the target is a PR |
 | `/review-loop` | Follow someone else's GitHub PR as reviewer — review, post a verdict, wait for the author, and re-review until approve |
 | `/review-reply` | Work through review comments on your own PR: fix, commit, and post replies written by `code-review-responder` |
@@ -968,6 +969,7 @@ Claude Code (you)
 - [Configuration Reference](./docs/configuration.md) — full config options
 - [Code Knowledge Graph](./docs/code-graph.md) — static analysis and blast-radius
 - [Local PR](./docs/local-pr.md) — in-repo pull requests for agent-to-agent review
+- [Architecture View](./docs/architecture-view.md) — evidence-backed architecture diagrams
 
 ---
 

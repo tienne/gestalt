@@ -151,7 +151,7 @@ claude plugin install gestalt@gestalt
 
 | 항목 | 내용 |
 |------|------|
-| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr` — [MCP 레퍼런스](./docs/mcp-reference.md) 참고 |
+| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_architecture` — [MCP 레퍼런스](./docs/mcp-reference.md) 참고 |
 | **슬래시 커맨드** | 워크플로 스킬 — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send` 등. 전체 목록은 [스킬](#스킬) |
 | **에이전트** | 파이프라인 에이전트, [Role 에이전트와 Review 에이전트](#6단계--code-review-코드-리뷰) |
 | **CLAUDE.md** | 프로젝트 컨텍스트 및 MCP 사용 가이드 자동 추가 |
@@ -606,6 +606,7 @@ Claude Code에서는 스킬마다 슬래시 커맨드로 불러요. Codex에서�
 | `/build-graph` | 코드 지식 그래프만 빌드하거나 다시 빌드해요 |
 | `/blast-radius` | 코드를 고치기 전에 영향받을 파일을 찾아 그 파일만 컨텍스트에 올려요 |
 | `/diff-radius` | 커밋 안 한 변경과 스테이징한 변경이 어디까지 영향을 주는지 봐요 |
+| `/architecture` | 화면에서 DB까지, 또는 배포 경로를 그림으로 그려요. 실선은 전부 코드나 API 명세 근거가 있고 확인 못 한 연결은 점선이나 미해결 질문으로 남아요 |
 | `/review` | PR이나 브랜치, 커밋을 [Review 에이전트](#6단계--code-review-코드-리뷰)로 검토해요. 대상이 PR이면 인라인 코멘트까지 남겨요 |
 | `/review-loop` | 남의 GitHub PR을 리뷰어로 끝까지 따라가요. 리뷰하고 판정을 남긴 뒤 작성자 대응을 기다렸다가 approve가 날 때까지 재리뷰해요 |
 | `/review-reply` | 내 PR에 달린 리뷰 코멘트를 처리해요. 고치고 커밋한 뒤 `code-review-responder`가 쓴 답글을 남겨요 |

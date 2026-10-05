@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMcpServer } from '../../../src/mcp/server.js';
+import { architectureInputSchema } from '../../../src/mcp/schemas.js';
 import type { GestaltConfig } from '../../../src/core/config.js';
 
 type ToolHandler = (
@@ -41,6 +42,7 @@ const expectedPassthroughTools = [
   'ges_status',
   'ges_code_graph',
   'ges_graph_visualize',
+  'ges_architecture',
   'ges_generate_kb',
   'ges_search',
   'ges_sync',
@@ -98,6 +100,30 @@ describe('createMcpServer', () => {
 
     try {
       expect(toolNames(server)).toEqual(expectedPassthroughTools.sort());
+    } finally {
+      eventStore.close();
+    }
+  });
+
+  it('ges_architecture 등록 인자는 스키마 필드를 그대로 쓴다', async () => {
+    const { server, eventStore } = await createMcpServer({
+      dbPath: dbPath(),
+      llm: { apiKey: '', model: 'test-model' },
+    });
+
+    try {
+      const tool = registeredTools(server)['ges_architecture'];
+      const registered = (tool?.inputSchema as { shape?: Record<string, unknown> } | undefined)
+        ?.shape;
+      expect(Object.keys(registered ?? {}).sort()).toEqual(
+        Object.keys(architectureInputSchema.shape).sort(),
+      );
+      // 배열 필드는 등록 때 JSON 문자열 허용 겹이 한 번 더 씌워져 동일 객체가 아니다. 설명이 실렸는지로 본다
+      for (const [name, field] of Object.entries(architectureInputSchema.shape)) {
+        const description = (registered?.[name] as { description?: string } | undefined)
+          ?.description;
+        expect(description).toBe(field.description);
+      }
     } finally {
       eventStore.close();
     }
