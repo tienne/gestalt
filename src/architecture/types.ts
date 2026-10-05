@@ -193,6 +193,8 @@ export interface DocInfo {
   screen?: DocScreen;
   /** 읽힌 횟수. 사용량 도구가 읽기로 열려 있을 때만 */
   reads?: number;
+  /** 문서 날짜보다 늦게 바뀐, 문서가 가리킨 파일 중 가장 최근 커밋 날짜. 이 값이 있으면 문서가 낡았을 수 있다 */
+  staleSince?: string;
 }
 
 /** describes 엣지가 가리키는 파일 하나 */
@@ -209,8 +211,8 @@ export interface DocLinkRef {
 
 /** describes 엣지만. 문서가 무엇을 보고 그 기술 노드에 이어졌는지 */
 export interface DocLink {
-  /** code-ref는 근거 표시의 파일 경로, screen-route는 화면 색인의 라우트, session은 세션이 직접 이었다 */
-  via: 'code-ref' | 'screen-route' | 'session';
+  /** code-ref는 근거 표시의 파일 경로, api-path는 본문의 METHOD /path, screen-route는 화면 색인의 라우트, session은 세션이 직접 이었다 */
+  via: 'code-ref' | 'api-path' | 'screen-route' | 'session';
   refs: DocLinkRef[];
 }
 

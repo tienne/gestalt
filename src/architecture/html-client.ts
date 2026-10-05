@@ -45,9 +45,31 @@ const MIXED_PILL = `
 
 // 문서 정보 조각. 지식 문서 팩을 쓰는 그림에만 싣는다. 공유본은 본문 글자가 가려진 채로 온다
 const DOC_FUNCS = `  var GAP_TEXT = { gap: '빈 곳', unverified: '확인 안 됨' };
+  var VIA_TEXT = { 'code-ref': '코드 경로', 'api-path': 'API', 'screen-route': '화면 라우트', session: '세션' };
+  function renderCover(list, body) {
+    body.appendChild(el('h3', null, list.length ? '설명하는 문서 ' + list.length + '개' : '설명하는 문서 없음'));
+    if (!list.length) return;
+    var ul = el('ul', 'evidence doc-cover');
+    list.forEach(function (x) {
+      var li = el('li');
+      li.appendChild(el('span', 'badge', VIA_TEXT[x.via] || x.via));
+      var notes = [];
+      if (!x.verified) notes.push('가리킨 파일 확인 못 함');
+      if (x.gaps) notes.push('빈 곳 ' + x.gaps);
+      if (x.unverified) notes.push('확인 안 됨 ' + x.unverified);
+      if (x.broken) notes.push('깨진 링크 ' + x.broken);
+      if (x.staleSince) notes.push('코드가 ' + x.staleSince + '에 바뀜');
+      li.appendChild(el('span', 'loc', (x.title ? x.title + ' · ' : '') + x.path + (notes.length ? ' (' + notes.join(', ') + ')' : '')));
+      ul.appendChild(li);
+    });
+    body.appendChild(ul);
+  }
   function renderDoc(n, body) {
     var d = n.doc;
-    if (!d) return;
+    if (!d) {
+      if (data.docOverlay) renderCover(data.docOverlay[n.id] || [], body);
+      return;
+    }
     var facts = el('ul', 'facts');
     factRow(facts, '경로', d.path);
     if (d.updatedAt) factRow(facts, '최종 수정', d.updatedAt);

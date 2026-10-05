@@ -668,6 +668,9 @@ export const DOC_CSS = `.doc-badge {
   color: var(--bg); background: var(--warn);
 }
 .doc-badge.broken { background: var(--text); }
+.doc-badge.cover { color: var(--accent); background: var(--accent-soft); }
+.doc-badge.none { color: var(--muted); background: var(--lane); }
+.doc-badge.stale { background: var(--warn); }
 .badge.doc-gap, .badge.doc-unverified { color: var(--warn); background: var(--warn-soft); }
 .doc-mix { display: flex; height: 10px; margin: 4px 0 8px; border-radius: 5px; overflow: hidden; background: var(--lane); }
 .doc-mix span { display: block; height: 100%; }

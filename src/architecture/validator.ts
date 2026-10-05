@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { classifyCliCommand } from '../utils/read-only-tools.js';
 import { indexMicroApps } from './micro-app.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, packById } from './packs/index.js';
+import { KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
 import {
   FLOW_REF_KINDS,
   HARNESS_KINDS,
@@ -1136,7 +1137,11 @@ export function validateArchitectureIr(
     autoUnresolved.push(q);
   };
 
+  // 지식과 아키텍처 그림에서 문서는 카드가 아니라 기술 카드의 배지와 서랍으로 보인다. 근거가 있어도 레이아웃에 넣지 않는다
+  const overlayOnly = (node: ArchitectureNode): boolean =>
+    ir.view === 'knowledge-link' && KNOWLEDGE_DOC_KINDS.includes(node.kind);
   for (const node of ir.nodes) {
+    if (overlayOnly(node)) continue;
     if (node.evidence.length > 0) {
       drawableNodeIds.add(node.id);
       continue;

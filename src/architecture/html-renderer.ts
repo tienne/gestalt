@@ -41,6 +41,7 @@ import {
 } from './layout.js';
 import { indexMicroApps } from './micro-app.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, type Vocabulary } from './packs/index.js';
+import { KNOWLEDGE_COVERAGE_KINDS, KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
 import { computeCompareLayout, type CompareLayout } from './compare-layout.js';
 import { computeDataflowLayout, type DataflowLayout } from './dataflow-layout.js';
 import { computeSequenceLayout, type SequenceLayout } from './sequence-layout.js';
@@ -184,6 +185,87 @@ function openQuestions(
   return [...fromIr, ...auto].sort(byId);
 }
 
+/** 기술 카드에 얹는 문서 한 줄. 본문 조각은 없고 경로와 제목, 수만 싣는다 */
+interface DocOverlayEntry {
+  id: string;
+  path: string;
+  title?: string;
+  via: string;
+  verified: boolean;
+  gaps: number;
+  unverified: number;
+  broken: number;
+  staleSince?: string;
+}
+
+/** 지식과 아키텍처 그림에서 기술 노드 id → 그 노드를 설명하는 문서. 다른 그림이면 undefined */
+function docOverlayOf(
+  ir: ArchitectureIr,
+  drawable: ReadonlySet<string>,
+): Record<string, DocOverlayEntry[]> | undefined {
+  if (ir.view !== 'knowledge-link') return undefined;
+  const docById = new Map(ir.nodes.map((n) => [n.id, n]));
+  const out: Record<string, DocOverlayEntry[]> = {};
+  for (const e of [...ir.edges].sort(byId)) {
+    if (e.kind !== 'describes' || !drawable.has(e.to)) continue;
+    const d = docById.get(e.from);
+    if (d?.doc === undefined || !KNOWLEDGE_DOC_KINDS.includes(d.kind)) continue;
+    const gaps = d.doc.gaps ?? [];
+    (out[e.to] ??= []).push({
+      id: d.id,
+      path: d.doc.path,
+      ...(d.displayName !== undefined ? { title: d.displayName } : {}),
+      via: e.docLink?.via ?? 'session',
+      verified: e.docLink?.refs.some((r) => r.verified) ?? false,
+      gaps: gaps.filter((g) => g.kind === 'gap').length,
+      unverified: gaps.filter((g) => g.kind === 'unverified').length,
+      broken: d.doc.links?.broken ?? 0,
+      ...(d.doc.staleSince !== undefined ? { staleSince: d.doc.staleSince } : {}),
+    });
+  }
+  return out;
+}
+
+/** 카드 배지에 쓰는 문서 수와 낡은 문서 수. 문서가 있어야 할 kind는 0개도 싣는다 */
+function docCoverOf(
+  nodes: readonly ArchitectureNode[],
+  overlay: Record<string, DocOverlayEntry[]> | undefined,
+): Record<string, DocCover> | undefined {
+  if (overlay === undefined) return undefined;
+  const out: Record<string, DocCover> = {};
+  for (const n of nodes) {
+    const list = overlay[n.id] ?? [];
+    if (list.length === 0 && !KNOWLEDGE_COVERAGE_KINDS.includes(n.kind)) continue;
+    out[n.id] = { docs: list.length, stale: list.filter((d) => d.staleSince !== undefined).length };
+  }
+  return out;
+}
+
+function docCoverSpec(
+  nodes: readonly ArchitectureNode[],
+  overlay: Record<string, DocOverlayEntry[]> | undefined,
+): { docCover?: Record<string, DocCover> } {
+  const docCover = docCoverOf(nodes, overlay);
+  return docCover !== undefined ? { docCover } : {};
+}
+
+function docCoverageOf(
+  nodes: readonly ArchitectureNode[],
+  overlay: Record<string, DocOverlayEntry[]> | undefined,
+): { covered: number; total: number } | undefined {
+  if (overlay === undefined) return undefined;
+  const slots = nodes.filter((n) => KNOWLEDGE_COVERAGE_KINDS.includes(n.kind));
+  return {
+    covered: slots.filter((n) => (overlay[n.id] ?? []).length > 0).length,
+    total: slots.length,
+  };
+}
+
+interface DocCover {
+  docs: number;
+  stale: number;
+}
+
 // 페이지가 실제로 쓰는 필드만 싣는다. repo root 같은 로컬 경로와 sourcesUsed 식별자가 공유본으로 새지 않게 한다
 function buildPayload(ir: ArchitectureIr, validated: ValidatedIr, shared: boolean) {
   const nodes = ir.nodes.filter((n) => validated.drawableNodeIds.has(n.id)).sort(byId);
@@ -192,6 +274,7 @@ function buildPayload(ir: ArchitectureIr, validated: ValidatedIr, shared: boolea
   const apps = indexMicroApps(nodes, edges);
   // 호스트 칩 글자를 클라이언트가 새로 그리는 카드에도 달아야 해서 싣는다. 앱이 없는 IR은 키 자체를 안 넣어 바이트가 그대로다
   const microHosts = [...apps.hosts].sort(compareStr);
+  const docOverlay = docOverlayOf(ir, validated.drawableNodeIds);
   return {
     schemaVersion: ir.schemaVersion,
     view: ir.view,
@@ -201,6 +284,7 @@ function buildPayload(ir: ArchitectureIr, validated: ValidatedIr, shared: boolea
     edges,
     services,
     ...(microHosts.length > 0 ? { microHosts } : {}),
+    ...(docOverlay !== undefined ? { docOverlay } : {}),
     unresolved: openQuestions(ir, validated, shared),
   };
 }
@@ -273,6 +357,19 @@ function docBadges(node: ArchitectureNode): string {
   );
 }
 
+/** 지식과 아키텍처 그림의 기술 카드 배지. 문서가 없으면 "문서 없음"을 단다. 있으면 수와 낡은 수를 단다 */
+function docCoverBadge(cover: DocCover | undefined): string {
+  if (cover === undefined) return '';
+  if (cover.docs === 0)
+    return '<span class="doc-badge none" title="이 자리를 설명하는 문서가 없어요">문서 없음</span>';
+  return (
+    `<span class="doc-badge cover" title="설명하는 문서 ${cover.docs}개">문서 ${cover.docs}</span>` +
+    (cover.stale > 0
+      ? `<span class="doc-badge stale" title="코드가 문서보다 늦게 바뀐 문서 ${cover.stale}개">낡음 ${cover.stale}</span>`
+      : '')
+  );
+}
+
 function renderCard(
   node: ArchitectureNode,
   box: LayoutResult['nodes'][number],
@@ -284,6 +381,7 @@ function renderCard(
   flows = 0,
   products: readonly string[] = [],
   productIds: readonly number[] = [],
+  cover?: DocCover,
 ): string {
   const name = nodeName(node);
   const guess = isGuess(node);
@@ -327,6 +425,7 @@ function renderCard(
       ? `<span class="flow-badge" title="사용자 흐름 보기">${iconUse('u-flow')}${escapeHtml(flowBadgeText(flows))}</span>`
       : '') +
     docBadges(node) +
+    docCoverBadge(cover) +
     `</span>` +
     second +
     (enterable ? '<span class="go" aria-hidden="true">›</span>' : '') +
@@ -432,6 +531,8 @@ interface CanvasSpec {
   hidden: boolean;
   services: Record<string, ServiceFacts>;
   microHosts: ReadonlySet<string>;
+  /** 지식과 아키텍처 그림만. 노드 id → 문서 수 */
+  docCover?: Record<string, DocCover>;
   /** 서비스 id → 흐름 수. 드릴다운 그림에만 있다 */
   flows?: Record<string, number>;
   /** 카드가 없는 레벨에서 대신 보여줄 흐름 링크. 서비스 없는 흐름만 있는 그림의 전체 레벨이 그렇다 */
@@ -564,6 +665,7 @@ function renderLevelSection(spec: CanvasSpec): string {
         spec.flows?.[n.id] ?? 0,
         productNames(layout, n.id),
         layout.regions?.productsOf[n.id] ?? [],
+        spec.docCover?.[n.id],
       );
     })
     .join('');
@@ -1237,6 +1339,7 @@ function renderBar(
   envs: readonly string[],
   hasFlows: boolean,
   hasViews = false,
+  docCoverage?: { covered: number; total: number },
 ): string {
   const qClass = questionCount > 0 ? 'n warn' : 'n';
   return (
@@ -1265,7 +1368,11 @@ function renderBar(
     `<button type="button" class="btn" id="legend-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="legend">${iconUse('u-legend')}<span class="label">범례</span></button>` +
     `<button type="button" class="btn" id="q-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="questions">${iconUse('u-question')}<span class="label">확인할 질문</span><span class="${qClass}">${questionCount}</span></button>` +
     `<button type="button" class="btn icon" id="theme-btn" aria-label="테마 바꾸기">${iconUse('u-moon', 'moon')}${iconUse('u-sun', 'sun')}</button>` +
-    `<span class="meta" title="만든 시각 ${escapeHtml(generatedAt)}"><span>항목 ${nodeCount}</span><span>연결 ${edgeCount}</span></span>` +
+    `<span class="meta" title="만든 시각 ${escapeHtml(generatedAt)}"><span>항목 ${nodeCount}</span><span>연결 ${edgeCount}</span>` +
+    (docCoverage !== undefined
+      ? `<span title="문서가 붙은 서비스, 앱, 모듈, 기능, 화면">문서 있음 ${docCoverage.covered}/${docCoverage.total}</span>`
+      : '') +
+    `</span>` +
     `</header>`
   );
 }
@@ -1372,6 +1479,7 @@ function renderPage({
       environmentsOf(payload.nodes),
       hasFlows,
       hasViews,
+      docCoverageOf(payload.nodes, payload.docOverlay),
     ),
     '<div class="main">',
     '<div id="stage" class="stage" aria-label="구조도">',
@@ -1439,6 +1547,7 @@ export function renderArchitectureHtml(
     hidden: false,
     services: payload.services,
     microHosts: new Set(payload.microHosts ?? []),
+    ...docCoverSpec(payload.nodes, payload.docOverlay),
   });
   return renderPage({ ir, payload, sections: section, drill: false });
 }
@@ -1455,6 +1564,7 @@ export function renderDrilldownHtml(
   const shared = opts.audience === 'shared';
   const ir = shared ? redactForSharing(validated.ir) : validated.ir;
   const base = buildPayload(ir, validated, shared);
+  const docCover = docCoverSpec(base.nodes, base.docOverlay);
   const nodeById = new Map(base.nodes.map((n) => [n.id, n]));
   // 레벨 제목은 원본 이름으로 지었으므로 공유본에서는 노드 이름과 같이 가린다
   const levels = drilldown.levels.map((l) =>
@@ -1533,6 +1643,7 @@ export function renderDrilldownHtml(
         hidden: l.id !== ROOT_LEVEL_ID,
         services: base.services,
         microHosts: new Set(base.microHosts ?? []),
+        ...docCover,
         flows: flowCount,
         ...(l.id === ROOT_LEVEL_ID && l.nodeIds.length === 0 && rootFlowLinks.length > 0
           ? { emptyLinks: rootFlowLinks }

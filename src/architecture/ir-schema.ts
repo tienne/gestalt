@@ -121,10 +121,11 @@ const docInfoSchema = z.object({
     })
     .optional(),
   reads: z.number().int().nonnegative().optional(),
+  staleSince: z.string().min(1).optional(),
 });
 
 const docLinkSchema = z.object({
-  via: z.enum(['code-ref', 'screen-route', 'session']),
+  via: z.enum(['code-ref', 'api-path', 'screen-route', 'session']),
   refs: z.array(
     z.object({
       target: z.string().min(1),

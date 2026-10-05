@@ -334,7 +334,8 @@
                 }
               }
             },
-            "reads": { "type": "integer", "minimum": 0 }
+            "reads": { "type": "integer", "minimum": 0 },
+            "staleSince": { "type": "string", "minLength": 1 }
           }
         },
         "owners": {
@@ -397,7 +398,10 @@
           "required": ["via", "refs"],
           "description": "describes only: files the document points at and whether each exists",
           "properties": {
-            "via": { "type": "string", "enum": ["code-ref", "screen-route", "session"] },
+            "via": {
+              "type": "string",
+              "enum": ["code-ref", "api-path", "screen-route", "session"]
+            },
             "refs": {
               "type": "array",
               "items": {

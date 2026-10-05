@@ -846,6 +846,7 @@ export const ARCHITECTURE_ACTIONS = [
   'status',
   'merge',
   'scan_docs',
+  'link_docs',
 ] as const;
 
 const feCallSchema = z.object({
@@ -911,7 +912,7 @@ export const architectureInputSchema = guardObject(
     action: z
       .enum(ARCHITECTURE_ACTIONS)
       .describe(
-        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트, 스킬의 MCP 도구 호출과 서버 도구 등록 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 뷰마다 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기, scan_docs: 문서 레포의 md를 훑어 근거 표시와 구멍, 질문 안내 표, 화면 색인을 뽑고 지식 문서 지도 초안 쓰기',
+        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트, 스킬의 MCP 도구 호출과 서버 도구 등록 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 뷰마다 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기, scan_docs: 문서 레포의 md를 훑어 근거 표시와 구멍, 질문 안내 표, 화면 색인을 뽑고 지식 문서 지도 초안 쓰기, link_docs: scan_docs 결과를 기술 IR(irPath)에 엮어 지식과 아키텍처 초안과 빈 곳, 낡은 곳, 어긋난 곳 신호 쓰기',
       ),
     repoRoot: z.string().optional().describe('저장소 경로 (기본값: 현재 작업 디렉토리)'),
     view: z
@@ -973,6 +974,24 @@ export const architectureInputSchema = guardObject(
     docPatterns: docPatternsSchema
       .optional()
       .describe('scan_docs: 레포마다 다른 표시 형식을 맞출 정규식. 비우면 기본 형식'),
+    codeRoots: z
+      .record(z.string(), z.string())
+      .optional()
+      .describe(
+        'link_docs: 문서가 적은 레포 이름 → 그 레포 체크아웃 경로. 가리킨 파일이 있는지와 마지막 커밋 날짜를 읽는다. 비우면 링크를 확인 못 함으로 센다',
+      ),
+    repoAliases: z
+      .record(z.string(), z.string())
+      .optional()
+      .describe(
+        'link_docs: 문서가 적은 레포 이름 → 기술 IR의 repo id. 비우면 repos[].name이 같은 레포',
+      ),
+    screenIndexPrefixes: z
+      .array(z.string())
+      .optional()
+      .describe(
+        'link_docs: 화면 색인으로 쓸 design_screen의 `<repoId>/<경로 접두>`. 비우면 화면은 잇지 않는다',
+      ),
   }),
 );
 

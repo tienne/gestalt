@@ -48,5 +48,14 @@ export const KNOWLEDGE_PACK = {
   },
 } as const satisfies VocabularyPack;
 
+/** 지식과 아키텍처 그림에서 문서가 있어야 할 자리로 보는 kind. 엔드포인트는 수가 많아 요약 수치에만 넣는다 */
+export const KNOWLEDGE_COVERAGE_KINDS: readonly string[] = [
+  'service',
+  'micro_app',
+  'app_module',
+  'feature',
+  'screen',
+];
+
 /** 문서 정보(doc)를 가질 수 있는 kind */
 export const KNOWLEDGE_DOC_KINDS: readonly string[] = Object.keys(KNOWLEDGE_PACK.nodeKinds);

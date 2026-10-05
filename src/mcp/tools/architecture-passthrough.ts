@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectGlobalContext } from '../../architecture/global-context.js';
@@ -8,6 +9,8 @@ import {
   summarizeScan,
   type DocRoot,
 } from '../../architecture/doc-scan.js';
+import { linkDocs, type FileFacts } from '../../architecture/doc-link.js';
+import type { DocScanResult } from '../../architecture/doc-scan.js';
 import { matchEndpoints } from '../../architecture/endpoint-match.js';
 import { matchMcpTools } from '../../architecture/mcp-tool-match.js';
 import { matchNameRefs } from '../../architecture/name-ref-match.js';
@@ -399,6 +402,99 @@ function handleScanDocs(input: ArchitectureInput, repoRoot: string): object {
   return { summary: summarizeScan(scan), skipped: scan.skipped, scanPath, draftPath };
 }
 
+// 같은 파일을 여러 문서가 가리키므로 파일마다 한 번만 git을 부른다
+function fileFactsFrom(codeRoots: Record<string, string>, repoRoot: string): FileFacts {
+  const cache = new Map<string, ReturnType<FileFacts>>();
+  return (repoName, path) => {
+    const root = codeRoots[repoName];
+    if (root === undefined) return undefined;
+    const key = `${repoName}:${path}`;
+    if (cache.has(key)) return cache.get(key);
+    const abs = isAbsolute(root) ? root : resolve(repoRoot, root);
+    let facts: ReturnType<FileFacts>;
+    if (!existsSync(resolve(abs, path))) {
+      facts = { exists: false };
+    } else {
+      let committedAt: string | undefined;
+      try {
+        committedAt =
+          execFileSync('git', ['-C', abs, 'log', '-1', '--format=%cs', '--', path], {
+            encoding: 'utf-8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+          }).trim() || undefined;
+      } catch {
+        committedAt = undefined;
+      }
+      facts = { exists: true, ...(committedAt !== undefined ? { committedAt } : {}) };
+    }
+    cache.set(key, facts);
+    return facts;
+  };
+}
+
+const SIGNAL_SAMPLE = 20;
+
+function handleLinkDocs(input: ArchitectureInput, repoRoot: string): object {
+  if (input.irPath === undefined && input.ir === undefined)
+    return fail('MISSING_INPUT', 'link_docs에는 기술 IR(ir이나 irPath)이 필요하다.');
+  const prepared = prepareIr(input, repoRoot);
+  if (!prepared.ok) return prepared;
+  const dir = resolve(repoRoot, '.gestalt', 'architecture');
+  const scanPath = resolve(dir, 'doc-scan.json');
+  const draftPath = resolve(dir, 'knowledge.draft.json');
+  let scan: DocScanResult;
+  let knowledgeRaw: unknown;
+  try {
+    scan = JSON.parse(readFileSync(scanPath, 'utf-8')) as DocScanResult;
+    knowledgeRaw = JSON.parse(readFileSync(draftPath, 'utf-8')) as unknown;
+  } catch {
+    return fail('MISSING_INPUT', 'link_docs 전에 scan_docs를 먼저 돌려야 한다.');
+  }
+  const knowledge = parseIr(knowledgeRaw, 'knowledge.draft.json: ');
+  if (!knowledge.ok) return knowledge;
+  const result = linkDocs(prepared.ir, knowledge.ir, scan.docs, {
+    ...(input.repoAliases !== undefined ? { repoAliases: input.repoAliases } : {}),
+    ...(input.screenIndexPrefixes !== undefined
+      ? { screenIndexPrefixes: input.screenIndexPrefixes }
+      : {}),
+    ...(input.codeRoots !== undefined
+      ? { fileFacts: fileFactsFrom(input.codeRoots, repoRoot) }
+      : {}),
+    generatedAt: new Date().toISOString(),
+  });
+  // 링크 상태를 다시 센 값은 문서 지도에도 돌려 쓴다. 그래야 두 그림의 깨진 링크 수가 같다
+  const updated: ArchitectureIr = {
+    ...knowledge.ir,
+    nodes: knowledge.ir.nodes.map((n) => {
+      const doc = result.docInfo.get(n.id);
+      return doc !== undefined ? { ...n, doc } : n;
+    }),
+  };
+  writeJsonAtomic(draftPath, updated);
+  const linkPath = resolve(dir, 'knowledge-link.draft.json');
+  const signalsPath = resolve(dir, 'doc-link.json');
+  writeJsonAtomic(linkPath, result.ir);
+  writeJsonAtomic(signalsPath, result.signals);
+  const s = result.signals;
+  return {
+    summary: {
+      linkedDocs: s.linkedDocs,
+      describes: s.describes,
+      coverage: s.coverage,
+      links: s.links,
+      staleCount: s.stale.length,
+      apiMismatchCount: s.apiMismatches.length,
+      screensOnlyInCode: s.screensOnlyInCode.length,
+      screensOnlyInIndex: s.screensOnlyInIndex.length,
+      uncoveredCount: s.uncovered.length,
+    },
+    uncoveredSample: s.uncovered.slice(0, SIGNAL_SAMPLE),
+    draftPath: linkPath,
+    knowledgeDraftPath: draftPath,
+    signalsPath,
+  };
+}
+
 function handleStatus(repoRoot: string): object {
   const store = new ArchitectureStore(repoRoot);
   const views: Record<string, unknown> = {};
@@ -433,5 +529,7 @@ export async function handleArchitecturePassthrough(
       return handleMerge(input, repoRoot);
     case 'scan_docs':
       return handleScanDocs(input, repoRoot);
+    case 'link_docs':
+      return handleLinkDocs(input, repoRoot);
   }
 }
