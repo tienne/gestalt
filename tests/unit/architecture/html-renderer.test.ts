@@ -198,7 +198,7 @@ describe('renderArchitectureHtml', () => {
     expect(layout.lanes.map((l) => l.id)).toEqual(['screen', 'endpoint']);
     expect(html.match(/<rect class="lane" /g)).toHaveLength(2);
     expect(html).toMatch(
-      /<div class="lane-title" style="left:[\d.]+px;top:22px;width:[\d.]+px">화면<span class="n">2<\/span><\/div>/,
+      /<div class="lane-title" data-lane-id="screen" role="button" tabindex="0" aria-label="화면 레인, 카드 2개" style="left:[\d.]+px;top:22px;width:[\d.]+px">화면<span class="n">2<\/span><\/div>/,
     );
     expect(html).toContain('<symbol id="i-endpoint"');
     expect(html).toContain('<use href="#i-screen"/>');
@@ -219,7 +219,9 @@ describe('renderArchitectureHtml', () => {
     const { v, layout } = await prepare(makeIr());
     const html = renderArchitectureHtml(v, layout, { audience: 'private' });
     expect(edgeTag(html, 'e-code')).toMatch(/ d="M[\d.]+ [\d.]+C/);
-    expect(html).toContain('<g class="link e-calls" data-from="home" data-to="api">');
+    expect(html).toMatch(
+      /<g class="link e-calls" data-from="home" data-to="api" data-link-id="[^"]+" tabindex="0" role="button"/,
+    );
   });
 
   it('URL 근거만 링크로 열고 나머지 스킴은 텍스트로 둔다', async () => {
@@ -494,5 +496,137 @@ describe('renderArchitectureHtml — 제품 띠', () => {
     expect(html).not.toContain('class="band-line"');
     expect(html).not.toMatch(/data-band="\d/);
     expect(html).not.toContain('class="pbricks"');
+  });
+});
+
+describe('카드 설명 줄과 클릭 대상 속성', () => {
+  const XSS = '<img src=x onerror=alert(1)>설명 & "따옴표"';
+
+  async function renderWithDescriptions(
+    descriptions: Record<string, string | undefined>,
+  ): Promise<{ html: string; layout: LayoutResult }> {
+    const ir = makeIr();
+    for (const n of ir.nodes) {
+      const d = descriptions[n.id];
+      if (d !== undefined) n.description = d;
+    }
+    const { v, layout } = await prepare(ir);
+    return { html: renderArchitectureHtml(v, layout, { audience: 'private' }), layout };
+  }
+
+  function cardTag(html: string, id: string): string {
+    const m = html.match(new RegExp(`<div class="node[^"]*" data-node-id="${id}"[^>]*>`));
+    if (!m) throw new Error(`card ${id} not found`);
+    return m[0];
+  }
+
+  function cardBlock(html: string, id: string): string {
+    const start = html.indexOf(`data-node-id="${id}"`);
+    const end = html.indexOf('</div>', start);
+    return html.slice(start, end);
+  }
+
+  it('description을 .ds 줄에 escape해서 싣고 날 태그는 안 남는다', async () => {
+    const { html } = await renderWithDescriptions({ home: XSS });
+    expect(cardBlock(html, 'home')).toContain(
+      '<span class="ds">&lt;img src=x onerror=alert(1)&gt;설명 &amp; &quot;따옴표&quot;</span>',
+    );
+    // 페이로드 JSON은 스크립트 안의 데이터라 마크업으로 해석되지 않는다. 스크립트 밖에 날 태그가 없으면 된다
+    const markup = html.replace(/<script[\s\S]*?<\/script>/g, '');
+    expect(markup).not.toContain('<img');
+  });
+
+  it('툴팁(title)에 설명 전체가 들어간다', async () => {
+    const long = '주문 목록을 한 번에 불러오는 조회예요. 페이지 수와 정렬을 쿼리로 받아요.';
+    const { html } = await renderWithDescriptions({ api: long });
+    expect(cardTag(html, 'api')).toMatch(/title="[^"]*페이지 수와 정렬을 쿼리로 받아요\./);
+  });
+
+  it('description이 없거나 공백뿐인 카드에는 .ds가 없다', async () => {
+    const { html } = await renderWithDescriptions({ home: '짧은 설명이에요.', detail: '   ' });
+    expect(cardBlock(html, 'home')).toContain('class="ds"');
+    expect(cardBlock(html, 'api')).not.toContain('class="ds"');
+    expect(cardBlock(html, 'detail')).not.toContain('class="ds"');
+    expect(cardTag(html, 'detail')).not.toContain('\n   ');
+  });
+
+  it('카드 style의 height는 layout이 낸 높이와 같고 설명이 있으면 18 더 높다', async () => {
+    const plain = await renderWithDescriptions({});
+    const withDesc = await renderWithDescriptions({ home: '짧은 설명이에요.' });
+    const heightOf = (html: string, id: string): number =>
+      Number(cardTag(html, id).match(/height:([\d.]+)px/)![1]);
+    const layoutH = (l: LayoutResult, id: string): number =>
+      l.nodes.find((n) => n.id === id)!.height;
+    expect(heightOf(withDesc.html, 'home')).toBe(layoutH(withDesc.layout, 'home'));
+    expect(heightOf(withDesc.html, 'home')).toBe(heightOf(plain.html, 'home') + 18);
+    expect(heightOf(withDesc.html, 'api')).toBe(heightOf(plain.html, 'api'));
+  });
+
+  it('일반 엣지 g에 data-link-id, role, tabindex, aria-label이 있다', async () => {
+    const { html } = await renderWithDescriptions({});
+    const g = html.match(/<g class="link e-calls[^>]*data-link-id="e-code"[^>]*>/);
+    expect(g).not.toBeNull();
+    expect(g![0]).toContain('role="button"');
+    expect(g![0]).toContain('tabindex="0"');
+    expect(g![0]).toMatch(/aria-label="[^"]+"/);
+    // 안쪽 path의 data-edge-id 계약은 그대로다
+    expect(edgeTag(html, 'e-code')).toContain('data-edge-id="e-code"');
+  });
+
+  it('묶음 엣지에는 data-link-id가 없고 data-bundle-id만 있다', async () => {
+    const { webIr } = await import('../../fixtures/architecture-legacy/irs.js');
+    const { renderBoth } = await import('../../fixtures/architecture-legacy/render.js');
+    const html = (await renderBoth(webIr())).private;
+    const bundles = html.match(/<g class="link bundle[^>]*>/g) ?? [];
+    expect(bundles.length).toBeGreaterThan(0);
+    for (const b of bundles) {
+      expect(b).toContain('data-bundle-id=');
+      expect(b).not.toContain('data-link-id');
+    }
+    const normals = html.match(/<g class="link e-[^>]*>/g) ?? [];
+    expect(normals.length).toBeGreaterThan(0);
+    for (const g of normals) expect(g).toContain('data-link-id=');
+  });
+
+  it('레인 제목에 data-lane-id, role, tabindex, aria-label이 있다', async () => {
+    const { html } = await renderWithDescriptions({});
+    const titles = html.match(/<div class="lane-title"[^>]*>/g) ?? [];
+    expect(titles.length).toBeGreaterThan(0);
+    for (const t of titles) {
+      expect(t).toMatch(/data-lane-id="[^"]+"/);
+      expect(t).toContain('role="button"');
+      expect(t).toContain('tabindex="0"');
+      expect(t).toMatch(/aria-label="[^"]+ 레인, 카드 \d+개"/);
+    }
+  });
+
+  it('쓰는 팩의 about만 스크립트에 싣고 안 쓰는 팩 문장은 뺀다', async () => {
+    const { orderDataflowIr } =
+      await import('../../fixtures/architecture-categories/projection-shapes.js');
+    const { renderBoth } = await import('../../fixtures/architecture-legacy/render.js');
+    const generic = (await renderBoth(orderDataflowIr())).private;
+    expect(generic).toContain('맞는 종류가 없어 범용으로 그린 구성 요소예요.');
+    // harness, web-product, data 팩 문장은 generic 그림에 실리지 않는다
+    expect(generic).not.toContain('AI가 MCP 서버에 보내는 명령이에요');
+    expect(generic).not.toContain('서버가 테이블이나 저장소를 읽고 쓰는 연결이에요');
+    expect(generic).not.toContain('데이터가 처음 생기는 원천이 서는 칸이에요');
+
+    const { harnessIr } = await import('../../fixtures/architecture-legacy/irs.js');
+    const harness = (await renderBoth(harnessIr())).private;
+    expect(harness).toContain('AI가 MCP 서버에 보내는 명령이에요');
+    expect(harness).not.toContain('데이터가 처음 생기는 원천이 서는 칸이에요');
+  });
+
+  it('클라이언트 스크립트에 서랍 함수와 문구 조각이 실린다', async () => {
+    const { html } = await renderWithDescriptions({});
+    for (const piece of [
+      'renderEdgePanel',
+      'renderLanePanel',
+      '들어오는 연결',
+      '나가는 연결',
+      '이 종류는',
+    ]) {
+      expect(html).toContain(piece);
+    }
   });
 });

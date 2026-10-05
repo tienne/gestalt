@@ -318,3 +318,63 @@ describe('validateArchitectureIr parent', () => {
     expect(codesOf(makeIr([withKind('self', 'screen', 'self')]))).toContain('PARENT_CYCLE');
   });
 });
+
+describe('validateArchitectureIr description 경고', () => {
+  const withDesc = (id: string, description?: string): ArchitectureNode => ({
+    ...node(id),
+    ...(description !== undefined ? { description } : {}),
+  });
+
+  function warningsOf(ir: ArchitectureIr): NonNullable<ReturnType<typeof okValue>>['warnings'] {
+    return okValue(ir)!.warnings;
+  }
+  function okValue(ir: ArchitectureIr) {
+    const r = validateArchitectureIr(ir);
+    return r.ok ? r.value : undefined;
+  }
+
+  it('description이 비었거나 공백뿐인 노드를 코드 하나에 묶고 nodeIds를 정렬한다', () => {
+    const ir = makeIr([
+      withDesc('zeta'),
+      withDesc('alpha', '   '),
+      withDesc('mid', '있어요.'),
+      withDesc('beta', ''),
+    ]);
+    const w = warningsOf(ir);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.code).toBe('NODE_DESCRIPTION_MISSING');
+    expect(w[0]!.nodeIds).toEqual(['alpha', 'beta', 'zeta']);
+    expect(w[0]!.message).toContain('3개');
+  });
+
+  it('근거가 없어 안 그려지는 노드는 경고 대상이 아니다', () => {
+    const ir = makeIr([withDesc('shown'), { ...withDesc('ghost'), evidence: [] }]);
+    const result = validateArchitectureIr(ir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.drawableNodeIds.has('ghost')).toBe(false);
+    expect(result.value.warnings[0]!.nodeIds).toEqual(['shown']);
+  });
+
+  it('전부 채우면 경고가 빈 배열이다', () => {
+    expect(warningsOf(makeIr([withDesc('a', '하나예요.'), withDesc('b', '둘이에요.')]))).toEqual(
+      [],
+    );
+  });
+
+  it('경고가 있어도 ok:true이고 그릴 노드는 그대로다', () => {
+    const result = validateArchitectureIr(makeIr([withDesc('a'), withDesc('b')]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect([...result.value.drawableNodeIds]).toEqual(['a', 'b']);
+    expect(result.value.warnings).toHaveLength(1);
+  });
+
+  it('경고를 IR에 저장하는 자동 질문에 섞지 않는다', () => {
+    const result = validateArchitectureIr(makeIr([withDesc('a')]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.autoUnresolved).toEqual([]);
+    expect(JSON.stringify(result.value.ir)).not.toContain('NODE_DESCRIPTION_MISSING');
+  });
+});

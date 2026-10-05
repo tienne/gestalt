@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeDrilldown,
+  mergeArchitectureIrs,
   shouldDrillDown,
   validateArchitectureIr,
   type ArchitectureEdge,
@@ -11,6 +12,7 @@ import {
   type ValidatedIr,
 } from '../../../src/architecture/index.js';
 import { renderBoth } from '../../fixtures/architecture-legacy/render.js';
+import { harnessIr, partnerIr, webIr } from '../../fixtures/architecture-legacy/irs.js';
 
 const codeEv: Evidence = { type: 'code', location: 'web:src/a.ts:1', visibility: 'public' };
 const docEv: Evidence = { type: 'doc', location: 'https://docs.acme.test/a', visibility: 'public' };
@@ -411,5 +413,69 @@ describe('computeDrilldown 전체보기의 prod 기준과 저장소', () => {
     expect(root.layout.regions!.bandOf['m-orders']).toBe(0);
     expect(root.layout.regions!.productsOf['m-orders']).toEqual([0, 1]);
     expect(root.layout.regions!.bands[0]!.band).toBe(0);
+  });
+});
+
+describe('computeDrilldown 설명 줄이 있는 카드', () => {
+  const DESC = '이 카드가 무엇인지 설명하는 한 줄이에요. 길어지면 말줄임으로 잘려요.';
+
+  function describeAll(ir: ArchitectureIr): ArchitectureIr {
+    return { ...ir, nodes: ir.nodes.map((n) => ({ ...n, description: DESC })) };
+  }
+
+  async function levelsOf(ir: ArchitectureIr): Promise<DrillLevel[]> {
+    const r = validateArchitectureIr(ir, { checkFiles: false });
+    if (!r.ok) throw new Error(JSON.stringify(r.errors));
+    return (await computeDrilldown(r.value)).levels;
+  }
+
+  function overlaps(levels: DrillLevel[]): string[] {
+    const found: string[] = [];
+    for (const lv of levels) {
+      const nodes = lv.layout.nodes;
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i]!;
+          const b = nodes[j]!;
+          const x = a.x < b.x + b.width && b.x < a.x + a.width;
+          const y = a.y < b.y + b.height && b.y < a.y + a.height;
+          if (x && y) found.push(`${lv.id}: ${a.id} x ${b.id}`);
+        }
+      }
+    }
+    return found;
+  }
+
+  it.each([
+    ['web', webIr],
+    ['harness', harnessIr],
+    [
+      'merged',
+      () => {
+        const r = mergeArchitectureIrs([webIr(), partnerIr()], { groupNames: ['상점', '파트너'] });
+        if (!r.ok) throw new Error(JSON.stringify(r.errors));
+        return r.ir;
+      },
+    ],
+  ])('%s 그림은 모든 카드에 설명이 있어도 어느 레벨에서도 카드가 안 겹친다', async (_n, build) => {
+    const levels = await levelsOf(describeAll(build()));
+    expect(levels.length).toBeGreaterThan(1);
+    expect(overlaps(levels)).toEqual([]);
+  });
+
+  it('설명이 있는 카드는 없는 때보다 정확히 18 높다', async () => {
+    const plain = await levelsOf(webIr());
+    const described = await levelsOf(describeAll(webIr()));
+    let compared = 0;
+    for (const lv of plain) {
+      const other = described.find((d) => d.id === lv.id)!;
+      for (const n of lv.layout.nodes) {
+        const m = other.layout.nodes.find((x) => x.id === n.id);
+        if (m === undefined) continue;
+        expect(m.height).toBe(n.height + 18);
+        compared++;
+      }
+    }
+    expect(compared).toBeGreaterThan(0);
   });
 });

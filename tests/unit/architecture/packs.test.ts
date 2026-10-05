@@ -7,6 +7,14 @@ import {
   resolvePackIds,
   vocabularyOf,
 } from '../../../src/architecture/packs/index.js';
+import {
+  CONTAINS_ABOUT,
+  EDGE_KIND_ABOUT,
+  LANE_ABOUT,
+  NODE_KIND_ABOUT,
+  STAGE_LANE_ABOUT,
+  withCopula,
+} from '../../../src/architecture/kind-text.js';
 import { NAME_REF_MATCHERS } from '../../../src/architecture/name-ref-match.js';
 import { genericIr } from '../../fixtures/architecture-categories/generic.js';
 import { renderBoth } from '../../fixtures/architecture-legacy/render.js';
@@ -104,5 +112,59 @@ describe('범용 component', () => {
   it('component가 있는 어휘에만 클라이언트 처리 코드를 싣는다', async () => {
     const html = (await renderBoth(genericIr())).private;
     expect(html).toContain("n.kind === 'component' ? 'cx_'");
+  });
+});
+
+describe('팩 어휘의 설명 문장', () => {
+  const MIDDLE_DOT = '\u00b7';
+
+  const sentences = (): Array<[string, string | undefined]> => {
+    const out: Array<[string, string | undefined]> = [];
+    for (const p of BUILTIN_PACKS) {
+      const looks = { ...p.nodeKinds, ...('displayKinds' in p ? p.displayKinds : {}) };
+      for (const k of Object.keys(looks)) out.push([`${p.id} kind ${k}`, NODE_KIND_ABOUT[k]]);
+      for (const [k, d] of Object.entries(p.edgeKinds))
+        out.push([`${p.id} edge ${k}`, (d as { about?: string }).about]);
+      for (const [k, d] of Object.entries(p.lanes))
+        out.push([`${p.id} lane ${k}`, (d as { about?: string }).about]);
+    }
+    out.push(['contains', CONTAINS_ABOUT], ['stage lane', STAGE_LANE_ABOUT]);
+    return out;
+  };
+
+  it('모든 팩의 kind, displayKind, 엣지, 레인에 비지 않은 설명 문장이 있다', () => {
+    const empty = sentences()
+      .filter(([, s]) => s === undefined || s.trim() === '')
+      .map(([where]) => where);
+    expect(empty).toEqual([]);
+  });
+
+  it('설명 문장은 해요체 마침표로 끝나고 가운뎃점이 없다', () => {
+    const bad = sentences()
+      .filter(([, s]) => s !== undefined && (!s.endsWith('.') || s.includes(MIDDLE_DOT)))
+      .map(([where, s]) => `${where}: ${s}`);
+    expect(bad).toEqual([]);
+  });
+
+  it('표 조회가 팩 정의와 어긋나지 않는다', () => {
+    for (const p of BUILTIN_PACKS) {
+      for (const [k, d] of Object.entries(p.edgeKinds))
+        expect(EDGE_KIND_ABOUT[k]).toBe((d as { about: string }).about);
+      for (const [k, d] of Object.entries(p.lanes))
+        expect(LANE_ABOUT[k as keyof typeof LANE_ABOUT]).toBe((d as { about: string }).about);
+    }
+    expect(EDGE_KIND_ABOUT['contains']).toBe(CONTAINS_ABOUT);
+  });
+
+  it('about이 없는 노드 종류는 이름 끝 받침에 맞춰 이에요나 예요로 맺는다', () => {
+    expect(withCopula('버킷')).toBe('버킷이에요.');
+    expect(withCopula('방화벽')).toBe('방화벽이에요.');
+    expect(withCopula('토픽')).toBe('토픽이에요.');
+    expect(withCopula('서비스')).toBe('서비스예요.');
+    expect(withCopula('API')).toBe('API예요.');
+  });
+
+  it('harness의 mcp_tool은 AI가 보내는 명령이라는 뜻을 담는다', () => {
+    expect(NODE_KIND_ABOUT['mcp_tool']).toContain('MCP 서버에 보내는 명령');
   });
 });
