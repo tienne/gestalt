@@ -6,6 +6,7 @@ import {
   END_MARKER,
   START_MARKER,
   applySkillTable,
+  findTriggerOverlaps,
   loadRoutedSkills,
   renderSkillTable,
 } from '../../../scripts/build-skill-routing.js';
@@ -62,5 +63,24 @@ describe('applySkillTable', () => {
 
   it('마커가 없으면 실패한다', () => {
     expect(() => applySkillTable('표 없음', 'x')).toThrow(/마커가 없다/);
+  });
+});
+
+describe('findTriggerOverlaps', () => {
+  it('다른 스킬 트리거 안에 들어 있는 트리거를 공백과 대소문자 무시하고 찾는다', () => {
+    const overlaps = findTriggerOverlaps([
+      { name: 'loop', triggers: ['리뷰 루프'] },
+      { name: 'ship', triggers: ['리뷰루프 돌려줘', 'Ship'] },
+    ]);
+    expect(overlaps).toEqual([
+      {
+        inner: { skill: 'loop', trigger: '리뷰 루프' },
+        outer: { skill: 'ship', trigger: '리뷰루프 돌려줘' },
+      },
+    ]);
+  });
+
+  it('같은 스킬 안의 포함 관계는 겹침으로 안 본다', () => {
+    expect(findTriggerOverlaps([{ name: 'pr', triggers: ['PR', 'PR 만들어'] }])).toEqual([]);
   });
 });

@@ -46,6 +46,37 @@ export function loadRoutedSkills(skillsDir: string = SKILLS_DIR): RoutedSkill[] 
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export interface TriggerOverlap {
+  inner: { skill: string; trigger: string };
+  outer: { skill: string; trigger: string };
+}
+
+/**
+ * 한 스킬의 트리거가 다른 스킬 트리거 안에 그대로 들어 있는 쌍을 찾는다.
+ * 짧은 쪽이 걸리는 요청에서 긴 쪽 스킬로 가야 할지 세션이 가릴 근거가 없다.
+ * 대소문자와 공백은 무시한다 — "리뷰 루프"와 "리뷰루프"는 같은 요청이다.
+ */
+export function findTriggerOverlaps(skills: RoutedSkill[]): TriggerOverlap[] {
+  const norm = (t: string): string => t.toLowerCase().replace(/\s+/g, '');
+  const overlaps: TriggerOverlap[] = [];
+  for (const a of skills) {
+    for (const b of skills) {
+      if (a.name === b.name) continue;
+      for (const ta of a.triggers) {
+        for (const tb of b.triggers) {
+          if (norm(tb).includes(norm(ta))) {
+            overlaps.push({
+              inner: { skill: a.name, trigger: ta },
+              outer: { skill: b.name, trigger: tb },
+            });
+          }
+        }
+      }
+    }
+  }
+  return overlaps;
+}
+
 function cell(text: string): string {
   return text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
 }
@@ -86,6 +117,13 @@ if (isDirectRun) {
   let count: number;
   try {
     const skills = loadRoutedSkills();
+    const overlaps = findTriggerOverlaps(skills);
+    if (overlaps.length > 0) {
+      const lines = overlaps.map(
+        (o) => `  ${o.inner.skill} "${o.inner.trigger}" ⊂ ${o.outer.skill} "${o.outer.trigger}"`,
+      );
+      throw new Error(`스킬끼리 트리거가 겹친다\n${lines.join('\n')}`);
+    }
     count = skills.length;
     current = readFileSync(ROUTING_DOC, 'utf-8');
     next = applySkillTable(current, renderSkillTable(skills));
