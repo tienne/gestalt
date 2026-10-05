@@ -1322,6 +1322,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         ...(f?.webHosting !== undefined ? { webHosting: f.webHosting } : {}),
         ...(f?.prodDomain !== undefined ? { secondLine: f.prodDomain } : {}),
         ...(flowCount[id] !== undefined ? { flows: flowCount[id] } : {}),
+        ...(node.description !== undefined ? { description: node.description } : {}),
       };
     });
     const laid = await computeGraphLayout(layoutNodes, d.edges, staged?.labels);

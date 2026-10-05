@@ -12,7 +12,13 @@ import type {
   WebHosting,
 } from './types.js';
 import { ALL_PACKS_VOCABULARY, type PackLaneId } from './packs/index.js';
-import { chipTextOverride, displayKindOf, EDGE_KINDS, ENVIRONMENT_ORDER } from './types.js';
+import {
+  chipTextOverride,
+  displayKindOf,
+  EDGE_KINDS,
+  ENVIRONMENT_ORDER,
+  hasCardDescription,
+} from './types.js';
 
 export interface LayoutNode {
   id: string;
@@ -183,6 +189,8 @@ export interface GraphLayoutNode {
   secondLine?: string;
   /** 이 서비스에 달린 흐름 수. 첫 줄 끝에 흐름 배지가 붙는다 */
   flows?: number;
+  /** 이름 아래 설명 줄. 비거나 공백뿐이면 줄을 안 만든다 */
+  description?: string;
 }
 
 export interface GraphLayoutEdge {
@@ -196,6 +204,11 @@ export interface GraphLayoutEdge {
 const NODE_HEIGHT = 48;
 // 표시 이름과 기술 이름을 두 줄로 쌓는 카드. 글자 수와 무관하게 고정해야 좌표가 입력에만 묶인다
 export const NODE_HEIGHT_TWO_LINES = 60;
+/** 이름 아래 설명 줄이 더하는 높이. 11px 글꼴의 16px 줄에 행 간격 2px다 */
+export const NODE_DESC_LINE = 18;
+// 설명 줄은 11px 글꼴 기준으로 잰다. 긴 설명이 카드를 끝없이 넓히지 않게 안쪽 폭은 상한까지만 늘리고 나머지는 말줄임으로 자른다
+const DESC_CHAR_WIDTH = 5.5;
+const DESC_MAX_INNER = 200;
 /** "추정" 배지가 첫 줄에서 차지하는 폭. 앞 여백과 알약 테두리, 한글 두 자 */
 export const INFERRED_BADGE_UNITS = 5;
 /** 카드 왼쪽 색 띠와 안쪽 여백. 종류 칩은 이 뒤에서 시작한다 */
@@ -261,6 +274,7 @@ export interface MeasureExtras {
   webHosting?: WebHosting;
   secondLine?: string;
   flows?: number;
+  description?: string;
 }
 
 /**
@@ -288,10 +302,14 @@ export function measureNode(
   const inner = twoLines
     ? Math.max(first, textUnits(second ?? '') * NARROW_CHAR_WIDTH + chips)
     : first;
-  const raw = Math.ceil(NODE_TEXT_LEFT + NODE_TEXT_RIGHT + inner);
+  const desc = hasCardDescription(extras.description);
+  const descInner = desc
+    ? Math.min(DESC_MAX_INNER, textUnits(extras.description!) * DESC_CHAR_WIDTH)
+    : 0;
+  const raw = Math.ceil(NODE_TEXT_LEFT + NODE_TEXT_RIGHT + Math.max(inner, descInner));
   return {
     width: Math.min(MAX_NODE_WIDTH, Math.max(MIN_NODE_WIDTH, raw)),
-    height: twoLines ? NODE_HEIGHT_TWO_LINES : NODE_HEIGHT,
+    height: (twoLines ? NODE_HEIGHT_TWO_LINES : NODE_HEIGHT) + (desc ? NODE_DESC_LINE : 0),
   };
 }
 
@@ -363,6 +381,7 @@ export async function computeLayout(
       kind: displayKindOf(n),
       ...(chipTextOverride(n) !== undefined ? { chip: chipTextOverride(n)! } : {}),
       ...(n.environment !== undefined ? { order: environmentRank(n.environment) } : {}),
+      ...(n.description !== undefined ? { description: n.description } : {}),
     }));
   const edges = ir.edges
     .filter((e) => drawableEdgeIds.has(e.id))
@@ -411,6 +430,7 @@ export async function computeGraphLayout(
         ...(n.webHosting !== undefined ? { webHosting: n.webHosting } : {}),
         ...(n.secondLine !== undefined ? { secondLine: n.secondLine } : {}),
         ...(n.flows !== undefined ? { flows: n.flows } : {}),
+        ...(n.description !== undefined ? { description: n.description } : {}),
       }),
       // 레이어 안 카드를 왼쪽에 맞춰야 레인이 들쭉날쭉한 열이 아니라 한 줄로 읽힌다
       layoutOptions: {

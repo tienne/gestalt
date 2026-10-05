@@ -1,15 +1,20 @@
 import { BAND_LINE_X, BAND_LINE_Y, BAND_TITLE_HALF, BAND_TITLE_X } from './canvas-geometry.js';
 import { FOCUS_SOURCE } from './focus.js';
 import { PRODUCT_COLORS } from './html-theme.js';
-import { FRAME_PAD, type LaneId } from './layout.js';
+import { FRAME_PAD, NODE_DESC_LINE, type LaneId } from './layout.js';
 
 export interface ClientConstants {
   kindShort: Record<string, string>;
   /** 호스트 micro_app 칩 글자 */
   hostShort: string;
   kindText: Record<string, string>;
+  /** 서랍의 종류 설명 문장. 노드 kind와 엣지 kind를 한 표에 담는다 */
+  kindAbout: Record<string, string>;
   evidenceText: Record<string, string>;
   laneTitles: Record<LaneId, string>;
+  laneAbout: Record<string, string>;
+  /** 구간 레인(stage:<n>) 설명 */
+  stageLaneAbout: string;
   inferredBadge: string;
   platformChip: Record<string, string>;
   platformName: Record<string, string>;
@@ -263,8 +268,12 @@ export function renderClientScript(c: ClientConstants): string {
   var MICRO_HOSTS = {};
   (data.microHosts || []).forEach(function (id) { MICRO_HOSTS[id] = true; });
   var KIND_TEXT = ${JSON.stringify(c.kindText)};
+  var KIND_ABOUT = ${JSON.stringify(c.kindAbout)};
   var EVIDENCE_TEXT = ${JSON.stringify(c.evidenceText)};
   var LANE_TITLE = ${JSON.stringify(c.laneTitles)};
+  var LANE_ABOUT = ${JSON.stringify(c.laneAbout)};
+  var STAGE_LANE_ABOUT = ${JSON.stringify(c.stageLaneAbout)};
+  var NODE_DESC_LINE = ${NODE_DESC_LINE};
   var GUESS = ${JSON.stringify(c.inferredBadge)};
   var PLATFORM_CHIP = ${JSON.stringify(c.platformChip)};
   var PLATFORM_NAME = ${JSON.stringify(c.platformName)};
@@ -563,6 +572,86 @@ ${FOCUS_SOURCE}
     panel.appendChild(body);
     openDrawer();
   }
+  // 환경 필터로 숨긴 카드는 화면에 없으니 목록에서도 뺀다
+  function connectionList(body, id, incoming) {
+    var list = data.edges.filter(function (e) {
+      var other = incoming ? e.from : e.to;
+      return (incoming ? e.to : e.from) === id && other !== id && !envHidden(other);
+    });
+    if (!list.length) return;
+    body.appendChild(el('h3', null, (incoming ? '들어오는 연결 ' : '나가는 연결 ') + list.length + '개'));
+    var otherOf = {};
+    list.forEach(function (e) { otherOf[e.id] = incoming ? e.from : e.to; });
+    refButtons(body, list.map(function (e) { return e.id; }), function (eid) { goToNode(otherOf[eid]); },
+      function (eid) { return 'i-' + dkind(nodes[otherOf[eid]]); },
+      function (eid) { return label(otherOf[eid]) + ' (' + kindText(edges[eid].kind) + ')'; });
+  }
+  // 선은 레벨 엣지에서 먼저 찾는다. 포함 선은 드릴다운이 만든 것이라 IR 엣지 표에 없다
+  function edgeOf(id) {
+    var level = levels[levelIdOf(active)];
+    return (level && level.edgeById[id]) || edges[id] || null;
+  }
+  function renderEdgePanel(g) {
+    var id = g.getAttribute('data-link-id');
+    var e = edgeOf(id);
+    if (!e) return;
+    var ir = edges[id];
+    active.querySelectorAll('.node.selected').forEach(function (x) { x.classList.remove('selected'); });
+    lightLink(active, g);
+    returnFocus = g;
+    selectedId = null;
+    syncFocusBtn();
+    panel.textContent = '';
+    panel.appendChild(panelHead('flow', 'u-link', kindText(e.kind), '', label(e.from) + ' → ' + label(e.to)));
+    var body = el('div', 'dr-body');
+    if (KIND_ABOUT[e.kind]) body.appendChild(el('p', 'desc', KIND_ABOUT[e.kind]));
+    var facts = el('ul', 'facts');
+    if (e.kind !== 'contains') factRow(facts, '선', e.lineStyle === 'dashed' ? '점선 (문서나 사람 말로만 확인)' : '실선 (코드나 스펙으로 확인)');
+    if (g.classList.contains('x-account')) factRow(facts, '계정', '계정을 넘는 연결이에요');
+    if (ir && ir.actions && ir.actions.length) factRow(facts, 'action', ir.actions.join(', '));
+    if (facts.childNodes.length) body.appendChild(facts);
+    body.appendChild(el('h3', null, '양 끝'));
+    refButtons(body, [e.from, e.to], goToNode, function (nid) { return 'i-' + dkind(nodes[nid]); }, label);
+    if (ir) evidenceList(body, ir.evidence);
+    else body.appendChild(el('p', 'desc', 'parent로 정한 포함 관계라 따로 근거가 없어요.'));
+    panel.appendChild(body);
+    openDrawer();
+  }
+  // 레인 제목과 rect.lane은 같은 순서로 그려진다. 포커스 화면과 환경 필터가 같은 짝짓기를 쓴다
+  function laneCards(t) {
+    var sec = t.parentNode;
+    var titles = Array.prototype.slice.call(sec.querySelectorAll('.lane-title'));
+    var r = sec.querySelectorAll('rect.lane')[titles.indexOf(t)];
+    if (!r) return [];
+    var x = parseFloat(r.getAttribute('x'));
+    var w = parseFloat(r.getAttribute('width'));
+    var ids = [];
+    sec.querySelectorAll('.node').forEach(function (c) {
+      var left = parseFloat(c.style.left);
+      if (left >= x && left < x + w && !c.classList.contains('env-off')) ids.push(c.getAttribute('data-node-id'));
+    });
+    return ids;
+  }
+  function laneAria(title, count) { return title + ' 레인, 카드 ' + count + '개'; }
+  function renderLanePanel(t) {
+    var laneId = t.getAttribute('data-lane-id') || '';
+    var title = t.firstChild ? t.firstChild.textContent : '';
+    var ids = laneCards(t);
+    active.querySelectorAll('.node.selected').forEach(function (x) { x.classList.remove('selected'); });
+    clearLit(active);
+    returnFocus = t;
+    selectedId = null;
+    syncFocusBtn();
+    panel.textContent = '';
+    panel.appendChild(panelHead('flow', 'u-legend', '레인', '', title));
+    var body = el('div', 'dr-body');
+    var about = laneId.indexOf('stage:') === 0 ? STAGE_LANE_ABOUT : LANE_ABOUT[laneId];
+    if (about) body.appendChild(el('p', 'desc', about));
+    body.appendChild(el('h3', null, '이 칸의 카드 ' + ids.length + '개'));
+    if (ids.length) refButtons(body, ids, focusCard, function (nid) { return 'i-' + dkind(nodes[nid]); }, label);
+    panel.appendChild(body);
+    openDrawer();
+  }
   function renderPanel(id) {
     if (isStep(id)) { renderStepPanel(id); return; }
     var n = nodes[id];
@@ -610,6 +699,11 @@ ${FOCUS_SOURCE}
       body.appendChild(actions);
     }
     if (n.description) body.appendChild(el('p', 'desc', n.description));
+    var about = KIND_ABOUT[dkind(n)];
+    if (about) {
+      body.appendChild(el('h3', null, '이 종류는'));
+      body.appendChild(el('p', 'desc', about));
+    }
     renderFacts(n, body);${c.docs ? '\n    renderDoc(n, body);' : ''}
     if (flowsBySvc[id]) {
       body.appendChild(el('h3', null, '흐름 ' + flowsBySvc[id].length + '개'));
@@ -619,6 +713,8 @@ ${FOCUS_SOURCE}
       body.appendChild(el('h3', null, '이 항목이 나오는 흐름 단계 ' + stepsByRef[id].length + '개'));
       refButtons(body, stepsByRef[id], goToNode, function () { return 'u-flow'; }, function (sid) { return stepFlow[sid].title + ' › ' + label(sid); });
     }
+    connectionList(body, id, true);
+    connectionList(body, id, false);
     body.appendChild(el('h3', null, '출처 ' + n.evidence.length + '개'));
     var ul = el('ul', 'evidence');
     n.evidence.forEach(function (ev) { ul.appendChild(renderEvidence(ev)); });
@@ -910,6 +1006,10 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
     if (link) { activateBundle(link); return; }
     var ft = e.target.closest('.link.flow-t');
     if (ft) { activateTransition(ft); return; }
+    var edge = e.target.closest('.link[data-link-id]');
+    if (edge) { renderEdgePanel(edge); return; }
+    var lane = e.target.closest('.lane-title[data-lane-id]');
+    if (lane) { renderLanePanel(lane); return; }
     if (drawerOpen()) closeDrawer(false);
   });
   stage.addEventListener('dblclick', function (e) {
@@ -926,7 +1026,11 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
     var link = e.target.closest('.link.bundle');
     if (link) { e.preventDefault(); activateBundle(link); return; }
     var ft = e.target.closest('.link.flow-t');
-    if (ft) { e.preventDefault(); activateTransition(ft); }
+    if (ft) { e.preventDefault(); activateTransition(ft); return; }
+    var edge = e.target.closest('.link[data-link-id]');
+    if (edge) { e.preventDefault(); renderEdgePanel(edge); return; }
+    var lane = e.target.closest('.lane-title[data-lane-id]');
+    if (lane) { e.preventDefault(); renderLanePanel(lane); }
   });
 
   // 위치 표시
@@ -1131,9 +1235,12 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
     if (c < 800) return 'db_table';
     return '';
   }
+  // types.ts의 hasCardDescription, layout.ts의 measureNode와 같은 판정이다
+  function hasDesc(n) { return !!(n && n.description && n.description.trim()); }
   function cardHeight(id) {
     var f = services[id];
-    return (nodes[id] && nodes[id].displayName) || (f && (f.prodDomain || f.platforms.length > 0)) ? 60 : 48;
+    var base = (nodes[id] && nodes[id].displayName) || (f && (f.prodDomain || f.platforms.length > 0)) ? 60 : 48;
+    return base + (hasDesc(nodes[id]) ? NODE_DESC_LINE : 0);
   }
   function platformChips(id, parent) {
     var f = services[id];
@@ -1178,7 +1285,8 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
       platformChips(id, l2);
       d.appendChild(l2);
     } else if (sub) d.appendChild(sub);
-    d.title = n && n.displayName ? n.displayName + (guess ? ' (' + GUESS + ')' : '') + '\\n' + n.label : label(id);
+    if (hasDesc(n)) d.appendChild(el('span', 'ds', n.description));
+    d.title = (n && n.displayName ? n.displayName + (guess ? ' (' + GUESS + ')' : '') + '\\n' + n.label : label(id)) + (hasDesc(n) ? '\\n' + n.description : '');
     d.setAttribute('aria-label', label(id) + ', ' + kindText(kind));
     if (enterMap[id]) {
       var more = el('span', 'go', '›');
@@ -1287,12 +1395,10 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
       var xa = nodes[e.from] && nodes[e.to] && nodes[e.from].account && nodes[e.to].account && nodes[e.from].account !== nodes[e.to].account;
       var g = svgEl('g', { 'class': (bundle ? 'link bundle' : 'link e-' + e.kind) + (xa ? ' x-account' : ''), 'data-from': e.from, 'data-to': e.to });
       var name = bundle ? label(e.from) + ' → ' + label(e.to) + ' ' + e.count + '개'${c.mixedBundles ? MIXED_NOTE : ''} : kindText(e.kind) + ': ' + label(e.from) + ' → ' + label(e.to);
-      if (bundle) {
-        g.setAttribute('data-bundle-id', e.id);
-        g.setAttribute('tabindex', '0');
-        g.setAttribute('role', 'button');
-        g.setAttribute('aria-label', name);
-      }
+      g.setAttribute(bundle ? 'data-bundle-id' : 'data-link-id', e.id);
+      g.setAttribute('tabindex', '0');
+      g.setAttribute('role', 'button');
+      g.setAttribute('aria-label', name);
       var t = svgEl('title', {});
       t.textContent = name;
       g.appendChild(t);
@@ -1320,6 +1426,12 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
       if (!l.title) return;
       var title = el('div', 'lane-title', l.title);
       title.appendChild(el('span', 'n', String(l.count)));
+      if (l.id) {
+        title.setAttribute('data-lane-id', l.id);
+        title.setAttribute('role', 'button');
+        title.tabIndex = 0;
+        title.setAttribute('aria-label', laneAria(l.title, l.count));
+      }
       title.style.left = l.x + 'px';
       title.style.top = '22px';
       title.style.width = l.width + 'px';
@@ -1385,7 +1497,7 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
       pos: pos,
       edges: list.map(function (e) { return { id: e.id, from: e.from, to: e.to, kind: e.kind, count: 1, lineStyle: e.lineStyle }; }),
       lanes: lanes.map(function (l) {
-        return { x: l.left - LANE_PAD, width: l.right - l.left + LANE_PAD * 2, title: LANE_TITLE[l.id] || '', count: l.count };
+        return { x: l.left - LANE_PAD, width: l.right - l.left + LANE_PAD * 2, id: l.id, title: LANE_TITLE[l.id] || '', count: l.count };
       }),
       width: x + NODE_W + LANE_PAD + PAD_X,
       height: PAD_TOP + maxH + PAD_BOTTOM,
@@ -1532,7 +1644,7 @@ ${c.views ? VIEW_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('
       Object.keys(pos).forEach(function (id) { if (pos[id].x >= x && pos[id].x < x + w) n += 1; });
       if (!n) return;
       var t = titles[i];
-      lanes.push({ x: x, width: w, title: t ? t.firstChild.textContent : '', count: n });
+      lanes.push({ id: t ? t.getAttribute('data-lane-id') : null, x: x, width: w, title: t ? t.firstChild.textContent : '', count: n });
     });
     var cards = cardMap(src);
     src.hidden = true;
@@ -1819,6 +1931,7 @@ ${c.views ? VIEW_POP : ''}  // 흐름 단추는 서비스 아래 레벨에서만
       t.classList.toggle('env-off', n === 0);
       var count = t.querySelector('.n');
       if (count) count.textContent = n;
+      if (t.hasAttribute('data-lane-id')) t.setAttribute('aria-label', laneAria(t.firstChild.textContent, n));
     });
   }
   // 고른 환경은 주소 해시 뒤 ?env=prod,dev로 싣는다. 주소를 보내면 받은 사람도 같은 환경으로 본다.
