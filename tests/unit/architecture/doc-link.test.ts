@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ownersOf, parseCodeowners } from '../../../src/architecture/codeowners.js';
 import { linkDocs, screenRouteOf } from '../../../src/architecture/doc-link.js';
 import type { FileFacts } from '../../../src/architecture/doc-link.js';
 import { buildKnowledgeIr } from '../../../src/architecture/doc-scan.js';
@@ -90,7 +91,15 @@ const FACTS: Record<string, { exists: boolean; committedAt?: string }> = {
 };
 const fileFacts: FileFacts = (repo, path) => FACTS[`${repo}:${path}`];
 
-function run() {
+const OWNERS: Record<string, string> = {
+  'acme-web': '/apps/web/src/routes.tsx @acme/routes',
+  'acme-api': '* @acme/backend',
+  'acme-kb': 'domains/ @acme/orders-kb',
+};
+const ownersOfRepo = (repo: string, path: string) =>
+  OWNERS[repo] === undefined ? undefined : ownersOf(parseCodeowners(OWNERS[repo]!), path);
+
+function run(withOwners = false) {
   const scanned = [STATUS, MISC, SCREENS];
   const knowledge = buildKnowledgeIr(
     [
@@ -103,6 +112,7 @@ function run() {
   return linkDocs(techIr(), knowledge, scanned, {
     fileFacts,
     screenIndexPrefixes: ['design/products/store/'],
+    ...(withOwners ? { ownersOf: ownersOfRepo } : {}),
     generatedAt: '2026-04-01T00:00:00.000Z',
   });
 }
@@ -224,6 +234,31 @@ describe('linkDocs', () => {
   });
 });
 
+describe('CODEOWNERS 소유', () => {
+  it('근거 파일과 문서 경로로 담당을 달고 기본 담당만 걸린 자리와 담당 없는 자리를 센다', () => {
+    const { ir, signals } = run(true);
+    expect(signals.ownership?.tech).toEqual({ total: 5, owned: 4, catchAllOnly: 1 });
+    expect(signals.ownership?.unownedTech).toEqual(['svc:web']);
+    expect(ir.nodes.find((n) => n.id === 'scr:web:/cart')?.owners).toEqual(['@acme/routes']);
+    expect(ir.nodes.find((n) => n.id === 'doc:kb/domains/orders/status.md')?.owners).toEqual([
+      '@acme/orders-kb',
+    ]);
+    // 문서에 담당을 적은 구멍은 그 사람에게, 안 적은 구멍은 문서 담당에게 센다
+    expect(signals.gapsByOwner).toEqual({ kim: 1, '@acme/orders-kb': 1 });
+  });
+
+  it('ownersOf가 없으면 소유 신호를 안 싣는다', () => {
+    expect(run().signals.ownership).toBeUndefined();
+  });
+
+  it('담당 없음 배지는 담당이 실린 private에만 단다', async () => {
+    const { private: html, shared } = await renderBoth(run(true).ir);
+    expect(html).toContain('>담당 없음</span>');
+    expect(shared).not.toContain('>담당 없음</span>');
+    expect(shared).not.toContain('@acme/routes');
+  });
+});
+
 describe('지식과 아키텍처 그림 렌더', () => {
   it('문서는 카드가 아니라 기술 카드 배지와 서랍 목록으로 보이고 덮인 비율을 머리줄에 단다', async () => {
     const { private: html, shared } = await renderBoth(run().ir);
@@ -287,6 +322,26 @@ describe('ges_architecture link_docs', () => {
     expect(validateArchitectureIr(link, { checkFiles: false }).ok).toBe(true);
     const kn = JSON.parse(readFileSync(r.knowledgeDraftPath, 'utf8')) as ArchitectureIr;
     expect(kn.nodes.find((n) => n.id === 'doc:kb/orders.md')?.doc?.links?.broken).toBe(1);
+  });
+
+  it('문서 레포와 코드 레포의 CODEOWNERS로 담당을 찾는다', async () => {
+    put('acme-kb/.github/CODEOWNERS', '* @acme/kb\n');
+    put('acme-api/CODEOWNERS', 'orders/ @acme/orders\n');
+    const work = join(tmpRoot, 'work');
+    await handleArchitecturePassthrough(
+      { action: 'scan_docs', docRoots: [{ repoId: 'kb', name: 'acme-kb', path: '../acme-kb' }] },
+      work,
+    );
+    const r = (await handleArchitecturePassthrough(
+      { action: 'link_docs', irPath: 'tech.json', codeRoots: { 'acme-api': '../acme-api' } },
+      work,
+    )) as { summary: Record<string, unknown>; knowledgeDraftPath: string };
+    expect(r.summary.ownership).toEqual({
+      tech: { total: 5, owned: 1, catchAllOnly: 0 },
+      docs: { total: 1, owned: 1, catchAllOnly: 1 },
+    });
+    const kn = JSON.parse(readFileSync(r.knowledgeDraftPath, 'utf8')) as ArchitectureIr;
+    expect(kn.nodes.find((n) => n.id === 'doc:kb/orders.md')?.owners).toEqual(['@acme/kb']);
   });
 
   it('scan_docs 결과가 없으면 거부한다', async () => {

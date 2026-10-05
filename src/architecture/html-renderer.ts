@@ -232,11 +232,18 @@ function docCoverOf(
   overlay: Record<string, DocOverlayEntry[]> | undefined,
 ): Record<string, DocCover> | undefined {
   if (overlay === undefined) return undefined;
+  // 담당은 공유본에서 빠진다. 담당이 하나도 안 실린 그림에서 "담당 없음"을 달면 전부 비어 보이므로 그때는 안 단다
+  const ownersKnown = nodes.some((n) => (n.owners ?? []).length > 0);
   const out: Record<string, DocCover> = {};
   for (const n of nodes) {
     const list = overlay[n.id] ?? [];
-    if (list.length === 0 && !KNOWLEDGE_COVERAGE_KINDS.includes(n.kind)) continue;
-    out[n.id] = { docs: list.length, stale: list.filter((d) => d.staleSince !== undefined).length };
+    const slot = KNOWLEDGE_COVERAGE_KINDS.includes(n.kind);
+    if (list.length === 0 && !slot) continue;
+    out[n.id] = {
+      docs: list.length,
+      stale: list.filter((d) => d.staleSince !== undefined).length,
+      ...(ownersKnown && slot && (n.owners ?? []).length === 0 ? { unowned: true } : {}),
+    };
   }
   return out;
 }
@@ -264,6 +271,7 @@ function docCoverageOf(
 interface DocCover {
   docs: number;
   stale: number;
+  unowned?: true;
 }
 
 // 페이지가 실제로 쓰는 필드만 싣는다. repo root 같은 로컬 경로와 sourcesUsed 식별자가 공유본으로 새지 않게 한다
@@ -360,13 +368,20 @@ function docBadges(node: ArchitectureNode): string {
 /** 지식과 아키텍처 그림의 기술 카드 배지. 문서가 없으면 "문서 없음"을 단다. 있으면 수와 낡은 수를 단다 */
 function docCoverBadge(cover: DocCover | undefined): string {
   if (cover === undefined) return '';
+  const owner = cover.unowned
+    ? '<span class="doc-badge none" title="CODEOWNERS에 이 자리를 맡은 담당이 없어요">담당 없음</span>'
+    : '';
   if (cover.docs === 0)
-    return '<span class="doc-badge none" title="이 자리를 설명하는 문서가 없어요">문서 없음</span>';
+    return (
+      '<span class="doc-badge none" title="이 자리를 설명하는 문서가 없어요">문서 없음</span>' +
+      owner
+    );
   return (
     `<span class="doc-badge cover" title="설명하는 문서 ${cover.docs}개">문서 ${cover.docs}</span>` +
     (cover.stale > 0
       ? `<span class="doc-badge stale" title="코드가 문서보다 늦게 바뀐 문서 ${cover.stale}개">낡음 ${cover.stale}</span>`
-      : '')
+      : '') +
+    owner
   );
 }
 

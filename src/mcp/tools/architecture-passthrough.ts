@@ -9,6 +9,7 @@ import {
   summarizeScan,
   type DocRoot,
 } from '../../architecture/doc-scan.js';
+import { ownersOf, readCodeowners, type CodeownersRule } from '../../architecture/codeowners.js';
 import { linkDocs, type FileFacts } from '../../architecture/doc-link.js';
 import type { DocScanResult } from '../../architecture/doc-scan.js';
 import { matchEndpoints } from '../../architecture/endpoint-match.js';
@@ -397,7 +398,10 @@ function handleScanDocs(input: ArchitectureInput, repoRoot: string): object {
   const dir = resolve(repoRoot, '.gestalt', 'architecture');
   const scanPath = resolve(dir, 'doc-scan.json');
   const draftPath = resolve(dir, 'knowledge.draft.json');
-  writeJsonAtomic(scanPath, scan);
+  writeJsonAtomic(scanPath, {
+    ...scan,
+    roots: roots.map((r) => ({ repoId: r.repoId, name: r.name, path: r.path })),
+  });
   writeJsonAtomic(draftPath, buildKnowledgeIr(roots, scan, new Date().toISOString()));
   return { summary: summarizeScan(scan), skipped: scan.skipped, scanPath, draftPath };
 }
@@ -432,6 +436,21 @@ function fileFactsFrom(codeRoots: Record<string, string>, repoRoot: string): Fil
   };
 }
 
+// 레포마다 CODEOWNERS를 한 번만 읽는다. 문서 레포와 코드 레포를 같은 이름 공간으로 본다
+function ownersFrom(roots: Record<string, string>, repoRoot: string) {
+  const cache = new Map<string, CodeownersRule[]>();
+  return (repoName: string, path: string) => {
+    const root = roots[repoName];
+    if (root === undefined) return undefined;
+    let rules = cache.get(repoName);
+    if (rules === undefined) {
+      rules = readCodeowners(isAbsolute(root) ? root : resolve(repoRoot, root));
+      cache.set(repoName, rules);
+    }
+    return ownersOf(rules, path);
+  };
+}
+
 const SIGNAL_SAMPLE = 20;
 
 function handleLinkDocs(input: ArchitectureInput, repoRoot: string): object {
@@ -452,6 +471,10 @@ function handleLinkDocs(input: ArchitectureInput, repoRoot: string): object {
   }
   const knowledge = parseIr(knowledgeRaw, 'knowledge.draft.json: ');
   if (!knowledge.ok) return knowledge;
+  const ownerRoots: Record<string, string> = {
+    ...Object.fromEntries((scan.roots ?? []).map((r) => [r.name, r.path])),
+    ...(input.codeRoots ?? {}),
+  };
   const result = linkDocs(prepared.ir, knowledge.ir, scan.docs, {
     ...(input.repoAliases !== undefined ? { repoAliases: input.repoAliases } : {}),
     ...(input.screenIndexPrefixes !== undefined
@@ -460,6 +483,7 @@ function handleLinkDocs(input: ArchitectureInput, repoRoot: string): object {
     ...(input.codeRoots !== undefined
       ? { fileFacts: fileFactsFrom(input.codeRoots, repoRoot) }
       : {}),
+    ...(Object.keys(ownerRoots).length > 0 ? { ownersOf: ownersFrom(ownerRoots, repoRoot) } : {}),
     generatedAt: new Date().toISOString(),
   });
   // 링크 상태를 다시 센 값은 문서 지도에도 돌려 쓴다. 그래야 두 그림의 깨진 링크 수가 같다
@@ -467,7 +491,14 @@ function handleLinkDocs(input: ArchitectureInput, repoRoot: string): object {
     ...knowledge.ir,
     nodes: knowledge.ir.nodes.map((n) => {
       const doc = result.docInfo.get(n.id);
-      return doc !== undefined ? { ...n, doc } : n;
+      const owners = n.owners ?? result.docOwners.get(n.id);
+      return doc !== undefined || owners !== undefined
+        ? {
+            ...n,
+            ...(doc !== undefined ? { doc } : {}),
+            ...(owners !== undefined ? { owners } : {}),
+          }
+        : n;
     }),
   };
   writeJsonAtomic(draftPath, updated);
@@ -487,6 +518,10 @@ function handleLinkDocs(input: ArchitectureInput, repoRoot: string): object {
       screensOnlyInCode: s.screensOnlyInCode.length,
       screensOnlyInIndex: s.screensOnlyInIndex.length,
       uncoveredCount: s.uncovered.length,
+      ...(s.ownership !== undefined
+        ? { ownership: { tech: s.ownership.tech, docs: s.ownership.docs } }
+        : {}),
+      ...(Object.keys(s.gapsByOwner).length > 0 ? { gapsByOwner: s.gapsByOwner } : {}),
     },
     uncoveredSample: s.uncovered.slice(0, SIGNAL_SAMPLE),
     draftPath: linkPath,

@@ -87,6 +87,8 @@ export interface DocApiRef {
 export interface DocScanResult {
   docs: ScannedDoc[];
   skipped: { path: string; reason: string }[];
+  /** scan_docs가 저장할 때만. link_docs가 문서 레포의 CODEOWNERS를 다시 찾는 데 쓴다 */
+  roots?: { repoId: string; name: string; path: string }[];
 }
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '.turbo']);

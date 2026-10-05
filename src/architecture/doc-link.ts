@@ -1,5 +1,6 @@
 import type { ScannedDoc } from './doc-scan.js';
 import { docNodeId } from './doc-scan.js';
+import type { OwnerMatch } from './codeowners.js';
 import { normalizePathTemplate } from './endpoint-match.js';
 import { docPathKey } from './name-ref-match.js';
 import { LEGACY_PACK_IDS } from './packs/index.js';
@@ -26,7 +27,16 @@ export interface LinkDocsOptions {
   /** 화면 색인으로 쓸 design_screen의 `<repoId>/<경로 접두>`. 비면 화면은 잇지 않는다 */
   screenIndexPrefixes?: string[];
   fileFacts?: FileFacts;
+  /** 레포 이름과 경로 → CODEOWNERS 담당. 주면 기술 노드와 문서에 담당을 달고 소유 신호를 센다 */
+  ownersOf?: (repoName: string, path: string) => OwnerMatch | undefined;
   generatedAt: string;
+}
+
+export interface OwnershipCount {
+  total: number;
+  owned: number;
+  /** 레포 전체 기본 담당(`*`)에만 걸린 수. owned에 들어 있다 */
+  catchAllOnly: number;
 }
 
 export interface KnowledgeLinkSignals {
@@ -42,8 +52,10 @@ export interface KnowledgeLinkSignals {
   links: { total: number; broken: number; branchOnly: number; pinned: number; unchecked: number };
   linkedDocs: number;
   describes: number;
-  /** 담당별 열린 구멍 수. 담당을 안 적은 구멍은 '(담당 없음)'으로 센다 */
+  /** 문서 전체의 담당별 열린 구멍 수. 구멍에 담당이 없으면 문서 담당으로, 그것도 없으면 '(담당 없음)'으로 센다 */
   gapsByOwner: Record<string, number>;
+  /** ownersOf를 줬을 때만. tech는 문서가 붙어야 할 kind만 센다 */
+  ownership?: { tech: OwnershipCount; docs: OwnershipCount; unownedTech: string[] };
 }
 
 export interface LinkDocsResult {
@@ -51,6 +63,8 @@ export interface LinkDocsResult {
   signals: KnowledgeLinkSignals;
   /** 링크 상태를 다시 센 문서 정보. 문서 지도 초안에 되돌려 쓴다 */
   docInfo: Map<string, DocInfo>;
+  /** CODEOWNERS로 찾은 문서 담당. 문서 지도 초안에 되돌려 쓴다 */
+  docOwners: Map<string, string[]>;
 }
 
 const MODULE_KINDS = new Set(['service', 'micro_app', 'app_module']);
@@ -153,6 +167,30 @@ export function linkDocs(
       fileIndex.set(key, [...(fileIndex.get(key) ?? []), n.id]);
       const root = MODULE_KINDS.has(n.kind) ? packageRoot(loc.path) : undefined;
       if (root !== undefined) modules.push({ repo: loc.repo, root, node: n.id });
+    }
+  }
+
+  // 근거 파일마다 담당을 찾아 합친다. 노드에 이미 적힌 담당은 출처가 따로 있으니 그대로 둔다
+  const techOwners = new Map<string, OwnerMatch>();
+  const docOwnerMatch = new Map<string, OwnerMatch>();
+  if (options.ownersOf !== undefined) {
+    const nameOf = (repos: ArchitectureIr['repos'], id: string) =>
+      repos.find((r) => r.id === id)?.name ?? id;
+    for (const n of tech.nodes) {
+      const matches: OwnerMatch[] = [];
+      for (const e of n.evidence) {
+        if (e.type !== 'code') continue;
+        const loc = splitCodeLocation(e.location);
+        const m = loc && options.ownersOf(nameOf(tech.repos, loc.repo), loc.path);
+        if (m) matches.push(m);
+      }
+      const merged = mergeOwners(matches);
+      if (merged !== undefined) techOwners.set(n.id, merged);
+    }
+    for (const n of knowledge.nodes) {
+      if (n.doc === undefined || n.repo === undefined) continue;
+      const m = options.ownersOf(nameOf(knowledge.repos, n.repo), n.doc.path.replace(/#.*$/, ''));
+      if (m !== undefined) docOwnerMatch.set(n.id, m);
     }
   }
 
@@ -323,13 +361,14 @@ export function linkDocs(
     if (src === undefined) continue;
     const { parent: _parent, ...rest } = src;
     const info = docInfo.get(doc) ?? src.doc;
-    docNodes.push({ ...rest, ...(info !== undefined ? { doc: info } : {}) });
+    const owners = rest.owners ?? docOwnerMatch.get(doc)?.owners;
+    docNodes.push({
+      ...rest,
+      ...(info !== undefined ? { doc: info } : {}),
+      ...(owners !== undefined ? { owners } : {}),
+    });
     const subject = firstTarget.get(doc)!;
     const gaps = info?.gaps ?? [];
-    for (const g of gaps) {
-      const who = g.owner ?? NO_OWNER;
-      signals.gapsByOwner[who] = (signals.gapsByOwner[who] ?? 0) + 1;
-    }
     const gapN = gaps.filter((g) => g.kind === 'gap').length;
     const unvN = gaps.length - gapN;
     if (gaps.length > 0) {
@@ -370,6 +409,42 @@ export function linkDocs(
     for (const n of all) if (!coveredTech.has(n.id)) signals.uncovered.push(n.id);
   }
   signals.uncovered.sort();
+  // 채울 사람을 찾는 신호라 그림에 이어졌는지와 상관없이 문서 전체의 구멍을 센다
+  for (const n of knowledge.nodes) {
+    if (n.kind !== 'document') continue;
+    for (const g of (docInfo.get(n.id) ?? n.doc)?.gaps ?? []) {
+      const who = g.owner ?? docOwnerMatch.get(n.id)?.owners.join(', ') ?? NO_OWNER;
+      signals.gapsByOwner[who] = (signals.gapsByOwner[who] ?? 0) + 1;
+    }
+  }
+  if (options.ownersOf !== undefined) {
+    const slots = tech.nodes.filter((n) => KNOWLEDGE_COVERAGE_KINDS.includes(n.kind));
+    // 화면 색인은 한 파일이 행마다 노드가 되고 폴더 묶음은 문서가 아니라서 문서 파일만 센다
+    const docs = knowledge.nodes.filter((n) => n.kind === 'document');
+    const count = (ids: string[], owned: Map<string, OwnerMatch>, preset: Set<string>) => ({
+      total: ids.length,
+      owned: ids.filter((id) => preset.has(id) || owned.has(id)).length,
+      catchAllOnly: ids.filter((id) => !preset.has(id) && owned.get(id)?.catchAll === true).length,
+    });
+    const presetOf = (nodes: ArchitectureNode[]) =>
+      new Set(nodes.filter((n) => (n.owners ?? []).length > 0).map((n) => n.id));
+    signals.ownership = {
+      tech: count(
+        slots.map((n) => n.id),
+        techOwners,
+        presetOf(slots),
+      ),
+      docs: count(
+        docs.map((n) => n.id),
+        docOwnerMatch,
+        presetOf(docs),
+      ),
+      unownedTech: slots
+        .filter((n) => (n.owners ?? []).length === 0 && !techOwners.has(n.id))
+        .map((n) => n.id)
+        .sort(),
+    };
+  }
   signals.linkedDocs = linkedDocs.size;
   signals.describes = edges.length;
 
@@ -382,12 +457,30 @@ export function linkDocs(
       view: 'knowledge-link',
       packs: [...new Set([...(tech.packs ?? LEGACY_PACK_IDS), 'knowledge'])],
       repos: [...tech.repos, ...knowledgeRepos],
-      nodes: [...tech.nodes, ...docNodes].sort(byId),
+      nodes: [
+        ...tech.nodes.map((n) => {
+          const m = techOwners.get(n.id);
+          return m !== undefined && n.owners === undefined ? { ...n, owners: m.owners } : n;
+        }),
+        ...docNodes,
+      ].sort(byId),
       edges: [...tech.edges, ...edges].sort(byId),
       unresolved: [...tech.unresolved, ...unresolved.sort(byId)],
       generatedAt: options.generatedAt,
     },
     signals,
     docInfo,
+    docOwners: new Map([...docOwnerMatch].map(([id, m]) => [id, m.owners])),
+  };
+}
+
+// 근거 파일마다 담당이 다르면 모두 싣는다. 실제 담당이 하나라도 있으면 기본 담당은 뺀다
+function mergeOwners(matches: OwnerMatch[]): OwnerMatch | undefined {
+  if (matches.length === 0) return undefined;
+  const real = matches.filter((m) => !m.catchAll);
+  const pick = real.length > 0 ? real : matches;
+  return {
+    owners: [...new Set(pick.flatMap((m) => m.owners))].sort(),
+    catchAll: real.length === 0,
   };
 }
