@@ -182,9 +182,10 @@ export function parseEvidenceMarker(
   return { group: 'other', ref: null };
 }
 
+// `진술 @2026-08-11`처럼 날짜 앞에도 @를 붙여 쓰므로 핸들은 글자로 시작할 때만 받는다
 function ownerOf(text: string): string | undefined {
   const m =
-    /(?:담당(?:자)?|owner)\s*[:：=]\s*([^,;)\]|]+)/i.exec(text) ?? /@([\w][\w.-]*)/.exec(text);
+    /(?:담당(?:자)?|owner)\s*[:：=]\s*([^,;)\]|]+)/i.exec(text) ?? /@([A-Za-z][\w.-]*)/.exec(text);
   return m ? m[1]!.trim() : undefined;
 }
 

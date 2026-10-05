@@ -118,6 +118,15 @@ describe('scanMarkdown', () => {
     expect(d.mdLinks).toEqual(['domains/orders/references/refund.md']);
   });
 
+  it('구멍 담당은 담당 표기나 글자로 시작하는 @핸들만 받고 날짜 앞 @는 무시한다', () => {
+    const d = scanMarkdown(
+      'kb',
+      'a.md',
+      '# A\n\n[GAP: 진술 @2026-08-11 기준]\n[GAP: 정산 주기 @lee 확인]\n',
+    );
+    expect(d.gaps.map((g) => g.owner)).toEqual([undefined, 'lee']);
+  });
+
   it('질문 안내 표의 키워드와 대상 문서를 줄마다 뽑는다', () => {
     const d = scanMarkdown('kb', 'domains/orders/INDEX.md', INDEX_MD);
     expect(d.routes).toEqual([
