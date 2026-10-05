@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.90.1] - 2026-10-05
+
+### Fixed
+
+- **`/architecture` 스킬이 연관 레포를 원격 기본 브랜치 기준으로 읽어요 (#55).** 사용자가 체크아웃해 둔 연관 레포를 지금 상태 그대로 읽어서 그 레포가 기능 브랜치에 있거나 pull을 안 했으면 그 시점 코드로 그림이 나왔어요. 어느 브랜치를 읽었는지도 안 남았어요.
+  - 사용자 클론은 `git fetch origin`으로 원격 ref만 갱신해요. 지금 체크아웃이 원격 기본 브랜치와 다르면 `~/.gestalt/architecture/worktrees/` 아래 분리 워크트리를 만들어 거기서 읽어요. 사용자 브랜치와 작업 트리는 안 건드려요.
+  - fetch가 실패하면 지금 체크아웃을 읽고 읽은 브랜치 이름을 미해결 질문으로 남겨요.
+  - 캐시 클론은 "기본 브랜치로 맞춰"라고만 적혀 있어서 명령을 세션이 알아서 골랐어요. 이제 `fetch --depth 1 origin HEAD` 뒤 `reset --hard FETCH_HEAD`로 맞춰요. shallow 클론이라 `git pull`은 안 써요.
+
+### 검증 범위
+
+- 임시 레포로 문서의 명령을 그대로 돌려봤어요. 캐시는 새 커밋까지 따라왔고 `feat` 브랜치에 있던 사용자 클론은 그대로인 채 워크트리에서만 최신 `origin/main`이 열렸어요.
+- 테스트 4306개가 통과했고 CI는 네 칸 모두 통과했어요.
+
+### 남긴 것
+
+- 어느 커밋을 읽었는지 IR의 `repos`에 남기는 건 뺐어요. 스키마와 검증 코드까지 같이 바꿔야 해서 따로 하려고요.
+- 워크트리 경로에 폴더는 있는데 워크트리로 등록이 안 된 경우는 문서에 처리가 없어요.
+
 ## [0.90.0] - 2026-10-05
 
 ### Added
