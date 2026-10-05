@@ -141,4 +141,37 @@ describe('분석 합치기의 투영', () => {
     expect(asked).toHaveLength(2);
     for (const id of asked) expect(messageIds).toContain(id);
   });
+
+  it('두 분석을 합치면 구간 from과 to도 바뀐 메시지 id를 따라간다', () => {
+    const withPhases = (name: string): ArchitectureIr => {
+      const ir = withRemote(name);
+      ir.projections![0]!.phases = [
+        { id: 'p-ask', label: '승인 요청', from: 'm1', to: 'm3' },
+        { id: 'p-result', label: '결과 받기', from: 'm4', to: 'm7' },
+      ];
+      return ir;
+    };
+    const result = mergeArchitectureIrs([withPhases('acme-shop'), withPhases('acme-admin')]);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    for (const p of result.ir.projections!) {
+      const ids = p.messages.map((m) => m.id);
+      expect(p.phases!.map((ph) => [ph.id, ph.label])).toEqual([
+        ['p-ask', '승인 요청'],
+        ['p-result', '결과 받기'],
+      ]);
+      expect(p.phases!.map((ph) => [ph.from, ph.to])).toEqual([
+        [ids[0], ids[2]],
+        [ids[3], ids[6]],
+      ]);
+    }
+    const ends = result.ir.projections!.flatMap((p) => p.phases!.flatMap((ph) => [ph.from, ph.to]));
+    expect(new Set(ends).size).toBe(ends.length);
+    expect(validateArchitectureIr(result.ir, { checkFiles: false }).ok).toBe(true);
+  });
+
+  it('구간이 없는 투영은 합친 뒤에도 phases가 없다', () => {
+    const result = mergeArchitectureIrs([withRemote('acme-shop'), withRemote('acme-admin')]);
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    for (const p of result.ir.projections!) expect(p).not.toHaveProperty('phases');
+  });
 });
