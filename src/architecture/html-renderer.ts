@@ -403,6 +403,7 @@ function renderCard(
   products: readonly string[] = [],
   productIds: readonly number[] = [],
   cover?: DocCover,
+  where?: string,
 ): string {
   const name = nodeName(node);
   const guess = isGuess(node);
@@ -423,11 +424,13 @@ function renderCard(
       : `${node.displayName}${guess ? ` (${INFERRED_BADGE})` : ''}\n${node.label}`) +
     (facts?.prodDomain !== undefined ? `\n${facts.prodDomain}` : '');
   const subText =
-    facts?.prodDomain !== undefined
-      ? `<span class="tc dom">${escapeHtml(facts.prodDomain)}</span>`
-      : node.displayName !== undefined
-        ? `<span class="tc">${escapeHtml(node.label)}</span>`
-        : '';
+    where !== undefined
+      ? `<span class="tc">${escapeHtml(where)}</span>`
+      : facts?.prodDomain !== undefined
+        ? `<span class="tc dom">${escapeHtml(facts.prodDomain)}</span>`
+        : node.displayName !== undefined
+          ? `<span class="tc">${escapeHtml(node.label)}</span>`
+          : '';
   const chips = platformChips(facts);
   const second = chips === '' ? subText : `<span class="l2">${subText}${chips}</span>`;
   const engine = datastoreEngine(node);
@@ -962,6 +965,7 @@ function viewCards(
   boxes: readonly { id: string; x: number; y: number; width: number; height: number }[],
   nodeById: ReadonlyMap<string, ArchitectureNode>,
   services: Record<string, ServiceFacts>,
+  whereOf: (id: string) => string | undefined = () => undefined,
 ): string {
   return boxes
     .map((b) =>
@@ -979,9 +983,30 @@ function viewCards(
         services[b.id],
         undefined,
         { host: false },
+        0,
+        [],
+        [],
+        undefined,
+        whereOf(b.id),
       ),
     )
     .join('');
+}
+
+/**
+ * 순서도 머리 카드 둘째 줄에 적을 자리. 레포가 여럿인 그림에서만 쓴다.
+ * MCP 도구는 레포보다 어느 서버의 도구인지가 궁금한 자리라 서버 이름을 적는다
+ */
+function whereFn(ir: ArchitectureIr): (id: string) => string | undefined {
+  if (ir.repos.length < 2) return () => undefined;
+  const repoName = new Map(ir.repos.map((r) => [r.id, r.name]));
+  const nodes = new Map(ir.nodes.map((n) => [n.id, n]));
+  return (id) => {
+    const n = nodes.get(id);
+    if (!n) return undefined;
+    if (n.kind === 'endpoint' && n.mcpServer !== undefined) return `${n.mcpServer} MCP`;
+    return repoName.get(n.repo);
+  };
 }
 
 const VIEW_SVG_LABEL: Record<ArchitectureProjection['shape'], string> = {
@@ -1017,6 +1042,7 @@ function renderSequenceSection(
   layout: SequenceLayout,
   nodeById: ReadonlyMap<string, ArchitectureNode>,
   services: Record<string, ServiceFacts>,
+  whereOf: (id: string) => string | undefined,
 ): string {
   const px = (x: number): number => round2(x + CANVAS_PAD_X);
   const py = (y: number): number => round2(y + CANVAS_PAD_TOP);
@@ -1111,7 +1137,7 @@ function renderSequenceSection(
     height,
     `${lifelines}${blocks}`,
     links,
-    viewCards(layout.heads, nodeById, services),
+    viewCards(layout.heads, nodeById, services, whereOf),
   );
 }
 
@@ -1673,6 +1699,7 @@ export function renderDrilldownHtml(
   }
   const drawnMessages = validated.drawableMessageIds ?? new Set<string>();
   const drawnViews = validated.drawableProjectionIds ?? new Set<string>();
+  const whereOf = whereFn(ir);
   const views = (ir.projections ?? [])
     .filter((p) => drawnViews.has(p.id))
     .map((projection) => ({ level: `${VIEW_LEVEL_PREFIX}${projection.id}`, projection }));
@@ -1746,8 +1773,8 @@ export function renderDrilldownHtml(
           const layout = computeCompareLayout(p, drawableNodes, nodeById);
           return renderCompareSection(v.level, p, layout, nodeById, base.services);
         }
-        const layout = computeSequenceLayout(p, drawnMessages, nodeById);
-        return renderSequenceSection(v.level, p, layout, nodeById, base.services);
+        const layout = computeSequenceLayout(p, drawnMessages, nodeById, whereOf);
+        return renderSequenceSection(v.level, p, layout, nodeById, base.services, whereOf);
       }),
     )
     .join('\n');

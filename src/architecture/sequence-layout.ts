@@ -65,12 +65,14 @@ function labelWidth(text: string): number {
 
 /**
  * 그릴 메시지만 받아 좌표를 정한다. 같은 입력이면 같은 좌표가 나온다.
- * 참여자는 participants 순서, 없으면 메시지에 처음 나온 순서다. 그려지지 않는 노드는 뺀다
+ * 참여자는 participants 순서, 없으면 메시지에 처음 나온 순서다. 그려지지 않는 노드는 뺀다.
+ * whereOf가 돌려준 글자는 머리 카드 둘째 줄에 들어가므로 카드 크기에 넣어 잰다
  */
 export function computeSequenceLayout(
   projection: ArchitectureProjection,
   drawn: ReadonlySet<string>,
   nodeById: ReadonlyMap<string, ArchitectureNode>,
+  whereOf: (id: string) => string | undefined = () => undefined,
 ): SequenceLayout {
   const messages = projection.messages.filter((m) => drawn.has(m.id));
   const order: string[] = [];
@@ -87,8 +89,10 @@ export function computeSequenceLayout(
   const sizes = order.map((id) => {
     const n = nodeById.get(id)!;
     const chip = chipTextOverride(n);
+    const where = whereOf(id);
     return measureNode(n.label, n.displayName, n.displayNameInferred, displayKindOf(n), {
       ...(chip !== undefined ? { chip } : {}),
+      ...(where !== undefined ? { secondLine: where } : {}),
     });
   });
   const col = new Map(order.map((id, i) => [id, i]));

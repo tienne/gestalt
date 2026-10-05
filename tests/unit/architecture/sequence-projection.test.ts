@@ -94,6 +94,22 @@ describe('질문별 sequence 투영', () => {
     expect(root).toContain('단계 6, 참여 4');
   });
 
+  it('레포가 여럿이면 머리 카드 둘째 줄에 레포를, MCP 도구는 서버 이름을 적는다', async () => {
+    const ir = checkoutSequenceIr();
+    ir.packs = ['generic', 'web-product'];
+    ir.repos.push({ id: 'pay', name: 'acme-pay' });
+    ir.nodes.find((n) => n.id === 'api')!.repo = 'pay';
+    Object.assign(ir.nodes.find((n) => n.id === 'pg')!, { kind: 'endpoint', mcpServer: 'acme-pg' });
+    const html = (await renderBoth(ir)).private;
+    const view = html.slice(html.indexOf('data-level-id="view:checkout"'));
+    expect(view).toContain('<span class="tc">acme-pay</span>');
+    expect(view).toContain('<span class="tc">acme-app</span>');
+    expect(view).toContain('<span class="tc">acme-pg MCP</span>');
+
+    const single = (await renderBoth(checkoutSequenceIr())).private;
+    expect(single).not.toContain('<span class="tc">acme-app</span>');
+  });
+
   it('투영이 없으면 카드 줄을 싣지 않는다', async () => {
     const ir = checkoutSequenceIr();
     delete ir.projections;
