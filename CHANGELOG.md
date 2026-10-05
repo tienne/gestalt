@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.90.0] - 2026-10-05
+
+### Added
+
+- **SKILL.md의 `triggers`로 스킬 라우팅 표를 뽑아요 (#54).** `triggers`는 파서가 읽기만 하고 아무도 안 써서 `proactive-routing.md` 스킬 표의 예시 문구와 따로 놀았어요. 이제 `pnpm build:routing`이 각 스킬의 `triggers`와 `routing.note`로 표를 다시 써요.
+  - frontmatter에 선택 필드 `routing`을 새로 뒀어요. 이 필드가 있는 스킬만 표에 실려요. `solve`의 "해결해줘"처럼 넓은 트리거가 설치된 모든 레포에서 자동으로 걸리지 않게 스킬마다 고르게 했어요.
+  - `verify:routing`이 표와 SKILL.md가 어긋나면 실패해요. `gate`와 `postbuild`에 걸었어요.
+  - 한 스킬의 트리거가 다른 스킬 트리거 안에 그대로 들어 있으면 생성도 검사도 실패해요. 대소문자와 공백은 무시하고 같은 스킬 안에서 겹치는 건 안 봐요.
+
+### Changed
+
+- **`/architecture` 스킬의 description과 트리거를 0.89 기능에 맞췄어요 (#54).** 뷰 두 개뿐이던 0.88 기준이라 흐름 그림이나 질문별 그림, 웹 제품이 아닌 대상, 문서 지도 요청을 스킬 선택에서 놓쳤어요.
+  - description에 입구 셋을 드러냈어요. 코드 구조 그림, 질문별 그림과 흐름 그림, 문서 지도와 손볼 문서 찾기예요. 근거 없이 다이어그램만 원하는 요청은 이 스킬이 아니라고 갈랐어요.
+  - 트리거를 6개에서 28개로 늘렸어요.
+  - 뷰를 물을 때 내부 이름 대신 풀어서 묻고 마지막 보고에서도 내부 용어를 풀어 쓰게 했어요.
+- **라우팅 표의 스킬 줄 12개를 생성 표로 옮겼어요 (#54).** 줄마다 붙던 괄호 설명은 각 스킬의 `routing.note`로 옮겼어요. 예전엔 예시 문구 몇 개만 실렸는데 이제 `triggers` 전체가 실려요.
+
+### Fixed
+
+- **스킬끼리 겹치던 트리거 다섯 쌍을 정리했어요 (#54).** 겹침 검사를 처음 돌려서 나온 것들이에요.
+  - `ship`에서 `review-loop`와 헷갈리던 "리뷰 반복"과 "리뷰 루프 돌려줘"를 뺐어요.
+  - `review-loop`의 "PR 리뷰 계속 봐줘"는 "PR 계속 지켜봐줘"로, `brief`의 "경영진 보고"는 "경영진 보고 자료"로 좁혔어요.
+  - `explain`의 "한테 설명"과 "에게 설명"이 `review`의 "주니어한테 설명하듯 리뷰"까지 잡아서 "해줘"를 붙였어요.
+
+### 검증 범위
+
+- `pnpm gate`를 통과했어요 (테스트 4306개, 스킵 1개). CI는 macOS와 Ubuntu에서 Node 22, 24 네 칸 모두 통과했어요.
+- 처음 gate를 돌렸을 때 `verify:rules`가 라우팅 문서의 연결어미 쉼표 하나에 걸렸고 `explain` 스킬 테스트가 옛 트리거를 기대하다 실패했어요. 둘 다 고쳤어요.
+
+### 남긴 것
+
+- 표에 없는 스킬은 빠뜨린 게 아니에요. opt-in이라 `routing`을 안 둔 스킬은 일부러 안 실었어요.
+- 첫 커밋(`3eca3d2`)만 체크아웃하면 `verify:routing`이 실패해요. 마커가 세 번째 커밋에서 들어가서요. 머지된 main에는 영향이 없어서 그대로 뒀어요.
+
 ## [0.89.0] - 2026-10-05
 
 ### Added
