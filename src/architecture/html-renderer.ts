@@ -1137,8 +1137,16 @@ function renderSequenceSection(
     height,
     `${lifelines}${blocks}`,
     links,
-    viewCards(layout.heads, nodeById, services, whereOf),
+    stickyHeadBar(layout.heads, width) + viewCards(layout.heads, nodeById, services, whereOf),
   );
+}
+
+const STICKY_PAD = 10;
+
+/** 머리 카드 뒤에 까는 띠. 아래로 내려가 머리 카드가 화면 위에 붙을 때 그 밑을 지나는 선을 가린다 */
+function stickyHeadBar(heads: readonly { height: number }[], width: number): string {
+  const h = heads.reduce((m, b) => Math.max(m, b.height), 0);
+  return `<div class="seq-sticky" style="top:${CANVAS_PAD_TOP - STICKY_PAD}px;width:${width}px;height:${h + STICKY_PAD * 2}px"></div>`;
 }
 
 /** 데이터가 어디서 어디로 옮겨 가는지. 선 라벨이 옮겨 가는 데이터 이름이다 */

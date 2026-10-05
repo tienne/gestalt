@@ -661,6 +661,11 @@ export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; fon
 .cmp-col.cmp-both rect { stroke: var(--border-strong); stroke-width: 1.5; }
 .cmp-head { font-size: 12.5px; font-weight: 700; fill: var(--text); }
 .cmp-n, .cmp-empty { font-size: 12px; font-weight: 400; fill: var(--muted); }
+.seq-sticky { position: absolute; left: 0; background: var(--bg); }
+.seq-sticky.stuck { box-shadow: 0 1px 0 var(--border-strong); }
+.viewport.glide .seq-sticky, .viewport.glide .view-level .node {
+  transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.2, 1), opacity 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
 .view-strip { position: absolute; }
 .view-strip h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--text); }
 .view-strip h3 .n { margin-left: 4px; color: var(--muted); font-weight: 600; }

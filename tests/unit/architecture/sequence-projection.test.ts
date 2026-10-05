@@ -110,6 +110,19 @@ describe('질문별 sequence 투영', () => {
     expect(single).not.toContain('<span class="tc">acme-app</span>');
   });
 
+  it('순서도 머리 카드 뒤에 위에 붙여 둘 띠를 깔고 그 스크립트를 싣는다', async () => {
+    const html = (await renderBoth(checkoutSequenceIr())).private;
+    const view = html.slice(html.indexOf('data-level-id="view:checkout"'));
+    expect(view).toMatch(
+      /<div class="seq-sticky" style="top:\d+px;width:[\d.]+px;height:\d+px"><\/div>/,
+    );
+    expect(html).toContain('function stickHeads()');
+
+    const ir = checkoutSequenceIr();
+    delete ir.projections;
+    expect((await renderBoth(ir)).private).not.toContain('stickHeads');
+  });
+
   it('투영이 없으면 카드 줄을 싣지 않는다', async () => {
     const ir = checkoutSequenceIr();
     delete ir.projections;

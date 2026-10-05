@@ -190,6 +190,19 @@ const VIEW_FUNCS = `  var messages = data.messages || {};
     var s = c.closest('.level');
     return { x: s.offsetLeft + c.offsetLeft + c.offsetWidth / 2, y: s.offsetTop + c.offsetTop + c.offsetHeight / 2 };
   }
+  // 순서도를 아래로 내려도 머리 카드는 화면 위에 붙여 둔다. 확대와 이동이 viewport transform 하나라 CSS sticky가 안 먹어서 그 값이 바뀔 때마다 직접 내린다
+  function stickHeads() {
+    var bar = active && active.querySelector('.seq-sticky');
+    if (!bar) return;
+    var top = parseFloat(bar.style.top);
+    var end = Number(active.getAttribute('data-h')) - top - bar.offsetHeight;
+    var dy = Math.min(Math.max(0, -view.y / view.k - top), Math.max(0, end));
+    var t = dy > 0 ? 'translateY(' + dy + 'px)' : '';
+    bar.style.transform = t;
+    bar.classList.toggle('stuck', dy > 0);
+    active.querySelectorAll('.node').forEach(function (c) { c.style.transform = t; });
+  }
+  new MutationObserver(stickHeads).observe(viewport, { attributes: true, attributeFilter: ['style'] });
   function activateMessage(g) {
     var m = messages[g.getAttribute('data-message-id')];
     if (!m) return;
