@@ -431,6 +431,20 @@ export interface ArchitectureProjection {
   blocks?: ProjectionBlock[];
   /** compare가 견주는 두 묶음. 전과 후, 제품 둘처럼 왼쪽과 오른쪽에 선다 */
   sides?: ProjectionSide[];
+  /** sequence를 나누는 구간. 비우면 렌더할 때 맨 위 참여자가 새 대상을 부르는 자리에서 자른다 */
+  phases?: ProjectionPhase[];
+}
+
+/**
+ * sequence를 나누는 구간 하나. from과 to는 이 그림의 메시지 id이고 둘 다 구간에 든다.
+ * 배열 순서가 메시지 순서와 같고 구간끼리 겹치거나 비는 메시지가 없어야 한다
+ */
+export interface ProjectionPhase {
+  id: string;
+  /** 사람이 읽는 단계 이름 */
+  label: string;
+  from: string;
+  to: string;
 }
 
 /** compare 묶음 하나. nodes는 지도의 노드 id다. 두 묶음에 다 있는 노드는 가운데 열에 선다 */

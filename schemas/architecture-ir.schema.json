@@ -580,7 +580,27 @@
           "type": "array",
           "description": "the two groups compare puts side by side, such as before and after",
           "items": { "$ref": "#/definitions/projectionSide" }
+        },
+        "phases": {
+          "type": "array",
+          "minItems": 1,
+          "description": "sequence only. Phases in message order, from and to inclusive, no overlap or gap. Leave out to split automatically",
+          "items": { "$ref": "#/definitions/projectionPhase" }
         }
+      }
+    },
+    "projectionPhase": {
+      "type": "object",
+      "required": ["id", "label", "from", "to"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "step name a person reads"
+        },
+        "from": { "type": "string", "minLength": 1, "description": "first message id" },
+        "to": { "type": "string", "minLength": 1, "description": "last message id" }
       }
     },
     "projectionSide": {
