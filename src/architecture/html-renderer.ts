@@ -20,6 +20,7 @@ import {
   renderIconSprite,
   VIEW_CSS,
   DOC_CSS,
+  SEQ_VIEW_CSS,
 } from './html-theme.js';
 import {
   EDGE_KIND_ABOUT,
@@ -49,6 +50,16 @@ import { KNOWLEDGE_COVERAGE_KINDS, KNOWLEDGE_DOC_KINDS } from './packs/knowledge
 import { computeCompareLayout, type CompareLayout } from './compare-layout.js';
 import { computeDataflowLayout, type DataflowLayout } from './dataflow-layout.js';
 import { computeSequenceLayout, type SequenceLayout } from './sequence-layout.js';
+import {
+  clipText,
+  computePhaseBoard,
+  computeWalkLayout,
+  phaseMetaText,
+  resolveSequencePhases,
+  sequenceCallDepths,
+  type PhaseCardLayout,
+  type SequencePhase,
+} from './sequence-views.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
   ArchitectureEdge,
@@ -1162,6 +1173,318 @@ function stickyHeadBar(heads: readonly { height: number }[], width: number): str
   return `<div class="seq-sticky" style="top:${CANVAS_PAD_TOP - STICKY_PAD}px;width:${width}px;height:${h + STICKY_PAD * 2}px"></div>`;
 }
 
+interface SequenceAlts {
+  sections: string;
+  /** 따라가기 보기의 단계 목록. 페이지 오른쪽 고정 목록에 들어간다 */
+  steps: string;
+}
+
+/** 순서도 메시지의 읽기 이름. 순서도 보기와 같은 꼴이다 */
+function sequenceMessageName(
+  n: number,
+  m: ProjectionMessage,
+  nameOf: (id: string) => string,
+): string {
+  return (
+    `${n}. ${nameOf(m.from)} → ${nameOf(m.to)}: ${m.label}` +
+    (m.reply ? ', 응답' : '') +
+    (m.lineStyle === 'dashed' ? ', 문서로만 확인' : '')
+  );
+}
+
+/**
+ * 순서도 옆에 두는 두 보기, 단계별 카드와 따라가기. 순서도 섹션은 그대로 두고 형제 섹션으로 붙인다.
+ * data-level-id가 없어 레벨 목록에 안 잡히고 보기 단추로만 바뀐다
+ */
+function renderSequenceAlts(
+  levelId: string,
+  projection: ArchitectureProjection,
+  layout: SequenceLayout,
+  drawn: ReadonlySet<string>,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  services: Record<string, ServiceFacts>,
+  whereOf: (id: string) => string | undefined,
+  edges: readonly ArchitectureEdge[],
+): SequenceAlts | undefined {
+  const nameOf = (id: string): string => {
+    const n = nodeById.get(id);
+    return n ? nodeName(n) : id;
+  };
+  const order = layout.heads.map((h) => h.id);
+  const phases = resolveSequencePhases(projection, drawn, order, nameOf);
+  if (phases.length === 0) return undefined;
+  const messages = projection.messages.filter((m) => drawn.has(m.id));
+  const numberById = new Map(layout.messages.map((b) => [b.id, b.n]));
+  const numberOf = (id: string): number => numberById.get(id) ?? 0;
+  const blockText = new Map(
+    (projection.blocks ?? []).map((b) => [b.id, `${SEQUENCE_BLOCK_TEXT[b.kind]} [${b.label}]`]),
+  );
+  const of = escapeHtml(levelId);
+  const cards = renderPhaseCards(of, projection, phases, numberOf, nodeById, nameOf);
+  const walk = renderWalk(
+    of,
+    projection,
+    phases,
+    messages,
+    layout,
+    nodeById,
+    services,
+    whereOf,
+    edges,
+  );
+  const phaseOf = new Map(phases.flatMap((ph) => ph.messageIds.map((id) => [id, ph])));
+  const messageById = new Map(messages.map((m) => [m.id, m]));
+  const steps = phases
+    .map((ph) => {
+      const items = ph.messageIds
+        .map((id) => {
+          const m = messageById.get(id)!;
+          const say = `${m.reply ? '↩ ' : ''}${m.label}`;
+          const block =
+            m.block !== undefined
+              ? `${blockText.get(m.block) ?? ''}${m.branch !== undefined ? `, ${m.branch}` : ''}`
+              : '';
+          return (
+            `<li><button type="button" data-n="${numberOf(id)}" data-phase="${escapeHtml(phaseOf.get(id)!.label)}" ` +
+            `data-say="${escapeHtml(say)}" data-block="${escapeHtml(block)}">${numberOf(id)}. ${escapeHtml(say)}</button></li>`
+          );
+        })
+        .join('');
+      return `<li class="ss-phase"><h4>${escapeHtml(ph.label)}</h4><ol>${items}</ol></li>`;
+    })
+    .join('');
+  return {
+    sections: `${cards}\n${walk}`,
+    steps: `<ol class="ss-list" data-seq-of="${of}" hidden>${steps}</ol>`,
+  };
+}
+
+function seqAltSection(
+  levelIdAttr: string,
+  mode: 'cards' | 'walk',
+  name: string,
+  projection: ArchitectureProjection,
+  width: number,
+  height: number,
+  body: string,
+): string {
+  return (
+    `<section class="level view-level seq-alt seq-${mode}" data-seq-of="${levelIdAttr}" data-seq-mode="${mode}" ` +
+    `aria-label="${escapeHtml(`${projection.title} ${name}`)}" data-w="${width}" data-h="${height}" ` +
+    `style="width:${width}px;height:${height}px" hidden>` +
+    `<p class="view-q" style="left:${CANVAS_PAD_X}px">${escapeHtml(projection.question)}</p>${body}</section>`
+  );
+}
+
+const SEQ_ALT_BOTTOM = 32;
+const MINI_ARROW = 6;
+
+/** 단계별 카드. 카드마다 그 구간 참여자만 가진 작은 순서도를 그리고 카드 사이에 화살표를 둔다 */
+function renderPhaseCards(
+  levelIdAttr: string,
+  projection: ArchitectureProjection,
+  phases: readonly SequencePhase[],
+  numberOf: (id: string) => number,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  nameOf: (id: string) => string,
+): string {
+  const board = computePhaseBoard(phases, projection, numberOf);
+  const px = (x: number): number => round2(x + CANVAS_PAD_X);
+  const py = (y: number): number => round2(y + CANVAS_PAD_TOP);
+  const width = round2(board.width + CANVAS_PAD_X * 2);
+  const height = round2(board.height + CANVAS_PAD_TOP + SEQ_ALT_BOTTOM);
+  const phaseById = new Map(phases.map((ph) => [ph.id, ph]));
+  const messageById = new Map(projection.messages.map((m) => [m.id, m]));
+  const cards = board.cards
+    .map((card) => {
+      const ph = phaseById.get(card.phaseId)!;
+      const title = `${card.index}. ${ph.label}`;
+      return (
+        `<div class="seq-phase" role="group" aria-label="${escapeHtml(title)}" ` +
+        `style="left:${px(card.x)}px;top:${py(card.y)}px;width:${card.width}px;height:${card.height}px">` +
+        `<h3 title="${escapeHtml(title)}">${escapeHtml(title)}</h3><p class="sp-meta">${phaseMetaText(ph)}</p>` +
+        miniSequenceSvg(card, projection, messageById, nodeById, nameOf) +
+        `</div>`
+      );
+    })
+    .join('');
+  const arrows = board.arrows
+    .map(
+      (a) =>
+        `<span class="sp-arrow" aria-hidden="true" style="left:${round2(px(a.x) - 18)}px;top:${round2(py(a.y) - 14)}px">→</span>`,
+    )
+    .join('');
+  return seqAltSection(
+    levelIdAttr,
+    'cards',
+    '단계별 카드',
+    projection,
+    width,
+    height,
+    cards + arrows,
+  );
+}
+
+function miniSequenceSvg(
+  card: PhaseCardLayout,
+  projection: ArchitectureProjection,
+  messageById: ReadonlyMap<string, ProjectionMessage>,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  nameOf: (id: string) => string,
+): string {
+  const s = card.svg;
+  const blocks = s.blocks
+    .map((b) => {
+      const tag = SEQUENCE_BLOCK_TEXT[b.kind];
+      const tagW = textUnits(tag) * 6 + 12;
+      const room = Math.max(0, Math.floor((b.width - tagW - 20) / 6) - 2);
+      const branches = b.branches
+        .map(
+          (br) =>
+            `<line class="b-branch" x1="${b.x}" x2="${round2(b.x + b.width)}" y1="${br.y}" y2="${br.y}"/>` +
+            (br.label !== ''
+              ? `<text class="b-label" x="${b.x + 8}" y="${round2(br.y + 11)}">[${escapeHtml(clipText(br.label, room))}]</text>`
+              : ''),
+        )
+        .join('');
+      return (
+        `<g class="seq-block b-${b.kind}"><rect x="${b.x}" y="${b.y}" width="${b.width}" height="${b.height}" rx="6"/>` +
+        `<path class="b-tab" d="M${b.x} ${round2(b.y + 14)}H${b.x + tagW}L${b.x + tagW + 6} ${round2(b.y + 8)}V${b.y}"/>` +
+        `<text class="b-kind" x="${b.x + 6}" y="${round2(b.y + 11)}">${tag}</text>` +
+        `<text class="b-label" x="${b.x + tagW + 12}" y="${round2(b.y + 11)}"><title>[${escapeHtml(b.label)}]</title>[${escapeHtml(clipText(b.label, room))}]</text>` +
+        `${branches}</g>`
+      );
+    })
+    .join('');
+  const heads = s.heads
+    .map((h) => {
+      const n = nodeById.get(h.id);
+      const name = nameOf(h.id);
+      return (
+        `<line class="sp-life" x1="${h.cx}" x2="${h.cx}" y1="${s.lifeline.y1}" y2="${s.lifeline.y2}"/>` +
+        `<g class="sp-head${n ? ` k-${displayKindOf(n)}` : ''}"><title>${escapeHtml(name)}</title>` +
+        `<rect x="${h.x}" y="${h.y}" width="${h.width}" height="${h.height}" rx="7"/>` +
+        `<text x="${h.cx}" y="${round2(h.y + h.height / 2 + 4)}" text-anchor="middle">${escapeHtml(clipText(name, 17))}</text></g>`
+      );
+    })
+    .join('');
+  const links = s.messages
+    .map((box) => {
+      const m = messageById.get(box.id)!;
+      const dash = m.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
+      const y = box.y;
+      let d: string;
+      let tip: [string, string, string];
+      let labelX: number;
+      let labelY: number;
+      if (box.self) {
+        const x = box.x1;
+        const yb = round2(y + 4);
+        d = `M${x} ${round2(y - 6)}H${round2(x + 18)}V${yb}H${round2(x + 2)}`;
+        tip = [
+          `${round2(x + 2)},${yb}`,
+          `${round2(x + 2 + MINI_ARROW)},${round2(yb - MINI_ARROW / 2)}`,
+          `${round2(x + 2 + MINI_ARROW)},${round2(yb + MINI_ARROW / 2)}`,
+        ];
+        labelX = round2(x + 24);
+        labelY = round2(y + 2);
+      } else {
+        const back = round2(box.x2 - (box.x2 > box.x1 ? 1 : -1) * MINI_ARROW);
+        d = `M${box.x1} ${y}H${box.x2}`;
+        tip = [
+          `${box.x2},${y}`,
+          `${back},${round2(y - MINI_ARROW / 2)}`,
+          `${back},${round2(y + MINI_ARROW / 2)}`,
+        ];
+        labelX = round2(Math.min(box.x1, box.x2) + 6);
+        labelY = round2(y - 4);
+      }
+      const name = sequenceMessageName(box.n, m, nameOf);
+      const head = m.reply
+        ? `<polyline class="tip open" points="${tip[1]} ${tip[0]} ${tip[2]}"/>`
+        : `<polygon class="tip" points="${tip.join(' ')}"/>`;
+      return (
+        `<g class="link seq-m${m.reply ? ' reply' : ''}" data-from="${escapeHtml(m.from)}" data-to="${escapeHtml(m.to)}" ` +
+        `data-message-id="${escapeHtml(m.id)}" tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
+        `<title>${escapeHtml(name)}</title><path class="hit" d="${d}" stroke-width="10"/>` +
+        `<path class="edge" d="${d}" stroke-width="1.2"${dash}/>${head}` +
+        `<text class="m-label" x="${labelX}" y="${labelY}"><tspan class="m-n">${box.n}.</tspan> ${escapeHtml(clipText(m.label, box.labelUnits))}</text></g>`
+      );
+    })
+    .join('');
+  return (
+    `<svg class="sp-seq" xmlns="http://www.w3.org/2000/svg" width="${s.width}" height="${s.height}" viewBox="0 0 ${s.width} ${s.height}" ` +
+    `role="group" aria-label="${escapeHtml(`${projection.title} 메시지`)}">${blocks}${heads}${links}</svg>`
+  );
+}
+
+/** 따라가기. 순서도 참여자만으로 만든 작은 지도 위에 단계마다 화살표 하나를 켠다. 어느 화살표를 켤지는 클라이언트가 정한다 */
+function renderWalk(
+  levelIdAttr: string,
+  projection: ArchitectureProjection,
+  phases: readonly SequencePhase[],
+  messages: readonly ProjectionMessage[],
+  layout: SequenceLayout,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  services: Record<string, ServiceFacts>,
+  whereOf: (id: string) => string | undefined,
+  edges: readonly ArchitectureEdge[],
+): string {
+  const sizes = new Map(layout.heads.map((h) => [h.id, { width: h.width, height: h.height }]));
+  const depths = sequenceCallDepths(messages, layout.heads[0]?.id);
+  const walk = computeWalkLayout(
+    phases,
+    messages,
+    depths,
+    (id) => sizes.get(id)!,
+    new Map(edges.map((e) => [e.id, e])),
+  );
+  const width = round2(walk.width + CANVAS_PAD_X * 2);
+  const height = round2(walk.height + CANVAS_PAD_TOP + SEQ_ALT_BOTTOM);
+  const tipId = `walk-tip-${projection.id}`;
+  const bands = walk.bands
+    .map((b) => `<text class="w-band" x="${b.x}" y="${b.y}">${escapeHtml(b.label)}</text>`)
+    .join('');
+  const lines = walk.edges.map((e) => `<path class="w-edge" d="${e.d}"/>`).join('');
+  const steps = walk.steps
+    .map(
+      (st) =>
+        `<path class="w-step" data-n="${st.n}" data-from="${escapeHtml(st.from)}" data-to="${escapeHtml(st.to)}" ` +
+        `data-message-id="${escapeHtml(st.messageId)}" d="${st.d}" marker-end="url(#${tipId})"/>`,
+    )
+    .join('');
+  const svg =
+    `<svg class="links" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
+    `role="group" aria-label="${escapeHtml(`${projection.title} 따라가기 지도`)}">` +
+    `<defs><marker id="${tipId}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">` +
+    `<path class="w-tip" d="M0 0L10 5L0 10z"/></marker></defs>` +
+    `<g transform="translate(${CANVAS_PAD_X} ${CANVAS_PAD_TOP})"><g class="w-bands">${bands}</g><g class="w-edges">${lines}</g>` +
+    `<g class="w-steps">${steps}</g></g></svg>`;
+  const cards = viewCards(walk.nodes, nodeById, services, whereOf);
+  return seqAltSection(levelIdAttr, 'walk', '따라가기', projection, width, height, svg + cards);
+}
+
+/** 순서도 보기 전환 단추와 따라가기 자막. 순서도가 있는 그림에만 싣고 순서도 레벨에서만 보인다 */
+function renderSequenceUi(stepLists: readonly string[]): string {
+  const mode = (id: string, text: string, on: boolean): string =>
+    `<button type="button" class="btn" data-seq-mode="${id}" aria-pressed="${on}">${text}</button>`;
+  return (
+    `<div id="seq-bar" class="seq-bar" hidden>` +
+    `<div class="seq-modes" role="group" aria-label="순서도 보기">` +
+    mode('seq', '순서도', true) +
+    mode('cards', '단계별 카드', false) +
+    mode('walk', '따라가기', false) +
+    `</div>` +
+    `<div class="seq-cap" hidden><span class="sw-say" aria-live="polite"><span class="sw-n"></span><span class="sw-p"></span>` +
+    `<span class="sw-t"></span><span class="sw-b" hidden></span></span>` +
+    `<span class="sw-ctl"><button type="button" class="btn icon sw-prev" aria-label="이전 단계" title="이전 단계 (←)">◀</button>` +
+    `<button type="button" class="btn sw-play" aria-pressed="false">재생</button>` +
+    `<button type="button" class="btn icon sw-next" aria-label="다음 단계" title="다음 단계 (→)">▶</button></span></div>` +
+    `</div>\n` +
+    `<nav id="seq-steps" class="seq-steps" aria-label="단계 목록" hidden>${stepLists.join('')}</nav>`
+  );
+}
+
 /** 데이터가 어디서 어디로 옮겨 가는지. 선 라벨이 옮겨 가는 데이터 이름이다 */
 function renderDataflowSection(
   levelId: string,
@@ -1498,8 +1821,9 @@ function clientScriptFor(
   rootFlows: boolean,
   views: boolean,
   mixedBundles: boolean,
+  sequences: boolean,
 ): string {
-  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}|${mixedBundles}`;
+  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}|${mixedBundles}|${sequences}`;
   const hit = clientScripts.get(key);
   if (hit !== undefined) return hit;
   const pick = <T>(table: Record<string, T>, keys: Iterable<string>): Record<string, T> =>
@@ -1531,6 +1855,7 @@ function clientScriptFor(
     rootFlows,
     views,
     mixedBundles,
+    sequences,
     docs: vocab.packIds.includes('knowledge'),
   });
   clientScripts.set(key, script);
@@ -1560,6 +1885,8 @@ interface PageSpec {
   views?: { level: string; projection: ArchitectureProjection }[];
   /** 근거가 섞인 묶음 선이 있으면 true. 그때만 그 표시 코드를 싣는다 */
   mixedBundles?: boolean;
+  /** 순서도마다 따라가기 단계 목록. 있을 때만 보기 전환 단추와 그 코드를 싣는다 */
+  sequences?: string[];
 }
 
 function renderPage({
@@ -1570,12 +1897,14 @@ function renderPage({
   flows,
   views,
   mixedBundles = false,
+  sequences = [],
 }: PageSpec): string {
   const title = viewTitle(ir);
   const vocab = irVocabulary(ir);
   const nodeById = new Map(payload.nodes.map((n) => [n.id, n]));
   const hasFlows = flows !== undefined && flows.flows.length > 0;
   const hasViews = views !== undefined && views.length > 0;
+  const hasSequences = sequences.length > 0;
   return [
     '<!doctype html>',
     '<html lang="ko">',
@@ -1584,7 +1913,7 @@ function renderPage({
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab),
@@ -1609,7 +1938,8 @@ function renderPage({
     '</div>',
     '</div>',
     `<p id="hint" class="hint"><span>${drill ? HINT_DRILL : HINT_FLAT}</span>` +
-      `<button type="button" id="hint-close" aria-label="안내 닫기">${iconUse('u-close')}</button></p>`,
+      `<button type="button" id="hint-close" aria-label="안내 닫기">${iconUse('u-close')}</button></p>` +
+      (hasSequences ? `\n${renderSequenceUi(sequences)}` : ''),
     '<details id="sheet" class="sheet" hidden><summary id="sheet-title">세부 연결</summary><div id="sheet-body" class="scroll"></div></details>',
     '<aside id="drawer" class="drawer" role="dialog" aria-modal="false" aria-labelledby="drawer-title" aria-hidden="true" inert>' +
       `<button type="button" id="drawer-close" class="btn icon dr-close" aria-label="닫기">${iconUse('u-close')}</button>` +
@@ -1636,7 +1966,7 @@ function renderPage({
       ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
       : '') + (hasViews ? `\n${renderViewsPop(views)}` : ''),
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
-    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles)}</script>`,
+    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles, hasSequences)}</script>`,
     '</body>',
     '</html>',
     '',
@@ -1745,6 +2075,7 @@ export function renderDrilldownHtml(
       messages: messagePayload(views, drawnMessages, base.unresolved, ir.edges),
     });
   }
+  const sequenceSteps: string[] = [];
   const rootFlowLinks = flowLevels
     .filter(({ flow }) => flow.service === undefined)
     .map(({ level, flow }) => ({ level: level.id, title: flow.title }))
@@ -1801,7 +2132,20 @@ export function renderDrilldownHtml(
           return renderCompareSection(v.level, p, layout, nodeById, base.services);
         }
         const layout = computeSequenceLayout(p, drawnMessages, nodeById, whereOf);
-        return renderSequenceSection(v.level, p, layout, nodeById, base.services, whereOf);
+        const section = renderSequenceSection(v.level, p, layout, nodeById, base.services, whereOf);
+        const alts = renderSequenceAlts(
+          v.level,
+          p,
+          layout,
+          drawnMessages,
+          nodeById,
+          base.services,
+          whereOf,
+          ir.edges,
+        );
+        if (!alts) return section;
+        sequenceSteps.push(alts.steps);
+        return `${section}\n${alts.sections}`;
       }),
     )
     .join('\n');
@@ -1813,5 +2157,6 @@ export function renderDrilldownHtml(
     ...(flowLevels.length > 0 ? { flows: { flows: drawnFlows, drawnSteps } } : {}),
     ...(views.length > 0 ? { views } : {}),
     mixedBundles: levels.some((l) => l.edges.some((e) => e.inferred !== undefined)),
+    ...(sequenceSteps.length > 0 ? { sequences: sequenceSteps } : {}),
   });
 }

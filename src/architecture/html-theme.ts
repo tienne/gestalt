@@ -688,6 +688,67 @@ export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; fon
 .view-card .vc-q { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .view-card .vc-n { margin-top: auto; font-size: 11.5px; color: var(--muted); }`;
 
+/** 순서도가 있는 그림에만 붙이는 스타일. 보기 전환 단추, 단계별 카드, 따라가기 지도와 단계 목록 */
+export const SEQ_VIEW_CSS = `.seq-bar {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 12; box-sizing: border-box;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; max-width: calc(100% - 32px); padding: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
+}
+.seq-bar[hidden], .seq-cap[hidden], .seq-steps[hidden], .seq-steps .ss-list[hidden], .sw-b[hidden] { display: none; }
+.seq-modes { display: inline-flex; flex: none; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seq-modes .btn { height: 30px; border: 0; border-radius: 0; color: var(--muted); }
+.seq-modes .btn + .btn { border-left: 1px solid var(--border); }
+.seq-modes .btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.seq-cap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.sw-say { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.sw-n { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sw-p { color: var(--muted); white-space: nowrap; }
+.sw-t { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; color: var(--text); }
+.sw-b { padding: 1px 8px; border-radius: 10px; font-size: 12px; white-space: nowrap; color: var(--warn); background: var(--warn-soft); }
+.sw-ctl { display: inline-flex; gap: 4px; flex: none; }
+.sw-ctl .btn { font-size: 12px; }
+.sw-play[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.seq-steps {
+  position: absolute; top: 72px; right: 16px; bottom: 16px; width: 300px; z-index: 11; overflow: auto; box-sizing: border-box;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); font-size: 13px;
+}
+.seq-steps ol { list-style: none; margin: 0; padding: 0; }
+.seq-steps .ss-list { padding: 6px 0; }
+.seq-steps h4 { margin: 0; padding: 10px 12px 4px; font-size: 12px; font-weight: 700; color: var(--text); }
+.seq-steps button {
+  display: block; width: 100%; padding: 4px 12px; border: 0; background: none; text-align: left; cursor: pointer;
+  font-size: 13px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere;
+}
+.seq-steps button:hover { background: var(--surface-2); color: var(--text); }
+.seq-steps button[aria-current] { background: var(--warn-soft); color: var(--text); font-weight: 600; }
+.w-band { font-size: 12px; font-weight: 700; fill: var(--muted); }
+.w-edge { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
+.w-step { display: none; fill: none; stroke: var(--hit); stroke-width: 3; stroke-dasharray: 8 5; animation: seq-run 0.8s linear infinite; }
+.w-step.on { display: inline; }
+.w-tip { fill: var(--hit); }
+@keyframes seq-run { to { stroke-dashoffset: -26; } }
+.view-level .node.w-dim { opacity: 0.35; }
+.seq-phase {
+  position: absolute; box-sizing: border-box; padding: 12px 14px; overflow: visible;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--shadow);
+}
+.seq-phase h3 { margin: 0; font-size: 15px; line-height: 20px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seq-phase .sp-meta { margin: 2px 0 8px; font-size: 12px; line-height: 16px; color: var(--muted); }
+.seq-phase .sp-seq { display: block; overflow: visible; }
+.sp-life { stroke: var(--border-strong); stroke-dasharray: 3 3; }
+.sp-head rect { fill: var(--surface); stroke: var(--kind, var(--border-strong)); stroke-width: 1.5; }
+.sp-head text { font-size: 11.5px; font-weight: 600; fill: var(--text); }
+.seq-phase .seq-block .b-kind, .seq-phase .seq-block .b-label { font-size: 10px; }
+.seq-phase .link.seq-m .m-label { font-size: 11px; font-weight: 500; }
+.sp-arrow { position: absolute; width: 36px; text-align: center; font-size: 22px; line-height: 28px; color: var(--muted); }
+@media (max-width: 860px) {
+  .seq-steps { top: auto; left: 16px; width: auto; height: 30vh; }
+  .sw-t { max-width: 200px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .w-step { animation: none; }
+}`;
+
 /** 지식 문서 팩을 쓰는 그림에만 붙이는 스타일. 카드 배지와 서랍의 근거 구성 막대 */
 export const DOC_CSS = `.doc-badge {
   flex: none; margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; font-weight: 700; line-height: 16px;
