@@ -472,6 +472,25 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 - 엣지마다 양 끝으로 올 수 있는 kind가 정해져 있다. 어기면 이름과 달리 하네스가 아닌 팩에서도 `INVALID_HARNESS_EDGE_ENDS`가 온다.
 - `infra`, `data`, `process`는 parent 포함 관계로 드릴다운한다. 담는 노드를 누르면 그 안의 노드만 모인 레벨로 들어간다. 그래서 포함 관계를 아는 만큼 parent를 단다.
 
+`infra`, `data`, `process` 팩은 이름으로 서로를 가리키는 일이 많다. 레포에서 참조와 선언을 모았으면 `match_endpoints`의 `nameRefs`로 넘겨 짝을 받는다. `matcher`는 그 팩 것을 쓴다.
+
+| 팩        | `matcher`     | `refs`로 모을 것                                                    | `decls`로 모을 것                                                   |
+| --------- | ------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `infra`   | `iac-ref`     | terraform 참조(`aws_lb.main.arn`), 쿠버네티스 `secretKeyRef`나 `configMapRef` 참조 | terraform 리소스 블록(`resource "aws_lb" "main"`), 쿠버네티스 매니페스트의 kind/name |
+| `data`    | `dataset-io`  | 잡 코드의 `FROM`, `JOIN`, `INSERT INTO`, `ref()`, `source()`        | `CREATE TABLE`이나 dbt 모델 파일                                    |
+| `process` | `state-value` | 흐름 단계 `state`                                                   | 코드의 상태 enum이나 상수 정의                                      |
+
+```json
+{ "action": "match_endpoints",
+  "nameRefs": { "matcher": "iac-ref",
+    "refs": [{ "id": "ref-1", "name": "aws_lb.main.arn" }],
+    "decls": [{ "id": "lb-main", "name": "aws_lb.main" }] } }
+```
+
+- 결과는 `refs.matches`(`{ refId, declId }[]`)와 `refs.unmatched`로 온다. `matches`에 든 짝만 실선으로 잇는다.
+- `unmatched`(`no_decl`, `multiple_decls`)는 눈으로 맞춰 실선을 긋지 않는다. `candidates`를 담아 미해결 질문으로 남긴다.
+- 표기 차이는 matcher가 맞춰 준다. `iac-ref`는 `${module.vpc.private_subnets}`를 `module.vpc`로 본다. `state-value`는 `CHANGES_REQUESTED`와 `changesRequested`를 같은 값으로 본다. `dataset-io`는 양쪽 스키마가 다르면 잇지 않는다.
+
 ### 범용 component를 쓴다
 
 맞는 팩이 없으면 `generic` 팩의 `component`로 그린다. 종류는 노드에 직접 단다.
@@ -640,7 +659,7 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 | 기능영역 (`feature:<id>`) | 그 기능영역의 화면, 화면이 부르는 엔드포인트, 거쳐 가는 `gateway`와 받는 모듈                                                                                                             |
 | 서버 (`server:<id>`)      | 그 모듈이나 `gateway`에 걸린 엔드포인트, 읽고 쓰는 테이블, 쓰는 클라이언트                                                                                                                |
 | 흐름 (`flow:<id>`)        | Step 3.5의 흐름 하나. 행위자 가로줄 위에 단계 카드가 왼쪽에서 오른쪽으로 선다. 옆 흐름은 정상 흐름과 다른 색 선이다. 서비스 레벨의 **흐름** 버튼으로 들어간다. `service` 없는 흐름은 전체 바로 아래 서고 전체 레벨의 **흐름** 버튼으로 들어간다 |
-| 묶음 (`group:<id>`)       | `infra`, `data`, `process` 팩에서 자식을 가진 노드 하나. 바로 아래 자식만 보이고 손자 사이 선은 자식 카드 사이 선으로 묶인다. 바깥과 잇는 카드는 보내기만 하면 왼쪽, 받으면 오른쪽에 선다 |
+| 묶음 (`group:<id>`)       | `infra`, `data`, `process` 팩에서 자식을 가진 노드 하나. 바로 아래 자식만 보이고 손자 사이 선은 자식 카드 사이 선으로 묶인다. 바깥과 잇는 카드는 보내기만 하면 왼쪽, 받으면 오른쪽에 서고 한 열에 네 장이 넘으면 옆 열로 넘어간다 |
 | 질문 (`view:<id>`)        | 질문별 그림 하나. 전체 바로 아래 서고 위쪽 바의 **질문별 그림** 버튼으로 들어간다. 메시지를 누르면 보내는 쪽, 받는 쪽, 근거가 나오고 지도의 카드로 건너간다 |
 
 **드릴다운이면 `levels`를 요약해 먼저 안내한다.** 전체 1장, 서비스 몇 개, 기능영역 몇 개인지와 `htmlPath`를 알려준다. 조작법도 한두 줄 붙인다. 노드를 누르면 출처와 상세보기 버튼이 나오고 더블클릭하면 바로 들어간다. 브라우저 뒤로가기를 누르면 앞 화면으로 돌아온다. 전체 화면에서 Shift나 ⌘를 누른 채 두 노드를 고르면 그 사이 경로를 펼친다. 카드를 고르고 **포커스** 버튼이나 `F` 키를 누르면 그 노드와 위아래로 이어진 카드만 남는다. ✕나 ESC를 누르면 원래 그림에 돌아온다. 공유용을 원하면 `sharedHtmlPath`를 알려준다.
