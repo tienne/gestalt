@@ -962,6 +962,8 @@ Claude Code (you)
 └──────────────────────────────────┘
 ```
 
+**Interactive map:** [`docs/architecture/screen-chain.html`](./docs/architecture/screen-chain.html) shows how this repo fits together, from clients and skills through MCP tools and handlers down to engines and storage. Gestalt drew it with its own `architecture` skill, and every solid line points to the source line it came from. GitHub shows HTML files as source, so download the file and open it in a browser.
+
 **Further reading:**
 
 - [MCP Reference](./docs/mcp-reference.md) — all tools, parameters, and action schemas
