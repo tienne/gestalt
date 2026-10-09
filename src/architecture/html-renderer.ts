@@ -20,6 +20,7 @@ import {
   renderIconSprite,
   VIEW_CSS,
   DOC_CSS,
+  FLOW_BRANCH_CSS,
   SEQ_VIEW_CSS,
 } from './html-theme.js';
 import {
@@ -67,6 +68,7 @@ import type {
   ArchitectureIr,
   ArchitectureNode,
   ArchitectureProjection,
+  FlowActor,
   ProjectionMessage,
   SequenceBlockKind,
   EdgeKind,
@@ -134,6 +136,9 @@ const FLOW_TEXT = {
   side: '옆 흐름',
   back: '앞 단계로 되돌아감',
   end: '흐름 끝',
+  decision: '갈림길',
+  trigger: '누른 것',
+  condition: '조건',
   person: '사람',
   system: '시스템',
 };
@@ -848,17 +853,25 @@ function renderFlowSection(
   const stageHeads = layout.stages
     .map(
       (st) =>
-        `<div class="fstage${st.side ? ' side' : named(st.label)}" style="left:${round2(st.x + FLOW_PAD + 8)}px;top:${FLOW_PAD}px;width:${round2(st.width - 16)}px" ` +
+        `<div class="fstage${st.side ? ' side' : named(st.label)}" style="left:${round2(st.x + FLOW_PAD + 8)}px;top:${FLOW_PAD + layout.stageTop}px;width:${round2(st.width - 16)}px" ` +
         `title="${escapeHtml(st.side ? st.label : stateText(st.label))}"><span>${escapeHtml(st.side ? st.label : stateText(st.label))}</span></div>`,
     )
     .join('');
-  const heads = layout.lanes
-    .map(
-      (l) =>
-        `<div class="flane-title a-${l.actor.kind}" style="left:${FLOW_PAD + 12}px;top:${round2(l.y + FLOW_PAD + 12)}px">` +
-        `${iconUse(l.actor.kind === 'person' ? 'u-person' : l.actor.kind === 'agent' ? 'i-agent' : 'u-system')}<span>${escapeHtml(l.actor.label)}</span></div>`,
-    )
-    .join('');
+  const actorIcon = (kind: FlowActor['kind']): string =>
+    iconUse(kind === 'person' ? 'u-person' : kind === 'agent' ? 'i-agent' : 'u-system');
+  // 행위자가 한 명이면 머리 칸이 없다. 누가 하는 흐름인지는 맨 위 띠의 칩 하나로 알린다
+  const solo = layout.headWidth === 0 ? layout.lanes[0] : undefined;
+  const heads =
+    solo !== undefined
+      ? `<div class="flane-actor a-${solo.actor.kind}" style="left:${FLOW_PAD + 4}px;top:${FLOW_PAD}px">` +
+        `${actorIcon(solo.actor.kind)}<span>${escapeHtml(solo.actor.label)}</span></div>`
+      : layout.lanes
+          .map(
+            (l) =>
+              `<div class="flane-title a-${l.actor.kind}" style="left:${FLOW_PAD + 12}px;top:${round2(l.y + FLOW_PAD + 12)}px">` +
+              `${actorIcon(l.actor.kind)}<span>${escapeHtml(l.actor.label)}</span></div>`,
+          )
+          .join('');
   const labelOf = (id: string): string => stepById.get(id)?.label ?? id;
   const links = layout.transitions
     .map((r) => {
@@ -870,18 +883,34 @@ function renderFlowSection(
       const who = actorNames.join(', ');
       // 선 위에는 괄호 앞 이름만 싣는다. "고객 (앱, QR, 알림톡 웹)"을 다 쓰면 선 글자가 카드 폭을 넘는다
       const whoShort = actorNames.map((n) => n.replace(/\s*\([^)]*\)\s*$/, '')).join(', ');
+      // 누른 것이나 조건이 있으면 선에는 그 둘을 찍고 label은 서랍의 메모로만 보인다
+      const rich = t.trigger !== undefined || t.condition !== undefined;
+      const richParts = [
+        ...(t.condition !== undefined ? [`${FLOW_TEXT.condition} ${t.condition}`] : []),
+        ...(t.trigger !== undefined ? [`${FLOW_TEXT.trigger} ${t.trigger}`] : []),
+      ];
       const name =
         `${FLOW_TEXT[r.path]}${r.back ? `, ${FLOW_TEXT.back}` : ''}: ${labelOf(r.from)} → ${labelOf(r.to)}` +
-        (t.label !== undefined ? ` (${t.label})` : '') +
+        (rich ? ` (${richParts.join(', ')})` : t.label !== undefined ? ` (${t.label})` : '') +
         (who !== '' ? `, 누가 ${who}` : '');
+      const richText =
+        (t.condition !== undefined
+          ? `<tspan class="t-cond">${escapeHtml(t.condition)}${t.trigger !== undefined ? ' ' : ''}</tspan>`
+          : '') + (t.trigger !== undefined ? escapeHtml(t.trigger) : '');
       const text = r.labelAt
-        ? `<text class="t-label" x="${round2(r.labelAt.x + FLOW_PAD)}" y="${round2(r.labelAt.y + FLOW_PAD - 5)}">` +
-          (r.back ? '<tspan class="t-back">↩ </tspan>' : '') +
-          (t.label !== undefined ? escapeHtml(t.label) : '') +
-          (whoShort !== ''
-            ? `<tspan class="t-who">${t.label !== undefined ? ' · ' : ''}${escapeHtml(whoShort)}</tspan>`
-            : '') +
-          `</text>`
+        ? rich
+          ? `<text class="t-label${r.labelAnchor === 'start' ? ' at-start' : ''}" x="${round2(r.labelAt.x + FLOW_PAD)}" y="${round2(r.labelAt.y + FLOW_PAD - 5)}">` +
+            (r.back ? '<tspan class="t-back">↩ </tspan>' : '') +
+            richText +
+            (whoShort !== '' ? `<tspan class="t-who"> · ${escapeHtml(whoShort)}</tspan>` : '') +
+            `</text>`
+          : `<text class="t-label${r.labelAnchor === 'start' ? ' at-start' : ''}" x="${round2(r.labelAt.x + FLOW_PAD)}" y="${round2(r.labelAt.y + FLOW_PAD - 5)}">` +
+            (r.back ? '<tspan class="t-back">↩ </tspan>' : '') +
+            (t.label !== undefined ? escapeHtml(t.label) : '') +
+            (whoShort !== ''
+              ? `<tspan class="t-who">${t.label !== undefined ? ' · ' : ''}${escapeHtml(whoShort)}</tspan>`
+              : '') +
+            `</text>`
         : '';
       return (
         `<g class="link flow-t p-${r.path}${r.back ? ' back' : ''}" data-from="${escapeHtml(r.from)}" data-to="${escapeHtml(r.to)}" ` +
@@ -898,10 +927,12 @@ function renderFlowSection(
       const refs = (st.refs ?? []).filter((id) => drawableNodes.has(id));
       const qs = questionCount.get(st.id) ?? 0;
       const dashed = st.evidence.every((ev) => ev.type !== 'code' && ev.type !== 'spec');
+      const decision = b.shape === 'diamond';
       const cls = ['node', 'flow-step', `p-${b.path}`];
+      if (decision) cls.push('decision');
       if (dashed) cls.push('doc-only');
       const aria =
-        `${st.label}, ${FLOW_TEXT.step}, ${actor?.label ?? st.actor}` +
+        `${st.label}, ${decision ? FLOW_TEXT.decision : FLOW_TEXT.step}, ${actor?.label ?? st.actor}` +
         (st.state !== undefined ? `, 상태 ${stateText(st.state)}` : '') +
         (st.terminal ? `, ${FLOW_TEXT.end}` : '') +
         (dashed ? ', 문서로만 확인' : '');
@@ -909,6 +940,10 @@ function renderFlowSection(
         `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(st.id)}" role="button" tabindex="0" ` +
         `aria-label="${escapeHtml(aria)}" title="${escapeHtml(st.description ?? st.label)}" ` +
         `style="left:${round2(b.x + FLOW_PAD)}px;top:${round2(b.y + FLOW_PAD)}px;width:${b.width}px;height:${b.height}px">` +
+        (decision
+          ? `<svg class="dshape" viewBox="0 0 ${b.width} ${b.height}" preserveAspectRatio="none" aria-hidden="true">` +
+            `<polygon points="${b.width / 2},1 ${b.width - 1},${b.height / 2} ${b.width / 2},${b.height - 1} 1,${b.height / 2}"/></svg>`
+          : '') +
         `<span class="nm"><span class="t">${escapeHtml(st.label)}</span></span>` +
         `<span class="l2">` +
         (st.state !== undefined
@@ -927,7 +962,7 @@ function renderFlowSection(
     .join('');
   return (
     `<section class="level flow-level" data-level-id="${escapeHtml(level.id)}" data-flow-id="${escapeHtml(level.flowId)}" ` +
-    `aria-label="${escapeHtml(flow.title)}" data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px" hidden>` +
+    `aria-label="${escapeHtml(solo !== undefined ? `${flow.title}, 행위자 ${solo.actor.label}` : flow.title)}" data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px" hidden>` +
     `<svg class="links" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
     `role="group" aria-label="${escapeHtml(`${flow.title} 전이`)}"><g class="lanes">${lanes}${dividers}</g><g class="edges">${links}</g></svg>` +
     `${stageHeads}${heads}${cards}</section>`
@@ -1643,6 +1678,7 @@ function renderLegend(
   nodeCount: number,
   edgeCount: number,
   hasFlows = false,
+  hasDecisions = false,
 ): string {
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const line = (extra: string): string =>
@@ -1668,6 +1704,9 @@ function renderLegend(
     (hasFlows
       ? `<li>${line('stroke-width="2" class="side-line"')}주황 선: 흐름에서 정상 흐름을 벗어나는 옆 흐름</li>` +
         `<li><span class="swatch-step"></span>점선 테두리 카드: 기획 문서로만 확인한 흐름 단계</li>`
+      : '') +
+    (hasDecisions
+      ? `<li><span class="swatch-decision"></span>마름모: 조건에 따라 길이 갈리는 갈림길</li>`
       : '') +
     `</ul>` +
     (kinds ? `<h3>항목</h3><ul class="legend-kinds">${kinds}</ul>` : '') +
@@ -1825,8 +1864,9 @@ function clientScriptFor(
   views: boolean,
   mixedBundles: boolean,
   sequences: boolean,
+  flowBranches: boolean,
 ): string {
-  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}|${mixedBundles}|${sequences}`;
+  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}|${mixedBundles}|${sequences}|${flowBranches}`;
   const hit = clientScripts.get(key);
   if (hit !== undefined) return hit;
   const pick = <T>(table: Record<string, T>, keys: Iterable<string>): Record<string, T> =>
@@ -1859,6 +1899,7 @@ function clientScriptFor(
     views,
     mixedBundles,
     sequences,
+    ...(flowBranches ? { flowBranches } : {}),
     docs: vocab.packIds.includes('knowledge'),
   });
   clientScripts.set(key, script);
@@ -1908,6 +1949,22 @@ function renderPage({
   const hasFlows = flows !== undefined && flows.flows.length > 0;
   const hasViews = views !== undefined && views.length > 0;
   const hasSequences = sequences.length > 0;
+  const drawnFlows = flows?.flows ?? [];
+  const hasDecisions = drawnFlows.some((f) =>
+    f.steps.some((st) => st.kind === 'decision' && flows!.drawnSteps.has(st.id)),
+  );
+  // 누른 것과 조건, 갈림길, 행위자 한 명 띠는 그 흐름이 있을 때만 CSS와 코드를 싣는다. 예전 흐름 그림의 바이트를 지키려고서다
+  const flowBranches =
+    hasDecisions ||
+    drawnFlows.some((f) =>
+      f.transitions.some(
+        (t) =>
+          (t.trigger !== undefined || t.condition !== undefined) &&
+          flows!.drawnSteps.has(t.from) &&
+          flows!.drawnSteps.has(t.to),
+      ),
+    );
+  const soloActor = drawnFlows.some((f) => f.actors.length === 1);
   return [
     '<!doctype html>',
     '<html lang="ko">',
@@ -1916,7 +1973,7 @@ function renderPage({
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab),
@@ -1956,6 +2013,7 @@ function renderPage({
       payload.nodes.length,
       payload.edges.length,
       hasFlows,
+      hasDecisions,
     ),
     renderQuestions(
       payload.unresolved,
@@ -1969,7 +2027,7 @@ function renderPage({
       ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
       : '') + (hasViews ? `\n${renderViewsPop(views)}` : ''),
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
-    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles, hasSequences)}</script>`,
+    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles, hasSequences, flowBranches)}</script>`,
     '</body>',
     '</html>',
     '',

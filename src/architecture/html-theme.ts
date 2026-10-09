@@ -645,6 +645,43 @@ a.loc:hover { text-decoration: underline; }
 }
 `;
 
+/**
+ * 흐름에 갈림길이나 누른 것, 조건이 있거나 행위자가 한 명일 때만 붙이는 스타일. 공용 CSS에 넣으면 예전 흐름 그림의 바이트가 바뀐다.
+ * 마름모는 카드 상자를 그대로 쓰고 테두리와 그림자를 끈 뒤 polygon으로 그린다. .node 상태 규칙은 테두리와 box-shadow라 polygon에 안 먹어 stroke로 옮긴다
+ */
+export const FLOW_BRANCH_CSS = `.node.flow-step.decision {
+  grid-template-columns: minmax(0, 1fr); padding: 0 34px; text-align: center;
+  background: none; border: 0; box-shadow: none;
+}
+.node.flow-step.decision::before { display: none; }
+.flow-step.decision .dshape { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.flow-step.decision .dshape polygon {
+  fill: var(--brick); stroke: var(--brick-edge); stroke-width: 1.5; stroke-linejoin: round;
+  filter: drop-shadow(0 3px 0 var(--brick-edge)); transition: stroke 0.15s, stroke-width 0.15s;
+}
+.flow-step.decision .nm, .flow-step.decision .l2 { position: relative; }
+.flow-step.decision .nm .t { font-size: 12px; line-height: 15px; }
+.flow-step.decision .l2 { position: absolute; top: -2px; right: -2px; }
+.flow-step.decision.doc-only .dshape polygon { stroke-dasharray: 5 4; }
+.flow-step.decision:hover .dshape polygon { stroke-width: 2; }
+.flow-step.decision.is-focus .dshape polygon { stroke: var(--kind); }
+.flow-step.decision.focus-root:not(.selected) .dshape polygon { stroke: var(--accent); stroke-width: 2.5; }
+.flow-step.decision.selected .dshape polygon { stroke: var(--accent); stroke-width: 3; }
+.flow-step.decision.hit .dshape polygon { stroke: var(--hit); stroke-width: 3; }
+.link.flow-t .t-label.at-start { text-anchor: start; }
+.link.flow-t .t-cond { fill: var(--accent); font-weight: 700; }
+.flane-actor {
+  position: absolute; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px 0 8px;
+  border-radius: 999px; background: var(--lane); border: 1px solid var(--lane-line); box-sizing: border-box;
+  font-size: 12px; font-weight: 700; line-height: 1; color: var(--text); pointer-events: none; white-space: nowrap;
+}
+.flane-actor svg { width: 14px; height: 14px; flex: none; color: var(--muted); }
+.swatch-decision {
+  display: inline-block; width: 13px; height: 13px; margin: 0 16px 0 8px; vertical-align: middle;
+  border: 1.5px solid var(--border-strong); transform: rotate(45deg);
+}
+`;
+
 /** 질문별 그림이 있을 때만 붙이는 스타일. 공용 CSS에 넣으면 투영 없는 그림의 바이트가 바뀐다 */
 export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; font-size: 13px; color: var(--muted); }
 .lifeline { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 4 5; }

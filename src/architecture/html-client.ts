@@ -34,6 +34,8 @@ export interface ClientConstants {
   sequences?: boolean;
   /** 지식 문서 팩을 쓰면 true. 서랍에 문서 정보를 그리는 코드를 싣는다 */
   docs?: boolean;
+  /** 흐름에 갈림길이나 누른 것, 조건이 있으면 true. 서랍에 그 줄과 나뉘는 길 목록을 그리는 코드를 싣는다 */
+  flowBranches?: boolean;
 }
 
 // component는 칩 글자를 노드의 displayKind에서, 색과 아이콘은 renderClass에서 가져온다. types.ts의 displayKindOf, chipTextOverride와 같은 규칙이다.
@@ -41,6 +43,28 @@ export interface ClientConstants {
 const COMPONENT_DKIND = "n.kind === 'component' ? 'cx_' + (n.renderClass || 'service') : ";
 const COMPONENT_CHIP = "(n.kind === 'component' && n.displayKind) || ";
 const ROOT_FLOWS = "current === 'root' ? flows.filter(function (f) { return !f.service; }) : []";
+
+// 갈림길과 누른 것, 조건 조각. 그런 흐름이 있는 그림에만 싣는다. 늘 실으면 예전 흐름 그림의 바이트가 바뀐다
+const BRANCH_STEP_CHIP = "st.kind === 'decision' ? '갈림길' : ";
+const BRANCH_TRANSITION_SUB = 't.trigger || ';
+const BRANCH_STEP_OUTS = `    if (st.kind === 'decision') {
+      var outs = f.transitions.filter(function (t) { return t.from === id && !!transitions[t.id]; });
+      if (outs.length) {
+        body.appendChild(el('h3', null, '나뉘는 길 ' + outs.length + '개'));
+        refButtons(body, outs.map(function (t) { return t.id; }), function (tid) {
+          var g = [].filter.call(active.querySelectorAll('.link.flow-t'), function (x) { return x.getAttribute('data-transition-id') === tid; })[0];
+          if (g) activateTransition(g); else renderTransitionPanel(transitions[tid]);
+        }, function () { return 'u-flow'; }, function (tid) {
+          var t = transitions[tid];
+          return (t.condition || t.label || '조건 없음') + ' → ' + label(t.to);
+        });
+      }
+    }
+`;
+const BRANCH_TRANSITION_FACTS = `    if (t.trigger) factRow(facts, '누른 것', t.trigger);
+    if (t.condition) factRow(facts, '조건', t.condition);
+    if ((t.trigger || t.condition) && t.label) factRow(facts, '메모', t.label);
+`;
 
 // 근거가 섞인 묶음 조각. 그런 묶음이 있는 그림에만 싣는다. 문구는 html-renderer.ts의 inferredNote와 같다
 const MIXED_NOTE =
@@ -710,7 +734,7 @@ ${FOCUS_SOURCE}
     var st = n.step;
     var f = stepFlow[id];
     panel.textContent = '';
-    panel.appendChild(panelHead(st.path === 'side' ? 'flow side' : 'flow', 'u-flow', '흐름 단계', f.title, st.label));
+    panel.appendChild(panelHead(st.path === 'side' ? 'flow side' : 'flow', 'u-flow', ${c.flowBranches ? BRANCH_STEP_CHIP : ''}'흐름 단계', f.title, st.label));
     var body = el('div', 'dr-body');
     var facts = el('ul', 'facts');
     if (n.actor) factRow(facts, '누가', n.actor.label);
@@ -723,7 +747,7 @@ ${FOCUS_SOURCE}
     body.appendChild(facts);
     if (st.description) body.appendChild(el('p', 'desc', st.description));
     questionList(body, st.questions);
-    var refs = (st.refs || []).filter(function (r) { return !!nodes[r]; });
+${c.flowBranches ? BRANCH_STEP_OUTS : ''}    var refs = (st.refs || []).filter(function (r) { return !!nodes[r]; });
     if (refs.length) {
       var web = refs.every(function (r) { return nodes[r].kind === 'screen' || nodes[r].kind === 'endpoint'; });
       body.appendChild(el('h3', null, (web ? '이어진 화면과 API ' : '이어진 카드 ') + refs.length + '개'));
@@ -737,10 +761,10 @@ ${FOCUS_SOURCE}
     syncFocusBtn();
     panel.textContent = '';
     var title = label(t.from) + ' → ' + label(t.to);
-    panel.appendChild(panelHead(t.path === 'side' ? 'flow side' : 'flow', 'u-flow', '상태 전이', t.label || '', title));
+    panel.appendChild(panelHead(t.path === 'side' ? 'flow side' : 'flow', 'u-flow', '상태 전이', ${c.flowBranches ? BRANCH_TRANSITION_SUB : ''}t.label || '', title));
     var body = el('div', 'dr-body');
     var facts = el('ul', 'facts');
-    var f = stepFlow[t.from];
+${c.flowBranches ? BRANCH_TRANSITION_FACTS : ''}    var f = stepFlow[t.from];
     if (t.actors && f) {
       factRow(facts, '누가', t.actors.map(function (a) {
         var actor = f.actors.filter(function (x) { return x.id === a; })[0];

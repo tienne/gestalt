@@ -1,5 +1,5 @@
-import type { LayoutPoint } from './layout.js';
-import type { ArchitectureFlow, FlowActor, FlowPath, FlowStep } from './types.js';
+import { textUnits, type LayoutPoint } from './layout.js';
+import type { ArchitectureFlow, FlowActor, FlowPath, FlowStep, FlowTransition } from './types.js';
 import type { ValidatedIr } from './validator.js';
 
 export const FLOW_LEVEL_PREFIX = 'flow:';
@@ -22,6 +22,8 @@ export interface FlowStepBox {
   row: number;
   /** 정상 흐름 전이에 한 번도 안 닿는 단계면 side다 */
   path: FlowPath;
+  /** 갈림길이면 diamond. 상자는 마름모를 감싸는 bbox다 */
+  shape?: 'diamond';
 }
 
 export interface FlowTransitionRoute {
@@ -34,6 +36,8 @@ export interface FlowTransitionRoute {
   tip: LayoutPoint[];
   /** 조건 글자와 행위자 이름을 놓을 자리. 둘 다 없으면 없다 */
   labelAt?: LayoutPoint;
+  /** 갈림길에서 나가는 선은 글자를 꼭짓점 옆에 붙여 오른쪽으로 쓴다. 가운데 정렬이면 마름모를 덮는다 */
+  labelAnchor?: 'start';
   /** 왼쪽 열로 돌아가는 전이. 되돌리기처럼 상태가 앞 단계로 돌아가는 자리다 */
   back: boolean;
 }
@@ -49,6 +53,10 @@ export interface FlowStage {
 export interface FlowLayout {
   width: number;
   height: number;
+  /** 행위자 머리 칸 폭. 행위자가 한 명이면 머리 칸 없이 맨 위 띠에 칩으로 세워서 0이다 */
+  headWidth: number;
+  /** 구간 머리가 서는 y. 행위자 띠가 있으면 그 아래다 */
+  stageTop: number;
   lanes: FlowLane[];
   /** 정상 흐름 단계에 상태 값이 하나도 없으면 빈 배열이다 */
   stages: FlowStage[];
@@ -72,11 +80,22 @@ export interface FlowLevel {
 export const FLOW_HEAD_WIDTH = 132;
 export const FLOW_STEP_WIDTH = 176;
 export const FLOW_STEP_HEIGHT = 64;
+/**
+ * 마름모는 카드보다 8px 높고 4px 위에 서서 가운데 y가 카드와 같다. 그래야 좌우 꼭짓점이 카드 중간 앵커와 맞는다.
+ * 되돌아가는 선은 카드 위아래 11px에 서는데 4px가 넘쳐도 15px라 줄 여백 18px 안에 든다. 80이면 넘친다
+ */
+export const FLOW_DECISION_HEIGHT = 72;
+/** 행위자가 한 명일 때 그림 맨 위에 두는 띠 높이. 행위자 칩이 선다 */
+export const FLOW_ACTOR_BAND = 28;
 const COLUMN_GAP = 56;
+const MAX_LABEL_GAP = 168;
+const LABEL_UNIT = 6;
+const LABEL_GAP_PAD = 20;
 const ROW_GAP = 22;
 const LANE_PAD_Y = 18;
 const PAD_RIGHT = 32;
 const BACK_LANE_GAP = 10;
+const VERTEX_LABEL_STEP = 14;
 const TIP_LENGTH = 8;
 const TIP_HALF = 4.5;
 export const FLOW_STAGE_HEAD = 34;
@@ -84,6 +103,29 @@ export const FLOW_SIDE_STAGE_LABEL = '옆 흐름';
 
 function round2(v: number): number {
   return Math.round(v * 100) / 100;
+}
+
+function centerY(box: FlowStepBox): number {
+  return box.y + box.height / 2;
+}
+
+/** 상자 위나 아래 변에서 가로 비율 r 자리의 y. 마름모는 꼭짓점에서 멀어질수록 가운데로 들어온다 */
+function edgeY(box: FlowStepBox, r: number, side: 'top' | 'bottom'): number {
+  if (box.shape !== 'diamond') return side === 'top' ? box.y : box.y + box.height;
+  const inset = (box.height / 2) * (1 - Math.abs(2 * r - 1));
+  return side === 'top' ? centerY(box) - inset : centerY(box) + inset;
+}
+
+/** 선 위에 찍힐 글자의 폭 단위. 렌더러가 조건, 누른 것, 행위자 이름 순으로 찍는 것과 맞춘다 */
+function lineTextUnits(t: FlowTransition, actorLabel: ReadonlyMap<string, string>): number {
+  const main =
+    t.trigger !== undefined || t.condition !== undefined
+      ? [t.condition, t.trigger].filter((x) => x !== undefined).join(' ')
+      : (t.label ?? '');
+  const who = (t.actors ?? [])
+    .map((id) => (actorLabel.get(id) ?? id).replace(/\s*\([^)]*\)\s*$/, ''))
+    .join(', ');
+  return textUnits(main) + (who !== '' ? textUnits(main !== '' ? ` · ${who}` : who) : 0);
 }
 
 /**
@@ -171,7 +213,14 @@ function stagedColumns(
     const col = base.column.get(id)!;
     if (!firstCol.has(state) || col < firstCol.get(state)!) firstCol.set(state, col);
   }
-  const keys = [...firstCol.keys()].sort((a, b) => firstCol.get(a)! - firstCol.get(b)!);
+  // 열이 같으면 steps에 먼저 적힌 상태가 앞이다. 들어오는 선 없는 단계도 열 0을 받아 정상 흐름 첫 단계와 비기는데 topo 순서로 풀면 그 단계가 앞을 차지한다
+  const declared = new Map<string, number>();
+  steps.forEach((s, i) => {
+    if (s.state !== undefined && !declared.has(s.state)) declared.set(s.state, i);
+  });
+  const keys = [...firstCol.keys()].sort(
+    (a, b) => firstCol.get(a)! - firstCol.get(b)! || declared.get(a)! - declared.get(b)!,
+  );
   const rank = new Map(keys.map((k, i) => [k, i]));
   const stageOf = new Map<string, number>();
   for (const id of mainTopo) {
@@ -365,25 +414,30 @@ function sideRoute(
   from: string,
   boxes: readonly FlowStepBox[],
   placed: readonly Segment[],
+  ratios?: readonly number[],
 ): LayoutPoint[] {
   const down = b.y > a.y;
   const ty = b.y + b.height / 2;
-  const sy = down ? a.y + a.height : a.y;
   const candidates: LayoutPoint[][] = [];
   // 내려가는 선과 올라가는 선이 같은 세로줄을 쓰지 않게 나가는 자리를 나눈다
-  for (const ratio of down ? [0.72, 0.86] : [0.28, 0.14]) {
+  const starts = ratios ?? (down ? [0.72, 0.86] : [0.28, 0.14]);
+  for (const ratio of starts) {
     const sx = a.x + a.width * ratio;
+    const sy = edgeY(a, ratio, down ? 'bottom' : 'top');
     candidates.push([
       { x: sx, y: sy },
       { x: sx, y: ty },
       { x: b.x, y: ty },
     ]);
   }
-  const gapY = down ? sy + ROW_GAP / 2 : sy - ROW_GAP / 2;
+  const edge = down ? a.y + a.height : a.y;
+  const gapY = down ? edge + ROW_GAP / 2 : edge - ROW_GAP / 2;
+  const sr = starts[0]!;
+  const sx = a.x + a.width * sr;
+  const sy = edgeY(a, sr, down ? 'bottom' : 'top');
   for (let k = 0; k < 4; k += 1) {
     const cx = b.x - 10 - k * 6;
     if (cx <= a.x + a.width) break;
-    const sx = a.x + a.width * (down ? 0.72 : 0.28);
     candidates.push([
       { x: sx, y: sy },
       { x: sx, y: gapY },
@@ -416,17 +470,15 @@ function nearBackRoute(
       [over - shift, 'top'],
       [under + shift, 'bottom'],
     ] as const) {
-      const fromEdge = side === 'top' ? a.y : a.y + a.height;
-      const toEdge = side === 'top' ? b.y : b.y + b.height;
       for (const rs of ratios) {
         for (const rt of ratios) {
           const sx = a.x + a.width * rs;
           const tx = b.x + b.width * rt;
           const points = [
-            { x: sx, y: fromEdge },
+            { x: sx, y: edgeY(a, rs, side) },
             { x: sx, y: gy },
             { x: tx, y: gy },
-            { x: tx, y: toEdge },
+            { x: tx, y: edgeY(b, rt, side) },
           ];
           if (!collides(points, from, [a, b], boxes, placed)) return points;
         }
@@ -472,7 +524,11 @@ export function computeFlowLayout(
   const { back } = base;
   const staged = stagedColumns(steps, transitions, (id) => pathOf(id) === 'main', base);
   const column = staged?.column ?? base.column;
-  const top = staged !== undefined ? FLOW_STAGE_HEAD : 0;
+  // 행위자가 한 명이면 줄을 가를 일이 없어 머리 칸을 걷고 맨 위 띠에 칩으로 세운다
+  const solo = flow.actors.length === 1;
+  const headWidth = solo ? 0 : FLOW_HEAD_WIDTH;
+  const stageTop = solo ? FLOW_ACTOR_BAND : 0;
+  const top = stageTop + (staged !== undefined ? FLOW_STAGE_HEAD : 0);
 
   // 행위자 줄 안에서 칸이 겹치면 아래 줄로 내린다. 정상 흐름 단계를 먼저 놓아야 옆 흐름이 그 아래로 간다
   const taken = new Set<string>();
@@ -499,18 +555,33 @@ export function computeFlowLayout(
     y += height;
   }
   const columns = Math.max(0, ...[...column.values()]) + 1;
+  // 누른 것이나 조건을 적은 흐름만 선 글자 폭에 맞춰 열 사이를 넓힌다. 예전 흐름은 간격이 그대로다
+  const actorLabel = new Map(flow.actors.map((a) => [a.id, a.label]));
+  const rich = transitions.some((t) => t.trigger !== undefined || t.condition !== undefined);
+  const forwardUnits = transitions
+    .filter((t) => !back.has(t.id) && column.get(t.to)! > column.get(t.from)!)
+    .map((t) => lineTextUnits(t, actorLabel));
+  const gap = rich
+    ? Math.min(
+        MAX_LABEL_GAP,
+        Math.max(COLUMN_GAP, Math.max(0, ...forwardUnits) * LABEL_UNIT + LABEL_GAP_PAD),
+      )
+    : COLUMN_GAP;
   const boxes: FlowStepBox[] = steps.map((s) => {
     const col = column.get(s.id)!;
     const row = rowOf.get(s.id)!;
+    const y = laneY.get(s.actor)! + LANE_PAD_Y + row * (FLOW_STEP_HEIGHT + ROW_GAP);
+    const decision = s.kind === 'decision';
     return {
       id: s.id,
-      x: FLOW_HEAD_WIDTH + COLUMN_GAP / 2 + col * (FLOW_STEP_WIDTH + COLUMN_GAP),
-      y: laneY.get(s.actor)! + LANE_PAD_Y + row * (FLOW_STEP_HEIGHT + ROW_GAP),
+      x: headWidth + gap / 2 + col * (FLOW_STEP_WIDTH + gap),
+      y: decision ? y - (FLOW_DECISION_HEIGHT - FLOW_STEP_HEIGHT) / 2 : y,
       width: FLOW_STEP_WIDTH,
-      height: FLOW_STEP_HEIGHT,
+      height: decision ? FLOW_DECISION_HEIGHT : FLOW_STEP_HEIGHT,
       column: col,
       row,
       path: pathOf(s.id),
+      ...(decision ? { shape: 'diamond' as const } : {}),
     };
   });
   const boxOf = new Map(boxes.map((b) => [b.id, b]));
@@ -519,10 +590,12 @@ export function computeFlowLayout(
   // 되돌아가는 선은 두 카드 바로 위나 아래 빈 줄로 건넌다. 그 줄이 막히면 그림 맨 아래 여백으로 돌린다
   let backCount = 0;
   const placed: Segment[] = [];
+  const vertexLabels = new Map<string, number>();
   const routes: FlowTransitionRoute[] = transitions.map((t) => {
     const a = boxOf.get(t.from)!;
     const b = boxOf.get(t.to)!;
     const isBack = back.has(t.id) || b.column <= a.column;
+    const diamond = a.shape === 'diamond';
     let points: LayoutPoint[];
     if (isBack) {
       const near = nearBackRoute(a, b, t.from, boxes, placed);
@@ -531,23 +604,26 @@ export function computeFlowLayout(
       } else {
         backCount += 1;
         const floor = height + BACK_LANE_GAP * backCount;
+        const sr = 0.5 + 10 / a.width;
+        const tr = 0.5 - 10 / b.width;
         const sx = a.x + a.width / 2 + 10;
         const tx = b.x + b.width / 2 - 10;
         points = [
-          { x: sx, y: a.y + a.height },
+          { x: sx, y: edgeY(a, sr, 'bottom') },
           { x: sx, y: floor },
           { x: tx, y: floor },
-          { x: tx, y: b.y + b.height },
+          { x: tx, y: edgeY(b, tr, 'bottom') },
         ];
       }
-    } else if (t.path === 'side' && b.y !== a.y) {
-      points = sideRoute(a, b, t.from, boxes, placed);
+    } else if ((t.path === 'side' || diamond) && centerY(b) !== centerY(a)) {
+      // 갈림길에서 다른 줄로 가는 길은 위아래 꼭짓점에서 세로로 나간다. 오른쪽 꼭짓점은 같은 줄로 가는 길 몫이다
+      points = sideRoute(a, b, t.from, boxes, placed, diamond ? [0.5] : undefined);
     } else {
       const sx = a.x + a.width;
       const sy = a.y + a.height / 2;
       const tx = b.x;
       const ty = b.y + b.height / 2;
-      const mx = tx - COLUMN_GAP / 2;
+      const mx = tx - gap / 2;
       points =
         sy === ty
           ? [
@@ -565,11 +641,27 @@ export function computeFlowLayout(
     placed.push(...segmentsOf(points, t.from));
     const last = points[points.length - 1]!;
     const prev = points[points.length - 2]!;
-    const mid = isBack
-      ? { x: round2((points[1]!.x + points[2]!.x) / 2), y: round2(points[1]!.y) }
-      : points.length === 2
-        ? { x: round2((prev.x + last.x) / 2), y: round2(last.y) }
-        : longestVerticalMid(points);
+    const first = points[0]!;
+    const atVertex = diamond && !isBack;
+    const hasText =
+      t.label !== undefined ||
+      t.actors !== undefined ||
+      t.trigger !== undefined ||
+      t.condition !== undefined;
+    // 렌더러가 글자 y를 5px 올려 찍는다. 꼭짓점 옆 글자는 오른쪽이면 선 위, 아래로 나가면 꼭짓점 밑, 위로 나가면 꼭짓점 위에 선다
+    const vertexDy = first.y > centerY(a) ? 19 : first.y < centerY(a) ? -1 : 0;
+    // 한 꼭짓점에서 길이 여럿 나가면 글자가 모두 같은 자리를 받아 포개진다. 뒤에 오는 글자를 한 줄씩 비켜 쌓는다
+    const vertexKey = `${t.from}\u0000${first.x}\u0000${first.y}`;
+    const stacked = atVertex && hasText ? (vertexLabels.get(vertexKey) ?? 0) : 0;
+    if (atVertex && hasText) vertexLabels.set(vertexKey, stacked + 1);
+    const stackDy = stacked * (first.y > centerY(a) ? VERTEX_LABEL_STEP : -VERTEX_LABEL_STEP);
+    const mid = atVertex
+      ? { x: round2(first.x + 6), y: round2(first.y + vertexDy + stackDy) }
+      : isBack
+        ? { x: round2((points[1]!.x + points[2]!.x) / 2), y: round2(points[1]!.y) }
+        : points.length === 2
+          ? { x: round2((prev.x + last.x) / 2), y: round2(last.y) }
+          : longestVerticalMid(points);
     return {
       id: t.id,
       from: t.from,
@@ -577,21 +669,24 @@ export function computeFlowLayout(
       path: t.path,
       points,
       tip: tipAt(last, prev),
-      ...(t.label !== undefined || t.actors !== undefined ? { labelAt: mid } : {}),
+      ...(hasText ? { labelAt: mid } : {}),
+      ...(hasText && atVertex ? { labelAnchor: 'start' as const } : {}),
       back: isBack,
     };
   });
 
-  const width = FLOW_HEAD_WIDTH + columns * (FLOW_STEP_WIDTH + COLUMN_GAP) + PAD_RIGHT;
+  const width = headWidth + columns * (FLOW_STEP_WIDTH + gap) + PAD_RIGHT;
   const stages: FlowStage[] = (staged?.stages ?? []).map((st) => ({
     label: st.label,
-    x: round2(FLOW_HEAD_WIDTH + st.first * (FLOW_STEP_WIDTH + COLUMN_GAP)),
-    width: round2((st.last - st.first + 1) * (FLOW_STEP_WIDTH + COLUMN_GAP)),
+    x: round2(headWidth + st.first * (FLOW_STEP_WIDTH + gap)),
+    width: round2((st.last - st.first + 1) * (FLOW_STEP_WIDTH + gap)),
     side: st.side,
   }));
   return {
     width: round2(width),
     height: round2(height + (backCount > 0 ? BACK_LANE_GAP * (backCount + 1) : 0)),
+    headWidth,
+    stageTop,
     lanes,
     stages,
     steps: boxes,
