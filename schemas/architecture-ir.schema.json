@@ -473,14 +473,27 @@
         "id": { "type": "string", "minLength": 1 },
         "actor": { "type": "string", "minLength": 1 },
         "label": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": ["step", "decision"],
+          "description": "decision is a branch drawn as a diamond. Omit for a plain step"
+        },
         "description": { "type": "string" },
         "state": { "type": "string", "minLength": 1 },
+        "terminal": {
+          "type": "boolean",
+          "description": "the flow may end here. Not allowed on a decision step"
+        },
         "refs": {
           "type": "array",
           "description": "ids of screen, endpoint, feature or micro_app nodes this step touches",
           "items": { "type": "string", "minLength": 1 }
         },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } }
+      },
+      "if": { "properties": { "kind": { "const": "decision" } }, "required": ["kind"] },
+      "then": {
+        "not": { "properties": { "terminal": { "const": true } }, "required": ["terminal"] }
       }
     },
     "flowTransition": {
@@ -491,7 +504,27 @@
         "from": { "type": "string", "minLength": 1 },
         "to": { "type": "string", "minLength": 1 },
         "path": { "type": "string", "enum": ["main", "side"] },
-        "label": { "type": "string", "minLength": 1 },
+        "trigger": {
+          "type": "string",
+          "minLength": 1,
+          "description": "what the user pressed, such as a button name. Shown on the line"
+        },
+        "condition": {
+          "type": "string",
+          "minLength": 1,
+          "description": "when this branch is taken. Put it on lines leaving a decision step"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "legacy text. Shown on the line only when trigger and condition are both absent"
+        },
+        "actors": {
+          "type": "array",
+          "minItems": 1,
+          "description": "ids of flow actors who can make this transition",
+          "items": { "type": "string", "minLength": 1 }
+        },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
         "lineStyle": { "type": "string", "enum": ["solid", "dashed"] }
       }

@@ -39,6 +39,8 @@ export const PLATFORMS = ['web', 'android', 'ios'] as const;
 export const FLOW_ACTOR_KINDS = ['person', 'system', 'agent'] as const;
 /** main은 정상 흐름, side는 취소나 노쇼처럼 옆으로 빠지는 흐름이다 */
 export const FLOW_PATHS = ['main', 'side'] as const;
+/** step은 화면이나 일 하나, decision은 조건으로 길이 갈리는 자리다. decision은 마름모로 그린다 */
+export const FLOW_STEP_KINDS = ['step', 'decision'] as const;
 /**
  * 단계 refs가 가리킬 수 있는 kind. 사용자가 실제로 만나는 화면과 그 화면이 부르는 API까지만 잇는다.
  * 하네스에서는 사용자가 부르는 스킬과 스킬이 띄우는 에이전트가 화면 자리다. MCP 도구는 endpoint로 들어온다
@@ -82,6 +84,7 @@ export type ContextSourceVia = (typeof CONTEXT_SOURCE_VIAS)[number];
 export type Platform = (typeof PLATFORMS)[number];
 export type FlowActorKind = (typeof FLOW_ACTOR_KINDS)[number];
 export type FlowPath = (typeof FLOW_PATHS)[number];
+export type FlowStepKind = (typeof FLOW_STEP_KINDS)[number];
 export type EndpointProtocol = (typeof ENDPOINT_PROTOCOLS)[number];
 /**
  * 카드 칩과 아이콘, 색을 고르는 종류. MCP 도구는 IR에서는 endpoint라 매칭과 드릴다운을 그대로 타고
@@ -335,6 +338,8 @@ export interface FlowStep {
   /** 이 단계를 하는 행위자 id. 같은 흐름의 actors에 있어야 한다 */
   actor: string;
   label: string;
+  /** 비우면 step. decision은 갈림길이라 terminal을 달 수 없다 */
+  kind?: FlowStepKind;
   description?: string;
   /** 이 단계가 끝난 뒤의 업무 상태. 코드 enum 값을 그대로 적는다 */
   state?: string;
@@ -351,7 +356,11 @@ export interface FlowTransition {
   from: string;
   to: string;
   path: FlowPath;
-  /** 넘어가는 조건. 선 위에 짧게 보인다 */
+  /** 사용자가 누른 것. 버튼 이름처럼 이 전이를 일으키는 동작이고 선 위 글자의 주인이다 */
+  trigger?: string;
+  /** 이 길로 가는 조건. 갈림길에서 나가는 선에 단다 */
+  condition?: string;
+  /** 예전 칸. trigger와 condition이 둘 다 없을 때만 선에 찍는다. 하나라도 있으면 서랍의 메모로 간다 */
   label?: string;
   /** 이 전이를 일으키는 행위자 id. 되돌리기처럼 여러 행위자가 할 수 있는 전이에 단다. 선 글자 옆에 이름이 붙는다 */
   actors?: string[];
