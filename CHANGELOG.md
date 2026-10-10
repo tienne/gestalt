@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.93.0] - 2026-10-10
+
+### Added
+
+- **도메인 흐름의 전이에 `trigger`와 `condition`을 따로 적을 수 있어요 (#60).** 전이 글자가 `label` 한 칸뿐이라 사용자가 누른 버튼과 갈리는 조건이 섞였어요. 선결제 B2C "주문 변경" 시안처럼 화면을 화살표로 잇고 그 위에 누른 것과 조건을 따로 보이려고 나눴어요.
+  - 둘 다 선택 필드이고 비어 있지 않은 문자열이어야 해요. 하나라도 있으면 `label`은 서랍의 메모 줄로 내려가요. 둘 다 없으면 `label`을 예전처럼 그려요.
+  - 공유본에서는 두 필드에 든 계정 ID도 `label`처럼 가려요.
+  - `schemaVersion`은 `1.0.0` 그대로예요. 기존 IR은 고치지 않아도 통과해요.
+- **단계에 `kind: 'decision'`을 더해 갈림길을 마름모로 그려요 (#60).** 마름모에서 나가는 전이는 `condition`으로 갈려요. 가로로 같은 줄이면 오른쪽 꼭짓점에서, 다른 줄이면 위나 아래 꼭짓점에서 나가요.
+  - `decision`에 `terminal: true`를 같이 쓰면 검증이 거부해요.
+  - 자동 질문 `auto:branch:<단계 id>`는 나가는 전이가 하나뿐인 갈림길에, `auto:condition:<전이 id>`는 근거가 있는데 조건이 없는 갈림길 전이에 떠요. `auto:dead-end`는 나가는 전이가 없는 갈림길도 봐요.
+- **행위자가 한 명뿐인 흐름도 어색하지 않게 놓아요 (#60).** 왼쪽 머리 열 대신 위쪽에 얇은 띠를 두고 단계를 그 아래에 놓아요.
+- **JSON Schema에 빠져 있던 `flowStep.terminal`과 `flowTransition.actors`를 채웠어요 (#60).**
+
+### Changed
+
+- `trigger`나 `condition`이 있는 흐름은 열 간격이 56px에서 56~168px로 글자 길이에 맞춰 늘어나요 (#60). 같은 열에 놓일 단계는 `steps`에 적은 순서로 갈라요.
+- 새 CSS와 클라이언트 코드는 흐름에 갈림길, `trigger`, `condition`, 한 명짜리 행위자가 있을 때만 실어요. 행위자가 둘 이상인 기존 흐름은 HTML이 바이트까지 같아요 (#60).
+
+### 검증 범위
+
+- `pnpm gate`가 통과했어요. 253개 파일에서 테스트 4454개가 통과했고 1개는 건너뛰었어요.
+- 이 레포를 `harness-pipeline` 흐름(14단계, 전이 17개, 갈림길 3개)으로 그려 브라우저에서 마름모와 전이 글자를 확인했어요.
+- CI는 네 칸(ubuntu와 macOS, Node 22와 24) 모두 통과했어요.
+
+### 남긴 것
+
+- 행위자가 정확히 한 명인 흐름은 새 필드를 안 써도 배치와 마크업이 바뀌어요. 머리 열이 없어지고 위쪽 띠가 생기고 갈림길용 CSS가 실려요.
+- 줄기를 같이 쓰는 전이에서는 글자가 어느 선 것인지 헷갈리는 자리가 있어요. 168px보다 긴 `trigger`는 이웃 칸을 덮을 수 있어요.
+- 이전 버전 서버는 새 필드를 조용히 떼어내요. `trigger`, `condition`, `decision`을 쓴 IR은 이 버전을 설치한 뒤에 MCP로 검증하고 그릴 수 있어요.
+
 ## [0.92.0] - 2026-10-06
 
 ### Added
