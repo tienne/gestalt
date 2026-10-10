@@ -4,61 +4,22 @@
 게슈탈트 지각이론을 요구사항 명확화 프로세스에 매핑한 TypeScript 기반 AI 개발 하네스.
 "전체는 부분의 합보다 크다" — 흩어진 요구사항 조각들을 모아 완전한 스펙(Spec)으로 결정화.
 
-## Architecture
-- **Interview Engine**: 게슈탈트 원리 기반 Q&A로 해상도 점수를 0.8 이상으로 높임
-- **Spec Generator**: 완료된 인터뷰에서 구조화된 프로젝트 스펙(Spec) 생성
-- **Execute Engine**: Spec→ExecutionPlan 변환 (Figure-Ground→Closure→Proximity→Continuity). 설계상 **항상 Passthrough 모드** — Claude Code가 도구(Bash/Edit 등)로 실제 파일 수정·코드 실행을 수행하므로 LLM 주체가 됨 (API 키 유무 무관)
-- **Resilience Engine**: Stagnation 감지 → Lateral Thinking Personas → Human Escalation
-- **Review Pipeline**: Code Review 7종 에이전트(보안/성능/품질/프론트엔드/주석/라이팅/하네스) + consensus → 자동 수정 루프
-- **MCP Server**: stdio transport, API 키 없으면 Passthrough 모드 자동 활성화 (Execute는 항상 Passthrough)
-- **Skill System**: SKILL.md 기반 확장, chokidar hot-reload
-- **Code Knowledge Graph**: 정적 분석 → 의존성 그래프 → Blast-Radius 영향 파일 추출, D3 시각화(`ges_graph_visualize`) 지원. git 이력에서 뽑은 co-change(함께 바뀐 파일)를 나란히 실어 import가 원리상 못 보는 관계까지 잡는다. Claude Code 훅으로 세션에 포인터와 영향 범위를 자동으로 넣을 수 있다(기본 꺼짐)
-- **Knowledge Base**: 코드 그래프·도메인 지식을 MD로 내보내고 로컬 임베딩으로 시맨틱 검색
-- **Memory**: 이전 스펙·실행 이력을 `.gestalt/memory.json`에 축적, 신규 인터뷰에 자동 주입
-- **Multi-Provider LLM**: frugal/standard/frontier 티어별로 Anthropic/OpenAI 호환 프로바이더 자유 조합
-- **Local PR**: 에이전트끼리 레포 안에서 PR을 만들고 리뷰하고 머지하는 자리 — 원격에 안 나간다. 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유한다
-- **Architecture View**: 세션이 코드와 맥락 소스를 탐색해 근거 달린 IR을 쓰면 서버가 검증하고 elkjs 좌표로 단일 HTML을 그린다. 서비스 노드가 있으면 전체에서 서비스, 기능영역, 화면으로 들어가는 드릴다운이 된다. 노드 하나를 고르면 그와 위아래로 이어진 카드만 남기는 포커스도 된다. 서비스 아래에는 손님, 직원, 시스템을 가로줄로 나눠 정상 흐름과 취소나 노쇼 같은 옆 흐름을 함께 그리는 도메인 흐름 레벨을 둘 수 있다. 흐름 그림은 상태 값으로, 기술 그림은 세션이 정한 구간으로 왼쪽에서 오른쪽을 나눈다. 단계 카드에서 기술 그림의 화면과 API로 건너간다. 근거 없는 실선은 거부하고 근거 없는 연결은 미해결 질문으로 돌린다. 따로 돌린 분석 둘을 git remote 기준으로 합쳐 제품끼리 같이 쓰는 게이트웨이와 서버, 저장소를 한 그림에 모을 수도 있다. 합친 그림은 맨 위에 같이 쓰는 카드를, 그 아래로 제품마다 전용 카드를 띠로 나눠 그리고 같이 쓰는 카드 위에 제품 브릭을 꽂는다. 전체보기는 prod 기준이다. 저장은 `.gestalt/architecture/`
-- **Event Store**: better-sqlite3 WAL 모드 이벤트 소싱
-
-## Tech Stack
-TypeScript 5.x / ESM / pnpm / vitest
-Dependencies: @anthropic-ai/sdk, @modelcontextprotocol/sdk, better-sqlite3, zod, chokidar, commander, gray-matter, dotenv
+## 설계 전제
+- Execute Engine은 설계상 **항상 Passthrough 모드**다. Claude Code가 도구(Bash/Edit 등)로 실제 파일 수정과 코드 실행을 하므로 LLM 주체가 되고, API 키 유무와 무관하다. MCP 서버도 API 키가 없으면 Passthrough가 자동으로 켜진다.
+- Local PR은 에이전트끼리 레포 안에서 PR을 만들고 리뷰하고 머지하는 자리라 원격에 안 나간다. 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유한다.
+- 코드 그래프 훅 자동 주입은 기본 꺼짐이다.
 
 ## Key Commands
 ```bash
 pnpm gate          # 커밋 전 게이트 — CI가 도는 것과 같다 (typecheck, verify:rules, lint, format:check, build, test)
                    # 강제하는 훅은 없다. 커밋 전에 사람이 부른다
-pnpm test          # 전체 테스트
-pnpm run serve     # MCP 서버 시작
-pnpm tsx bin/gestalt.ts interview "topic"
-pnpm tsx bin/gestalt.ts spec <session-id>
-pnpm tsx bin/gestalt.ts status
-pnpm tsx bin/gestalt.ts init   # gestalt.json + code graph + post-commit hook
-pnpm verify:rules  # 룰북과 에이전트 문서의 룰 ID·심각도 정합 검사
-pnpm verify:output-style # 룰 ID 정합과 HOIST 조각 검사 (postbuild에도 걸려 있다)
 pnpm build:output-style  # 룰북 → ~/.claude/output-styles/tienne-voice.md 생성
 pnpm build:routing # SKILL.md triggers → proactive-routing.md 스킬 표 생성 (verify:routing이 gate에서 검사)
-pnpm tsx bin/gestalt.ts humanize-scan --file a.md --register chat   # 걸린 룰만 추린다
-pnpm tsx bin/gestalt.ts humanize-check --before a.md --after b.md --register report
-pnpm tsx bin/gestalt.ts explain-check --source err.log --explain out.md --audience nontech
-pnpm tsx bin/gestalt.ts explain-eval --a plugin/role-agents/explainer/AGENT.md   # 비우면 베이스라인과 비교
 ```
+나머지 스크립트는 `package.json`에, CLI 서브커맨드는 `pnpm tsx bin/gestalt.ts --help`에 있다.
 
-## MCP Tools
-- `ges_interview`: action=[start|respond|score|complete]
-- `ges_generate_spec`: sessionId?, text?, force?, spec?
-- `ges_execute`: action=[start|plan_step|plan_complete|execute_start|execute_task|status|resume|audit|spawn|evaluate|evolve_fix|evolve|evolve_patch|evolve_re_execute|evolve_lateral|evolve_lateral_result|gate_resolve|role_match|role_consensus|review_start|review_submit|review_consensus|review_fix|review_publish]
-- `ges_create_agent`: action=[start|submit]
-- `ges_agent`: action=[list|get], name?
-- `ges_status`: sessionId?, sessionType?, cwd?
-- `ges_benchmark`: action=[start|respond|status], scenario?, benchmarkSessionId?, response?
-- `ges_code_graph`: action=[build|blast_radius|diff_radius|query|co_change|stats|skeleton|db_exists]
-- `ges_graph_visualize`: repoRoot, port?
-- `ges_generate_kb`: repoRoot?, outputPath?, types?, summarize?
-- `ges_search`: query, k?, kbPath?, types?
-- `ges_sync`: sourcePath?, targetPath
-- `ges_pr`: action=[create|list|get|diff|comment|resolve|review|update|edit|merge|close|checkout|checkout_remove]
-- `ges_architecture`: action=[start|filter_tools|match_endpoints|validate|render|status|merge|scan_docs|link_docs|stale_docs]
+## 상세 문서
+MCP 도구 목록과 액션 스키마는 `src/mcp/`의 툴 정의가 기준이다.
 
 상세 플로우 → [`docs/mcp-reference.md`](./docs/mcp-reference.md)
 설정 레퍼런스 → [`docs/configuration.md`](./docs/configuration.md)
@@ -71,39 +32,12 @@ pnpm tsx bin/gestalt.ts explain-eval --a plugin/role-agents/explainer/AGENT.md  
 아래 상황에서는 사용자가 명시적으로 에이전트를 지정하지 않아도 해당 에이전트를 proactively 사용한다. 기준 표는 [`plugin/skills/_shared/proactive-routing.md`](./plugin/skills/_shared/proactive-routing.md)에 있다 — 이 파일은 플러그인과 함께 배포되므로 다른 레포에 설치된 세션도 같은 표를 본다. `/agent [이름] "태스크"` 또는 `ges_agent` MCP 도구로 호출한다.
 
 ## Project Structure
-```
-src/core/          — types, errors, Result monad, config, constants
-src/gestalt/       — 게슈탈트 원리 엔진
-src/interview/     — InterviewEngine, ResolutionScorer
-src/spec/          — SpecGenerator, SpecExtractor
-src/execute/       — ExecuteEngine, DAG Validator
-src/resilience/    — Stagnation Detector, Lateral Thinking Personas
-src/code-graph/    — CodeGraphEngine, BlastRadius, git 이력 co-change, 언어 플러그인 8개
-src/graph-viz/     — 코드 그래프 D3 시각화 (ges_graph_visualize 백엔드)
-src/architecture/  — 아키텍처 IR 스키마, 근거 검증, 이전 실행 병합, 분석 합치기, elkjs 레이아웃, HTML 렌더 (ges_architecture 백엔드)
-src/local-pr/      — 로컬 PR 도메인 (이벤트 소싱, git 연산, gestalt pr·ges_pr 백엔드)
-src/local-pr-web/  — 로컬 PR 읽기 전용 웹 UI (gestalt pr serve 백엔드)
-src/knowledge-base/— KB 생성·시맨틱 검색·동기화 (ges_generate_kb/ges_search/ges_sync 백엔드)
-src/memory/        — Memory 피드백 루프 (ProjectMemoryStore, 과거 스펙 시맨틱 검색, memory.json merge driver)
-src/llm/           — 멀티 프로바이더 LLM 어댑터 (frugal/standard/frontier 티어 라우팅)
-src/review/        — Code Review 파이프라인 (agent-matcher, context-collector, report-generator)
-src/harness-review/— 하네스 PR 참조 후보 수집, 연관 PR 탐색, 세 상태 판정, approve 게이트 (gestalt harness-refs, gestalt review-loop approve-gate 백엔드)
-src/agent/         — AgentRegistry, RoleAgentRegistry (tier→모델 해석은 MCP 핸들러가 담당)
-src/mcp/           — MCP 서버 + 툴 핸들러
-src/events/        — EventStore (SQLite)
-src/skills/        — Skill System 엔진 (SKILL.md 파서·실행기, 최상위 skills/와는 별개)
-src/registry/      — 레지스트리 공통 베이스 클래스
-src/humanize/      — 룰북 읽기 + AI-tell 탐지기 + 윤문 코드 검사 (`gestalt humanize-check` 백엔드)
-src/explain/       — 대상별 설명 품질 검사 (`gestalt explain-check` 백엔드). 판정 구조만 humanize에서 빌려 쓴다
-src/utils/         — 알림, 읽기 전용 도구 이름 걸러내기(read-only-tools), git remote로 ~/.claude/projects 메모리 묶기(claude-projects) 등 공용 유틸
-src/cli/           — commander 기반 CLI
-plugin/            — 배포 자산 전부. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다
-plugin/role-agents/    — 내장 Role Agent 9개 (architect, frontend-developer, backend-developer, devops-engineer, qa-engineer, designer, product-planner, researcher, technical-writer) + 스킬 지원용 에이전트(jira-writer, slack-messenger, presentation-writer, code-review-writer, code-review-responder, suggestion-verifier, explainer 등) 총 23개 + `_shared/references/` 공유 룰북(author-voice, ai-tell-quick-rules, style-guide, comment-rules, truncation-rules)과 리뷰 절차 문서(rule-path-walk) — 에이전트 아님, 레지스트리가 건너뜀
-plugin/review-agents/  — 내장 Review Agent 7개 (security-reviewer, performance-reviewer, quality-reviewer, frontend-reviewer, comment-reviewer, writing-reviewer, harness-reviewer)
-plugin/skills/         — SKILL.md 22개 (interview, spec, execute, dispatch, agent, review, review-reply, review-loop, pr, local-pr, ship, build-graph, blast-radius, diff-radius, architecture, jira-create, slack-send, brief, presentation, explain, solve, setup) + `_shared/` 공유 규칙(스킬 아님, 레지스트리가 건너뜀)
-plugin/agents/         — 파이프라인 에이전트 5개
-plugin/personas/       — Lateral Thinking 페르소나
-```
+디렉토리 구성은 `ls src plugin`으로 본다. 코드만 봐선 헷갈리는 자리만 적는다.
+- `src/skills/`는 Skill System 엔진(SKILL.md 파서와 실행기)이고 최상위 `skills/`와는 별개다.
+- `src/agent/`의 레지스트리는 tier→모델 해석을 하지 않는다. 그건 MCP 핸들러가 담당한다.
+- `src/explain/`은 판정 구조만 humanize에서 빌려 쓴다.
+- `plugin/`은 배포 자산 전부다. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다.
+- `plugin/role-agents/_shared/references/`(룰북과 리뷰 절차 문서)와 `plugin/skills/_shared/`는 에이전트나 스킬이 아니다. 레지스트리가 건너뛴다.
 
 ## 플러그인 배포 구조
 
@@ -135,37 +69,11 @@ hooks/hooks.json                  Claude 플러그인 훅 (코드 그래프 자�
 
 ### MCP 기동 경로
 
-클라이언트마다 서버를 띄우는 방식이 다르다.
-
-```
-.mcp.json                 Claude — sh로 scripts/mcp-serve.sh를 찾아 실행
-.claude-plugin/.mcp.json  .mcp.json과 내용 동일 (해석 기준 디렉토리가 모호해 양쪽에 둔다)
-plugin/mcp.json           Codex — npx, 버전 핀
-plugin/.mcp.json          Grok(배포) — plugin/mcp.json과 동일
-.grok/config.toml         Grok(이 레포 개발용) — scripts/grok-mcp-serve.sh
-```
-
-- `npx`는 버전을 박아도 기동할 때마다 레지스트리를 조회한다. 캐시가 비면 20초, 레지스트리에 못 닿으면 70초를 매달린다. Claude Code의 기동 제한은 30초라 둘 다 `Connection closed`로 끊긴다.
-- `startup_timeout_sec`와 `tool_timeout_sec`는 Codex 키다. Claude Code는 안 읽고 `MCP_TIMEOUT` 환경변수만 본다. Claude 매니페스트에 넣어봐야 무시된다.
-- `scripts/mcp-serve.sh`가 그 셋을 처리한다. nvm, fnm, Volta, Homebrew에서 Node >= 22를 찾는다 (GUI 세션은 PATH에 버전 매니저가 없다). 전역 `gestalt`가 있으면 그걸 쓰고 없으면 `npx --offline`으로 캐시에서 해석한다.
-- 그 스크립트는 npx로 서버를 띄우지 않고 bin 경로만 받아와 직접 exec한다. npx가 cwd의 로컬 패키지를 먼저 보기 때문에, node_modules 없는 gestalt 체크아웃 안에서는 `gestalt: command not found`로 죽는다. 그래서 해석은 `cd /`에서 한다.
-- 전역 `gestalt`가 깔려 있으면 핀보다 그게 이긴다. 누가 `npm i -g`를 했다는 건 이 체크아웃이 번들한 것보다 구체적인 선택이라서다. 대신 어느 쪽을 썼는지 stderr에 적어 버전이 어긋났을 때 로그에서 보이게 한다.
-- 매니페스트의 `sh -c`는 `${CLAUDE_PLUGIN_ROOT}`를 먼저 본다. 거기서 스크립트를 찾으면 `GESTALT_LAUNCHER`는 아예 안 본다. 플러그인으로 설치된 상태에서는 그 변수가 안 걸린다는 뜻이다. 플러그인 없이 이 레포만 연 경우에만 차례가 온다. 그때도 **절대 경로만** 받는다 — 상대 경로를 허용하면 남의 레포를 열었을 때 거기 있는 동명 실행 파일이 서버 대신 도는 자리가 된다.
-- 그 `sh -c`의 최후 폴백도 버전이 핀되어 있다. 거기까지 왔으면 스크립트를 못 찾은 것이다. 스크립트가 없으면 `package.json`도 없어 런타임에 버전을 못 읽는다. 그래서 그 자리만은 `sync-version.ts`가 문자열에 직접 박는다.
-- 네 매니페스트의 버전 핀을 `scripts/sync-version.ts`가 릴리즈마다 함께 갱신한다. `plugin/*`는 인자 하나가 통째로 스펙이고 Claude 쪽은 `sh` 문자열 안에 박혀 있는데, 같은 정규식으로 둘 다 친다.
-- `command: "sh"`라서 Windows 호스트에서는 안 뜬다. 그쪽은 전역 설치 후 `command: "gestalt"`로 안내한다.
+클라이언트별 서버 기동 방식과 매니페스트 버전 핀 규칙은 [`scripts/CLAUDE.md`](./scripts/CLAUDE.md)에 있다. `.mcp.json`, `.claude-plugin/.mcp.json`, `plugin/mcp.json`, `plugin/.mcp.json`, `.grok/config.toml`을 고치기 전에 먼저 읽는다. 매니페스트의 `GESTALT_LAUNCHER`는 **절대 경로만** 받는다. 상대 경로를 허용하면 남의 레포의 동명 실행 파일이 서버 대신 돈다.
 
 ### 버전이 뒤처졌을 때 알리는 자리
 
-`ges_*` 도구를 처음 부를 때 응답에 알림 한 줄이 따라붙는다. 게슈탈트를 실제로 쓴 세션에만 뜨고 안 쓰는 세션은 서버가 떠 있어도 조용하다. `src/mcp/server.ts`의 `toolReply()`가 그 자리다.
-
-- **재는 기준은 플러그인 버전이다.** `CLAUDE_PLUGIN_ROOT`가 서버 프로세스까지 상속되므로 서버가 그 아래 `.claude-plugin/plugin.json`을 직접 읽는다. 없으면(CLI로 부른 경우) 서버 자기 버전으로 떨어진다.
-- 둘은 어긋날 수 있다. `mcp-serve.sh`가 전역 `gestalt`를 핀보다 먼저 쓰므로 누가 `npm i -g`를 해두면 서버만 최신이고 스킬은 플러그인 캐시의 옛 버전이 된다. **그때 알려야 하는 쪽은 플러그인이다** — 사용자가 읽는 지시문이 거기서 온다.
-- 그래서 안내 명령도 갈린다. 플러그인이 뒤처졌으면 `/plugin install gestalt@gestalt`이고 CLI면 `gestalt update`다. 반대로 안내하면 사용자가 시킨 대로 해도 다음 세션에 같은 알림이 또 뜬다.
-- 알림은 `result` 문자열에 이어 붙이지 않고 **별도 content 블록**으로 싣는다. 스킬들이 `content[0]`을 파싱하기 때문이다.
-- 세션당 한 번만 나온다. 리뷰처럼 도구를 수십 번 부르는 스킬에서 매번 붙으면 같은 줄이 그만큼 쌓인다.
-- 네트워크는 기동 때 `checkForUpdates()`가 한 번 탄다. 도구 응답은 그 결과만 읽으므로 조회를 기다리지 않는다. `GESTALT_NO_UPDATE_CHECK=1`이면 조회도 알림도 없다.
-- **CLI(`gestalt pr` 등)에는 안 붙는다.** 그 경로는 `CLAUDE_PLUGIN_ROOT`를 못 봐서 플러그인 버전을 알 방법이 없다. `--json` 출력에 산문이 섞이면 스킬도 깨진다. 스킬 중 `local-pr` 하나만 MCP를 안 거치므로 그 스킬만 알림 자리가 없다.
+`ges_*` 도구를 처음 부를 때 붙는 버전 알림은 `src/mcp/server.ts`의 `toolReply()`가 만든다. 상세 규칙은 [`src/mcp/CLAUDE.md`](./src/mcp/CLAUDE.md)에 있고 `src/mcp/` 아래를 고칠 때 자동으로 로드된다.
 
 ## Conventions
 - MCP 서버에서 `console.log` 금지 → `log()` stderr 유틸 사용
