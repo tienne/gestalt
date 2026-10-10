@@ -63,14 +63,14 @@ routing:
 
 충돌과 파일 규칙은 어느 경로에서나 같다.
 
-- 같은 파일군을 건드리는 병렬은 어디서든 띄우지 않고 직렬로 돌린다. 10/1에 #42, #43, #47이 같은 파일을 건드려 충돌한 사례가 있다.
+- 같은 파일군을 건드리는 병렬은 어디서든 띄우지 않고 직렬로 돌린다. 병렬로 낸 작업이 같은 파일을 고치면 나중에 합칠 때 충돌한다.
 - 서브에이전트에 파일 수정을 맡기는 건 메인이 그 파일을 안 만지는 동안만이다.
 
-세션 로그를 분석해 보니 이 기준이 필요한 이유가 숫자로 나왔다.
+이 기준이 필요한 이유는 아래와 같다.
 
-- 서브에이전트가 15분 넘게 돈 경우가 104번이다. 오래 걸리는 일은 서브에이전트에 맞지 않는다.
-- 오르카 `worktree create`가 109번이고 `worktree rm`은 27번이다. 정리하지 않은 워크트리가 쌓였다.
-- 지시문이 1,500자 이상이면 도구를 32번 부르며 396초가 걸렸다. 길게 말로 넘기면 흔들린다.
+- 15분 넘게 도는 일은 서브에이전트에 맞지 않는다. 메인이 그동안 묶이고 중간 상태도 보기 어렵다.
+- 워크트리는 만들기는 쉽고 정리는 잊기 쉽다. 끝난 워크트리는 확인한 뒤 `worktree rm`으로 지운다.
+- 지시문을 길게 말로 넘기면 흔들린다. 길면 파일로 쓰고 경로만 넘긴다.
 
 ## 2단계: model과 effort는 쌍으로 정한다
 
@@ -91,7 +91,7 @@ Agent { subagent_type: "Explore", model: "<표에서 고른 tier의 모델>", ef
 - `--effort`는 `--model`과 같이 줘야 하고 `--terminal`과는 섞지 못한다.
 - 지원하지 않는 조합(예: sonnet과 effort ultra)은 `invalid_argument`로 거절되고 워크트리도 만들어지지 않는다. 에러 문구가 같은 명령을 그대로 다시 하지 말라고 알려준다. 쌍을 고쳐서 다시 한다.
 
-아직 확인하지 못한 것은 haiku에 effort를 주면 어떻게 되는지다. 그 조합을 쓰게 되면 접수증을 꼭 본다.
+haiku에는 effort를 줄 수 없다. `Agent claude model haiku does not support effort low`라는 `invalid_argument`로 거절되고 워크트리도 만들어지지 않는다. haiku는 `--model haiku`만 주고 `--effort`는 뺀다.
 
 ## 3단계: 지시서(brief)를 쓴다
 
@@ -114,7 +114,7 @@ Agent { subagent_type: "Explore", model: "<표에서 고른 tier의 모델>", ef
 ### 감독형
 
 1. 묶인 Run이 있는지 `orca orchestration run-current`로 먼저 본다. 있으면 재사용하고 없을 때만 `orca orchestration run-create --objective <text>`로 만든다.
-2. `worker-start`로 워커를 띄운다. 하위 워크트리는 `--worktree new-child`, 독립 워크트리는 `--worktree new-top-level`을 쓴다. `new-top-level`은 도움말에서 확인했고 직접 돌려보지는 않았다. 지시는 `--spec`에 지시서 경로를 읽고 시작하라는 문장을 넣는다. 형태는 아래와 같고 나머지 플래그는 `orca skills get orchestration`을 본다.
+2. `worker-start`로 워커를 띄운다. 하위 워크트리는 `--worktree new-child`, 독립 워크트리는 `--worktree new-top-level`을 쓴다. `new-top-level`은 부모 없는 독립 워크트리를 만든다. 직접 돌려 확인했다. 지시는 `--spec`에 지시서 경로를 읽고 시작하라는 문장을 넣는다. 형태는 아래와 같고 나머지 플래그는 `orca skills get orchestration`을 본다.
 
 ```bash
 orca orchestration worker-start --spec "<지시서 경로를 읽고 시작>" --worktree new-child --agent claude --model <별칭|전체ID> --effort <low|medium|high|xhigh> --json
@@ -136,7 +136,7 @@ dispatch는 `worker-start` 대신 `terminal create`와 `orchestration task-creat
 3. `terminal wait --terminal <핸들> --for tui-idle --timeout-ms 60000`으로 TUI가 뜨기를 기다린다. 결과의 `wait.satisfied`가 `true`일 때만 다음으로 간다.
 4. `terminal send --terminal <핸들> --text "<지시서 경로를 읽고 시작>" --enter --wait-submit 10`으로 지시를 보낸다.
 
-설치된 `claude` CLI에 `--model`과 `--effort`가 있는 것은 확인했다. 하지만 이 4단계 우회를 끝까지 돌려보지는 못했다. 오르카 문서가 경고하듯 빈 셸 탭이 하나 먼저 생길 수 있다. 사용자에게 이 경로가 검증되지 않았다고 먼저 알리고 간다.
+이 4단계는 sonnet과 low로 끝까지 돌려 확인했다. 2단계 직후 터미널 머리글에 `Sonnet 5.5 with low effort`가 떴고 4단계 접수증에는 `turn_started`까지 찍혔다. 값이 먹혔는지는 모델의 답이 아니라 이 머리글로 본다. 모델은 자기 effort를 모른다고 답한다. 이 경로의 워커는 `worker-start`와 달리 `auto mode on`으로 뜬다. 오르카 문서가 경고하는 빈 셸 탭은 이번에는 생기지 않았다.
 
 ### 재전송하지 않는다
 
@@ -165,7 +165,7 @@ Agent { subagent_type: "general-purpose", model: "<표에서 고른 tier의 모�
 - 오르카를 썼다면 접수증의 `launch.requested`와 `effective` 비교 결과
 - 지시서 경로
 - 정리한 워크트리와 남은 Run
-- 확인하지 못한 것: full handoff 우회를 썼다면 끝까지 검증되지 않았다는 점, haiku에 effort를 줬다면 미확인이라는 점
+- 값이 먹혔다는 근거: 감독형은 접수증, full handoff 우회는 터미널 머리글
 
 ## Do-NOT
 
