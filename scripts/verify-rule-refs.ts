@@ -149,10 +149,10 @@ export function stripQuoted(line: string): string {
 }
 
 /**
- * 코드펜스 안의 `Agent {` 블록 중 `model:` 줄이 없는 블록의 시작 줄 번호(1부터)를 돌려준다.
+ * 코드펜스 안의 `Agent {` 블록 중 `field:` 줄이 없는 블록의 시작 줄 번호(1부터)를 돌려준다.
  * 블록은 그 줄과 같거나 얕은 들여쓰기의 `}` 줄이나 펜스 끝에서 닫힌다고 본다.
  */
-export function agentBlocksWithoutModel(markdown: string): number[] {
+function agentBlocksWithoutField(markdown: string, field: string): number[] {
   const lines = markdown.split('\n');
   const missing: number[] = [];
   let fence: string | null = null;
@@ -174,22 +174,28 @@ export function agentBlocksWithoutModel(markdown: string): number[] {
     if (!open) continue;
 
     const indent = open[1]!.length;
-    let hasModel = false;
+    let hasField = false;
     for (let j = i + 1; j < lines.length; j++) {
       const inner = lines[j]!;
       if (/^\s*(`{3,}|~{3,})/.test(inner)) break;
       const close = /^(\s*)\}\s*$/.exec(inner);
       if (close && close[1]!.length <= indent) break;
-      if (/^\s*model\s*:/.test(inner)) {
-        hasModel = true;
+      if (new RegExp(`^\\s*${field}\\s*:`).test(inner)) {
+        hasField = true;
         break;
       }
     }
-    if (!hasModel) missing.push(i + 1);
+    if (!hasField) missing.push(i + 1);
   }
 
   return missing;
 }
+
+export const agentBlocksWithoutModel = (markdown: string): number[] =>
+  agentBlocksWithoutField(markdown, 'model');
+
+export const agentBlocksWithoutEffort = (markdown: string): number[] =>
+  agentBlocksWithoutField(markdown, 'effort');
 
 /**
  * "화이트리스트" 가 적힌 줄에서 가장 긴 가운뎃점 나열을 정착어 목록으로 읽는다.
@@ -492,16 +498,26 @@ export function verifyRuleRefs(): RuleRefIssue[] {
       });
   }
 
-  // 9. 스킬이 서브에이전트를 띄우는 Agent 블록에 model이 빠졌는가.
+  // 9. 스킬이 서브에이전트를 띄우는 Agent 블록에 model과 effort가 빠졌는가.
   //    model을 비우면 세션 모델을 그대로 물려받아 tier 설계가 무력해진다.
+  //    effort를 비우면 세션 effort를 물려받아 작업별 세트가 풀린다.
   for (const file of markdownFiles(join(PLUGIN, 'skills'))) {
     if (!file.endsWith(`${sep}SKILL.md`)) continue;
-    for (const number of agentBlocksWithoutModel(readFileSync(file, 'utf-8'))) {
+    const text = readFileSync(file, 'utf-8');
+    for (const number of agentBlocksWithoutModel(text)) {
       issues.push({
         level: 'error',
         file: `${rel(file)}:${number}`,
         message:
           'Agent 블록에 model이 없다 — 생략하면 세션 모델을 상속한다. plugin/skills/_shared/agent-model.md 절차로 채운다',
+      });
+    }
+    for (const number of agentBlocksWithoutEffort(text)) {
+      issues.push({
+        level: 'error',
+        file: `${rel(file)}:${number}`,
+        message:
+          'Agent 블록에 effort가 없다 — 생략하면 세션 effort를 상속한다. plugin/skills/_shared/agent-model.md 표에서 고른다',
       });
     }
   }

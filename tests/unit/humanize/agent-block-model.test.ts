@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { agentBlocksWithoutModel } from '../../../scripts/verify-rule-refs.js';
+import {
+  agentBlocksWithoutEffort,
+  agentBlocksWithoutModel,
+} from '../../../scripts/verify-rule-refs.js';
 
 const FENCE = '`'.repeat(3);
 
@@ -115,5 +118,37 @@ describe('agentBlocksWithoutModel', () => {
     );
 
     expect(agentBlocksWithoutModel(src)).toEqual([8]);
+  });
+});
+
+describe('agentBlocksWithoutEffort', () => {
+  it('effort 줄이 있는 블록은 통과하고 없는 블록은 시작 줄을 돌려준다', () => {
+    const src = md(
+      FENCE,
+      'Agent {',
+      '  subagent_type: "Explore",',
+      '  model: "<tierModels.standard>",',
+      '  effort: "medium",',
+      '  prompt: "읽기만 한다"',
+      '}',
+      'Agent {',
+      '  subagent_type: "Explore",',
+      '  model: "<tierModels.standard>",',
+      '  prompt: "읽기만 한다"',
+      '}',
+      FENCE,
+    );
+
+    expect(agentBlocksWithoutEffort(src)).toEqual([8]);
+  });
+
+  it('한 줄 꼴은 검사 대상이 아니다', () => {
+    const src = md(
+      FENCE,
+      'Agent { subagent_type: "Explore", model: "sonnet", prompt: "..." }',
+      FENCE,
+    );
+
+    expect(agentBlocksWithoutEffort(src)).toEqual([]);
   });
 });
