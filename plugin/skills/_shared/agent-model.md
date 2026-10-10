@@ -44,6 +44,46 @@ ges_status {}
 정리하는 자리, 그러니까 결과를 사람이 다시 확인하는 작업에만 쓴다 — 확정 판단, 문장 작성, 파일 수정은
 이 경로로 내리지 않는다.
 
+## 작업별 model과 effort 세트
+
+서브에이전트를 띄울 때는 일의 성격을 보고 `model`(tier)과 `effort`를 **한 쌍**으로 고른다. 둘은 서로
+독립된 손잡이라 tier에 effort를 묶어두지 않는다. 같은 `standard`여도 취약점 리뷰는 `high`가 맞고
+파일 위치 찾기는 `low`가 맞다.
+
+Agent 도구의 `effort`는 지침이 명시할 때만 설정하는 파라미터인데, 이 절이 그 명시 역할을 한다. 값은
+`low`, `medium`, `high`, `xhigh` 네 가지만 쓴다. 표에는 tier 이름을 적고 모델 별칭은 괄호로 참고만
+단다. `model` 값은 계속 `ges_agent list`나 `ges_status`의 `tierModels`에서 읽는다. 스킬 본문에 별칭을
+하드코딩하지 않는 원칙도 그대로다. 표의 값은 시작값이며 측정으로 검증한 값이 아니다.
+
+| 일의 성격 | 예 | tier | effort |
+|---|---|---|---|
+| 기계적 분류, 추출, 형식 변환 | 리뷰 스레드 분류, proximity-worker | `frugal` (haiku) | `low` |
+| 범위가 정해진 조사 | 파일과 심볼 위치 찾기, 호출 경로 따라가기 | `standard` (sonnet) | `low` |
+| 규칙 대조형 리뷰 | quality, comment, writing, performance, frontend 리뷰어 | `standard` (sonnet) | `medium` |
+| 취약점 리뷰 | security-reviewer | `standard` (sonnet) | `high` |
+| 문서, 윤문, PR 본문 작성 | change-context-writer, humanize-monolith, jira-writer, technical-writer | `standard` (sonnet) | `medium` |
+| 범위가 명확한 구현 | gestalt-developer, frontend-developer, backend-developer | `standard` (sonnet) | `medium` |
+| 해석이 갈리는 구현 | 요구사항이 열려 있거나 파일 여러 곳에 걸치는 변경 | `frontier` (opus) | `high` |
+| 판정 (결과가 다음 단계를 막거나 뒤집는 일) | continuity-judge, suggestion-verifier | `frontier` (opus) | `high` |
+| 열린 설계, 아키텍처 | architect, harness-architect | `frontier` (opus) | `high` (대형이면 `xhigh`) |
+
+- 표에 맞는 행이 없으면 가장 가까운 행의 쌍을 쓴다. 정말 모르겠으면 `standard`와 `medium`으로 시작한다.
+  `model`은 절대 비우지 않는다.
+- 이전 시도가 실패했거나 결과가 얕아서 같은 일을 다시 시킬 때는 `model`과 `effort` 중 **하나만**
+  올린다. 둘을 한꺼번에 올리면 어느 쪽이 먹혔는지 알 수 없다. 해석이 막혔으면 `model`을 올린다. 같은
+  모델이 너무 빨리 끝냈으면 `effort`를 올린다.
+- 에이전트 이름이 있으면 `model`은 `list`가 준 값을 우선한다. 표의 tier는 이름이 없는 자리에서 쓴다.
+  `effort`는 어느 경우든 이 표에서 고른다.
+
+호출은 이런 모양이다. `model`은 `list` 응답에서 가져온 값이고 `effort`는 표에서 고른 값이다.
+
+```
+ges_agent { action: "list" }
+  →  { name: "security-reviewer", tier: "standard", model: "sonnet", ... }
+
+Agent { subagent_type: "Explore", model: "sonnet", effort: "high", prompt: "...security-reviewer 관점..." }
+```
+
 ## 적용 규칙
 
 **서브에이전트를 띄울 때는 `model`을 그대로 넘긴다.** Agent 도구의 `model` 파라미터에 응답의
