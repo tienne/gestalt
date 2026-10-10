@@ -53,6 +53,7 @@ const GATE: { name: string; ids: string[] }[] = [
   { name: '결함·원인 비유', ids: ['F-9'] },
   { name: '관용구 물리 동사', ids: ['F-10'] },
   { name: '영어 개념어 한 단어 직역', ids: ['B-5'] },
+  { name: '연결어미 뒤 쉼표', ids: ['C-11'] },
 ];
 
 /**
@@ -69,6 +70,7 @@ const SPOTLIGHT = [
   'B-3',
   'B-5',
   'C-10',
+  'C-11',
   'C-12',
   'C-14',
   'D-1',
