@@ -80,4 +80,11 @@ describe('handoff 스킬', () => {
       existsSync(resolve(dirname(developPath), '../../../plugin/skills/handoff/SKILL.md')),
     ).toBe(true);
   });
+
+  it('gestalt-develop의 Agent 블록이 모델 별칭을 박지 않고 effort를 함께 준다', () => {
+    const developRaw = readFileSync(resolve('.claude/skills/gestalt-develop/SKILL.md'), 'utf-8');
+    expect(developRaw).not.toMatch(/model:\s*"(opus|sonnet|haiku)"/);
+    expect(developRaw.match(/model: "<tierModels\.standard>"/g)).toHaveLength(3);
+    expect(developRaw.match(/effort: "medium"/g)).toHaveLength(3);
+  });
 });
