@@ -63,4 +63,21 @@ describe('handoff 스킬', () => {
   it('Agent 블록마다 model 줄이 있다', () => {
     expect(agentBlocksWithoutModel(raw)).toEqual([]);
   });
+
+  it('execute 스킬이 handoff로 가는 링크를 갖고 링크 대상이 있다', () => {
+    const executePath = resolve('plugin/skills/execute/SKILL.md');
+    const executeRaw = readFileSync(executePath, 'utf-8');
+    expect(executeRaw).toContain('](../handoff/SKILL.md)');
+    expect(existsSync(resolve(dirname(executePath), '../handoff/SKILL.md'))).toBe(true);
+  });
+
+  it('gestalt-develop 파이프라인이 handoff로 맡길 곳을 가른다', () => {
+    const developPath = resolve('.claude/skills/gestalt-develop/SKILL.md');
+    const developRaw = readFileSync(developPath, 'utf-8');
+    expect(developRaw).toContain('## Phase 1.5: 맡길 곳 판단');
+    expect(developRaw).toContain('](../../../plugin/skills/handoff/SKILL.md)');
+    expect(
+      existsSync(resolve(dirname(developPath), '../../../plugin/skills/handoff/SKILL.md')),
+    ).toBe(true);
+  });
 });

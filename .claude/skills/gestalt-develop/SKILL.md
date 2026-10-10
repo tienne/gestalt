@@ -16,6 +16,8 @@ Gestalt 프로젝트 개발 작업을 3개 서브에이전트 파이프라인으
     ↓
 [Analyst] → _workspace/analysis.md     (탐색 전용, 빠름)
     ↓
+[맡길 곳 판단] → 서브에이전트 또는 워크트리  (handoff)
+    ↓
 [Developer] → _workspace/implementation.md  (구현, 느림)
     ↓
 [QA] → _workspace/test-results.md          (테스트 실행)
@@ -58,6 +60,18 @@ Agent(
 
 분석 결과를 읽고 영향 파일 목록과 구현 전략이 충분한지 확인한다.
 불충분하면 analyst에게 보완 요청 후 Phase 2 진행.
+
+## Phase 1.5: 맡길 곳 판단
+
+분석 결과를 읽은 뒤 구현을 이 세션의 서브에이전트에 맡길지, 워크트리로 넘길지 정한다. 기준은 [`handoff`](../../../plugin/skills/handoff/SKILL.md)의 "1단계: 맡길 곳 고르기"를 따른다. 기본은 지금까지처럼 서브에이전트이고, 아래에 해당하면 워크트리를 먼저 본다.
+
+- 티켓, 브랜치, PR 단위로 끝나는 일이다.
+- 영향 파일이 많아 서브에이전트가 15분 넘게 돌 것 같다.
+- 사용자가 이 워크트리에서 다른 일을 이어서 할 예정이라 같은 파일군을 건드릴 수 있다.
+
+워크트리로 가면 Phase 2부터 4까지를 통째로 넘긴다(full handoff). `_workspace/`는 git ignore라 워크트리마다 따로 있고 정합 심급과 커밋은 오케스트레이터가 하므로, 중간에서 쪼개 보내면 상태가 갈라진다. 지시서에는 이 세션의 `_workspace/task.md`와 `analysis.md` 절대 경로를 적고 새 워크트리의 `_workspace/`로 복사한 뒤 Phase 2부터 이 스킬을 따르라고 쓴다. model과 effort는 [`agent-model.md`](../../../plugin/skills/_shared/agent-model.md) 표에서 고른다. 요구가 열려 있으면 frontier와 high, 범위가 명확하면 standard와 medium이다.
+
+넘기고 나면 이 세션은 Phase 2~4를 하지 않는다. 결과는 워크트리의 브랜치와 워커 보고로 받는다.
 
 ## Phase 2: 구현 (gestalt-developer, general-purpose)
 
