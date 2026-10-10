@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseSkillMd } from '../../../src/skills/parser.js';
+import { loadSkillBody } from '../../helpers/skill-section.js';
 import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
@@ -40,7 +41,10 @@ import {
  */
 
 const SKILL_PATH = resolve('plugin/skills/review/SKILL.md');
-const body = parseSkillMd(readFileSync(SKILL_PATH, 'utf-8'), SKILL_PATH).body;
+const body = parseSkillMd(
+  loadSkillBody(SKILL_PATH, (p) => readFileSync(p, 'utf-8')),
+  SKILL_PATH,
+).body;
 
 const PHASE_103 = '### 1.03단계: 재리뷰 판정';
 const FIND_HEAD = '#### 직전 리뷰 head 찾기';

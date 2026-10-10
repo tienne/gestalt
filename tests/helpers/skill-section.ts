@@ -327,3 +327,20 @@ export function codeBlockContainingIn(body: string, prefix: string, needle: stri
   expect(heading, `${prefix} 로 시작하는 헤딩을 못 찾았다`).toBeDefined();
   return codeBlockContaining(body, heading!, needle);
 }
+
+/**
+ * SKILL.md가 `references/`로 뺀 단계를 원래 자리에 다시 펼친다. 스킬 본문이 조건부 단계를
+ * 참조 파일로 나눠도 절 단위 단언은 나뉘기 전과 같은 문서를 보게 하려는 것이다.
+ * 펼칠 자리는 `> **이 단계의 상세** → [`references/x.md`]` 줄과 바로 다음 안내 줄 둘이다.
+ */
+export function loadSkillBody(skillPath: string, read: (p: string) => string): string {
+  const dir = skillPath.replace(/[^/]+$/, '');
+  return read(skillPath).replace(
+    /^> \*\*이 단계의 상세\*\* → \[`(references\/[^`]+)`\]\([^)]*\)\n> [^\n]*\n/gm,
+    (_m, ref: string) =>
+      read(`${dir}${ref}`)
+        // 리터럴로 적으면 verify:rules가 링크 앵커로 읽는다
+        .replace(/\]\(\.\.\/SKILL\.md#/g, () => ']' + '(#')
+        .replace(/\n*$/, '\n'),
+  );
+}

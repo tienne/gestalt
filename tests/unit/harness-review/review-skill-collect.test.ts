@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseSkillMd } from '../../../src/skills/parser.js';
-import { section, codeBlockContaining } from '../../helpers/skill-section.js';
+import { section, codeBlockContaining, loadSkillBody } from '../../helpers/skill-section.js';
 
 /**
  * review 스킬 1.02단계(참조 후보 수집)의 문서 계약.
@@ -12,7 +12,10 @@ import { section, codeBlockContaining } from '../../helpers/skill-section.js';
  */
 
 const SKILL_PATH = resolve('plugin/skills/review/SKILL.md');
-const body = parseSkillMd(readFileSync(SKILL_PATH, 'utf-8'), SKILL_PATH).body;
+const body = parseSkillMd(
+  loadSkillBody(SKILL_PATH, (p) => readFileSync(p, 'utf-8')),
+  SKILL_PATH,
+).body;
 const cliSource = readFileSync(resolve('src/cli/index.ts'), 'utf-8');
 
 const PHASE = '### 1.02단계: 참조 후보 수집 (하네스 대상이 있을 때만)';

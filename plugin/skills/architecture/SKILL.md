@@ -1,7 +1,7 @@
 ---
 name: architecture
 version: '1.0.0'
-description: '레포나 문서를 근거로 아키텍처 그림을 그린다. 코드 구조는 화면에서 API를 거쳐 DB 테이블까지 잇는 screen-chain과 트리거에서 배포 대상까지 잇는 deploy-path로 그린다. 서빙하는 도메인과 CDN, 버킷이 함께 실리고 하네스나 MCP 서버 레포는 스킬과 MCP 도구가 실린다("아키텍처 그려줘", "배포 경로 그려줘"). 호출 순서, 데이터 흐름, 업무 절차, 두 구조 비교는 질문별 그림과 흐름 그림으로 그린다. 네트워크나 데이터 파이프라인, 조직처럼 웹 제품이 아닌 대상도 같은 스킬로 그린다("시퀀스 그려줘", "네트워크 구성도 그려줘"). 문서 레포는 구멍과 오래된 문서가 보이는 지도로 그리고 바뀐 코드 때문에 손볼 문서도 고른다("문서 지도 그려줘", "이 PR로 손봐야 할 문서 찾아줘"). 근거 없는 연결은 실선으로 긋지 않는다. 세션이 쓴 IR을 서버가 검증해 단일 HTML로 그린다. 근거 없이 mermaid 같은 다이어그램만 원하면 이 스킬이 아니다. 설계 리뷰나 설계 자문은 architect 에이전트를 쓴다. 파일 단위 의존성과 영향 범위는 build-graph와 blast-radius를 쓴다.'
+description: '레포나 문서를 근거로 아키텍처 그림을 그린다. 화면에서 API를 거쳐 DB까지 잇는 screen-chain, 트리거에서 배포 대상까지 잇는 deploy-path, 호출 순서나 데이터 흐름 같은 질문별 그림, 문서 레포의 지식 지도를 그린다("아키텍처 그려줘", "배포 경로 그려줘", "시퀀스 그려줘", "문서 지도 그려줘"). 근거 없는 연결은 실선으로 긋지 않는다. 근거 없이 mermaid만 원하면 이 스킬이 아니다. 설계 리뷰는 architect 에이전트, 파일 단위 의존성과 영향 범위는 build-graph와 blast-radius를 쓴다.'
 triggers:
   # 코드 구조 그림
   - 'architecture'
@@ -287,88 +287,15 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 - **플러그인 매니페스트**: `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, 마켓플레이스 json, `.mcp.json`
 - **스킬과 에이전트 파일**: `**/SKILL.md`, `**/AGENT.md`, `agents/*.md`
 
-1. **클라이언트와 플러그인**: 플러그인을 읽는 AI 클라이언트(Claude Code, Codex, Grok 등)를 `client`로 두고 근거는 그 클라이언트가 읽는 매니페스트 줄로 단다. 플러그인은 `service`다. `client → service`를 `loads`로 잇는다.
-2. **스킬**: SKILL.md 하나에 `skill` 하나다. 근거는 그 SKILL.md의 `name` 줄이다. `parent`는 스킬을 묶는 `feature`나 플러그인 `service`다. 스킬 묶음을 `feature`로 세웠으면 그 묶음이 적힌 README나 docs 줄을 `doc` 근거로 단다.
-3. **에이전트**: AGENT.md나 `agents/*.md` 하나에 `agent` 하나다. parent는 달지 않는다. 스킬이나 에이전트가 에이전트를 띄우면 `spawns`, 스킬이 다른 스킬을 부르면 `invokes`다. 근거는 지시문에서 그 이름을 부르는 줄이다.
-4. **MCP 도구**: 도구 하나에 `endpoint` 하나다. action마다 나누지 않는다. label은 도구 이름이고 `protocol: "mcp"`, `mcpServer`에 서버 이름, `actions`에 그 도구가 받는 action enum 값을 단다. 근거는 도구 등록 줄이다. 그림에는 API 대신 **MCP 도구** 칩으로 나오고 레인도 따로 선다.
-   - `parent`에는 그 도구를 내놓는 서비스 id를 단다. 서버 패키지가 따로 있으면 그 서비스이고 플러그인이 서버를 함께 담으면 플러그인 `service`다. 스킬 없이 클라이언트가 도구를 바로 부르는 순수 MCP 서버 레포는 이 parent가 있어야 전체 그림에 서비스 → 핸들러 묶음 선이 생긴다. HTTP 엔드포인트에는 parent를 달지 않는다.
-
-   ```json
-   { "id": "tool:plan", "kind": "endpoint", "label": "ges_plan", "protocol": "mcp",
-     "mcpServer": "gestalt", "parent": "svc-gestalt", "actions": ["start", "submit"],
-     "description": "실행 계획을 세우고 단계별로 제출받는 도구예요.", "evidence": [ ... ] }
-   ```
-
-5. **도구 호출 매칭**: SKILL.md와 AGENT.md에서 도구 이름과 `action=`, `action: '...'` 줄을 찾아 `skillToolCalls`로, 서버 코드의 도구 등록을 `serverTools`로 적어 `match_endpoints`에 넘긴다. HTTP 쪽 `feCalls`와 함께 넘겨도 된다.
-
-   ```json
-   { "action": "match_endpoints",
-     "skillToolCalls": [{ "id": "c-1", "tool": "mcp__plugin_acme_gestalt__ges_plan", "action": "start" }],
-     "serverTools": [{ "id": "tool:plan", "server": "gestalt", "tool": "ges_plan", "actions": ["start", "submit"] }] }
-   ```
-
-   - 결과는 `tools.matches`와 `tools.unmatched`로 온다. `matches`에 든 호출만 `skill → endpoint`나 `agent → endpoint` 실선(`calls`)으로 잇고 그 스킬이 쓰는 action을 엣지 `actions`에 단다. 도구의 `actions`에 없는 값을 달면 validate가 `UNKNOWN_MCP_ACTION`으로 거부한다.
-   - 도구 이름은 정확히 같아야 맞는다. 클라이언트가 붙이는 `mcp__<서버>__<도구>` 접두는 걷어내고 비교한다. 플러그인으로 깔린 서버 이름 `plugin_<플러그인>_<서버>`는 `<서버>`와 맞는다.
-   - `unmatched`(`no_tool`, `multiple_tools`, `unknown_action`)는 실선을 긋지 않고 `candidates`를 담아 미해결 질문으로 남긴다.
-
-6. **핸들러와 엔진**: 도구를 받는 핸들러 모듈을 `app_module`로 두고 `endpoint → app_module`을 `handles`로 잇는다. 핸들러가 같은 프로세스 안에서 부르는 엔진 모듈도 `app_module`이고 `uses`로 잇는다. 엔진은 렌더할 때 핸들러 오른쪽 열에 따로 선다. 엔진이 쓰는 저장소는 `datastore`이고 `reads_writes`다. 에이전트 디렉토리를 훑어 AGENT.md를 읽어 들이는 레지스트리 모듈이 있으면 `app_module → agent`를 `loads`로 잇는다. 근거는 그 디렉토리를 훑는 `code` 줄(`readdirSync` 같은 줄)이다. 스킬이 띄우는 에이전트든 아니든 모든 에이전트에 단다. 이 선이 없으면 스킬이 안 띄우는 에이전트는 그림 어디에도 안 선다.
-7. **md 줄 근거**: SKILL.md와 AGENT.md 줄은 `code` 근거라 실선이 된다. 다만 `skill`, `agent` 노드와 그 둘에서 나가는 엣지에서만이다. 하네스 IR(`client`, `skill`, `agent`가 하나라도 있는 IR)에서 그 밖의 노드나 엣지에 md 줄을 `code`로 달면 `MD_CODE_EVIDENCE`다. README나 docs의 언급은 `doc` 근거로 단다.
-8. **그림 제목**: 화면이 하나도 없는 screen-chain은 제목이 "화면별 호출 흐름" 대신 바뀐다. 스킬이 있으면 "스킬별 호출 흐름", 스킬 없이 MCP 도구만 있으면 "MCP 도구 호출 흐름"이다.
-9. **배포 쪽은 이 그림에 넣지 않는다**: 스킬 디렉토리 심링크와 마켓플레이스 매니페스트는 배포 경로다. 릴리즈 워크플로에서 빌드, npm 패키지, 플러그인 매니페스트로 이어지는 사슬은 Step 4대로 deploy-path에 그린다.
-10. **흐름은 순서도로**: 무엇이 무엇을 어떤 순서로 부르는지는 진입 경로마다 `sequence` 질문별 그림 하나로 그린다. 쓰는 법은 [Step 3.5](#step-35--도메인-흐름)의 하네스 흐름 항목에 있다.
+> **이 단계의 상세** → [`references/harness-repo.md`](./references/harness-repo.md)
+> AI 하네스나 MCP 서버 레포를 그릴 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
 
 ## Step 3.5 — 도메인 흐름
 
 기술 그림은 화면이 어느 API를 부르는지 보여주지만 사람이 그 서비스를 어떤 순서로 쓰는지는 안 보여준다. 서비스마다 사용자 쪽 흐름을 `flows`에 적는다. 렌더하면 서비스 레벨 아래에 흐름 레벨이 하나 더 생기고 상단 **흐름** 버튼으로 들어간다.
 
-```json
-{
-  "id": "queue", "service": "svc-shop", "title": "줄서기",
-  "actors": [
-    { "id": "guest", "label": "매장 손님", "kind": "person" },
-    { "id": "staff", "label": "매장 직원", "kind": "person" },
-    { "id": "sys", "label": "자동 발송", "kind": "system" }
-  ],
-  "steps": [
-    { "id": "st-register", "actor": "guest", "label": "줄 등록", "state": "WAITING",
-      "refs": ["s-register", "ep-register"], "evidence": [ ... ] },
-    { "id": "st-seat", "actor": "staff", "label": "착석", "state": "SITTING", "terminal": true,
-      "evidence": [ ... ] }
-  ],
-  "stateLabels": { "WAITING": "대기", "CALLED": "호출" },
-  "transitions": [
-    { "id": "t-1", "from": "st-register", "to": "st-call", "path": "main", "condition": "차례가 오면",
-      "evidence": [ ... ], "lineStyle": "solid" }
-  ]
-}
-```
-
-- **행위자**는 가로줄 하나씩이다. 사람은 `person`, 사람 손 없이 도는 배치나 자동 발송은 `system`, 지시를 읽고 스스로 판단하는 서브에이전트는 `agent`다. 위에서 아래로 적은 순서대로 쌓인다.
-- **단계**는 행위자가 하는 일 하나다. 상태 값이 있으면 `state`에 코드의 enum 이름 그대로 적는다. 그림 위쪽 구간이 이 값으로 나뉜다. 그림에는 enum 이름 대신 흐름의 `stateLabels`에 단 이름이 찍힌다. 상태 값마다 사용자 언어로 이름을 단다 (`WAITING` → 대기). 안 달면 영어 enum이 구간 머리와 단계 칩에 그대로 나온다. 상태가 없는 단계는 앞 단계 구간에 붙고 옆 흐름 단계는 갈라져 나온 단계 옆에 서니 구간을 따로 적지 않는다. `refs`에는 그 단계에서 쓰는 화면, API, 기능영역, 앱 노드 id를 단다. 범용 `component` 노드도 단다. 단계 서랍에서 그 카드로 건너가고 기술 카드 서랍에는 거꾸로 "이 항목이 나오는 흐름 단계"가 뜬다.
-- **전이**는 단계 사이 상태 변화다. 정상 흐름은 `main`, 취소나 노쇼처럼 정상 흐름을 벗어나는 전이는 `side`다.
-- **선 위 글자는 `trigger`와 `condition`에 나눠 적는다.** 사용자가 누른 버튼 이름은 `trigger`(`주문 변경하기`), 그 길로 가는 조건은 `condition`(`차례가 오면`, `30분 이내`)이다. 그림에는 조건이 굵은 강조색으로 앞에 서고 누른 것이 뒤따른다. `label`은 예전 칸이다. 둘 중 하나라도 있으면 `label`은 선에 안 나오고 전이 서랍의 **메모** 줄로 간다. 새로 쓰는 IR에서는 `label`을 비우고 짧은 메모가 필요할 때만 쓴다.
-- **화면 흐름을 그릴 때도 같다.** 단계는 화면이나 시트 하나이고 전이의 `trigger`에 그 화면에서 누른 것을, `condition`에 길이 나뉘는 조건을 적는다. `trigger`는 버튼 이름 그대로 짧게 쓴다. 열 간격이 선 글자 폭을 따라 넓어지지만 한글 열두 자쯤에서 멈춰서 더 긴 글자는 이웃 카드 위로 넘친다. 화면에서 하는 일의 설명은 단계 `description`에 둔다.
-- **조건에 따라 길이 나뉘는 자리는 갈림길 단계로 적는다.** `"kind": "decision"`을 달면 카드 대신 마름모로 그려진다. 단계 이름은 `품절 상품 포함?`처럼 묻는 꼴로 쓰고 나가는 전이마다 `condition`을 단다 (`예`, `아니오`). 같은 높이의 카드로 가는 길은 오른쪽 꼭짓점에서, 위아래로 다른 높이의 카드로 가는 길은 위나 아래 꼭짓점에서 나간다. 갈림길은 흐름이 끝나는 자리가 아니라서 `terminal: true`를 함께 달면 스키마 위반이다. validate는 나가는 길이 하나뿐인 갈림길에 `auto:branch`를, 근거는 있는데 `condition`도 `label`도 없는 나가는 전이에 `auto:condition` 질문을 남긴다.
-- **되돌리기와 정정은 단계가 아니라 전이로 적는다.** 새 상태가 생기지 않고 앞 상태로 돌아가기만 해서다. "되돌리기" 카드를 따로 만들지 말고 `매장 취소 → 호출`처럼 돌아가는 화살표 하나로 쓴다. 누른 것과 조건은 나눠 적는다 (`"trigger": "되돌리기", "condition": "30분 이내"`). 그림에서는 두 카드 가까이로 지나가는 둥근 선에 ↩ 표시가 붙는다.
-- **흐름이 끝나는 단계에는 `"terminal": true`를 단다.** 착석, 취소, 만료처럼 더 갈 곳이 없는 단계다. 나가는 전이가 없는데 이 표시도 없으면 validate가 `auto:dead-end` 질문을 남긴다. 미루기처럼 다시 줄로 돌아가는 단계가 선을 빠뜨렸을 때 그림이 거기서 끝난 것처럼 읽히는 걸 막으려는 표시다. 그 질문이 뜨면 끝 단계로 표시하기 전에 이어지는 전이를 코드에서 먼저 찾는다. 되돌릴 수 있는 취소처럼 끝 단계에서 나가는 전이가 있어도 된다.
-- **정정도 같다.** 자동 노쇼를 착석으로 고치는 "노쇼 정정"은 `자동 노쇼 → 착석` 전이에 `actors: ["ops"]`다. 설명에 갈 수 있는 곳이 여럿 적혀 있으면 (착석이나 고객 취소) 전이도 그만큼 긋는다. validate가 이런 단계를 찾아 `auto:as-transition` 질문을 남긴다. 결제처럼 화면이 따로 있어 `refs`로 건너갈 일이 있는 단계는 카드로 둬도 된다.
-- **행위자가 한 명이어도 된다.** 손님 혼자 화면을 넘기는 흐름이면 `actors`에 하나만 적는다. 그때는 줄을 가를 일이 없어 왼쪽 행위자 머리 칸을 걷고 그림 맨 위 띠에 행위자 칩 하나만 세운다.
-- **여러 행위자가 할 수 있는 전이에는 `actors`를 단다.** 되돌리기를 손님도 매장도 할 수 있으면 `"actors": ["guest", "staff"]`다. 선 글자 옆에 행위자 이름이 붙는다. 행위자 줄은 그 사람이 하는 일을 놓는 자리라, 여럿이 하는 동작을 한 줄에 단계로 넣으면 틀린 그림이 된다.
-- 근거 규칙은 엣지와 같다. 상태를 바꾸는 코드 줄을 봤으면 `code` 근거로 실선이다. 기획 문서나 KB로만 확인했으면 `doc` 근거로 점선이다. 그 단계 카드도 점선 테두리가 된다. 근거 없는 단계나 전이는 그리지 않고 질문이 된다.
-- **기획 문서에만 있는 단계도 넣는다.** 아직 안 만든 기능이나 만들다 만 기능이 흐름 그림에서 같이 보여야 기술 그림과의 차이가 드러난다. 대신 근거는 `doc`뿐이라 점선이다.
-- **하네스 흐름은 순서도로 그린다.** AI 하네스나 MCP 서버 레포에서 무엇이 무엇을 어떤 순서로 부르는지는 지도나 `flows`가 아니라 `projections`의 [`sequence` 질문별 그림](#질문별-그림을-얹는다)으로 그린다. 진입 경로마다 순서도 하나를 둔다. 코드로 가는 경로와 Figma로 가는 경로처럼 경로 판정에서 길이 나뉘면 길마다 순서도 하나다.
-  - 지도로는 호출 순서가 안 보인다. 지도는 스킬을 플러그인 서비스로 묶어서 전체보기에 플러그인 상자만 남는다. `stages`로 흐름 순서 구간을 나눠도 카드를 열에 억지로 넣느라 선이 엉킨다. `service` 없는 흐름을 얹으면 드릴다운이 켜져 전체보기에 서버 카드만 남는다. 스킬 32개와 도구 13개가 든 4레포 하네스를 세 방식으로 다 그려봤는데 읽힌 건 순서도뿐이었다.
-  - `participants`에는 그 경로에 나오는 스킬, 에이전트, MCP 서버만 10개 안팎으로 고른다. MCP 서버 자리에는 도구 처리기 `app_module`이나 도구 `endpoint`를 쓴다.
-  - 메시지는 지도 엣지를 `edge`로 가리킨다. 문서 읽기처럼 지도에 선이 없는 단계는 자기 호출 메시지로 쓰고 그 SKILL.md 줄을 근거로 단다. 응답은 `reply: true`다. 조건이 맞을 때만 도는 단계는 `blocks`의 `opt`로 묶고 경우에 따라 하나만 도는 단계는 `alt`로 묶는다.
-  - 세션이 도구를 두 번 불러 결과를 넘기는 2-Call Passthrough도 순서도에 그린다. 세션 모델과 MCP 서버를 오가는 메시지로 쓴다.
-  - 구간은 [`phases`](#질문별-그림을-얹는다)의 sequence 구간 규칙대로 직접 적는다.
-  - 지도는 그대로 그린다. 무엇이 어느 플러그인에 있는지는 지도가 보여준다. 전체보기 지도 위에 질문별 그림 카드 줄이 뜨니 순서도가 몇 개인지는 위쪽 바를 안 눌러도 보인다.
-  - IR의 `repos`가 둘 이상이면 순서도 머리 카드 둘째 줄에 노드의 레포 이름이 나온다. MCP 도구는 레포 대신 `<mcpServer> MCP`로 나온다. 카드에 그대로 찍히니 `participants`에 넣은 노드의 `repo`가 실제 레포와 맞는지 한 번 더 본다. MCP 도구에는 `mcpServer`를 빠뜨리지 않는다. 빠지면 도구를 기록한 레포 이름이 대신 나와 어느 서버의 도구인지 헷갈린다.
-  - `flows`는 사람 쪽 업무 절차가 따로 있을 때만 쓴다. 그때는 사용자가 `person`, MCP 서버가 `system`, 세션 모델과 서브에이전트가 `agent`다. `refs`에는 스킬과 에이전트 노드 id도 단다.
-- **서비스 없는 업무 절차**는 `service`를 비운다. 환불 승인이나 장애 대응처럼 코드 서비스에 안 딸린 절차가 그렇다. 렌더하면 전체 바로 아래 독립 흐름 레벨이 되고 전체 레벨의 **흐름** 버튼으로 들어간다. 근거가 위키와 사용자 답이면 [문서 묶음 레포](#문서-묶음-레포를-쓴다)를 쓰고 선은 전부 점선이다. 노드 없이 흐름만 있는 IR도 된다. 그 절차에 나오는 조직과 역할, 시스템이 어디 속하는지까지 그리려면 `process` 팩 노드를 함께 싣는다.
-- **기획 문서는 의도이지 동작이 아니다.** 문서와 코드가 다르게 말하면 둘 다 근거로 달고 그 차이를 `unresolved` 질문으로 남긴다. `subject`에는 `stepId`나 `transitionId`를 쓴다. 어느 쪽이 맞는지 정하지 않는다.
-
-흐름 단계를 채우는 순서는 이렇다. 먼저 상태 enum과 그 값을 바꾸는 서비스 메서드, 배치, 알림 발송 코드를 찾는다. 다음에 화면 코드에서 누가 그 동작을 일으키는지 본다. 그래도 빈 칸은 Step 7-1 순서로 채운다.
+> **이 단계의 상세** → [`references/domain-flow.md`](./references/domain-flow.md)
+> screen-chain에서 상태나 단계, 업무 절차를 그릴 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
 
 ## Step 4 — 뷰② deploy-path 탐색
 
@@ -598,37 +525,8 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 
 [모양 고르기](#모양-고르기)에서 `sequence`, `dataflow`, `compare`를 골랐으면 지도를 다 쓴 뒤 `projections`에 그림을 단다. 질문별 그림은 지도의 노드와 엣지를 id로 가리킬 뿐이다. 새 사실을 여기에 먼저 적지 않는다.
 
-```json
-{
-  "id": "checkout", "shape": "sequence", "title": "결제 승인 순서",
-  "question": "앱에서 결제를 누르면 누가 무엇을 어떤 순서로 주고받나요?",
-  "participants": ["app", "api", "pg"],
-  "blocks": [{ "id": "b-result", "kind": "alt", "label": "승인 결과" }],
-  "messages": [
-    { "id": "m1", "from": "app", "to": "api", "label": "POST /orders/pay", "edge": "e-app-api", "evidence": [], "lineStyle": "solid" },
-    { "id": "m2", "from": "pg", "to": "api", "label": "승인됨", "edge": "e-api-pg", "evidence": [], "lineStyle": "solid", "reply": true, "block": "b-result", "branch": "승인" }
-  ],
-  "phases": [
-    { "id": "p-pay", "label": "결제 요청", "from": "m1", "to": "m1" },
-    { "id": "p-result", "label": "승인 결과 받기", "from": "m2", "to": "m2" }
-  ]
-}
-```
-
-- `id`는 소문자, 숫자, 하이픈만 쓴다. 저장 파일 이름이 된다. 메시지 id는 모든 질문별 그림을 통틀어 겹치지 않게 짓는다.
-- `title`과 `question`, 메시지 `label`은 [페이지 글](#페이지-글)이다. `question`에는 사용자가 물은 문장을 그대로 옮긴다.
-- **메시지마다 지도의 엣지를 `edge`로 가리킨다.** 그 엣지의 근거가 메시지 근거로 따라오므로 `evidence`를 비워도 된다. 엣지는 메시지의 두 끝을 이어야 하고 방향은 상관없다. 응답처럼 엣지와 거꾸로 가는 메시지도 같은 엣지를 가리킨다.
-- 엣지로 안 잡히는 일(같은 노드 안의 검증, 문서에만 적힌 단계)은 `edge` 없이 자기 `evidence`를 단다. 자기 호출은 `from`과 `to`를 같게 쓴다.
-- 근거가 하나도 없는 메시지는 그려지지 않고 `auto:message:<id>` 질문이 된다. 메시지를 지어내 채우지 말고 Step 7로 넘긴다.
-- **sequence**: `participants`로 세로줄 순서를 정한다. 적으면 메시지 끝이 전부 여기 있어야 한다. 묶음은 `blocks`에 두고 메시지 `block`으로 건다. `alt`는 경우에 따라 하나만 도는 묶음, `opt`는 조건이 맞을 때만 도는 묶음, `loop`는 되풀이, `par`는 동시에 도는 묶음이다. `alt` 안의 경우 이름은 `branch`에 적는다. 한 묶음의 메시지는 붙여서 적는다.
-- **sequence 구간**: `phases`는 순서도를 단계로 나눈다. 그림 위 보기 전환의 **단계별 카드**와 **따라가기**가 이 구간대로 카드를 나누고 띠를 깐다. 구간 하나는 `{ id, label, from, to }`이고 `from`과 `to`는 이 그림의 메시지 id다. 두 메시지 다 그 구간에 든다.
-  - `label`은 사람이 읽는 단계 이름이다. 노드 id나 도구 이름(`ges_interview`) 말고 "요구사항 인터뷰", "스펙 만들기"처럼 그 구간에서 무슨 일이 벌어지는지를 쓴다. [페이지 글](#페이지-글) 규칙을 따른다.
-  - 첫 메시지부터 마지막 메시지까지 빈틈도 겹침도 없이 메시지 순서대로 적는다. 배열 순서도 메시지 순서와 같아야 하고 한 메시지는 한 구간에만 든다. 구간 경계가 묶음 한가운데를 지나는 건 괜찮다.
-  - 안 적으면 render가 알아서 자른다. 맨 위 참여자가 지금 구간에서 처음 만나는 대상을 부르는 자리에서 새 구간이 열리고 구간 이름은 그 대상의 표시 이름이다. 그래서 모든 호출이 한 진입점을 거치는 흐름은 구간 하나로 뭉친다. 세션 모델이나 스킬 하나가 모든 호출을 내보내는 하네스 순서도가 그렇다. 같은 대상을 여러 번 오가는 흐름은 같은 이름 구간이 되풀이된다. 이런 흐름과 참여자가 많은 순서도에는 `phases`를 적는다.
-- **dataflow**: `messages`만 쓴다. 데이터가 한 노드에서 다른 노드로 옮겨 가는 것 하나가 메시지 하나다. `blocks`와 메시지의 `reply`, `block`, `branch`는 쓰지 않는다.
-- **compare**: `messages`는 빈 배열로 두고 `sides`에 견줄 두 묶음을 적는다. `{ id, label, nodes[] }` 둘이고 id는 달라야 한다. 그림은 "첫 묶음에만", "둘 다", "둘째 묶음에만" 세 열로 선다.
-- 질문 하나에 그림 하나다. 질문이 여럿이면 그림도 여럿 단다.
-- 하네스 레포는 묻지 않아도 진입 경로마다 순서도를 하나씩 얹는다. 자세한 건 [Step 3.5](#step-35--도메인-흐름)의 하네스 흐름 항목에 있다.
+> **이 단계의 상세** → [`references/projections.md`](./references/projections.md)
+> `sequence`, `dataflow`, `compare`를 골랐을 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
 
 ### parent로 포함 관계를 단다
 
@@ -773,114 +671,22 @@ Step 5에서 레포를 새로 받았으면 무엇을 어디에 받았는지 한 
 
 Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 
-1. `.gestalt/architecture/<view>.json`을 읽어 지난 IR을 가져온다. 처음부터 다시 탐색하지 않는다.
-2. **노드 id를 유지한다.** 같은 노드는 같은 id로 쓴다. render가 kind와 repo와 label이 같은 노드에 이전 id를 물려주긴 한다. 그런데 label을 바꾸면 다른 노드로 본다. 엔드포인트 label은 Step 3의 꼴을 그대로 지킨다. 사람이 읽을 이름을 고치고 싶으면 label 대신 `displayName`을 고친다.
-3. **`previousSourcesUsed`를 먼저 간 본다.** `probeHit`가 `true`였던 소스부터 본다. 이번에도 `filter_tools`는 다시 거친다. 도구 이름이 같아도 이번 세션에 붙은 서버가 다를 수 있다.
-4. **지난 실행 이후 바뀐 곳 주변만 다시 탐색한다.** `generatedAt` 이후의 `git log`와 `git diff`로 바뀐 파일을 뽑는다. 그 파일에 걸린 노드와 엣지만 근거 줄을 다시 확인한다. 안 바뀐 파일의 근거도 줄이 밀렸을 수 있으니 validate의 `CODE_EVIDENCE_NOT_FOUND`가 나면 그 근거는 다시 찾는다.
-5. **질문별 그림은 지난 것을 다시 적지 않아도 된다.** 새 IR에 같은 id 그림이 없으면 render가 지난 그림을 이어 붙인다. 단 가리킨 노드와 엣지가 다 남아 있고 그림 id와 메시지 id가 이번 것과 안 겹칠 때만이다. 하나라도 어긋나면 버려지니 응답의 `viewPaths`에서 빠진 그림이 있는지 본다. 빠졌으면 지도를 고친 뒤 다시 적는다.
-6. 답이 달린 지난 질문은 render가 물려준다. 답 안 달린 질문은 Step 7에서 다시 묻는다. `user` 근거로 정해진 기능영역 경계는 Step 3-1대로 그대로 둔다.
+> **이 단계의 상세** → [`references/rerun.md`](./references/rerun.md)
+> Step 0의 `previous`가 `null`이 아닐 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
 
 ## 분석 합치기
 
 제품마다 따로 돌린 분석을 한 그림으로 보고 싶을 때 쓴다. 두 제품이 같이 쓰는 `gateway`와 서버가 한 노드로 모인다. 한쪽 분석에서 핸들러를 못 찾은 엔드포인트가 다른 쪽 분석의 핸들러에 이어진다. 같은 분석을 다시 돌리는 건 Step 9이고 이 절이 아니다.
 
-1. **합칠 IR을 모은다.** 각 분석의 `.gestalt/architecture/<view>.json`이다. 뷰가 같은 것끼리만 합친다. screen-chain과 deploy-path는 따로 합친다.
-2. **`repos[].remote`를 확인한다.** 레포가 같은지는 별칭이 아니라 remote로 판단한다. remote가 비어 있으면 같은 레포인데도 따로 그려진다. 비어 있으면 그 레포에서 `git remote get-url origin`으로 채운 뒤 합친다.
-3. **merge를 부른다.** 큰 IR은 요청과 응답에 통째로 싣지 말고 파일로 주고받는다.
-
-   ```json
-   {
-     "action": "merge",
-     "irPaths": ["<a>/screen-chain.json", "<b>/screen-chain.json"],
-     "outPath": "<work>/merged.json",
-     "groupNames": ["제품 A", "제품 B"],
-     "prefixCandidates": ["/api"]
-   }
-   ```
-
-   `prefixCandidates`는 Step 3-2에서 찾은 `gateway` prefix다. 한쪽 FE 경로에는 붙고 다른 쪽 BE 라우트에는 없는 prefix가 있으면 넣는다. `groupNames`에 제품 이름을 `irPaths` 순서대로 넣는다. 안 넣으면 입력의 서비스 이름이 붙는다.
-
-4. **report를 읽는다.**
-   - `sharedNodes`: 두 분석에 다 있던 노드. 같이 쓰는 `gateway`와 서버가 여기 나온다. 기대한 노드가 빠졌으면 두 IR의 label 꼴이 다른 것이다. 합친 IR을 고치지 말고 원래 분석의 label을 Step 3 꼴로 맞춰 다시 render한 뒤 다시 합친다.
-   - `crossRepoEdges`: 레포를 넘는 매칭으로 새로 그은 `handles` 엣지
-   - `conflictQuestions`: 같은 노드인데 표시 이름이나 parent가 갈려서 만든 질문. merge는 한쪽을 고르지 않는다. 값을 비우고 묻는다. `user` 근거가 있는 쪽 값은 그대로 둔다.
-   - `micro_app`은 레포가 달라도 label이 같으면 한 노드로 모인다. 호스트 레포의 분석과 리모트 레포의 분석을 합치면 리모트 앱이 하나로 합쳐지고 리모트 쪽 기능영역과 사슬이 그 앱 아래 붙는다. 두 제품이 같은 리모트를 각자 자기 서비스에 달았으면 parent를 비운다. 이 경우는 질문을 만들지 않는다. 공유 리모트는 어느 한 서비스 것이 아니라서다.
-   - `islands`: 1보다 크면 서로 안 이어진 분석이 있다. 겹치는 게 정말 없는지, label이나 remote가 어긋난 건지 확인한다.
-5. **validate와 render를 그대로 탄다.** 합친 IR에는 제품마다 그룹(`groups`)이 붙는다. render가 맨 위에 같이 쓰는 띠를, 그 아래로 제품마다 전용 띠를 나눠 그린다. 같이 쓰는 `gateway`와 서버, 저장소는 맨 위 띠에 모이고 카드 위에 그 카드를 쓰는 제품 브릭이 꽂힌다. 제품이 셋 이상이어도 같다. `irPath`로 합친 파일을 넘긴다. **`repoRoot`는 원래 분석 레포가 아닌 따로 둔 디렉토리로 준다.** render는 `repoRoot`의 같은 뷰 IR과 병합하므로 원래 레포를 주면 그 레포의 단독 분석이 합친 결과로 덮인다. 입력의 `root`가 상대 경로였으면 `checkFiles: false`로 그린다.
-6. **질문별 그림과 팩도 따라온다.** 입력마다의 질문별 그림은 나란히 들어가고 id가 부딪히면 `-2`가 붙는다. 입력 중 하나라도 `packs`를 적었으면 결과는 입력들 팩의 합집합이다. `packs`를 안 적은 입력은 `web-product`와 `harness`로 친다.
-7. **충돌 질문은 Step 7처럼 사용자에게 묻는다.** 답은 원래 분석 쪽에 `user` 근거로 남기고 다시 합친다. 합친 IR에만 고쳐 두면 다음에 합칠 때 같은 질문이 또 생긴다.
-
-보고에는 Step 8의 세 덩어리에 더해 `sharedNodes`(같이 쓰는 노드 이름과 레포), `crossRepoEdges` 수, 충돌 질문 목록을 적는다.
+> **이 단계의 상세** → [`references/merge-analyses.md`](./references/merge-analyses.md)
+> 따로 돌린 분석을 한 그림으로 합칠 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
 
 ## 지식 문서 지도
 
 대상이 코드가 아니라 문서 레포일 때 쓴다. 이때는 세션이 IR을 쓰지 않는다. `scan_docs`가 문서를 읽어 초안을 쓰고 `link_docs`가 기술 그림에 엮는다. Step 1~7을 타지 않는다.
 
-### 문서 레포 알아보기
-
-아래 신호가 겹치면 문서 레포로 본다. 하나만 보이면 코드 레포에 딸린 `docs/`일 수 있으니 사용자에게 무엇을 그릴지 묻는다.
-
-- 코드 파일보다 md 파일이 훨씬 많다.
-- 본문에 `[evidence: …]`, `[GAP: …]`, `[UNVERIFIED: …]` 같은 표시가 있다.
-- `INDEX.md`나 `KNOWLEDGE_INDEX.md` 같은 안내 문서가 있고 그 안에 키워드 열과 문서 링크로 된 질문 안내 표가 있다.
-- `> 최종 수정: YYYY-MM-DD` 머리줄이나 front matter의 `updated`가 붙어 있다.
-
-표시 형식이 기본과 다르면(`[근거: …]`처럼) 문서 몇 개를 열어 정규식을 정하고 `docPatterns`로 넘긴다. 바꿀 수 있는 필드는 `evidence`, `gap`, `unverified`, `updated`, `keywordHeader`, `routeHeader`, `screenNameHeader`다. 앞 넷은 정규식의 첫 캡처가 값이 되고 뒤 셋은 표의 열 이름에 맞추는 정규식이다.
-
-### 순서
-
-1. **`scan_docs`로 문서를 훑는다.** 문서 레포마다 `docRoots`에 하나씩 넣는다. 문서 레포에는 쓰지 않는다.
-
-   ```json
-   {
-     "action": "scan_docs",
-     "docRoots": [{ "repoId": "kb", "name": "acme-kb", "path": "../acme-kb", "exclude": ["archive/"] }]
-   }
-   ```
-
-   응답 `summary`에서 문서 수와 구멍 수, `questionRoutes.orphans`(질문 길로 안 닿는 문서), `freshness.aged`(반년 넘게 안 고친 문서)를 본다. `docCount`가 0이거나 `evidenceMix`가 비었으면 표시 형식이 안 맞은 것이다. `docPatterns`를 고쳐 다시 돈다.
-
-2. **기술 그림이 있으면 `link_docs`로 엮는다.** 기술 그림은 이 스킬로 먼저 render한 `<view>.json`이다. 없으면 이 단계를 건너뛰고 문서 지도만 그린다.
-
-   ```json
-   {
-     "action": "link_docs",
-     "irPath": ".gestalt/architecture/screen-chain.json",
-     "codeRoots": { "acme-api": "../acme-api", "acme-web": "../acme-web" },
-     "repoAliases": { "acme-api": "api" },
-     "screenIndexPrefixes": ["kb/design/"]
-   }
-   ```
-
-   - `codeRoots`는 문서가 적은 레포 이름을 체크아웃 경로로 바꾼다. 빼면 가리킨 파일을 확인 못 해 링크가 전부 unchecked가 된다. 로컬에 없는 레포는 [로컬 클론 받기](#로컬-클론-받기)대로 받는다.
-   - `repoAliases`는 문서의 레포 이름과 기술 IR의 repo id가 다를 때만 준다.
-   - `screenIndexPrefixes`는 문서 레포에 디자인 화면 색인이 있을 때만 준다. 꼴은 `<repoId>/<경로 접두>`다.
-   - 응답에서 `uncoveredCount`(문서 없는 기술 노드)와 `staleCount`(코드가 문서보다 늦게 바뀜), `apiMismatchCount`를 본다.
-
-3. **render한다.** 기존 render 그대로이고 초안 경로를 `irPath`로 준다. 문서 지도는 `knowledge.draft.json`, 기술 그림에 엮은 것은 `knowledge-link.draft.json`이다. 둘 다 그리려면 두 번 부른다.
-
-4. **보고한다.** Step 8의 세 덩어리 대신 아래를 적는다.
-   - 문서 수, 열린 구멍 수, 고립 문서 수, 오래된 문서 수
-   - `link_docs`를 돌렸으면 문서 없는 기술 노드 수와 낡은 문서 수, 담당별 열린 구멍(`gapsByOwner`)
-   - 막다른 안내(`deadRoutes`)와 키워드 충돌(`keywordConflicts`)이 있으면 그 수와 `doc-routes.json` 경로
-   - 다른 사람에게 넘길 때는 `.shared.html`만 넘긴다. 절 제목과 구멍 설명, 안내 키워드, 담당이 빠진다.
-
-### 바뀐 코드로 손볼 문서 찾기
-
-코드 PR이나 브랜치가 어느 문서를 낡게 만드는지 알고 싶을 때 `stale_docs`를 부른다. `scan_docs`를 먼저 돌려 둬야 한다. `link_docs`까지 돌려 뒀으면 문서가 설명하는 기술 노드의 파일이 바뀐 경우도 잡는다.
-
-```json
-{
-  "action": "stale_docs",
-  "diffBase": "origin/main",
-  "changedRepo": "acme-api",
-  "codeRoots": { "acme-api": "../acme-api" }
-}
-```
-
-바뀐 파일 목록이 이미 있으면 `diffBase` 대신 `changedFiles`에 `["acme-api:src/orders/service.ts"]`처럼 넘긴다. 응답의 `sample`을 문서마다 걸린 파일과 함께 보여주고 전체 목록은 `stale-docs.json` 경로로 알린다. `linkedIr`가 `false`면 문서가 직접 가리킨 파일만 본 결과라고 덧붙인다.
-
----
+> **이 단계의 상세** → [`references/docs-map.md`](./references/docs-map.md)
+> 대상이 코드가 아니라 문서 레포일 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
 
 ## 부록
 
