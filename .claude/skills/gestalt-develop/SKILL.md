@@ -44,12 +44,25 @@ mkdir -p _workspace
 [관련 파일, 에러 메시지, 배경 정보 — 있으면]
 ```
 
+## 에이전트 model과 effort
+
+세 에이전트(analyst, developer, qa)는 이 프로젝트에만 있어서 `ges_agent list`에 안 뜬다. 스폰 전에 `ges_status`를 한 번 불러 `tierModels.standard`를 읽고 아래 블록의 `model`에 넣는다. 별칭을 본문에 적어두면 `gestalt.json`의 `tierModels`를 바꿔도 따라오지 않는다. 값은 [작업별 model과 effort 세트](../../../plugin/skills/_shared/agent-model.md#작업별-model과-effort-세트) 표에서 골랐고 시작값이다.
+
+| 에이전트 | 일의 성격 | tier | effort |
+|---|---|---|---|
+| gestalt-analyst | 영향 파일 식별과 구현 전략 | `standard` | `medium` |
+| gestalt-developer | 범위가 명확한 구현 | `standard` | `medium` |
+| gestalt-qa | 테스트 작성과 실행 | `standard` | `medium` |
+
+developer는 분석 결과에서 요구사항이 열려 있거나 파일 여러 곳에 걸치는 변경으로 보이면 `frontier`와 `high`로 올린다. 재시도할 때는 `model`과 `effort` 중 하나만 올린다.
+
 ## Phase 1: 분석 (gestalt-analyst, Explore 타입)
 
 ```
 Agent(
   subagent_type: "gestalt-analyst",
-  model: "opus",
+  model: "<tierModels.standard>",
+  effort: "medium",
   prompt: """
     _workspace/task.md를 읽고 코드베이스를 탐색하여 구현 분석을 수행하라.
     결과를 _workspace/analysis.md에 저장한다.
@@ -78,7 +91,8 @@ Agent(
 ```
 Agent(
   subagent_type: "gestalt-developer",
-  model: "opus",
+  model: "<tierModels.standard>",
+  effort: "medium",
   prompt: """
     _workspace/analysis.md를 읽고 모든 영향 파일을 구현하라.
     완료 후 반드시 아래 순서로 검증하고 모두 통과해야 한다:
@@ -96,7 +110,8 @@ Agent(
 ```
 Agent(
   subagent_type: "gestalt-qa",
-  model: "opus",
+  model: "<tierModels.standard>",
+  effort: "medium",
   prompt: """
     _workspace/analysis.md와 _workspace/implementation.md를 읽고
     테스트를 작성한 뒤 아래 순서로 실행하라:
