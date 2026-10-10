@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.93.1] - 2026-10-10
+
+### Changed
+
+- **`review`와 `architecture` 스킬의 조건부 단계 본문을 `references/`로 옮겼어요 (#61).** 스킬은 호출하는 순간 `SKILL.md` 전체가 컨텍스트에 올라가서 이후 모든 턴에 다시 전송돼요. 특정 조건에서만 도는 단계가 조건이 안 맞는 실행에서도 매 턴 비용으로 남고 있었어요.
+  - `review`는 1.02단계(참조 후보 수집), 1.03단계의 직전 라운드 코멘트 모으기, 1.04단계(연관 PR 확정)를 옮겼어요. `SKILL.md`는 169,381바이트에서 147,021바이트가 돼서 호출할 때 올라가는 양이 약 72k에서 63k 토큰으로 줄어요.
+  - `architecture`는 도메인 흐름, 재실행, 하네스 레포 규칙, 질문별 그림, 분석 합치기, 지식 문서 지도를 옮겼어요. `SKILL.md`는 115,172바이트에서 약 86k바이트가 돼서 약 53k에서 40k 토큰으로 줄어요. 스킬 목록에 상시 올라가는 `description`도 1,273바이트에서 약 640바이트로 줄였어요.
+  - 본문 자리에는 헤딩과 조건 문단, 파일 링크 한 줄만 남고 조건이 맞을 때만 그 파일을 읽어요. 토큰 수는 바이트 비율로 추정한 값이에요.
+- `review` 스킬에서 이력성 문장 세 개를 지웠어요 (#61). 과거 PR 재현 셋에 하나라는 경고와 중앙값 10분 근거, 조건이 지금도 바뀌지 않았다는 확인 문장이에요. 실행하는 모델이 판단에 쓸 정보가 아니라서 이유만 남겼어요.
+- 스킬 본문을 헤딩으로 잘라 읽던 테스트가 `loadSkillBody`로 `references/` 링크를 원래 자리에 펼쳐서 읽어요 (#61). 단언은 바꾸지 않았어요.
+
+### 검증 범위
+
+- CI는 네 칸(ubuntu와 macOS, Node 22와 24) 모두 통과했어요.
+- 로컬에서 typecheck, lint, format:check, `verify:rules`, `verify:routing`, 빌드와 `verify:plugin`이 통과했어요.
+
+### 남긴 것
+
+- 모델이 실제 PR 리뷰에서 `references/` 파일을 제때 여는지는 확인하지 못했어요. 조건이 맞는 PR로 한 번 돌려봐야 해요.
+- output style 자가점검 19항목의 중복 정리는 어투 실험이 필요해서 이번에 넣지 않았어요.
+
 ## [0.93.0] - 2026-10-10
 
 ### Added
