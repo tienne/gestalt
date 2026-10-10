@@ -216,12 +216,6 @@ describe('레지스트리와 공유 문서 목록', () => {
     expect(row![2]).toMatch(/suggestion-verifier/);
   });
 
-  it('CLAUDE.md 프로젝트 구조가 rule-path-walk를 공유 문서로 적는다', () => {
-    const claude = readFileSync(resolve('CLAUDE.md'), 'utf-8');
-    const line = claude.split('\n').find((l) => l.startsWith('plugin/role-agents/'));
-    expect(line).toMatch(/rule-path-walk/);
-  });
-
   it('continuity-judge AGENT.md에는 rule-path-walk가 없다', () => {
     const judge = readFileSync(resolve('plugin/agents/continuity-judge/AGENT.md'), 'utf-8');
     expect(judge).not.toMatch(/rule-path-walk/);

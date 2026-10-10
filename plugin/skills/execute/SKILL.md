@@ -292,12 +292,13 @@ ges_status {}   → tierModels.frugal (기본 "haiku")
 Agent {
   subagent_type: "Explore",
   model: "<tierModels.frugal>",
+  effort: "low",
   prompt: "<matchContext.systemPrompt>\n\n<matchContext.matchingPrompt>\n\n
            matches JSON만 돌려준다."
 }
 ```
 
-돌아온 후보는 **초안이다.** 세션이 태스크를 아는 쪽이므로, relevanceScore가 낮은 항목과 이 태스크에 명백히 안 맞는 항목을 걷어낸 뒤 Call 2로 제출한다. 스폰이 그 별칭을 거부하면 `sonnet` 1회 재시도, 그것도 안 되면 세션에서 직접 판단한다. 에이전트가 몇 개 없는 레포에선 팬아웃 없이 세션에서 그냥 고른다.
+돌아온 후보는 **초안이다.** 세션이 태스크를 아는 쪽이므로, relevanceScore가 낮은 항목과 이 태스크에 명백히 안 맞는 항목을 걷어낸 뒤 Call 2로 제출한다. 스폰이 그 별칭을 거부하면 `sonnet` 1회 재시도, 그것도 안 되면 세션에서 직접 판단한다. 에이전트가 몇 개 없는 레포에선 팬아웃 없이 세션에서 그냥 고른다. 폴백 절차는 [`../_shared/agent-model.md`](../_shared/agent-model.md)와 같다.
 
 ```json
 // Call 2: 매칭 결과 제출
@@ -361,6 +362,8 @@ Agent {
 `plan_complete` 응답에 `parallelGroups: string[][]`가 포함되어 있으면 병렬 실행을 사용한다. 각 내부 배열은 동시에 실행할 수 있는 태스크 ID 묶음이다.
 
 > 이 경로가 기본값이고 외부 도구 없이 동작한다. 워커별로 다른 에이전트 CLI를 쓰거나, 진행을 터미널로 들여다봐야 하거나, `worker_done` 추적이 필요하면 `dispatch` 스킬이 같은 단계를 외부 런타임으로 돌린다. 셋 다 필요 없으면 여기 그대로 두는 편이 가볍다.
+>
+> 태스크 하나가 티켓이나 PR 단위로 커서 서브에이전트에 맡기기엔 길어 보이면 [`handoff`](../handoff/SKILL.md)의 "맡길 곳 고르기"로 먼저 가른다. 워크트리로 가기로 했으면 세션 연결이 필요하니 `dispatch`로 넘긴다. 같은 파일을 건드리는 태스크는 한 그룹에 묶여 있어도 병렬로 내지 않고 차례로 돌린다.
 >
 > `execute_task` 응답의 `nextTaskIds`는 그 시점에 착수 가능한 태스크 집합이다. `parallelGroups`가 계획 시점의 정적 묶음이라면, 이쪽은 지금 완료 상태를 반영한 값이다. 한 태스크가 끝나고 다음을 고를 때는 `nextTaskIds`를 보는 편이 정확하다.
 

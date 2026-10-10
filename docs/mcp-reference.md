@@ -764,16 +764,17 @@ ges_agent({ action: "get", name: "architect" })
 
 ### `list` — Example Response
 
-파이프라인별로 묶어서 돌려준다.
+파이프라인별로 묶어서 돌려준다. 그룹은 `role`, `review`, `persona`, `principle`(`plugin/agents` 소속)이고 각 항목에 `tier`와 해석된 `model`이 붙는다. `tier`가 없는 에이전트는 `standard`로 본다. `get`과 달리 `systemPrompt`는 없다.
 
 ```json
 {
   "status": "ok",
   "total": 27,
   "groups": {
-    "role": [{ "name": "architect", "description": "...", "domain": ["architecture"] }],
-    "review": [{ "name": "security-reviewer", "description": "...", "domain": ["security"] }],
-    "persona": [{ "name": "trickster", "description": "...", "domain": [] }]
+    "role": [{ "name": "architect", "description": "...", "domain": ["architecture"], "tier": "frontier", "model": "opus" }],
+    "review": [{ "name": "security-reviewer", "description": "...", "domain": ["security"], "tier": "standard", "model": "sonnet" }],
+    "persona": [{ "name": "trickster", "description": "...", "domain": [], "tier": "standard", "model": "sonnet" }],
+    "principle": [{ "name": "proximity-worker", "description": "...", "domain": [], "tier": "frugal", "model": "haiku" }]
   }
 }
 ```

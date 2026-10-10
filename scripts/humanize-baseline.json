@@ -1,6 +1,6 @@
 {
   "CHANGELOG.md": 27,
-  "CLAUDE.md": 6,
+  "CLAUDE.md": 2,
   "docs/01-interview.md": 2,
   "docs/02-spec.md": 3,
   "docs/03-execute.md": 7,
@@ -43,7 +43,6 @@
   "src/knowledge-base/generator.ts": 2,
   "src/knowledge-base/summarizer.ts": 2,
   "src/llm/factory.ts": 1,
-  "src/mcp/tools/agent-passthrough.ts": 1,
   "src/resilience/lateral.ts": 1,
   "src/review/passthrough-engine.ts": 2,
   "src/review/snippet-reader.ts": 1,
