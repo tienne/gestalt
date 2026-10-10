@@ -13,6 +13,7 @@ import {
   sectionStartingWith,
   codeBlockContaining,
   freeVariables,
+  loadSkillBody,
 } from '../../helpers/skill-section.js';
 
 /**
@@ -23,7 +24,10 @@ import {
  */
 
 const SKILL_PATH = resolve('plugin/skills/review/SKILL.md');
-const body = parseSkillMd(readFileSync(SKILL_PATH, 'utf-8'), SKILL_PATH).body;
+const body = parseSkillMd(
+  loadSkillBody(SKILL_PATH, (p) => readFileSync(p, 'utf-8')),
+  SKILL_PATH,
+).body;
 const cliSource = readFileSync(resolve('src/cli/index.ts'), 'utf-8');
 const crossPrSource = readFileSync(resolve('src/cli/commands/harness-refs-cross-pr.ts'), 'utf-8');
 const agentMd = readFileSync(resolve('plugin/review-agents/harness-reviewer/AGENT.md'), 'utf-8');
