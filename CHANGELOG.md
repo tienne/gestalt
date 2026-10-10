@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.94.0] - 2026-10-10
+
+### Added
+
+- **`ges_agent list` 응답에 에이전트별 `tier`와 해석된 `model`을 실었어요 (#63).** 서브에이전트를 띄울 때 `model`을 생략하면 세션 모델(opus)을 물려받는데, 메인이 스폰 전에 tier를 싸게 알 방법이 없었어요. `get`은 시스템 프롬프트가 딸려오고 `list`에는 tier가 없었거든요.
+  - `tier`가 없는 에이전트는 `standard`로 보고 `model`은 `tierModels`로 풀어요. `plugin/agents` 소속인 continuity-judge와 proximity-worker가 빠지지 않게 `principle` 그룹을 추가했어요.
+- **`handoff` 스킬을 새로 넣었어요.** 서브에이전트, 같은 워크트리 터미널 워커, 하위 워크트리, 독립 워크트리 중 어디에 맡길지 고르고 `model`과 `effort`를 한 쌍으로 실어 넘겨요. 오르카가 있으면 워크트리 위임은 오르카를 먼저 써요. "핸드오프"나 "워크트리로 넘겨" 같은 말에 자동으로 발동해요.
+- **`verify:rules`가 SKILL.md의 `Agent {` 블록에서 `model:`과 `effort:` 누락을 막아요.** 생략하면 세션 모델과 effort를 물려받아 비용이 새서요. 한 줄 꼴 호출은 대상이 아니에요.
+
+### Changed
+
+- **작업별 `model`과 `effort` 기준표를 `agent-model.md`에 넣었어요.** 일의 성격마다 tier와 effort를 쌍으로 골라요. 재시도할 때는 둘 중 하나만 올려요. haiku에 effort를 줄 수 있는지는 호출 경로마다 달라요. Agent 도구는 받고 오르카 `worker-start`는 `invalid_argument`로 거절해요.
+- **SKILL.md의 Agent 블록 19개에 effort를 지정했어요.** 분류는 low, 문서와 윤문은 medium, 판정은 high예요. 스폰 전에 `ges_agent list`를 한 번 불러 `model`을 확보하는 절차도 `agent-model.md`에 적었어요.
+- **`execute`, `dispatch`, `gestalt-develop`에서 `handoff`로 가는 안내를 넣었어요.** `dispatch`는 같은 브랜치 안의 병렬 쪼개기로 범위를 좁혔고 티켓이나 브랜치, PR 단위로 끝나는 일은 `handoff`로 보내요. `gestalt-develop`에는 분석 뒤 맡길 곳을 가르는 Phase 1.5가 생겼어요.
+- 프로젝트 `CLAUDE.md`에서 `ls`로 보이는 디렉토리 목록을 덜어내고 MCP 기동 경로와 버전 알림 규칙을 `scripts/CLAUDE.md`와 `src/mcp/CLAUDE.md`로 옮겼어요.
+
+### 검증 범위
+
+- `pnpm gate`가 통과했어요. 테스트 4483개가 통과했고 1개는 skip이에요. CI는 네 칸(ubuntu와 macOS, Node 22와 24) 모두 통과했어요.
+- 오르카에서 `handoff` 우회 4단계를 sonnet과 low로 끝까지 돌렸어요. 터미널 머리글에 "Sonnet 5.5 with low effort"가 떴고 접수증에 `turn_started`가 찍혔어요. `--worktree new-top-level`은 부모 없는 독립 워크트리를 만들었어요.
+- haiku에 effort를 주면 `worker-start`가 거절하고 워크트리도 만들어지지 않는 걸 확인했어요.
+
+### 남긴 것
+
+- `agent-model.md` 표의 effort 값은 시작값이에요. 측정으로 검증하지 않았어요. 일주일쯤 뒤 review 스킬의 `model` 누락률(기준 23%, 1420개 중 329개)을 다시 재볼 계획이에요.
+- 우회 경로의 워커는 auto mode로 뜨고 `worker-start`의 워커는 bypass permissions로 떠요. 둘의 권한이 달라서 `handoff` 본문에 적어뒀어요.
+- `gestalt-develop`의 세 에이전트가 `model: "opus"`를 하드코딩한 건 이번에 손대지 않았어요.
+- 기존 사용자는 `/plugin install gestalt@gestalt`로 플러그인을 갱신해야 새 스킬이 보여요.
+
 ## [0.93.2] - 2026-10-10
 
 ### Changed
