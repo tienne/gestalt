@@ -1,13 +1,25 @@
 # 에이전트 tier로 모델 고르기 (공유 규칙)
 
-`ges_agent { action: "get" }`은 `tier`와 함께 **해석된 `model`** 을 돌려준다. 에이전트 frontmatter의
+`ges_agent`의 `get`과 `list`는 둘 다 `tier`와 **해석된 `model`** 을 돌려준다. 에이전트 frontmatter의
 tier가 "이 역할이 어느 정도 모델을 필요로 하나"를 선언하고 서버가 그걸 호스트 Agent 도구가 받는
-별칭으로 옮겨준 값이다.
+별칭으로 옮겨준 값이다. 둘의 차이는 `systemPrompt`가 딸려오느냐뿐이다. `get`은 한 에이전트의
+시스템 프롬프트까지 주며 `list`는 전체 에이전트의 `tier`와 `model`만 준다.
 
 ```
 ges_agent { action: "get", name: "architect" }
   →  { tier: "frontier", model: "opus", systemPrompt: "...", ... }
+
+ges_agent { action: "list" }
+  →  { groups: {
+         role:      [{ name: "architect", tier: "frontier", model: "opus", ... }, ...],
+         review:    [{ name: "security-reviewer", tier: "standard", model: "sonnet", ... }, ...],
+         persona:   [{ name: "trickster", tier: "standard", model: "sonnet", ... }, ...],
+         principle: [{ name: "continuity-judge", tier: "frontier", model: "opus", ... },
+                     { name: "proximity-worker", tier: "frugal", model: "haiku", ... }, ...]
+       } }
 ```
+
+`principle` 그룹은 `plugin/agents` 소속이다. `tier`가 없는 에이전트는 `standard`로 본다.
 
 기본 표는 이렇고 `gestalt.json`의 `tierModels`로 바꿀 수 있다.
 
@@ -35,7 +47,12 @@ ges_status {}
 ## 적용 규칙
 
 **서브에이전트를 띄울 때는 `model`을 그대로 넘긴다.** Agent 도구의 `model` 파라미터에 응답의
-`model` 값을 넣는다. 이게 tier가 실제로 효력을 갖는 유일한 지점이다.
+`model` 값을 넣는다. 이게 tier가 실제로 효력을 갖는 유일한 지점이다. 값은 이렇게 구한다.
+
+1. 스폰 전에 `ges_agent { action: "list" }`를 한 번 부르고 에이전트별 `model`을 확보한다. `systemPrompt`가
+   안 딸려오므로 메인이 `get`으로 프롬프트를 읽어버려 위임 효과가 깨지는 일이 없다.
+2. 넘길 이름이 응답에 없거나 호출이 실패하면 `ges_status`의 `tierModels.standard`로 폴백한다.
+3. `model`은 비우지 않는다. 비우면 Agent 도구가 세션 모델을 상속해서 `sonnet`이어야 할 자리가 `opus`로 돈다.
 
 **세션에서 직접 수행할 때는 tier가 참고값이다.** systemPrompt를 그대로 입고 이번 세션에서 처리하면
 모델은 세션 모델이다. 이때 `tier`가 `frontier`인데 세션 모델이 그보다 낮으면, 그 관점만 서브에이전트로
