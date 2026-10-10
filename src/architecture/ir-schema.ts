@@ -14,6 +14,7 @@ import {
   EVIDENCE_TYPES,
   FLOW_ACTOR_KINDS,
   FLOW_PATHS,
+  FLOW_STEP_KINDS,
   PROJECTION_SHAPES,
   SEQUENCE_BLOCK_KINDS,
   LINE_STYLES,
@@ -280,22 +281,35 @@ const flowActorSchema = z.object({
   kind: z.enum(FLOW_ACTOR_KINDS),
 });
 
-const flowStepSchema = z.object({
-  id: z.string().min(1),
-  actor: z.string().min(1),
-  label: z.string().min(1),
-  description: z.string().optional(),
-  state: z.string().min(1).optional(),
-  terminal: z.boolean().optional(),
-  refs: z.array(z.string().min(1)).optional(),
-  evidence: z.array(evidenceSchema),
-});
+const flowStepSchema = z
+  .object({
+    id: z.string().min(1),
+    actor: z.string().min(1),
+    label: z.string().min(1),
+    kind: z.enum(FLOW_STEP_KINDS).optional(),
+    description: z.string().optional(),
+    state: z.string().min(1).optional(),
+    terminal: z.boolean().optional(),
+    refs: z.array(z.string().min(1)).optional(),
+    evidence: z.array(evidenceSchema),
+  })
+  .superRefine((step, ctx) => {
+    if (step.kind === 'decision' && step.terminal === true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['terminal'],
+        message: 'decision 단계는 갈림길이라 terminal을 달 수 없다',
+      });
+    }
+  });
 
 const flowTransitionSchema = z.object({
   id: z.string().min(1),
   from: z.string().min(1),
   to: z.string().min(1),
   path: z.enum(FLOW_PATHS),
+  trigger: z.string().min(1).optional(),
+  condition: z.string().min(1).optional(),
   label: z.string().min(1).optional(),
   actors: z.array(z.string().min(1)).min(1).optional(),
   evidence: z.array(evidenceSchema),

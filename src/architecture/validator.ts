@@ -1078,6 +1078,8 @@ function askStepsAsTransitions(
   };
   for (const step of flow.steps) {
     if (!drawable.has(step.id) || !people.has(step.actor)) continue;
+    // 갈림길은 머무는 자리가 아니라 길을 고르는 자리라 원래 전이처럼 생겼다
+    if (step.kind === 'decision') continue;
     const ins = flow.transitions.filter((t) => t.to === step.id);
     const outs = flow.transitions.filter((t) => t.from === step.id);
     if (ins.length !== 1 || outs.length !== 1) continue;
@@ -1116,6 +1118,38 @@ function askDeadEnds(
   }
 }
 
+/**
+ * 갈림길이 제 역할을 하는지 묻는다. 나가는 길이 하나뿐이면 나머지 조건의 행선지가 빠진 것이고
+ * 조건 없는 길은 그림만 봐서는 언제 그쪽으로 가는지 모른다. 나가는 길이 없는 경우는 dead-end가 묻는다
+ */
+function askDecisions(
+  flow: ArchitectureFlow,
+  drawable: Set<string>,
+  ask: (q: UnresolvedQuestion) => void,
+): void {
+  const name = new Map(flow.steps.map((s) => [s.id, s.label]));
+  for (const step of flow.steps) {
+    if (step.kind !== 'decision' || !drawable.has(step.id)) continue;
+    const outs = flow.transitions.filter((t) => t.from === step.id);
+    if (outs.length === 1) {
+      ask({
+        id: `auto:branch:${step.id}`,
+        subject: { stepId: step.id },
+        question: `"${step.label}"에서 갈리는 길이 하나뿐이에요. 다른 조건일 때는 어디로 가나요?`,
+      });
+    }
+    for (const t of outs) {
+      // 근거 없는 길은 auto:transition이 먼저 묻는다
+      if (t.evidence.length === 0 || t.condition !== undefined || t.label !== undefined) continue;
+      ask({
+        id: `auto:condition:${t.id}`,
+        subject: { transitionId: t.id },
+        question: `"${step.label}"에서 "${name.get(t.to) ?? t.to}"로 가는 길은 어떤 조건일 때인가요?`,
+      });
+    }
+  }
+}
+
 /** 근거로 다시 정한 선 모양을 싣는다. 그릴 단계와 전이를 고르고 근거 없는 것은 질문으로 돌린다 */
 function settleFlows(
   flows: ArchitectureFlow[],
@@ -1140,6 +1174,7 @@ function settleFlows(
     // 세션이 그 단계에 다른 질문을 이미 달았어도 이 질문은 따로 선다
     askStepsAsTransitions(flow, steps, askById);
     askDeadEnds(flow, steps, askById);
+    askDecisions(flow, steps, askById);
     const transitionsOut = flow.transitions.map((t) => ({
       ...t,
       lineStyle: deriveLineStyle(t.evidence),
@@ -1448,6 +1483,8 @@ function maskFlowText(f: ArchitectureFlow): ArchitectureFlow {
     })),
     transitions: f.transitions.map((t) => ({
       ...t,
+      ...(t.trigger !== undefined ? { trigger: maskSharedText(t.trigger) } : {}),
+      ...(t.condition !== undefined ? { condition: maskSharedText(t.condition) } : {}),
       ...(t.label !== undefined ? { label: maskSharedText(t.label) } : {}),
     })),
   };
