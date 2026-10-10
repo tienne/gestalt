@@ -339,12 +339,12 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   guardedTool(
     'ges_agent',
-    "List available agents or retrieve a specific agent's system prompt for standalone use — no pipeline required. Actions: list (get all role/review agents), get (retrieve agent by name).",
+    "List available agents or retrieve a specific agent's system prompt for standalone use — no pipeline required. Actions: list (get all role/review/persona/principle agents with tier and resolved model, no systemPrompt — call once before spawning subagents to fill the Agent tool's model), get (retrieve agent by name, including tier, model and systemPrompt).",
     {
       action: z
         .enum(['list', 'get'])
         .describe(
-          "list: get all available agents grouped by type, get: retrieve a specific agent's systemPrompt",
+          "list: get all available agents grouped by type with tier and model, get: retrieve a specific agent's systemPrompt",
         ),
       name: z.string().optional().describe('(required for get)'),
     },
