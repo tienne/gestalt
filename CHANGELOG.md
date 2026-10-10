@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.93.2] - 2026-10-10
+
+### Changed
+
+- **`tienne-voice` 출력 스타일의 자가점검과 금지 목록에 C-11(연결어미 뒤 쉼표)을 넣었어요 (#62).** 응답에서 제일 자주 걸리는 S1인데 둘 다에 없어서 모델이 점검할 때 보지 못했어요.
+  - 자가점검은 19항목에서 20항목이 되고 금지 목록은 32개에서 33개가 돼요. 생성되는 파일은 201바이트 늘어요.
+  - `pnpm build:output-style`로 홈의 스타일 파일을 다시 뽑아야 반영돼요.
+
+### 검증 범위
+
+- 응답 160개에 `humanize-scan --register chat`을 돌렸어요. 글자 1천 자당 C-11이 2.77건에서 2.00건으로 줄었어요. 95% 구간이 -1.41~-0.14예요.
+- 게이트 항목만 넣은 조건은 2.16건이고 구간이 0을 걸쳐서 효과를 말하기 어려웠어요. 그래서 둘 다에 넣었어요.
+- C-11 말고 걸린 S1은 응답당 0.12건으로 그대로예요. 응답 길이와 문장 길이도 같았어요.
+- CI는 네 칸(ubuntu와 macOS, Node 22와 24) 모두 통과했어요.
+
+### 남긴 것
+
+- C-11은 사라지지 않아요. 응답 40개 중 27개에 남았어요.
+- 금지 줄에 고침 예시를 손으로 붙이면 1.46건까지 내려갔지만 이 변경과 구간이 겹쳐서 넣지 않았어요. 생성 줄에 예시를 싣는 방법은 따로 정해야 해요.
+- 모델은 sonnet 하나로만 봤어요.
+
 ## [0.93.1] - 2026-10-10
 
 ### Changed
