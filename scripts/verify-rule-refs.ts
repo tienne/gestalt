@@ -149,6 +149,49 @@ export function stripQuoted(line: string): string {
 }
 
 /**
+ * 코드펜스 안의 `Agent {` 블록 중 `model:` 줄이 없는 블록의 시작 줄 번호(1부터)를 돌려준다.
+ * 블록은 그 줄과 같거나 얕은 들여쓰기의 `}` 줄이나 펜스 끝에서 닫힌다고 본다.
+ */
+export function agentBlocksWithoutModel(markdown: string): number[] {
+  const lines = markdown.split('\n');
+  const missing: number[] = [];
+  let fence: string | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+
+    if (fence === null) {
+      if (marker) fence = marker;
+      continue;
+    }
+    if (marker && marker[0] === fence[0] && marker.length >= fence.length) {
+      fence = null;
+      continue;
+    }
+
+    const open = /^(\s*)Agent\s*\{\s*$/.exec(line);
+    if (!open) continue;
+
+    const indent = open[1]!.length;
+    let hasModel = false;
+    for (let j = i + 1; j < lines.length; j++) {
+      const inner = lines[j]!;
+      if (/^\s*(`{3,}|~{3,})/.test(inner)) break;
+      const close = /^(\s*)\}\s*$/.exec(inner);
+      if (close && close[1]!.length <= indent) break;
+      if (/^\s*model\s*:/.test(inner)) {
+        hasModel = true;
+        break;
+      }
+    }
+    if (!hasModel) missing.push(i + 1);
+  }
+
+  return missing;
+}
+
+/**
  * "화이트리스트" 가 적힌 줄에서 가장 긴 가운뎃점 나열을 정착어 목록으로 읽는다.
  * 꼬리의 "… 등 정착어는 그대로 둔다" 는 잘라낸다.
  */
@@ -447,6 +490,20 @@ export function verifyRuleRefs(): RuleRefIssue[] {
           });
         }
       });
+  }
+
+  // 9. 스킬이 서브에이전트를 띄우는 Agent 블록에 model이 빠졌는가.
+  //    model을 비우면 세션 모델을 그대로 물려받아 tier 설계가 무력해진다.
+  for (const file of markdownFiles(join(PLUGIN, 'skills'))) {
+    if (!file.endsWith(`${sep}SKILL.md`)) continue;
+    for (const number of agentBlocksWithoutModel(readFileSync(file, 'utf-8'))) {
+      issues.push({
+        level: 'error',
+        file: `${rel(file)}:${number}`,
+        message:
+          'Agent 블록에 model이 없다 — 생략하면 세션 모델을 상속한다. plugin/skills/_shared/agent-model.md 절차로 채운다',
+      });
+    }
   }
 
   return issues;
