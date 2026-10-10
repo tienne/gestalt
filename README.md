@@ -638,6 +638,7 @@ Each skill is a slash command in Claude Code. In Codex the same skill is `gestal
 | `/execute` | Turn an existing Spec into a validated execution plan, then execute, evaluate, and evolve |
 | `/solve` | Drive interview → spec → execute as one loop without stopping between steps |
 | `/dispatch` | Send ready tasks from an execute session to terminals in an external agent runtime (Orca). Opt-in — without one, `/execute`'s default parallel path is better |
+| `/handoff` | Pick where to hand a task (main, subagent, child worktree, independent worktree), set model and effort as a pair, and send it there. Uses Orca for worktrees when available |
 | `/setup` | First-time project setup: `gestalt.json`, code graph, and post-commit hook |
 | `/build-graph` | Build or rebuild the code knowledge graph only |
 | `/blast-radius` | Before changing code, find the files a change would reach and load only those |
