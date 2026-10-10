@@ -74,6 +74,8 @@ Agent 도구의 `effort`는 지침이 명시할 때만 설정하는 파라미터
   모델이 너무 빨리 끝냈으면 `effort`를 올린다.
 - 에이전트 이름이 있으면 `model`은 `list`가 준 값을 우선한다. 표의 tier는 이름이 없는 자리에서 쓴다.
   `effort`는 어느 경우든 이 표에서 고른다.
+- haiku에 effort를 줄 수 있는지는 호출 경로마다 다르다. Agent 도구는 에러 없이 받는다. 오르카
+  `worker-start`는 `invalid_argument`로 거절하니 그쪽에서는 haiku일 때 effort를 뺀다.
 
 호출은 이런 모양이다. `model`은 `list` 응답에서 가져온 값이고 `effort`는 표에서 고른 값이다.
 

@@ -292,6 +292,7 @@ ges_status {}   → tierModels.frugal (기본 "haiku")
 Agent {
   subagent_type: "Explore",
   model: "<tierModels.frugal>",
+  effort: "low",
   prompt: "<matchContext.systemPrompt>\n\n<matchContext.matchingPrompt>\n\n
            matches JSON만 돌려준다."
 }
