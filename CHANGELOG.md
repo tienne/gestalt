@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.95.0] - 2026-10-11
+
+### Added
+
+- **`architecture` 스킬에서 `screen` 노드에 화면 캡처(`capture`)를 달 수 있어요 (#64).** 흐름 카드에 단계 이름만 있어서 어떤 화면인지 알려면 앱이나 코드를 따로 열어야 했어요.
+  - `image`는 png, jpeg, webp data URI이고 120,000자를 넘으면 스키마가 거부해요. `capturedAt`, `env`, `source`(`browser`나 `figma`)는 꼭 적고 `commit`은 선택이에요. `screen`이 아닌 노드에 달아도 거부해요.
+  - 캡처가 있는 단계는 흐름 카드 아래에 176x110 썸네일이 서요. 누르면 단계 서랍이 열리고 화면 서랍에도 같은 캡처가 보여요. 갈림길 마름모에는 썸네일이 안 서요.
+  - 공유용(shared) 산출물에서는 캡처와 썸네일이 통째로 빠져요. 레이아웃을 썸네일 없이 다시 계산해서 빈 자리도 안 남아요.
+  - 캡처가 없는 IR의 출력은 바이트 단위로 이전과 같아요.
+- **스킬에 3-5 화면 캡처 절을 넣었어요.** 기본은 안 달고 사용자가 원할 때만 해요. 찍는 곳은 dev나 qa의 테스트 계정으로 한정하고 개인정보가 보이는 화면은 미해결 질문으로 남겨요. 이미지는 컨텍스트에 올리지 않고 스크립트로 IR에 바로 끼워요. 재실행할 때는 지난 `capture`를 이어받고 낡았을 수 있으면 다시 찍을지 물어요.
+
+### Changed
+
+- **`gestalt-develop`의 analyst, developer, qa 에이전트가 `model`을 별칭으로 박지 않고 `ges_status`의 `tierModels.standard`를 읽어요.** 세 에이전트는 `ges_agent list`에 안 뜨는 프로젝트 전용이라 직접 읽게 했어요. effort는 medium이고 developer는 요구사항이 열려 있거나 파일 여러 곳에 걸치면 frontier와 high로 올려요. 0.94.0에서 손대지 않고 남겼던 자리예요. 별칭이 다시 박히는지는 테스트가 막아요.
+
+### 검증 범위
+
+- `pnpm gate`가 통과했어요. 테스트 4497개가 통과했고 1개는 skip이에요. CI는 네 칸(ubuntu와 macOS, Node 22와 24) 모두 통과했어요.
+- 실제 서비스의 현장 등록 퍼널 화면 9개를 찍어 IR에 넣고 이 코드로 렌더해 브라우저에서 확인했어요. 화면 서랍, 단계 서랍, 썸네일 클릭이 동작했고 shared 출력에는 이미지가 하나도 없었어요.
+
+### 남긴 것
+
+- 썸네일 틀이 176x110이라 세로로 긴 화면은 작게 보여요.
+- 전이선이 썸네일 위를 지나가는 자리가 있고 일부 선 라벨이 썸네일과 겹쳐요. 라벨 위치는 이번에 손대지 않았어요.
+- 캡션의 촬영 시각이 UTC로 나와요.
+- 기존 사용자는 `/plugin install gestalt@gestalt`로 플러그인을 갱신해야 새 스킬 내용이 보여요.
+
 ## [0.94.0] - 2026-10-10
 
 ### Added
