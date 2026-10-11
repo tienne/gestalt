@@ -72,6 +72,20 @@ const evidenceSchema = z
     }
   });
 
+/** data URI 글자 수 상한. HTML에 그대로 박히니 화면 수십 장이어도 산출물이 무거워지지 않게 묶는다 */
+export const CAPTURE_MAX_CHARS = 120_000;
+
+const captureSchema = z.object({
+  image: z
+    .string()
+    .regex(/^data:image\/(png|jpeg|webp);base64,/)
+    .max(CAPTURE_MAX_CHARS, `캡처는 ${CAPTURE_MAX_CHARS}자 이하여야 한다. 폭 360px JPEG로 줄인다`),
+  capturedAt: z.string().min(1),
+  env: z.string().min(1),
+  source: z.enum(['browser', 'figma']),
+  commit: z.string().min(1).optional(),
+});
+
 const docInfoSchema = z.object({
   path: z.string().min(1),
   updatedAt: z.string().min(1).optional(),
@@ -162,6 +176,7 @@ const nodeSchema = z
     displayKind: z.string().min(1).optional(),
     renderClass: z.enum(RENDER_CLASSES).optional(),
     doc: docInfoSchema.optional(),
+    capture: captureSchema.optional(),
     owners: z.array(z.string().min(1)).optional(),
   })
   .superRefine((node, ctx) => {
@@ -210,6 +225,9 @@ const nodeSchema = z
     }
     if (node.doc !== undefined && !KNOWLEDGE_DOC_KINDS.includes(node.kind)) {
       custom('doc', `doc는 ${KNOWLEDGE_DOC_KINDS.join(', ')} 노드에만 쓸 수 있다`);
+    }
+    if (node.capture !== undefined && node.kind !== 'screen') {
+      custom('capture', 'capture는 screen 노드에만 쓸 수 있다');
     }
     if (node.displayNameInferred !== undefined && node.displayName === undefined) {
       ctx.addIssue({

@@ -787,6 +787,14 @@ export const SEQ_VIEW_CSS = `.seq-bar {
 }`;
 
 /** 지식 문서 팩을 쓰는 그림에만 붙이는 스타일. 카드 배지와 서랍의 근거 구성 막대 */
+/** 화면 캡처가 하나라도 있는 IR에만 싣는다 */
+export const CAPTURE_CSS = `.capture { margin: 8px 0; }
+.capture img { display: block; max-width: 100%; height: auto; margin: 0 0 4px; border: 1px solid var(--border); border-radius: 6px; }
+.capture figcaption { font-size: 12px; color: var(--muted); }
+.flow-thumb { position: absolute; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); cursor: pointer; }
+.flow-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: top center; pointer-events: none; }
+.flow-thumb:hover { border-color: var(--accent); }`;
+
 export const DOC_CSS = `.doc-badge {
   flex: none; margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; font-weight: 700; line-height: 16px;
   color: var(--bg); background: var(--warn);

@@ -230,6 +230,20 @@ export interface DocLink {
   refs: DocLinkRef[];
 }
 
+/** screen 노드에 붙는 화면 캡처. 근거가 아니라 표현이라 evidence와 따로 둔다 */
+export interface ScreenCapture {
+  /** 줄여 인코딩한 data URI. 공유본에서 뺀다 */
+  image: string;
+  /** 찍은 시각(ISO 8601). 재실행 때 오래됐는지 가리는 기준이다 */
+  capturedAt: string;
+  /** 어느 환경에서 찍었는지(dev, qa 같은 이름) */
+  env: string;
+  /** browser는 실행 중인 화면, figma는 디자인 프레임 */
+  source: 'browser' | 'figma';
+  /** 찍을 때 레포 커밋. 없으면 생략 */
+  commit?: string;
+}
+
 export interface ArchitectureNode {
   id: string;
   kind: NodeKind;
@@ -266,6 +280,8 @@ export interface ArchitectureNode {
   renderClass?: RenderClass;
   /** 지식 팩 노드만. 경로, 수정일, 구멍, 근거 구성 */
   doc?: DocInfo;
+  /** screen만. 화면 캡처. 공유본에서 뺀다 */
+  capture?: ScreenCapture;
   /** 담당 팀이나 사람. CODEOWNERS나 소유 표처럼 출처가 있는 값만 적는다. 공유본에서 뺀다 */
   owners?: string[];
 }

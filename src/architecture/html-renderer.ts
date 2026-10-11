@@ -10,7 +10,7 @@ import {
 } from './canvas-geometry.js';
 import type { RoutedEdge } from './canvas-geometry.js';
 import { flowCountByService, ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
-import type { FlowLevel } from './flow-layout.js';
+import { computeFlowLayout, type FlowLevel } from './flow-layout.js';
 import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import {
   datastoreEngine,
@@ -19,6 +19,7 @@ import {
   renderCss,
   renderIconSprite,
   VIEW_CSS,
+  CAPTURE_CSS,
   DOC_CSS,
   FLOW_BRANCH_CSS,
   SEQ_VIEW_CSS,
@@ -823,6 +824,7 @@ function renderFlowSection(
   flow: ArchitectureFlow,
   questionCount: ReadonlyMap<string, number>,
   drawableNodes: ReadonlySet<string>,
+  captureOf: ReadonlyMap<string, { image: string; label: string }>,
 ): string {
   const { layout } = level;
   const width = round2(layout.width + FLOW_PAD * 2);
@@ -920,6 +922,21 @@ function renderFlowSection(
       );
     })
     .join('');
+  // 선 레이어보다 먼저 놓아 전이 선이 썸네일 위로 지나가게 한다. 선이 가려지면 있는 연결이 없는 것처럼 읽힌다
+  const thumbs = layout.steps
+    .map((b) => {
+      if (b.thumb === undefined) return '';
+      const cap = (stepById.get(b.id)!.refs ?? [])
+        .map((r) => captureOf.get(r))
+        .find((c) => c !== undefined);
+      if (cap === undefined) return '';
+      return (
+        `<div class="flow-thumb" data-step-id="${escapeHtml(b.id)}" ` +
+        `style="left:${round2(b.x + FLOW_PAD)}px;top:${round2(b.thumb.y + FLOW_PAD)}px;width:${b.width}px;height:${b.thumb.height}px">` +
+        `<img src="${escapeHtml(cap.image)}" alt="${escapeHtml(`${cap.label} 화면 캡처`)}" loading="lazy" draggable="false"></div>`
+      );
+    })
+    .join('');
   const cards = layout.steps
     .map((b) => {
       const st = stepById.get(b.id)!;
@@ -963,6 +980,7 @@ function renderFlowSection(
   return (
     `<section class="level flow-level" data-level-id="${escapeHtml(level.id)}" data-flow-id="${escapeHtml(level.flowId)}" ` +
     `aria-label="${escapeHtml(solo !== undefined ? `${flow.title}, 행위자 ${solo.actor.label}` : flow.title)}" data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px" hidden>` +
+    thumbs +
     `<svg class="links" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
     `role="group" aria-label="${escapeHtml(`${flow.title} 전이`)}"><g class="lanes">${lanes}${dividers}</g><g class="edges">${links}</g></svg>` +
     `${stageHeads}${heads}${cards}</section>`
@@ -1865,8 +1883,9 @@ function clientScriptFor(
   mixedBundles: boolean,
   sequences: boolean,
   flowBranches: boolean,
+  captures: boolean,
 ): string {
-  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}|${mixedBundles}|${sequences}|${flowBranches}`;
+  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}|${mixedBundles}|${sequences}|${flowBranches}|${captures}`;
   const hit = clientScripts.get(key);
   if (hit !== undefined) return hit;
   const pick = <T>(table: Record<string, T>, keys: Iterable<string>): Record<string, T> =>
@@ -1900,6 +1919,7 @@ function clientScriptFor(
     mixedBundles,
     sequences,
     ...(flowBranches ? { flowBranches } : {}),
+    ...(captures ? { captures } : {}),
     docs: vocab.packIds.includes('knowledge'),
   });
   clientScripts.set(key, script);
@@ -1965,6 +1985,7 @@ function renderPage({
       ),
     );
   const soloActor = drawnFlows.some((f) => f.actors.length === 1);
+  const hasCaptures = ir.nodes.some((n) => n.capture !== undefined);
   return [
     '<!doctype html>',
     '<html lang="ko">',
@@ -1973,7 +1994,7 @@ function renderPage({
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab),
@@ -2027,7 +2048,7 @@ function renderPage({
       ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
       : '') + (hasViews ? `\n${renderViewsPop(views)}` : ''),
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
-    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles, hasSequences, flowBranches)}</script>`,
+    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles, hasSequences, flowBranches, hasCaptures)}</script>`,
     '</body>',
     '</html>',
     '',
@@ -2068,11 +2089,36 @@ export function renderArchitectureHtml(
  */
 export function renderDrilldownHtml(
   validated: ValidatedIr,
-  drilldown: Drilldown,
+  drilldownIn: Drilldown,
   opts: RenderArchitectureHtmlOptions,
 ): string {
   const shared = opts.audience === 'shared';
   const ir = shared ? redactForSharing(validated.ir) : validated.ir;
+  // 공유본은 캡처를 싣지 않으니 썸네일 자리도 비운다. 자리만 남기면 빈 칸이 어디 있는지 드러난다
+  const drilldown: Drilldown = shared
+    ? {
+        ...drilldownIn,
+        flows: drilldownIn.flows.map((l) =>
+          l.layout.steps.some((b) => b.thumb !== undefined)
+            ? {
+                ...l,
+                layout: computeFlowLayout(
+                  l.flow,
+                  validated.drawableStepIds,
+                  validated.drawableTransitionIds,
+                ),
+              }
+            : l,
+        ),
+      }
+    : drilldownIn;
+  const captureOf = new Map(
+    ir.nodes.flatMap((n) =>
+      n.capture !== undefined
+        ? [[n.id, { image: n.capture.image, label: nodeName(n) }] as const]
+        : [],
+    ),
+  );
   const base = buildPayload(ir, validated, shared);
   const docCover = docCoverSpec(base.nodes, base.docOverlay);
   const nodeById = new Map(base.nodes.map((n) => [n.id, n]));
@@ -2178,7 +2224,7 @@ export function renderDrilldownHtml(
     )
     .concat(
       flowLevels.map(({ level, flow }) =>
-        renderFlowSection(level, flow, questionCount, drawableNodes),
+        renderFlowSection(level, flow, questionCount, drawableNodes, captureOf),
       ),
     )
     .concat(
