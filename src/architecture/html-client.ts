@@ -36,7 +36,30 @@ export interface ClientConstants {
   docs?: boolean;
   /** 흐름에 갈림길이나 누른 것, 조건이 있으면 true. 서랍에 그 줄과 나뉘는 길 목록을 그리는 코드를 싣는다 */
   flowBranches?: boolean;
+  /** screen 노드에 화면 캡처가 있으면 true. 서랍에 캡처를 그리는 코드를 싣는다 */
+  captures?: boolean;
 }
+
+// 화면 캡처 조각은 캡처가 있는 그림에만 싣는다. 늘 실으면 캡처가 없는 그림의 바이트까지 바뀐다
+const CAPTURE_CODE = `  var CAPTURE_SOURCE = { browser: '실행 화면', figma: '피그마 프레임' };
+  function renderCapture(n, body, withCaption) {
+    var cp = n.capture;
+    if (!cp) return;
+    var fig = el('figure', 'capture');
+    var img = el('img');
+    img.src = cp.image;
+    img.alt = nameOf(n) + ' 화면 캡처';
+    fig.appendChild(img);
+    var note = (withCaption ? nameOf(n) + ': ' : '') + (CAPTURE_SOURCE[cp.source] || cp.source) + ', ' + cp.env + ', ' + cp.capturedAt;
+    fig.appendChild(el('figcaption', 'desc', note));
+    body.appendChild(fig);
+  }
+`;
+const THUMB_CLICK =
+  "    var thumb = e.target.closest('.flow-thumb');\n" +
+  "    if (thumb) { activateNode(thumb.getAttribute('data-step-id'), e, false); return; }\n";
+const CAPTURE_STEP_CALL =
+  '    refs.forEach(function (r) { renderCapture(nodes[r], body, true); });\n';
 
 // component는 칩 글자를 노드의 displayKind에서, 색과 아이콘은 renderClass에서 가져온다. types.ts의 displayKindOf, chipTextOverride와 같은 규칙이다.
 // 이 조각은 component를 쓸 수 있는 어휘에만 싣는다. 늘 실으면 component가 없는 그림의 바이트까지 바뀐다
@@ -748,7 +771,7 @@ ${FOCUS_SOURCE}
     if (st.description) body.appendChild(el('p', 'desc', st.description));
     questionList(body, st.questions);
 ${c.flowBranches ? BRANCH_STEP_OUTS : ''}    var refs = (st.refs || []).filter(function (r) { return !!nodes[r]; });
-    if (refs.length) {
+${c.captures ? CAPTURE_STEP_CALL : ''}    if (refs.length) {
       var web = refs.every(function (r) { return nodes[r].kind === 'screen' || nodes[r].kind === 'endpoint'; });
       body.appendChild(el('h3', null, (web ? '이어진 화면과 API ' : '이어진 카드 ') + refs.length + '개'));
       refButtons(body, refs, function (r) { goToRef(r, f.service); }, function (r) { return 'i-' + dkind(nodes[r]); }, label);
@@ -860,7 +883,7 @@ ${c.flowBranches ? BRANCH_TRANSITION_FACTS : ''}    var f = stepFlow[t.from];
     panel.appendChild(body);
     openDrawer();
   }
-  function renderPanel(id) {
+${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     if (isStep(id)) { renderStepPanel(id); return; }
     var n = nodes[id];
     panel.textContent = '';
@@ -912,7 +935,7 @@ ${c.flowBranches ? BRANCH_TRANSITION_FACTS : ''}    var f = stepFlow[t.from];
       body.appendChild(el('h3', null, '이 종류는'));
       body.appendChild(el('p', 'desc', about));
     }
-    renderFacts(n, body);${c.docs ? '\n    renderDoc(n, body);' : ''}
+    renderFacts(n, body);${c.captures ? '\n    renderCapture(n, body, false);' : ''}${c.docs ? '\n    renderDoc(n, body);' : ''}
     if (flowsBySvc[id]) {
       body.appendChild(el('h3', null, '흐름 ' + flowsBySvc[id].length + '개'));
       refButtons(body, flowsBySvc[id].map(function (f) { return f.level; }), showLevel, function () { return 'u-flow'; }, function (lv) { return levels[lv].title; });
@@ -1210,7 +1233,7 @@ ${c.views ? viewFuncs(!!c.sequences) : ''}${c.sequences ? SEQ_FUNCS : ''}${c.doc
     }
     ${c.views ? VIEW_CLICK : ''}var card = e.target.closest('.node');
     if (card) { activateNode(card.getAttribute('data-node-id'), e, false); return; }
-    var link = e.target.closest('.link.bundle');
+${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     if (link) { activateBundle(link); return; }
     var ft = e.target.closest('.link.flow-t');
     if (ft) { activateTransition(ft); return; }

@@ -24,6 +24,8 @@ export interface FlowStepBox {
   path: FlowPath;
   /** 갈림길이면 diamond. 상자는 마름모를 감싸는 bbox다 */
   shape?: 'diamond';
+  /** 화면 캡처 썸네일 자리. 카드 바로 아래에 같은 폭으로 선다. 캡처가 없으면 없다 */
+  thumb?: { y: number; height: number };
 }
 
 export interface FlowTransitionRoute {
@@ -80,6 +82,10 @@ export interface FlowLevel {
 export const FLOW_HEAD_WIDTH = 132;
 export const FLOW_STEP_WIDTH = 176;
 export const FLOW_STEP_HEIGHT = 64;
+/** 카드 아래 썸네일 높이. 카드와 같은 폭 176px에서 16:10이다 */
+export const FLOW_THUMB_HEIGHT = 110;
+/** 카드와 썸네일 사이. 되돌아가는 선과 옆 흐름 선이 카드 아래 11px로 지나가는 자리라 ROW_GAP과 같게 둔다 */
+export const FLOW_THUMB_GAP = 22;
 /**
  * 마름모는 카드보다 8px 높고 4px 위에 서서 가운데 y가 카드와 같다. 그래야 좌우 꼭짓점이 카드 중간 앵커와 맞는다.
  * 되돌아가는 선은 카드 위아래 11px에 서는데 4px가 넘쳐도 15px라 줄 여백 18px 안에 든다. 80이면 넘친다
@@ -508,6 +514,7 @@ export function computeFlowLayout(
   flow: ArchitectureFlow,
   drawableSteps: ReadonlySet<string>,
   drawableTransitions: ReadonlySet<string>,
+  thumbSteps: ReadonlySet<string> = new Set(),
 ): FlowLayout {
   const steps = flow.steps.filter((s) => drawableSteps.has(s.id));
   const transitions = flow.transitions.filter((t) => drawableTransitions.has(t.id));
@@ -544,12 +551,16 @@ export function computeFlowLayout(
   for (const s of steps) if (pathOf(s.id) === 'main') place(s, 0);
   for (const s of steps) if (pathOf(s.id) === 'side') place(s, 1);
 
+  // 썸네일이 서는 단계가 한 칸이라도 있는 줄은 모든 행을 썸네일만큼 늘린다. 행마다 높이가 다르면 격자가 틀어진다
+  const thumbLanes = new Set(steps.filter((s) => thumbSteps.has(s.id)).map((s) => s.actor));
+  const bodyOf = (actor: string): number =>
+    FLOW_STEP_HEIGHT + (thumbLanes.has(actor) ? FLOW_THUMB_GAP + FLOW_THUMB_HEIGHT : 0);
   const lanes: FlowLane[] = [];
   const laneY = new Map<string, number>();
   let y = top;
   for (const actor of flow.actors) {
     const rows = rowsOfActor.get(actor.id) ?? 1;
-    const height = LANE_PAD_Y * 2 + rows * FLOW_STEP_HEIGHT + (rows - 1) * ROW_GAP;
+    const height = LANE_PAD_Y * 2 + rows * bodyOf(actor.id) + (rows - 1) * ROW_GAP;
     lanes.push({ actor, y, height });
     laneY.set(actor.id, y);
     y += height;
@@ -570,8 +581,9 @@ export function computeFlowLayout(
   const boxes: FlowStepBox[] = steps.map((s) => {
     const col = column.get(s.id)!;
     const row = rowOf.get(s.id)!;
-    const y = laneY.get(s.actor)! + LANE_PAD_Y + row * (FLOW_STEP_HEIGHT + ROW_GAP);
+    const y = laneY.get(s.actor)! + LANE_PAD_Y + row * (bodyOf(s.actor) + ROW_GAP);
     const decision = s.kind === 'decision';
+    const thumb = !decision && thumbSteps.has(s.id);
     return {
       id: s.id,
       x: headWidth + gap / 2 + col * (FLOW_STEP_WIDTH + gap),
@@ -582,6 +594,9 @@ export function computeFlowLayout(
       row,
       path: pathOf(s.id),
       ...(decision ? { shape: 'diamond' as const } : {}),
+      ...(thumb
+        ? { thumb: { y: y + FLOW_STEP_HEIGHT + FLOW_THUMB_GAP, height: FLOW_THUMB_HEIGHT } }
+        : {}),
     };
   });
   const boxOf = new Map(boxes.map((b) => [b.id, b]));
@@ -694,11 +709,21 @@ export function computeFlowLayout(
   };
 }
 
+/** 이어진 화면 중 캡처가 있는 것이 하나라도 있는 단계. 썸네일은 그 화면의 캡처를 쓴다 */
+export function captureStepIds(flow: ArchitectureFlow, captured: ReadonlySet<string>): Set<string> {
+  return new Set(
+    flow.steps.filter((st) => (st.refs ?? []).some((r) => captured.has(r))).map((st) => st.id),
+  );
+}
+
 /**
  * 그릴 흐름 레벨. 서비스가 그려지지 않는 흐름은 들어갈 자리가 없어서 뺀다.
  * service가 없는 흐름은 전체 바로 아래 독립 레벨이다. 정렬은 흐름 id 순이다
  */
 export function computeFlowLevels(validated: ValidatedIr): FlowLevel[] {
+  const captured = new Set(
+    validated.ir.nodes.filter((n) => n.capture !== undefined).map((n) => n.id),
+  );
   const flows = [...(validated.ir.flows ?? [])].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
@@ -715,6 +740,11 @@ export function computeFlowLevels(validated: ValidatedIr): FlowLevel[] {
         `${FLOW_LEVEL_PREFIX}${f.id}`,
       ],
       flow: f,
-      layout: computeFlowLayout(f, validated.drawableStepIds, validated.drawableTransitionIds),
+      layout: computeFlowLayout(
+        f,
+        validated.drawableStepIds,
+        validated.drawableTransitionIds,
+        captureStepIds(f, captured),
+      ),
     }));
 }

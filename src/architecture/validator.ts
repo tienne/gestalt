@@ -1570,7 +1570,7 @@ function maskNodeText(node: ArchitectureNode): ArchitectureNode {
       ? masked.replace(DISTRIBUTION_ID_RE, MASKED_DISTRIBUTION_ID)
       : masked;
   };
-  const { owners: _owners, doc, ...rest } = node;
+  const { owners: _owners, capture: _capture, doc, ...rest } = node;
   return {
     ...rest,
     label: mask(node.label),
