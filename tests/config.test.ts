@@ -180,6 +180,34 @@ describe('loadConfig — codeGraph.hooks', () => {
   });
 });
 
+describe('loadConfig — webFetchCache', () => {
+  const originalEnv = { ...process.env };
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+  const opts = { skipDotEnv: true, skipGestaltJson: true };
+
+  it('기본은 꺼짐이다', () => {
+    delete process.env['GESTALT_WEBFETCH_CACHE'];
+    expect(loadConfig({}, opts).webFetchCache.enabled).toBe(false);
+  });
+
+  it('env 1이면 켜고 0이면 끈다', () => {
+    process.env['GESTALT_WEBFETCH_CACHE'] = '1';
+    expect(loadConfig({}, opts).webFetchCache.enabled).toBe(true);
+    process.env['GESTALT_WEBFETCH_CACHE'] = '0';
+    expect(loadConfig({}, opts).webFetchCache.enabled).toBe(false);
+  });
+
+  it('캐시 env는 코드 그래프 훅 설정을 건드리지 않는다', () => {
+    process.env['GESTALT_WEBFETCH_CACHE'] = '1';
+    delete process.env['GESTALT_CODE_GRAPH_HOOKS'];
+    const config = loadConfig({}, opts);
+    expect(config.webFetchCache.enabled).toBe(true);
+    expect(config.codeGraph.hooks.enabled).toBe(false);
+  });
+});
+
 describe('loadConfig — ruleSources', () => {
   const opts = { skipDotEnv: true, skipGestaltJson: true };
 

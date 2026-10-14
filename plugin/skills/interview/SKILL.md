@@ -1,7 +1,7 @@
 ---
 name: interview
 version: "1.2.0"
-description: "Gestalt-driven interview to clarify project requirements. Clarification only — it stops at a resolution score and does not produce a Spec. Use spec to turn a finished interview into a Spec, or solve to drive the whole loop without stopping between steps."
+description: "질문을 주고받으며 프로젝트 요구사항을 명확하게 만드는(clarify requirements) Gestalt 인터뷰. 해상도 점수가 기준에 닿으면 멈추고 Spec은 만들지 않는다. 다음 단계는 spec이다. 단계 사이에 멈추지 않고 전체 루프를 돌리려면 solve를 쓴다."
 triggers:
   - "interview"
   - "clarify requirements"

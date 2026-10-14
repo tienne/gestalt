@@ -7,7 +7,7 @@
 ## 설계 전제
 - Execute Engine은 설계상 **항상 Passthrough 모드**다. Claude Code가 도구(Bash/Edit 등)로 실제 파일 수정과 코드 실행을 하므로 LLM 주체가 되고, API 키 유무와 무관하다. MCP 서버도 API 키가 없으면 Passthrough가 자동으로 켜진다.
 - Local PR은 에이전트끼리 레포 안에서 PR을 만들고 리뷰하고 머지하는 자리라 원격에 안 나간다. 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유한다.
-- 코드 그래프 훅 자동 주입은 기본 꺼짐이다.
+- 코드 그래프 훅 자동 주입과 WebFetch 디스크 캐시 훅은 둘 다 기본 꺼짐이다.
 
 ## Key Commands
 ```bash
@@ -15,6 +15,7 @@ pnpm gate          # 커밋 전 게이트 — CI가 도는 것과 같다 (typech
                    # 강제하는 훅은 없다. 커밋 전에 사람이 부른다
 pnpm build:output-style  # 룰북 → ~/.claude/output-styles/tienne-voice.md 생성
 pnpm build:routing # SKILL.md triggers → proactive-routing.md 스킬 표 생성 (verify:routing이 gate에서 검사)
+pnpm verify:skill-confusion # 스킬 description끼리 헷갈리는지 검사 (gate에 포함). 걸리면 임계값 말고 description을 고친다
 ```
 나머지 스크립트는 `package.json`에, CLI 서브커맨드는 `pnpm tsx bin/gestalt.ts --help`에 있다.
 
@@ -26,6 +27,7 @@ MCP 도구 목록과 액션 스키마는 `src/mcp/`의 툴 정의가 기준이�
 코드 그래프 → [`docs/code-graph.md`](./docs/code-graph.md)
 로컬 PR → [`docs/local-pr.md`](./docs/local-pr.md)
 아키텍처 그림 → [`docs/architecture-view.md`](./docs/architecture-view.md)
+WebFetch 캐시 훅 → [`docs/webfetch-cache.md`](./docs/webfetch-cache.md)
 
 ## Role Agent 자동 라우팅
 
@@ -50,7 +52,7 @@ skills → plugin/skills            루트 심링크 — Claude와 Orca가 읽�
 .grok-plugin/marketplace.json     source: "./plugin"      ← Grok
 plugin/.codex-plugin/plugin.json  "skills": "./skills/"
 plugin/.mcp.json                  Grok MCP (plugin/mcp.json과 동일)
-hooks/hooks.json                  Claude 플러그인 훅 (코드 그래프 자동 주입). Claude만 읽는다
+hooks/hooks.json                  Claude 플러그인 훅 (코드 그래프 자동 주입, WebFetch 캐시). Claude만 읽는다
 ```
 
 - Orca는 `plugin.json`을 안 읽는다. 설치 경로 뒤에 `skills`를 하드코딩해 붙이고 그 아래만 훑는다. 루트 `skills` 심링크를 지우면 Orca 채팅의 스킬 피커에서 gestalt 스킬이 하나도 안 뜬다.
@@ -64,7 +66,7 @@ hooks/hooks.json                  Claude 플러그인 훅 (코드 그래프 자�
 - `plugin/skills/review/SKILL.md`가 `../../role-agents/`를 참조한다. 스킬과 에이전트를 함께 옮겨야 이 상대 깊이가 유지된다.
 - 훅은 루트 `hooks/hooks.json` 하나만 두고 `plugin.json`에 `hooks` 필드를 넣지 않는다. 문서상 필드와 기본 파일은 merge된다. 같은 파일을 가리키면 실제로는 한 번만 걸리는 걸 확인했지만 그래도 한 곳만 둔다.
 - Codex와 Grok 훅은 지원하지 않는다. 훅 자동 주입은 Claude 전용이다.
-- 훅 런처는 `scripts/code-graph-hook.sh`다. Node 탐색은 `scripts/lib/pick-node.sh`를 `mcp-serve.sh`와 함께 쓴다. 자세한 동작은 [`docs/code-graph.md`](./docs/code-graph.md#claude-code-훅-자동-주입)에 있다.
+- 훅 런처는 `scripts/code-graph-hook.sh`와 `scripts/webfetch-cache-hook.sh` 두 개다. WebFetch 캐시 런처는 Node 없이 bash와 jq, curl로만 돈다. 코드 그래프 런처의 Node 탐색은 `scripts/lib/pick-node.sh`를 `mcp-serve.sh`와 함께 쓴다. 자세한 동작은 [`docs/code-graph.md`](./docs/code-graph.md#claude-code-훅-자동-주입)에 있다.
 - 자산 디렉토리 기본값은 `src/core/config.ts`에 `skillsDir`, `agentsDir`, `roleAgentsDir`, `reviewAgentsDir`, `personasDir` 다섯 개로 있다. 경로를 바꾸면 전부 함께 고친다.
 
 ### MCP 기동 경로

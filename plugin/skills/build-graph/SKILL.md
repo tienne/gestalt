@@ -1,7 +1,7 @@
 ---
 name: build-graph
 version: "1.1.0"
-description: "Build a code knowledge graph for the current repository to enable blast-radius analysis. Graph build only. For first-time project setup — gestalt.json, the post-commit hook, and the graph together — use setup instead."
+description: "현재 레포의 코드베이스를 인덱싱해(index codebase) 코드 지식 그래프를 빌드하거나 다시 빌드한다. blast-radius 분석이 이 그래프를 쓴다. 그래프만 다룬다. gestalt.json과 post-commit 훅까지 묶은 레포 첫 설정은 setup을 쓴다."
 triggers:
   - "build graph"
   - "build-graph"

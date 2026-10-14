@@ -45,12 +45,13 @@
     "postversion": "pnpm run version:sync && pnpm run build:output-style",
     "verify:rules": "tsx scripts/verify-rule-refs.ts",
     "verify:rule-overlap": "tsx scripts/verify-rule-overlap.ts",
-    "gate": "pnpm typecheck && pnpm verify:rules && pnpm verify:rule-overlap && pnpm verify:routing && pnpm lint && pnpm format:check && pnpm build && pnpm test",
+    "gate": "pnpm typecheck && pnpm verify:rules && pnpm verify:rule-overlap && pnpm verify:routing && pnpm verify:skill-confusion && pnpm lint && pnpm format:check && pnpm build && pnpm test",
     "humanize:baseline": "tsx scripts/humanize-baseline.ts",
     "build:output-style": "tsx scripts/build-output-style.ts",
     "verify:output-style": "tsx scripts/build-output-style.ts --dry-run",
     "build:routing": "tsx scripts/build-skill-routing.ts",
-    "verify:routing": "tsx scripts/build-skill-routing.ts --check"
+    "verify:routing": "tsx scripts/build-skill-routing.ts --check",
+    "verify:skill-confusion": "tsx scripts/verify-skill-confusion.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

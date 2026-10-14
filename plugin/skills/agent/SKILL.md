@@ -1,7 +1,7 @@
 ---
 name: agent
 version: "1.0.0"
-description: "Invoke a Gestalt agent directly for any task — no pipeline required. Use this only when no dedicated skill covers the task. If one does (review, pr, brief, presentation, jira-create, slack-send), use that skill instead — they add approval gates and output handling this skill does not."
+description: "전용 스킬이 없는 일에 Gestalt 에이전트 하나를 이름으로 불러 파이프라인 없이 바로 맡긴다(architect 같은 에이전트에게 직접 묻기). 전용 스킬(review, pr, brief, presentation, jira-create, slack-send)이 있는 일이면 그 스킬을 쓴다. 이 스킬에는 없는 승인 단계와 산출물 처리가 그쪽에 있다."
 triggers:
   - "agent"
   - "use agent"
