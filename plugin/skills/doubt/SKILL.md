@@ -25,7 +25,7 @@ routing:
 
 # Doubt Skill
 
-확신이 정답을 보증하지 않는다. 세션이 길어지면 가정이 어느새 사실처럼 굳는데 같은 컨텍스트 안에서는 그게 안 보인다. 이 스킬은 결정 하나를 맥락 없는 서브에이전트에게 넘겨 **승인이 아니라 반박**을 먼저 받는다. 고치는 값이 쌀 때, 그러니까 아직 만드는 중일 때 쓴다.
+확신이 정답을 보증하지 않는다. 세션이 길어지면 가정이 어느새 사실처럼 굳는데 같은 컨텍스트 안에서는 그게 안 보인다. 이 스킬은 결정 하나를 맥락 없는 서브에이전트에게 넘겨 **반박**을 먼저 받는다. 고치는 값이 쌀 때, 그러니까 아직 만드는 중일 때 쓴다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 > **model과 effort 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
@@ -117,7 +117,7 @@ model과 effort는 결정의 무게로 고른다. [`agent-model.md`](../_shared/
 | 분기 로직, 모듈 경계, 낯선 코드 | `standard` | `high` |
 | 되돌리기 어려운 작업, 보안 성질 주장 | `frontier` | `high` |
 
-`model` 값은 `ges_status`의 `tierModels`에서 읽는다. 스킬 본문에 별칭을 박지 않는다. 등록된 리뷰어 에이전트를 부르는 자리가 아니라서 `ges_agent list`가 아니라 `ges_status`를 쓴다.
+`model` 값은 `ges_status`의 `tierModels`에서 읽는다. 스킬 본문에 별칭을 박지 않는다. 이 자리는 등록된 에이전트 없이 `Explore` 서브에이전트를 띄운다. `ges_agent list`는 에이전트 이름으로 model을 찾는데 여기엔 넘길 이름이 없어서 tier별 표를 통째로 주는 `ges_status`를 쓴다.
 
 ```
 ges_status {}
