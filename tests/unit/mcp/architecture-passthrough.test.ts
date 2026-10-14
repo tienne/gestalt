@@ -559,6 +559,22 @@ describe('ges_architecture render의 구조 변경 그림', () => {
     );
   });
 
+  it('구조 변경 그림이 실패해도 render는 성공하고 delta는 failed다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    const dir = join(repoRoot, '.gestalt', 'architecture');
+    // 비공개 delta 경로를 디렉토리로 막아 쓰기에서 던지게 한다
+    mkdirSync(join(dir, 'screen-chain.delta.html', 'blocked'), { recursive: true });
+    const next = makeIr();
+    next.nodes.push(node('n-pay', 'endpoint', 'POST /pay', 2));
+    const result = await call({ action: 'render', ir: next });
+    expect(result['ok']).toBe(true);
+    expect(existsSync(result['htmlPath'] as string)).toBe(true);
+    const delta = result['delta'] as { status: string; message: string };
+    expect(delta.status).toBe('failed');
+    expect(delta.message).toContain('구조 변경 그림을 만들지 못했다');
+    expect(existsSync(join(dir, 'screen-chain.delta.shared.html'))).toBe(false);
+  });
+
   it('엣지만 추가해도 created이고 원장에 ADDED가 한 줄 든다', async () => {
     await call({ action: 'render', ir: makeIr() });
     const next = makeIr();

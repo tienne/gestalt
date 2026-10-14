@@ -6,7 +6,11 @@ import {
   deltaScope,
   type DeltaSnapshot,
 } from '../../../src/architecture/delta.js';
-import { computeDeltaLayout, renderDeltaHtml } from '../../../src/architecture/delta-renderer.js';
+import {
+  computeDeltaLayout,
+  renderDeltaHtml,
+  reuseDeltaLayout,
+} from '../../../src/architecture/delta-renderer.js';
 import type {
   ArchitectureEdge,
   ArchitectureIr,
@@ -412,6 +416,28 @@ describe('공유본의 구간 이름과 그룹 이름', () => {
     });
     expect(delta.ledger.some((e) => e.change === 'MOVED')).toBe(true);
     expect(html).not.toContain(ACCOUNT);
+  });
+});
+
+describe('공유본 배치 재사용', () => {
+  it('노드와 선 구성이 같으면 비공개본 좌표를 그대로 쓰고 다르면 다시 배치한다', async () => {
+    const delta = computeArchitectureDelta(snap(beforeIr()), snap(afterIr()));
+    const scope = deltaScope(delta);
+    const base = await computeDeltaLayout(delta, scope);
+    const same = computeArchitectureDelta(
+      { ...snap(beforeIr()), ir: redactForSharing(snap(beforeIr()).ir) },
+      { ...snap(afterIr()), ir: redactForSharing(snap(afterIr()).ir) },
+    );
+    const reused = await reuseDeltaLayout(base, same, deltaScope(same));
+    expect(reused.layout).toBe(base.layout);
+    expect(reused.canvas).toBe(base.canvas);
+
+    const other = afterIr();
+    other.edges.push(edge('c4', 's-list', 'ep-pay'));
+    const diff = computeArchitectureDelta(snap(beforeIr()), snap(other));
+    const relaid = await reuseDeltaLayout(base, diff, deltaScope(diff));
+    expect(relaid.layout).not.toBe(base.layout);
+    expect(relaid).toEqual(await computeDeltaLayout(diff, deltaScope(diff)));
   });
 });
 

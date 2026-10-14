@@ -156,6 +156,30 @@ export async function computeDeltaLayout(
   return { layout, canvas, routes };
 }
 
+/**
+ * 공유본 배치. 가린 사본도 노드와 선 구성이 같으면 비공개본 좌표를 그대로 쓴다.
+ * 카드 폭이 원문 이름으로 잡히는 건 메인 공유본과 같은 기준이다. 구성이 다르면 다시 배치한다
+ */
+export async function reuseDeltaLayout(
+  base: DeltaLayout,
+  delta: ArchitectureDelta,
+  scope: DeltaScope,
+): Promise<DeltaLayout> {
+  const routes = routesOf(delta, scope);
+  const sig = (r: DeltaRoute): string =>
+    `${r.key}|${r.edge.from}|${r.edge.to}|${r.changes.includes('ADDED') ? 1 : 0}`;
+  const baseRoutes = new Set(base.routes.map(sig));
+  const baseNodes = new Set(base.layout.nodes.map((n) => n.id));
+  const nodeIds = delta.nodes.filter((n) => scope.nodeIds.has(n.id)).map((n) => n.id);
+  const same =
+    nodeIds.length === baseNodes.size &&
+    nodeIds.every((id) => baseNodes.has(id)) &&
+    routes.length === baseRoutes.size &&
+    routes.every((r) => baseRoutes.has(sig(r)));
+  if (!same) return computeDeltaLayout(delta, scope);
+  return { layout: base.layout, canvas: base.canvas, routes };
+}
+
 export interface RenderDeltaOptions {
   audience: 'private' | 'shared';
 }

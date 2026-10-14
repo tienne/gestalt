@@ -26,7 +26,11 @@ import {
   type ArchitectureDelta,
   type DeltaSnapshot,
 } from '../../architecture/delta.js';
-import { computeDeltaLayout, renderDeltaHtml } from '../../architecture/delta-renderer.js';
+import {
+  computeDeltaLayout,
+  renderDeltaHtml,
+  reuseDeltaLayout,
+} from '../../architecture/delta-renderer.js';
 import { computeDrilldown, shouldDrillDown } from '../../architecture/drilldown.js';
 import { renderArchitectureHtml, renderDrilldownHtml } from '../../architecture/html-renderer.js';
 import { parseArchitectureIr } from '../../architecture/ir-schema.js';
@@ -340,7 +344,16 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
   const htmlPath = store.saveHtml(view, 'private', privateHtml);
   const sharedHtmlPath = store.saveHtml(view, 'shared', sharedHtml);
   log(`architecture: rendered ${view} → ${htmlPath}`);
-  const delta = await renderDelta(prev, validated, repoRoot, store);
+  const delta = await renderDelta(prev, validated, repoRoot, store).catch(
+    (e: unknown): { result: object; warning?: BudgetWarning } => {
+      // 보조 산출물이라 메인 그림은 이미 저장됐다. 여기서 던지면 성공한 render가 실패로 보인다
+      const message = e instanceof Error ? e.message : String(e);
+      log(`architecture: delta ${view} failed: ${message}`);
+      return {
+        result: { status: 'failed', message: `구조 변경 그림을 만들지 못했다. ${message}` },
+      };
+    },
+  );
   const warnings = [...validated.warnings, ...(delta.warning ? [delta.warning] : [])];
 
   return {
@@ -410,26 +423,19 @@ async function renderDelta(
   }
   const scope = deltaScope(delta);
   const view = next.ir.view;
-  const htmlPath = store.saveDeltaHtml(
-    view,
-    'private',
-    renderDeltaHtml(delta, scope, await computeDeltaLayout(delta, scope), {
-      audience: 'private',
-    }),
-  );
+  const privateLayout = await computeDeltaLayout(delta, scope);
   // 가린 글자끼리 다시 비교해야 공유본 원장에 계정 ID 같은 원문이 옛 값으로 새지 않는다
   const shared = computeArchitectureDelta(
     deltaSnapshot(before.value, true),
     deltaSnapshot(next, true),
   );
   const sharedScope = deltaScope(shared);
-  const sharedHtmlPath = store.saveDeltaHtml(
-    view,
-    'shared',
-    renderDeltaHtml(shared, sharedScope, await computeDeltaLayout(shared, sharedScope), {
-      audience: 'shared',
-    }),
-  );
+  const sharedLayout = await reuseDeltaLayout(privateLayout, shared, sharedScope);
+  // 둘 다 그린 뒤에 쓴다. 한쪽만 쓰고 실패하면 두 파일이 서로 다른 실행의 것이 된다
+  const privateHtml = renderDeltaHtml(delta, scope, privateLayout, { audience: 'private' });
+  const sharedHtml = renderDeltaHtml(shared, sharedScope, sharedLayout, { audience: 'shared' });
+  const htmlPath = store.saveDeltaHtml(view, 'private', privateHtml);
+  const sharedHtmlPath = store.saveDeltaHtml(view, 'shared', sharedHtml);
   log(`architecture: delta ${view} → ${htmlPath}`);
   const counts = deltaCounts(delta, scope);
   const over = deltaOverBudget(counts);
