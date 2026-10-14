@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)(MIT)에서 아이디어 네 가지를 가져왔어요. 원문을 옮기지 않고 gestalt 구조와 어투에 맞춰 새로 썼어요.
+## [0.96.0] - 2026-10-15
+
+[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)(MIT)에서 아이디어 네 가지를 가져왔어요. 원문을 옮기지 않고 gestalt 구조와 어투에 맞춰 새로 썼어요 (#65).
 
 ### Added
 
@@ -22,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **스킬 description 열두 개를 다시 썼어요.** 새 혼동 검사를 통과시키려고 손봤어요. `agent`, `build-graph`, `execute`, `interview`, `spec` 다섯 개는 영어였는데 한국어 요청과 겹치는 글자가 없어 순위가 밀렸어요. 그래서 한국어로 바꿨어요. 다른 스킬로 가라는 안내는 모두 남겼어요.
+- **등록 에이전트 없이 서브에이전트에 판단을 맡길 때도 tier를 고르게 했어요.** 지금까지 `agent-model.md`의 "등록 에이전트가 없는 자리" 절은 `tierModels.frugal`만 뽑게 적혀 있었어요. 이제 모아서 정리하는 일이면 `frugal`을 쓰고 판단이나 리뷰가 필요한 일이면 "작업별 model과 effort 세트" 표에서 tier를 골라 같은 `tierModels`에서 읽어요. `doubt`의 반박 리뷰어가 이 경로를 써요.
 
 ## [0.95.0] - 2026-10-11
 
