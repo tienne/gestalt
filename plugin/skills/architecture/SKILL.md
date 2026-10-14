@@ -659,6 +659,10 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 - `irPath`: 다음 실행의 출발점
 - `levels`: 드릴다운으로 그렸을 때만 온다. 항목마다 `id`, `title`, `nodes`, `edges`가 있다. `id`는 `root`(전체), `service:<id>`, `feature:<id>`, `server:<id>`, `flow:<id>`, `group:<id>`, `view:<id>` 꼴이다
 - `viewPaths`: 질문별 그림이 있을 때만 온다. 그림마다 `.gestalt/architecture/views/<view>.<그림 id>.json`에 그 그림과 가리킨 노드, 엣지, 질문만 따로 저장한 경로다. 다른 세션이 질문 하나의 답만 읽어 갈 때 이 파일을 건넨다
+- `delta`: 이전 실행과 비교한 결과. 늘 온다. `status`는 셋 중 하나다
+  - `no_previous`: 비교할 이전 그림이 없다. 처음 그렸거나 저장된 이전 그림을 지금 규칙으로 읽지 못했다. 파일을 안 만든다
+  - `unchanged`: 그려지는 노드와 연결이 지난번과 같다. 지난 구조 변경 그림은 그대로 둔다
+  - `created`: 바뀐 게 있어 `<view>.delta.html`(본인용)과 `<view>.delta.shared.html`(공유용)을 썼다. `htmlPath`, `sharedHtmlPath`, 변경어별 건수 `changes`가 온다. 그림이 커서 바뀐 곳과 바로 이웃만 그렸으면 `scoped`도 온다
 
 그려진 `service` 노드가 하나라도 있으면 HTML 한 장 안에 레벨을 나눠 담는다. 서비스가 없어도 `service` 없는 흐름이나 질문별 그림이 있으면, 또는 `infra`, `data`, `process` 팩 노드 사이에 parent가 있으면 레벨로 나눈다. 그 밖에는 `levels` 없이 평면 그림 한 장이다. deploy-path는 질문별 그림을 얹지 않으면 늘 평면이다.
 
@@ -683,6 +687,10 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 3. **sourcesUsed**: `public` 소스는 이름이나 경로까지 적는다. **`private` 소스는 종류만 적는다** (예: "개인 메모리 2건, MCP 검색 1건"). 경로나 도구 이름을 보고에 옮기지 않는다.
 
 Step 4.5에서 클라우드를 조회했으면 어느 프로필로 언제 조회했는지 적는다. 만료로 조회를 못 했으면 "재로그인 필요"와 보여준 로그인 명령 모양을 적는다. 계정 ID는 보고에 적어도 되지만 공유본이나 커밋할 파일에는 옮기지 않는다.
+
+**구조 변경은 `delta.status`대로 알린다.** `created`면 바뀐 건수를 변경어별로 한 줄에 적고 구조 변경 그림 경로를 준다 (예: "지난번보다 생김 2, 빠짐 1, 다시 이음 1. 구조 변경 그림은 `.gestalt/architecture/screen-chain.delta.html`"). 이 그림은 이전과 이번을 같은 좌표에 나란히 놓고 가운데 변경 목록을 둔다. 공유할 때는 `.delta.shared.html`을 넘긴다. `scoped`가 오면 전체 몇 개 중 몇 개만 그렸는지 덧붙인다. `unchanged`면 "지난번과 구조가 같다" 한 줄이면 된다. `no_previous`는 따로 알리지 않는다. 처음 그린 그림이면 당연한 결과다.
+
+`warnings`에 `DELTA_OVER_BUDGET`이 오면 구조 변경 그림 한 장에 담기에 변경이 많다는 뜻이다. 그림은 그대로 썼다. 바뀐 영역을 나눠 단계별로 다시 그리기를 권한다.
 
 Step 5에서 레포를 새로 받았으면 무엇을 어디에 받았는지 한 줄로 덧붙인다 (예: "`org/api-server`를 `~/.gestalt/architecture/clones/github.com/org/api-server`에 받았다").
 
