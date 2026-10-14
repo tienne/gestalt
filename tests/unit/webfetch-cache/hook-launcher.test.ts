@@ -7,6 +7,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -396,17 +397,40 @@ describe.skipIf(!HAS_DEPS)('webfetch-cache-hook.sh — 저장과 적중', () => 
 
   it('하루가 지난 항목과 남은 임시 파일은 저장할 때 치운다', async () => {
     mkdirSync(cacheDir(), { recursive: true });
-    const stale = join(cacheDir(), 'stale.json');
+    const stale = join(cacheDir(), `${'a'.repeat(32)}.json`);
     const tmp = join(cacheDir(), '.tmp.abcdef');
+    const foreign = join(cacheDir(), 'package.json');
     writeFileSync(stale, '{}');
     writeFileSync(tmp, '');
+    writeFileSync(foreign, '{}');
     const twoDaysAgo = Date.now() / 1000 - 2 * 86_400;
     utimesSync(stale, twoDaysAgo, twoDaysAgo);
     utimesSync(tmp, twoDaysAgo, twoDaysAgo);
+    utimesSync(foreign, twoDaysAgo, twoDaysAgo);
     await post(`${origin.base}/doc`, 'q', { result: 'summary' });
     expect(existsSync(stale)).toBe(false);
     expect(existsSync(tmp)).toBe(false);
-    expect(cacheFiles()).toHaveLength(1);
+    expect(existsSync(foreign)).toBe(true);
+    expect(cacheFiles().filter((f) => f !== 'package.json')).toHaveLength(1);
+  });
+
+  it('환경변수로 받은 디렉토리는 권한을 바꾸지 않고 훅이 만든 이름만 치운다', async () => {
+    const dir = join(root, 'shared');
+    mkdirSync(dir, { recursive: true, mode: 0o755 });
+    chmodSync(dir, 0o755);
+    const foreign = join(dir, 'notes.json');
+    writeFileSync(foreign, '{}');
+    const twoDaysAgo = Date.now() / 1000 - 2 * 86_400;
+    utimesSync(foreign, twoDaysAgo, twoDaysAgo);
+    await post(
+      `${origin.base}/doc`,
+      'q',
+      { result: 'summary' },
+      { ...ON, GESTALT_WEBFETCH_CACHE_DIR: dir },
+    );
+    expect(statSync(dir).mode & 0o777).toBe(0o755);
+    expect(existsSync(foreign)).toBe(true);
+    expect(readdirSync(dir)).toHaveLength(2);
   });
 
   it('캐시 디렉토리가 심볼릭 링크면 쓰지 않는다', async () => {
@@ -594,6 +618,7 @@ describe.skipIf(!HAS_DEPS)('webfetch-cache-hook.sh — 의존성과 경로', () 
       { ...ON, GESTALT_WEBFETCH_CACHE_DIR: dir },
     );
     expect(readdirSync(dir)).toHaveLength(1);
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
     expect(cacheFiles()).toEqual([]);
 
     await post(

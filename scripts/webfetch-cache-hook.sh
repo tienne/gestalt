@@ -77,8 +77,10 @@ KEY="$(printf '%s\0%s' "$URL" "$PROMPT" | "${SHA[@]}" | cut -c1-32)"
 
 # 저장본은 레포 밖에 둔다. 레포 안에 두면 클론한 레포가 저장본을 심어 적중 결과로 내보낼 수 있다.
 # 상대 경로를 거부하는 이유는 code-graph-hook.sh의 GESTALT_HOOK_BIN과 같다.
+CACHE_OVERRIDE=0
 if [[ "${GESTALT_WEBFETCH_CACHE_DIR:-}" == /* ]]; then
   CACHE_DIR="$GESTALT_WEBFETCH_CACHE_DIR"
+  CACHE_OVERRIDE=1
 else
   CACHE_ROOT="${XDG_CACHE_HOME:-}"
   if [[ "$CACHE_ROOT" != /* ]]; then
@@ -152,10 +154,15 @@ if [[ "$MODE" == post ]]; then
   valid_validator "$ETAG" && valid_validator "$LAST_MOD" || exit 0
 
   mkdir -p "$CACHE_DIR" 2>/dev/null || exit 0
-  # umask는 새로 만드는 디렉토리에만 걸린다. 이미 있던 디렉토리도 맞춘다.
-  chmod 700 "$CACHE_DIR" 2>/dev/null || exit 0
+  # umask는 새로 만드는 디렉토리에만 걸린다. 기본 경로는 이미 있던 디렉토리도 맞춘다.
+  # 환경변수로 받은 디렉토리는 남의 디렉토리일 수 있어 권한을 건드리지 않는다.
+  if [[ "$CACHE_OVERRIDE" == 0 ]]; then
+    chmod 700 "$CACHE_DIR" 2>/dev/null || exit 0
+  fi
   # TTL이 지난 항목은 다시 적중하지 않으니 저장할 때 같이 치운다. 못 치워도 저장은 한다.
-  find "$CACHE_DIR" -maxdepth 1 -type f \( -name '*.json' -o -name '.tmp.*' \) -mmin +1440 \
+  # 훅이 만든 이름(키 32자와 mktemp 임시 파일)만 지운다. 같은 디렉토리의 다른 파일은 남긴다.
+  HEX32="$(printf '[0-9a-f]%.0s' {1..32})"
+  find "$CACHE_DIR" -maxdepth 1 -type f \( -name "$HEX32.json" -o -name '.tmp.??????' \) -mmin +1440 \
     -exec rm -f {} + 2>/dev/null
   TMP="$(mktemp "$CACHE_DIR/.tmp.XXXXXX" 2>/dev/null)" || exit 0
   trap 'rm -f "$TMP"' EXIT
