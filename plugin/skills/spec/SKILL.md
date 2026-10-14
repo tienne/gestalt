@@ -1,7 +1,7 @@
 ---
 name: spec
 version: "1.2.0"
-description: "끝난 인터뷰 세션으로 스펙(Spec) 문서를 만들어 낸다. 인터뷰 세션 id가 있어야 한다. 날것의 문제에서 시작하면 interview를 먼저 돌리거나 전체 루프는 solve를 쓴다."
+description: "끝난 인터뷰 세션으로 스펙(Spec) 문서를 만들어 낸다. 인터뷰 세션 id가 있어야 한다. 날것의 문제에서 시작하면 interview를 먼저 돌린다. 전체 루프는 solve를 쓴다."
 triggers:
   - "generate spec"
   - "create spec"
