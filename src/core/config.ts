@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
 import { gestaltPath } from './home.js';
-import { HOOKS_ENV, parseHooksEnv } from './hooks-env.js';
+import { HOOKS_ENV, WEBFETCH_CACHE_ENV, parseHooksEnv } from './hooks-env.js';
 import {
   DEFAULT_MODEL,
   DEFAULT_REASONING_MODEL,
@@ -355,6 +355,15 @@ const codeGraphConfigSchema = z.object({
   hooks: z.object({ enabled: z.boolean().default(false) }).default({}),
 });
 
+const webFetchCacheConfigSchema = z.object({
+  /**
+   * WebFetch 결과를 디스크에 두고 원본 서버가 304를 줄 때만 돌려주는 플러그인 훅을 켤지.
+   * 훅은 플러그인이 깔린 모든 레포의 WebFetch에 걸리므로 기본은 꺼짐이다. 훅 본체는
+   * `scripts/webfetch-cache-hook.sh`라 이 스키마를 거치지 않고 gestalt.json을 직접 읽는다.
+   */
+  enabled: z.boolean().default(false),
+});
+
 const configSchema = z.object({
   llm: llmConfigSchema.default({}),
   interview: interviewConfigSchema.default({}),
@@ -397,6 +406,7 @@ const configSchema = z.object({
   ruleSourceWarnings: z.array(z.string()).default([]),
   notifications: z.boolean().default(false),
   codeGraph: codeGraphConfigSchema.default({}),
+  webFetchCache: webFetchCacheConfigSchema.default({}),
   // 상수가 아니라 함수다. 모듈을 읽을 때 굳히면 테스트 setupFiles가 GESTALT_HOME을
   // 세우기 전에 값이 정해져서 진짜 홈을 가리킨다
   dbPath: z.string().default(() => gestaltPath('events.db')),
@@ -544,6 +554,11 @@ function buildEnvConfig(): Record<string, unknown> {
 
   const hooksEnabled = parseHooksEnv(env[HOOKS_ENV]);
   if (hooksEnabled !== undefined) result.codeGraph = { hooks: { enabled: hooksEnabled } };
+
+  const webFetchCacheEnabled = parseHooksEnv(env[WEBFETCH_CACHE_ENV]);
+  if (webFetchCacheEnabled !== undefined) {
+    result.webFetchCache = { enabled: webFetchCacheEnabled };
+  }
 
   // top-level
   if (env['GESTALT_REASONING_MODEL'] !== undefined)

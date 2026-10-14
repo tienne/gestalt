@@ -167,6 +167,18 @@
       },
       "additionalProperties": false
     },
+    "webFetchCache": {
+      "type": "object",
+      "description": "Claude Code plugin hook that keeps WebFetch results on disk and replays them only when the origin answers 304 to a conditional request. Claude Code only",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Cache WebFetch results under .gestalt/webfetch-cache. Off by default because plugin hooks run in every repo (env: GESTALT_WEBFETCH_CACHE=1|0)",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
     "logLevel": {
       "type": "string",
       "enum": ["debug", "info", "warn", "error"],
