@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)(MIT)에서 아이디어 네 가지를 가져왔어요. 원문을 옮기지 않고 gestalt 구조와 어투에 맞춰 새로 썼어요.
+
+### Added
+
+- **`doubt` 스킬을 추가했어요.** 만드는 중에 내린 결정 하나를 맥락 없는 서브에이전트에게 넘겨 반박부터 받아요. 작성자의 추론은 빼고 산출물과 계약만 넘겨요. 돌아온 의견은 반영, 근거 있는 기각, 정보 부족 셋으로 나눠요. 세 회차 안에 멈춰요.
+  - 자동으로 띄우는 건 되돌리기 어려운 작업과 보안 성질 주장, 낯선 코드에서 분기 로직을 바꿀 때뿐이에요.
+  - 메인 세션 전용이에요. role agent나 페르소나, 다른 스킬 안에서 도는 서브에이전트는 이 스킬을 돌리지 않고 의심 요청 블록을 붙여 메인 세션에 올려요.
+  - 다 만든 뒤의 판정은 `continuity-judge`, PR 단위 검토는 `review`가 그대로 맡아요.
+- **스킬 description끼리 헷갈리는지 보는 검사(`pnpm verify:skill-confusion`)를 gate에 넣었어요.** description과 트리거를 문자 bigram TF-IDF로 비교해요. 두 스킬의 유사도가 0.5를 넘거나, 예시 요청이 자기 스킬을 1위로 뽑는 비율이 0.95 아래면 실패해요. 트리거는 자기 문서에서 빼고 재서 답을 미리 보는 일이 없게 했어요. 예시 요청은 스킬마다 두세 개씩 `tests/fixtures/skill-routing-prompts.json`에 적어뒀어요. 예외 목록이나 건너뛰기 옵션은 없어요.
+- **절차 스킬 일곱 개에 "단계를 건너뛰고 싶어질 때" 표를 붙였어요.** `review`, `ship`, `review-reply`, `review-loop`, `local-pr`, `execute`, `pr`이에요. 에이전트가 단계를 건너뛸 때 댈 법한 말과 그 단계가 왜 있는지를 나란히 적었어요. 반박에는 각 스킬 본문에 이미 있는 절과 수치만 썼어요.
+- **WebFetch 디스크 캐시 훅을 추가했어요. 기본은 꺼져 있어요.** `gestalt.json`의 `webFetchCache.enabled`나 `GESTALT_WEBFETCH_CACHE=1`로 켜요. 결과를 `.gestalt/webfetch-cache/`에 저장해두고 다음 요청 때 원본 서버에 조건부 요청을 보내 304가 올 때만 저장본을 돌려줘요. 캐시 키는 URL과 prompt를 함께 써요. WebFetch 결과는 prompt마다 다르기 때문이에요. 런처는 Node 없이 bash와 jq, curl로만 돌아요. 도구가 하나라도 없으면 그냥 통과해요. 자세한 동작은 [`docs/webfetch-cache.md`](./docs/webfetch-cache.md)를 보면 돼요.
+
+### Changed
+
+- **스킬 description 열두 개를 다시 썼어요.** 새 혼동 검사를 통과시키려고 손봤어요. `agent`, `build-graph`, `execute`, `interview`, `spec` 다섯 개는 영어였는데 한국어 요청과 겹치는 글자가 없어 순위가 밀렸어요. 그래서 한국어로 바꿨어요. 다른 스킬로 가라는 안내는 모두 남겼어요.
+
 ## [0.95.0] - 2026-10-11
 
 ### Added
