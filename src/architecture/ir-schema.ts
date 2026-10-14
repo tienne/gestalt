@@ -15,6 +15,7 @@ import {
   FLOW_ACTOR_KINDS,
   FLOW_PATHS,
   FLOW_STEP_KINDS,
+  FLOW_STEP_OUTCOMES,
   PROJECTION_SHAPES,
   SEQUENCE_BLOCK_KINDS,
   LINE_STYLES,
@@ -154,6 +155,22 @@ const docLinkSchema = z.object({
   ),
 });
 
+const columnSchema = z.object({
+  name: z.string().min(1),
+  type: z.string().min(1).optional(),
+  pk: z.boolean().optional(),
+  nullable: z.boolean().optional(),
+  unique: z.boolean().optional(),
+  references: z
+    .object({
+      table: z.string().min(1),
+      column: z.string().min(1).optional(),
+      onDelete: z.string().min(1).optional(),
+    })
+    .optional(),
+  evidence: z.array(evidenceSchema).optional(),
+});
+
 const nodeSchema = z
   .object({
     id: z.string().min(1),
@@ -178,6 +195,7 @@ const nodeSchema = z
     doc: docInfoSchema.optional(),
     capture: captureSchema.optional(),
     owners: z.array(z.string().min(1)).optional(),
+    columns: z.array(columnSchema).optional(),
   })
   .superRefine((node, ctx) => {
     const custom = (path: string, message: string): void =>
@@ -228,6 +246,12 @@ const nodeSchema = z
     }
     if (node.capture !== undefined && node.kind !== 'screen') {
       custom('capture', 'capture는 screen 노드에만 쓸 수 있다');
+    }
+    if (node.columns !== undefined) {
+      if (node.kind !== 'db_table') custom('columns', 'columns는 db_table 노드에만 쓸 수 있다');
+      const names = node.columns.map((c) => c.name);
+      if (new Set(names).size !== names.length)
+        custom('columns', 'columns에 같은 이름의 컬럼이 두 번 들어 있다');
     }
     if (node.displayNameInferred !== undefined && node.displayName === undefined) {
       ctx.addIssue({
@@ -308,6 +332,7 @@ const flowStepSchema = z
     description: z.string().optional(),
     state: z.string().min(1).optional(),
     terminal: z.boolean().optional(),
+    outcome: z.enum(FLOW_STEP_OUTCOMES).optional(),
     refs: z.array(z.string().min(1)).optional(),
     evidence: z.array(evidenceSchema),
   })
@@ -317,6 +342,13 @@ const flowStepSchema = z
         code: z.ZodIssueCode.custom,
         path: ['terminal'],
         message: 'decision 단계는 갈림길이라 terminal을 달 수 없다',
+      });
+    }
+    if (step.outcome !== undefined && step.terminal !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['outcome'],
+        message: 'outcome은 끝 단계에만 단다. terminal: true를 함께 적는다',
       });
     }
   });
@@ -404,6 +436,7 @@ const projectionSchema = z.object({
     )
     .min(1)
     .optional(),
+  flow: z.string().min(1).optional(),
 });
 
 export const architectureIrSchema = z.object({

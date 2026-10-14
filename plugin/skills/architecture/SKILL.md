@@ -114,6 +114,9 @@ Step 0 전에 두 가지를 정한다. 대상에 맞는 어휘 팩과 질문에 
 | 데이터가 어디서 와서 어디로 가나             | `dataflow` 질문별 그림                                        |
 | 둘이 무엇이 같고 무엇이 다른가               | `compare` 질문별 그림                                         |
 | 상태나 단계, 업무 절차                       | `flows` ([Step 3.5](#step-35--도메인-흐름))                    |
+| 한 대상이 어떤 상태를 거쳐 어디서 끝나나     | `flows`를 먼저 쓰고 그 위에 `lifecycle` 질문별 그림            |
+| 고객이 한 걸음 갈 때 뒤에서 무엇이 일하나    | `flows`를 먼저 쓰고 그 위에 `blueprint` 질문별 그림            |
+| 테이블끼리 어떤 컬럼으로 묶이나              | `db_table`에 `columns`를 먼저 쓰고 그 위에 `er` 질문별 그림     |
 | 분명하지 않다                                | 지도를 그리고 Step 8 보고에서 포커스 쓰는 법을 안내한다         |
 
 - 질문별 그림은 지도 위에 얹는다. 지도를 먼저 그린다. 답에 필요한 사실이 지도에 없으면 먼저 탐색해 근거와 함께 `nodes`와 `edges`에 넣는다. 그다음에 질문별 그림에서 가리킨다. 끝내 못 찾은 사실은 그리지 않고 미해결 질문으로 남긴다.
@@ -262,6 +265,7 @@ Step 0 전에 두 가지를 정한다. 대상에 맞는 어휘 팩과 질문에 
    - `repo`는 클라우드 조회용 가짜 레포 id로 두고 label은 `<엔진>:<클러스터 식별자>` 꼴(`aurora-mysql:<식별자>`, `redis:<식별자>`)로 쓴다. 다른 분석과 합칠 때 같은 클러스터가 한 노드로 모이는 기준이 이 label이다.
    - `engine`에 엔진 이름(`mysql`, `postgresql`, `redis`, `elasticsearch`, `mongodb`, `documentdb`, `dynamodb`, `mariadb`)을 단다. 카드에 그 엔진 로고가 선다. Aurora MySQL은 `mysql`, ElastiCache Redis는 `redis`다. 안 달면 label 앞부분으로 찾지만 label을 다르게 적으면 로고가 안 붙는다.
    - **id에는 클러스터 식별자와 계정 ID를 넣지 않는다.** `ds:redis-common`처럼 별칭으로 짓는다.
+   - 테이블 구조를 묻는 질문이 있을 때만 `db_table`에 `columns`를 단다. 출처는 마이그레이션 파일(`CREATE TABLE`, `ALTER TABLE ... ADD CONSTRAINT`), ORM 엔티티(JPA `@Entity`, TypeORM, Prisma `schema.prisma`, Django 모델), 스키마 덤프 파일이다. 컬럼 하나는 `{ name, type?, pk?, nullable?, unique?, references?, evidence? }`이고 외래 키는 `references: { table, column?, onDelete? }`에 대상 `db_table` id로 적는다. 외래 키 컬럼에는 그 제약을 적은 줄을 `evidence`로 단다. 근거가 없으면 선이 안 그려지고 `auto:fk:` 질문이 생긴다. 쓰임새는 [`references/projections.md`](./references/projections.md)의 er 항목에 있다.
    - `environment`를 단다. 전체 그림은 prod 기준이라 `prod`가 아닌 저장소는 전체 그림에서 빠지고 아래 레벨에서만 보인다. 조회로 채울 때도 prod부터 채운다.
 
 ### 3-3. `gateway`
@@ -310,6 +314,10 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 
 > **이 단계의 상세** → [`references/domain-flow.md`](./references/domain-flow.md)
 > screen-chain에서 상태나 단계, 업무 절차를 그릴 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
+
+흐름 그림은 행위자 줄 위에 단계를 늘어놓아 "누가 무엇을 하나"를 보여준다. "이 주문은 어떤 상태를 거쳐 어디서 끝나나"를 물으면 같은 흐름 위에 `lifecycle` 질문별 그림을 하나 더 얹는다. 단계의 `state`만 모아 진행 단계, 대기와 복구, 끝 상태 세 띠로 다시 그린 그림이라 따로 적을 사실이 없다. 끝 단계에 `outcome`(`done`, `cancel`, `fail`)을 달면 끝 상태 카드에 완료, 취소, 실패 배지가 붙는다. 상세는 [`references/projections.md`](./references/projections.md)의 lifecycle 항목에 있다.
+
+"손님이 줄을 서는 동안 뒤에서는 어떤 API와 테이블이 일하나"처럼 고객 단계마다 화면 뒤를 물으면 `blueprint`를 얹는다. 정상 흐름 단계를 열로 세우고 위에서 아래로 고객 행동, 프론트스테이지, 가시선, 백스테이지, 지원 층에 나눠 담는다. 칸은 단계의 행위자와 `refs`, 거기서 이어지는 근거 있는 지도 엣지로만 채운다. 그래서 단계에 `refs`를 달아 둬야 칸이 찬다. 데이터가 어디로 흘러가는지가 궁금하면 `dataflow`, 호출 순서가 궁금하면 `sequence`이고 blueprint가 아니다. 상세는 [`references/projections.md`](./references/projections.md)의 blueprint 항목에 있다.
 
 ## Step 4 — 뷰② deploy-path 탐색
 
@@ -456,6 +464,9 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 - 출처가 이미 있는 노드는 거기서 가져와 한 줄로 줄인다. 스킬은 SKILL.md 프런트매터의 `description`, MCP 도구는 도구 등록의 description, 에이전트는 AGENT.md의 `description`이나 첫 문단이다. 트리거 문구나 사용 예시는 걷어내고 하는 일만 남긴다.
 - 출처가 없으면 코드에서 읽은 대로 쓴다. 화면은 사용자가 거기서 하는 일, API는 무엇을 돌려주거나 바꾸는지, 테이블은 무엇을 담는지다.
 - 빈 채로 두면 validate가 `warnings`에 `NODE_DESCRIPTION_MISSING`을 싣는다. 에러가 아니라 render는 막지 않는다. 경고에 실린 `nodeIds`를 채워 다시 validate한다.
+- 상태 흐름 그림이 한 장에 읽히는 양을 넘으면 `warnings`에 `LIFECYCLE_OVER_BUDGET`이 실린다. 이것도 render를 막지 않는다. 경고의 `counts`를 보고 세부 상태를 하나로 합치거나 흐름을 둘로 나눈다.
+- 서비스 블루프린트의 단계 열이 6을 넘으면 `warnings`에 `BLUEPRINT_OVER_BUDGET`이 실린다. render는 막지 않는다. 같은 화면에서 이어지는 단계를 합치거나 흐름을 나눈다.
+- 테이블 관계 그림이 테이블 5개, 한 테이블의 컬럼 8개, 외래 키 선 6개 중 하나라도 넘으면 `warnings`에 `ER_OVER_BUDGET`이 실린다. render는 막지 않는다. 질문에 걸린 테이블만 남기거나 그림을 나눈다.
 
 ### 페이지 글
 
@@ -537,10 +548,10 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 
 ### 질문별 그림을 얹는다
 
-[모양 고르기](#모양-고르기)에서 `sequence`, `dataflow`, `compare`를 골랐으면 지도를 다 쓴 뒤 `projections`에 그림을 단다. 질문별 그림은 지도의 노드와 엣지를 id로 가리킬 뿐이다. 새 사실을 여기에 먼저 적지 않는다.
+[모양 고르기](#모양-고르기)에서 `sequence`, `dataflow`, `compare`, `lifecycle`, `blueprint`, `er`을 골랐으면 지도를 다 쓴 뒤 `projections`에 그림을 단다. 질문별 그림은 지도의 노드와 엣지를 id로 가리킬 뿐이다. 새 사실을 여기에 먼저 적지 않는다. `lifecycle`과 `blueprint`는 노드 대신 `flows`의 흐름 하나를 `flow`로 가리킨다. `er`은 `participants`에 `db_table` id를 적고 선은 컬럼의 `references`에서 나온다.
 
 > **이 단계의 상세** → [`references/projections.md`](./references/projections.md)
-> `sequence`, `dataflow`, `compare`를 골랐을 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
+> `sequence`, `dataflow`, `compare`, `lifecycle`, `blueprint`, `er`을 골랐을 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
 
 ### parent로 포함 관계를 단다
 
@@ -575,7 +586,10 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 ```
 
 - 성공하면 `{ ok: true, autoUnresolved, drawable }`이다. `drawable`에 빠진 노드와 엣지가 있으면 왜 빠졌는지 `autoUnresolved`에서 확인한다.
-- 성공해도 `warnings`가 올 수 있다. 지금은 `NODE_DESCRIPTION_MISSING` 하나이고 그리는 노드 중 `description`이 빈 노드를 `nodeIds`에 모아 준다. render는 그대로 되지만 그 카드에는 설명 줄이 없다. [노드 설명](#노드-설명)대로 채운다. render 응답에도 같은 `warnings`가 실린다.
+- 성공해도 `warnings`가 올 수 있다. 어느 경고도 render를 막지 않는다. 고치는 법은 [노드 설명](#노드-설명)에 모아 두었다.
+  - `NODE_DESCRIPTION_MISSING`은 그리는 노드 중 `description`이 빈 노드를 `nodeIds`에 모아 준다. 그 카드에는 설명 줄이 없으니 채운다.
+  - 예산 경고(`LIFECYCLE_OVER_BUDGET`, `BLUEPRINT_OVER_BUDGET`, `ER_OVER_BUDGET`)에는 `nodeIds`가 없다. 넘친 그림의 id를 `subjectId`에, 넘친 개수를 `counts`에 담는다. 그림을 나누거나 줄이라는 신호다.
+  - render 응답에도 같은 `warnings`가 실린다. render에는 `DELTA_OVER_BUDGET`이 더 올 수 있다. 읽는 법은 [Step 8](#step-8--render와-보고)에 있다.
 - 실패하면 `errors[]`에 `code`와 `nodeId`나 `edgeId`가 온다. 질문별 그림 에러면 `projectionId`와 `messageId`가 오고 구간 에러면 `phaseId`가 함께 온다.
 
 | 에러 코드                     | 고치는 법                                                                                                          |
@@ -607,7 +621,10 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 | `PROJECTION_EDGE_NOT_FOUND`, `PROJECTION_EDGE_MISMATCH` | 메시지 `edge`를 그 두 노드를 잇는 지도 엣지로 고친다. 그런 엣지가 없으면 지도에 먼저 넣거나 `edge`를 뺀다 |
 | `PROJECTION_BLOCK_NOT_FOUND`, `PROJECTION_BLOCK_SPLIT` | 메시지 `block`을 `blocks`의 id로 고치고 한 묶음의 메시지를 붙여 적는다                       |
 | `SOLID_MESSAGE_WITHOUT_EVIDENCE` | 가리킨 엣지나 자기 근거에 code나 spec이 없다. 근거를 찾아 달거나 점선으로 바꾼다                                |
-| `PROJECTION_EMPTY`            | sequence와 dataflow에 메시지를 넣는다. 넣을 메시지가 없으면 그 그림을 뺀다                                         |
+| `PROJECTION_EMPTY`            | sequence와 dataflow에 메시지를 넣는다. 넣을 메시지가 없으면 그 그림을 뺀다. lifecycle이면 가리킨 흐름 단계에 `state`를 단다. blueprint면 갈림길 말고 단계를 하나라도 둔다. er이면 `participants`에 테이블을 하나라도 둔다 |
+| `PROJECTION_FLOW_NOT_FOUND`   | lifecycle이나 blueprint의 `flow`를 `flows`에 있는 흐름 id로 고친다. 흐름이 아직 없으면 [Step 3.5](#step-35--도메인-흐름)대로 먼저 쓴다 |
+| `COLUMN_REFERENCE_NOT_FOUND`  | 컬럼 `references.table`을 지도에 있는 `db_table` id로 고친다. 대상이 `columns`를 적었으면 `references.column`도 그 안의 이름이어야 한다. 대상 테이블을 못 찾았으면 `references`를 빼고 질문으로 남긴다 |
+| `INVALID_COLUMN_REFERENCE_KIND` | 외래 키는 `db_table`만 가리킨다. 저장소를 가리켰으면 그 안의 테이블 노드를 두고 다시 가리킨다             |
 | `PROJECTION_SHAPE_FIELD`      | 모양에 안 맞는 필드를 뺀다. [질문별 그림을 얹는다](#질문별-그림을-얹는다)의 모양별 설명을 본다                      |
 | `DUPLICATE_PHASE_ID`          | 한 그림 안에서 구간 id가 겹친다. 다시 짓는다                                                                       |
 | `PROJECTION_PHASE_MESSAGE_NOT_FOUND` | 구간 `from`이나 `to`를 그 그림의 메시지 id로 고친다. 다른 그림의 메시지는 못 가리킨다                       |
@@ -653,7 +670,12 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 - `sharedHtmlPath`: private 근거의 위치와 인용을 빼고 출처 종류만 남긴 공유용. 다른 사람에게 넘길 때는 이 파일만 넘긴다
 - `irPath`: 다음 실행의 출발점
 - `levels`: 드릴다운으로 그렸을 때만 온다. 항목마다 `id`, `title`, `nodes`, `edges`가 있다. `id`는 `root`(전체), `service:<id>`, `feature:<id>`, `server:<id>`, `flow:<id>`, `group:<id>`, `view:<id>` 꼴이다
-- `viewPaths`: 질문별 그림이 있을 때만 온다. 그림마다 `.gestalt/architecture/views/<view>.<그림 id>.json`에 그 그림과 가리킨 노드, 엣지, 질문만 따로 저장한 경로다. 다른 세션이 질문 하나의 답만 읽어 갈 때 이 파일을 건넨다
+- `viewPaths`: 질문별 그림이 있을 때만 온다. 그림마다 `.gestalt/architecture/views/<view>.<그림 id>.json`에 그 그림과 가리킨 노드, 엣지, 질문만 따로 저장한 경로다. lifecycle과 blueprint는 가리킨 흐름(`flow`)을, er은 외래 키 대상 테이블과 `auto:fk:` 질문을 함께 싣는다. 다른 세션이 질문 하나의 답만 읽어 갈 때 이 파일을 건넨다
+- `delta`: 이전 실행과 비교한 결과. 늘 온다. `status`는 넷 중 하나다
+  - `no_previous`: 비교할 이전 그림이 없다. 처음 그렸거나 저장된 이전 그림을 지금 규칙으로 읽지 못했다. 파일을 안 만든다
+  - `unchanged`: 그려지는 노드와 연결이 지난번과 같다. 지난 구조 변경 그림은 그대로 둔다
+  - `created`: 바뀐 게 있어 `<view>.delta.html`(본인용)과 `<view>.delta.shared.html`(공유용)을 썼다. `htmlPath`, `sharedHtmlPath`, 변경어별 건수 `changes`가 온다. 그림이 커서 바뀐 곳과 바로 이웃만 그렸으면 `scoped`도 온다. `changes` 키는 `ADDED` 생김, `REMOVED` 빠짐, `CHANGED` 변경, `MOVED` 이동, `REWIRED` 다시 이음이다. 그림 범례와 같은 말로 보고한다
+  - `failed`: 구조 변경 그림을 만들다 실패했다. 본 그림은 이미 저장됐고 `message`에 원인이 온다. 구조 변경 그림 경로는 오지 않는다
 
 그려진 `service` 노드가 하나라도 있으면 HTML 한 장 안에 레벨을 나눠 담는다. 서비스가 없어도 `service` 없는 흐름이나 질문별 그림이 있으면, 또는 `infra`, `data`, `process` 팩 노드 사이에 parent가 있으면 레벨로 나눈다. 그 밖에는 `levels` 없이 평면 그림 한 장이다. deploy-path는 질문별 그림을 얹지 않으면 늘 평면이다.
 
@@ -678,6 +700,10 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 3. **sourcesUsed**: `public` 소스는 이름이나 경로까지 적는다. **`private` 소스는 종류만 적는다** (예: "개인 메모리 2건, MCP 검색 1건"). 경로나 도구 이름을 보고에 옮기지 않는다.
 
 Step 4.5에서 클라우드를 조회했으면 어느 프로필로 언제 조회했는지 적는다. 만료로 조회를 못 했으면 "재로그인 필요"와 보여준 로그인 명령 모양을 적는다. 계정 ID는 보고에 적어도 되지만 공유본이나 커밋할 파일에는 옮기지 않는다.
+
+**구조 변경은 `delta.status`대로 알린다.** `created`면 바뀐 건수를 변경어별로 한 줄에 적고 구조 변경 그림 경로를 준다 (예: "지난번보다 생김 2, 빠짐 1, 다시 이음 1. 구조 변경 그림은 `.gestalt/architecture/screen-chain.delta.html`"). 이 그림은 이전과 이번을 같은 좌표에 나란히 놓고 가운데 변경 목록을 둔다. 공유할 때는 `.delta.shared.html`을 넘긴다. `scoped`가 오면 전체 몇 개 중 몇 개만 그렸는지 덧붙인다. `unchanged`면 "지난번과 구조가 같다" 한 줄이면 된다. `no_previous`는 따로 알리지 않는다. 처음 그린 그림이면 당연한 결과다. `failed`면 본 그림은 정상으로 보고하고 "구조 변경 그림은 못 만들었다"와 `message`를 한 줄로 덧붙인다. 디스크에 남은 구조 변경 파일을 이번 결과처럼 건네지 않는다.
+
+`warnings`에 `DELTA_OVER_BUDGET`이 오면 구조 변경 그림 한 장에 담기에 변경이 많다는 뜻이다. 그림은 그대로 썼다. 바뀐 영역을 나눠 단계별로 다시 그리기를 권한다.
 
 Step 5에서 레포를 새로 받았으면 무엇을 어디에 받았는지 한 줄로 덧붙인다 (예: "`org/api-server`를 `~/.gestalt/architecture/clones/github.com/org/api-server`에 받았다").
 

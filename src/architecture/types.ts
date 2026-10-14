@@ -41,6 +41,8 @@ export const FLOW_ACTOR_KINDS = ['person', 'system', 'agent'] as const;
 export const FLOW_PATHS = ['main', 'side'] as const;
 /** step은 화면이나 일 하나, decision은 조건으로 길이 갈리는 자리다. decision은 마름모로 그린다 */
 export const FLOW_STEP_KINDS = ['step', 'decision'] as const;
+/** 끝 단계가 어떻게 끝났는지. done은 정상 완료, cancel은 누가 그만둔 것, fail은 시간 초과나 오류로 끝난 것이다 */
+export const FLOW_STEP_OUTCOMES = ['done', 'cancel', 'fail'] as const;
 /**
  * 단계 refs가 가리킬 수 있는 kind. 사용자가 실제로 만나는 화면과 그 화면이 부르는 API까지만 잇는다.
  * 하네스에서는 사용자가 부르는 스킬과 스킬이 띄우는 에이전트가 화면 자리다. MCP 도구는 endpoint로 들어온다
@@ -85,6 +87,7 @@ export type Platform = (typeof PLATFORMS)[number];
 export type FlowActorKind = (typeof FLOW_ACTOR_KINDS)[number];
 export type FlowPath = (typeof FLOW_PATHS)[number];
 export type FlowStepKind = (typeof FLOW_STEP_KINDS)[number];
+export type FlowStepOutcome = (typeof FLOW_STEP_OUTCOMES)[number];
 export type EndpointProtocol = (typeof ENDPOINT_PROTOCOLS)[number];
 /**
  * 카드 칩과 아이콘, 색을 고르는 종류. MCP 도구는 IR에서는 endpoint라 매칭과 드릴다운을 그대로 타고
@@ -244,6 +247,28 @@ export interface ScreenCapture {
   commit?: string;
 }
 
+/** 컬럼이 가리키는 외래 키 대상. table은 db_table 노드 id다 */
+export interface ColumnReference {
+  table: string;
+  /** 비우면 대상 테이블의 어느 컬럼인지 모른다. 선은 테이블 머리에 붙는다 */
+  column?: string;
+  /** CASCADE, SET NULL 같은 ON DELETE 동작. 마이그레이션이나 엔티티에 적힌 그대로다 */
+  onDelete?: string;
+}
+
+/** db_table 노드의 컬럼. 이름만 필수이고 나머지는 근거에서 읽힌 만큼만 적는다 */
+export interface NodeColumn {
+  name: string;
+  /** 마이그레이션이나 스키마 파일에 적힌 SQL 타입 그대로다 */
+  type?: string;
+  pk?: boolean;
+  nullable?: boolean;
+  unique?: boolean;
+  references?: ColumnReference;
+  /** 이 컬럼과 외래 키를 확인한 근거. 외래 키 선의 실선과 점선을 여기서 가른다 */
+  evidence?: Evidence[];
+}
+
 export interface ArchitectureNode {
   id: string;
   kind: NodeKind;
@@ -284,6 +309,8 @@ export interface ArchitectureNode {
   capture?: ScreenCapture;
   /** 담당 팀이나 사람. CODEOWNERS나 소유 표처럼 출처가 있는 값만 적는다. 공유본에서 뺀다 */
   owners?: string[];
+  /** db_table만. er 그림이 컬럼 행과 외래 키 선을 여기서 뽑는다 */
+  columns?: NodeColumn[];
 }
 
 export interface ArchitectureEdge {
@@ -361,6 +388,8 @@ export interface FlowStep {
   state?: string;
   /** 흐름이 여기서 끝날 수 있다. 착석이나 취소처럼 더 갈 곳이 없는 단계에 단다. 나가는 전이가 없는데 이 표시도 없으면 질문이 생긴다 */
   terminal?: boolean;
+  /** terminal 단계만. 상태 흐름 그림이 정상 완료를 진행 줄 끝에, 취소와 실패를 끝 상태 띠에 따로 세우는 기준이다. 비우면 정상 완료로 본다 */
+  outcome?: FlowStepOutcome;
   /** 이 단계에서 만나는 화면이나 부르는 API 노드 id. 기술 그림으로 내려가는 입구다 */
   refs?: string[];
   evidence: Evidence[];
@@ -407,9 +436,19 @@ export interface ArchitectureFlow {
 /** 투영의 답 모양. 지도(nodes, edges)는 그대로 두고 질문 하나에 맞게 골라 그린다 */
 /**
  * 투영 모양. sequence는 주고받는 순서, dataflow는 데이터가 어디서 어디로 옮겨 가는지, compare는 두 묶음의 같고 다른 점이다.
+ * lifecycle은 도메인 흐름 하나에서 대상 하나가 거치는 상태를 진행, 대기와 복구, 끝 상태 띠로 나눠 그린다.
+ * blueprint는 도메인 흐름의 단계를 열로 세우고 고객 행동, 프론트스테이지, 백스테이지, 지원 층에 무엇이 일하는지 채운다.
+ * er은 db_table 노드의 컬럼과 컬럼끼리 잇는 외래 키를 그린다.
  * 팩과 무관하게 어느 카테고리든 이 중 하나로 답한다
  */
-export const PROJECTION_SHAPES = ['sequence', 'dataflow', 'compare'] as const;
+export const PROJECTION_SHAPES = [
+  'sequence',
+  'dataflow',
+  'compare',
+  'lifecycle',
+  'blueprint',
+  'er',
+] as const;
 export type ProjectionShape = (typeof PROJECTION_SHAPES)[number];
 /** sequence 묶음 종류. alt는 경우 나누기, opt는 조건이 맞을 때만, loop는 반복, par는 동시 실행이다 */
 export const SEQUENCE_BLOCK_KINDS = ['alt', 'opt', 'loop', 'par'] as const;
@@ -449,15 +488,17 @@ export interface ArchitectureProjection {
   shape: ProjectionShape;
   title: string;
   question: string;
-  /** 왼쪽부터 놓을 참여자. 없으면 메시지에 처음 나온 순서다 */
+  /** 왼쪽부터 놓을 참여자. 없으면 메시지에 처음 나온 순서다. er에서는 그릴 테이블이다 */
   participants?: string[];
-  /** sequence와 dataflow의 선. compare는 비워 둔다 */
+  /** sequence와 dataflow의 선. compare, lifecycle, blueprint, er은 비워 둔다 */
   messages: ProjectionMessage[];
   blocks?: ProjectionBlock[];
   /** compare가 견주는 두 묶음. 전과 후, 제품 둘처럼 왼쪽과 오른쪽에 선다 */
   sides?: ProjectionSide[];
   /** sequence를 나누는 구간. 비우면 렌더할 때 맨 위 참여자가 새 대상을 부르는 자리에서 자른다 */
   phases?: ProjectionPhase[];
+  /** lifecycle과 blueprint가 그리는 도메인 흐름 id. lifecycle은 단계 상태와 전이를, blueprint는 단계 열과 단계가 닿는 지도 노드를 뽑는다 */
+  flow?: string;
 }
 
 /**

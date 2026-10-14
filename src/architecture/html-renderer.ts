@@ -9,7 +9,27 @@ import {
   routeCanvas,
 } from './canvas-geometry.js';
 import type { RoutedEdge } from './canvas-geometry.js';
+import {
+  BLUEPRINT_EMPTY_TEXT,
+  BLUEPRINT_HEAD_W,
+  BLUEPRINT_ROW_TEXT,
+  BLUEPRINT_VISIBILITY_NOTE,
+  BLUEPRINT_VISIBILITY_TEXT,
+  blueprintStageTitle,
+  computeBlueprintLayout,
+  deriveBlueprint,
+  type BlueprintLayout,
+  type BlueprintModel,
+} from './blueprint-layout.js';
 import { flowCountByService, ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
+import {
+  computeErLayout,
+  deriveEr,
+  erFoldText,
+  isUnconfirmedFk,
+  type ErLayout,
+  type ErModel,
+} from './er-layout.js';
 import { computeFlowLayout, type FlowLevel } from './flow-layout.js';
 import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import {
@@ -22,6 +42,9 @@ import {
   CAPTURE_CSS,
   DOC_CSS,
   FLOW_BRANCH_CSS,
+  LIFECYCLE_CSS,
+  BLUEPRINT_CSS,
+  ER_CSS,
   SEQ_VIEW_CSS,
 } from './html-theme.js';
 import {
@@ -50,6 +73,13 @@ import { indexMicroApps } from './micro-app.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, type Vocabulary } from './packs/index.js';
 import { KNOWLEDGE_COVERAGE_KINDS, KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
 import { computeCompareLayout, type CompareLayout } from './compare-layout.js';
+import {
+  computeLifecycleLayout,
+  deriveLifecycle,
+  LIFECYCLE_BAND_TEXT,
+  type LifecycleLayout,
+  type LifecycleModel,
+} from './lifecycle-layout.js';
 import { computeDataflowLayout, type DataflowLayout } from './dataflow-layout.js';
 import { computeSequenceLayout, type SequenceLayout } from './sequence-layout.js';
 import {
@@ -70,15 +100,22 @@ import type {
   ArchitectureNode,
   ArchitectureProjection,
   FlowActor,
+  FlowStepOutcome,
   ProjectionMessage,
   SequenceBlockKind,
   EdgeKind,
   DisplayKind,
   Evidence,
+  NodeColumn,
   UnresolvedQuestion,
 } from './types.js';
 import { chipTextOverride, displayKindOf, hasCardDescription } from './types.js';
-import { maskSharedText, redactForSharing, type ValidatedIr } from './validator.js';
+import {
+  maskSharedQuestion,
+  maskSharedText,
+  redactForSharing,
+  type ValidatedIr,
+} from './validator.js';
 
 export type ArchitectureAudience = 'private' | 'shared';
 
@@ -98,7 +135,7 @@ const VIEW_TITLES: Record<ArchitectureIr['view'], string> = {
 };
 
 /** 하네스 레포는 화면이 없어 '화면별'이 틀린 말이 된다. 화면이 하나라도 있으면 웹 그림으로 친다 */
-function viewTitle(ir: ArchitectureIr): string {
+export function viewTitle(ir: ArchitectureIr): string {
   if (ir.view !== 'screen-chain' || ir.nodes.some((n) => n.kind === 'screen')) {
     return VIEW_TITLES[ir.view];
   }
@@ -157,7 +194,7 @@ function byId<T extends { id: string }>(a: T, b: T): number {
   return compareStr(a.id, b.id);
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -200,9 +237,7 @@ function openQuestions(
   shared: boolean,
 ): UnresolvedQuestion[] {
   const fromIr = ir.unresolved.filter((q) => q.answer === undefined || q.answer === '');
-  const auto = shared
-    ? validated.autoUnresolved.map((q) => ({ ...q, question: maskSharedText(q.question) }))
-    : validated.autoUnresolved;
+  const auto = shared ? validated.autoUnresolved.map(maskSharedQuestion) : validated.autoUnresolved;
   return [...fromIr, ...auto].sort(byId);
 }
 
@@ -600,12 +635,17 @@ interface ViewCard {
   steps: number;
   /** participants를 비운 투영은 메시지 양 끝에서 센다 */
   actors: number;
+  /** 메시지로 세지 않는 모양의 숫자 줄. 있으면 단계와 참여 대신 찍는다 */
+  summary?: string;
 }
 
 const VIEW_SHAPE_NAME: Record<ArchitectureProjection['shape'], string> = {
   sequence: '순서도',
   dataflow: '데이터 이동',
   compare: '견주기',
+  lifecycle: '상태 흐름',
+  blueprint: '서비스 블루프린트',
+  er: '테이블 관계',
 };
 const STRIP_CARD_W = 240;
 const STRIP_GAP = 12;
@@ -621,7 +661,7 @@ function renderViewStrip(cards: ViewCard[]): { html: string; width: number } {
         `<span class="vc-shape">${VIEW_SHAPE_NAME[c.projection.shape]}</span>` +
         `<b>${escapeHtml(c.projection.title)}</b>` +
         `<span class="vc-q">${escapeHtml(c.projection.question)}</span>` +
-        `<span class="vc-n">단계 ${c.steps}${c.actors > 0 ? `, 참여 ${c.actors}` : ''}</span></a>`,
+        `<span class="vc-n">${c.summary !== undefined ? escapeHtml(c.summary) : `단계 ${c.steps}${c.actors > 0 ? `, 참여 ${c.actors}` : ''}`}</span></a>`,
     )
     .join('');
   return {
@@ -629,6 +669,25 @@ function renderViewStrip(cards: ViewCard[]): { html: string; width: number } {
       `<nav class="view-strip" aria-label="질문별 그림" style="left:${CANVAS_PAD_X}px;top:-${STRIP_H}px">` +
       `<h3>질문별 그림 <span class="n">${cards.length}</span></h3><div class="vs-row">${items}</div></nav>`,
     width: CANVAS_PAD_X * 2 + cards.length * (STRIP_CARD_W + STRIP_GAP) - STRIP_GAP,
+  };
+}
+
+/**
+ * 레이아웃은 원본 IR로 계산해 레인 제목(구간 이름)과 제품 이름이 원문이다.
+ * 공유본은 좌표는 그대로 쓰고 글자만 IR과 같은 기준으로 가린다
+ */
+function maskLayoutText(layout: LayoutResult): LayoutResult {
+  return {
+    ...layout,
+    lanes: layout.lanes.map((l) => ({ ...l, title: maskSharedText(l.title) })),
+    ...(layout.regions !== undefined
+      ? {
+          regions: {
+            ...layout.regions,
+            groups: layout.regions.groups.map((g) => ({ ...g, name: maskSharedText(g.name) })),
+          },
+        }
+      : {}),
   };
 }
 
@@ -825,13 +884,15 @@ function renderFlowSection(
   questionCount: ReadonlyMap<string, number>,
   drawableNodes: ReadonlySet<string>,
   captureOf: ReadonlyMap<string, { image: string; label: string }>,
+  mask: (text: string) => string,
 ): string {
   const { layout } = level;
   const width = round2(layout.width + FLOW_PAD * 2);
   const height = round2(layout.height + FLOW_PAD * 2);
   const stepById = new Map(flow.steps.map((st) => [st.id, st]));
   const actorById = new Map(flow.actors.map((a) => [a.id, a]));
-  const stateText = (state: string): string => flow.stateLabels?.[state] ?? state;
+  // 상태 값은 키라서 공유본 사본에서도 원문이다. 찍는 자리에서 가린다
+  const stateText = (state: string): string => flow.stateLabels?.[state] ?? mask(state);
   // 이름이 붙은 상태는 코드 값이 아니라서 고정폭 글꼴을 안 쓴다
   const named = (state: string): string =>
     flow.stateLabels?.[state] !== undefined ? ' named' : '';
@@ -964,7 +1025,7 @@ function renderFlowSection(
         `<span class="nm"><span class="t">${escapeHtml(st.label)}</span></span>` +
         `<span class="l2">` +
         (st.state !== undefined
-          ? `<span class="st${named(st.state)}" title="${escapeHtml(st.state)}">${escapeHtml(stateText(st.state))}</span>`
+          ? `<span class="st${named(st.state)}" title="${escapeHtml(mask(st.state))}">${escapeHtml(stateText(st.state))}</span>`
           : '') +
         (st.terminal ? `<span class="end" title="${FLOW_TEXT.end}">끝</span>` : '') +
         (refs.length > 0
@@ -1090,6 +1151,9 @@ const VIEW_SVG_LABEL: Record<ArchitectureProjection['shape'], string> = {
   sequence: '메시지',
   dataflow: '데이터 이동',
   compare: '견주기',
+  lifecycle: '상태 전이',
+  blueprint: '단계별 층',
+  er: '외래 키',
 };
 
 /** 투영 레벨 하나. 맨 위에 답하는 질문을 적고 그 아래 모양별 선과 카드를 얹는다 */
@@ -1629,6 +1693,408 @@ function renderCompareSection(
   );
 }
 
+const OUTCOME_TEXT: Record<FlowStepOutcome | 'end', string> = {
+  done: '완료',
+  cancel: '취소',
+  fail: '실패',
+  end: '끝',
+};
+
+/**
+ * 상태 흐름. 진행 단계, 대기와 복구, 끝 상태 띠를 위에서부터 쌓는다.
+ * 카드와 선은 흐름 레벨과 같은 .flow-step과 .flow-t라 누르면 대표 단계와 대표 전이의 서랍이 그대로 열린다.
+ * 좌표는 원본 흐름으로 낸 layout을 쓰고 글자만 text 모델에서 꺼낸다. 공유본에서 가린 글자 폭에 따라 그림이 움직이지 않게 하려고다
+ */
+function renderLifecycleSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  flow: ArchitectureFlow,
+  text: LifecycleModel,
+  layout: LifecycleLayout,
+  questionCount: ReadonlyMap<string, number>,
+  mask: (text: string) => string,
+): string {
+  const ox = CANVAS_PAD_X;
+  const oy = CANVAS_PAD_TOP;
+  const width = round2(layout.width + ox * 2);
+  const height = round2(layout.height + oy + 24);
+  const shift = (pts: readonly { x: number; y: number }[]) =>
+    pts.map((p) => ({ x: p.x + ox - FLOW_PAD, y: p.y + oy - FLOW_PAD }));
+  // 상태 값은 stateOf와 레이아웃의 키라 사본에서도 원문이다. 찍는 자리에서만 가린다
+  const stateText = (state: string): string => flow.stateLabels?.[state] ?? mask(state);
+  const stepLabel = new Map(flow.steps.map((st) => [st.id, st.label]));
+  const stateOf = new Map(text.states.map((st) => [st.state, st]));
+  const bands = layout.bands
+    .map(
+      (b) =>
+        `<g class="lc-band lc-${b.band}"><rect x="${round2(ox)}" y="${round2(b.y + oy)}" width="${layout.width}" height="${b.height}" rx="12"/>` +
+        `<text class="lc-band-t" x="${round2(ox + 14)}" y="${round2(b.y + oy + 22)}">${LIFECYCLE_BAND_TEXT[b.band]}<tspan class="lc-band-n" dx="8">${b.count}</tspan></text></g>`,
+    )
+    .join('');
+  const links = layout.routes
+    .map((r, i) => {
+      const t = text.transitions[i]!;
+      const from = stateOf.get(t.from)!;
+      const to = stateOf.get(t.to)!;
+      const dash = t.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
+      const pts = shift(r.points);
+      const d = r.back ? roundedPathD(pts) : pathD(pts);
+      const tip = r.tip.map((p) => `${round2(p.x + ox)},${round2(p.y + oy)}`).join(' ');
+      const name =
+        `${FLOW_TEXT.transition}${r.back ? `, ${FLOW_TEXT.back}` : ''}: ${stateText(from.state)} → ${stateText(to.state)}` +
+        ` (${t.label})`;
+      return (
+        `<g class="link flow-t p-${t.path}${r.back ? ' back' : ''}" data-from="${escapeHtml(r.from)}" data-to="${escapeHtml(r.to)}" ` +
+        `data-transition-id="${escapeHtml(r.id)}" tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
+        `<title>${escapeHtml(name)}</title><path class="hit" d="${d}" stroke-width="12"/>` +
+        `<path class="edge" d="${d}" stroke-width="2"${dash}/><polygon class="tip" points="${tip}"/>` +
+        `<text class="t-label${r.labelAnchor === 'start' ? ' at-start' : ''}${t.borrowed ? ' lc-borrowed' : ''}" x="${round2(r.labelAt.x + ox)}" y="${round2(r.labelAt.y + oy)}">` +
+        (r.back ? '<tspan class="t-back">↩ </tspan>' : '') +
+        `${escapeHtml(t.label)}</text></g>`
+      );
+    })
+    .join('');
+  const cards = layout.boxes
+    .map((b) => {
+      const st = stateOf.get(b.state)!;
+      const outcome = st.terminal ? (st.outcome ?? 'end') : undefined;
+      const qs = st.steps.reduce((n, id) => n + (questionCount.get(id) ?? 0), 0);
+      const cls = ['node', 'flow-step', 'lc-state', `lc-${st.band}`];
+      if (st.band === 'recovery') cls.push('p-side');
+      if (outcome !== undefined) cls.push(`o-${outcome}`);
+      if (st.docOnly) cls.push('doc-only');
+      const steps = st.steps.map((id) => stepLabel.get(id) ?? id);
+      const stepsText = steps.length > 1 ? `${steps[0]!} 외 ${steps.length - 1}` : steps[0]!;
+      const aria =
+        `${stateText(st.state)}, 상태, ${LIFECYCLE_BAND_TEXT[st.band]}` +
+        (outcome !== undefined ? `, ${OUTCOME_TEXT[outcome]}` : '') +
+        `, 단계 ${steps.join(', ')}` +
+        (st.docOnly ? ', 문서로만 확인' : '');
+      return (
+        `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(st.rep)}" role="button" tabindex="0" ` +
+        `aria-label="${escapeHtml(aria)}" title="${escapeHtml(steps.join(', '))}" ` +
+        `style="left:${round2(b.x + ox)}px;top:${round2(b.y + oy)}px;width:${b.width}px;height:${b.height}px">` +
+        `<span class="nm"><span class="t">${escapeHtml(stateText(st.state))}</span></span>` +
+        `<span class="l2">` +
+        (outcome !== undefined ? `<span class="end lc-out">${OUTCOME_TEXT[outcome]}</span>` : '') +
+        (flow.stateLabels?.[st.state] !== undefined
+          ? `<span class="st" title="${escapeHtml(mask(st.state))}">${escapeHtml(mask(st.state))}</span>`
+          : '') +
+        `<span class="lc-steps">${escapeHtml(stepsText)}</span>` +
+        (qs > 0
+          ? `<span class="qb" title="확인할 질문">${iconUse('u-question')}${qs}</span>`
+          : '') +
+        `</span></div>`
+      );
+    })
+    .join('');
+  return viewSection(levelId, projection, width, height, bands, links, cards);
+}
+
+/**
+ * 서비스 블루프린트. 단계 열과 층 행으로 된 격자이고 선은 긋지 않는다. 열 순서가 곧 순서다.
+ * 가시선은 라벨 글자와 굵은 선으로 긋고 층 이름도 글자로 적어 색을 못 봐도 위아래가 읽힌다.
+ * 좌표는 원본으로 낸 모델에서 나오고 글자는 그린 쪽(공유본이면 가린 사본) 흐름과 노드에서 꺼낸다
+ */
+function renderBlueprintSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  flow: ArchitectureFlow,
+  model: BlueprintModel,
+  layout: BlueprintLayout,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  questionCount: ReadonlyMap<string, number>,
+  mask: (text: string) => string,
+): string {
+  const ox = CANVAS_PAD_X;
+  const oy = CANVAS_PAD_TOP;
+  const width = round2(layout.width + ox * 2);
+  const height = round2(layout.height + oy + 24);
+  const stepById = new Map(flow.steps.map((st) => [st.id, st]));
+  const actorById = new Map(flow.actors.map((a) => [a.id, a]));
+  const itemName = (type: 'step' | 'node', id: string): string => {
+    if (type === 'step') return stepById.get(id)?.label ?? id;
+    const n = nodeById.get(id);
+    return n ? nodeName(n) : id;
+  };
+  const bands = layout.rows
+    .map(
+      (r) =>
+        `<g class="bp-row bp-${r.row}" data-layer="${r.row}"><rect x="${round2(ox)}" y="${round2(r.y + oy)}" width="${layout.width}" height="${r.height}" rx="10"/></g>`,
+    )
+    .join('');
+  const top = layout.rows[0]!.y;
+  const bottom = layout.rows[layout.rows.length - 1]!;
+  const guides = layout.stages
+    .slice(1)
+    .map((st) => {
+      const x = round2(st.x + ox - 6);
+      return `<line class="bp-col-line" x1="${x}" x2="${x}" y1="${round2(top + oy)}" y2="${round2(bottom.y + bottom.height + oy)}"/>`;
+    })
+    .join('');
+  const lines = layout.lines
+    .map((l) => {
+      const y = round2(l.y + oy);
+      const line = `<line class="bp-line bp-${l.role}" data-role="${l.role}" x1="${round2(ox)}" x2="${round2(ox + layout.width)}" y1="${y}" y2="${y}"/>`;
+      if (l.role !== 'visibility') return line;
+      return (
+        `<g class="bp-vis">${line}` +
+        `<text class="bp-vis-t" x="${round2(ox + 12)}" y="${round2(y + 4)}">${BLUEPRINT_VISIBILITY_TEXT}</text>` +
+        `<text class="bp-vis-n" x="${round2(ox + layout.width - 12)}" y="${round2(y + 4)}" text-anchor="end">${BLUEPRINT_VISIBILITY_NOTE}</text></g>`
+      );
+    })
+    .join('');
+  const customer = model.customer !== undefined ? actorById.get(model.customer) : undefined;
+  const rowLabels = layout.rows
+    .map(
+      (r) =>
+        `<div class="bp-row-t" style="left:${round2(ox + 12)}px;top:${round2(r.y + oy + 14)}px;width:${BLUEPRINT_HEAD_W - 24}px">` +
+        `<b>${BLUEPRINT_ROW_TEXT[r.row]}</b>` +
+        (r.row === 'customer' && customer !== undefined
+          ? `<span>${escapeHtml(customer.label)}</span>`
+          : '') +
+        `</div>`,
+    )
+    .join('');
+  const stages = layout.stages
+    .map((st, i) => {
+      const title = mask(blueprintStageTitle(flow, model.columns[i]!));
+      return (
+        `<div class="bp-stage" style="left:${round2(st.x + ox)}px;top:${round2(st.y + oy)}px;width:${st.width}px;height:${st.height}px" title="${escapeHtml(title)}">` +
+        `<span class="bp-stage-n">${i + 1}</span><span class="bp-stage-t">${escapeHtml(title)}</span></div>`
+      );
+    })
+    .join('');
+  const cells = layout.cells
+    .map((c) => {
+      const rowText = BLUEPRINT_ROW_TEXT[c.row];
+      const at = `data-bp-row="${c.row}" data-bp-col="${c.column}"`;
+      if (c.cards.length === 0) {
+        return (
+          `<div class="bp-empty" ${at} title="근거 있는 연결이 없어요" ` +
+          `style="left:${round2(c.x + ox + 10)}px;top:${round2(c.y + oy + 14)}px;width:${round2(c.width - 20)}px">${BLUEPRINT_EMPTY_TEXT}</div>`
+        );
+      }
+      const pos = (b: { x: number; y: number; width: number; height: number }): string =>
+        `style="left:${round2(b.x + ox)}px;top:${round2(b.y + oy)}px;width:${b.width}px;height:${b.height}px"`;
+      const cards = c.cards
+        .map((b) => {
+          const it = b.item;
+          if (it.type === 'step') {
+            const st = stepById.get(it.id);
+            const label = st?.label ?? it.id;
+            const actor = st !== undefined ? actorById.get(st.actor) : undefined;
+            const qs = questionCount.get(it.id) ?? 0;
+            const cls = ['node', 'flow-step', 'bp-card', 'bp-step'];
+            if (it.docOnly) cls.push('doc-only');
+            const aria =
+              `${label}, ${rowText}, ${actor?.label ?? st?.actor ?? ''}` +
+              (it.docOnly ? ', 문서로만 확인' : '');
+            return (
+              `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(it.id)}" ${at} role="button" tabindex="0" ` +
+              `aria-label="${escapeHtml(aria)}" title="${escapeHtml(label)}" ${pos(b)}>` +
+              `<span class="nm"><span class="t">${escapeHtml(label)}</span></span>` +
+              `<span class="l2"><span class="bp-who">${escapeHtml(actor?.label ?? '')}</span>` +
+              (qs > 0
+                ? `<span class="qb" title="확인할 질문">${iconUse('u-question')}${qs}</span>`
+                : '') +
+              `</span></div>`
+            );
+          }
+          const n = nodeById.get(it.id)!;
+          const dk = displayKindOf(n);
+          const name = nodeName(n);
+          const guess = isGuess(n);
+          const engine = datastoreEngine(n);
+          const kindText = chipTextOverride(n) ?? NODE_KIND_TEXT[dk];
+          const cls = ['node', `k-${dk}`, 'bp-card'];
+          if (it.docOnly) cls.push('doc-only');
+          const aria =
+            `${name}, ${kindText}, ${rowText}` +
+            (guess ? `, ${INFERRED_BADGE} 이름` : '') +
+            (it.docOnly ? ', 문서로만 확인' : '');
+          const tooltip = n.displayName === undefined ? n.label : `${n.displayName}\n${n.label}`;
+          return (
+            `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(it.id)}" ${at} role="button" tabindex="0" ` +
+            `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ${pos(b)}>` +
+            `<span class="kc">${engine !== undefined ? iconUse(`e-${engine}`, `brand b-${engine}`) : iconUse(`i-${dk}`)}${escapeHtml(chipTextOverride(n) ?? NODE_KIND_SHORT[dk])}</span>` +
+            `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}</span>` +
+            (n.displayName !== undefined ? `<span class="tc">${escapeHtml(n.label)}</span>` : '') +
+            `</div>`
+          );
+        })
+        .join('');
+      const more =
+        c.moreAt !== undefined
+          ? (() => {
+              const names = c.hidden.map((it) => itemName(it.type, it.id));
+              return (
+                `<div class="bp-more" ${at} title="${escapeHtml(names.join('\n'))}" aria-label="${escapeHtml(`그 밖에 ${names.length}개: ${names.join(', ')}`)}" ` +
+                `style="left:${round2(c.moreAt.x + ox)}px;top:${round2(c.moreAt.y + oy)}px">+${names.length}</div>`
+              );
+            })()
+          : '';
+      return cards + more;
+    })
+    .join('');
+  return viewSection(
+    levelId,
+    projection,
+    width,
+    height,
+    bands + guides + lines,
+    '',
+    stages + rowLabels + cells,
+  );
+}
+
+/**
+ * 테이블 관계 그림. 테이블 상자에 컬럼 행을 세우고 외래 키 선은 컬럼 행에서 대상 컬럼 행으로 긋는다.
+ * 근거가 코드나 스펙이면 실선, 문서 같은 약한 근거면 점선이고 근거가 없으면 긋지 않고 행 배지와 질문으로만 남긴다.
+ * 좌표는 원본에서 낸 모델로 정하고 글자는 그린 쪽(공유본이면 가린 사본) 노드의 같은 자리 컬럼에서 꺼낸다
+ */
+const ER_ARIA_COLUMNS = 6;
+
+function renderErSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  model: ErModel,
+  layout: ErLayout,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  questions: readonly UnresolvedQuestion[],
+): string {
+  const ox = CANVAS_PAD_X;
+  const oy = CANVAS_PAD_TOP;
+  const width = round2(layout.width + ox * 2);
+  const height = round2(layout.height + oy + 24);
+  const name = (id: string): string => {
+    const n = nodeById.get(id);
+    return n ? nodeName(n) : id;
+  };
+  const columnsOf = (id: string) => nodeById.get(id)?.columns ?? [];
+  const colName = (id: string, index: number | undefined): string | undefined =>
+    index !== undefined ? columnsOf(id)[index]?.name : undefined;
+  const linkById = new Map(model.links.map((l) => [l.id, l]));
+  const links = layout.routes
+    .map((r) => {
+      const l = linkById.get(r.id)!;
+      const from = `${name(l.from)}.${colName(l.from, l.fromIndex) ?? ''}`;
+      const toCol = colName(l.to, l.toIndex);
+      const to = toCol !== undefined ? `${name(l.to)}.${toCol}` : name(l.to);
+      const onDelete =
+        l.onDelete !== undefined ? columnsOf(l.from)[l.fromIndex]?.references?.onDelete : undefined;
+      const aria =
+        `외래 키 ${from} → ${to}` +
+        (onDelete !== undefined ? `, ON DELETE ${onDelete}` : '') +
+        (l.lineStyle === 'dashed' ? ', 문서로만 확인' : '');
+      const d = roundedPathD(
+        r.points.map((p) => ({ x: p.x + ox - FLOW_PAD, y: p.y + oy - FLOW_PAD })),
+      );
+      const dash = l.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
+      const tip = r.tip.map((p) => `${round2(p.x + ox)},${round2(p.y + oy)}`).join(' ');
+      const label =
+        r.label !== undefined && onDelete !== undefined
+          ? `<text class="er-od" x="${round2(r.label.x + ox)}" y="${round2(r.label.y + oy)}" text-anchor="${r.label.anchor}">ON DELETE ${escapeHtml(onDelete)}</text>`
+          : '';
+      return (
+        `<g class="link er-fk${l.lineStyle === 'dashed' ? ' doc-only' : ''}" data-from="${escapeHtml(l.from)}" data-to="${escapeHtml(l.to)}" ` +
+        `data-fk-id="${escapeHtml(l.id)}" data-line="${l.lineStyle}" tabindex="0" role="img" aria-label="${escapeHtml(aria)}">` +
+        `<title>${escapeHtml(aria)}</title><path class="hit" d="${d}" stroke-width="12"/>` +
+        `<path class="edge" d="${d}" stroke-width="1.6"${dash}/><polygon class="tip" points="${tip}"/>${label}</g>`
+      );
+    })
+    .join('');
+  const drawnTables = new Set(model.tables.map((t) => t.id));
+  const boxById = new Map(layout.tables.map((b) => [b.id, b]));
+  const refTarget = (ref: NonNullable<NodeColumn['references']>): string =>
+    `${name(ref.table)}${ref.column !== undefined ? `.${ref.column}` : ''}`;
+  // 카드가 button이라 안쪽 행은 스크린리더에 안 읽힌다. 컬럼 요약을 이름에 싣는다
+  const columnAria = (cols: readonly NodeColumn[]): string => {
+    const shown = cols.slice(0, ER_ARIA_COLUMNS).map((c) => {
+      const tags: string[] = [];
+      if (c.pk === true) tags.push('PK');
+      if (c.references !== undefined)
+        tags.push(`${isUnconfirmedFk(c) ? 'FK?' : 'FK'}→${refTarget(c.references)}`);
+      if (c.unique === true) tags.push('UQ');
+      if (c.nullable === true) tags.push('NULL');
+      return tags.length > 0 ? `${c.name}(${tags.join(' ')})` : c.name;
+    });
+    const rest = cols.length - shown.length;
+    return shown.join(', ') + (rest > 0 ? ` 외 ${rest}개` : '');
+  };
+  const cards = model.tables
+    .map((t) => {
+      const n = nodeById.get(t.id)!;
+      const b = boxById.get(t.id)!;
+      const tname = nodeName(n);
+      const cols = n.columns ?? [];
+      const qs = questions.filter((q) => q.subject.nodeId === t.id).length;
+      const rows = t.rows
+        .map((row, i) => {
+          const cls = ['er-row'];
+          if (i % 2 === 1) cls.push('even');
+          if (row.type === 'fold') {
+            const names = row.indexes.map((k) => cols[k]?.name ?? '');
+            return (
+              `<span class="${cls.join(' ')} er-fold" title="${escapeHtml(names.join('\n'))}">` +
+              `${escapeHtml(erFoldText(names.length))}</span>`
+            );
+          }
+          const c = cols[row.index]!;
+          const ref = c.references;
+          const badges: { text: string; title: string }[] = [];
+          if (c.pk === true) badges.push({ text: 'PK', title: '기본 키' });
+          if (ref !== undefined) {
+            const target = refTarget(ref);
+            if (isUnconfirmedFk(c))
+              badges.push({ text: 'FK?', title: `${target}를 가리킨다는 근거를 못 찾은 외래 키` });
+            else
+              badges.push({
+                text: 'FK',
+                title: drawnTables.has(ref.table) ? `→ ${target}` : `→ ${target} (이 그림 밖)`,
+              });
+          }
+          if (c.unique === true) badges.push({ text: 'UQ', title: '유일' });
+          if (c.nullable === true) badges.push({ text: 'NULL', title: '비어 있을 수 있음' });
+          const rowTitle = [c.name, c.type, ...badges.map((x) => x.title)]
+            .filter((x): x is string => x !== undefined)
+            .join('\n');
+          return (
+            `<span class="${cls.join(' ')}" data-column="${escapeHtml(c.name)}" title="${escapeHtml(rowTitle)}">` +
+            `<span class="er-n">${escapeHtml(c.name)}</span>` +
+            badges
+              .map(
+                (x) =>
+                  `<span class="er-b${x.text === 'FK?' ? ' unconfirmed' : ''}">${x.text}</span>`,
+              )
+              .join('') +
+            `<span class="er-ty">${c.type !== undefined ? escapeHtml(c.type) : ''}</span></span>`
+          );
+        })
+        .join('');
+      const aria =
+        `${tname}, 테이블, 컬럼 ${t.total}개` +
+        (cols.length > 0 ? `: ${columnAria(cols)}` : '') +
+        (qs > 0 ? `, 확인할 질문 ${qs}개` : '');
+      const tooltip = n.displayName === undefined ? n.label : `${n.displayName}\n${n.label}`;
+      return (
+        `<div class="node k-db_table er-table" data-node-id="${escapeHtml(t.id)}" role="button" tabindex="0" ` +
+        `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
+        `style="left:${round2(b.x + ox)}px;top:${round2(b.y + oy)}px;width:${b.width}px;height:${b.height}px">` +
+        `<span class="er-head"><span class="kc">${iconUse('i-db_table')}${escapeHtml(NODE_KIND_SHORT.db_table)}</span>` +
+        `<span class="nm"><span class="t">${escapeHtml(tname)}</span>${isGuess(n) ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}</span>` +
+        (qs > 0
+          ? `<span class="qb" title="확인할 질문">${iconUse('u-question')}${qs}</span>`
+          : '') +
+        `</span>` +
+        (rows !== '' ? rows : `<span class="er-row er-fold">컬럼을 못 찾았어요</span>`) +
+        `</div>`
+      );
+    })
+    .join('');
+  return viewSection(levelId, projection, width, height, '', links, cards);
+}
+
 /** 흐름 단계와 전이마다 열린 질문 수. 카드 배지에 쓴다. 전이 질문은 출발 단계에 센다 */
 function flowQuestionCount(
   questions: readonly UnresolvedQuestion[],
@@ -1650,6 +2116,7 @@ function flowPayload(
   levels: readonly FlowLevel[],
   flows: readonly ArchitectureFlow[],
   questions: readonly UnresolvedQuestion[],
+  mask: (text: string) => string,
 ) {
   const byId = new Map(flows.map((f) => [f.id, f]));
   // 패널에서 그 단계나 전이에 걸린 질문을 바로 보여주려고 문장만 붙인다. 배지 숫자만으로는 무엇을 물어야 하는지 모른다
@@ -1676,11 +2143,24 @@ function flowPayload(
       ...(f.service !== undefined ? { service: f.service } : {}),
       title: f.title,
       ...(f.description !== undefined ? { description: f.description } : {}),
-      ...(f.stateLabels !== undefined ? { stateLabels: f.stateLabels } : {}),
+      // 패널은 상태 값을 글자로만 쓰므로 키와 값을 같은 규칙으로 가려도 이름 찾기가 맞물린다
+      ...(f.stateLabels !== undefined
+        ? {
+            stateLabels: Object.fromEntries(
+              Object.entries(f.stateLabels).map(([k, v]) => [mask(k), v]),
+            ),
+          }
+        : {}),
       actors: f.actors,
       steps: f.steps
         .filter((st) => drawnSteps.has(st.id))
-        .map((st) => withQuestions('s', { ...st, path: pathOf.get(st.id)! })),
+        .map((st) =>
+          withQuestions('s', {
+            ...st,
+            ...(st.state !== undefined ? { state: mask(st.state) } : {}),
+            path: pathOf.get(st.id)!,
+          }),
+        ),
       transitions: f.transitions
         .filter((t) => drawnTransitions.has(t.id))
         .map((t) => withQuestions('t', t)),
@@ -1951,6 +2431,12 @@ interface PageSpec {
   mixedBundles?: boolean;
   /** 순서도마다 따라가기 단계 목록. 있을 때만 보기 전환 단추와 그 코드를 싣는다 */
   sequences?: string[];
+  /** 상태 흐름 그림이 있으면 true. 그때만 그 스타일을 싣는다 */
+  lifecycles?: boolean;
+  /** 서비스 블루프린트가 있으면 true. 그때만 그 스타일을 싣는다 */
+  blueprints?: boolean;
+  /** 테이블 관계 그림이 있으면 true. 그때만 그 스타일을 싣는다 */
+  ers?: boolean;
 }
 
 function renderPage({
@@ -1962,6 +2448,9 @@ function renderPage({
   views,
   mixedBundles = false,
   sequences = [],
+  lifecycles = false,
+  blueprints = false,
+  ers = false,
 }: PageSpec): string {
   const title = viewTitle(ir);
   const vocab = irVocabulary(ir);
@@ -1994,7 +2483,7 @@ function renderPage({
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab),
@@ -2073,7 +2562,7 @@ export function renderArchitectureHtml(
     title: viewTitle(ir),
     nodes: payload.nodes,
     edges: payload.edges.map(asCanvasEdge),
-    layout,
+    layout: shared ? maskLayoutText(layout) : layout,
     enter: {},
     hidden: false,
     services: payload.services,
@@ -2094,6 +2583,7 @@ export function renderDrilldownHtml(
 ): string {
   const shared = opts.audience === 'shared';
   const ir = shared ? redactForSharing(validated.ir) : validated.ir;
+  const maskText = shared ? maskSharedText : (text: string): string => text;
   // 공유본은 캡처를 싣지 않으니 썸네일 자리도 비운다. 자리만 남기면 빈 칸이 어디 있는지 드러난다
   const drilldown: Drilldown = shared
     ? {
@@ -2124,7 +2614,7 @@ export function renderDrilldownHtml(
   const nodeById = new Map(base.nodes.map((n) => [n.id, n]));
   // 레벨 제목은 원본 이름으로 지었으므로 공유본에서는 노드 이름과 같이 가린다
   const levels = drilldown.levels.map((l) =>
-    shared ? { ...l, title: maskSharedText(l.title) } : l,
+    shared ? { ...l, title: maskSharedText(l.title), layout: maskLayoutText(l.layout) } : l,
   );
   const payload = {
     ...base,
@@ -2158,7 +2648,7 @@ export function renderDrilldownHtml(
           edges: [],
         })),
       ],
-      flows: flowPayload(drilldown.flows, drawnFlows, base.unresolved),
+      flows: flowPayload(drilldown.flows, drawnFlows, base.unresolved, maskText),
     });
   }
   const drawnMessages = validated.drawableMessageIds ?? new Set<string>();
@@ -2183,6 +2673,48 @@ export function renderDrilldownHtml(
     });
   }
   const sequenceSteps: string[] = [];
+  // 좌표는 원본 흐름으로 내고 글자는 그린 쪽(공유본이면 가린 사본) 흐름에서 꺼낸다
+  const sourceFlows = new Map((validated.ir.flows ?? []).map((f) => [f.id, f]));
+  const lifecycleOf = (p: ArchitectureProjection) => {
+    if (p.shape !== 'lifecycle' || p.flow === undefined) return undefined;
+    const source = sourceFlows.get(p.flow);
+    const drawnFlow = flowById.get(p.flow);
+    if (source === undefined || drawnFlow === undefined) return undefined;
+    const model = deriveLifecycle(
+      source,
+      validated.drawableStepIds,
+      validated.drawableTransitionIds,
+    );
+    const text = shared
+      ? deriveLifecycle(drawnFlow, validated.drawableStepIds, validated.drawableTransitionIds)
+      : model;
+    return { model, text, flow: drawnFlow };
+  };
+  // 칸은 원본 지도로 채우고 글자는 그린 쪽 흐름과 노드에서 꺼낸다. 노드 id는 공유본에서도 그대로라 맞물린다
+  const blueprintOf = (p: ArchitectureProjection) => {
+    if (p.shape !== 'blueprint' || p.flow === undefined) return undefined;
+    const source = sourceFlows.get(p.flow);
+    const drawnFlow = flowById.get(p.flow);
+    if (source === undefined || drawnFlow === undefined) return undefined;
+    const model = deriveBlueprint(source, {
+      nodes: validated.ir.nodes,
+      edges: validated.ir.edges,
+      drawableNodeIds: validated.drawableNodeIds,
+      drawableEdgeIds: validated.drawableEdgeIds,
+      drawableStepIds: validated.drawableStepIds,
+      drawableTransitionIds: validated.drawableTransitionIds,
+    });
+    return { model, flow: drawnFlow };
+  };
+  // 테이블과 선 좌표는 원본 노드로 내고 글자는 그린 쪽 노드의 같은 자리 컬럼에서 꺼낸다
+  const erOf = (p: ArchitectureProjection) => {
+    if (p.shape !== 'er') return undefined;
+    const model = deriveEr(p, {
+      nodes: validated.ir.nodes,
+      drawableNodeIds: validated.drawableNodeIds,
+    });
+    return model.tables.length > 0 ? model : undefined;
+  };
   const rootFlowLinks = flowLevels
     .filter(({ flow }) => flow.service === undefined)
     .map(({ level, flow }) => ({ level: level.id, title: flow.title }))
@@ -2210,12 +2742,32 @@ export function renderDrilldownHtml(
           ? {
               viewStrip: views.map((v) => {
                 const drawn = v.projection.messages.filter((m) => drawnMessages.has(m.id));
+                const life = lifecycleOf(v.projection);
+                const bp = blueprintOf(v.projection);
+                const er = erOf(v.projection);
                 return {
                   ...v,
                   steps: drawn.length,
                   actors:
                     v.projection.participants?.length ??
                     new Set(drawn.flatMap((m) => [m.from, m.to])).size,
+                  ...(life !== undefined
+                    ? {
+                        summary: `상태 ${life.model.states.length}, 전이 ${life.model.transitions.length}`,
+                      }
+                    : {}),
+                  ...(bp !== undefined
+                    ? {
+                        summary: `단계 ${bp.model.columns.length}, 빈 칸 ${
+                          bp.model.columns
+                            .flatMap((c) => Object.values(c.cells))
+                            .filter((items) => items.length === 0).length
+                        }`,
+                      }
+                    : {}),
+                  ...(er !== undefined
+                    ? { summary: `테이블 ${er.tables.length}, 외래 키 ${er.links.length}` }
+                    : {}),
                 };
               }),
             }
@@ -2224,12 +2776,43 @@ export function renderDrilldownHtml(
     )
     .concat(
       flowLevels.map(({ level, flow }) =>
-        renderFlowSection(level, flow, questionCount, drawableNodes, captureOf),
+        renderFlowSection(level, flow, questionCount, drawableNodes, captureOf, maskText),
       ),
     )
     .concat(
       views.map((v) => {
         const p = v.projection;
+        const life = lifecycleOf(p);
+        if (life !== undefined) {
+          const layout = computeLifecycleLayout(life.model);
+          return renderLifecycleSection(
+            v.level,
+            p,
+            life.flow,
+            life.text,
+            layout,
+            questionCount,
+            maskText,
+          );
+        }
+        const bp = blueprintOf(p);
+        if (bp !== undefined) {
+          const layout = computeBlueprintLayout(bp.model);
+          return renderBlueprintSection(
+            v.level,
+            p,
+            bp.flow,
+            bp.model,
+            layout,
+            nodeById,
+            questionCount,
+            maskText,
+          );
+        }
+        const er = erOf(p);
+        if (er !== undefined) {
+          return renderErSection(v.level, p, er, computeErLayout(er), nodeById, base.unresolved);
+        }
         if (p.shape === 'dataflow') {
           const layout = computeDataflowLayout(p, drawnMessages, nodeById);
           return renderDataflowSection(v.level, p, layout, nodeById, base.services);
@@ -2265,5 +2848,8 @@ export function renderDrilldownHtml(
     ...(views.length > 0 ? { views } : {}),
     mixedBundles: levels.some((l) => l.edges.some((e) => e.inferred !== undefined)),
     ...(sequenceSteps.length > 0 ? { sequences: sequenceSteps } : {}),
+    ...(views.some((v) => v.projection.shape === 'lifecycle') ? { lifecycles: true } : {}),
+    ...(views.some((v) => v.projection.shape === 'blueprint') ? { blueprints: true } : {}),
+    ...(views.some((v) => v.projection.shape === 'er') ? { ers: true } : {}),
   });
 }

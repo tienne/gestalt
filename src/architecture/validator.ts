@@ -1,6 +1,9 @@
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { classifyCliCommand } from '../utils/read-only-tools.js';
+import { blueprintCounts, blueprintOverBudget, deriveBlueprint } from './blueprint-layout.js';
+import { deriveEr, erCounts, erOverBudget, isUnconfirmedFk } from './er-layout.js';
+import { deriveLifecycle, lifecycleCounts, lifecycleOverBudget } from './lifecycle-layout.js';
 import { indexMicroApps } from './micro-app.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, packById } from './packs/index.js';
 import { KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
@@ -66,13 +69,16 @@ export type ArchitectureValidationErrorCode =
   | 'SOLID_MESSAGE_WITHOUT_EVIDENCE'
   | 'PROJECTION_EMPTY'
   | 'PROJECTION_SHAPE_FIELD'
+  | 'PROJECTION_FLOW_NOT_FOUND'
   | 'DUPLICATE_PHASE_ID'
   | 'PROJECTION_PHASE_MESSAGE_NOT_FOUND'
   | 'PROJECTION_PHASE_REVERSED'
   | 'PROJECTION_PHASE_OVERLAP'
   | 'PROJECTION_PHASE_GAP'
   | 'INVALID_DESCRIBES_FROM'
-  | 'SOLID_DESCRIBES';
+  | 'SOLID_DESCRIBES'
+  | 'COLUMN_REFERENCE_NOT_FOUND'
+  | 'INVALID_COLUMN_REFERENCE_KIND';
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -85,14 +91,33 @@ export interface ArchitectureValidationError {
   projectionId?: string;
   messageId?: string;
   phaseId?: string;
+  /** 노드 컬럼의 근거나 외래 키에서 난 오류. nodeId와 함께 온다 */
+  column?: string;
   evidenceIndex?: number;
 }
 
 /** 렌더를 막지 않는 알림. 저장하지 않고 validate와 render 응답에만 싣는다 */
-export interface ArchitectureValidationWarning {
+export type ArchitectureValidationWarning = DescriptionWarning | BudgetWarning;
+
+export interface DescriptionWarning {
   code: 'NODE_DESCRIPTION_MISSING';
   message: string;
   nodeIds: string[];
+}
+
+export type BudgetWarningCode =
+  | 'LIFECYCLE_OVER_BUDGET'
+  | 'BLUEPRINT_OVER_BUDGET'
+  | 'ER_OVER_BUDGET'
+  | 'DELTA_OVER_BUDGET';
+
+/** 그림 한 장이 읽히는 양을 넘었다. 그리기는 하고 나누라고만 알린다 */
+export interface BudgetWarning {
+  code: BudgetWarningCode;
+  message: string;
+  /** 예산을 넘은 그림. 투영이면 투영 id다 */
+  subjectId: string;
+  counts: Record<string, number>;
 }
 
 export interface ValidatedIr {
@@ -195,6 +220,7 @@ function checkEvidenceList(
   evidence: Evidence[],
   owner:
     | { nodeId: string }
+    | { nodeId: string; column: string }
     | { edgeId: string }
     | { flowId: string; stepId: string }
     | { flowId: string; transitionId: string }
@@ -232,6 +258,53 @@ function checkEvidenceList(
       }
     }
   });
+}
+
+/**
+ * 외래 키는 db_table 노드를 가리켜야 한다. 대상이 컬럼을 적었으면 가리킨 컬럼도 거기 있어야 한다.
+ * 대상이 컬럼을 하나도 안 적었으면 없다고 단정할 수 없어 거부하지 않는다
+ */
+function checkColumnReferences(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  const byId = new Map(ir.nodes.map((n) => [n.id, n]));
+  for (const node of ir.nodes) {
+    for (const c of node.columns ?? []) {
+      const ref = c.references;
+      if (ref === undefined) continue;
+      const where = `노드 "${node.id}"의 컬럼 "${c.name}"`;
+      const target = byId.get(ref.table);
+      if (target === undefined) {
+        errors.push({
+          code: 'COLUMN_REFERENCE_NOT_FOUND',
+          message: `${where}가 가리킨 테이블 "${ref.table}"가 nodes에 없다.`,
+          nodeId: node.id,
+          column: c.name,
+        });
+        continue;
+      }
+      if (target.kind !== 'db_table') {
+        errors.push({
+          code: 'INVALID_COLUMN_REFERENCE_KIND',
+          message: `${where}가 가리킨 "${ref.table}"는 ${target.kind} 노드다. 외래 키는 db_table을 가리킨다.`,
+          nodeId: node.id,
+          column: c.name,
+        });
+        continue;
+      }
+      if (
+        ref.column !== undefined &&
+        target.columns !== undefined &&
+        target.columns.length > 0 &&
+        !target.columns.some((tc) => tc.name === ref.column)
+      ) {
+        errors.push({
+          code: 'COLUMN_REFERENCE_NOT_FOUND',
+          message: `${where}가 가리킨 컬럼 "${ref.table}.${ref.column}"가 그 테이블의 columns에 없다.`,
+          nodeId: node.id,
+          column: c.name,
+        });
+      }
+    }
+  }
 }
 
 function checkGroups(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
@@ -422,6 +495,7 @@ function checkDocRepos(ir: ArchitectureIr, errors: ArchitectureValidationError[]
     evidence: Evidence[],
     owner:
       | { nodeId: string }
+      | { nodeId: string; column: string }
       | { edgeId: string }
       | { flowId: string; stepId: string }
       | { flowId: string; transitionId: string }
@@ -440,6 +514,7 @@ function checkDocRepos(ir: ArchitectureIr, errors: ArchitectureValidationError[]
   for (const n of ir.nodes) {
     check(n.evidence, { nodeId: n.id });
     for (const list of Object.values(n.platformEvidence ?? {})) check(list, { nodeId: n.id });
+    for (const c of n.columns ?? []) check(c.evidence ?? [], { nodeId: n.id, column: c.name });
   }
   for (const e of ir.edges) check(e.evidence, { edgeId: e.id });
   for (const f of ir.flows ?? []) {
@@ -698,6 +773,17 @@ function checkProjections(
     };
     for (const id of p.participants ?? []) missingNode(id, 'participants');
     checkProjectionShape(p, errors);
+    if (p.shape === 'er') {
+      const kindById = new Map(ir.nodes.map((n) => [n.id, n.kind]));
+      for (const id of erNonTableParticipants(p, kindById)) {
+        errors.push({
+          code: 'PROJECTION_SHAPE_FIELD',
+          message: `투영 "${p.id}"는 er인데 participants의 "${id}"가 ${kindById.get(id)} 노드다. er은 db_table만 그린다.`,
+          projectionId: p.id,
+        });
+      }
+    }
+    if (FLOW_SHAPES.has(p.shape) && p.flow !== undefined) checkProjectionFlow(ir, p, errors);
     for (const side of p.sides ?? []) {
       for (const id of side.nodes) missingNode(id, `묶음 "${side.id}"의 nodes`);
     }
@@ -875,6 +961,45 @@ function checkProjectionShape(
       projectionId: p.id,
     });
   };
+  if (p.shape === 'lifecycle') {
+    if (p.messages.length > 0)
+      misuse('messages가 있다. lifecycle은 flow 단계의 상태에서 선을 뽑는다.');
+    if (p.participants !== undefined)
+      misuse('participants가 있다. lifecycle은 지도 노드를 안 쓴다.');
+  }
+  if (p.shape === 'blueprint') {
+    if (p.messages.length > 0) misuse('messages가 있다. blueprint는 선을 긋지 않는다.');
+    if (p.participants !== undefined)
+      misuse('participants가 있다. blueprint는 flow 단계가 가리킨 노드에서 칸을 채운다.');
+  }
+  if (FLOW_SHAPES.has(p.shape)) {
+    if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
+    if (p.phases !== undefined) misuse('phases가 있다. 구간은 sequence만 쓴다.');
+    if (p.sides !== undefined) misuse('sides가 있다. 묶음 견주기는 compare만 쓴다.');
+    if (p.flow === undefined)
+      misuse(
+        p.shape === 'lifecycle'
+          ? 'flow가 없다. 상태를 뽑을 도메인 흐름 id를 적는다.'
+          : 'flow가 없다. 단계 열을 뽑을 도메인 흐름 id를 적는다.',
+      );
+    return;
+  }
+  if (p.flow !== undefined) misuse('flow가 있다. 흐름을 가리키는 건 lifecycle과 blueprint만 쓴다.');
+  if (p.shape === 'er') {
+    if (p.messages.length > 0)
+      misuse('messages가 있다. er은 컬럼의 references에서 외래 키 선을 뽑는다.');
+    if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
+    if (p.phases !== undefined) misuse('phases가 있다. 구간은 sequence만 쓴다.');
+    if (p.sides !== undefined) misuse('sides가 있다. 묶음 견주기는 compare만 쓴다.');
+    if ((p.participants ?? []).length === 0) {
+      errors.push({
+        code: 'PROJECTION_EMPTY',
+        message: `투영 "${p.id}"에 participants가 없다. er은 그릴 db_table 노드 id를 participants에 적는다.`,
+        projectionId: p.id,
+      });
+    }
+    return;
+  }
   if (p.shape === 'compare') {
     if (p.messages.length > 0) misuse('messages가 있다. compare는 sides만 쓴다.');
     if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
@@ -903,6 +1028,68 @@ function checkProjectionShape(
   }
 }
 
+/** 흐름 하나를 가리켜 그리는 모양. 지도 노드 대신 흐름에서 그림을 뽑는다 */
+const FLOW_SHAPES: ReadonlySet<ArchitectureProjection['shape']> = new Set([
+  'lifecycle',
+  'blueprint',
+]);
+
+/**
+ * 가리킨 흐름이 있어야 한다. lifecycle은 상태를 단 단계가, blueprint는 갈림길이 아닌 단계가 하나라도 있어야 그릴 것이 생긴다
+ */
+function checkProjectionFlow(
+  ir: ArchitectureIr,
+  p: ArchitectureProjection,
+  errors: ArchitectureValidationError[],
+): void {
+  const flow = (ir.flows ?? []).find((f) => f.id === p.flow);
+  if (flow === undefined) {
+    errors.push({
+      code: 'PROJECTION_FLOW_NOT_FOUND',
+      message: `투영 "${p.id}"의 flow "${p.flow}"가 flows에 없다.`,
+      projectionId: p.id,
+    });
+    return;
+  }
+  if (!flowHasNothingToDraw(p, flow)) return;
+  errors.push({
+    code: 'PROJECTION_EMPTY',
+    message:
+      p.shape === 'blueprint'
+        ? `투영 "${p.id}"가 가리킨 흐름 "${flow.id}"에 갈림길 말고 단계가 없다. blueprint는 단계를 열로 세운다.`
+        : `투영 "${p.id}"가 가리킨 흐름 "${flow.id}"에 state를 단 단계가 없다. lifecycle은 단계의 state로 상태를 그린다.`,
+    projectionId: p.id,
+    flowId: flow.id,
+  });
+}
+
+/**
+ * er 그림의 participants 가운데 db_table이 아닌 노드 id를 돌려준다. nodes에 없는 id는 PROJECTION_NODE_NOT_FOUND가 따로 잡으니 넣지 않는다.
+ * 재실행 이월(store.ts carryProjections)도 이 기준으로 걸러야 이어 실은 그림이 검증에서 render 전체를 막지 않는다
+ */
+export function erNonTableParticipants(
+  p: Pick<ArchitectureProjection, 'shape' | 'participants'>,
+  kindById: ReadonlyMap<string, ArchitectureNode['kind']>,
+): string[] {
+  if (p.shape !== 'er') return [];
+  return (p.participants ?? []).filter((id) => {
+    const kind = kindById.get(id);
+    return kind !== undefined && kind !== 'db_table';
+  });
+}
+
+/**
+ * lifecycle과 blueprint 그림이 가리킨 흐름에서 그릴 단계를 못 찾으면 true다.
+ * 재실행 이월(store.ts carryProjections)도 이 기준으로 걸러야 이어 실은 그림이 검증에서 render 전체를 막지 않는다
+ */
+export function flowHasNothingToDraw(
+  p: Pick<ArchitectureProjection, 'shape'>,
+  flow: ArchitectureFlow,
+): boolean {
+  if (p.shape === 'blueprint') return !flow.steps.some((st) => st.kind !== 'decision');
+  return !flow.steps.some((st) => st.state !== undefined);
+}
+
 /**
  * 투영에서 그릴 메시지를 고른다. 근거가 없으면 그리지 않고 질문으로 돌린다.
  * 양 끝 노드가 안 그려지는 메시지도 뺀다. 선은 근거로 다시 정한다
@@ -913,6 +1100,7 @@ function settleProjections(
   drawableNodeIds: ReadonlySet<string>,
   nameById: (id: string) => string,
   ask: (q: UnresolvedQuestion) => void,
+  flows: DrawnFlows,
 ): { projections: ArchitectureProjection[]; messages: Set<string>; drawable: Set<string> } {
   const messages = new Set<string>();
   const drawable = new Set<string>();
@@ -940,7 +1128,106 @@ function settleProjections(
       drawable.add(p.id);
     }
   }
+  for (const p of projections) {
+    if (p.shape === 'lifecycle' && lifecycleOf(p, flows) !== undefined) drawable.add(p.id);
+    if (p.shape === 'blueprint' && blueprintOf(p, flows) !== undefined) drawable.add(p.id);
+    if (p.shape === 'er' && erOf(p, flows) !== undefined) drawable.add(p.id);
+  }
   return { projections: settled, messages, drawable };
+}
+
+/** 그리는 흐름에서 뽑은 상태가 하나라도 있으면 그 모델. 흐름 레벨이 안 서는 흐름은 서랍을 못 열어 그리지 않는다 */
+function lifecycleOf(p: ArchitectureProjection, flows: DrawnFlows) {
+  const flow = flows.flows.find((f) => f.id === p.flow);
+  if (flow === undefined || !flows.drawn.has(flow.id)) return undefined;
+  const model = deriveLifecycle(flow, flows.steps, flows.transitions);
+  return model.states.length > 0 ? model : undefined;
+}
+
+/** 그리는 흐름에서 정상 흐름 단계 열이 하나라도 서면 그 모델. 흐름 레벨이 안 서는 흐름은 단계 서랍을 못 열어 그리지 않는다 */
+function blueprintOf(p: ArchitectureProjection, flows: DrawnFlows) {
+  const flow = flows.flows.find((f) => f.id === p.flow);
+  if (flow === undefined || !flows.drawn.has(flow.id)) return undefined;
+  const model = deriveBlueprint(flow, {
+    nodes: flows.nodes,
+    edges: flows.edges,
+    drawableNodeIds: flows.nodeIds,
+    drawableEdgeIds: flows.edgeIds,
+    drawableStepIds: flows.steps,
+    drawableTransitionIds: flows.transitions,
+  });
+  return model.columns.length > 0 ? model : undefined;
+}
+
+/** 그려지는 테이블이 하나라도 서면 그 모델. 근거 없는 테이블은 지도처럼 질문으로만 남는다 */
+function erOf(p: ArchitectureProjection, flows: DrawnFlows) {
+  const model = deriveEr(p, { nodes: flows.nodes, drawableNodeIds: flows.nodeIds });
+  return model.tables.length > 0 ? model : undefined;
+}
+
+interface DrawnFlows {
+  flows: readonly ArchitectureFlow[];
+  /** 흐름 레벨이 서는 흐름 id. 서비스에 딸렸으면 그 서비스가 그려져야 한다 */
+  drawn: ReadonlySet<string>;
+  steps: ReadonlySet<string>;
+  transitions: ReadonlySet<string>;
+  /** blueprint가 단계에서 지도로 따라 내려가는 데 쓴다 */
+  nodes: readonly ArchitectureNode[];
+  edges: readonly ArchitectureEdge[];
+  nodeIds: ReadonlySet<string>;
+  edgeIds: ReadonlySet<string>;
+}
+
+// 렌더러와 같은 모델에서 세야 경고 숫자와 그림이 어긋나지 않는다
+function budgetWarnings(
+  projections: readonly ArchitectureProjection[],
+  drawable: ReadonlySet<string>,
+  flows: DrawnFlows,
+): BudgetWarning[] {
+  const out: BudgetWarning[] = [];
+  for (const p of projections) {
+    if (p.shape === 'er' && drawable.has(p.id)) {
+      const model = erOf(p, flows);
+      if (model === undefined) continue;
+      const counts = erCounts(model);
+      const over = erOverBudget(counts);
+      if (over.length === 0) continue;
+      out.push({
+        code: 'ER_OVER_BUDGET',
+        message: `테이블 그림 "${p.title}"이 한 장에 읽히는 양을 넘는다. ${over.join(', ')}. 질문에 걸린 테이블만 남기거나 그림을 나눈다.`,
+        subjectId: p.id,
+        counts: { ...counts },
+      });
+      continue;
+    }
+    if (p.shape === 'blueprint' && drawable.has(p.id)) {
+      const model = blueprintOf(p, flows);
+      if (model === undefined) continue;
+      const counts = blueprintCounts(model);
+      const over = blueprintOverBudget(counts);
+      if (over.length === 0) continue;
+      out.push({
+        code: 'BLUEPRINT_OVER_BUDGET',
+        message: `서비스 블루프린트 "${p.title}"이 한 장에 읽히는 양을 넘는다. ${over.join(', ')}. 단계를 합치거나 흐름을 나눈다.`,
+        subjectId: p.id,
+        counts: { ...counts },
+      });
+      continue;
+    }
+    if (p.shape !== 'lifecycle' || !drawable.has(p.id)) continue;
+    const model = lifecycleOf(p, flows);
+    if (model === undefined) continue;
+    const counts = lifecycleCounts(model);
+    const over = lifecycleOverBudget(counts);
+    if (over.length === 0) continue;
+    out.push({
+      code: 'LIFECYCLE_OVER_BUDGET',
+      message: `상태 흐름 "${p.title}"이 한 장에 읽히는 양을 넘는다. ${over.join(', ')}. 세부 상태를 합치거나 흐름을 나눈다.`,
+      subjectId: p.id,
+      counts: { ...counts },
+    });
+  }
+  return out;
 }
 
 /**
@@ -1217,8 +1504,12 @@ export function validateArchitectureIr(
     for (const platform of Object.keys(node.platformEvidence ?? {}).sort() as Platform[]) {
       checkEvidenceList(node.platformEvidence![platform]!, { nodeId: node.id }, ctx, errors);
     }
+    for (const c of node.columns ?? []) {
+      checkEvidenceList(c.evidence ?? [], { nodeId: node.id, column: c.name }, ctx, errors);
+    }
   }
   checkPacks(ir, errors);
+  checkColumnReferences(ir, errors);
   checkDocRepos(ir, errors);
   checkParents(ir, errors);
   checkAccounts(ir, errors);
@@ -1327,6 +1618,22 @@ export function validateArchitectureIr(
     }
   }
 
+  // 근거 없는 외래 키는 선으로 긋지 않는다. 테이블 하나에 컬럼마다 질문이 설 수 있어 id로 겹침을 본다
+  for (const node of ir.nodes) {
+    if (node.kind !== 'db_table' || !drawableNodeIds.has(node.id)) continue;
+    for (const c of node.columns ?? []) {
+      if (!isUnconfirmedFk(c)) continue;
+      const ref = c.references!;
+      const target =
+        ref.column !== undefined ? `${nameById(ref.table)}.${ref.column}` : nameById(ref.table);
+      askById({
+        id: `auto:fk:${node.id}:${c.name}`,
+        subject: { nodeId: node.id },
+        question: `"${nameOf(node)}"의 "${c.name}" 컬럼이 "${target}"를 가리킨다는 근거를 못 찾았어요. 마이그레이션이나 엔티티 정의가 어디 있나요?`,
+      });
+    }
+  }
+
   // 진입 앱을 못 정하면 사용자가 받는 도메인이 어느 사슬인지 그림이 말하지 못한다
   const drawn = ir.nodes.filter((n) => drawableNodeIds.has(n.id));
   const apps = indexMicroApps(
@@ -1347,6 +1654,20 @@ export function validateArchitectureIr(
   }
 
   const flowResult = settleFlows(ir.flows ?? [], ask, askById);
+  const drawnFlows: DrawnFlows = {
+    flows: flowResult.flows,
+    drawn: new Set(
+      flowResult.flows
+        .filter((f) => f.service === undefined || drawableNodeIds.has(f.service))
+        .map((f) => f.id),
+    ),
+    steps: flowResult.steps,
+    transitions: flowResult.transitions,
+    nodes: ir.nodes,
+    edges,
+    nodeIds: drawableNodeIds,
+    edgeIds: drawableEdgeIds,
+  };
   const projectionResult =
     ir.projections !== undefined
       ? settleProjections(
@@ -1355,6 +1676,7 @@ export function validateArchitectureIr(
           drawableNodeIds,
           nameById,
           ask,
+          drawnFlows,
         )
       : undefined;
   return {
@@ -1377,7 +1699,12 @@ export function validateArchitectureIr(
           }
         : {}),
       autoUnresolved,
-      warnings: descriptionWarnings(ir.nodes, drawableNodeIds),
+      warnings: [
+        ...descriptionWarnings(ir.nodes, drawableNodeIds),
+        ...(projectionResult !== undefined
+          ? budgetWarnings(projectionResult.projections, projectionResult.drawable, drawnFlows)
+          : []),
+      ],
     },
   };
 }
@@ -1386,7 +1713,7 @@ export function validateArchitectureIr(
 function descriptionWarnings(
   nodes: readonly ArchitectureNode[],
   drawableNodeIds: ReadonlySet<string>,
-): ArchitectureValidationWarning[] {
+): DescriptionWarning[] {
   const missing = nodes
     .filter((n) => drawableNodeIds.has(n.id) && !hasCardDescription(n.description))
     .map((n) => n.id)
@@ -1409,6 +1736,13 @@ function mapEvidence(ir: ArchitectureIr, fn: (ev: Evidence) => Evidence): Archit
       ? {
           platformEvidence: Object.fromEntries(
             Object.entries(n.platformEvidence).map(([p, list]) => [p, list.map(fn)]),
+          ),
+        }
+      : {}),
+    ...(n.columns !== undefined
+      ? {
+          columns: n.columns.map((c) =>
+            c.evidence !== undefined ? { ...c, evidence: c.evidence.map(fn) } : { ...c },
           ),
         }
       : {}),
@@ -1577,6 +1911,28 @@ function maskNodeText(node: ArchitectureNode): ArchitectureNode {
     ...(node.displayName !== undefined ? { displayName: mask(node.displayName) } : {}),
     ...(node.description !== undefined ? { description: mask(node.description) } : {}),
     ...(doc !== undefined ? { doc: maskDocInfo(doc) } : {}),
+    ...(node.columns !== undefined
+      ? {
+          columns: node.columns.map((c) => ({
+            ...c,
+            name: mask(c.name),
+            ...(c.type !== undefined ? { type: mask(c.type) } : {}),
+            ...(c.references !== undefined
+              ? {
+                  references: {
+                    ...c.references,
+                    ...(c.references.column !== undefined
+                      ? { column: mask(c.references.column) }
+                      : {}),
+                    ...(c.references.onDelete !== undefined
+                      ? { onDelete: mask(c.references.onDelete) }
+                      : {}),
+                  },
+                }
+              : {}),
+          })),
+        }
+      : {}),
   };
 }
 
@@ -1606,11 +1962,24 @@ export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
     ...(redacted.projections !== undefined
       ? { projections: redacted.projections.map(maskProjectionText) }
       : {}),
-    unresolved: redacted.unresolved.map((q) => ({
-      ...q,
-      question: maskSharedText(q.question),
-      ...(q.answer !== undefined ? { answer: maskSharedText(q.answer) } : {}),
-    })),
+    ...(redacted.stages !== undefined
+      ? { stages: redacted.stages.map((s) => ({ ...s, label: maskSharedText(s.label) })) }
+      : {}),
+    ...(redacted.groups !== undefined
+      ? { groups: redacted.groups.map((g) => ({ ...g, name: maskSharedText(g.name) })) }
+      : {}),
+    unresolved: redacted.unresolved.map(maskSharedQuestion),
+  };
+}
+
+/** 공유본의 질문. 저장된 질문과 그릴 때 만든 자동 질문이 같은 규칙으로 가려지게 한 곳에 둔다 */
+export function maskSharedQuestion(q: UnresolvedQuestion): UnresolvedQuestion {
+  return {
+    ...q,
+    // 다른 질문 id는 노드 id만 담지만 외래 키 질문 id는 컬럼 이름을 담는다
+    ...(q.id.startsWith('auto:fk:') ? { id: maskSharedText(q.id) } : {}),
+    question: maskSharedText(q.question),
+    ...(q.answer !== undefined ? { answer: maskSharedText(q.answer) } : {}),
   };
 }
 

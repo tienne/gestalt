@@ -16,6 +16,7 @@ import type {
   ArchitectureRepo,
   ContextSource,
   Evidence,
+  NodeColumn,
   Platform,
   UnresolvedQuestion,
 } from './types.js';
@@ -129,11 +130,21 @@ interface Slot {
   parent: { input: number; id: string; user: boolean }[];
   account: { input: number; id: string; user: boolean }[];
   environment: Claim[];
+  /** 이름 순서대로 모은 컬럼. references.table은 refInput 입력 안의 id라 노드 id가 다 정해진 뒤에 바꾼다 */
+  columns: Map<string, ColumnSlot>;
   /** micro_app을 자기 레포에서 분석한 입력이 적은 레포. 그 입력에는 이 앱으로 들어오는 loads가 없다 */
   ownRepo?: string;
 }
 
-type ConflictField = 'displayName' | 'parent' | 'environment' | 'account';
+/** 입력마다 준 references와 type을 모아 둔다. 먼저 온 값으로 그리되 갈리면 묻는다 */
+interface ColumnSlot {
+  column: NodeColumn;
+  refInput: number;
+  refClaims: { input: number; table: string }[];
+  typeClaims: string[];
+}
+
+type ConflictField = 'displayName' | 'parent' | 'environment' | 'account' | 'column';
 
 const CONFLICT_QUESTION: Record<ConflictField, (name: string, values: string[]) => string> = {
   displayName: (name, values) =>
@@ -144,6 +155,8 @@ const CONFLICT_QUESTION: Record<ConflictField, (name: string, values: string[]) 
     `"${name}"의 환경이 분석마다 달라요 (${values.join(', ')}). 어느 환경이 맞나요?`,
   account: (name, values) =>
     `"${name}"가 속한 계정이 분석마다 달라요 (${values.map((v) => `"${v}"`).join(', ')}). 어느 계정이 맞나요?`,
+  column: (name, values) =>
+    `"${name}" 컬럼이 분석마다 달라요 (${values.join(', ')}). 어느 쪽이 맞나요?`,
 };
 
 /**
@@ -302,6 +315,7 @@ export function mergeArchitectureIrs(
           parent: _p,
           account: _a,
           environment: _e,
+          columns: _c,
           ...rest
         } = raw;
         slot = {
@@ -317,6 +331,7 @@ export function mergeArchitectureIrs(
           parent: [],
           account: [],
           environment: [],
+          columns: new Map(),
         };
         candidates.push(slot);
         slotsByKey.set(key, candidates);
@@ -354,6 +369,36 @@ export function mergeArchitectureIrs(
           prevInferred === undefined ? inferred : prevInferred && inferred,
         );
       }
+      // 컬럼은 이름으로 합친다. 근거는 합집합이고 나머지 값은 먼저 준 입력 것을 두되 비어 있던 값만 채운다
+      for (const c of raw.columns ?? []) {
+        const evidence = c.evidence !== undefined ? remapEvidence(c.evidence, map) : undefined;
+        const prev =
+          slot.columns.get(c.name) ??
+          ({
+            column: { ...c, ...(evidence !== undefined ? { evidence } : {}) },
+            refInput: input,
+            refClaims: [],
+            typeClaims: [],
+          } satisfies ColumnSlot);
+        if (c.references !== undefined) {
+          prev.refClaims.push({ input, table: c.references.table });
+        }
+        if (c.type !== undefined) prev.typeClaims.push(c.type);
+        if (!slot.columns.has(c.name)) {
+          slot.columns.set(c.name, prev);
+          continue;
+        }
+        const col = prev.column;
+        if (col.type === undefined && c.type !== undefined) col.type = c.type;
+        if (col.pk === undefined && c.pk !== undefined) col.pk = c.pk;
+        if (col.nullable === undefined && c.nullable !== undefined) col.nullable = c.nullable;
+        if (col.unique === undefined && c.unique !== undefined) col.unique = c.unique;
+        if (col.references === undefined && c.references !== undefined) {
+          col.references = { ...c.references };
+          prev.refInput = input;
+        }
+        if (evidence !== undefined) col.evidence = unionEvidence(col.evidence ?? [], evidence);
+      }
       if (raw.parent !== undefined) slot.parent.push({ input, id: raw.parent, user });
       if (raw.account !== undefined) slot.account.push({ input, id: raw.account, user });
       if (raw.environment !== undefined) slot.environment.push({ value: raw.environment, user });
@@ -378,6 +423,36 @@ export function mergeArchitectureIrs(
   const nodes: ArchitectureNode[] = slots.map((slot) => {
     const id = idOfSlot.get(slot)!;
     const node: ArchitectureNode = { ...slot.node, id };
+    if (slot.columns.size > 0) {
+      node.columns = [...slot.columns.values()].map(({ column, refInput }) =>
+        column.references !== undefined
+          ? {
+              ...column,
+              references: {
+                ...column.references,
+                table: mapNode(refInput, column.references.table),
+              },
+            }
+          : column,
+      );
+      // 참조 대상은 입력마다 제 id라 합친 id로 바꾼 뒤에 견줘야 같은 테이블을 충돌로 안 본다
+      [...slot.columns.values()].forEach((cs, i) => {
+        const tables = [...new Set(cs.refClaims.map((r) => mapNode(r.input, r.table)))];
+        const refs = tables.map((t) => `참조 "${nameById.get(t) ?? t}"`);
+        const types = [...new Set(cs.typeClaims)].map((t) => `타입 ${t}`);
+        const values = [...(refs.length > 1 ? refs : []), ...(types.length > 1 ? types : [])];
+        if (values.length === 0) return;
+        // 질문 id에 컬럼 이름을 넣으면 공유본에서 가린 이름이 id로 샌다. 순번으로 짓는다
+        conflictQuestions.push({
+          id: `merge:column:${id}:${i + 1}`,
+          subject: { nodeId: id },
+          question: CONFLICT_QUESTION.column(
+            `${nameOf(slot)}.${cs.column.name}`,
+            values.sort(byText),
+          ),
+        });
+      });
+    }
     const ask = (field: ConflictField, values: string[]): void => {
       conflictQuestions.push({
         id: `merge:${field}:${id}`,
@@ -532,15 +607,19 @@ export function mergeArchitectureIrs(
   const takenStepIds = new Set<string>();
   const stepIdOf = new Map<string, string>(); // `${input}\u0000${원래 id}` → 새 id. 단계와 전이가 함께 쓴다
   const mapStep = (input: number, id: string): string => stepIdOf.get(`${input}\u0000${id}`) ?? id;
+  // 상태 흐름 투영이 흐름을 id로 가리켜서 바뀐 흐름 id를 따로 적어 둔다
+  const flowIdOf = new Map<string, string>();
   for (const { ir, input } of ordered) {
     const map = repoMaps.get(input)!;
     for (const f of ir.flows ?? []) {
       for (const item of [...f.steps, ...f.transitions]) {
         stepIdOf.set(`${input}\u0000${item.id}`, uniqueId(item.id, takenStepIds));
       }
+      const flowId = uniqueId(f.id, takenFlowIds);
+      flowIdOf.set(`${input}\u0000${f.id}`, flowId);
       flows.push({
         ...f,
-        id: uniqueId(f.id, takenFlowIds),
+        id: flowId,
         ...(f.service !== undefined ? { service: mapNode(input, f.service) } : {}),
         steps: f.steps.map((st) => ({
           ...st,
@@ -576,6 +655,9 @@ export function mergeArchitectureIrs(
       projections.push({
         ...pr,
         id: uniqueId(pr.id, takenProjectionIds),
+        ...(pr.flow !== undefined
+          ? { flow: flowIdOf.get(`${input}\u0000${pr.flow}`) ?? pr.flow }
+          : {}),
         ...(pr.participants !== undefined
           ? { participants: pr.participants.map((id) => mapNode(input, id)) }
           : {}),

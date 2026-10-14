@@ -2,17 +2,24 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { readJsonOrQuarantine, writeJsonAtomic } from '../core/json-file.js';
+import { deriveBlueprint } from './blueprint-layout.js';
 import { parseArchitectureIr } from './ir-schema.js';
 import type {
   ArchitectureEdge,
   ArchitectureIr,
   ArchitectureNode,
+  ArchitectureFlow,
   ArchitectureProjection,
   ArchitectureView,
   ContextSource,
   UnresolvedQuestion,
 } from './types.js';
-import { idCarriesCloudId, stripPrivateExcerpts } from './validator.js';
+import {
+  erNonTableParticipants,
+  flowHasNothingToDraw,
+  idCarriesCloudId,
+  stripPrivateExcerpts,
+} from './validator.js';
 
 export interface PreviousRunSummary {
   generatedAt: string;
@@ -85,6 +92,20 @@ export class ArchitectureStore {
     writeTextAtomic(path, html);
     return path;
   }
+
+  /** 이전 실행과 이번 실행의 구조 변경 그림. 메인 그림과 따로 둬야 메인 HTML 바이트가 그대로다 */
+  deltaHtmlPath(view: ArchitectureView, audience: 'private' | 'shared'): string {
+    return join(
+      this.dir,
+      audience === 'shared' ? `${view}.delta.shared.html` : `${view}.delta.html`,
+    );
+  }
+
+  saveDeltaHtml(view: ArchitectureView, audience: 'private' | 'shared', html: string): string {
+    const path = this.deltaHtmlPath(view, audience);
+    writeTextAtomic(path, html);
+    return path;
+  }
 }
 
 export interface ProjectionSlice {
@@ -92,28 +113,82 @@ export interface ProjectionSlice {
   view: ArchitectureView;
   generatedAt: string;
   projection: ArchitectureProjection;
+  /** lifecycle과 blueprint가 가리킨 흐름. 이 파일 하나로 그 그림을 다시 그릴 수 있게 함께 싣는다 */
+  flow?: ArchitectureFlow;
   nodes: ArchitectureNode[];
   edges: ArchitectureEdge[];
   unresolved: UnresolvedQuestion[];
 }
 
+/** blueprint 칸에 선 노드와 칸을 채우려 따라간 엣지. 저장 시점엔 검증 결과가 없어 근거가 있는 엣지와 모든 노드를 그릴 수 있다고 본다 */
+function blueprintChain(
+  ir: ArchitectureIr,
+  flow: ArchitectureFlow,
+): { nodes: string[]; edges: string[] } {
+  const model = deriveBlueprint(flow, {
+    nodes: ir.nodes,
+    edges: ir.edges,
+    drawableNodeIds: new Set(ir.nodes.map((n) => n.id)),
+    drawableEdgeIds: new Set(ir.edges.filter((e) => e.evidence.length > 0).map((e) => e.id)),
+    drawableStepIds: new Set(flow.steps.map((st) => st.id)),
+    drawableTransitionIds: new Set(flow.transitions.map((t) => t.id)),
+  });
+  // 따라간 엣지의 양 끝도 싣는다. 칸에 안 서는 처리 모듈을 빼면 엣지가 없는 노드를 가리킨다
+  const edgeById = new Map(ir.edges.map((e) => [e.id, e]));
+  const nodes = [
+    ...model.columns.flatMap((c) =>
+      Object.values(c.cells).flatMap((items) =>
+        items.filter((it) => it.type === 'node').map((it) => it.id),
+      ),
+    ),
+    ...model.edges.flatMap((id) => {
+      const e = edgeById.get(id);
+      return e !== undefined ? [e.from, e.to] : [];
+    }),
+  ];
+  return { nodes, edges: model.edges };
+}
+
 function projectionSlice(ir: ArchitectureIr, pr: ArchitectureProjection): ProjectionSlice {
+  const flow = pr.flow !== undefined ? (ir.flows ?? []).find((f) => f.id === pr.flow) : undefined;
+  const chain =
+    pr.shape === 'blueprint' && flow !== undefined ? blueprintChain(ir, flow) : undefined;
+  // er 테이블이 가리키는 외래 키 대상도 싣는다. 그림 밖 테이블이어도 컬럼의 references가 없는 노드를 가리키지 않게 하려고다
+  const tables = pr.shape === 'er' ? new Set(pr.participants ?? []) : new Set<string>();
+  const fkTargets = ir.nodes
+    .filter((n) => tables.has(n.id))
+    .flatMap((n) => (n.columns ?? []).flatMap((c) => (c.references ? [c.references.table] : [])));
   const nodeIds = new Set([
+    ...(chain?.nodes ?? []),
+    ...fkTargets,
     ...(pr.participants ?? []),
     ...(pr.sides ?? []).flatMap((side) => side.nodes),
     ...pr.messages.flatMap((m) => [m.from, m.to]),
+    ...(flow?.steps ?? []).flatMap((st) => st.refs ?? []),
   ]);
-  const edgeIds = new Set(pr.messages.flatMap((m) => (m.edge !== undefined ? [m.edge] : [])));
+  const edgeIds = new Set([
+    ...pr.messages.flatMap((m) => (m.edge !== undefined ? [m.edge] : [])),
+    ...(chain?.edges ?? []),
+  ]);
   const messageIds = new Set(pr.messages.map((m) => m.id));
+  const stepIds = new Set(flow?.steps.map((st) => st.id) ?? []);
+  const transitionIds = new Set(flow?.transitions.map((t) => t.id) ?? []);
   return {
     schemaVersion: ir.schemaVersion,
     view: ir.view,
     generatedAt: ir.generatedAt,
     projection: pr,
+    ...(flow !== undefined ? { flow } : {}),
     nodes: ir.nodes.filter((n) => nodeIds.has(n.id)),
     edges: ir.edges.filter((e) => edgeIds.has(e.id)),
     unresolved: ir.unresolved.filter(
-      (q) => q.subject.messageId !== undefined && messageIds.has(q.subject.messageId),
+      (q) =>
+        (q.subject.messageId !== undefined && messageIds.has(q.subject.messageId)) ||
+        (q.id.startsWith('auto:fk:') &&
+          q.subject.nodeId !== undefined &&
+          tables.has(q.subject.nodeId)) ||
+        (q.subject.stepId !== undefined && stepIds.has(q.subject.stepId)) ||
+        (q.subject.transitionId !== undefined && transitionIds.has(q.subject.transitionId)),
     ),
   };
 }
@@ -190,6 +265,15 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     id: mapNodeId(n.id),
     ...(n.parent !== undefined ? { parent: mapNodeId(n.parent) } : {}),
     ...(n.account !== undefined ? { account: mapNodeId(n.account) } : {}),
+    ...(n.columns !== undefined
+      ? {
+          columns: n.columns.map((c) =>
+            c.references !== undefined
+              ? { ...c, references: { ...c.references, table: mapNodeId(c.references.table) } }
+              : { ...c },
+          ),
+        }
+      : {}),
   }));
 
   const prevEdgeIdByKey = new Map<string, string>();
@@ -250,11 +334,18 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
       ...(m.edge !== undefined ? { edge: mapEdgeId(m.edge) } : {}),
     })),
   }));
-  const nodeIds = new Set(nodes.map((n) => n.id));
+  const nodeKindById = new Map(nodes.map((n) => [n.id, n.kind]));
+  const nodeIds = new Set(nodeKindById.keys());
   const edgeIds = new Set(edges.map((e) => e.id));
   const edgeById = new Map(edges.map((e) => [e.id, e]));
   // 질문 하나에 답한 그림은 다음 실행이 다른 질문을 물어도 남아야 한다. 이번에 안 나온 지난 투영은 가리키는 것이 다 살아 있을 때만 이어 싣는다
-  const carried = carryProjections(prev.projections ?? [], projections ?? [], nodeIds, edgeById);
+  const carried = carryProjections(
+    prev.projections ?? [],
+    projections ?? [],
+    nodeKindById,
+    edgeById,
+    new Map(flows?.map((f) => [f.id, f]) ?? []),
+  );
   const allProjections =
     projections !== undefined || carried.length > 0
       ? [...(projections ?? []), ...carried]
@@ -319,8 +410,9 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
 function carryProjections(
   prev: readonly ArchitectureProjection[],
   next: readonly ArchitectureProjection[],
-  nodeIds: ReadonlySet<string>,
+  nodeKindById: ReadonlyMap<string, ArchitectureNode['kind']>,
   edgeById: ReadonlyMap<string, ArchitectureEdge>,
+  flowById: ReadonlyMap<string, ArchitectureFlow>,
 ): ArchitectureProjection[] {
   const projectionIds = new Set(next.map((pr) => pr.id));
   const messageIds = new Set(next.flatMap((pr) => pr.messages.map((m) => m.id)));
@@ -329,9 +421,14 @@ function carryProjections(
     if (projectionIds.has(pr.id)) continue;
     if (pr.messages.some((m) => messageIds.has(m.id))) continue;
     const listed = [...(pr.participants ?? []), ...(pr.sides ?? []).flatMap((side) => side.nodes)];
-    if (!listed.every((id) => nodeIds.has(id))) continue;
+    if (!listed.every((id) => nodeKindById.has(id))) continue;
+    if (erNonTableParticipants(pr, nodeKindById).length > 0) continue;
+    if (pr.flow !== undefined) {
+      const flow = flowById.get(pr.flow);
+      if (flow === undefined || flowHasNothingToDraw(pr, flow)) continue;
+    }
     const alive = pr.messages.every((m) => {
-      if (!nodeIds.has(m.from) || !nodeIds.has(m.to)) return false;
+      if (!nodeKindById.has(m.from) || !nodeKindById.has(m.to)) return false;
       if (m.edge === undefined) return true;
       const e = edgeById.get(m.edge);
       return (

@@ -520,3 +520,90 @@ describe('mergeArchitectureIrs — 제품 그룹', () => {
     expect(new Set(ir.groups!.map((g) => g.id)).size).toBe(3);
   });
 });
+
+describe('mergeArchitectureIrs — db_table 컬럼', () => {
+  const repo = (id: string) => ({
+    id,
+    name: 'acme-api',
+    root: `/c/${id}`,
+    remote: 'git@github.com:acme/acme-api.git',
+  });
+
+  it('같은 테이블의 컬럼은 이름으로 합치고 외래 키 대상 id는 합친 id로 바꾼다', () => {
+    const a = makeIr({
+      repos: [repo('api')],
+      nodes: [
+        node('tbl:users', 'db_table', 'users', 'api', { columns: [{ name: 'id', pk: true }] }),
+        node('tbl:orders', 'db_table', 'orders', 'api', {
+          columns: [{ name: 'id', pk: true }],
+        }),
+      ],
+    });
+    const b = makeIr({
+      repos: [repo('server')],
+      nodes: [
+        node('users-table', 'db_table', 'users', 'server'),
+        node('orders-table', 'db_table', 'orders', 'server', {
+          columns: [
+            { name: 'id', type: 'uuid' },
+            {
+              name: 'user_id',
+              references: { table: 'users-table', column: 'id' },
+              evidence: [code('server:migrations/1.sql:3')],
+            },
+          ],
+        }),
+      ],
+    });
+    const { ir } = merged([a, b]);
+    const users = byLabel(ir, 'db_table', 'users')[0]!;
+    const orders = byLabel(ir, 'db_table', 'orders')[0]!;
+    expect(orders.columns!.map((c) => c.name)).toEqual(['id', 'user_id']);
+    expect(orders.columns![0]).toMatchObject({ pk: true, type: 'uuid' });
+    expect(orders.columns![1]!.references!.table).toBe(users.id);
+    expect(orders.columns![1]!.evidence![0]!.location).toBe(`${orders.repo}:migrations/1.sql:3`);
+    expect(validateArchitectureIr(ir, { checkFiles: false }).ok).toBe(true);
+  });
+
+  function refIrs(bTarget: 'users' | 'accounts'): ArchitectureIr[] {
+    const a = makeIr({
+      repos: [repo('api')],
+      nodes: [
+        node('tbl:users', 'db_table', 'users', 'api'),
+        node('tbl:accounts', 'db_table', 'accounts', 'api'),
+        node('tbl:orders', 'db_table', 'orders', 'api', {
+          columns: [{ name: 'id' }, { name: 'user_id', references: { table: 'tbl:users' } }],
+        }),
+      ],
+    });
+    const b = makeIr({
+      repos: [repo('server')],
+      nodes: [
+        node('users-table', 'db_table', 'users', 'server'),
+        node('accounts-table', 'db_table', 'accounts', 'server'),
+        node('orders-table', 'db_table', 'orders', 'server', {
+          columns: [{ name: 'id' }, { name: 'user_id', references: { table: `${bTarget}-table` } }],
+        }),
+      ],
+    });
+    return [a, b];
+  }
+
+  it('입력마다 id가 달라도 같은 테이블을 가리키면 충돌이 아니다', () => {
+    const { ir, report } = merged(refIrs('users'));
+    expect(report.conflictQuestions).toEqual([]);
+    expect(ir.unresolved.filter((u) => u.id.startsWith('merge:column:'))).toEqual([]);
+  });
+
+  it('외래 키가 다른 테이블을 가리키면 질문 하나를 만들고 id에 컬럼 이름을 넣지 않는다', () => {
+    const { ir, report } = merged(refIrs('accounts'));
+    const orders = byLabel(ir, 'db_table', 'orders')[0]!;
+    const qs = ir.unresolved.filter((u) => u.id.startsWith('merge:column:'));
+    expect(qs).toHaveLength(1);
+    expect(qs[0]!.id).toBe(`merge:column:${orders.id}:2`);
+    expect(qs[0]!.id).not.toContain('user_id');
+    expect(qs[0]!.question).toContain('"users"');
+    expect(qs[0]!.question).toContain('"accounts"');
+    expect(report.conflictQuestions).toEqual([qs[0]!.id]);
+  });
+});

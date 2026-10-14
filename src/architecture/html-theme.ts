@@ -682,6 +682,100 @@ export const FLOW_BRANCH_CSS = `.node.flow-step.decision {
 }
 `;
 
+/**
+ * 상태 흐름 그림이 있을 때만 붙이는 스타일. 띠 이름과 끝 상태 배지 글자가 뜻을 싣고 색은 거든다.
+ * 끝 상태는 이중 테두리로 그려 색을 못 봐도 끝난 자리가 보인다.
+ * 실패 색은 공용 토큰에 넣으면 상태 흐름이 없는 그림의 바이트까지 바뀌어 여기서 라이트와 다크를 따로 준다
+ */
+export const LIFECYCLE_CSS = `:root { --lc-fail: #dc2626; }
+@media (prefers-color-scheme: dark) {
+:root:not([data-theme="light"]) { --lc-fail: #f87171; }
+}
+:root[data-theme="dark"] { --lc-fail: #f87171; }
+.lc-band rect { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
+.lc-band.lc-recovery rect { stroke: var(--warn); stroke-opacity: 0.35; stroke-dasharray: 6 4; }
+.lc-band.lc-terminal rect { stroke: var(--border-strong); }
+.lc-band-t { font-size: 12.5px; font-weight: 700; fill: var(--text); }
+.lc-band-n { font-weight: 400; fill: var(--muted); }
+.node.lc-state.o-done, .node.lc-state.o-cancel, .node.lc-state.o-fail, .node.lc-state.o-end { border: 3px double var(--brick-edge); }
+.node.lc-state.o-done { --kind: var(--ok); }
+.node.lc-state.o-cancel { --kind: var(--muted); }
+.node.lc-state.o-fail { --kind: var(--lc-fail); }
+.lc-state .lc-steps { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--muted); }
+.lc-state .lc-out { background: var(--kind); color: var(--on-accent); }
+.lc-state.o-end .lc-out { background: var(--text); color: var(--surface); }
+.link.flow-t .t-label.at-start { text-anchor: start; }
+.link.flow-t .t-label.lc-borrowed { font-weight: 400; font-style: italic; }
+`;
+
+/**
+ * 서비스 블루프린트가 있을 때만 붙이는 스타일. 가시선은 다른 선보다 굵고 진하게 긋고 라벨 글자를 단다.
+ * 가시선 아래 층은 옅게 칠해 숨은 일이라는 게 보이게 하되 층 이름 글자가 뜻을 싣는다
+ */
+export const BLUEPRINT_CSS = `.bp-row rect { fill: var(--surface); stroke: var(--lane-line); stroke-width: 1; }
+.bp-row.bp-backstage rect, .bp-row.bp-support rect { fill: var(--lane); }
+.bp-col-line { stroke: var(--lane-line); stroke-width: 1; stroke-dasharray: 3 5; }
+.bp-line { stroke: var(--border-strong); stroke-width: 1; }
+.bp-line.bp-visibility { stroke: var(--text); stroke-opacity: 0.6; stroke-width: 2; }
+.bp-vis-t, .bp-vis-n { paint-order: stroke; stroke: var(--bg); stroke-width: 8px; stroke-linejoin: round; }
+.bp-vis-t { font-size: 12px; font-weight: 700; fill: var(--text); }
+.bp-vis-n { font-size: 11px; fill: var(--muted); }
+.bp-row-t { position: absolute; display: flex; flex-direction: column; gap: 2px; pointer-events: none; }
+.bp-row-t b { font-size: 12.5px; font-weight: 700; line-height: 18px; color: var(--text); }
+.bp-row-t span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--muted); }
+.bp-stage {
+  position: absolute; display: flex; align-items: center; gap: 8px; padding: 0 12px; box-sizing: border-box; pointer-events: none;
+  border: 1px solid var(--lane-line); border-radius: 10px; background: var(--lane);
+}
+.bp-stage-n {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%;
+  font-size: 11px; font-weight: 700; color: var(--surface); background: var(--text);
+}
+.bp-stage-t { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 700; color: var(--text); }
+.bp-empty { position: absolute; height: 28px; font-size: 14px; line-height: 28px; text-align: center; color: var(--muted); }
+.bp-more {
+  position: absolute; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 700; line-height: 20px;
+  color: var(--text); background: var(--surface); border: 1px solid var(--border-strong);
+}
+.node.bp-card { padding-right: 10px; }
+.node.bp-card.doc-only { border-style: dashed; }
+.bp-card.flow-step .nm .t { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bp-card .bp-who { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--muted); }
+`;
+
+/**
+ * 테이블 관계 그림이 있을 때만 붙이는 스타일. 행 높이를 고정해 외래 키 선이 행 가운데에 붙는다.
+ * PK, FK, NULL은 글자 배지로 적어 색을 못 봐도 읽히고 근거 없는 외래 키는 FK? 글자로 가른다
+ */
+export const ER_CSS = `.node.er-table { display: block; padding: 0; overflow: hidden; }
+.er-head {
+  display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 10px; box-sizing: border-box;
+  border-bottom: 1px solid var(--brick-edge);
+}
+.er-head .nm { min-width: 0; flex: 1; }
+.er-head .qb { flex: none; display: inline-flex; align-items: center; gap: 2px; font-size: 10.5px; font-weight: 650; color: var(--warn); }
+.er-head .qb svg { width: 11px; height: 11px; }
+.er-row {
+  display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 12px; box-sizing: border-box;
+  font-size: 12px; line-height: 24px; color: var(--text);
+}
+.er-row.even { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.er-n { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--mono); font-weight: 600; }
+.er-b {
+  flex: none; height: 17px; padding: 0 4px; border-radius: 2px; font-size: 10.5px; font-weight: 700; line-height: 15px; box-sizing: border-box;
+  color: var(--text); border: 1px solid var(--border-strong); background: var(--surface);
+}
+.er-b.unconfirmed { border-style: dashed; color: var(--warn); }
+.er-ty { margin-left: auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 11px/24px var(--mono); color: var(--muted); }
+.er-fold { font-size: 11px; color: var(--muted); }
+.link.er-fk .edge { stroke-opacity: 0.8; }
+.link.er-fk .tip { fill-opacity: 0.85; }
+.er-od {
+  font-size: 11px; font-weight: 700; fill: var(--text); letter-spacing: 0.02em;
+  paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
+}
+`;
+
 /** 질문별 그림이 있을 때만 붙이는 스타일. 공용 CSS에 넣으면 투영 없는 그림의 바이트가 바뀐다 */
 export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; font-size: 13px; color: var(--muted); }
 .lifeline { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 4 5; }
@@ -815,10 +909,21 @@ export const DOC_CSS = `.doc-badge {
 .doc-thumb { display: block; max-width: 100%; margin: 8px 0; border: 1px solid var(--border); border-radius: 6px; }
 .doc-routes .loc { font-size: 12px; color: var(--muted); }`;
 
+const ROOT_TOKENS = `:root {${LIGHT_TOKENS}  --font: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;\n  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;\n}`;
+
+/** 색과 글꼴 토큰만. 구조도 레이아웃 CSS 없이 테마만 빌려 쓰는 정적 페이지(구조 변경 그림)용이다 */
+export function renderTokenCss(): string {
+  return [
+    ROOT_TOKENS,
+    `@media (prefers-color-scheme: dark) {\n:root:not([data-theme="light"]) {${DARK_TOKENS}}\n}`,
+    `:root[data-theme="dark"] {${DARK_TOKENS}}`,
+  ].join('\n');
+}
+
 /** 테마 토큰과 레이아웃 CSS. 시스템 설정을 기본으로 따르고 html의 data-theme가 있으면 그걸 따른다 */
 export function renderCss(vocab: Vocabulary = LEGACY_VOCABULARY): string {
   return [
-    `:root {${LIGHT_TOKENS}  --font: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;\n  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;\n}`,
+    ROOT_TOKENS,
     `@media (prefers-color-scheme: dark) {\n:root:not([data-theme="light"]) {${DARK_TOKENS}}\n${scoped(vocab, ':root:not([data-theme="light"])', 'dark')}\n}`,
     `:root[data-theme="dark"] {${DARK_TOKENS}}`,
     kindRules(vocab, 'light'),

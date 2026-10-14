@@ -139,7 +139,7 @@ function lineTextUnits(t: FlowTransition, actorLabel: ReadonlyMap<string, string
  * DFS 시작 순서는 IR에 적힌 단계 순서다. 작성자가 이야기 순서로 적은 걸 그대로 따라야 정상 흐름이 왼쪽에서부터 읽힌다.
  * 정상 흐름 단계의 열은 정상 흐름 전이로만 정한다. 옆 흐름이 길게 이어지다 정상 흐름으로 돌아오면 그 뒤 정상 단계가 전부 오른쪽으로 밀려서다
  */
-function columnsOf(
+export function columnsOf(
   steps: readonly FlowStep[],
   edges: readonly { id: string; from: string; to: string; path: FlowPath }[],
   isMain: (id: string) => boolean,
@@ -506,6 +506,21 @@ function longestVerticalMid(points: readonly LayoutPoint[]): LayoutPoint {
   return { x: round2(best.x), y: round2(best.y) };
 }
 
+/** 단계가 정상 흐름 줄인지 옆 흐름인지. 정상 흐름 전이에 한 번이라도 닿으면 main이다 */
+export function stepPathOf(
+  transitions: readonly { from: string; to: string; path: FlowPath }[],
+): (id: string) => FlowPath {
+  const onMain = new Set<string>();
+  for (const t of transitions) {
+    if (t.path !== 'main') continue;
+    onMain.add(t.from);
+    onMain.add(t.to);
+  }
+  // 전이가 하나도 안 닿는 단계는 정상 흐름 줄에 둔다. 옆 흐름으로 그리면 어디서 빠졌는지 묻게 된다
+  const touched = new Set(transitions.flatMap((t) => [t.from, t.to]));
+  return (id) => (onMain.has(id) || !touched.has(id) ? 'main' : 'side');
+}
+
 /**
  * 흐름 하나의 좌표. elkjs를 안 쓰고 격자로 놓는다. 행위자 줄과 단계 열이 곧 읽는 순서라 자동 배치가 오히려 그 순서를 흐트러뜨린다.
  * 같은 입력이면 같은 좌표가 나온다
@@ -518,15 +533,7 @@ export function computeFlowLayout(
 ): FlowLayout {
   const steps = flow.steps.filter((s) => drawableSteps.has(s.id));
   const transitions = flow.transitions.filter((t) => drawableTransitions.has(t.id));
-  const onMain = new Set<string>();
-  for (const t of transitions) {
-    if (t.path !== 'main') continue;
-    onMain.add(t.from);
-    onMain.add(t.to);
-  }
-  // 전이가 하나도 안 닿는 단계는 정상 흐름 줄에 둔다. 옆 흐름으로 그리면 어디서 빠졌는지 묻게 된다
-  const touched = new Set(transitions.flatMap((t) => [t.from, t.to]));
-  const pathOf = (id: string): FlowPath => (onMain.has(id) || !touched.has(id) ? 'main' : 'side');
+  const pathOf = stepPathOf(transitions);
   const base = columnsOf(steps, transitions, (id) => pathOf(id) === 'main');
   const { back } = base;
   const staged = stagedColumns(steps, transitions, (id) => pathOf(id) === 'main', base);
