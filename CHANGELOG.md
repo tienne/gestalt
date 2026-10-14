@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 다 만든 뒤의 판정은 `continuity-judge`, PR 단위 검토는 `review`가 그대로 맡아요.
 - **스킬 description끼리 헷갈리는지 보는 검사(`pnpm verify:skill-confusion`)를 gate에 넣었어요.** description과 트리거를 문자 bigram TF-IDF로 비교해요. 두 스킬의 유사도가 0.5를 넘거나, 예시 요청이 자기 스킬을 1위로 뽑는 비율이 0.95 아래면 실패해요. 트리거는 자기 문서에서 빼고 재서 답을 미리 보는 일이 없게 했어요. 예시 요청은 스킬마다 두세 개씩 `tests/fixtures/skill-routing-prompts.json`에 적어뒀어요. 예외 목록이나 건너뛰기 옵션은 없어요.
 - **절차 스킬 일곱 개에 "단계를 건너뛰고 싶어질 때" 표를 붙였어요.** `review`, `ship`, `review-reply`, `review-loop`, `local-pr`, `execute`, `pr`이에요. 에이전트가 단계를 건너뛸 때 댈 법한 말과 그 단계가 왜 있는지를 나란히 적었어요. 반박에는 각 스킬 본문에 이미 있는 절과 수치만 썼어요.
-- **WebFetch 디스크 캐시 훅을 추가했어요. 기본은 꺼져 있어요.** `gestalt.json`의 `webFetchCache.enabled`나 `GESTALT_WEBFETCH_CACHE=1`로 켜요. 결과를 `.gestalt/webfetch-cache/`에 저장해두고 다음 요청 때 원본 서버에 조건부 요청을 보내 304가 올 때만 저장본을 돌려줘요. 캐시 키는 URL과 prompt를 함께 써요. WebFetch 결과는 prompt마다 다르기 때문이에요. 런처는 Node 없이 bash와 jq, curl로만 돌아요. 도구가 하나라도 없으면 그냥 통과해요. 자세한 동작은 [`docs/webfetch-cache.md`](./docs/webfetch-cache.md)를 보면 돼요.
+- **WebFetch 디스크 캐시 훅을 추가했어요. 기본은 꺼져 있어요.** `gestalt.json`의 `webFetchCache.enabled`나 `GESTALT_WEBFETCH_CACHE=1`로 켜요. 결과를 레포 밖 `~/.cache/gestalt/webfetch-cache/`에 저장해두고 다음 요청 때 원본 서버에 조건부 요청을 보내 304가 올 때만 저장본을 돌려줘요. 리다이렉트는 따라가지 않고 저장한 지 24시간이 지난 항목은 쓰지 않아요. 캐시 키는 URL과 prompt를 함께 써요. WebFetch 결과는 prompt마다 다르기 때문이에요. 런처는 Node 없이 bash와 jq, curl로만 돌아요. 도구가 하나라도 없으면 그냥 통과해요. 자세한 동작은 [`docs/webfetch-cache.md`](./docs/webfetch-cache.md)를 보면 돼요.
 
 ### Changed
 

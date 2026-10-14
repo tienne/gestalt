@@ -179,7 +179,7 @@ interface GestaltConfig {
 
 - 기본은 `false`다. 플러그인 훅은 게슈탈트 플러그인이 깔린 모든 레포의 모든 WebFetch에 걸리므로 쓰려는 레포에서만 켠다
 - 환경변수 `GESTALT_WEBFETCH_CACHE=1`(또는 `true`)로도 켠다. `0`이나 `false`는 `gestalt.json` 설정보다 우선해서 끈다
-- 캐시는 `.gestalt/webfetch-cache/`에 쌓인다. `jq`와 `curl`이 없으면 훅은 아무것도 하지 않고 지나간다
+- 캐시는 레포 밖 `${XDG_CACHE_HOME:-$HOME/.cache}/gestalt/webfetch-cache/<프로젝트 해시>/`에 쌓인다. `jq`와 `curl`이 없으면 훅은 아무것도 하지 않고 지나간다
 
 저장 규칙과 한계는 [WebFetch 디스크 캐시](./webfetch-cache.md)에 있다.
 
