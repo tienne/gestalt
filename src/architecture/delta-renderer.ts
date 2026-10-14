@@ -290,18 +290,22 @@ function renderPanel(delta: ArchitectureDelta, laid: DeltaLayout, panel: Panel):
       );
     })
     .join('');
+  let drawn = 0;
   const cards = delta.nodes
     .map((n) => {
       const node = panel === 'before' ? n.before : n.after;
       const box = boxes.get(n.id);
       if (node === undefined || box === undefined) return '';
+      drawn += 1;
       return renderCard(node, box, n.changes, panel);
     })
     .join('');
+  // 그림 안 카드와 선은 role="img"에 가려 읽히지 않는다. 개수만 알리고 내용은 변경 목록으로 넘긴다
+  const svgLabel = `${label} 구조도, 구성 요소 ${drawn}개, 변경 ${delta.ledger.length}건. 자세한 내용은 변경 목록 참고`;
   return (
     `<section class="dl-panel" data-snapshot="${panel}" aria-label="${label} 구조">` +
     `<h2>${label}<span>${escapeHtml(panelDate(snap.ir.generatedAt))}</span></h2>` +
-    `<svg class="dl-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${canvas.width} ${canvas.height}" role="img" aria-label="${label} 구조도">` +
+    `<svg class="dl-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${canvas.width} ${canvas.height}" role="img" aria-label="${escapeHtml(svgLabel)}">` +
     `<g>${lanes}</g><g>${links}</g><g>${cards}</g></svg></section>`
   );
 }

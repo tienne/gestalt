@@ -219,5 +219,14 @@ describe('lifecycle 렌더', () => {
   it('lifecycle 그림이 없으면 상태 흐름 CSS를 싣지 않는다', async () => {
     const html = await renderBoth(flowIr());
     expect(html.private).not.toContain('.lc-band');
+    expect(html.private).not.toContain('--lc-fail');
+  });
+
+  it('끝 상태 배지 글자는 테마 토큰을 쓰고 실패 색은 다크에서 밝게 바꾼다', async () => {
+    const html = await renderBoth(lifecycleIr());
+    expect(html.private).toContain(
+      '.lc-state .lc-out { background: var(--kind); color: var(--on-accent); }',
+    );
+    expect(html.private).toContain(':root[data-theme="dark"] { --lc-fail: #f87171; }');
   });
 });

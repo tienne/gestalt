@@ -204,6 +204,9 @@ describe('renderDeltaHtml', () => {
   it('원장은 대문자 변경어로 시작하고 색 말고도 배지 글자와 선 모양으로 구분한다', async () => {
     const html = await page();
     expect(html).toContain('<span class="dl-word">REWIRED</span> <code>c1b</code>');
+    expect(html).toMatch(
+      /aria-label="이전 구조도, 구성 요소 \d+개, 변경 6건\. 자세한 내용은 변경 목록 참고"/,
+    );
     expect(html).toContain('+ 생김');
     expect(html).toContain('− 빠짐');
     expect(html).toContain('Δ 변경');

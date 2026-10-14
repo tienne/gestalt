@@ -106,6 +106,7 @@ import type {
   EdgeKind,
   DisplayKind,
   Evidence,
+  NodeColumn,
   UnresolvedQuestion,
 } from './types.js';
 import { chipTextOverride, displayKindOf, hasCardDescription } from './types.js';
@@ -1952,6 +1953,8 @@ function renderBlueprintSection(
  * 근거가 코드나 스펙이면 실선, 문서 같은 약한 근거면 점선이고 근거가 없으면 긋지 않고 행 배지와 질문으로만 남긴다.
  * 좌표는 원본에서 낸 모델로 정하고 글자는 그린 쪽(공유본이면 가린 사본) 노드의 같은 자리 컬럼에서 꺼낸다
  */
+const ER_ARIA_COLUMNS = 6;
+
 function renderErSection(
   levelId: string,
   projection: ArchitectureProjection,
@@ -1995,7 +1998,7 @@ function renderErSection(
           : '';
       return (
         `<g class="link er-fk${l.lineStyle === 'dashed' ? ' doc-only' : ''}" data-from="${escapeHtml(l.from)}" data-to="${escapeHtml(l.to)}" ` +
-        `data-fk-id="${escapeHtml(l.id)}" data-line="${l.lineStyle}" tabindex="0" aria-label="${escapeHtml(aria)}">` +
+        `data-fk-id="${escapeHtml(l.id)}" data-line="${l.lineStyle}" tabindex="0" role="img" aria-label="${escapeHtml(aria)}">` +
         `<title>${escapeHtml(aria)}</title><path class="hit" d="${d}" stroke-width="12"/>` +
         `<path class="edge" d="${d}" stroke-width="1.6"${dash}/><polygon class="tip" points="${tip}"/>${label}</g>`
       );
@@ -2003,6 +2006,22 @@ function renderErSection(
     .join('');
   const drawnTables = new Set(model.tables.map((t) => t.id));
   const boxById = new Map(layout.tables.map((b) => [b.id, b]));
+  const refTarget = (ref: NonNullable<NodeColumn['references']>): string =>
+    `${name(ref.table)}${ref.column !== undefined ? `.${ref.column}` : ''}`;
+  // 카드가 button이라 안쪽 행은 스크린리더에 안 읽힌다. 컬럼 요약을 이름에 싣는다
+  const columnAria = (cols: readonly NodeColumn[]): string => {
+    const shown = cols.slice(0, ER_ARIA_COLUMNS).map((c) => {
+      const tags: string[] = [];
+      if (c.pk === true) tags.push('PK');
+      if (c.references !== undefined)
+        tags.push(`${isUnconfirmedFk(c) ? 'FK?' : 'FK'}→${refTarget(c.references)}`);
+      if (c.unique === true) tags.push('UQ');
+      if (c.nullable === true) tags.push('NULL');
+      return tags.length > 0 ? `${c.name}(${tags.join(' ')})` : c.name;
+    });
+    const rest = cols.length - shown.length;
+    return shown.join(', ') + (rest > 0 ? ` 외 ${rest}개` : '');
+  };
   const cards = model.tables
     .map((t) => {
       const n = nodeById.get(t.id)!;
@@ -2026,7 +2045,7 @@ function renderErSection(
           const badges: { text: string; title: string }[] = [];
           if (c.pk === true) badges.push({ text: 'PK', title: '기본 키' });
           if (ref !== undefined) {
-            const target = `${name(ref.table)}${ref.column !== undefined ? `.${ref.column}` : ''}`;
+            const target = refTarget(ref);
             if (isUnconfirmedFk(c))
               badges.push({ text: 'FK?', title: `${target}를 가리킨다는 근거를 못 찾은 외래 키` });
             else
@@ -2053,7 +2072,10 @@ function renderErSection(
           );
         })
         .join('');
-      const aria = `${tname}, 테이블, 컬럼 ${t.total}개` + (qs > 0 ? `, 확인할 질문 ${qs}개` : '');
+      const aria =
+        `${tname}, 테이블, 컬럼 ${t.total}개` +
+        (cols.length > 0 ? `: ${columnAria(cols)}` : '') +
+        (qs > 0 ? `, 확인할 질문 ${qs}개` : '');
       const tooltip = n.displayName === undefined ? n.label : `${n.displayName}\n${n.label}`;
       return (
         `<div class="node k-db_table er-table" data-node-id="${escapeHtml(t.id)}" role="button" tabindex="0" ` +

@@ -205,6 +205,20 @@ describe('er 투영 — 컬럼 행과 외래 키 선', () => {
     expect((await renderBoth(erIr([ER], 6))).private).toContain('data-fk-id="orders:user_id"');
   });
 
+  it('카드 이름에 컬럼 요약을 싣고 많으면 앞 몇 개와 남은 개수로 줄인다', async () => {
+    const { private: html } = await renderBoth(erIr([ER], 6));
+    expect(html).toContain('aria-label="orders, 테이블, 컬럼 2개: id(PK), user_id(FK→users.id)"');
+    expect(html).toContain('payments, 테이블, 컬럼 2개: id(PK), order_id(FK?→orders.id)');
+    expect(html).toContain(
+      'users, 테이블, 컬럼 9개: id(PK), email(UQ), phone(NULL), c0, c1, c2 외 3개',
+    );
+  });
+
+  it('외래 키 선은 눌러 하는 동작이 없어 role="img"로 이름을 읽힌다', async () => {
+    const { private: html } = await renderBoth(erIr());
+    expect(html).toMatch(/data-fk-id="orders:user_id"[^>]*role="img" aria-label="외래 키 /);
+  });
+
   it('공유본은 컬럼 이름을 가리고 선 자리는 그대로 둔다', async () => {
     const ir = erIr();
     ir.nodes.find((n) => n.id === 'users')!.columns![2]!.name = 'aws_account_123456789012';

@@ -684,9 +684,15 @@ export const FLOW_BRANCH_CSS = `.node.flow-step.decision {
 
 /**
  * 상태 흐름 그림이 있을 때만 붙이는 스타일. 띠 이름과 끝 상태 배지 글자가 뜻을 싣고 색은 거든다.
- * 끝 상태는 이중 테두리로 그려 색을 못 봐도 끝난 자리가 보인다
+ * 끝 상태는 이중 테두리로 그려 색을 못 봐도 끝난 자리가 보인다.
+ * 실패 색은 공용 토큰에 넣으면 상태 흐름이 없는 그림의 바이트까지 바뀌어 여기서 라이트와 다크를 따로 준다
  */
-export const LIFECYCLE_CSS = `.lc-band rect { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
+export const LIFECYCLE_CSS = `:root { --lc-fail: #dc2626; }
+@media (prefers-color-scheme: dark) {
+:root:not([data-theme="light"]) { --lc-fail: #f87171; }
+}
+:root[data-theme="dark"] { --lc-fail: #f87171; }
+.lc-band rect { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
 .lc-band.lc-recovery rect { stroke: var(--warn); stroke-opacity: 0.35; stroke-dasharray: 6 4; }
 .lc-band.lc-terminal rect { stroke: var(--border-strong); }
 .lc-band-t { font-size: 12.5px; font-weight: 700; fill: var(--text); }
@@ -694,9 +700,9 @@ export const LIFECYCLE_CSS = `.lc-band rect { fill: var(--lane); stroke: var(--l
 .node.lc-state.o-done, .node.lc-state.o-cancel, .node.lc-state.o-fail, .node.lc-state.o-end { border: 3px double var(--brick-edge); }
 .node.lc-state.o-done { --kind: var(--ok); }
 .node.lc-state.o-cancel { --kind: var(--muted); }
-.node.lc-state.o-fail { --kind: #dc2626; }
+.node.lc-state.o-fail { --kind: var(--lc-fail); }
 .lc-state .lc-steps { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--muted); }
-.lc-state .lc-out { background: var(--kind); color: #fff; }
+.lc-state .lc-out { background: var(--kind); color: var(--on-accent); }
 .lc-state.o-end .lc-out { background: var(--text); color: var(--surface); }
 .link.flow-t .t-label.at-start { text-anchor: start; }
 .link.flow-t .t-label.lc-borrowed { font-weight: 400; font-style: italic; }
@@ -756,7 +762,7 @@ export const ER_CSS = `.node.er-table { display: block; padding: 0; overflow: hi
 .er-row.even { background: color-mix(in srgb, var(--text) 4%, transparent); }
 .er-n { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--mono); font-weight: 600; }
 .er-b {
-  flex: none; height: 16px; padding: 0 4px; border-radius: 2px; font-size: 9.5px; font-weight: 700; line-height: 14px; box-sizing: border-box;
+  flex: none; height: 17px; padding: 0 4px; border-radius: 2px; font-size: 10.5px; font-weight: 700; line-height: 15px; box-sizing: border-box;
   color: var(--text); border: 1px solid var(--border-strong); background: var(--surface);
 }
 .er-b.unconfirmed { border-style: dashed; color: var(--warn); }
@@ -765,7 +771,7 @@ export const ER_CSS = `.node.er-table { display: block; padding: 0; overflow: hi
 .link.er-fk .edge { stroke-opacity: 0.8; }
 .link.er-fk .tip { fill-opacity: 0.85; }
 .er-od {
-  font-size: 10px; font-weight: 700; fill: var(--text); letter-spacing: 0.02em;
+  font-size: 11px; font-weight: 700; fill: var(--text); letter-spacing: 0.02em;
   paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
 }
 `;
