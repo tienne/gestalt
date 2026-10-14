@@ -644,6 +644,7 @@ Each skill is a slash command in Claude Code. In Codex the same skill is `gestal
 | `/blast-radius` | Before changing code, find the files a change would reach and load only those |
 | `/diff-radius` | See how far uncommitted and staged changes reach |
 | `/architecture` | Draw a screen-to-DB or deploy-path architecture view where every solid line cites code or an API spec. Unproven links stay dashed or become open questions |
+| `/doubt` | While building, send one decision (branching logic, an irreversible step, a security property claim) to a fresh-context subagent with only the artifact and its contract, and hear the case against it first. Stops after three rounds |
 | `/review` | Review a PR, branch, or commit with the [review agents](#review-agents), and post inline comments when the target is a PR |
 | `/review-loop` | Follow someone else's GitHub PR as reviewer — review, post a verdict, wait for the author, and re-review until approve |
 | `/review-reply` | Work through review comments on your own PR: fix, commit, and post replies written by `code-review-responder` |
