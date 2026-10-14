@@ -14,7 +14,7 @@ import type {
   ContextSource,
   UnresolvedQuestion,
 } from './types.js';
-import { idCarriesCloudId, stripPrivateExcerpts } from './validator.js';
+import { flowHasNothingToDraw, idCarriesCloudId, stripPrivateExcerpts } from './validator.js';
 
 export interface PreviousRunSummary {
   generatedAt: string;
@@ -338,7 +338,7 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     projections ?? [],
     nodeIds,
     edgeById,
-    new Set(flows?.map((f) => f.id) ?? []),
+    new Map(flows?.map((f) => [f.id, f]) ?? []),
   );
   const allProjections =
     projections !== undefined || carried.length > 0
@@ -406,7 +406,7 @@ function carryProjections(
   next: readonly ArchitectureProjection[],
   nodeIds: ReadonlySet<string>,
   edgeById: ReadonlyMap<string, ArchitectureEdge>,
-  flowIds: ReadonlySet<string>,
+  flowById: ReadonlyMap<string, ArchitectureFlow>,
 ): ArchitectureProjection[] {
   const projectionIds = new Set(next.map((pr) => pr.id));
   const messageIds = new Set(next.flatMap((pr) => pr.messages.map((m) => m.id)));
@@ -416,7 +416,10 @@ function carryProjections(
     if (pr.messages.some((m) => messageIds.has(m.id))) continue;
     const listed = [...(pr.participants ?? []), ...(pr.sides ?? []).flatMap((side) => side.nodes)];
     if (!listed.every((id) => nodeIds.has(id))) continue;
-    if (pr.flow !== undefined && !flowIds.has(pr.flow)) continue;
+    if (pr.flow !== undefined) {
+      const flow = flowById.get(pr.flow);
+      if (flow === undefined || flowHasNothingToDraw(pr, flow)) continue;
+    }
     const alive = pr.messages.every((m) => {
       if (!nodeIds.has(m.from) || !nodeIds.has(m.to)) return false;
       if (m.edge === undefined) return true;

@@ -313,6 +313,15 @@ describe('blueprint 저장과 이월', () => {
     delete none.flows;
     expect(mergeWithPrevious(withBp(), none).projections ?? []).toEqual([]);
   });
+
+  it('같은 id의 흐름에 갈림길만 남으면 버린다', () => {
+    const next = flowIr();
+    next.flows = next.flows!.map((f) => ({
+      ...f,
+      steps: f.steps.map((st) => ({ ...st, kind: 'decision' as const })),
+    }));
+    expect(mergeWithPrevious(withBp(), next).projections ?? []).toEqual([]);
+  });
 });
 
 describe('ges_architecture blueprint 경고', () => {

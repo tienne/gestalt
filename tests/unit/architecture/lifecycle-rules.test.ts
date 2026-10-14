@@ -270,6 +270,16 @@ describe('lifecycle 이월 (store)', () => {
     const merged = mergeWithPrevious(withLife(), next);
     expect(merged.projections ?? []).toEqual([]);
   });
+
+  it('같은 id의 흐름이 state를 단 단계 없이 다시 오면 폐기한다', () => {
+    const next = flowIr();
+    next.flows = next.flows!.map((f) => ({
+      ...f,
+      steps: f.steps.map(({ state: _state, ...st }) => st),
+    }));
+    const merged = mergeWithPrevious(withLife(), next);
+    expect(merged.projections ?? []).toEqual([]);
+  });
 });
 
 describe('lifecycle 공유본 마스킹', () => {

@@ -1053,25 +1053,28 @@ function checkProjectionFlow(
     });
     return;
   }
-  if (p.shape === 'blueprint') {
-    if (!flow.steps.some((st) => st.kind !== 'decision')) {
-      errors.push({
-        code: 'PROJECTION_EMPTY',
-        message: `투영 "${p.id}"가 가리킨 흐름 "${flow.id}"에 갈림길 말고 단계가 없다. blueprint는 단계를 열로 세운다.`,
-        projectionId: p.id,
-        flowId: flow.id,
-      });
-    }
-    return;
-  }
-  if (!flow.steps.some((st) => st.state !== undefined)) {
-    errors.push({
-      code: 'PROJECTION_EMPTY',
-      message: `투영 "${p.id}"가 가리킨 흐름 "${flow.id}"에 state를 단 단계가 없다. lifecycle은 단계의 state로 상태를 그린다.`,
-      projectionId: p.id,
-      flowId: flow.id,
-    });
-  }
+  if (!flowHasNothingToDraw(p, flow)) return;
+  errors.push({
+    code: 'PROJECTION_EMPTY',
+    message:
+      p.shape === 'blueprint'
+        ? `투영 "${p.id}"가 가리킨 흐름 "${flow.id}"에 갈림길 말고 단계가 없다. blueprint는 단계를 열로 세운다.`
+        : `투영 "${p.id}"가 가리킨 흐름 "${flow.id}"에 state를 단 단계가 없다. lifecycle은 단계의 state로 상태를 그린다.`,
+    projectionId: p.id,
+    flowId: flow.id,
+  });
+}
+
+/**
+ * lifecycle과 blueprint 그림이 가리킨 흐름에서 그릴 단계를 못 찾으면 true다.
+ * 재실행 이월(store.ts carryProjections)도 이 기준으로 걸러야 이어 실은 그림이 검증에서 render 전체를 막지 않는다
+ */
+export function flowHasNothingToDraw(
+  p: Pick<ArchitectureProjection, 'shape'>,
+  flow: ArchitectureFlow,
+): boolean {
+  if (p.shape === 'blueprint') return !flow.steps.some((st) => st.kind !== 'decision');
+  return !flow.steps.some((st) => st.state !== undefined);
 }
 
 /**
