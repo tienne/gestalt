@@ -258,6 +258,20 @@ describe('blueprint 공유본 마스킹', () => {
     expect(shared).not.toContain(SECRET);
     expect(shared).toContain('[계정 ID]');
   });
+
+  it('상태 값 자체에 계정 ID가 있어도 공유본에 원문이 없고 렌더가 끝난다', async () => {
+    const ir = withBp();
+    const flow = ir.flows![0]!;
+    for (const s of flow.steps) {
+      if (s.state === 'SITTING') s.state = `SIT_${ACCOUNT}`;
+      if (s.state === 'CALL') s.state = `CALL_${ACCOUNT}`;
+    }
+    flow.stateLabels = { WAITING: '대기', [`CALL_${ACCOUNT}`]: '호출됨' };
+    const { private: priv, shared } = await renderBoth(ir);
+    expect(priv).toContain(ACCOUNT);
+    expect(shared).not.toContain(ACCOUNT);
+    expect(shared).toContain('bp-');
+  });
 });
 
 describe('blueprint 저장과 이월', () => {

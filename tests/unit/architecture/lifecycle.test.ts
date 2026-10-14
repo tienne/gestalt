@@ -200,6 +200,22 @@ describe('lifecycle 렌더', () => {
     expect(at(html.private)).toHaveLength(6);
   });
 
+  it('상태 값에 계정 ID가 있어도 공유본에 원문이 없고 렌더가 끝난다', async () => {
+    const ACCOUNT = '123456789012';
+    const ir = lifecycleIr();
+    const flow = ir.flows![0]!;
+    const { CANCELED: _c, EXPIRED: _e, ...labels } = flow.stateLabels!;
+    flow.stateLabels = { ...labels, [`CANCELED_${ACCOUNT}`]: '취소됨' };
+    for (const s of flow.steps) {
+      if (s.state === 'CANCELED') s.state = `CANCELED_${ACCOUNT}`;
+      if (s.state === 'EXPIRED') s.state = `EXPIRED_${ACCOUNT}`;
+    }
+    const html = await renderBoth(ir);
+    expect(html.private).toContain(ACCOUNT);
+    expect(html.shared).not.toContain(ACCOUNT);
+    expect(html.shared).toContain('lc-state');
+  });
+
   it('lifecycle 그림이 없으면 상태 흐름 CSS를 싣지 않는다', async () => {
     const html = await renderBoth(flowIr());
     expect(html.private).not.toContain('.lc-band');

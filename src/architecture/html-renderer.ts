@@ -671,6 +671,25 @@ function renderViewStrip(cards: ViewCard[]): { html: string; width: number } {
   };
 }
 
+/**
+ * 레이아웃은 원본 IR로 계산해 레인 제목(구간 이름)과 제품 이름이 원문이다.
+ * 공유본은 좌표는 그대로 쓰고 글자만 IR과 같은 기준으로 가린다
+ */
+function maskLayoutText(layout: LayoutResult): LayoutResult {
+  return {
+    ...layout,
+    lanes: layout.lanes.map((l) => ({ ...l, title: maskSharedText(l.title) })),
+    ...(layout.regions !== undefined
+      ? {
+          regions: {
+            ...layout.regions,
+            groups: layout.regions.groups.map((g) => ({ ...g, name: maskSharedText(g.name) })),
+          },
+        }
+      : {}),
+  };
+}
+
 function productNames(layout: LayoutResult, id: string): string[] {
   const regions = layout.regions;
   return (regions?.productsOf[id] ?? []).map((i) => regions!.groups[i]!.name);
@@ -864,13 +883,15 @@ function renderFlowSection(
   questionCount: ReadonlyMap<string, number>,
   drawableNodes: ReadonlySet<string>,
   captureOf: ReadonlyMap<string, { image: string; label: string }>,
+  mask: (text: string) => string,
 ): string {
   const { layout } = level;
   const width = round2(layout.width + FLOW_PAD * 2);
   const height = round2(layout.height + FLOW_PAD * 2);
   const stepById = new Map(flow.steps.map((st) => [st.id, st]));
   const actorById = new Map(flow.actors.map((a) => [a.id, a]));
-  const stateText = (state: string): string => flow.stateLabels?.[state] ?? state;
+  // 상태 값은 키라서 공유본 사본에서도 원문이다. 찍는 자리에서 가린다
+  const stateText = (state: string): string => flow.stateLabels?.[state] ?? mask(state);
   // 이름이 붙은 상태는 코드 값이 아니라서 고정폭 글꼴을 안 쓴다
   const named = (state: string): string =>
     flow.stateLabels?.[state] !== undefined ? ' named' : '';
@@ -1003,7 +1024,7 @@ function renderFlowSection(
         `<span class="nm"><span class="t">${escapeHtml(st.label)}</span></span>` +
         `<span class="l2">` +
         (st.state !== undefined
-          ? `<span class="st${named(st.state)}" title="${escapeHtml(st.state)}">${escapeHtml(stateText(st.state))}</span>`
+          ? `<span class="st${named(st.state)}" title="${escapeHtml(mask(st.state))}">${escapeHtml(stateText(st.state))}</span>`
           : '') +
         (st.terminal ? `<span class="end" title="${FLOW_TEXT.end}">끝</span>` : '') +
         (refs.length > 0
@@ -1690,6 +1711,7 @@ function renderLifecycleSection(
   text: LifecycleModel,
   layout: LifecycleLayout,
   questionCount: ReadonlyMap<string, number>,
+  mask: (text: string) => string,
 ): string {
   const ox = CANVAS_PAD_X;
   const oy = CANVAS_PAD_TOP;
@@ -1697,7 +1719,8 @@ function renderLifecycleSection(
   const height = round2(layout.height + oy + 24);
   const shift = (pts: readonly { x: number; y: number }[]) =>
     pts.map((p) => ({ x: p.x + ox - FLOW_PAD, y: p.y + oy - FLOW_PAD }));
-  const stateText = (state: string): string => flow.stateLabels?.[state] ?? state;
+  // 상태 값은 stateOf와 레이아웃의 키라 사본에서도 원문이다. 찍는 자리에서만 가린다
+  const stateText = (state: string): string => flow.stateLabels?.[state] ?? mask(state);
   const stepLabel = new Map(flow.steps.map((st) => [st.id, st.label]));
   const stateOf = new Map(text.states.map((st) => [st.state, st]));
   const bands = layout.bands
@@ -1754,7 +1777,7 @@ function renderLifecycleSection(
         `<span class="l2">` +
         (outcome !== undefined ? `<span class="end lc-out">${OUTCOME_TEXT[outcome]}</span>` : '') +
         (flow.stateLabels?.[st.state] !== undefined
-          ? `<span class="st" title="${escapeHtml(st.state)}">${escapeHtml(st.state)}</span>`
+          ? `<span class="st" title="${escapeHtml(mask(st.state))}">${escapeHtml(mask(st.state))}</span>`
           : '') +
         `<span class="lc-steps">${escapeHtml(stepsText)}</span>` +
         (qs > 0
@@ -1780,6 +1803,7 @@ function renderBlueprintSection(
   layout: BlueprintLayout,
   nodeById: ReadonlyMap<string, ArchitectureNode>,
   questionCount: ReadonlyMap<string, number>,
+  mask: (text: string) => string,
 ): string {
   const ox = CANVAS_PAD_X;
   const oy = CANVAS_PAD_TOP;
@@ -1833,7 +1857,7 @@ function renderBlueprintSection(
     .join('');
   const stages = layout.stages
     .map((st, i) => {
-      const title = blueprintStageTitle(flow, model.columns[i]!);
+      const title = mask(blueprintStageTitle(flow, model.columns[i]!));
       return (
         `<div class="bp-stage" style="left:${round2(st.x + ox)}px;top:${round2(st.y + oy)}px;width:${st.width}px;height:${st.height}px" title="${escapeHtml(title)}">` +
         `<span class="bp-stage-n">${i + 1}</span><span class="bp-stage-t">${escapeHtml(title)}</span></div>`
@@ -2070,6 +2094,7 @@ function flowPayload(
   levels: readonly FlowLevel[],
   flows: readonly ArchitectureFlow[],
   questions: readonly UnresolvedQuestion[],
+  mask: (text: string) => string,
 ) {
   const byId = new Map(flows.map((f) => [f.id, f]));
   // 패널에서 그 단계나 전이에 걸린 질문을 바로 보여주려고 문장만 붙인다. 배지 숫자만으로는 무엇을 물어야 하는지 모른다
@@ -2096,11 +2121,24 @@ function flowPayload(
       ...(f.service !== undefined ? { service: f.service } : {}),
       title: f.title,
       ...(f.description !== undefined ? { description: f.description } : {}),
-      ...(f.stateLabels !== undefined ? { stateLabels: f.stateLabels } : {}),
+      // 패널은 상태 값을 글자로만 쓰므로 키와 값을 같은 규칙으로 가려도 이름 찾기가 맞물린다
+      ...(f.stateLabels !== undefined
+        ? {
+            stateLabels: Object.fromEntries(
+              Object.entries(f.stateLabels).map(([k, v]) => [mask(k), v]),
+            ),
+          }
+        : {}),
       actors: f.actors,
       steps: f.steps
         .filter((st) => drawnSteps.has(st.id))
-        .map((st) => withQuestions('s', { ...st, path: pathOf.get(st.id)! })),
+        .map((st) =>
+          withQuestions('s', {
+            ...st,
+            ...(st.state !== undefined ? { state: mask(st.state) } : {}),
+            path: pathOf.get(st.id)!,
+          }),
+        ),
       transitions: f.transitions
         .filter((t) => drawnTransitions.has(t.id))
         .map((t) => withQuestions('t', t)),
@@ -2502,7 +2540,7 @@ export function renderArchitectureHtml(
     title: viewTitle(ir),
     nodes: payload.nodes,
     edges: payload.edges.map(asCanvasEdge),
-    layout,
+    layout: shared ? maskLayoutText(layout) : layout,
     enter: {},
     hidden: false,
     services: payload.services,
@@ -2523,6 +2561,7 @@ export function renderDrilldownHtml(
 ): string {
   const shared = opts.audience === 'shared';
   const ir = shared ? redactForSharing(validated.ir) : validated.ir;
+  const maskText = shared ? maskSharedText : (text: string): string => text;
   // 공유본은 캡처를 싣지 않으니 썸네일 자리도 비운다. 자리만 남기면 빈 칸이 어디 있는지 드러난다
   const drilldown: Drilldown = shared
     ? {
@@ -2553,7 +2592,7 @@ export function renderDrilldownHtml(
   const nodeById = new Map(base.nodes.map((n) => [n.id, n]));
   // 레벨 제목은 원본 이름으로 지었으므로 공유본에서는 노드 이름과 같이 가린다
   const levels = drilldown.levels.map((l) =>
-    shared ? { ...l, title: maskSharedText(l.title) } : l,
+    shared ? { ...l, title: maskSharedText(l.title), layout: maskLayoutText(l.layout) } : l,
   );
   const payload = {
     ...base,
@@ -2587,7 +2626,7 @@ export function renderDrilldownHtml(
           edges: [],
         })),
       ],
-      flows: flowPayload(drilldown.flows, drawnFlows, base.unresolved),
+      flows: flowPayload(drilldown.flows, drawnFlows, base.unresolved, maskText),
     });
   }
   const drawnMessages = validated.drawableMessageIds ?? new Set<string>();
@@ -2715,7 +2754,7 @@ export function renderDrilldownHtml(
     )
     .concat(
       flowLevels.map(({ level, flow }) =>
-        renderFlowSection(level, flow, questionCount, drawableNodes, captureOf),
+        renderFlowSection(level, flow, questionCount, drawableNodes, captureOf, maskText),
       ),
     )
     .concat(
@@ -2724,7 +2763,15 @@ export function renderDrilldownHtml(
         const life = lifecycleOf(p);
         if (life !== undefined) {
           const layout = computeLifecycleLayout(life.model);
-          return renderLifecycleSection(v.level, p, life.flow, life.text, layout, questionCount);
+          return renderLifecycleSection(
+            v.level,
+            p,
+            life.flow,
+            life.text,
+            layout,
+            questionCount,
+            maskText,
+          );
         }
         const bp = blueprintOf(p);
         if (bp !== undefined) {
@@ -2737,6 +2784,7 @@ export function renderDrilldownHtml(
             layout,
             nodeById,
             questionCount,
+            maskText,
           );
         }
         const er = erOf(p);

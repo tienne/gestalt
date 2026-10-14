@@ -1946,6 +1946,12 @@ export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
     ...(redacted.projections !== undefined
       ? { projections: redacted.projections.map(maskProjectionText) }
       : {}),
+    ...(redacted.stages !== undefined
+      ? { stages: redacted.stages.map((s) => ({ ...s, label: maskSharedText(s.label) })) }
+      : {}),
+    ...(redacted.groups !== undefined
+      ? { groups: redacted.groups.map((g) => ({ ...g, name: maskSharedText(g.name) })) }
+      : {}),
     unresolved: redacted.unresolved.map(maskSharedQuestion),
   };
 }

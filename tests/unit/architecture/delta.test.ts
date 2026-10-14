@@ -12,7 +12,8 @@ import type {
   ArchitectureIr,
   ArchitectureNode,
 } from '../../../src/architecture/types.js';
-import { validateArchitectureIr } from '../../../src/architecture/validator.js';
+import { redactForSharing, validateArchitectureIr } from '../../../src/architecture/validator.js';
+import { renderBoth } from '../../fixtures/architecture-legacy/render.js';
 
 const EV = [{ type: 'code' as const, location: 'web:src/a.ts:1', visibility: 'public' as const }];
 
@@ -372,6 +373,45 @@ describe('CHANGED 대상 속성과 MOVED 대상', () => {
     const delta = computeArchitectureDelta(snap(prev), snap(next));
     const e = delta.ledger.find((x) => x.target === 's-list' && x.change === 'MOVED');
     expect(e?.text).toContain('구간 "앞단" → "뒷단"');
+  });
+});
+
+describe('공유본의 구간 이름과 그룹 이름', () => {
+  const ACCOUNT = '123456789012';
+  const sharedSnap = (value: ArchitectureIr): DeltaSnapshot => {
+    const s = snap(value);
+    return { ...s, ir: redactForSharing(s.ir) };
+  };
+
+  it('메인 공유본과 구조 변경 공유본 둘 다 원문이 없다', async () => {
+    const prev = beforeIr();
+    prev.stages = [
+      { id: 'st1', label: `앞단 ${ACCOUNT}`, nodes: ['s-list'] },
+      { id: 'st2', label: `뒷단 ${ACCOUNT}`, nodes: ['ep-orders'] },
+    ];
+    prev.groups = [
+      { id: 'g1', name: `상점 ${ACCOUNT}`, members: ['f-a', 's-list', 's-cart', 'ep-orders'] },
+      { id: 'g2', name: `파트너 ${ACCOUNT}`, members: ['f-b', 'ep-cart', 'ep-old', 'ep-orders'] },
+    ];
+    const next = structuredClone(prev);
+    next.stages = [
+      { id: 'st1', label: `앞단 ${ACCOUNT}`, nodes: [] },
+      { id: 'st2', label: `뒷단 ${ACCOUNT}`, nodes: ['ep-orders', 's-list'] },
+    ];
+    const main = await renderBoth(next);
+    expect(main.private).toContain(`뒷단 ${ACCOUNT}`);
+    expect(main.private).toContain(`상점 ${ACCOUNT}`);
+    expect(main.shared).not.toContain(ACCOUNT);
+
+    const priv = computeArchitectureDelta(snap(prev), snap(next));
+    expect(priv.ledger.some((e) => e.text.includes(ACCOUNT))).toBe(true);
+    const delta = computeArchitectureDelta(sharedSnap(prev), sharedSnap(next));
+    const scope = deltaScope(delta);
+    const html = renderDeltaHtml(delta, scope, await computeDeltaLayout(delta, scope), {
+      audience: 'shared',
+    });
+    expect(delta.ledger.some((e) => e.change === 'MOVED')).toBe(true);
+    expect(html).not.toContain(ACCOUNT);
   });
 });
 
