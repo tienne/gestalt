@@ -1102,7 +1102,7 @@ render는 질문별 그림마다 `views/<view>.<투영 id>.json`을 따로 쓴�
 
 - 투영 id가 이번 실행의 투영과 안 겹친다.
 - 메시지 id도 이번 실행의 메시지와 안 겹친다.
-- `participants`와 `sides`의 노드가 병합 결과에 다 남아 있다.
+- `participants`와 `sides`의 노드가 병합 결과에 다 남아 있다. er은 그 노드가 이번에도 `db_table`이어야 한다. 같은 id를 다른 종류 노드가 쓰면 검증기의 `PROJECTION_SHAPE_FIELD`에 걸린다.
 - 메시지마다 양 끝 노드가 남아 있고 가리킨 엣지도 같은 두 노드를 잇는 채로 남아 있다.
 - lifecycle과 blueprint는 가리킨 `flow`가 이번 실행의 `flows`에 있고 그 흐름에 그릴 단계가 남아 있다. lifecycle은 `state`를 단 단계가, blueprint는 갈림길이 아닌 단계가 하나 이상 있어야 한다. 검증기의 `PROJECTION_EMPTY`와 같은 조건이다. 흐름은 지난 IR에서 이어받지 않으니 이번 IR에 다시 적어야 한다.
 
