@@ -460,3 +460,163 @@ describe('ges_architecture merge', () => {
     expect(errors[0]!.message).toContain('입력 1');
   });
 });
+
+describe('ges_architecture render의 구조 변경 그림', () => {
+  it('처음 그리면 비교할 이전 그림이 없다고 알리고 delta 파일을 만들지 않는다', async () => {
+    const result = await call({ action: 'render', ir: makeIr() });
+    expect(result['delta']).toEqual({ status: 'no_previous', message: '비교할 이전 그림이 없다.' });
+    const dir = join(repoRoot, '.gestalt', 'architecture');
+    expect(existsSync(join(dir, 'screen-chain.delta.html'))).toBe(false);
+  });
+
+  it('구조가 같으면 unchanged이고 이전 delta 파일을 건드리지 않는다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    const changed = makeIr();
+    changed.nodes.push(node('n-pay', 'endpoint', 'POST /pay', 2));
+    const created = await call({ action: 'render', ir: changed });
+    const deltaPath = (created['delta'] as { htmlPath: string }).htmlPath;
+    const before = readFileSync(deltaPath);
+    const again = await call({ action: 'render', ir: changed });
+    expect((again['delta'] as { status: string }).status).toBe('unchanged');
+    expect(again['delta']).not.toHaveProperty('htmlPath');
+    expect(readFileSync(deltaPath).equals(before)).toBe(true);
+  });
+
+  it('바뀌면 created와 두 경로, 변경 건수를 싣고 메인 HTML 경로는 그대로다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    const next = makeIr();
+    next.nodes.push(node('n-pay', 'endpoint', 'POST /pay', 2));
+    next.edges.push(edge('n-e3', 'n-home', 'n-pay', 'calls'));
+    next.nodes[2]!.description = '주문을 다루는 모듈이에요.';
+    const result = await call({ action: 'render', ir: next });
+    const delta = result['delta'] as {
+      status: string;
+      htmlPath: string;
+      sharedHtmlPath: string;
+      changes: Record<string, number>;
+    };
+    expect(delta.status).toBe('created');
+    expect(delta.htmlPath.endsWith('screen-chain.delta.html')).toBe(true);
+    expect(delta.sharedHtmlPath.endsWith('screen-chain.delta.shared.html')).toBe(true);
+    expect(delta.changes).toEqual({ ADDED: 2, CHANGED: 1 });
+    expect(result['htmlPath']).not.toBe(delta.htmlPath);
+    const page = readFileSync(delta.htmlPath, 'utf-8');
+    expect(page).toContain('data-change="ADDED" data-target="n-pay"');
+    expect(page).toContain('data-change="CHANGED" data-target="n-orders-module"');
+    // 예산 안이면 구조 변경 경고는 없다
+    const codes = ((result['warnings'] as Array<{ code: string }> | undefined) ?? []).map(
+      (w) => w.code,
+    );
+    expect(codes).not.toContain('DELTA_OVER_BUDGET');
+  });
+
+  it('공유본 delta에는 private 근거 위치와 계정 ID가 없다', async () => {
+    const first = makeIr();
+    first.nodes[2]!.description = '계정 123456789012에서 돈다';
+    await call({ action: 'render', ir: first });
+    const next = makeIr();
+    next.nodes[2]!.description = '계정 210987654321에서 돈다';
+    next.nodes.push(node('n-pay', 'endpoint', 'POST /pay', 2));
+    const result = await call({ action: 'render', ir: next });
+    const delta = result['delta'] as { htmlPath: string; sharedHtmlPath: string };
+    expect(readFileSync(delta.htmlPath, 'utf-8')).toContain('210987654321');
+    const shared = readFileSync(delta.sharedHtmlPath, 'utf-8');
+    expect(shared).not.toContain('123456789012');
+    expect(shared).not.toContain('210987654321');
+    expect(shared).not.toContain(PRIVATE_LOCATION);
+    // 가린 글자끼리는 같으므로 공유본 원장에는 설명 변경이 안 잡힌다
+    expect(shared).not.toContain('data-change="CHANGED"');
+  });
+
+  it('예산을 넘으면 DELTA_OVER_BUDGET을 warnings에 싣고 그림은 그대로 쓴다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    const next = makeIr();
+    for (let i = 0; i < 9; i++) {
+      next.nodes.push(node(`n-x${i}`, 'endpoint', `GET /x${i}`, 2));
+    }
+    const result = await call({ action: 'render', ir: next });
+    const delta = result['delta'] as { status: string; htmlPath: string };
+    expect(delta.status).toBe('created');
+    expect(existsSync(delta.htmlPath)).toBe(true);
+    const warning = (result['warnings'] as Array<{ code: string; counts: Record<string, number> }>)
+      .filter((w) => w.code === 'DELTA_OVER_BUDGET')
+      .at(0);
+    expect(warning?.counts['ledger']).toBe(9);
+  });
+  it('저장된 이전 IR이 지금 규칙으로 검증 안 되면 no_previous로 돌린다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    const irPath = join(repoRoot, '.gestalt', 'architecture', 'screen-chain.json');
+    const stored = JSON.parse(readFileSync(irPath, 'utf-8')) as ArchitectureIr;
+    stored.edges[0]!.evidence = [];
+    writeFileSync(irPath, JSON.stringify(stored));
+    const next = makeIr();
+    next.nodes.push(node('n-pay', 'endpoint', 'POST /pay', 2));
+    const result = await call({ action: 'render', ir: next });
+    expect(result['ok']).toBe(true);
+    expect((result['delta'] as { status: string }).status).toBe('no_previous');
+    expect(existsSync(join(repoRoot, '.gestalt', 'architecture', 'screen-chain.delta.html'))).toBe(
+      false,
+    );
+  });
+
+  it('엣지만 추가해도 created이고 원장에 ADDED가 한 줄 든다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    const next = makeIr();
+    next.edges.push(edge('n-e3', 'n-home', 'n-orders-module', 'calls'));
+    const result = await call({ action: 'render', ir: next });
+    const delta = result['delta'] as { status: string; htmlPath: string; changes: object };
+    expect(delta.status).toBe('created');
+    expect(delta.changes).toEqual({ ADDED: 1 });
+    expect(readFileSync(delta.htmlPath, 'utf-8')).toContain('data-change="ADDED"');
+  });
+
+  it('꺾쇠가 든 label은 delta HTML에서 escape 된다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    const next = makeIr();
+    next.nodes.push(node('n-xss', 'endpoint', '<script>alert(1)</script>', 2));
+    const result = await call({ action: 'render', ir: next });
+    const delta = result['delta'] as { htmlPath: string; sharedHtmlPath: string };
+    for (const path of [delta.htmlPath, delta.sharedHtmlPath]) {
+      const page = readFileSync(path, 'utf-8');
+      expect(page).not.toContain('<script>alert');
+      expect(page).toContain('&lt;script&gt;');
+    }
+  });
+
+  it('공유본 delta 원장의 새 노드 이름에서 계정 ID가 가려지고 private 위치는 없다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    const next = makeIr();
+    const added = node('n-secret', 'endpoint', 'GET /secret', 2);
+    added.displayName = '결제 계정 123456789012';
+    added.evidence.push({
+      type: 'code',
+      location: PRIVATE_LOCATION,
+      visibility: 'private',
+    });
+    next.nodes.push(added);
+    const result = await call({ action: 'render', ir: next });
+    const delta = result['delta'] as { htmlPath: string; sharedHtmlPath: string };
+    const shared = readFileSync(delta.sharedHtmlPath, 'utf-8');
+    expect(shared).toContain('n-secret');
+    expect(shared).not.toContain('123456789012');
+    expect(readFileSync(delta.htmlPath, 'utf-8')).toContain('123456789012');
+    expect(shared).not.toContain(PRIVATE_LOCATION);
+    expect(shared).not.toContain('internal-notes');
+  });
+
+  it('같은 변경을 두 번 렌더하면 delta HTML 바이트가 같다', async () => {
+    const run = async (): Promise<[Buffer, Buffer]> => {
+      rmSync(join(repoRoot, '.gestalt'), { recursive: true, force: true });
+      await call({ action: 'render', ir: makeIr() });
+      const next = makeIr();
+      next.nodes.push(node('n-pay', 'endpoint', 'POST /pay', 2));
+      const r = await call({ action: 'render', ir: next });
+      const d = r['delta'] as { htmlPath: string; sharedHtmlPath: string };
+      return [readFileSync(d.htmlPath), readFileSync(d.sharedHtmlPath)];
+    };
+    const [a1, a2] = await run();
+    const [b1, b2] = await run();
+    expect(a1.equals(b1)).toBe(true);
+    expect(a2.equals(b2)).toBe(true);
+  });
+});
