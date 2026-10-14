@@ -107,7 +107,7 @@ const VIEW_TITLES: Record<ArchitectureIr['view'], string> = {
 };
 
 /** 하네스 레포는 화면이 없어 '화면별'이 틀린 말이 된다. 화면이 하나라도 있으면 웹 그림으로 친다 */
-function viewTitle(ir: ArchitectureIr): string {
+export function viewTitle(ir: ArchitectureIr): string {
   if (ir.view !== 'screen-chain' || ir.nodes.some((n) => n.kind === 'screen')) {
     return VIEW_TITLES[ir.view];
   }
@@ -166,7 +166,7 @@ function byId<T extends { id: string }>(a: T, b: T): number {
   return compareStr(a.id, b.id);
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

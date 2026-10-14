@@ -835,10 +835,21 @@ export const DOC_CSS = `.doc-badge {
 .doc-thumb { display: block; max-width: 100%; margin: 8px 0; border: 1px solid var(--border); border-radius: 6px; }
 .doc-routes .loc { font-size: 12px; color: var(--muted); }`;
 
+const ROOT_TOKENS = `:root {${LIGHT_TOKENS}  --font: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;\n  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;\n}`;
+
+/** 색과 글꼴 토큰만. 구조도 레이아웃 CSS 없이 테마만 빌려 쓰는 정적 페이지(구조 변경 그림)용이다 */
+export function renderTokenCss(): string {
+  return [
+    ROOT_TOKENS,
+    `@media (prefers-color-scheme: dark) {\n:root:not([data-theme="light"]) {${DARK_TOKENS}}\n}`,
+    `:root[data-theme="dark"] {${DARK_TOKENS}}`,
+  ].join('\n');
+}
+
 /** 테마 토큰과 레이아웃 CSS. 시스템 설정을 기본으로 따르고 html의 data-theme가 있으면 그걸 따른다 */
 export function renderCss(vocab: Vocabulary = LEGACY_VOCABULARY): string {
   return [
-    `:root {${LIGHT_TOKENS}  --font: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;\n  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;\n}`,
+    ROOT_TOKENS,
     `@media (prefers-color-scheme: dark) {\n:root:not([data-theme="light"]) {${DARK_TOKENS}}\n${scoped(vocab, ':root:not([data-theme="light"])', 'dark')}\n}`,
     `:root[data-theme="dark"] {${DARK_TOKENS}}`,
     kindRules(vocab, 'light'),

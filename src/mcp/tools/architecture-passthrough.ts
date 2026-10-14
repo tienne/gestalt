@@ -18,6 +18,15 @@ import type { DocScanResult } from '../../architecture/doc-scan.js';
 import { matchEndpoints } from '../../architecture/endpoint-match.js';
 import { matchMcpTools } from '../../architecture/mcp-tool-match.js';
 import { matchNameRefs } from '../../architecture/name-ref-match.js';
+import {
+  computeArchitectureDelta,
+  deltaCounts,
+  deltaOverBudget,
+  deltaScope,
+  type ArchitectureDelta,
+  type DeltaSnapshot,
+} from '../../architecture/delta.js';
+import { computeDeltaLayout, renderDeltaHtml } from '../../architecture/delta-renderer.js';
 import { computeDrilldown, shouldDrillDown } from '../../architecture/drilldown.js';
 import { renderArchitectureHtml, renderDrilldownHtml } from '../../architecture/html-renderer.js';
 import { parseArchitectureIr } from '../../architecture/ir-schema.js';
@@ -34,7 +43,9 @@ import {
   type ArchitectureView,
 } from '../../architecture/types.js';
 import {
+  redactForSharing,
   validateArchitectureIr,
+  type BudgetWarning,
   type ValidatedIr,
   type ValidateArchitectureIrResult,
 } from '../../architecture/validator.js';
@@ -329,6 +340,8 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
   const htmlPath = store.saveHtml(view, 'private', privateHtml);
   const sharedHtmlPath = store.saveHtml(view, 'shared', sharedHtml);
   log(`architecture: rendered ${view} → ${htmlPath}`);
+  const delta = await renderDelta(prev, validated, repoRoot, store);
+  const warnings = [...validated.warnings, ...(delta.warning ? [delta.warning] : [])];
 
   return {
     ok: true,
@@ -348,8 +361,103 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
         }
       : {}),
     stats: computeStats(validated),
-    ...(validated.warnings.length > 0 ? { warnings: validated.warnings } : {}),
+    delta: delta.result,
+    ...(warnings.length > 0 ? { warnings } : {}),
     sourcesUsed: validated.ir.sourcesUsed,
+  };
+}
+
+function deltaSnapshot(v: ValidatedIr, redact = false): DeltaSnapshot {
+  return {
+    ir: redact ? redactForSharing(v.ir) : v.ir,
+    nodeIds: v.drawableNodeIds,
+    edgeIds: v.drawableEdgeIds,
+  };
+}
+
+function changeCounts(delta: ArchitectureDelta): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const e of delta.ledger) counts[e.change] = (counts[e.change] ?? 0) + 1;
+  return counts;
+}
+
+/**
+ * 병합 전에 읽은 이전 IR을 Before로, 이번 병합 결과를 After로 놓고 구조 변경 그림을 쓴다.
+ * 바뀐 게 없으면 옛 delta 파일을 건드리지 않는다. 그 파일은 마지막으로 구조가 바뀐 실행의 기록이다
+ */
+async function renderDelta(
+  prev: ArchitectureIr | null,
+  next: ValidatedIr,
+  repoRoot: string,
+  store: ArchitectureStore,
+): Promise<{ result: object; warning?: BudgetWarning }> {
+  if (prev === null) {
+    return { result: { status: 'no_previous', message: '비교할 이전 그림이 없다.' } };
+  }
+  // 이전 IR은 그때 이미 근거 파일을 확인했다. 그 뒤 옮겨진 파일 때문에 비교 자체가 막히면 안 된다
+  const before = validate(prev, repoRoot, false);
+  if (!before.ok) {
+    return {
+      result: {
+        status: 'no_previous',
+        message: '비교할 이전 그림이 없다. 저장된 이전 IR이 지금 검증 규칙을 통과하지 못했다.',
+      },
+    };
+  }
+  const delta = computeArchitectureDelta(deltaSnapshot(before.value), deltaSnapshot(next));
+  if (delta.ledger.length === 0) {
+    return { result: { status: 'unchanged', message: '이전 그림과 구조가 같다.' } };
+  }
+  const scope = deltaScope(delta);
+  const view = next.ir.view;
+  const htmlPath = store.saveDeltaHtml(
+    view,
+    'private',
+    renderDeltaHtml(delta, scope, await computeDeltaLayout(delta, scope), {
+      audience: 'private',
+    }),
+  );
+  // 가린 글자끼리 다시 비교해야 공유본 원장에 계정 ID 같은 원문이 옛 값으로 새지 않는다
+  const shared = computeArchitectureDelta(
+    deltaSnapshot(before.value, true),
+    deltaSnapshot(next, true),
+  );
+  const sharedScope = deltaScope(shared);
+  const sharedHtmlPath = store.saveDeltaHtml(
+    view,
+    'shared',
+    renderDeltaHtml(shared, sharedScope, await computeDeltaLayout(shared, sharedScope), {
+      audience: 'shared',
+    }),
+  );
+  log(`architecture: delta ${view} → ${htmlPath}`);
+  const counts = deltaCounts(delta, scope);
+  const over = deltaOverBudget(counts);
+  return {
+    result: {
+      status: 'created',
+      htmlPath,
+      sharedHtmlPath,
+      changes: changeCounts(delta),
+      ...(scope.scoped
+        ? {
+            scoped: {
+              drawnComponents: scope.nodeIds.size,
+              totalComponents: scope.total.components,
+            },
+          }
+        : {}),
+    },
+    ...(over.length > 0
+      ? {
+          warning: {
+            code: 'DELTA_OVER_BUDGET' as const,
+            message: `구조 변경 그림이 한 장에 읽히는 양을 넘는다. ${over.join(', ')}. 바뀐 영역을 나눠 단계별로 다시 그린다.`,
+            subjectId: view,
+            counts: { ...counts },
+          },
+        }
+      : {}),
   };
 }
 

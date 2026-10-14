@@ -86,6 +86,20 @@ export class ArchitectureStore {
     writeTextAtomic(path, html);
     return path;
   }
+
+  /** 이전 실행과 이번 실행의 구조 변경 그림. 메인 그림과 따로 둬야 메인 HTML 바이트가 그대로다 */
+  deltaHtmlPath(view: ArchitectureView, audience: 'private' | 'shared'): string {
+    return join(
+      this.dir,
+      audience === 'shared' ? `${view}.delta.shared.html` : `${view}.delta.html`,
+    );
+  }
+
+  saveDeltaHtml(view: ArchitectureView, audience: 'private' | 'shared', html: string): string {
+    const path = this.deltaHtmlPath(view, audience);
+    writeTextAtomic(path, html);
+    return path;
+  }
 }
 
 export interface ProjectionSlice {
