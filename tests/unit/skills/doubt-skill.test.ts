@@ -73,11 +73,29 @@ describe('doubt 스킬', () => {
     }
   });
 
-  it('멈춤 조건에 사소한 의견, 세 회차, 사용자 중단이 있다', () => {
+  it('멈춤 조건과 완료 보고의 멈춘 이유가 서로 맞는다', () => {
     const stop = section('5단계: 멈춘다');
     expect(stop).toContain('사소한 의견');
     expect(stop).toContain('세 회차');
     expect(stop).toContain('사용자가 그만하라고');
+    // '확인 도장'은 바로 윗줄에도 있어서 기각만 남은 회차의 줄은 이 두 어구로만 잡힌다
+    expect(stop).toContain('근거 있는 기각');
+    expect(stop).toContain('산출물도 계약도 바뀌지 않았다');
+
+    // 완료 보고 절의 '남은 트레이드오프' 칸에도 '기각만 남음'이 있어서 멈춘 이유 줄만 잘라 본다
+    const reasonLine =
+      section('완료 보고')
+        .split('\n')
+        .find((line) => line.includes('멈춘 이유:')) ?? '';
+    for (const reason of [
+      '사소한 의견만 남음',
+      '세 회차',
+      '사용자 중단',
+      '확인 도장',
+      '기각만 남음',
+    ]) {
+      expect(reasonLine).toContain(reason);
+    }
   });
 
   it('반박 템플릿에 산출물과 계약 자리만 있고 주장 자리는 없다', () => {
