@@ -27,6 +27,7 @@
   "tierModels": { "frugal": "haiku", "standard": "sonnet", "frontier": "opus" },
   "relatedRepos": ["acme/widget-kit"],
   "codeGraph": { "hooks": { "enabled": false } },
+  "webFetchCache": { "enabled": false },
   "dbPath": ".gestalt/gestalt.db",
   "logLevel": "info"
 }
@@ -64,6 +65,7 @@ interface GestaltConfig {
   codeGraph: {
     hooks: { enabled: boolean }; // Claude Code 훅 자동 주입, 기본 false
   };
+  webFetchCache: { enabled: boolean }; // WebFetch 디스크 캐시 훅, 기본 false
   dbPath: string;
   skillsDir: string;
   agentsDir: string;
@@ -90,6 +92,7 @@ interface GestaltConfig {
 | `GESTALT_REASONING_MODEL_FALLBACK` | `"fable"` \| `"opus"` \| `"sonnet"` \| `"haiku"` | `"opus"` | 위 모델을 Agent 도구가 지원하지 않을 때 쓸 폴백 모델 |
 | `GESTALT_NOTIFICATIONS` | boolean | `false` | 완료/실패 시 OS 알림 전송 여부 (`"true"` 문자열로 설정) |
 | `GESTALT_CODE_GRAPH_HOOKS` | `"1"` \| `"true"` \| `"0"` \| `"false"` | — | Claude Code 플러그인 훅의 코드 그래프 자동 주입을 켜고 끈다. `0`/`false`는 `gestalt.json` 설정보다 우선해서 끈다. 동작은 [Claude Code 훅 (자동 주입)](./code-graph.md#claude-code-훅-자동-주입) |
+| `GESTALT_WEBFETCH_CACHE` | `"1"` \| `"true"` \| `"0"` \| `"false"` | — | WebFetch 디스크 캐시 훅을 켜고 끈다. `0`/`false`는 `gestalt.json` 설정보다 우선해서 끈다. 동작은 [WebFetch 디스크 캐시](./webfetch-cache.md) |
 | `GESTALT_DB_PATH` | string | `"~/.gestalt/events.db"` | SQLite 이벤트 스토어 파일 경로 |
 | `GESTALT_SKILLS_DIR` | string | `"skills"` | 스킬 SKILL.md 파일들이 위치한 디렉터리 |
 | `GESTALT_AGENTS_DIR` | string | `"agents"` | 커스텀 에이전트 정의 디렉터리 |
@@ -119,6 +122,7 @@ interface GestaltConfig {
 | `GESTALT_TIER_MODEL_FRONTIER` | `tierModels.frontier` |
 | `GESTALT_NOTIFICATIONS` | `notifications` |
 | `GESTALT_CODE_GRAPH_HOOKS` | `codeGraph.hooks.enabled` |
+| `GESTALT_WEBFETCH_CACHE` | `webFetchCache.enabled` |
 | `GESTALT_DB_PATH` | `dbPath` |
 | `GESTALT_SKILLS_DIR` | `skillsDir` |
 | `GESTALT_AGENTS_DIR` | `agentsDir` |
@@ -160,6 +164,24 @@ interface GestaltConfig {
 - 그래프 DB(`.gestalt/code-graph.db`)가 있어야 동작한다. 훅은 그래프를 새로 만들지 않으니 처음에는 `gestalt init`이나 `ges_code_graph build`로 빌드한다
 
 이벤트별로 넣는 내용과 랭킹, 타임아웃은 [Claude Code 훅 (자동 주입)](./code-graph.md#claude-code-훅-자동-주입)에 있다.
+
+---
+
+## WebFetch 디스크 캐시 (`webFetchCache`)
+
+`webFetchCache.enabled`를 `true`로 두면 Claude Code 플러그인 훅이 WebFetch 결과를 디스크에 저장한다. 같은 요청이 다시 오면 원본 서버가 "바뀌지 않았다(304)"고 답할 때만 저장본을 돌려준다. Claude만 지원한다.
+
+```json
+{
+  "webFetchCache": { "enabled": true }
+}
+```
+
+- 기본은 `false`다. 플러그인 훅은 게슈탈트 플러그인이 깔린 모든 레포의 모든 WebFetch에 걸리므로 쓰려는 레포에서만 켠다
+- 환경변수 `GESTALT_WEBFETCH_CACHE=1`(또는 `true`)로도 켠다. `0`이나 `false`는 `gestalt.json` 설정보다 우선해서 끈다
+- 캐시는 `.gestalt/webfetch-cache/`에 쌓인다. `jq`와 `curl`이 없으면 훅은 아무것도 하지 않고 지나간다
+
+저장 규칙과 한계는 [WebFetch 디스크 캐시](./webfetch-cache.md)에 있다.
 
 ---
 
