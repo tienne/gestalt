@@ -116,6 +116,7 @@ Step 0 전에 두 가지를 정한다. 대상에 맞는 어휘 팩과 질문에 
 | 상태나 단계, 업무 절차                       | `flows` ([Step 3.5](#step-35--도메인-흐름))                    |
 | 한 대상이 어떤 상태를 거쳐 어디서 끝나나     | `flows`를 먼저 쓰고 그 위에 `lifecycle` 질문별 그림            |
 | 고객이 한 걸음 갈 때 뒤에서 무엇이 일하나    | `flows`를 먼저 쓰고 그 위에 `blueprint` 질문별 그림            |
+| 테이블끼리 어떤 컬럼으로 묶이나              | `db_table`에 `columns`를 먼저 쓰고 그 위에 `er` 질문별 그림     |
 | 분명하지 않다                                | 지도를 그리고 Step 8 보고에서 포커스 쓰는 법을 안내한다         |
 
 - 질문별 그림은 지도 위에 얹는다. 지도를 먼저 그린다. 답에 필요한 사실이 지도에 없으면 먼저 탐색해 근거와 함께 `nodes`와 `edges`에 넣는다. 그다음에 질문별 그림에서 가리킨다. 끝내 못 찾은 사실은 그리지 않고 미해결 질문으로 남긴다.
@@ -264,6 +265,7 @@ Step 0 전에 두 가지를 정한다. 대상에 맞는 어휘 팩과 질문에 
    - `repo`는 클라우드 조회용 가짜 레포 id로 두고 label은 `<엔진>:<클러스터 식별자>` 꼴(`aurora-mysql:<식별자>`, `redis:<식별자>`)로 쓴다. 다른 분석과 합칠 때 같은 클러스터가 한 노드로 모이는 기준이 이 label이다.
    - `engine`에 엔진 이름(`mysql`, `postgresql`, `redis`, `elasticsearch`, `mongodb`, `documentdb`, `dynamodb`, `mariadb`)을 단다. 카드에 그 엔진 로고가 선다. Aurora MySQL은 `mysql`, ElastiCache Redis는 `redis`다. 안 달면 label 앞부분으로 찾지만 label을 다르게 적으면 로고가 안 붙는다.
    - **id에는 클러스터 식별자와 계정 ID를 넣지 않는다.** `ds:redis-common`처럼 별칭으로 짓는다.
+   - 테이블 구조를 묻는 질문이 있을 때만 `db_table`에 `columns`를 단다. 출처는 마이그레이션 파일(`CREATE TABLE`, `ALTER TABLE ... ADD CONSTRAINT`), ORM 엔티티(JPA `@Entity`, TypeORM, Prisma `schema.prisma`, Django 모델), 스키마 덤프 파일이다. 컬럼 하나는 `{ name, type?, pk?, nullable?, unique?, references?, evidence? }`이고 외래 키는 `references: { table, column?, onDelete? }`에 대상 `db_table` id로 적는다. 외래 키 컬럼에는 그 제약을 적은 줄을 `evidence`로 단다. 근거가 없으면 선이 안 그려지고 `auto:fk:` 질문이 생긴다. 쓰임새는 [`references/projections.md`](./references/projections.md)의 er 항목에 있다.
    - `environment`를 단다. 전체 그림은 prod 기준이라 `prod`가 아닌 저장소는 전체 그림에서 빠지고 아래 레벨에서만 보인다. 조회로 채울 때도 prod부터 채운다.
 
 ### 3-3. `gateway`
@@ -464,6 +466,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 - 빈 채로 두면 validate가 `warnings`에 `NODE_DESCRIPTION_MISSING`을 싣는다. 에러가 아니라 render는 막지 않는다. 경고에 실린 `nodeIds`를 채워 다시 validate한다.
 - 상태 흐름 그림이 한 장에 읽히는 양을 넘으면 `warnings`에 `LIFECYCLE_OVER_BUDGET`이 실린다. 이것도 render를 막지 않는다. 경고의 `counts`를 보고 세부 상태를 하나로 합치거나 흐름을 둘로 나눈다.
 - 서비스 블루프린트의 단계 열이 6을 넘으면 `warnings`에 `BLUEPRINT_OVER_BUDGET`이 실린다. render는 막지 않는다. 같은 화면에서 이어지는 단계를 합치거나 흐름을 나눈다.
+- 테이블 관계 그림이 테이블 5개, 한 테이블의 컬럼 8개, 외래 키 선 6개 중 하나라도 넘으면 `warnings`에 `ER_OVER_BUDGET`이 실린다. render는 막지 않는다. 질문에 걸린 테이블만 남기거나 그림을 나눈다.
 
 ### 페이지 글
 
@@ -545,10 +548,10 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 
 ### 질문별 그림을 얹는다
 
-[모양 고르기](#모양-고르기)에서 `sequence`, `dataflow`, `compare`, `lifecycle`, `blueprint`를 골랐으면 지도를 다 쓴 뒤 `projections`에 그림을 단다. 질문별 그림은 지도의 노드와 엣지를 id로 가리킬 뿐이다. 새 사실을 여기에 먼저 적지 않는다. `lifecycle`과 `blueprint`는 노드 대신 `flows`의 흐름 하나를 `flow`로 가리킨다.
+[모양 고르기](#모양-고르기)에서 `sequence`, `dataflow`, `compare`, `lifecycle`, `blueprint`, `er`을 골랐으면 지도를 다 쓴 뒤 `projections`에 그림을 단다. 질문별 그림은 지도의 노드와 엣지를 id로 가리킬 뿐이다. 새 사실을 여기에 먼저 적지 않는다. `lifecycle`과 `blueprint`는 노드 대신 `flows`의 흐름 하나를 `flow`로 가리킨다. `er`은 `participants`에 `db_table` id를 적고 선은 컬럼의 `references`에서 나온다.
 
 > **이 단계의 상세** → [`references/projections.md`](./references/projections.md)
-> `sequence`, `dataflow`, `compare`, `lifecycle`, `blueprint`를 골랐을 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
+> `sequence`, `dataflow`, `compare`, `lifecycle`, `blueprint`, `er`을 골랐을 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
 
 ### parent로 포함 관계를 단다
 
@@ -615,8 +618,10 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 | `PROJECTION_EDGE_NOT_FOUND`, `PROJECTION_EDGE_MISMATCH` | 메시지 `edge`를 그 두 노드를 잇는 지도 엣지로 고친다. 그런 엣지가 없으면 지도에 먼저 넣거나 `edge`를 뺀다 |
 | `PROJECTION_BLOCK_NOT_FOUND`, `PROJECTION_BLOCK_SPLIT` | 메시지 `block`을 `blocks`의 id로 고치고 한 묶음의 메시지를 붙여 적는다                       |
 | `SOLID_MESSAGE_WITHOUT_EVIDENCE` | 가리킨 엣지나 자기 근거에 code나 spec이 없다. 근거를 찾아 달거나 점선으로 바꾼다                                |
-| `PROJECTION_EMPTY`            | sequence와 dataflow에 메시지를 넣는다. 넣을 메시지가 없으면 그 그림을 뺀다. lifecycle이면 가리킨 흐름 단계에 `state`를 단다. blueprint면 갈림길 말고 단계를 하나라도 둔다 |
+| `PROJECTION_EMPTY`            | sequence와 dataflow에 메시지를 넣는다. 넣을 메시지가 없으면 그 그림을 뺀다. lifecycle이면 가리킨 흐름 단계에 `state`를 단다. blueprint면 갈림길 말고 단계를 하나라도 둔다. er이면 `participants`에 테이블을 하나라도 둔다 |
 | `PROJECTION_FLOW_NOT_FOUND`   | lifecycle이나 blueprint의 `flow`를 `flows`에 있는 흐름 id로 고친다. 흐름이 아직 없으면 [Step 3.5](#step-35--도메인-흐름)대로 먼저 쓴다 |
+| `COLUMN_REFERENCE_NOT_FOUND`  | 컬럼 `references.table`을 지도에 있는 `db_table` id로 고친다. 대상이 `columns`를 적었으면 `references.column`도 그 안의 이름이어야 한다. 대상 테이블을 못 찾았으면 `references`를 빼고 질문으로 남긴다 |
+| `INVALID_COLUMN_REFERENCE_KIND` | 외래 키는 `db_table`만 가리킨다. 저장소를 가리켰으면 그 안의 테이블 노드를 두고 다시 가리킨다             |
 | `PROJECTION_SHAPE_FIELD`      | 모양에 안 맞는 필드를 뺀다. [질문별 그림을 얹는다](#질문별-그림을-얹는다)의 모양별 설명을 본다                      |
 | `DUPLICATE_PHASE_ID`          | 한 그림 안에서 구간 id가 겹친다. 다시 짓는다                                                                       |
 | `PROJECTION_PHASE_MESSAGE_NOT_FOUND` | 구간 `from`이나 `to`를 그 그림의 메시지 id로 고친다. 다른 그림의 메시지는 못 가리킨다                       |

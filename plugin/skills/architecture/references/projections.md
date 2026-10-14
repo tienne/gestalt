@@ -52,10 +52,36 @@
   - 근거 없는 엣지는 따라가지 않는다. 연결이 안 보이는 칸은 지어내지 않고 `—`로 비운다. 칸을 채우고 싶으면 단계에 `refs`를 달거나 지도에 근거와 함께 엣지를 넣는다. 층 사이에 선은 긋지 않는다.
   - 칸 하나에 카드는 셋까지다. 나머지는 "+N"으로 접고 이름은 툴팁에 있다. 문서로만 닿은 카드는 테두리가 점선이다.
   - 한 장에 읽히는 양은 단계 6열이다. 넘어도 그리지만 validate가 `BLUEPRINT_OVER_BUDGET` 경고를 낸다. 같은 화면에서 이어지는 단계를 합치거나 흐름을 나눈다.
+- **er**: `messages`는 빈 배열로 두고 `participants`에 그릴 `db_table` id를 적는다. `blocks`, `phases`, `sides`, `flow`는 쓰지 않는다. 선은 지도 엣지가 아니라 테이블 노드 `columns`의 `references`에서 나온다. 그래서 그림을 얹기 전에 테이블마다 `columns`부터 채운다.
+
+  ```json
+  { "id": "order-schema", "shape": "er", "title": "주문 테이블 구조",
+    "question": "주문을 지우면 어떤 행이 같이 지워지나요?",
+    "participants": ["tbl:users", "tbl:orders", "tbl:order-items"], "messages": [] }
+  ```
+
+  ```json
+  { "id": "tbl:orders", "kind": "db_table", "label": "orders", "parent": "ds:main", "repo": "api",
+    "evidence": [{ "type": "code", "location": "api:db/migrations/003_orders.sql:1", "visibility": "public" }],
+    "columns": [
+      { "name": "id", "type": "uuid", "pk": true },
+      { "name": "user_id", "type": "uuid",
+        "references": { "table": "tbl:users", "column": "id", "onDelete": "CASCADE" },
+        "evidence": [{ "type": "code", "location": "api:db/migrations/003_orders.sql:4", "visibility": "public" }] }
+    ] }
+  ```
+
+  - 컬럼은 마이그레이션 파일, ORM 엔티티, 스키마 덤프에서 읽는다. 여러 곳이 다르면 마이그레이션을 따른다. 실제로 DB에 들어간 순서가 거기 있어서다.
+  - 테이블 상자에는 컬럼이 행 하나씩 서고 PK, FK, UQ, NULL 배지가 붙는다. 테이블 하나에 8행까지 보이고 나머지는 "컬럼 N개 더" 한 행으로 접는다. PK와 선이 붙는 컬럼이 먼저 남는다.
+  - 외래 키 선은 출발 컬럼 행에서 대상 컬럼 행으로 간다. 컬럼 `evidence`에 code나 spec이 있으면 실선, 문서 근거뿐이면 점선이다. 근거가 없으면 선을 긋지 않고 배지가 `FK?`로 서며 `auto:fk:<테이블 id>:<컬럼>` 질문이 생긴다. 이름이 `_id`로 끝난다고 짐작해 잇지 않는다.
+  - `onDelete`는 근거가 있는 외래 키에서만 선 위에 `ON DELETE …`로 보인다. 몇 대 몇인지는 그리지 않는다. 컬럼 정의만으로는 확실히 알 수 없어서다.
+  - `participants`에 없는 테이블을 가리키는 외래 키는 선 없이 FK 배지만 남는다. 그 테이블이 질문에 필요하면 `participants`에 더한다.
+  - 한 장에 읽히는 양은 테이블 5개, 한 테이블의 컬럼 8개, 외래 키 선 6개다. 넘어도 그리지만 validate가 `ER_OVER_BUDGET` 경고를 낸다. 질문에 걸린 테이블만 남기거나 그림을 나눈다.
 - **흐름 그림, lifecycle, sequence 고르기**: 셋 다 "어떻게 진행되나"에 답하지만 보는 축이 다르다.
   - "누가 무엇을 하나"면 흐름 그림이다. 행위자 줄마다 단계가 놓여 사람과 시스템이 일을 주고받는 자리가 보인다. `flows`만 쓰면 된다.
   - "이 대상이 어떤 상태를 거쳐 어디서 끝나나"면 lifecycle이다. 행위자를 걷고 상태만 남겨 대기, 재시도, 취소, 실패가 정상 흐름과 어떻게 갈리는지 한눈에 보인다. 상태가 셋 이하면 흐름 그림 위쪽 상태 구간으로 충분하니 얹지 않는다.
   - "어느 모듈이 무엇을 어떤 순서로 부르나"면 sequence다. 상태가 아니라 호출과 응답이 줄거리다.
 - **blueprint, dataflow, sequence 고르기**: "고객이 한 걸음 갈 때 화면 뒤에서 무엇이 일하나"면 blueprint다. 고객 단계가 열이라 단계마다 보이는 쪽과 안 보이는 쪽이 함께 읽힌다. 데이터가 어디서 와서 어디로 가는지면 dataflow이고 누가 누구를 어떤 순서로 부르는지면 sequence다. 둘은 선을 따라 읽는 그림이고 blueprint는 칸을 읽는 그림이다.
+- **er, dataflow 고르기**: "어떤 테이블이 어떤 컬럼으로 서로를 가리키나", "이걸 지우면 무엇이 같이 지워지나"면 er이다. 테이블 안쪽 구조와 외래 키가 줄거리다. "데이터가 어느 모듈을 거쳐 어느 테이블에 쌓이나"면 dataflow다. 코드가 테이블을 읽고 쓰는 길을 따라가는 그림이라 컬럼은 안 나온다.
 - 질문 하나에 그림 하나다. 질문이 여럿이면 그림도 여럿 단다.
 - 하네스 레포는 묻지 않아도 진입 경로마다 순서도를 하나씩 얹는다. 자세한 건 [Step 3.5](../SKILL.md#step-35--도메인-흐름)의 하네스 흐름 항목에 있다.

@@ -40,7 +40,7 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `view`          | `screen-chain` 또는 `deploy-path`                                                                                                                                                                                                                                                                                                                   |
 | `packs`         | 선택. 이 IR이 쓰는 [어휘 팩](#어휘-팩) id 목록. 안 적으면 `web-product`와 `harness`로 읽는다                                                                                                                                                                                                                                                       |
 | `repos`         | `{ id, name, root?, remote? }`. `root`는 로컬 경로다. 상대 경로면 `repoRoot` 기준으로 푼다. `root`가 없으면 [문서 묶음 레포](#문서-묶음-레포)다                                                                                                                                                                                                      |
-| `nodes`         | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, description?, environment?, engine?, account?, platforms?, platformEvidence?, displayKind?, renderClass?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서, `displayKind`와 `renderClass`는 [범용 component](#범용-component)에서 설명한다. `description`은 카드의 설명 줄과 서랍에 나온다. 비우면 validate가 경고한다 ([검증 규칙](#검증-규칙)) |
+| `nodes`         | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, description?, environment?, engine?, account?, platforms?, platformEvidence?, displayKind?, renderClass?, columns?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서, `displayKind`와 `renderClass`는 [범용 component](#범용-component)에서, `columns`는 [테이블 컬럼](#테이블-컬럼)에서 설명한다. `description`은 카드의 설명 줄과 서랍에 나온다. 비우면 validate가 경고한다 ([검증 규칙](#검증-규칙)) |
 | `edges`         | `{ id, from, to, kind, evidence[], lineStyle }`. `lineStyle`은 `solid` 또는 `dashed`                                                                                                                                                                                                                                                                |
 | `unresolved`    | `{ id, subject: { nodeId?, edgeId?, stepId?, transitionId?, messageId? }, question, answer? }`. `messageId`는 질문별 그림의 메시지 id다                                                                                                                                                                                                             |
 | `flows`         | 선택. 도메인 흐름이다. 보통 서비스 하나에 딸리고 서비스 없이 따로 설 수도 있다. [도메인 흐름](#도메인-흐름)에서 설명한다                                                                                                                                                                                                                             |
@@ -252,6 +252,20 @@ AI 하네스나 MCP 서버 레포에서는 MCP 도구가 API 자리에 선다. �
 
 id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 클러스터 식별자를 넣지 않는다. id는 공유본에서도 가릴 수 없어서다. `prod-web`이나 `ds:redis-common`처럼 별칭으로 짓고 실제 ID는 `label`에 둔다.
 
+### 테이블 컬럼
+
+`db_table` 노드는 `columns`에 컬럼 목록을 적을 수 있다. 테이블 구조를 묻는 [테이블 관계](#테이블-관계) 그림이 이 목록을 그린다.
+
+| 필드         | 뜻                                                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------------- |
+| `name`       | 컬럼 이름. 한 테이블 안에서 겹치면 `IR_PARSE_ERROR`다                                                  |
+| `type`       | 소스에 적힌 SQL 타입 그대로                                                                            |
+| `pk`, `nullable`, `unique` | 기본 키, NULL 허용, 유일 제약. 그림에서 PK, NULL, UQ 배지가 된다                         |
+| `references` | 외래 키. `{ table, column?, onDelete? }`이고 `table`은 `db_table` 노드 id다. `onDelete`는 `CASCADE`, `SET NULL` 같은 동작 이름이다 |
+| `evidence`   | 이 컬럼을 적은 줄. 외래 키면 그 제약을 적은 줄이다. 선 모양이 이 근거로 정해진다                      |
+
+`columns`는 `db_table`에만 쓴다. 다른 kind에 적으면 `IR_PARSE_ERROR`다. 외래 키 대상 테이블이 `columns`를 적었으면 `references.column`이 그 안에 있어야 한다. 대상이 `columns`를 안 적었으면 컬럼 이름은 따지지 않고 선은 대상 테이블 머리에 붙는다.
+
 ---
 
 ## 어휘 팩
@@ -425,6 +439,8 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `LIVE_COMMAND_NOT_READ_ONLY`        | `live` 근거의 `command`가 [CLI 명령 판정](#cli-명령-판정)에서 `allow`가 아니다                                                                                                           |
 | `ACCOUNT_NOT_FOUND`                 | `account`가 가리키는 노드가 `nodes`에 없다                                                                                                                                               |
 | `INVALID_ACCOUNT_KIND`              | `account`가 `cloud_account`가 아닌 노드를 가리킨다                                                                                                                                       |
+| `COLUMN_REFERENCE_NOT_FOUND`        | 컬럼 `references.table`이 `nodes`에 없거나, 대상 테이블이 `columns`를 적었는데 `references.column`이 그 안에 없다 |
+| `INVALID_COLUMN_REFERENCE_KIND`     | 컬럼 `references.table`이 `db_table`이 아닌 노드를 가리킨다 |
 | `CLOUD_ID_IN_ID`                    | 노드나 엣지 id에 계정 ID 꼴(12자리 숫자)이 들었거나, `cdn` 노드 id에 CDN 배포 ID 꼴이 들었다                                                                                             |
 | `DANGLING_EDGE`                     | 엣지의 `from`이나 `to`가 `nodes`에 없다                                                                                                                                                  |
 | `PARENT_NOT_FOUND`                  | `parent`가 가리키는 노드가 `nodes`에 없다                                                                                                                                                |
@@ -477,6 +493,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `NODE_DESCRIPTION_MISSING` | 그리는 노드 중 `description`이 없거나 공백뿐이다. 해당 노드 id를 정렬해 `nodeIds`에 모은다. 경고는 이 코드 하나로 한 번만 온다 |
 | `LIFECYCLE_OVER_BUDGET` | `lifecycle` 그림 하나가 한 장에 읽히는 양을 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts`는 띠별 상태 수와 전이 수다. 기준은 [상태 흐름](#상태-흐름)에 있다 |
 | `BLUEPRINT_OVER_BUDGET` | `blueprint` 그림 하나의 단계 열이 6을 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts.stages`는 열 수다. 기준은 [서비스 블루프린트](#서비스-블루프린트)에 있다 |
+| `ER_OVER_BUDGET` | `er` 그림 하나가 테이블 5개, 한 테이블의 컬럼 8개, 외래 키 선 6개 중 하나를 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts`는 테이블 수와 가장 긴 테이블의 컬럼 수, 선 수다. 기준은 [테이블 관계](#테이블-관계)에 있다 |
 | `DELTA_OVER_BUDGET` | 구조 변경 그림이 바뀐 곳 주변으로 좁혀도 구성 요소 8개, 관계 10개, 변경 목록 8줄 중 하나를 넘는다. render에서만 오고 `subjectId`는 view, `counts`는 그린 구성 요소 수와 관계 수, 변경 목록 줄 수다 |
 
 설명이 비면 카드에 설명 줄이 안 붙고 서랍에서도 그 노드가 무엇인지 안 나온다. 그래도 거부하지 않는 건 설명이 없다고 그림이 틀리지는 않아서다. 공백뿐인 설명을 없는 것으로 치는 판정은 레이아웃 높이와 같다 (`src/architecture/types.ts`의 `hasCardDescription`).
@@ -492,6 +509,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 - 근거가 0개인 흐름 단계. 질문 id는 `auto:step:<단계 id>`다.
 - 근거가 0개인 흐름 전이. 질문 id는 `auto:transition:<전이 id>`다. 근거가 있어도 양 끝 단계 중 하나가 빠지면 그리지 않는다.
 - 자기 근거도 가리킨 엣지 근거도 없는 질문별 그림 메시지. 질문 id는 `auto:message:<메시지 id>`다. 근거가 있어도 양 끝 노드 중 하나가 빠지면 그리지 않는다.
+- 근거가 0개인 외래 키 컬럼. 질문 id는 `auto:fk:<테이블 id>:<컬럼 이름>`이고 `subject.nodeId`는 그 테이블이다. er 그림이 없어도 그려지는 테이블이면 묻는다.
 - 앱이 둘 이상인 서비스에 호스트가 정확히 하나가 아닐 때. 질문 id는 `auto:entry:<서비스 id>`다. 호스트가 없으면 진입 앱을 묻고 여럿이면 그 후보 이름을 함께 보이며 `remotes` 설정이 어느 앱에 있는지 묻는다.
 
 그리기 대상은 그대로 두고 질문만 더하는 경우도 있다. 사람이 하는 단계인데 들어오고 나가는 전이가 하나씩이고 나가는 전이가 다른 길로도 닿는 단계로 합류하면 그 단계는 두 상태를 잇기만 하는 동작일 수 있다. 상태 값이 없거나 앞 단계로 되돌아가면 `auto:as-transition:<단계 id>` 질문을 만들어 전이로 적을지 묻는다. 정정이나 되돌리기, 결제처럼 끼어드는 동작이 여기 걸린다. 들어온 단계로 바로 돌아가는 단계는 그 단계를 되돌린 것이라 묻지 않는다. 갈림길(`kind: "decision"`)도 묻지 않는다. 길을 가르는 자리라서 전이 하나로 줄일 수 없다. 세션이 그 단계에 다른 질문을 달았어도 이 질문은 따로 선다.
@@ -542,7 +560,7 @@ private 근거의 원문은 세 겹으로 막는다.
 2. 저장하는 IR에서 private 근거의 `excerpt`를 지운다 (`stripPrivateExcerpts`).
 3. 공유용 HTML(`.shared.html`)은 private 근거의 `location`까지 빼고 `type`과 `visibility`만 남긴다 (`redactForSharing`). 패널에는 출처 종류만 보인다.
 
-`live` 근거는 `public`으로 적었어도 공유본에서 `type`, `visibility`, `observedAt`만 남는다. 명령과 리소스 위치에 계정 ID나 리소스 이름이 들어가기 때문이다. 공유본은 노드 이름(`label`, `displayName`, `description`)과 흐름의 제목, 행위자, 단계 글자, 전이의 누른 것(`trigger`)과 조건(`condition`), 메모(`label`), 질문 문장, 레벨 제목에 든 계정 ID도 가린다. `cdn` 노드는 CDN 배포 ID도 가린다. 자동 질문은 공유본에 싣지 않는다.
+`live` 근거는 `public`으로 적었어도 공유본에서 `type`, `visibility`, `observedAt`만 남는다. 명령과 리소스 위치에 계정 ID나 리소스 이름이 들어가기 때문이다. 공유본은 노드 이름(`label`, `displayName`, `description`)과 흐름의 제목, 행위자, 단계 글자, 전이의 누른 것(`trigger`)과 조건(`condition`), 메모(`label`), 질문 문장, 레벨 제목에 든 계정 ID도 가린다. `db_table` 노드는 컬럼 이름과 타입, 외래 키 대상 컬럼, `onDelete`에 든 계정 ID도 가린다. `cdn` 노드는 CDN 배포 ID도 가린다. 자동 질문은 공유본에 싣지 않는다.
 
 지식 문서 그림(`knowledge`, `knowledge-link`)의 공유본은 문서 정보도 줄인다 (`maskDocInfo`).
 
@@ -976,16 +994,18 @@ elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행
 | `compare`  | 두 묶음이 무엇이 같고 무엇이 다른가 | `sides` 정확히 둘. 두 `id`는 달라야 한다      | `messages`, `blocks`, `phases`                     |
 | `lifecycle` | 한 대상이 어떤 상태를 거쳐 어디서 끝나나 | `flow`. `messages`는 빈 배열 | `messages` 내용, `participants`, `blocks`, `phases`, `sides` |
 | `blueprint` | 고객이 한 걸음 갈 때 뒤에서 무엇이 일하나 | `flow`. `messages`는 빈 배열 | `messages` 내용, `participants`, `blocks`, `phases`, `sides` |
+| `er` | 테이블끼리 어떤 컬럼으로 묶이나 | `participants`에 `db_table` id. `messages`는 빈 배열 | `messages` 내용, `blocks`, `phases`, `sides`, `flow`, `db_table`이 아닌 참가자 |
 
-못 쓰는 필드를 쓰면 `PROJECTION_SHAPE_FIELD`다. lifecycle과 blueprint가 아닌 그림에 `flow`를 적어도 여기 걸린다. sequence와 dataflow에 메시지가 하나도 없으면 `PROJECTION_EMPTY`다.
+못 쓰는 필드를 쓰면 `PROJECTION_SHAPE_FIELD`다. lifecycle과 blueprint가 아닌 그림에 `flow`를 적어도 여기 걸린다. sequence와 dataflow에 메시지가 하나도 없거나 er에 참가자가 하나도 없으면 `PROJECTION_EMPTY`다.
 
-모양마다 배치가 다르다. 다섯 다 지도의 elkjs 배치를 쓰지 않는다.
+모양마다 배치가 다르다. 여섯 다 지도의 elkjs 배치를 쓰지 않는다.
 
 - **sequence**: 고정 격자다. 노드마다 세로줄이 서고 메시지가 위에서 아래로 차례대로 놓인다. 세로줄 순서는 `participants`를 따르고 없으면 처음 나온 순서다. IR의 `repos`가 둘 이상이면 세로줄 머리 카드 둘째 줄에 그 노드가 있는 레포 이름을 적는다. MCP 도구(`mcpServer`가 있는 `endpoint`)는 어느 레포에 기록됐는지보다 어느 서버의 도구인지가 궁금한 자리라 레포 대신 `<서버 이름> MCP`를 적는다 (`src/architecture/html-renderer.ts`의 `whereFn`). 레포가 하나인 그림은 그대로고 dataflow와 compare에는 아직 안 붙는다. 확대해서 아래로 내려도 머리 카드는 화면 위에 붙어 따라오고 그림 끝에 닿으면 거기서 멈춘다. 머리 카드 뒤에는 띠를 깔아 그 밑을 지나는 선과 글자를 가린다. 확대와 이동이 캔버스 하나에 transform으로 걸려 CSS sticky가 안 먹기 때문에 이동할 때마다 스크립트가 머리 카드를 내린다 (`src/architecture/html-client.ts`의 `stickHeads`).
 - **dataflow**: 왼쪽에서 오른쪽으로 흐른다. 되돌아가는 선을 빼고 가장 긴 경로로 열을 정한다. 되돌아가는 선은 카드 아래로 돌아간다. 같은 두 노드 사이에 선이 여럿이면 위아래로 벌린다.
 - **compare**: 세 열이다. 왼쪽부터 "첫 묶음에만", "둘 다", "둘째 묶음에만" 순이다. 열 제목은 `sides[].label` 뒤에 "에만"을 붙인다. 열 배경은 가장 긴 열 높이에 맞춘다.
 - **lifecycle**: 위에서 아래로 진행 단계, 대기와 복구, 끝 상태 세 띠다. 진행 단계는 왼쪽에서 오른쪽으로 흐르고 아래 두 띠의 카드는 들어오는 선 중 가장 왼쪽 출발 카드 아래쯤에 서고 다른 카드와 겹치면 오른쪽으로 밀린다. 자세한 규칙은 [상태 흐름](#상태-흐름)에 있다.
 - **blueprint**: 고정 격자다. 단계가 왼쪽에서 오른쪽으로 열을 이루고 층이 위에서 아래로 선다. 칸 크기는 글자와 무관하게 정해진다. 자세한 규칙은 [서비스 블루프린트](#서비스-블루프린트)에 있다.
+- **er**: 왼쪽에서 오른쪽으로 층을 이룬다. 가리켜지는 테이블이 왼쪽, 가리키는 테이블이 오른쪽이다. 자세한 규칙은 [테이블 관계](#테이블-관계)에 있다.
 
 ### 상태 흐름
 
@@ -1023,6 +1043,27 @@ elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행
 - **공유본**: 열 머리와 카드 글자는 공유용으로 가린 흐름과 노드에서 꺼내고 좌표는 원본으로 낸다. 칸 크기가 고정이라 가린 글자 길이 때문에 카드 자리가 바뀌지 않는다.
 
 dataflow와 sequence도 화면 뒤를 보여주지만 둘은 선을 따라 읽는 그림이다. 데이터가 어디서 와서 어디로 가나면 dataflow, 누가 누구를 어떤 순서로 부르나면 sequence다. "고객이 이 걸음을 걸을 때 뒤에서 무엇이 일하나"를 칸으로 읽고 싶으면 blueprint다.
+
+### 테이블 관계
+
+지도는 모듈이 어느 테이블을 읽고 쓰는지 보여주지만 테이블끼리 어떤 컬럼으로 묶이는지는 안 보여준다. `er` 그림은 `participants`에 적은 테이블을 상자로 세우고 [테이블 컬럼](#테이블-컬럼)의 `references`로 컬럼과 컬럼을 잇는다 (`src/architecture/er-layout.ts`의 `deriveEr`). 선은 지도 엣지가 아니라 컬럼 근거에서 나온다.
+
+```json
+{ "id": "order-schema", "shape": "er", "title": "주문 테이블 구조",
+  "question": "주문을 지우면 어떤 행이 같이 지워지나요?",
+  "participants": ["tbl:users", "tbl:orders", "tbl:order-items"], "messages": [] }
+```
+
+- **상자**: 테이블 하나가 상자 하나다. 머리에 테이블 이름, 그 밑에 컬럼이 적힌 순서대로 한 행씩 선다. 행에는 PK, FK, UQ, NULL 배지와 타입이 붙는다. 배지는 색이 아니라 글자로 구분한다. 상자 폭과 행 높이는 글자와 무관하게 정해진다. 그려지는 `db_table`만 상자가 되고 근거 없는 테이블은 빠진다.
+- **행 접기**: 한 테이블에 8행까지 보인다. 넘으면 PK와 선이 붙는 컬럼을 먼저 남기고 나머지를 "컬럼 N개 더" 한 행으로 접는다. 남은 행은 적힌 순서를 지킨다.
+- **선**: 출발 컬럼 행에서 대상 컬럼 행으로 직각으로 꺾여 간다. 컬럼 `evidence`에 code나 spec이 있으면 실선, 문서나 사람 말뿐이면 점선이다. 근거가 없으면 선을 긋지 않는다. 배지는 `FK?`로 서고 `auto:fk` 질문이 생긴다. 이름이 `_id`로 끝난다고 짐작해 잇지 않는다. `participants`에 없는 테이블을 가리키는 외래 키도 선이 없고 FK 배지 툴팁에 "이 그림 밖"이 붙는다.
+- **배치**: 가리켜지는 테이블이 왼쪽 층, 가리키는 테이블이 그 오른쪽 층이다. 순환이 있으면 한 곳을 끊는다. 층 사이 통로에서 세로 토막이 서로 안 엇갈리게 자리를 나눈다. 층을 건너뛰는 선은 사이 상자를 가로지르지 않게 그림 위 통로로 돌고 같은 층끼리 잇는 선은 상자 오른쪽으로 돈다.
+- **ON DELETE**: `onDelete`는 근거가 있는 외래 키에서만 출발 행 옆에 `ON DELETE …`로 보인다. 몇 대 몇인지는 그리지 않는다. 컬럼 정의만으로는 확실히 알 수 없어서다.
+- **조작**: 상자를 누르면 다른 그림과 같은 서랍이 열린다. 상자에 마우스를 올리면 그 테이블에 붙은 선이 밝아진다. 이 그림의 스타일과 스크립트는 er 그림이 있는 렌더에만 실린다.
+- **한 장의 양**: 테이블 5개, 한 테이블의 컬럼 8개, 외래 키 선 6개 중 하나라도 넘으면 `ER_OVER_BUDGET` 경고가 온다. 그림은 그대로 그린다. 질문에 걸린 테이블만 남기거나 그림을 나누는 편이 읽힌다.
+- **공유본**: 컬럼 이름과 타입, 대상 컬럼, `onDelete`는 공유용으로 가린 노드에서 꺼내고 좌표는 원본으로 낸다. 행 높이가 고정이라 가린 글자 길이 때문에 선 자리가 바뀌지 않는다.
+
+dataflow도 테이블을 그리지만 코드가 테이블을 읽고 쓰는 길을 따라가는 그림이라 컬럼은 안 나온다. "데이터가 어느 모듈을 거쳐 어느 테이블에 쌓이나"면 dataflow, "어떤 테이블이 어떤 컬럼으로 서로를 가리키나"면 er이다.
 
 ### 순서도 보기 전환
 
@@ -1066,7 +1107,7 @@ render는 질문별 그림마다 `views/<view>.<투영 id>.json`을 따로 쓴�
 
 하나라도 어긋나면 그 투영은 버린다. 반쯤 맞는 그림을 남기면 지도와 어긋난 답을 보여주기 때문이다.
 
-[분석 합치기](#분석-합치기)에서는 입력마다의 투영을 나란히 둔다. 노드와 엣지 id가 바뀌면 투영 안의 참조도 따라가고 투영 id와 메시지 id가 부딪히면 새로 매긴다. 메시지 id가 바뀌면 `phases`의 `from`과 `to`도 따라 바뀐다.
+[분석 합치기](#분석-합치기)에서는 입력마다의 투영을 나란히 둔다. 노드와 엣지 id가 바뀌면 투영 안의 참조도 따라가고 투영 id와 메시지 id가 부딪히면 새로 매긴다. 메시지 id가 바뀌면 `phases`의 `from`과 `to`도 따라 바뀐다. 같은 테이블로 합쳐진 노드의 `columns`는 이름으로 합치고 근거는 합집합이다. 외래 키 `references.table`도 바뀐 노드 id를 따라간다.
 
 ---
 
