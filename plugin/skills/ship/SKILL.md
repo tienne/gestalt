@@ -1,7 +1,7 @@
 ---
 name: ship
 version: "1.1.0"
-description: "로컬 PR로 리뷰를 수렴시킨 뒤 GitHub에 draft PR로 올리고 Copilot 리뷰까지 받아내는 출하 루프. 리뷰 → 대응 → 재리뷰를 이슈가 없어질 때까지 돌리고 그다음 단계로 넘어간다. 리뷰 한 번만 받으려면 review, PR만 만들려면 pr, 받은 리뷰에 답만 하려면 review-reply를 쓴다."
+description: "내 브랜치를 출하한다. 레포 안 로컬 리뷰로 이슈를 수렴시킨 뒤 GitHub에 draft PR로 올리고 Copilot 리뷰까지 받아낸다. 리뷰를 통과할 때까지 대응을 반복하고 그다음 출하 단계로 넘어간다. 한 번만 검토받으려면 review, 새로 만들기만 하려면 pr, 받은 코멘트에 답만 하려면 review-reply를 쓴다."
 triggers:
   - "출하"
   - "ship"

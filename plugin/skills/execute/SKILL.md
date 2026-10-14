@@ -1,7 +1,7 @@
 ---
 name: execute
 version: '1.3.0'
-description: 'Gestalt-driven execution planner that transforms a Spec into a validated ExecutionPlan. Requires a Spec that already exists. Given only a problem statement, use solve instead — it drives interview → spec → execute as one loop.'
+description: '이미 있는 스펙(Spec)을 검증된 실행 계획(ExecutionPlan)으로 바꾸고 태스크 실행, 평가, 개선까지 진행한다. 스펙이 먼저 있어야 한다. 문제 설명만 있으면 solve를 쓴다. solve는 interview → spec → execute를 한 루프로 돈다.'
 triggers:
   - 'execute'
   - 'plan execution'

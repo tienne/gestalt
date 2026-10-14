@@ -1,7 +1,7 @@
 ---
 name: spec
 version: "1.2.0"
-description: "Generate a Spec specification from a completed interview. Requires an interview session id. Starting from a raw problem, run interview first, or use solve for the whole loop."
+description: "끝난 인터뷰 세션으로 스펙(Spec) 문서를 만들어 낸다. 인터뷰 세션 id가 있어야 한다. 날것의 문제에서 시작하면 interview를 먼저 돌리고, 전체 루프는 solve를 쓴다."
 triggers:
   - "generate spec"
   - "create spec"

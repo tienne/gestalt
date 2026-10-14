@@ -1,7 +1,7 @@
 ---
 name: explain
 version: "1.0.0"
-description: "개념이나 에러, 코드를 지정한 대상에게 맞춰 설명하고 explain-check로 판정한 뒤 걸리면 다시 쓰게 한다. '설명해줘/쉽게 풀어줘/이거 뭐야/기획팀한테 설명해줘' 요청 시 자동 발동. 소스 확보 → 대상 확정 → explainer 위임 → explain-check → 재시도. 판정까지 하는 스킬이다. 설명 문장만 빠르게 필요하면 explainer 에이전트를 직접 호출한다."
+description: "개념이나 에러, 코드를 지정한 대상에게 맞춰 설명하고 explain-check로 판정한 뒤 걸리면 다시 쓰게 한다. '설명해줘/쉽게 풀어줘/ELI5/이거 뭐야/무슨 뜻이야/기획팀한테 설명해줘' 요청 시 자동 발동. 소스 확보 → 대상 확정 → explainer 위임 → explain-check → 재시도. 판정까지 하는 스킬이다. 설명 문장만 빠르게 필요하면 explainer 에이전트를 직접 호출한다."
 triggers:
   # 설명 요청
   - "설명해줘"

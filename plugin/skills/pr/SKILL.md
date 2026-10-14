@@ -1,7 +1,7 @@
 ---
 name: pr
 version: "1.0.0"
-description: "GitHub PR 작성 전용 스킬. 레포 규칙을 먼저 탐색하고 미니 인터뷰로 컨텍스트를 수집한 뒤 diff 기반 PR description을 생성해 gh pr create로 제출한다. PR을 만드는 것까지가 범위다. 레포 안에서 끝나는 PR은 local-pr을 쓰고 이미 있는 코드를 검토받으려면 review를 쓴다."
+description: "GitHub PR(pull request)을 만들어 올린다. 'PR 만들어줘/PR 써줘/PR 올려줘' 요청 시 쓴다. 레포 규칙을 먼저 탐색하고 미니 인터뷰로 컨텍스트를 수집한 뒤 diff 기반 PR 본문을 작성해 gh로 제출한다. PR을 만드는 것까지가 범위다. 로컬 PR은 local-pr, 이미 있는 코드 검토는 review를 쓴다."
 triggers:
   - "PR 작성"
   - "PR 만들어"
