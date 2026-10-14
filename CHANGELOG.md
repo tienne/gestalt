@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.97.0] - 2026-10-15
+
+`architecture` 스킬에 그림 종류 네 개를 더했어요. [cathrynlavery/diagram-design](https://github.com/cathrynlavery/diagram-design)의 다이어그램 분류를 참고했어요. 원문을 옮기지 않고 우리 IR로 그릴 수 있는 것만 골랐어요 (#66).
+
+### Added
+
+- **상태 흐름(`shape: "lifecycle"`)을 그려요.** 도메인 흐름의 `state`, `terminal`, `path`로 진행 레일, 대기와 복구, 끝 상태 세 띠를 나눠요. 정상 완료와 취소, 실패를 가르려고 terminal step에 optional `outcome`을 더했어요.
+- **render를 다시 돌리면 구조 변경(delta) 그림이 따로 나와요.** 지난 IR과 비교해 `<view>.delta.html`과 `<view>.delta.shared.html`을 새로 써요. 바뀐 내용은 `ADDED`, `REMOVED`, `CHANGED`, `MOVED`, `REWIRED`로 한 줄씩 보여요.
+  - opt-in이 아니에요. render 응답에 `delta` 필드가 늘 붙고 `status`는 `no_previous`, `unchanged`, `created`, `failed` 중 하나예요.
+  - delta 쪽에서 실패해도 메인 render는 그대로 나가요.
+- **서비스 블루프린트(`shape: "blueprint"`)를 그려요.** 정상 흐름 단계를 열로, 고객 행동과 프론트스테이지, 가시선, 백스테이지, 지원을 층으로 둬요. 칸은 근거 있는 엣지로만 채우고 근거가 없으면 비워 둬요.
+- **테이블 관계(`shape: "er"`)를 그려요.** `db_table`에 optional `columns`를 달 수 있어요. 외래 키 선은 코드나 스펙 근거면 실선, 문서 근거면 점선이에요. 근거가 없으면 선 대신 `FK?` 배지를 달고 `auto:fk` 질문을 남겨요.
+- **네 그림 모두 기존 IR과 출력을 깨지 않게 붙였어요.**
+  - 새 필드는 전부 optional이고 공유본 가림(`redactForSharing`)도 거쳐요.
+  - 질문별 그림 셋은 projection을 적어야 그려요. 새 그림이 없는 IR의 메인 HTML 출력은 바이트 단위로 이전과 같아요.
+  - 예산을 넘겨도 render를 막지 않고 경고만 내요(`LIFECYCLE_OVER_BUDGET`, `DELTA_OVER_BUDGET`, `BLUEPRINT_OVER_BUDGET`, `ER_OVER_BUDGET`).
+
+### Changed
+
+- **재실행 때 지난 질문별 그림을 이어 싣는 조건을 검증기와 같게 맞췄어요.** 상태 흐름은 `state`를 단 단계가, 서비스 블루프린트는 갈림길이 아닌 단계가 남은 흐름을 가리켜야 해요. ER은 가리킨 노드가 이번에도 `db_table`이어야 해요. 어긋나면 그 그림만 버려서 render 전체가 막히지 않아요.
+- **`SKILL.md`의 질문별 그림 선택표에 세 모양을 더했어요.** 비슷한 그림끼리 고르는 기준도 적었고 `delta.status`별로 어떻게 보고할지 Step 8에 넣었어요. `references/projections.md`, `domain-flow.md`, `rerun.md`와 `docs/architecture-view.md`도 함께 맞췄어요.
+
+### 검증 범위
+
+- `pnpm gate`가 통과했어요. 테스트 파일 263개에서 4691개가 통과했고 1개는 skip이에요. CI는 네 칸(ubuntu와 macOS, Node 22와 24) 모두 통과했어요.
+- 로컬 리뷰를 8라운드 거쳤어요. 리뷰어 7명과 정합 심급이 봤어요.
+- 헤드리스 크롬으로 라이트, 다크, 공유본을 찍어 겹치거나 잘린 곳이 없는지 확인했어요.
+
+### 남긴 것
+
+- label을 바꾸면 병합 키가 달라져서 delta에 `REMOVED`와 `ADDED` 두 줄로 나와요. 이름만 바꾸려면 `displayName`을 쓰면 돼요.
+- 본인용 delta 파일을 쓴 뒤 공유본 쓰기에서 실패하면 두 파일이 서로 다른 실행의 것이 될 수 있어요.
+- delta가 `unchanged`면 지난 delta 파일을 지우지 않아요. 마지막으로 구조가 바뀐 실행의 기록으로 남겨요.
+
 ## [0.96.0] - 2026-10-15
 
 [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)(MIT)에서 아이디어 네 가지를 가져왔어요. 원문을 옮기지 않고 gestalt 구조와 어투에 맞춰 새로 썼어요 (#65).
