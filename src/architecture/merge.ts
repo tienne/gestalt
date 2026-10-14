@@ -532,15 +532,19 @@ export function mergeArchitectureIrs(
   const takenStepIds = new Set<string>();
   const stepIdOf = new Map<string, string>(); // `${input}\u0000${원래 id}` → 새 id. 단계와 전이가 함께 쓴다
   const mapStep = (input: number, id: string): string => stepIdOf.get(`${input}\u0000${id}`) ?? id;
+  // 상태 흐름 투영이 흐름을 id로 가리켜서 바뀐 흐름 id를 따로 적어 둔다
+  const flowIdOf = new Map<string, string>();
   for (const { ir, input } of ordered) {
     const map = repoMaps.get(input)!;
     for (const f of ir.flows ?? []) {
       for (const item of [...f.steps, ...f.transitions]) {
         stepIdOf.set(`${input}\u0000${item.id}`, uniqueId(item.id, takenStepIds));
       }
+      const flowId = uniqueId(f.id, takenFlowIds);
+      flowIdOf.set(`${input}\u0000${f.id}`, flowId);
       flows.push({
         ...f,
-        id: uniqueId(f.id, takenFlowIds),
+        id: flowId,
         ...(f.service !== undefined ? { service: mapNode(input, f.service) } : {}),
         steps: f.steps.map((st) => ({
           ...st,
@@ -576,6 +580,9 @@ export function mergeArchitectureIrs(
       projections.push({
         ...pr,
         id: uniqueId(pr.id, takenProjectionIds),
+        ...(pr.flow !== undefined
+          ? { flow: flowIdOf.get(`${input}\u0000${pr.flow}`) ?? pr.flow }
+          : {}),
         ...(pr.participants !== undefined
           ? { participants: pr.participants.map((id) => mapNode(input, id)) }
           : {}),

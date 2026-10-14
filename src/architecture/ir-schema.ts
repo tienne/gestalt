@@ -15,6 +15,7 @@ import {
   FLOW_ACTOR_KINDS,
   FLOW_PATHS,
   FLOW_STEP_KINDS,
+  FLOW_STEP_OUTCOMES,
   PROJECTION_SHAPES,
   SEQUENCE_BLOCK_KINDS,
   LINE_STYLES,
@@ -308,6 +309,7 @@ const flowStepSchema = z
     description: z.string().optional(),
     state: z.string().min(1).optional(),
     terminal: z.boolean().optional(),
+    outcome: z.enum(FLOW_STEP_OUTCOMES).optional(),
     refs: z.array(z.string().min(1)).optional(),
     evidence: z.array(evidenceSchema),
   })
@@ -317,6 +319,13 @@ const flowStepSchema = z
         code: z.ZodIssueCode.custom,
         path: ['terminal'],
         message: 'decision 단계는 갈림길이라 terminal을 달 수 없다',
+      });
+    }
+    if (step.outcome !== undefined && step.terminal !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['outcome'],
+        message: 'outcome은 끝 단계에만 단다. terminal: true를 함께 적는다',
       });
     }
   });
@@ -404,6 +413,7 @@ const projectionSchema = z.object({
     )
     .min(1)
     .optional(),
+  flow: z.string().min(1).optional(),
 });
 
 export const architectureIrSchema = z.object({

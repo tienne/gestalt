@@ -484,6 +484,11 @@
           "type": "boolean",
           "description": "the flow may end here. Not allowed on a decision step"
         },
+        "outcome": {
+          "type": "string",
+          "enum": ["done", "cancel", "fail"],
+          "description": "terminal steps only. How the flow ended. The lifecycle picture keeps done on the main rail and puts cancel and fail in the terminal band. Omit for done"
+        },
         "refs": {
           "type": "array",
           "description": "ids of screen, endpoint, feature or micro_app nodes this step touches",
@@ -494,6 +499,9 @@
       "if": { "properties": { "kind": { "const": "decision" } }, "required": ["kind"] },
       "then": {
         "not": { "properties": { "terminal": { "const": true } }, "required": ["terminal"] }
+      },
+      "dependencies": {
+        "outcome": { "properties": { "terminal": { "const": true } }, "required": ["terminal"] }
       }
     },
     "flowTransition": {
@@ -595,7 +603,7 @@
       "required": ["id", "shape", "title", "question", "messages"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
-        "shape": { "type": "string", "enum": ["sequence", "dataflow", "compare"] },
+        "shape": { "type": "string", "enum": ["sequence", "dataflow", "compare", "lifecycle"] },
         "title": { "type": "string", "minLength": 1 },
         "question": {
           "type": "string",
@@ -605,7 +613,7 @@
         "participants": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "messages": {
           "type": "array",
-          "description": "lines of sequence and dataflow. Leave empty for compare",
+          "description": "lines of sequence and dataflow. Leave empty for compare and lifecycle",
           "items": { "$ref": "#/definitions/projectionMessage" }
         },
         "blocks": { "type": "array", "items": { "$ref": "#/definitions/projectionBlock" } },
@@ -619,6 +627,11 @@
           "minItems": 1,
           "description": "sequence only. Phases in message order, from and to inclusive, no overlap or gap. Leave out to split automatically",
           "items": { "$ref": "#/definitions/projectionPhase" }
+        },
+        "flow": {
+          "type": "string",
+          "minLength": 1,
+          "description": "lifecycle only. Id of the domain flow whose step states this picture draws"
         }
       }
     },

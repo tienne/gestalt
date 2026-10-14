@@ -41,6 +41,8 @@ export const FLOW_ACTOR_KINDS = ['person', 'system', 'agent'] as const;
 export const FLOW_PATHS = ['main', 'side'] as const;
 /** step은 화면이나 일 하나, decision은 조건으로 길이 갈리는 자리다. decision은 마름모로 그린다 */
 export const FLOW_STEP_KINDS = ['step', 'decision'] as const;
+/** 끝 단계가 어떻게 끝났는지. done은 정상 완료, cancel은 누가 그만둔 것, fail은 시간 초과나 오류로 끝난 것이다 */
+export const FLOW_STEP_OUTCOMES = ['done', 'cancel', 'fail'] as const;
 /**
  * 단계 refs가 가리킬 수 있는 kind. 사용자가 실제로 만나는 화면과 그 화면이 부르는 API까지만 잇는다.
  * 하네스에서는 사용자가 부르는 스킬과 스킬이 띄우는 에이전트가 화면 자리다. MCP 도구는 endpoint로 들어온다
@@ -85,6 +87,7 @@ export type Platform = (typeof PLATFORMS)[number];
 export type FlowActorKind = (typeof FLOW_ACTOR_KINDS)[number];
 export type FlowPath = (typeof FLOW_PATHS)[number];
 export type FlowStepKind = (typeof FLOW_STEP_KINDS)[number];
+export type FlowStepOutcome = (typeof FLOW_STEP_OUTCOMES)[number];
 export type EndpointProtocol = (typeof ENDPOINT_PROTOCOLS)[number];
 /**
  * 카드 칩과 아이콘, 색을 고르는 종류. MCP 도구는 IR에서는 endpoint라 매칭과 드릴다운을 그대로 타고
@@ -361,6 +364,8 @@ export interface FlowStep {
   state?: string;
   /** 흐름이 여기서 끝날 수 있다. 착석이나 취소처럼 더 갈 곳이 없는 단계에 단다. 나가는 전이가 없는데 이 표시도 없으면 질문이 생긴다 */
   terminal?: boolean;
+  /** terminal 단계만. 상태 흐름 그림이 정상 완료를 진행 줄 끝에, 취소와 실패를 끝 상태 띠에 따로 세우는 기준이다. 비우면 정상 완료로 본다 */
+  outcome?: FlowStepOutcome;
   /** 이 단계에서 만나는 화면이나 부르는 API 노드 id. 기술 그림으로 내려가는 입구다 */
   refs?: string[];
   evidence: Evidence[];
@@ -407,9 +412,10 @@ export interface ArchitectureFlow {
 /** 투영의 답 모양. 지도(nodes, edges)는 그대로 두고 질문 하나에 맞게 골라 그린다 */
 /**
  * 투영 모양. sequence는 주고받는 순서, dataflow는 데이터가 어디서 어디로 옮겨 가는지, compare는 두 묶음의 같고 다른 점이다.
+ * lifecycle은 도메인 흐름 하나에서 대상 하나가 거치는 상태를 진행, 대기와 복구, 끝 상태 띠로 나눠 그린다.
  * 팩과 무관하게 어느 카테고리든 이 중 하나로 답한다
  */
-export const PROJECTION_SHAPES = ['sequence', 'dataflow', 'compare'] as const;
+export const PROJECTION_SHAPES = ['sequence', 'dataflow', 'compare', 'lifecycle'] as const;
 export type ProjectionShape = (typeof PROJECTION_SHAPES)[number];
 /** sequence 묶음 종류. alt는 경우 나누기, opt는 조건이 맞을 때만, loop는 반복, par는 동시 실행이다 */
 export const SEQUENCE_BLOCK_KINDS = ['alt', 'opt', 'loop', 'par'] as const;
@@ -458,6 +464,8 @@ export interface ArchitectureProjection {
   sides?: ProjectionSide[];
   /** sequence를 나누는 구간. 비우면 렌더할 때 맨 위 참여자가 새 대상을 부르는 자리에서 자른다 */
   phases?: ProjectionPhase[];
+  /** lifecycle이 그리는 도메인 흐름 id. 지도 대신 그 흐름의 단계 상태와 전이에서 그림을 뽑는다 */
+  flow?: string;
 }
 
 /**

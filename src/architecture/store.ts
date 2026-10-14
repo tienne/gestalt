@@ -7,6 +7,7 @@ import type {
   ArchitectureEdge,
   ArchitectureIr,
   ArchitectureNode,
+  ArchitectureFlow,
   ArchitectureProjection,
   ArchitectureView,
   ContextSource,
@@ -92,28 +93,38 @@ export interface ProjectionSlice {
   view: ArchitectureView;
   generatedAt: string;
   projection: ArchitectureProjection;
+  /** lifecycle이 가리킨 흐름. 이 파일 하나로 그 그림을 다시 그릴 수 있게 함께 싣는다 */
+  flow?: ArchitectureFlow;
   nodes: ArchitectureNode[];
   edges: ArchitectureEdge[];
   unresolved: UnresolvedQuestion[];
 }
 
 function projectionSlice(ir: ArchitectureIr, pr: ArchitectureProjection): ProjectionSlice {
+  const flow = pr.flow !== undefined ? (ir.flows ?? []).find((f) => f.id === pr.flow) : undefined;
   const nodeIds = new Set([
     ...(pr.participants ?? []),
     ...(pr.sides ?? []).flatMap((side) => side.nodes),
     ...pr.messages.flatMap((m) => [m.from, m.to]),
+    ...(flow?.steps ?? []).flatMap((st) => st.refs ?? []),
   ]);
   const edgeIds = new Set(pr.messages.flatMap((m) => (m.edge !== undefined ? [m.edge] : [])));
   const messageIds = new Set(pr.messages.map((m) => m.id));
+  const stepIds = new Set(flow?.steps.map((st) => st.id) ?? []);
+  const transitionIds = new Set(flow?.transitions.map((t) => t.id) ?? []);
   return {
     schemaVersion: ir.schemaVersion,
     view: ir.view,
     generatedAt: ir.generatedAt,
     projection: pr,
+    ...(flow !== undefined ? { flow } : {}),
     nodes: ir.nodes.filter((n) => nodeIds.has(n.id)),
     edges: ir.edges.filter((e) => edgeIds.has(e.id)),
     unresolved: ir.unresolved.filter(
-      (q) => q.subject.messageId !== undefined && messageIds.has(q.subject.messageId),
+      (q) =>
+        (q.subject.messageId !== undefined && messageIds.has(q.subject.messageId)) ||
+        (q.subject.stepId !== undefined && stepIds.has(q.subject.stepId)) ||
+        (q.subject.transitionId !== undefined && transitionIds.has(q.subject.transitionId)),
     ),
   };
 }
@@ -254,7 +265,13 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
   const edgeIds = new Set(edges.map((e) => e.id));
   const edgeById = new Map(edges.map((e) => [e.id, e]));
   // 질문 하나에 답한 그림은 다음 실행이 다른 질문을 물어도 남아야 한다. 이번에 안 나온 지난 투영은 가리키는 것이 다 살아 있을 때만 이어 싣는다
-  const carried = carryProjections(prev.projections ?? [], projections ?? [], nodeIds, edgeById);
+  const carried = carryProjections(
+    prev.projections ?? [],
+    projections ?? [],
+    nodeIds,
+    edgeById,
+    new Set(flows?.map((f) => f.id) ?? []),
+  );
   const allProjections =
     projections !== undefined || carried.length > 0
       ? [...(projections ?? []), ...carried]
@@ -321,6 +338,7 @@ function carryProjections(
   next: readonly ArchitectureProjection[],
   nodeIds: ReadonlySet<string>,
   edgeById: ReadonlyMap<string, ArchitectureEdge>,
+  flowIds: ReadonlySet<string>,
 ): ArchitectureProjection[] {
   const projectionIds = new Set(next.map((pr) => pr.id));
   const messageIds = new Set(next.flatMap((pr) => pr.messages.map((m) => m.id)));
@@ -330,6 +348,7 @@ function carryProjections(
     if (pr.messages.some((m) => messageIds.has(m.id))) continue;
     const listed = [...(pr.participants ?? []), ...(pr.sides ?? []).flatMap((side) => side.nodes)];
     if (!listed.every((id) => nodeIds.has(id))) continue;
+    if (pr.flow !== undefined && !flowIds.has(pr.flow)) continue;
     const alive = pr.messages.every((m) => {
       if (!nodeIds.has(m.from) || !nodeIds.has(m.to)) return false;
       if (m.edge === undefined) return true;
