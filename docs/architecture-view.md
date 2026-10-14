@@ -996,7 +996,7 @@ elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행
 | `blueprint` | 고객이 한 걸음 갈 때 뒤에서 무엇이 일하나 | `flow`. `messages`는 빈 배열 | `messages` 내용, `participants`, `blocks`, `phases`, `sides` |
 | `er` | 테이블끼리 어떤 컬럼으로 묶이나 | `participants`에 `db_table` id. `messages`는 빈 배열 | `messages` 내용, `blocks`, `phases`, `sides`, `flow`, `db_table`이 아닌 참가자 |
 
-못 쓰는 필드를 쓰면 `PROJECTION_SHAPE_FIELD`다. lifecycle과 blueprint가 아닌 그림에 `flow`를 적어도 여기 걸린다. sequence와 dataflow에 메시지가 하나도 없거나 er에 참가자가 하나도 없으면 `PROJECTION_EMPTY`다.
+못 쓰는 필드를 쓰면 `PROJECTION_SHAPE_FIELD`다. lifecycle과 blueprint가 아닌 그림에 `flow`를 적어도 여기 걸린다. sequence와 dataflow에 메시지가 하나도 없거나 er에 참가자가 하나도 없으면 `PROJECTION_EMPTY`다. lifecycle이 가리킨 흐름에 `state`를 단 단계가 없거나 blueprint가 가리킨 흐름에 갈림길 말고 단계가 없어도 같다.
 
 모양마다 배치가 다르다. 여섯 다 지도의 elkjs 배치를 쓰지 않는다.
 

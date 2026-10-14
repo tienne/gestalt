@@ -670,7 +670,7 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 - `sharedHtmlPath`: private 근거의 위치와 인용을 빼고 출처 종류만 남긴 공유용. 다른 사람에게 넘길 때는 이 파일만 넘긴다
 - `irPath`: 다음 실행의 출발점
 - `levels`: 드릴다운으로 그렸을 때만 온다. 항목마다 `id`, `title`, `nodes`, `edges`가 있다. `id`는 `root`(전체), `service:<id>`, `feature:<id>`, `server:<id>`, `flow:<id>`, `group:<id>`, `view:<id>` 꼴이다
-- `viewPaths`: 질문별 그림이 있을 때만 온다. 그림마다 `.gestalt/architecture/views/<view>.<그림 id>.json`에 그 그림과 가리킨 노드, 엣지, 질문만 따로 저장한 경로다. 다른 세션이 질문 하나의 답만 읽어 갈 때 이 파일을 건넨다
+- `viewPaths`: 질문별 그림이 있을 때만 온다. 그림마다 `.gestalt/architecture/views/<view>.<그림 id>.json`에 그 그림과 가리킨 노드, 엣지, 질문만 따로 저장한 경로다. lifecycle과 blueprint는 가리킨 흐름(`flow`)을, er은 외래 키 대상 테이블과 `auto:fk:` 질문을 함께 싣는다. 다른 세션이 질문 하나의 답만 읽어 갈 때 이 파일을 건넨다
 - `delta`: 이전 실행과 비교한 결과. 늘 온다. `status`는 넷 중 하나다
   - `no_previous`: 비교할 이전 그림이 없다. 처음 그렸거나 저장된 이전 그림을 지금 규칙으로 읽지 못했다. 파일을 안 만든다
   - `unchanged`: 그려지는 노드와 연결이 지난번과 같다. 지난 구조 변경 그림은 그대로 둔다
