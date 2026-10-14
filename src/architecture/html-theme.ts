@@ -702,6 +702,41 @@ export const LIFECYCLE_CSS = `.lc-band rect { fill: var(--lane); stroke: var(--l
 .link.flow-t .t-label.lc-borrowed { font-weight: 400; font-style: italic; }
 `;
 
+/**
+ * 서비스 블루프린트가 있을 때만 붙이는 스타일. 가시선은 다른 선보다 굵고 진하게 긋고 라벨 글자를 단다.
+ * 가시선 아래 층은 옅게 칠해 숨은 일이라는 게 보이게 하되 층 이름 글자가 뜻을 싣는다
+ */
+export const BLUEPRINT_CSS = `.bp-row rect { fill: var(--surface); stroke: var(--lane-line); stroke-width: 1; }
+.bp-row.bp-backstage rect, .bp-row.bp-support rect { fill: var(--lane); }
+.bp-col-line { stroke: var(--lane-line); stroke-width: 1; stroke-dasharray: 3 5; }
+.bp-line { stroke: var(--border-strong); stroke-width: 1; }
+.bp-line.bp-visibility { stroke: var(--text); stroke-opacity: 0.6; stroke-width: 2; }
+.bp-vis-t, .bp-vis-n { paint-order: stroke; stroke: var(--bg); stroke-width: 8px; stroke-linejoin: round; }
+.bp-vis-t { font-size: 12px; font-weight: 700; fill: var(--text); }
+.bp-vis-n { font-size: 11px; fill: var(--muted); }
+.bp-row-t { position: absolute; display: flex; flex-direction: column; gap: 2px; pointer-events: none; }
+.bp-row-t b { font-size: 12.5px; font-weight: 700; line-height: 18px; color: var(--text); }
+.bp-row-t span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--muted); }
+.bp-stage {
+  position: absolute; display: flex; align-items: center; gap: 8px; padding: 0 12px; box-sizing: border-box; pointer-events: none;
+  border: 1px solid var(--lane-line); border-radius: 10px; background: var(--lane);
+}
+.bp-stage-n {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%;
+  font-size: 11px; font-weight: 700; color: var(--surface); background: var(--text);
+}
+.bp-stage-t { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 700; color: var(--text); }
+.bp-empty { position: absolute; height: 28px; font-size: 14px; line-height: 28px; text-align: center; color: var(--muted); }
+.bp-more {
+  position: absolute; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 700; line-height: 20px;
+  color: var(--text); background: var(--surface); border: 1px solid var(--border-strong);
+}
+.node.bp-card { padding-right: 10px; }
+.node.bp-card.doc-only { border-style: dashed; }
+.bp-card.flow-step .nm .t { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bp-card .bp-who { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--muted); }
+`;
+
 /** 질문별 그림이 있을 때만 붙이는 스타일. 공용 CSS에 넣으면 투영 없는 그림의 바이트가 바뀐다 */
 export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; font-size: 13px; color: var(--muted); }
 .lifeline { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 4 5; }

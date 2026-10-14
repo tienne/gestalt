@@ -9,6 +9,18 @@ import {
   routeCanvas,
 } from './canvas-geometry.js';
 import type { RoutedEdge } from './canvas-geometry.js';
+import {
+  BLUEPRINT_EMPTY_TEXT,
+  BLUEPRINT_HEAD_W,
+  BLUEPRINT_ROW_TEXT,
+  BLUEPRINT_VISIBILITY_NOTE,
+  BLUEPRINT_VISIBILITY_TEXT,
+  blueprintStageTitle,
+  computeBlueprintLayout,
+  deriveBlueprint,
+  type BlueprintLayout,
+  type BlueprintModel,
+} from './blueprint-layout.js';
 import { flowCountByService, ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
 import { computeFlowLayout, type FlowLevel } from './flow-layout.js';
 import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
@@ -23,6 +35,7 @@ import {
   DOC_CSS,
   FLOW_BRANCH_CSS,
   LIFECYCLE_CSS,
+  BLUEPRINT_CSS,
   SEQ_VIEW_CSS,
 } from './html-theme.js';
 import {
@@ -618,6 +631,7 @@ const VIEW_SHAPE_NAME: Record<ArchitectureProjection['shape'], string> = {
   dataflow: '데이터 이동',
   compare: '견주기',
   lifecycle: '상태 흐름',
+  blueprint: '서비스 블루프린트',
 };
 const STRIP_CARD_W = 240;
 const STRIP_GAP = 12;
@@ -1103,6 +1117,7 @@ const VIEW_SVG_LABEL: Record<ArchitectureProjection['shape'], string> = {
   dataflow: '데이터 이동',
   compare: '견주기',
   lifecycle: '상태 전이',
+  blueprint: '단계별 층',
 };
 
 /** 투영 레벨 하나. 맨 위에 답하는 질문을 적고 그 아래 모양별 선과 카드를 얹는다 */
@@ -1738,6 +1753,162 @@ function renderLifecycleSection(
   return viewSection(levelId, projection, width, height, bands, links, cards);
 }
 
+/**
+ * 서비스 블루프린트. 단계 열과 층 행으로 된 격자이고 선은 긋지 않는다. 열 순서가 곧 순서다.
+ * 가시선은 라벨 글자와 굵은 선으로 긋고 층 이름도 글자로 적어 색을 못 봐도 위아래가 읽힌다.
+ * 좌표는 원본으로 낸 모델에서 나오고 글자는 그린 쪽(공유본이면 가린 사본) 흐름과 노드에서 꺼낸다
+ */
+function renderBlueprintSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  flow: ArchitectureFlow,
+  model: BlueprintModel,
+  layout: BlueprintLayout,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  questionCount: ReadonlyMap<string, number>,
+): string {
+  const ox = CANVAS_PAD_X;
+  const oy = CANVAS_PAD_TOP;
+  const width = round2(layout.width + ox * 2);
+  const height = round2(layout.height + oy + 24);
+  const stepById = new Map(flow.steps.map((st) => [st.id, st]));
+  const actorById = new Map(flow.actors.map((a) => [a.id, a]));
+  const itemName = (type: 'step' | 'node', id: string): string => {
+    if (type === 'step') return stepById.get(id)?.label ?? id;
+    const n = nodeById.get(id);
+    return n ? nodeName(n) : id;
+  };
+  const bands = layout.rows
+    .map(
+      (r) =>
+        `<g class="bp-row bp-${r.row}" data-layer="${r.row}"><rect x="${round2(ox)}" y="${round2(r.y + oy)}" width="${layout.width}" height="${r.height}" rx="10"/></g>`,
+    )
+    .join('');
+  const top = layout.rows[0]!.y;
+  const bottom = layout.rows[layout.rows.length - 1]!;
+  const guides = layout.stages
+    .slice(1)
+    .map((st) => {
+      const x = round2(st.x + ox - 6);
+      return `<line class="bp-col-line" x1="${x}" x2="${x}" y1="${round2(top + oy)}" y2="${round2(bottom.y + bottom.height + oy)}"/>`;
+    })
+    .join('');
+  const lines = layout.lines
+    .map((l) => {
+      const y = round2(l.y + oy);
+      const line = `<line class="bp-line bp-${l.role}" data-role="${l.role}" x1="${round2(ox)}" x2="${round2(ox + layout.width)}" y1="${y}" y2="${y}"/>`;
+      if (l.role !== 'visibility') return line;
+      return (
+        `<g class="bp-vis">${line}` +
+        `<text class="bp-vis-t" x="${round2(ox + 12)}" y="${round2(y + 4)}">${BLUEPRINT_VISIBILITY_TEXT}</text>` +
+        `<text class="bp-vis-n" x="${round2(ox + layout.width - 12)}" y="${round2(y + 4)}" text-anchor="end">${BLUEPRINT_VISIBILITY_NOTE}</text></g>`
+      );
+    })
+    .join('');
+  const customer = model.customer !== undefined ? actorById.get(model.customer) : undefined;
+  const rowLabels = layout.rows
+    .map(
+      (r) =>
+        `<div class="bp-row-t" style="left:${round2(ox + 12)}px;top:${round2(r.y + oy + 14)}px;width:${BLUEPRINT_HEAD_W - 24}px">` +
+        `<b>${BLUEPRINT_ROW_TEXT[r.row]}</b>` +
+        (r.row === 'customer' && customer !== undefined
+          ? `<span>${escapeHtml(customer.label)}</span>`
+          : '') +
+        `</div>`,
+    )
+    .join('');
+  const stages = layout.stages
+    .map((st, i) => {
+      const title = blueprintStageTitle(flow, model.columns[i]!);
+      return (
+        `<div class="bp-stage" style="left:${round2(st.x + ox)}px;top:${round2(st.y + oy)}px;width:${st.width}px;height:${st.height}px" title="${escapeHtml(title)}">` +
+        `<span class="bp-stage-n">${i + 1}</span><span class="bp-stage-t">${escapeHtml(title)}</span></div>`
+      );
+    })
+    .join('');
+  const cells = layout.cells
+    .map((c) => {
+      const rowText = BLUEPRINT_ROW_TEXT[c.row];
+      const at = `data-bp-row="${c.row}" data-bp-col="${c.column}"`;
+      if (c.cards.length === 0) {
+        return (
+          `<div class="bp-empty" ${at} title="근거 있는 연결이 없어요" ` +
+          `style="left:${round2(c.x + ox + 10)}px;top:${round2(c.y + oy + 14)}px;width:${round2(c.width - 20)}px">${BLUEPRINT_EMPTY_TEXT}</div>`
+        );
+      }
+      const pos = (b: { x: number; y: number; width: number; height: number }): string =>
+        `style="left:${round2(b.x + ox)}px;top:${round2(b.y + oy)}px;width:${b.width}px;height:${b.height}px"`;
+      const cards = c.cards
+        .map((b) => {
+          const it = b.item;
+          if (it.type === 'step') {
+            const st = stepById.get(it.id);
+            const label = st?.label ?? it.id;
+            const actor = st !== undefined ? actorById.get(st.actor) : undefined;
+            const qs = questionCount.get(it.id) ?? 0;
+            const cls = ['node', 'flow-step', 'bp-card', 'bp-step'];
+            if (it.docOnly) cls.push('doc-only');
+            const aria =
+              `${label}, ${rowText}, ${actor?.label ?? st?.actor ?? ''}` +
+              (it.docOnly ? ', 문서로만 확인' : '');
+            return (
+              `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(it.id)}" ${at} role="button" tabindex="0" ` +
+              `aria-label="${escapeHtml(aria)}" title="${escapeHtml(label)}" ${pos(b)}>` +
+              `<span class="nm"><span class="t">${escapeHtml(label)}</span></span>` +
+              `<span class="l2"><span class="bp-who">${escapeHtml(actor?.label ?? '')}</span>` +
+              (qs > 0
+                ? `<span class="qb" title="확인할 질문">${iconUse('u-question')}${qs}</span>`
+                : '') +
+              `</span></div>`
+            );
+          }
+          const n = nodeById.get(it.id)!;
+          const dk = displayKindOf(n);
+          const name = nodeName(n);
+          const guess = isGuess(n);
+          const engine = datastoreEngine(n);
+          const kindText = chipTextOverride(n) ?? NODE_KIND_TEXT[dk];
+          const cls = ['node', `k-${dk}`, 'bp-card'];
+          if (it.docOnly) cls.push('doc-only');
+          const aria =
+            `${name}, ${kindText}, ${rowText}` +
+            (guess ? `, ${INFERRED_BADGE} 이름` : '') +
+            (it.docOnly ? ', 문서로만 확인' : '');
+          const tooltip = n.displayName === undefined ? n.label : `${n.displayName}\n${n.label}`;
+          return (
+            `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(it.id)}" ${at} role="button" tabindex="0" ` +
+            `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ${pos(b)}>` +
+            `<span class="kc">${engine !== undefined ? iconUse(`e-${engine}`, `brand b-${engine}`) : iconUse(`i-${dk}`)}${escapeHtml(chipTextOverride(n) ?? NODE_KIND_SHORT[dk])}</span>` +
+            `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guess ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}</span>` +
+            (n.displayName !== undefined ? `<span class="tc">${escapeHtml(n.label)}</span>` : '') +
+            `</div>`
+          );
+        })
+        .join('');
+      const more =
+        c.moreAt !== undefined
+          ? (() => {
+              const names = c.hidden.map((it) => itemName(it.type, it.id));
+              return (
+                `<div class="bp-more" ${at} title="${escapeHtml(names.join('\n'))}" aria-label="${escapeHtml(`그 밖에 ${names.length}개: ${names.join(', ')}`)}" ` +
+                `style="left:${round2(c.moreAt.x + ox)}px;top:${round2(c.moreAt.y + oy)}px">+${names.length}</div>`
+              );
+            })()
+          : '';
+      return cards + more;
+    })
+    .join('');
+  return viewSection(
+    levelId,
+    projection,
+    width,
+    height,
+    bands + guides + lines,
+    '',
+    stages + rowLabels + cells,
+  );
+}
+
 /** 흐름 단계와 전이마다 열린 질문 수. 카드 배지에 쓴다. 전이 질문은 출발 단계에 센다 */
 function flowQuestionCount(
   questions: readonly UnresolvedQuestion[],
@@ -2062,6 +2233,8 @@ interface PageSpec {
   sequences?: string[];
   /** 상태 흐름 그림이 있으면 true. 그때만 그 스타일을 싣는다 */
   lifecycles?: boolean;
+  /** 서비스 블루프린트가 있으면 true. 그때만 그 스타일을 싣는다 */
+  blueprints?: boolean;
 }
 
 function renderPage({
@@ -2074,6 +2247,7 @@ function renderPage({
   mixedBundles = false,
   sequences = [],
   lifecycles = false,
+  blueprints = false,
 }: PageSpec): string {
   const title = viewTitle(ir);
   const vocab = irVocabulary(ir);
@@ -2106,7 +2280,7 @@ function renderPage({
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab),
@@ -2312,6 +2486,22 @@ export function renderDrilldownHtml(
       : model;
     return { model, text, flow: drawnFlow };
   };
+  // 칸은 원본 지도로 채우고 글자는 그린 쪽 흐름과 노드에서 꺼낸다. 노드 id는 공유본에서도 그대로라 맞물린다
+  const blueprintOf = (p: ArchitectureProjection) => {
+    if (p.shape !== 'blueprint' || p.flow === undefined) return undefined;
+    const source = sourceFlows.get(p.flow);
+    const drawnFlow = flowById.get(p.flow);
+    if (source === undefined || drawnFlow === undefined) return undefined;
+    const model = deriveBlueprint(source, {
+      nodes: validated.ir.nodes,
+      edges: validated.ir.edges,
+      drawableNodeIds: validated.drawableNodeIds,
+      drawableEdgeIds: validated.drawableEdgeIds,
+      drawableStepIds: validated.drawableStepIds,
+      drawableTransitionIds: validated.drawableTransitionIds,
+    });
+    return { model, flow: drawnFlow };
+  };
   const rootFlowLinks = flowLevels
     .filter(({ flow }) => flow.service === undefined)
     .map(({ level, flow }) => ({ level: level.id, title: flow.title }))
@@ -2340,6 +2530,7 @@ export function renderDrilldownHtml(
               viewStrip: views.map((v) => {
                 const drawn = v.projection.messages.filter((m) => drawnMessages.has(m.id));
                 const life = lifecycleOf(v.projection);
+                const bp = blueprintOf(v.projection);
                 return {
                   ...v,
                   steps: drawn.length,
@@ -2349,6 +2540,15 @@ export function renderDrilldownHtml(
                   ...(life !== undefined
                     ? {
                         summary: `상태 ${life.model.states.length}, 전이 ${life.model.transitions.length}`,
+                      }
+                    : {}),
+                  ...(bp !== undefined
+                    ? {
+                        summary: `단계 ${bp.model.columns.length}, 빈 칸 ${
+                          bp.model.columns
+                            .flatMap((c) => Object.values(c.cells))
+                            .filter((items) => items.length === 0).length
+                        }`,
                       }
                     : {}),
                 };
@@ -2369,6 +2569,19 @@ export function renderDrilldownHtml(
         if (life !== undefined) {
           const layout = computeLifecycleLayout(life.model);
           return renderLifecycleSection(v.level, p, life.flow, life.text, layout, questionCount);
+        }
+        const bp = blueprintOf(p);
+        if (bp !== undefined) {
+          const layout = computeBlueprintLayout(bp.model);
+          return renderBlueprintSection(
+            v.level,
+            p,
+            bp.flow,
+            bp.model,
+            layout,
+            nodeById,
+            questionCount,
+          );
         }
         if (p.shape === 'dataflow') {
           const layout = computeDataflowLayout(p, drawnMessages, nodeById);
@@ -2406,5 +2619,6 @@ export function renderDrilldownHtml(
     mixedBundles: levels.some((l) => l.edges.some((e) => e.inferred !== undefined)),
     ...(sequenceSteps.length > 0 ? { sequences: sequenceSteps } : {}),
     ...(views.some((v) => v.projection.shape === 'lifecycle') ? { lifecycles: true } : {}),
+    ...(views.some((v) => v.projection.shape === 'blueprint') ? { blueprints: true } : {}),
   });
 }
