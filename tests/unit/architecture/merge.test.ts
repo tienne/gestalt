@@ -520,3 +520,48 @@ describe('mergeArchitectureIrs — 제품 그룹', () => {
     expect(new Set(ir.groups!.map((g) => g.id)).size).toBe(3);
   });
 });
+
+describe('mergeArchitectureIrs — db_table 컬럼', () => {
+  const repo = (id: string) => ({
+    id,
+    name: 'acme-api',
+    root: `/c/${id}`,
+    remote: 'git@github.com:acme/acme-api.git',
+  });
+
+  it('같은 테이블의 컬럼은 이름으로 합치고 외래 키 대상 id는 합친 id로 바꾼다', () => {
+    const a = makeIr({
+      repos: [repo('api')],
+      nodes: [
+        node('tbl:users', 'db_table', 'users', 'api', { columns: [{ name: 'id', pk: true }] }),
+        node('tbl:orders', 'db_table', 'orders', 'api', {
+          columns: [{ name: 'id', pk: true }],
+        }),
+      ],
+    });
+    const b = makeIr({
+      repos: [repo('server')],
+      nodes: [
+        node('users-table', 'db_table', 'users', 'server'),
+        node('orders-table', 'db_table', 'orders', 'server', {
+          columns: [
+            { name: 'id', type: 'uuid' },
+            {
+              name: 'user_id',
+              references: { table: 'users-table', column: 'id' },
+              evidence: [code('server:migrations/1.sql:3')],
+            },
+          ],
+        }),
+      ],
+    });
+    const { ir } = merged([a, b]);
+    const users = byLabel(ir, 'db_table', 'users')[0]!;
+    const orders = byLabel(ir, 'db_table', 'orders')[0]!;
+    expect(orders.columns!.map((c) => c.name)).toEqual(['id', 'user_id']);
+    expect(orders.columns![0]).toMatchObject({ pk: true, type: 'uuid' });
+    expect(orders.columns![1]!.references!.table).toBe(users.id);
+    expect(orders.columns![1]!.evidence![0]!.location).toBe(`${orders.repo}:migrations/1.sql:3`);
+    expect(validateArchitectureIr(ir, { checkFiles: false }).ok).toBe(true);
+  });
+});

@@ -275,6 +275,31 @@ describe('CHANGED 대상 속성과 MOVED 대상', () => {
     });
   }
 
+  it('db_table 컬럼이 생기거나 빠지거나 바뀌면 CHANGED 한 줄에 컬럼 이름을 담는다', () => {
+    const prev = beforeIr();
+    prev.nodes.push(
+      node('t-orders', 'db_table', 'orders', {
+        columns: [
+          { name: 'id', pk: true },
+          { name: 'memo', type: 'text' },
+          { name: 'total', type: 'int' },
+        ],
+      }),
+    );
+    const next = structuredClone(prev);
+    next.nodes.find((n) => n.id === 't-orders')!.columns = [
+      { name: 'id', pk: true },
+      { name: 'total', type: 'numeric' },
+      { name: 'status', type: 'text' },
+    ];
+    const delta = computeArchitectureDelta(snap(prev), snap(next));
+    const e = delta.ledger.find((x) => x.target === 't-orders')!;
+    expect(e.change).toBe('CHANGED');
+    expect(e.text).toContain('컬럼 status 생김');
+    expect(e.text).toContain('컬럼 memo 빠짐');
+    expect(e.text).toContain('컬럼 total 바뀜');
+  });
+
   it('displayKind 변경은 component 노드에서 CHANGED다', () => {
     const prev = { ...beforeIr(), packs: ['web-product', 'harness', 'generic'] } as ArchitectureIr;
     prev.nodes.push(node('c-job', 'component', 'Job', { displayKind: '배치 잡' }));

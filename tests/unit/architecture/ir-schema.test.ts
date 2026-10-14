@@ -132,6 +132,48 @@ describe('parseArchitectureIr', () => {
   });
 });
 
+describe('parseArchitectureIr — db_table 컬럼', () => {
+  function withColumns(kind: string, columns: unknown[]): Record<string, unknown> {
+    const ir = minimalIr();
+    (ir.nodes as Record<string, unknown>[]).push({
+      id: 'tbl:orders',
+      kind,
+      label: 'orders',
+      repo: 'web',
+      evidence: [],
+      columns,
+    });
+    return ir;
+  }
+
+  it('db_table 노드는 columns를 받고 references와 evidence는 선택이다', () => {
+    const result = parseArchitectureIr(
+      withColumns('db_table', [
+        { name: 'id', type: 'uuid', pk: true },
+        { name: 'user_id', references: { table: 'tbl:users', column: 'id', onDelete: 'CASCADE' } },
+      ]),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it('db_table이 아닌 노드의 columns와 이름이 겹치는 컬럼을 거부한다', () => {
+    const notTable = parseArchitectureIr(withColumns('datastore', [{ name: 'id' }]));
+    expect(notTable.ok).toBe(false);
+    if (!notTable.ok)
+      expect(notTable.error.issues.some((i) => i.startsWith('nodes.2.columns'))).toBe(true);
+
+    const dup = parseArchitectureIr(withColumns('db_table', [{ name: 'id' }, { name: 'id' }]));
+    expect(dup.ok).toBe(false);
+  });
+
+  it('references에 table이 없으면 거부한다', () => {
+    const result = parseArchitectureIr(
+      withColumns('db_table', [{ name: 'user_id', references: {} }]),
+    );
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe('JSON Schema 파일과 zod 정합', () => {
   const schema = JSON.parse(
     readFileSync(resolve(__dirname, '../../../schemas/architecture-ir.schema.json'), 'utf-8'),
@@ -188,5 +230,23 @@ describe('JSON Schema 파일과 zod 정합', () => {
     expect(node.properties?.displayNameInferred).toMatchObject({ type: 'boolean' });
     expect(node.required).not.toContain('displayName');
     expect(node.dependencies?.displayNameInferred).toEqual(['displayName']);
+  });
+
+  it('column 정의는 name만 필수이고 references는 table을 요구한다', () => {
+    const column = defs.column as {
+      properties?: Record<string, { required?: string[]; properties?: Record<string, unknown> }>;
+      required?: string[];
+    };
+    expect(column.required).toEqual(['name']);
+    expect(Object.keys(column.properties ?? {}).sort()).toEqual(
+      ['evidence', 'name', 'nullable', 'pk', 'references', 'type', 'unique'].sort(),
+    );
+    expect(column.properties?.references?.required).toEqual(['table']);
+    expect(Object.keys(column.properties?.references?.properties ?? {}).sort()).toEqual([
+      'column',
+      'onDelete',
+      'table',
+    ]);
+    expect((defs.node?.properties as Record<string, unknown>).columns).toBeDefined();
   });
 });
