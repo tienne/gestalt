@@ -1,7 +1,7 @@
 import { NODE_KIND_SHORT } from './kind-text.js';
 import { assignStages } from './layout.js';
 import { ALL_PACKS_VOCABULARY } from './packs/index.js';
-import type { ArchitectureEdge, ArchitectureIr, ArchitectureNode } from './types.js';
+import type { ArchitectureEdge, ArchitectureIr, ArchitectureNode, NodeColumn } from './types.js';
 import { displayKindOf } from './types.js';
 
 export type DeltaChange = 'ADDED' | 'REMOVED' | 'CHANGED' | 'MOVED' | 'REWIRED';
@@ -116,6 +116,37 @@ function sameValue(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
+/**
+ * 컬럼은 이름으로 맞춘다. 원장 한 줄이 길어지지 않게 생긴 것과 빠진 것, 바뀐 것을 이름만 적는다.
+ * 근거만 달라진 건 그림의 구조가 아니라서 세지 않는다. 다만 외래 키 근거가 생기거나 사라지면 선이 바뀌니 센다
+ */
+function columnDiffs(b: ArchitectureNode, a: ArchitectureNode): string[] {
+  const shape = (c: NodeColumn): string =>
+    JSON.stringify([
+      c.type ?? null,
+      c.pk ?? null,
+      c.nullable ?? null,
+      c.unique ?? null,
+      c.references?.table ?? null,
+      c.references?.column ?? null,
+      c.references?.onDelete ?? null,
+      c.references !== undefined && (c.evidence ?? []).length > 0,
+    ]);
+  const before = new Map((b.columns ?? []).map((c) => [c.name, c]));
+  const after = new Map((a.columns ?? []).map((c) => [c.name, c]));
+  const added = [...after.keys()].filter((n) => !before.has(n));
+  const removed = [...before.keys()].filter((n) => !after.has(n));
+  const changed = [...after.keys()].filter(
+    (n) => before.has(n) && shape(before.get(n)!) !== shape(after.get(n)!),
+  );
+  const list = (names: string[]): string => clip(names.join(', '));
+  return [
+    ...(added.length > 0 ? [`컬럼 ${list(added)} 생김`] : []),
+    ...(removed.length > 0 ? [`컬럼 ${list(removed)} 빠짐`] : []),
+    ...(changed.length > 0 ? [`컬럼 ${list(changed)} 바뀜`] : []),
+  ];
+}
+
 function kindShort(node: ArchitectureNode): string {
   return node.kind === 'component' && node.displayKind !== undefined
     ? node.displayKind
@@ -181,9 +212,12 @@ export function computeArchitectureDelta(
         text: `${kindShort(b)} "${nameOf(b)}" 빠짐`,
       });
     } else if (a !== undefined && b !== undefined) {
-      const diffs = CHANGED_ATTRS.filter(([k]) => !sameValue(b[k], a[k])).map(
-        ([k, text]) => `${text} ${valueText(b[k])} → ${valueText(a[k])}`,
-      );
+      const diffs = [
+        ...CHANGED_ATTRS.filter(([k]) => !sameValue(b[k], a[k])).map(
+          ([k, text]) => `${text} ${valueText(b[k])} → ${valueText(a[k])}`,
+        ),
+        ...columnDiffs(b, a),
+      ];
       if (diffs.length > 0) {
         changes.push('CHANGED');
         ledger.push({
