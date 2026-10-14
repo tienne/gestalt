@@ -459,8 +459,8 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `PROJECTION_BLOCK_NOT_FOUND`        | 메시지 `block`이 그 그림의 `blocks`에 없다                                                                                                                                               |
 | `PROJECTION_BLOCK_SPLIT`            | 한 묶음의 메시지가 이어져 있지 않고 중간에 끊겼다가 다시 나온다                                                                                                                          |
 | `SOLID_MESSAGE_WITHOUT_EVIDENCE`    | 메시지가 실선인데 자기 근거와 가리킨 엣지 근거 어디에도 `code`나 `spec`이 없다                                                                                                           |
-| `PROJECTION_EMPTY`                  | `sequence`나 `dataflow` 그림에 메시지가 하나도 없다. `lifecycle` 그림이 가리킨 흐름에 `state`를 단 단계가 하나도 없어도 여기 걸린다 |
-| `PROJECTION_FLOW_NOT_FOUND`         | `lifecycle` 그림의 `flow`가 `flows`에 없다 |
+| `PROJECTION_EMPTY`                  | `sequence`나 `dataflow` 그림에 메시지가 하나도 없다. `lifecycle` 그림이 가리킨 흐름에 `state`를 단 단계가 하나도 없거나 `blueprint` 그림이 가리킨 흐름에 갈림길 말고 단계가 하나도 없어도 여기 걸린다 |
+| `PROJECTION_FLOW_NOT_FOUND`         | `lifecycle`이나 `blueprint` 그림의 `flow`가 `flows`에 없다 |
 | `PROJECTION_SHAPE_FIELD`            | 모양에 안 맞는 필드를 썼다. [질문별 그림](#질문별-그림)의 모양별 필드 표를 본다                                                                                                          |
 | `DUPLICATE_PHASE_ID`                | 한 sequence 그림 안에서 구간 id가 겹친다                                                                                                                                                  |
 | `PROJECTION_PHASE_MESSAGE_NOT_FOUND` | 구간 `from`이나 `to`가 그 그림의 `messages`에 없다                                                                                                                                       |
@@ -476,6 +476,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `NODE_DESCRIPTION_MISSING` | 그리는 노드 중 `description`이 없거나 공백뿐이다. 해당 노드 id를 정렬해 `nodeIds`에 모은다. 경고는 이 코드 하나로 한 번만 온다 |
 | `LIFECYCLE_OVER_BUDGET` | `lifecycle` 그림 하나가 한 장에 읽히는 양을 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts`는 띠별 상태 수와 전이 수다. 기준은 [상태 흐름](#상태-흐름)에 있다 |
+| `BLUEPRINT_OVER_BUDGET` | `blueprint` 그림 하나의 단계 열이 6을 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts.stages`는 열 수다. 기준은 [서비스 블루프린트](#서비스-블루프린트)에 있다 |
 | `DELTA_OVER_BUDGET` | 구조 변경 그림이 바뀐 곳 주변으로 좁혀도 구성 요소 8개, 관계 10개, 변경 목록 8줄 중 하나를 넘는다. render에서만 오고 `subjectId`는 view, `counts`는 그린 구성 요소 수와 관계 수, 변경 목록 줄 수다 |
 
 설명이 비면 카드에 설명 줄이 안 붙고 서랍에서도 그 노드가 무엇인지 안 나온다. 그래도 거부하지 않는 건 설명이 없다고 그림이 틀리지는 않아서다. 공백뿐인 설명을 없는 것으로 치는 판정은 레이아웃 높이와 같다 (`src/architecture/types.ts`의 `hasCardDescription`).
@@ -930,7 +931,7 @@ elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행
 | 필드           | 내용                                                                                                    |
 | -------------- | ------------------------------------------------------------------------------------------------------- |
 | `id`           | 소문자, 숫자, 하이픈만 쓴다. 저장 파일 이름과 레벨 id에 들어간다                                        |
-| `shape`        | `sequence`, `dataflow`, `compare`, `lifecycle` 중 하나. 아래 [모양](#모양)에서 설명한다                 |
+| `shape`        | `sequence`, `dataflow`, `compare`, `lifecycle`, `blueprint` 중 하나. 아래 [모양](#모양)에서 설명한다                 |
 | `title`        | 그림 제목. 위쪽 바의 그림 목록과 레벨 제목에 나온다                                                     |
 | `question`     | 이 그림이 답하는 질문 원문                                                                              |
 | `participants` | 선택. sequence에서 세로줄 순서다. 적으면 메시지 양 끝이 전부 이 안에 있어야 한다. 안 적으면 처음 나온 순서를 쓴다 |
@@ -938,7 +939,7 @@ elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행
 | `blocks`       | 선택. sequence에서 메시지 여러 개를 묶는 상자다. `{ id, kind, label }`                                 |
 | `sides`        | compare에서 견줄 두 묶음이다. `{ id, label, nodes[] }`                                                 |
 | `phases`       | 선택. sequence를 나누는 구간이다. `{ id, label, from, to }`. 아래에서 설명한다                          |
-| `flow`         | lifecycle에서 다시 그릴 흐름 id다. `flows`에 있어야 한다. 다른 모양에서는 못 쓴다                       |
+| `flow`         | lifecycle과 blueprint에서 다시 그릴 흐름 id다. `flows`에 있어야 한다. 다른 모양에서는 못 쓴다           |
 
 `blocks[].kind`는 넷이다. `alt`는 경우에 따라 하나만 도는 묶음, `opt`는 조건이 맞을 때만 도는 묶음, `loop`는 되풀이, `par`는 동시에 도는 묶음이다. 한 묶음에 든 메시지는 이어 붙어 있어야 한다. 사이에 다른 메시지가 끼면 `PROJECTION_BLOCK_SPLIT`이다.
 
@@ -974,15 +975,17 @@ elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행
 | `dataflow` | 데이터가 어디서 와서 어디로 가나  | `messages`                                     | `sides`, `blocks`, `phases`, 메시지의 `reply`, `block`, `branch` |
 | `compare`  | 두 묶음이 무엇이 같고 무엇이 다른가 | `sides` 정확히 둘. 두 `id`는 달라야 한다      | `messages`, `blocks`, `phases`                     |
 | `lifecycle` | 한 대상이 어떤 상태를 거쳐 어디서 끝나나 | `flow`. `messages`는 빈 배열 | `messages` 내용, `participants`, `blocks`, `phases`, `sides` |
+| `blueprint` | 고객이 한 걸음 갈 때 뒤에서 무엇이 일하나 | `flow`. `messages`는 빈 배열 | `messages` 내용, `participants`, `blocks`, `phases`, `sides` |
 
-못 쓰는 필드를 쓰면 `PROJECTION_SHAPE_FIELD`다. lifecycle이 아닌 그림에 `flow`를 적어도 여기 걸린다. sequence와 dataflow에 메시지가 하나도 없으면 `PROJECTION_EMPTY`다.
+못 쓰는 필드를 쓰면 `PROJECTION_SHAPE_FIELD`다. lifecycle과 blueprint가 아닌 그림에 `flow`를 적어도 여기 걸린다. sequence와 dataflow에 메시지가 하나도 없으면 `PROJECTION_EMPTY`다.
 
-모양마다 배치가 다르다. 넷 다 지도의 elkjs 배치를 쓰지 않는다.
+모양마다 배치가 다르다. 다섯 다 지도의 elkjs 배치를 쓰지 않는다.
 
 - **sequence**: 고정 격자다. 노드마다 세로줄이 서고 메시지가 위에서 아래로 차례대로 놓인다. 세로줄 순서는 `participants`를 따르고 없으면 처음 나온 순서다. IR의 `repos`가 둘 이상이면 세로줄 머리 카드 둘째 줄에 그 노드가 있는 레포 이름을 적는다. MCP 도구(`mcpServer`가 있는 `endpoint`)는 어느 레포에 기록됐는지보다 어느 서버의 도구인지가 궁금한 자리라 레포 대신 `<서버 이름> MCP`를 적는다 (`src/architecture/html-renderer.ts`의 `whereFn`). 레포가 하나인 그림은 그대로고 dataflow와 compare에는 아직 안 붙는다. 확대해서 아래로 내려도 머리 카드는 화면 위에 붙어 따라오고 그림 끝에 닿으면 거기서 멈춘다. 머리 카드 뒤에는 띠를 깔아 그 밑을 지나는 선과 글자를 가린다. 확대와 이동이 캔버스 하나에 transform으로 걸려 CSS sticky가 안 먹기 때문에 이동할 때마다 스크립트가 머리 카드를 내린다 (`src/architecture/html-client.ts`의 `stickHeads`).
 - **dataflow**: 왼쪽에서 오른쪽으로 흐른다. 되돌아가는 선을 빼고 가장 긴 경로로 열을 정한다. 되돌아가는 선은 카드 아래로 돌아간다. 같은 두 노드 사이에 선이 여럿이면 위아래로 벌린다.
 - **compare**: 세 열이다. 왼쪽부터 "첫 묶음에만", "둘 다", "둘째 묶음에만" 순이다. 열 제목은 `sides[].label` 뒤에 "에만"을 붙인다. 열 배경은 가장 긴 열 높이에 맞춘다.
 - **lifecycle**: 위에서 아래로 진행 단계, 대기와 복구, 끝 상태 세 띠다. 진행 단계는 왼쪽에서 오른쪽으로 흐르고 아래 두 띠의 카드는 들어오는 선 중 가장 왼쪽 출발 카드 아래쯤에 서고 다른 카드와 겹치면 오른쪽으로 밀린다. 자세한 규칙은 [상태 흐름](#상태-흐름)에 있다.
+- **blueprint**: 고정 격자다. 단계가 왼쪽에서 오른쪽으로 열을 이루고 층이 위에서 아래로 선다. 칸 크기는 글자와 무관하게 정해진다. 자세한 규칙은 [서비스 블루프린트](#서비스-블루프린트)에 있다.
 
 ### 상태 흐름
 
@@ -1000,6 +1003,26 @@ elkjs를 안 쓰고 격자로 놓는다 (`src/architecture/flow-layout.ts`). 행
 - **공유본**: 상태 이름과 선 글자는 공유용으로 가린 흐름에서 꺼내고 좌표는 원본 흐름으로 낸다. 가린 글자 길이 때문에 카드 자리가 바뀌지 않는다.
 
 비슷한 그림 셋 중 고르는 기준은 이렇다. "누가 무엇을 하나"면 [도메인 흐름](#도메인-흐름) 그림이다. 행위자 줄이 있어 사람과 시스템이 일을 넘기는 자리가 보인다. "이 대상이 어떤 상태를 거쳐 어디서 끝나나"면 lifecycle이다. 행위자를 걷어내고 상태만 남겨 대기, 취소, 실패가 정상 흐름과 어디서 갈리는지 보인다. "어느 모듈이 무엇을 어떤 순서로 부르나"면 sequence다. 줄거리가 상태가 아니라 호출과 응답이다.
+
+### 서비스 블루프린트
+
+흐름 그림은 고객 단계를 보여주지만 그 단계 뒤에서 어떤 API와 테이블이 일하는지는 안 보여준다. 기술 그림은 반대로 API와 테이블은 보여주지만 고객의 어느 걸음에 걸리는지는 안 보여준다. `blueprint` 그림은 흐름 하나를 가리켜 고객 단계를 열로 세우고 단계마다 화면 앞과 뒤를 층으로 나눠 담는다 (`src/architecture/blueprint-layout.ts`의 `deriveBlueprint`). 흐름 단계와 지도에 이미 적은 사실만 쓰므로 새 근거는 없다.
+
+```json
+{ "id": "queue-bp", "shape": "blueprint", "title": "줄서기 블루프린트",
+  "question": "손님이 줄을 서는 동안 뒤에서는 무엇이 일하나요?", "messages": [], "flow": "queue" }
+```
+
+- **열**: 그려지는 `main` 길 단계가 열이다. 흐름 그림에서 같은 열에 서는 단계는 한 열로 묶는다. 갈림길(`kind: "decision"`)과 `side` 길 단계는 빠진다. 열 머리는 그 열 단계의 `state` 이름이고 없으면 첫 단계 이름이다.
+- **층**: 위에서 아래로 고객 행동, 프론트스테이지, 가시선, 백스테이지, 지원이다. 층 이름은 색이 아니라 글자로 왼쪽에 적는다. 가시선은 굵은 가로선에 "가시선" 글자가 붙고 그 위가 고객에게 보이는 쪽이다.
+- **단계 자리**: 흐름의 첫 `person` 행위자가 고객이다. 고객 단계는 고객 행동, 다른 사람의 단계는 프론트스테이지, 시스템과 에이전트의 단계는 백스테이지에 선다.
+- **노드 자리**: 단계 `refs`의 화면과 스킬은 프론트스테이지, API와 MCP 도구는 백스테이지에 선다. 프론트스테이지 화면과 스킬이 `calls`로 부르는 API도 백스테이지에 더한다. 백스테이지 API를 처리(`handles`)하는 모듈과 그 모듈이 쓰는 모듈에서 닿는 테이블, 저장소, 외부 서비스, 큐, 잡은 지원에 선다. `component`는 `renderClass`로 나눈다.
+- **근거**: 그려지는 엣지만 따라간다. 근거 없는 엣지로만 닿는 노드는 칸에 안 들어간다. 연결이 안 보이는 칸은 `—`로 비우고 지어내지 않는다. 층 사이에 선을 긋지 않는다. 문서로만 닿은 카드는 테두리가 점선이다.
+- **칸**: 칸 하나에 카드는 셋까지다. 넘는 카드는 "+N"으로 접고 숨은 이름은 툴팁에 있다. 카드를 누르면 다른 그림과 같은 서랍이 열린다.
+- **한 장의 양**: 단계가 6열을 넘으면 `BLUEPRINT_OVER_BUDGET` 경고가 온다. 그림은 그대로 그린다. 같은 화면에서 이어지는 단계를 합치거나 흐름을 나누는 편이 읽힌다.
+- **공유본**: 열 머리와 카드 글자는 공유용으로 가린 흐름과 노드에서 꺼내고 좌표는 원본으로 낸다. 칸 크기가 고정이라 가린 글자 길이 때문에 카드 자리가 바뀌지 않는다.
+
+dataflow와 sequence도 화면 뒤를 보여주지만 둘은 선을 따라 읽는 그림이다. 데이터가 어디서 와서 어디로 가나면 dataflow, 누가 누구를 어떤 순서로 부르나면 sequence다. "고객이 이 걸음을 걸을 때 뒤에서 무엇이 일하나"를 칸으로 읽고 싶으면 blueprint다.
 
 ### 순서도 보기 전환
 
