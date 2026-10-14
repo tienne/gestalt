@@ -32,6 +32,7 @@ ges_agent { action: "list" }
 ## 등록 에이전트가 없는 자리
 
 리뷰 스레드 분류처럼 **역할 정의 없이 기계적으로 읽고 옮겨 적는 작업**을 서브에이전트에 맡길 때가 있다.
+`doubt`의 반박 리뷰어처럼 판단이 필요한 일을 등록 에이전트 없이 맡길 때도 있다.
 이런 자리엔 넘길 에이전트 이름이 없어서 `ges_agent { action: "get" }`을 쓸 수 없다. 대신 `ges_status`가
 같은 표를 통째로 준다.
 
@@ -40,9 +41,10 @@ ges_status {}
   →  { tierModels: { frugal: "haiku", standard: "sonnet", frontier: "opus" }, ... }
 ```
 
-여기서 `tierModels.frugal`을 뽑아 Agent 도구의 `model`로 넘긴다. 판단하는 자리가 아니라 모아서 분류하고
-정리하는 자리, 그러니까 결과를 사람이 다시 확인하는 작업에만 쓴다 — 확정 판단, 문장 작성, 파일 수정은
-이 경로로 내리지 않는다.
+여기서 Agent 도구의 `model`로 넘길 값을 뽑는다. 모아서 분류하고 정리하는 일, 그러니까 결과를 사람이 다시
+확인하는 작업이면 `tierModels.frugal`을 쓴다. `frugal`로는 확정 판단, 문장 작성, 파일 수정을 맡기지 않는다.
+판단이나 리뷰가 필요한 일이면 아래 "작업별 model과 effort 세트" 표에서 그 일의 tier를 골라 같은
+`tierModels`에서 읽는다.
 
 ## 작업별 model과 effort 세트
 

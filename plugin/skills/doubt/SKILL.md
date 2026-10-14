@@ -110,7 +110,7 @@ routing:
 
 ## 3단계: 반박 리뷰어를 띄운다
 
-model과 effort는 결정의 무게로 고른다. [`agent-model.md`](../_shared/agent-model.md)의 "작업별 model과 effort 세트" 표에서 판정 행과 리뷰 행을 이 스킬에 맞게 옮긴 것이다.
+model과 effort는 결정의 무게로 고른다. [`agent-model.md`](../_shared/agent-model.md)의 "작업별 model과 effort 세트" 표에서 판정 행과 리뷰 행을 이 스킬에 맞게 옮긴 것이다. 등록 에이전트 없이 판단을 맡길 때 그 표의 tier를 쓰는 근거는 같은 문서의 "등록 에이전트가 없는 자리" 절에 있다.
 
 | 결정 | tier | effort |
 |---|---|---|
