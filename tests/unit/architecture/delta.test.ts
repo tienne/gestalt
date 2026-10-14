@@ -383,6 +383,29 @@ describe('REWIRED 판정', () => {
     expect(lines(delta)).toEqual(['REWIRED c1']);
   });
 
+  it('actions가 다른 유일 짝은 CHANGED와 REWIRED 두 줄이다', () => {
+    const asMcp = (value: ArchitectureIr): ArchitectureIr => {
+      for (const n of value.nodes) {
+        if (n.kind !== 'endpoint') continue;
+        n.protocol = 'mcp';
+        n.mcpServer = 'srv';
+      }
+      return value;
+    };
+    const prev = asMcp(beforeIr());
+    prev.edges[0]!.actions = ['조회'];
+    const next = asMcp(beforeIr());
+    next.edges = [
+      { ...edge('c1b', 's-list', 'ep-cart'), actions: ['담기'] },
+      edge('c2', 's-cart', 'ep-cart'),
+    ];
+    const delta = computeArchitectureDelta(snap(prev), snap(next));
+    expect(lines(delta)).toEqual(['CHANGED c1b', 'REWIRED c1b']);
+    expect(delta.edges.find((e) => e.id === 'c1b')!.changes).toEqual(['CHANGED', 'REWIRED']);
+    const changed = delta.ledger.find((e) => e.change === 'CHANGED')!;
+    expect(changed.text).toContain('동작 조회 → 담기');
+  });
+
   it('종류가 다른 엣지는 짝이 아니라 REMOVED와 ADDED다', () => {
     const next = beforeIr();
     next.edges = [edge('x1', 's-list', 'ep-cart', 'handles'), edge('c2', 's-cart', 'ep-cart')];

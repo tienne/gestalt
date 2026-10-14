@@ -179,13 +179,14 @@ export function computeArchitectureDelta(
   const aEdges = drawnEdges(after);
   const bStages = stageLabels(before.ir);
   const aStages = stageLabels(after.ir);
-  const nameIn =
-    (nodes: Map<string, ArchitectureNode>, ir: ArchitectureIr) =>
-    (id: string | undefined): string => {
+  const nameIn = (nodes: Map<string, ArchitectureNode>, ir: ArchitectureIr) => {
+    const all = new Map(ir.nodes.map((x) => [x.id, x]));
+    return (id: string | undefined): string => {
       if (id === undefined) return '없음';
-      const n = nodes.get(id) ?? ir.nodes.find((x) => x.id === id);
+      const n = nodes.get(id) ?? all.get(id);
       return `"${clip(n !== undefined ? nameOf(n) : id)}"`;
     };
+  };
   const bName = nameIn(bNodes, before.ir);
   const aName = nameIn(aNodes, after.ir);
 
@@ -318,18 +319,21 @@ function diffEdges(
     if (b.from !== a.from || b.to !== a.to) changes.push('REWIRED');
     out.push({ id, before: b, after: a, changes });
   }
-  const shares = (r: ArchitectureEdge, a: ArchitectureEdge): boolean =>
-    r.kind === a.kind && (r.from === a.from) !== (r.to === a.to);
+  const removedIx = indexEnds(removed);
+  const addedIx = indexEnds(added);
   const pairedRemoved = new Set<string>();
   const pairedAdded = new Set<string>();
   for (const a of added) {
-    const cands = removed.filter((r) => shares(r, a));
+    const cands = sharingOne(removedIx, a);
     if (cands.length !== 1) continue;
     const r = cands[0]!;
-    if (added.filter((x) => shares(r, x)).length !== 1) continue;
+    if (sharingOne(addedIx, r).length !== 1) continue;
     pairedRemoved.add(r.id);
     pairedAdded.add(a.id);
-    out.push({ id: a.id, before: r, after: a, changes: ['REWIRED'] });
+    const changes: DeltaChange[] = sameValue(r.actions, a.actions)
+      ? ['REWIRED']
+      : ['CHANGED', 'REWIRED'];
+    out.push({ id: a.id, before: r, after: a, changes });
   }
   for (const r of removed) {
     if (!pairedRemoved.has(r.id)) out.push({ id: r.id, before: r, changes: ['REMOVED'] });
@@ -338,6 +342,33 @@ function diffEdges(
     if (!pairedAdded.has(a.id)) out.push({ id: a.id, after: a, changes: ['ADDED'] });
   }
   return out.sort((x, y) => cmp(x.id, y.id));
+}
+
+interface EndIndex {
+  byFrom: Map<string, ArchitectureEdge[]>;
+  byTo: Map<string, ArchitectureEdge[]>;
+}
+
+function indexEnds(edges: ArchitectureEdge[]): EndIndex {
+  const byFrom = new Map<string, ArchitectureEdge[]>();
+  const byTo = new Map<string, ArchitectureEdge[]>();
+  const put = (m: Map<string, ArchitectureEdge[]>, key: string, e: ArchitectureEdge): void => {
+    const list = m.get(key);
+    if (list === undefined) m.set(key, [e]);
+    else list.push(e);
+  };
+  for (const e of edges) {
+    put(byFrom, `${e.kind}|${e.from}`, e);
+    put(byTo, `${e.kind}|${e.to}`, e);
+  }
+  return { byFrom, byTo };
+}
+
+/** 같은 kind에서 from과 to 중 정확히 한쪽 끝만 e와 같은 엣지 */
+function sharingOne(ix: EndIndex, e: ArchitectureEdge): ArchitectureEdge[] {
+  const sameFrom = (ix.byFrom.get(`${e.kind}|${e.from}`) ?? []).filter((x) => x.to !== e.to);
+  const sameTo = (ix.byTo.get(`${e.kind}|${e.to}`) ?? []).filter((x) => x.from !== e.from);
+  return [...sameFrom, ...sameTo];
 }
 
 export interface DeltaScope {
