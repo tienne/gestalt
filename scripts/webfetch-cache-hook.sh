@@ -7,7 +7,7 @@
 # 플러그인이 깔린 모든 레포의 모든 WebFetch에 걸리므로 기본은 꺼짐이라 꺼진 레포는
 # 의존성 확인이나 stdin 읽기 전에 exit 0으로 끝난다. 켜진 뒤에도 문제가 생기면
 # 전부 exit 0이다. 캐시 때문에 WebFetch가 막히는 일은 없어야 한다. 예외는 304로
-# 적중했을 때의 exit 2 하나뿐이다. 이건 오류가 아니라 "이 stderr를 결과로 써라"는
+# 적중했을 때의 exit 2 하나뿐이다. 이 exit 2는 "이 stderr를 결과로 써라"는
 # 신호다.
 #
 # 의존성: bash 3.2+, jq, curl, sha256sum 또는 shasum. 하나라도 없으면 조용히 통과한다.
@@ -189,7 +189,7 @@ jq -e --arg u "$URL" --arg p "$PROMPT" --arg m "$END_MARK" --argjson max "$MAX_C
    and (.content | type == "string" and length > 0 and length <= $max and (contains($m) | not))' \
   "$FILE" >/dev/null 2>&1 || exit 0
 
-# 304는 HEAD를 보낸 시점의 원본과 맞는다는 뜻이지 저장한 본문과 맞는다는 뜻은 아니다.
+# 304는 HEAD를 보낸 시점의 원본과 맞는다는 뜻이다. 저장한 본문과 맞는지는 알려주지 않는다.
 # post의 HEAD와 WebFetch의 GET 사이에 원본이 바뀌었을 수 있어 TTL을 둔다.
 FETCHED_AT="$(jq -r '.fetched_at // 0' "$FILE" 2>/dev/null)" || exit 0
 [[ "$FETCHED_AT" =~ ^[0-9]+$ ]] || exit 0
