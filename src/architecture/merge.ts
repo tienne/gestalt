@@ -131,12 +131,20 @@ interface Slot {
   account: { input: number; id: string; user: boolean }[];
   environment: Claim[];
   /** 이름 순서대로 모은 컬럼. references.table은 refInput 입력 안의 id라 노드 id가 다 정해진 뒤에 바꾼다 */
-  columns: Map<string, { column: NodeColumn; refInput: number }>;
+  columns: Map<string, ColumnSlot>;
   /** micro_app을 자기 레포에서 분석한 입력이 적은 레포. 그 입력에는 이 앱으로 들어오는 loads가 없다 */
   ownRepo?: string;
 }
 
-type ConflictField = 'displayName' | 'parent' | 'environment' | 'account';
+/** 입력마다 준 references와 type을 모아 둔다. 먼저 온 값으로 그리되 갈리면 묻는다 */
+interface ColumnSlot {
+  column: NodeColumn;
+  refInput: number;
+  refClaims: { input: number; table: string }[];
+  typeClaims: string[];
+}
+
+type ConflictField = 'displayName' | 'parent' | 'environment' | 'account' | 'column';
 
 const CONFLICT_QUESTION: Record<ConflictField, (name: string, values: string[]) => string> = {
   displayName: (name, values) =>
@@ -147,6 +155,8 @@ const CONFLICT_QUESTION: Record<ConflictField, (name: string, values: string[]) 
     `"${name}"의 환경이 분석마다 달라요 (${values.join(', ')}). 어느 환경이 맞나요?`,
   account: (name, values) =>
     `"${name}"가 속한 계정이 분석마다 달라요 (${values.map((v) => `"${v}"`).join(', ')}). 어느 계정이 맞나요?`,
+  column: (name, values) =>
+    `"${name}" 컬럼이 분석마다 달라요 (${values.join(', ')}). 어느 쪽이 맞나요?`,
 };
 
 /**
@@ -362,12 +372,20 @@ export function mergeArchitectureIrs(
       // 컬럼은 이름으로 합친다. 근거는 합집합이고 나머지 값은 먼저 준 입력 것을 두되 비어 있던 값만 채운다
       for (const c of raw.columns ?? []) {
         const evidence = c.evidence !== undefined ? remapEvidence(c.evidence, map) : undefined;
-        const prev = slot.columns.get(c.name);
-        if (prev === undefined) {
-          slot.columns.set(c.name, {
+        const prev =
+          slot.columns.get(c.name) ??
+          ({
             column: { ...c, ...(evidence !== undefined ? { evidence } : {}) },
             refInput: input,
-          });
+            refClaims: [],
+            typeClaims: [],
+          } satisfies ColumnSlot);
+        if (c.references !== undefined) {
+          prev.refClaims.push({ input, table: c.references.table });
+        }
+        if (c.type !== undefined) prev.typeClaims.push(c.type);
+        if (!slot.columns.has(c.name)) {
+          slot.columns.set(c.name, prev);
           continue;
         }
         const col = prev.column;
@@ -417,6 +435,23 @@ export function mergeArchitectureIrs(
             }
           : column,
       );
+      // 참조 대상은 입력마다 제 id라 합친 id로 바꾼 뒤에 견줘야 같은 테이블을 충돌로 안 본다
+      [...slot.columns.values()].forEach((cs, i) => {
+        const tables = [...new Set(cs.refClaims.map((r) => mapNode(r.input, r.table)))];
+        const refs = tables.map((t) => `참조 "${nameById.get(t) ?? t}"`);
+        const types = [...new Set(cs.typeClaims)].map((t) => `타입 ${t}`);
+        const values = [...(refs.length > 1 ? refs : []), ...(types.length > 1 ? types : [])];
+        if (values.length === 0) return;
+        // 질문 id에 컬럼 이름을 넣으면 공유본에서 가린 이름이 id로 샌다. 순번으로 짓는다
+        conflictQuestions.push({
+          id: `merge:column:${id}:${i + 1}`,
+          subject: { nodeId: id },
+          question: CONFLICT_QUESTION.column(
+            `${nameOf(slot)}.${cs.column.name}`,
+            values.sort(byText),
+          ),
+        });
+      });
     }
     const ask = (field: ConflictField, values: string[]): void => {
       conflictQuestions.push({
