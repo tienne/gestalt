@@ -344,7 +344,38 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "description": "owning team or person from a sourced file such as CODEOWNERS or an ownership table; dropped from shared HTML"
+        },
+        "columns": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/column" },
+          "description": "db_table only: columns read from migrations, ORM entities or schema files. Names must be unique within the table. The er projection draws them as rows"
         }
+      }
+    },
+    "column": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1, "description": "SQL type as written in the source" },
+        "pk": { "type": "boolean" },
+        "nullable": { "type": "boolean" },
+        "unique": { "type": "boolean" },
+        "references": {
+          "type": "object",
+          "required": ["table"],
+          "description": "foreign key target. The er projection draws a solid line when the column evidence has code or spec, a dashed line for weaker evidence, and no line without evidence",
+          "properties": {
+            "table": { "type": "string", "minLength": 1, "description": "id of a db_table node" },
+            "column": {
+              "type": "string",
+              "minLength": 1,
+              "description": "column name on the target table. Must exist when the target lists columns"
+            },
+            "onDelete": { "type": "string", "minLength": 1, "description": "ON DELETE action such as CASCADE or SET NULL" }
+          }
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } }
       }
     },
     "edge": {
@@ -603,17 +634,21 @@
       "required": ["id", "shape", "title", "question", "messages"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
-        "shape": { "type": "string", "enum": ["sequence", "dataflow", "compare", "lifecycle", "blueprint"] },
+        "shape": { "type": "string", "enum": ["sequence", "dataflow", "compare", "lifecycle", "blueprint", "er"] },
         "title": { "type": "string", "minLength": 1 },
         "question": {
           "type": "string",
           "minLength": 1,
           "description": "the one question this picture answers"
         },
-        "participants": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "participants": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "for er, the db_table nodes to draw"
+        },
         "messages": {
           "type": "array",
-          "description": "lines of sequence and dataflow. Leave empty for compare, lifecycle and blueprint",
+          "description": "lines of sequence and dataflow. Leave empty for compare, lifecycle, blueprint and er",
           "items": { "$ref": "#/definitions/projectionMessage" }
         },
         "blocks": { "type": "array", "items": { "$ref": "#/definitions/projectionBlock" } },

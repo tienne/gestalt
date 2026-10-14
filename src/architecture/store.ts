@@ -148,8 +148,14 @@ function projectionSlice(ir: ArchitectureIr, pr: ArchitectureProjection): Projec
   const flow = pr.flow !== undefined ? (ir.flows ?? []).find((f) => f.id === pr.flow) : undefined;
   const chain =
     pr.shape === 'blueprint' && flow !== undefined ? blueprintChain(ir, flow) : undefined;
+  // er 테이블이 가리키는 외래 키 대상도 싣는다. 그림 밖 테이블이어도 컬럼의 references가 없는 노드를 가리키지 않게 하려고다
+  const tables = pr.shape === 'er' ? new Set(pr.participants ?? []) : new Set<string>();
+  const fkTargets = ir.nodes
+    .filter((n) => tables.has(n.id))
+    .flatMap((n) => (n.columns ?? []).flatMap((c) => (c.references ? [c.references.table] : [])));
   const nodeIds = new Set([
     ...(chain?.nodes ?? []),
+    ...fkTargets,
     ...(pr.participants ?? []),
     ...(pr.sides ?? []).flatMap((side) => side.nodes),
     ...pr.messages.flatMap((m) => [m.from, m.to]),
@@ -173,6 +179,9 @@ function projectionSlice(ir: ArchitectureIr, pr: ArchitectureProjection): Projec
     unresolved: ir.unresolved.filter(
       (q) =>
         (q.subject.messageId !== undefined && messageIds.has(q.subject.messageId)) ||
+        (q.id.startsWith('auto:fk:') &&
+          q.subject.nodeId !== undefined &&
+          tables.has(q.subject.nodeId)) ||
         (q.subject.stepId !== undefined && stepIds.has(q.subject.stepId)) ||
         (q.subject.transitionId !== undefined && transitionIds.has(q.subject.transitionId)),
     ),
@@ -251,6 +260,15 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     id: mapNodeId(n.id),
     ...(n.parent !== undefined ? { parent: mapNodeId(n.parent) } : {}),
     ...(n.account !== undefined ? { account: mapNodeId(n.account) } : {}),
+    ...(n.columns !== undefined
+      ? {
+          columns: n.columns.map((c) =>
+            c.references !== undefined
+              ? { ...c, references: { ...c.references, table: mapNodeId(c.references.table) } }
+              : { ...c },
+          ),
+        }
+      : {}),
   }));
 
   const prevEdgeIdByKey = new Map<string, string>();

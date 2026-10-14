@@ -247,6 +247,28 @@ export interface ScreenCapture {
   commit?: string;
 }
 
+/** 컬럼이 가리키는 외래 키 대상. table은 db_table 노드 id다 */
+export interface ColumnReference {
+  table: string;
+  /** 비우면 대상 테이블의 어느 컬럼인지 모른다. 선은 테이블 머리에 붙는다 */
+  column?: string;
+  /** CASCADE, SET NULL 같은 ON DELETE 동작. 마이그레이션이나 엔티티에 적힌 그대로다 */
+  onDelete?: string;
+}
+
+/** db_table 노드의 컬럼. 이름만 필수이고 나머지는 근거에서 읽힌 만큼만 적는다 */
+export interface NodeColumn {
+  name: string;
+  /** 마이그레이션이나 스키마 파일에 적힌 SQL 타입 그대로다 */
+  type?: string;
+  pk?: boolean;
+  nullable?: boolean;
+  unique?: boolean;
+  references?: ColumnReference;
+  /** 이 컬럼과 외래 키를 확인한 근거. 외래 키 선의 실선과 점선을 여기서 가른다 */
+  evidence?: Evidence[];
+}
+
 export interface ArchitectureNode {
   id: string;
   kind: NodeKind;
@@ -287,6 +309,8 @@ export interface ArchitectureNode {
   capture?: ScreenCapture;
   /** 담당 팀이나 사람. CODEOWNERS나 소유 표처럼 출처가 있는 값만 적는다. 공유본에서 뺀다 */
   owners?: string[];
+  /** db_table만. er 그림이 컬럼 행과 외래 키 선을 여기서 뽑는다 */
+  columns?: NodeColumn[];
 }
 
 export interface ArchitectureEdge {
@@ -414,6 +438,7 @@ export interface ArchitectureFlow {
  * 투영 모양. sequence는 주고받는 순서, dataflow는 데이터가 어디서 어디로 옮겨 가는지, compare는 두 묶음의 같고 다른 점이다.
  * lifecycle은 도메인 흐름 하나에서 대상 하나가 거치는 상태를 진행, 대기와 복구, 끝 상태 띠로 나눠 그린다.
  * blueprint는 도메인 흐름의 단계를 열로 세우고 고객 행동, 프론트스테이지, 백스테이지, 지원 층에 무엇이 일하는지 채운다.
+ * er은 db_table 노드의 컬럼과 컬럼끼리 잇는 외래 키를 그린다.
  * 팩과 무관하게 어느 카테고리든 이 중 하나로 답한다
  */
 export const PROJECTION_SHAPES = [
@@ -422,6 +447,7 @@ export const PROJECTION_SHAPES = [
   'compare',
   'lifecycle',
   'blueprint',
+  'er',
 ] as const;
 export type ProjectionShape = (typeof PROJECTION_SHAPES)[number];
 /** sequence 묶음 종류. alt는 경우 나누기, opt는 조건이 맞을 때만, loop는 반복, par는 동시 실행이다 */
@@ -462,9 +488,9 @@ export interface ArchitectureProjection {
   shape: ProjectionShape;
   title: string;
   question: string;
-  /** 왼쪽부터 놓을 참여자. 없으면 메시지에 처음 나온 순서다 */
+  /** 왼쪽부터 놓을 참여자. 없으면 메시지에 처음 나온 순서다. er에서는 그릴 테이블이다 */
   participants?: string[];
-  /** sequence와 dataflow의 선. compare는 비워 둔다 */
+  /** sequence와 dataflow의 선. compare, lifecycle, blueprint, er은 비워 둔다 */
   messages: ProjectionMessage[];
   blocks?: ProjectionBlock[];
   /** compare가 견주는 두 묶음. 전과 후, 제품 둘처럼 왼쪽과 오른쪽에 선다 */

@@ -16,6 +16,7 @@ import type {
   ArchitectureRepo,
   ContextSource,
   Evidence,
+  NodeColumn,
   Platform,
   UnresolvedQuestion,
 } from './types.js';
@@ -129,6 +130,8 @@ interface Slot {
   parent: { input: number; id: string; user: boolean }[];
   account: { input: number; id: string; user: boolean }[];
   environment: Claim[];
+  /** 이름 순서대로 모은 컬럼. references.table은 refInput 입력 안의 id라 노드 id가 다 정해진 뒤에 바꾼다 */
+  columns: Map<string, { column: NodeColumn; refInput: number }>;
   /** micro_app을 자기 레포에서 분석한 입력이 적은 레포. 그 입력에는 이 앱으로 들어오는 loads가 없다 */
   ownRepo?: string;
 }
@@ -302,6 +305,7 @@ export function mergeArchitectureIrs(
           parent: _p,
           account: _a,
           environment: _e,
+          columns: _c,
           ...rest
         } = raw;
         slot = {
@@ -317,6 +321,7 @@ export function mergeArchitectureIrs(
           parent: [],
           account: [],
           environment: [],
+          columns: new Map(),
         };
         candidates.push(slot);
         slotsByKey.set(key, candidates);
@@ -354,6 +359,28 @@ export function mergeArchitectureIrs(
           prevInferred === undefined ? inferred : prevInferred && inferred,
         );
       }
+      // 컬럼은 이름으로 합친다. 근거는 합집합이고 나머지 값은 먼저 준 입력 것을 두되 비어 있던 값만 채운다
+      for (const c of raw.columns ?? []) {
+        const evidence = c.evidence !== undefined ? remapEvidence(c.evidence, map) : undefined;
+        const prev = slot.columns.get(c.name);
+        if (prev === undefined) {
+          slot.columns.set(c.name, {
+            column: { ...c, ...(evidence !== undefined ? { evidence } : {}) },
+            refInput: input,
+          });
+          continue;
+        }
+        const col = prev.column;
+        if (col.type === undefined && c.type !== undefined) col.type = c.type;
+        if (col.pk === undefined && c.pk !== undefined) col.pk = c.pk;
+        if (col.nullable === undefined && c.nullable !== undefined) col.nullable = c.nullable;
+        if (col.unique === undefined && c.unique !== undefined) col.unique = c.unique;
+        if (col.references === undefined && c.references !== undefined) {
+          col.references = { ...c.references };
+          prev.refInput = input;
+        }
+        if (evidence !== undefined) col.evidence = unionEvidence(col.evidence ?? [], evidence);
+      }
       if (raw.parent !== undefined) slot.parent.push({ input, id: raw.parent, user });
       if (raw.account !== undefined) slot.account.push({ input, id: raw.account, user });
       if (raw.environment !== undefined) slot.environment.push({ value: raw.environment, user });
@@ -378,6 +405,19 @@ export function mergeArchitectureIrs(
   const nodes: ArchitectureNode[] = slots.map((slot) => {
     const id = idOfSlot.get(slot)!;
     const node: ArchitectureNode = { ...slot.node, id };
+    if (slot.columns.size > 0) {
+      node.columns = [...slot.columns.values()].map(({ column, refInput }) =>
+        column.references !== undefined
+          ? {
+              ...column,
+              references: {
+                ...column.references,
+                table: mapNode(refInput, column.references.table),
+              },
+            }
+          : column,
+      );
+    }
     const ask = (field: ConflictField, values: string[]): void => {
       conflictQuestions.push({
         id: `merge:${field}:${id}`,

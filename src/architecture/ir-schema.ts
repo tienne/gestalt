@@ -155,6 +155,22 @@ const docLinkSchema = z.object({
   ),
 });
 
+const columnSchema = z.object({
+  name: z.string().min(1),
+  type: z.string().min(1).optional(),
+  pk: z.boolean().optional(),
+  nullable: z.boolean().optional(),
+  unique: z.boolean().optional(),
+  references: z
+    .object({
+      table: z.string().min(1),
+      column: z.string().min(1).optional(),
+      onDelete: z.string().min(1).optional(),
+    })
+    .optional(),
+  evidence: z.array(evidenceSchema).optional(),
+});
+
 const nodeSchema = z
   .object({
     id: z.string().min(1),
@@ -179,6 +195,7 @@ const nodeSchema = z
     doc: docInfoSchema.optional(),
     capture: captureSchema.optional(),
     owners: z.array(z.string().min(1)).optional(),
+    columns: z.array(columnSchema).optional(),
   })
   .superRefine((node, ctx) => {
     const custom = (path: string, message: string): void =>
@@ -229,6 +246,12 @@ const nodeSchema = z
     }
     if (node.capture !== undefined && node.kind !== 'screen') {
       custom('capture', 'capture는 screen 노드에만 쓸 수 있다');
+    }
+    if (node.columns !== undefined) {
+      if (node.kind !== 'db_table') custom('columns', 'columns는 db_table 노드에만 쓸 수 있다');
+      const names = node.columns.map((c) => c.name);
+      if (new Set(names).size !== names.length)
+        custom('columns', 'columns에 같은 이름의 컬럼이 두 번 들어 있다');
     }
     if (node.displayNameInferred !== undefined && node.displayName === undefined) {
       ctx.addIssue({
