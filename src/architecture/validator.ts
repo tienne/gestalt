@@ -99,7 +99,7 @@ export interface DescriptionWarning {
   nodeIds: string[];
 }
 
-export type BudgetWarningCode = 'LIFECYCLE_OVER_BUDGET';
+export type BudgetWarningCode = 'LIFECYCLE_OVER_BUDGET' | 'DELTA_OVER_BUDGET';
 
 /** 그림 한 장이 읽히는 양을 넘었다. 그리기는 하고 나누라고만 알린다 */
 export interface BudgetWarning {
