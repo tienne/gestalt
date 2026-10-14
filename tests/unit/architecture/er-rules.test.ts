@@ -724,6 +724,15 @@ describe('er 이월과 저장', () => {
     expect(mergeWithPrevious(base(), next).projections ?? []).toEqual([]);
   });
 
+  it('그림이 가리킨 id를 이번에는 테이블이 아닌 노드가 쓰면 er을 버린다', () => {
+    const next = base();
+    delete next.projections;
+    next.nodes = next.nodes.map((n) =>
+      n.id === 'coupons' ? { ...n, kind: 'module', columns: undefined } : n,
+    );
+    expect(mergeWithPrevious(base(), next).projections ?? []).toEqual([]);
+  });
+
   it('재실행에서 id가 바뀌면 references.table을 지난 id로 따라간다', () => {
     const prev = base();
     const next = base();

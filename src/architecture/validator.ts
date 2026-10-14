@@ -775,12 +775,10 @@ function checkProjections(
     checkProjectionShape(p, errors);
     if (p.shape === 'er') {
       const kindById = new Map(ir.nodes.map((n) => [n.id, n.kind]));
-      for (const id of p.participants ?? []) {
-        const kind = kindById.get(id);
-        if (kind === undefined || kind === 'db_table') continue;
+      for (const id of erNonTableParticipants(p, kindById)) {
         errors.push({
           code: 'PROJECTION_SHAPE_FIELD',
-          message: `투영 "${p.id}"는 er인데 participants의 "${id}"가 ${kind} 노드다. er은 db_table만 그린다.`,
+          message: `투영 "${p.id}"는 er인데 participants의 "${id}"가 ${kindById.get(id)} 노드다. er은 db_table만 그린다.`,
           projectionId: p.id,
         });
       }
@@ -1062,6 +1060,21 @@ function checkProjectionFlow(
         : `투영 "${p.id}"가 가리킨 흐름 "${flow.id}"에 state를 단 단계가 없다. lifecycle은 단계의 state로 상태를 그린다.`,
     projectionId: p.id,
     flowId: flow.id,
+  });
+}
+
+/**
+ * er 그림의 participants 가운데 db_table이 아닌 노드 id를 돌려준다. nodes에 없는 id는 PROJECTION_NODE_NOT_FOUND가 따로 잡으니 넣지 않는다.
+ * 재실행 이월(store.ts carryProjections)도 이 기준으로 걸러야 이어 실은 그림이 검증에서 render 전체를 막지 않는다
+ */
+export function erNonTableParticipants(
+  p: Pick<ArchitectureProjection, 'shape' | 'participants'>,
+  kindById: ReadonlyMap<string, ArchitectureNode['kind']>,
+): string[] {
+  if (p.shape !== 'er') return [];
+  return (p.participants ?? []).filter((id) => {
+    const kind = kindById.get(id);
+    return kind !== undefined && kind !== 'db_table';
   });
 }
 

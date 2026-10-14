@@ -14,7 +14,12 @@ import type {
   ContextSource,
   UnresolvedQuestion,
 } from './types.js';
-import { flowHasNothingToDraw, idCarriesCloudId, stripPrivateExcerpts } from './validator.js';
+import {
+  erNonTableParticipants,
+  flowHasNothingToDraw,
+  idCarriesCloudId,
+  stripPrivateExcerpts,
+} from './validator.js';
 
 export interface PreviousRunSummary {
   generatedAt: string;
@@ -329,14 +334,15 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
       ...(m.edge !== undefined ? { edge: mapEdgeId(m.edge) } : {}),
     })),
   }));
-  const nodeIds = new Set(nodes.map((n) => n.id));
+  const nodeKindById = new Map(nodes.map((n) => [n.id, n.kind]));
+  const nodeIds = new Set(nodeKindById.keys());
   const edgeIds = new Set(edges.map((e) => e.id));
   const edgeById = new Map(edges.map((e) => [e.id, e]));
   // 질문 하나에 답한 그림은 다음 실행이 다른 질문을 물어도 남아야 한다. 이번에 안 나온 지난 투영은 가리키는 것이 다 살아 있을 때만 이어 싣는다
   const carried = carryProjections(
     prev.projections ?? [],
     projections ?? [],
-    nodeIds,
+    nodeKindById,
     edgeById,
     new Map(flows?.map((f) => [f.id, f]) ?? []),
   );
@@ -404,7 +410,7 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
 function carryProjections(
   prev: readonly ArchitectureProjection[],
   next: readonly ArchitectureProjection[],
-  nodeIds: ReadonlySet<string>,
+  nodeKindById: ReadonlyMap<string, ArchitectureNode['kind']>,
   edgeById: ReadonlyMap<string, ArchitectureEdge>,
   flowById: ReadonlyMap<string, ArchitectureFlow>,
 ): ArchitectureProjection[] {
@@ -415,13 +421,14 @@ function carryProjections(
     if (projectionIds.has(pr.id)) continue;
     if (pr.messages.some((m) => messageIds.has(m.id))) continue;
     const listed = [...(pr.participants ?? []), ...(pr.sides ?? []).flatMap((side) => side.nodes)];
-    if (!listed.every((id) => nodeIds.has(id))) continue;
+    if (!listed.every((id) => nodeKindById.has(id))) continue;
+    if (erNonTableParticipants(pr, nodeKindById).length > 0) continue;
     if (pr.flow !== undefined) {
       const flow = flowById.get(pr.flow);
       if (flow === undefined || flowHasNothingToDraw(pr, flow)) continue;
     }
     const alive = pr.messages.every((m) => {
-      if (!nodeIds.has(m.from) || !nodeIds.has(m.to)) return false;
+      if (!nodeKindById.has(m.from) || !nodeKindById.has(m.to)) return false;
       if (m.edge === undefined) return true;
       const e = edgeById.get(m.edge);
       return (
