@@ -87,14 +87,18 @@ function byId<T extends { id: string }>(a: T, b: T): number {
   return compareStr(a.id, b.id);
 }
 
-interface Graph {
+export interface Graph {
   nodeById: Map<string, ArchitectureNode>;
   edgeById: Map<string, ArchitectureEdge>;
   edges: ArchitectureEdge[];
   parentOf: Map<string, string>;
 }
 
-function buildGraph(validated: ValidatedIr): Graph {
+export function buildGraph(validated: {
+  ir: Pick<ValidatedIr['ir'], 'nodes' | 'edges'>;
+  drawableNodeIds: ReadonlySet<string>;
+  drawableEdgeIds: ReadonlySet<string>;
+}): Graph {
   const { ir, drawableNodeIds, drawableEdgeIds } = validated;
   const nodes = ir.nodes.filter((n) => drawableNodeIds.has(n.id));
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
@@ -108,7 +112,7 @@ function buildGraph(validated: ValidatedIr): Graph {
   return { nodeById, edgeById, edges, parentOf };
 }
 
-function kindOf(g: Graph, id: string): string | undefined {
+export function kindOf(g: Graph, id: string): string | undefined {
   return g.nodeById.get(id)?.kind;
 }
 
@@ -145,7 +149,7 @@ function edgesOf(g: Graph, kind: EdgeKind, fromKind: string, toKind: string): Ar
 }
 
 /** 화면 자리에 서는 카드. 하네스의 스킬은 사용자가 고르는 입구라 웹의 화면과 같은 자리에 둔다 */
-function isSurface(g: Graph, id: string): boolean {
+export function isSurface(g: Graph, id: string): boolean {
   const kind = kindOf(g, id);
   return kind === 'screen' || kind === 'skill';
 }
@@ -208,7 +212,7 @@ function routesInto(g: Graph, endpointId: string): ArchitectureEdge[] {
   );
 }
 
-function handlersOf(g: Graph, endpointId: string): ArchitectureEdge[] {
+export function handlersOf(g: Graph, endpointId: string): ArchitectureEdge[] {
   return g.edges.filter(
     (e) => e.kind === 'handles' && e.from === endpointId && kindOf(g, e.to) === 'app_module',
   );
@@ -505,7 +509,7 @@ function prodGraph(g: Graph): Graph {
 
 /** 서버가 읽고 쓰는 저장소. 테이블에 걸린 선은 그 테이블이 속한 저장소로 올려 묶는다 */
 /** 핸들러 모듈이 같은 프로세스의 엔진 모듈을 쓰는 선. 하네스 MCP 서버에서 도구 핸들러가 엔진을 부르는 자리다 */
-function moduleUses(g: Graph): ArchitectureEdge[] {
+export function moduleUses(g: Graph): ArchitectureEdge[] {
   return edgesOf(g, 'uses', 'app_module', 'app_module');
 }
 

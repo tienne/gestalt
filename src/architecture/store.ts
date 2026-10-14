@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { readJsonOrQuarantine, writeJsonAtomic } from '../core/json-file.js';
+import { deriveBlueprint } from './blueprint-layout.js';
 import { parseArchitectureIr } from './ir-schema.js';
 import type {
   ArchitectureEdge,
@@ -107,22 +108,57 @@ export interface ProjectionSlice {
   view: ArchitectureView;
   generatedAt: string;
   projection: ArchitectureProjection;
-  /** lifecycle이 가리킨 흐름. 이 파일 하나로 그 그림을 다시 그릴 수 있게 함께 싣는다 */
+  /** lifecycle과 blueprint가 가리킨 흐름. 이 파일 하나로 그 그림을 다시 그릴 수 있게 함께 싣는다 */
   flow?: ArchitectureFlow;
   nodes: ArchitectureNode[];
   edges: ArchitectureEdge[];
   unresolved: UnresolvedQuestion[];
 }
 
+/** blueprint 칸에 선 노드와 칸을 채우려 따라간 엣지. 저장 시점엔 검증 결과가 없어 근거가 있는 엣지와 모든 노드를 그릴 수 있다고 본다 */
+function blueprintChain(
+  ir: ArchitectureIr,
+  flow: ArchitectureFlow,
+): { nodes: string[]; edges: string[] } {
+  const model = deriveBlueprint(flow, {
+    nodes: ir.nodes,
+    edges: ir.edges,
+    drawableNodeIds: new Set(ir.nodes.map((n) => n.id)),
+    drawableEdgeIds: new Set(ir.edges.filter((e) => e.evidence.length > 0).map((e) => e.id)),
+    drawableStepIds: new Set(flow.steps.map((st) => st.id)),
+    drawableTransitionIds: new Set(flow.transitions.map((t) => t.id)),
+  });
+  // 따라간 엣지의 양 끝도 싣는다. 칸에 안 서는 처리 모듈을 빼면 엣지가 없는 노드를 가리킨다
+  const edgeById = new Map(ir.edges.map((e) => [e.id, e]));
+  const nodes = [
+    ...model.columns.flatMap((c) =>
+      Object.values(c.cells).flatMap((items) =>
+        items.filter((it) => it.type === 'node').map((it) => it.id),
+      ),
+    ),
+    ...model.edges.flatMap((id) => {
+      const e = edgeById.get(id);
+      return e !== undefined ? [e.from, e.to] : [];
+    }),
+  ];
+  return { nodes, edges: model.edges };
+}
+
 function projectionSlice(ir: ArchitectureIr, pr: ArchitectureProjection): ProjectionSlice {
   const flow = pr.flow !== undefined ? (ir.flows ?? []).find((f) => f.id === pr.flow) : undefined;
+  const chain =
+    pr.shape === 'blueprint' && flow !== undefined ? blueprintChain(ir, flow) : undefined;
   const nodeIds = new Set([
+    ...(chain?.nodes ?? []),
     ...(pr.participants ?? []),
     ...(pr.sides ?? []).flatMap((side) => side.nodes),
     ...pr.messages.flatMap((m) => [m.from, m.to]),
     ...(flow?.steps ?? []).flatMap((st) => st.refs ?? []),
   ]);
-  const edgeIds = new Set(pr.messages.flatMap((m) => (m.edge !== undefined ? [m.edge] : [])));
+  const edgeIds = new Set([
+    ...pr.messages.flatMap((m) => (m.edge !== undefined ? [m.edge] : [])),
+    ...(chain?.edges ?? []),
+  ]);
   const messageIds = new Set(pr.messages.map((m) => m.id));
   const stepIds = new Set(flow?.steps.map((st) => st.id) ?? []);
   const transitionIds = new Set(flow?.transitions.map((t) => t.id) ?? []);

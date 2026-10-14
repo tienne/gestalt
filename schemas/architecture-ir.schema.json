@@ -603,7 +603,7 @@
       "required": ["id", "shape", "title", "question", "messages"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
-        "shape": { "type": "string", "enum": ["sequence", "dataflow", "compare", "lifecycle"] },
+        "shape": { "type": "string", "enum": ["sequence", "dataflow", "compare", "lifecycle", "blueprint"] },
         "title": { "type": "string", "minLength": 1 },
         "question": {
           "type": "string",
@@ -613,7 +613,7 @@
         "participants": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "messages": {
           "type": "array",
-          "description": "lines of sequence and dataflow. Leave empty for compare and lifecycle",
+          "description": "lines of sequence and dataflow. Leave empty for compare, lifecycle and blueprint",
           "items": { "$ref": "#/definitions/projectionMessage" }
         },
         "blocks": { "type": "array", "items": { "$ref": "#/definitions/projectionBlock" } },
@@ -631,7 +631,7 @@
         "flow": {
           "type": "string",
           "minLength": 1,
-          "description": "lifecycle only. Id of the domain flow whose step states this picture draws"
+          "description": "lifecycle and blueprint only. Id of the domain flow this picture draws. lifecycle draws its step states, blueprint draws its main steps as columns"
         }
       }
     },

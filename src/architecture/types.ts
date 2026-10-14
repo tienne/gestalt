@@ -413,9 +413,16 @@ export interface ArchitectureFlow {
 /**
  * 투영 모양. sequence는 주고받는 순서, dataflow는 데이터가 어디서 어디로 옮겨 가는지, compare는 두 묶음의 같고 다른 점이다.
  * lifecycle은 도메인 흐름 하나에서 대상 하나가 거치는 상태를 진행, 대기와 복구, 끝 상태 띠로 나눠 그린다.
+ * blueprint는 도메인 흐름의 단계를 열로 세우고 고객 행동, 프론트스테이지, 백스테이지, 지원 층에 무엇이 일하는지 채운다.
  * 팩과 무관하게 어느 카테고리든 이 중 하나로 답한다
  */
-export const PROJECTION_SHAPES = ['sequence', 'dataflow', 'compare', 'lifecycle'] as const;
+export const PROJECTION_SHAPES = [
+  'sequence',
+  'dataflow',
+  'compare',
+  'lifecycle',
+  'blueprint',
+] as const;
 export type ProjectionShape = (typeof PROJECTION_SHAPES)[number];
 /** sequence 묶음 종류. alt는 경우 나누기, opt는 조건이 맞을 때만, loop는 반복, par는 동시 실행이다 */
 export const SEQUENCE_BLOCK_KINDS = ['alt', 'opt', 'loop', 'par'] as const;
@@ -464,7 +471,7 @@ export interface ArchitectureProjection {
   sides?: ProjectionSide[];
   /** sequence를 나누는 구간. 비우면 렌더할 때 맨 위 참여자가 새 대상을 부르는 자리에서 자른다 */
   phases?: ProjectionPhase[];
-  /** lifecycle이 그리는 도메인 흐름 id. 지도 대신 그 흐름의 단계 상태와 전이에서 그림을 뽑는다 */
+  /** lifecycle과 blueprint가 그리는 도메인 흐름 id. lifecycle은 단계 상태와 전이를, blueprint는 단계 열과 단계가 닿는 지도 노드를 뽑는다 */
   flow?: string;
 }
 

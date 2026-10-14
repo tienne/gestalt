@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { classifyCliCommand } from '../utils/read-only-tools.js';
+import { blueprintCounts, blueprintOverBudget, deriveBlueprint } from './blueprint-layout.js';
 import { deriveLifecycle, lifecycleCounts, lifecycleOverBudget } from './lifecycle-layout.js';
 import { indexMicroApps } from './micro-app.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, packById } from './packs/index.js';
@@ -99,7 +100,10 @@ export interface DescriptionWarning {
   nodeIds: string[];
 }
 
-export type BudgetWarningCode = 'LIFECYCLE_OVER_BUDGET' | 'DELTA_OVER_BUDGET';
+export type BudgetWarningCode =
+  | 'LIFECYCLE_OVER_BUDGET'
+  | 'BLUEPRINT_OVER_BUDGET'
+  | 'DELTA_OVER_BUDGET';
 
 /** 그림 한 장이 읽히는 양을 넘었다. 그리기는 하고 나누라고만 알린다 */
 export interface BudgetWarning {
@@ -713,7 +717,7 @@ function checkProjections(
     };
     for (const id of p.participants ?? []) missingNode(id, 'participants');
     checkProjectionShape(p, errors);
-    if (p.shape === 'lifecycle' && p.flow !== undefined) checkLifecycleFlow(ir, p, errors);
+    if (FLOW_SHAPES.has(p.shape) && p.flow !== undefined) checkProjectionFlow(ir, p, errors);
     for (const side of p.sides ?? []) {
       for (const id of side.nodes) missingNode(id, `묶음 "${side.id}"의 nodes`);
     }
@@ -896,13 +900,25 @@ function checkProjectionShape(
       misuse('messages가 있다. lifecycle은 flow 단계의 상태에서 선을 뽑는다.');
     if (p.participants !== undefined)
       misuse('participants가 있다. lifecycle은 지도 노드를 안 쓴다.');
+  }
+  if (p.shape === 'blueprint') {
+    if (p.messages.length > 0) misuse('messages가 있다. blueprint는 선을 긋지 않는다.');
+    if (p.participants !== undefined)
+      misuse('participants가 있다. blueprint는 flow 단계가 가리킨 노드에서 칸을 채운다.');
+  }
+  if (FLOW_SHAPES.has(p.shape)) {
     if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
     if (p.phases !== undefined) misuse('phases가 있다. 구간은 sequence만 쓴다.');
     if (p.sides !== undefined) misuse('sides가 있다. 묶음 견주기는 compare만 쓴다.');
-    if (p.flow === undefined) misuse('flow가 없다. 상태를 뽑을 도메인 흐름 id를 적는다.');
+    if (p.flow === undefined)
+      misuse(
+        p.shape === 'lifecycle'
+          ? 'flow가 없다. 상태를 뽑을 도메인 흐름 id를 적는다.'
+          : 'flow가 없다. 단계 열을 뽑을 도메인 흐름 id를 적는다.',
+      );
     return;
   }
-  if (p.flow !== undefined) misuse('flow가 있다. 흐름을 가리키는 건 lifecycle만 쓴다.');
+  if (p.flow !== undefined) misuse('flow가 있다. 흐름을 가리키는 건 lifecycle과 blueprint만 쓴다.');
   if (p.shape === 'compare') {
     if (p.messages.length > 0) misuse('messages가 있다. compare는 sides만 쓴다.');
     if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
@@ -931,8 +947,16 @@ function checkProjectionShape(
   }
 }
 
-/** lifecycle이 가리킨 흐름이 있고 상태를 단 단계가 하나라도 있어야 그릴 것이 생긴다 */
-function checkLifecycleFlow(
+/** 흐름 하나를 가리켜 그리는 모양. 지도 노드 대신 흐름에서 그림을 뽑는다 */
+const FLOW_SHAPES: ReadonlySet<ArchitectureProjection['shape']> = new Set([
+  'lifecycle',
+  'blueprint',
+]);
+
+/**
+ * 가리킨 흐름이 있어야 한다. lifecycle은 상태를 단 단계가, blueprint는 갈림길이 아닌 단계가 하나라도 있어야 그릴 것이 생긴다
+ */
+function checkProjectionFlow(
   ir: ArchitectureIr,
   p: ArchitectureProjection,
   errors: ArchitectureValidationError[],
@@ -944,6 +968,17 @@ function checkLifecycleFlow(
       message: `투영 "${p.id}"의 flow "${p.flow}"가 flows에 없다.`,
       projectionId: p.id,
     });
+    return;
+  }
+  if (p.shape === 'blueprint') {
+    if (!flow.steps.some((st) => st.kind !== 'decision')) {
+      errors.push({
+        code: 'PROJECTION_EMPTY',
+        message: `투영 "${p.id}"가 가리킨 흐름 "${flow.id}"에 갈림길 말고 단계가 없다. blueprint는 단계를 열로 세운다.`,
+        projectionId: p.id,
+        flowId: flow.id,
+      });
+    }
     return;
   }
   if (!flow.steps.some((st) => st.state !== undefined)) {
@@ -996,6 +1031,7 @@ function settleProjections(
   }
   for (const p of projections) {
     if (p.shape === 'lifecycle' && lifecycleOf(p, flows) !== undefined) drawable.add(p.id);
+    if (p.shape === 'blueprint' && blueprintOf(p, flows) !== undefined) drawable.add(p.id);
   }
   return { projections: settled, messages, drawable };
 }
@@ -1008,12 +1044,32 @@ function lifecycleOf(p: ArchitectureProjection, flows: DrawnFlows) {
   return model.states.length > 0 ? model : undefined;
 }
 
+/** 그리는 흐름에서 정상 흐름 단계 열이 하나라도 서면 그 모델. 흐름 레벨이 안 서는 흐름은 단계 서랍을 못 열어 그리지 않는다 */
+function blueprintOf(p: ArchitectureProjection, flows: DrawnFlows) {
+  const flow = flows.flows.find((f) => f.id === p.flow);
+  if (flow === undefined || !flows.drawn.has(flow.id)) return undefined;
+  const model = deriveBlueprint(flow, {
+    nodes: flows.nodes,
+    edges: flows.edges,
+    drawableNodeIds: flows.nodeIds,
+    drawableEdgeIds: flows.edgeIds,
+    drawableStepIds: flows.steps,
+    drawableTransitionIds: flows.transitions,
+  });
+  return model.columns.length > 0 ? model : undefined;
+}
+
 interface DrawnFlows {
   flows: readonly ArchitectureFlow[];
   /** 흐름 레벨이 서는 흐름 id. 서비스에 딸렸으면 그 서비스가 그려져야 한다 */
   drawn: ReadonlySet<string>;
   steps: ReadonlySet<string>;
   transitions: ReadonlySet<string>;
+  /** blueprint가 단계에서 지도로 따라 내려가는 데 쓴다 */
+  nodes: readonly ArchitectureNode[];
+  edges: readonly ArchitectureEdge[];
+  nodeIds: ReadonlySet<string>;
+  edgeIds: ReadonlySet<string>;
 }
 
 // 렌더러와 같은 모델에서 세야 경고 숫자와 그림이 어긋나지 않는다
@@ -1024,6 +1080,20 @@ function budgetWarnings(
 ): BudgetWarning[] {
   const out: BudgetWarning[] = [];
   for (const p of projections) {
+    if (p.shape === 'blueprint' && drawable.has(p.id)) {
+      const model = blueprintOf(p, flows);
+      if (model === undefined) continue;
+      const counts = blueprintCounts(model);
+      const over = blueprintOverBudget(counts);
+      if (over.length === 0) continue;
+      out.push({
+        code: 'BLUEPRINT_OVER_BUDGET',
+        message: `서비스 블루프린트 "${p.title}"이 한 장에 읽히는 양을 넘는다. ${over.join(', ')}. 단계를 합치거나 흐름을 나눈다.`,
+        subjectId: p.id,
+        counts: { ...counts },
+      });
+      continue;
+    }
     if (p.shape !== 'lifecycle' || !drawable.has(p.id)) continue;
     const model = lifecycleOf(p, flows);
     if (model === undefined) continue;
@@ -1453,6 +1523,10 @@ export function validateArchitectureIr(
     ),
     steps: flowResult.steps,
     transitions: flowResult.transitions,
+    nodes: ir.nodes,
+    edges,
+    nodeIds: drawableNodeIds,
+    edgeIds: drawableEdgeIds,
   };
   const projectionResult =
     ir.projections !== undefined
