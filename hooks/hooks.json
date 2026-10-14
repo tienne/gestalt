@@ -1,5 +1,5 @@
 {
-  "description": "gestalt 플러그인 훅. 둘 다 기본은 꺼져 있다. 코드 그래프 컨텍스트 자동 주입은 gestalt.json의 codeGraph.hooks.enabled나 GESTALT_CODE_GRAPH_HOOKS=1로 켜고, 그래프 DB가 없는 레포에서는 Node를 띄우지 않고 끝난다. WebFetch 디스크 캐시는 webFetchCache.enabled나 GESTALT_WEBFETCH_CACHE=1로 켠다.",
+  "description": "gestalt 플러그인 훅. 둘 다 기본은 꺼져 있다. 코드 그래프 컨텍스트 자동 주입은 gestalt.json의 codeGraph.hooks.enabled나 GESTALT_CODE_GRAPH_HOOKS=1로 켠다. 그래프 DB가 없는 레포에서는 Node를 띄우지 않고 끝난다. WebFetch 디스크 캐시는 webFetchCache.enabled나 GESTALT_WEBFETCH_CACHE=1로 켠다.",
   "hooks": {
     "PreToolUse": [
       {
