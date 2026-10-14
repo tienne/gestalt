@@ -492,6 +492,18 @@ role_match/role_consensus로 얻은 `roleGuidance`를 참조해 태스크를 수
 
 ---
 
+## 단계를 건너뛰고 싶어질 때
+
+Phase 3에 오면 태스크를 다 끝낸 뒤라 아래 같은 말이 떠오른다. 떠오르면 그 단계를 건너뛰지 말고 표의 오른쪽대로 간다.
+
+| 변명 | 반박 |
+| --- | --- |
+| "lint는 오래 걸리니 빼고 test만 돌린다" | `structuralContext.commands`는 고치지 않고 그대로 실행한다. 명령이 빠지거나 다르면 서버가 제출을 거부한다. scripts에 없는 명령은 서버가 이미 뺐다. |
+| "거부됐으니 이전 결과에 명령 문자열만 맞춰 다시 낸다" | `Submitted commands do not match`면 그 명령을 다시 실행해 새 종료 코드와 출력으로 제출한다. 문자열만 바꾼 제출은 돌리지 않은 결과를 돌린 것처럼 싣는 셈이다. |
+| "실패한 테스트는 이번 변경과 상관없으니 `allPassed`를 true로 보낸다" | 종료 코드가 0이 아닌 명령이 있으면 `allPassed`를 true로 보내도 실패로 처리된다. 실패는 Flow A에서 다룬다. |
+| "AC를 대부분 채웠으니 통과로 본다" | 완료 조건은 score ≥ 0.85와 goalAlignment ≥ 0.80 둘 다다. 하나라도 모자라면 Flow B로 간다. |
+| "시간이 없으니 Evolve 없이 여기서 끝낸다" | Phase 3이 미달이면 서버는 `evolveContext`를 돌려준다. 여기서 멈추려면 `evolve`에 `terminateReason: "caller"`를 실어 직접 끝냈다는 걸 남긴다. |
+
 ## Phase 3 — Evaluate
 
 모든 태스크 완료 후 3-Call 평가 진행.
