@@ -22,6 +22,14 @@ import {
   type BlueprintModel,
 } from './blueprint-layout.js';
 import { flowCountByService, ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
+import {
+  computeErLayout,
+  deriveEr,
+  erFoldText,
+  isUnconfirmedFk,
+  type ErLayout,
+  type ErModel,
+} from './er-layout.js';
 import { computeFlowLayout, type FlowLevel } from './flow-layout.js';
 import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import {
@@ -36,6 +44,7 @@ import {
   FLOW_BRANCH_CSS,
   LIFECYCLE_CSS,
   BLUEPRINT_CSS,
+  ER_CSS,
   SEQ_VIEW_CSS,
 } from './html-theme.js';
 import {
@@ -100,7 +109,12 @@ import type {
   UnresolvedQuestion,
 } from './types.js';
 import { chipTextOverride, displayKindOf, hasCardDescription } from './types.js';
-import { maskSharedText, redactForSharing, type ValidatedIr } from './validator.js';
+import {
+  maskSharedQuestion,
+  maskSharedText,
+  redactForSharing,
+  type ValidatedIr,
+} from './validator.js';
 
 export type ArchitectureAudience = 'private' | 'shared';
 
@@ -222,9 +236,7 @@ function openQuestions(
   shared: boolean,
 ): UnresolvedQuestion[] {
   const fromIr = ir.unresolved.filter((q) => q.answer === undefined || q.answer === '');
-  const auto = shared
-    ? validated.autoUnresolved.map((q) => ({ ...q, question: maskSharedText(q.question) }))
-    : validated.autoUnresolved;
+  const auto = shared ? validated.autoUnresolved.map(maskSharedQuestion) : validated.autoUnresolved;
   return [...fromIr, ...auto].sort(byId);
 }
 
@@ -632,6 +644,7 @@ const VIEW_SHAPE_NAME: Record<ArchitectureProjection['shape'], string> = {
   compare: '견주기',
   lifecycle: '상태 흐름',
   blueprint: '서비스 블루프린트',
+  er: '테이블 관계',
 };
 const STRIP_CARD_W = 240;
 const STRIP_GAP = 12;
@@ -1118,6 +1131,7 @@ const VIEW_SVG_LABEL: Record<ArchitectureProjection['shape'], string> = {
   compare: '견주기',
   lifecycle: '상태 전이',
   blueprint: '단계별 층',
+  er: '외래 키',
 };
 
 /** 투영 레벨 하나. 맨 위에 답하는 질문을 적고 그 아래 모양별 선과 카드를 얹는다 */
@@ -1909,6 +1923,132 @@ function renderBlueprintSection(
   );
 }
 
+/**
+ * 테이블 관계 그림. 테이블 상자에 컬럼 행을 세우고 외래 키 선은 컬럼 행에서 대상 컬럼 행으로 긋는다.
+ * 근거가 코드나 스펙이면 실선, 문서 같은 약한 근거면 점선이고 근거가 없으면 긋지 않고 행 배지와 질문으로만 남긴다.
+ * 좌표는 원본에서 낸 모델로 정하고 글자는 그린 쪽(공유본이면 가린 사본) 노드의 같은 자리 컬럼에서 꺼낸다
+ */
+function renderErSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  model: ErModel,
+  layout: ErLayout,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  questions: readonly UnresolvedQuestion[],
+): string {
+  const ox = CANVAS_PAD_X;
+  const oy = CANVAS_PAD_TOP;
+  const width = round2(layout.width + ox * 2);
+  const height = round2(layout.height + oy + 24);
+  const name = (id: string): string => {
+    const n = nodeById.get(id);
+    return n ? nodeName(n) : id;
+  };
+  const columnsOf = (id: string) => nodeById.get(id)?.columns ?? [];
+  const colName = (id: string, index: number | undefined): string | undefined =>
+    index !== undefined ? columnsOf(id)[index]?.name : undefined;
+  const linkById = new Map(model.links.map((l) => [l.id, l]));
+  const links = layout.routes
+    .map((r) => {
+      const l = linkById.get(r.id)!;
+      const from = `${name(l.from)}.${colName(l.from, l.fromIndex) ?? ''}`;
+      const toCol = colName(l.to, l.toIndex);
+      const to = toCol !== undefined ? `${name(l.to)}.${toCol}` : name(l.to);
+      const onDelete =
+        l.onDelete !== undefined ? columnsOf(l.from)[l.fromIndex]?.references?.onDelete : undefined;
+      const aria =
+        `외래 키 ${from} → ${to}` +
+        (onDelete !== undefined ? `, ON DELETE ${onDelete}` : '') +
+        (l.lineStyle === 'dashed' ? ', 문서로만 확인' : '');
+      const d = roundedPathD(
+        r.points.map((p) => ({ x: p.x + ox - FLOW_PAD, y: p.y + oy - FLOW_PAD })),
+      );
+      const dash = l.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
+      const tip = r.tip.map((p) => `${round2(p.x + ox)},${round2(p.y + oy)}`).join(' ');
+      const label =
+        r.label !== undefined && onDelete !== undefined
+          ? `<text class="er-od" x="${round2(r.label.x + ox)}" y="${round2(r.label.y + oy)}" text-anchor="${r.label.anchor}">ON DELETE ${escapeHtml(onDelete)}</text>`
+          : '';
+      return (
+        `<g class="link er-fk${l.lineStyle === 'dashed' ? ' doc-only' : ''}" data-from="${escapeHtml(l.from)}" data-to="${escapeHtml(l.to)}" ` +
+        `data-fk-id="${escapeHtml(l.id)}" data-line="${l.lineStyle}" tabindex="0" aria-label="${escapeHtml(aria)}">` +
+        `<title>${escapeHtml(aria)}</title><path class="hit" d="${d}" stroke-width="12"/>` +
+        `<path class="edge" d="${d}" stroke-width="1.6"${dash}/><polygon class="tip" points="${tip}"/>${label}</g>`
+      );
+    })
+    .join('');
+  const drawnTables = new Set(model.tables.map((t) => t.id));
+  const boxById = new Map(layout.tables.map((b) => [b.id, b]));
+  const cards = model.tables
+    .map((t) => {
+      const n = nodeById.get(t.id)!;
+      const b = boxById.get(t.id)!;
+      const tname = nodeName(n);
+      const cols = n.columns ?? [];
+      const qs = questions.filter((q) => q.subject.nodeId === t.id).length;
+      const rows = t.rows
+        .map((row, i) => {
+          const cls = ['er-row'];
+          if (i % 2 === 1) cls.push('even');
+          if (row.type === 'fold') {
+            const names = row.indexes.map((k) => cols[k]?.name ?? '');
+            return (
+              `<span class="${cls.join(' ')} er-fold" title="${escapeHtml(names.join('\n'))}">` +
+              `${escapeHtml(erFoldText(names.length))}</span>`
+            );
+          }
+          const c = cols[row.index]!;
+          const ref = c.references;
+          const badges: { text: string; title: string }[] = [];
+          if (c.pk === true) badges.push({ text: 'PK', title: '기본 키' });
+          if (ref !== undefined) {
+            const target = `${name(ref.table)}${ref.column !== undefined ? `.${ref.column}` : ''}`;
+            if (isUnconfirmedFk(c))
+              badges.push({ text: 'FK?', title: `${target}를 가리킨다는 근거를 못 찾은 외래 키` });
+            else
+              badges.push({
+                text: 'FK',
+                title: drawnTables.has(ref.table) ? `→ ${target}` : `→ ${target} (이 그림 밖)`,
+              });
+          }
+          if (c.unique === true) badges.push({ text: 'UQ', title: '유일' });
+          if (c.nullable === true) badges.push({ text: 'NULL', title: '비어 있을 수 있음' });
+          const rowTitle = [c.name, c.type, ...badges.map((x) => x.title)]
+            .filter((x): x is string => x !== undefined)
+            .join('\n');
+          return (
+            `<span class="${cls.join(' ')}" data-column="${escapeHtml(c.name)}" title="${escapeHtml(rowTitle)}">` +
+            `<span class="er-n">${escapeHtml(c.name)}</span>` +
+            badges
+              .map(
+                (x) =>
+                  `<span class="er-b${x.text === 'FK?' ? ' unconfirmed' : ''}">${x.text}</span>`,
+              )
+              .join('') +
+            `<span class="er-ty">${c.type !== undefined ? escapeHtml(c.type) : ''}</span></span>`
+          );
+        })
+        .join('');
+      const aria = `${tname}, 테이블, 컬럼 ${t.total}개` + (qs > 0 ? `, 확인할 질문 ${qs}개` : '');
+      const tooltip = n.displayName === undefined ? n.label : `${n.displayName}\n${n.label}`;
+      return (
+        `<div class="node k-db_table er-table" data-node-id="${escapeHtml(t.id)}" role="button" tabindex="0" ` +
+        `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
+        `style="left:${round2(b.x + ox)}px;top:${round2(b.y + oy)}px;width:${b.width}px;height:${b.height}px">` +
+        `<span class="er-head"><span class="kc">${iconUse('i-db_table')}${escapeHtml(NODE_KIND_SHORT.db_table)}</span>` +
+        `<span class="nm"><span class="t">${escapeHtml(tname)}</span>${isGuess(n) ? `<span class="guess">${INFERRED_BADGE}</span>` : ''}</span>` +
+        (qs > 0
+          ? `<span class="qb" title="확인할 질문">${iconUse('u-question')}${qs}</span>`
+          : '') +
+        `</span>` +
+        (rows !== '' ? rows : `<span class="er-row er-fold">컬럼을 못 찾았어요</span>`) +
+        `</div>`
+      );
+    })
+    .join('');
+  return viewSection(levelId, projection, width, height, '', links, cards);
+}
+
 /** 흐름 단계와 전이마다 열린 질문 수. 카드 배지에 쓴다. 전이 질문은 출발 단계에 센다 */
 function flowQuestionCount(
   questions: readonly UnresolvedQuestion[],
@@ -2235,6 +2375,8 @@ interface PageSpec {
   lifecycles?: boolean;
   /** 서비스 블루프린트가 있으면 true. 그때만 그 스타일을 싣는다 */
   blueprints?: boolean;
+  /** 테이블 관계 그림이 있으면 true. 그때만 그 스타일을 싣는다 */
+  ers?: boolean;
 }
 
 function renderPage({
@@ -2248,6 +2390,7 @@ function renderPage({
   sequences = [],
   lifecycles = false,
   blueprints = false,
+  ers = false,
 }: PageSpec): string {
   const title = viewTitle(ir);
   const vocab = irVocabulary(ir);
@@ -2280,7 +2423,7 @@ function renderPage({
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab),
@@ -2502,6 +2645,15 @@ export function renderDrilldownHtml(
     });
     return { model, flow: drawnFlow };
   };
+  // 테이블과 선 좌표는 원본 노드로 내고 글자는 그린 쪽 노드의 같은 자리 컬럼에서 꺼낸다
+  const erOf = (p: ArchitectureProjection) => {
+    if (p.shape !== 'er') return undefined;
+    const model = deriveEr(p, {
+      nodes: validated.ir.nodes,
+      drawableNodeIds: validated.drawableNodeIds,
+    });
+    return model.tables.length > 0 ? model : undefined;
+  };
   const rootFlowLinks = flowLevels
     .filter(({ flow }) => flow.service === undefined)
     .map(({ level, flow }) => ({ level: level.id, title: flow.title }))
@@ -2531,6 +2683,7 @@ export function renderDrilldownHtml(
                 const drawn = v.projection.messages.filter((m) => drawnMessages.has(m.id));
                 const life = lifecycleOf(v.projection);
                 const bp = blueprintOf(v.projection);
+                const er = erOf(v.projection);
                 return {
                   ...v,
                   steps: drawn.length,
@@ -2550,6 +2703,9 @@ export function renderDrilldownHtml(
                             .filter((items) => items.length === 0).length
                         }`,
                       }
+                    : {}),
+                  ...(er !== undefined
+                    ? { summary: `테이블 ${er.tables.length}, 외래 키 ${er.links.length}` }
                     : {}),
                 };
               }),
@@ -2582,6 +2738,10 @@ export function renderDrilldownHtml(
             nodeById,
             questionCount,
           );
+        }
+        const er = erOf(p);
+        if (er !== undefined) {
+          return renderErSection(v.level, p, er, computeErLayout(er), nodeById, base.unresolved);
         }
         if (p.shape === 'dataflow') {
           const layout = computeDataflowLayout(p, drawnMessages, nodeById);
@@ -2620,5 +2780,6 @@ export function renderDrilldownHtml(
     ...(sequenceSteps.length > 0 ? { sequences: sequenceSteps } : {}),
     ...(views.some((v) => v.projection.shape === 'lifecycle') ? { lifecycles: true } : {}),
     ...(views.some((v) => v.projection.shape === 'blueprint') ? { blueprints: true } : {}),
+    ...(views.some((v) => v.projection.shape === 'er') ? { ers: true } : {}),
   });
 }

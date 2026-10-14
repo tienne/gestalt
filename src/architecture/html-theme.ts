@@ -737,6 +737,39 @@ export const BLUEPRINT_CSS = `.bp-row rect { fill: var(--surface); stroke: var(-
 .bp-card .bp-who { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--muted); }
 `;
 
+/**
+ * 테이블 관계 그림이 있을 때만 붙이는 스타일. 행 높이를 고정해 외래 키 선이 행 가운데에 붙는다.
+ * PK, FK, NULL은 글자 배지로 적어 색을 못 봐도 읽히고 근거 없는 외래 키는 FK? 글자로 가른다
+ */
+export const ER_CSS = `.node.er-table { display: block; padding: 0; overflow: hidden; }
+.er-head {
+  display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 10px; box-sizing: border-box;
+  border-bottom: 1px solid var(--brick-edge);
+}
+.er-head .nm { min-width: 0; flex: 1; }
+.er-head .qb { flex: none; display: inline-flex; align-items: center; gap: 2px; font-size: 10.5px; font-weight: 650; color: var(--warn); }
+.er-head .qb svg { width: 11px; height: 11px; }
+.er-row {
+  display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 12px; box-sizing: border-box;
+  font-size: 12px; line-height: 24px; color: var(--text);
+}
+.er-row.even { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.er-n { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-family: var(--mono); font-weight: 600; }
+.er-b {
+  flex: none; height: 16px; padding: 0 4px; border-radius: 2px; font-size: 9.5px; font-weight: 700; line-height: 14px; box-sizing: border-box;
+  color: var(--text); border: 1px solid var(--border-strong); background: var(--surface);
+}
+.er-b.unconfirmed { border-style: dashed; color: var(--warn); }
+.er-ty { margin-left: auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 11px/24px var(--mono); color: var(--muted); }
+.er-fold { font-size: 11px; color: var(--muted); }
+.link.er-fk .edge { stroke-opacity: 0.8; }
+.link.er-fk .tip { fill-opacity: 0.85; }
+.er-od {
+  font-size: 10px; font-weight: 700; fill: var(--text); letter-spacing: 0.02em;
+  paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
+}
+`;
+
 /** 질문별 그림이 있을 때만 붙이는 스타일. 공용 CSS에 넣으면 투영 없는 그림의 바이트가 바뀐다 */
 export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; font-size: 13px; color: var(--muted); }
 .lifeline { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 4 5; }
