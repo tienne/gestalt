@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { classifyCliCommand } from '../utils/read-only-tools.js';
+import { deriveLifecycle, lifecycleCounts, lifecycleOverBudget } from './lifecycle-layout.js';
 import { indexMicroApps } from './micro-app.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, packById } from './packs/index.js';
 import { KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
@@ -66,6 +67,7 @@ export type ArchitectureValidationErrorCode =
   | 'SOLID_MESSAGE_WITHOUT_EVIDENCE'
   | 'PROJECTION_EMPTY'
   | 'PROJECTION_SHAPE_FIELD'
+  | 'PROJECTION_FLOW_NOT_FOUND'
   | 'DUPLICATE_PHASE_ID'
   | 'PROJECTION_PHASE_MESSAGE_NOT_FOUND'
   | 'PROJECTION_PHASE_REVERSED'
@@ -89,10 +91,23 @@ export interface ArchitectureValidationError {
 }
 
 /** 렌더를 막지 않는 알림. 저장하지 않고 validate와 render 응답에만 싣는다 */
-export interface ArchitectureValidationWarning {
+export type ArchitectureValidationWarning = DescriptionWarning | BudgetWarning;
+
+export interface DescriptionWarning {
   code: 'NODE_DESCRIPTION_MISSING';
   message: string;
   nodeIds: string[];
+}
+
+export type BudgetWarningCode = 'LIFECYCLE_OVER_BUDGET';
+
+/** 그림 한 장이 읽히는 양을 넘었다. 그리기는 하고 나누라고만 알린다 */
+export interface BudgetWarning {
+  code: BudgetWarningCode;
+  message: string;
+  /** 예산을 넘은 그림. 투영이면 투영 id다 */
+  subjectId: string;
+  counts: Record<string, number>;
 }
 
 export interface ValidatedIr {
@@ -698,6 +713,7 @@ function checkProjections(
     };
     for (const id of p.participants ?? []) missingNode(id, 'participants');
     checkProjectionShape(p, errors);
+    if (p.shape === 'lifecycle' && p.flow !== undefined) checkLifecycleFlow(ir, p, errors);
     for (const side of p.sides ?? []) {
       for (const id of side.nodes) missingNode(id, `묶음 "${side.id}"의 nodes`);
     }
@@ -875,6 +891,18 @@ function checkProjectionShape(
       projectionId: p.id,
     });
   };
+  if (p.shape === 'lifecycle') {
+    if (p.messages.length > 0)
+      misuse('messages가 있다. lifecycle은 flow 단계의 상태에서 선을 뽑는다.');
+    if (p.participants !== undefined)
+      misuse('participants가 있다. lifecycle은 지도 노드를 안 쓴다.');
+    if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
+    if (p.phases !== undefined) misuse('phases가 있다. 구간은 sequence만 쓴다.');
+    if (p.sides !== undefined) misuse('sides가 있다. 묶음 견주기는 compare만 쓴다.');
+    if (p.flow === undefined) misuse('flow가 없다. 상태를 뽑을 도메인 흐름 id를 적는다.');
+    return;
+  }
+  if (p.flow !== undefined) misuse('flow가 있다. 흐름을 가리키는 건 lifecycle만 쓴다.');
   if (p.shape === 'compare') {
     if (p.messages.length > 0) misuse('messages가 있다. compare는 sides만 쓴다.');
     if (p.blocks !== undefined) misuse('blocks가 있다. 묶음은 sequence만 쓴다.');
@@ -903,6 +931,31 @@ function checkProjectionShape(
   }
 }
 
+/** lifecycle이 가리킨 흐름이 있고 상태를 단 단계가 하나라도 있어야 그릴 것이 생긴다 */
+function checkLifecycleFlow(
+  ir: ArchitectureIr,
+  p: ArchitectureProjection,
+  errors: ArchitectureValidationError[],
+): void {
+  const flow = (ir.flows ?? []).find((f) => f.id === p.flow);
+  if (flow === undefined) {
+    errors.push({
+      code: 'PROJECTION_FLOW_NOT_FOUND',
+      message: `투영 "${p.id}"의 flow "${p.flow}"가 flows에 없다.`,
+      projectionId: p.id,
+    });
+    return;
+  }
+  if (!flow.steps.some((st) => st.state !== undefined)) {
+    errors.push({
+      code: 'PROJECTION_EMPTY',
+      message: `투영 "${p.id}"가 가리킨 흐름 "${flow.id}"에 state를 단 단계가 없다. lifecycle은 단계의 state로 상태를 그린다.`,
+      projectionId: p.id,
+      flowId: flow.id,
+    });
+  }
+}
+
 /**
  * 투영에서 그릴 메시지를 고른다. 근거가 없으면 그리지 않고 질문으로 돌린다.
  * 양 끝 노드가 안 그려지는 메시지도 뺀다. 선은 근거로 다시 정한다
@@ -913,6 +966,7 @@ function settleProjections(
   drawableNodeIds: ReadonlySet<string>,
   nameById: (id: string) => string,
   ask: (q: UnresolvedQuestion) => void,
+  flows: DrawnFlows,
 ): { projections: ArchitectureProjection[]; messages: Set<string>; drawable: Set<string> } {
   const messages = new Set<string>();
   const drawable = new Set<string>();
@@ -940,7 +994,50 @@ function settleProjections(
       drawable.add(p.id);
     }
   }
+  for (const p of projections) {
+    if (p.shape === 'lifecycle' && lifecycleOf(p, flows) !== undefined) drawable.add(p.id);
+  }
   return { projections: settled, messages, drawable };
+}
+
+/** 그리는 흐름에서 뽑은 상태가 하나라도 있으면 그 모델. 흐름 레벨이 안 서는 흐름은 서랍을 못 열어 그리지 않는다 */
+function lifecycleOf(p: ArchitectureProjection, flows: DrawnFlows) {
+  const flow = flows.flows.find((f) => f.id === p.flow);
+  if (flow === undefined || !flows.drawn.has(flow.id)) return undefined;
+  const model = deriveLifecycle(flow, flows.steps, flows.transitions);
+  return model.states.length > 0 ? model : undefined;
+}
+
+interface DrawnFlows {
+  flows: readonly ArchitectureFlow[];
+  /** 흐름 레벨이 서는 흐름 id. 서비스에 딸렸으면 그 서비스가 그려져야 한다 */
+  drawn: ReadonlySet<string>;
+  steps: ReadonlySet<string>;
+  transitions: ReadonlySet<string>;
+}
+
+// 렌더러와 같은 모델에서 세야 경고 숫자와 그림이 어긋나지 않는다
+function budgetWarnings(
+  projections: readonly ArchitectureProjection[],
+  drawable: ReadonlySet<string>,
+  flows: DrawnFlows,
+): BudgetWarning[] {
+  const out: BudgetWarning[] = [];
+  for (const p of projections) {
+    if (p.shape !== 'lifecycle' || !drawable.has(p.id)) continue;
+    const model = lifecycleOf(p, flows);
+    if (model === undefined) continue;
+    const counts = lifecycleCounts(model);
+    const over = lifecycleOverBudget(counts);
+    if (over.length === 0) continue;
+    out.push({
+      code: 'LIFECYCLE_OVER_BUDGET',
+      message: `상태 흐름 "${p.title}"이 한 장에 읽히는 양을 넘는다. ${over.join(', ')}. 세부 상태를 합치거나 흐름을 나눈다.`,
+      subjectId: p.id,
+      counts: { ...counts },
+    });
+  }
+  return out;
 }
 
 /**
@@ -1347,6 +1444,16 @@ export function validateArchitectureIr(
   }
 
   const flowResult = settleFlows(ir.flows ?? [], ask, askById);
+  const drawnFlows: DrawnFlows = {
+    flows: flowResult.flows,
+    drawn: new Set(
+      flowResult.flows
+        .filter((f) => f.service === undefined || drawableNodeIds.has(f.service))
+        .map((f) => f.id),
+    ),
+    steps: flowResult.steps,
+    transitions: flowResult.transitions,
+  };
   const projectionResult =
     ir.projections !== undefined
       ? settleProjections(
@@ -1355,6 +1462,7 @@ export function validateArchitectureIr(
           drawableNodeIds,
           nameById,
           ask,
+          drawnFlows,
         )
       : undefined;
   return {
@@ -1377,7 +1485,12 @@ export function validateArchitectureIr(
           }
         : {}),
       autoUnresolved,
-      warnings: descriptionWarnings(ir.nodes, drawableNodeIds),
+      warnings: [
+        ...descriptionWarnings(ir.nodes, drawableNodeIds),
+        ...(projectionResult !== undefined
+          ? budgetWarnings(projectionResult.projections, projectionResult.drawable, drawnFlows)
+          : []),
+      ],
     },
   };
 }
@@ -1386,7 +1499,7 @@ export function validateArchitectureIr(
 function descriptionWarnings(
   nodes: readonly ArchitectureNode[],
   drawableNodeIds: ReadonlySet<string>,
-): ArchitectureValidationWarning[] {
+): DescriptionWarning[] {
   const missing = nodes
     .filter((n) => drawableNodeIds.has(n.id) && !hasCardDescription(n.description))
     .map((n) => n.id)

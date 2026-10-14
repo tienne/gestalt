@@ -682,6 +682,26 @@ export const FLOW_BRANCH_CSS = `.node.flow-step.decision {
 }
 `;
 
+/**
+ * 상태 흐름 그림이 있을 때만 붙이는 스타일. 띠 이름과 끝 상태 배지 글자가 뜻을 싣고 색은 거든다.
+ * 끝 상태는 이중 테두리로 그려 색을 못 봐도 끝난 자리가 보인다
+ */
+export const LIFECYCLE_CSS = `.lc-band rect { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
+.lc-band.lc-recovery rect { stroke: var(--warn); stroke-opacity: 0.35; stroke-dasharray: 6 4; }
+.lc-band.lc-terminal rect { stroke: var(--border-strong); }
+.lc-band-t { font-size: 12.5px; font-weight: 700; fill: var(--text); }
+.lc-band-n { font-weight: 400; fill: var(--muted); }
+.node.lc-state.o-done, .node.lc-state.o-cancel, .node.lc-state.o-fail, .node.lc-state.o-end { border: 3px double var(--brick-edge); }
+.node.lc-state.o-done { --kind: var(--ok); }
+.node.lc-state.o-cancel { --kind: var(--muted); }
+.node.lc-state.o-fail { --kind: #dc2626; }
+.lc-state .lc-steps { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--muted); }
+.lc-state .lc-out { background: var(--kind); color: #fff; }
+.lc-state.o-end .lc-out { background: var(--text); color: var(--surface); }
+.link.flow-t .t-label.at-start { text-anchor: start; }
+.link.flow-t .t-label.lc-borrowed { font-weight: 400; font-style: italic; }
+`;
+
 /** 질문별 그림이 있을 때만 붙이는 스타일. 공용 CSS에 넣으면 투영 없는 그림의 바이트가 바뀐다 */
 export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; font-size: 13px; color: var(--muted); }
 .lifeline { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 4 5; }

@@ -22,6 +22,7 @@ import {
   CAPTURE_CSS,
   DOC_CSS,
   FLOW_BRANCH_CSS,
+  LIFECYCLE_CSS,
   SEQ_VIEW_CSS,
 } from './html-theme.js';
 import {
@@ -50,6 +51,13 @@ import { indexMicroApps } from './micro-app.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, type Vocabulary } from './packs/index.js';
 import { KNOWLEDGE_COVERAGE_KINDS, KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
 import { computeCompareLayout, type CompareLayout } from './compare-layout.js';
+import {
+  computeLifecycleLayout,
+  deriveLifecycle,
+  LIFECYCLE_BAND_TEXT,
+  type LifecycleLayout,
+  type LifecycleModel,
+} from './lifecycle-layout.js';
 import { computeDataflowLayout, type DataflowLayout } from './dataflow-layout.js';
 import { computeSequenceLayout, type SequenceLayout } from './sequence-layout.js';
 import {
@@ -70,6 +78,7 @@ import type {
   ArchitectureNode,
   ArchitectureProjection,
   FlowActor,
+  FlowStepOutcome,
   ProjectionMessage,
   SequenceBlockKind,
   EdgeKind,
@@ -600,12 +609,15 @@ interface ViewCard {
   steps: number;
   /** participants를 비운 투영은 메시지 양 끝에서 센다 */
   actors: number;
+  /** 메시지로 세지 않는 모양의 숫자 줄. 있으면 단계와 참여 대신 찍는다 */
+  summary?: string;
 }
 
 const VIEW_SHAPE_NAME: Record<ArchitectureProjection['shape'], string> = {
   sequence: '순서도',
   dataflow: '데이터 이동',
   compare: '견주기',
+  lifecycle: '상태 흐름',
 };
 const STRIP_CARD_W = 240;
 const STRIP_GAP = 12;
@@ -621,7 +633,7 @@ function renderViewStrip(cards: ViewCard[]): { html: string; width: number } {
         `<span class="vc-shape">${VIEW_SHAPE_NAME[c.projection.shape]}</span>` +
         `<b>${escapeHtml(c.projection.title)}</b>` +
         `<span class="vc-q">${escapeHtml(c.projection.question)}</span>` +
-        `<span class="vc-n">단계 ${c.steps}${c.actors > 0 ? `, 참여 ${c.actors}` : ''}</span></a>`,
+        `<span class="vc-n">${c.summary !== undefined ? escapeHtml(c.summary) : `단계 ${c.steps}${c.actors > 0 ? `, 참여 ${c.actors}` : ''}`}</span></a>`,
     )
     .join('');
   return {
@@ -1090,6 +1102,7 @@ const VIEW_SVG_LABEL: Record<ArchitectureProjection['shape'], string> = {
   sequence: '메시지',
   dataflow: '데이터 이동',
   compare: '견주기',
+  lifecycle: '상태 전이',
 };
 
 /** 투영 레벨 하나. 맨 위에 답하는 질문을 적고 그 아래 모양별 선과 카드를 얹는다 */
@@ -1629,6 +1642,102 @@ function renderCompareSection(
   );
 }
 
+const OUTCOME_TEXT: Record<FlowStepOutcome | 'end', string> = {
+  done: '완료',
+  cancel: '취소',
+  fail: '실패',
+  end: '끝',
+};
+
+/**
+ * 상태 흐름. 진행 단계, 대기와 복구, 끝 상태 띠를 위에서부터 쌓는다.
+ * 카드와 선은 흐름 레벨과 같은 .flow-step과 .flow-t라 누르면 대표 단계와 대표 전이의 서랍이 그대로 열린다.
+ * 좌표는 원본 흐름으로 낸 layout을 쓰고 글자만 text 모델에서 꺼낸다. 공유본에서 가린 글자 폭에 따라 그림이 움직이지 않게 하려고다
+ */
+function renderLifecycleSection(
+  levelId: string,
+  projection: ArchitectureProjection,
+  flow: ArchitectureFlow,
+  text: LifecycleModel,
+  layout: LifecycleLayout,
+  questionCount: ReadonlyMap<string, number>,
+): string {
+  const ox = CANVAS_PAD_X;
+  const oy = CANVAS_PAD_TOP;
+  const width = round2(layout.width + ox * 2);
+  const height = round2(layout.height + oy + 24);
+  const shift = (pts: readonly { x: number; y: number }[]) =>
+    pts.map((p) => ({ x: p.x + ox - FLOW_PAD, y: p.y + oy - FLOW_PAD }));
+  const stateText = (state: string): string => flow.stateLabels?.[state] ?? state;
+  const stepLabel = new Map(flow.steps.map((st) => [st.id, st.label]));
+  const stateOf = new Map(text.states.map((st) => [st.state, st]));
+  const bands = layout.bands
+    .map(
+      (b) =>
+        `<g class="lc-band lc-${b.band}"><rect x="${round2(ox)}" y="${round2(b.y + oy)}" width="${layout.width}" height="${b.height}" rx="12"/>` +
+        `<text class="lc-band-t" x="${round2(ox + 14)}" y="${round2(b.y + oy + 22)}">${LIFECYCLE_BAND_TEXT[b.band]}<tspan class="lc-band-n" dx="8">${b.count}</tspan></text></g>`,
+    )
+    .join('');
+  const links = layout.routes
+    .map((r, i) => {
+      const t = text.transitions[i]!;
+      const from = stateOf.get(t.from)!;
+      const to = stateOf.get(t.to)!;
+      const dash = t.lineStyle === 'dashed' ? ` stroke-dasharray="${DASHED_PATTERN}"` : '';
+      const pts = shift(r.points);
+      const d = r.back ? roundedPathD(pts) : pathD(pts);
+      const tip = r.tip.map((p) => `${round2(p.x + ox)},${round2(p.y + oy)}`).join(' ');
+      const name =
+        `${FLOW_TEXT.transition}${r.back ? `, ${FLOW_TEXT.back}` : ''}: ${stateText(from.state)} → ${stateText(to.state)}` +
+        ` (${t.label})`;
+      return (
+        `<g class="link flow-t p-${t.path}${r.back ? ' back' : ''}" data-from="${escapeHtml(r.from)}" data-to="${escapeHtml(r.to)}" ` +
+        `data-transition-id="${escapeHtml(r.id)}" tabindex="0" role="button" aria-label="${escapeHtml(name)}">` +
+        `<title>${escapeHtml(name)}</title><path class="hit" d="${d}" stroke-width="12"/>` +
+        `<path class="edge" d="${d}" stroke-width="2"${dash}/><polygon class="tip" points="${tip}"/>` +
+        `<text class="t-label${r.labelAnchor === 'start' ? ' at-start' : ''}${t.borrowed ? ' lc-borrowed' : ''}" x="${round2(r.labelAt.x + ox)}" y="${round2(r.labelAt.y + oy)}">` +
+        (r.back ? '<tspan class="t-back">↩ </tspan>' : '') +
+        `${escapeHtml(t.label)}</text></g>`
+      );
+    })
+    .join('');
+  const cards = layout.boxes
+    .map((b) => {
+      const st = stateOf.get(b.state)!;
+      const outcome = st.terminal ? (st.outcome ?? 'end') : undefined;
+      const qs = st.steps.reduce((n, id) => n + (questionCount.get(id) ?? 0), 0);
+      const cls = ['node', 'flow-step', 'lc-state', `lc-${st.band}`];
+      if (st.band === 'recovery') cls.push('p-side');
+      if (outcome !== undefined) cls.push(`o-${outcome}`);
+      if (st.docOnly) cls.push('doc-only');
+      const steps = st.steps.map((id) => stepLabel.get(id) ?? id);
+      const stepsText = steps.length > 1 ? `${steps[0]!} 외 ${steps.length - 1}` : steps[0]!;
+      const aria =
+        `${stateText(st.state)}, 상태, ${LIFECYCLE_BAND_TEXT[st.band]}` +
+        (outcome !== undefined ? `, ${OUTCOME_TEXT[outcome]}` : '') +
+        `, 단계 ${steps.join(', ')}` +
+        (st.docOnly ? ', 문서로만 확인' : '');
+      return (
+        `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(st.rep)}" role="button" tabindex="0" ` +
+        `aria-label="${escapeHtml(aria)}" title="${escapeHtml(steps.join(', '))}" ` +
+        `style="left:${round2(b.x + ox)}px;top:${round2(b.y + oy)}px;width:${b.width}px;height:${b.height}px">` +
+        `<span class="nm"><span class="t">${escapeHtml(stateText(st.state))}</span></span>` +
+        `<span class="l2">` +
+        (outcome !== undefined ? `<span class="end lc-out">${OUTCOME_TEXT[outcome]}</span>` : '') +
+        (flow.stateLabels?.[st.state] !== undefined
+          ? `<span class="st" title="${escapeHtml(st.state)}">${escapeHtml(st.state)}</span>`
+          : '') +
+        `<span class="lc-steps">${escapeHtml(stepsText)}</span>` +
+        (qs > 0
+          ? `<span class="qb" title="확인할 질문">${iconUse('u-question')}${qs}</span>`
+          : '') +
+        `</span></div>`
+      );
+    })
+    .join('');
+  return viewSection(levelId, projection, width, height, bands, links, cards);
+}
+
 /** 흐름 단계와 전이마다 열린 질문 수. 카드 배지에 쓴다. 전이 질문은 출발 단계에 센다 */
 function flowQuestionCount(
   questions: readonly UnresolvedQuestion[],
@@ -1951,6 +2060,8 @@ interface PageSpec {
   mixedBundles?: boolean;
   /** 순서도마다 따라가기 단계 목록. 있을 때만 보기 전환 단추와 그 코드를 싣는다 */
   sequences?: string[];
+  /** 상태 흐름 그림이 있으면 true. 그때만 그 스타일을 싣는다 */
+  lifecycles?: boolean;
 }
 
 function renderPage({
@@ -1962,6 +2073,7 @@ function renderPage({
   views,
   mixedBundles = false,
   sequences = [],
+  lifecycles = false,
 }: PageSpec): string {
   const title = viewTitle(ir);
   const vocab = irVocabulary(ir);
@@ -1994,7 +2106,7 @@ function renderPage({
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab),
@@ -2183,6 +2295,23 @@ export function renderDrilldownHtml(
     });
   }
   const sequenceSteps: string[] = [];
+  // 좌표는 원본 흐름으로 내고 글자는 그린 쪽(공유본이면 가린 사본) 흐름에서 꺼낸다
+  const sourceFlows = new Map((validated.ir.flows ?? []).map((f) => [f.id, f]));
+  const lifecycleOf = (p: ArchitectureProjection) => {
+    if (p.shape !== 'lifecycle' || p.flow === undefined) return undefined;
+    const source = sourceFlows.get(p.flow);
+    const drawnFlow = flowById.get(p.flow);
+    if (source === undefined || drawnFlow === undefined) return undefined;
+    const model = deriveLifecycle(
+      source,
+      validated.drawableStepIds,
+      validated.drawableTransitionIds,
+    );
+    const text = shared
+      ? deriveLifecycle(drawnFlow, validated.drawableStepIds, validated.drawableTransitionIds)
+      : model;
+    return { model, text, flow: drawnFlow };
+  };
   const rootFlowLinks = flowLevels
     .filter(({ flow }) => flow.service === undefined)
     .map(({ level, flow }) => ({ level: level.id, title: flow.title }))
@@ -2210,12 +2339,18 @@ export function renderDrilldownHtml(
           ? {
               viewStrip: views.map((v) => {
                 const drawn = v.projection.messages.filter((m) => drawnMessages.has(m.id));
+                const life = lifecycleOf(v.projection);
                 return {
                   ...v,
                   steps: drawn.length,
                   actors:
                     v.projection.participants?.length ??
                     new Set(drawn.flatMap((m) => [m.from, m.to])).size,
+                  ...(life !== undefined
+                    ? {
+                        summary: `상태 ${life.model.states.length}, 전이 ${life.model.transitions.length}`,
+                      }
+                    : {}),
                 };
               }),
             }
@@ -2230,6 +2365,11 @@ export function renderDrilldownHtml(
     .concat(
       views.map((v) => {
         const p = v.projection;
+        const life = lifecycleOf(p);
+        if (life !== undefined) {
+          const layout = computeLifecycleLayout(life.model);
+          return renderLifecycleSection(v.level, p, life.flow, life.text, layout, questionCount);
+        }
         if (p.shape === 'dataflow') {
           const layout = computeDataflowLayout(p, drawnMessages, nodeById);
           return renderDataflowSection(v.level, p, layout, nodeById, base.services);
@@ -2265,5 +2405,6 @@ export function renderDrilldownHtml(
     ...(views.length > 0 ? { views } : {}),
     mixedBundles: levels.some((l) => l.edges.some((e) => e.inferred !== undefined)),
     ...(sequenceSteps.length > 0 ? { sequences: sequenceSteps } : {}),
+    ...(views.some((v) => v.projection.shape === 'lifecycle') ? { lifecycles: true } : {}),
   });
 }
