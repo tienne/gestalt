@@ -1092,6 +1092,12 @@ export const researchInputSchema = guardObject(
       .describe(
         'figma_plan: 캡처 이미지(PNG, JPEG, GIF)를 스크립트 파일에 base64로 넣는다. 합계 8MB 안에서만 넣고 넘는 건 건너뛴다. 기본은 이미지 자리를 회색 칸으로 둔다',
       ),
+    runner: z
+      .enum(['function', 'body'])
+      .optional()
+      .describe(
+        'figma_plan: 스크립트 모양. function(기본)은 async () => {...} 한 덩어리라 실행기가 호출한다. body는 함수 껍데기 없이 최상위 await와 return으로 쓴 본문이라 Figma 커넥터의 use_figma에 그대로 넣는다. use_figma는 코드가 5만 자까지라 이미지는 withImages 대신 upload_assets로 올리고 figma-fit.js로 맞춘다',
+      ),
     source: z
       .record(z.unknown())
       .optional()

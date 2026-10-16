@@ -4,9 +4,12 @@ export interface FigmaImageData {
   base64: string;
 }
 
+/** 이미지가 없는 자리의 캡션 끝에 붙는 표시. 이미지를 올린 뒤 fit 스크립트가 이 줄을 지운다 */
+const NO_IMAGE_MARK = '(이미지 없음)';
+
 /**
  * Plugin API 스크립트의 본문. `async () => {...}` 꼴이라 실행기가 그대로 호출한다.
- * 백틱과 템플릿 치환(달러+중괄호)은 쓰지 않는다. 계획과 이미지는 아래 두 자리에 JSON으로 들어간다.
+ * 백틱과 템플릿 치환(달러+중괄호)은 쓰지 않는다. 계획, 이미지, 이미지 없음 표시는 아래 세 자리에 JSON으로 들어간다.
  */
 const SCRIPT_TEMPLATE = String.raw`async () => {
   const PLAN = __PLAN__;
@@ -39,7 +42,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     notice: { size: 14, bold: true, color: '#8a4b00' },
   };
 
-  const stats = { tables: 0, imageNodes: [], missingImages: [] };
+  const stats = { tables: 0, imageNodes: [], missingImages: [], imageSlots: [] };
 
   function addText(parent, str, styleName, name) {
     const s = STYLES[styleName] || STYLES.body;
@@ -169,9 +172,10 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
       } else {
         rect.fills = solid('#e4e6e8');
         stats.missingImages.push(item.imageId);
+        stats.imageSlots.push({ id: item.imageId, nodeId: rect.id });
       }
       card.appendChild(rect);
-      addText(card, hash ? item.caption : item.caption + '\n(이미지 없음)', 'caption');
+      addText(card, hash ? item.caption : item.caption + __NO_IMAGE_TAIL__, 'caption');
     }
   }
 
@@ -211,6 +215,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     tableCount: stats.tables,
     imageNodes: stats.imageNodes,
     missingImages: stats.missingImages,
+    imageSlots: stats.imageSlots,
   };
 }`;
 
@@ -220,31 +225,88 @@ function embed(value: unknown): string {
     .replace(new RegExp(String.fromCharCode(0x2029), 'g'), '\\u2029');
 }
 
+/**
+ * function: `async () => {...}` 한 덩어리라 실행기가 그대로 호출한다.
+ * body: 함수 껍데기를 벗겨 최상위 await와 return으로 쓴 본문이다. Figma 커넥터의 use_figma가 이 꼴만 실행한다.
+ */
+export type FigmaRunner = 'function' | 'body';
+
+const FN_HEAD = 'async () => {\n';
+const FN_TAIL = '\n}';
+
+function shape(fn: string, runner: FigmaRunner | undefined): string {
+  if (runner !== 'body' || !fn.startsWith(FN_HEAD) || !fn.endsWith(FN_TAIL)) return fn;
+  return fn.slice(FN_HEAD.length, -FN_TAIL.length) + '\n';
+}
+
 /** 계획을 Figma 새 페이지로 그리는 Plugin API 스크립트. images가 없으면 이미지 자리는 회색 칸으로 남는다 */
-export function buildFigmaScript(plan: FigmaPlan, images?: Record<string, FigmaImageData>): string {
-  return SCRIPT_TEMPLATE.replace('__PLAN__', () => embed(plan)).replace('__IMAGES__', () =>
-    images ? embed(images) : 'null',
-  );
+export function buildFigmaScript(
+  plan: FigmaPlan,
+  images?: Record<string, FigmaImageData>,
+  runner?: FigmaRunner,
+): string {
+  const script = SCRIPT_TEMPLATE.replace('__PLAN__', () => embed(plan))
+    .replace('__IMAGES__', () => (images ? embed(images) : 'null'))
+    .replace('__NO_IMAGE_TAIL__', () => embed('\n' + NO_IMAGE_MARK));
+  return shape(script, runner);
 }
 
 /** 쓴 뒤 파일에서 이미지 fill이 남았는지 보는 스크립트. 탭을 닫기 전에 업로드가 끝났는지 확인하는 자리다 */
-export function buildFigmaVerifyScript(pageId: string, expectedImageIds: string[]): string {
-  return (
+export function buildFigmaVerifyScript(
+  pageId: string,
+  expectedImageIds: string[],
+  runner?: FigmaRunner,
+): string {
+  return shape(
     'async () => {\n' +
-    '  const page = await figma.getNodeByIdAsync(' +
-    embed(pageId) +
-    ');\n' +
-    "  if (!page) return { ok: false, code: 'NO_PAGE', message: '페이지를 찾지 못했다' };\n" +
-    '  const expected = ' +
-    embed(expectedImageIds) +
-    ';\n' +
-    '  const found = new Set();\n' +
-    "  for (const n of page.findAll((x) => typeof x.name === 'string' && x.name.indexOf('img:') === 0)) {\n" +
-    '    const fill = Array.isArray(n.fills) ? n.fills[0] : null;\n' +
-    "    if (fill && fill.type === 'IMAGE' && fill.imageHash) found.add(n.name.slice(4));\n" +
-    '  }\n' +
-    '  const missing = expected.filter((id) => !found.has(id));\n' +
-    '  return { ok: missing.length === 0, expected: expected.length, found: found.size, missing: missing };\n' +
-    '}'
+      '  const page = await figma.getNodeByIdAsync(' +
+      embed(pageId) +
+      ');\n' +
+      "  if (!page) return { ok: false, code: 'NO_PAGE', message: '페이지를 찾지 못했다' };\n" +
+      '  const expected = ' +
+      embed(expectedImageIds) +
+      ';\n' +
+      '  const found = new Set();\n' +
+      "  for (const n of page.findAll((x) => typeof x.name === 'string' && x.name.indexOf('img:') === 0)) {\n" +
+      '    const fill = Array.isArray(n.fills) ? n.fills[0] : null;\n' +
+      "    if (fill && fill.type === 'IMAGE' && fill.imageHash) found.add(n.name.slice(4));\n" +
+      '  }\n' +
+      '  const missing = expected.filter((id) => !found.has(id));\n' +
+      '  return { ok: missing.length === 0, expected: expected.length, found: found.size, missing: missing };\n' +
+      '}',
+    runner,
+  );
+}
+
+/**
+ * upload_assets로 이미지를 올린 뒤 도는 스크립트. 회색 칸으로 그려 둔 사각형의 높이를 올린 이미지 비율에 맞추고
+ * 캡션 끝의 이미지 없음 표시를 지운다. 이미지가 안 올라간 자리는 noImage로 알려준다
+ */
+export function buildFigmaFitScript(pageId: string, runner?: FigmaRunner): string {
+  return shape(
+    [
+      'async () => {',
+      '  const page = await figma.getNodeByIdAsync(' + embed(pageId) + ');',
+      "  if (!page) return { ok: false, code: 'NO_PAGE', message: '페이지를 찾지 못했다' };",
+      '  const tail = ' + embed('\n' + NO_IMAGE_MARK) + ';',
+      '  const fitted = [];',
+      '  const noImage = [];',
+      "  for (const rect of page.findAll((x) => typeof x.name === 'string' && x.name.indexOf('img:') === 0)) {",
+      '    const id = rect.name.slice(4);',
+      '    const fill = Array.isArray(rect.fills) ? rect.fills[0] : null;',
+      "    if (!fill || fill.type !== 'IMAGE' || !fill.imageHash) { noImage.push(id); continue; }",
+      '    const size = await figma.getImageByHash(fill.imageHash).getSizeAsync();',
+      '    rect.resize(rect.width, Math.max(40, Math.round((rect.width * size.height) / size.width)));',
+      '    fitted.push(id);',
+      '    for (const t of rect.parent ? rect.parent.children : []) {',
+      "      if (typeof t.characters !== 'string' || !t.characters.endsWith(tail)) continue;",
+      "      for (const seg of t.getStyledTextSegments(['fontName'])) await figma.loadFontAsync(seg.fontName);",
+      '      t.characters = t.characters.slice(0, -tail.length);',
+      '    }',
+      '  }',
+      '  return { ok: noImage.length === 0, fitted: fitted, noImage: noImage };',
+      '}',
+    ].join('\n'),
+    runner,
   );
 }

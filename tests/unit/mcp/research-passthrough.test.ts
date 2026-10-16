@@ -361,6 +361,35 @@ describe('ges_research action=figma_plan', () => {
     expect(r.script).toContain('figma.createPage');
   });
 
+  it('runner가 body면 함수 껍데기 없는 본문을 쓰고 업로드할 파일과 fit 스크립트를 준다', async () => {
+    const { repo, irPath } = await setup();
+    const r = await runWith(
+      { action: 'figma_plan', repoRoot: repo, irPath, runner: 'body' },
+      repo,
+      {},
+    );
+    expect(r.ok).toBe(true);
+    expect(r.runner).toBe('body');
+    expect(readFileSync(r.scriptPath, 'utf-8').startsWith('async () =>')).toBe(false);
+    expect(readFileSync(r.fitScriptPath, 'utf-8')).toContain('getImageByHash');
+    expect(r.imageFiles).toEqual([
+      expect.objectContaining({ id: 'cap1', contentType: 'image/png' }),
+    ]);
+    expect(r.imageFiles[0].path.endsWith('captures/a-home.png')).toBe(true);
+  });
+
+  it('저장 폴더 밖을 가리키는 심볼릭 링크 이미지는 업로드 목록에 넣지 않는다', async () => {
+    const { repo, ir, irPath } = await setup();
+    const outside = join(repo, 'outside.png');
+    writeFileSync(outside, 'x');
+    const link = join(repo, '.gestalt/research', ir.meta.slug, 'captures', 'a-home.png');
+    rmSync(link);
+    symlinkSync(outside, link);
+    const r = await runWith({ action: 'figma_plan', repoRoot: repo, irPath }, repo, {});
+    expect(r.ok).toBe(true);
+    expect(r.imageFiles).toEqual([]);
+  });
+
   it('공유용은 unchecked 캡처가 있으면 막는다', async () => {
     const { repo, ir, irPath } = await setup();
     const bad = { ...ir, captures: ir.captures!.map((c) => ({ ...c, pii: 'unchecked' })) };

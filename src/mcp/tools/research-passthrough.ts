@@ -20,6 +20,7 @@ import {
 import { redactorFor, seedFor } from '../../research/pii.js';
 import { buildFigmaPlan } from '../../research/figma-plan.js';
 import {
+  buildFigmaFitScript,
   buildFigmaScript,
   buildFigmaVerifyScript,
   type FigmaImageData,
@@ -275,14 +276,18 @@ function handleValidate(input: ResearchInput, cwd: string): object {
 }
 
 /** 저장 폴더 밖으로 나가는 심볼릭 링크는 따라가지 않는다 */
+function resolveInside(researchDir: string, rel: string): string | null {
+  const full = join(researchDir, rel);
+  if (!existsSync(full)) return null;
+  const real = realpathSync(full);
+  return real.startsWith(realpathSync(researchDir) + sep) ? real : null;
+}
+
 function imageLoader(researchDir: string): (rel: string) => LoadedImage | null {
   return (rel) => {
     const mime = MIME_BY_EXT[extname(rel).toLowerCase()];
-    const full = join(researchDir, rel);
-    if (!mime || !existsSync(full)) return null;
-    const real = realpathSync(full);
-    if (!real.startsWith(realpathSync(researchDir) + sep)) return null;
-    return { mime, data: readFileSync(real) };
+    const real = mime ? resolveInside(researchDir, rel) : null;
+    return mime && real ? { mime, data: readFileSync(real) } : null;
   };
 }
 
@@ -336,6 +341,7 @@ function handleRender(input: ResearchInput, cwd: string): object {
 const FIGMA_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif']);
 const MAX_FIGMA_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_INLINE_SCRIPT_BYTES = 200 * 1024;
+const USE_FIGMA_CODE_LIMIT = 50_000;
 
 function handleFigmaPlan(input: ResearchInput, cwd: string): object {
   const repoRoot = resolve(cwd, input.repoRoot ?? '.');
@@ -376,14 +382,32 @@ function handleFigmaPlan(input: ResearchInput, cwd: string): object {
     }
   }
 
-  const script = buildFigmaScript(built.plan, images);
+  const runner = input.runner ?? 'function';
+  const script = buildFigmaScript(built.plan, images, runner);
   const verifyScript = buildFigmaVerifyScript(
     '__PAGE_ID__',
     built.plan.images.map((i) => i.id),
+    runner,
   );
+  const fitScript = buildFigmaFitScript('__PAGE_ID__', runner);
   const planPath = store.saveFile(slug, 'figma-plan.json', JSON.stringify(built.plan, null, 2));
   const scriptPath = store.saveFile(slug, 'figma-render.js', script);
   const verifyPath = store.saveFile(slug, 'figma-verify.js', verifyScript);
+  const fitPath = store.saveFile(slug, 'figma-fit.js', fitScript);
+  if (runner === 'body' && script.length > USE_FIGMA_CODE_LIMIT) {
+    warnings.push(
+      `스크립트가 ${script.length}자라 use_figma 코드 한도(5만 자)를 넘는다. withImages를 끄고 이미지는 upload_assets로 올린다`,
+    );
+  }
+  const researchDir = store.dir(slug);
+  const imageFiles = built.plan.images.flatMap((img) => {
+    const contentType = MIME_BY_EXT[extname(img.path).toLowerCase()];
+    const real =
+      contentType && FIGMA_IMAGE_MIMES.has(contentType)
+        ? resolveInside(researchDir, img.path)
+        : null;
+    return real && contentType ? [{ id: img.id, path: real, contentType }] : [];
+  });
 
   const inline = input.inline === true;
   if (inline && Buffer.byteLength(script) > MAX_INLINE_SCRIPT_BYTES) {
@@ -400,12 +424,17 @@ function handleFigmaPlan(input: ResearchInput, cwd: string): object {
     planPath,
     scriptPath,
     verifyScriptPath: verifyPath,
+    fitScriptPath: fitPath,
+    runner,
     imageCount: built.plan.images.length,
     embeddedImages: images ? Object.keys(images).length : 0,
-    ...(attach ? { script, verifyScript } : {}),
+    imageFiles,
+    ...(attach ? { script, verifyScript, fitScript } : {}),
     warnings,
     usage:
-      '편집 권한이 있는 Figma 파일에서 scriptPath의 함수를 실행한다. 반환한 pageId를 verify 스크립트의 __PAGE_ID__ 자리에 넣어 이미지가 남았는지 확인한다. 이미지 업로드가 끝나기 전에 탭을 닫지 않는다',
+      runner === 'body'
+        ? '편집 권한이 있는 Figma 파일에서 scriptPath의 본문을 use_figma로 실행한다. 반환한 imageSlots의 nodeId를 같은 순서로 upload_assets의 nodeIds에 넣고, 받은 주소마다 imageFiles의 파일을 올린다. 다 올렸으면 pageId를 __PAGE_ID__ 자리에 넣어 fitScriptPath로 높이와 캡션을 맞추고 verifyScriptPath로 이미지가 남았는지 확인한다'
+        : '편집 권한이 있는 Figma 파일에서 scriptPath의 함수를 실행한다. 반환한 pageId를 verify 스크립트의 __PAGE_ID__ 자리에 넣어 이미지가 남았는지 확인한다. 이미지 업로드가 끝나기 전에 탭을 닫지 않는다',
   };
 }
 

@@ -1,7 +1,11 @@
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import { buildFigmaPlan, type FigmaPlan } from '../../../src/research/figma-plan.js';
-import { buildFigmaScript, buildFigmaVerifyScript } from '../../../src/research/figma-script.js';
+import {
+  buildFigmaFitScript,
+  buildFigmaScript,
+  buildFigmaVerifyScript,
+} from '../../../src/research/figma-script.js';
 import { parseResearch, type Research } from '../../../src/research/schema.js';
 import { sampleResearch } from './fixture.js';
 
@@ -29,6 +33,9 @@ class FakeNode {
   appendChild(child: FakeNode): void {
     child.parent = this;
     this.children.push(child);
+  }
+  getStyledTextSegments(): { fontName: unknown }[] {
+    return [{ fontName: this.fontName }];
   }
   resize(w: number, h: number): void {
     this.width = w;
@@ -65,6 +72,7 @@ function fakeFigma(opts: { fonts?: string[] } = {}) {
       if (bytes.length === 0) throw new Error('empty');
       return { hash: `hash-${++hashSeq}`, getSizeAsync: async () => ({ width: 300, height: 600 }) };
     },
+    getImageByHash: () => ({ getSizeAsync: async () => ({ width: 300, height: 600 }) }),
     base64Decode: (b: string) => new Uint8Array(Buffer.from(b, 'base64')),
     loadFontAsync: async (font: { family: string }) => {
       if (opts.fonts && !opts.fonts.includes(font.family)) throw new Error('no font');
@@ -74,6 +82,14 @@ function fakeFigma(opts: { fonts?: string[] } = {}) {
     getNodeByIdAsync: async (id: string) => nodes.get(id) ?? null,
   };
   return { figma, nodes, loaded };
+}
+
+/** use_figma처럼 본문을 async 문맥에 넣어 돌린다 */
+async function runBody(script: string, figma: unknown): Promise<Record<string, unknown>> {
+  return runInNewContext(`(async () => {\n${script}\n})()`, {
+    figma,
+    atob: (s: string) => Buffer.from(s, 'base64').toString('binary'),
+  });
 }
 
 async function run(script: string, figma: unknown): Promise<Record<string, unknown>> {
@@ -158,6 +174,57 @@ describe('Figma Plugin API 스크립트', () => {
     const verify = await run(buildFigmaVerifyScript(result.pageId as string, ids), figma);
     expect(verify.ok).toBe(false);
     expect(verify.missing).toEqual(ids);
+  });
+
+  it('렌더 결과가 이미지 자리의 노드 ID를 돌려준다', async () => {
+    const r = research();
+    const { figma, nodes } = fakeFigma();
+    const result = await run(buildFigmaScript(planOf(r)), figma);
+    const slots = result.imageSlots as { id: string; nodeId: string }[];
+    expect(slots.map((s) => s.id)).toEqual(r.captures.map((c) => c.id));
+    expect(nodes.get(slots[0]!.nodeId)?.name).toBe(`img:${slots[0]!.id}`);
+  });
+
+  it('body 형태는 함수 껍데기 없이 최상위에서 돈다', async () => {
+    const r = research();
+    const script = buildFigmaScript(planOf(r), undefined, 'body');
+    expect(script.startsWith('async () =>')).toBe(false);
+    const { figma } = fakeFigma();
+    const result = await runBody(script, figma);
+    expect(result.ok).toBe(true);
+    const ids = r.captures.map((c) => c.id);
+    const verify = await runBody(
+      buildFigmaVerifyScript(result.pageId as string, ids, 'body'),
+      figma,
+    );
+    expect(verify.missing).toEqual(ids);
+  });
+
+  it('fit은 올린 이미지 비율로 높이를 맞추고 캡션의 이미지 없음 줄을 지운다', async () => {
+    const { figma, nodes } = fakeFigma();
+    const result = await run(buildFigmaScript(planOf(research())), figma);
+    const slots = result.imageSlots as { id: string; nodeId: string }[];
+    const rect = nodes.get(slots[0]!.nodeId)!;
+    rect.fills = [{ type: 'IMAGE', imageHash: 'uploaded' }];
+    const caption = rect.parent!.children.find((c) => c.kind === 'TEXT')!;
+    expect(String(caption.characters)).toContain('(이미지 없음)');
+
+    const fit = await run(buildFigmaFitScript(result.pageId as string), figma);
+    expect(fit).toMatchObject({ ok: true, fitted: slots.map((s) => s.id), noImage: [] });
+    expect(rect.height).toBe(480);
+    expect(String(caption.characters)).not.toContain('이미지 없음');
+  });
+
+  it('fit은 이미지가 안 올라간 자리를 알려주고 캡션을 그대로 둔다', async () => {
+    const { figma, nodes } = fakeFigma();
+    const result = await run(buildFigmaScript(planOf(research())), figma);
+    const slots = result.imageSlots as { id: string; nodeId: string }[];
+    const fit = await runBody(buildFigmaFitScript(result.pageId as string, 'body'), figma);
+    expect(fit).toMatchObject({ ok: false, fitted: [], noImage: slots.map((s) => s.id) });
+    const rect = nodes.get(slots[0]!.nodeId)!;
+    expect(String(rect.parent!.children.find((c) => c.kind === 'TEXT')!.characters)).toContain(
+      '(이미지 없음)',
+    );
   });
 
   it('Pretendard가 없으면 Inter로 내려가고 둘 다 없으면 실패한다', async () => {
