@@ -81,7 +81,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     for (let c = 0; c < cols; c++) {
       let max = String(node.head[c]).length;
       for (const row of node.rows) max = Math.max(max, String(row[c] === undefined ? '' : row[c]).length);
-      weights.push(Math.min(Math.max(max, 6), 60));
+      weights.push(Math.min(Math.max(max, 12), 60));
     }
     const total = weights.reduce((a, b) => a + b, 0);
     const widths = weights.map((w) => Math.floor((width * w) / total));
@@ -120,7 +120,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
         cell.strokes = solid('#dde1e4');
         cell.strokeWeight = 1;
         row.appendChild(cell);
-        cell.layoutAlign = 'STRETCH';
+        cell.layoutSizingVertical = 'FILL';
         addText(cell, String(cells[c] === undefined ? '' : cells[c]), header ? 'h3' : 'body');
       }
     };

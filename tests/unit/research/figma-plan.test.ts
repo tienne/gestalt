@@ -160,6 +160,16 @@ describe('Figma Plugin API 스크립트', () => {
     expect(result.missingImages).toEqual(research().captures.map((c) => c.id));
   });
 
+  it('표 셀은 같은 행의 높이를 맞추도록 세로 FILL로 두고 짧은 열도 글자가 꺾이지 않을 너비를 받는다', async () => {
+    const { figma, nodes } = fakeFigma();
+    const result = await run(buildFigmaScript(planOf(research())), figma);
+    expect(result.ok).toBe(true);
+    const cells = [...nodes.values()].filter((n) => n.name === 'cell');
+    expect(cells.length).toBeGreaterThan(0);
+    expect(cells.every((c) => c.layoutSizingVertical === 'FILL')).toBe(true);
+    expect(cells.every((c) => (c.width as number) >= 40)).toBe(true);
+  });
+
   it('이미지를 주면 image fill을 붙이고 verify가 통과한다', async () => {
     const r = research();
     const images = Object.fromEntries(
