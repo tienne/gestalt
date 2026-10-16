@@ -1,0 +1,23 @@
+---
+name: web-search
+description: 일반 웹 검색으로 후보와 공개 자료(보도, 발표, 세미나 영상)를 찾는다
+stage: [product-discovery, evidence]
+axis: [same-market, same-problem]
+access:
+  - browser: { site: www.google.com, login: none }
+evidence: observation
+limits: "검색 결과의 순위와 최신성을 믿지 않는다. 출처 글의 날짜를 확인한다"
+fallback: "후보는 앱스토어 검색과 기술 블로그로만 찾는다"
+---
+
+## 찾는 법
+
+1. 사용자가 그 기능을 부르는 일반 말로 검색한다.
+2. 보도나 발표 자료는 날짜와 매체를 적는다. 발표 영상은 시간 위치를 적는다(`회사 컨퍼런스 발표 14:32`).
+3. 회사가 직접 한 말은 근거 상태를 `회사 발언`으로, 제3자 글은 `관찰`로 구분한다.
+
+## 멈추는 곳
+
+- 검색어에 공개 전 기획 내용을 넣지 않는다.
+- 로그인이나 결제가 필요한 페이지는 열지 않는다.
+- 사람 확인(캡차)이 뜨면 멈추고 사용자에게 알린다.
