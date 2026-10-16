@@ -58,6 +58,11 @@ export const FINDING_VIEWPOINTS = ['user', 'biz'] as const;
 /** immediate: 지금 정할 수 있다. data: 데이터를 봐야 한다. other-team: 다른 직군이 확인한다 */
 export const QUESTION_OWNERS = ['immediate', 'data', 'other-team'] as const;
 export const ADOPTION_STATUSES = ['adopted', 'candidate', 'rejected'] as const;
+export const SCREEN_PLATFORMS = ['ios', 'aos', 'web'] as const;
+/** 화면 사이 전이를 일으키는 사용자 행동 */
+export const GESTURES = ['tap', 'swipe', 'drag', 'scroll', 'press', 'pan', 'input'] as const;
+/** found: 찾음. partial: 일부만 찾음. not-found: 못 찾음. too-many: 너무 많아 고르지 못함 */
+export const ATTEMPT_RESULTS = ['found', 'partial', 'not-found', 'too-many'] as const;
 export const CONFIDENCE_LEVELS = ['likely', 'trial', 'hold', 'out'] as const;
 export const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'] as const;
 
@@ -103,6 +108,9 @@ export const screenMapItemSchema = z.object({
   entryPath: z.array(textSchema).default([]),
   source: z.enum(SCREEN_SOURCES),
   capture: z.enum(CAPTURE_STATES),
+  platform: z.enum(SCREEN_PLATFORMS).optional(),
+  /** 흐름 표에서 화면이 나오는 순서. 없으면 screenMap 배열 순서 */
+  order: z.number().int().nonnegative().optional(),
 });
 
 export const captureSchema = z.object({
@@ -342,6 +350,66 @@ const openQuestionsSchema = z.object({
     .default([]),
 });
 
+/** 화면 A에서 B로 가는 사용자 행동 하나. 역기획의 빨간 화살표 */
+const transitionSchema = z
+  .object({
+    id: idSchema,
+    from: idSchema,
+    to: idSchema,
+    /** 예: "상품 카드 탭" */
+    trigger: textSchema,
+    gesture: z.enum(GESTURES),
+    /** 분기 조건. 예: "로그인 상태" */
+    condition: z.string().optional(),
+    /** 같은 화면으로 되돌아오는 반복. 반복 비용을 note에 적는다 */
+    loop: z.boolean().optional(),
+    ...basisFields,
+  })
+  .superRefine(checkBasis);
+
+/** 화면 위 번호 표시 하나. 기획서의 "1", "3-1" 같은 마커 */
+const markerSchema = z.object({
+  id: idSchema,
+  screenMapId: idSchema,
+  /** 화면 안에서 겹치지 않는 번호. 하위 팝업은 "3-1" 꼴 */
+  no: textSchema,
+  element: textSchema,
+  /** "트리거 탭 시 → 결과" 꼴 */
+  behavior: textSchema,
+  /** 개수 상한 같은 제약 */
+  limit: z.string().optional(),
+  parentId: idSchema.optional(),
+});
+
+/** 무언가를 찾으려고 해본 기록. 실패도 결과로 남긴다 */
+const attemptSchema = z.object({
+  id: idSchema,
+  referenceId: idSchema.optional(),
+  what: textSchema,
+  result: z.enum(ATTEMPT_RESULTS),
+  text: textSchema,
+  limit: z.string().optional(),
+  captureIds: z.array(idSchema).default([]),
+});
+
+/** 사람이 입력하는 사용자 유형 카드. 도구는 인터뷰를 하지 못한다 */
+const userTypeSchema = z.object({
+  id: idSchema,
+  name: textSchema,
+  summary: textSchema,
+  /** 인터뷰 자료의 이름. 내용은 옮기지 않는다 */
+  source: textSchema,
+});
+
+const flowSchema = z
+  .object({
+    transitions: z.array(transitionSchema).default([]),
+    markers: z.array(markerSchema).default([]),
+    attempts: z.array(attemptSchema).default([]),
+    userTypes: z.array(userTypeSchema).default([]),
+  })
+  .default({});
+
 export const researchSchema = z
   .object({
     schemaVersion: z.literal(RESEARCH_SCHEMA_VERSION).default(RESEARCH_SCHEMA_VERSION),
@@ -369,6 +437,8 @@ export const researchSchema = z
       .default({}),
     /** 시안이 리서치의 무엇을 가져오고 푸는지. 와우와 페인에서 시안으로 이어지는 선 */
     adoptions: z.array(adoptionSchema).default([]),
+    /** 화면 전이, 번호 마커, 시도 기록, 사용자 유형. 역기획에서 채운다 */
+    flow: flowSchema,
     reasons: z.array(reasonSchema).default([]),
     judgment: z.array(judgmentSchema).default([]),
     verification: z.array(verificationSchema).default([]),
@@ -513,12 +583,60 @@ export const researchSchema = z
         });
       }
     });
+
+    checkUnique(
+      'flow.transitions',
+      r.flow.transitions.map((t) => t.id),
+    );
+    checkUnique(
+      'flow.markers',
+      r.flow.markers.map((m) => m.id),
+    );
+    checkUnique(
+      'flow.attempts',
+      r.flow.attempts.map((a) => a.id),
+    );
+    checkUnique(
+      'flow.userTypes',
+      r.flow.userTypes.map((u) => u.id),
+    );
+    r.flow.transitions.forEach((t, i) => {
+      for (const key of ['from', 'to'] as const) {
+        if (!screens.has(t[key])) issue(['flow', 'transitions', i, key], `없는 화면: ${t[key]}`);
+      }
+      checkEvidence(['flow', 'transitions', i, 'evidence'], t.evidence);
+    });
+    const markerIds = new Set(r.flow.markers.map((m) => m.id));
+    const markerNos = new Set<string>();
+    r.flow.markers.forEach((m, i) => {
+      if (!screens.has(m.screenMapId)) {
+        issue(['flow', 'markers', i, 'screenMapId'], `없는 화면: ${m.screenMapId}`);
+      }
+      if (m.parentId && !markerIds.has(m.parentId)) {
+        issue(['flow', 'markers', i, 'parentId'], `없는 마커: ${m.parentId}`);
+      }
+      const key = `${m.screenMapId}#${m.no}`;
+      if (markerNos.has(key))
+        issue(['flow', 'markers', i, 'no'], `화면 안에서 번호가 겹친다: ${m.no}`);
+      markerNos.add(key);
+    });
+    r.flow.attempts.forEach((a, i) => {
+      if (a.referenceId) checkRef('flow.attempts', i, a.referenceId);
+      a.captureIds.forEach((id, k) => {
+        if (!capturesById.has(id))
+          issue(['flow', 'attempts', i, 'captureIds', k], `없는 캡처: ${id}`);
+      });
+    });
   });
 
 export type Research = z.infer<typeof researchSchema>;
 export type ResearchInput = z.input<typeof researchSchema>;
 export type ProductCandidate = z.infer<typeof productCandidateSchema>;
 export type ScreenMapItem = z.infer<typeof screenMapItemSchema>;
+export type Transition = z.infer<typeof transitionSchema>;
+export type Marker = z.infer<typeof markerSchema>;
+export type Attempt = z.infer<typeof attemptSchema>;
+export type UserType = z.infer<typeof userTypeSchema>;
 export type Capture = z.infer<typeof captureSchema>;
 export type VideoClip = z.infer<typeof videoClipSchema>;
 export type VideoFinding = z.infer<typeof videoFindingSchema>;
@@ -590,6 +708,15 @@ function lintEvidenceStructure(research: Research, warnings: ResearchWarning[]):
       }
     }
   }
+
+  research.flow.transitions.forEach((t, i) => {
+    if (t.loop && !t.note?.trim()) {
+      warnings.push({
+        path: `flow.transitions.${i}`,
+        message: `반복 전이(${t.id})에 반복 비용이 없다. note에 "몇 번 되풀이하는지"를 적는다`,
+      });
+    }
+  });
 
   wowPain.findings.forEach((f, i) => {
     const path = `wowPain.findings.${i}`;

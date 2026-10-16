@@ -1,6 +1,7 @@
 import {
   ADOPTION_LABEL,
   AXIS_LABEL,
+  buildFlowTables,
   BASIS_LABEL,
   CAPTURE_KIND_LABEL,
   CAPTURE_STATE_LABEL,
@@ -318,6 +319,10 @@ export function buildFigmaPlan(
         ['가져오지 않을 것', bullets(r.skip)],
       ],
     });
+  }
+  for (const t of buildFlowTables(research, shared)) {
+    s5.push(text('h3', t.heading));
+    s5.push({ type: 'table', head: t.head, rows: t.rows });
   }
   nodes.push(section('5. 레퍼런스가 그렇게 한 이유', s5));
 

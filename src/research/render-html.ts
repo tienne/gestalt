@@ -111,6 +111,125 @@ export interface VideoTable {
   rows: string[][];
 }
 
+export const PLATFORM_LABEL = { ios: 'iOS', aos: 'AOS', web: '웹' } as const;
+export const GESTURE_LABEL = {
+  tap: '탭',
+  swipe: '스와이프',
+  drag: '드래그',
+  scroll: '스크롤',
+  press: '길게 누름',
+  pan: '팬',
+  input: '입력',
+} as const;
+export const ATTEMPT_LABEL = {
+  found: '찾음',
+  partial: '일부만 찾음',
+  'not-found': '못 찾음',
+  'too-many': '너무 많아 못 고름',
+} as const;
+/** 역기획의 화면 주석 카드 이름. 발견의 종류를 그대로 옮긴다 */
+const ANNOTATION_LABEL = { wow: 'WOW', pain: 'BAD', insight: 'INSIGHT', design: 'Design' } as const;
+
+/** 화면 흐름 섹션이 그릴 내용이 있는지 */
+export function hasFlowSection(research: Research): boolean {
+  const f = research.flow;
+  return (
+    f.transitions.length > 0 ||
+    f.markers.length > 0 ||
+    f.attempts.length > 0 ||
+    f.userTypes.length > 0
+  );
+}
+
+/**
+ * 역기획의 화면 흐름을 표 목록으로 푼다. 전이, 번호 마커, 화면 주석, 시도 기록, 사용자 유형 순이다.
+ * 두 렌더러가 같은 표를 쓴다
+ */
+export function buildFlowTables(research: Research, shared: boolean): VideoTable[] {
+  if (!hasFlowSection(research)) return [];
+  const screens = [...research.screenMap]
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => (a.s.order ?? a.i) - (b.s.order ?? b.i) || a.i - b.i)
+    .map((x) => x.s);
+  const screenName = (id: string): string => {
+    const s = research.screenMap.find((x) => x.id === id);
+    if (!s) return id;
+    return s.platform ? `${s.screen} (${PLATFORM_LABEL[s.platform]})` : s.screen;
+  };
+  const evid = (list: EvidenceRef[]): string =>
+    list.map((ev) => `(${evidenceLabel(research, ev, shared)})`).join('');
+  const tables: VideoTable[] = [];
+  const { transitions, markers, attempts, userTypes } = research.flow;
+
+  if (transitions.length > 0) {
+    tables.push({
+      heading: '화면 전이',
+      head: ['출발', '사용자 행동', '도착', '조건', '근거'],
+      rows: transitions.map((t) => {
+        const grey = t.basis === 'unconfirmed' || t.basis === 'absent';
+        const act = `${GESTURE_LABEL[t.gesture]}: ${t.trigger}${t.loop ? ' (반복)' : ''}`;
+        const basis = t.basis === 'observation' ? '' : `[${BASIS_LABEL[t.basis]}] `;
+        const note = t.note ? `\n${t.note}` : '';
+        return [
+          screenName(t.from),
+          act,
+          screenName(t.to),
+          t.condition ?? '',
+          `${basis}${grey ? '' : evid(t.evidence)}${note}`.trim(),
+        ];
+      }),
+    });
+  }
+
+  if (markers.length > 0) {
+    const rows: string[][] = [];
+    for (const s of screens) {
+      for (const m of markers.filter((x) => x.screenMapId === s.id)) {
+        rows.push([screenName(s.id), m.no, m.element, m.behavior, m.limit ?? '']);
+      }
+    }
+    tables.push({
+      heading: '번호 마커 명세',
+      head: ['화면', '번호', '요소', '동작', '상한과 조건'],
+      rows,
+    });
+  }
+
+  const annotated = research.wowPain.findings.filter((f) => f.screenMapId);
+  if (annotated.length > 0) {
+    const rows: string[][] = [];
+    for (const s of screens) {
+      for (const f of annotated.filter((x) => x.screenMapId === s.id)) {
+        rows.push([
+          screenName(s.id),
+          ANNOTATION_LABEL[f.kind],
+          `${f.text}${evid(f.evidence)}`,
+          f.concrete ?? '',
+        ]);
+      }
+    }
+    tables.push({ heading: '화면 주석', head: ['화면', '구분', '내용', '조작과 수치'], rows });
+  }
+
+  if (attempts.length > 0) {
+    tables.push({
+      heading: '시도 기록',
+      head: ['무엇을 찾았나', '결과', '내용', '상한'],
+      rows: attempts.map((a) => [a.what, ATTEMPT_LABEL[a.result], a.text, a.limit ?? '']),
+    });
+  }
+
+  tables.push({
+    heading: '사용자 유형',
+    head: userTypes.length > 0 ? ['유형', '설명', '자료'] : ['유형'],
+    rows:
+      userTypes.length > 0
+        ? userTypes.map((u) => [u.name, u.summary, u.source])
+        : [['인터뷰 없음']],
+  });
+  return tables;
+}
+
 /** 영상 분석 섹션의 제목. 단독 문서는 0, 1번 뒤에 바로 오므로 2번이다 */
 export function videoSectionTitle(research: Research): string {
   return research.meta.kind === 'video-analysis' ? '2. 영상 분석' : '9. 영상 분석';
@@ -583,6 +702,18 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
         ) +
         '</div>',
     );
+  }
+
+  if (hasFlowSection(research)) {
+    for (const t of buildFlowTables(research, opts.audience === 'shared')) {
+      parts.push(`<h3>${e(t.heading)}</h3>`);
+      parts.push(
+        table(
+          t.head,
+          t.rows.map((row) => row.map((cell) => e(cell).replace(/\n/g, '<br>'))),
+        ),
+      );
+    }
   }
 
   // 6. 판단
