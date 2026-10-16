@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -229,5 +229,87 @@ describe('ges_research action=redact_script', () => {
   it('slug가 없으면 거절한다', async () => {
     const r = await runWith({ action: 'redact_script' }, tmpHome(), {});
     expect(r.errors[0].code).toBe('INVALID_SLUG');
+  });
+});
+
+describe('ges_research action=validate, render', () => {
+  async function setup() {
+    const repo = tmpHome();
+    const { sampleResearch } = await import('../research/fixture.js');
+    const ir = sampleResearch();
+    const irPath = join(repo, 'ir.json');
+    writeFileSync(irPath, JSON.stringify(ir));
+    const slug = ir.meta.slug;
+    const capDir = join(repo, '.gestalt/research', slug, 'captures');
+    mkdirSync(capDir, { recursive: true });
+    writeFileSync(join(capDir, 'a-home.png'), 'png-bytes');
+    return { repo, ir, irPath, slug };
+  }
+
+  it('validate는 경고를 돌려주고 저장하지 않는다', async () => {
+    const { repo, irPath, slug } = await setup();
+    const r = await runWith({ action: 'validate', repoRoot: repo, irPath }, repo, {});
+    expect(r.ok).toBe(true);
+    expect(r.slug).toBe(slug);
+    expect(Array.isArray(r.warnings)).toBe(true);
+    expect(existsSync(join(repo, '.gestalt/research', slug, 'research.json'))).toBe(false);
+  });
+
+  it('스키마에 안 맞으면 항목별 오류를 돌려준다', async () => {
+    const { repo } = await setup();
+    const bad = join(repo, 'bad.json');
+    writeFileSync(bad, JSON.stringify({ meta: { slug: 'x' } }));
+    const r = await runWith({ action: 'validate', repoRoot: repo, irPath: bad }, repo, {});
+    expect(r.ok).toBe(false);
+    expect(r.errors[0].code).toBe('INVALID_RESEARCH');
+  });
+
+  it('render는 IR을 저장하고 개인용과 공유용 HTML을 만든다', async () => {
+    const { repo, irPath, slug } = await setup();
+    const r = await runWith({ action: 'render', repoRoot: repo, irPath }, repo, {});
+    expect(r.ok).toBe(true);
+    expect(existsSync(r.jsonPath)).toBe(true);
+    expect(readFileSync(r.htmlPath, 'utf-8')).toContain('data:image/png;base64');
+    expect(r.sharedHtmlPath).toBeTruthy();
+    expect(r.openPath).toBe(r.htmlPath);
+    expect(r.slug).toBe(slug);
+  });
+
+  it('공유용을 요청했는데 unchecked 캡처가 있으면 막는다', async () => {
+    const { repo, ir, irPath } = await setup();
+    const bad = { ...ir, captures: ir.captures!.map((c) => ({ ...c, pii: 'unchecked' })) };
+    writeFileSync(irPath, JSON.stringify(bad));
+    const blocked = await runWith(
+      { action: 'render', repoRoot: repo, irPath, audience: 'shared' },
+      repo,
+      {},
+    );
+    expect(blocked.ok).toBe(false);
+    expect(blocked.errors[0].code).toBe('SHARE_BLOCKED');
+    const priv = await runWith({ action: 'render', repoRoot: repo, irPath }, repo, {});
+    expect(priv.ok).toBe(true);
+    expect(priv.sharedHtmlPath).toBeNull();
+    expect(priv.sharedBlocked.captureIds.length).toBeGreaterThan(0);
+  });
+
+  it('저장 폴더 밖을 가리키는 심볼릭 링크 이미지는 싣지 않는다', async () => {
+    const { repo, irPath, slug } = await setup();
+    const outside = join(repo, 'secret.png');
+    writeFileSync(outside, 'secret-bytes');
+    const link = join(repo, '.gestalt/research', slug, 'captures', 'a-home.png');
+    rmSync(link);
+    symlinkSync(outside, link);
+    const r = await runWith({ action: 'render', repoRoot: repo, irPath }, repo, {});
+    expect(r.ok).toBe(true);
+    expect(readFileSync(r.htmlPath, 'utf-8')).not.toContain(
+      Buffer.from('secret-bytes').toString('base64'),
+    );
+    expect(r.warnings.some((w: string) => w.includes('읽지 못했다'))).toBe(true);
+  });
+
+  it('slug가 meta.slug와 다르면 거절한다', async () => {
+    const { repo, irPath } = await setup();
+    const r = await runWith({ action: 'render', repoRoot: repo, irPath, slug: 'other' }, repo, {});
+    expect(r.errors[0].code).toBe('SLUG_MISMATCH');
   });
 });

@@ -1,6 +1,14 @@
-import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, extname, isAbsolute, join, resolve } from 'node:path';
+import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { gestaltPath } from '../../core/home.js';
 import { buildDomRedactionScript } from '../../research/pii-dom.js';
 import {
@@ -10,6 +18,8 @@ import {
   type VisionRunner,
 } from '../../research/pii-image.js';
 import { redactorFor, seedFor } from '../../research/pii.js';
+import { renderResearchHtml, type LoadedImage } from '../../research/render-html.js';
+import { lintResearch, parseResearch, type Research } from '../../research/schema.js';
 import { isValidSlug, ResearchStore } from '../../research/store.js';
 import { ResearchSourceRegistry } from '../../research/source-registry.js';
 import { buildSourceReport } from '../../research/source-status.js';
@@ -169,6 +179,141 @@ function handleRedactScript(input: ResearchInput, opts: ResearchHandlerOptions):
   };
 }
 
+const MAX_IR_BYTES = 5 * 1024 * 1024;
+const MIME_BY_EXT: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+};
+
+interface LoadedIr {
+  research: Research;
+  fromFile: boolean;
+}
+
+/** irPath가 있으면 그 파일을, 없으면 slug의 저장본을 읽어 검증한다 */
+function loadIr(input: ResearchInput, repoRoot: string): LoadedIr | ResearchFailure {
+  let raw: unknown;
+  let fromFile = false;
+  if (input.irPath) {
+    const path = isAbsolute(input.irPath) ? input.irPath : resolve(repoRoot, input.irPath);
+    if (!existsSync(path) || !statSync(path).isFile()) {
+      return fail('IR_NOT_FOUND', `research.json이 없다: ${input.irPath}`);
+    }
+    if (statSync(path).size > MAX_IR_BYTES)
+      return fail('IR_TOO_LARGE', 'research.json이 5MB를 넘는다');
+    try {
+      raw = JSON.parse(readFileSync(path, 'utf-8'));
+    } catch (err) {
+      return fail(
+        'IR_NOT_JSON',
+        `JSON을 읽지 못했다: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    fromFile = true;
+  } else {
+    if (!input.slug || !isValidSlug(input.slug)) {
+      return fail('INVALID_SLUG', 'irPath나 올바른 slug가 필요하다');
+    }
+    const path = new ResearchStore(repoRoot).jsonPath(input.slug);
+    if (!existsSync(path)) return fail('IR_NOT_FOUND', `저장된 리서치가 없다: ${input.slug}`);
+    try {
+      raw = JSON.parse(readFileSync(path, 'utf-8'));
+    } catch (err) {
+      return fail(
+        'IR_NOT_JSON',
+        `JSON을 읽지 못했다: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  const parsed = parseResearch(raw);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      errors: parsed.error.issues.map((m) => ({ code: 'INVALID_RESEARCH', message: m })),
+    };
+  }
+  if (input.slug && input.slug !== parsed.value.meta.slug) {
+    return fail(
+      'SLUG_MISMATCH',
+      `slug(${input.slug})와 meta.slug(${parsed.value.meta.slug})가 다르다`,
+    );
+  }
+  return { research: parsed.value, fromFile };
+}
+
+function handleValidate(input: ResearchInput, cwd: string): object {
+  const repoRoot = resolve(cwd, input.repoRoot ?? '.');
+  const loaded = loadIr(input, repoRoot);
+  if ('ok' in loaded) return loaded;
+  return {
+    ok: true,
+    action: 'validate',
+    slug: loaded.research.meta.slug,
+    warnings: lintResearch(loaded.research),
+  };
+}
+
+/** 저장 폴더 밖으로 나가는 심볼릭 링크는 따라가지 않는다 */
+function imageLoader(researchDir: string): (rel: string) => LoadedImage | null {
+  return (rel) => {
+    const mime = MIME_BY_EXT[extname(rel).toLowerCase()];
+    const full = join(researchDir, rel);
+    if (!mime || !existsSync(full)) return null;
+    const real = realpathSync(full);
+    if (!real.startsWith(realpathSync(researchDir) + sep)) return null;
+    return { mime, data: readFileSync(real) };
+  };
+}
+
+function handleRender(input: ResearchInput, cwd: string): object {
+  const repoRoot = resolve(cwd, input.repoRoot ?? '.');
+  const loaded = loadIr(input, repoRoot);
+  if ('ok' in loaded) return loaded;
+  const { research } = loaded;
+  const slug = research.meta.slug;
+  const store = new ResearchStore(repoRoot);
+  const jsonPath = store.save(research);
+  const loadImage = imageLoader(store.dir(slug));
+
+  const warnings = lintResearch(research).map((w) => `${w.path}: ${w.message}`);
+  const priv = renderResearchHtml(research, { audience: 'private', loadImage });
+  if (!priv.ok) return fail(priv.code, priv.message);
+  warnings.push(...priv.warnings);
+  const htmlPath = store.saveHtml(slug, 'private', priv.html);
+
+  const shared = renderResearchHtml(research, { audience: 'shared', loadImage });
+  let sharedHtmlPath: string | null = null;
+  let sharedBlocked: { message: string; captureIds: string[] } | undefined;
+  if (shared.ok) {
+    sharedHtmlPath = store.saveHtml(slug, 'shared', shared.html);
+  } else {
+    sharedBlocked = { message: shared.message, captureIds: shared.captureIds };
+  }
+
+  const audience = input.audience ?? 'private';
+  if (audience === 'shared' && !sharedHtmlPath) {
+    return {
+      ok: false,
+      errors: [{ code: 'SHARE_BLOCKED', message: sharedBlocked?.message ?? '' }],
+      captureIds: sharedBlocked?.captureIds,
+      htmlPath,
+    };
+  }
+  return {
+    ok: true,
+    action: 'render',
+    slug,
+    jsonPath,
+    htmlPath,
+    sharedHtmlPath,
+    openPath: audience === 'shared' ? sharedHtmlPath : htmlPath,
+    ...(sharedBlocked ? { sharedBlocked } : {}),
+    warnings,
+  };
+}
+
 export async function handleResearchPassthrough(
   input: ResearchInput,
   cwd: string = process.cwd(),
@@ -181,5 +326,9 @@ export async function handleResearchPassthrough(
       return handleRedactImage(input, cwd, opts);
     case 'redact_script':
       return handleRedactScript(input, opts);
+    case 'validate':
+      return handleValidate(input, cwd);
+    case 'render':
+      return handleRender(input, cwd);
   }
 }

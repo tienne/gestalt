@@ -1014,14 +1014,20 @@ export type ArchitectureInput = z.infer<typeof architectureInputSchema>;
 
 // ─── Research Tool ────────────────────────────────────────────────
 /** `ges_research`가 받는 액션. 서버 등록이 이 배열을 그대로 쓴다 */
-export const RESEARCH_ACTIONS = ['sources', 'redact_image', 'redact_script'] as const;
+export const RESEARCH_ACTIONS = [
+  'sources',
+  'redact_image',
+  'redact_script',
+  'validate',
+  'render',
+] as const;
 
 export const researchInputSchema = guardObject(
   z.object({
     action: z
       .enum(RESEARCH_ACTIONS)
       .describe(
-        'sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped). redact_image: 캡처 이미지의 개인정보를 가짜 값으로 바꿔 .gestalt/research/<slug>/captures에 저장. redact_script: 웹 화면을 캡처하기 전에 DOM에서 실행할 치환 스크립트',
+        'sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped). redact_image: 캡처 이미지의 개인정보를 가짜 값으로 바꿔 .gestalt/research/<slug>/captures에 저장. redact_script: 웹 화면을 캡처하기 전에 DOM에서 실행할 치환 스크립트. validate: research.json 검증과 의미 경고. render: 검증 뒤 저장하고 개인용과 공유용 HTML을 만든다',
       ),
     repoRoot: z.string().optional().describe('기본은 현재 디렉토리'),
     available: z
@@ -1066,6 +1072,18 @@ export const researchInputSchema = guardObject(
       .boolean()
       .optional()
       .describe('redact_script: 화면이 바뀔 때마다(지연 로딩, 무한 스크롤) 다시 치환한다'),
+    irPath: z
+      .string()
+      .optional()
+      .describe(
+        'validate, render: research.json 경로. 없으면 .gestalt/research/<slug>/research.json을 쓴다. 이미지를 컨텍스트에 올리지 않으려고 IR은 파일로 넘긴다',
+      ),
+    audience: z
+      .enum(['private', 'shared'])
+      .optional()
+      .describe(
+        'render: 열 쪽. 둘 다 만들되 shared는 pii가 unchecked인 캡처가 있으면 막힌다. 기본은 private',
+      ),
     inline: z
       .boolean()
       .optional()
