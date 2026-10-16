@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.98.0] - 2026-10-16
 
-아키텍처 지도를 폰에서도 확대해 볼 수 있게 했고, 처음 열었을 때 카드가 바로 읽히게 바꿨어요 (#68).
+아키텍처 지도를 폰에서도 확대해 볼 수 있게 했고 처음 열었을 때 카드가 바로 읽히게 바꿨어요 (#68).
 
 ### Added
 
