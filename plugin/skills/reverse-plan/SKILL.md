@@ -42,7 +42,8 @@ outputs:
 2. 레퍼런스마다 네 가지를 순서대로 쓴다. 본업이나 제품 방향, 그래서 이런 화면을 만들었다, 우리 과제와 다른 점, 가져올 것과 안 가져올 것.
 3. 본업의 근거는 출처를 댄다. 회사 블로그나 발표에서 나온 말은 `company-statement`로 두고 출처와 날짜를 붙인다. 그 밖의 추론은 `interpretation`으로 두고 문장 끝에 `(해석)`을 붙인다.
 4. 본업을 확인하지 못한 레퍼런스는 이유를 지어내지 않고 확인 못함으로 적는다.
-5. [Step 7](../research/SKILL.md#step-7--researchjson-검증)과 [Step 8](../research/SKILL.md#step-8--렌더와-보고)로 검증하고 렌더한다.
+5. 화면 단위로 역기획할 때는 `flow`도 채운다. 화면 전이, 번호 마커, 시도 기록 쓰는 법은 [화면 흐름 채우는 법](../research/SKILL.md#화면-흐름-채우는-법)에 있다.
+6. [Step 7](../research/SKILL.md#step-7--researchjson-검증)과 [Step 8](../research/SKILL.md#step-8--렌더와-보고)로 검증하고 렌더한다.
 
 ## 하지 않는 것
 

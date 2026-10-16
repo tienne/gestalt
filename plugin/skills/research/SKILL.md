@@ -276,6 +276,18 @@ ges_research { action: "redact_image", slug: "<slug>", imagePath: "<캡처 경�
 | (칸이 없음)              | "영상에서 확인 못함. 이 구좌까지 스크롤하지 않았다" (`unconfirmed`)           |
 | "혜택이 크다"            | "할인 1~2%. 시안 B의 할인율 강조가 효과가 작을 수 있다 (해석)"                |
 
+### 화면 흐름 채우는 법
+
+역기획에서 화면 단위로 적을 때는 `flow`를 채운다. 값이 없는 배열은 비워 두면 그 표만 빠진다.
+
+- `screenMap`의 화면에 `platform`(`ios`, `aos`, `web`)과 `order`를 적는다. 같은 화면이 플랫폼마다 다르면 화면을 따로 둔다.
+- `flow.transitions`에 화면 사이 사용자 행동을 하나씩 적는다. `gesture`는 `tap`, `swipe`, `drag`, `scroll`, `press`, `pan`, `input` 중 하나이고 `trigger`에 "상품 카드 탭"처럼 대상을 쓴다. 분기는 `condition`에 적는다. 전이도 `basis`와 `evidence`를 단다.
+- 같은 화면으로 되돌아오는 반복은 `loop: true`로 두고 `note`에 반복 횟수를 적는다. 안 적으면 경고가 뜬다.
+- `flow.markers`에는 화면 위 번호를 적는다. `behavior`는 "탭 시 → 결과" 꼴이다. 하위 팝업은 `no`를 "3-1"로 쓰고 `parentId`로 잇는다. 한 화면 안에서 번호가 겹치면 스키마가 거절한다.
+- 화면에 걸린 BAD, INSIGHT, Design 주석은 따로 두지 않고 `wowPain.findings`에 `screenMapId`를 달아 적는다. 페인은 `pain`, 해석은 `insight`, 디자인 의도는 `design`이다.
+- `flow.attempts`에는 찾아본 기록을 남긴다. 못 찾은 것과 너무 많아 못 고른 것도 결과다. `result`는 `found`, `partial`, `not-found`, `too-many` 중 하나다.
+- `flow.userTypes`는 사람이 준 인터뷰 유형만 적는다. 도구는 인터뷰를 하지 못한다. 비워 두면 렌더에 "인터뷰 없음"이 나온다.
+
 ## Step 7 — research.json 검증
 
 `research.json`은 `.gestalt/research/<slug>/research.json`에 쓴다. 필드 모양은 `src/research/schema.ts`가 기준이다. 이미지는 컨텍스트에 올리지 않고 파일 경로로만 가리킨다(`captures[].path`는 리서치 폴더 안의 상대 경로).
