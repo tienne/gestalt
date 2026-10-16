@@ -60,4 +60,12 @@ export class ResearchStore {
     writeFileSync(path, html, 'utf-8');
     return path;
   }
+
+  /** research 폴더 바로 아래에 파생 파일(figma-plan.json 등)을 쓴다 */
+  saveFile(slug: string, name: string, content: string): string {
+    const path = join(this.dir(slug), name);
+    mkdirSync(this.dir(slug), { recursive: true });
+    writeFileSync(path, content, 'utf-8');
+    return path;
+  }
 }

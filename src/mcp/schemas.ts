@@ -1020,6 +1020,7 @@ export const RESEARCH_ACTIONS = [
   'redact_script',
   'validate',
   'render',
+  'figma_plan',
 ] as const;
 
 export const researchInputSchema = guardObject(
@@ -1027,7 +1028,7 @@ export const researchInputSchema = guardObject(
     action: z
       .enum(RESEARCH_ACTIONS)
       .describe(
-        'sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped). redact_image: 캡처 이미지의 개인정보를 가짜 값으로 바꿔 .gestalt/research/<slug>/captures에 저장. redact_script: 웹 화면을 캡처하기 전에 DOM에서 실행할 치환 스크립트. validate: research.json 검증과 의미 경고. render: 검증 뒤 저장하고 개인용과 공유용 HTML을 만든다',
+        'sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped). redact_image: 캡처 이미지의 개인정보를 가짜 값으로 바꿔 .gestalt/research/<slug>/captures에 저장. redact_script: 웹 화면을 캡처하기 전에 DOM에서 실행할 치환 스크립트. validate: research.json 검증과 의미 경고. render: 검증 뒤 저장하고 개인용과 공유용 HTML을 만든다. figma_plan: 같은 research.json에서 Figma 중립 계획(figma-plan.json)과 Plugin API 스크립트를 만든다',
       ),
     repoRoot: z.string().optional().describe('기본은 현재 디렉토리'),
     available: z
@@ -1082,13 +1083,19 @@ export const researchInputSchema = guardObject(
       .enum(['private', 'shared'])
       .optional()
       .describe(
-        'render: 열 쪽. 둘 다 만들되 shared는 pii가 unchecked인 캡처가 있으면 막힌다. 기본은 private',
+        'render: 열 쪽. 둘 다 만들되 shared는 pii가 unchecked인 캡처가 있으면 막힌다. figma_plan: 계획에 담을 쪽(shared는 계획 메모와 경로를 빼고 unchecked가 있으면 막는다). 기본은 private',
+      ),
+    withImages: z
+      .boolean()
+      .optional()
+      .describe(
+        'figma_plan: 캡처 이미지(PNG, JPEG, GIF)를 스크립트 파일에 base64로 넣는다. 합계 8MB 안에서만 넣고 넘는 건 건너뛴다. 기본은 이미지 자리를 회색 칸으로 둔다',
       ),
     inline: z
       .boolean()
       .optional()
       .describe(
-        'redact_script: 스크립트 본문(약 19KB)을 응답에 싣는다. 기본은 파일 경로만 준다. 파일을 못 읽는 도구(aside)에서만 켠다',
+        'redact_script, figma_plan: 스크립트 본문을 응답에 싣는다(figma_plan은 200KB 이하일 때). 기본은 파일 경로만 준다. 파일을 못 읽는 도구(aside)에서만 켠다',
       ),
   }),
 );

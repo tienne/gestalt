@@ -18,6 +18,12 @@ import {
   type VisionRunner,
 } from '../../research/pii-image.js';
 import { redactorFor, seedFor } from '../../research/pii.js';
+import { buildFigmaPlan } from '../../research/figma-plan.js';
+import {
+  buildFigmaScript,
+  buildFigmaVerifyScript,
+  type FigmaImageData,
+} from '../../research/figma-script.js';
 import { renderResearchHtml, type LoadedImage } from '../../research/render-html.js';
 import { lintResearch, parseResearch, type Research } from '../../research/schema.js';
 import { isValidSlug, ResearchStore } from '../../research/store.js';
@@ -314,6 +320,82 @@ function handleRender(input: ResearchInput, cwd: string): object {
   };
 }
 
+const FIGMA_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif']);
+const MAX_FIGMA_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_INLINE_SCRIPT_BYTES = 200 * 1024;
+
+function handleFigmaPlan(input: ResearchInput, cwd: string): object {
+  const repoRoot = resolve(cwd, input.repoRoot ?? '.');
+  const loaded = loadIr(input, repoRoot);
+  if ('ok' in loaded) return loaded;
+  const { research } = loaded;
+  const slug = research.meta.slug;
+  const audience = input.audience ?? 'private';
+  const built = buildFigmaPlan(research, { audience });
+  if (!built.ok) {
+    return {
+      ok: false,
+      errors: [{ code: built.code, message: built.message }],
+      captureIds: built.captureIds,
+    };
+  }
+  const store = new ResearchStore(repoRoot);
+  store.save(research);
+  const warnings: string[] = [];
+
+  let images: Record<string, FigmaImageData> | undefined;
+  if (input.withImages) {
+    images = {};
+    const loadImage = imageLoader(store.dir(slug));
+    let total = 0;
+    for (const img of built.plan.images) {
+      const data = loadImage(img.path);
+      if (!data) {
+        warnings.push(`${img.id}: 이미지를 읽지 못해 회색 칸으로 둔다`);
+      } else if (!FIGMA_IMAGE_MIMES.has(data.mime)) {
+        warnings.push(`${img.id}: Figma가 받는 형식(PNG, JPEG, GIF)이 아니라 회색 칸으로 둔다`);
+      } else if (total + data.data.length > MAX_FIGMA_IMAGE_BYTES) {
+        warnings.push(`${img.id}: 이미지 합계 8MB를 넘어 회색 칸으로 둔다`);
+      } else {
+        total += data.data.length;
+        images[img.id] = { base64: data.data.toString('base64') };
+      }
+    }
+  }
+
+  const script = buildFigmaScript(built.plan, images);
+  const verifyScript = buildFigmaVerifyScript(
+    '__PAGE_ID__',
+    built.plan.images.map((i) => i.id),
+  );
+  const planPath = store.saveFile(slug, 'figma-plan.json', JSON.stringify(built.plan, null, 2));
+  const scriptPath = store.saveFile(slug, 'figma-render.js', script);
+  const verifyPath = store.saveFile(slug, 'figma-verify.js', verifyScript);
+
+  const inline = input.inline === true;
+  if (inline && Buffer.byteLength(script) > MAX_INLINE_SCRIPT_BYTES) {
+    warnings.push(
+      '스크립트가 200KB를 넘어 본문을 싣지 않는다. withImages를 끄거나 파일로 읽는 실행기를 쓴다',
+    );
+  }
+  const attach = inline && Buffer.byteLength(script) <= MAX_INLINE_SCRIPT_BYTES;
+  return {
+    ok: true,
+    action: 'figma_plan',
+    slug,
+    audience,
+    planPath,
+    scriptPath,
+    verifyScriptPath: verifyPath,
+    imageCount: built.plan.images.length,
+    embeddedImages: images ? Object.keys(images).length : 0,
+    ...(attach ? { script, verifyScript } : {}),
+    warnings,
+    usage:
+      '편집 권한이 있는 Figma 파일에서 scriptPath의 함수를 실행한다. 반환한 pageId를 verify 스크립트의 __PAGE_ID__ 자리에 넣어 이미지가 남았는지 확인한다. 이미지 업로드가 끝나기 전에 탭을 닫지 않는다',
+  };
+}
+
 export async function handleResearchPassthrough(
   input: ResearchInput,
   cwd: string = process.cwd(),
@@ -330,5 +412,7 @@ export async function handleResearchPassthrough(
       return handleValidate(input, cwd);
     case 'render':
       return handleRender(input, cwd);
+    case 'figma_plan':
+      return handleFigmaPlan(input, cwd);
   }
 }

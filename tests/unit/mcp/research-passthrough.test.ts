@@ -313,3 +313,59 @@ describe('ges_research action=validate, render', () => {
     expect(r.errors[0].code).toBe('SLUG_MISMATCH');
   });
 });
+
+describe('ges_research action=figma_plan', () => {
+  async function setup() {
+    const repo = tmpHome();
+    const { sampleResearch } = await import('../research/fixture.js');
+    const ir = sampleResearch();
+    const irPath = join(repo, 'ir.json');
+    writeFileSync(irPath, JSON.stringify(ir));
+    const capDir = join(repo, '.gestalt/research', ir.meta.slug, 'captures');
+    mkdirSync(capDir, { recursive: true });
+    writeFileSync(join(capDir, 'a-home.png'), 'png-bytes');
+    return { repo, ir, irPath };
+  }
+
+  it('계획과 스크립트를 research 폴더에 쓰고 경로를 돌려준다', async () => {
+    const { repo, irPath } = await setup();
+    const r = await runWith({ action: 'figma_plan', repoRoot: repo, irPath }, repo, {});
+    expect(r.ok).toBe(true);
+    expect(JSON.parse(readFileSync(r.planPath, 'utf-8')).version).toBe(1);
+    const script = readFileSync(r.scriptPath, 'utf-8');
+    expect(script.startsWith('async () =>')).toBe(true);
+    expect(script).not.toContain(Buffer.from('png-bytes').toString('base64'));
+    expect(r.embeddedImages).toBe(0);
+    expect(r.script).toBeUndefined();
+    expect(existsSync(r.verifyScriptPath)).toBe(true);
+  });
+
+  it('withImages면 이미지를 스크립트에 넣고 inline이면 본문도 싣는다', async () => {
+    const { repo, irPath } = await setup();
+    const r = await runWith(
+      { action: 'figma_plan', repoRoot: repo, irPath, withImages: true, inline: true },
+      repo,
+      {},
+    );
+    expect(r.ok).toBe(true);
+    expect(r.embeddedImages).toBe(1);
+    expect(readFileSync(r.scriptPath, 'utf-8')).toContain(
+      Buffer.from('png-bytes').toString('base64'),
+    );
+    expect(r.script).toContain('figma.createPage');
+  });
+
+  it('공유용은 unchecked 캡처가 있으면 막는다', async () => {
+    const { repo, ir, irPath } = await setup();
+    const bad = { ...ir, captures: ir.captures!.map((c) => ({ ...c, pii: 'unchecked' })) };
+    writeFileSync(irPath, JSON.stringify(bad));
+    const r = await runWith(
+      { action: 'figma_plan', repoRoot: repo, irPath, audience: 'shared' },
+      repo,
+      {},
+    );
+    expect(r.ok).toBe(false);
+    expect(r.errors[0].code).toBe('SHARE_BLOCKED');
+    expect(r.captureIds.length).toBeGreaterThan(0);
+  });
+});

@@ -499,7 +499,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   guardedTool(
     'ges_research',
-    `Competitive and reference research workflow helpers: list research sources and whether this session can use them, and replace personal data in captures with fake values before they are stored. Results are kept under .gestalt/research. Actions: ${RESEARCH_ACTIONS.join(', ')}.`,
+    `Competitive and reference research workflow helpers: list research sources and whether this session can use them, replace personal data in captures with fake values before they are stored, validate a research.json and render it as single-file HTML, and build a Figma Plugin API script from it. Results are kept under .gestalt/research. Actions: ${RESEARCH_ACTIONS.join(', ')}.`,
     researchInputSchema.shape,
     async (params) => {
       const input = researchInputSchema.parse(params);
