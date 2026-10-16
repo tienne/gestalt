@@ -19,8 +19,8 @@ export type RenderResult =
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 15 * 1024 * 1024;
 
-const AXIS_LABEL = { 'same-market': '같은 시장', 'same-problem': '같은 문제' } as const;
-const SOURCE_LABEL = {
+export const AXIS_LABEL = { 'same-market': '같은 시장', 'same-problem': '같은 문제' } as const;
+export const SOURCE_LABEL = {
   'app-explore': '앱 탐색',
   uibowl: '유아이볼',
   'site-search': '사이트 검색',
@@ -29,30 +29,30 @@ const SOURCE_LABEL = {
   'tech-blog': '기술 블로그',
   none: '출처 없음',
 } as const;
-const CAPTURE_STATE_LABEL = {
+export const CAPTURE_STATE_LABEL = {
   captured: '캡처함',
   'reference-image': '레퍼런스 이미지',
   'stopped-before-payment': '결제 직전에 멈춤',
   'not-captured': '캡처 못 함',
 } as const;
-const CAPTURE_KIND_LABEL = {
+export const CAPTURE_KIND_LABEL = {
   direct: '직접 캡처',
   'reference-db': '레퍼런스 DB',
   'video-frame': '영상 프레임',
   store: '스토어',
 } as const;
-const PII_LABEL = {
+export const PII_LABEL = {
   replaced: '개인정보를 가짜 값으로 바꿈',
   none: '탐지 0건',
   unchecked: '개인정보 미확인',
 } as const;
-const EVIDENCE_LABEL = {
+export const EVIDENCE_LABEL = {
   observation: '관찰',
   'company-statement': '회사 발언',
   interpretation: '해석',
 } as const;
-const CONFIDENCE_LABEL = { likely: '유력', trial: '시험', hold: '보류' } as const;
-const ROW_KIND_LABEL = { graded: '기준', burden: '구현 부담', risk: '위험' } as const;
+export const CONFIDENCE_LABEL = { likely: '유력', trial: '시험', hold: '보류' } as const;
+export const ROW_KIND_LABEL = { graded: '기준', burden: '구현 부담', risk: '위험' } as const;
 
 export function escapeHtml(text: string): string {
   return text
