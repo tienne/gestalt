@@ -15,7 +15,8 @@ export const RESEARCH_KINDS = [
   'market-scan',
   'video-analysis',
 ] as const;
-export const PRODUCT_AXES = ['same-market', 'same-problem'] as const;
+/** own-service: 조사하는 쪽 우리 서비스. 비교표에는 열로 들어가지만 레퍼런스처럼 가져올 대상은 아니다 */
+export const PRODUCT_AXES = ['same-market', 'same-problem', 'own-service'] as const;
 export const SCREEN_SOURCES = [
   'app-explore',
   'uibowl',
@@ -23,6 +24,9 @@ export const SCREEN_SOURCES = [
   'youtube',
   'store-screenshot',
   'tech-blog',
+  'own-app',
+  'own-web',
+  'figma',
   'none',
 ] as const;
 export const CAPTURE_STATES = [
@@ -31,7 +35,15 @@ export const CAPTURE_STATES = [
   'stopped-before-payment',
   'not-captured',
 ] as const;
-export const CAPTURE_KINDS = ['direct', 'reference-db', 'video-frame', 'store'] as const;
+export const CAPTURE_KINDS = [
+  'direct',
+  'reference-db',
+  'video-frame',
+  'store',
+  'own-app',
+  'own-web',
+  'figma',
+] as const;
 /** replaced: 탐지기가 돌아 가짜 값으로 바꿨다. none: 탐지기가 돌았고 0건이었다. unchecked: 돌리지 못했다 */
 export const PII_STATES = ['replaced', 'none', 'unchecked'] as const;
 export const EVIDENCE_KINDS = ['observation', 'company-statement', 'interpretation'] as const;
@@ -130,6 +142,10 @@ export const captureSchema = z.object({
   caption: z.string().optional(),
   /** 영상이나 스토어 원본에서 몇 번째 프레임인지. 근거 표기 "(프레임 08)"에 쓴다 */
   frameNo: z.string().optional(),
+  /** kind가 figma일 때 화면을 읽어 온 노드 링크. 근거를 되짚을 때 쓴다 */
+  figmaUrl: httpsUrlSchema
+    .refine((u) => /(^|\.)figma\.com$/.test(new URL(u).hostname), 'figma.com 링크만 쓴다')
+    .optional(),
 });
 
 const premiseSchema = z.object({
@@ -820,7 +836,31 @@ export function lintResearch(research: Research): ResearchWarning[] {
     });
   }
 
+  const ownProducts = new Set(
+    research.productCandidates.filter((p) => p.axis === 'own-service').map((p) => p.id),
+  );
+  if (ownProducts.size > 1) {
+    warnings.push({
+      path: 'products',
+      message: `우리 서비스(own-service)는 하나만 둔다 (지금 ${ownProducts.size}개)`,
+    });
+  }
   research.captures.forEach((c, i) => {
+    const ownKind = c.kind === 'own-app' || c.kind === 'own-web' || c.kind === 'figma';
+    if (ownKind !== ownProducts.has(c.productId)) {
+      warnings.push({
+        path: `captures.${i}.kind`,
+        message: ownKind
+          ? `${c.kind} 캡처는 own-service 제품에만 붙인다 (${c.id})`
+          : `own-service 제품의 캡처는 own-app, own-web, figma 중 하나로 적는다 (${c.id})`,
+      });
+    }
+    if (c.kind === 'figma' && !c.figmaUrl) {
+      warnings.push({
+        path: `captures.${i}.figmaUrl`,
+        message: `figma 캡처에 노드 링크가 없다 (${c.id}). 어느 프레임인지 되짚을 수 없다`,
+      });
+    }
     if (c.pii === 'unchecked') {
       warnings.push({
         path: `captures.${i}.pii`,
