@@ -457,6 +457,7 @@ table{border-collapse:collapse;width:100%;font-size:14px;background:var(--card)}
 th,td{border:1px solid var(--line);padding:8px 10px;vertical-align:top;text-align:left}
 th{background:var(--chip);font-weight:600}
 td{white-space:pre-line}
+.cmp th:first-child,.cmp td:first-child{white-space:nowrap}
 .chip{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:0 8px;font-size:12px;color:var(--muted);margin-right:4px}
 .sym{font-weight:700;margin-right:4px}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
@@ -792,7 +793,7 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
       const def = row.definition ? `<div class="sub def">${e(row.definition)}</div>` : '';
       return [e(row.phase), `${chips}${e(row.criterion)}${def}`, ...cells];
     });
-    parts.push(table(head, rows));
+    parts.push(`<div class="cmp">${table(head, rows)}</div>`);
   }
 
   // 4. 와우 포인트와 페인 포인트
