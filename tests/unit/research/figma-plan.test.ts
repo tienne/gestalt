@@ -130,6 +130,23 @@ describe('Figma 계획', () => {
     expect(JSON.stringify(planOf(parsed.value))).toContain('"제외"');
   });
 
+  it('근거 상태와 발견과 채택 기록을 표 글자로 싣는다', () => {
+    const base = sampleResearch();
+    base.comparison![0]!.pattern = 'common';
+    base.comparison![0]!.definition = '첫 화면의 상품 수';
+    base.captures![0]!.frameNo = '08';
+    const plan = planOf(research(base));
+    const all = JSON.stringify(plan.nodes);
+    expect(all).toContain('(동일 패턴)');
+    expect(all).toContain('첫 화면의 상품 수');
+    expect(all).toContain('(프레임 08)');
+    expect(all).toContain('[확인 못함] 영상에서 확인 못함');
+    expect(all).toContain('구현 정보는 화면에 안 나온다');
+    expect(all).toContain('5개 상품을 비교하려면 5번 진입');
+    expect(all).toContain('시안이 가져온 것과 푼 것');
+    expect(all).toContain('데이터 확인 선행');
+  });
+
   it('공유용은 unchecked 캡처가 있으면 막고 계획 메모를 싣지 않는다', () => {
     const base = research();
     const bad = {

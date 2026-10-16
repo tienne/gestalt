@@ -126,4 +126,57 @@ describe('research HTML 렌더', () => {
     if (!r.ok) throw new Error('렌더 실패');
     expect(r.html).toContain('아직 확인받지 않았습니다');
   });
+  it('구좌 격자에 정의, 패턴, 근거 표기, 못 본 칸의 이유를 그린다', () => {
+    const base = sampleResearch();
+    base.comparison![0]!.definition = '첫 화면에서 한눈에 보이는 상품 수';
+    base.comparison![0]!.pattern = 'split';
+    base.comparison![0]!.cells[0]!.captureIds = ['cap1'];
+    base.captures![0]!.frameNo = '08';
+    base.captures![0]!.caption = '1. 홈 — 순위 목록';
+    const r = renderResearchHtml(research(base), { audience: 'private', loadImage: withImage });
+    if (!r.ok) throw new Error('렌더 실패');
+    expect(r.html).toContain('첫 화면에서 한눈에 보이는 상품 수');
+    expect(r.html).toContain('서비스별 분기');
+    expect(r.html).toContain('(프레임 08)');
+    expect(r.html).toContain('href="#cap-cap1"');
+    expect(r.html).toContain('id="cap-cap1"');
+    expect(r.html).toContain('1. 홈 — 순위 목록');
+    expect(r.html).toContain('class="cell grey"');
+    expect(r.html).toContain('구현 정보는 화면에 안 나온다');
+  });
+
+  it('발견은 구분, 구체값, 근거와 함께 그리고 시안 채택 표를 시안 섹션에 둔다', () => {
+    const r = renderResearchHtml(research(), { audience: 'private', loadImage: withImage });
+    if (!r.ok) throw new Error('렌더 실패');
+    expect(r.html).toContain('5개 상품을 비교하려면 5번 진입');
+    expect(r.html).toContain('chip kind-pain');
+    expect(r.html).toContain('시안이 가져온 것과 푼 것');
+    expect(r.html).toContain('촘촘한 1열 행');
+    const adoption = r.html.indexOf('시안이 가져온 것과 푼 것');
+    expect(adoption).toBeGreaterThan(r.html.indexOf('<h2>2. 시안</h2>'));
+    expect(adoption).toBeLessThan(r.html.indexOf('<h2>3. 비교표</h2>'));
+  });
+
+  it('열린 질문에 확인 주체를 붙이고 판단에 우선순위와 할 일을 붙인다', () => {
+    const base = sampleResearch();
+    base.judgment![0]!.rank = 1;
+    base.judgment![0]!.todo = '카드 높이를 줄인 시안을 만든다';
+    base.openQuestions!.items[0]!.ownerNote = '개발팀';
+    const r = renderResearchHtml(research(base), { audience: 'private', loadImage: withImage });
+    if (!r.ok) throw new Error('렌더 실패');
+    expect(r.html).toContain('데이터 확인 선행');
+    expect(r.html).toContain('개발팀');
+    expect(r.html).toContain('우선순위 1');
+    expect(r.html).toContain('할 일: 카드 높이를 줄인 시안을 만든다');
+  });
+
+  it('격자 썸네일은 이미지당 1MB를 넘으면 링크만 남긴다', () => {
+    const base = sampleResearch();
+    base.comparison![0]!.cells[0]!.captureIds = ['cap1'];
+    const mid: LoadedImage = { mime: 'image/png', data: Buffer.alloc(1024 * 1024 + 1) };
+    const r = renderResearchHtml(research(base), { audience: 'private', loadImage: () => mid });
+    if (!r.ok) throw new Error('렌더 실패');
+    expect(r.html).toContain('href="#cap-cap1"');
+    expect(r.html.split('data:image/png').length - 1).toBe(1);
+  });
 });

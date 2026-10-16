@@ -1,4 +1,5 @@
-import type { Capture, Research } from './schema.js';
+import type { BasisKind, EvidenceRef } from './evidence.js';
+import type { Capture, Finding, Research } from './schema.js';
 import type { ResearchAudience } from './store.js';
 
 export interface LoadedImage {
@@ -18,6 +19,8 @@ export type RenderResult =
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 15 * 1024 * 1024;
+const MAX_THUMB_BYTES = 1024 * 1024;
+const MAX_TOTAL_THUMB_BYTES = 4 * 1024 * 1024;
 
 export const AXIS_LABEL = { 'same-market': '같은 시장', 'same-problem': '같은 문제' } as const;
 export const SOURCE_LABEL = {
@@ -58,6 +61,35 @@ export const CONFIDENCE_LABEL = {
   out: '제외',
 } as const;
 export const ROW_KIND_LABEL = { graded: '기준', burden: '구현 부담', risk: '위험' } as const;
+export const BASIS_LABEL = {
+  observation: '관찰',
+  'company-statement': '회사 발언',
+  interpretation: '해석',
+  unconfirmed: '확인 못함',
+  absent: '없음',
+} as const satisfies Record<BasisKind, string>;
+export const PATTERN_LABEL = {
+  common: '동일 패턴',
+  split: '서비스별 분기',
+  unique: '단독 구현',
+} as const;
+export const FINDING_KIND_LABEL = {
+  wow: '와우',
+  pain: '페인',
+  insight: '인사이트',
+  design: '설계 힌트',
+} as const;
+export const VIEWPOINT_LABEL = { user: '사용자', biz: '비즈니스' } as const;
+export const OWNER_LABEL = {
+  immediate: '바로 정함',
+  data: '데이터 확인 선행',
+  'other-team': '다른 직군 확인',
+} as const;
+export const ADOPTION_LABEL = {
+  adopted: '채택',
+  candidate: '채택 후보',
+  rejected: '채택하지 않음',
+} as const;
 export const VIDEO_KIND_LABEL = {
   'screen-recording': '화면 녹화',
   seminar: '세미나',
@@ -193,6 +225,19 @@ ul{margin:4px 0;padding-left:20px}
 .pii-unchecked{color:var(--warn)}
 .pii-replaced{color:var(--ok)}
 .todo{color:var(--muted)}
+.def{margin-top:2px}
+.grey{background:var(--chip);color:var(--muted)}
+.cell .ev{color:var(--muted);font-size:12px;margin-left:4px}
+.cell .why{color:var(--muted);font-size:12px;margin-top:4px}
+.thumbs{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
+.thumbs a{display:block;width:56px;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.thumbs img{display:block;width:100%;height:80px;object-fit:cover;object-position:top}
+.chip.basis-unconfirmed,.chip.basis-absent{color:var(--warn)}
+.chip.own-immediate{color:var(--ok)}
+.chip.own-data{color:var(--warn)}
+.chip.own-other-team{color:var(--accent)}
+.chip.kind-pain{color:var(--warn)}
+.chip.kind-wow{color:var(--ok)}
 `;
 
 function list(items: string[]): string {
@@ -231,6 +276,20 @@ class ImageBudget {
   }
 }
 
+/** 근거 한 줄의 괄호 안 글자. 비교표와 발견 끝에 "(프레임 08)"처럼 붙는다 */
+export function evidenceLabel(research: Research, ev: EvidenceRef, shared: boolean): string {
+  if (ev.type === 'capture') {
+    const c = research.captures.find((x) => x.id === ev.captureId);
+    return c?.frameNo ? `프레임 ${c.frameNo}` : (c?.label ?? ev.captureId);
+  }
+  if (ev.type === 'video') {
+    const title = research.video?.clips.find((x) => x.id === ev.clipId)?.title;
+    return title && !shared ? `영상 ${ev.at}초, ${title}` : `영상 ${ev.at}초`;
+  }
+  if (ev.type === 'internal') return ev.source;
+  return '링크';
+}
+
 export function renderResearchHtml(research: Research, opts: RenderOptions): RenderResult {
   const shared = opts.audience === 'shared';
   const unchecked = research.captures.filter((c) => c.pii === 'unchecked');
@@ -252,6 +311,40 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     return r ? `${r.symbol}. ${r.typeName}` : id;
   };
   const warnings: string[] = [];
+  const capById = new Map(research.captures.map((c) => [c.id, c]));
+
+  // 같은 이미지를 격자에도 한 번 더 싣는다. 파일이 불어나지 않게 따로 상한을 둔다
+  let thumbBytes = 0;
+  const thumbUri = (c: Capture): string | null => {
+    const img = opts.loadImage(c.path);
+    if (!img || img.data.length > MAX_THUMB_BYTES) return null;
+    if (thumbBytes + img.data.length > MAX_TOTAL_THUMB_BYTES) return null;
+    thumbBytes += img.data.length;
+    return `data:${img.mime};base64,${img.data.toString('base64')}`;
+  };
+  const thumbsHtml = (ids: string[]): string => {
+    const items = ids.flatMap((id) => {
+      const c = capById.get(id);
+      if (!c) return [];
+      const name = c.caption ?? c.label ?? c.id;
+      const uri = thumbUri(c);
+      const inner = uri ? `<img src="${uri}" alt="${e(name)}" loading="lazy">` : e(c.id);
+      return [`<a href="#cap-${e(c.id)}" title="${e(name)}">${inner}</a>`];
+    });
+    return items.length > 0 ? `<div class="thumbs">${items.join('')}</div>` : '';
+  };
+  const evidenceHtml = (list: EvidenceRef[]): string =>
+    list
+      .map((ev) =>
+        ev.type === 'url'
+          ? `<a class="ev" href="${e(ev.url)}" rel="noopener noreferrer">(링크)</a>`
+          : `<span class="ev">(${e(evidenceLabel(research, ev, shared))})</span>`,
+      )
+      .join('');
+  const basisChip = (basis: BasisKind | undefined): string =>
+    basis && basis !== 'observation'
+      ? `<span class="chip basis-${basis}">${BASIS_LABEL[basis]}</span>`
+      : '';
 
   const parts: string[] = [];
   parts.push(`<h1>${e(research.meta.title)}</h1>`);
@@ -343,6 +436,8 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
         const screen = c.screenMapId ? screenById.get(c.screenMapId)?.screen : undefined;
         const first = c.label ?? screen ?? c.id;
         const lines = [
+          ...(c.caption ? [e(c.caption)] : []),
+          ...(c.frameNo ? [`프레임 ${e(c.frameNo)}`] : []),
           e(CAPTURE_KIND_LABEL[c.kind]),
           `<span class="pii-${c.pii}">${PII_LABEL[c.pii]}</span>`,
           ...(c.sourceNote ? [e(c.sourceNote)] : []),
@@ -351,7 +446,7 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
         const body = uri
           ? `<img src="${uri}" alt="${e(first)}" loading="lazy">`
           : '<p class="todo">이미지 없음</p>';
-        return `<figure>${body}<figcaption><strong>${e(first)}</strong>\n${lines.join('\n')}</figcaption></figure>`;
+        return `<figure id="cap-${e(c.id)}">${body}<figcaption><strong>${e(first)}</strong>\n${lines.join('\n')}</figcaption></figure>`;
       });
       parts.push(`<div class="cards">${figs.join('')}</div>`);
     }
@@ -380,6 +475,27 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     );
   }
 
+  if (research.adoptions.length > 0) {
+    const findingById = new Map(research.wowPain.findings.map((f) => [f.id, f]));
+    const findingList = (ids: string[]): string =>
+      list(ids.map((id) => findingById.get(id)?.text ?? id));
+    parts.push('<h3>시안이 가져온 것과 푼 것</h3>');
+    parts.push(
+      table(
+        ['시안', '레퍼런스', '판단', '가져온 것', '덜어낸 것', '가져오는 와우', '푸는 페인'],
+        research.adoptions.map((a) => [
+          e(a.variant),
+          e(a.referenceIds.map(refLabel).join(', ')),
+          `<span class="chip">${ADOPTION_LABEL[a.status]}</span>${a.reason ? e(a.reason) : ''}`,
+          list(a.adopted),
+          list(a.mitigated),
+          findingList(a.takesFindingIds),
+          findingList(a.solvesFindingIds),
+        ]),
+      ),
+    );
+  }
+
   // 3. 비교표
   parts.push('<h2>3. 비교표</h2>');
   if (research.comparison.length === 0) {
@@ -390,13 +506,20 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     const rows = research.comparison.map((row) => {
       const cells = refs.map((r) => {
         const cell = row.cells.find((c) => c.referenceId === r.id);
-        if (!cell) return '<span class="todo">-</span>';
+        if (!cell) return '<div class="cell grey">-</div>';
+        const grey = cell.basis === 'unconfirmed' || cell.basis === 'absent';
         const sym = cell.symbol ? `<span class="sym">${e(cell.symbol)}</span>` : '';
-        return `${sym}${e(cell.text)}`;
+        const why = grey && cell.note ? `<div class="why">${e(cell.note)}</div>` : '';
+        return (
+          `<div class="cell${grey ? ' grey' : ''}">${basisChip(cell.basis)}${sym}${e(cell.text)}` +
+          `${evidenceHtml(cell.evidence)}${why}${thumbsHtml(cell.captureIds)}</div>`
+        );
       });
-      const kind =
-        row.kind === 'graded' ? '' : `<span class="chip">${ROW_KIND_LABEL[row.kind]}</span>`;
-      return [e(row.phase), `${kind}${e(row.criterion)}`, ...cells];
+      const chips =
+        (row.kind === 'graded' ? '' : `<span class="chip">${ROW_KIND_LABEL[row.kind]}</span>`) +
+        (row.pattern ? `<span class="chip">${PATTERN_LABEL[row.pattern]}</span>` : '');
+      const def = row.definition ? `<div class="sub def">${e(row.definition)}</div>` : '';
+      return [e(row.phase), `${chips}${e(row.criterion)}${def}`, ...cells];
     });
     parts.push(table(head, rows));
   }
@@ -407,17 +530,39 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     parts.push(`<p>사용자 관점: ${e(research.wowPain.userViewpoint)}</p>`);
   if (research.wowPain.bizViewpoint)
     parts.push(`<p>비즈니스 관점: ${e(research.wowPain.bizViewpoint)}</p>`);
-  for (const w of research.wowPain.items) {
-    parts.push(`<div class="card"><h3>${e(refLabel(w.referenceId))}</h3>`);
-    parts.push(
-      table(
-        ['', '와우 포인트', '페인 포인트'],
-        [
-          ['사용자 관점', list(w.userWow), list(w.userPain)],
-          ['비즈니스 관점', list(w.bizWow), list(w.bizPain)],
-        ],
-      ),
-    );
+  const findingRow = (f: Finding): string[] => {
+    const where = [f.slot, f.screenMapId ? screenById.get(f.screenMapId)?.screen : undefined]
+      .filter((x): x is string => Boolean(x))
+      .join(' / ');
+    const refs = f.captureId ? [{ type: 'capture' as const, captureId: f.captureId }] : [];
+    const grey = f.basis === 'unconfirmed' || f.basis === 'absent';
+    const why = grey && f.note ? `<div class="why">${e(f.note)}</div>` : '';
+    return [
+      `<span class="chip kind-${f.kind}">${FINDING_KIND_LABEL[f.kind]}</span>${e(VIEWPOINT_LABEL[f.viewpoint])}`,
+      `<div class="cell${grey ? ' grey' : ''}">${basisChip(f.basis)}${e(f.text)}${evidenceHtml([...f.evidence, ...refs])}${why}${f.captureId ? thumbsHtml([f.captureId]) : ''}</div>`,
+      e(where),
+      f.concrete ? e(f.concrete) : '',
+    ];
+  };
+  for (const ref of research.references) {
+    const items = research.wowPain.items.filter((w) => w.referenceId === ref.id);
+    const found = research.wowPain.findings.filter((f) => f.referenceId === ref.id);
+    if (items.length === 0 && found.length === 0) continue;
+    parts.push(`<div class="card"><h3>${e(refLabel(ref.id))}</h3>`);
+    for (const w of items) {
+      parts.push(
+        table(
+          ['', '와우 포인트', '페인 포인트'],
+          [
+            ['사용자 관점', list(w.userWow), list(w.userPain)],
+            ['비즈니스 관점', list(w.bizWow), list(w.bizPain)],
+          ],
+        ),
+      );
+    }
+    if (found.length > 0) {
+      parts.push(table(['구분', '발견', '구좌나 단계', '조작과 수치'], found.map(findingRow)));
+    }
     parts.push('</div>');
   }
 
@@ -444,9 +589,11 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
   parts.push('<h2>6. 판단 (해석)</h2>');
   for (const j of research.judgment) {
     const hold = j.confidence === 'hold' && j.holdUntil ? ` (${e(j.holdUntil)} 결정)` : '';
+    const rank = j.rank ? `<span class="chip">우선순위 ${j.rank}</span>` : '';
+    const todo = j.todo ? `<p>할 일: ${e(j.todo)}</p>` : '';
     parts.push(
-      `<div class="card"><h3>${e(j.area)} <span class="chip">${CONFIDENCE_LABEL[j.confidence]}</span></h3>` +
-        `<p><strong>${e(j.conclusion)}</strong>${hold}</p><p>${e(j.rationale)}</p></div>`,
+      `<div class="card"><h3>${e(j.area)} <span class="chip">${CONFIDENCE_LABEL[j.confidence]}</span>${rank}</h3>` +
+        `<p><strong>${e(j.conclusion)}</strong>${hold}</p><p>${e(j.rationale)}${evidenceHtml(j.evidence)}</p>${todo}</div>`,
     );
   }
 
@@ -467,10 +614,20 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     parts.push(
       `<p>${e(research.openQuestions.recipient)}</p><p>${e(research.openQuestions.intro)}</p>`,
     );
+    const withOwner = research.openQuestions.items.some((q) => q.owner);
     parts.push(
       table(
-        ['질문', '임시로 둔 가정', '영향'],
-        research.openQuestions.items.map((q) => [e(q.question), e(q.temporary), e(q.affects)]),
+        withOwner
+          ? ['질문', '임시로 둔 가정', '영향', '확인 주체']
+          : ['질문', '임시로 둔 가정', '영향'],
+        research.openQuestions.items.map((q) => {
+          const base = [e(q.question), e(q.temporary), e(q.affects)];
+          if (!withOwner) return base;
+          const owner = q.owner
+            ? `<span class="chip own-${q.owner}">${OWNER_LABEL[q.owner]}</span>${q.ownerNote ? e(q.ownerNote) : ''}`
+            : '';
+          return [...base, owner];
+        }),
       ),
     );
   } else {

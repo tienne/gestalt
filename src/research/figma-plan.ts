@@ -1,16 +1,24 @@
 import {
+  ADOPTION_LABEL,
   AXIS_LABEL,
+  BASIS_LABEL,
   CAPTURE_KIND_LABEL,
   CAPTURE_STATE_LABEL,
   CONFIDENCE_LABEL,
   EVIDENCE_LABEL,
+  FINDING_KIND_LABEL,
+  OWNER_LABEL,
+  PATTERN_LABEL,
   PII_LABEL,
   ROW_KIND_LABEL,
   SOURCE_LABEL,
   buildVideoTables,
+  evidenceLabel,
   hasVideoSection,
+  VIEWPOINT_LABEL,
   videoSectionTitle,
 } from './render-html.js';
+import type { EvidenceRef } from './evidence.js';
 import type { Research } from './schema.js';
 import type { ResearchAudience } from './store.js';
 
@@ -62,6 +70,8 @@ export function buildFigmaPlan(
     const r = refById.get(id);
     return r ? `${r.symbol}. ${r.typeName}` : id;
   };
+  const evidenceText = (list: EvidenceRef[]): string =>
+    list.map((ev) => `(${evidenceLabel(research, ev, shared)})`).join('');
   const text = (style: TextStyle, value: string): PlanNode => ({
     type: 'text',
     style,
@@ -161,6 +171,8 @@ export function buildFigmaPlan(
           images.push({ id: c.id, path: c.path });
           const lines = [
             first,
+            ...(c.caption ? [c.caption] : []),
+            ...(c.frameNo ? [`프레임 ${c.frameNo}`] : []),
             CAPTURE_KIND_LABEL[c.kind],
             PII_LABEL[c.pii],
             ...(c.sourceNote ? [c.sourceNote] : []),
@@ -194,6 +206,28 @@ export function buildFigmaPlan(
     ),
   );
 
+  if (research.adoptions.length > 0) {
+    const findingText = new Map(research.wowPain.findings.map((f) => [f.id, f.text]));
+    const named = (ids: string[]): string => bullets(ids.map((id) => findingText.get(id) ?? id));
+    const adoptionSection = nodes[nodes.length - 1];
+    if (adoptionSection?.type === 'section') {
+      adoptionSection.children.push(text('h3', '시안이 가져온 것과 푼 것'));
+      adoptionSection.children.push({
+        type: 'table',
+        head: ['시안', '레퍼런스', '판단', '가져온 것', '덜어낸 것', '가져오는 와우', '푸는 페인'],
+        rows: research.adoptions.map((a) => [
+          a.variant,
+          a.referenceIds.map(refLabel).join(', '),
+          a.reason ? `${ADOPTION_LABEL[a.status]}\n${a.reason}` : ADOPTION_LABEL[a.status],
+          bullets(a.adopted),
+          bullets(a.mitigated),
+          named(a.takesFindingIds),
+          named(a.solvesFindingIds),
+        ]),
+      });
+    }
+  }
+
   const refs = research.references;
   nodes.push(
     section(
@@ -206,13 +240,23 @@ export function buildFigmaPlan(
               head: ['단계', '기준', ...refs.map((r) => `${r.symbol}. ${r.typeName}`)],
               rows: research.comparison.map((row) => [
                 row.phase,
-                row.kind === 'graded'
-                  ? row.criterion
-                  : `[${ROW_KIND_LABEL[row.kind]}] ${row.criterion}`,
+                [
+                  row.kind === 'graded'
+                    ? row.criterion
+                    : `[${ROW_KIND_LABEL[row.kind]}] ${row.criterion}`,
+                  ...(row.pattern ? [`(${PATTERN_LABEL[row.pattern]})`] : []),
+                  ...(row.definition ? [row.definition] : []),
+                ].join('\n'),
                 ...refs.map((r) => {
                   const cell = row.cells.find((c) => c.referenceId === r.id);
                   if (!cell) return '-';
-                  return cell.symbol ? `${cell.symbol} ${cell.text}` : cell.text;
+                  const tag =
+                    cell.basis && cell.basis !== 'observation'
+                      ? `[${BASIS_LABEL[cell.basis]}] `
+                      : '';
+                  const body = `${cell.symbol ? `${cell.symbol} ` : ''}${cell.text}${evidenceText(cell.evidence)}`;
+                  const grey = cell.basis === 'unconfirmed' || cell.basis === 'absent';
+                  return `${tag}${body}${grey && cell.note ? `\n${cell.note}` : ''}`;
                 }),
               ]),
             },
@@ -225,16 +269,38 @@ export function buildFigmaPlan(
     s4.push(text('body', `사용자 관점: ${research.wowPain.userViewpoint}`));
   if (research.wowPain.bizViewpoint)
     s4.push(text('body', `비즈니스 관점: ${research.wowPain.bizViewpoint}`));
-  for (const w of research.wowPain.items) {
-    s4.push(text('h3', refLabel(w.referenceId)));
-    s4.push({
-      type: 'table',
-      head: ['', '와우 포인트', '페인 포인트'],
-      rows: [
-        ['사용자 관점', bullets(w.userWow), bullets(w.userPain)],
-        ['비즈니스 관점', bullets(w.bizWow), bullets(w.bizPain)],
-      ],
-    });
+  for (const ref of research.references) {
+    const items = research.wowPain.items.filter((w) => w.referenceId === ref.id);
+    const found = research.wowPain.findings.filter((f) => f.referenceId === ref.id);
+    if (items.length === 0 && found.length === 0) continue;
+    s4.push(text('h3', refLabel(ref.id)));
+    for (const w of items) {
+      s4.push({
+        type: 'table',
+        head: ['', '와우 포인트', '페인 포인트'],
+        rows: [
+          ['사용자 관점', bullets(w.userWow), bullets(w.userPain)],
+          ['비즈니스 관점', bullets(w.bizWow), bullets(w.bizPain)],
+        ],
+      });
+    }
+    if (found.length > 0) {
+      s4.push({
+        type: 'table',
+        head: ['구분', '발견', '구좌나 단계', '조작과 수치'],
+        rows: found.map((f) => {
+          const tag = f.basis !== 'observation' ? `[${BASIS_LABEL[f.basis]}] ` : '';
+          const grey = f.basis === 'unconfirmed' || f.basis === 'absent';
+          const screen = f.screenMapId ? screenById.get(f.screenMapId)?.screen : undefined;
+          return [
+            `${FINDING_KIND_LABEL[f.kind]}\n${VIEWPOINT_LABEL[f.viewpoint]}`,
+            `${tag}${f.text}${evidenceText(f.evidence)}${grey && f.note ? `\n${f.note}` : ''}`,
+            [f.slot, screen].filter(Boolean).join(' / '),
+            f.concrete ?? '',
+          ];
+        }),
+      });
+    }
   }
   nodes.push(section('4. 와우 포인트와 페인 포인트', s4));
 
@@ -261,12 +327,12 @@ export function buildFigmaPlan(
         type: 'table',
         head: ['영역', '결론', '확신', '근거'],
         rows: research.judgment.map((j) => [
-          j.area,
-          j.conclusion,
+          j.rank ? `${j.area}\n우선순위 ${j.rank}` : j.area,
+          j.todo ? `${j.conclusion}\n할 일: ${j.todo}` : j.conclusion,
           j.confidence === 'hold' && j.holdUntil
             ? `${CONFIDENCE_LABEL[j.confidence]} (${j.holdUntil} 결정)`
             : CONFIDENCE_LABEL[j.confidence],
-          j.rationale,
+          `${j.rationale}${evidenceText(j.evidence)}`,
         ]),
       },
     ]),
@@ -292,8 +358,15 @@ export function buildFigmaPlan(
             text('body', oq.intro),
             {
               type: 'table',
-              head: ['질문', '임시로 둔 가정', '영향'],
-              rows: oq.items.map((q) => [q.question, q.temporary, q.affects]),
+              head: oq.items.some((q) => q.owner)
+                ? ['질문', '임시로 둔 가정', '영향', '확인 주체']
+                : ['질문', '임시로 둔 가정', '영향'],
+              rows: oq.items.map((q) => {
+                const base = [q.question, q.temporary, q.affects];
+                if (!oq.items.some((x) => x.owner)) return base;
+                const owner = q.owner ? OWNER_LABEL[q.owner] : '';
+                return [...base, q.ownerNote ? `${owner}\n${q.ownerNote}` : owner];
+              }),
             },
           ]
         : [text('caption', '열린 질문이 없습니다.')],
