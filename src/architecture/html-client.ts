@@ -973,6 +973,8 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
 
   // 확대와 이동. 좌표는 전부 레벨 캔버스 기준이고 viewport 하나에 transform으로 건다
   function clampK(k) { return Math.min(2.5, Math.max(0.2, k)); }
+  // 카드 설명(11px)이 8px 넘게 보이는 배율. 처음 열 때 이보다 작게 줄이지 않는다
+  var READABLE_K = 0.75;
   function applyView() {
     closeProducts(false);
     viewport.style.transform = 'translate(' + view.x + 'px,' + view.y + 'px) scale(' + view.k + ')';
@@ -1006,9 +1008,9 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     var kh = (H - M * 2) / s.h;
     var k = Math.min(kw, kh, 1);
     var top = false;
-    // 세로로 긴 레벨을 한 화면에 다 넣으면 글자가 안 읽힌다. 그때는 폭에 맞추고 위에서부터 보여준다
-    // 폰처럼 폭도 좁으면 일부만 보이더라도 읽히는 크기를 지킨다
-    if (mode === 'smart' && k < 0.5) { k = Math.max(Math.min(kw, 1), 0.45); top = true; }
+    // 큰 레벨을 한 화면에 다 넣으면 카드 설명 글자가 안 읽힌다. 그때는 읽히는 배율로 열고 왼쪽 위부터 보여준다
+    // 폭은 맞는데 세로만 긴 레벨은 폭에 맞춘다. 전체를 보고 싶으면 맞춤 버튼이 한 화면에 다 넣는다
+    if (mode === 'smart' && k < READABLE_K) { k = Math.max(Math.min(kw, 1), READABLE_K); top = true; }
     k = clampK(k);
     view.k = k;
     view.x = Math.max(M, (W - s.w * k) / 2);
@@ -1055,12 +1057,41 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
   stage.addEventListener('scroll', function () { stage.scrollLeft = 0; stage.scrollTop = 0; });
   var drag = null;
   var suppressClick = false;
+  // 모바일 핀치 줌. 터치 포인터 둘의 거리 비율로 배율을 바꾸고 두 손가락 가운데 점을 기준으로 확대한다
+  var touches = new Map();
+  var pinch = null;
+  function pinchState() {
+    var p = Array.from(touches.values());
+    var r = stage.getBoundingClientRect();
+    return { cx: (p[0].x + p[1].x) / 2 - r.left, cy: (p[0].y + p[1].y) / 2 - r.top, d: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1 };
+  }
   stage.addEventListener('pointerdown', function (e) {
     if (e.button !== 0) return;
     stopGlide();
+    if (e.pointerType === 'touch') {
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2) {
+        var s = pinchState();
+        pinch = { d: s.d, k: view.k, wx: (s.cx - view.x) / view.k, wy: (s.cy - view.y) / view.k };
+        drag = null;
+        stage.classList.remove('panning');
+        return;
+      }
+      if (touches.size > 2) return;
+    }
     drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false, id: e.pointerId };
   });
   stage.addEventListener('pointermove', function (e) {
+    if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && touches.size >= 2) {
+      var s = pinchState();
+      var k = clampK(pinch.k * s.d / pinch.d);
+      view.k = k;
+      view.x = s.cx - pinch.wx * k;
+      view.y = s.cy - pinch.wy * k;
+      applyView();
+      return;
+    }
     if (!drag || drag.id !== e.pointerId) return;
     var dx = e.clientX - drag.x;
     var dy = e.clientY - drag.y;
@@ -1075,6 +1106,15 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     applyView();
   });
   function endDrag(e) {
+    touches.delete(e.pointerId);
+    if (pinch && touches.size < 2) {
+      pinch = null;
+      drag = null;
+      // 핀치를 끝내며 손가락을 뗄 때 카드가 눌린 걸로 잡히지 않게 막는다
+      suppressClick = true;
+      setTimeout(function () { suppressClick = false; }, 400);
+      return;
+    }
     if (!drag || drag.id !== e.pointerId) return;
     if (drag.moved) suppressClick = true;
     drag = null;
@@ -1246,7 +1286,12 @@ ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
   stage.addEventListener('dblclick', function (e) {
     if (e.target.closest('.flow-badge, .pb.more')) return;
     var card = e.target.closest('.node');
-    if (card) enter(card.getAttribute('data-node-id'));
+    if (card) { enter(card.getAttribute('data-node-id')); return; }
+    // 빈 곳을 두 번 누르면 그 자리를 크게 본다. 폰에서는 브라우저 확대를 막아 둬서 이게 두 번 탭 확대다
+    if (e.target.closest('.link, .lane-title')) return;
+    var r = stage.getBoundingClientRect();
+    glide();
+    zoomAt(e.clientX - r.left, e.clientY - r.top, view.k * 1.6);
   });
   stage.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -2111,6 +2156,10 @@ ${c.sequences ? '    seqPlaceSteps();\n' : ''}  });
     hint.hidden = true;
     store(HINT_KEY, 'off');
   });
+  // 안내가 왼쪽 아래 카드를 가린다. 그림을 끌거나 확대하기 시작하면 이번만 숨기고 다음에 열 때는 다시 보여준다
+  function hideHint() { hint.hidden = true; }
+  stage.addEventListener('pointerdown', hideHint, { once: true });
+  stage.addEventListener('wheel', hideHint, { once: true, passive: true });
 
   doc.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') {

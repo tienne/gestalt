@@ -9,6 +9,7 @@ import {
   type TreeStack,
   alignColumnsTo,
   sinkToColumnBottom,
+  liftColumns,
   stackBands,
   bandGroupsOf,
   stackFrames,
@@ -1338,7 +1339,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         : treed;
     const sunk = d.sinkBottom !== undefined ? sinkToColumnBottom(aligned, d.sinkBottom) : aligned;
     const framed = d.frames !== undefined ? stackFrames(sunk, d.frames) : sunk;
-    const banded = stackBands(framed, bands, validated.ir.edges);
+    const banded = stackBands(liftColumns(framed), bands, validated.ir.edges);
     const layout = d.frames !== undefined ? frameRects(banded, d.frames) : banded;
     levels.push({
       id: d.id,
