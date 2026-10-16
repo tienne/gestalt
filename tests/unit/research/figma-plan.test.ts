@@ -116,6 +116,20 @@ describe('Figma 계획', () => {
     expect(json).not.toContain('뒤에 정함');
   });
 
+  it('제외 판단은 확신 칸에 제외로 싣는다', () => {
+    const input = sampleResearch();
+    input.judgment!.push({
+      area: '선물 분기',
+      conclusion: '이번 과제 범위에서 뺀다',
+      confidence: 'out',
+      rationale: '구매 단계를 하나 늘린다',
+    });
+    const parsed = parseResearch(input);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(JSON.stringify(planOf(parsed.value))).toContain('"제외"');
+  });
+
   it('공유용은 unchecked 캡처가 있으면 막고 계획 메모를 싣지 않는다', () => {
     const base = research();
     const bad = {

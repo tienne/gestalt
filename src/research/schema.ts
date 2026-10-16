@@ -40,7 +40,7 @@ export const SCALE_KINDS = [
 ] as const;
 export const COMPARISON_SYMBOLS = ['◎', '○', '△'] as const;
 export const COMPARISON_ROW_KINDS = ['graded', 'burden', 'risk'] as const;
-export const CONFIDENCE_LEVELS = ['likely', 'trial', 'hold'] as const;
+export const CONFIDENCE_LEVELS = ['likely', 'trial', 'hold', 'out'] as const;
 export const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'] as const;
 
 const idSchema = z

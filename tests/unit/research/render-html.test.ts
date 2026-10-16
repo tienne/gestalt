@@ -43,6 +43,22 @@ describe('research HTML 렌더', () => {
     expect(r.html).not.toContain('뒤에 정함');
   });
 
+  it('제외 판단은 제외 칩으로 그린다', () => {
+    const input = sampleResearch();
+    input.judgment!.push({
+      area: '선물 분기',
+      conclusion: '이번 과제 범위에서 뺀다',
+      confidence: 'out',
+      rationale: '구매 단계를 하나 늘린다',
+    });
+    const parsed = parseResearch(input);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const r = renderResearchHtml(parsed.value, { audience: 'private', loadImage: withImage });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.html).toContain('<span class="chip">제외</span>');
+  });
+
   it('사용자 글자를 이스케이프하고 스크립트를 넣지 않는다', () => {
     const r = renderResearchHtml(
       research({

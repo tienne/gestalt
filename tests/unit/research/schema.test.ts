@@ -38,6 +38,17 @@ describe('parseResearch', () => {
     if (!r.ok) expect(r.error.message).toContain('holdUntil');
   });
 
+  it('제외 판단은 holdUntil 없이 받는다', () => {
+    const input = sampleResearch();
+    input.judgment!.push({
+      area: '선물 분기',
+      conclusion: '이번 과제 범위에서 뺀다',
+      confidence: 'out',
+      rationale: '구매 단계를 하나 늘린다',
+    });
+    expect(parseResearch(input).ok).toBe(true);
+  });
+
   it('기준 행 칸에 기호가 없으면, 부담 행 칸에 기호가 있으면 거절한다', () => {
     const noSymbol = sampleResearch();
     delete noSymbol.comparison![0]!.cells[0]!.symbol;

@@ -51,7 +51,12 @@ export const EVIDENCE_LABEL = {
   'company-statement': '회사 발언',
   interpretation: '해석',
 } as const;
-export const CONFIDENCE_LABEL = { likely: '유력', trial: '시험', hold: '보류' } as const;
+export const CONFIDENCE_LABEL = {
+  likely: '유력',
+  trial: '시험',
+  hold: '보류',
+  out: '제외',
+} as const;
 export const ROW_KIND_LABEL = { graded: '기준', burden: '구현 부담', risk: '위험' } as const;
 
 export function escapeHtml(text: string): string {
