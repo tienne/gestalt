@@ -4,12 +4,13 @@ import { err, ok, type Result } from '../core/result.js';
 
 export const RESEARCH_SCHEMA_VERSION = '1.0.0';
 
-/** design.md 2.1절의 경우 4개 */
+/** design.md 2.1절의 경우 5개. video-analysis는 영상 블록만 채우는 단독 문서다 */
 export const RESEARCH_KINDS = [
   'ux-research',
   'screens-only',
   'reverse-plan',
   'market-scan',
+  'video-analysis',
 ] as const;
 export const PRODUCT_AXES = ['same-market', 'same-problem'] as const;
 export const SCREEN_SOURCES = [
@@ -38,6 +39,13 @@ export const SCALE_KINDS = [
   'company-statement',
   'other',
 ] as const;
+export const VIDEO_KINDS = ['screen-recording', 'seminar', 'mixed'] as const;
+/** public: 공개된 영상. recorded: 직접 화면을 녹화한 영상 */
+export const VIDEO_ORIGINS = ['public', 'recorded'] as const;
+/** 제품별 흐름, 구좌별, 유형별, 종합. design.md 8.2절의 묶음 순서다 */
+export const VIDEO_GROUPS = ['flow', 'slot', 'type', 'summary'] as const;
+export const VIDEO_NATURES = ['direction', 'convention'] as const;
+export const VIDEO_CADENCES = ['always', 'seasonal', 'exclusive'] as const;
 export const COMPARISON_SYMBOLS = ['◎', '○', '△'] as const;
 export const COMPARISON_ROW_KINDS = ['graded', 'burden', 'risk'] as const;
 export const CONFIDENCE_LEVELS = ['likely', 'trial', 'hold', 'out'] as const;
@@ -219,6 +227,38 @@ const verificationSchema = z.object({
   caveat: z.string().optional(),
 });
 
+export const videoClipSchema = z.object({
+  id: idSchema,
+  productId: idSchema,
+  title: textSchema,
+  kind: z.enum(VIDEO_KINDS),
+  origin: z.enum(VIDEO_ORIGINS),
+  url: httpsUrlSchema.optional(),
+  durationSec: z.number().nonnegative().optional(),
+});
+
+export const videoFindingSchema = z.object({
+  clipId: idSchema,
+  group: z.enum(VIDEO_GROUPS),
+  /** 구좌 이름이나 유형 이름처럼 묶음 안에서 가르는 말 */
+  topic: textSchema,
+  text: textSchema,
+  /** 영상에서 본 시각(초). 관찰과 회사 발언은 출처를 남기려고 꼭 적는다 */
+  at: z.number().nonnegative().optional(),
+  /** 이 발견이 나온 프레임. 캡처 이미지는 1번 섹션 캡처에 있다 */
+  captureId: idSchema.optional(),
+  evidence: z.enum(EVIDENCE_KINDS),
+  /** 방향성(회사가 가려는 쪽)인지 관례(업계가 하는 쪽)인지 */
+  nature: z.enum(VIDEO_NATURES).optional(),
+  /** 상시, 분기, 단독 중 어느 쪽 노출인지 */
+  cadence: z.enum(VIDEO_CADENCES).optional(),
+});
+
+const videoSchema = z.object({
+  clips: z.array(videoClipSchema).default([]),
+  findings: z.array(videoFindingSchema).default([]),
+});
+
 const openQuestionsSchema = z.object({
   recipient: textSchema,
   intro: textSchema,
@@ -262,6 +302,8 @@ export const researchSchema = z
     judgment: z.array(judgmentSchema).default([]),
     verification: z.array(verificationSchema).default([]),
     openQuestions: openQuestionsSchema.optional(),
+    /** 영상 분석. 본문에 합쳐 쓰거나 video-analysis 문서로 따로 쓴다 */
+    video: videoSchema.optional(),
   })
   .superRefine((r, ctx) => {
     const issue = (path: (string | number)[], message: string): void =>
@@ -290,6 +332,10 @@ export const researchSchema = z
       'references',
       r.references.map((x) => x.id),
     );
+    checkUnique(
+      'video.clips',
+      (r.video?.clips ?? []).map((c) => c.id),
+    );
 
     const products = new Set(r.productCandidates.map((p) => p.id));
     const screens = new Set(r.screenMap.map((s) => s.id));
@@ -311,6 +357,26 @@ export const researchSchema = z
         if (!products.has(pid)) issue(['references', i, 'productIds', j], `없는 제품: ${pid}`);
       });
     });
+    const clips = new Map((r.video?.clips ?? []).map((c) => [c.id, c]));
+    const capturesById = new Map(r.captures.map((c) => [c.id, c]));
+    (r.video?.clips ?? []).forEach((c, i) => {
+      if (!products.has(c.productId))
+        issue(['video', 'clips', i, 'productId'], `없는 제품: ${c.productId}`);
+    });
+    (r.video?.findings ?? []).forEach((f, i) => {
+      const clip = clips.get(f.clipId);
+      if (!clip) issue(['video', 'findings', i, 'clipId'], `없는 영상: ${f.clipId}`);
+      if (f.at === undefined && f.evidence !== 'interpretation') {
+        issue(['video', 'findings', i, 'at'], '관찰과 회사 발언은 영상 시각(초)을 적는다');
+      }
+      if (f.captureId) {
+        const cap = capturesById.get(f.captureId);
+        if (!cap) issue(['video', 'findings', i, 'captureId'], `없는 캡처: ${f.captureId}`);
+        else if (clip && cap.productId !== clip.productId) {
+          issue(['video', 'findings', i, 'captureId'], '영상과 캡처의 제품이 다르다');
+        }
+      }
+    });
     const checkRef = (key: string, i: number, id: string): void => {
       if (!refs.has(id)) issue([key, i, 'referenceId'], `없는 레퍼런스: ${id}`);
     };
@@ -331,6 +397,8 @@ export type ResearchInput = z.input<typeof researchSchema>;
 export type ProductCandidate = z.infer<typeof productCandidateSchema>;
 export type ScreenMapItem = z.infer<typeof screenMapItemSchema>;
 export type Capture = z.infer<typeof captureSchema>;
+export type VideoClip = z.infer<typeof videoClipSchema>;
+export type VideoFinding = z.infer<typeof videoFindingSchema>;
 
 export function parseResearch(input: unknown): Result<Research, ValidationError> {
   const parsed = researchSchema.safeParse(input);
@@ -443,7 +511,27 @@ export function lintResearch(research: Research): ResearchWarning[] {
     );
   });
 
-  if (!research.openQuestions || research.openQuestions.items.length === 0) {
+  const video = research.video;
+  if (research.meta.kind === 'video-analysis' && (!video || video.clips.length === 0)) {
+    warnings.push({ path: 'video.clips', message: '영상 분석 문서인데 영상이 하나도 없다' });
+  }
+  if (video) {
+    const withFindings = new Set(video.findings.map((f) => f.clipId));
+    video.clips.forEach((c, i) => {
+      if (!withFindings.has(c.id)) {
+        warnings.push({
+          path: `video.clips.${i}`,
+          message: `발견이 하나도 없는 영상이다 (${c.id})`,
+        });
+      }
+    });
+  }
+
+  const openQuestionsOptional = research.meta.kind === 'video-analysis';
+  if (
+    !openQuestionsOptional &&
+    (!research.openQuestions || research.openQuestions.items.length === 0)
+  ) {
     warnings.push({
       path: 'openQuestions',
       message: '열린 질문 섹션이 비어 있다. 마지막 섹션이라 꼭 둔다',

@@ -164,3 +164,70 @@ export function sampleResearch(overrides: Partial<ResearchInput> = {}): Research
     ...overrides,
   };
 }
+
+/** 서비스 A의 화면 녹화 하나와 세미나 하나. 프레임 캡처는 `videoFrameCapture()`가 짝이다 */
+export function sampleVideo(): NonNullable<ResearchInput['video']> {
+  return {
+    clips: [
+      {
+        id: 'v1',
+        productId: 'a',
+        title: '서비스 A 홈 둘러보기',
+        kind: 'screen-recording',
+        origin: 'recorded',
+        durationSec: 95,
+      },
+      {
+        id: 'v2',
+        productId: 'a',
+        title: '서비스 A 상품권 기획 세미나',
+        kind: 'seminar',
+        origin: 'public',
+        url: 'https://example.com/seminar',
+        durationSec: 1800,
+      },
+    ],
+    findings: [
+      {
+        clipId: 'v1',
+        group: 'flow',
+        topic: '홈에서 상품권까지',
+        text: '홈 두 번째 구좌에서 상품권 목록으로 들어간다.',
+        at: 12.5,
+        captureId: 'cap-v1',
+        evidence: 'observation',
+        nature: 'direction',
+        cadence: 'always',
+      },
+      {
+        clipId: 'v1',
+        group: 'slot',
+        topic: '상단 배너',
+        text: '분기마다 바뀌는 배너가 상품권을 앞세운다.',
+        at: 30,
+        evidence: 'observation',
+        cadence: 'seasonal',
+      },
+      {
+        clipId: 'v2',
+        group: 'summary',
+        topic: '노출 원칙',
+        text: '구매 단계를 줄이는 쪽으로 간다고 설명한다.',
+        at: 640,
+        evidence: 'company-statement',
+        nature: 'convention',
+      },
+    ],
+  };
+}
+
+export function videoFrameCapture(): NonNullable<ResearchInput['captures']>[number] {
+  return {
+    id: 'cap-v1',
+    productId: 'a',
+    path: 'captures/a-01.jpg',
+    kind: 'video-frame',
+    pii: 'none',
+    label: '홈 구좌 진입',
+  };
+}

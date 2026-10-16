@@ -7,6 +7,9 @@ import {
   PII_LABEL,
   ROW_KIND_LABEL,
   SOURCE_LABEL,
+  buildVideoTables,
+  hasVideoSection,
+  videoSectionTitle,
 } from './render-html.js';
 import type { Research } from './schema.js';
 import type { ResearchAudience } from './store.js';
@@ -169,6 +172,9 @@ export function buildFigmaPlan(
   }
   nodes.push(section('1. 레퍼런스 선정', s1));
 
+  // 영상 분석 문서는 2~8번을 쓰지 않는다. 아래 구간을 만든 뒤 버린다
+  const standalone = research.meta.kind === 'video-analysis';
+  const bodyStart = nodes.length;
   nodes.push(
     section(
       '2. 시안',
@@ -293,6 +299,19 @@ export function buildFigmaPlan(
         : [text('caption', '열린 질문이 없습니다.')],
     ),
   );
+
+  if (standalone) nodes.length = bodyStart;
+
+  if (hasVideoSection(research)) {
+    const tables = buildVideoTables(research);
+    const children: PlanNode[] = [];
+    for (const t of tables) {
+      children.push(text('h3', t.heading));
+      children.push({ type: 'table', head: t.head, rows: t.rows });
+    }
+    if (tables.length === 0) children.push(text('caption', '영상 분석이 없습니다.'));
+    nodes.push(section(videoSectionTitle(research), children));
+  }
 
   return {
     ok: true,

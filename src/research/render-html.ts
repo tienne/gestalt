@@ -58,6 +58,99 @@ export const CONFIDENCE_LABEL = {
   out: '제외',
 } as const;
 export const ROW_KIND_LABEL = { graded: '기준', burden: '구현 부담', risk: '위험' } as const;
+export const VIDEO_KIND_LABEL = {
+  'screen-recording': '화면 녹화',
+  seminar: '세미나',
+  mixed: '섞임',
+} as const;
+export const VIDEO_ORIGIN_LABEL = { public: '공개 영상', recorded: '직접 녹화' } as const;
+export const VIDEO_GROUP_LABEL = {
+  flow: '제품별 흐름',
+  slot: '구좌별',
+  type: '유형별',
+  summary: '종합',
+} as const;
+export const VIDEO_NATURE_LABEL = { direction: '방향성', convention: '관례' } as const;
+export const VIDEO_CADENCE_LABEL = { always: '상시', seasonal: '분기', exclusive: '단독' } as const;
+
+export interface VideoTable {
+  heading: string;
+  head: string[];
+  rows: string[][];
+}
+
+/** 영상 분석 섹션의 제목. 단독 문서는 0, 1번 뒤에 바로 오므로 2번이다 */
+export function videoSectionTitle(research: Research): string {
+  return research.meta.kind === 'video-analysis' ? '2. 영상 분석' : '9. 영상 분석';
+}
+
+/** 영상 블록이 있거나 영상 분석 문서일 때만 섹션을 낸다 */
+export function hasVideoSection(research: Research): boolean {
+  return research.meta.kind === 'video-analysis' || research.video !== undefined;
+}
+
+function formatSeconds(sec: number): string {
+  return `${Number.isInteger(sec) ? sec : sec.toFixed(1)}초`;
+}
+
+/**
+ * 영상 섹션을 표 목록으로 푼다. 첫 표는 영상 목록이고 뒤는 design.md 8.2절의 묶음 순서
+ * (제품별 흐름, 구좌별, 유형별, 종합)대로 발견을 모은다. 두 렌더러가 같은 표를 쓴다
+ */
+export function buildVideoTables(research: Research): VideoTable[] {
+  const video = research.video;
+  if (!video || video.clips.length === 0) return [];
+  const productName = new Map(research.productCandidates.map((p) => [p.id, p.name]));
+  const captureLabel = new Map(
+    research.captures.map((c) => {
+      const screen = c.screenMapId
+        ? research.screenMap.find((s) => s.id === c.screenMapId)?.screen
+        : undefined;
+      return [c.id, c.label ?? screen ?? c.id];
+    }),
+  );
+  const clipById = new Map(video.clips.map((c) => [c.id, c]));
+
+  const tables: VideoTable[] = [
+    {
+      heading: '영상 목록',
+      head: ['제품', '영상', '종류', '출처', '길이'],
+      rows: video.clips.map((c) => [
+        productName.get(c.productId) ?? c.productId,
+        c.url ? `${c.title}\n${c.url}` : c.title,
+        VIDEO_KIND_LABEL[c.kind],
+        VIDEO_ORIGIN_LABEL[c.origin],
+        c.durationSec === undefined ? '-' : formatSeconds(c.durationSec),
+      ]),
+    },
+  ];
+  for (const group of ['flow', 'slot', 'type', 'summary'] as const) {
+    const found = video.findings.filter((f) => f.group === group);
+    if (found.length === 0) continue;
+    tables.push({
+      heading: VIDEO_GROUP_LABEL[group],
+      head: ['영상', '주제', '내용', '근거', '프레임'],
+      rows: found.map((f) => {
+        const tags = [
+          ...(f.nature ? [`[${VIDEO_NATURE_LABEL[f.nature]}]`] : []),
+          ...(f.cadence ? [`[${VIDEO_CADENCE_LABEL[f.cadence]}]`] : []),
+        ];
+        const evidence =
+          f.at === undefined
+            ? EVIDENCE_LABEL[f.evidence]
+            : `${EVIDENCE_LABEL[f.evidence]} (영상 ${formatSeconds(f.at)})`;
+        return [
+          clipById.get(f.clipId)?.title ?? f.clipId,
+          f.topic,
+          [...tags, f.text].join(' '),
+          evidence,
+          f.captureId ? (captureLabel.get(f.captureId) ?? f.captureId) : '-',
+        ];
+      }),
+    });
+  }
+  return tables;
+}
 
 export function escapeHtml(text: string): string {
   return text
@@ -264,6 +357,10 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     }
   }
 
+  // 영상 분석 문서는 2~8번을 쓰지 않는다. 아래 구간을 만든 뒤 버린다
+  const standalone = research.meta.kind === 'video-analysis';
+  const bodyStart = parts.length;
+
   // 2. 시안
   parts.push('<h2>2. 시안</h2>');
   if (research.mockups.length === 0) {
@@ -378,6 +475,24 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     );
   } else {
     parts.push('<p class="todo">열린 질문이 없습니다.</p>');
+  }
+
+  if (standalone) parts.length = bodyStart;
+
+  // 영상 분석
+  if (hasVideoSection(research)) {
+    parts.push(`<h2>${e(videoSectionTitle(research))}</h2>`);
+    const tables = buildVideoTables(research);
+    if (tables.length === 0) parts.push('<p class="todo">영상 분석이 없습니다.</p>');
+    for (const t of tables) {
+      parts.push(`<h3>${e(t.heading)}</h3>`);
+      parts.push(
+        table(
+          t.head,
+          t.rows.map((row) => row.map((cell) => e(cell).replace(/\n/g, '<br>'))),
+        ),
+      );
+    }
   }
 
   warnings.push(...budget.warnings);
