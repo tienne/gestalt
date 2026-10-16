@@ -173,7 +173,7 @@ export function buildFigmaPlan(
     section(
       '2. 시안',
       research.mockups.length === 0
-        ? [text('caption', '시안 링크가 없습니다.')]
+        ? [text('caption', '시안이 없는 조사라 3번 비교표의 열은 시안 대신 레퍼런스 화면이다.')]
         : [
             {
               type: 'table',
@@ -258,7 +258,7 @@ export function buildFigmaPlan(
           j.area,
           j.conclusion,
           j.confidence === 'hold' && j.holdUntil
-            ? `${CONFIDENCE_LABEL[j.confidence]} (${j.holdUntil} 뒤에 정함)`
+            ? `${CONFIDENCE_LABEL[j.confidence]} (${j.holdUntil} 결정)`
             : CONFIDENCE_LABEL[j.confidence],
           j.rationale,
         ]),

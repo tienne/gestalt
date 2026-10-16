@@ -34,6 +34,15 @@ describe('research HTML 렌더', () => {
     expect(r.html).toContain('prefers-color-scheme:dark');
   });
 
+  it('시안이 없으면 비교표의 열이 레퍼런스 화면이라고 적고 보류에는 결정 조건을 붙인다', () => {
+    const r = renderResearchHtml(research(), { audience: 'private', loadImage: withImage });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.html).toContain('시안 대신 레퍼런스 화면이다');
+    expect(r.html).toContain('수량 한도 정책이 확정되면 결정');
+    expect(r.html).not.toContain('뒤에 정함');
+  });
+
   it('사용자 글자를 이스케이프하고 스크립트를 넣지 않는다', () => {
     const r = renderResearchHtml(
       research({

@@ -262,7 +262,9 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
   // 2. 시안
   parts.push('<h2>2. 시안</h2>');
   if (research.mockups.length === 0) {
-    parts.push('<p class="todo">시안 링크가 없습니다.</p>');
+    parts.push(
+      '<p class="todo">시안이 없는 조사라 3번 비교표의 열은 시안 대신 레퍼런스 화면이다.</p>',
+    );
   } else {
     parts.push(
       table(
@@ -339,7 +341,7 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
   // 6. 판단
   parts.push('<h2>6. 판단 (해석)</h2>');
   for (const j of research.judgment) {
-    const hold = j.confidence === 'hold' && j.holdUntil ? ` (${e(j.holdUntil)} 뒤에 정함)` : '';
+    const hold = j.confidence === 'hold' && j.holdUntil ? ` (${e(j.holdUntil)} 결정)` : '';
     parts.push(
       `<div class="card"><h3>${e(j.area)} <span class="chip">${CONFIDENCE_LABEL[j.confidence]}</span></h3>` +
         `<p><strong>${e(j.conclusion)}</strong>${hold}</p><p>${e(j.rationale)}</p></div>`,

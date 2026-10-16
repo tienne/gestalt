@@ -109,6 +109,13 @@ describe('Figma 계획', () => {
     expect(plan.images.map((i) => i.id)).toEqual(research().captures.map((c) => c.id));
   });
 
+  it('시안이 없으면 비교표의 열이 레퍼런스 화면이라고 적고 보류에는 결정 조건을 붙인다', () => {
+    const json = JSON.stringify(planOf(research()));
+    expect(json).toContain('시안 대신 레퍼런스 화면이다');
+    expect(json).toContain('수량 한도 정책이 확정되면 결정');
+    expect(json).not.toContain('뒤에 정함');
+  });
+
   it('공유용은 unchecked 캡처가 있으면 막고 계획 메모를 싣지 않는다', () => {
     const base = research();
     const bad = {
