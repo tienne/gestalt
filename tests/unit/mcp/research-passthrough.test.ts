@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { researchInputSchema } from '../../../src/mcp/schemas.js';
 import {
   handleResearchPassthrough,
@@ -23,12 +23,18 @@ afterEach(() => {
   for (const d of tmpDirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-async function run(params: Record<string, unknown>, gestaltHome: string, env = {}) {
+async function run(
+  params: Record<string, unknown>,
+  gestaltHome: string,
+  env = {},
+  extra: Partial<ResearchHandlerOptions> = {},
+) {
   const input = researchInputSchema.parse(params);
   return (await handleResearchPassthrough(input, process.cwd(), {
     builtinDir: BUILTIN,
     gestaltHome,
     env,
+    ...extra,
   })) as Record<string, any>;
 }
 
@@ -367,5 +373,134 @@ describe('ges_research action=figma_plan', () => {
     expect(r.ok).toBe(false);
     expect(r.errors[0].code).toBe('SHARE_BLOCKED');
     expect(r.captureIds.length).toBeGreaterThan(0);
+  });
+});
+
+describe('ges_research action=create_source', () => {
+  const source = (over: Record<string, unknown> = {}) => ({
+    name: 'my-review-site',
+    description: '리뷰 사이트에서 불만을 찾는다',
+    stage: ['evidence'],
+    access: [{ http: { host: 'api.example.com', probe: 'https://api.example.com/ping' } }],
+    steps: ['검색어로 목록을 연다.', '최근 글을 읽는다.'],
+    stops: ['로그인을 요구하면 멈춘다.'],
+    ...over,
+  });
+  const okFetch = vi.fn().mockResolvedValue({ status: 200, body: { cancel: async () => {} } });
+  const probe = {
+    fetchImpl: okFetch as unknown as typeof fetch,
+    lookup: async () => ['93.184.216.34'],
+  };
+
+  it('source가 없으면 질문 목록과 예시를 돌려주고 아무것도 쓰지 않는다', async () => {
+    const home = tmpHome();
+    const r = await run({ action: 'create_source' }, home);
+    expect(r.ok).toBe(true);
+    expect(r.needsInput).toBe(true);
+    expect(r.questions.map((q: { key: string }) => q.key)).toContain('stops');
+    expect(existsSync(join(home, 'research-sources'))).toBe(false);
+  });
+
+  it('검증을 통과하면 개인 디렉토리에 쓰고 sources에서 바로 읽힌다', async () => {
+    const home = tmpHome();
+    const r = await run({ action: 'create_source', source: source() }, home, {}, { probe });
+    expect(r.ok).toBe(true);
+    expect(r.trial.status).toBe('usable');
+    expect(r.trial.probes).toEqual([expect.objectContaining({ ok: true, status: 200 })]);
+    expect(r.warnings).toEqual([]);
+    expect(
+      readFileSync(join(home, 'research-sources', 'my-review-site', 'SOURCE.md'), 'utf-8'),
+    ).toContain('## 멈추는 곳');
+    const list = await run({ action: 'sources', name: 'my-review-site' }, home);
+    expect(list.detail.origin).toBe('personal');
+  });
+
+  it('JSON 문자열로 온 source도 받는다', async () => {
+    const home = tmpHome();
+    const r = await run(
+      {
+        action: 'create_source',
+        source: JSON.stringify(source({ access: [{ http: { host: 'api.example.com' } }] })),
+      },
+      home,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.trial.probes).toEqual([]);
+  });
+
+  it('같은 이름은 overwrite 없이는 거절하고 있으면 덮어쓴다', async () => {
+    const home = tmpHome();
+    await run({ action: 'create_source', source: source() }, home, {}, { probe });
+    const again = await run({ action: 'create_source', source: source() }, home, {}, { probe });
+    expect(again.ok).toBe(false);
+    expect(again.errors[0].code).toBe('SOURCE_EXISTS');
+    const over = await run(
+      { action: 'create_source', source: source({ description: '바꿨다' }), overwrite: true },
+      home,
+      {},
+      { probe },
+    );
+    expect(over.ok).toBe(true);
+    const list = await run({ action: 'sources', name: 'my-review-site' }, home);
+    expect(
+      list.sources.find((s: { name: string }) => s.name === 'my-review-site').description,
+    ).toBe('바꿨다');
+  });
+
+  it('내장 출처와 같은 이름은 overwrite가 있어야 하고 덮어쓰면 표시한다', async () => {
+    const home = tmpHome();
+    const s = source({ name: 'app-store-search' });
+    const denied = await run({ action: 'create_source', source: s }, home, {}, { probe });
+    expect(denied.errors[0].code).toBe('SOURCE_EXISTS');
+    const r = await run(
+      { action: 'create_source', source: s, overwrite: true },
+      home,
+      {},
+      { probe },
+    );
+    expect(r.ok).toBe(true);
+    expect(r.overridesBuiltin).toBe(true);
+    expect(r.warnings.some((w: string) => w.includes('내장 출처'))).toBe(true);
+  });
+
+  it('쓸 수 없는 상태나 probe 실패는 파일을 남기고 경고로 알린다', async () => {
+    const home = tmpHome();
+    const failing = {
+      fetchImpl: vi.fn().mockRejectedValue(new Error('boom')) as unknown as typeof fetch,
+      lookup: probe.lookup,
+    };
+    const r = await run(
+      {
+        action: 'create_source',
+        source: source({
+          name: 'needs-mcp',
+          access: [
+            { mcp: { server: 'review-mcp' } },
+            { http: { host: 'api.example.com', probe: 'https://api.example.com/ping' } },
+          ],
+        }),
+      },
+      home,
+      {},
+      { probe: failing },
+    );
+    expect(r.ok).toBe(true);
+    expect(r.trial.status).toBe('fallback');
+    expect(r.warnings.some((w: string) => w.includes('probe 실패'))).toBe(true);
+  });
+
+  it('검증에 실패하면 아무것도 쓰지 않는다', async () => {
+    const home = tmpHome();
+    for (const bad of [
+      source({ name: '../x' }),
+      source({ access: [{ http: { host: '10.0.0.1' } }] }),
+      source({ limits: 'token: abcdefabcdefabcdefabcd' }),
+      source({ stops: [] }),
+      { name: 'x' },
+    ]) {
+      const r = await run({ action: 'create_source', source: bad }, home, {}, { probe });
+      expect(r.ok).toBe(false);
+    }
+    expect(existsSync(join(home, 'research-sources'))).toBe(false);
   });
 });

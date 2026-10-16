@@ -28,7 +28,18 @@ import { renderResearchHtml, type LoadedImage } from '../../research/render-html
 import { lintResearch, parseResearch, type Research } from '../../research/schema.js';
 import { isValidSlug, ResearchStore } from '../../research/store.js';
 import { ResearchSourceRegistry } from '../../research/source-registry.js';
-import { buildSourceReport } from '../../research/source-status.js';
+import {
+  buildSourceMd,
+  createSourceInputSchema,
+  personalSourceExists,
+  probeSource,
+  SOURCE_EXAMPLE,
+  SOURCE_QUESTIONS,
+  writeSourceMd,
+  type ProbeDeps,
+  type ProbeResult,
+} from '../../research/source-create.js';
+import { buildSourceReport, evaluateSource } from '../../research/source-status.js';
 import type { ResearchInput } from '../schemas.js';
 
 export interface ResearchHandlerOptions {
@@ -43,6 +54,8 @@ export interface ResearchHandlerOptions {
   visionRunner?: VisionRunner | null;
   /** DOM 치환 스크립트 파일을 둘 디렉토리. 기본은 OS 임시 디렉토리 */
   tmpDir?: string;
+  /** create_source의 시험 호출에 쓰는 네트워크. 테스트에서 가짜를 꽂는다 */
+  probe?: ProbeDeps;
 }
 
 interface ResearchFailure {
@@ -396,6 +409,80 @@ function handleFigmaPlan(input: ResearchInput, cwd: string): object {
   };
 }
 
+async function handleCreateSource(
+  input: ResearchInput,
+  opts: ResearchHandlerOptions,
+): Promise<object> {
+  if (!input.source) {
+    return {
+      ok: true,
+      action: 'create_source',
+      needsInput: true,
+      questions: SOURCE_QUESTIONS,
+      example: SOURCE_EXAMPLE,
+      usage:
+        '사용자에게 questions를 물어 답을 모은 뒤 source에 같은 꼴로 담아 다시 부른다. 비밀번호와 키 값은 받지 않고 환경변수 이름이나 MCP 서버 이름만 받는다',
+    };
+  }
+  const parsed = createSourceInputSchema.safeParse(input.source);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`);
+    return { ok: false, errors: issues.map((message) => ({ code: 'INVALID_SOURCE', message })) };
+  }
+  const built = buildSourceMd(parsed.data);
+  if (!built.ok) return fail('INVALID_SOURCE', built.error.message);
+
+  const name = built.value.definition.frontmatter.name;
+  const personalDir = personalSourcesDir(opts);
+  const before = loadRegistry(opts).getByName(name);
+  const exists = personalSourceExists(personalDir, name);
+  if ((exists || before) && !input.overwrite) {
+    const where = exists ? '개인 디렉토리에 같은 이름이 있다' : '같은 이름의 내장 출처가 있다';
+    return fail(
+      'SOURCE_EXISTS',
+      `${where}(${name}). 덮어쓰려면 overwrite를 켜고, 아니면 다른 이름을 쓴다`,
+    );
+  }
+
+  const written = writeSourceMd(personalDir, name, built.value.content);
+  if (!written.ok) return fail('WRITE_FAILED', written.error.message);
+
+  const registry = loadRegistry(opts);
+  const loaded = registry.getByName(name);
+  if (!loaded || loaded.origin !== 'personal') {
+    return fail(
+      'NOT_LOADED',
+      `쓴 파일을 다시 읽지 못했다: ${registry
+        .getDiagnostics()
+        .map((d) => d.message)
+        .join('; ')}`,
+    );
+  }
+  const trial = evaluateSource(loaded, input.available ?? {}, opts.env ?? process.env);
+
+  const probes: ProbeResult[] = [];
+  for (const access of loaded.frontmatter.access) {
+    if (access.kind === 'http' && access.probe) {
+      probes.push(await probeSource(access.probe, opts.probe));
+    }
+  }
+  const warnings: string[] = [];
+  if (trial.status === 'skipped')
+    warnings.push(`시험 결과 ${trial.note}. 연결하고 sources로 다시 확인한다`);
+  for (const p of probes) if (!p.ok) warnings.push(`probe 실패(${p.url}): ${p.note}`);
+  if (before) warnings.push(`같은 이름의 내장 출처를 개인 출처가 덮어쓴다(${name})`);
+
+  return {
+    ok: true,
+    action: 'create_source',
+    name,
+    path: written.value,
+    overridesBuiltin: before?.origin === 'builtin',
+    trial: { ...trial, probes },
+    warnings,
+  };
+}
+
 export async function handleResearchPassthrough(
   input: ResearchInput,
   cwd: string = process.cwd(),
@@ -414,5 +501,7 @@ export async function handleResearchPassthrough(
       return handleRender(input, cwd);
     case 'figma_plan':
       return handleFigmaPlan(input, cwd);
+    case 'create_source':
+      return handleCreateSource(input, opts);
   }
 }

@@ -1021,6 +1021,7 @@ export const RESEARCH_ACTIONS = [
   'validate',
   'render',
   'figma_plan',
+  'create_source',
 ] as const;
 
 export const researchInputSchema = guardObject(
@@ -1028,7 +1029,7 @@ export const researchInputSchema = guardObject(
     action: z
       .enum(RESEARCH_ACTIONS)
       .describe(
-        'sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped). redact_image: 캡처 이미지의 개인정보를 가짜 값으로 바꿔 .gestalt/research/<slug>/captures에 저장. redact_script: 웹 화면을 캡처하기 전에 DOM에서 실행할 치환 스크립트. validate: research.json 검증과 의미 경고. render: 검증 뒤 저장하고 개인용과 공유용 HTML을 만든다. figma_plan: 같은 research.json에서 Figma 중립 계획(figma-plan.json)과 Plugin API 스크립트를 만든다',
+        'sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped). redact_image: 캡처 이미지의 개인정보를 가짜 값으로 바꿔 .gestalt/research/<slug>/captures에 저장. redact_script: 웹 화면을 캡처하기 전에 DOM에서 실행할 치환 스크립트. validate: research.json 검증과 의미 경고. render: 검증 뒤 저장하고 개인용과 공유용 HTML을 만든다. figma_plan: 같은 research.json에서 Figma 중립 계획(figma-plan.json)과 Plugin API 스크립트를 만든다. create_source: source 없이 부르면 물어볼 목록과 예시를 주고, source를 주면 검증해서 ~/.gestalt/research-sources/<name>/SOURCE.md에 쓰고 시험 호출까지 한다',
       ),
     repoRoot: z.string().optional().describe('기본은 현재 디렉토리'),
     available: z
@@ -1090,6 +1091,18 @@ export const researchInputSchema = guardObject(
       .optional()
       .describe(
         'figma_plan: 캡처 이미지(PNG, JPEG, GIF)를 스크립트 파일에 base64로 넣는다. 합계 8MB 안에서만 넣고 넘는 건 건너뛴다. 기본은 이미지 자리를 회색 칸으로 둔다',
+      ),
+    source: z
+      .record(z.unknown())
+      .optional()
+      .describe(
+        'create_source: 새 출처 정의(name, description, stage, axis, access, requires, evidence, limits, fallback, steps, stops). 비우면 질문 목록과 예시를 돌려준다. 비밀번호와 키 값은 넣지 않는다',
+      ),
+    overwrite: z
+      .boolean()
+      .optional()
+      .describe(
+        'create_source: 같은 이름의 개인 출처나 내장 출처가 이미 있어도 덮어쓴다. 기본은 거절',
       ),
     inline: z
       .boolean()
