@@ -2,6 +2,8 @@ import {
   ADOPTION_LABEL,
   AXIS_LABEL,
   buildFlowTables,
+  buildSummaryTables,
+  gridFindings,
   BASIS_LABEL,
   CAPTURE_KIND_LABEL,
   CAPTURE_STATE_LABEL,
@@ -98,6 +100,22 @@ export function buildFigmaPlan(
     title,
     children,
   });
+
+  const summaryTables = buildSummaryTables(research);
+  if (summaryTables.length > 0) {
+    nodes.push(
+      section('종합', [
+        text(
+          'caption',
+          '아래 표는 비교표의 기호와 판단 순위와 발견에서 모은 것이다. 새 주장은 없다.',
+        ),
+        ...summaryTables.flatMap((t): PlanNode[] => [
+          text('h3', t.heading),
+          { type: 'table', head: t.head, rows: t.rows },
+        ]),
+      ]),
+    );
+  }
 
   nodes.push(
     section('0. 전제', [
@@ -259,7 +277,10 @@ export function buildFigmaPlan(
                       : '';
                   const body = `${cell.symbol ? `${cell.symbol} ` : ''}${cell.text}${evidenceText(cell.evidence)}`;
                   const grey = cell.basis === 'unconfirmed' || cell.basis === 'absent';
-                  return `${tag}${body}${grey && cell.note ? `\n${cell.note}` : ''}`;
+                  const found = gridFindings(research, r.id, row.criterion).map(
+                    (f) => `\n[${FINDING_KIND_LABEL[f.kind]}] ${f.text}`,
+                  );
+                  return `${tag}${body}${grey && cell.note ? `\n${cell.note}` : ''}${found.join('')}`;
                 }),
               ]),
             },

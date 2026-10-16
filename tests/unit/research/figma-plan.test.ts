@@ -100,12 +100,13 @@ async function run(script: string, figma: unknown): Promise<Record<string, unkno
 }
 
 describe('Figma 계획', () => {
-  it('섹션 0부터 8까지를 순서대로 담고 캡처를 이미지 목록에 올린다', () => {
+  it('종합 뒤에 섹션 0부터 8까지를 순서대로 담고 캡처를 이미지 목록에 올린다', () => {
     const plan = planOf(research());
     const titles = plan.nodes.filter((n) => n.type === 'section').map((n) => n.title);
-    expect(titles[0]).toBe('0. 전제');
+    expect(titles[0]).toBe('종합');
+    expect(titles[1]).toBe('0. 전제');
     expect(titles[titles.length - 1]).toBe('8. 열린 질문');
-    expect(titles).toHaveLength(9);
+    expect(titles).toHaveLength(10);
     expect(plan.images.map((i) => i.id)).toEqual(research().captures.map((c) => c.id));
   });
 

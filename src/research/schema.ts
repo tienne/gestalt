@@ -726,6 +726,17 @@ function lintEvidenceStructure(research: Research, warnings: ResearchWarning[]):
         message: `본 페인에 조작 횟수나 수치가 없다 (${f.id}). concrete에 "몇 번 눌러야 하는지" 같은 값을 적는다`,
       });
     }
+    if (
+      f.slot &&
+      comparison.length > 0 &&
+      (f.kind === 'wow' || f.kind === 'pain') &&
+      !comparison.some((row) => row.criterion === f.slot)
+    ) {
+      warnings.push({
+        path: `${path}.slot`,
+        message: `구좌 "${f.slot}"가 비교표 기준 이름과 달라 격자 칸에 안 붙는다 (${f.id}). 비교표의 기준 이름과 똑같이 적는다`,
+      });
+    }
     if (UNCONFIRMED_PATTERN.test(f.text) && f.basis !== 'unconfirmed') {
       warnings.push({
         path: `${path}.basis`,

@@ -169,11 +169,11 @@ describe('영상 섹션 Figma 계획', () => {
     return result.plan.nodes.filter((n) => n.type === 'section').map((n) => n.title);
   };
 
-  it('합칠 때는 8번 뒤에 9번을 붙이고 없으면 기존 9개 섹션 그대로다', () => {
-    expect(titlesOf(research())).toHaveLength(9);
+  it('합칠 때는 8번 뒤에 9번을 붙이고 없으면 종합과 0~8번 그대로다', () => {
+    expect(titlesOf(research())).toHaveLength(10);
     const titles = titlesOf(research(withVideo()));
-    expect(titles).toHaveLength(10);
-    expect(titles[9]).toBe('9. 영상 분석');
+    expect(titles).toHaveLength(11);
+    expect(titles[10]).toBe('9. 영상 분석');
   });
 
   it('단독 문서는 0, 1, 2번만 담는다', () => {

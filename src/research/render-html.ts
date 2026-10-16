@@ -154,6 +154,107 @@ export function evidenceGroupLabel(
   return labels.length > 0 ? `(${labels.join(', ')})` : '';
 }
 
+const SYMBOL_POINT = { '◎': 2, '○': 1, '△': 0 } as const;
+
+/** 격자 칸에 붙일 와우와 페인. 발견의 구좌(slot)가 행의 기준 이름과 같은 것만 모은다 */
+export function gridFindings(
+  research: Research,
+  referenceId: string,
+  criterion: string,
+): Finding[] {
+  return research.wowPain.findings.filter(
+    (f) =>
+      f.referenceId === referenceId &&
+      f.slot === criterion &&
+      (f.kind === 'wow' || f.kind === 'pain'),
+  );
+}
+
+/**
+ * 종합 표. 비교표 기호와 판단 순위와 발견에서 코드가 모은 것이라 새 주장은 없다.
+ * 두 렌더러가 같은 표를 쓴다
+ */
+export function buildSummaryTables(research: Research): VideoTable[] {
+  const tables: VideoTable[] = [];
+  const refs = research.references;
+  const refName = (id: string): string => {
+    const r = refs.find((x) => x.id === id);
+    return r ? `${r.symbol}. ${r.typeName}` : id;
+  };
+
+  const graded = research.comparison.filter(
+    (row) => row.kind === 'graded' && row.cells.some((c) => c.symbol),
+  );
+  if (graded.length > 0 && refs.length > 0) {
+    const score = new Map<string, { got: number; max: number; none: number }>(
+      refs.map((r) => [r.id, { got: 0, max: 0, none: 0 }]),
+    );
+    const rows = graded.map((row) => [
+      row.phase,
+      row.criterion,
+      ...refs.map((r) => {
+        const cell = row.cells.find((c) => c.referenceId === r.id);
+        const acc = score.get(r.id)!;
+        if (cell?.symbol) {
+          acc.got += SYMBOL_POINT[cell.symbol];
+          acc.max += 2;
+          return cell.symbol;
+        }
+        acc.none += 1;
+        return '-';
+      }),
+    ]);
+    rows.push([
+      '',
+      '합계',
+      ...refs.map((r) => {
+        const acc = score.get(r.id)!;
+        return `${acc.got}/${acc.max}${acc.none > 0 ? ` (기호 없음 ${acc.none}개)` : ''}`;
+      }),
+    ]);
+    tables.push({
+      heading: '기준별 점수 (◎ 2점, ○ 1점, △ 0점, 가중치 없음)',
+      head: ['단계', '기준', ...refs.map((r) => refName(r.id))],
+      rows,
+    });
+  }
+
+  const ranked = research.judgment
+    .filter((j) => j.rank !== undefined)
+    .sort((a, b) => a.rank! - b.rank!);
+  if (ranked.length > 0) {
+    tables.push({
+      heading: '우선순위',
+      head: ['순위', '영역', '확신', '결론', '할 일'],
+      rows: ranked.map((j) => [
+        String(j.rank),
+        j.area,
+        CONFIDENCE_LABEL[j.confidence],
+        j.conclusion,
+        j.todo ?? '',
+      ]),
+    });
+  }
+
+  const seen = research.wowPain.findings.filter(
+    (f) => f.basis !== 'unconfirmed' && f.basis !== 'absent',
+  );
+  const findingRows = (kind: 'wow' | 'pain'): string[][] =>
+    seen
+      .filter((f) => f.kind === kind)
+      .map((f) => [refName(f.referenceId), f.slot ?? '', f.text, f.concrete ?? '']);
+  for (const [kind, heading] of [
+    ['wow', '가져올 와우'],
+    ['pain', '피할 페인'],
+  ] as const) {
+    const rows = findingRows(kind);
+    if (rows.length > 0) {
+      tables.push({ heading, head: ['레퍼런스', '구좌나 단계', '발견', '조작과 수치'], rows });
+    }
+  }
+  return tables;
+}
+
 /** 화면 흐름 섹션이 그릴 내용이 있는지 */
 export function hasFlowSection(research: Research): boolean {
   const f = research.flow;
@@ -349,6 +450,7 @@ h2{font-size:19px;margin:44px 0 12px;padding-top:20px;border-top:1px solid var(-
 h3{font-size:15px;margin:24px 0 8px}
 p{margin:6px 0}
 .sub{color:var(--muted);font-size:14px}
+.fnd{margin-top:6px;font-size:14px}
 .notice{background:var(--chip);border-left:3px solid var(--warn);padding:10px 14px;margin:16px 0;border-radius:4px}
 .wrap{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:14px;background:var(--card)}
@@ -500,6 +602,24 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     );
   }
   if (!shared && research.plan.note) parts.push(`<p class="sub">${e(research.plan.note)}</p>`);
+
+  // 종합. 번호 섹션 앞에 둔다
+  const summaryTables = buildSummaryTables(research);
+  if (summaryTables.length > 0) {
+    parts.push('<h2>종합</h2>');
+    parts.push(
+      '<p class="sub">아래 표는 비교표의 기호와 판단 순위와 발견에서 모은 것이다. 새 주장은 없다.</p>',
+    );
+    for (const t of summaryTables) {
+      parts.push(`<h3>${e(t.heading)}</h3>`);
+      parts.push(
+        table(
+          t.head,
+          t.rows.map((row) => row.map((cell) => e(cell))),
+        ),
+      );
+    }
+  }
 
   // 0. 전제
   const pr = research.premise;
@@ -655,9 +775,15 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
         const grey = cell.basis === 'unconfirmed' || cell.basis === 'absent';
         const sym = cell.symbol ? `<span class="sym">${e(cell.symbol)}</span>` : '';
         const why = grey && cell.note ? `<div class="why">${e(cell.note)}</div>` : '';
+        const found = gridFindings(research, r.id, row.criterion)
+          .map(
+            (f) =>
+              `<div class="fnd"><span class="chip kind-${f.kind}">${FINDING_KIND_LABEL[f.kind]}</span>${e(f.text)}</div>`,
+          )
+          .join('');
         return (
           `<div class="cell${grey ? ' grey' : ''}">${basisChip(cell.basis)}${sym}${e(cell.text)}` +
-          `${evidenceHtml(cell.evidence)}${why}${thumbsHtml(cell.captureIds)}</div>`
+          `${evidenceHtml(cell.evidence)}${why}${found}${thumbsHtml(cell.captureIds)}</div>`
         );
       });
       const chips =
