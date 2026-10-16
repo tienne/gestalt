@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   computeGraphLayout,
   computeLayout,
+  liftColumns,
+  LIFT_MIN_GAP,
   measureNode,
   NODE_DESC_LINE,
   stackBands,
@@ -225,6 +227,39 @@ describe('computeLayout', () => {
         expect(Math.round(p.y * 100) / 100).toBe(p.y);
       }
     }
+  });
+});
+
+describe('liftColumns', () => {
+  const laid = (clientY: number): LayoutResult => ({
+    width: 600,
+    height: clientY + 172,
+    nodes: [
+      { id: 'c1', x: 0, y: clientY, width: 200, height: 48 },
+      { id: 'c2', x: 0, y: clientY + 100, width: 200, height: 48 },
+      { id: 't1', x: 300, y: 12, width: 200, height: 48 },
+      { id: 't2', x: 300, y: clientY + 124, width: 200, height: 48 },
+    ],
+    edges: [],
+    lanes: [],
+  });
+
+  it('위가 LIFT_MIN_GAP 넘게 빈 열을 간격 그대로 맨 위에 맞추고 옮긴 노드를 적는다', () => {
+    const lifted = liftColumns(laid(12 + LIFT_MIN_GAP + 1));
+    expect(lifted.nodes.map((n) => [n.id, n.y])).toEqual([
+      ['c1', 12],
+      ['c2', 112],
+      ['t1', 12],
+      ['t2', 12 + LIFT_MIN_GAP + 125],
+    ]);
+    expect(lifted.movedNodeIds).toEqual(['c1', 'c2']);
+    // 맨 아래 카드(t2)가 그대로라 그림 높이도 그대로다
+    expect(lifted.height).toBe(laid(12 + LIFT_MIN_GAP + 1).height);
+  });
+
+  it('조금만 내려간 열은 선이 곧게 이어지도록 그대로 둔다', () => {
+    const layout = laid(12 + LIFT_MIN_GAP);
+    expect(liftColumns(layout)).toBe(layout);
   });
 });
 

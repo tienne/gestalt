@@ -637,7 +637,11 @@ a.loc:hover { text-decoration: underline; }
 }
 @media (max-width: 560px) {
   .bar { gap: 6px; padding: 0 8px 0 12px; }
-  .seg, #zoom-fit, .spacer { display: none; }
+  .spacer, .zoom-level { display: none; }
+  /* 툴바에 자리가 없어 확대 버튼은 지도 앱처럼 오른쪽 아래에 띄운다. 패널(서랍)이 열리면 그 아래로 숨는다 */
+  .seg { position: fixed; right: 12px; bottom: 16px; z-index: 12; flex-direction: column-reverse; box-shadow: var(--shadow); }
+  .seg .btn.icon { width: 40px; height: 40px; }
+  #zoom-fit { position: fixed; right: 12px; bottom: 108px; z-index: 12; width: 42px; height: 42px; padding: 0; justify-content: center; box-shadow: var(--shadow); }
   .search { width: auto; flex: 1; min-width: 0; }
   .search input { width: 100%; }
   .drawer { width: 100%; }

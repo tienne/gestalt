@@ -392,7 +392,7 @@ export async function computeLayout(
       ...(FLAT_BACKWARD_EDGE_KINDS.has(e.kind) ? { backward: true } : {}),
     }));
   const laid = await computeGraphLayout(nodes, edges, staged?.labels);
-  return stackBands(laid, bandGroupsOf(ir), ir.edges);
+  return stackBands(liftColumns(laid), bandGroupsOf(ir), ir.edges);
 }
 
 /**
@@ -658,6 +658,36 @@ export function sinkToColumnBottom(layout: LayoutResult, nodeIds: readonly strin
     nodes,
     edges: layout.edges.map((e) => ({ ...e })),
     movedNodeIds: [...new Set([...(layout.movedNodeIds ?? []), ...moved])].sort(),
+  };
+}
+
+// 열 위쪽이 이보다 더 비어 있으면 그 열을 올린다. 첫 화면 절반쯤이다. elk가 선을 곧게 펴려고 조금 내린 열까지 올리면 곧던 선이 휘기만 한다
+export const LIFT_MIN_GAP = 400;
+
+/**
+ * 맨 위 카드가 그림 맨 위보다 LIFT_MIN_GAP 넘게 내려가 있는 열을 통째로 올려 맨 위에 맞춘다. 열 안의 위아래 간격은 그대로 둔다.
+ * elk는 카드가 적은 열을 이웃 열 가운데쯤에 세워서 레인 위쪽이 텅 빈다. 첫 화면을 위에서부터 보여주면 빈 레인만 보인다
+ */
+export function liftColumns(layout: LayoutResult): LayoutResult {
+  if (layout.nodes.length === 0) return layout;
+  const top = Math.min(...layout.nodes.map((n) => n.y));
+  const colTop = new Map<number, number>();
+  for (const n of layout.nodes) colTop.set(n.x, Math.min(colTop.get(n.x) ?? n.y, n.y));
+  const shift = new Map<string, number>();
+  for (const n of layout.nodes) {
+    const dy = colTop.get(n.x)! - top;
+    if (dy > LIFT_MIN_GAP) shift.set(n.id, dy);
+  }
+  if (shift.size === 0) return layout;
+  const oldBottom = Math.max(...layout.nodes.map((n) => n.y + n.height));
+  const nodes = layout.nodes.map((n) => ({ ...n, y: round2(n.y - (shift.get(n.id) ?? 0)) }));
+  const bottom = Math.max(...nodes.map((n) => n.y + n.height));
+  return {
+    ...layout,
+    height: round2(layout.height - (oldBottom - bottom)),
+    nodes,
+    edges: layout.edges.map((e) => ({ ...e })),
+    movedNodeIds: [...new Set([...(layout.movedNodeIds ?? []), ...shift.keys()])].sort(),
   };
 }
 
