@@ -53,6 +53,7 @@ export const PII_CORE_SOURCE = String.raw`(function () {
   });
 
   var NIM_NAME = /(?<![가-힣])([가-힣]{2,4})님/dg;
+  var MASKED_NIM_NAME = /(?<![가-힣])([가-힣]{1,3}[*＊○●]{1,2}[가-힣]{0,2})님/dg;
   var EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
   var PHONE = /(?<!\d)(?:\+82[-. ]?)?0\d{1,2}[-. ]?\d{3,4}[-. ]?\d{4}(?!\d)/g;
   var RRN = /(?<!\d)\d{6}[- ]?[1-8]\d{6}(?!\d)/g;
@@ -86,6 +87,12 @@ export const PII_CORE_SOURCE = String.raw`(function () {
 
   function plausibleName(word) {
     if (!/^[가-힣]{2,4}$/.test(word)) return false;
+    if (NOT_NAMES.indexOf(word.slice(0, 2)) >= 0) return false;
+    return startsWithSurname(word);
+  }
+
+  function plausibleMaskedName(word) {
+    if (word.length > 4) return false;
     if (NOT_NAMES.indexOf(word.slice(0, 2)) >= 0) return false;
     return startsWithSurname(word);
   }
@@ -257,6 +264,10 @@ export const PII_CORE_SOURCE = String.raw`(function () {
       var re2 = new RegExp(NIM_NAME.source, 'dg');
       while ((m = re2.exec(text)) !== null) {
         if (plausibleName(m[1])) add('name', m.indices[1][0], m.indices[0][1], fakeName(m[1], '님'));
+      }
+      var re3 = new RegExp(MASKED_NIM_NAME.source, 'dg');
+      while ((m = re3.exec(text)) !== null) {
+        if (plausibleMaskedName(m[1])) add('name', m.indices[1][0], m.indices[0][1], fakeName(m[1], '님'));
       }
       EMAIL.lastIndex = 0;
       while ((m = EMAIL.exec(text)) !== null) {

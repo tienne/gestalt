@@ -41,6 +41,16 @@ describe('개인정보 가짜 값 치환', () => {
     expect(pii.redactText('고객님 환영합니다').text).toBe('고객님 환영합니다');
   });
 
+  it('앱이 별표로 가린 이름님도 성씨로 시작하면 가명으로 바꾼다', () => {
+    const out = pii.redactText('백도*님의 상품권 총액').text;
+    expect(out).not.toContain('백도');
+    expect(out).not.toContain('*');
+    expect(out).toContain('님의 상품권 총액');
+    expect(pii.redactText('백*님').spans).toHaveLength(1);
+    expect(pii.redactText('고객*님 환영합니다').spans).toHaveLength(0);
+    expect(pii.redactText('라이*님 환영합니다').spans).toHaveLength(0);
+  });
+
   it('주민등록번호와 카드 번호를 바꾼다', () => {
     const rrn = pii.redactText('900101-1234567').text;
     expect(rrn).toMatch(/^\d{6}-1000000$/);
