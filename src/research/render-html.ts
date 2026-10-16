@@ -22,7 +22,11 @@ const MAX_TOTAL_IMAGE_BYTES = 15 * 1024 * 1024;
 const MAX_THUMB_BYTES = 1024 * 1024;
 const MAX_TOTAL_THUMB_BYTES = 4 * 1024 * 1024;
 
-export const AXIS_LABEL = { 'same-market': '같은 시장', 'same-problem': '같은 문제' } as const;
+export const AXIS_LABEL = {
+  'same-market': '같은 시장',
+  'same-problem': '같은 문제',
+  'own-service': '우리 서비스',
+} as const;
 export const SOURCE_LABEL = {
   'app-explore': '앱 탐색',
   uibowl: '유아이볼',
@@ -30,6 +34,9 @@ export const SOURCE_LABEL = {
   youtube: '영상',
   'store-screenshot': '스토어 스크린샷',
   'tech-blog': '기술 블로그',
+  'own-app': '우리 앱 캡처',
+  'own-web': '우리 웹 캡처',
+  figma: '피그마',
   none: '출처 없음',
 } as const;
 export const CAPTURE_STATE_LABEL = {
@@ -43,6 +50,9 @@ export const CAPTURE_KIND_LABEL = {
   'reference-db': '레퍼런스 DB',
   'video-frame': '영상 프레임',
   store: '스토어',
+  'own-app': '우리 앱 캡처',
+  'own-web': '우리 웹 캡처',
+  figma: '피그마',
 } as const;
 export const PII_LABEL = {
   replaced: '개인정보를 가짜 값으로 바꿈',
@@ -239,15 +249,25 @@ export function buildSummaryTables(research: Research): VideoTable[] {
   const seen = research.wowPain.findings.filter(
     (f) => f.basis !== 'unconfirmed' && f.basis !== 'absent',
   );
-  const findingRows = (kind: 'wow' | 'pain'): string[][] =>
+  const ownProducts = new Set(
+    research.productCandidates.filter((p) => p.axis === 'own-service').map((p) => p.id),
+  );
+  const ownRefs = new Set(
+    research.references
+      .filter((r) => r.productIds.some((id) => ownProducts.has(id)))
+      .map((r) => r.id),
+  );
+  const findingRows = (kind: 'wow' | 'pain', own: boolean): string[][] =>
     seen
-      .filter((f) => f.kind === kind)
+      .filter((f) => f.kind === kind && ownRefs.has(f.referenceId) === own)
       .map((f) => [refName(f.referenceId), f.slot ?? '', f.text, f.concrete ?? '']);
-  for (const [kind, heading] of [
-    ['wow', '가져올 와우'],
-    ['pain', '피할 페인'],
+  for (const [kind, own, heading] of [
+    ['wow', false, '가져올 와우'],
+    ['pain', false, '피할 페인'],
+    ['wow', true, '지킬 우리 와우'],
+    ['pain', true, '고칠 우리 페인'],
   ] as const) {
-    const rows = findingRows(kind);
+    const rows = findingRows(kind, own);
     if (rows.length > 0) {
       tables.push({ heading, head: ['레퍼런스', '구좌나 단계', '발견', '조작과 수치'], rows });
     }
@@ -707,6 +727,7 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
           e(CAPTURE_KIND_LABEL[c.kind]),
           `<span class="pii-${c.pii}">${PII_LABEL[c.pii]}</span>`,
           ...(c.sourceNote ? [e(c.sourceNote)] : []),
+          ...(shared || !c.figmaUrl ? [] : [`<a href="${e(c.figmaUrl)}">피그마 노드</a>`]),
           ...(shared ? [] : [e(c.path)]),
         ];
         const body = uri
