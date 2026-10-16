@@ -265,6 +265,12 @@ ges_research { action: "figma_plan", slug: "<slug>", audience: "shared", withIma
 
 스크립트는 편집 권한이 있는 Figma 파일에서 새 페이지를 만든다. 이미지는 `withImages`를 켰을 때만 넣고 쓴 뒤에는 응답의 `verifyScriptPath` 스크립트로 이미지 fill이 남았는지 확인한다. 이미지 업로드가 끝나기 전에 탭을 닫지 않는다. Figma 파일에 쓰는 일은 사용자가 원한 파일에서만 한다.
 
+Figma 커넥터의 `use_figma`로 쓸 때는 `runner: "body"`로 부르고 `withImages`는 켜지 않는다. `use_figma`는 코드가 5만 자까지라 이미지를 넣은 스크립트는 들어가지 않는다. 순서는 아래와 같다.
+
+1. `scriptPath`의 본문을 `use_figma`로 실행한다. 응답의 `imageSlots`가 이미지 자리의 노드 ID다.
+2. `upload_assets`를 `count`와 `nodeIds`(`imageSlots`의 `nodeId`를 같은 순서로)로 부른다. 받은 주소마다 `imageFiles`의 파일을 원문 바이트로 보낸다.
+3. 반환된 `pageId`를 `__PAGE_ID__` 자리에 넣어 `fitScriptPath`로 높이와 캡션을 맞추고 `verifyScriptPath`로 이미지가 남았는지 확인한다.
+
 보고에는 아래를 담는다.
 
 - 만든 파일 경로(개인용, 공유용, `research.json`)와 공유용이 막혔는지
