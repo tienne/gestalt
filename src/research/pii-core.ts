@@ -22,11 +22,12 @@ export const PII_CORE_SOURCE = String.raw`(function () {
     4: ['남궁민수', '선우지안', '독고서진', '황보라희', '제갈민준', '사공유나', '서문하늘', '동방지후']
   };
   var LABELS = {
-    name: '이름|성명|성함|수령인|받는\\s?분|보내는\\s?분|예금주|구매자|주문자|수취인',
+    name: '이름|성명|성함|수령인|받는\\s?분|보내는\\s?분|예금주|구매자|주문자|수취인|대표자|대표이사|대표(?=\\s*[:：])',
     birth: '생년월일|생일',
     address: '주소|배송지|배송\\s?주소|도로명',
     account: '환불\\s?계좌|입금\\s?계좌|계좌\\s?번호|계좌',
     order: '주문\\s?번호|예약\\s?번호|승인\\s?번호|운송장\\s?번호|거래\\s?번호',
+    biz: '사업자\\s?등록\\s?번호|사업자\\s?번호|법인\\s?등록\\s?번호|통신판매업\\s?신고(?:\\s?번호)?|통신판매업\\s?번호',
     gift: '바코드(?:\\s?번호)?|PIN(?:\\s?번호)?|핀\\s?번호|쿠폰\\s?번호|교환\\s?번호|인증\\s?번호|시리얼(?:\\s?번호)?|상품권\\s?번호|기프티콘\\s?번호',
     phone: '전화번호|휴대폰(?:\\s?번호)?|핸드폰(?:\\s?번호)?|연락처|전화',
     email: '이메일|메일'
@@ -42,6 +43,7 @@ export const PII_CORE_SOURCE = String.raw`(function () {
     address: '[^\\n]{4,100}',
     account: '\\d[\\d-]{7,24}\\d',
     order: '[A-Za-z0-9-]{6,32}',
+    biz: '[0-9][0-9A-Za-z가-힣-]{5,28}',
     gift: '[A-Za-z0-9][A-Za-z0-9 -]{4,30}[A-Za-z0-9]',
     phone: '\\+?[\\d][\\d .-]{7,16}\\d',
     email: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}'
@@ -202,6 +204,7 @@ export const PII_CORE_SOURCE = String.raw`(function () {
       address: function (v) { return fakeAddress(v); },
       account: function (v) { return maskDigits('account', v, true); },
       order: function (v) { return maskDigits('order', v, true); },
+      biz: function (v) { return maskDigits('biz', v, true); },
       gift: function (v) { return maskDigits('gift', v, false); }
     };
 
@@ -244,7 +247,7 @@ export const PII_CORE_SOURCE = String.raw`(function () {
             if (plausibleName(nameWord)) add('name', span[0], span[1] + (m[2] ? 1 : 0), fakeName(nameWord, nameSuffix));
           } else if (kind === 'address') {
             if (validAddressValue(value)) add('address', span[0], span[1], fakeAddress(value));
-          } else if (kind === 'birth' || kind === 'phone' || kind === 'account' || kind === 'order' || kind === 'gift' || kind === 'email') {
+          } else if (kind === 'birth' || kind === 'phone' || kind === 'account' || kind === 'order' || kind === 'biz' || kind === 'gift' || kind === 'email') {
             if (/\d|@/.test(value)) add(kind, span[0], span[1], REPLACERS[kind](value));
           }
           if (m[0].length === 0) re.lastIndex++;
@@ -310,8 +313,9 @@ export const PII_CORE_SOURCE = String.raw`(function () {
       if (/cc-number|card|카드/.test(h)) return 'card';
       if (/account|계좌/.test(h)) return 'account';
       if (/order|주문|예약/.test(h)) return 'order';
+      if (/business|사업자|법인|통신판매/.test(h)) return 'biz';
       if (/pin|barcode|coupon|gift|바코드|쿠폰|핀|교환|인증번호/.test(h)) return 'gift';
-      if (/name|이름|성명|수령|받는|예금주/.test(h)) return 'name';
+      if (/name|이름|성명|수령|받는|예금주|대표자|대표이사/.test(h)) return 'name';
       return null;
     }
 

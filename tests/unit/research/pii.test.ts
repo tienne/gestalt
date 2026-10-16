@@ -73,6 +73,32 @@ describe('개인정보 가짜 값 치환', () => {
     expect(out).not.toContain('0012345');
   });
 
+  it('사업자 정보 줄은 대표자 이름과 등록 번호까지 함께 바꾼다', () => {
+    const out = pii.redactText(
+      '대표이사 서지훈 사업자등록번호 123-45-67890 통신판매업신고번호 2024-서울강남-01234 주소 서울특별시 강남구 테헤란로 123',
+    ).text;
+    expect(out).not.toContain('서지훈');
+    expect(out).not.toContain('67890');
+    expect(out).not.toContain('01234');
+    expect(out).not.toContain('테헤란로 123');
+    expect(out).toMatch(/사업자등록번호 000-00-0\d{4}/);
+    expect(out).toContain('서울강남');
+  });
+
+  it('콜론이 붙은 대표 라벨만 이름으로 본다', () => {
+    expect(pii.redactText('대표: 서지훈').text).not.toContain('서지훈');
+    expect(pii.redactText('대표 이미지').spans).toHaveLength(0);
+  });
+
+  it('사업자 번호는 같은 값에 같은 가명을 주고 라벨과 입력 속성 힌트로도 정한다', () => {
+    const a = pii.redactText('사업자등록번호: 123-45-67890').text;
+    const b = pii.redactText('다시 사업자등록번호 123-45-67890').text;
+    expect(a.match(/0\d{4}$/)![0]).toBe(b.match(/0\d{4}$/)![0]);
+    expect(pii.redactText('123-45-67890', 'biz').text).not.toContain('67890');
+    expect(pii.labelKindOf('사업자등록번호')).toBe('biz');
+    expect(pii.kindFromHints('name=business_no')).toBe('biz');
+  });
+
   it('seed가 다르면 같은 값도 다른 가명이 나온다', () => {
     const other = createPiiRedactor('other-seed');
     const outs = new Set<string>();
