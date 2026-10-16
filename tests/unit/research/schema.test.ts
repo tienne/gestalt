@@ -116,7 +116,8 @@ describe('lintResearch', () => {
     input.comparison = [];
     input.mockups = [];
     input.reasons = [];
-    input.wowPain = { userViewpoint: '', bizViewpoint: '', items: [] };
+    input.wowPain = { userViewpoint: '', bizViewpoint: '', items: [], findings: [] };
+    input.adoptions = [];
     const w = lintResearch(parseOk(input));
     expect(w.some((x) => x.path === 'references')).toBe(true);
   });

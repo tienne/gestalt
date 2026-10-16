@@ -40,6 +40,7 @@ function standalone(): Research {
     references: [],
     comparison: [],
     wowPain: undefined,
+    adoptions: [],
     reasons: [],
     judgment: [],
     verification: [],

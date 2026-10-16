@@ -1,3 +1,4 @@
+export * from './evidence.js';
 export * from './schema.js';
 export * from './source-schema.js';
 export * from './source-registry.js';

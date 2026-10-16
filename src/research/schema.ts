@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { ValidationError } from '../core/errors.js';
 import { err, ok, type Result } from '../core/result.js';
+import { basisFields, checkBasis, evidenceListSchema, type EvidenceRef } from './evidence.js';
+import { httpsUrlSchema, idSchema, textSchema } from './schema-base.js';
 
+/** 새 필드는 전부 선택이라 1.0.0 문서가 그대로 읽힌다 */
 export const RESEARCH_SCHEMA_VERSION = '1.0.0';
 
 /** design.md 2.1절의 경우 5개. video-analysis는 영상 블록만 채우는 단독 문서다 */
@@ -48,13 +51,15 @@ export const VIDEO_NATURES = ['direction', 'convention'] as const;
 export const VIDEO_CADENCES = ['always', 'seasonal', 'exclusive'] as const;
 export const COMPARISON_SYMBOLS = ['◎', '○', '△'] as const;
 export const COMPARISON_ROW_KINDS = ['graded', 'burden', 'risk'] as const;
+/** 구좌 행이 5사에서 같은 방식인지(common), 갈리는지(split), 한 곳만 하는지(unique) */
+export const COMPARISON_PATTERNS = ['common', 'split', 'unique'] as const;
+export const FINDING_KINDS = ['wow', 'pain', 'insight', 'design'] as const;
+export const FINDING_VIEWPOINTS = ['user', 'biz'] as const;
+/** immediate: 지금 정할 수 있다. data: 데이터를 봐야 한다. other-team: 다른 직군이 확인한다 */
+export const QUESTION_OWNERS = ['immediate', 'data', 'other-team'] as const;
+export const ADOPTION_STATUSES = ['adopted', 'candidate', 'rejected'] as const;
 export const CONFIDENCE_LEVELS = ['likely', 'trial', 'hold', 'out'] as const;
 export const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'] as const;
-
-const idSchema = z
-  .string()
-  .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/, 'id는 영문, 숫자, -, _만 쓴다');
-const textSchema = z.string().min(1);
 
 /** 리서치 폴더 밖으로 나가는 경로를 막는다. 공유용 HTML에 임의 파일이 실리는 길이기도 하다 */
 export function isSafeRelativePath(path: string): boolean {
@@ -66,11 +71,6 @@ export function isSafeRelativePath(path: string): boolean {
 const relativePathSchema = z
   .string()
   .refine(isSafeRelativePath, '리서치 폴더 안의 상대 경로만 쓴다 (절대 경로, .. 불가)');
-
-const httpsUrlSchema = z
-  .string()
-  .url()
-  .refine((u) => u.startsWith('https://'), 'https 주소만 쓴다');
 
 const foundViaSchema = z.object({
   source: textSchema,
@@ -118,6 +118,10 @@ export const captureSchema = z.object({
   /** 예: 유아이볼 수집 시점을 확인 못함 */
   sourceNote: z.string().optional(),
   label: z.string().optional(),
+  /** 캡처 아래에 붙는 한 줄. "번호. 제목 — 요소 나열" 꼴 */
+  caption: z.string().optional(),
+  /** 영상이나 스토어 원본에서 몇 번째 프레임인지. 근거 표기 "(프레임 08)"에 쓴다 */
+  frameNo: z.string().optional(),
 });
 
 const premiseSchema = z.object({
@@ -150,22 +154,33 @@ const mockupSchema = z.object({
   note: z.string().optional(),
 });
 
-const comparisonCellSchema = z.object({
-  referenceId: idSchema,
-  symbol: z.enum(COMPARISON_SYMBOLS).optional(),
-  text: textSchema,
-});
+const comparisonCellSchema = z
+  .object({
+    referenceId: idSchema,
+    symbol: z.enum(COMPARISON_SYMBOLS).optional(),
+    text: textSchema,
+    ...basisFields,
+    /** 근거 상태는 선택이다. 없으면 lint가 한 번 알린다 */
+    basis: basisFields.basis.optional(),
+    /** 이 칸의 대표 화면. 썸네일로 그려진다 */
+    captureIds: z.array(idSchema).default([]),
+  })
+  .superRefine(checkBasis);
 
 const comparisonRowSchema = z
   .object({
     phase: textSchema,
     criterion: textSchema,
+    /** 구좌 한 줄 정의. 격자의 회색 글자 */
+    definition: z.string().optional(),
+    pattern: z.enum(COMPARISON_PATTERNS).optional(),
     kind: z.enum(COMPARISON_ROW_KINDS).default('graded'),
     cells: z.array(comparisonCellSchema).min(1),
   })
   .superRefine((row, ctx) => {
     row.cells.forEach((cell, i) => {
-      if (row.kind === 'graded' && !cell.symbol) {
+      const ungraded = cell.basis === 'unconfirmed' || cell.basis === 'absent';
+      if (row.kind === 'graded' && !cell.symbol && !ungraded) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['cells', i, 'symbol'],
@@ -192,6 +207,50 @@ const wowPainSchema = z.object({
   bizPain: bulletsSchema,
 });
 
+/** 화면이나 구좌에 걸린 발견 하나. 2×2 불릿과 달리 근거와 조작 구체값을 단다 */
+export const findingSchema = z
+  .object({
+    id: idSchema,
+    referenceId: idSchema,
+    kind: z.enum(FINDING_KINDS),
+    viewpoint: z.enum(FINDING_VIEWPOINTS),
+    text: textSchema,
+    /** 비교표의 구좌 이름이나 시나리오 단계 */
+    slot: z.string().optional(),
+    captureId: idSchema.optional(),
+    screenMapId: idSchema.optional(),
+    /** 조작 횟수나 수치. 예: "20명 입력하려면 19번 터치" */
+    concrete: z.string().optional(),
+    ...basisFields,
+  })
+  .superRefine(checkBasis);
+
+const adoptionSchema = z
+  .object({
+    id: idSchema,
+    /** 시안 이름. 예: "A" */
+    variant: textSchema,
+    referenceIds: z.array(idSchema).default([]),
+    status: z.enum(ADOPTION_STATUSES),
+    /** 가져온 것과 덜어낸 것. 시안 카드에 그대로 오른다 */
+    adopted: z.array(textSchema).default([]),
+    mitigated: z.array(textSchema).default([]),
+    /** 가져오는 와우(findings)와 푸는 페인(findings) */
+    takesFindingIds: z.array(idSchema).default([]),
+    solvesFindingIds: z.array(idSchema).default([]),
+    /** 채택하지 않은 이유. rejected면 필수 */
+    reason: z.string().optional(),
+  })
+  .superRefine((a, ctx) => {
+    if (a.status === 'rejected' && !a.reason?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['reason'],
+        message: '채택하지 않은 항목에는 이유(reason)를 적는다',
+      });
+    }
+  });
+
 const reasonSchema = z.object({
   referenceId: idSchema,
   business: textSchema,
@@ -209,6 +268,11 @@ const judgmentSchema = z
     rationale: textSchema,
     /** 보류일 때 무엇이 정해지면 결정할 수 있는지 */
     holdUntil: z.string().optional(),
+    /** 우선순위. 1이 가장 먼저 */
+    rank: z.number().int().positive().optional(),
+    /** 이 판단 뒤에 할 일 */
+    todo: z.string().optional(),
+    evidence: evidenceListSchema,
   })
   .superRefine((j, ctx) => {
     if (j.confidence === 'hold' && !j.holdUntil?.trim()) {
@@ -269,6 +333,10 @@ const openQuestionsSchema = z.object({
         temporary: textSchema,
         /** 답에 따라 바뀌는 시안이나 화면. 비면 우선순위를 못 매긴다 */
         affects: textSchema,
+        /** 누가 확인해야 풀리는지 */
+        owner: z.enum(QUESTION_OWNERS).optional(),
+        /** 다른 직군이면 어느 쪽인지. 예: 개발팀, 법무 */
+        ownerNote: z.string().optional(),
       }),
     )
     .default([]),
@@ -296,8 +364,11 @@ export const researchSchema = z
         userViewpoint: z.string().default(''),
         bizViewpoint: z.string().default(''),
         items: z.array(wowPainSchema).default([]),
+        findings: z.array(findingSchema).default([]),
       })
       .default({}),
+    /** 시안이 리서치의 무엇을 가져오고 푸는지. 와우와 페인에서 시안으로 이어지는 선 */
+    adoptions: z.array(adoptionSchema).default([]),
     reasons: z.array(reasonSchema).default([]),
     judgment: z.array(judgmentSchema).default([]),
     verification: z.array(verificationSchema).default([]),
@@ -390,6 +461,58 @@ export const researchSchema = z
         }
       }),
     );
+
+    const checkEvidence = (path: (string | number)[], list: EvidenceRef[]): void => {
+      list.forEach((ev, k) => {
+        if (ev.type === 'capture' && !capturesById.has(ev.captureId)) {
+          issue([...path, k, 'captureId'], `없는 캡처: ${ev.captureId}`);
+        }
+        if (ev.type === 'video' && !clips.has(ev.clipId)) {
+          issue([...path, k, 'clipId'], `없는 영상: ${ev.clipId}`);
+        }
+      });
+    };
+    r.comparison.forEach((row, i) =>
+      row.cells.forEach((cell, j) => {
+        const base = ['comparison', i, 'cells', j];
+        checkEvidence([...base, 'evidence'], cell.evidence);
+        cell.captureIds.forEach((id, k) => {
+          if (!capturesById.has(id)) issue([...base, 'captureIds', k], `없는 캡처: ${id}`);
+        });
+      }),
+    );
+    r.judgment.forEach((j, i) => checkEvidence(['judgment', i, 'evidence'], j.evidence));
+
+    checkUnique(
+      'wowPain.findings',
+      r.wowPain.findings.map((f) => f.id),
+    );
+    r.wowPain.findings.forEach((f, i) => {
+      checkRef('wowPain.findings', i, f.referenceId);
+      checkEvidence(['wowPain', 'findings', i, 'evidence'], f.evidence);
+      if (f.captureId && !capturesById.has(f.captureId)) {
+        issue(['wowPain', 'findings', i, 'captureId'], `없는 캡처: ${f.captureId}`);
+      }
+      if (f.screenMapId && !screens.has(f.screenMapId)) {
+        issue(['wowPain', 'findings', i, 'screenMapId'], `없는 화면: ${f.screenMapId}`);
+      }
+    });
+
+    checkUnique(
+      'adoptions',
+      r.adoptions.map((a) => a.id),
+    );
+    const findingIds = new Set(r.wowPain.findings.map((f) => f.id));
+    r.adoptions.forEach((a, i) => {
+      a.referenceIds.forEach((id, k) => {
+        if (!refs.has(id)) issue(['adoptions', i, 'referenceIds', k], `없는 레퍼런스: ${id}`);
+      });
+      for (const key of ['takesFindingIds', 'solvesFindingIds'] as const) {
+        a[key].forEach((id, k) => {
+          if (!findingIds.has(id)) issue(['adoptions', i, key, k], `없는 발견: ${id}`);
+        });
+      }
+    });
   });
 
 export type Research = z.infer<typeof researchSchema>;
@@ -399,6 +522,8 @@ export type ScreenMapItem = z.infer<typeof screenMapItemSchema>;
 export type Capture = z.infer<typeof captureSchema>;
 export type VideoClip = z.infer<typeof videoClipSchema>;
 export type VideoFinding = z.infer<typeof videoFindingSchema>;
+export type Finding = z.infer<typeof findingSchema>;
+export type Adoption = z.infer<typeof adoptionSchema>;
 
 export function parseResearch(input: unknown): Result<Research, ValidationError> {
   const parsed = researchSchema.safeParse(input);
@@ -435,6 +560,101 @@ function lintEffectSentences(text: string, path: string, warnings: ResearchWarni
         message: `효과나 의도를 말하는 문장에 (해석)이나 출처 표기가 없다: "${sentence.slice(0, 40)}"`,
       });
     }
+  }
+}
+
+/** 못 봤다고 말하는 문장의 낌새 */
+const UNCONFIRMED_PATTERN = /확인 못|확인하지 못|확인되지 않|리서치에 없/;
+const DIGIT = /\d/;
+
+/** 와우와 페인이 비었거나 근거 상태가 비어 있는 자리를 본다. 근거 구조(basis, evidence)가 있어야 걸린다 */
+function lintEvidenceStructure(research: Research, warnings: ResearchWarning[]): void {
+  const { references, comparison, wowPain, adoptions, openQuestions } = research;
+  const needsWowPain = ['ux-research', 'reverse-plan', 'market-scan'].includes(research.meta.kind);
+
+  if (needsWowPain) {
+    for (const ref of references) {
+      const items = wowPain.items.filter((w) => w.referenceId === ref.id);
+      const found = wowPain.findings.filter((f) => f.referenceId === ref.id);
+      const wow =
+        found.filter((f) => f.kind === 'wow').length +
+        items.reduce((n, w) => n + w.userWow.length + w.bizWow.length, 0);
+      const pain =
+        found.filter((f) => f.kind === 'pain').length +
+        items.reduce((n, w) => n + w.userPain.length + w.bizPain.length, 0);
+      if (wow === 0 || pain === 0) {
+        warnings.push({
+          path: 'wowPain',
+          message: `${ref.symbol}. ${ref.typeName}에 ${wow === 0 ? '와우' : '페인'} 포인트가 하나도 없다. 못 찾았으면 못 찾았다고 근거 상태(unconfirmed)로 적는다`,
+        });
+      }
+    }
+  }
+
+  wowPain.findings.forEach((f, i) => {
+    const path = `wowPain.findings.${i}`;
+    if (f.kind === 'pain' && f.basis === 'observation' && !f.concrete && !DIGIT.test(f.text)) {
+      warnings.push({
+        path,
+        message: `본 페인에 조작 횟수나 수치가 없다 (${f.id}). concrete에 "몇 번 눌러야 하는지" 같은 값을 적는다`,
+      });
+    }
+    if (UNCONFIRMED_PATTERN.test(f.text) && f.basis !== 'unconfirmed') {
+      warnings.push({
+        path: `${path}.basis`,
+        message: `확인 못했다고 적었는데 근거 상태가 ${f.basis}이다 (${f.id})`,
+      });
+    }
+  });
+
+  if (references.length > 0 && comparison.length > 0) {
+    let noBasis = 0;
+    comparison.forEach((row, i) => {
+      const present = new Set(row.cells.map((c) => c.referenceId));
+      const missing = references.filter((r) => !present.has(r.id));
+      if (missing.length > 0) {
+        warnings.push({
+          path: `comparison.${i}.cells`,
+          message: `${row.criterion} 행에 빠진 칸이 있다 (${missing.map((r) => r.symbol).join(', ')}). 못 본 칸은 빈칸으로 두지 않고 "확인 못함"과 이유를 적는다`,
+        });
+      }
+      row.cells.forEach((cell, j) => {
+        if (!cell.basis) noBasis++;
+        if (UNCONFIRMED_PATTERN.test(cell.text) && cell.basis && cell.basis !== 'unconfirmed') {
+          warnings.push({
+            path: `comparison.${i}.cells.${j}.basis`,
+            message: `확인 못했다고 적었는데 근거 상태가 ${cell.basis}이다 (${row.criterion})`,
+          });
+        }
+      });
+    });
+    if (noBasis > 0) {
+      warnings.push({
+        path: 'comparison',
+        message: `비교표 칸 ${noBasis}개에 근거 상태(basis)가 없다. 관찰, 회사 발언, 해석, 확인 못함, 없음 중 하나를 정한다`,
+      });
+    }
+  }
+
+  if (adoptions.length > 0) {
+    const solved = new Set(adoptions.flatMap((a) => a.solvesFindingIds));
+    wowPain.findings.forEach((f, i) => {
+      if (f.kind === 'pain' && !solved.has(f.id)) {
+        warnings.push({
+          path: `wowPain.findings.${i}`,
+          message: `어느 시안도 풀지 않는 페인이다 (${f.id}). 시안의 solvesFindingIds에 걸거나 제외 이유를 적는다`,
+        });
+      }
+    });
+  }
+
+  const items = openQuestions?.items ?? [];
+  const noOwner = items.filter((q) => !q.owner).length;
+  if (noOwner > 0) {
+    warnings.push({
+      path: 'openQuestions.items',
+      message: `질문 ${noOwner}개에 확인 주체(owner)가 없다. 바로 정할 것, 데이터를 봐야 할 것, 다른 직군이 확인할 것으로 나눈다`,
+    });
   }
 }
 
@@ -510,6 +730,8 @@ export function lintResearch(research: Research): ResearchWarning[] {
       lintEffectSentences(cell.text, `comparison.${i}.cells.${j}`, warnings),
     );
   });
+
+  lintEvidenceStructure(research, warnings);
 
   const video = research.video;
   if (research.meta.kind === 'video-analysis' && (!video || video.clips.length === 0)) {
