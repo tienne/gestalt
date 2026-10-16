@@ -1,5 +1,6 @@
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { loadConfig, type GestaltConfig } from '../core/config.js';
 import { log } from '../core/log.js';
@@ -498,12 +499,13 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   guardedTool(
     'ges_research',
-    `Competitive and reference research workflow helpers: list research sources and whether this session can use them. Results are kept under .gestalt/research. Actions: ${RESEARCH_ACTIONS.join(', ')}.`,
+    `Competitive and reference research workflow helpers: list research sources and whether this session can use them, and replace personal data in captures with fake values before they are stored. Results are kept under .gestalt/research. Actions: ${RESEARCH_ACTIONS.join(', ')}.`,
     researchInputSchema.shape,
     async (params) => {
       const input = researchInputSchema.parse(params);
       const result = await handleResearchPassthrough(input, process.cwd(), {
         builtinDir: config.researchSourcesDir,
+        visionScript: join(config.skillsDir, 'research', 'scripts', 'pii-vision.swift'),
       });
       return toolReply(JSON.stringify(result, null, 2));
     },

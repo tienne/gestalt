@@ -1014,13 +1014,15 @@ export type ArchitectureInput = z.infer<typeof architectureInputSchema>;
 
 // ─── Research Tool ────────────────────────────────────────────────
 /** `ges_research`가 받는 액션. 서버 등록이 이 배열을 그대로 쓴다 */
-export const RESEARCH_ACTIONS = ['sources'] as const;
+export const RESEARCH_ACTIONS = ['sources', 'redact_image', 'redact_script'] as const;
 
 export const researchInputSchema = guardObject(
   z.object({
     action: z
       .enum(RESEARCH_ACTIONS)
-      .describe('sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped)'),
+      .describe(
+        'sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped). redact_image: 캡처 이미지의 개인정보를 가짜 값으로 바꿔 .gestalt/research/<slug>/captures에 저장. redact_script: 웹 화면을 캡처하기 전에 DOM에서 실행할 치환 스크립트',
+      ),
     repoRoot: z.string().optional().describe('기본은 현재 디렉토리'),
     available: z
       .object({
@@ -1042,6 +1044,34 @@ export const researchInputSchema = guardObject(
       .string()
       .optional()
       .describe('sources: 이 출처의 본문(찾는 법, 멈추는 곳)과 접근 방법을 함께 돌려준다'),
+    slug: z
+      .string()
+      .optional()
+      .describe(
+        'redact_image, redact_script: 리서치 slug. 같은 slug 안에서는 같은 값이 같은 가명이 된다',
+      ),
+    imagePath: z
+      .string()
+      .optional()
+      .describe('redact_image: 원본 캡처 경로(png, jpg, webp). 상대 경로는 repoRoot 기준'),
+    captureId: z
+      .string()
+      .optional()
+      .describe('redact_image: 저장할 캡처 id. captures/<id>.<확장자>로 저장한다'),
+    deleteSource: z
+      .boolean()
+      .optional()
+      .describe('redact_image: 치환을 마친 뒤 원본 파일을 지운다. 기본은 지우지 않고 경고만 한다'),
+    observe: z
+      .boolean()
+      .optional()
+      .describe('redact_script: 화면이 바뀔 때마다(지연 로딩, 무한 스크롤) 다시 치환한다'),
+    inline: z
+      .boolean()
+      .optional()
+      .describe(
+        'redact_script: 스크립트 본문(약 19KB)을 응답에 싣는다. 기본은 파일 경로만 준다. 파일을 못 읽는 도구(aside)에서만 켠다',
+      ),
   }),
 );
 
