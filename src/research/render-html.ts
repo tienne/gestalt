@@ -130,6 +130,30 @@ export const ATTEMPT_LABEL = {
 /** 역기획의 화면 주석 카드 이름. 발견의 종류를 그대로 옮긴다 */
 const ANNOTATION_LABEL = { wow: 'WOW', pain: 'BAD', insight: 'INSIGHT', design: 'Design' } as const;
 
+/**
+ * 근거 여러 개를 괄호 하나로 묶는다. 프레임이 이어지면 "(프레임 08, 09)"처럼 접두어를 한 번만 쓴다.
+ * 링크는 글자만으로 갈 곳을 알 수 없어 뺀다(HTML이 따로 건다)
+ */
+export function evidenceGroupLabel(
+  research: Research,
+  list: EvidenceRef[],
+  shared: boolean,
+): string {
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  let prevFrame = false;
+  for (const ev of list) {
+    if (ev.type === 'url') continue;
+    const label = evidenceLabel(research, ev, shared);
+    if (seen.has(label)) continue;
+    seen.add(label);
+    const isFrame = label.startsWith('프레임 ');
+    labels.push(isFrame && prevFrame ? label.slice('프레임 '.length) : label);
+    prevFrame = isFrame;
+  }
+  return labels.length > 0 ? `(${labels.join(', ')})` : '';
+}
+
 /** 화면 흐름 섹션이 그릴 내용이 있는지 */
 export function hasFlowSection(research: Research): boolean {
   const f = research.flow;
@@ -156,8 +180,7 @@ export function buildFlowTables(research: Research, shared: boolean): VideoTable
     if (!s) return id;
     return s.platform ? `${s.screen} (${PLATFORM_LABEL[s.platform]})` : s.screen;
   };
-  const evid = (list: EvidenceRef[]): string =>
-    list.map((ev) => `(${evidenceLabel(research, ev, shared)})`).join('');
+  const evid = (list: EvidenceRef[]): string => evidenceGroupLabel(research, list, shared);
   const tables: VideoTable[] = [];
   const { transitions, markers, attempts, userTypes } = research.flow;
 
@@ -452,14 +475,17 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     });
     return items.length > 0 ? `<div class="thumbs">${items.join('')}</div>` : '';
   };
-  const evidenceHtml = (list: EvidenceRef[]): string =>
-    list
+  const evidenceHtml = (list: EvidenceRef[]): string => {
+    const group = evidenceGroupLabel(research, list, shared);
+    const links = list
+      .filter((ev) => ev.type === 'url')
       .map((ev) =>
         ev.type === 'url'
           ? `<a class="ev" href="${e(ev.url)}" rel="noopener noreferrer">(링크)</a>`
-          : `<span class="ev">(${e(evidenceLabel(research, ev, shared))})</span>`,
-      )
-      .join('');
+          : '',
+      );
+    return (group ? `<span class="ev">${e(group)}</span>` : '') + links.join('');
+  };
   const basisChip = (basis: BasisKind | undefined): string =>
     basis && basis !== 'observation'
       ? `<span class="chip basis-${basis}">${BASIS_LABEL[basis]}</span>`

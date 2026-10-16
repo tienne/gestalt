@@ -14,7 +14,7 @@ import {
   ROW_KIND_LABEL,
   SOURCE_LABEL,
   buildVideoTables,
-  evidenceLabel,
+  evidenceGroupLabel,
   hasVideoSection,
   VIEWPOINT_LABEL,
   videoSectionTitle,
@@ -72,7 +72,9 @@ export function buildFigmaPlan(
     return r ? `${r.symbol}. ${r.typeName}` : id;
   };
   const evidenceText = (list: EvidenceRef[]): string =>
-    list.map((ev) => `(${evidenceLabel(research, ev, shared)})`).join('');
+    list.some((ev) => ev.type === 'url')
+      ? `${evidenceGroupLabel(research, list, shared)}(링크)`
+      : evidenceGroupLabel(research, list, shared);
   const text = (style: TextStyle, value: string): PlanNode => ({
     type: 'text',
     style,

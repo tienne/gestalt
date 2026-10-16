@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { renderResearchHtml, type LoadedImage } from '../../../src/research/render-html.js';
+import {
+  evidenceGroupLabel,
+  renderResearchHtml,
+  type LoadedImage,
+} from '../../../src/research/render-html.js';
 import { parseResearch, type Research } from '../../../src/research/schema.js';
 import { sampleResearch } from './fixture.js';
 
@@ -178,5 +182,23 @@ describe('research HTML 렌더', () => {
     if (!r.ok) throw new Error('렌더 실패');
     expect(r.html).toContain('href="#cap-cap1"');
     expect(r.html.split('data:image/png').length - 1).toBe(1);
+  });
+
+  it('근거 여러 개는 괄호 하나로 묶고 이어지는 프레임은 접두어를 한 번만 쓴다', () => {
+    const base = research();
+    const first = base.captures[0]!;
+    const r: Research = {
+      ...base,
+      captures: [
+        { ...first, id: 'cap1', frameNo: 'B-1' },
+        { ...first, id: 'cap2', frameNo: 'B-2' },
+      ],
+    };
+    const cap = (id: string) => ({ type: 'capture' as const, captureId: id });
+    const internal = { type: 'internal' as const, source: '내부 실적', note: '월 집계' };
+    expect(evidenceGroupLabel(r, [cap('cap1'), cap('cap2')], false)).toBe('(프레임 B-1, B-2)');
+    expect(evidenceGroupLabel(r, [cap('cap1'), cap('cap1')], false)).toBe('(프레임 B-1)');
+    expect(evidenceGroupLabel(r, [internal, cap('cap1')], false)).toBe('(내부 실적, 프레임 B-1)');
+    expect(evidenceGroupLabel(r, [], false)).toBe('');
   });
 });
