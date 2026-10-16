@@ -67,7 +67,7 @@ hooks/hooks.json                  Claude 플러그인 훅 (코드 그래프 자�
 - 훅은 루트 `hooks/hooks.json` 하나만 두고 `plugin.json`에 `hooks` 필드를 넣지 않는다. 문서상 필드와 기본 파일은 merge된다. 같은 파일을 가리키면 실제로는 한 번만 걸리는 걸 확인했지만 그래도 한 곳만 둔다.
 - Codex와 Grok 훅은 지원하지 않는다. 훅 자동 주입은 Claude 전용이다.
 - 훅 런처는 `scripts/code-graph-hook.sh`와 `scripts/webfetch-cache-hook.sh` 두 개다. WebFetch 캐시 런처는 Node 없이 bash와 jq, curl로만 돈다. 코드 그래프 런처의 Node 탐색은 `scripts/lib/pick-node.sh`를 `mcp-serve.sh`와 함께 쓴다. 자세한 동작은 [`docs/code-graph.md`](./docs/code-graph.md#claude-code-훅-자동-주입)에 있다.
-- 자산 디렉토리 기본값은 `src/core/config.ts`에 `skillsDir`, `agentsDir`, `roleAgentsDir`, `reviewAgentsDir`, `personasDir` 다섯 개로 있다. 경로를 바꾸면 전부 함께 고친다.
+- 자산 디렉토리 기본값은 `src/core/config.ts`에 `skillsDir`, `agentsDir`, `roleAgentsDir`, `reviewAgentsDir`, `personasDir`, `researchSourcesDir` 여섯 개로 있다. 경로를 바꾸면 전부 함께 고친다.
 
 ### MCP 기동 경로
 
