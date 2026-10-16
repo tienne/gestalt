@@ -405,6 +405,99 @@ describe('ges_research action=figma_plan', () => {
   });
 });
 
+describe('ges_research action=split_video, merge_video', () => {
+  async function setup() {
+    const repo = tmpHome();
+    const { sampleResearch, sampleVideo, videoFrameCapture } =
+      await import('../research/fixture.js');
+    const base = sampleResearch();
+    const ir = {
+      ...base,
+      captures: [...(base.captures ?? []), videoFrameCapture()],
+      video: sampleVideo(),
+    };
+    const irPath = join(repo, 'ir.json');
+    writeFileSync(irPath, JSON.stringify(ir));
+    const slug = ir.meta.slug;
+    const capDir = join(repo, '.gestalt/research', slug, 'captures');
+    mkdirSync(capDir, { recursive: true });
+    writeFileSync(join(capDir, 'a-01.jpg'), 'jpg-bytes');
+    writeFileSync(join(capDir, 'a-home.png'), 'png-bytes');
+    await runWith({ action: 'render', repoRoot: repo, irPath }, repo, {});
+    return { repo, slug };
+  }
+  const dirOf = (repo: string, slug: string): string => join(repo, '.gestalt/research', slug);
+
+  it('떼어내면 영상 문서와 프레임 이미지를 만들고 본문은 그대로 둔다', async () => {
+    const { repo, slug } = await setup();
+    const r = await runWith({ action: 'split_video', repoRoot: repo, slug }, repo, {});
+    expect(r.ok).toBe(true);
+    expect(r.videoSlug).toBe(`${slug}-video`);
+    expect(r.copiedImages).toEqual(['captures/a-01.jpg']);
+    expect(existsSync(join(dirOf(repo, r.videoSlug), 'captures/a-01.jpg'))).toBe(true);
+    expect(existsSync(join(dirOf(repo, r.videoSlug), 'captures/a-home.png'))).toBe(false);
+    const video = JSON.parse(readFileSync(r.videoJsonPath, 'utf-8'));
+    expect(video.meta.kind).toBe('video-analysis');
+    const main = JSON.parse(readFileSync(join(dirOf(repo, slug), 'research.json'), 'utf-8'));
+    expect(main.video.clips).toHaveLength(2);
+  });
+
+  it('영상 문서가 이미 있으면 거절하고 overwrite를 켜면 덮어쓴다', async () => {
+    const { repo, slug } = await setup();
+    await runWith({ action: 'split_video', repoRoot: repo, slug }, repo, {});
+    const again = await runWith({ action: 'split_video', repoRoot: repo, slug }, repo, {});
+    expect(again.ok).toBe(false);
+    expect(again.errors[0].code).toBe('TARGET_EXISTS');
+    const forced = await runWith(
+      { action: 'split_video', repoRoot: repo, slug, overwrite: true },
+      repo,
+      {},
+    );
+    expect(forced.ok).toBe(true);
+  });
+
+  it('원본 이미지가 없으면 missingImages로 알린다', async () => {
+    const { repo, slug } = await setup();
+    rmSync(join(dirOf(repo, slug), 'captures/a-01.jpg'));
+    const r = await runWith({ action: 'split_video', repoRoot: repo, slug }, repo, {});
+    expect(r.ok).toBe(true);
+    expect(r.missingImages).toEqual(['captures/a-01.jpg']);
+  });
+
+  it('removeFromMain으로 뗀 영상을 merge_video로 되돌린다', async () => {
+    const { repo, slug } = await setup();
+    const split = await runWith(
+      { action: 'split_video', repoRoot: repo, slug, removeFromMain: true },
+      repo,
+      {},
+    );
+    expect(split.removedFromMain).toBe(true);
+    const mainAfter = JSON.parse(readFileSync(join(dirOf(repo, slug), 'research.json'), 'utf-8'));
+    expect(mainAfter.video).toBeUndefined();
+
+    rmSync(join(dirOf(repo, slug), 'captures/a-01.jpg'));
+    const merged = await runWith({ action: 'merge_video', repoRoot: repo, slug }, repo, {});
+    expect(merged.ok).toBe(true);
+    expect(merged.clips).toBe(2);
+    expect(merged.copiedImages).toEqual(['captures/a-01.jpg']);
+    expect(existsSync(join(dirOf(repo, slug), 'captures/a-01.jpg'))).toBe(true);
+  });
+
+  it('없는 slug와 올바르지 않은 videoSlug는 실패한다', async () => {
+    const repo = tmpHome();
+    const none = await runWith({ action: 'split_video', repoRoot: repo, slug: 'nope' }, repo, {});
+    expect(none.ok).toBe(false);
+    const noSlug = await runWith({ action: 'merge_video', repoRoot: repo }, repo, {});
+    expect(noSlug.errors[0].code).toBe('INVALID_SLUG');
+    const bad = await runWith(
+      { action: 'merge_video', repoRoot: repo, slug: 'x', videoSlug: '../y' },
+      repo,
+      {},
+    );
+    expect(bad.errors[0].code).toBe('INVALID_SLUG');
+  });
+});
+
 describe('ges_research action=create_source', () => {
   const source = (over: Record<string, unknown> = {}) => ({
     name: 'my-review-site',

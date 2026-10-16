@@ -1,4 +1,5 @@
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -8,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { gestaltPath } from '../../core/home.js';
 import { buildDomRedactionScript } from '../../research/pii-dom.js';
 import {
@@ -28,6 +29,7 @@ import {
 import { renderResearchHtml, type LoadedImage } from '../../research/render-html.js';
 import { lintResearch, parseResearch, type Research } from '../../research/schema.js';
 import { isValidSlug, ResearchStore } from '../../research/store.js';
+import { mergeVideo, splitVideo } from '../../research/video-transfer.js';
 import { ResearchSourceRegistry } from '../../research/source-registry.js';
 import {
   buildSourceMd,
@@ -512,6 +514,114 @@ async function handleCreateSource(
   };
 }
 
+/** 한 리서치 폴더의 캡처 이미지를 다른 폴더로 복사한다. 이미 있으면 건너뛰고 원본이 없으면 목록에 올린다 */
+function copyCaptureImages(
+  from: string,
+  to: string,
+  paths: string[],
+): { copied: string[]; missing: string[] } {
+  const copied: string[] = [];
+  const missing: string[] = [];
+  for (const rel of paths) {
+    const src = resolveInside(from, rel);
+    if (!src) {
+      missing.push(rel);
+      continue;
+    }
+    const dst = join(to, rel);
+    if (existsSync(dst)) continue;
+    mkdirSync(dirname(dst), { recursive: true });
+    copyFileSync(src, dst);
+    copied.push(rel);
+  }
+  return { copied, missing };
+}
+
+function loadBySlug(
+  input: ResearchInput,
+  repoRoot: string,
+  slug: string | undefined,
+): LoadedIr | ResearchFailure {
+  return loadIr({ ...input, slug, irPath: undefined }, repoRoot);
+}
+
+function handleSplitVideo(input: ResearchInput, cwd: string): object {
+  const repoRoot = resolve(cwd, input.repoRoot ?? '.');
+  if (!input.slug) return fail('INVALID_SLUG', 'split_video는 본문 slug가 필요하다');
+  const loaded = loadBySlug(input, repoRoot, input.slug);
+  if ('ok' in loaded) return loaded;
+  const videoSlug = input.videoSlug ?? `${input.slug}-video`;
+  if (!isValidSlug(videoSlug))
+    return fail('INVALID_SLUG', `videoSlug가 올바르지 않다: ${videoSlug}`);
+
+  const store = new ResearchStore(repoRoot);
+  if (existsSync(store.jsonPath(videoSlug)) && !input.overwrite) {
+    return fail(
+      'TARGET_EXISTS',
+      `이미 있는 영상 문서다: ${videoSlug}. 덮어쓰려면 overwrite를 켠다`,
+    );
+  }
+  const result = splitVideo(loaded.research, videoSlug, { removeFromMain: input.removeFromMain });
+  if (!result.ok) return fail('SPLIT_FAILED', result.error.message);
+
+  const images = copyCaptureImages(
+    store.dir(input.slug),
+    store.dir(videoSlug),
+    result.value.imagePaths,
+  );
+  const videoJson = store.save(result.value.video);
+  if (input.removeFromMain) store.save(result.value.main);
+  return {
+    ok: true,
+    action: 'split_video',
+    slug: input.slug,
+    videoSlug,
+    videoJsonPath: videoJson,
+    removedFromMain: input.removeFromMain === true,
+    clips: result.value.video.video?.clips.length ?? 0,
+    findings: result.value.video.video?.findings.length ?? 0,
+    copiedImages: images.copied,
+    missingImages: images.missing,
+    warnings: lintResearch(result.value.video).map((w) => `${w.path}: ${w.message}`),
+  };
+}
+
+function handleMergeVideo(input: ResearchInput, cwd: string): object {
+  const repoRoot = resolve(cwd, input.repoRoot ?? '.');
+  if (!input.slug) return fail('INVALID_SLUG', 'merge_video는 본문 slug가 필요하다');
+  const videoSlug = input.videoSlug ?? `${input.slug}-video`;
+  if (!isValidSlug(videoSlug))
+    return fail('INVALID_SLUG', `videoSlug가 올바르지 않다: ${videoSlug}`);
+
+  const main = loadBySlug(input, repoRoot, input.slug);
+  if ('ok' in main) return main;
+  const videoDoc = loadBySlug(input, repoRoot, videoSlug);
+  if ('ok' in videoDoc) return videoDoc;
+
+  const result = mergeVideo(main.research, videoDoc.research);
+  if (!result.ok) return fail('MERGE_FAILED', result.error.message);
+
+  const store = new ResearchStore(repoRoot);
+  const images = copyCaptureImages(
+    store.dir(videoSlug),
+    store.dir(input.slug),
+    result.value.imagePaths,
+  );
+  const jsonPath = store.save(result.value.main);
+  return {
+    ok: true,
+    action: 'merge_video',
+    slug: input.slug,
+    videoSlug,
+    jsonPath,
+    clips: result.value.main.video?.clips.length ?? 0,
+    findings: result.value.main.video?.findings.length ?? 0,
+    copiedImages: images.copied,
+    missingImages: images.missing,
+    warnings: lintResearch(result.value.main).map((w) => `${w.path}: ${w.message}`),
+  };
+}
+
 export async function handleResearchPassthrough(
   input: ResearchInput,
   cwd: string = process.cwd(),
@@ -532,5 +642,9 @@ export async function handleResearchPassthrough(
       return handleFigmaPlan(input, cwd);
     case 'create_source':
       return handleCreateSource(input, opts);
+    case 'split_video':
+      return handleSplitVideo(input, cwd);
+    case 'merge_video':
+      return handleMergeVideo(input, cwd);
   }
 }
