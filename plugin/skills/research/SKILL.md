@@ -9,7 +9,7 @@ triggers:
   - '이 기능 다른 앱은 어떻게 했는지 조사해줘'
   - '경쟁사 조사부터 비교표와 판단까지 해줘'
 routing:
-  note: '목표 지표 묻기 → 출처 확인 → 제품 후보와 화면 지도 → 조합 확인 → 캡처와 개인정보 치환 → 섹션 0~8 작성 → validate → render. 한 단계만 원하면 `market-scan`, `screen-ref`, `ux-research`, `reverse-plan`. 코드 구조 그림이면 `architecture`, 요구사항 정리면 `interview`'
+  note: '목표 지표 묻기 → 출처 확인 → 제품 후보와 화면 지도 → 조합 확인 → 캡처와 개인정보 치환 → 섹션 0~8 작성(영상은 9) → validate → render. 한 단계만 원하면 `market-scan`, `screen-ref`, `ux-research`, `reverse-plan`. 코드 구조 그림이면 `architecture`, 요구사항 정리면 `interview`'
 inputs:
   task:
     type: string
@@ -63,6 +63,8 @@ outputs:
 | `ges_research action=render`        | 검증 뒤 저장하고 개인용과 공유용 HTML 만들기                              |
 | `ges_research action=figma_plan`    | 같은 결과를 Figma 새 페이지로 그리는 Plugin API 스크립트 만들기           |
 | `ges_research action=create_source` | 사용자가 쓰는 사이트를 출처로 추가(개인 SOURCE.md 만들기와 시험 호출)     |
+| `ges_research action=split_video`   | 본문의 영상 블록을 `video-analysis` 문서로 떼어내기                       |
+| `ges_research action=merge_video`   | 영상 분석 문서를 본문에 합치기                                            |
 
 ## 전체 흐름
 
@@ -85,7 +87,7 @@ Step 0 입력 받기 → Step 1 출처 확인 → Step 2 제품 찾기 → Step 
 
 `slug`를 정한다. 소문자, 숫자, `-`만 쓰고 과제를 짧게 줄인 이름이 좋다. 같은 slug로 이어 하면 개인정보 가명도 이어진다.
 
-사용자가 UX 리서치만, 경쟁사 화면만, 역기획, 제품 지형 조사 중 무엇을 원하는지 한 번에 읽히지 않으면 `meta.kind`를 정하기 전에 묻는다. 네 경우의 단계와 채우는 섹션은 `design.md`의 2.1절에 있다.
+사용자가 UX 리서치만, 경쟁사 화면만, 역기획, 제품 지형 조사, 영상 분석만 중 무엇을 원하는지 한 번에 읽히지 않으면 `meta.kind`를 정하기 전에 묻는다. 다섯 경우의 단계와 채우는 섹션은 `design.md`의 2.1절에 있다.
 
 한 단계만 원하면 그 단계 스킬로 넘기고 두 단계 이상이면 이 스킬이 순서대로 돈다.
 
@@ -95,6 +97,7 @@ Step 0 입력 받기 → Step 1 출처 확인 → Step 2 제품 찾기 → Step 
 | 경쟁사 화면만  | `screens-only` | `screen-ref`   |
 | UX 리서치만    | `ux-research`  | `ux-research`  |
 | 역기획         | `reverse-plan` | `reverse-plan` |
+| 영상 분석만    | `video-analysis` | 없음. 아래 영상 절을 따른다 |
 
 ## Step 1 — 출처 확인
 
@@ -215,6 +218,8 @@ ges_research { action: "redact_image", slug: "<slug>", imagePath: "<캡처 경�
 
 영상은 먼저 종류를 가른다. 화면 녹화는 코드로 구간을 나눠 이미지를 뽑고 LLM은 뽑힌 이미지만 읽는다. 세미나나 발표는 자막을 먼저 구하고 슬라이드와 그 시각에 한 말을 맞춘다. 자세한 절차는 `design.md`의 8절에 있다. 남이 올린 영상은 화면 전환의 원인을 알 수 없으니 `(해석)`으로 적는다. 발표에서 나온 숫자는 회사 주장이므로 회사 발언으로 받는다.
 
+영상 결과는 `research.json`의 `video` 블록(영상 `clips`, 발견 `findings`)에 쓴다. 발견은 제품별 흐름, 구좌별, 유형별, 종합 중 한 묶음에 넣고 관찰과 회사 발언에는 영상 시각(초)을 꼭 적는다. 프레임은 캡처로 먼저 등록하고 `captureId`로 가리킨다. 영상이 과제의 근거 일부이면 본문에 두고(렌더가 9번에 그린다), 영상이 주된 자료이면 `meta.kind: video-analysis` 문서로 따로 쓴다. 한쪽으로 시작해도 `split_video`와 `merge_video`로 바꿀 수 있다. 같은 id가 다른 내용이면 도구가 멈추고 알려주니 한쪽 id를 바꾼 뒤 다시 한다.
+
 ## Step 6 — 섹션 채우기
 
 섹션 순서와 규칙은 `output-template.md`를 따른다. 아래는 `research.json`의 어느 필드에 무엇을 넣는지만 적는다.
@@ -230,6 +235,7 @@ ges_research { action: "redact_image", slug: "<slug>", imagePath: "<캡처 경�
 | 6    | `judgment`      | 화면 영역별 결론과 근거. 확신은 `likely`, `trial`, `hold`, `out`. 보류는 `holdUntil`에 무엇이 정해지면 결정할지, 제외(`out`)는 범위에서 뺀다는 결론이고 이유를 근거에 적는다 |
 | 7    | `verification`  | 가설, 볼 지표(목표 지표에서 고름), 나눠 볼 조건                                                                                                                              |
 | 8    | `openQuestions` | 받는 사람, 질문, 지금 임시로 둔 가정, 답에 따라 바뀌는 곳. 마지막 항목이 비면 우선순위를 못 매긴다                                                                           |
+| 9    | `video`         | 영상을 본문에 합칠 때만. 영상(`clips`)과 발견(`findings`). 영상 분석 문서는 이 블록만 채우고 번호는 2번이다 |
 
 - 비교표 기준 행(`graded`)의 칸은 `◎`, `○`, `△` 중 하나를 쓴다. 구현 부담(`burden`)과 위험(`risk`) 행은 기호 없이 글로 쓴다.
 - 효과나 의도를 말하는 문장("늘어난다", "~할 수 있다", "~해서 ~했다")에는 `(해석)`을 붙인다. 아직 정해지지 않은 정책에 기대면 조건을 괄호에 같이 적는다.
