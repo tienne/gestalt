@@ -19,6 +19,10 @@ inputs:
     type: string
     required: false
     description: '결과 폴더 이름. 기존 research.json이 있으면 같은 slug로 이어 한다'
+  goalMetric:
+    type: string
+    required: true
+    description: '목표 지표. 비우면 시작하지 않고 먼저 묻는다. 어떤 화면을 모을지가 여기서 갈린다'
   products:
     type: string
     required: false
@@ -44,9 +48,9 @@ outputs:
 
 ## 흐름
 
-1. 제품이 정해져 있으면 [`research` Step 0](../research/SKILL.md#step-0--입력-받기)만 한다. 정해져 있지 않으면 `market-scan`을 먼저 권한다. `meta.kind`는 `screens-only`다.
+1. 제품이 정해져 있으면 [`research` Step 0](../research/SKILL.md#step-0--입력-받기)만 한다. 정해져 있지 않으면 `market-scan`을 먼저 권한다. `meta.kind`는 `screens-only`다. 화면만 모으는 경우에도 목표 지표를 먼저 묻고 `premise.goalMetric`에 적는다. 전환율을 올리려면 결제 화면까지, 탐색을 늘리려면 목록과 검색 화면까지 봐야 해서 같은 제품이라도 모을 화면이 달라진다.
 2. [Step 1](../research/SKILL.md#step-1--출처-확인)로 출처 상태를 확인한다.
-3. [Step 3](../research/SKILL.md#step-3--화면-지도)로 제품마다 화면 지도를 만든다.
+3. [Step 3](../research/SKILL.md#step-3--화면-지도)로 제품마다 화면 지도를 만든다. 지도에 올릴 화면은 목표 지표가 지나는 순서로 고른다.
 4. [Step 4](../research/SKILL.md#step-4--조합-확인)로 제품과 화면 목록을 사용자에게 확인받는다. 확인 전에는 캡처하지 않는다.
 5. [Step 5](../research/SKILL.md#step-5--캡처와-개인정보-치환)로 캡처하고 개인정보를 가짜 값으로 바꿔 저장한다. 결제 직전에서 멈추고 로그인은 사람이 한다.
 6. [Step 7](../research/SKILL.md#step-7--researchjson-검증)과 [Step 8](../research/SKILL.md#step-8--렌더와-보고)로 검증하고 렌더한다. 보고에 못 본 화면과 `unchecked` 캡처를 적는다.
