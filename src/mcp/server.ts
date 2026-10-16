@@ -35,6 +35,7 @@ import { handleReviewPassthrough } from './tools/review-passthrough.js';
 import { handleCodeGraphPassthrough } from './tools/code-graph-passthrough.js';
 import { handleGraphVisualizePassthrough } from './tools/graph-visualize-passthrough.js';
 import { handleArchitecturePassthrough } from './tools/architecture-passthrough.js';
+import { handleResearchPassthrough } from './tools/research-passthrough.js';
 import { handleGenerateKb } from './tools/generate-kb.js';
 import { handlePr } from './tools/pr.js';
 import { handleSearchKb } from './tools/search-kb.js';
@@ -54,6 +55,8 @@ import {
   PR_ACTIONS,
   architectureInputSchema,
   ARCHITECTURE_ACTIONS,
+  researchInputSchema,
+  RESEARCH_ACTIONS,
 } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
@@ -489,6 +492,19 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     async (params) => {
       const input = architectureInputSchema.parse(params);
       const result = await handleArchitecturePassthrough(input, process.cwd());
+      return toolReply(JSON.stringify(result, null, 2));
+    },
+  );
+
+  guardedTool(
+    'ges_research',
+    `Competitive and reference research workflow helpers: list research sources and whether this session can use them. Results are kept under .gestalt/research. Actions: ${RESEARCH_ACTIONS.join(', ')}.`,
+    researchInputSchema.shape,
+    async (params) => {
+      const input = researchInputSchema.parse(params);
+      const result = await handleResearchPassthrough(input, process.cwd(), {
+        builtinDir: config.researchSourcesDir,
+      });
       return toolReply(JSON.stringify(result, null, 2));
     },
   );

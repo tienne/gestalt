@@ -1011,3 +1011,38 @@ export const architectureInputSchema = guardObject(
 );
 
 export type ArchitectureInput = z.infer<typeof architectureInputSchema>;
+
+// ─── Research Tool ────────────────────────────────────────────────
+/** `ges_research`가 받는 액션. 서버 등록이 이 배열을 그대로 쓴다 */
+export const RESEARCH_ACTIONS = ['sources'] as const;
+
+export const researchInputSchema = guardObject(
+  z.object({
+    action: z
+      .enum(RESEARCH_ACTIONS)
+      .describe('sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped)'),
+    repoRoot: z.string().optional().describe('기본은 현재 디렉토리'),
+    available: z
+      .object({
+        mcpServers: z.array(z.string()).optional().describe('이 세션에 연결된 MCP 서버 이름'),
+        browserLogins: z
+          .array(z.string())
+          .optional()
+          .describe('브라우저 세션에 로그인된 사이트 호스트. 예: uibowl.io'),
+      })
+      .optional()
+      .describe(
+        'sources: ges 서버는 같은 세션의 다른 MCP 연결과 브라우저 로그인을 못 본다. 세션이 알려준다. 환경변수는 서버가 직접 확인한다',
+      ),
+    stage: z
+      .enum(['product-discovery', 'scale', 'screen-map', 'evidence'])
+      .optional()
+      .describe('sources: 이 단계에 쓰는 출처만 본다'),
+    name: z
+      .string()
+      .optional()
+      .describe('sources: 이 출처의 본문(찾는 법, 멈추는 곳)과 접근 방법을 함께 돌려준다'),
+  }),
+);
+
+export type ResearchInput = z.infer<typeof researchInputSchema>;
