@@ -15,7 +15,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 
 /** postbuild가 dist/plugin으로 복사하는 디렉토리와 동일하게 유지할 것 */
-const ASSET_DIRS = ['agents', 'role-agents', 'review-agents', 'personas', 'skills'] as const;
+const ASSET_DIRS = [
+  'agents',
+  'role-agents',
+  'review-agents',
+  'personas',
+  'research-sources',
+  'skills',
+] as const;
 
 function collectFiles(root: string): string[] {
   if (!existsSync(root)) return [];

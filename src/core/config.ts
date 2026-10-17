@@ -415,6 +415,7 @@ const configSchema = z.object({
   roleAgentsDir: z.string().default('plugin/role-agents'),
   reviewAgentsDir: z.string().default('plugin/review-agents'),
   personasDir: z.string().default('plugin/personas'),
+  researchSourcesDir: z.string().default('plugin/research-sources'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   client: z.enum(['claude-code', 'codex', 'both', 'grok']).default('claude-code'),
 });
@@ -581,6 +582,8 @@ function buildEnvConfig(): Record<string, unknown> {
   if (env['GESTALT_REVIEW_AGENTS_DIR'] !== undefined)
     result.reviewAgentsDir = env['GESTALT_REVIEW_AGENTS_DIR'];
   if (env['GESTALT_PERSONAS_DIR'] !== undefined) result.personasDir = env['GESTALT_PERSONAS_DIR'];
+  if (env['GESTALT_RESEARCH_SOURCES_DIR'] !== undefined)
+    result.researchSourcesDir = env['GESTALT_RESEARCH_SOURCES_DIR'];
   if (env['GESTALT_LOG_LEVEL'] !== undefined) result.logLevel = env['GESTALT_LOG_LEVEL'];
   if (env['GESTALT_CLIENT'] !== undefined) result.client = env['GESTALT_CLIENT'];
 
@@ -883,6 +886,7 @@ function applyPostProcessing(config: GestaltConfig): GestaltConfig {
   config.roleAgentsDir = resolveDir(config.roleAgentsDir);
   config.reviewAgentsDir = resolveDir(config.reviewAgentsDir);
   config.personasDir = resolveDir(config.personasDir);
+  config.researchSourcesDir = resolveDir(config.researchSourcesDir);
   return config;
 }
 
