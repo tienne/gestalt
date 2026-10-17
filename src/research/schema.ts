@@ -256,6 +256,8 @@ const adoptionSchema = z
     variant: textSchema,
     referenceIds: z.array(idSchema).default([]),
     status: z.enum(ADOPTION_STATUSES),
+    /** 시안이 얹히는 자리. 레퍼런스에서 가져온 시안이 아니라 어디에 넣을지를 고르는 안이면 여기에 적는다 */
+    placement: z.string().optional(),
     /** 가져온 것과 덜어낸 것. 시안 카드에 그대로 오른다 */
     adopted: z.array(textSchema).default([]),
     mitigated: z.array(textSchema).default([]),
@@ -791,6 +793,14 @@ function lintEvidenceStructure(research: Research, warnings: ResearchWarning[]):
   }
 
   if (adoptions.length > 0) {
+    adoptions.forEach((a, i) => {
+      if (a.referenceIds.length === 0 && !a.placement?.trim()) {
+        warnings.push({
+          path: `adoptions.${i}`,
+          message: `레퍼런스도 자리도 없는 시안이다 (${a.id}). 어디서 가져왔는지(referenceIds)나 어디에 넣는지(placement)를 적는다`,
+        });
+      }
+    });
     const solved = new Set(adoptions.flatMap((a) => a.solvesFindingIds));
     wowPain.findings.forEach((f, i) => {
       if (f.kind === 'pain' && !solved.has(f.id)) {

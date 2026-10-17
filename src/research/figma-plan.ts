@@ -232,12 +232,23 @@ export function buildFigmaPlan(
     const named = (ids: string[]): string => bullets(ids.map((id) => findingText.get(id) ?? id));
     const adoptionSection = nodes[nodes.length - 1];
     if (adoptionSection?.type === 'section') {
+      const hasPlacement = research.adoptions.some((a) => a.placement?.trim());
       adoptionSection.children.push(text('h3', '시안이 가져온 것과 푼 것'));
       adoptionSection.children.push({
         type: 'table',
-        head: ['시안', '레퍼런스', '판단', '가져온 것', '덜어낸 것', '가져오는 와우', '푸는 페인'],
+        head: [
+          '시안',
+          ...(hasPlacement ? ['자리'] : []),
+          '레퍼런스',
+          '판단',
+          '가져온 것',
+          '덜어낸 것',
+          '가져오는 와우',
+          '푸는 페인',
+        ],
         rows: research.adoptions.map((a) => [
           a.variant,
+          ...(hasPlacement ? [a.placement ?? ''] : []),
           a.referenceIds.map(refLabel).join(', '),
           a.reason ? `${ADOPTION_LABEL[a.status]}\n${a.reason}` : ADOPTION_LABEL[a.status],
           bullets(a.adopted),

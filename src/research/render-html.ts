@@ -766,12 +766,23 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     const findingById = new Map(research.wowPain.findings.map((f) => [f.id, f]));
     const findingList = (ids: string[]): string =>
       list(ids.map((id) => findingById.get(id)?.text ?? id));
+    const hasPlacement = research.adoptions.some((a) => a.placement?.trim());
     parts.push('<h3>시안이 가져온 것과 푼 것</h3>');
     parts.push(
       table(
-        ['시안', '레퍼런스', '판단', '가져온 것', '덜어낸 것', '가져오는 와우', '푸는 페인'],
+        [
+          '시안',
+          ...(hasPlacement ? ['자리'] : []),
+          '레퍼런스',
+          '판단',
+          '가져온 것',
+          '덜어낸 것',
+          '가져오는 와우',
+          '푸는 페인',
+        ],
         research.adoptions.map((a) => [
           e(a.variant),
+          ...(hasPlacement ? [e(a.placement ?? '')] : []),
           e(a.referenceIds.map(refLabel).join(', ')),
           `<span class="chip">${ADOPTION_LABEL[a.status]}</span>${a.reason ? e(a.reason) : ''}`,
           list(a.adopted),
