@@ -919,6 +919,9 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     parts.push(
       `<div class="card"><h3>가설 ${i + 1}. ${e(v.hypothesis)}</h3>` +
         `<p>볼 지표: ${e(v.metric)}</p><p>나눠 볼 조건: ${e(v.splitBy)}</p>` +
+        (v.sample ? `<p>표본: ${e(v.sample)}</p>` : '') +
+        (v.period ? `<p>기간: ${e(v.period)}</p>` : '') +
+        (v.successCriteria ? `<p>성공 기준: ${e(v.successCriteria)}</p>` : '') +
         (v.caveat ? `<p class="sub">${e(v.caveat)}</p>` : '') +
         '</div>',
     );

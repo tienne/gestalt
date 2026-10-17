@@ -230,6 +230,7 @@ export function sampleResearch(overrides: Partial<ResearchInput> = {}): Research
         hypothesis: '할인율을 크게 보이면 상세 진입이 늘어난다 (B 대 A, C) (해석)',
         metric: '상세 진입률',
         splitBy: '할인 폭이 작은 상품과 큰 상품',
+        successCriteria: 'B 시안의 상세 진입률이 A보다 높다',
       },
     ],
     openQuestions: {

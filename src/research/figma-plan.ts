@@ -377,12 +377,25 @@ export function buildFigmaPlan(
     ]),
   );
 
+  const hasDesign = research.verification.some((v) => v.sample || v.period || v.successCriteria);
   nodes.push(
     section('7. 검증 제안', [
       {
         type: 'table',
-        head: ['가설', '볼 지표', '나눠 볼 조건', '주의'],
-        rows: research.verification.map((v) => [v.hypothesis, v.metric, v.splitBy, v.caveat ?? '']),
+        head: [
+          '가설',
+          '볼 지표',
+          '나눠 볼 조건',
+          ...(hasDesign ? ['표본', '기간', '성공 기준'] : []),
+          '주의',
+        ],
+        rows: research.verification.map((v) => [
+          v.hypothesis,
+          v.metric,
+          v.splitBy,
+          ...(hasDesign ? [v.sample ?? '', v.period ?? '', v.successCriteria ?? ''] : []),
+          v.caveat ?? '',
+        ]),
       },
     ]),
   );

@@ -314,6 +314,12 @@ const verificationSchema = z.object({
   hypothesis: textSchema,
   metric: textSchema,
   splitBy: textSchema,
+  /** 누구를 몇 명쯤 볼지. 사용성 시험이면 인원, 로그 지표면 대상 집단 */
+  sample: z.string().optional(),
+  /** 얼마 동안 볼지 */
+  period: z.string().optional(),
+  /** 맞았다고 판정하는 기준. 이게 없으면 결과가 나와도 가설을 판정할 수 없다 */
+  successCriteria: z.string().optional(),
   caveat: z.string().optional(),
 });
 
@@ -845,6 +851,15 @@ export function lintResearch(research: Research): ResearchWarning[] {
       message: '조합을 확인받기 전에 캡처가 쌓였다',
     });
   }
+
+  research.verification.forEach((v, i) => {
+    if (!v.successCriteria?.trim()) {
+      warnings.push({
+        path: `verification.${i}`,
+        message: `성공 기준이 없는 가설이다 (가설 ${i + 1}). 어떤 값이 나오면 맞았다고 볼지(successCriteria)를 적는다`,
+      });
+    }
+  });
 
   const ownProducts = new Set(
     research.productCandidates.filter((p) => p.axis === 'own-service').map((p) => p.id),
