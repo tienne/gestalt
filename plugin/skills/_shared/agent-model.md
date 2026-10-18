@@ -85,7 +85,7 @@ Agent 도구의 `effort`는 지침이 명시할 때만 설정하는 파라미터
 ges_agent { action: "list" }
   →  { name: "security-reviewer", tier: "standard", model: "sonnet", ... }
 
-Agent { subagent_type: "Explore", model: "sonnet", effort: "high", prompt: "...security-reviewer 관점..." }
+Agent { subagent_type: "gestalt:security-reviewer", model: "sonnet", effort: "high", prompt: "..." }
 ```
 
 ## 적용 규칙
@@ -97,6 +97,8 @@ Agent { subagent_type: "Explore", model: "sonnet", effort: "high", prompt: "...s
    안 딸려오므로 메인이 `get`으로 프롬프트를 읽어버려 위임 효과가 깨지는 일이 없다.
 2. 넘길 이름이 응답에 없거나 호출이 실패하면 `ges_status`의 `tierModels.standard`로 폴백한다.
 3. `model`은 비우지 않는다. 비우면 Agent 도구가 세션 모델을 상속해서 `sonnet`이어야 할 자리가 `opus`로 돈다.
+   `gestalt:` 에이전트는 frontmatter에 기본 tier의 모델이 적혀 있지만 `gestalt.json`의 `tierModels`를 바꿔도
+   그 값은 안 따라온다. 그래서 그 타입으로 띄울 때도 `model`을 넘긴다.
 
 **세션에서 직접 수행할 때는 tier가 참고값이다.** systemPrompt를 그대로 입고 이번 세션에서 처리하면
 모델은 세션 모델이다. 이때 `tier`가 `frontier`인데 세션 모델이 그보다 낮으면, 그 관점만 서브에이전트로
