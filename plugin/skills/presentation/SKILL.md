@@ -137,7 +137,9 @@ gestalt humanize-scan --file "$scanTmp/content.md" --register report
 
 ### 4. 디자인 조립 (presentation-designer)
 
-승인 후에만 진행한다. **서브에이전트에 위임한다.** 이 자리가 위임 효과가 제일 크다 — 에이전트 13KB에 무드 템플릿 하나가 19KB이고 생성되는 HTML은 그보다 크다. 셋 다 메인 대화에 남을 이유가 없다.
+승인 후에만 진행한다. **저장 경로는 spawn 앞에서 메인이 정한다.** 작업 디렉토리 아래 `slides/<주제 슬러그>.html`의 절대 경로를 쓴다. 그 파일이 이미 있으면 덮어쓸지 사용자에게 먼저 묻는다. 정한 값을 아래 프롬프트의 `<저장 경로>`에 채워 넘긴다.
+
+**서브에이전트에 위임한다.** 이 자리가 위임 효과가 제일 크다 — 에이전트 13KB에 무드 템플릿 하나가 19KB이고 생성되는 HTML은 그보다 크다. 셋 다 메인 대화에 남을 이유가 없다.
 
 **`gestalt:presentation-designer`에는 Write가 열려 있다.** 파일을 써야 하는 자리라서다. 타입을 못 찾아 폴백할 때는 `Explore`에 Write가 없으니 `general-purpose`로 띄운다.
 
@@ -176,7 +178,7 @@ Agent {
 
 ### 5. 산출 — HTML 경로 반환
 
-4단계가 돌려준 절대 경로를 사용자에게 반환한다. 브라우저로 열어 확인하는 법과, PDF가 필요하면 decktape 명령(`npx decktape reveal "file:///<abs>/slide.html" out.pdf --size 1600x900`)을 안내한다.
+4단계가 돌려준 경로가 메인이 정한 저장 경로와 같은지 확인하고 그 절대 경로를 사용자에게 반환한다. 브라우저로 열어 확인하는 법과, PDF가 필요하면 decktape 명령(`npx decktape reveal "file:///<abs>/slide.html" out.pdf --size 1600x900`)을 안내한다.
 
 ### 6. 완료 보고
 
