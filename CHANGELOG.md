@@ -14,8 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **리뷰어 7개와 역할 에이전트 12개가 네이티브 서브에이전트로 떠요.** 서브에이전트 첫 요청 입력이 25.3k에서 8.7k 토큰으로 줄고 API 요청도 5번에서 3번으로 줄어요. 메인 세션에는 한 줄 설명 때문에 0.45k~1.2k 토큰이 늘 붙어요.
-  - review, review-reply, pr, brief, presentation, slack-send, jira-create, explain 스킬의 스폰 블록이 바뀌었어요.
-  - 타입을 못 찾으면 지금까지처럼 Explore와 `ges_agent`로 폴백해요. 폴백일 때 룰북 디렉토리를 절대 경로로 넘겨요.
+  - review, review-reply, pr, brief, presentation, slack-send, jira-create, explain 스킬에서 에이전트를 띄우는 부분이 바뀌었어요.
+  - 타입을 못 찾으면 지금까지처럼 Explore와 `ges_agent`로 대신 돌아요. 이때는 룰북 디렉토리를 절대 경로로 넘겨요.
   - Codex와 Grok은 루트 `agents/`를 안 읽어서 달라지는 게 없어요. `ges_agent` MCP 동작과 원본 AGENT.md의 역할 지침도 그대로예요.
 - **presentation 스킬이 저장 경로 밖 변경을 확인해요.** 서브에이전트를 띄우기 전과 뒤에 레포 전체의 `git status`와 `git diff HEAD` 해시를 저장 경로만 빼고 비교해요. 비교를 못 한 경우는 확인한 범위와 함께 결과에 적어요.
 
