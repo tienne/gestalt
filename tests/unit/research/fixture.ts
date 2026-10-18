@@ -225,12 +225,26 @@ export function sampleResearch(overrides: Partial<ResearchInput> = {}): Research
         holdUntil: '수량 한도 정책이 확정되면',
       },
     ],
+    metricCases: [
+      {
+        id: 'mc-a',
+        company: '예시 쇼핑',
+        metric: '상세 진입률',
+        denominator: '목록 노출 대비',
+        value: '8%에서 11%로',
+        change: '할인율 글자를 키웠다',
+        period: '2025년 3분기',
+        basis: 'company-statement',
+        evidence: [{ type: 'url', url: 'https://example.com/blog/discount-label' }],
+      },
+    ],
     verification: [
       {
         hypothesis: '할인율을 크게 보이면 상세 진입이 늘어난다 (B 대 A, C) (해석)',
         metric: '상세 진입률',
         splitBy: '할인 폭이 작은 상품과 큰 상품',
         successCriteria: 'B 시안의 상세 진입률이 A보다 높다',
+        metricCaseIds: ['mc-a'],
       },
     ],
     openQuestions: {
