@@ -18,6 +18,8 @@ export const RESEARCH_KINDS = [
 ] as const;
 /** own-service: 조사하는 쪽 우리 서비스. 비교표에는 열로 들어가지만 레퍼런스처럼 가져올 대상은 아니다 */
 export const PRODUCT_AXES = ['same-market', 'same-problem', 'own-service'] as const;
+/** 후보 제품이 우리 기능이 붙는 도메인(premise.attachTo.domain)과 얼마나 같은지 */
+export const DOMAIN_FITS = ['same', 'adjacent', 'different'] as const;
 export const SCREEN_SOURCES = [
   'app-explore',
   'uibowl',
@@ -112,6 +114,7 @@ export const productCandidateSchema = z.object({
   foundVia: z.array(foundViaSchema).default([]),
   scale: scaleSchema.optional(),
   platformIds: z.record(z.string(), z.string()).optional(),
+  domainFit: z.enum(DOMAIN_FITS).optional(),
 });
 
 export const screenMapItemSchema = z.object({
@@ -149,8 +152,18 @@ export const captureSchema = z.object({
     .optional(),
 });
 
+/** 기능이 우리 서비스의 어느 흐름에 붙는지. 레퍼런스 도메인과 대리 퍼널을 이걸로 고른다 */
+const attachToSchema = z.object({
+  /** 예: 다이닝 예약 결제 */
+  flow: textSchema,
+  /** 예: 예약 상품권 */
+  domain: textSchema,
+  note: z.string().optional(),
+});
+
 const premiseSchema = z.object({
   goalMetric: textSchema,
+  attachTo: attachToSchema.optional(),
   scaleAssumption: z.string().optional(),
   structureConstraints: z.array(textSchema).default([]),
   pendingInputs: z.array(textSchema).default([]),
@@ -1063,6 +1076,7 @@ export function lintResearch(research: Research): ResearchWarning[] {
 
   lintEvidenceStructure(research, warnings);
   lintTarget(research, warnings);
+  lintAttachTo(research, warnings);
 
   const video = research.video;
   if (research.meta.kind === 'video-analysis' && (!video || video.clips.length === 0)) {
@@ -1091,4 +1105,25 @@ export function lintResearch(research: Research): ResearchWarning[] {
     });
   }
   return warnings;
+}
+
+function lintAttachTo(research: Research, warnings: ResearchWarning[]): void {
+  const attachTo = research.premise.attachTo;
+  if (!attachTo) {
+    if (research.verification.length > 0 || research.target) {
+      warnings.push({
+        path: 'premise.attachTo',
+        message:
+          '기능이 우리 서비스의 어느 흐름에 붙는지가 없다. 이게 정해져야 레퍼런스 도메인과 대리 퍼널을 고를 수 있다',
+      });
+    }
+    return;
+  }
+  const others = research.productCandidates.filter((p) => p.axis !== 'own-service');
+  if (others.length > 0 && !others.some((p) => p.domainFit === 'same')) {
+    warnings.push({
+      path: 'products',
+      message: `우리 기능과 같은 도메인(${attachTo.domain})의 후보가 없다. 다른 도메인 사례는 화면 패턴만 빌려오고 수치는 참고만 한다`,
+    });
+  }
 }

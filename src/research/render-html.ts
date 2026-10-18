@@ -28,6 +28,14 @@ export const AXIS_LABEL = {
   'same-problem': '같은 문제',
   'own-service': '우리 서비스',
 } as const;
+export const DOMAIN_FIT_LABEL = {
+  same: '같은 도메인',
+  adjacent: '이웃 도메인',
+  different: '다른 도메인',
+} as const;
+/** 축 뒤에 도메인 일치를 붙인다. 다른 도메인 사례는 수치를 그대로 빌려오면 안 돼서 표에서 바로 보이게 한다 */
+export const axisText = (p: Research['productCandidates'][number]): string =>
+  p.domainFit ? `${AXIS_LABEL[p.axis]}, ${DOMAIN_FIT_LABEL[p.domainFit]}` : AXIS_LABEL[p.axis];
 export const SOURCE_LABEL = {
   'app-explore': '앱 탐색',
   uibowl: '유아이볼',
@@ -651,6 +659,14 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
       ['항목', '내용'],
       [
         ['목표 지표', e(pr.goalMetric)],
+        ...(pr.attachTo
+          ? [
+              [
+                '붙는 흐름',
+                `${e(pr.attachTo.flow)} (${e(pr.attachTo.domain)})${pr.attachTo.note ? `<div class="why">${e(pr.attachTo.note)}</div>` : ''}`,
+              ],
+            ]
+          : []),
         [
           '규모 가정',
           pr.scaleAssumption ? e(pr.scaleAssumption) : '<span class="todo">없음</span>',
@@ -728,7 +744,7 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
         ['제품', '축', '이유', '규모', ...(casesByProduct.size > 0 ? ['지표 사례'] : [])],
         research.productCandidates.map((p) => [
           e(p.name),
-          e(AXIS_LABEL[p.axis]),
+          e(axisText(p)),
           e(p.reason),
           p.scale
             ? `${e(p.scale.value)}<br><span class="chip">${e(EVIDENCE_LABEL[p.scale.evidence])}</span>${e(p.scale.source)}`

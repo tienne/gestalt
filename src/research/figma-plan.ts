@@ -1,6 +1,6 @@
 import {
   ADOPTION_LABEL,
-  AXIS_LABEL,
+  axisText,
   buildFlowTables,
   buildSummaryTables,
   gridFindings,
@@ -161,6 +161,16 @@ export function buildFigmaPlan(
         head: ['항목', '내용'],
         rows: [
           ['목표 지표', pr.goalMetric],
+          ...(pr.attachTo
+            ? [
+                [
+                  '붙는 흐름',
+                  [`${pr.attachTo.flow} (${pr.attachTo.domain})`, pr.attachTo.note]
+                    .filter(Boolean)
+                    .join('\n'),
+                ],
+              ]
+            : []),
           ['규모 가정', pr.scaleAssumption ?? '없음'],
           ['구조 제약', bullets(pr.structureConstraints)],
           ['아직 안 온 입력', bullets(pr.pendingInputs)],
@@ -201,7 +211,7 @@ export function buildFigmaPlan(
       head: ['제품', '축', '이유', '규모', ...(casesByProduct.size > 0 ? ['지표 사례'] : [])],
       rows: research.productCandidates.map((p) => [
         p.name,
-        AXIS_LABEL[p.axis],
+        axisText(p),
         p.reason,
         p.scale
           ? `${p.scale.value}\n(${EVIDENCE_LABEL[p.scale.evidence]}) ${p.scale.source}`
