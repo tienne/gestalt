@@ -245,6 +245,8 @@ export const findingSchema = z
     screenMapId: idSchema.optional(),
     /** 조작 횟수나 수치. 예: "20명 입력하려면 19번 터치" */
     concrete: z.string().optional(),
+    /** 이번 시안에서 다루지 않는 페인이면 그 이유. 적으면 안 풀린 페인 경고에서 빠진다 */
+    excludedReason: z.string().optional(),
     ...basisFields,
   })
   .superRefine(checkBasis);
@@ -809,10 +811,18 @@ function lintEvidenceStructure(research: Research, warnings: ResearchWarning[]):
     });
     const solved = new Set(adoptions.flatMap((a) => a.solvesFindingIds));
     wowPain.findings.forEach((f, i) => {
-      if (f.kind === 'pain' && !solved.has(f.id)) {
+      if (f.kind !== 'pain') return;
+      const excluded = Boolean(f.excludedReason?.trim());
+      if (!solved.has(f.id) && !excluded) {
         warnings.push({
           path: `wowPain.findings.${i}`,
-          message: `어느 시안도 풀지 않는 페인이다 (${f.id}). 시안의 solvesFindingIds에 걸거나 제외 이유를 적는다`,
+          message: `어느 시안도 풀지 않는 페인이다 (${f.id}). 시안의 solvesFindingIds에 걸거나 제외 이유(excludedReason)를 적는다`,
+        });
+      }
+      if (solved.has(f.id) && excluded) {
+        warnings.push({
+          path: `wowPain.findings.${i}.excludedReason`,
+          message: `푸는 시안이 있는데 제외 이유도 적힌 페인이다 (${f.id}). 둘 중 하나만 남긴다`,
         });
       }
     });

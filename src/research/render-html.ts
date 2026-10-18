@@ -841,9 +841,12 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     const refs = f.captureId ? [{ type: 'capture' as const, captureId: f.captureId }] : [];
     const grey = f.basis === 'unconfirmed' || f.basis === 'absent';
     const why = grey && f.note ? `<div class="why">${e(f.note)}</div>` : '';
+    const excluded = f.excludedReason
+      ? `<div class="why">이번 시안에서 뺌: ${e(f.excludedReason)}</div>`
+      : '';
     return [
       `<span class="chip kind-${f.kind}">${FINDING_KIND_LABEL[f.kind]}</span>${e(VIEWPOINT_LABEL[f.viewpoint])}`,
-      `<div class="cell${grey ? ' grey' : ''}">${basisChip(f.basis)}${e(f.text)}${evidenceHtml([...f.evidence, ...refs])}${why}${f.captureId ? thumbsHtml([f.captureId]) : ''}</div>`,
+      `<div class="cell${grey ? ' grey' : ''}">${basisChip(f.basis)}${e(f.text)}${evidenceHtml([...f.evidence, ...refs])}${why}${excluded}${f.captureId ? thumbsHtml([f.captureId]) : ''}</div>`,
       e(where),
       f.concrete ? e(f.concrete) : '',
     ];

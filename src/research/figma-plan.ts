@@ -329,7 +329,7 @@ export function buildFigmaPlan(
           const screen = f.screenMapId ? screenById.get(f.screenMapId)?.screen : undefined;
           return [
             `${FINDING_KIND_LABEL[f.kind]}\n${VIEWPOINT_LABEL[f.viewpoint]}`,
-            `${tag}${f.text}${evidenceText(f.evidence)}${grey && f.note ? `\n${f.note}` : ''}`,
+            `${tag}${f.text}${evidenceText(f.evidence)}${grey && f.note ? `\n${f.note}` : ''}${f.excludedReason ? `\n이번 시안에서 뺌: ${f.excludedReason}` : ''}`,
             [f.slot, screen].filter(Boolean).join(' / '),
             f.concrete ?? '',
           ];
