@@ -1,5 +1,9 @@
-import { readFileSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import {
+  checkLineExcerpt,
+  readSourceLines,
+  resolveInsideRoot,
+  type SourceFileCache,
+} from '../core/source-location.js';
 import { classifyCliCommand } from '../utils/read-only-tools.js';
 import { blueprintCounts, blueprintOverBudget, deriveBlueprint } from './blueprint-layout.js';
 import { deriveEr, erCounts, erOverBudget, isUnconfirmedFk } from './er-layout.js';
@@ -97,12 +101,32 @@ export interface ArchitectureValidationError {
 }
 
 /** 렌더를 막지 않는 알림. 저장하지 않고 validate와 render 응답에만 싣는다 */
-export type ArchitectureValidationWarning = DescriptionWarning | BudgetWarning;
+export type ArchitectureValidationWarning =
+  | DescriptionWarning
+  | BudgetWarning
+  | ExcerptMismatchWarning;
 
 export interface DescriptionWarning {
   code: 'NODE_DESCRIPTION_MISSING';
   message: string;
   nodeIds: string[];
+}
+
+/** public code 근거의 excerpt가 그 줄과 다르다. 코드가 바뀌어 줄이 밀렸을 때 난다 */
+export interface ExcerptMismatchWarning {
+  code: 'CODE_EVIDENCE_EXCERPT_MISMATCH';
+  message: string;
+  /** 근처에서 excerpt와 맞는 줄 번호. 가까운 순이고 못 찾았으면 비어 있다 */
+  candidates: number[];
+  nodeId?: string;
+  edgeId?: string;
+  flowId?: string;
+  stepId?: string;
+  transitionId?: string;
+  projectionId?: string;
+  messageId?: string;
+  column?: string;
+  evidenceIndex: number;
 }
 
 export type BudgetWarningCode =
@@ -159,61 +183,65 @@ export function deriveLineStyle(evidence: Evidence[]): LineStyle {
   return evidence.some((e) => e.type === 'code' || e.type === 'spec') ? 'solid' : 'dashed';
 }
 
-function countLines(content: string): number {
-  if (content.length === 0) return 0;
-  const lines = content.split('\n');
-  return lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
+interface CodeLocationVerdict {
+  /** 파일이나 줄 범위가 틀렸다. 오류로 낸다 */
+  problem?: string;
+  /** excerpt가 그 줄과 다르다. 경고로 낸다 */
+  mismatch?: { message: string; candidates: number[] };
 }
 
-// 같은 파일을 근거로 여러 번 가리키는 게 흔해서 한 번 검증하는 동안만 줄 수를 기억한다.
-type LineCountCache = Map<string, number | null>;
-
-function readLineCount(absPath: string, cache: LineCountCache): number | null {
-  if (cache.has(absPath)) return cache.get(absPath)!;
-  let count: number | null = null;
-  try {
-    if (statSync(absPath).isFile()) count = countLines(readFileSync(absPath, 'utf-8'));
-  } catch {
-    count = null;
-  }
-  cache.set(absPath, count);
-  return count;
-}
-
-/** code 근거 위치가 실제 파일의 실제 줄을 가리키는지 본다. 문제가 없으면 null */
+/** code 근거 위치가 실제 파일의 실제 줄을 가리키는지 본다. 문제가 없으면 빈 객체 */
 function checkCodeLocation(
   location: string,
+  excerpt: string | undefined,
   repoRoots: Record<string, string>,
-  cache: LineCountCache,
-): string | null {
+  cache: SourceFileCache,
+): CodeLocationVerdict {
   const match = CODE_LOCATION_RE.exec(location);
   if (!match) {
-    return `code 근거 위치 "${location}"가 <repoId>:<relPath>:<line> 꼴이 아니다.`;
+    return { problem: `code 근거 위치 "${location}"가 <repoId>:<relPath>:<line> 꼴이 아니다.` };
   }
   const repoId = match[1]!;
   const relPath = match[2]!;
   const line = Number(match[3]!);
   const root = repoRoots[repoId];
   if (!root) {
-    return `code 근거 위치 "${location}"의 레포 "${repoId}"를 repos에서 찾지 못했다.`;
+    return { problem: `code 근거 위치 "${location}"의 레포 "${repoId}"를 repos에서 찾지 못했다.` };
   }
-  if (isAbsolute(relPath)) {
-    return `code 근거 위치 "${location}"의 경로가 절대 경로다. 레포 루트 기준 상대 경로여야 한다.`;
+  const resolved = resolveInsideRoot(root, relPath);
+  if (!resolved.ok) {
+    return {
+      problem:
+        resolved.reason === 'absolute'
+          ? `code 근거 위치 "${location}"의 경로가 절대 경로다. 레포 루트 기준 상대 경로여야 한다.`
+          : `code 근거 위치 "${location}"의 경로가 레포 루트 밖을 가리킨다.`,
+    };
   }
-  const rootAbs = resolve(root);
-  const fileAbs = resolve(rootAbs, relPath);
-  const rel = relative(rootAbs, fileAbs);
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
-    return `code 근거 위치 "${location}"의 경로가 레포 루트 밖을 가리킨다.`;
+  const check = checkLineExcerpt(readSourceLines(resolved.abs, cache), line, excerpt);
+  switch (check.status) {
+    case 'missing_file':
+      return { problem: `code 근거 위치 "${location}"의 파일이 레포 "${repoId}"에 없다.` };
+    case 'out_of_range':
+      return {
+        problem: `code 근거 위치 "${location}"의 줄 번호 ${line}이 파일 범위(1~${check.lineCount}) 밖이다.`,
+      };
+    case 'moved':
+      return {
+        mismatch: {
+          message: `code 근거 위치 "${location}"의 줄이 excerpt와 다르다. 줄이 밀린 것 같다. 후보 줄: ${check.candidates.join(', ')}.`,
+          candidates: check.candidates,
+        },
+      };
+    case 'mismatch':
+      return {
+        mismatch: {
+          message: `code 근거 위치 "${location}"의 줄이 excerpt와 다르고 위아래 200줄 안에서도 같은 줄을 찾지 못했다.`,
+          candidates: [],
+        },
+      };
+    default:
+      return {};
   }
-  const lineCount = readLineCount(fileAbs, cache);
-  if (lineCount === null) {
-    return `code 근거 위치 "${location}"의 파일이 레포 "${repoId}"에 없다.`;
-  }
-  if (line < 1 || line > lineCount) {
-    return `code 근거 위치 "${location}"의 줄 번호 ${line}이 파일 범위(1~${lineCount}) 밖이다.`;
-  }
-  return null;
 }
 
 function checkEvidenceList(
@@ -225,7 +253,12 @@ function checkEvidenceList(
     | { flowId: string; stepId: string }
     | { flowId: string; transitionId: string }
     | { projectionId: string; messageId: string },
-  ctx: { checkFiles: boolean; repoRoots: Record<string, string>; cache: LineCountCache },
+  ctx: {
+    checkFiles: boolean;
+    repoRoots: Record<string, string>;
+    cache: SourceFileCache;
+    warnings: ExcerptMismatchWarning[];
+  },
   errors: ArchitectureValidationError[],
 ): void {
   evidence.forEach((ev, evidenceIndex) => {
@@ -252,9 +285,27 @@ function checkEvidenceList(
       }
     }
     if (ev.type === 'code' && ctx.checkFiles) {
-      const problem = checkCodeLocation(ev.location, ctx.repoRoots, ctx.cache);
-      if (problem) {
-        errors.push({ code: 'CODE_EVIDENCE_NOT_FOUND', message: problem, ...owner, evidenceIndex });
+      const verdict = checkCodeLocation(
+        ev.location,
+        ev.visibility === 'public' ? ev.excerpt : undefined,
+        ctx.repoRoots,
+        ctx.cache,
+      );
+      if (verdict.problem) {
+        errors.push({
+          code: 'CODE_EVIDENCE_NOT_FOUND',
+          message: verdict.problem,
+          ...owner,
+          evidenceIndex,
+        });
+      } else if (verdict.mismatch) {
+        ctx.warnings.push({
+          code: 'CODE_EVIDENCE_EXCERPT_MISMATCH',
+          message: verdict.mismatch.message,
+          candidates: verdict.mismatch.candidates,
+          ...owner,
+          evidenceIndex,
+        });
       }
     }
   });
@@ -1495,7 +1546,13 @@ export function validateArchitectureIr(
   const repoRoots =
     opts.repoRoots ??
     Object.fromEntries(ir.repos.flatMap((r) => (r.root === undefined ? [] : [[r.id, r.root]])));
-  const ctx = { checkFiles, repoRoots, cache: new Map<string, number | null>() };
+  const excerptWarnings: ExcerptMismatchWarning[] = [];
+  const ctx = {
+    checkFiles,
+    repoRoots,
+    cache: new Map<string, string[] | null>(),
+    warnings: excerptWarnings,
+  };
   const errors: ArchitectureValidationError[] = [];
   const nodeIds = new Set(ir.nodes.map((n) => n.id));
 
@@ -1700,6 +1757,7 @@ export function validateArchitectureIr(
         : {}),
       autoUnresolved,
       warnings: [
+        ...excerptWarnings,
         ...descriptionWarnings(ir.nodes, drawableNodeIds),
         ...(projectionResult !== undefined
           ? budgetWarnings(projectionResult.projections, projectionResult.drawable, drawnFlows)

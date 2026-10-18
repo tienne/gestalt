@@ -709,7 +709,7 @@ Step 5에서 레포를 새로 받았으면 무엇을 어디에 받았는지 한 
 
 ## Step 9 — 재실행
 
-Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
+Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다. validate가 `CODE_EVIDENCE_EXCERPT_MISMATCH` 경고를 내면 `candidates`의 후보 줄로 근거를 고친다.
 
 > **이 단계의 상세** → [`references/rerun.md`](./references/rerun.md)
 > Step 0의 `previous`가 `null`이 아닐 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
