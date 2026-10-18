@@ -83,9 +83,13 @@ const PAGE_WIDTH = 1440;
 const bullets = (items: string[]): string =>
   items.length === 0 ? '-' : items.map((i) => `• ${i}`).join('\n');
 
-const CONCLUSION_KEYS = new Set(['종합', '6', '7', '8']);
-/** 근거 열의 구획 순서. 전제와 비교가 먼저 보이고 레퍼런스 선정은 맨 아래다 */
-const EVIDENCE_ORDER = ['0', '3', '4', '2', '5', '1'];
+/**
+ * 열마다 담는 구획과 순서. 세 열의 높이가 비슷하도록 나눴다.
+ * 레퍼런스 선정은 캡처 옆에, 시안은 판단 바로 뒤에 둔다. 나머지는 근거 열이고 전제와 비교가 먼저 보인다
+ */
+const CAPTURE_ORDER = ['1'];
+const CONCLUSION_ORDER = ['종합', '6', '2', '7', '8'];
+const EVIDENCE_ORDER = ['0', '3', '4', '5'];
 const TINT_BY_KEY: Record<string, SectionTint> = { '6': 'green', '7': 'blue', '4': 'orange' };
 
 const sectionKey = (title: string): string => /^(\d+)\./.exec(title)?.[1] ?? title;
@@ -633,16 +637,16 @@ export function buildFigmaPlan(
     if (tint) n.tint = tint;
   }
   const titles = sections.map((n) => n.title);
-  const conclusion = titles.filter((t) => CONCLUSION_KEYS.has(sectionKey(t)));
-  const rest = titles.filter((t) => !CONCLUSION_KEYS.has(sectionKey(t)));
-  const rank = (t: string): number => {
-    const i = EVIDENCE_ORDER.indexOf(sectionKey(t));
-    return i < 0 ? EVIDENCE_ORDER.length : i;
-  };
-  const evidence = [...rest].sort((a, b) => rank(a) - rank(b));
+  const ordered = (keys: string[]): string[] =>
+    keys.flatMap((k) => titles.filter((t) => sectionKey(t) === k));
+  const hasCaptureColumn = groups.length > 0;
+  const captureSections = hasCaptureColumn ? ordered(CAPTURE_ORDER) : [];
+  const conclusion = ordered(CONCLUSION_ORDER);
+  const placed = new Set([...captureSections, ...conclusion, ...ordered(EVIDENCE_ORDER)]);
+  const evidence = [...ordered(EVIDENCE_ORDER), ...titles.filter((t) => !placed.has(t))];
   const columns: FigmaBoard['columns'] = [
-    ...(groups.length > 0
-      ? [{ kind: 'captures' as const, title: '화면 캡처', sections: [] as string[] }]
+    ...(hasCaptureColumn
+      ? [{ kind: 'captures' as const, title: '화면 캡처', sections: captureSections }]
       : []),
     { kind: 'conclusion', title: '결론과 다음 할 일', sections: conclusion },
     { kind: 'evidence', title: '근거 (전제, 비교, 이유)', sections: evidence },

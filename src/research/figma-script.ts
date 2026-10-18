@@ -38,6 +38,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     h2: { size: 24, bold: true, color: '#111111' },
     h3: { size: 18, bold: true, color: '#111111' },
     body: { size: 14, bold: false, color: '#222222' },
+    cell: { size: 16, bold: false, color: '#222222' },
     caption: { size: 12, bold: false, color: '#666666' },
     notice: { size: 14, bold: true, color: '#8a4b00' },
   };
@@ -130,7 +131,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
         cell.strokeWeight = 1;
         row.appendChild(cell);
         cell.layoutSizingVertical = 'FILL';
-        addText(cell, String(cells[c] === undefined ? '' : cells[c]), header ? 'h3' : 'body');
+        addText(cell, String(cells[c] === undefined ? '' : cells[c]), header ? 'h3' : 'cell');
       }
     };
     addRow(node.head, true);
@@ -231,7 +232,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
       const label = addText(line, n.label, 'h3', 'label');
       label.fills = solid(NOTE_COLORS[n.kind] || '#222222');
       label.layoutSizingHorizontal = 'HUG';
-      addText(line, n.text, 'body');
+      addText(line, n.text, 'cell');
     }
   }
 
