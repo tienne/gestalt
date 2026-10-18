@@ -78,7 +78,7 @@ Agent {
 }
 ```
 
-**`<룰북 디렉토리>`는 메인이 절대 경로로 풀어서 채운다.** 그 에이전트의 `AGENT.md`가 있는 디렉토리의 절대 경로이고 본문의 `../` 상대 경로는 거기 기준이다. `plugin/review-agents`, `plugin/role-agents`, `plugin/agents` 순으로 `$CLAUDE_PLUGIN_ROOT/plugin`, `$CLAUDE_PLUGIN_ROOT`, `git rev-parse --show-toplevel` 밑을 `[ -f ]`로 검사한다. 처음 찾은 파일의 부모를 `cd -P`와 `pwd -P`로 풀어 넘긴다. 이름으로 넓게 검색하지 않는다. 서브에이전트가 이름으로 찾게 두면 작업 디렉토리인 리뷰 대상 레포에서 같은 이름의 파일을 집을 수 있다. 못 찾으면 `없음`을 넘기고 본문에 상대 경로가 있으면 읽지 말고 보고하게 한다.
+**`<룰북 디렉토리>`는 메인이 절대 경로로 풀어서 채운다.** 그 에이전트의 `AGENT.md`가 있는 디렉토리의 절대 경로이고 본문의 `../` 상대 경로는 거기 기준이다. 루트는 `<스킬 디렉토리>/../..`, `$CLAUDE_PLUGIN_ROOT/plugin`, `$CLAUDE_PLUGIN_ROOT` 순이고 후보는 `review-agents`, `role-agents`, `agents` 순이다. 루트마다 후보를 돌며 `<루트>/<후보>/<에이전트명>/AGENT.md`를 `[ -f ]`로 검사한다. 위 셋에서 못 찾았고 `git rev-parse --show-toplevel`의 `package.json` name이 `@tienne/gestalt`이면 그 밑 `plugin/`을 루트로 한 번 더 본다. 다른 레포에서는 그 레포가 둔 룰북이 뽑히므로 이 루트를 쓰지 않는다. 순서는 `review` 스킬의 `rule-path-walk.md` 탐색과 같다. 처음 찾은 파일의 부모를 `cd -P`와 `pwd -P`로 풀어 넘긴다. 이름으로 넓게 검색하지 않는다. 서브에이전트가 이름으로 찾게 두면 작업 디렉토리인 리뷰 대상 레포에서 같은 이름의 파일을 집을 수 있다. 못 찾으면 `없음`을 넘기고 본문에 상대 경로가 있으면 읽지 말고 보고하게 한다.
 
 모델은 [`agent-model.md`](./agent-model.md)의 tier 표를 따른다. 서브에이전트를 띄울 때가 tier가 실제로 효력을 갖는 유일한 지점이다. **모델 별칭을 프롬프트에 리터럴로 박지 않는다** — `"opus"`라고 적어두면 `gestalt.json`의 `tierModels`를 갈아끼워도 그 자리만 안 따라온다. 값은 스폰 전에 `ges_agent list`를 한 번 불러 얻는다. 메인에서 `get`을 부르지 않으며 위 프롬프트의 `model` 줄도 빼지 않는다. 폴백과 상세 절차는 [`agent-model.md`](./agent-model.md)의 적용 규칙에 있다.
 
