@@ -15,7 +15,28 @@ export const TARGET_STEP_METHODS = [
   'assumption',
 ] as const;
 export const TRACKING_STATUSES = ['exists', 'missing', 'planned'] as const;
+export const LIFT_METHOD_LABEL = {
+  experiment: '우리 지난 실험',
+  case: '타사 사례',
+  market: '시장 자료',
+  assumption: '가정',
+} as const;
+export const SHORTFALL_DECISION_LABEL = {
+  'add-hypotheses': '가설 추가',
+  'swap-hypotheses': '효과 큰 가설로 교체',
+  'lower-target': '목표 낮춤',
+  keep: '그대로 둠',
+} as const;
 export const DATA_SOURCE_KINDS = ['amplitude', 'export'] as const;
+/** 가설 기대 효과가 어디서 온 값인지. 위에 있을수록 믿을 만하다 */
+export const LIFT_METHODS = ['experiment', 'case', 'market', 'assumption'] as const;
+/** 가설을 다 성공해도 목표에 못 닿을 때 사용자와 고르는 대응 */
+export const SHORTFALL_DECISIONS = [
+  'add-hypotheses',
+  'swap-hypotheses',
+  'lower-target',
+  'keep',
+] as const;
 
 /** 분석 도구 키처럼 보이는 값. 프로젝트 이름이나 파일 경로 자리에 키를 붙여 넣는 실수를 막는다 */
 const KEY_LIKE = /\b[0-9a-f]{32}\b/i;
@@ -100,6 +121,27 @@ const trackingItemSchema = z.object({
   note: z.string().optional(),
 });
 
+/** 가설의 기대 효과(expectedLiftPp)가 어디서 왔는지. 표본과 목표 도달 계산이 전부 이 값에서 나온다 */
+export const liftBasisSchema = z
+  .object({
+    method: z.enum(LIFT_METHODS),
+    ...basisFields,
+  })
+  .superRefine(checkBasis);
+
+const shortfallSchema = z
+  .object({
+    decision: z.enum(SHORTFALL_DECISIONS),
+    /** 목표를 낮췄으면 처음 기대 목표(%) */
+    originalExpectedPct: pctSchema.optional(),
+    /** 누가 왜 그렇게 정했는지 */
+    note: textSchema,
+  })
+  .refine((s) => s.decision !== 'lower-target' || s.originalExpectedPct !== undefined, {
+    message: '목표를 낮췄으면 처음 기대 목표(originalExpectedPct)를 적는다',
+    path: ['originalExpectedPct'],
+  });
+
 export const targetSchema = z.object({
   mode: z.enum(TARGET_MODES),
   metric: z.object({
@@ -118,6 +160,8 @@ export const targetSchema = z.object({
   dataSource: dataSourceSchema.optional(),
   /** 가설을 재는 데 필요한 이벤트. 신규 화면이면 심어야 할 목록이 된다 */
   trackingPlan: z.array(trackingItemSchema).default([]),
+  /** 가설을 다 성공해도 기대 목표에 못 닿았을 때 사용자와 고른 대응 */
+  shortfall: shortfallSchema.optional(),
 });
 
 export type Target = z.infer<typeof targetSchema>;
@@ -246,10 +290,19 @@ export function lintTarget(research: Research, warnings: ResearchWarning[]): voi
 
   const coverage = liftCoverage(research);
   if (coverage && coverage.plannedPp < coverage.neededPp) {
-    warnings.push({
-      path: 'verification',
-      message: `가설을 다 성공해도 목표에 못 닿는다 (기대 효과 합 ${coverage.plannedPp}%p, 필요 ${coverage.neededPp}%p)`,
-    });
+    const gap = `기대 효과 합 ${coverage.plannedPp}%p, 필요 ${coverage.neededPp}%p`;
+    const decision = t.shortfall?.decision;
+    if (!decision) {
+      warnings.push({
+        path: 'verification',
+        message: `가설을 다 성공해도 목표에 못 닿는다 (${gap}). 가설 추가, 효과 큰 가설로 교체, 목표 낮춤, 그대로 둠 중에서 사용자와 골라 target.shortfall에 적는다`,
+      });
+    } else if (decision !== 'keep') {
+      warnings.push({
+        path: 'target.shortfall',
+        message: `목표에 못 닿아 고른 대응은 '${SHORTFALL_DECISION_LABEL[decision]}'인데 아직 못 닿는다 (${gap})`,
+      });
+    }
   }
   if (!coverage && t.range && research.verification.length > 0) {
     if (!research.verification.some((v) => v.expectedLiftPp !== undefined)) {
@@ -262,6 +315,21 @@ export function lintTarget(research: Research, warnings: ResearchWarning[]): voi
 
   research.verification.forEach((v, i) => {
     const lift = v.expectedLiftPp;
+    if (lift !== undefined && !v.liftBasis) {
+      warnings.push({
+        path: `verification.${i}.liftBasis`,
+        message: `기대 효과 ${lift}%p의 근거가 없다 (가설 ${i + 1}). 우리 지난 실험이나 타사 사례를 찾아 liftBasis에 단다`,
+      });
+    } else if (
+      lift !== undefined &&
+      v.liftBasis &&
+      (v.liftBasis.method === 'assumption' || !isUsableBasis(v.liftBasis.basis))
+    ) {
+      warnings.push({
+        path: `verification.${i}.liftBasis`,
+        message: `기대 효과 ${lift}%p가 가정이다 (가설 ${i + 1}). 이 값으로 계산한 표본과 목표 도달이 같이 흔들린다`,
+      });
+    }
     if (lift !== undefined && t.weeklySpreadPp !== undefined && lift < t.weeklySpreadPp) {
       warnings.push({
         path: `verification.${i}.expectedLiftPp`,

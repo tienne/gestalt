@@ -142,12 +142,13 @@ export function buildFigmaPlan(
             ]
           : []),
         ...(tv.coverage ? [text('body', tv.coverage)] : []),
+        ...(tv.shortfall ? [text('body', tv.shortfall)] : []),
         ...(tv.power.length > 0
           ? [
               {
                 type: 'table',
-                head: ['가설', '기대 효과', '군당 표본', '걸리는 일수'],
-                rows: tv.power,
+                head: ['가설', '기대 효과', '군당 표본', '걸리는 일수', '기대 효과 근거'],
+                rows: tv.power.map((row) => [...row.cells, targetCell(row.liftBasis)]),
               } satisfies PlanNode,
             ]
           : []),

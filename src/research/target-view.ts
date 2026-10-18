@@ -1,6 +1,12 @@
 import type { BasisKind, EvidenceRef } from './evidence.js';
 import type { Research } from './schema.js';
-import { hypothesisPower, liftCoverage, type Target } from './target.js';
+import {
+  hypothesisPower,
+  LIFT_METHOD_LABEL,
+  liftCoverage,
+  SHORTFALL_DECISION_LABEL,
+  type Target,
+} from './target.js';
 
 /** HTML과 Figma가 같은 칸을 그리도록 목표치 블록을 표 모양으로 펴 둔다 */
 export interface TargetCell {
@@ -16,7 +22,10 @@ export interface TargetView {
   rows: [string, TargetCell][];
   steps: { label: string; value: TargetCell; method: string }[];
   coverage?: string;
-  power: string[][];
+  /** 가설을 다 성공해도 못 닿을 때 사용자와 고른 대응 */
+  shortfall?: string;
+  /** 가설, 기대 효과, 군당 표본, 걸리는 일수 칸과 기대 효과의 근거 칸 */
+  power: { cells: string[]; liftBasis: TargetCell }[];
   tracking: string[][];
 }
 
@@ -99,12 +108,37 @@ export function targetView(research: Research, shared: boolean): TargetView | un
   }
 
   const coverage = liftCoverage(research);
-  const power = hypothesisPower(research).map((p) => [
-    `가설 ${p.index + 1}`,
-    pp(p.liftPp),
-    Number.isFinite(p.nPerArm) ? people(p.nPerArm) : '계산 못함',
-    p.days === undefined ? '하루 진입 수 없음' : `${p.days}일`,
-  ]);
+  const power = hypothesisPower(research).map((p) => {
+    const lb = research.verification[p.index]?.liftBasis;
+    return {
+      cells: [
+        `가설 ${p.index + 1}`,
+        pp(p.liftPp),
+        Number.isFinite(p.nPerArm) ? people(p.nPerArm) : '계산 못함',
+        p.days === undefined ? '하루 진입 수 없음' : `${p.days}일`,
+      ],
+      liftBasis: lb
+        ? {
+            text: LIFT_METHOD_LABEL[lb.method],
+            basis: lb.basis,
+            evidence: lb.evidence,
+            ...(lb.note ? { note: lb.note } : {}),
+          }
+        : { text: '근거 없음', basis: 'absent' as const },
+    };
+  });
+  const sf = t.shortfall;
+  const shortfall = sf
+    ? [
+        `가설 합이 기대 목표에 모자라서 고른 대응은 '${SHORTFALL_DECISION_LABEL[sf.decision]}'이다.`,
+        sf.originalExpectedPct === undefined
+          ? ''
+          : `처음 기대 목표는 ${sf.originalExpectedPct}%였다.`,
+        sf.note,
+      ]
+        .filter(Boolean)
+        .join(' ')
+    : undefined;
 
   return {
     rows,
@@ -123,6 +157,7 @@ export function targetView(research: Research, shared: boolean): TargetView | un
           coverage: `가설을 다 성공하면 ${coverage.reachPct}%까지 간다. 기대 목표까지 시안으로 올려야 하는 몫은 ${coverage.neededPp}%p이고 가설 기대 효과의 합은 ${coverage.plannedPp}%p다. 효과가 겹칠 수 있어서 합은 많이 잡은 값이다.`,
         }
       : {}),
+    ...(shortfall ? { shortfall } : {}),
     power,
     tracking: t.trackingPlan
       .filter((x) => x.status !== 'exists')

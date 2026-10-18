@@ -3,7 +3,7 @@ import { ValidationError } from '../core/errors.js';
 import { err, ok, type Result } from '../core/result.js';
 import { basisFields, checkBasis, evidenceListSchema, type EvidenceRef } from './evidence.js';
 import { httpsUrlSchema, idSchema, textSchema } from './schema-base.js';
-import { hasUsableBaseline, lintTarget, targetSchema } from './target.js';
+import { hasUsableBaseline, liftBasisSchema, lintTarget, targetSchema } from './target.js';
 
 /** 새 필드는 전부 선택이라 1.0.0 문서가 그대로 읽힌다 */
 export const RESEARCH_SCHEMA_VERSION = '1.0.0';
@@ -348,6 +348,7 @@ const verificationSchema = z.object({
   successCriteria: z.string().optional(),
   /** 성공하면 목표 지표가 몇 %p 오를지. 목표 지표를 안 움직이는 가설은 비운다 */
   expectedLiftPp: z.number().positive().optional(),
+  liftBasis: liftBasisSchema.optional(),
   /** 이 가설을 재는 이벤트. target.trackingPlan에서 상태를 본다 */
   events: z.array(textSchema).default([]),
   caveat: z.string().optional(),
@@ -666,6 +667,8 @@ export const researchSchema = z
       t.steps.forEach((s, i) => checkEvidence(['target', 'steps', i, 'evidence'], s.evidence));
     }
     r.verification.forEach((v, i) => {
+      if (v.liftBasis)
+        checkEvidence(['verification', i, 'liftBasis', 'evidence'], v.liftBasis.evidence);
       v.metricCaseIds.forEach((id, k) => {
         if (!caseIds.has(id))
           issue(['verification', i, 'metricCaseIds', k], `없는 지표 사례: ${id}`);

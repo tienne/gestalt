@@ -686,11 +686,12 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
       );
     }
     if (tv.coverage) parts.push(`<p>${e(tv.coverage)}</p>`);
+    if (tv.shortfall) parts.push(`<p>${e(tv.shortfall)}</p>`);
     if (tv.power.length > 0) {
       parts.push(
         table(
-          ['가설', '기대 효과', '군당 표본', '걸리는 일수'],
-          tv.power.map((row) => row.map((x) => e(x))),
+          ['가설', '기대 효과', '군당 표본', '걸리는 일수', '기대 효과 근거'],
+          tv.power.map((row) => [...row.cells.map((x) => e(x)), targetCell(row.liftBasis)]),
         ),
       );
     }
