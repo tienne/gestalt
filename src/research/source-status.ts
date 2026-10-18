@@ -67,21 +67,23 @@ export function evaluateSource(
   const requirement = unmetRequirement(source, avail, env);
   if (requirement) return { status: 'skipped', note: `${requirement}이라 건너뜀` };
 
-  const reasons: string[] = [];
+  // 같은 종류끼리는 연결 이름만 다른 같은 경로라(예: 커넥터 MCP와 직접 띄운 MCP) 대체로 치지 않는다
+  const reasons: { kind: SourceAccess['kind']; reason: string }[] = [];
   for (const access of source.frontmatter.access) {
     const reason = unmetReason(access, avail, env);
     if (!reason) {
-      return reasons.length === 0
+      const other = reasons.find((r) => r.kind !== access.kind);
+      return !other
         ? { status: 'usable', via: access.kind, note: '사용 가능' }
         : {
             status: 'fallback',
             via: access.kind,
-            note: `${reasons[0]}이라 ${VIA_LABEL[access.kind]}로`,
+            note: `${other.reason}이라 ${VIA_LABEL[access.kind]}로`,
           };
     }
-    reasons.push(reason);
+    reasons.push({ kind: access.kind, reason });
   }
-  return { status: 'skipped', note: `${reasons[0]}이라 건너뜀` };
+  return { status: 'skipped', note: `${reasons[0]!.reason}이라 건너뜀` };
 }
 
 export interface SourceReportRow {

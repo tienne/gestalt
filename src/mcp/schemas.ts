@@ -1048,7 +1048,7 @@ export const researchInputSchema = guardObject(
         'sources: ges 서버는 같은 세션의 다른 MCP 연결과 브라우저 로그인을 못 본다. 세션이 알려준다. 환경변수는 서버가 직접 확인한다',
       ),
     stage: z
-      .enum(['product-discovery', 'scale', 'screen-map', 'evidence'])
+      .enum(['product-discovery', 'scale', 'screen-map', 'evidence', 'baseline'])
       .optional()
       .describe('sources: 이 단계에 쓰는 출처만 본다'),
     name: z

@@ -3,7 +3,13 @@ import { z } from 'zod';
 import { ValidationError } from '../core/errors.js';
 import { err, ok, type Result } from '../core/result.js';
 
-export const SOURCE_STAGES = ['product-discovery', 'scale', 'screen-map', 'evidence'] as const;
+export const SOURCE_STAGES = [
+  'product-discovery',
+  'scale',
+  'screen-map',
+  'evidence',
+  'baseline',
+] as const;
 export const SOURCE_ACCESS_KINDS = ['mcp', 'browser', 'http', 'env'] as const;
 export const SOURCE_EVIDENCE = [
   'observation',
@@ -21,7 +27,8 @@ export const SOURCE_MAX_BYTES = 64 * 1024;
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const ENV_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/;
-const MCP_SERVER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
+/** `claude.ai Amplitude`처럼 커넥터 이름에 공백이 들어간다. 연속 공백과 끝 공백은 막는다 */
+const MCP_SERVER_PATTERN = /^(?!.* {2})(?!.* $)[A-Za-z0-9][A-Za-z0-9_.: -]{0,63}$/;
 const HOST_PATTERN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
 const PRIVATE_HOST_SUFFIXES = [
   '.local',
