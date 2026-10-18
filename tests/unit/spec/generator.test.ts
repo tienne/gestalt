@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SpecGenerator } from '../../../src/spec/generator.js';
+import { specSchema } from '../../../src/spec/schema.js';
 import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
 import type { InterviewSession } from '../../../src/core/types.js';
@@ -14,6 +15,19 @@ class MockLLM implements LLMAdapter {
   async chat(_req: LLMRequest): Promise<LLMResponse> {
     return { content: this.response, usage: { inputTokens: 0, outputTokens: 0 } };
   }
+}
+
+/**
+ * 생성기는 draft를 직접 만들기 때문에 옛 ambiguityScore를 넣을 길이 없다.
+ * safeParse 입력만 옛 꼴로 바꿔서, 돌려주는 값이 검증 결과(transform 적용)인지 확인한다.
+ */
+function feedLegacyMetadata(): void {
+  const original = specSchema.safeParse.bind(specSchema);
+  vi.spyOn(specSchema, 'safeParse').mockImplementation((input: unknown) => {
+    const spec = input as { metadata: Record<string, unknown> };
+    const { resolutionScore: _drop, ...rest } = spec.metadata;
+    return original({ ...spec, metadata: { ...rest, ambiguityScore: 0.25 } });
+  });
 }
 
 function makeSession(overrides: Partial<InterviewSession> = {}): InterviewSession {
@@ -179,5 +193,25 @@ describe('SpecGenerator', () => {
 
     const overrideEvents = store.getByType(EventType.SPEC_FORCE_OVERRIDE);
     expect(overrideEvents).toHaveLength(0);
+  });
+
+  it('옛 ambiguityScore를 resolutionScore로 바꿔 돌려준다', async () => {
+    feedLegacyMetadata();
+    const llm = new MockLLM();
+    llm.response = JSON.stringify({
+      goal: 'Build a dashboard',
+      constraints: ['React'],
+      acceptanceCriteria: ['Show data'],
+      ontologySchema: { entities: [], relations: [] },
+      gestaltAnalysis: [],
+    });
+
+    const result = await new SpecGenerator(llm, store).generate(makeSession());
+    vi.restoreAllMocks();
+
+    expect(isOk(result)).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.metadata.resolutionScore).toBeCloseTo(0.75);
+    expect(result.value.metadata).not.toHaveProperty('ambiguityScore');
   });
 });

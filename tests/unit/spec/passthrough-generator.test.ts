@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PassthroughSpecGenerator } from '../../../src/spec/passthrough-generator.js';
+import { specSchema } from '../../../src/spec/schema.js';
 import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
 import { isOk, isErr } from '../../../src/core/result.js';
@@ -39,6 +40,19 @@ function makeSession(overrides: Partial<InterviewSession> = {}): InterviewSessio
     updatedAt: new Date().toISOString(),
     ...overrides,
   };
+}
+
+/**
+ * 생성기는 draft를 직접 만들기 때문에 옛 ambiguityScore를 넣을 길이 없다.
+ * safeParse 입력만 옛 꼴로 바꿔서, 돌려주는 값이 검증 결과(transform 적용)인지 확인한다.
+ */
+function feedLegacyMetadata(): void {
+  const original = specSchema.safeParse.bind(specSchema);
+  vi.spyOn(specSchema, 'safeParse').mockImplementation((input: unknown) => {
+    const spec = input as { metadata: Record<string, unknown> };
+    const { resolutionScore: _drop, ...rest } = spec.metadata;
+    return original({ ...spec, metadata: { ...rest, ambiguityScore: 0.25 } });
+  });
 }
 
 const validExternalSpec = {
@@ -219,5 +233,33 @@ describe('PassthroughSpecGenerator.validateAndStoreFromText', () => {
       expect(result.value.metadata.resolutionScore).toBeNull();
       expect(result.value.metadata.resolutionScore).not.toBe(1);
     }
+  });
+
+  describe('검증 결과 반환', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('validateAndStore는 옛 ambiguityScore를 resolutionScore로 바꿔 돌려준다', () => {
+      feedLegacyMetadata();
+
+      const result = generator.validateAndStore(makeSession(), validExternalSpec);
+
+      expect(isOk(result)).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.metadata.resolutionScore).toBeCloseTo(0.75);
+      expect(result.value.metadata).not.toHaveProperty('ambiguityScore');
+    });
+
+    it('validateAndStoreFromText도 옛 ambiguityScore를 resolutionScore로 바꿔 돌려준다', () => {
+      feedLegacyMetadata();
+
+      const result = generator.validateAndStoreFromText(validExternalSpec);
+
+      expect(isOk(result)).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.metadata.resolutionScore).toBeCloseTo(0.75);
+      expect(result.value.metadata).not.toHaveProperty('ambiguityScore');
+    });
   });
 });
