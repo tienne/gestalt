@@ -15,6 +15,7 @@ pnpm gate          # 커밋 전 게이트 — CI가 도는 것과 같다 (typech
                    # 강제하는 훅은 없다. 커밋 전에 사람이 부른다
 pnpm build:output-style  # 룰북 → ~/.claude/output-styles/tienne-voice.md 생성
 pnpm build:routing # SKILL.md triggers → proactive-routing.md 스킬 표 생성 (verify:routing이 gate에서 검사)
+pnpm build:agents  # 리뷰어와 role agent의 AGENT.md → 루트 agents/ Claude 플러그인 에이전트 생성 (verify:agents가 gate에서 검사)
 pnpm verify:skill-confusion # 스킬 description끼리 헷갈리는지 검사 (gate에 포함). 걸리면 임계값 말고 description을 고친다
 ```
 나머지 스크립트는 `package.json`에, CLI 서브커맨드는 `pnpm tsx bin/gestalt.ts --help`에 있다.
@@ -54,6 +55,7 @@ skills → plugin/skills            루트 심링크 — Claude와 Orca가 읽�
 plugin/.codex-plugin/plugin.json  "skills": "./skills/"
 plugin/.mcp.json                  Grok MCP (plugin/mcp.json과 동일)
 hooks/hooks.json                  Claude 플러그인 훅 (코드 그래프 자동 주입, WebFetch 캐시). Claude만 읽는다
+agents/                           Claude 플러그인 에이전트 (gestalt:<이름>). pnpm build:agents 생성물. Claude만 읽는다
 ```
 
 - Orca는 `plugin.json`을 안 읽는다. 설치 경로 뒤에 `skills`를 하드코딩해 붙이고 그 아래만 훑는다. 루트 `skills` 심링크를 지우면 Orca 채팅의 스킬 피커에서 gestalt 스킬이 하나도 안 뜬다.
@@ -67,6 +69,9 @@ hooks/hooks.json                  Claude 플러그인 훅 (코드 그래프 자�
 - `plugin/skills/review/SKILL.md`가 `../../role-agents/`를 참조한다. 스킬과 에이전트를 함께 옮겨야 이 상대 깊이가 유지된다.
 - 훅은 루트 `hooks/hooks.json` 하나만 두고 `plugin.json`에 `hooks` 필드를 넣지 않는다. 문서상 필드와 기본 파일은 merge된다. 같은 파일을 가리키면 실제로는 한 번만 걸리는 걸 확인했지만 그래도 한 곳만 둔다.
 - Codex와 Grok 훅은 지원하지 않는다. 훅 자동 주입은 Claude 전용이다.
+- 루트 `agents/`는 리뷰어 전부와 스킬이 `subagent_type: "gestalt:<이름>"`으로 띄우는 에이전트만 뽑은 생성물이다. 에이전트마다 설명이 모든 세션의 Agent 도구 설명에 붙어서 대상을 좁히고 설명도 빌드 스크립트의 한 줄짜리로 바꿔 싣는다. 고칠 곳은 원본 AGENT.md이고 도구와 `omitClaudeMd`는 `scripts/build-claude-agents.ts`의 표에서 정한다. 타입을 못 찾는 런타임은 Explore와 `ges_agent`로 폴백한다(`plugin/skills/_shared/agent-delegation.md`).
+- `plugin.json`에 `agents` 필드를 넣지 않는다. 배열로 넣으면 기본 `agents/` 디렉토리를 대체한다. 디렉토리 문자열을 넣으면 플러그인 로드가 통째로 깨진다(2.1.302에서 확인). 원리 에이전트가 있는 `plugin/agents/`는 Claude가 직접 읽는 자리가 아니다. 빌드가 continuity-judge만 여기서 읽어 루트 `agents/`로 뽑는다.
+- 생성물 본문의 룰북 경로는 `${CLAUDE_PLUGIN_ROOT}/plugin/...`이다. Claude Code가 에이전트 본문의 이 변수를 설치 경로로 치환해서 서브에이전트가 남의 레포에서 돌아도 풀린다.
 - 훅 런처는 `scripts/code-graph-hook.sh`와 `scripts/webfetch-cache-hook.sh` 두 개다. WebFetch 캐시 런처는 Node 없이 bash와 jq, curl로만 돈다. 코드 그래프 런처의 Node 탐색은 `scripts/lib/pick-node.sh`를 `mcp-serve.sh`와 함께 쓴다. 자세한 동작은 [`docs/code-graph.md`](./docs/code-graph.md#claude-code-훅-자동-주입)에 있다.
 - 자산 디렉토리 기본값은 `src/core/config.ts`에 `skillsDir`, `agentsDir`, `roleAgentsDir`, `reviewAgentsDir`, `personasDir`, `researchSourcesDir` 여섯 개로 있다. 경로를 바꾸면 전부 함께 고친다.
 

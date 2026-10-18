@@ -29,7 +29,7 @@
   "scripts": {
     "dev": "tsx bin/gestalt.ts",
     "build": "tsc -p tsconfig.build.json",
-    "postbuild": "rm -rf dist/plugin && mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/research-sources plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js dist/bin/gestalt-hook.js && pnpm run verify:plugin && pnpm run verify:rules && pnpm run verify:rule-overlap && pnpm run verify:output-style && pnpm run verify:routing",
+    "postbuild": "rm -rf dist/plugin && mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/research-sources plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js dist/bin/gestalt-hook.js && pnpm run verify:plugin && pnpm run verify:rules && pnpm run verify:rule-overlap && pnpm run verify:output-style && pnpm run verify:routing && pnpm run verify:agents",
     "verify:plugin": "tsx scripts/verify-plugin-assets.ts",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
@@ -45,12 +45,14 @@
     "postversion": "pnpm run version:sync && pnpm run build:output-style",
     "verify:rules": "tsx scripts/verify-rule-refs.ts",
     "verify:rule-overlap": "tsx scripts/verify-rule-overlap.ts",
-    "gate": "pnpm typecheck && pnpm verify:rules && pnpm verify:rule-overlap && pnpm verify:routing && pnpm verify:skill-confusion && pnpm lint && pnpm format:check && pnpm build && pnpm test",
+    "gate": "pnpm typecheck && pnpm verify:rules && pnpm verify:rule-overlap && pnpm verify:routing && pnpm verify:agents && pnpm verify:skill-confusion && pnpm lint && pnpm format:check && pnpm build && pnpm test",
     "humanize:baseline": "tsx scripts/humanize-baseline.ts",
     "build:output-style": "tsx scripts/build-output-style.ts",
     "verify:output-style": "tsx scripts/build-output-style.ts --dry-run",
     "build:routing": "tsx scripts/build-skill-routing.ts",
     "verify:routing": "tsx scripts/build-skill-routing.ts --check",
+    "build:agents": "tsx scripts/build-claude-agents.ts",
+    "verify:agents": "tsx scripts/build-claude-agents.ts --check",
     "verify:skill-confusion": "tsx scripts/verify-skill-confusion.ts"
   },
   "dependencies": {
