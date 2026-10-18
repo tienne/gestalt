@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   ROOT,
+  SPAWN_REF_ONE,
   buildAgents,
   renderAgent,
   rewritePaths,
@@ -199,7 +200,7 @@ describe('스킬의 gestalt: 호출부', () => {
       const file = join(entry.parentPath, entry.name);
       const lines = readFileSync(file, 'utf-8').split('\n');
       lines.forEach((line, i) => {
-        if (!/subagent_type:\s*"gestalt:[a-z][\w-]*"/.test(line)) return;
+        if (!SPAWN_REF_ONE.test(line)) return;
         if (line.includes('model:') || lines[i + 1]?.trim().startsWith('model:')) return;
         missing.push(`${file}:${i + 1}`);
       });

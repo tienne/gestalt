@@ -32,7 +32,8 @@ const REVIEWER_DIR = 'plugin/review-agents';
 const SOURCE_DIRS = [REVIEWER_DIR, 'plugin/role-agents', 'plugin/agents'] as const;
 
 const SKILLS_DIR = 'plugin/skills';
-const SPAWN_REF = /subagent_type:\s*"gestalt:([a-z][\w-]*)"/g;
+export const SPAWN_REF_ONE = /subagent_type:\s*"gestalt:([a-z][\w-]*)"/;
+const SPAWN_REF = new RegExp(SPAWN_REF_ONE.source, 'g');
 
 /**
  * Agent 도구 설명에 실리는 한 줄. 스킬이 이름으로 띄우니 고르는 데 쓸 설명은 필요 없다. 원본
