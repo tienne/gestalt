@@ -140,6 +140,25 @@ export class ProjectMemoryStore {
     });
   }
 
+  /**
+   * 같은 `executeSessionId`가 있으면 덮어쓰고 없으면 추가한다.
+   *
+   * evolve를 거친 뒤 다시 평가하면 같은 세션이 한 번 더 들어오는데, `addExecution`은 그걸 건너뛰어
+   * 재평가 점수가 남지 않는다.
+   */
+  upsertExecution(record: MemoryExecutionRecord): ProjectMemory {
+    return this.update((memory) => {
+      const idx = memory.executionHistory.findIndex(
+        (e) => e.executeSessionId === record.executeSessionId,
+      );
+      if (idx >= 0) {
+        memory.executionHistory[idx] = record;
+      } else {
+        memory.executionHistory.push(record);
+      }
+    });
+  }
+
   addArchitectureDecision(decision: ArchitectureDecision): ProjectMemory {
     return this.update((memory) => {
       // decision 내용 기준 중복 방지 (같은 결정을 중복 기록하지 않음)

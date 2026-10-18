@@ -40,7 +40,7 @@ export function handleEvaluate(
         .map((t) => t.taskId);
       const score = evaluationResult?.overallScore ?? 0;
       const goalAlign = evaluationResult?.goalAlignment ?? 0;
-      memoryStore.addExecution({
+      memoryStore.upsertExecution({
         executeSessionId: completedSession.sessionId,
         specId: completedSession.specId,
         completedTasks,

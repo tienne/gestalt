@@ -130,6 +130,39 @@ describe('ProjectMemoryStore', () => {
     expect(memory.executionHistory).toHaveLength(1);
   });
 
+  it('upsertExecution은 같은 세션이면 덮어써서 두 번째 점수를 남긴다', () => {
+    const sessionId = randomUUID();
+    const base = {
+      executeSessionId: sessionId,
+      specId: randomUUID(),
+      completedTasks: ['task-1'],
+      failedTasks: [],
+      completedAt: new Date().toISOString(),
+    };
+    store.upsertExecution({ ...base, resultSummary: 'Score: 0.50, goalAlignment: 0.50' });
+    store.upsertExecution({ ...base, resultSummary: 'Score: 0.90, goalAlignment: 0.85' });
+
+    const memory = store.read();
+    expect(memory.executionHistory).toHaveLength(1);
+    expect(memory.executionHistory[0]!.resultSummary).toBe('Score: 0.90, goalAlignment: 0.85');
+  });
+
+  it('upsertExecution은 다른 세션을 따로 쌓는다', () => {
+    const make = (summary: string) => ({
+      executeSessionId: randomUUID(),
+      specId: randomUUID(),
+      completedTasks: [],
+      failedTasks: [],
+      resultSummary: summary,
+      completedAt: new Date().toISOString(),
+    });
+    store.upsertExecution(make('a'));
+    store.upsertExecution(make('b'));
+
+    const memory = store.read();
+    expect(memory.executionHistory.map((e) => e.resultSummary)).toEqual(['a', 'b']);
+  });
+
   it('appends architecture decisions', () => {
     store.addArchitectureDecision({
       decision: 'Use PostgreSQL over MongoDB',
