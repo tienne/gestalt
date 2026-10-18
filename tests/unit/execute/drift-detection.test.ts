@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
 import { EventStore } from '../../../src/events/store.js';
+import { DRIFT_THRESHOLD } from '../../../src/core/constants.js';
+import type { ExecuteConfig } from '../../../src/core/config.js';
 import { measureDrift } from '../../../src/execute/drift-detector.js';
 import { isOk } from '../../../src/core/result.js';
 import { existsSync, rmSync } from 'node:fs';
@@ -40,6 +42,15 @@ function createTestSpec(): Spec {
       resolutionScore: 0.85,
       generatedAt: new Date().toISOString(),
     },
+  };
+}
+
+function executeConfig(overrides: Partial<ExecuteConfig>): ExecuteConfig {
+  return {
+    driftThreshold: DRIFT_THRESHOLD,
+    successThreshold: 0.85,
+    goalAlignmentThreshold: 0.8,
+    ...overrides,
   };
 }
 
@@ -169,9 +180,9 @@ describe('Drift Detection in Engine', () => {
     }
   });
 
-  function setupExecutingSession(): string {
+  function setupExecutingSession(target: PassthroughExecuteEngine = engine): string {
     const spec = createTestSpec();
-    const startResult = engine.start(spec);
+    const startResult = target.start(spec);
     if (!startResult.ok) throw new Error('start failed');
     const sessionId = startResult.value.session.sessionId;
 
@@ -240,12 +251,12 @@ describe('Drift Detection in Engine', () => {
       },
     };
 
-    engine.planStep(sessionId, fg);
-    engine.planStep(sessionId, closure);
-    engine.planStep(sessionId, proximity);
-    engine.planStep(sessionId, continuity);
-    engine.planComplete(sessionId);
-    engine.startExecution(sessionId);
+    target.planStep(sessionId, fg);
+    target.planStep(sessionId, closure);
+    target.planStep(sessionId, proximity);
+    target.planStep(sessionId, continuity);
+    target.planComplete(sessionId);
+    target.startExecution(sessionId);
 
     return sessionId;
   }
@@ -350,5 +361,62 @@ describe('Drift Detection in Engine', () => {
       expect(result.value.driftScore!.thresholdExceeded).toBe(false);
       expect(result.value.retrospectiveContext).toBeUndefined();
     }
+  });
+
+  describe('설정의 임계값 전달', () => {
+    const alignedOutput = 'Created User authentication model with email password JWT tokens';
+
+    async function submitAligned(target: PassthroughExecuteEngine) {
+      const sessionId = setupExecutingSession(target);
+      const result = await target.submitTaskResult(sessionId, {
+        taskId: 'task-0',
+        status: 'completed',
+        output: alignedOutput,
+        artifacts: ['src/user.ts'],
+      });
+      if (!result.ok) throw new Error('submit failed');
+      return result.value;
+    }
+
+    it('설정이 없으면 상수 DRIFT_THRESHOLD 기준으로 판정한다', async () => {
+      const { driftScore } = await submitAligned(engine);
+
+      expect(driftScore!.threshold).toBe(DRIFT_THRESHOLD);
+      expect(driftScore!.thresholdExceeded).toBe(driftScore!.overall > DRIFT_THRESHOLD);
+    });
+
+    it('config.execute.driftThreshold를 0.2로 주면 0.2 기준으로 판정한다', async () => {
+      const configured = new PassthroughExecuteEngine(
+        store,
+        undefined,
+        undefined,
+        executeConfig({ driftThreshold: 0.2 }),
+      );
+      const { driftScore, retrospectiveContext } = await submitAligned(configured);
+
+      // 정렬된 산출물이라 기본 임계값(0.6) 아래에 있지만 0.2는 넘는다
+      expect(driftScore!.overall).toBeGreaterThan(0.2);
+      expect(driftScore!.overall).toBeLessThan(DRIFT_THRESHOLD);
+      expect(driftScore!.threshold).toBe(0.2);
+      expect(driftScore!.thresholdExceeded).toBe(true);
+      expect(retrospectiveContext).toBeDefined();
+    });
+
+    it('submitTaskResult에 직접 넘긴 임계값이 설정보다 우선한다', async () => {
+      const configured = new PassthroughExecuteEngine(
+        store,
+        undefined,
+        undefined,
+        executeConfig({ driftThreshold: 0.2 }),
+      );
+      const sessionId = setupExecutingSession(configured);
+      const result = await configured.submitTaskResult(
+        sessionId,
+        { taskId: 'task-0', status: 'completed', output: alignedOutput, artifacts: [] },
+        0.9,
+      );
+
+      expect(result.ok && result.value.driftScore!.threshold).toBe(0.9);
+    });
   });
 });

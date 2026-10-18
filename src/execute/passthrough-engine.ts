@@ -24,6 +24,7 @@ import { PlanningOrchestrator } from './orchestrators/planning.js';
 import { ExecutionOrchestrator } from './orchestrators/execution.js';
 import { EvaluationOrchestrator } from './orchestrators/evaluation.js';
 import { EvolutionOrchestrator } from './orchestrators/evolution.js';
+import type { ExecuteConfig } from '../core/config.js';
 import type {
   PassthroughStartResult,
   PassthroughPlanStepResult,
@@ -78,6 +79,7 @@ export class PassthroughExecuteEngine {
     eventStore: EventStore,
     agentRegistry?: AgentRegistry,
     roleAgentRegistry?: RoleAgentRegistry,
+    executeConfig?: ExecuteConfig,
   ) {
     this.sessionManager = new ExecuteSessionManager(eventStore);
     this.sessionManager.loadFromStore();
@@ -93,6 +95,7 @@ export class PassthroughExecuteEngine {
       eventStore,
       agentRegistry,
       roleAgentRegistry,
+      executeConfig,
     );
     this.evaluationOrch = new EvaluationOrchestrator(
       this.sessionManager,
@@ -105,6 +108,7 @@ export class PassthroughExecuteEngine {
       eventStore,
       agentRegistry,
       roleAgentRegistry,
+      executeConfig,
     );
   }
 

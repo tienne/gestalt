@@ -21,7 +21,7 @@
   "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
   "llm": { "apiKey": "", "model": "claude-sonnet-5" },
   "interview": { "resolutionThreshold": 0.8, "maxRounds": 10 },
-  "execute": { "driftThreshold": 0.3, "successThreshold": 0.85, "goalAlignmentThreshold": 0.80 },
+  "execute": { "driftThreshold": 0.6, "successThreshold": 0.85, "goalAlignmentThreshold": 0.80 },
   "reasoningModel": "fable",
   "reasoningModelFallback": "opus",
   "tierModels": { "frugal": "haiku", "standard": "sonnet", "frontier": "opus" },
@@ -85,7 +85,7 @@ interface GestaltConfig {
 | `GESTALT_MODEL` | string | `"claude-sonnet-5"` | 기본 LLM 모델 이름 (`llm.model` 매핑) |
 | `GESTALT_RESOLUTION_THRESHOLD` | number (0–1) | `0.8` | 인터뷰 완료 기준 해상도 점수. 이 값 이상이면 인터뷰를 충분히 완료된 것으로 판단 |
 | `GESTALT_MAX_ROUNDS` | number (int) | `10` | 인터뷰 최대 라운드 수 |
-| `GESTALT_DRIFT_THRESHOLD` | number (0–1) | `0.3` | Execute 평가 시 드리프트 허용 임계값. 초과 시 Evolve 루프 진입 |
+| `GESTALT_DRIFT_THRESHOLD` | number (0–1) | `0.6` | Execute 평가 시 드리프트 허용 임계값. 초과 시 Evolve 루프 진입 |
 | `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | number (0–1) | `0.85` | Evolve 성공 판정 기준 점수 |
 | `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | number (0–1) | `0.80` | 목표 정렬도 최소 임계값. 미달 시 재실행 트리거 |
 | `GESTALT_REASONING_MODEL` | `"fable"` \| `"opus"` \| `"sonnet"` \| `"haiku"` | `"fable"` | 스펙 생성과 실행 플래닝의 깊은 추론에 쓸 Agent 서브에이전트 모델. Interview는 대상이 아님 |

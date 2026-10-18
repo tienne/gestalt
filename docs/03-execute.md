@@ -223,7 +223,7 @@ Constraint: violated_constraints / total_constraints
 Ontology:   1 - Jaccard(task.entities, spec.ontologySchema.entities)
 ```
 
-`driftScore > driftThreshold(기본 0.3)`이면 `retrospectiveContext`를 반환해요. Caller는 태스크를 수정하거나, 이후 Evolve 단계에서 Spec을 패치할 수 있어요.
+`driftScore > driftThreshold(기본 0.6)`이면 `retrospectiveContext`를 반환해요. Caller는 태스크를 수정하거나, 이후 Evolve 단계에서 Spec을 패치할 수 있어요.
 
 소스: `src/execute/drift-detector.ts`, `src/core/constants.ts`
 

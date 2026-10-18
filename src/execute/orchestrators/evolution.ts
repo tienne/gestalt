@@ -24,6 +24,7 @@ import {
   buildReExecutionPrompt,
 } from '../prompts.js';
 import { DRIFT_THRESHOLD } from '../../core/constants.js';
+import type { ExecuteConfig } from '../../core/config.js';
 import { logger } from '../../core/logger.js';
 import { validateSpecPatch } from '../spec-patch-validator.js';
 import { applySpecPatch } from '../spec-patch-applier.js';
@@ -55,6 +56,7 @@ export class EvolutionOrchestrator {
     private eventStore: EventStore,
     private agentRegistry?: AgentRegistry,
     _roleAgentRegistry?: RoleAgentRegistry,
+    private executeConfig?: ExecuteConfig,
   ) {}
 
   /**
@@ -246,7 +248,7 @@ export class EvolutionOrchestrator {
       this.sessionManager.patchSpec(sessionId, patch, newSpec, delta);
 
       // Identify impacted tasks
-      const driftThreshold = DRIFT_THRESHOLD;
+      const driftThreshold = this.executeConfig?.driftThreshold ?? DRIFT_THRESHOLD;
       const impactedTaskIds = identifyImpactedTasks(
         plan.atomicTasks,
         session.driftHistory,

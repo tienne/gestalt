@@ -29,6 +29,7 @@ import {
 import { measureDrift } from '../drift-detector.js';
 import { captureWorkingTreeBaseline, verifyArtifacts } from '../artifact-verifier.js';
 import { log } from '../../core/log.js';
+import type { ExecuteConfig } from '../../core/config.js';
 import { DRIFT_THRESHOLD, VERIFICATION_EVENT_FILE_LIMIT } from '../../core/constants.js';
 import type { AgentRegistry } from '../../agent/registry.js';
 import { mergeSystemPrompt } from '../../agent/prompt-resolver.js';
@@ -80,6 +81,7 @@ export class ExecutionOrchestrator {
     private eventStore: EventStore,
     private agentRegistry?: AgentRegistry,
     private roleAgentRegistry?: RoleAgentRegistry,
+    private executeConfig?: ExecuteConfig,
   ) {}
 
   /**
@@ -192,7 +194,7 @@ export class ExecutionOrchestrator {
       let retrospectiveContext: DriftRetrospectiveContext | undefined;
 
       if (taskResult.status === 'completed') {
-        const threshold = driftThreshold ?? DRIFT_THRESHOLD;
+        const threshold = driftThreshold ?? this.executeConfig?.driftThreshold ?? DRIFT_THRESHOLD;
         driftScore = await measureDrift(session.spec, task, taskResult, threshold);
         this.sessionManager.addDriftScore(sessionId, driftScore);
 
