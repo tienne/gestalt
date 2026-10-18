@@ -48,11 +48,12 @@ afterEach(() => {
 });
 
 describe('내장 출처', () => {
-  it('내장 5개가 모두 읽힌다', () => {
+  it('내장 6개가 모두 읽힌다', () => {
     const registry = new ResearchSourceRegistry(BUILTIN);
     registry.loadAll();
     expect(registry.getDiagnostics()).toEqual([]);
     expect(registry.getAll().map((s) => s.frontmatter.name)).toEqual([
+      'amplitude',
       'app-store-reviews',
       'app-store-search',
       'tech-blog-search',
@@ -189,6 +190,22 @@ describe('상태 판정', () => {
     expect(fb.via).toBe('browser');
     expect(fb.note).toContain('MCP(uibowl) 미연결');
     expect(evaluateSource(uibowl, {}).status).toBe('skipped');
+  });
+
+  it('공백이 든 커넥터 이름도 MCP 서버로 받는다', () => {
+    const amp = registry.getByName('amplitude')!;
+    expect(amp.frontmatter.stage).toEqual(['baseline']);
+    expect(evaluateSource(amp, { mcpServers: ['claude.ai Amplitude'] }).status).toBe('usable');
+    expect(evaluateSource(amp, { mcpServers: ['amplitude'] }).status).toBe('usable');
+    expect(evaluateSource(amp, {}).status).toBe('skipped');
+  });
+
+  it('MCP 서버 이름에 연속 공백이나 끝 공백은 막는다', () => {
+    const md = (server: string): string =>
+      `---\nname: x\ndescription: x\nstage: [baseline]\naccess:\n  - mcp: { server: "${server}" }\n---\n\n## 찾는 법\n1. 본다\n\n## 멈추는 곳\n없음\n`;
+    expect(parseSourceMd(md('claude.ai Amplitude')).ok).toBe(true);
+    expect(parseSourceMd(md('a  b')).ok).toBe(false);
+    expect(parseSourceMd(md('a ')).ok).toBe(false);
   });
 
   it('공개 API는 아무 연결 없이 usable이다', () => {
