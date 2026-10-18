@@ -1,3 +1,4 @@
+import { boardMarkup, CANVAS_CSS, CANVAS_JS } from './canvas-view.js';
 import type { BasisKind, EvidenceRef } from './evidence.js';
 import { metricCasesByProduct, type Capture, type Finding, type Research } from './schema.js';
 import type { ResearchAudience } from './store.js';
@@ -1084,8 +1085,8 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
   const html =
     '<!doctype html>\n<html lang="ko">\n<head>\n<meta charset="utf-8">\n' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
-    `<title>${e(research.meta.title)}</title>\n<style>${CSS}</style>\n</head>\n<body>\n<main>\n` +
-    parts.join('\n') +
-    '\n</main>\n</body>\n</html>\n';
+    `<title>${e(research.meta.title)}</title>\n<style>${CSS}${CANVAS_CSS}</style>\n</head>\n<body>\n<main>\n` +
+    boardMarkup(parts, e(research.meta.title)) +
+    `\n</main>\n<script>${CANVAS_JS}</script>\n</body>\n</html>\n`;
   return { ok: true, html, warnings };
 }
