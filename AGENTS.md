@@ -83,8 +83,8 @@ When changing anything under `plugin/`, keep these in mind.
 - `plugin/skills/review/SKILL.md` reads `../../role-agents/`. Skills and agents
   must move together or that relative depth breaks.
 - Asset directory defaults live in `src/core/config.ts` as `skillsDir`,
-  `agentsDir`, `roleAgentsDir`, `reviewAgentsDir`, and `personasDir`. Changing a
-  path means changing all five.
+  `agentsDir`, `roleAgentsDir`, `reviewAgentsDir`, `personasDir`, and
+  `researchSourcesDir`. Changing a path means changing all six.
 
 Never run `npm publish`, `pnpm publish`, or any direct local publish command for
 this repository. Releases happen through `.github/workflows/release.yml` by

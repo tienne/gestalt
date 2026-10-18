@@ -1,6 +1,6 @@
 {
   "name": "@tienne/gestalt",
-  "version": "0.99.0",
+  "version": "0.100.0",
   "description": "TypeScript AI Development Harness - Gestalt psychology-driven requirement clarification",
   "repository": {
     "type": "git",
@@ -29,7 +29,7 @@
   "scripts": {
     "dev": "tsx bin/gestalt.ts",
     "build": "tsc -p tsconfig.build.json",
-    "postbuild": "rm -rf dist/plugin && mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js dist/bin/gestalt-hook.js && pnpm run verify:plugin && pnpm run verify:rules && pnpm run verify:rule-overlap && pnpm run verify:output-style && pnpm run verify:routing && pnpm run verify:agents",
+    "postbuild": "rm -rf dist/plugin && mkdir -p dist/plugin && cp -r plugin/agents plugin/role-agents plugin/review-agents plugin/personas plugin/research-sources plugin/skills dist/plugin/ && cp -r schemas dist/ && cp package.json dist/ && chmod +x dist/bin/gestalt.js dist/bin/gestalt-hook.js && pnpm run verify:plugin && pnpm run verify:rules && pnpm run verify:rule-overlap && pnpm run verify:output-style && pnpm run verify:routing && pnpm run verify:agents",
     "verify:plugin": "tsx scripts/verify-plugin-assets.ts",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",

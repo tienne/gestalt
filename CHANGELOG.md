@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.100.0] - 2026-10-19
+
+경쟁사와 시장 레퍼런스를 조사해서 역기획까지 하는 research 기능을 넣었어요 (#67). 스킬과 MCP 도구, 출처 정의, 개인정보 치환, HTML과 Figma 렌더, 영상 분석이 한 묶음이에요.
+
+### Added
+
+- **`research` 스킬과 `ges_research` MCP 도구 (#67).** 목표 지표를 먼저 묻고 출처 확인, 화면 지도, 캡처와 개인정보 치환 순서로 가요. LLM은 `research.json`만 쓰고 검사와 렌더는 코드가 해요. 서버는 LLM을 부르지 않아요.
+  - 액션은 `sources`, `redact_image`, `redact_script`, `validate`, `render`, `figma_plan`, `profile`, `create_source`, `split_video`, `merge_video`예요.
+  - 단계 스킬 `market-scan`, `screen-ref`, `ux-research`, `reverse-plan`도 같이 들어가요.
+  - 설계 문서 12절의 구현 순서 중 5단계(원본과 같은 과제로 평가)만 빠졌어요. 출처와 계정이 없어서요.
+- **출처는 내장 5개와 개인 출처예요.** 앱스토어 리뷰와 검색, 기술 블로그 검색, 유아이볼, 웹 검색이 내장이에요. `~/.gestalt/research-sources/`에 두면 같은 이름의 내장 출처보다 개인 쪽을 먼저 써요. 설정에 `researchSourcesDir`(`GESTALT_RESEARCH_SOURCES_DIR`)가 늘어서 자산 디렉토리가 여섯 개가 됐어요.
+- **개인정보는 가짜 값으로 바꿔요.** 같은 slug 안에서는 같은 값에 같은 가명을 줘요. `pii`가 `unchecked`인 캡처가 있으면 공유용 렌더가 막혀요.
+- **근거 상태를 나눠 적어요.** 비교표 칸과 발견, 판단에 `basis`를 달아요. 관찰과 회사 발언에는 `evidence`가 없으면 스키마가 거절하고 못 본 칸은 `unconfirmed`로 이유를 남겨요.
+- **결과물에 종합 표가 붙어요.** 기준별 점수와 우선순위, 가져올 와우, 피할 페인을 코드가 모아요. 새 주장은 쓰지 않아요.
+- **목표치 근거를 검사해요.** 가설별 기대 효과로 필요한 표본 수를 계산하고 합이 목표에 모자라면 `target.shortfall.decision`을 요구해요.
+- **HTML 캔버스와 Figma 보드로 그려요.** 개인용과 공유용 HTML이 나오고 Figma는 화면 캡처, 결론, 근거 세 열로 가로 배치해요. 세 열의 높이가 비슷하도록 구획을 나눴어요.
+
 ## [0.99.0] - 2026-10-18
 
 아키텍처 근거의 excerpt가 실제 줄과 맞는지 확인하게 했어요. 인터뷰에서 평가까지 이어지는 흐름을 손보다가 찾은 버그 네 개도 고쳤어요 (#69, #70, #71, #73, #74). 앞으로 할 강화 작업의 설계 문서도 `docs/proposals/`에 올렸어요 (#72).

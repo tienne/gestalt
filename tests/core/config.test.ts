@@ -37,6 +37,7 @@ const GESTALT_ENV_KEYS = [
   'GESTALT_ROLE_AGENTS_DIR',
   'GESTALT_REVIEW_AGENTS_DIR',
   'GESTALT_PERSONAS_DIR',
+  'GESTALT_RESEARCH_SOURCES_DIR',
   'GESTALT_LOG_LEVEL',
   'GESTALT_CLIENT',
   'GESTALT_REASONING_MODEL',
@@ -526,6 +527,12 @@ describe('_buildEnvConfig', () => {
     process.env['GESTALT_PERSONAS_DIR'] = '/custom/personas';
     const result = _buildEnvConfig();
     expect(result['personasDir']).toBe('/custom/personas');
+  });
+
+  it('maps GESTALT_RESEARCH_SOURCES_DIR to researchSourcesDir', () => {
+    process.env['GESTALT_RESEARCH_SOURCES_DIR'] = '/custom/research-sources';
+    const result = _buildEnvConfig();
+    expect(result['researchSourcesDir']).toBe('/custom/research-sources');
   });
 });
 

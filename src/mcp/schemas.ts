@@ -1011,3 +1011,147 @@ export const architectureInputSchema = guardObject(
 );
 
 export type ArchitectureInput = z.infer<typeof architectureInputSchema>;
+
+// ─── Research Tool ────────────────────────────────────────────────
+/** `ges_research`가 받는 액션. 서버 등록이 이 배열을 그대로 쓴다 */
+export const RESEARCH_ACTIONS = [
+  'sources',
+  'redact_image',
+  'redact_script',
+  'validate',
+  'render',
+  'figma_plan',
+  'create_source',
+  'split_video',
+  'merge_video',
+  'profile',
+] as const;
+
+export const researchInputSchema = guardObject(
+  z.object({
+    action: z
+      .enum(RESEARCH_ACTIONS)
+      .describe(
+        'sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped). redact_image: 캡처 이미지의 개인정보를 가짜 값으로 바꿔 .gestalt/research/<slug>/captures에 저장. redact_script: 웹 화면을 캡처하기 전에 DOM에서 실행할 치환 스크립트. validate: research.json 검증과 의미 경고. render: 검증 뒤 저장하고 개인용과 공유용 HTML을 만든다. figma_plan: 같은 research.json에서 Figma 중립 계획(figma-plan.json)과 Plugin API 스크립트를 만든다. create_source: source 없이 부르면 물어볼 목록과 예시를 주고, source를 주면 검증해서 ~/.gestalt/research-sources/<name>/SOURCE.md에 쓰고 시험 호출까지 한다. split_video: 본문(slug)의 영상 블록을 video-analysis 문서(videoSlug)로 떼어내고 캡처 이미지를 복사한다. merge_video: 영상 문서(videoSlug)의 영상 블록을 본문(slug)에 합친다. 둘 다 같은 id가 다른 내용이면 멈춘다. profile: 제품 코드에서 훑은 분석 이벤트 지도를 .gestalt/research/_products/<product>.json에 두고 읽는다. product만 주면 읽고 저장한 커밋이 지금 HEAD와 다른지 알려준다. profile을 주면 검증해서 저장한다. 둘 다 비우면 저장된 제품 목록을 준다',
+      ),
+    repoRoot: z.string().optional().describe('기본은 현재 디렉토리'),
+    available: z
+      .object({
+        mcpServers: z.array(z.string()).optional().describe('이 세션에 연결된 MCP 서버 이름'),
+        mcpTools: z
+          .array(z.string())
+          .optional()
+          .describe(
+            '이 세션의 MCP 도구 이름(mcp__<서버>__<도구> 꼴 그대로). 서버 이름은 사람마다 달라서 출처는 도구 이름으로 알아본다. 응답의 mcpServer가 이 세션에서 부를 서버다',
+          ),
+        browserLogins: z
+          .array(z.string())
+          .optional()
+          .describe('브라우저 세션에 로그인된 사이트 호스트. 예: uibowl.io'),
+      })
+      .optional()
+      .describe(
+        'sources: ges 서버는 같은 세션의 다른 MCP 연결과 브라우저 로그인을 못 본다. 세션이 알려준다. 환경변수는 서버가 직접 확인한다',
+      ),
+    stage: z
+      .enum(['product-discovery', 'scale', 'screen-map', 'evidence', 'baseline'])
+      .optional()
+      .describe('sources: 이 단계에 쓰는 출처만 본다'),
+    name: z
+      .string()
+      .optional()
+      .describe('sources: 이 출처의 본문(찾는 법, 멈추는 곳)과 접근 방법을 함께 돌려준다'),
+    slug: z
+      .string()
+      .optional()
+      .describe(
+        'redact_image, redact_script: 리서치 slug. 같은 slug 안에서는 같은 값이 같은 가명이 된다',
+      ),
+    imagePath: z
+      .string()
+      .optional()
+      .describe('redact_image: 원본 캡처 경로(png, jpg, webp). 상대 경로는 repoRoot 기준'),
+    captureId: z
+      .string()
+      .optional()
+      .describe('redact_image: 저장할 캡처 id. captures/<id>.<확장자>로 저장한다'),
+    deleteSource: z
+      .boolean()
+      .optional()
+      .describe('redact_image: 치환을 마친 뒤 원본 파일을 지운다. 기본은 지우지 않고 경고만 한다'),
+    observe: z
+      .boolean()
+      .optional()
+      .describe('redact_script: 화면이 바뀔 때마다(지연 로딩, 무한 스크롤) 다시 치환한다'),
+    irPath: z
+      .string()
+      .optional()
+      .describe(
+        'validate, render: research.json 경로. 없으면 .gestalt/research/<slug>/research.json을 쓴다. 이미지를 컨텍스트에 올리지 않으려고 IR은 파일로 넘긴다',
+      ),
+    audience: z
+      .enum(['private', 'shared'])
+      .optional()
+      .describe(
+        'render: 열 쪽. 둘 다 만들되 shared는 pii가 unchecked인 캡처가 있으면 막힌다. figma_plan: 계획에 담을 쪽(shared는 계획 메모와 경로를 빼고 unchecked가 있으면 막는다). 기본은 private',
+      ),
+    withImages: z
+      .boolean()
+      .optional()
+      .describe(
+        'figma_plan: 캡처 이미지(PNG, JPEG, GIF)를 스크립트 파일에 base64로 넣는다. 합계 8MB 안에서만 넣고 넘는 건 건너뛴다. 기본은 이미지 자리를 회색 칸으로 둔다',
+      ),
+    runner: z
+      .enum(['function', 'body'])
+      .optional()
+      .describe(
+        'figma_plan: 스크립트 모양. function(기본)은 async () => {...} 한 덩어리라 실행기가 호출한다. body는 함수 껍데기 없이 최상위 await와 return으로 쓴 본문이라 Figma 커넥터의 use_figma에 그대로 넣는다. use_figma는 코드가 5만 자까지라 이미지는 withImages 대신 upload_assets로 올리고 figma-fit.js로 맞춘다',
+      ),
+    figmaLayout: z
+      .enum(['board', 'page'])
+      .optional()
+      .describe(
+        'figma_plan: 캔버스 배치. board(기본)는 가로 3열이다. 왼쪽은 레퍼런스별 캡처 줄과 와우, 페인 메모, 가운데는 종합과 판단과 검증 제안과 열린 질문, 오른쪽은 전제와 비교표와 이유 같은 근거다. page는 한 페이지에 세로로 쌓는다',
+      ),
+    source: z
+      .record(z.unknown())
+      .optional()
+      .describe(
+        'create_source: 새 출처 정의(name, description, stage, axis, access, requires, evidence, limits, fallback, steps, stops). 비우면 질문 목록과 예시를 돌려준다. 비밀번호와 키 값은 넣지 않는다',
+      ),
+    overwrite: z
+      .boolean()
+      .optional()
+      .describe(
+        'create_source: 같은 이름의 개인 출처나 내장 출처가 이미 있어도 덮어쓴다. split_video: 같은 slug의 영상 문서가 이미 있어도 덮어쓴다. 기본은 거절',
+      ),
+    videoSlug: z
+      .string()
+      .optional()
+      .describe('split_video, merge_video: 영상 문서의 slug. 비우면 <slug>-video'),
+    removeFromMain: z
+      .boolean()
+      .optional()
+      .describe(
+        'split_video: 떼어낸 뒤 본문에서 영상 블록을 지운다. 기본은 본문을 그대로 둔다(캡처와 제품은 남는다)',
+      ),
+    product: z
+      .string()
+      .optional()
+      .describe('profile: 제품 이름(소문자, 숫자, -). 읽을 프로필을 고른다'),
+    profile: z
+      .record(z.unknown())
+      .optional()
+      .describe(
+        'profile: 저장할 프로필(product, repo, commit, scannedAt, sdk, keyLocation, amplitudeProject, events[{ name, screen, action, file, properties }]). 키 값은 넣지 않고 키가 있는 파일 경로만 적는다',
+      ),
+    inline: z
+      .boolean()
+      .optional()
+      .describe(
+        'redact_script, figma_plan: 스크립트 본문을 응답에 싣는다(figma_plan은 200KB 이하일 때). 기본은 파일 경로만 준다. 파일을 못 읽는 도구(aside)에서만 켠다',
+      ),
+  }),
+);
+
+export type ResearchInput = z.infer<typeof researchInputSchema>;
