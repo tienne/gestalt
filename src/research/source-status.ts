@@ -4,6 +4,8 @@ import type { SourceAccess, SourceStage } from './source-schema.js';
 /** 같은 세션의 다른 MCP 연결과 브라우저 로그인은 ges 서버가 못 본다. 세션이 알려준다 */
 export interface SessionAvailability {
   mcpServers?: string[];
+  /** 세션의 MCP 도구 이름(`mcp__<서버>__<도구>`). 서버 이름이 사람마다 달라서 도구 이름으로 출처를 알아본다 */
+  mcpTools?: string[];
   browserLogins?: string[];
 }
 
@@ -13,8 +15,25 @@ export interface SourceEvaluation {
   status: SourceStatus;
   /** 실제로 쓰게 될 접근 방법. 건너뛰면 없다 */
   via?: SourceAccess['kind'];
+  /** MCP로 쓸 때 이 세션에서 부를 서버. 도구 이름으로 찾았으면 그 도구의 접두어에서 뽑는다 */
+  mcpServer?: string;
   note: string;
 }
+
+type McpAccess = Extract<SourceAccess, { kind: 'mcp' }>;
+
+/** 세션에서 이 MCP 출처를 맡는 서버. 없으면 undefined */
+function findMcpServer(access: McpAccess, avail: SessionAvailability): string | undefined {
+  if (access.server && avail.mcpServers?.includes(access.server)) return access.server;
+  for (const full of avail.mcpTools ?? []) {
+    const m = /^mcp__(.+)__([^_].*)$/.exec(full);
+    const [server, tool] = m ? [m[1]!, m[2]!] : [undefined, full];
+    if (access.tools?.includes(tool)) return server ?? access.server ?? '';
+  }
+  return undefined;
+}
+
+const mcpLabel = (access: McpAccess): string => access.server ?? access.tools?.join(', ') ?? '';
 
 const VIA_LABEL: Record<SourceAccess['kind'], string> = {
   mcp: 'MCP',
@@ -30,7 +49,9 @@ function unmetReason(
 ): string | undefined {
   switch (access.kind) {
     case 'mcp':
-      return avail.mcpServers?.includes(access.server) ? undefined : `MCP(${access.server}) 미연결`;
+      return findMcpServer(access, avail) === undefined
+        ? `MCP(${mcpLabel(access)}) 미연결`
+        : undefined;
     case 'browser':
       if (access.login === 'none') return undefined;
       return avail.browserLogins?.includes(access.site) ? undefined : `${access.site} 로그인 안 됨`;
@@ -73,11 +94,14 @@ export function evaluateSource(
     const reason = unmetReason(access, avail, env);
     if (!reason) {
       const other = reasons.find((r) => r.kind !== access.kind);
+      const server = access.kind === 'mcp' ? findMcpServer(access, avail) : undefined;
+      const mcp = server ? { mcpServer: server } : {};
       return !other
-        ? { status: 'usable', via: access.kind, note: '사용 가능' }
+        ? { status: 'usable', via: access.kind, ...mcp, note: '사용 가능' }
         : {
             status: 'fallback',
             via: access.kind,
+            ...mcp,
             note: `${other.reason}이라 ${VIA_LABEL[access.kind]}로`,
           };
     }
@@ -95,6 +119,7 @@ export interface SourceReportRow {
   evidence: LoadedSource['frontmatter']['evidence'];
   status: SourceStatus;
   via?: SourceAccess['kind'];
+  mcpServer?: string;
   note: string;
   limits?: string;
 }
@@ -126,6 +151,7 @@ export function buildSourceReport(
       evidence: fm.evidence,
       status: ev.status,
       ...(ev.via ? { via: ev.via } : {}),
+      ...(ev.mcpServer ? { mcpServer: ev.mcpServer } : {}),
       note: ev.note,
       ...(fm.limits ? { limits: fm.limits } : {}),
     });

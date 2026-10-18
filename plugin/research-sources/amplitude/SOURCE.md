@@ -3,8 +3,7 @@ name: amplitude
 description: 우리 제품의 Amplitude에서 목표 지표의 기준값과 하루 진입 수, 주별 변동을 뽑는다
 stage: [baseline]
 access:
-  - mcp: { server: "claude.ai Amplitude" }
-  - mcp: { server: amplitude }
+  - mcp: { tools: [get_amplitude_context, query_amplitude_data] }
 evidence: observation
 limits: "프로젝트와 이벤트 이름은 사람마다 다르다. 제품 프로필 없이 이름을 짐작해서 질의하지 않는다. 합계만 가져오고 사용자 단위 데이터는 가져오지 않는다"
 fallback: "담당자에게 퍼널 차트에서 내보낸 숫자(기간, 단계별 사용자 수)를 받는다. 그것도 없으면 기준값을 열린 질문(owner: data)으로 남긴다"
@@ -13,7 +12,7 @@ fallback: "담당자에게 퍼널 차트에서 내보낸 숫자(기간, 단계�
 ## 찾는 법
 
 1. `ges_research action=profile product=<제품>`으로 제품 프로필을 읽는다. 없으면 제품 코드 경로를 받아 SDK 초기화와 이벤트 호출을 훑어서 먼저 저장한다. `stale`이 true면 다시 훑을지 사람에게 묻는다.
-2. `get_amplitude_context`로 접근 가능한 프로젝트 목록을 받는다. 프로필의 이벤트 이름이 이벤트 목록에 있는 프로젝트를 후보로 올리고 사람에게 한 번 확인받는다. 프로필에 `amplitudeProject`가 있으면 그걸 먼저 제안한다.
+2. 도구는 `sources` 응답의 `mcpServer`로 부른다. 서버 이름은 사람마다 달라서 짐작하지 않는다. `get_amplitude_context`로 접근 가능한 프로젝트 목록을 받는다. 프로필의 이벤트 이름이 이벤트 목록에 있는 프로젝트를 후보로 올리고 사람에게 한 번 확인받는다. 프로필에 `amplitudeProject`가 있으면 그걸 먼저 제안한다.
 3. 저장된 차트를 먼저 찾는다. 목표 지표 이름이나 퍼널 단계 이벤트로 검색해서 분자와 분모가 맞는 퍼널 차트가 있으면 그 차트를 돌린다. 차트 링크는 `target.dataSource.chartUrl`에 둔다.
 4. 맞는 차트가 없으면 프로필의 이벤트로 퍼널을 직접 질의한다. 이벤트 이름은 짐작하지 않고 프로젝트의 이벤트 목록에서 확인한 것만 쓴다.
 5. 기간은 최근 4~8주로 잡고 주 단위로 나눠 본다. 전체 전환율은 `baseline.valuePct`, 주별 최대와 최소의 차이 절반은 `weeklySpreadPp`, 첫 단계 하루 평균 사용자 수는 `dailyEntrants`에 둔다.

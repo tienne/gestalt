@@ -29,6 +29,7 @@ const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const ENV_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 /** `claude.ai Amplitude`처럼 커넥터 이름에 공백이 들어간다. 연속 공백과 끝 공백은 막는다 */
 const MCP_SERVER_PATTERN = /^(?!.* {2})(?!.* $)[A-Za-z0-9][A-Za-z0-9_.: -]{0,63}$/;
+const MCP_TOOL_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const HOST_PATTERN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
 const PRIVATE_HOST_SUFFIXES = [
   '.local',
@@ -104,10 +105,18 @@ const accessEntrySchema = z.unknown().transform((raw, ctx) => {
         ...parse(
           z
             .object({
-              server: z.string().regex(MCP_SERVER_PATTERN, 'MCP 서버 이름 형식이 아니다'),
-              tools: z.array(z.string().min(1)).optional(),
+              server: z
+                .string()
+                .regex(MCP_SERVER_PATTERN, 'MCP 서버 이름 형식이 아니다')
+                .optional(),
+              /** 서버 이름은 사람마다 달라서 도구 이름으로 알아본다. 하나라도 세션에 있으면 연결된 걸로 본다 */
+              tools: z
+                .array(z.string().regex(MCP_TOOL_PATTERN, 'MCP 도구 이름 형식이 아니다'))
+                .min(1)
+                .optional(),
             })
-            .strict(),
+            .strict()
+            .refine((m) => m.server || m.tools, 'MCP는 server나 tools 중 하나는 적는다'),
         ),
       };
     case 'browser':

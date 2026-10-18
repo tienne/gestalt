@@ -1038,6 +1038,12 @@ export const researchInputSchema = guardObject(
     available: z
       .object({
         mcpServers: z.array(z.string()).optional().describe('이 세션에 연결된 MCP 서버 이름'),
+        mcpTools: z
+          .array(z.string())
+          .optional()
+          .describe(
+            '이 세션의 MCP 도구 이름(mcp__<서버>__<도구> 꼴 그대로). 서버 이름은 사람마다 달라서 출처는 도구 이름으로 알아본다. 응답의 mcpServer가 이 세션에서 부를 서버다',
+          ),
         browserLogins: z
           .array(z.string())
           .optional()
