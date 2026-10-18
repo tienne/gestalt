@@ -180,15 +180,16 @@ describe('Figma board 배치', () => {
     expect(plan.layout).toBe('board');
     const cols = plan.board!.columns;
     expect(cols.map((c) => c.kind)).toEqual(['captures', 'conclusion', 'evidence']);
-    expect(cols[0]!.sections).toEqual(['1. 레퍼런스 선정']);
-    expect(cols[1]!.sections).toEqual([
+    expect(cols[0]!.sections).toEqual([]);
+    expect(cols[1]!.sections.map((t) => t.slice(0, 2))).toEqual([
       '종합',
-      '6. 판단 (해석)',
-      '2. 시안',
-      '7. 검증 제안',
-      '8. 열린 질문',
+      '6.',
+      '2.',
+      '4.',
+      '7.',
+      '8.',
     ]);
-    expect(cols[2]!.sections.map((t) => t.slice(0, 2))).toEqual(['0.', '3.', '4.', '5.']);
+    expect(cols[2]!.sections.map((t) => t.slice(0, 2))).toEqual(['0.', '1.', '3.', '5.']);
     const placed = cols.flatMap((c) => c.sections).sort();
     const titles = plan.nodes.filter((n) => n.type === 'section').map((n) => n.title);
     expect(placed).toEqual([...titles].sort());
