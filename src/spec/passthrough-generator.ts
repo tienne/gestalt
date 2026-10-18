@@ -90,7 +90,7 @@ export class PassthroughSpecGenerator {
     }
 
     try {
-      const spec: Spec = {
+      const draft: Spec = {
         version: '1.0.0',
         goal: externalSpec.goal,
         constraints: externalSpec.constraints,
@@ -106,10 +106,11 @@ export class PassthroughSpecGenerator {
       };
 
       // Validate against schema
-      const validation = specSchema.safeParse(spec);
+      const validation = specSchema.safeParse(draft);
       if (!validation.success) {
         return err(new SpecGenerationError(`Spec validation failed: ${validation.error.message}`));
       }
+      const spec: Spec = validation.data;
 
       // Record audit event if force override was used with subthreshold resolution
       if (force && thresholdExceeded) {
@@ -148,7 +149,7 @@ export class PassthroughSpecGenerator {
 
   validateAndStoreFromText(externalSpec: ExternalSpec): Result<Spec, SpecGenerationError> {
     try {
-      const spec: Spec = {
+      const draft: Spec = {
         version: '1.0.0',
         goal: externalSpec.goal,
         constraints: externalSpec.constraints,
@@ -163,10 +164,11 @@ export class PassthroughSpecGenerator {
         },
       };
 
-      const validation = specSchema.safeParse(spec);
+      const validation = specSchema.safeParse(draft);
       if (!validation.success) {
         return err(new SpecGenerationError(`Spec validation failed: ${validation.error.message}`));
       }
+      const spec: Spec = validation.data;
 
       this.eventStore.append('spec', spec.metadata.specId, EventType.SPEC_GENERATED, {
         sessionId: TEXT_INPUT_SESSION_ID,

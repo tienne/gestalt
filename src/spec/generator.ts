@@ -43,7 +43,7 @@ export class SpecGenerator {
       try {
         const extracted = await this.extractor.extract(session);
 
-        const spec: Spec = {
+        const draft: Spec = {
           version: '1.0.0',
           goal: extracted.goal,
           constraints: extracted.constraints,
@@ -59,13 +59,14 @@ export class SpecGenerator {
         };
 
         // Validate against schema
-        const validation = specSchema.safeParse(spec);
+        const validation = specSchema.safeParse(draft);
         if (!validation.success) {
           lastError = new SpecGenerationError(
             `Spec validation failed: ${validation.error.message}`,
           );
           continue;
         }
+        const spec: Spec = validation.data;
 
         // Record audit event if force override was used with subthreshold resolution
         if (force && thresholdExceeded) {
