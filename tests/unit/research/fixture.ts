@@ -17,6 +17,24 @@ export function sampleResearch(overrides: Partial<ResearchInput> = {}): Research
       pendingInputs: ['브랜드 목록은 담당자가 공유 예정'],
       evidenceLimits: ['전환 데이터가 없다'],
     },
+    target: {
+      mode: 'improve',
+      metric: { name: '상세 진입률', numerator: '상세 진입', denominator: '목록 노출' },
+      baseline: {
+        valuePct: 10,
+        period: '최근 8주',
+        basis: 'observation',
+        evidence: [{ type: 'internal', source: '분석 도구 목록 퍼널 차트' }],
+      },
+      dailyEntrants: {
+        value: 20000,
+        basis: 'observation',
+        evidence: [{ type: 'internal', source: '분석 도구 목록 퍼널 차트' }],
+      },
+      weeklySpreadPp: 0.5,
+      range: { conservativePct: 11, expectedPct: 12, stretchPct: 13 },
+      trackingPlan: [{ event: 'product_detail_view', step: '상세 진입', status: 'exists' }],
+    },
     productCandidates: [
       {
         id: 'a',
@@ -245,6 +263,8 @@ export function sampleResearch(overrides: Partial<ResearchInput> = {}): Research
         splitBy: '할인 폭이 작은 상품과 큰 상품',
         successCriteria: 'B 시안의 상세 진입률이 A보다 높다',
         metricCaseIds: ['mc-a'],
+        expectedLiftPp: 2,
+        events: ['product_detail_view'],
       },
     ],
     openQuestions: {

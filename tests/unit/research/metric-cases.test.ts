@@ -47,6 +47,7 @@ describe('타사 지표 사례(metricCases)', () => {
 
   it('가설은 있는데 사례가 하나도 없으면 경고한다', () => {
     const r = build((input) => {
+      input.target = undefined;
       input.metricCases = [];
       input.verification![0]!.metricCaseIds = [];
     });
@@ -93,6 +94,7 @@ describe('타사 지표 사례(metricCases)', () => {
 
   it('쓸 만한 사례가 있는데 성공 기준에 사례를 안 걸면 경고한다', () => {
     const r = build((input) => {
+      input.target = undefined;
       input.verification![0]!.metricCaseIds = [];
     });
     expect(paths(r)).toContain('verification.0.metricCaseIds');
