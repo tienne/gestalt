@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   buildAgents,
@@ -119,14 +122,14 @@ describe('renderAgent', () => {
     expect(content).toContain('omitClaudeMd: true\n');
   });
 
-  it('외부 도구는 실제로 쓰는 에이전트에만 열고 나머지는 열지 않는다', () => {
-    const tools = (name: string) =>
-      renderAgent(`plugin/role-agents/${name}/AGENT.md`, agentMd(name, 'standard'), exists).content;
+  it('표에 없는 역할 에이전트는 셸 없이 읽기 도구만 받는다', () => {
+    const { content } = renderAgent(
+      'plugin/role-agents/code-review-writer/AGENT.md',
+      agentMd('code-review-writer', 'standard'),
+      exists,
+    );
 
-    expect(tools('suggestion-verifier')).toContain('WebFetch, mcp__plate__get_design_tokens');
-    expect(tools('continuity-judge')).toContain('mcp__atlassian__jira_get_issue');
-    expect(tools('harness-reviewer')).not.toContain('WebFetch');
-    expect(tools('security-reviewer')).toContain('tools: Read, Grep, Glob, Bash\n');
+    expect(content).toContain('tools: Read, Grep, Glob\n');
   });
 
   it('한 줄 설명이 없는 에이전트는 뽑지 않고 멈춘다', () => {
@@ -144,5 +147,114 @@ describe('buildAgents', () => {
     expect(names).toContain('quality-reviewer');
     expect(names).not.toContain('designer');
     expect(names).not.toContain('product-planner');
+  });
+});
+
+const toolsOf = (content: string) => /^tools: (.+)$/m.exec(content)![1]!.split(', ');
+
+describe('생성된 에이전트의 도구', () => {
+  const agents = new Map(buildAgents().map((a) => [a.name, toolsOf(a.content)]));
+  const reviewers = readdirSync('plugin/review-agents', { withFileTypes: true })
+    .filter((e) => e.isDirectory() && !e.name.startsWith('_'))
+    .map((e) => e.name);
+
+  it('리뷰어는 정확히 읽기 도구와 Bash만 받는다', () => {
+    for (const name of reviewers)
+      expect(agents.get(name)).toEqual(['Read', 'Grep', 'Glob', 'Bash']);
+  });
+
+  it('글만 다루는 에이전트는 읽기 도구만 받는다', () => {
+    for (const name of ['slack-messenger', 'jira-writer', 'explainer', 'humanize-monolith']) {
+      expect(agents.get(name)).toEqual(['Read', 'Grep', 'Glob']);
+    }
+  });
+
+  it('Write는 presentation-designer만 받는다', () => {
+    const writers = [...agents].filter(([, tools]) => tools.includes('Write')).map(([n]) => n);
+    expect(writers).toEqual(['presentation-designer']);
+  });
+
+  it('MCP 도구는 ges_agent로 윤문 지침을 받는 에이전트에만 열린다', () => {
+    const withMcp = [...agents]
+      .filter(([, tools]) => tools.some((t) => t.startsWith('mcp__')))
+      .map(([n]) => n)
+      .sort();
+    expect(withMcp).toEqual(['change-context-writer', 'impact-writer', 'presentation-writer']);
+  });
+
+  it('WebFetch는 어느 에이전트에도 열리지 않는다', () => {
+    for (const tools of agents.values()) expect(tools).not.toContain('WebFetch');
+  });
+});
+
+describe('스킬의 gestalt: 호출부', () => {
+  it('model을 같은 줄이나 다음 줄에 넘긴다', () => {
+    const missing: string[] = [];
+    for (const entry of readdirSync('plugin/skills', { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+      const file = join(entry.parentPath, entry.name);
+      const lines = readFileSync(file, 'utf-8').split('\n');
+      lines.forEach((line, i) => {
+        if (!/^\s+subagent_type:\s*"gestalt:[a-z][\w-]*",/.test(line)) return;
+        if (line.includes('model:') || lines[i + 1]?.trim().startsWith('model:')) return;
+        missing.push(`${file}:${i + 1}`);
+      });
+    }
+    expect(missing).toEqual([]);
+  });
+});
+
+describe('buildAgents 오류', () => {
+  const fixture = (files: Record<string, string>) => {
+    const root = mkdtempSync(join(tmpdir(), 'claude-agents-'));
+    mkdirSync(join(root, 'plugin/skills'), { recursive: true });
+    mkdirSync(join(root, 'plugin/review-agents'), { recursive: true });
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), text);
+    }
+    return root;
+  };
+  const spawn = (name: string) => `subagent_type: "gestalt:${name}",\n`;
+  const run = (files: Record<string, string>) => () => {
+    const root = fixture(files);
+    try {
+      buildAgents(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  it('원본이 없으면 멈춘다', () => {
+    expect(run({ 'plugin/skills/a.md': spawn('ghost') })).toThrow('원본 AGENT.md가 없다');
+  });
+
+  it('같은 이름의 원본이 두 곳에 있으면 멈춘다', () => {
+    expect(
+      run({
+        'plugin/skills/a.md': spawn('explainer'),
+        'plugin/role-agents/explainer/AGENT.md': agentMd('explainer', 'standard'),
+        'plugin/agents/explainer/AGENT.md': agentMd('explainer', 'standard'),
+      }),
+    ).toThrow('원본이 여러 곳에 있다');
+  });
+
+  it('뽑은 에이전트들의 frontmatter name이 겹치면 멈춘다', () => {
+    expect(
+      run({
+        'plugin/skills/a.md': spawn('explainer'),
+        'plugin/role-agents/explainer/AGENT.md': agentMd('security-reviewer', 'standard'),
+        'plugin/review-agents/security-reviewer/AGENT.md': agentMd('security-reviewer', 'standard'),
+      }),
+    ).toThrow('에이전트 이름이 겹친다');
+  });
+
+  it('표에 남은 미사용 항목이 있으면 멈춘다', () => {
+    expect(
+      run({
+        'plugin/skills/a.md': spawn('explainer'),
+        'plugin/role-agents/explainer/AGENT.md': agentMd('explainer', 'standard'),
+      }),
+    ).toThrow('뽑지 않는 에이전트가 표에 남아 있다');
   });
 });
