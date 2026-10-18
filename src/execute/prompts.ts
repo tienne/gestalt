@@ -404,8 +404,24 @@ export function buildContextualEvaluationPrompt(
   taskResults: TaskExecutionResult[],
   structuralResult: StructuralResult,
 ): string {
-  const acList = classifiedACs
-    .map((ac) => `  [${ac.acIndex}] (${ac.classification}/${ac.priority}) ${ac.acText}`)
+  // 목록은 현재 스펙의 AC로 만든다. submitEvaluation도 현재 스펙의 AC 개수만큼 검증하라고 요구한다.
+  // 계획 시점의 classifiedACs로 만들면 evolve 패치로 늘어난 AC가 프롬프트에서 빠진다.
+  // 분류는 같은 문장을 찾아 붙인다. 못 찾은 AC에는 (unclassified)가 붙는다.
+  const classificationsByText = new Map<string, ClassifiedAC[]>();
+  for (const ac of classifiedACs) {
+    const bucket = classificationsByText.get(ac.acText);
+    if (bucket) bucket.push(ac);
+    else classificationsByText.set(ac.acText, [ac]);
+  }
+  const acList = spec.acceptanceCriteria
+    .map((text, index) => {
+      // 같은 문장이 여러 번 나오면 계획 시점의 분류를 순서대로 하나씩 쓴다
+      const classified = classificationsByText.get(text)?.shift();
+      const label = classified
+        ? `${classified.classification}/${classified.priority}`
+        : 'unclassified';
+      return `  [${index}] (${label}) ${text}`;
+    })
     .join('\n');
 
   const resultSummary = taskResults
