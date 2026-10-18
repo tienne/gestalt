@@ -918,10 +918,36 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
 
   // 7. 검증 제안
   parts.push('<h2>7. 검증 제안</h2>');
+  const caseById = new Map(research.metricCases.map((m) => [m.id, m]));
+  if (research.metricCases.length > 0) {
+    parts.push('<h3>타사 지표 사례</h3>');
+    parts.push(
+      table(
+        ['회사', '지표', '분모', '값', '바꾼 것', '시점'],
+        research.metricCases.map((m) => {
+          const grey = m.basis === 'unconfirmed' || m.basis === 'absent';
+          const why = grey && m.note ? `<div class="why">${e(m.note)}</div>` : '';
+          return [
+            e(m.company),
+            e(m.metric),
+            e(m.denominator ?? ''),
+            `<div class="cell${grey ? ' grey' : ''}">${basisChip(m.basis)}${e(m.value)}${evidenceHtml(m.evidence)}${why}</div>`,
+            e(m.change ?? ''),
+            e(m.period ?? ''),
+          ];
+        }),
+      ),
+    );
+  }
   research.verification.forEach((v, i) => {
+    const cases = v.metricCaseIds
+      .map((id) => caseById.get(id))
+      .filter((m): m is NonNullable<typeof m> => Boolean(m))
+      .map((m) => `${m.company} ${m.metric} ${m.value}`);
     parts.push(
       `<div class="card"><h3>가설 ${i + 1}. ${e(v.hypothesis)}</h3>` +
         `<p>볼 지표: ${e(v.metric)}</p><p>나눠 볼 조건: ${e(v.splitBy)}</p>` +
+        (cases.length > 0 ? `<p>근거 사례: ${e(cases.join(', '))}</p>` : '') +
         (v.sample ? `<p>표본: ${e(v.sample)}</p>` : '') +
         (v.period ? `<p>기간: ${e(v.period)}</p>` : '') +
         (v.successCriteria ? `<p>성공 기준: ${e(v.successCriteria)}</p>` : '') +

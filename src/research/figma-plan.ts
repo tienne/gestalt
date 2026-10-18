@@ -378,8 +378,33 @@ export function buildFigmaPlan(
   );
 
   const hasDesign = research.verification.some((v) => v.sample || v.period || v.successCriteria);
+  const caseById = new Map(research.metricCases.map((m) => [m.id, m]));
+  const caseTable: PlanNode[] =
+    research.metricCases.length > 0
+      ? [
+          text('body', '타사 지표 사례'),
+          {
+            type: 'table',
+            head: ['회사', '지표', '분모', '값', '바꾼 것', '시점'],
+            rows: research.metricCases.map((m) => {
+              const tag = m.basis !== 'observation' ? `[${BASIS_LABEL[m.basis]}] ` : '';
+              const grey = m.basis === 'unconfirmed' || m.basis === 'absent';
+              return [
+                m.company,
+                m.metric,
+                m.denominator ?? '',
+                `${tag}${m.value}${evidenceText(m.evidence)}${grey && m.note ? `\n${m.note}` : ''}`,
+                m.change ?? '',
+                m.period ?? '',
+              ];
+            }),
+          },
+        ]
+      : [];
+  const hasCases = research.verification.some((v) => v.metricCaseIds.length > 0);
   nodes.push(
     section('7. 검증 제안', [
+      ...caseTable,
       {
         type: 'table',
         head: [
@@ -387,6 +412,7 @@ export function buildFigmaPlan(
           '볼 지표',
           '나눠 볼 조건',
           ...(hasDesign ? ['표본', '기간', '성공 기준'] : []),
+          ...(hasCases ? ['근거 사례'] : []),
           '주의',
         ],
         rows: research.verification.map((v) => [
@@ -394,6 +420,15 @@ export function buildFigmaPlan(
           v.metric,
           v.splitBy,
           ...(hasDesign ? [v.sample ?? '', v.period ?? '', v.successCriteria ?? ''] : []),
+          ...(hasCases
+            ? [
+                v.metricCaseIds
+                  .map((id) => caseById.get(id))
+                  .filter((m): m is NonNullable<typeof m> => Boolean(m))
+                  .map((m) => `${m.company} ${m.metric} ${m.value}`)
+                  .join('\n'),
+              ]
+            : []),
           v.caveat ?? '',
         ]),
       },

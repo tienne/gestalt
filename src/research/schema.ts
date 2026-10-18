@@ -312,10 +312,33 @@ const judgmentSchema = z
     }
   });
 
+/** 다른 회사가 공개한 지표 사례. 성공 기준과 표본 가정을 정할 때 근거로 쓴다 */
+export const metricCaseSchema = z
+  .object({
+    id: idSchema,
+    /** 회사나 서비스 이름 */
+    company: textSchema,
+    /** 제품 후보에 있는 회사면 그 id */
+    productId: idSchema.optional(),
+    metric: textSchema,
+    /** 무엇 대비 비율인지. 비율 값인데 비어 있으면 경고한다 */
+    denominator: z.string().optional(),
+    /** 값이나 변화. 예: "12%에서 18%로" */
+    value: textSchema,
+    /** 무엇을 바꿔서 나온 값인지 */
+    change: z.string().optional(),
+    /** 언제의 값인지 */
+    period: z.string().optional(),
+    ...basisFields,
+  })
+  .superRefine(checkBasis);
+
 const verificationSchema = z.object({
   hypothesis: textSchema,
   metric: textSchema,
   splitBy: textSchema,
+  /** 성공 기준과 표본 가정의 근거로 삼은 지표 사례 */
+  metricCaseIds: z.array(idSchema).default([]),
   /** 누구를 몇 명쯤 볼지. 사용성 시험이면 인원, 로그 지표면 대상 집단 */
   sample: z.string().optional(),
   /** 얼마 동안 볼지 */
@@ -467,6 +490,8 @@ export const researchSchema = z
     flow: flowSchema,
     reasons: z.array(reasonSchema).default([]),
     judgment: z.array(judgmentSchema).default([]),
+    /** 다른 회사의 지표 사례. 7번 검증 제안의 근거가 된다 */
+    metricCases: z.array(metricCaseSchema).default([]),
     verification: z.array(verificationSchema).default([]),
     openQuestions: openQuestionsSchema.optional(),
     /** 영상 분석. 본문에 합쳐 쓰거나 video-analysis 문서로 따로 쓴다 */
@@ -498,6 +523,10 @@ export const researchSchema = z
     checkUnique(
       'references',
       r.references.map((x) => x.id),
+    );
+    checkUnique(
+      'metricCases',
+      r.metricCases.map((m) => m.id),
     );
     checkUnique(
       'video.clips',
@@ -608,6 +637,20 @@ export const researchSchema = z
           if (!findingIds.has(id)) issue(['adoptions', i, key, k], `없는 발견: ${id}`);
         });
       }
+    });
+
+    const caseIds = new Set(r.metricCases.map((m) => m.id));
+    r.metricCases.forEach((m, i) => {
+      if (m.productId && !products.has(m.productId)) {
+        issue(['metricCases', i, 'productId'], `없는 제품: ${m.productId}`);
+      }
+      checkEvidence(['metricCases', i, 'evidence'], m.evidence);
+    });
+    r.verification.forEach((v, i) => {
+      v.metricCaseIds.forEach((id, k) => {
+        if (!caseIds.has(id))
+          issue(['verification', i, 'metricCaseIds', k], `없는 지표 사례: ${id}`);
+      });
     });
 
     checkUnique(
@@ -838,6 +881,39 @@ function lintEvidenceStructure(research: Research, warnings: ResearchWarning[]):
   }
 }
 
+// 전환율, 이탈률처럼 이름에 율이나 률이 붙은 지표도 비율로 본다
+const RATE_PATTERN = /%|퍼센트|[율률]/;
+
+/** 지표 사례가 성공 기준의 근거로 쓰일 수 있는지 본다 */
+function lintMetricCases(research: Research, warnings: ResearchWarning[]): void {
+  const { metricCases, verification } = research;
+  if (verification.length > 0 && metricCases.length === 0) {
+    warnings.push({
+      path: 'metricCases',
+      message:
+        '타사 지표 사례가 없다. 성공 기준과 표본 가정의 근거가 된다. 찾지 못했으면 basis를 unconfirmed로 두고 이유를 남긴다',
+    });
+  }
+  metricCases.forEach((m, i) => {
+    if (RATE_PATTERN.test(`${m.metric} ${m.value}`) && !m.denominator?.trim()) {
+      warnings.push({
+        path: `metricCases.${i}.denominator`,
+        message: `분모가 없는 비율 사례다 (${m.id}). 무엇 대비 비율인지 모르면 우리 지표와 견줄 수 없다`,
+      });
+    }
+  });
+  const usable = metricCases.some((m) => m.basis !== 'unconfirmed' && m.basis !== 'absent');
+  if (!usable) return;
+  verification.forEach((v, i) => {
+    if (v.successCriteria?.trim() && v.metricCaseIds.length === 0) {
+      warnings.push({
+        path: `verification.${i}.metricCaseIds`,
+        message: `지표 사례를 걸지 않은 성공 기준이다 (가설 ${i + 1}). 근거로 삼은 사례를 metricCaseIds에 건다`,
+      });
+    }
+  });
+}
+
 /**
  * 스키마로 못 잡는 의미 검사. 막지는 않고 경고만 돌려준다.
  * 효과 문장의 근거 표기, 레퍼런스 개수, 캡처 상태, 조합 확인 여부를 본다.
@@ -870,6 +946,7 @@ export function lintResearch(research: Research): ResearchWarning[] {
       });
     }
   });
+  lintMetricCases(research, warnings);
 
   const ownProducts = new Set(
     research.productCandidates.filter((p) => p.axis === 'own-service').map((p) => p.id),
