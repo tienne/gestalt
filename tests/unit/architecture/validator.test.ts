@@ -18,6 +18,10 @@ const repoRoot = join(tmpRoot, 'acme-web');
 beforeAll(() => {
   mkdirSync(join(repoRoot, 'src'), { recursive: true });
   writeFileSync(join(repoRoot, 'src/home.tsx'), 'line1\nline2\nline3\n');
+  writeFileSync(
+    join(repoRoot, 'src/shifted.ts'),
+    'pad\npad\nexport function foo() {\n  return 1;\n}\n',
+  );
   writeFileSync(join(tmpRoot, 'outside.ts'), 'a\nb\nc\n');
 });
 
@@ -65,6 +69,69 @@ function errorCodes(
   const result = validateArchitectureIr(ir, opts);
   return result.ok ? [] : result.errors.map((e) => e.code);
 }
+
+function warningsOf(ir: ArchitectureIr) {
+  const result = validateArchitectureIr(ir);
+  expect(result.ok).toBe(true);
+  return result.ok
+    ? result.value.warnings.filter((w) => w.code === 'CODE_EVIDENCE_EXCERPT_MISMATCH')
+    : [];
+}
+
+const excerptEv = (
+  line: number,
+  excerpt?: string,
+  visibility: Evidence['visibility'] = 'public',
+): Evidence => ({
+  type: 'code',
+  location: `web:src/shifted.ts:${line}`,
+  visibility,
+  ...(excerpt !== undefined ? { excerpt } : {}),
+});
+
+describe('code 근거 excerpt 대조 (이슈 #57)', () => {
+  it('줄이 밀린 근거에는 후보 줄이 담긴 경고가 나오고 오류는 아니다', () => {
+    const warnings = warningsOf(makeIr([node('a', [excerptEv(1, 'export function foo(')])]));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({
+      code: 'CODE_EVIDENCE_EXCERPT_MISMATCH',
+      nodeId: 'a',
+      evidenceIndex: 0,
+      candidates: [3],
+    });
+    expect(warnings[0]!.message).toContain('3');
+  });
+
+  it('근처에서도 못 찾으면 후보 없는 경고가 나온다', () => {
+    const warnings = warningsOf(makeIr([node('a', [excerptEv(1, 'nowhere()')])]));
+    expect(warnings).toMatchObject([{ candidates: [] }]);
+  });
+
+  it('줄이 excerpt로 시작하면 경고가 없다', () => {
+    expect(warningsOf(makeIr([node('a', [excerptEv(3, 'export function foo(')])]))).toEqual([]);
+  });
+
+  it('excerpt가 없는 근거와 private 근거에는 경고가 없다', () => {
+    expect(warningsOf(makeIr([node('a', [excerptEv(1)])]))).toEqual([]);
+    // private 근거의 excerpt는 PRIVATE_EXCERPT_PRESENT 오류이고 대조 경고는 따로 나지 않는다
+    const privateIr = makeIr([node('a', [excerptEv(1, 'export function foo(', 'private')])]);
+    expect(errorCodes(privateIr)).toEqual(['PRIVATE_EXCERPT_PRESENT']);
+  });
+
+  it('checkFiles=false면 대조하지 않는다', () => {
+    const result = validateArchitectureIr(
+      makeIr([node('a', [excerptEv(1, 'export function foo(')])]),
+      {
+        checkFiles: false,
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.warnings.map((w) => w.code)).not.toContain(
+      'CODE_EVIDENCE_EXCERPT_MISMATCH',
+    );
+  });
+});
 
 describe('validateArchitectureIr', () => {
   it('근거가 맞는 IR은 통과하고 전부 그린다', () => {
