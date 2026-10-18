@@ -175,3 +175,83 @@ describe('목표치 경고', () => {
     expect(paths(r)).not.toContain('metricCases');
   });
 });
+
+describe('기대 효과 근거', () => {
+  it('기대 효과에 근거가 없으면 경고한다', () => {
+    const r = build((input) => {
+      delete input.verification[0]!.liftBasis;
+    });
+    expect(paths(r)).toContain('verification.0.liftBasis');
+    expect(messages(r)).toContainEqual(expect.stringContaining('기대 효과 2%p의 근거가 없다'));
+  });
+
+  it('근거가 가정이면 경고한다', () => {
+    const r = build((input) => {
+      input.verification[0]!.liftBasis = {
+        method: 'assumption',
+        basis: 'interpretation',
+        evidence: [],
+      };
+    });
+    expect(messages(r)).toContainEqual(expect.stringContaining('기대 효과 2%p가 가정이다'));
+  });
+
+  it('근거를 확인 못했으면 사례라고 적어도 경고한다', () => {
+    const r = build((input) => {
+      input.verification[0]!.liftBasis = {
+        method: 'case',
+        basis: 'unconfirmed',
+        evidence: [],
+        note: '공개된 수치가 없다',
+      };
+    });
+    expect(messages(r)).toContainEqual(expect.stringContaining('가 가정이다'));
+  });
+
+  it('근거에 없는 캡처를 걸면 막는다', () => {
+    const message = parseError((input) => {
+      input.verification[0]!.liftBasis = {
+        method: 'case',
+        basis: 'observation',
+        evidence: [{ type: 'capture', captureId: 'ghost' }],
+      };
+    });
+    expect(message).toContain('verification.0.liftBasis.evidence');
+    expect(message).toContain('없는 캡처: ghost');
+  });
+});
+
+describe('가설로 목표에 못 닿을 때', () => {
+  const short = (input: Input): void => {
+    input.target!.range = { conservativePct: 12, expectedPct: 15, stretchPct: 18 };
+  };
+
+  it('대응을 안 정했으면 고를 대응을 함께 알린다', () => {
+    const r = build(short);
+    expect(messages(r)).toContainEqual(expect.stringContaining('target.shortfall에 적는다'));
+  });
+
+  it('그대로 두기로 했으면 경고하지 않는다', () => {
+    const r = build((input) => {
+      short(input);
+      input.target!.shortfall = { decision: 'keep', note: 'PM과 도전 목표로 두기로 했다' };
+    });
+    expect(messages(r).some((m) => m.includes('목표에 못 닿'))).toBe(false);
+  });
+
+  it('다른 대응을 골랐는데 아직 못 닿으면 경고한다', () => {
+    const r = build((input) => {
+      short(input);
+      input.target!.shortfall = { decision: 'add-hypotheses', note: '진입점 가설을 더한다' };
+    });
+    expect(paths(r)).toContain('target.shortfall');
+    expect(messages(r)).toContainEqual(expect.stringContaining("고른 대응은 '가설 추가'인데"));
+  });
+
+  it('목표를 낮췄으면 처음 목표를 적어야 한다', () => {
+    const message = parseError((input) => {
+      input.target!.shortfall = { decision: 'lower-target', note: '가설 합에 맞췄다' };
+    });
+    expect(message).toContain('originalExpectedPct');
+  });
+});

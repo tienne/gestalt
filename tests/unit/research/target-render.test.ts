@@ -111,3 +111,34 @@ describe('목표치 근거 렌더', () => {
     expect(json).toContain('[확인 못함] 3%');
   });
 });
+
+describe('기대 효과 근거와 대응 렌더', () => {
+  it('가설별 표에 기대 효과 근거 칸을 그린다', () => {
+    const html = render(build());
+    expect(html).toContain('<th>기대 효과 근거</th>');
+    expect(html).toContain('타사 사례');
+    const json = figma(build());
+    expect(json).toContain('"기대 효과 근거"');
+  });
+
+  it('근거가 없으면 근거 없음으로 그린다', () => {
+    const r = build((input) => {
+      delete input.verification[0]!.liftBasis;
+    });
+    expect(render(r)).toContain('근거 없음');
+  });
+
+  it('고른 대응과 처음 목표를 그린다', () => {
+    const r = build((input) => {
+      input.target!.shortfall = {
+        decision: 'lower-target',
+        originalExpectedPct: 20,
+        note: 'PM과 가설 합에 맞추기로 했다',
+      };
+    });
+    const text =
+      "고른 대응은 '목표 낮춤'이다. 처음 기대 목표는 20%였다. PM과 가설 합에 맞추기로 했다";
+    expect(render(r)).toContain(text.replace(/'/g, '&#39;'));
+    expect(figma(r)).toContain(text);
+  });
+});

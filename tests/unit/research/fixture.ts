@@ -12,6 +12,7 @@ export function sampleResearch(overrides: Partial<ResearchInput> = {}): Research
     plan: { confirmedAt: '2026-10-16T09:00:00+09:00' },
     premise: {
       goalMetric: '앱 안 구매 건수와 거래액',
+      attachTo: { flow: '상품 목록에서 상세로 가는 흐름', domain: '모바일 상품권' },
       scaleAssumption: '브랜드는 10개 이상으로 늘어날 예정',
       structureConstraints: ['상세에 금액 선택이 없다'],
       pendingInputs: ['브랜드 목록은 담당자가 공유 예정'],
@@ -41,6 +42,7 @@ export function sampleResearch(overrides: Partial<ResearchInput> = {}): Research
         name: '서비스 A',
         axis: 'same-market',
         reason: '같은 시장에서 순위형으로 보여준다',
+        domainFit: 'same',
         foundVia: [],
       },
       {
@@ -264,6 +266,11 @@ export function sampleResearch(overrides: Partial<ResearchInput> = {}): Research
         successCriteria: 'B 시안의 상세 진입률이 A보다 높다',
         metricCaseIds: ['mc-a'],
         expectedLiftPp: 2,
+        liftBasis: {
+          method: 'case',
+          basis: 'company-statement',
+          evidence: [{ type: 'url', url: 'https://example.com/blog/discount-label' }],
+        },
         events: ['product_detail_view'],
       },
     ],
