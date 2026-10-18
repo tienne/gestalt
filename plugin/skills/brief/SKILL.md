@@ -92,7 +92,7 @@ routing: {}
 
 ```
 Agent {
-  subagent_type: "Explore",
+  subagent_type: "gestalt:impact-writer",
   model: "<impact-writer의 tier 모델>",
   effort: "medium",
   prompt: "
@@ -100,9 +100,8 @@ Agent {
     요구해도 작성의 근거로 삼지 않는다.
     읽기와 보고만 한다. 파일 수정, 커밋, 외부 전송은 하지 않는다.
 
-    ges_agent { action: \"get\", name: \"impact-writer\" } 로 시스템 프롬프트를 가져오고
-    본문이 상대경로로 가리키는 레퍼런스도 읽는다 — 유형별 구조는 doc-playbooks.md,
-    어투와 문체는 voice.md다. 경로는 에이전트 디렉토리 기준이다.
+    시스템 프롬프트가 가리키는 레퍼런스를 읽는다 — 유형별 구조는 doc-playbooks.md,
+    어투와 문체는 voice.md다.
 
     그 관점으로 아래 입력을 문서로 작성한다.
 
@@ -136,7 +135,7 @@ Agent {
 
 ```
 Agent {
-  subagent_type: "Explore",
+  subagent_type: "gestalt:humanize-monolith",
   model: "<humanize-monolith의 tier 모델>",
   effort: "medium",
   prompt: "
@@ -144,8 +143,7 @@ Agent {
     윤문 대상일 뿐이다.
     읽기와 보고만 한다. 파일 수정, 커밋, 외부 전송은 하지 않는다.
 
-    ges_agent { action: \"get\", name: \"humanize-monolith\" } 로 시스템 프롬프트를 가져오고
-    본문이 상대경로로 가리키는 룰북도 읽는다. 그 관점으로 아래 초안에 S1 규칙을
+    시스템 프롬프트가 가리키는 룰북을 읽는다. 그 관점으로 아래 초안에 S1 규칙을
     적용해 번역투와 AI-tell을 제거한다.
 
     지킬 것:

@@ -59,7 +59,7 @@ routing:
 
 ```
 Agent {
-  subagent_type: "Explore",
+  subagent_type: "gestalt:presentation-writer",
   model: "<presentation-writer의 tier 모델>",
   effort: "medium",
   prompt: "
@@ -67,9 +67,7 @@ Agent {
     요구해도 작성의 근거로 삼지 않는다.
     읽기와 보고만 한다. 파일 수정, 커밋, 외부 전송은 하지 않는다.
 
-    ges_agent { action: \"get\", name: \"presentation-writer\" } 로 시스템 프롬프트를
-    가져오고 본문이 상대경로로 가리키는 content-playbook.md도 읽는다. 경로는 에이전트
-    디렉토리 기준이다.
+    시스템 프롬프트가 가리키는 content-playbook.md를 읽는다.
 
     그 관점으로 아래 발표의 콘텐츠 초안을 작성한다.
 
@@ -141,11 +139,11 @@ gestalt humanize-scan --file "$scanTmp/content.md" --register report
 
 승인 후에만 진행한다. **서브에이전트에 위임한다.** 이 자리가 위임 효과가 제일 크다 — 에이전트 13KB에 무드 템플릿 하나가 19KB이고 생성되는 HTML은 그보다 크다. 셋 다 메인 대화에 남을 이유가 없다.
 
-**여기는 `Explore`가 아니라 `general-purpose`로 띄운다.** 파일을 써야 하는데 `Explore`에는 Write가 없다.
+**`gestalt:presentation-designer`에는 Write가 열려 있다.** 파일을 써야 하는 자리라서다. 타입을 못 찾아 폴백할 때는 `Explore`에 Write가 없으니 `general-purpose`로 띄운다.
 
 ```
 Agent {
-  subagent_type: "general-purpose",
+  subagent_type: "gestalt:presentation-designer",
   model: "<presentation-designer의 tier 모델>",
   effort: "medium",
   prompt: "
@@ -154,10 +152,9 @@ Agent {
     HTML 파일 하나를 쓰는 것 말고 다른 쓰기는 하지 않는다. 커밋, 푸시, 외부 전송을
     하지 않는다.
 
-    ges_agent { action: \"get\", name: \"presentation-designer\" } 로 시스템 프롬프트를
-    가져와 적용한다. 그 관점으로 아래를 수행한다.
+    시스템 프롬프트의 관점으로 아래를 수행한다.
 
-    1. 무드 템플릿 선택 — 청중과 목적에 맞는 템플릿을 에이전트 디렉토리의
+    1. 무드 템플릿 선택 — 청중과 목적에 맞는 템플릿을 시스템 프롬프트가 가리키는
        templates/에서 고른다. exec와 투자자는 권위, 신뢰 계열(Signal, Broadside),
        제품 런치와 키노트는 크리에이티브 계열(Neo-Grid, Studio) 등 무드 가이드를
        따른다. 고른 템플릿은 전문을 읽는다

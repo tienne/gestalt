@@ -56,11 +56,11 @@ routing:
 
 **서브에이전트에 위임한다.** 메인 세션에서 `ges_agent get`을 하지 않는다 ([`../_shared/agent-delegation.md`](../_shared/agent-delegation.md)). 이 에이전트는 룰북을 둘 딸고 온다.
 
-> **`subagent_type`에 `jira-writer`를 넣지 않는다.** 게슈탈트 role agent는 Claude Code 서브에이전트 타입으로 등록돼 있지 않아 "Agent type not found"가 난다. 범용 서브에이전트를 띄우고 프롬프트 안에서 `ges_agent`로 페르소나를 가져오게 한다.
+> **`subagent_type`은 `gestalt:jira-writer`다.** 에이전트 본문이 시스템 프롬프트로 실려 오므로 프롬프트에서 `ges_agent`를 부르지 않는다. 타입을 못 찾으면 [`agent-delegation.md`](../_shared/agent-delegation.md)의 Explore 폴백으로 간다.
 
 ```
 Agent {
-  subagent_type: "Explore",
+  subagent_type: "gestalt:jira-writer",
   model: "<jira-writer의 tier 모델>",
   effort: "medium",
   prompt: "
@@ -69,8 +69,7 @@ Agent {
     읽기와 보고만 한다. 파일 수정, 티켓 생성, 외부 전송은 하지 않는다.
     생성은 승인을 받은 뒤 메인이 한다.
 
-    ges_agent { action: \"get\", name: \"jira-writer\" } 로 시스템 프롬프트를 가져오고
-    본문이 상대경로로 가리키는 룰북도 읽는다. 경로는 에이전트 디렉토리 기준이다.
+    시스템 프롬프트가 가리키는 룰북을 읽는다.
 
     그 관점으로 아래 상황을 티켓 본문으로 구조화한다.
 

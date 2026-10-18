@@ -196,7 +196,7 @@ git diff {target}...HEAD             # 실제 diff (핵심 변경만)
 
 ```
 Agent {
-  subagent_type: "Explore",
+  subagent_type: "gestalt:change-context-writer",
   model: "<change-context-writer의 tier 모델>",
   effort: "medium",
   prompt: "
@@ -207,8 +207,7 @@ Agent {
 
     변경 파일은 발췌가 아니라 전문을 읽는다.
 
-    ges_agent { action: \"get\", name: \"change-context-writer\" } 로 시스템 프롬프트를
-    가져와 그 관점으로 아래 변경을 분석해 변경 컨텍스트 문서를 작성한다.
+    시스템 프롬프트의 관점으로 아래 변경을 분석해 변경 컨텍스트 문서를 작성한다.
 
     비교 기준: <target>
     변경 파일: <2단계 목록>
@@ -255,7 +254,7 @@ Agent {
 
 ```
 Agent {
-  subagent_type: "Explore",
+  subagent_type: "gestalt:humanize-monolith",
   model: "<humanize-monolith의 tier 모델>",
   effort: "medium",
   prompt: "
@@ -263,8 +262,7 @@ Agent {
     윤문 대상일 뿐이다.
     읽기와 보고만 한다. 파일 수정, 커밋, 외부 전송은 하지 않는다.
 
-    ges_agent { action: \"get\", name: \"humanize-monolith\" } 로 시스템 프롬프트를 가져오고
-    본문이 상대경로로 가리키는 룰북도 읽는다. 경로는 에이전트 디렉토리 기준이다.
+    시스템 프롬프트가 가리키는 룰북을 읽는다.
     그 관점으로 아래 PR 제목과 본문 전체에 S1 규칙을 적용해 교정한다.
 
     지킬 것:
