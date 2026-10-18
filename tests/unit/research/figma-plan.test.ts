@@ -1,6 +1,10 @@
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { buildFigmaPlan, type FigmaPlan } from '../../../src/research/figma-plan.js';
+import {
+  buildFigmaPlan,
+  type FigmaLayout,
+  type FigmaPlan,
+} from '../../../src/research/figma-plan.js';
 import {
   buildFigmaFitScript,
   buildFigmaScript,
@@ -17,8 +21,12 @@ function research(overrides: Parameters<typeof sampleResearch>[0] = {}): Researc
   return parsed.value;
 }
 
-function planOf(r: Research, audience: 'private' | 'shared' = 'private'): FigmaPlan {
-  const result = buildFigmaPlan(r, { audience });
+function planOf(
+  r: Research,
+  audience: 'private' | 'shared' = 'private',
+  layout?: FigmaLayout,
+): FigmaPlan {
+  const result = buildFigmaPlan(r, { audience, layout });
   if (!result.ok) throw new Error(result.message);
   return result.plan;
 }
@@ -137,7 +145,7 @@ describe('Figma 계획', () => {
     base.comparison![0]!.definition = '첫 화면의 상품 수';
     base.captures![0]!.frameNo = '08';
     const plan = planOf(research(base));
-    const all = JSON.stringify(plan.nodes);
+    const all = JSON.stringify(plan);
     expect(all).toContain('(동일 패턴)');
     expect(all).toContain('첫 화면의 상품 수');
     expect(all).toContain('(프레임 08)');
@@ -166,6 +174,79 @@ describe('Figma 계획', () => {
   });
 });
 
+describe('Figma board 배치', () => {
+  it('기본은 가로 3열이고 구획을 결론과 근거 열로 나눈다', () => {
+    const plan = planOf(research());
+    expect(plan.layout).toBe('board');
+    const cols = plan.board!.columns;
+    expect(cols.map((c) => c.kind)).toEqual(['captures', 'conclusion', 'evidence']);
+    expect(cols[1]!.sections).toEqual(['종합', '6. 판단 (해석)', '7. 검증 제안', '8. 열린 질문']);
+    expect(cols[2]!.sections.map((t) => t.slice(0, 2))).toEqual([
+      '0.',
+      '3.',
+      '4.',
+      '2.',
+      '5.',
+      '1.',
+    ]);
+    const placed = cols.flatMap((c) => c.sections).sort();
+    const titles = plan.nodes.filter((n) => n.type === 'section').map((n) => n.title);
+    expect(placed).toEqual([...titles].sort());
+  });
+
+  it('판단과 검증 제안과 와우 구획에 색을 입힌다', () => {
+    const plan = planOf(research());
+    const tint = (prefix: string) =>
+      plan.nodes.find((n) => n.type === 'section' && n.title.startsWith(prefix));
+    expect(tint('6.')).toMatchObject({ tint: 'green' });
+    expect(tint('7.')).toMatchObject({ tint: 'blue' });
+    expect(tint('4.')).toMatchObject({ tint: 'orange' });
+    expect(tint('3.')).not.toHaveProperty('tint');
+  });
+
+  it('캡처는 제품별 그룹으로 board에 싣고 선정 구획에는 캡처 표가 남지 않는다', () => {
+    const r = research();
+    const plan = planOf(r);
+    const group = plan.board!.groups[0]!;
+    expect(group.title).toBe('A. 서비스 A');
+    expect(group.description).toBe('순위 리스트형');
+    expect(group.images.map((i) => i.imageId)).toEqual(r.captures.map((c) => c.id));
+    expect(JSON.stringify(plan.nodes)).not.toContain('"type":"images"');
+    expect(plan.images.map((i) => i.id)).toEqual(r.captures.map((c) => c.id));
+  });
+
+  it('화면에 걸린 발견은 화면 이름을 붙여 메모로 싣고 없으면 레퍼런스의 와우와 페인으로 채운다', () => {
+    const fallback = planOf(research()).board!.groups[0]!.notes;
+    expect(fallback.map((n) => n.label)).toContain('WOW');
+    expect(fallback.map((n) => n.label)).toContain('BAD');
+    expect(fallback.map((n) => n.text)).toContain('인기 상품을 바로 알아봐요');
+
+    const input = sampleResearch();
+    input.wowPain!.findings![0]!.screenMapId = 's1';
+    const linked = planOf(research(input)).board!.groups[0]!.notes;
+    expect(linked).toHaveLength(1);
+    expect(linked[0]).toMatchObject({ kind: 'wow', label: 'WOW' });
+    expect(linked[0]!.text).toContain('할인율이 가격보다 크게 보여서');
+  });
+
+  it('캡처가 없으면 캡처 열을 만들지 않는다', () => {
+    const plan = planOf({ ...research(), captures: [] });
+    expect(plan.board!.columns.map((c) => c.kind)).toEqual(['conclusion', 'evidence']);
+  });
+
+  it('page 배치는 board 없이 선정 구획 안에 캡처를 둔다', () => {
+    const plan = planOf(research(), 'private', 'page');
+    expect(plan.layout).toBe('page');
+    expect(plan.board).toBeUndefined();
+    expect(JSON.stringify(plan.nodes)).toContain('"type":"images"');
+  });
+
+  it('공유용 계획도 같은 열 구성을 쓴다', () => {
+    const plan = planOf(research(), 'shared');
+    expect(plan.board!.columns).toHaveLength(3);
+  });
+});
+
 describe('Figma Plugin API 스크립트', () => {
   it('문법이 맞고 계획을 담는다', () => {
     const script = buildFigmaScript(planOf(research()));
@@ -190,6 +271,43 @@ describe('Figma Plugin API 스크립트', () => {
     expect(nodes.get(result.pageId as string)?.name).toBe(research().meta.title);
     expect(result.tableCount as number).toBeGreaterThan(5);
     expect(result.missingImages).toEqual(research().captures.map((c) => c.id));
+  });
+
+  it('board 배치는 열 프레임 셋과 메모 카드를 만들고 구획에 색을 입힌다', async () => {
+    const { figma, nodes } = fakeFigma();
+    const result = await run(buildFigmaScript(planOf(research())), figma);
+    expect(result.ok).toBe(true);
+    const columnIds = result.columnIds as string[];
+    expect(columnIds).toHaveLength(3);
+    expect(columnIds.map((id) => nodes.get(id)?.name)).toEqual([
+      '화면 캡처',
+      '결론과 다음 할 일',
+      '근거 (전제, 비교, 이유)',
+    ]);
+    const root = nodes.get(result.rootId as string)!;
+    expect(root.layoutMode).toBe('HORIZONTAL');
+    expect(root.children).toHaveLength(3);
+    expect([...nodes.values()].some((n) => n.name === 'notes')).toBe(true);
+    const slot = nodes.get((result.imageSlots as { nodeId: string }[])[0]!.nodeId)!;
+    expect(slot.width).toBe(320);
+    const verdict = [...nodes.values()].find((n) => n.name === '6. 판단 (해석)')!;
+    const fill = (verdict.fills as { color: { g: number } }[])[0]!;
+    expect(Math.round(fill.color.g * 255)).toBe(0xf5);
+  });
+
+  it('page 배치 스크립트는 세로 한 페이지로 돈다', async () => {
+    const { figma, nodes } = fakeFigma();
+    const result = await run(buildFigmaScript(planOf(research(), 'private', 'page')), figma);
+    expect(result.ok).toBe(true);
+    expect(result.columnIds).toEqual([]);
+    expect(nodes.get(result.rootId as string)?.layoutMode).toBe('VERTICAL');
+    const slot = nodes.get((result.imageSlots as { nodeId: string }[])[0]!.nodeId)!;
+    expect(slot.width).toBe(240);
+  });
+
+  it('board 스크립트 본문은 use_figma 코드 한도 안에 든다', () => {
+    const script = buildFigmaScript(planOf(research()), undefined, 'body');
+    expect([...script].length).toBeLessThan(50_000);
   });
 
   it('표 셀은 같은 행의 높이를 맞추도록 세로 FILL로 두고 짧은 열도 글자가 꺾이지 않을 너비를 받는다', async () => {
@@ -260,7 +378,7 @@ describe('Figma Plugin API 스크립트', () => {
 
     const fit = await run(buildFigmaFitScript(result.pageId as string), figma);
     expect(fit).toMatchObject({ ok: true, fitted: slots.map((s) => s.id), noImage: [] });
-    expect(rect.height).toBe(480);
+    expect(rect.height).toBe((rect.width as number) * 2);
     expect(String(caption.characters)).not.toContain('이미지 없음');
   });
 
