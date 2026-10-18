@@ -84,12 +84,11 @@ const bullets = (items: string[]): string =>
   items.length === 0 ? '-' : items.map((i) => `• ${i}`).join('\n');
 
 /**
- * 열마다 담는 구획과 순서. 세 열의 높이가 비슷하도록 나눴다.
- * 레퍼런스 선정은 캡처 옆에, 시안은 판단 바로 뒤에 둔다. 나머지는 근거 열이고 전제와 비교가 먼저 보인다
+ * 열마다 담는 구획과 순서. 세 열의 높이가 비슷하도록 나눴다. 캡처 열에는 캡처 묶음만 있다.
+ * 시안과 와우 페인은 판단 가까이에 두고, 레퍼런스 선정은 전제와 함께 근거 열에 둔다
  */
-const CAPTURE_ORDER = ['1'];
-const CONCLUSION_ORDER = ['종합', '6', '2', '7', '8'];
-const EVIDENCE_ORDER = ['0', '3', '4', '5'];
+const CONCLUSION_ORDER = ['종합', '6', '2', '4', '7', '8'];
+const EVIDENCE_ORDER = ['0', '1', '3', '5'];
 const TINT_BY_KEY: Record<string, SectionTint> = { '6': 'green', '7': 'blue', '4': 'orange' };
 
 const sectionKey = (title: string): string => /^(\d+)\./.exec(title)?.[1] ?? title;
@@ -640,13 +639,12 @@ export function buildFigmaPlan(
   const ordered = (keys: string[]): string[] =>
     keys.flatMap((k) => titles.filter((t) => sectionKey(t) === k));
   const hasCaptureColumn = groups.length > 0;
-  const captureSections = hasCaptureColumn ? ordered(CAPTURE_ORDER) : [];
   const conclusion = ordered(CONCLUSION_ORDER);
-  const placed = new Set([...captureSections, ...conclusion, ...ordered(EVIDENCE_ORDER)]);
+  const placed = new Set([...conclusion, ...ordered(EVIDENCE_ORDER)]);
   const evidence = [...ordered(EVIDENCE_ORDER), ...titles.filter((t) => !placed.has(t))];
   const columns: FigmaBoard['columns'] = [
     ...(hasCaptureColumn
-      ? [{ kind: 'captures' as const, title: '화면 캡처', sections: captureSections }]
+      ? [{ kind: 'captures' as const, title: '화면 캡처', sections: [] }]
       : []),
     { kind: 'conclusion', title: '결론과 다음 할 일', sections: conclusion },
     { kind: 'evidence', title: '근거 (전제, 비교, 이유)', sections: evidence },
