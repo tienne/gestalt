@@ -175,20 +175,20 @@ describe('Figma 계획', () => {
 });
 
 describe('Figma board 배치', () => {
-  it('기본은 가로 3열이고 구획을 결론과 근거 열로 나눈다', () => {
+  it('기본은 가로 3열이고 구획을 열 높이가 비슷하도록 나눈다', () => {
     const plan = planOf(research());
     expect(plan.layout).toBe('board');
     const cols = plan.board!.columns;
     expect(cols.map((c) => c.kind)).toEqual(['captures', 'conclusion', 'evidence']);
-    expect(cols[1]!.sections).toEqual(['종합', '6. 판단 (해석)', '7. 검증 제안', '8. 열린 질문']);
-    expect(cols[2]!.sections.map((t) => t.slice(0, 2))).toEqual([
-      '0.',
-      '3.',
-      '4.',
-      '2.',
-      '5.',
-      '1.',
+    expect(cols[0]!.sections).toEqual(['1. 레퍼런스 선정']);
+    expect(cols[1]!.sections).toEqual([
+      '종합',
+      '6. 판단 (해석)',
+      '2. 시안',
+      '7. 검증 제안',
+      '8. 열린 질문',
     ]);
+    expect(cols[2]!.sections.map((t) => t.slice(0, 2))).toEqual(['0.', '3.', '4.', '5.']);
     const placed = cols.flatMap((c) => c.sections).sort();
     const titles = plan.nodes.filter((n) => n.type === 'section').map((n) => n.title);
     expect(placed).toEqual([...titles].sort());
@@ -232,6 +232,7 @@ describe('Figma board 배치', () => {
   it('캡처가 없으면 캡처 열을 만들지 않는다', () => {
     const plan = planOf({ ...research(), captures: [] });
     expect(plan.board!.columns.map((c) => c.kind)).toEqual(['conclusion', 'evidence']);
+    expect(plan.board!.columns[1]!.sections).toContain('1. 레퍼런스 선정');
   });
 
   it('page 배치는 board 없이 선정 구획 안에 캡처를 둔다', () => {
@@ -293,6 +294,18 @@ describe('Figma Plugin API 스크립트', () => {
     const verdict = [...nodes.values()].find((n) => n.name === '6. 판단 (해석)')!;
     const fill = (verdict.fills as { color: { g: number } }[])[0]!;
     expect(Math.round(fill.color.g * 255)).toBe(0xf5);
+  });
+
+  it('표 본문 글자는 16으로 그리고 머리글은 18로 그린다', async () => {
+    const { figma, nodes } = fakeFigma();
+    await run(buildFigmaScript(planOf(research())), figma);
+    const sizes = (name: string) =>
+      new Set(
+        [...nodes.values()]
+          .filter((n) => n.name === name)
+          .flatMap((cell) => cell.children.map((t) => t.fontSize)),
+      );
+    expect(sizes('cell')).toEqual(new Set([16, 18]));
   });
 
   it('page 배치 스크립트는 세로 한 페이지로 돈다', async () => {
