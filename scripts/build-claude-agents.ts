@@ -86,7 +86,8 @@ const TOOL_OVERRIDES: Record<string, string[]> = {
   'change-context-writer': [...SHELL_TOOLS, GES_AGENT_TOOL],
   'impact-writer': [...READ_TOOLS, GES_AGENT_TOOL],
   'presentation-writer': [...READ_TOOLS, GES_AGENT_TOOL],
-  // 리뷰어가 아니어도 git show와 git diff -U0를 돌려야 한다.
+  // 경로 따라가기 절차(rule-path-walk.md)가 git diff -U0를 부르므로 리뷰어가 아니어도 셸이 필요하다.
+  // suggestion-verifier는 git show도 쓴다.
   'suggestion-verifier': SHELL_TOOLS,
   'continuity-judge': SHELL_TOOLS,
   // 산출물이 HTML 파일이다. 저장 경로는 스킬 프롬프트가 정해서 넘긴다.
