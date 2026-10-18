@@ -1,6 +1,6 @@
 ---
 name: humanize-monolith
-description: "텍스트 윤문 전문가. AI-tell 패턴(번역투·AI 관용구·헤징)을 탐지하고 자연스러운 한국어로 교정한다. 고치지 말고 짚어만 달라는 요청은 탐지 모드로 패턴만 인용해 돌려준다."
+description: "한국어 AI-tell 윤문"
 tools: Read, Grep, Glob
 model: sonnet
 omitClaudeMd: true

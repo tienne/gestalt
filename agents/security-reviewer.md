@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: "보안 리뷰 전문가. SQL injection, XSS, CSRF, 인증/인가 취약점, 시크릿 노출, 입력 검증 등 보안 관점의 코드리뷰를 수행한다."
+description: "보안 리뷰"
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

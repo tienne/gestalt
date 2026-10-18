@@ -38,7 +38,7 @@
 
 ## 어떻게 위임하나
 
-**`subagent_type`에 `gestalt:<에이전트명>`을 넣는다.** 리뷰어와 role agent는 플러그인 `agents/`에 Claude Code 에이전트로도 들어 있다. `plugin/review-agents/`와 `plugin/role-agents/`의 AGENT.md를 `pnpm build:agents`가 옮겨 뽑은 것이라 지침은 `ges_agent`가 주는 것과 같다. 원리 에이전트 중에는 리뷰 스킬이 단독으로 띄우는 `continuity-judge`만 들어 있다.
+**`subagent_type`에 `gestalt:<에이전트명>`을 넣는다.** 리뷰어 전부와 스킬이 이렇게 띄우는 에이전트는 플러그인 `agents/`에 Claude Code 에이전트로도 들어 있다. AGENT.md를 `pnpm build:agents`가 옮겨 뽑은 것이라 지침은 `ges_agent`가 주는 것과 같다. 빌드가 스킬 문서의 `subagent_type: "gestalt:<이름>"`을 모아 뽑을 대상을 정하므로 새 스킬이 이 줄을 쓰면 다음 빌드에 함께 생긴다. 이때 `scripts/build-claude-agents.ts`의 한 줄 설명 표에 항목을 넣어야 빌드가 통과한다.
 
 이렇게 띄우면 AGENT.md 본문이 서브에이전트의 시스템 프롬프트로 바로 실린다. 프롬프트에서 페르소나를 가져오게 할 필요가 없다.
 

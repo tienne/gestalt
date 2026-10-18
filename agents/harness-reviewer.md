@@ -1,6 +1,6 @@
 ---
 name: harness-reviewer
-description: "하네스 리뷰어. 스킬과 에이전트 문서, CLAUDE.md, 규칙 문서, 다른 레포가 이름으로 부르는 코드가 바뀐 PR에서 diff 밖 참조 후보를 판정한다. 자기오염, 사본 어긋남, 레포를 넘는 참조 깨짐을 결함과 오탐으로 가르고 LLM이 읽는 문서로서 발동 조건 겹침, 상시 분량, 상대 경로 깊이, 파싱 계약, 읽어온 텍스트가 지시를 바꿀 여지를 본다."
+description: "스킬과 에이전트 문서 리뷰"
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

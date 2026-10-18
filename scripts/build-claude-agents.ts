@@ -10,6 +10,10 @@
  * 생성 위치가 레포 루트 `agents/`인 건 Claude 플러그인 루트가 레포 루트라서다. 매니페스트에
  * `agents` 필드를 두면 기본 디렉토리를 대체한다. 디렉토리 문자열을 넣으면 플러그인 로드가
  * 깨진다(2.1.302에서 확인). 루트 `hooks/`처럼 기본 경로에 두고 필드는 안 쓴다.
+ *
+ * 뽑은 에이전트마다 description이 Agent 도구 설명에 실려 모든 세션의 매 요청에 붙는다. 그래서
+ * 스킬이 `subagent_type`으로 띄우는 에이전트만 뽑고 설명도 한 줄로 줄인다. 나머지 역할 에이전트는
+ * `/agent`나 `ges_agent`로 메인 세션에서 쓰는 자리라 여기 없어도 된다.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, resolve } from 'node:path';
@@ -21,14 +25,40 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const ROOT = resolve(__dirname, '..');
 export const OUT_DIR = join(ROOT, 'agents');
 
-/** 원본 디렉토리. 레포 루트 기준이다. */
-const SOURCE_DIRS = ['plugin/review-agents', 'plugin/role-agents'] as const;
+/** 리뷰 스킬이 `gestalt:<agent-name>`으로 골라 띄우는 후보라 전부 뽑는다. */
+const REVIEWER_DIR = 'plugin/review-agents';
+
+/** 스킬이 이름으로 띄우는 에이전트의 원본을 찾는 자리. 레포 루트 기준이다. */
+const SOURCE_DIRS = [REVIEWER_DIR, 'plugin/role-agents', 'plugin/agents'] as const;
+
+const SKILLS_DIR = 'plugin/skills';
+const SPAWN_REF = /subagent_type:\s*"gestalt:([a-z][\w-]*)"/g;
 
 /**
- * 원리 에이전트는 실행 파이프라인이 MCP로 쓴다. 스킬이 단독으로 띄우는 건 리뷰 정합 심급의
- * continuity-judge 하나뿐이다. 나머지까지 뽑으면 매 세션 Agent 도구 설명만 길어진다.
+ * Agent 도구 설명에 실리는 한 줄. 스킬이 이름으로 띄우니 고르는 데 쓸 설명은 필요 없다. 원본
+ * description은 `ges_agent`와 라우팅이 쓰므로 그대로 두고 여기서만 짧게 쓴다.
  */
-const PRINCIPLE_AGENTS = ['plugin/agents/continuity-judge'] as const;
+const SHORT_DESCRIPTIONS: Record<string, string> = {
+  'comment-reviewer': '코드 주석 리뷰',
+  'frontend-reviewer': '프론트엔드 코드 리뷰',
+  'harness-reviewer': '스킬과 에이전트 문서 리뷰',
+  'performance-reviewer': '성능 리뷰',
+  'quality-reviewer': '코드 품질 리뷰',
+  'security-reviewer': '보안 리뷰',
+  'writing-reviewer': '문장 어투 리뷰',
+  'continuity-judge': '리뷰 결과 정합 판정',
+  'suggestion-verifier': '리뷰 제안 게시 전 검증',
+  'code-review-writer': '리뷰 코멘트 문장 작성',
+  'code-review-responder': '내 PR 리뷰에 답글 작성',
+  'change-context-writer': 'diff로 변경 컨텍스트 문서 작성',
+  'humanize-monolith': '한국어 AI-tell 윤문',
+  'impact-writer': '성과와 기획 문서 작성',
+  'presentation-writer': '슬라이드 메시지와 카피 작성',
+  'presentation-designer': 'Reveal.js 슬라이드 HTML 제작',
+  'slack-messenger': '작성자 어투로 슬랙 메시지 작성',
+  'jira-writer': '지라 티켓 본문 작성',
+  explainer: '대상에 맞춘 설명 작성',
+};
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob'];
 const SHELL_TOOLS = [...READ_TOOLS, 'Bash'];
@@ -43,7 +73,6 @@ const TOOL_OVERRIDES: Record<string, string[]> = {
   'humanize-monolith': READ_TOOLS,
   'slack-messenger': READ_TOOLS,
   'jira-writer': READ_TOOLS,
-  'ux-writer': READ_TOOLS,
   explainer: READ_TOOLS,
   // 본문이 초안 뒤에 ges_agent로 humanize-monolith 지침을 받아 윤문한다.
   'change-context-writer': [...SHELL_TOOLS, 'mcp__plugin_gestalt_gestalt__ges_agent'],
@@ -51,8 +80,6 @@ const TOOL_OVERRIDES: Record<string, string[]> = {
   'presentation-writer': [...READ_TOOLS, 'mcp__plugin_gestalt_gestalt__ges_agent'],
   // 산출물이 HTML 파일이다.
   'presentation-designer': [...READ_TOOLS, 'Write'],
-  researcher: [...SHELL_TOOLS, 'WebSearch', 'WebFetch'],
-  'video-summarizer': [...SHELL_TOOLS, 'WebFetch'],
 };
 
 /**
@@ -70,7 +97,6 @@ const OMIT_CLAUDE_MD = new Set([
   'presentation-writer',
   'presentation-designer',
   'impact-writer',
-  'video-summarizer',
 ]);
 
 export const GENERATED_NOTICE = (source: string) =>
@@ -134,12 +160,14 @@ export function renderAgent(
 ): GeneratedAgent {
   const { frontmatter, systemPrompt } = parseAgentMd(raw, sourceFile);
   const name = frontmatter.name;
+  const description = SHORT_DESCRIPTIONS[name];
+  if (!description) throw new Error(`${name}의 한 줄 설명이 SHORT_DESCRIPTIONS에 없다`);
   const tools = TOOL_OVERRIDES[name] ?? SHELL_TOOLS;
   const { body, rewrites } = rewritePaths(systemPrompt, posix.dirname(sourceFile), exists);
   const lines = [
     '---',
     `name: ${name}`,
-    `description: ${yamlString(frontmatter.description)}`,
+    `description: ${yamlString(description)}`,
     `tools: ${tools.join(', ')}`,
     // 스킬은 gestalt.json의 tierModels로 고른 model을 Agent 호출에 따로 넘긴다. 여기 값은 그게
     // 빠졌을 때 쓰는 기본값이다.
@@ -155,16 +183,32 @@ export function renderAgent(
   return { name, source: sourceFile, content: lines.join('\n'), rewrites };
 }
 
-export function collectSources(root: string = ROOT): string[] {
-  const files: string[] = [];
-  for (const dir of SOURCE_DIRS) {
-    for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
-      if (!entry.isDirectory() || entry.name.startsWith('_')) continue;
-      const file = posix.join(dir, entry.name, 'AGENT.md');
-      if (existsSync(join(root, file))) files.push(file);
-    }
+/** 스킬 문서가 `subagent_type: "gestalt:<이름>"`으로 띄우는 에이전트 이름 */
+export function spawnedNames(root: string = ROOT): Set<string> {
+  const names = new Set<string>();
+  for (const entry of readdirSync(join(root, SKILLS_DIR), {
+    recursive: true,
+    withFileTypes: true,
+  })) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    const text = readFileSync(join(entry.parentPath, entry.name), 'utf-8');
+    for (const match of text.matchAll(SPAWN_REF)) names.add(match[1]!);
   }
-  for (const dir of PRINCIPLE_AGENTS) files.push(posix.join(dir, 'AGENT.md'));
+  return names;
+}
+
+export function collectSources(root: string = ROOT): string[] {
+  const names = spawnedNames(root);
+  for (const entry of readdirSync(join(root, REVIEWER_DIR), { withFileTypes: true })) {
+    if (entry.isDirectory() && !entry.name.startsWith('_')) names.add(entry.name);
+  }
+  const files = [...names].map((name) => {
+    const file = SOURCE_DIRS.map((dir) => posix.join(dir, name, 'AGENT.md')).find((f) =>
+      existsSync(join(root, f)),
+    );
+    if (!file) throw new Error(`스킬이 gestalt:${name} 을 띄우는데 원본 AGENT.md가 없다`);
+    return file;
+  });
   return files.sort();
 }
 
@@ -178,6 +222,15 @@ export function buildAgents(root: string = ROOT): GeneratedAgent[] {
     const prev = seen.get(a.name);
     if (prev) throw new Error(`에이전트 이름이 겹친다: ${a.name} (${prev}, ${a.source})`);
     seen.set(a.name, a.source);
+  }
+  // 뽑지 않는 에이전트 항목이 표에 남으면 나중에 다시 뽑힐 때 근거 없는 설정이 따라붙는다.
+  const unused = [
+    ...Object.keys(SHORT_DESCRIPTIONS),
+    ...Object.keys(TOOL_OVERRIDES),
+    ...OMIT_CLAUDE_MD,
+  ].filter((name) => !seen.has(name));
+  if (unused.length > 0) {
+    throw new Error(`뽑지 않는 에이전트가 표에 남아 있다: ${[...new Set(unused)].join(', ')}`);
   }
   return agents;
 }

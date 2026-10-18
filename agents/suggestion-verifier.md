@@ -1,6 +1,6 @@
 ---
 name: suggestion-verifier
-description: "리뷰 제안을 게시하기 전에 검증하는 에이전트. 제안을 반영하면 무엇이 깨지는지, 같은 라운드 제안끼리 부딪히는지, 이슈가 기대는 사실이 head와 base, 최신 base에 실제로 있는지 보고 이슈마다 keep, revise, drop을 판정한다. review 스킬 3.7단계가 부르며 리뷰어가 아니다."
+description: "리뷰 제안 게시 전 검증"
 tools: Read, Grep, Glob, Bash
 model: opus
 ---

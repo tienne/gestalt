@@ -1,6 +1,6 @@
 ---
 name: code-review-responder
-description: "리뷰 받는 쪽의 답변 작성 전문가. 내 PR에 달린 리뷰 코멘트에 대해 반영·대안·보류·질문 네 유형으로 답글을 작성한다. 코멘트를 만드는 게 아니라 받은 코멘트에 답한다 — 리뷰어 관점 코멘트는 code-review-writer가 담당."
+description: "내 PR 리뷰에 답글 작성"
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { renderAgent, rewritePaths } from '../../../scripts/build-claude-agents.js';
+import {
+  buildAgents,
+  renderAgent,
+  rewritePaths,
+  spawnedNames,
+} from '../../../scripts/build-claude-agents.js';
 
 const FILES = new Set([
   'plugin/role-agents/_shared/references/ai-tell-quick-rules.md',
@@ -89,17 +94,17 @@ const agentMd = (name: string, tier: string) =>
 describe('renderAgent', () => {
   it('리뷰어는 셸까지 열고 tier를 기본 모델로 옮긴다', () => {
     const { content } = renderAgent(
-      'plugin/review-agents/x-reviewer/AGENT.md',
-      agentMd('x-reviewer', 'frontier'),
+      'plugin/review-agents/security-reviewer/AGENT.md',
+      agentMd('security-reviewer', 'frontier'),
       exists,
     );
 
-    expect(content).toContain('name: x-reviewer\n');
-    expect(content).toContain('description: "설명: 따옴표 \\"포함\\""\n');
+    expect(content).toContain('name: security-reviewer\n');
+    expect(content).toContain('description: "보안 리뷰"\n');
     expect(content).toContain('tools: Read, Grep, Glob, Bash\n');
     expect(content).toContain('model: opus\n');
     expect(content).not.toContain('omitClaudeMd');
-    expect(content).toContain('원본은 plugin/review-agents/x-reviewer/AGENT.md');
+    expect(content).toContain('원본은 plugin/review-agents/security-reviewer/AGENT.md');
   });
 
   it('글만 다루는 에이전트는 셸을 빼고 CLAUDE.md 없이 띄운다', () => {
@@ -112,5 +117,22 @@ describe('renderAgent', () => {
     expect(content).toContain('tools: Read, Grep, Glob\n');
     expect(content).toContain('model: sonnet\n');
     expect(content).toContain('omitClaudeMd: true\n');
+  });
+
+  it('한 줄 설명이 없는 에이전트는 뽑지 않고 멈춘다', () => {
+    expect(() =>
+      renderAgent('plugin/role-agents/x/AGENT.md', agentMd('x', 'standard'), exists),
+    ).toThrow('SHORT_DESCRIPTIONS');
+  });
+});
+
+describe('buildAgents', () => {
+  it('스킬이 띄우는 에이전트와 리뷰어만 뽑는다', () => {
+    const names = buildAgents().map((a) => a.name);
+
+    for (const spawned of spawnedNames()) expect(names).toContain(spawned);
+    expect(names).toContain('quality-reviewer');
+    expect(names).not.toContain('designer');
+    expect(names).not.toContain('product-planner');
   });
 });

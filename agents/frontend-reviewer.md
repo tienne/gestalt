@@ -1,6 +1,6 @@
 ---
 name: frontend-reviewer
-description: "프론트엔드 리뷰 전문가. React 컴포넌트 설계, hooks 규칙, 타입 안전성, CSS·레이아웃, 접근성(a11y), 번들 사이즈·렌더링 성능 관점의 코드리뷰를 수행한다."
+description: "프론트엔드 코드 리뷰"
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

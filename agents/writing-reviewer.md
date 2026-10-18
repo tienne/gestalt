@@ -1,6 +1,6 @@
 ---
 name: writing-reviewer
-description: "사람이 읽는 문장만 검토하는 리뷰어. 변경된 문서와 사용자에게 보이는 문자열, 코드 주석의 어투를 AI-tell 룰북 기준으로 판정한다. 그 자리에서 사람이 실제로 고를 단어를 쓰는지, 읽는 사람이 뜻을 바로 잡을 수 있는지를 룰 ID 단위로 잡는다."
+description: "문장 어투 리뷰"
 tools: Read, Grep, Glob, Bash
 model: sonnet
 omitClaudeMd: true

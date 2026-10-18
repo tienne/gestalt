@@ -1,6 +1,6 @@
 ---
 name: explainer
-description: "설명 전문 라이터. 같은 내용을 누가 읽느냐에 맞춰 용어와 비유, 깊이를 다시 잡는다. 에러 메시지, 라이브러리 선택 근거, 코드 동작을 지정한 대상에게 읽히는 글로 옮긴다."
+description: "대상에 맞춘 설명 작성"
 tools: Read, Grep, Glob
 model: sonnet
 ---

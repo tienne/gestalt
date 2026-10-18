@@ -1,6 +1,6 @@
 ---
 name: impact-writer
-description: "성과 분석·의사결정·기획 문서 전문 라이터. 지표와 결정을 경영진·타팀 등 이해관계자가 설득·합의할 수 있는 산문으로 풀어낸다. 코드 중심 기술문서(technical-writer)와 결이 다르다."
+description: "성과와 기획 문서 작성"
 tools: Read, Grep, Glob, mcp__plugin_gestalt_gestalt__ges_agent
 model: sonnet
 omitClaudeMd: true

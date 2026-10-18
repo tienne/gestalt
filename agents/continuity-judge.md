@@ -1,6 +1,6 @@
 ---
 name: continuity-judge
-description: "Continuity 원리 기반 평가 에이전트. 실행 결과의 일관성과 목표 정합성을 판단한다."
+description: "리뷰 결과 정합 판정"
 tools: Read, Grep, Glob, Bash
 model: opus
 ---

@@ -1,6 +1,6 @@
 ---
 name: code-review-writer
-description: "PR 코드 리뷰 코멘트 작성 전문가. 변경 diff를 리뷰해 버그·성능·품질 이슈를 식별하고 건설적인 리뷰 코멘트를 한국어/영어 혼용으로 작성한다."
+description: "리뷰 코멘트 문장 작성"
 tools: Read, Grep, Glob, Bash
 model: sonnet
 omitClaudeMd: true

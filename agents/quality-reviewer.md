@@ -1,6 +1,6 @@
 ---
 name: quality-reviewer
-description: "코드 품질 리뷰 전문가. 가독성, 유지보수성, SOLID 원칙, 에러 핸들링, 중복 코드, 네이밍 컨벤션, 불필요한 주석 등 코드 품질 관점의 리뷰를 수행한다."
+description: "코드 품질 리뷰"
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

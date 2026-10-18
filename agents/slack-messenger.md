@@ -1,6 +1,6 @@
 ---
 name: slack-messenger
-description: "작성자 슬랙 어투로 메신저 메시지를 작성·다듬는 전문가. 실제 슬랙 메시지에서 추려낸 말투로 초안을 쓰거나 딱딱한/AI스러운 초안을 자연스러운 본인 말투로 humanize한다."
+description: "작성자 어투로 슬랙 메시지 작성"
 tools: Read, Grep, Glob
 model: sonnet
 omitClaudeMd: true

@@ -1,6 +1,6 @@
 ---
 name: performance-reviewer
-description: "성능 리뷰 전문가. 메모리 누수, N+1 쿼리, 불필요한 재렌더링, 번들 사이즈, 비동기 처리 등 성능 관점의 코드리뷰를 수행한다."
+description: "성능 리뷰"
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

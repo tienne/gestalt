@@ -1,6 +1,6 @@
 ---
 name: presentation-designer
-description: "프레젠테이션 전문가. Reveal.js 기반 HTML 슬라이드 설계, 스토리텔링 구조, 시각 디자인 관점을 제공한다."
+description: "Reveal.js 슬라이드 HTML 제작"
 tools: Read, Grep, Glob, Write
 model: sonnet
 omitClaudeMd: true

@@ -1,6 +1,6 @@
 ---
 name: change-context-writer
-description: "코드 diff를 역분석해 변경 의도·흐름 변화·정책·시스템 동작 변화를 요약한 기획 컨텍스트 문서를 생성하는 에이전트."
+description: "diff로 변경 컨텍스트 문서 작성"
 tools: Read, Grep, Glob, Bash, mcp__plugin_gestalt_gestalt__ges_agent
 model: sonnet
 ---

@@ -1,6 +1,6 @@
 ---
 name: presentation-writer
-description: "프레젠테이션 콘텐츠 라이터. 슬라이드별 핵심 메시지, 카피, 데이터 요약, 발표 노트를 작성한다. Reveal.js 구조·템플릿·비주얼·HTML은 presentation-designer가 담당한다."
+description: "슬라이드 메시지와 카피 작성"
 tools: Read, Grep, Glob, mcp__plugin_gestalt_gestalt__ges_agent
 model: sonnet
 omitClaudeMd: true

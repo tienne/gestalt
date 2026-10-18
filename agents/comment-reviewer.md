@@ -1,6 +1,6 @@
 ---
 name: comment-reviewer
-description: "코드 주석 검토 전문가. 코드를 그대로 옮긴 주석, 변경 이력 메모, 주석 처리된 죽은 코드, 코드와 어긋난 주석, 섹션 배너, 티켓 없는 TODO를 CM 룰 ID 단위로 잡는다. WHY가 담긴 주석은 보존한다."
+description: "코드 주석 리뷰"
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

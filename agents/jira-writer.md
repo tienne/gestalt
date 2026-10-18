@@ -1,6 +1,6 @@
 ---
 name: jira-writer
-description: "대충 던진 요청을 제대로 된 지라 티켓 본문으로 다듬는 전문가. 제목·설명·완료 조건·이슈타입·우선순위·라벨을 구조화해 반환한다. 실제 티켓 생성은 하지 않고 완성된 본문만 만든다."
+description: "지라 티켓 본문 작성"
 tools: Read, Grep, Glob
 model: sonnet
 omitClaudeMd: true
