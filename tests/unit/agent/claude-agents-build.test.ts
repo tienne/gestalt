@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
+  ROOT,
   buildAgents,
   renderAgent,
   rewritePaths,
@@ -154,7 +155,7 @@ const toolsOf = (content: string) => /^tools: (.+)$/m.exec(content)![1]!.split('
 
 describe('생성된 에이전트의 도구', () => {
   const agents = new Map(buildAgents().map((a) => [a.name, toolsOf(a.content)]));
-  const reviewers = readdirSync('plugin/review-agents', { withFileTypes: true })
+  const reviewers = readdirSync(join(ROOT, 'plugin/review-agents'), { withFileTypes: true })
     .filter((e) => e.isDirectory() && !e.name.startsWith('_'))
     .map((e) => e.name);
 
@@ -190,12 +191,15 @@ describe('생성된 에이전트의 도구', () => {
 describe('스킬의 gestalt: 호출부', () => {
   it('model을 같은 줄이나 다음 줄에 넘긴다', () => {
     const missing: string[] = [];
-    for (const entry of readdirSync('plugin/skills', { recursive: true, withFileTypes: true })) {
+    for (const entry of readdirSync(join(ROOT, 'plugin/skills'), {
+      recursive: true,
+      withFileTypes: true,
+    })) {
       if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
       const file = join(entry.parentPath, entry.name);
       const lines = readFileSync(file, 'utf-8').split('\n');
       lines.forEach((line, i) => {
-        if (!/^\s+subagent_type:\s*"gestalt:[a-z][\w-]*",/.test(line)) return;
+        if (!/subagent_type:\s*"gestalt:[a-z][\w-]*"/.test(line)) return;
         if (line.includes('model:') || lines[i + 1]?.trim().startsWith('model:')) return;
         missing.push(`${file}:${i + 1}`);
       });
