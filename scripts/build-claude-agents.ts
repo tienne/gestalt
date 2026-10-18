@@ -65,39 +65,31 @@ const SHELL_TOOLS = [...READ_TOOLS, 'Bash'];
 
 /**
  * MCP 도구는 열어준 만큼 스키마가 첫 요청에 실린다(에이전트마다 도구 하나에 400~700토큰).
- * 그래서 과거 서브에이전트 기록에서 실제로 불렀던 에이전트에만, 읽기 도구만 골라서 연다.
- * 서버 이름이 설치 방식마다 달라서 같은 용도의 이름을 둘 다 적는다. 없는 서버의 이름은 무시된다.
+ * 그래서 본문이 실제로 부르는 도구만 연다. 플러그인으로 설치된 서버라 이름이 하나로 정해져 있다.
  */
-const PLATE_TOOLS = ['mcp__plate__get_design_tokens', 'mcp__plate__get_component_manifest'];
-const TICKET_TOOLS = [
-  'mcp__atlassian__jira_get_issue',
-  'mcp__atlassian__confluence_get_page',
-  'mcp__claude_ai_Atlassian__getJiraIssue',
-  'mcp__claude_ai_Atlassian__getConfluencePage',
-];
+const GES_AGENT_TOOL = 'mcp__plugin_gestalt_gestalt__ges_agent';
 
 /**
- * 본문이 실제로 쓰는 도구만 연다. 표에 없는 에이전트는 SHELL_TOOLS다 — git diff를 돌려야 하는
- * 리뷰어와 레포를 살피는 역할 에이전트가 대부분이라서다. Edit과 Write가 없으면 프롬프트를
- * 무시해도 파일을 못 고친다.
+ * 표에 없는 에이전트의 기본값은 원본 위치로 정한다. 리뷰어(plugin/review-agents/)는 git diff를
+ * 직접 돌려야 해서 Bash를 받는다. 그 밖의 에이전트는 읽기 도구만 받는다. 새 에이전트가 표에서
+ * 빠져도 셸이 열리지 않게 하려는 것이다. Edit과 Write는 없지만 Bash가 있는 에이전트는 셸로
+ * 파일을 바꿀 수 있다. 그래서 스킬 프롬프트의 "읽기와 보고만 한다" 한 줄은 계속 필요하다.
  */
 const TOOL_OVERRIDES: Record<string, string[]> = {
-  // 넘겨받은 문장만 고치거나 쓴다. 셸을 쓸 자리가 없다.
+  // 스킬이 본문과 사전 스캔 결과를 인라인으로 넘기므로 셸이 없다. AGENT.md의 humanize-scan,
+  // humanize-check 절은 원문이 파일로 있을 때만 돈다.
   'humanize-monolith': READ_TOOLS,
   'slack-messenger': READ_TOOLS,
   'jira-writer': READ_TOOLS,
   explainer: READ_TOOLS,
   // 본문이 초안 뒤에 ges_agent로 humanize-monolith 지침을 받아 윤문한다.
-  'change-context-writer': [...SHELL_TOOLS, 'mcp__plugin_gestalt_gestalt__ges_agent'],
-  'impact-writer': [...READ_TOOLS, 'mcp__plugin_gestalt_gestalt__ges_agent'],
-  'presentation-writer': [...READ_TOOLS, 'mcp__plugin_gestalt_gestalt__ges_agent'],
-  // 제안이 기대는 외부 사실(디자인 토큰, 공식 문서)을 게시 전에 확인한다.
-  'suggestion-verifier': [...SHELL_TOOLS, 'WebFetch', ...PLATE_TOOLS],
-  // 정합 판정이 티켓과 기획 문서, 디자인 토큰을 근거로 삼는다.
-  'continuity-judge': [...SHELL_TOOLS, ...TICKET_TOOLS, ...PLATE_TOOLS],
-  // 컴포넌트와 토큰 사용이 디자인 시스템과 맞는지 본다.
-  'harness-reviewer': [...SHELL_TOOLS, ...PLATE_TOOLS],
-  // 산출물이 HTML 파일이다.
+  'change-context-writer': [...SHELL_TOOLS, GES_AGENT_TOOL],
+  'impact-writer': [...READ_TOOLS, GES_AGENT_TOOL],
+  'presentation-writer': [...READ_TOOLS, GES_AGENT_TOOL],
+  // 리뷰어가 아니어도 git show와 git diff -U0를 돌려야 한다.
+  'suggestion-verifier': SHELL_TOOLS,
+  'continuity-judge': SHELL_TOOLS,
+  // 산출물이 HTML 파일이다. 저장 경로는 스킬 프롬프트가 정해서 넘긴다.
   'presentation-designer': [...READ_TOOLS, 'Write'],
 };
 
@@ -181,7 +173,8 @@ export function renderAgent(
   const name = frontmatter.name;
   const description = SHORT_DESCRIPTIONS[name];
   if (!description) throw new Error(`${name}의 한 줄 설명이 SHORT_DESCRIPTIONS에 없다`);
-  const tools = TOOL_OVERRIDES[name] ?? SHELL_TOOLS;
+  const tools =
+    TOOL_OVERRIDES[name] ?? (sourceFile.startsWith(`${REVIEWER_DIR}/`) ? SHELL_TOOLS : READ_TOOLS);
   const { body, rewrites } = rewritePaths(systemPrompt, posix.dirname(sourceFile), exists);
   const lines = [
     '---',
@@ -222,11 +215,14 @@ export function collectSources(root: string = ROOT): string[] {
     if (entry.isDirectory() && !entry.name.startsWith('_')) names.add(entry.name);
   }
   const files = [...names].map((name) => {
-    const file = SOURCE_DIRS.map((dir) => posix.join(dir, name, 'AGENT.md')).find((f) =>
+    const found = SOURCE_DIRS.map((dir) => posix.join(dir, name, 'AGENT.md')).filter((f) =>
       existsSync(join(root, f)),
     );
-    if (!file) throw new Error(`스킬이 gestalt:${name} 을 띄우는데 원본 AGENT.md가 없다`);
-    return file;
+    if (found.length === 0) {
+      throw new Error(`스킬이 gestalt:${name} 을 띄우는데 원본 AGENT.md가 없다`);
+    }
+    if (found.length > 1) throw new Error(`원본이 여러 곳에 있다: ${name} (${found.join(', ')})`);
+    return found[0]!;
   });
   return files.sort();
 }

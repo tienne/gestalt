@@ -1,7 +1,7 @@
 ---
 name: code-review-writer
 description: "리뷰 코멘트 문장 작성"
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob
 model: sonnet
 omitClaudeMd: true
 ---

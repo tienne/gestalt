@@ -1,7 +1,7 @@
 ---
 name: harness-reviewer
 description: "스킬과 에이전트 문서 리뷰"
-tools: Read, Grep, Glob, Bash, mcp__plate__get_design_tokens, mcp__plate__get_component_manifest
+tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
 

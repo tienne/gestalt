@@ -1,7 +1,7 @@
 ---
 name: code-review-responder
 description: "내 PR 리뷰에 답글 작성"
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob
 model: sonnet
 ---
 
