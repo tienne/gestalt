@@ -700,6 +700,22 @@ export const researchSchema = z
 
 export type Research = z.infer<typeof researchSchema>;
 export type ResearchInput = z.input<typeof researchSchema>;
+export type MetricCase = z.infer<typeof metricCaseSchema>;
+
+/** 못 찾았거나 없다고 확인한 사례는 근거로 못 쓴다 */
+export function isUsableMetricCase(m: MetricCase): boolean {
+  return m.basis !== 'unconfirmed' && m.basis !== 'absent';
+}
+
+/** 근거로 쓸 수 있는 지표 사례를 제품별로 묶는다. 레퍼런스 표에 지표가 있는 제품을 드러낼 때 쓴다 */
+export function metricCasesByProduct(research: Research): Map<string, MetricCase[]> {
+  const byProduct = new Map<string, MetricCase[]>();
+  for (const m of research.metricCases) {
+    if (!m.productId || !isUsableMetricCase(m)) continue;
+    byProduct.set(m.productId, [...(byProduct.get(m.productId) ?? []), m]);
+  }
+  return byProduct;
+}
 export type ProductCandidate = z.infer<typeof productCandidateSchema>;
 export type ScreenMapItem = z.infer<typeof screenMapItemSchema>;
 export type Transition = z.infer<typeof transitionSchema>;
@@ -902,7 +918,7 @@ function lintMetricCases(research: Research, warnings: ResearchWarning[]): void 
       });
     }
   });
-  const usable = metricCases.some((m) => m.basis !== 'unconfirmed' && m.basis !== 'absent');
+  const usable = metricCases.some(isUsableMetricCase);
   if (!usable) return;
   verification.forEach((v, i) => {
     if (v.successCriteria?.trim() && v.metricCaseIds.length === 0) {

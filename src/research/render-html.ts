@@ -1,5 +1,5 @@
 import type { BasisKind, EvidenceRef } from './evidence.js';
-import type { Capture, Finding, Research } from './schema.js';
+import { metricCasesByProduct, type Capture, type Finding, type Research } from './schema.js';
 import type { ResearchAudience } from './store.js';
 
 export interface LoadedImage {
@@ -664,14 +664,24 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
 
   // 1. 레퍼런스 선정
   parts.push('<h2>1. 레퍼런스 선정</h2>');
+  const casesByProduct = metricCasesByProduct(research);
+  const caseLines = (productIds: string[]): string =>
+    productIds
+      .flatMap((id) => casesByProduct.get(id) ?? [])
+      .map((m) => e(`${m.metric} ${m.value}`))
+      .join('<br>');
   if (research.references.length > 0) {
+    const withCases = research.references.some((r) =>
+      r.productIds.some((id) => casesByProduct.has(id)),
+    );
     parts.push(
       table(
-        ['유형', '제품', '고른 이유'],
+        ['유형', '제품', '고른 이유', ...(withCases ? ['지표 사례'] : [])],
         research.references.map((r) => [
           `<span class="sym">${e(r.symbol)}</span>${e(r.typeName)}`,
           e(r.productIds.map((id) => productName.get(id) ?? id).join(', ')),
           e(r.reason),
+          ...(withCases ? [caseLines(r.productIds)] : []),
         ]),
       ),
     );
@@ -680,7 +690,7 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
     parts.push('<h3>제품 후보</h3>');
     parts.push(
       table(
-        ['제품', '축', '이유', '규모'],
+        ['제품', '축', '이유', '규모', ...(casesByProduct.size > 0 ? ['지표 사례'] : [])],
         research.productCandidates.map((p) => [
           e(p.name),
           e(AXIS_LABEL[p.axis]),
@@ -688,6 +698,7 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
           p.scale
             ? `${e(p.scale.value)}<br><span class="chip">${e(EVIDENCE_LABEL[p.scale.evidence])}</span>${e(p.scale.source)}`
             : '<span class="todo">확인 못함</span>',
+          ...(casesByProduct.size > 0 ? [caseLines([p.id])] : []),
         ]),
       ),
     );

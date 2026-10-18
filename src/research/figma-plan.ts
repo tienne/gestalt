@@ -22,7 +22,7 @@ import {
   videoSectionTitle,
 } from './render-html.js';
 import type { EvidenceRef } from './evidence.js';
-import type { Research } from './schema.js';
+import { metricCasesByProduct, type Research } from './schema.js';
 import type { ResearchAudience } from './store.js';
 
 export type TextStyle = 'title' | 'h2' | 'h3' | 'body' | 'caption' | 'notice';
@@ -135,14 +135,24 @@ export function buildFigmaPlan(
   );
 
   const s1: PlanNode[] = [];
+  const casesByProduct = metricCasesByProduct(research);
+  const caseLines = (productIds: string[]): string =>
+    productIds
+      .flatMap((id) => casesByProduct.get(id) ?? [])
+      .map((m) => `${m.metric} ${m.value}`)
+      .join('\n');
   if (research.references.length > 0) {
+    const withCases = research.references.some((r) =>
+      r.productIds.some((id) => casesByProduct.has(id)),
+    );
     s1.push({
       type: 'table',
-      head: ['유형', '제품', '고른 이유'],
+      head: ['유형', '제품', '고른 이유', ...(withCases ? ['지표 사례'] : [])],
       rows: research.references.map((r) => [
         `${r.symbol}. ${r.typeName}`,
         r.productIds.map((id) => productName.get(id) ?? id).join(', '),
         r.reason,
+        ...(withCases ? [caseLines(r.productIds)] : []),
       ]),
     });
   }
@@ -150,7 +160,7 @@ export function buildFigmaPlan(
     s1.push(text('h3', '제품 후보'));
     s1.push({
       type: 'table',
-      head: ['제품', '축', '이유', '규모'],
+      head: ['제품', '축', '이유', '규모', ...(casesByProduct.size > 0 ? ['지표 사례'] : [])],
       rows: research.productCandidates.map((p) => [
         p.name,
         AXIS_LABEL[p.axis],
@@ -158,6 +168,7 @@ export function buildFigmaPlan(
         p.scale
           ? `${p.scale.value}\n(${EVIDENCE_LABEL[p.scale.evidence]}) ${p.scale.source}`
           : '확인 못함',
+        ...(casesByProduct.size > 0 ? [caseLines([p.id])] : []),
       ]),
     });
   }
