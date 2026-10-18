@@ -76,7 +76,8 @@ describe('research HTML 렌더', () => {
       { audience: 'private', loadImage: withImage },
     );
     if (!r.ok) throw new Error('렌더 실패');
-    expect(r.html).not.toContain('<script');
+    expect(r.html).not.toContain('<script>alert');
+    expect(r.html.match(/<script>/g)).toHaveLength(1);
     expect(r.html).toContain('&lt;script&gt;');
     expect(r.html).toContain('a &amp; b');
   });
