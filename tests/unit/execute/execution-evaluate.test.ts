@@ -621,6 +621,77 @@ describe('Evaluate Phase (2-Stage Pipeline)', () => {
       }
     });
 
+    it('keeps the classification labels in the prompt when the spec was not patched', async () => {
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
+      engine.startExecution(sessionId);
+      await executeAllTasks(engine, sessionId);
+      const result = engine.submitStructuralResult(
+        sessionId,
+        asRequested(engine.startEvaluation(sessionId), passingStructuralResult),
+      );
+      expect(isOk(result)).toBe(true);
+      if (!result.ok) return;
+
+      const prompt = result.value.contextualContext!.evaluatePrompt;
+      const classifiedACs = engine.getSession(sessionId).executionPlan!.classifiedACs;
+      expect(classifiedACs).toHaveLength(spec.acceptanceCriteria.length);
+      for (const ac of classifiedACs) {
+        expect(prompt).toContain(
+          `[${ac.acIndex}] (${ac.classification}/${ac.priority}) ${ac.acText}`,
+        );
+      }
+      expect(prompt).not.toContain('(unclassified)');
+      expect(prompt).toContain('indices 0 to 3');
+    });
+
+    it('shows an AC added by an evolve patch as unclassified and accepts a submission covering it', async () => {
+      const spec = createTestSpec();
+      const sessionId = completePlanningPhase(engine, spec);
+      engine.startExecution(sessionId);
+      await executeAllTasks(engine, sessionId);
+
+      // 계획 뒤 evolve 패치로 AC를 하나 추가한다. executionPlan.classifiedACs는 그대로 4개다.
+      const newAC = 'Users can log out and invalidate the JWT';
+      const patchedAcs = [...spec.acceptanceCriteria, newAC];
+      engine
+        .getSessionManager()
+        .patchSpec(
+          sessionId,
+          { acceptanceCriteria: patchedAcs },
+          { ...spec, acceptanceCriteria: patchedAcs },
+          { fieldsChanged: ['acceptanceCriteria'], similarity: 0.8, generation: 1 },
+        );
+      expect(engine.getSession(sessionId).executionPlan!.classifiedACs).toHaveLength(4);
+
+      const result = engine.submitStructuralResult(
+        sessionId,
+        asRequested(engine.startEvaluation(sessionId), passingStructuralResult),
+      );
+      expect(isOk(result)).toBe(true);
+      if (!result.ok) return;
+
+      const prompt = result.value.contextualContext!.evaluatePrompt;
+      expect(prompt).toContain(`[4] (unclassified) ${newAC}`);
+      expect(prompt).toContain('[0] (figure/critical) Users can register with email/password');
+      expect(prompt).toContain('indices 0 to 4');
+
+      const evaluationResult: EvaluationResult = {
+        verifications: patchedAcs.map((_, acIndex) => ({
+          acIndex,
+          satisfied: true,
+          evidence: `AC ${acIndex} verified`,
+          gaps: [],
+        })),
+        overallScore: 1.0,
+        goalAlignment: 0.95,
+        recommendations: [],
+      };
+      const submitted = engine.submitEvaluation(sessionId, evaluationResult);
+      expect(isOk(submitted)).toBe(true);
+      if (submitted.ok) expect(submitted.value.session.status).toBe('completed');
+    });
+
     it('rejects evaluation missing AC verification', async () => {
       const spec = createTestSpec();
       const sessionId = completePlanningPhase(engine, spec);
