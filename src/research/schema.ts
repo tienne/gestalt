@@ -3,6 +3,7 @@ import { ValidationError } from '../core/errors.js';
 import { err, ok, type Result } from '../core/result.js';
 import { basisFields, checkBasis, evidenceListSchema, type EvidenceRef } from './evidence.js';
 import { httpsUrlSchema, idSchema, textSchema } from './schema-base.js';
+import { hasUsableBaseline, lintTarget, targetSchema } from './target.js';
 
 /** 새 필드는 전부 선택이라 1.0.0 문서가 그대로 읽힌다 */
 export const RESEARCH_SCHEMA_VERSION = '1.0.0';
@@ -345,6 +346,10 @@ const verificationSchema = z.object({
   period: z.string().optional(),
   /** 맞았다고 판정하는 기준. 이게 없으면 결과가 나와도 가설을 판정할 수 없다 */
   successCriteria: z.string().optional(),
+  /** 성공하면 목표 지표가 몇 %p 오를지. 목표 지표를 안 움직이는 가설은 비운다 */
+  expectedLiftPp: z.number().positive().optional(),
+  /** 이 가설을 재는 이벤트. target.trackingPlan에서 상태를 본다 */
+  events: z.array(textSchema).default([]),
   caveat: z.string().optional(),
 });
 
@@ -470,6 +475,8 @@ export const researchSchema = z
     }),
     plan: planSchema.default({}),
     premise: premiseSchema,
+    /** 목표치를 기존 데이터에서 세운 근거. 0번 전제에 그린다 */
+    target: targetSchema.optional(),
     productCandidates: z.array(productCandidateSchema).default([]),
     screenMap: z.array(screenMapItemSchema).default([]),
     captures: z.array(captureSchema).default([]),
@@ -646,6 +653,18 @@ export const researchSchema = z
       }
       checkEvidence(['metricCases', i, 'evidence'], m.evidence);
     });
+    if (r.target) {
+      const t = r.target;
+      checkUnique(
+        'target.steps',
+        t.steps.map((s) => s.id),
+      );
+      checkEvidence(['target', 'baseline', 'evidence'], t.baseline.evidence);
+      if (t.dailyEntrants) {
+        checkEvidence(['target', 'dailyEntrants', 'evidence'], t.dailyEntrants.evidence);
+      }
+      t.steps.forEach((s, i) => checkEvidence(['target', 'steps', i, 'evidence'], s.evidence));
+    }
     r.verification.forEach((v, i) => {
       v.metricCaseIds.forEach((id, k) => {
         if (!caseIds.has(id))
@@ -903,7 +922,9 @@ const RATE_PATTERN = /%|퍼센트|[율률]/;
 /** 지표 사례가 성공 기준의 근거로 쓰일 수 있는지 본다 */
 function lintMetricCases(research: Research, warnings: ResearchWarning[]): void {
   const { metricCases, verification } = research;
-  if (verification.length > 0 && metricCases.length === 0) {
+  // 기준값을 우리 데이터로 채웠으면 타사 사례는 교차 확인용이라 없어도 경고하지 않는다
+  const crossCheckOnly = hasUsableBaseline(research);
+  if (!crossCheckOnly && verification.length > 0 && metricCases.length === 0) {
     warnings.push({
       path: 'metricCases',
       message:
@@ -919,7 +940,7 @@ function lintMetricCases(research: Research, warnings: ResearchWarning[]): void 
     }
   });
   const usable = metricCases.some(isUsableMetricCase);
-  if (!usable) return;
+  if (!usable || crossCheckOnly) return;
   verification.forEach((v, i) => {
     if (v.successCriteria?.trim() && v.metricCaseIds.length === 0) {
       warnings.push({
@@ -1038,6 +1059,7 @@ export function lintResearch(research: Research): ResearchWarning[] {
   });
 
   lintEvidenceStructure(research, warnings);
+  lintTarget(research, warnings);
 
   const video = research.video;
   if (research.meta.kind === 'video-analysis' && (!video || video.clips.length === 0)) {
