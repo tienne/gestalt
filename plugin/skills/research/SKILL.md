@@ -407,6 +407,8 @@ Figma로 내야 하면 `figma_plan`을 부른다.
 ges_research { action: "figma_plan", slug: "<slug>", audience: "shared", withImages: true }
 ```
 
+배치는 기본이 가로 3열이다. 왼쪽은 제품별 캡처 줄과 와우, 페인 메모 카드, 가운데는 종합과 판단과 검증 제안과 열린 질문, 오른쪽은 전제와 비교표와 이유 같은 근거다. 한 페이지에 세로로 쌓고 싶으면 `figmaLayout: "page"`로 부른다.
+
 스크립트는 편집 권한이 있는 Figma 파일에서 새 페이지를 만든다. 이미지는 `withImages`를 켰을 때만 넣고 쓴 뒤에는 응답의 `verifyScriptPath` 스크립트로 이미지 fill이 남았는지 확인한다. 이미지 업로드가 끝나기 전에 탭을 닫지 않는다. Figma 파일에 쓰는 일은 사용자가 원한 파일에서만 한다.
 
 Figma 커넥터의 `use_figma`로 쓸 때는 `runner: "body"`로 부르고 `withImages`는 켜지 않는다. `use_figma`는 코드가 5만 자까지라 이미지를 넣은 스크립트는 들어가지 않는다. 순서는 아래와 같다.
