@@ -1,6 +1,7 @@
 import type { BasisKind, EvidenceRef } from './evidence.js';
 import { metricCasesByProduct, type Capture, type Finding, type Research } from './schema.js';
 import type { ResearchAudience } from './store.js';
+import { targetView, type TargetCell } from './target-view.js';
 
 export interface LoadedImage {
   mime: string;
@@ -661,6 +662,39 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
       ],
     ),
   );
+  const tv = targetView(research, shared);
+  const targetCell = (c: TargetCell): string => {
+    const grey = c.basis === 'unconfirmed' || c.basis === 'absent';
+    const why = c.note ? `<div class="why">${e(c.note)}</div>` : '';
+    const sub = c.sub ? `<div class="sub">${e(c.sub)}</div>` : '';
+    return `<div class="cell${grey ? ' grey' : ''}">${basisChip(c.basis)}${e(c.text)}${c.evidence ? evidenceHtml(c.evidence) : ''}${why}${sub}</div>`;
+  };
+  if (tv) {
+    parts.push('<h3>목표치 근거</h3>');
+    parts.push(
+      table(
+        ['항목', '내용'],
+        tv.rows.map(([k, c]) => [e(k), targetCell(c)]),
+      ),
+    );
+    if (tv.steps.length > 0) {
+      parts.push(
+        table(
+          ['단계', '값', '어디서 온 숫자'],
+          tv.steps.map((s) => [e(s.label), targetCell(s.value), e(s.method)]),
+        ),
+      );
+    }
+    if (tv.coverage) parts.push(`<p>${e(tv.coverage)}</p>`);
+    if (tv.power.length > 0) {
+      parts.push(
+        table(
+          ['가설', '기대 효과', '군당 표본', '걸리는 일수'],
+          tv.power.map((row) => row.map((x) => e(x))),
+        ),
+      );
+    }
+  }
 
   // 1. 레퍼런스 선정
   parts.push('<h2>1. 레퍼런스 선정</h2>');
@@ -962,10 +996,22 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
         (v.sample ? `<p>표본: ${e(v.sample)}</p>` : '') +
         (v.period ? `<p>기간: ${e(v.period)}</p>` : '') +
         (v.successCriteria ? `<p>성공 기준: ${e(v.successCriteria)}</p>` : '') +
+        (v.expectedLiftPp !== undefined ? `<p>기대 효과: +${v.expectedLiftPp}%p</p>` : '') +
+        (v.events.length > 0 ? `<p>볼 이벤트: ${e(v.events.join(', '))}</p>` : '') +
         (v.caveat ? `<p class="sub">${e(v.caveat)}</p>` : '') +
         '</div>',
     );
   });
+
+  if (tv && tv.tracking.length > 0) {
+    parts.push('<h3>심어야 할 이벤트</h3>');
+    parts.push(
+      table(
+        ['이벤트', '단계', '상태', '메모'],
+        tv.tracking.map((row) => row.map((x) => e(x))),
+      ),
+    );
+  }
 
   // 8. 열린 질문
   parts.push('<h2>8. 열린 질문</h2>');

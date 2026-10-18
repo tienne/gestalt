@@ -24,6 +24,7 @@ import {
 import type { EvidenceRef } from './evidence.js';
 import { metricCasesByProduct, type Research } from './schema.js';
 import type { ResearchAudience } from './store.js';
+import { targetView, type TargetCell } from './target-view.js';
 
 export type TextStyle = 'title' | 'h2' | 'h3' | 'body' | 'caption' | 'notice';
 
@@ -117,6 +118,41 @@ export function buildFigmaPlan(
     );
   }
 
+  const tv = targetView(research, shared);
+  const targetCell = (c: TargetCell): string => {
+    const tag = c.basis && c.basis !== 'observation' ? `[${BASIS_LABEL[c.basis]}] ` : '';
+    const ev = c.evidence ? evidenceText(c.evidence) : '';
+    return [`${tag}${c.text}${ev}`, c.note, c.sub].filter(Boolean).join('\n');
+  };
+  const targetNodes: PlanNode[] = tv
+    ? [
+        text('h3', '목표치 근거'),
+        {
+          type: 'table',
+          head: ['항목', '내용'],
+          rows: tv.rows.map(([k, c]) => [k, targetCell(c)]),
+        },
+        ...(tv.steps.length > 0
+          ? [
+              {
+                type: 'table',
+                head: ['단계', '값', '어디서 온 숫자'],
+                rows: tv.steps.map((x) => [x.label, targetCell(x.value), x.method]),
+              } satisfies PlanNode,
+            ]
+          : []),
+        ...(tv.coverage ? [text('body', tv.coverage)] : []),
+        ...(tv.power.length > 0
+          ? [
+              {
+                type: 'table',
+                head: ['가설', '기대 효과', '군당 표본', '걸리는 일수'],
+                rows: tv.power,
+              } satisfies PlanNode,
+            ]
+          : []),
+      ]
+    : [];
   nodes.push(
     section('0. 전제', [
       {
@@ -131,6 +167,7 @@ export function buildFigmaPlan(
           ['기호 범례', pr.symbolLegend],
         ],
       },
+      ...targetNodes,
     ]),
   );
 
@@ -413,6 +450,16 @@ export function buildFigmaPlan(
         ]
       : [];
   const hasCases = research.verification.some((v) => v.metricCaseIds.length > 0);
+  const hasLift = research.verification.some(
+    (v) => v.expectedLiftPp !== undefined || v.events.length > 0,
+  );
+  const trackingNodes: PlanNode[] =
+    tv && tv.tracking.length > 0
+      ? [
+          text('h3', '심어야 할 이벤트'),
+          { type: 'table', head: ['이벤트', '단계', '상태', '메모'], rows: tv.tracking },
+        ]
+      : [];
   nodes.push(
     section('7. 검증 제안', [
       ...caseTable,
@@ -424,6 +471,7 @@ export function buildFigmaPlan(
           '나눠 볼 조건',
           ...(hasDesign ? ['표본', '기간', '성공 기준'] : []),
           ...(hasCases ? ['근거 사례'] : []),
+          ...(hasLift ? ['기대 효과', '볼 이벤트'] : []),
           '주의',
         ],
         rows: research.verification.map((v) => [
@@ -440,9 +488,13 @@ export function buildFigmaPlan(
                   .join('\n'),
               ]
             : []),
+          ...(hasLift
+            ? [v.expectedLiftPp !== undefined ? `+${v.expectedLiftPp}%p` : '', v.events.join('\n')]
+            : []),
           v.caveat ?? '',
         ]),
       },
+      ...trackingNodes,
     ]),
   );
 
