@@ -98,6 +98,7 @@ interface GestaltConfig {
 | `GESTALT_AGENTS_DIR` | string | `"agents"` | 커스텀 에이전트 정의 디렉터리 |
 | `GESTALT_ROLE_AGENTS_DIR` | string | `"role-agents"` | Role Agent 정의 디렉터리 |
 | `GESTALT_REVIEW_AGENTS_DIR` | string | `"review-agents"` | Review Agent 정의 디렉터리 |
+| `GESTALT_RESEARCH_SOURCES_DIR` | string | `"plugin/research-sources"` | 리서치 내장 출처(SOURCE.md) 디렉터리. 개인 출처는 `~/.gestalt/research-sources/`에서 따로 읽고 같은 이름이면 개인 쪽이 이긴다 |
 | `GESTALT_LOG_LEVEL` | `"debug"` \| `"info"` \| `"warn"` \| `"error"` | `"info"` | 로그 출력 레벨 |
 | `GESTALT_CLIENT` | `"claude-code"` \| `"codex"` \| `"both"` \| `"grok"` | `"claude-code"` | 액티브 세션 컨텍스트를 쓰는 호스트. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고 Interview/Spec passthrough를 강제한다. `"both"`는 Claude와 Codex만 쓰며 Grok 경로는 쓰지 않는다 |
 | `GESTALT_NO_UPDATE_CHECK` | `"1"` | — | `"1"` 로 설정하면 버전 업데이트 확인을 건너뜀 |
@@ -128,6 +129,7 @@ interface GestaltConfig {
 | `GESTALT_AGENTS_DIR` | `agentsDir` |
 | `GESTALT_ROLE_AGENTS_DIR` | `roleAgentsDir` |
 | `GESTALT_REVIEW_AGENTS_DIR` | `reviewAgentsDir` |
+| `GESTALT_RESEARCH_SOURCES_DIR` | `researchSourcesDir` |
 | `GESTALT_LOG_LEVEL` | `logLevel` |
 | `GESTALT_CLIENT` | `client` |
 

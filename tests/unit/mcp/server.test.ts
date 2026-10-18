@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createMcpServer } from '../../../src/mcp/server.js';
-import { architectureInputSchema } from '../../../src/mcp/schemas.js';
+import { architectureInputSchema, researchInputSchema } from '../../../src/mcp/schemas.js';
 import type { GestaltConfig } from '../../../src/core/config.js';
 
 type ToolHandler = (
@@ -43,6 +43,7 @@ const expectedPassthroughTools = [
   'ges_code_graph',
   'ges_graph_visualize',
   'ges_architecture',
+  'ges_research',
   'ges_generate_kb',
   'ges_search',
   'ges_sync',
@@ -124,6 +125,24 @@ describe('createMcpServer', () => {
           ?.description;
         expect(description).toBe(field.description);
       }
+    } finally {
+      eventStore.close();
+    }
+  });
+
+  it('ges_research 등록 인자는 스키마 필드를 그대로 쓴다', async () => {
+    const { server, eventStore } = await createMcpServer({
+      dbPath: dbPath(),
+      llm: { apiKey: '', model: 'test-model' },
+    });
+
+    try {
+      const tool = registeredTools(server)['ges_research'];
+      const registered = (tool?.inputSchema as { shape?: Record<string, unknown> } | undefined)
+        ?.shape;
+      expect(Object.keys(registered ?? {}).sort()).toEqual(
+        Object.keys(researchInputSchema.shape).sort(),
+      );
     } finally {
       eventStore.close();
     }
