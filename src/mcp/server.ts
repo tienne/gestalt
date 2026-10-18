@@ -144,6 +144,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     eventStore,
     agentRegistry,
     roleAgentRegistry,
+    config.execute,
   );
   const ptReviewEngine = new PassthroughReviewEngine(eventStore);
 
