@@ -495,6 +495,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `BLUEPRINT_OVER_BUDGET` | `blueprint` 그림 하나의 단계 열이 6을 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts.stages`는 열 수다. 기준은 [서비스 블루프린트](#서비스-블루프린트)에 있다 |
 | `ER_OVER_BUDGET` | `er` 그림 하나가 테이블 5개, 한 테이블의 컬럼 8개, 외래 키 선 6개 중 하나를 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts`는 테이블 수와 가장 긴 테이블의 컬럼 수, 선 수다. 기준은 [테이블 관계](#테이블-관계)에 있다 |
 | `DELTA_OVER_BUDGET` | 구조 변경 그림이 바뀐 곳 주변으로 좁혀도 구성 요소 8개, 관계 10개, 변경 목록 8줄 중 하나를 넘는다. render에서만 오고 `subjectId`는 view, `counts`는 그린 구성 요소 수와 관계 수, 변경 목록 줄 수다 |
+| `CODE_EVIDENCE_EXCERPT_MISMATCH` | public `code` 근거에 적은 `excerpt`가 그 줄 내용과 다르다. 코드가 바뀌어 줄이 밀렸을 때 난다. 앞뒤 공백을 걷고 줄이 excerpt로 시작하면 맞은 것으로 본다. 근거마다 하나씩 오고 근거의 주인 id와 `evidenceIndex`가 붙는다. `candidates`에는 위아래 200줄 안에서 excerpt와 맞는 줄 번호가 가까운 순으로 최대 3개 실린다. 못 찾았으면 비어 있다. 재실행 때 이 경고가 나오면 후보 줄로 고친다 |
 
 설명이 비면 카드에 설명 줄이 안 붙고 서랍에서도 그 노드가 무엇인지 안 나온다. 그래도 거부하지 않는 건 설명이 없다고 그림이 틀리지는 않아서다. 공백뿐인 설명을 없는 것으로 치는 판정은 레이아웃 높이와 같다 (`src/architecture/types.ts`의 `hasCardDescription`).
 

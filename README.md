@@ -781,7 +781,7 @@ npx @tienne/gestalt setup
     "maxRounds": 10
   },
   "execute": {
-    "driftThreshold": 0.3,
+    "driftThreshold": 0.6,
     "successThreshold": 0.85,
     "goalAlignmentThreshold": 0.80
   },
@@ -855,7 +855,7 @@ If no tiers are configured, all tiers fall back to the top-level `llm.model` wit
 | `GESTALT_MODEL` | `llm.model` | `claude-sonnet-4-20250514` | LLM model |
 | `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` | `0.8` | Interview completion threshold |
 | `GESTALT_MAX_ROUNDS` | `interview.maxRounds` | `10` | Max interview rounds |
-| `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` | `0.3` | Task drift detection threshold |
+| `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` | `0.6` | Task drift detection threshold |
 | `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | `execute.successThreshold` | `0.85` | Evolution success score |
 | `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | `execute.goalAlignmentThreshold` | `0.80` | Goal alignment threshold |
 | `GESTALT_DB_PATH` | `dbPath` | `~/.gestalt/events.db` | SQLite event store path |
@@ -974,6 +974,7 @@ Claude Code (you)
 - [Code Knowledge Graph](./docs/code-graph.md) — static analysis and blast-radius
 - [Local PR](./docs/local-pr.md) — in-repo pull requests for agent-to-agent review
 - [Architecture View](./docs/architecture-view.md) — evidence-backed architecture diagrams
+- [Design Proposals](./docs/proposals/README.md) — planned work to tighten verification from interview to evaluate
 
 ---
 

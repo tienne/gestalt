@@ -42,6 +42,8 @@ interface StructuralResult {
 
 LLM이 Spec의 AcceptanceCriteria를 하나씩 검증해요.
 
+평가 프롬프트의 AC 목록은 **현재 스펙** 기준이에요. Evolve 패치로 AC가 바뀌었으면 패치된 목록을 그대로 보여줘요. 분류 정보(figure/ground, priority)는 계획 때 분류한 같은 문장에서 가져와요. 패치로 새로 생겨 분류가 없는 AC는 `(unclassified)`로 표시해요. 프롬프트의 인덱스와 서버의 커버리지 검증이 같은 목록을 봐요.
+
 ```typescript
 interface EvaluationResult {
   verifications: {
