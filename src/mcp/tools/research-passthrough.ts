@@ -29,6 +29,14 @@ import {
 import { renderResearchHtml, type LoadedImage } from '../../research/render-html.js';
 import { lintResearch, parseResearch, type Research } from '../../research/schema.js';
 import { isValidSlug, ResearchStore } from '../../research/store.js';
+import {
+  currentCommit,
+  isStale,
+  listProfiles,
+  loadProfile,
+  productProfileSchema,
+  saveProfile,
+} from '../../research/product-profile.js';
 import { mergeVideo, splitVideo } from '../../research/video-transfer.js';
 import { ResearchSourceRegistry } from '../../research/source-registry.js';
 import {
@@ -622,6 +630,55 @@ function handleMergeVideo(input: ResearchInput, cwd: string): object {
   };
 }
 
+function handleProfile(input: ResearchInput, cwd: string): object {
+  const repoRoot = resolve(input.repoRoot ?? cwd);
+  if (input.profile) {
+    const parsed = productProfileSchema.safeParse(input.profile);
+    if (!parsed.success) {
+      return fail(
+        'INVALID_PROFILE',
+        parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('\n'),
+      );
+    }
+    const path = saveProfile(repoRoot, parsed.data);
+    return {
+      ok: true,
+      action: 'profile',
+      product: parsed.data.product,
+      path,
+      events: parsed.data.events.length,
+    };
+  }
+  if (!input.product) {
+    return { ok: true, action: 'profile', products: listProfiles(repoRoot) };
+  }
+  if (!isValidSlug(input.product)) {
+    return fail('INVALID_PRODUCT', '제품 이름은 소문자, 숫자, -만 쓴다(최대 64자)');
+  }
+  const profile = loadProfile(repoRoot, input.product);
+  if (!profile) {
+    return fail(
+      'PROFILE_NOT_FOUND',
+      `저장된 프로필이 없다: ${input.product}. 제품 코드를 훑어서 profile로 저장한다`,
+    );
+  }
+  const head = currentCommit(repoRoot, profile.repo);
+  const stale = isStale(profile, head);
+  return {
+    ok: true,
+    action: 'profile',
+    profile,
+    ...(head ? { head } : {}),
+    stale: stale ?? null,
+    ...(stale
+      ? {
+          notice: `프로필은 ${profile.commit}에서 훑었는데 지금 HEAD는 ${head}다. 이벤트가 바뀌었을 수 있다`,
+        }
+      : {}),
+    ...(stale === undefined ? { notice: `제품 코드(${profile.repo})의 HEAD를 못 읽었다` } : {}),
+  };
+}
+
 export async function handleResearchPassthrough(
   input: ResearchInput,
   cwd: string = process.cwd(),
@@ -646,5 +703,7 @@ export async function handleResearchPassthrough(
       return handleSplitVideo(input, cwd);
     case 'merge_video':
       return handleMergeVideo(input, cwd);
+    case 'profile':
+      return handleProfile(input, cwd);
   }
 }
