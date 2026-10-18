@@ -192,12 +192,25 @@ describe('상태 판정', () => {
     expect(evaluateSource(uibowl, {}).status).toBe('skipped');
   });
 
-  it('공백이 든 커넥터 이름도 MCP 서버로 받는다', () => {
+  it('MCP 출처는 서버 이름이 달라도 도구 이름으로 알아보고 부를 서버를 알려준다', () => {
     const amp = registry.getByName('amplitude')!;
     expect(amp.frontmatter.stage).toEqual(['baseline']);
-    expect(evaluateSource(amp, { mcpServers: ['claude.ai Amplitude'] }).status).toBe('usable');
-    expect(evaluateSource(amp, { mcpServers: ['amplitude'] }).status).toBe('usable');
-    expect(evaluateSource(amp, {}).status).toBe('skipped');
+    const mine = evaluateSource(amp, {
+      mcpServers: ['claude.ai Amplitude'],
+      mcpTools: ['mcp__claude_ai_Amplitude__get_amplitude_context', 'mcp__other__search'],
+    });
+    expect(mine).toMatchObject({ status: 'usable', via: 'mcp', mcpServer: 'claude_ai_Amplitude' });
+    const theirs = evaluateSource(amp, { mcpTools: ['mcp__amp__query_amplitude_data'] });
+    expect(theirs.mcpServer).toBe('amp');
+    expect(evaluateSource(amp, { mcpServers: ['amplitude'] }).status).toBe('skipped');
+    expect(evaluateSource(amp, {}).note).toContain('get_amplitude_context');
+  });
+
+  it('MCP는 server나 tools 중 하나는 적어야 한다', () => {
+    const md = (access: string): string =>
+      `---\nname: x\ndescription: x\nstage: [baseline]\naccess:\n  - mcp: ${access}\n---\n\n## 찾는 법\n1. 본다\n\n## 멈추는 곳\n없음\n`;
+    expect(parseSourceMd(md('{ tools: [get_x] }')).ok).toBe(true);
+    expect(parseSourceMd(md('{}')).ok).toBe(false);
   });
 
   it('MCP 서버 이름에 연속 공백이나 끝 공백은 막는다', () => {
