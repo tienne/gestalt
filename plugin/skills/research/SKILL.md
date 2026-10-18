@@ -118,11 +118,13 @@ Step 0 입력 받기 → Step 1 출처 확인과 목표치 세우기 → Step 2 
 
 ## Step 1 — 출처 확인
 
-`ges_research action=sources`를 부른다. 이 세션에 연결된 MCP 서버 이름과 브라우저에 로그인된 사이트는 서버가 못 보므로 `available`에 담아 알려준다.
+`ges_research action=sources`를 부른다. 이 세션에 연결된 MCP와 브라우저에 로그인된 사이트는 서버가 못 보므로 `available`에 담아 알려준다. MCP 서버 이름은 사람마다 달라서(`claude.ai Amplitude`, `amplitude`, `amp`) 출처는 도구 이름으로 MCP를 알아본다. `mcpTools`에는 세션의 MCP 도구 이름을 `mcp__<서버>__<도구>` 꼴 그대로 담는다.
 
 ```
-ges_research { action: "sources", available: { mcpServers: [...], browserLogins: ["uibowl.io", ...] } }
+ges_research { action: "sources", available: { mcpServers: [...], mcpTools: ["mcp__<서버>__<도구>", ...], browserLogins: ["uibowl.io", ...] } }
 ```
+
+MCP로 쓰는 출처는 응답에 `mcpServer`가 붙는다. 그 출처의 도구는 이 서버로 부른다.
 
 돌려받은 출처는 `usable`, `fallback`, `skipped`로 나뉜다. 단계마다 쓸 수 있는 출처만 돌린다. `fallback`은 대신 쓰는 경로로 돌고 `skipped`는 건너뛴다. 건너뛴 출처와 대신 쓴 경로는 0번 전제의 근거 한계에 한 줄씩 적는다. 예: "모바일인덱스 미연결이라 규모는 앱스토어 평점 수로 짐작한다".
 
