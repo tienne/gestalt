@@ -147,7 +147,12 @@ export const ATTEMPT_LABEL = {
   'too-many': '너무 많아 못 고름',
 } as const;
 /** 역기획의 화면 주석 카드 이름. 발견의 종류를 그대로 옮긴다 */
-const ANNOTATION_LABEL = { wow: 'WOW', pain: 'BAD', insight: 'INSIGHT', design: 'Design' } as const;
+export const ANNOTATION_LABEL = {
+  wow: 'WOW',
+  pain: 'BAD',
+  insight: 'INSIGHT',
+  design: 'Design',
+} as const;
 
 /**
  * 근거 여러 개를 괄호 하나로 묶는다. 프레임이 이어지면 "(프레임 08, 09)"처럼 접두어를 한 번만 쓴다.

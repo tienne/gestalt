@@ -42,6 +42,11 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     notice: { size: 14, bold: true, color: '#8a4b00' },
   };
 
+  const TINTS = { green: '#e8f5ec', blue: '#e8eff9', orange: '#fff4e5' };
+  const NOTE_COLORS = { wow: '#1a7f37', pain: '#c0362c', insight: '#1f5fbf', design: '#6b46c1' };
+  const NOTE_W = 560;
+  const CARD_W = 320;
+
   const stats = { tables: 0, imageNodes: [], missingImages: [], imageSlots: [] };
 
   function addText(parent, str, styleName, name) {
@@ -74,7 +79,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     return f;
   }
 
-  function addTable(parent, node, width) {
+  function addTable(parent, node, width, tinted) {
     stats.tables += 1;
     const cols = node.head.length;
     const weights = [];
@@ -93,6 +98,10 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     table.counterAxisSizingMode = 'FIXED';
     table.itemSpacing = 0;
     table.fills = [];
+    if (tinted) {
+      table.cornerRadius = 8;
+      table.clipsContent = true;
+    }
     parent.appendChild(table);
     table.layoutSizingHorizontal = 'FILL';
     const addRow = (cells, header) => {
@@ -103,7 +112,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
       row.primaryAxisSizingMode = 'FIXED';
       row.counterAxisSizingMode = 'AUTO';
       row.itemSpacing = 0;
-      row.fills = header ? solid('#eef0f2') : [];
+      row.fills = header ? solid('#eef0f2') : tinted ? solid('#ffffff') : [];
       table.appendChild(row);
       for (let c = 0; c < cols; c++) {
         const cell = figma.createFrame();
@@ -136,36 +145,36 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     return out;
   }
 
-  async function addImages(parent, node) {
+  async function addImages(parent, node, cardW, wrapW, fill) {
     const wrap = figma.createFrame();
     wrap.name = 'captures';
     wrap.layoutMode = 'HORIZONTAL';
     wrap.layoutWrap = 'WRAP';
-    wrap.resize(INNER - 64, 100);
+    wrap.resize(wrapW, 100);
     wrap.primaryAxisSizingMode = 'FIXED';
     wrap.counterAxisSizingMode = 'AUTO';
     wrap.itemSpacing = 24;
     wrap.counterAxisSpacing = 24;
     wrap.fills = [];
     parent.appendChild(wrap);
-    wrap.layoutSizingHorizontal = 'FILL';
+    if (fill) wrap.layoutSizingHorizontal = 'FILL';
     for (const item of node.items) {
-      const card = vframe('capture:' + item.imageId, 240, 8, 0);
+      const card = vframe('capture:' + item.imageId, cardW, 8, 0);
       wrap.appendChild(card);
       const rect = figma.createRectangle();
       rect.name = 'img:' + item.imageId;
       const data = IMAGES && IMAGES[item.imageId];
-      let height = 240;
+      let height = cardW;
       let hash = null;
       if (data) {
         try {
           const image = figma.createImage(decode(data.base64));
           const size = await image.getSizeAsync();
-          height = Math.max(40, Math.round((240 * size.height) / size.width));
+          height = Math.max(40, Math.round((cardW * size.height) / size.width));
           hash = image.hash;
         } catch (err) {}
       }
-      rect.resize(240, height);
+      rect.resize(cardW, height);
       if (hash) {
         rect.fills = [{ type: 'IMAGE', scaleMode: 'FIT', imageHash: hash }];
         stats.imageNodes.push({ id: item.imageId, nodeId: rect.id });
@@ -179,23 +188,81 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     }
   }
 
-  async function addNode(parent, node, width) {
+  async function addNode(parent, node, width, tinted) {
     if (node.type === 'text') {
       addText(parent, node.text, node.style);
     } else if (node.type === 'table') {
-      addTable(parent, node, width);
+      addTable(parent, node, width, tinted);
     } else if (node.type === 'images') {
-      await addImages(parent, node);
+      await addImages(parent, node, 240, INNER - 64, true);
     } else if (node.type === 'section') {
+      const tint = TINTS[node.tint];
       const sec = vframe('section', width, 16, 32);
       sec.name = node.title;
-      sec.fills = solid('#ffffff');
+      sec.fills = solid(tint || '#ffffff');
       sec.cornerRadius = 12;
       parent.appendChild(sec);
       sec.layoutSizingHorizontal = 'FILL';
       addText(sec, node.title, 'h2');
-      for (const child of node.children) await addNode(sec, child, width - 64);
+      for (const child of node.children) await addNode(sec, child, width - 64, !!tint);
     }
+  }
+
+  function hframe(name, gap) {
+    const f = figma.createFrame();
+    f.name = name;
+    f.layoutMode = 'HORIZONTAL';
+    f.primaryAxisSizingMode = 'AUTO';
+    f.counterAxisSizingMode = 'AUTO';
+    f.itemSpacing = gap;
+    f.fills = [];
+    return f;
+  }
+
+  function addNotes(parent, notes) {
+    const card = vframe('notes', NOTE_W, 12, 24);
+    card.fills = solid('#ffffff');
+    card.cornerRadius = 12;
+    parent.appendChild(card);
+    for (const n of notes) {
+      const line = hframe('note', 12);
+      card.appendChild(line);
+      line.layoutSizingHorizontal = 'FILL';
+      const label = addText(line, n.label, 'h3', 'label');
+      label.fills = solid(NOTE_COLORS[n.kind] || '#222222');
+      label.layoutSizingHorizontal = 'HUG';
+      addText(line, n.text, 'body');
+    }
+  }
+
+  async function addGroup(parent, group) {
+    const g = vframe(group.title, INNER, 16, 0);
+    parent.appendChild(g);
+    g.layoutSizingHorizontal = 'FILL';
+    addText(g, group.title, 'h2');
+    if (group.description) addText(g, group.description, 'caption');
+    const row = hframe('row', 24);
+    g.appendChild(row);
+    await addImages(row, { items: group.images }, CARD_W, INNER - NOTE_W - 24);
+    if (group.notes.length > 0) addNotes(row, group.notes);
+  }
+
+  async function addBoard(root) {
+    const byTitle = new Map(PLAN.nodes.filter((n) => n.type === 'section').map((n) => [n.title, n]));
+    const leading = PLAN.nodes.filter((n) => n.type !== 'section');
+    const columnIds = [];
+    for (const col of PLAN.board.columns) {
+      const frame = vframe(col.title, W, 32, PAD);
+      frame.fills = solid('#f3f4f6');
+      frame.cornerRadius = 32;
+      root.appendChild(frame);
+      addText(frame, col.title, 'h2', 'column-title');
+      if (col.kind === 'conclusion') for (const n of leading) await addNode(frame, n, INNER, false);
+      if (col.kind === 'captures') for (const g of PLAN.board.groups) await addGroup(frame, g);
+      for (const t of col.sections) await addNode(frame, byTitle.get(t), INNER, false);
+      columnIds.push(frame.id);
+    }
+    return columnIds;
   }
 
   const page = figma.createPage();
@@ -203,15 +270,29 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
   if (typeof figma.setCurrentPageAsync === 'function') await figma.setCurrentPageAsync(page);
   else figma.currentPage = page;
 
-  const root = vframe(PLAN.pageName, W, 32, PAD);
-  root.fills = solid('#f6f7f8');
-  page.appendChild(root);
-  for (const node of PLAN.nodes) await addNode(root, node, INNER);
+  let root;
+  let columnIds = [];
+  if (PLAN.layout === 'board' && PLAN.board) {
+    root = hframe(PLAN.pageName, 160);
+    root.paddingLeft = 120;
+    root.paddingRight = 120;
+    root.paddingTop = 120;
+    root.paddingBottom = 120;
+    root.fills = solid('#e3e5e8');
+    page.appendChild(root);
+    columnIds = await addBoard(root);
+  } else {
+    root = vframe(PLAN.pageName, W, 32, PAD);
+    root.fills = solid('#f6f7f8');
+    page.appendChild(root);
+    for (const node of PLAN.nodes) await addNode(root, node, INNER, false);
+  }
 
   return {
     ok: true,
     pageId: page.id,
     rootId: root.id,
+    columnIds: columnIds,
     tableCount: stats.tables,
     imageNodes: stats.imageNodes,
     missingImages: stats.missingImages,

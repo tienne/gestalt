@@ -1,5 +1,6 @@
 import {
   ADOPTION_LABEL,
+  ANNOTATION_LABEL,
   axisText,
   buildFlowTables,
   buildSummaryTables,
@@ -28,17 +29,47 @@ import { targetView, type TargetCell } from './target-view.js';
 
 export type TextStyle = 'title' | 'h2' | 'h3' | 'body' | 'caption' | 'notice';
 
+/** 구획 배경색. 판단은 초록, 검증은 파랑, 와우와 페인은 주황이라 한눈에 갈린다 */
+export type SectionTint = 'green' | 'blue' | 'orange';
+
 export type PlanNode =
   | { type: 'text'; style: TextStyle; text: string }
   | { type: 'table'; head: string[]; rows: string[][] }
   | { type: 'images'; items: { imageId: string; caption: string }[] }
-  | { type: 'section'; title: string; children: PlanNode[] };
+  | { type: 'section'; title: string; tint?: SectionTint; children: PlanNode[] };
+
+export interface RefNote {
+  kind: keyof typeof ANNOTATION_LABEL;
+  label: string;
+  text: string;
+}
+
+/** 화면 캡처 열의 한 덩어리. 제품 하나의 캡처 줄과 그 옆에 붙는 와우와 페인 메모 */
+export interface RefGroup {
+  title: string;
+  description?: string;
+  images: { imageId: string; caption: string }[];
+  notes: RefNote[];
+}
+
+export type BoardColumnKind = 'captures' | 'conclusion' | 'evidence';
+
+/** board 배치에서 열이 어떤 구획을 어떤 순서로 담는지. sections는 plan.nodes의 구획 제목이다 */
+export interface FigmaBoard {
+  columns: { kind: BoardColumnKind; title: string; sections: string[] }[];
+  groups: RefGroup[];
+}
+
+export type FigmaLayout = 'board' | 'page';
 
 export interface FigmaPlan {
   version: 1;
   pageName: string;
   width: number;
+  layout: FigmaLayout;
   nodes: PlanNode[];
+  /** layout이 board일 때만 있다. 캡처는 nodes가 아니라 board.groups에 담는다 */
+  board?: FigmaBoard;
   /** 스크립트가 이미지 fill로 붙일 캡처. data는 계획에 싣지 않는다 */
   images: { id: string; path: string }[];
 }
@@ -52,10 +83,18 @@ const PAGE_WIDTH = 1440;
 const bullets = (items: string[]): string =>
   items.length === 0 ? '-' : items.map((i) => `• ${i}`).join('\n');
 
+const CONCLUSION_KEYS = new Set(['종합', '6', '7', '8']);
+/** 근거 열의 구획 순서. 전제와 비교가 먼저 보이고 레퍼런스 선정은 맨 아래다 */
+const EVIDENCE_ORDER = ['0', '3', '4', '2', '5', '1'];
+const TINT_BY_KEY: Record<string, SectionTint> = { '6': 'green', '7': 'blue', '4': 'orange' };
+
+const sectionKey = (title: string): string => /^(\d+)\./.exec(title)?.[1] ?? title;
+
 export function buildFigmaPlan(
   research: Research,
-  opts: { audience: ResearchAudience },
+  opts: { audience: ResearchAudience; layout?: FigmaLayout },
 ): FigmaPlanResult {
+  const layout = opts.layout ?? 'board';
   const shared = opts.audience === 'shared';
   const unchecked = research.captures.filter((c) => c.pii === 'unchecked');
   if (shared && unchecked.length > 0) {
@@ -235,31 +274,65 @@ export function buildFigmaPlan(
     });
   }
   const images: FigmaPlan['images'] = [];
+  const groups: RefGroup[] = [];
   if (research.captures.length > 0) {
-    s1.push(text('h3', '캡처'));
     const byProduct = new Map<string, typeof research.captures>();
     for (const c of research.captures) {
       byProduct.set(c.productId, [...(byProduct.get(c.productId) ?? []), c]);
     }
-    for (const [productId, caps] of byProduct) {
-      s1.push(text('body', productName.get(productId) ?? productId));
-      s1.push({
-        type: 'images',
-        items: caps.map((c) => {
-          const screen = c.screenMapId ? screenById.get(c.screenMapId)?.screen : undefined;
-          const first = c.label ?? screen ?? c.id;
-          images.push({ id: c.id, path: c.path });
-          const lines = [
-            first,
-            ...(c.caption ? [c.caption] : []),
-            ...(c.frameNo ? [`프레임 ${c.frameNo}`] : []),
-            CAPTURE_KIND_LABEL[c.kind],
-            PII_LABEL[c.pii],
-            ...(c.sourceNote ? [c.sourceNote] : []),
-          ];
-          return { imageId: c.id, caption: lines.join('\n') };
-        }),
+    const captureItems = (caps: typeof research.captures) =>
+      caps.map((c) => {
+        const screen = c.screenMapId ? screenById.get(c.screenMapId)?.screen : undefined;
+        const first = c.label ?? screen ?? c.id;
+        images.push({ id: c.id, path: c.path });
+        const lines = [
+          first,
+          ...(c.caption ? [c.caption] : []),
+          ...(c.frameNo ? [`프레임 ${c.frameNo}`] : []),
+          CAPTURE_KIND_LABEL[c.kind],
+          PII_LABEL[c.pii],
+          ...(c.sourceNote ? [c.sourceNote] : []),
+        ];
+        return { imageId: c.id, caption: lines.join('\n') };
       });
+    if (layout === 'page') {
+      s1.push(text('h3', '캡처'));
+      for (const [productId, caps] of byProduct) {
+        s1.push(text('body', productName.get(productId) ?? productId));
+        s1.push({ type: 'images', items: captureItems(caps) });
+      }
+    } else {
+      for (const [productId, caps] of byProduct) {
+        const ref = research.references.find((r) => r.productIds.includes(productId));
+        const name = productName.get(productId) ?? productId;
+        const capIds = new Set(caps.map((c) => c.id));
+        const linked = research.wowPain.findings.filter((f) => {
+          if (f.screenMapId) return screenById.get(f.screenMapId)?.productId === productId;
+          return f.captureId !== undefined && capIds.has(f.captureId);
+        });
+        const note = (kind: RefNote['kind'], body: string): RefNote => ({
+          kind,
+          label: ANNOTATION_LABEL[kind],
+          text: body,
+        });
+        const notes: RefNote[] = linked.map((f) => {
+          const screen = f.screenMapId ? screenById.get(f.screenMapId)?.screen : undefined;
+          const body = `${screen ? `${screen}: ` : ''}${f.text}${f.concrete ? ` (${f.concrete})` : ''}`;
+          return note(f.kind, body);
+        });
+        if (notes.length === 0 && ref) {
+          for (const w of research.wowPain.items.filter((x) => x.referenceId === ref.id)) {
+            for (const t of [...w.userWow, ...w.bizWow]) notes.push(note('wow', t));
+            for (const t of [...w.userPain, ...w.bizPain]) notes.push(note('pain', t));
+          }
+        }
+        groups.push({
+          title: ref ? `${ref.symbol}. ${name}` : name,
+          description: ref ? ref.typeName : undefined,
+          images: captureItems(caps),
+          notes,
+        });
+      }
     }
   }
   nodes.push(section('1. 레퍼런스 선정', s1));
@@ -547,8 +620,43 @@ export function buildFigmaPlan(
     nodes.push(section(videoSectionTitle(research), children));
   }
 
+  if (layout === 'page') {
+    return {
+      ok: true,
+      plan: { version: 1, pageName: research.meta.title, width: PAGE_WIDTH, layout, nodes, images },
+    };
+  }
+
+  const sections = nodes.filter((n) => n.type === 'section');
+  for (const n of sections) {
+    const tint = TINT_BY_KEY[sectionKey(n.title)];
+    if (tint) n.tint = tint;
+  }
+  const titles = sections.map((n) => n.title);
+  const conclusion = titles.filter((t) => CONCLUSION_KEYS.has(sectionKey(t)));
+  const rest = titles.filter((t) => !CONCLUSION_KEYS.has(sectionKey(t)));
+  const rank = (t: string): number => {
+    const i = EVIDENCE_ORDER.indexOf(sectionKey(t));
+    return i < 0 ? EVIDENCE_ORDER.length : i;
+  };
+  const evidence = [...rest].sort((a, b) => rank(a) - rank(b));
+  const columns: FigmaBoard['columns'] = [
+    ...(groups.length > 0
+      ? [{ kind: 'captures' as const, title: '화면 캡처', sections: [] as string[] }]
+      : []),
+    { kind: 'conclusion', title: '결론과 다음 할 일', sections: conclusion },
+    { kind: 'evidence', title: '근거 (전제, 비교, 이유)', sections: evidence },
+  ];
   return {
     ok: true,
-    plan: { version: 1, pageName: research.meta.title, width: PAGE_WIDTH, nodes, images },
+    plan: {
+      version: 1,
+      pageName: research.meta.title,
+      width: PAGE_WIDTH,
+      layout,
+      nodes,
+      board: { columns, groups },
+      images,
+    },
   };
 }

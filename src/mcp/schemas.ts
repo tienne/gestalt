@@ -1107,6 +1107,12 @@ export const researchInputSchema = guardObject(
       .describe(
         'figma_plan: 스크립트 모양. function(기본)은 async () => {...} 한 덩어리라 실행기가 호출한다. body는 함수 껍데기 없이 최상위 await와 return으로 쓴 본문이라 Figma 커넥터의 use_figma에 그대로 넣는다. use_figma는 코드가 5만 자까지라 이미지는 withImages 대신 upload_assets로 올리고 figma-fit.js로 맞춘다',
       ),
+    figmaLayout: z
+      .enum(['board', 'page'])
+      .optional()
+      .describe(
+        'figma_plan: 캔버스 배치. board(기본)는 가로 3열이다. 왼쪽은 레퍼런스별 캡처 줄과 와우, 페인 메모, 가운데는 종합과 판단과 검증 제안과 열린 질문, 오른쪽은 전제와 비교표와 이유 같은 근거다. page는 한 페이지에 세로로 쌓는다',
+      ),
     source: z
       .record(z.unknown())
       .optional()

@@ -360,7 +360,7 @@ function handleFigmaPlan(input: ResearchInput, cwd: string): object {
   const { research } = loaded;
   const slug = research.meta.slug;
   const audience = input.audience ?? 'private';
-  const built = buildFigmaPlan(research, { audience });
+  const built = buildFigmaPlan(research, { audience, layout: input.figmaLayout });
   if (!built.ok) {
     return {
       ok: false,
@@ -431,6 +431,7 @@ function handleFigmaPlan(input: ResearchInput, cwd: string): object {
     action: 'figma_plan',
     slug,
     audience,
+    layout: built.plan.layout,
     planPath,
     scriptPath,
     verifyScriptPath: verifyPath,
