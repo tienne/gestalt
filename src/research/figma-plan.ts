@@ -643,9 +643,7 @@ export function buildFigmaPlan(
   const placed = new Set([...conclusion, ...ordered(EVIDENCE_ORDER)]);
   const evidence = [...ordered(EVIDENCE_ORDER), ...titles.filter((t) => !placed.has(t))];
   const columns: FigmaBoard['columns'] = [
-    ...(hasCaptureColumn
-      ? [{ kind: 'captures' as const, title: '화면 캡처', sections: [] }]
-      : []),
+    ...(hasCaptureColumn ? [{ kind: 'captures' as const, title: '화면 캡처', sections: [] }] : []),
     { kind: 'conclusion', title: '결론과 다음 할 일', sections: conclusion },
     { kind: 'evidence', title: '근거 (전제, 비교, 이유)', sections: evidence },
   ];
