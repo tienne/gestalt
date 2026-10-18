@@ -122,4 +122,47 @@ describe('타사 지표 사례(metricCases)', () => {
     expect(json).toContain('"타사 지표 사례"');
     expect(json).toContain('"근거 사례"');
   });
+
+  describe('지표가 같이 공개된 레퍼런스 드러내기', () => {
+    const onB = (input: Input): void => {
+      input.metricCases![0]!.productId = 'b';
+    };
+
+    it('사례가 걸린 제품이 있으면 레퍼런스 표와 제품 후보 표에 지표 사례 열이 생긴다', () => {
+      const html = render(build(onB));
+      expect(html.match(/<th>지표 사례<\/th>/g)).toHaveLength(2);
+      expect(html).toContain('상세 진입률 8%에서 11%로');
+    });
+
+    it('제품에 걸린 사례가 없으면 열을 그리지 않는다', () => {
+      expect(render(build())).not.toContain('<th>지표 사례</th>');
+    });
+
+    it('못 찾은 사례는 제품에 걸려 있어도 열에 올리지 않는다', () => {
+      const html = render(
+        build((input) => {
+          onB(input);
+          const m = input.metricCases![0]!;
+          m.basis = 'unconfirmed';
+          m.evidence = [];
+          m.note = '공개 자료 없음';
+        }),
+      );
+      expect(html).not.toContain('<th>지표 사례</th>');
+    });
+
+    it('없는 제품을 가리키는 사례는 스키마에서 막는다', () => {
+      const msg = parseError((input) => {
+        input.metricCases![0]!.productId = 'ghost';
+      });
+      expect(msg).toContain('없는 제품: ghost');
+    });
+
+    it('Figma 1번 표에도 같은 열이 생긴다', () => {
+      const plan = buildFigmaPlan(build(onB), { audience: 'private' });
+      if (!plan.ok) throw new Error('계획을 못 만들었다');
+      const json = JSON.stringify(plan.plan);
+      expect(json.match(/"지표 사례"/g)).toHaveLength(2);
+    });
+  });
 });
