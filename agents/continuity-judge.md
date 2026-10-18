@@ -1,7 +1,7 @@
 ---
 name: continuity-judge
 description: "리뷰 결과 정합 판정"
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, mcp__atlassian__jira_get_issue, mcp__atlassian__confluence_get_page, mcp__claude_ai_Atlassian__getJiraIssue, mcp__claude_ai_Atlassian__getConfluencePage, mcp__plate__get_design_tokens, mcp__plate__get_component_manifest
 model: opus
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: suggestion-verifier
 description: "리뷰 제안 게시 전 검증"
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, WebFetch, mcp__plate__get_design_tokens, mcp__plate__get_component_manifest
 model: opus
 ---
 

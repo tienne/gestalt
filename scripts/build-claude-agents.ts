@@ -64,6 +64,19 @@ const READ_TOOLS = ['Read', 'Grep', 'Glob'];
 const SHELL_TOOLS = [...READ_TOOLS, 'Bash'];
 
 /**
+ * MCP 도구는 열어준 만큼 스키마가 첫 요청에 실린다(에이전트마다 도구 하나에 400~700토큰).
+ * 그래서 과거 서브에이전트 기록에서 실제로 불렀던 에이전트에만, 읽기 도구만 골라서 연다.
+ * 서버 이름이 설치 방식마다 달라서 같은 용도의 이름을 둘 다 적는다. 없는 서버의 이름은 무시된다.
+ */
+const PLATE_TOOLS = ['mcp__plate__get_design_tokens', 'mcp__plate__get_component_manifest'];
+const TICKET_TOOLS = [
+  'mcp__atlassian__jira_get_issue',
+  'mcp__atlassian__confluence_get_page',
+  'mcp__claude_ai_Atlassian__getJiraIssue',
+  'mcp__claude_ai_Atlassian__getConfluencePage',
+];
+
+/**
  * 본문이 실제로 쓰는 도구만 연다. 표에 없는 에이전트는 SHELL_TOOLS다 — git diff를 돌려야 하는
  * 리뷰어와 레포를 살피는 역할 에이전트가 대부분이라서다. Edit과 Write가 없으면 프롬프트를
  * 무시해도 파일을 못 고친다.
@@ -78,6 +91,12 @@ const TOOL_OVERRIDES: Record<string, string[]> = {
   'change-context-writer': [...SHELL_TOOLS, 'mcp__plugin_gestalt_gestalt__ges_agent'],
   'impact-writer': [...READ_TOOLS, 'mcp__plugin_gestalt_gestalt__ges_agent'],
   'presentation-writer': [...READ_TOOLS, 'mcp__plugin_gestalt_gestalt__ges_agent'],
+  // 제안이 기대는 외부 사실(디자인 토큰, 공식 문서)을 게시 전에 확인한다.
+  'suggestion-verifier': [...SHELL_TOOLS, 'WebFetch', ...PLATE_TOOLS],
+  // 정합 판정이 티켓과 기획 문서, 디자인 토큰을 근거로 삼는다.
+  'continuity-judge': [...SHELL_TOOLS, ...TICKET_TOOLS, ...PLATE_TOOLS],
+  // 컴포넌트와 토큰 사용이 디자인 시스템과 맞는지 본다.
+  'harness-reviewer': [...SHELL_TOOLS, ...PLATE_TOOLS],
   // 산출물이 HTML 파일이다.
   'presentation-designer': [...READ_TOOLS, 'Write'],
 };

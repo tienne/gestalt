@@ -119,6 +119,16 @@ describe('renderAgent', () => {
     expect(content).toContain('omitClaudeMd: true\n');
   });
 
+  it('외부 도구는 실제로 쓰는 에이전트에만 열고 나머지는 열지 않는다', () => {
+    const tools = (name: string) =>
+      renderAgent(`plugin/role-agents/${name}/AGENT.md`, agentMd(name, 'standard'), exists).content;
+
+    expect(tools('suggestion-verifier')).toContain('WebFetch, mcp__plate__get_design_tokens');
+    expect(tools('continuity-judge')).toContain('mcp__atlassian__jira_get_issue');
+    expect(tools('harness-reviewer')).not.toContain('WebFetch');
+    expect(tools('security-reviewer')).toContain('tools: Read, Grep, Glob, Bash\n');
+  });
+
   it('한 줄 설명이 없는 에이전트는 뽑지 않고 멈춘다', () => {
     expect(() =>
       renderAgent('plugin/role-agents/x/AGENT.md', agentMd('x', 'standard'), exists),
