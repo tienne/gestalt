@@ -28,6 +28,7 @@ import {
 } from '../../research/figma-script.js';
 import { renderResearchHtml, type LoadedImage } from '../../research/render-html.js';
 import { lintResearch, parseResearch, type Research } from '../../research/schema.js';
+import { applyProse, extractProse } from '../../research/prose.js';
 import { isValidSlug, ResearchStore } from '../../research/store.js';
 import {
   currentCommit,
@@ -680,6 +681,60 @@ function handleProfile(input: ResearchInput, cwd: string): object {
   };
 }
 
+/** 윤문은 저장본을 고쳐 다시 저장하므로 irPath 없이 slug만 받는다 */
+function loadSaved(input: ResearchInput, repoRoot: string): LoadedIr | ResearchFailure {
+  if (!input.slug || !isValidSlug(input.slug)) {
+    return fail('INVALID_SLUG', '올바른 slug가 필요하다');
+  }
+  return loadIr({ ...input, irPath: undefined }, repoRoot);
+}
+
+function handleProseExtract(input: ResearchInput, cwd: string): object {
+  const repoRoot = resolve(cwd, input.repoRoot ?? '.');
+  const loaded = loadSaved(input, repoRoot);
+  if ('ok' in loaded) return loaded;
+  const { items, counts } = extractProse(loaded.research);
+  return { ok: true, action: 'prose_extract', slug: loaded.research.meta.slug, items, counts };
+}
+
+function handleProseApply(input: ResearchInput, cwd: string): object {
+  const repoRoot = resolve(cwd, input.repoRoot ?? '.');
+  const loaded = loadSaved(input, repoRoot);
+  if ('ok' in loaded) return loaded;
+  if (!input.items) {
+    return fail(
+      'ITEMS_REQUIRED',
+      'prose_apply에는 prose_extract가 준 path와 hash를 담은 items가 필요하다',
+    );
+  }
+  const { research, applied, unchanged, warnings } = applyProse(loaded.research, input.items);
+  const reparsed = parseResearch(research);
+  if (!reparsed.ok) {
+    return {
+      ok: false,
+      errors: reparsed.error.issues.map((m) => ({ code: 'APPLY_BROKE_SCHEMA', message: m })),
+    };
+  }
+  const store = new ResearchStore(repoRoot);
+  const slug = reparsed.value.meta.slug;
+  const dryRun = input.dryRun === true;
+  // 바뀐 게 없으면 파일을 다시 쓰지 않는다. 사람이 손으로 쓴 원본 꼴이 그대로 남는다
+  const saved = !dryRun && applied > 0;
+  if (saved) store.save(reparsed.value);
+  return {
+    ok: true,
+    action: 'prose_apply',
+    slug,
+    jsonPath: store.jsonPath(slug),
+    dryRun,
+    saved,
+    applied,
+    unchanged,
+    warnings,
+    lint: lintResearch(reparsed.value),
+  };
+}
+
 export async function handleResearchPassthrough(
   input: ResearchInput,
   cwd: string = process.cwd(),
@@ -706,5 +761,9 @@ export async function handleResearchPassthrough(
       return handleMergeVideo(input, cwd);
     case 'profile':
       return handleProfile(input, cwd);
+    case 'prose_extract':
+      return handleProseExtract(input, cwd);
+    case 'prose_apply':
+      return handleProseApply(input, cwd);
   }
 }

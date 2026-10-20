@@ -1025,6 +1025,8 @@ export const RESEARCH_ACTIONS = [
   'split_video',
   'merge_video',
   'profile',
+  'prose_extract',
+  'prose_apply',
 ] as const;
 
 export const researchInputSchema = guardObject(
@@ -1032,7 +1034,7 @@ export const researchInputSchema = guardObject(
     action: z
       .enum(RESEARCH_ACTIONS)
       .describe(
-        'sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped). redact_image: 캡처 이미지의 개인정보를 가짜 값으로 바꿔 .gestalt/research/<slug>/captures에 저장. redact_script: 웹 화면을 캡처하기 전에 DOM에서 실행할 치환 스크립트. validate: research.json 검증과 의미 경고. render: 검증 뒤 저장하고 개인용과 공유용 HTML을 만든다. figma_plan: 같은 research.json에서 Figma 중립 계획(figma-plan.json)과 Plugin API 스크립트를 만든다. create_source: source 없이 부르면 물어볼 목록과 예시를 주고, source를 주면 검증해서 ~/.gestalt/research-sources/<name>/SOURCE.md에 쓰고 시험 호출까지 한다. split_video: 본문(slug)의 영상 블록을 video-analysis 문서(videoSlug)로 떼어내고 캡처 이미지를 복사한다. merge_video: 영상 문서(videoSlug)의 영상 블록을 본문(slug)에 합친다. 둘 다 같은 id가 다른 내용이면 멈춘다. profile: 제품 코드에서 훑은 분석 이벤트 지도를 .gestalt/research/_products/<product>.json에 두고 읽는다. product만 주면 읽고 저장한 커밋이 지금 HEAD와 다른지 알려준다. profile을 주면 검증해서 저장한다. 둘 다 비우면 저장된 제품 목록을 준다',
+        'sources: 출처 목록과 이 세션에서 쓸 수 있는지(usable, fallback, skipped). redact_image: 캡처 이미지의 개인정보를 가짜 값으로 바꿔 .gestalt/research/<slug>/captures에 저장. redact_script: 웹 화면을 캡처하기 전에 DOM에서 실행할 치환 스크립트. validate: research.json 검증과 의미 경고. render: 검증 뒤 저장하고 개인용과 공유용 HTML을 만든다. figma_plan: 같은 research.json에서 Figma 중립 계획(figma-plan.json)과 Plugin API 스크립트를 만든다. create_source: source 없이 부르면 물어볼 목록과 예시를 주고, source를 주면 검증해서 ~/.gestalt/research-sources/<name>/SOURCE.md에 쓰고 시험 호출까지 한다. split_video: 본문(slug)의 영상 블록을 video-analysis 문서(videoSlug)로 떼어내고 캡처 이미지를 복사한다. merge_video: 영상 문서(videoSlug)의 영상 블록을 본문(slug)에 합친다. 둘 다 같은 id가 다른 내용이면 멈춘다. profile: 제품 코드에서 훑은 분석 이벤트 지도를 .gestalt/research/_products/<product>.json에 두고 읽는다. product만 주면 읽고 저장한 커밋이 지금 HEAD와 다른지 알려준다. profile을 주면 검증해서 저장한다. 둘 다 비우면 저장된 제품 목록을 준다. prose_extract: 저장된 research.json(slug)에서 윤문할 산문 필드만 { path, register, text, hash } 목록으로 뽑는다. register는 와우와 페인 불릿이 chat(해요체), 나머지가 report(평서체)다. 회사 발언과 짧은 비교표 칸, id와 수치와 이름은 꺼내지 않는다. prose_apply: 다듬은 목록(items)을 같은 path로 되돌려 넣고 저장한다. 원문에 있던 (해석) 태그, 출처와 날짜 괄호, 근거 위치 괄호, ◎○△ 기호, 숫자, URL이 하나라도 빠지거나 바뀐 항목은 원문을 두고 경고한다',
       ),
     repoRoot: z.string().optional().describe('기본은 현재 디렉토리'),
     available: z
@@ -1065,7 +1067,7 @@ export const researchInputSchema = guardObject(
       .string()
       .optional()
       .describe(
-        'redact_image, redact_script: 리서치 slug. 같은 slug 안에서는 같은 값이 같은 가명이 된다',
+        'redact_image, redact_script: 리서치 slug. 같은 slug 안에서는 같은 값이 같은 가명이 된다. prose_extract, prose_apply: 다룰 리서치 slug. 둘 다 저장본만 읽고 irPath는 받지 않는다',
       ),
     imagePath: z
       .string()
@@ -1145,6 +1147,21 @@ export const researchInputSchema = guardObject(
       .describe(
         'profile: 저장할 프로필(product, repo, commit, scannedAt, sdk, keyLocation, amplitudeProject, events[{ name, screen, action, file, properties }]). 키 값은 넣지 않고 키가 있는 파일 경로만 적는다',
       ),
+    items: z
+      .array(
+        z.object({
+          path: z.string().describe('prose_extract가 준 path 그대로'),
+          text: z.string().describe('다듬은 문장'),
+          hash: z
+            .string()
+            .describe('prose_extract가 준 hash 그대로. 원문이 그사이 바뀌었는지 본다'),
+        }),
+      )
+      .optional()
+      .describe(
+        'prose_apply: 되돌려 넣을 항목. 바꾸지 않은 항목은 빼도 된다. hash가 원문과 다르면 STALE 경고로 건너뛴다',
+      ),
+    dryRun: z.boolean().optional().describe('prose_apply: 검사와 경고만 돌려주고 저장하지 않는다'),
     inline: z
       .boolean()
       .optional()
