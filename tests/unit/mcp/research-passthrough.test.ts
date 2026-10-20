@@ -626,3 +626,205 @@ describe('ges_research action=create_source', () => {
     expect(existsSync(join(home, 'research-sources'))).toBe(false);
   });
 });
+
+describe('ges_research action=prose_extract, prose_apply', () => {
+  const BUSINESS = 'reasons[0].business';
+
+  /** 저장본을 만든다. 윤문 액션은 slug 저장본만 읽는다 */
+  async function setup() {
+    const repo = tmpHome();
+    const { sampleResearch } = await import('../research/fixture.js');
+    const { parseResearch } = await import('../../../src/research/index.js');
+    const { ResearchStore } = await import('../../../src/research/store.js');
+    const parsedIr = parseResearch(sampleResearch());
+    if (!parsedIr.ok) throw new Error('픽스처 파싱 실패');
+    const store = new ResearchStore(repo);
+    store.save(parsedIr.value);
+    const slug = parsedIr.value.meta.slug;
+    const jsonPath = store.jsonPath(slug);
+    return { repo, slug, jsonPath, store };
+  }
+
+  async function extract(repo: string, slug: string) {
+    return runWith({ action: 'prose_extract', repoRoot: repo, slug }, repo, {});
+  }
+
+  function itemOf(r: Record<string, any>, path: string) {
+    return r.items.find((i: { path: string }) => i.path === path);
+  }
+
+  it('extract 결과를 apply로 되돌려 넣으면 저장본을 다시 읽어도 바뀌어 있다', async () => {
+    const { repo, slug, jsonPath } = await setup();
+    const ex = await extract(repo, slug);
+    expect(ex.ok).toBe(true);
+    expect(ex.counts.chat).toBeGreaterThan(0);
+    expect(ex.counts.report).toBeGreaterThan(0);
+    const item = itemOf(ex, BUSINESS);
+    expect(item.register).toBe('report');
+
+    const ap = await runWith(
+      {
+        action: 'prose_apply',
+        repoRoot: repo,
+        slug,
+        items: [
+          { path: BUSINESS, text: '인기 상품을 먼저 두는 게 본업이다 (해석)', hash: item.hash },
+        ],
+      },
+      repo,
+      {},
+    );
+    expect(ap.ok).toBe(true);
+    expect(ap.saved).toBe(true);
+    expect(ap.applied).toBe(1);
+    expect(ap.warnings).toEqual([]);
+    expect(Array.isArray(ap.lint)).toBe(true);
+
+    const disk = JSON.parse(readFileSync(jsonPath, 'utf8'));
+    expect(disk.reasons[0].business).toBe('인기 상품을 먼저 두는 게 본업이다 (해석)');
+
+    // 저장본을 다시 뽑으면 새 문장과 새 hash가 나온다
+    const again = await extract(repo, slug);
+    const next = itemOf(again, BUSINESS);
+    expect(next.text).toBe('인기 상품을 먼저 두는 게 본업이다 (해석)');
+    expect(next.hash).not.toBe(item.hash);
+  });
+
+  it('applyProse 결과는 parseResearch를 통과한다(저장본이 스키마를 유지한다)', async () => {
+    const { repo, slug, jsonPath } = await setup();
+    const ex = await extract(repo, slug);
+    await runWith(
+      {
+        action: 'prose_apply',
+        repoRoot: repo,
+        slug,
+        items: [{ path: BUSINESS, text: '고친 문장 (해석)', hash: itemOf(ex, BUSINESS).hash }],
+      },
+      repo,
+      {},
+    );
+    const { parseResearch } = await import('../../../src/research/index.js');
+    expect(parseResearch(JSON.parse(readFileSync(jsonPath, 'utf8'))).ok).toBe(true);
+  });
+
+  it('dryRun은 반영 수는 알려주되 파일을 쓰지 않는다', async () => {
+    const { repo, slug, jsonPath } = await setup();
+    const before = readFileSync(jsonPath, 'utf8');
+    const ex = await extract(repo, slug);
+    const ap = await runWith(
+      {
+        action: 'prose_apply',
+        repoRoot: repo,
+        slug,
+        dryRun: true,
+        items: [{ path: BUSINESS, text: '시험 문장 (해석)', hash: itemOf(ex, BUSINESS).hash }],
+      },
+      repo,
+      {},
+    );
+    expect(ap.ok).toBe(true);
+    expect(ap.dryRun).toBe(true);
+    expect(ap.applied).toBe(1);
+    expect(ap.saved).toBe(false);
+    expect(readFileSync(jsonPath, 'utf8')).toBe(before);
+  });
+
+  it('바뀐 게 없으면 saved가 false이고 파일을 다시 쓰지 않는다', async () => {
+    const { repo, slug, jsonPath } = await setup();
+    const before = readFileSync(jsonPath, 'utf8');
+    const ex = await extract(repo, slug);
+    const item = itemOf(ex, BUSINESS);
+    const ap = await runWith(
+      {
+        action: 'prose_apply',
+        repoRoot: repo,
+        slug,
+        items: [{ path: BUSINESS, text: item.text, hash: item.hash }],
+      },
+      repo,
+      {},
+    );
+    expect(ap.ok).toBe(true);
+    expect(ap.applied).toBe(0);
+    expect(ap.unchanged).toBe(1);
+    expect(ap.saved).toBe(false);
+    expect(readFileSync(jsonPath, 'utf8')).toBe(before);
+  });
+
+  it('경고만 나온 항목은 저장하지 않고 경고를 돌려준다', async () => {
+    const { repo, slug, jsonPath } = await setup();
+    const before = readFileSync(jsonPath, 'utf8');
+    const ex = await extract(repo, slug);
+    const ap = await runWith(
+      {
+        action: 'prose_apply',
+        repoRoot: repo,
+        slug,
+        items: [
+          { path: BUSINESS, text: '표식 뺀 문장', hash: itemOf(ex, BUSINESS).hash },
+          { path: 'reasons[9].business', text: '없는 칸', hash: 'abcdefabcdef' },
+        ],
+      },
+      repo,
+      {},
+    );
+    expect(ap.saved).toBe(false);
+    expect(ap.warnings.map((w: { code: string }) => w.code).sort()).toEqual([
+      'MARKER_MISMATCH',
+      'UNKNOWN_PATH',
+    ]);
+    expect(readFileSync(jsonPath, 'utf8')).toBe(before);
+  });
+
+  it('hash가 빠진 items는 입력 스키마가 거부한다', () => {
+    const r = researchInputSchema.safeParse({
+      action: 'prose_apply',
+      slug: 'sample-giftcard',
+      items: [{ path: BUSINESS, text: '문장' }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('items가 없으면 ITEMS_REQUIRED다', async () => {
+    const { repo, slug } = await setup();
+    const r = await runWith({ action: 'prose_apply', repoRoot: repo, slug }, repo, {});
+    expect(r.ok).toBe(false);
+    expect(r.errors[0].code).toBe('ITEMS_REQUIRED');
+  });
+
+  it('items를 JSON 문자열로 받아도 푼다', async () => {
+    const { repo, slug, jsonPath } = await setup();
+    const ex = await extract(repo, slug);
+    const items = JSON.stringify([
+      { path: BUSINESS, text: '문자열로 온 문장 (해석)', hash: itemOf(ex, BUSINESS).hash },
+    ]);
+    const ap = await runWith({ action: 'prose_apply', repoRoot: repo, slug, items }, repo, {});
+    expect(ap.ok).toBe(true);
+    expect(ap.applied).toBe(1);
+    expect(JSON.parse(readFileSync(jsonPath, 'utf8')).reasons[0].business).toBe(
+      '문자열로 온 문장 (해석)',
+    );
+  });
+
+  it('slug가 없으면 irPath가 있어도 INVALID_SLUG다', async () => {
+    const { repo } = await setup();
+    const irPath = join(repo, 'ir.json');
+    writeFileSync(irPath, '{}');
+    for (const action of ['prose_extract', 'prose_apply']) {
+      const r = await runWith(
+        { action, repoRoot: repo, irPath, items: [{ path: 'a', text: 'b', hash: 'c' }] },
+        repo,
+        {},
+      );
+      expect(r.ok).toBe(false);
+      expect(r.errors[0].code).toBe('INVALID_SLUG');
+    }
+  });
+
+  it('저장본이 없는 slug는 실패한다', async () => {
+    const repo = tmpHome();
+    const r = await extract(repo, 'no-such-slug');
+    expect(r.ok).toBe(false);
+    expect(r.errors[0].code).toBe('IR_NOT_FOUND');
+  });
+});
