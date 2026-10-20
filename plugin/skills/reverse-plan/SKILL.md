@@ -43,10 +43,12 @@ outputs:
 3. 본업의 근거는 출처를 댄다. 회사 블로그나 발표에서 나온 말은 `company-statement`로 두고 출처와 날짜를 붙인다. 그 밖의 추론은 `interpretation`으로 두고 문장 끝에 `(해석)`을 붙인다.
 4. 본업을 확인하지 못한 레퍼런스는 이유를 지어내지 않고 확인 못함으로 적는다.
 5. 화면 단위로 역기획할 때는 `flow`도 채운다. 화면 전이, 번호 마커, 시도 기록 쓰는 법은 [화면 흐름 채우는 법](../research/SKILL.md#화면-흐름-채우는-법)에 있다.
-6. [Step 7](../research/SKILL.md#step-7--researchjson-검증)과 [Step 8](../research/SKILL.md#step-8--렌더와-보고)로 검증하고 렌더한다.
+6. 이유를 다 쓰면 문장만 윤문한다. 절차는 [`research-humanize.md`](../_shared/research-humanize.md)에 있다. `prose_extract` 결과 중 path가 `reasons[`로 시작하는 항목만 평서체로 맡기고 `prose_apply`로 되돌려 넣는다. 회사 발언의 출처와 날짜 괄호, `(해석)` 태그가 빠진 항목은 원문이 남는다.
+7. [Step 7](../research/SKILL.md#step-7--researchjson-검증)과 [Step 8](../research/SKILL.md#step-8--렌더와-보고)로 검증하고 렌더한다.
 
 ## 하지 않는 것
 
 - 화면을 새로 캡처하거나 제품을 찾지 않는다.
 - 와우와 페인이나 화면 영역별 판단을 쓰지 않는다.
 - 화면 구성만 뽑고 멈추지 않는다. 본업에서 우리 과제까지 이어야 한다.
+- 섹션 5 밖의 문장을 윤문하지 않는다.
