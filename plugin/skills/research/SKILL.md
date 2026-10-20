@@ -9,7 +9,7 @@ triggers:
   - '이 기능 다른 앱은 어떻게 했는지 조사해줘'
   - '경쟁사 조사부터 비교표와 판단까지 해줘'
 routing:
-  note: '목표 지표 묻기 → 출처 확인 → 우리 데이터로 목표치 세우기 → 제품 후보와 화면 지도 → 조합 확인 → 캡처와 개인정보 치환 → 섹션 0~8 작성(영상은 9) → validate → render. 한 단계만 원하면 `market-scan`, `screen-ref`, `ux-research`, `reverse-plan`. 코드 구조 그림이면 `architecture`, 요구사항 정리면 `interview`'
+  note: '목표 지표 묻기 → 출처 확인 → 우리 데이터로 목표치 세우기 → 제품 후보와 화면 지도 → 조합 확인 → 캡처와 개인정보 치환 → 섹션 0~8 작성(영상은 9) → 산문 윤문 → validate → render. 이미 있는 slug의 문장만 다듬으려면 `humanizeOnly`. 한 단계만 원하면 `market-scan`, `screen-ref`, `ux-research`, `reverse-plan`. 코드 구조 그림이면 `architecture`, 요구사항 정리면 `interview`'
 inputs:
   task:
     type: string
@@ -39,6 +39,10 @@ inputs:
     type: string
     required: false
     description: "'private'(기본) 또는 'shared'. 열어 보여줄 HTML을 고른다. 파일은 늘 둘 다 쓴다"
+  humanizeOnly:
+    type: boolean
+    required: false
+    description: '이미 있는 slug의 문장만 다시 윤문한다. 조사는 하지 않고 Step 6.5부터 검증과 렌더까지만 돈다'
 outputs:
   - researchJsonPath
   - htmlPath
@@ -74,13 +78,15 @@ outputs:
 | `ges_research action=split_video`   | 본문의 영상 블록을 `video-analysis` 문서로 떼어내기                       |
 | `ges_research action=merge_video`   | 영상 분석 문서를 본문에 합치기                                            |
 | `ges_research action=profile`       | 제품 코드에서 훑은 분석 이벤트 지도를 저장하고 읽기                       |
+| `ges_research action=prose_extract` | 윤문할 산문 필드만 path와 함께 뽑기                                       |
+| `ges_research action=prose_apply`   | 다듬은 문장을 같은 path로 되돌려 넣고 근거 표식이 남았는지 검사           |
 
 ## 전체 흐름
 
 ```
 Step 0 입력 받기 → Step 1 출처 확인과 목표치 세우기 → Step 2 제품 찾기 → Step 3 화면 지도
 → Step 4 조합 확인(멈춤) → Step 5 캡처와 개인정보 치환 → Step 6 섹션 채우기
-→ Step 7 research.json 검증 → Step 8 렌더와 보고
+→ Step 6.5 윤문 → Step 7 research.json 검증 → Step 8 렌더와 보고
 ```
 
 ## Step 0 — 입력 받기
@@ -108,6 +114,8 @@ Step 0 입력 받기 → Step 1 출처 확인과 목표치 세우기 → Step 2 
 사용자가 UX 리서치만, 경쟁사 화면만, 역기획, 제품 지형 조사, 영상 분석만 중 무엇을 원하는지 한 번에 읽히지 않으면 `meta.kind`를 정하기 전에 묻는다. 다섯 경우의 단계와 채우는 섹션은 `design.md`의 2.1절에 있다.
 
 한 단계만 원하면 그 단계 스킬로 넘기고 두 단계 이상이면 이 스킬이 순서대로 돈다.
+
+`humanizeOnly`로 불렀거나 사용자가 이미 있는 slug의 문장만 다듬어 달라고 하면 조사를 다시 하지 않는다. 그 slug의 `research.json`이 있는지 확인하고 [Step 6.5](#step-65--윤문)부터 돈다. 없으면 slug가 맞는지 묻는다.
 
 | 원하는 것      | `meta.kind`      | 단계 스킬                   |
 | -------------- | ---------------- | --------------------------- |
@@ -368,6 +376,14 @@ ges_research { action: "redact_image", slug: "<slug>", imagePath: "<캡처 경�
 - `flow.attempts`에는 찾아본 기록을 남긴다. 못 찾은 것과 너무 많아 못 고른 것도 결과다. `result`는 `found`, `partial`, `not-found`, `too-many` 중 하나다.
 - `flow.userTypes`는 사람이 준 인터뷰 유형만 적는다. 도구는 인터뷰를 하지 못한다. 비워 두면 렌더에 "인터뷰 없음"이 나온다.
 
+## Step 6.5 — 윤문
+
+섹션을 다 쓰면 문장만 윤문한다. 절차는 [`../_shared/research-humanize.md`](../_shared/research-humanize.md)에 있다. `prose_extract`로 산문 필드만 뽑고 register(`chat`은 해요체, `report`는 평서체)별로 묶어 `gestalt:humanize-monolith`에 맡긴 뒤 `prose_apply`로 되돌려 넣는다.
+
+- 두 액션은 저장본만 다룬다. `research.json`을 `.gestalt/research/<slug>/research.json`에 먼저 써 두고 `irPath`는 쓰지 않는다.
+- 되돌려 넣을 때 `(해석)` 태그, 출처와 날짜 괄호, 근거 위치 괄호, `◎○△` 기호, 숫자, URL이 원문과 같은지 도구가 본다. 다르면 그 항목은 원문이 남고 경고가 온다.
+- 경고가 난 항목은 한 번만 다시 맡긴다. 두 번째도 걸리면 원문을 두고 Step 8 보고에 path와 이유를 적는다.
+
 ## Step 7 — research.json 검증
 
 `research.json`은 `.gestalt/research/<slug>/research.json`에 쓴다. 필드 모양은 `src/research/schema.ts`가 기준이다. 이미지는 컨텍스트에 올리지 않고 파일 경로로만 가리킨다(`captures[].path`는 리서치 폴더 안의 상대 경로).
@@ -423,6 +439,7 @@ Figma 커넥터의 `use_figma`로 쓸 때는 `runner: "body"`로 부르고 `with
 - 조사한 제품과 화면, 못 본 화면
 - 0번 전제의 근거 한계(건너뛴 출처, 못 본 플랫폼)
 - 개인정보 상태. `unchecked`와 `none`의 의미
+- 윤문 결과. 넣은 개수와 원문을 둔 항목(path와 경고 `code`)
 - 열린 질문과 받는 사람
 
 ## 하지 않는 것
@@ -436,3 +453,4 @@ Figma 커넥터의 `use_figma`로 쓸 때는 `runner: "body"`로 부르고 `with
 - 결제를 진행하지 않고 로그인 정보를 대신 입력하지 않는다.
 - 공개 전인 기획 내용을 외부 검색어에 넣지 않는다.
 - 시안을 새로 그리지 않는다. 시안 생성은 다음 버전의 일이다.
+- 윤문한 문장을 `research.json`에 손으로 고쳐 넣지 않는다. `prose_apply`를 거쳐야 근거 표식 검사가 돈다.
