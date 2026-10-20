@@ -378,7 +378,7 @@ ges_research { action: "redact_image", slug: "<slug>", imagePath: "<캡처 경�
 
 ## Step 6.5 — 윤문
 
-섹션을 다 쓰면 문장만 윤문한다. 절차는 [`../_shared/research-humanize.md`](../_shared/research-humanize.md)에 있다. `prose_extract`로 산문 필드만 뽑고 register(`chat`은 해요체, `report`는 평서체)별로 묶어 `gestalt:humanize-monolith`에 맡긴 뒤 `prose_apply`로 되돌려 넣는다.
+섹션을 다 쓰면 문장만 윤문한다. 절차는 [`../_shared/research-humanize.md`](../_shared/research-humanize.md)에 있다. `prose_extract`로 산문 필드만 뽑고 register(`chat`은 해요체, `report`는 평서체)별로 묶고 묶음마다 `gestalt humanize-scan`을 돌려 그 결과와 함께 `gestalt:humanize-monolith`에 맡긴 뒤 `prose_apply`로 되돌려 넣는다.
 
 - 두 액션은 저장본만 다룬다. `research.json`을 `.gestalt/research/<slug>/research.json`에 먼저 써 두고 `irPath`는 쓰지 않는다.
 - 되돌려 넣을 때 `(해석)` 태그, 출처와 날짜 괄호, 근거 위치 괄호, `◎○△` 기호, 숫자, URL이 원문과 같은지 도구가 본다. 다르면 그 항목은 원문이 남고 경고가 온다.
