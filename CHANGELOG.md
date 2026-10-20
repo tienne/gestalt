@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **리서치 결과의 문장만 골라 윤문할 수 있어요.** `ges_research`에 `prose_extract`와 `prose_apply`를 더했어요. research.json을 통째로 윤문에 넘기면 id와 수치 칸까지 고쳐서 스키마가 깨지니까 산문 필드만 path와 함께 뽑고 다듬은 문장을 같은 자리에 되돌려 넣어요.
+  - 와우와 페인 불릿은 해요체(`chat`), 나머지 섹션 본문은 평서체(`report`)로 나눠서 줘요. 섹션 0 전제와 이름 칸, 회사 발언, 12자보다 짧은 비교표 칸은 꺼내지 않아요.
+  - 되돌려 넣을 때 `(해석)` 태그, 출처와 날짜 괄호, 근거 위치 괄호, ◎○△ 기호, 숫자, URL이 원문과 같은지 코드로 봐요. 하나라도 빠지거나 바뀌면 그 항목은 원문을 두고 경고해요. 뽑은 뒤 원문이 바뀐 항목도 hash로 걸러요.
+  - research 스킬에 Step 6.5 윤문이 생겼고 `humanizeOnly`로 이미 있는 slug의 문장만 다시 다듬을 수 있어요. ux-research와 reverse-plan도 섹션을 쓴 뒤 같은 절차를 따라요. 절차는 `plugin/skills/_shared/research-humanize.md`에 한 번만 적었어요.
+
 ## [0.101.1] - 2026-10-20
 
 ### Changed
