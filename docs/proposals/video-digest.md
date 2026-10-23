@@ -146,7 +146,7 @@ type Bullet = { text: string; cite: Cite; children?: Bullet[] };
 
 type Subsection = { id: string; title: string; cite: Cite; frameSec: number; bullets: Bullet[] };
 
-type Section = { id: string; title: string; conclusion: string; cite: Cite; subsections: Subsection[]; diagram?: string };
+type Section = { id: string; title: string; conclusion: string; cite: Cite; subsections: Subsection[] };
 
 type Keyword = { id: string; term: string; explanation: string; firstCite: Cite };
 
@@ -202,8 +202,10 @@ type Report = {
 
 | 기능 | 구현 |
 | --- | --- |
-| 플레이어 | 어댑터 `{ seek(sec), currentTime() }`. 1차는 YouTube IFrame API, 2차에 HTML5 `<video>`를 붙인다 |
+| 플레이어 | 어댑터 `{ seek(sec), cue(sec), currentTime() }`. 1차는 YouTube IFrame API, 2차에 HTML5 `<video>`를 붙인다 |
 | 스크립트 따라가기 | 250ms마다 `currentTime()`을 읽고 이진 탐색으로 현재 문장을 찾는다. 사용자가 패널을 직접 스크롤하면 3초 동안 따라가지 않는다 |
+| 소섹션 따라가기 | 본문을 스크롤해 소섹션이 화면 위쪽에 들어오면 영상을 그 소섹션 첫 문장으로 옮긴다. 재생 중이면 이어서 재생하고 재생 전이면 위치만 잡는다. 재생 위치가 이미 그 소섹션 안이면 옮기지 않는다 |
+| 미니 플레이어 | 플레이어 자리가 화면 밖으로 나가면 오른쪽 아래에 작게 띄운다. 닫으면 플레이어 자리가 다시 보일 때까지 안 띄운다. 넓은 화면은 왼쪽 패널이 고정이라 뜰 일이 없다 |
 | 출처 툴팁 | `[key+1]`을 누르면 `from~to` 문장과 `key` 시각을 띄운다. 시각을 누르면 `seek` |
 | 목차와 미니맵 | 앵커 링크, IntersectionObserver로 현재 섹션 표시 |
 | 키워드 팝업 | `explanation`을 띄운다 |
@@ -251,7 +253,7 @@ type Report = {
 
 ## PR 나누기
 
-### 1차: 핵심 뷰어
+### 1차에서 만드는 핵심 뷰어
 
 | PR | 내용 |
 | --- | --- |
@@ -262,17 +264,18 @@ type Report = {
 
 1-4가 들어가야 처음부터 끝까지 돈다. 1-1~1-3은 픽스처 JSON으로 각자 테스트한다.
 
-### 2차: 요약 옵션
+### 2차에서 붙이는 요약 옵션
 
 | PR | 내용 |
 | --- | --- |
 | 2-1 | `reports[]`로 분량과 난이도별 리포트를 저장하고 툴바에서 바꿔 본다. 없는 조합을 고르면 세션에 붙여 넣을 생성 명령을 복사해 준다 |
 | 2-2 | 구간 지정, 결과 언어, 커스텀 프롬프트. 구간은 스크립트를 그 범위로 잘라 같은 파이프라인을 돌린다 |
 | 2-3 | 스크립트 번역 토글(`Segment.translation`), 로컬 영상 파일 플레이어 |
+| 2-4 | `ingest --ocr`. 화면 글자를 프레임에서 읽어 요약 입력에 더한다. 1차에서 video-summarizer의 OCR 단계를 뺐으므로 여기서 다시 붙인다 |
 
 화자 구분은 whisper만으로 안 되고 pyannote를 따로 설치해야 해서 미룬다.
 
-### 3차: 확장 리포트
+### 3차에서 붙이는 확장 리포트
 
 | PR | 내용 |
 | --- | --- |
@@ -289,3 +292,13 @@ type Report = {
 2. 자막 소스의 우선순위. 수동 자막, 자동 자막(문장 병합), whisper 순을 제안한다. whisper large-v3는 CPU에서 1시간 영상에 수십 분이 걸려 마지막 수단으로 둔다. 자동 자막의 문장 병합 품질이 나쁘면 whisper를 앞으로 당긴다.
 3. 이름. `digest`(`ges_digest`, `gestalt digest`, `.gestalt/digest/`)를 제안한다.
 4. 2-1에서 없는 조합을 골랐을 때 명령을 복사해 주는 것으로 충분한지. 뷰어에서 바로 생성하려면 서버가 세션에 요청을 넘길 통로가 필요한데 지금 구조에는 없다.
+
+## 1차 인터뷰에서 정한 것
+
+열린 질문 1~3은 제안대로 정했다. 4는 2차 범위라 1차에서 다루지 않았다. 인터뷰에서 설계와 달라지거나 새로 정한 것은 아래와 같다.
+
+- **요약과 표현을 두 층으로 나눈다.** video-summarizer는 `transcript.json`을 읽고 `digest.json`만 쓴다. HTML과 마크다운은 렌더러가 코드로 만들고 LLM을 부르지 않는다. 요약을 다시 쓰지 않고 뷰어만 고쳐 다시 뽑을 수 있다.
+- **`export --md`는 1차에 넣는다.** video-summarizer의 마크다운 출력을 바로 대체하므로 같은 결과를 얻을 길이 1차부터 있어야 한다.
+- **OCR은 2차 `ingest --ocr`로 넘긴다.** 기존 video-summarizer에 있던 단계지만 자막만으로 출처가 다 맞고 프레임 추출 경로와 함께 붙이는 게 자연스럽다.
+- **`Section.diagram`은 1차 스키마에서 뺐다.** 도식은 3-4에서 붙이고 그때 필드를 더한다. 쓰지 않는 선택 필드를 먼저 두면 요약 작성자가 빈 값을 채우려 든다.
+- 유형별 섹션(회의록, 강의 리소스, 인터뷰 Q&A)은 3-2 템플릿으로 옮긴다. 1차의 video-summarizer는 유형을 가리지 않는다.

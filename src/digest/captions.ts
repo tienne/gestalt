@@ -124,7 +124,7 @@ export function parseTimedWords(text: string): TimedWord[] {
 }
 
 /**
- * 단어를 문장으로 합친다. 끝 부호에서 끊고, 부호가 없으면 쉼 간격과 길이로 끊는다.
+ * 단어를 문장으로 합친다. 끝 부호에서 끊고 부호가 없으면 쉼 간격과 길이로 끊는다.
  * 문장 시작 시각은 첫 단어의 시각이다.
  */
 export function mergeSentences(words: TimedWord[], options: MergeOptions = {}): Cue[] {

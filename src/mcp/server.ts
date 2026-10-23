@@ -37,6 +37,7 @@ import { handleCodeGraphPassthrough } from './tools/code-graph-passthrough.js';
 import { handleGraphVisualizePassthrough } from './tools/graph-visualize-passthrough.js';
 import { handleArchitecturePassthrough } from './tools/architecture-passthrough.js';
 import { handleResearchPassthrough } from './tools/research-passthrough.js';
+import { handleDigestPassthrough } from './tools/digest-passthrough.js';
 import { handleGenerateKb } from './tools/generate-kb.js';
 import { handlePr } from './tools/pr.js';
 import { handleSearchKb } from './tools/search-kb.js';
@@ -58,6 +59,8 @@ import {
   ARCHITECTURE_ACTIONS,
   researchInputSchema,
   RESEARCH_ACTIONS,
+  digestInputSchema,
+  DIGEST_ACTIONS,
 } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
@@ -508,6 +511,17 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         builtinDir: config.researchSourcesDir,
         visionScript: join(config.skillsDir, 'research', 'scripts', 'pii-vision.swift'),
       });
+      return toolReply(JSON.stringify(result, null, 2));
+    },
+  );
+
+  guardedTool(
+    'ges_digest',
+    `Video digest helpers: validate a digest.json written from a sentence-numbered transcript, render it as a viewer HTML and a markdown file without calling an LLM, pull out its prose for polishing and put it back only when bold, keyword ids, numbers and URLs survive. Fetching captions, frames, serving and exporting run through the gestalt digest CLI. Results are kept under .gestalt/digest. Actions: ${DIGEST_ACTIONS.join(', ')}.`,
+    digestInputSchema.shape,
+    async (params) => {
+      const input = digestInputSchema.parse(params);
+      const result = handleDigestPassthrough(input, process.cwd());
       return toolReply(JSON.stringify(result, null, 2));
     },
   );

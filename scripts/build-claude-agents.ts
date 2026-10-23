@@ -59,6 +59,7 @@ const SHORT_DESCRIPTIONS: Record<string, string> = {
   'slack-messenger': '작성자 어투로 슬랙 메시지 작성',
   'jira-writer': '지라 티켓 본문 작성',
   explainer: '대상에 맞춘 설명 작성',
+  'video-summarizer': '영상 스크립트로 digest.json 요약 작성',
 };
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob'];
@@ -93,6 +94,8 @@ const TOOL_OVERRIDES: Record<string, string[]> = {
   'continuity-judge': SHELL_TOOLS,
   // 산출물이 HTML 파일이다. 저장 경로는 스킬 프롬프트가 정해서 넘긴다.
   'presentation-designer': [...READ_TOOLS, 'Write'],
+  // 산출물이 digest.json 하나다. 저장 경로는 video-digest 스킬이 넘긴다.
+  'video-summarizer': [...READ_TOOLS, 'Write'],
 };
 
 /**
@@ -110,6 +113,7 @@ const OMIT_CLAUDE_MD = new Set([
   'presentation-writer',
   'presentation-designer',
   'impact-writer',
+  'video-summarizer',
 ]);
 
 export const GENERATED_NOTICE = (source: string) =>

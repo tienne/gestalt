@@ -304,7 +304,7 @@ async function collectFile(
 ): Promise<Collected> {
   const stem = basename(file, extname(file));
   const durationSec = await probeDuration(run, work, file);
-  // 같은 이름의 영상이 다른 폴더에 있어도 섞이지 않게 경로 해시를 slug 끝에 붙인다
+  // 다른 폴더의 같은 이름 영상과 섞이지 않게 경로 해시를 slug 끝에 붙인다
   const hash = createHash('sha1').update(file).digest('hex').slice(0, 8);
   const slug = opts.slug ?? slugFromMeta(hash, stem);
   const base = {

@@ -126,7 +126,7 @@ What you get:
 
 | Item | Details |
 |------|---------|
-| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_architecture` — see the [MCP reference](./docs/mcp-reference.md) |
+| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_architecture`, `ges_research`, `ges_digest` — see the [MCP reference](./docs/mcp-reference.md) |
 | **Slash Commands** | Workflow skills — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send`, and more. Full list in [Skills](#skills) |
 | **Agents** | Pipeline agents, [role agents](#role-agents), and [review agents](#review-agents) |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
@@ -653,6 +653,7 @@ Each skill is a slash command in Claude Code. In Codex the same skill is `gestal
 | `/ship` | Converge review on a local PR, then open a draft GitHub PR and collect Copilot review |
 | `/brief` | Performance reports, proposals, RFCs, and decision memos written as prose for stakeholders |
 | `/presentation` | Slide decks — `presentation-writer` writes the content and `presentation-designer` builds Reveal.js HTML |
+| `/video-digest` | Turn a YouTube video into a summary viewer where every bullet cites transcript sentences, with a table of contents, player, and a script that follows playback. Also exports Markdown |
 | `/explain` | Explain a concept, error, or code for a chosen audience, then check it with `explain-check` |
 | `/jira-create` | Draft a Jira ticket with `jira-writer` and create it after you approve the preview |
 | `/slack-send` | Draft a Slack message in the author's voice and send or schedule it after you approve |

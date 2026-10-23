@@ -21,6 +21,8 @@ Complete reference for all Gestalt MCP tools.
 | [`ges_search`](#ges_search) | Knowledge Base 시맨틱 검색 |
 | [`ges_sync`](#ges_sync) | Knowledge Base 파일 동기화 |
 | [`ges_pr`](#ges_pr) | 로컬 PR 생성, 리뷰, 머지 — 원격에 안 나간다 |
+| [`ges_research`](../plugin/skills/research/SKILL.md#쓰는-도구) | 경쟁사 리서치의 출처 확인, 개인정보 치환, 검증, 윤문, 렌더. 서버는 LLM을 부르지 않는다 |
+| [`ges_digest`](#ges_digest) | 영상 요약(`digest.json`)의 검증, 윤문, 뷰어 렌더. 수집과 프레임, 서버는 `gestalt digest` CLI가 맡는다 |
 | [`ges_architecture`](./architecture-view.md#ges_architecture-mcp-툴) | 세션이 쓴 아키텍처 IR을 검증하고 단일 HTML로 결정적으로 그린다. `service` 노드가 있으면 전체에서 서비스, 기능영역으로 들어가는 드릴다운 한 장으로 그린다. 서비스를 서빙하는 도메인, CDN, 버킷은 읽기 전용 클라우드 조회(`live` 근거)로 확인해 함께 싣는다. 서버는 LLM을 부르지 않는다 |
 
 ---
@@ -1179,6 +1181,96 @@ ges_pr({ action: "checkout", id: "e2085a1c" })
   "headSha": "52aa369..."
 }
 ```
+
+---
+
+## `ges_digest`
+
+영상 요약 뷰어의 검증과 렌더를 맡는다. 흐름은 [`video-digest` 스킬](../plugin/skills/video-digest/SKILL.md)에 있고 설계는 [`proposals/video-digest.md`](./proposals/video-digest.md)에 있다.
+
+요약 본문(`digest.json`)은 세션이 `video-summarizer`로 쓰고 이 도구는 LLM을 부르지 않는다. 자막 수집(`ingest`)과 프레임 추출(`frames`), 로컬 서버(`serve`)는 yt-dlp와 ffmpeg를 부르는 셸 명령이라 MCP action으로 두지 않고 `gestalt digest` CLI로 둔다.
+
+파일은 `.gestalt/digest/<slug>/` 아래에 있다.
+
+```
+transcript.json   문장 단위 스크립트 (ingest가 쓴다)
+digest.json       출처가 달린 계층 요약 (video-summarizer가 쓴다)
+frames/           소섹션 프레임 JPEG (frames가 쓴다)
+digest.html       뷰어 (render가 쓴다)
+digest.md         마크다운 (render, export --md가 쓴다)
+```
+
+### Actions
+
+| Action | Description |
+|:---|:---|
+| `validate` | 스키마와 lint 검사. 출처 범위가 스크립트를 빈틈없이 덮는지, `key`가 범위 안인지, 불릿이 2단까지인지, 키워드 id가 있는지, `frameSec`이 첫 문장 시각과 맞는지 본다 |
+| `render` | lint 오류가 없을 때만 `digest.html`과 `digest.md`를 쓴다 |
+| `prose_extract` | 윤문할 본문 문장을 `{ path, text, hash }`로 뽑는다. 제목은 빠진다 |
+| `prose_apply` | 다듬은 문장을 같은 path로 되돌려 넣는다. `**`, `{{kw:<id>}}`, 숫자, 링크가 원문과 같아야 들어간다 |
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|---|---|:---|---|---|
+| `action` | `"validate" \| "render" \| "prose_extract" \| "prose_apply"` | Y | — | 수행할 액션 |
+| `slug` | `string` | Y | — | `.gestalt/digest/` 아래 폴더 이름 |
+| `repoRoot` | `string` | | 서버 cwd | 레포 루트 |
+| `inlineFrames` | `boolean` | | `false` | `render`: 프레임을 HTML 안에 넣는다. 한 장 5MB, 합계 15MB를 넘는 프레임은 빼고 경고한다 |
+| `items` | `{ path, text, hash }[]` | `prose_apply` | — | `prose_extract`가 준 항목. `text`만 바꿔 돌려준다 |
+| `dryRun` | `boolean` | | `false` | `prose_apply`: 검사만 하고 저장하지 않는다 |
+
+### Responses
+
+```javascript
+// validate
+{ ok: true, action: "validate", slug, errors: [], warnings: [{ path, severity, code, message }] }
+
+// render
+{ ok: true, action: "render", slug, htmlPath, mdPath, warnings: ["..."] }
+
+// prose_extract
+{ ok: true, action: "prose_extract", slug, items: [{ path, text, hash }], count }
+
+// prose_apply
+{ ok: true, action: "prose_apply", slug, digestPath, dryRun, saved, applied, unchanged,
+  warnings: [{ path, code, missing?, added? }], lint: [...] }
+```
+
+`prose_apply` 경고 코드는 `UNKNOWN_PATH`, `STALE`(뽑은 뒤 원문이 바뀜), `EMPTY`, `DUPLICATE_PATH`, `MARKER_MISMATCH`다. 경고가 붙은 항목은 원문이 남는다.
+
+### Errors
+
+`{ ok: false, errors: [{ code, message }] }` 꼴이다.
+
+| Code | 뜻 |
+|:---|:---|
+| `INVALID_SLUG` | slug에 경로 문자가 들어 있다 |
+| `TRANSCRIPT_NOT_FOUND` | `transcript.json`이 없다. `gestalt digest ingest`부터 돌린다 |
+| `TRANSCRIPT_INVALID` | `transcript.json`이 깨졌거나 계약에 안 맞는다. 파일은 그대로 두니 `gestalt digest ingest`를 다시 돌린다 |
+| `DIGEST_NOT_FOUND` | `digest.json`이 없다 |
+| `DIGEST_NOT_JSON` | JSON으로 못 읽었다 |
+| `INVALID_DIGEST` | 스키마에 안 맞는다 |
+| `SLUG_MISMATCH` | `digest.json`의 slug가 폴더 이름과 다르다 |
+| `RENDER_BLOCKED` | lint 오류가 남아 렌더하지 않았다. `lintErrors`에 오류 전체가 실린다 |
+| `RENDER_FAILED` | lint와 무관한 이유로 렌더가 실패했다. 다시 고쳐 쓸 대상이 아니라 보고하고 멈춘다 |
+| `ITEMS_REQUIRED` | `prose_apply`에 `items`가 없다 |
+| `APPLY_BROKE_SCHEMA` | 되돌려 넣은 결과가 스키마에 안 맞는다. 저장하지 않는다 |
+
+### CLI
+
+```bash
+gestalt digest ingest <url|파일> [--lang <code>] [--slug <slug>] [--whisper]
+gestalt digest validate <slug>
+gestalt digest frames <slug> [--force]
+gestalt digest render <slug> [--inline-frames]
+gestalt digest serve <slug> [--port <n>] [--no-browser]   # 127.0.0.1, 기본 7893부터
+gestalt digest export <slug> --md [--out <path>]
+```
+
+`digest.html`을 파일로 바로 열면 유튜브 플레이어가 153 오류로 막힌다. 그때는 썸네일과 "유튜브에서 열기" 링크가 뜨고 출처 시각은 새 탭 링크로 바뀐다. 재생과 따라가기는 `serve`로 열었을 때만 된다.
+
+`serve`는 띄울 때 렌더를 인라인 없이 다시 돌려 `digest.html`을 덮어쓴다. `render --inline-frames`로 만든 파일 한 장짜리 HTML이 필요하면 `serve`를 부르지 않는다. `serve`는 Ctrl+C를 받을 때까지 끝나지 않는다.
 
 ---
 

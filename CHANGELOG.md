@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **유튜브 영상을 출처가 달린 요약 뷰어로 볼 수 있어요.** `video-digest` 스킬과 `ges_digest` 도구, `gestalt digest` 명령을 더했어요. 요약의 모든 불릿에 문장 번호 출처가 붙고 `[n]`을 누르면 그 장면으로 이동해요.
+  - `gestalt digest ingest`가 유튜브 자막을 받아 문장 단위 `transcript.json`으로 합쳐요. 수동 자막, 자동 자막, faster-whisper 순으로 찾아요. 자동 자막은 끝 부호가 없어서 쉼 간격과 길이로 끊어요.
+  - 요약은 `video-summarizer`가 `digest.json` 하나로 써요. 대섹션과 소섹션, 2단 불릿, 키워드가 있고 출처는 `{ key, from, to }` 문장 번호예요. 렌더는 코드가 해서 LLM을 부르지 않아요.
+  - `ges_digest validate`가 출처 범위가 스크립트를 빈틈없이 덮는지, 대표 문장이 범위 안인지, 프레임 시각이 첫 문장과 맞는지 봐요. lint 오류가 남으면 렌더가 막혀요.
+  - 뷰어는 HTML 한 장이에요. 목차, 플레이어, 출처 툴팁, 키워드 팝업이 있고 스크립트 하이라이트가 재생 위치를 따라가요. `gestalt digest serve`로 127.0.0.1에 띄워야 유튜브 재생이 돼요. 파일로 열면 "유튜브에서 열기" 링크로 바뀌어요.
+  - `prose_extract`와 `prose_apply`로 본문 문장만 윤문해요. 굵게와 키워드 마커, 숫자, 링크가 그대로인지 코드로 봐요.
+  - `gestalt digest export --md`로 마크다운만 낼 수 있어요.
+
+### Changed
+
+- **`video-summarizer`가 마크다운 대신 `digest.json`을 써요.** 수집과 OCR, 렌더는 빼고 요약 본문만 맡아요. 마크다운이 필요하면 `gestalt digest export --md`를 써요. 화면 글자 OCR은 2차에서 `ingest --ocr`로 다시 붙일 예정이에요.
+- 영상 요약 요청은 라우팅 표에서 `video-digest` 스킬로 가요.
+
 ## [0.102.0] - 2026-10-21
 
 ### Added

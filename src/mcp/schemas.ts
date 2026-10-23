@@ -1172,3 +1172,38 @@ export const researchInputSchema = guardObject(
 );
 
 export type ResearchInput = z.infer<typeof researchInputSchema>;
+
+/**
+ * `ges_digest`가 받는 액션. ingest, frames, serve, export는 yt-dlp와 ffmpeg를 부르거나
+ * 서버를 띄우는 셸 작업이라 CLI(`gestalt digest`)에만 둔다
+ */
+export const DIGEST_ACTIONS = ['validate', 'render', 'prose_extract', 'prose_apply'] as const;
+
+export const digestInputSchema = guardObject(
+  z.object({
+    action: z
+      .enum(DIGEST_ACTIONS)
+      .describe(
+        'validate: .gestalt/digest/<slug>/digest.json을 스키마와 lint로 검사하고 오류와 경고를 준다. render: 검사를 통과한 요약으로 뷰어 HTML(digest.html)과 마크다운(digest.md)을 만든다. LLM을 부르지 않는다. prose_extract: 윤문할 문장만 { path, text, hash } 목록으로 뽑는다. 제목은 빼고 도입, 결론, 불릿, 키워드 설명, 뺀 구간 사유를 꺼낸다. prose_apply: 다듬은 목록(items)을 같은 path로 되돌려 넣고 저장한다. 굵게(**), 키워드 마커의 id, 숫자, URL이 하나라도 빠지거나 바뀐 항목은 원문을 두고 경고한다',
+      ),
+    slug: z.string().describe('요약 slug. gestalt digest ingest가 알려준 값'),
+    repoRoot: z.string().optional().describe('기본은 현재 디렉토리'),
+    inlineFrames: z
+      .boolean()
+      .optional()
+      .describe('render: 프레임을 HTML 안에 data URI로 넣는다. 한 장 5MB, 합계 15MB까지'),
+    items: z
+      .array(
+        z.object({
+          path: z.string().describe('prose_extract가 준 path 그대로'),
+          text: z.string().describe('다듬은 문장'),
+          hash: z.string().describe('prose_extract가 준 hash 그대로'),
+        }),
+      )
+      .optional()
+      .describe('prose_apply: 되돌려 넣을 항목. 바꾸지 않은 항목은 빼도 된다'),
+    dryRun: z.boolean().optional().describe('prose_apply: 검사와 경고만 돌려주고 저장하지 않는다'),
+  }),
+);
+
+export type DigestInput = z.infer<typeof digestInputSchema>;

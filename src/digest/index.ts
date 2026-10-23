@@ -10,3 +10,4 @@ export * from './render-html.js';
 export * from './render.js';
 export * from './server.js';
 export { findSegmentIndex } from './viewer-js.js';
+export * from './prose.js';
