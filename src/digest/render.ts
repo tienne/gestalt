@@ -1,0 +1,119 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import { lintDigest, lintErrors, type DigestIssue } from './lint.js';
+import { renderDigestHtml } from './render-html.js';
+import { renderDigestMarkdown } from './render-md.js';
+import { parseDigest, type Digest, type Transcript } from './schema.js';
+import { DigestStore } from './store.js';
+
+export interface RenderFilesOptions {
+  repoRoot: string;
+  inlineFrames?: boolean;
+}
+
+export interface RenderFilesResult {
+  slug: string;
+  htmlPath: string;
+  mdPath: string;
+  warnings: string[];
+}
+
+/** 렌더할 파일을 못 읽었다. code는 ges_digest validate가 내는 코드와 같다 */
+export class DigestLoadError extends Error {
+  constructor(
+    readonly code:
+      | 'TRANSCRIPT_NOT_FOUND'
+      | 'TRANSCRIPT_INVALID'
+      | 'DIGEST_NOT_FOUND'
+      | 'DIGEST_NOT_JSON'
+      | 'INVALID_DIGEST',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'DigestLoadError';
+  }
+}
+
+/** lint 오류가 남아 렌더를 막았다. 호출하는 쪽이 오류 전체를 구조로 받게 issues를 싣는다 */
+export class DigestLintError extends Error {
+  constructor(readonly issues: DigestIssue[]) {
+    super(
+      `validate 오류 ${issues.length}개가 남아 있어 렌더하지 않았어요.\n` +
+        issues.map((i) => `${i.code} ${i.path}: ${i.message}`).join('\n'),
+    );
+    this.name = 'DigestLintError';
+  }
+}
+
+/** lint 오류가 남은 요약은 출처가 엉뚱한 문장을 가리킬 수 있어 렌더하지 않는다 */
+export function loadForRender(
+  store: DigestStore,
+  slug: string,
+): { transcript: Transcript; digest: Digest } {
+  const t = store.readTranscript(slug);
+  if (!t.ok) throw new DigestLoadError(t.code, t.message);
+  const raw = store.readDigestFile(slug);
+  if (raw.kind === 'missing') {
+    throw new DigestLoadError(
+      'DIGEST_NOT_FOUND',
+      `digest.json이 없어요. 먼저 요약을 써 주세요: ${slug}`,
+    );
+  }
+  if (raw.kind === 'invalid-json') {
+    throw new DigestLoadError(
+      'DIGEST_NOT_JSON',
+      `digest.json을 JSON으로 못 읽었어요: ${raw.message}`,
+    );
+  }
+  const parsed = parseDigest(raw.value);
+  if (!parsed.ok) throw new DigestLoadError('INVALID_DIGEST', parsed.error.message);
+  const errors = lintErrors(lintDigest(parsed.value, t.transcript));
+  if (errors.length > 0) throw new DigestLintError(errors);
+  return { transcript: t.transcript, digest: parsed.value };
+}
+
+/** digest.html과 digest.md를 한 번에 쓴다. 둘 다 같은 digest.json에서 나온다 */
+export function renderToFiles(slug: string, opts: RenderFilesOptions): RenderFilesResult {
+  const store = new DigestStore(opts.repoRoot);
+  const { transcript, digest } = loadForRender(store, slug);
+  const framesDir = store.framesDir(slug);
+  const frameExists = (file: string) => existsSync(join(framesDir, file));
+  const { html, warnings } = renderDigestHtml(digest, transcript, {
+    frameExists,
+    inlineFrames: opts.inlineFrames,
+    loadFrame: (file) => (frameExists(file) ? readFileSync(join(framesDir, file)) : null),
+  });
+  return {
+    slug,
+    htmlPath: store.saveHtml(slug, html),
+    mdPath: store.saveMd(slug, renderDigestMarkdown(digest, transcript, { frameExists })),
+    warnings,
+  };
+}
+
+/** 마크다운만 원하는 자리에 쓴다. out이 없으면 저장 폴더의 digest.md */
+export function exportMarkdown(
+  slug: string,
+  opts: { repoRoot: string; out?: string },
+): { slug: string; mdPath: string } {
+  const store = new DigestStore(opts.repoRoot);
+  const { transcript, digest } = loadForRender(store, slug);
+  const framesDir = store.framesDir(slug);
+  const frameExists = (file: string) => existsSync(join(framesDir, file));
+  if (!opts.out) {
+    return {
+      slug,
+      mdPath: store.saveMd(slug, renderDigestMarkdown(digest, transcript, { frameExists })),
+    };
+  }
+  const mdPath = resolve(opts.out);
+  // 다른 폴더에 쓰면 frames/ 상대 경로가 깨지니 그 파일 기준으로 다시 잡는다
+  const framesHref = relative(dirname(mdPath), framesDir)
+    .split(sep)
+    .map(encodeURIComponent)
+    .join('/');
+  const md = renderDigestMarkdown(digest, transcript, { frameExists, framesHref });
+  mkdirSync(dirname(mdPath), { recursive: true });
+  writeFileSync(mdPath, md);
+  return { slug, mdPath };
+}
