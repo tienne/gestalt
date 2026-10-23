@@ -31,6 +31,7 @@ import {
   harnessRefsRelatedPrsCommand,
   harnessRefsThreeStateCommand,
 } from './commands/harness-refs-cross-pr.js';
+import { digestFramesCommand, digestIngestCommand } from './commands/digest.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -250,6 +251,30 @@ export function createCli(): Command {
   pr.command('unregister <key>')
     .description('그 레포를 웹 UI 목록에서 뺀다. 레포 자체는 안 건드린다')
     .action((key, o, cmd) => prUnregisterCommand({ ...inherited(cmd), ...o, key }));
+
+  const digest = program
+    .command('digest')
+    .description('영상 요약 — 스크립트 수집, 프레임, 뷰어')
+    .option('--repo-root <path>', 'Repository root (defaults to cwd)')
+    .option('--json', '에이전트가 파싱할 JSON으로');
+
+  const digestInherited = (cmd: { parent?: { opts(): Record<string, unknown> } }) =>
+    (cmd.parent?.opts() ?? {}) as { repoRoot?: string; json?: boolean };
+
+  digest
+    .command('ingest <input>')
+    .description('유튜브 주소나 영상 파일에서 문장 단위 스크립트(transcript.json)를 만든다')
+    .option('--lang <code>', '자막 언어 (기본: 영상 원어)')
+    .option('--slug <slug>', '저장 폴더 이름 (기본: 제목과 영상 id)')
+    .option('--whisper', '자막이 있어도 faster-whisper로 받아쓴다')
+    .option('--whisper-model <name>', 'faster-whisper 모델 (기본 large-v3)')
+    .action((input, o, cmd) => digestIngestCommand(input, { ...digestInherited(cmd), ...o }));
+
+  digest
+    .command('frames <slug>')
+    .description('digest.json의 소섹션 frameSec마다 프레임을 뽑는다')
+    .option('--force', '이미 뽑은 프레임도 다시 뽑는다')
+    .action((slug, o, cmd) => digestFramesCommand(slug, { ...digestInherited(cmd), ...o }));
 
   const reviewLoop = program
     .command('review-loop')
