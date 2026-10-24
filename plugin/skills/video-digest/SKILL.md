@@ -105,7 +105,7 @@ Step 1 ingest → Step 2 요약 작성 → Step 3 merge → Step 4 frames와 번
 → Step 5 윤문 → Step 6 render → Step 7 serve 또는 export, 보고
 ```
 
-**`<repoRoot>`는 Step 1 전에 한 번 정한다.** 작업 디렉토리의 절대 경로(`pwd`)다. 모든 `gestalt digest` 명령에 `--repo-root <repoRoot>`를, 모든 `ges_digest` 호출에 `repoRoot`를 같은 값으로 넘긴다. 셸과 MCP 서버와 서브에이전트는 작업 디렉토리가 서로 다를 수 있어서 안 넘기면 서로 다른 폴더를 본다.
+**`<repoRoot>`는 Step 1 전에 한 번 정한다.** 작업 디렉토리의 절대 경로(`pwd`)다. 모든 `gestalt digest` 명령에 `--repo-root '<repoRoot>'`를, 모든 `ges_digest` 호출에 `repoRoot`를 같은 값으로 넘긴다. 셸과 MCP 서버와 서브에이전트는 작업 디렉토리가 서로 다를 수 있어서 안 넘기면 서로 다른 폴더를 본다.
 
 **`source`와 `slug` 중 하나는 있어야 한다.** 둘 다 없으면 영상 주소를 묻는다. `slug`만 받았는데 `<repoRoot>/.gestalt/digest/<slug>/transcript.json`이 없으면 수집할 영상이 없으니 `source`를 되묻는다.
 
@@ -114,6 +114,7 @@ Step 1 ingest → Step 2 요약 작성 → Step 3 merge → Step 4 frames와 번
 | 입력                                | 받는 꼴                                                                                 |
 | ----------------------------------- | --------------------------------------------------------------------------------------- |
 | `source`, `--out` 경로              | 작은따옴표(`'`)가 없는 값                                                               |
+| `repoRoot`, 명령에 넣는 파일 경로   | 작은따옴표(`'`)가 없는 값                                                               |
 | `slug`                              | `^[a-z0-9][a-z0-9-]{0,63}$`                                                             |
 | `length`, `difficulty`              | 입력 정의에 적힌 값 중 하나                                                             |
 | `lang`, `reportLang`, `--report` 키 | `^[A-Za-z0-9-]+$`                                                                       |
@@ -123,7 +124,7 @@ Step 1 ingest → Step 2 요약 작성 → Step 3 merge → Step 4 frames와 번
 ## Step 1 — 수집
 
 ```bash
-gestalt digest ingest '<source>' --repo-root <repoRoot> [--lang '<code>'] [--slug '<slug>']
+gestalt digest ingest '<source>' --repo-root '<repoRoot>' [--lang '<code>'] [--slug '<slug>']
 ```
 
 출력의 slug와 문장 수, 자막 출처(`manual`, `auto`, `whisper`)를 받아 둔다. `저장:` 줄은 `transcript.json`의 절대 경로다. 이 값을 `<transcriptPath>`로, 같은 폴더의 `report.draft.json`을 `<reportPath>`로 받아 둔다. 자동 자막은 문장 끝 부호가 없어 길이와 쉼 간격으로 끊긴다. 문장이 지나치게 짧거나 길면 보고에 적는다.
@@ -131,7 +132,7 @@ gestalt digest ingest '<source>' --repo-root <repoRoot> [--lang '<code>'] [--slu
 **`ocr`이 true면 화면 글자도 읽는다.** ingest에 `--ocr`을 붙이면 스크립트를 만든 뒤 이어서 읽는다. 수집을 건너뛴 slug는 `ocr.json`이 없을 때만 따로 부른다. 이미 있으면 `<repoRoot>/.gestalt/digest/<slug>/ocr.json`을 그대로 `<ocrPath>`로 쓴다.
 
 ```bash
-gestalt digest ocr '<slug>' --repo-root <repoRoot> [--interval <초>]
+gestalt digest ocr '<slug>' --repo-root '<repoRoot>' [--interval <초>]
 ```
 
 `화면 글자:` 다음 `저장:` 줄이 `ocr.json`의 절대 경로다. 이 값을 `<ocrPath>`로 받아 둔다. tesseract가 없다는 오류가 나면 설치를 대신 하지 않는다. 안내 문구를 보고에 적고 화면 글자 없이 Step 2로 간다. 읽은 항목이 0개여도 같다.
@@ -141,7 +142,7 @@ gestalt digest ocr '<slug>' --repo-root <repoRoot> [--interval <초>]
 **구간을 받았으면 스크립트를 자른다.** 수집이 끝난 뒤 부른다.
 
 ```bash
-gestalt digest slice '<slug>' --range '<range>' --json --repo-root <repoRoot>
+gestalt digest slice '<slug>' --range '<range>' --json --repo-root '<repoRoot>'
 ```
 
 출력의 `path`를 `<transcriptPath>` 대신 Step 2에 넘기고 `range`(초 튜플)를 `<rangeSec>`로 받아 둔다. 잘라 낸 파일의 문장 번호는 원래 스크립트 번호 그대로라 출처가 전체 스크립트를 가리킨다. 구간에 든 문장이 없으면 명령이 실패한다. 그 메시지를 보여 주고 멈춘다.
@@ -206,7 +207,7 @@ jq -n --arg length "<length>" --arg difficulty "<difficulty>" --arg lang "<repor
 ## Step 3 — 합치기와 검증
 
 ```bash
-gestalt digest merge <slug> <reportPath> --json --repo-root <repoRoot>
+gestalt digest merge '<slug>' '<reportPath>' --json --repo-root '<repoRoot>'
 ```
 
 리포트를 `digest.json`의 `reports[]`에 합친 뒤 스키마와 lint를 돌린다. `digest.json`이 없으면 새로 만든다. 출력의 `index`가 합친 뒤 이 리포트의 자리이고 `key`가 리포트 키다. 둘 다 받아 둔다.
@@ -220,7 +221,7 @@ gestalt digest merge <slug> <reportPath> --json --repo-root <repoRoot>
 ## Step 4 — 프레임과 번역
 
 ```bash
-gestalt digest frames <slug> --repo-root <repoRoot>
+gestalt digest frames '<slug>' --repo-root '<repoRoot>'
 ```
 
 영상을 낮은 화질로 받아 소섹션 시각마다 한 장씩 뽑는다. 못 뽑은 시각은 출력의 `못 뽑은 시각:` 줄에 나온다(`--json`이면 `missing`). 명령이 통째로 실패하면 그 오류를 받아 둔다.
@@ -245,7 +246,7 @@ gestalt digest frames <slug> --repo-root <repoRoot>
 조각이 돌아오면 하나씩 차례로 넣는다. 명령마다 `transcript.json`을 다시 쓰므로 동시에 부르지 않는다.
 
 ```bash
-gestalt digest translate-apply <slug> <dir>/translation.part-<a>.json --json --repo-root <repoRoot>
+gestalt digest translate-apply '<slug>' '<dir>/translation.part-<a>.json' --json --repo-root '<repoRoot>'
 ```
 
 `unknown`이 있으면 그 조각만 다시 맡긴다. 끝난 뒤 `missing` 개수를 보고에 싣는다. 번역은 렌더할 때 스크립트 문장 아래 한 줄로 붙고 뷰어의 "번역" 버튼으로 숨긴다.
@@ -275,7 +276,7 @@ gestalt digest translate-apply <slug> <dir>/translation.part-<a>.json --json --r
 ges_digest { action: "render", slug: "<slug>", repoRoot: "<repoRoot>" }
 ```
 
-`digest.html`(리포트 전부)과 `digest.md`(첫 리포트)를 함께 쓴다. 다른 리포트의 마크다운이 필요하면 `gestalt digest export <slug> --md --report <key>`로 낸다. 파일 하나로 들고 다닐 HTML이 필요하면 `inlineFrames: true`로 부른다. 프레임 한 장이 5MB, 합계가 15MB를 넘으면 그 프레임은 넣지 않고 경고로 알린다.
+`digest.html`(리포트 전부)과 `digest.md`(첫 리포트)를 함께 쓴다. 다른 리포트의 마크다운이 필요하면 `gestalt digest export '<slug>' --md --report '<key>'`로 낸다. 파일 하나로 들고 다닐 HTML이 필요하면 `inlineFrames: true`로 부른다. 프레임 한 장이 5MB, 합계가 15MB를 넘으면 그 프레임은 넣지 않고 경고로 알린다.
 
 `RENDER_BLOCKED`가 오면 응답의 `lintErrors`를 보고 이번 리포트 자리면 Step 3으로 돌아간다. 다른 리포트 자리면 고치지 않고 보고하고 멈춘다. `RENDER_FAILED`는 lint와 무관하게 파일을 못 쓴 경우라 Step 3으로 돌아가지 않고 메시지를 그대로 보고하고 멈춘다.
 
@@ -286,7 +287,7 @@ ges_digest { action: "render", slug: "<slug>", repoRoot: "<repoRoot>" }
 `output`이 `viewer`면 serve로 띄운다. serve는 Ctrl+C를 받을 때까지 끝나지 않는다. 포그라운드로 부르면 셸 도구가 타임아웃까지 붙잡히고 타임아웃에 서버도 같이 죽는다. 그래서 셸 도구의 백그라운드 실행으로 띄운다.
 
 ```bash
-gestalt digest serve <slug> --repo-root <repoRoot>
+gestalt digest serve '<slug>' --repo-root '<repoRoot>'
 ```
 
 출력에서 `뷰어: http://127.0.0.1:<port>/<slug>/` 줄을 읽어 보고에 싣는다. 끄는 법도 보고에 넣는다. 띄운 백그라운드 작업을 멈추거나 `kill $(lsof -ti tcp:<port> -sTCP:LISTEN)`을 부른다.
@@ -300,7 +301,7 @@ gestalt digest serve <slug> --repo-root <repoRoot>
 `output`이 `md`면 마크다운만 낸다.
 
 ```bash
-gestalt digest export '<slug>' --md --repo-root <repoRoot> [--report '<key>'] [--out '<path>']
+gestalt digest export '<slug>' --md --repo-root '<repoRoot>' [--report '<key>'] [--out '<path>']
 ```
 
 보고에는 아래를 담는다.
