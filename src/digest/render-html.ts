@@ -314,7 +314,7 @@ ${skippedHtml}</div>`;
 <div class="layout">
 <aside class="side">${player}${script}</aside>
 <main class="main">
-<header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p><div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label></div>
+<header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p><div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label><p id="copy-status" class="sr-only" role="status" aria-live="polite"></p></div>
 ${reportBar}
 <noscript><p class="note">자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기, 리포트 전환이 동작하지 않아요.${isYoutube ? ' 시각 링크는 유튜브 새 탭으로 열려요.' : ''}</p></noscript></header>
 ${rendered.map((r) => r.body).join('\n')}
@@ -382,6 +382,7 @@ a.ts:hover{text-decoration:underline}
 .report-bar button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:3px 12px;cursor:pointer}
 .report-bar button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .report-bar select{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .report-missing{border:1px dashed var(--line);border-radius:8px;padding:8px 12px;margin:8px 0;font-size:.88em;background:var(--card)}
 .report-missing p{margin:0 0 6px}
 .report-missing code{display:block;white-space:nowrap;overflow-x:auto;background:var(--chip);padding:4px 8px;border-radius:4px;margin:0 0 6px}

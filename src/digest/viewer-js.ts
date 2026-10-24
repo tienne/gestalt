@@ -430,12 +430,18 @@ export const VIEWER_JS =
       (ok ? done : fail)();
     }
   }
-  function flash(btn, label, msg) {
-    btn.textContent = msg || '복사했어요';
-    setTimeout(function(){ btn.textContent = label; }, msg ? 3000 : 1500);
+  // 버튼 글자만 바꾸면 스크린리더가 결과를 안 읽어서 결과 문구는 라이브 영역에 따로 쓴다
+  function flash(btn, label, failed) {
+    var status = document.getElementById('copy-status');
+    if (status) status.textContent = failed ? '복사하지 못했어요. 직접 선택해 복사해 주세요' : '복사했어요';
+    btn.textContent = failed ? '복사 실패' : '복사했어요';
+    setTimeout(function(){
+      btn.textContent = label;
+      if (status) status.textContent = '';
+    }, failed ? 3000 : 1500);
   }
   function copyWith(btn, label, text) {
-    copyText(text, function(){ flash(btn, label); }, function(){ flash(btn, label, '복사하지 못했어요. 직접 선택해 복사해 주세요'); });
+    copyText(text, function(){ flash(btn, label, false); }, function(){ flash(btn, label, true); });
   }
 
   function setupCopyButton(reports) {

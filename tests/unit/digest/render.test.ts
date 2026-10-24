@@ -136,6 +136,14 @@ describe('renderDigestHtml 플레이어', () => {
     expect(body).not.toContain('tabindex="-1"');
   });
 
+  it('복사 결과는 화면에 안 보이는 라이브 영역으로 알린다', () => {
+    const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
+    expect(html).toContain(
+      '<p id="copy-status" class="sr-only" role="status" aria-live="polite"></p>',
+    );
+    expect(html).toContain('.sr-only{position:absolute;');
+  });
+
   it('noscript 안내는 자바스크립트와 화면 이름을 구분해 적는다', () => {
     const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
     expect(html).toContain(
