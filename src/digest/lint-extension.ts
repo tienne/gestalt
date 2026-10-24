@@ -60,6 +60,39 @@ export function blockFields(
         cite(`${path}.cite`, item.cite);
       }
       break;
+    case 'quote':
+      texts.push({ path: `${p}.text`, text: block.text, role: 'verbatim' });
+      if (block.translation) {
+        texts.push({ path: `${p}.translation`, text: block.translation, role: 'body' });
+      }
+      if (block.speaker) texts.push({ path: `${p}.speaker`, text: block.speaker, role: 'title' });
+      if (block.note) texts.push({ path: `${p}.note`, text: block.note, role: 'body' });
+      cite(`${p}.cite`, block.cite);
+      break;
+    case 'timestamps':
+      block.items.forEach((it, k) => {
+        texts.push({ path: `${p}.items.${k}.title`, text: it.title, role: 'title' });
+        if (it.summary) {
+          texts.push({ path: `${p}.items.${k}.summary`, text: it.summary, role: 'body' });
+        }
+        cite(`${p}.items.${k}.cite`, it.cite);
+      });
+      break;
+    case 'actions':
+      block.items.forEach((it, k) => {
+        texts.push({ path: `${p}.items.${k}.task`, text: it.task, role: 'body' });
+        if (it.owner) texts.push({ path: `${p}.items.${k}.owner`, text: it.owner, role: 'title' });
+        if (it.due) texts.push({ path: `${p}.items.${k}.due`, text: it.due, role: 'title' });
+        cite(`${p}.items.${k}.cite`, it.cite);
+      });
+      break;
+    case 'qa':
+      block.items.forEach((it, k) => {
+        texts.push({ path: `${p}.items.${k}.question`, text: it.question, role: 'body' });
+        texts.push({ path: `${p}.items.${k}.answer`, text: it.answer, role: 'body' });
+        cite(`${p}.items.${k}.cite`, it.cite);
+      });
+      break;
     default: {
       const never: never = block;
       throw new Error(`모르는 블록: ${JSON.stringify(never)}`);
@@ -143,6 +176,42 @@ function checkCites(cites: ExtensionCite[], total: number, issues: DigestIssue[]
   }
 }
 
+// 자동 자막은 문장부호와 대소문자가 흔들려서 글자와 숫자만 남겨 비교한다
+const normalizeQuote = (s: string) =>
+  s
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+
+/**
+ * 인용은 원문이어야 한다. 출처 문장들을 이어 붙인 글에 인용문이 그대로 없으면 경고한다.
+ * 고쳐 쓴 문장을 원문처럼 보이게 두지 않으려는 것이다. 자막 오인식을 바로잡은 인용도 있어 오류로 막지는 않는다
+ */
+function checkQuotes(
+  ext: Extension,
+  p: string,
+  transcript: Transcript,
+  issues: DigestIssue[],
+): void {
+  ext.blocks.forEach((block, bi) => {
+    if (block.type !== 'quote') return;
+    const { from, to } = block.cite;
+    const source = transcript.segments
+      .slice(from, to + 1)
+      .map((s) => s.text)
+      .join(' ');
+    const quote = normalizeQuote(block.text);
+    if (quote && !normalizeQuote(source).includes(quote)) {
+      issues.push({
+        path: `${p}.blocks.${bi}.text`,
+        severity: 'warning',
+        code: 'QUOTE_NOT_IN_SOURCE',
+        message: `인용문이 ${from}~${to}번 문장에 그대로 없다. 원문을 옮기고 번역은 translation에 둔다`,
+      });
+    }
+  });
+}
+
 function checkTemplate(
   ext: Extension,
   p: string,
@@ -199,6 +268,7 @@ export function lintExtensions(
     checkMarkers(texts, issues);
     checkCites(cites, total, issues);
     checkListDepth(ext, p, issues);
+    checkQuotes(ext, p, transcript, issues);
     checkTemplate(ext, p, opts.templates, issues);
   });
 }

@@ -357,3 +357,100 @@ describe('뷰어 로직', () => {
     expect(viewerLogic.tabStep(1, 3, 'Enter')).toBe(-1);
   });
 });
+
+describe('텍스트 블록 (quote, timestamps, actions, qa)', () => {
+  const textExt = (): Extension =>
+    sampleExtension({
+      template: 'meeting',
+      title: '회의록',
+      blocks: [
+        {
+          type: 'quote',
+          text: 'sentence number 3 sentence number 4',
+          translation: '3번 **문장**',
+          speaker: '진행자',
+          note: '핵심',
+          cite: { key: 3, from: 3, to: 4 },
+        },
+        {
+          type: 'timestamps',
+          items: [
+            { title: '도입', summary: '시작', cite: { key: 0, from: 0, to: 2 } },
+            { title: '본론', cite: { key: 6, from: 3, to: 11 } },
+          ],
+        },
+        {
+          type: 'actions',
+          items: [
+            { task: '문서 정리', owner: '민수', due: '금요일', cite: { key: 5, from: 5, to: 5 } },
+            { task: '공유' },
+          ],
+        },
+        {
+          type: 'qa',
+          items: [{ question: '왜요?', answer: '빨라서요.', cite: { key: 7, from: 7, to: 8 } }],
+        },
+      ],
+    });
+
+  it('네 블록이 스키마와 lint를 통과한다', () => {
+    const issues = lintDigest(withExt(textExt()), sampleTranscript());
+    expect(lintErrors(issues)).toEqual([]);
+    expect(codes(issues)).not.toContain('QUOTE_NOT_IN_SOURCE');
+  });
+
+  it('인용문이 출처 대사에 그대로 없으면 경고한다', () => {
+    const ext = textExt();
+    const quote = ext.blocks[0]!;
+    if (quote.type !== 'quote') throw new Error('quote 블록이어야 한다');
+    quote.text = 'Sentence number 9.';
+    const issue = lintDigest(withExt(ext), sampleTranscript()).find(
+      (i) => i.code === 'QUOTE_NOT_IN_SOURCE',
+    );
+    expect(issue).toMatchObject({ severity: 'warning', path: 'extensions.0.blocks.0.text' });
+  });
+
+  it('인용 원문과 담당자 칸은 굵게를 받지 않는다', () => {
+    const ext = textExt();
+    const [quote, , actions] = ext.blocks;
+    if (quote?.type !== 'quote' || actions?.type !== 'actions') throw new Error('블록 순서');
+    quote.text = '**sentence number 3**';
+    actions.items[0]!.owner = '**민수**';
+    const issues = lintDigest(withExt(ext), sampleTranscript());
+    expect(issues.filter((i) => i.code === 'VERBATIM_MARKER').map((i) => i.path)).toEqual([
+      'extensions.0.blocks.0.text',
+    ]);
+    expect(issues.find((i) => i.code === 'TITLE_MARKER')?.path).toBe(
+      'extensions.0.blocks.2.items.0.owner',
+    );
+  });
+
+  it('HTML은 인용, 목차 시각 링크, 할 일, 문답을 그린다', () => {
+    const { html } = renderDigestHtml(withExt(textExt()), sampleTranscript());
+    expect(html).toContain('<figure class="quote"><blockquote>sentence number 3 sentence number 4');
+    expect(html).toContain('<p class="quote-tr">3번 <strong>문장</strong></p>');
+    expect(html).toMatch(/<ol class="toc"><li><a class="ts" href="[^"]*t=0s"[^>]*data-sec="0"/);
+    expect(html).toContain('data-sec="30"');
+    expect(html).toContain('<span>담당 민수</span><span>기한 금요일</span>');
+    expect(html).toContain('<dl class="qa"><dt>왜요?</dt><dd>빨라서요.');
+  });
+
+  it('마크다운은 인용문, 시각 목차, 체크박스, 문답으로 옮긴다', () => {
+    const md = renderExtensionMarkdown(textExt(), sampleTranscript());
+    expect(md).toMatch(/^> sentence number 3 sentence number 4 \[\[4\]\]/m);
+    expect(md).toContain('> — 진행자, 핵심');
+    expect(md).toMatch(/^- \[00:30\]\(https:[^)]*t=30s\) \*\*본론\*\*$/m);
+    expect(md).toContain('- [ ] 문서 정리 (담당 민수, 기한 금요일)');
+    expect(md).toContain('- [ ] 공유\n');
+    expect(md).toContain('**Q. 왜요?**');
+  });
+});
+
+describe('기본 템플릿', () => {
+  it('패키지에 실린 템플릿이 전부 경고 없이 읽힌다', () => {
+    const { templates, warnings } = loadTemplates(findBuiltinTemplatesDir(), tmpRepo());
+    expect(warnings).toEqual([]);
+    expect(templates.length).toBeGreaterThanOrEqual(8);
+    expect(new Set(templates.map((t) => t.order)).size).toBe(templates.length);
+  });
+});

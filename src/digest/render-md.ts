@@ -94,7 +94,8 @@ export function renderExtensionMarkdown(ext: Extension, transcript: Transcript):
   const cite = mdCiter(transcript);
   const out = mdHeader(transcript);
   out.push(`> 리포트: ${ext.title}`, '');
-  for (const b of ext.blocks) out.push(...blockMarkdown(b, { cite }));
+  const time = mdTimer(transcript);
+  for (const b of ext.blocks) out.push(...blockMarkdown(b, { cite, time }));
   return finish(out);
 }
 
@@ -105,6 +106,15 @@ function mdCiter(transcript: Transcript): (c: Cite) => string {
   return (c) => {
     const url = watchUrlAt(meta, at(c.key));
     return url ? ` [[${c.key + 1}]](${url})` : ` [${c.key + 1} ${formatTime(at(c.key), long)}]`;
+  };
+}
+
+function mdTimer({ meta, segments }: Transcript): (c: Cite) => string {
+  const long = meta.durationSec >= 3600;
+  return (c) => {
+    const sec = segments[c.key]?.startSec ?? 0;
+    const url = watchUrlAt(meta, sec);
+    return url ? `[${formatTime(sec, long)}](${url})` : formatTime(sec, long);
   };
 }
 

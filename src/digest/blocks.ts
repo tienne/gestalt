@@ -43,10 +43,56 @@ export const listBlockSchema = z.object({
   items: z.array(listItemSchema).min(1),
 });
 
+/** 대사를 그대로 옮긴 인용. 영상 언어와 리포트 언어가 다르면 번역은 translation에 따로 둔다 */
+export const quoteBlockSchema = z.object({
+  type: z.literal('quote'),
+  text: textSchema,
+  translation: textSchema.optional(),
+  speaker: textSchema.optional(),
+  note: textSchema.optional(),
+  cite: citeSchema,
+});
+
+/** 영상 목차. 시각은 cite.key 문장의 시작 시각을 쓴다 */
+export const timestampsBlockSchema = z.object({
+  type: z.literal('timestamps'),
+  items: z
+    .array(z.object({ title: textSchema, summary: textSchema.optional(), cite: citeSchema }))
+    .min(1)
+    .max(60),
+});
+
+export const actionsBlockSchema = z.object({
+  type: z.literal('actions'),
+  items: z
+    .array(
+      z.object({
+        task: textSchema,
+        owner: textSchema.optional(),
+        due: textSchema.optional(),
+        cite: citeSchema.optional(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+export const qaBlockSchema = z.object({
+  type: z.literal('qa'),
+  items: z
+    .array(z.object({ question: textSchema, answer: textSchema, cite: citeSchema.optional() }))
+    .min(1)
+    .max(40),
+});
+
 export const blockSchema = z.discriminatedUnion('type', [
   headingBlockSchema,
   textBlockSchema,
   listBlockSchema,
+  quoteBlockSchema,
+  timestampsBlockSchema,
+  actionsBlockSchema,
+  qaBlockSchema,
 ]);
 
 export const BLOCK_TYPES = blockSchema.options.map((o) => o.shape.type.value);
@@ -62,6 +108,7 @@ export const extensionSchema = z.object({
 export type HeadingBlock = z.infer<typeof headingBlockSchema>;
 export type TextBlock = z.infer<typeof textBlockSchema>;
 export type ListBlock = z.infer<typeof listBlockSchema>;
+export type QuoteBlock = z.infer<typeof quoteBlockSchema>;
 export type Block = z.infer<typeof blockSchema>;
 export type Extension = z.infer<typeof extensionSchema>;
 

@@ -332,7 +332,8 @@ ${skippedHtml}</div>`;
         .map((x) => tab(extensionPanelId(x), x.title, false))
         .join('')}</div>${moreMenu}`
     : '';
-  const extPanels = extensions.map((x) => extensionHtml(x, { escape: e, cite })).join('\n');
+  const time = (c: Cite) => timeLink(segments[c.key]?.startSec ?? 0);
+  const extPanels = extensions.map((x) => extensionHtml(x, { escape: e, cite, time })).join('\n');
   const summary = `${hasTabs ? reportBar : ''}${rendered.map((r) => r.body).join('\n')}`;
   const summaryPanel = hasTabs
     ? `<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary">${summary}</div>\n${extPanels}`
@@ -443,6 +444,21 @@ a.ts:hover{text-decoration:underline}
 .ext h2{font-size:1.35em;border-bottom:1px solid var(--line);padding-bottom:6px}
 .ext h3{font-size:1.1em;margin:20px 0 6px}
 .ext h4{font-size:1em;margin:12px 0 4px}
+.quote{margin:16px 0;padding:10px 16px;border-left:3px solid var(--accent);background:var(--chip);border-radius:0 8px 8px 0}
+.quote blockquote{margin:0;font-size:1.05em}
+.quote-tr{margin:6px 0 0;color:var(--muted)}
+.quote figcaption{margin-top:6px;font-size:.9em;color:var(--muted);display:flex;flex-wrap:wrap;gap:8px}
+.toc{list-style:none;padding:0;margin:8px 0}
+.toc li{display:flex;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)}
+.toc li .ts{flex:none;padding-top:2px}
+.toc p{margin:2px 0 0;color:var(--muted);font-size:.95em}
+.actions{list-style:none;padding:0;margin:8px 0}
+.actions li{display:flex;gap:10px;padding:4px 0}
+.actions .box{flex:none;width:14px;height:14px;margin-top:6px;border:1.5px solid var(--muted);border-radius:3px}
+.actions small{display:flex;gap:10px;color:var(--muted)}
+.qa dt{font-weight:600;margin-top:12px}
+.qa dt::before{content:"Q. ";color:var(--accent)}
+.qa dd{margin:4px 0 0}
 body[data-tab="ext"] .minimap{display:none}
 .lead{border-left:3px solid var(--accent);padding:4px 16px;margin:20px 0}
 .lead .q{font-weight:700;font-size:1.1em}
