@@ -483,6 +483,20 @@ function lintReport(
   if (span) checkSectionCoverage(report, p, span, issues);
   checkSubsectionCoverage(report, p, issues);
   checkCites(report, p, total, issues);
+  // 대섹션 아래 출처는 커버리지와 소섹션 범위 검사가 이미 구간 안으로 묶는다. 키워드만 따로 본다
+  if (report.options.range && span) {
+    const s = span;
+    report.keywords.forEach((kw, ki) => {
+      if (kw.firstCite.from < s.from || kw.firstCite.to > s.to) {
+        issues.push({
+          path: `${p}.keywords.${ki}.firstCite`,
+          severity: 'error',
+          code: 'OUT_OF_REPORT_RANGE',
+          message: `${range(kw.firstCite.from, kw.firstCite.to)}이 리포트 구간(${range(s.from, s.to)}) 밖이다`,
+        });
+      }
+    });
+  }
   checkBulletDepth(report, p, issues);
   checkTitleMarkers(report, p, issues);
   checkKeywords(report, p, issues);

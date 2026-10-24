@@ -1,11 +1,12 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { extractFrames } from '../../digest/frames.js';
 import { ingest } from '../../digest/ingest.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
 import { mergeReport } from '../../digest/merge.js';
 import { exportMarkdown, renderToFiles } from '../../digest/render.js';
 import { parseDigest } from '../../digest/schema.js';
+import { parseRangeArg, sliceFileName, sliceTranscript } from '../../digest/slice.js';
 import { DigestServer, findDigestPort, openInBrowser } from '../../digest/server.js';
 import { DigestStore } from '../../digest/store.js';
 
@@ -163,6 +164,36 @@ export function digestMergeCommand(
       }
     });
     if (!r.saved) process.exitCode = 1;
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export function digestSliceCommand(
+  slug: string,
+  opts: DigestCommonOptions & { range: string },
+): void {
+  try {
+    const store = new DigestStore(rootOf(opts));
+    const t = store.readTranscript(slug);
+    if (!t.ok) throw new Error(t.message);
+    const range = parseRangeArg(opts.range);
+    const slice = sliceTranscript(t.transcript, range);
+    const path = join(store.dir(slug), sliceFileName(range));
+    writeFileSync(path, JSON.stringify(slice, null, 2) + '\n');
+    const result = {
+      path,
+      range: slice.range,
+      from: slice.from,
+      to: slice.to,
+      count: slice.segments.length,
+    };
+    emit(result, opts.json, () => {
+      console.log(
+        `구간: ${mmss(range[0])}~${mmss(range[1])} → 문장 ${slice.from}~${slice.to} (${result.count}개)`,
+      );
+      console.log(`저장: ${path}`);
+    });
   } catch (e) {
     fail(e);
   }

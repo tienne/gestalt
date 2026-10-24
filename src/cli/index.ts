@@ -36,6 +36,7 @@ import {
   digestFramesCommand,
   digestIngestCommand,
   digestMergeCommand,
+  digestSliceCommand,
   digestRenderCommand,
   digestServeCommand,
   digestValidateCommand,
@@ -309,6 +310,14 @@ export function createCli(): Command {
     .action((slug, reportFile, o, cmd) =>
       digestMergeCommand(slug, reportFile, { ...digestInherited(cmd), ...o }),
     );
+
+  digest
+    .command('slice <slug>')
+    .description(
+      '구간 리포트용으로 스크립트를 그 구간 문장만 잘라 저장한다. 문장 번호는 그대로 둔다',
+    )
+    .requiredOption('--range <from-to>', '영상 시각 구간 (예: 1:30-5:00, 90-300)')
+    .action((slug, o, cmd) => digestSliceCommand(slug, { ...digestInherited(cmd), ...o }));
 
   digest
     .command('serve <slug>')
