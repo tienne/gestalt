@@ -20,6 +20,9 @@ export function parseRangeArg(value: string): [number, number] {
   if (from === null || to === null) {
     throw new Error(`구간은 시작-끝 꼴이어야 해요(예: 1:30-5:00, 90-300): ${value}`);
   }
+  if (!Number.isInteger(from) || !Number.isInteger(to)) {
+    throw new Error(`구간은 초 단위 정수여야 해요: ${value}`);
+  }
   if (from >= to) throw new Error(`구간 시작이 끝보다 앞이어야 해요: ${value}`);
   return [from, to];
 }

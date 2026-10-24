@@ -20,7 +20,7 @@ export const DIFFICULTY_LABEL: Record<ReportOptions['difficulty'], string> = {
 export function reportKey(options: ReportOptions): string {
   const parts = [options.length, options.difficulty, options.lang];
   if (options.range) {
-    parts.push(`r${Math.floor(options.range[0])}-${Math.floor(options.range[1])}`);
+    parts.push(`r${options.range[0]}-${options.range[1]}`);
   }
   if (options.prompt) {
     parts.push(`p${createHash('sha256').update(options.prompt).digest('hex').slice(0, 8)}`);

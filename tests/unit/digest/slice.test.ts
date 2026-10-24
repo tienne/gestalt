@@ -34,6 +34,7 @@ describe('parseRangeArg', () => {
     expect(() => parseRangeArg('20-10')).toThrow('앞이어야');
     expect(() => parseRangeArg('10')).toThrow('시작-끝');
     expect(() => parseRangeArg('1-2-3')).toThrow('시작-끝');
+    expect(() => parseRangeArg('90.2-100')).toThrow('정수');
   });
 });
 

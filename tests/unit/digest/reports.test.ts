@@ -18,6 +18,7 @@ import {
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown } from '../../../src/digest/render.js';
+import { reportOptionsSchema } from '../../../src/digest/schema.js';
 import { DigestStore } from '../../../src/digest/store.js';
 import { viewerLogic } from '../../../src/digest/viewer-logic.js';
 import { SLUG, sampleDigest, sampleTranscript } from './fixture.js';
@@ -60,12 +61,12 @@ describe('reportKey', () => {
     expect(reportKey({ length: 'short', difficulty: 'easy', lang: 'ko' })).toBe('short-easy-ko');
   });
 
-  it('구간은 초를 내려 붙이고 프롬프트는 해시 앞 8자만 붙인다', () => {
+  it('구간은 초를 붙이고 프롬프트는 해시 앞 8자만 붙인다', () => {
     const key = reportKey({
       length: 'default',
       difficulty: 'normal',
       lang: 'en',
-      range: [30.7, 90.2],
+      range: [30, 90],
       prompt: '실무 팁 위주로',
     });
     expect(key).toMatch(/^default-normal-en-r30-90-p[0-9a-f]{8}$/);
@@ -75,6 +76,16 @@ describe('reportKey', () => {
     const a = reportKey({ length: 'default', difficulty: 'normal', lang: 'ko', prompt: 'A' });
     const b = reportKey({ length: 'default', difficulty: 'normal', lang: 'ko', prompt: 'B' });
     expect(a).not.toBe(b);
+  });
+
+  it('키 경계를 흐리는 언어 태그와 소수 구간은 스키마가 거절한다', () => {
+    const prompt = 'x';
+    const hash = reportKey({ length: 'short', difficulty: 'normal', lang: 'en', prompt });
+    const fakeLang = `en-${hash.split('-').at(-1)!}`;
+    expect(reportOptionsSchema.safeParse({ lang: fakeLang }).success).toBe(false);
+    expect(reportOptionsSchema.safeParse({ lang: 'en-r30' }).success).toBe(false);
+    expect(reportOptionsSchema.safeParse({ lang: 'pt-BR' }).success).toBe(true);
+    expect(reportOptionsSchema.safeParse({ range: [90.2, 100] }).success).toBe(false);
   });
 });
 

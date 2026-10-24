@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ValidationError } from '../core/errors.js';
 import { err, ok, type Result } from '../core/result.js';
-import { idSchema, textSchema } from './schema-base.js';
+import { idSchema, SLUG_PATTERN, textSchema } from './schema-base.js';
 
 export const DIGEST_SCHEMA_VERSION = '1.1.0';
 export const TRANSCRIPT_SCHEMA_VERSION = '1.0.0';
@@ -89,7 +89,7 @@ export const videoMetaSchema = z
 export const transcriptSchema = z
   .object({
     schemaVersion: z.string().default(TRANSCRIPT_SCHEMA_VERSION),
-    slug: z.string().min(1),
+    slug: z.string().regex(SLUG_PATTERN, 'slug는 영문 소문자, 숫자, -만 쓴다'),
     meta: videoMetaSchema,
     segments: z.array(segmentSchema).min(1),
   })
@@ -167,11 +167,20 @@ export const reportOptionsSchema = z.object({
   length: z.enum(REPORT_LENGTHS).default('default'),
   difficulty: z.enum(REPORT_DIFFICULTIES).default('normal'),
   /** 요약한 구간. 영상 시각(초)으로 [시작, 끝)이다 */
+  // 리포트 키와 slice 파일 이름에 그대로 실려서 초 단위 정수만 받는다
   range: z
-    .tuple([z.number().nonnegative(), z.number().nonnegative()])
+    .tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])
     .refine(([from, to]) => from < to, '구간 시작이 끝보다 앞이어야 한다')
     .optional(),
-  lang: z.string().regex(LANG_TAG_PATTERN, '언어 태그(ko, en, pt-BR) 꼴이어야 한다').default('ko'),
+  lang: z
+    .string()
+    .regex(LANG_TAG_PATTERN, '언어 태그(ko, en, pt-BR) 꼴이어야 한다')
+    // 리포트 키가 -로 이어 붙여서 구간(r숫자)이나 요청문 해시(p16진수)처럼 생긴 하위 태그는 키 경계를 흐린다
+    .refine(
+      (v) => !/-(r\d|p[0-9a-f])/i.test(v),
+      '언어 하위 태그가 r숫자나 p16진수로 시작하면 안 된다',
+    )
+    .default('ko'),
   prompt: z.string().trim().min(1).max(2000).optional(),
 });
 
@@ -189,7 +198,7 @@ export const reportSchema = z.object({
 
 const digestObjectSchema = z.object({
   schemaVersion: z.string().default(DIGEST_SCHEMA_VERSION),
-  slug: z.string().min(1),
+  slug: z.string().regex(SLUG_PATTERN, 'slug는 영문 소문자, 숫자, -만 쓴다'),
   generatedAt: z.string().optional(),
   reports: z.array(reportSchema).min(1),
 });
