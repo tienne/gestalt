@@ -7,7 +7,7 @@ import { ingest } from '../../digest/ingest.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
 import { mergeExtension, mergeReport } from '../../digest/merge.js';
 import { runOcr, type OcrResult } from '../../digest/ocr.js';
-import { exportMarkdown, renderToFiles } from '../../digest/render.js';
+import { exportMarkdown, renderToFiles, type RenderFilesResult } from '../../digest/render.js';
 import { parseDigest } from '../../digest/schema.js';
 import { parseRangeArg, sliceFileName, sliceTranscript } from '../../digest/slice.js';
 import { DigestServer, findDigestPort, openInBrowser } from '../../digest/server.js';
@@ -195,16 +195,24 @@ export function digestValidateCommand(slug: string, opts: DigestCommonOptions): 
   }
 }
 
+// serve도 render와 같은 템플릿 목록으로 그려야 '+ 더 만들기' 메뉴가 사라지지 않는다
+export function renderDigestFiles(
+  slug: string,
+  opts: DigestCommonOptions & { inlineFrames?: boolean },
+): RenderFilesResult {
+  return renderToFiles(slug, {
+    repoRoot: rootOf(opts),
+    inlineFrames: opts.inlineFrames,
+    templates: templatesOf(opts).templates,
+  });
+}
+
 export function digestRenderCommand(
   slug: string,
   opts: DigestCommonOptions & { inlineFrames?: boolean },
 ): void {
   try {
-    const r = renderToFiles(slug, {
-      repoRoot: rootOf(opts),
-      inlineFrames: opts.inlineFrames,
-      templates: templatesOf(opts).templates,
-    });
+    const r = renderDigestFiles(slug, opts);
     emit(r, opts.json, () => {
       console.log(`HTML: ${r.htmlPath}`);
       console.log(`마크다운: ${r.mdPath}`);
@@ -367,7 +375,7 @@ export async function digestServeCommand(
 ): Promise<void> {
   try {
     const repoRoot = rootOf(opts);
-    const r = renderToFiles(slug, { repoRoot });
+    const r = renderDigestFiles(slug, opts);
     const server = new DigestServer(new DigestStore(repoRoot).root);
     const port = opts.port ? parsePort(opts.port) : await findDigestPort();
     try {

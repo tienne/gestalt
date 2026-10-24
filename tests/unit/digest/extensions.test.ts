@@ -11,6 +11,7 @@ import {
   type DigestIssue,
   type Extension,
 } from '../../../src/digest/index.js';
+import { renderDigestFiles } from '../../../src/cli/commands/digest.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderExtensionMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown } from '../../../src/digest/render.js';
@@ -313,6 +314,17 @@ describe('확장 탭 렌더', () => {
     expect(md).toContain('## Code Layers');
     expect(md).toContain('**더 볼 거리**');
     expect(md).toMatch(/\n {2}- JSX/);
+  });
+});
+
+describe('serve 렌더', () => {
+  it('serve가 쓰는 렌더도 템플릿을 넘겨 더 만들기 메뉴를 그린다', () => {
+    const repo = tmpRepo();
+    const store = new DigestStore(repo);
+    store.saveTranscript(sampleTranscript());
+    store.saveDigest(sampleDigest());
+    const { htmlPath } = renderDigestFiles(SLUG, { repoRoot: repo, json: true });
+    expect(readFileSync(htmlPath, 'utf-8')).toContain('id="more-btn"');
   });
 });
 
