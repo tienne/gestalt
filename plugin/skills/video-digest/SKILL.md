@@ -193,13 +193,15 @@ Agent {
 3. **도입**은 조각이 다 모인 뒤 `digest.lead.json`에 쓴다. 뼈대와 조각 경로를 넘기고 `lead`만 쓰게 한다. 키워드는 2번에서 이미 나왔다.
 4. **합치기**는 메인이 jq로 배열을 이어 붙인다. 본문을 컨텍스트로 읽어 손으로 조립하지 않는다. 조각은 뼈대의 대섹션 순서대로 적는다.
 
+options는 셸 인자로 넘기지 않는다. 요청문에 따옴표가 섞일 수 있어서다. Step 2 프롬프트에 적은 options(length, difficulty, lang, 있으면 range와 prompt)를 파일 쓰기 도구로 `<폴더>/digest.options.json`에 써 두고 읽는다. 값이 없는 length와 difficulty는 `default`, `normal`로 적는다.
+
 ```bash
-jq -n --arg length "<length>" --arg difficulty "<difficulty>" --arg lang "<reportLang 또는 ko>" \
-  --slurpfile sk "<폴더>/digest.skeleton.json" --slurpfile ld "<폴더>/digest.lead.json" \
-  '[inputs] as $p | {options: {length: $length, difficulty: $difficulty, lang: $lang},
+jq -n --slurpfile opt '<폴더>/digest.options.json' \
+  --slurpfile sk '<폴더>/digest.skeleton.json' --slurpfile ld '<폴더>/digest.lead.json' \
+  '[inputs] as $p | {options: $opt[0],
     lead: $ld[0].lead, sections: [$p[].section],
     skipped: ($sk[0].skipped // []), keywords: [$p[] | (.keywords // [])[]]}' \
-  "<폴더>/digest.part-s1.json" "<폴더>/digest.part-s2.json" > "<reportPath>"
+  '<폴더>/digest.part-s1.json' '<폴더>/digest.part-s2.json' > '<reportPath>'
 ```
 
 뼈대와 조각은 그 자체로는 스키마를 통과하지 않는다. Step 3 검증은 합친 리포트에만 돌린다.
@@ -296,7 +298,7 @@ gestalt digest serve '<slug>' --repo-root '<repoRoot>'
 
 로컬 영상도 serve로 열어야 재생된다. serve가 `transcript.json`에 적힌 원본 파일 하나만 같은 출처로 내준다. 원본을 옮겼으면 영상 자리에 안내문만 뜬다.
 
-그 원본 경로는 `.gestalt/digest/` 밖이어도 영상 확장자면 내준다. 남이 준 digest 폴더를 serve하면 그 `transcript.json`이 가리키는 이 PC의 영상 파일이 localhost로 열린다. 서버는 127.0.0.1에만 붙어서 같은 PC 밖으로는 안 나간다. 출처를 모르는 폴더면 띄우기 전에 `transcript.json`의 `video.url`을 보고 어느 파일인지 알린다.
+그 원본 경로는 `.gestalt/digest/` 밖이어도 영상 확장자면 내준다. 남이 준 digest 폴더를 serve하면 그 `transcript.json`이 가리키는 이 PC의 영상 파일이 localhost로 열린다. 서버는 127.0.0.1에만 붙어서 같은 PC 밖으로는 안 나간다. 출처를 모르는 폴더면 띄우기 전에 `transcript.json`의 `meta.url`을 보고 어느 파일인지 알린다.
 
 `output`이 `md`면 마크다운만 낸다.
 
