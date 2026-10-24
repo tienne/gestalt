@@ -51,6 +51,8 @@ export async function digestIngestCommand(
   },
 ): Promise<void> {
   try {
+    // 간격이 틀렸으면 수집을 다 마친 뒤가 아니라 시작하기 전에 알린다
+    const intervalSec = opts.ocr ? parseInterval(opts.ocrInterval) : undefined;
     const r = await ingest(input, {
       repoRoot: rootOf(opts),
       lang: opts.lang,
@@ -58,12 +60,16 @@ export async function digestIngestCommand(
       whisper: opts.whisper,
       whisperModel: opts.whisperModel,
     });
-    const ocr = opts.ocr
-      ? await runOcr(r.slug, {
-          repoRoot: rootOf(opts),
-          intervalSec: parseInterval(opts.ocrInterval),
-        })
-      : undefined;
+    // OCR이 실패해도 수집 결과는 남아 있어서 slug와 경로를 출력하고 종료 코드로만 알린다
+    let ocr: OcrResult | { error: string } | undefined;
+    if (opts.ocr) {
+      try {
+        ocr = await runOcr(r.slug, { repoRoot: rootOf(opts), intervalSec });
+      } catch (e) {
+        ocr = { error: (e as Error).message };
+        process.exitCode = 1;
+      }
+    }
     emit(ocr ? { ...r, ocr } : r, opts.json, () => {
       console.log(`${r.title} (${mmss(r.durationSec)})`);
       console.log(`자막: ${r.captionSource} [${r.captionTrack}] → 문장 ${r.segmentCount}개`);
@@ -75,7 +81,8 @@ export async function digestIngestCommand(
           `문장 번호가 바뀌어 기존 요약을 옮겼어요(문장 ${before}개 → ${r.segmentCount}개): ${r.staleDigest.movedTo}`,
         );
       }
-      if (ocr) printOcr(ocr);
+      if (ocr && 'error' in ocr) console.log(`화면 글자를 못 읽었어요: ${ocr.error}`);
+      else if (ocr) printOcr(ocr);
     });
   } catch (e) {
     fail(e);
@@ -105,7 +112,13 @@ function parseInterval(value: string | undefined): number | undefined {
 }
 
 function printOcr(r: OcrResult): void {
+  if (r.requestedIntervalSec !== undefined) {
+    console.log(
+      `프레임이 너무 많아 간격을 ${r.requestedIntervalSec}초에서 ${r.intervalSec}초로 넓혔어요`,
+    );
+  }
   console.log(`화면 글자: 프레임 ${r.frames}장(${r.intervalSec}초 간격, ${r.lang}) → ${r.items}개`);
+  if (r.truncated > 0) console.log(`글자가 길어 줄 단위로 자른 항목: ${r.truncated}개`);
   console.log(`저장: ${r.path}`);
 }
 

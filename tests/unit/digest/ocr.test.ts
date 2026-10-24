@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ocrFileSchema, runOcr, tesseractLang, textFromTsv } from '../../../src/digest/ocr.js';
+import {
+  clipOcrText,
+  ocrFileSchema,
+  runOcr,
+  tesseractLang,
+  textFromTsv,
+} from '../../../src/digest/ocr.js';
 import { DigestStore } from '../../../src/digest/store.js';
 import { CommandError, type RunCommand } from '../../../src/digest/ytdlp.js';
 import { SLUG, sampleTranscript } from './fixture.js';
@@ -115,7 +121,8 @@ describe('ocr', () => {
       ]),
     });
     const r = await runOcr(SLUG, { repoRoot: repo, intervalSec: 10, run: f.run });
-    expect(r).toMatchObject({ lang: 'eng', intervalSec: 10, frames: 4, items: 2 });
+    expect(r).toMatchObject({ lang: 'eng', intervalSec: 10, frames: 4, items: 2, truncated: 0 });
+    expect(r.requestedIntervalSec).toBeUndefined();
     const file = ocrFileSchema.parse(JSON.parse(readFileSync(r.path, 'utf-8')));
     const t = sampleTranscript();
     const idxAt = (sec: number) => t.segments.filter((s) => s.startSec <= sec).length - 1;
@@ -127,6 +134,37 @@ describe('ocr', () => {
     const tess = f.calls.filter((c) => c.cmd === 'tesseract');
     expect(tess.every((c) => c.args.join(' ').endsWith('-l eng --psm 11 tsv'))).toBe(true);
     expect(existsSync(f.calls[0]!.cwd)).toBe(false);
+  });
+
+  it('글자가 상한을 넘으면 줄 단위로 자르고 잘린 항목 수를 센다', async () => {
+    expect(clipOcrText('ab\ncd\nef', 6)).toEqual({ text: 'ab\ncd…', truncated: true });
+    expect(clipOcrText('abcdefgh', 4)).toEqual({ text: 'abc…', truncated: true });
+    expect(clipOcrText('ab', 6)).toEqual({ text: 'ab', truncated: false });
+
+    const { repo } = seeded();
+    const long = Array.from(
+      { length: 400 },
+      (_, n) => [n + 1, 90, `word${n}`] as [number, number, string],
+    );
+    const f = fakeRun({ 'f00001.png': tsv(long) });
+    const r = await runOcr(SLUG, { repoRoot: repo, run: f.run });
+    expect(r.truncated).toBe(1);
+    const file = ocrFileSchema.parse(JSON.parse(readFileSync(r.path, 'utf-8')));
+    expect(file.items[0]!.truncated).toBe(true);
+    expect(file.items[0]!.text.endsWith('…')).toBe(true);
+  });
+
+  it('프레임이 상한을 넘으면 간격을 넓히고 처음 요청한 간격을 남긴다', async () => {
+    const repo = tmpRepo();
+    const t = sampleTranscript();
+    new DigestStore(repo).saveTranscript({ ...t, meta: { ...t.meta, durationSec: 7200 } });
+    const f = fakeRun({});
+    const r = await runOcr(SLUG, { repoRoot: repo, intervalSec: 1, run: f.run });
+    expect(r).toMatchObject({ intervalSec: 12, requestedIntervalSec: 1 });
+    const ffmpeg = f.calls.find((c) => c.cmd === 'ffmpeg')!;
+    expect(ffmpeg.args.join(' ')).toContain('fps=1/12,');
+    const file = ocrFileSchema.parse(JSON.parse(readFileSync(r.path, 'utf-8')));
+    expect(file).toMatchObject({ intervalSec: 12, requestedIntervalSec: 1 });
   });
 
   it('tesseract가 없으면 설치 방법을 알린다', async () => {
