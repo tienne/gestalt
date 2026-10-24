@@ -1,6 +1,6 @@
 ---
 name: video-summarizer
-description: "영상 스크립트로 digest.json 요약 작성"
+description: "영상 스크립트로 요약 리포트 작성"
 tools: Read, Grep, Glob, Write
 model: sonnet
 omitClaudeMd: true
@@ -97,7 +97,7 @@ You are the Video Summarizer role agent.
 - 대섹션 범위가 읽은 스크립트의 첫 문장(구간 리포트가 아니면 0번)부터 마지막 문장까지 빈틈없이 이어진다. 요약할 게 없는 구간(인사, 광고, 구독 안내)은 `skipped`에 이유와 함께 넣는다. 빈 구간을 그냥 두지 않는다.
 - 소섹션 범위가 대섹션 범위를 빈틈없이 이어서 나눈다.
 - 불릿의 `cite`는 그 소섹션 범위 안에 있어야 한다.
-- 키워드 `firstCite`는 범위 제한이 없다. 그 용어가 처음 나온 문장이면 어느 소섹션에 있든 된다.
+- 키워드 `firstCite`는 소섹션 범위에 묶이지 않는다. 그 용어가 처음 나온 문장이면 어느 소섹션에 있든 된다. 구간 리포트면 그 구간 안이어야 한다(밖이면 lint가 `OUT_OF_REPORT_RANGE`로 막는다).
 - `frameSec`은 소섹션 첫 문장(`cite.from`)의 `startSec` 값을 그대로 쓴다. 프레임이 그 시각에서 뽑힌다.
 
 ## 계층 규칙

@@ -13,8 +13,8 @@ routing:
 inputs:
   source:
     type: string
-    required: true
-    description: '유튜브 주소 또는 로컬 영상 파일 경로'
+    required: false
+    description: '유튜브 주소 또는 로컬 영상 파일 경로. 이미 수집한 slug를 주면 비워도 된다'
   lang:
     type: string
     required: false
@@ -107,18 +107,31 @@ Step 1 ingest → Step 2 요약 작성 → Step 3 merge → Step 4 frames와 번
 
 **`<repoRoot>`는 Step 1 전에 한 번 정한다.** 작업 디렉토리의 절대 경로(`pwd`)다. 모든 `gestalt digest` 명령에 `--repo-root <repoRoot>`를, 모든 `ges_digest` 호출에 `repoRoot`를 같은 값으로 넘긴다. 셸과 MCP 서버와 서브에이전트는 작업 디렉토리가 서로 다를 수 있어서 안 넘기면 서로 다른 폴더를 본다.
 
+**`source`와 `slug` 중 하나는 있어야 한다.** 둘 다 없으면 영상 주소를 묻는다. `slug`만 받았는데 `<repoRoot>/.gestalt/digest/<slug>/transcript.json`이 없으면 수집할 영상이 없으니 `source`를 되묻는다.
+
+**입력값은 셸에 넣기 전에 꼴을 확인하고 작은따옴표로 감싼다.** 큰따옴표 안에서는 `$(...)`와 백틱이 실행된다. 꼴이 안 맞으면 고쳐 넣지 말고 사용자에게 되묻는다.
+
+| 입력                                | 받는 꼴                                                                                 |
+| ----------------------------------- | --------------------------------------------------------------------------------------- |
+| `source`, `--out` 경로              | 작은따옴표(`'`)가 없는 값                                                               |
+| `slug`                              | `^[a-z0-9-]+$`                                                                          |
+| `length`, `difficulty`              | 입력 정의에 적힌 값 중 하나                                                             |
+| `lang`, `reportLang`, `--report` 키 | `^[A-Za-z0-9-]+$`                                                                       |
+| `range`                             | `^[0-9:]+-[0-9:]+$`. 끝점은 초 단위 정수다. `1:30.5`처럼 소수가 든 값은 명령이 거절한다 |
+| `--interval`                        | 정수                                                                                    |
+
 ## Step 1 — 수집
 
 ```bash
-gestalt digest ingest "<source>" --repo-root <repoRoot> [--lang <code>] [--slug <slug>]
+gestalt digest ingest '<source>' --repo-root <repoRoot> [--lang '<code>'] [--slug '<slug>']
 ```
 
 출력의 slug와 문장 수, 자막 출처(`manual`, `auto`, `whisper`)를 받아 둔다. `저장:` 줄은 `transcript.json`의 절대 경로다. 이 값을 `<transcriptPath>`로, 같은 폴더의 `report.draft.json`을 `<reportPath>`로 받아 둔다. 자동 자막은 문장 끝 부호가 없어 길이와 쉼 간격으로 끊긴다. 문장이 지나치게 짧거나 길면 보고에 적는다.
 
-**`ocr`이 true면 화면 글자도 읽는다.** ingest에 `--ocr`을 붙이면 스크립트를 만든 뒤 이어서 읽는다. 수집을 건너뛴 slug는 `ocr.json`이 없을 때만 따로 부른다.
+**`ocr`이 true면 화면 글자도 읽는다.** ingest에 `--ocr`을 붙이면 스크립트를 만든 뒤 이어서 읽는다. 수집을 건너뛴 slug는 `ocr.json`이 없을 때만 따로 부른다. 이미 있으면 `<repoRoot>/.gestalt/digest/<slug>/ocr.json`을 그대로 `<ocrPath>`로 쓴다.
 
 ```bash
-gestalt digest ocr <slug> --repo-root <repoRoot> [--interval <초>]
+gestalt digest ocr '<slug>' --repo-root <repoRoot> [--interval <초>]
 ```
 
 `화면 글자:` 다음 `저장:` 줄이 `ocr.json`의 절대 경로다. 이 값을 `<ocrPath>`로 받아 둔다. tesseract가 없다는 오류가 나면 설치를 대신 하지 않는다. 안내 문구를 보고에 적고 화면 글자 없이 Step 2로 간다. 읽은 항목이 0개여도 같다.
@@ -128,7 +141,7 @@ gestalt digest ocr <slug> --repo-root <repoRoot> [--interval <초>]
 **구간을 받았으면 스크립트를 자른다.** 수집이 끝난 뒤 부른다.
 
 ```bash
-gestalt digest slice <slug> --range "<range>" --json --repo-root <repoRoot>
+gestalt digest slice '<slug>' --range '<range>' --json --repo-root <repoRoot>
 ```
 
 출력의 `path`를 `<transcriptPath>` 대신 Step 2에 넘기고 `range`(초 튜플)를 `<rangeSec>`로 받아 둔다. 잘라 낸 파일의 문장 번호는 원래 스크립트 번호 그대로라 출처가 전체 스크립트를 가리킨다. 구간에 든 문장이 없으면 명령이 실패한다. 그 메시지를 보여 주고 멈춘다.
@@ -280,10 +293,12 @@ gestalt digest serve <slug> --repo-root <repoRoot>
 
 로컬 영상도 serve로 열어야 재생된다. serve가 `transcript.json`에 적힌 원본 파일 하나만 같은 출처로 내준다. 원본을 옮겼으면 영상 자리에 안내문만 뜬다.
 
+그 원본 경로는 `.gestalt/digest/` 밖이어도 영상 확장자면 내준다. 남이 준 digest 폴더를 serve하면 그 `transcript.json`이 가리키는 이 PC의 영상 파일이 localhost로 열린다. 서버는 127.0.0.1에만 붙어서 같은 PC 밖으로는 안 나간다. 출처를 모르는 폴더면 띄우기 전에 `transcript.json`의 `video.url`을 보고 어느 파일인지 알린다.
+
 `output`이 `md`면 마크다운만 낸다.
 
 ```bash
-gestalt digest export <slug> --md --repo-root <repoRoot> [--report <key>] [--out <path>]
+gestalt digest export '<slug>' --md --repo-root <repoRoot> [--report '<key>'] [--out '<path>']
 ```
 
 보고에는 아래를 담는다.

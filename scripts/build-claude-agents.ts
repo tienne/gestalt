@@ -59,7 +59,7 @@ const SHORT_DESCRIPTIONS: Record<string, string> = {
   'slack-messenger': '작성자 어투로 슬랙 메시지 작성',
   'jira-writer': '지라 티켓 본문 작성',
   explainer: '대상에 맞춘 설명 작성',
-  'video-summarizer': '영상 스크립트로 digest.json 요약 작성',
+  'video-summarizer': '영상 스크립트로 요약 리포트 작성',
 };
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob'];
