@@ -348,8 +348,17 @@ describe('treeSvg', () => {
     );
     expect(svg).not.toContain('<script>');
     expect(svg).toContain('&lt;script&gt;');
-    expect(svg).toMatch(/<g class="mm-node mm-d1 mm-cite" data-sec="10">/);
+    expect(svg).toMatch(
+      /<g class="mm-node mm-d1 mm-cite" data-sec="10" role="link" tabindex="0" aria-label="[^"]*, 0분 10초로 이동">/,
+    );
+    expect(svg).toMatch(/^<svg [^>]*role="group"/);
     expect(svg).toMatch(/<g class="mm-node mm-d0">/);
+  });
+
+  it('누를 노드가 없으면 루트는 img로 남는다', () => {
+    const svg = treeSvg({ label: '루트', children: [{ label: '가지' }] });
+    expect(svg).toMatch(/^<svg [^>]*role="img"/);
+    expect(svg).not.toContain('tabindex');
   });
 
   it('긴 라벨은 말줄임하고 전체는 title에 남긴다', () => {
@@ -514,7 +523,7 @@ describe('대섹션 도식', () => {
     expect(sec.indexOf('class="conclusion"')).toBeLessThan(sec.indexOf('<figure class="diagram">'));
     expect(sec.indexOf('<figure class="diagram">')).toBeLessThan(sec.indexOf('class="sub"'));
     expect(html).toContain('<svg class="dg-svg dg-flow"');
-    expect(html).toMatch(/<g class="dg-node dg-cite" data-sec="5">/);
+    expect(html).toMatch(/<g class="dg-node dg-cite" data-sec="5" role="link" tabindex="0"/);
     expect(html).toContain('<span>작업 순서</span>');
     expect(html).toMatch(
       /<details class="dg-outline"><summary>목록으로 보기<\/summary><ol><li>탐색/,

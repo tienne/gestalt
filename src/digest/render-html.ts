@@ -494,6 +494,8 @@ a.ts:hover{text-decoration:underline}
 .dg-svg .dg-arrow{fill:var(--muted);stroke:none}
 .dg-svg .mm-cite,.dg-svg .dg-cite{cursor:pointer}
 .dg-svg .mm-cite:hover rect,.dg-svg .dg-cite:hover rect{fill:var(--hl)}
+.dg-svg .mm-cite:focus{outline:none}.dg-svg .dg-cite:focus{outline:none}
+.dg-svg .mm-cite:focus-visible rect,.dg-svg .dg-cite:focus-visible rect{stroke:var(--accent);stroke-width:2}
 .dg-bar{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:4px;font-size:.9em;color:var(--muted)}
 .dg-bar span{margin-right:auto}
 .zoom-btn{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer;color:inherit;font:inherit}

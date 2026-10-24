@@ -179,7 +179,14 @@ export const VIEWER_JS =
   function setupTimeLinks(player) {
     document.addEventListener('click', function(ev){
       var el = ev.target.closest ? ev.target.closest('[data-sec]') : null;
-      if (!el || !player.live) return;
+      if (!el) return;
+      if (!player.live) {
+        // 도식 노드는 a가 아니라 href가 없다. 시각 링크와 같게 새 탭으로 연다
+        if (el.tagName.toLowerCase() === 'a' || !data.watchBase) return;
+        ev.preventDefault();
+        window.open(data.watchBase + '&t=' + Math.floor(Number(el.getAttribute('data-sec'))) + 's', '_blank', 'noopener');
+        return;
+      }
       ev.preventDefault();
       manualUntil = Date.now() + 5000;
       player.seek(Number(el.getAttribute('data-sec')));
@@ -672,6 +679,14 @@ export const VIEWER_JS =
   setupCopyButton(reports, tabs);
   setupQuiz();
   var zoom = setupZoom();
+  // 도식 노드는 Enter와 Space를 클릭으로 넘겨야 시각 이동과 확대 창 닫기가 같이 돈다
+  document.addEventListener('keydown', function(ev){
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    var el = ev.target.closest ? ev.target.closest('g[data-sec]') : null;
+    if (!el) return;
+    ev.preventDefault();
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
   // 툴팁과 메뉴, 미니 플레이어가 함께 열려 있으면 Escape 한 번에 하나씩 닫는다
   document.addEventListener('keydown', function(ev){
     if (ev.key !== 'Escape' || zoom.isOpen()) return;

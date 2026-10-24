@@ -123,14 +123,15 @@ export function treeSvg(root: TreeNode, opts: SvgOptions = {}, ariaLabel?: strin
     const cls = [`mm-node`, `mm-d${Math.min(p.depth, 3)}`, p.node.cite && opts.sec ? 'mm-cite' : '']
       .filter(Boolean)
       .join(' ');
-    const sec = p.node.cite && opts.sec ? ` data-sec="${Math.max(0, opts.sec(p.node.cite))}"` : '';
+    const sec = p.node.cite && opts.sec ? citeAttrs(p.node.label, opts.sec(p.node.cite)) : '';
     nodes.push(
       `<g class="${cls}"${sec}><title>${escapeXml(p.node.label)}</title><rect x="${x}" y="${p.y - BOX_H / 2}" width="${p.w}" height="${BOX_H}" rx="6"/><text x="${x + PAD_X}" y="${p.y}" dominant-baseline="central">${escapeXml(p.label)}</text></g>`,
     );
   };
   draw(tree);
   const label = escapeXml(ariaLabel ?? root.label);
-  return `<svg class="dg-svg mm-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${label}"><g class="mm-edges">${edges.join('')}</g>${nodes.join('')}</svg>`;
+  const role = svgRole(nodes.join(''));
+  return `<svg class="dg-svg mm-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="${role}" aria-label="${label}"><g class="mm-edges">${edges.join('')}</g>${nodes.join('')}</svg>`;
 }
 
 export interface DiagramNode {
@@ -165,10 +166,20 @@ function nodeSvg(
 ): string {
   const cite = m.node.cite && opts.sec;
   const cls = ['dg-node', extra, cite ? 'dg-cite' : ''].filter(Boolean).join(' ');
-  const sec = cite ? ` data-sec="${Math.max(0, opts.sec!(m.node.cite!))}"` : '';
+  const sec = cite ? citeAttrs(m.node.label, opts.sec!(m.node.cite!)) : '';
   const r = (n: number) => Math.round(n * 10) / 10;
   return `<g class="${cls}"${sec}><title>${escapeXml(m.node.label)}</title><rect x="${r(x)}" y="${r(cy - BOX_H / 2)}" width="${w}" height="${BOX_H}" rx="6"/><text x="${r(x + PAD_X)}" y="${r(cy)}" dominant-baseline="central">${escapeXml(m.text)}</text></g>`;
 }
+
+// 노드는 a가 아니라서 키보드와 스크린리더가 링크로 읽게 역할과 탭 순서를 직접 단다
+function citeAttrs(label: string, sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  const at = `${Math.floor(s / 60)}분 ${s % 60}초`;
+  return ` data-sec="${Math.max(0, sec)}" role="link" tabindex="0" aria-label="${escapeXml(`${label}, ${at}로 이동`)}"`;
+}
+
+// role="img"면 안쪽 노드가 보조기기에 안 보인다. 누를 노드가 있을 때만 group으로 연다
+const svgRole = (body: string) => (body.includes(' data-sec="') ? 'group' : 'img');
 
 /** 끝점 (x, y)에서 angle 방향을 향하는 화살촉 */
 function arrowHead(x: number, y: number, angle: number): string {
@@ -183,7 +194,7 @@ function arrowHead(x: number, y: number, angle: number): string {
 }
 
 const wrapSvg = (kind: string, width: number, height: number, body: string, aria: string) =>
-  `<svg class="dg-svg dg-${kind}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeXml(aria)}">${body}</svg>`;
+  `<svg class="dg-svg dg-${kind}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="${svgRole(body)}" aria-label="${escapeXml(aria)}">${body}</svg>`;
 
 /** 단계 흐름. 넷까지는 가로로, 그보다 많으면 세로로 잇는다 */
 export function flowSvg(steps: DiagramNode[], opts: SvgOptions = {}, ariaLabel = '흐름도'): string {
