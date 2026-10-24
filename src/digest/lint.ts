@@ -11,11 +11,12 @@ import {
 } from './schema.js';
 import { rangeSpan, reportKey } from './reports.js';
 import {
+  checkTree,
   extensionFields,
   lintExtensions,
-  MINDMAP_MAX_DEPTH,
   walkMindmap,
   type ExtensionLintOptions,
+  type TreeLimit,
 } from './lint-extension.js';
 
 export type DigestIssueSeverity = 'error' | 'warning';
@@ -387,31 +388,19 @@ function checkTitleMarkers(report: Report, p: string, issues: DigestIssue[]): vo
   });
 }
 
+const DIAGRAM_TREE_LIMIT: TreeLimit = {
+  maxNodes: DIAGRAM_TREE_MAX_NODES,
+  depthCode: 'DIAGRAM_DEPTH',
+  sizeCode: 'DIAGRAM_SIZE',
+  name: '도식 트리',
+  topic: '도식 트리는',
+};
+
 function checkDiagramTree(report: Report, p: string, issues: DigestIssue[]): void {
   report.sections.forEach((section, si) => {
     const d = section.diagram;
     if (d?.kind !== 'tree') return;
-    const rootPath = `${p}.sections.${si}.diagram.root`;
-    let count = 0;
-    for (const { node, path, depth } of walkMindmap(d.root, rootPath)) {
-      count += 1;
-      if (depth === MINDMAP_MAX_DEPTH && node.children && node.children.length > 0) {
-        issues.push({
-          path: `${path}.children`,
-          severity: 'error',
-          code: 'DIAGRAM_DEPTH',
-          message: `도식 트리는 루트 아래 ${MINDMAP_MAX_DEPTH}단까지다`,
-        });
-      }
-    }
-    if (count > DIAGRAM_TREE_MAX_NODES) {
-      issues.push({
-        path: rootPath,
-        severity: 'error',
-        code: 'DIAGRAM_SIZE',
-        message: `도식 트리 노드가 ${count}개다. ${DIAGRAM_TREE_MAX_NODES}개까지 쓴다`,
-      });
-    }
+    checkTree(d.root, `${p}.sections.${si}.diagram.root`, DIAGRAM_TREE_LIMIT, issues);
   });
 }
 

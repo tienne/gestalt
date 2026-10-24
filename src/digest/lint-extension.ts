@@ -292,30 +292,56 @@ function checkQuiz(ext: Extension, p: string, issues: DigestIssue[]): void {
   });
 }
 
+export interface TreeLimit {
+  maxNodes: number;
+  depthCode: string;
+  sizeCode: string;
+  /** 메시지에 쓰는 이름. topic은 조사까지 붙인 꼴이다 (마인드맵은, 도식 트리는) */
+  name: string;
+  topic: string;
+}
+
+/** 마인드맵과 대섹션 도식 트리가 같은 깊이 규칙을 쓴다. 노드 상한과 코드만 다르다 */
+export function checkTree(
+  root: MindmapNode,
+  rootPath: string,
+  limit: TreeLimit,
+  issues: DigestIssue[],
+): void {
+  let count = 0;
+  for (const { node, path, depth } of walkMindmap(root, rootPath)) {
+    count += 1;
+    if (depth === MINDMAP_MAX_DEPTH && node.children && node.children.length > 0) {
+      issues.push({
+        path: `${path}.children`,
+        severity: 'error',
+        code: limit.depthCode,
+        message: `${limit.topic} 루트 아래 ${MINDMAP_MAX_DEPTH}단까지다`,
+      });
+    }
+  }
+  if (count > limit.maxNodes) {
+    issues.push({
+      path: rootPath,
+      severity: 'error',
+      code: limit.sizeCode,
+      message: `${limit.name} 노드가 ${count}개다. ${limit.maxNodes}개까지 쓴다`,
+    });
+  }
+}
+
+const MINDMAP_LIMIT: TreeLimit = {
+  maxNodes: MINDMAP_MAX_NODES,
+  depthCode: 'MINDMAP_DEPTH',
+  sizeCode: 'MINDMAP_SIZE',
+  name: '마인드맵',
+  topic: '마인드맵은',
+};
+
 function checkMindmap(ext: Extension, p: string, issues: DigestIssue[]): void {
   ext.blocks.forEach((block, bi) => {
     if (block.type !== 'mindmap') return;
-    const rootPath = `${p}.blocks.${bi}.root`;
-    let count = 0;
-    for (const { node, path, depth } of walkMindmap(block.root, rootPath)) {
-      count += 1;
-      if (depth === MINDMAP_MAX_DEPTH && node.children && node.children.length > 0) {
-        issues.push({
-          path: `${path}.children`,
-          severity: 'error',
-          code: 'MINDMAP_DEPTH',
-          message: `마인드맵은 루트 아래 ${MINDMAP_MAX_DEPTH}단까지다`,
-        });
-      }
-    }
-    if (count > MINDMAP_MAX_NODES) {
-      issues.push({
-        path: rootPath,
-        severity: 'error',
-        code: 'MINDMAP_SIZE',
-        message: `마인드맵 노드가 ${count}개다. ${MINDMAP_MAX_NODES}개까지 쓴다`,
-      });
-    }
+    checkTree(block.root, `${p}.blocks.${bi}.root`, MINDMAP_LIMIT, issues);
   });
 }
 
