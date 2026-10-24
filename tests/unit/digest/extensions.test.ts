@@ -474,6 +474,22 @@ describe('텍스트 블록 (quote, timestamps, actions, qa)', () => {
     expect(md).toContain('- [ ] 공유\n');
     expect(md).toContain('**Q. 왜요?**');
   });
+
+  it('마크다운 인용에 개행이 섞여도 줄마다 인용으로 남고 문법 글자는 무력화한다', () => {
+    const ext = textExt();
+    const [quote, timestamps] = ext.blocks;
+    if (quote?.type !== 'quote') throw new Error('quote 블록이어야 한다');
+    quote.text = 'sentence number 3\n![x](https://example.com/p.png) &lt;b&gt;';
+    const heading = { type: 'heading' as const, text: '제목\n- 목록으로 새는 줄' };
+    ext.blocks.unshift(heading);
+    if (timestamps?.type === 'timestamps') timestamps.items[0]!.title = '본론\n# 끼어든 제목';
+    const md = renderExtensionMarkdown(ext, sampleTranscript());
+    expect(md).toContain(
+      '> sentence number 3\n> !\\[x\\](https://example.com/p.png) \\&lt;b\\&gt; [[4]]',
+    );
+    expect(md).toContain('## 제목 - 목록으로 새는 줄');
+    expect(md).not.toMatch(/^# 끼어든 제목/m);
+  });
 });
 
 describe('기본 템플릿', () => {

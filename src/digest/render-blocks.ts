@@ -65,7 +65,7 @@ function outlineHtml(node: MindmapNode, ctx: BlockHtmlContext): string {
 
 function outlineMd(node: MindmapNode, ctx: BlockMdContext, depth = 0): string[] {
   return [
-    `${'  '.repeat(depth)}- ${node.label}${node.cite ? ` ${ctx.time(node.cite)}` : ''}`,
+    `${'  '.repeat(depth)}- ${oneLine(node.label)}${node.cite ? ` ${ctx.time(node.cite)}` : ''}`,
     ...(node.children ?? []).flatMap((c) => outlineMd(c, ctx, depth + 1)),
   ];
 }
@@ -118,9 +118,9 @@ export function sectionDiagramHtml(d: Diagram, title: string, ctx: BlockHtmlCont
 
 /** 마크다운에는 그림 대신 목록으로 옮긴다. 순서가 있는 흐름과 순환은 번호를 단다 */
 export function sectionDiagramMd(d: Diagram, ctx: BlockMdContext): string[] {
-  const head = d.caption ? [`*${DIAGRAM_LABEL[d.kind]}: ${d.caption}*`, ''] : [];
+  const head = d.caption ? [`*${DIAGRAM_LABEL[d.kind]}: ${oneLine(d.caption)}*`, ''] : [];
   const step = (n: MindmapNode, k: number) =>
-    `${k + 1}. ${n.label}${n.cite ? ` ${ctx.time(n.cite)}` : ''}`;
+    `${k + 1}. ${oneLine(n.label)}${n.cite ? ` ${ctx.time(n.cite)}` : ''}`;
   switch (d.kind) {
     case 'flow':
     case 'cycle':
@@ -140,8 +140,13 @@ export function sectionDiagramMd(d: Diagram, ctx: BlockMdContext): string[] {
   }
 }
 
-// 댓글은 남이 쓴 글이라 마크다운 문법으로 읽히면 링크나 HTML이 끼어든다. 문법 글자를 무력화한다
-const mdVerbatim = (text: string) => text.replace(/[\\`*_[\]<>#|]/g, (ch) => `\\${ch}`);
+// 댓글과 자막 인용은 남이 쓴 글이라 마크다운 문법으로 읽히면 링크나 HTML이 끼어든다. 문법 글자를 무력화한다
+const mdVerbatim = (text: string) => text.replace(/[\\`*_[\]<>#|&]/g, (ch) => `\\${ch}`);
+
+// 한 줄로 쓰는 칸에 개행이 섞이면 목록이나 인용 밖으로 빠져나간다
+const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+const quoteLines = (text: string) => text.split(/\r?\n/).map((l) => `> ${l}`.trimEnd());
 
 function listMd(items: ListItem[], ctx: BlockMdContext, depth = 0): string[] {
   return items.flatMap((it) => [
@@ -246,11 +251,15 @@ export function blockHtml(block: Block, ctx: BlockHtmlContext, id = 'b'): string
 export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
   switch (block.type) {
     case 'heading':
-      return [`## ${block.text}`, ''];
+      return [`## ${oneLine(block.text)}`, ''];
     case 'text':
       return [`${stripKeywords(block.text)}${mdCite(block.cite, ctx)}`, ''];
     case 'list':
-      return [...(block.title ? [`**${block.title}**`, ''] : []), ...listMd(block.items, ctx), ''];
+      return [
+        ...(block.title ? [`**${oneLine(block.title)}**`, ''] : []),
+        ...listMd(block.items, ctx),
+        '',
+      ];
     case 'quote': {
       const by = [
         block.speaker ? `— ${block.speaker}` : '',
@@ -258,10 +267,12 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
       ]
         .filter(Boolean)
         .join(', ');
+      const text = quoteLines(mdVerbatim(block.text));
+      text[text.length - 1] += ctx.cite(block.cite);
       return [
-        `> ${block.text}${ctx.cite(block.cite)}`,
-        ...(block.translation ? ['>', `> ${stripKeywords(block.translation)}`] : []),
-        ...(by ? ['>', `> ${by}`] : []),
+        ...text,
+        ...(block.translation ? ['>', ...quoteLines(stripKeywords(block.translation))] : []),
+        ...(by ? ['>', ...quoteLines(by)] : []),
         '',
       ];
     }
@@ -269,7 +280,7 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
       return [
         ...block.items.map(
           (it) =>
-            `- ${ctx.time(it.cite)} **${it.title}**${it.summary ? ` ${stripKeywords(it.summary)}` : ''}`,
+            `- ${ctx.time(it.cite)} **${oneLine(it.title)}**${it.summary ? ` ${stripKeywords(it.summary)}` : ''}`,
         ),
         '',
       ];
@@ -316,14 +327,11 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
         `분석한 댓글 ${block.total}개`,
         '',
         ...block.groups.flatMap((g) => [
-          `**${g.title}** (${TONE_LABEL[g.tone]}, ${g.count}개)`,
+          `**${oneLine(g.title)}** (${TONE_LABEL[g.tone]}, ${g.count}개)`,
           '',
           stripKeywords(g.summary),
           '',
-          ...g.examples.flatMap((x) => [
-            ...x.text.split(/\r?\n/).map((line) => `> ${mdVerbatim(line)}`.trimEnd()),
-            '',
-          ]),
+          ...g.examples.flatMap((x) => [...quoteLines(mdVerbatim(x.text)), '']),
         ]),
       ];
     default: {
