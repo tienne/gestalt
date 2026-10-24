@@ -218,7 +218,8 @@ export const VIEWER_JS =
       // 스크롤이 움직이면 소섹션 따라가기가 영상을 옮긴다
       pop.focus({ preventScroll: true });
     }
-    function lineText(i){ var li = lines[i]; var t = li && li.querySelector('.txt'); return t ? t.textContent : ''; }
+    // 번역 줄은 같은 li 안에 있어서 원문 span만 읽는다
+    function lineText(i){ var li = lines[i]; var t = li && li.querySelector('.txt .src'); return t ? t.textContent : ''; }
     var MAX_LINES = 8;
     function openCite(btn){
       var key = Number(btn.getAttribute('data-key'));
@@ -412,30 +413,36 @@ export const VIEWER_JS =
     return api;
   }
 
-  function copyText(text, done) {
+  function copyText(text, done, fail) {
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(text).then(done, fallback);
     } else fallback();
     function fallback(){
       var ta = document.createElement('textarea');
       ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
       document.body.appendChild(ta);
       ta.select();
-      try { document.execCommand('copy'); done(); } catch (e) {}
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
       ta.remove();
+      (ok ? done : fail)();
     }
   }
-  function flash(btn, label) {
-    var before = btn.textContent;
-    btn.textContent = '복사했어요';
-    setTimeout(function(){ btn.textContent = label || before; }, 1500);
+  function flash(btn, label, msg) {
+    btn.textContent = msg || '복사했어요';
+    setTimeout(function(){ btn.textContent = label; }, msg ? 3000 : 1500);
+  }
+  function copyWith(btn, label, text) {
+    copyText(text, function(){ flash(btn, label); }, function(){ flash(btn, label, '복사하지 못했어요. 직접 선택해 복사해 주세요'); });
   }
 
   function setupCopyButton(reports) {
     var copyBtn = document.getElementById('copy-md');
     if (!copyBtn) return;
     copyBtn.addEventListener('click', function(){
-      copyText(data.reports[reports.current()].markdown, function(){ flash(copyBtn, '마크다운 복사'); });
+      copyWith(copyBtn, '마크다운 복사', data.reports[reports.current()].markdown);
     });
   }
 
@@ -471,7 +478,7 @@ export const VIEWER_JS =
       if (ri >= 0) { show(ri); return; }
       press(lengthBtns, 'data-length', length);
       press(diffBtns, 'data-difficulty', difficulty);
-      if (cmd) cmd.textContent = reportCommand(data.slug, length, difficulty);
+      if (cmd) cmd.textContent = reportCommand(data.slug, length, difficulty, data.reports[current].lang);
       if (missing) missing.hidden = false;
     }
     function pressedOf(list, attr){
@@ -491,14 +498,15 @@ export const VIEWER_JS =
     });
     if (select) select.addEventListener('change', function(){ show(Number(select.value)); });
     if (copyCmd && cmd) copyCmd.addEventListener('click', function(){
-      copyText(cmd.textContent, function(){ flash(copyCmd, '명령 복사'); });
+      copyWith(copyCmd, '명령 복사', cmd.textContent);
     });
     var saved = null;
     try { saved = localStorage.getItem(REPORT_KEY); } catch (e) {}
     var start = 0;
     data.reports.forEach(function(r, i){ if (r.key === saved) start = i; });
     // 공유된 앵커가 다른 리포트의 섹션을 가리키면 그 리포트를 연다
-    var target = location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+    var anchor = safeDecode(location.hash.slice(1));
+    var target = anchor ? document.getElementById(anchor) : null;
     var owner = target && target.closest ? target.closest('.report[data-ri]') : null;
     if (owner) start = Number(owner.getAttribute('data-ri'));
     if (start !== 0) show(start);

@@ -241,7 +241,7 @@ ${skippedHtml}</div>`;
   const watchBase = isYoutube ? youtubeWatchUrl(meta.videoId!) : null;
   const player = isYoutube
     ? `<div id="player-slot" class="player-slot"><div id="player" class="player"><div id="player-frame"></div><a class="player-fallback" href="${e(watchBase!)}" target="_blank" rel="noopener"><img src="https://i.ytimg.com/vi/${meta.videoId}/hqdefault.jpg" alt=""><span>유튜브에서 열기</span></a><button type="button" id="player-dock" class="player-dock" aria-label="미니 플레이어 닫기">×</button></div></div>`
-    : `<div id="player-slot" class="player-slot"><div id="player" class="player player-local"><video id="player-video" controls playsinline preload="metadata"></video><p class="player-note">로컬 영상은 <code>gestalt digest serve ${e(digest.slug)}</code>로 열어야 재생돼요. 원본 파일을 옮겼으면 ingest를 다시 돌려 주세요.</p><button type="button" id="player-dock" class="player-dock" aria-label="미니 플레이어 닫기">×</button></div></div>`;
+    : `<div id="player-slot" class="player-slot"><div id="player" class="player player-local"><video id="player-video" controls playsinline preload="metadata" aria-label="영상 재생"></video><p class="player-note">로컬 영상은 <code>gestalt digest serve ${e(digest.slug)}</code>로 열어야 재생돼요. 원본 파일을 옮겼으면 ingest를 다시 돌려 주세요.</p><button type="button" id="player-dock" class="player-dock" aria-label="미니 플레이어 닫기">×</button></div></div>`;
 
   const trLang = meta.translationLang;
   const hasTr = trLang !== undefined && segments.some((s) => s.translation);
@@ -255,7 +255,7 @@ ${skippedHtml}</div>`;
   const script = `<div class="script"><h2>스크립트 <small>${e(CAPTION_LABEL[meta.captionSource])}</small>${trToggle}</h2><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="영상 스크립트"><ol id="script-list">${segments
     .map(
       (s) =>
-        `<li data-i="${s.i}">${timeLink(s.startSec, false)}<span class="txt">${e(s.text)}${tr(s)}</span></li>`,
+        `<li data-i="${s.i}">${timeLink(s.startSec, false)}<span class="txt"><span class="src">${e(s.text)}</span>${tr(s)}</span></li>`,
     )
     .join('')}</ol></div></div>`;
 
@@ -275,6 +275,7 @@ ${skippedHtml}</div>`;
       key,
       length: report.options.length,
       difficulty: report.options.difficulty,
+      lang: report.options.lang,
       preset: isPreset(report.options, base),
       keywords: Object.fromEntries(
         report.keywords.map((k) => [
@@ -377,6 +378,7 @@ a.ts:hover{text-decoration:underline}
 .report-missing{border:1px dashed var(--line);border-radius:8px;padding:8px 12px;margin:8px 0;font-size:.88em;background:var(--card)}
 .report-missing p{margin:0 0 6px}
 .report-missing code{display:block;white-space:nowrap;overflow-x:auto;background:var(--chip);padding:4px 8px;border-radius:4px;margin:0 0 6px}
+#report-cmd{user-select:all}
 .report-missing button{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer}
 .report-scope{color:var(--muted);font-size:.9em;margin:12px 0 0}
 .lead{border-left:3px solid var(--accent);padding:4px 16px;margin:20px 0}
@@ -410,6 +412,7 @@ a.ts:hover{text-decoration:underline}
 .minimap{position:fixed;right:12px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:6px;z-index:10}
 .minimap a{display:flex;width:28px;height:28px;border-radius:50%;align-items:center;justify-content:center;background:var(--card);border:1px solid var(--line);color:var(--muted);text-decoration:none;font-size:12px}
 .minimap a.is-current{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.minimap[hidden]{display:none}
 @media (max-width:900px){
 .layout{grid-template-columns:minmax(0,1fr);padding:0 16px;gap:0}
 .side{position:static;height:auto}

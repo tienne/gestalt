@@ -154,7 +154,7 @@ describe('renderDigestHtml 플레이어', () => {
   it('로컬 파일 영상은 video 요소와 serve 안내를 싣고 시각은 링크가 아니다', () => {
     const { html } = renderDigestHtml(sampleDigest(), fileTranscript());
     expect(html).toContain(
-      '<video id="player-video" controls playsinline preload="metadata"></video>',
+      '<video id="player-video" controls playsinline preload="metadata" aria-label="영상 재생"></video>',
     );
     expect(html).toContain(`<code>gestalt digest serve ${SLUG}</code>로 열어야 재생돼요`);
     expect(html).toContain('id="player-slot"');
@@ -171,9 +171,9 @@ describe('renderDigestHtml 플레이어', () => {
     t.segments[1]!.translation = '<b>두 번째</b> 문장';
     const { html } = renderDigestHtml(sampleDigest(), t);
     expect(html).toContain(
-      '<span class="txt">Sentence number 1.<span class="tr" lang="ko">&lt;b&gt;두 번째&lt;/b&gt; 문장</span></span>',
+      '<span class="txt"><span class="src">Sentence number 1.</span><span class="tr" lang="ko">&lt;b&gt;두 번째&lt;/b&gt; 문장</span></span>',
     );
-    expect(html).toContain('<span class="txt">Sentence number 0.</span>');
+    expect(html).toContain('<span class="txt"><span class="src">Sentence number 0.</span></span>');
     expect(html).toContain(
       'id="tr-toggle" class="tr-toggle" aria-pressed="true" hidden>번역</button>',
     );

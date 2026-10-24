@@ -229,6 +229,17 @@ describe('리포트 여럿 렌더', () => {
     expect(html).toMatch(/<div class="report" data-ri="1"[^>]*hidden/);
   });
 
+  it('숨긴 리포트의 미니맵은 display:flex에 가리지 않고 숨는다', () => {
+    const { html } = renderDigestHtml(multi(), sampleTranscript());
+    expect(html).toMatch(/<nav class="minimap"[^>]*data-ri="1"[^>]*hidden/);
+    expect(html).toContain('.minimap[hidden]{display:none}');
+  });
+
+  it('지금 보는 리포트의 언어를 뷰어 데이터에 싣는다', () => {
+    const { html } = renderDigestHtml(multi(), sampleTranscript());
+    expect(html).toMatch(/"lang":"ko"/);
+  });
+
   it('두 번째 리포트부터 섹션 id에 접두를 붙여 첫 리포트 앵커와 안 겹친다', () => {
     const { html } = renderDigestHtml(multi(), sampleTranscript());
     expect(html).toContain('id="sec-s1"');
@@ -276,6 +287,12 @@ describe('viewerLogic 리포트 전환', () => {
     expect(viewerLogic.pickReport(reports, 'long', 'easy')).toBe(-1);
     expect(viewerLogic.reportCommand('figma-x', 'long', 'easy')).toBe(
       '/gestalt:video-digest slug=figma-x length=long difficulty=easy',
+    );
+  });
+
+  it('지금 보는 리포트의 언어를 생성 명령에 싣는다', () => {
+    expect(viewerLogic.reportCommand('figma-x', 'short', 'normal', 'en')).toBe(
+      '/gestalt:video-digest slug=figma-x length=short difficulty=normal reportLang=en',
     );
   });
 });
