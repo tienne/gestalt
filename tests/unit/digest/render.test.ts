@@ -142,6 +142,8 @@ describe('renderDigestHtml 플레이어', () => {
       '<p id="copy-status" class="sr-only" role="status" aria-live="polite"></p>',
     );
     expect(html).toContain('.sr-only{position:absolute;');
+    expect(VIEWER_JS).toContain("getElementById('copy-status')");
+    expect(VIEWER_JS).toContain('복사하지 못했어요. 직접 선택해 복사해 주세요');
   });
 
   it('noscript 안내는 자바스크립트와 화면 이름을 구분해 적는다', () => {
