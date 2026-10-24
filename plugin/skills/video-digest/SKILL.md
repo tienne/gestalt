@@ -181,12 +181,14 @@ Agent {
 
 띄우기 직전에 `git status --porcelain --untracked-files=all` 출력을 저장해 둔다. 돌아오면 두 가지를 본다.
 
-- Output Format 첫 줄의 경로가 넘긴 `<reportPath>`와 같은지 본다. 다르면 그 파일을 열지 않고 두 경로를 그대로 보고하며 멈춘다. 경로가 같아도 `<reportPath>` 파일이 없으면 멈추고 보고한다.
+- Output Format 첫 줄의 경로가 넘긴 `<reportPath>`와 같은지 본다. 다르면 그 파일을 열지 않고 두 경로를 그대로 보고하며 멈춘다. 경로가 같아도 `<reportPath>` 파일이 없으면 멈추고 보고한다. 긴 영상을 나눠 맡길 때는 위임마다 그 조각 경로를 `<reportPath>` 자리에 넣어 이 확인을 한다. `video-summarizer`도 조각을 쓰면 첫 줄에 조각 경로를 낸다.
 - `git status` 출력을 다시 떠서 저장해 둔 것과 같은지 본다. 레포 추적 파일이 바뀌지 않았는지 보는 용도다. `.gestalt/`는 보통 gitignore 대상이라 이 비교로는 그 아래 쓰기를 못 잡는다. 그 자리는 앞의 경로 확인이 맡는다.
 
 ### 긴 영상은 나눠 쓴다
 
 문장이 400개를 넘으면 한 번에 맡기지 않는다. 경로는 전부 메인이 `<reportPath>`와 같은 폴더의 절대 경로로 정해 넘긴다. 각 위임은 위 프롬프트에서 1번은 그대로 두고 2번의 `<reportPath>`만 아래 조각 경로로 바꾼 뒤 "이번에는 시스템 프롬프트의 '나눠 쓸 때' 절의 <뼈대|대섹션 조각|도입> 모양으로 쓴다"를 덧붙인다. 조각 모양은 `video-summarizer`의 "나눠 쓸 때" 절에 있다.
+
+뼈대를 맡기기 전에 지난 실행이 남긴 조각을 지운다. 조각 파일은 이름이 고정이라 수집을 건너뛴 slug에 그대로 남아 있고 조각 위임 하나가 파일을 안 써도 옛 조각이 합쳐진다. 세 파일은 `rm -f '<폴더>/digest.skeleton.json' '<폴더>/digest.lead.json' '<폴더>/digest.options.json'`로 이름을 하나씩 적어 지우고 대섹션 조각은 `find '<폴더>' -maxdepth 1 -name 'digest.part-*.json' -delete`로 지운다. `rm`에 글롭을 쓰지 않는 건 zsh가 맞는 파일이 없는 글롭에서 명령을 실패시켜 첫 실행이 막혀서다. `transcript*.json`, `ocr.json`, `digest.json`, `digest*.md`, `translation.part-*.json`, `frames/`, `cache/`는 지우지 않는다. Step 3에서 다시 맡길 때도 지우지 않는다.
 
 1. **뼈대**는 `digest.skeleton.json`에 쓴다. 대섹션 경계와 제목, `skipped`만 정한다. 대섹션 id는 순서대로 `s1`, `s2`다.
 2. **대섹션 조각**은 대섹션마다 따로 맡겨 `digest.part-<대섹션 id>.json`에 쓴다. 뼈대 경로와 그 대섹션 id를 같이 넘긴다. 경로가 서로 달라서 한 메시지에서 함께 띄워도 서로 덮어쓰지 않는다. 소섹션 id는 `s<대섹션 번호>-<n>`이고 그 대섹션 본문에 쓴 키워드는 id 앞에 `s<대섹션 번호>-`를 붙여 조각 안 `keywords`에 같이 낸다. 그래서 합쳐도 id가 겹치지 않고 본문의 `{{kw:}}`가 가리킬 키워드가 조각마다 있다.
