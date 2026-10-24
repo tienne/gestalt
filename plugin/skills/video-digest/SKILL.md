@@ -193,7 +193,7 @@ Agent {
 3. **도입**은 조각이 다 모인 뒤 `digest.lead.json`에 쓴다. 뼈대와 조각 경로를 넘기고 `lead`만 쓰게 한다. 키워드는 2번에서 이미 나왔다.
 4. **합치기**는 메인이 jq로 배열을 이어 붙인다. 본문을 컨텍스트로 읽어 손으로 조립하지 않는다. 조각은 뼈대의 대섹션 순서대로 적는다.
 
-options는 셸 인자로 넘기지 않는다. 요청문에 따옴표가 섞일 수 있어서다. Step 2 프롬프트에 적은 options(length, difficulty, lang, 있으면 range와 prompt)를 파일 쓰기 도구로 `<폴더>/digest.options.json`에 써 두고 읽는다. 값이 없는 length와 difficulty는 `default`, `normal`로 적는다.
+options는 셸 인자로 넘기지 않는다. 요청문에 따옴표가 섞일 수 있어서다. Step 2 프롬프트에 적은 options(length, difficulty, lang, 있으면 range와 prompt)를 파일 쓰기 도구로 `<폴더>/digest.options.json`에 써 두고 읽는다. 값이 없는 length, difficulty, lang은 Step 2 프롬프트와 같이 `default`, `normal`, `ko`로 적는다.
 
 ```bash
 jq -n --slurpfile opt '<폴더>/digest.options.json' \
