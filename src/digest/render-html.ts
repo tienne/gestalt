@@ -343,7 +343,7 @@ ${skippedHtml}</div>`;
   const extPanels = extensions.map((x) => extensionHtml(x, blockCtx)).join('\n');
   const summary = `${hasTabs ? reportBar : ''}${rendered.map((r) => r.body).join('\n')}`;
   const summaryPanel = hasTabs
-    ? `<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary">${summary}</div>\n${extPanels}`
+    ? `<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary" tabindex="0">${summary}</div>\n${extPanels}`
     : summary;
 
   const html = `<!doctype html>

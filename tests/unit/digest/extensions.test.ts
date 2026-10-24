@@ -307,6 +307,10 @@ describe('확장 탭 렌더', () => {
     expect(html).toMatch(
       /<section class="ext" id="ext-background\.ko" role="tabpanel"[^>]* hidden>/,
     );
+    expect(html).toMatch(/<section class="ext" id="ext-background\.ko"[^>]* tabindex="0" hidden>/);
+    expect(html).toContain(
+      '<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary" tabindex="0">',
+    );
     expect(html).toContain('<strong>코드를</strong>');
     expect(html).toContain('<noscript><style>.ext{display:block!important}');
   });

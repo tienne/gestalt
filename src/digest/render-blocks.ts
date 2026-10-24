@@ -347,7 +347,7 @@ export const extensionPanelId = (ext: Pick<Extension, 'template' | 'lang'>) =>
 
 export function extensionHtml(ext: Extension, ctx: BlockHtmlContext): string {
   const id = extensionPanelId(ext);
-  return `<section class="ext" id="${ctx.escape(id)}" role="tabpanel" aria-labelledby="tab-${ctx.escape(id)}" lang="${ctx.escape(ext.lang)}" hidden><h2>${ctx.escape(ext.title)}</h2>${ext.blocks
+  return `<section class="ext" id="${ctx.escape(id)}" role="tabpanel" aria-labelledby="tab-${ctx.escape(id)}" lang="${ctx.escape(ext.lang)}" tabindex="0" hidden><h2>${ctx.escape(ext.title)}</h2>${ext.blocks
     .map((b, bi) => blockHtml(b, ctx, `${id}-b${bi}`))
     .join('')}</section>`;
 }
