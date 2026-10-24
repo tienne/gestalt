@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -113,6 +113,20 @@ describe('loadTemplates', () => {
     writeFileSync(join(dir, name), content);
   }
 
+  it('심링크와 64KB를 넘는 파일은 읽지 않고 경고한다', () => {
+    const repo = tmpRepo();
+    const dir = new DigestStore(repo).templatesDir();
+    const outside = join(repo, 'outside.md');
+    writeFileSync(outside, TEMPLATE);
+    mkdirSync(dir, { recursive: true });
+    symlinkSync(outside, join(dir, 'background.md'));
+    writeTemplate(dir, 'big.md', TEMPLATE + 'a'.repeat(65 * 1024));
+    const { templates, warnings } = loadTemplates(null, repo);
+    expect(templates).toEqual([]);
+    expect(warnings.join('\n')).toMatch(/심링크라 건너뛰었다/);
+    expect(warnings.join('\n')).toMatch(/64KB를 넘어 건너뛰었다/);
+  });
+
   it('같은 id면 사용자 템플릿이 기본 템플릿을 대신하고 경고를 남긴다', () => {
     const repo = tmpRepo();
     const builtin = join(repo, 'builtin');
@@ -124,7 +138,11 @@ describe('loadTemplates', () => {
     );
     const { templates, warnings } = loadTemplates(builtin, repo);
     expect(templates).toHaveLength(1);
-    expect(templates[0]).toMatchObject({ source: 'user', prompt: '내 방식으로 정리한다.' });
+    expect(templates[0]).toMatchObject({
+      source: 'user',
+      prompt: '내 방식으로 정리한다.',
+      overridesBuiltin: true,
+    });
     expect(warnings.join('\n')).toMatch(/기본 템플릿 background를 대신한다/);
   });
 

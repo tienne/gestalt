@@ -273,7 +273,11 @@ export function digestTemplatesCommand(opts: DigestCommonOptions): void {
     const list = load.templates.map(({ prompt: _prompt, ...t }) => t);
     emit({ templates: list, warnings: load.warnings }, opts.json, () => {
       for (const t of list) {
-        const tag = t.source === 'user' ? ' (사용자)' : '';
+        const tag = t.overridesBuiltin
+          ? ' (사용자, 기본 템플릿을 대신함)'
+          : t.source === 'user'
+            ? ' (사용자)'
+            : '';
         console.log(`${t.id}${tag}  ${t.title} — ${t.description}`);
         console.log(
           `  블록: ${t.blocks.join(', ')}${t.needs.length ? ` / 먼저 받을 자료: ${t.needs.join(', ')}` : ''}`,

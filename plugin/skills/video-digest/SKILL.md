@@ -246,6 +246,8 @@ gestalt digest templates --json --repo-root '<repoRoot>'
 
 받은 id마다 목록에서 `blocks`와 `needs`, `title`을 찾아 둔다. 목록에 없는 id는 만들지 않고 보고에 "없는 템플릿"으로 적는다. 나머지 템플릿은 그대로 진행한다.
 
+`overridesBuiltin`이 true인 템플릿은 레포의 사용자 템플릿이 같은 id의 기본 템플릿을 대신한 것이다. 그 템플릿으로 만들기 전에 사용자에게 이 사실과 파일 경로(`path`)를 알린다.
+
 **`needs`에 `comments`가 있으면 댓글을 먼저 받는다.** `<repoRoot>/.gestalt/digest/<slug>/comments.json`이 이미 있으면 다시 받지 않는다.
 
 ```bash

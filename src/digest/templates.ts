@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import matter from 'gray-matter';
@@ -48,6 +48,8 @@ export interface DigestTemplate {
   prompt: string;
   source: 'builtin' | 'user';
   path: string;
+  /** 레포의 사용자 템플릿이 같은 id의 기본 템플릿을 대신했다 */
+  overridesBuiltin?: boolean;
 }
 
 export interface TemplateLoad {
@@ -80,7 +82,17 @@ function readDir(dir: string, source: DigestTemplate['source'], warnings: string
   for (const name of readdirSync(dir).sort()) {
     if (!name.endsWith('.md')) continue;
     const path = join(dir, name);
-    if (!statSync(path).isFile()) continue;
+    // 심링크는 레포 밖 파일을 템플릿 지시로 끌어올 수 있어 따라가지 않는다
+    const st = lstatSync(path);
+    if (st.isSymbolicLink()) {
+      warnings.push(`${path}: 심링크라 건너뛰었다`);
+      continue;
+    }
+    if (!st.isFile()) continue;
+    if (st.size > TEMPLATE_MAX_BYTES) {
+      warnings.push(`${path}: 템플릿이 64KB를 넘어 건너뛰었다`);
+      continue;
+    }
     try {
       const t = parseTemplate(readFileSync(path, 'utf-8'), source, path);
       // 파일 이름과 id가 다르면 템플릿을 찾을 때 둘 중 무엇을 써야 할지 헷갈린다
@@ -105,8 +117,12 @@ export function loadTemplates(builtinDir: string | null, repoRoot: string): Temp
   const byId = new Map<string, DigestTemplate>();
   if (builtinDir) for (const t of readDir(builtinDir, 'builtin', warnings)) byId.set(t.id, t);
   for (const t of readDir(new DigestStore(repoRoot).templatesDir(), 'user', warnings)) {
-    if (byId.has(t.id)) warnings.push(`${t.path}: 기본 템플릿 ${t.id}를 대신한다`);
-    byId.set(t.id, t);
+    if (byId.has(t.id)) {
+      warnings.push(`${t.path}: 기본 템플릿 ${t.id}를 대신한다`);
+      byId.set(t.id, { ...t, overridesBuiltin: true });
+    } else {
+      byId.set(t.id, t);
+    }
   }
   const templates = [...byId.values()].sort(
     (a, b) => a.order - b.order || a.id.localeCompare(b.id),
