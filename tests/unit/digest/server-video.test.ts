@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { request } from 'node:http';
 import { join, resolve } from 'node:path';
@@ -76,7 +76,8 @@ describe('parseByteRange', () => {
     expect(parseByteRange('bytes=0-1,3-4', 10)).toBe('none');
     expect(parseByteRange('items=0-1', 10)).toBe('none');
     expect(parseByteRange('bytes=10-', 10)).toBe('unsatisfiable');
-    expect(parseByteRange('bytes=5-2', 10)).toBe('unsatisfiable');
+    expect(parseByteRange('bytes=5-2', 10)).toBe('none');
+    expect(parseByteRange('bytes=5-999', 10)).toEqual({ start: 5, end: 9 });
     expect(parseByteRange('bytes=-0', 10)).toBe('unsatisfiable');
   });
 });
@@ -108,6 +109,40 @@ describe('DigestServer 로컬 영상', () => {
 
     const txt = await started('notes.txt');
     expect((await get(txt.server.port!, '/local/video')).status).toBe(404);
+  });
+
+  it('요청 URL의 쿼리나 인코딩 경로로 다른 파일을 고를 수 없다', async () => {
+    const { server } = await started();
+    const query = await get(server.port!, '/local/video?path=/etc/hosts');
+    expect(query.status).toBe(200);
+    expect(query.body).toBe('0123456789');
+    for (const path of [
+      '/..%2f..%2fetc/hosts',
+      '/%2e%2e/%2e%2e/etc/hosts',
+      '/local/..%2f..%2fvideos/notes.txt',
+    ]) {
+      expect([400, 404]).toContain((await get(server.port!, path)).status);
+    }
+  });
+
+  it('transcript.json이 바뀌면 캐시한 영상 경로를 다시 읽는다', async () => {
+    const { server, root, outside } = await started();
+    expect((await get(server.port!, '/local/video')).status).toBe(200);
+    const t = sampleTranscript();
+    const moved = {
+      ...t,
+      slug: 'local',
+      meta: {
+        ...t.meta,
+        source: 'file',
+        videoId: undefined,
+        url: pathToFileURL(join(outside, 'notes.txt')).href,
+      },
+    };
+    const path = join(root, 'local', 'transcript.json');
+    writeFileSync(path, JSON.stringify(moved));
+    utimesSync(path, new Date(), new Date(Date.now() + 5000));
+    expect((await get(server.port!, '/local/video')).status).toBe(404);
   });
 
   it('영상 이름의 심링크가 다른 파일을 가리키면 실제 확장자로 막는다', async () => {

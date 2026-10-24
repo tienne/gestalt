@@ -40,8 +40,10 @@ export function parseByteRange(header: string | undefined, size: number): ByteRa
     return { start: Math.max(0, size - suffix), end: size - 1 };
   }
   const start = Number(m[1]!);
+  // 끝이 시작보다 앞이면 문법 오류라 무시한다. 끝을 size에 맞춰 자르기 전에 봐야 bytes=5-999 같은 정상 요청이 안 빠진다
+  if (m[2] !== '' && Number(m[2]!) < start) return 'none';
+  if (start >= size) return 'unsatisfiable';
   const end = m[2] === '' ? size - 1 : Math.min(Number(m[2]!), size - 1);
-  if (start >= size || start > end) return 'unsatisfiable';
   return { start, end };
 }
 
@@ -100,6 +102,8 @@ function safeDecode(raw: string): string | null {
 export class DigestServer {
   private server: Server | null = null;
   private readonly root: string;
+  // 영상은 Range 요청이 연달아 와서 transcript.json을 매번 파싱하지 않는다. 파일이 바뀌면 mtime으로 다시 읽는다
+  private readonly videoPaths = new Map<string, { mtimeMs: number; file: string | null }>();
 
   constructor(root: string) {
     this.root = realpathSync(root);
@@ -195,20 +199,18 @@ export class DigestServer {
    * 요청 URL에서 경로를 받지 않는다. 영상 확장자가 아니면 그 경로도 내주지 않는다
    */
   private serveVideo(req: IncomingMessage, res: ServerResponse, slug: string): void {
-    const raw = readRaw(join(this.root, slug, 'transcript.json'));
-    const parsed = raw.kind === 'ok' ? parseTranscript(raw.value) : null;
-    const meta = parsed?.ok ? parsed.value.meta : null;
-    if (!meta || meta.source !== 'file' || !meta.url) return this.deny(res, 404, 'Not Found');
-    let file: string;
+    const file = this.videoPath(slug);
+    if (!file) return this.deny(res, 404, 'Not Found');
+    // 경로는 캐시해도 실제 파일 검사는 요청마다 한다. 그사이 심링크가 바뀌거나 파일이 지워질 수 있다
+    let real: string;
+    let stat: ReturnType<typeof statSync>;
     try {
-      file = fileURLToPath(meta.url);
+      real = realpathSync(file);
+      stat = statSync(real);
     } catch {
       return this.deny(res, 404, 'Not Found');
     }
-    if (!existsSync(file)) return this.deny(res, 404, 'Not Found');
-    const real = realpathSync(file);
     const type = VIDEO_MIME[extname(real).toLowerCase()];
-    const stat = statSync(real);
     if (!type || !stat.isFile()) return this.deny(res, 404, 'Not Found');
 
     const range = parseByteRange(req.headers.range, stat.size);
@@ -229,6 +231,33 @@ export class DigestServer {
     }
     if (req.method === 'HEAD') return void res.end();
     this.stream(res, real, range === 'none' ? undefined : range);
+  }
+
+  private videoPath(slug: string): string | null {
+    const transcriptPath = join(this.root, slug, 'transcript.json');
+    let mtimeMs: number;
+    try {
+      mtimeMs = statSync(transcriptPath).mtimeMs;
+    } catch {
+      this.videoPaths.delete(slug);
+      return null;
+    }
+    const hit = this.videoPaths.get(slug);
+    if (hit && hit.mtimeMs === mtimeMs) return hit.file;
+
+    const raw = readRaw(transcriptPath);
+    const parsed = raw.kind === 'ok' ? parseTranscript(raw.value) : null;
+    const meta = parsed?.ok ? parsed.value.meta : null;
+    let file: string | null = null;
+    if (meta && meta.source === 'file' && meta.url) {
+      try {
+        file = fileURLToPath(meta.url);
+      } catch {
+        file = null;
+      }
+    }
+    this.videoPaths.set(slug, { mtimeMs, file });
+    return file;
   }
 
   private stream(res: ServerResponse, path: string, range?: { start: number; end: number }) {
