@@ -468,9 +468,11 @@ a.ts:hover{text-decoration:underline}
 .qa dd{margin:4px 0 0}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:12px 0}
 .card{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:12px 14px}
-.card summary{cursor:pointer;font-weight:600;list-style:none}
+.card summary{cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between;gap:10px}
 .card summary::-webkit-details-marker{display:none}
+.card summary::after{content:"";flex:none;width:7px;height:7px;margin-top:.4em;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg)}
 .card[open] summary{color:var(--muted);font-weight:400;font-size:.9em}
+.card[open] summary::after{transform:rotate(-135deg);margin-top:.6em}
 .card-back{margin-top:8px}
 .quiz{padding-left:20px}
 .quiz-q{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:10px 14px;margin:0 0 12px}
