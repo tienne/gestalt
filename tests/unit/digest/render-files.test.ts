@@ -57,7 +57,7 @@ describe('exportMarkdown --out', () => {
 describe('렌더 차단 오류', () => {
   it('lint 오류는 DigestLintError로 전부 싣는다', () => {
     const { repo } = seeded((d) => {
-      d.report.sections[0]!.cite = { key: 50, from: 50, to: 50 };
+      d.reports[0]!.sections[0]!.cite = { key: 50, from: 50, to: 50 };
     });
     let caught: unknown;
     try {

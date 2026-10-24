@@ -1184,7 +1184,7 @@ export const digestInputSchema = guardObject(
     action: z
       .enum(DIGEST_ACTIONS)
       .describe(
-        'validate: .gestalt/digest/<slug>/digest.json을 스키마와 lint로 검사하고 오류와 경고를 준다. render: 검사를 통과한 요약으로 뷰어 HTML(digest.html)과 마크다운(digest.md)을 만든다. LLM을 부르지 않는다. prose_extract: 윤문할 문장만 { path, text, hash } 목록으로 뽑는다. 제목은 빼고 도입, 결론, 불릿, 키워드 설명, 뺀 구간 사유를 꺼낸다. prose_apply: 다듬은 목록(items)을 같은 path로 되돌려 넣고 저장한다. 굵게(**), 키워드 마커의 id, 숫자, URL이 하나라도 빠지거나 바뀐 항목은 원문을 두고 경고한다',
+        'validate: .gestalt/digest/<slug>/digest.json을 스키마와 lint로 검사하고 오류와 경고, 리포트 키 목록(reports)을 준다. render: 검사를 통과한 요약으로 뷰어 HTML(digest.html, 리포트 전부)과 마크다운(digest.md, 첫 리포트)을 만든다. LLM을 부르지 않는다. prose_extract: 윤문할 문장만 { path, text, hash } 목록으로 뽑는다. 제목은 빼고 도입, 결론, 불릿, 키워드 설명, 뺀 구간 사유를 꺼낸다. prose_apply: 다듬은 목록(items)을 같은 path로 되돌려 넣고 저장한다. 굵게(**), 키워드 마커의 id, 숫자, URL이 하나라도 빠지거나 바뀐 항목은 원문을 두고 경고한다',
       ),
     slug: z.string().describe('요약 slug. gestalt digest ingest가 알려준 값'),
     repoRoot: z.string().optional().describe('기본은 현재 디렉토리'),

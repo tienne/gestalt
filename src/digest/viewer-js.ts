@@ -30,6 +30,16 @@ function citeWindow(from, to, max) {
   var end = Math.min(to, from + max - 1);
   return { end: end, more: Math.max(0, to - end) };
 }
+function pickReport(reports, length, difficulty) {
+  for (var i = 0; i < reports.length; i++) {
+    var r = reports[i];
+    if (r.preset && r.length === length && r.difficulty === difficulty) return i;
+  }
+  return -1;
+}
+function reportCommand(slug, length, difficulty) {
+  return '/gestalt:video-digest slug=' + slug + ' length=' + length + ' difficulty=' + difficulty;
+}
 `;
 
 export interface ViewerLogic {
@@ -56,10 +66,18 @@ export interface ViewerLogic {
   cueAction: (state: number) => 'seek' | 'cue';
   /** 출처 툴팁에 보일 마지막 문장 번호와 생략한 문장 수 */
   citeWindow: (from: number, to: number, max: number) => { end: number; more: number };
+  /** 툴바의 분량과 난이도 조합에 맞는 리포트 자리. 없으면 -1 */
+  pickReport: (
+    reports: { preset: boolean; length: string; difficulty: string }[],
+    length: string,
+    difficulty: string,
+  ) => number;
+  /** 없는 조합을 고르면 복사해 주는 생성 명령 */
+  reportCommand: (slug: string, length: string, difficulty: string) => string;
 }
 
 export const viewerLogic = new Function(
-  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, shouldFollowHeld: shouldFollowHeld, cueAction: cueAction, citeWindow: citeWindow };`,
+  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, shouldFollowHeld: shouldFollowHeld, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand };`,
 )() as ViewerLogic;
 
 export const findSegmentIndex = viewerLogic.findSegmentIndex;
@@ -252,7 +270,9 @@ export const VIEWER_JS =
       place(btn, '출처 툴팁');
     }
     function openKeyword(btn){
-      var k = data.keywords[btn.getAttribute('data-kw')];
+      var box = btn.closest('.report');
+      var rep = box ? data.reports[Number(box.getAttribute('data-ri'))] : null;
+      var k = rep ? rep.keywords[btn.getAttribute('data-kw')] : null;
       if (!k) return;
       pop.textContent = '';
       var head = document.createElement('div');
@@ -410,26 +430,102 @@ export const VIEWER_JS =
     return api;
   }
 
-  function setupCopyButton() {
+  function copyText(text, done) {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else fallback();
+    function fallback(){
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) {}
+      ta.remove();
+    }
+  }
+  function flash(btn, label) {
+    var before = btn.textContent;
+    btn.textContent = '복사했어요';
+    setTimeout(function(){ btn.textContent = label || before; }, 1500);
+  }
+
+  function setupCopyButton(reports) {
     var copyBtn = document.getElementById('copy-md');
     if (!copyBtn) return;
     copyBtn.addEventListener('click', function(){
-      var done = function(){ copyBtn.textContent = '복사했어요'; setTimeout(function(){ copyBtn.textContent = '마크다운 복사'; }, 1500); };
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(data.markdown).then(done, fallback);
-      } else fallback();
-      function fallback(){
-        var ta = document.createElement('textarea');
-        ta.value = data.markdown;
-        document.body.appendChild(ta);
-        ta.select();
-        try { document.execCommand('copy'); done(); } catch (e) {}
-        ta.remove();
-      }
+      copyText(data.reports[reports.current()].markdown, function(){ flash(copyBtn, '마크다운 복사'); });
     });
   }
 
+  // 툴바는 분량과 난이도 조합으로 리포트를 고른다. 없는 조합은 서버가 만들지 않고 생성 명령만 보여 준다
+  function setupReports() {
+    var REPORT_KEY = 'gestalt-digest-report:' + data.slug;
+    var boxes = document.querySelectorAll('.report[data-ri]');
+    var maps = document.querySelectorAll('.minimap[data-ri]');
+    var lengthBtns = document.querySelectorAll('.report-bar [data-length]');
+    var diffBtns = document.querySelectorAll('.report-bar [data-difficulty]');
+    var select = document.getElementById('report-select');
+    var missing = document.getElementById('report-missing');
+    var cmd = document.getElementById('report-cmd');
+    var copyCmd = document.getElementById('copy-cmd');
+    var current = 0;
+    function press(list, attr, value){
+      list.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute(attr) === value ? 'true' : 'false'); });
+    }
+    function show(ri){
+      if (!data.reports[ri]) ri = 0;
+      current = ri;
+      boxes.forEach(function(b){ b.hidden = Number(b.getAttribute('data-ri')) !== ri; });
+      maps.forEach(function(m){ m.hidden = Number(m.getAttribute('data-ri')) !== ri; });
+      var r = data.reports[ri];
+      press(lengthBtns, 'data-length', r.length);
+      press(diffBtns, 'data-difficulty', r.difficulty);
+      if (select) select.value = String(ri);
+      if (missing) missing.hidden = true;
+      try { localStorage.setItem(REPORT_KEY, r.key); } catch (e) {}
+    }
+    function choose(length, difficulty){
+      var ri = pickReport(data.reports, length, difficulty);
+      if (ri >= 0) { show(ri); return; }
+      press(lengthBtns, 'data-length', length);
+      press(diffBtns, 'data-difficulty', difficulty);
+      if (cmd) cmd.textContent = reportCommand(data.slug, length, difficulty);
+      if (missing) missing.hidden = false;
+    }
+    function pressedOf(list, attr){
+      var v = null;
+      list.forEach(function(b){ if (b.getAttribute('aria-pressed') === 'true') v = b.getAttribute(attr); });
+      return v;
+    }
+    lengthBtns.forEach(function(b){
+      b.addEventListener('click', function(){
+        choose(b.getAttribute('data-length'), pressedOf(diffBtns, 'data-difficulty') || data.reports[current].difficulty);
+      });
+    });
+    diffBtns.forEach(function(b){
+      b.addEventListener('click', function(){
+        choose(pressedOf(lengthBtns, 'data-length') || data.reports[current].length, b.getAttribute('data-difficulty'));
+      });
+    });
+    if (select) select.addEventListener('change', function(){ show(Number(select.value)); });
+    if (copyCmd && cmd) copyCmd.addEventListener('click', function(){
+      copyText(cmd.textContent, function(){ flash(copyCmd, '명령 복사'); });
+    });
+    var saved = null;
+    try { saved = localStorage.getItem(REPORT_KEY); } catch (e) {}
+    var start = 0;
+    data.reports.forEach(function(r, i){ if (r.key === saved) start = i; });
+    // 공유된 앵커가 다른 리포트의 섹션을 가리키면 그 리포트를 연다
+    var target = location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+    var owner = target && target.closest ? target.closest('.report[data-ri]') : null;
+    if (owner) start = Number(owner.getAttribute('data-ri'));
+    if (start !== 0) show(start);
+    if (owner && target) target.scrollIntoView();
+    return { current: function(){ return current; } };
+  }
+
   setupFontScale();
+  var reports = setupReports();
   var player = createPlayer();
   setupTimeLinks(player);
   var popups = setupPopups();
@@ -437,7 +533,7 @@ export const VIEWER_JS =
   setupSectionMarks();
   setupSubsectionFollow(player);
   var mini = setupMiniPlayer(player);
-  setupCopyButton();
+  setupCopyButton(reports);
   // 툴팁과 미니 플레이어가 함께 열려 있으면 Escape 한 번에 하나씩 닫는다
   document.addEventListener('keydown', function(ev){
     if (ev.key !== 'Escape') return;

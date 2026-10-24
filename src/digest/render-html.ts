@@ -1,13 +1,17 @@
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
 import { frameFileName } from './frames.js';
 import { renderDigestMarkdown } from './render-md.js';
+import { DIFFICULTY_LABEL, isPreset, LENGTH_LABEL, reportKey, reportLabel } from './reports.js';
 import { VIEWER_JS } from './viewer-js.js';
 import {
   boldPattern,
   keywordPattern,
+  REPORT_DIFFICULTIES,
+  REPORT_LENGTHS,
   type Bullet,
   type Cite,
   type Digest,
+  type Report,
   type Transcript,
   youtubeWatchUrl,
 } from './schema.js';
@@ -75,15 +79,13 @@ export function renderDigestHtml(
 ): RenderHtmlResult {
   const warnings: string[] = [];
   const { meta, segments } = transcript;
-  const { lead, sections, skipped, keywords } = digest.report;
   const long = meta.durationSec >= 3600;
   const isYoutube = meta.source === 'youtube' && Boolean(meta.videoId);
   const at = (i: number) => segments[i]?.startSec ?? 0;
-  const keywordIds = new Set(keywords.map((k) => k.id));
   const loadFrame = opts.inlineFrames ? opts.loadFrame : undefined;
   const budget = loadFrame ? new FrameBudget(warnings) : null;
 
-  const inline = (text: string): string =>
+  const inline = (text: string, keywordIds: Set<string>): string =>
     e(text)
       .replace(boldPattern(), (_m, inner: string) => `<strong>${inner}</strong>`)
       .replace(keywordPattern(), (_m, id: string, label: string) => {
@@ -110,13 +112,18 @@ export function renderDigestHtml(
     warnings.push(`프레임이 없어 자리를 비웠다: ${subId} (${file})`);
 
   // 확인 수단이 없는 렌더에서는 프레임이 없다고 경고하지 않는다. 예산 초과는 FrameBudget이 따로 경고한다
+  // 리포트 여럿이 같은 프레임을 쓰면 data URI를 한 번만 만들어 예산을 두 번 쓰지 않는다
+  const inlined = new Map<string, string | null>();
   const frame = (sec: number, subId: string): string => {
     const file = frameFileName(sec);
     let src: string | null = null;
-    if (budget && loadFrame) {
+    if (inlined.has(file)) {
+      src = inlined.get(file)!;
+    } else if (budget && loadFrame) {
       const data = loadFrame(file);
       if (data) src = budget.dataUri(data, file);
       else missingFrame(subId, file);
+      inlined.set(file, src);
     } else if (opts.frameExists) {
       if (opts.frameExists(file)) src = `frames/${file}`;
       else missingFrame(subId, file);
@@ -130,62 +137,105 @@ export function renderDigestHtml(
     return `<figure class="frame">${body}<figcaption>${timeLink(sec)}</figcaption></figure>`;
   };
 
-  const bullets = (list: Bullet[]): string =>
-    `<ul>${list
-      .map(
-        (b) =>
-          `<li>${inline(b.text)}${cite(b.cite)}${b.children?.length ? bullets(b.children) : ''}</li>`,
-      )
-      .join('')}</ul>`;
+  const reportsMeta = digest.reports.map((r) => ({ report: r, key: reportKey(r.options) }));
+  const base = digest.reports[0]!.options;
 
-  const sectionsHtml = sections
-    .map((s, si) => {
-      const subs = s.subsections
+  // 첫 리포트는 1차와 같은 id를 써서 이미 공유된 앵커가 그대로 열린다. 나머지는 id에 못 쓰는 ~로 접두를 붙여 겹치지 않게 한다
+  const renderReport = (report: Report, ri: number, key: string) => {
+    const { lead, sections, skipped, keywords } = report;
+    const kwIds = new Set(keywords.map((k) => k.id));
+    const pfx = ri === 0 ? '' : `r${ri}~`;
+    const hidden = ri === 0 ? '' : ' hidden';
+    const bullets = (list: Bullet[]): string =>
+      `<ul>${list
         .map(
-          (sub, ui) =>
-            `<div class="sub" id="sub-${e(sub.id)}" data-from="${sub.cite.from}" data-to="${sub.cite.to}"><h3><span class="num">${si + 1}.${ui + 1}.</span> ${e(stripNumbering(sub.title))} ${timeLink(at(sub.cite.key))}</h3>${frame(sub.frameSec, sub.id)}${bullets(sub.bullets)}</div>`,
+          (b) =>
+            `<li>${inline(b.text, kwIds)}${cite(b.cite)}${b.children?.length ? bullets(b.children) : ''}</li>`,
         )
-        .join('');
-      return `<section class="sec" id="sec-${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${timeLink(at(s.cite.key))}</h2><p class="conclusion">${inline(s.conclusion)}${cite(s.cite)}</p>${subs}</section>`;
-    })
-    .join('');
+        .join('')}</ul>`;
 
-  const toc = `<nav class="toc" aria-label="목차"><h2>목차</h2><ol>${sections
-    .map(
-      (s, si) =>
-        `<li><a href="#sec-${e(s.id)}" data-nav="sec-${e(s.id)}">${si + 1}. ${e(stripNumbering(s.title))}</a><ol>${s.subsections
+    const sectionsHtml = sections
+      .map((s, si) => {
+        const subs = s.subsections
           .map(
             (sub, ui) =>
-              `<li><a href="#sub-${e(sub.id)}">${si + 1}.${ui + 1}. ${e(stripNumbering(sub.title))}</a></li>`,
+              `<div class="sub" id="sub-${pfx}${e(sub.id)}" data-from="${sub.cite.from}" data-to="${sub.cite.to}"><h3><span class="num">${si + 1}.${ui + 1}.</span> ${e(stripNumbering(sub.title))} ${timeLink(at(sub.cite.key))}</h3>${frame(sub.frameSec, sub.id)}${bullets(sub.bullets)}</div>`,
           )
-          .join('')}</ol></li>`,
-    )
-    .join('')}</ol></nav>`;
+          .join('');
+        return `<section class="sec" id="sec-${pfx}${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${timeLink(at(s.cite.key))}</h2><p class="conclusion">${inline(s.conclusion, kwIds)}${cite(s.cite)}</p>${subs}</section>`;
+      })
+      .join('');
 
-  const minimap = `<nav class="minimap" aria-label="섹션 이동">${sections
-    .map(
-      (s, si) =>
-        `<a href="#sec-${e(s.id)}" data-nav="sec-${e(s.id)}" title="${e(stripNumbering(s.title))}" aria-label="${si + 1}. ${e(stripNumbering(s.title))}"><span aria-hidden="true">${si + 1}</span></a>`,
-    )
-    .join('')}</nav>`;
+    const toc = `<nav class="toc" aria-label="목차"><h2>목차</h2><ol>${sections
+      .map(
+        (s, si) =>
+          `<li><a href="#sec-${pfx}${e(s.id)}" data-nav="sec-${pfx}${e(s.id)}">${si + 1}. ${e(stripNumbering(s.title))}</a><ol>${s.subsections
+            .map(
+              (sub, ui) =>
+                `<li><a href="#sub-${pfx}${e(sub.id)}">${si + 1}.${ui + 1}. ${e(stripNumbering(sub.title))}</a></li>`,
+            )
+            .join('')}</ol></li>`,
+      )
+      .join('')}</ol></nav>`;
 
-  const keywordsHtml = keywords.length
-    ? `<section class="extra" id="keywords"><h2>키워드</h2><dl>${keywords
-        .map(
-          (k) =>
-            `<dt>${e(k.term)} ${timeLink(at(k.firstCite.key))}</dt><dd>${inline(k.explanation)}</dd>`,
-        )
-        .join('')}</dl></section>`
-    : '';
+    const minimap = `<nav class="minimap" aria-label="섹션 이동" data-ri="${ri}"${hidden}>${sections
+      .map(
+        (s, si) =>
+          `<a href="#sec-${pfx}${e(s.id)}" data-nav="sec-${pfx}${e(s.id)}" title="${e(stripNumbering(s.title))}" aria-label="${si + 1}. ${e(stripNumbering(s.title))}"><span aria-hidden="true">${si + 1}</span></a>`,
+      )
+      .join('')}</nav>`;
 
-  const skippedHtml = skipped.length
-    ? `<section class="extra" id="skipped"><h2>요약에서 뺀 구간</h2><ul>${skipped
-        .map(
-          (s) =>
-            `<li>${timeLink(at(s.from))} 문장 ${s.from + 1}-${s.to + 1}: ${inline(s.reason)}</li>`,
-        )
-        .join('')}</ul></section>`
-    : '';
+    const keywordsHtml = keywords.length
+      ? `<section class="extra" id="${pfx}keywords"><h2>키워드</h2><dl>${keywords
+          .map(
+            (k) =>
+              `<dt>${e(k.term)} ${timeLink(at(k.firstCite.key))}</dt><dd>${inline(k.explanation, kwIds)}</dd>`,
+          )
+          .join('')}</dl></section>`
+      : '';
+
+    const skippedHtml = skipped.length
+      ? `<section class="extra" id="${pfx}skipped"><h2>요약에서 뺀 구간</h2><ul>${skipped
+          .map(
+            (s) =>
+              `<li>${timeLink(at(s.from))} 문장 ${s.from + 1}-${s.to + 1}: ${inline(s.reason, kwIds)}</li>`,
+          )
+          .join('')}</ul></section>`
+      : '';
+
+    const scope = [
+      report.options.range
+        ? `<p class="report-scope">${formatTime(report.options.range[0], long)}~${formatTime(report.options.range[1], long)} 구간만 요약했어요.</p>`
+        : '',
+      report.options.prompt ? `<p class="report-scope">요청: ${e(report.options.prompt)}</p>` : '',
+    ].join('');
+    const body = `<div class="report" data-ri="${ri}" data-report="${e(key)}" lang="${e(report.options.lang)}"${hidden}>${scope}<section class="lead"><p class="q">${inline(lead.question, kwIds)}</p><p>${inline(lead.answer, kwIds)}</p><p class="takeaway">${inline(lead.takeaway, kwIds)}</p></section>
+${toc}
+${sectionsHtml}
+${keywordsHtml}
+${skippedHtml}</div>`;
+    return { body, minimap };
+  };
+  const rendered = reportsMeta.map(({ report, key }, ri) => renderReport(report, ri, key));
+
+  const pressed = (on: boolean) => `aria-pressed="${on ? 'true' : 'false'}"`;
+  const customs = reportsMeta.filter(({ report }) => !isPreset(report.options, base));
+  const reportBar = `<div class="report-bar" role="group" aria-label="리포트 고르기"><span class="bar-label">분량</span>${REPORT_LENGTHS.map(
+    (l) =>
+      `<button type="button" data-length="${l}" ${pressed(l === base.length)}>${LENGTH_LABEL[l]}</button>`,
+  ).join('')}<span class="bar-label">난이도</span>${REPORT_DIFFICULTIES.map(
+    (d) =>
+      `<button type="button" data-difficulty="${d}" ${pressed(d === base.difficulty)}>${DIFFICULTY_LABEL[d]}</button>`,
+  ).join('')}${
+    customs.length
+      ? `<label class="bar-label">다른 리포트 <select id="report-select">${reportsMeta
+          .map(
+            ({ report, key }, ri) =>
+              `<option value="${ri}" data-report="${e(key)}">${e(reportLabel(report.options, long))}</option>`,
+          )
+          .join('')}</select></label>`
+      : ''
+  }</div><div id="report-missing" class="report-missing" role="status" hidden><p>이 조합의 리포트는 아직 없어요. 아래 명령을 세션에 붙여 넣으면 만들어요.</p><code id="report-cmd"></code> <button type="button" id="copy-cmd">명령 복사</button></div>`;
 
   const watchBase = isYoutube ? youtubeWatchUrl(meta.videoId!) : null;
   const player = isYoutube
@@ -209,21 +259,31 @@ export function renderDigestHtml(
     watchBase,
     long,
     starts: segments.map((s) => s.startSec),
-    keywords: Object.fromEntries(
-      keywords.map((k) => [
-        k.id,
-        {
-          term: k.term,
-          explanation: k.explanation.replace(keywordPattern(), '$2').replace(boldPattern(), '$1'),
-          sec: at(k.firstCite.key),
-        },
-      ]),
-    ),
-    markdown: renderDigestMarkdown(digest, transcript, { frameExists: opts.frameExists }),
+    slug: digest.slug,
+    reports: reportsMeta.map(({ report, key }) => ({
+      key,
+      length: report.options.length,
+      difficulty: report.options.difficulty,
+      preset: isPreset(report.options, base),
+      keywords: Object.fromEntries(
+        report.keywords.map((k) => [
+          k.id,
+          {
+            term: k.term,
+            explanation: k.explanation.replace(keywordPattern(), '$2').replace(boldPattern(), '$1'),
+            sec: at(k.firstCite.key),
+          },
+        ]),
+      ),
+      markdown: renderDigestMarkdown(digest, transcript, {
+        frameExists: opts.frameExists,
+        report,
+      }),
+    })),
   };
 
   const html = `<!doctype html>
-<html lang="${e(digest.report.options.lang)}">
+<html lang="${e(base.lang)}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -236,15 +296,12 @@ export function renderDigestHtml(
 <aside class="side">${player}${script}</aside>
 <main class="main">
 <header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p><div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label></div>
-<noscript><p class="note">자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기가 동작하지 않아요. 시각 링크는 유튜브 새 탭으로 열려요.</p></noscript></header>
-<section class="lead"><p class="q">${inline(lead.question)}</p><p>${inline(lead.answer)}</p><p class="takeaway">${inline(lead.takeaway)}</p></section>
-${toc}
-${sectionsHtml}
-${keywordsHtml}
-${skippedHtml}
+${reportBar}
+<noscript><p class="note">자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기, 리포트 전환이 동작하지 않아요. 시각 링크는 유튜브 새 탭으로 열려요.</p></noscript></header>
+${rendered.map((r) => r.body).join('\n')}
 </main>
 </div>
-${minimap}
+${rendered.map((r) => r.minimap).join('')}
 <script type="application/json" id="digest-data">${embedJson(data)}</script>
 <script>${VIEWER_JS}</script>
 </body>
@@ -293,6 +350,17 @@ a.ts:hover{text-decoration:underline}
 .tools{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin:12px 0;font-size:.85em;color:var(--muted)}
 .tools button{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:4px 10px;cursor:pointer}
 .note{color:var(--warn);font-size:.9em}
+.report-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0;font-size:.85em}
+.report-bar .bar-label{color:var(--muted);margin-left:6px}
+.report-bar .bar-label:first-child{margin-left:0}
+.report-bar button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:3px 12px;cursor:pointer}
+.report-bar button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.report-bar select{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+.report-missing{border:1px dashed var(--line);border-radius:8px;padding:8px 12px;margin:8px 0;font-size:.88em;background:var(--card)}
+.report-missing p{margin:0 0 6px}
+.report-missing code{display:block;white-space:nowrap;overflow-x:auto;background:var(--chip);padding:4px 8px;border-radius:4px;margin:0 0 6px}
+.report-missing button{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer}
+.report-scope{color:var(--muted);font-size:.9em;margin:12px 0 0}
 .lead{border-left:3px solid var(--accent);padding:4px 16px;margin:20px 0}
 .lead .q{font-weight:700;font-size:1.1em}
 .lead .takeaway{color:var(--muted)}

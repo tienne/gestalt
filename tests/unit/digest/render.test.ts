@@ -43,7 +43,8 @@ function dataOf(html: string): Record<string, unknown> {
 describe('renderDigestHtml 마커', () => {
   it('escape한 뒤 굵게와 키워드 마커만 태그로 바꾼다', () => {
     const d = sampleDigest();
-    d.report.lead.question = '<img src=x onerror=alert(1)> **왜** {{kw:code-layers|코드 레이어}}?';
+    d.reports[0]!.lead.question =
+      '<img src=x onerror=alert(1)> **왜** {{kw:code-layers|코드 레이어}}?';
     const { html, warnings } = renderDigestHtml(d, sampleTranscript());
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(html).not.toContain('<img src=x');
@@ -56,7 +57,7 @@ describe('renderDigestHtml 마커', () => {
 
   it('목록에 없는 키워드 마커는 글자만 남기고 경고한다', () => {
     const d = sampleDigest();
-    d.report.lead.answer = '{{kw:ghost|유령}} 이야기';
+    d.reports[0]!.lead.answer = '{{kw:ghost|유령}} 이야기';
     const { html, warnings } = renderDigestHtml(d, sampleTranscript());
     expect(html).toContain('<p>유령 이야기</p>');
     expect(warnings).toEqual(['키워드 목록에 없는 마커: ghost']);
@@ -79,8 +80,8 @@ describe('renderDigestHtml 마커', () => {
 
   it('제목은 마커를 해석하지 않고 본문, 목차, 미니맵 모두 escape만 한다', () => {
     const d = sampleDigest();
-    d.report.sections[0]!.title = '**굵게** {{kw:code-layers|코드}} <b>';
-    d.report.sections[0]!.subsections[0]!.title = '1.1. **소제목**';
+    d.reports[0]!.sections[0]!.title = '**굵게** {{kw:code-layers|코드}} <b>';
+    d.reports[0]!.sections[0]!.subsections[0]!.title = '1.1. **소제목**';
     const { html } = renderDigestHtml(d, sampleTranscript());
     const raw = '**굵게** {{kw:code-layers|코드}} &lt;b&gt;';
     expect(html).toContain(`<span class="num">1.</span> ${raw} `);
@@ -142,7 +143,7 @@ describe('renderDigestHtml 플레이어', () => {
   it('noscript 안내는 자바스크립트와 화면 이름을 구분해 적는다', () => {
     const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
     expect(html).toContain(
-      '자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기가 동작하지 않아요.',
+      '자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기, 리포트 전환이 동작하지 않아요.',
     );
   });
 
@@ -260,7 +261,7 @@ describe('renderDigestMarkdown', () => {
 
   it('파일 영상은 출처에 링크 대신 시각을 적고 뺀 구간도 남긴다', () => {
     const d: Digest = sampleDigest();
-    d.report.skipped = [{ from: 10, to: 11, reason: '광고' }];
+    d.reports[0]!.skipped = [{ from: 10, to: 11, reason: '광고' }];
     const md = renderDigestMarkdown(d, fileTranscript());
     expect(md).toMatch(/ \[2 00:05\]/);
     expect(md).toContain('## 요약에서 뺀 구간\n\n- 00:50~ 문장 11-12: 광고');
@@ -295,7 +296,7 @@ describe('renderToFiles와 exportMarkdown', () => {
 
   it('validate 오류가 남아 있으면 렌더하지 않는다', () => {
     const d = sampleDigest();
-    d.report.sections[0]!.cite = { key: 99, from: 99, to: 99 };
+    d.reports[0]!.sections[0]!.cite = { key: 99, from: 99, to: 99 };
     const { repo, store } = seeded(d);
     expect(() => renderToFiles(SLUG, { repoRoot: repo })).toThrow(/validate 오류/);
     expect(existsSync(store.htmlPath(SLUG))).toBe(false);

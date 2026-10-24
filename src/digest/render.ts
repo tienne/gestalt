@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { lintDigest, lintErrors, type DigestIssue } from './lint.js';
 import { renderDigestHtml } from './render-html.js';
 import { renderDigestMarkdown } from './render-md.js';
+import { findReport, reportKey } from './reports.js';
 import { parseDigest, type Digest, type Transcript } from './schema.js';
 import { DigestStore } from './store.js';
 
@@ -26,7 +27,8 @@ export class DigestLoadError extends Error {
       | 'TRANSCRIPT_INVALID'
       | 'DIGEST_NOT_FOUND'
       | 'DIGEST_NOT_JSON'
-      | 'INVALID_DIGEST',
+      | 'INVALID_DIGEST'
+      | 'REPORT_NOT_FOUND',
     message: string,
   ) {
     super(message);
@@ -91,20 +93,31 @@ export function renderToFiles(slug: string, opts: RenderFilesOptions): RenderFil
   };
 }
 
-/** 마크다운만 원하는 자리에 쓴다. out이 없으면 저장 폴더의 digest.md */
+/**
+ * 마크다운만 원하는 자리에 쓴다. out이 없으면 저장 폴더에 쓴다.
+ * 첫 리포트는 digest.md, 다른 리포트는 digest.<key>.md다. render가 digest.md를 덮어쓰니 이름을 나눈다
+ */
 export function exportMarkdown(
   slug: string,
-  opts: { repoRoot: string; out?: string },
+  opts: { repoRoot: string; out?: string; report?: string },
 ): { slug: string; mdPath: string } {
   const store = new DigestStore(opts.repoRoot);
   const { transcript, digest } = loadForRender(store, slug);
+  const report = opts.report ? findReport(digest, opts.report) : digest.reports[0]!;
+  if (!report) {
+    throw new DigestLoadError(
+      'REPORT_NOT_FOUND',
+      `리포트 ${opts.report}가 없어요. 있는 리포트: ${digest.reports.map((r) => reportKey(r.options)).join(', ')}`,
+    );
+  }
   const framesDir = store.framesDir(slug);
   const frameExists = (file: string) => existsSync(join(framesDir, file));
   if (!opts.out) {
-    return {
-      slug,
-      mdPath: store.saveMd(slug, renderDigestMarkdown(digest, transcript, { frameExists })),
-    };
+    const md = renderDigestMarkdown(digest, transcript, { frameExists, report });
+    if (report === digest.reports[0]) return { slug, mdPath: store.saveMd(slug, md) };
+    const mdPath = join(store.dir(slug), `digest.${reportKey(report.options)}.md`);
+    writeFileSync(mdPath, md);
+    return { slug, mdPath };
   }
   const mdPath = resolve(opts.out);
   // 다른 폴더에 쓰면 frames/ 상대 경로가 깨지니 그 파일 기준으로 다시 잡는다
@@ -112,7 +125,7 @@ export function exportMarkdown(
     .split(sep)
     .map(encodeURIComponent)
     .join('/');
-  const md = renderDigestMarkdown(digest, transcript, { frameExists, framesHref });
+  const md = renderDigestMarkdown(digest, transcript, { frameExists, framesHref, report });
   mkdirSync(dirname(mdPath), { recursive: true });
   writeFileSync(mdPath, md);
   return { slug, mdPath };

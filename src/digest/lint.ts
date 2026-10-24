@@ -4,8 +4,11 @@ import {
   type Bullet,
   type Cite,
   type Digest,
+  type Report,
+  type ReportOptions,
   type Transcript,
 } from './schema.js';
+import { rangeSpan, reportKey } from './reports.js';
 
 export type DigestIssueSeverity = 'error' | 'warning';
 
@@ -16,8 +19,17 @@ export interface DigestIssue {
   message: string;
 }
 
-export const SUBSECTIONS_PER_SECTION = { min: 2, max: 3 } as const;
-export const TOP_BULLETS_PER_SUBSECTION = { min: 2, max: 4 } as const;
+interface Volume {
+  subsections: { min: number; max: number };
+  bullets: { min: number; max: number };
+}
+
+/** 분량 옵션별 권장 개수. 넘쳐도 경고만 낸다. 영상마다 답이 달라서다 */
+export const VOLUME_BY_LENGTH: Record<ReportOptions['length'], Volume> = {
+  short: { subsections: { min: 1, max: 2 }, bullets: { min: 1, max: 3 } },
+  default: { subsections: { min: 2, max: 3 }, bullets: { min: 2, max: 4 } },
+  long: { subsections: { min: 2, max: 5 }, bullets: { min: 3, max: 6 } },
+};
 
 // 부동소수 시각을 그대로 옮겨 적어도 반올림 차이는 날 수 있다
 const FRAME_SEC_TOLERANCE = 0.05;
@@ -47,15 +59,13 @@ function* walkBullets(
   }
 }
 
-/** 본문에 들어가는 문자열을 전부 경로와 함께 모은다. 키워드 마커 검사가 쓴다 */
-export function collectTextFields(digest: Digest): TextField[] {
+function collectReportText(report: Report, p: string): TextField[] {
   const out: TextField[] = [];
-  const { report } = digest;
-  out.push({ path: 'report.lead.question', text: report.lead.question });
-  out.push({ path: 'report.lead.answer', text: report.lead.answer });
-  out.push({ path: 'report.lead.takeaway', text: report.lead.takeaway });
+  out.push({ path: `${p}.lead.question`, text: report.lead.question });
+  out.push({ path: `${p}.lead.answer`, text: report.lead.answer });
+  out.push({ path: `${p}.lead.takeaway`, text: report.lead.takeaway });
   report.sections.forEach((section, si) => {
-    const sp = `report.sections.${si}`;
+    const sp = `${p}.sections.${si}`;
     out.push({ path: `${sp}.title`, text: section.title });
     out.push({ path: `${sp}.conclusion`, text: section.conclusion });
     section.subsections.forEach((sub, bi) => {
@@ -67,12 +77,17 @@ export function collectTextFields(digest: Digest): TextField[] {
     });
   });
   report.keywords.forEach((kw, ki) => {
-    out.push({ path: `report.keywords.${ki}.explanation`, text: kw.explanation });
+    out.push({ path: `${p}.keywords.${ki}.explanation`, text: kw.explanation });
   });
   report.skipped.forEach((s, i) => {
-    out.push({ path: `report.skipped.${i}.reason`, text: s.reason });
+    out.push({ path: `${p}.skipped.${i}.reason`, text: s.reason });
   });
   return out;
+}
+
+/** 본문에 들어가는 문자열을 리포트 전부에서 경로와 함께 모은다. 키워드 마커 검사와 윤문이 쓴다 */
+export function collectTextFields(digest: Digest): TextField[] {
+  return digest.reports.flatMap((report, ri) => collectReportText(report, `reports.${ri}`));
 }
 
 interface CiteField {
@@ -82,10 +97,10 @@ interface CiteField {
   within?: Cite;
 }
 
-function collectCites(digest: Digest): CiteField[] {
+function collectCites(report: Report, p: string): CiteField[] {
   const out: CiteField[] = [];
-  digest.report.sections.forEach((section, si) => {
-    const sp = `report.sections.${si}`;
+  report.sections.forEach((section, si) => {
+    const sp = `${p}.sections.${si}`;
     out.push({ path: `${sp}.cite`, cite: section.cite });
     section.subsections.forEach((sub, bi) => {
       const bp = `${sp}.subsections.${bi}`;
@@ -95,20 +110,28 @@ function collectCites(digest: Digest): CiteField[] {
       }
     });
   });
-  digest.report.keywords.forEach((kw, ki) => {
-    out.push({ path: `report.keywords.${ki}.firstCite`, cite: kw.firstCite });
+  report.keywords.forEach((kw, ki) => {
+    out.push({ path: `${p}.keywords.${ki}.firstCite`, cite: kw.firstCite });
   });
   return out;
 }
 
-/** 대섹션과 skipped를 합쳐 0번부터 마지막 문장까지 빈틈과 겹침 없이 덮는지 본다 */
-function checkSectionCoverage(digest: Digest, total: number, issues: DigestIssue[]): void {
-  const { sections, skipped } = digest.report;
+/**
+ * 대섹션과 skipped를 합쳐 span을 빈틈과 겹침 없이 덮는지 본다.
+ * span은 보통 0번부터 마지막 문장까지고 구간 리포트면 그 구간에 든 문장들이다
+ */
+function checkSectionCoverage(
+  report: Report,
+  p: string,
+  span: { from: number; to: number },
+  issues: DigestIssue[],
+): void {
+  const { sections, skipped } = report;
   sections.forEach((section, si) => {
     const prev = sections[si - 1];
     if (prev && section.cite.from <= prev.cite.from) {
       issues.push({
-        path: `report.sections.${si}.cite`,
+        path: `${p}.sections.${si}.cite`,
         severity: 'error',
         code: 'SECTION_ORDER',
         message: '대섹션은 스크립트 순서대로 놓는다',
@@ -118,56 +141,67 @@ function checkSectionCoverage(digest: Digest, total: number, issues: DigestIssue
 
   const spans = [
     ...sections.map((s, si) => ({
-      path: `report.sections.${si}.cite`,
+      path: `${p}.sections.${si}.cite`,
       from: s.cite.from,
       to: s.cite.to,
     })),
-    ...skipped.map((s, i) => ({ path: `report.skipped.${i}`, from: s.from, to: s.to })),
+    ...skipped.map((s, i) => ({ path: `${p}.skipped.${i}`, from: s.from, to: s.to })),
   ].sort((a, b) => a.from - b.from);
 
-  let cursor = 0;
-  for (const span of spans) {
-    if (span.from > span.to) {
+  let cursor = span.from;
+  for (const item of spans) {
+    if (item.from > item.to) {
       issues.push({
-        path: span.path,
+        path: item.path,
         severity: 'error',
         code: 'SECTION_GAP',
-        message: `from(${span.from})이 to(${span.to})보다 크다`,
+        message: `from(${item.from})이 to(${item.to})보다 크다`,
       });
       continue;
     }
-    if (span.from > cursor) {
+    // 구간 없는 리포트에서 스크립트 밖 번호는 CITE_OUT_OF_RANGE가 이미 잡는다
+    if (report.options.range && (item.from < span.from || item.to > span.to)) {
       issues.push({
-        path: span.path,
+        path: item.path,
+        severity: 'error',
+        code: 'OUT_OF_REPORT_RANGE',
+        message: `${range(item.from, item.to)}이 리포트 구간(${range(span.from, span.to)}) 밖이다`,
+      });
+      cursor = Math.max(cursor, item.to + 1);
+      continue;
+    }
+    if (item.from > cursor) {
+      issues.push({
+        path: item.path,
         severity: 'error',
         code: 'SECTION_GAP',
-        message: `${range(cursor, span.from - 1)}이 어느 대섹션에도 없다. 대섹션에 넣거나 skipped에 이유와 함께 적는다`,
+        message: `${range(cursor, item.from - 1)}이 어느 대섹션에도 없다. 대섹션에 넣거나 skipped에 이유와 함께 적는다`,
       });
-    } else if (span.from < cursor) {
+    } else if (item.from < cursor) {
       issues.push({
-        path: span.path,
+        path: item.path,
         severity: 'error',
         code: 'SECTION_OVERLAP',
-        message: `${range(span.from, Math.min(span.to, cursor - 1))}이 앞 구간과 겹친다`,
+        message: `${range(item.from, Math.min(item.to, cursor - 1))}이 앞 구간과 겹친다`,
       });
     }
-    cursor = Math.max(cursor, span.to + 1);
+    cursor = Math.max(cursor, item.to + 1);
   }
-  if (cursor < total) {
+  if (cursor <= span.to) {
     issues.push({
-      path: 'report.sections',
+      path: `${p}.sections`,
       severity: 'error',
       code: 'SECTION_GAP',
-      message: `${range(cursor, total - 1)}이 어느 대섹션에도 없다. 대섹션에 넣거나 skipped에 이유와 함께 적는다`,
+      message: `${range(cursor, span.to)}이 어느 대섹션에도 없다. 대섹션에 넣거나 skipped에 이유와 함께 적는다`,
     });
   }
 }
 
-function checkSubsectionCoverage(digest: Digest, issues: DigestIssue[]): void {
-  digest.report.sections.forEach((section, si) => {
+function checkSubsectionCoverage(report: Report, p: string, issues: DigestIssue[]): void {
+  report.sections.forEach((section, si) => {
     let cursor = section.cite.from;
     section.subsections.forEach((sub, bi) => {
-      const path = `report.sections.${si}.subsections.${bi}.cite`;
+      const path = `${p}.sections.${si}.subsections.${bi}.cite`;
       if (sub.cite.from > cursor) {
         issues.push({
           path,
@@ -187,14 +221,14 @@ function checkSubsectionCoverage(digest: Digest, issues: DigestIssue[]): void {
     });
     if (cursor <= section.cite.to) {
       issues.push({
-        path: `report.sections.${si}.subsections`,
+        path: `${p}.sections.${si}.subsections`,
         severity: 'error',
         code: 'SUBSECTION_GAP',
         message: `${range(cursor, section.cite.to)}이 어느 소섹션에도 없다`,
       });
     } else if (cursor > section.cite.to + 1) {
       issues.push({
-        path: `report.sections.${si}.subsections`,
+        path: `${p}.sections.${si}.subsections`,
         severity: 'error',
         code: 'SUBSECTION_OVERLAP',
         message: `소섹션이 대섹션 끝(${section.cite.to}번 문장)을 넘어간다`,
@@ -203,8 +237,8 @@ function checkSubsectionCoverage(digest: Digest, issues: DigestIssue[]): void {
   });
 }
 
-function checkCites(digest: Digest, total: number, issues: DigestIssue[]): void {
-  for (const { path, cite, within } of collectCites(digest)) {
+function checkCites(report: Report, p: string, total: number, issues: DigestIssue[]): void {
+  for (const { path, cite, within } of collectCites(report, p)) {
     if (cite.to >= total) {
       issues.push({
         path,
@@ -231,10 +265,10 @@ function checkCites(digest: Digest, total: number, issues: DigestIssue[]): void 
     }
   }
   // skipped도 커버리지 계산에 들어가니 범위 밖 구간으로 SECTION_GAP을 덮지 못하게 막는다
-  digest.report.skipped.forEach((s, i) => {
+  report.skipped.forEach((s, i) => {
     if (s.to >= total) {
       issues.push({
-        path: `report.skipped.${i}`,
+        path: `${p}.skipped.${i}`,
         severity: 'error',
         code: 'CITE_OUT_OF_RANGE',
         message: `${s.to}번 문장이 없다. 스크립트는 0~${total - 1}번이다`,
@@ -243,10 +277,10 @@ function checkCites(digest: Digest, total: number, issues: DigestIssue[]): void 
   });
 }
 
-function checkBulletDepth(digest: Digest, issues: DigestIssue[]): void {
-  digest.report.sections.forEach((section, si) => {
+function checkBulletDepth(report: Report, p: string, issues: DigestIssue[]): void {
+  report.sections.forEach((section, si) => {
     section.subsections.forEach((sub, bi) => {
-      const prefix = `report.sections.${si}.subsections.${bi}.bullets`;
+      const prefix = `${p}.sections.${si}.subsections.${bi}.bullets`;
       for (const { bullet, path, depth } of walkBullets(sub.bullets, prefix)) {
         // 2단 불릿에서 처음 넘친 자리만 알린다. 더 깊은 단은 같은 원인이다
         if (depth === 1 && bullet.children && bullet.children.length > 0) {
@@ -263,7 +297,7 @@ function checkBulletDepth(digest: Digest, issues: DigestIssue[]): void {
 }
 
 // 제목은 목차와 미니맵, 마크다운에 글자 그대로 나가서 마커를 풀지 않는다
-function checkTitleMarkers(digest: Digest, issues: DigestIssue[]): void {
+function checkTitleMarkers(report: Report, p: string, issues: DigestIssue[]): void {
   const check = (title: string, path: string): void => {
     if (title.includes('**') || title.includes('{{kw:')) {
       issues.push({
@@ -274,18 +308,18 @@ function checkTitleMarkers(digest: Digest, issues: DigestIssue[]): void {
       });
     }
   };
-  digest.report.sections.forEach((section, si) => {
-    check(section.title, `report.sections.${si}.title`);
+  report.sections.forEach((section, si) => {
+    check(section.title, `${p}.sections.${si}.title`);
     section.subsections.forEach((sub, bi) =>
-      check(sub.title, `report.sections.${si}.subsections.${bi}.title`),
+      check(sub.title, `${p}.sections.${si}.subsections.${bi}.title`),
     );
   });
 }
 
-function checkKeywords(digest: Digest, issues: DigestIssue[]): void {
-  const known = new Set(digest.report.keywords.map((k) => k.id));
+function checkKeywords(report: Report, p: string, issues: DigestIssue[]): void {
+  const known = new Set(report.keywords.map((k) => k.id));
   // 제목의 마커는 TITLE_MARKER 하나로 알린다
-  const fields = collectTextFields(digest).filter((f) => !f.path.endsWith('.title'));
+  const fields = collectReportText(report, p).filter((f) => !f.path.endsWith('.title'));
   for (const field of fields) {
     for (const m of field.text.matchAll(keywordPattern())) {
       const id = m[1]!;
@@ -309,14 +343,19 @@ function checkKeywords(digest: Digest, issues: DigestIssue[]): void {
   }
 }
 
-function checkFrameSec(digest: Digest, transcript: Transcript, issues: DigestIssue[]): void {
-  digest.report.sections.forEach((section, si) => {
+function checkFrameSec(
+  report: Report,
+  p: string,
+  transcript: Transcript,
+  issues: DigestIssue[],
+): void {
+  report.sections.forEach((section, si) => {
     section.subsections.forEach((sub, bi) => {
       const first = transcript.segments[sub.cite.from];
       if (!first) return; // CITE_OUT_OF_RANGE가 이미 잡는다
       if (Math.abs(sub.frameSec - first.startSec) > FRAME_SEC_TOLERANCE) {
         issues.push({
-          path: `report.sections.${si}.subsections.${bi}.frameSec`,
+          path: `${p}.sections.${si}.subsections.${bi}.frameSec`,
           severity: 'error',
           code: 'FRAME_SEC_MISMATCH',
           message: `frameSec(${sub.frameSec})이 첫 문장(${sub.cite.from}번) 시각 ${first.startSec}과 다르다`,
@@ -327,7 +366,7 @@ function checkFrameSec(digest: Digest, transcript: Transcript, issues: DigestIss
 }
 
 // 목차 앵커가 id로 걸려서 겹치면 엉뚱한 섹션으로 간다
-function checkDuplicateIds(digest: Digest, issues: DigestIssue[]): void {
+function checkDuplicateIds(report: Report, p: string, issues: DigestIssue[]): void {
   const seen = new Map<string, string>();
   const visit = (id: string, path: string): void => {
     const before = seen.get(id);
@@ -342,17 +381,17 @@ function checkDuplicateIds(digest: Digest, issues: DigestIssue[]): void {
       seen.set(id, path);
     }
   };
-  digest.report.sections.forEach((section, si) => {
-    visit(section.id, `report.sections.${si}.id`);
+  report.sections.forEach((section, si) => {
+    visit(section.id, `${p}.sections.${si}.id`);
     section.subsections.forEach((sub, bi) =>
-      visit(sub.id, `report.sections.${si}.subsections.${bi}.id`),
+      visit(sub.id, `${p}.sections.${si}.subsections.${bi}.id`),
     );
   });
   const kwSeen = new Set<string>();
-  digest.report.keywords.forEach((kw, ki) => {
+  report.keywords.forEach((kw, ki) => {
     if (kwSeen.has(kw.id)) {
       issues.push({
-        path: `report.keywords.${ki}.id`,
+        path: `${p}.keywords.${ki}.id`,
         severity: 'error',
         code: 'DUPLICATE_ID',
         message: `키워드 id ${kw.id}가 겹친다`,
@@ -362,25 +401,26 @@ function checkDuplicateIds(digest: Digest, issues: DigestIssue[]): void {
   });
 }
 
-function checkVolume(digest: Digest, issues: DigestIssue[]): void {
-  digest.report.sections.forEach((section, si) => {
+function checkVolume(report: Report, p: string, issues: DigestIssue[]): void {
+  const { subsections: subRange, bullets: bulletRange } = VOLUME_BY_LENGTH[report.options.length];
+  report.sections.forEach((section, si) => {
     const n = section.subsections.length;
-    if (n < SUBSECTIONS_PER_SECTION.min || n > SUBSECTIONS_PER_SECTION.max) {
+    if (n < subRange.min || n > subRange.max) {
       issues.push({
-        path: `report.sections.${si}.subsections`,
+        path: `${p}.sections.${si}.subsections`,
         severity: 'warning',
         code: 'SUBSECTION_COUNT',
-        message: `소섹션이 ${n}개다. 대섹션마다 ${SUBSECTIONS_PER_SECTION.min}~${SUBSECTIONS_PER_SECTION.max}개를 권한다`,
+        message: `소섹션이 ${n}개다. 대섹션마다 ${subRange.min}~${subRange.max}개를 권한다`,
       });
     }
     section.subsections.forEach((sub, bi) => {
       const b = sub.bullets.length;
-      if (b < TOP_BULLETS_PER_SUBSECTION.min || b > TOP_BULLETS_PER_SUBSECTION.max) {
+      if (b < bulletRange.min || b > bulletRange.max) {
         issues.push({
-          path: `report.sections.${si}.subsections.${bi}.bullets`,
+          path: `${p}.sections.${si}.subsections.${bi}.bullets`,
           severity: 'warning',
           code: 'BULLET_COUNT',
-          message: `1단 불릿이 ${b}개다. ${TOP_BULLETS_PER_SUBSECTION.min}~${TOP_BULLETS_PER_SUBSECTION.max}개를 권한다`,
+          message: `1단 불릿이 ${b}개다. ${bulletRange.min}~${bulletRange.max}개를 권한다`,
         });
       }
     });
@@ -393,7 +433,6 @@ function checkVolume(digest: Digest, issues: DigestIssue[]): void {
  */
 export function lintDigest(digest: Digest, transcript: Transcript): DigestIssue[] {
   const issues: DigestIssue[] = [];
-  const total = transcript.segments.length;
   if (digest.slug !== transcript.slug) {
     issues.push({
       path: 'slug',
@@ -402,16 +441,54 @@ export function lintDigest(digest: Digest, transcript: Transcript): DigestIssue[
       message: `digest slug(${digest.slug})가 transcript slug(${transcript.slug})와 다르다`,
     });
   }
-  checkSectionCoverage(digest, total, issues);
-  checkSubsectionCoverage(digest, issues);
-  checkCites(digest, total, issues);
-  checkBulletDepth(digest, issues);
-  checkTitleMarkers(digest, issues);
-  checkKeywords(digest, issues);
-  checkFrameSec(digest, transcript, issues);
-  checkDuplicateIds(digest, issues);
-  checkVolume(digest, issues);
+  const seenKeys = new Map<string, number>();
+  digest.reports.forEach((report, ri) => {
+    const p = `reports.${ri}`;
+    const key = reportKey(report.options);
+    const before = seenKeys.get(key);
+    if (before !== undefined) {
+      issues.push({
+        path: `${p}.options`,
+        severity: 'error',
+        code: 'DUPLICATE_REPORT',
+        message: `reports.${before}와 옵션이 같다(${key}). 툴바가 둘 중 하나만 고른다`,
+      });
+    } else {
+      seenKeys.set(key, ri);
+    }
+    lintReport(report, p, transcript, issues);
+  });
   return issues;
+}
+
+function lintReport(
+  report: Report,
+  p: string,
+  transcript: Transcript,
+  issues: DigestIssue[],
+): void {
+  const total = transcript.segments.length;
+  let span: { from: number; to: number } | null = { from: 0, to: total - 1 };
+  if (report.options.range) {
+    span = rangeSpan(report.options.range, transcript.segments);
+    if (!span) {
+      issues.push({
+        path: `${p}.options.range`,
+        severity: 'error',
+        code: 'RANGE_EMPTY',
+        message: `구간 ${report.options.range[0]}~${report.options.range[1]}초에 든 문장이 없다`,
+      });
+    }
+  }
+  if (span) checkSectionCoverage(report, p, span, issues);
+  checkSubsectionCoverage(report, p, issues);
+  checkCites(report, p, total, issues);
+  checkBulletDepth(report, p, issues);
+  checkTitleMarkers(report, p, issues);
+  checkKeywords(report, p, issues);
+  checkFrameSec(report, p, transcript, issues);
+  checkDuplicateIds(report, p, issues);
+  checkVolume(report, p, issues);
 }
 
 export function lintErrors(issues: DigestIssue[]): DigestIssue[] {

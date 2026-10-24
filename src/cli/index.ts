@@ -35,6 +35,7 @@ import {
   digestExportCommand,
   digestFramesCommand,
   digestIngestCommand,
+  digestMergeCommand,
   digestRenderCommand,
   digestServeCommand,
   digestValidateCommand,
@@ -298,8 +299,16 @@ export function createCli(): Command {
     .command('export <slug>')
     .description('요약을 다른 형식으로 내보낸다')
     .option('--md', '마크다운으로')
-    .option('--out <path>', '저장 경로 (기본: 저장 폴더의 digest.md)')
+    .option('--out <path>', '저장 경로 (기본: 첫 리포트는 digest.md, 나머지는 digest.<키>.md)')
+    .option('--report <key>', '내보낼 리포트 키 (기본: 첫 리포트)')
     .action((slug, o, cmd) => digestExportCommand(slug, { ...digestInherited(cmd), ...o }));
+
+  digest
+    .command('merge <slug> <reportFile>')
+    .description('리포트 한 벌을 digest.json에 합친다. 같은 키면 바꿔 끼운다')
+    .action((slug, reportFile, o, cmd) =>
+      digestMergeCommand(slug, reportFile, { ...digestInherited(cmd), ...o }),
+    );
 
   digest
     .command('serve <slug>')

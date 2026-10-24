@@ -3,7 +3,7 @@ import { ValidationError } from '../core/errors.js';
 import { err, ok, type Result } from '../core/result.js';
 import { idSchema, textSchema } from './schema-base.js';
 
-export const DIGEST_SCHEMA_VERSION = '1.0.0';
+export const DIGEST_SCHEMA_VERSION = '1.1.0';
 export const TRANSCRIPT_SCHEMA_VERSION = '1.0.0';
 
 export const CAPTION_SOURCES = ['manual', 'auto', 'whisper'] as const;
@@ -155,12 +155,23 @@ export const skippedSchema = z
   })
   .refine((s) => s.from <= s.to, 'from이 to보다 크다');
 
+export const REPORT_LENGTHS = ['short', 'default', 'long'] as const;
+export const REPORT_DIFFICULTIES = ['normal', 'easy'] as const;
+
 export const reportOptionsSchema = z.object({
-  length: z.enum(['short', 'default', 'long']).default('default'),
-  difficulty: z.enum(['normal', 'easy']).default('normal'),
-  range: z.tuple([z.number().nonnegative(), z.number().nonnegative()]).optional(),
-  lang: z.string().min(1).default('ko'),
-  prompt: z.string().optional(),
+  length: z.enum(REPORT_LENGTHS).default('default'),
+  difficulty: z.enum(REPORT_DIFFICULTIES).default('normal'),
+  /** 요약한 구간. 영상 시각(초)으로 [시작, 끝)이다 */
+  range: z
+    .tuple([z.number().nonnegative(), z.number().nonnegative()])
+    .refine(([from, to]) => from < to, '구간 시작이 끝보다 앞이어야 한다')
+    .optional(),
+  /** HTML lang 속성과 리포트 키, 파일 이름에 실려서 언어 태그 꼴만 받는다 */
+  lang: z
+    .string()
+    .regex(/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/, '언어 태그(ko, en, pt-BR) 꼴이어야 한다')
+    .default('ko'),
+  prompt: z.string().trim().min(1).max(2000).optional(),
 });
 
 export const reportSchema = z.object({
@@ -175,13 +186,23 @@ export const reportSchema = z.object({
   keywords: z.array(keywordSchema).default([]),
 });
 
-/** 1차는 리포트 한 벌만 둔다. 분량과 난이도별 reports[]는 2-1에서 붙인다 */
-export const digestSchema = z.object({
+const digestObjectSchema = z.object({
   schemaVersion: z.string().default(DIGEST_SCHEMA_VERSION),
   slug: z.string().min(1),
   generatedAt: z.string().optional(),
-  report: reportSchema,
+  reports: z.array(reportSchema).min(1),
 });
+
+/**
+ * 1.0.0은 리포트 한 벌을 `report`에 뒀다. 읽을 때 `reports` 한 칸으로 옮겨서
+ * lint와 렌더가 한 꼴만 보게 한다. 저장할 때는 늘 `reports`로 쓴다
+ */
+export const digestSchema = z.preprocess((input) => {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const { report, ...rest } = input as Record<string, unknown>;
+  if (report === undefined || 'reports' in rest) return input;
+  return { ...rest, reports: [report] };
+}, digestObjectSchema);
 
 export type Cite = z.infer<typeof citeSchema>;
 export type Segment = z.infer<typeof segmentSchema>;
@@ -193,7 +214,7 @@ export type Keyword = z.infer<typeof keywordSchema>;
 export type Skipped = z.infer<typeof skippedSchema>;
 export type ReportOptions = z.infer<typeof reportOptionsSchema>;
 export type Report = z.infer<typeof reportSchema>;
-export type Digest = z.infer<typeof digestSchema>;
+export type Digest = z.infer<typeof digestObjectSchema>;
 export type CaptionSource = (typeof CAPTION_SOURCES)[number];
 
 function issuesOf(error: z.ZodError): string[] {

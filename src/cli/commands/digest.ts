@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { extractFrames } from '../../digest/frames.js';
 import { ingest } from '../../digest/ingest.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
+import { mergeReport } from '../../digest/merge.js';
 import { exportMarkdown, renderToFiles } from '../../digest/render.js';
 import { parseDigest } from '../../digest/schema.js';
 import { DigestServer, findDigestPort, openInBrowser } from '../../digest/server.js';
@@ -128,12 +130,39 @@ export function digestRenderCommand(
 
 export function digestExportCommand(
   slug: string,
-  opts: DigestCommonOptions & { md?: boolean; out?: string },
+  opts: DigestCommonOptions & { md?: boolean; out?: string; report?: string },
 ): void {
   try {
-    if (!opts.md) throw new Error('1차는 --md 내보내기만 있어요.');
-    const r = exportMarkdown(slug, { repoRoot: rootOf(opts), out: opts.out });
+    if (!opts.md) throw new Error('지금은 --md 내보내기만 있어요.');
+    const r = exportMarkdown(slug, { repoRoot: rootOf(opts), out: opts.out, report: opts.report });
     emit(r, opts.json, () => console.log(`마크다운: ${r.mdPath}`));
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export function digestMergeCommand(
+  slug: string,
+  reportFile: string,
+  opts: DigestCommonOptions,
+): void {
+  try {
+    let input: unknown;
+    try {
+      input = JSON.parse(readFileSync(resolve(reportFile), 'utf-8'));
+    } catch (e) {
+      throw new Error(`리포트 파일을 못 읽었어요: ${reportFile}`, { cause: e });
+    }
+    const r = mergeReport(rootOf(opts), slug, input);
+    emit(r, opts.json, () => {
+      for (const i of r.issues) console.log(`${i.severity} ${i.code} ${i.path}: ${i.message}`);
+      if (r.saved) {
+        console.log(`${r.replaced ? '바꿔 끼움' : '추가'}: ${r.key} → ${r.digestPath}`);
+      } else {
+        console.log(`lint 오류가 있어 저장하지 않았어요: ${r.key}`);
+      }
+    });
+    if (!r.saved) process.exitCode = 1;
   } catch (e) {
     fail(e);
   }

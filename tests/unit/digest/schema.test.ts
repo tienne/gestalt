@@ -4,44 +4,71 @@ import { sampleDigest, sampleTranscript } from './fixture.js';
 
 describe('parseDigest', () => {
   it('유효본을 받고 빠진 옵션은 기본값으로 채운다', () => {
-    const raw = sampleDigest() as unknown as Record<string, unknown>;
-    const report = { ...(raw.report as Record<string, unknown>) };
+    const raw = sampleDigest();
+    const report = { ...raw.reports[0]! } as Record<string, unknown>;
     delete report.options;
     delete report.skipped;
-    const r = parseDigest({ ...raw, report });
+    const r = parseDigest({ ...raw, reports: [report] });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.value.report.options).toEqual({ length: 'default', difficulty: 'normal', lang: 'ko' });
-    expect(r.value.report.skipped).toEqual([]);
+    expect(r.value.reports[0]!.options).toEqual({
+      length: 'default',
+      difficulty: 'normal',
+      lang: 'ko',
+    });
+    expect(r.value.reports[0]!.skipped).toEqual([]);
+  });
+
+  it('1.0.0의 report 한 벌은 reports 한 칸으로 읽는다', () => {
+    const { reports, ...rest } = sampleDigest();
+    const r = parseDigest({ ...rest, schemaVersion: '1.0.0', report: reports[0] });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.reports).toHaveLength(1);
+    expect(r.value.reports[0]!.lead).toEqual(reports[0]!.lead);
+    expect('report' in r.value).toBe(false);
+  });
+
+  it('reports가 비면 거절한다', () => {
+    expect(parseDigest({ ...sampleDigest(), reports: [] }).ok).toBe(false);
+  });
+
+  it('구간이 거꾸로거나 언어 태그 꼴이 아니면 거절한다', () => {
+    const d = sampleDigest();
+    d.reports[0]!.options.range = [30, 10];
+    expect(parseDigest(d).ok).toBe(false);
+    const e = sampleDigest();
+    e.reports[0]!.options.lang = 'ko"><script>';
+    expect(parseDigest(e).ok).toBe(false);
   });
 
   it('필수 필드가 빠지면 경로와 함께 거절한다', () => {
-    const d = sampleDigest() as unknown as { report: { lead: Record<string, unknown> } };
-    delete d.report.lead.takeaway;
+    const d = sampleDigest() as unknown as { reports: Array<{ lead: Record<string, unknown> }> };
+    delete d.reports[0]!.lead.takeaway;
     const r = parseDigest(d);
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.error.issues.some((i) => i.startsWith('report.lead.takeaway'))).toBe(true);
+    expect(r.error.issues.some((i) => i.startsWith('reports.0.lead.takeaway'))).toBe(true);
   });
 
   it('from이 to보다 큰 출처는 거절한다', () => {
     const d = sampleDigest();
-    d.report.sections[0]!.cite = { key: 3, from: 5, to: 2 };
+    d.reports[0]!.sections[0]!.cite = { key: 3, from: 5, to: 2 };
     expect(parseDigest(d).ok).toBe(false);
   });
 
   it('skipped의 from이 to보다 크면 거절한다', () => {
     const d = sampleDigest();
-    d.report.skipped = [{ from: 5, to: 2, reason: '거꾸로' }];
+    d.reports[0]!.skipped = [{ from: 5, to: 2, reason: '거꾸로' }];
     const r = parseDigest(d);
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.error.issues.join()).toContain('report.skipped.0');
+    expect(r.error.issues.join()).toContain('reports.0.skipped.0');
   });
 
   it('3단 불릿은 스키마가 받고 lint가 잡는다', () => {
     const d = sampleDigest();
-    d.report.sections[0]!.subsections[0]!.bullets[0]!.children![0]!.children = [
+    d.reports[0]!.sections[0]!.subsections[0]!.bullets[0]!.children![0]!.children = [
       { text: '3단', cite: { key: 1, from: 1, to: 1 } },
     ];
     expect(parseDigest(d).ok).toBe(true);

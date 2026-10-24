@@ -11,3 +11,5 @@ export * from './render.js';
 export * from './server.js';
 export { findSegmentIndex } from './viewer-js.js';
 export * from './prose.js';
+export * from './reports.js';
+export * from './merge.js';
