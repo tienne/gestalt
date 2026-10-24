@@ -342,6 +342,15 @@ function checkComments(
   ext.blocks.forEach((block, bi) => {
     if (block.type !== 'comments') return;
     const bp = `${p}.blocks.${bi}`;
+    const counted = block.groups.reduce((sum, g) => sum + g.count, 0);
+    if (counted > block.total) {
+      issues.push({
+        path: `${bp}.total`,
+        severity: 'warning',
+        code: 'COMMENT_COUNT_EXCEEDS',
+        message: `묶음 개수 합(${counted})이 total(${block.total})보다 크다`,
+      });
+    }
     if (comments === undefined) return;
     if (comments === null) {
       issues.push({
@@ -351,15 +360,6 @@ function checkComments(
         message: 'comments.json이 없다. gestalt digest comments로 댓글을 먼저 받는다',
       });
       return;
-    }
-    const counted = block.groups.reduce((sum, g) => sum + g.count, 0);
-    if (counted > block.total) {
-      issues.push({
-        path: `${bp}.total`,
-        severity: 'warning',
-        code: 'COMMENT_COUNT_EXCEEDS',
-        message: `묶음 개수 합(${counted})이 total(${block.total})보다 크다`,
-      });
     }
     block.groups.forEach((g, k) => {
       g.examples.forEach((ex, ei) => {

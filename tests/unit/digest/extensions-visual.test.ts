@@ -171,6 +171,14 @@ describe('댓글 대조 lint', () => {
     expect(lintErrors(lintDigest(withExt(commentsExt()), sampleTranscript()))).toEqual([]);
   });
 
+  it('합계 초과는 comments 옵션이 없어도 경고한다', () => {
+    const ext = commentsExt();
+    const block = ext.blocks[0]!;
+    if (block.type !== 'comments') throw new Error('comments 블록이어야 한다');
+    block.total = 5;
+    expect(codes(lintDigest(withExt(ext), sampleTranscript()))).toContain('COMMENT_COUNT_EXCEEDS');
+  });
+
   it('comments.json이 없으면 오류다', () => {
     const issues = lintDigest(withExt(commentsExt()), sampleTranscript(), { comments: null });
     expect(issues.find((i) => i.code === 'COMMENTS_SOURCE_MISSING')).toMatchObject({
