@@ -479,9 +479,11 @@ a.ts:hover{text-decoration:underline}
 .quiz-check{margin-top:6px;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:2px 10px;cursor:pointer;color:inherit;font:inherit}
 .quiz-exp{margin-top:8px;border-top:1px solid var(--line)}
 .quiz-exp p{margin:6px 0}
+.quiz-result{margin:6px 0}.quiz-result:empty{margin:0}
 .quiz-q.is-right .quiz-result{color:var(--accent);font-weight:600}
 .quiz-q.is-wrong .quiz-result{color:var(--warn);font-weight:600}
-.quiz-choice.is-answer span{background:var(--hl)}
+.quiz-choice.is-answer>span:not(.quiz-mark){background:var(--hl);font-weight:600}
+.quiz-choice.is-picked>span:not(.quiz-mark){outline:2px dashed var(--warn);outline-offset:1px;border-radius:3px}
 .diagram{margin:16px 0}
 .dg-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:8px}
 .dg-svg{display:block;max-width:none}

@@ -220,7 +220,7 @@ export function blockHtml(block: Block, ctx: BlockHtmlContext, id = 'b'): string
             )
             .join('');
           const right = q.choices[q.answer] ?? '';
-          return `<li><fieldset class="quiz-q" data-answer="${q.answer}"><legend>${htmlInline(q.question, ctx)}</legend>${choices}<button type="button" class="quiz-check">정답 확인</button><div class="quiz-exp" hidden><p class="quiz-result"></p><p><b>정답 ${q.answer + 1}번</b> ${htmlInline(right, ctx)}</p><p>${htmlInline(q.explanation, ctx)}${htmlCite(q.cite, ctx)}</p></div></fieldset></li>`;
+          return `<li><fieldset class="quiz-q" data-answer="${q.answer}"><legend>${htmlInline(q.question, ctx)}</legend>${choices}<button type="button" class="quiz-check">정답 확인</button><p class="quiz-result" role="status" aria-live="polite"></p><div class="quiz-exp" hidden><p><b>정답 ${q.answer + 1}번</b> ${htmlInline(right, ctx)}</p><p>${htmlInline(q.explanation, ctx)}${htmlCite(q.cite, ctx)}</p></div></fieldset></li>`;
         })
         .join('')}</ol>`;
     case 'mindmap':

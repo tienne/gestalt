@@ -379,6 +379,9 @@ describe('시각 블록 렌더', () => {
     expect(out).toContain('<details class="card">');
     expect(out).toMatch(/<fieldset class="quiz-q" data-answer="0">/);
     expect(out).toMatch(/<input type="radio" name="[^"]+-b0-q0"/);
+    expect(out).toMatch(
+      /정답 확인<\/button><p class="quiz-result" role="status" aria-live="polite"><\/p><div class="quiz-exp" hidden>/,
+    );
     expect(out).toContain('<figure class="diagram">');
     expect(out).toContain('data-zoom');
     expect(out).toContain('A&lt;b&gt;');

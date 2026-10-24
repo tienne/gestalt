@@ -612,8 +612,20 @@ export const VIEWER_JS =
       var picked = -1;
       Array.prototype.forEach.call(inputs, function(input, i){
         if (input.checked) picked = i;
+      });
+      // 정답과 고른 답을 색으로만 가르면 스크린리더가 못 읽는다. 다시 누르면 앞 표시를 지우고 새로 단다
+      Array.prototype.forEach.call(inputs, function(input, i){
         var label = input.closest('label');
-        if (label) label.classList.toggle('is-answer', i === answer);
+        if (!label) return;
+        Array.prototype.forEach.call(label.querySelectorAll('.quiz-mark'), function(m){ m.remove(); });
+        label.classList.toggle('is-answer', i === answer);
+        label.classList.toggle('is-picked', i === picked && i !== answer);
+        var mark = i === answer ? ' (정답)' : i === picked ? ' (고른 답)' : '';
+        if (!mark) return;
+        var sr = document.createElement('span');
+        sr.className = 'sr-only quiz-mark';
+        sr.textContent = mark;
+        label.appendChild(sr);
       });
       q.classList.toggle('is-right', picked === answer);
       q.classList.toggle('is-wrong', picked >= 0 && picked !== answer);
