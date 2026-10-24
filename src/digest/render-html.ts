@@ -52,12 +52,18 @@ class FrameBudget {
       this.warnings.push(`프레임이 5MB를 넘어 건너뛰었다: ${fileName}`);
       return null;
     }
-    if (this.total + data.length > MAX_TOTAL_IMAGE_BYTES) {
-      this.warnings.push(`프레임 합계가 15MB를 넘어 건너뛰었다: ${fileName}`);
-      return null;
-    }
-    this.total += data.length;
+    if (!this.charge(data.length, fileName)) return null;
     return `data:image/jpeg;base64,${data.toString('base64')}`;
+  }
+
+  /** 이미 만든 data URI를 다시 실을 때도 HTML 크기는 그만큼 늘어서 같은 합계에 센다 */
+  charge(bytes: number, fileName: string): boolean {
+    if (this.total + bytes > MAX_TOTAL_IMAGE_BYTES) {
+      this.warnings.push(`프레임 합계가 15MB를 넘어 건너뛰었다: ${fileName}`);
+      return false;
+    }
+    this.total += bytes;
+    return true;
   }
 }
 
@@ -113,18 +119,19 @@ export function renderDigestHtml(
     warnings.push(`프레임이 없어 자리를 비웠다: ${subId} (${file})`);
 
   // 확인 수단이 없는 렌더에서는 프레임이 없다고 경고하지 않는다. 예산 초과는 FrameBudget이 따로 경고한다
-  // 리포트 여럿이 같은 프레임을 쓰면 data URI를 한 번만 만들어 예산을 두 번 쓰지 않는다
-  const inlined = new Map<string, string | null>();
+  // 리포트 여럿이 같은 프레임을 쓰면 파일은 한 번만 읽는다. 같은 data URI가 HTML에 한 번 더 실리므로 예산은 다시 센다
+  const inlined = new Map<string, { src: string; bytes: number } | null>();
   const frame = (sec: number, subId: string): string => {
     const file = frameFileName(sec);
     let src: string | null = null;
-    if (inlined.has(file)) {
-      src = inlined.get(file)!;
+    if (budget && inlined.has(file)) {
+      const hit = inlined.get(file);
+      if (hit && budget.charge(hit.bytes, file)) src = hit.src;
     } else if (budget && loadFrame) {
       const data = loadFrame(file);
       if (data) src = budget.dataUri(data, file);
       else missingFrame(subId, file);
-      inlined.set(file, src);
+      inlined.set(file, src && data ? { src, bytes: data.length } : null);
     } else if (opts.frameExists) {
       if (opts.frameExists(file)) src = `frames/${file}`;
       else missingFrame(subId, file);

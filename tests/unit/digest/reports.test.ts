@@ -246,6 +246,17 @@ describe('리포트 여럿 렌더', () => {
     expect(html).toContain('.minimap[hidden]{display:none}');
   });
 
+  it('리포트 여럿이 같은 프레임을 다시 실어도 인라인 합계는 15MB를 안 넘는다', () => {
+    const { html, warnings } = renderDigestHtml(multi(), sampleTranscript(), {
+      inlineFrames: true,
+      loadFrame: () => Buffer.alloc(3 * 1024 * 1024),
+    });
+    const uris = html.match(/data:image\/jpeg;base64,[A-Za-z0-9+/=]+/g) ?? [];
+    const bytes = uris.reduce((n, u) => n + Buffer.from(u.split(',')[1]!, 'base64').length, 0);
+    expect(bytes).toBeLessThanOrEqual(15 * 1024 * 1024);
+    expect(warnings.some((w) => w.includes('합계가 15MB'))).toBe(true);
+  });
+
   it('지금 보는 리포트의 언어를 뷰어 데이터에 싣는다', () => {
     const { html } = renderDigestHtml(multi(), sampleTranscript());
     expect(html).toMatch(/"lang":"ko"/);
