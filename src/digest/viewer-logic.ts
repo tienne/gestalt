@@ -110,7 +110,7 @@ export interface ViewerLogic {
   safeDecode: (s: string) => string;
   /** HTML5 video 상태를 유튜브 재생 상태 코드로 옮긴다. 따라가기 판정이 그 코드만 본다 */
   videoState: (ended: boolean, paused: boolean, time: number, readyState: number) => number;
-  /** 복사 결과를 버튼 글자와 라이브 영역에 잠깐 보이는 함수를 만든다. 버튼 둘이 타이머 하나를 같이 쓴다 */
+  /** 복사 결과를 보여 주는 flash 함수를 만든다. 결과는 버튼 글자와 라이브 영역에 잠깐 나오고 버튼 둘이 타이머 하나를 같이 쓴다 */
   makeFlash: (
     getStatus: () => { textContent: string | null } | null,
   ) => (btn: { textContent: string | null }, label: string, failed: boolean) => void;
