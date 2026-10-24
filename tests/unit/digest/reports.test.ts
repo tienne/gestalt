@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -200,6 +200,57 @@ describe('mergeReport', () => {
     const r = mergeReport(repo, SLUG, bad);
     expect(r.saved).toBe(false);
     expect(store.loadDigest(SLUG)!.reports).toHaveLength(1);
+  });
+
+  it('같은 키면 그 자리에 바꿔 끼우고 순서를 유지한다', () => {
+    const { repo, store } = seeded();
+    mergeReport(repo, SLUG, variant({ difficulty: 'easy' }));
+    const next = variant({});
+    next.lead.takeaway = '바꾼 결론';
+    const r = mergeReport(repo, SLUG, next);
+    expect(r).toMatchObject({ key: 'default-normal-ko', index: 0, replaced: true, saved: true });
+    const reports = store.loadDigest(SLUG)!.reports;
+    expect(reports.map((x) => reportKey(x.options))).toEqual([
+      'default-normal-ko',
+      'default-easy-ko',
+    ]);
+    expect(reports[0]!.lead.takeaway).toBe('바꾼 결론');
+  });
+
+  it('1.0.0 digest.json을 읽어 1.1.0 reports로 저장한다', () => {
+    const { repo, store } = seeded();
+    const { reports, ...rest } = sampleDigest();
+    writeFileSync(
+      store.digestPath(SLUG),
+      JSON.stringify({ ...rest, schemaVersion: '1.0.0', report: reports[0] }),
+    );
+    const r = mergeReport(repo, SLUG, variant({ length: 'short' }));
+    expect(r).toMatchObject({ index: 1, saved: true });
+    const saved = JSON.parse(readFileSync(store.digestPath(SLUG), 'utf-8'));
+    expect(saved.schemaVersion).toBe('1.1.0');
+    expect(saved.report).toBeUndefined();
+    expect(saved.reports).toHaveLength(2);
+  });
+
+  it('기존 리포트에 lint 오류가 있으면 새 리포트가 멀쩡해도 저장하지 않는다', () => {
+    const { repo, store } = seeded();
+    const d = sampleDigest();
+    d.reports[0]!.sections[0]!.cite = { key: 50, from: 50, to: 50 };
+    writeFileSync(store.digestPath(SLUG), JSON.stringify(d));
+    const before = readFileSync(store.digestPath(SLUG), 'utf-8');
+    const r = mergeReport(repo, SLUG, variant({ difficulty: 'easy' }));
+    expect(r.saved).toBe(false);
+    expect(r.issues.some((i) => i.path.startsWith('reports.0'))).toBe(true);
+    expect(readFileSync(store.digestPath(SLUG), 'utf-8')).toBe(before);
+  });
+
+  it('digest.json이 깨졌으면 덮어쓰지 않고 던진다', () => {
+    const { repo, store } = seeded();
+    writeFileSync(store.digestPath(SLUG), '{ not json');
+    expect(() => mergeReport(repo, SLUG, variant({}))).toThrow();
+    expect(readFileSync(store.digestPath(SLUG), 'utf-8')).toBe('{ not json');
+    writeFileSync(store.digestPath(SLUG), JSON.stringify({ slug: SLUG, reports: [] }));
+    expect(() => mergeReport(repo, SLUG, variant({}))).toThrow();
   });
 
   it('digest.json이 없으면 그 리포트 한 벌로 만든다', () => {
