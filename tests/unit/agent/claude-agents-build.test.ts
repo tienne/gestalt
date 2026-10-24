@@ -171,9 +171,9 @@ describe('생성된 에이전트의 도구', () => {
     }
   });
 
-  it('Write는 presentation-designer만 받는다', () => {
+  it('Write는 파일을 직접 쓰는 presentation-designer와 video-summarizer만 받는다', () => {
     const writers = [...agents].filter(([, tools]) => tools.includes('Write')).map(([n]) => n);
-    expect(writers).toEqual(['presentation-designer']);
+    expect(writers.sort()).toEqual(['presentation-designer', 'video-summarizer']);
   });
 
   it('MCP 도구는 ges_agent로 윤문 지침을 받는 에이전트에만 열린다', () => {

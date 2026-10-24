@@ -41,7 +41,7 @@
 
 | 상황 | 에이전트 |
 |------|---------|
-| 영상/비디오 URL이 포함되거나 "요약해줘" 요청 | `video-summarizer` |
+| 영상을 요약하거나 정리해달라는 요청. 경쟁사 조사 안의 영상은 `research`, 영상 화면만 모으려면 `screen-ref` | `video-digest` 스킬 (요약 본문은 스킬이 `video-summarizer`에 맡긴다) |
 | 번역투·AI 말투·어색한 한국어 교정 요청 | `humanize-monolith` (윤문 모드) |
 | 고치지 말고 AI 티만 짚어달라는 요청 ("이거 AI 같아?", "슬롭인지 봐줘", "패턴만 짚어줘") | `humanize-monolith` (탐지 모드 — 원문 무수정, 패턴 인용만, 저자 판정·등급 금지) |
 | README, API 문서, 가이드, 개발자 문서 작성 | `technical-writer` |
@@ -96,6 +96,7 @@
 | "출하", "ship", "PR 올릴 때까지", "리뷰 통과할 때까지", "코파일럿 리뷰까지", "copilot 리뷰 받아줘", "draft PR 올리고 리뷰" | `ship` 스킬 사용 | 로컬 PR → 리뷰 수렴 루프 → 승인 → draft PR → Copilot 수렴 루프 → ready. 리뷰 한 번만이면 `review` |
 | "슬랙 보내", "슬랙으로 보내", "메시지 보내", "메세지 보내", "전달해줘", "공지해줘", "공지 올려줘", "슬랙에 올려줘", "슬랙 메시지 전송", "예약 발송", "예약메세지", "예약 메시지", "이따 보내", "내일 아침에 보내", "9시에 보내" | `slack-send` 스킬 사용 | 내부적으로 slack-messenger 다듬기 → 승인 단계 → 전송 |
 | "이 화면들 UX 분석해줘", "UX 분석만 해줘", "화면의 와우 포인트와 페인 포인트만 정리해줘", "사용자 관점으로 화면 분석해줘" | `ux-research` 스킬 사용 | 캡처가 있는 research.json에서 섹션 4만 채운다. 화면 수집이면 `screen-ref`, 본업에서 출발한 이유 분석이면 `reverse-plan`, 전체를 한 번에 돌리면 `research` |
+| "이 영상 요약해줘", "유튜브 영상 요약해줘", "유튜브 영상 정리해줘", "영상 요약 뷰어 만들어줘", "이 강의 영상 내용 정리해줘" | `video-digest` 스킬 사용 | ingest → video-summarizer가 digest.json 작성 → validate → frames → 윤문 → render → serve 또는 export --md. 이미 있는 slug를 다시 보여주기만 하려면 serve만 부른다. 경쟁사 조사 안에서 영상을 다루면 `research`, 영상 화면만 모으려면 `screen-ref` |
 
 <!-- skill-routing:end -->
 

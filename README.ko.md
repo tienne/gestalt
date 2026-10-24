@@ -151,7 +151,7 @@ claude plugin install gestalt@gestalt
 
 | 항목 | 내용 |
 |------|------|
-| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_architecture` — [MCP 레퍼런스](./docs/mcp-reference.md) 참고 |
+| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_architecture`, `ges_research`, `ges_digest` — [MCP 레퍼런스](./docs/mcp-reference.md) 참고 |
 | **슬래시 커맨드** | 워크플로 스킬 — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send` 등. 전체 목록은 [스킬](#스킬) |
 | **에이전트** | 파이프라인 에이전트, [Role 에이전트와 Review 에이전트](#6단계--code-review-코드-리뷰) |
 | **CLAUDE.md** | 프로젝트 컨텍스트 및 MCP 사용 가이드 자동 추가 |
@@ -617,6 +617,7 @@ Claude Code에서는 스킬마다 슬래시 커맨드로 불러요. Codex에서�
 | `/ship` | 로컬 PR로 리뷰를 수렴시킨 뒤 GitHub에 draft PR로 올리고 Copilot 리뷰까지 받아요 |
 | `/brief` | 성과 보고, 제안서, RFC, 의사결정 메모를 이해관계자가 읽을 산문으로 써요 |
 | `/presentation` | 발표 자료를 만들어요. `presentation-writer`가 콘텐츠를 쓰고 `presentation-designer`가 Reveal.js HTML로 조립해요 |
+| `/video-digest` | 유튜브 영상으로 요약 뷰어를 만들어요. 불릿마다 근거가 된 스크립트 문장이 달리고 목차와 플레이어, 재생 위치를 따라가는 스크립트가 붙어요. 마크다운으로도 내요 |
 | `/explain` | 개념이나 에러, 코드를 정한 대상에게 맞춰 설명하고 `explain-check`로 판정해요 |
 | `/jira-create` | `jira-writer`로 지라 티켓을 쓰고 미리보기를 승인하면 생성해요 |
 | `/slack-send` | 슬랙 메시지를 작성자 어투로 다듬고 승인하면 보내거나 예약해요 |

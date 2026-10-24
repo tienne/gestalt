@@ -3,7 +3,11 @@ import { existsSync, rmSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { createMcpServer } from '../../../src/mcp/server.js';
-import { executeInputSchema, interviewInputSchema } from '../../../src/mcp/schemas.js';
+import {
+  DIGEST_ACTIONS,
+  executeInputSchema,
+  interviewInputSchema,
+} from '../../../src/mcp/schemas.js';
 
 // MCP SDK가 등록 스키마로 입력을 먼저 검증한 뒤 핸들러가 schemas.ts로 다시 파싱한다.
 // 두 곳의 action 목록이 어긋나면 핸들러가 처리하는 action이 SDK에서 거절된다.
@@ -97,6 +101,14 @@ describe('등록 스키마와 schemas.ts의 action 목록', () => {
       for (const action of executeInputSchema.shape.action.options) {
         expect(tool?.description).toContain(action);
       }
+    });
+  });
+
+  it('ges_digest는 DIGEST_ACTIONS와 같고 설명에도 전부 나온다', async () => {
+    await withTools('passthrough', (tools) => {
+      const tool = tools['ges_digest'];
+      expect(registeredActions(tool)).toEqual([...DIGEST_ACTIONS]);
+      for (const action of DIGEST_ACTIONS) expect(tool?.description).toContain(action);
     });
   });
 });
