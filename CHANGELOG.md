@@ -16,10 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 뷰어는 HTML 한 장이에요. 목차, 플레이어, 출처 툴팁, 키워드 팝업이 있고 스크립트 하이라이트가 재생 위치를 따라가요. `gestalt digest serve`로 127.0.0.1에 띄워야 유튜브 재생이 돼요. 파일로 열면 "유튜브에서 열기" 링크로 바뀌어요.
   - `prose_extract`와 `prose_apply`로 본문 문장만 윤문해요. 굵게와 키워드 마커, 숫자, 링크가 그대로인지 코드로 봐요.
   - `gestalt digest export --md`로 마크다운만 낼 수 있어요.
+- **한 영상에 분량과 난이도가 다른 리포트를 여러 벌 붙여요.** `gestalt digest merge`가 리포트를 `digest.json`의 `reports[]`에 합치고 뷰어 툴바에서 고를 수 있어요. 없는 조합을 고르면 만들 명령을 클립보드로 복사해요.
+- **구간과 결과 언어, 요청 문장을 리포트 옵션으로 줄 수 있어요.** `gestalt digest slice --range`가 그 구간 문장만 번호를 그대로 둔 채 잘라요. 구간 리포트의 출처가 구간을 벗어나면 lint가 막아요.
+- **스크립트에 번역 줄을 붙이고 뷰어에서 켜고 끌 수 있어요.** `gestalt digest translate-apply`가 번역을 문장 번호로 붙여요.
+- **로컬 영상 파일도 뷰어에서 재생돼요.** `serve`가 원본 파일 하나만 같은 출처로 내줘요.
+- **화면 글자를 읽어 요약 보조 자료로 넘길 수 있어요.** `gestalt digest ocr`나 `ingest --ocr`가 일정 간격 프레임을 tesseract로 읽어 `ocr.json`에 둬요.
 
 ### Changed
 
-- **`video-summarizer`가 마크다운 대신 `digest.json`을 써요.** 수집과 OCR, 렌더는 빼고 요약 본문만 맡아요. 마크다운이 필요하면 `gestalt digest export --md`를 써요. 화면 글자 OCR은 2차에서 `ingest --ocr`로 다시 붙일 예정이에요.
+- **`video-summarizer`가 마크다운 대신 `digest.json`을 써요.** 수집과 OCR, 렌더는 빼고 요약 본문만 맡아요. 마크다운이 필요하면 `gestalt digest export --md`를 써요. 화면 글자는 `ocr.json`을 보조 자료로 받아요.
 - 영상 요약 요청은 라우팅 표에서 `video-digest` 스킬로 가요.
 
 ## [0.102.0] - 2026-10-21

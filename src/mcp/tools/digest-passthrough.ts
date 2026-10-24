@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
 import { applyProse, extractProse } from '../../digest/prose.js';
+import { reportKey } from '../../digest/reports.js';
 import { DigestLintError, DigestLoadError, renderToFiles } from '../../digest/render.js';
 import { parseDigest, type Digest, type Transcript } from '../../digest/schema.js';
 import { DigestStore, isValidSlug } from '../../digest/store.js';
@@ -54,6 +55,7 @@ function handleValidate(input: DigestInput, cwd: string): object {
     ok: errors.length === 0,
     action: 'validate',
     slug: input.slug,
+    reports: loaded.digest.reports.map((r) => reportKey(r.options)),
     errors,
     warnings: issues.filter((i) => i.severity === 'warning'),
   };

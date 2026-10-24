@@ -1,19 +1,15 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { frameFileName } from '../../../src/digest/frames.js';
 import { embedJson, renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown, renderToFiles } from '../../../src/digest/render.js';
 import type { Digest, Transcript } from '../../../src/digest/schema.js';
 import { DigestStore } from '../../../src/digest/store.js';
-import {
-  VIEWER_JS,
-  VIEWER_JS_SHA256,
-  findSegmentIndex,
-  viewerLogic,
-} from '../../../src/digest/viewer-js.js';
+import { VIEWER_JS, VIEWER_JS_SHA256 } from '../../../src/digest/viewer-js.js';
+import { findSegmentIndex, viewerLogic } from '../../../src/digest/viewer-logic.js';
 import { SLUG, sampleDigest, sampleTranscript } from './fixture.js';
 
 const tmpDirs: string[] = [];
@@ -43,7 +39,8 @@ function dataOf(html: string): Record<string, unknown> {
 describe('renderDigestHtml 마커', () => {
   it('escape한 뒤 굵게와 키워드 마커만 태그로 바꾼다', () => {
     const d = sampleDigest();
-    d.report.lead.question = '<img src=x onerror=alert(1)> **왜** {{kw:code-layers|코드 레이어}}?';
+    d.reports[0]!.lead.question =
+      '<img src=x onerror=alert(1)> **왜** {{kw:code-layers|코드 레이어}}?';
     const { html, warnings } = renderDigestHtml(d, sampleTranscript());
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(html).not.toContain('<img src=x');
@@ -56,7 +53,7 @@ describe('renderDigestHtml 마커', () => {
 
   it('목록에 없는 키워드 마커는 글자만 남기고 경고한다', () => {
     const d = sampleDigest();
-    d.report.lead.answer = '{{kw:ghost|유령}} 이야기';
+    d.reports[0]!.lead.answer = '{{kw:ghost|유령}} 이야기';
     const { html, warnings } = renderDigestHtml(d, sampleTranscript());
     expect(html).toContain('<p>유령 이야기</p>');
     expect(warnings).toEqual(['키워드 목록에 없는 마커: ghost']);
@@ -79,8 +76,8 @@ describe('renderDigestHtml 마커', () => {
 
   it('제목은 마커를 해석하지 않고 본문, 목차, 미니맵 모두 escape만 한다', () => {
     const d = sampleDigest();
-    d.report.sections[0]!.title = '**굵게** {{kw:code-layers|코드}} <b>';
-    d.report.sections[0]!.subsections[0]!.title = '1.1. **소제목**';
+    d.reports[0]!.sections[0]!.title = '**굵게** {{kw:code-layers|코드}} <b>';
+    d.reports[0]!.sections[0]!.subsections[0]!.title = '1.1. **소제목**';
     const { html } = renderDigestHtml(d, sampleTranscript());
     const raw = '**굵게** {{kw:code-layers|코드}} &lt;b&gt;';
     expect(html).toContain(`<span class="num">1.</span> ${raw} `);
@@ -139,10 +136,20 @@ describe('renderDigestHtml 플레이어', () => {
     expect(body).not.toContain('tabindex="-1"');
   });
 
+  it('복사 결과는 화면에 안 보이는 라이브 영역으로 알린다', () => {
+    const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
+    expect(html).toContain(
+      '<p id="copy-status" class="sr-only" role="status" aria-live="polite"></p>',
+    );
+    expect(html).toContain('.sr-only{position:absolute;');
+    expect(VIEWER_JS).toContain("getElementById('copy-status')");
+    expect(VIEWER_JS).toContain('복사하지 못했어요. 직접 선택해 복사해 주세요');
+  });
+
   it('noscript 안내는 자바스크립트와 화면 이름을 구분해 적는다', () => {
     const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
     expect(html).toContain(
-      '자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기가 동작하지 않아요.',
+      '자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기, 리포트 전환이 동작하지 않아요.',
     );
   });
 
@@ -154,13 +161,40 @@ describe('renderDigestHtml 플레이어', () => {
     expect(html).toContain('<noscript>');
   });
 
-  it('로컬 파일 영상은 플레이어 대신 2차 안내를 띄우고 시각은 링크가 아니다', () => {
+  it('로컬 파일 영상은 video 요소와 serve 안내를 싣고 시각은 링크가 아니다', () => {
     const { html } = renderDigestHtml(sampleDigest(), fileTranscript());
-    expect(html).toContain('로컬 영상 재생은 2차에서 붙여요');
+    expect(html).toContain(
+      '<video id="player-video" controls playsinline preload="metadata" aria-label="영상 재생"></video>',
+    );
+    expect(html).toContain(`<code>gestalt digest serve ${SLUG}</code>로 열어야 재생돼요`);
+    expect(html).toContain('id="player-slot"');
     expect(html).not.toContain('<div id="player-frame">');
-    expect(html).not.toContain('id="player-slot"');
     expect(html).toContain('<span class="ts" data-sec="10">00:10</span>');
     expect(dataOf(html).videoId).toBeNull();
+    expect(dataOf(html).localVideo).toBe(true);
+    expect(html).not.toContain('시각 링크는 유튜브 새 탭으로');
+  });
+
+  it('번역이 있으면 문장 아래 번역 줄과 숨겨 둔 토글을 싣는다', () => {
+    const t = sampleTranscript();
+    t.meta.translationLang = 'ko';
+    t.segments[1]!.translation = '<b>두 번째</b> 문장';
+    const { html } = renderDigestHtml(sampleDigest(), t);
+    expect(html).toContain(
+      '<span class="txt"><span class="src">Sentence number 1.</span><span class="tr" lang="ko">&lt;b&gt;두 번째&lt;/b&gt; 문장</span></span>',
+    );
+    expect(html).toContain('<span class="txt"><span class="src">Sentence number 0.</span></span>');
+    expect(html).toContain(
+      'id="tr-toggle" class="tr-toggle" aria-pressed="true" hidden>번역</button>',
+    );
+  });
+
+  it('번역 언어가 없으면 번역 문장이 있어도 싣지 않는다', () => {
+    const t = sampleTranscript();
+    t.segments[1]!.translation = '두 번째 문장';
+    const { html } = renderDigestHtml(sampleDigest(), t);
+    expect(html).not.toContain('class="tr"');
+    expect(html).not.toContain('id="tr-toggle"');
   });
 
   it('좁은 화면에서는 미니 플레이어 높이만큼 본문 아래를 비운다', () => {
@@ -260,7 +294,7 @@ describe('renderDigestMarkdown', () => {
 
   it('파일 영상은 출처에 링크 대신 시각을 적고 뺀 구간도 남긴다', () => {
     const d: Digest = sampleDigest();
-    d.report.skipped = [{ from: 10, to: 11, reason: '광고' }];
+    d.reports[0]!.skipped = [{ from: 10, to: 11, reason: '광고' }];
     const md = renderDigestMarkdown(d, fileTranscript());
     expect(md).toMatch(/ \[2 00:05\]/);
     expect(md).toContain('## 요약에서 뺀 구간\n\n- 00:50~ 문장 11-12: 광고');
@@ -295,7 +329,7 @@ describe('renderToFiles와 exportMarkdown', () => {
 
   it('validate 오류가 남아 있으면 렌더하지 않는다', () => {
     const d = sampleDigest();
-    d.report.sections[0]!.cite = { key: 99, from: 99, to: 99 };
+    d.reports[0]!.sections[0]!.cite = { key: 99, from: 99, to: 99 };
     const { repo, store } = seeded(d);
     expect(() => renderToFiles(SLUG, { repoRoot: repo })).toThrow(/validate 오류/);
     expect(existsSync(store.htmlPath(SLUG))).toBe(false);
@@ -369,6 +403,8 @@ describe('viewer-js', () => {
       'shouldFollowHeld',
       'cueAction',
       'citeWindow',
+      'safeDecode',
+      'makeFlash',
     ]) {
       expect(VIEWER_JS).toContain(`function ${name}(`);
       expect(VIEWER_JS.match(new RegExp(`function ${name}\\(`, 'g'))).toHaveLength(1);
@@ -389,5 +425,77 @@ describe('viewer-js', () => {
     const body = scripts[0]![1]!;
     expect(body).toBe(VIEWER_JS);
     expect(createHash('sha256').update(body, 'utf8').digest('base64')).toBe(VIEWER_JS_SHA256);
+  });
+});
+
+describe('safeDecode', () => {
+  it('깨진 퍼센트 인코딩이면 던지지 않고 빈 문자열을 돌려준다', () => {
+    const { safeDecode } = viewerLogic;
+    expect(safeDecode('sub-%EA%B0%80')).toBe('sub-가');
+    expect(safeDecode('%E0%A4%A')).toBe('');
+    expect(safeDecode('%')).toBe('');
+    expect(safeDecode('')).toBe('');
+  });
+});
+
+describe('videoState', () => {
+  it('HTML5 video 상태를 유튜브 재생 상태 코드로 옮긴다', () => {
+    const { videoState, cueAction } = viewerLogic;
+    expect(videoState(true, true, 30, 4)).toBe(0);
+    expect(videoState(false, true, 0, 1)).toBe(-1);
+    expect(videoState(false, true, 12, 4)).toBe(2);
+    expect(videoState(false, false, 12, 2)).toBe(3);
+    expect(videoState(false, false, 12, 4)).toBe(1);
+    expect(cueAction(videoState(false, true, 12, 4))).toBe('seek');
+  });
+});
+
+describe('makeFlash', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('앞 알림이 남은 채 다른 버튼을 누르면 앞 버튼 글자를 되돌리고 뒤 알림을 1.5초 동안 둔다', () => {
+    vi.useFakeTimers();
+    const status = { textContent: '' as string | null };
+    const flash = viewerLogic.makeFlash(() => status);
+    const a = { textContent: 'A 복사' as string | null };
+    const b = { textContent: 'B 복사' as string | null };
+
+    flash(a, 'A 복사', false);
+    vi.advanceTimersByTime(0);
+    expect(status.textContent).toBe('복사했어요');
+    vi.advanceTimersByTime(1000);
+
+    flash(b, 'B 복사', false);
+    expect(a.textContent).toBe('A 복사');
+    expect(b.textContent).toBe('복사했어요');
+    expect(status.textContent).toBe('');
+
+    vi.advanceTimersByTime(0);
+    expect(status.textContent).toBe('복사했어요');
+    vi.advanceTimersByTime(1499);
+    expect(status.textContent).toBe('복사했어요');
+    expect(b.textContent).toBe('복사했어요');
+    vi.advanceTimersByTime(1);
+    expect(status.textContent).toBe('');
+    expect(b.textContent).toBe('B 복사');
+  });
+
+  it('실패하면 직접 복사하라는 문구를 3초 동안 둔다', () => {
+    vi.useFakeTimers();
+    const status = { textContent: '' as string | null };
+    const flash = viewerLogic.makeFlash(() => status);
+    const btn = { textContent: '복사' as string | null };
+
+    flash(btn, '복사', true);
+    expect(btn.textContent).toBe('복사 실패');
+    vi.advanceTimersByTime(0);
+    expect(status.textContent).toBe('복사하지 못했어요. 직접 선택해 복사해 주세요');
+    vi.advanceTimersByTime(2999);
+    expect(btn.textContent).toBe('복사 실패');
+    vi.advanceTimersByTime(1);
+    expect(btn.textContent).toBe('복사');
+    expect(status.textContent).toBe('');
   });
 });

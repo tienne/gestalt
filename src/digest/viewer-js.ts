@@ -1,68 +1,5 @@
 import { createHash } from 'node:crypto';
-
-/**
- * 브라우저에 싣는 코드라 문자열로 둔다. 판단만 하는 순수 함수는 VIEWER_LOGIC_JS에 모아
- * 테스트가 이 문자열을 그대로 실행해 본다. DOM과 유튜브 플레이어를 다루는 나머지 IIFE는
- * 테스트에서 문법만 확인하고 실제 동작은 브라우저에서만 돈다.
- */
-const VIEWER_LOGIC_JS = `
-function findSegmentIndex(starts, t) {
-  if (!starts.length || !(t >= starts[0])) return -1;
-  var lo = 0, hi = starts.length - 1;
-  while (lo < hi) {
-    var mid = (lo + hi + 1) >> 1;
-    if (starts[mid] <= t) lo = mid; else hi = mid - 1;
-  }
-  return lo;
-}
-function shouldFollow(idx, from, to, now, manualUntil) {
-  if (now < manualUntil) return false;
-  return !(idx >= from && idx <= to);
-}
-function shouldFollowHeld(state, idx, from, to, now, manualUntil) {
-  if (state === 1 || state === 3) return false;
-  return shouldFollow(idx, from, to, now, manualUntil);
-}
-function cueAction(state) {
-  return state === 1 || state === 2 || state === 3 ? 'seek' : 'cue';
-}
-function citeWindow(from, to, max) {
-  var end = Math.min(to, from + max - 1);
-  return { end: end, more: Math.max(0, to - end) };
-}
-`;
-
-export interface ViewerLogic {
-  /** 재생 시각 t에 해당하는 문장 번호. 첫 문장보다 이르면 -1 */
-  findSegmentIndex: (starts: number[], t: number) => number;
-  /** 읽는 소섹션이 바뀌었을 때 영상을 그 구간으로 옮길지 */
-  shouldFollow: (
-    idx: number,
-    from: number,
-    to: number,
-    now: number,
-    manualUntil: number,
-  ) => boolean;
-  /** 시각을 누른 직후라 미뤄 둔 소섹션 이동을 유예가 끝난 뒤 할지. 그사이 재생이나 버퍼링 중이면 사용자가 옮긴 자리를 둔다 */
-  shouldFollowHeld: (
-    state: number,
-    idx: number,
-    from: number,
-    to: number,
-    now: number,
-    manualUntil: number,
-  ) => boolean;
-  /** 유튜브 재생 상태별로 seekTo를 쓸지 cueVideoById를 쓸지 */
-  cueAction: (state: number) => 'seek' | 'cue';
-  /** 출처 툴팁에 보일 마지막 문장 번호와 생략한 문장 수 */
-  citeWindow: (from: number, to: number, max: number) => { end: number; more: number };
-}
-
-export const viewerLogic = new Function(
-  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, shouldFollowHeld: shouldFollowHeld, cueAction: cueAction, citeWindow: citeWindow };`,
-)() as ViewerLogic;
-
-export const findSegmentIndex = viewerLogic.findSegmentIndex;
+import { VIEWER_LOGIC_JS } from './viewer-logic.js';
 
 // 템플릿 리터럴 안이라 백틱과 달러 중괄호를 쓰지 않는다
 export const VIEWER_JS =
@@ -117,10 +54,12 @@ export const VIEWER_JS =
     if (range) range.addEventListener('input', function(){ setScale(range.value); });
   }
 
-  // 플레이어 어댑터. 2차에 HTML5 video를 같은 꼴로 붙인다
+  // 플레이어 어댑터. 유튜브와 로컬 영상이 같은 꼴을 내서 따라가기 코드는 둘을 가리지 않는다
   function createPlayer() {
     var player = { live: false, seek: function(){}, cue: function(){}, currentTime: function(){ return null; }, state: function(){ return -1; } };
-    if (isFile || !data.videoId || !holder) return player;
+    if (isFile || !holder) return player;
+    if (data.localVideo) return createVideoPlayer(player);
+    if (!data.videoId) return player;
     // live는 처음부터 켜 둬야 소섹션 따라가기와 미니 플레이어가 설치된다. 화면은 준비될 때까지 썸네일을 보인다
     player.live = true;
     var ready = false, failed = false, yt = null, pending = null, pendingCue = null;
@@ -175,6 +114,67 @@ export const VIEWER_JS =
     return player;
   }
 
+  // 서버가 transcript.json에 적힌 원본 파일 하나만 같은 출처로 내준다. file://로 열면 브라우저가 로컬 파일 재생을 막아 안내문을 둔다
+  function createVideoPlayer(player) {
+    var video = document.getElementById('player-video');
+    if (!video) return player;
+    player.live = true;
+    holder.classList.add('is-live');
+    var ready = false, failed = false, pending = null, pendingCue = null;
+    function fail() {
+      if (failed) return;
+      failed = true;
+      ready = false;
+      player.live = false;
+      holder.classList.remove('is-live', 'is-floating');
+      if (slot) slot.classList.remove('is-floating');
+    }
+    player.seek = function(sec){
+      if (!ready) { pending = sec; return; }
+      video.currentTime = sec;
+      var p = video.play();
+      if (p && p.catch) p.catch(function(){});
+    };
+    player.cue = function(sec){
+      if (!ready) { pendingCue = sec; return; }
+      video.currentTime = sec;
+    };
+    player.currentTime = function(){ return ready ? video.currentTime : null; };
+    player.state = function(){ return ready ? videoState(video.ended, video.paused, video.currentTime, video.readyState) : -1; };
+    video.addEventListener('loadedmetadata', function(){
+      if (failed) return;
+      ready = true;
+      if (pending !== null) player.seek(pending);
+      else if (pendingCue !== null) player.cue(pendingCue);
+      pending = null;
+      pendingCue = null;
+    });
+    video.addEventListener('error', fail);
+    video.src = 'video';
+    return player;
+  }
+
+  // 스크립트 번역은 기본으로 보이고 끈 상태만 기억한다
+  function setupTranslation() {
+    var btn = document.getElementById('tr-toggle');
+    var box = document.querySelector('.script');
+    if (!btn || !box) return;
+    var TR_KEY = 'gestalt-digest-tr';
+    var on = true;
+    try { on = localStorage.getItem(TR_KEY) !== 'off'; } catch (e) {}
+    function set(v) {
+      on = v;
+      box.classList.toggle('hide-tr', !on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    set(on);
+    btn.hidden = false;
+    btn.addEventListener('click', function(){
+      set(!on);
+      try { localStorage.setItem(TR_KEY, on ? 'on' : 'off'); } catch (e) {}
+    });
+  }
+
   // 파일로 열었거나 플레이어가 못 떴으면 링크 그대로 유튜브 새 탭이 열린다
   function setupTimeLinks(player) {
     document.addEventListener('click', function(ev){
@@ -218,7 +218,8 @@ export const VIEWER_JS =
       // 스크롤이 움직이면 소섹션 따라가기가 영상을 옮긴다
       pop.focus({ preventScroll: true });
     }
-    function lineText(i){ var li = lines[i]; var t = li && li.querySelector('.txt'); return t ? t.textContent : ''; }
+    // 번역 줄은 같은 li 안에 있어서 원문 span만 읽는다
+    function lineText(i){ var li = lines[i]; var t = li && li.querySelector('.txt .src'); return t ? t.textContent : ''; }
     var MAX_LINES = 8;
     function openCite(btn){
       var key = Number(btn.getAttribute('data-key'));
@@ -252,7 +253,9 @@ export const VIEWER_JS =
       place(btn, '출처 툴팁');
     }
     function openKeyword(btn){
-      var k = data.keywords[btn.getAttribute('data-kw')];
+      var box = btn.closest('.report');
+      var rep = box ? data.reports[Number(box.getAttribute('data-ri'))] : null;
+      var k = rep ? rep.keywords[btn.getAttribute('data-kw')] : null;
       if (!k) return;
       pop.textContent = '';
       var head = document.createElement('div');
@@ -410,26 +413,107 @@ export const VIEWER_JS =
     return api;
   }
 
-  function setupCopyButton() {
+  function copyText(text, done, fail) {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else fallback();
+    function fallback(){
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      ta.remove();
+      (ok ? done : fail)();
+    }
+  }
+  var flash = makeFlash(function(){ return document.getElementById('copy-status'); });
+  function copyWith(btn, label, text) {
+    copyText(text, function(){ flash(btn, label, false); }, function(){ flash(btn, label, true); });
+  }
+
+  function setupCopyButton(reports) {
     var copyBtn = document.getElementById('copy-md');
     if (!copyBtn) return;
     copyBtn.addEventListener('click', function(){
-      var done = function(){ copyBtn.textContent = '복사했어요'; setTimeout(function(){ copyBtn.textContent = '마크다운 복사'; }, 1500); };
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(data.markdown).then(done, fallback);
-      } else fallback();
-      function fallback(){
-        var ta = document.createElement('textarea');
-        ta.value = data.markdown;
-        document.body.appendChild(ta);
-        ta.select();
-        try { document.execCommand('copy'); done(); } catch (e) {}
-        ta.remove();
-      }
+      copyWith(copyBtn, '마크다운 복사', data.reports[reports.current()].markdown);
     });
   }
 
+  // 툴바는 분량과 난이도 조합으로 리포트를 고른다. 없는 조합은 서버가 만들지 않고 생성 명령만 보여 준다
+  function setupReports() {
+    var REPORT_KEY = 'gestalt-digest-report:' + data.slug;
+    var boxes = document.querySelectorAll('.report[data-ri]');
+    var maps = document.querySelectorAll('.minimap[data-ri]');
+    var lengthBtns = document.querySelectorAll('.report-bar [data-length]');
+    var diffBtns = document.querySelectorAll('.report-bar [data-difficulty]');
+    var select = document.getElementById('report-select');
+    var missing = document.getElementById('report-missing');
+    var cmd = document.getElementById('report-cmd');
+    var copyCmd = document.getElementById('copy-cmd');
+    var current = 0;
+    function press(list, attr, value){
+      list.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute(attr) === value ? 'true' : 'false'); });
+    }
+    function show(ri){
+      if (!data.reports[ri]) ri = 0;
+      current = ri;
+      boxes.forEach(function(b){ b.hidden = Number(b.getAttribute('data-ri')) !== ri; });
+      maps.forEach(function(m){ m.hidden = Number(m.getAttribute('data-ri')) !== ri; });
+      var r = data.reports[ri];
+      press(lengthBtns, 'data-length', r.length);
+      press(diffBtns, 'data-difficulty', r.difficulty);
+      if (select) select.value = String(ri);
+      if (missing) missing.hidden = true;
+      try { localStorage.setItem(REPORT_KEY, r.key); } catch (e) {}
+    }
+    function choose(length, difficulty){
+      var ri = pickReport(data.reports, length, difficulty);
+      if (ri >= 0) { show(ri); return; }
+      press(lengthBtns, 'data-length', length);
+      press(diffBtns, 'data-difficulty', difficulty);
+      if (cmd) cmd.textContent = reportCommand(data.slug, length, difficulty, data.reports[current].lang);
+      if (missing) missing.hidden = false;
+    }
+    function pressedOf(list, attr){
+      var v = null;
+      list.forEach(function(b){ if (b.getAttribute('aria-pressed') === 'true') v = b.getAttribute(attr); });
+      return v;
+    }
+    lengthBtns.forEach(function(b){
+      b.addEventListener('click', function(){
+        choose(b.getAttribute('data-length'), pressedOf(diffBtns, 'data-difficulty') || data.reports[current].difficulty);
+      });
+    });
+    diffBtns.forEach(function(b){
+      b.addEventListener('click', function(){
+        choose(pressedOf(lengthBtns, 'data-length') || data.reports[current].length, b.getAttribute('data-difficulty'));
+      });
+    });
+    if (select) select.addEventListener('change', function(){ show(Number(select.value)); });
+    if (copyCmd && cmd) copyCmd.addEventListener('click', function(){
+      copyWith(copyCmd, '명령 복사', cmd.textContent);
+    });
+    var saved = null;
+    try { saved = localStorage.getItem(REPORT_KEY); } catch (e) {}
+    var start = 0;
+    data.reports.forEach(function(r, i){ if (r.key === saved) start = i; });
+    // 공유된 앵커가 다른 리포트의 섹션을 가리키면 그 리포트를 연다
+    var anchor = safeDecode(location.hash.slice(1));
+    var target = anchor ? document.getElementById(anchor) : null;
+    var owner = target && target.closest ? target.closest('.report[data-ri]') : null;
+    if (owner) start = Number(owner.getAttribute('data-ri'));
+    if (start !== 0) show(start);
+    if (owner && target) target.scrollIntoView();
+    return { current: function(){ return current; } };
+  }
+
   setupFontScale();
+  setupTranslation();
+  var reports = setupReports();
   var player = createPlayer();
   setupTimeLinks(player);
   var popups = setupPopups();
@@ -437,7 +521,7 @@ export const VIEWER_JS =
   setupSectionMarks();
   setupSubsectionFollow(player);
   var mini = setupMiniPlayer(player);
-  setupCopyButton();
+  setupCopyButton(reports);
   // 툴팁과 미니 플레이어가 함께 열려 있으면 Escape 한 번에 하나씩 닫는다
   document.addEventListener('keydown', function(ev){
     if (ev.key !== 'Escape') return;

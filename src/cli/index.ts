@@ -34,7 +34,11 @@ import {
 import {
   digestExportCommand,
   digestFramesCommand,
+  digestOcrCommand,
   digestIngestCommand,
+  digestMergeCommand,
+  digestSliceCommand,
+  digestTranslateApplyCommand,
   digestRenderCommand,
   digestServeCommand,
   digestValidateCommand,
@@ -275,7 +279,16 @@ export function createCli(): Command {
     .option('--slug <slug>', '저장 폴더 이름 (기본: 제목과 영상 id)')
     .option('--whisper', '자막이 있어도 faster-whisper로 받아쓴다')
     .option('--whisper-model <name>', 'faster-whisper 모델 (기본 large-v3)')
+    .option('--ocr', '스크립트를 만든 뒤 화면 글자도 읽어 ocr.json에 둔다 (tesseract 필요)')
+    .option('--ocr-interval <sec>', '화면 글자를 읽는 간격 (기본 10초)')
     .action((input, o, cmd) => digestIngestCommand(input, { ...digestInherited(cmd), ...o }));
+
+  digest
+    .command('ocr <slug>')
+    .description('일정 간격으로 프레임을 뽑아 화면 글자를 읽고 ocr.json에 둔다 (tesseract 필요)')
+    .option('--interval <sec>', '읽는 간격 (기본 10초)')
+    .option('--lang <tess>', 'tesseract 언어, kor+eng 꼴 (기본: 스크립트 언어에서 고름)')
+    .action((slug, o, cmd) => digestOcrCommand(slug, { ...digestInherited(cmd), ...o }));
 
   digest
     .command('frames <slug>')
@@ -298,8 +311,33 @@ export function createCli(): Command {
     .command('export <slug>')
     .description('요약을 다른 형식으로 내보낸다')
     .option('--md', '마크다운으로')
-    .option('--out <path>', '저장 경로 (기본: 저장 폴더의 digest.md)')
+    .option('--out <path>', '저장 경로 (기본: 첫 리포트는 digest.md, 나머지는 digest.<키>.md)')
+    .option('--report <key>', '내보낼 리포트 키 (기본: 첫 리포트)')
     .action((slug, o, cmd) => digestExportCommand(slug, { ...digestInherited(cmd), ...o }));
+
+  digest
+    .command('merge <slug> <reportFile>')
+    .description('리포트 한 벌을 digest.json에 합친다. 같은 키면 바꿔 끼운다')
+    .action((slug, reportFile, o, cmd) =>
+      digestMergeCommand(slug, reportFile, { ...digestInherited(cmd), ...o }),
+    );
+
+  digest
+    .command('slice <slug>')
+    .description(
+      '구간 리포트용으로 스크립트를 그 구간 문장만 잘라 저장한다. 문장 번호는 그대로 둔다',
+    )
+    .requiredOption('--range <from-to>', '영상 시각 구간 (예: 1:30-5:00, 90-300)')
+    .action((slug, o, cmd) => digestSliceCommand(slug, { ...digestInherited(cmd), ...o }));
+
+  digest
+    .command('translate-apply <slug> <file>')
+    .description(
+      '스크립트 번역({ lang, items: [{ i, translation }] })을 문장 번호로 붙인다. 언어가 바뀌면 이전 번역을 지운다',
+    )
+    .action((slug, file, o, cmd) =>
+      digestTranslateApplyCommand(slug, file, { ...digestInherited(cmd), ...o }),
+    );
 
   digest
     .command('serve <slug>')

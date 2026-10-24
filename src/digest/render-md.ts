@@ -1,12 +1,22 @@
 import { frameFileName } from './frames.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
-import { keywordPattern, type Bullet, type Cite, type Digest, type Transcript } from './schema.js';
+import { reportLabel } from './reports.js';
+import {
+  keywordPattern,
+  type Bullet,
+  type Cite,
+  type Digest,
+  type Report,
+  type Transcript,
+} from './schema.js';
 
 export interface RenderMdOptions {
   /** 이 이름의 프레임이 있으면 소섹션에 `<framesHref>/...` 상대 경로로 싣는다 */
   frameExists?: (fileName: string) => boolean;
   /** 마크다운 파일에서 frames 폴더까지의 상대 경로. 슬러그 폴더 밖에 쓸 때만 바꾼다 */
   framesHref?: string;
+  /** 내보낼 리포트. 없으면 첫 리포트다 */
+  report?: Report;
 }
 
 /** 키워드 마커는 표시 글자만 남긴다. 굵게(`**`)는 마크다운 문법 그대로라 둔다 */
@@ -42,7 +52,16 @@ export function renderDigestMarkdown(
   if (meta.source === 'youtube' && meta.url) out.push(`> ${meta.url}`);
   out.push('');
 
-  const { lead, sections, skipped, keywords } = digest.report;
+  const report = opts.report ?? digest.reports[0]!;
+  // 리포트가 하나뿐이고 옵션도 기본이면 1차 출력과 같게 둔다
+  if (digest.reports.length > 1 || report.options.range || report.options.prompt) {
+    out.push(`> 리포트: ${reportLabel(report.options, long)}`);
+    if (report.options.prompt) {
+      out.push(`> 요청: ${report.options.prompt.replace(/\s+/g, ' ')}`);
+    }
+    out.push('');
+  }
+  const { lead, sections, skipped, keywords } = report;
   out.push(`**${plain(lead.question)}**`, '', plain(lead.answer), '', plain(lead.takeaway), '');
 
   const bullet = (b: Bullet, depth: number): string[] => {

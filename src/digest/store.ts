@@ -2,8 +2,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { writeJsonAtomic } from '../core/json-file.js';
 import { parseDigest, parseTranscript, type Digest, type Transcript } from './schema.js';
+import { SLUG_PATTERN } from './schema-base.js';
 
-export const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+export { SLUG_PATTERN };
+
 const SLUG_MAX = 64;
 
 export type RawRead =

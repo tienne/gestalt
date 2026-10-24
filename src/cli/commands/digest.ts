@@ -1,11 +1,16 @@
-import { resolve } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { extractFrames } from '../../digest/frames.js';
 import { ingest } from '../../digest/ingest.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
+import { mergeReport } from '../../digest/merge.js';
+import { runOcr, type OcrResult } from '../../digest/ocr.js';
 import { exportMarkdown, renderToFiles } from '../../digest/render.js';
 import { parseDigest } from '../../digest/schema.js';
+import { parseRangeArg, sliceFileName, sliceTranscript } from '../../digest/slice.js';
 import { DigestServer, findDigestPort, openInBrowser } from '../../digest/server.js';
 import { DigestStore } from '../../digest/store.js';
+import { applyTranslation } from '../../digest/translate.js';
 
 /**
  * `gestalt digest` — 영상 요약 CLI.
@@ -41,9 +46,13 @@ export async function digestIngestCommand(
     slug?: string;
     whisper?: boolean;
     whisperModel?: string;
+    ocr?: boolean;
+    ocrInterval?: string;
   },
 ): Promise<void> {
   try {
+    // 간격이 틀렸으면 수집을 다 마친 뒤가 아니라 시작하기 전에 알린다
+    const intervalSec = opts.ocr ? parseInterval(opts.ocrInterval) : undefined;
     const r = await ingest(input, {
       repoRoot: rootOf(opts),
       lang: opts.lang,
@@ -51,7 +60,17 @@ export async function digestIngestCommand(
       whisper: opts.whisper,
       whisperModel: opts.whisperModel,
     });
-    emit(r, opts.json, () => {
+    // OCR이 실패해도 수집 결과는 남아 있어서 slug와 경로를 출력하고 종료 코드로만 알린다
+    let ocr: OcrResult | { error: string } | undefined;
+    if (opts.ocr) {
+      try {
+        ocr = await runOcr(r.slug, { repoRoot: rootOf(opts), intervalSec });
+      } catch (e) {
+        ocr = { error: (e as Error).message };
+        process.exitCode = 1;
+      }
+    }
+    emit(ocr ? { ...r, ocr } : r, opts.json, () => {
       console.log(`${r.title} (${mmss(r.durationSec)})`);
       console.log(`자막: ${r.captionSource} [${r.captionTrack}] → 문장 ${r.segmentCount}개`);
       console.log(`slug: ${r.slug}`);
@@ -62,6 +81,8 @@ export async function digestIngestCommand(
           `문장 번호가 바뀌어 기존 요약을 옮겼어요(문장 ${before}개 → ${r.segmentCount}개): ${r.staleDigest.movedTo}`,
         );
       }
+      if (ocr && 'error' in ocr) console.log(`화면 글자를 못 읽었어요: ${ocr.error}`);
+      else if (ocr) printOcr(ocr);
     });
   } catch (e) {
     fail(e);
@@ -79,6 +100,39 @@ export async function digestFramesCommand(
       if (r.missing.length > 0) console.log(`못 뽑은 시각: ${r.missing.map(mmss).join(', ')}`);
       console.log(`저장: ${r.framesDir}`);
     });
+  } catch (e) {
+    fail(e);
+  }
+}
+
+function parseInterval(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!/^\d+$/.test(value.trim())) throw new Error(`OCR 간격은 초 단위 정수여야 해요: ${value}`);
+  return Number(value);
+}
+
+function printOcr(r: OcrResult): void {
+  if (r.requestedIntervalSec !== undefined) {
+    console.log(
+      `프레임이 너무 많아 간격을 ${r.requestedIntervalSec}초에서 ${r.intervalSec}초로 넓혔어요`,
+    );
+  }
+  console.log(`화면 글자: 프레임 ${r.frames}장(${r.intervalSec}초 간격, ${r.lang}) → ${r.items}개`);
+  if (r.truncated > 0) console.log(`글자가 길어 줄 단위로 자른 항목: ${r.truncated}개`);
+  console.log(`저장: ${r.path}`);
+}
+
+export async function digestOcrCommand(
+  slug: string,
+  opts: DigestCommonOptions & { interval?: string; lang?: string },
+): Promise<void> {
+  try {
+    const r = await runOcr(slug, {
+      repoRoot: rootOf(opts),
+      intervalSec: parseInterval(opts.interval),
+      lang: opts.lang,
+    });
+    emit(r, opts.json, () => printOcr(r));
   } catch (e) {
     fail(e);
   }
@@ -128,12 +182,103 @@ export function digestRenderCommand(
 
 export function digestExportCommand(
   slug: string,
-  opts: DigestCommonOptions & { md?: boolean; out?: string },
+  opts: DigestCommonOptions & { md?: boolean; out?: string; report?: string },
 ): void {
   try {
-    if (!opts.md) throw new Error('1차는 --md 내보내기만 있어요.');
-    const r = exportMarkdown(slug, { repoRoot: rootOf(opts), out: opts.out });
+    if (!opts.md) throw new Error('지금은 --md 내보내기만 있어요.');
+    const r = exportMarkdown(slug, { repoRoot: rootOf(opts), out: opts.out, report: opts.report });
     emit(r, opts.json, () => console.log(`마크다운: ${r.mdPath}`));
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export function digestMergeCommand(
+  slug: string,
+  reportFile: string,
+  opts: DigestCommonOptions,
+): void {
+  try {
+    let input: unknown;
+    try {
+      input = JSON.parse(readFileSync(resolve(reportFile), 'utf-8'));
+    } catch (e) {
+      throw new Error(`리포트 파일을 못 읽었어요: ${reportFile}`, { cause: e });
+    }
+    const r = mergeReport(rootOf(opts), slug, input);
+    emit(r, opts.json, () => {
+      for (const i of r.issues) console.log(`${i.severity} ${i.code} ${i.path}: ${i.message}`);
+      if (r.saved) {
+        console.log(`${r.replaced ? '바꿔 끼움' : '추가'}: ${r.key} → ${r.digestPath}`);
+      } else {
+        console.log(`lint 오류가 있어 저장하지 않았어요: ${r.key}`);
+      }
+    });
+    if (!r.saved) process.exitCode = 1;
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export function digestSliceCommand(
+  slug: string,
+  opts: DigestCommonOptions & { range: string },
+): void {
+  try {
+    const store = new DigestStore(rootOf(opts));
+    const t = store.readTranscript(slug);
+    if (!t.ok) throw new Error(t.message);
+    const range = parseRangeArg(opts.range);
+    const slice = sliceTranscript(t.transcript, range);
+    const path = join(store.dir(slug), sliceFileName(range));
+    writeFileSync(path, JSON.stringify(slice, null, 2) + '\n');
+    const result = {
+      path,
+      range: slice.range,
+      from: slice.from,
+      to: slice.to,
+      count: slice.segments.length,
+    };
+    emit(result, opts.json, () => {
+      console.log(
+        `구간: ${mmss(range[0])}~${mmss(range[1])} → 문장 ${slice.from}~${slice.to} (${result.count}개)`,
+      );
+      console.log(`저장: ${path}`);
+    });
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export function digestTranslateApplyCommand(
+  slug: string,
+  file: string,
+  opts: DigestCommonOptions,
+): void {
+  try {
+    let input: unknown;
+    try {
+      input = JSON.parse(readFileSync(resolve(file), 'utf-8'));
+    } catch (e) {
+      throw new Error(`번역 파일을 못 읽었어요: ${file}`, { cause: e });
+    }
+    const store = new DigestStore(rootOf(opts));
+    const t = store.readTranscript(slug);
+    if (!t.ok) throw new Error(t.message);
+    const r = applyTranslation(t.transcript, input);
+    const path = store.saveTranscript(r.transcript);
+    const result = {
+      path,
+      lang: r.transcript.meta.translationLang,
+      applied: r.applied,
+      unknown: r.unknown,
+      missing: r.missing,
+    };
+    emit(result, opts.json, () => {
+      console.log(`번역(${result.lang}) ${r.applied}문장 반영 → ${path}`);
+      if (r.unknown.length > 0) console.log(`스크립트에 없는 문장 번호: ${r.unknown.join(', ')}`);
+      if (r.missing.length > 0) console.log(`번역이 빠진 문장: ${r.missing.length}개`);
+    });
   } catch (e) {
     fail(e);
   }

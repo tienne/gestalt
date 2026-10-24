@@ -91,7 +91,7 @@ export function diffMarkers(
   return missing.length || added.length ? { missing, added } : null;
 }
 
-/** `report.sections.0.conclusion` 같은 path의 마지막 칸에 값을 넣는다 */
+/** `reports.0.sections.0.conclusion` 같은 path의 마지막 칸에 값을 넣는다 */
 function setAt(root: unknown, path: string, value: string): void {
   const keys = path.split('.');
   let node = root as Record<string, unknown>;

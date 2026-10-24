@@ -28,7 +28,9 @@ export function frameFileName(sec: number): string {
 }
 
 export function collectFrameSecs(digest: Digest): number[] {
-  const secs = digest.report.sections.flatMap((s) => s.subsections.map((sub) => sub.frameSec));
+  const secs = digest.reports.flatMap((r) =>
+    r.sections.flatMap((s) => s.subsections.map((sub) => sub.frameSec)),
+  );
   return [...new Set(secs)].sort((a, b) => a - b);
 }
 
@@ -48,7 +50,7 @@ function findCachedVideo(cacheDir: string): string | null {
   return hit ? join(cacheDir, hit) : null;
 }
 
-async function ensureVideo(
+export async function ensureVideo(
   run: RunCommand,
   transcript: Transcript,
   cacheDir: string,

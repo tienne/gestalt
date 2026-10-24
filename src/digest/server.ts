@@ -3,6 +3,9 @@ import { createServer as createNetServer } from 'node:net';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, sep } from 'node:path';
 import { pipeline } from 'node:stream';
+import { fileURLToPath } from 'node:url';
+import { parseTranscript } from './schema.js';
+import { isValidSlug, readRaw } from './store.js';
 import { VIEWER_JS_SHA256 } from './viewer-js.js';
 
 export const DEFAULT_DIGEST_PORT = 7893;
@@ -15,6 +18,35 @@ const MIME: Record<string, string> = {
   '.png': 'image/png',
 };
 
+const VIDEO_MIME: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+};
+
+export type ByteRange = { start: number; end: number } | 'none' | 'unsatisfiable';
+
+/**
+ * Range 헤더에서 단일 바이트 구간만 받는다. 꼴이 틀렸거나 여러 구간이면 무시하고 전체를 내준다(RFC 9110 14.2)
+ */
+export function parseByteRange(header: string | undefined, size: number): ByteRange {
+  const m = header ? /^bytes=(\d*)-(\d*)$/.exec(header.trim()) : null;
+  if (!m || (m[1] === '' && m[2] === '')) return 'none';
+  if (m[1] === '') {
+    const suffix = Number(m[2]!);
+    if (suffix === 0 || size === 0) return 'unsatisfiable';
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+  const start = Number(m[1]!);
+  // 끝이 시작보다 앞이면 문법 오류라 무시한다. 끝을 size에 맞춰 자르기 전에 봐야 bytes=5-999 같은 정상 요청이 안 빠진다
+  if (m[2] !== '' && Number(m[2]!) < start) return 'none';
+  if (start >= size) return 'unsatisfiable';
+  const end = m[2] === '' ? size - 1 : Math.min(Number(m[2]!), size - 1);
+  return { start, end };
+}
+
 // 유튜브 IFrame API가 스크립트와 iframe을 함께 끌어와서 그 둘만 밖으로 연다.
 // 렌더가 싣는 실행 스크립트는 VIEWER_JS 하나뿐이라 해시로 고정한다. 데이터 블록은 type이 JSON이라 실행되지 않는다
 export const DIGEST_CSP = [
@@ -22,6 +54,7 @@ export const DIGEST_CSP = [
   `script-src 'self' 'sha256-${VIEWER_JS_SHA256}' https://www.youtube.com https://s.ytimg.com`,
   'frame-src https://www.youtube.com https://www.youtube-nocookie.com',
   "img-src 'self' data: https://i.ytimg.com",
+  "media-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "connect-src 'self'",
   "base-uri 'none'",
@@ -69,6 +102,8 @@ function safeDecode(raw: string): string | null {
 export class DigestServer {
   private server: Server | null = null;
   private readonly root: string;
+  // 영상은 Range 요청이 연달아 와서 transcript.json을 매번 파싱하지 않는다. 파일이 바뀌면 mtime으로 다시 읽는다
+  private readonly videoPaths = new Map<string, { mtimeMs: number; file: string | null }>();
 
   constructor(root: string) {
     this.root = realpathSync(root);
@@ -134,6 +169,10 @@ export class DigestServer {
     const decoded = safeDecode((req.url ?? '/').split('?')[0]!);
     if (decoded === null || decoded.includes('\0')) return this.deny(res, 400, 'Bad Request');
     const rel = decoded.endsWith('/') ? `${decoded}digest.html` : decoded;
+    const parts = rel.split('/');
+    if (parts.length === 3 && parts[0] === '' && parts[2] === 'video' && isValidSlug(parts[1]!)) {
+      return this.serveVideo(req, res, parts[1]!);
+    }
     const ext = extname(rel).toLowerCase();
     // 받아 둔 영상(cache/)과 원본 JSON은 뷰어가 쓰지 않으니 내주지 않는다
     if (!MIME[ext] || rel.split('/').includes('cache')) return this.deny(res, 404, 'Not Found');
@@ -152,8 +191,78 @@ export class DigestServer {
       ...(ext === '.html' ? { 'Content-Security-Policy': DIGEST_CSP } : {}),
     });
     if (req.method === 'HEAD') return void res.end();
+    this.stream(res, real);
+  }
+
+  /**
+   * 루트 밖에서 내주는 파일은 이것 하나다. transcript.json에 ingest가 적은 로컬 영상 경로만 따르고
+   * 요청 URL에서 경로를 받지 않는다. 영상 확장자가 아니면 그 경로도 내주지 않는다
+   */
+  private serveVideo(req: IncomingMessage, res: ServerResponse, slug: string): void {
+    const file = this.videoPath(slug);
+    if (!file) return this.deny(res, 404, 'Not Found');
+    // 경로는 캐시해도 실제 파일 검사는 요청마다 한다. 그사이 심링크가 바뀌거나 파일이 지워질 수 있다
+    let real: string;
+    let stat: ReturnType<typeof statSync>;
+    try {
+      real = realpathSync(file);
+      stat = statSync(real);
+    } catch {
+      return this.deny(res, 404, 'Not Found');
+    }
+    const type = VIDEO_MIME[extname(real).toLowerCase()];
+    if (!type || !stat.isFile()) return this.deny(res, 404, 'Not Found');
+
+    const range = parseByteRange(req.headers.range, stat.size);
+    if (range === 'unsatisfiable') {
+      return this.deny(res, 416, 'Range Not Satisfiable', {
+        'Content-Range': `bytes */${stat.size}`,
+      });
+    }
+    const headers = { ...BASE_HEADERS, 'Content-Type': type, 'Accept-Ranges': 'bytes' };
+    if (range === 'none') {
+      res.writeHead(200, { ...headers, 'Content-Length': String(stat.size) });
+    } else {
+      res.writeHead(206, {
+        ...headers,
+        'Content-Range': `bytes ${range.start}-${range.end}/${stat.size}`,
+        'Content-Length': String(range.end - range.start + 1),
+      });
+    }
+    if (req.method === 'HEAD') return void res.end();
+    this.stream(res, real, range === 'none' ? undefined : range);
+  }
+
+  private videoPath(slug: string): string | null {
+    const transcriptPath = join(this.root, slug, 'transcript.json');
+    let mtimeMs: number;
+    try {
+      mtimeMs = statSync(transcriptPath).mtimeMs;
+    } catch {
+      this.videoPaths.delete(slug);
+      return null;
+    }
+    const hit = this.videoPaths.get(slug);
+    if (hit && hit.mtimeMs === mtimeMs) return hit.file;
+
+    const raw = readRaw(transcriptPath);
+    const parsed = raw.kind === 'ok' ? parseTranscript(raw.value) : null;
+    const meta = parsed?.ok ? parsed.value.meta : null;
+    let file: string | null = null;
+    if (meta && meta.source === 'file' && meta.url) {
+      try {
+        file = fileURLToPath(meta.url);
+      } catch {
+        file = null;
+      }
+    }
+    this.videoPaths.set(slug, { mtimeMs, file });
+    return file;
+  }
+
+  private stream(res: ServerResponse, path: string, range?: { start: number; end: number }) {
     // 바깥 try/catch는 동기 구간만 잡는다. open 실패나 클라이언트 중단을 여기서 받지 않으면 serve 프로세스가 죽는다
-    pipeline(createReadStream(real), res, (err) => {
+    pipeline(createReadStream(path, range), res, (err) => {
       if (!err) return;
       // 클라이언트가 먼저 끊은 건 정상 흐름이라 로그를 남기지 않는다
       if ((err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
