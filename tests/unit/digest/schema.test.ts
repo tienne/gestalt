@@ -120,3 +120,19 @@ describe('parseTranscript', () => {
     expect(parseTranscript(t).ok).toBe(false);
   });
 });
+
+describe('slug는 폴더 이름과 명령 인자로 안전한 꼴만 받는다', () => {
+  const bad = ['a b', "a'b", 'A', 'a'.repeat(65)];
+
+  it.each(bad)('transcript slug %j를 거절한다', (slug) => {
+    expect(parseTranscript({ ...sampleTranscript(), slug }).ok).toBe(false);
+  });
+
+  it.each(bad)('digest slug %j를 거절한다', (slug) => {
+    expect(parseDigest({ ...sampleDigest(), slug }).ok).toBe(false);
+  });
+
+  it('64자까지는 받는다', () => {
+    expect(parseTranscript({ ...sampleTranscript(), slug: 'a'.repeat(64) }).ok).toBe(true);
+  });
+});
