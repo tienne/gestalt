@@ -435,12 +435,94 @@ export const VIEWER_JS =
     copyText(text, function(){ flash(btn, label, false); }, function(){ flash(btn, label, true); });
   }
 
-  function setupCopyButton(reports) {
+  function setupCopyButton(reports, tabs) {
     var copyBtn = document.getElementById('copy-md');
     if (!copyBtn) return;
     copyBtn.addEventListener('click', function(){
-      copyWith(copyBtn, '마크다운 복사', data.reports[reports.current()].markdown);
+      var ext = tabs.markdown();
+      copyWith(copyBtn, '마크다운 복사', ext !== null ? ext : data.reports[reports.current()].markdown);
     });
+  }
+
+  // 요약 탭과 확장 탭을 오간다. 리포트 바와 미니맵은 요약 탭 안이나 body 표시로 같이 숨는다
+  function setupTabs() {
+    var TAB_KEY = 'gestalt-digest-tab:' + data.slug;
+    var SUMMARY = 'panel-summary';
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]'));
+    var current = SUMMARY;
+    function select(id, focus){
+      if (!tabs.some(function(t){ return t.getAttribute('data-tab') === id; })) id = SUMMARY;
+      current = id;
+      tabs.forEach(function(t){
+        var on = t.getAttribute('data-tab') === id;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+        var panel = document.getElementById(t.getAttribute('aria-controls'));
+        if (panel) panel.hidden = !on;
+        if (on && focus) t.focus();
+      });
+      if (id === SUMMARY) document.body.removeAttribute('data-tab');
+      else document.body.setAttribute('data-tab', 'ext');
+      try { localStorage.setItem(TAB_KEY, id); } catch (e) {}
+    }
+    tabs.forEach(function(t, i){
+      t.addEventListener('click', function(){ select(t.getAttribute('data-tab'), false); });
+      t.addEventListener('keydown', function(ev){
+        var j = tabStep(i, tabs.length, ev.key);
+        if (j < 0) return;
+        ev.preventDefault();
+        select(tabs[j].getAttribute('data-tab'), true);
+      });
+    });
+    if (tabs.length) {
+      // 공유된 앵커가 있으면 그 앵커가 든 탭을 연다. 저장해 둔 탭보다 먼저다
+      var anchor = safeDecode(location.hash.slice(1));
+      var target = anchor ? document.getElementById(anchor) : null;
+      var owner = target && target.closest ? target.closest('.ext') : null;
+      var saved = null;
+      try { saved = localStorage.getItem(TAB_KEY); } catch (e) {}
+      if (owner) select(owner.id, false);
+      else if (!target && saved) select(saved, false);
+    }
+    return {
+      markdown: function(){
+        if (current === SUMMARY) return null;
+        var hit = null;
+        (data.extensions || []).forEach(function(x){ if (x.panel === current) hit = x.markdown; });
+        return hit;
+      }
+    };
+  }
+
+  // 없는 템플릿은 뷰어가 만들지 않고 세션에 붙여 넣을 명령만 복사해 준다
+  function setupMore(reports) {
+    var btn = document.getElementById('more-btn');
+    var menu = document.getElementById('more-menu');
+    var box = document.getElementById('more-cmd-box');
+    var code = document.getElementById('more-cmd');
+    var copy = document.getElementById('more-copy');
+    if (!btn || !menu || !box || !code || !copy) return { close: function(){ return false; } };
+    function setOpen(open){
+      menu.hidden = !open;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    btn.addEventListener('click', function(){ setOpen(menu.hidden); });
+    menu.querySelectorAll('[data-template]').forEach(function(b){
+      b.addEventListener('click', function(){
+        code.textContent = templateCommand(data.slug, b.getAttribute('data-template'), data.reports[reports.current()].lang);
+        box.hidden = false;
+        copyWith(copy, '명령 복사', code.textContent);
+      });
+    });
+    copy.addEventListener('click', function(){ copyWith(copy, '명령 복사', code.textContent); });
+    return {
+      close: function(){
+        if (menu.hidden) return false;
+        setOpen(false);
+        btn.focus();
+        return true;
+      }
+    };
   }
 
   // 툴바는 분량과 난이도 조합으로 리포트를 고른다. 없는 조합은 서버가 만들지 않고 생성 명령만 보여 준다
@@ -513,7 +595,10 @@ export const VIEWER_JS =
 
   setupFontScale();
   setupTranslation();
+  // 요약 앵커로 스크롤하려면 요약 패널이 먼저 보여야 해서 탭을 리포트보다 먼저 연다
+  var tabs = setupTabs();
   var reports = setupReports();
+  var more = setupMore(reports);
   var player = createPlayer();
   setupTimeLinks(player);
   var popups = setupPopups();
@@ -521,12 +606,12 @@ export const VIEWER_JS =
   setupSectionMarks();
   setupSubsectionFollow(player);
   var mini = setupMiniPlayer(player);
-  setupCopyButton(reports);
-  // 툴팁과 미니 플레이어가 함께 열려 있으면 Escape 한 번에 하나씩 닫는다
+  setupCopyButton(reports, tabs);
+  // 툴팁과 메뉴, 미니 플레이어가 함께 열려 있으면 Escape 한 번에 하나씩 닫는다
   document.addEventListener('keydown', function(ev){
     if (ev.key !== 'Escape') return;
     if (popups.isOpen()) popups.closeAndReturn();
-    else mini.close();
+    else if (!more.close()) mini.close();
   });
 })();
 `;

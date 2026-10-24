@@ -26,8 +26,11 @@ export function readRaw(path: string): RawRead {
   }
 }
 
+/** 저장소 바로 아래에서 slug 폴더가 아닌 자리. 사용자 템플릿이 여기 산다 */
+export const TEMPLATES_DIR_NAME = 'templates';
+
 export function isValidSlug(slug: string): boolean {
-  return SLUG_PATTERN.test(slug);
+  return SLUG_PATTERN.test(slug) && slug !== TEMPLATES_DIR_NAME;
 }
 
 /**
@@ -60,6 +63,10 @@ export class DigestStore {
   constructor(repoRoot: string) {
     // 외부 명령은 임시 cwd에서 돌아서 상대 경로를 넘기면 프레임 같은 산출물이 그 폴더에 쓰였다가 함께 지워진다
     this.root = join(resolve(repoRoot), '.gestalt', 'digest');
+  }
+
+  templatesDir(): string {
+    return join(this.root, TEMPLATES_DIR_NAME);
   }
 
   /** slug는 경로 조각이라 패턴을 통과한 것만 받는다 */

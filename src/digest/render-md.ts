@@ -1,5 +1,7 @@
+import type { Extension } from './blocks.js';
 import { frameFileName } from './frames.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
+import { blockMarkdown } from './render-blocks.js';
 import { reportLabel } from './reports.js';
 import {
   keywordPattern,
@@ -35,22 +37,8 @@ export function renderDigestMarkdown(
   const long = meta.durationSec >= 3600;
   const at = (i: number) => segments[i]?.startSec ?? 0;
   const framesHref = opts.framesHref ?? 'frames';
-  const cite = (c: Cite) => {
-    const url = watchUrlAt(meta, at(c.key));
-    return url ? ` [[${c.key + 1}]](${url})` : ` [${c.key + 1} ${formatTime(at(c.key), long)}]`;
-  };
-  const out: string[] = [];
-
-  out.push(`# ${meta.title}`, '');
-  const facts = [
-    meta.channel,
-    meta.publishedAt,
-    formatTime(meta.durationSec, long),
-    CAPTION_LABEL[meta.captionSource],
-  ].filter(Boolean);
-  out.push(`> ${facts.join(' | ')}`);
-  if (meta.source === 'youtube' && meta.url) out.push(`> ${meta.url}`);
-  out.push('');
+  const cite = mdCiter(transcript);
+  const out = mdHeader(transcript);
 
   const report = opts.report ?? digest.reports[0]!;
   // 리포트가 하나뿐이고 옵션도 기본이면 1차 출력과 같게 둔다
@@ -98,8 +86,45 @@ export function renderDigestMarkdown(
     }
     out.push('');
   }
-  return `${out
+  return finish(out);
+}
+
+/** 확장 리포트 한 벌을 마크다운으로. 머리말은 요약 마크다운과 같다 */
+export function renderExtensionMarkdown(ext: Extension, transcript: Transcript): string {
+  const cite = mdCiter(transcript);
+  const out = mdHeader(transcript);
+  out.push(`> 리포트: ${ext.title}`, '');
+  for (const b of ext.blocks) out.push(...blockMarkdown(b, { cite }));
+  return finish(out);
+}
+
+function mdCiter(transcript: Transcript): (c: Cite) => string {
+  const { meta, segments } = transcript;
+  const long = meta.durationSec >= 3600;
+  const at = (i: number) => segments[i]?.startSec ?? 0;
+  return (c) => {
+    const url = watchUrlAt(meta, at(c.key));
+    return url ? ` [[${c.key + 1}]](${url})` : ` [${c.key + 1} ${formatTime(at(c.key), long)}]`;
+  };
+}
+
+function mdHeader({ meta }: Transcript): string[] {
+  const long = meta.durationSec >= 3600;
+  const out = [`# ${meta.title}`, ''];
+  const facts = [
+    meta.channel,
+    meta.publishedAt,
+    formatTime(meta.durationSec, long),
+    CAPTION_LABEL[meta.captionSource],
+  ].filter(Boolean);
+  out.push(`> ${facts.join(' | ')}`);
+  if (meta.source === 'youtube' && meta.url) out.push(`> ${meta.url}`);
+  out.push('');
+  return out;
+}
+
+const finish = (out: string[]) =>
+  `${out
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trimEnd()}\n`;
-}

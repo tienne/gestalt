@@ -9,6 +9,7 @@ import {
   type Transcript,
 } from './schema.js';
 import { rangeSpan, reportKey } from './reports.js';
+import { extensionFields, lintExtensions, type ExtensionLintOptions } from './lint-extension.js';
 
 export type DigestIssueSeverity = 'error' | 'warning';
 
@@ -85,9 +86,20 @@ function collectReportText(report: Report, p: string): TextField[] {
   return out;
 }
 
-/** 본문에 들어가는 문자열을 리포트 전부에서 경로와 함께 모은다. 키워드 마커 검사와 윤문이 쓴다 */
+/**
+ * 본문에 들어가는 문자열을 리포트 전부에서 경로와 함께 모은다. 키워드 마커 검사와 윤문이 쓴다.
+ * 확장 리포트는 본문 칸만 싣는다. 이름 칸과 대사 원문은 윤문하지 않는다
+ */
 export function collectTextFields(digest: Digest): TextField[] {
-  return digest.reports.flatMap((report, ri) => collectReportText(report, `reports.${ri}`));
+  const reports = digest.reports.flatMap((report, ri) =>
+    collectReportText(report, `reports.${ri}`),
+  );
+  const extensions = digest.extensions.flatMap((ext, xi) =>
+    extensionFields(ext, `extensions.${xi}`)
+      .texts.filter((t) => t.role === 'body')
+      .map(({ path, text }) => ({ path, text })),
+  );
+  return [...reports, ...extensions];
 }
 
 interface CiteField {
@@ -431,7 +443,11 @@ function checkVolume(report: Report, p: string, issues: DigestIssue[]): void {
  * 스키마를 통과한 digest가 스크립트와 맞물리는지 본다.
  * 오류가 하나라도 있으면 렌더하지 않는다. 경고는 분량처럼 영상마다 답이 다른 것들이다.
  */
-export function lintDigest(digest: Digest, transcript: Transcript): DigestIssue[] {
+export function lintDigest(
+  digest: Digest,
+  transcript: Transcript,
+  opts: ExtensionLintOptions = {},
+): DigestIssue[] {
   const issues: DigestIssue[] = [];
   if (digest.slug !== transcript.slug) {
     issues.push({
@@ -458,6 +474,7 @@ export function lintDigest(digest: Digest, transcript: Transcript): DigestIssue[
     }
     lintReport(report, p, transcript, issues);
   });
+  lintExtensions(digest.extensions, transcript, issues, opts);
   return issues;
 }
 

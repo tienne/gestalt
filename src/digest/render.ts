@@ -1,15 +1,19 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { extensionKey } from './blocks.js';
 import { lintDigest, lintErrors, type DigestIssue } from './lint.js';
 import { renderDigestHtml } from './render-html.js';
-import { renderDigestMarkdown } from './render-md.js';
+import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
 import { findReport, reportKey } from './reports.js';
 import { parseDigest, type Digest, type Transcript } from './schema.js';
 import { DigestStore } from './store.js';
+import { templateMap, type DigestTemplate } from './templates.js';
 
 export interface RenderFilesOptions {
   repoRoot: string;
   inlineFrames?: boolean;
+  /** 아는 템플릿. lint가 확장의 블록을 대조하고 뷰어의 "+ 더 만들기" 메뉴가 이 목록을 띄운다 */
+  templates?: DigestTemplate[];
 }
 
 export interface RenderFilesResult {
@@ -51,6 +55,7 @@ export class DigestLintError extends Error {
 export function loadForRender(
   store: DigestStore,
   slug: string,
+  templates?: DigestTemplate[],
 ): { transcript: Transcript; digest: Digest } {
   const t = store.readTranscript(slug);
   if (!t.ok) throw new DigestLoadError(t.code, t.message);
@@ -69,7 +74,11 @@ export function loadForRender(
   }
   const parsed = parseDigest(raw.value);
   if (!parsed.ok) throw new DigestLoadError('INVALID_DIGEST', parsed.error.message);
-  const errors = lintErrors(lintDigest(parsed.value, t.transcript));
+  const errors = lintErrors(
+    lintDigest(parsed.value, t.transcript, {
+      templates: templates ? templateMap(templates) : undefined,
+    }),
+  );
   if (errors.length > 0) throw new DigestLintError(errors);
   return { transcript: t.transcript, digest: parsed.value };
 }
@@ -77,12 +86,13 @@ export function loadForRender(
 /** digest.html과 digest.md를 한 번에 쓴다. 둘 다 같은 digest.json에서 나온다 */
 export function renderToFiles(slug: string, opts: RenderFilesOptions): RenderFilesResult {
   const store = new DigestStore(opts.repoRoot);
-  const { transcript, digest } = loadForRender(store, slug);
+  const { transcript, digest } = loadForRender(store, slug, opts.templates);
   const framesDir = store.framesDir(slug);
   const frameExists = (file: string) => existsSync(join(framesDir, file));
   const { html, warnings } = renderDigestHtml(digest, transcript, {
     frameExists,
     inlineFrames: opts.inlineFrames,
+    templates: opts.templates,
     loadFrame: (file) => (frameExists(file) ? readFileSync(join(framesDir, file)) : null),
   });
   return {
@@ -95,7 +105,8 @@ export function renderToFiles(slug: string, opts: RenderFilesOptions): RenderFil
 
 /**
  * 마크다운만 원하는 자리에 쓴다. out이 없으면 저장 폴더에 쓴다.
- * 첫 리포트는 digest.md, 다른 리포트는 digest.<key>.md다. render가 digest.md를 덮어쓰니 이름을 나눈다
+ * 첫 리포트는 digest.md, 다른 리포트와 확장은 digest.<key>.md다. render가 digest.md를 덮어쓰니 이름을 나눈다.
+ * 확장 키에는 늘 .이 들어가고 리포트 키에는 없어서 report 하나로 둘 다 받는다
  */
 export function exportMarkdown(
   slug: string,
@@ -103,11 +114,27 @@ export function exportMarkdown(
 ): { slug: string; mdPath: string } {
   const store = new DigestStore(opts.repoRoot);
   const { transcript, digest } = loadForRender(store, slug);
+  const ext = opts.report
+    ? digest.extensions.find((x) => extensionKey(x) === opts.report)
+    : undefined;
+  if (ext) {
+    const md = renderExtensionMarkdown(ext, transcript);
+    const mdPath = opts.out
+      ? resolve(opts.out)
+      : join(store.dir(slug), `digest.${extensionKey(ext)}.md`);
+    mkdirSync(dirname(mdPath), { recursive: true });
+    writeFileSync(mdPath, md);
+    return { slug, mdPath };
+  }
   const report = opts.report ? findReport(digest, opts.report) : digest.reports[0]!;
   if (!report) {
+    const keys = [
+      ...digest.reports.map((r) => reportKey(r.options)),
+      ...digest.extensions.map(extensionKey),
+    ];
     throw new DigestLoadError(
       'REPORT_NOT_FOUND',
-      `리포트 ${opts.report}가 없어요. 있는 리포트: ${digest.reports.map((r) => reportKey(r.options)).join(', ')}`,
+      `리포트 ${opts.report}가 없어요. 있는 리포트: ${keys.join(', ')}`,
     );
   }
   const framesDir = store.framesDir(slug);

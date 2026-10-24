@@ -1,15 +1,17 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { loadConfig } from '../../core/config.js';
 import { extractFrames } from '../../digest/frames.js';
 import { ingest } from '../../digest/ingest.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
-import { mergeReport } from '../../digest/merge.js';
+import { mergeExtension, mergeReport } from '../../digest/merge.js';
 import { runOcr, type OcrResult } from '../../digest/ocr.js';
 import { exportMarkdown, renderToFiles } from '../../digest/render.js';
 import { parseDigest } from '../../digest/schema.js';
 import { parseRangeArg, sliceFileName, sliceTranscript } from '../../digest/slice.js';
 import { DigestServer, findDigestPort, openInBrowser } from '../../digest/server.js';
 import { DigestStore } from '../../digest/store.js';
+import { loadDigestTemplates, templateMap, type TemplateLoad } from '../../digest/templates.js';
 import { applyTranslation } from '../../digest/translate.js';
 
 /**
@@ -34,6 +36,13 @@ function emit(value: unknown, json: boolean | undefined, human: () => void): voi
 function fail(e: unknown): never {
   console.error(e instanceof Error ? e.message : String(e));
   process.exit(1);
+}
+
+// 깨진 템플릿 하나가 명령 전체를 막지 않게 경고만 stderr로 알린다. --json이면 결과에 싣는다
+function templatesOf(opts: DigestCommonOptions): TemplateLoad {
+  const load = loadDigestTemplates(rootOf(opts), loadConfig({}, { skipDotEnv: true }).skillsDir);
+  if (!opts.json) for (const w of load.warnings) console.error(`템플릿 경고: ${w}`);
+  return load;
 }
 
 const mmss = (sec: number) =>
@@ -150,7 +159,8 @@ export function digestValidateCommand(slug: string, opts: DigestCommonOptions): 
     }
     const parsed = parseDigest(raw.value);
     if (!parsed.ok) throw parsed.error;
-    const issues = lintDigest(parsed.value, transcript);
+    const { templates } = templatesOf(opts);
+    const issues = lintDigest(parsed.value, transcript, { templates: templateMap(templates) });
     const errors = lintErrors(issues);
     emit({ slug, ok: errors.length === 0, issues }, opts.json, () => {
       for (const i of issues) console.log(`${i.severity} ${i.code} ${i.path}: ${i.message}`);
@@ -169,7 +179,11 @@ export function digestRenderCommand(
   opts: DigestCommonOptions & { inlineFrames?: boolean },
 ): void {
   try {
-    const r = renderToFiles(slug, { repoRoot: rootOf(opts), inlineFrames: opts.inlineFrames });
+    const r = renderToFiles(slug, {
+      repoRoot: rootOf(opts),
+      inlineFrames: opts.inlineFrames,
+      templates: templatesOf(opts).templates,
+    });
     emit(r, opts.json, () => {
       console.log(`HTML: ${r.htmlPath}`);
       console.log(`마크다운: ${r.mdPath}`);
@@ -196,7 +210,7 @@ export function digestExportCommand(
 export function digestMergeCommand(
   slug: string,
   reportFile: string,
-  opts: DigestCommonOptions,
+  opts: DigestCommonOptions & { extension?: boolean },
 ): void {
   try {
     let input: unknown;
@@ -205,7 +219,11 @@ export function digestMergeCommand(
     } catch (e) {
       throw new Error(`리포트 파일을 못 읽었어요: ${reportFile}`, { cause: e });
     }
-    const r = mergeReport(rootOf(opts), slug, input);
+    const r = opts.extension
+      ? mergeExtension(rootOf(opts), slug, input, {
+          templates: templateMap(templatesOf(opts).templates),
+        })
+      : mergeReport(rootOf(opts), slug, input);
     emit(r, opts.json, () => {
       for (const i of r.issues) console.log(`${i.severity} ${i.code} ${i.path}: ${i.message}`);
       if (r.saved) {
@@ -215,6 +233,36 @@ export function digestMergeCommand(
       }
     });
     if (!r.saved) process.exitCode = 1;
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export function digestTemplatesCommand(opts: DigestCommonOptions): void {
+  try {
+    const load = templatesOf(opts);
+    const list = load.templates.map(({ prompt: _prompt, ...t }) => t);
+    emit({ templates: list, warnings: load.warnings }, opts.json, () => {
+      for (const t of list) {
+        const tag = t.source === 'user' ? ' (사용자)' : '';
+        console.log(`${t.id}${tag}  ${t.title} — ${t.description}`);
+        console.log(
+          `  블록: ${t.blocks.join(', ')}${t.needs.length ? ` / 먼저 받을 자료: ${t.needs.join(', ')}` : ''}`,
+        );
+      }
+      if (list.length === 0) console.log('템플릿이 없어요.');
+    });
+  } catch (e) {
+    fail(e);
+  }
+}
+
+/** 요약 에이전트에게 넘길 템플릿 지시를 출력한다. --json이면 frontmatter까지 함께 준다 */
+export function digestTemplateCommand(id: string, opts: DigestCommonOptions): void {
+  try {
+    const t = templatesOf(opts).templates.find((x) => x.id === id);
+    if (!t) throw new Error(`템플릿 ${id}가 없어요. gestalt digest templates로 목록을 보세요.`);
+    emit(t, opts.json, () => console.log(t.prompt));
   } catch (e) {
     fail(e);
   }

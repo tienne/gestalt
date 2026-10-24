@@ -1,10 +1,13 @@
 import { resolve } from 'node:path';
+import { loadConfig } from '../../core/config.js';
+import { extensionKey } from '../../digest/blocks.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
 import { applyProse, extractProse } from '../../digest/prose.js';
 import { reportKey } from '../../digest/reports.js';
 import { DigestLintError, DigestLoadError, renderToFiles } from '../../digest/render.js';
 import { parseDigest, type Digest, type Transcript } from '../../digest/schema.js';
 import { DigestStore, isValidSlug } from '../../digest/store.js';
+import { loadDigestTemplates, templateMap, type TemplateLoad } from '../../digest/templates.js';
 import type { DigestInput } from '../schemas.js';
 
 interface DigestFailure {
@@ -46,18 +49,29 @@ function load(input: DigestInput, cwd: string): Loaded | DigestFailure {
   return { store, transcript: t.transcript, digest: parsed.value };
 }
 
+const templatesOf = (input: DigestInput, cwd: string): TemplateLoad =>
+  loadDigestTemplates(
+    resolve(cwd, input.repoRoot ?? '.'),
+    loadConfig({}, { skipDotEnv: true }).skillsDir,
+  );
+
 function handleValidate(input: DigestInput, cwd: string): object {
   const loaded = load(input, cwd);
   if ('ok' in loaded) return loaded;
-  const issues = lintDigest(loaded.digest, loaded.transcript);
+  const tpl = templatesOf(input, cwd);
+  const issues = lintDigest(loaded.digest, loaded.transcript, {
+    templates: templateMap(tpl.templates),
+  });
   const errors = lintErrors(issues);
   return {
     ok: errors.length === 0,
     action: 'validate',
     slug: input.slug,
     reports: loaded.digest.reports.map((r) => reportKey(r.options)),
+    extensions: loaded.digest.extensions.map(extensionKey),
     errors,
     warnings: issues.filter((i) => i.severity === 'warning'),
+    templateWarnings: tpl.warnings,
   };
 }
 
@@ -65,11 +79,13 @@ function handleValidate(input: DigestInput, cwd: string): object {
 function handleRender(input: DigestInput, cwd: string): object {
   if (!isValidSlug(input.slug)) return fail('INVALID_SLUG', `slug가 올바르지 않다: ${input.slug}`);
   try {
+    const tpl = templatesOf(input, cwd);
     const r = renderToFiles(input.slug, {
       repoRoot: resolve(cwd, input.repoRoot ?? '.'),
       inlineFrames: input.inlineFrames,
+      templates: tpl.templates,
     });
-    return { ok: true, action: 'render', ...r };
+    return { ok: true, action: 'render', ...r, templateWarnings: tpl.warnings };
   } catch (e) {
     if (e instanceof DigestLintError) {
       return {

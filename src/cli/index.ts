@@ -37,6 +37,8 @@ import {
   digestOcrCommand,
   digestIngestCommand,
   digestMergeCommand,
+  digestTemplateCommand,
+  digestTemplatesCommand,
   digestSliceCommand,
   digestTranslateApplyCommand,
   digestRenderCommand,
@@ -318,9 +320,23 @@ export function createCli(): Command {
   digest
     .command('merge <slug> <reportFile>')
     .description('리포트 한 벌을 digest.json에 합친다. 같은 키면 바꿔 끼운다')
+    .option(
+      '--extension',
+      '템플릿으로 만든 확장 리포트를 합친다. 템플릿과 언어가 같으면 바꿔 끼운다',
+    )
     .action((slug, reportFile, o, cmd) =>
       digestMergeCommand(slug, reportFile, { ...digestInherited(cmd), ...o }),
     );
+
+  digest
+    .command('templates')
+    .description('확장 리포트 템플릿 목록 (기본 템플릿과 .gestalt/digest/templates/)')
+    .action((o, cmd) => digestTemplatesCommand({ ...digestInherited(cmd), ...o }));
+
+  digest
+    .command('template <id>')
+    .description('템플릿의 요약 지시를 출력한다. 요약 에이전트에게 그대로 넘긴다')
+    .action((id, o, cmd) => digestTemplateCommand(id, { ...digestInherited(cmd), ...o }));
 
   digest
     .command('slice <slug>')

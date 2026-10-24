@@ -1,6 +1,8 @@
+import { extensionKey } from './blocks.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
 import { frameFileName } from './frames.js';
-import { renderDigestMarkdown } from './render-md.js';
+import { extensionHtml, extensionPanelId } from './render-blocks.js';
+import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
 import { DIFFICULTY_LABEL, isPreset, LENGTH_LABEL, reportKey, reportLabel } from './reports.js';
 import { VIEWER_JS } from './viewer-js.js';
 import {
@@ -16,6 +18,7 @@ import {
   type Transcript,
   youtubeWatchUrl,
 } from './schema.js';
+import type { DigestTemplate } from './templates.js';
 
 export interface RenderHtmlOptions {
   /** 프레임 파일이 있는지. 상대 경로 모드에서 없는 프레임은 자리를 만들지 않는다 */
@@ -23,6 +26,8 @@ export interface RenderHtmlOptions {
   /** 켜면 프레임을 data URI로 싣는다. 파일 하나만 들고 다닐 때 쓴다 */
   inlineFrames?: boolean;
   loadFrame?: (fileName: string) => Buffer | null;
+  /** "+ 더 만들기" 메뉴에 띄울 템플릿. 이미 만든 확장의 템플릿은 메뉴에서 뺀다 */
+  templates?: Pick<DigestTemplate, 'id' | 'title' | 'description'>[];
 }
 
 export interface RenderHtmlResult {
@@ -299,7 +304,39 @@ ${skippedHtml}</div>`;
         report,
       }),
     })),
+    extensions: digest.extensions.map((x) => ({
+      key: extensionKey(x),
+      panel: extensionPanelId(x),
+      markdown: renderExtensionMarkdown(x, transcript),
+    })),
   };
+
+  const extensions = digest.extensions;
+  const made = new Set(extensions.map((x) => x.template));
+  const menuTemplates = (opts.templates ?? []).filter((t) => !made.has(t.id));
+  const hasTabs = extensions.length > 0 || menuTemplates.length > 0;
+  const tab = (id: string, label: string, on: boolean) =>
+    `<button type="button" role="tab" id="tab-${e(id)}" data-tab="${e(id)}" aria-controls="${e(id)}" aria-selected="${on ? 'true' : 'false'}"${on ? '' : ' tabindex="-1"'}>${e(label)}</button>`;
+  const moreMenu = menuTemplates.length
+    ? `<button type="button" id="more-btn" class="more-btn" aria-expanded="false" aria-controls="more-menu">+ 더 만들기</button></div><div id="more-menu" class="more-menu" hidden><p>템플릿을 고르면 세션에 붙여 넣을 명령을 복사해요.</p><ul>${menuTemplates
+        .map(
+          (t) =>
+            `<li><button type="button" data-template="${e(t.id)}"><b>${e(t.title)}</b><small>${e(t.description)}</small></button></li>`,
+        )
+        .join(
+          '',
+        )}</ul><div id="more-cmd-box" hidden><code id="more-cmd"></code> <button type="button" id="more-copy">명령 복사</button></div></div>`
+    : '</div>';
+  const tabRow = hasTabs
+    ? `<div class="tab-row"><div class="tabs" role="tablist" aria-label="리포트 종류">${tab('panel-summary', '요약', true)}${extensions
+        .map((x) => tab(extensionPanelId(x), x.title, false))
+        .join('')}</div>${moreMenu}`
+    : '';
+  const extPanels = extensions.map((x) => extensionHtml(x, { escape: e, cite })).join('\n');
+  const summary = `${hasTabs ? reportBar : ''}${rendered.map((r) => r.body).join('\n')}`;
+  const summaryPanel = hasTabs
+    ? `<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary">${summary}</div>\n${extPanels}`
+    : summary;
 
   const html = `<!doctype html>
 <html lang="${e(base.lang)}">
@@ -309,15 +346,17 @@ ${skippedHtml}</div>`;
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${e(meta.title)}</title>
 <style>${CSS}</style>
+${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn{display:none}</style></noscript>' : ''}
 </head>
 <body>
 <div class="layout">
 <aside class="side">${player}${script}</aside>
 <main class="main">
 <header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p><div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label><p id="copy-status" class="sr-only" role="status" aria-live="polite"></p></div>
-${reportBar}
+${hasTabs ? '' : reportBar}
 <noscript><p class="note">자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기, 리포트 전환이 동작하지 않아요.${isYoutube ? ' 시각 링크는 유튜브 새 탭으로 열려요.' : ''}</p></noscript></header>
-${rendered.map((r) => r.body).join('\n')}
+${tabRow}
+${summaryPanel}
 </main>
 </div>
 ${rendered.map((r) => r.minimap).join('')}
@@ -389,6 +428,22 @@ a.ts:hover{text-decoration:underline}
 #report-cmd{user-select:all}
 .report-missing button{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer}
 .report-scope{color:var(--muted);font-size:.9em;margin:12px 0 0}
+.tab-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;border-bottom:1px solid var(--line);margin:12px 0 8px}
+.tabs{display:flex;flex-wrap:wrap;gap:2px}
+.tabs [role="tab"]{border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);padding:6px 12px;font:inherit;font-size:.92em;cursor:pointer}
+.tabs [role="tab"][aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent);font-weight:600}
+.more-btn{margin-left:auto;margin-bottom:4px;border:1px dashed var(--line);background:var(--card);border-radius:999px;padding:3px 12px;font-size:.85em;cursor:pointer}
+.more-menu{border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:0 0 8px;background:var(--card);font-size:.88em}
+.more-menu p{margin:0 0 6px;color:var(--muted)}
+.more-menu ul{list-style:none;margin:0 0 6px;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px}
+.more-menu li button{width:100%;text-align:left;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:6px 8px;cursor:pointer;color:inherit;font:inherit}
+.more-menu li small{display:block;color:var(--muted);font-size:.85em}
+.more-menu code{display:block;white-space:nowrap;overflow-x:auto;background:var(--chip);padding:4px 8px;border-radius:4px;margin:0 0 6px}
+#more-copy{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer}
+.ext h2{font-size:1.35em;border-bottom:1px solid var(--line);padding-bottom:6px}
+.ext h3{font-size:1.1em;margin:20px 0 6px}
+.ext h4{font-size:1em;margin:12px 0 4px}
+body[data-tab="ext"] .minimap{display:none}
 .lead{border-left:3px solid var(--accent);padding:4px 16px;margin:20px 0}
 .lead .q{font-weight:700;font-size:1.1em}
 .lead .takeaway{color:var(--muted)}

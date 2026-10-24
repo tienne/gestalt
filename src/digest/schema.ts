@@ -1,9 +1,19 @@
 import { z } from 'zod';
 import { ValidationError } from '../core/errors.js';
 import { err, ok, type Result } from '../core/result.js';
-import { idSchema, SLUG_PATTERN, textSchema } from './schema-base.js';
+import {
+  citeSchema,
+  idSchema,
+  LANG_TAG_PATTERN,
+  sentenceIndex,
+  SLUG_PATTERN,
+  textSchema,
+} from './schema-base.js';
+import { extensionSchema } from './blocks.js';
 
-export const DIGEST_SCHEMA_VERSION = '1.1.0';
+export { citeSchema, LANG_TAG_PATTERN };
+
+export const DIGEST_SCHEMA_VERSION = '1.2.0';
 export const TRANSCRIPT_SCHEMA_VERSION = '1.0.0';
 
 export const CAPTION_SOURCES = ['manual', 'auto', 'whisper'] as const;
@@ -16,19 +26,6 @@ export const VIDEO_SOURCES = ['youtube', 'file'] as const;
  */
 export const boldPattern = (): RegExp => /\*\*(.+?)\*\*/g;
 export const keywordPattern = (): RegExp => /\{\{kw:([A-Za-z0-9][A-Za-z0-9_-]*)\|([^}]+)\}\}/g;
-
-/** HTML lang 속성과 리포트 키, 파일 이름에 실려서 언어 태그 꼴만 받는다 */
-export const LANG_TAG_PATTERN = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
-
-const sentenceIndex = z.number().int().nonnegative();
-
-export const citeSchema = z
-  .object({
-    key: sentenceIndex,
-    from: sentenceIndex,
-    to: sentenceIndex,
-  })
-  .refine((c) => c.from <= c.to, 'from이 to보다 크다');
 
 export const segmentSchema = z.object({
   i: sentenceIndex,
@@ -199,6 +196,8 @@ const digestObjectSchema = z.object({
   slug: z.string().regex(SLUG_PATTERN, 'slug는 영문 소문자, 숫자, -만 쓴다'),
   generatedAt: z.string().optional(),
   reports: z.array(reportSchema).min(1),
+  /** 템플릿으로 만든 확장 리포트. 1.1.0 이하에는 없다 */
+  extensions: z.array(extensionSchema).default([]),
 });
 
 /**

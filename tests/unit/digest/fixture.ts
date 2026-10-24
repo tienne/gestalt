@@ -113,5 +113,6 @@ export function sampleDigest(): Digest {
         ],
       },
     ],
+    extensions: [],
   };
 }

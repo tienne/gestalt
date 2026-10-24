@@ -16,3 +16,7 @@ export * from './merge.js';
 export * from './slice.js';
 export * from './translate.js';
 export * from './ocr.js';
+export * from './blocks.js';
+export * from './templates.js';
+export * from './lint-extension.js';
+export * from './render-blocks.js';
