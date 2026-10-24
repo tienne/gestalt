@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { ensureVideo } from './frames.js';
 import { DigestStore } from './store.js';
-import { findSegmentIndex } from './viewer-js.js';
+import { findSegmentIndex } from './viewer-logic.js';
 import { CommandError, runCommand, timeoutFor, type RunCommand } from './ytdlp.js';
 
 export const OCR_FILE = 'ocr.json';

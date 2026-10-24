@@ -8,12 +8,8 @@ import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown, renderToFiles } from '../../../src/digest/render.js';
 import type { Digest, Transcript } from '../../../src/digest/schema.js';
 import { DigestStore } from '../../../src/digest/store.js';
-import {
-  VIEWER_JS,
-  VIEWER_JS_SHA256,
-  findSegmentIndex,
-  viewerLogic,
-} from '../../../src/digest/viewer-js.js';
+import { VIEWER_JS, VIEWER_JS_SHA256 } from '../../../src/digest/viewer-js.js';
+import { findSegmentIndex, viewerLogic } from '../../../src/digest/viewer-logic.js';
 import { SLUG, sampleDigest, sampleTranscript } from './fixture.js';
 
 const tmpDirs: string[] = [];
@@ -397,6 +393,7 @@ describe('viewer-js', () => {
       'shouldFollowHeld',
       'cueAction',
       'citeWindow',
+      'safeDecode',
     ]) {
       expect(VIEWER_JS).toContain(`function ${name}(`);
       expect(VIEWER_JS.match(new RegExp(`function ${name}\\(`, 'g'))).toHaveLength(1);
@@ -417,6 +414,16 @@ describe('viewer-js', () => {
     const body = scripts[0]![1]!;
     expect(body).toBe(VIEWER_JS);
     expect(createHash('sha256').update(body, 'utf8').digest('base64')).toBe(VIEWER_JS_SHA256);
+  });
+});
+
+describe('safeDecode', () => {
+  it('깨진 퍼센트 인코딩이면 던지지 않고 빈 문자열을 돌려준다', () => {
+    const { safeDecode } = viewerLogic;
+    expect(safeDecode('sub-%EA%B0%80')).toBe('sub-가');
+    expect(safeDecode('%E0%A4%A')).toBe('');
+    expect(safeDecode('%')).toBe('');
+    expect(safeDecode('')).toBe('');
   });
 });
 

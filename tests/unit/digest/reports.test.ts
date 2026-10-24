@@ -19,7 +19,7 @@ import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown } from '../../../src/digest/render.js';
 import { DigestStore } from '../../../src/digest/store.js';
-import { viewerLogic } from '../../../src/digest/viewer-js.js';
+import { viewerLogic } from '../../../src/digest/viewer-logic.js';
 import { SLUG, sampleDigest, sampleTranscript } from './fixture.js';
 
 const codes = (issues: DigestIssue[]) => issues.map((i) => i.code);

@@ -9,7 +9,7 @@ export * from './render-md.js';
 export * from './render-html.js';
 export * from './render.js';
 export * from './server.js';
-export { findSegmentIndex } from './viewer-js.js';
+export { findSegmentIndex } from './viewer-logic.js';
 export * from './prose.js';
 export * from './reports.js';
 export * from './merge.js';
