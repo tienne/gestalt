@@ -435,7 +435,7 @@ export const VIEWER_JS =
   var flashBtn = null;
   var flashLabel = '';
   // 버튼 글자만 바꾸면 스크린리더가 결과를 안 읽어서 결과 문구는 라이브 영역에 따로 쓴다.
-  // 같은 문구를 그대로 다시 넣으면 안 읽는 리더가 있어서 한 번 비운 뒤 다음 틱에 쓴다
+  // 같은 문구를 그대로 다시 넣으면 안 읽는 리더가 있어서 한 번 비우고 setTimeout 0으로 미뤄 쓴다
   function flash(btn, label, failed) {
     var status = document.getElementById('copy-status');
     clearTimeout(flashTimer);
