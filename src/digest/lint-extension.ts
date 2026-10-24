@@ -32,6 +32,8 @@ export interface ExtensionLintOptions {
    * null은 찾아봤는데 없다는 뜻이라 댓글 블록이 있으면 오류다. 안 주면 대조를 건너뛴다
    */
   comments?: ReadonlyMap<string, string> | null;
+  /** 댓글 본문 불일치를 오류로 올린다. 저장을 막아야 하는 merge만 켠다 */
+  strictVerbatim?: boolean;
 }
 
 /** 마인드맵 상한. 루트가 0단이다. 이보다 크면 한 화면에 안 들어온다 */
@@ -317,14 +319,24 @@ function checkMindmap(ext: Extension, p: string, issues: DigestIssue[]): void {
   });
 }
 
+// 정규화하면 빈 문자열이 되는 이모지 댓글이나 한두 글자 조각은 부분 일치로 넘기면 어느 원문에나 맞는다
+function matchesComment(text: string, source: string): boolean {
+  if (text.trim() === source.trim()) return true;
+  const needle = normalizeQuote(text);
+  const hay = normalizeQuote(source);
+  if (needle !== '' && needle === hay) return true;
+  return needle.length >= 4 && hay.includes(needle);
+}
+
 /**
  * 댓글 예시는 원문이어야 한다. 없는 댓글을 지어내거나 고쳐 쓴 문장을 원문처럼 보이게 두지 않는다.
- * id가 없으면 오류이고 본문이 다르면 경고다. 긴 댓글의 앞부분만 옮긴 예시는 통과시킨다
+ * id가 없으면 오류이고 본문이 다르면 경고다(merge에서는 오류). 긴 댓글의 앞부분만 옮긴 예시는 통과시킨다
  */
 function checkComments(
   ext: Extension,
   p: string,
   comments: ExtensionLintOptions['comments'],
+  strictVerbatim: boolean,
   issues: DigestIssue[],
 ): void {
   ext.blocks.forEach((block, bi) => {
@@ -360,10 +372,10 @@ function checkComments(
             code: 'COMMENT_NOT_FOUND',
             message: `comments.json에 ${ex.id} 댓글이 없다`,
           });
-        } else if (!normalizeQuote(source).includes(normalizeQuote(ex.text))) {
+        } else if (!matchesComment(ex.text, source)) {
           issues.push({
             path: `${path}.text`,
-            severity: 'warning',
+            severity: strictVerbatim ? 'error' : 'warning',
             code: 'COMMENT_TEXT_MISMATCH',
             message: `${ex.id} 댓글 원문과 다르다. 번역하거나 고쳐 쓰지 말고 원문을 옮긴다`,
           });
@@ -432,7 +444,7 @@ export function lintExtensions(
     checkQuotes(ext, p, transcript, issues);
     checkQuiz(ext, p, issues);
     checkMindmap(ext, p, issues);
-    checkComments(ext, p, opts.comments, issues);
+    checkComments(ext, p, opts.comments, opts.strictVerbatim ?? false, issues);
     checkTemplate(ext, p, opts.templates, issues);
   });
 }

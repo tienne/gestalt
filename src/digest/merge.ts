@@ -123,6 +123,7 @@ export function mergeExtension(
   const issues = lintDigest(merged, t.transcript, {
     ...opts,
     comments: opts.comments !== undefined ? opts.comments : commentsMap(store, slug),
+    strictVerbatim: true,
   });
   const saved = lintErrors(issues).length === 0;
   const digestPath = saved ? store.saveDigest(merged) : store.digestPath(slug);

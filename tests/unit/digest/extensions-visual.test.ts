@@ -216,6 +216,42 @@ describe('댓글 대조 lint', () => {
     expect(codes(result.issues)).toContain('COMMENTS_SOURCE_MISSING');
     expect(store.loadDigest(SLUG)!.extensions).toEqual([]);
   });
+
+  const withExample = (id: string, text: string): Extension => {
+    const ext = commentsExt();
+    const block = ext.blocks[0]!;
+    if (block.type !== 'comments') throw new Error('comments 블록이어야 한다');
+    block.groups[0]!.examples = [{ id, text }];
+    return ext;
+  };
+
+  const mergeWith = (ext: Extension, comments: Map<string, string>) => {
+    const repo = tmpRepo();
+    const store = new DigestStore(repo);
+    store.saveTranscript(sampleTranscript());
+    store.saveDigest(sampleDigest());
+    return mergeExtension(repo, SLUG, ext, { comments });
+  };
+
+  it('merge는 본문이 원문과 다른 예시를 저장하지 않는다', () => {
+    const result = mergeWith(withExample('c1', '완전히 지어낸 칭찬 문장'), source);
+    expect(result.saved).toBe(false);
+    expect(result.issues.find((i) => i.code === 'COMMENT_TEXT_MISMATCH')?.severity).toBe('error');
+  });
+
+  it('이모지만 있는 예시를 다른 원문 id에 달면 불일치다', () => {
+    const result = mergeWith(withExample('c1', '👍👍'), source);
+    expect(codes(result.issues)).toContain('COMMENT_TEXT_MISMATCH');
+  });
+
+  it('원문과 똑같은 짧은 댓글과 이모지 댓글은 통과한다', () => {
+    const short = new Map([
+      ['c1', '최고'],
+      ['c2', '🔥🔥'],
+    ]);
+    expect(mergeWith(withExample('c1', '최고'), short).saved).toBe(true);
+    expect(mergeWith(withExample('c2', '🔥🔥'), short).saved).toBe(true);
+  });
 });
 
 describe('parseYtComments', () => {
