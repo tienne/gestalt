@@ -1,4 +1,10 @@
-import { extensionKey, type Block, type Extension, type ListItem } from './blocks.js';
+import {
+  extensionKey,
+  type Block,
+  type Extension,
+  type ListItem,
+  type MindmapNode,
+} from './blocks.js';
 import type { DigestIssue } from './lint.js';
 import { boldPattern, keywordPattern, type Cite, type Transcript } from './schema.js';
 import type { DigestTemplate } from './templates.js';
@@ -21,7 +27,16 @@ export interface ExtensionCite {
 export interface ExtensionLintOptions {
   /** 아는 템플릿. 있으면 템플릿에 없는 블록 타입과 모르는 템플릿을 경고한다 */
   templates?: ReadonlyMap<string, Pick<DigestTemplate, 'id' | 'blocks'>>;
+  /**
+   * comments.json의 id → 본문. 있으면 댓글 예시를 대조한다.
+   * null은 찾아봤는데 없다는 뜻이라 댓글 블록이 있으면 오류다. 안 주면 대조를 건너뛴다
+   */
+  comments?: ReadonlyMap<string, string> | null;
 }
+
+/** 마인드맵 상한. 루트가 0단이다. 이보다 크면 한 화면에 안 들어온다 */
+export const MINDMAP_MAX_DEPTH = 3;
+export const MINDMAP_MAX_NODES = 60;
 
 function* walkList(
   items: ListItem[],
@@ -32,6 +47,17 @@ function* walkList(
     const path = `${prefix}.${k}`;
     yield { item, path, depth };
     if (item.children) yield* walkList(item.children, `${path}.children`, depth + 1);
+  }
+}
+
+export function* walkMindmap(
+  node: MindmapNode,
+  path: string,
+  depth = 0,
+): Generator<{ node: MindmapNode; path: string; depth: number }> {
+  yield { node, path, depth };
+  for (const [k, child] of (node.children ?? []).entries()) {
+    yield* walkMindmap(child, `${path}.children.${k}`, depth + 1);
   }
 }
 
@@ -91,6 +117,42 @@ export function blockFields(
         texts.push({ path: `${p}.items.${k}.question`, text: it.question, role: 'body' });
         texts.push({ path: `${p}.items.${k}.answer`, text: it.answer, role: 'body' });
         cite(`${p}.items.${k}.cite`, it.cite);
+      });
+      break;
+    case 'flashcards':
+      block.cards.forEach((it, k) => {
+        texts.push({ path: `${p}.cards.${k}.front`, text: it.front, role: 'body' });
+        texts.push({ path: `${p}.cards.${k}.back`, text: it.back, role: 'body' });
+        cite(`${p}.cards.${k}.cite`, it.cite);
+      });
+      break;
+    case 'quiz':
+      block.questions.forEach((it, k) => {
+        const q = `${p}.questions.${k}`;
+        texts.push({ path: `${q}.question`, text: it.question, role: 'body' });
+        it.choices.forEach((c, ci) => {
+          texts.push({ path: `${q}.choices.${ci}`, text: c, role: 'body' });
+        });
+        texts.push({ path: `${q}.explanation`, text: it.explanation, role: 'body' });
+        cite(`${q}.cite`, it.cite);
+      });
+      break;
+    case 'mindmap':
+      // 라벨은 그림 안 글자라 굵게를 못 그린다. 이름 칸으로 둔다
+      for (const { node, path } of walkMindmap(block.root, `${p}.root`)) {
+        texts.push({ path: `${path}.label`, text: node.label, role: 'title' });
+        cite(`${path}.cite`, node.cite);
+      }
+      break;
+    case 'comments':
+      texts.push({ path: `${p}.overview`, text: block.overview, role: 'body' });
+      block.groups.forEach((g, k) => {
+        const gp = `${p}.groups.${k}`;
+        texts.push({ path: `${gp}.title`, text: g.title, role: 'title' });
+        texts.push({ path: `${gp}.summary`, text: g.summary, role: 'body' });
+        g.examples.forEach((ex, ei) => {
+          texts.push({ path: `${gp}.examples.${ei}.text`, text: ex.text, role: 'verbatim' });
+        });
       });
       break;
     default: {
@@ -212,6 +274,105 @@ function checkQuotes(
   });
 }
 
+function checkQuiz(ext: Extension, p: string, issues: DigestIssue[]): void {
+  ext.blocks.forEach((block, bi) => {
+    if (block.type !== 'quiz') return;
+    block.questions.forEach((q, k) => {
+      if (q.answer >= q.choices.length) {
+        issues.push({
+          path: `${p}.blocks.${bi}.questions.${k}.answer`,
+          severity: 'error',
+          code: 'QUIZ_ANSWER_OUT_OF_RANGE',
+          message: `answer(${q.answer})는 0~${q.choices.length - 1} 중 하나여야 한다`,
+        });
+      }
+    });
+  });
+}
+
+function checkMindmap(ext: Extension, p: string, issues: DigestIssue[]): void {
+  ext.blocks.forEach((block, bi) => {
+    if (block.type !== 'mindmap') return;
+    const rootPath = `${p}.blocks.${bi}.root`;
+    let count = 0;
+    for (const { node, path, depth } of walkMindmap(block.root, rootPath)) {
+      count += 1;
+      if (depth === MINDMAP_MAX_DEPTH && node.children && node.children.length > 0) {
+        issues.push({
+          path: `${path}.children`,
+          severity: 'error',
+          code: 'MINDMAP_DEPTH',
+          message: `마인드맵은 루트 아래 ${MINDMAP_MAX_DEPTH}단까지다`,
+        });
+      }
+    }
+    if (count > MINDMAP_MAX_NODES) {
+      issues.push({
+        path: rootPath,
+        severity: 'error',
+        code: 'MINDMAP_SIZE',
+        message: `마인드맵 노드가 ${count}개다. ${MINDMAP_MAX_NODES}개까지 쓴다`,
+      });
+    }
+  });
+}
+
+/**
+ * 댓글 예시는 원문이어야 한다. 없는 댓글을 지어내거나 고쳐 쓴 문장을 원문처럼 보이게 두지 않는다.
+ * id가 없으면 오류이고 본문이 다르면 경고다. 긴 댓글의 앞부분만 옮긴 예시는 통과시킨다
+ */
+function checkComments(
+  ext: Extension,
+  p: string,
+  comments: ExtensionLintOptions['comments'],
+  issues: DigestIssue[],
+): void {
+  ext.blocks.forEach((block, bi) => {
+    if (block.type !== 'comments') return;
+    const bp = `${p}.blocks.${bi}`;
+    if (comments === undefined) return;
+    if (comments === null) {
+      issues.push({
+        path: bp,
+        severity: 'error',
+        code: 'COMMENTS_SOURCE_MISSING',
+        message: 'comments.json이 없다. gestalt digest comments로 댓글을 먼저 받는다',
+      });
+      return;
+    }
+    const counted = block.groups.reduce((sum, g) => sum + g.count, 0);
+    if (counted > block.total) {
+      issues.push({
+        path: `${bp}.total`,
+        severity: 'warning',
+        code: 'COMMENT_COUNT_EXCEEDS',
+        message: `묶음 개수 합(${counted})이 total(${block.total})보다 크다`,
+      });
+    }
+    block.groups.forEach((g, k) => {
+      g.examples.forEach((ex, ei) => {
+        const path = `${bp}.groups.${k}.examples.${ei}`;
+        const source = comments.get(ex.id);
+        if (source === undefined) {
+          issues.push({
+            path: `${path}.id`,
+            severity: 'error',
+            code: 'COMMENT_NOT_FOUND',
+            message: `comments.json에 ${ex.id} 댓글이 없다`,
+          });
+        } else if (!normalizeQuote(source).includes(normalizeQuote(ex.text))) {
+          issues.push({
+            path: `${path}.text`,
+            severity: 'warning',
+            code: 'COMMENT_TEXT_MISMATCH',
+            message: `${ex.id} 댓글 원문과 다르다. 번역하거나 고쳐 쓰지 말고 원문을 옮긴다`,
+          });
+        }
+      });
+    });
+  });
+}
+
 function checkTemplate(
   ext: Extension,
   p: string,
@@ -269,6 +430,9 @@ export function lintExtensions(
     checkCites(cites, total, issues);
     checkListDepth(ext, p, issues);
     checkQuotes(ext, p, transcript, issues);
+    checkQuiz(ext, p, issues);
+    checkMindmap(ext, p, issues);
+    checkComments(ext, p, opts.comments, issues);
     checkTemplate(ext, p, opts.templates, issues);
   });
 }

@@ -332,8 +332,11 @@ ${skippedHtml}</div>`;
         .map((x) => tab(extensionPanelId(x), x.title, false))
         .join('')}</div>${moreMenu}`
     : '';
-  const time = (c: Cite) => timeLink(segments[c.key]?.startSec ?? 0);
-  const extPanels = extensions.map((x) => extensionHtml(x, { escape: e, cite, time })).join('\n');
+  const sec = (c: Cite) => segments[c.key]?.startSec ?? 0;
+  const time = (c: Cite) => timeLink(sec(c));
+  const extPanels = extensions
+    .map((x) => extensionHtml(x, { escape: e, cite, time, sec }))
+    .join('\n');
   const summary = `${hasTabs ? reportBar : ''}${rendered.map((r) => r.body).join('\n')}`;
   const summaryPanel = hasTabs
     ? `<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary">${summary}</div>\n${extPanels}`
@@ -347,7 +350,7 @@ ${skippedHtml}</div>`;
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${e(meta.title)}</title>
 <style>${CSS}</style>
-${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn{display:none}</style></noscript>' : ''}
+${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz-check,.zoom-btn{display:none}.quiz-exp{display:block!important}</style></noscript>' : ''}
 </head>
 <body>
 <div class="layout">
@@ -448,10 +451,10 @@ a.ts:hover{text-decoration:underline}
 .quote blockquote{margin:0;font-size:1.05em}
 .quote-tr{margin:6px 0 0;color:var(--muted)}
 .quote figcaption{margin-top:6px;font-size:.9em;color:var(--muted);display:flex;flex-wrap:wrap;gap:8px}
-.toc{list-style:none;padding:0;margin:8px 0}
-.toc li{display:flex;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)}
-.toc li .ts{flex:none;padding-top:2px}
-.toc p{margin:2px 0 0;color:var(--muted);font-size:.95em}
+.ext-toc{list-style:none;padding:0;margin:8px 0}
+.ext-toc li{display:flex;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)}
+.ext-toc li .ts{flex:none;padding-top:2px}
+.ext-toc p{margin:2px 0 0;color:var(--muted);font-size:.95em}
 .actions{list-style:none;padding:0;margin:8px 0}
 .actions li{display:flex;gap:10px;padding:4px 0}
 .actions .box{flex:none;width:14px;height:14px;margin-top:6px;border:1.5px solid var(--muted);border-radius:3px}
@@ -459,6 +462,58 @@ a.ts:hover{text-decoration:underline}
 .qa dt{font-weight:600;margin-top:12px}
 .qa dt::before{content:"Q. ";color:var(--accent)}
 .qa dd{margin:4px 0 0}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:12px 0}
+.card{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:12px 14px}
+.card summary{cursor:pointer;font-weight:600;list-style:none}
+.card summary::-webkit-details-marker{display:none}
+.card[open] summary{color:var(--muted);font-weight:400;font-size:.9em}
+.card-back{margin-top:8px}
+.quiz{padding-left:20px}
+.quiz-q{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:10px 14px;margin:0 0 12px}
+.quiz-q legend{font-weight:600;padding:0 4px}
+.quiz-choice{display:block;padding:3px 0;cursor:pointer}
+.quiz-check{margin-top:6px;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:2px 10px;cursor:pointer;color:inherit;font:inherit}
+.quiz-exp{margin-top:8px;border-top:1px solid var(--line)}
+.quiz-exp p{margin:6px 0}
+.quiz-q.is-right .quiz-result{color:var(--accent);font-weight:600}
+.quiz-q.is-wrong .quiz-result{color:var(--warn);font-weight:600}
+.quiz-choice.is-answer span{background:var(--hl)}
+.diagram{margin:16px 0}
+.dg-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:8px}
+.dg-svg{display:block;max-width:none}
+.dg-svg text{fill:var(--fg);font-size:13px;font-family:inherit}
+.dg-svg rect{fill:var(--bg);stroke:var(--line)}
+.dg-svg path,.dg-svg line{stroke:var(--muted);fill:none;stroke-width:1.2}
+.dg-svg .mm-d0 rect{fill:var(--accent);stroke:var(--accent)}
+.dg-svg .mm-d0 text{fill:var(--on-accent);font-size:14px;font-weight:600}
+.dg-svg .mm-d1 rect{stroke:var(--accent)}
+.dg-svg .mm-cite{cursor:pointer}
+.dg-svg .mm-cite:hover rect{fill:var(--hl)}
+.dg-bar{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:4px;font-size:.9em;color:var(--muted)}
+.dg-bar span{margin-right:auto}
+.zoom-btn{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer;color:inherit;font:inherit}
+.dg-outline{margin-top:4px;font-size:.92em}
+.dg-outline summary{cursor:pointer;color:var(--muted)}
+#zoom-dialog{width:min(96vw,1400px);max-height:92vh;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);padding:12px}
+#zoom-dialog::backdrop{background:rgba(0,0,0,.5)}
+#zoom-dialog .zoom-body{overflow:auto;max-height:calc(92vh - 64px)}
+#zoom-dialog .zoom-body svg{width:100%;height:auto;min-width:600px}
+#zoom-dialog .zoom-close{float:right}
+.cm-overview{font-size:1.05em}
+.cm-meta{color:var(--muted);font-size:.9em}
+.cm-groups{list-style:none;padding:0}
+.cm-group{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:10px 14px;margin:0 0 10px}
+.cm-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
+.cm-tone{font-size:.8em;border-radius:999px;padding:0 8px;background:var(--chip);color:var(--muted)}
+.cm-positive .cm-tone{color:var(--accent)}
+.cm-negative .cm-tone{color:var(--warn)}
+.cm-count{margin-left:auto;color:var(--muted);font-size:.9em}
+.cm-bar{height:4px;background:var(--chip);border-radius:2px;margin:6px 0}
+.cm-bar i{display:block;height:100%;background:currentColor;border-radius:2px;color:var(--muted)}
+.cm-positive .cm-bar i{color:var(--accent)}
+.cm-negative .cm-bar i{color:var(--warn)}
+.cm-ex{padding-left:18px;color:var(--muted);font-size:.95em}
+.cm-ex q{white-space:pre-line}
 body[data-tab="ext"] .minimap{display:none}
 .lead{border-left:3px solid var(--accent);padding:4px 16px;margin:20px 0}
 .lead .q{font-weight:700;font-size:1.1em}

@@ -85,6 +85,80 @@ export const qaBlockSchema = z.object({
     .max(40),
 });
 
+/** 앞면을 누르면 뒷면이 열린다. HTML은 details라 스크립트 없이 뒤집힌다 */
+export const flashcardsBlockSchema = z.object({
+  type: z.literal('flashcards'),
+  cards: z
+    .array(z.object({ front: textSchema, back: textSchema, cite: citeSchema.optional() }))
+    .min(1)
+    .max(60),
+});
+
+/** answer는 choices의 0부터 센 자리다. 범위 밖이면 lint가 오류로 막는다 */
+export const quizBlockSchema = z.object({
+  type: z.literal('quiz'),
+  questions: z
+    .array(
+      z.object({
+        question: textSchema,
+        choices: z.array(textSchema).min(2).max(6),
+        answer: z.number().int().min(0),
+        explanation: textSchema,
+        cite: citeSchema.optional(),
+      }),
+    )
+    .min(1)
+    .max(30),
+});
+
+export interface MindmapNode {
+  label: string;
+  cite?: z.infer<typeof citeSchema>;
+  children?: MindmapNode[];
+}
+
+/** 깊이와 노드 수 상한은 lint가 경로와 함께 잡는다. 그림이 화면을 넘지 않게 하려는 것이다 */
+export const mindmapNodeSchema: z.ZodType<MindmapNode> = z.lazy(() =>
+  z.object({
+    label: textSchema,
+    cite: citeSchema.optional(),
+    children: z.array(mindmapNodeSchema).max(12).optional(),
+  }),
+);
+
+/** SVG 원문은 받지 않는다. 트리 구조만 받고 그림은 렌더러가 그린다 */
+export const mindmapBlockSchema = z.object({
+  type: z.literal('mindmap'),
+  root: mindmapNodeSchema,
+});
+
+export const COMMENT_TONES = ['positive', 'negative', 'neutral', 'question'] as const;
+
+/** yt-dlp가 주는 댓글 id. 영숫자와 -, _, .만 온다 */
+export const commentIdSchema = z.string().regex(/^[A-Za-z0-9_.-]{1,120}$/);
+
+/** 댓글을 성격별로 묶은 분석. examples.text는 댓글 원문이고 lint가 comments.json과 대조한다 */
+export const commentsBlockSchema = z.object({
+  type: z.literal('comments'),
+  total: z.number().int().min(0),
+  overview: textSchema,
+  groups: z
+    .array(
+      z.object({
+        title: textSchema,
+        tone: z.enum(COMMENT_TONES),
+        count: z.number().int().min(0),
+        summary: textSchema,
+        examples: z
+          .array(z.object({ id: commentIdSchema, text: textSchema }))
+          .max(3)
+          .default([]),
+      }),
+    )
+    .min(1)
+    .max(12),
+});
+
 export const blockSchema = z.discriminatedUnion('type', [
   headingBlockSchema,
   textBlockSchema,
@@ -93,6 +167,10 @@ export const blockSchema = z.discriminatedUnion('type', [
   timestampsBlockSchema,
   actionsBlockSchema,
   qaBlockSchema,
+  flashcardsBlockSchema,
+  quizBlockSchema,
+  mindmapBlockSchema,
+  commentsBlockSchema,
 ]);
 
 export const BLOCK_TYPES = blockSchema.options.map((o) => o.shape.type.value);
@@ -109,6 +187,9 @@ export type HeadingBlock = z.infer<typeof headingBlockSchema>;
 export type TextBlock = z.infer<typeof textBlockSchema>;
 export type ListBlock = z.infer<typeof listBlockSchema>;
 export type QuoteBlock = z.infer<typeof quoteBlockSchema>;
+export type QuizBlock = z.infer<typeof quizBlockSchema>;
+export type MindmapBlock = z.infer<typeof mindmapBlockSchema>;
+export type CommentsBlock = z.infer<typeof commentsBlockSchema>;
 export type Block = z.infer<typeof blockSchema>;
 export type Extension = z.infer<typeof extensionSchema>;
 

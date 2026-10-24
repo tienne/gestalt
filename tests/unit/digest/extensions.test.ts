@@ -429,7 +429,7 @@ describe('텍스트 블록 (quote, timestamps, actions, qa)', () => {
     const { html } = renderDigestHtml(withExt(textExt()), sampleTranscript());
     expect(html).toContain('<figure class="quote"><blockquote>sentence number 3 sentence number 4');
     expect(html).toContain('<p class="quote-tr">3번 <strong>문장</strong></p>');
-    expect(html).toMatch(/<ol class="toc"><li><a class="ts" href="[^"]*t=0s"[^>]*data-sec="0"/);
+    expect(html).toMatch(/<ol class="ext-toc"><li><a class="ts" href="[^"]*t=0s"[^>]*data-sec="0"/);
     expect(html).toContain('data-sec="30"');
     expect(html).toContain('<span>담당 민수</span><span>기한 금요일</span>');
     expect(html).toContain('<dl class="qa"><dt>왜요?</dt><dd>빨라서요.');

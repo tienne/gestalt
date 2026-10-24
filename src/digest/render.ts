@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { extensionKey } from './blocks.js';
+import { commentsMap } from './comments.js';
 import { lintDigest, lintErrors, type DigestIssue } from './lint.js';
 import { renderDigestHtml } from './render-html.js';
 import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
@@ -77,6 +78,8 @@ export function loadForRender(
   const errors = lintErrors(
     lintDigest(parsed.value, t.transcript, {
       templates: templates ? templateMap(templates) : undefined,
+      // 댓글 파일을 나중에 지웠어도 이미 합친 리포트는 그린다. 있을 때만 대조한다
+      comments: commentsMap(store, slug) ?? undefined,
     }),
   );
   if (errors.length > 0) throw new DigestLintError(errors);

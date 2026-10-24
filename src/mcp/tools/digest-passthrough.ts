@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { loadConfig } from '../../core/config.js';
 import { extensionKey } from '../../digest/blocks.js';
+import { commentsMap } from '../../digest/comments.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
 import { applyProse, extractProse } from '../../digest/prose.js';
 import { reportKey } from '../../digest/reports.js';
@@ -61,6 +62,7 @@ function handleValidate(input: DigestInput, cwd: string): object {
   const tpl = templatesOf(input, cwd);
   const issues = lintDigest(loaded.digest, loaded.transcript, {
     templates: templateMap(tpl.templates),
+    comments: commentsMap(loaded.store, input.slug) ?? undefined,
   });
   const errors = lintErrors(issues);
   return {

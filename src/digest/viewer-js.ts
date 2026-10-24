@@ -593,6 +593,69 @@ export const VIEWER_JS =
     return { current: function(){ return current; } };
   }
 
+  // 고른 답을 맞춰 보고 해설을 연다. 아무것도 안 골랐으면 정답과 해설만 연다
+  function setupQuiz() {
+    document.addEventListener('click', function(ev){
+      var btn = ev.target.closest ? ev.target.closest('.quiz-check') : null;
+      if (!btn) return;
+      var q = btn.closest('.quiz-q');
+      if (!q) return;
+      var answer = Number(q.getAttribute('data-answer'));
+      var inputs = q.querySelectorAll('input[type="radio"]');
+      var picked = -1;
+      Array.prototype.forEach.call(inputs, function(input, i){
+        if (input.checked) picked = i;
+        var label = input.closest('label');
+        if (label) label.classList.toggle('is-answer', i === answer);
+      });
+      q.classList.toggle('is-right', picked === answer);
+      q.classList.toggle('is-wrong', picked >= 0 && picked !== answer);
+      var result = q.querySelector('.quiz-result');
+      if (result) result.textContent = picked < 0 ? '' : picked === answer ? '정답이에요' : '오답이에요';
+      var exp = q.querySelector('.quiz-exp');
+      if (exp) exp.hidden = false;
+    });
+  }
+
+  // 그림을 화면 크기로 키워 본다. 노드를 눌러 영상으로 가면 창을 닫는다
+  function setupZoom() {
+    if (!document.querySelector('[data-zoom]')) return { isOpen: function(){ return false; } };
+    var dialog = document.createElement('dialog');
+    dialog.id = 'zoom-dialog';
+    dialog.setAttribute('aria-label', '그림 크게 보기');
+    var close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'zoom-btn zoom-close';
+    close.textContent = '닫기';
+    var body = document.createElement('div');
+    body.className = 'zoom-body';
+    dialog.appendChild(close);
+    dialog.appendChild(body);
+    document.body.appendChild(dialog);
+    var opener = null;
+    close.addEventListener('click', function(){ dialog.close(); });
+    dialog.addEventListener('click', function(ev){
+      if (ev.target === dialog) dialog.close();
+      else if (ev.target.closest && ev.target.closest('[data-sec]')) dialog.close();
+    });
+    dialog.addEventListener('close', function(){
+      body.textContent = '';
+      if (opener) opener.focus();
+    });
+    document.addEventListener('click', function(ev){
+      var btn = ev.target.closest ? ev.target.closest('[data-zoom]') : null;
+      if (!btn || typeof dialog.showModal !== 'function') return;
+      var fig = btn.closest('.diagram');
+      var svg = fig ? fig.querySelector('svg') : null;
+      if (!svg) return;
+      body.textContent = '';
+      body.appendChild(svg.cloneNode(true));
+      opener = btn;
+      dialog.showModal();
+    });
+    return { isOpen: function(){ return dialog.open; } };
+  }
+
   setupFontScale();
   setupTranslation();
   // 요약 앵커로 스크롤하려면 요약 패널이 먼저 보여야 해서 탭을 리포트보다 먼저 연다
@@ -607,9 +670,11 @@ export const VIEWER_JS =
   setupSubsectionFollow(player);
   var mini = setupMiniPlayer(player);
   setupCopyButton(reports, tabs);
+  setupQuiz();
+  var zoom = setupZoom();
   // 툴팁과 메뉴, 미니 플레이어가 함께 열려 있으면 Escape 한 번에 하나씩 닫는다
   document.addEventListener('keydown', function(ev){
-    if (ev.key !== 'Escape') return;
+    if (ev.key !== 'Escape' || zoom.isOpen()) return;
     if (popups.isOpen()) popups.closeAndReturn();
     else if (!more.close()) mini.close();
   });

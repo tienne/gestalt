@@ -32,6 +32,7 @@ import {
   harnessRefsThreeStateCommand,
 } from './commands/harness-refs-cross-pr.js';
 import {
+  digestCommentsCommand,
   digestExportCommand,
   digestFramesCommand,
   digestOcrCommand,
@@ -291,6 +292,12 @@ export function createCli(): Command {
     .option('--interval <sec>', '읽는 간격 (기본 10초)')
     .option('--lang <tess>', 'tesseract 언어, kor+eng 꼴 (기본: 스크립트 언어에서 고름)')
     .action((slug, o, cmd) => digestOcrCommand(slug, { ...digestInherited(cmd), ...o }));
+
+  digest
+    .command('comments <slug>')
+    .description('유튜브 댓글을 인기순으로 받아 comments.json에 둔다 (작성자 정보는 저장 안 함)')
+    .option('--max <n>', '받을 댓글 수, 1~1000 (기본 200)')
+    .action((slug, o, cmd) => digestCommentsCommand(slug, { ...digestInherited(cmd), ...o }));
 
   digest
     .command('frames <slug>')

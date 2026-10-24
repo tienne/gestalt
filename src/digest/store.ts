@@ -95,6 +95,11 @@ export class DigestStore {
     return join(this.dir(slug), 'frames');
   }
 
+  /** comments 명령이 받아 두는 댓글. 댓글 분석 템플릿이 읽는다 */
+  commentsPath(slug: string): string {
+    return join(this.dir(slug), 'comments.json');
+  }
+
   /** frames 명령이 받아 두는 저화질 영상. 다시 뽑을 때 또 받지 않으려고 둔다 */
   videoCacheDir(slug: string): string {
     return join(this.dir(slug), 'cache');

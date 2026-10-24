@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadConfig } from '../../core/config.js';
+import { COMMENTS_DEFAULT_MAX, commentsMap, fetchComments } from '../../digest/comments.js';
 import { extractFrames } from '../../digest/frames.js';
 import { ingest } from '../../digest/ingest.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
@@ -98,6 +99,23 @@ export async function digestIngestCommand(
   }
 }
 
+export async function digestCommentsCommand(
+  slug: string,
+  opts: DigestCommonOptions & { max?: string },
+): Promise<void> {
+  try {
+    const max = opts.max === undefined ? COMMENTS_DEFAULT_MAX : Number(opts.max);
+    const r = await fetchComments(slug, { repoRoot: rootOf(opts), max });
+    emit(r, opts.json, () => {
+      const total = r.commentCount === null ? '' : ` (영상 전체 ${r.commentCount}개)`;
+      console.log(`댓글 ${r.fetched}개를 받았어요${total}. 작성자 정보는 저장하지 않았어요.`);
+      console.log(`저장: ${r.path}`);
+    });
+  } catch (e) {
+    fail(e);
+  }
+}
+
 export async function digestFramesCommand(
   slug: string,
   opts: DigestCommonOptions & { force?: boolean },
@@ -160,7 +178,10 @@ export function digestValidateCommand(slug: string, opts: DigestCommonOptions): 
     const parsed = parseDigest(raw.value);
     if (!parsed.ok) throw parsed.error;
     const { templates } = templatesOf(opts);
-    const issues = lintDigest(parsed.value, transcript, { templates: templateMap(templates) });
+    const issues = lintDigest(parsed.value, transcript, {
+      templates: templateMap(templates),
+      comments: commentsMap(store, slug) ?? undefined,
+    });
     const errors = lintErrors(issues);
     emit({ slug, ok: errors.length === 0, issues }, opts.json, () => {
       for (const i of issues) console.log(`${i.severity} ${i.code} ${i.path}: ${i.message}`);

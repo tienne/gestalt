@@ -1,4 +1,5 @@
 import { extensionKey, extensionSchema, type Extension } from './blocks.js';
+import { commentsMap } from './comments.js';
 import { lintDigest, lintErrors, type DigestIssue } from './lint.js';
 import type { ExtensionLintOptions } from './lint-extension.js';
 import { reportKey, upsertReport } from './reports.js';
@@ -118,7 +119,11 @@ export function mergeExtension(
     schemaVersion: DIGEST_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
   };
-  const issues = lintDigest(merged, t.transcript, opts);
+  // 댓글 예시는 받아 둔 댓글과 맞아야 합친다. 파일이 없으면 null이라 댓글 블록이 오류로 걸린다
+  const issues = lintDigest(merged, t.transcript, {
+    ...opts,
+    comments: opts.comments !== undefined ? opts.comments : commentsMap(store, slug),
+  });
   const saved = lintErrors(issues).length === 0;
   const digestPath = saved ? store.saveDigest(merged) : store.digestPath(slug);
   const key = extensionKey(ext);
