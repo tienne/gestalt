@@ -146,7 +146,7 @@ gestalt digest slice '<slug>' --range '<range>' --json --repo-root <repoRoot>
 
 출력의 `path`를 `<transcriptPath>` 대신 Step 2에 넘기고 `range`(초 튜플)를 `<rangeSec>`로 받아 둔다. 잘라 낸 파일의 문장 번호는 원래 스크립트 번호 그대로라 출처가 전체 스크립트를 가리킨다. 구간에 든 문장이 없으면 명령이 실패한다. 그 메시지를 보여 주고 멈춘다.
 
-**이미 요약한 영상이면 수집을 건너뛴다.** `slug`가 주어졌고 `<repoRoot>/.gestalt/digest/<slug>/transcript.json`이 있으면 ingest를 부르지 않고 그 경로를 `<transcriptPath>`로 쓴다. 뷰어 툴바에서 없는 분량과 난이도 조합을 고르면 `/gestalt:video-digest slug=<slug> length=<값> difficulty=<값>` 명령이 클립보드로 복사되는데 그 명령이 이 경로로 들어온다.
+**이미 요약한 영상이면 수집을 건너뛴다.** `slug`가 주어졌고 `<repoRoot>/.gestalt/digest/<slug>/transcript.json`이 있으면 ingest를 부르지 않고 그 경로를 `<transcriptPath>`로, 같은 폴더의 `report.draft.json`을 `<reportPath>`로 받아 둔다. 뷰어 툴바에서 없는 분량과 난이도 조합을 고르면 `/gestalt:video-digest slug=<slug> length=<값> difficulty=<값> reportLang=<lang>` 명령이 클립보드로 복사되는데 그 명령이 이 경로로 들어온다.
 
 ## Step 2 — 요약 작성
 
@@ -176,9 +176,11 @@ Agent {
 
 `gestalt:video-summarizer` 타입이 없는 런타임이면 위임 문서의 폴백 프롬프트대로 `ges_agent get`으로 video-summarizer 지침을 먼저 가져오게 하되 `subagent_type`은 Explore 대신 `general-purpose`로 띄운다. Explore에는 Write가 없어서 리포트 파일을 못 쓴다. 할 일 자리에는 위 프롬프트의 0~2번을 그대로 싣는다.
 
+처음 맡기기 전에 `rm -f '<reportPath>'`로 지난 실행이 남긴 초안을 지운다. 수집을 건너뛴 slug는 같은 자리에 옛 초안이 남아 있어서 서브에이전트가 아무것도 안 써도 merge가 그 초안을 합친다. Step 3에서 오류를 고치라고 다시 맡길 때는 지우지 않는다.
+
 띄우기 직전에 `git status --porcelain --untracked-files=all` 출력을 저장해 둔다. 돌아오면 두 가지를 본다.
 
-- Output Format 첫 줄의 경로가 넘긴 `<reportPath>`와 같은지 본다. 다르면 그 파일을 열지 않고 두 경로를 그대로 보고하며 멈춘다.
+- Output Format 첫 줄의 경로가 넘긴 `<reportPath>`와 같은지 본다. 다르면 그 파일을 열지 않고 두 경로를 그대로 보고하며 멈춘다. 경로가 같아도 `<reportPath>` 파일이 없으면 멈추고 보고한다.
 - `git status` 출력을 다시 떠서 저장해 둔 것과 같은지 본다. 레포 추적 파일이 바뀌지 않았는지 보는 용도다. `.gestalt/`는 보통 gitignore 대상이라 이 비교로는 그 아래 쓰기를 못 잡는다. 그 자리는 앞의 경로 확인이 맡는다.
 
 ### 긴 영상은 나눠 쓴다
