@@ -83,8 +83,15 @@ describe('reportKey', () => {
     const hash = reportKey({ length: 'short', difficulty: 'normal', lang: 'en', prompt });
     const fakeLang = `en-${hash.split('-').at(-1)!}`;
     expect(reportOptionsSchema.safeParse({ lang: fakeLang }).success).toBe(false);
-    expect(reportOptionsSchema.safeParse({ lang: 'en-r30' }).success).toBe(false);
+    expect(reportOptionsSchema.safeParse({ lang: 'en-r30-40' }).success).toBe(false);
+    expect(reportOptionsSchema.safeParse({ lang: 'en-R30-40' }).success).toBe(false);
     expect(reportOptionsSchema.safeParse({ lang: 'pt-BR' }).success).toBe(true);
+  });
+
+  it('p나 r로 시작하는 지역 하위 태그는 받는다', () => {
+    for (const lang of ['es-PA', 'es-PE', 'fr-PF', 'en-r30']) {
+      expect(reportOptionsSchema.safeParse({ lang }).success).toBe(true);
+    }
     expect(reportOptionsSchema.safeParse({ range: [90.2, 100] }).success).toBe(false);
   });
 });

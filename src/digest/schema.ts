@@ -175,11 +175,9 @@ export const reportOptionsSchema = z.object({
   lang: z
     .string()
     .regex(LANG_TAG_PATTERN, '언어 태그(ko, en, pt-BR) 꼴이어야 한다')
-    // 리포트 키가 -로 이어 붙여서 구간(r숫자)이나 요청문 해시(p16진수)처럼 생긴 하위 태그는 키 경계를 흐린다
-    .refine(
-      (v) => !/-(r\d|p[0-9a-f])/i.test(v),
-      '언어 하위 태그가 r숫자나 p16진수로 시작하면 안 된다',
-    )
+    // 리포트 키가 -로 이어 붙여서 끝이 구간(-r시작-끝)처럼 생긴 태그는 키 경계를 흐린다.
+    // 요청문 해시(p+8자)는 하위 태그 8자 상한에서 이미 막혀서 es-PA 같은 지역 태그까지 거절하지 않는다
+    .refine((v) => !/-r\d+-\d+$/i.test(v), '언어 태그 끝이 구간(-r숫자-숫자)처럼 생기면 안 된다')
     .default('ko'),
   prompt: z.string().trim().min(1).max(2000).optional(),
 });
