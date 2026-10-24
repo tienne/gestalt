@@ -34,6 +34,7 @@ import {
 import {
   digestExportCommand,
   digestFramesCommand,
+  digestOcrCommand,
   digestIngestCommand,
   digestMergeCommand,
   digestSliceCommand,
@@ -278,7 +279,16 @@ export function createCli(): Command {
     .option('--slug <slug>', '저장 폴더 이름 (기본: 제목과 영상 id)')
     .option('--whisper', '자막이 있어도 faster-whisper로 받아쓴다')
     .option('--whisper-model <name>', 'faster-whisper 모델 (기본 large-v3)')
+    .option('--ocr', '스크립트를 만든 뒤 화면 글자도 읽어 ocr.json에 둔다 (tesseract 필요)')
+    .option('--ocr-interval <sec>', '화면 글자를 읽는 간격 (기본 10초)')
     .action((input, o, cmd) => digestIngestCommand(input, { ...digestInherited(cmd), ...o }));
+
+  digest
+    .command('ocr <slug>')
+    .description('일정 간격으로 프레임을 뽑아 화면 글자를 읽고 ocr.json에 둔다 (tesseract 필요)')
+    .option('--interval <sec>', '읽는 간격 (기본 10초)')
+    .option('--lang <tess>', 'tesseract 언어, kor+eng 꼴 (기본: 스크립트 언어에서 고름)')
+    .action((slug, o, cmd) => digestOcrCommand(slug, { ...digestInherited(cmd), ...o }));
 
   digest
     .command('frames <slug>')

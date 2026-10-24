@@ -4,6 +4,7 @@ import { extractFrames } from '../../digest/frames.js';
 import { ingest } from '../../digest/ingest.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
 import { mergeReport } from '../../digest/merge.js';
+import { runOcr, type OcrResult } from '../../digest/ocr.js';
 import { exportMarkdown, renderToFiles } from '../../digest/render.js';
 import { parseDigest } from '../../digest/schema.js';
 import { parseRangeArg, sliceFileName, sliceTranscript } from '../../digest/slice.js';
@@ -45,6 +46,8 @@ export async function digestIngestCommand(
     slug?: string;
     whisper?: boolean;
     whisperModel?: string;
+    ocr?: boolean;
+    ocrInterval?: string;
   },
 ): Promise<void> {
   try {
@@ -55,7 +58,13 @@ export async function digestIngestCommand(
       whisper: opts.whisper,
       whisperModel: opts.whisperModel,
     });
-    emit(r, opts.json, () => {
+    const ocr = opts.ocr
+      ? await runOcr(r.slug, {
+          repoRoot: rootOf(opts),
+          intervalSec: parseInterval(opts.ocrInterval),
+        })
+      : undefined;
+    emit(ocr ? { ...r, ocr } : r, opts.json, () => {
       console.log(`${r.title} (${mmss(r.durationSec)})`);
       console.log(`자막: ${r.captionSource} [${r.captionTrack}] → 문장 ${r.segmentCount}개`);
       console.log(`slug: ${r.slug}`);
@@ -66,6 +75,7 @@ export async function digestIngestCommand(
           `문장 번호가 바뀌어 기존 요약을 옮겼어요(문장 ${before}개 → ${r.segmentCount}개): ${r.staleDigest.movedTo}`,
         );
       }
+      if (ocr) printOcr(ocr);
     });
   } catch (e) {
     fail(e);
@@ -83,6 +93,33 @@ export async function digestFramesCommand(
       if (r.missing.length > 0) console.log(`못 뽑은 시각: ${r.missing.map(mmss).join(', ')}`);
       console.log(`저장: ${r.framesDir}`);
     });
+  } catch (e) {
+    fail(e);
+  }
+}
+
+function parseInterval(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!/^\d+$/.test(value.trim())) throw new Error(`OCR 간격은 초 단위 정수여야 해요: ${value}`);
+  return Number(value);
+}
+
+function printOcr(r: OcrResult): void {
+  console.log(`화면 글자: 프레임 ${r.frames}장(${r.intervalSec}초 간격, ${r.lang}) → ${r.items}개`);
+  console.log(`저장: ${r.path}`);
+}
+
+export async function digestOcrCommand(
+  slug: string,
+  opts: DigestCommonOptions & { interval?: string; lang?: string },
+): Promise<void> {
+  try {
+    const r = await runOcr(slug, {
+      repoRoot: rootOf(opts),
+      intervalSec: parseInterval(opts.interval),
+      lang: opts.lang,
+    });
+    emit(r, opts.json, () => printOcr(r));
   } catch (e) {
     fail(e);
   }

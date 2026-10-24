@@ -50,7 +50,7 @@ function findCachedVideo(cacheDir: string): string | null {
   return hit ? join(cacheDir, hit) : null;
 }
 
-async function ensureVideo(
+export async function ensureVideo(
   run: RunCommand,
   transcript: Transcript,
   cacheDir: string,
