@@ -430,29 +430,7 @@ export const VIEWER_JS =
       (ok ? done : fail)();
     }
   }
-  // 두 복사 버튼이 라이브 영역 하나를 같이 써서 타이머도 하나로 묶는다. 앞 타이머가 남으면 뒤 문구를 일찍 지운다
-  var flashTimer = null;
-  var flashBtn = null;
-  var flashLabel = '';
-  // 버튼 글자만 바꾸면 스크린리더가 결과를 안 읽어서 결과 문구는 라이브 영역에 따로 쓴다.
-  // 같은 문구를 그대로 다시 넣으면 안 읽는 리더가 있어서 한 번 비우고 setTimeout 0으로 미뤄 쓴다
-  function flash(btn, label, failed) {
-    var status = document.getElementById('copy-status');
-    clearTimeout(flashTimer);
-    if (flashBtn && flashBtn !== btn) flashBtn.textContent = flashLabel;
-    flashBtn = btn;
-    flashLabel = label;
-    btn.textContent = failed ? '복사 실패' : '복사했어요';
-    if (status) status.textContent = '';
-    flashTimer = setTimeout(function(){
-      if (status) status.textContent = failed ? '복사하지 못했어요. 직접 선택해 복사해 주세요' : '복사했어요';
-      flashTimer = setTimeout(function(){
-        btn.textContent = label;
-        flashBtn = null;
-        if (status) status.textContent = '';
-      }, failed ? 3000 : 1500);
-    }, 0);
-  }
+  var flash = makeFlash(function(){ return document.getElementById('copy-status'); });
   function copyWith(btn, label, text) {
     copyText(text, function(){ flash(btn, label, false); }, function(){ flash(btn, label, true); });
   }

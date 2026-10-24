@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { frameFileName } from '../../../src/digest/frames.js';
 import { embedJson, renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
@@ -404,6 +404,7 @@ describe('viewer-js', () => {
       'cueAction',
       'citeWindow',
       'safeDecode',
+      'makeFlash',
     ]) {
       expect(VIEWER_JS).toContain(`function ${name}(`);
       expect(VIEWER_JS.match(new RegExp(`function ${name}\\(`, 'g'))).toHaveLength(1);
@@ -446,5 +447,55 @@ describe('videoState', () => {
     expect(videoState(false, false, 12, 2)).toBe(3);
     expect(videoState(false, false, 12, 4)).toBe(1);
     expect(cueAction(videoState(false, true, 12, 4))).toBe('seek');
+  });
+});
+
+describe('makeFlash', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('앞 알림이 남은 채 다른 버튼을 누르면 앞 버튼 글자를 되돌리고 뒤 알림을 1.5초 동안 둔다', () => {
+    vi.useFakeTimers();
+    const status = { textContent: '' as string | null };
+    const flash = viewerLogic.makeFlash(() => status);
+    const a = { textContent: 'A 복사' as string | null };
+    const b = { textContent: 'B 복사' as string | null };
+
+    flash(a, 'A 복사', false);
+    vi.advanceTimersByTime(0);
+    expect(status.textContent).toBe('복사했어요');
+    vi.advanceTimersByTime(1000);
+
+    flash(b, 'B 복사', false);
+    expect(a.textContent).toBe('A 복사');
+    expect(b.textContent).toBe('복사했어요');
+    expect(status.textContent).toBe('');
+
+    vi.advanceTimersByTime(0);
+    expect(status.textContent).toBe('복사했어요');
+    vi.advanceTimersByTime(1499);
+    expect(status.textContent).toBe('복사했어요');
+    expect(b.textContent).toBe('복사했어요');
+    vi.advanceTimersByTime(1);
+    expect(status.textContent).toBe('');
+    expect(b.textContent).toBe('B 복사');
+  });
+
+  it('실패하면 직접 복사하라는 문구를 3초 동안 둔다', () => {
+    vi.useFakeTimers();
+    const status = { textContent: '' as string | null };
+    const flash = viewerLogic.makeFlash(() => status);
+    const btn = { textContent: '복사' as string | null };
+
+    flash(btn, '복사', true);
+    expect(btn.textContent).toBe('복사 실패');
+    vi.advanceTimersByTime(0);
+    expect(status.textContent).toBe('복사하지 못했어요. 직접 선택해 복사해 주세요');
+    vi.advanceTimersByTime(2999);
+    expect(btn.textContent).toBe('복사 실패');
+    vi.advanceTimersByTime(1);
+    expect(btn.textContent).toBe('복사');
+    expect(status.textContent).toBe('');
   });
 });

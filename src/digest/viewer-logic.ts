@@ -1,5 +1,5 @@
 /**
- * 브라우저에 싣는 코드라 문자열로 둔다. 판단만 하는 순수 함수는 VIEWER_LOGIC_JS에 모아
+ * 브라우저에 싣는 코드라 문자열로 둔다. 판단만 하는 순수 함수와 타이머로 확인할 복사 알림은 VIEWER_LOGIC_JS에 모아
  * 테스트가 이 문자열을 그대로 실행해 본다. DOM과 유튜브 플레이어를 다루는 IIFE는 viewer-js.ts에 있고
  * 테스트에서 문법만 확인한다. OCR처럼 Node 쪽에서 같은 판단이 필요한 코드는 뷰어 스크립트 대신 이 모듈을 가져온다.
  */
@@ -47,6 +47,31 @@ function videoState(ended, paused, time, readyState) {
   if (paused) return time > 0 ? 2 : -1;
   return readyState < 3 ? 3 : 1;
 }
+// 두 복사 버튼이 라이브 영역 하나를 같이 써서 타이머도 하나로 묶는다. 앞 타이머가 남으면 뒤 문구를 일찍 지운다
+// 버튼 글자만 바꾸면 스크린리더가 결과를 안 읽어서 결과 문구는 라이브 영역에 따로 쓴다.
+// 같은 문구를 그대로 다시 넣으면 안 읽는 리더가 있어서 한 번 비우고 setTimeout 0으로 미뤄 쓴다
+function makeFlash(getStatus) {
+  var flashTimer = null;
+  var flashBtn = null;
+  var flashLabel = '';
+  return function flash(btn, label, failed) {
+    var status = getStatus();
+    clearTimeout(flashTimer);
+    if (flashBtn && flashBtn !== btn) flashBtn.textContent = flashLabel;
+    flashBtn = btn;
+    flashLabel = label;
+    btn.textContent = failed ? '복사 실패' : '복사했어요';
+    if (status) status.textContent = '';
+    flashTimer = setTimeout(function(){
+      if (status) status.textContent = failed ? '복사하지 못했어요. 직접 선택해 복사해 주세요' : '복사했어요';
+      flashTimer = setTimeout(function(){
+        btn.textContent = label;
+        flashBtn = null;
+        if (status) status.textContent = '';
+      }, failed ? 3000 : 1500);
+    }, 0);
+  };
+}
 `;
 
 export interface ViewerLogic {
@@ -85,10 +110,14 @@ export interface ViewerLogic {
   safeDecode: (s: string) => string;
   /** HTML5 video 상태를 유튜브 재생 상태 코드로 옮긴다. 따라가기 판정이 그 코드만 본다 */
   videoState: (ended: boolean, paused: boolean, time: number, readyState: number) => number;
+  /** 복사 결과를 버튼 글자와 라이브 영역에 잠깐 보이는 함수를 만든다. 버튼 둘이 타이머 하나를 같이 쓴다 */
+  makeFlash: (
+    getStatus: () => { textContent: string | null } | null,
+  ) => (btn: { textContent: string | null }, label: string, failed: boolean) => void;
 }
 
 export const viewerLogic = new Function(
-  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, shouldFollowHeld: shouldFollowHeld, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, safeDecode: safeDecode, videoState: videoState };`,
+  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, shouldFollowHeld: shouldFollowHeld, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
 )() as ViewerLogic;
 
 export const findSegmentIndex = viewerLogic.findSegmentIndex;
