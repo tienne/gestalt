@@ -22,7 +22,7 @@ inputs:
   slug:
     type: string
     required: false
-    description: '저장 폴더 이름(영문 소문자, 숫자, -). 비우면 제목과 영상 id로 짓는다. .gestalt/digest/<slug>/ 아래에 저장된다'
+    description: '저장 폴더 이름(영문 소문자, 숫자, -. 첫 글자는 -가 아니고 64자까지). 비우면 제목과 영상 id로 짓는다. .gestalt/digest/<slug>/ 아래에 저장된다'
   output:
     type: string
     required: false
@@ -114,7 +114,7 @@ Step 1 ingest → Step 2 요약 작성 → Step 3 merge → Step 4 frames와 번
 | 입력                                | 받는 꼴                                                                                 |
 | ----------------------------------- | --------------------------------------------------------------------------------------- |
 | `source`, `--out` 경로              | 작은따옴표(`'`)가 없는 값                                                               |
-| `slug`                              | `^[a-z0-9-]+$`                                                                          |
+| `slug`                              | `^[a-z0-9][a-z0-9-]{0,63}$`                                                             |
 | `length`, `difficulty`              | 입력 정의에 적힌 값 중 하나                                                             |
 | `lang`, `reportLang`, `--report` 키 | `^[A-Za-z0-9-]+$`                                                                       |
 | `range`                             | `^[0-9:]+-[0-9:]+$`. 끝점은 초 단위 정수다. `1:30.5`처럼 소수가 든 값은 명령이 거절한다 |
