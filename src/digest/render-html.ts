@@ -1,7 +1,12 @@
 import { extensionKey } from './blocks.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
 import { frameFileName } from './frames.js';
-import { extensionHtml, extensionPanelId } from './render-blocks.js';
+import {
+  extensionHtml,
+  extensionPanelId,
+  sectionDiagramHtml,
+  type BlockHtmlContext,
+} from './render-blocks.js';
 import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
 import { DIFFICULTY_LABEL, isPreset, LENGTH_LABEL, reportKey, reportLabel } from './reports.js';
 import { VIEWER_JS } from './viewer-js.js';
@@ -120,6 +125,9 @@ export function renderDigestHtml(
   const cite = (c: Cite): string =>
     `<sup><button type="button" class="cite" data-key="${c.key}" data-from="${c.from}" data-to="${c.to}" aria-label="출처 ${c.key + 1}">[${c.key + 1}]</button></sup>`;
 
+  const sec = (c: Cite) => segments[c.key]?.startSec ?? 0;
+  const blockCtx: BlockHtmlContext = { escape: e, cite, time: (c) => timeLink(sec(c)), sec };
+
   const missingFrame = (subId: string, file: string) =>
     warnings.push(`프레임이 없어 자리를 비웠다: ${subId} (${file})`);
 
@@ -175,7 +183,7 @@ export function renderDigestHtml(
               `<div class="sub" id="sub-${pfx}${e(sub.id)}" data-from="${sub.cite.from}" data-to="${sub.cite.to}"><h3><span class="num">${si + 1}.${ui + 1}.</span> ${e(stripNumbering(sub.title))} ${timeLink(at(sub.cite.key))}</h3>${frame(sub.frameSec, sub.id)}${bullets(sub.bullets)}</div>`,
           )
           .join('');
-        return `<section class="sec" id="sec-${pfx}${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${timeLink(at(s.cite.key))}</h2><p class="conclusion">${inline(s.conclusion, kwIds)}${cite(s.cite)}</p>${subs}</section>`;
+        return `<section class="sec" id="sec-${pfx}${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${timeLink(at(s.cite.key))}</h2><p class="conclusion">${inline(s.conclusion, kwIds)}${cite(s.cite)}</p>${s.diagram ? sectionDiagramHtml(s.diagram, stripNumbering(s.title), blockCtx) : ''}${subs}</section>`;
       })
       .join('');
 
@@ -332,11 +340,7 @@ ${skippedHtml}</div>`;
         .map((x) => tab(extensionPanelId(x), x.title, false))
         .join('')}</div>${moreMenu}`
     : '';
-  const sec = (c: Cite) => segments[c.key]?.startSec ?? 0;
-  const time = (c: Cite) => timeLink(sec(c));
-  const extPanels = extensions
-    .map((x) => extensionHtml(x, { escape: e, cite, time, sec }))
-    .join('\n');
+  const extPanels = extensions.map((x) => extensionHtml(x, blockCtx)).join('\n');
   const summary = `${hasTabs ? reportBar : ''}${rendered.map((r) => r.body).join('\n')}`;
   const summaryPanel = hasTabs
     ? `<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary">${summary}</div>\n${extPanels}`
@@ -484,11 +488,12 @@ a.ts:hover{text-decoration:underline}
 .dg-svg text{fill:var(--fg);font-size:13px;font-family:inherit}
 .dg-svg rect{fill:var(--bg);stroke:var(--line)}
 .dg-svg path,.dg-svg line{stroke:var(--muted);fill:none;stroke-width:1.2}
-.dg-svg .mm-d0 rect{fill:var(--accent);stroke:var(--accent)}
-.dg-svg .mm-d0 text{fill:var(--on-accent);font-size:14px;font-weight:600}
-.dg-svg .mm-d1 rect{stroke:var(--accent)}
-.dg-svg .mm-cite{cursor:pointer}
-.dg-svg .mm-cite:hover rect{fill:var(--hl)}
+.dg-svg .mm-d0 rect,.dg-svg .dg-head rect{fill:var(--accent);stroke:var(--accent)}
+.dg-svg .mm-d0 text,.dg-svg .dg-head text{fill:var(--on-accent);font-size:14px;font-weight:600}
+.dg-svg .mm-d1 rect,.dg-flow rect,.dg-cycle rect{stroke:var(--accent)}
+.dg-svg .dg-arrow{fill:var(--muted);stroke:none}
+.dg-svg .mm-cite,.dg-svg .dg-cite{cursor:pointer}
+.dg-svg .mm-cite:hover rect,.dg-svg .dg-cite:hover rect{fill:var(--hl)}
 .dg-bar{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:4px;font-size:.9em;color:var(--muted)}
 .dg-bar span{margin-right:auto}
 .zoom-btn{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer;color:inherit;font:inherit}

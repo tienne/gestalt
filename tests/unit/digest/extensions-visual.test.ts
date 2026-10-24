@@ -9,13 +9,18 @@ import {
   mergeExtension,
   parseYtComments,
   readComments,
+  compareSvg,
+  cycleSvg,
+  flowSvg,
+  parseDigest,
   treeSvg,
+  type Diagram,
   type Digest,
   type DigestIssue,
   type Extension,
 } from '../../../src/digest/index.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
-import { renderExtensionMarkdown } from '../../../src/digest/render-md.js';
+import { renderDigestMarkdown, renderExtensionMarkdown } from '../../../src/digest/render-md.js';
 import { DigestStore } from '../../../src/digest/store.js';
 import type { RunCommand } from '../../../src/digest/ytdlp.js';
 import { SLUG, sampleDigest, sampleTranscript } from './fixture.js';
@@ -179,7 +184,7 @@ describe('댓글 대조 lint', () => {
     expect(codes(issues).filter((c) => c.startsWith('COMMENT'))).toEqual([]);
   });
 
-  it('없는 id는 오류, 다른 본문은 경고, 합계 초과도 경고다', () => {
+  it('없는 id는 오류고 다른 본문과 합계 초과는 경고다', () => {
     const ext = commentsExt();
     const block = ext.blocks[0]!;
     if (block.type !== 'comments') throw new Error('comments 블록이어야 한다');
@@ -351,5 +356,201 @@ describe('시각 블록 렌더', () => {
     expect(renderExtensionMarkdown(quiz(), t)).toMatch(/> 정답 \(1\)/);
     expect(renderExtensionMarkdown(mindmap(), t)).toMatch(/^ {2}- 탐색/m);
     expect(renderExtensionMarkdown(commentsExt(), t)).toContain('> Finally \\*this\\* exists');
+  });
+});
+
+describe('대섹션 도식', () => {
+  const withDiagram = (diagram: Diagram): Digest => {
+    const d = sampleDigest();
+    d.reports[0]!.sections[0]!.diagram = diagram;
+    return d;
+  };
+  const flow: Diagram = {
+    kind: 'flow',
+    caption: '작업 순서',
+    steps: [
+      { label: '탐색', cite: { key: 1, from: 1, to: 2 } },
+      { label: '편집' },
+      { label: '공유', cite: { key: 4, from: 4, to: 4 } },
+    ],
+  };
+
+  it('네 종류가 스키마와 lint를 통과한다', () => {
+    const kinds: Diagram[] = [
+      flow,
+      { kind: 'cycle', steps: [{ label: 'a' }, { label: 'b' }, { label: 'c' }] },
+      {
+        kind: 'compare',
+        columns: [
+          { title: '전', items: [{ label: '느림' }] },
+          { title: '후', items: [{ label: '빠름', cite: { key: 3, from: 3, to: 3 } }] },
+        ],
+      },
+      { kind: 'tree', root: { label: '루트', children: [{ label: '가지' }] } },
+    ];
+    for (const diagram of kinds) {
+      const digest = withDiagram(diagram);
+      expect(parseDigest(JSON.parse(JSON.stringify(digest))).ok).toBe(true);
+      expect(lintErrors(lintDigest(digest, sampleTranscript()))).toEqual([]);
+    }
+  });
+
+  it('SVG 원문 같은 모르는 칸은 받지 않고 단계 수가 모자라면 거절한다', () => {
+    const raw = JSON.parse(JSON.stringify(withDiagram(flow)));
+    raw.reports[0].sections[0].diagram = { kind: 'svg', svg: '<svg onload="x"/>' };
+    expect(parseDigest(raw).ok).toBe(false);
+    raw.reports[0].sections[0].diagram = { kind: 'flow', steps: [{ label: 'a' }] };
+    expect(parseDigest(raw).ok).toBe(false);
+  });
+
+  it('노드 출처가 대섹션 밖이면 오류다', () => {
+    const d = withDiagram({
+      kind: 'flow',
+      steps: [{ label: 'a' }, { label: 'b', cite: { key: 7, from: 7, to: 7 } }],
+    });
+    const issue = lintDigest(d, sampleTranscript()).find(
+      (i) => i.code === 'DIAGRAM_CITE_OUT_OF_SECTION',
+    );
+    expect(issue).toMatchObject({
+      severity: 'error',
+      path: 'reports.0.sections.0.diagram.steps.1.cite',
+    });
+    expect(issue?.message).toContain('대섹션');
+  });
+
+  it('라벨과 열 제목, 설명에 마커가 있으면 오류다', () => {
+    const d = withDiagram({
+      kind: 'compare',
+      caption: '**비교**',
+      columns: [
+        { title: '{{kw:a|A}}', items: [{ label: 'x' }] },
+        { title: '후', items: [{ label: '**y**' }] },
+      ],
+    });
+    const paths = lintDigest(d, sampleTranscript())
+      .filter((i) => i.code === 'TITLE_MARKER')
+      .map((i) => i.path);
+    expect(paths).toEqual([
+      'reports.0.sections.0.diagram.caption',
+      'reports.0.sections.0.diagram.columns.0.title',
+      'reports.0.sections.0.diagram.columns.1.items.0.label',
+    ]);
+  });
+
+  it('트리는 세 단과 30개 노드까지다', () => {
+    const deep = withDiagram({
+      kind: 'tree',
+      root: {
+        label: 'r',
+        children: [
+          {
+            label: '1',
+            children: [{ label: '2', children: [{ label: '3', children: [{ label: '4' }] }] }],
+          },
+        ],
+      },
+    });
+    expect(codes(lintDigest(deep, sampleTranscript()))).toContain('DIAGRAM_DEPTH');
+    const wide = withDiagram({
+      kind: 'tree',
+      root: {
+        label: 'r',
+        children: Array.from({ length: 3 }, (_, i) => ({
+          label: `g${i}`,
+          children: Array.from({ length: 10 }, (_, j) => ({ label: `n${j}` })),
+        })),
+      },
+    });
+    expect(codes(lintDigest(wide, sampleTranscript()))).toContain('DIAGRAM_SIZE');
+  });
+
+  it('HTML은 결론 다음에 그림과 목록을 싣고 노드에 data-sec을 단다', () => {
+    const { html } = renderDigestHtml(withDiagram(flow), sampleTranscript());
+    const sec = html.slice(html.indexOf('<section class="sec"'));
+    expect(sec.indexOf('class="conclusion"')).toBeLessThan(sec.indexOf('<figure class="diagram">'));
+    expect(sec.indexOf('<figure class="diagram">')).toBeLessThan(sec.indexOf('class="sub"'));
+    expect(html).toContain('<svg class="dg-svg dg-flow"');
+    expect(html).toMatch(/<g class="dg-node dg-cite" data-sec="5">/);
+    expect(html).toContain('<span>작업 순서</span>');
+    expect(html).toMatch(
+      /<details class="dg-outline"><summary>목록으로 보기<\/summary><ol><li>탐색/,
+    );
+  });
+
+  it('도식이 없으면 그림을 싣지 않는다', () => {
+    const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
+    expect(html).not.toContain('<figure class="diagram">');
+  });
+
+  it('마크다운은 번호 목록으로 옮긴다', () => {
+    const md = renderDigestMarkdown(withDiagram(flow), sampleTranscript());
+    expect(md).toContain('*흐름도: 작업 순서*');
+    expect(md).toMatch(/^1\. 탐색 \[00:05\]/m);
+    expect(md).toMatch(/^2\. 편집$/m);
+  });
+});
+
+describe('도식 레이아웃', () => {
+  const box = (svg: string) =>
+    [...svg.matchAll(/<rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.]+)" height="([\d.]+)"/g)].map(
+      (m) => ({ x: +m[1]!, y: +m[2]!, w: +m[3]!, h: +m[4]! }),
+    );
+  const size = (svg: string) => {
+    const m = /viewBox="0 0 (\d+) (\d+)"/.exec(svg)!;
+    return { w: +m[1]!, h: +m[2]! };
+  };
+  const inView = (svg: string) => {
+    const { w, h } = size(svg);
+    return box(svg).every((b) => b.x >= 0 && b.y >= 0 && b.x + b.w <= w && b.y + b.h <= h);
+  };
+  const steps = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ label: `단계 ${i + 1} 설명` }));
+
+  it('흐름은 넷까지 가로, 다섯부터 세로로 놓는다', () => {
+    const row = box(flowSvg(steps(4)));
+    expect(new Set(row.map((b) => b.y)).size).toBe(1);
+    const col = box(flowSvg(steps(5)));
+    expect(new Set(col.map((b) => b.x)).size).toBe(1);
+    expect(inView(flowSvg(steps(5)))).toBe(true);
+  });
+
+  it('순환은 상자가 겹치지 않고 그림 안에 들며 상자 사이 호가 보인다', () => {
+    for (const n of [3, 5, 8]) {
+      const svg = cycleSvg(steps(n));
+      const rects = box(svg);
+      expect(rects).toHaveLength(n);
+      expect(inView(svg)).toBe(true);
+      for (let i = 0; i < n; i++)
+        for (let j = i + 1; j < n; j++) {
+          const a = rects[i]!;
+          const b = rects[j]!;
+          const apart =
+            a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+          expect(apart).toBe(true);
+        }
+      expect(svg.match(/class="dg-arrow"/g)).toHaveLength(n);
+      // 상자 사이 호가 짧으면 화살촉만 남는다. 아래쪽 두 상자 사이가 그렇게 묻힌 적이 있다
+      const arcs = [...svg.matchAll(/<path d="(M[^"]+)"\/>/g)].map((m) =>
+        [...m[1]!.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((p) => [Number(p[1]), Number(p[2])]),
+      );
+      expect(arcs).toHaveLength(n);
+      for (const pts of arcs) {
+        let len = 0;
+        for (let k = 1; k < pts.length; k++)
+          len += Math.hypot(pts[k]![0]! - pts[k - 1]![0]!, pts[k]![1]! - pts[k - 1]![1]!);
+        expect(len).toBeGreaterThanOrEqual(23);
+      }
+    }
+  });
+
+  it('비교는 열마다 머리 상자를 두고 라벨을 이스케이프한다', () => {
+    const svg = compareSvg([
+      { title: 'A&B', items: [{ label: '<x>' }] },
+      { title: '후', items: [{ label: 'y' }, { label: 'z' }] },
+    ]);
+    expect(svg.match(/dg-head/g)).toHaveLength(2);
+    expect(svg).toContain('A&amp;B');
+    expect(svg).not.toContain('<x>');
+    expect(inView(svg)).toBe(true);
   });
 });

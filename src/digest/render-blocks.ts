@@ -6,8 +6,8 @@ import {
   type ListItem,
   type MindmapNode,
 } from './blocks.js';
-import { boldPattern, keywordPattern, type Cite } from './schema.js';
-import { treeSvg } from './svg.js';
+import { boldPattern, keywordPattern, type Cite, type Diagram } from './schema.js';
+import { compareSvg, cycleSvg, flowSvg, treeSvg } from './svg.js';
 
 /**
  * 확장 리포트 블록을 HTML과 마크다운으로 그린다. 블록 타입을 더하면 여기와 lint-extension.ts의
@@ -75,6 +75,69 @@ export function diagramFigure(svg: string, outline: string, caption?: string): s
   return `<figure class="diagram"><div class="dg-scroll">${svg}</div><div class="dg-bar">${
     caption ? `<span>${caption}</span>` : ''
   }<button type="button" class="zoom-btn" data-zoom>크게 보기</button></div><details class="dg-outline"><summary>목록으로 보기</summary>${outline}</details></figure>`;
+}
+
+const DIAGRAM_LABEL: Record<Diagram['kind'], string> = {
+  flow: '흐름도',
+  cycle: '순환도',
+  compare: '비교표',
+  tree: '구조도',
+};
+
+/** 대섹션 도식. title은 그림의 aria-label에 붙는 대섹션 제목이다 */
+export function sectionDiagramHtml(d: Diagram, title: string, ctx: BlockHtmlContext): string {
+  const opts = { sec: ctx.sec };
+  const aria = `${title} ${DIAGRAM_LABEL[d.kind]}`;
+  const li = (n: MindmapNode) => outlineHtml(n, ctx);
+  let svg: string;
+  let outline: string;
+  switch (d.kind) {
+    case 'flow':
+      svg = flowSvg(d.steps, opts, aria);
+      outline = `<ol>${d.steps.map(li).join('')}</ol>`;
+      break;
+    case 'cycle':
+      svg = cycleSvg(d.steps, opts, aria);
+      outline = `<ol>${d.steps.map(li).join('')}</ol>`;
+      break;
+    case 'compare':
+      svg = compareSvg(d.columns, opts, aria);
+      outline = `<ul>${d.columns.map((c) => li({ label: c.title, children: c.items })).join('')}</ul>`;
+      break;
+    case 'tree':
+      svg = treeSvg(d.root, opts, aria);
+      outline = `<ul>${li(d.root)}</ul>`;
+      break;
+    default: {
+      const never: never = d;
+      throw new Error(`알 수 없는 도식: ${String(never)}`);
+    }
+  }
+  return diagramFigure(svg, outline, d.caption ? ctx.escape(d.caption) : undefined);
+}
+
+/** 마크다운에는 그림 대신 목록으로 옮긴다. 순서가 있는 흐름과 순환은 번호를 단다 */
+export function sectionDiagramMd(d: Diagram, ctx: BlockMdContext): string[] {
+  const head = d.caption ? [`*${DIAGRAM_LABEL[d.kind]}: ${d.caption}*`, ''] : [];
+  const step = (n: MindmapNode, k: number) =>
+    `${k + 1}. ${n.label}${n.cite ? ` ${ctx.time(n.cite)}` : ''}`;
+  switch (d.kind) {
+    case 'flow':
+    case 'cycle':
+      return [...head, ...d.steps.map(step), ''];
+    case 'compare':
+      return [
+        ...head,
+        ...d.columns.flatMap((c) => outlineMd({ label: c.title, children: c.items }, ctx)),
+        '',
+      ];
+    case 'tree':
+      return [...head, ...outlineMd(d.root, ctx), ''];
+    default: {
+      const never: never = d;
+      throw new Error(`알 수 없는 도식: ${String(never)}`);
+    }
+  }
 }
 
 // 댓글은 남이 쓴 글이라 마크다운 문법으로 읽히면 링크나 HTML이 끼어든다. 문법 글자를 무력화한다

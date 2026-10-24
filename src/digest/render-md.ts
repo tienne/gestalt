@@ -1,7 +1,7 @@
 import type { Extension } from './blocks.js';
 import { frameFileName } from './frames.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
-import { blockMarkdown } from './render-blocks.js';
+import { blockMarkdown, sectionDiagramMd } from './render-blocks.js';
 import { reportLabel } from './reports.js';
 import {
   keywordPattern,
@@ -59,8 +59,10 @@ export function renderDigestMarkdown(
     return lines;
   };
 
+  const time = mdTimer(transcript);
   sections.forEach((s, si) => {
     out.push(`## ${si + 1}. ${stripNumbering(s.title)}`, '', plain(s.conclusion), '');
+    if (s.diagram) out.push(...sectionDiagramMd(s.diagram, { cite, time }));
     s.subsections.forEach((sub, ui) => {
       out.push(`### ${si + 1}.${ui + 1}. ${stripNumbering(sub.title)}`, '');
       const frame = frameFileName(sub.frameSec);
