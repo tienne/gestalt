@@ -1193,8 +1193,10 @@ ges_pr({ action: "checkout", id: "e2085a1c" })
 파일은 `.gestalt/digest/<slug>/` 아래에 있다.
 
 ```
-transcript.json   문장 단위 스크립트 (ingest가 쓴다)
-digest.json       출처가 달린 계층 요약 (video-summarizer가 쓴다)
+transcript.json   문장 단위 스크립트 (ingest가 쓰고 translate-apply가 번역을 붙인다)
+transcript.slice-<시작>-<끝>.json   구간 리포트용으로 자른 스크립트 (slice가 쓴다)
+ocr.json          화면 글자 (ocr, ingest --ocr가 쓴다. 요약 보조 자료라 렌더러는 안 읽는다)
+digest.json       출처가 달린 리포트 여러 벌 (merge가 합친다)
 frames/           소섹션 프레임 JPEG (frames가 쓴다)
 digest.html       뷰어 (render가 쓴다)
 digest.md         마크다운 (render, export --md가 쓴다)
@@ -1260,13 +1262,19 @@ digest.md         마크다운 (render, export --md가 쓴다)
 ### CLI
 
 ```bash
-gestalt digest ingest <url|파일> [--lang <code>] [--slug <slug>] [--whisper]
+gestalt digest ingest <url|파일> [--lang <code>] [--slug <slug>] [--whisper] [--ocr]
+gestalt digest ocr <slug> [--interval <초>] [--lang <kor+eng>]   # tesseract 필요
+gestalt digest slice <slug> --range <시작-끝>
+gestalt digest merge <slug> <리포트 파일>
+gestalt digest translate-apply <slug> <번역 파일>
 gestalt digest validate <slug>
 gestalt digest frames <slug> [--force]
 gestalt digest render <slug> [--inline-frames]
 gestalt digest serve <slug> [--port <n>] [--no-browser]   # 127.0.0.1, 기본 7893부터
-gestalt digest export <slug> --md [--out <path>]
+gestalt digest export <slug> --md [--report <key>] [--out <path>]
 ```
+
+로컬 영상 파일로 만든 요약도 `serve`로 열어야 재생된다. `serve`가 `transcript.json`에 적힌 원본 파일 하나만 `/<slug>/video`로 내주고 Range 요청을 받는다. 확장자가 영상(mp4, m4v, mov, webm, mkv)이 아니거나 원본이 없으면 404다.
 
 `digest.html`을 파일로 바로 열면 유튜브 플레이어가 153 오류로 막힌다. 그때는 썸네일과 "유튜브에서 열기" 링크가 뜨고 출처 시각은 새 탭 링크로 바뀐다. 재생과 따라가기는 `serve`로 열었을 때만 된다.
 
