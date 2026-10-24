@@ -17,6 +17,9 @@ export const VIDEO_SOURCES = ['youtube', 'file'] as const;
 export const boldPattern = (): RegExp => /\*\*(.+?)\*\*/g;
 export const keywordPattern = (): RegExp => /\{\{kw:([A-Za-z0-9][A-Za-z0-9_-]*)\|([^}]+)\}\}/g;
 
+/** HTML lang 속성과 리포트 키, 파일 이름에 실려서 언어 태그 꼴만 받는다 */
+export const LANG_TAG_PATTERN = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+
 const sentenceIndex = z.number().int().nonnegative();
 
 export const citeSchema = z
@@ -55,6 +58,8 @@ export const videoMetaSchema = z
     durationSec: z.number().nonnegative(),
     publishedAt: z.string().optional(),
     lang: z.string().min(1),
+    /** segments[].translation의 언어. 뷰어 lang 속성으로 나간다 */
+    translationLang: z.string().regex(LANG_TAG_PATTERN).optional(),
     captionSource: z.enum(CAPTION_SOURCES),
   })
   .superRefine((m, ctx) => {
@@ -166,11 +171,7 @@ export const reportOptionsSchema = z.object({
     .tuple([z.number().nonnegative(), z.number().nonnegative()])
     .refine(([from, to]) => from < to, '구간 시작이 끝보다 앞이어야 한다')
     .optional(),
-  /** HTML lang 속성과 리포트 키, 파일 이름에 실려서 언어 태그 꼴만 받는다 */
-  lang: z
-    .string()
-    .regex(/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/, '언어 태그(ko, en, pt-BR) 꼴이어야 한다')
-    .default('ko'),
+  lang: z.string().regex(LANG_TAG_PATTERN, '언어 태그(ko, en, pt-BR) 꼴이어야 한다').default('ko'),
   prompt: z.string().trim().min(1).max(2000).optional(),
 });
 

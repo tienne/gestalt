@@ -40,6 +40,11 @@ function pickReport(reports, length, difficulty) {
 function reportCommand(slug, length, difficulty) {
   return '/gestalt:video-digest slug=' + slug + ' length=' + length + ' difficulty=' + difficulty;
 }
+function videoState(ended, paused, time, readyState) {
+  if (ended) return 0;
+  if (paused) return time > 0 ? 2 : -1;
+  return readyState < 3 ? 3 : 1;
+}
 `;
 
 export interface ViewerLogic {
@@ -74,10 +79,12 @@ export interface ViewerLogic {
   ) => number;
   /** 없는 조합을 고르면 복사해 주는 생성 명령 */
   reportCommand: (slug: string, length: string, difficulty: string) => string;
+  /** HTML5 video 상태를 유튜브 재생 상태 코드로 옮긴다. 따라가기 판정이 그 코드만 본다 */
+  videoState: (ended: boolean, paused: boolean, time: number, readyState: number) => number;
 }
 
 export const viewerLogic = new Function(
-  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, shouldFollowHeld: shouldFollowHeld, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand };`,
+  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, shouldFollowHeld: shouldFollowHeld, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, videoState: videoState };`,
 )() as ViewerLogic;
 
 export const findSegmentIndex = viewerLogic.findSegmentIndex;
@@ -135,10 +142,12 @@ export const VIEWER_JS =
     if (range) range.addEventListener('input', function(){ setScale(range.value); });
   }
 
-  // 플레이어 어댑터. 2차에 HTML5 video를 같은 꼴로 붙인다
+  // 플레이어 어댑터. 유튜브와 로컬 영상이 같은 꼴을 내서 따라가기 코드는 둘을 가리지 않는다
   function createPlayer() {
     var player = { live: false, seek: function(){}, cue: function(){}, currentTime: function(){ return null; }, state: function(){ return -1; } };
-    if (isFile || !data.videoId || !holder) return player;
+    if (isFile || !holder) return player;
+    if (data.localVideo) return createVideoPlayer(player);
+    if (!data.videoId) return player;
     // live는 처음부터 켜 둬야 소섹션 따라가기와 미니 플레이어가 설치된다. 화면은 준비될 때까지 썸네일을 보인다
     player.live = true;
     var ready = false, failed = false, yt = null, pending = null, pendingCue = null;
@@ -191,6 +200,67 @@ export const VIEWER_JS =
     // 광고 차단기나 오프라인이면 onerror 없이 멈추기도 해서 시간으로도 끊는다
     setTimeout(function(){ if (!ready) fail(); }, 10000);
     return player;
+  }
+
+  // 서버가 transcript.json에 적힌 원본 파일 하나만 같은 출처로 내준다. file://로 열면 브라우저가 로컬 파일 재생을 막아 안내문을 둔다
+  function createVideoPlayer(player) {
+    var video = document.getElementById('player-video');
+    if (!video) return player;
+    player.live = true;
+    holder.classList.add('is-live');
+    var ready = false, failed = false, pending = null, pendingCue = null;
+    function fail() {
+      if (failed) return;
+      failed = true;
+      ready = false;
+      player.live = false;
+      holder.classList.remove('is-live', 'is-floating');
+      if (slot) slot.classList.remove('is-floating');
+    }
+    player.seek = function(sec){
+      if (!ready) { pending = sec; return; }
+      video.currentTime = sec;
+      var p = video.play();
+      if (p && p.catch) p.catch(function(){});
+    };
+    player.cue = function(sec){
+      if (!ready) { pendingCue = sec; return; }
+      video.currentTime = sec;
+    };
+    player.currentTime = function(){ return ready ? video.currentTime : null; };
+    player.state = function(){ return ready ? videoState(video.ended, video.paused, video.currentTime, video.readyState) : -1; };
+    video.addEventListener('loadedmetadata', function(){
+      if (failed) return;
+      ready = true;
+      if (pending !== null) player.seek(pending);
+      else if (pendingCue !== null) player.cue(pendingCue);
+      pending = null;
+      pendingCue = null;
+    });
+    video.addEventListener('error', fail);
+    video.src = 'video';
+    return player;
+  }
+
+  // 스크립트 번역은 기본으로 보이고 끈 상태만 기억한다
+  function setupTranslation() {
+    var btn = document.getElementById('tr-toggle');
+    var box = document.querySelector('.script');
+    if (!btn || !box) return;
+    var TR_KEY = 'gestalt-digest-tr';
+    var on = true;
+    try { on = localStorage.getItem(TR_KEY) !== 'off'; } catch (e) {}
+    function set(v) {
+      on = v;
+      box.classList.toggle('hide-tr', !on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    set(on);
+    btn.hidden = false;
+    btn.addEventListener('click', function(){
+      set(!on);
+      try { localStorage.setItem(TR_KEY, on ? 'on' : 'off'); } catch (e) {}
+    });
   }
 
   // 파일로 열었거나 플레이어가 못 떴으면 링크 그대로 유튜브 새 탭이 열린다
@@ -525,6 +595,7 @@ export const VIEWER_JS =
   }
 
   setupFontScale();
+  setupTranslation();
   var reports = setupReports();
   var player = createPlayer();
   setupTimeLinks(player);

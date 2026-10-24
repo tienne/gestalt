@@ -9,6 +9,7 @@ import { parseDigest } from '../../digest/schema.js';
 import { parseRangeArg, sliceFileName, sliceTranscript } from '../../digest/slice.js';
 import { DigestServer, findDigestPort, openInBrowser } from '../../digest/server.js';
 import { DigestStore } from '../../digest/store.js';
+import { applyTranslation } from '../../digest/translate.js';
 
 /**
  * `gestalt digest` — 영상 요약 CLI.
@@ -193,6 +194,40 @@ export function digestSliceCommand(
         `구간: ${mmss(range[0])}~${mmss(range[1])} → 문장 ${slice.from}~${slice.to} (${result.count}개)`,
       );
       console.log(`저장: ${path}`);
+    });
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export function digestTranslateApplyCommand(
+  slug: string,
+  file: string,
+  opts: DigestCommonOptions,
+): void {
+  try {
+    let input: unknown;
+    try {
+      input = JSON.parse(readFileSync(resolve(file), 'utf-8'));
+    } catch (e) {
+      throw new Error(`번역 파일을 못 읽었어요: ${file}`, { cause: e });
+    }
+    const store = new DigestStore(rootOf(opts));
+    const t = store.readTranscript(slug);
+    if (!t.ok) throw new Error(t.message);
+    const r = applyTranslation(t.transcript, input);
+    const path = store.saveTranscript(r.transcript);
+    const result = {
+      path,
+      lang: r.transcript.meta.translationLang,
+      applied: r.applied,
+      unknown: r.unknown,
+      missing: r.missing,
+    };
+    emit(result, opts.json, () => {
+      console.log(`번역(${result.lang}) ${r.applied}문장 반영 → ${path}`);
+      if (r.unknown.length > 0) console.log(`스크립트에 없는 문장 번호: ${r.unknown.join(', ')}`);
+      if (r.missing.length > 0) console.log(`번역이 빠진 문장: ${r.missing.length}개`);
     });
   } catch (e) {
     fail(e);

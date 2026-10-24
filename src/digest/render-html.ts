@@ -12,6 +12,7 @@ import {
   type Cite,
   type Digest,
   type Report,
+  type Segment,
   type Transcript,
   youtubeWatchUrl,
 } from './schema.js';
@@ -240,12 +241,21 @@ ${skippedHtml}</div>`;
   const watchBase = isYoutube ? youtubeWatchUrl(meta.videoId!) : null;
   const player = isYoutube
     ? `<div id="player-slot" class="player-slot"><div id="player" class="player"><div id="player-frame"></div><a class="player-fallback" href="${e(watchBase!)}" target="_blank" rel="noopener"><img src="https://i.ytimg.com/vi/${meta.videoId}/hqdefault.jpg" alt=""><span>유튜브에서 열기</span></a><button type="button" id="player-dock" class="player-dock" aria-label="미니 플레이어 닫기">×</button></div></div>`
-    : `<div id="player" class="player player-note"><p>로컬 영상 재생은 2차에서 붙여요. 지금은 스크립트와 시각만 보여요.</p></div>`;
+    : `<div id="player-slot" class="player-slot"><div id="player" class="player player-local"><video id="player-video" controls playsinline preload="metadata"></video><p class="player-note">로컬 영상은 <code>gestalt digest serve ${e(digest.slug)}</code>로 열어야 재생돼요. 원본 파일을 옮겼으면 ingest를 다시 돌려 주세요.</p><button type="button" id="player-dock" class="player-dock" aria-label="미니 플레이어 닫기">×</button></div></div>`;
 
-  const script = `<div class="script"><h2>스크립트 <small>${e(CAPTION_LABEL[meta.captionSource])}</small></h2><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="영상 스크립트"><ol id="script-list">${segments
+  const trLang = meta.translationLang;
+  const hasTr = trLang !== undefined && segments.some((s) => s.translation);
+  const trToggle = hasTr
+    ? ` <button type="button" id="tr-toggle" class="tr-toggle" aria-pressed="true" hidden>번역</button>`
+    : '';
+  const tr = (s: Segment) =>
+    hasTr && s.translation
+      ? `<span class="tr" lang="${e(trLang ?? '')}">${e(s.translation)}</span>`
+      : '';
+  const script = `<div class="script"><h2>스크립트 <small>${e(CAPTION_LABEL[meta.captionSource])}</small>${trToggle}</h2><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="영상 스크립트"><ol id="script-list">${segments
     .map(
       (s) =>
-        `<li data-i="${s.i}">${timeLink(s.startSec, false)}<span class="txt">${e(s.text)}</span></li>`,
+        `<li data-i="${s.i}">${timeLink(s.startSec, false)}<span class="txt">${e(s.text)}${tr(s)}</span></li>`,
     )
     .join('')}</ol></div></div>`;
 
@@ -256,6 +266,7 @@ ${skippedHtml}</div>`;
 
   const data = {
     videoId: isYoutube ? meta.videoId : null,
+    localVideo: meta.source === 'file',
     watchBase,
     long,
     starts: segments.map((s) => s.startSec),
@@ -297,7 +308,7 @@ ${skippedHtml}</div>`;
 <main class="main">
 <header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p><div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label></div>
 ${reportBar}
-<noscript><p class="note">자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기, 리포트 전환이 동작하지 않아요. 시각 링크는 유튜브 새 탭으로 열려요.</p></noscript></header>
+<noscript><p class="note">자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기, 리포트 전환이 동작하지 않아요.${isYoutube ? ' 시각 링크는 유튜브 새 탭으로 열려요.' : ''}</p></noscript></header>
 ${rendered.map((r) => r.body).join('\n')}
 </main>
 </div>
@@ -329,7 +340,10 @@ button{font:inherit;color:inherit}
 .player-fallback{display:block;position:relative;color:#fff;text-decoration:none}
 .player-fallback img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;opacity:.7}
 .player-fallback span{position:absolute;inset:auto 0 0 0;padding:10px 14px;background:rgba(0,0,0,.6);font-weight:600}
-.player-note{background:var(--chip);color:var(--muted);padding:12px 14px;font-size:.9em}
+.player-note{background:var(--chip);color:var(--muted);padding:12px 14px;font-size:.9em;margin:0}
+.player-local video{display:none;width:100%;aspect-ratio:16/9;background:#000}
+.player-local.is-live video{display:block}
+.player-local.is-live .player-note{display:none}
 .player-slot{flex:none}
 .player-slot.is-floating{aspect-ratio:16/9}
 .player.is-floating{position:fixed;right:calc(16px + env(safe-area-inset-right, 0px));bottom:calc(16px + env(safe-area-inset-bottom, 0px));width:var(--float-w);z-index:15;box-shadow:0 8px 24px rgba(0,0,0,.35)}
@@ -342,6 +356,10 @@ button{font:inherit;color:inherit}
 #script-list{list-style:none;margin:0;padding:4px 0}
 #script-list li{display:flex;gap:10px;padding:4px 12px;font-size:.9em;line-height:1.55}
 #script-list li.is-playing{background:var(--hl)}
+.tr{display:block;color:var(--muted);font-size:.95em}
+.script.hide-tr .tr{display:none}
+.tr-toggle{float:right;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:0 8px;font-size:.85em;font-weight:400;cursor:pointer}
+.tr-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 .ts{font-variant-numeric:tabular-nums;color:var(--accent);text-decoration:none;font-size:.85em;white-space:nowrap;cursor:pointer}
 a.ts:hover{text-decoration:underline}
 .main{padding:24px 0 96px;min-width:0}

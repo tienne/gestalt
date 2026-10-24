@@ -155,13 +155,40 @@ describe('renderDigestHtml 플레이어', () => {
     expect(html).toContain('<noscript>');
   });
 
-  it('로컬 파일 영상은 플레이어 대신 2차 안내를 띄우고 시각은 링크가 아니다', () => {
+  it('로컬 파일 영상은 video 요소와 serve 안내를 싣고 시각은 링크가 아니다', () => {
     const { html } = renderDigestHtml(sampleDigest(), fileTranscript());
-    expect(html).toContain('로컬 영상 재생은 2차에서 붙여요');
+    expect(html).toContain(
+      '<video id="player-video" controls playsinline preload="metadata"></video>',
+    );
+    expect(html).toContain(`<code>gestalt digest serve ${SLUG}</code>로 열어야 재생돼요`);
+    expect(html).toContain('id="player-slot"');
     expect(html).not.toContain('<div id="player-frame">');
-    expect(html).not.toContain('id="player-slot"');
     expect(html).toContain('<span class="ts" data-sec="10">00:10</span>');
     expect(dataOf(html).videoId).toBeNull();
+    expect(dataOf(html).localVideo).toBe(true);
+    expect(html).not.toContain('시각 링크는 유튜브 새 탭으로');
+  });
+
+  it('번역이 있으면 문장 아래 번역 줄과 숨겨 둔 토글을 싣는다', () => {
+    const t = sampleTranscript();
+    t.meta.translationLang = 'ko';
+    t.segments[1]!.translation = '<b>두 번째</b> 문장';
+    const { html } = renderDigestHtml(sampleDigest(), t);
+    expect(html).toContain(
+      '<span class="txt">Sentence number 1.<span class="tr" lang="ko">&lt;b&gt;두 번째&lt;/b&gt; 문장</span></span>',
+    );
+    expect(html).toContain('<span class="txt">Sentence number 0.</span>');
+    expect(html).toContain(
+      'id="tr-toggle" class="tr-toggle" aria-pressed="true" hidden>번역</button>',
+    );
+  });
+
+  it('번역 언어가 없으면 번역 문장이 있어도 싣지 않는다', () => {
+    const t = sampleTranscript();
+    t.segments[1]!.translation = '두 번째 문장';
+    const { html } = renderDigestHtml(sampleDigest(), t);
+    expect(html).not.toContain('class="tr"');
+    expect(html).not.toContain('id="tr-toggle"');
   });
 
   it('좁은 화면에서는 미니 플레이어 높이만큼 본문 아래를 비운다', () => {
@@ -390,5 +417,17 @@ describe('viewer-js', () => {
     const body = scripts[0]![1]!;
     expect(body).toBe(VIEWER_JS);
     expect(createHash('sha256').update(body, 'utf8').digest('base64')).toBe(VIEWER_JS_SHA256);
+  });
+});
+
+describe('videoState', () => {
+  it('HTML5 video 상태를 유튜브 재생 상태 코드로 옮긴다', () => {
+    const { videoState, cueAction } = viewerLogic;
+    expect(videoState(true, true, 30, 4)).toBe(0);
+    expect(videoState(false, true, 0, 1)).toBe(-1);
+    expect(videoState(false, true, 12, 4)).toBe(2);
+    expect(videoState(false, false, 12, 2)).toBe(3);
+    expect(videoState(false, false, 12, 4)).toBe(1);
+    expect(cueAction(videoState(false, true, 12, 4))).toBe('seek');
   });
 });

@@ -14,3 +14,4 @@ export * from './prose.js';
 export * from './reports.js';
 export * from './merge.js';
 export * from './slice.js';
+export * from './translate.js';

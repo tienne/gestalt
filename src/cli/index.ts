@@ -37,6 +37,7 @@ import {
   digestIngestCommand,
   digestMergeCommand,
   digestSliceCommand,
+  digestTranslateApplyCommand,
   digestRenderCommand,
   digestServeCommand,
   digestValidateCommand,
@@ -318,6 +319,15 @@ export function createCli(): Command {
     )
     .requiredOption('--range <from-to>', '영상 시각 구간 (예: 1:30-5:00, 90-300)')
     .action((slug, o, cmd) => digestSliceCommand(slug, { ...digestInherited(cmd), ...o }));
+
+  digest
+    .command('translate-apply <slug> <file>')
+    .description(
+      '스크립트 번역({ lang, items: [{ i, translation }] })을 문장 번호로 붙인다. 언어가 바뀌면 이전 번역을 지운다',
+    )
+    .action((slug, file, o, cmd) =>
+      digestTranslateApplyCommand(slug, file, { ...digestInherited(cmd), ...o }),
+    );
 
   digest
     .command('serve <slug>')
