@@ -148,9 +148,13 @@ const mdVerbatim = (text: string) => text.replace(/[\\`*_[\]<>#|&~]/g, (ch) => `
 // 한 줄로 쓰는 칸에 개행이 섞이면 목록이나 인용 밖으로 빠져나간다. HTML도 이 칸들의 개행을 공백으로 접어 보여준다
 const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
 
-// 줄 첫머리의 `-`, `+`, `=`, `1.`, `1)`은 목록이나 구분선, 제목 밑줄로 읽힌다. HTML은 평문으로 보여줘서 맞춘다
+// 줄 첫머리의 `-`, `+`, `1.`, `1)`은 뒤에 공백이 오거나 줄이 끝나면 목록으로, `---`와 `===`는 구분선이나 제목 밑줄로 읽힌다
+// HTML은 평문으로 보여줘서 맞춘다. `-5도`나 `3.5배`는 문법이 아니라서 그대로 둔다
 const lineHead = (text: string) =>
-  text.replace(/^([-+=])/, '\\$1').replace(/^(\d+)([.)])/, '$1\\$2');
+  text
+    .replace(/^([-+])(?=\s|$|-)/, '\\$1')
+    .replace(/^(=+)(?=[ \t]*$)/, '\\$1')
+    .replace(/^(\d{1,9})([.)])(?=\s|$)/, '$1\\$2');
 
 // 제목, 라벨, 이름 칸도 자막과 댓글에서 나온 값이다. lint가 `**`를 막는 칸이라 문법 글자를 전부 이스케이프해도 잃는 서식이 없다
 export const mdInline = (text: string) => lineHead(mdVerbatim(oneLine(text)));
