@@ -272,7 +272,9 @@ describe('renderDigestHtml 프레임', () => {
       inlineFrames: true,
       loadFrame: (f) => Buffer.alloc(sizes[f]!),
     });
-    expect(again.warnings).toEqual([`프레임 합계가 15MB를 넘어 건너뛰었다: ${frameFileName(45)}`]);
+    expect(again.warnings).toEqual([
+      `프레임 합계가 15MB를 넘어 프레임을 건너뛰었다: ${frameFileName(45)}`,
+    ]);
   });
 });
 

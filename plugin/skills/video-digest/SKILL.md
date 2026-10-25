@@ -363,7 +363,7 @@ gestalt digest translate-apply '<slug>' '<dir>/translation.part-<a>.json' --json
 ges_digest { action: "render", slug: "<slug>", repoRoot: "<repoRoot>" }
 ```
 
-`digest.html`(리포트 전부)과 `digest.md`(첫 리포트)를 함께 쓴다. 다른 리포트의 마크다운이 필요하면 `gestalt digest export '<slug>' --md --report '<key>'`로 낸다. 파일 하나로 들고 다닐 HTML이 필요하면 `inlineFrames: true`로 부른다. 프레임 한 장이 5MB, 합계가 15MB를 넘으면 그 프레임은 넣지 않고 경고로 알린다.
+`digest.html`(리포트 전부)과 `digest.md`(첫 리포트)를 함께 쓴다. 다른 리포트의 마크다운이 필요하면 `gestalt digest export '<slug>' --md --report '<key>'`로 낸다. 파일 하나로 들고 다닐 HTML이 필요하면 `inlineFrames: true`로 부른다. 프레임 한 장이 5MB, 합계가 15MB를 넘으면 그 프레임은 넣지 않고 경고로 알린다. 장면은 소섹션 프레임과 같은 합계에 들어간다. 경고에 `장면을 건너뛰었다`나 `장면이 5MB`가 뜨면 인라인 HTML 대신 serve로 본다.
 
 `RENDER_BLOCKED`가 오면 응답의 `lintErrors`를 보고 이번 리포트 자리면 Step 3으로 돌아간다. 다른 리포트 자리면 고치지 않고 보고하고 멈춘다. `RENDER_FAILED`는 lint와 무관하게 파일을 못 쓴 경우라 Step 3으로 돌아가지 않고 메시지를 그대로 보고하고 멈춘다.
 

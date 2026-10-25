@@ -53,6 +53,9 @@ const e = (s: string): string =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
+// 장면 파일(s<ms>.jpg)이 빠졌을 때 소섹션 프레임과 헷갈리지 않게 경고에 구분해 적는다
+const frameKind = (fileName: string) => (/^s\d+\.jpg$/.test(fileName) ? '장면' : '프레임');
+
 /** research 렌더러의 예산과 같다. 한 장 5MB, 합계 15MB를 넘으면 그 프레임은 뺀다 */
 class FrameBudget {
   private total = 0;
@@ -61,7 +64,7 @@ class FrameBudget {
 
   dataUri(data: Buffer, fileName: string): string | null {
     if (data.length > MAX_IMAGE_BYTES) {
-      this.warnings.push(`프레임이 5MB를 넘어 건너뛰었다: ${fileName}`);
+      this.warnings.push(`${frameKind(fileName)}이 5MB를 넘어 건너뛰었다: ${fileName}`);
       return null;
     }
     if (!this.charge(data.length, fileName)) return null;
@@ -71,7 +74,9 @@ class FrameBudget {
   /** 이미 만든 data URI를 다시 실을 때도 HTML 크기는 그만큼 늘어서 같은 합계에 센다 */
   charge(bytes: number, fileName: string): boolean {
     if (this.total + bytes > MAX_TOTAL_IMAGE_BYTES) {
-      this.warnings.push(`프레임 합계가 15MB를 넘어 건너뛰었다: ${fileName}`);
+      this.warnings.push(
+        `프레임 합계가 15MB를 넘어 ${frameKind(fileName)}을 건너뛰었다: ${fileName}`,
+      );
       return false;
     }
     this.total += bytes;

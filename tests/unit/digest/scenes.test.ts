@@ -376,6 +376,14 @@ describe('shots 렌더', () => {
     expect(html).toContain(`frames/${frameFileName(15)}`);
   });
 
+  it('인라인 모드에서 예산을 넘긴 장면은 장면이라고 밝혀 경고한다', () => {
+    const { warnings } = renderDigestHtml(d(), t, {
+      inlineFrames: true,
+      loadFrame: (f) => (f === shotFileName(10) ? Buffer.alloc(6 * 1024 * 1024) : null),
+    });
+    expect(warnings).toContain(`장면이 5MB를 넘어 건너뛰었다: ${shotFileName(10)}`);
+  });
+
   it('장면 파일이 없으면 자리를 비우고 프레임으로 돌아간다', () => {
     const { html } = renderDigestHtml(d(), t, { frameExists: () => false });
     expect(html).not.toContain('class="shot"');
