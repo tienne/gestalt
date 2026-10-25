@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   clipOcrText,
+  everyInterval,
   ocrFileSchema,
   runOcr,
   tesseractLang,
@@ -162,7 +163,8 @@ describe('ocr', () => {
     const r = await runOcr(SLUG, { repoRoot: repo, intervalSec: 1, run: f.run });
     expect(r).toMatchObject({ intervalSec: 12, requestedIntervalSec: 1 });
     const ffmpeg = f.calls.find((c) => c.cmd === 'ffmpeg')!;
-    expect(ffmpeg.args.join(' ')).toContain('fps=1/12,');
+    expect(ffmpeg.args.join(' ')).toContain(`${everyInterval(12)},`);
+    expect(ffmpeg.args).toContain('vfr');
     const file = ocrFileSchema.parse(JSON.parse(readFileSync(r.path, 'utf-8')));
     expect(file).toMatchObject({ intervalSec: 12, requestedIntervalSec: 1 });
   });

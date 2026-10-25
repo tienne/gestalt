@@ -113,6 +113,11 @@ const FRAME_FILE = /^f(\d{5})\.png$/;
  * intervalSec마다 프레임을 뽑아 화면 글자를 읽고 ocr.json에 둔다.
  * 슬라이드처럼 한동안 그대로인 화면은 앞 항목과 글자가 같아서 한 번만 남긴다
  */
+/** 간격마다 첫 프레임만 고르는 select 식. -vsync vfr과 함께 써야 빈 자리를 복제하지 않는다 */
+export function everyInterval(intervalSec: number): string {
+  return `select='isnan(prev_selected_t)+gte(floor(t/${intervalSec})-floor(prev_selected_t/${intervalSec}),1)'`;
+}
+
 export async function runOcr(slug: string, opts: OcrOptions): Promise<OcrResult> {
   const run = opts.run ?? runCommand;
   let intervalSec = opts.intervalSec ?? DEFAULT_OCR_INTERVAL_SEC;
@@ -138,9 +143,11 @@ export async function runOcr(slug: string, opts: OcrOptions): Promise<OcrResult>
       'ffmpeg',
       [
         ...['-v', 'error', '-y', '-i', video],
+        // fps 필터는 두 번째 장부터 간격 절반만큼 늦은 프레임을 내서 sec과 화면이 어긋난다.
+        // 간격마다 첫 프레임을 고르면 n번째 장이 정확히 (n-1)*간격초다.
         // 작은 글자는 tesseract가 못 읽어서 1280보다 좁은 화면은 두 배로 키운다
-        ...['-vf', `fps=1/${intervalSec},scale='if(lt(iw,1280),iw*2,iw)':-2`],
-        join(cwd, 'f%05d.png'),
+        ...['-vf', `${everyInterval(intervalSec)},scale='if(lt(iw,1280),iw*2,iw)':-2`],
+        ...['-vsync', 'vfr', join(cwd, 'f%05d.png')],
       ],
       { cwd, timeoutMs: timeoutFor(transcript.meta.durationSec, 0.2) },
     );
