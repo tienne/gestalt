@@ -349,6 +349,15 @@ export function blockHtml(block: Block, ctx: BlockHtmlContext, id = 'b'): string
         treeSvg(block.root, { sec: ctx.sec }, `${block.root.label} 마인드맵`),
         `<ul>${outlineHtml(block.root, ctx)}</ul>`,
       );
+    case 'figure': {
+      const { svg, outline } = diagramParts(
+        block.diagram,
+        `${block.title} ${DIAGRAM_LABEL[block.diagram.kind]}`,
+        ctx,
+      );
+      const caption = block.diagram.caption ? ctx.escape(block.diagram.caption) : undefined;
+      return `<article class="fig-card"><h3>${ctx.escape(block.title)}</h3>${diagramFigure(svg, outline, caption)}<p class="fig-exp">${htmlInline(block.explanation, ctx)}${ctx.cite(block.cite)}</p></article>`;
+    }
     case 'comments': {
       const groups = block.groups
         .map((g) => {
@@ -444,6 +453,14 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
       ]);
     case 'mindmap':
       return [...outlineMd(block.root, ctx), ''];
+    case 'figure':
+      return [
+        `### ${mdInline(block.title)}`,
+        '',
+        ...sectionDiagramMd(block.diagram, ctx),
+        `${mdBody(block.explanation)}${ctx.cite(block.cite)}`,
+        '',
+      ];
     case 'comments':
       return [
         mdBody(block.overview),

@@ -487,6 +487,9 @@ a.ts:hover{text-decoration:underline}
 .quiz-choice.is-answer>span:not(.quiz-mark){background:var(--hl);font-weight:600}
 .quiz-choice.is-picked>span:not(.quiz-mark){outline:2px dashed var(--warn);outline-offset:1px;border-radius:3px}
 .diagram{margin:16px 0}
+.fig-card{margin:24px 0}
+.fig-card .diagram{margin:8px 0}
+.fig-exp{margin:6px 0 0}
 .dg-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:8px}
 .dg-svg{display:block;max-width:none}
 .dg-svg text{fill:var(--fg);font-size:13px;font-family:inherit}

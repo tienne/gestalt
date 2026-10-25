@@ -10,9 +10,10 @@ import {
   timelineSvg,
   type Diagram,
   type Digest,
+  type Extension,
 } from '../../../src/digest/index.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
-import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
+import { renderDigestMarkdown, renderExtensionMarkdown } from '../../../src/digest/render-md.js';
 import { sampleDigest, sampleTranscript } from './fixture.js';
 
 const sec = (c: { key: number }) => c.key * 5;
@@ -261,5 +262,75 @@ describe('새 도식 렌더', () => {
   it('매트릭스 칸 글자의 |는 표를 깨지 않게 이스케이프한다', () => {
     const d = withDiagram({ ...matrix, cells: [[{ label: 'a|b' }], [], [], []] } as Diagram);
     expect(renderDigestMarkdown(d, sampleTranscript())).toContain('a\\|b');
+  });
+});
+
+describe('figure 블록', () => {
+  const figureExt = (diagram: Diagram = timeline): Extension => ({
+    template: 'visual',
+    title: '그림 해설',
+    lang: 'ko',
+    blocks: [
+      { type: 'text', text: '개념 둘을 순서대로 놓았다.' },
+      {
+        type: 'figure',
+        title: '출시 흐름',
+        diagram,
+        explanation: '공개 뒤 **AI**를 들였다.',
+        // 대섹션 범위에 묶이지 않는다. 마지막 문장도 받는다
+        cite: { key: 11, from: 10, to: 11 },
+      },
+    ],
+  });
+  const withExt = (ext: Extension): Digest => ({ ...sampleDigest(), extensions: [ext] });
+
+  it('스키마와 lint를 통과하고 출처는 스크립트 안이면 된다', () => {
+    const digest = withExt(figureExt());
+    expect(parseDigest(JSON.parse(JSON.stringify(digest))).ok).toBe(true);
+    expect(lintErrors(lintDigest(digest, sampleTranscript()))).toEqual([]);
+  });
+
+  it('cite가 없으면 스키마가 거절한다', () => {
+    const ext = figureExt();
+    const raw = JSON.parse(JSON.stringify(withExt(ext))) as {
+      extensions: { blocks: Record<string, unknown>[] }[];
+    };
+    delete raw.extensions[0]!.blocks[1]!.cite;
+    expect(parseDigest(raw).ok).toBe(false);
+  });
+
+  it('도식 모양과 출처, 라벨 마커를 블록 경로로 짚는다', () => {
+    const empty = figureExt({
+      kind: 'causal',
+      inputs: [],
+      center: { label: '**현상**' },
+      outputs: [],
+    });
+    const block = empty.blocks[1]!;
+    if (block.type !== 'figure') throw new Error('figure 블록이어야 한다');
+    block.cite = { key: 20, from: 20, to: 20 };
+    const issues = lintDigest(withExt(empty), sampleTranscript());
+    const at = (code: string) => issues.filter((i) => i.code === code).map((i) => i.path);
+    expect(at('DIAGRAM_EMPTY')).toEqual(['extensions.0.blocks.1.diagram']);
+    expect(at('TITLE_MARKER')).toEqual(['extensions.0.blocks.1.diagram.center.label']);
+    expect(issues.some((i) => i.path.startsWith('extensions.0.blocks.1.cite'))).toBe(true);
+  });
+
+  it('HTML은 제목과 그림 카드 아래 설명을 붙이고 크게 보기와 목록 보기를 단다', () => {
+    const { html } = renderDigestHtml(withExt(figureExt()), sampleTranscript());
+    expect(html).toMatch(
+      /<article class="fig-card"><h3>출시 흐름<\/h3><figure class="diagram">.*data-zoom.*<details class="dg-outline">.*<\/figure><p class="fig-exp">공개 뒤 <strong>AI<\/strong>/s,
+    );
+    expect(html).toContain('출시 흐름 타임라인');
+  });
+
+  it('마크다운은 제목, 그림을 바꾼 목록, 설명 순서로 낸다', () => {
+    const md = renderExtensionMarkdown(figureExt(), sampleTranscript());
+    const title = md.indexOf('### 출시 흐름');
+    const list = md.search(/^1\. \*\*2019년\*\* 첫 공개/m);
+    const exp = md.indexOf('공개 뒤 **AI**를 들였다.');
+    expect(title).toBeGreaterThanOrEqual(0);
+    expect(list).toBeGreaterThan(title);
+    expect(exp).toBeGreaterThan(list);
   });
 });
