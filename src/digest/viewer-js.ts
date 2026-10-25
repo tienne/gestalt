@@ -181,6 +181,8 @@ export const VIEWER_JS =
       var el = ev.target.closest ? ev.target.closest('[data-sec]') : null;
       if (!el) return;
       if (!player.live) {
+        // 장면 버튼은 확대 창이 먼저다. 새 탭까지 열면 창 두 개가 한꺼번에 뜬다
+        if (el.hasAttribute('data-zoom')) return;
         // 도식 노드는 a가 아니라 href가 없다. 시각 링크와 같게 새 탭으로 연다
         if (el.tagName.toLowerCase() === 'a' || !data.watchBase) return;
         ev.preventDefault();
@@ -636,7 +638,7 @@ export const VIEWER_JS =
     });
   }
 
-  // 그림을 화면 크기로 키워 본다. 노드를 눌러 영상으로 가면 창을 닫는다
+  // 그림과 장면을 화면 크기로 키워 본다. 노드를 눌러 영상으로 가면 창을 닫는다
   function setupZoom() {
     if (!document.querySelector('[data-zoom]')) return { isOpen: function(){ return false; } };
     var dialog = document.createElement('dialog');
@@ -664,11 +666,12 @@ export const VIEWER_JS =
     document.addEventListener('click', function(ev){
       var btn = ev.target.closest ? ev.target.closest('[data-zoom]') : null;
       if (!btn || typeof dialog.showModal !== 'function') return;
+      // 장면은 버튼 안 사진을, 도식은 그림을 옮겨 담는다
       var fig = btn.closest('.diagram');
-      var svg = fig ? fig.querySelector('svg') : null;
-      if (!svg) return;
+      var src = btn.classList.contains('shot-btn') ? btn.querySelector('img') : fig ? fig.querySelector('svg') : null;
+      if (!src) return;
       body.textContent = '';
-      body.appendChild(svg.cloneNode(true));
+      body.appendChild(src.cloneNode(true));
       opener = btn;
       dialog.showModal();
     });

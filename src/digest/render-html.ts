@@ -1,6 +1,6 @@
 import { extensionKey } from './blocks.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
-import { frameFileName } from './frames.js';
+import { frameFileName, shotFileName } from './frames.js';
 import {
   extensionHtml,
   extensionPanelId,
@@ -20,6 +20,8 @@ import {
   type Digest,
   type Report,
   type Segment,
+  type Shot,
+  type Subsection,
   type Transcript,
   youtubeWatchUrl,
 } from './schema.js';
@@ -134,8 +136,7 @@ export function renderDigestHtml(
   // 확인 수단이 없는 렌더에서는 프레임이 없다고 경고하지 않는다. 예산 초과는 FrameBudget이 따로 경고한다
   // 리포트 여럿이 같은 프레임을 쓰면 파일은 한 번만 읽는다. 같은 data URI가 HTML에 한 번 더 실리므로 예산은 다시 센다
   const inlined = new Map<string, { src: string; bytes: number } | null>();
-  const frame = (sec: number, subId: string): string => {
-    const file = frameFileName(sec);
+  const frameSrc = (file: string, subId: string): string | null => {
     let src: string | null = null;
     if (budget && inlined.has(file)) {
       const hit = inlined.get(file);
@@ -149,6 +150,11 @@ export function renderDigestHtml(
       if (opts.frameExists(file)) src = `frames/${file}`;
       else missingFrame(subId, file);
     }
+    return src;
+  };
+
+  const frame = (sec: number, subId: string): string => {
+    const src = frameSrc(frameFileName(sec), subId);
     if (!src) return '';
     const url = watchUrlAt(meta, sec);
     const img = `<img src="${e(src)}" alt="${formatTime(sec, long)} 장면" loading="lazy">`;
@@ -157,6 +163,17 @@ export function renderDigestHtml(
       : `<span class="frame-link" data-sec="${sec}">${img}</span>`;
     return `<figure class="frame">${body}<figcaption>${timeLink(sec)}</figcaption></figure>`;
   };
+
+  // 누르면 확대 창이 열리고 영상이 그 장면으로 간다. 파일이 없는 장면은 자리를 비운다
+  const shotsHtml = (shots: Shot[], subId: string): string =>
+    shots
+      .map((shot) => {
+        const src = frameSrc(shotFileName(shot.sec), subId);
+        if (!src) return '';
+        const caption = e(shot.caption);
+        return `<figure class="shot"><button type="button" class="shot-btn" data-zoom data-sec="${shot.sec}" aria-label="${caption} 크게 보기"><img src="${e(src)}" alt="${caption}" loading="lazy"></button><figcaption>${caption}${cite(shot.cite)} ${timeLink(shot.sec)}</figcaption></figure>`;
+      })
+      .join('');
 
   const reportsMeta = digest.reports.map((r) => ({ report: r, key: reportKey(r.options) }));
   const base = digest.reports[0]!.options;
@@ -175,12 +192,19 @@ export function renderDigestHtml(
         )
         .join('')}</ul>`;
 
+    // 장면이 있으면 첫 문장 프레임 대신 장면을 본문 옆에 둔다. 장면이 같은 구간을 더 잘 보여 줘서 둘 다 싣지 않는다
+    const subBody = (sub: Subsection): string => {
+      const shots = sub.shots?.length ? shotsHtml(sub.shots, sub.id) : '';
+      if (!shots) return `${frame(sub.frameSec, sub.id)}${bullets(sub.bullets)}`;
+      return `<div class="sub-body has-shots"><div class="sub-text">${bullets(sub.bullets)}</div><div class="shots">${shots}</div></div>`;
+    };
+
     const sectionsHtml = sections
       .map((s, si) => {
         const subs = s.subsections
           .map(
             (sub, ui) =>
-              `<div class="sub" id="sub-${pfx}${e(sub.id)}" data-from="${sub.cite.from}" data-to="${sub.cite.to}"><h3><span class="num">${si + 1}.${ui + 1}.</span> ${e(stripNumbering(sub.title))} ${timeLink(at(sub.cite.key))}</h3>${frame(sub.frameSec, sub.id)}${bullets(sub.bullets)}</div>`,
+              `<div class="sub" id="sub-${pfx}${e(sub.id)}" data-from="${sub.cite.from}" data-to="${sub.cite.to}"><h3><span class="num">${si + 1}.${ui + 1}.</span> ${e(stripNumbering(sub.title))} ${timeLink(at(sub.cite.key))}</h3>${subBody(sub)}</div>`,
           )
           .join('');
         return `<section class="sec" id="sec-${pfx}${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${timeLink(at(s.cite.key))}</h2><p class="conclusion">${inline(s.conclusion, kwIds)}${cite(s.cite)}</p>${s.diagram ? sectionDiagramHtml(s.diagram, stripNumbering(s.title), blockCtx) : ''}${subs}</section>`;
@@ -551,6 +575,13 @@ body[data-tab="ext"] .minimap{display:none}
 .frame{margin:8px 0 12px}
 .frame img{display:block;width:100%;max-width:640px;height:auto;max-height:360px;aspect-ratio:auto 16/9;object-fit:contain;border-radius:6px;border:1px solid var(--line);cursor:pointer}
 .frame figcaption{margin-top:2px}
+.sub-body.has-shots{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px;align-items:start}
+.shots{display:flex;flex-direction:column;gap:12px;margin:8px 0}
+.shot{margin:0}
+.shot-btn{display:block;width:100%;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--card);cursor:zoom-in;overflow:hidden}
+.shot-btn img{display:block;width:100%;height:auto;aspect-ratio:auto 16/9;object-fit:contain}
+.shot figcaption{margin-top:4px;font-size:.92em;color:var(--muted)}
+#zoom-dialog .zoom-body img{display:block;width:100%;height:auto}
 .cite{border:0;background:none;padding:0 1px;color:var(--accent);cursor:pointer;font-size:.8em}
 .kw{border:0;background:none;padding:0;border-bottom:1px dashed var(--accent);cursor:pointer}
 .extra dt{font-weight:600;margin-top:8px}
@@ -565,6 +596,7 @@ body[data-tab="ext"] .minimap{display:none}
 .minimap a{display:flex;width:28px;height:28px;border-radius:50%;align-items:center;justify-content:center;background:var(--card);border:1px solid var(--line);color:var(--muted);text-decoration:none;font-size:12px}
 .minimap a.is-current{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .minimap[hidden]{display:none}
+@media (max-width:1200px){.sub-body.has-shots{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:900px){
 .layout{grid-template-columns:minmax(0,1fr);padding:0 16px;gap:0}
 .side{position:static;height:auto}

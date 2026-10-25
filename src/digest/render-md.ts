@@ -1,5 +1,5 @@
 import type { Extension } from './blocks.js';
-import { frameFileName } from './frames.js';
+import { frameFileName, shotFileName } from './frames.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
 import { blockMarkdown, mdInline, sectionDiagramMd } from './render-blocks.js';
 import { reportLabel } from './reports.js';
@@ -65,8 +65,20 @@ export function renderDigestMarkdown(
     if (s.diagram) out.push(...sectionDiagramMd(s.diagram, { cite, time }));
     s.subsections.forEach((sub, ui) => {
       out.push(`### ${si + 1}.${ui + 1}. ${stripNumbering(sub.title)}`, '');
+      // 뷰어와 같이 장면이 있으면 첫 문장 프레임 대신 장면을 싣는다
+      const shots = (sub.shots ?? []).filter((x) => opts.frameExists?.(shotFileName(x.sec)));
+      for (const shot of shots) {
+        const alt = shot.caption.replace(/[\\[\]]/g, (ch) => `\\${ch}`);
+        out.push(`![${alt}](${framesHref}/${shotFileName(shot.sec)})`, '');
+        const url = watchUrlAt(transcript.meta, shot.sec);
+        const at = formatTime(shot.sec, long);
+        out.push(
+          `*${mdInline(shot.caption)}* ${url ? `[${at}](${url})` : at}${cite(shot.cite)}`,
+          '',
+        );
+      }
       const frame = frameFileName(sub.frameSec);
-      if (opts.frameExists?.(frame))
+      if (shots.length === 0 && opts.frameExists?.(frame))
         out.push(`![${formatTime(sub.frameSec, long)}](${framesHref}/${frame})`, '');
       for (const b of sub.bullets) out.push(...bullet(b, 0));
       out.push('');
