@@ -141,7 +141,9 @@ export function sectionDiagramMd(d: Diagram, ctx: BlockMdContext): string[] {
 }
 
 // 댓글과 자막 인용은 남이 쓴 글이라 마크다운 문법으로 읽히면 링크나 HTML이 끼어든다. 문법 글자를 무력화한다
-const mdVerbatim = (text: string) => text.replace(/[\\`*_[\]<>#|&]/g, (ch) => `\\${ch}`);
+// `~`는 '1~2개와 3~4개'가 취소선으로 바뀌어서 함께 막는다
+// 맨 URL은 보이는 글자가 곧 목적지라 숨은 링크가 아니므로 두고 링크 문법과 HTML만 막는다
+const mdVerbatim = (text: string) => text.replace(/[\\`*_[\]<>#|&~]/g, (ch) => `\\${ch}`);
 
 // 한 줄로 쓰는 칸에 개행이 섞이면 목록이나 인용 밖으로 빠져나간다
 const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();

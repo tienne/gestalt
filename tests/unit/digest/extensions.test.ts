@@ -534,6 +534,12 @@ describe('텍스트 블록 (quote, timestamps, actions, qa)', () => {
       expect(md).not.toMatch(/(^|[^\\])\]\(https:\/\/e\.com\)/m);
     }
   });
+
+  it('인용 원문의 범위 표기 물결이 취소선으로 바뀌지 않는다', () => {
+    const ctx = { cite: () => '', time: () => '' };
+    const quote: Block = { type: 'quote', text: '1~2개와 3~4개', cite: { key: 1, from: 1, to: 1 } };
+    expect(blockMarkdown(quote, ctx).join('\n')).toContain(String.raw`> 1\~2개와 3\~4개`);
+  });
 });
 
 describe('기본 템플릿', () => {
