@@ -11,6 +11,8 @@ import {
   type DigestIssue,
   type Extension,
 } from '../../../src/digest/index.js';
+import type { Block } from '../../../src/digest/blocks.js';
+import { blockMarkdown } from '../../../src/digest/render-blocks.js';
 import { renderDigestFiles } from '../../../src/cli/commands/digest.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderExtensionMarkdown } from '../../../src/digest/render-md.js';
@@ -515,6 +517,22 @@ describe('텍스트 블록 (quote, timestamps, actions, qa)', () => {
     expect(md).toContain('— \\\\\\[x\\\\\\](https://e.com) \\<b\\>');
     expect(md).toContain('담당 \\\\\\[x\\\\\\](https://e.com) \\<b\\>');
     expect(md).not.toMatch(/(^|[^\\])\]\(https:\/\/e\.com\)/m);
+  });
+
+  it('마크다운 본문 칸은 굵게만 남기고 링크와 HTML 문법 글자를 무력화한다', () => {
+    const body = '[x](https://e.com) <img> **굵게**';
+    const ctx = { cite: () => '', time: () => '' };
+    const blocks: Block[] = [
+      { type: 'text', text: body },
+      { type: 'list', items: [{ text: body }] },
+      { type: 'qa', items: [{ question: 'Q', answer: body, cite: { key: 1, from: 1, to: 1 } }] },
+      { type: 'quote', text: '원문', note: body, cite: { key: 1, from: 1, to: 1 } },
+    ];
+    for (const b of blocks) {
+      const md = blockMarkdown(b, ctx).join('\n');
+      expect(md).toContain(String.raw`\[x\](https://e.com) \<img\> **굵게**`);
+      expect(md).not.toMatch(/(^|[^\\])\]\(https:\/\/e\.com\)/m);
+    }
   });
 });
 

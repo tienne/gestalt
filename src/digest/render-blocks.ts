@@ -149,11 +149,18 @@ const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
 // 제목, 라벨, 이름 칸도 자막과 댓글에서 나온 값이다. lint가 `**`를 막는 칸이라 문법 글자를 전부 이스케이프해도 잃는 서식이 없다
 export const mdInline = (text: string) => mdVerbatim(oneLine(text));
 
+// 본문 칸도 자막에서 나온 글이라 링크나 HTML이 끼어들 수 있다. HTML 쪽처럼 굵게만 살리고 나머지 문법 글자는 무력화한다
+const mdBody = (text: string) =>
+  stripKeywords(text)
+    .split(boldPattern())
+    .map((part, k) => (k % 2 ? `**${mdVerbatim(part)}**` : mdVerbatim(part)))
+    .join('');
+
 const quoteLines = (text: string) => text.split(/\r?\n/).map((l) => `> ${l}`.trimEnd());
 
 function listMd(items: ListItem[], ctx: BlockMdContext, depth = 0): string[] {
   return items.flatMap((it) => [
-    `${'  '.repeat(depth)}- ${stripKeywords(it.text)}${mdCite(it.cite, ctx)}`,
+    `${'  '.repeat(depth)}- ${mdBody(it.text)}${mdCite(it.cite, ctx)}`,
     ...(it.children ? listMd(it.children, ctx, depth + 1) : []),
   ]);
 }
@@ -256,7 +263,7 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
     case 'heading':
       return [`## ${mdInline(block.text)}`, ''];
     case 'text':
-      return [`${stripKeywords(block.text)}${mdCite(block.cite, ctx)}`, ''];
+      return [`${mdBody(block.text)}${mdCite(block.cite, ctx)}`, ''];
     case 'list':
       return [
         ...(block.title ? [`**${mdInline(block.title)}**`, ''] : []),
@@ -266,7 +273,7 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
     case 'quote': {
       const by = [
         block.speaker ? `— ${mdInline(block.speaker)}` : '',
-        block.note ? stripKeywords(block.note) : '',
+        block.note ? mdBody(block.note) : '',
       ]
         .filter(Boolean)
         .join(', ');
@@ -274,7 +281,7 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
       text[text.length - 1] += ctx.cite(block.cite);
       return [
         ...text,
-        ...(block.translation ? ['>', ...quoteLines(stripKeywords(block.translation))] : []),
+        ...(block.translation ? ['>', ...quoteLines(mdBody(block.translation))] : []),
         ...(by ? ['>', ...quoteLines(by)] : []),
         '',
       ];
@@ -283,7 +290,7 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
       return [
         ...block.items.map(
           (it) =>
-            `- ${ctx.time(it.cite)} **${mdInline(it.title)}**${it.summary ? ` ${stripKeywords(it.summary)}` : ''}`,
+            `- ${ctx.time(it.cite)} **${mdInline(it.title)}**${it.summary ? ` ${mdBody(it.summary)}` : ''}`,
         ),
         '',
       ];
@@ -296,46 +303,46 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
           ]
             .filter(Boolean)
             .join(', ');
-          return `- [ ] ${stripKeywords(it.task)}${meta ? ` (${meta})` : ''}${mdCite(it.cite, ctx)}`;
+          return `- [ ] ${mdBody(it.task)}${meta ? ` (${meta})` : ''}${mdCite(it.cite, ctx)}`;
         }),
         '',
       ];
     case 'qa':
       return block.items.flatMap((it) => [
-        `**Q. ${stripKeywords(it.question)}**`,
+        `**Q. ${mdBody(it.question)}**`,
         '',
-        `${stripKeywords(it.answer)}${mdCite(it.cite, ctx)}`,
+        `${mdBody(it.answer)}${mdCite(it.cite, ctx)}`,
         '',
       ]);
     case 'flashcards':
       return [
         ...block.cards.flatMap((c) => [
-          `- Q. ${stripKeywords(c.front)}`,
-          `  - A. ${stripKeywords(c.back)}${mdCite(c.cite, ctx)}`,
+          `- Q. ${mdBody(c.front)}`,
+          `  - A. ${mdBody(c.back)}${mdCite(c.cite, ctx)}`,
         ]),
         '',
       ];
     case 'quiz':
       return block.questions.flatMap((q, k) => [
-        `**${k + 1}. ${stripKeywords(q.question)}**`,
+        `**${k + 1}. ${mdBody(q.question)}**`,
         '',
-        ...q.choices.map((c, ci) => `- (${ci + 1}) ${stripKeywords(c)}`),
+        ...q.choices.map((c, ci) => `- (${ci + 1}) ${mdBody(c)}`),
         '',
-        `> 정답 (${q.answer + 1}) ${stripKeywords(q.choices[q.answer] ?? '')}. ${stripKeywords(q.explanation)}${mdCite(q.cite, ctx)}`,
+        `> 정답 (${q.answer + 1}) ${mdBody(q.choices[q.answer] ?? '')}. ${mdBody(q.explanation)}${mdCite(q.cite, ctx)}`,
         '',
       ]);
     case 'mindmap':
       return [...outlineMd(block.root, ctx), ''];
     case 'comments':
       return [
-        stripKeywords(block.overview),
+        mdBody(block.overview),
         '',
         `분석한 댓글 ${block.total}개`,
         '',
         ...block.groups.flatMap((g) => [
           `**${mdInline(g.title)}** (${TONE_LABEL[g.tone]}, ${g.count}개)`,
           '',
-          stripKeywords(g.summary),
+          mdBody(g.summary),
           '',
           ...g.examples.flatMap((x) => [...quoteLines(mdVerbatim(x.text)), '']),
         ]),
