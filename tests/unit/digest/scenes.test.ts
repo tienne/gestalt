@@ -320,6 +320,7 @@ describe('shots 프레임', () => {
     const f = fakeRun();
     const r = await extractFrames(SLUG, { repoRoot: repo, run: f.run });
     expect(r.shots).toMatchObject({ total: 1, extracted: 1, hires: 1, missing: [] });
+    expect(r.shots.hiresFailure).toBeUndefined();
     expect(existsSync(join(store.framesDir(SLUG), shotFileName(10)))).toBe(true);
     expect(f.downloads().map((o) => o.split('/').at(-1))).toEqual([
       'video.%(ext)s',
@@ -344,12 +345,17 @@ describe('shots 프레임', () => {
     expect(f.downloads().some((o) => o.includes('video-720'))).toBe(false);
   });
 
-  it('720p를 못 받거나 못 읽으면 저화질 영상으로 물러난다', async () => {
-    for (const opts of [{ hiresDownloadFails: true }, { hiresReadFails: true }]) {
+  it('720p를 못 받거나 못 읽으면 사유를 남기고 저화질 영상으로 물러난다', async () => {
+    const cases = [
+      { opts: { hiresDownloadFails: true }, why: /^720p 영상을 못 받았어요: .*no format/ },
+      { opts: { hiresReadFails: true }, why: /^720p 영상에서 10초 장면을 못 읽었어요: .*decode/ },
+    ];
+    for (const { opts, why } of cases) {
       const { repo, store } = seeded();
       store.saveDigest(withShots([shot(10)]));
       const r = await extractFrames(SLUG, { repoRoot: repo, run: fakeRun(opts).run });
       expect(r.shots).toMatchObject({ extracted: 1, hires: 0 });
+      expect(r.shots.hiresFailure).toMatch(why);
       expect(existsSync(join(store.framesDir(SLUG), shotFileName(10)))).toBe(true);
     }
   });

@@ -135,8 +135,10 @@ export async function digestFramesCommand(
           console.log(`못 뽑은 장면: ${shots.missing.map(mmss).join(', ')}`);
         }
         if (shots.extracted > shots.hires) {
+          // 사유 없이 저화질로 뽑았으면 720p 영상은 멀쩡한데 그 시각에서 파일이 안 생긴 것이다
+          const why = shots.hiresFailure ?? '720p 영상에서 그 시각을 못 뽑았어요';
           console.log(
-            `720p 영상을 못 받아 ${shots.extracted - shots.hires}장은 낮은 화질로 뽑았어요. 720p로 다시 뽑으려면 --force로 다시 돌려 주세요.`,
+            `${why}. ${shots.extracted - shots.hires}장은 낮은 화질로 뽑았어요. 720p로 다시 뽑으려면 --force로 다시 돌려 주세요.`,
           );
         }
       }

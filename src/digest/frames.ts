@@ -30,6 +30,8 @@ export interface ShotFramesResult {
   /** 720p 영상에서 뽑은 장 수. 나머지는 프레임용 저화질 영상에서 뽑았다 */
   hires: number;
   missing: number[];
+  /** 720p로 못 뽑은 장이 있을 때 첫 사유. 못 받았는지 받고도 못 읽었는지 앞머리로 가른다 */
+  hiresFailure?: string;
 }
 
 /** 프레임 파일 이름. 렌더러가 frameSec으로 같은 이름을 찾는다 */
@@ -128,25 +130,31 @@ export async function ensureVideo(
   return downloadVideo(run, transcript, cacheDir, cwd, LOWRES_BASE, [FORMAT, FORMAT_RETRY]);
 }
 
+const firstLine = (e: unknown) =>
+  (e instanceof Error ? e.message : String(e)).split('\n')[0]!.slice(0, 200);
+
 /**
  * shots 장면을 읽을 영상. 로컬 파일이면 원본을 그대로 쓰고 유튜브면 720p를 받아 캐시에 둔다.
- * 못 받으면 null이고 그때는 저화질 영상에서 뽑는다
+ * 못 받으면 사유를 돌려주고 그때는 저화질 영상에서 뽑는다
  */
 async function hiresVideo(
   run: RunCommand,
   transcript: Transcript,
   cacheDir: string,
   cwd: string,
-): Promise<string | null> {
+): Promise<{ path: string } | { failure: string }> {
   const { meta } = transcript;
-  if (meta.source === 'file') return meta.url ? fileURLToPath(meta.url) : null;
+  if (meta.source === 'file') {
+    return meta.url ? { path: fileURLToPath(meta.url) } : { failure: '원본 영상 경로가 없어요' };
+  }
   try {
-    return await downloadVideo(run, transcript, cacheDir, cwd, HIRES_BASE, [
+    const path = await downloadVideo(run, transcript, cacheDir, cwd, HIRES_BASE, [
       HIRES_FORMAT,
       HIRES_RETRY,
     ]);
-  } catch {
-    return null;
+    return { path };
+  } catch (e) {
+    return { failure: `720p 영상을 못 받았어요: ${firstLine(e)}` };
   }
 }
 
@@ -228,12 +236,16 @@ export async function extractFrames(slug: string, opts: FramesOptions): Promise<
       shotTodo.length > 0
         ? await hiresVideo(run, transcript, store.videoCacheDir(slug), cwd)
         : null;
+    if (hires && 'failure' in hires) shots.hiresFailure = hires.failure;
     for (const sec of shotTodo) {
       const file = join(framesDir, shotFileName(sec));
       let ok = false;
-      if (hires) {
+      if (hires && 'path' in hires) {
         // 720p 영상을 못 읽으면 저화질 영상으로 물러난다. 흐려도 장면은 보인다
-        ok = await grab(hires, sec, file, 1280, 3).catch(() => false);
+        ok = await grab(hires.path, sec, file, 1280, 3).catch((e: unknown) => {
+          shots.hiresFailure ??= `720p 영상에서 ${sec}초 장면을 못 읽었어요: ${firstLine(e)}`;
+          return false;
+        });
         if (ok) shots.hires += 1;
       }
       if (!ok) ok = await grab(await lowres(), sec, file, 960, 3);
