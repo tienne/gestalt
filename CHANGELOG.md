@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.104.0] - 2026-10-25
 
 ### Added
 
@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **`gestalt digest ocr`가 적힌 시각의 화면을 읽어요.** 두 번째 프레임부터 간격의 절반만큼 늦은 화면을 읽고 있었어요. 10초 간격이면 150초라고 적힌 글자가 실제로는 155초 화면이었어요. 예전에 만든 `ocr.json`은 다시 뽑아야 시각이 맞아요.
+
+### 검증 범위
+
+- Lenny's Podcast 영상 셋(17분 슬라이드 발표, 37분 대담, 72분 대담)으로 수집부터 뷰어까지 끝까지 돌려봤어요. 슬라이드 영상은 장면 6개를 720p로 실었고 광고만 슬라이드처럼 보이던 대담은 장면을 하나도 안 골랐어요. OCR 시각이 밀리던 문제도 이때 찾았어요.
+- 로컬 리뷰를 일곱 라운드 돌렸어요. 그림 글자 윤문을 더하기 전 네 라운드에서 의견 34개를 반영했고 뒤 세 라운드에서 지침과 주석이 윤문 범위를 다르게 적은 자리와 빠진 테스트를 채웠어요. 마지막 라운드는 리뷰어 넷이 모두 승인했어요.
+- PR #81이 CI 네 칸(ubuntu와 macOS, Node 22와 24)을 통과했어요.
 
 ## [0.103.0] - 2026-10-25
 
