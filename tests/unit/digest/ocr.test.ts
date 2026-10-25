@@ -218,6 +218,27 @@ describe('ocr', () => {
     expect(r).not.toHaveProperty('loggedTimes');
   });
 
+  it('showinfo 시각이 프레임보다 많으면 앞에서부터 쓰고 loggedTimes를 남기지 않는다', async () => {
+    const { repo } = seeded();
+    const f = fakeRun(
+      { 'f00004.png': tsv([[1, 90, 'Outro']]) },
+      { showinfo: [0, 10, 20, 30.5, 40] },
+    );
+    const r = await runOcr(SLUG, { repoRoot: repo, intervalSec: 10, run: f.run });
+    expect(r).not.toHaveProperty('loggedTimes');
+    const file = ocrFileSchema.parse(JSON.parse(readFileSync(r.path, 'utf-8')));
+    expect(file.items.map((i) => i.sec)).toEqual([30.5]);
+  });
+
+  it('showinfo 시각이 하나도 없으면 전부 간격으로 어림하고 0개라고 알린다', async () => {
+    const { repo } = seeded();
+    const f = fakeRun({ 'f00004.png': tsv([[1, 90, 'Outro']]) });
+    const r = await runOcr(SLUG, { repoRoot: repo, intervalSec: 10, run: f.run });
+    expect(r).toMatchObject({ frames: 4, loggedTimes: 0 });
+    const file = ocrFileSchema.parse(JSON.parse(readFileSync(r.path, 'utf-8')));
+    expect(file.items.map((i) => i.sec)).toEqual([30]);
+  });
+
   it('select 식을 글자 그대로 고정한다', () => {
     expect(everyInterval(10)).toBe(
       "select='isnan(prev_selected_t)+gte(floor(t/10)-floor(prev_selected_t/10),1)'",

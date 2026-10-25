@@ -57,7 +57,7 @@ export interface OcrResult {
   items: number;
   /** 글자 상한에서 잘린 항목 수 */
   truncated: number;
-  /** showinfo 로그에서 받은 시각 수가 프레임 수와 다르면 그 시각 수. 모자란 프레임은 간격으로 시각을 어림했다 */
+  /** showinfo 로그에서 받은 시각 수가 프레임 수보다 모자라면 그 시각 수. 모자란 프레임은 간격으로 시각을 어림했다 */
   loggedTimes?: number;
 }
 
@@ -198,7 +198,7 @@ export async function runOcr(slug: string, opts: OcrOptions): Promise<OcrResult>
     }
 
     const widenedFrom = widened ? { requestedIntervalSec } : {};
-    const mismatch = times.length !== frames.length ? { loggedTimes: times.length } : {};
+    const mismatch = times.length < frames.length ? { loggedTimes: times.length } : {};
     const out: OcrFile = { engine: 'tesseract', lang, intervalSec, ...widenedFrom, items };
     const path = join(store.dir(slug), OCR_FILE);
     writeFileSync(path, JSON.stringify(out, null, 2) + '\n');
