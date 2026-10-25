@@ -290,7 +290,10 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
     case 'actions':
       return [
         ...block.items.map((it) => {
-          const meta = [it.owner ? `담당 ${mdPlain(it.owner)}` : '', it.due ? `기한 ${mdPlain(it.due)}` : '']
+          const meta = [
+            it.owner ? `담당 ${mdPlain(it.owner)}` : '',
+            it.due ? `기한 ${mdPlain(it.due)}` : '',
+          ]
             .filter(Boolean)
             .join(', ');
           return `- [ ] ${stripKeywords(it.task)}${meta ? ` (${meta})` : ''}${mdCite(it.cite, ctx)}`;
