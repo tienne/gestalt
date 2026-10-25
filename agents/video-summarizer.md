@@ -88,20 +88,20 @@ You are the Video Summarizer role agent.
 | `length: short`    | 하나                   |
 | 그 밖              | 대섹션 수의 절반(올림) |
 
-| `kind`        | 모양                                                                                                            | 쓰는 때                        |
-| ------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| `flow`        | `{ "kind": "flow", "caption"?, "steps": [노드 2~8개] }`                                                         | 차례로 이어지는 단계           |
-| `cycle`       | `{ "kind": "cycle", "caption"?, "steps": [노드 3~8개] }`                                                        | 끝에서 처음으로 돌아가는 고리  |
-| `compare`     | `{ "kind": "compare", "caption"?, "columns": [{ "title", "items": [노드 1~6개] }] }`                            | 둘에서 넷까지를 나란히 견주기  |
-| `tree`        | `{ "kind": "tree", "caption"?, "root": 트리 노드 }`                                                             | 한 주제가 가지로 나뉘는 구조   |
-| `timeline`    | `{ "kind": "timeline", "caption"?, "events": [{ "when", "label", "cite"? } 2~10개] }`                           | 시점이 붙은 사건 흐름          |
-| `matrix`      | `{ "kind": "matrix", "caption"?, "x": { "low", "high" }, "y": { "low", "high" }, "cells": [[노드 0~4개] × 4] }` | 두 기준으로 나눈 네 칸         |
-| `causal`      | `{ "kind": "causal", "caption"?, "inputs": [노드 0~6개], "center": 노드, "outputs": [노드 0~6개] }`             | 여러 원인이 모이고 결과가 퍼짐 |
-| `beforeAfter` | `{ "kind": "beforeAfter", "caption"?, "before": { "title"?, "items": [노드 1~6개] }, "after": 같은 꼴 }`        | 바뀌기 전과 후를 나란히 대기   |
+| `kind`        | 모양                                                                                                            | 쓰는 때                               |
+| ------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `flow`        | `{ "kind": "flow", "caption"?, "steps": [노드 2~8개] }`                                                         | 차례로 이어지는 단계                  |
+| `cycle`       | `{ "kind": "cycle", "caption"?, "steps": [노드 3~8개] }`                                                        | 끝에서 처음으로 돌아가는 고리         |
+| `compare`     | `{ "kind": "compare", "caption"?, "columns": [{ "title", "items": [노드 1~6개] }] }`                            | 둘에서 넷까지를 나란히 견주기         |
+| `tree`        | `{ "kind": "tree", "caption"?, "root": 트리 노드 }`                                                             | 한 주제가 가지로 나뉘는 구조          |
+| `timeline`    | `{ "kind": "timeline", "caption"?, "events": [{ "when", "label", "cite"? } 2~10개] }`                           | 시점이 붙은 사건 흐름                 |
+| `matrix`      | `{ "kind": "matrix", "caption"?, "x": { "low", "high" }, "y": { "low", "high" }, "cells": [[노드 0~4개] × 4] }` | 두 기준으로 나눈 네 칸                |
+| `causal`      | `{ "kind": "causal", "caption"?, "inputs": [노드 0~6개], "center": 노드, "outputs": [노드 0~6개] }`             | 여러 원인이 모이고 결과가 퍼짐        |
+| `beforeAfter` | `{ "kind": "beforeAfter", "caption"?, "before": { "title"?, "items": [노드 1~6개] }, "after": 같은 꼴 }`        | 바뀌기 전과 뒤를 화살표로 이어 보여줌 |
 
 노드는 `{ "label", "cite"? }`이고 트리 노드는 여기에 `children`이 붙는다. `columns`는 2~4개다.
 
-- `flow`와 `timeline`을 가르는 기준은 시점이다. 영상이 "2015년", "창업 3년 차"처럼 때를 말하면 `timeline`이고 `when`에 그 말을 적는다. 재생 시각은 `cite`가 이미 갖고 있으니 `when`에 적지 않는다.
+- `flow`와 `timeline`을 가르는 기준은 시점이다. 영상이 "2015년", "창업 3년 차"처럼 때를 말하면 `timeline`이고 `when`에 그 말을 적는다. 재생 시각은 `cite`에 이미 들어 있으니 `when`에 적지 않는다.
 - `matrix`의 `cells`는 왼쪽 위, 오른쪽 위, 왼쪽 아래, 오른쪽 아래 순서다. 위가 `y.high`, 오른쪽이 `x.high`다. 네 칸이 다 비면 lint가 `DIAGRAM_EMPTY`로 막는다.
 - `causal`은 `inputs`와 `outputs` 중 하나는 채운다. 둘 다 비면 `DIAGRAM_EMPTY`다.
 - 같은 리포트에서 한 종류만 이어 쓰지 않는다. 대섹션마다 내용의 모양에 맞는 종류를 고른다.
