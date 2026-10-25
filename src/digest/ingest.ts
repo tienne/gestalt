@@ -106,10 +106,15 @@ export interface CaptionPick {
 const langOf = (key: string) => key.replace(/-orig$/, '');
 const matches = (key: string, pref: string) =>
   key === pref || key.startsWith(`${pref}-`) || langOf(key) === pref;
+const primary = (tag: string) => tag.split('-')[0]!.toLowerCase();
+// 메타 원어는 `en-US`인데 트랙은 `en-orig`처럼 지역 태그만 다를 때가 있어 주 언어로 한 번 더 맞춘다
+const findPref = (keys: string[], pref: string) =>
+  keys.find((k) => matches(k, pref)) ?? keys.find((k) => primary(langOf(k)) === primary(pref));
 
 /**
  * 수동 자막 → 자동 자막 순으로 고른다. 자동 자막은 157개 언어가 기계 번역으로 딸려 오는데
  * 영상 원어 트랙만 `-orig`가 붙어서 그걸 먼저 잡는다. 번역 자막은 문장 시각이 어긋나 쓰지 않는다.
+ * 자동 더빙이 붙은 영상은 더빙 언어마다 `-orig`가 생겨서 원어에 맞는 것을 먼저 고른다.
  */
 export function pickCaption(meta: YtMeta, prefLang?: string): CaptionPick | null {
   const prefs = [prefLang, meta.language ?? undefined].filter((p): p is string => !!p);
@@ -117,13 +122,14 @@ export function pickCaption(meta: YtMeta, prefLang?: string): CaptionPick | null
   const auto = Object.keys(meta.automatic_captions ?? {});
 
   for (const p of prefs) {
-    const k = manual.find((m) => matches(m, p));
+    const k = findPref(manual, p);
     if (k) return { kind: 'manual', key: k, lang: langOf(k) };
   }
   if (prefs.length === 0 && manual.length === 1) {
     return { kind: 'manual', key: manual[0]!, lang: langOf(manual[0]!) };
   }
-  const orig = auto.find((k) => k.endsWith('-orig'));
+  const origs = auto.filter((k) => k.endsWith('-orig'));
+  const orig = prefs.map((p) => findPref(origs, p)).find((k): k is string => !!k) ?? origs[0];
   if (orig) return { kind: 'auto', key: orig, lang: langOf(orig) };
   for (const p of prefs) {
     if (auto.includes(p)) return { kind: 'auto', key: p, lang: p };
