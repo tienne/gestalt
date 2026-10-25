@@ -129,12 +129,26 @@ export const bulletSchema: z.ZodType<Bullet> = z.lazy(() =>
   }),
 );
 
+/**
+ * 화면 자체가 설명인 장면(슬라이드, 화이트보드, 표, 코드). sec는 scenes.json 후보 가운데
+ * 소섹션 구간 안에 있는 것만 받는다. 요약 작성자가 장면을 보지 못하고 시각을 지어내지 않게 하려는 것이다
+ */
+export const shotSchema = z.object({
+  sec: z.number().nonnegative(),
+  caption: textSchema,
+  cite: citeSchema,
+});
+
+export const SHOTS_MAX = 2;
+
 export const subsectionSchema = z.object({
   id: idSchema,
   title: textSchema,
   cite: citeSchema,
   frameSec: z.number().nonnegative(),
   bullets: z.array(bulletSchema).min(1),
+  // 장면이 없는 소섹션이 대부분이라 빈 배열을 채워 넣지 않게 생략을 받는다
+  shots: z.array(shotSchema).max(SHOTS_MAX).optional(),
 });
 
 export const sectionSchema = z.object({
@@ -220,6 +234,7 @@ export type Segment = z.infer<typeof segmentSchema>;
 export type VideoMeta = z.infer<typeof videoMetaSchema>;
 export type Transcript = z.infer<typeof transcriptSchema>;
 export type Subsection = z.infer<typeof subsectionSchema>;
+export type Shot = z.infer<typeof shotSchema>;
 export type Section = z.infer<typeof sectionSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;
 export type Skipped = z.infer<typeof skippedSchema>;

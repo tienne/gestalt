@@ -127,6 +127,10 @@ function collectCites(report: Report, p: string): CiteField[] {
       for (const { bullet, path } of walkBullets(sub.bullets, `${bp}.bullets`)) {
         out.push({ path: `${path}.cite`, cite: bullet.cite, within });
       }
+      const shotWithin = { cite: sub.cite, code: 'SHOT_CITE_OUT_OF_SUBSECTION', name: '소섹션' };
+      sub.shots?.forEach((shot, k) => {
+        out.push({ path: `${bp}.shots.${k}.cite`, cite: shot.cite, within: shotWithin });
+      });
     });
     if (section.diagram) {
       const within = { cite: section.cite, code: 'DIAGRAM_CITE_OUT_OF_SECTION', name: '대섹션' };
@@ -335,9 +339,12 @@ function checkTitleMarkers(report: Report, p: string, issues: DigestIssue[]): vo
   };
   report.sections.forEach((section, si) => {
     check(section.title, `${p}.sections.${si}.title`);
-    section.subsections.forEach((sub, bi) =>
-      check(sub.title, `${p}.sections.${si}.subsections.${bi}.title`),
-    );
+    section.subsections.forEach((sub, bi) => {
+      const bp = `${p}.sections.${si}.subsections.${bi}`;
+      check(sub.title, `${bp}.title`);
+      // 장면 설명은 그림 캡션과 alt로 글자 그대로 나간다
+      sub.shots?.forEach((shot, k) => check(shot.caption, `${bp}.shots.${k}.caption`));
+    });
     // 도식 라벨과 설명도 SVG와 목록에 글자 그대로 나간다
     const d = section.diagram;
     if (d) {
@@ -401,6 +408,61 @@ function checkFrameSec(
           message: `frameSec(${sub.frameSec})이 첫 문장(${sub.cite.from}번) 시각 ${first.startSec}과 다르다`,
         });
       }
+    });
+  });
+}
+
+/** 장면 시각이 후보와 같은지 볼 때의 여유. scenes.json은 소수 둘째 자리까지 적는다 */
+const SHOT_SEC_TOLERANCE = 0.05;
+
+/**
+ * shots 시각이 소섹션 구간 안의 후보 장면인지 본다. 구간 끝은 다음 문장 시작이고 마지막 문장이면 영상 끝이다.
+ * scenes가 undefined면 후보 대조를 건너뛰고 null이면 파일이 없는 것이라 장면을 하나도 받지 않는다
+ */
+function checkShots(
+  report: Report,
+  p: string,
+  transcript: Transcript,
+  scenes: readonly number[] | null | undefined,
+  issues: DigestIssue[],
+): void {
+  const segs = transcript.segments;
+  report.sections.forEach((section, si) => {
+    section.subsections.forEach((sub, bi) => {
+      const first = segs[sub.cite.from];
+      if (!first || !sub.shots) return;
+      const start = first.startSec;
+      const end = segs[sub.cite.to + 1]?.startSec ?? transcript.meta.durationSec;
+      sub.shots.forEach((shot, k) => {
+        const path = `${p}.sections.${si}.subsections.${bi}.shots.${k}.sec`;
+        if (shot.sec < start || shot.sec >= end) {
+          issues.push({
+            path,
+            severity: 'error',
+            code: 'SHOT_OUT_OF_RANGE',
+            message: `장면 시각 ${shot.sec}초가 소섹션 구간(${start}~${end}초) 밖이다`,
+          });
+          return;
+        }
+        if (scenes === undefined) return;
+        if (scenes === null) {
+          issues.push({
+            path,
+            severity: 'error',
+            code: 'SHOT_NO_SCENES',
+            message: 'scenes.json이 없다. gestalt digest scenes로 후보 장면을 먼저 뽑는다',
+          });
+          return;
+        }
+        if (!scenes.some((sec) => Math.abs(sec - shot.sec) <= SHOT_SEC_TOLERANCE)) {
+          issues.push({
+            path,
+            severity: 'error',
+            code: 'SHOT_NOT_SCENE',
+            message: `장면 시각 ${shot.sec}초가 scenes.json 후보에 없다. 후보 시각을 그대로 쓴다`,
+          });
+        }
+      });
     });
   });
 }
@@ -496,10 +558,18 @@ function checkVolume(report: Report, p: string, issues: DigestIssue[]): void {
  * 스키마를 통과한 digest가 스크립트와 맞물리는지 본다.
  * 오류가 하나라도 있으면 렌더하지 않는다. 경고는 분량처럼 영상마다 답이 다른 것들이다.
  */
+export interface DigestLintOptions extends ExtensionLintOptions {
+  /**
+   * scenes.json 후보 장면 시각. undefined면 shots를 후보와 대조하지 않는다.
+   * null이면 파일이 없는 것이라 shots가 하나라도 있으면 오류다
+   */
+  scenes?: readonly number[] | null;
+}
+
 export function lintDigest(
   digest: Digest,
   transcript: Transcript,
-  opts: ExtensionLintOptions = {},
+  opts: DigestLintOptions = {},
 ): DigestIssue[] {
   const issues: DigestIssue[] = [];
   if (digest.slug !== transcript.slug) {
@@ -526,6 +596,7 @@ export function lintDigest(
       seenKeys.set(key, ri);
     }
     lintReport(report, p, transcript, issues);
+    checkShots(report, p, transcript, opts.scenes, issues);
   });
   lintExtensions(digest.extensions, transcript, issues, opts);
   return issues;
