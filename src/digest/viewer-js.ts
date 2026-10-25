@@ -181,8 +181,6 @@ export const VIEWER_JS =
       var el = ev.target.closest ? ev.target.closest('[data-sec]') : null;
       if (!el) return;
       if (!player.live) {
-        // 장면 버튼은 확대 창이 먼저다. 새 탭까지 열면 창 두 개가 한꺼번에 뜬다
-        if (el.hasAttribute('data-zoom')) return;
         // 도식 노드는 a가 아니라 href가 없다. 시각 링크와 같게 새 탭으로 연다
         if (el.tagName.toLowerCase() === 'a' || !data.watchBase) return;
         ev.preventDefault();
@@ -671,7 +669,10 @@ export const VIEWER_JS =
       var src = btn.classList.contains('shot-btn') ? btn.querySelector('img') : fig ? fig.querySelector('svg') : null;
       if (!src) return;
       body.textContent = '';
-      body.appendChild(src.cloneNode(true));
+      var copy = src.cloneNode(true);
+      // 이미 화면에 뜬 사진의 복제본이라 지연 로딩이 필요 없다
+      if (copy.removeAttribute) copy.removeAttribute('loading');
+      body.appendChild(copy);
       opener = btn;
       dialog.showModal();
     });

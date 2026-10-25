@@ -169,14 +169,15 @@ export function renderDigestHtml(
     return `<figure class="frame">${body}<figcaption>${timeLink(sec)}</figcaption></figure>`;
   };
 
-  // 누르면 확대 창이 열리고 영상이 그 장면으로 간다. 파일이 없는 장면은 자리를 비운다
+  // 사진을 누르면 확대 창만 열린다. 영상 이동은 figcaption의 시각 링크가 맡아서 한 번 클릭에 두 동작이 겹치지 않는다.
+  // 파일이 없는 장면은 자리를 비운다
   const shotsHtml = (shots: Shot[], subId: string): string =>
     shots
       .map((shot) => {
         const src = frameSrc(shotFileName(shot.sec), subId);
         if (!src) return '';
         const caption = e(shot.caption);
-        return `<figure class="shot"><button type="button" class="shot-btn" data-zoom data-sec="${shot.sec}" aria-label="${caption} 크게 보기"><img src="${e(src)}" alt="${caption}" loading="lazy"></button><figcaption>${caption}${cite(shot.cite)} ${timeLink(shot.sec)}</figcaption></figure>`;
+        return `<figure class="shot"><button type="button" class="shot-btn" data-zoom aria-label="장면 크게 보기"><img src="${e(src)}" alt="${caption}" loading="lazy"></button><figcaption>${caption}${cite(shot.cite)} ${timeLink(shot.sec)}</figcaption></figure>`;
       })
       .join('');
 
@@ -383,6 +384,7 @@ ${skippedHtml}</div>`;
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${e(meta.title)}</title>
 <style>${CSS}</style>
+<noscript><style>.shot-btn{cursor:default;pointer-events:none}</style></noscript>
 ${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz-check,.zoom-btn{display:none}.quiz-exp{display:block!important}</style></noscript>' : ''}
 </head>
 <body>
@@ -573,7 +575,7 @@ body[data-tab="ext"] .minimap{display:none}
 .toc a.is-current{color:var(--accent);font-weight:600}
 .sec{scroll-margin-top:16px;padding-top:12px}
 .sec h2{font-size:1.35em;border-bottom:1px solid var(--line);padding-bottom:6px}
-.sub{scroll-margin-top:16px}
+.sub{scroll-margin-top:16px;container-type:inline-size}
 .sub h3{font-size:1.1em;margin:24px 0 8px}
 .num{color:var(--muted)}
 .conclusion{font-weight:500}
@@ -585,8 +587,9 @@ body[data-tab="ext"] .minimap{display:none}
 .shot{margin:0}
 .shot-btn{display:block;width:100%;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--card);cursor:zoom-in;overflow:hidden}
 .shot-btn img{display:block;width:100%;height:auto;aspect-ratio:auto 16/9;object-fit:contain}
+.sub-body.has-shots .shot-btn img{max-height:50vh}
 .shot figcaption{margin-top:4px;font-size:.92em;color:var(--muted)}
-#zoom-dialog .zoom-body img{display:block;width:100%;height:auto}
+#zoom-dialog .zoom-body img{display:block;max-width:100%;width:auto;height:auto;max-height:calc(92vh - 64px);object-fit:contain;margin:0 auto}
 .cite{border:0;background:none;padding:0 1px;color:var(--accent);cursor:pointer;font-size:.8em}
 .kw{border:0;background:none;padding:0;border-bottom:1px dashed var(--accent);cursor:pointer}
 .extra dt{font-weight:600;margin-top:8px}
@@ -601,7 +604,7 @@ body[data-tab="ext"] .minimap{display:none}
 .minimap a{display:flex;width:28px;height:28px;border-radius:50%;align-items:center;justify-content:center;background:var(--card);border:1px solid var(--line);color:var(--muted);text-decoration:none;font-size:12px}
 .minimap a.is-current{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .minimap[hidden]{display:none}
-@media (max-width:1200px){.sub-body.has-shots{grid-template-columns:minmax(0,1fr)}}
+@container (max-width:640px){.sub-body.has-shots{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:900px){
 .layout{grid-template-columns:minmax(0,1fr);padding:0 16px;gap:0}
 .side{position:static;height:auto}

@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **슬라이드 같은 영상 화면을 소섹션 옆에 크게 실어요.** `gestalt digest scenes`가 후보 장면을 `scenes.json`에 골라 두고 요약 작성자가 소섹션마다 0~2개를 `shots`로 골라요. 후보에 없거나 소섹션 시간 범위를 벗어난 장면은 lint가 막아요.
   - 후보는 `ocr.json`이 있으면 글자가 넉넉하고 앞 화면과 글자가 절반 넘게 다른 시각으로 고르고 없으면 ffmpeg 장면 전환으로 골라요.
   - `gestalt digest frames`가 720p 영상을 따로 받아 `shots` 장면을 뽑아서 슬라이드 글자가 읽혀요. 720p 영상을 못 받으면 낮은 화질 영상에서 뽑아요.
-  - 뷰어는 장면을 누르면 크게 보기와 영상 이동이 같이 돼요. 마크다운에는 이미지로 실려요.
+  - 뷰어에서 장면 사진을 누르면 크게 볼 수 있고 아래 시각 링크를 누르면 영상이 그 장면으로 가요. 마크다운에는 이미지로 실려요.
 
 ### Fixed
 
