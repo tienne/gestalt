@@ -6,6 +6,7 @@ import {
   collectShotSecs,
   extractFrames,
   frameFileName,
+  parseShowinfo,
   shotFileName,
 } from '../../../src/digest/frames.js';
 import { lintDigest, lintErrors, type DigestIssue } from '../../../src/digest/lint.js';
@@ -14,7 +15,6 @@ import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import {
   MAX_SCENES,
   ocrScenes,
-  parseShowinfo,
   pickScenes,
   sceneSecs,
   textChange,

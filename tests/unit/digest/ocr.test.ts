@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -10,9 +11,12 @@ import {
   tesseractLang,
   textFromTsv,
 } from '../../../src/digest/ocr.js';
+import { parseShowinfo } from '../../../src/digest/frames.js';
 import { DigestStore } from '../../../src/digest/store.js';
 import { CommandError, type RunCommand } from '../../../src/digest/ytdlp.js';
 import { SLUG, sampleTranscript } from './fixture.js';
+
+const HAS_FFMPEG = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0;
 
 const tmpDirs: string[] = [];
 function tmpRepo(): string {
@@ -50,7 +54,10 @@ function tsv(words: Array<[number, number, string]>): string {
 }
 
 /** ffmpeg는 프레임 4장을 쓰고 tesseract는 파일 이름별로 정해 둔 글자를 낸다 */
-function fakeRun(texts: Record<string, string>, opts: { noTesseract?: boolean } = {}) {
+function fakeRun(
+  texts: Record<string, string>,
+  opts: { noTesseract?: boolean; showinfo?: number[] } = {},
+) {
   const calls: Array<{ cmd: string; args: string[]; cwd: string }> = [];
   const run: RunCommand = async (cmd, args, o) => {
     calls.push({ cmd, args, cwd: o.cwd });
@@ -62,7 +69,10 @@ function fakeRun(texts: Record<string, string>, opts: { noTesseract?: boolean } 
     if (cmd === 'ffmpeg') {
       const dir = dirname(args.at(-1)!);
       for (const n of [1, 2, 3, 4]) writeFileSync(join(dir, `f0000${n}.png`), 'png');
-      return { stdout: '', stderr: '' };
+      const stderr = (opts.showinfo ?? []).map(
+        (t) => `[Parsed_showinfo_1] n: 0 pts_time:${t} duration:1`,
+      );
+      return { stdout: '', stderr: stderr.join('\n') };
     }
     if (cmd === 'tesseract') {
       if (opts.noTesseract) throw new CommandError('tesseract', '', 'tesseract를 찾지 못했어요.');
@@ -167,6 +177,42 @@ describe('ocr', () => {
     expect(ffmpeg.args).toContain('vfr');
     const file = ocrFileSchema.parse(JSON.parse(readFileSync(r.path, 'utf-8')));
     expect(file).toMatchObject({ intervalSec: 12, requestedIntervalSec: 1 });
+  });
+
+  it('프레임 시각은 showinfo 로그에서 받는다', async () => {
+    const { repo } = seeded();
+    const f = fakeRun(
+      {
+        'f00001.png': tsv([[1, 90, 'Intro']]),
+        'f00002.png': tsv([[1, 90, 'Agenda']]),
+      },
+      { showinfo: [0, 10.033, 20.02, 30] },
+    );
+    const r = await runOcr(SLUG, { repoRoot: repo, intervalSec: 10, run: f.run });
+    const file = ocrFileSchema.parse(JSON.parse(readFileSync(r.path, 'utf-8')));
+    expect(file.items.map((i) => i.sec)).toEqual([0, 10.03]);
+    expect(f.calls.find((c) => c.cmd === 'ffmpeg')!.args.join(' ')).toContain(
+      `${everyInterval(10)},showinfo,`,
+    );
+  });
+
+  it('select 식을 글자 그대로 고정한다', () => {
+    expect(everyInterval(10)).toBe(
+      "select='isnan(prev_selected_t)+gte(floor(t/10)-floor(prev_selected_t/10),1)'",
+    );
+  });
+
+  it.skipIf(!HAS_FFMPEG)('실제 ffmpeg에서 간격마다 첫 프레임의 시각을 낸다', () => {
+    const r = spawnSync(
+      'ffmpeg',
+      [
+        ...['-hide_banner', '-nostats', '-f', 'lavfi', '-i', 'testsrc=duration=5:rate=10'],
+        ...['-vf', `${everyInterval(1)},showinfo`, '-vsync', 'vfr', '-f', 'null', '-'],
+      ],
+      { encoding: 'utf-8', timeout: 30_000 },
+    );
+    expect(r.status).toBe(0);
+    expect(parseShowinfo(r.stderr)).toEqual([0, 1, 2, 3, 4]);
   });
 
   it('tesseract가 없으면 설치 방법을 알린다', async () => {

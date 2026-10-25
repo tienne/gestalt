@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { writeJsonAtomic } from '../core/json-file.js';
-import { ensureVideo } from './frames.js';
+import { ensureVideo, parseShowinfo } from './frames.js';
 import { OCR_FILE, ocrFileSchema, type OcrFile } from './ocr.js';
 import { DigestStore, readRaw } from './store.js';
 import { findSegmentIndex } from './viewer-logic.js';
@@ -87,11 +87,6 @@ export function ocrScenes(ocr: OcrFile): SceneItem[] {
     prev = item.text;
   }
   return out.slice(0, MAX_SCENES);
-}
-
-/** ffmpeg showinfo 로그에서 고른 프레임의 시각을 뽑는다 */
-export function parseShowinfo(log: string): number[] {
-  return [...log.matchAll(/pts_time:\s*(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]!));
 }
 
 /** 앞 후보와 minGap초 안에 붙은 전환은 버린다. 카메라가 연달아 바뀌는 자리는 하나만 남는다 */

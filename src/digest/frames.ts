@@ -109,6 +109,11 @@ async function downloadVideo(
   return got;
 }
 
+/** ffmpeg showinfo 로그에서 고른 프레임의 시각을 뽑는다 */
+export function parseShowinfo(log: string): number[] {
+  return [...log.matchAll(/pts_time:\s*(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]!));
+}
+
 export async function ensureVideo(
   run: RunCommand,
   transcript: Transcript,

@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { ensureVideo } from './frames.js';
+import { ensureVideo, parseShowinfo } from './frames.js';
 import { DigestStore } from './store.js';
 import { findSegmentIndex } from './viewer-logic.js';
 import { CommandError, runCommand, timeoutFor, type RunCommand } from './ytdlp.js';
@@ -109,15 +109,15 @@ export function clipOcrText(text: string, max = MAX_TEXT): { text: string; trunc
 
 const FRAME_FILE = /^f(\d{5})\.png$/;
 
-/**
- * intervalSec마다 프레임을 뽑아 화면 글자를 읽고 ocr.json에 둔다.
- * 슬라이드처럼 한동안 그대로인 화면은 앞 항목과 글자가 같아서 한 번만 남긴다
- */
 /** 간격마다 첫 프레임만 고르는 select 식. -vsync vfr과 함께 써야 빈 자리를 복제하지 않는다 */
 export function everyInterval(intervalSec: number): string {
   return `select='isnan(prev_selected_t)+gte(floor(t/${intervalSec})-floor(prev_selected_t/${intervalSec}),1)'`;
 }
 
+/**
+ * intervalSec마다 프레임을 뽑아 화면 글자를 읽고 ocr.json에 둔다.
+ * 슬라이드처럼 한동안 그대로인 화면은 앞 항목과 글자가 같아서 한 번만 남긴다
+ */
 export async function runOcr(slug: string, opts: OcrOptions): Promise<OcrResult> {
   const run = opts.run ?? runCommand;
   let intervalSec = opts.intervalSec ?? DEFAULT_OCR_INTERVAL_SEC;
@@ -139,18 +139,20 @@ export async function runOcr(slug: string, opts: OcrOptions): Promise<OcrResult>
   const cwd = mkdtempSync(join(tmpdir(), 'gestalt-digest-ocr-'));
   try {
     const video = await ensureVideo(run, transcript, store.videoCacheDir(slug), cwd);
-    await run(
+    const { stderr } = await run(
       'ffmpeg',
       [
-        ...['-v', 'error', '-y', '-i', video],
+        ...['-hide_banner', '-nostats', '-y', '-i', video],
         // fps 필터는 두 번째 장부터 간격 절반만큼 늦은 프레임을 내서 sec과 화면이 어긋난다.
-        // 간격마다 첫 프레임을 고르면 n번째 장이 정확히 (n-1)*간격초다.
+        // 간격마다 첫 프레임을 고르고 그 프레임의 실제 시각은 showinfo 로그에서 받는다.
         // 작은 글자는 tesseract가 못 읽어서 1280보다 좁은 화면은 두 배로 키운다
-        ...['-vf', `${everyInterval(intervalSec)},scale='if(lt(iw,1280),iw*2,iw)':-2`],
+        ...['-vf', `${everyInterval(intervalSec)},showinfo,scale='if(lt(iw,1280),iw*2,iw)':-2`],
+        // -fps_mode는 ffmpeg 5.1부터라 그 전 버전에서도 도는 -vsync를 쓴다
         ...['-vsync', 'vfr', join(cwd, 'f%05d.png')],
       ],
       { cwd, timeoutMs: timeoutFor(transcript.meta.durationSec, 0.2) },
     );
+    const times = parseShowinfo(stderr);
     const frames = readdirSync(cwd)
       .filter((f) => FRAME_FILE.test(f))
       .sort();
@@ -161,7 +163,8 @@ export async function runOcr(slug: string, opts: OcrOptions): Promise<OcrResult>
     let truncated = 0;
     for (const f of frames) {
       const n = Number(FRAME_FILE.exec(f)![1]!);
-      const sec = (n - 1) * intervalSec;
+      // 로그를 못 읽었으면 간격마다 첫 프레임이라는 가정으로 시각을 잡는다
+      const sec = Math.round((times[n - 1] ?? (n - 1) * intervalSec) * 100) / 100;
       let raw: string;
       try {
         // 화면 녹화는 글자가 흩어져 있어서 문단 분할(기본 psm 3)로는 거의 못 읽는다
