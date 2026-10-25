@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **영상 요약에 도식이 더 자주 붙어요.** 단계, 고리, 견주기, 시간 흐름, 원인과 결과가 있는 대섹션이면 붙이도록 `video-summarizer` 지침을 바꿨어요. 리포트마다 권하는 개수(기본은 대섹션 수의 절반, 짧게는 하나, 쉬운 난이도는 대섹션마다 하나)보다 적으면 merge가 `DIAGRAM_TOO_FEW` 경고를 내요. 그릴 구조가 없는 영상도 있어서 막지는 않아요.
+- **도식 종류가 네 개 늘었어요.** 타임라인(`timeline`), 2×2 매트릭스(`matrix`), 인과도(`causal`), 전후 비교(`beforeAfter`)예요. 그림은 이번에도 코드가 그리고 마크다운에서는 목록이나 표로 바뀌어요. 데이터 스키마 버전을 1.4.0으로 올렸어요.
+- **확장 템플릿 `visual`(그림 해설)을 더했어요.** 핵심 개념마다 그림 하나와 짧은 설명을 짝지은 `figure` 블록으로 보여줘요. 설명이 어디서 나왔는지 따라갈 수 있게 `figure`에는 출처가 꼭 붙어요.
+- **슬라이드 같은 영상 화면을 소섹션 옆에 크게 실어요.** `gestalt digest scenes`가 후보 장면을 `scenes.json`에 골라 두고 요약 작성자가 소섹션마다 0~2개를 `shots`로 골라요. 후보에 없거나 소섹션 시간 범위를 벗어난 장면은 lint가 막아요.
+  - 후보는 `ocr.json`이 있으면 글자가 넉넉하고 앞 화면과 글자가 절반 넘게 다른 시각으로 고르고 없으면 ffmpeg 장면 전환으로 골라요.
+  - `gestalt digest frames`가 720p 영상을 따로 받아 `shots` 장면을 뽑아서 슬라이드 글자가 읽혀요. 720p 영상을 못 받으면 낮은 화질 영상에서 뽑아요.
+  - 뷰어에서 장면 사진을 누르면 크게 볼 수 있고 아래 시각 링크를 누르면 영상이 그 장면으로 가요. 마크다운에는 이미지로 실려요.
+- **도식과 그림 안 글자도 윤문해요.** `prose_extract`가 도식 라벨과 설명, 장면 설명, 마인드맵 라벨을 `kind: "label"`로 따로 내고 같은 그림끼리 `group`으로 묶어요. 라벨은 명사구로 두고 번역투와 '의'가 이어지는 꼴만 고쳐요. 칸이 좁아서 원문보다 길어진 라벨은 `prose_apply`가 `LABEL_TOO_LONG`으로 돌려보내요.
+
+### Fixed
+
+- **`gestalt digest ocr`가 적힌 시각의 화면을 읽어요.** 두 번째 프레임부터 간격의 절반만큼 늦은 화면을 읽고 있었어요. 10초 간격이면 150초라고 적힌 글자가 실제로는 155초 화면이었어요. 예전에 만든 `ocr.json`은 다시 뽑아야 시각이 맞아요.
+
 ## [0.103.0] - 2026-10-25
 
 ### Added

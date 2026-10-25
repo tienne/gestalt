@@ -1,6 +1,6 @@
 import { extensionKey } from './blocks.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
-import { frameFileName } from './frames.js';
+import { frameFileName, shotFileName } from './frames.js';
 import {
   extensionHtml,
   extensionPanelId,
@@ -20,6 +20,8 @@ import {
   type Digest,
   type Report,
   type Segment,
+  type Shot,
+  type Subsection,
   type Transcript,
   youtubeWatchUrl,
 } from './schema.js';
@@ -51,6 +53,9 @@ const e = (s: string): string =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
+// 장면 파일(s<ms>.jpg)이 빠졌을 때 소섹션 프레임과 헷갈리지 않게 경고에 구분해 적는다
+const frameKind = (fileName: string) => (/^s\d+\.jpg$/.test(fileName) ? '장면' : '프레임');
+
 /** research 렌더러의 예산과 같다. 한 장 5MB, 합계 15MB를 넘으면 그 프레임은 뺀다 */
 class FrameBudget {
   private total = 0;
@@ -59,7 +64,7 @@ class FrameBudget {
 
   dataUri(data: Buffer, fileName: string): string | null {
     if (data.length > MAX_IMAGE_BYTES) {
-      this.warnings.push(`프레임이 5MB를 넘어 건너뛰었다: ${fileName}`);
+      this.warnings.push(`${frameKind(fileName)}이 5MB를 넘어 건너뛰었다: ${fileName}`);
       return null;
     }
     if (!this.charge(data.length, fileName)) return null;
@@ -69,7 +74,9 @@ class FrameBudget {
   /** 이미 만든 data URI를 다시 실을 때도 HTML 크기는 그만큼 늘어서 같은 합계에 센다 */
   charge(bytes: number, fileName: string): boolean {
     if (this.total + bytes > MAX_TOTAL_IMAGE_BYTES) {
-      this.warnings.push(`프레임 합계가 15MB를 넘어 건너뛰었다: ${fileName}`);
+      this.warnings.push(
+        `프레임 합계가 15MB를 넘어 ${frameKind(fileName)}을 건너뛰었다: ${fileName}`,
+      );
       return false;
     }
     this.total += bytes;
@@ -134,8 +141,7 @@ export function renderDigestHtml(
   // 확인 수단이 없는 렌더에서는 프레임이 없다고 경고하지 않는다. 예산 초과는 FrameBudget이 따로 경고한다
   // 리포트 여럿이 같은 프레임을 쓰면 파일은 한 번만 읽는다. 같은 data URI가 HTML에 한 번 더 실리므로 예산은 다시 센다
   const inlined = new Map<string, { src: string; bytes: number } | null>();
-  const frame = (sec: number, subId: string): string => {
-    const file = frameFileName(sec);
+  const frameSrc = (file: string, subId: string): string | null => {
     let src: string | null = null;
     if (budget && inlined.has(file)) {
       const hit = inlined.get(file);
@@ -149,6 +155,11 @@ export function renderDigestHtml(
       if (opts.frameExists(file)) src = `frames/${file}`;
       else missingFrame(subId, file);
     }
+    return src;
+  };
+
+  const frame = (sec: number, subId: string): string => {
+    const src = frameSrc(frameFileName(sec), subId);
     if (!src) return '';
     const url = watchUrlAt(meta, sec);
     const img = `<img src="${e(src)}" alt="${formatTime(sec, long)} 장면" loading="lazy">`;
@@ -157,6 +168,18 @@ export function renderDigestHtml(
       : `<span class="frame-link" data-sec="${sec}">${img}</span>`;
     return `<figure class="frame">${body}<figcaption>${timeLink(sec)}</figcaption></figure>`;
   };
+
+  // 사진을 누르면 확대 창만 열린다. 영상 이동은 figcaption의 시각 링크가 맡아서 한 번 클릭에 두 동작이 겹치지 않는다.
+  // 파일이 없는 장면은 자리를 비운다
+  const shotsHtml = (shots: Shot[], subId: string): string =>
+    shots
+      .map((shot) => {
+        const src = frameSrc(shotFileName(shot.sec), subId);
+        if (!src) return '';
+        const caption = e(shot.caption);
+        return `<figure class="shot"><img src="${e(src)}" alt="${caption}" loading="lazy"><figcaption>${caption}${cite(shot.cite)} ${timeLink(shot.sec)}</figcaption></figure>`;
+      })
+      .join('');
 
   const reportsMeta = digest.reports.map((r) => ({ report: r, key: reportKey(r.options) }));
   const base = digest.reports[0]!.options;
@@ -175,12 +198,19 @@ export function renderDigestHtml(
         )
         .join('')}</ul>`;
 
+    // 장면이 있으면 첫 문장 프레임 대신 장면을 본문 옆에 둔다. 장면이 같은 구간을 더 잘 보여 줘서 둘 다 싣지 않는다
+    const subBody = (sub: Subsection): string => {
+      const shots = sub.shots?.length ? shotsHtml(sub.shots, sub.id) : '';
+      if (!shots) return `${frame(sub.frameSec, sub.id)}${bullets(sub.bullets)}`;
+      return `<div class="sub-body has-shots"><div class="sub-text">${bullets(sub.bullets)}</div><div class="shots">${shots}</div></div>`;
+    };
+
     const sectionsHtml = sections
       .map((s, si) => {
         const subs = s.subsections
           .map(
             (sub, ui) =>
-              `<div class="sub" id="sub-${pfx}${e(sub.id)}" data-from="${sub.cite.from}" data-to="${sub.cite.to}"><h3><span class="num">${si + 1}.${ui + 1}.</span> ${e(stripNumbering(sub.title))} ${timeLink(at(sub.cite.key))}</h3>${frame(sub.frameSec, sub.id)}${bullets(sub.bullets)}</div>`,
+              `<div class="sub" id="sub-${pfx}${e(sub.id)}" data-from="${sub.cite.from}" data-to="${sub.cite.to}"><h3><span class="num">${si + 1}.${ui + 1}.</span> ${e(stripNumbering(sub.title))} ${timeLink(at(sub.cite.key))}</h3>${subBody(sub)}</div>`,
           )
           .join('');
         return `<section class="sec" id="sec-${pfx}${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${timeLink(at(s.cite.key))}</h2><p class="conclusion">${inline(s.conclusion, kwIds)}${cite(s.cite)}</p>${s.diagram ? sectionDiagramHtml(s.diagram, stripNumbering(s.title), blockCtx) : ''}${subs}</section>`;
@@ -487,6 +517,9 @@ a.ts:hover{text-decoration:underline}
 .quiz-choice.is-answer>span:not(.quiz-mark){background:var(--hl);font-weight:600}
 .quiz-choice.is-picked>span:not(.quiz-mark){outline:2px dashed var(--warn);outline-offset:1px;border-radius:3px}
 .diagram{margin:16px 0}
+.fig-card{margin:24px 0}
+.fig-card .diagram{margin:8px 0}
+.fig-exp{margin:6px 0 0}
 .dg-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:8px}
 .dg-svg{display:block;max-width:none}
 .dg-svg text{fill:var(--fg);font-size:13px;font-family:inherit}
@@ -494,7 +527,11 @@ a.ts:hover{text-decoration:underline}
 .dg-svg path,.dg-svg line{stroke:var(--muted);fill:none;stroke-width:1.2}
 .dg-svg .mm-d0 rect,.dg-svg .dg-head rect{fill:var(--accent);stroke:var(--accent)}
 .dg-svg .mm-d0 text,.dg-svg .dg-head text{fill:var(--on-accent);font-size:14px;font-weight:600}
-.dg-svg .mm-d1 rect,.dg-flow rect,.dg-cycle rect{stroke:var(--accent)}
+.dg-svg .mm-d1 rect,.dg-flow rect,.dg-cycle rect,.dg-timeline rect{stroke:var(--accent)}
+.dg-svg rect.dg-cell{fill:var(--card);stroke:var(--line);stroke-dasharray:4 3}
+.dg-svg .dg-dot{fill:var(--accent);stroke:none}
+.dg-svg .dg-when text{fill:var(--accent);font-weight:600}
+.dg-svg .dg-axis text{fill:var(--muted)}
 .dg-svg .dg-arrow{fill:var(--muted);stroke:none}
 .dg-svg .mm-cite,.dg-svg .dg-cite{cursor:pointer}
 .dg-svg .mm-cite:hover rect,.dg-svg .dg-cite:hover rect{fill:var(--hl)}
@@ -537,13 +574,21 @@ body[data-tab="ext"] .minimap{display:none}
 .toc a.is-current{color:var(--accent);font-weight:600}
 .sec{scroll-margin-top:16px;padding-top:12px}
 .sec h2{font-size:1.35em;border-bottom:1px solid var(--line);padding-bottom:6px}
-.sub{scroll-margin-top:16px}
+.sub{scroll-margin-top:16px;container-type:inline-size}
 .sub h3{font-size:1.1em;margin:24px 0 8px}
 .num{color:var(--muted)}
 .conclusion{font-weight:500}
 .frame{margin:8px 0 12px}
 .frame img{display:block;width:100%;max-width:640px;height:auto;max-height:360px;aspect-ratio:auto 16/9;object-fit:contain;border-radius:6px;border:1px solid var(--line);cursor:pointer}
 .frame figcaption{margin-top:2px}
+.sub-body.has-shots{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px;align-items:start}
+.shots{display:flex;flex-direction:column;gap:12px;margin:8px 0}
+.shot{margin:0}
+.shot-btn{display:block;width:100%;padding:0;border:0;border-radius:8px;background:none;cursor:zoom-in}
+.shot img{display:block;width:100%;height:auto;aspect-ratio:auto 16/9;object-fit:contain;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.sub-body.has-shots .shot img{max-height:50vh}
+.shot figcaption{margin-top:4px;font-size:.92em;color:var(--muted)}
+#zoom-dialog .zoom-body img{display:block;max-width:100%;width:auto;height:auto;max-height:calc(92vh - 64px);object-fit:contain;margin:0 auto}
 .cite{border:0;background:none;padding:0 1px;color:var(--accent);cursor:pointer;font-size:.8em}
 .kw{border:0;background:none;padding:0;border-bottom:1px dashed var(--accent);cursor:pointer}
 .extra dt{font-weight:600;margin-top:8px}
@@ -558,6 +603,7 @@ body[data-tab="ext"] .minimap{display:none}
 .minimap a{display:flex;width:28px;height:28px;border-radius:50%;align-items:center;justify-content:center;background:var(--card);border:1px solid var(--line);color:var(--muted);text-decoration:none;font-size:12px}
 .minimap a.is-current{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .minimap[hidden]{display:none}
+@container (max-width:640px){.sub-body.has-shots{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:900px){
 .layout{grid-template-columns:minmax(0,1fr);padding:0 16px;gap:0}
 .side{position:static;height:auto}

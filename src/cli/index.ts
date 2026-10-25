@@ -36,6 +36,7 @@ import {
   digestExportCommand,
   digestFramesCommand,
   digestOcrCommand,
+  digestScenesCommand,
   digestIngestCommand,
   digestMergeCommand,
   digestTemplateCommand,
@@ -294,6 +295,13 @@ export function createCli(): Command {
     .action((slug, o, cmd) => digestOcrCommand(slug, { ...digestInherited(cmd), ...o }));
 
   digest
+    .command('scenes <slug>')
+    .description(
+      'shots가 고를 후보 장면을 scenes.json에 둔다. ocr.json이 있으면 화면 글자로, 없으면 장면 전환으로 고른다',
+    )
+    .action((slug, o, cmd) => digestScenesCommand(slug, { ...digestInherited(cmd), ...o }));
+
+  digest
     .command('comments <slug>')
     .description('유튜브 댓글을 인기순으로 받아 comments.json에 둔다 (작성자 정보는 저장 안 함)')
     .option('--max <n>', '받을 댓글 수, 1~1000 (기본 200)')
@@ -301,7 +309,7 @@ export function createCli(): Command {
 
   digest
     .command('frames <slug>')
-    .description('digest.json의 소섹션 frameSec마다 프레임을 뽑는다')
+    .description('digest.json의 소섹션 frameSec마다 프레임을 뽑고 shots 장면은 720p로 뽑는다')
     .option('--force', '이미 뽑은 프레임도 다시 뽑는다')
     .action((slug, o, cmd) => digestFramesCommand(slug, { ...digestInherited(cmd), ...o }));
 

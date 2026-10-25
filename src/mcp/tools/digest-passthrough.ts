@@ -2,8 +2,8 @@ import { resolve } from 'node:path';
 import { loadConfig } from '../../core/config.js';
 import { extensionKey } from '../../digest/blocks.js';
 import { commentsMap } from '../../digest/comments.js';
-import { lintDigest, lintErrors } from '../../digest/lint.js';
-import type { ExtensionLintOptions } from '../../digest/lint-extension.js';
+import { sceneSecs } from '../../digest/scenes.js';
+import { lintDigest, lintErrors, type DigestLintOptions } from '../../digest/lint.js';
 import { applyProse, extractProse } from '../../digest/prose.js';
 import { reportKey } from '../../digest/reports.js';
 import { DigestLintError, DigestLoadError, renderToFiles } from '../../digest/render.js';
@@ -63,13 +63,15 @@ function lintContext(
   input: DigestInput,
   cwd: string,
   store: DigestStore,
-): { tpl: TemplateLoad; options: ExtensionLintOptions } {
+): { tpl: TemplateLoad; options: DigestLintOptions } {
   const tpl = templatesOf(input, cwd);
   return {
     tpl,
     options: {
       templates: templateMap(tpl.templates),
       comments: commentsMap(store, input.slug) ?? undefined,
+      // merge와 같이 scenes.json이 없으면 null을 넘긴다. shots가 없는 digest에는 아무 오류도 안 붙는다
+      scenes: sceneSecs(store, input.slug),
     },
   };
 }

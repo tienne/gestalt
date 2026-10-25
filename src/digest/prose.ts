@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
+import type { Diagram } from './diagram-schema.js';
 import { collectTextFields } from './lint.js';
+import { walkDiagram, walkMindmap } from './lint-extension.js';
 import { boldPattern, keywordPattern, type Digest } from './schema.js';
 
 export interface ProseItem {
@@ -7,6 +9,10 @@ export interface ProseItem {
   text: string;
   /** 원문 sha256 앞 12자. apply가 extract 이후 원문이 바뀌었는지 이걸로 본다 */
   hash: string;
+  /** 그림 안 글자. 명사구로 두고 원문보다 길게 쓰지 않는다 */
+  kind?: 'label';
+  /** 같은 그림에 함께 놓이는 라벨은 같은 값이다. 짝을 맞춰 다듬으라고 준다 */
+  group?: string;
 }
 
 export type ProseWarningCode =
@@ -14,7 +20,8 @@ export type ProseWarningCode =
   | 'STALE'
   | 'MARKER_MISMATCH'
   | 'EMPTY'
-  | 'DUPLICATE_PATH';
+  | 'DUPLICATE_PATH'
+  | 'LABEL_TOO_LONG';
 
 export interface ProseWarning {
   path: string;
@@ -43,12 +50,74 @@ export function proseHash(text: string): string {
 /** 제목은 목차와 미니맵에 그대로 쓰이는 이름이라 윤문 대상에서 뺀다 */
 const isTitle = (path: string) => path.endsWith('.title');
 
-/** 윤문할 문장. path는 lint가 쓰는 것과 같아서 경고와 짝을 맞춰 볼 수 있다 */
-export function extractProse(digest: Digest): ProseItem[] {
-  return collectTextFields(digest)
-    .filter((f) => !isTitle(f.path) && f.text.trim())
-    .map((f) => ({ path: f.path, text: f.text, hash: proseHash(f.text) }));
+interface LabelField {
+  path: string;
+  text: string;
+  group: string;
 }
+
+function diagramLabels(d: Diagram, dp: string): LabelField[] {
+  const out: LabelField[] = [];
+  if (d.caption) out.push({ path: `${dp}.caption`, text: d.caption, group: dp });
+  for (const node of walkDiagram(d, dp)) {
+    out.push({ path: node.labelPath, text: node.label, group: dp });
+  }
+  return out;
+}
+
+/**
+ * 도식 라벨과 설명, 장면 설명, 마인드맵 라벨. 칸이 좁아 본문과 다른 기준으로 다듬어서 따로 모은다.
+ * 열 제목과 전후 비교 제목은 path가 `.title`로 끝나도 그림 안 글자라 여기 넣는다
+ */
+function collectLabelFields(digest: Digest): LabelField[] {
+  const out: LabelField[] = [];
+  digest.reports.forEach((report, ri) => {
+    report.sections.forEach((section, si) => {
+      const sp = `reports.${ri}.sections.${si}`;
+      if (section.diagram) out.push(...diagramLabels(section.diagram, `${sp}.diagram`));
+      section.subsections.forEach((sub, bi) => {
+        const group = `${sp}.subsections.${bi}.shots`;
+        sub.shots?.forEach((shot, k) => {
+          out.push({ path: `${group}.${k}.caption`, text: shot.caption, group });
+        });
+      });
+    });
+  });
+  digest.extensions.forEach((ext, xi) => {
+    ext.blocks.forEach((block, bi) => {
+      const bp = `extensions.${xi}.blocks.${bi}`;
+      if (block.type === 'figure') out.push(...diagramLabels(block.diagram, `${bp}.diagram`));
+      if (block.type === 'mindmap') {
+        for (const { node, path } of walkMindmap(block.root, `${bp}.root`)) {
+          out.push({ path: `${path}.label`, text: node.label, group: bp });
+        }
+      }
+    });
+  });
+  return out;
+}
+
+/** 윤문할 문장과 그림 글자. path는 lint가 쓰는 것과 같아서 경고와 짝을 맞춰 볼 수 있다 */
+export function extractProse(digest: Digest): ProseItem[] {
+  const prose = collectTextFields(digest)
+    .filter((f) => !isTitle(f.path) && f.text.trim())
+    .map((f): ProseItem => ({ path: f.path, text: f.text, hash: proseHash(f.text) }));
+  const labels = collectLabelFields(digest)
+    .filter((f) => f.text.trim())
+    .map(
+      (f): ProseItem => ({
+        path: f.path,
+        text: f.text,
+        hash: proseHash(f.text),
+        kind: 'label',
+        group: f.group,
+      }),
+    );
+  return [...prose, ...labels];
+}
+
+/** 그림 칸은 원문 길이에 맞춰 잡혀 있어서 라벨이 길어지면 말줄임이나 줄넘김이 생긴다 */
+const charCount = (text: string) => [...text].length;
 
 /**
  * 윤문 전후로 그대로 남아야 하는 표식. 키워드는 id만 본다. 표시 글자는 문장에 맞게 바뀌어도 된다.
@@ -136,6 +205,10 @@ export function applyProse(input: Digest, edits: ProseEdit[]): ProseApplyResult 
     const diff = diffMarkers(item.text, edit.text);
     if (diff) {
       warnings.push({ path, code: 'MARKER_MISMATCH', ...diff });
+      continue;
+    }
+    if (item.kind === 'label' && charCount(edit.text) > charCount(item.text)) {
+      warnings.push({ path, code: 'LABEL_TOO_LONG' });
       continue;
     }
     if (edit.text === item.text) {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { lintDigest, lintErrors, type DigestIssue } from '../../../src/digest/index.js';
+import {
+  diagramTarget,
+  lintDigest,
+  lintErrors,
+  type DigestIssue,
+} from '../../../src/digest/index.js';
 import { sampleDigest, sampleTranscript } from './fixture.js';
 
 const codes = (issues: DigestIssue[]) => issues.map((i) => i.code);
@@ -33,6 +38,7 @@ describe('lintDigest', () => {
       s2.subsections[0]!.cite = { key: 7, from: 7, to: 8 };
       s2.subsections[0]!.frameSec = 35;
       s2.subsections[0]!.bullets[0]!.cite = { key: 7, from: 7, to: 7 };
+      delete s2.diagram;
       expect(codes(lintErrors(lintDigest(d, sampleTranscript())))).toEqual(['SECTION_GAP']);
     });
 
@@ -197,5 +203,41 @@ describe('lintDigest', () => {
     expect(lintDigest(d, sampleTranscript()).map((i) => [i.code, i.severity])).toEqual([
       ['UNBALANCED_BOLD', 'warning'],
     ]);
+  });
+
+  describe('도식이 기준보다 적으면 경고만 낸다', () => {
+    const withoutDiagrams = () => {
+      const d = sampleDigest();
+      for (const s of d.reports[0]!.sections) delete s.diagram;
+      return d;
+    };
+
+    it('기본 분량은 대섹션 절반(올림)이 기준이다', () => {
+      const issues = lintDigest(withoutDiagrams(), sampleTranscript());
+      expect(lintErrors(issues)).toEqual([]);
+      expect(issues).toEqual([
+        expect.objectContaining({
+          code: 'DIAGRAM_TOO_FEW',
+          severity: 'warning',
+          path: 'reports.0.sections',
+        }),
+      ]);
+      expect(issues[0]!.message).toContain('0개');
+      expect(issues[0]!.message).toContain('1개 이상');
+    });
+
+    it('쉬운 난이도는 대섹션마다 하나를 바란다', () => {
+      const d = sampleDigest();
+      d.reports[0]!.options.difficulty = 'easy';
+      expect(codes(lintDigest(d, sampleTranscript()))).toEqual(['DIAGRAM_TOO_FEW']);
+    });
+
+    it('짧게는 대섹션 수와 상관없이 하나면 된다', () => {
+      const d = sampleDigest();
+      d.reports[0]!.options.length = 'short';
+      const issues = lintDigest(d, sampleTranscript()).filter((i) => i.code === 'DIAGRAM_TOO_FEW');
+      expect(issues).toEqual([]);
+      expect(diagramTarget(d.reports[0]!)).toBe(1);
+    });
   });
 });

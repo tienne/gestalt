@@ -5,6 +5,7 @@ import { COMMENTS_DEFAULT_MAX, commentsMap, fetchComments } from '../../digest/c
 import { extractFrames } from '../../digest/frames.js';
 import { ingest } from '../../digest/ingest.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
+import { pickScenes, sceneSecs } from '../../digest/scenes.js';
 import { mergeExtension, mergeReport } from '../../digest/merge.js';
 import { runOcr, type OcrResult } from '../../digest/ocr.js';
 import { exportMarkdown, renderToFiles, type RenderFilesResult } from '../../digest/render.js';
@@ -125,7 +126,39 @@ export async function digestFramesCommand(
     emit(r, opts.json, () => {
       console.log(`프레임 ${r.total}장 중 ${r.extracted}장 새로 뽑음, ${r.skipped}장은 있던 것`);
       if (r.missing.length > 0) console.log(`못 뽑은 시각: ${r.missing.map(mmss).join(', ')}`);
+      const { shots } = r;
+      if (shots.total > 0) {
+        console.log(
+          `장면 ${shots.total}장 중 ${shots.extracted}장 새로 뽑음(720p ${shots.hires}장), ${shots.skipped}장은 있던 것`,
+        );
+        if (shots.missing.length > 0) {
+          console.log(`못 뽑은 장면: ${shots.missing.map(mmss).join(', ')}`);
+        }
+        if (shots.extracted > shots.hires) {
+          // 사유 없이 저화질로 뽑았으면 720p 영상은 멀쩡한데 그 시각에서 파일이 안 생긴 것이다
+          const why = shots.hiresFailure ?? '720p 영상에서 그 시각을 못 뽑았어요';
+          console.log(
+            `${why}. ${shots.extracted - shots.hires}장은 낮은 화질로 뽑았어요. 720p로 다시 뽑으려면 --force를 붙여 돌려 주세요.`,
+          );
+        }
+      }
       console.log(`저장: ${r.framesDir}`);
+    });
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export async function digestScenesCommand(slug: string, opts: DigestCommonOptions): Promise<void> {
+  try {
+    const r = await pickScenes(slug, { repoRoot: rootOf(opts) });
+    emit(r, opts.json, () => {
+      const how = r.source === 'ocr' ? '화면 글자(ocr.json)' : 'ffmpeg 장면 전환';
+      console.log(`후보 장면 ${r.items}개 (${how})`);
+      if (r.truncated) {
+        console.log(`후보가 ${r.total}개라 영상 전체에서 고르게 ${r.items}개만 남겼어요.`);
+      }
+      console.log(`저장: ${r.path}`);
     });
   } catch (e) {
     fail(e);
@@ -138,7 +171,7 @@ function parseInterval(value: string | undefined): number | undefined {
   return Number(value);
 }
 
-function printOcr(r: OcrResult): void {
+export function printOcr(r: OcrResult): void {
   if (r.requestedIntervalSec !== undefined) {
     console.log(
       `프레임이 너무 많아 간격을 ${r.requestedIntervalSec}초에서 ${r.intervalSec}초로 넓혔어요`,
@@ -146,6 +179,11 @@ function printOcr(r: OcrResult): void {
   }
   console.log(`화면 글자: 프레임 ${r.frames}장(${r.intervalSec}초 간격, ${r.lang}) → ${r.items}개`);
   if (r.truncated > 0) console.log(`글자가 길어 줄 단위로 자른 항목: ${r.truncated}개`);
+  if (r.loggedTimes !== undefined) {
+    console.log(
+      `프레임 ${r.frames}장 중 시각 로그가 ${r.loggedTimes}개뿐이라 나머지는 간격으로 시각을 어림했어요`,
+    );
+  }
   console.log(`저장: ${r.path}`);
 }
 
@@ -181,6 +219,7 @@ export function digestValidateCommand(slug: string, opts: DigestCommonOptions): 
     const issues = lintDigest(parsed.value, transcript, {
       templates: templateMap(templates),
       comments: commentsMap(store, slug) ?? undefined,
+      scenes: sceneSecs(store, slug),
     });
     const errors = lintErrors(issues);
     emit({ slug, ok: errors.length === 0, issues }, opts.json, () => {

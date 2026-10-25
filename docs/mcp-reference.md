@@ -1208,8 +1208,8 @@ digest.md         마크다운 (render, export --md가 쓴다)
 |:---|:---|
 | `validate` | 스키마와 lint 검사. 출처 범위가 스크립트를 빈틈없이 덮는지, `key`가 범위 안인지, 불릿이 2단까지인지, 키워드 id가 있는지, `frameSec`이 첫 문장 시각과 맞는지 본다 |
 | `render` | lint 오류가 없을 때만 `digest.html`과 `digest.md`를 쓴다 |
-| `prose_extract` | 윤문할 본문 문장을 `{ path, text, hash }`로 뽑는다. 제목은 빠진다 |
-| `prose_apply` | 다듬은 문장을 같은 path로 되돌려 넣는다. `**`, `{{kw:<id>}}`, 숫자, 링크가 원문과 같아야 들어간다 |
+| `prose_extract` | 윤문할 본문 문장을 `{ path, text, hash }`로 뽑는다. 제목은 빠진다. 도식 라벨과 설명, 장면 설명, 마인드맵 라벨은 `kind: "label"`과 같은 그림끼리 묶는 `group`을 붙여 함께 낸다 |
+| `prose_apply` | 다듬은 문장을 같은 path로 되돌려 넣는다. `**`, `{{kw:<id>}}`, 숫자, 링크가 원문과 같아야 들어간다. 라벨은 원문보다 길어지면 안 들어간다 |
 
 ### Parameters
 
@@ -1232,14 +1232,14 @@ digest.md         마크다운 (render, export --md가 쓴다)
 { ok: true, action: "render", slug, htmlPath, mdPath, warnings: ["..."] }
 
 // prose_extract
-{ ok: true, action: "prose_extract", slug, items: [{ path, text, hash }], count }
+{ ok: true, action: "prose_extract", slug, items: [{ path, text, hash, kind?, group? }], count }
 
 // prose_apply
 { ok: true, action: "prose_apply", slug, digestPath, dryRun, saved, applied, unchanged,
   warnings: [{ path, code, missing?, added? }], lint: [...] }
 ```
 
-`prose_apply` 경고 코드는 `UNKNOWN_PATH`, `STALE`(뽑은 뒤 원문이 바뀜), `EMPTY`, `DUPLICATE_PATH`, `MARKER_MISMATCH`다. 경고가 붙은 항목은 원문이 남는다.
+`prose_apply` 경고 코드는 `UNKNOWN_PATH`, `STALE`(뽑은 뒤 원문이 바뀜), `EMPTY`, `DUPLICATE_PATH`, `MARKER_MISMATCH`, `LABEL_TOO_LONG`(라벨이 원문보다 길어짐)이다. 경고가 붙은 항목은 원문이 남는다.
 
 ### Errors
 

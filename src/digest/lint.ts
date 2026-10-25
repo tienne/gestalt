@@ -3,7 +3,6 @@ import {
   keywordPattern,
   type Bullet,
   type Cite,
-  type Diagram,
   type Digest,
   type Report,
   type ReportOptions,
@@ -11,12 +10,11 @@ import {
 } from './schema.js';
 import { rangeSpan, reportKey } from './reports.js';
 import {
-  checkTree,
+  checkDiagramShape,
   extensionFields,
   lintExtensions,
-  walkMindmap,
+  walkDiagram,
   type ExtensionLintOptions,
-  type TreeLimit,
 } from './lint-extension.js';
 
 export type DigestIssueSeverity = 'error' | 'warning';
@@ -68,42 +66,6 @@ function* walkBullets(
   }
 }
 
-/** 대섹션 도식의 트리는 마인드맵보다 작게 둔다. 본문 사이에 끼는 그림이라서다 */
-export const DIAGRAM_TREE_MAX_NODES = 30;
-
-/** 도식에서 라벨 칸을 경로와 함께 돈다. 열 제목은 출처가 없어서 cite도 없다 */
-function* walkDiagram(
-  d: Diagram,
-  prefix: string,
-): Generator<{ label: string; cite?: Cite; path: string; labelPath: string }> {
-  const node = (n: { label: string; cite?: Cite }, path: string) => ({
-    label: n.label,
-    cite: n.cite,
-    path,
-    labelPath: `${path}.label`,
-  });
-  switch (d.kind) {
-    case 'flow':
-    case 'cycle':
-      for (const [k, step] of d.steps.entries()) yield node(step, `${prefix}.steps.${k}`);
-      return;
-    case 'compare':
-      for (const [c, col] of d.columns.entries()) {
-        const cp = `${prefix}.columns.${c}`;
-        yield { label: col.title, path: cp, labelPath: `${cp}.title` };
-        for (const [k, item] of col.items.entries()) yield node(item, `${cp}.items.${k}`);
-      }
-      return;
-    case 'tree':
-      for (const w of walkMindmap(d.root, `${prefix}.root`)) yield node(w.node, w.path);
-      return;
-    default: {
-      const never: never = d;
-      throw new Error(`알 수 없는 도식: ${String(never)}`);
-    }
-  }
-}
-
 function collectReportText(report: Report, p: string): TextField[] {
   const out: TextField[] = [];
   out.push({ path: `${p}.lead.question`, text: report.lead.question });
@@ -132,7 +94,7 @@ function collectReportText(report: Report, p: string): TextField[] {
 
 /**
  * 본문에 들어가는 문자열을 리포트 전부에서 경로와 함께 모은다. 키워드 마커 검사와 윤문이 쓴다.
- * 확장 리포트는 본문 칸만 싣는다. 이름 칸과 대사 원문은 윤문하지 않는다
+ * 확장 리포트는 본문 칸만 싣는다. 이름 칸과 대사 원문은 본문 윤문에서 빠지고 그림 글자는 prose.ts가 따로 모은다
  */
 export function collectTextFields(digest: Digest): TextField[] {
   const reports = digest.reports.flatMap((report, ri) =>
@@ -165,6 +127,10 @@ function collectCites(report: Report, p: string): CiteField[] {
       for (const { bullet, path } of walkBullets(sub.bullets, `${bp}.bullets`)) {
         out.push({ path: `${path}.cite`, cite: bullet.cite, within });
       }
+      const shotWithin = { cite: sub.cite, code: 'SHOT_CITE_OUT_OF_SUBSECTION', name: '소섹션' };
+      sub.shots?.forEach((shot, k) => {
+        out.push({ path: `${bp}.shots.${k}.cite`, cite: shot.cite, within: shotWithin });
+      });
     });
     if (section.diagram) {
       const within = { cite: section.cite, code: 'DIAGRAM_CITE_OUT_OF_SECTION', name: '대섹션' };
@@ -373,9 +339,12 @@ function checkTitleMarkers(report: Report, p: string, issues: DigestIssue[]): vo
   };
   report.sections.forEach((section, si) => {
     check(section.title, `${p}.sections.${si}.title`);
-    section.subsections.forEach((sub, bi) =>
-      check(sub.title, `${p}.sections.${si}.subsections.${bi}.title`),
-    );
+    section.subsections.forEach((sub, bi) => {
+      const bp = `${p}.sections.${si}.subsections.${bi}`;
+      check(sub.title, `${bp}.title`);
+      // 장면 설명은 그림 캡션과 alt로 글자 그대로 나간다
+      sub.shots?.forEach((shot, k) => check(shot.caption, `${bp}.shots.${k}.caption`));
+    });
     // 도식 라벨과 설명도 SVG와 목록에 글자 그대로 나간다
     const d = section.diagram;
     if (d) {
@@ -388,19 +357,9 @@ function checkTitleMarkers(report: Report, p: string, issues: DigestIssue[]): vo
   });
 }
 
-const DIAGRAM_TREE_LIMIT: TreeLimit = {
-  maxNodes: DIAGRAM_TREE_MAX_NODES,
-  depthCode: 'DIAGRAM_DEPTH',
-  sizeCode: 'DIAGRAM_SIZE',
-  name: '도식 트리',
-  topic: '도식 트리는',
-};
-
-function checkDiagramTree(report: Report, p: string, issues: DigestIssue[]): void {
+function checkDiagramShapes(report: Report, p: string, issues: DigestIssue[]): void {
   report.sections.forEach((section, si) => {
-    const d = section.diagram;
-    if (d?.kind !== 'tree') return;
-    checkTree(d.root, `${p}.sections.${si}.diagram.root`, DIAGRAM_TREE_LIMIT, issues);
+    if (section.diagram) checkDiagramShape(section.diagram, `${p}.sections.${si}.diagram`, issues);
   });
 }
 
@@ -453,6 +412,63 @@ function checkFrameSec(
   });
 }
 
+/** 장면 시각이 후보와 같은지 볼 때의 여유. scenes.json은 소수 둘째 자리까지 적는다 */
+const SHOT_SEC_TOLERANCE = 0.05;
+
+/**
+ * shots 시각이 소섹션 구간 안의 후보 장면인지 본다. 구간 끝은 다음 문장 시작이고 마지막 문장이면 영상 끝이다.
+ * scenes가 undefined면 후보 대조를 건너뛰고 null이면 파일이 없는 것이라 장면을 하나도 받지 않는다
+ */
+function checkShots(
+  report: Report,
+  p: string,
+  transcript: Transcript,
+  scenes: readonly number[] | null | undefined,
+  issues: DigestIssue[],
+): void {
+  const segs = transcript.segments;
+  report.sections.forEach((section, si) => {
+    section.subsections.forEach((sub, bi) => {
+      const first = segs[sub.cite.from];
+      // 소섹션 cite가 스크립트 밖이면 CITE_OUT_OF_RANGE가 이미 오류를 낸다
+      if (!first || !sub.shots) return;
+      const start = first.startSec;
+      const end = segs[sub.cite.to + 1]?.startSec ?? transcript.meta.durationSec;
+      sub.shots.forEach((shot, k) => {
+        const path = `${p}.sections.${si}.subsections.${bi}.shots.${k}.sec`;
+        if (shot.sec < start || shot.sec >= end) {
+          issues.push({
+            path,
+            severity: 'error',
+            code: 'SHOT_OUT_OF_RANGE',
+            message: `장면 시각 ${shot.sec}초가 소섹션 구간(${start}~${end}초) 밖이다`,
+          });
+          return;
+        }
+        if (scenes === undefined) return;
+        if (scenes === null) {
+          issues.push({
+            path,
+            severity: 'error',
+            code: 'SHOT_NO_SCENES',
+            message:
+              'scenes.json이 없거나 읽을 수 없다. gestalt digest scenes로 후보 장면을 다시 뽑는다',
+          });
+          return;
+        }
+        if (!scenes.some((sec) => Math.abs(sec - shot.sec) <= SHOT_SEC_TOLERANCE)) {
+          issues.push({
+            path,
+            severity: 'error',
+            code: 'SHOT_NOT_SCENE',
+            message: `장면 시각 ${shot.sec}초가 scenes.json 후보에 없다. 후보 시각을 그대로 쓴다`,
+          });
+        }
+      });
+    });
+  });
+}
+
 // 목차 앵커가 id로 걸려서 겹치면 엉뚱한 섹션으로 간다
 function checkDuplicateIds(report: Report, p: string, issues: DigestIssue[]): void {
   const seen = new Map<string, string>();
@@ -489,6 +505,31 @@ function checkDuplicateIds(report: Report, p: string, issues: DigestIssue[]): vo
   });
 }
 
+/**
+ * 리포트마다 붙어야 할 도식 수. 쉬운 난이도는 그림이 글을 대신 읽어 주는 몫이 커서 대섹션마다 하나,
+ * 짧게는 대섹션이 몇 개든 하나, 나머지는 대섹션 수의 절반(올림)이다
+ */
+export function diagramTarget(report: Report): number {
+  const n = report.sections.length;
+  if (report.options.difficulty === 'easy') return n;
+  if (report.options.length === 'short') return Math.min(1, n);
+  return Math.ceil(n / 2);
+}
+
+// 잡담이나 브이로그처럼 그릴 구조가 없는 영상도 있어서 경고로만 알린다
+function checkDiagramCount(report: Report, p: string, issues: DigestIssue[]): void {
+  const have = report.sections.filter((s) => s.diagram).length;
+  const want = diagramTarget(report);
+  if (have < want) {
+    issues.push({
+      path: `${p}.sections`,
+      severity: 'warning',
+      code: 'DIAGRAM_TOO_FEW',
+      message: `도식이 ${have}개다. 이 리포트는 ${want}개 이상을 권한다. 단계나 고리, 견주기, 가지, 시간 흐름, 원인과 결과가 있는 대섹션에 붙인다`,
+    });
+  }
+}
+
 function checkVolume(report: Report, p: string, issues: DigestIssue[]): void {
   const { subsections: subRange, bullets: bulletRange } = VOLUME_BY_LENGTH[report.options.length];
   report.sections.forEach((section, si) => {
@@ -515,6 +556,14 @@ function checkVolume(report: Report, p: string, issues: DigestIssue[]): void {
   });
 }
 
+export interface DigestLintOptions extends ExtensionLintOptions {
+  /**
+   * scenes.json 후보 장면 시각. undefined면 shots를 후보와 대조하지 않는다.
+   * null이면 파일이 없거나 읽을 수 없는 것이라 shots가 하나라도 있으면 오류다
+   */
+  scenes?: readonly number[] | null;
+}
+
 /**
  * 스키마를 통과한 digest가 스크립트와 맞물리는지 본다.
  * 오류가 하나라도 있으면 렌더하지 않는다. 경고는 분량처럼 영상마다 답이 다른 것들이다.
@@ -522,7 +571,7 @@ function checkVolume(report: Report, p: string, issues: DigestIssue[]): void {
 export function lintDigest(
   digest: Digest,
   transcript: Transcript,
-  opts: ExtensionLintOptions = {},
+  opts: DigestLintOptions = {},
 ): DigestIssue[] {
   const issues: DigestIssue[] = [];
   if (digest.slug !== transcript.slug) {
@@ -549,6 +598,7 @@ export function lintDigest(
       seenKeys.set(key, ri);
     }
     lintReport(report, p, transcript, issues);
+    checkShots(report, p, transcript, opts.scenes, issues);
   });
   lintExtensions(digest.extensions, transcript, issues, opts);
   return issues;
@@ -592,11 +642,12 @@ function lintReport(
   }
   checkBulletDepth(report, p, issues);
   checkTitleMarkers(report, p, issues);
-  checkDiagramTree(report, p, issues);
+  checkDiagramShapes(report, p, issues);
   checkKeywords(report, p, issues);
   checkFrameSec(report, p, transcript, issues);
   checkDuplicateIds(report, p, issues);
   checkVolume(report, p, issues);
+  checkDiagramCount(report, p, issues);
 }
 
 export function lintErrors(issues: DigestIssue[]): DigestIssue[] {
