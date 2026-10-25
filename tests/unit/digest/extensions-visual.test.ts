@@ -544,6 +544,18 @@ describe('대섹션 도식', () => {
     expect(md).toMatch(/^1\. 탐색 \[00:05\]/m);
     expect(md).toMatch(/^2\. 편집$/m);
   });
+
+  it('마크다운 도식 라벨과 설명의 문법 글자를 무력화한다', () => {
+    const injected: Diagram = {
+      ...flow,
+      caption: '[x](https://e.com)',
+      steps: [{ label: '<b>탐색</b>' }, { label: '# 편집' }],
+    };
+    const md = renderDigestMarkdown(withDiagram(injected), sampleTranscript());
+    expect(md).toContain('*흐름도: \\[x\\](https://e.com)*');
+    expect(md).toMatch(/^1\. \\<b\\>탐색\\<\/b\\>$/m);
+    expect(md).toMatch(/^2\. \\# 편집$/m);
+  });
 });
 
 describe('도식 레이아웃', () => {

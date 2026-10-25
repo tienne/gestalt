@@ -494,6 +494,22 @@ describe('텍스트 블록 (quote, timestamps, actions, qa)', () => {
     expect(md).toContain('## 제목 - 목록으로 새는 줄');
     expect(md).not.toMatch(/^# 끼어든 제목/m);
   });
+
+  it('마크다운 이름 칸도 링크와 HTML 문법 글자를 무력화한다', () => {
+    const ext = textExt();
+    const [quote, , actions] = ext.blocks;
+    if (quote?.type !== 'quote') throw new Error('quote 블록이어야 한다');
+    if (actions?.type !== 'actions') throw new Error('actions 블록이어야 한다');
+    const injected = '\\[x\\](https://e.com) <b>';
+    quote.speaker = injected;
+    actions.items[0]!.owner = injected;
+    ext.blocks.unshift({ type: 'heading', text: injected });
+    const md = renderExtensionMarkdown(ext, sampleTranscript());
+    expect(md).toContain('## \\\\\\[x\\\\\\](https://e.com) \\<b\\>');
+    expect(md).toContain('— \\\\\\[x\\\\\\](https://e.com) \\<b\\>');
+    expect(md).toContain('담당 \\\\\\[x\\\\\\](https://e.com) \\<b\\>');
+    expect(md).not.toMatch(/(^|[^\\])\]\(https:\/\/e\.com\)/m);
+  });
 });
 
 describe('기본 템플릿', () => {

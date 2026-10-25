@@ -65,7 +65,7 @@ function outlineHtml(node: MindmapNode, ctx: BlockHtmlContext): string {
 
 function outlineMd(node: MindmapNode, ctx: BlockMdContext, depth = 0): string[] {
   return [
-    `${'  '.repeat(depth)}- ${oneLine(node.label)}${node.cite ? ` ${ctx.time(node.cite)}` : ''}`,
+    `${'  '.repeat(depth)}- ${mdPlain(node.label)}${node.cite ? ` ${ctx.time(node.cite)}` : ''}`,
     ...(node.children ?? []).flatMap((c) => outlineMd(c, ctx, depth + 1)),
   ];
 }
@@ -118,9 +118,9 @@ export function sectionDiagramHtml(d: Diagram, title: string, ctx: BlockHtmlCont
 
 /** 마크다운에는 그림 대신 목록으로 옮긴다. 순서가 있는 흐름과 순환은 번호를 단다 */
 export function sectionDiagramMd(d: Diagram, ctx: BlockMdContext): string[] {
-  const head = d.caption ? [`*${DIAGRAM_LABEL[d.kind]}: ${oneLine(d.caption)}*`, ''] : [];
+  const head = d.caption ? [`*${DIAGRAM_LABEL[d.kind]}: ${mdPlain(d.caption)}*`, ''] : [];
   const step = (n: MindmapNode, k: number) =>
-    `${k + 1}. ${oneLine(n.label)}${n.cite ? ` ${ctx.time(n.cite)}` : ''}`;
+    `${k + 1}. ${mdPlain(n.label)}${n.cite ? ` ${ctx.time(n.cite)}` : ''}`;
   switch (d.kind) {
     case 'flow':
     case 'cycle':
@@ -145,6 +145,9 @@ const mdVerbatim = (text: string) => text.replace(/[\\`*_[\]<>#|&]/g, (ch) => `\
 
 // 한 줄로 쓰는 칸에 개행이 섞이면 목록이나 인용 밖으로 빠져나간다
 const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+// 제목, 라벨, 이름 칸도 자막과 댓글에서 나온 값이다. lint가 `**`를 막는 칸이라 문법 글자를 전부 이스케이프해도 잃는 서식이 없다
+const mdPlain = (text: string) => mdVerbatim(oneLine(text));
 
 const quoteLines = (text: string) => text.split(/\r?\n/).map((l) => `> ${l}`.trimEnd());
 
@@ -251,18 +254,18 @@ export function blockHtml(block: Block, ctx: BlockHtmlContext, id = 'b'): string
 export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
   switch (block.type) {
     case 'heading':
-      return [`## ${oneLine(block.text)}`, ''];
+      return [`## ${mdPlain(block.text)}`, ''];
     case 'text':
       return [`${stripKeywords(block.text)}${mdCite(block.cite, ctx)}`, ''];
     case 'list':
       return [
-        ...(block.title ? [`**${oneLine(block.title)}**`, ''] : []),
+        ...(block.title ? [`**${mdPlain(block.title)}**`, ''] : []),
         ...listMd(block.items, ctx),
         '',
       ];
     case 'quote': {
       const by = [
-        block.speaker ? `— ${block.speaker}` : '',
+        block.speaker ? `— ${mdPlain(block.speaker)}` : '',
         block.note ? stripKeywords(block.note) : '',
       ]
         .filter(Boolean)
@@ -280,14 +283,14 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
       return [
         ...block.items.map(
           (it) =>
-            `- ${ctx.time(it.cite)} **${oneLine(it.title)}**${it.summary ? ` ${stripKeywords(it.summary)}` : ''}`,
+            `- ${ctx.time(it.cite)} **${mdPlain(it.title)}**${it.summary ? ` ${stripKeywords(it.summary)}` : ''}`,
         ),
         '',
       ];
     case 'actions':
       return [
         ...block.items.map((it) => {
-          const meta = [it.owner ? `담당 ${it.owner}` : '', it.due ? `기한 ${it.due}` : '']
+          const meta = [it.owner ? `담당 ${mdPlain(it.owner)}` : '', it.due ? `기한 ${mdPlain(it.due)}` : '']
             .filter(Boolean)
             .join(', ');
           return `- [ ] ${stripKeywords(it.task)}${meta ? ` (${meta})` : ''}${mdCite(it.cite, ctx)}`;
@@ -327,7 +330,7 @@ export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
         `분석한 댓글 ${block.total}개`,
         '',
         ...block.groups.flatMap((g) => [
-          `**${oneLine(g.title)}** (${TONE_LABEL[g.tone]}, ${g.count}개)`,
+          `**${mdPlain(g.title)}** (${TONE_LABEL[g.tone]}, ${g.count}개)`,
           '',
           stripKeywords(g.summary),
           '',
