@@ -503,20 +503,39 @@ describe('텍스트 블록 (quote, timestamps, actions, qa)', () => {
     expect(md).not.toMatch(/^# 끼어든 제목/m);
   });
 
-  it('마크다운 이름 칸도 링크와 HTML 문법 글자를 무력화한다', () => {
-    const ext = textExt();
-    const [quote, , actions] = ext.blocks;
-    if (quote?.type !== 'quote') throw new Error('quote 블록이어야 한다');
-    if (actions?.type !== 'actions') throw new Error('actions 블록이어야 한다');
-    const injected = '\\[x\\](https://e.com) <b>';
-    quote.speaker = injected;
-    actions.items[0]!.owner = injected;
-    ext.blocks.unshift({ type: 'heading', text: injected });
-    const md = renderExtensionMarkdown(ext, sampleTranscript());
-    expect(md).toContain('## \\\\\\[x\\\\\\](https://e.com) \\<b\\>');
-    expect(md).toContain('— \\\\\\[x\\\\\\](https://e.com) \\<b\\>');
-    expect(md).toContain('담당 \\\\\\[x\\\\\\](https://e.com) \\<b\\>');
-    expect(md).not.toMatch(/(^|[^\\])\]\(https:\/\/e\.com\)/m);
+  describe('마크다운 한 줄 칸도 링크와 HTML 문법 글자를 무력화한다', () => {
+    const raw = String.raw`a\b [x](https://e.com) <b>`;
+    const escaped = String.raw`a\\b \[x\](https://e.com) \<b\>`;
+    const cite = { key: 1, from: 1, to: 1 };
+    const cases: [string, Block, string][] = [
+      ['heading', { type: 'heading', text: raw }, `## ${escaped}`],
+      ['list.title', { type: 'list', title: raw, items: [{ text: '항목' }] }, `**${escaped}**`],
+      ['quote.speaker', { type: 'quote', text: '원문', speaker: raw, cite }, `— ${escaped}`],
+      ['timestamps.title', { type: 'timestamps', items: [{ title: raw, cite }] }, `**${escaped}**`],
+      [
+        'actions.owner',
+        { type: 'actions', items: [{ task: '할 일', owner: raw }] },
+        `담당 ${escaped}`,
+      ],
+      ['actions.due', { type: 'actions', items: [{ task: '할 일', due: raw }] }, `기한 ${escaped}`],
+      [
+        'comments 묶음 title',
+        {
+          type: 'comments',
+          total: 1,
+          overview: '개요',
+          groups: [{ title: raw, tone: 'neutral', count: 1, summary: '요약', examples: [] }],
+        },
+        `**${escaped}**`,
+      ],
+      ['mindmap 라벨', { type: 'mindmap', root: { label: raw } }, `- ${escaped}`],
+    ];
+
+    it.each(cases)('%s', (_name, block, expected) => {
+      const md = blockMarkdown(block, { cite: () => '', time: () => '' }).join('\n');
+      expect(md).toContain(expected);
+      expect(md).not.toMatch(/(^|[^\\])\]\(https:\/\/e\.com\)/m);
+    });
   });
 
   it('마크다운 본문 칸은 굵게만 남기고 링크와 HTML 문법 글자를 무력화한다', () => {
