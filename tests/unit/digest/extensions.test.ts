@@ -337,6 +337,12 @@ describe('확장 탭 렌더', () => {
     expect(md).toContain('**더 볼 거리**');
     expect(md).toMatch(/\n {2}- JSX/);
   });
+
+  it('확장 마크다운의 리포트 제목도 링크와 HTML 문법 글자를 무력화한다', () => {
+    const ext = { ...sampleExtension(), title: '[x](https://e.com) <b>' };
+    const md = renderExtensionMarkdown(ext, sampleTranscript());
+    expect(md).toContain(String.raw`> 리포트: \[x\](https://e.com) \<b\>`);
+  });
 });
 
 describe('serve 렌더', () => {

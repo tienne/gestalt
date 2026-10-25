@@ -147,7 +147,7 @@ const mdVerbatim = (text: string) => text.replace(/[\\`*_[\]<>#|&]/g, (ch) => `\
 const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
 
 // 제목, 라벨, 이름 칸도 자막과 댓글에서 나온 값이다. lint가 `**`를 막는 칸이라 문법 글자를 전부 이스케이프해도 잃는 서식이 없다
-const mdInline = (text: string) => mdVerbatim(oneLine(text));
+export const mdInline = (text: string) => mdVerbatim(oneLine(text));
 
 const quoteLines = (text: string) => text.split(/\r?\n/).map((l) => `> ${l}`.trimEnd());
 

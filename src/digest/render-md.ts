@@ -1,7 +1,7 @@
 import type { Extension } from './blocks.js';
 import { frameFileName } from './frames.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
-import { blockMarkdown, sectionDiagramMd } from './render-blocks.js';
+import { blockMarkdown, mdInline, sectionDiagramMd } from './render-blocks.js';
 import { reportLabel } from './reports.js';
 import {
   keywordPattern,
@@ -95,7 +95,7 @@ export function renderDigestMarkdown(
 export function renderExtensionMarkdown(ext: Extension, transcript: Transcript): string {
   const cite = mdCiter(transcript);
   const out = mdHeader(transcript);
-  out.push(`> 리포트: ${ext.title}`, '');
+  out.push(`> 리포트: ${mdInline(ext.title)}`, '');
   const time = mdTimer(transcript);
   for (const b of ext.blocks) out.push(...blockMarkdown(b, { cite, time }));
   return finish(out);
