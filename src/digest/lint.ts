@@ -430,6 +430,7 @@ function checkShots(
   report.sections.forEach((section, si) => {
     section.subsections.forEach((sub, bi) => {
       const first = segs[sub.cite.from];
+      // 소섹션 cite가 스크립트 밖이면 CITE_OUT_OF_RANGE가 이미 오류를 낸다
       if (!first || !sub.shots) return;
       const start = first.startSec;
       const end = segs[sub.cite.to + 1]?.startSec ?? transcript.meta.durationSec;
@@ -450,7 +451,8 @@ function checkShots(
             path,
             severity: 'error',
             code: 'SHOT_NO_SCENES',
-            message: 'scenes.json이 없다. gestalt digest scenes로 후보 장면을 먼저 뽑는다',
+            message:
+              'scenes.json이 없거나 읽을 수 없다. gestalt digest scenes로 후보 장면을 다시 뽑는다',
           });
           return;
         }
@@ -554,18 +556,18 @@ function checkVolume(report: Report, p: string, issues: DigestIssue[]): void {
   });
 }
 
-/**
- * 스키마를 통과한 digest가 스크립트와 맞물리는지 본다.
- * 오류가 하나라도 있으면 렌더하지 않는다. 경고는 분량처럼 영상마다 답이 다른 것들이다.
- */
 export interface DigestLintOptions extends ExtensionLintOptions {
   /**
    * scenes.json 후보 장면 시각. undefined면 shots를 후보와 대조하지 않는다.
-   * null이면 파일이 없는 것이라 shots가 하나라도 있으면 오류다
+   * null이면 파일이 없거나 읽을 수 없는 것이라 shots가 하나라도 있으면 오류다
    */
   scenes?: readonly number[] | null;
 }
 
+/**
+ * 스키마를 통과한 digest가 스크립트와 맞물리는지 본다.
+ * 오류가 하나라도 있으면 렌더하지 않는다. 경고는 분량처럼 영상마다 답이 다른 것들이다.
+ */
 export function lintDigest(
   digest: Digest,
   transcript: Transcript,

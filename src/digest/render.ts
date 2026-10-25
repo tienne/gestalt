@@ -79,7 +79,8 @@ export function loadForRender(
   const errors = lintErrors(
     lintDigest(parsed.value, t.transcript, {
       templates: templates ? templateMap(templates) : undefined,
-      // 댓글 파일을 나중에 지웠어도 이미 합친 리포트는 그린다. 있을 때만 대조한다
+      // 댓글이나 후보 장면 파일을 나중에 지웠거나 깨졌어도 이미 합친 리포트는 그린다.
+      // 있을 때만 대조하고 없을 때 막는 일은 merge와 validate가 맡는다
       comments: commentsMap(store, slug) ?? undefined,
       scenes: sceneSecs(store, slug) ?? undefined,
     }),

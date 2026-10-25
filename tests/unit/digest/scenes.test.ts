@@ -10,6 +10,8 @@ import {
   shotFileName,
 } from '../../../src/digest/frames.js';
 import { lintDigest, lintErrors, type DigestIssue } from '../../../src/digest/lint.js';
+import { mergeExtension, mergeReport } from '../../../src/digest/merge.js';
+import { renderToFiles } from '../../../src/digest/render.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import {
@@ -197,11 +199,65 @@ describe('소섹션 shots lint', () => {
     expect(lintErrors(lintDigest(d, t))).toEqual([]);
   });
 
+  it('소섹션 끝 시각은 다음 소섹션 몫이다', () => {
+    expect(lintErrors(lintDigest(withShots([shot(14.99)]), t, { scenes: [14.99] }))).toEqual([]);
+    expect(codesAt(lintErrors(lintDigest(withShots([shot(15)]), t, { scenes: [15] })))).toEqual([
+      `SHOT_OUT_OF_RANGE ${SHOT0}.sec`,
+    ]);
+  });
+
   it('장면 출처는 소섹션 안이어야 하고 설명에 마커를 받지 않는다', () => {
     const d = withShots([shot(10, { caption: '**굵게**', cite: { key: 4, from: 4, to: 4 } })]);
     const codes = codesAt(lintErrors(lintDigest(d, t, { scenes: [10] })));
     expect(codes).toContain(`SHOT_CITE_OUT_OF_SUBSECTION ${SHOT0}.cite`);
     expect(codes).toContain(`TITLE_MARKER ${SHOT0}.caption`);
+  });
+});
+
+describe('shots를 합치고 그리는 경로', () => {
+  const writeScenes = (store: DigestStore, secs: number[]) =>
+    writeFileSync(
+      join(store.dir(SLUG), 'scenes.json'),
+      JSON.stringify({ source: 'ocr', items: secs.map((sec) => ({ sec, i: 2 })) }),
+    );
+  const report = () => withShots([shot(10)]).reports[0]!;
+  const codes = (issues: DigestIssue[]) => lintErrors(issues).map((i) => i.code);
+
+  it('merge는 scenes.json이 없거나 후보에 없는 시각이면 저장하지 않는다', () => {
+    const { repo, store } = seeded();
+    const none = mergeReport(repo, SLUG, report());
+    expect(none.saved).toBe(false);
+    expect(codes(none.issues)).toEqual(['SHOT_NO_SCENES']);
+
+    writeScenes(store, [11]);
+    const off = mergeReport(repo, SLUG, report());
+    expect(off.saved).toBe(false);
+    expect(codes(off.issues)).toEqual(['SHOT_NOT_SCENE']);
+
+    writeScenes(store, [10]);
+    expect(mergeReport(repo, SLUG, report()).saved).toBe(true);
+  });
+
+  it('확장을 합칠 때도 리포트의 shots를 후보와 대조한다', () => {
+    const { repo, store } = seeded();
+    store.saveDigest(withShots([shot(10)]));
+    const ext = {
+      template: 'background',
+      title: '관련 배경지식',
+      lang: 'ko',
+      blocks: [{ type: 'text', text: '캔버스 위에서 코드를 돌린다.', cite: { key: 1, from: 1, to: 2 } }],
+    };
+    const r = mergeExtension(repo, SLUG, ext);
+    expect(r.saved).toBe(false);
+    expect(codes(r.issues)).toEqual(['SHOT_NO_SCENES']);
+  });
+
+  it('이미 합친 digest는 scenes.json이 없거나 깨져도 그린다', () => {
+    const { repo, store } = seeded();
+    store.saveDigest(withShots([shot(10)]));
+    expect(() => renderToFiles(SLUG, { repoRoot: repo })).not.toThrow();
+    writeFileSync(join(store.dir(SLUG), 'scenes.json'), '{');
+    expect(() => renderToFiles(SLUG, { repoRoot: repo })).not.toThrow();
   });
 });
 
