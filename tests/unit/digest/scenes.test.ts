@@ -298,4 +298,11 @@ describe('shots 렌더', () => {
     expect(md).toContain('![리텐션 \\[곡선\\]](frames/s00010000.jpg)');
     expect(md).toMatch(/^\*리텐션 \\\[곡선\\\]\* \[00:10\]\(/m);
   });
+
+  it('마크다운 alt는 개행을 접고 <, >, !도 이스케이프한다', () => {
+    const md = renderDigestMarkdown(withShots([shot(10, { caption: '첫 줄\n# 제목 <b>!' })]), t, {
+      frameExists: exists,
+    });
+    expect(md).toContain('![첫 줄 # 제목 \\<b\\>\\!](frames/s00010000.jpg)');
+  });
 });

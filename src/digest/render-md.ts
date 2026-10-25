@@ -68,7 +68,11 @@ export function renderDigestMarkdown(
       // 뷰어와 같이 장면이 있으면 첫 문장 프레임 대신 장면을 싣는다
       const shots = (sub.shots ?? []).filter((x) => opts.frameExists?.(shotFileName(x.sec)));
       for (const shot of shots) {
-        const alt = shot.caption.replace(/[\\[\]]/g, (ch) => `\\${ch}`);
+        // 개행이 남으면 이미지 문법이 깨져 다음 줄이 따로 해석된다
+        const alt = shot.caption
+          .replace(/\s+/g, ' ')
+          .trim()
+          .replace(/[\\[\]<>!]/g, (ch) => `\\${ch}`);
         out.push(`![${alt}](${framesHref}/${shotFileName(shot.sec)})`, '');
         const url = watchUrlAt(transcript.meta, shot.sec);
         const at = formatTime(shot.sec, long);
