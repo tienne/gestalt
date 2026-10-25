@@ -534,7 +534,9 @@ describe('대섹션 도식', () => {
   });
 
   it('도식이 없으면 그림을 싣지 않는다', () => {
-    const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
+    const d = sampleDigest();
+    for (const s of d.reports[0]!.sections) delete s.diagram;
+    const { html } = renderDigestHtml(d, sampleTranscript());
     expect(html).not.toContain('<figure class="diagram">');
   });
 

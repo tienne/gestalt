@@ -489,6 +489,31 @@ function checkDuplicateIds(report: Report, p: string, issues: DigestIssue[]): vo
   });
 }
 
+/**
+ * 리포트마다 붙어야 할 도식 수. 쉬운 난이도는 그림이 글을 대신 읽어 주는 몫이 커서 대섹션마다 하나,
+ * 짧게는 대섹션이 몇 개든 하나, 나머지는 대섹션 수의 절반(올림)이다
+ */
+export function diagramTarget(report: Report): number {
+  const n = report.sections.length;
+  if (report.options.difficulty === 'easy') return n;
+  if (report.options.length === 'short') return Math.min(1, n);
+  return Math.ceil(n / 2);
+}
+
+// 잡담이나 브이로그처럼 그릴 구조가 없는 영상도 있어서 경고로만 알린다
+function checkDiagramCount(report: Report, p: string, issues: DigestIssue[]): void {
+  const have = report.sections.filter((s) => s.diagram).length;
+  const want = diagramTarget(report);
+  if (have < want) {
+    issues.push({
+      path: `${p}.sections`,
+      severity: 'warning',
+      code: 'DIAGRAM_TOO_FEW',
+      message: `도식이 ${have}개다. 이 리포트는 ${want}개 이상을 권한다. 단계나 고리, 견주기, 가지, 시간 흐름, 원인과 결과가 있는 대섹션에 붙인다`,
+    });
+  }
+}
+
 function checkVolume(report: Report, p: string, issues: DigestIssue[]): void {
   const { subsections: subRange, bullets: bulletRange } = VOLUME_BY_LENGTH[report.options.length];
   report.sections.forEach((section, si) => {
@@ -597,6 +622,7 @@ function lintReport(
   checkFrameSec(report, p, transcript, issues);
   checkDuplicateIds(report, p, issues);
   checkVolume(report, p, issues);
+  checkDiagramCount(report, p, issues);
 }
 
 export function lintErrors(issues: DigestIssue[]): DigestIssue[] {

@@ -78,6 +78,14 @@ export function sampleDigest(): Digest {
             title: '여러 방향 만들기',
             conclusion: '에이전트가 여러 방향을 만든다.',
             cite: { key: 7, from: 6, to: 11 },
+            // 기본 분량 리포트는 대섹션 절반에 도식을 권해서 유효본도 하나는 둔다
+            diagram: {
+              kind: 'flow',
+              steps: [
+                { label: '방향 만들기', cite: { key: 6, from: 6, to: 8 } },
+                { label: '발전시키기', cite: { key: 10, from: 9, to: 11 } },
+              ],
+            },
             subsections: [
               {
                 id: 's2-1',
