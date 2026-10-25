@@ -22,3 +22,4 @@ export * from './lint-extension.js';
 export * from './render-blocks.js';
 export * from './comments.js';
 export * from './svg.js';
+export * from './scenes.js';

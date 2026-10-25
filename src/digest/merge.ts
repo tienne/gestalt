@@ -1,5 +1,6 @@
 import { extensionKey, extensionSchema, type Extension } from './blocks.js';
 import { commentsMap } from './comments.js';
+import { sceneSecs } from './scenes.js';
 import { lintDigest, lintErrors, type DigestIssue } from './lint.js';
 import type { ExtensionLintOptions } from './lint-extension.js';
 import { reportKey, upsertReport } from './reports.js';
@@ -53,7 +54,8 @@ export function mergeReport(repoRoot: string, slug: string, input: unknown): Mer
     schemaVersion: DIGEST_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
   };
-  const issues = lintDigest(merged, t.transcript);
+  // shots 시각은 후보 장면이어야 합친다. 파일이 없으면 null이라 shots가 있는 리포트는 오류로 걸린다
+  const issues = lintDigest(merged, t.transcript, { scenes: sceneSecs(store, slug) });
   const saved = lintErrors(issues).length === 0;
   const digestPath = saved ? store.saveDigest(merged) : store.digestPath(slug);
   const key = reportKey(report.options);
@@ -124,6 +126,7 @@ export function mergeExtension(
     ...opts,
     comments: opts.comments !== undefined ? opts.comments : commentsMap(store, slug),
     strictVerbatim: true,
+    scenes: sceneSecs(store, slug),
   });
   const saved = lintErrors(issues).length === 0;
   const digestPath = saved ? store.saveDigest(merged) : store.digestPath(slug);
