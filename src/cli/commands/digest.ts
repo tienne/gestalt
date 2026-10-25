@@ -171,7 +171,7 @@ function parseInterval(value: string | undefined): number | undefined {
   return Number(value);
 }
 
-function printOcr(r: OcrResult): void {
+export function printOcr(r: OcrResult): void {
   if (r.requestedIntervalSec !== undefined) {
     console.log(
       `프레임이 너무 많아 간격을 ${r.requestedIntervalSec}초에서 ${r.intervalSec}초로 넓혔어요`,
