@@ -19,6 +19,7 @@ import {
   ocrScenes,
   pickScenes,
   sceneSecs,
+  spreadEvenly,
   textChange,
   textHead,
   thinSceneTimes,
@@ -117,7 +118,30 @@ describe('후보 장면 고르기', () => {
     ].join('\n');
     expect(parseShowinfo(log)).toEqual([1.5, 2.9, 12]);
     expect(thinSceneTimes([12, 1.5, 2.9])).toEqual([1.5, 12]);
-    expect(thinSceneTimes(Array.from({ length: 500 }, (_, k) => k * 10))).toHaveLength(MAX_SCENES);
+  });
+
+  it('상한을 넘는 후보는 앞에서 자르지 않고 처음부터 끝까지 고르게 솎는다', () => {
+    const secs = Array.from({ length: 500 }, (_, k) => k * 10);
+    const kept = spreadEvenly(secs);
+    expect(kept).toHaveLength(MAX_SCENES);
+    expect(kept[0]).toBe(0);
+    expect(kept.at(-1)).toBe(4990);
+    expect(spreadEvenly([1, 2, 3])).toEqual([1, 2, 3]);
+  });
+
+  it('솎았으면 scenes.json에 원래 후보 수를 남긴다', async () => {
+    const { repo, store } = seeded();
+    // 글자가 전혀 다른 화면이 번갈아 나와 매 항목이 후보가 된다
+    const items = Array.from({ length: MAX_SCENES + 20 }, (_, k): [number, string] => [
+      k * 10,
+      k % 2 ? `${SLIDE_A} ${k}` : `${SLIDE_B} ${k}`,
+    ]);
+    writeFileSync(join(store.dir(SLUG), 'ocr.json'), JSON.stringify(ocr(items)));
+    const r = await pickScenes(SLUG, { repoRoot: repo });
+    expect(r).toMatchObject({ items: MAX_SCENES, total: MAX_SCENES + 20, truncated: true });
+    const file = JSON.parse(readFileSync(join(store.dir(SLUG), 'scenes.json'), 'utf-8'));
+    expect(file.total).toBe(MAX_SCENES + 20);
+    expect(sceneSecs(store, SLUG)!.at(-1)).toBe((MAX_SCENES + 19) * 10);
   });
 
   it('ocr.json이 있으면 영상 없이 글자로 고른다', async () => {
@@ -245,7 +269,9 @@ describe('shots를 합치고 그리는 경로', () => {
       template: 'background',
       title: '관련 배경지식',
       lang: 'ko',
-      blocks: [{ type: 'text', text: '캔버스 위에서 코드를 돌린다.', cite: { key: 1, from: 1, to: 2 } }],
+      blocks: [
+        { type: 'text', text: '캔버스 위에서 코드를 돌린다.', cite: { key: 1, from: 1, to: 2 } },
+      ],
     };
     const r = mergeExtension(repo, SLUG, ext);
     expect(r.saved).toBe(false);

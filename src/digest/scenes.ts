@@ -37,6 +37,8 @@ export const scenesFileSchema = z.object({
       }),
     )
     .max(MAX_SCENES),
+  /** 상한을 넘어 솎았을 때만 있다. 솎기 전 후보 수다 */
+  total: z.number().int().nonnegative().optional(),
 });
 
 export type ScenesFile = z.infer<typeof scenesFileSchema>;
@@ -86,7 +88,7 @@ export function ocrScenes(ocr: OcrFile): SceneItem[] {
     }
     prev = item.text;
   }
-  return out.slice(0, MAX_SCENES);
+  return out;
 }
 
 /** 앞 후보와 minGap초 안에 붙은 전환은 버린다. 카메라가 연달아 바뀌는 자리는 하나만 남는다 */
@@ -96,7 +98,22 @@ export function thinSceneTimes(secs: number[], minGap = SCENE_MIN_GAP_SEC): numb
     const last = out[out.length - 1];
     if (last === undefined || sec - last >= minGap) out.push(sec);
   }
-  return out.slice(0, MAX_SCENES);
+  return out;
+}
+
+/** 시간순 후보가 max개를 넘으면 처음과 끝을 포함해 고르게 솎는다. 앞에서 자르면 영상 뒷부분 장면이 통째로 빠진다 */
+export function spreadEvenly<T>(items: readonly T[], max = MAX_SCENES): T[] {
+  if (items.length <= max) return [...items];
+  if (max <= 1) return items.slice(0, max);
+  return Array.from(
+    { length: max },
+    (_, k) => items[Math.round((k * (items.length - 1)) / (max - 1))]!,
+  );
+}
+
+function scenesFile(source: ScenesFile['source'], all: SceneItem[]): ScenesFile {
+  const items = spreadEvenly(all);
+  return items.length < all.length ? { source, items, total: all.length } : { source, items };
 }
 
 export type ScenesRead =
@@ -142,6 +159,21 @@ export interface ScenesResult {
   path: string;
   source: ScenesFile['source'];
   items: number;
+  /** 솎기 전 후보 수. items보다 크면 상한에 걸려 고르게 솎은 것이다 */
+  total: number;
+  truncated: boolean;
+}
+
+function saveScenes(path: string, file: ScenesFile): ScenesResult {
+  writeJsonAtomic(path, file);
+  const total = file.total ?? file.items.length;
+  return {
+    path,
+    source: file.source,
+    items: file.items.length,
+    total,
+    truncated: total > file.items.length,
+  };
 }
 
 /**
@@ -157,9 +189,7 @@ export async function pickScenes(slug: string, opts: ScenesOptions): Promise<Sce
 
   const ocr = readOcr(store, slug);
   if (ocr) {
-    const items = ocrScenes(ocr);
-    writeJsonAtomic(path, { source: 'ocr', items } satisfies ScenesFile);
-    return { path, source: 'ocr', items: items.length };
+    return saveScenes(path, scenesFile('ocr', ocrScenes(ocr)));
   }
 
   const run = opts.run ?? runCommand;
@@ -181,8 +211,7 @@ export async function pickScenes(slug: string, opts: ScenesOptions): Promise<Sce
       const sec = Math.round(raw * 100) / 100;
       return { sec, i: Math.max(0, findSegmentIndex(starts, sec)) };
     });
-    writeJsonAtomic(path, { source: 'scene', items } satisfies ScenesFile);
-    return { path, source: 'scene', items: items.length };
+    return saveScenes(path, scenesFile('scene', items));
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

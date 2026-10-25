@@ -153,6 +153,9 @@ export async function digestScenesCommand(slug: string, opts: DigestCommonOption
     emit(r, opts.json, () => {
       const how = r.source === 'ocr' ? '화면 글자(ocr.json)' : 'ffmpeg 장면 전환';
       console.log(`후보 장면 ${r.items}개 (${how})`);
+      if (r.truncated) {
+        console.log(`후보가 ${r.total}개라 영상 전체에서 고르게 ${r.items}개만 남겼어요.`);
+      }
       console.log(`저장: ${r.path}`);
     });
   } catch (e) {
