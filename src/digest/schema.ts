@@ -9,11 +9,14 @@ import {
   SLUG_PATTERN,
   textSchema,
 } from './schema-base.js';
-import { extensionSchema, mindmapNodeSchema } from './blocks.js';
+import { extensionSchema } from './blocks.js';
+import { diagramSchema } from './diagram-schema.js';
+
+export { DIAGRAM_KINDS, diagramSchema, type Diagram, type DiagramKind } from './diagram-schema.js';
 
 export { citeSchema, LANG_TAG_PATTERN };
 
-export const DIGEST_SCHEMA_VERSION = '1.3.0';
+export const DIGEST_SCHEMA_VERSION = '1.4.0';
 export const TRANSCRIPT_SCHEMA_VERSION = '1.0.0';
 
 export const CAPTION_SOURCES = ['manual', 'auto', 'whisper'] as const;
@@ -134,37 +137,6 @@ export const subsectionSchema = z.object({
   bullets: z.array(bulletSchema).min(1),
 });
 
-const diagramNodeSchema = z.object({ label: textSchema, cite: citeSchema.optional() });
-const diagramCaption = textSchema.optional();
-
-export const DIAGRAM_KINDS = ['flow', 'cycle', 'compare', 'tree'] as const;
-
-/**
- * 대섹션 도식. 단계, 순환, 비교, 트리 중 하나의 구조만 받고 그림은 svg.ts가 그린다.
- * 모델이 쓴 SVG를 그대로 실으면 스크립트나 외부 링크가 섞일 수 있어서 원문은 받지 않는다
- */
-export const diagramSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('flow'),
-    caption: diagramCaption,
-    steps: z.array(diagramNodeSchema).min(2).max(8),
-  }),
-  z.object({
-    kind: z.literal('cycle'),
-    caption: diagramCaption,
-    steps: z.array(diagramNodeSchema).min(3).max(8),
-  }),
-  z.object({
-    kind: z.literal('compare'),
-    caption: diagramCaption,
-    columns: z
-      .array(z.object({ title: textSchema, items: z.array(diagramNodeSchema).min(1).max(6) }))
-      .min(2)
-      .max(4),
-  }),
-  z.object({ kind: z.literal('tree'), caption: diagramCaption, root: mindmapNodeSchema }),
-]);
-
 export const sectionSchema = z.object({
   id: idSchema,
   title: textSchema,
@@ -249,7 +221,6 @@ export type VideoMeta = z.infer<typeof videoMetaSchema>;
 export type Transcript = z.infer<typeof transcriptSchema>;
 export type Subsection = z.infer<typeof subsectionSchema>;
 export type Section = z.infer<typeof sectionSchema>;
-export type Diagram = z.infer<typeof diagramSchema>;
 export type Keyword = z.infer<typeof keywordSchema>;
 export type Skipped = z.infer<typeof skippedSchema>;
 export type ReportOptions = z.infer<typeof reportOptionsSchema>;

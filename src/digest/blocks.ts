@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { citeSchema, LANG_TAG_PATTERN, textSchema } from './schema-base.js';
+import { mindmapNodeSchema } from './diagram-schema.js';
+
+export { mindmapNodeSchema, type MindmapNode } from './diagram-schema.js';
 
 /**
  * 확장 리포트(회의록, 퀴즈 같은 템플릿 결과)를 이루는 블록.
@@ -110,21 +113,6 @@ export const quizBlockSchema = z.object({
     .min(1)
     .max(30),
 });
-
-export interface MindmapNode {
-  label: string;
-  cite?: z.infer<typeof citeSchema>;
-  children?: MindmapNode[];
-}
-
-/** 깊이와 노드 수 상한은 lint가 경로와 함께 잡는다. 그림이 화면을 넘지 않게 하려는 것이다 */
-export const mindmapNodeSchema: z.ZodType<MindmapNode> = z.lazy(() =>
-  z.object({
-    label: textSchema,
-    cite: citeSchema.optional(),
-    children: z.array(mindmapNodeSchema).max(12).optional(),
-  }),
-);
 
 /** SVG 원문은 받지 않는다. 트리 구조만 받고 그림은 렌더러가 그린다 */
 export const mindmapBlockSchema = z.object({

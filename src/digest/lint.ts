@@ -71,8 +71,8 @@ function* walkBullets(
 /** 대섹션 도식의 트리는 마인드맵보다 작게 둔다. 본문 사이에 끼는 그림이라서다 */
 export const DIAGRAM_TREE_MAX_NODES = 30;
 
-/** 도식에서 라벨 칸을 경로와 함께 돈다. 열 제목은 출처가 없어서 cite도 없다 */
-function* walkDiagram(
+/** 도식에서 라벨 칸을 경로와 함께 돈다. 열 제목과 축 이름, 시점 글자는 출처가 없어서 cite도 없다 */
+export function* walkDiagram(
   d: Diagram,
   prefix: string,
 ): Generator<{ label: string; cite?: Cite; path: string; labelPath: string }> {
@@ -96,6 +96,37 @@ function* walkDiagram(
       return;
     case 'tree':
       for (const w of walkMindmap(d.root, `${prefix}.root`)) yield node(w.node, w.path);
+      return;
+    case 'timeline':
+      for (const [k, ev] of d.events.entries()) {
+        const ep = `${prefix}.events.${k}`;
+        yield { label: ev.when, path: ep, labelPath: `${ep}.when` };
+        yield node(ev, ep);
+      }
+      return;
+    case 'matrix':
+      for (const axis of ['x', 'y'] as const) {
+        for (const end of ['low', 'high'] as const) {
+          const ap = `${prefix}.${axis}.${end}`;
+          yield { label: d[axis][end], path: ap, labelPath: ap };
+        }
+      }
+      for (const [c, cell] of d.cells.entries()) {
+        for (const [k, item] of cell.entries()) yield node(item, `${prefix}.cells.${c}.${k}`);
+      }
+      return;
+    case 'causal':
+      for (const [k, n] of d.inputs.entries()) yield node(n, `${prefix}.inputs.${k}`);
+      yield node(d.center, `${prefix}.center`);
+      for (const [k, n] of d.outputs.entries()) yield node(n, `${prefix}.outputs.${k}`);
+      return;
+    case 'beforeAfter':
+      for (const side of ['before', 'after'] as const) {
+        const sp = `${prefix}.${side}`;
+        const { title, items } = d[side];
+        if (title) yield { label: title, path: sp, labelPath: `${sp}.title` };
+        for (const [k, item] of items.entries()) yield node(item, `${sp}.items.${k}`);
+      }
       return;
     default: {
       const never: never = d;
@@ -396,11 +427,34 @@ const DIAGRAM_TREE_LIMIT: TreeLimit = {
   topic: '도식 트리는',
 };
 
-function checkDiagramTree(report: Report, p: string, issues: DigestIssue[]): void {
+/**
+ * 스키마로는 못 잡는 도식 모양을 본다. 트리 깊이와 크기, 상자 하나만 남는 인과도와 빈 매트릭스다.
+ * 확장 리포트의 figure 블록도 같은 검사를 쓴다
+ */
+export function checkDiagramShape(d: Diagram, dp: string, issues: DigestIssue[]): void {
+  if (d.kind === 'tree') checkTree(d.root, `${dp}.root`, DIAGRAM_TREE_LIMIT, issues);
+  if (d.kind === 'causal' && d.inputs.length === 0 && d.outputs.length === 0) {
+    issues.push({
+      path: dp,
+      severity: 'error',
+      code: 'DIAGRAM_EMPTY',
+      message:
+        '인과도는 inputs와 outputs 중 하나는 채운다. 원인도 결과도 없으면 상자 하나만 남는다',
+    });
+  }
+  if (d.kind === 'matrix' && d.cells.every((c) => c.length === 0)) {
+    issues.push({
+      path: `${dp}.cells`,
+      severity: 'error',
+      code: 'DIAGRAM_EMPTY',
+      message: '매트릭스 네 칸이 다 비었다. 칸마다 노드를 0~4개 둔다',
+    });
+  }
+}
+
+function checkDiagramShapes(report: Report, p: string, issues: DigestIssue[]): void {
   report.sections.forEach((section, si) => {
-    const d = section.diagram;
-    if (d?.kind !== 'tree') return;
-    checkTree(d.root, `${p}.sections.${si}.diagram.root`, DIAGRAM_TREE_LIMIT, issues);
+    if (section.diagram) checkDiagramShape(section.diagram, `${p}.sections.${si}.diagram`, issues);
   });
 }
 
@@ -617,7 +671,7 @@ function lintReport(
   }
   checkBulletDepth(report, p, issues);
   checkTitleMarkers(report, p, issues);
-  checkDiagramTree(report, p, issues);
+  checkDiagramShapes(report, p, issues);
   checkKeywords(report, p, issues);
   checkFrameSec(report, p, transcript, issues);
   checkDuplicateIds(report, p, issues);
