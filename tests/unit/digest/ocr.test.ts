@@ -70,7 +70,7 @@ function fakeRun(
       const dir = dirname(args.at(-1)!);
       for (const n of [1, 2, 3, 4]) writeFileSync(join(dir, `f0000${n}.png`), 'png');
       const stderr = (opts.showinfo ?? []).map(
-        (t) => `[Parsed_showinfo_1] n: 0 pts_time:${t} duration:1`,
+        (t) => `[Parsed_showinfo_1 @ 0x1] n: 0 pts_time:${t} duration:1`,
       );
       return { stdout: '', stderr: stderr.join('\n') };
     }

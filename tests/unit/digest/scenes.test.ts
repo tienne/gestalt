@@ -120,6 +120,18 @@ describe('후보 장면 고르기', () => {
     expect(thinSceneTimes([12, 1.5, 2.9])).toEqual([1.5, 12]);
   });
 
+  it('showinfo 필터가 프레임마다 찍은 줄의 시각만 읽는다', () => {
+    const log = [
+      "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'video.mp4':",
+      '  Metadata:',
+      '    comment         : pts_time:99',
+      '[Parsed_showinfo_2 @ 0x1] n:   0 pts:  1 pts_time:4 duration: 1',
+      '[Parsed_showinfo_2 @ 0x1]   side data: pts_time:77',
+      '[Parsed_showinfo_2 @ 0x1] n:   1 pts:  2 pts_time:8.5 duration: 1',
+    ].join('\n');
+    expect(parseShowinfo(log)).toEqual([4, 8.5]);
+  });
+
   it('상한을 넘는 후보는 앞에서 자르지 않고 처음부터 끝까지 고르게 솎는다', () => {
     const secs = Array.from({ length: 500 }, (_, k) => k * 10);
     const kept = spreadEvenly(secs);
@@ -173,7 +185,15 @@ describe('후보 장면 고르기', () => {
     let args: string[] = [];
     const run: RunCommand = async (cmd, a) => {
       if (cmd === 'ffmpeg') args = a;
-      return { stdout: '', stderr: 'x pts_time:12.345 y\nx pts_time:31 y\n' };
+      return {
+        stdout: '',
+        stderr: [
+          '  Metadata:',
+          '    title           : pts_time:99',
+          '[Parsed_showinfo_2 @ 0x1] n:   0 pts: 1 pts_time:12.345 duration: 1',
+          '[Parsed_showinfo_2 @ 0x1] n:   1 pts: 2 pts_time:31 duration: 1',
+        ].join('\n'),
+      };
     };
     const r = await pickScenes(SLUG, { repoRoot: repo, run });
     expect(r).toMatchObject({ source: 'scene', items: 2 });

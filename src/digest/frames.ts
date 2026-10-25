@@ -111,9 +111,16 @@ async function downloadVideo(
   return got;
 }
 
-/** ffmpeg showinfo 로그에서 고른 프레임의 시각을 뽑는다 */
+/**
+ * ffmpeg showinfo 로그에서 고른 프레임의 시각을 뽑는다.
+ * 입력 메타데이터 줄에도 pts_time:이 들어올 수 있어 showinfo 필터가 프레임마다 찍는 n: 줄만 읽는다
+ */
 export function parseShowinfo(log: string): number[] {
-  return [...log.matchAll(/pts_time:\s*(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]!));
+  return [
+    ...log.matchAll(
+      /^\[Parsed_showinfo_\d+ @ [^\]]+\] +n: *\d+ [^\n]*?\bpts_time:\s*(\d+(?:\.\d+)?)/gm,
+    ),
+  ].map((m) => Number(m[1]!));
 }
 
 export async function ensureVideo(
