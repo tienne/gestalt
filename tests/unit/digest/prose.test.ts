@@ -84,6 +84,42 @@ describe('extractProse', () => {
     expect(paths).not.toContain('extensions.0.blocks.0.title');
     expect(paths).toContain('extensions.0.blocks.0.explanation');
   });
+
+  it('인용 원문과 화자, 댓글 원문은 손대지 않고 번역과 요약만 낸다', () => {
+    const d = labeledDigest();
+    d.extensions[0]!.blocks.push(
+      {
+        type: 'quote',
+        text: 'Ship it.',
+        translation: '그냥 내보내세요.',
+        speaker: 'Lenny',
+        cite: { key: 3, from: 3, to: 3 },
+      },
+      {
+        type: 'comments',
+        total: 1,
+        overview: '대체로 반겼다.',
+        groups: [
+          {
+            title: '반가움',
+            tone: 'positive',
+            count: 1,
+            summary: '도입을 반겼다.',
+            examples: [{ id: 'c1', text: 'Great episode!' }],
+          },
+        ],
+      },
+    );
+    const paths = extractProse(d).map((i) => i.path);
+    const quote = 'extensions.0.blocks.2';
+    const comments = 'extensions.0.blocks.3';
+    expect(paths).not.toContain(`${quote}.text`);
+    expect(paths).not.toContain(`${quote}.speaker`);
+    expect(paths).not.toContain(`${comments}.groups.0.examples.0.text`);
+    expect(paths).toContain(`${quote}.translation`);
+    expect(paths).toContain(`${comments}.overview`);
+    expect(paths).toContain(`${comments}.groups.0.summary`);
+  });
 });
 
 describe('extractMarkers', () => {
