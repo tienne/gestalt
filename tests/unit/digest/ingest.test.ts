@@ -140,6 +140,32 @@ describe('pickCaption', () => {
     expect(pickCaption(META)).toEqual({ kind: 'auto', key: 'en-orig', lang: 'en' });
   });
 
+  it('자동 더빙으로 -orig가 여럿이면 원어에 맞는 트랙을 고른다', () => {
+    const dubbed = {
+      ...META,
+      language: 'en-US',
+      automatic_captions: {
+        'ar-orig': [{ ext: 'vtt' }],
+        'de-DE-orig': [{ ext: 'vtt' }],
+        'en-orig': [{ ext: 'vtt' }],
+        'ko-orig': [{ ext: 'vtt' }],
+      },
+    };
+    expect(pickCaption(dubbed)).toEqual({ kind: 'auto', key: 'en-orig', lang: 'en' });
+    expect(pickCaption(dubbed, 'ko')).toEqual({ kind: 'auto', key: 'ko-orig', lang: 'ko' });
+    expect(pickCaption({ ...dubbed, language: null })).toEqual({
+      kind: 'auto',
+      key: 'ar-orig',
+      lang: 'ar',
+    });
+  });
+
+  it('원어가 지역 태그까지 붙어 있어도 수동 자막을 고른다', () => {
+    expect(
+      pickCaption({ ...META, language: 'en-US', subtitles: { en: [{ ext: 'vtt' }], ko: [] } }),
+    ).toEqual({ kind: 'manual', key: 'en', lang: 'en' });
+  });
+
   it('자막이 하나도 없으면 null', () => {
     expect(pickCaption({ id: VIDEO_ID, subtitles: {}, automatic_captions: {} })).toBeNull();
   });
