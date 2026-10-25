@@ -248,7 +248,7 @@ gestalt digest templates --json --repo-root '<repoRoot>'
 
 `overridesBuiltin`이 true인 템플릿은 레포의 사용자 템플릿이 같은 id의 기본 템플릿을 대신한 것이다. 그 템플릿으로 만들기 전에 사용자에게 이 사실과 파일 경로(`path`)를 알린다.
 
-**`needs`에 `comments`가 있으면 댓글을 먼저 받는다.** `<repoRoot>/.gestalt/digest/<slug>/comments.json`이 이미 있으면 다시 받지 않는다.
+**`needs`에 `comments`가 있으면 댓글을 먼저 받는다.** `<repoRoot>/.gestalt/digest/<slug>/comments.json`이 이미 있으면 다시 받지 않고 그 경로를 `<commentsPath>`로 쓴다.
 
 ```bash
 gestalt digest comments '<slug>' --json --repo-root '<repoRoot>'
@@ -292,7 +292,7 @@ gestalt digest merge '<slug>' '<extPath>' --extension --json --repo-root '<repoR
 
 출력의 `key`가 확장 키(`<template>.<lang>`)이고 `index`가 `extensions[]` 안의 자리다. `saved:false`면 `issues`의 `error` 항목에서 `extensions.<index>.` 접두를 떼고 `message`와 함께 다시 맡겨 `<extPath>`의 그 자리만 고치게 한다. 세 번을 넘기면 그 템플릿은 멈추고 남은 오류를 보고한다. 다른 템플릿과 리포트는 그대로 진행한다.
 
-`BLOCK_NOT_IN_TEMPLATE`은 경고지만 오류처럼 다시 맡겨 템플릿이 정한 블록으로 고치게 한다. 렌더는 되지만 템플릿이 약속한 모양과 달라진다. `COMMENT_NOT_FOUND`는 `comments.json`에 없는 댓글 id를 썼다는 뜻이다. 고칠 때 `<commentsPath>`를 다시 읽게 한다. `COMMENT_TEXT_MISMATCH`(예시 글자가 원문과 다름), `QUOTE_NOT_IN_SOURCE`, `COMMENT_COUNT_EXCEEDS`는 경고라 막지 않는다. 오류를 고치러 다시 맡길 때 경고 자리도 함께 넘겨 원문대로 옮기게 한다.
+`BLOCK_NOT_IN_TEMPLATE`은 경고지만 오류처럼 다시 맡겨 템플릿이 정한 블록으로 고치게 한다. 렌더는 되지만 템플릿이 약속한 모양과 달라진다. `COMMENT_NOT_FOUND`는 `comments.json`에 없는 댓글 id를 썼다는 뜻이다. 고칠 때 `<commentsPath>`를 다시 읽게 한다. `COMMENT_TEXT_MISMATCH`는 예시 글자가 원문과 다르다는 뜻이고 merge에서는 오류, validate와 render에서는 경고다. 고칠 때 `<commentsPath>`를 다시 읽어 원문을 통째로, 또는 글자와 숫자 4자 이상 이어진 부분을 그대로 옮기게 한다. `QUOTE_NOT_IN_SOURCE`와 `COMMENT_COUNT_EXCEEDS`는 경고라 막지 않는다. 오류를 고치러 다시 맡길 때 경고 자리도 함께 넘겨 원문대로 옮기게 한다.
 
 ## Step 4 — 프레임과 번역
 

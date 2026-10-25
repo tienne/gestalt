@@ -356,7 +356,7 @@ function matchesComment(text: string, source: string): boolean {
 
 /**
  * 댓글 예시는 원문이어야 한다. 없는 댓글을 지어내거나 고쳐 쓴 문장을 원문처럼 보이게 두지 않는다.
- * id가 없으면 오류이고 본문이 다르면 경고다(merge에서는 오류). 긴 댓글의 앞부분만 옮긴 예시는 통과시킨다
+ * id가 없으면 오류다. 본문이 다르면 merge에서는 오류, validate와 render에서는 경고다. 긴 댓글의 일부를 4자 이상 옮긴 예시는 통과시킨다
  */
 function checkComments(
   ext: Extension,
