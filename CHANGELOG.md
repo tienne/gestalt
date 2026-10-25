@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.103.0] - 2026-10-25
 
 ### Added
 
@@ -21,11 +21,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **스크립트에 번역 줄을 붙이고 뷰어에서 켜고 끌 수 있어요.** `gestalt digest translate-apply`가 번역을 문장 번호로 붙여요.
 - **로컬 영상 파일도 뷰어에서 재생돼요.** `serve`가 원본 파일 하나만 같은 출처로 내줘요.
 - **화면 글자를 읽어 요약 보조 자료로 넘길 수 있어요.** `gestalt digest ocr`나 `ingest --ocr`가 일정 간격 프레임을 tesseract로 읽어 `ocr.json`에 둬요.
+- **요약 옆에 템플릿으로 만든 확장 리포트를 붙여요.** `digest.json`에 `extensions`가 생겼고 뷰어는 확장이 있을 때만 탭 줄과 "+ 더 만들기" 메뉴를 그려요. 확장이 없으면 예전 출력과 같아요.
+  - 기본 템플릿은 회의록, 타임스탬프, 중요 인용구, 반대 시각, 블로그 글, 인터뷰 Q&A, 언급된 리소스, 플래시카드, 퀴즈, 마인드맵, 댓글 분석이에요. `gestalt digest templates`로 목록을 보고 `merge --extension`으로 합쳐요.
+  - 사용자 템플릿은 `.gestalt/digest/templates/`에서 읽고 같은 id면 사용자 것을 써요. 심링크는 따라가지 않고 64KB를 넘는 파일은 읽기 전에 걸러요. 레포 밖 파일이 템플릿 지시로 실리지 않게 하려고요.
+  - 인용 블록은 자막 원문을 그대로 옮기고 번역을 따로 둬요. 출처 문장에 원문이 없으면 lint가 경고해요.
+  - 댓글은 `gestalt digest comments`로 받아요. 최상위 댓글만 좋아요 순으로 남기고 작성자 이름과 채널 id는 저장하지 않아요. merge는 원문에 없는 댓글 예시를 거절해요. 지어낸 문장이 저장되던 걸 막으려고 정규화한 뒤 4자 이상 일치할 때만 부분 일치로 인정해요.
+- **대섹션에 도식을 붙일 수 있어요.** 흐름, 순환, 비교, 구조 네 종류예요. 요약 에이전트는 노드 라벨과 출처만 JSON으로 쓰고 SVG는 코드가 그려요. 모델이 쓴 SVG를 그대로 실으면 스크립트와 외부 링크가 뷰어에 들어올 수 있어서요. 데이터 스키마 버전을 1.3.0으로 올렸어요.
 
 ### Changed
 
 - **`video-summarizer`가 마크다운 대신 `digest.json`을 써요.** 수집과 OCR, 렌더는 빼고 요약 본문만 맡아요. 마크다운이 필요하면 `gestalt digest export --md`를 써요. 화면 글자는 `ocr.json`을 보조 자료로 받아요.
 - 영상 요약 요청은 라우팅 표에서 `video-digest` 스킬로 가요.
+
+### Fixed
+
+- **자동 더빙 영상에서 원어 자막을 골라요.** 더빙 언어마다 `-orig` 자동 자막이 생기는데 목록에서 처음 나온 트랙을 집어서 더빙 언어 자막을 받을 수 있었어요. 선호 언어와 메타 원어 순으로 맞추고 `en-US`처럼 지역 태그가 붙은 원어는 주 언어로 한 번 더 맞춰요.
+- **마크다운 내보내기가 자막과 댓글의 문법 글자를 이스케이프해요.** 칸에 섞인 링크나 HTML이 내보낸 `.md`에서 살아나고 개행이 섞이면 목록이나 인용 밖으로 빠져나갔어요. HTML은 같은 칸을 평문 한 줄로 보여줘서 두 출력이 어긋났어요.
+  - 인용 원문의 `1~2개와 3~4개` 같은 범위 표기가 취소선으로 바뀌던 것도 고쳤어요.
+  - 반대로 `3.5배`, `-5도`처럼 문법으로 안 읽히는 줄 머리는 막지 않아요. 원문이 지저분해져서요.
+- **도식과 마인드맵, 퀴즈를 키보드와 스크린리더로 쓸 수 있어요.** 근거 시각이 있는 노드에 Tab과 Enter로 들어가고 퀴즈 채점 결과는 `role="status"`로 읽혀요. 포커스할 요소가 없는 탭 패널에도 Tab으로 들어가요.
+- `serve`로 띄운 뷰어에서 "+ 더 만들기" 메뉴가 사라지던 문제와 `--report`가 `quiz.ko` 같은 확장 키를 막던 문제를 고쳤어요.
 
 ## [0.102.0] - 2026-10-21
 
