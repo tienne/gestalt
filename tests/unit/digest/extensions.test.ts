@@ -570,31 +570,67 @@ describe('텍스트 블록 (quote, timestamps, actions, qa)', () => {
         ],
       },
     ];
-    const probe = '1. 첫째\n---\n- 가짜 [x](https://e.com) <img> **a_b** 1~2개';
+    const probe =
+      '1. 첫째\n---\n- 가짜 [x](https://e.com) <img> **a_b** 1~2개\n    - 들여쓴 줄\r+ 홑 줄바꿈\n**줄\n넘김**';
     const tail = String.raw`\[x\](https://e.com) \<img\>`;
+    const rest = String.raw`1\~2개 - 들여쓴 줄 + 홑 줄바꿈 \*\*줄 넘김\*\*`;
     const expected = {
-      title: String.raw`1\. 첫째 --- - 가짜 ${tail} \*\*a\_b\*\* 1\~2개`,
-      body: String.raw`1\. 첫째 --- - 가짜 ${tail} **a\_b** 1\~2개`,
-      verbatim:
-        String.raw`> 1\. 첫째` + '\n> \\---\n' + String.raw`> \- 가짜 ${tail} \*\*a\_b\*\* 1\~2개`,
+      title: String.raw`1\. 첫째 --- - 가짜 ${tail} \*\*a\_b\*\* ${rest}`,
+      body: String.raw`1\. 첫째 --- - 가짜 ${tail} **a\_b** ${rest}`,
+      verbatim: [
+        String.raw`> 1\. 첫째`,
+        String.raw`> \---`,
+        String.raw`> \- 가짜 ${tail} \*\*a\_b\*\* 1\~2개`,
+        String.raw`> \- 들여쓴 줄`,
+        String.raw`> \+ 홑 줄바꿈`,
+        String.raw`> \*\*줄`,
+        String.raw`> 넘김\*\*`,
+      ].join('\n'),
     };
     const cases = blocks.flatMap((block) =>
       blockFields(block, 'b').texts.map((t) => [t.path, t.role, block] as const),
     );
-
-    it.each(cases)('%s (%s)', (path, role, block) => {
+    const render = (block: Block, path: string, value: string) => {
       const target = structuredClone(block) as Record<string, unknown>;
       const keys = path.split('.').slice(1);
       const parent = keys
         .slice(0, -1)
         .reduce<Record<string, unknown>>((o, k) => o[k] as Record<string, unknown>, target);
-      parent[keys.at(-1)!] = probe;
+      parent[keys.at(-1)!] = value;
+      return blockMarkdown(target as Block, { cite: () => '', time: () => '' }).join('\n');
+    };
 
-      const md = blockMarkdown(target as Block, { cite: () => '', time: () => '' }).join('\n');
+    it.each(cases)('%s (%s)', (path, role, block) => {
+      const md = render(block, path, probe);
       expect(md).toContain(expected[role]);
+      expect(md).not.toContain('**줄 넘김**');
       expect(md).not.toMatch(/(^|[^\\])\]\(https:\/\/e\.com\)/m);
-      expect(md).not.toMatch(/^[\s>]*(?:[-*]\s+)?(?:---|- 가짜|1\. 첫째)/m);
+      expect(md).not.toMatch(/^[\s>]*(?:[-*]\s+)?(?:---|- 가짜|1\. 첫째|- 들여쓴|\+ 홑|\*\*줄)/m);
     });
+
+    // 세 번째 칸은 문법이 아닌 머리를 지나치게 이스케이프했을 때 나오는 꼴이다
+    const heads = [
+      ['- 가짜', String.raw`\- 가짜`, null],
+      ['+ 가짜', String.raw`\+ 가짜`, null],
+      ['1. 가짜', String.raw`1\. 가짜`, null],
+      ['1) 가짜', String.raw`1\) 가짜`, null],
+      ['-', String.raw`\-`, null],
+      ['---', String.raw`\---`, null],
+      ['===  ', String.raw`\===`, null],
+      ['3.5배', '3.5배', String.raw`3\.5배`],
+      ['-5도', '-5도', String.raw`\-5도`],
+      ['2026.10.25', '2026.10.25', String.raw`2026\.10.25`],
+    ] as const;
+
+    it.each(cases.flatMap((c) => heads.map((h) => [...c, ...h] as const)))(
+      '%s (%s) 줄 머리 %#',
+      (path, role, block, head, out, overEscaped) => {
+        // 인용 원문은 윗줄이 있어야 `===`와 `-`가 제목 밑줄이 되므로 앞줄을 둔다
+        const md = render(block, path, role === 'verbatim' ? `앞줄\n${head}` : head);
+        expect(md).toContain(role === 'verbatim' ? `\n> ${out}` : out);
+        if (overEscaped) expect(md).not.toContain(overEscaped);
+      },
+    );
   });
 
   it('인용 원문의 범위 표기 물결이 취소선으로 바뀌지 않는다', () => {
