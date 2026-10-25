@@ -196,6 +196,28 @@ describe('ocr', () => {
     );
   });
 
+  it('showinfo 시각이 프레임보다 모자라면 간격으로 어림하고 그 수를 알린다', async () => {
+    const { repo } = seeded();
+    const f = fakeRun(
+      {
+        'f00001.png': tsv([[1, 90, 'Intro']]),
+        'f00003.png': tsv([[1, 90, 'Agenda']]),
+      },
+      { showinfo: [0, 10.033] },
+    );
+    const r = await runOcr(SLUG, { repoRoot: repo, intervalSec: 10, run: f.run });
+    expect(r).toMatchObject({ frames: 4, loggedTimes: 2 });
+    const file = ocrFileSchema.parse(JSON.parse(readFileSync(r.path, 'utf-8')));
+    expect(file.items.map((i) => i.sec)).toEqual([0, 20]);
+  });
+
+  it('showinfo 시각이 프레임 수와 맞으면 loggedTimes를 남기지 않는다', async () => {
+    const { repo } = seeded();
+    const f = fakeRun({ 'f00001.png': tsv([[1, 90, 'Intro']]) }, { showinfo: [0, 10, 20, 30] });
+    const r = await runOcr(SLUG, { repoRoot: repo, intervalSec: 10, run: f.run });
+    expect(r).not.toHaveProperty('loggedTimes');
+  });
+
   it('select 식을 글자 그대로 고정한다', () => {
     expect(everyInterval(10)).toBe(
       "select='isnan(prev_selected_t)+gte(floor(t/10)-floor(prev_selected_t/10),1)'",

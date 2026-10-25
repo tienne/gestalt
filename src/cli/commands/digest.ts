@@ -179,6 +179,11 @@ function printOcr(r: OcrResult): void {
   }
   console.log(`화면 글자: 프레임 ${r.frames}장(${r.intervalSec}초 간격, ${r.lang}) → ${r.items}개`);
   if (r.truncated > 0) console.log(`글자가 길어 줄 단위로 자른 항목: ${r.truncated}개`);
+  if (r.loggedTimes !== undefined) {
+    console.log(
+      `프레임 ${r.frames}장 중 시각 로그가 ${r.loggedTimes}개뿐이라 나머지는 간격으로 시각을 어림했어요`,
+    );
+  }
   console.log(`저장: ${r.path}`);
 }
 
