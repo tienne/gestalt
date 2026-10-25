@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 후보는 `ocr.json`이 있으면 글자가 넉넉하고 앞 화면과 글자가 절반 넘게 다른 시각으로 고르고 없으면 ffmpeg 장면 전환으로 골라요.
   - `gestalt digest frames`가 720p 영상을 따로 받아 `shots` 장면을 뽑아서 슬라이드 글자가 읽혀요. 720p 영상을 못 받으면 낮은 화질 영상에서 뽑아요.
   - 뷰어에서 장면 사진을 누르면 크게 볼 수 있고 아래 시각 링크를 누르면 영상이 그 장면으로 가요. 마크다운에는 이미지로 실려요.
+- **도식과 그림 안 글자도 윤문해요.** `prose_extract`가 도식 라벨과 설명, 장면 설명, 마인드맵 라벨을 `kind: "label"`로 따로 내고 같은 그림끼리 `group`으로 묶어요. 라벨은 명사구로 두고 번역투와 '의'가 이어지는 꼴만 고쳐요. 칸이 좁아서 원문보다 길어진 라벨은 `prose_apply`가 `LABEL_TOO_LONG`으로 돌려보내요.
 
 ### Fixed
 
