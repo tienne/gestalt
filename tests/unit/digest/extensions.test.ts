@@ -12,6 +12,7 @@ import {
   type Extension,
 } from '../../../src/digest/index.js';
 import type { Block } from '../../../src/digest/blocks.js';
+import { blockFields } from '../../../src/digest/lint-extension.js';
 import { blockMarkdown } from '../../../src/digest/render-blocks.js';
 import { renderDigestFiles } from '../../../src/cli/commands/digest.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
@@ -538,20 +539,62 @@ describe('텍스트 블록 (quote, timestamps, actions, qa)', () => {
     });
   });
 
-  it('마크다운 본문 칸은 굵게만 남기고 링크와 HTML 문법 글자를 무력화한다', () => {
-    const body = '[x](https://e.com) <img> **굵게**';
-    const ctx = { cite: () => '', time: () => '' };
+  describe('마크다운 글자 칸은 blockFields가 내놓는 경로마다 role대로 이스케이프된다', () => {
+    const cite = { key: 1, from: 1, to: 1 };
     const blocks: Block[] = [
-      { type: 'text', text: body },
-      { type: 'list', items: [{ text: body }] },
-      { type: 'qa', items: [{ question: 'Q', answer: body, cite: { key: 1, from: 1, to: 1 } }] },
-      { type: 'quote', text: '원문', note: body, cite: { key: 1, from: 1, to: 1 } },
+      { type: 'heading', text: 'p' },
+      { type: 'text', text: 'p', cite },
+      { type: 'list', title: 'p', items: [{ text: 'p', children: [{ text: 'p' }] }] },
+      { type: 'quote', text: 'p', speaker: 'p', note: 'p', translation: 'p', cite },
+      { type: 'timestamps', items: [{ title: 'p', summary: 'p', cite }] },
+      { type: 'actions', items: [{ task: 'p', owner: 'p', due: 'p', cite }] },
+      { type: 'qa', items: [{ question: 'p', answer: 'p', cite }] },
+      { type: 'flashcards', cards: [{ front: 'p', back: 'p', cite }] },
+      {
+        type: 'quiz',
+        questions: [{ question: 'p', choices: ['p', 'p'], answer: 0, explanation: 'p', cite }],
+      },
+      { type: 'mindmap', root: { label: 'p', children: [{ label: 'p' }] } },
+      {
+        type: 'comments',
+        total: 1,
+        overview: 'p',
+        groups: [
+          {
+            title: 'p',
+            tone: 'neutral',
+            count: 1,
+            summary: 'p',
+            examples: [{ id: 'c1', text: 'p' }],
+          },
+        ],
+      },
     ];
-    for (const b of blocks) {
-      const md = blockMarkdown(b, ctx).join('\n');
-      expect(md).toContain(String.raw`\[x\](https://e.com) \<img\> **굵게**`);
+    const probe = '1. 첫째\n---\n- 가짜 [x](https://e.com) <img> **a_b** 1~2개';
+    const tail = String.raw`\[x\](https://e.com) \<img\>`;
+    const expected = {
+      title: String.raw`1\. 첫째 --- - 가짜 ${tail} \*\*a\_b\*\* 1\~2개`,
+      body: String.raw`1\. 첫째 --- - 가짜 ${tail} **a\_b** 1\~2개`,
+      verbatim:
+        String.raw`> 1\. 첫째` + '\n> \\---\n' + String.raw`> \- 가짜 ${tail} \*\*a\_b\*\* 1\~2개`,
+    };
+    const cases = blocks.flatMap((block) =>
+      blockFields(block, 'b').texts.map((t) => [t.path, t.role, block] as const),
+    );
+
+    it.each(cases)('%s (%s)', (path, role, block) => {
+      const target = structuredClone(block) as Record<string, unknown>;
+      const keys = path.split('.').slice(1);
+      const parent = keys
+        .slice(0, -1)
+        .reduce<Record<string, unknown>>((o, k) => o[k] as Record<string, unknown>, target);
+      parent[keys.at(-1)!] = probe;
+
+      const md = blockMarkdown(target as Block, { cite: () => '', time: () => '' }).join('\n');
+      expect(md).toContain(expected[role]);
       expect(md).not.toMatch(/(^|[^\\])\]\(https:\/\/e\.com\)/m);
-    }
+      expect(md).not.toMatch(/^[\s>]*(?:[-*]\s+)?(?:---|- 가짜|1\. 첫째)/m);
+    });
   });
 
   it('인용 원문의 범위 표기 물결이 취소선으로 바뀌지 않는다', () => {
