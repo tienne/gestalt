@@ -103,8 +103,8 @@ outputs:
 | `gestalt digest template <id>`                   | 템플릿의 요약 지시 본문 출력. `video-summarizer`에 그대로 넘긴다                                                                                                  |
 | `gestalt digest comments <slug>`                 | 유튜브 댓글을 인기순으로 받아 `comments.json`에 쓰기. 작성자 정보는 저장하지 않는다                                                                               |
 | `gestalt digest merge <slug> <파일> --extension` | 확장 리포트 한 벌을 `digest.json`의 `extensions[]`에 합치며 검사. 템플릿과 언어가 같으면 바꿔 끼운다                                                              |
-| `ges_digest action=prose_extract`                | 윤문할 문장만 path와 hash로 뽑기. 제목은 빠진다                                                                                                                   |
-| `ges_digest action=prose_apply`                  | 다듬은 문장을 같은 path로 되돌려 넣고 `**`, `{{kw:}}`, 숫자, 링크가 남았는지 검사                                                                                 |
+| `ges_digest action=prose_extract`                | 윤문할 문장만 path와 hash로 뽑기. 제목은 빠진다. 그림 글자는 `kind: "label"`과 `group`이 붙어 함께 나온다                                                         |
+| `ges_digest action=prose_apply`                  | 다듬은 문장을 같은 path로 되돌려 넣고 `**`, `{{kw:}}`, 숫자, 링크가 남았는지와 라벨이 원문보다 길어지지 않았는지 검사                                             |
 | `ges_digest action=render`                       | `digest.html`과 `digest.md` 쓰기                                                                                                                                  |
 | `gestalt digest serve <slug>`                    | 렌더를 인라인 없이 다시 돌리고 뷰어를 127.0.0.1로 띄우기. 끝나지 않는 명령이라 백그라운드로 띄운다. 유튜브 재생은 여기서만 된다                                   |
 | `gestalt digest export <slug> --md`              | 마크다운만 내기                                                                                                                                                   |
@@ -340,7 +340,7 @@ gestalt digest translate-apply '<slug>' '<dir>/translation.part-<a>.json' --json
 
 ## Step 5 — 윤문
 
-본문 문장만 다듬는다. 이번에 합친 리포트의 문장만 다룬다. `digest.json`을 통째로 넘기지 않는다. id와 출처 번호까지 문장처럼 고쳐서 스키마가 깨진다.
+본문 문장과 그림 글자를 다듬는다. 이번에 합친 리포트의 것만 다룬다. `digest.json`을 통째로 넘기지 않는다. id와 출처 번호까지 문장처럼 고쳐서 스키마가 깨진다.
 
 절차는 [`../_shared/research-humanize.md`](../_shared/research-humanize.md)의 1~6단계를 따른다. 2단계 묶기와 2.5단계 묶음 스캔, 3단계 프롬프트의 자료 취급 문구와 출력 형식 문장, 5단계 재시도 상한은 그대로 지킨다. digest에서 다른 점은 아래뿐이다.
 
@@ -353,6 +353,14 @@ gestalt digest translate-apply '<slug>' '<dir>/translation.part-<a>.json' --json
   - 숫자. 원문 꼴 그대로
   - URL
 - 5단계 `MARKER_MISMATCH`의 `missing`과 `added`는 `굵게`, `키워드:<id>`, `수치:<값>`, `링크:<url>` 꼴로 나온다.
+- `kind: "label"`이 붙은 항목은 그림 안 글자다. 도식 라벨과 설명, 장면 설명, 마인드맵 라벨이 여기 온다. 본문 묶음에 섞지 않고 `label` 묶음으로 따로 보낸다. 칸이 좁아서 본문과 고칠 기준이 다르다.
+  - `group`이 같은 항목은 한 그림에 함께 놓인다. 묶음을 자를 때 group을 가르지 않고 에이전트에 `path`, `text`, `group`을 넘긴다.
+  - 2.5단계 스캔은 `--register report`로 돌리고 E-8(명사구 종결)은 결과에서 지운다. 라벨은 명사구로 끝나는 게 맞다.
+  - 3단계 프롬프트의 말투 줄은 "명사구. 문장으로 늘리지 않는다"로 바꾸고 지킬 것 끝에 아래를 더한다.
+    - 원문보다 길게 쓰지 않는다. 길어지면 그 항목은 원문이 남는다
+    - 같은 group 라벨끼리 꼴을 맞춘다. 비교 열 제목처럼 짝을 이루는 라벨은 한쪽만 바꾸지 않는다
+    - 번역투와 '의'가 이어지는 꼴, 가운뎃점 나열, 안 굳은 음차, 과장 수식어만 고친다. 뜻을 바꾸거나 내용을 더 줄이지 않는다
+  - 5단계에서 `LABEL_TOO_LONG`이 오면 라벨이 원문보다 길어진 것이다. 그 항목만 한 번 더 보내며 지킬 것 끝에 "원문 글자 수 이하"를 적어 준다. 두 번째도 걸리면 원문을 둔다.
 - 6단계는 다시 스캔까지만 하고 Step 6 렌더로 간다.
 
 윤문한 문장을 `digest.json`에 손으로 고쳐 넣지 않는다. `prose_apply`를 거쳐야 마커 검사가 돈다.
