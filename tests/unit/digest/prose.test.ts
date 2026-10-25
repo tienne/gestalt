@@ -85,7 +85,7 @@ describe('extractProse', () => {
     expect(paths).toContain('extensions.0.blocks.0.explanation');
   });
 
-  it('인용 원문과 화자, 댓글 원문은 손대지 않고 번역과 요약만 낸다', () => {
+  it('인용 원문과 화자, 댓글 원문과 댓글 묶음 제목은 손대지 않고 번역과 요약만 낸다', () => {
     const d = labeledDigest();
     d.extensions[0]!.blocks.push(
       {
@@ -116,6 +116,7 @@ describe('extractProse', () => {
     expect(paths).not.toContain(`${quote}.text`);
     expect(paths).not.toContain(`${quote}.speaker`);
     expect(paths).not.toContain(`${comments}.groups.0.examples.0.text`);
+    expect(paths).not.toContain(`${comments}.groups.0.title`);
     expect(paths).toContain(`${quote}.translation`);
     expect(paths).toContain(`${comments}.overview`);
     expect(paths).toContain(`${comments}.groups.0.summary`);
