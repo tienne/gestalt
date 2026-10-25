@@ -380,8 +380,8 @@ export interface TimelineEvent extends DiagramNode {
   when: string;
 }
 
-/** 시점 글자는 상자 폭을 넘지 않게 자른다. 줄 위 글자가 이웃 칸으로 넘어가면 어느 점의 시점인지 안 읽힌다 */
-const WHEN_MAX = 120;
+/** 시점 글자는 WHEN_MAX(px) 폭까지 그리고 넘으면 말줄임으로 자른다. 줄 위 글자가 이웃 칸으로 넘어가면 어느 점의 시점인지 안 읽힌다 */
+export const WHEN_MAX = 120;
 
 /**
  * 타임라인. 넷까지는 가로 줄 위에 시점, 아래에 상자를 두고 그보다 많으면 세로 줄 오른쪽에 시점과 상자를 둔다.

@@ -13,6 +13,7 @@ import {
   type Extension,
 } from '../../../src/digest/index.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
+import { WHEN_MAX } from '../../../src/digest/svg.js';
 import { renderDigestMarkdown, renderExtensionMarkdown } from '../../../src/digest/render-md.js';
 import { sampleDigest, sampleTranscript } from './fixture.js';
 
@@ -188,6 +189,29 @@ describe('새 도식 SVG', () => {
     expect(h6!).toBeGreaterThan(w6!);
     expect(wide.match(/class="dg-dot"/g)).toHaveLength(4);
     expect(tall).toContain('>5단계<');
+  });
+
+  it('긴 시점 글자는 WHEN_MAX 폭에서 말줄임으로 자르고 원문은 title에 남긴다', () => {
+    const events = (n: number, when: string) =>
+      Array.from({ length: n }, (_, i) => ({ when, label: `일 ${i}` }));
+    const width = (svg: string) => Number(svg.match(/width="(\d+)"/)![1]!);
+    const long = '가'.repeat(60);
+    for (const n of [3, 6]) {
+      const svg = timelineSvg(events(n, long));
+      const whens = [
+        ...svg.matchAll(/<g class="dg-when"><title>([^<]*)<\/title><text[^>]*>([^<]*)<\/text>/g),
+      ];
+      expect(whens).toHaveLength(n);
+      for (const m of whens) {
+        expect(m[1]).toBe(long);
+        expect(m[2]!.endsWith('…')).toBe(true);
+      }
+      // 자른 뒤 폭은 원문 길이와 상관없이 WHEN_MAX에서 멈춘다
+      expect(width(timelineSvg(events(n, '가'.repeat(200))))).toBe(width(svg));
+      expect(width(svg) - width(timelineSvg(events(n, '가')))).toBeLessThanOrEqual(
+        WHEN_MAX * (n <= 4 ? n : 1),
+      );
+    }
   });
 
   it('출처가 있는 노드에만 data-sec을 달고 글자를 이스케이프한다', () => {
