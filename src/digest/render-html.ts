@@ -494,7 +494,11 @@ a.ts:hover{text-decoration:underline}
 .dg-svg path,.dg-svg line{stroke:var(--muted);fill:none;stroke-width:1.2}
 .dg-svg .mm-d0 rect,.dg-svg .dg-head rect{fill:var(--accent);stroke:var(--accent)}
 .dg-svg .mm-d0 text,.dg-svg .dg-head text{fill:var(--on-accent);font-size:14px;font-weight:600}
-.dg-svg .mm-d1 rect,.dg-flow rect,.dg-cycle rect{stroke:var(--accent)}
+.dg-svg .mm-d1 rect,.dg-flow rect,.dg-cycle rect,.dg-timeline rect{stroke:var(--accent)}
+.dg-svg rect.dg-cell{fill:var(--card);stroke:var(--line);stroke-dasharray:4 3}
+.dg-svg .dg-dot{fill:var(--accent);stroke:none}
+.dg-svg .dg-when text{fill:var(--accent);font-weight:600}
+.dg-svg .dg-axis text{fill:var(--muted)}
 .dg-svg .dg-arrow{fill:var(--muted);stroke:none}
 .dg-svg .mm-cite,.dg-svg .dg-cite{cursor:pointer}
 .dg-svg .mm-cite:hover rect,.dg-svg .dg-cite:hover rect{fill:var(--hl)}

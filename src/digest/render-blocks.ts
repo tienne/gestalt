@@ -7,7 +7,16 @@ import {
   type MindmapNode,
 } from './blocks.js';
 import { boldPattern, keywordPattern, type Cite, type Diagram } from './schema.js';
-import { compareSvg, cycleSvg, flowSvg, treeSvg } from './svg.js';
+import {
+  beforeAfterSvg,
+  causalSvg,
+  compareSvg,
+  cycleSvg,
+  flowSvg,
+  matrixSvg,
+  timelineSvg,
+  treeSvg,
+} from './svg.js';
 
 /**
  * 확장 리포트 블록을 HTML과 마크다운으로 그린다. 블록 타입을 더하면 여기와 lint-extension.ts의
@@ -77,50 +86,106 @@ export function diagramFigure(svg: string, outline: string, caption?: string): s
   }<button type="button" class="zoom-btn" data-zoom>크게 보기</button></div><details class="dg-outline"><summary>목록으로 보기</summary>${outline}</details></figure>`;
 }
 
-const DIAGRAM_LABEL: Record<Diagram['kind'], string> = {
+export const DIAGRAM_LABEL: Record<Diagram['kind'], string> = {
   flow: '흐름도',
   cycle: '순환도',
   compare: '비교표',
   tree: '구조도',
+  timeline: '타임라인',
+  matrix: '매트릭스',
+  causal: '인과도',
+  beforeAfter: '전후 비교',
 };
 
-/** 대섹션 도식. title은 그림의 aria-label에 붙는 대섹션 제목이다 */
-export function sectionDiagramHtml(d: Diagram, title: string, ctx: BlockHtmlContext): string {
+const BEFORE = '전';
+const AFTER = '후';
+
+/** 매트릭스 칸 이름. 가로축 값을 먼저 쓴다 */
+const matrixCellNames = (d: Extract<Diagram, { kind: 'matrix' }>) => [
+  `${d.x.low}, ${d.y.high}`,
+  `${d.x.high}, ${d.y.high}`,
+  `${d.x.low}, ${d.y.low}`,
+  `${d.x.high}, ${d.y.low}`,
+];
+
+/** 인과도를 원인, 현상, 결과를 가지로 둔 트리로 바꾼다. 목록 보기와 마크다운이 같은 꼴을 쓴다 */
+const causalOutline = (d: Extract<Diagram, { kind: 'causal' }>): MindmapNode[] => [
+  ...(d.inputs.length ? [{ label: '원인', children: d.inputs }] : []),
+  { ...d.center, label: `현상: ${d.center.label}` },
+  ...(d.outputs.length ? [{ label: '결과', children: d.outputs }] : []),
+];
+
+/** 그림과 스크립트 없이 읽히는 목록. aria는 그림의 aria-label이다 */
+export function diagramParts(
+  d: Diagram,
+  aria: string,
+  ctx: BlockHtmlContext,
+): { svg: string; outline: string } {
   const opts = { sec: ctx.sec };
-  const aria = `${title} ${DIAGRAM_LABEL[d.kind]}`;
   const li = (n: MindmapNode) => outlineHtml(n, ctx);
-  let svg: string;
-  let outline: string;
   switch (d.kind) {
     case 'flow':
-      svg = flowSvg(d.steps, opts, aria);
-      outline = `<ol>${d.steps.map(li).join('')}</ol>`;
-      break;
+      return { svg: flowSvg(d.steps, opts, aria), outline: `<ol>${d.steps.map(li).join('')}</ol>` };
     case 'cycle':
-      svg = cycleSvg(d.steps, opts, aria);
-      outline = `<ol>${d.steps.map(li).join('')}</ol>`;
-      break;
+      return {
+        svg: cycleSvg(d.steps, opts, aria),
+        outline: `<ol>${d.steps.map(li).join('')}</ol>`,
+      };
     case 'compare':
-      svg = compareSvg(d.columns, opts, aria);
-      outline = `<ul>${d.columns.map((c) => li({ label: c.title, children: c.items })).join('')}</ul>`;
-      break;
+      return {
+        svg: compareSvg(d.columns, opts, aria),
+        outline: `<ul>${d.columns.map((c) => li({ label: c.title, children: c.items })).join('')}</ul>`,
+      };
     case 'tree':
-      svg = treeSvg(d.root, opts, aria);
-      outline = `<ul>${li(d.root)}</ul>`;
-      break;
+      return { svg: treeSvg(d.root, opts, aria), outline: `<ul>${li(d.root)}</ul>` };
+    case 'timeline':
+      return {
+        svg: timelineSvg(d.events, opts, aria),
+        outline: `<ol>${d.events
+          .map(
+            (e) =>
+              `<li><b>${ctx.escape(e.when)}</b> ${ctx.escape(e.label)}${e.cite ? ` ${ctx.time(e.cite)}` : ''}</li>`,
+          )
+          .join('')}</ol>`,
+      };
+    case 'matrix': {
+      const names = matrixCellNames(d);
+      return {
+        svg: matrixSvg(d.x, d.y, d.cells, opts, aria),
+        outline: `<ul>${d.cells.map((c, k) => li({ label: names[k]!, children: c })).join('')}</ul>`,
+      };
+    }
+    case 'causal':
+      return {
+        svg: causalSvg(d.inputs, d.center, d.outputs, opts, aria),
+        outline: `<ul>${causalOutline(d).map(li).join('')}</ul>`,
+      };
+    case 'beforeAfter':
+      return {
+        svg: beforeAfterSvg(d.before, d.after, opts, aria),
+        outline: `<ul>${li({ label: d.before.title ?? BEFORE, children: d.before.items })}${li({
+          label: d.after.title ?? AFTER,
+          children: d.after.items,
+        })}</ul>`,
+      };
     default: {
       const never: never = d;
       throw new Error(`알 수 없는 도식: ${String(never)}`);
     }
   }
+}
+
+/** 대섹션 도식. title은 그림의 aria-label에 붙는 대섹션 제목이다 */
+export function sectionDiagramHtml(d: Diagram, title: string, ctx: BlockHtmlContext): string {
+  const { svg, outline } = diagramParts(d, `${title} ${DIAGRAM_LABEL[d.kind]}`, ctx);
   return diagramFigure(svg, outline, d.caption ? ctx.escape(d.caption) : undefined);
 }
 
-/** 마크다운에는 그림 대신 목록으로 옮긴다. 순서가 있는 흐름과 순환은 번호를 단다 */
+/** 마크다운에는 그림 대신 목록이나 표로 옮긴다. 순서가 있는 흐름과 순환, 타임라인은 번호를 단다 */
 export function sectionDiagramMd(d: Diagram, ctx: BlockMdContext): string[] {
   const head = d.caption ? [`*${DIAGRAM_LABEL[d.kind]}: ${mdInline(d.caption)}*`, ''] : [];
-  const step = (n: MindmapNode, k: number) =>
-    `${k + 1}. ${mdInline(n.label)}${n.cite ? ` ${ctx.time(n.cite)}` : ''}`;
+  const at = (n: { cite?: Cite }) => (n.cite ? ` ${ctx.time(n.cite)}` : '');
+  const step = (n: MindmapNode, k: number) => `${k + 1}. ${mdInline(n.label)}${at(n)}`;
   switch (d.kind) {
     case 'flow':
     case 'cycle':
@@ -133,6 +198,34 @@ export function sectionDiagramMd(d: Diagram, ctx: BlockMdContext): string[] {
       ];
     case 'tree':
       return [...head, ...outlineMd(d.root, ctx), ''];
+    case 'timeline':
+      return [
+        ...head,
+        ...d.events.map((e, k) => `${k + 1}. **${mdInline(e.when)}** ${mdInline(e.label)}${at(e)}`),
+        '',
+      ];
+    case 'matrix': {
+      // 칸 안 여러 노드는 표 한 칸에 쉼표로 잇는다. mdInline이 |를 이스케이프해서 표가 안 깨진다
+      const cell = (k: number) =>
+        d.cells[k]!.map((n) => `${mdInline(n.label)}${at(n)}`).join(', ') || ' ';
+      return [
+        ...head,
+        `| | ${mdInline(d.x.low)} | ${mdInline(d.x.high)} |`,
+        '| --- | --- | --- |',
+        `| ${mdInline(d.y.high)} | ${cell(0)} | ${cell(1)} |`,
+        `| ${mdInline(d.y.low)} | ${cell(2)} | ${cell(3)} |`,
+        '',
+      ];
+    }
+    case 'causal':
+      return [...head, ...causalOutline(d).flatMap((n) => outlineMd(n, ctx)), ''];
+    case 'beforeAfter':
+      return [
+        ...head,
+        ...outlineMd({ label: d.before.title ?? BEFORE, children: d.before.items }, ctx),
+        ...outlineMd({ label: d.after.title ?? AFTER, children: d.after.items }, ctx),
+        '',
+      ];
     default: {
       const never: never = d;
       throw new Error(`알 수 없는 도식: ${String(never)}`);

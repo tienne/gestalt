@@ -351,3 +351,215 @@ export function compareSvg(
   const height = MARGIN * 2 + rows * ROW + BOX_H;
   return wrapSvg('compare', width, height, parts.join(''), ariaLabel);
 }
+
+/** 상자 없는 글자. 잘렸으면 전체를 title 툴팁으로 단다 */
+function plainText(
+  text: string,
+  x: number,
+  y: number,
+  cls: string,
+  anchor: 'start' | 'middle' | 'end',
+  maxPx = LABEL_MAX,
+): string {
+  const fit = fitLabel(text, maxPx);
+  const r = (n: number) => Math.round(n * 10) / 10;
+  const tip = fit.cut ? `<title>${escapeXml(text)}</title>` : '';
+  return `<g class="${cls}">${tip}<text x="${r(x)}" y="${r(y)}" text-anchor="${anchor}" dominant-baseline="central">${escapeXml(fit.text)}</text></g>`;
+}
+
+const plainWidth = (text: string, maxPx = LABEL_MAX) =>
+  Math.ceil(textWidth(fitLabel(text, maxPx).text));
+
+/** 화살촉까지 그린 직선 */
+function arrowLine(x1: number, y1: number, x2: number, y2: number): string {
+  const f = (n: number) => Math.round(n * 10) / 10;
+  return `<path d="M${f(x1)} ${f(y1)}L${f(x2)} ${f(y2)}"/>${arrowHead(x2, y2, Math.atan2(y2 - y1, x2 - x1))}`;
+}
+
+export interface TimelineEvent extends DiagramNode {
+  when: string;
+}
+
+/** 시점 글자는 상자 폭을 넘지 않게 자른다. 줄 위 글자가 이웃 칸으로 넘어가면 어느 점의 시점인지 안 읽힌다 */
+const WHEN_MAX = 120;
+
+/**
+ * 타임라인. 넷까지는 가로 줄 위에 시점, 아래에 상자를 두고 그보다 많으면 세로 줄 오른쪽에 시점과 상자를 둔다.
+ * 줄 끝 화살촉이 시간 방향이다
+ */
+export function timelineSvg(
+  events: TimelineEvent[],
+  opts: SvgOptions = {},
+  ariaLabel = '타임라인',
+): string {
+  const ms = events.map((e) => measure(e));
+  const parts: string[] = [];
+  if (ms.length <= FLOW_ROW_MAX) {
+    const w = Math.max(...ms.map((m) => m.w), ...events.map((e) => plainWidth(e.when, WHEN_MAX)));
+    const COL_GAP = 20;
+    const whenY = MARGIN + 8;
+    const lineY = whenY + 18;
+    const boxCy = lineY + 14 + BOX_H / 2;
+    const cx = (i: number) => MARGIN + i * (w + COL_GAP) + w / 2;
+    const last = cx(ms.length - 1);
+    parts.push(`<path d="M${MARGIN} ${lineY}H${last + w / 2 - 2}"/>`);
+    parts.push(arrowHead(last + w / 2, lineY, 0));
+    ms.forEach((m, i) => {
+      const x = cx(i);
+      parts.push(plainText(events[i]!.when, x, whenY, 'dg-when', 'middle', WHEN_MAX));
+      parts.push(`<circle class="dg-dot" cx="${x}" cy="${lineY}" r="4"/>`);
+      parts.push(nodeSvg(m, x - w / 2, boxCy, w, opts));
+    });
+    const width = MARGIN * 2 + ms.length * w + (ms.length - 1) * COL_GAP;
+    return wrapSvg('timeline', width, boxCy + BOX_H / 2 + MARGIN, parts.join(''), ariaLabel);
+  }
+  const lineX = MARGIN + 4;
+  const whenX = lineX + 14;
+  const whenW = Math.max(...events.map((e) => plainWidth(e.when, WHEN_MAX)));
+  const boxX = whenX + whenW + 12;
+  const w = Math.max(...ms.map((m) => m.w));
+  const STEP = BOX_H + 12;
+  const cy = (i: number) => MARGIN + BOX_H / 2 + i * STEP;
+  const lastY = cy(ms.length - 1);
+  parts.push(`<path d="M${lineX} ${MARGIN}V${lastY + BOX_H / 2 - 2}"/>`);
+  parts.push(arrowHead(lineX, lastY + BOX_H / 2, Math.PI / 2));
+  ms.forEach((m, i) => {
+    const y = cy(i);
+    parts.push(`<circle class="dg-dot" cx="${lineX}" cy="${y}" r="4"/>`);
+    parts.push(plainText(events[i]!.when, whenX, y, 'dg-when', 'start', WHEN_MAX));
+    parts.push(nodeSvg(m, boxX, y, w, opts));
+  });
+  return wrapSvg(
+    'timeline',
+    boxX + w + MARGIN,
+    lastY + BOX_H / 2 + MARGIN,
+    parts.join(''),
+    ariaLabel,
+  );
+}
+
+export interface MatrixAxis {
+  low: string;
+  high: string;
+}
+
+/**
+ * 2×2 매트릭스. cells는 왼쪽 위, 오른쪽 위, 왼쪽 아래, 오른쪽 아래 순서다.
+ * 세로축은 아래에서 위로, 가로축은 왼쪽에서 오른쪽으로 커진다
+ */
+export function matrixSvg(
+  x: MatrixAxis,
+  y: MatrixAxis,
+  cells: DiagramNode[][],
+  opts: SvgOptions = {},
+  ariaLabel = '매트릭스',
+): string {
+  const CELL_PAD = 8;
+  const CELL_GAP = 6;
+  const AXIS_MAX = 120;
+  const ms = cells.map((c) => c.map((n) => measure(n)));
+  const cw = Math.max(120, ...ms.flat().map((m) => m.w + CELL_PAD * 2));
+  const rows = Math.max(1, ...ms.map((c) => c.length));
+  const ch = rows * ROW + CELL_PAD * 2 - (ROW - BOX_H);
+  const yW = Math.max(plainWidth(y.low, AXIS_MAX), plainWidth(y.high, AXIS_MAX));
+  const gridX = MARGIN + yW + 18;
+  const gridY = MARGIN + 8;
+  const gridR = gridX + cw * 2 + CELL_GAP;
+  const gridB = gridY + ch * 2 + CELL_GAP;
+  const parts: string[] = [];
+  parts.push(arrowLine(gridX - 8, gridB, gridX - 8, gridY - 6));
+  parts.push(arrowLine(gridX, gridB + 8, gridR + 6, gridB + 8));
+  ms.forEach((cell, c) => {
+    const cx = gridX + (c % 2) * (cw + CELL_GAP);
+    const cy = gridY + Math.floor(c / 2) * (ch + CELL_GAP);
+    parts.push(`<rect class="dg-cell" x="${cx}" y="${cy}" width="${cw}" height="${ch}" rx="8"/>`);
+    cell.forEach((m, k) => {
+      parts.push(
+        nodeSvg(m, cx + CELL_PAD, cy + CELL_PAD + BOX_H / 2 + k * ROW, cw - CELL_PAD * 2, opts),
+      );
+    });
+  });
+  parts.push(plainText(y.high, gridX - 16, gridY + ch / 2, 'dg-axis', 'end', AXIS_MAX));
+  parts.push(plainText(y.low, gridX - 16, gridY + ch * 1.5 + CELL_GAP, 'dg-axis', 'end', AXIS_MAX));
+  const labelY = gridB + 24;
+  parts.push(plainText(x.low, gridX + cw / 2, labelY, 'dg-axis', 'middle', AXIS_MAX));
+  parts.push(plainText(x.high, gridX + cw * 1.5 + CELL_GAP, labelY, 'dg-axis', 'middle', AXIS_MAX));
+  const width = Math.ceil(Math.max(gridR + 6, gridX + cw * 1.5 + CELL_GAP + AXIS_MAX / 2) + MARGIN);
+  return wrapSvg('matrix', width, labelY + 8 + MARGIN, parts.join(''), ariaLabel);
+}
+
+/**
+ * 원인과 결과. 왼쪽 원인들이 가운데 현상으로 모이고 오른쪽 결과로 퍼진다.
+ * 아무 노드나 잇는 그래프는 받지 않는다. 자동 배치가 어렵고 선이 엉켜서다
+ */
+export function causalSvg(
+  inputs: DiagramNode[],
+  center: DiagramNode,
+  outputs: DiagramNode[],
+  opts: SvgOptions = {},
+  ariaLabel = '인과도',
+): string {
+  const GAP_C = 56;
+  const ins = inputs.map((n) => measure(n));
+  const outs = outputs.map((n) => measure(n));
+  const mid = measure(center, ROOT_FONT);
+  const rows = Math.max(1, ins.length, outs.length);
+  const height = MARGIN * 2 + rows * ROW - (ROW - BOX_H);
+  const cy = height / 2;
+  const colY = (k: number, n: number) => cy + (k - (n - 1) / 2) * ROW;
+  const wi = ins.length ? Math.max(...ins.map((m) => m.w)) : 0;
+  const wo = outs.length ? Math.max(...outs.map((m) => m.w)) : 0;
+  const xc = MARGIN + (ins.length ? wi + GAP_C : 0);
+  const xo = xc + mid.w + GAP_C;
+  const parts: string[] = [];
+  ins.forEach((m, k) => {
+    const y = colY(k, ins.length);
+    parts.push(arrowLine(MARGIN + wi + 3, y, xc - 4, cy + (y - cy) * 0.25));
+    parts.push(nodeSvg(m, MARGIN, y, wi, opts));
+  });
+  outs.forEach((m, k) => {
+    const y = colY(k, outs.length);
+    parts.push(arrowLine(xc + mid.w + 3, cy + (y - cy) * 0.25, xo - 4, y));
+    parts.push(nodeSvg(m, xo, y, wo, opts));
+  });
+  parts.push(nodeSvg(mid, xc, cy, mid.w, opts, 'dg-head'));
+  const width = (outs.length ? xo + wo : xc + mid.w) + MARGIN;
+  return wrapSvg('causal', Math.ceil(width), Math.ceil(height), parts.join(''), ariaLabel);
+}
+
+export interface BeforeAfterSide {
+  title?: string;
+  items: DiagramNode[];
+}
+
+/** 전후 비교. compare와 달리 두 칸 사이에 화살표를 그려 무엇이 바뀌었는지를 보인다 */
+export function beforeAfterSvg(
+  before: BeforeAfterSide,
+  after: BeforeAfterSide,
+  opts: SvgOptions = {},
+  ariaLabel = '전후 비교',
+): string {
+  const GAP_A = 48;
+  const col = (side: BeforeAfterSide, fallback: string) => {
+    const head = measure({ label: side.title ?? fallback }, ROOT_FONT);
+    const items = side.items.map((n) => measure(n));
+    return { head, items, w: Math.max(head.w, ...items.map((m) => m.w)) };
+  };
+  const a = col(before, '전');
+  const b = col(after, '후');
+  const rows = Math.max(a.items.length, b.items.length);
+  const parts: string[] = [];
+  const draw = (c: ReturnType<typeof col>, x: number) => {
+    parts.push(nodeSvg(c.head, x, MARGIN + BOX_H / 2, c.w, {}, 'dg-head'));
+    c.items.forEach((m, k) =>
+      parts.push(nodeSvg(m, x, MARGIN + (k + 1) * ROW + BOX_H / 2, c.w, opts)),
+    );
+  };
+  const xb = MARGIN + a.w + GAP_A;
+  draw(a, MARGIN);
+  draw(b, xb);
+  const ay = MARGIN + BOX_H / 2 + (rows * ROW) / 2;
+  parts.push(arrowLine(MARGIN + a.w + 8, ay, xb - 8, ay));
+  const height = MARGIN * 2 + rows * ROW + BOX_H;
+  return wrapSvg('before-after', xb + b.w + MARGIN, height, parts.join(''), ariaLabel);
+}
