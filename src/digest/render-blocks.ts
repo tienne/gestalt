@@ -171,9 +171,10 @@ const mdBody = (text: string) =>
     ),
   );
 
-// 인용 원문은 줄을 살리므로 줄마다 첫머리를 막는다. 앞 공백이 4칸이면 코드 블록이 돼서 함께 걷는다
+// 인용 원문은 줄을 살리므로 줄마다 첫머리를 막는다. 마크다운은 홑 `\r`도 줄 끝으로 읽어서 같이 가른다
+// 앞 공백이 4칸이면 코드 블록이 되고 뒤 공백은 `===` 밑줄 판정을 가려서 양끝을 걷는다
 const quoteLines = (text: string) =>
-  text.split(/\r?\n/).map((l) => `> ${lineHead(l.trimStart())}`.trimEnd());
+  text.split(/\r\n|\r|\n/).map((l) => `> ${lineHead(l.trim())}`.trimEnd());
 
 function listMd(items: ListItem[], ctx: BlockMdContext, depth = 0): string[] {
   return items.flatMap((it) => [
