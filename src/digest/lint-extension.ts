@@ -11,7 +11,7 @@ import type { DigestTemplate } from './templates.js';
 
 /**
  * 확장 리포트의 문자열 한 칸.
- * title은 탭과 소제목처럼 이름으로 쓰여 윤문하지 않는다. verbatim은 대사나 댓글 원문이라 손대지 않는다
+ * title은 탭과 소제목처럼 이름으로 쓰여 본문 윤문에서 빠진다. 그림 안 글자는 prose.ts가 라벨로 따로 모은다. verbatim은 대사나 댓글 원문이라 손대지 않는다
  */
 export interface ExtensionText {
   path: string;

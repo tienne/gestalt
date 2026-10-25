@@ -94,7 +94,7 @@ function collectReportText(report: Report, p: string): TextField[] {
 
 /**
  * 본문에 들어가는 문자열을 리포트 전부에서 경로와 함께 모은다. 키워드 마커 검사와 윤문이 쓴다.
- * 확장 리포트는 본문 칸만 싣는다. 이름 칸과 대사 원문은 윤문하지 않는다
+ * 확장 리포트는 본문 칸만 싣는다. 이름 칸과 대사 원문은 본문 윤문에서 빠지고 그림 글자는 prose.ts가 따로 모은다
  */
 export function collectTextFields(digest: Digest): TextField[] {
   const reports = digest.reports.flatMap((report, ri) =>
