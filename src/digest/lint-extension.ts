@@ -6,7 +6,7 @@ import {
   type MindmapNode,
 } from './blocks.js';
 import type { DigestIssue } from './lint.js';
-import { boldPattern, keywordPattern, type Cite, type Transcript } from './schema.js';
+import { boldPattern, keywordPattern, type Cite, type Diagram, type Transcript } from './schema.js';
 import type { DigestTemplate } from './templates.js';
 
 /**
@@ -60,6 +60,70 @@ export function* walkMindmap(
   yield { node, path, depth };
   for (const [k, child] of (node.children ?? []).entries()) {
     yield* walkMindmap(child, `${path}.children.${k}`, depth + 1);
+  }
+}
+
+/** 도식에서 라벨 칸을 경로와 함께 돈다. 열 제목과 축 이름, 시점 글자는 출처가 없어서 cite도 없다 */
+export function* walkDiagram(
+  d: Diagram,
+  prefix: string,
+): Generator<{ label: string; cite?: Cite; path: string; labelPath: string }> {
+  const node = (n: { label: string; cite?: Cite }, path: string) => ({
+    label: n.label,
+    cite: n.cite,
+    path,
+    labelPath: `${path}.label`,
+  });
+  switch (d.kind) {
+    case 'flow':
+    case 'cycle':
+      for (const [k, step] of d.steps.entries()) yield node(step, `${prefix}.steps.${k}`);
+      return;
+    case 'compare':
+      for (const [c, col] of d.columns.entries()) {
+        const cp = `${prefix}.columns.${c}`;
+        yield { label: col.title, path: cp, labelPath: `${cp}.title` };
+        for (const [k, item] of col.items.entries()) yield node(item, `${cp}.items.${k}`);
+      }
+      return;
+    case 'tree':
+      for (const w of walkMindmap(d.root, `${prefix}.root`)) yield node(w.node, w.path);
+      return;
+    case 'timeline':
+      for (const [k, ev] of d.events.entries()) {
+        const ep = `${prefix}.events.${k}`;
+        yield { label: ev.when, path: ep, labelPath: `${ep}.when` };
+        yield node(ev, ep);
+      }
+      return;
+    case 'matrix':
+      for (const axis of ['x', 'y'] as const) {
+        for (const end of ['low', 'high'] as const) {
+          const ap = `${prefix}.${axis}.${end}`;
+          yield { label: d[axis][end], path: ap, labelPath: ap };
+        }
+      }
+      for (const [c, cell] of d.cells.entries()) {
+        for (const [k, item] of cell.entries()) yield node(item, `${prefix}.cells.${c}.${k}`);
+      }
+      return;
+    case 'causal':
+      for (const [k, n] of d.inputs.entries()) yield node(n, `${prefix}.inputs.${k}`);
+      yield node(d.center, `${prefix}.center`);
+      for (const [k, n] of d.outputs.entries()) yield node(n, `${prefix}.outputs.${k}`);
+      return;
+    case 'beforeAfter':
+      for (const side of ['before', 'after'] as const) {
+        const sp = `${prefix}.${side}`;
+        const { title, items } = d[side];
+        if (title) yield { label: title, path: sp, labelPath: `${sp}.title` };
+        for (const [k, item] of items.entries()) yield node(item, `${sp}.items.${k}`);
+      }
+      return;
+    default: {
+      const never: never = d;
+      throw new Error(`알 수 없는 도식: ${String(never)}`);
+    }
   }
 }
 
@@ -145,6 +209,19 @@ export function blockFields(
         texts.push({ path: `${path}.label`, text: node.label, role: 'title' });
         cite(`${path}.cite`, node.cite);
       }
+      break;
+    case 'figure':
+      texts.push({ path: `${p}.title`, text: block.title, role: 'title' });
+      if (block.diagram.caption) {
+        texts.push({ path: `${p}.diagram.caption`, text: block.diagram.caption, role: 'title' });
+      }
+      // 도식 라벨도 그림 안 글자라 마인드맵처럼 이름 칸으로 둔다
+      for (const node of walkDiagram(block.diagram, `${p}.diagram`)) {
+        texts.push({ path: node.labelPath, text: node.label, role: 'title' });
+        if (node.cite) cite(`${node.path}.cite`, node.cite);
+      }
+      texts.push({ path: `${p}.explanation`, text: block.explanation, role: 'body' });
+      cite(`${p}.cite`, block.cite);
       break;
     case 'comments':
       texts.push({ path: `${p}.overview`, text: block.overview, role: 'body' });
@@ -330,6 +407,42 @@ export function checkTree(
   }
 }
 
+/** 대섹션 도식의 트리는 마인드맵보다 작게 둔다. 본문 사이에 끼는 그림이라서다 */
+export const DIAGRAM_TREE_MAX_NODES = 30;
+
+const DIAGRAM_TREE_LIMIT: TreeLimit = {
+  maxNodes: DIAGRAM_TREE_MAX_NODES,
+  depthCode: 'DIAGRAM_DEPTH',
+  sizeCode: 'DIAGRAM_SIZE',
+  name: '도식 트리',
+  topic: '도식 트리는',
+};
+
+/**
+ * 스키마로는 못 잡는 도식 모양을 본다. 트리 깊이와 크기, 상자 하나만 남는 인과도와 빈 매트릭스다.
+ * 확장 리포트의 figure 블록도 같은 검사를 쓴다
+ */
+export function checkDiagramShape(d: Diagram, dp: string, issues: DigestIssue[]): void {
+  if (d.kind === 'tree') checkTree(d.root, `${dp}.root`, DIAGRAM_TREE_LIMIT, issues);
+  if (d.kind === 'causal' && d.inputs.length === 0 && d.outputs.length === 0) {
+    issues.push({
+      path: dp,
+      severity: 'error',
+      code: 'DIAGRAM_EMPTY',
+      message:
+        '인과도는 inputs와 outputs 중 하나는 채운다. 원인도 결과도 없으면 상자 하나만 남는다',
+    });
+  }
+  if (d.kind === 'matrix' && d.cells.every((c) => c.length === 0)) {
+    issues.push({
+      path: `${dp}.cells`,
+      severity: 'error',
+      code: 'DIAGRAM_EMPTY',
+      message: '매트릭스 네 칸이 다 비었다. 칸마다 노드를 0~4개 둔다',
+    });
+  }
+}
+
 const MINDMAP_LIMIT: TreeLimit = {
   maxNodes: MINDMAP_MAX_NODES,
   depthCode: 'MINDMAP_DEPTH',
@@ -338,10 +451,11 @@ const MINDMAP_LIMIT: TreeLimit = {
   topic: '마인드맵은',
 };
 
-function checkMindmap(ext: Extension, p: string, issues: DigestIssue[]): void {
+function checkShapes(ext: Extension, p: string, issues: DigestIssue[]): void {
   ext.blocks.forEach((block, bi) => {
-    if (block.type !== 'mindmap') return;
-    checkTree(block.root, `${p}.blocks.${bi}.root`, MINDMAP_LIMIT, issues);
+    const bp = `${p}.blocks.${bi}`;
+    if (block.type === 'mindmap') checkTree(block.root, `${bp}.root`, MINDMAP_LIMIT, issues);
+    if (block.type === 'figure') checkDiagramShape(block.diagram, `${bp}.diagram`, issues);
   });
 }
 
@@ -469,7 +583,7 @@ export function lintExtensions(
     checkListDepth(ext, p, issues);
     checkQuotes(ext, p, transcript, issues);
     checkQuiz(ext, p, issues);
-    checkMindmap(ext, p, issues);
+    checkShapes(ext, p, issues);
     checkComments(ext, p, opts.comments, opts.strictVerbatim ?? false, issues);
     checkTemplate(ext, p, opts.templates, issues);
   });

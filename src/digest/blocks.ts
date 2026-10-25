@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { citeSchema, LANG_TAG_PATTERN, textSchema } from './schema-base.js';
-import { mindmapNodeSchema } from './diagram-schema.js';
+import { diagramSchema, mindmapNodeSchema } from './diagram-schema.js';
 
 export { mindmapNodeSchema, type MindmapNode } from './diagram-schema.js';
 
@@ -120,6 +120,18 @@ export const mindmapBlockSchema = z.object({
   root: mindmapNodeSchema,
 });
 
+/**
+ * 개념 하나를 그림과 설명으로 짝지은 카드. diagram은 대섹션 도식과 같은 구조라 그림도 같은 코드가 그린다.
+ * 설명이 영상 어디서 나왔는지 따라가야 해서 cite는 빼지 않는다
+ */
+export const figureBlockSchema = z.object({
+  type: z.literal('figure'),
+  title: textSchema,
+  diagram: diagramSchema,
+  explanation: textSchema,
+  cite: citeSchema,
+});
+
 export const COMMENT_TONES = ['positive', 'negative', 'neutral', 'question'] as const;
 
 /** yt-dlp가 주는 댓글 id. 영숫자와 -, _, .만 온다 */
@@ -158,6 +170,7 @@ export const blockSchema = z.discriminatedUnion('type', [
   flashcardsBlockSchema,
   quizBlockSchema,
   mindmapBlockSchema,
+  figureBlockSchema,
   commentsBlockSchema,
 ]);
 
@@ -177,6 +190,7 @@ export type ListBlock = z.infer<typeof listBlockSchema>;
 export type QuoteBlock = z.infer<typeof quoteBlockSchema>;
 export type QuizBlock = z.infer<typeof quizBlockSchema>;
 export type MindmapBlock = z.infer<typeof mindmapBlockSchema>;
+export type FigureBlock = z.infer<typeof figureBlockSchema>;
 export type CommentsBlock = z.infer<typeof commentsBlockSchema>;
 export type Block = z.infer<typeof blockSchema>;
 export type Extension = z.infer<typeof extensionSchema>;
