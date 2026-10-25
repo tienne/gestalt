@@ -150,7 +150,7 @@ gestalt digest ingest '<source>' --repo-root '<repoRoot>' [--lang '<code>'] [--s
 gestalt digest ocr '<slug>' --repo-root '<repoRoot>' [--interval <초>]
 ```
 
-`화면 글자:` 다음 `저장:` 줄이 `ocr.json`의 절대 경로다. 이 값을 `<ocrPath>`로 받아 둔다. tesseract가 없다는 오류가 나면 설치를 대신 하지 않는다. 안내 문구를 보고에 적고 화면 글자 없이 Step 2로 간다. 읽은 항목이 0개여도 같다.
+`화면 글자:` 다음 `저장:` 줄이 `ocr.json`의 절대 경로다. 이 값을 `<ocrPath>`로 받아 둔다. 그 사이에 `프레임 N장 중 시각 로그가 M개뿐이라` 줄이 나오면 N과 M을 받아 두었다가 Step 7 보고에 적는다. tesseract가 없다는 오류가 나면 설치를 대신 하지 않는다. 안내 문구를 보고에 적고 화면 글자 없이 Step 2로 간다. 읽은 항목이 0개여도 같다.
 
 **화면 글자를 읽었으면 후보 장면을 고른다.** `<ocrPath>`가 있을 때만 부른다. 화면 글자가 없으면 후보에도 글자가 없어서 장면을 못 보는 요약 작성자가 고를 근거가 없다. 수집을 건너뛴 slug는 `scenes.json`이 없거나 그 뒤에 `ocr.json`을 새로 만들었을 때만 부른다. 다시 부르지 않으면 `<repoRoot>/.gestalt/digest/<slug>/scenes.json`을 그대로 `<scenesPath>`로 쓴다.
 
@@ -158,7 +158,7 @@ gestalt digest ocr '<slug>' --repo-root '<repoRoot>' [--interval <초>]
 gestalt digest scenes '<slug>' --repo-root '<repoRoot>'
 ```
 
-`후보 장면 N개` 다음 `저장:` 줄이 `scenes.json`의 절대 경로다. 이 값을 `<scenesPath>`로 받아 둔다. 슬라이드가 넘어간 자리를 `ocr.json`의 글자로 고른다. `후보가 N개라 영상 전체에서 고르게 M개만 남겼어요` 줄이 나오면 솎기 전 후보 수 N을 받아 두었다가 Step 6 보고에 적는다. 명령이 실패하면 오류를 보고에 적고 `<scenesPath>` 없이 Step 2로 간다. 그때 리포트에는 `shots`가 없다. 후보가 0개여도 파일은 그대로 넘긴다.
+`후보 장면 N개` 다음 `저장:` 줄이 `scenes.json`의 절대 경로다. 이 값을 `<scenesPath>`로 받아 둔다. 슬라이드가 넘어간 자리를 `ocr.json`의 글자로 고른다. `후보가 N개라 영상 전체에서 고르게 M개만 남겼어요` 줄이 나오면 솎기 전 후보 수 N을 받아 두었다가 Step 7 보고에 적는다. 명령이 실패하면 오류를 보고에 적고 `<scenesPath>` 없이 Step 2로 간다. 그때 리포트에는 `shots`가 없다. 후보가 0개여도 파일은 그대로 넘긴다.
 
 **구간을 받았으면 스크립트를 자른다.** 수집이 끝난 뒤 부른다.
 
@@ -239,13 +239,13 @@ jq -n --slurpfile opt '<폴더>/digest.options.json' \
 gestalt digest merge '<slug>' '<reportPath>' --json --repo-root '<repoRoot>'
 ```
 
-리포트를 `digest.json`의 `reports[]`에 합친 뒤 스키마와 lint를 돌린다. `digest.json`이 없으면 새로 만든다. 출력의 `index`가 합친 뒤 이 리포트의 자리이고 `key`가 리포트 키다. 둘 다 받아 둔다.
+리포트를 `digest.json`의 `reports[]`에 합친 뒤 스키마와 lint를 돌린다. `digest.json`이 없으면 새로 만든다. 출력의 `index`가 합친 뒤 이 리포트의 자리이고 `key`가 리포트 키다. 둘 다 받아 둔다. `replaced`는 이번 실행에서 처음 JSON을 돌려준 merge의 값만 받아 둔다. 저장한 뒤 다시 부른 merge는 방금 저장한 리포트를 바꿔 끼우므로 늘 true로 나온다.
 
 `saved:false`면 오류가 있어 저장하지 않은 것이다. `issues` 중 `severity`가 `error`인 것의 `path`에서 `reports.<index>.` 접두를 떼고 `message`와 함께 `video-summarizer`에 다시 넘겨 `<reportPath>`의 그 자리만 고치게 한다. 다른 리포트 자리(`reports.<다른 번호>.`)의 오류가 섞여 있으면 이번 리포트 탓이 아니다. 고치게 하지 않고 보고에 적는다. 오류가 0개가 될 때까지 merge를 다시 부른다. 세 번을 넘기면 멈추고 남은 오류를 보고한다.
 
 리포트 형식이 아예 틀리면 merge가 `리포트 형식 오류:`로 끝난다. 그 메시지도 같은 방법으로 넘긴다.
 
-`severity`가 `warning`인 것(소섹션 개수, 불릿 개수, 도식 수)은 막지 않는다. 영상에 맞는 분량이면 그대로 둔다. `DIAGRAM_TOO_FEW`는 한 번만 `video-summarizer`에 넘겨 단계나 견주기, 시간 흐름, 원인과 결과가 있는 대섹션에 도식을 더 붙일 수 있는지 보게 한다. 넘길 때는 프롬프트에 경고 `message`와 "도식을 더했거나 더할 구조가 없으면 Output Format 세 줄 뒤에 `diagrams:` 줄로 적는다"를 함께 싣는다. 돌아오면 같은 `<reportPath>`로 merge를 다시 부른다. 이때 `DIAGRAM_TOO_FEW`가 또 나와도 다시 맡기지 않고 `diagrams:` 줄의 이유를 Step 6 보고에 옮긴다.
+`severity`가 `warning`인 것(소섹션 개수, 불릿 개수, 도식 수)은 막지 않는다. 영상에 맞는 분량이면 그대로 둔다. `DIAGRAM_TOO_FEW`는 한 번만 `video-summarizer`에 넘겨 단계나 견주기, 시간 흐름, 원인과 결과가 있는 대섹션에 도식을 더 붙일 수 있는지 보게 한다. 넘길 때는 프롬프트에 경고 `message`와 "도식을 더했거나 더할 구조가 없으면 Output Format 세 줄 뒤에 `diagrams:` 줄로 적는다"를 함께 싣는다. 돌아오면 같은 `<reportPath>`로 merge를 다시 부른다. 이때 `DIAGRAM_TOO_FEW`가 또 나와도 다시 맡기지 않고 `diagrams:` 줄의 이유를 Step 7 보고에 옮긴다.
 
 ## Step 3.5 — 확장 리포트
 
@@ -301,7 +301,7 @@ Agent {
 gestalt digest merge '<slug>' '<extPath>' --extension --json --repo-root '<repoRoot>'
 ```
 
-출력의 `key`가 확장 키(`<template>.<lang>`)이고 `index`가 `extensions[]` 안의 자리다. `saved:false`면 `issues`의 `error` 항목에서 `extensions.<index>.` 접두를 떼고 `message`와 함께 다시 맡겨 `<extPath>`의 그 자리만 고치게 한다. 세 번을 넘기면 그 템플릿은 멈추고 남은 오류를 보고한다. 다른 템플릿과 리포트는 그대로 진행한다.
+출력의 `key`가 확장 키(`<template>.<lang>`)이고 `index`가 `extensions[]` 안의 자리다. `replaced`는 리포트처럼 처음 JSON을 돌려준 merge의 값만 받아 둔다. `saved:false`면 `issues`의 `error` 항목에서 `extensions.<index>.` 접두를 떼고 `message`와 함께 다시 맡겨 `<extPath>`의 그 자리만 고치게 한다. 세 번을 넘기면 그 템플릿은 멈추고 남은 오류를 보고한다. 다른 템플릿과 리포트는 그대로 진행한다.
 
 `BLOCK_NOT_IN_TEMPLATE`은 경고지만 오류처럼 다시 맡겨 템플릿이 정한 블록으로 고치게 한다. 렌더는 되지만 템플릿이 약속한 모양과 달라진다. `COMMENT_NOT_FOUND`는 `comments.json`에 없는 댓글 id를 썼다는 뜻이다. 고칠 때 `<commentsPath>`를 다시 읽게 한다. `COMMENT_TEXT_MISMATCH`는 예시 글자가 원문과 다르다는 뜻이고 merge에서는 오류, validate와 render에서는 경고다. 고칠 때 `<commentsPath>`를 다시 읽어 원문을 통째로, 또는 글자와 숫자 4자 이상 이어진 부분을 그대로 옮기게 한다. `QUOTE_NOT_IN_SOURCE`와 `COMMENT_COUNT_EXCEEDS`는 경고라 막지 않는다. 오류를 고치러 다시 맡길 때 경고 자리도 함께 넘겨 원문대로 옮기게 한다.
 
@@ -397,9 +397,9 @@ gestalt digest export '<slug>' --md --repo-root '<repoRoot>' [--report '<key>'] 
 - serve로 띄웠으면 뷰어 주소와 끄는 법. 인라인 HTML이면 그 경로와 serve를 부르면 덮인다는 것
 - 자막 출처와 문장 수
 - 번역을 붙였으면 그 언어와 빠진 문장 수
-- 화면 글자를 읽었으면 `ocr.json` 경로와 항목 수. 못 읽었으면 그 이유
-- 리포트 키와 새로 붙였는지 바꿔 끼웠는지
-- 확장 키와 새로 붙였는지 바꿔 끼웠는지. 건너뛴 템플릿과 이유(없는 템플릿, 댓글을 못 받음, 오류가 남음)
+- 화면 글자를 읽었으면 `ocr.json` 경로와 항목 수. 시각 로그가 모자랐으면 그 줄의 N과 M. 못 읽었으면 그 이유
+- 리포트 키와 새로 붙였는지 바꿔 끼웠는지(Step 3에서 처음 받아 둔 `replaced`)
+- 확장 키와 새로 붙였는지 바꿔 끼웠는지(Step 3.5에서 처음 받아 둔 `replaced`). 건너뛴 템플릿과 이유(없는 템플릿, 댓글을 못 받음, 오류가 남음)
 - 댓글을 받았으면 받은 개수
 - 대섹션과 소섹션, 키워드 개수. `skipped` 구간과 이유
 - 리포트마다 도식 개수와 종류(`flow` 2, `timeline` 1처럼). `DIAGRAM_TOO_FEW`가 남았으면 그 이유(`video-summarizer`가 돌려준 `diagrams:` 줄)
