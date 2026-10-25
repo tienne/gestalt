@@ -89,25 +89,25 @@ outputs:
 
 ## 쓰는 도구
 
-| 도구                                             | 쓰는 때                                                                                                                         |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `gestalt digest ingest <url\|파일>`              | 메타데이터와 자막을 받아 `transcript.json` 만들기. 자막이 없으면 faster-whisper                                                 |
-| `gestalt digest merge <slug> <파일>`             | 리포트 한 벌을 `digest.json`에 합치며 스키마와 lint 검사. 오류가 있으면 저장하지 않는다                                         |
-| `gestalt digest slice <slug> --range <구간>`     | 구간 리포트용으로 그 구간 문장만 잘라 저장. 문장 번호는 그대로 둔다                                                             |
-| `ges_digest action=validate`                     | `digest.json`의 스키마와 lint 검사. 리포트 키 목록도 준다                                                                       |
-| `gestalt digest translate-apply <slug> <파일>`   | 스크립트 번역을 문장 번호로 붙이기. 언어가 바뀌면 이전 번역을 지운다                                                            |
-| `gestalt digest ocr <slug>`                      | 일정 간격으로 프레임을 뽑아 화면 글자를 읽고 `ocr.json`에 쓰기. tesseract가 있어야 한다                                         |
-| `gestalt digest scenes <slug>`                   | 소섹션 `shots`가 고를 후보 장면을 `scenes.json`에 쓰기. `ocr.json`이 있으면 화면 글자로, 없으면 ffmpeg 장면 전환으로 고른다     |
-| `gestalt digest frames <slug>`                   | 소섹션 `frameSec`마다 프레임 한 장 뽑기. `shots` 장면은 720p로 따로 뽑는다                                                      |
-| `gestalt digest templates`                       | 확장 리포트 템플릿 목록. 기본 템플릿과 `.gestalt/digest/templates/`의 사용자 템플릿을 함께 준다                                 |
-| `gestalt digest template <id>`                   | 템플릿의 요약 지시 본문 출력. `video-summarizer`에 그대로 넘긴다                                                                |
-| `gestalt digest comments <slug>`                 | 유튜브 댓글을 인기순으로 받아 `comments.json`에 쓰기. 작성자 정보는 저장하지 않는다                                             |
-| `gestalt digest merge <slug> <파일> --extension` | 확장 리포트 한 벌을 `digest.json`의 `extensions[]`에 합치며 검사. 템플릿과 언어가 같으면 바꿔 끼운다                            |
-| `ges_digest action=prose_extract`                | 윤문할 문장만 path와 hash로 뽑기. 제목은 빠진다                                                                                 |
-| `ges_digest action=prose_apply`                  | 다듬은 문장을 같은 path로 되돌려 넣고 `**`, `{{kw:}}`, 숫자, 링크가 남았는지 검사                                               |
-| `ges_digest action=render`                       | `digest.html`과 `digest.md` 쓰기                                                                                                |
-| `gestalt digest serve <slug>`                    | 렌더를 인라인 없이 다시 돌리고 뷰어를 127.0.0.1로 띄우기. 끝나지 않는 명령이라 백그라운드로 띄운다. 유튜브 재생은 여기서만 된다 |
-| `gestalt digest export <slug> --md`              | 마크다운만 내기                                                                                                                 |
+| 도구                                             | 쓰는 때                                                                                                                                                           |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gestalt digest ingest <url\|파일>`              | 메타데이터와 자막을 받아 `transcript.json` 만들기. 자막이 없으면 faster-whisper                                                                                   |
+| `gestalt digest merge <slug> <파일>`             | 리포트 한 벌을 `digest.json`에 합치며 스키마와 lint 검사. 오류가 있으면 저장하지 않는다                                                                           |
+| `gestalt digest slice <slug> --range <구간>`     | 구간 리포트용으로 그 구간 문장만 잘라 저장. 문장 번호는 그대로 둔다                                                                                               |
+| `ges_digest action=validate`                     | `digest.json`의 스키마와 lint 검사. 리포트 키 목록도 준다                                                                                                         |
+| `gestalt digest translate-apply <slug> <파일>`   | 스크립트 번역을 문장 번호로 붙이기. 언어가 바뀌면 이전 번역을 지운다                                                                                              |
+| `gestalt digest ocr <slug>`                      | 일정 간격으로 프레임을 뽑아 화면 글자를 읽고 `ocr.json`에 쓰기. tesseract가 있어야 한다                                                                           |
+| `gestalt digest scenes <slug>`                   | 소섹션 `shots`가 고를 후보 장면을 `scenes.json`에 쓰기. `ocr.json`이 있으면 화면 글자로, 없으면 ffmpeg 장면 전환으로 고른다. 스킬은 `ocr.json`이 있을 때만 부른다 |
+| `gestalt digest frames <slug>`                   | 소섹션 `frameSec`마다 프레임 한 장 뽑기. `shots` 장면은 720p로 따로 뽑는다                                                                                        |
+| `gestalt digest templates`                       | 확장 리포트 템플릿 목록. 기본 템플릿과 `.gestalt/digest/templates/`의 사용자 템플릿을 함께 준다                                                                   |
+| `gestalt digest template <id>`                   | 템플릿의 요약 지시 본문 출력. `video-summarizer`에 그대로 넘긴다                                                                                                  |
+| `gestalt digest comments <slug>`                 | 유튜브 댓글을 인기순으로 받아 `comments.json`에 쓰기. 작성자 정보는 저장하지 않는다                                                                               |
+| `gestalt digest merge <slug> <파일> --extension` | 확장 리포트 한 벌을 `digest.json`의 `extensions[]`에 합치며 검사. 템플릿과 언어가 같으면 바꿔 끼운다                                                              |
+| `ges_digest action=prose_extract`                | 윤문할 문장만 path와 hash로 뽑기. 제목은 빠진다                                                                                                                   |
+| `ges_digest action=prose_apply`                  | 다듬은 문장을 같은 path로 되돌려 넣고 `**`, `{{kw:}}`, 숫자, 링크가 남았는지 검사                                                                                 |
+| `ges_digest action=render`                       | `digest.html`과 `digest.md` 쓰기                                                                                                                                  |
+| `gestalt digest serve <slug>`                    | 렌더를 인라인 없이 다시 돌리고 뷰어를 127.0.0.1로 띄우기. 끝나지 않는 명령이라 백그라운드로 띄운다. 유튜브 재생은 여기서만 된다                                   |
+| `gestalt digest export <slug> --md`              | 마크다운만 내기                                                                                                                                                   |
 
 ## 전체 흐름
 
@@ -142,6 +142,8 @@ gestalt digest ingest '<source>' --repo-root '<repoRoot>' [--lang '<code>'] [--s
 
 출력의 slug와 문장 수, 자막 출처(`manual`, `auto`, `whisper`)를 받아 둔다. `저장:` 줄은 `transcript.json`의 절대 경로다. 이 값을 `<transcriptPath>`로, 같은 폴더의 `report.draft.json`을 `<reportPath>`로 받아 둔다. 자동 자막은 문장 끝 부호가 없어 길이와 쉼 간격으로 끊긴다. 문장이 지나치게 짧거나 길면 보고에 적는다.
 
+유튜브가 403을 내면 ingest가 다른 클라이언트로 한 번 더 시도한다. 그래도 실패하면 오류를 그대로 보여주고 멈춘다. 쿠키나 로그인을 대신 넣지 않는다.
+
 **`ocr`이 true면 화면 글자도 읽는다.** ingest에 `--ocr`을 붙이면 스크립트를 만든 뒤 이어서 읽는다. 수집을 건너뛴 slug는 `ocr.json`이 없을 때만 따로 부른다. 이미 있으면 `<repoRoot>/.gestalt/digest/<slug>/ocr.json`을 그대로 `<ocrPath>`로 쓴다.
 
 ```bash
@@ -150,15 +152,13 @@ gestalt digest ocr '<slug>' --repo-root '<repoRoot>' [--interval <초>]
 
 `화면 글자:` 다음 `저장:` 줄이 `ocr.json`의 절대 경로다. 이 값을 `<ocrPath>`로 받아 둔다. tesseract가 없다는 오류가 나면 설치를 대신 하지 않는다. 안내 문구를 보고에 적고 화면 글자 없이 Step 2로 간다. 읽은 항목이 0개여도 같다.
 
-**후보 장면을 고른다.** 화면 글자를 읽었든 안 읽었든 부른다. 수집을 건너뛴 slug는 `scenes.json`이 없거나 그 뒤에 `ocr.json`을 새로 만들었을 때만 부른다.
+**화면 글자를 읽었으면 후보 장면을 고른다.** `<ocrPath>`가 있을 때만 부른다. 화면 글자가 없으면 후보에도 글자가 없어서 장면을 못 보는 요약 작성자가 고를 근거가 없다. 수집을 건너뛴 slug는 `scenes.json`이 없거나 그 뒤에 `ocr.json`을 새로 만들었을 때만 부른다. 다시 부르지 않으면 `<repoRoot>/.gestalt/digest/<slug>/scenes.json`을 그대로 `<scenesPath>`로 쓴다.
 
 ```bash
 gestalt digest scenes '<slug>' --repo-root '<repoRoot>'
 ```
 
-`후보 장면 N개` 다음 `저장:` 줄이 `scenes.json`의 절대 경로다. 이 값을 `<scenesPath>`로 받아 둔다. `ocr.json`이 있으면 슬라이드가 넘어간 자리를 글자로 고르고 없으면 영상을 받아 장면 전환을 찾는다. 받은 영상은 Step 4 frames가 다시 쓴다. 명령이 실패하면 오류를 보고에 적고 `<scenesPath>` 없이 Step 2로 간다. 그때 리포트에는 `shots`가 없다. 후보가 0개여도 파일은 그대로 넘긴다.
-
-유튜브가 403을 내면 ingest가 다른 클라이언트로 한 번 더 시도한다. 그래도 실패하면 오류를 그대로 보여주고 멈춘다. 쿠키나 로그인을 대신 넣지 않는다.
+`후보 장면 N개` 다음 `저장:` 줄이 `scenes.json`의 절대 경로다. 이 값을 `<scenesPath>`로 받아 둔다. 슬라이드가 넘어간 자리를 `ocr.json`의 글자로 고른다. 명령이 실패하면 오류를 보고에 적고 `<scenesPath>` 없이 Step 2로 간다. 그때 리포트에는 `shots`가 없다. 후보가 0개여도 파일은 그대로 넘긴다.
 
 **구간을 받았으면 스크립트를 자른다.** 수집이 끝난 뒤 부른다.
 
@@ -403,7 +403,7 @@ gestalt digest export '<slug>' --md --repo-root '<repoRoot>' [--report '<key>'] 
 - 댓글을 받았으면 받은 개수
 - 대섹션과 소섹션, 키워드 개수. `skipped` 구간과 이유
 - 리포트마다 도식 개수와 종류(`flow` 2, `timeline` 1처럼). `DIAGRAM_TOO_FEW`가 남았으면 그 이유
-- 후보 장면을 골랐으면 출처(`ocr` 또는 `scene`)와 후보 수, 리포트에 실은 `shots` 수와 720p로 뽑은 수. 못 골랐으면 그 이유
+- 후보 장면을 골랐으면 후보 수와 리포트에 실은 `shots` 수, 720p로 뽑은 수. 못 골랐으면 그 이유(화면 글자를 안 읽음, 명령 실패)
 - merge를 몇 번 돌았는지와 남은 경고
 - 윤문 결과. 넣은 개수와 원문을 둔 항목(path와 경고 `code`), 다시 스캔해서 남은 S1
 - 프레임을 못 뽑은 소섹션(Step 6 렌더 경고에서)과 frames 실패 원인
