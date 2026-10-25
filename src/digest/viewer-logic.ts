@@ -39,6 +39,17 @@ function reportCommand(slug, length, difficulty, lang) {
   var cmd = '/gestalt:video-digest slug=' + slug + ' length=' + length + ' difficulty=' + difficulty;
   return lang ? cmd + ' reportLang=' + lang : cmd;
 }
+function templateCommand(slug, id, lang) {
+  var cmd = '/gestalt:video-digest slug=' + slug + ' templates=' + id;
+  return lang ? cmd + ' reportLang=' + lang : cmd;
+}
+function tabStep(i, n, key) {
+  if (key === 'ArrowRight') return (i + 1) % n;
+  if (key === 'ArrowLeft') return (i - 1 + n) % n;
+  if (key === 'Home') return 0;
+  if (key === 'End') return n - 1;
+  return -1;
+}
 function safeDecode(s) {
   try { return decodeURIComponent(s); } catch (e) { return ''; }
 }
@@ -106,6 +117,10 @@ export interface ViewerLogic {
   ) => number;
   /** 없는 조합을 고르면 복사해 주는 생성 명령. 지금 보는 리포트의 언어를 따라가야 다른 언어 리포트가 안 생긴다 */
   reportCommand: (slug: string, length: string, difficulty: string, lang?: string) => string;
+  /** "+ 더 만들기"에서 템플릿을 고르면 복사해 주는 명령. 언어는 지금 보는 리포트를 따른다 */
+  templateCommand: (slug: string, id: string, lang?: string) => string;
+  /** 탭 목록에서 방향키, Home, End로 옮겨 갈 자리. 다른 키면 -1 */
+  tabStep: (i: number, n: number, key: string) => number;
   /** 공유 링크의 앵커는 외부 입력이라 깨진 인코딩이면 빈 문자열로 받는다 */
   safeDecode: (s: string) => string;
   /** HTML5 video 상태를 유튜브 재생 상태 코드로 옮긴다. 따라가기 판정이 그 코드만 본다 */
@@ -117,7 +132,7 @@ export interface ViewerLogic {
 }
 
 export const viewerLogic = new Function(
-  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, shouldFollowHeld: shouldFollowHeld, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
+  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, shouldFollowHeld: shouldFollowHeld, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, templateCommand: templateCommand, tabStep: tabStep, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
 )() as ViewerLogic;
 
 export const findSegmentIndex = viewerLogic.findSegmentIndex;

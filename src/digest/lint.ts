@@ -3,12 +3,21 @@ import {
   keywordPattern,
   type Bullet,
   type Cite,
+  type Diagram,
   type Digest,
   type Report,
   type ReportOptions,
   type Transcript,
 } from './schema.js';
 import { rangeSpan, reportKey } from './reports.js';
+import {
+  checkTree,
+  extensionFields,
+  lintExtensions,
+  walkMindmap,
+  type ExtensionLintOptions,
+  type TreeLimit,
+} from './lint-extension.js';
 
 export type DigestIssueSeverity = 'error' | 'warning';
 
@@ -59,6 +68,42 @@ function* walkBullets(
   }
 }
 
+/** 대섹션 도식의 트리는 마인드맵보다 작게 둔다. 본문 사이에 끼는 그림이라서다 */
+export const DIAGRAM_TREE_MAX_NODES = 30;
+
+/** 도식에서 라벨 칸을 경로와 함께 돈다. 열 제목은 출처가 없어서 cite도 없다 */
+function* walkDiagram(
+  d: Diagram,
+  prefix: string,
+): Generator<{ label: string; cite?: Cite; path: string; labelPath: string }> {
+  const node = (n: { label: string; cite?: Cite }, path: string) => ({
+    label: n.label,
+    cite: n.cite,
+    path,
+    labelPath: `${path}.label`,
+  });
+  switch (d.kind) {
+    case 'flow':
+    case 'cycle':
+      for (const [k, step] of d.steps.entries()) yield node(step, `${prefix}.steps.${k}`);
+      return;
+    case 'compare':
+      for (const [c, col] of d.columns.entries()) {
+        const cp = `${prefix}.columns.${c}`;
+        yield { label: col.title, path: cp, labelPath: `${cp}.title` };
+        for (const [k, item] of col.items.entries()) yield node(item, `${cp}.items.${k}`);
+      }
+      return;
+    case 'tree':
+      for (const w of walkMindmap(d.root, `${prefix}.root`)) yield node(w.node, w.path);
+      return;
+    default: {
+      const never: never = d;
+      throw new Error(`알 수 없는 도식: ${String(never)}`);
+    }
+  }
+}
+
 function collectReportText(report: Report, p: string): TextField[] {
   const out: TextField[] = [];
   out.push({ path: `${p}.lead.question`, text: report.lead.question });
@@ -85,16 +130,27 @@ function collectReportText(report: Report, p: string): TextField[] {
   return out;
 }
 
-/** 본문에 들어가는 문자열을 리포트 전부에서 경로와 함께 모은다. 키워드 마커 검사와 윤문이 쓴다 */
+/**
+ * 본문에 들어가는 문자열을 리포트 전부에서 경로와 함께 모은다. 키워드 마커 검사와 윤문이 쓴다.
+ * 확장 리포트는 본문 칸만 싣는다. 이름 칸과 대사 원문은 윤문하지 않는다
+ */
 export function collectTextFields(digest: Digest): TextField[] {
-  return digest.reports.flatMap((report, ri) => collectReportText(report, `reports.${ri}`));
+  const reports = digest.reports.flatMap((report, ri) =>
+    collectReportText(report, `reports.${ri}`),
+  );
+  const extensions = digest.extensions.flatMap((ext, xi) =>
+    extensionFields(ext, `extensions.${xi}`)
+      .texts.filter((t) => t.role === 'body')
+      .map(({ path, text }) => ({ path, text })),
+  );
+  return [...reports, ...extensions];
 }
 
 interface CiteField {
   path: string;
   cite: Cite;
-  /** 불릿이면 소속 소섹션 범위. 키워드 firstCite처럼 범위 제한이 없으면 비운다 */
-  within?: Cite;
+  /** 불릿이면 소속 소섹션, 도식 노드면 소속 대섹션 범위. 키워드 firstCite처럼 범위 제한이 없으면 비운다 */
+  within?: { cite: Cite; code: string; name: string };
 }
 
 function collectCites(report: Report, p: string): CiteField[] {
@@ -105,10 +161,17 @@ function collectCites(report: Report, p: string): CiteField[] {
     section.subsections.forEach((sub, bi) => {
       const bp = `${sp}.subsections.${bi}`;
       out.push({ path: `${bp}.cite`, cite: sub.cite });
+      const within = { cite: sub.cite, code: 'BULLET_CITE_OUT_OF_SUBSECTION', name: '소섹션' };
       for (const { bullet, path } of walkBullets(sub.bullets, `${bp}.bullets`)) {
-        out.push({ path: `${path}.cite`, cite: bullet.cite, within: sub.cite });
+        out.push({ path: `${path}.cite`, cite: bullet.cite, within });
       }
     });
+    if (section.diagram) {
+      const within = { cite: section.cite, code: 'DIAGRAM_CITE_OUT_OF_SECTION', name: '대섹션' };
+      for (const node of walkDiagram(section.diagram, `${sp}.diagram`)) {
+        if (node.cite) out.push({ path: `${node.path}.cite`, cite: node.cite, within });
+      }
+    }
   });
   report.keywords.forEach((kw, ki) => {
     out.push({ path: `${p}.keywords.${ki}.firstCite`, cite: kw.firstCite });
@@ -255,12 +318,12 @@ function checkCites(report: Report, p: string, total: number, issues: DigestIssu
         message: `key(${cite.key})가 ${range(cite.from, cite.to)} 밖이다`,
       });
     }
-    if (within && (cite.from < within.from || cite.to > within.to)) {
+    if (within && (cite.from < within.cite.from || cite.to > within.cite.to)) {
       issues.push({
         path,
         severity: 'error',
-        code: 'BULLET_CITE_OUT_OF_SUBSECTION',
-        message: `${range(cite.from, cite.to)}이 소섹션 범위(${range(within.from, within.to)}) 밖이다`,
+        code: within.code,
+        message: `${range(cite.from, cite.to)}이 ${within.name} 범위(${range(within.cite.from, within.cite.to)}) 밖이다`,
       });
     }
   }
@@ -313,6 +376,31 @@ function checkTitleMarkers(report: Report, p: string, issues: DigestIssue[]): vo
     section.subsections.forEach((sub, bi) =>
       check(sub.title, `${p}.sections.${si}.subsections.${bi}.title`),
     );
+    // 도식 라벨과 설명도 SVG와 목록에 글자 그대로 나간다
+    const d = section.diagram;
+    if (d) {
+      const dp = `${p}.sections.${si}.diagram`;
+      if (d.caption) check(d.caption, `${dp}.caption`);
+      for (const node of walkDiagram(d, dp)) {
+        check(node.label, node.labelPath);
+      }
+    }
+  });
+}
+
+const DIAGRAM_TREE_LIMIT: TreeLimit = {
+  maxNodes: DIAGRAM_TREE_MAX_NODES,
+  depthCode: 'DIAGRAM_DEPTH',
+  sizeCode: 'DIAGRAM_SIZE',
+  name: '도식 트리',
+  topic: '도식 트리는',
+};
+
+function checkDiagramTree(report: Report, p: string, issues: DigestIssue[]): void {
+  report.sections.forEach((section, si) => {
+    const d = section.diagram;
+    if (d?.kind !== 'tree') return;
+    checkTree(d.root, `${p}.sections.${si}.diagram.root`, DIAGRAM_TREE_LIMIT, issues);
   });
 }
 
@@ -431,7 +519,11 @@ function checkVolume(report: Report, p: string, issues: DigestIssue[]): void {
  * 스키마를 통과한 digest가 스크립트와 맞물리는지 본다.
  * 오류가 하나라도 있으면 렌더하지 않는다. 경고는 분량처럼 영상마다 답이 다른 것들이다.
  */
-export function lintDigest(digest: Digest, transcript: Transcript): DigestIssue[] {
+export function lintDigest(
+  digest: Digest,
+  transcript: Transcript,
+  opts: ExtensionLintOptions = {},
+): DigestIssue[] {
   const issues: DigestIssue[] = [];
   if (digest.slug !== transcript.slug) {
     issues.push({
@@ -458,6 +550,7 @@ export function lintDigest(digest: Digest, transcript: Transcript): DigestIssue[
     }
     lintReport(report, p, transcript, issues);
   });
+  lintExtensions(digest.extensions, transcript, issues, opts);
   return issues;
 }
 
@@ -499,6 +592,7 @@ function lintReport(
   }
   checkBulletDepth(report, p, issues);
   checkTitleMarkers(report, p, issues);
+  checkDiagramTree(report, p, issues);
   checkKeywords(report, p, issues);
   checkFrameSec(report, p, transcript, issues);
   checkDuplicateIds(report, p, issues);

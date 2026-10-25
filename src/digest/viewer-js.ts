@@ -179,7 +179,14 @@ export const VIEWER_JS =
   function setupTimeLinks(player) {
     document.addEventListener('click', function(ev){
       var el = ev.target.closest ? ev.target.closest('[data-sec]') : null;
-      if (!el || !player.live) return;
+      if (!el) return;
+      if (!player.live) {
+        // 도식 노드는 a가 아니라 href가 없다. 시각 링크와 같게 새 탭으로 연다
+        if (el.tagName.toLowerCase() === 'a' || !data.watchBase) return;
+        ev.preventDefault();
+        window.open(data.watchBase + '&t=' + Math.floor(Number(el.getAttribute('data-sec'))) + 's', '_blank', 'noopener');
+        return;
+      }
       ev.preventDefault();
       manualUntil = Date.now() + 5000;
       player.seek(Number(el.getAttribute('data-sec')));
@@ -435,12 +442,94 @@ export const VIEWER_JS =
     copyText(text, function(){ flash(btn, label, false); }, function(){ flash(btn, label, true); });
   }
 
-  function setupCopyButton(reports) {
+  function setupCopyButton(reports, tabs) {
     var copyBtn = document.getElementById('copy-md');
     if (!copyBtn) return;
     copyBtn.addEventListener('click', function(){
-      copyWith(copyBtn, '마크다운 복사', data.reports[reports.current()].markdown);
+      var ext = tabs.markdown();
+      copyWith(copyBtn, '마크다운 복사', ext !== null ? ext : data.reports[reports.current()].markdown);
     });
+  }
+
+  // 요약 탭과 확장 탭을 오간다. 리포트 바와 미니맵은 요약 탭 안이나 body 표시로 같이 숨는다
+  function setupTabs() {
+    var TAB_KEY = 'gestalt-digest-tab:' + data.slug;
+    var SUMMARY = 'panel-summary';
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]'));
+    var current = SUMMARY;
+    function select(id, focus){
+      if (!tabs.some(function(t){ return t.getAttribute('data-tab') === id; })) id = SUMMARY;
+      current = id;
+      tabs.forEach(function(t){
+        var on = t.getAttribute('data-tab') === id;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+        var panel = document.getElementById(t.getAttribute('aria-controls'));
+        if (panel) panel.hidden = !on;
+        if (on && focus) t.focus();
+      });
+      if (id === SUMMARY) document.body.removeAttribute('data-tab');
+      else document.body.setAttribute('data-tab', 'ext');
+      try { localStorage.setItem(TAB_KEY, id); } catch (e) {}
+    }
+    tabs.forEach(function(t, i){
+      t.addEventListener('click', function(){ select(t.getAttribute('data-tab'), false); });
+      t.addEventListener('keydown', function(ev){
+        var j = tabStep(i, tabs.length, ev.key);
+        if (j < 0) return;
+        ev.preventDefault();
+        select(tabs[j].getAttribute('data-tab'), true);
+      });
+    });
+    if (tabs.length) {
+      // 공유된 앵커가 있으면 그 앵커가 든 탭을 연다. 저장해 둔 탭보다 먼저다
+      var anchor = safeDecode(location.hash.slice(1));
+      var target = anchor ? document.getElementById(anchor) : null;
+      var owner = target && target.closest ? target.closest('.ext') : null;
+      var saved = null;
+      try { saved = localStorage.getItem(TAB_KEY); } catch (e) {}
+      if (owner) select(owner.id, false);
+      else if (!target && saved) select(saved, false);
+    }
+    return {
+      markdown: function(){
+        if (current === SUMMARY) return null;
+        var hit = null;
+        (data.extensions || []).forEach(function(x){ if (x.panel === current) hit = x.markdown; });
+        return hit;
+      }
+    };
+  }
+
+  // 없는 템플릿은 뷰어가 만들지 않고 세션에 붙여 넣을 명령만 복사해 준다
+  function setupMore(reports) {
+    var btn = document.getElementById('more-btn');
+    var menu = document.getElementById('more-menu');
+    var box = document.getElementById('more-cmd-box');
+    var code = document.getElementById('more-cmd');
+    var copy = document.getElementById('more-copy');
+    if (!btn || !menu || !box || !code || !copy) return { close: function(){ return false; } };
+    function setOpen(open){
+      menu.hidden = !open;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    btn.addEventListener('click', function(){ setOpen(menu.hidden); });
+    menu.querySelectorAll('[data-template]').forEach(function(b){
+      b.addEventListener('click', function(){
+        code.textContent = templateCommand(data.slug, b.getAttribute('data-template'), data.reports[reports.current()].lang);
+        box.hidden = false;
+        copyWith(copy, '명령 복사', code.textContent);
+      });
+    });
+    copy.addEventListener('click', function(){ copyWith(copy, '명령 복사', code.textContent); });
+    return {
+      close: function(){
+        if (menu.hidden) return false;
+        setOpen(false);
+        btn.focus();
+        return true;
+      }
+    };
   }
 
   // 툴바는 분량과 난이도 조합으로 리포트를 고른다. 없는 조합은 서버가 만들지 않고 생성 명령만 보여 준다
@@ -511,9 +600,87 @@ export const VIEWER_JS =
     return { current: function(){ return current; } };
   }
 
+  // 고른 답을 맞춰 보고 해설을 연다. 아무것도 안 골랐으면 정답과 해설만 연다
+  function setupQuiz() {
+    document.addEventListener('click', function(ev){
+      var btn = ev.target.closest ? ev.target.closest('.quiz-check') : null;
+      if (!btn) return;
+      var q = btn.closest('.quiz-q');
+      if (!q) return;
+      var answer = Number(q.getAttribute('data-answer'));
+      var inputs = q.querySelectorAll('input[type="radio"]');
+      var picked = -1;
+      Array.prototype.forEach.call(inputs, function(input, i){
+        if (input.checked) picked = i;
+      });
+      // 정답과 고른 답을 색으로만 가르면 스크린리더가 못 읽는다. 다시 누르면 앞 표시를 지우고 새로 단다
+      Array.prototype.forEach.call(inputs, function(input, i){
+        var label = input.closest('label');
+        if (!label) return;
+        Array.prototype.forEach.call(label.querySelectorAll('.quiz-mark'), function(m){ m.remove(); });
+        label.classList.toggle('is-answer', i === answer);
+        label.classList.toggle('is-picked', i === picked && i !== answer);
+        var mark = i === answer ? ' (정답)' : i === picked ? ' (고른 답)' : '';
+        if (!mark) return;
+        var sr = document.createElement('span');
+        sr.className = 'sr-only quiz-mark';
+        sr.textContent = mark;
+        label.appendChild(sr);
+      });
+      q.classList.toggle('is-right', picked === answer);
+      q.classList.toggle('is-wrong', picked >= 0 && picked !== answer);
+      var result = q.querySelector('.quiz-result');
+      if (result) result.textContent = picked < 0 ? '' : picked === answer ? '정답이에요' : '오답이에요';
+      var exp = q.querySelector('.quiz-exp');
+      if (exp) exp.hidden = false;
+    });
+  }
+
+  // 그림을 화면 크기로 키워 본다. 노드를 눌러 영상으로 가면 창을 닫는다
+  function setupZoom() {
+    if (!document.querySelector('[data-zoom]')) return { isOpen: function(){ return false; } };
+    var dialog = document.createElement('dialog');
+    dialog.id = 'zoom-dialog';
+    dialog.setAttribute('aria-label', '그림 크게 보기');
+    var close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'zoom-btn zoom-close';
+    close.textContent = '닫기';
+    var body = document.createElement('div');
+    body.className = 'zoom-body';
+    dialog.appendChild(close);
+    dialog.appendChild(body);
+    document.body.appendChild(dialog);
+    var opener = null;
+    close.addEventListener('click', function(){ dialog.close(); });
+    dialog.addEventListener('click', function(ev){
+      if (ev.target === dialog) dialog.close();
+      else if (ev.target.closest && ev.target.closest('[data-sec]')) dialog.close();
+    });
+    dialog.addEventListener('close', function(){
+      body.textContent = '';
+      if (opener) opener.focus();
+    });
+    document.addEventListener('click', function(ev){
+      var btn = ev.target.closest ? ev.target.closest('[data-zoom]') : null;
+      if (!btn || typeof dialog.showModal !== 'function') return;
+      var fig = btn.closest('.diagram');
+      var svg = fig ? fig.querySelector('svg') : null;
+      if (!svg) return;
+      body.textContent = '';
+      body.appendChild(svg.cloneNode(true));
+      opener = btn;
+      dialog.showModal();
+    });
+    return { isOpen: function(){ return dialog.open; } };
+  }
+
   setupFontScale();
   setupTranslation();
+  // 요약 앵커로 스크롤하려면 요약 패널이 먼저 보여야 해서 탭을 리포트보다 먼저 연다
+  var tabs = setupTabs();
   var reports = setupReports();
+  var more = setupMore(reports);
   var player = createPlayer();
   setupTimeLinks(player);
   var popups = setupPopups();
@@ -521,12 +688,22 @@ export const VIEWER_JS =
   setupSectionMarks();
   setupSubsectionFollow(player);
   var mini = setupMiniPlayer(player);
-  setupCopyButton(reports);
-  // 툴팁과 미니 플레이어가 함께 열려 있으면 Escape 한 번에 하나씩 닫는다
+  setupCopyButton(reports, tabs);
+  setupQuiz();
+  var zoom = setupZoom();
+  // 도식 노드는 Enter와 Space를 클릭으로 넘겨야 시각 이동과 확대 창 닫기가 같이 돈다
   document.addEventListener('keydown', function(ev){
-    if (ev.key !== 'Escape') return;
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    var el = ev.target.closest ? ev.target.closest('g[data-sec]') : null;
+    if (!el) return;
+    ev.preventDefault();
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  // 툴팁과 메뉴, 미니 플레이어가 함께 열려 있으면 Escape 한 번에 하나씩 닫는다
+  document.addEventListener('keydown', function(ev){
+    if (ev.key !== 'Escape' || zoom.isOpen()) return;
     if (popups.isOpen()) popups.closeAndReturn();
-    else mini.close();
+    else if (!more.close()) mini.close();
   });
 })();
 `;

@@ -133,6 +133,54 @@ describe('ges_digest', () => {
     expect(store.loadDigest(SLUG)!.reports[0]!.lead.answer).toBe(answer.text);
   });
 
+  it('prose_apply 응답의 lint도 validate처럼 댓글 원문을 대조한다', () => {
+    const { repo, store } = seeded((d) => {
+      d.extensions = [
+        {
+          template: 'comments',
+          title: '댓글 반응',
+          lang: 'ko',
+          blocks: [
+            {
+              type: 'comments',
+              total: 1,
+              overview: '반긴다.',
+              groups: [
+                {
+                  title: '반가움',
+                  tone: 'positive',
+                  count: 1,
+                  summary: '기다렸다는 반응',
+                  examples: [{ id: 'c9', text: '없는 댓글' }],
+                },
+              ],
+            },
+          ],
+        },
+      ];
+    });
+    writeFileSync(
+      store.commentsPath(SLUG),
+      JSON.stringify({
+        schemaVersion: '1.0.0',
+        videoId: 'v',
+        fetchedAt: '2026-01-01T00:00:00Z',
+        commentCount: 1,
+        comments: [{ id: 'c1', text: '반가워요', likes: 1 }],
+      }),
+    );
+    const items = call({ action: 'prose_extract', slug: SLUG }, repo).items as ReturnType<
+      typeof extractProse
+    >;
+    const target = items.find((i) => i.path === 'reports.0.lead.answer')!;
+    const r = call(
+      { action: 'prose_apply', slug: SLUG, items: [{ ...target, text: '다듬은 답.' }] },
+      repo,
+    );
+    const lint = r.lint as Array<{ code: string }>;
+    expect(lint.map((i) => i.code)).toContain('COMMENT_NOT_FOUND');
+  });
+
   it('prose_apply에 items가 없으면 거절한다', () => {
     const { repo } = seeded();
     expect(call({ action: 'prose_apply', slug: SLUG }, repo).errors?.[0]?.code).toBe(

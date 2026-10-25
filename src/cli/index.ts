@@ -32,11 +32,14 @@ import {
   harnessRefsThreeStateCommand,
 } from './commands/harness-refs-cross-pr.js';
 import {
+  digestCommentsCommand,
   digestExportCommand,
   digestFramesCommand,
   digestOcrCommand,
   digestIngestCommand,
   digestMergeCommand,
+  digestTemplateCommand,
+  digestTemplatesCommand,
   digestSliceCommand,
   digestTranslateApplyCommand,
   digestRenderCommand,
@@ -291,6 +294,12 @@ export function createCli(): Command {
     .action((slug, o, cmd) => digestOcrCommand(slug, { ...digestInherited(cmd), ...o }));
 
   digest
+    .command('comments <slug>')
+    .description('유튜브 댓글을 인기순으로 받아 comments.json에 둔다 (작성자 정보는 저장 안 함)')
+    .option('--max <n>', '받을 댓글 수, 1~1000 (기본 200)')
+    .action((slug, o, cmd) => digestCommentsCommand(slug, { ...digestInherited(cmd), ...o }));
+
+  digest
     .command('frames <slug>')
     .description('digest.json의 소섹션 frameSec마다 프레임을 뽑는다')
     .option('--force', '이미 뽑은 프레임도 다시 뽑는다')
@@ -318,9 +327,23 @@ export function createCli(): Command {
   digest
     .command('merge <slug> <reportFile>')
     .description('리포트 한 벌을 digest.json에 합친다. 같은 키면 바꿔 끼운다')
+    .option(
+      '--extension',
+      '템플릿으로 만든 확장 리포트를 합친다. 템플릿과 언어가 같으면 바꿔 끼운다',
+    )
     .action((slug, reportFile, o, cmd) =>
       digestMergeCommand(slug, reportFile, { ...digestInherited(cmd), ...o }),
     );
+
+  digest
+    .command('templates')
+    .description('확장 리포트 템플릿 목록 (기본 템플릿과 .gestalt/digest/templates/)')
+    .action((o, cmd) => digestTemplatesCommand({ ...digestInherited(cmd), ...o }));
+
+  digest
+    .command('template <id>')
+    .description('템플릿의 요약 지시를 출력한다. 요약 에이전트에게 그대로 넘긴다')
+    .action((id, o, cmd) => digestTemplateCommand(id, { ...digestInherited(cmd), ...o }));
 
   digest
     .command('slice <slug>')

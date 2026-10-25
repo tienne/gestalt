@@ -26,8 +26,11 @@ export function readRaw(path: string): RawRead {
   }
 }
 
+/** 저장소 바로 아래에서 slug 폴더가 아닌 자리. 사용자 템플릿이 여기 산다 */
+export const TEMPLATES_DIR_NAME = 'templates';
+
 export function isValidSlug(slug: string): boolean {
-  return SLUG_PATTERN.test(slug);
+  return SLUG_PATTERN.test(slug) && slug !== TEMPLATES_DIR_NAME;
 }
 
 /**
@@ -62,6 +65,10 @@ export class DigestStore {
     this.root = join(resolve(repoRoot), '.gestalt', 'digest');
   }
 
+  templatesDir(): string {
+    return join(this.root, TEMPLATES_DIR_NAME);
+  }
+
   /** slug는 경로 조각이라 패턴을 통과한 것만 받는다 */
   dir(slug: string): string {
     if (!isValidSlug(slug)) throw new Error(`slug가 올바르지 않다: ${slug}`);
@@ -86,6 +93,11 @@ export class DigestStore {
 
   framesDir(slug: string): string {
     return join(this.dir(slug), 'frames');
+  }
+
+  /** comments 명령이 받아 두는 댓글. 댓글 분석 템플릿이 읽는다 */
+  commentsPath(slug: string): string {
+    return join(this.dir(slug), 'comments.json');
   }
 
   /** frames 명령이 받아 두는 저화질 영상. 다시 뽑을 때 또 받지 않으려고 둔다 */

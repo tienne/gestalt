@@ -1,0 +1,384 @@
+import {
+  extensionKey,
+  type Block,
+  type CommentsBlock,
+  type Extension,
+  type ListItem,
+  type MindmapNode,
+} from './blocks.js';
+import { boldPattern, keywordPattern, type Cite, type Diagram } from './schema.js';
+import { compareSvg, cycleSvg, flowSvg, treeSvg } from './svg.js';
+
+/**
+ * 확장 리포트 블록을 HTML과 마크다운으로 그린다. 블록 타입을 더하면 여기와 lint-extension.ts의
+ * blockFields 두 곳에 case를 넣는다. 둘 다 never로 빠진 타입을 컴파일 때 잡는다
+ */
+
+export interface BlockHtmlContext {
+  escape: (s: string) => string;
+  cite: (c: Cite) => string;
+  /** cite.key 문장의 시작 시각 링크. 누르면 영상이 그 자리로 간다 */
+  time: (c: Cite) => string;
+  /** cite.key 문장의 시작 초. SVG 노드에 data-sec으로 단다 */
+  sec: (c: Cite) => number;
+}
+
+export interface BlockMdContext {
+  cite: (c: Cite) => string;
+  time: (c: Cite) => string;
+}
+
+// 확장 리포트는 키워드 목록이 없어 lint가 마커를 막는다. 그래도 들어오면 표시 글자만 남긴다
+const stripKeywords = (text: string) =>
+  text.replace(keywordPattern(), (_m, _id, label: string) => label);
+
+const htmlInline = (text: string, ctx: BlockHtmlContext) =>
+  ctx
+    .escape(stripKeywords(text))
+    .replace(boldPattern(), (_m, inner: string) => `<strong>${inner}</strong>`);
+
+const htmlCite = (c: Cite | undefined, ctx: BlockHtmlContext) => (c ? ctx.cite(c) : '');
+const mdCite = (c: Cite | undefined, ctx: BlockMdContext) => (c ? ctx.cite(c) : '');
+
+function listHtml(items: ListItem[], ctx: BlockHtmlContext): string {
+  return `<ul>${items
+    .map(
+      (it) =>
+        `<li>${htmlInline(it.text, ctx)}${htmlCite(it.cite, ctx)}${it.children?.length ? listHtml(it.children, ctx) : ''}</li>`,
+    )
+    .join('')}</ul>`;
+}
+
+const TONE_LABEL: Record<CommentsBlock['groups'][number]['tone'], string> = {
+  positive: '긍정',
+  negative: '부정',
+  neutral: '중립',
+  question: '질문',
+};
+
+function outlineHtml(node: MindmapNode, ctx: BlockHtmlContext): string {
+  const kids = node.children?.length
+    ? `<ul>${node.children.map((c) => outlineHtml(c, ctx)).join('')}</ul>`
+    : '';
+  return `<li>${ctx.escape(node.label)}${node.cite ? ` ${ctx.time(node.cite)}` : ''}${kids}</li>`;
+}
+
+function outlineMd(node: MindmapNode, ctx: BlockMdContext, depth = 0): string[] {
+  return [
+    `${'  '.repeat(depth)}- ${mdInline(node.label)}${node.cite ? ` ${ctx.time(node.cite)}` : ''}`,
+    ...(node.children ?? []).flatMap((c) => outlineMd(c, ctx, depth + 1)),
+  ];
+}
+
+/** 그림 하나와 확대 버튼, 스크립트 없이도 읽히는 목록. 대섹션 도식도 이 틀을 쓴다 */
+export function diagramFigure(svg: string, outline: string, caption?: string): string {
+  return `<figure class="diagram"><div class="dg-scroll">${svg}</div><div class="dg-bar">${
+    caption ? `<span>${caption}</span>` : ''
+  }<button type="button" class="zoom-btn" data-zoom>크게 보기</button></div><details class="dg-outline"><summary>목록으로 보기</summary>${outline}</details></figure>`;
+}
+
+const DIAGRAM_LABEL: Record<Diagram['kind'], string> = {
+  flow: '흐름도',
+  cycle: '순환도',
+  compare: '비교표',
+  tree: '구조도',
+};
+
+/** 대섹션 도식. title은 그림의 aria-label에 붙는 대섹션 제목이다 */
+export function sectionDiagramHtml(d: Diagram, title: string, ctx: BlockHtmlContext): string {
+  const opts = { sec: ctx.sec };
+  const aria = `${title} ${DIAGRAM_LABEL[d.kind]}`;
+  const li = (n: MindmapNode) => outlineHtml(n, ctx);
+  let svg: string;
+  let outline: string;
+  switch (d.kind) {
+    case 'flow':
+      svg = flowSvg(d.steps, opts, aria);
+      outline = `<ol>${d.steps.map(li).join('')}</ol>`;
+      break;
+    case 'cycle':
+      svg = cycleSvg(d.steps, opts, aria);
+      outline = `<ol>${d.steps.map(li).join('')}</ol>`;
+      break;
+    case 'compare':
+      svg = compareSvg(d.columns, opts, aria);
+      outline = `<ul>${d.columns.map((c) => li({ label: c.title, children: c.items })).join('')}</ul>`;
+      break;
+    case 'tree':
+      svg = treeSvg(d.root, opts, aria);
+      outline = `<ul>${li(d.root)}</ul>`;
+      break;
+    default: {
+      const never: never = d;
+      throw new Error(`알 수 없는 도식: ${String(never)}`);
+    }
+  }
+  return diagramFigure(svg, outline, d.caption ? ctx.escape(d.caption) : undefined);
+}
+
+/** 마크다운에는 그림 대신 목록으로 옮긴다. 순서가 있는 흐름과 순환은 번호를 단다 */
+export function sectionDiagramMd(d: Diagram, ctx: BlockMdContext): string[] {
+  const head = d.caption ? [`*${DIAGRAM_LABEL[d.kind]}: ${mdInline(d.caption)}*`, ''] : [];
+  const step = (n: MindmapNode, k: number) =>
+    `${k + 1}. ${mdInline(n.label)}${n.cite ? ` ${ctx.time(n.cite)}` : ''}`;
+  switch (d.kind) {
+    case 'flow':
+    case 'cycle':
+      return [...head, ...d.steps.map(step), ''];
+    case 'compare':
+      return [
+        ...head,
+        ...d.columns.flatMap((c) => outlineMd({ label: c.title, children: c.items }, ctx)),
+        '',
+      ];
+    case 'tree':
+      return [...head, ...outlineMd(d.root, ctx), ''];
+    default: {
+      const never: never = d;
+      throw new Error(`알 수 없는 도식: ${String(never)}`);
+    }
+  }
+}
+
+// 댓글과 자막 인용은 남이 쓴 글이라 마크다운 문법으로 읽히면 링크나 HTML이 끼어든다. 문법 글자를 무력화한다
+// `~`는 '1~2개와 3~4개'가 취소선으로 바뀌어서 함께 막는다
+// 맨 URL은 보이는 글자가 곧 목적지라 숨은 링크가 아니므로 두고 링크 문법과 HTML만 막는다
+const mdVerbatim = (text: string) => text.replace(/[\\`*_[\]<>#|&~]/g, (ch) => `\\${ch}`);
+
+// 한 줄로 쓰는 칸에 개행이 섞이면 목록이나 인용 밖으로 빠져나간다. HTML도 이 칸들의 개행을 공백으로 접어 보여준다
+const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+// 줄 첫머리의 `-`, `+`, `1.`, `1)`은 뒤에 공백이 오거나 줄이 끝나면 목록으로, `---`와 `===`는 구분선이나 제목 밑줄로 읽힌다
+// HTML은 평문으로 보여줘서 맞춘다. `-5도`나 `3.5배`는 문법이 아니라서 그대로 둔다
+const lineHead = (text: string) =>
+  text
+    .replace(/^([-+])(?=\s|$|-)/, '\\$1')
+    .replace(/^(=+)(?=[ \t]*$)/, '\\$1')
+    .replace(/^(\d{1,9})([.)])(?=\s|$)/, '$1\\$2');
+
+// 제목, 라벨, 이름 칸도 자막과 댓글에서 나온 값이다. lint가 `**`를 막는 칸이라 문법 글자를 전부 이스케이프해도 잃는 서식이 없다
+export const mdInline = (text: string) => lineHead(mdVerbatim(oneLine(text)));
+
+// 본문 칸도 자막에서 나온 글이라 링크나 HTML, 줄 머리 문법이 끼어들 수 있다. HTML 쪽처럼 굵게만 살린다
+// 개행은 굵게를 가른 뒤에 접는다. 먼저 접으면 줄을 넘는 `**`가 마크다운에서만 굵게가 된다
+const mdBody = (text: string) =>
+  lineHead(
+    oneLine(
+      stripKeywords(text)
+        .split(boldPattern())
+        .map((part, k) => (k % 2 ? `**${mdVerbatim(part)}**` : mdVerbatim(part)))
+        .join(''),
+    ),
+  );
+
+// 인용 원문은 줄을 살리므로 줄마다 첫머리를 막는다. 마크다운은 홑 `\r`도 줄 끝으로 읽어서 같이 가른다
+// 앞 공백이 4칸이면 코드 블록이 되고 뒤 공백은 `===` 밑줄 판정을 가려서 양끝을 걷는다
+const quoteLines = (text: string) =>
+  text.split(/\r\n|\r|\n/).map((l) => `> ${lineHead(l.trim())}`.trimEnd());
+
+function listMd(items: ListItem[], ctx: BlockMdContext, depth = 0): string[] {
+  return items.flatMap((it) => [
+    `${'  '.repeat(depth)}- ${mdBody(it.text)}${mdCite(it.cite, ctx)}`,
+    ...(it.children ? listMd(it.children, ctx, depth + 1) : []),
+  ]);
+}
+
+/** id는 블록마다 겹치지 않는 접두어다. 퀴즈 라디오 그룹 이름에 쓴다 */
+export function blockHtml(block: Block, ctx: BlockHtmlContext, id = 'b'): string {
+  switch (block.type) {
+    case 'heading':
+      return `<h3>${ctx.escape(block.text)}</h3>`;
+    case 'text':
+      return `<p>${htmlInline(block.text, ctx)}${htmlCite(block.cite, ctx)}</p>`;
+    case 'list':
+      return `${block.title ? `<h4>${ctx.escape(block.title)}</h4>` : ''}${listHtml(block.items, ctx)}`;
+    case 'quote':
+      return `<figure class="quote"><blockquote>${ctx.escape(block.text)}${ctx.cite(block.cite)}</blockquote>${
+        block.translation ? `<p class="quote-tr">${htmlInline(block.translation, ctx)}</p>` : ''
+      }${
+        block.speaker || block.note
+          ? `<figcaption>${block.speaker ? `<b>${ctx.escape(block.speaker)}</b>` : ''}${
+              block.note ? `<span>${htmlInline(block.note, ctx)}</span>` : ''
+            }</figcaption>`
+          : ''
+      }</figure>`;
+    case 'timestamps':
+      return `<ol class="ext-toc">${block.items
+        .map(
+          (it) =>
+            `<li>${ctx.time(it.cite)}<div><b>${ctx.escape(it.title)}</b>${
+              it.summary ? `<p>${htmlInline(it.summary, ctx)}</p>` : ''
+            }</div></li>`,
+        )
+        .join('')}</ol>`;
+    case 'actions':
+      return `<ul class="actions">${block.items
+        .map((it) => {
+          const meta = [
+            it.owner ? `<span>담당 ${ctx.escape(it.owner)}</span>` : '',
+            it.due ? `<span>기한 ${ctx.escape(it.due)}</span>` : '',
+          ].join('');
+          return `<li><span class="box" aria-hidden="true"></span><div>${htmlInline(it.task, ctx)}${htmlCite(it.cite, ctx)}${
+            meta ? `<small>${meta}</small>` : ''
+          }</div></li>`;
+        })
+        .join('')}</ul>`;
+    case 'qa':
+      return `<dl class="qa">${block.items
+        .map(
+          (it) =>
+            `<dt>${htmlInline(it.question, ctx)}</dt><dd>${htmlInline(it.answer, ctx)}${htmlCite(it.cite, ctx)}</dd>`,
+        )
+        .join('')}</dl>`;
+    case 'flashcards':
+      return `<div class="cards">${block.cards
+        .map(
+          (c) =>
+            `<details class="card"><summary>${htmlInline(c.front, ctx)}</summary><div class="card-back">${htmlInline(c.back, ctx)}${htmlCite(c.cite, ctx)}</div></details>`,
+        )
+        .join('')}</div>`;
+    case 'quiz':
+      return `<ol class="quiz">${block.questions
+        .map((q, k) => {
+          const name = ctx.escape(`${id}-q${k}`);
+          const choices = q.choices
+            .map(
+              (c, ci) =>
+                `<label class="quiz-choice"><input type="radio" name="${name}" value="${ci}"> <span>${htmlInline(c, ctx)}</span></label>`,
+            )
+            .join('');
+          const right = q.choices[q.answer] ?? '';
+          return `<li><fieldset class="quiz-q" data-answer="${q.answer}"><legend>${htmlInline(q.question, ctx)}</legend>${choices}<button type="button" class="quiz-check">정답 확인</button><p class="quiz-result" role="status" aria-live="polite"></p><div class="quiz-exp" hidden><p><b>정답 ${q.answer + 1}번</b> ${htmlInline(right, ctx)}</p><p>${htmlInline(q.explanation, ctx)}${htmlCite(q.cite, ctx)}</p></div></fieldset></li>`;
+        })
+        .join('')}</ol>`;
+    case 'mindmap':
+      return diagramFigure(
+        treeSvg(block.root, { sec: ctx.sec }, `${block.root.label} 마인드맵`),
+        `<ul>${outlineHtml(block.root, ctx)}</ul>`,
+      );
+    case 'comments': {
+      const groups = block.groups
+        .map((g) => {
+          const pct =
+            block.total > 0 ? Math.min(100, Math.round((g.count / block.total) * 100)) : 0;
+          const examples = g.examples.length
+            ? `<ul class="cm-ex">${g.examples.map((x) => `<li><q>${ctx.escape(x.text)}</q></li>`).join('')}</ul>`
+            : '';
+          return `<li class="cm-group cm-${g.tone}"><div class="cm-head"><b>${ctx.escape(g.title)}</b><span class="cm-tone">${TONE_LABEL[g.tone]}</span><span class="cm-count">${g.count}개</span></div><div class="cm-bar" aria-hidden="true"><i style="width:${pct}%"></i></div><p>${htmlInline(g.summary, ctx)}</p>${examples}</li>`;
+        })
+        .join('');
+      return `<div class="comments"><p class="cm-overview">${htmlInline(block.overview, ctx)}</p><p class="cm-meta">분석한 댓글 ${block.total}개</p><ul class="cm-groups">${groups}</ul></div>`;
+    }
+    default: {
+      const never: never = block;
+      throw new Error(`모르는 블록: ${JSON.stringify(never)}`);
+    }
+  }
+}
+
+export function blockMarkdown(block: Block, ctx: BlockMdContext): string[] {
+  switch (block.type) {
+    case 'heading':
+      return [`## ${mdInline(block.text)}`, ''];
+    case 'text':
+      return [`${mdBody(block.text)}${mdCite(block.cite, ctx)}`, ''];
+    case 'list':
+      return [
+        ...(block.title ? [`**${mdInline(block.title)}**`, ''] : []),
+        ...listMd(block.items, ctx),
+        '',
+      ];
+    case 'quote': {
+      const by = [
+        block.speaker ? `— ${mdInline(block.speaker)}` : '',
+        block.note ? mdBody(block.note) : '',
+      ]
+        .filter(Boolean)
+        .join(', ');
+      const text = quoteLines(mdVerbatim(block.text));
+      text[text.length - 1] += ctx.cite(block.cite);
+      return [
+        ...text,
+        ...(block.translation ? ['>', ...quoteLines(mdBody(block.translation))] : []),
+        ...(by ? ['>', ...quoteLines(by)] : []),
+        '',
+      ];
+    }
+    case 'timestamps':
+      return [
+        ...block.items.map(
+          (it) =>
+            `- ${ctx.time(it.cite)} **${mdInline(it.title)}**${it.summary ? ` ${mdBody(it.summary)}` : ''}`,
+        ),
+        '',
+      ];
+    case 'actions':
+      return [
+        ...block.items.map((it) => {
+          const meta = [
+            it.owner ? `담당 ${mdInline(it.owner)}` : '',
+            it.due ? `기한 ${mdInline(it.due)}` : '',
+          ]
+            .filter(Boolean)
+            .join(', ');
+          return `- [ ] ${mdBody(it.task)}${meta ? ` (${meta})` : ''}${mdCite(it.cite, ctx)}`;
+        }),
+        '',
+      ];
+    case 'qa':
+      return block.items.flatMap((it) => [
+        `**Q. ${mdBody(it.question)}**`,
+        '',
+        `${mdBody(it.answer)}${mdCite(it.cite, ctx)}`,
+        '',
+      ]);
+    case 'flashcards':
+      return [
+        ...block.cards.flatMap((c) => [
+          `- Q. ${mdBody(c.front)}`,
+          `  - A. ${mdBody(c.back)}${mdCite(c.cite, ctx)}`,
+        ]),
+        '',
+      ];
+    case 'quiz':
+      return block.questions.flatMap((q, k) => [
+        `**${k + 1}. ${mdBody(q.question)}**`,
+        '',
+        ...q.choices.map((c, ci) => `- (${ci + 1}) ${mdBody(c)}`),
+        '',
+        `> 정답 (${q.answer + 1}) ${mdBody(q.choices[q.answer] ?? '')}. ${mdBody(q.explanation)}${mdCite(q.cite, ctx)}`,
+        '',
+      ]);
+    case 'mindmap':
+      return [...outlineMd(block.root, ctx), ''];
+    case 'comments':
+      return [
+        mdBody(block.overview),
+        '',
+        `분석한 댓글 ${block.total}개`,
+        '',
+        ...block.groups.flatMap((g) => [
+          `**${mdInline(g.title)}** (${TONE_LABEL[g.tone]}, ${g.count}개)`,
+          '',
+          mdBody(g.summary),
+          '',
+          ...g.examples.flatMap((x) => [...quoteLines(mdVerbatim(x.text)), '']),
+        ]),
+      ];
+    default: {
+      const never: never = block;
+      throw new Error(`모르는 블록: ${JSON.stringify(never)}`);
+    }
+  }
+}
+
+/** 탭 id와 패널 id. 키에 들어가는 글자(영숫자, -, .)는 id에 그대로 써도 된다 */
+export const extensionPanelId = (ext: Pick<Extension, 'template' | 'lang'>) =>
+  `ext-${extensionKey(ext)}`;
+
+export function extensionHtml(ext: Extension, ctx: BlockHtmlContext): string {
+  const id = extensionPanelId(ext);
+  return `<section class="ext" id="${ctx.escape(id)}" role="tabpanel" aria-labelledby="tab-${ctx.escape(id)}" lang="${ctx.escape(ext.lang)}" tabindex="0" hidden><h2>${ctx.escape(ext.title)}</h2>${ext.blocks
+    .map((b, bi) => blockHtml(b, ctx, `${id}-b${bi}`))
+    .join('')}</section>`;
+}

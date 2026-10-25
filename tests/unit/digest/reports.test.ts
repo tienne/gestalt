@@ -18,7 +18,7 @@ import {
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown } from '../../../src/digest/render.js';
-import { reportOptionsSchema } from '../../../src/digest/schema.js';
+import { DIGEST_SCHEMA_VERSION, reportOptionsSchema } from '../../../src/digest/schema.js';
 import { DigestStore } from '../../../src/digest/store.js';
 import { viewerLogic } from '../../../src/digest/viewer-logic.js';
 import { SLUG, sampleDigest, sampleTranscript } from './fixture.js';
@@ -197,7 +197,7 @@ describe('mergeReport', () => {
       'default-normal-ko',
       'default-easy-ko',
     ]);
-    expect(store.loadDigest(SLUG)!.schemaVersion).toBe('1.1.0');
+    expect(store.loadDigest(SLUG)!.schemaVersion).toBe(DIGEST_SCHEMA_VERSION);
   });
 
   it('합친 결과에 lint 오류가 있으면 저장하지 않는다', () => {
@@ -234,7 +234,7 @@ describe('mergeReport', () => {
     const r = mergeReport(repo, SLUG, variant({ length: 'short' }));
     expect(r).toMatchObject({ index: 1, saved: true });
     const saved = JSON.parse(readFileSync(store.digestPath(SLUG), 'utf-8'));
-    expect(saved.schemaVersion).toBe('1.1.0');
+    expect(saved.schemaVersion).toBe(DIGEST_SCHEMA_VERSION);
     expect(saved.report).toBeUndefined();
     expect(saved.reports).toHaveLength(2);
   });
