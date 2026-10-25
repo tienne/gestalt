@@ -145,20 +145,31 @@ export function sectionDiagramMd(d: Diagram, ctx: BlockMdContext): string[] {
 // 맨 URL은 보이는 글자가 곧 목적지라 숨은 링크가 아니므로 두고 링크 문법과 HTML만 막는다
 const mdVerbatim = (text: string) => text.replace(/[\\`*_[\]<>#|&~]/g, (ch) => `\\${ch}`);
 
-// 한 줄로 쓰는 칸에 개행이 섞이면 목록이나 인용 밖으로 빠져나간다
+// 한 줄로 쓰는 칸에 개행이 섞이면 목록이나 인용 밖으로 빠져나간다. HTML도 이 칸들의 개행을 공백으로 접어 보여준다
 const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
 
+// 줄 첫머리의 `-`, `+`, `=`, `1.`, `1)`은 목록이나 구분선, 제목 밑줄로 읽힌다. HTML은 평문으로 보여줘서 맞춘다
+const lineHead = (text: string) =>
+  text.replace(/^([-+=])/, '\\$1').replace(/^(\d+)([.)])/, '$1\\$2');
+
 // 제목, 라벨, 이름 칸도 자막과 댓글에서 나온 값이다. lint가 `**`를 막는 칸이라 문법 글자를 전부 이스케이프해도 잃는 서식이 없다
-export const mdInline = (text: string) => mdVerbatim(oneLine(text));
+export const mdInline = (text: string) => lineHead(mdVerbatim(oneLine(text)));
 
-// 본문 칸도 자막에서 나온 글이라 링크나 HTML이 끼어들 수 있다. HTML 쪽처럼 굵게만 살리고 나머지 문법 글자는 무력화한다
+// 본문 칸도 자막에서 나온 글이라 링크나 HTML, 줄 머리 문법이 끼어들 수 있다. HTML 쪽처럼 굵게만 살린다
+// 개행은 굵게를 가른 뒤에 접는다. 먼저 접으면 줄을 넘는 `**`가 마크다운에서만 굵게가 된다
 const mdBody = (text: string) =>
-  stripKeywords(text)
-    .split(boldPattern())
-    .map((part, k) => (k % 2 ? `**${mdVerbatim(part)}**` : mdVerbatim(part)))
-    .join('');
+  lineHead(
+    oneLine(
+      stripKeywords(text)
+        .split(boldPattern())
+        .map((part, k) => (k % 2 ? `**${mdVerbatim(part)}**` : mdVerbatim(part)))
+        .join(''),
+    ),
+  );
 
-const quoteLines = (text: string) => text.split(/\r?\n/).map((l) => `> ${l}`.trimEnd());
+// 인용 원문은 줄을 살리므로 줄마다 첫머리를 막는다. 앞 공백이 4칸이면 코드 블록이 돼서 함께 걷는다
+const quoteLines = (text: string) =>
+  text.split(/\r?\n/).map((l) => `> ${lineHead(l.trimStart())}`.trimEnd());
 
 function listMd(items: ListItem[], ctx: BlockMdContext, depth = 0): string[] {
   return items.flatMap((it) => [
