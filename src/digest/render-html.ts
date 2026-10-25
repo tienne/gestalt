@@ -177,7 +177,7 @@ export function renderDigestHtml(
         const src = frameSrc(shotFileName(shot.sec), subId);
         if (!src) return '';
         const caption = e(shot.caption);
-        return `<figure class="shot"><button type="button" class="shot-btn" data-zoom aria-label="장면 크게 보기"><img src="${e(src)}" alt="${caption}" loading="lazy"></button><figcaption>${caption}${cite(shot.cite)} ${timeLink(shot.sec)}</figcaption></figure>`;
+        return `<figure class="shot"><img src="${e(src)}" alt="${caption}" loading="lazy"><figcaption>${caption}${cite(shot.cite)} ${timeLink(shot.sec)}</figcaption></figure>`;
       })
       .join('');
 
@@ -384,7 +384,6 @@ ${skippedHtml}</div>`;
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${e(meta.title)}</title>
 <style>${CSS}</style>
-<noscript><style>.shot-btn{cursor:default;pointer-events:none}</style></noscript>
 ${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz-check,.zoom-btn{display:none}.quiz-exp{display:block!important}</style></noscript>' : ''}
 </head>
 <body>
@@ -585,9 +584,9 @@ body[data-tab="ext"] .minimap{display:none}
 .sub-body.has-shots{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px;align-items:start}
 .shots{display:flex;flex-direction:column;gap:12px;margin:8px 0}
 .shot{margin:0}
-.shot-btn{display:block;width:100%;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--card);cursor:zoom-in;overflow:hidden}
-.shot-btn img{display:block;width:100%;height:auto;aspect-ratio:auto 16/9;object-fit:contain}
-.sub-body.has-shots .shot-btn img{max-height:50vh}
+.shot-btn{display:block;width:100%;padding:0;border:0;border-radius:8px;background:none;cursor:zoom-in}
+.shot img{display:block;width:100%;height:auto;aspect-ratio:auto 16/9;object-fit:contain;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.sub-body.has-shots .shot img{max-height:50vh}
 .shot figcaption{margin-top:4px;font-size:.92em;color:var(--muted)}
 #zoom-dialog .zoom-body img{display:block;max-width:100%;width:auto;height:auto;max-height:calc(92vh - 64px);object-fit:contain;margin:0 auto}
 .cite{border:0;background:none;padding:0 1px;color:var(--accent);cursor:pointer;font-size:.8em}

@@ -636,8 +636,29 @@ export const VIEWER_JS =
     });
   }
 
+  // 장면 사진은 확대 창을 열 수 있을 때만 버튼으로 감싼다. 서버가 버튼을 그리면 스크립트가 없을 때 Tab에는 잡히는데 눌러도 반응이 없다
+  function wrapShots() {
+    if (typeof document.createElement('dialog').showModal !== 'function') return;
+    var imgs = document.querySelectorAll('.shot > img');
+    for (var i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'shot-btn';
+      btn.setAttribute('data-zoom', '');
+      img.parentNode.insertBefore(btn, img);
+      btn.appendChild(img);
+      // 버튼 이름이 "<캡션> 크게 보기"로 읽히게 한다. 확대 창에는 img만 복제돼 alt가 캡션 그대로 남는다
+      var label = document.createElement('span');
+      label.className = 'sr-only';
+      label.textContent = ' 크게 보기';
+      btn.appendChild(label);
+    }
+  }
+
   // 그림과 장면을 화면 크기로 키워 본다. 노드를 눌러 영상으로 가면 창을 닫는다
   function setupZoom() {
+    wrapShots();
     if (!document.querySelector('[data-zoom]')) return { isOpen: function(){ return false; } };
     var dialog = document.createElement('dialog');
     dialog.id = 'zoom-dialog';

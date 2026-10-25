@@ -369,11 +369,12 @@ describe('shots 렌더', () => {
   it('장면이 있으면 첫 문장 프레임 대신 본문 옆에 장면을 크게 싣는다', () => {
     const { html } = renderDigestHtml(d(), t, { frameExists: exists });
     expect(html).toMatch(
-      /<div class="sub-body has-shots"><div class="sub-text"><ul>.*<\/ul><\/div><div class="shots"><figure class="shot"><button type="button" class="shot-btn" data-zoom aria-label="장면 크게 보기"><img src="frames\/s00010000\.jpg" alt="리텐션 \[곡선\]"/s,
+      /<div class="sub-body has-shots"><div class="sub-text"><ul>.*<\/ul><\/div><div class="shots"><figure class="shot"><img src="frames\/s00010000\.jpg" alt="리텐션 \[곡선\]"/s,
     );
     expect(html).not.toContain(frameFileName(0));
-    // 영상 이동은 figcaption 시각 링크만 맡는다
-    expect(html).not.toMatch(/class="shot-btn"[^>]*data-sec/);
+    // 확대 버튼은 스크립트가 감싼다. 스크립트가 없을 때 눌러도 반응 없는 버튼을 남기지 않는다
+    expect(html).not.toContain('<button type="button" class="shot-btn"');
+    expect(html).toContain("label.textContent = ' 크게 보기'");
     expect(html).toMatch(/<figcaption>리텐션 \[곡선\].*data-sec="10"/);
     // 장면이 없는 소섹션은 프레임을 그대로 싣는다
     expect(html).toContain(`frames/${frameFileName(15)}`);
