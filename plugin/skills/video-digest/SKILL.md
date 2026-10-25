@@ -158,7 +158,7 @@ gestalt digest ocr '<slug>' --repo-root '<repoRoot>' [--interval <초>]
 gestalt digest scenes '<slug>' --repo-root '<repoRoot>'
 ```
 
-`후보 장면 N개` 다음 `저장:` 줄이 `scenes.json`의 절대 경로다. 이 값을 `<scenesPath>`로 받아 둔다. 슬라이드가 넘어간 자리를 `ocr.json`의 글자로 고른다. 명령이 실패하면 오류를 보고에 적고 `<scenesPath>` 없이 Step 2로 간다. 그때 리포트에는 `shots`가 없다. 후보가 0개여도 파일은 그대로 넘긴다.
+`후보 장면 N개` 다음 `저장:` 줄이 `scenes.json`의 절대 경로다. 이 값을 `<scenesPath>`로 받아 둔다. 슬라이드가 넘어간 자리를 `ocr.json`의 글자로 고른다. `후보가 N개라 영상 전체에서 고르게 M개만 남겼어요` 줄이 나오면 솎기 전 후보 수 N을 받아 두었다가 Step 6 보고에 적는다. 명령이 실패하면 오류를 보고에 적고 `<scenesPath>` 없이 Step 2로 간다. 그때 리포트에는 `shots`가 없다. 후보가 0개여도 파일은 그대로 넘긴다.
 
 **구간을 받았으면 스크립트를 자른다.** 수집이 끝난 뒤 부른다.
 
@@ -245,7 +245,7 @@ gestalt digest merge '<slug>' '<reportPath>' --json --repo-root '<repoRoot>'
 
 리포트 형식이 아예 틀리면 merge가 `리포트 형식 오류:`로 끝난다. 그 메시지도 같은 방법으로 넘긴다.
 
-`severity`가 `warning`인 것(소섹션 개수, 불릿 개수, 도식 수)은 막지 않는다. 영상에 맞는 분량이면 그대로 둔다. `DIAGRAM_TOO_FEW`는 한 번만 `video-summarizer`에 넘겨 단계나 견주기, 시간 흐름, 원인과 결과가 있는 대섹션에 도식을 더 붙일 수 있는지 보게 한다. 그릴 구조가 없다고 돌아오면 경고를 남긴 채 넘어간다.
+`severity`가 `warning`인 것(소섹션 개수, 불릿 개수, 도식 수)은 막지 않는다. 영상에 맞는 분량이면 그대로 둔다. `DIAGRAM_TOO_FEW`는 한 번만 `video-summarizer`에 넘겨 단계나 견주기, 시간 흐름, 원인과 결과가 있는 대섹션에 도식을 더 붙일 수 있는지 보게 한다. 넘길 때는 프롬프트에 경고 `message`와 "도식을 더했거나 더할 구조가 없으면 Output Format 세 줄 뒤에 `diagrams:` 줄로 적는다"를 함께 싣는다. 돌아오면 같은 `<reportPath>`로 merge를 다시 부른다. 이때 `DIAGRAM_TOO_FEW`가 또 나와도 다시 맡기지 않고 `diagrams:` 줄의 이유를 Step 6 보고에 옮긴다.
 
 ## Step 3.5 — 확장 리포트
 
@@ -402,8 +402,8 @@ gestalt digest export '<slug>' --md --repo-root '<repoRoot>' [--report '<key>'] 
 - 확장 키와 새로 붙였는지 바꿔 끼웠는지. 건너뛴 템플릿과 이유(없는 템플릿, 댓글을 못 받음, 오류가 남음)
 - 댓글을 받았으면 받은 개수
 - 대섹션과 소섹션, 키워드 개수. `skipped` 구간과 이유
-- 리포트마다 도식 개수와 종류(`flow` 2, `timeline` 1처럼). `DIAGRAM_TOO_FEW`가 남았으면 그 이유
-- 후보 장면을 골랐으면 후보 수와 리포트에 실은 `shots` 수, 720p로 뽑은 수. 못 골랐으면 그 이유(화면 글자를 안 읽음, 명령 실패)
+- 리포트마다 도식 개수와 종류(`flow` 2, `timeline` 1처럼). `DIAGRAM_TOO_FEW`가 남았으면 그 이유(`video-summarizer`가 돌려준 `diagrams:` 줄)
+- 후보 장면을 골랐으면 후보 수(솎았으면 솎기 전 수도)와 리포트에 실은 `shots` 수, 720p로 뽑은 수. 못 골랐으면 그 이유(화면 글자를 안 읽음, 명령 실패)
 - merge를 몇 번 돌았는지와 남은 경고
 - 윤문 결과. 넣은 개수와 원문을 둔 항목(path와 경고 `code`), 다시 스캔해서 남은 S1
 - 프레임을 못 뽑은 소섹션(Step 6 렌더 경고에서)과 frames 실패 원인
