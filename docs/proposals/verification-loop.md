@@ -225,12 +225,12 @@ export type MutationOperator =
   | 'negate_condition' // if (x) → if (!x)
   | 'off_by_one'; // 정수 리터럴 n → n + 1
 
+/** 출력은 받지 않는다. 판정에 종료 코드만 쓰므로 원문이 이벤트 원장에 남을 이유가 없다 */
 export interface MutationProbeResult {
   probeId: string;
   /** 변이를 적용한 채로 돌린 AC 검사 명령. AcCheckCommand.command와 같아야 한다 */
   command: string;
   exitCode: number;
-  output: string;
 }
 
 export interface MutationVerdict {
@@ -515,7 +515,7 @@ E2E 실패 출력에는 실패한 단계와 스크린샷, 트레이스 경로가
 | `ges_generate_spec` | AC에 `testDesign`                                                                                | 위반 시 기존 오류 형식. 기본값을 채우면 `warnings`                                                           |
 | `start`             | `spec.acceptanceCriteria[].testDesign`                                                           | 변경 없음                                                                                                    |
 | `evaluate` Call 1   | 변경 없음                                                                                        | `structuralContext.acChecks[].tier`, `launch`. `structuralContext.mutationProbes`. 안내 문구에 fast 먼저 규칙 |
-| `evaluate` Call 2   | `structuralResult.commands[].durationMs`, `retry`. `acChecks[].durationMs`, `retry`, `skipped`. `structuralResult.mutationResults` | `contextualContext.acCheckVerdicts`에 `flaky`, `skipped`. `contextualContext.mutationVerdicts`. 원복이 안 됐거나 gate 검사가 빠지면 거부 |
+| `evaluate` Call 2   | `structuralResult.commands[].durationMs`, `retry`. `acChecks[].durationMs`, `retry`, `skipped`. `structuralResult.mutationResults`(`probeId`, `command`, `exitCode`만) | `contextualContext.acCheckVerdicts`에 `flaky`, `skipped`. `contextualContext.mutationVerdicts`. 원복이 안 됐거나 gate 검사가 빠지면 거부 |
 | `evaluate` Call 3   | 변경 없음                                                                                        | `evaluationResult.mutation`(Call 2 판정을 옮겨 담는다), `slowChecks`. `scoreAdjustment` 사유에 `gate_skipped` |
 | `evolve_fix`        | 변경 없음                                                                                        | `fixPrompt`에 흔들린 명령 표시                                                                               |
 
@@ -547,10 +547,10 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | `src/execute/ac-checks.ts`                                                               | `tier` 부여, `feature_map` 출처, `intended_diff_missing`, `feature_not_found`, `flaky`와 `skipped` 판정                   |
 | `src/execute/orchestrators/evaluation.ts`                                                | Call 1에 변이와 단계, Call 2에 재실행 판정과 원복 확인, gate 검사가 빠지면 거부, 변이 판정. Call 3에 `gate_skipped` 상한과 변이 판정 옮기기 |
 | `src/execute/prompts.ts`                                                                 | `tailOutput`을 `condenseFailureOutput`으로 교체. fix 프롬프트의 흔들림 지시. 테스트 태스크 프롬프트의 property, differential, e2e 지시. Evolve의 테스트가 못 잡은 변이와 셀렉터 안내 |
-| `src/execute/session.ts`                                                                 | `toEventStructuralResult`가 `retry`도 가리고 줄인다. 축약 `commands`에 `flaky`. `EVALUATE_STRUCTURAL_COMPLETED` payload에 변이 판정 |
+| `src/execute/session.ts`                                                                 | `toEventStructuralResult`가 `retry`도 가리고 줄인다. `mutationResults`는 이벤트에 싣지 않는다. 판정은 payload의 변이 판정으로 남는다. 축약 `commands`에 `flaky`. `EVALUATE_STRUCTURAL_COMPLETED` payload에 변이 판정 |
 | `src/execute/artifact-verifier.ts`                                                       | `hashFiles` export (`ac-test-first.md`와 같은 변경)                                                                      |
 | `src/execute/impact-identifier.ts`                                                       | `flaky`와 `mutation_survived` 사유로 그 AC의 테스트 태스크 추가. `flaky`는 네 번째 기준에서 뺀다                         |
-| `src/mcp/schemas.ts`                                                                     | `structuralResult` 확장, `mutationResults`, AC `testDesign`                                                              |
+| `src/mcp/schemas.ts`                                                                     | `structuralResult` 확장, `mutationResults`(`probeId`, `command`, `exitCode`), AC `testDesign`                                                              |
 | `plugin/skills/execute/SKILL.md`                                                         | 한 번 다시 돌리기 규칙, fast 먼저 규칙, 변이 적용과 원복 절차, 합리화 표에 "통과할 때까지 돌린다" 추가                    |
 | `plugin/skills/spec/SKILL.md`                                                            | 기능 지도 id 목록을 읽어 프롬프트에 넣는 단계                                                                            |
 | `docs/04-evaluate.md`, `docs/05-evolve.md`, `docs/configuration.md`, `docs/mcp-reference.md` | 흐름과 스키마, 설정                                                                                                      |
@@ -573,7 +573,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 재실행 판정    | `tests/unit/execute/execution-evaluate.test.ts`              | 판정 표의 다섯 줄. `flaky` Structural의 short-circuit과 fix 프롬프트 표시. 시간 초과로 끊긴 명령은 `retry` 없이 실패로 받고 `timeout` 머리줄                                                                                |
 | 단계           | 같은 파일                                                    | fast 실패 때 gate 결과 버림과 빠짐 대조 제외. fast 통과인데 gate `skipped`나 누락이면 거부. `gate_skipped` 상한이 `report` 모드에도 걸림. `testDesign`별 `tier` |
 | 변이 만들기    | `tests/unit/execute/mutation-probe.test.ts` (새 파일)        | 연산자 다섯 개, 주석과 문자열 건너뛰기, 테스트 파일 제외, 레포 밖 경로와 심링크 제외, 같은 seed면 같은 변이, AC당 세 개 상한, 평가당 상한과 AC 번갈아 남기기, `capped` 개수, e2e와 differential 제외. git 임시 레포는 `execution-artifact-verify.test.ts` 헬퍼 |
-| 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 직전 변이의 해시가 어긋나면 Call 1이 원복부터 안내. 키가 같은 `killed` 재사용과 키가 바뀌면 다시 돌리기 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상 |
+| 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 이벤트에 실린 결과에 `mutationResults`가 없음. 직전 변이의 해시가 어긋나면 Call 1이 원복부터 안내. 키가 같은 `killed` 재사용과 키가 바뀌면 다시 돌리기 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상 |
 | 차분 id 대조   | `tests/unit/execute/ac-checks.test.ts` (ac-test-first.md가 만든다) | `intended_diff_missing`, 스펙에 없는 DIFF 경고                                                                                                           |
 | 기능 지도      | `tests/unit/execute/feature-map.test.ts` (새 파일)           | frontmatter 파싱, js 엔진 거부, 크기 상한, 절대 경로와 `..` 거부, 레포 밖으로 풀리는 경로 거부, 심링크 파일 건너뛰기, `e2e` 경로에도 같은 검사, `feature_not_found`                                                                           |
 | 재실행 대상    | `tests/unit/execute/evolution-loop.test.ts`                  | `flaky`와 `mutation_survived`가 `ac_test` 태스크만 고른다. `testFirst`가 꺼지면 그 AC의 구현 태스크로 간다                                                |
