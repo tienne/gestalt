@@ -385,6 +385,24 @@ describe('viewer-js', () => {
     expect(shouldFollowHeld(2, 9, 3, 5, 6000, 8000)).toBe(false);
   });
 
+  it('isPlaying은 재생과 버퍼링일 때만 참이다', () => {
+    const { isPlaying } = viewerLogic;
+    expect([1, 3].map(isPlaying)).toEqual([true, true]);
+    expect([-1, 0, 2, 5].map(isPlaying)).toEqual([false, false, false, false]);
+  });
+
+  it('shouldScrollScript는 재생 중이고 유예가 끝났을 때 줄이 바뀌었거나 화면 밖이면 따라간다', () => {
+    const { shouldScrollScript } = viewerLogic;
+    expect(shouldScrollScript(1, true, 6000, 5000, true)).toBe(true);
+    expect(shouldScrollScript(1, false, 6000, 5000, true)).toBe(false);
+    expect(shouldScrollScript(1, false, 6000, 5000, false)).toBe(true);
+    expect(shouldScrollScript(3, true, 6000, 5000, false)).toBe(true);
+    expect(shouldScrollScript(2, true, 6000, 5000, false)).toBe(false);
+    expect(shouldScrollScript(-1, true, 6000, 5000, false)).toBe(false);
+    expect(shouldScrollScript(1, true, 4000, 5000, false)).toBe(false);
+    expect(shouldScrollScript(1, true, 5000, 5000, false)).toBe(true);
+  });
+
   it('cueAction은 재생, 일시정지, 버퍼링일 때만 seek으로 옮기고 나머지는 위치만 잡는다', () => {
     const { cueAction } = viewerLogic;
     expect([1, 2, 3].map(cueAction)).toEqual(['seek', 'seek', 'seek']);
@@ -402,7 +420,9 @@ describe('viewer-js', () => {
     for (const name of [
       'findSegmentIndex',
       'shouldFollow',
+      'isPlaying',
       'shouldFollowHeld',
+      'shouldScrollScript',
       'cueAction',
       'citeWindow',
       'safeDecode',
