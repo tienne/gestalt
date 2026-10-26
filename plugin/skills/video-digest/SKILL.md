@@ -1,6 +1,6 @@
 ---
 name: video-digest
-version: '1.3.0'
+version: '1.3.1'
 description: '유튜브 주소나 영상 파일을 받아 문장마다 출처가 달린 요약 뷰어를 만든다. 목차와 플레이어, 스크립트 따라가기가 붙은 HTML과 마크다운까지 낸다("이 영상 요약해줘", "유튜브 영상 정리해줘"). 회의록이나 퀴즈, 마인드맵, 댓글 분석 같은 확장 리포트도 템플릿으로 붙인다. 경쟁 서비스 조사 중에 영상을 분석하는 일이면 research를 쓴다.'
 triggers:
   - '이 영상 요약해줘'
@@ -11,7 +11,7 @@ triggers:
   - '이 영상으로 퀴즈 만들어줘'
   - '영상 회의록 정리해줘'
 routing:
-  note: 'ingest → video-summarizer가 보통 리포트와 그걸 풀어 쓴 쉬운 리포트 작성 → merge로 digest.json에 합치기 → frames → 윤문 → render → serve 또는 export --md. 이미 요약한 영상에 분량이나 난이도가 다른 리포트를 더할 때는 ingest를 건너뛴다. templates를 받으면 merge 뒤에 템플릿마다 확장 리포트를 써서 merge --extension으로 합친다. 확장만 더할 때는 수집과 요약을 건너뛴다. 이미 있는 slug를 다시 보여주기만 하려면 serve만 부른다. 경쟁사 조사 안에서 영상을 다루면 `research`, 영상 화면만 모으려면 `screen-ref`'
+  note: 'ingest → video-summarizer가 보통 리포트와 그걸 풀어 쓴 쉬운 리포트 작성 → merge로 digest.json에 합치기 → frames → 윤문 → render → serve 또는 export --md. 이미 요약한 영상에 난이도나 구간, 요청이 다른 리포트를 더할 때는 ingest를 건너뛴다. templates를 받으면 merge 뒤에 템플릿마다 확장 리포트를 써서 merge --extension으로 합친다. 확장만 더할 때는 수집과 요약을 건너뛴다. 이미 있는 slug를 다시 보여주기만 하려면 serve만 부른다. 경쟁사 조사 안에서 영상을 다루면 `research`, 영상 화면만 모으려면 `screen-ref`'
 inputs:
   source:
     type: string
@@ -29,10 +29,6 @@ inputs:
     type: string
     required: false
     description: "'viewer'(기본, 로컬 서버로 띄운다) 또는 'md'(마크다운만 낸다)"
-  length:
-    type: string
-    required: false
-    description: "리포트 분량. 'long'(기본), 'default'. 'short'는 더 만들지 않는다"
   difficulty:
     type: string
     required: false
@@ -73,8 +69,8 @@ outputs:
 영상 하나를 문장 단위 스크립트로 받아 출처가 달린 계층 요약을 쓰고 뷰어로 띄운다. 일은 수집, 요약, 표현 순서로 나뉜다. 그중 요약 층과 표현 층을 갈라 두어서 요약을 다시 쓰지 않고 뷰어만 다시 뽑을 수 있다.
 
 - **수집**: `gestalt digest ingest`가 자막을 받아 문장으로 합친다. 프레임은 요약이 끝난 뒤 `gestalt digest frames`가 뽑는다.
-- **요약**: `video-summarizer`가 `transcript.json`을 읽고 보통 리포트를 파일로 쓴다. 이어서 그 리포트를 풀어 쓴 쉬운 리포트를 한 벌 더 쓴다. 이 단계에서만 LLM이 돈다. `gestalt digest merge`가 그 리포트를 `digest.json`의 `reports[]`에 합친다. 같은 분량과 난이도의 리포트가 이미 있으면 바꿔 끼운다.
-- **표현**: `ges_digest render`가 `digest.json`에서 HTML과 마크다운을 코드로 만든다. LLM을 부르지 않는다. 뷰어 툴바가 리포트 사이를 오간다. 처음 열면 길게와 보통 리포트가 보이고 난이도 버튼이 보통과 쉬운 리포트를 오가는 토글이 된다.
+- **요약**: `video-summarizer`가 `transcript.json`을 읽고 보통 리포트를 파일로 쓴다. 이어서 그 리포트를 풀어 쓴 쉬운 리포트를 한 벌 더 쓴다. 이 단계에서만 LLM이 돈다. `gestalt digest merge`가 그 리포트를 `digest.json`의 `reports[]`에 합친다. 옵션이 같은 리포트가 이미 있으면 바꿔 끼운다. 새로 쓰는 리포트의 분량은 늘 `long`이다.
+- **표현**: `ges_digest render`가 `digest.json`에서 HTML과 마크다운을 코드로 만든다. LLM을 부르지 않는다. 뷰어 툴바가 리포트 사이를 오간다. 처음 열면 보통 리포트가 보이고 쉽게 보기 토글이 쉬운 리포트와 오간다. 옛 digest에 남은 짧게와 기본 리포트는 다른 리포트 목록에서 고른다.
 
 요약 본문의 모든 불릿에는 문장 번호 출처가 붙는다. 출처가 엉뚱한 문장을 가리키면 뷰어의 `[n]`이 다른 장면으로 이동한다. 그래서 lint 오류가 하나라도 남으면 렌더가 막힌다.
 
@@ -128,7 +124,7 @@ Step 1 ingest → Step 2 요약 작성 → Step 3 merge → Step 3.5 확장 리�
 | `repoRoot`, 명령에 넣는 파일 경로 | 작은따옴표(`'`)가 없는 값                                                               |
 | `slug`                            | `^[a-z0-9][a-z0-9-]{0,63}$`                                                             |
 | `templates`의 각 id               | `^[a-z0-9][a-z0-9-]{0,39}$`                                                             |
-| `length`, `difficulty`            | 입력 정의에 적힌 값 중 하나. `length`가 `short`면 더 만들지 않는다고 알리고 `long`과 `default` 중에서 되묻는다 |
+| `difficulty`                      | 입력 정의에 적힌 값 중 하나. `length`가 함께 오면 분량은 길게만 만든다고 알리고 그 값은 버린다 |
 | `lang`, `reportLang`              | `^[A-Za-z0-9-]+$`                                                                       |
 | `--report` 키                     | `^[A-Za-z0-9.-]+$`. 확장 키는 `quiz.ko`처럼 점이 든다                                   |
 | `range`                           | `^[0-9:]+-[0-9:]+$`. 끝점은 초 단위 정수다. `1:30.5`처럼 소수가 든 값은 명령이 거절한다 |
@@ -168,15 +164,15 @@ gestalt digest slice '<slug>' --range '<range>' --json --repo-root '<repoRoot>'
 
 출력의 `path`를 `<transcriptPath>` 대신 Step 2에 넘기고 `range`(초 튜플)를 `<rangeSec>`로 받아 둔다. 잘라 낸 파일의 문장 번호는 원래 스크립트 번호 그대로라 출처가 전체 스크립트를 가리킨다. 구간에 든 문장이 없으면 명령이 실패한다. 그 메시지를 보여 주고 멈춘다.
 
-**이미 요약한 영상이면 수집을 건너뛴다.** `slug`가 주어졌고 `<repoRoot>/.gestalt/digest/<slug>/transcript.json`이 있으면 ingest를 부르지 않고 그 경로를 `<transcriptPath>`로, 같은 폴더의 `report.draft.json`을 `<reportPath>`로 받아 둔다. 뷰어 툴바에서 없는 분량을 고르면 `/gestalt:video-digest slug=<slug> length=<값> difficulty=<값> reportLang=<lang>` 명령이 클립보드로 복사되는데 그 명령이 이 경로로 들어온다.
+**이미 요약한 영상이면 수집을 건너뛴다.** `slug`가 주어졌고 `<repoRoot>/.gestalt/digest/<slug>/transcript.json`이 있으면 ingest를 부르지 않고 그 경로를 `<transcriptPath>`로, 같은 폴더의 `report.draft.json`을 `<reportPath>`로 받아 둔다. 뷰어 툴바의 쉽게 보기 토글로 없는 리포트를 고르면 `/gestalt:video-digest slug=<slug> difficulty=<값> reportLang=<lang>` 명령이 클립보드로 복사되는데 그 명령이 이 경로로 들어온다.
 
-**확장만 더하는 호출이면 요약도 건너뛴다.** `templates`만 받고 `length`, `difficulty`, `range`, `prompt`가 모두 비었으며 `digest.json`에 리포트가 하나 이상 있으면 Step 2와 Step 3, Step 4를 건너뛰고 Step 3.5로 간다. 뷰어 확장 탭에서 아직 안 만든 템플릿을 고르면 `/gestalt:video-digest slug=<slug> templates=<id> reportLang=<lang>` 명령이 복사되는데 그 명령이 이 경로로 들어온다. `digest.json`에 리포트가 없으면 Step 2부터 그대로 돈다. merge --extension은 리포트가 있는 `digest.json`에만 합친다.
+**확장만 더하는 호출이면 요약도 건너뛴다.** `templates`만 받고 `difficulty`, `range`, `prompt`가 모두 비었으며 `digest.json`에 리포트가 하나 이상 있으면 Step 2와 Step 3, Step 4를 건너뛰고 Step 3.5로 간다. 뷰어 확장 탭에서 아직 안 만든 템플릿을 고르면 `/gestalt:video-digest slug=<slug> templates=<id> reportLang=<lang>` 명령이 복사되는데 그 명령이 이 경로로 들어온다. `digest.json`에 리포트가 없으면 Step 2부터 그대로 돈다. merge --extension은 리포트가 있는 `digest.json`에만 합친다.
 
 ## Step 2 — 요약 작성
 
-**보통과 쉬운 리포트를 함께 만든다.** 뷰어 툴바의 난이도 버튼은 두 리포트를 오가는 토글이다. 한쪽만 있으면 버튼을 눌렀을 때 생성 명령 안내가 뜨므로 같은 분량의 두 난이도를 늘 함께 둔다. 보통 리포트를 먼저 쓰고 Step 3 merge를 통과하면 아래 "쉬운 리포트" 절대로 그 리포트를 풀어 쉬운 리포트를 쓴다.
+**보통과 쉬운 리포트를 함께 만든다.** 뷰어 툴바의 쉽게 보기 토글이 두 리포트를 오간다. 한쪽만 있으면 토글을 눌렀을 때 생성 명령 안내가 뜨므로 두 난이도를 늘 함께 둔다. 보통 리포트를 먼저 쓰고 Step 3 merge를 통과하면 아래 "쉬운 리포트" 절대로 그 리포트를 풀어 쉬운 리포트를 쓴다.
 
-**이미 있는 난이도는 건너뛴다.** `digest.json`이 있으면 `ges_digest { action: "validate", slug, repoRoot }` 응답의 `reports`로 리포트 키 목록을 받는다. 목록 순서가 `reports[]`의 자리다. `range`와 `prompt`가 없는 호출이면 `<length>-<difficulty>-<lang>` 키로 두 난이도가 있는지 본다. 구간이나 요청이 붙은 호출은 늘 둘 다 새로 만든다.
+**이미 있는 난이도는 건너뛴다.** `digest.json`이 있으면 `ges_digest { action: "validate", slug, repoRoot }` 응답의 `reports`로 리포트 키 목록을 받는다. 목록 순서가 `reports[]`의 자리다. `range`와 `prompt`가 없는 호출이면 `long-<difficulty>-<lang>` 키로 두 난이도가 있는지 본다. 구간이나 요청이 붙은 호출은 늘 둘 다 새로 만든다.
 
 | 경우                                                   | 보통 리포트 | 쉬운 리포트                     |
 | ------------------------------------------------------ | ----------- | ------------------------------- |
@@ -205,7 +201,7 @@ Agent {
        <scenesPath가 있으면> <scenesPath> 도 읽고 시스템 프롬프트의 "소섹션 장면" 절대로 shots를 고른다.
        글이나 그림이 보이는 장면만 고르고 맞는 장면이 없는 소섹션은 비운다.
     2. 시스템 프롬프트의 계약대로 리포트 한 벌을 <reportPath> 에 쓴다.
-       options는 length=<length 또는 long>, difficulty=normal, lang=<reportLang 또는 ko> 로 적는다.
+       options는 length=long, difficulty=normal, lang=<reportLang 또는 ko> 로 적는다.
        <구간이 있으면> options.range는 <rangeSec> 그대로 적고 읽은 파일의 segments 범위 안에서만 요약한다.
        <prompt가 있으면> options.prompt에 아래 요청을 글자 그대로 적고 요약에서 그 내용을 더 다룬다.
        요청: <prompt>
@@ -236,7 +232,7 @@ Agent {
 3. **도입**은 조각이 다 모인 뒤 `digest.lead.json`에 쓴다. 뼈대와 조각 경로를 넘기고 `lead`만 쓰게 한다. 키워드는 2번에서 이미 나왔다.
 4. **합치기**는 메인이 jq로 배열을 이어 붙인다. 본문을 컨텍스트로 읽어 손으로 조립하지 않는다. 조각은 뼈대의 대섹션 순서대로 적는다.
 
-options는 셸 인자로 넘기지 않는다. 요청문에 따옴표가 섞일 수 있어서다. Step 2 프롬프트에 적은 options(length, difficulty, lang, 있으면 range와 prompt)를 위 정리를 마친 뒤 파일 쓰기 도구로 `<폴더>/digest.options.json`에 써 두고 읽는다. 값이 없는 length와 lang은 Step 2 프롬프트와 같이 `long`과 `ko`로 적고 difficulty는 `normal`로 적는다.
+options는 셸 인자로 넘기지 않는다. 요청문에 따옴표가 섞일 수 있어서다. Step 2 프롬프트에 적은 options(length, difficulty, lang, 있으면 range와 prompt)를 위 정리를 마친 뒤 파일 쓰기 도구로 `<폴더>/digest.options.json`에 써 두고 읽는다. Step 2 프롬프트와 같이 length는 늘 `long`, 값이 없는 lang은 `ko`로 적고 difficulty는 `normal`로 적는다.
 
 ```bash
 jq -n --slurpfile opt '<폴더>/digest.options.json' \

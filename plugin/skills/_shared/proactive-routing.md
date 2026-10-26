@@ -96,7 +96,7 @@
 | "출하", "ship", "PR 올릴 때까지", "리뷰 통과할 때까지", "코파일럿 리뷰까지", "copilot 리뷰 받아줘", "draft PR 올리고 리뷰" | `ship` 스킬 사용 | 로컬 PR → 리뷰 수렴 루프 → 승인 → draft PR → Copilot 수렴 루프 → ready. 리뷰 한 번만이면 `review` |
 | "슬랙 보내", "슬랙으로 보내", "메시지 보내", "메세지 보내", "전달해줘", "공지해줘", "공지 올려줘", "슬랙에 올려줘", "슬랙 메시지 전송", "예약 발송", "예약메세지", "예약 메시지", "이따 보내", "내일 아침에 보내", "9시에 보내" | `slack-send` 스킬 사용 | 내부적으로 slack-messenger 다듬기 → 승인 단계 → 전송 |
 | "이 화면들 UX 분석해줘", "UX 분석만 해줘", "화면의 와우 포인트와 페인 포인트만 정리해줘", "사용자 관점으로 화면 분석해줘" | `ux-research` 스킬 사용 | 캡처가 있는 research.json에서 섹션 4만 채운다. 화면 수집이면 `screen-ref`, 본업에서 출발한 이유 분석이면 `reverse-plan`, 전체를 한 번에 돌리면 `research` |
-| "이 영상 요약해줘", "유튜브 영상 요약해줘", "유튜브 영상 정리해줘", "영상 요약 뷰어 만들어줘", "이 강의 영상 내용 정리해줘", "이 영상으로 퀴즈 만들어줘", "영상 회의록 정리해줘" | `video-digest` 스킬 사용 | ingest → video-summarizer가 보통 리포트와 그걸 풀어 쓴 쉬운 리포트 작성 → merge로 digest.json에 합치기 → frames → 윤문 → render → serve 또는 export --md. 이미 요약한 영상에 분량이나 난이도가 다른 리포트를 더할 때는 ingest를 건너뛴다. templates를 받으면 merge 뒤에 템플릿마다 확장 리포트를 써서 merge --extension으로 합친다. 확장만 더할 때는 수집과 요약을 건너뛴다. 이미 있는 slug를 다시 보여주기만 하려면 serve만 부른다. 경쟁사 조사 안에서 영상을 다루면 `research`, 영상 화면만 모으려면 `screen-ref` |
+| "이 영상 요약해줘", "유튜브 영상 요약해줘", "유튜브 영상 정리해줘", "영상 요약 뷰어 만들어줘", "이 강의 영상 내용 정리해줘", "이 영상으로 퀴즈 만들어줘", "영상 회의록 정리해줘" | `video-digest` 스킬 사용 | ingest → video-summarizer가 보통 리포트와 그걸 풀어 쓴 쉬운 리포트 작성 → merge로 digest.json에 합치기 → frames → 윤문 → render → serve 또는 export --md. 이미 요약한 영상에 난이도나 구간, 요청이 다른 리포트를 더할 때는 ingest를 건너뛴다. templates를 받으면 merge 뒤에 템플릿마다 확장 리포트를 써서 merge --extension으로 합친다. 확장만 더할 때는 수집과 요약을 건너뛴다. 이미 있는 slug를 다시 보여주기만 하려면 serve만 부른다. 경쟁사 조사 안에서 영상을 다루면 `research`, 영상 화면만 모으려면 `screen-ref` |
 
 <!-- skill-routing:end -->
 

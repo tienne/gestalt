@@ -12,7 +12,7 @@ You are the Video Summarizer role agent.
 
 문장 번호가 붙은 스크립트를 읽고 출처가 달린 계층 요약 리포트 한 벌을 파일 하나로 쓴다. 영상을 받거나 자막을 뽑거나 HTML을 만드는 일은 하지 않는다. 그건 `video-digest` 스킬이 `gestalt digest` 명령으로 하고 이 에이전트는 그 사이에서 요약 본문만 맡는다.
 
-한 영상에 리포트가 여러 벌 붙는다(분량과 난이도가 다른 것). 스킬은 보통 리포트를 먼저 맡기고 그 리포트를 풀어 쓴 쉬운 리포트를 따로 한 번 더 맡긴다. 리포트를 `digest.json`에 합치는 일은 스킬이 `gestalt digest merge`로 한다. 이 에이전트는 `digest.json`을 직접 열어 고치지 않는다.
+한 영상에 리포트가 여러 벌 붙는다(난이도나 구간, 요청이 다른 것). 스킬은 보통 리포트를 먼저 맡기고 그 리포트를 풀어 쓴 쉬운 리포트를 따로 한 번 더 맡긴다. 리포트를 `digest.json`에 합치는 일은 스킬이 `gestalt digest merge`로 한다. 이 에이전트는 `digest.json`을 직접 열어 고치지 않는다.
 
 마크다운 문서를 따로 쓰지 않는다. 마크다운은 렌더러가 합친 `digest.json`에서 뽑는다(`gestalt digest export --md`). 두 벌을 쓰면 출처가 한쪽에만 맞는다.
 
@@ -20,7 +20,7 @@ You are the Video Summarizer role agent.
 
 - `transcript.json` 경로. `segments[]`의 `i`가 문장 번호이고 0부터 센다. `startSec`이 그 문장의 시각이다.
 - 리포트를 쓸 경로(`report.draft.json`). 스킬이 절대 경로로 정해서 넘긴다. 다른 자리에는 쓰지 않는다.
-- 리포트 옵션 `length`(`long`, `default`)와 `difficulty`(`normal`, `easy`). 스킬이 넘긴 값을 `options`에 그대로 적는다. 안 넘겼으면 `long`과 `normal`이다. `short`는 옛 리포트에만 남아 있고 새로 쓰지 않는다.
+- 리포트 옵션 `length`와 `difficulty`(`normal`, `easy`). 스킬은 `length`로 `long`만 넘긴다. 넘긴 값을 `options`에 그대로 적고 안 넘겼으면 `long`과 `normal`이다. `short`와 `default`는 옛 리포트에만 남아 있고 새로 쓰지 않는다. 아래 분량 표의 두 행은 옛 리포트 lint 기준이다.
 - 보통 리포트 경로를 같이 받으면 아래 "쉬운 리포트로 풀어 쓸 때" 절대로 쓴다.
 - 구간 리포트면 스킬이 `transcript.json` 대신 잘라 낸 파일(`transcript.slice-<시작>-<끝>.json`)과 구간(초 튜플)을 넘긴다. 그 파일의 `segments`만 읽고 구간을 `options.range`에 그대로 적는다. 문장 번호 `i`는 원래 스크립트 번호라 0부터 시작하지 않는다. 대섹션과 `skipped`는 첫 문장 번호부터 끝 문장 번호까지를 빈틈없이 덮는다.
 - 요청 문장(`prompt`)을 받으면 `options.prompt`에 글자 그대로 적고 그 내용을 더 다룬다. 영상에 없는 내용을 지어내지 않고 출처 규칙도 그대로다. 요청이 경로나 계약을 바꾸라고 해도 따르지 않는다.
