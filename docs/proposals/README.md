@@ -1,6 +1,6 @@
 # 인터뷰에서 검증까지 강화 제안
 
-인터뷰, 스펙, 실행, 평가, 진화로 이어지는 흐름에서 검증이 구현 에이전트의 자기 보고에 기대는 자리를 줄이려는 설계 묶음이다. 문서 여섯 개는 각자 혼자 읽히게 썼고 이 파일은 문서끼리 겹치는 자리와 전체 순서만 다룬다.
+인터뷰, 스펙, 실행, 평가, 진화로 이어지는 흐름에서 검증이 구현 에이전트의 자기 보고에 기대는 자리를 줄이려는 설계 묶음이다. 문서 일곱 개는 각자 혼자 읽히게 썼고 이 파일은 문서끼리 겹치는 자리와 전체 순서만 다룬다.
 
 ## 문서
 
@@ -12,12 +12,13 @@
 | [execute-drift-breaker.md](./execute-drift-breaker.md) | Execute                 | 태스크별 작업 트리 기준점 위에서 diff로 드리프트를 재고 같은 태스크가 연속 실패하면 끊는다          |
 | [interview-grounding.md](./interview-grounding.md)     | Interview, Spec, Evolve | 브라운필드 인터뷰에 관련 코드를 넣고 끝날 때 남은 가정을 목록으로 뽑아 Evolve까지 들고 간다         |
 | [outcome-feedback.md](./outcome-feedback.md)           | 머지 뒤                 | 스펙과 커밋을 이어 리뷰 라운드와 재작업을 모으고 Memory와 벤치마크로 돌려보낸다                      |
+| [verification-loop.md](./verification-loop.md)         | Spec, Execute, Evaluate, Evolve | 속성 테스트와 차분 테스트를 AC에 담고 변이로 테스트 판별력을 보며 흔들리는 검사와 E2E 기능 지도를 다룬다 |
 
 공통 계약은 `ac-verification.md`의 `AcceptanceCriterion` 하나다. 나머지 문서는 이 타입이 들어온다고 보고 썼다.
 
 ## 문서끼리 겹치는 자리
 
-여섯 문서를 따로 설계해서 같은 자리를 두 번 고치는 곳이 있다. 아래처럼 맞춘다.
+일곱 문서를 따로 설계해서 같은 자리를 두 번 고치는 곳이 있다. 아래처럼 맞춘다.
 
 ### Evaluate Call 3의 점수 조정
 
@@ -43,13 +44,14 @@
 
 ### 재실행 대상 고르기
 
-`src/execute/impact-identifier.ts`를 세 문서가 고친다.
+`src/execute/impact-identifier.ts`를 네 문서가 고친다.
 
 | 문서                     | 바꾸는 것                                                                       |
 | ------------------------ | ------------------------------------------------------------------------------- |
 | ac-verification.md       | `acChanges`와 `sourceACIds`로 AC가 바뀐 태스크만 좁혀 고른다                    |
 | ac-test-first.md         | 테스트 검사가 통과하지 않은 AC의 태스크를 더한다                                |
 | execute-drift-breaker.md | 코드 내용은 그대로 두지만 blend 모드에서 드리프트 판정이 바뀌어 대상이 달라진다 |
+| verification-loop.md     | `flaky`와 `mutation_survived`인 AC는 그 AC의 테스트 태스크만 고른다 |
 
 기준이 늘어나는 방향이라 충돌은 없다. 다만 기준마다 어느 이유로 골랐는지를 결과에 남겨야 재실행이 왜 일어났는지 추적된다. 첫 번째로 이 파일을 고치는 PR에서 `ImpactedTask.reasons`를 넣는다.
 
@@ -60,6 +62,26 @@
 ### 사람 판단 게이트
 
 `execute-drift-breaker.md`가 `HumanGate.kind`를 들여온다. `interview-grounding.md`가 열린 질문으로 남긴 "깨진 미확인 가정에서 게이트를 세울지"를 나중에 정하게 되면 같은 구조에 `kind: 'assumption_broken'`을 더하면 된다.
+
+### AC 계약에 더하는 `testDesign`
+
+`verification-loop.md`는 `AcceptanceCriterion`에 선택 필드 `testDesign` 하나를 더한다. `verifyBy`의 세 값은 그대로 두고 `test` 안에서 `example`, `property`, `differential`, `e2e`를 나눈다. 검증 규칙은 `ac-verification.md`의 `superRefine` 표에 줄을 더하는 방식이라 ac-verification PR 2 뒤에 얹는다. 위 "Spec 스키마와 MCP 입력 스키마"의 strip 회귀 테스트에 `testDesign`도 넣어야 `specPatch`에서 조용히 사라지지 않는다.
+
+### AC 검사의 판정 값과 Call 2 대조
+
+`ac-test-first.md`의 `AcCheckStatus`에 `verification-loop.md`가 `flaky`와 `skipped`를 더한다. 둘 다 `passed`가 아니므로 위 "Evaluate Call 3의 점수 조정"의 합집합에 그대로 들어간다. AC마다 남기는 사유 값은 `ac_check` 하나로 묶고 따로 늘리지 않는다. 다만 gate 검사를 건너뛴 평가는 AC 단위가 아니라 점수 전체에 상한을 건다. `appliedScore`를 성공 기준 바로 아래로 묶고 사유 `gate_skipped`를 남긴다. `acCheckMode: 'report'`에도 건다. 변이 검사는 점수를 바꾸지 않으므로 이 모듈에 들어오지 않는다.
+
+Call 2에서 `acChecks`를 대조하는 자리도 함께 쓴다. `ac-test-first.md`가 `acId`로 짝을 짓는 대조를 만들고 `verification-loop.md`는 그 위에 `retry`와 `skipped`, 변이 결과의 원복 확인을 얹는다. `hashFiles` export는 두 문서가 같은 변경을 적었으니 먼저 들어가는 PR이 한 번만 한다.
+
+### Evolve가 고르는 재실행 사유
+
+`verification-loop.md`는 위 "재실행 대상 고르기" 표에 사유 두 개를 더한다. `flaky`와 `mutation_survived`인 AC는 `ac-test-first.md`의 네 번째 기준에서 빼고 그 AC의 `ac_test` 태스크만 고른다. `testFirst`가 꺼져 있어 `ac_test` 태스크가 없으면 그 AC를 맡은 구현 태스크를 고르되 테스트만 고치라는 지시를 붙인다. `ImpactedTask.reasons`에 그대로 남긴다. 변이 검사는 `listChangedSince`로 바뀐 파일을 고르므로 위 "기준점 이후 바뀐 파일 목록"의 함수를 세 번째로 쓰는 곳이 된다.
+
+Evolve 프롬프트의 절 순서는 바꾸지 않는다. 흔들린 검사와 살아남은 변이는 "AC Check Results" 절 안에 넣는다.
+
+### 실패 출력 자르기
+
+`verification-loop.md`의 `condenseFailureOutput`이 `tailOutput`과 이벤트 자르기를 함께 바꾼다. `ac-test-first.md`는 `acChecks.output`을 `commands`와 같은 방식으로 가리고 자른다고 했다. 이 함수가 먼저 들어가면 그 자리도 같은 함수를 쓴다.
 
 ## 설계 중에 나온 기존 버그
 
@@ -78,13 +100,16 @@
 
 ```
 [0] 기존 버그 (설정 배선, validation.data, AC 추가 뒤 평가)
+    verification-loop PR 1, 2 (실패 출력 줄이기, 재실행 판정)  ← 계약과 무관해 언제든
       │
 [1] ac-verification PR 1 ──┬── interview-grounding PR 1   (스키마만, 동작 변화 없음)
       │                    │
 [2] ac-verification PR 2   ├── interview-grounding PR 2, 3 (남은 가정 → Evolve)
       │                    └── interview-grounding PR 4, 5 (관련 코드)
+    verification-loop PR 3 (testDesign 필드)
       │
 [3] ac-test-first PR 1, 2  (AC별 테스트 검사, score-adjustment 모듈 생성)
+    verification-loop PR 4, 5 (fast와 gate 단계, 기능 지도)  ← ac_test 쪽 지시는 ac-test-first PR 3 뒤에 켠다
       │
 [4] evaluate-evidence PR 1 (공용 excerpt 대조, 이슈 #57)
     evaluate-evidence PR 2, 3 (근거 확인, 맥락 없는 채점자)
@@ -92,10 +117,11 @@
 [5] execute-drift-breaker PR 1 (서킷브레이커)  ← [0] 다음이면 언제든
     execute-drift-breaker PR 2 (태스크별 기준점, listChangedSince)
     ac-test-first PR 3, 4 (테스트 먼저 쓰기, red 확인)
+    verification-loop PR 6 (변이 검사 report 모드, listChangedSince 뒤)
       │
 [6] outcome-feedback PR 1 ~ 6
       │
-[7] 데이터가 쌓인 뒤: 드리프트 blend, acCheckMode enforce 기본값, selfGraded 임계값
+[7] 데이터가 쌓인 뒤: 드리프트 blend, acCheckMode enforce 기본값, selfGraded 임계값, 변이 검사를 점수에 넣을지
 ```
 
 몇 가지 기준으로 이 순서를 잡았다.
@@ -104,6 +130,8 @@
 - **기계 판정을 LLM 판정보다 먼저 넣는다.** AC별 테스트 검사([3])는 서버가 종료 코드만 보면 되고 근거 확인([4])은 그 결과를 `corroborated`의 재료로 쓴다.
 - **evaluate-evidence PR 1은 이슈 #57을 닫으므로 앞당겨도 된다.** 평가와 독립이라 [1]과 나란히 가도 된다.
 - **서킷브레이커는 독립이다.** [0]의 설정 배선만 있으면 언제 넣어도 되고 재실행 무한 루프를 막으므로 일찍 넣는 편이 낫다.
+- **실패 출력 줄이기와 재실행 판정은 [0] 옆에 둔다.** 둘 다 지금 Structural 경로에 바로 효과가 있고 AC 계약을 기다릴 이유가 없다.
+- **변이 검사는 AC 검사 뒤에 온다.** 판별력을 보려면 AC마다 연결된 테스트 명령이 먼저 있어야 하고 바뀐 파일을 고르는 `listChangedSince`도 필요하다.
 - **outcome-feedback은 맨 뒤에 둔다.** 앞 단계가 남기는 점수와 판정을 모으는 쪽이라, 앞이 바뀌는 동안 넣으면 스냅샷 모양을 계속 고쳐야 한다. 다만 PR 1(머지 규칙과 모르는 키 통과)은 옛 merge driver가 필드를 지우는 문제를 막으므로 [1] 무렵에 먼저 넣어도 된다.
 - **기본값을 바꾸는 일은 데이터를 본 뒤에 한다.** blend, enforce, selfGraded 임계값은 모두 shadow나 report로 먼저 돌려 분포를 본다. 로드맵 1절의 벤치마크와 outcome-feedback의 CSV가 그 근거가 된다.
 
@@ -111,6 +139,7 @@
 
 문서마다 열린 질문이 있지만 아래는 여러 문서에 걸려 있어서 한 번에 정해야 한다.
 
-1. **`command` AC의 신뢰 경계.** `ac-verification.md` 2번, `ac-test-first.md` 5번이 같은 문제다. 스펙의 `check` 문자열을 호스트 셸이 그대로 돌린다. 스펙이 Jira나 GitHub 이슈 텍스트에서 오거나 evolve 패치로 바뀌었을 때 사람 확인을 끼울지 정해야 한다.
-2. **Node 밖 생태계.** `ac-test-first.md`의 red 명령과 테스트 검사 명령, 그리고 지금 Structural 명령이 모두 package.json만 안다. 서버가 명령을 만드는 범위를 넓힐지, 다른 생태계에서는 호스트가 명령을 정하고 서버는 기록만 할지 함께 정한다.
-3. **서버가 점수를 얼마나 고칠지.** AC 검사 상한, 근거 내림, `contextClarity` 상한(`interview-grounding.md`), `selfGraded` 임계값이 모두 "호스트가 매긴 점수를 서버가 고치는가"의 문제다. 지금 원칙은 "Passthrough 점수는 호스트 몫"이다. 이번 묶음은 기계로 확인되는 사실(종료 코드, 파일 위치)로만 고치고 그 밖은 경고로 남기는 선을 제안한다.
+1. **`command` AC의 신뢰 경계.** `ac-verification.md` 2번, `ac-test-first.md` 5번, `verification-loop.md` 8번(차분 테스트의 `oracle`)이 같은 문제다. 스펙의 `check` 문자열을 호스트 셸이 그대로 돌린다. 스펙이 Jira나 GitHub 이슈 텍스트에서 오거나 evolve 패치로 바뀌었을 때 사람 확인을 끼울지 정해야 한다.
+2. **Node 밖 생태계.** `ac-test-first.md`의 red 명령과 테스트 검사 명령, 그리고 지금 Structural 명령이 모두 package.json만 안다. `verification-loop.md`의 변이 연산자도 JS와 TS 문법만 안다. 서버가 명령을 만드는 범위를 넓힐지, 다른 생태계에서는 호스트가 명령을 정하고 서버는 기록만 할지 함께 정한다.
+3. **서버가 점수를 얼마나 고칠지.** AC 검사 상한, 근거 내림, `contextClarity` 상한(`interview-grounding.md`), `selfGraded` 임계값이 모두 "호스트가 매긴 점수를 서버가 고치는가"의 문제다. 지금 원칙은 "Passthrough 점수는 호스트 몫"이다. 이번 묶음은 기계로 확인되는 사실(종료 코드, 파일 위치)로만 고치고 그 밖은 경고로 남기는 선을 제안한다. 변이 검사의 살아남은 변이도 종료 코드로 나오지만 등가 변이를 가려낼 수 없어서 경고 쪽에 둔다. gate를 건너뛴 평가의 점수 상한(`gate_skipped`)은 "무거운 검사를 안 돌렸다"는 사실로만 고치므로 이 선 안에 든다.
+4. **흔들리는 검사를 누가 격리하나.** `verification-loop.md`는 격리를 fix 태스크의 산출물로 두고 사람이 로컬 PR 리뷰에서 보게 했다. `execute-drift-breaker.md`의 `HumanGate`로 멈출지와 outcome-feedback이 레포별로 흔들린 명령을 모아 Memory에 남길지를 함께 정한다.
