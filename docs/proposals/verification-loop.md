@@ -391,17 +391,20 @@ AC 검사가 `flaky`면 `AcCheckStatus: 'flaky'`다. passed가 아니므로 `sat
 
 `src/execute/failure-output.ts`를 새로 만들고 `condenseFailureOutput(output, limit, meta)` 하나를 둔다. `tailOutput`(`src/execute/prompts.ts:24-27`)과 `toEventStructuralResult`의 자르기(`src/execute/session.ts:55-58`)가 이 함수를 부른다.
 
-1. 입력이 1MB를 넘으면 끝에서 1MB만 남기고 앞을 자른다. 아래 단계가 출력을 여러 번 훑으므로 크기부터 묶는다.
-2. ANSI 이스케이프를 지운다.
-3. 경로에 `node_modules/`나 `node:internal`이 들어간 스택 프레임 줄을 지운다. 지운 줄 수는 남긴다.
-4. 같은 줄이 연속으로 세 번 넘게 나오면 한 줄과 `(×N)`으로 묶는다.
-5. 러너 실패 블록의 시작을 찾는다. `FAIL `, `AssertionError`, `Expected`, `● ` 같은 줄이다. 찾으면 그 줄부터 끝까지를 남기고 그래도 길면 앞을 잘라 끝을 남긴다. 못 찾으면 지금처럼 끝만 남긴다.
-6. 머리줄에 `exit 1, 4.2s` 꼴을 붙인다. 종료 코드가 124나 137이거나 출력에 `timed out`이 있으면 `timeout`이라고 쓰고 걸린 시간을 함께 쓴다.
-7. 자른 자리에는 생략 표시를 반드시 남긴다(`src/execute/prompts.ts:29-33`의 원칙).
+1. ANSI 이스케이프를 지운다.
+2. 경로에 `node_modules/`나 `node:internal`이 들어간 스택 프레임 줄을 지운다. 지운 줄 수는 남긴다.
+3. 같은 줄이 연속으로 세 번 넘게 나오면 한 줄과 `(×N)`으로 묶는다.
+4. 러너 실패 블록의 시작을 찾는다. `FAIL `, `AssertionError`, `Expected`, `● ` 같은 줄이다. 찾으면 그 줄부터 끝까지를 남기고 그래도 길면 앞을 잘라 끝을 남긴다. 못 찾으면 지금처럼 끝만 남긴다.
+5. 머리줄에 `exit 1, 4.2s` 꼴을 붙인다. 종료 코드가 124나 137이거나 출력에 `timed out`이 있으면 `timeout`이라고 쓰고 걸린 시간을 함께 쓴다.
+6. 자른 자리에는 생략 표시를 반드시 남긴다(`src/execute/prompts.ts:29-33`의 원칙).
 
-2~5단계의 정규식은 줄 단위로 돌고 역참조나 중첩 반복을 쓰지 않는다. 출력은 호스트가 보낸 문자열이라 길이와 모양을 믿을 수 없어서다.
+1~4단계의 정규식은 줄 단위로 돌고 역참조나 중첩 반복을 쓰지 않는다. 출력은 호스트가 보낸 문자열이라 길이와 모양을 믿을 수 없어서다. 길이는 아래 입구 자르기가 먼저 묶어서 들어온다.
 
-비밀값 가리기는 지금처럼 자르기 전에 원문 전체에 건다(`src/execute/session.ts:40-41`, `src/execute/session.ts:51`). 줄이는 함수는 가린 뒤의 문자열을 받으므로 1단계 자르기도 가린 뒤에 일어난다.
+비밀값 가리기는 지금처럼 자르기 전에 원문 전체에 건다(`src/execute/session.ts:40-41`, `src/execute/session.ts:51`). 그런데 가리기도 길이 제한 없는 호스트 문자열을 통째로 훑는다. 그래서 크기 상한은 가리기보다 앞인 Call 2 핸들러 입구에 둔다. `commands[].output`, `acChecks[].output`과 둘의 `retry.output`이 1MB를 넘으면 거절하지 않고 끝 1MB 안에서 처음 나오는 줄바꿈 다음부터 끝까지만 남긴 뒤 생략 표시를 붙인다. 가리기와 줄이기는 그다음에 돈다.
+
+거절하지 않는 건 옛 스킬 때문이다. 거절하면 1MB 넘는 출력을 내던 옛 스킬의 평가가 지금은 통과하다가 막힌다. 스키마에 `z.string().max()`를 걸어도 SDK가 핸들러 전에 던져서 `EvaluationError` 형식으로 돌려줄 수 없다.
+
+입구에서 자른 경계에 비밀값이 반쯤 걸려 가리기 패턴에 안 맞는 조각이 남을 수 있다. 그 조각은 출력 맨 앞에 있다. 이후 단계는 끝 2000자(`src/execute/session.ts:37`)와 줄인 실패 블록만 남기므로 그 조각은 이벤트와 프롬프트에 실리지 않는다.
 
 이 PR은 계약을 건드리지 않는다. `durationMs`가 없으면 머리줄에 시간을 빼고 쓴다.
 
@@ -552,7 +555,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | `src/execute/feature-map.ts` (새 파일)                                                   | `loadFeatureMap`, `findFeature`. gray-matter 안전 옵션과 크기 상한                                                       |
 | `src/execute/mutation-probe.ts` (새 파일)                                                | `buildMutationProbes`, `verifyMutationResults`                                                                           |
 | `src/execute/ac-checks.ts`                                                               | `tier` 부여, `feature_map` 출처, `intended_diff_missing`, `feature_not_found`, `flaky`와 `skipped` 판정                   |
-| `src/execute/orchestrators/evaluation.ts`                                                | Call 1에 변이와 단계, Call 2에 재실행 판정과 원복 확인, gate 검사가 빠지면 거부, 변이 판정. Call 3에 `gate_skipped` 상한과 변이 판정 옮기기 |
+| `src/execute/orchestrators/evaluation.ts`                                                | Call 1에 변이와 단계, Call 2 입구의 출력 1MB 자르기(가리기 전), Call 2에 재실행 판정과 원복 확인, gate 검사가 빠지면 거부, 변이 판정. Call 3에 `gate_skipped` 상한과 변이 판정 옮기기 |
 | `src/execute/prompts.ts`                                                                 | `tailOutput`을 `condenseFailureOutput`으로 교체. fix 프롬프트의 흔들림 지시. 테스트 태스크 프롬프트의 property, differential, e2e 지시. Evolve의 테스트가 못 잡은 변이와 셀렉터 안내 |
 | `src/execute/session.ts`                                                                 | `toEventStructuralResult`가 `retry`도 가리고 줄인다. `mutationResults`는 이벤트에 싣지 않는다. 판정은 payload의 변이 판정으로 남는다. 축약 `commands`에 `flaky`. `EVALUATE_STRUCTURAL_COMPLETED` payload에 변이 판정 |
 | `src/execute/artifact-verifier.ts`                                                       | `hashFiles` export (`ac-test-first.md`와 같은 변경)                                                                      |
@@ -576,8 +579,8 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 대상           | 파일                                                         | 확인할 것                                                                                                                                                 |
 | -------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | AC 검증 규칙   | `tests/unit/spec/acceptance-criteria.test.ts` (ac-verification.md가 만든다) | 위 규칙 표의 줄마다. `testDesign` 없는 옛 AC가 그대로 통과                                                                                               |
-| 출력 줄이기    | `tests/unit/execute/failure-output.test.ts` (새 파일)        | 1MB를 넘는 입력의 앞 자르기, ANSI 제거, 의존성 스택 프레임 제거와 개수 표시, 반복 줄 묶기, 실패 블록 찾기와 못 찾았을 때 끝 남기기, 타임아웃 머리줄, 생략 표시, 트레이스 경로 보존       |
-| 재실행 판정    | `tests/unit/execute/execution-evaluate.test.ts`              | 판정 표의 다섯 줄. `flaky` Structural의 short-circuit과 fix 프롬프트 표시. 시간 초과로 끊긴 명령은 `retry` 없이 실패로 받고 `timeout` 머리줄                                                                                |
+| 출력 줄이기    | `tests/unit/execute/failure-output.test.ts` (새 파일)        | ANSI 제거, 의존성 스택 프레임 제거와 개수 표시, 반복 줄 묶기, 실패 블록 찾기와 못 찾았을 때 끝 남기기, 타임아웃 머리줄, 생략 표시, 트레이스 경로 보존       |
+| 재실행 판정    | `tests/unit/execute/execution-evaluate.test.ts`              | 판정 표의 다섯 줄. `flaky` Structural의 short-circuit과 fix 프롬프트 표시. 시간 초과로 끊긴 명령은 `retry` 없이 실패로 받고 `timeout` 머리줄. 1MB를 넘는 출력이 거절되지 않고 가리기 전에 잘림                                                                                |
 | 단계           | 같은 파일                                                    | fast 실패 때 gate 결과 버림과 빠짐 대조 제외. fast 통과인데 gate `skipped`나 누락이면 거부. `gate_skipped` 상한이 `report` 모드에도 걸림. `testDesign`별 `tier` |
 | 변이 만들기    | `tests/unit/execute/mutation-probe.test.ts` (새 파일)        | 연산자 다섯 개, 주석과 문자열 건너뛰기, 테스트 파일 제외, 레포 밖 경로와 심링크 제외, 같은 seed면 같은 변이, AC당 세 개 상한, 평가당 상한과 AC 번갈아 남기기, `capped` 개수, e2e와 differential 제외. git 임시 레포는 `execution-artifact-verify.test.ts` 헬퍼 |
 | 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 124와 137은 `timedOut`이고 `notRun` 경고에 안 들어감. 이벤트에 실린 결과에 `mutationResults`가 없음. 지금 해시가 직전 변이의 `blobAfter`와 같을 때만 Call 1이 원복부터 안내하고 `blobBefore`도 `blobAfter`도 아니면 넘어감. 키가 같은 `killed`와 `timedOut` 재사용과 키가 바뀌면 다시 돌리기 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상 |
@@ -589,7 +592,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 
 | 순서 | PR                                              | 내용                                                                                       | 의존                                                       |
 | ---- | ----------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| 1    | `feat(execute): 실패 출력 줄이기`               | `failure-output.ts`, `tailOutput`과 이벤트 자르기 교체                                    | 없음. 언제든 먼저 낼 수 있다                               |
+| 1    | `feat(execute): 실패 출력 줄이기`               | `failure-output.ts`, `tailOutput`과 이벤트 자르기 교체, Call 2 입구의 1MB 자르기                                    | 없음. 언제든 먼저 낼 수 있다                               |
 | 2    | `feat(evaluate): 실패한 Structural 명령 재실행 판정` | Structural 명령의 `retry`, `durationMs`, `flaky` 판정, fix 프롬프트 지시, 스킬 규칙       | 없음                                                       |
 | 3    | `feat(spec): AC 테스트 설계 필드`               | `testDesign` 타입과 입력 타입, 검증 규칙, `mergeCriteriaPatch` 보존, `formatAcLine`, 스키마 strip 테스트 | ac-verification PR 2                                       |
 | 4    | `feat(evaluate): fast와 gate 검사 단계`         | `tier`, `skipped`, Call 2 규칙, `gate_skipped` 상한, AC 검사의 `retry`와 `flaky`, 재실행 사유 `flaky`, 차분 id 대조, 테스트 설계 프롬프트(구현 태스크 쪽), 느린 검사 표시와 `fastCheckBudgetMs` | 2, 3, ac-test-first PR 1, 2(재실행 사유 `flaky`가 PR 2의 네 번째 기준을 고친다). `ac_test` 태스크 쪽 프롬프트는 ac-test-first PR 3이 들어오면 켠다 |
