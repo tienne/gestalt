@@ -238,6 +238,10 @@ export interface MutationVerdict {
   killed: string[]; // 테스트가 실패해서 변이를 잡았다
   survived: string[]; // 테스트가 통과해서 변이를 못 잡았다. 판별력이 약하다는 신호
   notRun: string[];
+  /** 평가당 상한에 걸려 만들지 않은 변이 수. notRun과 따로 센다 */
+  capped: number;
+  /** probeId별 재사용 키. path, line, operator, blobBefore, AC 검사 명령, 테스트 파일 blob으로 만든다 */
+  reuseKeys: Record<string, string>;
 }
 
 // Call 2 요청. 기존 StructuralResult(`src/core/types.ts:302-305`)에 선택 필드로 더한다
@@ -299,11 +303,11 @@ export interface EvaluationResult {
 | ---------------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | Stryker 같은 변이 테스트 도구를 통째로 돌린다              | 호스트가 명령만 돌리면 된다 | Node 전용이고 레포에 설치해야 한다. 한 번 돌리는 데 수십 분이 걸려 평가마다 돌릴 수 없다                                            |
 | 맥락 없는 서브에이전트에게 그럴듯하게 틀린 구현을 쓰게 한다 | 스킬이 서브에이전트를 띄운다 | 글의 질문에 가장 가깝다. 다만 무엇을 바꿨는지 서버가 확인할 수 없고 결과가 실행마다 달라진다. 열린 질문으로 남긴다                  |
-| 서버가 바뀐 줄에서 작은 변이 패치를 만든다                 | 서버는 패치 문자열만 만든다 | **고른다.** 결정적이고 서버가 원복까지 확인할 수 있다. AC당 세 개로 묶으면 AC 검사 세 번 값이다                                       |
+| 서버가 바뀐 줄에서 작은 변이 패치를 만든다                 | 서버는 패치 문자열만 만든다 | **고른다.** 결정적이고 서버가 원복까지 확인할 수 있다. 변이 하나에 AC 검사 한 번이 들어서 평가 하나에 최대 대상 AC 수의 세 배만큼 돈다. 그래서 평가당 총량과 시간에도 상한을 둔다                                       |
 
 #### 변이 만들기 (Call 1)
 
-`execute.mutationProbe`가 `report`일 때만 돈다. 기본값은 `off`다. 새 모듈 `src/execute/mutation-probe.ts`의 `buildMutationProbes(projectRoot, session)`가 아래 순서로 만든다.
+`execute.mutationProbe`가 `report`일 때만 돈다. 기본값은 `off`다. 평가 하나에 만드는 변이는 `execute.mutationProbeLimit`(기본 15)개까지다. 새 모듈 `src/execute/mutation-probe.ts`의 `buildMutationProbes(projectRoot, session)`가 아래 순서로 만든다.
 
 1. `verifyBy: 'test'`이고 `AcCheckCommand.command`가 null이 아닌 AC만 고른다. `testDesign`이 `e2e`나 `differential`이면 빼는데 이미 gate 검사라서 그 위에 변이까지 얹으면 너무 무겁다.
 2. AC의 구현 태스크는 `sourceAC`에 그 AC가 있는 `implementation` 태스크들이다. 그 태스크들의 `artifacts` 가운데 테스트 파일이 아닌 `.ts`, `.tsx`, `.js`, `.jsx`만 남긴다. 테스트 파일 판정은 `findAffectedTests`와 같은 패턴이다(`src/execute/orchestrators/evaluation.ts:232-235`). 남은 경로는 `toRepoRelative`(`src/execute/artifact-verifier.ts:162-167`)로 realpath가 레포 안인지 확인하고 심링크 파일은 뺀다. `artifacts`는 호스트가 보고한 값이라 레포 밖을 가리킬 수 있어서다.
@@ -312,7 +316,7 @@ export interface EvaluationResult {
    - 기준점 뒤에 새로 생긴 파일은 파일 전체를 바뀐 줄로 본다.
    - 기준점에서 이미 dirty였던 파일은 뺀다. 그때의 blob이 object DB에 없어서 diff를 걸 수 없다. `execute-drift-breaker.md`가 같은 이유로 심볼 단위 매핑을 미뤘다.
 4. 바뀐 줄에 연산자 다섯 개를 정규식으로 맞춰 본다. 주석 줄과 문자열 리터럴 안은 건너뛴다. AST를 쓰지 않는 건 서버 의존성을 늘리지 않으려는 선택이다. 그래서 놓치는 자리가 생겨도 받아들인다.
-5. 후보를 `path:line:operator`로 정렬하고 세션 id를 seed로 AC당 최대 세 개를 고른다. 같은 세션에서 다시 평가해도 같은 변이가 나온다.
+5. 후보를 `path:line:operator`로 정렬하고 세션 id를 seed로 AC당 최대 세 개를 고른다. 같은 세션에서 다시 평가해도 같은 변이가 나온다. 고른 변이의 합이 `mutationProbeLimit`을 넘으면 AC id 순으로 돌며 AC마다 하나씩 번갈아 남긴다. 앞쪽 AC가 상한을 다 쓰지 않게 하려는 것이다. 상한에 걸려 빠진 변이 수는 AC마다 `capped`로 센다.
 6. 각 변이를 unified diff로 만들고 변이 전 blob 해시를 함께 남긴다. 해시는 `hashFiles`(`src/execute/artifact-verifier.ts:66`)를 export해서 쓴다. `ac-test-first.md`도 같은 함수를 export하기로 했다.
 
 결과는 `structuralContext.mutationProbes`에 실린다. `tier`는 `gate`다.
@@ -329,13 +333,16 @@ export interface EvaluationResult {
 
 호스트가 4와 5 사이에 죽으면 변이가 작업 트리에 남는다. 다음 평가의 Call 1은 세션에 남은 직전 `mutationProbes`의 `blobBefore`를 지금 해시와 비교하고 어긋나면 변이 검사보다 원복을 먼저 하라고 안내한다.
 
+변이 검사 전체에 쓴 시간이 `execute.mutationProbeBudgetMs`(기본 300000)를 넘으면 남은 변이는 돌리지 않고 결과 없이 둔다.
+
 #### 서버가 하는 일 (Call 2)
 
 - 변이 결과의 `command`가 그 AC의 검사 명령과 다르면 거부한다. 메시지 형식은 기존 불일치 거부와 같다(`src/execute/orchestrators/evaluation.ts:105-112`).
 - 변이를 걸었던 파일의 blob 해시를 다시 구해 `blobBefore`와 비교한다. 하나라도 다르면 "작업 트리가 원복되지 않았다"로 거부한다. 변이가 남은 코드 위에서 평가가 계속 도는 걸 막는다.
 - `exitCode`가 0이 아니면 `killed`, 0이면 `survived`, -1이거나 결과가 없으면 `notRun`이다.
 - 판정은 Call 2에서 만들어 `session.mutationVerdicts`에 두고 `EVALUATE_STRUCTURAL_COMPLETED` payload에 싣는다. 맥락 평가 프롬프트가 Call 2 응답에서 만들어지므로 그 전에 판정이 있어야 한다. 프롬프트의 `**AC Check Results**` 표에 테스트가 못 잡은 변이를 `src/x.ts:42 flip_comparison`처럼 보인다. Call 3은 같은 판정을 `EvaluationResult.mutation`에 옮겨 담기만 하고 점수는 바꾸지 않는다.
-- 변이 검사는 report 전용이라 아래 "fast와 gate 나누기"에서 gate 검사가 빠졌을 때 거부하는 규칙에서 뺀다. 결과가 빠지면 `notRun`이 되고 `notRun` 개수를 경고로 싣는다.
+- 재평가 때는 변이를 다 다시 돌리지 않는다. Call 1의 `buildMutationProbes`가 직전 판정에서 `survived`였던 변이와 테스트 파일이나 소스가 바뀐 AC의 변이만 다시 낸다. `killed`는 재사용 키가 같으면 그대로 쓴다. 키는 `path`, `line`, `operator`, `blobBefore`, AC 검사 명령, 테스트 파일 blob이고 `session.mutationVerdicts`에 판정과 함께 남긴다.
+- 변이 검사는 report 전용이라 아래 "fast와 gate 나누기"에서 gate 검사가 빠졌을 때 거부하는 규칙에서 뺀다. 결과가 빠지면 `notRun`이 되고 `notRun` 개수를 경고로 싣는다. 상한에 걸려 처음부터 만들지 않은 변이는 `notRun`에 넣지 않고 `capped`로 따로 센다. 돌리다 만 변이와 구분하려는 것이다.
 - Evolve 프롬프트에는 테스트가 못 잡은 변이마다 한 줄씩 넣는다. "AC-1 테스트가 `<`를 `<=`로 바꾼 구현도 통과시킨다. 경계값 테스트를 더한다." 재실행 대상(`impact-identifier.ts`)에는 그 AC의 테스트 태스크를 더한다. README "재실행 대상 고르기"의 `ImpactedTask.reasons`에 `mutation_survived`를 남긴다.
 
 #### Passthrough 전제와 맞는지
@@ -347,6 +354,8 @@ export interface EvaluationResult {
 #### 한 번 다시 돌리기
 
 스킬 규칙을 이렇게 바꾼다. "Structural 명령이나 AC 검사가 0이 아닌 코드로 끝나면 같은 명령을 정확히 한 번 더 돌리고 두 결과를 모두 낸다. 통과한 명령은 다시 돌리지 않는다. 두 번 넘게 돌리지 않는다." fast와 gate를 가리지 않는다. 가장 잘 흔들리는 건 gate의 E2E라서 거기서 빼면 이 규칙이 쓸모가 줄어든다. 변이 검사에는 걸지 않는다. 변이 아래에서 테스트가 실패하는 건 기대한 결과라 다시 돌릴 이유가 없다.
+
+호스트가 명령 전체를 시간 초과로 끊었으면(종료 코드 124나 137) 다시 돌리지 않고 `retry` 없이 낸다. 같은 시간을 한 번 더 쓰게 되어서다. 서버는 이걸 실패로 보고 머리줄에 `timeout`을 적는다. 출력 안에서 개별 테스트가 시간을 넘긴 경우(`timed out`, `Timeout ... exceeded`)는 위 규칙대로 한 번 더 돌린다.
 
 서버는 Call 2에서 이렇게 판정한다.
 
@@ -376,14 +385,17 @@ AC 검사가 `flaky`면 `AcCheckStatus: 'flaky'`다. passed가 아니므로 `sat
 
 `src/execute/failure-output.ts`를 새로 만들고 `condenseFailureOutput(output, limit, meta)` 하나를 둔다. `tailOutput`(`src/execute/prompts.ts:24-27`)과 `toEventStructuralResult`의 자르기(`src/execute/session.ts:55-58`)가 이 함수를 부른다.
 
-1. ANSI 이스케이프를 지운다.
-2. 경로에 `node_modules/`나 `node:internal`이 들어간 스택 프레임 줄을 지운다. 지운 줄 수는 남긴다.
-3. 같은 줄이 연속으로 세 번 넘게 나오면 한 줄과 `(×N)`으로 묶는다.
-4. 러너 실패 블록의 시작을 찾는다. `FAIL `, `AssertionError`, `Expected`, `● ` 같은 줄이다. 찾으면 그 줄부터 끝까지를 남기고 그래도 길면 앞을 잘라 끝을 남긴다. 못 찾으면 지금처럼 끝만 남긴다.
-5. 머리줄에 `exit 1, 4.2s` 꼴을 붙인다. 종료 코드가 124나 137이거나 출력에 `timed out`이 있으면 `timeout`이라고 쓰고 걸린 시간을 함께 쓴다.
-6. 자른 자리에는 생략 표시를 반드시 남긴다(`src/execute/prompts.ts:29-33`의 원칙).
+1. 입력이 1MB를 넘으면 끝에서 1MB만 남기고 앞을 자른다. 아래 단계가 출력을 여러 번 훑으므로 크기부터 묶는다.
+2. ANSI 이스케이프를 지운다.
+3. 경로에 `node_modules/`나 `node:internal`이 들어간 스택 프레임 줄을 지운다. 지운 줄 수는 남긴다.
+4. 같은 줄이 연속으로 세 번 넘게 나오면 한 줄과 `(×N)`으로 묶는다.
+5. 러너 실패 블록의 시작을 찾는다. `FAIL `, `AssertionError`, `Expected`, `● ` 같은 줄이다. 찾으면 그 줄부터 끝까지를 남기고 그래도 길면 앞을 잘라 끝을 남긴다. 못 찾으면 지금처럼 끝만 남긴다.
+6. 머리줄에 `exit 1, 4.2s` 꼴을 붙인다. 종료 코드가 124나 137이거나 출력에 `timed out`이 있으면 `timeout`이라고 쓰고 걸린 시간을 함께 쓴다.
+7. 자른 자리에는 생략 표시를 반드시 남긴다(`src/execute/prompts.ts:29-33`의 원칙).
 
-비밀값 가리기는 지금처럼 자르기 전에 원문 전체에 건다(`src/execute/session.ts:40-41`, `src/execute/session.ts:51`). 줄이는 함수는 가린 뒤의 문자열을 받는다.
+2~5단계의 정규식은 줄 단위로 돌고 역참조나 중첩 반복을 쓰지 않는다. 출력은 호스트가 보낸 문자열이라 길이와 모양을 믿을 수 없어서다.
+
+비밀값 가리기는 지금처럼 자르기 전에 원문 전체에 건다(`src/execute/session.ts:40-41`, `src/execute/session.ts:51`). 줄이는 함수는 가린 뒤의 문자열을 받으므로 1단계 자르기도 가린 뒤에 일어난다.
 
 이 PR은 계약을 건드리지 않는다. `durationMs`가 없으면 머리줄에 시간을 빼고 쓴다.
 
@@ -528,7 +540,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `src/core/types.ts`                                                                      | `AcTestDesign`, `IntendedDiff`, `CheckAttempt`, `CheckTier`, `MutationProbe`, `MutationProbeResult`, `MutationVerdict`, `FeatureLaunch` 추가. `StructuralCommandResult`, `StructuralResult`, `AcCheckCommand`, `AcCheckRunResult`, `AcCheckStatus`, `AcCheckSource`, `EvaluationResult`, 세션의 `mutationVerdicts`에 필드 추가 |
 | `src/spec/acceptance-criteria.ts`                                                        | `testDesign` 스키마와 검증 규칙, 입력 타입, `mergeCriteriaPatch` 보존. `formatAcLine`에 `property`, `differential(oracle)`, `e2e(feature)` 표시                 |
-| `src/core/config.ts`                                                                     | `executeConfigSchema`에 `mutationProbe`, `fastCheckBudgetMs`. 새 `verification.featureMapDir`와 경로 검사                |
+| `src/core/config.ts`                                                                     | `executeConfigSchema`에 `mutationProbe`, `mutationProbeLimit`, `mutationProbeBudgetMs`, `fastCheckBudgetMs`. 새 `verification.featureMapDir`와 경로 검사                |
 | `src/execute/failure-output.ts` (새 파일)                                                | `condenseFailureOutput`                                                                                                  |
 | `src/execute/feature-map.ts` (새 파일)                                                   | `loadFeatureMap`, `findFeature`. gray-matter 안전 옵션과 크기 상한                                                       |
 | `src/execute/mutation-probe.ts` (새 파일)                                                | `buildMutationProbes`, `verifyMutationResults`                                                                           |
@@ -547,7 +559,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 
 - **`testDesign`이 없는 AC**: `example`로 읽는다. 모든 AC 검사는 지금처럼 `fast`다.
 - **`testFirst`가 꺼진 세션**: `ac_test` 태스크가 없으므로 테스트 설계 지시와 재실행은 구현 태스크로 간다(결정 1, 결정 3).
-- **옛 스킬**: `retry`와 `durationMs`를 내지 않는다. 다시 돌리지 않은 실패로 보고 지금처럼 실패 처리한다. `tier`를 모르는 옛 스킬은 gate까지 전부 돌려서 낸다. 거부되지는 않고 fast가 실패한 평가에서 시간이 더 들 뿐이다. 변이 검사는 기본값이 `off`다.
+- **옛 스킬**: `retry`와 `durationMs`를 내지 않는다. 다시 돌리지 않은 실패로 보고 지금처럼 실패 처리한다. `tier`를 모르는 옛 스킬은 gate까지 전부 돌려서 낸다. 거부되지는 않는다. 다만 fast가 실패한 평가에서도 E2E와 차분 테스트를 전부 돌리고 그 결과는 서버가 버린다. 평가에서 가장 오래 걸리는 구간을 헛돌리는 셈이라 서버와 스킬을 함께 올려야 한다. 변이 검사는 기본값이 `off`다.
 - **옛 이벤트 원장**: 새 필드는 전부 선택이다. 축약 `commands`에 `flaky`가 없으면 false로 읽는다.
 - **실패 출력**: 프롬프트와 이벤트에 실리는 문자열 모양이 바뀐다. 출력 문자열을 그대로 비교하는 테스트(`tests/unit/execute/output-truncation.test.ts`)는 고쳐야 한다.
 - **기능 지도가 없는 레포**: `e2e` AC가 없으면 아무 일도 없다. 있으면 `feature_not_found`로 unlinked가 되고 그 AC는 덮어쓰기로 미충족이 된다.
@@ -557,11 +569,11 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 대상           | 파일                                                         | 확인할 것                                                                                                                                                 |
 | -------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | AC 검증 규칙   | `tests/unit/spec/acceptance-criteria.test.ts` (ac-verification.md가 만든다) | 위 규칙 표의 줄마다. `testDesign` 없는 옛 AC가 그대로 통과                                                                                               |
-| 출력 줄이기    | `tests/unit/execute/failure-output.test.ts` (새 파일)        | ANSI 제거, 의존성 스택 프레임 제거와 개수 표시, 반복 줄 묶기, 실패 블록 찾기와 못 찾았을 때 끝 남기기, 타임아웃 머리줄, 생략 표시, 트레이스 경로 보존       |
-| 재실행 판정    | `tests/unit/execute/execution-evaluate.test.ts`              | 판정 표의 다섯 줄. `flaky` Structural의 short-circuit과 fix 프롬프트 표시                                                                                |
+| 출력 줄이기    | `tests/unit/execute/failure-output.test.ts` (새 파일)        | 1MB를 넘는 입력의 앞 자르기, ANSI 제거, 의존성 스택 프레임 제거와 개수 표시, 반복 줄 묶기, 실패 블록 찾기와 못 찾았을 때 끝 남기기, 타임아웃 머리줄, 생략 표시, 트레이스 경로 보존       |
+| 재실행 판정    | `tests/unit/execute/execution-evaluate.test.ts`              | 판정 표의 다섯 줄. `flaky` Structural의 short-circuit과 fix 프롬프트 표시. 시간 초과로 끊긴 명령은 `retry` 없이 실패로 받고 `timeout` 머리줄                                                                                |
 | 단계           | 같은 파일                                                    | fast 실패 때 gate 결과 버림과 빠짐 대조 제외. fast 통과인데 gate `skipped`나 누락이면 거부. `gate_skipped` 상한이 `report` 모드에도 걸림. `testDesign`별 `tier` |
-| 변이 만들기    | `tests/unit/execute/mutation-probe.test.ts` (새 파일)        | 연산자 다섯 개, 주석과 문자열 건너뛰기, 테스트 파일 제외, 레포 밖 경로와 심링크 제외, 같은 seed면 같은 변이, AC당 세 개 상한, e2e와 differential 제외. git 임시 레포는 `execution-artifact-verify.test.ts` 헬퍼 |
-| 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 직전 변이의 해시가 어긋나면 Call 1이 원복부터 안내. 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상 |
+| 변이 만들기    | `tests/unit/execute/mutation-probe.test.ts` (새 파일)        | 연산자 다섯 개, 주석과 문자열 건너뛰기, 테스트 파일 제외, 레포 밖 경로와 심링크 제외, 같은 seed면 같은 변이, AC당 세 개 상한, 평가당 상한과 AC 번갈아 남기기, `capped` 개수, e2e와 differential 제외. git 임시 레포는 `execution-artifact-verify.test.ts` 헬퍼 |
+| 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 직전 변이의 해시가 어긋나면 Call 1이 원복부터 안내. 키가 같은 `killed` 재사용과 키가 바뀌면 다시 돌리기 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상 |
 | 차분 id 대조   | `tests/unit/execute/ac-checks.test.ts` (ac-test-first.md가 만든다) | `intended_diff_missing`, 스펙에 없는 DIFF 경고                                                                                                           |
 | 기능 지도      | `tests/unit/execute/feature-map.test.ts` (새 파일)           | frontmatter 파싱, js 엔진 거부, 크기 상한, 절대 경로와 `..` 거부, 레포 밖으로 풀리는 경로 거부, 심링크 파일 건너뛰기, `e2e` 경로에도 같은 검사, `feature_not_found`                                                                           |
 | 재실행 대상    | `tests/unit/execute/evolution-loop.test.ts`                  | `flaky`와 `mutation_survived`가 `ac_test` 태스크만 고른다. `testFirst`가 꺼지면 그 AC의 구현 태스크로 간다                                                |
