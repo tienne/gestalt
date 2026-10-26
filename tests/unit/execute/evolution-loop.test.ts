@@ -24,6 +24,8 @@ import type {
   EvaluationResult,
 } from '../../../src/core/types.js';
 import type { ProjectMemory } from '../../../src/core/types.js';
+import type { ExecuteConfig } from '../../../src/core/config.js';
+import { DRIFT_THRESHOLD } from '../../../src/core/constants.js';
 import { asRequested } from '../../helpers/structural.js';
 import { handleEvaluate } from '../../../src/mcp/tools/execute/evaluate.js';
 import type { IHostAdapter } from '../../../src/mcp/host-adapter.js';
@@ -837,5 +839,64 @@ describe('evolve 뒤 재평가의 프로젝트 메모리 기록', () => {
     expect(history).toHaveLength(1);
     expect(history[0]!.executeSessionId).toBe(sessionId);
     expect(history[0]!.resultSummary).toBe('Score: 0.90, goalAlignment: 0.90');
+  });
+});
+
+describe('evolve 패치의 영향 태스크 식별에 쓰는 드리프트 임계값', () => {
+  beforeEach(() => {
+    dbPath = `.gestalt-test/evolve-threshold-${randomUUID()}.db`;
+    eventStore = new EventStore(dbPath);
+  });
+
+  afterEach(() => {
+    eventStore.close();
+    if (existsSync(dbPath)) rmSync(dbPath);
+  });
+
+  // constraints만 바꿔서 AC 연결 태스크가 통째로 잡히지 않게 하고 드리프트 기준만 남긴다
+  async function patchConstraintsOnly(): Promise<string[]> {
+    const sessionId = await setupCompletedExecution();
+    const evalStart = engine.startEvaluation(sessionId);
+    engine.submitStructuralResult(
+      sessionId,
+      asRequested(evalStart, {
+        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
+        allPassed: true,
+      }),
+    );
+    engine.submitEvaluation(sessionId, {
+      verifications: [
+        { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
+        { acIndex: 1, satisfied: false, evidence: 'No', gaps: ['Gap'] },
+        { acIndex: 2, satisfied: false, evidence: 'No', gaps: ['Gap'] },
+      ],
+      overallScore: 0.4,
+      goalAlignment: 0.5,
+      recommendations: [],
+    });
+    engine.startContextualEvolve(sessionId);
+    const patchResult = engine.submitSpecPatch(sessionId, {
+      constraints: ['Must use JWT', 'Must support OAuth2', 'Must rate limit login'],
+    });
+    if (!isOk(patchResult)) throw new Error('patch failed');
+    return patchResult.value.impactedTaskIds;
+  }
+
+  it('설정이 없으면 상수 기준으로 드리프트가 높았던 태스크를 다시 돌린다', async () => {
+    engine = new PassthroughExecuteEngine(eventStore);
+
+    expect(await patchConstraintsOnly()).not.toEqual([]);
+  });
+
+  it('config.execute.driftThreshold를 0.9로 주면 그 기준으로 골라 다시 돌릴 태스크가 없다', async () => {
+    const config: ExecuteConfig = {
+      driftThreshold: 0.9,
+      successThreshold: 0.85,
+      goalAlignmentThreshold: 0.8,
+    };
+    engine = new PassthroughExecuteEngine(eventStore, undefined, undefined, config);
+
+    expect(DRIFT_THRESHOLD).toBeLessThan(0.9);
+    expect(await patchConstraintsOnly()).toEqual([]);
   });
 });
