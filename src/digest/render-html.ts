@@ -270,7 +270,7 @@ ${skippedHtml}</div>`;
   const rendered = reportsMeta.map(({ report, key }, ri) => renderReport(report, ri, key));
 
   const pressed = (on: boolean) => `aria-pressed="${on ? 'true' : 'false'}"`;
-  // 쉽게 보기 토글은 지금 리포트와 짝(pairIndex)인 리포트를 오간다. 길게 프리셋 리포트만 있으면 토글로 충분해서 목록을 안 그린다. 그 밖의 리포트가 하나라도 있으면 전체 리포트를 고르는 다른 리포트 목록을 그린다
+  // 쉽게 보기 토글은 지금 리포트와 짝(pairIndex)인 리포트를 오간다. 리포트가 하나뿐이면 고를 게 없어서 목록을 안 그린다. 길게 프리셋 리포트만 있어도 토글로 충분해서 안 그린다. 그 밖의 리포트(짧게나 기본 분량, 첫 리포트와 다른 언어, 구간, 요청)가 하나라도 섞인 여럿이면 전체 리포트를 고르는 다른 리포트 목록을 그린다
   const otherReports = reportsMeta.filter(
     ({ report }) => !isPreset(report.options, base) || report.options.length !== 'long',
   );
