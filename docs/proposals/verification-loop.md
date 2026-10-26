@@ -386,7 +386,7 @@ export interface EvaluationResult {
 
 AC 검사가 `flaky`면 `AcCheckStatus: 'flaky'`다. passed가 아니므로 `satisfied: false`로 덮인다. gaps 문구는 "AC-1: 같은 코드에서 결과가 갈렸다(첫 실행 exit 1, 다시 돌리니 exit 0)"이다.
 
-재실행 대상은 `ac-test-first.md`의 네 번째 기준과 다르게 고른다. 그 기준은 passed가 아닌 AC면 구현 태스크까지 고르는데 `flaky`는 그 기준에서 뺀다. 흔들리는 테스트는 구현을 고쳐서 낫지 않는다. `testFirst`가 켜져 있으면 그 AC의 `ac_test` 태스크만 고른다. 꺼져 있으면 `sourceAC`로 그 AC를 맡은 구현 태스크를 고르되 재실행 프롬프트에 "제품 코드는 고치지 않고 테스트의 결정성만 고친다"를 붙인다. 사유는 `ImpactedTask.reasons`에 `flaky`로 남긴다.
+재실행 대상은 `ac-test-first.md`의 네 번째 기준과 다르게 고른다. 그 기준은 passed가 아닌 AC면 구현 태스크까지 고르는데 `flaky`는 그 기준에서 뺀다. 흔들리는 테스트는 구현을 고쳐서 낫지 않는다. `testFirst`가 켜져 있으면 그 AC의 `ac_test` 태스크만 고른다. 꺼져 있으면 `sourceAC`로 그 AC를 맡은 구현 태스크를 고르되 재실행 프롬프트에 "제품 코드는 고치지 않고 테스트의 결정성만 고친다"를 붙인다. 사유는 `ImpactedTask.reasons`에 `flaky`로 남긴다. Evolve 프롬프트에는 README가 정한 대로 "AC Check Results" 절 안에 흔들린 AC 검사를 표시한다.
 
 `EVALUATE_STRUCTURAL_COMPLETED` payload의 축약 `commands`(`src/execute/session.ts:313`)에 `flaky: boolean`을 더한다. outcome-feedback이 레포별로 흔들린 명령을 셀 때 이 값을 쓴다.
 
@@ -570,7 +570,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | `src/execute/mutation-probe.ts` (새 파일)                                                | `buildMutationProbes`, `verifyMutationResults`                                                                           |
 | `src/execute/ac-checks.ts`                                                               | `tier` 부여, `feature_map` 출처, `intended_diff_missing`, `feature_not_found`, `flaky`와 `skipped` 판정                   |
 | `src/execute/orchestrators/evaluation.ts`                                                | Call 1에 변이와 단계, Call 2 입구의 출력 1MB 자르기(가리기 전), Call 2에 재실행 판정과 원복 확인, gate 검사가 빠지면 거부, 변이 판정. Call 3에 `gate_skipped` 상한과 변이 판정 옮기기 |
-| `src/execute/prompts.ts`                                                                 | `tailOutput`을 `condenseFailureOutput`으로 교체. fix 프롬프트의 흔들림 지시. 테스트 태스크 프롬프트의 property, differential, e2e 지시. Evolve의 테스트가 못 잡은 변이와 셀렉터 안내. 기능 지도 값을 구분자 블록에 넣고 따르지 말라는 머리말을 붙이는 공통 함수(Execute와 Evolve 프롬프트가 함께 쓴다) |
+| `src/execute/prompts.ts`                                                                 | `tailOutput`을 `condenseFailureOutput`으로 교체. fix 프롬프트의 흔들림 지시. 테스트 태스크 프롬프트의 property, differential, e2e 지시. Evolve의 흔들린 AC 검사 표시, 테스트가 못 잡은 변이와 셀렉터 안내. `testFirst`가 꺼졌을 때 재실행 프롬프트의 결정성 지시. 기능 지도 값을 구분자 블록에 넣고 따르지 말라는 머리말을 붙이는 공통 함수(Execute와 Evolve 프롬프트가 함께 쓴다) |
 | `src/execute/session.ts`                                                                 | `toEventStructuralResult`가 `retry`도 가리고 줄인다. `mutationResults`는 이벤트에 싣지 않는다. 판정은 payload의 변이 판정으로 남는다. 축약 `commands`에 `flaky`. `EVALUATE_STRUCTURAL_COMPLETED` payload에 변이 판정 |
 | `src/execute/artifact-verifier.ts`                                                       | `hashFiles` export (`ac-test-first.md`와 같은 변경)                                                                      |
 | `src/execute/impact-identifier.ts`                                                       | `flaky`와 `mutation_survived` 사유로 그 AC의 테스트 태스크 추가. `flaky`는 네 번째 기준에서 뺀다                         |
@@ -610,7 +610,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 1    | `feat(execute): 실패 출력 줄이기`               | `failure-output.ts`, `tailOutput`과 이벤트 자르기 교체, Call 2 입구의 1MB(문자열 길이) 자르기와 자르는 자리. `commands[].output`을 자르고 ac-test-first PR 1이 먼저 들어가 있으면 `acChecks[].output`도 자른다                                    | 없음. 언제든 먼저 낼 수 있다                               |
 | 2    | `feat(evaluate): 실패한 Structural 명령 재실행 판정` | Structural 명령의 `retry`, `durationMs`, `flaky` 판정, 이벤트 축약 `commands`의 `flaky`, `retry.output`의 입구 자르기, fix 프롬프트 지시, 스킬 규칙       | 없음                                                       |
 | 3    | `feat(spec): AC 테스트 설계 필드`               | `testDesign` 타입과 입력 타입, 검증 규칙, `mergeCriteriaPatch` 보존, `formatAcLine`, 스키마 strip 테스트 | ac-verification PR 2                                       |
-| 4    | `feat(evaluate): fast와 gate 검사 단계`         | `tier`, `skipped`, Call 2 규칙, `gate_skipped` 상한, AC 검사의 `retry`와 `flaky`, AC 검사 `retry.output`의 입구 자르기(PR 1이 `acChecks[].output`을 안 잘랐으면 그것도), 재실행 사유 `flaky`, 차분 id 대조, 테스트 설계 프롬프트(구현 태스크 쪽), 느린 검사 표시와 `fastCheckBudgetMs` | 2, 3, ac-test-first PR 1, 2(재실행 사유 `flaky`가 PR 2의 네 번째 기준을 고친다). `ac_test` 태스크 쪽 프롬프트는 ac-test-first PR 3이 들어오면 켠다 |
+| 4    | `feat(evaluate): fast와 gate 검사 단계`         | `tier`, `skipped`, Call 2 규칙, `gate_skipped` 상한, AC 검사의 `retry`와 `flaky`, AC 검사 `retry.output`의 입구 자르기(PR 1이 `acChecks[].output`을 안 잘랐으면 그것도), 재실행 사유 `flaky`와 재실행 프롬프트의 결정성 지시, Evolve의 흔들린 AC 표시, 차분 id 대조, 테스트 설계 프롬프트(구현 태스크 쪽), 느린 검사 표시와 `fastCheckBudgetMs` | 2, 3, ac-test-first PR 1, 2(재실행 사유 `flaky`가 PR 2의 네 번째 기준을 고친다). `ac_test` 태스크 쪽 프롬프트는 ac-test-first PR 3이 들어오면 켠다 |
 | 5    | `feat(execute): 기능 지도`                      | `feature-map.ts`, 설정 경로, e2e 연결, spec 스킬 단계, screen-chain 초안 단계              | 4                                                          |
 | 6    | `feat(evaluate): 변이 검사 report 모드`         | `mutation-probe.ts`, Call 1과 Call 2, 변이당 시간 제한의 식과 설정 키, 예산이 모자랄 때 건너뛰는 규칙, Evolve 프롬프트, 재실행 사유                         | 4, ac-test-first PR 1, execute-drift-breaker PR 2(`listChangedSince`) |
 
