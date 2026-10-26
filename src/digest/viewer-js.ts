@@ -302,7 +302,7 @@ export const VIEWER_JS =
     };
   }
 
-  // 사용자가 패널을 직접 움직이면 3초 동안 멈춘다
+  // 재생 중에만 현재 문장으로 패널을 따라 스크롤한다. 일시정지 중엔 하이라이트만 옮긴다. 사용자가 패널을 직접 움직이면 3초 동안 멈추고 풀리면 현재 줄이 밖에 있을 때 한 번 따라잡는다
   function setupScriptFollow(player) {
     if (!player.live) return;
     var panel = document.getElementById('script-body');
@@ -317,13 +317,17 @@ export const VIEWER_JS =
       var t = player.currentTime();
       if (t === null || t === undefined) return;
       var idx = findSegmentIndex(starts, t);
-      if (idx === current) return;
-      if (lines[current]) lines[current].classList.remove('is-playing');
-      current = idx;
+      var changed = idx !== current;
+      if (changed) {
+        if (lines[current]) lines[current].classList.remove('is-playing');
+        current = idx;
+      }
       var li = lines[idx];
       if (!li) return;
-      li.classList.add('is-playing');
-      if (!panel || Date.now() < holdUntil) return;
+      if (changed) li.classList.add('is-playing');
+      if (!panel) return;
+      var visible = li.offsetTop >= panel.scrollTop && li.offsetTop + li.offsetHeight <= panel.scrollTop + panel.clientHeight;
+      if (!shouldScrollScript(player.state(), changed, Date.now(), holdUntil, visible)) return;
       panel.scrollTo({ top: Math.max(0, li.offsetTop - panel.clientHeight / 3), behavior: reduceMotion ? 'auto' : 'smooth' });
     }, 250);
   }
@@ -346,7 +350,7 @@ export const VIEWER_JS =
     document.querySelectorAll('section.sec').forEach(function(s){ io.observe(s); });
   }
 
-  // 읽는 소섹션이 바뀌면 영상을 그 구간 첫 문장으로 옮긴다. 이미 그 구간을 재생 중이면 그대로 두고 빠르게 훑을 때는 멈춘 자리만 따른다.
+  // 읽는 소섹션이 바뀌면 영상을 그 구간 첫 문장으로 옮긴다. 재생 중이면 요약을 스크롤해도 영상을 옮기지 않고, 빠르게 훑을 때는 멈춘 자리만 따른다.
   // 방금 시각을 눌렀으면 유예가 끝난 뒤 영상이 멈춰 있을 때만 따라간다. 기다리는 사이 그 소섹션이 화면에서 빠지면 따라가지 않는다
   function setupSubsectionFollow(player) {
     var subs = document.querySelectorAll('.sub[data-from]');
@@ -383,7 +387,7 @@ export const VIEWER_JS =
             }, manualUntil - now + 50);
             return;
           }
-          if (!shouldFollow(currentIdx(), from, to, now, manualUntil)) return;
+          if (!shouldFollowHeld(player.state(), currentIdx(), from, to, now, manualUntil)) return;
           if (typeof starts[from] === 'number') player.cue(starts[from]);
         }, 400);
       });
