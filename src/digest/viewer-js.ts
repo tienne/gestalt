@@ -302,7 +302,7 @@ export const VIEWER_JS =
     };
   }
 
-  // 재생 중에만 현재 문장으로 패널을 따라 스크롤한다. 일시정지 중엔 하이라이트만 옮긴다. 사용자가 패널을 직접 움직이면 3초 동안 멈추고 풀리면 현재 줄이 밖에 있을 때 한 번 따라잡는다
+  // 일시정지 중에도 하이라이트는 옮긴다. 사용자가 패널을 직접 움직이면 3초 동안 스크롤을 멈춘다
   function setupScriptFollow(player) {
     if (!player.live) return;
     var panel = document.getElementById('script-body');
@@ -326,9 +326,11 @@ export const VIEWER_JS =
       if (!li) return;
       if (changed) li.classList.add('is-playing');
       if (!panel) return;
-      var visible = li.offsetTop >= panel.scrollTop && li.offsetTop + li.offsetHeight <= panel.scrollTop + panel.clientHeight;
+      var visible = isLineVisible(li.offsetTop, li.offsetHeight, panel.scrollTop, panel.clientHeight);
       if (!shouldScrollScript(player.state(), changed, Date.now(), holdUntil, visible)) return;
-      panel.scrollTo({ top: Math.max(0, li.offsetTop - panel.clientHeight / 3), behavior: reduceMotion ? 'auto' : 'smooth' });
+      var top = Math.max(0, li.offsetTop - panel.clientHeight / 3);
+      if (Math.abs(top - panel.scrollTop) <= 1) return;
+      panel.scrollTo({ top: top, behavior: reduceMotion ? 'auto' : 'smooth' });
     }, 250);
   }
 
@@ -350,8 +352,9 @@ export const VIEWER_JS =
     document.querySelectorAll('section.sec').forEach(function(s){ io.observe(s); });
   }
 
-  // 읽는 소섹션이 바뀌면 영상을 그 구간 첫 문장으로 옮긴다. 재생 중이면 요약을 스크롤해도 영상을 옮기지 않고, 빠르게 훑을 때는 멈춘 자리만 따른다.
+  // 읽는 소섹션이 바뀌면 영상을 그 구간 첫 문장으로 옮긴다. 재생 중이면 요약을 스크롤해도 영상을 옮기지 않고 빠르게 훑을 때는 멈춘 자리만 따른다.
   // 방금 시각을 눌렀으면 유예가 끝난 뒤 영상이 멈춰 있을 때만 따라간다. 기다리는 사이 그 소섹션이 화면에서 빠지면 따라가지 않는다
+  // 앞선 이동의 버퍼링이 덜 끝났으면 재생 중으로 읽히므로 300ms 뒤 두 번까지 다시 본다
   function setupSubsectionFollow(player) {
     var subs = document.querySelectorAll('.sub[data-from]');
     if (!player.live || !('IntersectionObserver' in window) || !subs.length) return;
@@ -359,6 +362,15 @@ export const VIEWER_JS =
     var currentIdx = function(){
       var t = player.currentTime();
       return t === null || t === undefined ? -1 : findSegmentIndex(starts, t);
+    };
+    var follow = function(target, from, to, tries){
+      if (!player.live || pendingSub !== target) return;
+      if (player.state() === 3 && tries > 0) {
+        followTimer = setTimeout(function(){ follow(target, from, to, tries - 1); }, 300);
+        return;
+      }
+      if (!shouldFollowHeld(player.state(), currentIdx(), from, to, Date.now(), manualUntil)) return;
+      if (typeof starts[from] === 'number') player.cue(starts[from]);
     };
     var subIo = new IntersectionObserver(function(entries){
       entries.forEach(function(en){
@@ -374,21 +386,16 @@ export const VIEWER_JS =
         var to = Number(en.target.getAttribute('data-to'));
         clearTimeout(followTimer);
         clearTimeout(heldTimer);
-        pendingSub = en.target;
+        var target = pendingSub = en.target;
         followTimer = setTimeout(function(){
           if (!player.live) return;
           var now = Date.now();
           // 시각을 누른 직후에 넘어온 소섹션은 버리지 않고 유예가 끝난 뒤 한 번만 다시 본다
           if (now < manualUntil) {
-            heldTimer = setTimeout(function(){
-              if (!player.live) return;
-              if (!shouldFollowHeld(player.state(), currentIdx(), from, to, Date.now(), manualUntil)) return;
-              if (typeof starts[from] === 'number') player.cue(starts[from]);
-            }, manualUntil - now + 50);
+            heldTimer = setTimeout(function(){ follow(target, from, to, 2); }, manualUntil - now + 50);
             return;
           }
-          if (!shouldFollowHeld(player.state(), currentIdx(), from, to, now, manualUntil)) return;
-          if (typeof starts[from] === 'number') player.cue(starts[from]);
+          follow(target, from, to, 2);
         }, 400);
       });
     }, { rootMargin: '-15% 0px -70% 0px' });

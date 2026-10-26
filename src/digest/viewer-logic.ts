@@ -28,6 +28,10 @@ function shouldScrollScript(state, changed, now, holdUntil, visible) {
   if (!isPlaying(state) || now < holdUntil) return false;
   return changed || !visible;
 }
+function isLineVisible(top, height, scrollTop, clientHeight) {
+  if (height > clientHeight) return top >= scrollTop && top < scrollTop + clientHeight;
+  return top >= scrollTop && top + height <= scrollTop + clientHeight;
+}
 function cueAction(state) {
   return state === 1 || state === 2 || state === 3 ? 'seek' : 'cue';
 }
@@ -122,6 +126,8 @@ export interface ViewerLogic {
     holdUntil: number,
     visible: boolean,
   ) => boolean;
+  /** 스크립트 줄이 패널 안에 보이는지. 줄이 패널보다 높으면 윗변이 패널 안에 있을 때 보인다고 친다. 안 그러면 재생 중 매번 스크롤을 다시 건다 */
+  isLineVisible: (top: number, height: number, scrollTop: number, clientHeight: number) => boolean;
   /** 유튜브 재생 상태별로 seekTo를 쓸지 cueVideoById를 쓸지 */
   cueAction: (state: number) => 'seek' | 'cue';
   /** 출처 툴팁에 보일 마지막 문장 번호와 생략한 문장 수 */
@@ -149,7 +155,7 @@ export interface ViewerLogic {
 }
 
 export const viewerLogic = new Function(
-  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, isPlaying: isPlaying, shouldFollowHeld: shouldFollowHeld, shouldScrollScript: shouldScrollScript, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, templateCommand: templateCommand, tabStep: tabStep, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
+  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, isPlaying: isPlaying, shouldFollowHeld: shouldFollowHeld, shouldScrollScript: shouldScrollScript, isLineVisible: isLineVisible, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, templateCommand: templateCommand, tabStep: tabStep, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
 )() as ViewerLogic;
 
 export const findSegmentIndex = viewerLogic.findSegmentIndex;

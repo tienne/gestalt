@@ -403,6 +403,17 @@ describe('viewer-js', () => {
     expect(shouldScrollScript(1, true, 5000, 5000, false)).toBe(true);
   });
 
+  it('isLineVisible은 줄이 패널 안에 다 들어올 때 보인다고 보고 패널보다 높은 줄은 윗변만 본다', () => {
+    const { isLineVisible } = viewerLogic;
+    expect(isLineVisible(100, 20, 50, 200)).toBe(true);
+    expect(isLineVisible(240, 20, 50, 200)).toBe(false);
+    expect(isLineVisible(40, 20, 50, 200)).toBe(false);
+    expect(isLineVisible(60, 300, 50, 200)).toBe(true);
+    expect(isLineVisible(50, 300, 50, 200)).toBe(true);
+    expect(isLineVisible(250, 300, 50, 200)).toBe(false);
+    expect(isLineVisible(30, 300, 50, 200)).toBe(false);
+  });
+
   it('cueAction은 재생, 일시정지, 버퍼링일 때만 seek으로 옮기고 나머지는 위치만 잡는다', () => {
     const { cueAction } = viewerLogic;
     expect([1, 2, 3].map(cueAction)).toEqual(['seek', 'seek', 'seek']);
@@ -423,6 +434,7 @@ describe('viewer-js', () => {
       'isPlaying',
       'shouldFollowHeld',
       'shouldScrollScript',
+      'isLineVisible',
       'cueAction',
       'citeWindow',
       'safeDecode',
