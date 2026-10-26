@@ -22,8 +22,8 @@ import type {
   EvolutionGeneration,
   StructuralResult,
   EvaluationResult,
+  ProjectMemory,
 } from '../../../src/core/types.js';
-import type { ProjectMemory } from '../../../src/core/types.js';
 import type { ExecuteConfig } from '../../../src/core/config.js';
 import { DRIFT_THRESHOLD } from '../../../src/core/constants.js';
 import { asRequested } from '../../helpers/structural.js';
