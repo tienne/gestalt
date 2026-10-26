@@ -332,14 +332,21 @@ export interface EvaluationResult {
 1. 그 AC의 검사 명령이 fast 단계에서 통과했는지 본다. 통과하지 않았으면 변이를 돌리지 않는다. 이미 실패하는 테스트로는 판별력을 잴 수 없다.
 2. `git apply --numstat`으로 패치가 건드리는 파일이 `path` 하나뿐인지 본다. 아니면 적용하지 않고 `exitCode: -1`로 낸다.
 3. `git apply`로 패치를 적용한다. 적용이 실패하면 그 변이는 `exitCode: -1`로 내고 넘어간다.
-4. `AcCheckCommand.command`를 그대로 돌린다. 변이마다 시간 제한을 둔다. 제한은 `max(execute.mutationProbeMinTimeoutMs, fast 단계에서 그 명령이 걸린 시간 × execute.mutationProbeTimeoutFactor)`이고 기본 하한은 10000ms, 기본 배수는 3이다. 넘으면 끊고 종료 코드 124로 낸다. 반복문 경계를 바꾼 변이는 무한 루프를 낼 수 있어서다. 하한을 두는 건 fast 단계에서 아주 짧게 끝난 명령도 변이를 걸고 다시 돌리면 시작 비용만으로 배수를 넘을 수 있어서다. 호스트가 fast 단계에서 걸린 시간을 모르면 하한을 쓴다. 남은 예산에 맞춰 제한을 줄이지 않는다.
+4. `AcCheckCommand.command`를 그대로 돌린다. 변이마다 시간 제한을 두고 넘으면 끊고 종료 코드 124로 낸다. 반복문 경계를 바꾼 변이는 무한 루프를 낼 수 있어서다. 제한을 잡는 원칙은 아래 "시간 제한과 예산"에 있다.
 5. `git apply -R`로 원복한다. 4에서 명령이 실패하거나 시간 초과로 끊겨도 원복은 반드시 한다.
 
 호스트가 4와 5 사이에 죽으면 변이가 작업 트리에 남는다. 다음 평가의 Call 1은 세션에 남은 직전 `mutationProbes`의 파일마다 지금 해시를 구해 본다. 지금 해시가 `blobAfter`와 같을 때만 변이가 남은 것으로 보고 변이 검사보다 원복을 먼저 하라고 안내한다. `blobBefore`와 같으면 원복이 된 것이다. 둘 다 아니면 평가 사이에 Evolve가 그 파일을 고친 것이라 그냥 넘어간다.
 
 원복은 세션에 남은 그 변이의 `patch`로만 한다. `git apply -R --check`가 통과하면 `git apply -R`을 하고 통과하지 않으면 원복하지 않고 사용자에게 알린 뒤 멈춘다. `git checkout`, `git restore`, `git stash`처럼 파일을 통째로 되돌리는 명령은 쓰지 않는다. 변이를 건 파일은 기준점 이후 고친 미커밋 파일이라 통째로 되돌리면 그 수정까지 날아간다.
 
-변이 검사 전체 예산은 `execute.mutationProbeBudgetMs`(기본 300000)다. 호스트는 변이를 시작하기 전에 남은 예산을 보고 그 변이의 시간 제한보다 작으면 그 변이와 남은 변이를 돌리지 않고 결과 없이 둔다. 변이 하나가 도는 동안은 위 4단계의 시간 제한이 막는다. 예산에 맞춰 제한을 줄이지 않는 건 줄어든 제한에 걸려 끊긴 변이도 서버에는 똑같이 124로 와서 온전한 제한에 걸린 경우와 가를 수 없어서다. 그래서 124와 137은 언제나 온전한 제한에 걸린 경우만 뜻한다.
+#### 시간 제한과 예산
+
+변이 검사 전체에는 예산 `execute.mutationProbeBudgetMs`를 둔다. 이 문서는 아래 원칙만 정한다. 제한을 구하는 식과 설정 키, 기본값, 예산이 모자랄 때 어느 변이를 건너뛸지는 PR 6이 정한다.
+
+- 변이당 제한은 fast 단계에서 그 명령이 걸린 시간에 비례하게 잡고 하한을 둔다. fast 단계에서 아주 짧게 끝난 명령도 변이를 걸고 다시 돌리면 시작 비용만으로 제한을 넘을 수 있어서다. 호스트가 fast 단계에서 걸린 시간을 모르면 하한을 쓴다.
+- 남은 예산에 맞춰 제한을 줄이지 않는다. 줄어든 제한에 걸려 끊긴 변이도 서버에는 똑같이 124로 와서 온전한 제한에 걸린 경우와 가를 수 없다. 그래서 124와 137은 언제나 온전한 제한에 걸린 경우만 뜻한다.
+- 예산이 모자라 시작하지 못한 변이는 결과 없이 둔다. 서버는 그 변이를 `notRun`으로 받는다.
+- 제한이 긴 변이 하나 때문에 예산에 들어가는 다른 변이까지 못 도는 일이 없어야 한다.
 
 #### 서버가 하는 일 (Call 2)
 
@@ -554,7 +561,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `src/core/types.ts`                                                                      | `AcTestDesign`, `IntendedDiff`, `CheckAttempt`, `CheckTier`, `MutationProbe`, `MutationProbeResult`, `MutationVerdict`, `FeatureLaunch` 추가. `StructuralCommandResult`, `StructuralResult`, `AcCheckCommand`, `AcCheckRunResult`, `AcCheckStatus`, `AcCheckSource`, `EvaluationResult`, 세션의 `mutationVerdicts`에 필드 추가 |
 | `src/spec/acceptance-criteria.ts`                                                        | `testDesign` 스키마와 검증 규칙, 입력 타입, `mergeCriteriaPatch` 보존. `formatAcLine`에 `property`, `differential(oracle)`, `e2e(feature)` 표시                 |
-| `src/core/config.ts`                                                                     | `executeConfigSchema`에 `mutationProbe`, `mutationProbeLimit`, `mutationProbeBudgetMs`, `mutationProbeTimeoutFactor`, `mutationProbeMinTimeoutMs`, `fastCheckBudgetMs`. 새 `verification.featureMapDir`와 경로 검사                |
+| `src/core/config.ts`                                                                     | `executeConfigSchema`에 `mutationProbe`, `mutationProbeLimit`, `mutationProbeBudgetMs`, 변이당 시간 제한 설정(키는 PR 6이 정한다), `fastCheckBudgetMs`. 새 `verification.featureMapDir`와 경로 검사                |
 | `src/execute/failure-output.ts` (새 파일)                                                | `condenseFailureOutput`                                                                                                  |
 | `src/execute/feature-map.ts` (새 파일)                                                   | `loadFeatureMap`, `findFeature`. gray-matter 안전 옵션과 크기 상한                                                       |
 | `src/execute/mutation-probe.ts` (새 파일)                                                | `buildMutationProbes`, `verifyMutationResults`                                                                           |
@@ -565,7 +572,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | `src/execute/artifact-verifier.ts`                                                       | `hashFiles` export (`ac-test-first.md`와 같은 변경)                                                                      |
 | `src/execute/impact-identifier.ts`                                                       | `flaky`와 `mutation_survived` 사유로 그 AC의 테스트 태스크 추가. `flaky`는 네 번째 기준에서 뺀다                         |
 | `src/mcp/schemas.ts`                                                                     | `structuralResult` 확장, `mutationResults`(`probeId`, `command`, `exitCode`), AC `testDesign`                                                              |
-| `plugin/skills/execute/SKILL.md`                                                         | 한 번 다시 돌리기 규칙, fast 먼저 규칙, 변이당 시간 제한(하한, fast 단계에서 걸린 시간을 모르면 하한)과 시작 전 예산 확인, 변이 적용과 원복 절차(원복은 그 변이의 patch로만 하고 `git apply -R --check`를 먼저 돌린다. 파일을 통째로 되돌리는 명령은 쓰지 않는다), 합리화 표에 "통과할 때까지 돌린다" 추가                    |
+| `plugin/skills/execute/SKILL.md`                                                         | 한 번 다시 돌리기 규칙, fast 먼저 규칙, 변이당 시간 제한과 예산("시간 제한과 예산"의 원칙), 변이 적용과 원복 절차(원복은 그 변이의 patch로만 하고 `git apply -R --check`를 먼저 돌린다. 파일을 통째로 되돌리는 명령은 쓰지 않는다), 합리화 표에 "통과할 때까지 돌린다" 추가                    |
 | `plugin/skills/spec/SKILL.md`                                                            | 기능 지도 id 목록을 읽어 프롬프트에 넣는 단계. 서버의 공통 함수가 이 경로에는 안 걸리므로 지도 내용을 데이터로만 읽는다는 문구를 단계 설명에 직접 적는다                                                                            |
 | `docs/04-evaluate.md`, `docs/05-evolve.md`, `docs/configuration.md`, `docs/mcp-reference.md` | 흐름과 스키마, 설정                                                                                                      |
 
@@ -588,7 +595,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 단계           | 같은 파일                                                    | fast 실패 때 gate 결과 버림과 빠짐 대조 제외. fast 통과인데 gate `skipped`나 누락이면 거부. `gate_skipped` 상한이 `report` 모드에도 걸리고 fast 실패로 생긴 `skipped`에도 걸림. gate AC가 없으면 안 걸림. `testDesign`별 `tier` |
 | 변이 만들기    | `tests/unit/execute/mutation-probe.test.ts` (새 파일)        | 연산자 다섯 개, 주석과 문자열 건너뛰기, 테스트 파일 제외, 레포 밖 경로와 심링크 제외, 같은 seed면 같은 변이, AC당 세 개 상한, 평가당 상한과 AC 번갈아 남기기, `capped` 개수, e2e와 differential 제외, 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상. git 임시 레포는 `execution-artifact-verify.test.ts` 헬퍼 |
 | 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 124와 137은 `timedOut`이고 `notRun` 경고에 안 들어감. 이벤트에 실린 결과에 `mutationResults`가 없음. 지금 해시가 직전 변이의 `blobAfter`와 같을 때만 Call 1이 원복부터 안내하고 `blobBefore`도 `blobAfter`도 아니면 넘어감. 키가 같은 `killed`와 `timedOut` 재사용과 키가 바뀌면 다시 돌리기. 직전 `notRun` 변이가 재평가에서 다시 나옴 |
-| 변이 시간 제한 | `tests/unit/skills/execute-skill.test.ts` (새 파일) | execute `SKILL.md` 변이 절에 하한과 fast 단계에서 걸린 시간을 모를 때 하한을 쓴다는 문구, 시작 전 예산 확인 문구가 있음(`tests/helpers/skill-section.ts`의 `section()`). `mutationProbeMinTimeoutMs` 기본값 10000 |
+| 변이 시간 제한 | `tests/unit/skills/execute-skill.test.ts` (새 파일) | execute `SKILL.md` 변이 절에 하한을 둔다는 문구와 예산이 모자라 시작하지 못한 변이를 결과 없이 둔다는 문구가 있음(`tests/helpers/skill-section.ts`의 `section()`). 설정 키와 기본값 단언은 PR 6이 더한다 |
 | 차분 id 대조   | `tests/unit/execute/ac-checks.test.ts` (ac-test-first.md가 만든다) | `intended_diff_missing`, 스펙에 없는 DIFF 경고                                                                                                           |
 | 기능 지도      | `tests/unit/execute/feature-map.test.ts` (새 파일)           | frontmatter 파싱, js 엔진 거부, 크기 상한, 절대 경로와 `..` 거부, 레포 밖으로 풀리는 경로 거부, 심링크 파일 건너뛰기, `e2e` 경로에도 같은 검사, `feature_not_found`                                                                           |
 | 재실행 대상    | `tests/unit/execute/evolution-loop.test.ts`                  | `flaky`와 `mutation_survived`가 `ac_test` 태스크만 고른다. `testFirst`가 꺼지면 그 AC의 구현 태스크로 간다                                                |
@@ -602,7 +609,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 3    | `feat(spec): AC 테스트 설계 필드`               | `testDesign` 타입과 입력 타입, 검증 규칙, `mergeCriteriaPatch` 보존, `formatAcLine`, 스키마 strip 테스트 | ac-verification PR 2                                       |
 | 4    | `feat(evaluate): fast와 gate 검사 단계`         | `tier`, `skipped`, Call 2 규칙, `gate_skipped` 상한, AC 검사의 `retry`와 `flaky`, `acChecks[].output`과 그 `retry.output`의 입구 자르기, 재실행 사유 `flaky`, 차분 id 대조, 테스트 설계 프롬프트(구현 태스크 쪽), 느린 검사 표시와 `fastCheckBudgetMs` | 2, 3, ac-test-first PR 1, 2(재실행 사유 `flaky`가 PR 2의 네 번째 기준을 고친다). `ac_test` 태스크 쪽 프롬프트는 ac-test-first PR 3이 들어오면 켠다 |
 | 5    | `feat(execute): 기능 지도`                      | `feature-map.ts`, 설정 경로, e2e 연결, spec 스킬 단계, screen-chain 초안 단계              | 4                                                          |
-| 6    | `feat(evaluate): 변이 검사 report 모드`         | `mutation-probe.ts`, Call 1과 Call 2, Evolve 프롬프트, 재실행 사유                         | 4, ac-test-first PR 1, execute-drift-breaker PR 2(`listChangedSince`) |
+| 6    | `feat(evaluate): 변이 검사 report 모드`         | `mutation-probe.ts`, Call 1과 Call 2, 변이당 시간 제한의 식과 설정 키, 예산이 모자랄 때 건너뛰는 규칙, Evolve 프롬프트, 재실행 사유                         | 4, ac-test-first PR 1, execute-drift-breaker PR 2(`listChangedSince`) |
 
 1과 2는 AC 계약과 상관없이 지금 코드에 바로 효과가 있다. 그래서 앞에 둔다. 2는 새 설정 키를 읽지 않아서 README "기존 버그"의 설정 배선을 기다리지 않는다. 4가 ac-test-first PR 2를 기다리는 건 `flaky`를 그 PR이 만드는 네 번째 기준에서 빼야 해서다. `gate_skipped` 상한은 ac-test-first PR 1이 만드는 `scoreAdjustment`만 쓴다. 6은 맨 뒤다. 판별력을 재려면 AC마다 연결된 테스트 명령이 먼저 있어야 한다.
 
