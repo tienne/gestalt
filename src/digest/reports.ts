@@ -44,7 +44,7 @@ export function rangeSpan(
 }
 
 /**
- * 툴바의 분량과 난이도 버튼으로 고를 수 있는 리포트인지 본다.
+ * 분량과 난이도만으로 가려지는 리포트인지 본다. 툴바의 쉽게 보기 토글이 이 리포트끼리 오간다.
  * 구간이나 프롬프트가 붙었거나 첫 리포트와 언어가 다르면 따로 고르는 리포트다
  */
 export function isPreset(options: ReportOptions, base: ReportOptions): boolean {

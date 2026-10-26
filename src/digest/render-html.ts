@@ -8,20 +8,11 @@ import {
   type BlockHtmlContext,
 } from './render-blocks.js';
 import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
-import {
-  DIFFICULTY_LABEL,
-  initialReportIndex,
-  isPreset,
-  LENGTH_LABEL,
-  reportKey,
-  reportLabel,
-} from './reports.js';
+import { initialReportIndex, isPreset, reportKey, reportLabel } from './reports.js';
 import { VIEWER_JS } from './viewer-js.js';
 import {
   boldPattern,
   keywordPattern,
-  REPORT_DIFFICULTIES,
-  REPORT_LENGTHS,
   type Bullet,
   type Cite,
   type Digest,
@@ -279,25 +270,12 @@ ${skippedHtml}</div>`;
   const rendered = reportsMeta.map(({ report, key }, ri) => renderReport(report, ri, key));
 
   const pressed = (on: boolean) => `aria-pressed="${on ? 'true' : 'false'}"`;
-  const customs = reportsMeta.filter(({ report }) => !isPreset(report.options, base));
-  // 짧게는 더 만들지 않는다. 옛 digest에 남은 짧은 리포트가 있을 때만 버튼을 그려 그 리포트로 갈 길을 남긴다
-  const lengths = REPORT_LENGTHS.filter(
-    (l) =>
-      l !== 'short' ||
-      reportsMeta.some(
-        ({ report }) => report.options.length === l && isPreset(report.options, base),
-      ),
+  // 툴바는 길게 리포트의 쉽게 보기만 켜고 끈다. 옛 digest에 남은 짧게와 기본 리포트는 다른 리포트 목록으로 간다
+  const customs = reportsMeta.filter(
+    ({ report }) => !isPreset(report.options, base) || report.options.length !== 'long',
   );
-  const reportBar = `<div class="report-bar" role="group" aria-label="리포트 고르기"><span class="bar-label">분량</span>${lengths
-    .map(
-      (l) =>
-        `<button type="button" data-length="${l}" ${pressed(l === shown.length)}>${LENGTH_LABEL[l]}</button>`,
-    )
-    .join('')}<span class="bar-label">난이도</span>${REPORT_DIFFICULTIES.map(
-    (d) =>
-      `<button type="button" data-difficulty="${d}" ${pressed(d === shown.difficulty)}>${DIFFICULTY_LABEL[d]}</button>`,
-  ).join('')}${
-    customs.length
+  const reportBar = `<div class="report-bar" role="group" aria-label="리포트 고르기"><button type="button" id="easy-toggle" ${pressed(shown.difficulty === 'easy')}>쉽게 보기</button>${
+    customs.length && reportsMeta.length > 1
       ? `<label class="bar-label">다른 리포트 <select id="report-select">${reportsMeta
           .map(
             ({ report, key }, ri) =>
@@ -305,7 +283,7 @@ ${skippedHtml}</div>`;
           )
           .join('')}</select></label>`
       : ''
-  }</div><div id="report-missing" class="report-missing" role="status" hidden><p>이 조합의 리포트는 아직 없어요. 아래 명령을 세션에 붙여 넣으면 만들어요.</p><code id="report-cmd"></code> <button type="button" id="copy-cmd">명령 복사</button></div>`;
+  }</div><div id="report-missing" class="report-missing" role="status" hidden><p>이 리포트는 아직 없어요. 아래 명령을 세션에 붙여 넣으면 만들어요.</p><code id="report-cmd"></code> <button type="button" id="copy-cmd">명령 복사</button></div>`;
 
   const watchBase = isYoutube ? youtubeWatchUrl(meta.videoId!) : null;
   const player = isYoutube

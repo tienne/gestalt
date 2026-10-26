@@ -42,8 +42,8 @@ function pickReport(reports, length, difficulty) {
   }
   return -1;
 }
-function reportCommand(slug, length, difficulty, lang) {
-  var cmd = '/gestalt:video-digest slug=' + slug + ' length=' + length + ' difficulty=' + difficulty;
+function reportCommand(slug, difficulty, lang) {
+  var cmd = '/gestalt:video-digest slug=' + slug + ' difficulty=' + difficulty;
   return lang ? cmd + ' reportLang=' + lang : cmd;
 }
 function templateCommand(slug, id, lang) {
@@ -126,14 +126,14 @@ export interface ViewerLogic {
   cueAction: (state: number) => 'seek' | 'cue';
   /** 출처 툴팁에 보일 마지막 문장 번호와 생략한 문장 수 */
   citeWindow: (from: number, to: number, max: number) => { end: number; more: number };
-  /** 툴바의 분량과 난이도 조합에 맞는 리포트 자리. 없으면 -1 */
+  /** 분량과 난이도가 맞는 툴바용 리포트 자리. 없으면 -1 */
   pickReport: (
     reports: { preset: boolean; length: string; difficulty: string }[],
     length: string,
     difficulty: string,
   ) => number;
-  /** 없는 조합을 고르면 복사해 주는 생성 명령. 지금 보는 리포트의 언어를 따라가야 다른 언어 리포트가 안 생긴다 */
-  reportCommand: (slug: string, length: string, difficulty: string, lang?: string) => string;
+  /** 없는 리포트를 고르면 복사해 주는 생성 명령. 스킬이 길게만 만들어서 분량은 싣지 않는다. 지금 보는 리포트의 언어를 따라가야 다른 언어 리포트가 안 생긴다 */
+  reportCommand: (slug: string, difficulty: string, lang?: string) => string;
   /** "+ 더 만들기"에서 템플릿을 고르면 복사해 주는 명령. 언어는 지금 보는 리포트를 따른다 */
   templateCommand: (slug: string, id: string, lang?: string) => string;
   /** 탭 목록에서 방향키, Home, End로 옮겨 갈 자리. 다른 키면 -1 */

@@ -536,21 +536,20 @@ export const VIEWER_JS =
     };
   }
 
-  // 툴바는 분량과 난이도 조합으로 리포트를 고른다. 없는 조합은 서버가 만들지 않고 생성 명령만 보여 준다
+  // 툴바는 쉽게 보기 토글 하나로 보통과 쉬운 리포트를 오간다. 없는 리포트는 서버가 만들지 않고 생성 명령만 보여 준다
   function setupReports() {
     var REPORT_KEY = 'gestalt-digest-report:' + data.slug;
     var boxes = document.querySelectorAll('.report[data-ri]');
     var maps = document.querySelectorAll('.minimap[data-ri]');
-    var lengthBtns = document.querySelectorAll('.report-bar [data-length]');
-    var diffBtns = document.querySelectorAll('.report-bar [data-difficulty]');
+    var easyToggle = document.getElementById('easy-toggle');
     var select = document.getElementById('report-select');
     var missing = document.getElementById('report-missing');
     var cmd = document.getElementById('report-cmd');
     var copyCmd = document.getElementById('copy-cmd');
     var initial = data.reports[data.initial] ? data.initial : 0;
     var current = initial;
-    function press(list, attr, value){
-      list.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute(attr) === value ? 'true' : 'false'); });
+    function pressEasy(difficulty){
+      if (easyToggle) easyToggle.setAttribute('aria-pressed', difficulty === 'easy' ? 'true' : 'false');
     }
     function show(ri){
       if (!data.reports[ri]) ri = initial;
@@ -558,34 +557,24 @@ export const VIEWER_JS =
       boxes.forEach(function(b){ b.hidden = Number(b.getAttribute('data-ri')) !== ri; });
       maps.forEach(function(m){ m.hidden = Number(m.getAttribute('data-ri')) !== ri; });
       var r = data.reports[ri];
-      press(lengthBtns, 'data-length', r.length);
-      press(diffBtns, 'data-difficulty', r.difficulty);
+      pressEasy(r.difficulty);
       if (select) select.value = String(ri);
       if (missing) missing.hidden = true;
       try { localStorage.setItem(REPORT_KEY, r.key); } catch (e) {}
     }
-    function choose(length, difficulty){
-      var ri = pickReport(data.reports, length, difficulty);
+    function choose(difficulty){
+      var r = data.reports[current];
+      // 옛 짧게, 기본 리포트에서 눌렀을 때 같은 분량 짝이 없으면 길게로 간다. 스킬이 길게만 만들어서다
+      var ri = r.preset ? pickReport(data.reports, r.length, difficulty) : -1;
+      if (ri < 0) ri = pickReport(data.reports, 'long', difficulty);
       if (ri >= 0) { show(ri); return; }
-      press(lengthBtns, 'data-length', length);
-      press(diffBtns, 'data-difficulty', difficulty);
-      if (cmd) cmd.textContent = reportCommand(data.slug, length, difficulty, data.reports[current].lang);
+      pressEasy(difficulty);
+      if (cmd) cmd.textContent = reportCommand(data.slug, difficulty, r.lang);
       if (missing) missing.hidden = false;
     }
-    function pressedOf(list, attr){
-      var v = null;
-      list.forEach(function(b){ if (b.getAttribute('aria-pressed') === 'true') v = b.getAttribute(attr); });
-      return v;
-    }
-    lengthBtns.forEach(function(b){
-      b.addEventListener('click', function(){
-        choose(b.getAttribute('data-length'), pressedOf(diffBtns, 'data-difficulty') || data.reports[current].difficulty);
-      });
-    });
-    diffBtns.forEach(function(b){
-      b.addEventListener('click', function(){
-        choose(pressedOf(lengthBtns, 'data-length') || data.reports[current].length, b.getAttribute('data-difficulty'));
-      });
+    // 없는 리포트를 눌러 안내만 뜬 상태에서도 다시 누르면 꺼지도록 토글 자신의 눌림 상태를 기준으로 삼는다
+    if (easyToggle) easyToggle.addEventListener('click', function(){
+      choose(easyToggle.getAttribute('aria-pressed') === 'true' ? 'normal' : 'easy');
     });
     if (select) select.addEventListener('change', function(){ show(Number(select.value)); });
     if (copyCmd && cmd) copyCmd.addEventListener('click', function(){
