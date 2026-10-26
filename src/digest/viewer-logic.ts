@@ -17,9 +17,16 @@ function shouldFollow(idx, from, to, now, manualUntil) {
   if (now < manualUntil) return false;
   return !(idx >= from && idx <= to);
 }
+function isPlaying(state) {
+  return state === 1 || state === 3;
+}
 function shouldFollowHeld(state, idx, from, to, now, manualUntil) {
-  if (state === 1 || state === 3) return false;
+  if (isPlaying(state)) return false;
   return shouldFollow(idx, from, to, now, manualUntil);
+}
+function shouldScrollScript(state, changed, now, holdUntil, visible) {
+  if (!isPlaying(state) || now < holdUntil) return false;
+  return changed || !visible;
 }
 function cueAction(state) {
   return state === 1 || state === 2 || state === 3 ? 'seek' : 'cue';
@@ -96,7 +103,9 @@ export interface ViewerLogic {
     now: number,
     manualUntil: number,
   ) => boolean;
-  /** 시각을 누른 직후라 미뤄 둔 소섹션 이동을 유예가 끝난 뒤 할지. 그사이 재생이나 버퍼링 중이면 사용자가 옮긴 자리를 둔다 */
+  /** 재생 중인지. 버퍼링도 재생 중으로 본다 */
+  isPlaying: (state: number) => boolean;
+  /** 읽는 소섹션으로 영상을 옮길지. 재생이나 버퍼링 중이면 보던 자리를 둔다. 시각을 누른 직후 미뤄 둔 이동도 유예가 끝난 뒤 이걸로 본다 */
   shouldFollowHeld: (
     state: number,
     idx: number,
@@ -104,6 +113,14 @@ export interface ViewerLogic {
     to: number,
     now: number,
     manualUntil: number,
+  ) => boolean;
+  /** 스크립트 패널을 현재 문장으로 스크롤할지. 재생 중이고 사용자가 만지는 중이 아닐 때, 문장이 바뀌었거나 현재 줄이 패널 밖일 때만 */
+  shouldScrollScript: (
+    state: number,
+    changed: boolean,
+    now: number,
+    holdUntil: number,
+    visible: boolean,
   ) => boolean;
   /** 유튜브 재생 상태별로 seekTo를 쓸지 cueVideoById를 쓸지 */
   cueAction: (state: number) => 'seek' | 'cue';
@@ -132,7 +149,7 @@ export interface ViewerLogic {
 }
 
 export const viewerLogic = new Function(
-  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, shouldFollowHeld: shouldFollowHeld, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, templateCommand: templateCommand, tabStep: tabStep, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
+  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, isPlaying: isPlaying, shouldFollowHeld: shouldFollowHeld, shouldScrollScript: shouldScrollScript, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, templateCommand: templateCommand, tabStep: tabStep, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
 )() as ViewerLogic;
 
 export const findSegmentIndex = viewerLogic.findSegmentIndex;
