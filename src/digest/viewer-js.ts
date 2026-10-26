@@ -547,12 +547,13 @@ export const VIEWER_JS =
     var missing = document.getElementById('report-missing');
     var cmd = document.getElementById('report-cmd');
     var copyCmd = document.getElementById('copy-cmd');
-    var current = 0;
+    var initial = data.reports[data.initial] ? data.initial : 0;
+    var current = initial;
     function press(list, attr, value){
       list.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute(attr) === value ? 'true' : 'false'); });
     }
     function show(ri){
-      if (!data.reports[ri]) ri = 0;
+      if (!data.reports[ri]) ri = initial;
       current = ri;
       boxes.forEach(function(b){ b.hidden = Number(b.getAttribute('data-ri')) !== ri; });
       maps.forEach(function(m){ m.hidden = Number(m.getAttribute('data-ri')) !== ri; });
@@ -592,14 +593,14 @@ export const VIEWER_JS =
     });
     var saved = null;
     try { saved = localStorage.getItem(REPORT_KEY); } catch (e) {}
-    var start = 0;
+    var start = initial;
     data.reports.forEach(function(r, i){ if (r.key === saved) start = i; });
     // 공유된 앵커가 다른 리포트의 섹션을 가리키면 그 리포트를 연다
     var anchor = safeDecode(location.hash.slice(1));
     var target = anchor ? document.getElementById(anchor) : null;
     var owner = target && target.closest ? target.closest('.report[data-ri]') : null;
     if (owner) start = Number(owner.getAttribute('data-ri'));
-    if (start !== 0) show(start);
+    if (start !== initial) show(start);
     if (owner && target) target.scrollIntoView();
     return { current: function(){ return current; } };
   }

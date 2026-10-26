@@ -51,6 +51,19 @@ export function isPreset(options: ReportOptions, base: ReportOptions): boolean {
   return !options.range && !options.prompt && options.lang === base.lang;
 }
 
+/**
+ * 뷰어를 처음 열 때 보일 리포트. 스킬이 길게와 보통을 기본으로 만들므로 그 조합을 먼저 찾고 없으면 첫 리포트를 연다
+ */
+export function initialReportIndex(reports: readonly Report[]): number {
+  const base = reports[0]?.options;
+  if (!base) return 0;
+  const at = reports.findIndex(
+    (r) =>
+      isPreset(r.options, base) && r.options.length === 'long' && r.options.difficulty === 'normal',
+  );
+  return at >= 0 ? at : 0;
+}
+
 export function reportLabel(options: ReportOptions, withHours = false): string {
   const parts = [`${LENGTH_LABEL[options.length]}, ${DIFFICULTY_LABEL[options.difficulty]}`];
   if (options.range) {
