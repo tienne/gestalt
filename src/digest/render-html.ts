@@ -8,13 +8,11 @@ import {
   type BlockHtmlContext,
 } from './render-blocks.js';
 import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
-import { DIFFICULTY_LABEL, isPreset, LENGTH_LABEL, reportKey, reportLabel } from './reports.js';
+import { initialReportIndex, isPreset, pairIndex, reportKey, reportLabel } from './reports.js';
 import { VIEWER_JS } from './viewer-js.js';
 import {
   boldPattern,
   keywordPattern,
-  REPORT_DIFFICULTIES,
-  REPORT_LENGTHS,
   type Bullet,
   type Cite,
   type Digest,
@@ -183,13 +181,15 @@ export function renderDigestHtml(
 
   const reportsMeta = digest.reports.map((r) => ({ report: r, key: reportKey(r.options) }));
   const base = digest.reports[0]!.options;
+  const initial = initialReportIndex(digest.reports);
+  const shown = digest.reports[initial]!.options;
 
   // 첫 리포트는 1차와 같은 id를 써서 이미 공유된 앵커가 그대로 열린다. 나머지는 id에 못 쓰는 ~로 접두를 붙여 겹치지 않게 한다
   const renderReport = (report: Report, ri: number, key: string) => {
     const { lead, sections, skipped, keywords } = report;
     const kwIds = new Set(keywords.map((k) => k.id));
     const pfx = ri === 0 ? '' : `r${ri}~`;
-    const hidden = ri === 0 ? '' : ' hidden';
+    const hidden = ri === initial ? '' : ' hidden';
     const bullets = (list: Bullet[]): string =>
       `<ul>${list
         .map(
@@ -270,23 +270,20 @@ ${skippedHtml}</div>`;
   const rendered = reportsMeta.map(({ report, key }, ri) => renderReport(report, ri, key));
 
   const pressed = (on: boolean) => `aria-pressed="${on ? 'true' : 'false'}"`;
-  const customs = reportsMeta.filter(({ report }) => !isPreset(report.options, base));
-  const reportBar = `<div class="report-bar" role="group" aria-label="리포트 고르기"><span class="bar-label">분량</span>${REPORT_LENGTHS.map(
-    (l) =>
-      `<button type="button" data-length="${l}" ${pressed(l === base.length)}>${LENGTH_LABEL[l]}</button>`,
-  ).join('')}<span class="bar-label">난이도</span>${REPORT_DIFFICULTIES.map(
-    (d) =>
-      `<button type="button" data-difficulty="${d}" ${pressed(d === base.difficulty)}>${DIFFICULTY_LABEL[d]}</button>`,
-  ).join('')}${
-    customs.length
+  // 쉽게 보기 토글은 지금 리포트와 짝(pairIndex)인 리포트를 오간다. 리포트가 하나뿐이면 고를 게 없어서 목록을 안 그린다. 길게 프리셋 리포트만 있어도 토글로 충분해서 안 그린다. 리포트가 여럿이고 그중에 그 밖의 리포트(짧게나 기본 분량, 첫 리포트와 다른 언어, 구간, 요청)가 하나라도 있으면 전체 리포트를 고르는 다른 리포트 목록을 그린다
+  const otherReports = reportsMeta.filter(
+    ({ report }) => !isPreset(report.options, base) || report.options.length !== 'long',
+  );
+  const reportBar = `<div class="report-bar" role="group" aria-label="리포트 고르기"><button type="button" id="easy-toggle" ${pressed(shown.difficulty === 'easy')}>쉽게 보기</button>${
+    otherReports.length && reportsMeta.length > 1
       ? `<label class="bar-label">다른 리포트 <select id="report-select">${reportsMeta
           .map(
             ({ report, key }, ri) =>
-              `<option value="${ri}" data-report="${e(key)}">${e(reportLabel(report.options, long))}</option>`,
+              `<option value="${ri}" data-report="${e(key)}"${ri === initial ? ' selected' : ''}>${e(reportLabel(report.options, long))}</option>`,
           )
           .join('')}</select></label>`
       : ''
-  }</div><div id="report-missing" class="report-missing" role="status" hidden><p>이 조합의 리포트는 아직 없어요. 아래 명령을 세션에 붙여 넣으면 만들어요.</p><code id="report-cmd"></code> <button type="button" id="copy-cmd">명령 복사</button></div>`;
+  }</div><p id="report-status" class="sr-only" role="status" aria-live="polite"></p><div id="report-missing" class="report-missing" hidden><p id="report-missing-msg"></p><span id="report-cmd-wrap"><code id="report-cmd"></code> <button type="button" id="copy-cmd">명령 복사</button></span></div>`;
 
   const watchBase = isYoutube ? youtubeWatchUrl(meta.videoId!) : null;
   const player = isYoutube
@@ -321,12 +318,16 @@ ${skippedHtml}</div>`;
     long,
     starts: segments.map((s) => s.startSec),
     slug: digest.slug,
-    reports: reportsMeta.map(({ report, key }) => ({
+    initial,
+    reports: reportsMeta.map(({ report, key }, ri) => ({
       key,
       length: report.options.length,
       difficulty: report.options.difficulty,
       lang: report.options.lang,
       preset: isPreset(report.options, base),
+      pair: pairIndex(digest.reports, ri),
+      range: report.options.range ?? null,
+      prompted: Boolean(report.options.prompt),
       keywords: Object.fromEntries(
         report.keywords.map((k) => [
           k.id,
@@ -455,7 +456,6 @@ a.ts:hover{text-decoration:underline}
 .note{color:var(--warn);font-size:.9em}
 .report-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0;font-size:.85em}
 .report-bar .bar-label{color:var(--muted);margin-left:6px}
-.report-bar .bar-label:first-child{margin-left:0}
 .report-bar button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:3px 12px;cursor:pointer}
 .report-bar button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .report-bar select{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:2px 6px}

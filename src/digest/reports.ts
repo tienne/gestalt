@@ -44,11 +44,37 @@ export function rangeSpan(
 }
 
 /**
- * 툴바의 분량과 난이도 버튼으로 고를 수 있는 리포트인지 본다.
+ * 분량과 난이도만으로 가려지는 리포트인지 본다. 툴바의 쉽게 보기 토글이 이 리포트끼리 오간다.
  * 구간이나 프롬프트가 붙었거나 첫 리포트와 언어가 다르면 따로 고르는 리포트다
  */
 export function isPreset(options: ReportOptions, base: ReportOptions): boolean {
   return !options.range && !options.prompt && options.lang === base.lang;
+}
+
+/**
+ * 쉽게 보기 토글이 오갈 짝의 자리. 난이도만 반대고 분량, 언어, 구간, 요청이 같아야 짝이라 키로 비교한다. 없으면 -1
+ */
+export function pairIndex(reports: readonly Report[], i: number): number {
+  const options = reports[i]?.options;
+  if (!options) return -1;
+  const want = reportKey({
+    ...options,
+    difficulty: options.difficulty === 'easy' ? 'normal' : 'easy',
+  });
+  return reports.findIndex((r) => reportKey(r.options) === want);
+}
+
+/**
+ * 뷰어를 처음 열 때 보일 리포트. 스킬이 길게와 보통을 기본으로 만들므로 그 조합을 먼저 찾고 없으면 첫 리포트를 연다
+ */
+export function initialReportIndex(reports: readonly Report[]): number {
+  const base = reports[0]?.options;
+  if (!base) return 0;
+  const at = reports.findIndex(
+    (r) =>
+      isPreset(r.options, base) && r.options.length === 'long' && r.options.difficulty === 'normal',
+  );
+  return at >= 0 ? at : 0;
 }
 
 export function reportLabel(options: ReportOptions, withHours = false): string {

@@ -302,7 +302,7 @@ export const VIEWER_JS =
     };
   }
 
-  // 사용자가 패널을 직접 움직이면 3초 동안 멈춘다
+  // 일시정지 중에도 하이라이트는 옮긴다. 사용자가 패널을 직접 움직이면 3초 동안 스크롤을 멈춘다
   function setupScriptFollow(player) {
     if (!player.live) return;
     var panel = document.getElementById('script-body');
@@ -317,14 +317,20 @@ export const VIEWER_JS =
       var t = player.currentTime();
       if (t === null || t === undefined) return;
       var idx = findSegmentIndex(starts, t);
-      if (idx === current) return;
-      if (lines[current]) lines[current].classList.remove('is-playing');
-      current = idx;
+      var changed = idx !== current;
+      if (changed) {
+        if (lines[current]) lines[current].classList.remove('is-playing');
+        current = idx;
+      }
       var li = lines[idx];
       if (!li) return;
-      li.classList.add('is-playing');
-      if (!panel || Date.now() < holdUntil) return;
-      panel.scrollTo({ top: Math.max(0, li.offsetTop - panel.clientHeight / 3), behavior: reduceMotion ? 'auto' : 'smooth' });
+      if (changed) li.classList.add('is-playing');
+      if (!panel) return;
+      var visible = isLineVisible(li.offsetTop, li.offsetHeight, panel.scrollTop, panel.clientHeight);
+      if (!shouldScrollScript(player.state(), changed, Date.now(), holdUntil, visible)) return;
+      var top = Math.max(0, li.offsetTop - panel.clientHeight / 3);
+      if (Math.abs(top - panel.scrollTop) <= 1) return;
+      panel.scrollTo({ top: top, behavior: reduceMotion ? 'auto' : 'smooth' });
     }, 250);
   }
 
@@ -346,8 +352,9 @@ export const VIEWER_JS =
     document.querySelectorAll('section.sec').forEach(function(s){ io.observe(s); });
   }
 
-  // 읽는 소섹션이 바뀌면 영상을 그 구간 첫 문장으로 옮긴다. 이미 그 구간을 재생 중이면 그대로 두고 빠르게 훑을 때는 멈춘 자리만 따른다.
+  // 읽는 소섹션이 바뀌면 영상을 그 구간 첫 문장으로 옮긴다. 재생 중이면 요약을 스크롤해도 영상을 옮기지 않고 빠르게 훑을 때는 멈춘 자리만 따른다.
   // 방금 시각을 눌렀으면 유예가 끝난 뒤 영상이 멈춰 있을 때만 따라간다. 기다리는 사이 그 소섹션이 화면에서 빠지면 따라가지 않는다
+  // 앞선 이동의 버퍼링이 덜 끝났으면 재생 중으로 읽히므로 300ms 뒤 두 번까지 다시 본다
   function setupSubsectionFollow(player) {
     var subs = document.querySelectorAll('.sub[data-from]');
     if (!player.live || !('IntersectionObserver' in window) || !subs.length) return;
@@ -355,6 +362,15 @@ export const VIEWER_JS =
     var currentIdx = function(){
       var t = player.currentTime();
       return t === null || t === undefined ? -1 : findSegmentIndex(starts, t);
+    };
+    var follow = function(target, from, to, tries){
+      if (!player.live || pendingSub !== target) return;
+      if (shouldRetryFollow(player.state(), tries)) {
+        followTimer = setTimeout(function(){ follow(target, from, to, tries - 1); }, 300);
+        return;
+      }
+      if (!shouldFollowHeld(player.state(), currentIdx(), from, to, Date.now(), manualUntil)) return;
+      if (typeof starts[from] === 'number') player.cue(starts[from]);
     };
     var subIo = new IntersectionObserver(function(entries){
       entries.forEach(function(en){
@@ -370,21 +386,16 @@ export const VIEWER_JS =
         var to = Number(en.target.getAttribute('data-to'));
         clearTimeout(followTimer);
         clearTimeout(heldTimer);
-        pendingSub = en.target;
+        var target = pendingSub = en.target;
         followTimer = setTimeout(function(){
           if (!player.live) return;
           var now = Date.now();
           // 시각을 누른 직후에 넘어온 소섹션은 버리지 않고 유예가 끝난 뒤 한 번만 다시 본다
           if (now < manualUntil) {
-            heldTimer = setTimeout(function(){
-              if (!player.live) return;
-              if (!shouldFollowHeld(player.state(), currentIdx(), from, to, Date.now(), manualUntil)) return;
-              if (typeof starts[from] === 'number') player.cue(starts[from]);
-            }, manualUntil - now + 50);
+            heldTimer = setTimeout(function(){ follow(target, from, to, 2); }, manualUntil - now + 50);
             return;
           }
-          if (!shouldFollow(currentIdx(), from, to, now, manualUntil)) return;
-          if (typeof starts[from] === 'number') player.cue(starts[from]);
+          follow(target, from, to, 2);
         }, 400);
       });
     }, { rootMargin: '-15% 0px -70% 0px' });
@@ -532,55 +543,53 @@ export const VIEWER_JS =
     };
   }
 
-  // 툴바는 분량과 난이도 조합으로 리포트를 고른다. 없는 조합은 서버가 만들지 않고 생성 명령만 보여 준다
+  // 툴바는 쉽게 보기 토글 하나로 보통과 쉬운 리포트를 오간다. 없는 리포트는 서버가 만들지 않고 생성 명령만 보여 준다
   function setupReports() {
     var REPORT_KEY = 'gestalt-digest-report:' + data.slug;
     var boxes = document.querySelectorAll('.report[data-ri]');
     var maps = document.querySelectorAll('.minimap[data-ri]');
-    var lengthBtns = document.querySelectorAll('.report-bar [data-length]');
-    var diffBtns = document.querySelectorAll('.report-bar [data-difficulty]');
+    var easyToggle = document.getElementById('easy-toggle');
     var select = document.getElementById('report-select');
     var missing = document.getElementById('report-missing');
+    var missingMsg = document.getElementById('report-missing-msg');
+    var cmdWrap = document.getElementById('report-cmd-wrap');
+    var status = document.getElementById('report-status');
     var cmd = document.getElementById('report-cmd');
     var copyCmd = document.getElementById('copy-cmd');
-    var current = 0;
-    function press(list, attr, value){
-      list.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute(attr) === value ? 'true' : 'false'); });
+    var initial = data.reports[data.initial] ? data.initial : 0;
+    var current = initial;
+    function hideMissing(){
+      if (missing) missing.hidden = true;
+      if (status) status.textContent = '';
     }
     function show(ri){
-      if (!data.reports[ri]) ri = 0;
+      if (!data.reports[ri]) ri = initial;
       current = ri;
       boxes.forEach(function(b){ b.hidden = Number(b.getAttribute('data-ri')) !== ri; });
       maps.forEach(function(m){ m.hidden = Number(m.getAttribute('data-ri')) !== ri; });
       var r = data.reports[ri];
-      press(lengthBtns, 'data-length', r.length);
-      press(diffBtns, 'data-difficulty', r.difficulty);
+      if (easyToggle) easyToggle.setAttribute('aria-pressed', r.difficulty === 'easy' ? 'true' : 'false');
       if (select) select.value = String(ri);
-      if (missing) missing.hidden = true;
+      hideMissing();
       try { localStorage.setItem(REPORT_KEY, r.key); } catch (e) {}
     }
-    function choose(length, difficulty){
-      var ri = pickReport(data.reports, length, difficulty);
+    function choose(difficulty){
+      var r = data.reports[current];
+      var ri = r.pair;
+      // 짝이 없는 옛 짧게, 기본 리포트는 길게로 간다. 스킬이 길게만 만들어서다. 구간이나 요청이 붙은 리포트는 다른 리포트로 넘기지 않는다
+      if (ri < 0 && r.preset) ri = pickReport(data.reports, 'long', difficulty);
       if (ri >= 0) { show(ri); return; }
-      press(lengthBtns, 'data-length', length);
-      press(diffBtns, 'data-difficulty', difficulty);
-      if (cmd) cmd.textContent = reportCommand(data.slug, length, difficulty, data.reports[current].lang);
+      var notice = missingNotice(r, data.slug, difficulty);
+      if (missingMsg) missingMsg.textContent = notice.msg;
+      if (cmdWrap) cmdWrap.hidden = notice.cmd === null;
+      if (cmd) cmd.textContent = notice.cmd || '';
       if (missing) missing.hidden = false;
+      if (status) status.textContent = notice.msg;
     }
-    function pressedOf(list, attr){
-      var v = null;
-      list.forEach(function(b){ if (b.getAttribute('aria-pressed') === 'true') v = b.getAttribute(attr); });
-      return v;
-    }
-    lengthBtns.forEach(function(b){
-      b.addEventListener('click', function(){
-        choose(b.getAttribute('data-length'), pressedOf(diffBtns, 'data-difficulty') || data.reports[current].difficulty);
-      });
-    });
-    diffBtns.forEach(function(b){
-      b.addEventListener('click', function(){
-        choose(pressedOf(lengthBtns, 'data-length') || data.reports[current].length, b.getAttribute('data-difficulty'));
-      });
+    // 눌림 상태는 보이는 리포트만 따른다. 안내가 떠 있으면 다시 눌러 닫는다
+    if (easyToggle) easyToggle.addEventListener('click', function(){
+      if (missing && !missing.hidden) { hideMissing(); return; }
+      choose(data.reports[current].difficulty === 'easy' ? 'normal' : 'easy');
     });
     if (select) select.addEventListener('change', function(){ show(Number(select.value)); });
     if (copyCmd && cmd) copyCmd.addEventListener('click', function(){
@@ -588,14 +597,14 @@ export const VIEWER_JS =
     });
     var saved = null;
     try { saved = localStorage.getItem(REPORT_KEY); } catch (e) {}
-    var start = 0;
+    var start = initial;
     data.reports.forEach(function(r, i){ if (r.key === saved) start = i; });
     // 공유된 앵커가 다른 리포트의 섹션을 가리키면 그 리포트를 연다
     var anchor = safeDecode(location.hash.slice(1));
     var target = anchor ? document.getElementById(anchor) : null;
     var owner = target && target.closest ? target.closest('.report[data-ri]') : null;
     if (owner) start = Number(owner.getAttribute('data-ri'));
-    if (start !== 0) show(start);
+    if (start !== initial) show(start);
     if (owner && target) target.scrollIntoView();
     return { current: function(){ return current; } };
   }

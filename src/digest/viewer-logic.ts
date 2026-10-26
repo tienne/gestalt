@@ -17,9 +17,23 @@ function shouldFollow(idx, from, to, now, manualUntil) {
   if (now < manualUntil) return false;
   return !(idx >= from && idx <= to);
 }
+function isPlaying(state) {
+  return state === 1 || state === 3;
+}
 function shouldFollowHeld(state, idx, from, to, now, manualUntil) {
-  if (state === 1 || state === 3) return false;
+  if (isPlaying(state)) return false;
   return shouldFollow(idx, from, to, now, manualUntil);
+}
+function shouldScrollScript(state, changed, now, holdUntil, visible) {
+  if (!isPlaying(state) || now < holdUntil) return false;
+  return changed || !visible;
+}
+function shouldRetryFollow(state, tries) {
+  return state === 3 && tries > 0;
+}
+function isLineVisible(top, height, scrollTop, clientHeight) {
+  if (height > clientHeight) return top >= scrollTop && top < scrollTop + clientHeight;
+  return top >= scrollTop && top + height <= scrollTop + clientHeight;
 }
 function cueAction(state) {
   return state === 1 || state === 2 || state === 3 ? 'seek' : 'cue';
@@ -35,9 +49,14 @@ function pickReport(reports, length, difficulty) {
   }
   return -1;
 }
-function reportCommand(slug, length, difficulty, lang) {
-  var cmd = '/gestalt:video-digest slug=' + slug + ' length=' + length + ' difficulty=' + difficulty;
+function reportCommand(slug, difficulty, lang, range) {
+  var cmd = '/gestalt:video-digest slug=' + slug + ' difficulty=' + difficulty;
+  if (range) cmd += ' range=' + Math.floor(range[0]) + '-' + Math.ceil(range[1]);
   return lang ? cmd + ' reportLang=' + lang : cmd;
+}
+function missingNotice(r, slug, difficulty) {
+  if (r.prompted) return { msg: '요청을 붙여 만든 리포트라 짝이 없어요. 같은 요청으로 다시 만들어 주세요.', cmd: null };
+  return { msg: '이 리포트는 아직 없어요. 아래 명령을 세션에 붙여 넣으면 만들어요.', cmd: reportCommand(slug, difficulty, r.lang, r.range) };
 }
 function templateCommand(slug, id, lang) {
   var cmd = '/gestalt:video-digest slug=' + slug + ' templates=' + id;
@@ -96,7 +115,9 @@ export interface ViewerLogic {
     now: number,
     manualUntil: number,
   ) => boolean;
-  /** 시각을 누른 직후라 미뤄 둔 소섹션 이동을 유예가 끝난 뒤 할지. 그사이 재생이나 버퍼링 중이면 사용자가 옮긴 자리를 둔다 */
+  /** 재생 중인지. 버퍼링도 재생 중으로 본다 */
+  isPlaying: (state: number) => boolean;
+  /** 읽는 소섹션으로 영상을 옮길지. 재생이나 버퍼링 중이면 보던 자리를 둔다. 시각을 누른 직후 미뤄 둔 이동도 유예가 끝난 뒤 이걸로 본다 */
   shouldFollowHeld: (
     state: number,
     idx: number,
@@ -105,18 +126,41 @@ export interface ViewerLogic {
     now: number,
     manualUntil: number,
   ) => boolean;
+  /** 스크립트 패널을 현재 문장으로 스크롤할지. 재생 중이고 사용자가 만지는 중이 아닐 때, 문장이 바뀌었거나 현재 줄이 패널 밖일 때만 */
+  shouldScrollScript: (
+    state: number,
+    changed: boolean,
+    now: number,
+    holdUntil: number,
+    visible: boolean,
+  ) => boolean;
+  /** 직전 이동의 버퍼링(3)이 덜 끝나 재생 중으로 읽힐 때 잠시 뒤 다시 볼지. 남은 횟수가 0이면 그대로 판정한다 */
+  shouldRetryFollow: (state: number, tries: number) => boolean;
+  /** 스크립트 줄이 패널 안에 보이는지. 줄이 패널보다 높으면 윗변이 패널 안에 있을 때 보인다고 친다. 안 그러면 재생 중 매번 스크롤을 다시 건다 */
+  isLineVisible: (top: number, height: number, scrollTop: number, clientHeight: number) => boolean;
   /** 유튜브 재생 상태별로 seekTo를 쓸지 cueVideoById를 쓸지 */
   cueAction: (state: number) => 'seek' | 'cue';
   /** 출처 툴팁에 보일 마지막 문장 번호와 생략한 문장 수 */
   citeWindow: (from: number, to: number, max: number) => { end: number; more: number };
-  /** 툴바의 분량과 난이도 조합에 맞는 리포트 자리. 없으면 -1 */
+  /** 분량과 난이도가 맞는 툴바용 리포트 자리. 없으면 -1 */
   pickReport: (
     reports: { preset: boolean; length: string; difficulty: string }[],
     length: string,
     difficulty: string,
   ) => number;
-  /** 없는 조합을 고르면 복사해 주는 생성 명령. 지금 보는 리포트의 언어를 따라가야 다른 언어 리포트가 안 생긴다 */
-  reportCommand: (slug: string, length: string, difficulty: string, lang?: string) => string;
+  /** 없는 리포트를 고르면 복사해 주는 생성 명령. 스킬이 길게만 만들어서 분량은 싣지 않는다. 지금 보는 리포트의 언어와 구간을 따라가야 엉뚱한 리포트가 안 생긴다 */
+  reportCommand: (
+    slug: string,
+    difficulty: string,
+    lang?: string,
+    range?: [number, number],
+  ) => string;
+  /** 짝이 없는 리포트에서 토글을 누르면 띄울 안내와 복사할 명령. 요청문은 따옴표가 섞일 수 있어 명령 인자로 안전하게 못 넘기니 요청 리포트는 명령 없이 안내만 한다 */
+  missingNotice: (
+    r: { prompted: boolean; lang?: string; range?: [number, number] },
+    slug: string,
+    difficulty: string,
+  ) => { msg: string; cmd: string | null };
   /** "+ 더 만들기"에서 템플릿을 고르면 복사해 주는 명령. 언어는 지금 보는 리포트를 따른다 */
   templateCommand: (slug: string, id: string, lang?: string) => string;
   /** 탭 목록에서 방향키, Home, End로 옮겨 갈 자리. 다른 키면 -1 */
@@ -132,7 +176,7 @@ export interface ViewerLogic {
 }
 
 export const viewerLogic = new Function(
-  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, shouldFollowHeld: shouldFollowHeld, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, templateCommand: templateCommand, tabStep: tabStep, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
+  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, isPlaying: isPlaying, shouldFollowHeld: shouldFollowHeld, shouldScrollScript: shouldScrollScript, shouldRetryFollow: shouldRetryFollow, isLineVisible: isLineVisible, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, missingNotice: missingNotice, templateCommand: templateCommand, tabStep: tabStep, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
 )() as ViewerLogic;
 
 export const findSegmentIndex = viewerLogic.findSegmentIndex;

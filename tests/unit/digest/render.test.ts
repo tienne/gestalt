@@ -385,6 +385,57 @@ describe('viewer-js', () => {
     expect(shouldFollowHeld(2, 9, 3, 5, 6000, 8000)).toBe(false);
   });
 
+  it('isPlaying은 재생과 버퍼링일 때만 참이다', () => {
+    const { isPlaying } = viewerLogic;
+    expect([1, 3].map(isPlaying)).toEqual([true, true]);
+    expect([-1, 0, 2, 5].map(isPlaying)).toEqual([false, false, false, false]);
+  });
+
+  it('shouldScrollScript는 재생 중이고 유예가 끝났을 때 줄이 바뀌었거나 화면 밖이면 따라간다', () => {
+    const { shouldScrollScript } = viewerLogic;
+    expect(shouldScrollScript(1, true, 6000, 5000, true)).toBe(true);
+    expect(shouldScrollScript(1, false, 6000, 5000, true)).toBe(false);
+    expect(shouldScrollScript(1, false, 6000, 5000, false)).toBe(true);
+    expect(shouldScrollScript(3, true, 6000, 5000, false)).toBe(true);
+    expect(shouldScrollScript(2, true, 6000, 5000, false)).toBe(false);
+    expect(shouldScrollScript(-1, true, 6000, 5000, false)).toBe(false);
+    expect(shouldScrollScript(1, true, 4000, 5000, false)).toBe(false);
+    expect(shouldScrollScript(1, true, 5000, 5000, false)).toBe(true);
+  });
+
+  it('isLineVisible은 줄이 패널 안에 다 들어올 때 보인다고 보고 패널보다 높은 줄은 윗변만 본다', () => {
+    const { isLineVisible } = viewerLogic;
+    expect(isLineVisible(100, 20, 50, 200)).toBe(true);
+    expect(isLineVisible(240, 20, 50, 200)).toBe(false);
+    expect(isLineVisible(40, 20, 50, 200)).toBe(false);
+    expect(isLineVisible(60, 300, 50, 200)).toBe(true);
+    expect(isLineVisible(50, 300, 50, 200)).toBe(true);
+    expect(isLineVisible(250, 300, 50, 200)).toBe(false);
+    expect(isLineVisible(30, 300, 50, 200)).toBe(false);
+  });
+
+  it('shouldRetryFollow는 버퍼링 중이고 남은 횟수가 있을 때만 다시 본다', () => {
+    const { shouldRetryFollow } = viewerLogic;
+    expect(shouldRetryFollow(3, 2)).toBe(true);
+    expect(shouldRetryFollow(3, 1)).toBe(true);
+    expect(shouldRetryFollow(3, 0)).toBe(false);
+    expect([1, 2, -1, 5].map((s) => shouldRetryFollow(s, 2))).toEqual([false, false, false, false]);
+  });
+
+  it('missingNotice는 요청 리포트에 명령을 안 만들고 구간 리포트에는 구간을 붙인다', () => {
+    const { missingNotice } = viewerLogic;
+    const prompted = missingNotice({ prompted: true, lang: 'ko' }, 'demo', 'easy');
+    expect(prompted.cmd).toBeNull();
+    expect(prompted.msg).toContain('같은 요청으로');
+    const ranged = missingNotice({ prompted: false, lang: 'ko', range: [30, 60] }, 'demo', 'easy');
+    expect(ranged.cmd).toContain('slug=demo');
+    expect(ranged.cmd).toContain('difficulty=easy');
+    expect(ranged.cmd).toContain('range=30-60');
+    expect(missingNotice({ prompted: false, lang: 'ko' }, 'demo', 'normal').cmd).not.toContain(
+      'range=',
+    );
+  });
+
   it('cueAction은 재생, 일시정지, 버퍼링일 때만 seek으로 옮기고 나머지는 위치만 잡는다', () => {
     const { cueAction } = viewerLogic;
     expect([1, 2, 3].map(cueAction)).toEqual(['seek', 'seek', 'seek']);
@@ -402,7 +453,12 @@ describe('viewer-js', () => {
     for (const name of [
       'findSegmentIndex',
       'shouldFollow',
+      'isPlaying',
       'shouldFollowHeld',
+      'shouldScrollScript',
+      'shouldRetryFollow',
+      'isLineVisible',
+      'missingNotice',
       'cueAction',
       'citeWindow',
       'safeDecode',
