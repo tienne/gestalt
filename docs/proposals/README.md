@@ -51,9 +51,9 @@
 | ac-verification.md       | `acChanges`와 `sourceACIds`로 AC가 바뀐 태스크만 좁혀 고른다                    |
 | ac-test-first.md         | 테스트 검사가 통과하지 않은 AC의 태스크를 더한다                                |
 | execute-drift-breaker.md | 코드 내용은 그대로 두지만 blend 모드에서 드리프트 판정이 바뀌어 대상이 달라진다 |
-| verification-loop.md     | `flaky`와 `mutation_survived`인 AC는 그 AC의 테스트 태스크만 고른다 |
+| verification-loop.md     | `flaky`인 AC는 네 번째 기준에서 빼고 테스트 태스크만 고른다. `mutation_survived`인 AC는 테스트 태스크를 더한다 |
 
-기준이 늘어나는 방향이라 충돌은 없다. 다만 기준마다 어느 이유로 골랐는지를 결과에 남겨야 재실행이 왜 일어났는지 추적된다. 첫 번째로 이 파일을 고치는 PR에서 `ImpactedTask.reasons`를 넣는다.
+대부분 기준을 더하는 쪽이라 서로 부딪히지 않는다. `flaky`만 `ac-test-first.md`의 네 번째 기준을 좁히므로 그 문서의 PR 2 뒤에 들어간다. 기준마다 어느 이유로 골랐는지를 결과에 남겨야 재실행이 왜 일어났는지 추적된다. 첫 번째로 이 파일을 고치는 PR에서 `ImpactedTask.reasons`를 넣는다.
 
 ### Evolve 프롬프트
 
@@ -75,7 +75,7 @@ Call 2에서 `acChecks`를 대조하는 자리도 함께 쓴다. `ac-test-first.
 
 ### Evolve가 고르는 재실행 사유
 
-`verification-loop.md`는 위 "재실행 대상 고르기" 표에 사유 두 개를 더한다. `flaky`와 `mutation_survived`인 AC는 `ac-test-first.md`의 네 번째 기준에서 빼고 그 AC의 `ac_test` 태스크만 고른다. `testFirst`가 꺼져 있어 `ac_test` 태스크가 없으면 그 AC를 맡은 구현 태스크를 고르되 테스트만 고치라는 지시를 붙인다. `ImpactedTask.reasons`에 그대로 남긴다. 변이 검사는 `listChangedSince`로 바뀐 파일을 고르므로 위 "기준점 이후 바뀐 파일 목록"의 함수를 세 번째로 쓰는 곳이 된다.
+`verification-loop.md`는 위 "재실행 대상 고르기" 표에 사유 `flaky`와 `mutation_survived`를 더한다. `flaky`인 AC는 `ac-test-first.md`의 네 번째 기준에서 빼고 그 AC의 `ac_test` 태스크만 고른다. `mutation_survived`인 AC는 검사가 통과한 AC라 네 번째 기준에 걸리지 않는다. 그래서 기준을 하나 더하는 셈이고 이때도 `ac_test` 태스크만 고른다. `testFirst`가 꺼져 있어 `ac_test` 태스크가 없으면 그 AC를 맡은 구현 태스크를 고르되 테스트만 고치라는 지시를 붙인다. `ImpactedTask.reasons`에 그대로 남긴다. 변이 검사는 `listChangedSince`로 바뀐 파일을 고르므로 위 "기준점 이후 바뀐 파일 목록"의 함수를 세 번째로 쓰는 곳이 된다.
 
 Evolve 프롬프트의 절 순서는 바꾸지 않는다. 흔들린 검사와 테스트가 못 잡은 변이는 "AC Check Results" 절 안에 넣는다.
 

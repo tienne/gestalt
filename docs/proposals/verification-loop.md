@@ -417,7 +417,7 @@ Call 1 응답은 둘을 함께 싣고 안내 문구를 바꾼다. "`fast`를 먼
 - fast가 전부 통과했는데 gate에 `skipped`가 있거나 gate 항목이 빠졌으면 거부한다. 무거운 검사를 건너뛰고 통과시키는 길을 막는다.
 - `skipped`인 AC 검사는 `AcCheckStatus: 'skipped'`가 된다.
 
-fast의 AC 검사가 실패해도 `ac-test-first.md`는 short-circuit하지 않고 contextual로 넘어간다. 그 문서의 상한은 충족 AC 비율이라 AC 20개 중 하나가 실패하고 하나가 `skipped`면 0.9가 남는다. 성공 기준 0.85(`src/core/constants.ts:127`)를 넘는다. `acCheckMode: 'report'`면 상한 자체가 없다. 그래서 Call 3에 규칙 하나를 더한다. `skipped`인 gate 검사가 하나라도 있으면 `appliedScore`를 성공 기준 바로 아래(`successThreshold - 0.01`)로 묶는다. `report` 모드에도 건다. `scoreAdjustment`에는 사유 `gate_skipped`를 남긴다. 무거운 검사를 한 번도 돌리지 않은 평가가 성공으로 끝나는 길을 막는 규칙이라 모드와 상관없이 건다.
+fast의 AC 검사가 실패해도 `ac-test-first.md`는 short-circuit하지 않고 contextual로 넘어간다. 그 문서의 상한은 충족 AC 비율이고 README "Evaluate Call 3의 점수 조정"은 이를 priority 가중치 방식으로 합치기로 했다. 어느 쪽이든 AC가 많으면 못 미친 AC가 몇 개 있어도 상한이 성공 기준 위에 남는다. priority가 같은 AC 20개 중 하나가 실패하고 하나가 `skipped`면 0.9가 남아 성공 기준 0.85(`src/core/constants.ts:127`)를 넘는다. `acCheckMode: 'report'`면 상한 자체가 없다. 그래서 Call 3에 규칙 하나를 더한다. `skipped`인 gate 검사가 하나라도 있으면 `appliedScore`를 성공 기준 바로 아래(`successThreshold - 0.01`)로 묶는다. `report` 모드에도 건다. `scoreAdjustment`에는 사유 `gate_skipped`를 남긴다. 무거운 검사를 한 번도 돌리지 않은 평가가 성공으로 끝나는 길을 막는 규칙이라 모드와 상관없이 건다.
 
 `command` AC를 fast에 둔 이유가 있다. 서버는 그 명령이 얼마나 무거운지 모른다. 무거운 명령이면 스펙 작성자가 `test`의 `e2e`나 `differential`로 옮기면 된다.
 
@@ -485,7 +485,7 @@ e2e: tests/e2e/coupon-apply.spec.ts
 | Evaluate Call 1      | `launch`, `e2e`                            | `AcCheckCommand.launch`와 테스트 파일 찾기. `AC.check`로 먼저 찾고 못 찾으면 `e2e` 경로를 `feature_map` 출처로 쓴다 |
 | Evolve               | `selectors`, `pitfalls`                    | E2E 실패를 고칠 때 참고                                                                                       |
 
-`verifyBy: 'test'`라 e2e AC에도 `check`가 필수다(ac-verification.md "생성 시점 검증 규칙"). 보통은 `check`에 E2E 테스트 파일 경로를 적고 기능 지도의 `e2e`는 `check`가 아직 없는 파일을 가리킬 때의 대안이다. Evaluate Call 1에서 `feature` id에 맞는 파일이 없으면 `command: null`과 `unlinkedReason: 'feature_not_found'`를 남긴다.
+`verifyBy: 'test'`라 e2e AC에도 `check`가 필수다(ac-verification.md "생성 시점 검증 규칙"). 보통은 `check`에 E2E 테스트 파일 경로를 적고 기능 지도의 `e2e`는 `check`가 아직 없는 파일을 가리킬 때의 대안이다. Evaluate Call 1은 `check`로 테스트 파일을 먼저 찾는다. 찾으면 기능 지도가 없어도 검사는 돌고 `launch`만 비어 있다. 못 찾았는데 `feature` id에 맞는 기능 지도 파일도 없으면 `command: null`과 `unlinkedReason: 'feature_not_found'`를 남긴다.
 
 #### run 스킬과 브라우저 경로
 
@@ -562,7 +562,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 - **옛 스킬**: `retry`와 `durationMs`를 내지 않는다. 다시 돌리지 않은 실패로 보고 지금처럼 실패 처리한다. `tier`를 모르는 옛 스킬은 gate까지 전부 돌려서 낸다. 거부되지는 않는다. 다만 fast가 실패한 평가에서도 E2E와 차분 테스트를 전부 돌리고 그 결과는 서버가 버린다. 평가에서 가장 오래 걸리는 구간을 헛돌리는 셈이라 서버와 스킬을 함께 올려야 한다. 변이 검사는 기본값이 `off`다.
 - **옛 이벤트 원장**: 새 필드는 전부 선택이다. 축약 `commands`에 `flaky`가 없으면 false로 읽는다.
 - **실패 출력**: 프롬프트와 이벤트에 실리는 문자열 모양이 바뀐다. 출력 문자열을 그대로 비교하는 테스트(`tests/unit/execute/output-truncation.test.ts`)는 고쳐야 한다.
-- **기능 지도가 없는 레포**: `e2e` AC가 없으면 아무 일도 없다. 있으면 `feature_not_found`로 unlinked가 되고 그 AC는 덮어쓰기로 미충족이 된다.
+- **기능 지도가 없는 레포**: `e2e` AC가 없으면 아무 일도 없다. 있으면 `check`로 테스트 파일을 찾은 AC는 그대로 돌고 못 찾은 AC만 `feature_not_found`로 unlinked가 되어 덮어쓰기로 미충족이 된다.
 
 ## 테스트
 
@@ -585,11 +585,11 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 1    | `feat(execute): 실패 출력 줄이기`               | `failure-output.ts`, `tailOutput`과 이벤트 자르기 교체                                    | 없음. 언제든 먼저 낼 수 있다                               |
 | 2    | `feat(evaluate): 실패한 Structural 명령 재실행 판정` | Structural 명령의 `retry`, `durationMs`, `flaky` 판정, fix 프롬프트 지시, 스킬 규칙       | 없음                                                       |
 | 3    | `feat(spec): AC 테스트 설계 필드`               | `testDesign` 타입과 입력 타입, 검증 규칙, `mergeCriteriaPatch` 보존, `formatAcLine`, 스키마 strip 테스트 | ac-verification PR 2                                       |
-| 4    | `feat(evaluate): fast와 gate 검사 단계`         | `tier`, `skipped`, Call 2 규칙, `gate_skipped` 상한, AC 검사의 `retry`와 `flaky`, 재실행 사유 `flaky`, 차분 id 대조, 테스트 설계 프롬프트(구현 태스크 쪽), 느린 검사 표시와 `fastCheckBudgetMs` | 2, 3, ac-test-first PR 1. `ac_test` 태스크 쪽 프롬프트는 ac-test-first PR 3이 들어오면 켠다 |
+| 4    | `feat(evaluate): fast와 gate 검사 단계`         | `tier`, `skipped`, Call 2 규칙, `gate_skipped` 상한, AC 검사의 `retry`와 `flaky`, 재실행 사유 `flaky`, 차분 id 대조, 테스트 설계 프롬프트(구현 태스크 쪽), 느린 검사 표시와 `fastCheckBudgetMs` | 2, 3, ac-test-first PR 1, 2(재실행 사유 `flaky`가 PR 2의 네 번째 기준을 고친다). `ac_test` 태스크 쪽 프롬프트는 ac-test-first PR 3이 들어오면 켠다 |
 | 5    | `feat(execute): 기능 지도`                      | `feature-map.ts`, 설정 경로, e2e 연결, spec 스킬 단계, screen-chain 초안 단계              | 4                                                          |
 | 6    | `feat(evaluate): 변이 검사 report 모드`         | `mutation-probe.ts`, Call 1과 Call 2, Evolve 프롬프트, 재실행 사유                         | 4, ac-test-first PR 1, execute-drift-breaker PR 2(`listChangedSince`) |
 
-1과 2는 AC 계약과 상관없이 지금 코드에 바로 효과가 있다. 그래서 앞에 둔다. 2는 새 설정 키를 읽지 않아서 README "기존 버그"의 설정 배선을 기다리지 않는다. 6은 맨 뒤다. 판별력을 재려면 AC마다 연결된 테스트 명령이 먼저 있어야 한다.
+1과 2는 AC 계약과 상관없이 지금 코드에 바로 효과가 있다. 그래서 앞에 둔다. 2는 새 설정 키를 읽지 않아서 README "기존 버그"의 설정 배선을 기다리지 않는다. 4가 ac-test-first PR 2를 기다리는 건 `flaky`를 그 PR이 만드는 네 번째 기준에서 빼야 해서다. `gate_skipped` 상한은 PR 1의 `scoreAdjustment`만 쓴다. 6은 맨 뒤다. 판별력을 재려면 AC마다 연결된 테스트 명령이 먼저 있어야 한다.
 
 ## 열린 질문
 
