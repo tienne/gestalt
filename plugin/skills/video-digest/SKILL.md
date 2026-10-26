@@ -164,7 +164,7 @@ gestalt digest slice '<slug>' --range '<range>' --json --repo-root '<repoRoot>'
 
 출력의 `path`를 `<transcriptPath>` 대신 Step 2에 넘기고 `range`(초 튜플)를 `<rangeSec>`로 받아 둔다. 잘라 낸 파일의 문장 번호는 원래 스크립트 번호 그대로라 출처가 전체 스크립트를 가리킨다. 구간에 든 문장이 없으면 명령이 실패한다. 그 메시지를 보여 주고 멈춘다.
 
-**이미 요약한 영상이면 수집을 건너뛴다.** `slug`가 주어졌고 `<repoRoot>/.gestalt/digest/<slug>/transcript.json`이 있으면 ingest를 부르지 않고 그 경로를 `<transcriptPath>`로, 같은 폴더의 `report.draft.json`을 `<reportPath>`로 받아 둔다. 뷰어 툴바의 쉽게 보기 토글로 없는 리포트를 고르면 `/gestalt:video-digest slug=<slug> difficulty=<값> reportLang=<lang>` 명령이 클립보드로 복사되는데 그 명령이 이 경로로 들어온다. 구간 리포트에서 고르면 `range=<시작초>-<끝초>`가 붙는다. 요청이 붙은 리포트는 요청 원문을 뷰어에 싣지 않아서 명령 없이 같은 요청으로 다시 만들라는 안내만 뜬다.
+**이미 요약한 영상이면 수집을 건너뛴다.** `slug`가 주어졌고 `<repoRoot>/.gestalt/digest/<slug>/transcript.json`이 있으면 ingest를 부르지 않고 그 경로를 `<transcriptPath>`로, 같은 폴더의 `report.draft.json`을 `<reportPath>`로 받아 둔다. 뷰어 툴바의 쉽게 보기 토글로 없는 리포트를 고르면 `/gestalt:video-digest slug=<slug> difficulty=<값> reportLang=<lang>` 명령이 클립보드로 복사되는데 그 명령이 이 경로로 들어온다. 구간 리포트에서 고르면 `range=<시작초>-<끝초>`가 붙는다. 요청이 붙은 리포트는 요청문에 따옴표가 섞일 수 있어 명령에 못 실으므로 명령 없이 같은 요청으로 다시 만들라는 안내만 뜬다. `range`가 붙은 호출이면 수집을 건너뛰어도 위 slice를 부르고, 그 출력 `path`를 Step 2의 보통 리포트와 쉬운 리포트 프롬프트에 `<transcriptPath>` 대신 넘긴다. `<transcriptPath>`는 `transcript.json` 그대로 둔다. Step 3.5 확장이 전체 스크립트를 읽어서다.
 
 **확장만 더하는 호출이면 요약도 건너뛴다.** `templates`만 받고 `difficulty`, `range`, `prompt`가 모두 비었으며 `digest.json`에 리포트가 하나 이상 있으면 Step 2와 Step 3, Step 4를 건너뛰고 Step 3.5로 간다. 뷰어 확장 탭에서 아직 안 만든 템플릿을 고르면 `/gestalt:video-digest slug=<slug> templates=<id> reportLang=<lang>` 명령이 복사되는데 그 명령이 이 경로로 들어온다. `digest.json`에 리포트가 없으면 Step 2부터 그대로 돈다. merge --extension은 리포트가 있는 `digest.json`에만 합친다.
 
@@ -172,7 +172,7 @@ gestalt digest slice '<slug>' --range '<range>' --json --repo-root '<repoRoot>'
 
 **보통과 쉬운 리포트를 함께 만든다.** 뷰어 툴바의 쉽게 보기 토글이 두 리포트를 오간다. 한쪽만 있으면 토글을 눌렀을 때 생성 명령 안내가 뜨므로 두 난이도를 늘 함께 둔다. 보통 리포트를 먼저 쓰고 Step 3 merge를 통과하면 아래 "쉬운 리포트" 절대로 그 리포트를 풀어 쉬운 리포트를 쓴다.
 
-**이미 있는 난이도는 건너뛴다.** `digest.json`이 있으면 `ges_digest { action: "validate", slug, repoRoot }` 응답의 `reports`로 리포트 키 목록을 받는다. 목록 순서가 `reports[]`의 자리다. `range`와 `prompt`가 없는 호출이면 `long-<difficulty>-<lang>` 키로 두 난이도가 있는지 본다. 구간이나 요청이 붙은 호출은 늘 둘 다 새로 만든다.
+**이미 있는 난이도는 건너뛴다.** `digest.json`이 있으면 `ges_digest { action: "validate", slug, repoRoot }` 응답의 `reports`로 리포트 키 목록을 받는다. 목록 순서가 `reports[]`의 자리다. `range`와 `prompt`가 없는 호출이면 `long-<difficulty>-<lang>` 키로 두 난이도가 있는지 본다. `prompt`가 붙은 호출은 늘 둘 다 새로 만든다. `range`만 붙은 호출은 `long-<difficulty>-<lang>-r<시작초>-<끝초>` 키로 같은 구간의 두 난이도가 있는지 보고 아래 표를 똑같이 따른다.
 
 | 경우                                                   | 보통 리포트 | 쉬운 리포트                     |
 | ------------------------------------------------------ | ----------- | ------------------------------- |
