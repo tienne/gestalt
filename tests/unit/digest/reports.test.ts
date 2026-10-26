@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   findReport,
+  initialReportIndex,
   isPreset,
   lintDigest,
   lintErrors,
@@ -20,6 +21,7 @@ import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown } from '../../../src/digest/render.js';
 import { DIGEST_SCHEMA_VERSION, reportOptionsSchema } from '../../../src/digest/schema.js';
 import { DigestStore } from '../../../src/digest/store.js';
+import { VIEWER_JS } from '../../../src/digest/viewer-js.js';
 import { viewerLogic } from '../../../src/digest/viewer-logic.js';
 import { SLUG, sampleDigest, sampleTranscript } from './fixture.js';
 
@@ -374,5 +376,103 @@ describe('viewerLogic 리포트 전환', () => {
     expect(viewerLogic.reportCommand('figma-x', 'short', 'normal', 'en')).toBe(
       '/gestalt:video-digest slug=figma-x length=short difficulty=normal reportLang=en',
     );
+  });
+});
+
+describe('initialReportIndex', () => {
+  it('long+normal이 있으면 그 자리를 돌려준다', () => {
+    const reports = [variant({}), variant({ length: 'long' })];
+    expect(initialReportIndex(reports)).toBe(1);
+  });
+
+  it('long+normal이 없으면 첫 리포트', () => {
+    expect(initialReportIndex([variant({}), variant({ length: 'short' })])).toBe(0);
+    expect(initialReportIndex([variant({}), variant({ length: 'long', difficulty: 'easy' })])).toBe(
+      0,
+    );
+  });
+
+  it('언어가 다르거나 range, prompt가 붙은 long+normal은 무시한다', () => {
+    const reports = [
+      variant({}),
+      variant({ length: 'long', lang: 'en' }),
+      variant({ length: 'long', range: [30, 60] }),
+      variant({ length: 'long', prompt: 'x' }),
+    ];
+    expect(initialReportIndex(reports)).toBe(0);
+  });
+
+  it('빈 배열이면 0', () => {
+    expect(initialReportIndex([])).toBe(0);
+  });
+
+  it('첫 리포트가 long+normal이면 0', () => {
+    expect(initialReportIndex([variant({ length: 'long' }), variant({ length: 'long' })])).toBe(0);
+  });
+});
+
+describe('초기 리포트 렌더', () => {
+  const withLong = () => {
+    const d = sampleDigest();
+    d.reports.push(variant({ length: 'long' }));
+    return d;
+  };
+  const dataOf = (html: string) =>
+    JSON.parse(
+      /<script type="application\/json" id="digest-data">([\s\S]*?)<\/script>/.exec(html)![1]!,
+    );
+
+  it('long+normal이 뒤에 있으면 그 리포트와 미니맵만 보이고 툴바가 그 조합을 누른다', () => {
+    const { html } = renderDigestHtml(withLong(), sampleTranscript());
+    expect(html).toMatch(/<div class="report" data-ri="1"(?![^>]*hidden)/);
+    expect(html).toMatch(/<div class="report" data-ri="0"[^>]*hidden/);
+    expect(html).toMatch(/<nav class="minimap"[^>]*data-ri="1"(?![^>]*hidden)/);
+    expect(html).toMatch(/<nav class="minimap"[^>]*data-ri="0"[^>]*hidden/);
+    expect(html).toMatch(/data-length="long"[^>]*aria-pressed="true"/);
+    expect(html).toMatch(/data-length="default"[^>]*aria-pressed="false"/);
+    expect(html).toMatch(/data-difficulty="normal"[^>]*aria-pressed="true"/);
+    expect(dataOf(html).initial).toBe(1);
+  });
+
+  it('long+normal이 없으면 data.initial은 0이고 첫 리포트가 보인다', () => {
+    const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
+    expect(dataOf(html).initial).toBe(0);
+    expect(html).toMatch(/<div class="report" data-ri="0"(?![^>]*hidden)/);
+  });
+
+  it('short 리포트가 없으면 짧게 버튼을 그리지 않는다', () => {
+    const { html } = renderDigestHtml(withLong(), sampleTranscript());
+    expect(html).not.toContain('data-length="short"');
+    expect(html).toContain('data-length="default"');
+    expect(html).toContain('data-length="long"');
+  });
+
+  it('preset short 리포트가 있으면 짧게 버튼을 그린다', () => {
+    const d = withLong();
+    d.reports.push(variant({ length: 'short' }));
+    const { html } = renderDigestHtml(d, sampleTranscript());
+    expect(html).toContain('data-length="short"');
+  });
+
+  it('range나 prompt가 붙은 short만 있으면 짧게 버튼은 없다', () => {
+    const d = sampleDigest();
+    d.reports.push(
+      variant({ length: 'short', range: [30, 60] }),
+      variant({ length: 'short', prompt: 'x' }),
+    );
+    const { html } = renderDigestHtml(d, sampleTranscript());
+    expect(html).not.toContain('data-length="short"');
+  });
+
+  it('다른 리포트 select는 초기 리포트 option에 selected를 단다', () => {
+    const d = withLong();
+    d.reports.push(rangeReport());
+    const { html } = renderDigestHtml(d, sampleTranscript());
+    expect(html).toMatch(/<option value="1"[^>]*selected/);
+    expect(html).not.toMatch(/<option value="0"[^>]*selected/);
+  });
+
+  it('뷰어 스크립트가 data.initial을 읽는다', () => {
+    expect(VIEWER_JS).toContain('data.initial');
   });
 });
