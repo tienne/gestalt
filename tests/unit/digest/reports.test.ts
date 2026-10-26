@@ -301,15 +301,17 @@ describe('리포트 여럿 렌더', () => {
   it('리포트마다 쉽게 보기 짝과 구간을 뷰어 데이터로 싣는다', () => {
     const d = multi();
     d.reports.push({ ...rangeReport(), options: { ...rangeReport().options, difficulty: 'easy' } });
+    d.reports.push(variant({ length: 'long', prompt: '디자인 얘기만' }));
     const { html } = renderDigestHtml(d, sampleTranscript());
     const data = JSON.parse(
       html.match(/<script type="application\/json" id="digest-data">([^<]*)</)![1]!,
     ) as {
       reports: { pair: number; range: [number, number] | null; prompted: boolean }[];
     };
-    expect(data.reports.map((r) => r.pair)).toEqual([-1, -1, 3, 2]);
+    expect(data.reports.map((r) => r.pair)).toEqual([-1, -1, 3, 2, -1]);
     expect(data.reports[2]!.range).toEqual([30, 60]);
-    expect(data.reports.every((r) => r.prompted === false)).toBe(true);
+    expect(data.reports.slice(0, 4).every((r) => r.prompted === false)).toBe(true);
+    expect(data.reports[4]!.prompted).toBe(true);
   });
 
   it('처음 보이는 리포트가 쉬운 리포트면 토글이 눌린 상태다', () => {

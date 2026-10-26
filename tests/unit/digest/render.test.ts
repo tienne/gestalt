@@ -414,6 +414,28 @@ describe('viewer-js', () => {
     expect(isLineVisible(30, 300, 50, 200)).toBe(false);
   });
 
+  it('shouldRetryFollow는 버퍼링 중이고 남은 횟수가 있을 때만 다시 본다', () => {
+    const { shouldRetryFollow } = viewerLogic;
+    expect(shouldRetryFollow(3, 2)).toBe(true);
+    expect(shouldRetryFollow(3, 1)).toBe(true);
+    expect(shouldRetryFollow(3, 0)).toBe(false);
+    expect([1, 2, -1, 5].map((s) => shouldRetryFollow(s, 2))).toEqual([false, false, false, false]);
+  });
+
+  it('missingNotice는 요청 리포트에 명령을 안 만들고 구간 리포트에는 구간을 붙인다', () => {
+    const { missingNotice } = viewerLogic;
+    const prompted = missingNotice({ prompted: true, lang: 'ko' }, 'demo', 'easy');
+    expect(prompted.cmd).toBeNull();
+    expect(prompted.msg).toContain('같은 요청으로');
+    const ranged = missingNotice({ prompted: false, lang: 'ko', range: [30, 60] }, 'demo', 'easy');
+    expect(ranged.cmd).toContain('slug=demo');
+    expect(ranged.cmd).toContain('difficulty=easy');
+    expect(ranged.cmd).toContain('range=30-60');
+    expect(missingNotice({ prompted: false, lang: 'ko' }, 'demo', 'normal').cmd).not.toContain(
+      'range=',
+    );
+  });
+
   it('cueAction은 재생, 일시정지, 버퍼링일 때만 seek으로 옮기고 나머지는 위치만 잡는다', () => {
     const { cueAction } = viewerLogic;
     expect([1, 2, 3].map(cueAction)).toEqual(['seek', 'seek', 'seek']);
@@ -434,7 +456,9 @@ describe('viewer-js', () => {
       'isPlaying',
       'shouldFollowHeld',
       'shouldScrollScript',
+      'shouldRetryFollow',
       'isLineVisible',
+      'missingNotice',
       'cueAction',
       'citeWindow',
       'safeDecode',
