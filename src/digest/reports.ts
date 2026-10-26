@@ -52,6 +52,19 @@ export function isPreset(options: ReportOptions, base: ReportOptions): boolean {
 }
 
 /**
+ * 쉽게 보기 토글이 오갈 짝의 자리. 난이도만 반대고 분량, 언어, 구간, 요청이 같아야 짝이라 키로 비교한다. 없으면 -1
+ */
+export function pairIndex(reports: readonly Report[], i: number): number {
+  const options = reports[i]?.options;
+  if (!options) return -1;
+  const want = reportKey({
+    ...options,
+    difficulty: options.difficulty === 'easy' ? 'normal' : 'easy',
+  });
+  return reports.findIndex((r) => reportKey(r.options) === want);
+}
+
+/**
  * 뷰어를 처음 열 때 보일 리포트. 스킬이 길게와 보통을 기본으로 만들므로 그 조합을 먼저 찾고 없으면 첫 리포트를 연다
  */
 export function initialReportIndex(reports: readonly Report[]): number {

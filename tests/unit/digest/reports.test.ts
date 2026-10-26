@@ -6,6 +6,7 @@ import {
   findReport,
   initialReportIndex,
   isPreset,
+  pairIndex,
   lintDigest,
   lintErrors,
   mergeReport,
@@ -291,6 +292,24 @@ describe('리포트 여럿 렌더', () => {
     expect(html).not.toContain('data-difficulty=');
     expect(html).not.toContain('난이도');
     expect(html).toContain('id="report-missing"');
+    expect(html).toContain(
+      '<p id="report-status" class="sr-only" role="status" aria-live="polite"></p>',
+    );
+    expect(html).not.toMatch(/id="report-missing"[^>]*role="status"/);
+  });
+
+  it('리포트마다 쉽게 보기 짝과 구간을 뷰어 데이터로 싣는다', () => {
+    const d = multi();
+    d.reports.push({ ...rangeReport(), options: { ...rangeReport().options, difficulty: 'easy' } });
+    const { html } = renderDigestHtml(d, sampleTranscript());
+    const data = JSON.parse(
+      html.match(/<script type="application\/json" id="digest-data">([^<]*)</)![1]!,
+    ) as {
+      reports: { pair: number; range: [number, number] | null; prompted: boolean }[];
+    };
+    expect(data.reports.map((r) => r.pair)).toEqual([-1, -1, 3, 2]);
+    expect(data.reports[2]!.range).toEqual([30, 60]);
+    expect(data.reports.every((r) => r.prompted === false)).toBe(true);
   });
 
   it('처음 보이는 리포트가 쉬운 리포트면 토글이 눌린 상태다', () => {
@@ -380,10 +399,39 @@ describe('viewerLogic 리포트 전환', () => {
     );
   });
 
+  it('구간 리포트면 생성 명령에 구간을 초 단위로 싣는다', () => {
+    expect(viewerLogic.reportCommand('figma-x', 'easy', 'ko', [30, 60.4])).toBe(
+      '/gestalt:video-digest slug=figma-x difficulty=easy range=30-61 reportLang=ko',
+    );
+  });
+
   it('지금 보는 리포트의 언어를 생성 명령에 싣는다', () => {
     expect(viewerLogic.reportCommand('figma-x', 'normal', 'en')).toBe(
       '/gestalt:video-digest slug=figma-x difficulty=normal reportLang=en',
     );
+  });
+});
+
+describe('pairIndex', () => {
+  it('난이도만 반대인 리포트를 짝으로 찾는다', () => {
+    const reports = [variant({}), variant({ difficulty: 'easy' }), variant({ lang: 'en' })];
+    expect(pairIndex(reports, 0)).toBe(1);
+    expect(pairIndex(reports, 1)).toBe(0);
+    expect(pairIndex(reports, 2)).toBe(-1);
+  });
+
+  it('구간이나 요청이 다르면 짝이 아니다', () => {
+    const easyRange = {
+      ...rangeReport(),
+      options: { ...rangeReport().options, difficulty: 'easy' as const },
+    };
+    const prompted = variant({ difficulty: 'easy', prompt: '디자인 얘기만' });
+    expect(pairIndex([variant({}), easyRange, prompted], 0)).toBe(-1);
+    expect(pairIndex([rangeReport(), variant({ difficulty: 'easy' }), easyRange], 0)).toBe(2);
+  });
+
+  it('없는 자리면 -1이다', () => {
+    expect(pairIndex([], 0)).toBe(-1);
   });
 });
 

@@ -551,12 +551,16 @@ export const VIEWER_JS =
     var easyToggle = document.getElementById('easy-toggle');
     var select = document.getElementById('report-select');
     var missing = document.getElementById('report-missing');
+    var missingMsg = document.getElementById('report-missing-msg');
+    var cmdWrap = document.getElementById('report-cmd-wrap');
+    var status = document.getElementById('report-status');
     var cmd = document.getElementById('report-cmd');
     var copyCmd = document.getElementById('copy-cmd');
     var initial = data.reports[data.initial] ? data.initial : 0;
     var current = initial;
-    function pressEasy(difficulty){
-      if (easyToggle) easyToggle.setAttribute('aria-pressed', difficulty === 'easy' ? 'true' : 'false');
+    function hideMissing(){
+      if (missing) missing.hidden = true;
+      if (status) status.textContent = '';
     }
     function show(ri){
       if (!data.reports[ri]) ri = initial;
@@ -564,24 +568,31 @@ export const VIEWER_JS =
       boxes.forEach(function(b){ b.hidden = Number(b.getAttribute('data-ri')) !== ri; });
       maps.forEach(function(m){ m.hidden = Number(m.getAttribute('data-ri')) !== ri; });
       var r = data.reports[ri];
-      pressEasy(r.difficulty);
+      if (easyToggle) easyToggle.setAttribute('aria-pressed', r.difficulty === 'easy' ? 'true' : 'false');
       if (select) select.value = String(ri);
-      if (missing) missing.hidden = true;
+      hideMissing();
       try { localStorage.setItem(REPORT_KEY, r.key); } catch (e) {}
     }
     function choose(difficulty){
       var r = data.reports[current];
-      // 옛 짧게, 기본 리포트에서 눌렀을 때 같은 분량 짝이 없으면 길게로 간다. 스킬이 길게만 만들어서다
-      var ri = r.preset ? pickReport(data.reports, r.length, difficulty) : -1;
-      if (ri < 0) ri = pickReport(data.reports, 'long', difficulty);
+      var ri = r.pair;
+      // 짝이 없는 옛 짧게, 기본 리포트는 길게로 간다. 스킬이 길게만 만들어서다. 구간이나 요청이 붙은 리포트는 다른 리포트로 넘기지 않는다
+      if (ri < 0 && r.preset) ri = pickReport(data.reports, 'long', difficulty);
       if (ri >= 0) { show(ri); return; }
-      pressEasy(difficulty);
-      if (cmd) cmd.textContent = reportCommand(data.slug, difficulty, r.lang);
+      // 요청 원문은 공유 HTML에 싣지 않아서 명령을 만들 수 없다
+      var msg = r.prompted
+        ? '요청을 붙여 만든 리포트라 짝이 없어요. 같은 요청으로 다시 만들어 주세요.'
+        : '이 리포트는 아직 없어요. 아래 명령을 세션에 붙여 넣으면 만들어요.';
+      if (missingMsg) missingMsg.textContent = msg;
+      if (cmdWrap) cmdWrap.hidden = r.prompted;
+      if (cmd) cmd.textContent = r.prompted ? '' : reportCommand(data.slug, difficulty, r.lang, r.range);
       if (missing) missing.hidden = false;
+      if (status) status.textContent = msg;
     }
-    // 없는 리포트를 눌러 안내만 뜬 상태에서도 다시 누르면 꺼지도록 토글 자신의 눌림 상태를 기준으로 삼는다
+    // 눌림 상태는 보이는 리포트만 따른다. 안내가 떠 있으면 다시 눌러 닫는다
     if (easyToggle) easyToggle.addEventListener('click', function(){
-      choose(easyToggle.getAttribute('aria-pressed') === 'true' ? 'normal' : 'easy');
+      if (missing && !missing.hidden) { hideMissing(); return; }
+      choose(data.reports[current].difficulty === 'easy' ? 'normal' : 'easy');
     });
     if (select) select.addEventListener('change', function(){ show(Number(select.value)); });
     if (copyCmd && cmd) copyCmd.addEventListener('click', function(){

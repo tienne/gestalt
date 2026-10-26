@@ -8,7 +8,7 @@ import {
   type BlockHtmlContext,
 } from './render-blocks.js';
 import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
-import { initialReportIndex, isPreset, reportKey, reportLabel } from './reports.js';
+import { initialReportIndex, isPreset, pairIndex, reportKey, reportLabel } from './reports.js';
 import { VIEWER_JS } from './viewer-js.js';
 import {
   boldPattern,
@@ -271,11 +271,11 @@ ${skippedHtml}</div>`;
 
   const pressed = (on: boolean) => `aria-pressed="${on ? 'true' : 'false'}"`;
   // 툴바는 길게 리포트의 쉽게 보기만 켜고 끈다. 옛 digest에 남은 짧게와 기본 리포트는 다른 리포트 목록으로 간다
-  const customs = reportsMeta.filter(
+  const otherReports = reportsMeta.filter(
     ({ report }) => !isPreset(report.options, base) || report.options.length !== 'long',
   );
   const reportBar = `<div class="report-bar" role="group" aria-label="리포트 고르기"><button type="button" id="easy-toggle" ${pressed(shown.difficulty === 'easy')}>쉽게 보기</button>${
-    customs.length && reportsMeta.length > 1
+    otherReports.length && reportsMeta.length > 1
       ? `<label class="bar-label">다른 리포트 <select id="report-select">${reportsMeta
           .map(
             ({ report, key }, ri) =>
@@ -283,7 +283,7 @@ ${skippedHtml}</div>`;
           )
           .join('')}</select></label>`
       : ''
-  }</div><div id="report-missing" class="report-missing" role="status" hidden><p>이 리포트는 아직 없어요. 아래 명령을 세션에 붙여 넣으면 만들어요.</p><code id="report-cmd"></code> <button type="button" id="copy-cmd">명령 복사</button></div>`;
+  }</div><p id="report-status" class="sr-only" role="status" aria-live="polite"></p><div id="report-missing" class="report-missing" hidden><p id="report-missing-msg"></p><span id="report-cmd-wrap"><code id="report-cmd"></code> <button type="button" id="copy-cmd">명령 복사</button></span></div>`;
 
   const watchBase = isYoutube ? youtubeWatchUrl(meta.videoId!) : null;
   const player = isYoutube
@@ -319,12 +319,15 @@ ${skippedHtml}</div>`;
     starts: segments.map((s) => s.startSec),
     slug: digest.slug,
     initial,
-    reports: reportsMeta.map(({ report, key }) => ({
+    reports: reportsMeta.map(({ report, key }, ri) => ({
       key,
       length: report.options.length,
       difficulty: report.options.difficulty,
       lang: report.options.lang,
       preset: isPreset(report.options, base),
+      pair: pairIndex(digest.reports, ri),
+      range: report.options.range ?? null,
+      prompted: Boolean(report.options.prompt),
       keywords: Object.fromEntries(
         report.keywords.map((k) => [
           k.id,
@@ -453,7 +456,6 @@ a.ts:hover{text-decoration:underline}
 .note{color:var(--warn);font-size:.9em}
 .report-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0;font-size:.85em}
 .report-bar .bar-label{color:var(--muted);margin-left:6px}
-.report-bar .bar-label:first-child{margin-left:0}
 .report-bar button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:3px 12px;cursor:pointer}
 .report-bar button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .report-bar select{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:2px 6px}

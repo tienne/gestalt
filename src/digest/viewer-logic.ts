@@ -46,8 +46,9 @@ function pickReport(reports, length, difficulty) {
   }
   return -1;
 }
-function reportCommand(slug, difficulty, lang) {
+function reportCommand(slug, difficulty, lang, range) {
   var cmd = '/gestalt:video-digest slug=' + slug + ' difficulty=' + difficulty;
+  if (range) cmd += ' range=' + Math.floor(range[0]) + '-' + Math.ceil(range[1]);
   return lang ? cmd + ' reportLang=' + lang : cmd;
 }
 function templateCommand(slug, id, lang) {
@@ -138,8 +139,13 @@ export interface ViewerLogic {
     length: string,
     difficulty: string,
   ) => number;
-  /** 없는 리포트를 고르면 복사해 주는 생성 명령. 스킬이 길게만 만들어서 분량은 싣지 않는다. 지금 보는 리포트의 언어를 따라가야 다른 언어 리포트가 안 생긴다 */
-  reportCommand: (slug: string, difficulty: string, lang?: string) => string;
+  /** 없는 리포트를 고르면 복사해 주는 생성 명령. 스킬이 길게만 만들어서 분량은 싣지 않는다. 지금 보는 리포트의 언어와 구간을 따라가야 엉뚱한 리포트가 안 생긴다 */
+  reportCommand: (
+    slug: string,
+    difficulty: string,
+    lang?: string,
+    range?: [number, number],
+  ) => string;
   /** "+ 더 만들기"에서 템플릿을 고르면 복사해 주는 명령. 언어는 지금 보는 리포트를 따른다 */
   templateCommand: (slug: string, id: string, lang?: string) => string;
   /** 탭 목록에서 방향키, Home, End로 옮겨 갈 자리. 다른 키면 -1 */
