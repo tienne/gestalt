@@ -283,13 +283,21 @@ describe('리포트 여럿 렌더', () => {
     return d;
   }
 
-  it('툴바는 분량과 난이도 버튼을 두고 첫 리포트 조합을 눌린 상태로 둔다', () => {
+  it('툴바는 쉽게 보기 토글 하나만 두고 분량과 난이도 버튼은 그리지 않는다', () => {
     const { html } = renderDigestHtml(multi(), sampleTranscript());
     expect(html).toContain('class="report-bar"');
-    expect(html).toMatch(/data-length="default"[^>]*aria-pressed="true"/);
-    expect(html).toMatch(/data-length="short"[^>]*aria-pressed="false"/);
-    expect(html).toMatch(/data-difficulty="easy"[^>]*aria-pressed="false"/);
+    expect(html).toMatch(/id="easy-toggle"[^>]*aria-pressed="false"[^>]*>쉽게 보기</);
+    expect(html).not.toContain('data-length=');
+    expect(html).not.toContain('data-difficulty=');
+    expect(html).not.toContain('난이도');
     expect(html).toContain('id="report-missing"');
+  });
+
+  it('처음 보이는 리포트가 쉬운 리포트면 토글이 눌린 상태다', () => {
+    const d = sampleDigest();
+    d.reports[0] = variant({ length: 'long', difficulty: 'easy' });
+    const { html } = renderDigestHtml(d, sampleTranscript());
+    expect(html).toMatch(/id="easy-toggle"[^>]*aria-pressed="true"/);
   });
 
   it('구간 리포트는 따로 고르는 목록에 들어가고 첫 리포트 말고는 숨긴다', () => {
@@ -365,16 +373,16 @@ describe('viewerLogic 리포트 전환', () => {
     expect(viewerLogic.pickReport(reports, 'default', 'normal')).toBe(0);
   });
 
-  it('없는 조합이면 -1이고 생성 명령을 만든다', () => {
+  it('없는 조합이면 -1이고 생성 명령에는 분량을 싣지 않는다', () => {
     expect(viewerLogic.pickReport(reports, 'long', 'easy')).toBe(-1);
-    expect(viewerLogic.reportCommand('figma-x', 'long', 'easy')).toBe(
-      '/gestalt:video-digest slug=figma-x length=long difficulty=easy',
+    expect(viewerLogic.reportCommand('figma-x', 'easy')).toBe(
+      '/gestalt:video-digest slug=figma-x difficulty=easy',
     );
   });
 
   it('지금 보는 리포트의 언어를 생성 명령에 싣는다', () => {
-    expect(viewerLogic.reportCommand('figma-x', 'short', 'normal', 'en')).toBe(
-      '/gestalt:video-digest slug=figma-x length=short difficulty=normal reportLang=en',
+    expect(viewerLogic.reportCommand('figma-x', 'normal', 'en')).toBe(
+      '/gestalt:video-digest slug=figma-x difficulty=normal reportLang=en',
     );
   });
 });
@@ -422,15 +430,13 @@ describe('초기 리포트 렌더', () => {
       /<script type="application\/json" id="digest-data">([\s\S]*?)<\/script>/.exec(html)![1]!,
     );
 
-  it('long+normal이 뒤에 있으면 그 리포트와 미니맵만 보이고 툴바가 그 조합을 누른다', () => {
+  it('long+normal이 뒤에 있으면 그 리포트와 미니맵만 보이고 쉽게 보기는 꺼져 있다', () => {
     const { html } = renderDigestHtml(withLong(), sampleTranscript());
     expect(html).toMatch(/<div class="report" data-ri="1"(?![^>]*hidden)/);
     expect(html).toMatch(/<div class="report" data-ri="0"[^>]*hidden/);
     expect(html).toMatch(/<nav class="minimap"[^>]*data-ri="1"(?![^>]*hidden)/);
     expect(html).toMatch(/<nav class="minimap"[^>]*data-ri="0"[^>]*hidden/);
-    expect(html).toMatch(/data-length="long"[^>]*aria-pressed="true"/);
-    expect(html).toMatch(/data-length="default"[^>]*aria-pressed="false"/);
-    expect(html).toMatch(/data-difficulty="normal"[^>]*aria-pressed="true"/);
+    expect(html).toMatch(/id="easy-toggle"[^>]*aria-pressed="false"/);
     expect(dataOf(html).initial).toBe(1);
   });
 
@@ -440,28 +446,21 @@ describe('초기 리포트 렌더', () => {
     expect(html).toMatch(/<div class="report" data-ri="0"(?![^>]*hidden)/);
   });
 
-  it('short 리포트가 없으면 짧게 버튼을 그리지 않는다', () => {
-    const { html } = renderDigestHtml(withLong(), sampleTranscript());
-    expect(html).not.toContain('data-length="short"');
-    expect(html).toContain('data-length="default"');
-    expect(html).toContain('data-length="long"');
-  });
-
-  it('preset short 리포트가 있으면 짧게 버튼을 그린다', () => {
+  it('옛 짧게와 기본 리포트는 다른 리포트 목록으로 간다', () => {
     const d = withLong();
     d.reports.push(variant({ length: 'short' }));
     const { html } = renderDigestHtml(d, sampleTranscript());
-    expect(html).toContain('data-length="short"');
+    const select = /<select id="report-select">([\s\S]*?)<\/select>/.exec(html)![1]!;
+    expect(select).toContain('짧게, 보통');
+    expect(select).toContain('기본, 보통');
   });
 
-  it('range나 prompt가 붙은 short만 있으면 짧게 버튼은 없다', () => {
+  it('길게 리포트만 있으면 다른 리포트 목록을 그리지 않는다', () => {
     const d = sampleDigest();
-    d.reports.push(
-      variant({ length: 'short', range: [30, 60] }),
-      variant({ length: 'short', prompt: 'x' }),
-    );
+    d.reports[0] = variant({ length: 'long' });
+    d.reports.push(variant({ length: 'long', difficulty: 'easy' }));
     const { html } = renderDigestHtml(d, sampleTranscript());
-    expect(html).not.toContain('data-length="short"');
+    expect(html).not.toContain('id="report-select"');
   });
 
   it('다른 리포트 select는 초기 리포트 option에 selected를 단다', () => {
