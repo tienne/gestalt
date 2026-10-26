@@ -240,6 +240,8 @@ export interface MutationVerdict {
   killed: string[]; // 테스트가 실패해서 변이를 잡았다
   survived: string[]; // 테스트가 통과해서 변이를 못 잡았다. 판별력이 약하다는 신호
   notRun: string[];
+  /** 변이당 시간 제한에 걸려 끊긴 변이. 종료 코드 124나 137 */
+  timedOut: string[];
   /** 평가당 상한에 걸려 만들지 않은 변이 수. notRun과 따로 센다 */
   capped: number;
   /** probeId별 재사용 키. path, line, operator, blobBefore, AC 검사 명령, 테스트 파일 blob으로 만든다 */
@@ -330,22 +332,22 @@ export interface EvaluationResult {
 1. 그 AC의 검사 명령이 fast 단계에서 통과했는지 본다. 통과하지 않았으면 변이를 돌리지 않는다. 이미 실패하는 테스트로는 판별력을 잴 수 없다.
 2. `git apply --numstat`으로 패치가 건드리는 파일이 `path` 하나뿐인지 본다. 아니면 적용하지 않고 `exitCode: -1`로 낸다.
 3. `git apply`로 패치를 적용한다. 적용이 실패하면 그 변이는 `exitCode: -1`로 내고 넘어간다.
-4. `AcCheckCommand.command`를 그대로 돌린다.
+4. `AcCheckCommand.command`를 그대로 돌린다. 변이마다 시간 제한을 둔다. 제한은 `min(남은 예산, fast 단계에서 그 명령이 걸린 시간 × execute.mutationProbeTimeoutFactor)`이고 기본 배수는 3이다. 넘으면 끊고 종료 코드 124로 낸다. 반복문 경계를 바꾼 변이는 무한 루프를 낼 수 있어서다.
 5. `git apply -R`로 원복한다. 4에서 명령이 실패하거나 시간 초과로 끊겨도 원복은 반드시 한다.
 
 호스트가 4와 5 사이에 죽으면 변이가 작업 트리에 남는다. 다음 평가의 Call 1은 세션에 남은 직전 `mutationProbes`의 파일마다 지금 해시를 구해 본다. 지금 해시가 `blobAfter`와 같을 때만 변이가 남은 것으로 보고 변이 검사보다 원복을 먼저 하라고 안내한다. `blobBefore`와 같으면 원복이 된 것이다. 둘 다 아니면 평가 사이에 Evolve가 그 파일을 고친 것이라 그냥 넘어간다.
 
 원복은 세션에 남은 그 변이의 `patch`로만 한다. `git apply -R --check`가 통과하면 `git apply -R`을 하고 통과하지 않으면 원복하지 않고 사용자에게 알린 뒤 멈춘다. `git checkout`, `git restore`, `git stash`처럼 파일을 통째로 되돌리는 명령은 쓰지 않는다. 변이를 건 파일은 기준점 이후 고친 미커밋 파일이라 통째로 되돌리면 그 수정까지 날아간다.
 
-변이 검사 전체에 쓴 시간이 `execute.mutationProbeBudgetMs`(기본 300000)를 넘으면 남은 변이는 돌리지 않고 결과 없이 둔다.
+변이 검사 전체에 쓴 시간이 `execute.mutationProbeBudgetMs`(기본 300000)를 넘으면 남은 변이는 돌리지 않고 결과 없이 둔다. 이 예산은 변이 사이에서만 본다. 변이 하나가 도는 동안은 위 4단계의 시간 제한이 막는다.
 
 #### 서버가 하는 일 (Call 2)
 
 - 변이 결과의 `command`가 그 AC의 검사 명령과 다르면 거부한다. 메시지 형식은 기존 불일치 거부와 같다(`src/execute/orchestrators/evaluation.ts:105-112`).
 - 변이를 걸었던 파일의 blob 해시를 다시 구해 `blobBefore`와 비교한다. 하나라도 다르면 "작업 트리가 원복되지 않았다"로 거부한다. 변이가 남은 코드 위에서 평가가 계속 도는 걸 막는다.
-- `exitCode`가 0이 아니면 `killed`, 0이면 `survived`, -1이거나 결과가 없으면 `notRun`이다.
-- 판정은 Call 2에서 만들어 `session.mutationVerdicts`에 두고 `EVALUATE_STRUCTURAL_COMPLETED` payload에 싣는다. 맥락 평가 프롬프트가 Call 2 응답에서 만들어지므로 그 전에 판정이 있어야 한다. 프롬프트의 `**AC Check Results**` 표에 테스트가 못 잡은 변이를 `src/x.ts:42 flip_comparison`처럼 보인다. Call 3은 같은 판정을 `EvaluationResult.mutation`에 옮겨 담기만 하고 점수는 바꾸지 않는다.
-- 재평가 때는 변이를 다 다시 돌리지 않는다. Call 1의 `buildMutationProbes`가 직전 판정에서 `survived`였던 변이와 테스트 파일이나 소스가 바뀐 AC의 변이만 다시 낸다. `killed`는 재사용 키가 같으면 그대로 쓴다. 키는 `path`, `line`, `operator`, `blobBefore`, AC 검사 명령, 테스트 파일 blob이고 `session.mutationVerdicts`에 판정과 함께 남긴다.
+- `exitCode`가 124나 137이면 `timedOut`, 그 밖에 0이 아니면 `killed`, 0이면 `survived`, -1이거나 결과가 없으면 `notRun`이다. 시간 초과는 테스트가 변이를 잡은 게 아니라서 `killed`로 세지 않는다. 결과가 빠진 것도 아니라서 `notRun` 경고에도 넣지 않는다.
+- 판정은 Call 2에서 만들어 `session.mutationVerdicts`에 두고 `EVALUATE_STRUCTURAL_COMPLETED` payload에 싣는다. 맥락 평가 프롬프트가 Call 2 응답에서 만들어지므로 그 전에 판정이 있어야 한다. 프롬프트의 `**AC Check Results**` 표에 테스트가 못 잡은 변이를 `src/x.ts:42 flip_comparison`처럼 보인다. `timedOut`은 개수만 보인다. Call 3은 같은 판정을 `EvaluationResult.mutation`에 옮겨 담기만 하고 점수는 바꾸지 않는다.
+- 재평가 때는 변이를 다 다시 돌리지 않는다. Call 1의 `buildMutationProbes`가 직전 판정에서 `survived`였던 변이와 테스트 파일이나 소스가 바뀐 AC의 변이만 다시 낸다. `killed`와 `timedOut`은 재사용 키가 같으면 그대로 쓴다. `timedOut`까지 다시 돌리면 무한 루프를 내는 변이가 재평가마다 시간 제한만큼 시간을 쓴다. 키는 `path`, `line`, `operator`, `blobBefore`, AC 검사 명령, 테스트 파일 blob이고 `session.mutationVerdicts`에 판정과 함께 남긴다.
 - 변이 검사는 report 전용이라 아래 "fast와 gate 나누기"에서 gate 검사가 빠졌을 때 거부하는 규칙에서 뺀다. 결과가 빠지면 `notRun`이 되고 `notRun` 개수를 경고로 싣는다. 상한에 걸려 처음부터 만들지 않은 변이는 `notRun`에 넣지 않고 `capped`로 따로 센다. 돌리다 만 변이와 구분하려는 것이다.
 - Evolve 프롬프트에는 테스트가 못 잡은 변이마다 한 줄씩 넣는다. "AC-1 테스트가 `<`를 `<=`로 바꾼 구현도 통과시킨다. 경계값 테스트를 더한다." 재실행 대상(`impact-identifier.ts`)에는 그 AC의 테스트 태스크를 더한다. README "재실행 대상 고르기"의 `ImpactedTask.reasons`에 `mutation_survived`를 남긴다.
 
@@ -545,7 +547,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `src/core/types.ts`                                                                      | `AcTestDesign`, `IntendedDiff`, `CheckAttempt`, `CheckTier`, `MutationProbe`, `MutationProbeResult`, `MutationVerdict`, `FeatureLaunch` 추가. `StructuralCommandResult`, `StructuralResult`, `AcCheckCommand`, `AcCheckRunResult`, `AcCheckStatus`, `AcCheckSource`, `EvaluationResult`, 세션의 `mutationVerdicts`에 필드 추가 |
 | `src/spec/acceptance-criteria.ts`                                                        | `testDesign` 스키마와 검증 규칙, 입력 타입, `mergeCriteriaPatch` 보존. `formatAcLine`에 `property`, `differential(oracle)`, `e2e(feature)` 표시                 |
-| `src/core/config.ts`                                                                     | `executeConfigSchema`에 `mutationProbe`, `mutationProbeLimit`, `mutationProbeBudgetMs`, `fastCheckBudgetMs`. 새 `verification.featureMapDir`와 경로 검사                |
+| `src/core/config.ts`                                                                     | `executeConfigSchema`에 `mutationProbe`, `mutationProbeLimit`, `mutationProbeBudgetMs`, `mutationProbeTimeoutFactor`, `fastCheckBudgetMs`. 새 `verification.featureMapDir`와 경로 검사                |
 | `src/execute/failure-output.ts` (새 파일)                                                | `condenseFailureOutput`                                                                                                  |
 | `src/execute/feature-map.ts` (새 파일)                                                   | `loadFeatureMap`, `findFeature`. gray-matter 안전 옵션과 크기 상한                                                       |
 | `src/execute/mutation-probe.ts` (새 파일)                                                | `buildMutationProbes`, `verifyMutationResults`                                                                           |
@@ -578,7 +580,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 재실행 판정    | `tests/unit/execute/execution-evaluate.test.ts`              | 판정 표의 다섯 줄. `flaky` Structural의 short-circuit과 fix 프롬프트 표시. 시간 초과로 끊긴 명령은 `retry` 없이 실패로 받고 `timeout` 머리줄                                                                                |
 | 단계           | 같은 파일                                                    | fast 실패 때 gate 결과 버림과 빠짐 대조 제외. fast 통과인데 gate `skipped`나 누락이면 거부. `gate_skipped` 상한이 `report` 모드에도 걸림. `testDesign`별 `tier` |
 | 변이 만들기    | `tests/unit/execute/mutation-probe.test.ts` (새 파일)        | 연산자 다섯 개, 주석과 문자열 건너뛰기, 테스트 파일 제외, 레포 밖 경로와 심링크 제외, 같은 seed면 같은 변이, AC당 세 개 상한, 평가당 상한과 AC 번갈아 남기기, `capped` 개수, e2e와 differential 제외. git 임시 레포는 `execution-artifact-verify.test.ts` 헬퍼 |
-| 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 이벤트에 실린 결과에 `mutationResults`가 없음. 지금 해시가 직전 변이의 `blobAfter`와 같을 때만 Call 1이 원복부터 안내하고 `blobBefore`도 `blobAfter`도 아니면 넘어감. 키가 같은 `killed` 재사용과 키가 바뀌면 다시 돌리기 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상 |
+| 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 124와 137은 `timedOut`이고 `notRun` 경고에 안 들어감. 이벤트에 실린 결과에 `mutationResults`가 없음. 지금 해시가 직전 변이의 `blobAfter`와 같을 때만 Call 1이 원복부터 안내하고 `blobBefore`도 `blobAfter`도 아니면 넘어감. 키가 같은 `killed`와 `timedOut` 재사용과 키가 바뀌면 다시 돌리기 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상 |
 | 차분 id 대조   | `tests/unit/execute/ac-checks.test.ts` (ac-test-first.md가 만든다) | `intended_diff_missing`, 스펙에 없는 DIFF 경고                                                                                                           |
 | 기능 지도      | `tests/unit/execute/feature-map.test.ts` (새 파일)           | frontmatter 파싱, js 엔진 거부, 크기 상한, 절대 경로와 `..` 거부, 레포 밖으로 풀리는 경로 거부, 심링크 파일 건너뛰기, `e2e` 경로에도 같은 검사, `feature_not_found`                                                                           |
 | 재실행 대상    | `tests/unit/execute/evolution-loop.test.ts`                  | `flaky`와 `mutation_survived`가 `ac_test` 태스크만 고른다. `testFirst`가 꺼지면 그 AC의 구현 태스크로 간다                                                |
