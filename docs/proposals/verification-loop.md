@@ -216,6 +216,8 @@ export interface MutationProbe {
   patch: string;
   /** 원복 확인용. 변이 전 blob 해시 */
   blobBefore: string;
+  /** 변이가 남았는지 가리는 용도. 변이를 적용한 내용의 blob 해시 */
+  blobAfter: string;
 }
 
 export type MutationOperator =
@@ -317,7 +319,7 @@ export interface EvaluationResult {
    - 기준점에서 이미 dirty였던 파일은 뺀다. 그때의 blob이 object DB에 없어서 diff를 걸 수 없다. `execute-drift-breaker.md`가 같은 이유로 심볼 단위 매핑을 미뤘다.
 4. 바뀐 줄에 연산자 다섯 개를 정규식으로 맞춰 본다. 주석 줄과 문자열 리터럴 안은 건너뛴다. AST를 쓰지 않는 건 서버 의존성을 늘리지 않으려는 선택이다. 그래서 놓치는 자리가 생겨도 받아들인다.
 5. 후보를 `path:line:operator`로 정렬하고 세션 id를 seed로 AC당 최대 세 개를 고른다. 같은 세션에서 다시 평가해도 같은 변이가 나온다. 고른 변이의 합이 `mutationProbeLimit`을 넘으면 AC id 순으로 돌며 AC마다 하나씩 번갈아 남긴다. 앞쪽 AC가 상한을 다 쓰지 않게 하려는 것이다. 상한에 걸려 빠진 변이 수는 AC마다 `capped`로 센다.
-6. 각 변이를 unified diff로 만들고 변이 전 blob 해시를 함께 남긴다. 해시는 `hashFiles`(`src/execute/artifact-verifier.ts:66`)를 export해서 쓴다. `ac-test-first.md`도 같은 함수를 export하기로 했다.
+6. 각 변이를 unified diff로 만들고 변이 전 blob 해시를 함께 남긴다. 해시는 `hashFiles`(`src/execute/artifact-verifier.ts:66`)를 export해서 쓴다. `ac-test-first.md`도 같은 함수를 export하기로 했다. 변이를 적용한 내용의 해시 `blobAfter`도 함께 남긴다. `hashFiles`는 디스크 파일만 해시하므로 이쪽은 변이 내용을 `git hash-object --stdin --path=<path>`에 넘겨 구한다. `--path`를 줘야 eol 같은 경로 필터가 `blobBefore`와 똑같이 걸린다.
 
 결과는 `structuralContext.mutationProbes`에 실린다. `tier`는 `gate`다.
 
@@ -331,7 +333,9 @@ export interface EvaluationResult {
 4. `AcCheckCommand.command`를 그대로 돌린다.
 5. `git apply -R`로 원복한다. 4에서 명령이 실패하거나 시간 초과로 끊겨도 원복은 반드시 한다.
 
-호스트가 4와 5 사이에 죽으면 변이가 작업 트리에 남는다. 다음 평가의 Call 1은 세션에 남은 직전 `mutationProbes`의 `blobBefore`를 지금 해시와 비교하고 어긋나면 변이 검사보다 원복을 먼저 하라고 안내한다.
+호스트가 4와 5 사이에 죽으면 변이가 작업 트리에 남는다. 다음 평가의 Call 1은 세션에 남은 직전 `mutationProbes`의 파일마다 지금 해시를 구해 본다. 지금 해시가 `blobAfter`와 같을 때만 변이가 남은 것으로 보고 변이 검사보다 원복을 먼저 하라고 안내한다. `blobBefore`와 같으면 원복이 된 것이다. 둘 다 아니면 평가 사이에 Evolve가 그 파일을 고친 것이라 그냥 넘어간다.
+
+원복은 세션에 남은 그 변이의 `patch`로만 한다. `git apply -R --check`가 통과하면 `git apply -R`을 하고 통과하지 않으면 원복하지 않고 사용자에게 알린 뒤 멈춘다. `git checkout`, `git restore`, `git stash`처럼 파일을 통째로 되돌리는 명령은 쓰지 않는다. 변이를 건 파일은 기준점 이후 고친 미커밋 파일이라 통째로 되돌리면 그 수정까지 날아간다.
 
 변이 검사 전체에 쓴 시간이 `execute.mutationProbeBudgetMs`(기본 300000)를 넘으면 남은 변이는 돌리지 않고 결과 없이 둔다.
 
@@ -531,7 +535,8 @@ Gate checks skipped although all fast checks passed: AC-3, AC-5
 → 스킬: gate 검사를 돌려 결과를 채워 다시 낸다
 
 Working tree not restored after mutation probes: src/price.ts (expected blob 3f2a…, got 91bc…)
-→ 스킬: git apply -R로 원복하고 변이 검사를 처음부터 다시 돌린다
+→ 스킬: 그 변이의 patch로 git apply -R --check를 먼저 돌려 통과하면 git apply -R로 원복하고 변이 검사를 처음부터 다시 돌린다
+   통과하지 않으면 사용자에게 알리고 멈춘다. git checkout, git restore, git stash로 파일을 통째로 되돌리지 않는다
 ```
 
 ## 바꿀 파일
@@ -551,7 +556,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | `src/execute/artifact-verifier.ts`                                                       | `hashFiles` export (`ac-test-first.md`와 같은 변경)                                                                      |
 | `src/execute/impact-identifier.ts`                                                       | `flaky`와 `mutation_survived` 사유로 그 AC의 테스트 태스크 추가. `flaky`는 네 번째 기준에서 뺀다                         |
 | `src/mcp/schemas.ts`                                                                     | `structuralResult` 확장, `mutationResults`(`probeId`, `command`, `exitCode`), AC `testDesign`                                                              |
-| `plugin/skills/execute/SKILL.md`                                                         | 한 번 다시 돌리기 규칙, fast 먼저 규칙, 변이 적용과 원복 절차, 합리화 표에 "통과할 때까지 돌린다" 추가                    |
+| `plugin/skills/execute/SKILL.md`                                                         | 한 번 다시 돌리기 규칙, fast 먼저 규칙, 변이 적용과 원복 절차(원복은 그 변이의 patch로만 하고 `git apply -R --check`를 먼저 돌린다. 파일을 통째로 되돌리는 명령은 쓰지 않는다), 합리화 표에 "통과할 때까지 돌린다" 추가                    |
 | `plugin/skills/spec/SKILL.md`                                                            | 기능 지도 id 목록을 읽어 프롬프트에 넣는 단계                                                                            |
 | `docs/04-evaluate.md`, `docs/05-evolve.md`, `docs/configuration.md`, `docs/mcp-reference.md` | 흐름과 스키마, 설정                                                                                                      |
 
@@ -573,7 +578,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 재실행 판정    | `tests/unit/execute/execution-evaluate.test.ts`              | 판정 표의 다섯 줄. `flaky` Structural의 short-circuit과 fix 프롬프트 표시. 시간 초과로 끊긴 명령은 `retry` 없이 실패로 받고 `timeout` 머리줄                                                                                |
 | 단계           | 같은 파일                                                    | fast 실패 때 gate 결과 버림과 빠짐 대조 제외. fast 통과인데 gate `skipped`나 누락이면 거부. `gate_skipped` 상한이 `report` 모드에도 걸림. `testDesign`별 `tier` |
 | 변이 만들기    | `tests/unit/execute/mutation-probe.test.ts` (새 파일)        | 연산자 다섯 개, 주석과 문자열 건너뛰기, 테스트 파일 제외, 레포 밖 경로와 심링크 제외, 같은 seed면 같은 변이, AC당 세 개 상한, 평가당 상한과 AC 번갈아 남기기, `capped` 개수, e2e와 differential 제외. git 임시 레포는 `execution-artifact-verify.test.ts` 헬퍼 |
-| 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 이벤트에 실린 결과에 `mutationResults`가 없음. 직전 변이의 해시가 어긋나면 Call 1이 원복부터 안내. 키가 같은 `killed` 재사용과 키가 바뀌면 다시 돌리기 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상 |
+| 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 이벤트에 실린 결과에 `mutationResults`가 없음. 지금 해시가 직전 변이의 `blobAfter`와 같을 때만 Call 1이 원복부터 안내하고 `blobBefore`도 `blobAfter`도 아니면 넘어감. 키가 같은 `killed` 재사용과 키가 바뀌면 다시 돌리기 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상 |
 | 차분 id 대조   | `tests/unit/execute/ac-checks.test.ts` (ac-test-first.md가 만든다) | `intended_diff_missing`, 스펙에 없는 DIFF 경고                                                                                                           |
 | 기능 지도      | `tests/unit/execute/feature-map.test.ts` (새 파일)           | frontmatter 파싱, js 엔진 거부, 크기 상한, 절대 경로와 `..` 거부, 레포 밖으로 풀리는 경로 거부, 심링크 파일 건너뛰기, `e2e` 경로에도 같은 검사, `feature_not_found`                                                                           |
 | 재실행 대상    | `tests/unit/execute/evolution-loop.test.ts`                  | `flaky`와 `mutation_survived`가 `ac_test` 태스크만 고른다. `testFirst`가 꺼지면 그 AC의 구현 태스크로 간다                                                |
