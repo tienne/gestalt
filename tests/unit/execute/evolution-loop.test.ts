@@ -822,8 +822,12 @@ describe('evolve 뒤 재평가의 프로젝트 메모리 기록', () => {
       ],
     });
     if (!isOk(patchResult)) throw new Error('patch failed');
+    const impacted = patchResult.value.impactedTaskIds;
+    const reExecuted: string[] = [];
     let next = patchResult.value.reExecuteContext;
     while (next) {
+      reExecuted.push(next.currentTask.taskId);
+      if (reExecuted.length > impacted.length) throw new Error('re-execute loop did not terminate');
       const res = engine.submitReExecuteTaskResult(sessionId, {
         taskId: next.currentTask.taskId,
         status: 'completed',
@@ -833,6 +837,7 @@ describe('evolve 뒤 재평가의 프로젝트 메모리 기록', () => {
       if (!isOk(res)) throw new Error('re-execute failed');
       next = res.value.reExecuteContext;
     }
+    expect([...reExecuted].sort()).toEqual([...impacted].sort());
 
     evaluate(sessionId, 0.9);
     const history = readExecutionHistory();
