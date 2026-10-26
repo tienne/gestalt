@@ -217,6 +217,17 @@ async function setupCompletedExecution() {
   return sessionId;
 }
 
+function submitPassingStructural(sessionId: string): void {
+  const evalStart = engine.startEvaluation(sessionId);
+  engine.submitStructuralResult(
+    sessionId,
+    asRequested(evalStart, {
+      commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
+      allPassed: true,
+    }),
+  );
+}
+
 // ─── Tests ──────────────────────────────────────────────────────
 
 describe('Spec Patch Validator', () => {
@@ -612,14 +623,7 @@ describe('Evolution Loop Engine Integration', () => {
   it('rejects invalid spec patch (goal modification)', async () => {
     const sessionId = await setupCompletedExecution();
 
-    const evalStart = engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(
-      sessionId,
-      asRequested(evalStart, {
-        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
-        allPassed: true,
-      }),
-    );
+    submitPassingStructural(sessionId);
     engine.submitEvaluation(sessionId, {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
@@ -653,14 +657,7 @@ describe('Evolution Loop Engine Integration', () => {
     const sessionId = await setupCompletedExecution();
 
     // Evaluate
-    const evalStart = engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(
-      sessionId,
-      asRequested(evalStart, {
-        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
-        allPassed: true,
-      }),
-    );
+    submitPassingStructural(sessionId);
     engine.submitEvaluation(sessionId, {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
@@ -713,14 +710,7 @@ describe('Evolution Loop Repository Replay', () => {
     const sessionId = await setupCompletedExecution();
 
     // Evaluate
-    const evalStart = engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(
-      sessionId,
-      asRequested(evalStart, {
-        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
-        allPassed: true,
-      }),
-    );
+    submitPassingStructural(sessionId);
     engine.submitEvaluation(sessionId, {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
@@ -770,14 +760,7 @@ describe('evolve 뒤 재평가의 프로젝트 메모리 기록', () => {
   });
 
   function evaluate(sessionId: string, overallScore: number): void {
-    const evalStart = engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(
-      sessionId,
-      asRequested(evalStart, {
-        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
-        allPassed: true,
-      }),
-    );
+    submitPassingStructural(sessionId);
     const evaluationResult: EvaluationResult = {
       verifications: [0, 1, 2].map((acIndex) => ({
         acIndex,
@@ -861,14 +844,7 @@ describe('evolve 패치의 영향 태스크 식별에 쓰는 드리프트 임계
   // constraints만 바꿔서 AC 연결 태스크가 통째로 잡히지 않게 하고 드리프트 기준만 남긴다
   async function patchConstraintsOnly(): Promise<string[]> {
     const sessionId = await setupCompletedExecution();
-    const evalStart = engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(
-      sessionId,
-      asRequested(evalStart, {
-        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
-        allPassed: true,
-      }),
-    );
+    submitPassingStructural(sessionId);
     engine.submitEvaluation(sessionId, {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
