@@ -890,7 +890,8 @@ describe('evolve 패치의 영향 태스크 식별에 쓰는 드리프트 임계
   it('설정이 없으면 상수 기준으로 드리프트가 높았던 태스크를 다시 돌린다', async () => {
     engine = new PassthroughExecuteEngine(eventStore);
 
-    expect(await patchConstraintsOnly()).not.toEqual([]);
+    const ids = await patchConstraintsOnly();
+    expect([...ids].sort()).toEqual(['task-0', 'task-1', 'task-2', 'task-3']);
   });
 
   it('config.execute.driftThreshold를 0.9로 주면 그 기준으로 골라 다시 돌릴 태스크가 없다', async () => {
