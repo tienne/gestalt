@@ -176,6 +176,16 @@ export interface AcCheckCommand {
   unlinkedReason?: /* 기존 값 | */ 'intended_diff_missing' | 'feature_not_found';
 }
 
+/** 기능 지도 frontmatter의 launch를 그대로 옮긴다 */
+export interface FeatureLaunch {
+  /** 프로젝트 run 스킬 이름. 없으면 command로 띄운다 */
+  skill?: string;
+  command?: string;
+  url: string;
+  /** 앱이 다 떴는지 볼 셀렉터 */
+  ready: string;
+}
+
 export interface AcCheckRunResult {
   // ac-test-first.md의 필드 유지
   durationMs?: number;
@@ -224,8 +234,22 @@ export interface MutationProbeResult {
 export interface MutationVerdict {
   acId: string;
   killed: string[]; // 테스트가 실패해서 변이를 잡았다
-  survived: string[]; // 테스트가 통과했다. 판별력이 약하다는 신호
+  survived: string[]; // 테스트가 통과해서 변이를 못 잡았다. 판별력이 약하다는 신호
   notRun: string[];
+}
+
+// Call 2 요청. 기존 StructuralResult(`src/core/types.ts:302-305`)에 선택 필드로 더한다
+export interface StructuralResult {
+  // 기존 필드 유지
+  mutationResults?: MutationProbeResult[];
+}
+
+export interface EvaluationResult {
+  // 기존 필드 유지
+  /** Call 2가 만든 판정을 Call 3이 옮겨 담는다. 점수는 바꾸지 않는다 */
+  mutation?: MutationVerdict[];
+  /** fastCheckBudgetMs를 넘긴 fast 검사 */
+  slowChecks?: { name: string; durationMs: number }[];
 }
 ```
 
@@ -466,7 +490,7 @@ E2E 실패 출력에는 실패한 단계와 스크린샷, 트레이스 경로가
 | `ges_generate_spec` | AC에 `testDesign`                                                                                | 위반 시 기존 오류 형식. 기본값을 채우면 `warnings`                                                           |
 | `start`             | `spec.acceptanceCriteria[].testDesign`                                                           | 변경 없음                                                                                                    |
 | `evaluate` Call 1   | 변경 없음                                                                                        | `structuralContext.acChecks[].tier`, `launch`. `structuralContext.mutationProbes`. 안내 문구에 fast 먼저 규칙 |
-| `evaluate` Call 2   | `structuralResult.commands[].durationMs`, `retry`. `acChecks[].durationMs`, `retry`, `skipped`. `mutationResults` | `contextualContext.acCheckVerdicts`에 `flaky`, `skipped`. `contextualContext.mutationVerdicts`. 원복이 안 됐거나 gate 검사가 빠지면 거부 |
+| `evaluate` Call 2   | `structuralResult.commands[].durationMs`, `retry`. `acChecks[].durationMs`, `retry`, `skipped`. `structuralResult.mutationResults` | `contextualContext.acCheckVerdicts`에 `flaky`, `skipped`. `contextualContext.mutationVerdicts`. 원복이 안 됐거나 gate 검사가 빠지면 거부 |
 | `evaluate` Call 3   | 변경 없음                                                                                        | `evaluationResult.mutation`(Call 2 판정을 옮겨 담는다), `slowChecks`. `scoreAdjustment` 사유에 `gate_skipped` |
 | `evolve_fix`        | 변경 없음                                                                                        | `fixPrompt`에 흔들린 명령 표시                                                                               |
 
@@ -489,7 +513,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 
 | 파일                                                                                     | 변경                                                                                                                     |
 | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `src/core/types.ts`                                                                      | `AcTestDesign`, `IntendedDiff`, `CheckAttempt`, `CheckTier`, `MutationProbe`, `MutationProbeResult`, `MutationVerdict` 추가. `StructuralCommandResult`, `AcCheckCommand`, `AcCheckRunResult`, `AcCheckStatus`, `AcCheckSource`, `EvaluationResult`, 세션의 `mutationVerdicts`에 필드 추가 |
+| `src/core/types.ts`                                                                      | `AcTestDesign`, `IntendedDiff`, `CheckAttempt`, `CheckTier`, `MutationProbe`, `MutationProbeResult`, `MutationVerdict`, `FeatureLaunch` 추가. `StructuralCommandResult`, `StructuralResult`, `AcCheckCommand`, `AcCheckRunResult`, `AcCheckStatus`, `AcCheckSource`, `EvaluationResult`, 세션의 `mutationVerdicts`에 필드 추가 |
 | `src/spec/acceptance-criteria.ts`                                                        | `testDesign` 스키마와 검증 규칙, 입력 타입, `mergeCriteriaPatch` 보존. `formatAcLine`에 `property`, `differential(oracle)`, `e2e(feature)` 표시                 |
 | `src/core/config.ts`                                                                     | `executeConfigSchema`에 `mutationProbe`, `fastCheckBudgetMs`. 새 `verification.featureMapDir`와 경로 검사                |
 | `src/execute/failure-output.ts` (새 파일)                                                | `condenseFailureOutput`                                                                                                  |
