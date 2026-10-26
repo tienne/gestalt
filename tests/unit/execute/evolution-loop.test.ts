@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
 import { EventStore } from '../../../src/events/store.js';
 import { validateSpecPatch } from '../../../src/execute/spec-patch-validator.js';
@@ -6,7 +6,8 @@ import { applySpecPatch } from '../../../src/execute/spec-patch-applier.js';
 import { identifyImpactedTasks } from '../../../src/execute/impact-identifier.js';
 import { checkTermination } from '../../../src/execute/termination-detector.js';
 import { isOk, isErr } from '../../../src/core/result.js';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type {
   Spec,
@@ -22,7 +23,11 @@ import type {
   StructuralResult,
   EvaluationResult,
 } from '../../../src/core/types.js';
+import type { ProjectMemory } from '../../../src/core/types.js';
 import { asRequested } from '../../helpers/structural.js';
+import { handleEvaluate } from '../../../src/mcp/tools/execute/evaluate.js';
+import type { IHostAdapter } from '../../../src/mcp/host-adapter.js';
+import type { ExecuteInput } from '../../../src/mcp/schemas.js';
 
 // ─── Test Helpers ─────────────────────────────────────────────
 
@@ -738,5 +743,99 @@ describe('Evolution Loop Repository Replay', () => {
     expect(session.currentGeneration).toBe(1);
     expect(session.spec.acceptanceCriteria).toEqual(['AC A', 'AC B', 'AC C']);
     expect(session.evolutionHistory.length).toBeGreaterThan(0);
+  });
+});
+
+describe('evolve 뒤 재평가의 프로젝트 메모리 기록', () => {
+  let cwd: string;
+
+  beforeEach(() => {
+    dbPath = `.gestalt-test/evolve-memory-${randomUUID()}.db`;
+    eventStore = new EventStore(dbPath);
+    engine = new PassthroughExecuteEngine(eventStore);
+    // evaluate 핸들러는 process.cwd()에서 레포 루트를 찾아 memory.json을 쓴다
+    cwd = resolve(`.gestalt-test/evolve-memory-cwd-${randomUUID()}`);
+    mkdirSync(cwd, { recursive: true });
+    writeFileSync(join(cwd, 'package.json'), '{}');
+    vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    eventStore.close();
+    if (existsSync(dbPath)) rmSync(dbPath);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  function evaluate(sessionId: string, overallScore: number): void {
+    const evalStart = engine.startEvaluation(sessionId);
+    engine.submitStructuralResult(
+      sessionId,
+      asRequested(evalStart, {
+        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
+        allPassed: true,
+      }),
+    );
+    const evaluationResult: EvaluationResult = {
+      verifications: [0, 1, 2].map((acIndex) => ({
+        acIndex,
+        satisfied: overallScore >= 0.85,
+        evidence: 'checked',
+        gaps: [],
+      })),
+      overallScore,
+      goalAlignment: overallScore,
+      recommendations: [],
+    };
+    const res = JSON.parse(
+      handleEvaluate(
+        engine,
+        { action: 'evaluate', sessionId, evaluationResult } as ExecuteInput,
+        {} as IHostAdapter,
+      ),
+    ) as { error?: string };
+    expect(res.error).toBeUndefined();
+  }
+
+  function readExecutionHistory(): ProjectMemory['executionHistory'] {
+    const memory = JSON.parse(
+      readFileSync(join(cwd, '.gestalt', 'memory.json'), 'utf-8'),
+    ) as ProjectMemory;
+    return memory.executionHistory;
+  }
+
+  it('같은 세션을 다시 평가하면 실행 기록이 새 점수로 바뀐다', async () => {
+    const sessionId = await setupCompletedExecution();
+    evaluate(sessionId, 0.4);
+    expect(readExecutionHistory().map((e) => e.resultSummary)).toEqual([
+      'Score: 0.40, goalAlignment: 0.40',
+    ]);
+
+    engine.startContextualEvolve(sessionId);
+    const patchResult = engine.submitSpecPatch(sessionId, {
+      acceptanceCriteria: [
+        'Users can register with email and password',
+        'Users can login and receive JWT token (with validation)',
+        'Token refresh endpoint exists',
+      ],
+    });
+    if (!isOk(patchResult)) throw new Error('patch failed');
+    let next = patchResult.value.reExecuteContext;
+    while (next) {
+      const res = engine.submitReExecuteTaskResult(sessionId, {
+        taskId: next.currentTask.taskId,
+        status: 'completed',
+        output: 'Re-implemented',
+        artifacts: [],
+      });
+      if (!isOk(res)) throw new Error('re-execute failed');
+      next = res.value.reExecuteContext;
+    }
+
+    evaluate(sessionId, 0.9);
+    const history = readExecutionHistory();
+    expect(history).toHaveLength(1);
+    expect(history[0]!.executeSessionId).toBe(sessionId);
+    expect(history[0]!.resultSummary).toBe('Score: 0.90, goalAlignment: 0.90');
   });
 });
