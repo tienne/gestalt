@@ -365,7 +365,7 @@ export const VIEWER_JS =
     };
     var follow = function(target, from, to, tries){
       if (!player.live || pendingSub !== target) return;
-      if (player.state() === 3 && tries > 0) {
+      if (shouldRetryFollow(player.state(), tries)) {
         followTimer = setTimeout(function(){ follow(target, from, to, tries - 1); }, 300);
         return;
       }
@@ -579,15 +579,12 @@ export const VIEWER_JS =
       // 짝이 없는 옛 짧게, 기본 리포트는 길게로 간다. 스킬이 길게만 만들어서다. 구간이나 요청이 붙은 리포트는 다른 리포트로 넘기지 않는다
       if (ri < 0 && r.preset) ri = pickReport(data.reports, 'long', difficulty);
       if (ri >= 0) { show(ri); return; }
-      // 요청 원문은 공유 HTML에 싣지 않아서 명령을 만들 수 없다
-      var msg = r.prompted
-        ? '요청을 붙여 만든 리포트라 짝이 없어요. 같은 요청으로 다시 만들어 주세요.'
-        : '이 리포트는 아직 없어요. 아래 명령을 세션에 붙여 넣으면 만들어요.';
-      if (missingMsg) missingMsg.textContent = msg;
-      if (cmdWrap) cmdWrap.hidden = r.prompted;
-      if (cmd) cmd.textContent = r.prompted ? '' : reportCommand(data.slug, difficulty, r.lang, r.range);
+      var notice = missingNotice(r, data.slug, difficulty);
+      if (missingMsg) missingMsg.textContent = notice.msg;
+      if (cmdWrap) cmdWrap.hidden = notice.cmd === null;
+      if (cmd) cmd.textContent = notice.cmd || '';
       if (missing) missing.hidden = false;
-      if (status) status.textContent = msg;
+      if (status) status.textContent = notice.msg;
     }
     // 눌림 상태는 보이는 리포트만 따른다. 안내가 떠 있으면 다시 눌러 닫는다
     if (easyToggle) easyToggle.addEventListener('click', function(){
