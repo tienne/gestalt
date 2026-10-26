@@ -10,7 +10,7 @@
 | 실패하는 테스트 먼저 쓰기, red 확인, Structural 단계에 `acChecks` 싣기          | [ac-test-first.md](./ac-test-first.md)         |
 | 근거를 파일 위치로 받기, 구현 맥락 없는 채점자                                  | [evaluate-evidence.md](./evaluate-evidence.md) |
 
-글에서 아직 아무 문서도 받지 않은 주제가 넷 남는다. 각 주제의 현재 동작을 코드로 확인했다.
+글이 다루는 주제 가운데 아직 어느 문서도 맡지 않은 자리를 아래에 모았다. 주제마다 현재 동작을 코드로 확인했다.
 
 ### 검사 종류가 셋뿐이다
 
@@ -20,7 +20,7 @@
 
 `ac-test-first.md`의 red 확인은 구현 전에 테스트가 실패하는지만 본다. 구현이 들어온 뒤 그 테스트가 그럴듯하게 틀린 구현도 통과시키는지는 아무도 보지 않는다. 글도 생성한 테스트가 맞는 구현과 그럴듯하게 틀린 구현을 실제로 가르는지 보라고 한다.
 
-이 레포에는 비슷한 검사를 사람 리뷰 쪽에서 이미 한다. 로컬 PR 리뷰어는 떼어 놓은 워크트리에서 코드를 일부러 망가뜨리고 테스트가 잡는지 본다. 그래서 워크트리 정리 코드가 그 상태를 지우지 않게 막아 두었다(`src/local-pr/git.ts:568`, `src/local-pr/git.ts:577`). 실행 엔진에는 같은 검사가 없다.
+이 레포에는 비슷한 검사를 사람 리뷰 쪽에서 이미 한다. 로컬 PR 리뷰어는 떼어 놓은 워크트리에서 코드를 일부러 망가뜨리고 테스트가 잡는지 본다. 그래서 워크트리 정리 코드가 그 상태를 지우지 않게 막아 두었다(`src/local-pr/git.ts:568`, `src/local-pr/git.ts:577`). 실행 엔진에는 같은 검사가 없다. 이 문서는 그렇게 일부러 조금 바꾼 코드를 변이(`mutation`)라고 부른다.
 
 ### 느린 검사와 흔들리는 검사
 
@@ -63,9 +63,9 @@ E2E 검사를 돌리려면 기능마다 진입 경로와 셀렉터, 기대 결�
 | 질문                                       | 결정                                                                                                                                         | 이유                                                                                                                                       |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | 속성 테스트와 차분 테스트는 어디에 담나    | `verifyBy`는 `test` 그대로 두고 AC에 선택 필드 `testDesign`을 더한다                                                                         | 서버가 확인하는 방식은 셋 다 "러너를 돌려 종료 코드를 본다"로 같다. `verifyBy`를 늘리면 `test`로 분기하는 자리를 전부 같이 고쳐야 한다     |
-| 의도한 차이 목록은 어디에 두나             | 스펙의 `testDesign.intendedDiffs`에 id와 이유를 두고 테스트 파일이 그 id를 이름에 쓴다                                                      | 차이를 허용하는 결정은 요구사항이다. 스펙 패치를 거치게 하면 새로 허용한 차이가 `EVOLVE_SPEC_PATCHED` 이벤트에 남는다                      |
+| 의도한 차이 목록은 어디에 두나             | 스펙의 `testDesign.intendedDiffs`에 id와 이유를 두고 테스트 파일의 예외 분기 이름이나 주석에 그 id를 쓴다                                                      | 차이를 허용하는 결정은 요구사항이다. 스펙 패치를 거치게 하면 새로 허용한 차이가 `EVOLVE_SPEC_PATCHED` 이벤트에 남는다                      |
 | 테스트 판별력은 어떻게 보나                | 서버가 바뀐 줄에서 변이 패치를 만들고 호스트가 적용, 실행, 원복한다. 서버는 원복을 blob 해시로 확인한다                                     | 서버는 파일을 읽고 패치 문자열만 만든다. 실행은 호스트가 하므로 Passthrough 전제 안에 든다                                                 |
-| 변이 결과를 점수에 넣나                    | 넣지 않는다. 살아남은 변이를 경고로 싣고 Evolve 프롬프트에 넘긴다                                                                           | 동작이 같은 변이(등가 변이)를 가려낼 방법이 없다. 점수를 깎으면 고칠 수 없는 감점이 생긴다                                                 |
+| 변이 결과를 점수에 넣나                    | 넣지 않는다. 테스트가 못 잡은 변이를 경고로 싣고 Evolve 프롬프트에 넘긴다                                                                           | 동작이 같은 변이(등가 변이)를 가려낼 방법이 없다. 점수를 깎으면 고칠 수 없는 감점이 생긴다                                                 |
 | 흔들림은 어떻게 잡나                       | 실패한 검사는 fast와 gate 모두 호스트가 정확히 한 번 다시 돌리고 두 결과를 다 낸다. 결과가 갈리면 서버가 `flaky`로 판정한다                                 | 재시도 횟수를 에이전트가 정하지 않고 프로토콜이 정한다. 재시도로 버틴 흔적이 결과에 남는다                                                 |
 | 흔들린 검사는 통과로 보나                  | 통과로 보지 않는다. Structural이면 지금처럼 short-circuit하고 fix 프롬프트에 결정성을 고치라고 적는다                                       | 글의 말대로 흔들리는 테스트는 없는 테스트보다 나쁘다. 통과로 넘기면 진짜 실패를 가린다                                                     |
 | 실패 출력은 어떻게 줄이나                  | `condenseFailureOutput` 하나로 ANSI와 의존성 스택 프레임, 반복 줄을 걷어 낸 뒤 끝을 남긴다. 걸린 시간과 타임아웃 여부를 머리줄에 붙인다     | 뒤에서 자르는 원칙(`src/execute/prompts.ts:17-27`)은 유지하고 그 안을 채우는 내용만 바꾼다                                                 |
@@ -282,7 +282,7 @@ export interface MutationVerdict {
 1. `verifyBy: 'test'`이고 `AcCheckCommand.command`가 null이 아닌 AC만 고른다. `testDesign`이 `e2e`나 `differential`이면 빼는데 이미 gate 검사라서 그 위에 변이까지 얹으면 너무 무겁다.
 2. AC의 구현 태스크는 `sourceAC`에 그 AC가 있는 `implementation` 태스크들이다. 그 태스크들의 `artifacts` 가운데 테스트 파일이 아닌 `.ts`, `.tsx`, `.js`, `.jsx`만 남긴다. 테스트 파일 판정은 `findAffectedTests`와 같은 패턴이다(`src/execute/orchestrators/evaluation.ts:232-235`).
 3. 그 파일에서 실행 시작 기준점 이후 바뀐 줄을 구한다. 기준점은 `captureWorkingTreeBaseline`이 잡은 것이다(`src/execute/artifact-verifier.ts:129`). 바뀐 파일은 `listChangedSince`로 고르고 줄 범위는 파일 상태에 따라 다르게 구한다.
-   - 기준점에서 HEAD와 같았던 파일은 `git diff -U0 <기준점 head> -- <path>`의 헌크를 쓴다.
+   - 기준점에서 HEAD와 같았던 파일은 `git diff -U0 <기준점 head> -- <path>`가 내는 `@@` 구간, 곧 바뀐 줄 범위를 쓴다.
    - 기준점 뒤에 새로 생긴 파일은 파일 전체를 바뀐 줄로 본다.
    - 기준점에서 이미 dirty였던 파일은 뺀다. 그때의 blob이 object DB에 없어서 diff를 걸 수 없다. `execute-drift-breaker.md`가 같은 이유로 심볼 단위 매핑을 미뤘다.
 4. 바뀐 줄에 연산자 다섯 개를 정규식으로 맞춰 본다. 주석 줄과 문자열 리터럴 안은 건너뛴다. AST를 쓰지 않는 건 서버 의존성을 늘리지 않으려는 선택이다. 그래서 놓치는 자리가 생겨도 받아들인다.
@@ -305,9 +305,9 @@ export interface MutationVerdict {
 - 변이 결과의 `command`가 그 AC의 검사 명령과 다르면 거부한다. 메시지 형식은 기존 불일치 거부와 같다(`src/execute/orchestrators/evaluation.ts:105-112`).
 - 변이를 걸었던 파일의 blob 해시를 다시 구해 `blobBefore`와 비교한다. 하나라도 다르면 "작업 트리가 원복되지 않았다"로 거부한다. 변이가 남은 코드 위에서 평가가 계속 도는 걸 막는다.
 - `exitCode`가 0이 아니면 `killed`, 0이면 `survived`, -1이거나 결과가 없으면 `notRun`이다.
-- 판정은 Call 2에서 만들어 `session.mutationVerdicts`에 두고 `EVALUATE_STRUCTURAL_COMPLETED` payload에 싣는다. 맥락 평가 프롬프트가 Call 2 응답에서 만들어지므로 그 전에 판정이 있어야 한다. 프롬프트의 `**AC Check Results**` 표에 살아남은 변이를 `src/x.ts:42 flip_comparison`처럼 보인다. Call 3은 같은 판정을 `EvaluationResult.mutation`에 옮겨 담기만 하고 점수는 바꾸지 않는다.
-- 변이 검사는 report 전용이라 아래 "fast와 gate 나누기"의 gate 누락 거부에서 뺀다. 결과가 빠지면 `notRun`이 되고 `notRun` 개수를 경고로 싣는다.
-- Evolve 프롬프트에는 살아남은 변이마다 한 줄씩 넣는다. "AC-1 테스트가 `<`를 `<=`로 바꾼 구현도 통과시킨다. 경계값 테스트를 더한다." 재실행 대상(`impact-identifier.ts`)에는 그 AC의 테스트 태스크를 더한다. README "재실행 대상 고르기"의 `ImpactedTask.reasons`에 `mutation_survived`를 남긴다.
+- 판정은 Call 2에서 만들어 `session.mutationVerdicts`에 두고 `EVALUATE_STRUCTURAL_COMPLETED` payload에 싣는다. 맥락 평가 프롬프트가 Call 2 응답에서 만들어지므로 그 전에 판정이 있어야 한다. 프롬프트의 `**AC Check Results**` 표에 테스트가 못 잡은 변이를 `src/x.ts:42 flip_comparison`처럼 보인다. Call 3은 같은 판정을 `EvaluationResult.mutation`에 옮겨 담기만 하고 점수는 바꾸지 않는다.
+- 변이 검사는 report 전용이라 아래 "fast와 gate 나누기"에서 gate 검사가 빠졌을 때 거부하는 규칙에서 뺀다. 결과가 빠지면 `notRun`이 되고 `notRun` 개수를 경고로 싣는다.
+- Evolve 프롬프트에는 테스트가 못 잡은 변이마다 한 줄씩 넣는다. "AC-1 테스트가 `<`를 `<=`로 바꾼 구현도 통과시킨다. 경계값 테스트를 더한다." 재실행 대상(`impact-identifier.ts`)에는 그 AC의 테스트 태스크를 더한다. README "재실행 대상 고르기"의 `ImpactedTask.reasons`에 `mutation_survived`를 남긴다.
 
 #### Passthrough 전제와 맞는지
 
@@ -341,7 +341,7 @@ AC 검사가 `flaky`면 `AcCheckStatus: 'flaky'`다. passed가 아니므로 `sat
 
 #### 격리는 사람이 정한다
 
-흔들린 테스트를 스위트에서 빼는 일을 서버나 에이전트가 자동으로 하지 않는다. 러너마다 제외 문법이 다르고 빼는 순간 그 테스트가 지키던 동작이 무방비가 된다. 위 fix 지시는 "격리하고 이유를 남긴다"까지만 허용한다. 격리한 테스트 파일은 그 태스크의 `artifacts`에 들어가므로 로컬 PR 리뷰에서 사람이 본다.
+흔들린 테스트를 테스트 목록에서 빼는 일을 서버나 에이전트가 자동으로 하지 않는다. 러너마다 제외 문법이 다르고 빼는 순간 그 테스트가 지키던 동작이 무방비가 된다. 위 fix 지시는 "격리하고 이유를 남긴다"까지만 허용한다. 격리한 테스트 파일은 그 태스크의 `artifacts`에 들어가므로 로컬 PR 리뷰에서 사람이 본다.
 
 #### 실패 출력 줄이기
 
@@ -466,13 +466,13 @@ E2E 실패 출력에는 실패한 단계와 스크린샷, 트레이스 경로가
 | `ges_generate_spec` | AC에 `testDesign`                                                                                | 위반 시 기존 오류 형식. 기본값을 채우면 `warnings`                                                           |
 | `start`             | `spec.acceptanceCriteria[].testDesign`                                                           | 변경 없음                                                                                                    |
 | `evaluate` Call 1   | 변경 없음                                                                                        | `structuralContext.acChecks[].tier`, `launch`. `structuralContext.mutationProbes`. 안내 문구에 fast 먼저 규칙 |
-| `evaluate` Call 2   | `structuralResult.commands[].durationMs`, `retry`. `acChecks[].durationMs`, `retry`, `skipped`. `mutationResults` | `contextualContext.acCheckVerdicts`에 `flaky`, `skipped`. `contextualContext.mutationVerdicts`. 원복 실패와 gate 누락은 거부 |
+| `evaluate` Call 2   | `structuralResult.commands[].durationMs`, `retry`. `acChecks[].durationMs`, `retry`, `skipped`. `mutationResults` | `contextualContext.acCheckVerdicts`에 `flaky`, `skipped`. `contextualContext.mutationVerdicts`. 원복이 안 됐거나 gate 검사가 빠지면 거부 |
 | `evaluate` Call 3   | 변경 없음                                                                                        | `evaluationResult.mutation`(Call 2 판정을 옮겨 담는다), `slowChecks`. `scoreAdjustment` 사유에 `gate_skipped` |
 | `evolve_fix`        | 변경 없음                                                                                        | `fixPrompt`에 흔들린 명령 표시                                                                               |
 
 `src/mcp/schemas.ts`의 `structuralResult`(`src/mcp/schemas.ts:297-310`)에 위 필드를 선택으로 더한다. `specPatch`의 AC 항목에도 `testDesign`을 연다. 열지 않으면 `z.object`가 조용히 버린다. README "Spec 스키마와 MCP 입력 스키마" 절의 strip 회귀 테스트에 `testDesign`을 함께 넣는다.
 
-새로 생기는 거부는 셋이다. 모두 기존 Call 2 거부처럼 `EvaluationError` 메시지로 돌려준다. 스킬은 앞부분 문구를 보고 대응을 고른다.
+새로 생기는 거부는 모두 기존 Call 2 거부처럼 `EvaluationError` 메시지로 돌려준다. 스킬은 앞부분 문구를 보고 대응을 고른다.
 
 ```text
 Check passed but was re-run: test (retry is only for failed checks)
@@ -496,8 +496,8 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | `src/execute/feature-map.ts` (새 파일)                                                   | `loadFeatureMap`, `findFeature`. gray-matter 안전 옵션과 크기 상한                                                       |
 | `src/execute/mutation-probe.ts` (새 파일)                                                | `buildMutationProbes`, `verifyMutationResults`                                                                           |
 | `src/execute/ac-checks.ts`                                                               | `tier` 부여, `feature_map` 출처, `intended_diff_missing`, `feature_not_found`, `flaky`와 `skipped` 판정                   |
-| `src/execute/orchestrators/evaluation.ts`                                                | Call 1에 변이와 단계, Call 2에 재실행 판정과 원복 확인, gate 누락 거부, 변이 판정. Call 3에 `gate_skipped` 상한과 변이 판정 옮기기 |
-| `src/execute/prompts.ts`                                                                 | `tailOutput`을 `condenseFailureOutput`으로 교체. fix 프롬프트의 흔들림 지시. 테스트 태스크 프롬프트의 property, differential, e2e 지시. Evolve의 살아남은 변이와 셀렉터 안내 |
+| `src/execute/orchestrators/evaluation.ts`                                                | Call 1에 변이와 단계, Call 2에 재실행 판정과 원복 확인, gate 검사가 빠지면 거부, 변이 판정. Call 3에 `gate_skipped` 상한과 변이 판정 옮기기 |
+| `src/execute/prompts.ts`                                                                 | `tailOutput`을 `condenseFailureOutput`으로 교체. fix 프롬프트의 흔들림 지시. 테스트 태스크 프롬프트의 property, differential, e2e 지시. Evolve의 테스트가 못 잡은 변이와 셀렉터 안내 |
 | `src/execute/session.ts`                                                                 | `toEventStructuralResult`가 `retry`도 가리고 줄인다. 축약 `commands`에 `flaky`. `EVALUATE_STRUCTURAL_COMPLETED` payload에 변이 판정 |
 | `src/execute/artifact-verifier.ts`                                                       | `hashFiles` export (`ac-test-first.md`와 같은 변경)                                                                      |
 | `src/execute/impact-identifier.ts`                                                       | `flaky`와 `mutation_survived` 사유로 그 AC의 테스트 태스크 추가. `flaky`는 네 번째 기준에서 뺀다                         |
@@ -544,8 +544,8 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 
 ## 열린 질문
 
-1. **변이 검사를 점수에 넣을지.** 지금은 report만 한다. 살아남은 변이 가운데 등가 변이가 얼마나 되는지 이벤트로 세어 본 뒤 정한다. 비율이 낮으면 "살아남은 변이가 있는 AC는 contextual이 `satisfied: true`를 낼 때 evidence에 이유를 적게 한다" 정도로 시작할 수 있다.
-2. **맥락 없는 서브에이전트가 쓰는 틀린 구현.** 연산자 다섯 개로는 경계값과 논리 반전 정도만 잡힌다. 글의 "그럴듯하게 틀린 구현"에 더 가까운 건 구현 맥락이 없는 에이전트가 AC 문장만 보고 쓴 틀린 구현이다. `evaluate-evidence.md`의 맥락 없는 채점자와 같은 스폰 경로를 쓸 수 있다. 서버가 그 패치를 어떻게 믿을지(diff 크기 상한, 테스트 파일은 못 건드리게) 정해야 한다.
+1. **변이 검사를 점수에 넣을지.** 지금은 report만 한다. 테스트가 못 잡은 변이 가운데 등가 변이가 얼마나 되는지 이벤트로 세어 본 뒤 정한다. 비율이 낮으면 "테스트가 못 잡은 변이가 있는 AC는 contextual이 `satisfied: true`를 낼 때 evidence에 이유를 적게 한다" 정도로 시작할 수 있다.
+2. **맥락 없는 서브에이전트가 쓰는 틀린 구현.** 연산자 다섯 개로는 경계값과 논리 반전 정도만 잡힌다. 글의 "그럴듯하게 틀린 구현"에 더 가까운 건 구현 맥락이 없는 에이전트가 AC 문장만 보고 쓴 틀린 구현이다. `evaluate-evidence.md`의 맥락 없는 채점자와 같은 방식으로 서브에이전트를 띄울 수 있다. 서버가 그 패치를 어떻게 믿을지(diff 크기 상한, 테스트 파일은 못 건드리게) 정해야 한다.
 3. **한 번 다시 돌리기를 믿을 수 있는지.** 호스트가 세 번 돌려 마지막 두 번만 내도 서버는 모른다. 종료 코드를 믿는 지금의 신뢰 모델과 같은 선이다. 더 막으려면 서버가 실행마다 nonce를 주고 출력에 찍게 해야 하는데 러너 출력에 값을 넣을 방법이 마땅치 않다.
 4. **Node 밖 생태계.** 변이 연산자 정규식은 JS와 TS 문법만 안다. README "함께 정할 열린 질문" 2번과 같이 정한다.
 5. **기능 지도의 셀렉터와 page object.** Playwright 레포는 셀렉터를 page object 코드에 이미 둔다. 기능 지도에 셀렉터를 또 적으면 두 곳이 어긋난다. 레포에 page object가 있으면 `selectors` 대신 page object 경로를 적게 할지 정해야 한다.

@@ -12,7 +12,7 @@
 | [execute-drift-breaker.md](./execute-drift-breaker.md) | Execute                 | 태스크별 작업 트리 기준점 위에서 diff로 드리프트를 재고 같은 태스크가 연속 실패하면 끊는다          |
 | [interview-grounding.md](./interview-grounding.md)     | Interview, Spec, Evolve | 브라운필드 인터뷰에 관련 코드를 넣고 끝날 때 남은 가정을 목록으로 뽑아 Evolve까지 들고 간다         |
 | [outcome-feedback.md](./outcome-feedback.md)           | 머지 뒤                 | 스펙과 커밋을 이어 리뷰 라운드와 재작업을 모으고 Memory와 벤치마크로 돌려보낸다                      |
-| [verification-loop.md](./verification-loop.md)         | Spec, Execute, Evaluate, Evolve | 속성 테스트와 차분 테스트를 AC에 담고 변이로 테스트 판별력을 보며 흔들리는 검사와 E2E 기능 지도를 다룬다 |
+| [verification-loop.md](./verification-loop.md)         | Spec, Execute, Evaluate, Evolve | 속성 테스트와 차분 테스트를 AC에 담고 변이(`mutation`)로 테스트 판별력을 본다. 검사를 fast와 gate로 나누고 실패 출력을 줄이며 흔들리는 검사와 E2E 기능 지도를 다룬다 |
 
 공통 계약은 `ac-verification.md`의 `AcceptanceCriterion` 하나다. 나머지 문서는 이 타입이 들어온다고 보고 썼다.
 
@@ -77,7 +77,7 @@ Call 2에서 `acChecks`를 대조하는 자리도 함께 쓴다. `ac-test-first.
 
 `verification-loop.md`는 위 "재실행 대상 고르기" 표에 사유 두 개를 더한다. `flaky`와 `mutation_survived`인 AC는 `ac-test-first.md`의 네 번째 기준에서 빼고 그 AC의 `ac_test` 태스크만 고른다. `testFirst`가 꺼져 있어 `ac_test` 태스크가 없으면 그 AC를 맡은 구현 태스크를 고르되 테스트만 고치라는 지시를 붙인다. `ImpactedTask.reasons`에 그대로 남긴다. 변이 검사는 `listChangedSince`로 바뀐 파일을 고르므로 위 "기준점 이후 바뀐 파일 목록"의 함수를 세 번째로 쓰는 곳이 된다.
 
-Evolve 프롬프트의 절 순서는 바꾸지 않는다. 흔들린 검사와 살아남은 변이는 "AC Check Results" 절 안에 넣는다.
+Evolve 프롬프트의 절 순서는 바꾸지 않는다. 흔들린 검사와 테스트가 못 잡은 변이는 "AC Check Results" 절 안에 넣는다.
 
 ### 실패 출력 자르기
 
@@ -141,5 +141,5 @@ Evolve 프롬프트의 절 순서는 바꾸지 않는다. 흔들린 검사와 �
 
 1. **`command` AC의 신뢰 경계.** `ac-verification.md` 2번, `ac-test-first.md` 5번, `verification-loop.md` 8번(차분 테스트의 `oracle`)이 같은 문제다. 스펙의 `check` 문자열을 호스트 셸이 그대로 돌린다. 스펙이 Jira나 GitHub 이슈 텍스트에서 오거나 evolve 패치로 바뀌었을 때 사람 확인을 끼울지 정해야 한다.
 2. **Node 밖 생태계.** `ac-test-first.md`의 red 명령과 테스트 검사 명령, 그리고 지금 Structural 명령이 모두 package.json만 안다. `verification-loop.md`의 변이 연산자도 JS와 TS 문법만 안다. 서버가 명령을 만드는 범위를 넓힐지, 다른 생태계에서는 호스트가 명령을 정하고 서버는 기록만 할지 함께 정한다.
-3. **서버가 점수를 얼마나 고칠지.** AC 검사 상한, 근거 내림, `contextClarity` 상한(`interview-grounding.md`), `selfGraded` 임계값이 모두 "호스트가 매긴 점수를 서버가 고치는가"의 문제다. 지금 원칙은 "Passthrough 점수는 호스트 몫"이다. 이번 묶음은 기계로 확인되는 사실(종료 코드, 파일 위치)로만 고치고 그 밖은 경고로 남기는 선을 제안한다. 변이 검사의 살아남은 변이도 종료 코드로 나오지만 등가 변이를 가려낼 수 없어서 경고 쪽에 둔다. gate를 건너뛴 평가의 점수 상한(`gate_skipped`)은 "무거운 검사를 안 돌렸다"는 사실로만 고치므로 이 선 안에 든다.
+3. **서버가 점수를 얼마나 고칠지.** AC 검사 상한, 근거 내림, `contextClarity` 상한(`interview-grounding.md`), `selfGraded` 임계값이 모두 "호스트가 매긴 점수를 서버가 고치는가"의 문제다. 지금 원칙은 "Passthrough 점수는 호스트 몫"이다. 이번 묶음은 기계로 확인되는 사실(종료 코드, 파일 위치)로만 고치고 그 밖은 경고로 남기는 선을 제안한다. 변이 검사에서 테스트가 못 잡은 변이도 종료 코드로 나오지만 등가 변이를 가려낼 수 없어서 경고 쪽에 둔다. gate를 건너뛴 평가의 점수 상한(`gate_skipped`)은 "무거운 검사를 안 돌렸다"는 사실로만 고치므로 이 선 안에 든다.
 4. **흔들리는 검사를 누가 격리하나.** `verification-loop.md`는 격리를 fix 태스크의 산출물로 두고 사람이 로컬 PR 리뷰에서 보게 했다. `execute-drift-breaker.md`의 `HumanGate`로 멈출지와 outcome-feedback이 레포별로 흔들린 명령을 모아 Memory에 남길지를 함께 정한다.
