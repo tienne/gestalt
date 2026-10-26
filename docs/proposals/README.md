@@ -69,7 +69,7 @@
 
 ### AC 검사의 판정 값과 Call 2 대조
 
-`ac-test-first.md`의 `AcCheckStatus`에 `verification-loop.md`가 `flaky`와 `skipped`를 더한다. 둘 다 `passed`가 아니므로 위 "Evaluate Call 3의 점수 조정"의 합집합에 그대로 들어간다. AC마다 남기는 사유 값은 `ac_check` 하나로 묶고 따로 늘리지 않는다. 다만 gate 검사를 건너뛴 평가는 AC 단위가 아니라 점수 전체에 상한을 건다. `appliedScore`를 성공 기준 바로 아래로 묶고 사유 `gate_skipped`를 남긴다. `acCheckMode: 'report'`에도 건다. 변이 검사는 점수를 바꾸지 않으므로 이 모듈에 들어오지 않는다.
+`ac-test-first.md`의 `AcCheckStatus`에 `verification-loop.md`가 `flaky`와 `skipped`를 더한다. 둘 다 `passed`가 아니므로 위 "Evaluate Call 3의 점수 조정"의 합집합에 그대로 들어간다. AC마다 남기는 사유 값은 `ac_check` 하나로 묶고 따로 늘리지 않는다. 다만 gate 검사를 건너뛴 평가는 AC 단위가 아니라 점수 전체에 상한을 건다. `appliedScore`를 성공 기준 바로 아래로 묶고 사유 `gate_skipped`를 남긴다. `acCheckMode: 'report'`에도 건다. fast가 실패해 gate를 건너뛴 평가도 같다. 변이 검사는 점수를 바꾸지 않으므로 이 모듈에 들어오지 않는다.
 
 Call 2에서 `acChecks`를 대조하는 자리도 함께 쓴다. `ac-test-first.md`가 `acId`로 짝을 짓는 대조를 만들고 `verification-loop.md`는 그 위에 `retry`와 `skipped`, 변이 결과의 원복 확인을 얹는다. `hashFiles` export는 두 문서가 같은 변경을 적었으니 먼저 들어가는 PR이 한 번만 한다.
 

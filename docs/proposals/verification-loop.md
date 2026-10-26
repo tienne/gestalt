@@ -66,7 +66,7 @@ E2E 검사를 돌리려면 기능마다 진입 경로와 셀렉터, 기대 결�
 | 의도한 차이 목록은 어디에 두나             | 스펙의 `testDesign.intendedDiffs`에 id와 이유를 두고 테스트 파일의 예외 분기 이름이나 주석에 그 id를 쓴다                                                      | 차이를 허용하는 결정은 요구사항이다. 스펙 패치를 거치게 하면 새로 허용한 차이가 `EVOLVE_SPEC_PATCHED` 이벤트에 남는다                      |
 | 테스트 판별력은 어떻게 보나                | 서버가 바뀐 줄에서 변이 패치를 만들고 호스트가 적용, 실행, 원복한다. 서버는 원복을 blob 해시로 확인한다                                     | 서버는 파일을 읽고 패치 문자열만 만든다. 실행은 호스트가 하므로 Passthrough 전제 안에 든다                                                 |
 | 변이 결과를 점수에 넣나                    | 넣지 않는다. 테스트가 못 잡은 변이를 경고로 싣고 Evolve 프롬프트에 넘긴다                                                                           | 동작이 같은 변이(등가 변이)를 가려낼 방법이 없다. 점수를 깎으면 고칠 수 없는 감점이 생긴다                                                 |
-| 흔들림은 어떻게 잡나                       | 실패한 검사는 fast와 gate 모두 호스트가 정확히 한 번 다시 돌리고 두 결과를 다 낸다. 결과가 갈리면 서버가 `flaky`로 판정한다                                 | 재시도 횟수를 에이전트가 정하지 않고 프로토콜이 정한다. 재시도로 버틴 흔적이 결과에 남는다                                                 |
+| 흔들림은 어떻게 잡나                       | 실패한 검사는 fast와 gate 모두 호스트가 정확히 한 번 다시 돌리고 두 결과를 다 낸다. 시간 초과로 끊긴 명령은 다시 돌리지 않는다. 결과가 갈리면 서버가 `flaky`로 판정한다                                 | 재시도 횟수를 에이전트가 정하지 않고 프로토콜이 정한다. 재시도로 버틴 흔적이 결과에 남는다                                                 |
 | 흔들린 검사는 통과로 보나                  | 통과로 보지 않는다. Structural이면 지금처럼 short-circuit하고 fix 프롬프트에 결정성을 고치라고 적는다                                       | 글의 말대로 흔들리는 테스트는 없는 테스트보다 나쁘다. 통과로 넘기면 진짜 실패를 가린다                                                     |
 | 실패 출력은 어떻게 줄이나                  | `condenseFailureOutput` 하나로 ANSI와 의존성 스택 프레임, 반복 줄을 걷어 낸 뒤 끝을 남긴다. 걸린 시간과 타임아웃 여부를 머리줄에 붙인다     | 뒤에서 자르는 원칙(`src/execute/prompts.ts:17-27`)은 유지하고 그 안을 채우는 내용만 바꾼다                                                 |
 | 빠른 루프와 무거운 검사는 어떻게 나누나    | 검사마다 `tier: 'fast' \| 'gate'`를 단다. Call 1에서 둘 다 내주고 호스트는 fast가 전부 통과했을 때만 gate를 돌린다. gate를 건너뛴 평가는 성공 판정에 닿지 못하게 점수 상한을 건다 | 3-Call 구조를 늘리지 않는다. fast가 깨진 평가에서는 무거운 검사를 아예 돌리지 않는다                                                       |
@@ -359,7 +359,7 @@ export interface EvaluationResult {
 
 #### 한 번 다시 돌리기
 
-스킬 규칙을 이렇게 바꾼다. "Structural 명령이나 AC 검사가 0이 아닌 코드로 끝나면 같은 명령을 정확히 한 번 더 돌리고 두 결과를 모두 낸다. 통과한 명령은 다시 돌리지 않는다. 두 번 넘게 돌리지 않는다." fast와 gate를 가리지 않는다. 가장 잘 흔들리는 건 gate의 E2E라서 거기서 빼면 이 규칙이 쓸모가 줄어든다. 변이 검사에는 걸지 않는다. 변이 아래에서 테스트가 실패하는 건 기대한 결과라 다시 돌릴 이유가 없다.
+스킬 규칙을 이렇게 바꾼다. "Structural 명령이나 AC 검사가 0이 아닌 코드로 끝나면 같은 명령을 정확히 한 번 더 돌리고 두 결과를 모두 낸다. 통과한 명령은 다시 돌리지 않는다. 두 번 넘게 돌리지 않는다. 호스트가 시간 초과로 끊은 명령(종료 코드 124나 137)은 다시 돌리지 않는다." fast와 gate를 가리지 않는다. 가장 잘 흔들리는 건 gate의 E2E라서 거기서 빼면 이 규칙이 쓸모가 줄어든다. 변이 검사에는 걸지 않는다. 변이 아래에서 테스트가 실패하는 건 기대한 결과라 다시 돌릴 이유가 없다.
 
 호스트가 명령 전체를 시간 초과로 끊었으면(종료 코드 124나 137) 다시 돌리지 않고 `retry` 없이 낸다. 같은 시간을 한 번 더 쓰게 되어서다. 서버는 이걸 실패로 보고 머리줄에 `timeout`을 적는다. 출력 안에서 개별 테스트가 시간을 넘긴 경우(`timed out`, `Timeout ... exceeded`)는 위 규칙대로 한 번 더 돌린다.
 
@@ -427,6 +427,8 @@ Call 1 응답은 둘을 함께 싣고 안내 문구를 바꾼다. "`fast`를 먼
 - `skipped`인 AC 검사는 `AcCheckStatus: 'skipped'`가 된다.
 
 fast의 AC 검사가 실패해도 `ac-test-first.md`는 short-circuit하지 않고 contextual로 넘어간다. 그 문서의 상한은 충족 AC 비율이고 README "Evaluate Call 3의 점수 조정"은 이를 priority 가중치 방식으로 합치기로 했다. 어느 쪽이든 AC가 많으면 못 미친 AC가 몇 개 있어도 상한이 성공 기준 위에 남는다. priority가 같은 AC 20개 중 하나가 실패하고 하나가 `skipped`면 0.9가 남아 성공 기준 0.85(`src/core/constants.ts:127`)를 넘는다. `acCheckMode: 'report'`면 상한 자체가 없다. 그래서 Call 3에 규칙 하나를 더한다. `skipped`인 gate 검사가 하나라도 있으면 `appliedScore`를 성공 기준 바로 아래(`successThreshold - 0.01`)로 묶는다. `report` 모드에도 건다. `scoreAdjustment`에는 사유 `gate_skipped`를 남긴다. 무거운 검사를 한 번도 돌리지 않은 평가가 성공으로 끝나는 길을 막는 규칙이라 모드와 상관없이 건다.
+
+fast가 하나라도 실패하면 gate는 `skipped`가 되므로 gate AC가 있는 세션은 `report` 모드여도 이 상한에 걸린다. 의도한 동작이다. `report` 모드가 점수에 넣지 않는 건 검사가 실패했다는 결과이고 gate를 아예 돌리지 않았다는 사실은 따로 본다. gate AC가 없는 세션은 건너뛸 검사가 없으니 같은 fast 실패에도 이 상한에 걸리지 않는다. 상한이 보는 건 돌렸는지 하나뿐이라 README 열린 질문 3번이 제안한 선(기계로 확인되는 사실로만 고친다) 안에 든다.
 
 `command` AC를 fast에 둔 이유가 있다. 서버는 그 명령이 얼마나 무거운지 모른다. 무거운 명령이면 스펙 작성자가 `test`의 `e2e`나 `differential`로 옮기면 된다.
 
@@ -581,9 +583,9 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | AC 검증 규칙   | `tests/unit/spec/acceptance-criteria.test.ts` (ac-verification.md가 만든다) | 위 규칙 표의 줄마다. `testDesign` 없는 옛 AC가 그대로 통과                                                                                               |
 | 출력 줄이기    | `tests/unit/execute/failure-output.test.ts` (새 파일)        | ANSI 제거, 의존성 스택 프레임 제거와 개수 표시, 반복 줄 묶기, 실패 블록 찾기와 못 찾았을 때 끝 남기기, 타임아웃 머리줄, 생략 표시, 트레이스 경로 보존       |
 | 재실행 판정    | `tests/unit/execute/execution-evaluate.test.ts`              | 판정 표의 다섯 줄. `flaky` Structural의 short-circuit과 fix 프롬프트 표시. 시간 초과로 끊긴 명령은 `retry` 없이 실패로 받고 `timeout` 머리줄. 1MB를 넘는 출력이 거절되지 않고 가리기 전에 잘림                                                                                |
-| 단계           | 같은 파일                                                    | fast 실패 때 gate 결과 버림과 빠짐 대조 제외. fast 통과인데 gate `skipped`나 누락이면 거부. `gate_skipped` 상한이 `report` 모드에도 걸림. `testDesign`별 `tier` |
-| 변이 만들기    | `tests/unit/execute/mutation-probe.test.ts` (새 파일)        | 연산자 다섯 개, 주석과 문자열 건너뛰기, 테스트 파일 제외, 레포 밖 경로와 심링크 제외, 같은 seed면 같은 변이, AC당 세 개 상한, 평가당 상한과 AC 번갈아 남기기, `capped` 개수, e2e와 differential 제외. git 임시 레포는 `execution-artifact-verify.test.ts` 헬퍼 |
-| 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 124와 137은 `timedOut`이고 `notRun` 경고에 안 들어감. 이벤트에 실린 결과에 `mutationResults`가 없음. 지금 해시가 직전 변이의 `blobAfter`와 같을 때만 Call 1이 원복부터 안내하고 `blobBefore`도 `blobAfter`도 아니면 넘어감. 키가 같은 `killed`와 `timedOut` 재사용과 키가 바뀌면 다시 돌리기 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상 |
+| 단계           | 같은 파일                                                    | fast 실패 때 gate 결과 버림과 빠짐 대조 제외. fast 통과인데 gate `skipped`나 누락이면 거부. `gate_skipped` 상한이 `report` 모드에도 걸리고 fast 실패로 생긴 `skipped`에도 걸림. gate AC가 없으면 안 걸림. `testDesign`별 `tier` |
+| 변이 만들기    | `tests/unit/execute/mutation-probe.test.ts` (새 파일)        | 연산자 다섯 개, 주석과 문자열 건너뛰기, 테스트 파일 제외, 레포 밖 경로와 심링크 제외, 같은 seed면 같은 변이, AC당 세 개 상한, 평가당 상한과 AC 번갈아 남기기, `capped` 개수, e2e와 differential 제외, 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상. git 임시 레포는 `execution-artifact-verify.test.ts` 헬퍼 |
+| 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 124와 137은 `timedOut`이고 `notRun` 경고에 안 들어감. 이벤트에 실린 결과에 `mutationResults`가 없음. 지금 해시가 직전 변이의 `blobAfter`와 같을 때만 Call 1이 원복부터 안내하고 `blobBefore`도 `blobAfter`도 아니면 넘어감. 키가 같은 `killed`와 `timedOut` 재사용과 키가 바뀌면 다시 돌리기 |
 | 차분 id 대조   | `tests/unit/execute/ac-checks.test.ts` (ac-test-first.md가 만든다) | `intended_diff_missing`, 스펙에 없는 DIFF 경고                                                                                                           |
 | 기능 지도      | `tests/unit/execute/feature-map.test.ts` (새 파일)           | frontmatter 파싱, js 엔진 거부, 크기 상한, 절대 경로와 `..` 거부, 레포 밖으로 풀리는 경로 거부, 심링크 파일 건너뛰기, `e2e` 경로에도 같은 검사, `feature_not_found`                                                                           |
 | 재실행 대상    | `tests/unit/execute/evolution-loop.test.ts`                  | `flaky`와 `mutation_survived`가 `ac_test` 태스크만 고른다. `testFirst`가 꺼지면 그 AC의 구현 태스크로 간다                                                |
@@ -599,7 +601,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 5    | `feat(execute): 기능 지도`                      | `feature-map.ts`, 설정 경로, e2e 연결, spec 스킬 단계, screen-chain 초안 단계              | 4                                                          |
 | 6    | `feat(evaluate): 변이 검사 report 모드`         | `mutation-probe.ts`, Call 1과 Call 2, Evolve 프롬프트, 재실행 사유                         | 4, ac-test-first PR 1, execute-drift-breaker PR 2(`listChangedSince`) |
 
-1과 2는 AC 계약과 상관없이 지금 코드에 바로 효과가 있다. 그래서 앞에 둔다. 2는 새 설정 키를 읽지 않아서 README "기존 버그"의 설정 배선을 기다리지 않는다. 4가 ac-test-first PR 2를 기다리는 건 `flaky`를 그 PR이 만드는 네 번째 기준에서 빼야 해서다. `gate_skipped` 상한은 PR 1의 `scoreAdjustment`만 쓴다. 6은 맨 뒤다. 판별력을 재려면 AC마다 연결된 테스트 명령이 먼저 있어야 한다.
+1과 2는 AC 계약과 상관없이 지금 코드에 바로 효과가 있다. 그래서 앞에 둔다. 2는 새 설정 키를 읽지 않아서 README "기존 버그"의 설정 배선을 기다리지 않는다. 4가 ac-test-first PR 2를 기다리는 건 `flaky`를 그 PR이 만드는 네 번째 기준에서 빼야 해서다. `gate_skipped` 상한은 ac-test-first PR 1이 만드는 `scoreAdjustment`만 쓴다. 6은 맨 뒤다. 판별력을 재려면 AC마다 연결된 테스트 명령이 먼저 있어야 한다.
 
 ## 열린 질문
 
