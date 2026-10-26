@@ -349,7 +349,7 @@ export interface EvaluationResult {
 - 판정은 Call 2에서 만들어 `session.mutationVerdicts`에 두고 `EVALUATE_STRUCTURAL_COMPLETED` payload에 싣는다. 맥락 평가 프롬프트가 Call 2 응답에서 만들어지므로 그 전에 판정이 있어야 한다. 프롬프트의 `**AC Check Results**` 표에 테스트가 못 잡은 변이를 `src/x.ts:42 flip_comparison`처럼 보인다. `timedOut`은 개수만 보인다. Call 3은 같은 판정을 `EvaluationResult.mutation`에 옮겨 담기만 하고 점수는 바꾸지 않는다.
 - 재평가 때는 변이를 다 다시 돌리지 않는다. Call 1의 `buildMutationProbes`가 직전 판정에서 `survived`나 `notRun`이었던 변이와 테스트 파일이나 소스가 바뀐 AC의 변이만 다시 낸다. `notRun`을 넣는 건 예산이 모자라 시작하지 못한 변이를 다음 평가에서 돌리려는 것이다. `killed`와 `timedOut`은 재사용 키가 같으면 그대로 쓴다. `timedOut`까지 다시 돌리면 무한 루프를 내는 변이가 재평가마다 시간 제한만큼 시간을 쓴다. 키는 `path`, `line`, `operator`, `blobBefore`, AC 검사 명령, 테스트 파일 blob이고 `session.mutationVerdicts`에 판정과 함께 남긴다.
 - 변이 검사는 report 전용이라 아래 "fast와 gate 나누기"에서 gate 검사가 빠졌을 때 거부하는 규칙에서 뺀다. 결과가 빠지면 `notRun`이 되고 `notRun` 개수를 경고로 싣는다. 상한에 걸려 처음부터 만들지 않은 변이는 `notRun`에 넣지 않고 `capped`로 따로 센다. 돌리다 만 변이와 구분하려는 것이다.
-- Evolve 프롬프트에는 테스트가 못 잡은 변이마다 한 줄씩 넣는다. "AC-1 테스트가 `<`를 `<=`로 바꾼 구현도 통과시킨다. 경계값 테스트를 더한다." 재실행 대상(`impact-identifier.ts`)에는 그 AC의 테스트 태스크를 더한다. README "재실행 대상 고르기"의 `ImpactedTask.reasons`에 `mutation_survived`를 남긴다.
+- Evolve 프롬프트에는 README가 정한 대로 "AC Check Results" 절 안에 테스트가 못 잡은 변이마다 한 줄씩 넣는다. 바로 위 맥락 평가 프롬프트의 같은 이름 표와는 다른 프롬프트다. "AC-1 테스트가 `<`를 `<=`로 바꾼 구현도 통과시킨다. 경계값 테스트를 더한다." 재실행 대상(`impact-identifier.ts`)에는 그 AC의 테스트 태스크를 더한다. README "재실행 대상 고르기"의 `ImpactedTask.reasons`에 `mutation_survived`를 남긴다.
 
 #### Passthrough 전제와 맞는지
 
