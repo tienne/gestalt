@@ -322,8 +322,8 @@ export function createCli(): Command {
     .option('--repo-root <path>', 'Repository root (defaults to cwd)')
     .option('--json', '에이전트가 파싱할 JSON으로');
 
-  const digestInherited = (cmd: { parent?: { opts(): Record<string, unknown> } }) =>
-    (cmd.parent?.opts() ?? {}) as { repoRoot?: string; json?: boolean };
+  const digestInherited = (cmd: ParentedCommand) =>
+    parentOpts<{ repoRoot?: string; json?: boolean }>(cmd);
 
   digest
     .command('ingest <input>')

@@ -61,7 +61,13 @@ export async function peerDaemonCommand(): Promise<void> {
     // 정리가 걸려도 사용자가 빠져나갈 길은 남겨 둔다
     if (stopping) process.exit(1);
     stopping = true;
-    void daemon.stop().finally(() => process.exit(0));
+    void daemon.stop().then(
+      () => process.exit(0),
+      (e: unknown) => {
+        console.error(errMessage(e));
+        process.exit(1);
+      },
+    );
   };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
