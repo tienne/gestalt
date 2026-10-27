@@ -115,7 +115,7 @@ export function renderViewerHtml(nonce: string, maxViewers: number): string {
   });
   es.addEventListener('trimmed', (m) => {
     const n = JSON.parse(m.data).dropped;
-    log.append(el('div', 'ev note', '앞부분 ' + n + '개 생략 (데몬 메모리 상한)'));
+    log.append(el('div', 'ev note', '메모리 상한에 걸려 앞부분 ' + n + '개를 생략했어요'));
   });
   es.addEventListener('stats', (m) => {
     const n = JSON.parse(m.data).unknownLines;

@@ -57,7 +57,7 @@ export function request<T = unknown>(
       );
     });
     socket.once('close', () =>
-      finish(() => reject(new Error('peer 데몬이 답 없이 연결을 닫았어요'))),
+      finish(() => reject(new Error('peer 데몬이 답 없이 연결을 끊었어요'))),
     );
   });
 }
