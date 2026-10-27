@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.106.0] - 2026-10-28
+
+### Added
+
+- **handoff 스킬로 원격 머신(페어링된 Orca 서버)에 일을 맡길 수 있어요.** 전에는 두 스킬 어디에도 `--environment`나 `--on`이 없어서 원격에 맡기려면 orca 명령을 손으로 불러야 했어요.
+  - 1단계 표에 원격 머신 행을 넣었어요. 오래 걸리거나 이 머신 자원을 많이 쓰는 일, 저쪽에만 있는 레포나 환경이 필요한 일에 써요. 원격에서는 하위 워크트리가 안 돼서 독립 워크트리로 떠요.
+  - 4단계에 원격 소절을 넣었어요. 감독형은 `worker-start --on <서버>`에 원격 레포 선택자를 정확히 넣고 띄운 뒤에는 Dispatch ID로만 따라가요. full handoff는 모든 명령에 `--environment`를 붙여요.
+  - 대상 종류를 헷갈리지 않게 SSH 대상(`--host ssh:<id>`)과 페어링된 서버(`--environment <이름>`)를 나눠 적었어요. 둘을 바꿔 넣는 게 가장 흔한 실수예요.
+  - 에러 표에 `nested_worker_depth_exceeded`(디스패치된 워커는 하위 워커를 못 띄워요), `consumer_fenced`(자기 Run에만 띄울 수 있어요), 원격이 안 닿을 때, `unverifiable`, 오래된 원격 클론을 더했어요.
+- **dispatch 스킬은 원격 서버로 태스크를 뿌리지 않아요.** dispatch는 같은 브랜치 안의 병렬이라 원격 워크트리와 맞지 않아요. 원격에 맡길 일은 handoff로 보내라고 적었어요.
+
+### Changed
+
+- **읽기 렌즈 제안 문서를 더했어요.** 논문과 웹 글, 팟캐스트를 문장마다 출처가 달린 뷰어로 읽게 하는 `/lens` 설계예요. 모델이 쓴 그림을 받지 않고 렌더러가 구조 JSON으로 그리며 원문 데이터 그림과 재구성 그림을 배지로 나눠요. 영상 요약 제안 문서에서는 참고 서비스 이름을 뺐어요.
+- **검증 루프와 기존 버그 제안 문서를 더하고 evolve 회귀 테스트를 채웠어요(#83, #84).** evolve 뒤 재평가 점수가 실행 기록에 남는지, 영향 태스크를 고를 때 설정한 드리프트 임계값이 쓰이는지 확인해요.
+
+### 검증 범위
+
+- 원격 서버 `윤학 home`에 haiku 워커를 하나 띄워 원격 경로를 돌려봤어요. 워크트리가 원격 origin main 최신에서 만들어졌고 접수증의 requested와 effective가 같았어요.
+- `pnpm gate`가 315개 파일, 5913개 테스트로 통과했어요.
+
+### 남긴 것
+
+- 원격에서 effort가 전달되는지는 haiku가 effort를 안 받아서 확인 못 했어요.
+- full handoff 원격 경로(`worktree create`부터 `terminal send`까지 `--environment`를 붙이는 흐름)는 직접 돌려보지 않았어요. 문서에는 오르카 가이드 기준으로 적었어요.
+
 ## [0.105.0] - 2026-10-27
 
 ### Changed
