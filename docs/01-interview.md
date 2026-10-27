@@ -55,7 +55,7 @@ Interview는 하나의 토픽으로 시작해서 여러 라운드의 Q&A를 거�
 overall = Σ(clarity_i × weight_i) - continuityPenalty
 ```
 
-- `overall ≥ 기준값` → `isReady = true` → 인터뷰 종료 가능
+- `overall ≥ 기준값` → `isReady = true` → 인터뷰 종료 가능. `interview.rescore`가 `gate`면 다시 채점까지 통과해야 해요
 - `overall < 기준값` → 다음 라운드 계속
 
 ### Continuity 페널티
