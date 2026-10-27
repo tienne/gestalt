@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { REDACTED, redactText, redactValue, truncateBytes } from '../../../src/peer/redact.js';
+import {
+  REDACTED,
+  isSensitiveKey,
+  redactText,
+  redactValue,
+  truncateBytes,
+} from '../../../src/peer/redact.js';
 import { FAKE_HOME, FAKE_SECRETS } from '../../fixtures/peer/transcript.js';
 
 const opts = { home: FAKE_HOME };
@@ -11,6 +17,11 @@ describe('redactText', () => {
     ['GitHub gho_', `token ${FAKE_SECRETS.gho}`],
     ['GitHub github_pat_', `token ${FAKE_SECRETS.githubPat}`],
     ['JWT', `Authorization ${FAKE_SECRETS.jwt}`],
+    ['OpenAI sk-proj-', `key ${FAKE_SECRETS.skProj}`],
+    ['Stripe sk_live_', `key ${FAKE_SECRETS.skLive}`],
+    ['Google AIza', `key ${FAKE_SECRETS.aiza}`],
+    ['npm 토큰', `//registry.npmjs.org/:_authToken ${FAKE_SECRETS.npm}`],
+    ['GitLab glpat-', `token ${FAKE_SECRETS.glpat}`],
   ])('%s를 가린다', (_name, input) => {
     const out = redactText(input, opts);
     expect(out).toContain(REDACTED);
@@ -52,6 +63,50 @@ describe('redactText', () => {
     }
   });
 
+  it('이름이 64자보다 길어도 값을 가린다', () => {
+    const out = redactText(`${'X'.repeat(70)}_API_KEY=${FAKE_SECRETS.apiKeyValue} rest`, opts);
+    expect(out).not.toContain(FAKE_SECRETS.apiKeyValue);
+    expect(out).toContain(`_API_KEY=${REDACTED} rest`);
+  });
+
+  it('역추적이 터지는 입력도 1초 안에 끝난다', () => {
+    for (const input of ['a.'.repeat(100_000), 'KEY'.repeat(70_000), '"key": '.repeat(30_000)]) {
+      const started = performance.now();
+      redactText(input, opts);
+      expect(performance.now() - started).toBeLessThan(1_000);
+    }
+  });
+
+  it('이스케이프된 따옴표 값을 가린다', () => {
+    const out = redactText(`run "PASSWORD=\\"${FAKE_SECRETS.passwordValue}\\" ls"`, opts);
+    expect(out).not.toContain(FAKE_SECRETS.passwordValue);
+    expect(out).toContain(`PASSWORD=${REDACTED} ls`);
+  });
+
+  it('따옴표 안 줄바꿈 뒤 조각까지 가린다', () => {
+    const out = redactText(`API_KEY="first\n${FAKE_SECRETS.apiKeyValue}" next`, opts);
+    expect(out).not.toContain('first');
+    expect(out).not.toContain(FAKE_SECRETS.apiKeyValue);
+    expect(out).toBe(`API_KEY=${REDACTED} next`);
+  });
+
+  it('못 닫힌 따옴표는 줄 끝까지 가린다', () => {
+    const out = redactText(`SECRET='${FAKE_SECRETS.secretValue} more\nnext line`, opts);
+    expect(out).toBe(`SECRET=${REDACTED}\nnext line`);
+  });
+
+  it('이스케이프된 JSON 키의 값을 가린다', () => {
+    const out = redactText(`{\\"api_key\\": \\"${FAKE_SECRETS.apiKeyValue}\\", \\"n\\": 1}`, opts);
+    expect(out).not.toContain(FAKE_SECRETS.apiKeyValue);
+    expect(out).toContain(`\\"api_key\\": \\"${REDACTED}\\"`);
+    expect(out).toContain('\\"n\\": 1');
+  });
+
+  it('URL의 비밀번호만 가리고 사용자 이름과 호스트는 남긴다', () => {
+    const out = redactText(`git clone https://bob:${FAKE_SECRETS.urlPassword}@example.com/x`, opts);
+    expect(out).toBe(`git clone https://bob:${REDACTED}@example.com/x`);
+  });
+
   it('따옴표 친 JSON 키의 값을 가린다', () => {
     const out = redactText(`{"api_key": "${FAKE_SECRETS.apiKeyValue}", "name": "ok"}`, opts);
     expect(out).not.toContain(FAKE_SECRETS.apiKeyValue);
@@ -87,6 +142,42 @@ describe('redactValue', () => {
     expect(out).not.toContain(FAKE_SECRETS.aws);
     expect(out).toContain('"n":1');
   });
+
+  it('민감한 키 아래 값은 패턴에 안 걸려도 가린다', () => {
+    const v = FAKE_SECRETS.keyOnlyValue;
+    const out = redactValue(
+      {
+        password: v,
+        token: 42,
+        cookies: ['sid=abc'],
+        'x-api-key': v,
+        headers: { Authorization: v, accept: 'json' },
+        auth: { user: 'bob', pwd: v },
+        file_path: '/tmp/a',
+      },
+      opts,
+    );
+    expect(out).toEqual({
+      password: REDACTED,
+      token: REDACTED,
+      cookies: REDACTED,
+      'x-api-key': REDACTED,
+      headers: { Authorization: REDACTED, accept: 'json' },
+      auth: { user: 'bob', pwd: REDACTED },
+      file_path: '/tmp/a',
+    });
+  });
+});
+
+describe('isSensitiveKey', () => {
+  it.each(['apiKey', 'APIKey', 'x-api-key', 'AUTH_TOKEN', 'client.secret', 'Set-Cookie', 'apikey'])(
+    '%s는 민감하다',
+    (key) => expect(isSensitiveKey(key)).toBe(true),
+  );
+
+  it.each(['keyword', 'author', 'monkey', 'file_path', 'tokenizer'])('%s는 아니다', (key) =>
+    expect(isSensitiveKey(key)).toBe(false),
+  );
 });
 
 describe('truncateBytes', () => {

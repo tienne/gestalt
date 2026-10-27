@@ -38,6 +38,14 @@ export const FAKE_SECRETS = {
   tokenValue: 'fake-token-value-1111',
   secretValue: 'fake-secret-value-2222',
   passwordValue: 'fake-password-value-3333',
+  skProj: j('sk-', 'proj-', 'FAKEFAKEFAKEFAKEFAKEFAKE0000'),
+  skLive: j('sk_', 'live_', 'FAKEFAKEFAKEFAKE0000'),
+  aiza: j('AIza', 'SyFAKEFAKEFAKEFAKEFAKEFAKEFAKE00000'),
+  npm: j('npm_', 'FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE0000'),
+  glpat: j('glpat-', 'FAKEFAKEFAKEFAKE0000'),
+  urlPassword: 'fake-url-pass-5555',
+  /** 어떤 패턴에도 안 걸리고 키 이름으로만 가려지는 값 */
+  keyOnlyValue: 'fake-plain-value-4444',
 } as const;
 
 const pem = j(
@@ -104,6 +112,8 @@ export function fixtureLines(): string[] {
             input: {
               command: `GH_TOKEN=${FAKE_SECRETS.tokenValue} gh api user`,
               description: `${FAKE_HOME}/dev/proj 에서 실행`,
+              password: FAKE_SECRETS.keyOnlyValue,
+              headers: { Authorization: FAKE_SECRETS.keyOnlyValue, accept: 'json' },
             },
           },
         ],
@@ -126,6 +136,9 @@ export function fixtureLines(): string[] {
                   `aws ${FAKE_SECRETS.aws}\ngho ${FAKE_SECRETS.gho}\npat ${FAKE_SECRETS.githubPat}\n` +
                   `jwt ${FAKE_SECRETS.jwt}\nCLIENT_SECRET=${FAKE_SECRETS.secretValue}\n` +
                   `DB_PASSWORD=${FAKE_SECRETS.passwordValue}\n${pem}\n` +
+                  `openai ${FAKE_SECRETS.skProj}\nstripe ${FAKE_SECRETS.skLive}\n` +
+                  `google ${FAKE_SECRETS.aiza}\nnpm ${FAKE_SECRETS.npm}\ngitlab ${FAKE_SECRETS.glpat}\n` +
+                  `clone https://bob:${FAKE_SECRETS.urlPassword}@example.com/x.git\n` +
                   '<system-reminder>LEAK_REMINDER_IN_RESULT</system-reminder>',
               },
               { type: 'image', source: { type: 'base64', data: 'LEAK_IMAGE_DATA' } },
