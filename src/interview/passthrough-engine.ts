@@ -4,12 +4,16 @@ import type {
   ProjectType,
   GestaltPrinciple,
 } from '../core/types.js';
-import { MAX_INTERVIEW_ROUNDS, PRINCIPLE_QUESTION_STRATEGIES } from '../core/constants.js';
+import {
+  MAX_INTERVIEW_ROUNDS,
+  PRINCIPLE_QUESTION_STRATEGIES,
+  RESOLUTION_THRESHOLD,
+} from '../core/constants.js';
 import { InterviewError } from '../core/errors.js';
 import { type Result, ok, err } from '../core/result.js';
 import { selectNextPrinciple, getPrinciplePhaseLabel } from '../gestalt/principles.js';
 import { computeResolutionScore } from '../gestalt/analyzer.js';
-import { SessionManager } from './session.js';
+import { SessionManager, type InterviewOptions } from './session.js';
 import { detectProjectType } from './brownfield.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
@@ -66,12 +70,15 @@ export interface ExternalResolutionScore {
 export class PassthroughEngine {
   private sessionManager: SessionManager;
   private agentRegistry?: AgentRegistry;
+  private resolutionThreshold: number;
 
   constructor(
     private eventStore: EventStore,
     agentRegistry?: AgentRegistry,
+    options: InterviewOptions = {},
   ) {
-    this.sessionManager = new SessionManager(eventStore);
+    this.resolutionThreshold = options.resolutionThreshold ?? RESOLUTION_THRESHOLD;
+    this.sessionManager = new SessionManager(eventStore, options);
     this.sessionManager.loadFromStore();
     this.agentRegistry = agentRegistry;
   }
@@ -167,6 +174,7 @@ export class PassthroughEngine {
             contradictions: externalScore.contradictions ?? [],
           },
           session.projectType,
+          this.resolutionThreshold,
         );
         const rejected = rejectUnbackedReadyScore(session, resolutionScore);
         if (rejected) return err(rejected);
@@ -249,6 +257,7 @@ export class PassthroughEngine {
             contradictions: externalScore.contradictions ?? [],
           },
           session.projectType,
+          this.resolutionThreshold,
         );
         const rejected = rejectUnbackedReadyScore(session, resolutionScore);
         if (rejected) return err(rejected);

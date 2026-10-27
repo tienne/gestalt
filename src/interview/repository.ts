@@ -16,7 +16,14 @@ import { RESOLUTION_THRESHOLD } from '../core/constants.js';
  * 도메인 전용 Repository: aggregate_type='interview' 이벤트만 처리.
  */
 export class InterviewSessionRepository {
-  constructor(private eventStore: IEventStore) {}
+  /**
+   * @param resolutionThreshold isReady가 저장되지 않은 옛 ambiguity 이벤트를 읽을 때만 쓴다.
+   *   그 밖의 채점 이벤트는 저장된 isReady를 다시 계산하지 않는다
+   */
+  constructor(
+    private eventStore: IEventStore,
+    private resolutionThreshold: number = RESOLUTION_THRESHOLD,
+  ) {}
 
   /**
    * 이벤트를 fold하여 InterviewSession 상태를 완전히 복원한다.
@@ -117,6 +124,7 @@ export class InterviewSessionRepository {
           isReady: payload.isReady as boolean,
           dimensions: (payload.dimensions as ResolutionScore['dimensions']) ?? [],
           ...(contradictions.length > 0 && { contradictions }),
+          ...(typeof payload.threshold === 'number' && { threshold: payload.threshold }),
         };
 
         if (contradictions.length > 0) {
@@ -139,7 +147,7 @@ export class InterviewSessionRepository {
         const resolution = 1 - ambiguity;
         session.resolutionScore = {
           overall: resolution,
-          isReady: resolution >= RESOLUTION_THRESHOLD,
+          isReady: resolution >= this.resolutionThreshold,
           dimensions: (payload.dimensions as ResolutionScore['dimensions']) ?? [],
         };
         break;

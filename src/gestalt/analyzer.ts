@@ -30,6 +30,7 @@ interface RawClarityScores {
 export function computeResolutionScore(
   raw: RawClarityScores,
   projectType: ProjectType,
+  threshold: number = RESOLUTION_THRESHOLD,
 ): ResolutionScore {
   const weights = projectType === 'greenfield' ? GREENFIELD_WEIGHTS : BROWNFIELD_WEIGHTS;
 
@@ -88,8 +89,9 @@ export function computeResolutionScore(
   return {
     overall,
     dimensions,
-    isReady: overall >= RESOLUTION_THRESHOLD,
+    isReady: overall >= threshold,
     contradictions: raw.contradictions,
+    threshold,
   };
 }
 

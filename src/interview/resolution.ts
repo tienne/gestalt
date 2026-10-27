@@ -1,10 +1,14 @@
 import type { ResolutionScore, InterviewRound, ProjectType } from '../core/types.js';
 import { computeResolutionScore } from '../gestalt/analyzer.js';
+import { RESOLUTION_THRESHOLD } from '../core/constants.js';
 import { buildResolutionPrompt, INTERVIEW_SYSTEM_PROMPT } from '../llm/prompts.js';
 import type { LLMAdapter } from '../llm/types.js';
 
 export class ResolutionScorer {
-  constructor(private llm: LLMAdapter) {}
+  constructor(
+    private llm: LLMAdapter,
+    private threshold: number = RESOLUTION_THRESHOLD,
+  ) {}
 
   async score(
     topic: string,
@@ -17,6 +21,7 @@ export class ResolutionScorer {
         overall: 0.0,
         dimensions: [],
         isReady: false,
+        threshold: this.threshold,
       };
     }
 
@@ -36,7 +41,7 @@ export class ResolutionScorer {
     });
 
     const raw = parseResolutionResponse(response.content, projectType);
-    return computeResolutionScore(raw, projectType);
+    return computeResolutionScore(raw, projectType, this.threshold);
   }
 }
 

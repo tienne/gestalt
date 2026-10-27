@@ -15,6 +15,9 @@ interface TerminationInput {
   currentGoalAlignment: number;
   structuralFixCount: number;
   contextualCount: number;
+  /** 성공 판정 기준값. 없으면 상수 기본값을 쓴다 */
+  successThreshold?: number;
+  goalAlignmentThreshold?: number;
 }
 
 /**
@@ -33,15 +36,14 @@ export function checkTermination(input: TerminationInput): TerminationCondition 
     currentGoalAlignment,
     structuralFixCount,
     contextualCount,
+    successThreshold = EVOLVE_SUCCESS_THRESHOLD,
+    goalAlignmentThreshold = EVOLVE_GOAL_ALIGNMENT_THRESHOLD,
   } = input;
 
   const scoreHistory = [...evolutionHistory.map((g) => g.evaluationScore), currentScore];
 
   // 1. Success
-  if (
-    currentScore >= EVOLVE_SUCCESS_THRESHOLD &&
-    currentGoalAlignment >= EVOLVE_GOAL_ALIGNMENT_THRESHOLD
-  ) {
+  if (currentScore >= successThreshold && currentGoalAlignment >= goalAlignmentThreshold) {
     return {
       reason: 'success',
       scoreHistory,

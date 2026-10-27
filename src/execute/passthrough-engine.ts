@@ -15,6 +15,7 @@ import type {
 } from '../core/types.js';
 import { ExecuteError } from '../core/errors.js';
 import { type Result } from '../core/result.js';
+import { EVOLVE_SUCCESS_THRESHOLD, EVOLVE_GOAL_ALIGNMENT_THRESHOLD } from '../core/constants.js';
 import { EventStore } from '../events/store.js';
 import { ExecuteSessionManager } from './session.js';
 import type { AgentRegistry } from '../agent/registry.js';
@@ -74,6 +75,7 @@ export class PassthroughExecuteEngine {
   private executionOrch: ExecutionOrchestrator;
   private evaluationOrch: EvaluationOrchestrator;
   private evolutionOrch: EvolutionOrchestrator;
+  private evaluateThresholds: { success: number; goalAlignment: number };
 
   constructor(
     eventStore: EventStore,
@@ -83,6 +85,10 @@ export class PassthroughExecuteEngine {
   ) {
     this.sessionManager = new ExecuteSessionManager(eventStore);
     this.sessionManager.loadFromStore();
+    this.evaluateThresholds = {
+      success: executeConfig?.successThreshold ?? EVOLVE_SUCCESS_THRESHOLD,
+      goalAlignment: executeConfig?.goalAlignmentThreshold ?? EVOLVE_GOAL_ALIGNMENT_THRESHOLD,
+    };
 
     this.planningOrch = new PlanningOrchestrator(
       this.sessionManager,
@@ -114,6 +120,11 @@ export class PassthroughExecuteEngine {
 
   getSessionManager(): ExecuteSessionManager {
     return this.sessionManager;
+  }
+
+  /** 평가 성공 판정 기준값. 설정이 없으면 상수 기본값이다 */
+  getEvaluateThresholds(): { success: number; goalAlignment: number } {
+    return this.evaluateThresholds;
   }
 
   // ─── Planning ────────────────────────────────────────────────

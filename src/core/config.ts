@@ -422,6 +422,7 @@ const configSchema = z.object({
 
 export type GestaltConfig = z.infer<typeof configSchema>;
 export type ExecuteConfig = z.infer<typeof executeConfigSchema>;
+export type InterviewConfig = z.infer<typeof interviewConfigSchema>;
 
 // ─── Internal Utilities ─────────────────────────────────────────
 

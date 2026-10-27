@@ -137,8 +137,8 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     cb: ToolCallback<S>,
   ) => server.tool(name, description, guardShape(shape), cb);
 
-  const ptEngine = new PassthroughEngine(eventStore, agentRegistry);
-  const ptSpecGen = new PassthroughSpecGenerator(eventStore, agentRegistry);
+  const ptEngine = new PassthroughEngine(eventStore, agentRegistry, config.interview);
+  const ptSpecGen = new PassthroughSpecGenerator(eventStore, agentRegistry, config.interview);
   const roleAgentRegistry = new RoleAgentRegistry(
     config.roleAgentsDir,
     config.agentsDir,
@@ -230,8 +230,8 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     // ─── Normal mode: direct LLM calls ──────────────────────────
     const llm = createAdapter(config.llm);
     const frugalLlm = createTierAdapter(config.llm, 'frugal');
-    const engine = new InterviewEngine(llm, eventStore, frugalLlm);
-    const specGenerator = new SpecGenerator(llm, eventStore);
+    const engine = new InterviewEngine(llm, eventStore, frugalLlm, config.interview);
+    const specGenerator = new SpecGenerator(llm, eventStore, config.interview);
 
     guardedTool(
       'ges_interview',

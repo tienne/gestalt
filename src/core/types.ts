@@ -24,8 +24,10 @@ export interface ResolutionDimension {
 export interface ResolutionScore {
   overall: number; // 0.0-1.0 (higher = clearer)
   dimensions: ResolutionDimension[];
-  isReady: boolean; // overall >= RESOLUTION_THRESHOLD
+  isReady: boolean; // overall >= threshold
   contradictions?: string[]; // Detected contradictions during interview
+  /** isReady를 정할 때 쓴 기준값. 설정 연결 전에 저장된 이벤트에는 없다 */
+  threshold?: number;
 }
 
 export interface GestaltAnalysis {

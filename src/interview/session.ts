@@ -17,6 +17,9 @@ import { logger } from '../core/logger.js';
 import type { IEventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { InterviewSessionRepository } from './repository.js';
+import type { InterviewConfig } from '../core/config.js';
+
+export type InterviewOptions = Partial<InterviewConfig>;
 
 /**
  * 인터뷰 세션의 인메모리 캐시. 기준은 이벤트 스토어다.
@@ -29,9 +32,14 @@ export class SessionManager {
   private sessions = new Map<string, InterviewSession>();
   private eventCounts = new Map<string, number>();
   private repo: InterviewSessionRepository;
+  private resolutionThreshold: number;
 
-  constructor(private eventStore: IEventStore) {
-    this.repo = new InterviewSessionRepository(eventStore);
+  constructor(
+    private eventStore: IEventStore,
+    options: InterviewOptions = {},
+  ) {
+    this.resolutionThreshold = options.resolutionThreshold ?? RESOLUTION_THRESHOLD;
+    this.repo = new InterviewSessionRepository(eventStore, this.resolutionThreshold);
   }
 
   /**
@@ -193,6 +201,7 @@ export class SessionManager {
       dimensions: score.dimensions,
       contradictions: score.contradictions ?? [],
       roundNumber: currentRound?.roundNumber ?? null,
+      threshold: score.threshold ?? this.resolutionThreshold,
     });
   }
 
@@ -213,7 +222,7 @@ export class SessionManager {
     if (!ready && !options.force) {
       throw new InterviewNotReadyError(
         session.resolutionScore?.overall ?? null,
-        RESOLUTION_THRESHOLD,
+        session.resolutionScore?.threshold ?? this.resolutionThreshold,
       );
     }
     const forced = !ready;

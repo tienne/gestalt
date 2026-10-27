@@ -5,7 +5,7 @@ import { type Result, ok, err } from '../core/result.js';
 import { selectNextPrinciple } from '../gestalt/principles.js';
 import { ResolutionScorer } from './resolution.js';
 import { QuestionGenerator } from './questions.js';
-import { SessionManager } from './session.js';
+import { SessionManager, type InterviewOptions } from './session.js';
 import { detectProjectType } from './brownfield.js';
 import type { LLMAdapter } from '../llm/types.js';
 import { EventStore } from '../events/store.js';
@@ -38,11 +38,12 @@ export class InterviewEngine {
     llm: LLMAdapter,
     private eventStore: EventStore,
     frugalLlm?: LLMAdapter,
+    options: InterviewOptions = {},
   ) {
-    this.sessionManager = new SessionManager(eventStore);
+    this.sessionManager = new SessionManager(eventStore, options);
     this.sessionManager.loadFromStore();
     this.questionGenerator = new QuestionGenerator(llm);
-    this.resolutionScorer = new ResolutionScorer(frugalLlm ?? llm);
+    this.resolutionScorer = new ResolutionScorer(frugalLlm ?? llm, options.resolutionThreshold);
   }
 
   async start(topic: string, cwd?: string): Promise<Result<StartResult, InterviewError>> {
