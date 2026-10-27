@@ -37,7 +37,7 @@ Complete reference for all Gestalt MCP tools.
 
 ## `ges_interview`
 
-인터뷰 세션을 시작하고, 질문-응답을 반복하며 요구사항 해상도를 기준값(`interview.resolutionThreshold`, 기본 0.8) 이상으로 높인다.
+인터뷰 세션을 시작하고 질문-응답을 반복하며 요구사항 해상도를 기준값(`interview.resolutionThreshold`, 기본 0.8) 이상으로 높인다.
 
 ### Actions
 
