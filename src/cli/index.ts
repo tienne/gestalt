@@ -47,7 +47,7 @@ import {
   digestServeCommand,
   digestValidateCommand,
 } from './commands/digest.js';
-import { lensIngestCommand } from './commands/lens.js';
+import { lensAttachCommand, lensIngestCommand, lensKnowledgeCommand } from './commands/lens.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -285,6 +285,24 @@ export function createCli(): Command {
     .option('--slug <slug>', '저장 폴더 이름 (기본: 제목과 주소 해시)')
     .option('--kind <kind>', '자료 종류를 직접 정한다: pdf, web, podcast')
     .action((input, o, cmd) => lensIngestCommand(input, { ...lensInherited(cmd), ...o }));
+
+  lens
+    .command('knowledge <slug>')
+    .description(
+      '내 노트 폴더에서 원문 이름(FlavorGraph, NMI 같은)과 겹치는 줄을 찾아 knowledge.json에 둔다',
+    )
+    .option(
+      '--source <dir>',
+      '지식 소스 폴더. 여러 번 쓸 수 있다. gestalt.json의 lens.knowledgeSources와 합친다',
+      (v: string, prev: string[] = []) => [...prev, v],
+    )
+    .action((slug, o, cmd) => lensKnowledgeCommand(slug, { ...lensInherited(cmd), ...o }));
+
+  lens
+    .command('attach <slug> <file>')
+    .description('맥락 카드와 연결 카드 파일을 이미 합친 리포트에 붙이고 merge 검사를 다시 돌린다')
+    .option('--report <key>', '붙일 리포트 키 (기본: 처음 보이는 리포트)')
+    .action((slug, file, o, cmd) => lensAttachCommand(slug, file, { ...lensInherited(cmd), ...o }));
 
   const digest = program
     .command('digest')

@@ -217,3 +217,13 @@ video-digest가 도식을 그리는 방식과 같아서 렌더러를 늘리기�
 - **원문 창.** PDF는 쪽 그림(`pages/p<n>.jpg`, 144dpi)을 세로로 쌓고 "추출 텍스트" 보기와 오간다. 출처 칩이나 쪽 칩을 누르면 원문 창이 그 쪽으로 스크롤하고 문단 사각형을 칠한다. 브라우저 PDF 뷰어를 iframe으로 띄우는 길은 쪽 이동은 되지만 문단을 칠할 수 없고 CSP에 frame-src를 더 열어야 해서 쓰지 않았다. 쪽 그림이 상대 경로라 `file://`로 열어도 원문 창이 동작한다.
 - **커버리지 배지.** 대섹션이 덮은 문단 수와 출처 칩 수를 리포트 도입 아래에 보인다. `skipped`가 있으면 그 목록으로 가는 링크를 단다. lint가 대섹션과 `skipped`로 문단 전체를 덮는지 이미 막고 있어서 배지 값은 늘 lint가 확인한 구조에서 나온다.
 - **원문 그림 크롭 저장(열린 질문 7).** 크롭과 쪽 그림은 `.gestalt/digest/<slug>/` 아래에만 두고 gitignore 대상이라 커밋에 안 딸려 간다. 공유할 때 크롭을 빼는 옵션은 1차에 넣지 않았다. `inlineFrames`가 쪽 그림을 싣지 않아서 HTML 한 장만 넘기면 크롭과 쪽 그림이 빠진 채로 보인다.
+
+## 2차에서 정한 것
+
+2차 범위는 바깥 맥락 카드와 내 지식 연결 카드다. 열린 질문 5와 6을 아래처럼 정했다.
+
+- **카드를 쓰는 자리.** 맥락 카드와 연결 카드는 `lens-reader`가 아니라 새 role agent `lens-context`가 쓴다. 웹 검색이 필요한 일이라 도구가 다르고(WebSearch, WebFetch) 리포트 본문을 다시 쓰지 않고 카드만 더할 수 있어야 해서다. `lens-context`는 합친 리포트를 읽고 `context.draft.json` 하나만 쓴다. `gestalt lens attach`가 그 파일을 리포트에 붙이고 merge 검사를 다시 돌린다. 카드에서 온 옛 한계 줄은 지우고 새 줄로 바꿔 끼운다.
+- **카드 모양.** 리포트에 `cards[]`를 두고 카드마다 `kind`(`lineage` 연구 계보, `interpretation` 결과 해석, `counter` 반론, `unverified` 검증 안 된 부분), 붙일 대섹션 `section`, 원문 자리 `anchor`, 줄 목록 `points`, 바깥 출처 `sources`를 둔다. 계보 카드는 `lineage[]`에 연도와 관계(토대, 구성 요소, 비교 대상), 가져온 것과 바꾼 것을 적는다. 참고 서비스 카드의 칸 구성을 그대로 따랐다. lint는 줄마다 단 출처 id가 그 카드 `sources`에 있는지(`CARD_SOURCE_UNKNOWN`), 대섹션이 있고 `anchor`가 그 범위 안인지(`CARD_SECTION_UNKNOWN`, `CARD_ANCHOR_OUT_OF_SECTION`), 한계 줄의 `card`가 있는 카드인지(`LIMIT_CARD_UNKNOWN`) 본다. 출처 주소는 스키마가 http(s)만 받는다.
+- **의심 표시와 나누기.** 카드는 대섹션 끝에 접힌 `<details>`로 붙고 "바깥 자료로 쓴 카드예요. 원문 안의 어긋남은 본문 의심 표시에 있어요."를 늘 함께 보인다. 의심 표시는 본문 불릿 아래 펼쳐 둔다. 같은 내용을 카드에 되풀이하지 말라고 `lens-context` 지침에 적었다.
+- **카드 수와 비용(열린 질문 5).** 제안대로 기본 2장, 깊게 읽기 4장이다. 스킬 입력 `depth`(`normal`, `deep`, `none`)로 고르고 스키마가 4장을 넘으면 막는다.
+- **내 지식 소스(열린 질문 6).** 두 길을 다 받는다. 부를 때 `knowledge`(스킬)나 `--source`(CLI)로 폴더를 넘기거나 `gestalt.json`의 `lens.knowledgeSources`에 적어 둔다. `gestalt lens knowledge`가 원문에서 두 번 넘게 나온 고유 이름과 약어(FlavorGraph, NMI 같은)와 리포트 키워드로 노트 줄을 찾아 `knowledge.json`에 후보를 둔다. 남의 레포의 `gestalt.json`이 엉뚱한 폴더를 가리킬 수 있어서 `.md`, `.markdown`, `.txt`만 읽고 숨김 폴더와 `node_modules`는 건너뛴다. 연결 카드의 `quote`는 그 노트 파일에 글자 그대로 있어야 하고(`LINK_QUOTE_NOT_FOUND`) 경로는 지식 소스 폴더 안의 절대 경로여야 한다(`LINK_OUTSIDE_SOURCES`). 뷰어가 http로 열려서 노트 파일 링크는 걸지 않고 경로를 `~`로 줄여 보인다.
