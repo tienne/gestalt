@@ -263,6 +263,30 @@ describe('다시 채점하기', () => {
       const rounds = engine.getSession(sessionId).rounds;
       expect(rounds[rounds.length - 1]!.gestaltFocus).toBe(GestaltPrinciple.FIGURE_GROUND);
     });
+
+    it('흔들림으로 보류된 뒤 다시 넘은 채점은 첫 점수 규칙으로 판정한다', () => {
+      const { engine, sessionId } = answered(gate);
+      engine.score(sessionId, READY);
+      const held = engine.score(
+        sessionId,
+        { ...uniform(0.95), priorityClarity: 0.65 },
+        { rescore: true, rescoreMode: 'isolated' },
+      );
+      if (!held.ok) throw held.error;
+      expect(held.value.resolutionScore!.isReady).toBe(false);
+
+      // 다시 채점은 인터뷰마다 한 번이라 이번에는 요청하지 않는다
+      const next = engine.respond(
+        sessionId,
+        'MVP는 카드 결제',
+        held.value.gestaltContext!.questionPrompt,
+        READY,
+      );
+      if (!next.ok) throw next.error;
+      expect(next.value.resolutionScore!.isReady).toBe(true);
+      expect(next.value.nextAction).toBeUndefined();
+      expect(engine.complete(sessionId).ok).toBe(true);
+    });
   });
 
   describe('off', () => {
