@@ -4,6 +4,7 @@ export enum EventType {
   INTERVIEW_RESPONSE_RECORDED = 'interview.response.recorded',
   INTERVIEW_RESOLUTION_SCORED = 'interview.resolution.scored',
   INTERVIEW_RESOLUTION_RESCORED = 'interview.resolution.rescored',
+  INTERVIEW_RESOLUTION_RESCORE_FAILED = 'interview.resolution.rescore_failed',
   INTERVIEW_SESSION_COMPLETED = 'interview.session.completed',
   INTERVIEW_SESSION_ABORTED = 'interview.session.aborted',
   INTERVIEW_CONTEXT_COMPRESSED = 'interview.context.compressed',

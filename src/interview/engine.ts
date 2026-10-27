@@ -212,10 +212,9 @@ export class InterviewEngine {
       );
     } catch (e) {
       // 다시 채점이 실패해도 인터뷰는 이어간다. gate면 다음에 넘을 때 다시 부른다
-      logger.warn('interview.rescore.failed', {
-        sessionId,
-        error: e instanceof Error ? e.message : String(e),
-      });
+      const error = e instanceof Error ? e.message : String(e);
+      logger.warn('interview.rescore.failed', { sessionId, error });
+      this.sessionManager.recordRescoreFailure(sessionId, error);
       return null;
     }
     const rescore = compareRescore(score, second, 'isolated', this.resolutionThreshold);

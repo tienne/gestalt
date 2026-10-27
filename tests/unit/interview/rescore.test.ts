@@ -376,5 +376,38 @@ describe('다시 채점하기', () => {
       if (!responded.ok) throw responded.error;
       expect(responded.value.resolutionScore.isReady).toBe(false);
     });
+
+    it('gate에서 다시 채점이 실패하면 판정은 미룬 채 이어가고 다음에 넘을 때 다시 부른다', async () => {
+      // 시작 질문, 채점, 다시 채점(실패), 다음 질문, 채점, 다시 채점, 다음 질문
+      const { llm: base, calls } = scoringLlm([0.9]);
+      let n = 0;
+      const llm: LLMAdapter = {
+        chat: async (req) => {
+          if (++n === 3) throw new Error('rate limited');
+          return base.chat(req);
+        },
+      };
+      const engine = new InterviewEngine(llm, store, undefined, { rescore: 'gate' });
+      const start = await engine.start('결제 모듈');
+      if (!start.ok) throw start.error;
+      const sessionId = start.value.session.sessionId;
+
+      const failed = await engine.respond(sessionId, '카드만');
+      if (!failed.ok) throw failed.error;
+      expect(failed.value.resolutionScore.isReady).toBe(false);
+      expect(failed.value.nextQuestion).toBe('다음 질문?');
+      const events = store.replay('interview', sessionId);
+      const failure = events.find(
+        (e) => e.eventType === EventType.INTERVIEW_RESOLUTION_RESCORE_FAILED,
+      );
+      expect(failure!.payload).toEqual({ error: 'rate limited' });
+
+      const retried = await engine.respond(sessionId, '7일 이내 환불');
+      if (!retried.ok) throw retried.error;
+      expect(n).toBe(7);
+      expect(calls()).toBe(6);
+      expect(retried.value.resolutionScore.signals!.rescore!.mode).toBe('isolated');
+      expect(retried.value.resolutionScore.isReady).toBe(true);
+    });
   });
 });
