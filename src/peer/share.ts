@@ -15,7 +15,7 @@ export type ShareFrame =
   | { type: 'stats'; unknownLines: number }
   | { type: 'state'; status: ShareStatus }
   /**
-   * 공유 종료. 앞부분을 따라잡는 중에 닫히면 아직 못 보낸 이벤트는 사라지므로 그 개수를
+   * 공유 종료. 앞부분을 따라잡는 중에 종료되면 아직 못 보낸 이벤트는 사라지므로 그 개수를
    * missed에 싣는다. 붙어 있던 뷰어는 다 받은 뒤라 안 싣는다
    */
   | { type: 'closed'; reason: string; missed?: number };

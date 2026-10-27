@@ -55,7 +55,7 @@ export interface ViewerServerOptions {
  * Routes:
  *   GET /s/:id?t=TOKEN          → 뷰어 HTML
  *   GET /s/:id/events?t=TOKEN   → SSE (line, trimmed, stats, state, closed). 뷰어 상한을 넘으면 429.
- *                                 closed의 missed는 따라잡는 중에 닫혀 못 보낸 이벤트 수
+ *                                 closed의 missed는 따라잡는 중에 공유가 종료돼 못 보낸 이벤트 수
  *   *                           → 404
  */
 export class ViewerServer {
@@ -212,7 +212,7 @@ export class ViewerServer {
 
     // 앞부분은 소켓이 비는 만큼씩 꺼내 쓴다. 다 따라잡으면 이벤트 루프로 돌아가지 않고 바로
     // subscribe로 붙어서 그 사이에 poll이 끼지 않는다. subscribe가 상태와 통계를 다시 보내
-    // 따라잡는 동안 바뀐 것도 맞춘다. 기다리는 사이 공유가 닫히면 subscribe가 못 보낸 개수를
+    // 따라잡는 동안 바뀐 것도 맞춘다. 기다리는 사이 공유가 종료되면 subscribe가 못 보낸 개수를
     // closed에 실어 보낸다
     let cursor = Number.isFinite(lastId) && lastId > 0 ? lastId : 0;
     const pump = (): void => {

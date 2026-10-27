@@ -121,9 +121,10 @@ const ASSIGNMENT =
  * 문자열로 한 번 더 감싸이면 `\"api_key\": \"…\"`가 되므로 이스케이프된 따옴표도 받는다.
  * 감싼 값은 ASSIGNMENT와 같이 백슬래시 개수로 갈라 읽는다.
  *
- * 값 안에 날 줄바꿈이 나오면 닫는 따옴표를 찾지 않고 그 줄 끝까지만 가린다. JSON 문자열에는
- * 날 줄바꿈이 못 들어가므로 이건 따옴표가 안 닫힌 값이다. 다음 줄까지 넘어가 닫는 따옴표를
- * 찾으면 그 줄에 있던 다른 민감한 키를 건너뛰어 그 값이 샌다.
+ * 값 안에 `\n`으로 이스케이프하지 않은 줄바꿈이 나오면 닫는 따옴표를 찾지 않고 그 줄 끝까지만
+ * 가린다. JSON 문자열에는 이스케이프하지 않은 줄바꿈이 못 들어가므로 이건 따옴표가 안 닫힌
+ * 값이다. 다음 줄까지 넘어가 닫는 따옴표를 찾으면 그 줄에 있던 다른 민감한 키를 건너뛰어 그
+ * 값이 샌다.
  *
  * 낱말 목록은 isSensitiveKey와 따로 간다. 여기는 키 이름의 부분 문자열로 맞추므로
  * `auth`는 뒤가, `pass`는 앞뒤가 글자가 아닐 때만 받는다. 안 그러면 `"author"`와
@@ -180,7 +181,7 @@ function replaceHome(text: string, home: string): string {
  * 겹치는 키는 안 건드린다.
  *
  * 소문자로 붙여 쓴 `accesstoken`이나 `privatekey` 같은 낱말은 SENSITIVE_KEY_SUFFIX로 낱말
- * 끝을 본다. `key`와 `pass`는 끝으로만 맞추면 `monkey`나 `bypass`가 걸린다. 그래서 `pass`는
+ * 끝을 본다. `key`와 `pass`는 낱말 끝만 보면 `monkey`나 `bypass`가 걸린다. 그래서 `pass`는
  * 낱말이 똑같을 때만 걸고 `key`는 access, secret, private, signing, encryption, master, api가
  * 바로 앞에 붙은 합성어만 받는다. token은 복수형을 안 받는다. `max_tokens`나
  * `input_tokens`가 흔한 도구 입력 키다.

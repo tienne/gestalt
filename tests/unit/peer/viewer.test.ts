@@ -236,7 +236,7 @@ describe('ViewerServer', () => {
     }
   });
 
-  it('앞부분을 보내는 중에 공유가 닫히면 소켓이 빈 뒤 못 보낸 개수를 실은 closed를 보내고 끝낸다', async () => {
+  it('앞부분을 보내는 중에 공유가 종료되면 소켓이 빈 뒤 못 보낸 개수를 실은 closed를 보내고 끝낸다', async () => {
     useStream(64 * 1024 * 1024);
     await pushEvents(40, 200_000);
     const port = await server.start(0);

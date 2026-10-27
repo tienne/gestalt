@@ -57,7 +57,7 @@ export interface AuditRow {
 /**
  * 공유 목록과 감사 로그. 대화 내용은 한 글자도 여기 안 들어온다 — 줄 수나 버전 같은
  * 숫자와 이름만 남긴다. 공유 토큰도 저장하지 않는다. 데몬이 다시 뜨면 이전 공유는
- * 닫힌 걸로 치고 새로 연다.
+ * 종료된 걸로 치고 새로 연다.
  */
 export class PeerState {
   private db: SqliteDatabase;
@@ -109,7 +109,7 @@ export class PeerState {
       .run(at, reason, id);
   }
 
-  /** 데몬이 죽어서 닫는 기록 없이 남은 공유를 닫는다. 닫은 id 목록을 돌려준다 */
+  /** 데몬이 죽어서 종료 기록 없이 남은 공유를 종료한다. 종료한 id 목록을 돌려준다 */
   closeDangling(reason: ShareCloseReason, at = Date.now()): string[] {
     const rows = this.db.prepare(`SELECT id FROM shares WHERE closed_at IS NULL`).all() as {
       id: string;

@@ -47,12 +47,12 @@ gestalt peer status                                  # 데몬 상태
 - URL 비밀번호: `https://user:pass@host`에서 `pass` 자리만 가린다. 이름 없이 비밀번호만 둔 `redis://:pass@host`도 가린다
 - `Bearer` 뒤 8자 이상인 값(대소문자 무관). `Basic` 뒤 값은 첫 글자만 대문자인 `Basic`에만 본다. 값이 base64 글자(`A-Z`, `a-z`, `0-9`, `+`, `/`)로만 되어 있고 끝의 `=` 채움까지 쳐서 길이가 4의 배수이면서 8자 이상이어야 한다. 그중에서도 숫자나 `+`, `/`, `=`가 들었거나 둘째 글자부터 대문자가 있을 때만 가린다. 값 바로 뒤에 마침표와 글자가 이어지면(`README.md`처럼) 값으로 안 본다. `BASIC`이나 소문자 `basic` 뒤는 헤더 줄과 따옴표 안 헤더가 아니면 안 건드린다
   - 알려진 과잉 가림: `Basic` 뒤 낱말이 base64 꼴과 겹치면 영어 문장도 가린다. base64 글자로만 된 낱말이 길이가 4의 배수이면서 8자 이상이고 숫자나 `+`, `/`가 들었거나 둘째 글자부터 대문자가 있으면(`Basic HTML/CSS`, `Basic MongoDB4`처럼) `Basic [가림]`이 된다. 새는 것보다 가리는 쪽을 택한 자리다
-- 헤더 줄: 줄 첫머리(`curl -v`의 `>`나 `<` 표시 포함)의 `Cookie:`, `Set-Cookie:`, `Authorization:`, `Proxy-Authorization:`, `api-key`이거나 하이픈 뒤 `api-key`로 끝나는 이름(`X-Api-Key:`, `X-Goog-Api-Key:`), 하이픈 뒤 token이나 secret으로 끝나는 이름(`X-Auth-Token:`, `PRIVATE-TOKEN:`)은 콜론 뒤를 줄 끝까지 가린다. 하이픈 없는 `Token:`이나 `token: string;`은 안 건드린다
-- 따옴표 안 헤더: 같은 이름이 따옴표 바로 뒤에 오면(`-H "X-Api-Key: …"`) 닫는 따옴표 앞까지만 가린다
+- 헤더 줄: 줄 첫머리(`curl -v`의 `>`나 `<` 표시 포함)의 `Cookie:`, `Set-Cookie:`, `Authorization:`, `Proxy-Authorization:`는 콜론 뒤를 줄 끝까지 가린다. `Api-Key:`처럼 이름이 `api-key`이거나 `X-Api-Key:`, `X-Goog-Api-Key:`처럼 하이픈 바로 뒤에 `api-key`가 붙어 끝나는 이름도 같다. `X-Auth-Token:`, `PRIVATE-TOKEN:`, `X-Client-Secret:`처럼 마지막 하이픈 뒤가 정확히 token이나 secret인 이름도 같다. 하이픈 없는 `Token:`이나 `token: string;`, 붙여 쓴 `X-AuthToken:`은 안 건드린다
+- 따옴표 안 헤더: 헤더 줄에서 가리는 이름이 따옴표 바로 뒤에 오면(`-H "X-Api-Key: …"`) 닫는 따옴표 앞까지만 가린다
 - `NAME=값`: 이름에 KEY, TOKEN, SECRET, PASSWORD, PASSWD, COOKIE, CREDENTIAL(S)가 들거나 앞뒤가 글자가 아닌 PASS와 AUTH, `_PWD`가 들면 가린다. `BYPASS=1`, `OAUTH_CLIENT_ID=…`, `AUTHOR=…`, `PWD=…`, `OLDPWD=…`는 안 건드린다. `=` 앞에 공백이 있으면(`key = value`) 안 본다. 따옴표 친 값은 따옴표 안 줄바꿈과 이스케이프된 따옴표를 넘어 4096자 안에서 닫는 따옴표까지 가린다. 4096자 안에서 못 찾으면 첫 줄 끝까지만 가린다. 따옴표 없는 값은 공백 앞까지 가린다
-- 큰따옴표 친 키(`"api_key": "…"`와 한 번 더 감싼 `\"api_key\": \"…\"`): 키 이름에 key, token, secret, password, passwd, passphrase, pwd, cookie, credential, authorization이 들거나 뒤가 글자가 아닌 auth(`author`는 빼고), 앞뒤가 글자가 아닌 pass(`bypass`는 빼고)가 들면 값을 가린다. 값은 큰따옴표 친 문자열만 본다. 이스케이프된 따옴표는 넘어서 4096자 안의 닫는 따옴표까지 가리고 못 찾거나 값 안에 날 줄바꿈이 나오면 그 줄 끝까지만 가린다
+- 큰따옴표 친 키(`"api_key": "…"`와 한 번 더 감싼 `\"api_key\": \"…\"`): 키 이름에 key, token, secret, password, passwd, passphrase, pwd, cookie, credential, authorization이 들거나 뒤가 글자가 아닌 auth(`author`는 빼고), 앞뒤가 글자가 아닌 pass(`bypass`는 빼고)가 들면 값을 가린다. 값은 큰따옴표 친 문자열만 본다. 이스케이프된 따옴표는 넘어서 4096자 안의 닫는 따옴표까지 가리고 못 찾거나 값 안에 `\n`으로 이스케이프하지 않은 줄바꿈이 나오면 그 줄 끝까지만 가린다
 - 작은따옴표 친 키(`{'Cookie': '…'}`): 큰따옴표 키와 같은 낱말이다. 값은 같은 줄에서 4096자 안에 닫는 작은따옴표가 있을 때만 가린다
-- 도구 입력 객체의 키: 키를 `_`, `-`, `.`, 대소문자 경계로 나눈 낱말이 key, apikey, token, secret, password, passwd, pass, pwd, auth, authorization, credential(s), cookie(s) 중 하나면 값을 통째로 가린다. 낱말이 token, secret, password, passwd, passphrase로 끝나거나(`accesstoken`처럼) access, secret, private, signing, encryption, master, api 뒤에 key가 붙은 꼴(`accesskey`, `privatekey`)이어도 가린다. 이 끝 맞추기에서 token 말고는 끝에 `s`가 붙어도 된다. `monkey`, `hotkey`, `keyword`, `max_tokens`는 안 건드린다. 값이 객체면 안으로 들어가 같은 규칙을 걸고 배열이나 원시값이면 통째로 가린다
+- 도구 입력 객체의 키: 키를 `_`, `-`, `.`, 대소문자 경계로 나눈 낱말이 key, apikey, token, secret, password, passwd, pass, pwd, auth, authorization, credential(s), cookie(s) 중 하나면 값을 통째로 가린다. 낱말이 token, secret, password, passwd, passphrase로 끝나거나(`accesstoken`처럼) access, secret, private, signing, encryption, master, api 뒤에 key가 붙은 꼴(`accesskey`, `privatekey`)이어도 가린다. 낱말 끝을 볼 때는 token 말고는 뒤에 `s`가 더 붙어도 가린다. `monkey`, `hotkey`, `keyword`, `max_tokens`는 안 건드린다. 값이 객체면 안으로 들어가 같은 규칙을 걸고 배열이나 원시값이면 통째로 가린다
 
 **홈 디렉토리 경로**는 `~`가 된다. `/Users/alice2`처럼 이름이 이어지는 다른 경로는 안 건드린다.
 
@@ -72,7 +72,7 @@ gestalt peer status                                  # 데몬 상태
 
 공유 하나에 붙을 수 있는 뷰어는 16개다. 넘으면 429로 거절하고 뷰어 화면에 상한에 걸렸다고 뜬다.
 
-앞부분을 받는 중에 공유가 종료되면 아직 못 받은 이벤트는 오지 않고 뷰어 화면에 "공유가 닫혀 뒤쪽 N개는 못 받았어요"가 뜬다.
+앞부분을 받는 중에 공유가 종료되면 아직 못 받은 이벤트는 오지 않고 뷰어 화면에 "공유가 종료돼 뒤쪽 N개는 못 받았어요"가 뜬다.
 
 ## 데몬이 붙잡는 양
 

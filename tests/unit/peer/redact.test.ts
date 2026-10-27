@@ -237,7 +237,7 @@ describe('redactText', () => {
     expect(out).toBe(`{"password": "${REDACTED}"\n"api_token": "${REDACTED}", "n": 1}`);
   });
 
-  it('JSON 키 값 안 날 줄바꿈은 닫는 따옴표를 찾지 않고 그 줄 끝까지만 가린다', () => {
+  it('JSON 키 값 안에 이스케이프하지 않은 줄바꿈이 있으면 닫는 따옴표를 찾지 않고 그 줄 끝까지만 가린다', () => {
     const out = redactText(`{"password": "line1\nline2", "x": 1}`, opts);
     expect(out).toBe(`{"password": "${REDACTED}"\nline2", "x": 1}`);
   });
@@ -264,6 +264,13 @@ describe('redactText', () => {
       'curl -H "X-Goog-Api-Key: {r}" https://g.example.com',
     ],
     ['> X-CSRF-Token', '> X-CSRF-Token: {v}', '> X-CSRF-Token: {r}'],
+    ['Api-Key', 'Api-Key: {v}', 'Api-Key: {r}'],
+    ['< X-Client-Secret', '< X-Client-Secret: {v}', '< X-Client-Secret: {r}'],
+    [
+      'X-Client-Secret',
+      'curl -H "X-Client-Secret: {v}" https://a.example.com',
+      'curl -H "X-Client-Secret: {r}" https://a.example.com',
+    ],
   ])('하이픈으로 이어진 %s 헤더 값을 가린다', (_name, input, expected) => {
     const v = FAKE_SECRETS.keyOnlyValue;
     expect(redactText(input.replace('{v}', v), opts)).toBe(expected.replace('{r}', REDACTED));
@@ -276,6 +283,10 @@ describe('redactText', () => {
     'max_tokens: 100',
     'Accept: */*',
     'Token: see below',
+    'Xapi-Key: abcdef123456',
+    'X-AuthToken: abcdef123456',
+    "curl -H 'Xapi-Key: abcdef123456' https://a.example.com",
+    "curl -H 'X-AuthToken: abcdef123456' https://a.example.com",
   ])('헤더 꼴이 아닌 %s 줄은 안 건드린다', (input) => expect(redactText(input, opts)).toBe(input));
 
   it.each([

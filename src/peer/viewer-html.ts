@@ -128,7 +128,7 @@ export function renderViewerHtml(nonce: string, maxViewers: number): string {
     statusEl.textContent = '공유가 종료됐어요';
     const missed = JSON.parse(m.data).missed;
     if (missed > 0) {
-      log.append(el('div', 'ev note', '공유가 닫혀 뒤쪽 ' + missed + '개는 못 받았어요'));
+      log.append(el('div', 'ev note', '공유가 종료돼 뒤쪽 ' + missed + '개는 못 받았어요'));
     }
     es.close();
   });
