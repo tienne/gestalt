@@ -156,7 +156,7 @@ export class PeerDaemon {
     for (const [id, share] of [...this.shares]) {
       try {
         if (now >= share.expiresAt) {
-          this.closeShare(id, 'expired');
+          this.closeShareSafely(id, 'expired');
           continue;
         }
         const before = share.stream.unknownLines;
@@ -179,8 +179,9 @@ export class PeerDaemon {
 
   /**
    * closeShare는 DB에 쓰다가 던질 수 있다. tick에서 던지면 뒤 공유를 못 돌고 stop에서
-   * 던지면 뷰어와 IPC 서버와 소켓 파일 정리까지 건너뛴다. 공유는 던지기 전에 이미 맵에서
-   * 빠지므로 남는 건 DB 기록 하나다.
+   * 던지면 뷰어와 IPC 서버와 소켓 파일 정리까지 건너뛴다. unshare에서 던지면 공유는 이미
+   * 닫혔는데 실패로 답해서 다시 unshare하면 열린 공유가 아니라고 나온다. 공유는 던지기
+   * 전에 이미 맵에서 빠지므로 남는 건 DB 기록 하나다.
    */
   private closeShareSafely(id: string, reason: ShareCloseReason): void {
     try {
@@ -204,7 +205,7 @@ export class PeerDaemon {
         if (typeof req.id !== 'string' || !this.shares.has(req.id)) {
           return { ok: false, error: `열린 공유가 아니에요: ${String(req.id)}` };
         }
-        this.closeShare(req.id, 'unshare');
+        this.closeShareSafely(req.id, 'unshare');
         return { ok: true, result: { id: req.id } };
       }
       default:

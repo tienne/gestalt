@@ -461,6 +461,52 @@ describe('PeerDaemon', () => {
     }
   });
 
+  it('unshare가 공유를 닫다 DB 쓰기에서 던져도 ok로 답하고 목록에서 뺀다', async () => {
+    const share = await openShare();
+    const state = (daemon as unknown as { state: PeerState }).state;
+    const closeShare = vi.spyOn(state, 'closeShare').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const res = await request(daemon.socketPath, { op: 'unshare', id: share.id });
+      expect(res).toEqual({ ok: true, result: { id: share.id } });
+      expect(closeShare).toHaveBeenCalledTimes(1);
+      const list = await request<ShareInfo[]>(daemon.socketPath, { op: 'shares' });
+      expect(list.ok && list.result).toEqual([]);
+      expect(stderr.mock.calls.some(([m]) => String(m).includes('disk full'))).toBe(true);
+    } finally {
+      closeShare.mockRestore();
+      stderr.mockRestore();
+    }
+  });
+
+  it('만료된 공유를 닫다 DB 쓰기에서 던져도 그 공유만 빼고 다른 공유는 계속 돈다', async () => {
+    const otherPath = join(root, 'other.jsonl');
+    writeFileSync(otherPath, '');
+    const a = await openShare();
+    const b = await openShare({ transcriptPath: otherPath });
+    const shares = (daemon as unknown as { shares: Map<string, { expiresAt: number }> }).shares;
+    shares.get(a.id)!.expiresAt = 0;
+    const state = (daemon as unknown as { state: PeerState }).state;
+    const closeShare = vi.spyOn(state, 'closeShare').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      expect(() => daemon.tick()).not.toThrow();
+      expect(closeShare).toHaveBeenCalledWith(a.id, 'expired');
+      const list = await request<ShareInfo[]>(daemon.socketPath, { op: 'shares' });
+      expect(list.ok && list.result.map((s) => s.id)).toEqual([b.id]);
+      expect(stderr.mock.calls.some(([m]) => String(m).includes(`share ${a.id} failed`))).toBe(
+        false,
+      );
+    } finally {
+      closeShare.mockRestore();
+      stderr.mockRestore();
+    }
+  });
+
   it('열린 IPC 연결이 있어도 stop이 끝난다', async () => {
     const idle = createConnection(daemon.socketPath);
     idle.on('error', () => {});
