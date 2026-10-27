@@ -57,7 +57,10 @@ export interface PassthroughRespondResult {
   gestaltContext: GestaltContext;
   compressionContext?: { systemPrompt: string; compressionPrompt: string };
   needsCompression?: boolean;
-  /** 처음 기준값을 넘은 채점이면 다시 채점할 프롬프트. 이때 nextAction은 rescore다 */
+  /**
+   * 다시 채점하기를 요청할 차례면 붙는 프롬프트. record는 처음 기준값을 넘을 때 한 번, gate는 다시 채점을
+   * 받기 전까지 넘을 때마다 붙고 off면 안 붙는다. 이때 nextAction은 rescore다
+   */
   rescorePrompt?: string;
   nextAction?: 'rescore';
 }

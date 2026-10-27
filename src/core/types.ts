@@ -47,7 +47,7 @@ export interface ResolutionSignals {
   maxOverallJump: number | null;
   /** 모순 목록은 LLM이 쓴 텍스트라 서버가 센 신호와 섞지 않는다 */
   llmDerived: { contradictions: number };
-  /** 처음 기준값을 넘은 채점을 다시 채점한 결과. 안 했으면 없다. 이후 채점에도 이어진다 */
+  /** 다시 채점한 결과. 비교 대상은 다시 채점을 받은 시점의 최신 점수다. 안 했으면 없다. 이후 채점에도 이어진다 */
   rescore?: RescoreResult;
 }
 

@@ -97,7 +97,7 @@ Respond with ONLY a JSON object:
 }
 
 /**
- * 처음 기준값을 넘은 채점을 다시 받을 때 쓰는 프롬프트. 대화 기록만 담는다.
+ * 다시 채점하기를 요청할 때 쓰는 프롬프트. 대화 기록만 담는다.
  * 앞 점수나 판정을 보여주면 그 숫자를 따라가서 흔들림이 안 드러난다.
  */
 export function buildRescorePrompt(

@@ -22,7 +22,7 @@ export class ResolutionScorer {
     return this.scoreWith(buildResolutionPrompt, topic, rounds, projectType);
   }
 
-  /** 처음 기준값을 넘은 채점을 같은 모델로 한 번 더 받는다. 새 호출이라 앞 채점을 못 본다 */
+  /** 다시 채점할 차례인 채점을 같은 모델로 한 번 더 받는다. 새 호출이라 앞 채점을 못 본다 */
   async rescore(
     topic: string,
     rounds: InterviewRound[],
