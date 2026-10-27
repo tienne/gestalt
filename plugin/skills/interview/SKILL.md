@@ -198,7 +198,7 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 | `resolutionScore.contradictions` | string[] | 선택 | 발견된 모순 목록 |
 | `rescore` | boolean | 선택 | `score` 전용. `rescorePrompt`로 다시 매긴 점수를 보낼 때 `true` |
 | `rescoreMode` | `"isolated"` \| `"same-context"` | 선택 (기본 `"same-context"`) | `rescore` 전용. 서브에이전트가 매겼으면 `isolated` |
-| `force` | boolean | 선택 (기본 `false`) | `complete` 전용. 0.8 미만이어도 완료한다. 사용자가 직접 정했을 때만 넘긴다 |
+| `force` | boolean | 선택 (기본 `false`) | `complete` 전용. 기준값(`interview.resolutionThreshold`, 기본 0.8) 미만이어도 완료한다. 사용자가 직접 정했을 때만 넘긴다 |
 
 \* resolutionScore 객체를 제공할 경우 필수
 
