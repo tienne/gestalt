@@ -294,3 +294,4 @@ outcome-feedback이 내보내는 CSV(`gestalt outcome export --format csv`)에 �
 3. **다시 채점하기 비용.** 인터뷰마다 채점 한 번이 늘어난다. 서브에이전트 채점에 frugal 모델을 쓰면 첫 채점과 모델이 달라져 흔들림이 모델 차이까지 섞인다. 같은 모델을 쓸지, 모델 차이를 받아들이고 `mode`에 모델 이름을 남길지 정해야 한다.
 4. **점수 기준표를 넣을까.** `buildResolutionPrompt`에 차원별로 0.2, 0.5, 0.8이 어떤 상태인지 예시를 넣으면 흔들림은 줄 수 있다. 다만 결과와 맞는지와는 별개이고 기록 단계 도중에 프롬프트를 바꾸면 앞뒤 데이터가 섞인다. 넣는다면 첫 결과 문서 전에 넣거나 `readinessRuleVersion`을 올려서 나눠야 한다.
 5. **Evaluate 점수도 같은 절차를 밟을까.** Evaluate의 성공 판정도 LLM이 쓴 `overallScore`에 걸려 있다. ac-test-first와 evaluate-evidence가 기계 판정으로 상한을 걸지만 0.85 기준값 자체를 결과와 맞춰보는 절차는 없다. 이 문서의 결과 표에 `final_score` 구간을 붙인 뒤 따로 제안할지 정해야 한다.
+6. **gate가 same-context 다시 채점을 받아도 될까.** `readinessAfterRescore`는 `rescoreMode`를 보지 않는다. Agent 도구가 없는 런타임은 메인 세션이 `same-context`로 다시 매기는데 앞에서 매긴 숫자를 따라가기 쉬워서 흔들림이 잘 안 드러난다. 그래서 `gate`에서는 첫 점수를 거의 그대로 다시 보내도 통과한다. 기본값이 `record`라 지금 동작에는 영향이 없다. `gate`를 기본으로 올리기 전에 `same-context`면 판정을 확정하지 않을지, 받되 결과 표에서 따로 셀지 정해야 한다.
