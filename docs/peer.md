@@ -34,19 +34,42 @@ gestalt peer status                                  # 데몬 상태
 | 세션 제목(`ai-title`) | 서브에이전트 대화(“서브에이전트 실행 중” 한 줄만) |
 | | 그 밖의 모든 줄. 모르는 종류는 개수만 띄운다 |
 
-보이는 것에도 가리기를 한 번 더 건다. 아래 값이 `[가림]`이 되고 홈 디렉토리 경로는 `~`가 된다.
+보이는 것에도 가리기를 한 번 더 건다. 이번 단계에서 가리는 것은 아래 목록이 전부다. 이 목록 밖은 안 가린다. 가린 자리는 `[가림]`이 된다.
 
-- 형식이 정해진 토큰: AWS 액세스 키, GitHub 토큰, GitLab 토큰(`glpat-`), npm 토큰(`npm_`), Anthropic 키(`sk-ant-`)와 그 밖의 `sk-` 키(`sk-proj-` 포함), Stripe 키(`sk_live_`, `rk_test_` 등), Google API 키(`AIza`), Slack 토큰(`xox`), JWT, PEM 개인키 블록, `Bearer`와 `Basic` 뒤 값
-- URL에 박힌 비밀번호: `https://user:pass@host`에서 `pass` 자리만 가린다. 이름 없이 비밀번호만 둔 `redis://:pass@host`도 가린다
-- 이름에 KEY, TOKEN, SECRET, PASSWORD, PASSWD가 든 `NAME=값`. 따옴표 친 JSON 키는 이름에 key, token, secret, password, passwd, pwd, cookie, credential, authorization, auth(`author`는 빼고)가 들면 값을 가린다. 둘 다 이스케이프된 따옴표나 따옴표 안 줄바꿈도 4096자 안에서 닫는 따옴표를 찾고 못 찾으면 줄 끝까지 가린다
-- 헤더 꼴: 줄 첫머리의 `Cookie:`, `Set-Cookie:`, `X-Api-Key:`, `Authorization:`, `Proxy-Authorization:`(`curl -v`의 `>`나 `<` 표시 포함)는 콜론 뒤를 줄 끝까지 가린다. 따옴표 안에 든 헤더(`-H "X-Api-Key: …"`)는 닫는 따옴표 앞까지만 가린다
-- 도구 입력에서 키 이름이 민감한 값: 키를 `_`, `-`, `.`, 대소문자 경계로 나눈 낱말이 key, apikey, token, secret, password, passwd, pass, pwd, auth, authorization, credential(s), cookie(s) 중 하나면 값을 통째로 가린다. 낱말이 token, secret, password, passwd, passphrase, apikey, privatekey로 끝나도(`accesstoken`처럼) 가린다. token 말고는 끝에 `s`가 붙어도 된다. 값이 객체면 안으로 들어가 같은 규칙을 건다
+**형식이 정해진 토큰**은 값 전체를 가린다.
+
+- AWS 액세스 키(`AKIA`, `ASIA`, `ABIA`, `ACCA`로 시작하는 20자), GitHub 토큰(`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), GitLab 토큰(`glpat-`), npm 토큰(`npm_`)
+- Anthropic 키(`sk-ant-`)와 그 밖의 `sk-` 키(`sk-proj-` 포함), Stripe 키(`sk_live_`, `rk_test_` 등), Google API 키(`AIza`), Slack 토큰(`xox`), JWT
+- PEM 개인키 블록. 끝 표시가 없으면 글 끝까지 가린다
+
+**자리로 찾는 값**은 이름이나 앞부분을 남기고 값만 가린다.
+
+- URL 비밀번호: `https://user:pass@host`에서 `pass` 자리만 가린다. 이름 없이 비밀번호만 둔 `redis://:pass@host`도 가린다
+- `Bearer` 뒤 8자 이상인 값(대소문자 무관). `Basic` 뒤 8자 이상인 값은 `Basic`을 대문자로 시작해 썼고 값에 숫자나 `+`, `/`, `=`가 있거나 둘째 글자부터 대문자가 있을 때만 가린다. `Basic authentication`이나 소문자 `basic` 뒤는 안 건드린다
+- 헤더 줄: 줄 첫머리(`curl -v`의 `>`나 `<` 표시 포함)의 `Cookie:`, `Set-Cookie:`, `Authorization:`, `Proxy-Authorization:`, `api-key`이거나 하이픈 뒤 `api-key`로 끝나는 이름(`X-Api-Key:`, `X-Goog-Api-Key:`), 하이픈 뒤 token이나 secret으로 끝나는 이름(`X-Auth-Token:`, `PRIVATE-TOKEN:`)은 콜론 뒤를 줄 끝까지 가린다. 하이픈 없는 `Token:`이나 `token: string;`은 안 건드린다
+- 따옴표 안 헤더: 같은 이름이 따옴표 바로 뒤에 오면(`-H "X-Api-Key: …"`) 닫는 따옴표 앞까지만 가린다
+- `NAME=값`: 이름에 KEY, TOKEN, SECRET, PASSWORD, PASSWD, COOKIE, CREDENTIAL(S)가 들거나 앞뒤가 글자가 아닌 PASS와 AUTH, `_PWD`가 들면 가린다. `BYPASS=1`, `OAUTH_CLIENT_ID=…`, `AUTHOR=…`, `PWD=…`, `OLDPWD=…`는 안 건드린다. `=` 앞에 공백이 있으면(`key = value`) 안 본다. 따옴표 친 값은 따옴표 안 줄바꿈과 이스케이프된 따옴표를 넘어 4096자 안에서 닫는 따옴표까지 가린다. 4096자 안에서 못 찾으면 첫 줄 끝까지만 가린다. 따옴표 없는 값은 공백 앞까지 가린다
+- 큰따옴표 친 키(`"api_key": "…"`와 한 번 더 감싼 `\"api_key\": \"…\"`): 키 이름에 key, token, secret, password, passwd, passphrase, pwd, cookie, credential, authorization이 들거나 뒤가 글자가 아닌 auth(`author`는 빼고), 앞뒤가 글자가 아닌 pass(`bypass`는 빼고)가 들면 값을 가린다. 값은 큰따옴표 친 문자열만 본다. 이스케이프된 따옴표는 넘어서 4096자 안의 닫는 따옴표까지 가리고 못 찾거나 값 안에 날 줄바꿈이 나오면 그 줄 끝까지만 가린다
+- 작은따옴표 친 키(`{'Cookie': '…'}`): 큰따옴표 키와 같은 낱말이다. 값은 같은 줄에서 4096자 안에 닫는 작은따옴표가 있을 때만 가린다
+- 도구 입력 객체의 키: 키를 `_`, `-`, `.`, 대소문자 경계로 나눈 낱말이 key, apikey, token, secret, password, passwd, pass, pwd, auth, authorization, credential(s), cookie(s) 중 하나면 값을 통째로 가린다. 낱말이 token, secret, password, passwd, passphrase로 끝나거나(`accesstoken`처럼) access, secret, private, signing, encryption, master, api 뒤에 key가 붙은 꼴(`accesskey`, `privatekey`)이어도 가린다. 이 끝 맞추기에서 token 말고는 끝에 `s`가 붙어도 된다. `monkey`, `hotkey`, `keyword`, `max_tokens`는 안 건드린다. 값이 객체면 안으로 들어가 같은 규칙을 걸고 배열이나 원시값이면 통째로 가린다
+
+**홈 디렉토리 경로**는 `~`가 된다. `/Users/alice2`처럼 이름이 이어지는 다른 경로는 안 건드린다.
+
+알려진 빈자리는 이렇다. 모두 위 목록 밖이라 그대로 보인다.
+
+- 이름이 목록에 없는 비밀: `SESSION=…`, `{"sid": "…"}`, `X-Session: …` 헤더
+- 따옴표 친 키 뒤의 문자열 아닌 값: `"password": 12345`
+- 따옴표 없는 키를 글자로 찍은 출력: `{ password: 'hunter2' }`(Node가 객체를 찍은 꼴). 도구 입력 객체로 들어오면 키 이름으로 가리지만 도구 결과 글자 안에 있으면 못 가린다
+- 따옴표 안 줄바꿈이 든 JSON 값: 첫 줄 끝까지만 가리고 다음 줄 조각은 남는다
+- 4096자 안에서 안 닫히는 여러 줄 따옴표 값: `NAME=값`은 첫 줄 끝까지만 가리고 작은따옴표 키는 값을 아예 못 가린다
 
 ## 뷰어
 
 주소는 `http://127.0.0.1:<포트>/s/<공유 id>?t=<토큰>`이다. 토큰이 없거나 틀리면 401이다. 페이지는 바깥 자원을 안 끌어오고 대화 내용은 마크다운으로 그리지 않고 글자 그대로 넣는다. 응답에 `Cache-Control: no-store`를 붙이고 브라우저 저장소도 쓰지 않는다.
 
 공유 하나에 붙을 수 있는 뷰어는 16개다. 넘으면 429로 거절하고 뷰어 화면에 상한에 걸렸다고 뜬다.
+
+앞부분을 받는 중에 공유가 종료되면 아직 못 받은 이벤트는 오지 않고 뷰어 화면에 "공유가 닫혀 뒤쪽 N개는 못 받았어요"가 뜬다.
 
 ## 데몬이 붙잡는 양
 
@@ -55,7 +78,7 @@ gestalt peer status                                  # 데몬 상태
 | 공유마다 들고 있는 이벤트 | 직렬화 기준 32MB | 앞부분부터 버린다. 새로 붙은 뷰어에는 "메모리 상한에 걸려 앞부분 N개를 생략했어요"가 뜬다 |
 | 대화 기록 한 줄 | 64MB | 다음 줄바꿈까지 버리고 따로 센다 |
 | 한 번에 읽는 양 | 공유마다 4MB | 나머지는 다음 차례에 읽는다 |
-| 뷰어 하나의 소켓에 밀린 양 | 8MB. 앞부분은 소켓이 비는 만큼만 보내서 여기에 안 쌓인다 | 실시간 프레임을 쓰기 전에 넘었으면 그 뷰어 연결을 끊는다 |
+| 뷰어 하나의 소켓에 밀린 양 | 8MB. 앞부분은 소켓이 비는 만큼만 보내서 여기에 안 쌓인다 | 실시간 프레임을 쓰기 전에 넘었으면 그 뷰어 연결을 끊는다. 상한보다 큰 이벤트 하나는 보내지만 소켓으로 다 빠지기 전에 다음 프레임이 오면 그때 끊는다 |
 
 변환하다 실패한 줄은 그 줄만 건너뛰고 개수를 센다. 공유 하나를 읽다가 예외가 나면 그 공유만 `error`로 종료되고 다른 공유는 계속 돈다.
 
