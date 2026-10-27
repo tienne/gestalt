@@ -141,7 +141,7 @@ The interview only has value if the human's actual intent is captured. A self-an
 
 ### 다시 채점하기
 
-`respond`나 `score` 응답에 `nextAction: "rescore"`가 붙으면 `complete`를 부르기 전에 그 채점을 한 번 더 받는다. 점수가 처음 기준을 넘었을 때 한 번만 붙는다. 같은 대화를 다시 물었을 때 점수가 얼마나 바뀌는지 남기려는 것이다.
+`respond`나 `score` 응답에 `nextAction: "rescore"`가 붙으면 `complete`를 부르기 전에 그 채점을 한 번 더 받는다. 기본 설정(`record`)에서는 점수가 처음 기준을 넘었을 때 한 번만 붙고 `gate`에서는 다시 채점을 받을 때까지 넘을 때마다 붙는다. 같은 대화를 다시 물었을 때 점수가 얼마나 바뀌는지 남기려는 것이다.
 
 `rescorePrompt`는 이 인터뷰를 안 본 서브에이전트에게 맡긴다. 같은 대화 안에서 다시 매기면 앞에서 매긴 숫자를 따라가기 쉬워서 흔들림이 안 드러난다. `rescorePrompt`에는 대화 기록만 있고 앞 점수는 없다. 프롬프트에 점수나 판정을 덧붙이지 않는다.
 
