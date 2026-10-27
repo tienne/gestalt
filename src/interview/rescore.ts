@@ -135,6 +135,7 @@ export function applyRescore(
   resolutionScore: ResolutionScore;
   rescore: RescoreResult;
   principle: GestaltPrinciple | null;
+  roundNumber: number;
 } {
   const rescore = compareRescore(first, second, mode, threshold);
   const isReady = readinessAfterRescore(setting, first, rescore, threshold);
@@ -144,5 +145,5 @@ export function applyRescore(
       ? principleAfterRescore(first, second, rescore, roundNumber)
       : null;
   const resolutionScore = sessions.recordRescore(sessionId, rescore, isReady);
-  return { resolutionScore, rescore, principle };
+  return { resolutionScore, rescore, principle, roundNumber };
 }

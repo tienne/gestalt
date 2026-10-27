@@ -395,7 +395,7 @@ export class PassthroughEngine {
       session.projectType,
       this.resolutionThreshold,
     );
-    const { resolutionScore, rescore, principle } = applyRescore(
+    const { resolutionScore, rescore, principle, roundNumber } = applyRescore(
       this.sessionManager,
       sessionId,
       first,
@@ -405,8 +405,6 @@ export class PassthroughEngine {
       this.resolutionThreshold,
     );
     if (!principle) return ok({ resolutionScore, rescore });
-
-    const roundNumber = session.rounds.length + 1;
 
     // gate가 판정을 미뤘으면 다음 질문은 흔들린 차원부터 묻는다
     this.eventStore.append('interview', sessionId, EventType.GESTALT_PRINCIPLE_APPLIED, {
