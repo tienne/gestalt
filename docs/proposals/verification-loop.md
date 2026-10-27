@@ -598,10 +598,10 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 단계           | 같은 파일                                                    | fast 실패 때 gate 결과 버림과 빠짐 대조 제외. fast 통과인데 gate `skipped`나 누락이면 거부. `gate_skipped` 상한이 `report` 모드에도 걸리고 fast 실패로 생긴 `skipped`에도 걸림. gate AC가 없으면 안 걸림. `testDesign`별 `tier` |
 | 변이 만들기    | `tests/unit/execute/mutation-probe.test.ts` (새 파일)        | 연산자 다섯 개, 주석과 문자열 건너뛰기, 테스트 파일 제외, 레포 밖 경로와 심링크 제외, 같은 seed면 같은 변이, AC당 세 개 상한, 평가당 상한과 AC 번갈아 남기기, `capped` 개수, e2e와 differential 제외, 기준점에서 dirty였던 파일 제외, 새 파일은 전체 줄 대상. git 임시 레포는 `execution-artifact-verify.test.ts` 헬퍼 |
 | 변이 판정      | 같은 파일                                                    | 원복 안 된 해시 거부, 명령 불일치 거부, killed와 survived, notRun 경고. 124와 137은 `timedOut`이고 `notRun` 경고에 안 들어감. 이벤트에 실린 결과에 `mutationResults`가 없음. 지금 해시가 직전 변이의 `blobAfter`와 같을 때만 Call 1이 원복부터 안내하고 `blobBefore`도 `blobAfter`도 아니면 넘어감. 키가 같은 `killed`와 `timedOut` 재사용과 키가 바뀌면 다시 돌리기. 직전 `notRun` 변이가 재평가에서 다시 나옴 |
-| 변이 시간 제한 | `tests/unit/skills/execute-skill.test.ts` (새 파일) | execute `SKILL.md` 변이 절에 하한을 둔다는 문구와 예산이 모자라 시작하지 못한 변이를 결과 없이 둔다는 문구가 있음(`tests/helpers/skill-section.ts`의 `section()`). 설정 키와 기본값 단언은 PR 6이 더한다 |
+| 변이 시간 제한 | `tests/unit/skills/execute-skill.test.ts` (새 파일) | execute `SKILL.md` 변이 절에 하한을 둔다는 문구와 예산이 모자라 시작하지 못한 변이를 결과 없이 둔다는 문구, 제한이 긴 변이 하나 때문에 예산에 들어가는 다른 변이를 건너뛰지 않는다는 문구가 있음(`tests/helpers/skill-section.ts`의 `section()`). 설정 키와 기본값, 건너뛰는 규칙의 동작 단언은 PR 6이 더한다 |
 | 차분 id 대조   | `tests/unit/execute/ac-checks.test.ts` (ac-test-first.md가 만든다) | `intended_diff_missing`, 스펙에 없는 DIFF 경고                                                                                                           |
 | 기능 지도      | `tests/unit/execute/feature-map.test.ts` (새 파일)           | frontmatter 파싱, js 엔진 거부, 크기 상한, 절대 경로와 `..` 거부, 레포 밖으로 풀리는 경로 거부, 심링크 파일 건너뛰기, `e2e` 경로에도 같은 검사, `feature_not_found`                                                                           |
-| 재실행 대상    | `tests/unit/execute/evolution-loop.test.ts`                  | `flaky`와 `mutation_survived`가 `ac_test` 태스크만 고른다. `testFirst`가 꺼지면 그 AC의 구현 태스크로 간다                                                |
+| 재실행 대상    | `tests/unit/execute/evolution-loop.test.ts`                  | `flaky`와 `mutation_survived`가 `ac_test` 태스크만 고른다. `testFirst`가 꺼지면 그 AC의 구현 태스크로 가고 재실행 프롬프트에 결정성 지시가 붙는다. 켜져 있으면 안 붙는다. 흔들린 AC 검사가 Evolve 프롬프트의 "AC Check Results" 절 안에 표시된다                                                |
 
 ## PR 나누기
 
