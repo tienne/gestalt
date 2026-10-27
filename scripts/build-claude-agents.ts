@@ -60,6 +60,7 @@ const SHORT_DESCRIPTIONS: Record<string, string> = {
   'jira-writer': '지라 티켓 본문 작성',
   explainer: '대상에 맞춘 설명 작성',
   'video-summarizer': '영상 스크립트로 요약 리포트 작성',
+  'lens-reader': '논문과 글을 출처와 의심 표시로 읽는 리포트 작성',
 };
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob'];
@@ -96,6 +97,8 @@ const TOOL_OVERRIDES: Record<string, string[]> = {
   'presentation-designer': [...READ_TOOLS, 'Write'],
   // 산출물이 digest.json 하나다. 저장 경로는 video-digest 스킬이 넘긴다.
   'video-summarizer': [...READ_TOOLS, 'Write'],
+  // 산출물이 리포트 JSON 하나다. 저장 경로는 lens 스킬이 넘긴다.
+  'lens-reader': [...READ_TOOLS, 'Write'],
 };
 
 /**
@@ -114,6 +117,7 @@ const OMIT_CLAUDE_MD = new Set([
   'presentation-designer',
   'impact-writer',
   'video-summarizer',
+  'lens-reader',
 ]);
 
 export const GENERATED_NOTICE = (source: string) =>
