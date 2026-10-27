@@ -17,6 +17,7 @@ import { logger } from '../core/logger.js';
 import type { IEventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { InterviewSessionRepository } from './repository.js';
+import { computeSignals } from '../gestalt/signals.js';
 import type { InterviewConfig } from '../core/config.js';
 
 export type InterviewOptions = Partial<InterviewConfig>;
@@ -186,6 +187,7 @@ export class SessionManager {
 
   updateResolutionScore(sessionId: string, score: ResolutionScore): void {
     const session = this.get(sessionId);
+    score.signals = computeSignals(session, score, session.resolutionScore);
     session.resolutionScore = score;
     session.updatedAt = new Date().toISOString();
 
@@ -202,6 +204,7 @@ export class SessionManager {
       contradictions: score.contradictions ?? [],
       roundNumber: currentRound?.roundNumber ?? null,
       threshold: score.threshold ?? this.resolutionThreshold,
+      signals: score.signals,
     });
   }
 

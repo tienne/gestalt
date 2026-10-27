@@ -58,7 +58,7 @@
 export interface ResolutionSignals {
   /** 답이 비어 있지 않은 라운드 수 */
   answeredRounds: number;
-  /** 질문은 했지만 답이 비어 있는 라운드 수 */
+  /** 답을 보냈지만 공백뿐인 라운드 수. 답을 기다리는 마지막 라운드는 세지 않는다 */
   emptyRounds: number;
   /** "알아서", "모르겠", "나중에", "up to you" 같은 위임 답변으로 판정한 라운드 수 */
   deferredRounds: number;
@@ -67,8 +67,10 @@ export interface ResolutionSignals {
    * 차원과 원칙의 짝은 analyzer.ts의 dimensions 정의를 따른다
    */
   unaskedConfidentDimensions: ResolutionDimensionName[];
-  /** 직전 채점보다 overall이 오른 폭. 첫 채점이면 null */
+  /** 직전 채점보다 overall이 오른 폭. 내려가면 음수. 첫 채점이면 null */
   overallJump: number | null;
+  /** 이 세션에서 지금까지 가장 크게 오른 폭. 결과 표의 overall_jump_max를 specHistory만으로 채우려고 둔다 */
+  maxOverallJump: number | null;
   /** 마지막 채점의 모순 수. 모순 목록은 LLM이 쓴 텍스트라 llmDerived로 묶는다 */
   llmDerived: { contradictions: number };
   /** 파트 3의 다시 채점하기 결과. 아직 안 했으면 없음 */
@@ -80,13 +82,15 @@ export interface ResolutionSignals {
 
 신호마다 고른 이유는 다음과 같다. 정답 신호라서 고른 게 아니다. 결과 표에서 점수보다 결과를 잘 가르는지 확인할 후보다.
 
-| 신호                            | 왜 후보인가                                                                                                                                                          |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `answeredRounds`, `emptyRounds` | 글이 말한 "예측에 쓴 정보량"에 가장 가깝다. 답이 적은데 점수가 높으면 정보 없이 숫자만 오른 것이다                                                                   |
-| `deferredRounds`                | 사용자가 결정을 넘긴 답은 문장으로는 답이지만 요구사항을 채우지 않는다. LLM 채점은 답이 있다는 사실에 끌려 점수를 올리기 쉽다                                        |
-| `unaskedConfidentDimensions`    | 한 번도 묻지 않은 차원에 높은 점수가 붙었다면 다른 답에서 추론했거나 지어낸 것이다. 질문 주제(`InterviewRound.gestaltFocus`)는 서버가 고르므로 기록이 정확하다       |
-| `overallJump`                   | 앞에서 자신 있게 쓰면 뒤 숫자가 따라 오른다는 글의 관찰과 맞닿는다. 한 라운드에 0.3 넘게 뛰면 답 하나로 여러 차원이 한꺼번에 채워졌다고 봐야 하는데 그런 일은 드물다 |
-| `llmDerived.contradictions`     | 지금도 감점에 쓴다. LLM 텍스트에서 나온 값이라 다른 신호와 섞지 않고 따로 둔다                                                                                       |
+| 신호                            | 왜 후보인가                                                                                                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `answeredRounds`, `emptyRounds` | 글이 말한 "예측에 쓴 정보량"에 가장 가깝다. 답이 적은데 점수가 높으면 정보 없이 숫자만 오른 것이다                                                                        |
+| `deferredRounds`                | 사용자가 결정을 넘긴 답은 문장으로는 답이지만 요구사항을 채우지 않는다. LLM 채점은 답이 있다는 사실에 끌려 점수를 올리기 쉽다                                             |
+| `unaskedConfidentDimensions`    | 한 번도 묻지 않은 차원에 높은 점수가 붙었다면 다른 답에서 추론했거나 지어낸 것이다. 질문 주제(`InterviewRound.gestaltFocus`)는 서버가 고르므로 기록이 정확하다(아래 참고) |
+| `overallJump`                   | 앞에서 자신 있게 쓰면 뒤 숫자가 따라 오른다는 글의 관찰과 맞닿는다. 한 라운드에 0.3 넘게 뛰면 답 하나로 여러 차원이 한꺼번에 채워졌다고 봐야 하는데 그런 일은 드물다      |
+| `llmDerived.contradictions`     | 지금도 감점에 쓴다. LLM 텍스트에서 나온 값이라 다른 신호와 섞지 않고 따로 둔다                                                                                            |
+
+passthrough 경로는 이 기록이 틀려 있었다. 호스트는 직전 응답의 `gestaltContext.currentPrinciple`로 질문을 만드는데 서버는 새 라운드에 바로 앞 라운드의 `gestaltFocus`를 복사해 넣었다. 그래서 모든 라운드가 첫 라운드 원칙(closure)으로 남았다. 이 신호를 세려면 그 기록부터 맞아야 해서 이 파트에서 같이 고친다. 직전 `respond`가 그 라운드 번호로 남긴 `GESTALT_PRINCIPLE_APPLIED` 이벤트의 원칙을 라운드에 쓴다.
 
 `deferredRounds`의 판정은 정규식 목록(`src/gestalt/signals.ts`의 `DEFERRED_ANSWER_PATTERNS`)으로 한다. 한국어와 영어를 같이 둔다. 답 전체가 짧고(40자 이하) 패턴에 걸릴 때만 센다. 긴 답 안에 "나중에"가 들어간 것까지 세면 잘못 세는 경우가 많아진다.
 
@@ -95,8 +99,8 @@ export interface ResolutionSignals {
 신호는 세 군데에 남는다.
 
 - `INTERVIEW_RESOLUTION_SCORED` 이벤트 payload에 `signals`와 `threshold`를 더한다(`src/interview/session.ts:190-196`).
-- 스펙 생성 때 outcome-feedback이 `SpecHistoryEntry`에 더하는 `resolutionScore` 옆에 `resolutionSignals?: ResolutionSignals`를 더한다. 그래야 이벤트 DB가 없는 팀원도 결과 표를 만들 수 있다.
-- `ges_status`의 인터뷰 요약에 신호 한 줄을 붙인다(`src/mcp/tools/status.ts:121-125`). 예: `답변 6/7, 위임 답변 1, 안 물은 차원: 우선순위`.
+- 스펙 생성 때 `SpecHistoryEntry`에 `resolutionScore`와 `resolutionSignals?: ResolutionSignals`를 더한다. 그래야 이벤트 DB가 없는 팀원도 결과 표를 만들 수 있다. `resolutionScore`는 outcome-feedback이 정한 필드와 이름과 의미가 같다(스펙을 만든 시점의 해상도, text 소스면 null). outcome-feedback PR 2를 기다리지 않고 이 파트에서 먼저 넣는다.
+- `ges_status`의 인터뷰 요약에 신호 한 줄을 붙인다. 예: `답변 6/7, 위임 답변 1, 안 물은 차원: 우선순위`. API 키 경로(`src/mcp/tools/status.ts`)는 `summary` 뒤에 붙이고 passthrough 경로(`src/mcp/server.ts`의 `handleStatusPassthrough`)는 `summary`가 없어서 `session.signalSummary`로 싣는다. 두 경로 모두 같은 문자열을 `signalSummary`에도 둔다.
 
 이 파트는 판정을 바꾸지 않는다.
 
@@ -213,14 +217,15 @@ outcome-feedback이 내보내는 CSV(`gestalt outcome export --format csv`)에 �
 | `src/core/types.ts`                                                        | `ResolutionSignals`, `RescoreResult` 추가. `ResolutionScore.signals`, `SpecHistoryEntry.resolutionSignals` 추가. `gestaltAnalysis[].confidence`를 선택값으로 |
 | `src/core/config.ts`                                                       | `interview.rescore` 추가. 기존 `resolutionThreshold`와 Evaluate 기준값을 판정에 연결                                                                         |
 | `src/gestalt/analyzer.ts`                                                  | `computeResolutionScore`에 `threshold` 인자                                                                                                                  |
-| `src/gestalt/signals.ts` (새 파일)                                         | `computeSignals(session, prevScore)`, `DEFERRED_ANSWER_PATTERNS`                                                                                             |
-| `src/interview/passthrough-engine.ts`                                      | 채점마다 신호 계산, 처음 기준값을 넘을 때 `rescorePrompt` 반환, `rescore: true` 처리                                                                         |
-| `src/interview/session.ts`                                                 | 이벤트 payload에 `signals`, `threshold`                                                                                                                      |
+| `src/gestalt/signals.ts` (새 파일)                                         | `computeSignals(session, score, prevScore)`, `DEFERRED_ANSWER_PATTERNS`, `formatSignalLine`                                                                  |
+| `src/interview/passthrough-engine.ts`                                      | 라운드에 직전 응답이 고른 원칙 기록, 처음 기준값을 넘을 때 `rescorePrompt` 반환, `rescore: true` 처리                                                        |
+| `src/interview/session.ts`                                                 | 채점마다 신호 계산, 이벤트 payload에 `signals`, `threshold`                                                                                                  |
 | `src/interview/resolution.ts`                                              | 비-passthrough 경로에도 신호 계산. 다시 채점하기는 같은 모델로 한 번 더 호출                                                                                 |
 | `src/llm/prompts.ts`                                                       | `buildRescorePrompt` 추가 (대화 기록만 담는다)                                                                                                               |
 | `src/mcp/schemas.ts`                                                       | `score` 입력에 `rescore` 추가                                                                                                                                |
 | `src/mcp/tools/interview-passthrough.ts`                                   | `nextAction: 'rescore'` 안내 문구                                                                                                                            |
-| `src/mcp/tools/status.ts`                                                  | 신호 한 줄                                                                                                                                                   |
+| `src/mcp/tools/status.ts`, `src/mcp/server.ts`                             | 신호 한 줄 (API 키 경로와 passthrough 경로)                                                                                                                  |
+| `src/mcp/tools/spec-passthrough.ts`                                        | `addSpec`에 `resolutionScore`, `resolutionSignals`                                                                                                           |
 | `src/spec/generator.ts`, `src/spec/passthrough-generator.ts`               | 설정 기준값 사용, `specHistory`에 신호 기록                                                                                                                  |
 | `src/agent/role-consensus-engine.ts`, `src/agent/role-prompt-generator.ts` | 합의 프롬프트와 출력 예시에서 confidence 숫자 제거                                                                                                           |
 | `src/spec/extractor.ts`                                                    | confidence 기본값 0.5 제거                                                                                                                                   |

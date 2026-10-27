@@ -135,11 +135,13 @@ export class PassthroughEngine {
     try {
       const session = this.sessionManager.get(sessionId);
 
-      // Save the externally generated question
+      // 호스트는 직전 응답의 gestaltContext.currentPrinciple로 질문을 만들었다.
+      // 그 원칙을 라운드에 남겨야 어느 차원을 물었는지가 기록과 맞는다
       const principle =
-        session.rounds.length > 0
+        this.appliedPrinciple(sessionId, session.rounds.length + 1) ??
+        (session.rounds.length > 0
           ? session.rounds[session.rounds.length - 1]!.gestaltFocus
-          : selectNextPrinciple({ roundNumber: 1, dimensions: [], hasContradictions: false });
+          : selectNextPrinciple({ roundNumber: 1, dimensions: [], hasContradictions: false }));
 
       // If there's no pending round (no unanswered question), add one
       const lastRound = session.rounds[session.rounds.length - 1];
@@ -306,6 +308,19 @@ export class PassthroughEngine {
   }
 
   // ─── Private helpers ────────────────────────────────────────────
+
+  /** 직전 respond가 이 라운드용으로 고른 원칙. 첫 라운드나 기록이 없으면 null */
+  private appliedPrinciple(sessionId: string, roundNumber: number): GestaltPrinciple | null {
+    const applied = this.eventStore
+      .replay('interview', sessionId)
+      .filter(
+        (e) =>
+          e.eventType === EventType.GESTALT_PRINCIPLE_APPLIED &&
+          (e.payload as { roundNumber?: unknown }).roundNumber === roundNumber,
+      );
+    const last = applied[applied.length - 1];
+    return last ? (last.payload as { principle: GestaltPrinciple }).principle : null;
+  }
 
   private buildGestaltContext(
     topic: string,

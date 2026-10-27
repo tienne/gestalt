@@ -4,6 +4,7 @@ import type {
   InterviewSession,
   InterviewRound,
   ResolutionScore,
+  ResolutionSignals,
   ProjectType,
   GestaltPrinciple,
   CompressedContext,
@@ -125,6 +126,9 @@ export class InterviewSessionRepository {
           dimensions: (payload.dimensions as ResolutionScore['dimensions']) ?? [],
           ...(contradictions.length > 0 && { contradictions }),
           ...(typeof payload.threshold === 'number' && { threshold: payload.threshold }),
+          ...(payload.signals != null && {
+            signals: payload.signals as ResolutionSignals,
+          }),
         };
 
         if (contradictions.length > 0) {

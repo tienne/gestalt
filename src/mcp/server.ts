@@ -30,6 +30,7 @@ import { createHostAdapter } from './host-adapter.js';
 import { resolveStatusSessionId } from './session-selector.js';
 import { handleCreateAgentPassthrough } from './tools/create-agent-passthrough.js';
 import { handleStatus, buildStatusConfigInfo } from './tools/status.js';
+import { formatSignalLine } from '../gestalt/signals.js';
 import { handleBenchmarkPassthrough } from './tools/benchmark-passthrough.js';
 import { handleAgentPassthrough } from './tools/agent-passthrough.js';
 import { handleReviewPassthrough } from './tools/review-passthrough.js';
@@ -633,6 +634,7 @@ function handleStatusPassthrough(
       // Try interview first, then execute
       try {
         const session = engine.getSession(input.sessionId);
+        const signals = session.resolutionScore?.signals;
         return JSON.stringify(
           {
             versionInfo,
@@ -649,8 +651,12 @@ function handleStatusPassthrough(
                 ? {
                     overall: session.resolutionScore.overall.toFixed(2),
                     isReady: session.resolutionScore.isReady,
+                    ...(signals && { signals }),
                   }
                 : null,
+              ...(signals && {
+                signalSummary: formatSignalLine(signals, session.rounds.length),
+              }),
               createdAt: session.createdAt,
               updatedAt: session.updatedAt,
             },

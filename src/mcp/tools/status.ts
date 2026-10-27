@@ -5,6 +5,7 @@ import type { GestaltConfig } from '../../core/config.js';
 import { ExecuteSessionRepository } from '../../execute/repository.js';
 import { getVersion, getCachedUpdateResult, getSessionVersion } from '../../core/version.js';
 import { resolveStatusSessionId } from '../session-selector.js';
+import { formatSignalLine } from '../../gestalt/signals.js';
 
 /** 응답 하나에 실어 보낼 오류 줄 수. 넘는 만큼은 개수로만 알린다 */
 const MAX_ERROR_LINES = 20;
@@ -103,7 +104,9 @@ export function handleStatus(
         const scoreStr = session.resolutionScore
           ? ` (score ${session.resolutionScore.overall.toFixed(2)})`
           : '';
-        const interviewSummary = `세션 ${session.sessionId.slice(0, 8)}: ${session.status} — ${answeredRounds}/${session.rounds.length} 라운드 완료${scoreStr}`;
+        const signals = session.resolutionScore?.signals;
+        const signalLine = signals ? formatSignalLine(signals, session.rounds.length) : null;
+        const interviewSummary = `세션 ${session.sessionId.slice(0, 8)}: ${session.status} — ${answeredRounds}/${session.rounds.length} 라운드 완료${scoreStr}${signalLine ? `\n신호: ${signalLine}` : ''}`;
         return JSON.stringify(
           {
             versionInfo,
@@ -123,8 +126,10 @@ export function handleStatus(
                     overall: session.resolutionScore.overall.toFixed(2),
                     isReady: session.resolutionScore.isReady,
                     contradictions: session.resolutionScore.contradictions ?? [],
+                    ...(signals && { signals }),
                   }
                 : null,
+              ...(signalLine && { signalSummary: signalLine }),
               rounds: session.rounds.map((r) => ({
                 roundNumber: r.roundNumber,
                 gestaltFocus: r.gestaltFocus,

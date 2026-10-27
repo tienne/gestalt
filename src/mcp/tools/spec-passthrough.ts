@@ -40,6 +40,7 @@ export function handleSpecPassthrough(
             goal: result.value.goal,
             createdAt: result.value.metadata.generatedAt,
             sourceType: 'text',
+            resolutionScore: null,
           });
         } catch (e) {
           // 메모리 기록이 실패해도 스펙 생성은 막지 않는다
@@ -106,6 +107,10 @@ export function handleSpecPassthrough(
           createdAt: result.value.metadata.generatedAt,
           interviewSessionId: session.sessionId,
           sourceType: 'interview',
+          resolutionScore: result.value.metadata.resolutionScore,
+          ...(session.resolutionScore?.signals && {
+            resolutionSignals: session.resolutionScore.signals,
+          }),
         });
       } catch (e) {
         // 메모리 기록이 실패해도 스펙 생성은 막지 않는다

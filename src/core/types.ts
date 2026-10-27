@@ -21,6 +21,34 @@ export interface ResolutionDimension {
   improvementHint: string; // Dimension-specific hint for improving the score
 }
 
+export type ResolutionDimensionName =
+  | 'goalClarity'
+  | 'constraintClarity'
+  | 'successCriteria'
+  | 'priorityClarity'
+  | 'contextClarity';
+
+/**
+ * 채점마다 서버가 세션 상태로 세는 신호. LLM에게 묻지 않는다.
+ * 판정에는 아직 쓰지 않고 결과와 맞춰볼 후보로 기록만 한다.
+ */
+export interface ResolutionSignals {
+  /** 답이 비어 있지 않은 라운드 수 */
+  answeredRounds: number;
+  /** 답을 보냈지만 공백뿐인 라운드 수. 답을 기다리는 마지막 라운드는 세지 않는다 */
+  emptyRounds: number;
+  /** "알아서", "나중에", "up to you" 같은 위임 답변으로 판정한 라운드 수 */
+  deferredRounds: number;
+  /** 점수가 0.8 이상인데 그 차원의 원칙으로 질문한 라운드가 하나도 없는 차원 */
+  unaskedConfidentDimensions: ResolutionDimensionName[];
+  /** 직전 채점보다 overall이 오른 폭. 내려가면 음수. 첫 채점이면 null */
+  overallJump: number | null;
+  /** 이 세션에서 지금까지 가장 크게 오른 폭. 아직 비교할 채점이 없으면 null */
+  maxOverallJump: number | null;
+  /** 모순 목록은 LLM이 쓴 텍스트라 서버가 센 신호와 섞지 않는다 */
+  llmDerived: { contradictions: number };
+}
+
 export interface ResolutionScore {
   overall: number; // 0.0-1.0 (higher = clearer)
   dimensions: ResolutionDimension[];
@@ -28,6 +56,8 @@ export interface ResolutionScore {
   contradictions?: string[]; // Detected contradictions during interview
   /** isReady를 정할 때 쓴 기준값. 설정 연결 전에 저장된 이벤트에는 없다 */
   threshold?: number;
+  /** 서버가 센 신호. 채점이 세션에 기록될 때 붙는다 */
+  signals?: ResolutionSignals;
 }
 
 export interface GestaltAnalysis {
@@ -730,6 +760,10 @@ export interface SpecHistoryEntry {
   createdAt: string;
   interviewSessionId?: string;
   sourceType: TextInputSourceType | 'interview';
+  /** 스펙을 만든 시점의 해상도. text 소스면 null */
+  resolutionScore?: number | null;
+  /** 스펙을 만든 시점의 마지막 채점 신호. 이벤트 DB 없이 결과 표를 만들 때 쓴다 */
+  resolutionSignals?: ResolutionSignals;
 }
 
 export interface MemoryExecutionRecord {
