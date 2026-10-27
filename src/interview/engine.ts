@@ -13,13 +13,7 @@ import { ResolutionScorer } from './resolution.js';
 import { QuestionGenerator } from './questions.js';
 import { SessionManager, type InterviewOptions } from './session.js';
 import { detectProjectType } from './brownfield.js';
-import {
-  type RescoreSetting,
-  shouldRequestRescore,
-  compareRescore,
-  readinessAfterRescore,
-  principleAfterRescore,
-} from './rescore.js';
+import { type RescoreSetting, recordScoreWithRescore, applyRescore } from './rescore.js';
 import type { LLMAdapter } from '../llm/types.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
@@ -190,16 +184,13 @@ export class InterviewEngine {
     sessionId: string,
     score: ResolutionScore,
   ): Promise<GestaltPrinciple | null> {
-    const state = this.sessionManager.rescoreState(sessionId);
-    const request = shouldRequestRescore(
-      this.rescoreSetting,
-      state,
+    const request = recordScoreWithRescore(
+      this.sessionManager,
+      sessionId,
       score,
+      this.rescoreSetting,
       this.resolutionThreshold,
     );
-    // gate는 다시 채점을 받기 전까지 기준값을 넘었다고 보지 않는다
-    if (request && this.rescoreSetting === 'gate') score.isReady = false;
-    this.sessionManager.updateResolutionScore(sessionId, score);
     if (!request) return null;
 
     const session = this.sessionManager.get(sessionId);
@@ -217,19 +208,15 @@ export class InterviewEngine {
       this.sessionManager.recordRescoreFailure(sessionId, error);
       return null;
     }
-    const rescore = compareRescore(score, second, 'isolated', this.resolutionThreshold);
-    const isReady = readinessAfterRescore(
-      this.rescoreSetting,
+    return applyRescore(
+      this.sessionManager,
+      sessionId,
       score,
-      rescore,
+      second,
+      'isolated',
+      this.rescoreSetting,
       this.resolutionThreshold,
-    );
-    const principle =
-      !isReady && this.rescoreSetting === 'gate'
-        ? principleAfterRescore(score, second, rescore, session.rounds.length + 1)
-        : null;
-    this.sessionManager.recordRescore(sessionId, rescore, isReady);
-    return principle;
+    ).principle;
   }
 
   complete(sessionId: string, force = false): Result<InterviewSession, InterviewError> {

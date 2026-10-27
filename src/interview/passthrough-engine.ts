@@ -18,13 +18,7 @@ import { selectNextPrinciple, getPrinciplePhaseLabel } from '../gestalt/principl
 import { computeResolutionScore } from '../gestalt/analyzer.js';
 import { SessionManager, type InterviewOptions } from './session.js';
 import { detectProjectType } from './brownfield.js';
-import {
-  type RescoreSetting,
-  shouldRequestRescore,
-  compareRescore,
-  readinessAfterRescore,
-  principleAfterRescore,
-} from './rescore.js';
+import { type RescoreSetting, recordScoreWithRescore, applyRescore } from './rescore.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import {
@@ -353,16 +347,13 @@ export class PassthroughEngine {
     score: ResolutionScore,
     rounds: InterviewRound[],
   ): string | undefined {
-    const state = this.sessionManager.rescoreState(sessionId);
-    const request = shouldRequestRescore(
-      this.rescoreSetting,
-      state,
+    const request = recordScoreWithRescore(
+      this.sessionManager,
+      sessionId,
       score,
+      this.rescoreSetting,
       this.resolutionThreshold,
     );
-    // gate는 다시 채점을 받기 전까지 기준값을 넘었다고 보지 않는다
-    if (request && this.rescoreSetting === 'gate') score.isReady = false;
-    this.sessionManager.updateResolutionScore(sessionId, score);
     if (!request) return undefined;
 
     const session = this.sessionManager.get(sessionId);
@@ -404,20 +395,18 @@ export class PassthroughEngine {
       session.projectType,
       this.resolutionThreshold,
     );
-    const rescore = compareRescore(first, second, mode, this.resolutionThreshold);
-    const isReady = readinessAfterRescore(
-      this.rescoreSetting,
+    const { resolutionScore, rescore, principle } = applyRescore(
+      this.sessionManager,
+      sessionId,
       first,
-      rescore,
+      second,
+      mode,
+      this.rescoreSetting,
       this.resolutionThreshold,
     );
-    const roundNumber = session.rounds.length + 1;
-    const principle =
-      !isReady && this.rescoreSetting === 'gate'
-        ? principleAfterRescore(first, second, rescore, roundNumber)
-        : null;
-    const resolutionScore = this.sessionManager.recordRescore(sessionId, rescore, isReady);
     if (!principle) return ok({ resolutionScore, rescore });
+
+    const roundNumber = session.rounds.length + 1;
 
     // gate가 판정을 미뤘으면 다음 질문은 흔들린 차원부터 묻는다
     this.eventStore.append('interview', sessionId, EventType.GESTALT_PRINCIPLE_APPLIED, {

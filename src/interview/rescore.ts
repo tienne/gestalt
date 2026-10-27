@@ -8,6 +8,7 @@ import type {
 import type { InterviewConfig } from '../core/config.js';
 import { selectNextPrinciple } from '../gestalt/principles.js';
 import { isResolutionDimensionName } from '../gestalt/signals.js';
+import type { SessionManager } from './session.js';
 
 export type RescoreSetting = InterviewConfig['rescore'];
 
@@ -101,4 +102,47 @@ export function principleAfterRescore(
     dimensions: lower.dimensions,
     hasContradictions: (lower.contradictions?.length ?? 0) > 0,
   });
+}
+
+/**
+ * 채점을 세션에 넣고 다시 채점하기를 요청할 차례인지 돌려준다.
+ * 판정이 이 순서에 달려 있어서 두 엔진이 이 함수 하나를 같이 쓴다.
+ */
+export function recordScoreWithRescore(
+  sessions: SessionManager,
+  sessionId: string,
+  score: ResolutionScore,
+  setting: RescoreSetting,
+  threshold: number,
+): boolean {
+  const request = shouldRequestRescore(setting, sessions.rescoreState(sessionId), score, threshold);
+  // gate는 다시 채점을 받기 전까지 기준값을 넘었다고 보지 않는다
+  if (request && setting === 'gate') score.isReady = false;
+  sessions.updateResolutionScore(sessionId, score);
+  return request;
+}
+
+/** 다시 채점한 점수를 첫 점수와 비교해 남긴다. gate가 판정을 미뤘으면 다음 질문의 원칙도 돌려준다 */
+export function applyRescore(
+  sessions: SessionManager,
+  sessionId: string,
+  first: ResolutionScore,
+  second: ResolutionScore,
+  mode: RescoreMode,
+  setting: RescoreSetting,
+  threshold: number,
+): {
+  resolutionScore: ResolutionScore;
+  rescore: RescoreResult;
+  principle: GestaltPrinciple | null;
+} {
+  const rescore = compareRescore(first, second, mode, threshold);
+  const isReady = readinessAfterRescore(setting, first, rescore, threshold);
+  const roundNumber = sessions.get(sessionId).rounds.length + 1;
+  const principle =
+    !isReady && setting === 'gate'
+      ? principleAfterRescore(first, second, rescore, roundNumber)
+      : null;
+  const resolutionScore = sessions.recordRescore(sessionId, rescore, isReady);
+  return { resolutionScore, rescore, principle };
 }
