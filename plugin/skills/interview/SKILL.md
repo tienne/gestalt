@@ -214,7 +214,7 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 **`score`** (점수 제공 시) → `{ status, resolutionScore, rescorePrompt?, nextAction?, message? }`
 **`score`** (`rescore: true`) → `{ status: "rescored", resolutionScore, rescore, gestaltContext?, message }`
 
-`rescorePrompt`와 `nextAction: "rescore"`는 점수가 처음 기준을 넘은 응답에만 붙는다. `gate` 설정이면 다시 채점을 받을 때까지 넘을 때마다 붙는다.
+`rescorePrompt`와 `nextAction: "rescore"`는 기본 설정(`record`)에서 점수가 처음 기준을 넘은 응답에만 붙는다. `gate` 설정이면 다시 채점을 받을 때까지 넘을 때마다 붙는다.
 
 **`complete`** → `{ status, sessionId, totalRounds, finalResolutionScore, forced, message }`
 
