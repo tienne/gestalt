@@ -37,7 +37,7 @@ Complete reference for all Gestalt MCP tools.
 
 ## `ges_interview`
 
-인터뷰 세션을 시작하고, 질문-응답을 반복하며 요구사항 해상도를 0.8 이상으로 높인다.
+인터뷰 세션을 시작하고, 질문-응답을 반복하며 요구사항 해상도를 기준값(`interview.resolutionThreshold`, 기본 0.8) 이상으로 높인다.
 
 ### Actions
 
@@ -79,13 +79,13 @@ Complete reference for all Gestalt MCP tools.
 
 답변 라운드가 0인 세션에 기준을 넘는 점수를 넣으면 `score`와 `respond`가 거절한다. 공백만 보낸 답은 답변으로 세지 않는다. 기준 미만 점수는 받는다.
 
-이 점수는 호스트 LLM이 매겨서 넘긴 값이다. 서버는 답변이 하나라도 있으면 점수가 맞는지 확인하지 않는다. 0.8 관문은 부풀려 신고한 점수까지 막지 못한다.
+이 점수는 호스트 LLM이 매겨서 넘긴 값이다. 서버는 답변이 하나라도 있으면 점수가 맞는지 확인하지 않는다. 기준값 관문은 부풀려 신고한 점수까지 막지 못한다.
 
 #### 다시 채점하기
 
-`respond`나 `score`로 넣은 점수가 처음으로 기준값을 넘으면 응답에 `rescorePrompt`와 `nextAction: "rescore"`가 붙는다. `rescorePrompt`에는 대화 기록만 있고 앞 점수는 없다. 호스트는 이걸 인터뷰를 안 본 서브에이전트에게 채점시키고 그 점수를 `score`에 `rescore: true`와 함께 넘긴다. 서버는 두 점수를 비교한 결과(`rescore`)를 `resolutionScore.signals.rescore`에 남긴다. 비교 대상은 다시 채점을 받은 시점의 최신 점수다. 넘은 뒤 점수가 다시 떨어졌으면 떨어진 점수와 비교한다. 인터뷰마다 한 번만 받는다.
+`respond`나 `score`로 넣은 점수가 기준값을 넘으면 응답에 `rescorePrompt`와 `nextAction: "rescore"`가 붙는다. 기본 설정(`record`)에서는 처음 넘을 때 한 번만 붙고 `gate`에서는 다시 채점을 받을 때까지 넘을 때마다 붙는다. `rescorePrompt`에는 대화 기록만 있고 앞 점수는 없다. 호스트는 이걸 인터뷰를 안 본 서브에이전트에게 채점시키고 그 점수를 `score`에 `rescore: true`와 함께 넘긴다. 서버는 두 점수를 비교한 결과(`rescore`)를 `resolutionScore.signals.rescore`에 남긴다. 비교 대상은 다시 채점을 받은 시점의 최신 점수다. 넘은 뒤 점수가 다시 떨어졌으면 떨어진 점수와 비교한다. 인터뷰마다 한 번만 받는다.
 
-판정에 어떻게 쓸지는 설정 `interview.rescore`가 정한다. 기본값 `record`는 기록만 하고 판정은 첫 점수를 따른다. `gate`는 다시 채점을 받기 전까지 `isReady`를 `false`로 둔다. 받은 뒤에는 두 overall 중 낮은 쪽으로 판정한다. 차원 하나라도 0.2보다 크게 흔들렸으면 `isReady`를 `false`로 두고 가장 많이 흔들린 차원으로 다음 질문의 `gestaltContext`를 돌려준다. 다시 채점은 인터뷰마다 한 번이다. 이렇게 보류된 뒤 다시 기준값을 넘은 채점은 다시 채점을 요청하지 않고 첫 점수 규칙(overall ≥ 기준값)으로 판정한다. `off`는 다시 채점을 요청하지도 받지도 않는다.
+판정에 어떻게 쓸지는 설정 `interview.rescore`가 정한다. 기본값 `record`는 기록만 하고 판정은 첫 점수를 따른다. `gate`는 다시 채점을 받기 전까지 `isReady`를 `false`로 둔다. 받은 뒤에는 두 overall 중 낮은 쪽으로 판정한다. 차원 하나라도 0.2보다 크게 흔들렸으면 `isReady`를 `false`로 두고 가장 많이 흔들린 차원으로 다음 질문의 `gestaltContext`를 돌려준다. 다시 채점은 인터뷰마다 한 번이다. 이렇게 보류된 뒤 다시 기준값을 넘은 채점은 다시 채점을 요청하지 않고 첫 점수 규칙(overall ≥ 기준값)으로 판정한다. `gate`는 `rescoreMode`가 `same-context`여도 같은 규칙으로 판정한다. 이걸 그대로 둘지는 [제안서 열린 질문 6](./proposals/resolution-calibration.md#열린-질문)에서 정한다. `off`는 다시 채점을 요청하지도 받지도 않는다.
 
 API 키 경로는 서버가 같은 모델을 한 번 더 불러 채점하고 `isolated`로 남긴다.
 
