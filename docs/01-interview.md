@@ -1,6 +1,6 @@
 # 1단계: Interview
 
-이 단계를 마치면 요구사항의 명확도를 수치로 확인하고, 스펙 생성 전 해상도(Resolution Score)가 기준값(`interview.resolutionThreshold`, 기본 0.8) 이상인지 보장할 수 있어요.
+이 단계를 마치면 요구사항의 명확도를 수치로 확인하고, 스펙 생성 전 해상도(Resolution Score)가 기준값(`interview.resolutionThreshold`, 기본 0.8) 이상임을 보장할 수 있어요.
 
 Interview는 하나의 토픽으로 시작해서 여러 라운드의 Q&A를 거치며 해상도가 기준값 이상이 될 때까지 질문을 이어가요. 해상도가 충분하지 않은 채로 스펙을 만들면 Execute 단계에서 태스크 충돌이 발생해요.
 
