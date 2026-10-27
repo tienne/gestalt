@@ -145,6 +145,8 @@ The interview only has value if the human's actual intent is captured. A self-an
 
 `rescorePrompt`는 이 인터뷰를 안 본 서브에이전트에게 맡긴다. 같은 대화 안에서 다시 매기면 앞에서 매긴 숫자를 따라가기 쉬워서 흔들림이 안 드러난다. `rescorePrompt`에는 대화 기록만 있고 앞 점수는 없다. 프롬프트에 점수나 판정을 덧붙이지 않는다.
 
+`respond`에 같이 넘긴 점수는 직전 응답의 `scoringPrompt`로 매긴 것이라 이번 답을 못 봤다. 그래서 `respond`가 주는 `rescorePrompt`도 이번 답 앞까지만 묻는다. 이번 답까지 넣어 비교하려면 `respond`에 점수를 빼고 보낸 뒤 그 응답의 `scoringPrompt`로 매겨 `score`에 넘긴다.
+
 ```
 Agent {
   subagent_type: "Explore",

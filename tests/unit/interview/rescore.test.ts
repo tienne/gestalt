@@ -84,11 +84,26 @@ describe('다시 채점하기', () => {
       const first = engine.respond(sessionId, '7일 이내 환불', '환불 정책은?', READY);
       if (!first.ok) throw first.error;
       expect(first.value.nextAction).toBe('rescore');
-      expect(first.value.rescorePrompt).toBeDefined();
+      // 같이 온 점수는 직전 응답의 scoringPrompt로 매긴 것이라 이번 답은 다시 채점에도 안 넣는다
+      expect(first.value.rescorePrompt).toContain('카드 결제만 지원해요');
+      expect(first.value.rescorePrompt).not.toContain('7일 이내 환불');
 
       const again = engine.respond(sessionId, '관리자 화면은 나중에', '우선순위는?', READY);
       if (!again.ok) throw again.error;
       expect(again.value.rescorePrompt).toBeUndefined();
+    });
+
+    it('respond가 주는 rescorePrompt는 직전 응답의 scoringPrompt와 같은 대화를 묻는다', () => {
+      const engine = new PassthroughEngine(store);
+      const start = engine.start('결제 모듈');
+      if (!start.ok) throw start.error;
+      const sessionId = start.value.session.sessionId;
+      const prev = engine.respond(sessionId, '카드 결제만 지원해요', '결제 수단은?', LOW);
+      if (!prev.ok) throw prev.error;
+
+      const next = engine.respond(sessionId, '7일 이내 환불', '환불 정책은?', READY);
+      if (!next.ok) throw next.error;
+      expect(next.value.rescorePrompt).toBe(prev.value.gestaltContext.scoringPrompt);
     });
 
     it('rescorePrompt에는 대화 기록만 있고 앞 점수와 판정은 없다', () => {

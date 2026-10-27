@@ -1,5 +1,6 @@
 import type {
   InterviewSession,
+  InterviewRound,
   ResolutionScore,
   ProjectType,
   GestaltPrinciple,
@@ -205,7 +206,14 @@ export class PassthroughEngine {
         );
         const rejected = rejectUnbackedReadyScore(session, resolutionScore);
         if (rejected) return err(rejected);
-        rescorePrompt = this.recordScore(sessionId, resolutionScore);
+        // 같이 온 점수는 직전 respond의 scoringPrompt로 매긴 것이라 이번 답을 못 봤다.
+        // 다시 채점도 그 범위로 물어야 흔들림에 새 답으로 늘어난 몫이 안 섞인다
+        const scored = session.rounds.slice(0, -1);
+        rescorePrompt = this.recordScore(
+          sessionId,
+          resolutionScore,
+          scored.some((r) => r.userResponse) ? scored : session.rounds,
+        );
       }
 
       // Select next principle
@@ -290,7 +298,7 @@ export class PassthroughEngine {
         );
         const rejected = rejectUnbackedReadyScore(session, resolutionScore);
         if (rejected) return err(rejected);
-        const rescorePrompt = this.recordScore(sessionId, resolutionScore);
+        const rescorePrompt = this.recordScore(sessionId, resolutionScore, session.rounds);
         return ok({
           resolutionScore,
           ...(rescorePrompt && { rescorePrompt, nextAction: 'rescore' as const }),
@@ -339,8 +347,12 @@ export class PassthroughEngine {
 
   // ─── Private helpers ────────────────────────────────────────────
 
-  /** 채점을 세션에 넣는다. 다시 채점하기를 요청할 차례면 그 프롬프트를 돌려준다 */
-  private recordScore(sessionId: string, score: ResolutionScore): string | undefined {
+  /** 채점을 세션에 넣는다. 다시 채점하기를 요청할 차례면 rounds로 만든 프롬프트를 돌려준다 */
+  private recordScore(
+    sessionId: string,
+    score: ResolutionScore,
+    rounds: InterviewRound[],
+  ): string | undefined {
     const state = this.sessionManager.rescoreState(sessionId);
     const request = shouldRequestRescore(
       this.rescoreSetting,
@@ -356,7 +368,7 @@ export class PassthroughEngine {
     const session = this.sessionManager.get(sessionId);
     return buildRescorePrompt(
       session.topic,
-      session.rounds.map((r) => ({ question: r.question, response: r.userResponse })),
+      rounds.map((r) => ({ question: r.question, response: r.userResponse })),
       session.projectType,
     );
   }
