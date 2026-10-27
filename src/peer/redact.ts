@@ -47,26 +47,51 @@ const PATTERNS: readonly RegExp[] = [
 const URL_PASSWORD = /\b([a-z][a-z0-9+.-]{0,20}:\/\/[^\s:/@]{0,256}:)[^\s/@]{1,256}@/gi;
 
 /** `Authorization: Bearer xxx` 같은 헤더. 이름은 남기고 값만 지운다 */
-const BEARER = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
+const BEARER = /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
 
 /**
- * `curl -v`가 찍는 `> Cookie: …`나 `< Set-Cookie: …` 줄. 값에 정해진 꼴이 없어서 콜론 뒤를
- * 줄 끝까지 가린다. `Bearer`나 `Basic`은 머리에 넣어 BEARER가 남긴 `Bearer [가림]`을 그대로 둔다.
+ * `Basic` 뒤 base64 값. 대소문자를 가리고 값에 숫자나 `+`, `/`, `=`가 있거나 둘째 글자부터
+ * 대문자가 있어야 건다. `Basic authentication`이나 `Basic Configuration` 같은 영어 문장은
+ * 그대로 둔다. 헤더 꼴이 아닌 `{ authorization: 'Basic …' }` 같은 객체 출력은 이 패턴만 잡는다.
  */
-const HEADER_LINE =
-  /^([ \t]*(?:[<>][ \t]*)?(?:set-cookie|cookie|x-api-key|(?:proxy-)?authorization)[ \t]*:[ \t]*(?:(?:Bearer|Basic)[ \t]+)?)[^\n]{1,8192}/gim;
+const BASIC =
+  /\b(Basic)[ \t]+(?=[A-Za-z0-9._~+/=-]*?[0-9+/=]|[A-Za-z0-9._~+/=-][a-z0-9._~+/=-]*?[A-Z])[A-Za-z0-9._~+/=-]{8,}/g;
+
+/**
+ * 헤더 이름. token과 secret은 앞에 하이픈으로 이어진 조각이 있을 때만 받는다. 그래야
+ * `X-Auth-Token`과 `PRIVATE-TOKEN`은 걸리고 코드의 `token: string;`이나 `max_tokens: 100`은
+ * 줄 끝까지 가려지지 않는다.
+ */
+const HEADER_NAME =
+  '(?:set-cookie|cookie|(?:[a-z0-9]+-)*api-key|(?:[a-z0-9]+-)+(?:token|secret)|(?:proxy-)?authorization)';
+
+/**
+ * `curl -v`가 찍는 `> Cookie: …`나 `< X-Auth-Token: …` 줄. 값에 정해진 꼴이 없어서 콜론 뒤를
+ * 줄 끝까지 가린다. `Bearer`나 `Basic`은 머리에 넣어 BEARER와 BASIC이 남긴 `Bearer [가림]`과
+ * `Basic [가림]`을 그대로 둔다.
+ */
+const HEADER_LINE = new RegExp(
+  String.raw`^([ \t]*(?:[<>][ \t]*)?${HEADER_NAME}[ \t]*:[ \t]*(?:(?:Bearer|Basic)[ \t]+)?)[^\n]+`,
+  'gim',
+);
 
 /**
  * `curl -H "X-Api-Key: …" https://…`처럼 따옴표 안에 든 헤더. 줄 끝까지 가리면 뒤 URL과
  * 옵션까지 사라지므로 닫는 따옴표 앞에서 멈춘다.
  */
-const HEADER_QUOTED =
-  /(["'])([ \t]*(?:set-cookie|cookie|x-api-key|(?:proxy-)?authorization)[ \t]*:[ \t]*(?:(?:Bearer|Basic)[ \t]+)?)[^"'\n]{1,8192}/gi;
+const HEADER_QUOTED = new RegExp(
+  String.raw`(["'])([ \t]*${HEADER_NAME}[ \t]*:[ \t]*(?:(?:Bearer|Basic)[ \t]+)?)[^"'\n]+`,
+  'gi',
+);
 
 /**
- * `API_KEY=…`, `export GH_TOKEN=…`처럼 이름에 KEY/TOKEN/SECRET/PASSWORD가 든 대입.
- * 이름은 남겨야 무엇이 가려졌는지 읽힌다. `=` 앞 공백은 안 받는다. 코드의
- * `key = value`까지 걸면 도구 출력이 거의 다 가려진다.
+ * `API_KEY=…`, `export GH_TOKEN=…`처럼 이름에 KEY, TOKEN, SECRET, PASSWORD, PASSWD, PASS,
+ * PWD, COOKIE, CREDENTIAL(S), AUTH가 든 대입. 이름은 남겨야 무엇이 가려졌는지 읽힌다. `=` 앞
+ * 공백은 안 받는다. 코드의 `key = value`까지 걸면 도구 출력이 거의 다 가려진다.
+ *
+ * PASS와 AUTH는 앞뒤가 글자가 아닐 때만 받는다. 안 그러면 `BYPASS=1`, `--bypass=true`,
+ * `OAUTH_CLIENT_ID=…`, `AUTHOR=…`가 걸린다. PWD는 `_PWD`만 받는다. 셸이 찍는 `PWD=`와
+ * `OLDPWD=`는 비밀이 아니라 작업 경로다.
  *
  * 매치는 이름 속 KEY 같은 낱말에서 시작한다. 그 앞의 이름 조각은 매치 밖이라 그대로
  * 남는다. 이름 앞부분까지 정규식에 넣으면 `a.a.a.…`나 `KEYKEY…` 같은 입력에서 시작점마다
@@ -82,24 +107,44 @@ const HEADER_QUOTED =
  * 넘어가 이웃 값이 새므로 넷, 셋과 따옴표, 둘, 하나를 서로 겹치지 않게 나눈다.
  */
 const ASSIGNMENT =
-  /((?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)(?=([A-Za-z0-9_.-]{0,64}))\2)=(?:"(?:[^"\\]|\\[\s\S]){0,4096}"|'[^']{0,4096}'|\\"(?:[^"\\\n]|\\[^"\\\n]|\\\\\\\\|\\\\\\"|\\\\[^"\\\n]){0,4096}\\"|\\?["'][^\n]*|[^\s"'\\]+)/gi;
+  /((?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|(?<![a-z])PASS(?![a-z])|_PWD(?![a-z])|COOKIE|CREDENTIALS?|(?<![a-z])AUTH(?![a-z]))(?=([A-Za-z0-9_.-]{0,64}))\2)=(?:"(?:[^"\\]|\\[\s\S]){0,4096}"|'[^']{0,4096}'|\\"(?:[^"\\\n]|\\[^"\\\n]|\\\\\\\\|\\\\\\"|\\\\[^"\\\n]){0,4096}\\"|\\?["'][^\n]*|[^\s"'\\]+)/gi;
 
 /**
- * JSON이나 YAML 꼴 `"api_key": "…"`. 따옴표 친 키만 본다. 대화 기록 안에서 JSON이
+ * JSON이나 YAML 꼴 `"api_key": "…"`. 큰따옴표 친 키만 본다. 대화 기록 안에서 JSON이
  * 문자열로 한 번 더 감싸이면 `\"api_key\": \"…\"`가 되므로 이스케이프된 따옴표도 받는다.
  * 감싼 값은 ASSIGNMENT와 같이 백슬래시 개수로 갈라 읽는다.
  *
+ * 값 안에 날 줄바꿈이 나오면 닫는 따옴표를 찾지 않고 그 줄 끝까지만 가린다. JSON 문자열에는
+ * 날 줄바꿈이 못 들어가므로 이건 따옴표가 안 닫힌 값이다. 다음 줄까지 넘어가 닫는 따옴표를
+ * 찾으면 그 줄에 있던 다른 민감한 키를 건너뛰어 그 값이 샌다.
+ *
  * 낱말 목록은 isSensitiveKey와 따로 간다. 여기는 키 이름의 부분 문자열로 맞추므로
- * `auth`를 그대로 두면 `"author"`가 걸리고 `pass`를 넣으면 `"passed"`나 `"bypass"`도 걸린다.
+ * `auth`는 뒤가, `pass`는 앞뒤가 글자가 아닐 때만 받는다. 안 그러면 `"author"`와
+ * `"passed"`, `"bypass"`가 걸린다.
  */
-const QUOTED_FIELD =
-  /(\\?"[A-Za-z0-9_.-]{0,64}(?:key|token|secret|password|passwd|pwd|cookie|credential|authorization|auth(?![a-z]))[A-Za-z0-9_.-]{0,64}\\?"\s*:\s*)(?:"(?:[^"\\\n]|\\.){0,4096}"|\\"(?:[^"\\\n]|\\[^"\\\n]|\\\\\\\\|\\\\\\"|\\\\[^"\\\n]){0,4096}\\"|\\?"[^\n]*)/gi;
+const SENSITIVE_FIELD_WORD =
+  '(?:key|token|secret|password|passwd|passphrase|(?<![a-z])pass(?![a-z])|pwd|cookie|credential|authorization|auth(?![a-z]))';
+
+const QUOTED_FIELD = new RegExp(
+  String.raw`(\\?"[A-Za-z0-9_.-]{0,64}${SENSITIVE_FIELD_WORD}[A-Za-z0-9_.-]{0,64}\\?"\s*:\s*)(?:"(?:[^"\\\n]|\\.){0,4096}"|\\"(?:[^"\\\n]|\\[^"\\\n]|\\\\\\\\|\\\\\\"|\\\\[^"\\\n]){0,4096}\\"|\\?"[^\n]*)`,
+  'gi',
+);
+
+/**
+ * Python이 찍는 `{'Cookie': 'sid=…'}`처럼 작은따옴표 친 키. QUOTED_FIELD와 같은 낱말을 쓴다.
+ * 값은 같은 줄에서 4096자 안에 닫는 작은따옴표가 있어야 가린다.
+ */
+const SINGLE_QUOTED_FIELD = new RegExp(
+  String.raw`('[A-Za-z0-9_.-]{0,64}${SENSITIVE_FIELD_WORD}[A-Za-z0-9_.-]{0,64}'\s*:\s*)'(?:[^'\\\n]|\\.){0,4096}'`,
+  'gi',
+);
 
 export function redactText(text: string, options: RedactOptions = {}): string {
   let out = text;
   for (const pattern of PATTERNS) out = out.replace(pattern, REDACTED);
   out = out.replace(URL_PASSWORD, (_m, head: string) => `${head}${REDACTED}@`);
   out = out.replace(BEARER, (_m, scheme: string) => `${scheme} ${REDACTED}`);
+  out = out.replace(BASIC, (_m, scheme: string) => `${scheme} ${REDACTED}`);
   out = out.replace(HEADER_LINE, (_m, head: string) => `${head}${REDACTED}`);
   out = out.replace(
     HEADER_QUOTED,
@@ -110,6 +155,7 @@ export function redactText(text: string, options: RedactOptions = {}): string {
     const q = head.startsWith('\\') ? '\\"' : '"';
     return `${head}${q}${REDACTED}${q}`;
   });
+  out = out.replace(SINGLE_QUOTED_FIELD, (_m, head: string) => `${head}'${REDACTED}'`);
   return replaceHome(out, options.home ?? homedir());
 }
 
@@ -127,8 +173,10 @@ function replaceHome(text: string, home: string): string {
  * 겹치는 키는 안 건드린다.
  *
  * 소문자로 붙여 쓴 `accesstoken`이나 `privatekey` 같은 낱말은 SENSITIVE_KEY_SUFFIX로 낱말
- * 끝을 본다. `key`와 `pass`는 끝으로 맞추면 `monkey`나 `bypass`가 걸려서 낱말이 똑같을 때만
- * 건다. token은 복수형을 안 받는다. `max_tokens`나 `input_tokens`가 흔한 도구 입력 키다.
+ * 끝을 본다. `key`와 `pass`는 끝으로만 맞추면 `monkey`나 `bypass`가 걸린다. 그래서 `pass`는
+ * 낱말이 똑같을 때만 걸고 `key`는 access, secret, private, signing, encryption, master, api가
+ * 바로 앞에 붙은 합성어만 받는다. token은 복수형을 안 받는다. `max_tokens`나
+ * `input_tokens`가 흔한 도구 입력 키다.
  */
 const SENSITIVE_KEY_WORDS = new Set([
   'key',
@@ -147,7 +195,8 @@ const SENSITIVE_KEY_WORDS = new Set([
   'cookies',
 ]);
 
-const SENSITIVE_KEY_SUFFIX = /(?:token|(?:secret|password|passwd|passphrase|apikey|privatekey)s?)$/;
+const SENSITIVE_KEY_SUFFIX =
+  /(?:token|(?:secret|password|passwd|passphrase)s?|(?:access|secret|private|signing|encryption|master|api)keys?)$/;
 
 /** 키를 `_`, `-`, `.`, camelCase 경계로 나눠 민감한 낱말이 있는지 본다 */
 export function isSensitiveKey(key: string): boolean {

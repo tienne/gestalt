@@ -8,6 +8,8 @@ import {
 } from '../../../src/peer/redact.js';
 import { FAKE_HOME, FAKE_SECRETS } from '../../fixtures/peer/transcript.js';
 
+const j = (...parts: string[]): string => parts.join('');
+
 const opts = { home: FAKE_HOME };
 
 describe('redactText', () => {
@@ -201,6 +203,226 @@ describe('redactText', () => {
   it('코드의 `key = value`는 가리지 않는다', () => {
     expect(redactText('const key = value;', opts)).toBe('const key = value;');
   });
+
+  it.each(['DB_PASS', 'MYSQL_PWD', 'COOKIE', 'AUTH', 'GOOGLE_APPLICATION_CREDENTIALS', 'GH_AUTH'])(
+    '.env의 %s= 값을 가린다',
+    (name) => {
+      const v = FAKE_SECRETS.keyOnlyValue;
+      expect(redactText(`${name}=${v}`, opts)).toBe(`${name}=${REDACTED}`);
+    },
+  );
+
+  it.each([
+    'BYPASS=1',
+    '--bypass=true',
+    'OAUTH_CLIENT_ID=abcdef',
+    'AUTHOR=kim',
+    'PWD=/home/u',
+    'OLDPWD=/x',
+    'COMPASS=n',
+  ])('낱말 일부만 겹치는 %s는 안 건드린다', (input) => expect(redactText(input, opts)).toBe(input));
+
+  it.each(['db_pass', 'passphrase'])('따옴표 친 %s 키의 값을 가린다', (key) => {
+    const out = redactText(`{"${key}": "${FAKE_SECRETS.keyOnlyValue}"}`, opts);
+    expect(out).toBe(`{"${key}": "${REDACTED}"}`);
+  });
+
+  it('따옴표 친 bypass 키는 안 건드린다', () => {
+    expect(redactText('{"bypass": "y"}', opts)).toBe('{"bypass": "y"}');
+  });
+
+  it('따옴표가 안 닫힌 JSON 값은 그 줄 끝까지만 가리고 다음 줄의 민감한 키 값도 가린다', () => {
+    const v = FAKE_SECRETS.tokenValue;
+    const out = redactText(`{"password": "abc\n"api_token": "${v}", "n": 1}`, opts);
+    expect(out).toBe(`{"password": "${REDACTED}"\n"api_token": "${REDACTED}", "n": 1}`);
+  });
+
+  it('JSON 키 값 안 날 줄바꿈은 닫는 따옴표를 찾지 않고 그 줄 끝까지만 가린다', () => {
+    const out = redactText(`{"password": "line1\nline2", "x": 1}`, opts);
+    expect(out).toBe(`{"password": "${REDACTED}"\nline2", "x": 1}`);
+  });
+
+  it.each([
+    [
+      'X-Auth-Token',
+      'curl -H "X-Auth-Token: {v}" https://a.example.com',
+      'curl -H "X-Auth-Token: {r}" https://a.example.com',
+    ],
+    [
+      'PRIVATE-TOKEN',
+      'curl -H "PRIVATE-TOKEN: {v}" https://gitlab.example.com',
+      'curl -H "PRIVATE-TOKEN: {r}" https://gitlab.example.com',
+    ],
+    [
+      'api-key',
+      "curl -H 'api-key: {v}' https://x.openai.azure.com",
+      "curl -H 'api-key: {r}' https://x.openai.azure.com",
+    ],
+    [
+      'X-Goog-Api-Key',
+      'curl -H "X-Goog-Api-Key: {v}" https://g.example.com',
+      'curl -H "X-Goog-Api-Key: {r}" https://g.example.com',
+    ],
+    ['> X-CSRF-Token', '> X-CSRF-Token: {v}', '> X-CSRF-Token: {r}'],
+  ])('하이픈으로 이어진 %s 헤더 값을 가린다', (_name, input, expected) => {
+    const v = FAKE_SECRETS.keyOnlyValue;
+    expect(redactText(input.replace('{v}', v), opts)).toBe(expected.replace('{r}', REDACTED));
+  });
+
+  it.each([
+    '  token: string;',
+    '  accessToken: string,',
+    '    secret: process.env.SECRET,',
+    'max_tokens: 100',
+    'Accept: */*',
+    'Token: see below',
+  ])('헤더 꼴이 아닌 %s 줄은 안 건드린다', (input) => expect(redactText(input, opts)).toBe(input));
+
+  it.each([
+    ["{'Cookie': 'sid={v}'}", "{'Cookie': '{r}'}"],
+    ["{'X-Api-Key': '{v}', 'n': 1}", "{'X-Api-Key': '{r}', 'n': 1}"],
+    ["{'db_pass': '{v}'}", "{'db_pass': '{r}'}"],
+  ])('작은따옴표 친 키 %s의 값을 가린다', (input, expected) => {
+    const v = FAKE_SECRETS.keyOnlyValue;
+    expect(redactText(input.replace('{v}', v), opts)).toBe(expected.replace('{r}', REDACTED));
+  });
+
+  it("작은따옴표 친 'author'와 'bypass' 키는 안 건드린다", () => {
+    const input = "{'author': 'kim', 'bypass': 'y'}";
+    expect(redactText(input, opts)).toBe(input);
+  });
+
+  it.each([
+    'Basic authentication is simple',
+    'Use basic configuration here',
+    'Basic Configuration',
+  ])('영어 문장 %s의 Basic은 안 건드린다', (input) => expect(redactText(input, opts)).toBe(input));
+
+  it.each([
+    "{'Authorization': 'Basic dXNlcjpwYXNz'}",
+    "{ authorization: 'Basic dXNlcjpwYXNz' }",
+    'headers: { Authorization: "Basic dXNlcjpwYXNz" }',
+    'Basic YWxhZGRpbjpvcGVuc2VzYW1l',
+  ])('%s의 Basic 값을 가린다', (input) => {
+    const out = redactText(input, opts);
+    expect(out).not.toContain('dXNlcjpwYXNz');
+    expect(out).not.toContain('YWxhZGRpbjpvcGVuc2VzYW1l');
+    expect(out).toContain(REDACTED);
+  });
+
+  it('값이 9000자인 쿠키 헤더도 원문 조각을 안 남긴다', () => {
+    const v = 'q'.repeat(9_000);
+    expect(redactText(`> Cookie: ${v}\n< X-Ok: 1`, opts)).toBe(`> Cookie: ${REDACTED}\n< X-Ok: 1`);
+    expect(redactText(`curl -H "Cookie: ${v}" https://a.example.com`, opts)).toBe(
+      `curl -H "Cookie: ${REDACTED}" https://a.example.com`,
+    );
+  });
+
+  it.each([
+    ['AWS ASIA', j('ASIA', 'IOSFODNN7', 'EXAMPLE')],
+    ['AWS ABIA', j('ABIA', 'IOSFODNN7', 'EXAMPLE')],
+    ['AWS ACCA', j('ACCA', 'IOSFODNN7', 'EXAMPLE')],
+    ['GitHub ghu_', j('ghu', '_', 'FAKEFAKEFAKEFAKEFAKE0000')],
+    ['GitHub ghs_', j('ghs', '_', 'FAKEFAKEFAKEFAKEFAKE0000')],
+    ['GitHub ghr_', j('ghr', '_', 'FAKEFAKEFAKEFAKEFAKE0000')],
+    ['Anthropic sk-ant-', j('sk-', 'ant-', 'FAKEFAKEFAKEFAKE0000')],
+    ['Stripe rk_test_', j('rk_', 'test_', 'FAKEFAKEFAKEFAKE0000')],
+    ['Slack xoxp-', j('xox', 'p-', '0000FAKE-FAKEFAKEFAKE')],
+  ])('%s를 가린다', (_name, secret) => {
+    expect(redactText(`v ${secret} end`, opts)).toBe(`v ${REDACTED} end`);
+  });
+
+  it('소문자 bearer 뒤 값도 가린다', () => {
+    const out = redactText(`authorization: bearer ${FAKE_SECRETS.tokenValue}`, opts);
+    expect(out).not.toContain(FAKE_SECRETS.tokenValue);
+  });
+
+  it('소문자 basic 뒤 값은 안 건드린다', () => {
+    expect(redactText('use basic dXNlcjpwYXNz', opts)).toBe('use basic dXNlcjpwYXNz');
+  });
+
+  it.each(['Proxy-Authorization', 'X-Api-Key', 'Authorization', 'set-cookie'])(
+    '줄 첫머리 %s: 헤더는 앞 공백이 있어도 줄 끝까지 가린다',
+    (name) => {
+      const out = redactText(`  ${name}: ${FAKE_SECRETS.keyOnlyValue} x\nnext`, opts);
+      expect(out).toBe(`  ${name}: ${REDACTED}\nnext`);
+    },
+  );
+
+  it.each(['DB_PASSWD', 'GCP_CREDENTIAL'])('%s= 값을 가린다', (name) => {
+    expect(redactText(`${name}=${FAKE_SECRETS.keyOnlyValue}`, opts)).toBe(`${name}=${REDACTED}`);
+  });
+
+  it('대입 따옴표 값이 4096자 안에서 안 닫히면 첫 줄 끝까지만 가린다', () => {
+    const out = redactText(`API_KEY="${'a'.repeat(5_000)}\nsecond" next`, opts);
+    expect(out).toBe(`API_KEY=${REDACTED}\nsecond" next`);
+  });
+
+  it.each(['access_token', 'client_secret', 'passwd', 'x_auth', 'session_cookie'])(
+    '따옴표 친 %s 키의 값을 가린다',
+    (key) => {
+      const out = redactText(`{"${key}": "${FAKE_SECRETS.keyOnlyValue}", "n": 1}`, opts);
+      expect(out).toBe(`{"${key}": "${REDACTED}", "n": 1}`);
+    },
+  );
+
+  it('JSON 키 값이 4096자 안에서 안 닫히면 그 줄 끝까지 가린다', () => {
+    const out = redactText(`{"token": "${'a'.repeat(5_000)}"}\nnext`, opts);
+    expect(out).toBe(`{"token": "${REDACTED}"\nnext`);
+  });
+
+  it('작은따옴표 키 값이 같은 줄 4096자 안에서 안 닫히면 못 가린다(알려진 빈자리)', () => {
+    const long = `{'token': '${'a'.repeat(5_000)}'}`;
+    expect(redactText(long, opts)).toBe(long);
+    const multi = "{'token': 'line1\nline2'}";
+    expect(redactText(multi, opts)).toBe(multi);
+  });
+
+  it.each([
+    'SESSION=abcdef123456',
+    '{"sid": "abcdef123456"}',
+    '< X-Session: abcdef123456',
+    '{"password": 12345}',
+    "{ password: 'hunter2' }",
+  ])('목록 밖인 %s는 그대로 둔다(알려진 빈자리)', (input) => {
+    expect(redactText(input, opts)).toBe(input);
+  });
+
+  it('새 패턴은 1MB 반복 입력도 100ms 안에 끝난다', () => {
+    const MB = 1024 * 1024;
+    const fill = (unit: string): string => unit.repeat(Math.ceil(MB / unit.length)).slice(0, MB);
+    const inputs = [
+      '_PASS',
+      '_PWD',
+      '_AUTH',
+      'COOKIE',
+      'CREDENTIALS',
+      'DB_PASS=',
+      '"pass": "',
+      "'key': ",
+      "'pass': '",
+      "'x-api-key': '",
+      "'",
+      'Basic ',
+      'a-',
+      'x-token',
+      '"a-',
+      'a-a-a-a-a-a-a-a-a-a-a\n',
+      'Cookie: x\n',
+      '"Cookie: ',
+    ].map(fill);
+    inputs.push('Basic a' + fill('a-'), "'key': '" + fill('a'), '"' + fill('a-'));
+    for (const input of inputs) {
+      // 첫 실행은 JIT과 GC가 섞인다. 역추적이 터지면 몇 초가 걸리므로 가장 빠른 값으로 본다
+      let best = Infinity;
+      for (let i = 0; i < 3; i++) {
+        const started = performance.now();
+        redactText(input, opts);
+        best = Math.min(best, performance.now() - started);
+      }
+      expect(best, JSON.stringify(input.slice(0, 16))).toBeLessThan(100);
+    }
+  });
 });
 
 describe('redactValue', () => {
@@ -240,6 +462,13 @@ describe('redactValue', () => {
       file_path: '/tmp/a',
     });
   });
+
+  it('key로 끝나는 합성어 키 아래 값도 가린다', () => {
+    const v = FAKE_SECRETS.keyOnlyValue;
+    expect(redactValue({ headers: { accesskey: v, hotkey: 'k' } }, opts)).toEqual({
+      headers: { accesskey: REDACTED, hotkey: 'k' },
+    });
+  });
 });
 
 describe('isSensitiveKey', () => {
@@ -256,6 +485,16 @@ describe('isSensitiveKey', () => {
     'secrets',
     'passphrase',
     'DB_PASS',
+    'accesskey',
+    'accesskeys',
+    'passwd',
+    'credential',
+    'credentials',
+    'cookie',
+    'SECRETKEY',
+    'signingkey',
+    'encryptionkey',
+    'masterkey',
   ])('%s는 민감하다', (key) => expect(isSensitiveKey(key)).toBe(true));
 
   it.each([
@@ -267,6 +506,8 @@ describe('isSensitiveKey', () => {
     'max_tokens',
     'tokens',
     'bypass',
+    'turnkey',
+    'hotkey',
   ])('%s는 아니다', (key) => expect(isSensitiveKey(key)).toBe(false));
 });
 
