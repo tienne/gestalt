@@ -27,6 +27,7 @@ MCP 도구 목록과 액션 스키마는 `src/mcp/`의 툴 정의가 기준이�
 설정 레퍼런스 → [`docs/configuration.md`](./docs/configuration.md)
 코드 그래프 → [`docs/code-graph.md`](./docs/code-graph.md)
 로컬 PR → [`docs/local-pr.md`](./docs/local-pr.md)
+세션 공유 → [`docs/peer.md`](./docs/peer.md)
 아키텍처 그림 → [`docs/architecture-view.md`](./docs/architecture-view.md)
 WebFetch 캐시 훅 → [`docs/webfetch-cache.md`](./docs/webfetch-cache.md)
 설계 제안 → [docs/proposals/](./docs/proposals/README.md)
