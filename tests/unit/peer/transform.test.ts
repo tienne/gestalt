@@ -59,6 +59,21 @@ describe('TranscriptTransformer', () => {
     expect(run('summary').unknown).toBe(FIXTURE_UNKNOWN_LINES);
   });
 
+  it('바꾸다 던지는 줄은 버리고 모르는 줄과 따로 센다', () => {
+    const t = new TranscriptTransformer({ tools: 'full', home: FAKE_HOME });
+    const depth = 100_000;
+    const nested = '{"a":'.repeat(depth) + '1' + '}'.repeat(depth);
+    const deep = `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t","name":"X","input":${nested}}]}}`;
+    expect(t.push(deep)).toEqual([]);
+    expect(t.failedLines).toBe(1);
+    expect(t.unknownLines).toBe(0);
+    const next = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: '다음 줄' }] },
+    });
+    expect(t.push(next)).toMatchObject([{ kind: 'reply', text: '다음 줄' }]);
+  });
+
   it('서브에이전트 줄이 이어지면 표시를 한 번만 낸다', () => {
     expect(run('summary').events.filter((e) => e.kind === 'sidechain')).toHaveLength(1);
   });

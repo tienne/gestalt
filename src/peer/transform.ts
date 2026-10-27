@@ -66,6 +66,7 @@ export interface TransformOptions extends RedactOptions {
 export class TranscriptTransformer {
   private inSidechain = false;
   private unknown = 0;
+  private failed = 0;
   private claudeVersion: string | undefined;
 
   constructor(private readonly options: TransformOptions) {}
@@ -75,12 +76,34 @@ export class TranscriptTransformer {
     return this.unknown;
   }
 
+  /**
+   * 바꾸다 예외가 난 줄 수. 모르는 줄과 따로 센다. 모르는 줄은 형식이 바뀐 신호라 감사
+   * 로그에 버전과 함께 남기는데 여기에 섞이면 그 신호가 흐려진다.
+   */
+  get failedLines(): number {
+    return this.failed;
+  }
+
   /** 마지막으로 본 Claude Code 버전. 모르는 줄이 생겼을 때 감사 로그에 남긴다 */
   get version(): string | undefined {
     return this.claudeVersion;
   }
 
+  /**
+   * 한 줄을 바꾼다. 줄 하나에서 난 예외는 여기서 접고 그 줄만 버린다. 2만 단계로
+   * 중첩된 도구 입력이 가리기 재귀에서 스택을 넘기는 걸 봤다. 던지게 두면 같은 공유의
+   * 나머지 줄과 데몬까지 멈춘다.
+   */
   push(line: string): PeerEvent[] {
+    try {
+      return this.parse(line);
+    } catch {
+      this.failed++;
+      return [];
+    }
+  }
+
+  private parse(line: string): PeerEvent[] {
     const trimmed = line.trim();
     if (trimmed === '') return [];
 

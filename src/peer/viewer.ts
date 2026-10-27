@@ -30,7 +30,7 @@ const KEEPALIVE_MS = 15_000;
  *
  * Routes:
  *   GET /s/:id?t=TOKEN          → 뷰어 HTML
- *   GET /s/:id/events?t=TOKEN   → SSE (line, stats, state, closed)
+ *   GET /s/:id/events?t=TOKEN   → SSE (line, trimmed, stats, state, closed)
  *   *                           → 404
  */
 export class ViewerServer {
@@ -201,5 +201,7 @@ function sseFrame(frame: ShareFrame): string {
       return `event: state\ndata: ${JSON.stringify({ status: frame.status })}\n\n`;
     case 'closed':
       return `event: closed\ndata: ${JSON.stringify({ reason: frame.reason })}\n\n`;
+    case 'trimmed':
+      return `event: trimmed\ndata: ${JSON.stringify({ dropped: frame.dropped })}\n\n`;
   }
 }

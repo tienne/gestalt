@@ -112,6 +112,10 @@ export function renderViewerHtml(nonce: string): string {
     render(JSON.parse(m.data));
     if (stick) window.scrollTo(0, document.body.scrollHeight);
   });
+  es.addEventListener('trimmed', (m) => {
+    const n = JSON.parse(m.data).dropped;
+    log.append(el('div', 'ev note', '앞부분 ' + n + '개 생략 (데몬 메모리 상한)'));
+  });
   es.addEventListener('stats', (m) => {
     const n = JSON.parse(m.data).unknownLines;
     unknownEl.textContent = n > 0 ? '모르는 줄 ' + n + '개 건너뜀' : '';
