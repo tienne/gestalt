@@ -54,7 +54,9 @@ export function collectShotSecs(digest: Digest): number[] {
 
 export function collectFrameSecs(digest: Digest): number[] {
   const secs = digest.reports.flatMap((r) =>
-    r.sections.flatMap((s) => s.subsections.map((sub) => sub.frameSec)),
+    r.sections.flatMap((s) =>
+      s.subsections.flatMap((sub) => (sub.frameSec === undefined ? [] : [sub.frameSec])),
+    ),
   );
   return [...new Set(secs)].sort((a, b) => a - b);
 }

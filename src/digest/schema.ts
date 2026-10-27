@@ -11,16 +11,34 @@ import {
 } from './schema-base.js';
 import { extensionSchema } from './blocks.js';
 import { diagramSchema } from './diagram-schema.js';
+import {
+  doubtSchema,
+  glanceSchema,
+  limitSchema,
+  sourceRefSchema,
+  type Doubt,
+} from './lens-schema.js';
 
 export { DIAGRAM_KINDS, diagramSchema, type Diagram, type DiagramKind } from './diagram-schema.js';
 
 export { citeSchema, LANG_TAG_PATTERN };
 
-export const DIGEST_SCHEMA_VERSION = '1.4.0';
+export const DIGEST_SCHEMA_VERSION = '1.5.0';
 export const TRANSCRIPT_SCHEMA_VERSION = '1.0.0';
 
-export const CAPTION_SOURCES = ['manual', 'auto', 'whisper'] as const;
+/** text는 읽기 렌즈가 PDF나 웹 글에서 뽑은 본문이다 */
+export const CAPTION_SOURCES = ['manual', 'auto', 'whisper', 'text'] as const;
 export const VIDEO_SOURCES = ['youtube', 'file'] as const;
+/** 읽기 렌즈 자료. 문장 번호 자리에 문단 번호(팟캐스트는 문장 번호)가 들어간다 */
+export const LENS_SOURCES = ['pdf', 'web', 'podcast'] as const;
+export const SOURCE_KINDS = [...VIDEO_SOURCES, ...LENS_SOURCES] as const;
+export type SourceKind = (typeof SOURCE_KINDS)[number];
+export type LensKind = (typeof LENS_SOURCES)[number];
+
+export const isLensKind = (kind: SourceKind): kind is LensKind =>
+  (LENS_SOURCES as readonly string[]).includes(kind);
+/** 시각이 없는 글 자료. 문단의 startSec은 0이고 원문 창이 플레이어 자리를 대신한다 */
+export const isTextKind = (kind: SourceKind): boolean => kind === 'pdf' || kind === 'web';
 
 /**
  * 본문 문장 안에서 렌더러가 해석하는 마커는 이 둘뿐이다.
@@ -30,12 +48,28 @@ export const VIDEO_SOURCES = ['youtube', 'file'] as const;
 export const boldPattern = (): RegExp => /\*\*(.+?)\*\*/g;
 export const keywordPattern = (): RegExp => /\{\{kw:([A-Za-z0-9][A-Za-z0-9_-]*)\|([^}]+)\}\}/g;
 
+/** PDF 쪽 위의 사각형. 좌표는 pt이고 원점은 왼쪽 위다 */
+export const unitRectSchema = z.object({
+  page: z.number().int().positive(),
+  bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+});
+
+export const UNIT_ROLES = ['para', 'heading', 'caption'] as const;
+
 export const segmentSchema = z.object({
   i: sentenceIndex,
+  /** 글 자료(pdf, web)는 시각이 없어 0이다 */
   startSec: z.number().nonnegative(),
   text: textSchema,
   speaker: z.string().optional(),
   translation: z.string().optional(),
+  /** PDF 문단이 시작하는 쪽 */
+  page: z.number().int().positive().optional(),
+  role: z.enum(UNIT_ROLES).optional(),
+  /** 캡션 문단이면 그 표나 그림의 id */
+  ref: z.string().optional(),
+  /** 원문 창이 칠할 자리. 단이나 쪽을 넘는 문단은 여러 개다 */
+  rects: z.array(unitRectSchema).optional(),
 });
 
 export const youtubeWatchUrl = (videoId: string): string =>
@@ -47,7 +81,7 @@ export const youtubeWatchUrl = (videoId: string): string =>
  */
 export const videoMetaSchema = z
   .object({
-    source: z.enum(VIDEO_SOURCES),
+    source: z.enum(SOURCE_KINDS),
     videoId: z
       .string()
       .regex(/^[A-Za-z0-9_-]{11}$/)
@@ -61,6 +95,8 @@ export const videoMetaSchema = z
     /** segments[].translation의 언어. 뷰어 lang 속성으로 나간다 */
     translationLang: z.string().regex(LANG_TAG_PATTERN).optional(),
     captionSource: z.enum(CAPTION_SOURCES),
+    /** 팟캐스트를 내려받은 오디오 파일. serve가 이 파일 하나만 같은 출처로 내준다 */
+    media: z.string().optional(),
   })
   .superRefine((m, ctx) => {
     if (m.source === 'youtube') {
@@ -77,11 +113,27 @@ export const videoMetaSchema = z
           message: `url은 ${youtubeWatchUrl(m.videoId)}여야 한다`,
         });
       }
-    } else if (!m.url?.startsWith('file:')) {
+    } else if (m.source === 'file') {
+      if (!m.url?.startsWith('file:')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['url'],
+          message: '로컬 영상은 url이 file: 주소여야 한다',
+        });
+      }
+    } else if (m.url !== undefined && !/^(https?|file):/.test(m.url)) {
+      // 뷰어가 원문 링크로 싣는다. javascript: 같은 주소가 끼지 않게 한다
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['url'],
-        message: '로컬 영상은 url이 file: 주소여야 한다',
+        message: 'url은 http(s): 또는 file: 주소여야 한다',
+      });
+    }
+    if (m.source === 'podcast' && m.media !== undefined && !m.media.startsWith('file:')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['media'],
+        message: '팟캐스트 오디오는 내려받은 file: 주소여야 한다',
       });
     }
   });
@@ -118,6 +170,8 @@ export interface Bullet {
   text: string;
   cite: z.infer<typeof citeSchema>;
   children?: Bullet[];
+  /** 읽기 렌즈의 의심 표시. 이 불릿의 주장과 원문 표나 다른 문단이 어긋나는 자리다 */
+  doubt?: Doubt;
 }
 
 // 3단 이상은 스키마가 아니라 lint가 잡는다. 어느 불릿이 깊은지 경로로 알려주려고
@@ -126,6 +180,7 @@ export const bulletSchema: z.ZodType<Bullet> = z.lazy(() =>
     text: textSchema,
     cite: citeSchema,
     children: z.array(bulletSchema).optional(),
+    doubt: doubtSchema.optional(),
   }),
 );
 
@@ -145,15 +200,21 @@ export const subsectionSchema = z.object({
   id: idSchema,
   title: textSchema,
   cite: citeSchema,
-  frameSec: z.number().nonnegative(),
+  /** 영상 자료만 쓴다. 영상에서 빠지면 lint가 FRAME_SEC_MISSING으로 막는다 */
+  frameSec: z.number().nonnegative().optional(),
   bullets: z.array(bulletSchema).min(1),
   // 장면이 없는 소섹션이 대부분이라 빈 배열을 채워 넣지 않게 생략을 받는다
   shots: z.array(shotSchema).max(SHOTS_MAX).optional(),
+  /** 읽기 렌즈가 소섹션에 싣는 원문 표와 그림 */
+  tables: z.array(sourceRefSchema).max(3).optional(),
+  figures: z.array(sourceRefSchema).max(3).optional(),
 });
 
 export const sectionSchema = z.object({
   id: idSchema,
   title: textSchema,
+  /** 장 도입 한 줄. 읽기 렌즈가 대섹션 머리에 둔다 */
+  intro: textSchema.optional(),
   conclusion: textSchema,
   cite: citeSchema,
   subsections: z.array(subsectionSchema).min(1),
@@ -203,16 +264,22 @@ export const reportSchema = z.object({
     question: textSchema,
     answer: textSchema,
     takeaway: textSchema,
+    /** 읽기 렌즈의 한눈에 보기. 논문은 문제, 방법, 결과, 한계 순이다 */
+    glance: z.array(glanceSchema).optional(),
   }),
   sections: z.array(sectionSchema).min(1),
   skipped: z.array(skippedSchema).default([]),
   keywords: z.array(keywordSchema).default([]),
+  /** 읽기 렌즈의 검증 안 된 부분. 본문 끝에 늘 펼쳐 둔다 */
+  limits: z.array(limitSchema).optional(),
 });
 
 const digestObjectSchema = z.object({
   schemaVersion: z.string().default(DIGEST_SCHEMA_VERSION),
   slug: z.string().regex(SLUG_PATTERN, 'slug는 영문 소문자, 숫자, -만 쓴다'),
   generatedAt: z.string().optional(),
+  /** 자료 종류. merge가 transcript.json에서 옮겨 적는다. 영상과 읽을거리를 한 목록에서 가를 때 쓴다 */
+  source: z.object({ kind: z.enum(SOURCE_KINDS) }).optional(),
   reports: z.array(reportSchema).min(1),
   /** 템플릿으로 만든 확장 리포트. 1.1.0 이하에는 없다 */
   extensions: z.array(extensionSchema).default([]),
