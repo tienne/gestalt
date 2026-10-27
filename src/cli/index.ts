@@ -47,6 +47,7 @@ import {
   digestServeCommand,
   digestValidateCommand,
 } from './commands/digest.js';
+import { lensIngestCommand } from './commands/lens.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -266,6 +267,24 @@ export function createCli(): Command {
   pr.command('unregister <key>')
     .description('그 레포를 웹 UI 목록에서 뺀다. 레포 자체는 안 건드린다')
     .action((key, o, cmd) => prUnregisterCommand({ ...inherited(cmd), ...o, key }));
+
+  const lens = program
+    .command('lens')
+    .description('읽기 렌즈 — 논문 PDF, 웹 글, 팟캐스트를 문단 단위 원문으로 받는다')
+    .option('--repo-root <path>', 'Repository root (defaults to cwd)')
+    .option('--json', '에이전트가 파싱할 JSON으로');
+
+  const lensInherited = (cmd: { parent?: { opts(): Record<string, unknown> } }) =>
+    (cmd.parent?.opts() ?? {}) as { repoRoot?: string; json?: boolean };
+
+  lens
+    .command('ingest <input>')
+    .description(
+      'PDF나 웹 주소, 오디오에서 문단 단위 원문(transcript.json)과 표, 그림(source.json)을 만든다',
+    )
+    .option('--slug <slug>', '저장 폴더 이름 (기본: 제목과 주소 해시)')
+    .option('--kind <kind>', '자료 종류를 직접 정한다: pdf, web, podcast')
+    .action((input, o, cmd) => lensIngestCommand(input, { ...lensInherited(cmd), ...o }));
 
   const digest = program
     .command('digest')

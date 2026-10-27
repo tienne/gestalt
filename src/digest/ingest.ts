@@ -350,7 +350,8 @@ const sameSegments = (a: Transcript['segments'], b: Transcript['segments']) =>
  * 문장이 바뀌었는데 digest.json을 두면 cite가 옛 번호로 엉뚱한 장면을 가리킨다.
  * 지우지 않고 옮겨 두면 다음 validate가 DIGEST_NOT_FOUND로 요약을 새로 쓰게 이끈다
  */
-function moveStaleDigest(
+/** 문장(렌즈는 문단) 번호가 바뀌면 옛 요약의 출처가 엇나가서 digest.json을 옆으로 옮긴다 */
+export function moveStaleDigest(
   store: DigestStore,
   next: Transcript,
 ): IngestResult['staleDigest'] | undefined {
