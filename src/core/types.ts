@@ -67,7 +67,8 @@ export interface RescoreResult {
 export interface ResolutionScore {
   overall: number; // 0.0-1.0 (higher = clearer)
   dimensions: ResolutionDimension[];
-  isReady: boolean; // overall >= threshold
+  /** 준비 판정. 기본은 overall >= threshold다. interview.rescore가 gate면 다시 채점을 받기 전까지 false이고, 다시 채점한 점수는 두 overall 중 낮은 쪽과 흔들림(RESCORE_SPREAD_LIMIT)으로 다시 정한다 */
+  isReady: boolean;
   contradictions?: string[]; // Detected contradictions during interview
   /** isReady를 정할 때 쓴 기준값. 설정 연결 전에 저장된 이벤트에는 없다 */
   threshold?: number;
