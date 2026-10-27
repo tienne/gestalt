@@ -55,7 +55,7 @@
         "rescore": {
           "type": "string",
           "enum": ["off", "record", "gate"],
-          "description": "Rescore the first score that crosses the threshold. off: never. record: keep the result without changing readiness. gate: decide readiness on the lower overall and hold it when any dimension moves more than 0.2",
+          "description": "Rescore a score that crosses the threshold. off: never. record: request once on the first crossing and keep the result without changing readiness. gate: request on every crossing until rescored, hold readiness until then, then decide on the lower overall and hold it when any dimension moves more than 0.2",
           "default": "record"
         }
       },
