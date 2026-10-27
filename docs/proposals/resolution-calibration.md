@@ -110,7 +110,7 @@ passthrough 경로는 이 기록이 틀려 있었다. 호스트는 직전 응답
 
 흐름은 다음과 같다.
 
-1. 호스트가 `respond`나 `score`로 제출한 점수가 처음으로 기준값을 넘으면 서버는 그 점수를 저장하고 응답에 `rescorePrompt`를 싣는다. `nextAction`은 `rescore`다.
+1. 호스트가 `respond`나 `score`로 제출한 점수가 기준값을 넘으면 서버는 그 점수를 저장하고 응답에 `rescorePrompt`를 싣는다. `record`는 처음 넘을 때 한 번만 싣고 `gate`는 다시 채점을 받기 전까지 넘을 때마다 싣는다. `nextAction`은 `rescore`다.
 2. `rescorePrompt`는 `buildResolutionPrompt`와 같은 본문이지만 지금까지의 점수와 이전 채점의 `reasoning`을 빼고 대화 기록만 담는다.
 3. 호스트는 이 프롬프트를 인터뷰 맥락이 없는 서브에이전트에게 맡긴다. 방법은 [evaluate-evidence.md](./evaluate-evidence.md)의 Contextual 채점 위임과 같고 서브에이전트를 못 띄우는 런타임의 폴백도 `plugin/skills/_shared/agent-delegation.md`를 따른다. 폴백으로 같은 세션에서 다시 채점했으면 `rescoreMode: 'same-context'`로 표시한다. 맥락이 이어진 채점은 앞 숫자를 따라가기 쉬워서 흔들림이 덜 드러나기 때문이다.
 4. 호스트가 `score`를 `rescore: true`와 함께 다시 부른다. 서버는 두 점수를 비교해 `RescoreResult`를 남긴다.
