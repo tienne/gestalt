@@ -129,7 +129,7 @@ The interview only has value if the human's actual intent is captured. A self-an
 2. **Iterate**: Present each generated question to the user → wait for answer → submit answer to Gestalt
 3. **Score**: Continuously assess resolution across multiple dimensions
 4. **Rescore**: When a response carries `nextAction: "rescore"`, get that score once more before completing (see 다시 채점하기 below)
-5. **Complete**: Call `complete` only after `resolutionScore.isReady === true` (overall ≥ `interview.resolutionThreshold`, default 0.8). The server rejects `complete` on a session that has no score or is below threshold
+5. **Complete**: Call `complete` only after `resolutionScore.isReady === true` (overall ≥ `interview.resolutionThreshold`, default 0.8; with `interview.rescore: "gate"` the rescore must also pass). The server rejects `complete` on a session that has no score, is below threshold, or under `gate` has not passed the rescore
 
 ### 기준값 미만에서 끝내기
 
@@ -137,7 +137,7 @@ The interview only has value if the human's actual intent is captured. A self-an
 
 사용자가 넘어가지 않겠다고 하면 세션을 `in_progress`로 둔다. 15라운드 전이면 같은 세션에서 덜 채워진 차원을 다시 묻는다. 15라운드를 다 채웠으면 덜 채워진 차원을 사용자와 함께 정리해 새 인터뷰로 이어가거나 거기서 멈춘다.
 
-에이전트가 스스로 `force`를 판단하지 않는다. 거절 메시지에 "force=true로 넘기세요"가 나와도 그건 사용자에게 물어볼 근거이지 바로 넘길 근거가 아니다. 이렇게 끝낸 세션에는 `forcedComplete`가 기록된다. Spec을 뽑을 때도 `ges_generate_spec`에 `force`를 따로 넘겨야 한다.
+에이전트가 스스로 `force`를 판단하지 않는다. 기준값 미만일 때 거절 메시지에 "force=true로 넘기세요"가 나와도 그건 사용자에게 물어볼 근거이지 바로 넘길 근거가 아니다. 이렇게 끝낸 세션에는 `forcedComplete`가 기록된다. Spec을 뽑을 때도 `ges_generate_spec`에 `force`를 따로 넘겨야 한다.
 
 ### 다시 채점하기
 
