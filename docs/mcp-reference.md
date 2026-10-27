@@ -64,7 +64,7 @@ Complete reference for all Gestalt MCP tools.
 | `rescoreMode` | `"isolated" \| "same-context"` | `rescore`만, N | `"same-context"` | 인터뷰 맥락이 없는 서브에이전트가 채점했으면 `isolated`, 같은 대화에서 채점했으면 `same-context` |
 | `compressedSummary` | `string` | `compress` 두 번째 호출 | — | `compressionContext`로 호출자가 만든 요약. 첫 호출에선 생략한다 |
 | `record` | `boolean` | N | `false` | `complete` 시 GIF 녹화 생성 여부 |
-| `force` | `boolean` | `complete`만, N | `false` | 해상도 0.8 미만이어도 완료한다. 사용자가 직접 정했을 때만 넘긴다 |
+| `force` | `boolean` | `complete`만, N | `false` | 해상도가 기준값(`interview.resolutionThreshold`, 기본 0.8) 미만이어도 완료한다. 사용자가 직접 정했을 때만 넘긴다 |
 
 #### `resolutionScore` object
 

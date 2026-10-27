@@ -129,11 +129,11 @@ The interview only has value if the human's actual intent is captured. A self-an
 2. **Iterate**: Present each generated question to the user → wait for answer → submit answer to Gestalt
 3. **Score**: Continuously assess resolution across multiple dimensions
 4. **Rescore**: When a response carries `nextAction: "rescore"`, get that score once more before completing (see 다시 채점하기 below)
-5. **Complete**: Call `complete` only after `resolutionScore.isReady === true` (overall ≥ 0.8). The server rejects `complete` on a session that has no score or is below threshold
+5. **Complete**: Call `complete` only after `resolutionScore.isReady === true` (overall ≥ `interview.resolutionThreshold`, default 0.8). The server rejects `complete` on a session that has no score or is below threshold
 
-### 0.8 미만에서 끝내기
+### 기준값 미만에서 끝내기
 
-사용자가 0.8 미만에서 넘어가겠다고 직접 답한 경우에만 `force: true`로 `complete`를 부른다. 15라운드를 다 채워 `respond`가 더 받지 않으면 그 마지막 답의 점수는 반영되지 않은 상태다. 먼저 `score`로 그 점수를 넣고 `isReady`를 확인한다. 그래도 0.8 미만이면 에이전트가 현재 점수와 덜 채워진 차원을 보여주고 넘어갈지 묻는다. 라운드 수만으로 `force`를 넘기지 않는다. 사용자가 먼저 "그냥 넘어가자"고 했을 때도 같은 내용을 보여주고 한 번 더 확인한 뒤에 부른다.
+사용자가 기준값(`interview.resolutionThreshold`, 기본 0.8) 미만에서 넘어가겠다고 직접 답한 경우에만 `force: true`로 `complete`를 부른다. 15라운드를 다 채워 `respond`가 더 받지 않으면 그 마지막 답의 점수는 반영되지 않은 상태다. 먼저 `score`로 그 점수를 넣고 `isReady`를 확인한다. 그래도 기준값 미만이면 에이전트가 현재 점수와 덜 채워진 차원을 보여주고 넘어갈지 묻는다. 라운드 수만으로 `force`를 넘기지 않는다. 사용자가 먼저 "그냥 넘어가자"고 했을 때도 같은 내용을 보여주고 한 번 더 확인한 뒤에 부른다.
 
 사용자가 넘어가지 않겠다고 하면 세션을 `in_progress`로 둔다. 15라운드 전이면 같은 세션에서 덜 채워진 차원을 다시 묻는다. 15라운드를 다 채웠으면 덜 채워진 차원을 사용자와 함께 정리해 새 인터뷰로 이어가거나 거기서 멈춘다.
 
