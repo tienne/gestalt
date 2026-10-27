@@ -95,6 +95,24 @@ describe('SessionManager', () => {
     expect(completedEvent(session.sessionId)).toBeUndefined();
   });
 
+  it('points a gate session above the threshold to the rescore instead of force', () => {
+    const session = manager.create('test', 'greenfield');
+    manager.updateResolutionScore(session.sessionId, { overall: 0.85, isReady: false, dimensions: [] });
+    expect(() => manager.complete(session.sessionId)).toThrow(/다시 채점을 아직 받지 않아/);
+    expect(() => manager.complete(session.sessionId)).not.toThrow(/force=true/);
+  });
+
+  it('points a gate session held by the rescore to continue the interview', () => {
+    const session = manager.create('test', 'greenfield');
+    manager.updateResolutionScore(session.sessionId, { overall: 0.85, isReady: false, dimensions: [] });
+    manager.recordRescore(
+      session.sessionId,
+      { mode: 'isolated', overall: 0.6, maxDimensionSpread: 0.3, droppedDimensions: [] },
+      false,
+    );
+    expect(() => manager.complete(session.sessionId)).toThrow(/완료가 보류됐습니다/);
+  });
+
   it('rejects completing an unscored session', () => {
     const session = manager.create('test', 'greenfield');
     expect(() => manager.complete(session.sessionId)).toThrow(InterviewNotReadyError);

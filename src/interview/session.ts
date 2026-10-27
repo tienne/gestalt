@@ -265,12 +265,13 @@ export class SessionManager {
     if (session.status !== 'in_progress') {
       throw new SessionAlreadyCompletedError(sessionId);
     }
-    const ready = session.resolutionScore?.isReady === true;
+    const score = session.resolutionScore;
+    const ready = score?.isReady === true;
     if (!ready && !options.force) {
-      throw new InterviewNotReadyError(
-        session.resolutionScore?.overall ?? null,
-        session.resolutionScore?.threshold ?? this.resolutionThreshold,
-      );
+      const threshold = score?.threshold ?? this.resolutionThreshold;
+      // 기준값을 넘었는데 준비가 안 된 건 gate가 다시 채점을 기다리거나 결과로 보류한 경우뿐이다
+      const hold = score && score.overall >= threshold ? (score.signals?.rescore ? 'held' : 'pending') : undefined;
+      throw new InterviewNotReadyError(score?.overall ?? null, threshold, hold);
     }
     const forced = !ready;
 
