@@ -118,7 +118,7 @@ export async function handleInterviewPassthrough(
             : rescorePrompt
               ? RESCORE_MESSAGE
               : gestaltContext
-                ? 'The rescore disagreed with the first score, so the interview is not ready yet. Generate the next question with the returned questionPrompt and continue with respond.'
+                ? 'The rescore disagreed with the earlier score, so the interview is not ready yet. Generate the next question with the returned questionPrompt and continue with respond.'
                 : rescore
                   ? 'Rescore recorded.'
                   : undefined,
