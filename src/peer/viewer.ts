@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { ShareFrame, ShareStream } from './share.js';
 import { renderViewerHtml } from './viewer-html.js';
+import { errMessage } from './errors.js';
 
 export interface ViewerShare {
   stream: ShareStream;
@@ -60,8 +61,7 @@ export class ViewerServer {
         try {
           this.handle(req, res);
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          process.stderr.write(`[peer-viewer] request failed: ${msg}\n`);
+          process.stderr.write(`[peer-viewer] request failed: ${errMessage(err)}\n`);
           if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
           res.end('Internal Server Error');
         }

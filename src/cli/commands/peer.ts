@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import { PeerDaemon } from '../../peer/daemon.js';
 import { DaemonUnavailableError, request } from '../../peer/client.js';
+import { errMessage } from '../../peer/errors.js';
 import { claudeConfigDir, locateTranscript } from '../../peer/locate.js';
 import { peerRoot, socketPath } from '../../peer/paths.js';
 import { isToolsLevel } from '../../peer/redact.js';
@@ -17,10 +18,6 @@ const EXIT_NO_DAEMON = 3;
 function fail(message: string, code = 1): never {
   console.error(message);
   process.exit(code);
-}
-
-function errMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }
 
 function resolveRoot(): string {

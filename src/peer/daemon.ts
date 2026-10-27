@@ -21,6 +21,7 @@ import { ViewerServer } from './viewer.js';
 import { DEFAULT_EXPIRES_MINUTES, MAX_EXPIRES_MINUTES, MAX_REQUEST_BYTES } from './protocol.js';
 import type { DaemonStatus, PeerRequest, PeerResponse, ShareInfo } from './protocol.js';
 import { isSessionId } from './locate.js';
+import { errMessage } from './errors.js';
 
 export interface PeerDaemonOptions {
   root: string;
@@ -170,8 +171,7 @@ export class PeerDaemon {
         }
       } catch (err) {
         // setInterval 밖으로 던지면 데몬이 죽는다. 그 공유만 종료하고 나머지는 계속 돈다
-        const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[peer] share ${id} failed: ${msg}\n`);
+        process.stderr.write(`[peer] share ${id} failed: ${errMessage(err)}\n`);
         try {
           this.closeShare(id, 'error');
         } catch {
@@ -420,7 +420,7 @@ export class PeerDaemon {
     try {
       return this.handle(req as PeerRequest);
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return { ok: false, error: errMessage(err) };
     }
   }
 }

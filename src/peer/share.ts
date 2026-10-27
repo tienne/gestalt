@@ -3,6 +3,7 @@ import type { TailOptions, TailStatus } from './tail.js';
 import { TranscriptTransformer } from './transform.js';
 import type { PeerEvent } from './transform.js';
 import type { RedactOptions, ToolsLevel } from './redact.js';
+import { errMessage } from './errors.js';
 
 /** 뷰어 하나가 받는 것. seq는 SSE id로 써서 다시 붙었을 때 이어 받게 한다 */
 export type ShareFrame =
@@ -209,8 +210,7 @@ export class ShareStream {
       } catch (err) {
         // 뷰어 하나가 끊겨 쓰기에 실패해도 다른 뷰어와 데몬은 계속 돈다
         this.listeners.delete(listener);
-        const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[peer] viewer listener failed: ${msg}\n`);
+        process.stderr.write(`[peer] viewer listener failed: ${errMessage(err)}\n`);
       }
     }
   }
