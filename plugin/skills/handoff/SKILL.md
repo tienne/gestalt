@@ -143,7 +143,7 @@ dispatch는 `worker-start` 대신 `terminal create`와 `orchestration task-creat
 
 ### 원격 머신(페어링된 Orca 서버)
 
-`orca host list`가 맡길 수 있는 머신을 한 번에 보여 준다. 이 머신은 `--host local`, SSH 대상은 `--host ssh:<id>`, 페어링된 Orca 서버는 `--environment <이름>`이다. 둘을 바꿔 넣는 게 가장 흔한 실수다. SSH 대상 중 `github.com`처럼 git 리모트용으로 등록된 이름은 위임 대상이 아니다. 이 소절은 페어링된 Orca 서버만 다룬다.
+`orca host list`가 맡길 수 있는 머신을 한 번에 보여 준다. 이 머신은 `--host local`, SSH 대상은 `--host ssh:<id>`, 페어링된 Orca 서버는 `--environment <이름>`이다. SSH 대상과 페어링된 서버를 서로 바꿔 넣는 게 가장 흔한 실수다. SSH 대상 중 `github.com`처럼 git 리모트용으로 등록된 이름은 위임 대상이 아니다. 이 소절은 페어링된 Orca 서버만 다룬다.
 
 원격 위임은 메인 세션이 직접 띄운다. 디스패치된 워커가 `worker-start`를 부르면 기본 설정에서 `nested_worker_depth_exceeded`(depth 2, max 1)로 거절된다. 직접 돌려 확인했다. 워커가 원격에 맡겨야 한다고 판단하면 코디네이터에게 `ask`로 올린다. 코디네이터는 자기가 묶인 Run에만 워커를 띄울 수 있고 다른 Run id를 주면 `consumer_fenced`로 거절된다. 이것도 확인했다.
 
