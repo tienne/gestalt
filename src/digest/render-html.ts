@@ -16,6 +16,7 @@ import {
   glanceHtml,
   LENS_CSS,
   limitsHtml,
+  sectionContextHtml,
   sourceFigureHtml,
   sourceTableHtml,
   unitLabel,
@@ -229,6 +230,7 @@ export function renderDigestHtml(
       loc,
       source,
       transcript,
+      pfx,
     };
     const bullets = (list: Bullet[]): string =>
       `<ul>${list
@@ -269,7 +271,7 @@ export function renderDigestHtml(
           )
           .join('');
         const intro = s.intro ? `<p class="sec-intro">${inline(s.intro, kwIds)}</p>` : '';
-        return `<section class="sec" id="sec-${pfx}${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${loc(s.cite.key)}</h2>${intro}<p class="conclusion">${inline(s.conclusion, kwIds)}${cite(s.cite)}</p>${s.diagram ? sectionDiagramHtml(s.diagram, stripNumbering(s.title), blockCtx) : ''}${subs}</section>`;
+        return `<section class="sec" id="sec-${pfx}${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${loc(s.cite.key)}</h2>${intro}<p class="conclusion">${inline(s.conclusion, kwIds)}${cite(s.cite)}</p>${s.diagram ? sectionDiagramHtml(s.diagram, stripNumbering(s.title), blockCtx) : ''}${subs}${sectionContextHtml(s.id, report.cards, report.links, lens)}</section>`;
       })
       .join('');
 

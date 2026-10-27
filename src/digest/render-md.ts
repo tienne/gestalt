@@ -4,7 +4,7 @@ import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.
 import { blockMarkdown, mdInline, sectionDiagramMd } from './render-blocks.js';
 import { isCellRef, type Evidence } from './lens-schema.js';
 import type { LensSource } from './lens-source.js';
-import { GLANCE_LABEL, unitLabel } from './render-lens.js';
+import { CARD_KIND_LABEL, GLANCE_LABEL, unitLabel } from './render-lens.js';
 import { reportLabel } from './reports.js';
 import {
   isTextKind,
@@ -124,6 +124,37 @@ export function renderDigestMarkdown(
       }
     });
   });
+  if (report.cards?.length) {
+    out.push('## 바깥 맥락', '');
+    for (const card of report.cards) {
+      out.push(`### ${card.title} (${CARD_KIND_LABEL[card.kind]})`, '');
+      const order = card.sources.map((s) => s.id);
+      const ref = (id: string) => `[${order.indexOf(id) + 1}]`;
+      for (const l of card.lineage ?? []) {
+        const extra = [
+          l.took && `가져온 것: ${plain(l.took)}`,
+          l.changed && `바꾼 것: ${plain(l.changed)}`,
+        ]
+          .filter(Boolean)
+          .join(', ');
+        out.push(`- ${l.year} ${l.title} ${ref(l.source)}${extra ? ` (${extra})` : ''}`);
+      }
+      for (const pt of card.points) out.push(`- ${plain(pt.text)} ${pt.sources.map(ref).join('')}`);
+      out.push('');
+      card.sources.forEach((s, k) => out.push(`${k + 1}. [${s.title}](${s.url})`));
+      out.push('');
+    }
+  }
+  if (report.links?.length) {
+    out.push('## 내 지식과 잇기', '');
+    for (const link of report.links) {
+      out.push(
+        `- **${link.title}** ${plain(link.note)} (${link.path}${link.line ? `:${link.line}` : ''})`,
+      );
+      out.push(`  > ${link.quote.replace(/\s+/g, ' ')}`);
+    }
+    out.push('');
+  }
   if (report.limits?.length) {
     out.push('## 검증 안 된 부분', '');
     for (const l of report.limits) {

@@ -794,6 +794,13 @@ export const VIEWER_JS =
     return { isOpen: function(){ return dialog.open; } };
   }
 
+  // 한계 단락의 맥락 카드 링크를 누르면 접힌 카드를 펼친다
+  document.addEventListener('click', function(ev){
+    var a = ev.target.closest ? ev.target.closest('a.card-ref') : null;
+    if (!a) return;
+    var target = document.getElementById(safeDecode(a.getAttribute('href').slice(1)));
+    if (target && target.tagName.toLowerCase() === 'details') target.open = true;
+  });
   setupFontScale();
   setupTranslation();
   // 요약 앵커로 스크롤하려면 요약 패널이 먼저 보여야 해서 탭을 리포트보다 먼저 연다

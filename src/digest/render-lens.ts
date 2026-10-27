@@ -1,5 +1,7 @@
 import {
   isCellRef,
+  type ContextCard,
+  type KnowledgeLink,
   type CellRef,
   type Doubt,
   type Evidence,
@@ -23,6 +25,8 @@ export interface LensHtmlContext {
   loc: (i: number) => string;
   source: LensSource | null;
   transcript: Transcript;
+  /** 리포트가 여럿일 때 카드 id가 겹치지 않게 붙이는 접두 */
+  pfx?: string;
 }
 
 export const GLANCE_LABEL: Record<Glance['kind'], string> = {
@@ -117,7 +121,7 @@ export function limitsHtml(limits: Limit[], id: string, ctx: LensHtmlContext): s
           .map((ev) => evidenceHtml(ev, ctx))
           .join(
             '',
-          )}${l.card ? `<a class="ev card-ref" href="#card-${ctx.escape(l.card)}">맥락 카드</a>` : ''}</span></li>`,
+          )}${l.card ? `<a class="ev card-ref" href="#${ctx.pfx ?? ''}card-${ctx.escape(l.card)}">맥락 카드</a>` : ''}</span></li>`,
     )
     .join('')}</ul></section>`;
 }
@@ -217,6 +221,73 @@ export function docUnitsData(
   );
 }
 
+export const CARD_KIND_LABEL: Record<ContextCard['kind'], string> = {
+  lineage: '연구 계보',
+  interpretation: '결과 해석',
+  counter: '반론',
+  unverified: '검증 안 된 부분',
+};
+
+const LINEAGE_ROLE_LABEL = {
+  foundation: '토대',
+  component: '구성 요소',
+  baseline: '비교 대상',
+} as const;
+
+/**
+ * 바깥 맥락 카드. 대섹션 끝에 접어 둔다. 줄마다 바깥 출처 번호를 달고 출처는 새 탭 링크다.
+ * 원문 안의 어긋남은 의심 표시가 본문에 펼쳐 보이니 카드는 바깥 자료만 담는다
+ */
+export function contextCardHtml(card: ContextCard, ctx: LensHtmlContext): string {
+  const order = card.sources.map((s) => s.id);
+  const ref = (id: string) => {
+    const n = order.indexOf(id) + 1;
+    return n > 0 ? `<sup class="ctx-ref">[${n}]</sup>` : '';
+  };
+  const source = (id: string) => card.sources.find((s) => s.id === id);
+  const lineage = card.lineage?.length
+    ? `<table class="ctx-lineage"><thead><tr><th>연도</th><th>연구</th><th>관계</th><th>가져온 것</th><th>바꾼 것</th></tr></thead><tbody>${card.lineage
+        .map((l) => {
+          const s = source(l.source);
+          const title = s
+            ? `<a href="${ctx.escape(s.url)}" target="_blank" rel="noopener noreferrer">${ctx.escape(l.title)}</a>`
+            : ctx.escape(l.title);
+          return `<tr><td>${ctx.escape(l.year)}</td><td>${title}${ref(l.source)}</td><td>${LINEAGE_ROLE_LABEL[l.role]}</td><td>${l.took ? ctx.inline(l.took) : ''}</td><td>${l.changed ? ctx.inline(l.changed) : ''}</td></tr>`;
+        })
+        .join('')}</tbody></table>`
+    : '';
+  const points = `<ul class="ctx-points">${card.points
+    .map((pt) => `<li>${ctx.inline(pt.text)}${pt.sources.map(ref).join('')}</li>`)
+    .join('')}</ul>`;
+  const sources = `<ol class="ctx-sources">${card.sources
+    .map(
+      (s) =>
+        `<li><a href="${ctx.escape(s.url)}" target="_blank" rel="noopener noreferrer">${ctx.escape(s.title)}</a>${[s.publisher, s.year].filter(Boolean).length ? ` <small>${ctx.escape([s.publisher, s.year].filter(Boolean).join(', '))}</small>` : ''}</li>`,
+    )
+    .join('')}</ol>`;
+  return `<details class="ctx-card ctx-${card.kind}" id="${ctx.pfx ?? ''}card-${ctx.escape(card.id)}"><summary><span class="ctx-kind">${CARD_KIND_LABEL[card.kind]}</span> ${ctx.escape(card.title)}</summary><p class="ctx-anchor">원문 자리 ${ctx.loc(card.anchor.key)}${ctx.cite(card.anchor)} <small>바깥 자료로 쓴 카드예요. 원문 안의 어긋남은 본문 의심 표시에 있어요.</small></p>${lineage}${points}${sources}</details>`;
+}
+
+/** 노트 경로는 홈 폴더를 ~로 줄여 보인다. 뷰어가 http로 열려서 file 링크는 걸지 않는다 */
+const shortPath = (p: string) => p.replace(/^\/Users\/[^/]+|^\/home\/[^/]+/, '~');
+
+export function knowledgeLinkHtml(link: KnowledgeLink, ctx: LensHtmlContext): string {
+  return `<div class="kn-card" id="${ctx.pfx ?? ''}link-${ctx.escape(link.id)}"><p class="kn-head"><span class="ctx-kind">내 지식과 잇기</span> <b>${ctx.escape(link.title)}</b> ${ctx.loc(link.anchor.key)}${ctx.cite(link.anchor)}</p><p>${ctx.inline(link.note)}</p><blockquote>${ctx.escape(link.quote)}</blockquote><p class="kn-path"><code>${ctx.escape(shortPath(link.path))}${link.line ? `:${link.line}` : ''}</code></p></div>`;
+}
+
+/** 대섹션 끝에 붙는 카드 묶음. 카드가 없으면 빈 문자열이다 */
+export function sectionContextHtml(
+  sectionId: string,
+  cards: ContextCard[] = [],
+  links: KnowledgeLink[] = [],
+  ctx: LensHtmlContext,
+): string {
+  const mine = cards.filter((c) => c.section === sectionId);
+  const linked = links.filter((l) => l.section === sectionId);
+  if (mine.length === 0 && linked.length === 0) return '';
+  return `<aside class="ctx" aria-label="바깥 맥락과 내 지식">${mine.map((c) => contextCardHtml(c, ctx)).join('')}${linked.map((l) => knowledgeLinkHtml(l, ctx)).join('')}</aside>`;
+}
+
 export const LENS_CSS = `
 .doc-pane{display:flex;flex-direction:column;min-height:0;flex:1;border:1px solid var(--line);border-radius:8px;background:var(--card)}
 .doc-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);font-size:.85em;color:var(--muted)}
@@ -265,6 +336,19 @@ export const LENS_CSS = `
 .page-thumb img{display:block;width:100%;height:auto}
 .thumb-hl{position:absolute;outline:2px solid var(--warn);background:rgba(250,204,21,.25)}
 .player-audio .player{background:var(--card)}
+.ctx{display:flex;flex-direction:column;gap:8px;margin:16px 0}
+.ctx-card{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;background:var(--card);padding:6px 12px}
+.ctx-card summary{cursor:pointer;font-weight:600}
+.ctx-kind{display:inline-block;font-size:.75em;font-weight:700;border-radius:999px;padding:0 8px;background:var(--chip);color:var(--muted);margin-right:4px}
+.ctx-counter{border-left-color:var(--warn)}
+.ctx-anchor{font-size:.88em;color:var(--muted)}
+.ctx-lineage{border-collapse:collapse;font-size:.86em;margin:6px 0;width:100%}
+.ctx-lineage th,.ctx-lineage td{border-bottom:1px solid var(--line);padding:3px 6px;text-align:left;vertical-align:top}
+.ctx-ref{color:var(--muted);font-size:.75em}
+.ctx-sources{font-size:.85em;color:var(--muted)}
+.kn-card{border:1px dashed var(--accent);border-radius:8px;background:var(--card);padding:6px 12px}
+.kn-card blockquote{margin:6px 0;padding-left:10px;border-left:3px solid var(--line);color:var(--muted)}
+.kn-path{font-size:.8em;margin:0}
 .player-audio .player-local video,.player-audio audio{display:none;width:100%}
 .player-audio .player-local.is-live audio{display:block}
 .player-audio .player.is-floating{width:min(360px,80vw)}
