@@ -45,7 +45,8 @@ gestalt peer status                                  # 데몬 상태
 **자리로 찾는 값**은 이름이나 앞부분을 남기고 값만 가린다.
 
 - URL 비밀번호: `https://user:pass@host`에서 `pass` 자리만 가린다. 이름 없이 비밀번호만 둔 `redis://:pass@host`도 가린다
-- `Bearer` 뒤 8자 이상인 값(대소문자 무관). `Basic` 뒤 8자 이상인 값은 `Basic`을 대문자로 시작해 썼고 값에 숫자나 `+`, `/`, `=`가 있거나 둘째 글자부터 대문자가 있을 때만 가린다. `Basic authentication`이나 소문자 `basic` 뒤는 안 건드린다
+- `Bearer` 뒤 8자 이상인 값(대소문자 무관). `Basic` 뒤 값은 첫 글자만 대문자인 `Basic`에만 본다. 값이 base64 글자(`A-Z`, `a-z`, `0-9`, `+`, `/`)로만 되어 있고 끝의 `=` 채움까지 쳐서 길이가 4의 배수이면서 8자 이상이어야 한다. 그중에서도 숫자나 `+`, `/`, `=`가 들었거나 둘째 글자부터 대문자가 있을 때만 가린다. 값 바로 뒤에 마침표와 글자가 이어지면(`README.md`처럼) 값으로 안 본다. `BASIC`이나 소문자 `basic` 뒤는 헤더 줄과 따옴표 안 헤더가 아니면 안 건드린다
+  - 알려진 과잉 가림: `Basic` 뒤 낱말이 base64 꼴과 겹치면 영어 문장도 가린다. base64 글자로만 된 낱말이 길이가 4의 배수이면서 8자 이상이고 숫자나 `+`, `/`가 들었거나 둘째 글자부터 대문자가 있으면(`Basic HTML/CSS`, `Basic MongoDB4`처럼) `Basic [가림]`이 된다. 새는 것보다 가리는 쪽을 택한 자리다
 - 헤더 줄: 줄 첫머리(`curl -v`의 `>`나 `<` 표시 포함)의 `Cookie:`, `Set-Cookie:`, `Authorization:`, `Proxy-Authorization:`, `api-key`이거나 하이픈 뒤 `api-key`로 끝나는 이름(`X-Api-Key:`, `X-Goog-Api-Key:`), 하이픈 뒤 token이나 secret으로 끝나는 이름(`X-Auth-Token:`, `PRIVATE-TOKEN:`)은 콜론 뒤를 줄 끝까지 가린다. 하이픈 없는 `Token:`이나 `token: string;`은 안 건드린다
 - 따옴표 안 헤더: 같은 이름이 따옴표 바로 뒤에 오면(`-H "X-Api-Key: …"`) 닫는 따옴표 앞까지만 가린다
 - `NAME=값`: 이름에 KEY, TOKEN, SECRET, PASSWORD, PASSWD, COOKIE, CREDENTIAL(S)가 들거나 앞뒤가 글자가 아닌 PASS와 AUTH, `_PWD`가 들면 가린다. `BYPASS=1`, `OAUTH_CLIENT_ID=…`, `AUTHOR=…`, `PWD=…`, `OLDPWD=…`는 안 건드린다. `=` 앞에 공백이 있으면(`key = value`) 안 본다. 따옴표 친 값은 따옴표 안 줄바꿈과 이스케이프된 따옴표를 넘어 4096자 안에서 닫는 따옴표까지 가린다. 4096자 안에서 못 찾으면 첫 줄 끝까지만 가린다. 따옴표 없는 값은 공백 앞까지 가린다
@@ -62,6 +63,8 @@ gestalt peer status                                  # 데몬 상태
 - 따옴표 없는 키를 글자로 찍은 출력: `{ password: 'hunter2' }`(Node가 객체를 찍은 꼴). 도구 입력 객체로 들어오면 키 이름으로 가리지만 도구 결과 글자 안에 있으면 못 가린다
 - 따옴표 안 줄바꿈이 든 JSON 값: 첫 줄 끝까지만 가리고 다음 줄 조각은 남는다
 - 4096자 안에서 안 닫히는 여러 줄 따옴표 값: `NAME=값`은 첫 줄 끝까지만 가리고 작은따옴표 키는 값을 아예 못 가린다
+- 헤더 줄 밖에서 `BASIC dXNlcjpwYXNz`처럼 전부 대문자로 쓴 값
+- `=` 채움을 뗀 값(`Basic dXNlcjpwYXNzd29yZA`)과 base64url 글자(`-`, `_`)가 든 값은 헤더 줄과 따옴표 안 헤더가 아니면 안 가린다
 
 ## 뷰어
 

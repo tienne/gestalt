@@ -296,6 +296,15 @@ describe('redactText', () => {
     'Basic authentication is simple',
     'Use basic configuration here',
     'Basic Configuration',
+    '## Basic TypeScript types',
+    'Basic JavaScript tutorial',
+    'Basic PostgreSQL setup',
+    'see Basic README.md here',
+    'Basic HTTP/1.1 auth',
+    'Basic 2024-10-28 report',
+    'Basic Usage/Examples',
+    'Basic Ubuntu22.04 setup',
+    'Basic IPv4/IPv6 setup',
   ])('영어 문장 %s의 Basic은 안 건드린다', (input) => expect(redactText(input, opts)).toBe(input));
 
   it.each([
@@ -303,11 +312,42 @@ describe('redactText', () => {
     "{ authorization: 'Basic dXNlcjpwYXNz' }",
     'headers: { Authorization: "Basic dXNlcjpwYXNz" }',
     'Basic YWxhZGRpbjpvcGVuc2VzYW1l',
+    'Basic YWRtaW46YQ==',
+    "{ authorization: 'Basic YWRtaW46YQ==' }",
+    'the header is Basic dXNlcjpwYXNz.',
   ])('%s의 Basic 값을 가린다', (input) => {
     const out = redactText(input, opts);
     expect(out).not.toContain('dXNlcjpwYXNz');
     expect(out).not.toContain('YWxhZGRpbjpvcGVuc2VzYW1l');
+    expect(out).not.toContain('YWRtaW46YQ');
     expect(out).toContain(REDACTED);
+  });
+
+  it('알려진 과잉 가림: Basic 뒤 낱말이 base64 꼴과 겹치면 영어 문장도 가린다', () => {
+    expect(redactText('Basic HTML/CSS tutorial', opts)).toBe(`Basic ${REDACTED} tutorial`);
+    expect(redactText('Basic MongoDB4 setup', opts)).toBe(`Basic ${REDACTED} setup`);
+  });
+
+  it('Basic 값 바로 뒤에 마침표와 글자가 이어지면 값으로 안 본다', () => {
+    expect(redactText('x Basic dXNlcjpwYXNz.x', opts)).toBe('x Basic dXNlcjpwYXNz.x');
+  });
+
+  it.each(['x BASIC dXNlcjpwYXNz', 'x Basic dXNlcjpwYXNzd29yZA', 'x Basic dXNlcjpw-YXNz_d29y'])(
+    '헤더 줄 밖의 %s는 그대로 둔다(알려진 빈자리)',
+    (input) => {
+      expect(redactText(input, opts)).toBe(input);
+    },
+  );
+
+  it.each([
+    ['Authorization: BASIC dXNlcjpwYXNz', `Authorization: BASIC ${REDACTED}`],
+    ['Authorization: Basic dXNlcjpwYXNzd29yZA', `Authorization: Basic ${REDACTED}`],
+    [
+      "curl -H 'Authorization: Basic dXNlcjpw-YXNz_d29y' https://a.example.com",
+      `curl -H 'Authorization: Basic ${REDACTED}' https://a.example.com`,
+    ],
+  ])('헤더 줄과 따옴표 안 헤더의 %s는 가린다', (input, expected) => {
+    expect(redactText(input, opts)).toBe(expected);
   });
 
   it('값이 9000자인 쿠키 헤더도 원문 조각을 안 남긴다', () => {
@@ -411,7 +451,13 @@ describe('redactText', () => {
       'Cookie: x\n',
       '"Cookie: ',
     ].map(fill);
-    inputs.push('Basic a' + fill('a-'), "'key': '" + fill('a'), '"' + fill('a-'));
+    inputs.push(
+      'Basic a' + fill('a-'),
+      'Basic ' + fill('A'),
+      'Basic ' + fill('A').slice(2) + '.x',
+      "'key': '" + fill('a'),
+      '"' + fill('a-'),
+    );
     for (const input of inputs) {
       // 첫 실행은 JIT과 GC가 섞인다. 역추적이 터지면 몇 초가 걸리므로 가장 빠른 값으로 본다
       let best = Infinity;
