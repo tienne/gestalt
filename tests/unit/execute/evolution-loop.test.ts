@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
 import { EventStore } from '../../../src/events/store.js';
 import { validateSpecPatch } from '../../../src/execute/spec-patch-validator.js';
@@ -6,7 +6,8 @@ import { applySpecPatch } from '../../../src/execute/spec-patch-applier.js';
 import { identifyImpactedTasks } from '../../../src/execute/impact-identifier.js';
 import { checkTermination } from '../../../src/execute/termination-detector.js';
 import { isOk, isErr } from '../../../src/core/result.js';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type {
   Spec,
@@ -21,8 +22,14 @@ import type {
   EvolutionGeneration,
   StructuralResult,
   EvaluationResult,
+  ProjectMemory,
 } from '../../../src/core/types.js';
+import type { ExecuteConfig } from '../../../src/core/config.js';
+import { DRIFT_THRESHOLD } from '../../../src/core/constants.js';
 import { asRequested } from '../../helpers/structural.js';
+import { handleEvaluate } from '../../../src/mcp/tools/execute/evaluate.js';
+import type { IHostAdapter } from '../../../src/mcp/host-adapter.js';
+import type { ExecuteInput } from '../../../src/mcp/schemas.js';
 
 // ─── Test Helpers ─────────────────────────────────────────────
 
@@ -208,6 +215,17 @@ async function setupCompletedExecution() {
   }
 
   return sessionId;
+}
+
+function submitPassingStructural(sessionId: string): void {
+  const evalStart = engine.startEvaluation(sessionId);
+  engine.submitStructuralResult(
+    sessionId,
+    asRequested(evalStart, {
+      commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
+      allPassed: true,
+    }),
+  );
 }
 
 // ─── Tests ──────────────────────────────────────────────────────
@@ -605,14 +623,7 @@ describe('Evolution Loop Engine Integration', () => {
   it('rejects invalid spec patch (goal modification)', async () => {
     const sessionId = await setupCompletedExecution();
 
-    const evalStart = engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(
-      sessionId,
-      asRequested(evalStart, {
-        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
-        allPassed: true,
-      }),
-    );
+    submitPassingStructural(sessionId);
     engine.submitEvaluation(sessionId, {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
@@ -646,14 +657,7 @@ describe('Evolution Loop Engine Integration', () => {
     const sessionId = await setupCompletedExecution();
 
     // Evaluate
-    const evalStart = engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(
-      sessionId,
-      asRequested(evalStart, {
-        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
-        allPassed: true,
-      }),
-    );
+    submitPassingStructural(sessionId);
     engine.submitEvaluation(sessionId, {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
@@ -706,14 +710,7 @@ describe('Evolution Loop Repository Replay', () => {
     const sessionId = await setupCompletedExecution();
 
     // Evaluate
-    const evalStart = engine.startEvaluation(sessionId);
-    engine.submitStructuralResult(
-      sessionId,
-      asRequested(evalStart, {
-        commands: [{ name: 'build', command: 'build', exitCode: 0, output: 'OK' }],
-        allPassed: true,
-      }),
-    );
+    submitPassingStructural(sessionId);
     engine.submitEvaluation(sessionId, {
       verifications: [
         { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
@@ -738,5 +735,150 @@ describe('Evolution Loop Repository Replay', () => {
     expect(session.currentGeneration).toBe(1);
     expect(session.spec.acceptanceCriteria).toEqual(['AC A', 'AC B', 'AC C']);
     expect(session.evolutionHistory.length).toBeGreaterThan(0);
+  });
+});
+
+describe('evolve 뒤 재평가의 프로젝트 메모리 기록', () => {
+  let cwd: string;
+
+  beforeEach(() => {
+    dbPath = `.gestalt-test/evolve-memory-${randomUUID()}.db`;
+    eventStore = new EventStore(dbPath);
+    engine = new PassthroughExecuteEngine(eventStore);
+    // evaluate 핸들러는 process.cwd()에서 레포 루트를 찾아 memory.json을 쓴다
+    cwd = resolve(`.gestalt-test/evolve-memory-cwd-${randomUUID()}`);
+    mkdirSync(cwd, { recursive: true });
+    writeFileSync(join(cwd, 'package.json'), '{}');
+    vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    eventStore.close();
+    if (existsSync(dbPath)) rmSync(dbPath);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  function evaluate(sessionId: string, overallScore: number): void {
+    submitPassingStructural(sessionId);
+    const evaluationResult: EvaluationResult = {
+      verifications: [0, 1, 2].map((acIndex) => ({
+        acIndex,
+        satisfied: overallScore >= 0.85,
+        evidence: 'checked',
+        gaps: [],
+      })),
+      overallScore,
+      goalAlignment: overallScore,
+      recommendations: [],
+    };
+    const res = JSON.parse(
+      handleEvaluate(
+        engine,
+        { action: 'evaluate', sessionId, evaluationResult } as ExecuteInput,
+        {} as IHostAdapter,
+      ),
+    ) as { error?: string };
+    expect(res.error).toBeUndefined();
+  }
+
+  function readExecutionHistory(): ProjectMemory['executionHistory'] {
+    const memory = JSON.parse(
+      readFileSync(join(cwd, '.gestalt', 'memory.json'), 'utf-8'),
+    ) as ProjectMemory;
+    return memory.executionHistory;
+  }
+
+  it('같은 세션을 다시 평가하면 실행 기록이 새 점수로 바뀐다', async () => {
+    const sessionId = await setupCompletedExecution();
+    evaluate(sessionId, 0.4);
+    expect(readExecutionHistory().map((e) => e.resultSummary)).toEqual([
+      'Score: 0.40, goalAlignment: 0.40',
+    ]);
+
+    engine.startContextualEvolve(sessionId);
+    const patchResult = engine.submitSpecPatch(sessionId, {
+      acceptanceCriteria: [
+        'Users can register with email and password',
+        'Users can login and receive JWT token (with validation)',
+        'Token refresh endpoint exists',
+      ],
+    });
+    if (!isOk(patchResult)) throw new Error('patch failed');
+    const impacted = patchResult.value.impactedTaskIds;
+    const reExecuted: string[] = [];
+    let next = patchResult.value.reExecuteContext;
+    while (next) {
+      reExecuted.push(next.currentTask.taskId);
+      if (reExecuted.length > impacted.length) throw new Error('re-execute loop did not terminate');
+      const res = engine.submitReExecuteTaskResult(sessionId, {
+        taskId: next.currentTask.taskId,
+        status: 'completed',
+        output: 'Re-implemented',
+        artifacts: [],
+      });
+      if (!isOk(res)) throw new Error('re-execute failed');
+      next = res.value.reExecuteContext;
+    }
+    expect([...reExecuted].sort()).toEqual([...impacted].sort());
+
+    evaluate(sessionId, 0.9);
+    const history = readExecutionHistory();
+    expect(history).toHaveLength(1);
+    expect(history[0]!.executeSessionId).toBe(sessionId);
+    expect(history[0]!.resultSummary).toBe('Score: 0.90, goalAlignment: 0.90');
+  });
+});
+
+describe('evolve 패치의 영향 태스크 식별에 쓰는 드리프트 임계값', () => {
+  beforeEach(() => {
+    dbPath = `.gestalt-test/evolve-threshold-${randomUUID()}.db`;
+    eventStore = new EventStore(dbPath);
+  });
+
+  afterEach(() => {
+    eventStore.close();
+    if (existsSync(dbPath)) rmSync(dbPath);
+  });
+
+  // constraints만 바꿔서 AC 연결 태스크가 통째로 잡히지 않게 하고 드리프트 기준만 남긴다
+  async function patchConstraintsOnly(): Promise<string[]> {
+    const sessionId = await setupCompletedExecution();
+    submitPassingStructural(sessionId);
+    engine.submitEvaluation(sessionId, {
+      verifications: [
+        { acIndex: 0, satisfied: true, evidence: 'OK', gaps: [] },
+        { acIndex: 1, satisfied: false, evidence: 'No', gaps: ['Gap'] },
+        { acIndex: 2, satisfied: false, evidence: 'No', gaps: ['Gap'] },
+      ],
+      overallScore: 0.4,
+      goalAlignment: 0.5,
+      recommendations: [],
+    });
+    engine.startContextualEvolve(sessionId);
+    const patchResult = engine.submitSpecPatch(sessionId, {
+      constraints: ['Must use JWT', 'Must support OAuth2', 'Must rate limit login'],
+    });
+    if (!isOk(patchResult)) throw new Error('patch failed');
+    return patchResult.value.impactedTaskIds;
+  }
+
+  it('설정이 없으면 상수 기준으로 드리프트가 높았던 태스크를 다시 돌린다', async () => {
+    engine = new PassthroughExecuteEngine(eventStore);
+
+    const ids = await patchConstraintsOnly();
+    expect([...ids].sort()).toEqual(['task-0', 'task-1', 'task-2', 'task-3']);
+  });
+
+  it('config.execute.driftThreshold를 0.9로 주면 그 기준으로 골라 다시 돌릴 태스크가 없다', async () => {
+    const config: ExecuteConfig = {
+      driftThreshold: 0.9,
+      successThreshold: 0.85,
+      goalAlignmentThreshold: 0.8,
+    };
+    engine = new PassthroughExecuteEngine(eventStore, undefined, undefined, config);
+
+    expect(DRIFT_THRESHOLD).toBeLessThan(0.9);
+    expect(await patchConstraintsOnly()).toEqual([]);
   });
 });
