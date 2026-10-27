@@ -64,3 +64,69 @@ export type SourceRef = z.infer<typeof sourceRefSchema>;
 export type Limit = z.infer<typeof limitSchema>;
 
 export const isCellRef = (e: Evidence): e is CellRef => 'table' in e;
+
+/** 바깥 자료 주소. 뷰어가 새 탭 링크로 싣는다. javascript: 같은 주소가 끼지 않게 http(s)만 받는다 */
+const webUrl = z
+  .string()
+  .url()
+  .refine((u) => /^https?:\/\//i.test(u), 'http(s) 주소만 받는다');
+
+export const cardSourceSchema = z.object({
+  id: idSchema,
+  url: webUrl,
+  title: textSchema,
+  publisher: z.string().optional(),
+  year: z.string().optional(),
+});
+
+export const LINEAGE_ROLES = ['foundation', 'component', 'baseline'] as const;
+
+/** 연구 계보 한 칸. 이 논문이 무엇을 가져오고 무엇을 바꿨는지 적는다 */
+export const lineageSchema = z.object({
+  year: z.string().min(1),
+  title: textSchema,
+  role: z.enum(LINEAGE_ROLES),
+  took: z.string().optional(),
+  changed: z.string().optional(),
+  source: idSchema,
+});
+
+export const CARD_KINDS = ['lineage', 'interpretation', 'counter', 'unverified'] as const;
+
+/**
+ * 바깥 맥락 카드. 선행 연구와 반론, 결과 해석처럼 원문 밖 자료로만 말할 수 있는 것을 담는다.
+ * 원문 안의 어긋남은 의심 표시 몫이라 여기 두지 않는다. 줄마다 바깥 출처 id를 단다
+ */
+export const contextCardSchema = z.object({
+  id: idSchema,
+  kind: z.enum(CARD_KINDS),
+  /** 붙일 대섹션 id */
+  section: idSchema,
+  /** 카드가 이야기하는 원문 자리 */
+  anchor: citeSchema,
+  title: textSchema,
+  lineage: z.array(lineageSchema).max(8).optional(),
+  points: z
+    .array(z.object({ text: textSchema, sources: z.array(idSchema).min(1) }))
+    .min(1)
+    .max(6),
+  sources: z.array(cardSourceSchema).min(1).max(10),
+});
+
+/**
+ * 내 지식 연결 카드. 사용자 노트나 레포 문서의 한 자리와 원문을 잇는다.
+ * quote는 그 파일에 글자 그대로 있어야 하고 path는 지식 소스 폴더 안이어야 한다
+ */
+export const knowledgeLinkSchema = z.object({
+  id: idSchema,
+  section: idSchema,
+  anchor: citeSchema,
+  title: textSchema,
+  note: textSchema,
+  path: z.string().min(1),
+  line: z.number().int().positive().optional(),
+  quote: z.string().min(4).max(400),
+});
+
+export type ContextCard = z.infer<typeof contextCardSchema>;
+export type KnowledgeLink = z.infer<typeof knowledgeLinkSchema>;

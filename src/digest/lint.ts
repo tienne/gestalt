@@ -1,6 +1,7 @@
 import { isCellRef } from './lens-schema.js';
 import type { LensSource } from './lens-source.js';
 import { lintLensReport } from './lint-lens.js';
+import { lintLensContext, type KnowledgeContext } from './lint-lens-context.js';
 import {
   boldPattern,
   isLensKind,
@@ -101,6 +102,19 @@ function collectReportText(report: Report, p: string): TextField[] {
   report.limits?.forEach((l, i) => {
     out.push({ path: `${p}.limits.${i}.text`, text: l.text });
   });
+  report.cards?.forEach((card, c) => {
+    const cp = `${p}.cards.${c}`;
+    out.push({ path: `${cp}.title`, text: card.title });
+    card.points.forEach((pt, j) => out.push({ path: `${cp}.points.${j}.text`, text: pt.text }));
+    card.lineage?.forEach((l, j) => {
+      if (l.took) out.push({ path: `${cp}.lineage.${j}.took`, text: l.took });
+      if (l.changed) out.push({ path: `${cp}.lineage.${j}.changed`, text: l.changed });
+    });
+  });
+  report.links?.forEach((link, k) => {
+    out.push({ path: `${p}.links.${k}.title`, text: link.title });
+    out.push({ path: `${p}.links.${k}.note`, text: link.note });
+  });
   return out;
 }
 
@@ -164,6 +178,28 @@ function collectCites(report: Report, p: string): CiteField[] {
   report.limits?.forEach((l, i) => {
     l.evidence.forEach((ev, k) => {
       if (!isCellRef(ev)) out.push({ path: `${p}.limits.${i}.evidence.${k}.cite`, cite: ev.cite });
+    });
+  });
+  // 카드가 이야기하는 원문 자리는 그 카드를 붙인 대섹션 안이어야 한다
+  const sectionOf = (id: string) => report.sections.find((s) => s.id === id);
+  report.cards?.forEach((card, c) => {
+    const s = sectionOf(card.section);
+    out.push({
+      path: `${p}.cards.${c}.anchor`,
+      cite: card.anchor,
+      ...(s
+        ? { within: { cite: s.cite, code: 'CARD_ANCHOR_OUT_OF_SECTION', name: '대섹션' } }
+        : {}),
+    });
+  });
+  report.links?.forEach((link, k) => {
+    const s = sectionOf(link.section);
+    out.push({
+      path: `${p}.links.${k}.anchor`,
+      cite: link.anchor,
+      ...(s
+        ? { within: { cite: s.cite, code: 'LINK_ANCHOR_OUT_OF_SECTION', name: '대섹션' } }
+        : {}),
     });
   });
   return out;
@@ -600,6 +636,11 @@ export interface DigestLintOptions extends ExtensionLintOptions {
    * null이나 undefined면 표 칸을 가리키는 출처가 전부 오류다
    */
   source?: LensSource | null;
+  /**
+   * 내 지식 소스(knowledge.json). 연결 카드의 인용을 노트 파일과 대조한다.
+   * undefined면 대조를 건너뛰고 null이면 연결 카드를 하나도 받지 않는다
+   */
+  knowledge?: KnowledgeContext | null;
 }
 
 /**
@@ -638,7 +679,10 @@ export function lintDigest(
     lintReport(report, p, transcript, issues);
     checkShots(report, p, transcript, opts.scenes, issues);
     const kind = transcript.meta.source;
-    if (isLensKind(kind)) lintLensReport(report, p, kind, transcript, opts.source ?? null, issues);
+    if (isLensKind(kind)) {
+      lintLensReport(report, p, kind, transcript, opts.source ?? null, issues);
+      lintLensContext(report, p, opts.knowledge, issues);
+    }
   });
   lintExtensions(digest.extensions, transcript, issues, opts);
   return issues;

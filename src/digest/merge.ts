@@ -1,6 +1,7 @@
 import { extensionKey, extensionSchema, type Extension } from './blocks.js';
 import { commentsMap } from './comments.js';
 import { readLensSource } from './lens-source.js';
+import { knowledgeContext } from './lint-lens-context.js';
 import { sceneSecs } from './scenes.js';
 import { lintDigest, lintErrors, type DigestIssue } from './lint.js';
 import type { ExtensionLintOptions } from './lint-extension.js';
@@ -61,6 +62,7 @@ export function mergeReport(repoRoot: string, slug: string, input: unknown): Mer
   const issues = lintDigest(merged, t.transcript, {
     scenes: sceneSecs(store, slug),
     source: readLensSource(store, slug),
+    knowledge: knowledgeContext(store, slug),
   });
   const saved = lintErrors(issues).length === 0;
   const digestPath = saved ? store.saveDigest(merged) : store.digestPath(slug);

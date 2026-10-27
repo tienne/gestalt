@@ -12,8 +12,10 @@ import {
 import { extensionSchema } from './blocks.js';
 import { diagramSchema } from './diagram-schema.js';
 import {
+  contextCardSchema,
   doubtSchema,
   glanceSchema,
+  knowledgeLinkSchema,
   limitSchema,
   sourceRefSchema,
   type Doubt,
@@ -272,6 +274,10 @@ export const reportSchema = z.object({
   keywords: z.array(keywordSchema).default([]),
   /** 읽기 렌즈의 검증 안 된 부분. 본문 끝에 늘 펼쳐 둔다 */
   limits: z.array(limitSchema).optional(),
+  /** 바깥 맥락 카드. 기본 두 장, 깊게 읽기에서 네 장까지다 */
+  cards: z.array(contextCardSchema).max(4).optional(),
+  /** 내 지식 연결 카드 */
+  links: z.array(knowledgeLinkSchema).max(6).optional(),
 });
 
 const digestObjectSchema = z.object({
