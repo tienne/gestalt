@@ -216,7 +216,7 @@ export async function handleInterviewPassthrough(
 }
 
 const RESCORE_MESSAGE =
-  'Resolution crossed the threshold for the first time. Before completing, hand rescorePrompt to a subagent that has not seen this interview, then call score with rescore: true, rescoreMode: "isolated", and its resolutionScore. If you cannot start a subagent, score it yourself and pass rescoreMode: "same-context".';
+  'Resolution crossed the threshold. Before completing, hand rescorePrompt to a subagent that has not seen this interview, then call score with rescore: true, rescoreMode: "isolated", and its resolutionScore. If you cannot start a subagent, score it yourself and pass rescoreMode: "same-context".';
 
 function formatScore(score: ResolutionScore) {
   return {
