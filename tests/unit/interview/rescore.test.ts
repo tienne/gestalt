@@ -7,6 +7,7 @@ import { InterviewSessionRepository } from '../../../src/interview/repository.js
 import { handleInterviewPassthrough } from '../../../src/mcp/tools/interview-passthrough.js';
 import { buildRescorePrompt } from '../../../src/llm/prompts.js';
 import { loadConfig } from '../../../src/core/config.js';
+import { READINESS_RULE_VERSION } from '../../../src/core/constants.js';
 import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
 import { GestaltPrinciple } from '../../../src/core/types.js';
@@ -181,6 +182,7 @@ describe('다시 채점하기', () => {
         .filter((e) => e.eventType === EventType.INTERVIEW_RESOLUTION_RESCORED);
       expect(rescored).toHaveLength(1);
       expect(rescored[0]!.payload['isReady']).toBe(true);
+      expect(rescored[0]!.payload['readinessRuleVersion']).toBe(READINESS_RULE_VERSION);
     });
   });
 

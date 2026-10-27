@@ -5,6 +5,7 @@ import type { SpecInput } from '../schemas.js';
 import type { AgentRegistry } from '../../agent/registry.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { log } from '../../core/log.js';
+import { READINESS_RULE_VERSION } from '../../core/constants.js';
 import { gestaltNotify } from '../../utils/notifier.js';
 import { sanitizeSurfaceContext } from '../../gestalt/surface-labels.js';
 import { resolveInterviewSessionId } from '../session-selector.js';
@@ -111,6 +112,7 @@ export function handleSpecPassthrough(
           ...(session.resolutionScore?.signals && {
             resolutionSignals: session.resolutionScore.signals,
           }),
+          readinessRuleVersion: READINESS_RULE_VERSION,
         });
       } catch (e) {
         // 메모리 기록이 실패해도 스펙 생성은 막지 않는다

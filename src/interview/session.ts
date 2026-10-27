@@ -13,7 +13,11 @@ import {
   SessionAlreadyCompletedError,
   InterviewNotReadyError,
 } from '../core/errors.js';
-import { DEFAULT_SESSION_TTL_MS, RESOLUTION_THRESHOLD } from '../core/constants.js';
+import {
+  DEFAULT_SESSION_TTL_MS,
+  READINESS_RULE_VERSION,
+  RESOLUTION_THRESHOLD,
+} from '../core/constants.js';
 import { logger } from '../core/logger.js';
 import type { IEventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
@@ -206,6 +210,7 @@ export class SessionManager {
       contradictions: score.contradictions ?? [],
       roundNumber: currentRound?.roundNumber ?? null,
       threshold: score.threshold ?? this.resolutionThreshold,
+      readinessRuleVersion: READINESS_RULE_VERSION,
       signals: score.signals,
     });
   }
@@ -236,6 +241,7 @@ export class SessionManager {
     this.record(sessionId, EventType.INTERVIEW_RESOLUTION_RESCORED, {
       rescore,
       isReady,
+      readinessRuleVersion: READINESS_RULE_VERSION,
       signals: score.signals,
     });
     return score;

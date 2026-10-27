@@ -11,6 +11,7 @@ import { handleStatus } from '../../../src/mcp/tools/status.js';
 import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
 import { GestaltPrinciple } from '../../../src/core/types.js';
+import { READINESS_RULE_VERSION } from '../../../src/core/constants.js';
 import type { ProjectMemory, ResolutionSignals } from '../../../src/core/types.js';
 import type { LLMAdapter, LLMResponse } from '../../../src/llm/types.js';
 
@@ -82,8 +83,12 @@ describe('해상도 신호 기록', () => {
     const events = store
       .replay('interview', sessionId)
       .filter((e) => e.eventType === EventType.INTERVIEW_RESOLUTION_SCORED);
-    const last = events[events.length - 1]!.payload as { signals: ResolutionSignals };
+    const last = events[events.length - 1]!.payload as {
+      signals: ResolutionSignals;
+      readinessRuleVersion: number;
+    };
     expect(last.signals).toEqual(signals);
+    expect(last.readinessRuleVersion).toBe(READINESS_RULE_VERSION);
 
     const replayed = new InterviewSessionRepository(store).reconstruct(sessionId)!;
     expect(replayed.resolutionScore!.signals).toEqual(signals);
@@ -168,9 +173,11 @@ describe('해상도 신호 기록', () => {
       const fromInterview = memory.specHistory.find((s) => s.sourceType === 'interview')!;
       expect(fromInterview.resolutionScore).toBeCloseTo(0.9);
       expect(fromInterview.resolutionSignals).toEqual(signals);
+      expect(fromInterview.readinessRuleVersion).toBe(READINESS_RULE_VERSION);
       const fromText = memory.specHistory.find((s) => s.sourceType === 'text')!;
       expect(fromText.resolutionScore).toBeNull();
       expect(fromText.resolutionSignals).toBeUndefined();
+      expect(fromText.readinessRuleVersion).toBeUndefined();
     });
   });
 });

@@ -779,6 +779,8 @@ export interface SpecHistoryEntry {
   resolutionScore?: number | null;
   /** 스펙을 만든 시점의 마지막 채점 신호. 이벤트 DB 없이 결과 표를 만들 때 쓴다 */
   resolutionSignals?: ResolutionSignals;
+  /** 스펙을 만든 시점의 판정 규칙 버전. text 소스는 판정을 안 거쳐서 없다 */
+  readinessRuleVersion?: number;
 }
 
 export interface MemoryExecutionRecord {

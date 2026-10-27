@@ -205,7 +205,7 @@ outcome-feedback이 내보내는 CSV(`gestalt outcome export --format csv`)에 �
 2. **신호 게이트.** 신호별 표에서 rough 비율을 크게 가른 신호를 하드 게이트로 올린다. 예를 들어 "안 물은 차원이 있으면 `isReady`가 false이고 다음 질문 주제를 그 차원으로 고른다" 같은 규칙이다. 어떤 신호를 올릴지는 표를 보고 정하고 이 문서에서 미리 정하지 않는다. `interview.rescore`를 `gate`로 바꾸는 것도 이 단계에서 같은 기준으로 정한다.
 3. **규칙 기반 준비도.** 신호 조합별 rough 비율이 안정되면 `isReady`를 신호 규칙이 정하고 LLM 해상도 점수는 표시와 질문 주제 고르기에만 쓴다. 이 단계는 스펙이 수백 개 쌓인 뒤의 일이라 열린 질문으로 남긴다.
 
-단계 2와 3에서 기준을 바꾸면 그 뒤로 쌓이는 결과는 이전 결과와 섞어서 비교하지 않는다. 이벤트와 `specHistory`에 남는 `threshold`와 규칙 버전(`readinessRuleVersion`)으로 나눠서 표를 만든다.
+단계 2와 3에서 기준을 바꾸면 그 뒤로 쌓이는 결과는 이전 결과와 섞어서 비교하지 않는다. 이벤트와 `specHistory`에 남는 `threshold`와 규칙 버전(`readinessRuleVersion`)으로 나눠서 표를 만든다. 지금 규칙은 버전 1이다. 채점 이벤트와 다시 채점 이벤트에는 `threshold`와 `readinessRuleVersion`이 둘 다 남는다. `specHistory`에는 `readinessRuleVersion`만 남고 인터뷰로 만든 스펙에만 붙는다. `specHistory`의 기준값은 outcome-feedback의 CSV 내보내기를 만들 때 같이 정한다.
 
 ### 파트 6. 그 밖에 LLM이 쓴 숫자
 
