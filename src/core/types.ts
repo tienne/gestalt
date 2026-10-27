@@ -78,7 +78,8 @@ export interface ResolutionScore {
 export interface GestaltAnalysis {
   principle: GestaltPrinciple;
   finding: string;
-  confidence: number;
+  /** LLM이 쓴 확신도. 판정에 쓰지 않고 값이 없으면 채우지 않는다 */
+  confidence?: number;
 }
 
 // ─── Interview ──────────────────────────────────────────────────
@@ -582,7 +583,8 @@ export interface RoleMatch {
 export interface RolePerspective {
   agentName: string;
   perspective: string;
-  confidence: number;
+  /** 예전 호스트가 보내던 값. 합의 프롬프트에는 넣지 않는다 */
+  confidence?: number;
 }
 
 export interface RoleConsensus {

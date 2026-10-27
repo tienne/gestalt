@@ -21,7 +21,7 @@ const ontologySchemaSchema = z.object({
 const gestaltAnalysisSchema = z.object({
   principle: z.nativeEnum(GestaltPrinciple),
   finding: z.string(),
-  confidence: z.number().min(0).max(1),
+  confidence: z.number().min(0).max(1).optional(),
 });
 
 const specMetadataSchema = z

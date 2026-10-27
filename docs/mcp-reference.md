@@ -295,7 +295,7 @@ ges_generate_spec({
 | `acceptanceCriteria` | `string[]` | Y | 측정 가능한 완료 조건 |
 | `ontologySchema.entities` | `Entity[]` | Y | `{ name, description, attributes[] }` |
 | `ontologySchema.relations` | `Relation[]` | Y | `{ from, to, type }` |
-| `gestaltAnalysis` | `Analysis[]` | Y | `{ principle, finding, confidence }` — principle: `closure \| proximity \| similarity \| figure_ground \| continuity` |
+| `gestaltAnalysis` | `Analysis[]` | Y | `{ principle, finding, confidence? }` — principle: `closure \| proximity \| similarity \| figure_ground \| continuity` |
 
 ---
 

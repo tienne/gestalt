@@ -414,7 +414,7 @@ export const executeInputSchema = guardObject(
         z.object({
           agentName: z.string(),
           perspective: z.string(),
-          confidence: z.number().min(0).max(1),
+          confidence: z.number().min(0).max(1).optional(),
         }),
       )
       .optional()
@@ -428,7 +428,7 @@ export const executeInputSchema = guardObject(
           z.object({
             agentName: z.string(),
             perspective: z.string(),
-            confidence: z.number().min(0).max(1),
+            confidence: z.number().min(0).max(1).optional(),
           }),
         ),
       })

@@ -103,6 +103,6 @@ function parseGestaltAnalysis(value: unknown): GestaltAnalysis[] {
     .map((v) => ({
       principle: asString(v['principle'], 'closure') as GestaltAnalysis['principle'],
       finding: asString(v['finding'], ''),
-      confidence: typeof v['confidence'] === 'number' ? v['confidence'] : 0.5,
+      ...(typeof v['confidence'] === 'number' && { confidence: v['confidence'] }),
     }));
 }

@@ -219,6 +219,11 @@ outcome-feedback이 내보내는 CSV(`gestalt outcome export --format csv`)에 �
 | Evaluate `overallScore`, `goalAlignment`                                     | LLM 점수로 성공 판정과 정체 판정을 한다(`src/mcp/tools/execute/evaluate.ts:67-71`, `src/execute/termination-detector.ts:41-69`)                                           | 판정은 [ac-test-first.md](./ac-test-first.md)와 [evaluate-evidence.md](./evaluate-evidence.md)가 다룬다. 여기서는 결과 표에 `first_score`, `final_score` 구간을 같은 방식으로 붙여 보기만 한다 |
 | `Assumption.confidence` ([interview-grounding.md](./interview-grounding.md)) | 아직 제안 단계다                                                                                                                                                          | 그 문서에서 숫자 대신 근거 유무(`evidence`)와 사용자 확인(`confirmed`)으로 판단하게 하는지 확인한다. 아래 "문서끼리 겹치는 자리"에 적는다                                                      |
 
+구현하면서 위 표에 없던 것을 아래처럼 정했다.
+
+- 합의 프롬프트가 확신도를 더 안 받으니 호스트가 보내는 `ges_execute` 입력의 `perspectives[].confidence`와 `consensus.perspectives[].confidence`도 선택값으로 바꿨다. 필수로 두면 확신도 없이 돌아온 관점이 입력 검증에서 막힌다. 보내면 지금처럼 받는다.
+- `buildSpecPrompt`의 출력 예시에 있는 `"confidence": 0.0-1.0`은 그대로 뒀다. 읽는 곳이 없고 선택값이라 LLM이 써도 판정에 안 쓰인다.
+
 벤치마크 judge가 쓰는 `reworkProbability`도 LLM 숫자다. 로드맵은 사람 라벨 5개로 judge를 보정하겠다고 했다. 이 제안의 결과 표가 쌓이면 judge의 예측과 실제 rough 비율을 같은 표에 놓고 비교할 수 있다. 이 비교는 파트 4 스크립트에 선택 옵션(`--judge-csv`)으로만 둔다.
 
 ## 문서끼리 겹치는 자리

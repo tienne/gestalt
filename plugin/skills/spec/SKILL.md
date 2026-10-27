@@ -145,7 +145,7 @@ ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ..
 ### Spec 검증 스키마 (Zod)
 
 - `gestaltAnalysis[].principle`: `closure | proximity | similarity | figure_ground | continuity`
-- `gestaltAnalysis[].confidence`: 0.0 ~ 1.0
+- `gestaltAnalysis[].confidence`: 0.0 ~ 1.0, 선택값
 - `ontologySchema.entities[]`: `{ name: string(min 1), description: string, attributes: string[] }`
 - `ontologySchema.relations[]`: `{ from: string(min 1), to: string(min 1), type: string(min 1) }`
 
