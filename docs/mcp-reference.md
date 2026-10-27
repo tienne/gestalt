@@ -60,6 +60,8 @@ Complete reference for all Gestalt MCP tools.
 | `response` | `string` | `respond` | — | 현재 질문에 대한 사용자 응답 |
 | `generatedQuestion` | `string` | `respond` (passthrough) | — | 호출자가 생성한 질문 텍스트 |
 | `resolutionScore` | `object` | N | — | 호출자가 계산한 해상도 점수 (아래 참고) |
+| `rescore` | `boolean` | `score`만, N | — | `rescorePrompt`로 다시 채점한 점수를 `resolutionScore`에 담아 보낼 때 `true` |
+| `rescoreMode` | `"isolated" \| "same-context"` | `rescore`만, N | `"same-context"` | 인터뷰 맥락이 없는 서브에이전트가 채점했으면 `isolated`, 같은 대화에서 채점했으면 `same-context` |
 | `compressedSummary` | `string` | `compress` 두 번째 호출 | — | `compressionContext`로 호출자가 만든 요약. 첫 호출에선 생략한다 |
 | `record` | `boolean` | N | `false` | `complete` 시 GIF 녹화 생성 여부 |
 | `force` | `boolean` | `complete`만, N | `false` | 해상도 0.8 미만이어도 완료한다. 사용자가 직접 정했을 때만 넘긴다 |
@@ -78,6 +80,14 @@ Complete reference for all Gestalt MCP tools.
 답변 라운드가 0인 세션에 기준을 넘는 점수를 넣으면 `score`와 `respond`가 거절한다. 공백만 보낸 답은 답변으로 세지 않는다. 기준 미만 점수는 받는다.
 
 이 점수는 호스트 LLM이 매겨서 넘긴 값이다. 서버는 답변이 하나라도 있으면 점수가 맞는지 확인하지 않는다. 0.8 관문은 부풀려 신고한 점수까지 막지 못한다.
+
+#### 다시 채점하기
+
+`respond`나 `score`로 넣은 점수가 처음으로 기준값을 넘으면 응답에 `rescorePrompt`와 `nextAction: "rescore"`가 붙는다. `rescorePrompt`에는 대화 기록만 있고 앞 점수는 없다. 호스트는 이걸 인터뷰를 안 본 서브에이전트에게 채점시키고 그 점수를 `score`에 `rescore: true`와 함께 넘긴다. 서버는 두 점수를 비교한 결과(`rescore`)를 `resolutionScore.signals.rescore`에 남긴다. 인터뷰마다 한 번만 받는다.
+
+판정에 어떻게 쓸지는 설정 `interview.rescore`가 정한다. 기본값 `record`는 기록만 하고 판정은 첫 점수를 따른다. `gate`는 다시 채점을 받기 전까지 `isReady`를 `false`로 둔다. 받은 뒤에는 두 overall 중 낮은 쪽으로 판정한다. 차원 하나라도 0.2보다 크게 흔들렸으면 `isReady`를 `false`로 두고 가장 많이 흔들린 차원으로 다음 질문의 `gestaltContext`를 돌려준다. `off`는 다시 채점을 요청하지도 받지도 않는다.
+
+API 키 경로는 서버가 같은 모델을 한 번 더 불러 채점하고 `isolated`로 남긴다.
 
 ### Responses
 

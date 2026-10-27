@@ -144,6 +144,15 @@ export class InterviewSessionRepository {
         }
         break;
       }
+      case EventType.INTERVIEW_RESOLUTION_RESCORED: {
+        const score = session.resolutionScore;
+        if (score) {
+          score.isReady = payload.isReady as boolean;
+          score.signals = payload.signals as ResolutionSignals;
+        }
+        break;
+      }
+
       // Backward compatibility: old ambiguity score was inverted (low = clear)
       // Convert to resolution score by inverting: resolution = 1 - ambiguity
       case 'interview.ambiguity.scored' as EventType: {

@@ -6,6 +6,7 @@ import type {
   ProjectType,
   GestaltPrinciple,
   CompressedContext,
+  RescoreResult,
 } from '../core/types.js';
 import {
   SessionNotFoundError,
@@ -19,6 +20,7 @@ import { EventType } from '../events/types.js';
 import { InterviewSessionRepository } from './repository.js';
 import { computeSignals } from '../gestalt/signals.js';
 import type { InterviewConfig } from '../core/config.js';
+import type { RescoreState } from './rescore.js';
 
 export type InterviewOptions = Partial<InterviewConfig>;
 
@@ -206,6 +208,37 @@ export class SessionManager {
       threshold: score.threshold ?? this.resolutionThreshold,
       signals: score.signals,
     });
+  }
+
+  /** 다시 채점하기가 어디까지 왔는지. 지금 들어온 채점을 기록하기 전에 부른다 */
+  rescoreState(sessionId: string): RescoreState {
+    const session = this.get(sessionId);
+    if (session.resolutionScore?.signals?.rescore) return 'done';
+    const crossed = this.eventStore.replay('interview', sessionId).some((e) => {
+      if (e.eventType !== EventType.INTERVIEW_RESOLUTION_SCORED) return false;
+      const payload = e.payload as { overall?: unknown; threshold?: unknown };
+      const threshold =
+        typeof payload.threshold === 'number' ? payload.threshold : this.resolutionThreshold;
+      return typeof payload.overall === 'number' && payload.overall >= threshold;
+    });
+    return crossed ? 'pending' : 'none';
+  }
+
+  /** 다시 채점한 결과를 지금 점수에 붙이고 판정을 갱신한다 */
+  recordRescore(sessionId: string, rescore: RescoreResult, isReady: boolean): ResolutionScore {
+    const session = this.get(sessionId);
+    const score = session.resolutionScore;
+    if (!score) throw new Error(`다시 채점할 점수가 없습니다: ${sessionId}`);
+    score.isReady = isReady;
+    score.signals = { ...(score.signals ?? computeSignals(session, score, null)), rescore };
+    session.updatedAt = new Date().toISOString();
+
+    this.record(sessionId, EventType.INTERVIEW_RESOLUTION_RESCORED, {
+      rescore,
+      isReady,
+      signals: score.signals,
+    });
+    return score;
   }
 
   setCompressedContext(sessionId: string, compressedContext: CompressedContext): void {

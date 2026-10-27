@@ -1,5 +1,6 @@
 import type { PassthroughEngine } from '../../interview/passthrough-engine.js';
 import type { InterviewInput } from '../schemas.js';
+import type { ResolutionScore } from '../../core/types.js';
 import { ContextCompressor } from '../../interview/context-compressor.js';
 import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { gestaltNotify } from '../../utils/notifier.js';
@@ -63,8 +64,14 @@ export async function handleInterviewPassthrough(
       );
       if (!result.ok) return formatError(result.error.message);
 
-      const { session, resolutionScore, gestaltContext, compressionContext, needsCompression } =
-        result.value;
+      const {
+        session,
+        resolutionScore,
+        gestaltContext,
+        compressionContext,
+        needsCompression,
+        rescorePrompt,
+      } = result.value;
       return JSON.stringify(
         {
           status: 'in_progress',
@@ -72,23 +79,15 @@ export async function handleInterviewPassthrough(
           roundNumber: session.rounds.length,
           gestaltContext: sanitizeSurfaceContext(gestaltContext),
           ...(needsCompression ? { compressionContext, needsCompression } : {}),
-          resolutionScore: resolutionScore
-            ? {
-                overall: resolutionScore.overall.toFixed(2),
-                isReady: resolutionScore.isReady,
-                dimensions: resolutionScore.dimensions.map((d) => ({
-                  name: d.name,
-                  clarity: d.clarity.toFixed(2),
-                  label: d.label,
-                })),
-                contradictions: resolutionScore.contradictions ?? [],
-              }
-            : null,
-          message: resolutionScore?.isReady
-            ? 'Resolution threshold met! You can complete the interview and generate a spec.'
-            : needsCompression
-              ? 'Use compressionContext to compress previous rounds, then continue with the returned questionPrompt.'
-              : 'Use the returned questionPrompt to generate the next question. Use the scoringPrompt to compute resolution scores.',
+          resolutionScore: resolutionScore ? formatScore(resolutionScore) : null,
+          ...(rescorePrompt && { rescorePrompt, nextAction: 'rescore' }),
+          message: rescorePrompt
+            ? RESCORE_MESSAGE
+            : resolutionScore?.isReady
+              ? 'Resolution threshold met! You can complete the interview and generate a spec.'
+              : needsCompression
+                ? 'Use compressionContext to compress previous rounds, then continue with the returned questionPrompt.'
+                : 'Use the returned questionPrompt to generate the next question. Use the scoringPrompt to compute resolution scores.',
         },
         null,
         2,
@@ -98,29 +97,31 @@ export async function handleInterviewPassthrough(
     case 'score': {
       if (!input.sessionId) return formatError('sessionId is required for score action');
 
-      const result = engine.score(input.sessionId, input.resolutionScore);
+      const result = engine.score(input.sessionId, input.resolutionScore, {
+        rescore: input.rescore,
+        rescoreMode: input.rescoreMode,
+      });
       if (!result.ok) return formatError(result.error.message);
 
-      const { resolutionScore, scoringPrompt } = result.value;
+      const { resolutionScore, scoringPrompt, rescorePrompt, rescore, gestaltContext } =
+        result.value;
       return JSON.stringify(
         {
-          status: 'scored',
-          resolutionScore: resolutionScore
-            ? {
-                overall: resolutionScore.overall.toFixed(2),
-                isReady: resolutionScore.isReady,
-                dimensions: resolutionScore.dimensions.map((d) => ({
-                  name: d.name,
-                  clarity: d.clarity.toFixed(2),
-                  label: d.label,
-                })),
-                contradictions: resolutionScore.contradictions ?? [],
-              }
-            : null,
+          status: rescore ? 'rescored' : 'scored',
+          resolutionScore: resolutionScore ? formatScore(resolutionScore) : null,
           scoringPrompt: scoringPrompt ?? null,
+          ...(rescorePrompt && { rescorePrompt, nextAction: 'rescore' }),
+          ...(rescore && { rescore }),
+          ...(gestaltContext && { gestaltContext: sanitizeSurfaceContext(gestaltContext) }),
           message: scoringPrompt
             ? 'Use the scoringPrompt to compute resolution scores, then call score again with the resolutionScore parameter.'
-            : undefined,
+            : rescorePrompt
+              ? RESCORE_MESSAGE
+              : gestaltContext
+                ? 'The rescore disagreed with the first score, so the interview is not ready yet. Generate the next question with the returned questionPrompt and continue with respond.'
+                : rescore
+                  ? 'Rescore recorded.'
+                  : undefined,
         },
         null,
         2,
@@ -212,6 +213,22 @@ export async function handleInterviewPassthrough(
       );
     }
   }
+}
+
+const RESCORE_MESSAGE =
+  'Resolution crossed the threshold for the first time. Before completing, hand rescorePrompt to a subagent that has not seen this interview, then call score with rescore: true, rescoreMode: "isolated", and its resolutionScore. If you cannot start a subagent, score it yourself and pass rescoreMode: "same-context".';
+
+function formatScore(score: ResolutionScore) {
+  return {
+    overall: score.overall.toFixed(2),
+    isReady: score.isReady,
+    dimensions: score.dimensions.map((d) => ({
+      name: d.name,
+      clarity: d.clarity.toFixed(2),
+      label: d.label,
+    })),
+    contradictions: score.contradictions ?? [],
+  };
 }
 
 function formatError(message: string): string {

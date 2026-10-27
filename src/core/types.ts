@@ -47,6 +47,21 @@ export interface ResolutionSignals {
   maxOverallJump: number | null;
   /** 모순 목록은 LLM이 쓴 텍스트라 서버가 센 신호와 섞지 않는다 */
   llmDerived: { contradictions: number };
+  /** 처음 기준값을 넘은 채점을 다시 채점한 결과. 안 했으면 없다. 이후 채점에도 이어진다 */
+  rescore?: RescoreResult;
+}
+
+/** isolated: 인터뷰 맥락이 없는 채점자. same-context: 첫 채점과 같은 대화에서 다시 채점 */
+export type RescoreMode = 'isolated' | 'same-context';
+
+export interface RescoreResult {
+  mode: RescoreMode;
+  /** 두 번째 채점의 overall */
+  overall: number;
+  /** 차원별 |첫 점수 - 두 번째 점수| 중 가장 큰 값 */
+  maxDimensionSpread: number;
+  /** 첫 채점에서 기준값 이상이었다가 두 번째 채점에서 아래로 떨어진 차원 */
+  droppedDimensions: ResolutionDimensionName[];
 }
 
 export interface ResolutionScore {

@@ -104,6 +104,7 @@ export function computeSignals(
     overallJump,
     maxOverallJump,
     llmDerived: { contradictions: score.contradictions?.length ?? 0 },
+    ...(prevScore?.signals?.rescore && { rescore: prevScore.signals.rescore }),
   };
 }
 

@@ -42,6 +42,8 @@ const llmConfigSchema = z.object({
 const interviewConfigSchema = z.object({
   resolutionThreshold: z.number().min(0).max(1).default(RESOLUTION_THRESHOLD),
   maxRounds: z.number().int().positive().default(MAX_INTERVIEW_ROUNDS),
+  // 처음 기준값을 넘은 채점을 한 번 더 받을지와 그 결과를 판정에 쓸지
+  rescore: z.enum(['off', 'record', 'gate']).default('record'),
 });
 
 const executeConfigSchema = z.object({

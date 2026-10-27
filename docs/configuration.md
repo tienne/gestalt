@@ -20,7 +20,7 @@
 {
   "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
   "llm": { "apiKey": "", "model": "claude-sonnet-5" },
-  "interview": { "resolutionThreshold": 0.8, "maxRounds": 10 },
+  "interview": { "resolutionThreshold": 0.8, "maxRounds": 10, "rescore": "record" },
   "execute": { "driftThreshold": 0.6, "successThreshold": 0.85, "goalAlignmentThreshold": 0.80 },
   "reasoningModel": "fable",
   "reasoningModelFallback": "opus",
@@ -40,7 +40,7 @@
 ```typescript
 interface GestaltConfig {
   llm: { apiKey: string; model: string };
-  interview: { resolutionThreshold: number; maxRounds: number };
+  interview: { resolutionThreshold: number; maxRounds: number; rescore: 'off' | 'record' | 'gate' };
   execute: { driftThreshold: number; successThreshold: number; goalAlignmentThreshold: number };
   reasoningModel: 'fable' | 'opus' | 'sonnet' | 'haiku';
   reasoningModelFallback: 'fable' | 'opus' | 'sonnet' | 'haiku';
@@ -132,6 +132,20 @@ interface GestaltConfig {
 | `GESTALT_RESEARCH_SOURCES_DIR` | `researchSourcesDir` |
 | `GESTALT_LOG_LEVEL` | `logLevel` |
 | `GESTALT_CLIENT` | `client` |
+
+---
+
+## 다시 채점하기 (`interview.rescore`)
+
+인터뷰 점수가 처음으로 `resolutionThreshold`를 넘으면 그 채점을 한 번 더 받는다. 같은 대화를 다시 물었을 때 점수가 얼마나 바뀌는지 남기려는 것이다. 환경변수는 없고 `gestalt.json`에서만 정한다.
+
+| 값 | 동작 |
+|---|---|
+| `off` | 다시 채점하지 않는다 |
+| `record` (기본) | 다시 채점해서 기록만 한다. `isReady`는 첫 점수로 정한다 |
+| `gate` | 다시 채점을 받기 전까지 `isReady`를 `false`로 둔다. 받은 뒤에는 두 overall 중 낮은 쪽으로 정하고 차원 하나라도 0.2보다 크게 흔들렸으면 `false`로 둔다 |
+
+흐름과 응답 필드는 [`mcp-reference.md`](./mcp-reference.md#다시-채점하기)에 있다.
 
 ---
 

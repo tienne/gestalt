@@ -1,7 +1,11 @@
 import type { ResolutionScore, InterviewRound, ProjectType } from '../core/types.js';
 import { computeResolutionScore } from '../gestalt/analyzer.js';
 import { RESOLUTION_THRESHOLD } from '../core/constants.js';
-import { buildResolutionPrompt, INTERVIEW_SYSTEM_PROMPT } from '../llm/prompts.js';
+import {
+  buildResolutionPrompt,
+  buildRescorePrompt,
+  INTERVIEW_SYSTEM_PROMPT,
+} from '../llm/prompts.js';
 import type { LLMAdapter } from '../llm/types.js';
 
 export class ResolutionScorer {
@@ -11,6 +15,24 @@ export class ResolutionScorer {
   ) {}
 
   async score(
+    topic: string,
+    rounds: InterviewRound[],
+    projectType: ProjectType,
+  ): Promise<ResolutionScore> {
+    return this.scoreWith(buildResolutionPrompt, topic, rounds, projectType);
+  }
+
+  /** 처음 기준값을 넘은 채점을 같은 모델로 한 번 더 받는다. 새 호출이라 앞 채점을 못 본다 */
+  async rescore(
+    topic: string,
+    rounds: InterviewRound[],
+    projectType: ProjectType,
+  ): Promise<ResolutionScore> {
+    return this.scoreWith(buildRescorePrompt, topic, rounds, projectType);
+  }
+
+  private async scoreWith(
+    buildPrompt: typeof buildResolutionPrompt,
     topic: string,
     rounds: InterviewRound[],
     projectType: ProjectType,
@@ -25,7 +47,7 @@ export class ResolutionScorer {
       };
     }
 
-    const prompt = buildResolutionPrompt(
+    const prompt = buildPrompt(
       topic,
       answeredRounds.map((r) => ({
         question: r.question,

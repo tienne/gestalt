@@ -48,6 +48,18 @@ export const interviewInputSchema = guardObject(
       })
       .optional()
       .describe('Resolution scores computed by the caller LLM (passthrough mode)'),
+    rescore: z
+      .boolean()
+      .optional()
+      .describe(
+        'score only: rescorePrompt로 다시 채점한 점수를 resolutionScore에 담아 보낼 때 true. 처음 기준값을 넘은 뒤 인터뷰마다 한 번만 받는다.',
+      ),
+    rescoreMode: z
+      .enum(['isolated', 'same-context'])
+      .optional()
+      .describe(
+        "rescore 전용. 인터뷰 맥락이 없는 서브에이전트가 채점했으면 'isolated', 같은 대화에서 다시 채점했으면 'same-context'. 생략하면 same-context로 남긴다.",
+      ),
     compressedSummary: z
       .string()
       .optional()

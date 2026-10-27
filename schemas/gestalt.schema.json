@@ -51,6 +51,12 @@
           "minimum": 1,
           "description": "Maximum number of interview rounds (env: GESTALT_MAX_ROUNDS)",
           "default": 10
+        },
+        "rescore": {
+          "type": "string",
+          "enum": ["off", "record", "gate"],
+          "description": "Rescore the first score that crosses the threshold. off: never. record: keep the result without changing readiness. gate: decide readiness on the lower overall and hold it when any dimension moves more than 0.2",
+          "default": "record"
         }
       },
       "additionalProperties": false
