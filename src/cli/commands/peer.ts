@@ -44,6 +44,29 @@ function time(ms: number): string {
   return new Date(ms).toLocaleString();
 }
 
+export function makeStopHandler(
+  daemon: Pick<PeerDaemon, 'stop'>,
+  exit: (code: number) => void,
+  logErr: (message: string) => void = (message) => console.error(message),
+): () => void {
+  let stopping = false;
+  return () => {
+    // 정리가 걸려도 사용자가 빠져나갈 길은 남겨 둔다
+    if (stopping) {
+      exit(1);
+      return;
+    }
+    stopping = true;
+    void daemon.stop().then(
+      () => exit(0),
+      (e: unknown) => {
+        logErr(errMessage(e));
+        exit(1);
+      },
+    );
+  };
+}
+
 export async function peerDaemonCommand(): Promise<void> {
   const root = resolveRoot();
   const daemon = new PeerDaemon({ root });
@@ -56,19 +79,7 @@ export async function peerDaemonCommand(): Promise<void> {
   console.log(`peer 데몬이 떴어요. 소켓 ${daemon.socketPath}, 뷰어 포트 ${daemon.viewerPort}`);
   console.log('Ctrl+C로 멈춰요. 멈추는 중에 한 번 더 누르면 바로 끝나요.');
 
-  let stopping = false;
-  const stop = (): void => {
-    // 정리가 걸려도 사용자가 빠져나갈 길은 남겨 둔다
-    if (stopping) process.exit(1);
-    stopping = true;
-    void daemon.stop().then(
-      () => process.exit(0),
-      (e: unknown) => {
-        console.error(errMessage(e));
-        process.exit(1);
-      },
-    );
-  };
+  const stop = makeStopHandler(daemon, (code) => process.exit(code));
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   // 타이머가 unref라 이벤트 루프를 붙잡는 건 서버 소켓뿐이다. 그걸로 충분하다
