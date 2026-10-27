@@ -53,7 +53,7 @@ const BEARER = /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
  * `Basic` 뒤 base64 값. 대소문자를 가리고 값에 숫자나 `+`, `/`, `=`가 있거나 둘째 글자부터
  * 대문자가 있어야 건다. `Basic authentication`이나 `Basic Configuration` 같은 영어 문장은
  * 그대로 둔다. 헤더 꼴이 아닌 `{ authorization: 'Basic …' }` 같은 객체 출력은 이 패턴만 잡는다.
- * 전부 대문자인 `BASIC`은 헤더 줄 패턴에만 맡긴다. 여기서 받으면 `BASIC SETTINGS` 같은 대문자
+ * 전부 대문자인 `BASIC`은 헤더 줄과 따옴표 안 헤더 패턴에만 맡긴다. 여기서 받으면 `BASIC SETTINGS` 같은 대문자
  * 제목이 가려진다.
  *
  * 값은 base64 글자로만 되고 끝의 `=` 채움까지 쳐서 길이가 4의 배수인 8자 이상이어야 한다.

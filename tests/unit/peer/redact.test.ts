@@ -311,6 +311,7 @@ describe('redactText', () => {
     'Basic JavaScript tutorial',
     'Basic PostgreSQL setup',
     'see Basic README.md here',
+    'see Basic CONTRIBUTING.md here',
     'Basic HTTP/1.1 auth',
     'Basic 2024-10-28 report',
     'Basic Usage/Examples',
@@ -344,7 +345,7 @@ describe('redactText', () => {
   });
 
   it.each(['x BASIC dXNlcjpwYXNz', 'x Basic dXNlcjpwYXNzd29yZA', 'x Basic dXNlcjpw-YXNz_d29y'])(
-    '헤더 줄 밖의 %s는 그대로 둔다(알려진 빈자리)',
+    '헤더 줄과 따옴표 안 헤더 밖의 %s는 그대로 둔다(알려진 빈자리)',
     (input) => {
       expect(redactText(input, opts)).toBe(input);
     },
@@ -352,6 +353,10 @@ describe('redactText', () => {
 
   it.each([
     ['Authorization: BASIC dXNlcjpwYXNz', `Authorization: BASIC ${REDACTED}`],
+    [
+      'curl -H "Authorization: BASIC dXNlcjpwYXNz" https://a.example.com',
+      `curl -H "Authorization: BASIC ${REDACTED}" https://a.example.com`,
+    ],
     ['Authorization: Basic dXNlcjpwYXNzd29yZA', `Authorization: Basic ${REDACTED}`],
     [
       "curl -H 'Authorization: Basic dXNlcjpw-YXNz_d29y' https://a.example.com",
@@ -435,6 +440,8 @@ describe('redactText', () => {
     '< X-Session: abcdef123456',
     '{"password": 12345}',
     "{ password: 'hunter2' }",
+    'X_Auth-Token: abcdef123456',
+    'X-Foo.Bar-Api-Key: abcdef123456',
   ])('목록 밖인 %s는 그대로 둔다(알려진 빈자리)', (input) => {
     expect(redactText(input, opts)).toBe(input);
   });
