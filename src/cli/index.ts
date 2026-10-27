@@ -75,6 +75,12 @@ import {
   peerUnshareCommand,
 } from './commands/peer.js';
 
+type ParentedCommand = { parent?: { opts(): Record<string, unknown> } | null };
+
+function parentOpts<T>(cmd: ParentedCommand): T {
+  return (cmd.parent?.opts() ?? {}) as T;
+}
+
 export function createCli(): Command {
   const program = new Command();
 
@@ -169,8 +175,8 @@ export function createCli(): Command {
     .option('--author <actor>', '누가 하는지 (예: codex:worker-2). 없으면 GESTALT_ACTOR')
     .option('--json', '에이전트가 파싱할 JSON으로');
 
-  const inherited = (cmd: { parent?: { opts(): Record<string, unknown> } }) =>
-    (cmd.parent?.opts() ?? {}) as { repoRoot?: string; author?: string; json?: boolean };
+  const inherited = (cmd: ParentedCommand) =>
+    parentOpts<{ repoRoot?: string; author?: string; json?: boolean }>(cmd);
 
   pr.command('create')
     .description('현재 HEAD로 PR을 만든다')
@@ -279,8 +285,7 @@ export function createCli(): Command {
     .description('내 에이전트 세션 대화를 로컬 뷰어로 공유한다')
     .option('--json', '에이전트가 파싱할 JSON으로');
 
-  const peerOpts = (cmd: { parent?: { opts(): Record<string, unknown> } }) =>
-    (cmd.parent?.opts() ?? {}) as { json?: boolean };
+  const peerOpts = (cmd: ParentedCommand) => parentOpts<{ json?: boolean }>(cmd);
 
   peer
     .command('daemon')
@@ -303,7 +308,7 @@ export function createCli(): Command {
 
   peer
     .command('unshare <id>')
-    .description('공유를 닫는다')
+    .description('공유를 종료한다')
     .action((id, o, cmd) => peerUnshareCommand({ ...peerOpts(cmd), ...o, id }));
 
   peer

@@ -19,20 +19,27 @@ function fail(message: string, code = 1): never {
   process.exit(code);
 }
 
-async function call<T>(req: PeerRequest): Promise<T> {
-  let root: string;
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function resolveRoot(): string {
   try {
-    root = peerRoot();
+    return peerRoot();
   } catch (e) {
-    fail(e instanceof Error ? e.message : String(e));
+    fail(errMessage(e));
   }
+}
+
+async function call<T>(req: PeerRequest): Promise<T> {
+  const root = resolveRoot();
   try {
     const res = await request<T>(socketPath(root), req);
     if (!res.ok) fail(res.error);
     return res.result;
   } catch (e) {
     if (e instanceof DaemonUnavailableError) fail(e.message, EXIT_NO_DAEMON);
-    fail(e instanceof Error ? e.message : String(e));
+    fail(errMessage(e));
   }
 }
 
@@ -41,25 +48,21 @@ function time(ms: number): string {
 }
 
 export async function peerDaemonCommand(): Promise<void> {
-  let root: string;
-  try {
-    root = peerRoot();
-  } catch (e) {
-    fail(e instanceof Error ? e.message : String(e));
-  }
+  const root = resolveRoot();
   const daemon = new PeerDaemon({ root });
   try {
     await daemon.start();
   } catch (e) {
-    fail(`peer 데몬을 못 띄웠어요: ${e instanceof Error ? e.message : String(e)}`);
+    fail(`peer 데몬을 못 띄웠어요: ${errMessage(e)}`);
   }
 
   console.log(`peer 데몬이 떴어요. 소켓 ${daemon.socketPath}, 뷰어 포트 ${daemon.viewerPort}`);
-  console.log('Ctrl+C로 멈춥니다.');
+  console.log('Ctrl+C로 멈춰요. 멈추는 중에 한 번 더 누르면 바로 끝나요.');
 
   let stopping = false;
   const stop = (): void => {
-    if (stopping) return;
+    // 정리가 걸려도 사용자가 빠져나갈 길은 남겨 둔다
+    if (stopping) process.exit(1);
     stopping = true;
     void daemon.stop().finally(() => process.exit(0));
   };
@@ -119,7 +122,7 @@ export async function peerShareCommand(
     return;
   }
   console.log(`공유를 열었어요 (${info.id}). 만료 ${time(info.expiresAt)}`);
-  console.log(`이 세션의 대화와 도구 출력이 뷰어에 보입니다. ${VIEWER_WARNING}`);
+  console.log(`이 세션의 대화와 도구 출력이 뷰어에 보여요. ${VIEWER_WARNING}`);
   console.log(`\n${info.url}\n`);
 }
 
@@ -145,7 +148,7 @@ export async function peerSharesCommand(options: PeerOptions): Promise<void> {
 export async function peerUnshareCommand(options: PeerOptions & { id: string }): Promise<void> {
   const result = await call<{ id: string }>({ op: 'unshare', id: options.id });
   if (options.json) console.log(JSON.stringify(result));
-  else console.log(`공유를 닫았어요 (${result.id}).`);
+  else console.log(`공유를 종료했어요 (${result.id}).`);
 }
 
 export async function peerStatusCommand(options: PeerOptions): Promise<void> {
