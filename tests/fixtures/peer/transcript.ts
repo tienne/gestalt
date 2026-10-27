@@ -43,6 +43,7 @@ export const FAKE_SECRETS = {
   aiza: j('AIza', 'SyFAKEFAKEFAKEFAKEFAKEFAKEFAKE00000'),
   npm: j('npm_', 'FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE0000'),
   glpat: j('glpat-', 'FAKEFAKEFAKEFAKE0000'),
+  slack: j('xox', 'b-', '0000FAKE-FAKEFAKEFAKE'),
   urlPassword: 'fake-url-pass-5555',
   /** 어떤 패턴에도 안 걸리고 키 이름으로만 가려지는 값 */
   keyOnlyValue: 'fake-plain-value-4444',

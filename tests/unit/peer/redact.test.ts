@@ -22,6 +22,7 @@ describe('redactText', () => {
     ['Google AIza', `key ${FAKE_SECRETS.aiza}`],
     ['npm 토큰', `//registry.npmjs.org/:_authToken ${FAKE_SECRETS.npm}`],
     ['GitLab glpat-', `token ${FAKE_SECRETS.glpat}`],
+    ['Slack xoxb-', `SLACK ${FAKE_SECRETS.slack}`],
   ])('%s를 가린다', (_name, input) => {
     const out = redactText(input, opts);
     expect(out).toContain(REDACTED);
@@ -83,6 +84,21 @@ describe('redactText', () => {
     expect(out).toContain(`PASSWORD=${REDACTED} ls`);
   });
 
+  it('감싼 대입 값 안의 이스케이프된 따옴표 뒤까지 가린다', () => {
+    const out = redactText(JSON.stringify(`PASSWORD="a\\"${FAKE_SECRETS.passwordValue}" ls`), opts);
+    expect(out).not.toContain(FAKE_SECRETS.passwordValue);
+    expect(out).toContain(`PASSWORD=${REDACTED} ls`);
+  });
+
+  it('감싼 대입 값이 백슬래시로 끝나도 다음 대입까지 가린다', () => {
+    const out = redactText(
+      JSON.stringify(`PASSWORD="a\\\\" TOKEN="${FAKE_SECRETS.tokenValue}" ls`),
+      opts,
+    );
+    expect(out).not.toContain(FAKE_SECRETS.tokenValue);
+    expect(out).toContain(`PASSWORD=${REDACTED} TOKEN=${REDACTED} ls`);
+  });
+
   it('따옴표 안 줄바꿈 뒤 조각까지 가린다', () => {
     const out = redactText(`API_KEY="first\n${FAKE_SECRETS.apiKeyValue}" next`, opts);
     expect(out).not.toContain('first');
@@ -107,16 +123,73 @@ describe('redactText', () => {
     expect(out).toBe(`git clone https://bob:${REDACTED}@example.com/x`);
   });
 
+  it('사용자 이름 없이 비밀번호만 둔 URL도 가린다', () => {
+    const out = redactText(`REDIS_URL=redis://:${FAKE_SECRETS.urlPassword}@localhost:6379`, opts);
+    expect(out).toBe(`REDIS_URL=redis://:${REDACTED}@localhost:6379`);
+  });
+
+  it('@가 있어도 비밀번호 자리가 아니면 안 건드린다', () => {
+    for (const input of ['http://host:8080/x@y', 'git@github.com:a/b', 'ssh://git@host:22/repo']) {
+      expect(redactText(input, opts)).toBe(input);
+    }
+  });
+
   it('따옴표 친 JSON 키의 값을 가린다', () => {
     const out = redactText(`{"api_key": "${FAKE_SECRETS.apiKeyValue}", "name": "ok"}`, opts);
     expect(out).not.toContain(FAKE_SECRETS.apiKeyValue);
     expect(out).toContain('"name": "ok"');
   });
 
+  it('감싼 JSON 값 안의 이스케이프된 따옴표 뒤까지 가린다', () => {
+    const v = FAKE_SECRETS.passwordValue;
+    const out = redactText(JSON.stringify(JSON.stringify({ password: `a"${v}`, n: 1 })), opts);
+    expect(out).not.toContain(v);
+    expect(out).toContain('\\"n\\":1');
+  });
+
+  it('감싼 JSON 값이 백슬래시로 끝나도 다음 키의 값까지 가린다', () => {
+    const v = FAKE_SECRETS.tokenValue;
+    const out = redactText(
+      JSON.stringify(JSON.stringify({ password: 'a\\', api_token: v, n: 1 })),
+      opts,
+    );
+    expect(out).not.toContain(v);
+    expect(out).toContain('\\"n\\":1');
+  });
+
+  it.each(['cookie', 'credentials', 'authorization', 'pwd'])(
+    '따옴표 친 %s 키의 값을 가린다',
+    (key) => {
+      const out = redactText(`{"${key}": "${FAKE_SECRETS.keyOnlyValue}"}`, opts);
+      expect(out).toBe(`{"${key}": "${REDACTED}"}`);
+    },
+  );
+
+  it('따옴표 친 author 키는 안 건드린다', () => {
+    expect(redactText('{"author": "kim"}', opts)).toBe('{"author": "kim"}');
+  });
+
   it('Bearer 헤더 값을 가린다', () => {
     const out = redactText(`Authorization: Bearer ${FAKE_SECRETS.tokenValue}`, opts);
     expect(out).not.toContain(FAKE_SECRETS.tokenValue);
     expect(out).toContain(`Bearer ${REDACTED}`);
+  });
+
+  it('Basic 헤더 값을 가린다', () => {
+    const out = redactText(`Authorization: Basic ${FAKE_SECRETS.tokenValue}`, opts);
+    expect(out).toBe(`Authorization: Basic ${REDACTED}`);
+  });
+
+  it('curl이 찍는 쿠키 헤더 줄은 콜론 뒤를 줄 끝까지 가린다', () => {
+    const v = FAKE_SECRETS.keyOnlyValue;
+    const out = redactText(`> Cookie: sid=${v}\n< Set-Cookie: sid=${v}; Path=/\n< X-Ok: 1`, opts);
+    expect(out).toBe(`> Cookie: ${REDACTED}\n< Set-Cookie: ${REDACTED}\n< X-Ok: 1`);
+  });
+
+  it('따옴표 안 헤더는 닫는 따옴표 앞까지만 가리고 뒤 URL은 남긴다', () => {
+    const v = FAKE_SECRETS.keyOnlyValue;
+    const out = redactText(`curl -H "X-Api-Key: ${v}" https://api.example.com/v1 -s`, opts);
+    expect(out).toBe(`curl -H "X-Api-Key: ${REDACTED}" https://api.example.com/v1 -s`);
   });
 
   it('홈 디렉토리 경로를 ~로 바꾸고 이름이 이어지는 다른 경로는 안 건드린다', () => {
@@ -170,14 +243,31 @@ describe('redactValue', () => {
 });
 
 describe('isSensitiveKey', () => {
-  it.each(['apiKey', 'APIKey', 'x-api-key', 'AUTH_TOKEN', 'client.secret', 'Set-Cookie', 'apikey'])(
-    '%s는 민감하다',
-    (key) => expect(isSensitiveKey(key)).toBe(true),
-  );
+  it.each([
+    'apiKey',
+    'APIKey',
+    'x-api-key',
+    'AUTH_TOKEN',
+    'client.secret',
+    'Set-Cookie',
+    'apikey',
+    'accesstoken',
+    'privatekey',
+    'secrets',
+    'passphrase',
+    'DB_PASS',
+  ])('%s는 민감하다', (key) => expect(isSensitiveKey(key)).toBe(true));
 
-  it.each(['keyword', 'author', 'monkey', 'file_path', 'tokenizer'])('%s는 아니다', (key) =>
-    expect(isSensitiveKey(key)).toBe(false),
-  );
+  it.each([
+    'keyword',
+    'author',
+    'monkey',
+    'file_path',
+    'tokenizer',
+    'max_tokens',
+    'tokens',
+    'bypass',
+  ])('%s는 아니다', (key) => expect(isSensitiveKey(key)).toBe(false));
 });
 
 describe('truncateBytes', () => {
