@@ -347,6 +347,7 @@ export interface EvaluationResult {
 - 남은 예산에 맞춰 제한을 줄이지 않는다. 줄어든 제한에 걸려 끊긴 변이도 서버에는 똑같이 124로 와서 온전한 제한에 걸린 경우와 가를 수 없다. 그래서 124와 137은 언제나 온전한 제한에 걸린 경우만 뜻한다.
 - 예산이 모자라 시작하지 못한 변이는 결과 없이 둔다. 서버는 그 변이를 `notRun`으로 받는다.
 - 제한이 긴 변이 하나 때문에 예산에 들어가는 다른 변이까지 못 도는 일이 없어야 한다.
+- 제한이 예산 전체보다 커서 어느 평가에서도 시작할 수 없는 변이는 재평가마다 `notRun`으로 되돌리지 않고 따로 드러낸다. 그렇다고 제한을 깎거나 예산을 넘겨 돌리지는 않는다. 어떻게 가르고 셀지는 PR 6이 정한다.
 
 #### 서버가 하는 일 (Call 2)
 
@@ -354,7 +355,7 @@ export interface EvaluationResult {
 - 변이를 걸었던 파일의 blob 해시를 다시 구해 `blobBefore`와 비교한다. 하나라도 다르면 "작업 트리가 원복되지 않았다"로 거부한다. 변이가 남은 코드 위에서 평가가 계속 도는 걸 막는다.
 - `exitCode`가 124나 137이면 `timedOut`, 그 밖에 0이 아니면 `killed`, 0이면 `survived`, -1이거나 결과가 없으면 `notRun`이다. 시간 초과는 테스트가 변이를 잡은 게 아니라서 `killed`로 세지 않는다. 결과가 빠진 것도 아니라서 `notRun` 경고에도 넣지 않는다.
 - 판정은 Call 2에서 만들어 `session.mutationVerdicts`에 두고 `EVALUATE_STRUCTURAL_COMPLETED` payload에 싣는다. 맥락 평가 프롬프트가 Call 2 응답에서 만들어지므로 그 전에 판정이 있어야 한다. 프롬프트의 `**AC Check Results**` 표에 테스트가 못 잡은 변이를 `src/x.ts:42 flip_comparison`처럼 보인다. `timedOut`은 개수만 보인다. Call 3은 같은 판정을 `EvaluationResult.mutation`에 옮겨 담기만 하고 점수는 바꾸지 않는다.
-- 재평가 때는 변이를 다 다시 돌리지 않는다. Call 1의 `buildMutationProbes`가 직전 판정에서 `survived`나 `notRun`이었던 변이와 테스트 파일이나 소스가 바뀐 AC의 변이만 다시 낸다. `notRun`을 넣는 건 예산이 모자라 시작하지 못한 변이를 다음 평가에서 돌리려는 것이다. `killed`와 `timedOut`은 재사용 키가 같으면 그대로 쓴다. `timedOut`까지 다시 돌리면 무한 루프를 내는 변이가 재평가마다 시간 제한만큼 시간을 쓴다. 키는 `path`, `line`, `operator`, `blobBefore`, AC 검사 명령, 테스트 파일 blob이고 `session.mutationVerdicts`에 판정과 함께 남긴다.
+- 재평가 때는 변이를 다 다시 돌리지 않는다. Call 1의 `buildMutationProbes`가 직전 판정에서 `survived`나 `notRun`이었던 변이와 테스트 파일이나 소스가 바뀐 AC의 변이만 다시 낸다. `notRun`을 넣는 건 예산이 모자라 시작하지 못한 변이를 다음 평가에서 돌리려는 것이다. 제한이 예산 전체보다 커서 시작할 수 없는 변이는 위 "시간 제한과 예산"대로 여기서 빠진다. `killed`와 `timedOut`은 재사용 키가 같으면 그대로 쓴다. `timedOut`까지 다시 돌리면 무한 루프를 내는 변이가 재평가마다 시간 제한만큼 시간을 쓴다. 키는 `path`, `line`, `operator`, `blobBefore`, AC 검사 명령, 테스트 파일 blob이고 `session.mutationVerdicts`에 판정과 함께 남긴다.
 - 변이 검사는 report 전용이라 아래 "fast와 gate 나누기"에서 gate 검사가 빠졌을 때 거부하는 규칙에서 뺀다. 결과가 빠지면 `notRun`이 되고 `notRun` 개수를 경고로 싣는다. 상한에 걸려 처음부터 만들지 않은 변이는 `notRun`에 넣지 않고 `capped`로 따로 센다. 돌리다 만 변이와 구분하려는 것이다.
 - Evolve 프롬프트에는 README가 정한 대로 "AC Check Results" 절 안에 테스트가 못 잡은 변이마다 한 줄씩 넣는다. 바로 위 맥락 평가 프롬프트의 같은 이름 표와는 다른 프롬프트다. "AC-1 테스트가 `<`를 `<=`로 바꾼 구현도 통과시킨다. 경계값 테스트를 더한다." 재실행 대상(`impact-identifier.ts`)에는 그 AC의 테스트 태스크를 더한다. README "재실행 대상 고르기"의 `ImpactedTask.reasons`에 `mutation_survived`를 남긴다.
 
@@ -612,7 +613,7 @@ Working tree not restored after mutation probes: src/price.ts (expected blob 3f2
 | 3    | `feat(spec): AC 테스트 설계 필드`               | `testDesign` 타입과 입력 타입, 검증 규칙, `mergeCriteriaPatch` 보존, `formatAcLine`, 스키마 strip 테스트 | ac-verification PR 2                                       |
 | 4    | `feat(evaluate): fast와 gate 검사 단계`         | `tier`, `skipped`, Call 2 규칙, `gate_skipped` 상한, AC 검사의 `retry`와 `flaky`, AC 검사 `retry.output`의 입구 자르기(PR 1이 `acChecks[].output`을 안 잘랐으면 그것도), 재실행 사유 `flaky`와 재실행 프롬프트의 결정성 지시, Evolve의 흔들린 AC 표시, 차분 id 대조, 테스트 설계 프롬프트(구현 태스크 쪽), 느린 검사 표시와 `fastCheckBudgetMs` | 2, 3, ac-test-first PR 1, 2(재실행 사유 `flaky`가 PR 2의 네 번째 기준을 고친다). `ac_test` 태스크 쪽 프롬프트는 ac-test-first PR 3이 들어오면 켠다 |
 | 5    | `feat(execute): 기능 지도`                      | `feature-map.ts`, 설정 경로, e2e 연결, spec 스킬 단계, screen-chain 초안 단계              | 4                                                          |
-| 6    | `feat(evaluate): 변이 검사 report 모드`         | `mutation-probe.ts`, Call 1과 Call 2, 변이당 시간 제한의 식과 설정 키, 예산이 모자랄 때 건너뛰는 규칙, Evolve 프롬프트, 재실행 사유                         | 4, ac-test-first PR 1, execute-drift-breaker PR 2(`listChangedSince`) |
+| 6    | `feat(evaluate): 변이 검사 report 모드`         | `mutation-probe.ts`, Call 1과 Call 2, 변이당 시간 제한의 식과 설정 키, 예산이 모자랄 때 건너뛰는 규칙, 예산보다 제한이 큰 변이를 드러내는 방식, Evolve 프롬프트, 재실행 사유                         | 4, ac-test-first PR 1, execute-drift-breaker PR 2(`listChangedSince`) |
 
 1과 2는 AC 계약과 상관없이 지금 코드에 바로 효과가 있다. 그래서 앞에 둔다. 2는 새 설정 키를 읽지 않아서 README "기존 버그"의 설정 배선을 기다리지 않는다. 4가 ac-test-first PR 2를 기다리는 건 `flaky`를 그 PR이 만드는 네 번째 기준에서 빼야 해서다. `gate_skipped` 상한은 ac-test-first PR 1이 만드는 `scoreAdjustment`만 쓴다. 6은 맨 뒤다. 판별력을 재려면 AC마다 연결된 테스트 명령이 먼저 있어야 한다.
 
