@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { extensionKey } from './blocks.js';
 import { commentsMap } from './comments.js';
+import { readLensSource } from './lens-source.js';
 import { sceneSecs } from './scenes.js';
 import { lintDigest, lintErrors, type DigestIssue } from './lint.js';
 import { renderDigestHtml } from './render-html.js';
@@ -83,6 +84,7 @@ export function loadForRender(
       // 있을 때만 대조하고 없을 때 막는 일은 merge와 validate가 맡는다
       comments: commentsMap(store, slug) ?? undefined,
       scenes: sceneSecs(store, slug) ?? undefined,
+      source: readLensSource(store, slug),
     }),
   );
   if (errors.length > 0) throw new DigestLintError(errors);
@@ -95,7 +97,9 @@ export function renderToFiles(slug: string, opts: RenderFilesOptions): RenderFil
   const { transcript, digest } = loadForRender(store, slug, opts.templates);
   const framesDir = store.framesDir(slug);
   const frameExists = (file: string) => existsSync(join(framesDir, file));
+  const source = readLensSource(store, slug);
   const { html, warnings } = renderDigestHtml(digest, transcript, {
+    source,
     frameExists,
     inlineFrames: opts.inlineFrames,
     templates: opts.templates,
@@ -104,7 +108,7 @@ export function renderToFiles(slug: string, opts: RenderFilesOptions): RenderFil
   return {
     slug,
     htmlPath: store.saveHtml(slug, html),
-    mdPath: store.saveMd(slug, renderDigestMarkdown(digest, transcript, { frameExists })),
+    mdPath: store.saveMd(slug, renderDigestMarkdown(digest, transcript, { frameExists, source })),
     warnings,
   };
 }
@@ -146,7 +150,11 @@ export function exportMarkdown(
   const framesDir = store.framesDir(slug);
   const frameExists = (file: string) => existsSync(join(framesDir, file));
   if (!opts.out) {
-    const md = renderDigestMarkdown(digest, transcript, { frameExists, report });
+    const md = renderDigestMarkdown(digest, transcript, {
+      frameExists,
+      report,
+      source: readLensSource(store, slug),
+    });
     if (report === digest.reports[0]) return { slug, mdPath: store.saveMd(slug, md) };
     const mdPath = join(store.dir(slug), `digest.${reportKey(report.options)}.md`);
     writeFileSync(mdPath, md);
@@ -158,7 +166,12 @@ export function exportMarkdown(
     .split(sep)
     .map(encodeURIComponent)
     .join('/');
-  const md = renderDigestMarkdown(digest, transcript, { frameExists, framesHref, report });
+  const md = renderDigestMarkdown(digest, transcript, {
+    frameExists,
+    framesHref,
+    report,
+    source: readLensSource(store, slug),
+  });
   mkdirSync(dirname(mdPath), { recursive: true });
   writeFileSync(mdPath, md);
   return { slug, mdPath };
