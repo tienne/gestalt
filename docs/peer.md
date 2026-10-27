@@ -36,10 +36,11 @@ gestalt peer status                                  # 데몬 상태
 
 보이는 것에도 가리기를 한 번 더 건다. 아래 값이 `[가림]`이 되고 홈 디렉토리 경로는 `~`가 된다.
 
-- 형식이 정해진 토큰: AWS 액세스 키, GitHub 토큰, GitLab 토큰(`glpat-`), npm 토큰(`npm_`), Anthropic 키(`sk-ant-`)와 그 밖의 `sk-` 키(`sk-proj-` 포함), Stripe 키(`sk_live_`, `rk_test_` 등), Google API 키(`AIza`), JWT, PEM 개인키 블록, `Bearer` 값
-- URL에 박힌 비밀번호: `https://user:pass@host`에서 `pass` 자리만 가린다
-- 이름에 KEY, TOKEN, SECRET, PASSWORD, PASSWD가 든 `NAME=값`과 따옴표 친 JSON 키의 값. 이스케이프된 따옴표나 따옴표 안 줄바꿈도 4096자 안에서 닫는 따옴표를 찾고 못 찾으면 줄 끝까지 가린다
-- 도구 입력에서 키 이름이 민감한 값: 키를 `_`, `-`, `.`, 대소문자 경계로 나눈 낱말에 key, apikey, token, secret, password, passwd, pwd, auth, authorization, credential(s), cookie(s)가 있으면 값을 통째로 가린다. 값이 객체면 안으로 들어가 같은 규칙을 건다
+- 형식이 정해진 토큰: AWS 액세스 키, GitHub 토큰, GitLab 토큰(`glpat-`), npm 토큰(`npm_`), Anthropic 키(`sk-ant-`)와 그 밖의 `sk-` 키(`sk-proj-` 포함), Stripe 키(`sk_live_`, `rk_test_` 등), Google API 키(`AIza`), Slack 토큰(`xox`), JWT, PEM 개인키 블록, `Bearer`와 `Basic` 뒤 값
+- URL에 박힌 비밀번호: `https://user:pass@host`에서 `pass` 자리만 가린다. 이름 없이 비밀번호만 둔 `redis://:pass@host`도 가린다
+- 이름에 KEY, TOKEN, SECRET, PASSWORD, PASSWD가 든 `NAME=값`. 따옴표 친 JSON 키는 이름에 key, token, secret, password, passwd, pwd, cookie, credential, authorization, auth(`author`는 빼고)가 들면 값을 가린다. 둘 다 이스케이프된 따옴표나 따옴표 안 줄바꿈도 4096자 안에서 닫는 따옴표를 찾고 못 찾으면 줄 끝까지 가린다
+- 헤더 꼴: 줄 첫머리의 `Cookie:`, `Set-Cookie:`, `X-Api-Key:`, `Authorization:`, `Proxy-Authorization:`(`curl -v`의 `>`나 `<` 표시 포함)는 콜론 뒤를 줄 끝까지 가린다. 따옴표 안에 든 헤더(`-H "X-Api-Key: …"`)는 닫는 따옴표 앞까지만 가린다
+- 도구 입력에서 키 이름이 민감한 값: 키를 `_`, `-`, `.`, 대소문자 경계로 나눈 낱말이 key, apikey, token, secret, password, passwd, pass, pwd, auth, authorization, credential(s), cookie(s) 중 하나면 값을 통째로 가린다. 낱말이 token, secret, password, passwd, passphrase, apikey, privatekey로 끝나도(`accesstoken`처럼) 가린다. token 말고는 끝에 `s`가 붙어도 된다. 값이 객체면 안으로 들어가 같은 규칙을 건다
 
 ## 뷰어
 
@@ -51,10 +52,10 @@ gestalt peer status                                  # 데몬 상태
 
 | 대상 | 상한 | 넘으면 |
 | --- | --- | --- |
-| 공유마다 들고 있는 이벤트 | 직렬화 기준 32MB | 앞부분부터 버린다. 새로 붙은 뷰어에는 "앞부분 N개 생략"이 뜬다 |
+| 공유마다 들고 있는 이벤트 | 직렬화 기준 32MB | 앞부분부터 버린다. 새로 붙은 뷰어에는 "메모리 상한에 걸려 앞부분 N개를 생략했어요"가 뜬다 |
 | 대화 기록 한 줄 | 64MB | 다음 줄바꿈까지 버리고 따로 센다 |
 | 한 번에 읽는 양 | 공유마다 4MB | 나머지는 다음 차례에 읽는다 |
-| 뷰어 하나에 못 보내고 밀린 양 | 붙은 뒤 실시간 프레임 8MB | 그 뷰어 연결을 끊는다 |
+| 뷰어 하나의 소켓에 밀린 양 | 8MB. 앞부분은 소켓이 비는 만큼만 보내서 여기에 안 쌓인다 | 실시간 프레임을 쓰기 전에 넘었으면 그 뷰어 연결을 끊는다 |
 
 변환하다 실패한 줄은 그 줄만 건너뛰고 개수를 센다. 공유 하나를 읽다가 예외가 나면 그 공유만 `error`로 종료되고 다른 공유는 계속 돈다.
 
