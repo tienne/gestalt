@@ -1,0 +1,242 @@
+import { redactText, redactValue, truncateBytes, TOOL_RESULT_SUMMARY_BYTES } from './redact.js';
+import type { RedactOptions, ToolsLevel } from './redact.js';
+
+/** 뷰어로 나가는 한 줄. 대화 기록 원문은 이 모양으로만 바깥에 나간다 */
+export type PeerEvent =
+  | { kind: 'prompt'; text: string; at?: string }
+  | { kind: 'reply'; text: string; at?: string }
+  | { kind: 'tool_call'; id: string; name: string; input?: string; at?: string }
+  | {
+      kind: 'tool_result';
+      toolUseId: string;
+      text?: string;
+      truncated: boolean;
+      hidden: boolean;
+      isError: boolean;
+      at?: string;
+    }
+  | { kind: 'title'; text: string }
+  | { kind: 'sidechain'; at?: string }
+  | { kind: 'compacted'; at?: string };
+
+/** `tool_use` 입력 요약 길이. 결과보다 짧게 둔다 — 입력은 접힌 줄 제목처럼 읽힌다 */
+const TOOL_INPUT_SUMMARY_BYTES = 1024;
+
+/**
+ * 내용을 안 보내는 줄 종류. 2.1.311 기록에서 본 것들이다. 여기 있는 건 조용히
+ * 버리고 여기에도 허용 목록에도 없는 종류만 "모르는 줄"로 센다.
+ *
+ * 이 목록은 차단 목록이 아니다. 지워도 새는 게 없고 "모르는 줄" 숫자만 는다.
+ */
+const KNOWN_DROPPED = new Set([
+  'api-request',
+  'api-request-blob',
+  'api-request-shape',
+  'attachment',
+  'system',
+  'last-prompt',
+  'queue-operation',
+  'tools-used',
+  'cost-state',
+  'mode',
+  'atis-latch',
+  'summary',
+  'file-history-snapshot',
+]);
+
+const SYSTEM_REMINDER = /<system-reminder>[\s\S]*?(?:<\/system-reminder>|$)/g;
+
+/** user 텍스트에서 `<system-reminder>` 블록을 지운다. 닫는 태그가 없으면 끝까지 지운다 */
+export function stripSystemReminders(text: string): string {
+  return text.replace(SYSTEM_REMINDER, '').trim();
+}
+
+export interface TransformOptions extends RedactOptions {
+  tools: ToolsLevel;
+}
+
+/**
+ * 대화 기록 jsonl 한 줄씩 받아 허용 목록에 있는 것만 `PeerEvent`로 바꾼다.
+ *
+ * 허용 목록이다. 줄 종류든 content 블록 종류든 여기서 명시적으로 꺼내지 않은 건
+ * 아무것도 안 나간다. 형식이 바뀌어 새 필드나 새 종류가 생겨도 그대로 새지 않는다.
+ *
+ * 상태가 있다 — 서브에이전트 줄이 이어지면 표시를 한 번만 낸다.
+ */
+export class TranscriptTransformer {
+  private inSidechain = false;
+  private unknown = 0;
+  private claudeVersion: string | undefined;
+
+  constructor(private readonly options: TransformOptions) {}
+
+  /** 모르는 줄 종류와 JSON으로 안 읽힌 줄을 합친 수 */
+  get unknownLines(): number {
+    return this.unknown;
+  }
+
+  /** 마지막으로 본 Claude Code 버전. 모르는 줄이 생겼을 때 감사 로그에 남긴다 */
+  get version(): string | undefined {
+    return this.claudeVersion;
+  }
+
+  push(line: string): PeerEvent[] {
+    const trimmed = line.trim();
+    if (trimmed === '') return [];
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      this.unknown++;
+      return [];
+    }
+    if (!isRecord(parsed) || typeof parsed['type'] !== 'string') {
+      this.unknown++;
+      return [];
+    }
+    if (typeof parsed['version'] === 'string') this.claudeVersion = parsed['version'];
+
+    const type = parsed['type'];
+    const at = typeof parsed['timestamp'] === 'string' ? parsed['timestamp'] : undefined;
+
+    if (type === 'ai-title') {
+      const title = parsed['aiTitle'];
+      return typeof title === 'string' && title.trim() !== ''
+        ? [{ kind: 'title', text: this.redact(title) }]
+        : [];
+    }
+
+    if (type !== 'user' && type !== 'assistant') {
+      if (!KNOWN_DROPPED.has(type)) this.unknown++;
+      return [];
+    }
+
+    if (parsed['isSidechain'] === true) {
+      if (this.inSidechain) return [];
+      this.inSidechain = true;
+      return [{ kind: 'sidechain', at }];
+    }
+    this.inSidechain = false;
+
+    // 하네스가 끼워 넣은 줄이다. 주인이 친 말이 아니고 CLAUDE.md나 명령 출력이 들어 있다
+    if (parsed['isMeta'] === true) return [];
+    // 압축 요약은 지난 대화 전체를 다시 적은 글이라 그 안에 무엇이 섞였는지 모른다
+    if (parsed['isCompactSummary'] === true) return [{ kind: 'compacted', at }];
+
+    const message = parsed['message'];
+    if (!isRecord(message)) return [];
+    const content = message['content'];
+
+    return type === 'user' ? this.fromUser(content, at) : this.fromAssistant(content, at);
+  }
+
+  private fromUser(content: unknown, at: string | undefined): PeerEvent[] {
+    if (typeof content === 'string') return this.prompt(content, at);
+    if (!Array.isArray(content)) return [];
+
+    const events: PeerEvent[] = [];
+    for (const block of content) {
+      if (!isRecord(block)) continue;
+      if (block['type'] === 'text' && typeof block['text'] === 'string') {
+        events.push(...this.prompt(block['text'], at));
+      } else if (block['type'] === 'tool_result') {
+        events.push(this.toolResult(block, at));
+      }
+    }
+    return events;
+  }
+
+  private fromAssistant(content: unknown, at: string | undefined): PeerEvent[] {
+    if (typeof content === 'string') {
+      const text = this.redact(content).trim();
+      return text === '' ? [] : [{ kind: 'reply', text, at }];
+    }
+    if (!Array.isArray(content)) return [];
+
+    const events: PeerEvent[] = [];
+    for (const block of content) {
+      if (!isRecord(block)) continue;
+      if (block['type'] === 'text' && typeof block['text'] === 'string') {
+        const text = this.redact(block['text']).trim();
+        if (text !== '') events.push({ kind: 'reply', text, at });
+      } else if (block['type'] === 'tool_use') {
+        events.push(this.toolCall(block, at));
+      }
+      // thinking, redacted_thinking, server_tool_use 등은 꺼내지 않는다
+    }
+    return events;
+  }
+
+  private prompt(raw: string, at: string | undefined): PeerEvent[] {
+    const text = this.redact(stripSystemReminders(raw));
+    return text === '' ? [] : [{ kind: 'prompt', text, at }];
+  }
+
+  private toolCall(block: Record<string, unknown>, at: string | undefined): PeerEvent {
+    const id = typeof block['id'] === 'string' ? block['id'] : '';
+    const name = typeof block['name'] === 'string' ? this.redact(block['name']) : '(이름 없음)';
+    if (this.options.tools === 'none') return { kind: 'tool_call', id, name, at };
+
+    const redacted = redactValue(block['input'] ?? {}, this.options);
+    const json = JSON.stringify(redacted) ?? '';
+    const input =
+      this.options.tools === 'full' ? json : truncateBytes(json, TOOL_INPUT_SUMMARY_BYTES).text;
+    return { kind: 'tool_call', id, name, input, at };
+  }
+
+  private toolResult(block: Record<string, unknown>, at: string | undefined): PeerEvent {
+    const toolUseId = typeof block['tool_use_id'] === 'string' ? block['tool_use_id'] : '';
+    const isError = block['is_error'] === true;
+    if (this.options.tools === 'none') {
+      return { kind: 'tool_result', toolUseId, truncated: false, hidden: true, isError, at };
+    }
+
+    const full = this.redact(resultText(block['content']));
+    if (this.options.tools === 'full') {
+      return {
+        kind: 'tool_result',
+        toolUseId,
+        text: full,
+        truncated: false,
+        hidden: false,
+        isError,
+        at,
+      };
+    }
+    const cut = truncateBytes(full, TOOL_RESULT_SUMMARY_BYTES);
+    return {
+      kind: 'tool_result',
+      toolUseId,
+      text: cut.text,
+      truncated: cut.truncated,
+      hidden: false,
+      isError,
+      at,
+    };
+  }
+
+  private redact(text: string): string {
+    return redactText(text, this.options);
+  }
+}
+
+/** tool_result의 content는 문자열이거나 블록 배열이다. 텍스트 블록만 꺼낸다 */
+function resultText(content: unknown): string {
+  if (typeof content === 'string') return stripSystemReminders(content);
+  if (!Array.isArray(content)) return '';
+  const parts: string[] = [];
+  for (const block of content) {
+    if (!isRecord(block)) continue;
+    if (block['type'] === 'text' && typeof block['text'] === 'string') {
+      parts.push(stripSystemReminders(block['text']));
+    } else if (block['type'] === 'image') {
+      parts.push('[이미지]');
+    }
+  }
+  return parts.join('\n');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
