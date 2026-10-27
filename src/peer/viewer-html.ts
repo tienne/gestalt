@@ -1,4 +1,4 @@
-export const VIEWER_WARNING = '비밀값 패턴은 가리지만 전부 잡지는 못합니다.';
+export const VIEWER_WARNING = '비밀값 패턴은 가리지만 전부 잡지는 못해요.';
 
 /**
  * 뷰어 페이지. 바깥 자원을 하나도 안 끌어온다 — CSP가 `default-src 'none'`이라
@@ -7,7 +7,7 @@ export const VIEWER_WARNING = '비밀값 패턴은 가리지만 전부 잡지는
  * 대화 내용은 전부 textContent로 넣는다. 마크다운을 HTML로 그리면 남의 도구 출력에
  * 든 태그가 이 페이지에서 실행될 길이 생긴다. localStorage나 IndexedDB도 안 쓴다.
  */
-export function renderViewerHtml(nonce: string): string {
+export function renderViewerHtml(nonce: string, maxViewers: number): string {
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -106,7 +106,8 @@ export function renderViewerHtml(nonce: string): string {
     log.append(box);
   }
 
-  const es = new EventSource(base + '/events?t=' + encodeURIComponent(token));
+  const eventsUrl = base + '/events?t=' + encodeURIComponent(token);
+  const es = new EventSource(eventsUrl);
   es.addEventListener('line', (m) => {
     const stick = atBottom();
     render(JSON.parse(m.data));
@@ -124,12 +125,25 @@ export function renderViewerHtml(nonce: string): string {
     statusEl.textContent = STATUS[JSON.parse(m.data).status] || '';
   });
   es.addEventListener('closed', () => {
-    statusEl.textContent = '공유가 닫혔어요';
+    statusEl.textContent = '공유가 종료됐어요';
     es.close();
   });
+  // EventSource는 응답 코드를 안 알려 준다. 끊긴 이유가 뷰어 상한(429)인지 한 번 물어본다
   es.onerror = () => {
-    if (es.readyState === EventSource.CLOSED) statusEl.textContent = '연결이 끊겼어요';
-    else statusEl.textContent = '다시 연결 중';
+    if (es.readyState !== EventSource.CLOSED) {
+      statusEl.textContent = '다시 연결 중';
+      return;
+    }
+    statusEl.textContent = '연결이 끊겼어요';
+    const ctl = new AbortController();
+    fetch(eventsUrl, { signal: ctl.signal, cache: 'no-store' })
+      .then((r) => {
+        ctl.abort();
+        if (r.status === 429) {
+          statusEl.textContent = '보는 사람 수 상한(${maxViewers}명)에 걸려 못 붙었어요';
+        }
+      })
+      .catch(() => {});
   };
 })();
 </script>

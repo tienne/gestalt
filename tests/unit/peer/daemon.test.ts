@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { get as httpGet, request as httpRequest } from 'node:http';
-import type { IncomingMessage } from 'node:http';
+import type { ClientRequest, IncomingMessage } from 'node:http';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -20,6 +20,7 @@ import { DaemonUnavailableError, request } from '../../../src/peer/client.js';
 import { PeerState } from '../../../src/peer/state.js';
 import { ensurePrivateDir } from '../../../src/peer/paths.js';
 import { MAX_REQUEST_BYTES } from '../../../src/peer/protocol.js';
+import { MAX_VIEWERS_PER_SHARE } from '../../../src/peer/viewer.js';
 import type { DaemonStatus, ShareInfo } from '../../../src/peer/protocol.js';
 import { FAKE_HOME, FAKE_SECRETS, fixtureText } from '../../fixtures/peer/transcript.js';
 
@@ -50,6 +51,19 @@ function fetchText(
   });
 }
 
+/** 응답 헤더까지만 받고 연결은 열어 둔다. SSE 뷰어 여럿을 붙여 둘 때 쓴다 */
+function openSse(url: string): Promise<{ status: number; req: ClientRequest }> {
+  return new Promise((resolveP, reject) => {
+    const req = httpGet(url, (res) => {
+      res.resume();
+      resolveP({ status: res.statusCode ?? 0, req });
+    });
+    req.on('error', (err) => {
+      if ((err as NodeJS.ErrnoException).code !== 'ECONNRESET') reject(err);
+    });
+  });
+}
+
 /** 소켓에 날것의 바이트를 보내고 상대가 닫을 때까지 받은 걸 돌려준다 */
 function rawExchange(
   target: { path: string } | { port: number },
@@ -67,6 +81,11 @@ function rawExchange(
     });
     c.write(payload);
   });
+}
+
+function eventsUrl(info: ShareInfo): string {
+  const url = new URL(info.url);
+  return `${url.origin}${url.pathname}/events?t=${url.searchParams.get('t')}`;
 }
 
 describe('PeerDaemon', () => {
@@ -173,7 +192,7 @@ describe('PeerDaemon', () => {
     const info = await openShare();
     const page = await fetchText(info.url);
     expect(page.status).toBe(200);
-    expect(page.body).toContain('비밀값 패턴은 가리지만 전부 잡지는 못합니다');
+    expect(page.body).toContain('비밀값 패턴은 가리지만 전부 잡지는 못해요');
     expect(page.body).not.toMatch(/<script[^>]+src=|<link[^>]+href=/);
     expect(page.headers['cache-control']).toBe('no-store');
     expect(page.headers['content-security-policy']).toContain("default-src 'none'");
@@ -287,6 +306,90 @@ describe('PeerDaemon', () => {
     const got = await rawExchange({ path: daemon.socketPath }, 'x'.repeat(MAX_REQUEST_BYTES + 1));
     expect(got).toContain('요청이 너무 커요');
     expect(await request(daemon.socketPath, { op: 'ping' })).toEqual({ ok: true, result: 'pong' });
+  });
+
+  it('URL로 안 읽히는 요청 대상에 500을 주고 데몬은 계속 돈다', async () => {
+    const info = await openShare();
+    const port = daemon.viewerPort!;
+    const got = await rawExchange(
+      { port },
+      `GET //[ HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\n\r\n`,
+    );
+    expect(got).toMatch(/^HTTP\/1\.1 500 /);
+    expect((await fetchText(info.url)).status).toBe(200);
+  });
+
+  it(`공유 하나에 뷰어가 ${MAX_VIEWERS_PER_SHARE}명을 넘으면 429이고 하나가 나가면 다시 받는다`, async () => {
+    const info = await openShare();
+    const url = eventsUrl(info);
+    const open = [];
+    for (let i = 0; i < MAX_VIEWERS_PER_SHARE; i++) open.push(await openSse(url));
+    try {
+      expect(open.every((o) => o.status === 200)).toBe(true);
+      expect((await fetchText(url)).status).toBe(429);
+
+      const page = await fetchText(info.url);
+      expect(page.body).toContain(`보는 사람 수 상한(${MAX_VIEWERS_PER_SHARE}명)`);
+
+      open.pop()!.req.destroy();
+      await new Promise((r) => setTimeout(r, 50));
+      const again = await fetchText(url, (b) => b.includes('event: line'));
+      expect(again.status).toBe(200);
+    } finally {
+      for (const o of open) o.req.destroy();
+    }
+  });
+
+  it('앞부분이 큰 공유에 새 뷰어가 붙어도 끊지 않고 실시간 줄까지 보낸다', async () => {
+    const chunk = 'lorem ipsum '.repeat(90_000);
+    const big = Array.from({ length: 10 }, (_, i) =>
+      JSON.stringify({
+        type: 'user',
+        message: {
+          content: [{ type: 'tool_result', tool_use_id: `t${i}`, content: `${i} ${chunk}` }],
+        },
+      }),
+    );
+    big.push(
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: '큰 기록 끝' }] },
+      }),
+    );
+    writeFileSync(transcript, big.join('\n') + '\n');
+    const info = await openShare({ tools: 'full' });
+    for (let i = 0; i < 5; i++) daemon.tick();
+
+    const body = await new Promise<string>((resolveP, reject) => {
+      let text = '';
+      let appended = false;
+      const req = httpGet(eventsUrl(info), (res) => {
+        res.setEncoding('utf8');
+        res.on('data', (c: string) => {
+          text += c;
+          if (!appended && text.includes('큰 기록 끝')) {
+            appended = true;
+            appendFileSync(
+              transcript,
+              JSON.stringify({
+                type: 'assistant',
+                message: { content: [{ type: 'text', text: '새 줄 도착' }] },
+              }) + '\n',
+            );
+          }
+          if (text.includes('새 줄 도착')) {
+            req.destroy();
+            resolveP(text);
+          }
+        });
+        res.on('end', () => reject(new Error('뷰어 연결이 끊겼어요')));
+      });
+      req.on('error', (err) => {
+        if ((err as NodeJS.ErrnoException).code !== 'ECONNRESET') reject(err);
+      });
+    });
+    expect(Buffer.byteLength(body)).toBeGreaterThan(8 * 1024 * 1024);
+    expect(body).toContain('새 줄 도착');
   });
 
   it('한 줄이 바꾸다 던져도 tick은 안 던지고 다른 공유는 계속 돈다', async () => {

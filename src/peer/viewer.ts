@@ -22,6 +22,18 @@ const EVENTS_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/events$/;
 const KEEPALIVE_MS = 15_000;
 
 /**
+ * 공유 하나에 동시에 붙는 뷰어 상한. 넘으면 429. 뷰어마다 앞부분 전체를 다시 받으니
+ * 토큰을 아는 쪽이 연결을 계속 열면 메모리가 그만큼 는다. 사람이 보는 숫자로는 넉넉하다.
+ */
+export const MAX_VIEWERS_PER_SHARE = 16;
+
+/**
+ * 실시간 프레임이 소켓 버퍼에 이만큼 넘게 밀리면 그 뷰어를 끊는다. 안 읽는 뷰어 하나가
+ * 데몬 메모리를 끝없이 붙잡지 못하게 한다. 브라우저는 다시 붙어 Last-Event-ID부터 받는다.
+ */
+const MAX_LIVE_BACKLOG_BYTES = 8 * 1024 * 1024;
+
+/**
  * 로컬 뷰어 HTTP 서버. `127.0.0.1`에만 붙는다.
  *
  * 같은 머신의 다른 프로세스나 브라우저에 열린 남의 웹페이지도 이 포트에 닿을 수 있다.
@@ -30,20 +42,21 @@ const KEEPALIVE_MS = 15_000;
  *
  * Routes:
  *   GET /s/:id?t=TOKEN          → 뷰어 HTML
- *   GET /s/:id/events?t=TOKEN   → SSE (line, trimmed, stats, state, closed)
+ *   GET /s/:id/events?t=TOKEN   → SSE (line, trimmed, stats, state, closed). 뷰어 상한을 넘으면 429
  *   *                           → 404
  */
 export class ViewerServer {
   private server: Server | null = null;
   private open = new Set<ServerResponse>();
+  private viewers = new Map<string, number>();
 
   constructor(private readonly hooks: ViewerHooks) {}
 
   start(port = 0): Promise<number> {
     return new Promise((resolve, reject) => {
       this.server = createServer((req, res) => {
-        // 핸들러가 던지면 uncaughtException으로 데몬이 죽는다. 깨진 퍼센트 인코딩 하나로
-        // 남의 웹페이지가 데몬을 내릴 수 있으므로 여기서 접는다
+        // 핸들러가 던지면 uncaughtException으로 데몬이 죽는다. 요청 대상이 `//[`처럼 URL로
+        // 안 읽히면 new URL이 던지는데 이 포트에 닿는 누구나 그런 요청을 보낼 수 있다
         try {
           this.handle(req, res);
         } catch (err) {
@@ -103,6 +116,9 @@ export class ViewerServer {
     }
 
     if (page) return this.page(res);
+    if ((this.viewers.get(id) ?? 0) >= MAX_VIEWERS_PER_SHARE) {
+      return plain(res, 429, 'Too Many Viewers');
+    }
     return this.stream(req, res, share.stream);
   }
 
@@ -127,7 +143,7 @@ export class ViewerServer {
       ].join('; '),
       ...PRIVATE_HEADERS,
     });
-    res.end(renderViewerHtml(nonce));
+    res.end(renderViewerHtml(nonce, MAX_VIEWERS_PER_SHARE));
   }
 
   private stream(req: IncomingMessage, res: ServerResponse, stream: ShareStream): void {
@@ -139,6 +155,7 @@ export class ViewerServer {
     });
     res.write(': connected\n\n');
     this.open.add(res);
+    this.viewers.set(stream.id, (this.viewers.get(stream.id) ?? 0) + 1);
     this.hooks.onConnect?.(stream.id);
 
     const keepalive = setInterval(() => res.write(': ping\n\n'), KEEPALIVE_MS);
@@ -152,21 +169,35 @@ export class ViewerServer {
       clearInterval(keepalive);
       unsubscribe();
       this.open.delete(res);
+      const left = (this.viewers.get(stream.id) ?? 1) - 1;
+      if (left > 0) this.viewers.set(stream.id, left);
+      else this.viewers.delete(stream.id);
       this.hooks.onDisconnect?.(stream.id);
     };
 
+    // 앞부분 재전송은 subscribe 안에서 한 번에 버퍼에 쌓인다. 거기에 상한을 걸면 긴 세션을
+    // 처음 여는 뷰어가 매번 끊긴다. 재전송이 끝난 시점을 기준으로 실시간 프레임만 잰다
+    let baseline: number | null = null;
     unsubscribe = stream.subscribe(
       (frame) => {
+        if (detached) return;
         res.write(sseFrame(frame));
         if (frame.type === 'closed') {
           res.end();
+          detach();
+          return;
+        }
+        if (baseline !== null && res.writableLength - baseline > MAX_LIVE_BACKLOG_BYTES) {
+          res.destroy();
           detach();
         }
       },
       Number.isFinite(lastId) && lastId > 0 ? lastId : 0,
     );
+    baseline = res.writableLength;
     if (detached) unsubscribe();
     req.on('close', detach);
+    res.on('close', detach);
   }
 }
 
