@@ -247,7 +247,7 @@ export class SessionManager {
     return score;
   }
 
-  /** 다시 채점 호출이 실패한 사실만 남긴다. 판정과 상태는 그대로라 다음에 기준값을 넘으면 다시 요청한다 */
+  /** 다시 채점 호출이 실패한 사실만 남긴다. 판정과 상태는 그대로라 gate면 다음에 기준값을 넘을 때 다시 요청하고 record면 다시 요청하지 않는다 */
   recordRescoreFailure(sessionId: string, error: string): void {
     this.record(sessionId, EventType.INTERVIEW_RESOLUTION_RESCORE_FAILED, { error });
   }
