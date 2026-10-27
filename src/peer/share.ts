@@ -1,13 +1,15 @@
 import { TranscriptTail } from './tail.js';
 import type { TailOptions, TailStatus } from './tail.js';
 import { TranscriptTransformer } from './transform.js';
-import type { PeerEvent } from './transform.js';
 import type { RedactOptions, ToolsLevel } from './redact.js';
 import { errMessage } from './errors.js';
 
-/** 뷰어 하나가 받는 것. seq는 SSE id로 써서 다시 붙었을 때 이어 받게 한다 */
+/**
+ * 뷰어 하나가 받는 것. seq는 SSE id로 써서 다시 붙었을 때 이어 받게 한다. 이벤트는
+ * 쌓을 때 한 번 직렬화한 글자를 그대로 넘긴다. 뷰어마다 다시 직렬화하지 않는다.
+ */
 export type ShareFrame =
-  | { type: 'event'; seq: number; event: PeerEvent }
+  | { type: 'event'; seq: number; json: string }
   /** 붙은 뷰어가 받을 앞부분 중 메모리 상한에 밀려 버려진 이벤트 수 */
   | { type: 'trimmed'; dropped: number }
   | { type: 'stats'; unknownLines: number }
@@ -34,15 +36,21 @@ export interface ShareStreamOptions extends RedactOptions {
 export const DEFAULT_MAX_BACKLOG_BYTES = 32 * 1024 * 1024;
 
 interface Held {
-  event: PeerEvent;
+  json: string;
   bytes: number;
+}
+
+export interface BacklogSlice {
+  /** `afterSeq` 뒤로 상한에 밀려 버려진 이벤트 수 */
+  dropped: number;
+  items: { seq: number; json: string }[];
 }
 
 /**
  * 공유 하나. 대화 기록을 따라 읽어 바꾼 이벤트를 메모리에 쌓고 붙은 뷰어에 흘린다.
  *
  * 바꾼 결과만 메모리에 들고 원문 줄은 들지 않는다. 디스크에는 아무것도 안 쓴다.
- * 처음 붙는 뷰어가 앞부분을 한 번에 받아야 해서 바꾼 이벤트를 상한까지 남긴다.
+ * 처음 붙는 뷰어가 앞부분을 받아야 해서 바꾼 이벤트를 직렬화한 글자로 상한까지 남긴다.
  *
  * seq는 공유가 연 뒤로 나온 이벤트의 번호다. 앞부분을 버려도 번호는 안 당긴다.
  * 배열 위치로 매기면 버린 만큼 번호가 밀려 Last-Event-ID로 이어 받을 때 겹치거나 빠진다.
@@ -54,8 +62,12 @@ export class ShareStream {
 
   private tail: TranscriptTail;
   private transformer: TranscriptTransformer;
-  /** `events[head]`부터가 살아 있다. 앞에서 하나씩 shift하면 큰 배열에서 매번 다 옮긴다 */
-  private events: Held[] = [];
+  /**
+   * `events[head]`부터가 살아 있다. 앞에서 하나씩 shift하면 큰 배열에서 매번 다 옮긴다.
+   * head 앞 칸은 버릴 때 비워 둔다. 압축은 head가 1024를 넘어야 돌아서 칸에 참조를
+   * 남기면 버린 이벤트를 GC가 못 가져간다.
+   */
+  private events: (Held | undefined)[] = [];
   private head = 0;
   /** `events[0]` 앞에서 잘라 낸 이벤트 수. `events[i]`의 seq는 `base + i + 1`이다 */
   private base = 0;
@@ -132,10 +144,11 @@ export class ShareStream {
     for (const line of lines) {
       for (const event of this.transformer.push(line)) {
         if (event.kind === 'title') this.title = event.text;
-        const bytes = Buffer.byteLength(JSON.stringify(event));
-        this.events.push({ event, bytes });
+        const json = JSON.stringify(event);
+        const bytes = Buffer.byteLength(json);
+        this.events.push({ json, bytes });
         this.backlogBytes += bytes;
-        this.emit({ type: 'event', seq: this.eventCount, event });
+        this.emit({ type: 'event', seq: this.eventCount, json });
       }
     }
     this.trim();
@@ -150,18 +163,36 @@ export class ShareStream {
   }
 
   /**
-   * 뷰어를 붙인다. 지금까지 쌓인 것 중 `afterSeq` 뒤부터 먼저 보내고 이후는 생기는 대로.
-   * 떼어내는 함수를 돌려준다.
+   * 쌓인 것 중 `afterSeq` 뒤를 `maxBytes`쯤까지 꺼낸다. 이벤트 하나가 상한보다 커도 하나는
+   * 꺼낸다. 뷰어가 소켓이 비는 만큼씩 앞부분을 보내려고 쓴다. 한 번에 다 넘기면 안 읽는
+   * 뷰어마다 앞부분 전체가 소켓 버퍼에 쌓인다.
+   */
+  backlogAfter(afterSeq: number, maxBytes: number): BacklogSlice {
+    if (this.closedReason !== undefined) return { dropped: 0, items: [] };
+    const droppedTotal = this.droppedEvents;
+    const after = Math.max(0, afterSeq);
+    const items: BacklogSlice['items'] = [];
+    let bytes = 0;
+    for (let i = Math.max(after, droppedTotal) - this.base; i < this.events.length; i++) {
+      const held = this.events[i]!;
+      if (items.length > 0 && bytes + held.bytes > maxBytes) break;
+      items.push({ seq: this.base + i + 1, json: held.json });
+      bytes += held.bytes;
+    }
+    return { dropped: after < droppedTotal ? droppedTotal - after : 0, items };
+  }
+
+  /**
+   * 뷰어를 붙인다. 지금 상태와 `afterSeq` 뒤 앞부분을 한 번에 보내고 이후는 생기는 대로.
+   * 떼어내는 함수를 돌려준다. 앞부분이 큰 뷰어는 backlogAfter로 먼저 따라잡은 뒤 같은
+   * 틱에 붙어야 사이에 poll이 끼어 이벤트가 빠지지 않는다.
    */
   subscribe(listener: ShareListener, afterSeq = 0): () => void {
     listener({ type: 'state', status: this.status });
     listener({ type: 'stats', unknownLines: this.transformer.unknownLines });
-    const dropped = this.droppedEvents;
-    const after = Math.max(0, afterSeq);
-    if (after < dropped) listener({ type: 'trimmed', dropped: dropped - after });
-    for (let i = Math.max(after, dropped) - this.base; i < this.events.length; i++) {
-      listener({ type: 'event', seq: this.base + i + 1, event: this.events[i]!.event });
-    }
+    const { dropped, items } = this.backlogAfter(afterSeq, Infinity);
+    if (dropped > 0) listener({ type: 'trimmed', dropped });
+    for (const item of items) listener({ type: 'event', ...item });
     if (this.closedReason !== undefined) {
       listener({ type: 'closed', reason: this.closedReason });
       return () => {};
@@ -188,6 +219,7 @@ export class ShareStream {
   private trim(): void {
     while (this.backlogBytes > this.maxBacklogBytes && this.events.length - this.head > 1) {
       this.backlogBytes -= this.events[this.head]!.bytes;
+      this.events[this.head] = undefined;
       this.head++;
     }
     if (this.head > 1024 && this.head * 2 > this.events.length) {

@@ -23,16 +23,27 @@ const EVENTS_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/events$/;
 const KEEPALIVE_MS = 15_000;
 
 /**
- * 공유 하나에 동시에 붙는 뷰어 상한. 넘으면 429. 뷰어마다 앞부분 전체를 다시 받으니
- * 토큰을 아는 쪽이 연결을 계속 열면 메모리가 그만큼 는다. 사람이 보는 숫자로는 넉넉하다.
+ * 공유 하나에 동시에 붙는 뷰어 상한. 넘으면 429. 뷰어 하나가 붙잡는 메모리는 소켓 버퍼로
+ * 묶여 있지만 연결마다 소켓과 타이머가 생기니 토큰을 아는 쪽이 끝없이 열지 못하게 한다.
+ * 사람이 보는 숫자로는 넉넉하다.
  */
 export const MAX_VIEWERS_PER_SHARE = 16;
 
 /**
- * 실시간 프레임이 소켓 버퍼에 이만큼 넘게 밀리면 그 뷰어를 끊는다. 안 읽는 뷰어 하나가
- * 데몬 메모리를 끝없이 붙잡지 못하게 한다. 브라우저는 다시 붙어 Last-Event-ID부터 받는다.
+ * 실시간 프레임을 쓰기 전에 소켓 버퍼에 이만큼 넘게 밀려 있으면 그 뷰어를 끊는다. 안 읽는
+ * 뷰어 하나가 데몬 메모리를 끝없이 붙잡지 못하게 한다. 쓰기 전에 재므로 이보다 큰 이벤트
+ * 하나 때문에 끊기지는 않는다. 앞부분은 소켓이 비는 만큼만 꺼내 보내서 여기에 안 쌓인다.
+ * 브라우저는 다시 붙어 Last-Event-ID부터 받는다.
  */
-const MAX_LIVE_BACKLOG_BYTES = 8 * 1024 * 1024;
+export const MAX_LIVE_BACKLOG_BYTES = 8 * 1024 * 1024;
+
+/** 앞부분을 공유에서 한 번에 꺼내는 양. 소켓이 차면 그 자리에서 멈추므로 대략이면 된다 */
+const REPLAY_CHUNK_BYTES = 256 * 1024;
+
+export interface ViewerServerOptions {
+  /** 테스트가 작게 준다 */
+  maxLiveBacklogBytes?: number;
+}
 
 /**
  * 로컬 뷰어 HTTP 서버. `127.0.0.1`에만 붙는다.
@@ -50,8 +61,14 @@ export class ViewerServer {
   private server: Server | null = null;
   private open = new Set<ServerResponse>();
   private viewers = new Map<string, number>();
+  private readonly maxLiveBacklogBytes: number;
 
-  constructor(private readonly hooks: ViewerHooks) {}
+  constructor(
+    private readonly hooks: ViewerHooks,
+    options: ViewerServerOptions = {},
+  ) {
+    this.maxLiveBacklogBytes = options.maxLiveBacklogBytes ?? MAX_LIVE_BACKLOG_BYTES;
+  }
 
   start(port = 0): Promise<number> {
     return new Promise((resolve, reject) => {
@@ -175,29 +192,51 @@ export class ViewerServer {
       this.hooks.onDisconnect?.(stream.id);
     };
 
-    // 앞부분 재전송은 subscribe 안에서 한 번에 버퍼에 쌓인다. 거기에 상한을 걸면 긴 세션을
-    // 처음 여는 뷰어가 매번 끊긴다. 재전송이 끝난 시점을 기준으로 실시간 프레임만 잰다
-    let baseline: number | null = null;
-    unsubscribe = stream.subscribe(
-      (frame) => {
-        if (detached) return;
-        res.write(sseFrame(frame));
-        if (frame.type === 'closed') {
-          res.end();
-          detach();
-          return;
-        }
-        if (baseline !== null && res.writableLength - baseline > MAX_LIVE_BACKLOG_BYTES) {
-          res.destroy();
-          detach();
-        }
-      },
-      Number.isFinite(lastId) && lastId > 0 ? lastId : 0,
-    );
-    baseline = res.writableLength;
-    if (detached) unsubscribe();
     req.on('close', detach);
     res.on('close', detach);
+
+    const onFrame = (frame: ShareFrame): void => {
+      if (detached) return;
+      if (res.writableLength > this.maxLiveBacklogBytes) {
+        res.destroy();
+        detach();
+        return;
+      }
+      res.write(sseFrame(frame));
+      if (frame.type === 'closed') {
+        res.end();
+        detach();
+      }
+    };
+
+    // 앞부분은 소켓이 비는 만큼씩 꺼내 쓴다. 다 따라잡으면 같은 틱에 subscribe로 붙어서
+    // 그 사이에 poll이 끼지 않는다. subscribe가 상태와 통계를 다시 보내 따라잡는 동안
+    // 바뀐 것도 맞춘다
+    let cursor = Number.isFinite(lastId) && lastId > 0 ? lastId : 0;
+    const pump = (): void => {
+      if (detached) return;
+      while (!stream.isClosed) {
+        const { dropped, items } = stream.backlogAfter(cursor, REPLAY_CHUNK_BYTES);
+        if (dropped > 0) {
+          res.write(sseFrame({ type: 'trimmed', dropped }));
+          cursor += dropped;
+        }
+        if (items.length === 0) break;
+        for (const item of items) {
+          cursor = item.seq;
+          if (!res.write(sseFrame({ type: 'event', ...item }))) {
+            res.once('drain', pump);
+            return;
+          }
+        }
+      }
+      unsubscribe = stream.subscribe(onFrame, cursor);
+      if (detached) unsubscribe();
+    };
+
+    res.write(sseFrame({ type: 'state', status: stream.currentStatus }));
+    res.write(sseFrame({ type: 'stats', unknownLines: stream.unknownLines }));
+    pump();
   }
 }
 
@@ -225,7 +264,7 @@ function tokenMatches(given: string | null, expected: string): boolean {
 function sseFrame(frame: ShareFrame): string {
   switch (frame.type) {
     case 'event':
-      return `id: ${frame.seq}\nevent: line\ndata: ${JSON.stringify(frame.event)}\n\n`;
+      return `id: ${frame.seq}\nevent: line\ndata: ${frame.json}\n\n`;
     case 'stats':
       return `event: stats\ndata: ${JSON.stringify({ unknownLines: frame.unknownLines })}\n\n`;
     case 'state':

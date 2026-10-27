@@ -82,4 +82,31 @@ describe('ShareStream', () => {
     expect(tail.some((f) => f.type === 'trimmed')).toBe(false);
     expect(tail.flatMap((f) => (f.type === 'event' ? [f.seq] : []))).toEqual([10]);
   });
+
+  it('상한에 밀려 버린 칸은 비워 둔다', () => {
+    const stream = make(200);
+    for (let i = 1; i <= 10; i++) appendFileSync(file, reply(`답 ${i} ${'x'.repeat(40)}`));
+    stream.poll();
+    const inner = stream as unknown as { events: unknown[]; head: number };
+    expect(inner.head).toBeGreaterThan(0);
+    expect(inner.events.slice(0, inner.head).every((e) => e === undefined)).toBe(true);
+    expect(inner.events.slice(inner.head).every((e) => e !== undefined)).toBe(true);
+  });
+
+  it('backlogAfter는 바이트 상한만큼씩 꺼내고 이벤트 하나가 상한보다 커도 하나는 꺼낸다', () => {
+    const stream = make();
+    for (let i = 1; i <= 5; i++) appendFileSync(file, reply(`답 ${i}`));
+    stream.poll();
+
+    const first = stream.backlogAfter(0, 1);
+    expect(first.dropped).toBe(0);
+    expect(first.items.map((x) => x.seq)).toEqual([1]);
+    expect(first.items[0]!.json).toContain('답 1');
+
+    const rest = stream.backlogAfter(2, Infinity);
+    expect(rest.items.map((x) => x.seq)).toEqual([3, 4, 5]);
+
+    stream.close('unshare');
+    expect(stream.backlogAfter(0, Infinity)).toEqual({ dropped: 0, items: [] });
+  });
 });
