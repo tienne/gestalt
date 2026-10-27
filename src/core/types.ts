@@ -58,7 +58,7 @@ export interface RescoreResult {
   mode: RescoreMode;
   /** 두 번째 채점의 overall */
   overall: number;
-  /** 차원별 |첫 점수 - 두 번째 점수| 중 가장 큰 값 */
+  /** 차원별 |다시 채점 직전 점수 - 다시 채점한 점수| 중 가장 큰 값 */
   maxDimensionSpread: number;
   /** 첫 채점에서 기준값 이상이었다가 두 번째 채점에서 아래로 떨어진 차원 */
   droppedDimensions: ResolutionDimensionName[];

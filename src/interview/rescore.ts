@@ -59,7 +59,7 @@ export function compareRescore(
   };
 }
 
-/** record는 첫 점수의 판정을 그대로 두고 gate는 낮은 overall과 흔들림으로 다시 정한다 */
+/** record는 다시 채점 직전 점수의 판정을 그대로 두고 gate는 낮은 overall과 흔들림으로 다시 정한다 */
 export function readinessAfterRescore(
   setting: RescoreSetting,
   first: ResolutionScore,
@@ -122,7 +122,7 @@ export function recordScoreWithRescore(
   return request;
 }
 
-/** 다시 채점한 점수를 첫 점수와 비교해 남긴다. gate가 판정을 미뤘으면 다음 질문의 원칙도 돌려준다 */
+/** 다시 채점한 점수를 다시 채점 직전 점수와 비교해 남긴다. gate가 판정을 미뤘으면 다음 질문의 원칙도 돌려준다 */
 export function applyRescore(
   sessions: SessionManager,
   sessionId: string,
