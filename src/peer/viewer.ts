@@ -31,14 +31,14 @@ export const MAX_VIEWERS_PER_SHARE = 16;
 
 /**
  * 실시간 프레임을 쓰기 전에 소켓 버퍼에 이만큼 넘게 밀려 있으면 그 뷰어를 끊는다. 안 읽는
- * 뷰어 하나가 데몬 메모리를 끝없이 붙잡지 못하게 한다. 쓰기 전에 재므로 이보다 큰 이벤트
- * 하나 때문에 끊기지는 않는다. 앞부분은 소켓이 비는 만큼만 꺼내 보내서 여기에 안 쌓인다.
- * 브라우저는 다시 붙어 Last-Event-ID부터 받는다.
+ * 뷰어 하나가 데몬 메모리를 끝없이 붙잡지 못하게 한다. 이보다 큰 이벤트 하나는 들어가지만
+ * 소켓으로 다 빠지기 전에 다음 프레임이 오면 그때 끊는다. 앞부분은 소켓이 비는 만큼만 꺼내
+ * 보내서 여기에 안 쌓인다. 브라우저는 다시 붙어 Last-Event-ID부터 받는다.
  */
 export const MAX_LIVE_BACKLOG_BYTES = 8 * 1024 * 1024;
 
 /** 앞부분을 공유에서 한 번에 꺼내는 양. 소켓이 차면 그 자리에서 멈추므로 대략이면 된다 */
-const REPLAY_CHUNK_BYTES = 256 * 1024;
+export const REPLAY_CHUNK_BYTES = 256 * 1024;
 
 export interface ViewerServerOptions {
   /** 테스트가 작게 준다 */
@@ -54,7 +54,8 @@ export interface ViewerServerOptions {
  *
  * Routes:
  *   GET /s/:id?t=TOKEN          → 뷰어 HTML
- *   GET /s/:id/events?t=TOKEN   → SSE (line, trimmed, stats, state, closed). 뷰어 상한을 넘으면 429
+ *   GET /s/:id/events?t=TOKEN   → SSE (line, trimmed, stats, state, closed). 뷰어 상한을 넘으면 429.
+ *                                 closed의 missed는 따라잡는 중에 닫혀 못 보낸 이벤트 수
  *   *                           → 404
  */
 export class ViewerServer {
@@ -209,9 +210,10 @@ export class ViewerServer {
       }
     };
 
-    // 앞부분은 소켓이 비는 만큼씩 꺼내 쓴다. 다 따라잡으면 같은 틱에 subscribe로 붙어서
-    // 그 사이에 poll이 끼지 않는다. subscribe가 상태와 통계를 다시 보내 따라잡는 동안
-    // 바뀐 것도 맞춘다
+    // 앞부분은 소켓이 비는 만큼씩 꺼내 쓴다. 다 따라잡으면 이벤트 루프로 돌아가지 않고 바로
+    // subscribe로 붙어서 그 사이에 poll이 끼지 않는다. subscribe가 상태와 통계를 다시 보내
+    // 따라잡는 동안 바뀐 것도 맞춘다. 기다리는 사이 공유가 닫히면 subscribe가 못 보낸 개수를
+    // closed에 실어 보낸다
     let cursor = Number.isFinite(lastId) && lastId > 0 ? lastId : 0;
     const pump = (): void => {
       if (detached) return;
@@ -270,7 +272,7 @@ function sseFrame(frame: ShareFrame): string {
     case 'state':
       return `event: state\ndata: ${JSON.stringify({ status: frame.status })}\n\n`;
     case 'closed':
-      return `event: closed\ndata: ${JSON.stringify({ reason: frame.reason })}\n\n`;
+      return `event: closed\ndata: ${JSON.stringify({ reason: frame.reason, missed: frame.missed })}\n\n`;
     case 'trimmed':
       return `event: trimmed\ndata: ${JSON.stringify({ dropped: frame.dropped })}\n\n`;
   }

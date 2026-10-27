@@ -124,8 +124,12 @@ export function renderViewerHtml(nonce: string, maxViewers: number): string {
   es.addEventListener('state', (m) => {
     statusEl.textContent = STATUS[JSON.parse(m.data).status] || '';
   });
-  es.addEventListener('closed', () => {
+  es.addEventListener('closed', (m) => {
     statusEl.textContent = '공유가 종료됐어요';
+    const missed = JSON.parse(m.data).missed;
+    if (missed > 0) {
+      log.append(el('div', 'ev note', '공유가 닫혀 뒤쪽 ' + missed + '개는 못 받았어요'));
+    }
     es.close();
   });
   // EventSource는 응답 코드를 안 알려 준다. 끊긴 이유가 뷰어 상한(429)인지 한 번 물어본다

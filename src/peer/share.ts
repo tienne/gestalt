@@ -14,7 +14,11 @@ export type ShareFrame =
   | { type: 'trimmed'; dropped: number }
   | { type: 'stats'; unknownLines: number }
   | { type: 'state'; status: ShareStatus }
-  | { type: 'closed'; reason: string };
+  /**
+   * 공유 종료. 앞부분을 따라잡는 중에 닫히면 아직 못 보낸 이벤트는 사라지므로 그 개수를
+   * missed에 싣는다. 붙어 있던 뷰어는 다 받은 뒤라 안 싣는다
+   */
+  | { type: 'closed'; reason: string; missed?: number };
 
 export type ShareStatus = 'live' | 'missing' | 'truncated';
 
@@ -184,8 +188,8 @@ export class ShareStream {
 
   /**
    * 뷰어를 붙인다. 지금 상태와 `afterSeq` 뒤 앞부분을 한 번에 보내고 이후는 생기는 대로.
-   * 떼어내는 함수를 돌려준다. 앞부분이 큰 뷰어는 backlogAfter로 먼저 따라잡은 뒤 같은
-   * 틱에 붙어야 사이에 poll이 끼어 이벤트가 빠지지 않는다.
+   * 떼어내는 함수를 돌려준다. 앞부분이 큰 뷰어는 backlogAfter로 먼저 따라잡은 뒤 이벤트
+   * 루프로 돌아가기 전에 바로 붙어야 사이에 poll이 끼어 이벤트가 빠지지 않는다.
    */
   subscribe(listener: ShareListener, afterSeq = 0): () => void {
     listener({ type: 'state', status: this.status });
@@ -194,7 +198,12 @@ export class ShareStream {
     if (dropped > 0) listener({ type: 'trimmed', dropped });
     for (const item of items) listener({ type: 'event', ...item });
     if (this.closedReason !== undefined) {
-      listener({ type: 'closed', reason: this.closedReason });
+      // close가 events를 비워도 base를 늘려 두므로 eventCount는 그때까지 나온 전체 개수다
+      listener({
+        type: 'closed',
+        reason: this.closedReason,
+        missed: Math.max(0, this.eventCount - afterSeq),
+      });
       return () => {};
     }
     this.listeners.add(listener);
