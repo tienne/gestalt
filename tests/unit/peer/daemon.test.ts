@@ -1,9 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   statSync,
@@ -440,6 +442,25 @@ describe('PeerDaemon', () => {
     state.close();
   });
 
+  it('stop이 공유를 닫다 DB 쓰기에서 던져도 나머지 공유와 소켓 정리까지 마친다', async () => {
+    await openShare();
+    await openShare();
+    const state = (daemon as unknown as { state: PeerState }).state;
+    const closeShare = vi.spyOn(state, 'closeShare').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      await expect(daemon.stop()).resolves.toBeUndefined();
+      expect(closeShare).toHaveBeenCalledTimes(2);
+      expect(() => statSync(daemon.socketPath)).toThrow();
+      expect(daemon.viewerPort).toBeUndefined();
+    } finally {
+      closeShare.mockRestore();
+      stderr.mockRestore();
+    }
+  });
+
   it('열린 IPC 연결이 있어도 stop이 끝난다', async () => {
     const idle = createConnection(daemon.socketPath);
     idle.on('error', () => {});
@@ -458,12 +479,36 @@ describe('PeerDaemon.start 실패', () => {
     // 임시 소켓 이름 자리에 디렉토리가 있으면 listen이 실패한다
     mkdirSync(join(root, `${process.pid}.s`));
     const d = new PeerDaemon({ root, dbPath, home: FAKE_HOME });
+    // SQLite는 열린 파일도 다시 열 수 있어서 다시 열어 보는 걸로는 닫혔는지 못 가린다
+    const closeSpy = vi.spyOn(PeerState.prototype, 'close');
     try {
       await expect(d.start()).rejects.toThrow();
       expect(d.viewerPort).toBeUndefined();
-      // DB가 닫혔으면 같은 파일을 다시 열어 지울 수 있다
-      const state = new PeerState(dbPath);
-      state.close();
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      closeSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+      rmSync(dbPath, { force: true });
+    }
+  });
+
+  it('남은 소켓을 치운 뒤 링크 전에 남이 이름 자리를 차지하면 거절하고 그 파일을 안 지운다', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'peer-race-'));
+    const dbPath = resolve('.gestalt-test', `peer-${randomUUID()}.db`);
+    const d = new PeerDaemon({ root, dbPath, home: FAKE_HOME });
+    // 미리 파일을 두면 clearStaleSocket이 소켓이 아니라고 먼저 거절해서 링크까지 안 간다
+    const inner = d as unknown as { clearStaleSocket(): Promise<void> };
+    const original = inner.clearStaleSocket.bind(d);
+    inner.clearStaleSocket = async () => {
+      await original();
+      writeFileSync(d.socketPath, 'taken');
+    };
+    try {
+      await expect(d.start()).rejects.toThrow('데몬이 이미 떠 있어요');
+      expect(readFileSync(d.socketPath, 'utf8')).toBe('taken');
+      await d.stop();
+      expect(readFileSync(d.socketPath, 'utf8')).toBe('taken');
+      expect(existsSync(join(root, `${process.pid}.s`))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(dbPath, { force: true });
@@ -482,6 +527,18 @@ describe('ensurePrivateDir', () => {
       expect(() => ensurePrivateDir(link)).toThrow('심링크');
       expect(() => ensurePrivateDir(realDir)).not.toThrow();
     } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('루트의 주인이 내가 아니면 거부한다', () => {
+    const base = mkdtempSync(join(tmpdir(), 'peer-owner-'));
+    const me = process.getuid!();
+    const spy = vi.spyOn(process as { getuid(): number }, 'getuid').mockReturnValue(me + 1);
+    try {
+      expect(() => ensurePrivateDir(base)).toThrow('주인이 내가 아니에요');
+    } finally {
+      spy.mockRestore();
       rmSync(base, { recursive: true, force: true });
     }
   });

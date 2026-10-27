@@ -128,7 +128,7 @@ export class PeerDaemon {
   async stop(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    for (const id of [...this.shares.keys()]) this.closeShare(id, 'daemon_stop');
+    for (const id of [...this.shares.keys()]) this.closeShareSafely(id, 'daemon_stop');
     const ipc = this.ipc;
     this.ipc = null;
     try {
@@ -172,12 +172,21 @@ export class PeerDaemon {
       } catch (err) {
         // setInterval 밖으로 던지면 데몬이 죽는다. 그 공유만 종료하고 나머지는 계속 돈다
         process.stderr.write(`[peer] share ${id} failed: ${errMessage(err)}\n`);
-        try {
-          this.closeShare(id, 'error');
-        } catch {
-          // 감사 로그 쓰기까지 실패해도 공유는 이미 맵에서 빠졌다
-        }
+        this.closeShareSafely(id, 'error');
       }
+    }
+  }
+
+  /**
+   * closeShare는 DB에 쓰다가 던질 수 있다. tick에서 던지면 뒤 공유를 못 돌고 stop에서
+   * 던지면 뷰어와 IPC 서버와 소켓 파일 정리까지 건너뛴다. 공유는 던지기 전에 이미 맵에서
+   * 빠지므로 남는 건 DB 기록 하나다.
+   */
+  private closeShareSafely(id: string, reason: ShareCloseReason): void {
+    try {
+      this.closeShare(id, reason);
+    } catch (err) {
+      process.stderr.write(`[peer] share ${id} close failed: ${errMessage(err)}\n`);
     }
   }
 
