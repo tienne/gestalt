@@ -137,7 +137,7 @@ export interface RescoreResult {
 
 `gate`로 기본값을 옮기는 시점은 파트 5의 절차를 따른다.
 
-다시 채점하기는 인터뷰 하나에 한 번만 한다. 기준값을 넘었다가 다음 라운드에서 다시 떨어지고 또 넘는 경우에도 두 번째부터는 받지 않는다. 추가 비용을 한 번으로 제한하려는 것이고 그 경우는 `overallJump`로 따로 보인다.
+다시 채점하기는 인터뷰 하나에 한 번만 한다. 기준값을 넘었다가 다음 라운드에서 다시 떨어지고 또 넘는 경우에도 한 번 받은 뒤로는 받지 않는다. 받기 전에 다시 요청하는지는 설정마다 다르다(아래 `gate`와 `record`). 추가 비용을 한 번으로 제한하려는 것이고 그 경우는 `overallJump`로 따로 보인다.
 
 구현하면서 위 흐름에 없던 것을 아래처럼 정했다.
 
@@ -241,7 +241,7 @@ outcome-feedback이 내보내는 CSV(`gestalt outcome export --format csv`)에 �
 | `src/core/config.ts`                                                       | `interview.rescore` 추가. 기존 `resolutionThreshold`와 Evaluate 기준값을 판정에 연결                                                                         |
 | `src/gestalt/analyzer.ts`                                                  | `computeResolutionScore`에 `threshold` 인자                                                                                                                  |
 | `src/gestalt/signals.ts` (새 파일)                                         | `computeSignals(session, score, prevScore)`, `DEFERRED_ANSWER_PATTERNS`, `formatSignalLine`                                                                  |
-| `src/interview/passthrough-engine.ts`                                      | 라운드에 직전 응답이 고른 원칙 기록, 처음 기준값을 넘을 때 `rescorePrompt` 반환, `rescore: true` 처리                                                        |
+| `src/interview/passthrough-engine.ts`                                      | 라운드에 직전 응답이 고른 원칙 기록, 기준값을 넘을 때 `rescorePrompt` 반환(`record`는 처음 한 번만), `rescore: true` 처리                                    |
 | `src/interview/session.ts`                                                 | 채점마다 신호 계산, 이벤트 payload에 `signals`, `threshold`. 다시 채점하기 단계 판단과 결과 기록, 실패 기록(`recordRescoreFailure`)                          |
 | `src/interview/rescore.ts` (새 파일)                                       | 다시 채점 요청 여부, 두 점수 비교, 모드별 판정, 판정을 미룬 뒤 다음 원칙                                                                                     |
 | `src/interview/repository.ts`, `src/events/types.ts`                       | `interview.resolution.rescored` 이벤트와 그 fold. `interview.resolution.rescore_failed` 이벤트(fold 없음, 기록만)                                            |
@@ -268,7 +268,7 @@ outcome-feedback이 내보내는 CSV(`gestalt outcome export --format csv`)에 �
 
 - `computeSignals`: 빈 답, 위임 답(짧은 답과 긴 답 구분), 묻지 않은 차원, 첫 채점의 `overallJump`가 null인지.
 - 기준값 연결: 설정 0.7에서 overall 0.75가 `isReady`인지. 스펙 생성 차단과 CLI 안내 문구가 같은 값을 쓰는지. 이벤트로 다시 만든 세션이 이벤트의 `isReady`를 그대로 쓰는지.
-- 다시 채점하기: 처음 기준값을 넘을 때만 `rescorePrompt`가 나오는지. 두 번째로 넘을 때는 안 나오는지. `rescorePrompt`에 이전 점수와 `reasoning`이 없는지. `gate` 모드에서 낮은 쪽으로 판정하는지와 흔들림 0.2 초과에서 `isReady`가 false인지. `record` 모드에서 판정이 안 바뀌는지.
+- 다시 채점하기: `record` 모드에서 처음 기준값을 넘을 때만 `rescorePrompt`가 나오고 두 번째로 넘을 때는 안 나오는지. `gate` 모드에서 다시 채점을 받기 전까지 넘을 때마다 나오는지. `rescorePrompt`에 이전 점수와 `reasoning`이 없는지. `gate` 모드에서 낮은 쪽으로 판정하는지와 흔들림 0.2 초과에서 `isReady`가 false인지. `record` 모드에서 판정이 안 바뀌는지.
 - 결과 표 스크립트: 고정 CSV를 넣어 칸별 숫자와 "표본 부족" 표시가 나오는지.
 - 합의 프롬프트에 `confidence:` 문자열이 없는지.
 - 테스트 DB는 `.gestalt-test/xxx-${randomUUID()}.db` 경로를 쓴다.
