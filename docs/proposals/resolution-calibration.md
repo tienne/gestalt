@@ -146,7 +146,7 @@ export interface RescoreResult {
 - `gate`에서 흔들림은 0.2 이하인데 낮은 쪽 overall이 기준값 아래라 판정을 미룬 경우는 낮은 쪽 점수로 다음 원칙을 고른다. 흔들림이 0.2를 넘으면 가장 많이 흔들린 차원의 원칙을 고른다. 어느 쪽이든 `rescore` 응답에 그 원칙으로 만든 `gestaltContext`를 싣는다.
 - `rescoreMode`를 안 넘기면 `same-context`로 남긴다. 실제로는 맥락이 이어진 채점을 `isolated`로 잘못 남기는 것보다 반대쪽 실수가 결과를 덜 흐린다.
 - 결과는 `interview.resolution.rescored` 이벤트로 따로 남긴다. 채점 이벤트로 남기면 `overallJump`와 처음 넘은 시점 판단이 섞인다. `signals.rescore`는 이후 채점의 신호에도 이어 붙여서 `specHistory`의 `resolutionSignals`만으로 결과 표를 채울 수 있게 한다.
-- 다시 채점은 첫 채점과 같은 모델로 받는 걸 목표로 한다(열린 질문 3). 스킬은 서브에이전트에 `tierModels.frontier`를 넘긴다. 스킬 문서 규칙상 `model`을 비울 수 없어서 세션 모델을 물려받는 대신 인터뷰를 보통 돌리는 frontier 모델을 고정했다. API 키 경로는 같은 채점기로 새 호출을 한 번 더 해서 `isolated`로 남긴다. 그 호출이 실패하면 경고만 남기고 인터뷰는 이어간다.
+- 다시 채점은 첫 채점과 같은 모델로 받는 걸 목표로 한다(열린 질문 3). 스킬은 서브에이전트에 `tierModels.frontier`를 넘긴다. 스킬 문서 규칙상 `model`을 비울 수 없어서 세션 모델을 물려받는 대신 인터뷰를 보통 돌리는 frontier 모델을 고정했다. API 키 경로는 같은 채점기로 새 호출을 한 번 더 해서 `isolated`로 남긴다. 그 호출이 실패하면 경고 로그와 함께 `interview.resolution.rescore_failed` 이벤트(payload `{ error }`)를 남기고 인터뷰는 이어간다.
 - `interview.rescore`에는 환경변수를 두지 않고 `gestalt.json`에서만 정한다.
 
 ### 파트 4. 결과 표
@@ -242,9 +242,9 @@ outcome-feedback이 내보내는 CSV(`gestalt outcome export --format csv`)에 �
 | `src/gestalt/analyzer.ts`                                                  | `computeResolutionScore`에 `threshold` 인자                                                                                                                  |
 | `src/gestalt/signals.ts` (새 파일)                                         | `computeSignals(session, score, prevScore)`, `DEFERRED_ANSWER_PATTERNS`, `formatSignalLine`                                                                  |
 | `src/interview/passthrough-engine.ts`                                      | 라운드에 직전 응답이 고른 원칙 기록, 처음 기준값을 넘을 때 `rescorePrompt` 반환, `rescore: true` 처리                                                        |
-| `src/interview/session.ts`                                                 | 채점마다 신호 계산, 이벤트 payload에 `signals`, `threshold`. 다시 채점하기 단계 판단과 결과 기록                                                             |
+| `src/interview/session.ts`                                                 | 채점마다 신호 계산, 이벤트 payload에 `signals`, `threshold`. 다시 채점하기 단계 판단과 결과 기록, 실패 기록(`recordRescoreFailure`)                          |
 | `src/interview/rescore.ts` (새 파일)                                       | 다시 채점 요청 여부, 두 점수 비교, 모드별 판정, 판정을 미룬 뒤 다음 원칙                                                                                     |
-| `src/interview/repository.ts`, `src/events/types.ts`                       | `interview.resolution.rescored` 이벤트와 그 fold                                                                                                             |
+| `src/interview/repository.ts`, `src/events/types.ts`                       | `interview.resolution.rescored` 이벤트와 그 fold. `interview.resolution.rescore_failed` 이벤트(fold 없음, 기록만)                                            |
 | `src/interview/resolution.ts`, `src/interview/engine.ts`                   | 비-passthrough 경로의 다시 채점하기. 같은 모델로 한 번 더 호출                                                                                               |
 | `src/llm/prompts.ts`                                                       | `buildRescorePrompt` 추가 (대화 기록만 담는다)                                                                                                               |
 | `src/mcp/schemas.ts`                                                       | `score` 입력에 `rescore`, `rescoreMode` 추가                                                                                                                 |
