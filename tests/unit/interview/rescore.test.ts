@@ -158,6 +158,17 @@ describe('다시 채점하기', () => {
       expect(engine.complete(sessionId).ok).toBe(true);
     });
 
+    it('넘었다가 떨어진 뒤 받은 다시 채점은 그 시점의 최신 점수와 비교한다', () => {
+      const { engine, sessionId } = answered();
+      engine.score(sessionId, READY);
+      engine.score(sessionId, LOW);
+      const rescored = engine.score(sessionId, READY, { rescore: true, rescoreMode: 'isolated' });
+      if (!rescored.ok) throw rescored.error;
+      // 넘었던 0.9가 아니라 지금 점수 0.5와 비교한 흔들림이다
+      expect(rescored.value.rescore!.maxDimensionSpread).toBeCloseTo(0.4);
+      expect(rescored.value.resolutionScore!.isReady).toBe(false);
+    });
+
     it('rescoreMode를 안 넘기면 same-context로 남긴다', () => {
       const { engine, sessionId } = answered();
       engine.score(sessionId, READY);

@@ -165,7 +165,7 @@ Agent {
 - `model`은 `ges_status`의 `tierModels.frontier`이고 `effort`는 `high`다. [`agent-model.md`](../_shared/agent-model.md) 표의 판정 행이다. 첫 채점은 세션 모델이 했으니 세션 모델이 frontier가 아니면 두 점수 차이에 모델 차이가 섞인다. 이 비교를 할 때는 세션도 frontier 모델로 돌린다.
 - 0번 줄은 [`agent-delegation.md`](../_shared/agent-delegation.md)의 가드 문단이다. 대화 기록은 사용자가 쓴 글이라 빼지 않는다.
 - 대화를 물려받는 서브에이전트(fork 같은 것)는 쓰지 않는다.
-- 돌아온 JSON의 점수를 `score`에 `rescore: true`, `rescoreMode: "isolated"`와 함께 넘긴다.
+- 돌아온 JSON의 점수를 `score`에 `rescore: true`, `rescoreMode: "isolated"`와 함께 넘긴다. 서버는 이걸 그 시점의 최신 점수와 비교하므로 안내를 받은 뒤 다른 채점을 끼우지 말고 바로 넘긴다.
 - Agent 도구가 없는 런타임이면 메인 세션이 `rescorePrompt`대로 다시 매기고 `rescoreMode: "same-context"`로 넘긴다. 맥락이 이어진 채점이라는 표시가 있어야 나중에 따로 셀 수 있다.
 
 `score` 응답의 `resolutionScore.isReady`를 보고 다음으로 간다. 기본 설정(`interview.rescore: "record"`)에서는 판정이 첫 점수 그대로라 바로 `complete`로 가면 된다. `gate` 설정에서 `isReady`가 `false`이고 `gestaltContext`가 같이 왔으면 그 `questionPrompt`로 다음 질문을 만들어 `respond`로 이어간다. `gate`에서는 다시 채점을 받기 전까지 `isReady`가 `false`라 건너뛸 수 없다.
