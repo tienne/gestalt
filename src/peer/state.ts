@@ -27,7 +27,7 @@ function loadSqlite(): SqliteConstructor {
   throw new Error('better-sqlite3 did not export a Database constructor');
 }
 
-export type ShareCloseReason = 'unshare' | 'expired' | 'daemon_stop' | 'daemon_restart';
+export type ShareCloseReason = 'unshare' | 'expired' | 'daemon_stop' | 'daemon_restart' | 'error';
 
 export interface ShareRow {
   id: string;

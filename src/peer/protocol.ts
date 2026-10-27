@@ -28,6 +28,12 @@ export interface ShareInfo {
   viewers: number;
   events: number;
   unknownLines: number;
+  /** 바꾸다 예외가 나서 버린 줄 */
+  failedLines: number;
+  /** 한 줄 상한을 넘어 버린 줄 */
+  oversizedLines: number;
+  /** 메모리 상한에 밀려 새 뷰어에게 다시 못 보내는 앞부분 이벤트 */
+  droppedEvents: number;
   title?: string;
   url: string;
 }

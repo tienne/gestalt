@@ -1,13 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { get as httpGet, request as httpRequest } from 'node:http';
 import type { IncomingMessage } from 'node:http';
+import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { PeerDaemon } from '../../../src/peer/daemon.js';
 import { DaemonUnavailableError, request } from '../../../src/peer/client.js';
 import { PeerState } from '../../../src/peer/state.js';
+import { ensurePrivateDir } from '../../../src/peer/paths.js';
+import { MAX_REQUEST_BYTES } from '../../../src/peer/protocol.js';
 import type { DaemonStatus, ShareInfo } from '../../../src/peer/protocol.js';
 import { FAKE_HOME, FAKE_SECRETS, fixtureText } from '../../fixtures/peer/transcript.js';
 
@@ -35,6 +47,25 @@ function fetchText(
       if ((err as NodeJS.ErrnoException).code !== 'ECONNRESET') reject(err);
     });
     req.setTimeout(5_000, () => reject(new Error(`timeout: ${url}`)));
+  });
+}
+
+/** 소켓에 날것의 바이트를 보내고 상대가 닫을 때까지 받은 걸 돌려준다 */
+function rawExchange(
+  target: { path: string } | { port: number },
+  payload: string,
+): Promise<string> {
+  return new Promise((resolveP, reject) => {
+    const c = createConnection(target as never);
+    let got = '';
+    c.setEncoding('utf8');
+    c.on('data', (chunk: string) => (got += chunk));
+    c.on('close', () => resolveP(got));
+    c.on('error', (err) => {
+      if ((err as NodeJS.ErrnoException).code === 'EPIPE') return;
+      reject(err);
+    });
+    c.write(payload);
   });
 }
 
@@ -230,9 +261,126 @@ describe('PeerDaemon', () => {
     await daemon.start();
   });
 
-  it('데몬이 떠 있는데 또 띄우면 거절한다', async () => {
+  it('데몬이 떠 있는데 또 띄우면 거절하고 거절된 쪽의 stop이 첫 데몬 소켓을 안 지운다', async () => {
     const second = new PeerDaemon({ root, dbPath, home: FAKE_HOME });
     await expect(second.start()).rejects.toThrow('이미 떠 있어요');
+    await second.stop();
+    expect(await request(daemon.socketPath, { op: 'ping' })).toEqual({ ok: true, result: 'pong' });
+  });
+
+  it('.jsonl 이름의 심링크는 실제 경로로 검사하고 따라 읽는다', async () => {
+    const other = join(root, 'secret.txt');
+    writeFileSync(other, 'not a transcript\n');
+    const disguised = join(root, 'disguised.jsonl');
+    symlinkSync(other, disguised);
+    expect(
+      await request(daemon.socketPath, { op: 'share', transcriptPath: disguised }),
+    ).toMatchObject({ ok: false, error: '.jsonl 파일만 공유할 수 있어요' });
+
+    const alias = join(root, 'alias.jsonl');
+    symlinkSync(transcript, alias);
+    const info = await openShare({ transcriptPath: alias });
+    expect(info.transcriptPath).toBe(realpathSync(transcript));
+  });
+
+  it('IPC 요청 한도를 넘으면 거절하고 같은 데몬이 계속 답한다', async () => {
+    const got = await rawExchange({ path: daemon.socketPath }, 'x'.repeat(MAX_REQUEST_BYTES + 1));
+    expect(got).toContain('요청이 너무 커요');
+    expect(await request(daemon.socketPath, { op: 'ping' })).toEqual({ ok: true, result: 'pong' });
+  });
+
+  it('한 줄이 바꾸다 던져도 tick은 안 던지고 다른 공유는 계속 돈다', async () => {
+    const otherPath = join(root, 'other.jsonl');
+    writeFileSync(otherPath, '');
+    const a = await openShare();
+    const b = await openShare({ transcriptPath: otherPath });
+
+    const depth = 100_000;
+    const nested = '{"a":'.repeat(depth) + '1' + '}'.repeat(depth);
+    appendFileSync(
+      transcript,
+      `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t","name":"X","input":${nested}}]}}\n`,
+    );
+    appendFileSync(
+      otherPath,
+      JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'b 답' }] },
+      }) + '\n',
+    );
+    expect(() => daemon.tick()).not.toThrow();
+
+    const list = await request<ShareInfo[]>(daemon.socketPath, { op: 'shares' });
+    if (!list.ok) throw new Error(list.error);
+    const byId = new Map(list.result.map((s) => [s.id, s]));
+    expect(byId.get(a.id)).toMatchObject({ failedLines: 1, unknownLines: a.unknownLines });
+    expect(byId.get(b.id)).toMatchObject({ events: 1 });
+  });
+
+  it('공유 하나의 poll이 던지면 그 공유만 error로 종료한다', async () => {
+    const otherPath = join(root, 'other.jsonl');
+    writeFileSync(otherPath, '');
+    const a = await openShare();
+    const b = await openShare({ transcriptPath: otherPath });
+    const shares = (daemon as unknown as { shares: Map<string, { stream: { poll(): unknown } }> })
+      .shares;
+    shares.get(a.id)!.stream.poll = () => {
+      throw new Error('boom');
+    };
+    expect(() => daemon.tick()).not.toThrow();
+
+    const list = await request<ShareInfo[]>(daemon.socketPath, { op: 'shares' });
+    expect(list.ok && list.result.map((s) => s.id)).toEqual([b.id]);
+    await daemon.stop();
+    const state = new PeerState(dbPath);
+    expect(state.getShare(a.id)).toMatchObject({ closeReason: 'error' });
+    state.close();
+  });
+
+  it('열린 IPC 연결이 있어도 stop이 끝난다', async () => {
+    const idle = createConnection(daemon.socketPath);
+    idle.on('error', () => {});
+    await new Promise<void>((r) => idle.once('connect', () => r()));
+    const started = Date.now();
+    await daemon.stop();
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(() => statSync(daemon.socketPath)).toThrow();
+  });
+});
+
+describe('PeerDaemon.start 실패', () => {
+  it('IPC listen이 실패하면 뷰어와 DB만 닫고 다시 던진다', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'peer-fail-'));
+    const dbPath = resolve('.gestalt-test', `peer-${randomUUID()}.db`);
+    // 임시 소켓 이름 자리에 디렉토리가 있으면 listen이 실패한다
+    mkdirSync(join(root, `${process.pid}.s`));
+    const d = new PeerDaemon({ root, dbPath, home: FAKE_HOME });
+    try {
+      await expect(d.start()).rejects.toThrow();
+      expect(d.viewerPort).toBeUndefined();
+      // DB가 닫혔으면 같은 파일을 다시 열어 지울 수 있다
+      const state = new PeerState(dbPath);
+      state.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(dbPath, { force: true });
+    }
+  });
+});
+
+describe('ensurePrivateDir', () => {
+  it('루트가 심링크면 거부한다', () => {
+    const base = mkdtempSync(join(tmpdir(), 'peer-link-'));
+    try {
+      const realDir = join(base, 'real');
+      mkdirSync(realDir);
+      const link = join(base, 'link');
+      symlinkSync(realDir, link);
+      expect(() => ensurePrivateDir(link)).toThrow('심링크');
+      expect(() => ensurePrivateDir(realDir)).not.toThrow();
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
 

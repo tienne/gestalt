@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync } from 'node:fs';
 import { isAbsolute, join, normalize } from 'node:path';
 import { gestaltHome } from '../core/home.js';
 
@@ -30,9 +30,20 @@ export function statePath(root: string): string {
  * 같은 OS 사용자만 들어오게 디렉토리를 0700으로 만든다. 이미 있으면 권한을 다시
  * 좁힌다 — 소켓은 listen과 chmod 사이에 잠깐 기본 권한으로 열려 있어서 그 틈을
  * 막는 건 디렉토리다.
+ *
+ * 루트가 심링크거나 남의 것이면 거부한다. mkdir과 chmod는 심링크를 따라가서 남이 걸어
+ * 둔 링크 끝의 디렉토리에 소켓과 DB를 만들고 권한까지 바꾼다. realpath로 비교하지 않는
+ * 건 macOS 임시 디렉토리가 `/var` → `/private/var` 링크 아래라 정상 경로도 걸리기 때문이다.
  */
 export function ensurePrivateDir(dir: string): void {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const st = lstatSync(dir);
+  if (st.isSymbolicLink()) throw new Error(`peer 디렉토리가 심링크예요: ${dir}`);
+  if (!st.isDirectory()) throw new Error(`peer 디렉토리 자리에 다른 파일이 있어요: ${dir}`);
+  const uid = process.getuid?.();
+  if (uid !== undefined && st.uid !== uid) {
+    throw new Error(`peer 디렉토리의 주인이 내가 아니에요: ${dir}`);
+  }
   chmodSync(dir, 0o700);
 }
 
