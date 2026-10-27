@@ -73,4 +73,41 @@ describe('TranscriptTail', () => {
     writeFileSync(file, '{"a":1}\n');
     expect(tail.read()).toEqual({ lines: ['{"a":1}'], status: 'ok' });
   });
+
+  it('예산만큼만 읽고 나머지는 다음 읽기가 줄 가운데부터 이어 읽는다', () => {
+    const lines = Array.from({ length: 6 }, (_, i) => JSON.stringify({ i, pad: 'x'.repeat(10) }));
+    writeFileSync(file, lines.join('\n') + '\n');
+    const tail = new TranscriptTail(file, { readBudgetBytes: 30 });
+    const got: string[] = [];
+    let reads = 0;
+    while (got.length < lines.length && reads < 20) {
+      got.push(...tail.read().lines);
+      reads++;
+    }
+    expect(got).toEqual(lines);
+    expect(reads).toBeGreaterThan(1);
+    expect(tail.position).toBe(Buffer.byteLength(lines.join('\n') + '\n'));
+  });
+
+  it('상한을 넘는 줄은 개행까지 버리고 따로 센 뒤 다음 줄을 이어 읽는다', () => {
+    const big = JSON.stringify({ big: 'y'.repeat(100) });
+    const content = `{"a":1}\n${big}\n{"a":2}\n`;
+    writeFileSync(file, content);
+    const tail = new TranscriptTail(file, { maxLineBytes: 50, readBudgetBytes: 16 });
+    const got: string[] = [];
+    for (let i = 0; i < 20; i++) got.push(...tail.read().lines);
+    expect(got).toEqual(['{"a":1}', '{"a":2}']);
+    expect(tail.oversizedLines).toBe(1);
+    expect(tail.position).toBe(Buffer.byteLength(content));
+  });
+
+  it('개행이 안 온 긴 꼬리도 상한을 넘으면 들고 있지 않는다', () => {
+    writeFileSync(file, 'z'.repeat(80));
+    const tail = new TranscriptTail(file, { maxLineBytes: 50 });
+    expect(tail.read().lines).toEqual([]);
+    expect(tail.oversizedLines).toBe(1);
+    appendFileSync(file, 'z'.repeat(80) + '\n{"ok":1}\n');
+    expect(tail.read().lines).toEqual(['{"ok":1}']);
+    expect(tail.oversizedLines).toBe(1);
+  });
 });
