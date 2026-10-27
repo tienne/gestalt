@@ -157,7 +157,7 @@ outcome-feedback이 내보내는 CSV(`gestalt outcome export --format csv`)에 �
 
 표는 `benchmarks/resolution-calibration.ts`가 만든다. outcome-feedback의 `benchmarks/outcome-correlation.ts`와 같은 CSV를 읽는 짧은 스크립트이고 CLI에는 넣지 않는다. 결과는 `docs/experiments/`에 날짜를 붙인 md와 csv로 남긴다.
 
-표는 두 장이다. 결과 칸은 outcome-feedback의 정의를 그대로 쓴다. `rough`는 리뷰 3라운드 이상, 재작업 커밋 1개 이상, 사람 게이트 1번 이상, evolve 2세대 이상 중 하나라도 해당하는 스펙이다.
+결과 칸은 outcome-feedback의 정의를 그대로 쓴다. `rough`는 리뷰 3라운드 이상, 재작업 커밋 1개 이상, 사람 게이트 1번 이상, evolve 2세대 이상 중 하나라도 해당하는 스펙이다.
 
 첫 번째는 점수 구간별 표다.
 
