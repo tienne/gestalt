@@ -12,7 +12,7 @@ import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
 import { GestaltPrinciple } from '../../../src/core/types.js';
 import type { InterviewOptions } from '../../../src/interview/session.js';
-import type { LLMAdapter, LLMResponse } from '../../../src/llm/types.js';
+import type { LLMAdapter, LLMRequest, LLMResponse } from '../../../src/llm/types.js';
 
 function uniform(value: number) {
   return {
@@ -293,10 +293,16 @@ describe('다시 채점하기', () => {
   });
 
   describe('API 키 경로', () => {
-    function scoringLlm(values: number[]): { llm: LLMAdapter; calls: () => number } {
+    function scoringLlm(values: number[]): {
+      llm: LLMAdapter;
+      calls: () => number;
+      requests: LLMRequest[];
+    } {
       let i = 0;
+      const requests: LLMRequest[] = [];
       const llm: LLMAdapter = {
-        chat: async (): Promise<LLMResponse> => {
+        chat: async (req: LLMRequest): Promise<LLMResponse> => {
+          requests.push(req);
           const v = values[Math.min(i, values.length - 1)]!;
           i++;
           return {
@@ -305,7 +311,7 @@ describe('다시 채점하기', () => {
           };
         },
       };
-      return { llm, calls: () => i };
+      return { llm, calls: () => i, requests };
     }
 
     it('처음 기준값을 넘으면 같은 모델로 한 번 더 채점해 isolated로 남긴다', async () => {
@@ -328,6 +334,22 @@ describe('다시 채점하기', () => {
       const again = await engine.respond(sessionId, '7일 이내 환불');
       if (!again.ok) throw again.error;
       expect(calls()).toBe(6);
+    });
+
+    it('다시 채점 호출은 첫 채점과 같은 요청이라 앞 점수를 담지 않는다', async () => {
+      // 시작 질문, 채점, 다시 채점, 다음 질문
+      const { llm, requests } = scoringLlm([0.9, 0.9, 0.7, 0.9]);
+      const engine = new InterviewEngine(llm, store);
+      const start = await engine.start('결제 모듈');
+      if (!start.ok) throw start.error;
+      const responded = await engine.respond(start.value.session.sessionId, '카드 결제만 지원해요');
+      if (!responded.ok) throw responded.error;
+
+      const [, scoring, rescoring] = requests;
+      expect(rescoring).toEqual(scoring);
+      expect(rescoring!.messages).toHaveLength(1);
+      expect(rescoring!.messages[0]!.content).toContain('카드 결제만 지원해요');
+      expect(rescoring!.messages[0]!.content).not.toContain('0.9');
     });
 
     it('gate에서 다시 채점이 낮으면 판정을 미룬다', async () => {
