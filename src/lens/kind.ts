@@ -7,18 +7,23 @@ export const AUDIO_EXTS = ['.mp3', '.m4a', '.wav', '.ogg', '.oga', '.opus', '.aa
 const WEB_EXTS = ['.html', '.htm'];
 
 const YOUTUBE = /^https?:\/\/(?:www\.|m\.)?(?:youtube\.com|youtu\.be)\//i;
-// 주소만으로 피드로 보는 꼴. 경로 끝의 /feed와 /rss, 워드프레스 피드 꼴(/feed/podcast, /feed/rss2 같은),
-// .rss와 .xml을 잡고 뒤에 쿼리나 #가 붙어도 잡는다. 경로 중간의 /feed/는 글 주소(/feed/update/...)에도 있어서 안 잡는다.
-// 애매하면 web으로 두고 스킬이 사용자에게 묻는다
-const FEED =
-  /(?:\/feed(?:\/(?:rss2?|atom|podcast))?\/?(?:[?#]|$)|\/rss\/?(?:[?#]|$)|\.(?:rss|xml)(?:[?#]|$)|[?&]format=rss|feeds\.|anchor\.fm\/s\/[^/]+\/podcast\/rss)/i;
+// 주소만으로 피드로 보는 꼴. 경로(쿼리와 # 앞)만 보고 호스트 feeds.와 쿼리 format=rss는 따로 본다.
+// 경로는 끝이 /feed, /rss, 워드프레스 피드 꼴(/feed/podcast, /feed/rss2 같은), .rss, .xml일 때만 잡는다.
+// 경로 중간의 /feed/는 글 주소(/feed/update/...)에도 있어서 안 잡는다. 애매하면 web으로 두고 스킬이 사용자에게 묻는다
+const FEED_PATH = /(?:\/feed(?:\/(?:rss2?|atom|podcast))?|\/rss)\/?$|\.(?:rss|xml)$/i;
 
-function urlPath(input: string): string {
+function parseUrl(input: string): URL | null {
   try {
-    return new URL(input).pathname;
+    return new URL(input);
   } catch {
-    return '';
+    return null;
   }
+}
+
+function isFeedUrl(url: URL): boolean {
+  if (FEED_PATH.test(url.pathname)) return true;
+  if (url.hostname.startsWith('feeds.')) return true;
+  return url.searchParams.getAll('format').some((v) => v.toLowerCase() === 'rss');
 }
 
 /**
@@ -29,11 +34,12 @@ export function detectLensKind(input: string): DetectedKind | null {
   const trimmed = input.trim();
   if (/^https?:\/\//i.test(trimmed)) {
     if (YOUTUBE.test(trimmed)) return 'youtube';
-    const path = urlPath(trimmed).toLowerCase();
+    const url = parseUrl(trimmed);
+    const path = (url?.pathname ?? '').toLowerCase();
     if (path.endsWith('.pdf')) return 'pdf';
     if (/^https?:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\//i.test(trimmed)) return 'pdf';
     if (AUDIO_EXTS.includes(extname(path))) return 'podcast';
-    if (FEED.test(trimmed)) return 'podcast';
+    if (url && isFeedUrl(url)) return 'podcast';
     return 'web';
   }
   const ext = extname(trimmed).toLowerCase();
