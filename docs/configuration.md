@@ -220,7 +220,7 @@ gestalt lens notes notion-on|notion-off  # 노션 MCP로도 찾기
 gestalt lens notes decline              # 쓰지 않음. 다음부터 묻지 않는다
 ```
 
-후보 찾기는 Orca 없이 돈다. 이 레포와 옆 레포(상위 폴더), 홈의 흔한 작업 폴더와 문서 폴더(`~/Documents`, `~/Desktop`, `~/Downloads`, `~/notes`, `~/work`, `~/projects`, `~/code`, `~/dev`, `~/src`, `~/repos`, `~/github`, iCloud Obsidian)를 3단까지 훑는다. 이름이 notes, kb, wiki, journal 꼴인 폴더와 Obsidian 보관함(`.obsidian`), Logseq 그래프(`logseq/config.edn`), 노션 내보내기 폴더(`제목 <32자리 id>.md` 파일)를 찾고 노트가 셋 넘게 든 폴더만 낸다. Orca가 있으면 스킬이 등록된 레포를 `--scan`으로 더 넘긴다.
+후보 찾기는 Orca 없이 돈다. 이 레포와 옆 레포(상위 폴더), 홈의 흔한 작업 폴더와 문서 폴더(`~/Documents`, `~/Desktop`, `~/Downloads`, `~/notes`, `~/work`, `~/projects`, `~/code`, `~/dev`, `~/src`, `~/repos`, `~/github`, iCloud Obsidian)를 3단까지 훑는다. 이름이 notes, kb, wiki, journal 꼴인 폴더와 Obsidian 보관함(`.obsidian`), Logseq 그래프(`logseq/config.edn`), 노션 내보내기 폴더(`제목 <32자리 id>.md` 파일)를 찾고 노트가 셋 넘게 든 폴더만 낸다. 후보는 10개까지만 보인다. 그보다 많으면 사람용 출력에 "후보 N개 중 10개만 보여요"를 붙이고 `--json`에는 자르기 전 후보 수를 `totalCandidates`로 낸다. Orca가 있으면 스킬이 등록된 레포를 `--scan`으로 더 넘긴다.
 
 노션은 파일이 아니라 노션 MCP가 붙은 세션에서만 찾는다. 스킬이 노션 페이지를 받아 리포트 폴더의 `knowledge-snapshots/`에 스냅샷으로 두고 다른 노트처럼 검사한다. 연결 카드에는 노션 원래 주소가 붙는다.
 
@@ -232,7 +232,7 @@ gestalt lens notes decline              # 쓰지 않음. 다음부터 묻지 않
 
 - 상대 경로는 레포 루트 기준이다. 절대 경로도 레포 안이면 받는다. `../notes`처럼 레포 밖으로 나가는 경로는 버리고 경고한다
 - 없는 폴더는 조용히 빠지고 `knowledge.json`의 `roots`에 안 실린다
-- 노트 파일 수와 읽는 바이트, 후보 줄(40개), 검색어(30개)에 상한이 있다. 상한에 닿으면 `knowledge.json`의 `truncated`에 어느 상한인지 적고 `totalHits`에 자르기 전 후보 줄 수를 적는다
+- 노트 파일 수와 읽는 바이트, 후보 줄(40개), 검색어(30개)에 상한이 있고 1MB를 넘는 노트는 건너뛴다. 상한에 닿거나 큰 노트를 건너뛰면 `knowledge.json`의 `truncated`(`{ files, bytes, hits, terms, large }`)에 어느 쪽인지 적고 `totalHits`에 자르기 전 후보 줄 수를 적는다
 - `.md`, `.markdown`, `.txt`만 읽고 숨김 폴더와 `node_modules`는 건너뛴다
 - 노트 폴더는 읽기만 한다. 연결 카드의 인용은 그 폴더 안 파일에 글자 그대로 있어야 merge를 통과한다
 

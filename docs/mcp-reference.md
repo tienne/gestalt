@@ -1216,8 +1216,8 @@ digest.md         마크다운 (render, export --md가 쓴다)
 
 ```
 source.json        표 칸과 그림, 쪽 목록 (lens ingest가 쓰고 lens panels가 그림 장면 수를 적는다)
-pages/ tables/ figures/   PDF 쪽 그림과 원문에서 잘라낸 표와 그림(크롭) (lens ingest가 쓴다)
-knowledge.json     내 노트에서 찾은 연결 후보 (lens knowledge가 쓴다. 상한에 닿았으면 truncated에 적는다)
+pages/ tables/ figures/   PDF 쪽 그림과 원문에서 잘라낸 표와 그림 (lens ingest가 쓴다)
+knowledge.json     내 노트에서 찾은 연결 후보 (lens knowledge가 쓴다. 상한에 닿거나 1MB 넘는 노트를 건너뛰면 truncated { files, bytes, hits, terms, large }에 적는다)
 cache/             원본 PDF, HTML, 오디오 (serve는 이 폴더 안의 팟캐스트 오디오 하나만 내준다)
 ```
 
