@@ -19,8 +19,13 @@ export async function specCommand(sessionId: string, options: { force?: boolean 
 
   const eventStore = new EventStore(config.dbPath);
   const llm = createAdapter(config.llm);
-  const engine = new InterviewEngine(llm, eventStore, createTierAdapter(config.llm, 'frugal'));
-  const generator = new SpecGenerator(llm, eventStore);
+  const engine = new InterviewEngine(
+    llm,
+    eventStore,
+    createTierAdapter(config.llm, 'frugal'),
+    config.interview,
+  );
+  const generator = new SpecGenerator(llm, eventStore, config.interview);
 
   try {
     const session = engine.getSession(sessionId);

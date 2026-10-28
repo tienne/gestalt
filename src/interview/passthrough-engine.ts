@@ -1,22 +1,31 @@
 import type {
   InterviewSession,
+  InterviewRound,
   ResolutionScore,
   ProjectType,
   GestaltPrinciple,
+  RescoreMode,
+  RescoreResult,
 } from '../core/types.js';
-import { MAX_INTERVIEW_ROUNDS, PRINCIPLE_QUESTION_STRATEGIES } from '../core/constants.js';
+import {
+  MAX_INTERVIEW_ROUNDS,
+  PRINCIPLE_QUESTION_STRATEGIES,
+  RESOLUTION_THRESHOLD,
+} from '../core/constants.js';
 import { InterviewError } from '../core/errors.js';
 import { type Result, ok, err } from '../core/result.js';
 import { selectNextPrinciple, getPrinciplePhaseLabel } from '../gestalt/principles.js';
 import { computeResolutionScore } from '../gestalt/analyzer.js';
-import { SessionManager } from './session.js';
+import { SessionManager, type InterviewOptions } from './session.js';
 import { detectProjectType } from './brownfield.js';
+import { type RescoreSetting, recordScoreWithRescore, applyRescore } from './rescore.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import {
   INTERVIEW_SYSTEM_PROMPT,
   buildQuestionPrompt,
   buildResolutionPrompt,
+  buildRescorePrompt,
 } from '../llm/prompts.js';
 import type { AgentRegistry } from '../agent/registry.js';
 import { mergeSystemPrompt, getActiveAgentNames } from '../agent/prompt-resolver.js';
@@ -48,6 +57,28 @@ export interface PassthroughRespondResult {
   gestaltContext: GestaltContext;
   compressionContext?: { systemPrompt: string; compressionPrompt: string };
   needsCompression?: boolean;
+  /**
+   * 다시 채점하기를 요청할 차례면 붙는 프롬프트. record는 처음 기준값을 넘을 때 한 번, gate는 다시 채점을
+   * 받기 전까지 넘을 때마다 붙고 off면 안 붙는다. 이때 nextAction은 rescore다
+   */
+  rescorePrompt?: string;
+  nextAction?: 'rescore';
+}
+
+export interface PassthroughScoreResult {
+  resolutionScore: ResolutionScore | null;
+  scoringPrompt?: string;
+  rescorePrompt?: string;
+  nextAction?: 'rescore';
+  /** rescore: true로 받은 채점의 비교 결과 */
+  rescore?: RescoreResult;
+  /** gate가 판정을 미뤘을 때 다음 질문을 만들 컨텍스트 */
+  gestaltContext?: GestaltContext;
+}
+
+export interface RescoreOptions {
+  rescore?: boolean;
+  rescoreMode?: RescoreMode;
 }
 
 // ─── External resolution score shape (from caller LLM) ───────────
@@ -66,12 +97,17 @@ export interface ExternalResolutionScore {
 export class PassthroughEngine {
   private sessionManager: SessionManager;
   private agentRegistry?: AgentRegistry;
+  private resolutionThreshold: number;
+  private rescoreSetting: RescoreSetting;
 
   constructor(
     private eventStore: EventStore,
     agentRegistry?: AgentRegistry,
+    options: InterviewOptions = {},
   ) {
-    this.sessionManager = new SessionManager(eventStore);
+    this.resolutionThreshold = options.resolutionThreshold ?? RESOLUTION_THRESHOLD;
+    this.rescoreSetting = options.rescore ?? 'record';
+    this.sessionManager = new SessionManager(eventStore, options);
     this.sessionManager.loadFromStore();
     this.agentRegistry = agentRegistry;
   }
@@ -128,11 +164,13 @@ export class PassthroughEngine {
     try {
       const session = this.sessionManager.get(sessionId);
 
-      // Save the externally generated question
+      // 호스트는 직전 응답의 gestaltContext.currentPrinciple로 질문을 만들었다.
+      // 그 원칙을 라운드에 남겨야 어느 차원을 물었는지가 기록과 맞는다
       const principle =
-        session.rounds.length > 0
+        this.appliedPrinciple(sessionId, session.rounds.length + 1) ??
+        (session.rounds.length > 0
           ? session.rounds[session.rounds.length - 1]!.gestaltFocus
-          : selectNextPrinciple({ roundNumber: 1, dimensions: [], hasContradictions: false });
+          : selectNextPrinciple({ roundNumber: 1, dimensions: [], hasContradictions: false }));
 
       // If there's no pending round (no unanswered question), add one
       const lastRound = session.rounds[session.rounds.length - 1];
@@ -156,21 +194,23 @@ export class PassthroughEngine {
 
       // Compute resolution score if provided externally
       let resolutionScore: ResolutionScore | null = null;
+      let rescorePrompt: string | undefined;
       if (externalScore) {
         resolutionScore = computeResolutionScore(
-          {
-            goalClarity: externalScore.goalClarity,
-            constraintClarity: externalScore.constraintClarity,
-            successCriteria: externalScore.successCriteria,
-            priorityClarity: externalScore.priorityClarity,
-            contextClarity: externalScore.contextClarity,
-            contradictions: externalScore.contradictions ?? [],
-          },
+          rawScore(externalScore),
           session.projectType,
+          this.resolutionThreshold,
         );
         const rejected = rejectUnbackedReadyScore(session, resolutionScore);
         if (rejected) return err(rejected);
-        this.sessionManager.updateResolutionScore(sessionId, resolutionScore);
+        // 같이 온 점수는 직전 respond의 scoringPrompt로 매긴 것이라 이번 답을 못 봤다.
+        // 다시 채점도 그 범위로 물어야 흔들림에 새 답으로 늘어난 몫이 안 섞인다
+        const scored = session.rounds.slice(0, -1);
+        rescorePrompt = this.recordScore(
+          sessionId,
+          resolutionScore,
+          scored.some((r) => r.userResponse) ? scored : session.rounds,
+        );
       }
 
       // Select next principle
@@ -221,6 +261,7 @@ export class PassthroughEngine {
         resolutionScore,
         gestaltContext,
         ...(needsCompression ? { compressionContext, needsCompression } : {}),
+        ...(rescorePrompt && { rescorePrompt, nextAction: 'rescore' as const }),
       });
     } catch (e) {
       return err(
@@ -234,26 +275,31 @@ export class PassthroughEngine {
   score(
     sessionId: string,
     externalScore?: ExternalResolutionScore,
-  ): Result<{ resolutionScore: ResolutionScore | null; scoringPrompt?: string }, InterviewError> {
+    options: RescoreOptions = {},
+  ): Result<PassthroughScoreResult, InterviewError> {
     try {
       const session = this.sessionManager.get(sessionId);
 
+      if (options.rescore) {
+        if (!externalScore) {
+          return err(new InterviewError('rescore: true에는 resolutionScore가 필요합니다.'));
+        }
+        return this.rescore(sessionId, externalScore, options.rescoreMode ?? 'same-context');
+      }
+
       if (externalScore) {
         const resolutionScore = computeResolutionScore(
-          {
-            goalClarity: externalScore.goalClarity,
-            constraintClarity: externalScore.constraintClarity,
-            successCriteria: externalScore.successCriteria,
-            priorityClarity: externalScore.priorityClarity,
-            contextClarity: externalScore.contextClarity,
-            contradictions: externalScore.contradictions ?? [],
-          },
+          rawScore(externalScore),
           session.projectType,
+          this.resolutionThreshold,
         );
         const rejected = rejectUnbackedReadyScore(session, resolutionScore);
         if (rejected) return err(rejected);
-        this.sessionManager.updateResolutionScore(sessionId, resolutionScore);
-        return ok({ resolutionScore });
+        const rescorePrompt = this.recordScore(sessionId, resolutionScore, session.rounds);
+        return ok({
+          resolutionScore,
+          ...(rescorePrompt && { rescorePrompt, nextAction: 'rescore' as const }),
+        });
       }
 
       // No external score — return scoring prompt for the caller
@@ -298,6 +344,99 @@ export class PassthroughEngine {
 
   // ─── Private helpers ────────────────────────────────────────────
 
+  /** 채점을 세션에 넣는다. 다시 채점하기를 요청할 차례면 rounds로 만든 프롬프트를 돌려준다 */
+  private recordScore(
+    sessionId: string,
+    score: ResolutionScore,
+    rounds: InterviewRound[],
+  ): string | undefined {
+    const request = recordScoreWithRescore(
+      this.sessionManager,
+      sessionId,
+      score,
+      this.rescoreSetting,
+      this.resolutionThreshold,
+    );
+    if (!request) return undefined;
+
+    const session = this.sessionManager.get(sessionId);
+    return buildRescorePrompt(
+      session.topic,
+      rounds.map((r) => ({ question: r.question, response: r.userResponse })),
+      session.projectType,
+    );
+  }
+
+  private rescore(
+    sessionId: string,
+    externalScore: ExternalResolutionScore,
+    mode: RescoreMode,
+  ): Result<PassthroughScoreResult, InterviewError> {
+    if (this.rescoreSetting === 'off') {
+      return err(new InterviewError('interview.rescore가 off라 다시 채점을 받지 않습니다.'));
+    }
+    const state = this.sessionManager.rescoreState(sessionId);
+    if (state === 'done') {
+      return err(
+        new InterviewError(
+          '이미 다시 채점한 인터뷰입니다. 다시 채점하기는 인터뷰마다 한 번만 받습니다.',
+        ),
+      );
+    }
+    const session = this.sessionManager.get(sessionId);
+    const first = session.resolutionScore;
+    if (state === 'none' || !first) {
+      return err(
+        new InterviewError(
+          `아직 기준값(${this.resolutionThreshold})을 넘은 채점이 없습니다. 다시 채점하기는 처음 넘은 채점 뒤에 받습니다.`,
+        ),
+      );
+    }
+
+    const second = computeResolutionScore(
+      rawScore(externalScore),
+      session.projectType,
+      this.resolutionThreshold,
+    );
+    const { resolutionScore, rescore, principle, roundNumber } = applyRescore(
+      this.sessionManager,
+      sessionId,
+      first,
+      second,
+      mode,
+      this.rescoreSetting,
+      this.resolutionThreshold,
+    );
+    if (!principle) return ok({ resolutionScore, rescore });
+
+    // gate가 판정을 미뤘으면 다음 질문은 흔들린 차원부터 묻는다
+    this.eventStore.append('interview', sessionId, EventType.GESTALT_PRINCIPLE_APPLIED, {
+      principle,
+      roundNumber,
+    });
+    const gestaltContext = this.buildGestaltContext(
+      session.topic,
+      principle,
+      roundNumber,
+      session.rounds.map((r) => ({ question: r.question, response: r.userResponse })),
+      session.projectType,
+    );
+    return ok({ resolutionScore, rescore, gestaltContext });
+  }
+
+  /** 직전 respond가 이 라운드용으로 고른 원칙. 첫 라운드나 기록이 없으면 null */
+  private appliedPrinciple(sessionId: string, roundNumber: number): GestaltPrinciple | null {
+    const applied = this.eventStore
+      .replay('interview', sessionId)
+      .filter(
+        (e) =>
+          e.eventType === EventType.GESTALT_PRINCIPLE_APPLIED &&
+          (e.payload as { roundNumber?: unknown }).roundNumber === roundNumber,
+      );
+    const last = applied[applied.length - 1];
+    return last ? (last.payload as { principle: GestaltPrinciple }).principle : null;
+  }
+
   private buildGestaltContext(
     topic: string,
     principle: GestaltPrinciple,
@@ -335,6 +474,17 @@ export class PassthroughEngine {
 
     return context;
   }
+}
+
+function rawScore(external: ExternalResolutionScore) {
+  return {
+    goalClarity: external.goalClarity,
+    constraintClarity: external.constraintClarity,
+    successCriteria: external.successCriteria,
+    priorityClarity: external.priorityClarity,
+    contextClarity: external.contextClarity,
+    contradictions: external.contradictions ?? [],
+  };
 }
 
 // 답을 하나도 안 받은 세션은 근거가 없으니 임계값 이상 점수를 받지 않는다.

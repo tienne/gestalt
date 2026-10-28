@@ -8,15 +8,19 @@ import { SpecExtractor } from './extractor.js';
 import type { LLMAdapter } from '../llm/types.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
+import type { InterviewOptions } from '../interview/session.js';
 
 export class SpecGenerator {
   private extractor: SpecExtractor;
+  private resolutionThreshold: number;
 
   constructor(
     llm: LLMAdapter,
     private eventStore: EventStore,
+    options: InterviewOptions = {},
   ) {
     this.extractor = new SpecExtractor(llm);
+    this.resolutionThreshold = options.resolutionThreshold ?? RESOLUTION_THRESHOLD;
   }
 
   async generate(
@@ -25,10 +29,10 @@ export class SpecGenerator {
   ): Promise<Result<Spec, SpecGenerationError | ResolutionThresholdError>> {
     // Validate resolution threshold
     const resolution = session.resolutionScore?.overall ?? 0.0;
-    const thresholdExceeded = resolution < RESOLUTION_THRESHOLD;
+    const thresholdExceeded = resolution < this.resolutionThreshold;
 
     if (!force && thresholdExceeded) {
-      return err(new ResolutionThresholdError(resolution, RESOLUTION_THRESHOLD));
+      return err(new ResolutionThresholdError(resolution, this.resolutionThreshold));
     }
 
     if (session.status !== 'completed') {
@@ -74,7 +78,7 @@ export class SpecGenerator {
             sessionId: session.sessionId,
             specId: spec.metadata.specId,
             resolutionScore: resolution,
-            threshold: RESOLUTION_THRESHOLD,
+            threshold: this.resolutionThreshold,
             timestamp: new Date().toISOString(),
           });
         }

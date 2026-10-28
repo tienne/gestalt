@@ -1,8 +1,8 @@
 # 1단계: Interview
 
-이 단계를 마치면 요구사항의 명확도를 수치로 확인하고, 스펙 생성 전 해상도(Resolution Score) 0.8 이상을 보장할 수 있어요.
+이 단계를 마치면 요구사항의 명확도를 수치로 확인하고, 스펙 생성 전 해상도(Resolution Score)가 기준값(`interview.resolutionThreshold`, 기본 0.8) 이상임을 보장할 수 있어요.
 
-Interview는 하나의 토픽으로 시작해서 여러 라운드의 Q&A를 거치며 해상도가 0.8 이상이 될 때까지 질문을 이어가요. 해상도가 충분하지 않은 채로 스펙을 만들면 Execute 단계에서 태스크 충돌이 발생해요.
+Interview는 하나의 토픽으로 시작해서 여러 라운드의 Q&A를 거치며 해상도가 기준값 이상이 될 때까지 질문을 이어가요. 해상도가 충분하지 않은 채로 스펙을 만들면 Execute 단계에서 태스크 충돌이 발생해요.
 
 ---
 
@@ -55,12 +55,12 @@ Interview는 하나의 토픽으로 시작해서 여러 라운드의 Q&A를 거�
 overall = Σ(clarity_i × weight_i) - continuityPenalty
 ```
 
-- `overall ≥ 0.8` → `isReady = true` → 인터뷰 종료 가능
-- `overall < 0.8` → 다음 라운드 계속
+- `overall ≥ 기준값` → `isReady = true` → 인터뷰 종료 가능. `interview.rescore`가 `gate`면 다시 채점까지 통과해야 해요
+- `overall < 기준값` → 다음 라운드 계속
 
 ### Continuity 페널티
 
-모순이 감지되면 overall에서 페널티를 차감해요. 모순이 해소되지 않으면 해상도가 0.8에 도달하기 어렵게 설계했어요.
+모순이 감지되면 overall에서 페널티를 차감해요. 모순이 해소되지 않으면 해상도가 기준값에 도달하기 어렵게 설계했어요.
 
 ```
 penalty = 0.05 + 0.10 × min(contradictions / 3, 1)
@@ -93,14 +93,14 @@ ges_interview({ action: "respond", generatedQuestion: "...", response: "...", re
 ges_interview({ action: "complete", sessionId: "..." })
 → 완료 상태 반환 (forced: false)
 
-// 0.8 미만에서 사용자가 직접 끝내기로 한 경우
+// 기준값 미만에서 사용자가 직접 끝내기로 한 경우
 ges_interview({ action: "complete", sessionId: "...", force: true })
 → 완료 상태 반환 (forced: true)
 ```
 
-> 점수가 없거나 0.8 미만인 세션은 `complete`가 거절돼요. `force`는 사용자가 넘어가자고 직접 말했을 때만 넘겨요. 15라운드를 다 채운 경우에도 먼저 물어봐요. 에이전트가 혼자 정하면 안 돼요. 이렇게 끝낸 세션은 `ges_generate_spec`에도 `force`를 따로 넘겨야 Spec이 나와요.
+> 점수가 없거나 기준값 미만이거나 `gate`에서 다시 채점을 통과하지 못한 세션은 `complete`가 거절돼요. `force`는 사용자가 넘어가자고 직접 말했을 때만 넘겨요. 15라운드를 다 채운 경우에도 먼저 물어봐요. 에이전트가 혼자 정하면 안 돼요. 이렇게 끝낸 세션은 `ges_generate_spec`에도 `force`를 따로 넘겨야 Spec이 나와요.
 
-> Passthrough 모드의 해상도 점수는 호스트 LLM이 매겨서 넘긴 값이에요. 서버는 답변이 하나도 없는 세션에 0.8 이상 점수가 들어오는 것만 거절해요. 답변이 하나라도 있으면 그 점수가 맞는지까지는 확인하지 않아요. 0.8 관문이 막는 건 점수 없이 끝내는 길이지 점수를 부풀려 신고하는 길은 아니에요.
+> Passthrough 모드의 해상도 점수는 호스트 LLM이 매겨서 넘긴 값이에요. 서버는 답변이 하나도 없는 세션에 기준값 이상 점수가 들어오는 것만 거절해요. 답변이 하나라도 있으면 그 점수가 맞는지까지는 확인하지 않아요. 기준값 관문이 막는 건 점수 없이 끝내는 길이지 점수를 부풀려 신고하는 길은 아니에요.
 
 > `generatedQuestion`은 respond 시 **필수**예요. 서버가 질문 히스토리를 기록하는 데 사용해요.
 
