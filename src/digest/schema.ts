@@ -20,6 +20,7 @@ import {
   sourceRefSchema,
   type Doubt,
 } from './lens-schema.js';
+import { widgetSchema } from './lens-widget-schema.js';
 
 export { DIAGRAM_KINDS, diagramSchema, type Diagram, type DiagramKind } from './diagram-schema.js';
 
@@ -210,6 +211,8 @@ export const subsectionSchema = z.object({
   /** 읽기 렌즈가 소섹션에 싣는 원문 표와 그림 */
   tables: z.array(sourceRefSchema).max(3).optional(),
   figures: z.array(sourceRefSchema).max(3).optional(),
+  /** 읽기 렌즈의 인터랙티브 그림. 렌더러가 구조 JSON으로 그린다 */
+  widgets: z.array(widgetSchema).max(3).optional(),
 });
 
 export const sectionSchema = z.object({

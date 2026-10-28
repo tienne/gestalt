@@ -44,7 +44,7 @@ export const sourceFigureSchema = z.object({
   image: assetPath.optional(),
   unit: z.number().int().nonnegative(),
   /** 원문 그림 안의 장면 수. 세션이 크롭을 보고 `gestalt lens panels`로 적는다. C 재구성의 칸 수 상한이다 */
-  panels: z.number().int().min(1).max(10).optional(),
+  panels: z.number().int().min(1).max(12).optional(),
 });
 
 export const lensSourceSchema = z.object({

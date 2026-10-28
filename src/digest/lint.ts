@@ -2,6 +2,7 @@ import { isCellRef } from './lens-schema.js';
 import type { LensSource } from './lens-source.js';
 import { lintLensReport } from './lint-lens.js';
 import { lintLensContext, type KnowledgeContext } from './lint-lens-context.js';
+import { lintWidget } from './lens-widgets.js';
 import {
   boldPattern,
   isLensKind,
@@ -91,6 +92,14 @@ function collectReportText(report: Report, p: string): TextField[] {
         out.push({ path: `${path}.text`, text: bullet.text });
         if (bullet.doubt) out.push({ path: `${path}.doubt.note`, text: bullet.doubt.note });
       }
+      sub.widgets?.forEach((w, k) => {
+        const wp = `${bp}.widgets.${k}`;
+        out.push({ path: `${wp}.title`, text: w.title });
+        if (w.caption) out.push({ path: `${wp}.caption`, text: w.caption });
+        w.differences?.forEach((d, j) => {
+          if (d.trim()) out.push({ path: `${wp}.differences.${j}`, text: d });
+        });
+      });
     });
   });
   report.keywords.forEach((kw, ki) => {
@@ -157,6 +166,10 @@ function collectCites(report: Report, p: string): CiteField[] {
           if (!isCellRef(ev)) out.push({ path: `${path}.doubt.evidence.${k}.cite`, cite: ev.cite });
         });
       }
+      // 그림이 무엇을 설명하는지 가리키는 원문 자리다. 원문 어디든 된다
+      sub.widgets?.forEach((w, k) => {
+        out.push({ path: `${bp}.widgets.${k}.cite`, cite: w.cite });
+      });
       const shotWithin = { cite: sub.cite, code: 'SHOT_CITE_OUT_OF_SUBSECTION', name: '소섹션' };
       sub.shots?.forEach((shot, k) => {
         out.push({ path: `${bp}.shots.${k}.cite`, cite: shot.cite, within: shotWithin });
@@ -682,6 +695,7 @@ export function lintDigest(
     if (isLensKind(kind)) {
       lintLensReport(report, p, kind, transcript, opts.source ?? null, issues);
       lintLensContext(report, p, opts.knowledge, issues);
+      lintReportWidgets(report, p, transcript, opts.source ?? null, issues);
     }
   });
   lintExtensions(digest.extensions, transcript, issues, opts);
@@ -734,6 +748,29 @@ function lintReport(
   checkDuplicateIds(report, p, issues);
   checkVolume(report, p, issues);
   checkDiagramCount(report, p, issues);
+}
+
+function lintReportWidgets(
+  report: Report,
+  p: string,
+  transcript: Transcript,
+  source: LensSource | null,
+  issues: DigestIssue[],
+): void {
+  const unitText = (c: Cite) =>
+    transcript.segments
+      .slice(c.from, c.to + 1)
+      .map((s) => s.text)
+      .join(' ');
+  const allText = transcript.segments.map((s) => s.text).join(' ');
+  report.sections.forEach((section, si) => {
+    section.subsections.forEach((sub, bi) => {
+      sub.widgets?.forEach((w, k) => {
+        const wp = `${p}.sections.${si}.subsections.${bi}.widgets.${k}`;
+        lintWidget(w, wp, { source, unitText, allText }, issues);
+      });
+    });
+  });
 }
 
 export function lintErrors(issues: DigestIssue[]): DigestIssue[] {
