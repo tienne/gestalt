@@ -281,7 +281,14 @@ interface WebExtract {
   date: string;
   site: string;
   lang: string;
-  units: Array<{ i: number; role: 'para' | 'heading' | 'caption'; ref?: string; text: string }>;
+  units: Array<{
+    i: number;
+    role: 'para' | 'heading' | 'caption';
+    ref?: string;
+    text: string;
+    /** trafilatura가 버린 링크 목록을 원문 HTML에서 되살린 문단 */
+    rescued?: boolean;
+  }>;
   tables: LensSource['tables'];
 }
 
@@ -339,6 +346,7 @@ async function ingestWeb(
   const store = new DigestStore(opts.repoRoot);
   mkdirSync(join(store.dir(slug), 'cache'), { recursive: true });
   cpSync(htmlPath, join(store.dir(slug), 'cache', 'page.html'));
+  const rescued = x.units.filter((u) => u.rescued).length;
   const by = x.author || x.site || hostOf(url);
   const published = isoDate(x.date);
   const saved = saveAll(
@@ -377,7 +385,7 @@ async function ingestWeb(
     pages: 0,
     tables: saved.source.tables.map((t) => ({ id: t.id, grid: t.grid })),
     figures: [],
-    warnings: [],
+    warnings: rescued > 0 ? [`링크만으로 된 목록 ${rescued}개를 원문 HTML에서 되살렸어요`] : [],
     ...(saved.staleDigest ? { staleDigest: saved.staleDigest } : {}),
   };
 }
