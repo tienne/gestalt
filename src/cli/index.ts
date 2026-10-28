@@ -47,7 +47,12 @@ import {
   digestServeCommand,
   digestValidateCommand,
 } from './commands/digest.js';
-import { lensAttachCommand, lensIngestCommand, lensKnowledgeCommand } from './commands/lens.js';
+import {
+  lensAttachCommand,
+  lensIngestCommand,
+  lensKnowledgeCommand,
+  lensPanelsCommand,
+} from './commands/lens.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -297,6 +302,13 @@ export function createCli(): Command {
       (v: string, prev: string[] = []) => [...prev, v],
     )
     .action((slug, o, cmd) => lensKnowledgeCommand(slug, { ...lensInherited(cmd), ...o }));
+
+  lens
+    .command('panels <slug> <figure> <count>')
+    .description('원문 그림의 장면 수를 source.json에 적는다. C 재구성 슬라이더 칸 수의 상한이다')
+    .action((slug, figure, count, o, cmd) =>
+      lensPanelsCommand(slug, figure, count, { ...lensInherited(cmd), ...o }),
+    );
 
   lens
     .command('attach <slug> <file>')

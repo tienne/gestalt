@@ -4,6 +4,7 @@ import { LENS_SOURCES, type LensKind } from '../../digest/schema.js';
 import { attachContext } from '../../lens/attach.js';
 import { ingestLens } from '../../lens/ingest.js';
 import { findKnowledge } from '../../lens/knowledge.js';
+import { setFigurePanels } from '../../lens/panels.js';
 
 /**
  * `gestalt lens` — 읽기 렌즈 CLI. 논문 PDF와 웹 글, 팟캐스트를 문단 단위 원문으로 받는다.
@@ -105,6 +106,21 @@ export async function lensAttachCommand(
       for (const i of r.issues) console.log(`${i.severity} ${i.code} ${i.path}: ${i.message}`);
     }
     if (!r.saved) process.exitCode = 1;
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export async function lensPanelsCommand(
+  slug: string,
+  figure: string,
+  panels: string,
+  opts: LensCommonOptions,
+): Promise<void> {
+  try {
+    const r = setFigurePanels(rootOf(opts), slug, figure, Number(panels));
+    if (opts.json) console.log(JSON.stringify(r, null, 2));
+    else console.log(`${r.figure} 장면 ${r.panels}개를 적었어요: ${r.path}`);
   } catch (e) {
     fail(e);
   }

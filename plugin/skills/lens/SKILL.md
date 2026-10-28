@@ -120,6 +120,12 @@ gestalt lens ingest '<source>' --repo-root '<repoRoot>' [--kind '<kind>'] [--slu
 
 파이썬 모듈이 없다는 오류가 나면 오류에 실린 설치 명령을 보고에 적고 멈춘다. 설치를 대신 하지 않는다.
 
+**원문 그림의 장면 수를 적는다.** 수집 출력에 그림이 있으면 `figures/` 아래 크롭을 열어 그림 안 장면(단계, 패널) 수를 센다. 한 장짜리 그림이면 1이다. C 재구성 슬라이더가 이 수를 넘지 못한다.
+
+```bash
+gestalt lens panels '<slug>' '<figure-id>' <장면 수> --repo-root '<repoRoot>'
+```
+
 **이미 수집한 자료면 건너뛴다.** `slug`가 주어졌고 `<repoRoot>/.gestalt/digest/<slug>/source.json`이 있으면 ingest를 부르지 않는다.
 
 ## Step 2 — 리포트 작성
@@ -162,6 +168,9 @@ gestalt digest merge '<slug>' '<reportPath>' --json --repo-root '<repoRoot>'
 | `DOUBT_NUMBER_UNKNOWN`, `LIMIT_NUMBER_UNKNOWN` | 근거에 없는 숫자다 | `<sourcePath>`의 그 칸을 다시 열어 원문 꼴로 고친다. 계산한 값이면 지운다 |
 | `TABLE_REF_UNKNOWN`, `FIGURE_REF_UNKNOWN`, `CELL_REF_OUT_OF_RANGE` | 없는 표나 칸이다 | `source.json`의 id와 `rows` 자리로 고친다 |
 | `GLANCE_MISSING`, `LIMITS_MISSING` | 한눈에 보기 칸이나 한계 단락이 빠졌다 | 지침의 자료별 칸을 채운다 |
+| `WIDGET_VALUE_MISMATCH`, `WIDGET_VALUE_NO_SOURCE` | 그림 값이 원문 칸과 다르거나 출처가 없다 | 칸 글자를 그대로 숫자로 옮기고 `src`를 단다 |
+| `B_HAS_DATA`, `B_METRIC_LABEL`, `B_BORROWS_NAME`, `B_FIGURE_TITLE` | 설명용 그림이 원문 결과처럼 읽힌다 | 값과 지표 말, 원문 이름을 빼거나 C로 바꾼다 |
+| `C_DIFFERENCES_EMPTY`, `C_STEPS_EXCEED_PANELS`, `C_PANELS_UNKNOWN` | 재구성이 원문과 견줄 수 없다 | 다르게 그린 점을 적고 칸 수를 줄인다. 장면 수가 없으면 `gestalt lens panels`를 먼저 부른다 |
 
 경고(소섹션 수, 불릿 수, 도식 수, `INTRO_MISSING`)는 막지 않는다. 원문에 맞는 분량이면 그대로 둔다.
 
