@@ -6,10 +6,6 @@ import { gestaltNotify } from '../../../utils/notifier.js';
 import { deleteActiveSession } from '../../../execute/rule-writer.js';
 import type { IHostAdapter } from '../../host-adapter.js';
 import { log } from '../../../core/log.js';
-import {
-  EVOLVE_SUCCESS_THRESHOLD,
-  EVOLVE_GOAL_ALIGNMENT_THRESHOLD,
-} from '../../../core/constants.js';
 import { formatError, stripContextPrompts } from './utils.js';
 
 export function handleEvaluate(
@@ -67,8 +63,8 @@ export function handleEvaluate(
 
     const score = evaluationResult!.overallScore;
     const alignment = evaluationResult!.goalAlignment;
-    const success =
-      score >= EVOLVE_SUCCESS_THRESHOLD && alignment >= EVOLVE_GOAL_ALIGNMENT_THRESHOLD;
+    const thresholds = engine.getEvaluateThresholds();
+    const success = score >= thresholds.success && alignment >= thresholds.goalAlignment;
     gestaltNotify({
       event: success ? 'evaluation_success' : 'evaluation_failed',
       message: success
@@ -77,7 +73,7 @@ export function handleEvaluate(
     });
     const evalCompleteExtra = success
       ? {
-          hint: `구현 완료! score ≥ ${EVOLVE_SUCCESS_THRESHOLD}, alignment ≥ ${EVOLVE_GOAL_ALIGNMENT_THRESHOLD.toFixed(2)} 달성.`,
+          hint: `구현 완료! score ≥ ${thresholds.success}, alignment ≥ ${thresholds.goalAlignment.toFixed(2)} 달성.`,
         }
       : {
           nextAction: 'evolve',

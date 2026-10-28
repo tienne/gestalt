@@ -75,6 +75,26 @@ describe('loadConfig', () => {
     expect(config.execute.goalAlignmentThreshold).toBe(0.75);
   });
 
+  it('빈 값이나 공백뿐인 숫자 환경변수는 무시한다', () => {
+    const names = [
+      'GESTALT_RESOLUTION_THRESHOLD',
+      'GESTALT_MAX_ROUNDS',
+      'GESTALT_DRIFT_THRESHOLD',
+      'GESTALT_EVOLVE_SUCCESS_THRESHOLD',
+      'GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD',
+    ];
+    for (const value of ['', '  ']) {
+      for (const name of names) process.env[name] = value;
+      const config = loadConfig({}, opts);
+      expect(config.interview.resolutionThreshold).toBe(0.8);
+      expect(config.interview.maxRounds).toBe(15);
+      expect(config.execute.driftThreshold).toBe(0.6);
+      expect(config.execute.successThreshold).toBe(0.85);
+      expect(config.execute.goalAlignmentThreshold).toBe(0.8);
+    }
+    for (const name of names) delete process.env[name];
+  });
+
   it('returns defaults when no config sources exist', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     delete process.env['GESTALT_MODEL'];

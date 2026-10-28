@@ -4,6 +4,7 @@ import type {
   InterviewSession,
   InterviewRound,
   ResolutionScore,
+  ResolutionSignals,
   ProjectType,
   GestaltPrinciple,
   CompressedContext,
@@ -16,7 +17,14 @@ import { RESOLUTION_THRESHOLD } from '../core/constants.js';
  * 도메인 전용 Repository: aggregate_type='interview' 이벤트만 처리.
  */
 export class InterviewSessionRepository {
-  constructor(private eventStore: IEventStore) {}
+  /**
+   * @param resolutionThreshold isReady가 저장되지 않은 옛 ambiguity 이벤트를 읽을 때만 쓴다.
+   *   그 밖의 채점 이벤트는 저장된 isReady를 다시 계산하지 않는다
+   */
+  constructor(
+    private eventStore: IEventStore,
+    private resolutionThreshold: number = RESOLUTION_THRESHOLD,
+  ) {}
 
   /**
    * 이벤트를 fold하여 InterviewSession 상태를 완전히 복원한다.
@@ -117,6 +125,10 @@ export class InterviewSessionRepository {
           isReady: payload.isReady as boolean,
           dimensions: (payload.dimensions as ResolutionScore['dimensions']) ?? [],
           ...(contradictions.length > 0 && { contradictions }),
+          ...(typeof payload.threshold === 'number' && { threshold: payload.threshold }),
+          ...(payload.signals != null && {
+            signals: payload.signals as ResolutionSignals,
+          }),
         };
 
         if (contradictions.length > 0) {
@@ -132,6 +144,15 @@ export class InterviewSessionRepository {
         }
         break;
       }
+      case EventType.INTERVIEW_RESOLUTION_RESCORED: {
+        const score = session.resolutionScore;
+        if (score) {
+          score.isReady = payload.isReady as boolean;
+          score.signals = payload.signals as ResolutionSignals;
+        }
+        break;
+      }
+
       // Backward compatibility: old ambiguity score was inverted (low = clear)
       // Convert to resolution score by inverting: resolution = 1 - ambiguity
       case 'interview.ambiguity.scored' as EventType: {
@@ -139,7 +160,7 @@ export class InterviewSessionRepository {
         const resolution = 1 - ambiguity;
         session.resolutionScore = {
           overall: resolution,
-          isReady: resolution >= RESOLUTION_THRESHOLD,
+          isReady: resolution >= this.resolutionThreshold,
           dimensions: (payload.dimensions as ResolutionScore['dimensions']) ?? [],
         };
         break;

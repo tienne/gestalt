@@ -6,17 +6,27 @@ import type {
   ProjectType,
   GestaltPrinciple,
   CompressedContext,
+  RescoreResult,
 } from '../core/types.js';
 import {
   SessionNotFoundError,
   SessionAlreadyCompletedError,
   InterviewNotReadyError,
 } from '../core/errors.js';
-import { DEFAULT_SESSION_TTL_MS, RESOLUTION_THRESHOLD } from '../core/constants.js';
+import {
+  DEFAULT_SESSION_TTL_MS,
+  READINESS_RULE_VERSION,
+  RESOLUTION_THRESHOLD,
+} from '../core/constants.js';
 import { logger } from '../core/logger.js';
 import type { IEventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { InterviewSessionRepository } from './repository.js';
+import { computeSignals } from '../gestalt/signals.js';
+import type { InterviewConfig } from '../core/config.js';
+import type { RescoreState } from './rescore.js';
+
+export type InterviewOptions = Partial<InterviewConfig>;
 
 /**
  * 인터뷰 세션의 인메모리 캐시. 기준은 이벤트 스토어다.
@@ -29,9 +39,14 @@ export class SessionManager {
   private sessions = new Map<string, InterviewSession>();
   private eventCounts = new Map<string, number>();
   private repo: InterviewSessionRepository;
+  private resolutionThreshold: number;
 
-  constructor(private eventStore: IEventStore) {
-    this.repo = new InterviewSessionRepository(eventStore);
+  constructor(
+    private eventStore: IEventStore,
+    options: InterviewOptions = {},
+  ) {
+    this.resolutionThreshold = options.resolutionThreshold ?? RESOLUTION_THRESHOLD;
+    this.repo = new InterviewSessionRepository(eventStore, this.resolutionThreshold);
   }
 
   /**
@@ -178,6 +193,8 @@ export class SessionManager {
 
   updateResolutionScore(sessionId: string, score: ResolutionScore): void {
     const session = this.get(sessionId);
+    score.threshold ??= this.resolutionThreshold;
+    score.signals = computeSignals(session, score, session.resolutionScore);
     session.resolutionScore = score;
     session.updatedAt = new Date().toISOString();
 
@@ -193,7 +210,47 @@ export class SessionManager {
       dimensions: score.dimensions,
       contradictions: score.contradictions ?? [],
       roundNumber: currentRound?.roundNumber ?? null,
+      threshold: score.threshold,
+      readinessRuleVersion: READINESS_RULE_VERSION,
+      signals: score.signals,
     });
+  }
+
+  /** 다시 채점하기가 어디까지 왔는지. 지금 들어온 채점을 기록하기 전에 부른다 */
+  rescoreState(sessionId: string): RescoreState {
+    const session = this.get(sessionId);
+    if (session.resolutionScore?.signals?.rescore) return 'done';
+    const crossed = this.eventStore.replay('interview', sessionId).some((e) => {
+      if (e.eventType !== EventType.INTERVIEW_RESOLUTION_SCORED) return false;
+      const payload = e.payload as { overall?: unknown; threshold?: unknown };
+      const threshold =
+        typeof payload.threshold === 'number' ? payload.threshold : this.resolutionThreshold;
+      return typeof payload.overall === 'number' && payload.overall >= threshold;
+    });
+    return crossed ? 'pending' : 'none';
+  }
+
+  /** 다시 채점한 결과를 지금 점수에 붙이고 판정을 갱신한다 */
+  recordRescore(sessionId: string, rescore: RescoreResult, isReady: boolean): ResolutionScore {
+    const session = this.get(sessionId);
+    const score = session.resolutionScore;
+    if (!score) throw new Error(`다시 채점할 점수가 없습니다: ${sessionId}`);
+    score.isReady = isReady;
+    score.signals = { ...(score.signals ?? computeSignals(session, score, null)), rescore };
+    session.updatedAt = new Date().toISOString();
+
+    this.record(sessionId, EventType.INTERVIEW_RESOLUTION_RESCORED, {
+      rescore,
+      isReady,
+      readinessRuleVersion: READINESS_RULE_VERSION,
+      signals: score.signals,
+    });
+    return score;
+  }
+
+  /** 다시 채점 호출이 실패한 사실만 남긴다. 판정과 상태는 그대로라 gate면 다음에 기준값을 넘을 때 다시 요청하고 record면 다시 요청하지 않는다 */
+  recordRescoreFailure(sessionId: string, error: string): void {
+    this.record(sessionId, EventType.INTERVIEW_RESOLUTION_RESCORE_FAILED, { error });
   }
 
   setCompressedContext(sessionId: string, compressedContext: CompressedContext): void {
@@ -209,12 +266,20 @@ export class SessionManager {
     if (session.status !== 'in_progress') {
       throw new SessionAlreadyCompletedError(sessionId);
     }
-    const ready = session.resolutionScore?.isReady === true;
+    const score = session.resolutionScore;
+    const ready = score?.isReady === true;
     if (!ready && !options.force) {
-      throw new InterviewNotReadyError(
-        session.resolutionScore?.overall ?? null,
-        RESOLUTION_THRESHOLD,
-      );
+      // threshold가 비어 있는 점수는 다시 채점이 생기기 전 이벤트라 예전 상수로 판정된 값이다
+      const threshold =
+        score?.threshold ?? (score ? RESOLUTION_THRESHOLD : this.resolutionThreshold);
+      // 기준값이 기록된 점수가 기준값을 넘었는데 준비가 안 된 건 gate가 다시 채점을 기다리거나 결과로 보류한 경우뿐이다
+      const hold =
+        score?.threshold !== undefined && score.overall >= score.threshold
+          ? score.signals?.rescore
+            ? 'held'
+            : 'pending'
+          : undefined;
+      throw new InterviewNotReadyError(score?.overall ?? null, threshold, hold);
     }
     const forced = !ready;
 

@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.107.0] - 2026-10-28
+
+### Added
+
+- **해상도 점수 옆에 서버가 직접 센 신호를 남겨요.** 점수는 호스트 LLM이 쓴 0~1 숫자라 같은 질문을 다시 해도 값이 바뀌고 결과와 맞춰본 기록도 없었어요. 안 물은 차원, 빈 라운드, 위임 답변, 점수 점프를 세서 채점 이벤트와 `ges_status`에 남기고 `specHistory`에도 해상도 점수를 기록해요. 판정에 쓴 기준값과 판정 규칙 버전(`READINESS_RULE_VERSION = 1`)도 같이 남아요.
+- **기준값을 처음 넘은 채점을 한 번 더 받아요.** `score`와 `respond` 응답이 `nextAction: "rescore"`를 돌려주고 두 점수 차이를 `interview.resolution.rescored` 이벤트로 남겨요. `interview.rescore` 설정의 `gate` 모드는 다시 채점을 받기 전까지 판정을 보류해요. 기본은 `record`라 판정은 그대로예요. API 키 경로는 같은 채점기를 한 번 더 부르고 실패하면 `interview.rescore.failed` 경고만 남기고 인터뷰를 이어가요.
+- **결과 표 스크립트를 더했어요.** `benchmarks/resolution-calibration.ts`가 outcome CSV로 점수 구간별, 신호별 비율 표를 만들어요. 표본이 20개 미만인 칸은 표본 부족으로 적어요.
+
+### Changed
+
+- **`interview.resolutionThreshold`와 `GESTALT_RESOLUTION_THRESHOLD`가 실제 판정에 반영돼요.** 전에는 판정 코드가 상수 0.8을 직접 읽어서 설정을 바꿔도 무시됐어요. 이 환경변수를 이미 걸어둔 환경은 이번 버전부터 판정이 달라질 수 있어요. 인터뷰 판정과 스펙 생성, 평가 종료 판정이 설정값을 써요. 완료를 거절할 때 `threshold`가 안 남은 예전 점수는 안내 문구에 예전 상수 0.8을 그대로 보여줘요.
+- **합의 프롬프트에서 관점별 확신도 숫자를 뺐어요.** 스펙 파서가 빠진 확신도를 0.5로 채우던 것도 없앴어요. `confidence` 필드는 선택값이고 `ges_execute` 입력의 `perspectives[].confidence`도 선택값이에요.
+- **문구의 임계값을 기준값으로 맞췄어요.** interview, spec, solve 스킬과 설정 문서, MCP 레퍼런스가 같은 말을 써요. `force` 설명에는 gate가 보류한 세션도 `force: true`로 완료할 수 있다고 적었어요.
+
+### Fixed
+
+- **passthrough 경로에서 라운드의 `gestaltFocus`가 늘 closure로 남던 문제를 고쳤어요.** 안 물은 차원 신호가 이 값에 기대서 `GESTALT_PRINCIPLE_APPLIED` 이벤트의 `appliedPrinciple`로 채워요.
+- **숫자 환경변수의 빈 값이 0으로 읽히던 문제를 고쳤어요.** 빈 값은 무시하고 기본값을 써요. `GESTALT_RESOLUTION_THRESHOLD`를 비워 두면 기준값이 0이 돼서 gate가 꺼지는 경로였어요.
+
+### 검증 범위
+
+- 로컬 리뷰를 7라운드 돌렸어요. 상한 5라운드를 넘겨 6, 7라운드는 승인받아 진행했어요. 첫 라운드는 코멘트 8개에 high 2개였고 6라운드에서 high 3개가 나왔어요. 7라운드는 high 0개에 문구 어긋남 3개만 남았어요. 수정 커밋은 48개예요.
+- 6, 7라운드 수정분은 리뷰를 다시 안 돌리고 `pnpm gate`만 거쳤어요. 4라운드부터 보안과 성능 리뷰어는 뺐어요.
+- 머지한 `main`에서 `pnpm gate`가 321개 파일, 5976개 테스트로 통과했어요.
+
+### 남긴 것
+
+- README, `CLAUDE.md`, screen-chain의 "≥ 0.8" 표기는 기준값을 바꿔 쓰는 환경에서 어긋나 보여요. 범위가 넓어서 후속으로 남겼어요.
+- CLI `belowThresholdPrompt`는 `isReady`가 아니면 전부 "Resolution is below N"이라고 물어요. gate가 보류한 세션에도 같은 문구가 나가요.
+- `rescoreState`가 `threshold` 없는 이벤트를 repository 기준값으로 읽는 부분은 그대로 뒀어요.
+- 실제 호스트에서 `nextAction: "rescore"`를 받아 서브에이전트로 다시 채점하는 흐름과 gate 보류 중 사용자 화면은 단위 테스트로만 확인했어요.
+- 부하가 큰 머신에서 `tests/unit/harness-review`의 clone 테스트나 vitest 워커 응답이 5초 타임아웃으로 가끔 흔들려요. 단독으로 돌리면 통과해요.
+
+## [0.106.0] - 2026-10-28
+
+### Added
+
+- **handoff 스킬로 원격 머신(페어링된 Orca 서버)에 일을 맡길 수 있어요.** 전에는 두 스킬 어디에도 `--environment`나 `--on`이 없어서 원격에 맡기려면 orca 명령을 손으로 불러야 했어요.
+  - 1단계 표에 원격 머신 행을 넣었어요. 오래 걸리거나 이 머신 자원을 많이 쓰는 일, 저쪽에만 있는 레포나 환경이 필요한 일에 써요. 원격에서는 하위 워크트리가 안 돼서 독립 워크트리로 떠요.
+  - 4단계에 원격 소절을 넣었어요. 감독형은 `worker-start --on <서버>`에 원격 레포 선택자를 정확히 넣고 띄운 뒤에는 Dispatch ID로만 따라가요. full handoff는 모든 명령에 `--environment`를 붙여요.
+  - 대상 종류를 헷갈리지 않게 SSH 대상(`--host ssh:<id>`)과 페어링된 서버(`--environment <이름>`)를 나눠 적었어요. 둘을 바꿔 넣는 게 가장 흔한 실수예요.
+  - 에러 표에 `nested_worker_depth_exceeded`(디스패치된 워커는 하위 워커를 못 띄워요), `consumer_fenced`(자기 Run에만 띄울 수 있어요), 원격이 안 닿을 때, `unverifiable`, 오래된 원격 클론을 더했어요.
+- **dispatch 스킬은 원격 서버로 태스크를 뿌리지 않아요.** dispatch는 같은 브랜치 안의 병렬이라 원격 워크트리와 맞지 않아요. 원격에 맡길 일은 handoff로 보내라고 적었어요.
+
+### Changed
+
+- **읽기 렌즈 제안 문서를 더했어요.** 논문과 웹 글, 팟캐스트를 문장마다 출처가 달린 뷰어로 읽게 하는 `/lens` 설계예요. 모델이 쓴 그림을 받지 않고 렌더러가 구조 JSON으로 그리며 원문 데이터 그림과 재구성 그림을 배지로 나눠요. 영상 요약 제안 문서에서는 참고 서비스 이름을 뺐어요.
+- **검증 루프와 기존 버그 제안 문서를 더하고 evolve 회귀 테스트를 채웠어요(#83, #84).** evolve 뒤 재평가 점수가 실행 기록에 남는지, 영향 태스크를 고를 때 설정한 드리프트 임계값이 쓰이는지 확인해요.
+
+### 검증 범위
+
+- 원격 서버 `윤학 home`에 haiku 워커를 하나 띄워 원격 경로를 돌려봤어요. 워크트리가 원격 origin main 최신에서 만들어졌고 접수증의 requested와 effective가 같았어요.
+- `pnpm gate`가 315개 파일, 5913개 테스트로 통과했어요.
+
+### 남긴 것
+
+- 원격에서 effort가 전달되는지는 haiku가 effort를 안 받아서 확인 못 했어요.
+- full handoff 원격 경로(`worktree create`부터 `terminal send`까지 `--environment`를 붙이는 흐름)는 직접 돌려보지 않았어요. 문서에는 오르카 가이드 기준으로 적었어요.
+
 ## [0.105.0] - 2026-10-27
 
 ### Changed

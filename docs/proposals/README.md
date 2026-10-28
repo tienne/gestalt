@@ -1,6 +1,6 @@
 # 인터뷰에서 검증까지 강화 제안
 
-인터뷰, 스펙, 실행, 평가, 진화로 이어지는 흐름에서 검증이 구현 에이전트의 자기 보고에 기대는 자리를 줄이려는 설계 묶음이다. 문서 일곱 개는 각자 혼자 읽히게 썼고 이 파일은 문서끼리 겹치는 자리와 전체 순서만 다룬다.
+인터뷰, 스펙, 실행, 평가, 진화로 이어지는 흐름에서 검증이 구현 에이전트의 자기 보고에 기대는 자리를 줄이려는 설계 묶음이다. 문서 여덟 개는 각자 혼자 읽히게 썼고 이 파일은 문서끼리 겹치는 자리와 전체 순서만 다룬다.
 
 ## 문서
 
@@ -12,6 +12,7 @@
 | [execute-drift-breaker.md](./execute-drift-breaker.md) | Execute                 | 태스크별 작업 트리 기준점 위에서 diff로 드리프트를 재고 같은 태스크가 연속 실패하면 끊는다          |
 | [interview-grounding.md](./interview-grounding.md)     | Interview, Spec, Evolve | 브라운필드 인터뷰에 관련 코드를 넣고 끝날 때 남은 가정을 목록으로 뽑아 Evolve까지 들고 간다         |
 | [outcome-feedback.md](./outcome-feedback.md)           | 머지 뒤                 | 스펙과 커밋을 이어 리뷰 라운드와 재작업을 모으고 Memory와 벤치마크로 돌려보낸다                      |
+| [resolution-calibration.md](./resolution-calibration.md) | Interview, 머지 뒤 | 해상도 점수 옆에 서버가 세는 신호와 다시 채점한 흔들림을 남기고 실제 결과와 구간별로 맞춰본 뒤에만 판정 규칙을 옮긴다 |
 | [verification-loop.md](./verification-loop.md)         | Spec, Execute, Evaluate, Evolve | 속성 테스트와 차분 테스트를 AC에 담고 변이(`mutation`)로 테스트 판별력을 본다. 검사를 fast와 gate로 나누고 실패 출력을 줄이며 흔들리는 검사와 E2E 기능 지도를 다룬다 |
 
 공통 계약은 `ac-verification.md`의 `AcceptanceCriterion` 하나다. 나머지 문서는 이 타입이 들어온다고 보고 썼다.
@@ -92,6 +93,7 @@ Evolve 프롬프트의 절 순서는 바꾸지 않는다. 흔들린 검사와 �
 | `execute.driftThreshold`와 `GESTALT_DRIFT_THRESHOLD`가 엔진에 전달되지 않아 늘 상수 0.6으로 돈다. 문서는 기본값을 0.3으로 적고 있다 | execute-drift-breaker.md 파트 0                      | 설정이 먹지 않는다. 고치면 0.3으로 설정해 둔 사용자는 retrospective가 훨씬 자주 뜬다      |
 | 스펙 생성기가 Zod 검증 결과(`validation.data`)가 아니라 검증 전 객체를 돌려준다                                                     | ac-verification.md 배경                              | 스키마의 transform이 결과에 안 실린다. `resolutionScore` 하위 호환 변환이 지금도 무시된다 |
 | evolve로 AC를 추가하면 평가 프롬프트에는 새 AC가 안 보이는데 서버는 그 인덱스까지 검증하라고 요구한다                               | ac-verification.md 배경                              | AC를 추가한 패치 뒤 평가가 막힌다                                                         |
+| `interview.resolutionThreshold`와 Evaluate 기준값 설정이 판정 코드에 안 들어가고 상수 0.8, 0.85, 0.8로만 돈다 | resolution-calibration.md 파트 1 | 설정이 먹지 않는다. 고치면 `GESTALT_RESOLUTION_THRESHOLD`를 걸어 둔 사용자의 판정이 바뀐다 |
 | `addExecution`이 같은 세션을 건너뛰어 evolve 뒤 재평가 점수가 Memory에 반영되지 않는다                                              | outcome-feedback.md 배경                             | `executionHistory`가 첫 평가 점수에 고정된다                                              |
 | `evolve_re_execute`에서 `failed`를 계속 내면 같은 태스크가 끝없이 돌아온다                                                          | execute-drift-breaker.md 배경                        | 서버 쪽 무한 루프가 가능하다                                                              |
 | `getCurrentTask`는 실패한 의존을 해소로 보고 `computeReadyTaskIds`는 안 본다                                                        | ac-test-first.md, execute-drift-breaker.md 열린 질문 | 순차 경로와 병렬 경로가 다음 태스크를 다르게 고른다                                       |
@@ -120,8 +122,11 @@ Evolve 프롬프트의 절 순서는 바꾸지 않는다. 흔들린 검사와 �
     verification-loop PR 6 (변이 검사 report 모드, listChangedSince 뒤)
       │
 [6] outcome-feedback PR 1 ~ 6
+    resolution-calibration PR 2 ~ 5 (신호 기록, 다시 채점하기, LLM 확신도 숫자 정리, 결과 표)
+      │                              ← PR 2 ~ 4는 [0] 다음이면 언제든. PR 5만 outcome-feedback PR 6 뒤
       │
-[7] 데이터가 쌓인 뒤: 드리프트 blend, acCheckMode enforce 기본값, selfGraded 임계값, 변이 검사를 점수에 넣을지
+[7] 데이터가 쌓인 뒤: 드리프트 blend, acCheckMode enforce 기본값, selfGraded 임계값, 변이 검사를 점수에 넣을지,
+    해상도 신호 게이트와 다시 채점하기 gate 모드
 ```
 
 몇 가지 기준으로 이 순서를 잡았다.

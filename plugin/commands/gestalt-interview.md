@@ -1,7 +1,8 @@
 # /gestalt-interview
 
 Clarify vague requirements through a Gestalt-principle interview until the
-resolution score reaches 0.8.
+resolution score reaches the configured threshold
+(`interview.resolutionThreshold`, default 0.8).
 
 ## Arguments
 

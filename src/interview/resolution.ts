@@ -1,12 +1,38 @@
 import type { ResolutionScore, InterviewRound, ProjectType } from '../core/types.js';
 import { computeResolutionScore } from '../gestalt/analyzer.js';
-import { buildResolutionPrompt, INTERVIEW_SYSTEM_PROMPT } from '../llm/prompts.js';
+import { RESOLUTION_THRESHOLD } from '../core/constants.js';
+import {
+  buildResolutionPrompt,
+  buildRescorePrompt,
+  INTERVIEW_SYSTEM_PROMPT,
+} from '../llm/prompts.js';
 import type { LLMAdapter } from '../llm/types.js';
 
 export class ResolutionScorer {
-  constructor(private llm: LLMAdapter) {}
+  constructor(
+    private llm: LLMAdapter,
+    private threshold: number = RESOLUTION_THRESHOLD,
+  ) {}
 
   async score(
+    topic: string,
+    rounds: InterviewRound[],
+    projectType: ProjectType,
+  ): Promise<ResolutionScore> {
+    return this.scoreWith(buildResolutionPrompt, topic, rounds, projectType);
+  }
+
+  /** 다시 채점할 차례인 채점을 같은 모델로 한 번 더 받는다. 새 호출이라 앞 채점을 못 본다 */
+  async rescore(
+    topic: string,
+    rounds: InterviewRound[],
+    projectType: ProjectType,
+  ): Promise<ResolutionScore> {
+    return this.scoreWith(buildRescorePrompt, topic, rounds, projectType);
+  }
+
+  private async scoreWith(
+    buildPrompt: typeof buildResolutionPrompt,
     topic: string,
     rounds: InterviewRound[],
     projectType: ProjectType,
@@ -17,10 +43,11 @@ export class ResolutionScorer {
         overall: 0.0,
         dimensions: [],
         isReady: false,
+        threshold: this.threshold,
       };
     }
 
-    const prompt = buildResolutionPrompt(
+    const prompt = buildPrompt(
       topic,
       answeredRounds.map((r) => ({
         question: r.question,
@@ -36,7 +63,7 @@ export class ResolutionScorer {
     });
 
     const raw = parseResolutionResponse(response.content, projectType);
-    return computeResolutionScore(raw, projectType);
+    return computeResolutionScore(raw, projectType, this.threshold);
   }
 }
 

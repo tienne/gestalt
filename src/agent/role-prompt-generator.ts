@@ -25,8 +25,7 @@ As a **${agent.frontmatter.name}** (${agent.frontmatter.description}), provide y
 Focus on your domain expertise and provide actionable guidance. Respond with ONLY a JSON object:
 {
   "agentName": "${agent.frontmatter.name}",
-  "perspective": "Your detailed perspective and recommendations",
-  "confidence": 0.85
+  "perspective": "Your detailed perspective and recommendations"
 }`,
     }));
   }
