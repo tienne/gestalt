@@ -284,7 +284,7 @@ describe('내 지식 찾기', () => {
     expect(all.hits.map((h) => h.path).every((p) => !/dist|build|vendor/.test(p))).toBe(true);
     expect(all).toMatchObject({
       totalHits: 4,
-      truncated: { files: false, bytes: false, hits: false },
+      truncated: { files: false, bytes: false, hits: false, large: false },
     });
 
     const fewHits = searchNotes([notes], ['FlavorGraph'], { files: 10, totalBytes: 1e6, hits: 2 });
@@ -298,6 +298,17 @@ describe('내 지식 찾기', () => {
       searchNotes([notes], ['FlavorGraph'], { files: 10, totalBytes: 20, hits: 40 }).truncated
         .bytes,
     ).toBe(true);
+  });
+
+  it('1MB 넘는 노트는 읽지 않고 건너뛰었다고 알린다', () => {
+    const root = tmp();
+    const notes = join(root, 'notes');
+    mkdirSync(notes);
+    writeFileSync(join(notes, 'small.md'), 'FlavorGraph 작은 노트\n');
+    writeFileSync(join(notes, 'big.md'), `FlavorGraph 큰 노트\n${'x'.repeat(1024 * 1024)}`);
+    const found = searchNotes([notes], ['FlavorGraph']);
+    expect(found.hits.map((h) => h.path)).toEqual([join(notes, 'small.md')]);
+    expect(found.truncated.large).toBe(true);
   });
 
   it('합친 정규식으로 거른 뒤에도 말 경계를 그대로 지킨다', () => {
@@ -327,7 +338,13 @@ describe('내 지식 찾기', () => {
     expect(file.terms).toContain('FlavorDiffusion');
     expect(file.hits[0]?.line).toBe(1);
     expect(file.totalHits).toBe(file.hits.length);
-    expect(file.truncated).toEqual({ files: false, bytes: false, hits: false, terms: false });
+    expect(file.truncated).toEqual({
+      files: false,
+      bytes: false,
+      hits: false,
+      terms: false,
+      large: false,
+    });
   });
 
   it('잘림 칸이 없는 옛 knowledge.json도 읽는다', () => {

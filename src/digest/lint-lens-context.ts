@@ -25,7 +25,13 @@ export const knowledgeFileSchema = z.object({
    * hits는 실은 줄 수, terms는 찾을 말 수 상한이다. 옛 파일에는 없다
    */
   truncated: z
-    .object({ files: z.boolean(), bytes: z.boolean(), hits: z.boolean(), terms: z.boolean() })
+    .object({
+      files: z.boolean(),
+      bytes: z.boolean(),
+      hits: z.boolean(),
+      terms: z.boolean(),
+      large: z.boolean().optional(),
+    })
     .optional(),
 });
 

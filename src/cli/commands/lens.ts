@@ -119,10 +119,11 @@ export async function lensKnowledgeCommand(
     console.log(`찾은 말: ${file.terms.join(', ')}`);
     console.log(`겹치는 줄 ${file.hits.length}개`);
     const cut = file.truncated;
-    if (cut && (cut.files || cut.bytes || cut.hits || cut.terms)) {
+    if (cut && (cut.files || cut.bytes || cut.hits || cut.terms || cut.large)) {
       const why = [
         cut.files && '노트 파일 수 상한에 닿음',
         cut.bytes && '읽기 크기 상한에 닿음',
+        cut.large && '1MB 넘는 노트를 건너뜀',
         cut.hits && `겹치는 줄 ${file.totalHits ?? '?'}개 중 ${file.hits.length}개만 실음`,
         cut.terms && `찾을 말을 ${file.terms.length}개로 자름`,
       ].filter(Boolean);
@@ -191,14 +192,20 @@ export async function lensNotesCommand(
       return;
     }
     if (action === 'detect') {
-      const { candidates, partialBases } = detectNoteFolders({
+      const { candidates, totalCandidates, partialBases } = detectNoteFolders({
         repoRoot: rootOf(opts),
         scan: opts.scan,
       });
       const notionApp = notionAppInstalled();
       const partial = partialBases.length > 0;
       if (opts.json)
-        console.log(JSON.stringify({ candidates, notionApp, partial, partialBases }, null, 2));
+        console.log(
+          JSON.stringify(
+            { candidates, totalCandidates, notionApp, partial, partialBases },
+            null,
+            2,
+          ),
+        );
       else if (candidates.length === 0) console.log('노트 폴더 후보를 못 찾았어요');
       else {
         for (const c of candidates) {
@@ -206,6 +213,8 @@ export async function lensNotesCommand(
           const count = c.notesCapped ? `${c.notes}개 넘음` : `${c.notes}개`;
           console.log(`${c.path}${mark} (${c.reason}) 노트 ${count}, 최근: ${c.recent.join(', ')}`);
         }
+        if (totalCandidates > candidates.length)
+          console.log(`후보 ${totalCandidates}개 중 ${candidates.length}개만 보여요`);
       }
       if (!opts.json && partial)
         console.log(`일부 폴더는 끝까지 못 훑었어요: ${partialBases.join(', ')}`);

@@ -101,6 +101,20 @@ describe('노트 폴더 탐지', () => {
     expect(partialBases).toEqual([repo, join(root, 'x')]);
   });
 
+  it('후보가 10개를 넘으면 10개만 내고 자르기 전 개수를 함께 준다', () => {
+    const root = tmp();
+    const other = join(root, 'other');
+    for (let i = 0; i < 12; i++) notes(join(other, `p${i}`, 'kb'), ['1.md', '2.md', '3.md']);
+    const { candidates, totalCandidates } = detectNoteFolders({
+      repoRoot: join(root, 'nowhere'),
+      home: join(root, 'home'),
+      scan: [other],
+      userFile: join(root, 'lens.json'),
+    });
+    expect(candidates).toHaveLength(10);
+    expect(totalCandidates).toBe(12);
+  });
+
   it('노트가 상한보다 많으면 세다 멈추고 notesCapped를 단다', () => {
     const root = tmp();
     const kb = join(root, 'repo', 'kb');

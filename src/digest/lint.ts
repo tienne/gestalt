@@ -760,16 +760,17 @@ function lintReport(
  */
 function checkLensFieldsOnVideo(report: Report, p: string, issues: DigestIssue[]): void {
   const found: string[] = [];
-  if (report.lead.glance) found.push(`${p}.lead.glance`);
-  if (report.limits) found.push(`${p}.limits`);
-  if (report.cards) found.push(`${p}.cards`);
-  if (report.links) found.push(`${p}.links`);
+  // 빈 배열은 아무것도 그리지 않으니 길이로 본다. 형식을 맞추려고 []를 채운 영상 리포트까지 막지 않는다
+  if (report.lead.glance?.length) found.push(`${p}.lead.glance`);
+  if (report.limits?.length) found.push(`${p}.limits`);
+  if (report.cards?.length) found.push(`${p}.cards`);
+  if (report.links?.length) found.push(`${p}.links`);
   report.sections.forEach((section, si) => {
     section.subsections.forEach((sub, bi) => {
       const bp = `${p}.sections.${si}.subsections.${bi}`;
-      if (sub.tables) found.push(`${bp}.tables`);
-      if (sub.figures) found.push(`${bp}.figures`);
-      if (sub.widgets) found.push(`${bp}.widgets`);
+      if (sub.tables?.length) found.push(`${bp}.tables`);
+      if (sub.figures?.length) found.push(`${bp}.figures`);
+      if (sub.widgets?.length) found.push(`${bp}.widgets`);
       for (const { bullet, path } of walkBullets(sub.bullets, `${bp}.bullets`)) {
         if (bullet.doubt) found.push(`${path}.doubt`);
       }

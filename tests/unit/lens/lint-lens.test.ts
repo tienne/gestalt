@@ -160,6 +160,22 @@ describe('읽기 렌즈 lint', () => {
     ).toBe(false);
   });
 
+  it('영상 리포트의 렌즈 칸이 빈 배열이면 LENS_FIELD_ON_VIDEO를 내지 않는다', () => {
+    const d = sampleDigest();
+    const report = d.reports[0]!;
+    report.lead.glance = [];
+    report.limits = [];
+    report.cards = [];
+    report.links = [];
+    const sub = report.sections[0]!.subsections[0]!;
+    sub.tables = [];
+    sub.figures = [];
+    sub.widgets = [];
+    expect(lintDigest(d, sampleTranscript()).some((i) => i.code === 'LENS_FIELD_ON_VIDEO')).toBe(
+      false,
+    );
+  });
+
   it('numbersIn은 천 단위 쉼표를 지우고 이름에 붙은 숫자는 세지 않는다', () => {
     expect(numbersIn('표 4의 6,653개와 0.2862, CSP2와 v3')).toEqual([4, 6653, 0.2862]);
     expect(numbersIn('제3자가 확인하지 않았다')).toEqual([]);

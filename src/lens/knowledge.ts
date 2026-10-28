@@ -149,8 +149,8 @@ export interface NoteSearch {
   hits: KnowledgeFile['hits'];
   /** 자르기 전 겹친 줄 수 */
   totalHits: number;
-  /** 파일 수나 읽기 크기, 겹친 줄 상한에 닿아 일부만 봤는지 */
-  truncated: { files: boolean; bytes: boolean; hits: boolean };
+  /** 파일 수나 읽기 크기, 겹친 줄 상한에 닿아 일부만 봤는지. large는 1MB 넘는 노트를 건너뛰었는지다 */
+  truncated: { files: boolean; bytes: boolean; hits: boolean; large: boolean };
 }
 
 /** limits는 테스트가 작은 상한을 넘길 때만 준다 */
@@ -159,7 +159,7 @@ export function searchNotes(
   terms: string[],
   limits: NoteSearchLimits = SEARCH_LIMITS,
 ): NoteSearch {
-  const truncated = { files: false, bytes: false, hits: false };
+  const truncated = { files: false, bytes: false, hits: false, large: false };
   if (terms.length === 0) return { hits: [], totalHits: 0, truncated };
   const patterns = terms.map((t) => ({ t, re: new RegExp(bounded(escapeRe(t)), 'i') }));
   // 말을 하나로 합친 정규식으로 파일 전체를 먼저 걸러 걸린 파일만 줄마다 말별로 본다
@@ -171,7 +171,10 @@ export function searchNotes(
       let text: string;
       try {
         const size = statSync(file).size;
-        if (size > MAX_FILE_BYTES) continue;
+        if (size > MAX_FILE_BYTES) {
+          truncated.large = true;
+          continue;
+        }
         if (bytes + size > limits.totalBytes) {
           truncated.bytes = true;
           break scan;

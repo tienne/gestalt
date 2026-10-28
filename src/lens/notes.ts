@@ -285,6 +285,8 @@ export interface DetectOptions {
 
 export interface DetectResult {
   candidates: NoteFolderCandidate[];
+  /** 10개로 자르기 전 후보 수 */
+  totalCandidates: number;
   /** 몫을 다 써서 끝까지 못 훑은 바탕 폴더. 여기 든 폴더 안의 후보는 빠졌을 수 있다 */
   partialBases: string[];
 }
@@ -314,5 +316,9 @@ export function detectNoteFolders(opts: DetectOptions): DetectResult {
     if (s.notes < MIN_NOTES) continue;
     out.push({ path: p, reason: found.get(p)!, ...s, configured: configured.has(p) });
   }
-  return { candidates: out.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 10), partialBases };
+  return {
+    candidates: out.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 10),
+    totalCandidates: out.length,
+    partialBases,
+  };
 }
