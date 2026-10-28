@@ -206,6 +206,8 @@ describe('인터랙티브 그림 렌더', () => {
     const items = extractProse(lensDigest(withWidgets(toggle(), recon())));
     const label = items.find((i) => i.path.endsWith('widgets.0.toggle.on'));
     expect(label).toMatchObject({ kind: 'label', text: 'CSP 켬' });
+    // 그림 제목은 목차에 안 나가서 라벨로 다듬는다
+    expect(items.find((i) => i.path.endsWith('widgets.0.title'))).toMatchObject({ kind: 'label' });
     expect(items.some((i) => i.path.endsWith('differences.0') && !i.kind)).toBe(true);
   });
 });

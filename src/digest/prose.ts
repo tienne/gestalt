@@ -81,8 +81,10 @@ function collectLabelFields(digest: Digest): LabelField[] {
         sub.shots?.forEach((shot, k) => {
           out.push({ path: `${group}.${k}.caption`, text: shot.caption, group });
         });
+        // 그림 제목은 목차에 안 나가는 그림 글자라 본문 제목과 달리 라벨로 다듬는다
         sub.widgets?.forEach((w, k) => {
           const wp = `${sp}.subsections.${bi}.widgets.${k}`;
+          out.push({ path: `${wp}.title`, text: w.title, group: wp });
           for (const l of widgetLabels(w, wp)) out.push({ path: l.path, text: l.text, group: wp });
         });
       });
