@@ -133,11 +133,11 @@ The interview only has value if the human's actual intent is captured. A self-an
 
 ### 기준값 미만에서 끝내기
 
-사용자가 기준값(`interview.resolutionThreshold`, 기본 0.8) 미만에서 넘어가겠다고 직접 답한 경우에만 `force: true`로 `complete`를 부른다. 15라운드를 다 채워 `respond`가 더 받지 않으면 그 마지막 답의 점수는 반영되지 않은 상태다. 먼저 `score`로 그 점수를 넣고 `isReady`를 확인한다. 그래도 기준값 미만이면 에이전트가 현재 점수와 덜 채워진 차원을 보여주고 넘어갈지 묻는다. 라운드 수만으로 `force`를 넘기지 않는다. 사용자가 먼저 "그냥 넘어가자"고 했을 때도 같은 내용을 보여주고 한 번 더 확인한 뒤에 부른다.
+사용자가 기준값(`interview.resolutionThreshold`, 기본 0.8) 미만이거나 `gate`에서 보류된 채로 넘어가겠다고 직접 답한 경우에만 `force: true`로 `complete`를 부른다. 15라운드를 다 채워 `respond`가 더 받지 않으면 그 마지막 답의 점수는 반영되지 않은 상태다. 먼저 `score`로 그 점수를 넣고 `isReady`를 확인한다. 그래도 `isReady`가 `false`면 에이전트가 현재 점수와 덜 채워진 차원, `gate`가 보류한 이유를 보여주고 넘어갈지 묻는다. 라운드 수만으로 `force`를 넘기지 않는다. 사용자가 먼저 "그냥 넘어가자"고 했을 때도 같은 내용을 보여주고 한 번 더 확인한 뒤에 부른다.
 
 사용자가 넘어가지 않겠다고 하면 세션을 `in_progress`로 둔다. 15라운드 전이면 같은 세션에서 덜 채워진 차원을 다시 묻는다. 15라운드를 다 채웠으면 덜 채워진 차원을 사용자와 함께 정리해 새 인터뷰로 이어가거나 거기서 멈춘다.
 
-에이전트가 스스로 `force`를 판단하지 않는다. 기준값 미만일 때 거절 메시지에 "force=true로 넘기세요"가 나와도 그건 사용자에게 물어볼 근거이지 바로 넘길 근거가 아니다. 이렇게 끝낸 세션에는 `forcedComplete`가 기록된다. Spec을 뽑을 때도 `ges_generate_spec`에 `force`를 따로 넘겨야 한다.
+에이전트가 스스로 `force`를 판단하지 않는다. 기준값 미만일 때 거절 메시지에 "force=true로 넘기세요"가 나와도 그건 사용자에게 물어볼 근거이지 바로 넘길 근거가 아니다. `gate` 보류에는 거절 메시지에 `force` 안내가 없고 인터뷰를 계속하라고만 나온다. 사용자가 그래도 넘어가겠다고 하면 같은 방식으로 `force: true`를 부른다. 이렇게 끝낸 세션에는 `forcedComplete`가 기록된다. 점수가 기준값 미만인 채로 끝냈으면 Spec을 뽑을 때도 `ges_generate_spec`에 `force`를 따로 넘겨야 한다. `gate` 보류로 끝낸 세션은 점수가 기준값 이상이라 필요 없다.
 
 ### 다시 채점하기
 
@@ -218,7 +218,7 @@ API 키 없이 MCP 서버 실행 시 자동 활성화. LLM 작업을 caller가 �
 
 **`complete`** → `{ status, sessionId, totalRounds, finalResolutionScore, forced, message }`
 
-`forced`는 기준 미만 세션을 `force`로 끝냈을 때만 `true`다. 이미 준비된 세션에 `force`를 넘겨도 `false`로 남는다.
+`forced`는 `isReady`가 `false`인 세션(기준값 미만이거나 `gate` 보류)을 `force`로 끝냈을 때만 `true`다. 이미 준비된 세션에 `force`를 넘겨도 `false`로 남는다.
 
 ### GestaltContext 필드
 
