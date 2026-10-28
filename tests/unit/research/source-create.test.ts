@@ -108,14 +108,22 @@ describe('isPrivateAddress', () => {
     'fd00::1',
     'fe80::1',
     '::ffff:10.0.0.1',
+    '::ffff:a9fe:a9fe',
+    '::ffff:7f00:1',
+    '64:ff9b::7f00:1',
+    'fec0::1',
+    '2001:db8::1',
     'not-an-ip',
   ])('%s는 막는다', (addr) => {
     expect(isPrivateAddress(addr)).toBe(true);
   });
 
-  it.each(['8.8.8.8', '172.32.0.1', '2606:4700::1111'])('%s는 통과시킨다', (addr) => {
-    expect(isPrivateAddress(addr)).toBe(false);
-  });
+  it.each(['8.8.8.8', '172.32.0.1', '2606:4700::1111', '64:ff9b::808:808', '2a00:1450:4001::200e'])(
+    '%s는 통과시킨다',
+    (addr) => {
+      expect(isPrivateAddress(addr)).toBe(false);
+    },
+  );
 });
 
 describe('probeSource', () => {

@@ -8,7 +8,7 @@ import { readLensSource } from '../../../src/digest/lens-source.js';
 import { DigestServer } from '../../../src/digest/server.js';
 import { DigestStore } from '../../../src/digest/store.js';
 import type { RunCommand } from '../../../src/digest/ytdlp.js';
-import { ingestLens } from '../../../src/lens/ingest.js';
+import { ingestLens, installModel } from '../../../src/lens/ingest.js';
 import { assignSpeakers, audioExt, pickEpisode } from '../../../src/lens/podcast.js';
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -356,6 +356,48 @@ describe('ingestLens (podcast, 주소 검사)', () => {
     expect(fetched[1]!.redirect).toBe('manual');
   });
 
+  it('피드의 오디오 주소가 IPv4를 담은 16진 IPv6 표기여도 받지 않는다', async () => {
+    const fetched: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      fetched.push(String(url));
+      return new Response(feedOf('http://[::ffff:a9fe:a9fe]/x.mp3'), { status: 200 });
+    }) as typeof fetch;
+    await expect(
+      ingestLens('https://feeds.example.com/show', {
+        repoRoot: repo(),
+        run: whisperRun,
+        fetchImpl,
+        python: '/usr/bin/python3',
+        lookup: async () => ['93.184.216.34'],
+      }),
+    ).rejects.toThrow(/내부망/);
+    expect(fetched).toEqual(['https://feeds.example.com/show']);
+  });
+
+  it('리다이렉트가 IPv6 표기의 루프백으로 넘어가면 그 홉에서 멈춘다', async () => {
+    const fetched: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      fetched.push(String(url));
+      if (String(url).includes('feeds.')) {
+        return new Response(feedOf('https://cdn.example.com/ep.mp3'), { status: 200 });
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'http://[::ffff:7f00:1]/a.mp3' },
+      });
+    }) as typeof fetch;
+    await expect(
+      ingestLens('https://feeds.example.com/show', {
+        repoRoot: repo(),
+        run: whisperRun,
+        fetchImpl,
+        python: '/usr/bin/python3',
+        lookup: async () => ['93.184.216.34'],
+      }),
+    ).rejects.toThrow(/내부망/);
+    expect(fetched).toEqual(['https://feeds.example.com/show', 'https://cdn.example.com/ep.mp3']);
+  });
+
   it('사용자가 직접 넘긴 오디오 주소는 내부망이어도 막지 않는다', async () => {
     const lookups: string[] = [];
     const fetchImpl = (async () =>
@@ -433,5 +475,19 @@ describe('ingestLens (podcast, 화자 구분 모델 받기)', () => {
     // 해시가 틀리면 압축을 풀지 않는다
     expect(commands).not.toContain('tar');
     expect(readdirSync(models)).toEqual([]);
+  });
+
+  it('복사가 도중에 끊기면 임시 파일을 지우고 모델 자리를 비워 둔다', () => {
+    const root = repo();
+    const from = join(root, 'fetched.onnx');
+    writeFileSync(from, 'MODEL');
+    const to = join(root, 'models', 'model.onnx');
+    const brokenCopy = (_src: string, dest: string): void => {
+      writeFileSync(dest, 'MO');
+      throw new Error('disk full');
+    };
+    expect(() => installModel(from, to, brokenCopy)).toThrow(/disk full/);
+    expect(existsSync(to)).toBe(false);
+    expect(existsSync(`${to}.part`)).toBe(false);
   });
 });

@@ -122,7 +122,10 @@ export function guessLang(texts: string[]): string {
 const defaultLookup: HostLookup = async (host) =>
   (await dnsLookup(host, { all: true })).map((r) => r.address);
 
-/** 호스트가 루프백, 링크 로컬, 사설 대역으로 풀리면 막는다. 메타데이터 주소(169.254.169.254)도 여기 걸린다 */
+/**
+ * 호스트가 루프백, 링크 로컬, 사설 대역으로 풀리면 막는다. 메타데이터 주소(169.254.169.254)도 여기 걸린다.
+ * 검사와 연결이 DNS를 따로 풀어서 이름을 풀 때마다 주소가 바뀌는 rebinding은 막지 못한다
+ */
 async function assertPublicHost(url: string, lookup: HostLookup): Promise<void> {
   const parsed = new URL(url);
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
@@ -548,12 +551,24 @@ function assertSha256(file: string, expected: string, what: string): void {
   }
 }
 
-/** 임시 이름으로 복사한 뒤 바꿔 단다. 복사가 끊겨도 반쪽 파일이 모델 자리에 남지 않는다 */
-function installModel(from: string, to: string): void {
+/**
+ * 임시 이름으로 복사한 뒤 바꿔 단다. 복사가 끊기면 임시 파일을 지워서 모델 자리에는 끝까지 복사된 파일만 놓인다.
+ * copy는 테스트에서 복사 도중 실패를 흉내 낼 때 바꿔 끼운다
+ */
+export function installModel(
+  from: string,
+  to: string,
+  copy: (src: string, dest: string) => void = cpSync,
+): void {
   mkdirSync(dirname(to), { recursive: true });
   const part = `${to}.part`;
-  cpSync(from, part);
-  renameSync(part, to);
+  try {
+    copy(from, part);
+    renameSync(part, to);
+  } catch (e) {
+    rmSync(part, { force: true });
+    throw e;
+  }
 }
 
 /**
