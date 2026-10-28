@@ -46,16 +46,22 @@ export function lensModelsDir(env: NodeJS.ProcessEnv = process.env): string {
 
 /**
  * 화자 구분에 쓰는 두 모델. sherpa-onnx가 GitHub 릴리스로 내준 파일이라 토큰 없이 받는다.
- * 구간 분할은 pyannote segmentation 3.0을 ONNX로 옮긴 것이고 화자 임베딩은 wespeaker ResNet34(VoxCeleb)다
+ * 구간 분할은 pyannote segmentation 3.0을 ONNX로 옮긴 것이고 화자 임베딩은 wespeaker ResNet34(VoxCeleb)다.
+ * 릴리스 태그가 버전으로 고정돼 있지 않아 받은 파일의 sha256을 여기 박아 둔 값과 맞춰 본다
  */
 export const DIARIZE_MODELS = {
   segmentation: {
     archive:
       'https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2',
+    /** 압축 파일의 해시다. 풀린 model.onnx가 아니다 */
+    sha256: '24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488',
+    bytes: 6_958_444,
     file: join('sherpa-onnx-pyannote-segmentation-3-0', 'model.onnx'),
   },
   embedding: {
     url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_resnet34.onnx',
+    sha256: '5ef208a9da1453335308a6b6f4e6dfbd7e183a38b604de0a57664f45d257fe94',
+    bytes: 26_534_365,
     file: 'wespeaker_en_voxceleb_resnet34.onnx',
   },
 } as const;

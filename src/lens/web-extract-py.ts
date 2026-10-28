@@ -8,6 +8,16 @@
 export const WEB_EXTRACT_PY = String.raw`import json, sys
 import xml.etree.ElementTree as ET
 
+# 신뢰할 수 없는 HTML이 메모리를 다 먹지 않게 주소 공간을 4GB로 묶는다. macOS는 RLIMIT_AS를 거부해서 Linux에서만 건다
+if sys.platform.startswith("linux"):
+    try:
+        import resource
+        _, hard = resource.getrlimit(resource.RLIMIT_AS)
+        if hard == resource.RLIM_INFINITY or hard > (4 << 30):
+            resource.setrlimit(resource.RLIMIT_AS, (4 << 30, hard))
+    except (ImportError, OSError, ValueError):
+        pass
+
 import trafilatura
 
 html_path, url = sys.argv[1], sys.argv[2]

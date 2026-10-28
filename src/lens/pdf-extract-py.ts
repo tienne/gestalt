@@ -8,13 +8,25 @@
  * - 그림: "Figure N:" 캡션 위나 아래의 비트맵을 묶어 자르고 벡터 그림은 캡션 위 빈자리를 자른다.
  *
  * 결과 JSON은 stdout 마지막 줄 하나로 낸다. 쪽 그림과 크롭은 두 번째 인자 폴더의 pages/, figures/, tables/에 쓴다.
+ * 세 번째 인자는 쪽 수 상한이다. 넘으면 stderr에 too-many-pages를 남기고 멈춘다.
  * 백틱과 달러 중괄호가 없어야 String.raw 안에 그대로 실린다
  */
 export const PDF_EXTRACT_PY = String.raw`import json, os, re, statistics, sys
 
+# 신뢰할 수 없는 PDF가 메모리를 다 먹지 않게 주소 공간을 4GB로 묶는다. macOS는 RLIMIT_AS를 거부해서 Linux에서만 건다
+if sys.platform.startswith("linux"):
+    try:
+        import resource
+        _, hard = resource.getrlimit(resource.RLIMIT_AS)
+        if hard == resource.RLIM_INFINITY or hard > (4 << 30):
+            resource.setrlimit(resource.RLIMIT_AS, (4 << 30, hard))
+    except (ImportError, OSError, ValueError):
+        pass
+
 import pdfplumber
 
 pdf_path, out_dir = sys.argv[1], sys.argv[2]
+MAX_PAGES = int(sys.argv[3]) if len(sys.argv) > 3 else 300
 PAGE_SCALE = 2.0
 CROP_SCALE = 3.0
 CAPTION = re.compile(r"^(Table|Figure|Fig\.)\s*(\d+)\s*[:.]", re.I)
@@ -226,6 +238,10 @@ def main():
     os.makedirs(os.path.join(out_dir, "figures"), exist_ok=True)
     os.makedirs(os.path.join(out_dir, "tables"), exist_ok=True)
     pdf = pdfplumber.open(pdf_path)
+    # 쪽을 돌기 전에 멈춘다. ingest가 이 꼴을 stderr에서 읽어 사람이 읽을 오류로 바꾼다
+    if len(pdf.pages) > MAX_PAGES:
+        sys.stderr.write("too-many-pages %d %d\n" % (len(pdf.pages), MAX_PAGES))
+        sys.exit(3)
     pages, units, tables, figures = [], [], [], []
     body_sizes = []
     page_lines = []

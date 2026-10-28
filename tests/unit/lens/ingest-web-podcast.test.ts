@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readLensSource } from '../../../src/digest/lens-source.js';
 import { DigestServer } from '../../../src/digest/server.js';
@@ -161,6 +161,7 @@ describe('ingestLens (podcast)', () => {
       fetchImpl,
       python: '/usr/bin/python3',
       whisperModel: 'base',
+      lookup: async () => ['93.184.216.34'],
     });
     expect(fetched).toEqual([
       'https://feeds.example.com/show',
@@ -186,41 +187,56 @@ describe('ingestLens (podcast)', () => {
 });
 
 describe('serve가 팟캐스트 오디오를 내준다', () => {
-  it('transcript.json의 media 파일 하나만 오디오 형식으로 내준다', async () => {
-    const root = repo();
-    const run: RunCommand = async () => ({
-      stdout: `\n${JSON.stringify({ language: 'en', duration: 3, segments: [{ start: 0, text: 'Hi.' }] })}\n`,
-      stderr: '',
-    });
-    const audio = join(root, 'talk.m4a');
-    writeFileSync(audio, 'AUDIO');
-    const r = await ingestLens(audio, { repoRoot: root, run, python: '/usr/bin/python3' });
+  const run: RunCommand = async () => ({
+    stdout: `\n${JSON.stringify({ language: 'en', duration: 3, segments: [{ start: 0, text: 'Hi.' }] })}\n`,
+    stderr: '',
+  });
+
+  async function getVideo(root: string, slug: string) {
     const server = new DigestServer(join(root, '.gestalt', 'digest'));
     await server.start(0);
     cleanups.push(() => server.stop());
-    const res = await new Promise<{ status: number; type: string; body: string }>(
-      (done, reject) => {
-        const req = request(
-          {
-            host: '127.0.0.1',
-            port: server.port,
-            path: `/${r.slug}/video`,
-            headers: { host: '127.0.0.1' },
-          },
-          (rs) => {
-            let body = '';
-            rs.on('data', (c: Buffer) => (body += c.toString()));
-            rs.on('end', () =>
-              done({ status: rs.statusCode!, type: String(rs.headers['content-type']), body }),
-            );
-          },
-        );
-        req.on('error', reject);
-        req.end();
-      },
-    );
-    expect(res).toEqual({ status: 200, type: 'audio/mp4', body: 'AUDIO' });
+    return new Promise<{ status: number; type: string; body: string }>((done, reject) => {
+      const req = request(
+        {
+          host: '127.0.0.1',
+          port: server.port,
+          path: `/${slug}/video`,
+          headers: { host: '127.0.0.1' },
+        },
+        (rs) => {
+          let body = '';
+          rs.on('data', (c: Buffer) => (body += c.toString()));
+          rs.on('end', () =>
+            done({ status: rs.statusCode!, type: String(rs.headers['content-type']), body }),
+          );
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  it('transcript.json의 media 파일 하나만 오디오 형식으로 내준다', async () => {
+    const root = repo();
+    const audio = join(root, 'talk.m4a');
+    writeFileSync(audio, 'AUDIO');
+    const r = await ingestLens(audio, { repoRoot: root, run, python: '/usr/bin/python3' });
+    expect(await getVideo(root, r.slug)).toEqual({ status: 200, type: 'audio/mp4', body: 'AUDIO' });
     expect(existsSync(join(root, '.gestalt', 'digest', r.slug, 'cache', 'audio.m4a'))).toBe(true);
+  });
+
+  it('media가 <slug>/cache/ 밖을 가리키면 404를 낸다', async () => {
+    const root = repo();
+    const audio = join(root, 'talk.m4a');
+    writeFileSync(audio, 'AUDIO');
+    const r = await ingestLens(audio, { repoRoot: root, run, python: '/usr/bin/python3' });
+    const transcriptPath = join(root, '.gestalt', 'digest', r.slug, 'transcript.json');
+    const t = JSON.parse(readFileSync(transcriptPath, 'utf-8')) as { meta: { media: string } };
+    // ingest가 쓰지 않는 자리를 손으로 적은 경우다. 확장자는 오디오라 경로 검사만 걸러야 한다
+    t.meta.media = pathToFileURL(audio).href;
+    writeFileSync(transcriptPath, JSON.stringify(t));
+    expect((await getVideo(root, r.slug)).status).toBe(404);
   });
 });
 
@@ -283,5 +299,139 @@ describe('ingestLens (podcast, 화자 구분)', () => {
     expect(r2.warnings[0]).toContain('화자 구분이 실패해');
     const t2 = new DigestStore(root).readTranscript('talk-again');
     expect(t2.ok && t2.transcript.segments.every((s) => s.speaker === undefined)).toBe(true);
+  });
+});
+
+describe('ingestLens (podcast, 주소 검사)', () => {
+  const whisperRun: RunCommand = async () => ({
+    stdout: `\n${JSON.stringify({ language: 'en', duration: 3, segments: [{ start: 0, text: 'Hi.' }] })}\n`,
+    stderr: '',
+  });
+  const feedOf = (url: string) =>
+    `<rss><channel><title>S</title><item><title>E</title><enclosure url="${url}"/></item></channel></rss>`;
+
+  it('피드의 오디오 주소가 루프백으로 풀리면 받지 않는다', async () => {
+    const fetched: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      fetched.push(String(url));
+      return new Response(feedOf('https://cdn.example.com/ep.mp3'), { status: 200 });
+    }) as typeof fetch;
+    await expect(
+      ingestLens('https://feeds.example.com/show', {
+        repoRoot: repo(),
+        run: whisperRun,
+        fetchImpl,
+        python: '/usr/bin/python3',
+        lookup: async () => ['127.0.0.1'],
+      }),
+    ).rejects.toThrow(/내부망/);
+    expect(fetched).toEqual(['https://feeds.example.com/show']);
+  });
+
+  it('리다이렉트가 메타데이터 주소로 넘어가면 그 홉에서 멈춘다', async () => {
+    const fetched: Array<{ url: string; redirect: RequestRedirect | undefined }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      fetched.push({ url: String(url), redirect: init?.redirect });
+      if (String(url).includes('feeds.')) {
+        return new Response(feedOf('https://cdn.example.com/ep.mp3'), { status: 200 });
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'http://169.254.169.254/latest/meta-data/' },
+      });
+    }) as typeof fetch;
+    await expect(
+      ingestLens('https://feeds.example.com/show', {
+        repoRoot: repo(),
+        run: whisperRun,
+        fetchImpl,
+        python: '/usr/bin/python3',
+        lookup: async () => ['93.184.216.34'],
+      }),
+    ).rejects.toThrow(/내부망.*169\.254\.169\.254/);
+    expect(fetched.map((f) => f.url)).toEqual([
+      'https://feeds.example.com/show',
+      'https://cdn.example.com/ep.mp3',
+    ]);
+    expect(fetched[1]!.redirect).toBe('manual');
+  });
+
+  it('사용자가 직접 넘긴 오디오 주소는 내부망이어도 막지 않는다', async () => {
+    const lookups: string[] = [];
+    const fetchImpl = (async () =>
+      new Response(Buffer.from('ID3audio'), { status: 200 })) as typeof fetch;
+    const r = await ingestLens('http://127.0.0.1:8080/talk.mp3', {
+      repoRoot: repo(),
+      run: whisperRun,
+      fetchImpl,
+      python: '/usr/bin/python3',
+      lookup: async (host) => {
+        lookups.push(host);
+        return ['127.0.0.1'];
+      },
+    });
+    expect(r.kind).toBe('podcast');
+    expect(lookups).toEqual([]);
+  });
+
+  it('10MB를 넘는 피드는 끝까지 읽지 않고 멈춘다', async () => {
+    let pulled = 0;
+    const chunk = new Uint8Array(1024 * 1024).fill(32);
+    const fetchImpl = (async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(c) {
+            pulled++;
+            if (pulled > 50) c.close();
+            else c.enqueue(chunk);
+          },
+        }),
+        { status: 200 },
+      )) as typeof fetch;
+    await expect(
+      ingestLens('https://feeds.example.com/show', {
+        repoRoot: repo(),
+        run: whisperRun,
+        fetchImpl,
+        python: '/usr/bin/python3',
+      }),
+    ).rejects.toThrow(/피드가 10MB를 넘어요/);
+    expect(pulled).toBeLessThan(20);
+  });
+});
+
+describe('ingestLens (podcast, 화자 구분 모델 받기)', () => {
+  it('받은 모델의 해시가 다르면 모델 폴더에 두지 않고 화자 없이 살린다', async () => {
+    const root = repo();
+    const models = join(root, 'models');
+    const prev = process.env.GESTALT_LENS_MODELS;
+    process.env.GESTALT_LENS_MODELS = models;
+    cleanups.push(() => {
+      if (prev === undefined) delete process.env.GESTALT_LENS_MODELS;
+      else process.env.GESTALT_LENS_MODELS = prev;
+    });
+    const audio = join(root, 'talk.mp3');
+    writeFileSync(audio, 'AUDIO');
+    const commands: string[] = [];
+    const run: RunCommand = async (cmd) => {
+      commands.push(cmd);
+      return {
+        stdout: `\n${JSON.stringify({ language: 'en', duration: 3, segments: [{ start: 0, end: 2, text: 'Hi.' }] })}\n`,
+        stderr: '',
+      };
+    };
+    const fetchImpl = (async () =>
+      new Response(Buffer.from('not a model'), { status: 200 })) as typeof fetch;
+    const r = await ingestLens(audio, {
+      repoRoot: root,
+      run,
+      fetchImpl,
+      python: '/usr/bin/python3',
+      speakers: true,
+    });
+    expect(r.warnings[0]).toMatch(/화자 구분이 실패해.*해시가 맞지 않아/);
+    // 해시가 틀리면 압축을 풀지 않는다
+    expect(commands).not.toContain('tar');
+    expect(readdirSync(models)).toEqual([]);
   });
 });

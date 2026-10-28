@@ -35,6 +35,12 @@ const VIDEO_MIME: Record<string, string> = {
   '.flac': 'audio/flac',
 };
 
+/** inCache면 <slug>/cache/ 안의 파일만 내준다 */
+interface VideoMedia {
+  file: string;
+  inCache: boolean;
+}
+
 export type ByteRange = { start: number; end: number } | 'none' | 'unsatisfiable';
 
 /**
@@ -112,7 +118,7 @@ export class DigestServer {
   private server: Server | null = null;
   private readonly root: string;
   // 영상은 Range 요청이 연달아 와서 transcript.json을 매번 파싱하지 않는다. 파일이 바뀌면 mtime으로 다시 읽는다
-  private readonly videoPaths = new Map<string, { mtimeMs: number; file: string | null }>();
+  private readonly videoPaths = new Map<string, { mtimeMs: number; media: VideoMedia | null }>();
 
   constructor(root: string) {
     this.root = realpathSync(root);
@@ -205,17 +211,21 @@ export class DigestServer {
 
   /**
    * 루트 밖에서 내주는 파일은 이것 하나다. transcript.json에 ingest가 적은 로컬 영상 경로만 따르고
-   * 요청 URL에서 경로를 받지 않는다. 영상 확장자가 아니면 그 경로도 내주지 않는다
+   * 요청 URL에서 경로를 받지 않는다. 영상 확장자가 아니면 그 경로도 내주지 않는다.
+   * 팟캐스트 오디오는 ingest가 늘 <slug>/cache/에 두므로 그 밖을 가리키면 내주지 않는다
    */
   private serveVideo(req: IncomingMessage, res: ServerResponse, slug: string): void {
-    const file = this.videoPath(slug);
-    if (!file) return this.deny(res, 404, 'Not Found');
+    const media = this.videoPath(slug);
+    if (!media) return this.deny(res, 404, 'Not Found');
     // 경로는 캐시해도 실제 파일 검사는 요청마다 한다. 그사이 심링크가 바뀌거나 파일이 지워질 수 있다
     let real: string;
     let stat: ReturnType<typeof statSync>;
     try {
-      real = realpathSync(file);
+      real = realpathSync(media.file);
       stat = statSync(real);
+      if (media.inCache && !real.startsWith(realpathSync(join(this.root, slug, 'cache')) + sep)) {
+        return this.deny(res, 404, 'Not Found');
+      }
     } catch {
       return this.deny(res, 404, 'Not Found');
     }
@@ -242,7 +252,7 @@ export class DigestServer {
     this.stream(res, real, range === 'none' ? undefined : range);
   }
 
-  private videoPath(slug: string): string | null {
+  private videoPath(slug: string): VideoMedia | null {
     const transcriptPath = join(this.root, slug, 'transcript.json');
     let mtimeMs: number;
     try {
@@ -252,24 +262,24 @@ export class DigestServer {
       return null;
     }
     const hit = this.videoPaths.get(slug);
-    if (hit && hit.mtimeMs === mtimeMs) return hit.file;
+    if (hit && hit.mtimeMs === mtimeMs) return hit.media;
 
     const raw = readRaw(transcriptPath);
     const parsed = raw.kind === 'ok' ? parseTranscript(raw.value) : null;
     const meta = parsed?.ok ? parsed.value.meta : null;
-    let file: string | null = null;
+    let media: VideoMedia | null = null;
     // 팟캐스트는 원래 주소가 피드라 내려받은 오디오(media)를 내준다
     const local =
       meta?.source === 'file' ? meta.url : meta?.source === 'podcast' ? meta.media : undefined;
     if (local) {
       try {
-        file = fileURLToPath(local);
+        media = { file: fileURLToPath(local), inCache: meta?.source === 'podcast' };
       } catch {
-        file = null;
+        media = null;
       }
     }
-    this.videoPaths.set(slug, { mtimeMs, file });
-    return file;
+    this.videoPaths.set(slug, { mtimeMs, media });
+    return media;
   }
 
   private stream(res: ServerResponse, path: string, range?: { start: number; end: number }) {

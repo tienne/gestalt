@@ -1,17 +1,24 @@
 import { createHash } from 'node:crypto';
+import { lookup as dnsLookup } from 'node:dns/promises';
 import {
+  closeSync,
   cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
+  renameSync,
   rmSync,
-  writeFileSync,
+  writeSync,
 } from 'node:fs';
+import { isIP } from 'node:net';
 import { tmpdir } from 'node:os';
-import { basename, extname, join, resolve } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { log } from '../core/log.js';
 import { writeJsonAtomic } from '../core/json-file.js';
+import { isPrivateAddress } from '../research/source-create.js';
 import {
   LENS_SOURCE_SCHEMA_VERSION,
   lensSourcePath,
@@ -54,7 +61,11 @@ export interface LensIngestOptions {
   sourceUrl?: string;
   /** 팟캐스트 받아쓰기 뒤에 화자를 가른다. 모델이 없으면 처음 한 번 받는다 */
   speakers?: boolean;
+  /** 피드 오디오 주소의 호스트를 IP로 푼다. 테스트가 DNS 없이 돌도록 바꿔 끼운다 */
+  lookup?: HostLookup;
 }
+
+export type HostLookup = (host: string) => Promise<string[]>;
 
 export interface LensIngestResult {
   slug: string;
@@ -89,8 +100,13 @@ interface PdfExtract {
 }
 
 const MAX_DOWNLOAD_BYTES = 300 * 1024 * 1024;
+const MAX_FEED_BYTES = 10 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 const EXTRACT_TIMEOUT_MS = 600_000;
+/** 이보다 긴 PDF는 추출하지 않는다. 쪽마다 그림을 그려 메모리와 디스크를 쪽 수만큼 쓴다 */
+export const PDF_MAX_PAGES = 300;
+const USER_AGENT = 'gestalt-lens/1.0 (+https://github.com/tienne/gestalt)';
 
 export const shortHash = (s: string): string =>
   createHash('sha256').update(s).digest('hex').slice(0, 8);
@@ -103,24 +119,120 @@ export function guessLang(texts: string[]): string {
   return letters > 0 && hangul / letters > 0.2 ? 'ko' : 'en';
 }
 
-/** 주소를 받아 파일로 저장한다. 크기 상한을 넘으면 멈춘다 */
+const defaultLookup: HostLookup = async (host) =>
+  (await dnsLookup(host, { all: true })).map((r) => r.address);
+
+/** 호스트가 루프백, 링크 로컬, 사설 대역으로 풀리면 막는다. 메타데이터 주소(169.254.169.254)도 여기 걸린다 */
+async function assertPublicHost(url: string, lookup: HostLookup): Promise<void> {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`http(s)가 아닌 주소로 넘어가서 받지 않았어요: ${url}`);
+  }
+  const host = parsed.hostname.replace(/^\[(.*)\]$/, '$1');
+  const addresses = isIP(host) ? [host] : await lookup(host);
+  if (addresses.length === 0 || addresses.some(isPrivateAddress)) {
+    throw new Error(`피드의 오디오 주소가 내부망을 가리켜서 받지 않았어요: ${url}`);
+  }
+}
+
+/**
+ * lookup이 있으면 리다이렉트를 직접 따라가며 홉마다 호스트를 다시 푼다.
+ * fetch에 맡기면 중간 주소를 못 보고 마지막 응답만 받는다
+ */
+async function fetchFollowing(
+  url: string,
+  init: RequestInit,
+  fetchImpl: typeof fetch,
+  lookup: HostLookup | undefined,
+): Promise<Response> {
+  if (!lookup) return fetchImpl(url, { ...init, redirect: 'follow' });
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    await assertPublicHost(current, lookup);
+    const res = await fetchImpl(current, { ...init, redirect: 'manual' });
+    const location = res.headers.get('location');
+    if (res.status < 300 || res.status >= 400 || !location) return res;
+    await res.body?.cancel().catch(() => undefined);
+    current = new URL(location, current).href;
+  }
+  throw new Error(`리다이렉트가 ${MAX_REDIRECTS}번을 넘어서 멈췄어요: ${url}`);
+}
+
+/** 응답 본문을 조각으로 읽는다. 누적 크기가 상한을 넘으면 연결을 끊고 멈춘다 */
+async function readCapped(
+  res: Response,
+  limit: number,
+  tooBig: string,
+  onChunk: (chunk: Uint8Array) => void,
+): Promise<void> {
+  if (!res.body) return;
+  const reader = res.body.getReader();
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error(tooBig);
+    }
+    onChunk(value);
+  }
+}
+
+/**
+ * 주소를 받아 파일로 저장한다. 크기 상한을 넘으면 멈추고 받던 파일을 지운다.
+ * lookup을 넘기면 사설 주소로 가는 요청을 막는다. 피드에서 뽑은 주소처럼 사용자가 직접 고르지 않은 주소에만 쓴다
+ */
 export async function download(
   url: string,
   dest: string,
   fetchImpl: typeof fetch = fetch,
+  opts: { lookup?: HostLookup; maxBytes?: number } = {},
 ): Promise<{ contentType: string }> {
+  const limit = opts.maxBytes ?? MAX_DOWNLOAD_BYTES;
+  const tooBig = `파일이 ${Math.round(limit / 1024 / 1024)}MB를 넘어요: ${url}`;
+  const res = await fetchFollowing(
+    url,
+    { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS), headers: { 'User-Agent': USER_AGENT } },
+    fetchImpl,
+    opts.lookup,
+  );
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new Error(`내려받기 실패(${res.status}): ${url}`);
+  }
+  const declared = Number(res.headers.get('content-length') ?? 0);
+  if (declared > limit) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new Error(tooBig);
+  }
+  const fd = openSync(dest, 'w');
+  let complete = false;
+  try {
+    await readCapped(res, limit, tooBig, (chunk) => writeSync(fd, chunk));
+    complete = true;
+  } finally {
+    closeSync(fd);
+    if (!complete) rmSync(dest, { force: true });
+  }
+  return { contentType: res.headers.get('content-type') ?? '' };
+}
+
+/** 피드 XML을 받는다. 주소는 사용자가 넘긴 것이라 사설 주소를 막지 않고 크기만 묶는다 */
+async function fetchFeed(url: string, fetchImpl: typeof fetch): Promise<string> {
   const res = await fetchImpl(url, {
     redirect: 'follow',
     signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-    headers: { 'User-Agent': 'gestalt-lens/1.0 (+https://github.com/tienne/gestalt)' },
+    headers: { 'User-Agent': USER_AGENT },
   });
-  if (!res.ok) throw new Error(`내려받기 실패(${res.status}): ${url}`);
-  const declared = Number(res.headers.get('content-length') ?? 0);
-  if (declared > MAX_DOWNLOAD_BYTES) throw new Error(`파일이 300MB를 넘어요: ${url}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length > MAX_DOWNLOAD_BYTES) throw new Error(`파일이 300MB를 넘어요: ${url}`);
-  writeFileSync(dest, buf);
-  return { contentType: res.headers.get('content-type') ?? '' };
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new Error(`피드를 못 받았어요(${res.status}): ${url}`);
+  }
+  const chunks: Uint8Array[] = [];
+  await readCapped(res, MAX_FEED_BYTES, `피드가 10MB를 넘어요: ${url}`, (c) => chunks.push(c));
+  return Buffer.concat(chunks).toString('utf-8');
 }
 
 async function runPython(
@@ -211,14 +323,27 @@ async function ingestPdf(
   }
   const out = join(work, 'out');
   mkdirSync(out, { recursive: true });
-  const stdout = await runPython(
-    run,
-    opts.python ?? lensPython(),
-    PDF_EXTRACT_PY,
-    [pdfPath, out],
-    work,
-    EXTRACT_TIMEOUT_MS,
-  );
+  let stdout: string;
+  try {
+    stdout = await runPython(
+      run,
+      opts.python ?? lensPython(),
+      PDF_EXTRACT_PY,
+      [pdfPath, out, String(PDF_MAX_PAGES)],
+      work,
+      EXTRACT_TIMEOUT_MS,
+    );
+  } catch (e) {
+    // 추출 스크립트가 쪽 수 상한에 걸리면 stderr에 정해 둔 꼴로 쪽 수를 남기고 멈춘다
+    const m = e instanceof CommandError ? /too-many-pages (\d+)/.exec(e.stderr) : null;
+    if (m) {
+      throw new Error(
+        `PDF가 ${m[1]!}쪽이라 한 번에 읽는 상한 ${PDF_MAX_PAGES}쪽을 넘어요. 필요한 쪽만 잘라 낸 PDF로 다시 돌려 주세요.`,
+        { cause: e },
+      );
+    }
+    throw e;
+  }
   const x = lastJsonLine<PdfExtract>(stdout, 'PDF 추출');
   if (x.units.length === 0) {
     throw new Error(
@@ -238,7 +363,9 @@ async function ingestPdf(
   const warnings: string[] = [];
   const loose = x.tables.filter((t) => t.grid === 'loose').map((t) => t.id);
   if (loose.length > 0) {
-    warnings.push(`칸 경계를 못 믿을 표: ${loose.join(', ')}. 뷰어가 원문 크롭을 앞에 둬요`);
+    warnings.push(
+      `칸 경계를 못 믿을 표: ${loose.join(', ')}. 뷰어가 원문에서 잘라낸 그림을 앞에 둬요`,
+    );
   }
   const noCrop = x.figures.filter((f) => !f.image).map((f) => f.id);
   if (noCrop.length > 0) warnings.push(`그림 자리를 못 찾은 그림: ${noCrop.join(', ')}`);
@@ -413,7 +540,26 @@ interface WhisperOut {
   segments: Array<{ start: number; end: number; text: string }>;
 }
 
-/** 화자 구분 모델이 없으면 받아 둔다. 받는 곳은 sherpa-onnx의 GitHub 릴리스다 */
+/** 받은 파일의 sha256이 박아 둔 값과 다르면 멈춘다 */
+function assertSha256(file: string, expected: string, what: string): void {
+  const got = createHash('sha256').update(readFileSync(file)).digest('hex');
+  if (got !== expected) {
+    throw new Error(`${what} 파일의 해시가 맞지 않아 쓰지 않았어요(받은 값 ${got.slice(0, 12)})`);
+  }
+}
+
+/** 임시 이름으로 복사한 뒤 바꿔 단다. 복사가 끊겨도 반쪽 파일이 모델 자리에 남지 않는다 */
+function installModel(from: string, to: string): void {
+  mkdirSync(dirname(to), { recursive: true });
+  const part = `${to}.part`;
+  cpSync(from, part);
+  renameSync(part, to);
+}
+
+/**
+ * 화자 구분 모델이 없으면 받아 둔다. 받는 곳은 sherpa-onnx의 GitHub 릴리스다.
+ * 받은 파일은 work에서 해시를 확인한 뒤에만 모델 폴더로 옮긴다. 이미 있는 모델은 다시 검사하지 않는다
+ */
 async function ensureDiarizeModels(
   run: RunCommand,
   fetchImpl: typeof fetch,
@@ -421,14 +567,36 @@ async function ensureDiarizeModels(
 ): Promise<{ segmentation: string; embedding: string }> {
   const dir = lensModelsDir();
   mkdirSync(dir, { recursive: true });
-  const segmentation = join(dir, DIARIZE_MODELS.segmentation.file);
-  const embedding = join(dir, DIARIZE_MODELS.embedding.file);
+  const seg = DIARIZE_MODELS.segmentation;
+  const emb = DIARIZE_MODELS.embedding;
+  const segmentation = join(dir, seg.file);
+  const embedding = join(dir, emb.file);
+  const missing = [
+    ...(existsSync(segmentation) ? [] : [seg.bytes]),
+    ...(existsSync(embedding) ? [] : [emb.bytes]),
+  ];
+  if (missing.length > 0) {
+    const mb = Math.round(missing.reduce((a, b) => a + b, 0) / 1024 / 1024);
+    log(`화자 구분 모델을 처음 한 번 받아요(약 ${mb}MB, sherpa-onnx GitHub 릴리스): ${dir}`);
+  }
   if (!existsSync(segmentation)) {
     const archive = join(work, 'segmentation.tar.bz2');
-    await download(DIARIZE_MODELS.segmentation.archive, archive, fetchImpl);
-    await run('tar', ['xjf', archive, '-C', dir], { cwd: work, timeoutMs: DOWNLOAD_TIMEOUT_MS });
+    await download(seg.archive, archive, fetchImpl);
+    assertSha256(archive, seg.sha256, '구간 분할 모델');
+    const unpacked = join(work, 'segmentation');
+    mkdirSync(unpacked, { recursive: true });
+    await run('tar', ['xjf', archive, '--no-same-owner', '-C', unpacked], {
+      cwd: work,
+      timeoutMs: DOWNLOAD_TIMEOUT_MS,
+    });
+    installModel(join(unpacked, seg.file), segmentation);
   }
-  if (!existsSync(embedding)) await download(DIARIZE_MODELS.embedding.url, embedding, fetchImpl);
+  if (!existsSync(embedding)) {
+    const fetched = join(work, 'embedding.onnx');
+    await download(emb.url, fetched, fetchImpl);
+    assertSha256(fetched, emb.sha256, '화자 임베딩 모델');
+    installModel(fetched, embedding);
+  }
   return { segmentation, embedding };
 }
 
@@ -455,13 +623,9 @@ async function ingestPodcast(
   let pubDate: string | undefined;
   // 오디오 확장자로 끝나는 주소는 바로 받고 나머지 주소는 피드로 읽는다
   const isAudioUrl = remote && AUDIO_EXTS.includes(extname(new URL(input).pathname).toLowerCase());
-  if (remote && !isAudioUrl) {
-    const res = await fetchImpl(input, {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-    });
-    if (!res.ok) throw new Error(`피드를 못 받았어요(${res.status}): ${input}`);
-    const ep = pickEpisode(await res.text(), opts.episode ?? 0);
+  const fromFeed = remote && !isAudioUrl;
+  if (fromFeed) {
+    const ep = pickEpisode(await fetchFeed(input, fetchImpl), opts.episode ?? 0);
     audioUrl = ep.audioUrl;
     title = ep.title;
     show = ep.show;
@@ -469,8 +633,15 @@ async function ingestPodcast(
   }
   const ext = audioExt(remote ? audioUrl : input);
   const audioPath = join(work, `audio${ext}`);
-  if (remote) await download(audioUrl, audioPath, fetchImpl);
-  else {
+  // 피드가 적은 주소는 피드 주인이 고른 것이라 내부망으로 가는지 홉마다 본다. 사용자가 직접 넘긴 주소는 막지 않는다
+  if (remote) {
+    await download(
+      audioUrl,
+      audioPath,
+      fetchImpl,
+      fromFeed ? { lookup: opts.lookup ?? defaultLookup } : {},
+    );
+  } else {
     if (!existsSync(resolve(input))) throw new Error(`파일이 없어요: ${input}`);
     cpSync(resolve(input), audioPath);
   }

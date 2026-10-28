@@ -6,7 +6,7 @@ import { readLensSource } from '../../../src/digest/lens-source.js';
 import { DigestStore } from '../../../src/digest/store.js';
 import type { RunCommand } from '../../../src/digest/ytdlp.js';
 import { CommandError } from '../../../src/digest/ytdlp.js';
-import { ingestLens } from '../../../src/lens/ingest.js';
+import { download, ingestLens, PDF_MAX_PAGES } from '../../../src/lens/ingest.js';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -130,5 +130,55 @@ describe('ingestLens (pdf)', () => {
     await expect(
       ingestLens(pdfFile(root), { repoRoot: root, run, python: '/x/python' }),
     ).rejects.toThrow(/pdfplumber.*\n.*pip install pdfplumber/s);
+  });
+
+  it('쪽 수 상한을 넘으면 사람이 읽을 오류로 멈춘다', async () => {
+    const root = repo();
+    let passed: string | undefined;
+    const run: RunCommand = async (_cmd, args) => {
+      passed = args[5];
+      throw new CommandError('python', 'too-many-pages 412 300\n', 'exit 3');
+    };
+    await expect(
+      ingestLens(pdfFile(root), { repoRoot: root, run, python: '/x/python' }),
+    ).rejects.toThrow(/412쪽.*상한 300쪽/);
+    expect(passed).toBe(String(PDF_MAX_PAGES));
+  });
+});
+
+describe('download', () => {
+  it('content-length 없이 상한을 넘으면 끊고 받던 파일을 지운다', async () => {
+    const root = repo();
+    const dest = join(root, 'big.bin');
+    let pulled = 0;
+    const fetchImpl = (async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(c) {
+            pulled++;
+            if (pulled > 100) c.close();
+            else c.enqueue(new Uint8Array(1024));
+          },
+        }),
+        { status: 200 },
+      )) as typeof fetch;
+    await expect(
+      download('https://a.example.com/x', dest, fetchImpl, { maxBytes: 4096 }),
+    ).rejects.toThrow(/넘어요/);
+    expect(existsSync(dest)).toBe(false);
+    expect(pulled).toBeLessThan(10);
+  });
+
+  it('상한 안이면 조각을 이어 파일로 쓴다', async () => {
+    const root = repo();
+    const dest = join(root, 'ok.bin');
+    const fetchImpl = (async () =>
+      new Response(Buffer.from('%PDF-1.7 hello'), {
+        status: 200,
+        headers: { 'content-type': 'application/pdf' },
+      })) as typeof fetch;
+    const r = await download('https://a.example.com/x', dest, fetchImpl);
+    expect(r.contentType).toBe('application/pdf');
+    expect(readFileSync(dest, 'utf-8')).toBe('%PDF-1.7 hello');
   });
 });
