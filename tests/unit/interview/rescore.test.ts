@@ -275,7 +275,7 @@ describe('다시 채점하기', () => {
       expect(rounds[rounds.length - 1]!.gestaltFocus).toBe(GestaltPrinciple.FIGURE_GROUND);
     });
 
-    it('흔들림으로 보류된 뒤 다시 넘은 채점은 첫 점수 규칙으로 판정한다', () => {
+    it('흔들림으로 보류된 뒤 다시 넘은 채점은 기본 규칙으로 판정한다', () => {
       const { engine, sessionId } = answered(gate);
       engine.score(sessionId, READY);
       const held = engine.score(
