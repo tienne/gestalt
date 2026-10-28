@@ -1,5 +1,17 @@
 import { ShareFeed } from './feed.js';
-import type { ShareFrame, ShareStatus } from './feed.js';
+import type { ShareFrame, ShareListener, ShareStatus } from './feed.js';
+import type { MessageStatus } from './message.js';
+
+/** 내가 보낸 메시지 기록 상한. 넘으면 오래된 것부터 잊는다 */
+const MAX_MY_MESSAGES = 100;
+
+export interface MyMessage {
+  id: string;
+  text: string;
+  status: MessageStatus;
+  at: number;
+  reason?: string;
+}
 
 /**
  * 보는 사람 데몬이 원격 공유를 받아 로컬 뷰어로 옮기는 자리. 뷰어 서버는 내 공유와
@@ -10,6 +22,7 @@ import type { ShareFrame, ShareStatus } from './feed.js';
  */
 export class MirrorFeed extends ShareFeed {
   private unknown = 0;
+  private mine = new Map<string, MyMessage>();
 
   constructor(
     id: string,
@@ -63,7 +76,57 @@ export class MirrorFeed extends ShareFeed {
   markOffline(): void {
     this.setStatus('offline');
   }
+
+  get messages(): MyMessage[] {
+    return [...this.mine.values()];
+  }
+
+  /** 내가 보낸 메시지 상태를 바꾸고 붙은 뷰어에 알린다. 뒤 단계에서 앞 단계로는 안 돌아간다 */
+  setMessage(id: string, patch: Partial<Omit<MyMessage, 'id'>> & { status: MessageStatus }): void {
+    const prev = this.mine.get(id);
+    if (prev && STATUS_ORDER[patch.status] < STATUS_ORDER[prev.status]) return;
+    const next: MyMessage = {
+      id,
+      text: patch.text ?? prev?.text ?? '',
+      status: patch.status,
+      at: patch.at ?? prev?.at ?? Date.now(),
+      ...(patch.reason ? { reason: patch.reason } : {}),
+    };
+    this.mine.delete(id);
+    this.mine.set(id, next);
+    while (this.mine.size > MAX_MY_MESSAGES) {
+      const oldest = this.mine.keys().next().value;
+      if (oldest === undefined) break;
+      this.mine.delete(oldest);
+    }
+    this.emit({ type: 'msg', ...next });
+  }
+
+  /** 상태를 앞 단계로 되돌려야 할 때(릴레이가 들고 있다고 알려 온 경우) 먼저 지운다 */
+  forgetMessage(id: string): void {
+    this.mine.delete(id);
+  }
+
+  getMessage(id: string): MyMessage | undefined {
+    return this.mine.get(id);
+  }
+
+  override subscribe(listener: ShareListener, afterSeq = 0): () => void {
+    const off = super.subscribe(listener, afterSeq);
+    for (const m of this.mine.values()) listener({ type: 'msg', ...m });
+    return off;
+  }
 }
+
+/** 거절은 어느 단계에서든 올 수 있어서 끝에 둔다 */
+const STATUS_ORDER: Record<MessageStatus, number> = {
+  queued: 0,
+  sent: 1,
+  arrived: 2,
+  inserted: 3,
+  delivered: 4,
+  rejected: 5,
+};
 
 function isShareStatus(v: unknown): v is ShareStatus {
   return v === 'live' || v === 'missing' || v === 'truncated' || v === 'offline';

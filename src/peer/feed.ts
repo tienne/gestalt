@@ -1,4 +1,5 @@
 import { errMessage } from './errors.js';
+import type { MessageStatus } from './message.js';
 
 /**
  * 뷰어 하나가 받는 것. seq는 SSE id로 써서 다시 붙었을 때 이어 받게 한다. 이벤트는
@@ -14,7 +15,16 @@ export type ShareFrame =
    * 공유 종료. 앞부분을 따라잡는 중에 종료되면 아직 못 보낸 이벤트는 사라지므로 그 개수를
    * missed에 싣는다. 붙어 있던 뷰어는 다 받은 뒤라 안 싣는다
    */
-  | { type: 'closed'; reason: string; missed?: number };
+  | { type: 'closed'; reason: string; missed?: number }
+  /** 보는 쪽 데몬에서만 생긴다. 내가 보낸 메시지와 그 상태. 주인 쪽 스트림에는 없다 */
+  | {
+      type: 'msg';
+      id: string;
+      status: MessageStatus;
+      text: string;
+      at: number;
+      reason?: string;
+    };
 
 /** offline은 원격 공유에서 주인 데몬이 릴레이에서 빠졌을 때다 */
 export type ShareStatus = 'live' | 'missing' | 'truncated' | 'offline';

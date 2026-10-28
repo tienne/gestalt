@@ -7,7 +7,7 @@ export const VIEWER_WARNING = '비밀값 패턴은 가리지만 전부 잡지는
  * 대화 내용은 전부 textContent로 넣는다. 마크다운을 HTML로 그리면 남의 도구 출력에
  * 든 태그가 이 페이지에서 실행될 길이 생긴다. localStorage나 IndexedDB도 안 쓴다.
  */
-export function renderViewerHtml(nonce: string, maxViewers: number): string {
+export function renderViewerHtml(nonce: string, maxViewers: number, canSend = false): string {
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -33,6 +33,14 @@ export function renderViewerHtml(nonce: string, maxViewers: number): string {
   summary { cursor: pointer; font-size: 13px; }
   .error summary { color: #dc2626; }
   .note { color: var(--muted); font-style: italic; font-size: 13px; }
+  .peer_message .text { border-left: 3px solid #059669; padding-left: 8px; }
+  footer { position: sticky; bottom: 0; padding: 8px 16px; border-top: 1px solid var(--line);
+    background: Canvas; }
+  footer form { display: flex; gap: 8px; max-width: 980px; }
+  footer textarea { flex: 1; min-height: 38px; font: inherit; }
+  #mine { list-style: none; margin: 0 0 6px; padding: 0; font-size: 12px; color: var(--muted);
+    max-width: 980px; max-height: 120px; overflow: auto; }
+  #mine .rejected { color: #dc2626; }
 </style>
 </head>
 <body>
@@ -45,6 +53,17 @@ export function renderViewerHtml(nonce: string, maxViewers: number): string {
   </div>
 </header>
 <main id="log"></main>
+${
+  canSend
+    ? `<footer>
+  <ul id="mine"></ul>
+  <form id="send">
+    <textarea id="body" maxlength="16000" placeholder="주인 세션에 메시지 넣기. 프롬프트가 아니라 참고할 정보로 들어가요"></textarea>
+    <button type="submit">보내기</button>
+  </form>
+</footer>`
+    : ''
+}
 <script nonce="${nonce}">
 (() => {
   const log = document.getElementById('log');
@@ -106,6 +125,10 @@ export function renderViewerHtml(nonce: string, maxViewers: number): string {
       box.append(el('div', 'note', '서브에이전트 실행 중'));
     } else if (ev.kind === 'compacted') {
       box.append(el('div', 'note', '이전 대화가 압축됐어요'));
+    } else if (ev.kind === 'peer_message') {
+      const who = ev.origin === 'agent' ? ' 님의 에이전트가' : ' 님이';
+      box.append(el('div', 'who', '팀원 ' + ev.from + who + ' 넣은 메시지 ' + time(ev.at)));
+      box.append(el('div', 'text', ev.text));
     } else {
       return;
     }
@@ -140,6 +163,51 @@ export function renderViewerHtml(nonce: string, maxViewers: number): string {
     }
     es.close();
   });
+  const MSG = {
+    queued: '주인 오프라인이라 릴레이가 들고 있어요',
+    sent: '주인 데몬에 보냈어요',
+    arrived: '주인 데몬이 받았어요',
+    inserted: '주인 세션에 넣었어요. 주인이 보류했으면 여기서 멈춰요',
+    delivered: '주인 세션에 들어갔어요',
+    rejected: '거절됐어요',
+  };
+  const mine = document.getElementById('mine');
+  const rows = new Map();
+  es.addEventListener('msg', (m) => {
+    if (!mine) return;
+    const d = JSON.parse(m.data);
+    let li = rows.get(d.id);
+    if (!li) {
+      li = el('li');
+      rows.set(d.id, li);
+      mine.append(li);
+    }
+    li.className = d.status;
+    const label = Object.hasOwn(MSG, d.status) ? MSG[d.status] : d.status;
+    li.textContent = label + (d.reason ? ' (' + d.reason + ')' : '') + ' · ' + d.text.slice(0, 60);
+    mine.scrollTop = mine.scrollHeight;
+  });
+  const form = document.getElementById('send');
+  if (form) {
+    const bodyEl = document.getElementById('body');
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = bodyEl.value.trim();
+      if (!text) return;
+      fetch(base + '/messages?t=' + encodeURIComponent(token), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        cache: 'no-store',
+      })
+        .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+        .then(({ ok, j }) => {
+          if (ok) bodyEl.value = '';
+          else statusEl.textContent = '메시지를 못 보냈어요: ' + (j.error || '');
+        })
+        .catch(() => (statusEl.textContent = '메시지를 못 보냈어요'));
+    });
+  }
   // EventSource는 응답 코드를 안 알려 준다. 끊긴 이유가 뷰어 상한(429)인지 한 번 물어본다
   es.onerror = () => {
     if (es.readyState !== EventSource.CLOSED) {

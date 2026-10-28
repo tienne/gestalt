@@ -12,8 +12,11 @@ export type HelloMode = 'member' | 'join';
 
 export type ClientFrame =
   | { t: 'hello'; team: string; key: string; mode: HelloMode; sig: string; roster?: SignedRoster }
-  /** ack가 false면 릴레이가 답을 안 보낸다. 공유 스트림 프레임처럼 자주 가는 것에 쓴다 */
-  | { t: 'send'; id: number; to: string; data: string; ack?: false }
+  /**
+   * ack가 false면 릴레이가 답을 안 보낸다. 공유 스트림 프레임처럼 자주 가는 것에 쓴다.
+   * queue가 true면 받는 기기가 없을 때 릴레이가 7일까지 들고 있다가 그 기기가 붙으면 넘긴다
+   */
+  | { t: 'send'; id: number; to: string; data: string; ack?: false; queue?: true }
   | { t: 'resolve'; id: number; share: string }
   /** 이 기기가 지금 연 공유 id 전부. 받을 때마다 통째로 바꾼다 */
   | { t: 'announce'; shares: string[] }
@@ -28,7 +31,8 @@ export type ServerFrame =
   | { t: 'pending' }
   | { t: 'error'; code: RelayErrorCode; message: string }
   | { t: 'recv'; from: string; data: string }
-  | { t: 'ack'; id: number; ok: boolean; error?: string }
+  /** queued면 받는 기기가 없어서 릴레이가 들고 있다 */
+  | { t: 'ack'; id: number; ok: boolean; error?: string; queued?: true }
   | { t: 'resolved'; id: number; owner: string | null }
   | { t: 'roster'; roster: SignedRoster }
   | { t: 'presence'; key: string; online: boolean }

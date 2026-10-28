@@ -24,7 +24,11 @@ export type PeerRequest =
   | { op: 'members' }
   | { op: 'watch'; link: string }
   | { op: 'watches' }
-  | { op: 'unwatch'; id: string };
+  | { op: 'unwatch'; id: string }
+  /** 보고 있는 원격 공유의 주인 세션에 메시지를 넣는다 */
+  | { op: 'send'; watch: string; body: string }
+  /** watch가 있으면 그 보기에서 내가 보낸 메시지, 없으면 내 공유가 받은 메시지 기록 */
+  | { op: 'messages'; watch?: string };
 
 export type PeerResponse<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
 

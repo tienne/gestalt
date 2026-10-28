@@ -80,6 +80,8 @@ import {
   peerInviteCommand,
   peerJoinCommand,
   peerMembersCommand,
+  peerMessagesCommand,
+  peerSendCommand,
   peerRelayCommand,
   peerRemoveCommand,
   peerShareCommand,
@@ -376,6 +378,18 @@ export function createCli(): Command {
     .command('unwatch <id>')
     .description('원격 공유 보기를 멈춘다')
     .action((id, o, cmd) => peerUnwatchCommand({ ...peerOpts(cmd), ...o, id }));
+
+  peer
+    .command('send <watchId> [body...]')
+    .description('보고 있는 원격 공유의 주인 세션에 메시지를 넣는다. 본문이 없으면 표준 입력')
+    .action((watch, body, o, cmd) =>
+      peerSendCommand({ ...peerOpts(cmd), ...o, watch, body: body ?? [] }),
+    );
+
+  peer
+    .command('messages [watchId]')
+    .description('보기 id를 주면 내가 보낸 메시지 상태, 없으면 내 공유가 받은 메시지 기록')
+    .action((watch, o, cmd) => peerMessagesCommand({ ...peerOpts(cmd), ...o, watch }));
 
   peer
     .command('relay')

@@ -57,7 +57,11 @@ export type AuditAction =
   | 'remote_watch'
   | 'remote_watch_end'
   | 'watch_open'
-  | 'watch_close';
+  | 'watch_close'
+  | 'message_receive'
+  | 'message_insert'
+  | 'message_deliver'
+  | 'message_reject';
 
 /** 이 기기가 든 팀. 한 기기는 팀 하나에만 든다 */
 export interface TeamConfig {
@@ -244,6 +248,21 @@ export class PeerState {
     this.db
       .prepare(`INSERT INTO audit (at, share_id, action, detail) VALUES (?, ?, ?, ?)`)
       .run(at, shareId, action, detail ?? null);
+  }
+
+  /** 받은 메시지 기록. 본문은 없고 id, 보낸 사람, 크기, 거절 이유만 있다 */
+  messageLog(limit = 100): AuditRow[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM audit WHERE action LIKE 'message_%' ORDER BY id DESC LIMIT ?`)
+      .all(limit) as {
+      at: number;
+      share_id: string | null;
+      action: AuditAction;
+      detail: string | null;
+    }[];
+    return rows
+      .reverse()
+      .map((r) => ({ at: r.at, shareId: r.share_id, action: r.action, detail: r.detail }));
   }
 
   auditLog(shareId?: string): AuditRow[] {

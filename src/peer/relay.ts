@@ -43,6 +43,13 @@ interface Conn {
   timer?: NodeJS.Timeout;
 }
 
+interface QueuedSend {
+  from: string;
+  to: string;
+  data: string;
+  at: number;
+}
+
 interface QueuedJoin {
   to: string;
   from: string;
@@ -57,6 +64,12 @@ const MAX_JOINS_PER_CONN = 3;
 const MAX_QUEUED_JOINS = 64;
 const JOIN_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_ANNOUNCED_PER_CONN = 256;
+/** 오프라인 기기에게 온 것을 들고 있는 기간. 설계 원문의 7일 */
+export const SEND_QUEUE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_QUEUED_PER_TARGET = 256;
+const MAX_QUEUED_TOTAL = 4096;
+/** 들고 있을 수 있는 한 건의 크기. 메시지 본문 16KB가 봉인되고 base64로 불어나도 들어간다 */
+const MAX_QUEUED_DATA = 64 * 1024;
 const SHARE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
@@ -76,6 +89,7 @@ export class RelayServer {
   private pending = new Map<string, Conn>();
   private announced = new Map<string, string>();
   private joinQueue: QueuedJoin[] = [];
+  private sendQueue: QueuedSend[] = [];
   private pinger: NodeJS.Timeout | null = null;
 
   constructor(private readonly options: RelayServerOptions) {
@@ -89,6 +103,11 @@ export class RelayServer {
 
   get epoch(): number {
     return this.roster?.roster.epoch ?? 0;
+  }
+
+  /** 오프라인 기기에게 가려고 들고 있는 건수 */
+  get queuedSends(): number {
+    return this.sendQueue.length;
   }
 
   /** 지금 member로 붙어 있는 기기 id */
@@ -132,6 +151,7 @@ export class RelayServer {
     this.members.clear();
     this.pending.clear();
     this.announced.clear();
+    this.sendQueue = [];
     const server = this.server;
     this.server = null;
     if (!server) return;
@@ -266,18 +286,30 @@ export class RelayServer {
     });
     this.broadcast({ t: 'presence', key, online: true }, conn);
     this.flushJoins(key);
+    this.flushSends(key);
   }
 
   private forward(conn: Conn, frame: Extract<ClientFrame, { t: 'send' }>): void {
     if (!Number.isSafeInteger(frame.id)) return;
-    const ack = (ok: boolean, error?: string): void => {
+    const ack = (ok: boolean, error?: string, queued?: true): void => {
       if (frame.ack === false) return;
-      this.send(conn, { t: 'ack', id: frame.id, ok, ...(error ? { error } : {}) });
+      this.send(conn, {
+        t: 'ack',
+        id: frame.id,
+        ok,
+        ...(error ? { error } : {}),
+        ...(queued ? { queued } : {}),
+      });
     };
     if (typeof frame.to !== 'string' || typeof frame.data !== 'string')
       return ack(false, 'bad_frame');
     const target = this.members.get(frame.to);
-    if (!target) return ack(false, 'offline');
+    if (!target) {
+      if (frame.queue !== true) return ack(false, 'offline');
+      return this.enqueueSend(conn.key!, frame.to, frame.data)
+        ? ack(true, undefined, true)
+        : ack(false, 'queue_full');
+    }
     if (target.ws.bufferedAmount > MAX_RELAY_BUFFERED_BYTES) {
       target.ws.terminate(1008, 'slow');
       return ack(false, 'slow');
@@ -331,6 +363,32 @@ export class RelayServer {
     if (this.joinQueue.length > MAX_QUEUED_JOINS) this.joinQueue.shift();
   }
 
+  /** 명단에 있는 기기에게 가는 것만 들고 있는다. 상한을 넘으면 받지 않는다 */
+  private enqueueSend(from: string, to: string, data: string): boolean {
+    const roster = this.roster;
+    if (!roster || !memberOf(roster.roster, to) || data.length > MAX_QUEUED_DATA) return false;
+    const now = Date.now();
+    this.sendQueue = this.sendQueue.filter((q) => now - q.at < SEND_QUEUE_TTL_MS);
+    if (this.sendQueue.length >= MAX_QUEUED_TOTAL) return false;
+    if (this.sendQueue.filter((q) => q.to === to).length >= MAX_QUEUED_PER_TARGET) return false;
+    this.sendQueue.push({ from, to, data, at: now });
+    return true;
+  }
+
+  private flushSends(key: string): void {
+    const now = Date.now();
+    const target = this.members.get(key);
+    if (!target) return;
+    const mine = this.sendQueue.filter((q) => q.to === key);
+    this.sendQueue = this.sendQueue.filter((q) => q.to !== key);
+    for (const q of mine) {
+      if (now - q.at >= SEND_QUEUE_TTL_MS) continue;
+      // 그사이 명단에서 빠진 기기가 보낸 건 넘기지 않는다
+      if (this.roster && !memberOf(this.roster.roster, q.from)) continue;
+      this.send(target, { t: 'recv', from: q.from, data: q.data });
+    }
+  }
+
   private flushJoins(key: string): void {
     const now = Date.now();
     this.joinQueue = this.joinQueue.filter((q) => now - q.at < JOIN_QUEUE_TTL_MS);
@@ -354,6 +412,10 @@ export class RelayServer {
     const roster = incoming as SignedRoster;
     this.roster = roster;
     this.saveRosterFile();
+    // 빠진 기기가 보냈거나 빠진 기기에게 가던 건 버린다
+    this.sendQueue = this.sendQueue.filter(
+      (q) => memberOf(roster.roster, q.from) && memberOf(roster.roster, q.to),
+    );
     for (const [key, conn] of [...this.members]) {
       if (memberOf(roster.roster, key)) continue;
       this.members.delete(key);

@@ -17,7 +17,16 @@ export type PeerEvent =
     }
   | { kind: 'title'; text: string }
   | { kind: 'sidechain'; at?: string }
-  | { kind: 'compacted'; at?: string };
+  | { kind: 'compacted'; at?: string }
+  /** 팀원이 넣어 주인 세션에 들어간 메시지. 대화 기록 줄이 아니라 주인 데몬이 직접 끼운다 */
+  | {
+      kind: 'peer_message';
+      id: string;
+      from: string;
+      origin: 'human' | 'agent';
+      text: string;
+      at?: string;
+    };
 
 /** `tool_use` 입력 요약 길이. 결과보다 짧게 둔다 — 입력은 접힌 줄 제목처럼 읽힌다 */
 const TOOL_INPUT_SUMMARY_BYTES = 1024;

@@ -140,4 +140,32 @@ describe('RelayServer', () => {
     expect(relay.epoch).toBe(2);
     await t.close();
   });
+  it('받는 기기가 오프라인이면 queue로 보낸 것만 들고 있다가 붙을 때 넘기고 빠진 기기 몫은 버린다', async () => {
+    const a = new RelayTransport({ url, team: admin.id, key: admin, reconnect: false });
+    await a.connect(r1);
+    await expect(a.send(alice.id, Buffer.from('no-queue'))).rejects.toThrow('안 붙어 있어요');
+    expect(await a.send(alice.id, Buffer.from('held-1'), { queue: true })).toBe('queued');
+    expect(relay.queuedSends).toBe(1);
+
+    const b = new RelayTransport({ url, team: admin.id, key: alice, reconnect: false });
+    const got: string[] = [];
+    b.onReceive((from, data) =>
+      got.push(`${from === admin.id ? 'admin' : from}:${Buffer.from(data).toString()}`),
+    );
+    await b.connect(r1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(got).toEqual(['admin:held-1']);
+    expect(relay.queuedSends).toBe(0);
+    await b.close();
+
+    // alice가 오프라인일 때 쌓인 것은 alice를 빼면 버린다
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await a.send(alice.id, Buffer.from('held-2'), { queue: true })).toBe('queued');
+    a.publishRoster(
+      signRoster(nextRoster(r1.roster, r1.roster.members.slice(0, 1), admin.id), admin),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(relay.queuedSends).toBe(0);
+    await a.close();
+  });
 });

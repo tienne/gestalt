@@ -33,11 +33,31 @@ import { RelayTransport } from './transport.js';
 import type { RelayTransportOptions, TransportState } from './transport.js';
 import { MAX_VIEWERS_PER_SHARE, REPLAY_CHUNK_BYTES } from './viewer.js';
 import { errMessage } from './errors.js';
+import type { InboxResult } from './inbox.js';
+import { isMessageId, newMessageId, RateLimiter, sanitizeMessageBody } from './message.js';
+import type { MessageOrigin, MessageStatus } from './message.js';
+import { RelaySendError } from './transport.js';
 
 /** 주인 데몬이 내 공유를 넘겨줄 때 쓰는 것 */
 export interface OwnedShare {
   stream: ShareFeed;
   shareKey: string;
+  /**
+   * 메시지를 주인 세션 인박스에 쓴다. 쓴 뒤 그 메시지가 대화 기록에 보이면 onSeen을 부른다.
+   * 없으면 이 공유는 메시지를 못 받는다.
+   */
+  deliver?(m: InboundMessage, onSeen: () => void): Promise<InboxResult>;
+}
+
+/** 주인 데몬이 받아 검사를 마친 메시지 */
+export interface InboundMessage {
+  id: string;
+  share: string;
+  from: string;
+  person: string;
+  origin: MessageOrigin;
+  /** sanitizeMessageBody를 거친 본문 */
+  body: string;
 }
 
 export interface PeerNetworkOptions {
@@ -87,6 +107,7 @@ export const MAX_REMOTE_BUFFERED_BYTES = 8 * 1024 * 1024;
 const WATCH_TIMEOUT_MS = 10_000;
 const WATCH_NONCE_TTL_MS = 10 * 60 * 1000;
 const MAX_SEEN_WATCH = 4096;
+const MAX_SEEN_MESSAGES = 8192;
 
 /** 데몬끼리 봉인해 주고받는 것. box 안에 든다 */
 type BoxMessage =
@@ -95,7 +116,9 @@ type BoxMessage =
   | { t: 'watch_err'; share: string; nonce: string; reason: string }
   | { t: 'watch_end'; share: string; sub: string; reason: string }
   | { t: 'unwatch'; share: string; sub: string }
-  | { t: 'join'; invite: string; proof: string; box: string };
+  | { t: 'join'; invite: string; proof: string; box: string }
+  | { t: 'msg'; share: string; id: string; body: string; origin: MessageOrigin; proof: string }
+  | { t: 'msg_status'; share: string; id: string; status: MessageStatus; reason?: string };
 
 /** 공유 스트림 봉투. 공유 세션 키로 연다. share와 sub는 릴레이도 보는 라우팅 정보다 */
 interface StreamEnvelope {
@@ -157,6 +180,10 @@ export class PeerNetwork {
   private announced: string[] = [];
   /** 최근 받은 watch 요청의 `기기|nonce`와 받은 시각. 릴레이가 옛 요청을 다시 보내면 거절한다 */
   private seenWatch = new Map<string, number>();
+  /** 받은 메시지의 `기기|id`. 릴레이가 같은 봉인을 다시 보내면 버린다 */
+  private seenMessages = new Set<string>();
+  private sendLimiter = new RateLimiter();
+  private receiveLimiter = new RateLimiter();
   private readonly maxBuffered: number;
 
   constructor(private readonly options: PeerNetworkOptions) {
@@ -387,9 +414,24 @@ export class PeerNetwork {
     this.transport?.announce(this.announced);
   }
 
-  lookupWatch(id: string): { stream: ShareFeed; token: string } | undefined {
+  lookupWatch(id: string):
+    | {
+        stream: ShareFeed;
+        token: string;
+        send(text: string): Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+      }
+    | undefined {
     const w = this.watches.get(id);
-    return w ? { stream: w.feed, token: w.token } : undefined;
+    if (!w) return undefined;
+    return {
+      stream: w.feed,
+      token: w.token,
+      send: (text) =>
+        this.sendMessage(id, text, 'human').then(
+          (r) => ({ ok: true as const, id: r.id }),
+          (err: unknown) => ({ ok: false as const, error: errMessage(err) }),
+        ),
+    };
   }
 
   listWatches(): { id: string; share: string; owner: string; status: string; events: number }[] {
@@ -612,8 +654,158 @@ export class PeerNetwork {
         if (sub && sub.watcher === from) this.endSub(sub, 'unwatch', false);
         return;
       }
+      case 'msg':
+        return void this.onMessageRequest(from, msg).catch((err: unknown) => {
+          process.stderr.write(`[peer] message failed: ${errMessage(err)}\n`);
+        });
+      case 'msg_status':
+        return this.onMessageStatus(from, msg);
       default:
         return;
+    }
+  }
+
+  // ── 메시지 ──────────────────────────────────────────────
+
+  /**
+   * 보는 쪽: 원격 공유 주인 세션에 메시지를 보낸다. 주인 데몬이 오프라인이면 릴레이가 7일까지
+   * 들고 있는다. 상태는 보기의 MirrorFeed에 쌓여 뷰어로 간다.
+   */
+  async sendMessage(
+    watchId: string,
+    raw: string,
+    origin: MessageOrigin = 'human',
+  ): Promise<{ id: string; status: MessageStatus }> {
+    const w = this.watches.get(watchId);
+    if (!w) throw new PeerNetworkError(`보고 있는 공유가 아니에요: ${watchId}`);
+    const clean = sanitizeMessageBody(raw);
+    if (!clean.ok) throw new PeerNetworkError(clean.reason);
+    // 주인 쪽도 같은 한도로 막는다. 여기서 먼저 막아 릴레이까지 안 보낸다
+    if (!this.sendLimiter.take(`${w.share}|${w.owner}`)) {
+      throw new PeerNetworkError('메시지를 너무 자주 보냈어요. 10분에 12건까지예요');
+    }
+    const member = this.roster ? memberOf(this.roster.roster, w.owner) : undefined;
+    const t = this.transport;
+    if (!member) throw new PeerNetworkError('공유 주인이 명단에 없어요');
+    if (!t || t.state !== 'online') throw new PeerNetworkError('릴레이에 안 붙어 있어요');
+
+    const id = newMessageId();
+    const body: BoxMessage = {
+      t: 'msg',
+      share: w.share,
+      id,
+      body: clean.text,
+      origin,
+      proof: hmac(w.shareKey, messageProofText(w.share, this.key.id, id, clean.text)),
+    };
+    w.feed.setMessage(id, { status: 'sent', text: clean.text, at: Date.now() });
+    const box = sealBox(this.key, w.owner, member.boxKey, JSON.stringify(body));
+    let result: 'queued' | 'delivered';
+    try {
+      result = await t.send(w.owner, Buffer.from(JSON.stringify(box)), { queue: true });
+    } catch (err) {
+      const reason = err instanceof RelaySendError ? err.reason : errMessage(err);
+      w.feed.setMessage(id, { status: 'rejected', reason });
+      throw new PeerNetworkError(`메시지를 못 보냈어요: ${errMessage(err)}`);
+    }
+    if (result === 'queued') {
+      // 앞 단계로 안 돌아가므로 sent를 지우고 queued로 다시 쓴다
+      w.feed.forgetMessage(id);
+      w.feed.setMessage(id, { status: 'queued', text: clean.text });
+    }
+    return { id, status: w.feed.getMessage(id)?.status ?? 'sent' };
+  }
+
+  listMessages(
+    watchId: string,
+  ): { id: string; status: MessageStatus; text: string; at: number; reason?: string }[] {
+    const w = this.watches.get(watchId);
+    if (!w) throw new PeerNetworkError(`보고 있는 공유가 아니에요: ${watchId}`);
+    return w.feed.messages;
+  }
+
+  /** 주인 쪽: 받은 메시지를 검사하고 주인 세션 인박스에 쓴다 */
+  private async onMessageRequest(
+    from: string,
+    msg: Extract<BoxMessage, { t: 'msg' }>,
+  ): Promise<void> {
+    if (typeof msg.share !== 'string' || !isMessageId(msg.id)) return;
+    // 릴레이가 같은 봉인을 다시 보내면 한 번만 넣는다
+    const dedupe = `${from}|${msg.id}`;
+    if (this.seenMessages.has(dedupe)) return;
+    this.seenMessages.add(dedupe);
+    if (this.seenMessages.size > MAX_SEEN_MESSAGES) {
+      const oldest = this.seenMessages.values().next().value;
+      if (oldest !== undefined) this.seenMessages.delete(oldest);
+    }
+
+    const status = (s: MessageStatus, reason?: string): void => {
+      this.sendBox(from, {
+        t: 'msg_status',
+        share: msg.share,
+        id: msg.id,
+        status: s,
+        ...(reason ? { reason } : {}),
+      });
+    };
+    const person = (this.roster ? memberOf(this.roster.roster, from)?.person : undefined) ?? '?';
+    const reject = (reason: string): void => {
+      status('rejected', reason);
+      this.options.state.audit(
+        'message_reject',
+        msg.share,
+        JSON.stringify({ id: msg.id, person, reason }),
+      );
+    };
+
+    const owned = this.options.lookupShare(msg.share);
+    if (!owned || owned.stream.isClosed) return reject('share_closed');
+    if (typeof msg.body !== 'string' || typeof msg.proof !== 'string') return reject('bad_frame');
+    const expected = hmac(
+      Buffer.from(owned.shareKey, 'base64url'),
+      messageProofText(msg.share, from, msg.id, msg.body),
+    );
+    if (!safeEqual(msg.proof, expected)) return reject('bad_proof');
+    const clean = sanitizeMessageBody(msg.body);
+    if (!clean.ok) return reject(clean.reason);
+    if (!this.receiveLimiter.take(`${msg.share}|${from}`)) return reject('rate_limited');
+    if (!owned.deliver) return reject('no_inbox');
+
+    const origin: MessageOrigin = msg.origin === 'agent' ? 'agent' : 'human';
+    this.options.state.audit(
+      'message_receive',
+      msg.share,
+      JSON.stringify({ id: msg.id, person, origin, bytes: Buffer.byteLength(clean.text) }),
+    );
+    status('arrived');
+    const inbound: InboundMessage = {
+      id: msg.id,
+      share: msg.share,
+      from,
+      person,
+      origin,
+      body: clean.text,
+    };
+    const result = await owned.deliver(inbound, () => {
+      status('delivered');
+      this.options.state.audit(
+        'message_deliver',
+        msg.share,
+        JSON.stringify({ id: msg.id, person }),
+      );
+    });
+    if (!result.ok) return reject(result.reason);
+    status('inserted');
+    this.options.state.audit('message_insert', msg.share, JSON.stringify({ id: msg.id, person }));
+  }
+
+  /** 보는 쪽: 주인 데몬이 알려 온 상태를 반영한다 */
+  private onMessageStatus(from: string, msg: Extract<BoxMessage, { t: 'msg_status' }>): void {
+    if (!isMessageId(msg.id) || !isMessageStatus(msg.status)) return;
+    for (const w of this.watches.values()) {
+      if (w.owner !== from || w.share !== msg.share || !w.feed.getMessage(msg.id)) continue;
+      const reason = typeof msg.reason === 'string' ? msg.reason.slice(0, 200) : undefined;
+      w.feed.setMessage(msg.id, { status: msg.status, ...(reason ? { reason } : {}) });
     }
   }
 
@@ -962,6 +1154,22 @@ export class PeerNetwork {
 /** 링크를 가진 쪽만 만드는 증명. 보는 기기 id와 nonce를 넣어 남의 요청을 다시 못 쓰게 한다 */
 function watchProofText(share: string, watcher: string, nonce: string): string {
   return canonical({ p: 'gestalt-peer-watch-v1', share, watcher, nonce });
+}
+
+/** 링크를 가진 쪽만 만드는 메시지 증명. 본문까지 넣어 릴레이가 내용을 바꾸지 못하게 한다 */
+function messageProofText(share: string, from: string, id: string, body: string): string {
+  return canonical({ p: 'gestalt-peer-msg-v1', share, from, id, body });
+}
+
+function isMessageStatus(v: unknown): v is MessageStatus {
+  return (
+    v === 'queued' ||
+    v === 'sent' ||
+    v === 'arrived' ||
+    v === 'inserted' ||
+    v === 'delivered' ||
+    v === 'rejected'
+  );
 }
 
 function streamKey(
