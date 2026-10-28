@@ -79,9 +79,10 @@ def table_regions(page, captions):
             if overlap_x(g["x0"], g["x1"], l["x0"], l["x1"]) > 0.8 * (l["x1"] - l["x0"]) and l["top"] - g["bottom"] < 90:
                 g["bottom"] = max(g["bottom"], l["top"])
                 g["n"] += 1
+                g["ys"].append((l["top"], l["x1"] - l["x0"]))
                 break
         else:
-            groups.append({"x0": l["x0"], "x1": l["x1"], "top": l["top"], "bottom": l["top"], "n": 1})
+            groups.append({"x0": l["x0"], "x1": l["x1"], "top": l["top"], "bottom": l["top"], "n": 1, "ys": [(l["top"], l["x1"] - l["x0"])]})
     groups = [g for g in groups if g["n"] >= 2]
     found = []
     used = set()
@@ -96,11 +97,13 @@ def table_regions(page, captions):
         if best is not None:
             used.add(best)
             g = groups[best]
-            found.append((cap, (g["x0"] - 2, g["top"] - 1, g["x1"] + 2, g["bottom"] + 1)))
+            # 머리줄 경계는 표 폭 전체를 긋는 줄만 본다. 여러 열을 묶는 짧은 줄(cmidrule)은 머리줄 안쪽이다
+            full = sorted(y for y, w in g["ys"] if w >= 0.9 * (g["x1"] - g["x0"]))
+            found.append((cap, (g["x0"] - 2, g["top"] - 1, g["x1"] + 2, g["bottom"] + 1), full))
     return found
 
 
-def build_table(page, box):
+def build_table(page, box, ys):
     words = page.crop(box).extract_words(x_tolerance=1.5, extra_attrs=["size", "fontname"])
     if not words:
         return None
@@ -114,13 +117,16 @@ def build_table(page, box):
         else:
             rows.append({"mid": mid, "words": [w]})
     rows.sort(key=lambda r: r["mid"])
-    # 모든 줄에서 비어 있는 세로 띠가 칸 경계다
-    x0 = min(w["x0"] for w in words)
-    x1 = max(w["x1"] for w in words)
+    # booktabs는 윗줄과 가운데 줄 사이가 머리줄이다. 머리줄이 여러 줄이면 칸끼리 이어 한 줄로 합친다
+    head_n = sum(1 for r in rows if r["mid"] < ys[1]) if len(ys) >= 3 else 0
+    body_words = [w for r in rows[head_n:] for w in r["words"]] or words
+    # 본문 줄에서 비어 있는 세로 띠가 칸 경계다. 여러 칸에 걸친 머리줄 글자가 경계를 지우지 않게 머리줄은 빼고 본다
+    x0 = min(w["x0"] for w in body_words)
+    x1 = max(w["x1"] for w in body_words)
     step = 0.5
     n = int((x1 - x0) / step) + 1
     covered = [False] * n
-    for w in words:
+    for w in body_words:
         for k in range(int((w["x0"] - x0) / step), min(n, int((w["x1"] - x0) / step) + 1)):
             covered[k] = True
     bounds = []
@@ -135,17 +141,27 @@ def build_table(page, box):
             k = j
         else:
             k += 1
-    edges = [x0 - 1] + bounds + [x1 + 1]
+    # 머리줄 글자가 본문 폭 밖으로 나가도 양 끝 칸에 들어가게 바깥 경계는 열어 둔다
+    edges = [float("-inf")] + bounds + [float("inf")]
     grid = []
-    for r in rows:
+    for ri, r in enumerate(rows):
         cells = [[] for _ in range(len(edges) - 1)]
-        for w in sorted(r["words"], key=lambda w: w["x0"]):
-            cx = (w["x0"] + w["x1"]) / 2
+        ws = sorted(r["words"], key=lambda w: w["x0"])
+        # 머리줄 낱말이 칸 경계에 걸치면 왼쪽 끝으로 칸을 정한다. 머리 글자가 본문 칸보다 넓어도 제 칸에 남는다
+        def anchor(w):
+            if ri < head_n and any(w["x0"] < b < w["x1"] for b in bounds):
+                return w["x0"] + 1
+            return (w["x0"] + w["x1"]) / 2
+        placed = [(anchor(w), w["text"]) for w in ws]
+        for cx, text in placed:
             for c in range(len(edges) - 1):
                 if edges[c] <= cx < edges[c + 1]:
-                    cells[c].append(w["text"])
+                    cells[c].append(text)
                     break
         grid.append([re.sub(r"(?<=\d) ?\. ?(?=\d)", ".", " ".join(c)) for c in cells])
+    if head_n > 1:
+        head = [" ".join(grid[r][c] for r in range(head_n) if grid[r][c]) for c in range(len(edges) - 1)]
+        grid = [head] + grid[head_n:]
     return grid
 
 
@@ -223,10 +239,10 @@ def main():
         # 캡션 단위는 본문 뒤에 붙인다. 앞 쪽에서 넘어온 문단이 먼저 이어져야 읽는 순서가 맞다
         page_units = []
         tcaps = [b for b in cap_blocks if b[0]["text"].lower().startswith("table")]
-        for cap, box in table_regions(page, [{**b[0], "bottom": b[-1]["bottom"]} for b in tcaps]):
+        for cap, box, ys in table_regions(page, [{**b[0], "bottom": b[-1]["bottom"]} for b in tcaps]):
             m = CAPTION.match(cap["text"])
             block = next(b for b in tcaps if b[0]["top"] == cap["top"] and b[0]["x0"] == cap["x0"])
-            grid = build_table(page, box)
+            grid = build_table(page, box, ys)
             if not grid:
                 continue
             tid = f"table-{m.group(2)}"
