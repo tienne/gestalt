@@ -171,9 +171,15 @@ describe('생성된 에이전트의 도구', () => {
     }
   });
 
-  it('Write는 파일을 직접 쓰는 presentation-designer와 video-summarizer만 받는다', () => {
+  it('Write는 파일을 직접 쓰는 presentation-designer와 video-summarizer, 렌즈 세 에이전트만 받는다', () => {
     const writers = [...agents].filter(([, tools]) => tools.includes('Write')).map(([n]) => n);
-    expect(writers.sort()).toEqual(['presentation-designer', 'video-summarizer']);
+    expect(writers.sort()).toEqual([
+      'lens-context',
+      'lens-link',
+      'lens-reader',
+      'presentation-designer',
+      'video-summarizer',
+    ]);
   });
 
   it('MCP 도구는 ges_agent로 윤문 지침을 받는 에이전트에만 열린다', () => {
@@ -184,8 +190,17 @@ describe('생성된 에이전트의 도구', () => {
     expect(withMcp).toEqual(['change-context-writer', 'impact-writer', 'presentation-writer']);
   });
 
-  it('WebFetch는 어느 에이전트에도 열리지 않는다', () => {
-    for (const tools of agents.values()) expect(tools).not.toContain('WebFetch');
+  it('WebFetch는 바깥 맥락 카드를 쓰는 lens-context에만 열리고 그 에이전트는 셸이 없다', () => {
+    const fetchers = [...agents].filter(([, tools]) => tools.includes('WebFetch')).map(([n]) => n);
+    expect(fetchers).toEqual(['lens-context']);
+    expect(agents.get('lens-context')).not.toContain('Bash');
+  });
+
+  it('노트를 읽는 lens-link에는 웹 도구와 셸이 없다', () => {
+    const tools = agents.get('lens-link');
+    expect(tools).toEqual(['Read', 'Grep', 'Glob', 'Write']);
+    expect(tools).not.toContain('WebSearch');
+    expect(tools).not.toContain('WebFetch');
   });
 });
 

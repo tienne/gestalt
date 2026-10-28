@@ -193,7 +193,89 @@ export const VIEWER_JS =
     });
   }
 
-  function setupPopups() {
+  // 글 자료의 원문 창. 문단 칩을 누르면 PDF는 그 쪽으로 가서 문단 자리를 칠하고 웹 글은 그 문단으로 스크롤한다
+  function setupDocPane() {
+    var api = { reveal: function(){} };
+    if (!data.doc) return api;
+    var pagesBox = document.getElementById('doc-pages');
+    var textBox = document.getElementById('script-body');
+    var viewBtns = document.querySelectorAll('[data-view]');
+    var view = 'text';
+    function setView(v) {
+      if (!pagesBox) v = 'text';
+      view = v;
+      if (pagesBox) pagesBox.hidden = v !== 'pages';
+      if (textBox) textBox.hidden = v !== 'text';
+      viewBtns.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute('data-view') === v ? 'true' : 'false'); });
+      return v;
+    }
+    viewBtns.forEach(function(b){ b.addEventListener('click', function(){ setView(b.getAttribute('data-view')); }); });
+    setView(pagesBox ? 'pages' : 'text');
+    function clearMarks() {
+      document.querySelectorAll('.doc-hl').forEach(function(n){ n.remove(); });
+      document.querySelectorAll('#script-list li.is-cited').forEach(function(n){ n.classList.remove('is-cited'); });
+    }
+    function pageEl(n) { return pagesBox ? pagesBox.querySelector('.doc-page[data-page="' + n + '"]') : null; }
+    function scrollWithin(box, top) {
+      box.scrollTo({ top: Math.max(0, top), behavior: reduceMotion ? 'auto' : 'smooth' });
+    }
+    api.reveal = function(from, to, key) {
+      clearMarks();
+      for (var i = from; i <= to; i++) { if (lines[i]) lines[i].classList.add('is-cited'); }
+      var rects = data.units && data.pages ? data.units : null;
+      if (view === 'pages' && rects && pagesBox) {
+        var first = null;
+        for (var u = from; u <= to; u++) {
+          (rects[u] || []).forEach(function(r){
+            var el = pageEl(r[0]);
+            var pg = null;
+            data.pages.forEach(function(p){ if (p.n === r[0]) pg = p; });
+            if (!el || !pg) return;
+            var box = document.createElement('span');
+            box.className = 'doc-hl' + (u === key ? ' is-key' : '');
+            box.style.left = (r[1] / pg.w * 100) + '%';
+            box.style.top = (r[2] / pg.h * 100) + '%';
+            box.style.width = ((r[3] - r[1]) / pg.w * 100) + '%';
+            box.style.height = ((r[4] - r[2]) / pg.h * 100) + '%';
+            el.appendChild(box);
+            if (u === key && !first) first = { el: el, y: r[2] / pg.h };
+          });
+        }
+        if (!first) {
+          var any = pagesBox.querySelector('.doc-hl');
+          if (any) first = { el: any.parentNode, y: parseFloat(any.style.top) / 100 };
+        }
+        if (first) scrollWithin(pagesBox, first.el.offsetTop + first.y * first.el.clientHeight - pagesBox.clientHeight / 4);
+        return;
+      }
+      var li = lines[key];
+      if (li && textBox) {
+        if (textBox.hidden) setView('text');
+        scrollWithin(textBox, li.offsetTop - textBox.clientHeight / 4);
+      }
+    };
+    document.addEventListener('click', function(ev){
+      var el = ev.target.closest ? ev.target.closest('[data-unit]') : null;
+      if (!el) return;
+      ev.preventDefault();
+      var i = Number(el.getAttribute('data-unit'));
+      api.reveal(i, i, i);
+    });
+    return api;
+  }
+
+  function unitChip(i) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'loc';
+    b.setAttribute('data-unit', String(i));
+    var li = lines[i];
+    var chip = li ? li.querySelector('.loc') : null;
+    b.textContent = chip ? chip.textContent : '¶' + (i + 1);
+    return b;
+  }
+
+  function setupPopups(docPane) {
     var pop = document.createElement('div');
     pop.id = 'digest-pop';
     pop.className = 'pop';
@@ -236,10 +318,11 @@ export const VIEWER_JS =
       pop.textContent = '';
       var head = document.createElement('div');
       head.className = 'pop-head';
-      head.appendChild(timeLink(starts[key] || 0));
+      head.appendChild(data.doc ? unitChip(key) : timeLink(starts[key] || 0));
       var range = document.createElement('span');
       range.className = 'pop-range';
-      range.textContent = from === to ? ' 문장 ' + (from + 1) : ' 문장 ' + (from + 1) + '-' + (to + 1);
+      var word = data.doc ? ' 문단 ' : ' 문장 ';
+      range.textContent = from === to ? word + (from + 1) : word + (from + 1) + '-' + (to + 1);
       head.appendChild(range);
       pop.appendChild(head);
       var ol = document.createElement('ol');
@@ -258,6 +341,8 @@ export const VIEWER_JS =
         pop.appendChild(more);
       }
       place(btn, '출처 툴팁');
+      // 글 자료는 출처를 열 때 원문 창도 그 자리로 옮긴다
+      if (data.doc) docPane.reveal(from, to, key);
     }
     function openKeyword(btn){
       var box = btn.closest('.report');
@@ -709,6 +794,36 @@ export const VIEWER_JS =
     return { isOpen: function(){ return dialog.open; } };
   }
 
+  // 인터랙티브 그림은 렌더러가 상태마다 그려 둔 것 가운데 하나만 보인다. 여기서 값을 계산하지 않는다
+  function showWidgetState(box, key) {
+    box.querySelectorAll('[data-w-state]').forEach(function(s){ s.hidden = s.getAttribute('data-w-state') !== key; });
+  }
+  document.addEventListener('click', function(ev){
+    var b = ev.target.closest ? ev.target.closest('[data-w-toggle]') : null;
+    if (!b) return;
+    var box = b.closest('[data-widget]');
+    if (!box) return;
+    var key = b.getAttribute('data-w-toggle');
+    box.querySelectorAll('[data-w-toggle]').forEach(function(x){ x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+    showWidgetState(box, key);
+  });
+  document.addEventListener('input', function(ev){
+    var r = ev.target;
+    if (!r || !r.hasAttribute || !r.hasAttribute('data-w-slider')) return;
+    var box = r.closest('[data-widget]');
+    if (!box) return;
+    showWidgetState(box, String(Math.round(Number(r.value))));
+    var labels = [];
+    try { labels = JSON.parse(r.getAttribute('data-labels') || '[]'); } catch (e) {}
+    if (labels[r.value]) r.setAttribute('aria-valuetext', labels[r.value]);
+  });
+  // 한계 단락의 맥락 카드 링크를 누르면 접힌 카드를 펼친다
+  document.addEventListener('click', function(ev){
+    var a = ev.target.closest ? ev.target.closest('a.card-ref') : null;
+    if (!a) return;
+    var target = document.getElementById(safeDecode(a.getAttribute('href').slice(1)));
+    if (target && target.tagName.toLowerCase() === 'details') target.open = true;
+  });
   setupFontScale();
   setupTranslation();
   // 요약 앵커로 스크롤하려면 요약 패널이 먼저 보여야 해서 탭을 리포트보다 먼저 연다
@@ -717,7 +832,8 @@ export const VIEWER_JS =
   var more = setupMore(reports);
   var player = createPlayer();
   setupTimeLinks(player);
-  var popups = setupPopups();
+  var docPane = setupDocPane();
+  var popups = setupPopups(docPane);
   setupScriptFollow(player);
   setupSectionMarks();
   setupSubsectionFollow(player);

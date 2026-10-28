@@ -20,7 +20,7 @@
 {
   "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
   "llm": { "apiKey": "", "model": "claude-sonnet-5" },
-  "interview": { "resolutionThreshold": 0.8, "maxRounds": 10 },
+  "interview": { "resolutionThreshold": 0.8, "maxRounds": 10, "rescore": "record" },
   "execute": { "driftThreshold": 0.6, "successThreshold": 0.85, "goalAlignmentThreshold": 0.80 },
   "reasoningModel": "fable",
   "reasoningModelFallback": "opus",
@@ -40,7 +40,7 @@
 ```typescript
 interface GestaltConfig {
   llm: { apiKey: string; model: string };
-  interview: { resolutionThreshold: number; maxRounds: number };
+  interview: { resolutionThreshold: number; maxRounds: number; rescore: 'off' | 'record' | 'gate' };
   execute: { driftThreshold: number; successThreshold: number; goalAlignmentThreshold: number };
   reasoningModel: 'fable' | 'opus' | 'sonnet' | 'haiku';
   reasoningModelFallback: 'fable' | 'opus' | 'sonnet' | 'haiku';
@@ -102,6 +102,8 @@ interface GestaltConfig {
 | `GESTALT_LOG_LEVEL` | `"debug"` \| `"info"` \| `"warn"` \| `"error"` | `"info"` | 로그 출력 레벨 |
 | `GESTALT_CLIENT` | `"claude-code"` \| `"codex"` \| `"both"` \| `"grok"` | `"claude-code"` | 액티브 세션 컨텍스트를 쓰는 호스트. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고 Interview/Spec passthrough를 강제한다. `"both"`는 Claude와 Codex만 쓰며 Grok 경로는 쓰지 않는다 |
 | `GESTALT_NO_UPDATE_CHECK` | `"1"` | — | `"1"` 로 설정하면 버전 업데이트 확인을 건너뜀 |
+| `GESTALT_LENS_MODELS` | string (절대 경로) | — | 팟캐스트 화자를 가르는 모델(sherpa-onnx)을 둘 폴더. 없으면 `~/.local/share/gestalt/lens-models`를 쓴다. 모델이 없으면 처음 쓸 때 받고 sha256을 확인한다 |
+| `GESTALT_LENS_PYTHON` | string (절대 경로) | — | 읽기 렌즈 추출(pdfplumber, trafilatura, faster-whisper)에 쓸 파이썬. 없으면 `~/.local/share/gestalt/lens-venv/bin/python`, 그것도 없으면 `python3`. 상대 경로는 거절한다. 동작은 [읽기 렌즈](#읽기-렌즈-lens) |
 
 잘못된 설정값은 경고를 출력하고 기본값으로 fallback한다 (에러를 throw하지 않음).
 
@@ -132,6 +134,20 @@ interface GestaltConfig {
 | `GESTALT_RESEARCH_SOURCES_DIR` | `researchSourcesDir` |
 | `GESTALT_LOG_LEVEL` | `logLevel` |
 | `GESTALT_CLIENT` | `client` |
+
+---
+
+## 다시 채점하기 (`interview.rescore`)
+
+인터뷰 점수가 `resolutionThreshold`를 넘으면 그 채점을 한 번 더 받는다. `record`는 처음 넘을 때 한 번만 요청하고 `gate`는 받을 때까지 넘을 때마다 요청한다. 같은 대화를 다시 물었을 때 점수가 얼마나 바뀌는지 남기려는 것이다. 환경변수는 없고 `gestalt.json`에서만 정한다.
+
+| 값 | 동작 |
+|---|---|
+| `off` | 다시 채점하지 않는다 |
+| `record` (기본) | 다시 채점해서 기록만 한다. `isReady`는 다시 채점 직전 점수 그대로 둔다 |
+| `gate` | 다시 채점을 받기 전까지 `isReady`를 `false`로 둔다. 받은 뒤에는 두 overall 중 낮은 쪽으로 정하고 차원 하나라도 0.2보다 크게 흔들렸으면 `false`로 둔다. 다시 채점은 인터뷰마다 한 번이라 보류된 뒤 다시 기준값을 넘은 채점은 기본 규칙(overall ≥ 기준값)으로 정한다. `rescoreMode`가 `same-context`여도 같은 규칙으로 정하고 이걸 그대로 둘지는 [제안서 열린 질문 6](./proposals/resolution-calibration.md#열린-질문)에서 정한다 |
+
+흐름과 응답 필드는 [`mcp-reference.md`](./mcp-reference.md#다시-채점하기)에 있다.
 
 ---
 
@@ -184,6 +200,55 @@ interface GestaltConfig {
 - 캐시는 레포 밖 `${XDG_CACHE_HOME:-$HOME/.cache}/gestalt/webfetch-cache/<프로젝트 해시>/`에 쌓인다. `jq`와 `curl`이 없으면 훅은 아무것도 하지 않고 지나간다
 
 저장 규칙과 한계는 [WebFetch 디스크 캐시](./webfetch-cache.md)에 있다.
+
+---
+
+## 읽기 렌즈 (`lens`)
+
+`/lens` 스킬이 연결 카드 후보를 찾을 내 노트 폴더는 세 군데서 합친다.
+
+1. 사용자 설정 `~/.gestalt/lens.json`. 처음 렌즈를 쓸 때 스킬이 노트 폴더 후보를 찾아 묻고 고른 폴더를 여기 적는다. 레포가 아니라 사용자 설정이라 한 번 연결하면 어느 레포에서든 쓴다. 손으로 고치려면 `gestalt lens notes` 명령을 쓴다
+2. 레포의 `gestalt.json` `lens.knowledgeSources`. 팀이 함께 보는 레포 안 문서 폴더처럼 레포에 묶인 자리만 적는다. 레포 안 경로만 받는다. 레포 밖을 가리키면 버리고 경고한다. 남의 레포를 열었을 때 그 레포의 설정이 내 개인 폴더를 읽기 대상으로 정하지 못하게 하려는 것이다. 레포 밖 폴더는 1이나 3으로 연결한다
+3. 부를 때 넘긴 폴더(스킬 입력 `knowledge`, `gestalt lens knowledge --source`)
+
+```bash
+gestalt lens notes list                 # 연결한 폴더와 노션 사용 여부
+gestalt lens notes detect [--scan <dir>]  # 후보 찾기
+gestalt lens notes add <폴더>...          # 연결
+gestalt lens notes remove <폴더>
+gestalt lens notes notion-on|notion-off  # 노션 MCP로도 찾기
+gestalt lens notes decline              # 쓰지 않음. 다음부터 묻지 않는다
+```
+
+후보 찾기는 Orca 없이 돈다. 이 레포와 옆 레포(상위 폴더), 홈의 흔한 작업 폴더와 문서 폴더(`~/Documents`, `~/Desktop`, `~/Downloads`, `~/notes`, `~/work`, `~/projects`, `~/code`, `~/dev`, `~/src`, `~/repos`, `~/github`, iCloud Obsidian)를 3단까지 훑는다. 이름이 notes, kb, wiki, journal 꼴인 폴더와 Obsidian 보관함(`.obsidian`), Logseq 그래프(`logseq/config.edn`), 노션 내보내기 폴더(`제목 <32자리 id>.md` 파일)를 찾고 노트가 셋 넘게 든 폴더만 낸다. 후보는 10개까지만 보인다. 그보다 많으면 사람용 출력에 "후보 N개 중 10개만 보여요"를 붙이고 `--json`에는 자르기 전 후보 수를 `totalCandidates`로 낸다. Orca가 있으면 스킬이 등록된 레포를 `--scan`으로 더 넘긴다.
+
+노션은 파일이 아니라 노션 MCP가 붙은 세션에서만 찾는다. 스킬이 노션 페이지를 받아 리포트 폴더의 `knowledge-snapshots/`에 스냅샷으로 두고 다른 노트처럼 검사한다. 연결 카드에는 노션 원래 주소가 붙는다.
+
+```json
+{
+  "lens": { "knowledgeSources": ["docs/notes", "kb"] }
+}
+```
+
+- 상대 경로는 레포 루트 기준이다. 절대 경로도 레포 안이면 받는다. `../notes`처럼 레포 밖으로 나가는 경로는 버리고 경고한다
+- 없는 폴더는 조용히 빠지고 `knowledge.json`의 `roots`에 안 실린다
+- 노트 파일 수와 읽는 바이트, 후보 줄(40개), 검색어(30개)에 상한이 있고 1MB를 넘는 노트는 건너뛴다. 상한에 닿거나 큰 노트를 건너뛰면 `knowledge.json`의 `truncated`(`{ files, bytes, hits, terms, large }`)에 어느 쪽인지 적고 `totalHits`에 자르기 전 후보 줄 수를 적는다
+- `.md`, `.markdown`, `.txt`만 읽고 숨김 폴더와 `node_modules`는 건너뛴다
+- 노트 폴더는 읽기만 한다. 연결 카드의 인용은 그 폴더 안 파일에 글자 그대로 있어야 merge를 통과한다
+
+추출 도구는 파이썬 패키지라 렌즈 전용 가상환경을 권한다. 시스템 파이썬의 pip가 오래돼 새 휠을 못 받는 머신이 있어서다.
+
+```bash
+python3 -m venv ~/.local/share/gestalt/lens-venv
+~/.local/share/gestalt/lens-venv/bin/python -m pip install --upgrade pip
+~/.local/share/gestalt/lens-venv/bin/python -m pip install pdfplumber trafilatura faster-whisper sherpa-onnx
+```
+
+팟캐스트 화자 구분은 sherpa-onnx가 내준 두 모델(pyannote segmentation 3.0의 ONNX판, wespeaker ResNet34)을 쓴다. Hugging Face 토큰 없이 GitHub 릴리스에서 받고 `gestalt lens ingest`가 처음 쓸 때 `~/.local/share/gestalt/lens-models`에 받아 둔다. 받은 파일은 코드에 박아 둔 sha256과 맞을 때만 모델 폴더로 옮긴다. 맞지 않으면 그 모델을 쓰지 않고 화자 없이 시각만 출처로 단다.
+
+PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 타임아웃만 있고 메모리 상한이 없다. 신뢰할 수 없는 PDF는 격리된 환경(컨테이너나 별도 계정)에서 돌린다.
+
+다른 파이썬을 쓰려면 `GESTALT_LENS_PYTHON`에 절대 경로를 준다.
 
 ---
 
@@ -325,7 +390,7 @@ interface GestaltConfig {
 
 **해상도 점수 산정은 서버가 직접 LLM을 부를 때만 이 경로를 탄다.** `client`가 `claude-code`, `codex`, `grok`이거나 API 키가 없으면 인터뷰는 Passthrough로 돈다. 그때는 점수를 호출자(호스트 LLM)가 매기므로 어댑터를 안 거친다. 그래서 이 라우팅이 실제로 사는 자리는 CLI(`gestalt interview`, `gestalt spec`)와 `client: "both"` + API 키 조합이다. KB 요약은 서버가 부르는 쪽이라 이 조건을 안 탄다. 대신 `summarize`를 켜야 돈다.
 
-> **품질 영향은 아직 측정하지 않았다.** 해상도 점수는 인터뷰를 언제 끝낼지 정하는 값(임계값 0.8)이라 모델을 내려서 점수가 흔들리면 라운드 수가 달라진다. `pnpm tsx scripts/verify-frugal-scoring.ts`가 golden-set 20건을 두 tier로 채점해 편차와 임계값 판정이 뒤집힌 건수를 낸다. KB 요약 쪽은 그에 대응하는 검증이 아직 없어서 opt-in으로 둔다. 요약문은 KB 본문과 임베딩에 남는다. 되돌리려면 KB를 다시 만들어야 한다.
+> **품질 영향은 아직 측정하지 않았다.** 해상도 점수는 인터뷰를 언제 끝낼지 정하는 값(기준값 `interview.resolutionThreshold`, 기본 0.8)이라 모델을 내려서 점수가 흔들리면 라운드 수가 달라진다. `pnpm tsx scripts/verify-frugal-scoring.ts`가 golden-set 20건을 두 tier로 채점해 편차와 기준값 판정이 뒤집힌 건수를 낸다. KB 요약 쪽은 그에 대응하는 검증이 아직 없어서 opt-in으로 둔다. 요약문은 KB 본문과 임베딩에 남는다. 되돌리려면 KB를 다시 만들어야 한다.
 
 > **참고**: Execute Engine은 LLM 호출 방식과 무관하게 **항상 Passthrough 모드**로 동작합니다.
 > API 키 유무는 Execute 동작에 영향을 주지 않습니다.

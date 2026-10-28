@@ -48,6 +48,18 @@ export const interviewInputSchema = guardObject(
       })
       .optional()
       .describe('Resolution scores computed by the caller LLM (passthrough mode)'),
+    rescore: z
+      .boolean()
+      .optional()
+      .describe(
+        'score only: rescorePrompt로 다시 채점한 점수를 resolutionScore에 담아 보낼 때 true. 처음 기준값을 넘은 뒤 인터뷰마다 한 번만 받는다.',
+      ),
+    rescoreMode: z
+      .enum(['isolated', 'same-context'])
+      .optional()
+      .describe(
+        "rescore 전용. 인터뷰 맥락이 없는 서브에이전트가 채점했으면 'isolated', 같은 대화에서 다시 채점했으면 'same-context'. 생략하면 same-context로 남긴다.",
+      ),
     compressedSummary: z
       .string()
       .optional()
@@ -57,7 +69,7 @@ export const interviewInputSchema = guardObject(
       .optional()
       .default(false)
       .describe(
-        'complete only: 해상도가 임계값(0.8)에 못 미쳐도 완료한다. 사용자가 명시적으로 넘기기로 한 경우에만 쓴다. 세션과 이벤트에 forced로 남는다.',
+        'complete only: 해상도가 기준값(interview.resolutionThreshold, 기본 0.8)에 못 미치거나 gate의 다시 채점을 통과하지 못해도 완료한다. 사용자가 명시적으로 넘기기로 한 경우에만 쓴다. 세션과 이벤트에 forced로 남는다.',
       ),
   }),
 );
@@ -402,7 +414,7 @@ export const executeInputSchema = guardObject(
         z.object({
           agentName: z.string(),
           perspective: z.string(),
-          confidence: z.number().min(0).max(1),
+          confidence: z.number().min(0).max(1).optional(),
         }),
       )
       .optional()
@@ -416,7 +428,7 @@ export const executeInputSchema = guardObject(
           z.object({
             agentName: z.string(),
             perspective: z.string(),
-            confidence: z.number().min(0).max(1),
+            confidence: z.number().min(0).max(1).optional(),
           }),
         ),
       })
@@ -1192,6 +1204,12 @@ export const digestInputSchema = guardObject(
       .boolean()
       .optional()
       .describe('render: 프레임을 HTML 안에 data URI로 넣는다. 한 장 5MB, 합계 15MB까지'),
+    omitCrops: z
+      .boolean()
+      .optional()
+      .describe(
+        'render: 읽기 렌즈 리포트에서 원문 쪽 그림과 표, 그림 크롭을 빼고 그린다. 남에게 공유할 HTML을 만들 때 쓴다',
+      ),
     items: z
       .array(
         z.object({

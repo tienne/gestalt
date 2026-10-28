@@ -1,12 +1,19 @@
-import type { InterviewSession, ResolutionScore, ProjectType } from '../core/types.js';
-import { MAX_INTERVIEW_ROUNDS } from '../core/constants.js';
+import type {
+  InterviewSession,
+  ResolutionScore,
+  ProjectType,
+  GestaltPrinciple,
+} from '../core/types.js';
+import { MAX_INTERVIEW_ROUNDS, RESOLUTION_THRESHOLD } from '../core/constants.js';
+import { logger } from '../core/logger.js';
 import { InterviewError } from '../core/errors.js';
 import { type Result, ok, err } from '../core/result.js';
 import { selectNextPrinciple } from '../gestalt/principles.js';
 import { ResolutionScorer } from './resolution.js';
 import { QuestionGenerator } from './questions.js';
-import { SessionManager } from './session.js';
+import { SessionManager, type InterviewOptions } from './session.js';
 import { detectProjectType } from './brownfield.js';
+import { type RescoreSetting, recordScoreWithRescore, applyRescore } from './rescore.js';
 import type { LLMAdapter } from '../llm/types.js';
 import { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
@@ -28,6 +35,8 @@ export class InterviewEngine {
   private sessionManager: SessionManager;
   private questionGenerator: QuestionGenerator;
   private resolutionScorer: ResolutionScorer;
+  private resolutionThreshold: number;
+  private rescoreSetting: RescoreSetting;
 
   /**
    * @param llm 질문 생성에 쓰는 기본 어댑터
@@ -38,11 +47,14 @@ export class InterviewEngine {
     llm: LLMAdapter,
     private eventStore: EventStore,
     frugalLlm?: LLMAdapter,
+    options: InterviewOptions = {},
   ) {
-    this.sessionManager = new SessionManager(eventStore);
+    this.sessionManager = new SessionManager(eventStore, options);
     this.sessionManager.loadFromStore();
     this.questionGenerator = new QuestionGenerator(llm);
-    this.resolutionScorer = new ResolutionScorer(frugalLlm ?? llm);
+    this.resolutionScorer = new ResolutionScorer(frugalLlm ?? llm, options.resolutionThreshold);
+    this.resolutionThreshold = options.resolutionThreshold ?? RESOLUTION_THRESHOLD;
+    this.rescoreSetting = options.rescore ?? 'record';
   }
 
   async start(topic: string, cwd?: string): Promise<Result<StartResult, InterviewError>> {
@@ -105,16 +117,18 @@ export class InterviewEngine {
         session.rounds,
         session.projectType,
       );
-      this.sessionManager.updateResolutionScore(sessionId, resolutionScore);
+      const afterRescore = await this.recordScore(sessionId, resolutionScore);
 
       // Select next principle based on current state
       const hasContradictions = (resolutionScore.contradictions?.length ?? 0) > 0;
 
-      const nextPrinciple = selectNextPrinciple({
-        roundNumber: session.rounds.length + 1,
-        dimensions: resolutionScore.dimensions,
-        hasContradictions,
-      });
+      const nextPrinciple =
+        afterRescore ??
+        selectNextPrinciple({
+          roundNumber: session.rounds.length + 1,
+          dimensions: resolutionScore.dimensions,
+          hasContradictions,
+        });
 
       this.eventStore.append('interview', sessionId, EventType.GESTALT_PRINCIPLE_APPLIED, {
         principle: nextPrinciple,
@@ -153,13 +167,56 @@ export class InterviewEngine {
         session.rounds,
         session.projectType,
       );
-      this.sessionManager.updateResolutionScore(sessionId, resolutionScore);
+      await this.recordScore(sessionId, resolutionScore);
       return ok(resolutionScore);
     } catch (e) {
       return err(
         new InterviewError(`Failed to score: ${e instanceof Error ? e.message : String(e)}`),
       );
     }
+  }
+
+  /**
+   * 채점을 기록하고 다시 채점할 차례면 같은 모델로 한 번 더 부른다.
+   * gate가 판정을 미뤘으면 다음 질문에 쓸 원칙을 돌려준다.
+   */
+  private async recordScore(
+    sessionId: string,
+    score: ResolutionScore,
+  ): Promise<GestaltPrinciple | null> {
+    const request = recordScoreWithRescore(
+      this.sessionManager,
+      sessionId,
+      score,
+      this.rescoreSetting,
+      this.resolutionThreshold,
+    );
+    if (!request) return null;
+
+    const session = this.sessionManager.get(sessionId);
+    let second: ResolutionScore;
+    try {
+      second = await this.resolutionScorer.rescore(
+        session.topic,
+        session.rounds,
+        session.projectType,
+      );
+    } catch (e) {
+      // 다시 채점이 실패해도 인터뷰는 이어간다. gate면 다음에 넘을 때 다시 부른다
+      const error = e instanceof Error ? e.message : String(e);
+      logger.warn('interview.rescore.failed', { sessionId, error });
+      this.sessionManager.recordRescoreFailure(sessionId, error);
+      return null;
+    }
+    return applyRescore(
+      this.sessionManager,
+      sessionId,
+      score,
+      second,
+      'isolated',
+      this.rescoreSetting,
+      this.resolutionThreshold,
+    ).principle;
   }
 
   complete(sessionId: string, force = false): Result<InterviewSession, InterviewError> {

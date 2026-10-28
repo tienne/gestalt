@@ -60,6 +60,9 @@ const SHORT_DESCRIPTIONS: Record<string, string> = {
   'jira-writer': '지라 티켓 본문 작성',
   explainer: '대상에 맞춘 설명 작성',
   'video-summarizer': '영상 스크립트로 요약 리포트 작성',
+  'lens-reader': '논문과 글을 출처와 의심 표시로 읽는 리포트 작성',
+  'lens-context': '읽기 렌즈의 선행 연구와 반론 카드 작성',
+  'lens-link': '읽기 렌즈의 내 노트 연결 카드 작성',
 };
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob'];
@@ -96,6 +99,14 @@ const TOOL_OVERRIDES: Record<string, string[]> = {
   'presentation-designer': [...READ_TOOLS, 'Write'],
   // 산출물이 digest.json 하나다. 저장 경로는 video-digest 스킬이 넘긴다.
   'video-summarizer': [...READ_TOOLS, 'Write'],
+  // 산출물이 리포트 JSON 하나다. 저장 경로는 lens 스킬이 넘긴다.
+  'lens-reader': [...READ_TOOLS, 'Write'],
+  // 바깥 맥락 카드는 웹 페이지를 직접 열어 확인하고 쓴다. 웹 도구를 여는 유일한 에이전트라 셸은 주지 않는다.
+  // 연결 카드는 웹 도구가 없는 lens-link가 따로 쓴다. 웹 도구를 가진 lens-context에는 스킬이 노트 경로와
+  // 노트 내용을 넘기지 않는다. 다만 Read는 경로 제한 없이 열려 있어서 페이지 지시문이 knowledge.json이나
+  // 노트 폴더를 읽게 하는 것은 에이전트 지침으로만 막는다.
+  'lens-context': [...READ_TOOLS, 'WebSearch', 'WebFetch', 'Write'],
+  'lens-link': [...READ_TOOLS, 'Write'],
 };
 
 /**
@@ -114,6 +125,9 @@ const OMIT_CLAUDE_MD = new Set([
   'presentation-designer',
   'impact-writer',
   'video-summarizer',
+  'lens-reader',
+  'lens-context',
+  'lens-link',
 ]);
 
 export const GENERATED_NOTICE = (source: string) =>

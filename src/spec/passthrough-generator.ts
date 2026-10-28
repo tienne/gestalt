@@ -10,6 +10,7 @@ import { EventType } from '../events/types.js';
 import { INTERVIEW_SYSTEM_PROMPT, buildSpecPrompt } from '../llm/prompts.js';
 import type { AgentRegistry } from '../agent/registry.js';
 import { mergeSystemPrompt, getActiveAgentNames } from '../agent/prompt-resolver.js';
+import type { InterviewOptions } from '../interview/session.js';
 
 export const TEXT_INPUT_SESSION_ID = 'text-input';
 
@@ -34,12 +35,15 @@ export interface ExternalSpec {
 
 export class PassthroughSpecGenerator {
   private agentRegistry?: AgentRegistry;
+  private resolutionThreshold: number;
 
   constructor(
     private eventStore: EventStore,
     agentRegistry?: AgentRegistry,
+    options: InterviewOptions = {},
   ) {
     this.agentRegistry = agentRegistry;
+    this.resolutionThreshold = options.resolutionThreshold ?? RESOLUTION_THRESHOLD;
   }
 
   buildSpecContext(session: InterviewSession): SpecContext {
@@ -77,10 +81,10 @@ export class PassthroughSpecGenerator {
   ): Result<Spec, SpecGenerationError | ResolutionThresholdError> {
     // Validate resolution threshold
     const resolution = session.resolutionScore?.overall ?? 0.0;
-    const thresholdExceeded = resolution < RESOLUTION_THRESHOLD;
+    const thresholdExceeded = resolution < this.resolutionThreshold;
 
     if (!force && thresholdExceeded) {
-      return err(new ResolutionThresholdError(resolution, RESOLUTION_THRESHOLD));
+      return err(new ResolutionThresholdError(resolution, this.resolutionThreshold));
     }
 
     if (session.status !== 'completed') {
@@ -118,7 +122,7 @@ export class PassthroughSpecGenerator {
           sessionId: session.sessionId,
           specId: spec.metadata.specId,
           resolutionScore: resolution,
-          threshold: RESOLUTION_THRESHOLD,
+          threshold: this.resolutionThreshold,
           timestamp: new Date().toISOString(),
         });
       }

@@ -7,11 +7,29 @@ import {
   sectionDiagramHtml,
   type BlockHtmlContext,
 } from './render-blocks.js';
+import type { LensSource } from './lens-source.js';
+import {
+  coverageHtml,
+  docPaneHtml,
+  docUnitsData,
+  doubtHtml,
+  glanceHtml,
+  LENS_CSS,
+  limitsHtml,
+  sectionContextHtml,
+  sourceFigureHtml,
+  sourceTableHtml,
+  unitLabel,
+  type LensHtmlContext,
+} from './render-lens.js';
 import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
+import { WIDGET_CSS, widgetHtml } from './render-widgets.js';
 import { initialReportIndex, isPreset, pairIndex, reportKey, reportLabel } from './reports.js';
 import { VIEWER_JS } from './viewer-js.js';
 import {
   boldPattern,
+  isLensKind,
+  isTextKind,
   keywordPattern,
   type Bullet,
   type Cite,
@@ -33,6 +51,10 @@ export interface RenderHtmlOptions {
   loadFrame?: (fileName: string) => Buffer | null;
   /** "+ 더 만들기" 메뉴에 띄울 템플릿. 이미 만든 확장의 템플릿은 메뉴에서 뺀다 */
   templates?: Pick<DigestTemplate, 'id' | 'title' | 'description'>[];
+  /** 읽기 렌즈의 source.json. 원문 표와 그림, 쪽 그림을 여기서 옮긴다 */
+  source?: LensSource | null;
+  /** 공유용. 원문 쪽 그림과 표, 그림 크롭을 싣지 않는다(열린 질문 7) */
+  omitCrops?: boolean;
 }
 
 export interface RenderHtmlResult {
@@ -103,6 +125,10 @@ export function renderDigestHtml(
   const { meta, segments } = transcript;
   const long = meta.durationSec >= 3600;
   const isYoutube = meta.source === 'youtube' && Boolean(meta.videoId);
+  const kind = meta.source;
+  // 시각이 없는 글 자료는 플레이어와 스크립트 대신 원문 창을 둔다
+  const textKind = isTextKind(kind);
+  const source = opts.source ?? null;
   const at = (i: number) => segments[i]?.startSec ?? 0;
   const loadFrame = opts.inlineFrames ? opts.loadFrame : undefined;
   const budget = loadFrame ? new FrameBudget(warnings) : null;
@@ -131,7 +157,17 @@ export function renderDigestHtml(
     `<sup><button type="button" class="cite" data-key="${c.key}" data-from="${c.from}" data-to="${c.to}" aria-label="출처 ${c.key + 1}">[${c.key + 1}]</button></sup>`;
 
   const sec = (c: Cite) => segments[c.key]?.startSec ?? 0;
-  const blockCtx: BlockHtmlContext = { escape: e, cite, time: (c) => timeLink(sec(c)), sec };
+  // 글 자료는 시각 대신 문단 칩을 단다. 누르면 원문 창이 그 쪽과 문단을 연다
+  const loc = (i: number): string =>
+    textKind
+      ? `<button type="button" class="loc" data-unit="${i}">${e(unitLabel(transcript, i))}</button>`
+      : timeLink(at(i));
+  const blockCtx: BlockHtmlContext = {
+    escape: e,
+    cite,
+    time: (c) => (textKind ? loc(c.key) : timeLink(sec(c))),
+    sec,
+  };
 
   const missingFrame = (subId: string, file: string) =>
     warnings.push(`프레임이 없어 자리를 비웠다: ${subId} (${file})`);
@@ -190,18 +226,44 @@ export function renderDigestHtml(
     const kwIds = new Set(keywords.map((k) => k.id));
     const pfx = ri === 0 ? '' : `r${ri}~`;
     const hidden = ri === initial ? '' : ' hidden';
+    const lens: LensHtmlContext = {
+      escape: e,
+      inline: (s) => inline(s, kwIds),
+      cite,
+      loc,
+      source,
+      transcript,
+      pfx,
+      omitCrops: opts.omitCrops,
+    };
     const bullets = (list: Bullet[]): string =>
       `<ul>${list
         .map(
           (b) =>
-            `<li>${inline(b.text, kwIds)}${cite(b.cite)}${b.children?.length ? bullets(b.children) : ''}</li>`,
+            `<li${b.doubt ? ' class="has-doubt"' : ''}>${inline(b.text, kwIds)}${cite(b.cite)}${b.doubt ? doubtHtml(b.doubt, lens) : ''}${b.children?.length ? bullets(b.children) : ''}</li>`,
         )
         .join('')}</ul>`;
+    // 원문 표와 그림은 source.json에서 옮긴다. lint가 id를 확인했지만 렌더도 없는 id는 건너뛴다
+    const sourceBlocks = (sub: Subsection): string =>
+      [
+        ...(sub.tables ?? []).map((t) => {
+          const table = source?.tables.find((x) => x.id === t.ref);
+          return table ? sourceTableHtml(table, t.note, lens) : '';
+        }),
+        ...(sub.figures ?? []).map((f) => {
+          const fig = source?.figures.find((x) => x.id === f.ref);
+          return fig ? sourceFigureHtml(fig, f.note, lens) : '';
+        }),
+        ...(sub.widgets ?? []).map((w) => widgetHtml(w, lens)),
+      ].join('');
 
     // 장면이 있으면 첫 문장 프레임 대신 장면을 본문 옆에 둔다. 장면이 같은 구간을 더 잘 보여 줘서 둘 다 싣지 않는다
     const subBody = (sub: Subsection): string => {
       const shots = sub.shots?.length ? shotsHtml(sub.shots, sub.id) : '';
-      if (!shots) return `${frame(sub.frameSec, sub.id)}${bullets(sub.bullets)}`;
+      if (!shots) {
+        const still = sub.frameSec === undefined ? '' : frame(sub.frameSec, sub.id);
+        return `${still}${bullets(sub.bullets)}${sourceBlocks(sub)}`;
+      }
       return `<div class="sub-body has-shots"><div class="sub-text">${bullets(sub.bullets)}</div><div class="shots">${shots}</div></div>`;
     };
 
@@ -210,10 +272,11 @@ export function renderDigestHtml(
         const subs = s.subsections
           .map(
             (sub, ui) =>
-              `<div class="sub" id="sub-${pfx}${e(sub.id)}" data-from="${sub.cite.from}" data-to="${sub.cite.to}"><h3><span class="num">${si + 1}.${ui + 1}.</span> ${e(stripNumbering(sub.title))} ${timeLink(at(sub.cite.key))}</h3>${subBody(sub)}</div>`,
+              `<div class="sub" id="sub-${pfx}${e(sub.id)}" data-from="${sub.cite.from}" data-to="${sub.cite.to}"><h3><span class="num">${si + 1}.${ui + 1}.</span> ${e(stripNumbering(sub.title))} ${loc(sub.cite.key)}</h3>${subBody(sub)}</div>`,
           )
           .join('');
-        return `<section class="sec" id="sec-${pfx}${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${timeLink(at(s.cite.key))}</h2><p class="conclusion">${inline(s.conclusion, kwIds)}${cite(s.cite)}</p>${s.diagram ? sectionDiagramHtml(s.diagram, stripNumbering(s.title), blockCtx) : ''}${subs}</section>`;
+        const intro = s.intro ? `<p class="sec-intro">${inline(s.intro, kwIds)}</p>` : '';
+        return `<section class="sec" id="sec-${pfx}${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${loc(s.cite.key)}</h2>${intro}<p class="conclusion">${inline(s.conclusion, kwIds)}${cite(s.cite)}</p>${s.diagram ? sectionDiagramHtml(s.diagram, stripNumbering(s.title), blockCtx) : ''}${subs}${sectionContextHtml(s.id, report.cards, report.links, lens)}</section>`;
       })
       .join('');
 
@@ -240,19 +303,24 @@ export function renderDigestHtml(
       ? `<section class="extra" id="${pfx}keywords"><h2>키워드</h2><dl>${keywords
           .map(
             (k) =>
-              `<dt>${e(k.term)} ${timeLink(at(k.firstCite.key))}</dt><dd>${inline(k.explanation, kwIds)}</dd>`,
+              `<dt>${e(k.term)} ${loc(k.firstCite.key)}</dt><dd>${inline(k.explanation, kwIds)}</dd>`,
           )
           .join('')}</dl></section>`
       : '';
 
+    const unitWord = textKind ? '문단' : '문장';
     const skippedHtml = skipped.length
       ? `<section class="extra" id="${pfx}skipped"><h2>요약에서 뺀 구간</h2><ul>${skipped
           .map(
             (s) =>
-              `<li>${timeLink(at(s.from))} 문장 ${s.from + 1}-${s.to + 1}: ${inline(s.reason, kwIds)}</li>`,
+              `<li>${loc(s.from)} ${unitWord} ${s.from + 1}-${s.to + 1}: ${inline(s.reason, kwIds)}</li>`,
           )
           .join('')}</ul></section>`
       : '';
+    const lensKind = isLensKind(kind) ? kind : null;
+    const glance = lensKind && lead.glance?.length ? glanceHtml(lead.glance, lensKind, lens) : '';
+    const coverage = lensKind ? coverageHtml(report, transcript, `${pfx}skipped`) : '';
+    const limits = report.limits?.length ? limitsHtml(report.limits, `${pfx}limits`, lens) : '';
 
     const scope = [
       report.options.range
@@ -260,9 +328,11 @@ export function renderDigestHtml(
         : '',
       report.options.prompt ? `<p class="report-scope">요청: ${e(report.options.prompt)}</p>` : '',
     ].join('');
-    const body = `<div class="report" data-ri="${ri}" data-report="${e(key)}" lang="${e(report.options.lang)}"${hidden}>${scope}<section class="lead"><p class="q">${inline(lead.question, kwIds)}</p><p>${inline(lead.answer, kwIds)}</p><p class="takeaway">${inline(lead.takeaway, kwIds)}</p></section>
+    const body = `<div class="report" data-ri="${ri}" data-report="${e(key)}" lang="${e(report.options.lang)}"${hidden}>${scope}<section class="lead"><p class="q">${inline(lead.question, kwIds)}</p><p>${inline(lead.answer, kwIds)}</p><p class="takeaway">${inline(lead.takeaway, kwIds)}</p>${coverage}</section>
+${glance}
 ${toc}
 ${sectionsHtml}
+${limits}
 ${keywordsHtml}
 ${skippedHtml}</div>`;
     return { body, minimap };
@@ -286,9 +356,14 @@ ${skippedHtml}</div>`;
   }</div><p id="report-status" class="sr-only" role="status" aria-live="polite"></p><div id="report-missing" class="report-missing" hidden><p id="report-missing-msg"></p><span id="report-cmd-wrap"><code id="report-cmd"></code> <button type="button" id="copy-cmd">명령 복사</button></span></div>`;
 
   const watchBase = isYoutube ? youtubeWatchUrl(meta.videoId!) : null;
-  const player = isYoutube
-    ? `<div id="player-slot" class="player-slot"><div id="player" class="player"><div id="player-frame"></div><a class="player-fallback" href="${e(watchBase!)}" target="_blank" rel="noopener"><img src="https://i.ytimg.com/vi/${meta.videoId}/hqdefault.jpg" alt=""><span>유튜브에서 열기</span></a><button type="button" id="player-dock" class="player-dock" aria-label="미니 플레이어 닫기">×</button></div></div>`
-    : `<div id="player-slot" class="player-slot"><div id="player" class="player player-local"><video id="player-video" controls playsinline preload="metadata" aria-label="영상 재생"></video><p class="player-note">로컬 영상은 <code>gestalt digest serve ${e(digest.slug)}</code>로 열어야 재생돼요. 원본 파일을 옮겼으면 ingest를 다시 돌려 주세요.</p><button type="button" id="player-dock" class="player-dock" aria-label="미니 플레이어 닫기">×</button></div></div>`;
+  // 팟캐스트는 로컬 영상과 같은 길로 serve가 내려받은 오디오를 내준다
+  const audio = `<div id="player-slot" class="player-slot player-audio"><div id="player" class="player player-local"><audio id="player-video" controls preload="metadata" aria-label="오디오 재생"></audio><p class="player-note">오디오는 <code>gestalt digest serve ${e(digest.slug)}</code>로 열어야 재생돼요.</p><button type="button" id="player-dock" class="player-dock" aria-label="미니 플레이어 닫기">×</button></div></div>`;
+  const player =
+    kind === 'podcast'
+      ? audio
+      : isYoutube
+        ? `<div id="player-slot" class="player-slot"><div id="player" class="player"><div id="player-frame"></div><a class="player-fallback" href="${e(watchBase!)}" target="_blank" rel="noopener"><img src="https://i.ytimg.com/vi/${meta.videoId}/hqdefault.jpg" alt=""><span>유튜브에서 열기</span></a><button type="button" id="player-dock" class="player-dock" aria-label="미니 플레이어 닫기">×</button></div></div>`
+        : `<div id="player-slot" class="player-slot"><div id="player" class="player player-local"><video id="player-video" controls playsinline preload="metadata" aria-label="영상 재생"></video><p class="player-note">로컬 영상은 <code>gestalt digest serve ${e(digest.slug)}</code>로 열어야 재생돼요. 원본 파일을 옮겼으면 ingest를 다시 돌려 주세요.</p><button type="button" id="player-dock" class="player-dock" aria-label="미니 플레이어 닫기">×</button></div></div>`;
 
   const trLang = meta.translationLang;
   const hasTr = trLang !== undefined && segments.some((s) => s.translation);
@@ -302,18 +377,41 @@ ${skippedHtml}</div>`;
   const script = `<div class="script"><h2>스크립트 <small>${e(CAPTION_LABEL[meta.captionSource])}</small>${trToggle}</h2><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="영상 스크립트"><ol id="script-list">${segments
     .map(
       (s) =>
-        `<li data-i="${s.i}">${timeLink(s.startSec, false)}<span class="txt"><span class="src">${e(s.text)}</span>${tr(s)}</span></li>`,
+        `<li data-i="${s.i}">${timeLink(s.startSec, false)}<span class="txt">${s.speaker ? `<span class="spk">${e(s.speaker)}</span>` : ''}<span class="src">${e(s.text)}</span>${tr(s)}</span></li>`,
     )
     .join('')}</ol></div></div>`;
 
-  const facts = [meta.channel, meta.publishedAt, formatTime(meta.durationSec, long)]
+  const side = textKind
+    ? docPaneHtml(transcript, {
+        escape: e,
+        inline: e,
+        cite,
+        loc,
+        source,
+        transcript,
+        omitCrops: opts.omitCrops,
+      })
+    : `${player}${script}`;
+
+  const facts = [
+    meta.channel,
+    meta.publishedAt,
+    textKind ? null : formatTime(meta.durationSec, long),
+  ]
     .filter(Boolean)
     .map((f) => `<span>${e(f!)}</span>`)
     .join('');
 
   const data = {
     videoId: isYoutube ? meta.videoId : null,
-    localVideo: meta.source === 'file',
+    localVideo: meta.source === 'file' || meta.source === 'podcast',
+    kind,
+    doc: textKind,
+    units: kind === 'pdf' && !opts.omitCrops ? docUnitsData(transcript) : null,
+    pages:
+      kind === 'pdf' && !opts.omitCrops
+        ? (source?.pages ?? []).map((p) => ({ n: p.n, w: p.width, h: p.height }))
+        : null,
     watchBase,
     long,
     starts: segments.map((s) => s.startSec),
@@ -339,6 +437,8 @@ ${skippedHtml}</div>`;
         ]),
       ),
       markdown: renderDigestMarkdown(digest, transcript, {
+        source,
+        omitCrops: opts.omitCrops,
         frameExists: opts.frameExists,
         report,
       }),
@@ -384,12 +484,12 @@ ${skippedHtml}</div>`;
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${e(meta.title)}</title>
-<style>${CSS}</style>
+<style>${CSS}${LENS_CSS}${WIDGET_CSS}</style>
 ${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz-check,.zoom-btn{display:none}.quiz-exp{display:block!important}</style></noscript>' : ''}
 </head>
 <body>
 <div class="layout">
-<aside class="side">${player}${script}</aside>
+<aside class="side">${side}</aside>
 <main class="main">
 <header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p><div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label><p id="copy-status" class="sr-only" role="status" aria-live="polite"></p></div>
 ${hasTabs ? '' : reportBar}
@@ -443,6 +543,7 @@ button{font:inherit;color:inherit}
 #script-list li{display:flex;gap:10px;padding:4px 12px;font-size:.9em;line-height:1.55}
 #script-list li.is-playing{background:var(--hl)}
 .tr{display:block;color:var(--muted);font-size:.95em}
+.spk{display:inline-block;margin-right:6px;font-size:.78em;font-weight:600;color:var(--accent)}
 .script.hide-tr .tr{display:none}
 .tr-toggle{float:right;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:0 8px;font-size:.85em;font-weight:400;cursor:pointer}
 .tr-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}

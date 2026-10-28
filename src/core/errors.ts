@@ -37,11 +37,18 @@ export class SessionAlreadyCompletedError extends InterviewError {
   }
 }
 
+/** 기준값을 넘었는데도 완료할 수 없는 이유. gate에서만 생긴다 */
+export type RescoreHold = 'pending' | 'held';
+
 export class InterviewNotReadyError extends InterviewError {
-  constructor(score: number | null, threshold: number) {
+  constructor(score: number | null, threshold: number, rescoreHold?: RescoreHold) {
     const current = score === null ? '측정 전' : score.toFixed(2);
     super(
-      `해상도 점수(${current})가 임계값(${threshold})에 못 미쳐 인터뷰를 완료할 수 없습니다. 인터뷰를 계속 진행하거나 force=true로 넘기세요.`,
+      rescoreHold === 'pending'
+        ? `해상도 점수(${current})가 기준값(${threshold})을 넘었지만 다시 채점을 아직 받지 않아 인터뷰를 완료할 수 없습니다. 다시 채점을 받거나 인터뷰를 계속 진행하세요.`
+        : rescoreHold === 'held'
+          ? `해상도 점수(${current})가 기준값(${threshold})을 넘었지만 다시 채점 결과 때문에 완료가 보류됐습니다. 인터뷰를 계속 진행하세요.`
+          : `해상도 점수(${current})가 임계값(${threshold})에 못 미쳐 인터뷰를 완료할 수 없습니다. 인터뷰를 계속 진행하거나 force=true로 넘기세요.`,
     );
     this.name = 'InterviewNotReadyError';
   }

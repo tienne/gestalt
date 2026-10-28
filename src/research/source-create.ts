@@ -203,7 +203,34 @@ function ipv4Private(a: number, b: number): boolean {
   );
 }
 
-/** 사설, 루프백, 링크 로컬 주소인지. 읽지 못하면 막는 쪽으로 답한다 */
+/**
+ * IPv6 주소를 16비트 여덟 칸으로 푼다. :: 축약과 끝에 붙은 점 표기 IPv4도 칸으로 바꾼다.
+ * isIP가 형식을 먼저 확인한 주소만 받는다
+ */
+function ipv6Hextets(address: string): number[] {
+  let head = address.toLowerCase().replace(/%.*$/, '');
+  const tail: number[] = [];
+  const dotted = /^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(head);
+  if (dotted) {
+    const [a, b, c, d] = [dotted[2]!, dotted[3]!, dotted[4]!, dotted[5]!].map(Number);
+    tail.push((a! << 8) | b!, (c! << 8) | d!);
+    head = dotted[1]!.endsWith('::') ? dotted[1]! : dotted[1]!.slice(0, -1);
+  }
+  const toNums = (s: string): number[] =>
+    s === '' ? [] : s.split(':').map((h) => parseInt(h, 16));
+  const halves = head.split('::');
+  const left = toNums(halves[0]!);
+  if (halves.length === 1) return [...left, ...tail];
+  const right = [...toNums(halves[1]!), ...tail];
+  return [...left, ...new Array<number>(8 - left.length - right.length).fill(0), ...right];
+}
+
+/**
+ * 사설, 루프백, 링크 로컬 주소인지. 읽지 못하면 막는 쪽으로 답한다.
+ * IPv6 안에 IPv4를 담는 대역(::/96, ::ffff:0:0/96, 64:ff9b::/96)은 뒤 32비트를 IPv4로 꺼내 다시 본다.
+ * 그래서 NAT64로 공개 주소를 가리키면 통과하고 사설 주소를 가리키면 막힌다.
+ * 폐기된 fec0::/10과 문서용 2001:db8::/32, 멀티캐스트 ff00::/8도 막는다
+ */
 export function isPrivateAddress(address: string): boolean {
   const family = isIP(address);
   if (family === 4) {
@@ -211,15 +238,20 @@ export function isPrivateAddress(address: string): boolean {
     return ipv4Private(parts[0]!, parts[1]!);
   }
   if (family === 6) {
-    const lower = address.toLowerCase();
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
-    if (mapped) return isPrivateAddress(mapped[1]!);
+    const h = ipv6Hextets(address);
+    if (h.length !== 8) return true;
+    const h0 = h[0]!;
+    const zeroUpTo = (n: number): boolean => h.slice(0, n).every((x) => x === 0);
+    const embedsV4 =
+      (zeroUpTo(5) && (h[5] === 0 || h[5] === 0xffff)) ||
+      (h0 === 0x64 && h[1] === 0xff9b && h.slice(2, 6).every((x) => x === 0));
+    if (embedsV4) return ipv4Private(h[6]! >> 8, h[6]! & 0xff);
     return (
-      lower === '::' ||
-      lower === '::1' ||
-      lower.startsWith('fc') ||
-      lower.startsWith('fd') ||
-      /^fe[89ab]/.test(lower)
+      (h0 & 0xfe00) === 0xfc00 ||
+      (h0 & 0xffc0) === 0xfe80 ||
+      (h0 & 0xffc0) === 0xfec0 ||
+      (h0 & 0xff00) === 0xff00 ||
+      (h0 === 0x2001 && h[1] === 0x0db8)
     );
   }
   return true;

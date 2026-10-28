@@ -96,6 +96,18 @@ Respond with ONLY a JSON object:
 }`;
 }
 
+/**
+ * 다시 채점하기를 요청할 때 쓰는 프롬프트. 대화 기록만 담는다.
+ * 앞 점수나 판정을 보여주면 그 숫자를 따라가서 흔들림이 안 드러난다.
+ */
+export function buildRescorePrompt(
+  topic: string,
+  rounds: { question: string; response: string | null }[],
+  projectType: 'greenfield' | 'brownfield',
+): string {
+  return buildResolutionPrompt(topic, rounds, projectType);
+}
+
 export function buildSpecPrompt(
   topic: string,
   rounds: { question: string; response: string }[],

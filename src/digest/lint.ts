@@ -1,5 +1,11 @@
+import { isCellRef } from './lens-schema.js';
+import type { LensSource } from './lens-source.js';
+import { lintLensReport } from './lint-lens.js';
+import { lintLensContext, type KnowledgeContext } from './lint-lens-context.js';
+import { lintWidget } from './lens-widgets.js';
 import {
   boldPattern,
+  isLensKind,
   keywordPattern,
   type Bullet,
   type Cite,
@@ -71,16 +77,29 @@ function collectReportText(report: Report, p: string): TextField[] {
   out.push({ path: `${p}.lead.question`, text: report.lead.question });
   out.push({ path: `${p}.lead.answer`, text: report.lead.answer });
   out.push({ path: `${p}.lead.takeaway`, text: report.lead.takeaway });
+  report.lead.glance?.forEach((g, k) => {
+    out.push({ path: `${p}.lead.glance.${k}.text`, text: g.text });
+  });
   report.sections.forEach((section, si) => {
     const sp = `${p}.sections.${si}`;
     out.push({ path: `${sp}.title`, text: section.title });
+    if (section.intro) out.push({ path: `${sp}.intro`, text: section.intro });
     out.push({ path: `${sp}.conclusion`, text: section.conclusion });
     section.subsections.forEach((sub, bi) => {
       const bp = `${sp}.subsections.${bi}`;
       out.push({ path: `${bp}.title`, text: sub.title });
       for (const { bullet, path } of walkBullets(sub.bullets, `${bp}.bullets`)) {
         out.push({ path: `${path}.text`, text: bullet.text });
+        if (bullet.doubt) out.push({ path: `${path}.doubt.note`, text: bullet.doubt.note });
       }
+      sub.widgets?.forEach((w, k) => {
+        const wp = `${bp}.widgets.${k}`;
+        out.push({ path: `${wp}.title`, text: w.title });
+        if (w.caption) out.push({ path: `${wp}.caption`, text: w.caption });
+        w.differences?.forEach((d, j) => {
+          if (d.trim()) out.push({ path: `${wp}.differences.${j}`, text: d });
+        });
+      });
     });
   });
   report.keywords.forEach((kw, ki) => {
@@ -88,6 +107,22 @@ function collectReportText(report: Report, p: string): TextField[] {
   });
   report.skipped.forEach((s, i) => {
     out.push({ path: `${p}.skipped.${i}.reason`, text: s.reason });
+  });
+  report.limits?.forEach((l, i) => {
+    out.push({ path: `${p}.limits.${i}.text`, text: l.text });
+  });
+  report.cards?.forEach((card, c) => {
+    const cp = `${p}.cards.${c}`;
+    out.push({ path: `${cp}.title`, text: card.title });
+    card.points.forEach((pt, j) => out.push({ path: `${cp}.points.${j}.text`, text: pt.text }));
+    card.lineage?.forEach((l, j) => {
+      if (l.took) out.push({ path: `${cp}.lineage.${j}.took`, text: l.took });
+      if (l.changed) out.push({ path: `${cp}.lineage.${j}.changed`, text: l.changed });
+    });
+  });
+  report.links?.forEach((link, k) => {
+    out.push({ path: `${p}.links.${k}.title`, text: link.title });
+    out.push({ path: `${p}.links.${k}.note`, text: link.note });
   });
   return out;
 }
@@ -126,7 +161,15 @@ function collectCites(report: Report, p: string): CiteField[] {
       const within = { cite: sub.cite, code: 'BULLET_CITE_OUT_OF_SUBSECTION', name: '소섹션' };
       for (const { bullet, path } of walkBullets(sub.bullets, `${bp}.bullets`)) {
         out.push({ path: `${path}.cite`, cite: bullet.cite, within });
+        // 의심의 근거 문단은 원문 어디든 된다. 표가 본문과 다른 쪽에 있는 경우가 흔하다
+        bullet.doubt?.evidence.forEach((ev, k) => {
+          if (!isCellRef(ev)) out.push({ path: `${path}.doubt.evidence.${k}.cite`, cite: ev.cite });
+        });
       }
+      // 그림이 무엇을 설명하는지 가리키는 원문 자리다. 원문 어디든 된다
+      sub.widgets?.forEach((w, k) => {
+        out.push({ path: `${bp}.widgets.${k}.cite`, cite: w.cite });
+      });
       const shotWithin = { cite: sub.cite, code: 'SHOT_CITE_OUT_OF_SUBSECTION', name: '소섹션' };
       sub.shots?.forEach((shot, k) => {
         out.push({ path: `${bp}.shots.${k}.cite`, cite: shot.cite, within: shotWithin });
@@ -141,6 +184,36 @@ function collectCites(report: Report, p: string): CiteField[] {
   });
   report.keywords.forEach((kw, ki) => {
     out.push({ path: `${p}.keywords.${ki}.firstCite`, cite: kw.firstCite });
+  });
+  report.lead.glance?.forEach((g, k) => {
+    out.push({ path: `${p}.lead.glance.${k}.cite`, cite: g.cite });
+  });
+  report.limits?.forEach((l, i) => {
+    l.evidence.forEach((ev, k) => {
+      if (!isCellRef(ev)) out.push({ path: `${p}.limits.${i}.evidence.${k}.cite`, cite: ev.cite });
+    });
+  });
+  // 카드가 이야기하는 원문 자리는 그 카드를 붙인 대섹션 안이어야 한다
+  const sectionOf = (id: string) => report.sections.find((s) => s.id === id);
+  report.cards?.forEach((card, c) => {
+    const s = sectionOf(card.section);
+    out.push({
+      path: `${p}.cards.${c}.anchor`,
+      cite: card.anchor,
+      ...(s
+        ? { within: { cite: s.cite, code: 'CARD_ANCHOR_OUT_OF_SECTION', name: '대섹션' } }
+        : {}),
+    });
+  });
+  report.links?.forEach((link, k) => {
+    const s = sectionOf(link.section);
+    out.push({
+      path: `${p}.links.${k}.anchor`,
+      cite: link.anchor,
+      ...(s
+        ? { within: { cite: s.cite, code: 'LINK_ANCHOR_OUT_OF_SECTION', name: '대섹션' } }
+        : {}),
+    });
   });
   return out;
 }
@@ -400,6 +473,15 @@ function checkFrameSec(
     section.subsections.forEach((sub, bi) => {
       const first = transcript.segments[sub.cite.from];
       if (!first) return; // CITE_OUT_OF_RANGE가 이미 잡는다
+      if (sub.frameSec === undefined) {
+        issues.push({
+          path: `${p}.sections.${si}.subsections.${bi}.frameSec`,
+          severity: 'error',
+          code: 'FRAME_SEC_MISSING',
+          message: `영상 소섹션은 frameSec이 있어야 한다. 첫 문장(${sub.cite.from}번) 시각 ${first.startSec}을 적는다`,
+        });
+        return;
+      }
       if (Math.abs(sub.frameSec - first.startSec) > FRAME_SEC_TOLERANCE) {
         issues.push({
           path: `${p}.sections.${si}.subsections.${bi}.frameSec`,
@@ -562,6 +644,18 @@ export interface DigestLintOptions extends ExtensionLintOptions {
    * null이면 파일이 없거나 읽을 수 없는 것이라 shots가 하나라도 있으면 오류다
    */
   scenes?: readonly number[] | null;
+  /**
+   * 읽기 렌즈의 source.json. 표와 그림 출처, 의심 표시의 숫자를 이것과 대조한다.
+   * null이나 undefined면 표 칸을 가리키는 출처가 전부 오류다
+   */
+  source?: LensSource | null;
+  /** source가 null인 까닭. invalid면 ingest 대신 source.json 형식을 고치라고 안내한다. 없으면 missing으로 본다 */
+  sourceProblem?: 'missing' | 'invalid';
+  /**
+   * 내 지식 소스(knowledge.json). 연결 카드의 인용을 노트 파일과 대조한다.
+   * undefined면 대조를 건너뛰고 null이면 연결 카드를 하나도 받지 않는다
+   */
+  knowledge?: KnowledgeContext | null;
 }
 
 /**
@@ -599,6 +693,14 @@ export function lintDigest(
     }
     lintReport(report, p, transcript, issues);
     checkShots(report, p, transcript, opts.scenes, issues);
+    const kind = transcript.meta.source;
+    if (isLensKind(kind)) {
+      lintLensReport(report, p, kind, transcript, opts.source ?? null, issues, opts.sourceProblem);
+      lintLensContext(report, p, opts.knowledge, issues);
+      lintReportWidgets(report, p, transcript, opts.source ?? null, issues);
+    } else {
+      checkLensFieldsOnVideo(report, p, issues);
+    }
   });
   lintExtensions(digest.extensions, transcript, issues, opts);
   return issues;
@@ -644,10 +746,68 @@ function lintReport(
   checkTitleMarkers(report, p, issues);
   checkDiagramShapes(report, p, issues);
   checkKeywords(report, p, issues);
-  checkFrameSec(report, p, transcript, issues);
+  // 프레임은 영상에만 있다. 글 자료와 팟캐스트는 frameSec을 쓰지 않는다
+  const kind = transcript.meta.source;
+  if (kind === 'youtube' || kind === 'file') checkFrameSec(report, p, transcript, issues);
   checkDuplicateIds(report, p, issues);
   checkVolume(report, p, issues);
   checkDiagramCount(report, p, issues);
+}
+
+/**
+ * 렌즈 칸은 스키마가 자료 종류와 상관없이 받고 뷰어도 종류를 안 보고 그린다.
+ * 원문 대조는 렌즈 자료에서만 돌아서 영상 리포트에 들어오면 대조 없이 배지가 붙는다. 그래서 칸째 막는다
+ */
+function checkLensFieldsOnVideo(report: Report, p: string, issues: DigestIssue[]): void {
+  const found: string[] = [];
+  // 빈 배열은 아무것도 그리지 않으니 길이로 본다. 형식을 맞추려고 []를 채운 영상 리포트까지 막지 않는다
+  if (report.lead.glance?.length) found.push(`${p}.lead.glance`);
+  if (report.limits?.length) found.push(`${p}.limits`);
+  if (report.cards?.length) found.push(`${p}.cards`);
+  if (report.links?.length) found.push(`${p}.links`);
+  report.sections.forEach((section, si) => {
+    section.subsections.forEach((sub, bi) => {
+      const bp = `${p}.sections.${si}.subsections.${bi}`;
+      if (sub.tables?.length) found.push(`${bp}.tables`);
+      if (sub.figures?.length) found.push(`${bp}.figures`);
+      if (sub.widgets?.length) found.push(`${bp}.widgets`);
+      for (const { bullet, path } of walkBullets(sub.bullets, `${bp}.bullets`)) {
+        if (bullet.doubt) found.push(`${path}.doubt`);
+      }
+    });
+  });
+  for (const path of found) {
+    issues.push({
+      path,
+      severity: 'error',
+      code: 'LENS_FIELD_ON_VIDEO',
+      message:
+        '읽기 렌즈 칸이다. 영상 리포트는 원문 표와 문단을 대조할 수 없어서 이 칸을 쓰지 않는다',
+    });
+  }
+}
+
+function lintReportWidgets(
+  report: Report,
+  p: string,
+  transcript: Transcript,
+  source: LensSource | null,
+  issues: DigestIssue[],
+): void {
+  const unitText = (c: Cite) =>
+    transcript.segments
+      .slice(c.from, c.to + 1)
+      .map((s) => s.text)
+      .join(' ');
+  const allText = transcript.segments.map((s) => s.text).join(' ');
+  report.sections.forEach((section, si) => {
+    section.subsections.forEach((sub, bi) => {
+      sub.widgets?.forEach((w, k) => {
+        const wp = `${p}.sections.${si}.subsections.${bi}.widgets.${k}`;
+        lintWidget(w, wp, { source, unitText, allText }, issues);
+      });
+    });
+  });
 }
 
 export function lintErrors(issues: DigestIssue[]): DigestIssue[] {

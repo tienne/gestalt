@@ -21,17 +21,66 @@ export interface ResolutionDimension {
   improvementHint: string; // Dimension-specific hint for improving the score
 }
 
+export type ResolutionDimensionName =
+  | 'goalClarity'
+  | 'constraintClarity'
+  | 'successCriteria'
+  | 'priorityClarity'
+  | 'contextClarity';
+
+/**
+ * 채점마다 서버가 세션 상태로 세는 신호. LLM에게 묻지 않는다.
+ * 판정에는 아직 쓰지 않고 결과와 맞춰볼 후보로 기록만 한다.
+ */
+export interface ResolutionSignals {
+  /** 답이 비어 있지 않은 라운드 수 */
+  answeredRounds: number;
+  /** 답을 보냈지만 공백뿐인 라운드 수. 답을 기다리는 마지막 라운드는 세지 않는다 */
+  emptyRounds: number;
+  /** "알아서", "나중에", "up to you" 같은 위임 답변으로 판정한 라운드 수 */
+  deferredRounds: number;
+  /** 점수가 0.8 이상인데 그 차원의 원칙으로 질문한 라운드가 하나도 없는 차원 */
+  unaskedConfidentDimensions: ResolutionDimensionName[];
+  /** 직전 채점보다 overall이 오른 폭. 내려가면 음수. 첫 채점이면 null */
+  overallJump: number | null;
+  /** 이 세션에서 지금까지 가장 크게 오른 폭. 아직 비교할 채점이 없으면 null */
+  maxOverallJump: number | null;
+  /** 모순 목록은 LLM이 쓴 텍스트라 서버가 센 신호와 섞지 않는다 */
+  llmDerived: { contradictions: number };
+  /** 다시 채점한 결과. 비교 대상은 다시 채점을 받은 시점의 최신 점수다. 안 했으면 없다. 이후 채점에도 이어진다 */
+  rescore?: RescoreResult;
+}
+
+/** isolated: 인터뷰 맥락이 없는 채점자. same-context: 다시 채점 직전 점수를 매긴 대화에서 다시 채점 */
+export type RescoreMode = 'isolated' | 'same-context';
+
+export interface RescoreResult {
+  mode: RescoreMode;
+  /** 다시 채점한 점수의 overall */
+  overall: number;
+  /** 차원별 |다시 채점 직전 점수 - 다시 채점한 점수| 중 가장 큰 값 */
+  maxDimensionSpread: number;
+  /** 다시 채점 직전 점수에서 기준값 이상이었다가 다시 채점한 점수에서 아래로 떨어진 차원 */
+  droppedDimensions: ResolutionDimensionName[];
+}
+
 export interface ResolutionScore {
   overall: number; // 0.0-1.0 (higher = clearer)
   dimensions: ResolutionDimension[];
-  isReady: boolean; // overall >= RESOLUTION_THRESHOLD
+  /** 준비 판정. 기본은 overall >= threshold다. interview.rescore가 gate면 다시 채점을 받기 전까지 false이고 다시 채점한 점수는 두 overall 중 낮은 쪽과 흔들림(RESCORE_SPREAD_LIMIT)으로 다시 정한다 */
+  isReady: boolean;
   contradictions?: string[]; // Detected contradictions during interview
+  /** isReady를 정할 때 쓴 기준값. 설정 연결 전에 저장된 이벤트에는 없다 */
+  threshold?: number;
+  /** 서버가 센 신호. 채점이 세션에 기록될 때 붙는다 */
+  signals?: ResolutionSignals;
 }
 
 export interface GestaltAnalysis {
   principle: GestaltPrinciple;
   finding: string;
-  confidence: number;
+  /** LLM이 쓴 확신도. 판정에 쓰지 않고 값이 없으면 채우지 않는다 */
+  confidence?: number;
 }
 
 // ─── Interview ──────────────────────────────────────────────────
@@ -535,7 +584,8 @@ export interface RoleMatch {
 export interface RolePerspective {
   agentName: string;
   perspective: string;
-  confidence: number;
+  /** 예전 호스트가 보내던 값. 합의 프롬프트에는 넣지 않는다 */
+  confidence?: number;
 }
 
 export interface RoleConsensus {
@@ -728,6 +778,12 @@ export interface SpecHistoryEntry {
   createdAt: string;
   interviewSessionId?: string;
   sourceType: TextInputSourceType | 'interview';
+  /** 스펙을 만든 시점의 해상도. text 소스면 null */
+  resolutionScore?: number | null;
+  /** 스펙을 만든 시점의 마지막 채점 신호. 이벤트 DB 없이 결과 표를 만들 때 쓴다 */
+  resolutionSignals?: ResolutionSignals;
+  /** 스펙을 만든 시점의 판정 규칙 버전. text 소스는 판정을 안 거쳐서 없다 */
+  readinessRuleVersion?: number;
 }
 
 export interface MemoryExecutionRecord {

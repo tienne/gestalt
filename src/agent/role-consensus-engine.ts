@@ -29,10 +29,7 @@ Respond with ONLY a JSON object:
 }`;
 
     const perspectiveList = perspectives
-      .map(
-        (p, i) =>
-          `### Perspective ${i + 1}: ${p.agentName} (confidence: ${p.confidence})\n${p.perspective}`,
-      )
+      .map((p, i) => `### Perspective ${i + 1}: ${p.agentName}\n${p.perspective}`)
       .join('\n\n');
 
     const synthesisPrompt = `## Consensus Synthesis

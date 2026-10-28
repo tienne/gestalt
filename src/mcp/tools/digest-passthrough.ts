@@ -2,6 +2,8 @@ import { resolve } from 'node:path';
 import { loadConfig } from '../../core/config.js';
 import { extensionKey } from '../../digest/blocks.js';
 import { commentsMap } from '../../digest/comments.js';
+import { lensSourceForLint } from '../../digest/lens-source.js';
+import { knowledgeContext } from '../../digest/lint-lens-context.js';
 import { sceneSecs } from '../../digest/scenes.js';
 import { lintDigest, lintErrors, type DigestLintOptions } from '../../digest/lint.js';
 import { applyProse, extractProse } from '../../digest/prose.js';
@@ -72,6 +74,8 @@ function lintContext(
       comments: commentsMap(store, input.slug) ?? undefined,
       // merge와 같이 scenes.json이 없으면 null을 넘긴다. shots가 없는 digest에는 아무 오류도 안 붙는다
       scenes: sceneSecs(store, input.slug),
+      ...lensSourceForLint(store, input.slug),
+      knowledge: knowledgeContext(store, input.slug),
     },
   };
 }
@@ -102,6 +106,7 @@ function handleRender(input: DigestInput, cwd: string): object {
     const r = renderToFiles(input.slug, {
       repoRoot: resolve(cwd, input.repoRoot ?? '.'),
       inlineFrames: input.inlineFrames,
+      omitCrops: input.omitCrops,
       templates: tpl.templates,
     });
     return { ok: true, action: 'render', ...r, templateWarnings: tpl.warnings };

@@ -22,7 +22,7 @@ Complete reference for all Gestalt MCP tools.
 | [`ges_sync`](#ges_sync) | Knowledge Base 파일 동기화 |
 | [`ges_pr`](#ges_pr) | 로컬 PR 생성, 리뷰, 머지 — 원격에 안 나간다 |
 | [`ges_research`](../plugin/skills/research/SKILL.md#쓰는-도구) | 경쟁사 리서치의 출처 확인, 개인정보 치환, 검증, 윤문, 렌더. 서버는 LLM을 부르지 않는다 |
-| [`ges_digest`](#ges_digest) | 영상 요약(`digest.json`)의 검증, 윤문, 뷰어 렌더. 수집과 프레임, 서버는 `gestalt digest` CLI가 맡는다 |
+| [`ges_digest`](#ges_digest) | 영상 요약과 읽기 렌즈(`digest.json`)의 검증, 윤문, 뷰어 렌더. 수집과 프레임, 서버는 `gestalt digest`와 `gestalt lens` CLI가 맡는다 |
 | [`ges_architecture`](./architecture-view.md#ges_architecture-mcp-툴) | 세션이 쓴 아키텍처 IR을 검증하고 단일 HTML로 결정적으로 그린다. `service` 노드가 있으면 전체에서 서비스, 기능영역으로 들어가는 드릴다운 한 장으로 그린다. 서비스를 서빙하는 도메인, CDN, 버킷은 읽기 전용 클라우드 조회(`live` 근거)로 확인해 함께 싣는다. 서버는 LLM을 부르지 않는다 |
 
 ---
@@ -37,7 +37,7 @@ Complete reference for all Gestalt MCP tools.
 
 ## `ges_interview`
 
-인터뷰 세션을 시작하고, 질문-응답을 반복하며 요구사항 해상도를 0.8 이상으로 높인다.
+인터뷰 세션을 시작하고 질문-응답을 반복하며 요구사항 해상도를 기준값(`interview.resolutionThreshold`, 기본 0.8) 이상으로 높인다.
 
 ### Actions
 
@@ -60,9 +60,11 @@ Complete reference for all Gestalt MCP tools.
 | `response` | `string` | `respond` | — | 현재 질문에 대한 사용자 응답 |
 | `generatedQuestion` | `string` | `respond` (passthrough) | — | 호출자가 생성한 질문 텍스트 |
 | `resolutionScore` | `object` | N | — | 호출자가 계산한 해상도 점수 (아래 참고) |
+| `rescore` | `boolean` | `score`만, N | — | `rescorePrompt`로 다시 채점한 점수를 `resolutionScore`에 담아 보낼 때 `true` |
+| `rescoreMode` | `"isolated" \| "same-context"` | `rescore`만, N | `"same-context"` | 인터뷰 맥락이 없는 서브에이전트가 채점했으면 `isolated`, 같은 대화에서 채점했으면 `same-context` |
 | `compressedSummary` | `string` | `compress` 두 번째 호출 | — | `compressionContext`로 호출자가 만든 요약. 첫 호출에선 생략한다 |
 | `record` | `boolean` | N | `false` | `complete` 시 GIF 녹화 생성 여부 |
-| `force` | `boolean` | `complete`만, N | `false` | 해상도 0.8 미만이어도 완료한다. 사용자가 직접 정했을 때만 넘긴다 |
+| `force` | `boolean` | `complete`만, N | `false` | 해상도가 기준값(`interview.resolutionThreshold`, 기본 0.8) 미만이어도 완료한다. 사용자가 직접 정했을 때만 넘긴다 |
 
 #### `resolutionScore` object
 
@@ -77,7 +79,15 @@ Complete reference for all Gestalt MCP tools.
 
 답변 라운드가 0인 세션에 기준을 넘는 점수를 넣으면 `score`와 `respond`가 거절한다. 공백만 보낸 답은 답변으로 세지 않는다. 기준 미만 점수는 받는다.
 
-이 점수는 호스트 LLM이 매겨서 넘긴 값이다. 서버는 답변이 하나라도 있으면 점수가 맞는지 확인하지 않는다. 0.8 관문은 부풀려 신고한 점수까지 막지 못한다.
+이 점수는 호스트 LLM이 매겨서 넘긴 값이다. 서버는 답변이 하나라도 있으면 점수가 맞는지 확인하지 않는다. 기준값 관문은 부풀려 신고한 점수까지 막지 못한다.
+
+#### 다시 채점하기
+
+`respond`나 `score`로 넣은 점수가 기준값을 넘으면 응답에 `rescorePrompt`와 `nextAction: "rescore"`가 붙는다. 기본 설정(`record`)에서는 처음 넘을 때 한 번만 붙고 `gate`에서는 다시 채점을 받을 때까지 넘을 때마다 붙는다. `rescorePrompt`에는 대화 기록만 있고 앞 점수는 없다. 호스트는 이걸 인터뷰를 안 본 서브에이전트에게 채점시키고 그 점수를 `score`에 `rescore: true`와 함께 넘긴다. 서버는 두 점수를 비교한 결과(`rescore`)를 `resolutionScore.signals.rescore`에 남긴다. 비교 대상은 다시 채점을 받은 시점의 최신 점수다. 넘은 뒤 점수가 다시 떨어졌으면 떨어진 점수와 비교한다. 인터뷰마다 한 번만 받는다.
+
+판정에 어떻게 쓸지는 설정 `interview.rescore`가 정한다. 기본값 `record`는 기록만 하고 판정은 다시 채점 직전 점수를 따른다. `gate`는 다시 채점을 받기 전까지 `isReady`를 `false`로 둔다. 받은 뒤에는 두 overall 중 낮은 쪽으로 판정한다. 차원 하나라도 0.2보다 크게 흔들렸으면 `isReady`를 `false`로 두고 가장 많이 흔들린 차원으로 다음 질문의 `gestaltContext`를 돌려준다. 다시 채점은 인터뷰마다 한 번이다. 이렇게 보류된 뒤 다시 기준값을 넘은 채점은 다시 채점을 요청하지 않고 기본 규칙(overall ≥ 기준값)으로 판정한다. `gate`는 `rescoreMode`가 `same-context`여도 같은 규칙으로 판정한다. 이걸 그대로 둘지는 [제안서 열린 질문 6](./proposals/resolution-calibration.md#열린-질문)에서 정한다. `off`는 다시 채점을 요청하지도 받지도 않는다.
+
+API 키 경로는 서버가 같은 모델을 한 번 더 불러 채점하고 `isolated`로 남긴다.
 
 ### Responses
 
@@ -125,7 +135,7 @@ Complete reference for all Gestalt MCP tools.
 
 **`complete`**
 
-점수가 없거나 `isReady !== true`인 세션은 거절한다. 거절 메시지에 "force=true로 넘기세요"가 붙는다. `force: true`로 넘기면 기준 미만이어도 완료하고 세션에 `forcedComplete: true`, `INTERVIEW_SESSION_COMPLETED` 이벤트에 `forced: true`가 남는다. 이미 준비된 세션은 `force`를 넘겨도 `forced`가 `false`다. 이렇게 끝낸 세션으로 Spec을 뽑으려면 `ges_generate_spec`에도 `force`를 따로 넘긴다.
+점수가 없거나 `isReady !== true`인 세션은 거절한다. 기준값 미만이면 거절 메시지에 "force=true로 넘기세요"가 붙는다. `gate`에서 기준값을 넘었는데 다시 채점을 아직 안 받았거나 다시 채점 결과로 보류된 세션에는 force 안내 대신 각각 "다시 채점을 받거나 인터뷰를 계속 진행하세요"와 "인터뷰를 계속 진행하세요"가 붙는다. 어느 쪽이든 `force: true`로 넘기면 완료하고 세션에 `forcedComplete: true`, `INTERVIEW_SESSION_COMPLETED` 이벤트에 `forced: true`가 남는다. 이미 준비된 세션은 `force`를 넘겨도 `forced`가 `false`다. 이렇게 끝낸 세션으로 Spec을 뽑으려면 `ges_generate_spec`에도 `force`를 따로 넘긴다.
 
 ```json
 {
@@ -285,7 +295,7 @@ ges_generate_spec({
 | `acceptanceCriteria` | `string[]` | Y | 측정 가능한 완료 조건 |
 | `ontologySchema.entities` | `Entity[]` | Y | `{ name, description, attributes[] }` |
 | `ontologySchema.relations` | `Relation[]` | Y | `{ from, to, type }` |
-| `gestaltAnalysis` | `Analysis[]` | Y | `{ principle, finding, confidence }` — principle: `closure \| proximity \| similarity \| figure_ground \| continuity` |
+| `gestaltAnalysis` | `Analysis[]` | Y | `{ principle, finding, confidence? }` — principle: `closure \| proximity \| similarity \| figure_ground \| continuity` |
 
 ---
 
@@ -1186,7 +1196,7 @@ ges_pr({ action: "checkout", id: "e2085a1c" })
 
 ## `ges_digest`
 
-영상 요약 뷰어의 검증과 렌더를 맡는다. 흐름은 [`video-digest` 스킬](../plugin/skills/video-digest/SKILL.md)에 있고 설계는 [`proposals/video-digest.md`](./proposals/video-digest.md)에 있다.
+영상 요약 뷰어와 읽기 렌즈(논문 PDF, 웹 글, 팟캐스트)의 검증과 렌더를 맡는다. 흐름은 [`video-digest` 스킬](../plugin/skills/video-digest/SKILL.md)과 [`lens` 스킬](../plugin/skills/lens/SKILL.md)에 있고 설계는 [`proposals/video-digest.md`](./proposals/video-digest.md)와 [`proposals/reading-lens.md`](./proposals/reading-lens.md)에 있다. 두 기능은 저장소와 뷰어를 같이 쓰고 `transcript.json`의 `meta.source`(`youtube`, `file`, `pdf`, `web`, `podcast`)로 갈린다.
 
 요약 본문(`digest.json`)은 세션이 `video-summarizer`로 쓰고 이 도구는 LLM을 부르지 않는다. 자막 수집(`ingest`)과 프레임 추출(`frames`), 로컬 서버(`serve`)는 yt-dlp와 ffmpeg를 부르는 셸 명령이라 MCP action으로 두지 않고 `gestalt digest` CLI로 둔다.
 
@@ -1202,11 +1212,20 @@ digest.html       뷰어 (render가 쓴다)
 digest.md         마크다운 (render, export --md가 쓴다)
 ```
 
+읽기 렌즈는 `transcript.json`의 문장 자리에 문단(팟캐스트는 받아쓴 문장)을 두고 아래를 더 쓴다.
+
+```
+source.json        표 칸과 그림, 쪽 목록 (lens ingest가 쓰고 lens panels가 그림 장면 수를 적는다)
+pages/ tables/ figures/   PDF 쪽 그림과 원문에서 잘라낸 표와 그림 (lens ingest가 쓴다)
+knowledge.json     내 노트에서 찾은 연결 후보 (lens knowledge가 쓴다. 상한에 닿거나 1MB 넘는 노트를 건너뛰면 truncated { files, bytes, hits, terms, large }에 적는다)
+cache/             원본 PDF, HTML, 오디오 (serve는 이 폴더 안의 팟캐스트 오디오 하나만 내준다)
+```
+
 ### Actions
 
 | Action | Description |
 |:---|:---|
-| `validate` | 스키마와 lint 검사. 출처 범위가 스크립트를 빈틈없이 덮는지, `key`가 범위 안인지, 불릿이 2단까지인지, 키워드 id가 있는지, `frameSec`이 첫 문장 시각과 맞는지 본다 |
+| `validate` | 스키마와 lint 검사. 출처 범위가 스크립트를 빈틈없이 덮는지, `key`가 범위 안인지, 불릿이 2단까지인지, 키워드 id가 있는지, `frameSec`이 첫 문장 시각과 맞는지 본다. 읽기 렌즈 리포트는 아래 "읽기 렌즈 검사"도 돈다 |
 | `render` | lint 오류가 없을 때만 `digest.html`과 `digest.md`를 쓴다 |
 | `prose_extract` | 윤문할 본문 문장을 `{ path, text, hash }`로 뽑는다. 제목은 빠진다. 도식 라벨과 설명, 장면 설명, 마인드맵 라벨은 `kind: "label"`과 같은 그림끼리 묶는 `group`을 붙여 함께 낸다 |
 | `prose_apply` | 다듬은 문장을 같은 path로 되돌려 넣는다. `**`, `{{kw:<id>}}`, 숫자, 링크가 원문과 같아야 들어간다. 라벨은 원문보다 길어지면 안 들어간다 |
@@ -1219,6 +1238,7 @@ digest.md         마크다운 (render, export --md가 쓴다)
 | `slug` | `string` | Y | — | `.gestalt/digest/` 아래 폴더 이름 |
 | `repoRoot` | `string` | | 서버 cwd | 레포 루트 |
 | `inlineFrames` | `boolean` | | `false` | `render`: 프레임을 HTML 안에 넣는다. 한 장 5MB, 합계 15MB를 넘는 프레임은 빼고 경고한다 |
+| `omitCrops` | `boolean` | | `false` | `render`: 읽기 렌즈 리포트에서 원문 쪽 그림과 원문에서 잘라낸 표와 그림을 빼고 그린다. 노트 경로와 인용이 남에게 가지 않게 노트 연결 카드(내 지식과 잇기)도 HTML과 마크다운에서 빠진다. 남에게 공유할 HTML을 만들 때 쓴다. 원문 창은 추출 텍스트만 남는다 |
 | `items` | `{ path, text, hash }[]` | `prose_apply` | — | `prose_extract`가 준 항목. `text`만 바꿔 돌려준다 |
 | `dryRun` | `boolean` | | `false` | `prose_apply`: 검사만 하고 저장하지 않는다 |
 
@@ -1259,6 +1279,28 @@ digest.md         마크다운 (render, export --md가 쓴다)
 | `ITEMS_REQUIRED` | `prose_apply`에 `items`가 없다 |
 | `APPLY_BROKE_SCHEMA` | 되돌려 넣은 결과가 스키마에 안 맞는다. 저장하지 않는다 |
 
+### 읽기 렌즈 검사
+
+`transcript.json`의 `meta.source`가 `pdf`, `web`, `podcast`면 merge와 validate, render가 아래를 더 본다. 숫자가 든 칸은 `source.json`의 원문 표 칸이나 원문 문단과 대조한다.
+
+| Code | 뜻 |
+|:---|:---|
+| `GLANCE_MISSING` | 한눈에 보기에 자료별 칸(논문은 problem, method, result, limit)이 빠졌다 |
+| `LIMITS_MISSING`, `LIMIT_NO_SOURCE` | 검증 안 된 부분이 없거나 한 줄에 근거도 카드 id도 없다 |
+| `DOUBT_NOT_NUMERIC` | 의심 표시에 근거 칸의 숫자가 없다. 해석이 갈리는 의심은 맥락 카드로 간다 |
+| `DOUBT_NUMBER_UNKNOWN`, `LIMIT_NUMBER_UNKNOWN` | 근거 칸이 든 줄과 머리줄, 근거 문단에 없는 숫자다. 계산한 차이나 비율이 여기 걸린다. 카드 id와 근거를 같이 단 한계 줄도 대조한다 |
+| `TABLE_REF_UNKNOWN`, `CELL_REF_OUT_OF_RANGE`, `FIGURE_REF_UNKNOWN` | 없는 표나 칸, 그림을 가리킨다 |
+| `CARD_SOURCE_UNKNOWN`, `CARD_SECTION_UNKNOWN`, `CARD_ANCHOR_OUT_OF_SECTION`, `LIMIT_CARD_UNKNOWN` | 맥락 카드 줄의 출처 id가 없거나 붙인 대섹션이 맞지 않는다 |
+| `LINK_QUOTE_NOT_FOUND`, `LINK_OUTSIDE_SOURCES`, `LINK_NO_KNOWLEDGE` | 연결 카드 인용이 노트에 없거나 지식 소스 폴더 밖이거나 `knowledge.json`이 없다 |
+| `WIDGET_VALUE_MISMATCH`, `WIDGET_VALUE_NO_SOURCE`, `WIDGET_METRIC_UNKNOWN` | A, C 그림 값이 원문 칸과 다르거나 출처가 없거나 원문에 없는 지표 이름이다 |
+| `A_NO_VALUES` | 원문 데이터 그림(A)에 값이 하나도 없다 |
+| `B_HAS_DATA`, `B_METRIC_LABEL`, `B_BORROWS_NAME`, `B_FIGURE_TITLE`, `B_FIGURE_REF` | 설명용 그림이 원문 데이터나 결과 지표, 원문 이름, 그림 번호를 쓴다 |
+| `B_HAS_NUMBER` | 설명용 그림 라벨에 숫자가 있다 |
+| `C_FIGURE_MISSING`, `C_DIFFERENCES_EMPTY`, `C_PANELS_UNKNOWN`, `C_STEPS_EXCEED_PANELS` | 다시 그린 그림에 원문 그림 id가 없거나, 원문과 다르게 그린 점이 비었거나, 원문 그림의 장면 수를 모르거나, 슬라이더 칸이 장면 수보다 많다 |
+| `RANGE_NOT_SUPPORTED` | 글 자료 리포트에 시각 구간을 줬다 |
+| `FRAME_SEC_MISSING` | 영상 리포트 소섹션에 `frameSec`이 없다(영상 자료만 본다) |
+| `LENS_FIELD_ON_VIDEO` | 렌즈 자료가 아닌 리포트에 렌즈 칸(한눈에 보기, 의심 표시, 표와 그림, 맥락 카드와 연결 카드, 한계 단락)이 있다. 영상 자료는 원문 표와 대조할 수 없어서 받지 않는다 |
+
 ### CLI
 
 ```bash
@@ -1269,12 +1311,21 @@ gestalt digest merge <slug> <리포트 파일>
 gestalt digest translate-apply <slug> <번역 파일>
 gestalt digest validate <slug>
 gestalt digest frames <slug> [--force]
-gestalt digest render <slug> [--inline-frames]
+gestalt digest render <slug> [--inline-frames] [--no-crops]
 gestalt digest serve <slug> [--port <n>] [--no-browser]   # 127.0.0.1, 기본 7893부터
 gestalt digest export <slug> --md [--report <key>] [--out <path>]
+
+# 읽기 렌즈. 합치기와 렌더, 띄우기는 위 digest 명령을 그대로 쓴다
+gestalt lens ingest <PDF|웹 주소|오디오|피드|HTML 파일> [--kind pdf|web|podcast] [--slug <slug>] [--episode <n>] [--whisper-model <name>] [--no-speakers] [--url <원래 주소>]
+gestalt lens panels <slug> <figure-id> <장면 수>   # C 재구성 슬라이더 칸 수 상한
+gestalt lens knowledge <slug> [--source <폴더>]...   # 내 노트에서 연결 후보 찾기
+gestalt lens notes <list|detect|add|remove|notion-on|notion-off|decline> [폴더...]   # 노트 폴더 연결(~/.gestalt/lens.json)
+gestalt lens attach <slug> <카드 파일> [--report <key>]   # 맥락 카드와 연결 카드를 붙이고 다시 검사. cards와 links를 통째로 바꿔 끼운다
 ```
 
-로컬 영상 파일로 만든 요약도 `serve`로 열어야 재생된다. `serve`가 `transcript.json`에 적힌 원본 파일 하나만 `/<slug>/video`로 내주고 Range 요청을 받는다. 확장자가 영상(mp4, m4v, mov, webm, mkv)이 아니거나 원본이 없으면 404다.
+`lens ingest`는 파이썬 패키지(pdfplumber, trafilatura, faster-whisper, sherpa-onnx)를 렌즈 가상환경이나 `GESTALT_LENS_PYTHON`에서 찾는다. 팟캐스트는 받아쓴 문장에 화자("화자 1")를 붙이고 `--no-speakers`면 건너뛴다. `--url`은 Orca 내장 브라우저에서 꺼낸 HTML처럼 로컬 HTML 파일을 받을 때 원래 주소를 적는다. 설정은 [configuration.md의 읽기 렌즈](./configuration.md#읽기-렌즈-lens)에 있다. 렌즈 뷰어는 쪽 그림과 원문에서 잘라낸 표와 그림을 상대 경로로 읽어서 `file://`로 열어도 원문 창이 동작한다. 팟캐스트 오디오 재생만 `serve`가 필요하다.
+
+로컬 영상 파일로 만든 요약도 `serve`로 열어야 재생된다. `serve`가 `transcript.json`에 적힌 원본 파일 하나만 `/<slug>/video`로 내주고 Range 요청을 받는다. 팟캐스트는 원래 주소가 피드라서 내려받은 오디오(`meta.media`)를 같은 길로 내준다. 그 오디오가 리포트 폴더의 `cache/` 안에 있을 때만 내준다. 확장자가 영상(mp4, m4v, mov, webm, mkv)이나 오디오(mp3, m4a, aac, wav, ogg, oga, opus, flac)가 아니거나 원본이 없으면 404다.
 
 `digest.html`을 파일로 바로 열면 유튜브 플레이어가 153 오류로 막힌다. 그때는 썸네일과 "유튜브에서 열기" 링크가 뜨고 출처 시각은 새 탭 링크로 바뀐다. 재생과 따라가기는 `serve`로 열었을 때만 된다.
 

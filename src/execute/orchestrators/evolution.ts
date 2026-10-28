@@ -145,6 +145,8 @@ export class EvolutionOrchestrator {
         currentGoalAlignment: session.evaluationResult.goalAlignment,
         structuralFixCount: this.countStructuralFixes(session),
         contextualCount: session.evolutionHistory.length,
+        successThreshold: this.executeConfig?.successThreshold,
+        goalAlignmentThreshold: this.executeConfig?.goalAlignmentThreshold,
       });
 
       if (termination) {
@@ -346,6 +348,8 @@ export class EvolutionOrchestrator {
         currentGoalAlignment: session.evaluationResult.goalAlignment,
         structuralFixCount: this.countStructuralFixes(session),
         contextualCount: session.evolutionHistory.length,
+        successThreshold: this.executeConfig?.successThreshold,
+        goalAlignmentThreshold: this.executeConfig?.goalAlignmentThreshold,
       });
 
       if (termination?.reason === 'success') {

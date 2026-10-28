@@ -51,6 +51,12 @@
           "minimum": 1,
           "description": "Maximum number of interview rounds (env: GESTALT_MAX_ROUNDS)",
           "default": 10
+        },
+        "rescore": {
+          "type": "string",
+          "enum": ["off", "record", "gate"],
+          "description": "Rescore a score that crosses the threshold. off: never. record: request once on the first crossing and keep the result without changing readiness. gate: request on every crossing until rescored, hold readiness until then, then decide on the lower overall and hold it when any dimension moves more than 0.2",
+          "default": "record"
         }
       },
       "additionalProperties": false
@@ -175,6 +181,19 @@
           "type": "boolean",
           "description": "Cache WebFetch results under ${XDG_CACHE_HOME:-~/.cache}/gestalt/webfetch-cache, outside the repo. Off by default because plugin hooks run in every repo (env: GESTALT_WEBFETCH_CACHE=1|0)",
           "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "lens": {
+      "type": "object",
+      "description": "Reading lens (/lens skill) settings",
+      "properties": {
+        "knowledgeSources": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Note folders inside this repo that 'gestalt lens knowledge' searches for names shared with the source (relative paths resolve from the repo root). Paths outside the repo are dropped with a warning; connect personal folders with 'gestalt lens notes add' instead. Only .md, .markdown and .txt files are read; hidden folders and node_modules are skipped",
+          "default": []
         }
       },
       "additionalProperties": false

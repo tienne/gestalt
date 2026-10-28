@@ -42,6 +42,9 @@ const llmConfigSchema = z.object({
 const interviewConfigSchema = z.object({
   resolutionThreshold: z.number().min(0).max(1).default(RESOLUTION_THRESHOLD),
   maxRounds: z.number().int().positive().default(MAX_INTERVIEW_ROUNDS),
+  // 기준값을 넘은 채점을 한 번 더 받을지와 그 결과를 판정에 쓸지.
+  // record는 처음 넘을 때 한 번, gate는 다시 채점을 받을 때까지 넘을 때마다 요청한다
+  rescore: z.enum(['off', 'record', 'gate']).default('record'),
 });
 
 const executeConfigSchema = z.object({
@@ -422,6 +425,7 @@ const configSchema = z.object({
 
 export type GestaltConfig = z.infer<typeof configSchema>;
 export type ExecuteConfig = z.infer<typeof executeConfigSchema>;
+export type InterviewConfig = z.infer<typeof interviewConfigSchema>;
 
 // ─── Internal Utilities ─────────────────────────────────────────
 
@@ -501,6 +505,11 @@ function loadDotEnv(): void {
 function buildEnvConfig(): Record<string, unknown> {
   const env = process.env;
   const result: Record<string, unknown> = {};
+  // 빈 값은 안 넣은 것으로 본다. Number('')가 0이라 그대로 두면 기준값이 0이 된다
+  const envNumber = (name: string): number | undefined => {
+    const raw = env[name]?.trim();
+    return raw ? Number(raw) : undefined;
+  };
 
   // llm
   const llm: Record<string, unknown> = {};
@@ -528,25 +537,20 @@ function buildEnvConfig(): Record<string, unknown> {
 
   // interview
   const interview: Record<string, unknown> = {};
-  if (env['GESTALT_RESOLUTION_THRESHOLD'] !== undefined) {
-    interview.resolutionThreshold = Number(env['GESTALT_RESOLUTION_THRESHOLD']);
-  }
-  if (env['GESTALT_MAX_ROUNDS'] !== undefined) {
-    interview.maxRounds = Number(env['GESTALT_MAX_ROUNDS']);
-  }
+  const resolutionThreshold = envNumber('GESTALT_RESOLUTION_THRESHOLD');
+  if (resolutionThreshold !== undefined) interview.resolutionThreshold = resolutionThreshold;
+  const maxRounds = envNumber('GESTALT_MAX_ROUNDS');
+  if (maxRounds !== undefined) interview.maxRounds = maxRounds;
   if (Object.keys(interview).length > 0) result.interview = interview;
 
   // execute
   const execute: Record<string, unknown> = {};
-  if (env['GESTALT_DRIFT_THRESHOLD'] !== undefined) {
-    execute.driftThreshold = Number(env['GESTALT_DRIFT_THRESHOLD']);
-  }
-  if (env['GESTALT_EVOLVE_SUCCESS_THRESHOLD'] !== undefined) {
-    execute.successThreshold = Number(env['GESTALT_EVOLVE_SUCCESS_THRESHOLD']);
-  }
-  if (env['GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD'] !== undefined) {
-    execute.goalAlignmentThreshold = Number(env['GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD']);
-  }
+  const driftThreshold = envNumber('GESTALT_DRIFT_THRESHOLD');
+  if (driftThreshold !== undefined) execute.driftThreshold = driftThreshold;
+  const successThreshold = envNumber('GESTALT_EVOLVE_SUCCESS_THRESHOLD');
+  if (successThreshold !== undefined) execute.successThreshold = successThreshold;
+  const goalAlignmentThreshold = envNumber('GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD');
+  if (goalAlignmentThreshold !== undefined) execute.goalAlignmentThreshold = goalAlignmentThreshold;
   if (Object.keys(execute).length > 0) result.execute = execute;
 
   // notifications

@@ -1,6 +1,11 @@
 import { GestaltPrinciple } from './types.js';
 
 export const RESOLUTION_THRESHOLD = 0.8;
+/**
+ * isReady를 정하는 규칙의 버전. 판정 규칙을 바꾸면 올려서 그 전후 결과를 한 표에 섞지 않게 한다.
+ * 1은 LLM overall이 기준값 이상이면 준비됐다고 보는 규칙이다
+ */
+export const READINESS_RULE_VERSION = 1;
 export const MAX_INTERVIEW_ROUNDS = 15;
 export const MAX_SPEC_RETRIES = 3;
 export const LLM_TEMPERATURE = 0.3;

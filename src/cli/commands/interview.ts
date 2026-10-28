@@ -4,7 +4,10 @@ import { EventStore } from '../../events/store.js';
 import { createAdapter, createTierAdapter } from '../../llm/factory.js';
 import { InterviewEngine } from '../../interview/engine.js';
 import { logger } from '../../core/logger.js';
-import { RESOLUTION_THRESHOLD } from '../../core/constants.js';
+
+export function belowThresholdPrompt(threshold: number): string {
+  return `\n⚠️  Resolution is below ${threshold}. Complete anyway? (y/N) `;
+}
 
 export async function interviewCommand(topic: string): Promise<void> {
   logger.info('cli.interview', { module: 'cli/interview', topic });
@@ -21,7 +24,12 @@ export async function interviewCommand(topic: string): Promise<void> {
   const llm = createAdapter(config.llm);
 
   const eventStore = new EventStore(config.dbPath);
-  const engine = new InterviewEngine(llm, eventStore, createTierAdapter(config.llm, 'frugal'));
+  const engine = new InterviewEngine(
+    llm,
+    eventStore,
+    createTierAdapter(config.llm, 'frugal'),
+    config.interview,
+  );
 
   const rl = createInterface({
     input: process.stdin,
@@ -79,9 +87,7 @@ export async function interviewCommand(topic: string): Promise<void> {
 
     let force = false;
     if (engine.getSession(sessionId).resolutionScore?.isReady !== true) {
-      const answer = await prompt(
-        `\n⚠️  Resolution is below ${RESOLUTION_THRESHOLD}. Complete anyway? (y/N) `,
-      );
+      const answer = await prompt(belowThresholdPrompt(config.interview.resolutionThreshold));
       if (answer.trim().toLowerCase() !== 'y') {
         console.log(`Interview left in progress. Session ID: ${sessionId}\n`);
         return;
