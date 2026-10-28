@@ -89,5 +89,6 @@ describe('읽기 렌즈 lint', () => {
 
   it('numbersIn은 천 단위 쉼표를 지우고 이름에 붙은 숫자는 세지 않는다', () => {
     expect(numbersIn('표 4의 6,653개와 0.2862, CSP2와 v3')).toEqual([4, 6653, 0.2862]);
+    expect(numbersIn('제3자가 확인하지 않았다')).toEqual([]);
   });
 });
