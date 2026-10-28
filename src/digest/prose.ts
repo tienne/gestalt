@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Diagram } from './diagram-schema.js';
 import { collectTextFields } from './lint.js';
 import { walkDiagram, walkMindmap } from './lint-extension.js';
+import { widgetLabels } from './lens-widgets.js';
 import { boldPattern, keywordPattern, type Digest } from './schema.js';
 
 export interface ProseItem {
@@ -79,6 +80,10 @@ function collectLabelFields(digest: Digest): LabelField[] {
         const group = `${sp}.subsections.${bi}.shots`;
         sub.shots?.forEach((shot, k) => {
           out.push({ path: `${group}.${k}.caption`, text: shot.caption, group });
+        });
+        sub.widgets?.forEach((w, k) => {
+          const wp = `${sp}.subsections.${bi}.widgets.${k}`;
+          for (const l of widgetLabels(w, wp)) out.push({ path: l.path, text: l.text, group: wp });
         });
       });
     });

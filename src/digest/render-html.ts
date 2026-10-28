@@ -23,6 +23,7 @@ import {
   type LensHtmlContext,
 } from './render-lens.js';
 import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
+import { WIDGET_CSS, widgetHtml } from './render-widgets.js';
 import { initialReportIndex, isPreset, pairIndex, reportKey, reportLabel } from './reports.js';
 import { VIEWER_JS } from './viewer-js.js';
 import {
@@ -250,6 +251,7 @@ export function renderDigestHtml(
           const fig = source?.figures.find((x) => x.id === f.ref);
           return fig ? sourceFigureHtml(fig, f.note, lens) : '';
         }),
+        ...(sub.widgets ?? []).map((w) => widgetHtml(w, lens)),
       ].join('');
 
     // 장면이 있으면 첫 문장 프레임 대신 장면을 본문 옆에 둔다. 장면이 같은 구간을 더 잘 보여 줘서 둘 다 싣지 않는다
@@ -477,7 +479,7 @@ ${skippedHtml}</div>`;
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${e(meta.title)}</title>
-<style>${CSS}${LENS_CSS}</style>
+<style>${CSS}${LENS_CSS}${WIDGET_CSS}</style>
 ${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz-check,.zoom-btn{display:none}.quiz-exp{display:block!important}</style></noscript>' : ''}
 </head>
 <body>

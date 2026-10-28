@@ -6,6 +6,7 @@ import { isCellRef, type Evidence } from './lens-schema.js';
 import type { LensSource } from './lens-source.js';
 import { CARD_KIND_LABEL, GLANCE_LABEL, unitLabel } from './render-lens.js';
 import { reportLabel } from './reports.js';
+import { widgetMarkdown } from './render-widgets.js';
 import {
   isTextKind,
   keywordPattern,
@@ -121,6 +122,18 @@ export function renderDigestMarkdown(
       for (const f of sub.figures ?? []) {
         const fig = source?.figures.find((x) => x.id === f.ref);
         if (fig?.image) out.push(`![그림 ${fig.number}](${fig.image})`, '', `*${fig.caption}*`, '');
+      }
+      for (const w of sub.widgets ?? []) {
+        out.push(
+          ...widgetMarkdown(w, {
+            cell: (v) => {
+              const src = v.src;
+              if (!src || !('table' in src)) return String(v.value);
+              const t = source?.tables.find((x) => x.id === src.table);
+              return t?.rows[src.row]?.[src.col] ?? String(v.value);
+            },
+          }),
+        );
       }
     });
   });

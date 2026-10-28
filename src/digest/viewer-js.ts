@@ -794,6 +794,29 @@ export const VIEWER_JS =
     return { isOpen: function(){ return dialog.open; } };
   }
 
+  // 인터랙티브 그림은 렌더러가 상태마다 그려 둔 것 가운데 하나만 보인다. 여기서 값을 계산하지 않는다
+  function showWidgetState(box, key) {
+    box.querySelectorAll('[data-w-state]').forEach(function(s){ s.hidden = s.getAttribute('data-w-state') !== key; });
+  }
+  document.addEventListener('click', function(ev){
+    var b = ev.target.closest ? ev.target.closest('[data-w-toggle]') : null;
+    if (!b) return;
+    var box = b.closest('[data-widget]');
+    if (!box) return;
+    var key = b.getAttribute('data-w-toggle');
+    box.querySelectorAll('[data-w-toggle]').forEach(function(x){ x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+    showWidgetState(box, key);
+  });
+  document.addEventListener('input', function(ev){
+    var r = ev.target;
+    if (!r || !r.hasAttribute || !r.hasAttribute('data-w-slider')) return;
+    var box = r.closest('[data-widget]');
+    if (!box) return;
+    showWidgetState(box, String(Math.round(Number(r.value))));
+    var labels = [];
+    try { labels = JSON.parse(r.getAttribute('data-labels') || '[]'); } catch (e) {}
+    if (labels[r.value]) r.setAttribute('aria-valuetext', labels[r.value]);
+  });
   // 한계 단락의 맥락 카드 링크를 누르면 접힌 카드를 펼친다
   document.addEventListener('click', function(ev){
     var a = ev.target.closest ? ev.target.closest('a.card-ref') : null;
