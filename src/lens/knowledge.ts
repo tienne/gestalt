@@ -1,7 +1,8 @@
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { writeJsonAtomic } from '../core/json-file.js';
 import { KNOWLEDGE_FILE, type KnowledgeFile } from '../digest/lint-lens-context.js';
+import { readUserLens, userLensFilePath } from './notes.js';
 import { DigestStore, readRaw } from '../digest/store.js';
 
 /** 노트로 읽는 확장자. 지식 소스 폴더에 다른 파일이 섞여 있어도 글 노트만 훑는다 */
@@ -11,11 +12,23 @@ const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_HITS = 40;
 
 /**
- * 지식 소스 폴더. 부를 때 넘긴 경로와 gestalt.json의 `lens.knowledgeSources`를 합친다.
+ * 노션처럼 파일로 없는 노트를 스킬이 받아 두는 폴더(slug 폴더 아래). 파일 첫 줄에
+ * `<!-- source: <원래 주소> -->`를 적어 두면 연결 카드가 그 주소를 단다
+ */
+export const KNOWLEDGE_SNAPSHOTS_DIR = 'knowledge-snapshots';
+
+/**
+ * 지식 소스 폴더. 사용자가 연결해 둔 폴더(~/.gestalt/lens.json)와 부를 때 넘긴 경로,
+ * gestalt.json의 `lens.knowledgeSources`를 합친다.
  * gestalt.json은 남의 레포에도 있을 수 있어서 거기 적힌 경로도 노트 확장자 파일만 읽는다
  */
-export function knowledgeRoots(repoRoot: string, extra: string[] = []): string[] {
-  const out: string[] = [];
+export function knowledgeRoots(
+  repoRoot: string,
+  extra: string[] = [],
+  userFile: string = userLensFilePath(),
+): string[] {
+  // 사용자가 연결해 둔 노트 폴더(~/.gestalt/lens.json)를 먼저 본다
+  const out: string[] = [...readUserLens(userFile).knowledgeSources];
   const raw = readRaw(join(repoRoot, 'gestalt.json'));
   if (raw.kind === 'ok') {
     const lens = (raw.value as { lens?: { knowledgeSources?: unknown } }).lens;
@@ -112,6 +125,8 @@ export function searchNotes(roots: string[], terms: string[]): KnowledgeFile['hi
 export interface KnowledgeOptions {
   repoRoot: string;
   sources?: string[];
+  /** 사용자 노트 연결 파일. 테스트가 홈 폴더 대신 임시 파일을 넘긴다 */
+  userFile?: string;
 }
 
 /** 원문 이름과 겹치는 노트 줄을 찾아 knowledge.json에 둔다. lens-context가 여기서 연결 카드를 고른다 */
@@ -122,7 +137,10 @@ export function findKnowledge(
   const store = new DigestStore(opts.repoRoot);
   const t = store.readTranscript(slug);
   if (!t.ok) throw new Error(t.message);
-  const roots = knowledgeRoots(resolve(opts.repoRoot), opts.sources);
+  // 스킬이 노션 같은 클라우드 노트를 받아 둔 스냅샷 폴더도 노트 폴더로 본다
+  const snapshots = join(store.dir(slug), KNOWLEDGE_SNAPSHOTS_DIR);
+  const extra = [...(opts.sources ?? []), ...(existsSync(snapshots) ? [snapshots] : [])];
+  const roots = knowledgeRoots(resolve(opts.repoRoot), extra, opts.userFile);
   const keywords = store.loadDigest(slug)?.reports[0]?.keywords.map((k) => k.term) ?? [];
   const terms = pickTerms(
     [t.transcript.meta.title, ...t.transcript.segments.map((s) => s.text)],

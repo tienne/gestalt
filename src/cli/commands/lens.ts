@@ -4,6 +4,16 @@ import { LENS_SOURCES, type LensKind } from '../../digest/schema.js';
 import { attachContext } from '../../lens/attach.js';
 import { ingestLens } from '../../lens/ingest.js';
 import { findKnowledge } from '../../lens/knowledge.js';
+import {
+  addNoteSources,
+  declineNoteSources,
+  detectNoteFolders,
+  notionAppInstalled,
+  readUserLens,
+  removeNoteSource,
+  setNotion,
+  userLensFilePath,
+} from '../../lens/notes.js';
 import { setFigurePanels } from '../../lens/panels.js';
 
 /**
@@ -137,6 +147,71 @@ export async function lensPanelsCommand(
     const r = setFigurePanels(rootOf(opts), slug, figure, Number(panels));
     if (opts.json) console.log(JSON.stringify(r, null, 2));
     else console.log(`${r.figure} 장면 ${r.panels}개를 적었어요: ${r.path}`);
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export async function lensNotesCommand(
+  action: string,
+  dirs: string[],
+  opts: LensCommonOptions & { scan?: string[] },
+): Promise<void> {
+  try {
+    if (action === 'list') {
+      const f = readUserLens();
+      if (opts.json) console.log(JSON.stringify({ path: userLensFilePath(), ...f }, null, 2));
+      else {
+        console.log(`연결한 노트 폴더: ${f.knowledgeSources.join(', ') || '없음'}`);
+        console.log(`노션에서도 찾기: ${f.notion ? '켬' : '끔'}`);
+        if (f.declined) console.log('노트 폴더를 쓰지 않겠다고 답해 두었어요. 다시 묻지 않아요');
+      }
+      return;
+    }
+    if (action === 'detect') {
+      const candidates = detectNoteFolders({ repoRoot: rootOf(opts), scan: opts.scan });
+      const notionApp = notionAppInstalled();
+      if (opts.json) console.log(JSON.stringify({ candidates, notionApp }, null, 2));
+      else if (candidates.length === 0) console.log('노트 폴더 후보를 못 찾았어요');
+      else {
+        for (const c of candidates) {
+          const mark = c.configured ? ' (연결됨)' : '';
+          console.log(
+            `${c.path}${mark} (${c.reason}) 노트 ${c.notes}개, 최근: ${c.recent.join(', ')}`,
+          );
+        }
+      }
+      if (!opts.json && notionApp)
+        console.log('노션 앱이 깔려 있어요. 노션 MCP가 붙은 세션이면 노션에서도 찾을 수 있어요');
+      return;
+    }
+    if (action === 'add') {
+      if (dirs.length === 0) throw new Error('연결할 폴더를 하나 이상 주세요');
+      const f = addNoteSources(dirs);
+      console.log(`연결한 노트 폴더: ${f.knowledgeSources.join(', ')}`);
+      return;
+    }
+    if (action === 'remove') {
+      if (dirs.length !== 1) throw new Error('뺄 폴더 하나를 주세요');
+      const f = removeNoteSource(dirs[0]!);
+      console.log(`연결한 노트 폴더: ${f.knowledgeSources.join(', ') || '없음'}`);
+      return;
+    }
+    if (action === 'notion-on' || action === 'notion-off') {
+      const f = setNotion(action === 'notion-on');
+      console.log(`노션에서도 찾기: ${f.notion ? '켬' : '끔'}`);
+      return;
+    }
+    if (action === 'decline') {
+      declineNoteSources();
+      console.log(
+        '노트 폴더 없이 쓰겠다고 적어 두었어요. gestalt lens notes add로 언제든 연결해요',
+      );
+      return;
+    }
+    throw new Error(
+      `모르는 동작이에요: ${action}. list, detect, add, remove, notion-on, notion-off, decline 중 하나예요`,
+    );
   } catch (e) {
     fail(e);
   }

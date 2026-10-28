@@ -211,7 +211,7 @@ describe('내 지식 찾기', () => {
       join(root, 'gestalt.json'),
       JSON.stringify({ lens: { knowledgeSources: ['kb', 'missing'] } }),
     );
-    const roots = knowledgeRoots(root, [join(root, 'kb')]);
+    const roots = knowledgeRoots(root, [join(root, 'kb')], join(root, 'no-user-lens.json'));
     expect(roots).toHaveLength(1);
     expect(roots[0]!.endsWith('/kb')).toBe(true);
   });
@@ -223,7 +223,11 @@ describe('내 지식 찾기', () => {
     writeFileSync(join(notes, 'n.md'), 'FlavorDiffusion 메모\n');
     const store = new DigestStore(root);
     store.saveTranscript(lensTranscript());
-    const { file } = findKnowledge(LENS_SLUG, { repoRoot: root, sources: [notes] });
+    const { file } = findKnowledge(LENS_SLUG, {
+      repoRoot: root,
+      sources: [notes],
+      userFile: join(root, 'no-user-lens.json'),
+    });
     expect(file.terms).toContain('FlavorDiffusion');
     expect(file.hits[0]?.line).toBe(1);
   });

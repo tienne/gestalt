@@ -281,7 +281,7 @@ export function contextCardHtml(card: ContextCard, ctx: LensHtmlContext): string
 const shortPath = (p: string) => p.replace(/^\/Users\/[^/]+|^\/home\/[^/]+/, '~');
 
 export function knowledgeLinkHtml(link: KnowledgeLink, ctx: LensHtmlContext): string {
-  return `<div class="kn-card" id="${ctx.pfx ?? ''}link-${ctx.escape(link.id)}"><p class="kn-head"><span class="ctx-kind">내 지식과 잇기</span> <b>${ctx.escape(link.title)}</b> ${ctx.loc(link.anchor.key)}${ctx.cite(link.anchor)}</p><p>${ctx.inline(link.note)}</p><blockquote>${ctx.escape(link.quote)}</blockquote><p class="kn-path"><code>${ctx.escape(shortPath(link.path))}${link.line ? `:${link.line}` : ''}</code></p></div>`;
+  return `<div class="kn-card" id="${ctx.pfx ?? ''}link-${ctx.escape(link.id)}"><p class="kn-head"><span class="ctx-kind">내 지식과 잇기</span> <b>${ctx.escape(link.title)}</b> ${ctx.loc(link.anchor.key)}${ctx.cite(link.anchor)}</p><p>${ctx.inline(link.note)}</p><blockquote>${ctx.escape(link.quote)}</blockquote><p class="kn-path">${link.url ? `<a href="${ctx.escape(link.url)}" target="_blank" rel="noopener noreferrer">원래 노트 열기</a> ` : ''}<code>${ctx.escape(shortPath(link.path))}${link.line ? `:${link.line}` : ''}</code></p></div>`;
 }
 
 /** 대섹션 끝에 붙는 카드 묶음. 카드가 없으면 빈 문자열이다 */

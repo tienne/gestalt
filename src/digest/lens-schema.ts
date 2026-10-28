@@ -126,6 +126,8 @@ export const knowledgeLinkSchema = z.object({
   path: z.string().min(1),
   line: z.number().int().positive().optional(),
   quote: z.string().min(4).max(400),
+  /** 노션처럼 원래 자리가 웹에 있는 노트면 그 주소. 스냅샷 파일 첫 줄의 source 주소를 옮긴다 */
+  url: webUrl.optional(),
 });
 
 export type ContextCard = z.infer<typeof contextCardSchema>;

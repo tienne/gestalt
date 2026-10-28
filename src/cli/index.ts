@@ -51,6 +51,7 @@ import {
   lensAttachCommand,
   lensIngestCommand,
   lensKnowledgeCommand,
+  lensNotesCommand,
   lensPanelsCommand,
 } from './commands/lens.js';
 import { getVersion } from '../core/version.js';
@@ -312,6 +313,20 @@ export function createCli(): Command {
     .description('원문 그림의 장면 수를 source.json에 적는다. C 재구성 슬라이더 칸 수의 상한이다')
     .action((slug, figure, count, o, cmd) =>
       lensPanelsCommand(slug, figure, count, { ...lensInherited(cmd), ...o }),
+    );
+
+  lens
+    .command('notes <action> [dirs...]')
+    .description(
+      '내 노트 연결(~/.gestalt/lens.json). list, detect(후보 찾기), add, remove, notion-on, notion-off, decline(쓰지 않음)',
+    )
+    .option(
+      '--scan <dir>',
+      'detect에서 더 훑을 폴더. 여러 번 쓸 수 있다 (스킬은 Orca에 등록된 레포를 넘긴다)',
+      (v: string, prev: string[] = []) => [...prev, v],
+    )
+    .action((action, dirs, o, cmd) =>
+      lensNotesCommand(action, dirs ?? [], { ...lensInherited(cmd), ...o }),
     );
 
   lens
