@@ -118,11 +118,11 @@ passthrough 경로는 이 기록이 틀려 있었다. 호스트는 직전 응답
 ```ts
 export interface RescoreResult {
   mode: 'isolated' | 'same-context';
-  /** 두 번째 채점의 overall */
+  /** 다시 채점한 점수의 overall */
   overall: number;
-  /** 차원별 |첫 점수 - 두 번째 점수| 중 가장 큰 값 */
+  /** 차원별 |다시 채점 직전 점수 - 다시 채점한 점수| 중 가장 큰 값 */
   maxDimensionSpread: number;
-  /** 첫 채점에서 기준값 이상이었다가 두 번째 채점에서 아래로 떨어진 차원 */
+  /** 다시 채점 직전 점수에서 기준값 이상이었다가 다시 채점한 점수에서 아래로 떨어진 차원 */
   droppedDimensions: ResolutionDimensionName[];
 }
 ```
@@ -132,7 +132,7 @@ export interface RescoreResult {
 | 값              | 동작                                                                                                                                                       |
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `off`           | 다시 채점하지 않는다                                                                                                                                       |
-| `record` (기본) | 다시 채점해서 기록만 한다. `isReady`는 첫 점수로 정한다                                                                                                    |
+| `record` (기본) | 다시 채점해서 기록만 한다. `isReady`는 다시 채점 직전 점수 그대로 둔다                                                                                                    |
 | `gate`          | 두 overall 중 낮은 쪽으로 `isReady`를 정한다. `maxDimensionSpread`가 0.2를 넘으면 `isReady`를 false로 두고 가장 많이 흔들린 차원을 다음 질문 주제로 고른다 |
 
 `gate`로 기본값을 옮기는 시점은 파트 5의 절차를 따른다.
@@ -142,7 +142,7 @@ export interface RescoreResult {
 구현하면서 위 흐름에 없던 것을 아래처럼 정했다.
 
 - 스킬 흐름에서는 호스트가 점수를 대부분 `respond`에 실어 보낸다. 그래서 `respond`로 처음 넘어도 `rescorePrompt`를 싣는다.
-- `gate`는 다시 채점을 받기 전까지 `isReady`를 false로 둔다. 안내를 건너뛰고 `complete`를 부르면 첫 점수로 끝나 버려서 `gate`가 의미가 없어지기 때문이다. 받기 전까지는 넘을 때마다 `rescorePrompt`를 다시 싣는다. `record`는 처음 넘을 때 한 번만 싣는다.
+- `gate`는 다시 채점을 받기 전까지 `isReady`를 false로 둔다. 안내를 건너뛰고 `complete`를 부르면 다시 채점을 안 받은 점수로 끝나 버려서 `gate`가 의미가 없어지기 때문이다. 받기 전까지는 넘을 때마다 `rescorePrompt`를 다시 싣는다. `record`는 처음 넘을 때 한 번만 싣는다.
 - `gate`에서 흔들림은 0.2 이하인데 낮은 쪽 overall이 기준값 아래라 판정을 미룬 경우는 낮은 쪽 점수로 다음 원칙을 고른다. 흔들림이 0.2를 넘으면 가장 많이 흔들린 차원의 원칙을 고른다. 어느 쪽이든 `rescore` 응답에 그 원칙으로 만든 `gestaltContext`를 싣는다.
 - `rescoreMode`를 안 넘기면 `same-context`로 남긴다. 실제로는 맥락이 이어진 채점을 `isolated`로 잘못 남기는 것보다 반대쪽 실수가 결과를 덜 흐린다.
 - 결과는 `interview.resolution.rescored` 이벤트로 따로 남긴다. 채점 이벤트로 남기면 `overallJump`와 처음 넘은 시점 판단이 섞인다. `signals.rescore`는 이후 채점의 신호에도 이어 붙여서 `specHistory`의 `resolutionSignals`만으로 결과 표를 채울 수 있게 한다.
@@ -294,4 +294,4 @@ outcome-feedback이 내보내는 CSV(`gestalt outcome export --format csv`)에 �
 3. **다시 채점하기 비용.** 인터뷰마다 채점 한 번이 늘어난다. 서브에이전트 채점에 frugal 모델을 쓰면 첫 채점과 모델이 달라져 흔들림이 모델 차이까지 섞인다. 같은 모델을 쓸지, 모델 차이를 받아들이고 `mode`에 모델 이름을 남길지 정해야 한다.
 4. **점수 기준표를 넣을까.** `buildResolutionPrompt`에 차원별로 0.2, 0.5, 0.8이 어떤 상태인지 예시를 넣으면 흔들림은 줄 수 있다. 다만 결과와 맞는지와는 별개이고 기록 단계 도중에 프롬프트를 바꾸면 앞뒤 데이터가 섞인다. 넣는다면 첫 결과 문서 전에 넣거나 `readinessRuleVersion`을 올려서 나눠야 한다.
 5. **Evaluate 점수도 같은 절차를 밟을까.** Evaluate의 성공 판정도 LLM이 쓴 `overallScore`에 걸려 있다. ac-test-first와 evaluate-evidence가 기계 판정으로 상한을 걸지만 0.85 기준값 자체를 결과와 맞춰보는 절차는 없다. 이 문서의 결과 표에 `final_score` 구간을 붙인 뒤 따로 제안할지 정해야 한다.
-6. **gate가 same-context 다시 채점을 받아도 될까.** `readinessAfterRescore`는 `rescoreMode`를 보지 않는다. Agent 도구가 없는 런타임은 메인 세션이 `same-context`로 다시 매기는데 앞에서 매긴 숫자를 따라가기 쉬워서 흔들림이 잘 안 드러난다. 그래서 `gate`에서는 첫 점수를 거의 그대로 다시 보내도 통과한다. 기본값이 `record`라 지금 동작에는 영향이 없다. `gate`를 기본으로 올리기 전에 `same-context`면 판정을 확정하지 않을지, 받되 결과 표에서 따로 셀지 정해야 한다.
+6. **gate가 same-context 다시 채점을 받아도 될까.** `readinessAfterRescore`는 `rescoreMode`를 보지 않는다. Agent 도구가 없는 런타임은 메인 세션이 `same-context`로 다시 매기는데 앞에서 매긴 숫자를 따라가기 쉬워서 흔들림이 잘 안 드러난다. 그래서 `gate`에서는 직전 점수를 거의 그대로 다시 보내도 통과한다. 기본값이 `record`라 지금 동작에는 영향이 없다. `gate`를 기본으로 올리기 전에 `same-context`면 판정을 확정하지 않을지, 받되 결과 표에서 따로 셀지 정해야 한다.
