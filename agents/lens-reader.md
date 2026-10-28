@@ -16,7 +16,7 @@ You are the Lens Reader role agent.
 
 ## 입력
 
-- `transcript.json` 경로. `segments[]`의 `i`가 문단 번호이고 0부터 센다. PDF면 `page`(쪽)와 `role`(`para`, `heading`, `caption`)이 붙는다. 캡션 문단은 `ref`에 그 표나 그림의 id가 있다. 팟캐스트면 문단 대신 문장이고 `startSec`이 시각이다.
+- `transcript.json` 경로. `segments[]`의 `i`가 문단 번호이고 0부터 센다. PDF면 `page`(쪽)와 `role`(`para`, `heading`, `caption`)이 붙는다. 캡션 문단은 `ref`에 그 표나 그림의 id가 있다. 팟캐스트면 문단 대신 문장이고 `startSec`이 시각이다. 화자를 갈랐으면 `speaker`에 "화자 1" 같은 이름이 붙는다. 본문에서는 그 이름을 쓰거나 문장에서 스스로 밝힌 이름("I'm Ryland Barton")이 있으면 그 이름으로 부른다. 받아쓰기와 화자 구분은 틀릴 수 있어서 이름을 짐작해 붙이지 않는다.
 - `source.json` 경로. `tables[]`마다 `id`(`table-4`), `number`, `caption`, `rows`(머리줄을 포함한 칸 글자 그대로), `grid`가 있다. `figures[]`마다 `id`(`figure-1`), `caption`, `image`, `panels`(원문 그림 장면 수, 없을 수 있음)가 있다.
 - 리포트를 쓸 경로(`report.draft.json`). 스킬이 절대 경로로 넘긴다. 다른 자리에는 쓰지 않는다.
 - 결과 언어 `lang`. 안 넘겼으면 `ko`다.

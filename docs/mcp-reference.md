@@ -1303,13 +1303,13 @@ gestalt digest serve <slug> [--port <n>] [--no-browser]   # 127.0.0.1, 기본 78
 gestalt digest export <slug> --md [--report <key>] [--out <path>]
 
 # 읽기 렌즈. 합치기와 렌더, 띄우기는 위 digest 명령을 그대로 쓴다
-gestalt lens ingest <PDF|웹 주소|오디오|피드> [--kind pdf|web|podcast] [--slug <slug>] [--episode <n>] [--whisper-model <name>]
+gestalt lens ingest <PDF|웹 주소|오디오|피드|HTML 파일> [--kind pdf|web|podcast] [--slug <slug>] [--episode <n>] [--whisper-model <name>] [--no-speakers] [--url <원래 주소>]
 gestalt lens panels <slug> <figure-id> <장면 수>   # C 재구성 슬라이더 칸 수 상한
 gestalt lens knowledge <slug> [--source <폴더>]...   # 내 노트에서 연결 후보 찾기
 gestalt lens attach <slug> <카드 파일> [--report <key>]   # 맥락 카드와 연결 카드를 붙이고 다시 검사
 ```
 
-`lens ingest`는 파이썬 패키지(pdfplumber, trafilatura, faster-whisper)를 렌즈 가상환경이나 `GESTALT_LENS_PYTHON`에서 찾는다. 설정은 [configuration.md의 읽기 렌즈](./configuration.md#읽기-렌즈-lens)에 있다. 렌즈 뷰어는 쪽 그림과 크롭을 상대 경로로 읽어서 `file://`로 열어도 원문 창이 동작한다. 팟캐스트 오디오 재생만 `serve`가 필요하다.
+`lens ingest`는 파이썬 패키지(pdfplumber, trafilatura, faster-whisper, sherpa-onnx)를 렌즈 가상환경이나 `GESTALT_LENS_PYTHON`에서 찾는다. 팟캐스트는 받아쓴 문장에 화자("화자 1")를 붙이고 `--no-speakers`면 건너뛴다. `--url`은 Orca 내장 브라우저에서 꺼낸 HTML처럼 로컬 HTML 파일을 받을 때 원래 주소를 적는다. 설정은 [configuration.md의 읽기 렌즈](./configuration.md#읽기-렌즈-lens)에 있다. 렌즈 뷰어는 쪽 그림과 크롭을 상대 경로로 읽어서 `file://`로 열어도 원문 창이 동작한다. 팟캐스트 오디오 재생만 `serve`가 필요하다.
 
 로컬 영상 파일로 만든 요약도 `serve`로 열어야 재생된다. `serve`가 `transcript.json`에 적힌 원본 파일 하나만 `/<slug>/video`로 내주고 Range 요청을 받는다. 팟캐스트는 원래 주소가 피드라서 내려받은 오디오(`meta.media`)를 같은 길로 내준다. 확장자가 영상(mp4, m4v, mov, webm, mkv)이나 오디오(mp3, m4a, aac, wav, ogg, oga, opus, flac)가 아니거나 원본이 없으면 404다.
 

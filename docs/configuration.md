@@ -102,6 +102,7 @@ interface GestaltConfig {
 | `GESTALT_LOG_LEVEL` | `"debug"` \| `"info"` \| `"warn"` \| `"error"` | `"info"` | 로그 출력 레벨 |
 | `GESTALT_CLIENT` | `"claude-code"` \| `"codex"` \| `"both"` \| `"grok"` | `"claude-code"` | 액티브 세션 컨텍스트를 쓰는 호스트. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고 Interview/Spec passthrough를 강제한다. `"both"`는 Claude와 Codex만 쓰며 Grok 경로는 쓰지 않는다 |
 | `GESTALT_NO_UPDATE_CHECK` | `"1"` | — | `"1"` 로 설정하면 버전 업데이트 확인을 건너뜀 |
+| `GESTALT_LENS_MODELS` | string (절대 경로) | — | 팟캐스트 화자 구분 모델(sherpa-onnx) 자리. 없으면 `~/.local/share/gestalt/lens-models`. 모델이 없으면 처음 쓸 때 받는다 |
 | `GESTALT_LENS_PYTHON` | string (절대 경로) | — | 읽기 렌즈 추출(pdfplumber, trafilatura, faster-whisper)에 쓸 파이썬. 없으면 `~/.local/share/gestalt/lens-venv/bin/python`, 그것도 없으면 `python3`. 상대 경로는 거절한다. 동작은 [읽기 렌즈](#읽기-렌즈-lens) |
 
 잘못된 설정값은 경고를 출력하고 기본값으로 fallback한다 (에러를 throw하지 않음).
@@ -207,8 +208,10 @@ interface GestaltConfig {
 ```bash
 python3 -m venv ~/.local/share/gestalt/lens-venv
 ~/.local/share/gestalt/lens-venv/bin/python -m pip install --upgrade pip
-~/.local/share/gestalt/lens-venv/bin/python -m pip install pdfplumber trafilatura faster-whisper
+~/.local/share/gestalt/lens-venv/bin/python -m pip install pdfplumber trafilatura faster-whisper sherpa-onnx
 ```
+
+팟캐스트 화자 구분은 sherpa-onnx가 내준 두 모델(pyannote segmentation 3.0의 ONNX판, wespeaker ResNet34)을 쓴다. Hugging Face 토큰 없이 GitHub 릴리스에서 받고 `gestalt lens ingest`가 처음 쓸 때 `~/.local/share/gestalt/lens-models`에 받아 둔다.
 
 다른 파이썬을 쓰려면 `GESTALT_LENS_PYTHON`에 절대 경로를 준다.
 

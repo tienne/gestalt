@@ -115,6 +115,25 @@ Step 0 종류 판단 → Step 1 ingest → Step 2 리포트 작성 → Step 3 me
 
 주소만으로 애매하면(확장자 없는 PDF 다운로드 주소, 피드인지 글인지 모를 주소) 사용자에게 한 번 묻는다.
 
+### Orca 내장 브라우저에서 보던 페이지
+
+`source`가 비었고 사용자가 "지금 보는 페이지", "이 탭" 같은 말로 부르면 Orca 내장 브라우저의 현재 탭을 연다. `orca` 명령이 없거나 탭이 없으면(`browser_no_tab`) 주소를 묻는다.
+
+```bash
+orca tab current --json
+```
+
+`result.tab.url`을 `<tabUrl>`로 받는다. http(s) 주소가 아니거나 작은따옴표가 들어 있으면 쓰지 않고 주소를 묻는다. PDF 주소(위 판단 1)면 `<tabUrl>`을 그대로 `source`로 Step 1에 넘긴다. 나머지는 탭에 렌더된 HTML을 꺼내 로컬 파일로 넘긴다. 로그인해야 보이는 글도 이 길로는 읽힌다.
+
+```bash
+tmp=$(mktemp -d)
+orca eval --expression 'document.documentElement.outerHTML' --json | jq -r '.result.result' > "$tmp/page.html"
+gestalt lens ingest "$tmp/page.html" --kind web --url '<tabUrl>' --repo-root '<repoRoot>'
+rm -rf "$tmp"
+```
+
+꺼낸 HTML은 `cache/page.html`에 남는다. 로그인한 페이지면 개인 정보가 섞여 있을 수 있으니 보고에 이 파일 자리를 적는다.
+
 ## Step 1 — 수집
 
 ```bash
@@ -127,9 +146,9 @@ gestalt lens ingest '<source>' --repo-root '<repoRoot>' [--kind '<kind>'] [--slu
 | --- | --- | --- |
 | 논문(pdf) | 문단과 쪽. 표 칸 | 쪽 그림. 출처 칩을 누르면 그 쪽으로 가서 문단을 칠한다 |
 | 웹 글(web) | 문단 번호 | 추출한 문단 목록. 출처 칩을 누르면 그 문단으로 스크롤한다 |
-| 팟캐스트(podcast) | 문장과 시각. 화자는 없다 | 오디오 플레이어와 스크립트. 시각을 누르면 그 자리로 옮긴다 |
+| 팟캐스트(podcast) | 문장과 시각, 화자 | 오디오 플레이어와 스크립트. 시각을 누르면 그 자리로 옮긴다 |
 
-팟캐스트는 오디오를 받아 faster-whisper(기본 small 모델)로 받아쓴다. CPU에서는 오디오 길이만큼 걸릴 수 있으니 셸 도구의 백그라운드 실행으로 부르고 끝날 때까지 기다린다. 화자 구분은 하지 않는다. 출력의 `주의:` 줄에 이 사실이 나온다. 오디오 재생은 serve로 열었을 때만 된다.
+팟캐스트는 오디오를 받아 faster-whisper(기본 small 모델)로 받아쓰고 sherpa-onnx로 화자를 가른다. 문장마다 "화자 1", "화자 2"가 붙고 사람 이름은 붙이지 않는다. 화자 구분 모델은 처음 한 번 받는다(약 33MB). CPU에서는 받아쓰기와 화자 구분을 합쳐 오디오 길이보다 오래 걸릴 수 있으니 셸 도구의 백그라운드 실행으로 부르고 끝날 때까지 기다린다. 화자 구분이 실패하면 화자 없이 시각만 출처로 달고 출력의 `주의:` 줄에 이유가 나온다. 사용자가 화자 구분을 원하지 않으면 `--no-speakers`를 붙인다. 오디오 재생은 serve로 열었을 때만 된다.
 
 출력의 slug와 문단 수, 표와 그림 수를 받아 둔다. `저장:` 줄이 `transcript.json`, `원문 구조:` 줄이 `source.json`의 절대 경로다. 각각 `<transcriptPath>`, `<sourcePath>`로 받고 같은 폴더의 `report.draft.json`을 `<reportPath>`로 정한다. `주의:` 줄(칸 경계를 못 믿을 표, 크롭을 못 한 그림)은 Step 6 보고에 옮긴다.
 
