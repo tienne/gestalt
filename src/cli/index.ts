@@ -76,10 +76,19 @@ import {
 } from './commands/pr.js';
 import {
   peerDaemonCommand,
+  peerInitCommand,
+  peerInviteCommand,
+  peerJoinCommand,
+  peerMembersCommand,
+  peerRelayCommand,
+  peerRemoveCommand,
   peerShareCommand,
   peerSharesCommand,
   peerStatusCommand,
   peerUnshareCommand,
+  peerUnwatchCommand,
+  peerWatchCommand,
+  peerWatchesCommand,
 } from './commands/peer.js';
 
 type ParentedCommand = { parent?: { opts(): Record<string, unknown> } | null };
@@ -289,7 +298,7 @@ export function createCli(): Command {
 
   const peer = program
     .command('peer')
-    .description('내 에이전트 세션 대화를 로컬 뷰어로 공유한다')
+    .description('내 에이전트 세션 대화를 팀원에게 링크로 공유한다')
     .option('--json', '에이전트가 파싱할 JSON으로');
 
   const peerOpts = (cmd: ParentedCommand) => parentOpts<{ json?: boolean }>(cmd);
@@ -322,6 +331,61 @@ export function createCli(): Command {
     .command('status')
     .description('데몬 상태')
     .action((o, cmd) => peerStatusCommand({ ...peerOpts(cmd), ...o }));
+
+  peer
+    .command('init')
+    .description('팀을 만들고 첫 관리자가 된다')
+    .option('--name <name>', '팀에서 쓸 내 이름')
+    .option('--relay <url>', '팀 릴레이 주소 (ws://호스트:포트 또는 wss://)')
+    .action((o, cmd) => peerInitCommand({ ...peerOpts(cmd), ...o }));
+
+  peer
+    .command('invite')
+    .description('1회용 초대 코드를 만든다 (관리자만, 24시간 유효)')
+    .option('--name <name>', '초대할 사람 이름')
+    .action((o, cmd) => peerInviteCommand({ ...peerOpts(cmd), ...o }));
+
+  peer
+    .command('join <code>')
+    .description('초대 코드로 팀에 든다. 관리자 데몬이 명단에 서명해야 끝난다')
+    .option('--wait <seconds>', '관리자 서명을 기다릴 시간 (기본 60)')
+    .action((code, o, cmd) => peerJoinCommand({ ...peerOpts(cmd), ...o, code }));
+
+  peer
+    .command('remove <name>')
+    .description('그 사람의 기기를 명단에서 뺀다 (관리자만)')
+    .action((name, o, cmd) => peerRemoveCommand({ ...peerOpts(cmd), ...o, name }));
+
+  peer
+    .command('members')
+    .description('팀 명단')
+    .action((o, cmd) => peerMembersCommand({ ...peerOpts(cmd), ...o }));
+
+  peer
+    .command('watch <link>')
+    .description('팀원의 공유 링크를 로컬 뷰어로 연다')
+    .option('--no-open', '브라우저를 열지 않고 주소만 출력')
+    .action((link, o, cmd) => peerWatchCommand({ ...peerOpts(cmd), ...o, link }));
+
+  peer
+    .command('watches')
+    .description('보고 있는 원격 공유 목록')
+    .action((o, cmd) => peerWatchesCommand({ ...peerOpts(cmd), ...o }));
+
+  peer
+    .command('unwatch <id>')
+    .description('원격 공유 보기를 멈춘다')
+    .action((id, o, cmd) => peerUnwatchCommand({ ...peerOpts(cmd), ...o, id }));
+
+  peer
+    .command('relay')
+    .description('팀 릴레이를 전경에서 띄운다')
+    .option('--team <id>', '팀 id (관리자의 init 출력)')
+    .option('--port <port>', '포트 (기본 8443)')
+    .option('--host <host>', '붙을 주소 (기본 0.0.0.0)')
+    .option('--tls-cert <path>', 'TLS 인증서 PEM')
+    .option('--tls-key <path>', 'TLS 개인키 PEM')
+    .action((o) => peerRelayCommand(o));
 
   const lens = program
     .command('lens')

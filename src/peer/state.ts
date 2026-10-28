@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 import type { ToolsLevel } from './redact.js';
+import type { SignedRoster } from './roster.js';
 
 const require = createRequire(import.meta.url);
 
@@ -45,7 +46,37 @@ export type AuditAction =
   | 'share_close'
   | 'viewer_connect'
   | 'viewer_disconnect'
-  | 'unknown_lines';
+  | 'unknown_lines'
+  | 'team_init'
+  | 'team_join'
+  | 'invite_create'
+  | 'member_join'
+  | 'member_remove'
+  | 'roster_accept'
+  | 'roster_reject'
+  | 'remote_watch'
+  | 'remote_watch_end'
+  | 'watch_open'
+  | 'watch_close';
+
+/** 이 기기가 든 팀. 한 기기는 팀 하나에만 든다 */
+export interface TeamConfig {
+  team: string;
+  relay: string;
+  person: string;
+  /** 명단을 하나도 못 들고 있을 때 믿을 관리자 키. 팀을 만든 기기면 자기 자신이다 */
+  anchor: string;
+}
+
+export interface InviteRow {
+  id: string;
+  secret: string;
+  person: string;
+  createdAt: number;
+  expiresAt: number;
+  usedAt: number | null;
+  usedBy: string | null;
+}
 
 export interface AuditRow {
   at: number;
@@ -55,9 +86,12 @@ export interface AuditRow {
 }
 
 /**
- * 공유 목록과 감사 로그. 대화 내용은 한 글자도 여기 안 들어온다 — 줄 수나 버전 같은
- * 숫자와 이름만 남긴다. 공유 토큰도 저장하지 않는다. 데몬이 다시 뜨면 이전 공유는
- * 종료된 걸로 치고 새로 연다.
+ * 공유 목록, 팀 설정과 명단, 초대, 감사 로그. 대화 내용은 한 글자도 여기 안 들어온다 —
+ * 줄 수나 버전 같은 숫자와 이름만 남긴다. 공유 토큰과 공유 키도 저장하지 않는다. 데몬이
+ * 다시 뜨면 이전 공유는 종료된 걸로 치고 새로 연다.
+ *
+ * 초대 비밀은 저장한다. 관리자 데몬이 나중에 온 join 요청의 증명을 맞춰 봐야 해서다.
+ * 파일은 0600이고 쓰고 나면 used_at이 찬다.
  */
 export class PeerState {
   private db: SqliteDatabase;
@@ -81,6 +115,19 @@ export class PeerState {
         expires_at INTEGER NOT NULL,
         closed_at INTEGER,
         close_reason TEXT
+      );
+      CREATE TABLE IF NOT EXISTS kv (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS invites (
+        id TEXT PRIMARY KEY,
+        secret TEXT NOT NULL,
+        person TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        used_at INTEGER,
+        used_by TEXT
       );
       CREATE TABLE IF NOT EXISTS audit (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,6 +168,76 @@ export class PeerState {
   getShare(id: string): ShareRow | undefined {
     const r = this.db.prepare(`SELECT * FROM shares WHERE id = ?`).get(id) as RawShare | undefined;
     return r ? toShare(r) : undefined;
+  }
+
+  getTeam(): TeamConfig | null {
+    return this.getJson<TeamConfig>('team');
+  }
+
+  setTeam(team: TeamConfig): void {
+    this.setJson('team', team);
+  }
+
+  /** 받은 명단 중 가장 새것. 받을지는 부르는 쪽이 checkRosterUpdate로 정한 뒤다 */
+  getRoster(): SignedRoster | null {
+    return this.getJson<SignedRoster>('roster');
+  }
+
+  setRoster(roster: SignedRoster): void {
+    this.setJson('roster', roster);
+  }
+
+  insertInvite(row: Omit<InviteRow, 'usedAt' | 'usedBy'>): void {
+    this.db
+      .prepare(
+        `INSERT INTO invites (id, secret, person, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(row.id, row.secret, row.person, row.createdAt, row.expiresAt);
+  }
+
+  getInvite(id: string): InviteRow | undefined {
+    const r = this.db.prepare(`SELECT * FROM invites WHERE id = ?`).get(id) as
+      | {
+          id: string;
+          secret: string;
+          person: string;
+          created_at: number;
+          expires_at: number;
+          used_at: number | null;
+          used_by: string | null;
+        }
+      | undefined;
+    if (!r) return undefined;
+    return {
+      id: r.id,
+      secret: r.secret,
+      person: r.person,
+      createdAt: r.created_at,
+      expiresAt: r.expires_at,
+      usedAt: r.used_at,
+      usedBy: r.used_by,
+    };
+  }
+
+  useInvite(id: string, machineKey: string, at = Date.now()): void {
+    this.db
+      .prepare(`UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL`)
+      .run(at, machineKey, id);
+  }
+
+  private getJson<T>(key: string): T | null {
+    const r = this.db.prepare(`SELECT value FROM kv WHERE key = ?`).get(key) as
+      | { value: string }
+      | undefined;
+    return r ? (JSON.parse(r.value) as T) : null;
+  }
+
+  private setJson(key: string, value: unknown): void {
+    this.db
+      .prepare(
+        `INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(key, JSON.stringify(value));
   }
 
   audit(action: AuditAction, shareId: string | null, detail?: string, at = Date.now()): void {

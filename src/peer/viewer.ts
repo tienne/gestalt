@@ -1,12 +1,12 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import type { ShareFrame, ShareStream } from './share.js';
+import type { ShareFeed, ShareFrame } from './feed.js';
 import { renderViewerHtml } from './viewer-html.js';
 import { errMessage } from './errors.js';
 
 export interface ViewerShare {
-  stream: ShareStream;
+  stream: ShareFeed;
   token: string;
 }
 
@@ -164,7 +164,7 @@ export class ViewerServer {
     res.end(renderViewerHtml(nonce, MAX_VIEWERS_PER_SHARE));
   }
 
-  private stream(req: IncomingMessage, res: ServerResponse, stream: ShareStream): void {
+  private stream(req: IncomingMessage, res: ServerResponse, stream: ShareFeed): void {
     const lastId = Number.parseInt(String(req.headers['last-event-id'] ?? '0'), 10);
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
