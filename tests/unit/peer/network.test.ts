@@ -79,9 +79,12 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
   let relayUrl: string;
   /** 릴레이를 지난 프레임 전부 */
   const tap: string[] = [];
+  /** 릴레이로 들어온 프레임만 */
+  const tapIn: string[] = [];
 
   beforeEach(async () => {
     tap.length = 0;
+    tapIn.length = 0;
     owner = await startNode();
     watcher = await startNode();
     const team = (await owner.status()).machineKey;
@@ -91,7 +94,10 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       host: '127.0.0.1',
       port: 0,
       rosterFile: join(relayDir, 'roster.json'),
-      onFrame: (_dir, text) => tap.push(text),
+      onFrame: (dir, text) => {
+        tap.push(text);
+        if (dir === 'in') tapIn.push(text);
+      },
     });
     const port = await relay.start();
     relayUrl = `ws://127.0.0.1:${port}`;
@@ -270,6 +276,62 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
     expect(after.auditLog().length).toBe(auditBefore);
     after.close();
     await t.close();
+  });
+
+  it('빼낸 기기가 쓰던 join 요청을 다시 보내도 명단에 다시 안 오른다', async () => {
+    const join = tapIn
+      .map((t) => JSON.parse(t) as Record<string, unknown>)
+      .find((f) => f.t === 'join')!;
+    expect(join).toBeDefined();
+    await owner.call({ op: 'remove', person: 'alice' });
+    await until(() => relay.epoch === 3);
+
+    const key = loadMachineKey(machineKeyPath(watcher.root));
+    const team = (await owner.status()).machineKey;
+    const t = new RelayTransport({ url: relayUrl, team, key, mode: 'join', reconnect: false });
+    await t.connect(null);
+    t.sendJoin(String(join.to), Buffer.from(String(join.data), 'base64url'));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(relay.epoch).toBe(3);
+    const members = await owner.call<MemberInfo[]>({ op: 'members' });
+    expect(members.map((m) => m.person)).toEqual(['tienne']);
+    await t.close();
+  });
+
+  it('릴레이가 옛 watch 요청을 다시 보내도 주인 데몬은 구독을 새로 안 연다', async () => {
+    const { info } = await openShare();
+    const before = tapIn.length;
+    await watcher.call<WatchResult>({ op: 'watch', link: info.link! }, 15_000);
+    const bKey = (await watcher.status()).machineKey;
+    const ownerKey = (await owner.status()).machineKey;
+    // watch를 친 뒤 보는 쪽이 처음 보낸 send가 watch 요청이다
+    const watchSend = tapIn
+      .slice(before)
+      .map((t) => JSON.parse(t) as Record<string, unknown>)
+      .find((f) => f.t === 'send' && f.to === ownerKey)!;
+    expect(watchSend).toBeDefined();
+    // 같은 키로 붙으면 데몬과 접속을 뺏고 뺏기므로 보는 쪽 데몬을 멈추고 그 키로 다시 보낸다
+    await watcher.daemon.stop();
+    const key = loadMachineKey(machineKeyPath(watcher.root));
+    expect(key.id).toBe(bKey);
+    const state = new PeerState(watcher.dbPath);
+    const roster = state.getRoster()!;
+    state.close();
+    const t = new RelayTransport({
+      url: relayUrl,
+      team: roster.roster.team,
+      key,
+      reconnect: false,
+    });
+    await t.connect(roster);
+    t.post(String(watchSend.to), Buffer.from(String(watchSend.data), 'base64url'));
+    await new Promise((r) => setTimeout(r, 300));
+    await t.close();
+
+    const ownerState = new PeerState(owner.dbPath);
+    const watches = ownerState.auditLog(info.id).filter((r) => r.action === 'remote_watch');
+    ownerState.close();
+    expect(watches).toHaveLength(1);
   });
 
   it('링크의 공유 키가 틀리면 주인 데몬이 거절한다', async () => {

@@ -88,7 +88,12 @@ async function clearStaleLock(path: string, sock: string): Promise<void> {
   const [pidLine, atLine] = text.split('\n');
   const pid = Number(pidLine);
   const at = Number(atLine);
-  if (Number.isSafeInteger(pid) && pid > 0 && processAlive(pid)) {
+  const validPid = pidLine !== '' && Number.isSafeInteger(pid) && pid > 0;
+  // 다른 데몬이 막 만들고 pid를 아직 안 적은 파일일 수 있다. 오래된 것만 남은 것으로 친다
+  if (!validPid && Date.now() - st.mtimeMs < LOCK_GRACE_MS) {
+    throw new Error(`다른 데몬이 같이 뜨는 중이에요: ${sock}`);
+  }
+  if (validPid && processAlive(pid)) {
     const young = Number.isFinite(at) && Date.now() - at < LOCK_GRACE_MS;
     if (young || (await socketAnswers(sock))) {
       throw new Error(`데몬이 이미 떠 있어요 (pid ${pid}): ${sock}`);

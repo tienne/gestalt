@@ -85,6 +85,8 @@ export const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
 /** 원격 구독 하나가 릴레이 소켓에 밀어 둘 수 있는 양 */
 export const MAX_REMOTE_BUFFERED_BYTES = 8 * 1024 * 1024;
 const WATCH_TIMEOUT_MS = 10_000;
+const WATCH_NONCE_TTL_MS = 10 * 60 * 1000;
+const MAX_SEEN_WATCH = 4096;
 
 /** 데몬끼리 봉인해 주고받는 것. box 안에 든다 */
 type BoxMessage =
@@ -153,6 +155,8 @@ export class PeerNetwork {
   private watches = new Map<string, Watch>();
   private online = new Set<string>();
   private announced: string[] = [];
+  /** 최근 받은 watch 요청의 `기기|nonce`와 받은 시각. 릴레이가 옛 요청을 다시 보내면 거절한다 */
+  private seenWatch = new Map<string, number>();
   private readonly maxBuffered: number;
 
   constructor(private readonly options: PeerNetworkOptions) {
@@ -344,6 +348,10 @@ export class PeerNetwork {
     } finally {
       await t.close();
     }
+    // 명단에서 빠져 removed로 굳은 통로나 옛 팀 통로는 다시 안 쓴다
+    const old = this.transport;
+    this.transport = null;
+    await old?.close();
     this.connect();
     return this.status()!;
   }
@@ -478,8 +486,8 @@ export class PeerNetwork {
     });
   }
 
-  private onWelcome(roster: SignedRoster, online: string[]): void {
-    this.online = new Set(online.filter(isRawKey));
+  private onWelcome(roster: SignedRoster, online: unknown): void {
+    this.online = new Set(Array.isArray(online) ? online.filter(isRawKey) : []);
     this.onRemoteRoster(roster);
     // 다시 붙었으면 끊긴 동안 멈춘 구독을 다시 청한다
     for (const w of [...this.watches.values()]) {
@@ -631,7 +639,6 @@ export class PeerNetwork {
     if (msg.t !== 'join' || typeof msg.invite !== 'string' || !isRawKey(msg.box)) return;
     const invite = this.options.state.getInvite(msg.invite);
     if (!invite || Date.now() >= invite.expiresAt) return;
-    if (invite.usedBy !== null && invite.usedBy !== from) return;
     const expected = hmac(
       Buffer.from(invite.secret, 'base64url'),
       joinProofText(invite.id, from, msg.box),
@@ -644,6 +651,9 @@ export class PeerNetwork {
       this.transport?.publishRoster(this.roster);
       return;
     }
+    // 이미 쓴 초대다. 명단에 없으면 그사이 뺀 기기라 다시 넣지 않는다. 봉인에 시각이 없어서
+    // 옛 join 요청을 그대로 다시 보내도 증명은 맞는다
+    if (invite.usedBy !== null) return;
     const member: RosterMember = {
       person: invite.person,
       machineKey: from,
@@ -683,9 +693,10 @@ export class PeerNetwork {
     if (!safeEqual(msg.proof, hmac(shareKey, watchProofText(msg.share, from, msg.nonce)))) {
       return reply('bad_proof');
     }
-    // 같은 사람이 다시 청하면 앞의 구독을 바꾼다
+    if (!this.rememberWatchNonce(from, msg.nonce)) return reply('replay');
+    // 같은 사람이 다시 청하면 앞의 구독을 바꾼다. 보는 쪽이 모르는 교체일 수 있어서 알린다
     for (const s of [...this.subs.values()]) {
-      if (s.watcher === from && s.share === msg.share) this.endSub(s, 'replaced', false);
+      if (s.watcher === from && s.share === msg.share) this.endSub(s, 'replaced', true);
     }
     if (owned.stream.viewerCount >= MAX_VIEWERS_PER_SHARE) return reply('too_many');
 
@@ -715,6 +726,21 @@ export class PeerNetwork {
       JSON.stringify({ person: person ?? null, sub }),
     );
     this.pump(remote, Number.isSafeInteger(msg.after) && msg.after > 0 ? msg.after : 0);
+  }
+
+  /**
+   * 처음 보는 nonce면 기억하고 true. 공유는 데몬이 다시 뜨면 닫히므로 메모리에만 둔다.
+   * 10분 지난 것과 상한을 넘는 오래된 것부터 잊는다.
+   */
+  private rememberWatchNonce(from: string, nonce: string, now = Date.now()): boolean {
+    const key = `${from}|${nonce}`;
+    if (this.seenWatch.has(key)) return false;
+    for (const [k, at] of this.seenWatch) {
+      if (now - at < WATCH_NONCE_TTL_MS && this.seenWatch.size < MAX_SEEN_WATCH) break;
+      this.seenWatch.delete(k);
+    }
+    this.seenWatch.set(key, now);
+    return true;
   }
 
   /** 뷰어 서버의 pump와 같다. 릴레이 소켓이 비는 만큼씩 앞부분을 보내고 다 따라잡으면 바로 붙는다 */

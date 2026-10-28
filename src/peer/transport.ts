@@ -246,6 +246,10 @@ export class RelayTransport extends EventEmitter implements PeerTransport {
     this.retry.unref();
   }
 
+  /**
+   * 릴레이가 보낸 프레임. 릴레이도 믿지 않는 쪽이라 꼴이 틀린 프레임은 버린다. 여기서
+   * 던지면 소켓 data 핸들러 밖으로 나가 데몬이 죽는다.
+   */
   private onMessage(ws: WsConnection, text: string, settle: (err?: Error) => void): void {
     let frame: ServerFrame;
     try {
@@ -253,6 +257,15 @@ export class RelayTransport extends EventEmitter implements PeerTransport {
     } catch {
       return;
     }
+    if (typeof frame !== 'object' || frame === null || !wellFormed(frame)) return;
+    try {
+      this.dispatch(ws, frame, settle);
+    } catch (err) {
+      process.stderr.write(`[peer] relay frame failed: ${errMessage(err)}\n`);
+    }
+  }
+
+  private dispatch(ws: WsConnection, frame: ServerFrame, settle: (err?: Error) => void): void {
     switch (frame.t) {
       case 'challenge': {
         const mode = this.options.mode ?? 'member';
@@ -338,5 +351,34 @@ export class RelayTransport extends EventEmitter implements PeerTransport {
     if ((this.status === 'closed' || this.status === 'removed') && next !== 'closed') return;
     this.status = next;
     this.emit('state', next);
+  }
+}
+
+/** 프레임 종류마다 쓰는 칸의 타입만 본다. 내용 검사는 받는 쪽이 한다 */
+function wellFormed(frame: ServerFrame): boolean {
+  const f = frame as Record<string, unknown>;
+  const str = (k: string): boolean => typeof f[k] === 'string';
+  switch (f.t) {
+    case 'challenge':
+      return str('nonce');
+    case 'welcome':
+      return typeof f.roster === 'object' && f.roster !== null && Array.isArray(f.online);
+    case 'pending':
+      return true;
+    case 'error':
+      return str('code') && str('message');
+    case 'recv':
+    case 'join':
+      return str('from') && str('data');
+    case 'ack':
+      return Number.isSafeInteger(f.id) && typeof f.ok === 'boolean';
+    case 'resolved':
+      return Number.isSafeInteger(f.id);
+    case 'roster':
+      return typeof f.roster === 'object' && f.roster !== null;
+    case 'presence':
+      return str('key') && typeof f.online === 'boolean';
+    default:
+      return false;
   }
 }

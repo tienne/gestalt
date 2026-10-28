@@ -227,7 +227,12 @@ export class WsConnection extends EventEmitter {
         const text = Buffer.concat(this.fragments).toString('utf8');
         this.fragments = [];
         this.fragmentBytes = 0;
-        this.emit('message', text);
+        try {
+          this.emit('message', text);
+        } catch (err) {
+          // 리스너가 던지면 소켓 data 핸들러 밖으로 나가 프로세스가 죽는다
+          process.stderr.write(`[peer] ws message handler failed: ${String(err)}\n`);
+        }
         return;
       }
       default:

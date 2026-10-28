@@ -177,3 +177,58 @@ describe('데몬 잠금', () => {
     expect(readFileSync(lockPath(root), 'utf8')).toBe('other\n');
   });
 });
+
+describe('릴레이가 보낸 꼴이 틀린 프레임', () => {
+  it('받아도 던지지 않고 버린다', async () => {
+    const key = loadOrCreateMachineKey(tmp());
+    const server = createServer();
+    server.on('upgrade', (req, socket, head) => {
+      const ws = acceptUpgrade(req, socket, head)!;
+      ws.send(JSON.stringify({ t: 'challenge', nonce: 'n' }));
+      ws.on('message', () => {
+        for (const bad of [
+          'null',
+          '{"t":"recv","from":"x"}',
+          '{"t":"join"}',
+          '{"t":"ack","id":1}',
+          '[]',
+          '"x"',
+        ]) {
+          ws.send(bad);
+        }
+        ws.send(JSON.stringify({ t: 'welcome', roster: {}, online: null }));
+        ws.send(JSON.stringify({ t: 'pending' }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const addr = server.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    const { RelayTransport } = await import('../../../src/peer/transport.js');
+    const t = new RelayTransport({
+      url: `ws://127.0.0.1:${port}`,
+      team: key.id,
+      key,
+      mode: 'join',
+      reconnect: false,
+    });
+    const welcomes: unknown[] = [];
+    t.on('welcome', (r: unknown) => welcomes.push(r));
+    await t.connect(null);
+    expect(welcomes).toEqual([]);
+    await t.close();
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+});
+
+describe('잠금 파일이 막 생겨 pid가 아직 없을 때', () => {
+  it('젊은 빈 잠금은 살아 있는 것으로 보고 오래된 빈 잠금은 치운다', async () => {
+    const root = tmp();
+    writeFileSync(lockPath(root), '', { mode: 0o600 });
+    await expect(acquireDaemonLock(root, join(root, 'peer.sock'))).rejects.toThrow('같이 뜨는 중');
+    const old = new Date(Date.now() - 60_000);
+    const { utimesSync } = await import('node:fs');
+    utimesSync(lockPath(root), old, old);
+    releaseDaemonLock(await acquireDaemonLock(root, join(root, 'peer.sock')));
+  });
+});
