@@ -621,7 +621,7 @@ const DIARIZE_THRESHOLD = 0.5;
 export const DEFAULT_PODCAST_MODEL = 'small';
 
 /**
- * 팟캐스트는 오디오를 받아 faster-whisper로 받아쓴다. 화자 구분은 하지 않는다.
+ * 팟캐스트는 오디오를 받아 faster-whisper로 받아쓰고 sherpa-onnx로 화자를 가른다. 화자 구분이 실패하면 시각만 출처로 쓴다.
  * pyannote가 필요한데 Hugging Face 토큰과 torch를 따로 깔아야 해서 출처는 시각으로만 단다
  */
 async function ingestPodcast(

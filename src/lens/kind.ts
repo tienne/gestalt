@@ -7,9 +7,11 @@ export const AUDIO_EXTS = ['.mp3', '.m4a', '.wav', '.ogg', '.oga', '.opus', '.aa
 const WEB_EXTS = ['.html', '.htm'];
 
 const YOUTUBE = /^https?:\/\/(?:www\.|m\.)?(?:youtube\.com|youtu\.be)\//i;
-// 주소만으로 피드로 보는 꼴. 애매하면 web으로 두고 스킬이 사용자에게 묻는다
+// 주소만으로 피드로 보는 꼴. 경로 끝의 /feed와 /rss, 워드프레스 피드 꼴(/feed/podcast, /feed/rss2 같은),
+// .rss와 .xml을 잡고 뒤에 쿼리나 #가 붙어도 잡는다. 경로 중간의 /feed/는 글 주소(/feed/update/...)에도 있어서 안 잡는다.
+// 애매하면 web으로 두고 스킬이 사용자에게 묻는다
 const FEED =
-  /(?:\/feed\/?$|\/rss\/?$|\.rss$|\.xml$|[?&]format=rss|feeds\.|anchor\.fm\/s\/[^/]+\/podcast\/rss)/i;
+  /(?:\/feed(?:\/(?:rss2?|atom|podcast))?\/?(?:[?#]|$)|\/rss\/?(?:[?#]|$)|\.(?:rss|xml)(?:[?#]|$)|[?&]format=rss|feeds\.|anchor\.fm\/s\/[^/]+\/podcast\/rss)/i;
 
 function urlPath(input: string): string {
   try {
