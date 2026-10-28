@@ -390,7 +390,10 @@ export function createCli(): Command {
     .command('render <slug>')
     .description('digest.json으로 뷰어 HTML과 마크다운을 만든다')
     .option('--inline-frames', '프레임을 HTML 안에 넣는다 (파일 하나로 들고 다닐 때)')
-    .option('--no-crops', '읽기 렌즈 원문 쪽 그림과 표, 그림 크롭을 빼고 그린다 (공유할 때)')
+    .option(
+      '--no-crops',
+      '읽기 렌즈 원문 쪽 그림과 원문에서 잘라낸 표와 그림을 빼고 그린다. 노트 연결 카드도 빠진다 (공유할 때)',
+    )
     .action((slug, o, cmd) => digestRenderCommand(slug, { ...digestInherited(cmd), ...o }));
 
   digest

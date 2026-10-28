@@ -27,12 +27,13 @@ export interface LensHtmlContext {
   transcript: Transcript;
   /** 리포트가 여럿일 때 카드 id가 겹치지 않게 붙이는 접두 */
   pfx?: string;
-  /** 공유용. 원문 쪽 그림과 표, 그림 크롭을 싣지 않는다 */
+  /** 공유용. 원문 쪽 그림과 표, 그림 크롭을 싣지 않는다. 노트 경로와 인용이 남에게 가지 않게 노트 연결 카드도 뺀다 */
   omitCrops?: boolean;
 }
 
 /** 크롭을 뺐을 때 그 자리에 두는 한 줄 */
-export const CROP_OMITTED = '공유용으로 원문 크롭을 뺐어요. 쪽 번호를 누르거나 원문에서 보세요.';
+export const CROP_OMITTED =
+  '공유용으로 원문에서 잘라낸 그림을 뺐어요. 쪽 번호를 누르거나 원문에서 보세요.';
 
 export const GLANCE_LABEL: Record<Glance['kind'], string> = {
   problem: '문제',
@@ -186,7 +187,7 @@ export function sourceFigureHtml(
     ? `<p class="src-note">${CROP_OMITTED}</p>`
     : fig.image
       ? `<img class="src-crop" src="${ctx.escape(fig.image)}" alt="그림 ${ctx.escape(fig.number)} 원문" loading="lazy">`
-      : '<p class="src-note">그림 자리를 못 찾아 크롭이 없어요. 쪽 번호를 눌러 원문에서 보세요.</p>';
+      : '<p class="src-note">그림 자리를 못 찾아 원문에서 잘라낸 그림이 없어요. 쪽 번호를 눌러 원문에서 보세요.</p>';
   const noteHtml = note ? `<p class="src-note">${ctx.inline(note)}</p>` : '';
   return `<figure class="src-figure" id="src-${ctx.escape(fig.id)}"><div class="fig-pair">${crop}${thumb}</div><figcaption><b>그림 ${ctx.escape(fig.number)}</b> ${ctx.escape(fig.caption.replace(/^(Figure|Fig\.)\s*\d+\s*[:.]\s*/i, ''))} ${ctx.loc(fig.unit)}</figcaption>${noteHtml}</figure>`;
 }
@@ -284,7 +285,7 @@ export function knowledgeLinkHtml(link: KnowledgeLink, ctx: LensHtmlContext): st
   return `<div class="kn-card" id="${ctx.pfx ?? ''}link-${ctx.escape(link.id)}"><p class="kn-head"><span class="ctx-kind">내 지식과 잇기</span> <b>${ctx.escape(link.title)}</b> ${ctx.loc(link.anchor.key)}${ctx.cite(link.anchor)}</p><p>${ctx.inline(link.note)}</p><blockquote>${ctx.escape(link.quote)}</blockquote><p class="kn-path">${link.url ? `<a href="${ctx.escape(link.url)}" target="_blank" rel="noopener noreferrer">원래 노트 열기</a> ` : ''}<code>${ctx.escape(shortPath(link.path))}${link.line ? `:${link.line}` : ''}</code></p></div>`;
 }
 
-/** 대섹션 끝에 붙는 카드 묶음. 카드가 없으면 빈 문자열이다 */
+/** 대섹션 끝에 붙는 카드 묶음. 카드가 없으면 빈 문자열이다. 공유용(omitCrops)이면 노트 연결 카드는 싣지 않는다 */
 export function sectionContextHtml(
   sectionId: string,
   cards: ContextCard[] = [],
@@ -292,7 +293,7 @@ export function sectionContextHtml(
   ctx: LensHtmlContext,
 ): string {
   const mine = cards.filter((c) => c.section === sectionId);
-  const linked = links.filter((l) => l.section === sectionId);
+  const linked = ctx.omitCrops ? [] : links.filter((l) => l.section === sectionId);
   if (mine.length === 0 && linked.length === 0) return '';
   return `<aside class="ctx" aria-label="바깥 맥락과 내 지식">${mine.map((c) => contextCardHtml(c, ctx)).join('')}${linked.map((l) => knowledgeLinkHtml(l, ctx)).join('')}</aside>`;
 }

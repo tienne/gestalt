@@ -101,7 +101,7 @@ describe('공유용 렌더(크롭 빼기)', () => {
     expect(out).not.toMatch(/src="(pages|tables|figures)\//);
     expect(out).not.toContain('id="doc-pages"');
     expect(out).toContain('id="script-list"');
-    expect(out).toContain('공유용으로 원문 크롭을 뺐어요');
+    expect(out).toContain('공유용으로 원문에서 잘라낸 그림을 뺐어요');
     // 칸 글자는 원문 크롭이 아니라 옮긴 표라 그대로 남는다
     expect(out).toContain('<td data-cell="table-4:2:1">0.2862</td>');
     const md = renderDigestMarkdown(lensDigest(r), lensTranscript(), {
@@ -109,5 +109,39 @@ describe('공유용 렌더(크롭 빼기)', () => {
       omitCrops: true,
     });
     expect(md).not.toContain('figures/figure-1.png');
+  });
+
+  it('노트 연결 카드는 경로와 인용째 싣지 않는다', () => {
+    const r = lensReport();
+    r.links = [
+      {
+        id: 'kb-1',
+        section: 's1',
+        anchor: { key: 1, from: 1, to: 1 },
+        title: '향미 노트의 FlavorGraph 항목',
+        note: '노트에 적어 둔 그래프가 이 논문의 바탕이다.',
+        path: '/Volumes/private/notes/flavor.md',
+        line: 12,
+        quote: '개인 메모에만 있는 인용 문장',
+      },
+    ];
+    const opts = { source: lensSource() };
+    // 공유용이 아니면 카드가 실린다
+    const full = renderDigestHtml(lensDigest(r), lensTranscript(), opts).html;
+    expect(full).toContain('개인 메모에만 있는 인용 문장');
+    expect(full).toContain('/Volumes/private/notes/flavor.md');
+
+    const out = renderDigestHtml(lensDigest(r), lensTranscript(), {
+      ...opts,
+      omitCrops: true,
+    }).html;
+    expect(out).not.toContain('개인 메모에만 있는 인용 문장');
+    expect(out).not.toContain('/Volumes/private/notes');
+    expect(out).not.toContain('내 지식과 잇기');
+
+    const md = renderDigestMarkdown(lensDigest(r), lensTranscript(), { ...opts, omitCrops: true });
+    expect(md).not.toContain('## 내 지식과 잇기');
+    expect(md).not.toContain('개인 메모에만 있는 인용 문장');
+    expect(md).not.toContain('/Volumes/private/notes');
   });
 });

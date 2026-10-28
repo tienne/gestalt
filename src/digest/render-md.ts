@@ -26,7 +26,7 @@ export interface RenderMdOptions {
   report?: Report;
   /** 읽기 렌즈의 source.json. 원문 표를 마크다운 표로 옮긴다 */
   source?: LensSource | null;
-  /** 공유용. 원문 그림 크롭 링크를 싣지 않는다 */
+  /** 공유용. 원문 그림 크롭 링크와 노트 연결 카드(노트 경로와 인용)를 싣지 않는다 */
   omitCrops?: boolean;
 }
 
@@ -164,7 +164,7 @@ export function renderDigestMarkdown(
       out.push('');
     }
   }
-  if (report.links?.length) {
+  if (report.links?.length && !opts.omitCrops) {
     out.push('## 내 지식과 잇기', '');
     for (const link of report.links) {
       out.push(
