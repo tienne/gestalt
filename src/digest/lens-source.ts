@@ -65,12 +65,40 @@ export function lensSourcePath(store: DigestStore, slug: string): string {
   return join(store.dir(slug), LENS_SOURCE_FILE);
 }
 
+export type LensSourceRead =
+  | { kind: 'missing' }
+  | { kind: 'invalid'; message: string }
+  | { kind: 'ok'; source: LensSource };
+
+/** 없음과 형식 오류를 가른다. 손상된 파일에 ingest를 다시 돌리라고 안내하면 원인을 잘못 가리킨다 */
+export function readLensSourceResult(store: DigestStore, slug: string): LensSourceRead {
+  const raw = readRaw(lensSourcePath(store, slug));
+  if (raw.kind === 'missing') return { kind: 'missing' };
+  if (raw.kind === 'invalid-json') return { kind: 'invalid', message: raw.message };
+  const parsed = lensSourceSchema.safeParse(raw.value);
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    return {
+      kind: 'invalid',
+      message: first ? `${first.path.join('.') || '(root)'}: ${first.message}` : 'schema',
+    };
+  }
+  return { kind: 'ok', source: parsed.data };
+}
+
+/** lint 옵션에 그대로 펼쳐 넣는 꼴. source가 null일 때 lint가 없음과 형식 오류를 갈라 안내한다 */
+export function lensSourceForLint(
+  store: DigestStore,
+  slug: string,
+): { source: LensSource | null; sourceProblem?: 'missing' | 'invalid' } {
+  const read = readLensSourceResult(store, slug);
+  return read.kind === 'ok' ? { source: read.source } : { source: null, sourceProblem: read.kind };
+}
+
 /** 없거나 형식이 틀리면 null. lint는 null이면 표와 그림 출처를 하나도 받지 않는다 */
 export function readLensSource(store: DigestStore, slug: string): LensSource | null {
-  const raw = readRaw(lensSourcePath(store, slug));
-  if (raw.kind !== 'ok') return null;
-  const parsed = lensSourceSchema.safeParse(raw.value);
-  return parsed.success ? parsed.data : null;
+  const read = readLensSourceResult(store, slug);
+  return read.kind === 'ok' ? read.source : null;
 }
 
 /** 칸 글자에서 숫자 하나를 읽는다. 천 단위 쉼표는 지운다. 숫자가 아니거나 둘 이상이면 null */

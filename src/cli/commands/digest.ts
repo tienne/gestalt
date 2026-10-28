@@ -4,6 +4,8 @@ import { loadConfig } from '../../core/config.js';
 import { COMMENTS_DEFAULT_MAX, commentsMap, fetchComments } from '../../digest/comments.js';
 import { extractFrames } from '../../digest/frames.js';
 import { ingest } from '../../digest/ingest.js';
+import { lensSourceForLint } from '../../digest/lens-source.js';
+import { knowledgeContext } from '../../digest/lint-lens-context.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
 import { pickScenes, sceneSecs } from '../../digest/scenes.js';
 import { mergeExtension, mergeReport } from '../../digest/merge.js';
@@ -220,6 +222,8 @@ export function digestValidateCommand(slug: string, opts: DigestCommonOptions): 
       templates: templateMap(templates),
       comments: commentsMap(store, slug) ?? undefined,
       scenes: sceneSecs(store, slug),
+      ...lensSourceForLint(store, slug),
+      knowledge: knowledgeContext(store, slug),
     });
     const errors = lintErrors(issues);
     emit({ slug, ok: errors.length === 0, issues }, opts.json, () => {

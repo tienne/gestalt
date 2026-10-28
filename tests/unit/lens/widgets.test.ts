@@ -5,7 +5,9 @@ import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { extractProse } from '../../../src/digest/prose.js';
 import { parseDigest } from '../../../src/digest/schema.js';
+import type { LensSource } from '../../../src/digest/lens-source.js';
 import { lensDigest, lensReport, lensSource, lensTranscript } from './fixture.js';
+import { sampleDigest, sampleTranscript } from '../digest/fixture.js';
 
 const toggle = (): Widget => ({
   id: 'nmi-csp',
@@ -65,6 +67,77 @@ const recon = (steps = 3, differences = ['노드를 다섯 개로 줄였다.']):
     ],
     edges: k === 0 ? [{ from: 'a', to: 'b', strength: 'weak' as const }] : [],
   })),
+});
+
+const heat = (): Widget => ({
+  id: 'nmi-heat',
+  class: 'A',
+  kind: 'heatmap',
+  title: '표 4 NMI',
+  cite: { key: 3, from: 3, to: 3 },
+  x: { labels: ['NMI Mean', 'NMI Std'] },
+  y: { labels: ['CSP 노드 50개'] },
+  cells: [
+    [
+      { value: 0.2862, src: { table: 'table-4', row: 2, col: 1 } },
+      { value: 0.0152, src: { table: 'table-4', row: 2, col: 2 } },
+    ],
+  ],
+});
+
+const pair = (cls: Widget['class'], value?: number): Widget => ({
+  id: 'pair',
+  class: cls,
+  kind: 'beforeAfter',
+  title: 'CSP 전과 후',
+  cite: { key: 3, from: 3, to: 3 },
+  before: {
+    title: 'CSP 끔',
+    items: [
+      {
+        label: '노드 50개',
+        ...(value === undefined
+          ? {}
+          : { value: { value, src: { table: 'table-4', row: 1, col: 1 } } }),
+      },
+    ],
+  },
+  after: { title: 'CSP 켬', items: [{ label: '노드 50개' }] },
+});
+
+/** 음수 칸이 든 표를 더한 원문. 부호 있는 값을 그리는지 본다 */
+function signedSource(): LensSource {
+  const source = lensSource();
+  source.tables.push({
+    id: 'table-5',
+    number: '5',
+    caption: 'Table 5: CSP gain.',
+    rows: [
+      ['Setting', 'Gain'],
+      ['50 nodes', '-0.0374'],
+      ['200 nodes', '0.0174'],
+    ],
+    grid: 'ok',
+    unit: 4,
+  });
+  return source;
+}
+
+const gain = (cls: 'A' | 'C'): Widget => ({
+  id: `gain-${cls.toLowerCase()}`,
+  class: cls,
+  kind: 'toggleBars',
+  title: '표 5 CSP 이득',
+  cite: { key: 3, from: 3, to: 3 },
+  ...(cls === 'C' ? { figure: 'figure-1', differences: ['두 줄만 남겼다.'] } : {}),
+  toggle: { off: '노드 50개', on: '노드 200개' },
+  items: [
+    {
+      label: 'CSP 이득',
+      off: { value: -0.0374, src: { table: 'table-5', row: 1, col: 1 } },
+      on: { value: 0.0174, src: { table: 'table-5', row: 2, col: 1 } },
+    },
+  ],
 });
 
 function withWidgets(...widgets: Widget[]) {
@@ -151,6 +224,116 @@ describe('인터랙티브 그림 lint', () => {
     expect(codes(withWidgets(w))).toContain('C_FIGURE_MISSING');
   });
 
+  it('문단 출처 값이 그 문단에 없으면 막는다', () => {
+    const w = toggle();
+    if (w.kind === 'toggleBars')
+      w.items[0]!.on = { value: 0.341, src: { cite: { key: 3, from: 3, to: 3 } } };
+    expect(codes(withWidgets(w))).not.toContain('WIDGET_VALUE_MISMATCH');
+    if (w.kind === 'toggleBars')
+      w.items[0]!.on = { value: 0.3411, src: { cite: { key: 3, from: 3, to: 3 } } };
+    expect(codes(withWidgets(w))).toContain('WIDGET_VALUE_MISMATCH');
+  });
+
+  it('heatmap과 beforeAfter 값도 원문 칸과 대조한다', () => {
+    expect(codes(withWidgets(heat()))).toEqual([]);
+    const h = heat();
+    if (h.kind === 'heatmap') h.cells[0]![1]!.value = 0.0153;
+    expect(codes(withWidgets(h))).toContain('WIDGET_VALUE_MISMATCH');
+    expect(codes(withWidgets(pair('A', 0.3236)))).toEqual([]);
+    expect(codes(withWidgets(pair('A', 0.3237)))).toContain('WIDGET_VALUE_MISMATCH');
+  });
+
+  it('값이 하나도 없는 A는 A_NO_VALUES', () => {
+    expect(codes(withWidgets(pair('A')))).toContain('A_NO_VALUES');
+  });
+
+  it('heatmap 축 라벨의 지표 말도 원문과 대조한다', () => {
+    const h = heat();
+    if (h.kind === 'heatmap') h.y.title = '정확도';
+    expect(codes(withWidgets(h))).toContain('WIDGET_METRIC_UNKNOWN');
+  });
+
+  it('라벨 하나에 든 지표 말을 전부 본다', () => {
+    const w = toggle();
+    // NMI는 원문에 있고 정답률은 없다. 첫 매치만 보면 정답률이 빠진다
+    w.title = '표 4 NMI와 정답률';
+    expect(codes(withWidgets(w))).toContain('WIDGET_METRIC_UNKNOWN');
+  });
+
+  it('지표 별칭은 영숫자 경계로 대조하고 한국어 지표도 찾는다', () => {
+    const w = toggle();
+    w.title = '표 4 정확도';
+    const withText = (text: string) => {
+      const t = lensTranscript();
+      t.segments[8]!.text = text;
+      return lintErrors(lintDigest(lensDigest(withWidgets(w)), t, { source: lensSource() })).map(
+        (i) => i.code,
+      );
+    };
+    expect(withText('Reported inaccuracy stays high.')).toContain('WIDGET_METRIC_UNKNOWN');
+    expect(withText('Accuracy stays high.')).not.toContain('WIDGET_METRIC_UNKNOWN');
+    expect(withText('정확도는 그대로다.')).not.toContain('WIDGET_METRIC_UNKNOWN');
+  });
+
+  it('B 라벨에 숫자가 있으면 B_HAS_NUMBER', () => {
+    const step = toy();
+    if (step.kind === 'stepSlider') step.steps[0]!.label = '1단계';
+    expect(codes(withWidgets(step))).toContain('B_HAS_NUMBER');
+    const note = toy();
+    if (note.kind === 'stepSlider') note.steps[1]!.note = '간선이 3개 남는다.';
+    expect(codes(withWidgets(note))).toContain('B_HAS_NUMBER');
+    const caption = toy();
+    caption.caption = '노이즈를 2번 걷어낸다.';
+    expect(codes(withWidgets(caption))).toContain('B_HAS_NUMBER');
+    const side = pair('B');
+    if (side.kind === 'beforeAfter') side.after.title = '50번 뒤';
+    expect(codes(withWidgets(side))).toContain('B_HAS_NUMBER');
+  });
+
+  it('B는 정답률과 F-score 같은 지표 말도 못 쓴다', () => {
+    for (const word of ['정답률', 'F-score', 'F1-score']) {
+      const w = toy();
+      if (w.kind === 'stepSlider') w.steps[1]!.label = `${word} 오름`;
+      expect(codes(withWidgets(w))).toContain('B_METRIC_LABEL');
+    }
+  });
+
+  it('B는 원문 본문 칸 이름을 라벨 안에 넣어도 막고 머리줄 일반어는 통째로 같을 때만 막는다', () => {
+    const inside = toy();
+    if (inside.kind === 'stepSlider') inside.steps[0]!.nodes[0]!.label = 'Soy Sauce 같은 재료';
+    expect(codes(withWidgets(inside))).toContain('B_BORROWS_NAME');
+    const header = toy();
+    if (header.kind === 'stepSlider') header.steps[0]!.nodes[0]!.label = 'Model 구조';
+    expect(codes(withWidgets(header))).not.toContain('B_BORROWS_NAME');
+    if (header.kind === 'stepSlider') header.steps[0]!.nodes[0]!.label = 'Model';
+    expect(codes(withWidgets(header))).toContain('B_BORROWS_NAME');
+  });
+
+  it('class를 바꿔 B 그림을 A나 C로 꾸미면 그 구분의 검사에 걸린다', () => {
+    const asA = toy();
+    asA.class = 'A';
+    expect(codes(withWidgets(asA))).toContain('WIDGET_KIND_CLASS');
+    expect(codes(withWidgets(pair('A')))).toContain('A_NO_VALUES');
+    const asC = pair('C');
+    const c = codes(withWidgets(asC));
+    expect(c).toContain('C_FIGURE_MISSING');
+    expect(c).toContain('C_DIFFERENCES_EMPTY');
+  });
+
+  it('부호 있는 원문 칸을 그대로 옮긴 A와 C 막대는 통과한다', () => {
+    expect(codes(withWidgets(gain('A'), gain('C')), signedSource())).toEqual([]);
+  });
+
+  it('영상 리포트에 그림을 넣으면 대조 없이 배지가 붙지 않게 막는다', () => {
+    const d = sampleDigest();
+    d.reports[0]!.sections[0]!.subsections[0]!.widgets = [toggle()];
+    const errs = lintErrors(lintDigest(d, sampleTranscript()));
+    expect(errs.map((i) => i.code)).toContain('LENS_FIELD_ON_VIDEO');
+    expect(errs.find((i) => i.code === 'LENS_FIELD_ON_VIDEO')?.path).toBe(
+      'reports.0.sections.0.subsections.0.widgets',
+    );
+  });
+
   it('슬라이더 간선이 없는 노드를 가리키면 막는다', () => {
     const w = toy();
     if (w.kind === 'stepSlider') w.steps[0]!.edges = [{ from: 'a', to: 'z', strength: 'weak' }];
@@ -191,6 +374,49 @@ describe('인터랙티브 그림 렌더', () => {
     const out = html();
     expect(out).toContain('type="range" min="0" max="2" step="1"');
     expect(out).toMatch(/data-w-state="2" hidden>/);
+  });
+
+  it('배지는 class로만 정해지고 모델이 넣은 배지 칸은 스키마가 버린다', () => {
+    const r = withWidgets({ ...toy(), badge: '원문 표 데이터' } as Widget);
+    const parsed = parseDigest(lensDigest(r));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const w = parsed.value.reports[0]!.sections[1]!.subsections[0]!.widgets![0]!;
+    expect('badge' in w).toBe(false);
+    const out = renderDigestHtml(parsed.value, lensTranscript(), { source: lensSource() }).html;
+    expect(out).toContain('<span class="w-badge w-badge-B">설명용, 원문 데이터 아님</span>');
+    expect(out).not.toContain('<span class="w-badge w-badge-A">');
+  });
+
+  it('렌더러는 값을 만들지 않는다. 값 글자는 원문 칸 글자뿐이다', () => {
+    const out = renderDigestHtml(lensDigest(withWidgets(toggle(), heat())), lensTranscript(), {
+      source: lensSource(),
+    }).html;
+    // 그림 몸통만 잘라 본다. 리포트 다른 자리의 원문 표도 data-cell을 쓴다
+    const widgets = [...out.matchAll(/<figure class="widget[^]*?<\/figure>/g)]
+      .map((m) => m[0])
+      .join('');
+    const shown = [
+      ...widgets.matchAll(/<(?:span class="wb-val"|td)[^>]*data-cell[^>]*>([^<]*)</g),
+    ].map((m) => m[1]!);
+    expect(new Set(shown)).toEqual(new Set(['0.3236', '0.2862', '0.0152']));
+  });
+
+  it('음수 막대는 부호를 보이고 A와 C에 같이 적용된다', () => {
+    const out = renderDigestHtml(lensDigest(withWidgets(gain('A'), gain('C'))), lensTranscript(), {
+      source: signedSource(),
+    }).html;
+    for (const id of ['w-gain-a', 'w-gain-c']) {
+      const body = out.slice(out.indexOf(`id="${id}"`));
+      const off = body.slice(body.indexOf('data-w-state="off"'), body.indexOf('data-w-state="on"'));
+      expect(off).toContain(
+        '<span class="wb-track wb-neg"><span class="wb-sign" aria-hidden="true">−</span>',
+      );
+      // 값 글자는 원문 칸 그대로다
+      expect(off).toContain('>-0.0374</span>');
+      const on = body.slice(body.indexOf('data-w-state="on"'), body.indexOf('</figure>'));
+      expect(on).not.toContain('wb-neg');
+    }
   });
 
   it('마크다운은 막대를 표로, 슬라이더를 단계 목록으로 낸다', () => {

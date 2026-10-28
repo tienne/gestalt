@@ -12,13 +12,17 @@ const ALLOWED_KINDS: Record<Widget['class'], readonly Widget['kind'][]> = {
   C: ['stepSlider', 'toggleBars', 'heatmap', 'beforeAfter'],
 };
 
-/** 결과로 읽히는 지표 말. B는 아예 못 쓰고 A와 C는 원문에 나온 말만 쓴다 */
+/**
+ * 결과로 읽히는 지표 말. B는 아예 못 쓰고 A와 C는 원문에 나온 말만 쓴다.
+ * 라벨 하나에 지표 말이 여럿 들 수 있어 g로 전부 본다. F1-score는 F1보다 먼저 둬야 통째로 잡힌다
+ */
 const METRIC =
-  /(점수|정확도|일치도|성능|정밀도|재현율|오차|손실|score|accuracy|precision|recall|\bF1\b|\bNMI\b|\bMSE\b|\bBLEU\b|\bAUC\b|loss)/i;
+  /(점수|정확도|정답률|일치도|성능|정밀도|재현율|오차|손실|F1-score|F-score|score|accuracy|precision|recall|\bF1\b|\bNMI\b|\bMSE\b|\bBLEU\b|\bAUC\b|loss)/gi;
 /** 한국어 리포트가 영어 원문의 지표를 옮겨 쓴 경우를 받으려고 짝을 둔다. 어느 쪽이든 원문에 있으면 원문 지표다 */
 const METRIC_ALIASES: Record<string, string[]> = {
   점수: ['score'],
   정확도: ['accuracy'],
+  정답률: ['accuracy'],
   일치도: ['agreement', 'match'],
   성능: ['performance'],
   정밀도: ['precision'],
@@ -29,9 +33,18 @@ const METRIC_ALIASES: Record<string, string[]> = {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const metricWords = (text: string): string[] => [...text.matchAll(METRIC)].map((m) => m[0]);
+
+/**
+ * 영숫자 경계로 감싸 대조한다(knowledge.ts의 노트 검색과 같은 꼴). \b는 한글 앞뒤를 경계로 못 잡는다.
+ * 영어 지표는 복수형(scores)까지 같은 말로 본다
+ */
 function metricInSource(word: string, allText: string): boolean {
   const names = [word, ...(METRIC_ALIASES[word] ?? [])];
-  return names.some((n) => new RegExp(escapeRe(n), 'i').test(allText));
+  return names.some((n) => {
+    const plural = /^[A-Za-z]+$/.test(n) ? '(?:e?s)?' : '';
+    return new RegExp(`(?<![A-Za-z0-9])${escapeRe(n)}${plural}(?![A-Za-z0-9])`, 'i').test(allText);
+  });
 }
 
 const FIGURE_NUMBER = /(figure\s*\d|fig\.?\s*\d|그림\s*\d)/i;
@@ -90,17 +103,26 @@ export function widgetLabels(w: Widget, wp: string): Array<{ text: string; path:
   return out;
 }
 
-function sourceNames(source: LensSource | null): Set<string> {
-  const names = new Set<string>();
+/**
+ * B가 빌리면 안 되는 원문 표 이름. 머리줄은 Model이나 모델 같은 일반어가 많아 라벨 전체와 같을 때만 잡는다.
+ * 본문 칸은 4자 이상이면 라벨 안에 들어 있어도 잡는다
+ */
+function sourceNames(source: LensSource | null): { exact: Set<string>; contained: RegExp[] } {
+  const exact = new Set<string>();
+  const contained: RegExp[] = [];
   for (const t of source?.tables ?? []) {
-    for (const row of t.rows) {
+    t.rows.forEach((row, r) => {
       for (const cell of row) {
         const c = cell.trim().toLowerCase();
-        if (c.length >= 3 && cellNumber(cell) === null) names.add(c);
+        if (c.length < 3 || cellNumber(cell) !== null) continue;
+        exact.add(c);
+        if (r > 0 && c.length >= 4) {
+          contained.push(new RegExp(`(?<![A-Za-z0-9])${escapeRe(c)}(?![A-Za-z0-9])`, 'i'));
+        }
       }
-    }
+    });
   }
-  return names;
+  return { exact, contained };
 }
 
 export interface WidgetLintContext {
@@ -110,7 +132,10 @@ export interface WidgetLintContext {
   allText: string;
 }
 
-/** 위젯 하나를 본다. 렌더러가 붙이는 배지는 스키마에 칸이 없어서 모델이 끌 수 없다 */
+/**
+ * 위젯 하나를 본다. 렌더러가 붙이는 배지는 스키마에 칸이 없어서 모델이 끄거나 글을 바꿀 수 없다.
+ * class를 바꿔 다른 배지를 달면 그 구분의 검사를 받는다
+ */
 export function lintWidget(
   w: Widget,
   wp: string,
@@ -175,14 +200,23 @@ export function lintWidget(
     }
     const names = sourceNames(ctx.source);
     for (const l of labels) {
-      if (METRIC.test(l.text) || l.text.includes('%')) {
+      // "1단계"처럼 순서를 적은 숫자도 원문 값처럼 읽혀서 처음, 다음, 끝으로 쓴다
+      if (numbersIn(l.text).length > 0) {
+        err(
+          l.path,
+          'B_HAS_NUMBER',
+          `"${l.text}"에 숫자가 있다. B 그림은 값처럼 읽히는 숫자를 쓰지 않는다. 순서는 처음, 다음, 끝으로 쓴다`,
+        );
+      }
+      if (metricWords(l.text).length > 0 || l.text.includes('%')) {
         err(
           l.path,
           'B_METRIC_LABEL',
           `"${l.text}"는 결과 지표로 읽힌다. B 그림에는 점수나 정확도, %를 쓰지 않는다`,
         );
       }
-      if (names.has(l.text.trim().toLowerCase())) {
+      const t = l.text.trim().toLowerCase();
+      if (names.exact.has(t) || names.contained.some((re) => re.test(t))) {
         err(
           l.path,
           'B_BORROWS_NAME',
@@ -193,6 +227,14 @@ export function lintWidget(
     return;
   }
 
+  // 값이 하나도 없으면 원문과 맞춰 볼 게 없는데도 원문 데이터 배지가 붙는다
+  if (w.class === 'A' && values.length === 0) {
+    err(
+      wp,
+      'A_NO_VALUES',
+      'A 그림은 원문 표 칸이나 문단에서 온 값을 하나 이상 단다. 값 없는 설명 그림은 B로 만든다',
+    );
+  }
   // A와 C는 값마다 원문 출처가 있고 그 숫자와 같아야 한다
   for (const { v, path } of values) {
     if (!v.src) {
@@ -223,13 +265,14 @@ export function lintWidget(
       err(path, 'WIDGET_VALUE_MISMATCH', `값 ${v.value}가 출처 문단에 없다`);
     }
   }
+  // heatmap 축 라벨도 widgetLabels에 들어 있어 같이 본다
   for (const l of labels) {
-    const m = METRIC.exec(l.text);
-    if (m && !metricInSource(m[0], ctx.allText)) {
+    for (const word of new Set(metricWords(l.text))) {
+      if (metricInSource(word, ctx.allText)) continue;
       err(
         l.path,
         'WIDGET_METRIC_UNKNOWN',
-        `"${m[0]}"는 원문에 없는 지표다. 원문에 나온 지표 이름만 쓴다`,
+        `"${word}"는 원문에 없는 지표다. 원문에 나온 지표 이름만 쓴다`,
       );
     }
   }

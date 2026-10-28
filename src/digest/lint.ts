@@ -649,6 +649,8 @@ export interface DigestLintOptions extends ExtensionLintOptions {
    * null이나 undefined면 표 칸을 가리키는 출처가 전부 오류다
    */
   source?: LensSource | null;
+  /** source가 null인 까닭. invalid면 ingest 대신 source.json 형식을 고치라고 안내한다. 없으면 missing으로 본다 */
+  sourceProblem?: 'missing' | 'invalid';
   /**
    * 내 지식 소스(knowledge.json). 연결 카드의 인용을 노트 파일과 대조한다.
    * undefined면 대조를 건너뛰고 null이면 연결 카드를 하나도 받지 않는다
@@ -693,9 +695,11 @@ export function lintDigest(
     checkShots(report, p, transcript, opts.scenes, issues);
     const kind = transcript.meta.source;
     if (isLensKind(kind)) {
-      lintLensReport(report, p, kind, transcript, opts.source ?? null, issues);
+      lintLensReport(report, p, kind, transcript, opts.source ?? null, issues, opts.sourceProblem);
       lintLensContext(report, p, opts.knowledge, issues);
       lintReportWidgets(report, p, transcript, opts.source ?? null, issues);
+    } else {
+      checkLensFieldsOnVideo(report, p, issues);
     }
   });
   lintExtensions(digest.extensions, transcript, issues, opts);
@@ -748,6 +752,38 @@ function lintReport(
   checkDuplicateIds(report, p, issues);
   checkVolume(report, p, issues);
   checkDiagramCount(report, p, issues);
+}
+
+/**
+ * 렌즈 칸은 스키마가 자료 종류와 상관없이 받고 뷰어도 종류를 안 보고 그린다.
+ * 원문 대조는 렌즈 자료에서만 돌아서 영상 리포트에 들어오면 대조 없이 배지가 붙는다. 그래서 칸째 막는다
+ */
+function checkLensFieldsOnVideo(report: Report, p: string, issues: DigestIssue[]): void {
+  const found: string[] = [];
+  if (report.lead.glance) found.push(`${p}.lead.glance`);
+  if (report.limits) found.push(`${p}.limits`);
+  if (report.cards) found.push(`${p}.cards`);
+  if (report.links) found.push(`${p}.links`);
+  report.sections.forEach((section, si) => {
+    section.subsections.forEach((sub, bi) => {
+      const bp = `${p}.sections.${si}.subsections.${bi}`;
+      if (sub.tables) found.push(`${bp}.tables`);
+      if (sub.figures) found.push(`${bp}.figures`);
+      if (sub.widgets) found.push(`${bp}.widgets`);
+      for (const { bullet, path } of walkBullets(sub.bullets, `${bp}.bullets`)) {
+        if (bullet.doubt) found.push(`${path}.doubt`);
+      }
+    });
+  });
+  for (const path of found) {
+    issues.push({
+      path,
+      severity: 'error',
+      code: 'LENS_FIELD_ON_VIDEO',
+      message:
+        '읽기 렌즈 칸이다. 영상 리포트는 원문 표와 문단을 대조할 수 없어서 이 칸을 쓰지 않는다',
+    });
+  }
 }
 
 function lintReportWidgets(

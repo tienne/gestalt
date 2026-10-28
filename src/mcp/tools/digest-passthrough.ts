@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { loadConfig } from '../../core/config.js';
 import { extensionKey } from '../../digest/blocks.js';
 import { commentsMap } from '../../digest/comments.js';
-import { readLensSource } from '../../digest/lens-source.js';
+import { lensSourceForLint } from '../../digest/lens-source.js';
 import { knowledgeContext } from '../../digest/lint-lens-context.js';
 import { sceneSecs } from '../../digest/scenes.js';
 import { lintDigest, lintErrors, type DigestLintOptions } from '../../digest/lint.js';
@@ -74,7 +74,7 @@ function lintContext(
       comments: commentsMap(store, input.slug) ?? undefined,
       // merge와 같이 scenes.json이 없으면 null을 넘긴다. shots가 없는 digest에는 아무 오류도 안 붙는다
       scenes: sceneSecs(store, input.slug),
-      source: readLensSource(store, input.slug),
+      ...lensSourceForLint(store, input.slug),
       knowledge: knowledgeContext(store, input.slug),
     },
   };

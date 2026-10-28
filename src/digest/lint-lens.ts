@@ -67,11 +67,19 @@ function allowedNumbers(
   return allowed;
 }
 
+/** source.json을 못 읽었을 때 표 칸 출처에 붙이는 안내. 형식 오류면 ingest를 다시 돌려도 안 풀릴 수 있다 */
+function noSourceMessage(problem: 'missing' | 'invalid' | undefined): string {
+  return problem === 'invalid'
+    ? 'source.json 형식이 틀려서 표와 그림을 대조할 수 없다. 파일을 고치거나 gestalt lens ingest로 다시 만든다'
+    : 'source.json이 없어 표와 그림을 대조할 수 없다. gestalt lens ingest를 다시 돌린다';
+}
+
 function checkEvidence(
   evidence: Evidence[],
   path: string,
   source: LensSource | null,
   issues: DigestIssue[],
+  problem?: 'missing' | 'invalid',
 ): void {
   evidence.forEach((ev, k) => {
     if (!isCellRef(ev)) return;
@@ -84,7 +92,7 @@ function checkEvidence(
         code: 'TABLE_REF_UNKNOWN',
         message: source
           ? `표 ${ev.table}가 source.json에 없다. 있는 표: ${source.tables.map((t) => t.id).join(', ') || '없음'}`
-          : 'source.json이 없어 표 칸을 대조할 수 없다. gestalt lens ingest를 다시 돌린다',
+          : noSourceMessage(problem),
       });
       return;
     }
@@ -124,6 +132,7 @@ function checkDoubts(
   source: LensSource | null,
   transcript: Transcript,
   issues: DigestIssue[],
+  problem?: 'missing' | 'invalid',
 ): number {
   let count = 0;
   report.sections.forEach((section, si) => {
@@ -134,13 +143,14 @@ function checkDoubts(
         if (!d) continue;
         count++;
         const dp = `${path}.doubt`;
-        checkEvidence(d.evidence, `${dp}.evidence`, source, issues);
+        checkEvidence(d.evidence, `${dp}.evidence`, source, issues, problem);
         // 1차는 숫자끼리 어긋난 자리만 짚는다. 해석이 갈리는 자리는 맥락 카드 몫이다
         const cellValues = d.evidence.flatMap((ev) => {
           if (!isCellRef(ev)) return [];
           const text = source?.tables.find((t) => t.id === ev.table)?.rows[ev.row]?.[ev.col];
           const n = text === undefined ? null : cellNumber(text);
-          return n === null ? [] : [n];
+          // numbersIn이 부호를 떼므로 칸 값도 떼어 견준다. 음수 칸을 적은 note가 막히지 않게 한다
+          return n === null ? [] : [Math.abs(n)];
         });
         const noteNumbers = numbersIn(d.note);
         const citesNumbers = d.evidence.some(
@@ -177,6 +187,7 @@ function checkLimits(
   source: LensSource | null,
   transcript: Transcript,
   issues: DigestIssue[],
+  problem?: 'missing' | 'invalid',
 ): void {
   const limits = report.limits ?? [];
   if (limits.length === 0) {
@@ -198,9 +209,9 @@ function checkLimits(
         message: '한계 한 줄마다 원문 근거(evidence)나 맥락 카드 id(card)를 단다',
       });
     }
-    checkEvidence(limit.evidence, `${lp}.evidence`, source, issues);
-    // 카드에서 온 줄은 바깥 자료의 숫자를 옮길 수 있어 대조하지 않는다
-    if (!limit.card) {
+    checkEvidence(limit.evidence, `${lp}.evidence`, source, issues, problem);
+    // 카드만 단 줄은 바깥 자료의 숫자를 옮길 수 있어 대조하지 않는다. 근거를 같이 달면 뷰어가 원문 칸 칩을 붙이므로 대조한다
+    if (!limit.card || limit.evidence.length > 0) {
       checkNumbers(
         limit.text,
         allowedNumbers(limit.evidence, source, transcript),
@@ -230,6 +241,7 @@ function checkSourceRefs(
   p: string,
   source: LensSource | null,
   issues: DigestIssue[],
+  problem?: 'missing' | 'invalid',
 ): void {
   report.sections.forEach((section, si) => {
     if (!section.intro) {
@@ -248,7 +260,7 @@ function checkSourceRefs(
           path: `${bp}.tables.${k}.ref`,
           severity: 'error',
           code: 'TABLE_REF_UNKNOWN',
-          message: `표 ${t.ref}가 source.json에 없다`,
+          message: source ? `표 ${t.ref}가 source.json에 없다` : noSourceMessage(problem),
         });
       });
       sub.figures?.forEach((f, k) => {
@@ -257,7 +269,7 @@ function checkSourceRefs(
           path: `${bp}.figures.${k}.ref`,
           severity: 'error',
           code: 'FIGURE_REF_UNKNOWN',
-          message: `그림 ${f.ref}가 source.json에 없다`,
+          message: source ? `그림 ${f.ref}가 source.json에 없다` : noSourceMessage(problem),
         });
       });
     });
@@ -275,6 +287,7 @@ export function lintLensReport(
   transcript: Transcript,
   source: LensSource | null,
   issues: DigestIssue[],
+  sourceProblem?: 'missing' | 'invalid',
 ): void {
   if (report.options.range && kind !== 'podcast') {
     issues.push({
@@ -285,7 +298,7 @@ export function lintLensReport(
     });
   }
   checkGlance(report, p, kind, issues);
-  checkSourceRefs(report, p, source, issues);
-  checkDoubts(report, p, source, transcript, issues);
-  checkLimits(report, p, source, transcript, issues);
+  checkSourceRefs(report, p, source, issues, sourceProblem);
+  checkDoubts(report, p, source, transcript, issues, sourceProblem);
+  checkLimits(report, p, source, transcript, issues, sourceProblem);
 }

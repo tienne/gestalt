@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { extensionKey } from './blocks.js';
 import { commentsMap } from './comments.js';
-import { readLensSource } from './lens-source.js';
+import { lensSourceForLint, readLensSource } from './lens-source.js';
 import { sceneSecs } from './scenes.js';
 import { lintDigest, lintErrors, type DigestIssue } from './lint.js';
 import { renderDigestHtml } from './render-html.js';
@@ -86,7 +86,7 @@ export function loadForRender(
       // 있을 때만 대조하고 없을 때 막는 일은 merge와 validate가 맡는다
       comments: commentsMap(store, slug) ?? undefined,
       scenes: sceneSecs(store, slug) ?? undefined,
-      source: readLensSource(store, slug),
+      ...lensSourceForLint(store, slug),
     }),
   );
   if (errors.length > 0) throw new DigestLintError(errors);

@@ -87,6 +87,79 @@ describe('읽기 렌즈 lint', () => {
     expect(codes(r)).toContain('RANGE_NOT_SUPPORTED');
   });
 
+  it('source.json 형식이 틀렸으면 ingest 대신 형식을 고치라고 안내한다', () => {
+    const messages = (sourceProblem?: 'missing' | 'invalid') =>
+      lintErrors(lintDigest(lensDigest(), lensTranscript(), { source: null, sourceProblem }))
+        .filter((i) => i.code === 'TABLE_REF_UNKNOWN' || i.code === 'FIGURE_REF_UNKNOWN')
+        .map((i) => i.message);
+    expect(messages().length).toBeGreaterThan(0);
+    expect(messages().every((m) => m.startsWith('source.json이 없어'))).toBe(true);
+    expect(messages('invalid').length).toBeGreaterThan(0);
+    expect(messages('invalid').every((m) => m.startsWith('source.json 형식이 틀려서'))).toBe(true);
+  });
+
+  it('카드와 근거를 같이 단 한계 줄도 근거 칸 숫자와 대조한다', () => {
+    const r = lensReport();
+    // 0.0002는 두 칸의 차이를 계산한 값이다. 카드 id가 있어도 근거 칸을 달았으니 막는다
+    r.limits = [
+      {
+        text: '두 조합 점수 차이는 0.0002다.',
+        evidence: [{ table: 'table-6', row: 1, col: 2 }],
+        card: 'c1',
+      },
+    ];
+    expect(codes(r)).toContain('LIMIT_NUMBER_UNKNOWN');
+    // 카드만 단 줄은 바깥 자료 숫자를 옮길 수 있어 대조하지 않는다
+    r.limits = [{ text: '후속 연구는 0.42를 보고했다.', evidence: [], card: 'c1' }];
+    expect(codes(r)).not.toContain('LIMIT_NUMBER_UNKNOWN');
+  });
+
+  it('근거 칸이 음수여도 note에 그 숫자를 적으면 의심 표시를 받는다', () => {
+    const source = lensSource();
+    source.tables.push({
+      id: 'table-5',
+      number: '5',
+      caption: 'Table 5: CSP gain.',
+      rows: [
+        ['Setting', 'Gain'],
+        ['50 nodes', '-0.0374'],
+        ['200 nodes', '0.0174'],
+      ],
+      grid: 'ok',
+      unit: 4,
+    });
+    const r = lensReport();
+    r.sections[1]!.subsections[0]!.bullets[0]!.doubt = {
+      note: '표 5에서 노드 50개는 CSP 이득이 −0.0374다.',
+      evidence: [{ table: 'table-5', row: 1, col: 1 }],
+    };
+    expect(codes(r, source)).toEqual([]);
+  });
+
+  it('영상 리포트에 렌즈 칸을 넣으면 LENS_FIELD_ON_VIDEO', () => {
+    const d = sampleDigest();
+    const lens = lensReport();
+    const report = d.reports[0]!;
+    report.lead.glance = lens.lead.glance;
+    report.limits = lens.limits;
+    const sub = report.sections[0]!.subsections[0]!;
+    sub.bullets[0]!.children![0]!.doubt = lens.sections[1]!.subsections[0]!.bullets[0]!.doubt;
+    sub.tables = [{ ref: 'table-4' }];
+    const errs = lintErrors(lintDigest(d, sampleTranscript())).filter(
+      (i) => i.code === 'LENS_FIELD_ON_VIDEO',
+    );
+    expect(errs.map((i) => i.path)).toEqual([
+      'reports.0.lead.glance',
+      'reports.0.limits',
+      'reports.0.sections.0.subsections.0.tables',
+      'reports.0.sections.0.subsections.0.bullets.0.children.0.doubt',
+    ]);
+    // 렌즈 칸이 없는 영상 리포트는 이 코드가 안 나온다
+    expect(
+      lintDigest(sampleDigest(), sampleTranscript()).some((i) => i.code === 'LENS_FIELD_ON_VIDEO'),
+    ).toBe(false);
+  });
+
   it('numbersIn은 천 단위 쉼표를 지우고 이름에 붙은 숫자는 세지 않는다', () => {
     expect(numbersIn('표 4의 6,653개와 0.2862, CSP2와 v3')).toEqual([4, 6653, 0.2862]);
     expect(numbersIn('제3자가 확인하지 않았다')).toEqual([]);

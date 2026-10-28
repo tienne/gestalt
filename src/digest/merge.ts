@@ -1,6 +1,6 @@
 import { extensionKey, extensionSchema, type Extension } from './blocks.js';
 import { commentsMap } from './comments.js';
-import { readLensSource } from './lens-source.js';
+import { lensSourceForLint } from './lens-source.js';
 import { knowledgeContext } from './lint-lens-context.js';
 import { sceneSecs } from './scenes.js';
 import { lintDigest, lintErrors, type DigestIssue } from './lint.js';
@@ -61,7 +61,7 @@ export function mergeReport(repoRoot: string, slug: string, input: unknown): Mer
   // 읽기 렌즈 리포트는 표 칸과 그림 출처를 source.json과 대조한다
   const issues = lintDigest(merged, t.transcript, {
     scenes: sceneSecs(store, slug),
-    source: readLensSource(store, slug),
+    ...lensSourceForLint(store, slug),
     knowledge: knowledgeContext(store, slug),
   });
   const saved = lintErrors(issues).length === 0;
@@ -135,7 +135,7 @@ export function mergeExtension(
     comments: opts.comments !== undefined ? opts.comments : commentsMap(store, slug),
     strictVerbatim: true,
     scenes: sceneSecs(store, slug),
-    source: readLensSource(store, slug),
+    ...lensSourceForLint(store, slug),
   });
   const saved = lintErrors(issues).length === 0;
   const digestPath = saved ? store.saveDigest(merged) : store.digestPath(slug);

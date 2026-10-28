@@ -41,7 +41,13 @@ function toggleBarsHtml(w: Extract<Widget, { kind: 'toggleBars' }>, ctx: LensHtm
     `<div class="wb-bars" data-w-state="${which}"${hidden ? ' hidden' : ''}>${w.items
       .map((it) => {
         const v = it[which];
-        return `<div class="wb-row"><span class="wb-label">${ctx.escape(it.label)}</span><span class="wb-track"><span class="wb-bar" style="width:${pct((Math.abs(v.value) / max) * 100)}"></span></span><span class="wb-val"${valueSrc(v, ctx)}>${ctx.escape(valueText(v, ctx))}</span></div>`;
+        // 너비는 크기만 담아서 음수는 막대 색과 방향, 앞의 부호로 갈라 보인다. 값 글자는 원문 칸 그대로다
+        const neg = v.value < 0;
+        const bar = `<span class="wb-bar" style="width:${pct((Math.abs(v.value) / max) * 100)}"></span>`;
+        const track = neg
+          ? `<span class="wb-track wb-neg"><span class="wb-sign" aria-hidden="true">−</span>${bar}</span>`
+          : `<span class="wb-track">${bar}</span>`;
+        return `<div class="wb-row"><span class="wb-label">${ctx.escape(it.label)}</span>${track}<span class="wb-val"${valueSrc(v, ctx)}>${ctx.escape(valueText(v, ctx))}</span></div>`;
       })
       .join('')}</div>`;
   return `<div class="w-toggle" role="group" aria-label="조건 바꾸기"><button type="button" data-w-toggle="off" aria-pressed="true">${ctx.escape(w.toggle.off)}</button><button type="button" data-w-toggle="on" aria-pressed="false">${ctx.escape(w.toggle.on)}</button></div>${state('off', false)}${state('on', true)}`;
@@ -217,6 +223,9 @@ export const WIDGET_CSS = `
 .wb-row{display:grid;grid-template-columns:minmax(120px,38%) 1fr auto;gap:8px;align-items:center;font-size:.88em;margin:3px 0}
 .wb-track{background:var(--chip);border-radius:3px;height:12px;overflow:hidden}
 .wb-bar{display:block;height:100%;background:var(--accent)}
+.wb-neg{display:flex;align-items:center;justify-content:flex-end}
+.wb-neg .wb-bar{background:var(--warn)}
+.wb-sign{margin-right:auto;padding:0 3px;font-size:11px;line-height:1;font-weight:700;color:var(--warn)}
 .wb-val{font-variant-numeric:tabular-nums;cursor:pointer}
 .wh-scroll{overflow-x:auto}.wh{border-collapse:collapse;font-size:.86em;font-variant-numeric:tabular-nums}
 .wh th,.wh td{padding:4px 10px;border:1px solid var(--line);text-align:center}
