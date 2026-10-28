@@ -82,7 +82,7 @@ Phase 3의 레포 안 탐색까지 앞당기지는 않는다. 그건 실행 대�
 { "action": "respond", "sessionId": "...", "response": "{사람의 답변}", "generatedQuestion": "{생성한 질문}" }
 ```
 
-→ resolutionScore.isReady === true 또는 overallScore가 기준값 이상이 될 때까지 반복한다.
+→ resolutionScore.isReady === true가 될 때까지 반복한다. 응답에 nextAction: "rescore"가 오면 interview 스킬의 [다시 채점하기](../interview/SKILL.md#다시-채점하기)대로 처리한 뒤 이어간다.
 
 완료 (`isReady === true`일 때만):
 
@@ -90,7 +90,7 @@ Phase 3의 레포 안 탐색까지 앞당기지는 않는다. 그건 실행 대�
 { "action": "complete", "sessionId": "..." }
 ```
 
-기준값(`interview.resolutionThreshold`, 기본 0.8) 미만이면 서버가 `complete`를 거절한다. 자율 루프라도 `force`는 에이전트가 정하지 않는다. 15라운드를 다 채운 경우에는 마지막 답의 점수가 빠져 있으니 먼저 `score`로 넣고 `isReady`를 확인한다. 그래도 기준값 미만이면 사용자에게 현재 점수를 보여주고 넘어가기로 직접 답했을 때만 `{ "action": "complete", "sessionId": "...", "force": true }`로 부른다. 이렇게 끝낸 세션은 `complete` 응답에 `forced: true`가 온다. 그 값을 근거로 Phase 2에서 `ges_generate_spec`에도 `force: true`를 넘긴다.
+점수가 없거나 기준값(`interview.resolutionThreshold`, 기본 0.8) 미만이거나 `interview.rescore`가 `gate`인데 다시 채점을 통과하지 못했으면 서버가 `complete`를 거절한다. 자율 루프라도 `force`는 에이전트가 정하지 않는다. 15라운드를 다 채운 경우에는 마지막 답의 점수가 빠져 있으니 먼저 `score`로 넣고 `isReady`를 확인한다. 그래도 기준값 미만이면 사용자에게 현재 점수를 보여주고 넘어가기로 직접 답했을 때만 `{ "action": "complete", "sessionId": "...", "force": true }`로 부른다. 이렇게 끝낸 세션은 `complete` 응답에 `forced: true`가 온다. 그 값을 근거로 Phase 2에서 `ges_generate_spec`에도 `force: true`를 넘긴다.
 
 ### 진행 패널
 

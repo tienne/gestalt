@@ -168,7 +168,7 @@ Agent {
 - 돌아온 JSON의 점수를 `score`에 `rescore: true`, `rescoreMode: "isolated"`와 함께 넘긴다. 서버는 이걸 그 시점의 최신 점수와 비교하므로 안내를 받은 뒤 다른 채점을 끼우지 말고 바로 넘긴다.
 - Agent 도구가 없는 런타임이면 메인 세션이 `rescorePrompt`대로 다시 매기고 `rescoreMode: "same-context"`로 넘긴다. 맥락이 이어진 채점이라는 표시가 있어야 나중에 따로 셀 수 있다.
 
-`score` 응답의 `resolutionScore.isReady`를 보고 다음으로 간다. 기본 설정(`interview.rescore: "record"`)에서는 판정이 첫 점수 그대로라 바로 `complete`로 가면 된다. `gate` 설정에서 `isReady`가 `false`이고 `gestaltContext`가 같이 왔으면 그 `questionPrompt`로 다음 질문을 만들어 `respond`로 이어간다. `gate`에서는 다시 채점을 받기 전까지 `isReady`가 `false`라 건너뛸 수 없다.
+`score` 응답의 `resolutionScore.isReady`를 보고 다음으로 간다. 기본 설정(`interview.rescore: "record"`)에서는 판정이 다시 채점 직전 점수 그대로라 바로 `complete`로 가면 된다. `gate` 설정에서 `isReady`가 `false`이고 `gestaltContext`가 같이 왔으면 그 `questionPrompt`로 다음 질문을 만들어 `respond`로 이어간다. `gate`에서는 다시 채점을 받기 전까지 `isReady`가 `false`라 건너뛸 수 없다.
 
 다시 채점은 인터뷰마다 한 번만 받는다. 기본 설정에서 안내를 건너뛰고 `complete`를 불러도 끝나지만 그 인터뷰에는 다시 채점 기록이 안 남는다.
 
