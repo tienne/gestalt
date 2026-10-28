@@ -1204,6 +1204,12 @@ export const digestInputSchema = guardObject(
       .boolean()
       .optional()
       .describe('render: 프레임을 HTML 안에 data URI로 넣는다. 한 장 5MB, 합계 15MB까지'),
+    omitCrops: z
+      .boolean()
+      .optional()
+      .describe(
+        'render: 읽기 렌즈 리포트에서 원문 쪽 그림과 표, 그림 크롭을 빼고 그린다. 남에게 공유할 HTML을 만들 때 쓴다',
+      ),
     items: z
       .array(
         z.object({

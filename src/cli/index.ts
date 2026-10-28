@@ -47,6 +47,13 @@ import {
   digestServeCommand,
   digestValidateCommand,
 } from './commands/digest.js';
+import {
+  lensAttachCommand,
+  lensIngestCommand,
+  lensKnowledgeCommand,
+  lensNotesCommand,
+  lensPanelsCommand,
+} from './commands/lens.js';
 import { getVersion } from '../core/version.js';
 import {
   prCheckoutCommand,
@@ -267,6 +274,67 @@ export function createCli(): Command {
     .description('그 레포를 웹 UI 목록에서 뺀다. 레포 자체는 안 건드린다')
     .action((key, o, cmd) => prUnregisterCommand({ ...inherited(cmd), ...o, key }));
 
+  const lens = program
+    .command('lens')
+    .description('읽기 렌즈 — 논문 PDF, 웹 글, 팟캐스트를 문단 단위 원문으로 받는다')
+    .option('--repo-root <path>', 'Repository root (defaults to cwd)')
+    .option('--json', '에이전트가 파싱할 JSON으로');
+
+  const lensInherited = (cmd: { parent?: { opts(): Record<string, unknown> } }) =>
+    (cmd.parent?.opts() ?? {}) as { repoRoot?: string; json?: boolean };
+
+  lens
+    .command('ingest <input>')
+    .description(
+      'PDF나 웹 주소, 오디오에서 문단 단위 원문(transcript.json)과 표, 그림(source.json)을 만든다',
+    )
+    .option('--slug <slug>', '저장 폴더 이름 (기본: 제목과 주소 해시)')
+    .option('--kind <kind>', '자료 종류를 직접 정한다: pdf, web, podcast')
+    .option('--episode <n>', '팟캐스트 피드에서 고를 에피소드. 0이 최신 (기본 0)')
+    .option('--whisper-model <name>', '팟캐스트 받아쓰기 faster-whisper 모델 (기본 small)')
+    .option('--url <address>', '로컬 HTML 파일의 원래 주소 (Orca 내장 브라우저에서 꺼낸 페이지)')
+    .option('--no-speakers', '팟캐스트 화자 구분을 건너뛴다 (기본은 sherpa-onnx로 가른다)')
+    .action((input, o, cmd) => lensIngestCommand(input, { ...lensInherited(cmd), ...o }));
+
+  lens
+    .command('knowledge <slug>')
+    .description(
+      '내 노트 폴더에서 원문 이름(FlavorGraph, NMI 같은)과 겹치는 줄을 찾아 knowledge.json에 둔다',
+    )
+    .option(
+      '--source <dir>',
+      '지식 소스 폴더. 여러 번 쓸 수 있다. gestalt.json의 lens.knowledgeSources와 합친다',
+      (v: string, prev: string[] = []) => [...prev, v],
+    )
+    .action((slug, o, cmd) => lensKnowledgeCommand(slug, { ...lensInherited(cmd), ...o }));
+
+  lens
+    .command('panels <slug> <figure> <count>')
+    .description('원문 그림의 장면 수를 source.json에 적는다. C 재구성 슬라이더 칸 수의 상한이다')
+    .action((slug, figure, count, o, cmd) =>
+      lensPanelsCommand(slug, figure, count, { ...lensInherited(cmd), ...o }),
+    );
+
+  lens
+    .command('notes <action> [dirs...]')
+    .description(
+      '내 노트 연결(~/.gestalt/lens.json). list, detect(후보 찾기), add, remove, notion-on, notion-off, decline(쓰지 않음)',
+    )
+    .option(
+      '--scan <dir>',
+      'detect에서 더 훑을 폴더. 여러 번 쓸 수 있다 (스킬은 Orca에 등록된 레포를 넘긴다)',
+      (v: string, prev: string[] = []) => [...prev, v],
+    )
+    .action((action, dirs, o, cmd) =>
+      lensNotesCommand(action, dirs ?? [], { ...lensInherited(cmd), ...o }),
+    );
+
+  lens
+    .command('attach <slug> <file>')
+    .description('맥락 카드와 연결 카드 파일을 이미 합친 리포트에 붙이고 merge 검사를 다시 돌린다')
+    .option('--report <key>', '붙일 리포트 키 (기본: 처음 보이는 리포트)')
+    .action((slug, file, o, cmd) => lensAttachCommand(slug, file, { ...lensInherited(cmd), ...o }));
+
   const digest = program
     .command('digest')
     .description('영상 요약 — 스크립트 수집, 프레임, 뷰어')
@@ -322,6 +390,10 @@ export function createCli(): Command {
     .command('render <slug>')
     .description('digest.json으로 뷰어 HTML과 마크다운을 만든다')
     .option('--inline-frames', '프레임을 HTML 안에 넣는다 (파일 하나로 들고 다닐 때)')
+    .option(
+      '--no-crops',
+      '읽기 렌즈 원문 쪽 그림과 원문에서 잘라낸 표와 그림을 빼고 그린다. 노트 연결 카드도 빠진다 (공유할 때)',
+    )
     .action((slug, o, cmd) => digestRenderCommand(slug, { ...digestInherited(cmd), ...o }));
 
   digest

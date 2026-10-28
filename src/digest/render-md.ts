@@ -2,8 +2,13 @@ import type { Extension } from './blocks.js';
 import { frameFileName, shotFileName } from './frames.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
 import { blockMarkdown, mdInline, sectionDiagramMd } from './render-blocks.js';
+import { isCellRef, type Evidence } from './lens-schema.js';
+import type { LensSource } from './lens-source.js';
+import { CARD_KIND_LABEL, GLANCE_LABEL, unitLabel } from './render-lens.js';
 import { reportLabel } from './reports.js';
+import { widgetMarkdown } from './render-widgets.js';
 import {
+  isTextKind,
   keywordPattern,
   type Bullet,
   type Cite,
@@ -19,6 +24,10 @@ export interface RenderMdOptions {
   framesHref?: string;
   /** 내보낼 리포트. 없으면 첫 리포트다 */
   report?: Report;
+  /** 읽기 렌즈의 source.json. 원문 표를 마크다운 표로 옮긴다 */
+  source?: LensSource | null;
+  /** 공유용. 원문 그림 크롭 링크와 노트 연결 카드(노트 경로와 인용)를 싣지 않는다 */
+  omitCrops?: boolean;
 }
 
 /** 키워드 마커는 표시 글자만 남긴다. 굵게(`**`)는 마크다운 문법 그대로라 둔다 */
@@ -51,17 +60,38 @@ export function renderDigestMarkdown(
   }
   const { lead, sections, skipped, keywords } = report;
   out.push(`**${plain(lead.question)}**`, '', plain(lead.answer), '', plain(lead.takeaway), '');
+  if (lead.glance?.length) {
+    out.push('| 칸 | 내용 |', '| --- | --- |');
+    for (const g of lead.glance) {
+      out.push(`| ${GLANCE_LABEL[g.kind]} | ${cell(plain(g.text))}${cite(g.cite)} |`);
+    }
+    out.push('');
+  }
+  const source = opts.source ?? null;
+  const evidence = (ev: Evidence): string => {
+    if (!isCellRef(ev)) return cite(ev.cite).trim();
+    const table = source?.tables.find((t) => t.id === ev.table);
+    const value = table?.rows[ev.row]?.[ev.col] ?? '';
+    return `(표 ${table?.number ?? ev.table} ${ev.row + 1}행 ${ev.col + 1}열: ${value})`;
+  };
 
   const bullet = (b: Bullet, depth: number): string[] => {
     const pad = '  '.repeat(depth);
     const lines = [`${pad}- ${plain(b.text)}${cite(b.cite)}`];
+    if (b.doubt) {
+      lines.push(
+        `${pad}  > **원문과 어긋남** ${plain(b.doubt.note)} ${b.doubt.evidence.map(evidence).join(' ')}`,
+      );
+    }
     for (const c of b.children ?? []) lines.push(...bullet(c, depth + 1));
     return lines;
   };
 
   const time = mdTimer(transcript);
   sections.forEach((s, si) => {
-    out.push(`## ${si + 1}. ${stripNumbering(s.title)}`, '', plain(s.conclusion), '');
+    out.push(`## ${si + 1}. ${stripNumbering(s.title)}`, '');
+    if (s.intro) out.push(`*${plain(s.intro)}*`, '');
+    out.push(plain(s.conclusion), '');
     if (s.diagram) out.push(...sectionDiagramMd(s.diagram, { cite, time }));
     s.subsections.forEach((sub, ui) => {
       out.push(`### ${si + 1}.${ui + 1}. ${stripNumbering(sub.title)}`, '');
@@ -81,13 +111,77 @@ export function renderDigestMarkdown(
           '',
         );
       }
-      const frame = frameFileName(sub.frameSec);
-      if (shots.length === 0 && opts.frameExists?.(frame))
-        out.push(`![${formatTime(sub.frameSec, long)}](${framesHref}/${frame})`, '');
+      const frameSec = sub.frameSec;
+      const frame = frameSec === undefined ? null : frameFileName(frameSec);
+      if (shots.length === 0 && frame && frameSec !== undefined && opts.frameExists?.(frame))
+        out.push(`![${formatTime(frameSec, long)}](${framesHref}/${frame})`, '');
       for (const b of sub.bullets) out.push(...bullet(b, 0));
       out.push('');
+      for (const t of sub.tables ?? []) {
+        const table = source?.tables.find((x) => x.id === t.ref);
+        if (table) out.push(...tableMd(table.number, table.caption, table.rows), '');
+      }
+      for (const f of sub.figures ?? []) {
+        const fig = source?.figures.find((x) => x.id === f.ref);
+        if (fig?.image && !opts.omitCrops) {
+          out.push(`![그림 ${fig.number}](${fig.image})`, '', `*${fig.caption}*`, '');
+        } else if (fig) {
+          out.push(`*${fig.caption}*`, '');
+        }
+      }
+      for (const w of sub.widgets ?? []) {
+        out.push(
+          ...widgetMarkdown(w, {
+            cell: (v) => {
+              const src = v.src;
+              if (!src || !('table' in src)) return String(v.value);
+              const t = source?.tables.find((x) => x.id === src.table);
+              return t?.rows[src.row]?.[src.col] ?? String(v.value);
+            },
+          }),
+        );
+      }
     });
   });
+  if (report.cards?.length) {
+    out.push('## 바깥 맥락', '');
+    for (const card of report.cards) {
+      out.push(`### ${card.title} (${CARD_KIND_LABEL[card.kind]})`, '');
+      const order = card.sources.map((s) => s.id);
+      const ref = (id: string) => `[${order.indexOf(id) + 1}]`;
+      for (const l of card.lineage ?? []) {
+        const extra = [
+          l.took && `가져온 것: ${plain(l.took)}`,
+          l.changed && `바꾼 것: ${plain(l.changed)}`,
+        ]
+          .filter(Boolean)
+          .join(', ');
+        out.push(`- ${l.year} ${l.title} ${ref(l.source)}${extra ? ` (${extra})` : ''}`);
+      }
+      for (const pt of card.points) out.push(`- ${plain(pt.text)} ${pt.sources.map(ref).join('')}`);
+      out.push('');
+      card.sources.forEach((s, k) => out.push(`${k + 1}. [${s.title}](${s.url})`));
+      out.push('');
+    }
+  }
+  if (report.links?.length && !opts.omitCrops) {
+    out.push('## 내 지식과 잇기', '');
+    for (const link of report.links) {
+      out.push(
+        `- **${link.title}** ${plain(link.note)} (${link.path}${link.line ? `:${link.line}` : ''})`,
+      );
+      out.push(`  > ${link.quote.replace(/\s+/g, ' ')}`);
+    }
+    out.push('');
+  }
+  if (report.limits?.length) {
+    out.push('## 검증 안 된 부분', '');
+    for (const l of report.limits) {
+      const refs = [...l.evidence.map(evidence), ...(l.card ? [`(맥락 카드 ${l.card})`] : [])];
+      out.push(`- ${plain(l.text)} ${refs.join(' ')}`.trimEnd());
+    }
+    out.push('');
+  }
 
   if (keywords.length > 0) {
     out.push('## 키워드', '');
@@ -117,10 +211,32 @@ export function renderExtensionMarkdown(ext: Extension, transcript: Transcript):
   return finish(out);
 }
 
+/** 마크다운 표 칸에서 세로줄과 줄바꿈이 표를 깨지 않게 한다 */
+const cell = (text: string) => text.replace(/\|/g, '\\|').replace(/\s+/g, ' ');
+
+function tableMd(num: string, caption: string, rows: string[][]): string[] {
+  const [head, ...body] = rows;
+  if (!head) return [];
+  return [
+    `**표 ${num}** ${caption.replace(/^Table\s*\d+\s*[:.]\s*/i, '')}`,
+    '',
+    `| ${head.map(cell).join(' | ')} |`,
+    `| ${head.map(() => '---').join(' | ')} |`,
+    ...body.map((r) => `| ${r.map(cell).join(' | ')} |`),
+  ];
+}
+
 function mdCiter(transcript: Transcript): (c: Cite) => string {
   const { meta, segments } = transcript;
   const long = meta.durationSec >= 3600;
   const at = (i: number) => segments[i]?.startSec ?? 0;
+  // 글 자료는 시각이 없어 문단 번호와 쪽을 적는다
+  if (isTextKind(meta.source)) {
+    return (c) => {
+      const label = unitLabel(transcript, c.key);
+      return label.startsWith('p.') ? ` [¶${c.key + 1}, ${label}]` : ` [${label}]`;
+    };
+  }
   return (c) => {
     const url = watchUrlAt(meta, at(c.key));
     return url ? ` [[${c.key + 1}]](${url})` : ` [${c.key + 1} ${formatTime(at(c.key), long)}]`;
@@ -142,11 +258,11 @@ function mdHeader({ meta }: Transcript): string[] {
   const facts = [
     meta.channel,
     meta.publishedAt,
-    formatTime(meta.durationSec, long),
+    isTextKind(meta.source) ? null : formatTime(meta.durationSec, long),
     CAPTION_LABEL[meta.captionSource],
   ].filter(Boolean);
   out.push(`> ${facts.join(' | ')}`);
-  if (meta.source === 'youtube' && meta.url) out.push(`> ${meta.url}`);
+  if (meta.source !== 'file' && meta.url && /^https?:/.test(meta.url)) out.push(`> ${meta.url}`);
   out.push('');
   return out;
 }

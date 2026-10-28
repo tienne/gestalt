@@ -61,8 +61,8 @@ const beforeAfter: Diagram = {
 };
 
 describe('새 도식 네 종류', () => {
-  it('스키마 버전은 1.4.0이다', () => {
-    expect(DIGEST_SCHEMA_VERSION).toBe('1.4.0');
+  it('스키마 버전은 읽기 렌즈 칸까지 더한 1.5.0이다', () => {
+    expect(DIGEST_SCHEMA_VERSION).toBe('1.5.0');
   });
 
   it('스키마와 lint를 통과한다', () => {

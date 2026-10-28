@@ -4,6 +4,8 @@ import { loadConfig } from '../../core/config.js';
 import { COMMENTS_DEFAULT_MAX, commentsMap, fetchComments } from '../../digest/comments.js';
 import { extractFrames } from '../../digest/frames.js';
 import { ingest } from '../../digest/ingest.js';
+import { lensSourceForLint } from '../../digest/lens-source.js';
+import { knowledgeContext } from '../../digest/lint-lens-context.js';
 import { lintDigest, lintErrors } from '../../digest/lint.js';
 import { pickScenes, sceneSecs } from '../../digest/scenes.js';
 import { mergeExtension, mergeReport } from '../../digest/merge.js';
@@ -220,6 +222,8 @@ export function digestValidateCommand(slug: string, opts: DigestCommonOptions): 
       templates: templateMap(templates),
       comments: commentsMap(store, slug) ?? undefined,
       scenes: sceneSecs(store, slug),
+      ...lensSourceForLint(store, slug),
+      knowledge: knowledgeContext(store, slug),
     });
     const errors = lintErrors(issues);
     emit({ slug, ok: errors.length === 0, issues }, opts.json, () => {
@@ -237,18 +241,20 @@ export function digestValidateCommand(slug: string, opts: DigestCommonOptions): 
 // serve도 render와 같은 템플릿 목록으로 그려야 '+ 더 만들기' 메뉴가 사라지지 않는다
 export function renderDigestFiles(
   slug: string,
-  opts: DigestCommonOptions & { inlineFrames?: boolean },
+  opts: DigestCommonOptions & { inlineFrames?: boolean; crops?: boolean },
 ): RenderFilesResult {
   return renderToFiles(slug, {
     repoRoot: rootOf(opts),
     inlineFrames: opts.inlineFrames,
+    // commander의 --no-crops는 crops: false로 온다
+    omitCrops: opts.crops === false,
     templates: templatesOf(opts).templates,
   });
 }
 
 export function digestRenderCommand(
   slug: string,
-  opts: DigestCommonOptions & { inlineFrames?: boolean },
+  opts: DigestCommonOptions & { inlineFrames?: boolean; crops?: boolean },
 ): void {
   try {
     const r = renderDigestFiles(slug, opts);

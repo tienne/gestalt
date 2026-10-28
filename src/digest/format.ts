@@ -26,4 +26,5 @@ export const CAPTION_LABEL: Record<Transcript['meta']['captionSource'], string> 
   manual: '수동 자막',
   auto: '자동 자막',
   whisper: '음성 인식(whisper)',
+  text: '본문 추출',
 };

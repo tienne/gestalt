@@ -654,6 +654,7 @@ Each skill is a slash command in Claude Code. In Codex the same skill is `gestal
 | `/brief` | Performance reports, proposals, RFCs, and decision memos written as prose for stakeholders |
 | `/presentation` | Slide decks — `presentation-writer` writes the content and `presentation-designer` builds Reveal.js HTML |
 | `/video-digest` | Turn a YouTube video into a summary viewer where every bullet cites transcript sentences, with a table of contents, player, and a script that follows playback. Also exports Markdown |
+| `/lens` | Read a paper PDF, web article, or podcast with a companion viewer. Every sentence cites the source page and paragraph, claims that disagree with the source's own tables get a doubt mark, and unverified parts are collected at the end. Adds prior-work cards, links to your own notes, and interactive figures drawn from the source tables |
 | `/explain` | Explain a concept, error, or code for a chosen audience, then check it with `explain-check` |
 | `/jira-create` | Draft a Jira ticket with `jira-writer` and create it after you approve the preview |
 | `/slack-send` | Draft a Slack message in the author's voice and send or schedule it after you approve |

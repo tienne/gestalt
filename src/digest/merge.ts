@@ -1,5 +1,7 @@
 import { extensionKey, extensionSchema, type Extension } from './blocks.js';
 import { commentsMap } from './comments.js';
+import { lensSourceForLint } from './lens-source.js';
+import { knowledgeContext } from './lint-lens-context.js';
 import { sceneSecs } from './scenes.js';
 import { lintDigest, lintErrors, type DigestIssue } from './lint.js';
 import type { ExtensionLintOptions } from './lint-extension.js';
@@ -53,9 +55,15 @@ export function mergeReport(repoRoot: string, slug: string, input: unknown): Mer
     ...digest,
     schemaVersion: DIGEST_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
+    source: { kind: t.transcript.meta.source },
   };
-  // shots 시각은 후보 장면이어야 합친다. 파일이 없으면 null이라 shots가 있는 리포트는 오류로 걸린다
-  const issues = lintDigest(merged, t.transcript, { scenes: sceneSecs(store, slug) });
+  // shots 시각은 후보 장면이어야 합친다. 파일이 없으면 null이라 shots가 있는 리포트는 오류로 걸린다.
+  // 읽기 렌즈 리포트는 표 칸과 그림 출처를 source.json과 대조한다
+  const issues = lintDigest(merged, t.transcript, {
+    scenes: sceneSecs(store, slug),
+    ...lensSourceForLint(store, slug),
+    knowledge: knowledgeContext(store, slug),
+  });
   const saved = lintErrors(issues).length === 0;
   const digestPath = saved ? store.saveDigest(merged) : store.digestPath(slug);
   const key = reportKey(report.options);
@@ -127,6 +135,7 @@ export function mergeExtension(
     comments: opts.comments !== undefined ? opts.comments : commentsMap(store, slug),
     strictVerbatim: true,
     scenes: sceneSecs(store, slug),
+    ...lensSourceForLint(store, slug),
   });
   const saved = lintErrors(issues).length === 0;
   const digestPath = saved ? store.saveDigest(merged) : store.digestPath(slug);
