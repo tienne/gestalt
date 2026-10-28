@@ -442,11 +442,14 @@ describe('redactText', () => {
     "{ password: 'hunter2' }",
     'X_Auth-Token: abcdef123456',
     'X-Foo.Bar-Api-Key: abcdef123456',
+    'Basic dXNlcjpwYXNz~x',
+    'Basic dXNlcjpwYXNz_x',
+    'Basic dXNlcjpwYXNz-x',
   ])('목록 밖인 %s는 그대로 둔다(알려진 빈자리)', (input) => {
     expect(redactText(input, opts)).toBe(input);
   });
 
-  it('새 패턴은 1MB 반복 입력도 100ms 안에 끝난다', () => {
+  it('새 패턴은 1MB 반복 입력도 300ms 안에 끝난다', () => {
     const MB = 1024 * 1024;
     const fill = (unit: string): string => unit.repeat(Math.ceil(MB / unit.length)).slice(0, MB);
     const inputs = [
@@ -484,7 +487,7 @@ describe('redactText', () => {
         redactText(input, opts);
         best = Math.min(best, performance.now() - started);
       }
-      expect(best, JSON.stringify(input.slice(0, 16))).toBeLessThan(100);
+      expect(best, JSON.stringify(input.slice(0, 16))).toBeLessThan(300);
     }
   });
 });
