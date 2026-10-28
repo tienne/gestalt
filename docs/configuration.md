@@ -191,7 +191,24 @@ interface GestaltConfig {
 
 ## 읽기 렌즈 (`lens`)
 
-`/lens` 스킬이 연결 카드 후보를 찾을 내 노트 폴더를 적는다. 스킬 입력 `knowledge`나 `gestalt lens knowledge --source`로 넘긴 폴더와 합친다.
+`/lens` 스킬이 연결 카드 후보를 찾을 내 노트 폴더는 세 군데서 합친다.
+
+1. 사용자 설정 `~/.gestalt/lens.json`. 처음 렌즈를 쓸 때 스킬이 노트 폴더 후보를 찾아 묻고 고른 폴더를 여기 적는다. 레포가 아니라 사용자 설정이라 한 번 연결하면 어느 레포에서든 쓴다. 손으로 고치려면 `gestalt lens notes` 명령을 쓴다
+2. 레포의 `gestalt.json` `lens.knowledgeSources`. 팀이 함께 보는 레포 안 문서 폴더처럼 레포에 묶인 자리만 적는다
+3. 부를 때 넘긴 폴더(스킬 입력 `knowledge`, `gestalt lens knowledge --source`)
+
+```bash
+gestalt lens notes list                 # 연결한 폴더와 노션 사용 여부
+gestalt lens notes detect [--scan <dir>]  # 후보 찾기
+gestalt lens notes add <폴더>...          # 연결
+gestalt lens notes remove <폴더>
+gestalt lens notes notion-on|notion-off  # 노션 MCP로도 찾기
+gestalt lens notes decline              # 쓰지 않음. 다음부터 묻지 않는다
+```
+
+후보 찾기는 Orca 없이 돈다. 이 레포와 옆 레포(상위 폴더), 홈의 흔한 작업 폴더와 문서 폴더(`~/Documents`, `~/Desktop`, `~/Downloads`, `~/notes`, `~/work`, `~/projects`, `~/code`, `~/dev`, `~/src`, `~/repos`, `~/github`, iCloud Obsidian)를 3단까지 훑는다. 이름이 notes, kb, wiki, journal 꼴인 폴더와 Obsidian 보관함(`.obsidian`), Logseq 그래프(`logseq/config.edn`), 노션 내보내기 폴더(`제목 <32자리 id>.md` 파일)를 찾고 노트가 셋 넘게 든 폴더만 낸다. Orca가 있으면 스킬이 등록된 레포를 `--scan`으로 더 넘긴다.
+
+노션은 파일이 아니라 노션 MCP가 붙은 세션에서만 찾는다. 스킬이 노션 페이지를 받아 리포트 폴더의 `knowledge-snapshots/`에 스냅샷으로 두고 다른 노트처럼 검사한다. 연결 카드에는 노션 원래 주소가 붙는다.
 
 ```json
 {

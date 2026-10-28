@@ -1306,6 +1306,7 @@ gestalt digest export <slug> --md [--report <key>] [--out <path>]
 gestalt lens ingest <PDF|웹 주소|오디오|피드|HTML 파일> [--kind pdf|web|podcast] [--slug <slug>] [--episode <n>] [--whisper-model <name>] [--no-speakers] [--url <원래 주소>]
 gestalt lens panels <slug> <figure-id> <장면 수>   # C 재구성 슬라이더 칸 수 상한
 gestalt lens knowledge <slug> [--source <폴더>]...   # 내 노트에서 연결 후보 찾기
+gestalt lens notes <list|detect|add|remove|notion-on|notion-off|decline> [폴더...]   # 노트 폴더 연결(~/.gestalt/lens.json)
 gestalt lens attach <slug> <카드 파일> [--report <key>]   # 맥락 카드와 연결 카드를 붙이고 다시 검사
 ```
 
