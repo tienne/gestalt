@@ -32,6 +32,10 @@ inputs:
     type: string
     required: false
     description: "'viewer'(기본, 로컬 서버로 띄운다) 또는 'md'(마크다운만 낸다)"
+  episode:
+    type: string
+    required: false
+    description: '팟캐스트 피드에서 고를 에피소드 번호. 0이 최신이다(기본 0)'
   depth:
     type: string
     required: false
@@ -97,6 +101,7 @@ Step 0 종류 판단 → Step 1 ingest → Step 2 리포트 작성 → Step 3 me
 | `slug` | `^[a-z0-9][a-z0-9-]{0,63}$` |
 | `kind` | `pdf`, `web`, `podcast` 중 하나 |
 | `depth` | `normal`, `deep`, `none` 중 하나 |
+| `episode` | 0 이상의 정수 |
 | `knowledge`의 각 경로 | `/`로 시작하고 작은따옴표(`'`)가 없는 값 |
 | `reportLang` | `^[A-Za-z0-9-]+$` |
 
@@ -113,8 +118,18 @@ Step 0 종류 판단 → Step 1 ingest → Step 2 리포트 작성 → Step 3 me
 ## Step 1 — 수집
 
 ```bash
-gestalt lens ingest '<source>' --repo-root '<repoRoot>' [--kind '<kind>'] [--slug '<slug>']
+gestalt lens ingest '<source>' --repo-root '<repoRoot>' [--kind '<kind>'] [--slug '<slug>'] [--episode <n>]
 ```
+
+자료마다 원문 창과 출처 단위가 다르다.
+
+| 자료 | 출처 단위 | 원문 창 |
+| --- | --- | --- |
+| 논문(pdf) | 문단과 쪽. 표 칸 | 쪽 그림. 출처 칩을 누르면 그 쪽으로 가서 문단을 칠한다 |
+| 웹 글(web) | 문단 번호 | 추출한 문단 목록. 출처 칩을 누르면 그 문단으로 스크롤한다 |
+| 팟캐스트(podcast) | 문장과 시각. 화자는 없다 | 오디오 플레이어와 스크립트. 시각을 누르면 그 자리로 옮긴다 |
+
+팟캐스트는 오디오를 받아 faster-whisper(기본 small 모델)로 받아쓴다. CPU에서는 오디오 길이만큼 걸릴 수 있으니 셸 도구의 백그라운드 실행으로 부르고 끝날 때까지 기다린다. 화자 구분은 하지 않는다. 출력의 `주의:` 줄에 이 사실이 나온다. 오디오 재생은 serve로 열었을 때만 된다.
 
 출력의 slug와 문단 수, 표와 그림 수를 받아 둔다. `저장:` 줄이 `transcript.json`, `원문 구조:` 줄이 `source.json`의 절대 경로다. 각각 `<transcriptPath>`, `<sourcePath>`로 받고 같은 폴더의 `report.draft.json`을 `<reportPath>`로 정한다. `주의:` 줄(칸 경계를 못 믿을 표, 크롭을 못 한 그림)은 Step 6 보고에 옮긴다.
 
