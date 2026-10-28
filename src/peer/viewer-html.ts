@@ -69,6 +69,12 @@ export function renderViewerHtml(nonce: string, maxViewers: number): string {
     live: '실시간',
     missing: '대화 기록 파일이 안 보여요',
     truncated: '대화 기록이 줄어들어서 멈췄어요',
+    offline: '주인 데몬이 오프라인이에요',
+  };
+  const CLOSED = {
+    removed: '명단에서 빠져 공유가 끊겼어요',
+    owner_removed: '주인이 명단에서 빠져 공유가 끊겼어요',
+    expired: '공유가 만료됐어요',
   };
 
   function render(ev) {
@@ -125,8 +131,10 @@ export function renderViewerHtml(nonce: string, maxViewers: number): string {
     statusEl.textContent = STATUS[JSON.parse(m.data).status] || '';
   });
   es.addEventListener('closed', (m) => {
-    statusEl.textContent = '공유가 종료됐어요';
-    const missed = JSON.parse(m.data).missed;
+    const closed = JSON.parse(m.data);
+    // 원격 공유의 reason은 주인 데몬이 보낸 글자다. 프로토타입 이름이 들어와도 안 걸리게 자기 키만 본다
+    statusEl.textContent = Object.hasOwn(CLOSED, closed.reason) ? CLOSED[closed.reason] : '공유가 종료됐어요';
+    const missed = closed.missed;
     if (missed > 0) {
       log.append(el('div', 'ev note', '공유가 종료돼 뒤쪽 ' + missed + '개는 못 받았어요'));
     }

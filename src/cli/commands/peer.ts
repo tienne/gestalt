@@ -1,11 +1,20 @@
-import { isAbsolute, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { isAbsolute, join, resolve } from 'node:path';
 import { PeerDaemon } from '../../peer/daemon.js';
 import { DaemonUnavailableError, request } from '../../peer/client.js';
 import { errMessage } from '../../peer/errors.js';
 import { claudeConfigDir, locateTranscript } from '../../peer/locate.js';
-import { peerRoot, socketPath } from '../../peer/paths.js';
+import { ensurePrivateDir, peerRoot, socketPath } from '../../peer/paths.js';
 import { isToolsLevel } from '../../peer/redact.js';
-import type { DaemonStatus, PeerRequest, ShareInfo } from '../../peer/protocol.js';
+import type {
+  DaemonStatus,
+  MemberInfo,
+  PeerRequest,
+  ShareInfo,
+  WatchListItem,
+  WatchResult,
+} from '../../peer/protocol.js';
+import { RelayServer } from '../../peer/relay.js';
 import { VIEWER_WARNING } from '../../peer/viewer-html.js';
 
 interface PeerOptions {
@@ -28,10 +37,10 @@ function resolveRoot(): string {
   }
 }
 
-async function call<T>(req: PeerRequest): Promise<T> {
+async function call<T>(req: PeerRequest, timeoutMs?: number): Promise<T> {
   const root = resolveRoot();
   try {
-    const res = await request<T>(socketPath(root), req);
+    const res = await request<T>(socketPath(root), req, timeoutMs);
     if (!res.ok) fail(res.error);
     return res.result;
   } catch (e) {
@@ -136,6 +145,12 @@ export async function peerShareCommand(
     return;
   }
   console.log(`공유를 열었어요 (${info.id}). 만료 ${time(info.expiresAt)}`);
+  if (info.link) {
+    console.log(`이 세션의 대화와 도구 출력이 링크를 연 팀원에게 보여요. ${VIEWER_WARNING}`);
+    console.log(`\n팀원에게 건넬 링크 (# 뒤가 공유 키예요):\n${info.link}`);
+    console.log(`\n내 뷰어:\n${info.url}\n`);
+    return;
+  }
   console.log(`이 세션의 대화와 도구 출력이 뷰어에 보여요. ${VIEWER_WARNING}`);
   console.log(`\n${info.url}\n`);
 }
@@ -156,6 +171,7 @@ export async function peerSharesCommand(options: PeerOptions): Promise<void> {
       `${s.id}${title}  ${s.status}  보는 사람 ${s.viewers}  도구 ${s.tools}  만료 ${time(s.expiresAt)}`,
     );
     console.log(`  ${s.url}`);
+    if (s.link) console.log(`  ${s.link}`);
   }
 }
 
@@ -176,4 +192,173 @@ export async function peerStatusCommand(options: PeerOptions): Promise<void> {
   console.log(
     `  뷰어 포트 ${status.viewerPort}, 열린 공유 ${status.shares}, 보는 사람 ${status.viewers}`,
   );
+  console.log(`  기기 id ${status.machineKey}`);
+  const t = status.team;
+  if (!t) {
+    console.log('  팀 없음 (`gestalt peer init` 또는 `gestalt peer join <코드>`)');
+    return;
+  }
+  console.log(`  팀 ${t.team} 판 ${t.epoch}, 나는 ${t.person}(${t.role ?? '명단 밖'})`);
+  console.log(
+    `  릴레이 ${t.relay} ${t.connection}, 원격으로 보는 사람 ${t.remoteViewers}, 보고 있는 공유 ${t.watches}`,
+  );
+}
+
+export async function peerInitCommand(
+  options: PeerOptions & { name?: string; relay?: string },
+): Promise<void> {
+  if (!options.name || !options.relay) fail('--name과 --relay를 주세요');
+  const t = await call<NonNullable<DaemonStatus['team']>>({
+    op: 'init',
+    person: options.name,
+    relay: options.relay,
+  });
+  if (options.json) {
+    console.log(JSON.stringify(t, null, 2));
+    return;
+  }
+  console.log(`팀을 만들었어요. 나는 ${t.person}(관리자), 판 ${t.epoch}`);
+  console.log(`\n릴레이를 띄울 머신에서 이걸 실행해 주세요:`);
+  console.log(
+    `  gestalt peer relay --port ${new URL(t.relay).port || '<포트>'} --team ${t.team}\n`,
+  );
+}
+
+export async function peerInviteCommand(options: PeerOptions & { name?: string }): Promise<void> {
+  if (!options.name) fail('--name을 주세요');
+  const r = await call<{ code: string; expiresAt: number }>({ op: 'invite', person: options.name });
+  if (options.json) {
+    console.log(JSON.stringify(r, null, 2));
+    return;
+  }
+  console.log(
+    `${options.name}에게 건넬 초대 코드예요. 한 번만 쓰이고 ${time(r.expiresAt)}에 만료돼요.`,
+  );
+  console.log(`비밀번호처럼 다뤄 주세요. 받은 사람이 \`gestalt peer join <코드>\`를 실행해요.\n`);
+  console.log(r.code + '\n');
+}
+
+export async function peerJoinCommand(
+  options: PeerOptions & { code: string; wait?: string },
+): Promise<void> {
+  const waitSecs = options.wait === undefined ? 60 : Number(options.wait);
+  if (!Number.isFinite(waitSecs) || waitSecs <= 0 || waitSecs > 600) fail('--wait는 1~600초예요');
+  const t = await call<NonNullable<DaemonStatus['team']>>(
+    { op: 'join', code: options.code, timeoutMs: waitSecs * 1000 },
+    waitSecs * 1000 + 5_000,
+  );
+  if (options.json) {
+    console.log(JSON.stringify(t, null, 2));
+    return;
+  }
+  console.log(`팀에 들었어요. 나는 ${t.person}, 판 ${t.epoch}, 릴레이 ${t.relay}`);
+}
+
+export async function peerRemoveCommand(options: PeerOptions & { name: string }): Promise<void> {
+  const r = await call<{ removed: number; epoch: number }>({ op: 'remove', person: options.name });
+  if (options.json) {
+    console.log(JSON.stringify(r));
+    return;
+  }
+  console.log(`${options.name}의 기기 ${r.removed}대를 뺐어요. 명단 판 ${r.epoch}`);
+  console.log('열린 공유에서 바로 끊기고 릴레이에도 다시 못 붙어요.');
+}
+
+export async function peerMembersCommand(options: PeerOptions): Promise<void> {
+  const list = await call<MemberInfo[]>({ op: 'members' });
+  if (options.json) {
+    console.log(JSON.stringify(list, null, 2));
+    return;
+  }
+  for (const m of list) {
+    const me = m.me ? ' (나)' : '';
+    console.log(
+      `${m.person}${me}  ${m.role}  ${m.online ? '온라인' : '오프라인'}  ${m.machineKey.slice(0, 12)}…`,
+    );
+  }
+}
+
+export async function peerWatchCommand(
+  options: PeerOptions & { link: string; open?: boolean },
+): Promise<void> {
+  const w = await call<WatchResult>({ op: 'watch', link: options.link }, 20_000);
+  if (options.json) {
+    console.log(JSON.stringify(w, null, 2));
+    return;
+  }
+  console.log(`${w.owner}의 공유(${w.share})를 보기 시작했어요. 보기 id ${w.id}`);
+  console.log(`\n${w.url}\n`);
+  if (options.open !== false) {
+    try {
+      const { default: open } = await import('open');
+      await open(w.url);
+    } catch (e) {
+      console.error(`브라우저를 못 열었어요: ${errMessage(e)}`);
+    }
+  }
+}
+
+export async function peerWatchesCommand(options: PeerOptions): Promise<void> {
+  const list = await call<WatchListItem[]>({ op: 'watches' });
+  if (options.json) {
+    console.log(JSON.stringify(list, null, 2));
+    return;
+  }
+  if (list.length === 0) {
+    console.log('보고 있는 공유가 없어요.');
+    return;
+  }
+  for (const w of list) {
+    console.log(`${w.id}  ${w.owner}/${w.share}  ${w.status}  이벤트 ${w.events}`);
+    console.log(`  ${w.url}`);
+  }
+}
+
+export async function peerUnwatchCommand(options: PeerOptions & { id: string }): Promise<void> {
+  const r = await call<{ id: string }>({ op: 'unwatch', id: options.id });
+  if (options.json) console.log(JSON.stringify(r));
+  else console.log(`보기를 멈췄어요 (${r.id}).`);
+}
+
+export async function peerRelayCommand(options: {
+  team?: string;
+  port?: string;
+  host?: string;
+  tlsCert?: string;
+  tlsKey?: string;
+}): Promise<void> {
+  if (!options.team) fail('--team <팀 id>를 주세요. 관리자의 `gestalt peer init` 출력에 있어요');
+  const port = options.port === undefined ? 8443 : Number(options.port);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) fail('--port는 0~65535예요');
+  if (!!options.tlsCert !== !!options.tlsKey) fail('--tls-cert와 --tls-key는 같이 주세요');
+  const root = resolveRoot();
+  let relay: RelayServer;
+  try {
+    ensurePrivateDir(join(root, 'relay'));
+    relay = new RelayServer({
+      team: options.team,
+      host: options.host ?? '0.0.0.0',
+      port,
+      rosterFile: join(root, 'relay', `${options.team}.json`),
+      tls: options.tlsCert
+        ? { cert: readFileSync(options.tlsCert), key: readFileSync(options.tlsKey!) }
+        : undefined,
+    });
+    await relay.start();
+  } catch (e) {
+    fail(`릴레이를 못 띄웠어요: ${errMessage(e)}`);
+  }
+  const scheme = options.tlsCert ? 'wss' : 'ws';
+  console.log(`peer 릴레이가 떴어요. ${scheme}://${options.host ?? '0.0.0.0'}:${relay.port}`);
+  console.log(
+    '대화 내용은 봉인된 채로만 지나가요. 릴레이가 보는 건 보낸 기기, 받는 기기, 크기, 시각이에요.',
+  );
+  if (!options.tlsCert) {
+    console.log('TLS 없이 떠 있어요. 라우팅 정보도 가리려면 --tls-cert와 --tls-key를 주세요.');
+  }
+  const stop = (): void => {
+    void relay.stop().then(() => process.exit(0));
+  };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
 }

@@ -22,6 +22,13 @@ import { DEFAULT_EXPIRES_MINUTES, MAX_EXPIRES_MINUTES, MAX_REQUEST_BYTES } from 
 import type { DaemonStatus, PeerRequest, PeerResponse, ShareInfo } from './protocol.js';
 import { isSessionId } from './locate.js';
 import { errMessage } from './errors.js';
+import { loadOrCreateMachineKey } from './keys.js';
+import type { MachineKey } from './keys.js';
+import { acquireDaemonLock, releaseDaemonLock } from './lock.js';
+import type { DaemonLock } from './lock.js';
+import { PeerNetwork, PeerNetworkError } from './network.js';
+import type { PeerNetworkOptions } from './network.js';
+import type { WatchListItem, WatchResult } from './protocol.js';
 
 export interface PeerDaemonOptions {
   root: string;
@@ -31,11 +38,15 @@ export interface PeerDaemonOptions {
   pollMs?: number;
   /** 가리기에서 `~`로 바꿀 홈. 테스트가 가짜 홈을 넣는다 */
   home?: string;
+  /** 릴레이에 다시 붙는 간격 같은 것. 테스트가 줄인다 */
+  network?: PeerNetworkOptions['transport'];
 }
 
 interface OpenShare {
   stream: ShareStream;
   token: string;
+  /** 링크의 `#` 뒤에 붙는 공유 키. 메모리에만 있다 */
+  shareKey: string;
   sessionId: string | null;
   createdAt: number;
   expiresAt: number;
@@ -52,15 +63,19 @@ interface FileId {
 }
 
 /**
- * `gestalt peer daemon`. 공유를 들고 대화 기록을 따라 읽어 로컬 뷰어로 흘린다.
+ * `gestalt peer daemon`. 공유를 들고 대화 기록을 따라 읽어 로컬 뷰어로 흘린다. 팀에
+ * 들었으면 팀 릴레이에 붙어 팀원에게 공유를 넘기고 팀원 공유를 받아 로컬 뷰어로 옮긴다.
  *
- * 바깥으로 나가는 연결이 하나도 없다. 소켓은 0600, 디렉토리는 0700이라 같은 OS
+ * 바깥으로 나가는 연결은 팀 릴레이 하나다. 소켓은 0600, 디렉토리는 0700이라 같은 OS
  * 사용자만 명령을 넣는다. 뷰어는 `127.0.0.1`에만 붙는다.
  */
 export class PeerDaemon {
   private ipc: Server | null = null;
   private viewer: ViewerServer;
   private state: PeerState | null = null;
+  private network: PeerNetwork | null = null;
+  private key: MachineKey | null = null;
+  private lock: DaemonLock | null = null;
   private shares = new Map<string, OpenShare>();
   private timer: NodeJS.Timeout | null = null;
   private startedAt = 0;
@@ -79,7 +94,8 @@ export class PeerDaemon {
     this.viewer = new ViewerServer({
       lookup: (id) => {
         const s = this.shares.get(id);
-        return s ? { stream: s.stream, token: s.token } : undefined;
+        if (s) return { stream: s.stream, token: s.token };
+        return this.network?.lookupWatch(id);
       },
       onConnect: (id) => this.state?.audit('viewer_connect', id),
       onDisconnect: (id) => this.state?.audit('viewer_disconnect', id),
@@ -101,24 +117,38 @@ export class PeerDaemon {
       }
     }
     ensurePrivateDir(this.options.root);
-    await this.clearStaleSocket();
-
-    const state = new PeerState(this.options.dbPath ?? statePath(this.options.root));
-    this.state = state;
+    const lock = await acquireDaemonLock(this.options.root, this.sock);
+    let state: PeerState | null = null;
     try {
+      await this.clearStaleSocket();
+      state = new PeerState(this.options.dbPath ?? statePath(this.options.root));
+      this.state = state;
       for (const id of state.closeDangling('daemon_restart')) {
         state.audit('share_close', id, 'daemon_restart');
       }
+      this.key = loadOrCreateMachineKey(this.options.root);
       await this.viewer.start(0);
       await this.listenIpc();
     } catch (err) {
       // stop()은 부르지 않는다. 여기까지 연 건 뷰어와 DB뿐이고 stop은 소켓 자리까지
       // 치우는 경로라 반쯤 뜬 데몬이 이미 떠 있는 다른 데몬의 자리를 건드릴 수 있다
       await this.viewer.stop();
-      state.close();
+      state?.close();
       this.state = null;
+      releaseDaemonLock(lock);
       throw err;
     }
+    this.lock = lock;
+    this.network = new PeerNetwork({
+      state,
+      key: this.key,
+      lookupShare: (id) => {
+        const s = this.shares.get(id);
+        return s ? { stream: s.stream, shareKey: s.shareKey } : undefined;
+      },
+      transport: this.options.network,
+    });
+    this.network.start();
     this.startedAt = Date.now();
 
     this.timer = setInterval(() => this.tick(), this.pollMs);
@@ -131,7 +161,12 @@ export class PeerDaemon {
     for (const id of [...this.shares.keys()]) this.closeShareSafely(id, 'daemon_stop');
     const ipc = this.ipc;
     this.ipc = null;
+    const network = this.network;
+    this.network = null;
     try {
+      await network?.stop().catch((err: unknown) => {
+        process.stderr.write(`[peer] network stop failed: ${errMessage(err)}\n`);
+      });
       await this.viewer.stop();
       if (ipc) {
         // 열린 연결이 남아 있으면 close 콜백이 안 불려 stop이 끝나지 않는다
@@ -148,6 +183,8 @@ export class PeerDaemon {
       this.removeOwnSocket();
       this.state?.close();
       this.state = null;
+      if (this.lock) releaseDaemonLock(this.lock);
+      this.lock = null;
     }
   }
 
@@ -191,7 +228,7 @@ export class PeerDaemon {
     }
   }
 
-  handle(req: PeerRequest): PeerResponse {
+  handle(req: PeerRequest): PeerResponse | Promise<PeerResponse> {
     switch (req.op) {
       case 'ping':
         return { ok: true, result: 'pong' };
@@ -208,9 +245,68 @@ export class PeerDaemon {
         this.closeShareSafely(req.id, 'unshare');
         return { ok: true, result: { id: req.id } };
       }
+      case 'init':
+        return this.withNetwork((n) => n.init(String(req.person), String(req.relay)));
+      case 'invite':
+        return this.withNetwork((n) => n.invite(String(req.person)));
+      case 'join': {
+        const timeout = req.timeoutMs;
+        return this.withNetworkAsync((n) =>
+          n.join(String(req.code), Number.isFinite(timeout) && timeout! > 0 ? timeout : undefined),
+        );
+      }
+      case 'remove':
+        return this.withNetwork((n) => n.remove(String(req.person)));
+      case 'members':
+        return this.withNetwork((n) => n.members());
+      case 'watch':
+        return this.withNetworkAsync(async (n): Promise<WatchResult> => {
+          const w = await n.watch(String(req.link));
+          return { id: w.id, share: w.share, owner: w.owner, url: this.viewerUrl(w.id, w.token) };
+        });
+      case 'watches':
+        return this.withNetwork((n): WatchListItem[] =>
+          n.listWatches().map((w) => ({
+            ...w,
+            url: this.viewerUrl(w.id, n.lookupWatch(w.id)!.token),
+          })),
+        );
+      case 'unwatch': {
+        const id = String(req.id);
+        return this.withNetwork((n) => {
+          if (!n.unwatch(id)) throw new PeerNetworkError(`보고 있는 공유가 아니에요: ${id}`);
+          return { id };
+        });
+      }
       default:
         return { ok: false, error: `모르는 요청이에요: ${String((req as { op?: unknown }).op)}` };
     }
+  }
+
+  private withNetwork<T>(fn: (n: PeerNetwork) => T): PeerResponse {
+    if (!this.network) return { ok: false, error: '데몬이 아직 안 떴어요' };
+    try {
+      return { ok: true, result: fn(this.network) };
+    } catch (err) {
+      return { ok: false, error: errMessage(err) };
+    }
+  }
+
+  private async withNetworkAsync<T>(fn: (n: PeerNetwork) => Promise<T>): Promise<PeerResponse> {
+    if (!this.network) return { ok: false, error: '데몬이 아직 안 떴어요' };
+    try {
+      return { ok: true, result: await fn(this.network) };
+    } catch (err) {
+      return { ok: false, error: errMessage(err) };
+    }
+  }
+
+  private viewerUrl(id: string, token: string): string {
+    return `http://127.0.0.1:${this.viewer.port}/s/${id}?t=${token}`;
+  }
+
+  private announceShares(): void {
+    this.network?.announce([...this.shares.keys()]);
   }
 
   private openShare(req: Extract<PeerRequest, { op: 'share' }>): PeerResponse {
@@ -248,12 +344,20 @@ export class PeerDaemon {
 
     const id = randomBytes(6).toString('base64url');
     const token = randomBytes(24).toString('base64url');
+    const shareKey = randomBytes(32).toString('base64url');
     const createdAt = Date.now();
     const expiresAt = createdAt + Math.round(minutes * 60_000);
     const stream = new ShareStream({ id, transcriptPath: real, tools, home: this.options.home });
     stream.poll();
 
-    this.shares.set(id, { stream, token, sessionId: req.sessionId ?? null, createdAt, expiresAt });
+    this.shares.set(id, {
+      stream,
+      token,
+      shareKey,
+      sessionId: req.sessionId ?? null,
+      createdAt,
+      expiresAt,
+    });
     this.state!.insertShare({
       id,
       sessionId: req.sessionId ?? null,
@@ -263,6 +367,7 @@ export class PeerDaemon {
       expiresAt,
     });
     this.state!.audit('share_open', id, JSON.stringify({ tools, expiresAt }));
+    this.announceShares();
     return { ok: true, result: this.info(id) };
   }
 
@@ -271,6 +376,7 @@ export class PeerDaemon {
     if (!share) return;
     this.shares.delete(id);
     share.stream.close(reason);
+    this.announceShares();
     this.state?.closeShare(id, reason);
     this.state?.audit('share_close', id, reason);
   }
@@ -293,7 +399,8 @@ export class PeerDaemon {
       oversizedLines: s.stream.oversizedLines,
       droppedEvents: s.stream.droppedEvents,
       title: s.stream.sessionTitle,
-      url: `http://127.0.0.1:${this.viewer.port}/s/${id}?t=${s.token}`,
+      url: this.viewerUrl(id, s.token),
+      link: this.network?.linkFor(id, s.shareKey),
     };
   }
 
@@ -307,6 +414,8 @@ export class PeerDaemon {
       startedAt: this.startedAt,
       shares: this.shares.size,
       viewers,
+      machineKey: this.key?.id ?? '',
+      team: this.network?.status() ?? null,
     };
   }
 
@@ -314,8 +423,9 @@ export class PeerDaemon {
    * 남은 소켓 파일을 치운다. 누가 받고 있으면 데몬이 이미 떠 있는 거라 던진다.
    * 소켓이 아닌 파일이면 안 지운다 — 경로를 잘못 줬을 때 남의 파일을 지우지 않게.
    *
-   * 살아 있는지 본 뒤 지우기 전 사이에 다른 데몬이 새 소켓을 만들면 그걸 지울 수 있다.
-   * 지우기 직전에 같은 파일인지 한 번 더 보지만 그 틈까지 막지는 못한다.
+   * 데몬 잠금(`peer.lock`)을 쥔 뒤에만 부른다. 잠금을 쥔 데몬은 하나라서 확인하고 지우는
+   * 사이에 다른 데몬이 새 소켓을 만들 수 없다. 잠금 없이 소켓을 만드는 옛 버전 데몬이
+   * 끼어드는 경우만 남아서 지우기 직전에 같은 파일인지 한 번 더 본다.
    */
   private async clearStaleSocket(): Promise<void> {
     if (!existsSync(this.sock)) return;
@@ -387,6 +497,8 @@ export class PeerDaemon {
   private serve(socket: Socket): void {
     let buf = '';
     let rejected = false;
+    // 오래 걸리는 요청(join, watch)이 있어도 답은 받은 차례대로 쓴다
+    let queue: Promise<void> = Promise.resolve();
     this.conns.add(socket);
     socket.on('close', () => this.conns.delete(socket));
     socket.setEncoding('utf8');
@@ -407,13 +519,18 @@ export class PeerDaemon {
       while (nl !== -1) {
         const line = buf.slice(0, nl);
         buf = buf.slice(nl + 1);
-        if (line.trim() !== '') socket.write(JSON.stringify(this.answer(line)) + '\n');
+        if (line.trim() !== '') {
+          queue = queue.then(async () => {
+            const res = await this.answer(line);
+            if (!socket.destroyed) socket.write(JSON.stringify(res) + '\n');
+          });
+        }
         nl = buf.indexOf('\n');
       }
     });
   }
 
-  private answer(line: string): PeerResponse {
+  private async answer(line: string): Promise<PeerResponse> {
     let req: unknown;
     try {
       req = JSON.parse(line);
@@ -428,7 +545,7 @@ export class PeerDaemon {
       return { ok: false, error: 'op가 없어요' };
     }
     try {
-      return this.handle(req as PeerRequest);
+      return await this.handle(req as PeerRequest);
     } catch (err) {
       return { ok: false, error: errMessage(err) };
     }

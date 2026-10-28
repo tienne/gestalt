@@ -1,5 +1,8 @@
 import type { ToolsLevel } from './redact.js';
-import type { ShareStatus } from './share.js';
+import type { ShareStatus } from './feed.js';
+import type { MemberInfo, TeamStatus } from './network.js';
+
+export type { MemberInfo, TeamStatus };
 
 /** IPC 한 줄 요청. 줄 단위 JSON이다 */
 export type PeerRequest =
@@ -13,7 +16,15 @@ export type PeerRequest =
       tools?: ToolsLevel;
       expiresMinutes?: number;
     }
-  | { op: 'unshare'; id: string };
+  | { op: 'unshare'; id: string }
+  | { op: 'init'; person: string; relay: string }
+  | { op: 'invite'; person: string }
+  | { op: 'join'; code: string; timeoutMs?: number }
+  | { op: 'remove'; person: string }
+  | { op: 'members' }
+  | { op: 'watch'; link: string }
+  | { op: 'watches' }
+  | { op: 'unwatch'; id: string };
 
 export type PeerResponse<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
 
@@ -36,6 +47,24 @@ export interface ShareInfo {
   droppedEvents: number;
   title?: string;
   url: string;
+  /** 팀에 들었으면 팀원에게 건넬 링크. 공유 키가 `#` 뒤에 붙는다 */
+  link?: string;
+}
+
+export interface WatchResult {
+  id: string;
+  share: string;
+  owner: string;
+  url: string;
+}
+
+export interface WatchListItem {
+  id: string;
+  share: string;
+  owner: string;
+  status: string;
+  events: number;
+  url: string;
 }
 
 export interface DaemonStatus {
@@ -45,10 +74,20 @@ export interface DaemonStatus {
   startedAt: number;
   shares: number;
   viewers: number;
+  /** 기기 id(Ed25519 공개키) */
+  machineKey: string;
+  team: TeamStatus | null;
 }
 
 /** 한 요청 줄의 한도. 소켓은 0600이지만 같은 사용자의 프로세스가 메모리를 못 불리게 둔다 */
 export const MAX_REQUEST_BYTES = 64 * 1024;
+
+/**
+ * 처음 붙는 팀원을 받는 방식. ask는 주인이 받아 주고 team은 명단에 있으면 바로 받는다.
+ * 기본은 ask다. 동작은 PR 4가 붙이고 지금은 명단에 있고 링크를 가진 팀원이면 바로 붙는다.
+ */
+export type FirstWatchApproval = 'ask' | 'team';
+export const DEFAULT_FIRST_WATCH_APPROVAL: FirstWatchApproval = 'ask';
 
 /** 기본 만료. 설계 원문의 8시간 */
 export const DEFAULT_EXPIRES_MINUTES = 8 * 60;
