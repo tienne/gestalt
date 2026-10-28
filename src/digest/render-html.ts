@@ -15,7 +15,6 @@ import {
   doubtHtml,
   glanceHtml,
   LENS_CSS,
-  LENS_FONT_LINK,
   limitsHtml,
   sectionContextHtml,
   sourceFigureHtml,
@@ -26,6 +25,7 @@ import {
 import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
 import { WIDGET_CSS, widgetHtml } from './render-widgets.js';
 import { initialReportIndex, isPreset, pairIndex, reportKey, reportLabel } from './reports.js';
+import { DIARY_CSS, DIARY_FONT_LINK } from './theme-diary.js';
 import { THEME_BOOT_JS, VIEWER_JS } from './viewer-js.js';
 import {
   boldPattern,
@@ -478,8 +478,8 @@ ${skippedHtml}</div>`;
     ? `<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary" tabindex="0">${summary}</div>\n${extPanels}`
     : summary;
 
-  // is-lens는 읽기 렌즈 리포트의 글꼴과 카드, is-doc은 좁은 화면에서 원문 창을 시트로 접는 글 자료다
-  const bodyClass = [isLensKind(kind) ? 'is-lens' : '', textKind ? 'is-doc' : '']
+  // is-diary는 모든 요약에 거는 다이어리 테마, is-lens는 읽기 렌즈 리포트, is-doc은 좁은 화면에서 원문 창을 시트로 접는 글 자료다
+  const bodyClass = ['is-diary', isLensKind(kind) ? 'is-lens' : '', textKind ? 'is-doc' : '']
     .filter(Boolean)
     .join(' ');
   const html = `<!doctype html>
@@ -490,7 +490,7 @@ ${skippedHtml}</div>`;
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${e(meta.title)}</title>
 <script>${THEME_BOOT_JS}</script>
-${isLensKind(kind) ? LENS_FONT_LINK : ''}<style>${CSS}${LENS_CSS}${WIDGET_CSS}</style>
+${DIARY_FONT_LINK}<style>${CSS}${LENS_CSS}${WIDGET_CSS}${DIARY_CSS}</style>
 ${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz-check,.zoom-btn{display:none}.quiz-exp{display:block!important}</style></noscript>' : ''}
 </head>
 <body${bodyClass ? ` class="${bodyClass}"` : ''}>
