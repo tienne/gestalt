@@ -193,6 +193,7 @@ export class SessionManager {
 
   updateResolutionScore(sessionId: string, score: ResolutionScore): void {
     const session = this.get(sessionId);
+    score.threshold ??= this.resolutionThreshold;
     score.signals = computeSignals(session, score, session.resolutionScore);
     session.resolutionScore = score;
     session.updatedAt = new Date().toISOString();
@@ -209,7 +210,7 @@ export class SessionManager {
       dimensions: score.dimensions,
       contradictions: score.contradictions ?? [],
       roundNumber: currentRound?.roundNumber ?? null,
-      threshold: score.threshold ?? this.resolutionThreshold,
+      threshold: score.threshold,
       readinessRuleVersion: READINESS_RULE_VERSION,
       signals: score.signals,
     });
@@ -268,10 +269,12 @@ export class SessionManager {
     const score = session.resolutionScore;
     const ready = score?.isReady === true;
     if (!ready && !options.force) {
-      const threshold = score?.threshold ?? this.resolutionThreshold;
-      // 기준값을 넘었는데 준비가 안 된 건 gate가 다시 채점을 기다리거나 결과로 보류한 경우뿐이다
+      // threshold가 비어 있는 점수는 다시 채점이 생기기 전 이벤트라 예전 상수로 판정된 값이다
+      const threshold =
+        score?.threshold ?? (score ? RESOLUTION_THRESHOLD : this.resolutionThreshold);
+      // 기준값이 기록된 점수가 기준값을 넘었는데 준비가 안 된 건 gate가 다시 채점을 기다리거나 결과로 보류한 경우뿐이다
       const hold =
-        score && score.overall >= threshold
+        score?.threshold !== undefined && score.overall >= score.threshold
           ? score.signals?.rescore
             ? 'held'
             : 'pending'

@@ -45,9 +45,9 @@ export class InterviewNotReadyError extends InterviewError {
     const current = score === null ? '측정 전' : score.toFixed(2);
     super(
       rescoreHold === 'pending'
-        ? `해상도 점수(${current})가 기준값(${threshold})을 넘었지만 다시 채점을 아직 받지 않아 인터뷰를 완료할 수 없습니다. rescorePrompt로 다시 채점한 점수를 score에 rescore: true로 넘기세요.`
+        ? `해상도 점수(${current})가 기준값(${threshold})을 넘었지만 다시 채점을 아직 받지 않아 인터뷰를 완료할 수 없습니다. 다시 채점을 받거나 인터뷰를 계속 진행하세요.`
         : rescoreHold === 'held'
-          ? `해상도 점수(${current})가 기준값(${threshold})을 넘었지만 다시 채점한 결과가 벌어져 완료가 보류됐습니다. gestaltContext로 다음 질문을 만들어 인터뷰를 계속 진행하세요.`
+          ? `해상도 점수(${current})가 기준값(${threshold})을 넘었지만 다시 채점 결과 때문에 완료가 보류됐습니다. 인터뷰를 계속 진행하세요.`
           : `해상도 점수(${current})가 임계값(${threshold})에 못 미쳐 인터뷰를 완료할 수 없습니다. 인터뷰를 계속 진행하거나 force=true로 넘기세요.`,
     );
     this.name = 'InterviewNotReadyError';
