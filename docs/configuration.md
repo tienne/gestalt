@@ -339,7 +339,7 @@ interface GestaltConfig {
 
 **해상도 점수 산정은 서버가 직접 LLM을 부를 때만 이 경로를 탄다.** `client`가 `claude-code`, `codex`, `grok`이거나 API 키가 없으면 인터뷰는 Passthrough로 돈다. 그때는 점수를 호출자(호스트 LLM)가 매기므로 어댑터를 안 거친다. 그래서 이 라우팅이 실제로 사는 자리는 CLI(`gestalt interview`, `gestalt spec`)와 `client: "both"` + API 키 조합이다. KB 요약은 서버가 부르는 쪽이라 이 조건을 안 탄다. 대신 `summarize`를 켜야 돈다.
 
-> **품질 영향은 아직 측정하지 않았다.** 해상도 점수는 인터뷰를 언제 끝낼지 정하는 값(기준값 `interview.resolutionThreshold`, 기본 0.8)이라 모델을 내려서 점수가 흔들리면 라운드 수가 달라진다. `pnpm tsx scripts/verify-frugal-scoring.ts`가 golden-set 20건을 두 tier로 채점해 편차와 임계값 판정이 뒤집힌 건수를 낸다. KB 요약 쪽은 그에 대응하는 검증이 아직 없어서 opt-in으로 둔다. 요약문은 KB 본문과 임베딩에 남는다. 되돌리려면 KB를 다시 만들어야 한다.
+> **품질 영향은 아직 측정하지 않았다.** 해상도 점수는 인터뷰를 언제 끝낼지 정하는 값(기준값 `interview.resolutionThreshold`, 기본 0.8)이라 모델을 내려서 점수가 흔들리면 라운드 수가 달라진다. `pnpm tsx scripts/verify-frugal-scoring.ts`가 golden-set 20건을 두 tier로 채점해 편차와 기준값 판정이 뒤집힌 건수를 낸다. KB 요약 쪽은 그에 대응하는 검증이 아직 없어서 opt-in으로 둔다. 요약문은 KB 본문과 임베딩에 남는다. 되돌리려면 KB를 다시 만들어야 한다.
 
 > **참고**: Execute Engine은 LLM 호출 방식과 무관하게 **항상 Passthrough 모드**로 동작합니다.
 > API 키 유무는 Execute 동작에 영향을 주지 않습니다.
