@@ -79,6 +79,8 @@ export interface NoteFolderCandidate {
   path: string;
   /** 폴더 안 노트 파일 수(3단 아래까지, 상한에서 멈춘다) */
   notes: number;
+  /** 노트가 상한(2000개)보다 많아 세다 멈췄다. 이때 notes는 실제 수가 아니라 하한이다 */
+  notesCapped?: boolean;
   /** 왜 후보가 됐는지. 이름(notes, kb 같은), Obsidian 보관함, Logseq 그래프, 노션 내보내기 폴더다 */
   reason: 'name' | 'obsidian' | 'logseq' | 'notion-export';
   /** 가장 최근에 고친 노트 이름 셋. 사용자가 어느 폴더인지 알아보게 보여 준다 */
@@ -92,25 +94,40 @@ export interface NoteFolderCandidate {
 const NOTE_DIR =
   /^(notes?|kb|knowledge|knowledge-base|wiki|journal|memos?|til|zettelkasten|vault)$/i;
 const NOTE_EXTS = ['.md', '.markdown', '.txt'];
-const SKIP = new Set(['node_modules', 'dist', 'build', 'out', 'vendor', 'target', 'coverage']);
+/** 노트가 아닌 빌드 산출물과 의존성 폴더. knowledge.ts의 노트 찾기도 같은 목록으로 건너뛴다 */
+export const SKIP_DIRS = new Set([
+  'node_modules',
+  'dist',
+  'build',
+  'out',
+  'vendor',
+  'target',
+  'coverage',
+]);
 const NOTE_CAP = 2000;
 const MIN_NOTES = 3;
 
 function listDirs(dir: string): string[] {
   try {
     return readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !SKIP.has(e.name))
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !SKIP_DIRS.has(e.name))
       .map((e) => join(dir, e.name));
   } catch {
     return [];
   }
 }
 
-/** 노트 파일 수와 최근 노트. 3단 아래까지만 보고 상한을 넘으면 멈춘다 */
-function noteStats(dir: string): { notes: number; recent: string[]; updatedAt: number } {
+/** 노트 파일 수와 최근 노트. 3단 아래까지만 보고 상한을 넘으면 멈추고 멈췄다고 표시한다 */
+function noteStats(dir: string): {
+  notes: number;
+  notesCapped?: boolean;
+  recent: string[];
+  updatedAt: number;
+} {
   const files: Array<{ name: string; mtime: number }> = [];
+  let capped = false;
   const walk = (d: string, depth: number) => {
-    if (files.length >= NOTE_CAP || depth > 3) return;
+    if (capped || depth > 3) return;
     let entries;
     try {
       entries = readdirSync(d, { withFileTypes: true });
@@ -118,16 +135,21 @@ function noteStats(dir: string): { notes: number; recent: string[]; updatedAt: n
       return;
     }
     for (const e of entries) {
-      if (e.name.startsWith('.') || SKIP.has(e.name)) continue;
+      if (capped) return;
+      if (e.name.startsWith('.') || SKIP_DIRS.has(e.name)) continue;
       const p = join(d, e.name);
       if (e.isDirectory()) walk(p, depth + 1);
       else if (e.isFile() && NOTE_EXTS.some((x) => e.name.toLowerCase().endsWith(x))) {
+        // 상한을 채운 뒤에 노트가 하나 더 나오면 거기서 멈춘다. 딱 상한만큼 있으면 멈춤 표시를 안 단다
+        if (files.length >= NOTE_CAP) {
+          capped = true;
+          return;
+        }
         try {
           files.push({ name: e.name, mtime: statSync(p).mtimeMs });
         } catch {
           // 읽다 사라진 파일은 건너뛴다
         }
-        if (files.length >= NOTE_CAP) return;
       }
     }
   };
@@ -135,6 +157,7 @@ function noteStats(dir: string): { notes: number; recent: string[]; updatedAt: n
   files.sort((a, b) => b.mtime - a.mtime);
   return {
     notes: files.length,
+    ...(capped ? { notesCapped: true } : {}),
     recent: files.slice(0, 3).map((f) => f.name),
     updatedAt: files[0]?.mtime ?? 0,
   };
@@ -158,23 +181,32 @@ function isNotionExport(dir: string): boolean {
   }
 }
 
-/** 한 번 훑을 때 볼 폴더 수 상한. 홈 아래 큰 폴더에서 탐지가 오래 붙잡히지 않게 한다 */
+/**
+ * 한 번 훑을 때 볼 폴더 수 상한. 홈 아래 큰 폴더에서 탐지가 오래 붙잡히지 않게 한다.
+ * 바탕 폴더마다 나눠 줘서 앞쪽 폴더가 다 써 버려도 뒤쪽 폴더를 훑는다
+ */
 const VISIT_CAP = 30000;
 
 /**
  * 폴더를 3단 아래까지 훑어 노트 폴더 후보를 모은다. 이름이 notes, kb, wiki 꼴인 폴더,
  * Obsidian 보관함(.obsidian), Logseq 그래프(logseq/config.edn), 노션 내보내기 폴더를 찾는다.
- * 후보를 찾은 폴더 안으로는 더 내려가지 않는다
+ * 후보를 찾은 폴더 안으로는 더 내려가지 않는다. 받은 몫(cap)만큼 폴더를 보면 멈추고 stopped로 알린다
  */
 function scanBase(
   base: string,
   found: Map<string, NoteFolderCandidate['reason']>,
-  budget: { left: number },
-): void {
+  cap: number,
+): { visited: number; stopped: boolean } {
+  let visited = 0;
+  let stopped = false;
   const walk = (d: string, depth: number) => {
-    if (depth > 3 || budget.left <= 0) return;
+    if (depth > 3 || stopped) return;
     for (const sub of listDirs(d)) {
-      if (--budget.left <= 0) return;
+      if (visited >= cap) {
+        stopped = true;
+        return;
+      }
+      visited++;
       const marker = appMarker(sub);
       const reason =
         marker ??
@@ -188,11 +220,13 @@ function scanBase(
         continue;
       }
       walk(sub, depth + 1);
+      if (stopped) return;
     }
   };
   const top = appMarker(base);
   if (top) found.set(realpathSync.native(base), top);
   else walk(base, 0);
+  return { visited, stopped };
 }
 
 /**
@@ -245,18 +279,33 @@ export interface DetectOptions {
   scan?: string[];
   home?: string;
   userFile?: string;
+  /** 폴더 수 상한. 테스트가 작은 값을 넘긴다 */
+  visitCap?: number;
+}
+
+export interface DetectResult {
+  candidates: NoteFolderCandidate[];
+  /** 몫을 다 써서 끝까지 못 훑은 바탕 폴더. 여기 든 폴더 안의 후보는 빠졌을 수 있다 */
+  partialBases: string[];
 }
 
 /**
  * 연결할 만한 노트 폴더를 찾는다. 노트가 3개 넘게 든 폴더만 후보로 내고 바깥 폴더에 든 안쪽 후보는 뺀다.
  * 찾기만 하고 연결은 하지 않는다. 연결은 사용자가 고른 뒤 addNoteSources로 한다
  */
-export function detectNoteFolders(opts: DetectOptions): NoteFolderCandidate[] {
+export function detectNoteFolders(opts: DetectOptions): DetectResult {
   const home = opts.home ?? homedir();
   const configured = new Set(readUserLens(opts.userFile).knowledgeSources);
   const found = new Map<string, NoteFolderCandidate['reason']>();
-  const budget = { left: VISIT_CAP };
-  for (const base of detectBases(opts.repoRoot, home, opts.scan)) scanBase(base, found, budget);
+  const bases = detectBases(opts.repoRoot, home, opts.scan);
+  const partialBases: string[] = [];
+  // 남은 상한을 남은 바탕 폴더 수로 나눠 준다. 앞 폴더가 덜 쓰고 남긴 몫은 뒤 폴더가 받고 합계는 상한을 안 넘는다
+  let left = opts.visitCap ?? VISIT_CAP;
+  bases.forEach((base, i) => {
+    const { visited, stopped } = scanBase(base, found, Math.floor(left / (bases.length - i)));
+    left -= visited;
+    if (stopped) partialBases.push(base);
+  });
   const paths = [...found.keys()];
   const outer = paths.filter((p) => !paths.some((q) => inside(p, q)));
   const out: NoteFolderCandidate[] = [];
@@ -265,5 +314,5 @@ export function detectNoteFolders(opts: DetectOptions): NoteFolderCandidate[] {
     if (s.notes < MIN_NOTES) continue;
     out.push({ path: p, reason: found.get(p)!, ...s, configured: configured.has(p) });
   }
-  return out.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 10);
+  return { candidates: out.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 10), partialBases };
 }

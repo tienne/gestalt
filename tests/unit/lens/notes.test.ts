@@ -52,7 +52,12 @@ describe('노트 폴더 탐지', () => {
       `아이디어 ${'b'.repeat(32)}.md`,
       `참고 ${'c'.repeat(32)}.md`,
     ]);
-    const found = detectNoteFolders({ repoRoot: repo, home, userFile: join(root, 'lens.json') });
+    const { candidates: found, partialBases } = detectNoteFolders({
+      repoRoot: repo,
+      home,
+      userFile: join(root, 'lens.json'),
+    });
+    expect(partialBases).toEqual([]);
     const byPath = Object.fromEntries(found.map((c) => [c.path, c.reason]));
     expect(byPath).toEqual({
       [join(repo, 'docs', 'notes')]: 'name',
@@ -69,7 +74,7 @@ describe('노트 폴더 탐지', () => {
     notes(join(other, 'kb'), ['1.md', '2.md', '3.md']);
     const file = join(root, 'lens.json');
     addNoteSources([join(other, 'kb')], file);
-    const found = detectNoteFolders({
+    const { candidates: found } = detectNoteFolders({
       repoRoot: join(root, 'nowhere'),
       home: join(root, 'home'),
       scan: [other],
@@ -77,6 +82,38 @@ describe('노트 폴더 탐지', () => {
     });
     expect(found).toHaveLength(1);
     expect(found[0]).toMatchObject({ path: join(other, 'kb'), configured: true });
+  });
+
+  it('폴더 수 상한을 바탕 폴더마다 나눠 앞 폴더가 다 써도 뒤 폴더를 훑고 멈춘 폴더를 알린다', () => {
+    const root = tmp();
+    const repo = join(root, 'x', 'repo');
+    for (let i = 0; i < 20; i++) mkdirSync(join(repo, `d${i}`), { recursive: true });
+    const other = join(root, 'other');
+    notes(join(other, 'kb'), ['1.md', '2.md', '3.md']);
+    const { candidates, partialBases } = detectNoteFolders({
+      repoRoot: repo,
+      home: join(root, 'home'),
+      scan: [other],
+      userFile: join(root, 'lens.json'),
+      visitCap: 9,
+    });
+    expect(candidates.map((c) => c.path)).toEqual([join(other, 'kb')]);
+    expect(partialBases).toEqual([repo, join(root, 'x')]);
+  });
+
+  it('노트가 상한보다 많으면 세다 멈추고 notesCapped를 단다', () => {
+    const root = tmp();
+    const kb = join(root, 'repo', 'kb');
+    notes(
+      kb,
+      Array.from({ length: 2001 }, (_, i) => `${i}.md`),
+    );
+    const { candidates } = detectNoteFolders({
+      repoRoot: join(root, 'repo'),
+      home: join(root, 'home'),
+      userFile: join(root, 'lens.json'),
+    });
+    expect(candidates[0]).toMatchObject({ path: kb, notes: 2000, notesCapped: true });
   });
 });
 
@@ -99,7 +136,7 @@ describe('노트 연결 저장(~/.gestalt/lens.json)', () => {
     const file = join(root, 'lens.json');
     notes(join(root, 'kb'), ['flavor.md']);
     addNoteSources([join(root, 'kb')], file);
-    expect(knowledgeRoots(join(root, 'repo'), [], file)).toEqual([join(root, 'kb')]);
+    expect(knowledgeRoots(join(root, 'repo'), [], file).roots).toEqual([join(root, 'kb')]);
 
     const store = new DigestStore(root);
     store.saveTranscript(lensTranscript());

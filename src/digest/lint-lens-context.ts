@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import type { DigestIssue } from './lint.js';
@@ -18,6 +18,15 @@ export const knowledgeFileSchema = z.object({
       terms: z.array(z.string()),
     }),
   ),
+  /** 자르기 전 겹친 줄 수. hits는 앞 몇 개만 싣는다. 옛 파일에는 없다 */
+  totalHits: z.number().int().nonnegative().optional(),
+  /**
+   * 상한에 닿아 일부만 봤는지. files는 노트 파일 수, bytes는 읽은 크기 합계,
+   * hits는 실은 줄 수, terms는 찾을 말 수 상한이다. 옛 파일에는 없다
+   */
+  truncated: z
+    .object({ files: z.boolean(), bytes: z.boolean(), hits: z.boolean(), terms: z.boolean() })
+    .optional(),
 });
 
 export type KnowledgeFile = z.infer<typeof knowledgeFileSchema>;
@@ -173,12 +182,22 @@ export function knowledgeContext(store: DigestStore, slug: string): KnowledgeCon
   if (raw.kind !== 'ok') return null;
   const parsed = knowledgeFileSchema.safeParse(raw.value);
   if (!parsed.success) return null;
+  const realRoots = parsed.data.roots.map((r) => {
+    try {
+      return realpathSync(r);
+    } catch {
+      return r;
+    }
+  });
   return {
     roots: parsed.data.roots,
     read: (abs) => {
       if (!isAbsolute(abs)) return null;
       try {
-        return readFileSync(abs, 'utf-8');
+        // 노트 폴더 안 심링크가 밖을 가리키면 따라가지 않는다. 실제 경로가 지식 소스 폴더 안일 때만 읽는다
+        const real = realpathSync(abs);
+        if (!realRoots.some((r) => inside(r, real))) return null;
+        return readFileSync(real, 'utf-8');
       } catch {
         return null;
       }

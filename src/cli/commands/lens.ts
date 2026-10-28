@@ -93,11 +93,22 @@ export async function lensKnowledgeCommand(
   opts: LensCommonOptions & { source?: string[] },
 ): Promise<void> {
   try {
-    const { path, file } = findKnowledge(slug, { repoRoot: rootOf(opts), sources: opts.source });
+    const { path, file, warnings } = findKnowledge(slug, {
+      repoRoot: rootOf(opts),
+      sources: opts.source,
+    });
     if (opts.json) {
       console.log(
         JSON.stringify(
-          { path, roots: file.roots, terms: file.terms, hits: file.hits.length },
+          {
+            path,
+            roots: file.roots,
+            terms: file.terms,
+            hits: file.hits.length,
+            totalHits: file.totalHits,
+            truncated: file.truncated,
+            warnings,
+          },
           null,
           2,
         ),
@@ -107,6 +118,17 @@ export async function lensKnowledgeCommand(
     console.log(`지식 소스: ${file.roots.join(', ') || '없음'}`);
     console.log(`찾은 말: ${file.terms.join(', ')}`);
     console.log(`겹치는 줄 ${file.hits.length}개`);
+    const cut = file.truncated;
+    if (cut && (cut.files || cut.bytes || cut.hits || cut.terms)) {
+      const why = [
+        cut.files && '노트 파일 수 상한에 닿음',
+        cut.bytes && '읽기 크기 상한에 닿음',
+        cut.hits && `겹치는 줄 ${file.totalHits ?? '?'}개 중 ${file.hits.length}개만 실음`,
+        cut.terms && `찾을 말을 ${file.terms.length}개로 자름`,
+      ].filter(Boolean);
+      console.log(`일부만 봤어요: ${why.join(', ')}`);
+    }
+    for (const w of warnings) console.log(`주의: ${w}`);
     console.log(`저장: ${path}`);
   } catch (e) {
     fail(e);
@@ -169,18 +191,24 @@ export async function lensNotesCommand(
       return;
     }
     if (action === 'detect') {
-      const candidates = detectNoteFolders({ repoRoot: rootOf(opts), scan: opts.scan });
+      const { candidates, partialBases } = detectNoteFolders({
+        repoRoot: rootOf(opts),
+        scan: opts.scan,
+      });
       const notionApp = notionAppInstalled();
-      if (opts.json) console.log(JSON.stringify({ candidates, notionApp }, null, 2));
+      const partial = partialBases.length > 0;
+      if (opts.json)
+        console.log(JSON.stringify({ candidates, notionApp, partial, partialBases }, null, 2));
       else if (candidates.length === 0) console.log('노트 폴더 후보를 못 찾았어요');
       else {
         for (const c of candidates) {
           const mark = c.configured ? ' (연결됨)' : '';
-          console.log(
-            `${c.path}${mark} (${c.reason}) 노트 ${c.notes}개, 최근: ${c.recent.join(', ')}`,
-          );
+          const count = c.notesCapped ? `${c.notes}개 넘음` : `${c.notes}개`;
+          console.log(`${c.path}${mark} (${c.reason}) 노트 ${count}, 최근: ${c.recent.join(', ')}`);
         }
       }
+      if (!opts.json && partial)
+        console.log(`일부 폴더는 끝까지 못 훑었어요: ${partialBases.join(', ')}`);
       if (!opts.json && notionApp)
         console.log('노션 앱이 깔려 있어요. 노션 MCP가 붙은 세션이면 노션에서도 찾을 수 있어요');
       return;

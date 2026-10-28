@@ -1,11 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ContextCard, KnowledgeLink } from '../../../src/digest/lens-schema.js';
 import { lensSourcePath } from '../../../src/digest/lens-source.js';
 import { lintDigest, lintErrors } from '../../../src/digest/lint.js';
-import type { KnowledgeContext } from '../../../src/digest/lint-lens-context.js';
+import {
+  KNOWLEDGE_FILE,
+  knowledgeContext,
+  knowledgeFileSchema,
+  type KnowledgeContext,
+} from '../../../src/digest/lint-lens-context.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { DigestStore } from '../../../src/digest/store.js';
@@ -193,7 +198,7 @@ describe('내 지식 찾기', () => {
     writeFileSync(join(notes, 'a.md'), 'intro\nFlavorGraph와 NMI 메모\n');
     writeFileSync(join(notes, '.secret', 'b.md'), 'FlavorGraph secret\n');
     writeFileSync(join(notes, 'c.json'), '{"FlavorGraph":1}');
-    const hits = searchNotes([notes], ['FlavorGraph', 'NMI']);
+    const { hits } = searchNotes([notes], ['FlavorGraph', 'NMI']);
     expect(hits).toEqual([
       {
         path: join(notes, 'a.md'),
@@ -211,9 +216,100 @@ describe('내 지식 찾기', () => {
       join(root, 'gestalt.json'),
       JSON.stringify({ lens: { knowledgeSources: ['kb', 'missing'] } }),
     );
-    const roots = knowledgeRoots(root, [join(root, 'kb')], join(root, 'no-user-lens.json'));
+    const { roots, warnings } = knowledgeRoots(
+      root,
+      [join(root, 'kb')],
+      join(root, 'no-user-lens.json'),
+    );
     expect(roots).toHaveLength(1);
     expect(roots[0]!.endsWith('/kb')).toBe(true);
+    expect(warnings).toEqual([]);
+  });
+
+  it('gestalt.json이 레포 밖(절대 경로, ../, 밖을 가리키는 심링크)을 가리키면 빼고 경고한다', () => {
+    const base = realpathSync(tmp());
+    const repo = join(base, 'repo');
+    const outside = join(base, 'private');
+    mkdirSync(join(repo, 'kb'), { recursive: true });
+    mkdirSync(outside);
+    symlinkSync(outside, join(repo, 'escape'));
+    writeFileSync(
+      join(repo, 'gestalt.json'),
+      JSON.stringify({ lens: { knowledgeSources: ['kb', outside, '../private', 'escape'] } }),
+    );
+    const { roots, warnings } = knowledgeRoots(repo, [], join(base, 'no-user-lens.json'));
+    expect(roots).toEqual([join(repo, 'kb')]);
+    expect(warnings).toHaveLength(3);
+    expect(warnings[0]).toMatch(/레포 밖/);
+    // 부를 때 넘긴 폴더(--source)는 레포 밖이어도 받는다
+    expect(knowledgeRoots(repo, [outside], join(base, 'no-user-lens.json')).roots).toEqual([
+      join(repo, 'kb'),
+      outside,
+    ]);
+  });
+
+  it('연결 카드 대조는 노트 폴더 밖을 가리키는 심링크를 따라가지 않는다', () => {
+    const root = realpathSync(tmp());
+    const notes = join(root, 'notes');
+    const secret = join(root, 'secret.md');
+    mkdirSync(notes);
+    writeFileSync(join(notes, 'ok.md'), 'FlavorGraph 메모\n');
+    writeFileSync(secret, '비밀\n');
+    symlinkSync(secret, join(notes, 'leak.md'));
+    const store = new DigestStore(root);
+    store.saveTranscript(lensTranscript());
+    writeJsonAtomic(join(store.dir(LENS_SLUG), KNOWLEDGE_FILE), {
+      roots: [notes],
+      terms: [],
+      hits: [],
+    });
+    const k = knowledgeContext(store, LENS_SLUG)!;
+    expect(k.read(join(notes, 'ok.md'))).toBe('FlavorGraph 메모\n');
+    expect(k.read(join(notes, 'leak.md'))).toBeNull();
+    const r = lensReport();
+    r.links = [link({ path: join(notes, 'leak.md'), quote: '비밀' })];
+    expect(lint(r, k)).toContain('LINK_FILE_MISSING');
+  });
+
+  it('빌드 산출물 폴더는 건너뛰고 상한에 닿으면 잘렸다고 알린다', () => {
+    const root = tmp();
+    const notes = join(root, 'notes');
+    for (const d of ['dist', 'build', 'vendor']) {
+      mkdirSync(join(notes, d), { recursive: true });
+      writeFileSync(join(notes, d, 'x.md'), 'FlavorGraph 빌드\n');
+    }
+    writeFileSync(join(notes, 'a.md'), 'FlavorGraph 1\nFlavorGraph 2\nFlavorGraph 3\n');
+    writeFileSync(join(notes, 'b.md'), 'FlavorGraph 4\n');
+    const all = searchNotes([notes], ['FlavorGraph']);
+    expect(all.hits.map((h) => h.path).every((p) => !/dist|build|vendor/.test(p))).toBe(true);
+    expect(all).toMatchObject({
+      totalHits: 4,
+      truncated: { files: false, bytes: false, hits: false },
+    });
+
+    const fewHits = searchNotes([notes], ['FlavorGraph'], { files: 10, totalBytes: 1e6, hits: 2 });
+    expect(fewHits.hits).toHaveLength(2);
+    expect(fewHits).toMatchObject({ totalHits: 4, truncated: { hits: true } });
+    expect(
+      searchNotes([notes], ['FlavorGraph'], { files: 1, totalBytes: 1e6, hits: 40 }).truncated
+        .files,
+    ).toBe(true);
+    expect(
+      searchNotes([notes], ['FlavorGraph'], { files: 10, totalBytes: 20, hits: 40 }).truncated
+        .bytes,
+    ).toBe(true);
+  });
+
+  it('합친 정규식으로 거른 뒤에도 말 경계를 그대로 지킨다', () => {
+    const root = tmp();
+    const notes = join(root, 'notes');
+    mkdirSync(notes);
+    writeFileSync(join(notes, 'a.md'), 'xNMI 붙은 말\nNMIx 붙은 말\nCSP 단독\n');
+    writeFileSync(join(notes, 'b.md'), 'NMI2 숫자 붙음\n');
+    const { hits } = searchNotes([notes], ['NMI', 'CSP']);
+    expect(hits).toEqual([
+      { path: join(notes, 'a.md'), line: 3, text: 'CSP 단독', terms: ['CSP'] },
+    ]);
   });
 
   it('findKnowledge가 knowledge.json을 쓴다', () => {
@@ -230,5 +326,11 @@ describe('내 지식 찾기', () => {
     });
     expect(file.terms).toContain('FlavorDiffusion');
     expect(file.hits[0]?.line).toBe(1);
+    expect(file.totalHits).toBe(file.hits.length);
+    expect(file.truncated).toEqual({ files: false, bytes: false, hits: false, terms: false });
+  });
+
+  it('잘림 칸이 없는 옛 knowledge.json도 읽는다', () => {
+    expect(knowledgeFileSchema.safeParse({ roots: [], terms: [], hits: [] }).success).toBe(true);
   });
 });
