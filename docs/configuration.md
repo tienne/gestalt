@@ -142,8 +142,8 @@ interface GestaltConfig {
 | 값 | 동작 |
 |---|---|
 | `off` | 다시 채점하지 않는다 |
-| `record` (기본) | 다시 채점해서 기록만 한다. `isReady`는 첫 점수로 정한다 |
-| `gate` | 다시 채점을 받기 전까지 `isReady`를 `false`로 둔다. 받은 뒤에는 두 overall 중 낮은 쪽으로 정하고 차원 하나라도 0.2보다 크게 흔들렸으면 `false`로 둔다. 다시 채점은 인터뷰마다 한 번이라 보류된 뒤 다시 기준값을 넘은 채점은 첫 점수 규칙(overall ≥ 기준값)으로 정한다. `rescoreMode`가 `same-context`여도 같은 규칙으로 정하고 이걸 그대로 둘지는 [제안서 열린 질문 6](./proposals/resolution-calibration.md#열린-질문)에서 정한다 |
+| `record` (기본) | 다시 채점해서 기록만 한다. `isReady`는 다시 채점 직전 점수 그대로 둔다 |
+| `gate` | 다시 채점을 받기 전까지 `isReady`를 `false`로 둔다. 받은 뒤에는 두 overall 중 낮은 쪽으로 정하고 차원 하나라도 0.2보다 크게 흔들렸으면 `false`로 둔다. 다시 채점은 인터뷰마다 한 번이라 보류된 뒤 다시 기준값을 넘은 채점은 기본 규칙(overall ≥ 기준값)으로 정한다. `rescoreMode`가 `same-context`여도 같은 규칙으로 정하고 이걸 그대로 둘지는 [제안서 열린 질문 6](./proposals/resolution-calibration.md#열린-질문)에서 정한다 |
 
 흐름과 응답 필드는 [`mcp-reference.md`](./mcp-reference.md#다시-채점하기)에 있다.
 
