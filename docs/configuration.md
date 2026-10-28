@@ -102,7 +102,7 @@ interface GestaltConfig {
 | `GESTALT_LOG_LEVEL` | `"debug"` \| `"info"` \| `"warn"` \| `"error"` | `"info"` | 로그 출력 레벨 |
 | `GESTALT_CLIENT` | `"claude-code"` \| `"codex"` \| `"both"` \| `"grok"` | `"claude-code"` | 액티브 세션 컨텍스트를 쓰는 호스트. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고 Interview/Spec passthrough를 강제한다. `"both"`는 Claude와 Codex만 쓰며 Grok 경로는 쓰지 않는다 |
 | `GESTALT_NO_UPDATE_CHECK` | `"1"` | — | `"1"` 로 설정하면 버전 업데이트 확인을 건너뜀 |
-| `GESTALT_LENS_MODELS` | string (절대 경로) | — | 팟캐스트 화자 구분 모델(sherpa-onnx) 자리. 없으면 `~/.local/share/gestalt/lens-models`. 모델이 없으면 처음 쓸 때 받는다 |
+| `GESTALT_LENS_MODELS` | string (절대 경로) | — | 팟캐스트 화자를 가르는 모델(sherpa-onnx)을 둘 폴더. 없으면 `~/.local/share/gestalt/lens-models`를 쓴다. 모델이 없으면 처음 쓸 때 받고 sha256을 확인한다 |
 | `GESTALT_LENS_PYTHON` | string (절대 경로) | — | 읽기 렌즈 추출(pdfplumber, trafilatura, faster-whisper)에 쓸 파이썬. 없으면 `~/.local/share/gestalt/lens-venv/bin/python`, 그것도 없으면 `python3`. 상대 경로는 거절한다. 동작은 [읽기 렌즈](#읽기-렌즈-lens) |
 
 잘못된 설정값은 경고를 출력하고 기본값으로 fallback한다 (에러를 throw하지 않음).
@@ -208,7 +208,7 @@ interface GestaltConfig {
 `/lens` 스킬이 연결 카드 후보를 찾을 내 노트 폴더는 세 군데서 합친다.
 
 1. 사용자 설정 `~/.gestalt/lens.json`. 처음 렌즈를 쓸 때 스킬이 노트 폴더 후보를 찾아 묻고 고른 폴더를 여기 적는다. 레포가 아니라 사용자 설정이라 한 번 연결하면 어느 레포에서든 쓴다. 손으로 고치려면 `gestalt lens notes` 명령을 쓴다
-2. 레포의 `gestalt.json` `lens.knowledgeSources`. 팀이 함께 보는 레포 안 문서 폴더처럼 레포에 묶인 자리만 적는다
+2. 레포의 `gestalt.json` `lens.knowledgeSources`. 팀이 함께 보는 레포 안 문서 폴더처럼 레포에 묶인 자리만 적는다. 레포 안 경로만 받는다. 레포 밖을 가리키면 버리고 경고한다. 남의 레포를 열었을 때 그 레포의 설정이 내 개인 폴더를 읽기 대상으로 정하지 못하게 하려는 것이다. 레포 밖 폴더는 1이나 3으로 연결한다
 3. 부를 때 넘긴 폴더(스킬 입력 `knowledge`, `gestalt lens knowledge --source`)
 
 ```bash
@@ -226,12 +226,14 @@ gestalt lens notes decline              # 쓰지 않음. 다음부터 묻지 않
 
 ```json
 {
-  "lens": { "knowledgeSources": ["../notes", "/Users/me/kb/docs/notes"] }
+  "lens": { "knowledgeSources": ["docs/notes", "kb"] }
 }
 ```
 
-- 상대 경로는 레포 루트 기준이다. 없는 폴더는 조용히 빠지고 `knowledge.json`의 `roots`에 안 실린다
-- `.md`, `.markdown`, `.txt`만 읽고 숨김 폴더와 `node_modules`는 건너뛴다. 남의 레포에 든 `gestalt.json`이 엉뚱한 폴더를 가리켜도 노트가 아닌 파일은 안 읽는다
+- 상대 경로는 레포 루트 기준이다. 절대 경로도 레포 안이면 받는다. `../notes`처럼 레포 밖으로 나가는 경로는 버리고 경고한다
+- 없는 폴더는 조용히 빠지고 `knowledge.json`의 `roots`에 안 실린다
+- 노트 파일 수와 읽는 바이트, 후보 줄(40개), 검색어(30개)에 상한이 있다. 상한에 닿으면 `knowledge.json`의 `truncated`에 어느 상한인지 적고 `totalHits`에 자르기 전 후보 줄 수를 적는다
+- `.md`, `.markdown`, `.txt`만 읽고 숨김 폴더와 `node_modules`는 건너뛴다
 - 노트 폴더는 읽기만 한다. 연결 카드의 인용은 그 폴더 안 파일에 글자 그대로 있어야 merge를 통과한다
 
 추출 도구는 파이썬 패키지라 렌즈 전용 가상환경을 권한다. 시스템 파이썬의 pip가 오래돼 새 휠을 못 받는 머신이 있어서다.
@@ -242,7 +244,9 @@ python3 -m venv ~/.local/share/gestalt/lens-venv
 ~/.local/share/gestalt/lens-venv/bin/python -m pip install pdfplumber trafilatura faster-whisper sherpa-onnx
 ```
 
-팟캐스트 화자 구분은 sherpa-onnx가 내준 두 모델(pyannote segmentation 3.0의 ONNX판, wespeaker ResNet34)을 쓴다. Hugging Face 토큰 없이 GitHub 릴리스에서 받고 `gestalt lens ingest`가 처음 쓸 때 `~/.local/share/gestalt/lens-models`에 받아 둔다.
+팟캐스트 화자 구분은 sherpa-onnx가 내준 두 모델(pyannote segmentation 3.0의 ONNX판, wespeaker ResNet34)을 쓴다. Hugging Face 토큰 없이 GitHub 릴리스에서 받고 `gestalt lens ingest`가 처음 쓸 때 `~/.local/share/gestalt/lens-models`에 받아 둔다. 받은 파일은 코드에 박아 둔 sha256과 맞을 때만 모델 폴더로 옮긴다. 맞지 않으면 그 모델을 쓰지 않고 화자 없이 시각만 출처로 단다.
+
+PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 타임아웃만 있고 메모리 상한이 없다. 신뢰할 수 없는 PDF는 격리된 환경(컨테이너나 별도 계정)에서 돌린다.
 
 다른 파이썬을 쓰려면 `GESTALT_LENS_PYTHON`에 절대 경로를 준다.
 

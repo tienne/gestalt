@@ -1216,9 +1216,9 @@ digest.md         마크다운 (render, export --md가 쓴다)
 
 ```
 source.json        표 칸과 그림, 쪽 목록 (lens ingest가 쓰고 lens panels가 그림 장면 수를 적는다)
-pages/ tables/ figures/   PDF 쪽 그림과 표, 그림 크롭 (lens ingest가 쓴다)
-knowledge.json     내 노트에서 찾은 연결 후보 (lens knowledge가 쓴다)
-cache/             원본 PDF, HTML, 오디오 (serve는 팟캐스트 오디오 하나만 내준다)
+pages/ tables/ figures/   PDF 쪽 그림과 원문에서 잘라낸 표와 그림(크롭) (lens ingest가 쓴다)
+knowledge.json     내 노트에서 찾은 연결 후보 (lens knowledge가 쓴다. 상한에 닿았으면 truncated에 적는다)
+cache/             원본 PDF, HTML, 오디오 (serve는 이 폴더 안의 팟캐스트 오디오 하나만 내준다)
 ```
 
 ### Actions
@@ -1238,7 +1238,7 @@ cache/             원본 PDF, HTML, 오디오 (serve는 팟캐스트 오디오 
 | `slug` | `string` | Y | — | `.gestalt/digest/` 아래 폴더 이름 |
 | `repoRoot` | `string` | | 서버 cwd | 레포 루트 |
 | `inlineFrames` | `boolean` | | `false` | `render`: 프레임을 HTML 안에 넣는다. 한 장 5MB, 합계 15MB를 넘는 프레임은 빼고 경고한다 |
-| `omitCrops` | `boolean` | | `false` | `render`: 읽기 렌즈 리포트에서 원문 쪽 그림과 표, 그림 크롭을 빼고 그린다. 남에게 공유할 HTML을 만들 때 쓴다. 원문 창은 추출 텍스트만 남는다 |
+| `omitCrops` | `boolean` | | `false` | `render`: 읽기 렌즈 리포트에서 원문 쪽 그림과 원문에서 잘라낸 표와 그림을 빼고 그린다. 노트 경로와 인용이 남에게 가지 않게 노트 연결 카드(내 지식과 잇기)도 HTML과 마크다운에서 빠진다. 남에게 공유할 HTML을 만들 때 쓴다. 원문 창은 추출 텍스트만 남는다 |
 | `items` | `{ path, text, hash }[]` | `prose_apply` | — | `prose_extract`가 준 항목. `text`만 바꿔 돌려준다 |
 | `dryRun` | `boolean` | | `false` | `prose_apply`: 검사만 하고 저장하지 않는다 |
 
@@ -1288,15 +1288,18 @@ cache/             원본 PDF, HTML, 오디오 (serve는 팟캐스트 오디오 
 | `GLANCE_MISSING` | 한눈에 보기에 자료별 칸(논문은 problem, method, result, limit)이 빠졌다 |
 | `LIMITS_MISSING`, `LIMIT_NO_SOURCE` | 검증 안 된 부분이 없거나 한 줄에 근거도 카드 id도 없다 |
 | `DOUBT_NOT_NUMERIC` | 의심 표시에 근거 칸의 숫자가 없다. 해석이 갈리는 의심은 맥락 카드로 간다 |
-| `DOUBT_NUMBER_UNKNOWN`, `LIMIT_NUMBER_UNKNOWN` | 근거 칸이 든 줄과 머리줄, 근거 문단에 없는 숫자다. 계산한 차이나 비율이 여기 걸린다 |
+| `DOUBT_NUMBER_UNKNOWN`, `LIMIT_NUMBER_UNKNOWN` | 근거 칸이 든 줄과 머리줄, 근거 문단에 없는 숫자다. 계산한 차이나 비율이 여기 걸린다. 카드 id와 근거를 같이 단 한계 줄도 대조한다 |
 | `TABLE_REF_UNKNOWN`, `CELL_REF_OUT_OF_RANGE`, `FIGURE_REF_UNKNOWN` | 없는 표나 칸, 그림을 가리킨다 |
 | `CARD_SOURCE_UNKNOWN`, `CARD_SECTION_UNKNOWN`, `CARD_ANCHOR_OUT_OF_SECTION`, `LIMIT_CARD_UNKNOWN` | 맥락 카드 줄의 출처 id가 없거나 붙인 대섹션이 맞지 않는다 |
 | `LINK_QUOTE_NOT_FOUND`, `LINK_OUTSIDE_SOURCES`, `LINK_NO_KNOWLEDGE` | 연결 카드 인용이 노트에 없거나 지식 소스 폴더 밖이거나 `knowledge.json`이 없다 |
 | `WIDGET_VALUE_MISMATCH`, `WIDGET_VALUE_NO_SOURCE`, `WIDGET_METRIC_UNKNOWN` | A, C 그림 값이 원문 칸과 다르거나 출처가 없거나 원문에 없는 지표 이름이다 |
+| `A_NO_VALUES` | 원문 데이터 그림(A)에 값이 하나도 없다 |
 | `B_HAS_DATA`, `B_METRIC_LABEL`, `B_BORROWS_NAME`, `B_FIGURE_TITLE`, `B_FIGURE_REF` | 설명용 그림이 원문 데이터나 결과 지표, 원문 이름, 그림 번호를 쓴다 |
-| `C_FIGURE_MISSING`, `C_DIFFERENCES_EMPTY`, `C_PANELS_UNKNOWN`, `C_STEPS_EXCEED_PANELS` | 원문 그림 재구성의 원문 id나 다른 점이 없거나 장면 수를 모르거나 넘는다 |
+| `B_HAS_NUMBER` | 설명용 그림 라벨에 숫자가 있다 |
+| `C_FIGURE_MISSING`, `C_DIFFERENCES_EMPTY`, `C_PANELS_UNKNOWN`, `C_STEPS_EXCEED_PANELS` | 다시 그린 그림에 원문 그림 id가 없거나, 원문과 다르게 그린 점이 비었거나, 원문 그림의 장면 수를 모르거나, 슬라이더 칸이 장면 수보다 많다 |
 | `RANGE_NOT_SUPPORTED` | 글 자료 리포트에 시각 구간을 줬다 |
 | `FRAME_SEC_MISSING` | 영상 리포트 소섹션에 `frameSec`이 없다(영상 자료만 본다) |
+| `LENS_FIELD_ON_VIDEO` | 렌즈 자료가 아닌 리포트에 렌즈 칸(한눈에 보기, 의심 표시, 표와 그림, 맥락 카드와 연결 카드, 한계 단락)이 있다. 영상 자료는 원문 표와 대조할 수 없어서 받지 않는다 |
 
 ### CLI
 
@@ -1317,12 +1320,12 @@ gestalt lens ingest <PDF|웹 주소|오디오|피드|HTML 파일> [--kind pdf|we
 gestalt lens panels <slug> <figure-id> <장면 수>   # C 재구성 슬라이더 칸 수 상한
 gestalt lens knowledge <slug> [--source <폴더>]...   # 내 노트에서 연결 후보 찾기
 gestalt lens notes <list|detect|add|remove|notion-on|notion-off|decline> [폴더...]   # 노트 폴더 연결(~/.gestalt/lens.json)
-gestalt lens attach <slug> <카드 파일> [--report <key>]   # 맥락 카드와 연결 카드를 붙이고 다시 검사
+gestalt lens attach <slug> <카드 파일> [--report <key>]   # 맥락 카드와 연결 카드를 붙이고 다시 검사. cards와 links를 통째로 바꿔 끼운다
 ```
 
-`lens ingest`는 파이썬 패키지(pdfplumber, trafilatura, faster-whisper, sherpa-onnx)를 렌즈 가상환경이나 `GESTALT_LENS_PYTHON`에서 찾는다. 팟캐스트는 받아쓴 문장에 화자("화자 1")를 붙이고 `--no-speakers`면 건너뛴다. `--url`은 Orca 내장 브라우저에서 꺼낸 HTML처럼 로컬 HTML 파일을 받을 때 원래 주소를 적는다. 설정은 [configuration.md의 읽기 렌즈](./configuration.md#읽기-렌즈-lens)에 있다. 렌즈 뷰어는 쪽 그림과 크롭을 상대 경로로 읽어서 `file://`로 열어도 원문 창이 동작한다. 팟캐스트 오디오 재생만 `serve`가 필요하다.
+`lens ingest`는 파이썬 패키지(pdfplumber, trafilatura, faster-whisper, sherpa-onnx)를 렌즈 가상환경이나 `GESTALT_LENS_PYTHON`에서 찾는다. 팟캐스트는 받아쓴 문장에 화자("화자 1")를 붙이고 `--no-speakers`면 건너뛴다. `--url`은 Orca 내장 브라우저에서 꺼낸 HTML처럼 로컬 HTML 파일을 받을 때 원래 주소를 적는다. 설정은 [configuration.md의 읽기 렌즈](./configuration.md#읽기-렌즈-lens)에 있다. 렌즈 뷰어는 쪽 그림과 원문에서 잘라낸 표와 그림을 상대 경로로 읽어서 `file://`로 열어도 원문 창이 동작한다. 팟캐스트 오디오 재생만 `serve`가 필요하다.
 
-로컬 영상 파일로 만든 요약도 `serve`로 열어야 재생된다. `serve`가 `transcript.json`에 적힌 원본 파일 하나만 `/<slug>/video`로 내주고 Range 요청을 받는다. 팟캐스트는 원래 주소가 피드라서 내려받은 오디오(`meta.media`)를 같은 길로 내준다. 확장자가 영상(mp4, m4v, mov, webm, mkv)이나 오디오(mp3, m4a, aac, wav, ogg, oga, opus, flac)가 아니거나 원본이 없으면 404다.
+로컬 영상 파일로 만든 요약도 `serve`로 열어야 재생된다. `serve`가 `transcript.json`에 적힌 원본 파일 하나만 `/<slug>/video`로 내주고 Range 요청을 받는다. 팟캐스트는 원래 주소가 피드라서 내려받은 오디오(`meta.media`)를 같은 길로 내준다. 그 오디오가 리포트 폴더의 `cache/` 안에 있을 때만 내준다. 확장자가 영상(mp4, m4v, mov, webm, mkv)이나 오디오(mp3, m4a, aac, wav, ogg, oga, opus, flac)가 아니거나 원본이 없으면 404다.
 
 `digest.html`을 파일로 바로 열면 유튜브 플레이어가 153 오류로 막힌다. 그때는 썸네일과 "유튜브에서 열기" 링크가 뜨고 출처 시각은 새 탭 링크로 바뀐다. 재생과 따라가기는 `serve`로 열었을 때만 된다.
 

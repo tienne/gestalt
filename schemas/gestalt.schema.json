@@ -192,7 +192,7 @@
         "knowledgeSources": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Folders of your own notes that 'gestalt lens knowledge' searches for names shared with the source (relative paths resolve from the repo root). Only .md, .markdown and .txt files are read; hidden folders and node_modules are skipped",
+          "description": "Note folders inside this repo that 'gestalt lens knowledge' searches for names shared with the source (relative paths resolve from the repo root). Paths outside the repo are dropped with a warning; connect personal folders with 'gestalt lens notes add' instead. Only .md, .markdown and .txt files are read; hidden folders and node_modules are skipped",
           "default": []
         }
       },
