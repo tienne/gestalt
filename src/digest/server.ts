@@ -24,6 +24,15 @@ const VIDEO_MIME: Record<string, string> = {
   '.mov': 'video/quicktime',
   '.webm': 'video/webm',
   '.mkv': 'video/x-matroska',
+  // 읽기 렌즈 팟캐스트는 같은 길로 내려받은 오디오를 내준다
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/ogg',
+  '.flac': 'audio/flac',
 };
 
 export type ByteRange = { start: number; end: number } | 'none' | 'unsatisfiable';
@@ -249,9 +258,12 @@ export class DigestServer {
     const parsed = raw.kind === 'ok' ? parseTranscript(raw.value) : null;
     const meta = parsed?.ok ? parsed.value.meta : null;
     let file: string | null = null;
-    if (meta && meta.source === 'file' && meta.url) {
+    // 팟캐스트는 원래 주소가 피드라 내려받은 오디오(media)를 내준다
+    const local =
+      meta?.source === 'file' ? meta.url : meta?.source === 'podcast' ? meta.media : undefined;
+    if (local) {
       try {
-        file = fileURLToPath(meta.url);
+        file = fileURLToPath(local);
       } catch {
         file = null;
       }
