@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.107.0] - 2026-10-28
+
+### Added
+
+- **해상도 점수 옆에 서버가 직접 센 신호를 남겨요.** 점수는 호스트 LLM이 쓴 0~1 숫자라 같은 질문을 다시 해도 값이 바뀌고 결과와 맞춰본 기록도 없었어요. 안 물은 차원, 빈 라운드, 위임 답변, 점수 점프를 세서 채점 이벤트와 `ges_status`에 남기고 `specHistory`에도 해상도 점수를 기록해요. 판정에 쓴 기준값과 판정 규칙 버전(`READINESS_RULE_VERSION = 1`)도 같이 남아요.
+- **기준값을 처음 넘은 채점을 한 번 더 받아요.** `score`와 `respond` 응답이 `nextAction: "rescore"`를 돌려주고 두 점수 차이를 `interview.resolution.rescored` 이벤트로 남겨요. `interview.rescore` 설정의 `gate` 모드는 다시 채점을 받기 전까지 판정을 보류해요. 기본은 `record`라 판정은 그대로예요. API 키 경로는 같은 채점기를 한 번 더 부르고 실패하면 `interview.rescore.failed` 경고만 남기고 인터뷰를 이어가요.
+- **결과 표 스크립트를 더했어요.** `benchmarks/resolution-calibration.ts`가 outcome CSV로 점수 구간별, 신호별 비율 표를 만들어요. 표본이 20개 미만인 칸은 표본 부족으로 적어요.
+
+### Changed
+
+- **`interview.resolutionThreshold`와 `GESTALT_RESOLUTION_THRESHOLD`가 실제 판정에 반영돼요.** 전에는 판정 코드가 상수 0.8을 직접 읽어서 설정을 바꿔도 무시됐어요. 이 환경변수를 이미 걸어둔 환경은 이번 버전부터 판정이 달라질 수 있어요. 인터뷰 판정과 스펙 생성, 평가 종료 판정이 설정값을 써요. 완료를 거절할 때 `threshold`가 안 남은 예전 점수는 안내 문구에 예전 상수 0.8을 그대로 보여줘요.
+- **합의 프롬프트에서 관점별 확신도 숫자를 뺐어요.** 스펙 파서가 빠진 확신도를 0.5로 채우던 것도 없앴어요. `confidence` 필드는 선택값이고 `ges_execute` 입력의 `perspectives[].confidence`도 선택값이에요.
+- **문구의 임계값을 기준값으로 맞췄어요.** interview, spec, solve 스킬과 설정 문서, MCP 레퍼런스가 같은 말을 써요. `force` 설명에는 gate가 보류한 세션도 `force: true`로 완료할 수 있다고 적었어요.
+
+### Fixed
+
+- **passthrough 경로에서 라운드의 `gestaltFocus`가 늘 closure로 남던 문제를 고쳤어요.** 안 물은 차원 신호가 이 값에 기대서 `GESTALT_PRINCIPLE_APPLIED` 이벤트의 `appliedPrinciple`로 채워요.
+- **숫자 환경변수의 빈 값이 0으로 읽히던 문제를 고쳤어요.** 빈 값은 무시하고 기본값을 써요. `GESTALT_RESOLUTION_THRESHOLD`를 비워 두면 기준값이 0이 돼서 gate가 꺼지는 경로였어요.
+
+### 검증 범위
+
+- 로컬 리뷰를 7라운드 돌렸어요. 상한 5라운드를 넘겨 6, 7라운드는 승인받아 진행했어요. 첫 라운드는 코멘트 8개에 high 2개였고 6라운드에서 high 3개가 나왔어요. 7라운드는 high 0개에 문구 어긋남 3개만 남았어요. 수정 커밋은 48개예요.
+- 6, 7라운드 수정분은 리뷰를 다시 안 돌리고 `pnpm gate`만 거쳤어요. 4라운드부터 보안과 성능 리뷰어는 뺐어요.
+- 머지한 `main`에서 `pnpm gate`가 321개 파일, 5976개 테스트로 통과했어요.
+
+### 남긴 것
+
+- README, `CLAUDE.md`, screen-chain의 "≥ 0.8" 표기는 기준값을 바꿔 쓰는 환경에서 어긋나 보여요. 범위가 넓어서 후속으로 남겼어요.
+- CLI `belowThresholdPrompt`는 `isReady`가 아니면 전부 "Resolution is below N"이라고 물어요. gate가 보류한 세션에도 같은 문구가 나가요.
+- `rescoreState`가 `threshold` 없는 이벤트를 repository 기준값으로 읽는 부분은 그대로 뒀어요.
+- 실제 호스트에서 `nextAction: "rescore"`를 받아 서브에이전트로 다시 채점하는 흐름과 gate 보류 중 사용자 화면은 단위 테스트로만 확인했어요.
+- 부하가 큰 머신에서 `tests/unit/harness-review`의 clone 테스트나 vitest 워커 응답이 5초 타임아웃으로 가끔 흔들려요. 단독으로 돌리면 통과해요.
+
 ## [0.106.0] - 2026-10-28
 
 ### Added
