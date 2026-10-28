@@ -110,7 +110,7 @@ Step 0 종류 판단 → Step 1 ingest → Step 2 리포트 작성 → Step 3 me
 `source`가 유튜브 주소(`youtube.com`, `youtu.be`)면 이 스킬은 물러나고 `video-digest` 스킬로 넘긴다. 나머지는 아래 순서로 판단한다. `kind`를 받았으면 그 값을 쓴다.
 
 1. `.pdf` 파일이나 PDF 주소(arXiv, ACL Anthology 같은)는 논문이다.
-2. 오디오 파일(`.mp3`, `.m4a`, `.wav` 같은)이나 피드 주소는 팟캐스트다. 피드 주소는 경로가 `/feed`나 `/rss`로 끝나거나 `/feed/podcast`, `/feed/rss2`, `/feed/atom` 꼴이거나, 쿼리 앞이 `.rss`나 `.xml`이거나, 호스트가 `feeds.`로 시작하는 주소다. `/feedback`이나 `/feed/update/...`처럼 경로 중간에 feed가 든 글 주소는 웹 글이다.
+2. 오디오 파일(`.mp3`, `.m4a`, `.wav` 같은)이나 피드 주소는 팟캐스트다. 피드 주소는 아래 셋 중 하나에 맞는 주소다. 경로가 `/feed`, `/rss`, `/feed/rss`, `/feed/rss2`, `/feed/atom`, `/feed/podcast`로 끝나거나(끝의 `/`는 있어도 된다) `.rss`나 `.xml`로 끝난다. 호스트가 `feeds.`로 시작한다. 쿼리에 `format=rss`가 있다. 경로는 `?`와 `#` 앞까지만 보므로 쿼리 값이나 `#` 뒤에 든 `feed`, `rss`, `.xml`로는 피드가 되지 않는다. `/feedback`이나 `/feed/update/...`처럼 경로 중간에 feed가 든 글 주소는 웹 글이다.
 3. 나머지 웹 주소는 웹 글이다.
 
 주소만으로 애매하면(확장자 없는 PDF 다운로드 주소, 피드인지 글인지 모를 주소) 사용자에게 한 번 묻는다. 물어서 정한 종류는 Step 1에서 `--kind`로 넘긴다.
@@ -324,7 +324,7 @@ gestalt lens attach '<slug>' '<contextPath>' --report '<Step 3 merge 출력의 k
 
 ## Step 4 — 윤문
 
-`reportLang`의 첫 하위 태그(`-` 앞 부분, 대소문자 무시)가 `ko`가 아니면 윤문을 건너뛰고 Step 6 보고에 이유를 적는다. 윤문 절차와 아래 지킬 것 두 줄은 한국어 문장 기준이다.
+`reportLang`을 안 받았으면 `ko`로 본다. `reportLang`의 첫 하위 태그(`-` 앞 부분, 대소문자 무시)가 `ko`가 아니면 윤문을 건너뛰고 Step 6 보고에 이유를 적는다. 윤문 절차와 아래 지킬 것 두 줄은 한국어 문장 기준이다.
 
 본문 문장을 다듬는다. 절차는 video-digest 스킬의 Step 5와 같다([`../video-digest/SKILL.md`](../video-digest/SKILL.md)). 렌즈에서 다른 점은 아래뿐이다.
 
