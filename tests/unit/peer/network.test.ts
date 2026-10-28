@@ -546,7 +546,11 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         15_000,
       );
       await until(async () => (await mine()).some((m) => m.id === id && m.status === 'rejected'));
-      expect((await mine()).find((m) => m.id === id)?.reason).toMatch(/인박스 소켓/);
+      const reason = (await mine()).find((m) => m.id === id)?.reason;
+      expect(reason).toMatch(/인박스 소켓/);
+      // 이유는 팀원에게 가므로 주인의 로컬 경로가 실리면 안 된다
+      expect(reason).not.toContain(owner.root);
+      expect(reason).not.toContain('/');
       session.server = createNetServer();
       await new Promise<void>((r) =>
         session.server.listen(join(owner.root, 'cc2.sock'), () => r()),

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { ShareStream } from '../../../src/peer/share.js';
 import type { ShareFrame } from '../../../src/peer/share.js';
 import { FAKE_HOME } from '../../fixtures/peer/transcript.js';
+import { frameHeader, frameMessage } from '../../../src/peer/message.js';
 
 const reply = (text: string): string =>
   JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } }) + '\n';
@@ -108,5 +109,73 @@ describe('ShareStream', () => {
 
     stream.close('unshare');
     expect(stream.backlogAfter(0, Infinity)).toEqual({ dropped: 0, items: [] });
+  });
+});
+
+describe('ShareStream 메시지 감지', () => {
+  let dir: string;
+  let file: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'peer-await-'));
+    file = join(dir, 't.jsonl');
+    writeFileSync(file, '');
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const make = (): ShareStream =>
+    new ShareStream({ id: 's', transcriptPath: file, tools: 'full', home: FAKE_HOME });
+  const header = (id: string): string => frameHeader('alice', 'human', id);
+  const line = (o: unknown): void => appendFileSync(file, JSON.stringify(o) + '\n');
+  const kinds = (stream: ShareStream): string[] =>
+    stream
+      .backlogAfter(0, Infinity)
+      .items.map((i) => (JSON.parse(i.json) as { kind: string }).kind);
+
+  it('놀던 세션이 남긴 queue-operation 뒤 user 줄은 주인 프롬프트로 안 나가고 알림은 한 번이다', () => {
+    const stream = make();
+    const seen = vi.fn();
+    const id = 'm_AAAAAAAAAAAAAAAA';
+    const text = frameMessage({ from: 'alice', origin: 'human', id, body: '안녕' });
+    stream.awaitMessage(header(id), seen);
+    line({ type: 'queue-operation', operation: 'enqueue', content: text });
+    line({ type: 'queue-operation', operation: 'dequeue' });
+    line({ type: 'user', message: { role: 'user', content: text } });
+    line({ type: 'user', message: { role: 'user', content: '주인이 친 다음 프롬프트' } });
+    stream.poll();
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(kinds(stream)).toEqual(['prompt']);
+    expect(stream.backlogAfter(0, Infinity).items[0]!.json).toContain('주인이 친 다음 프롬프트');
+  });
+
+  it('다른 메시지 본문에 id만 적어서는 들어감이 안 켜진다', () => {
+    const stream = make();
+    const seen = vi.fn();
+    const held = 'm_HELDHELDHELDHELD';
+    stream.awaitMessage(header(held), seen);
+    const other = frameMessage({
+      from: 'alice',
+      origin: 'human',
+      id: 'm_BBBBBBBBBBBBBBBB',
+      body: `${held} id="${held}"`,
+    });
+    line({ type: 'queue-operation', operation: 'enqueue', content: other });
+    stream.poll();
+    expect(seen).not.toHaveBeenCalled();
+  });
+
+  it('끝내 안 보인 메시지는 한 시간 뒤 잊는다', () => {
+    const stream = make();
+    const seen = vi.fn();
+    const id = 'm_CCCCCCCCCCCCCCCC';
+    stream.awaitMessage(header(id), seen, 0);
+    // 한 시간 뒤 다른 메시지를 기다리기 시작하면서 앞의 것은 잊힌다
+    stream.awaitMessage(header('m_DDDDDDDDDDDDDDDD'), vi.fn(), 60 * 60 * 1000 + 1);
+    line({
+      type: 'queue-operation',
+      operation: 'enqueue',
+      content: frameMessage({ from: 'alice', origin: 'human', id, body: 'x' }),
+    });
+    stream.poll();
+    expect(seen).not.toHaveBeenCalled();
   });
 });

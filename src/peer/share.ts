@@ -33,8 +33,8 @@ export class ShareStream extends ShareFeed {
   private title: string | undefined;
   private lastUnknown = 0;
   private readonly home: string | undefined;
-  /** 대화 기록에 들어오기를 기다리는 메시지 id와 보이면 부를 함수 */
-  private awaiting = new Map<string, () => void>();
+  /** 대화 기록에 들어오기를 기다리는 메시지. 키는 대화 기록 줄 안에서 찾을 틀 머리 글자다 */
+  private awaiting = new Map<string, Awaiting>();
 
   constructor(options: ShareStreamOptions) {
     super(options.id, options.maxBacklogBytes);
@@ -99,19 +99,28 @@ export class ShareStream extends ShareFeed {
 
   /**
    * 메시지가 주인 세션에 들어가면 부를 함수를 건다. Claude Code는 받은 메시지를
-   * `queue-operation`과 `attachment` 줄에 본문째 남긴다. 그 줄은 뷰어로 안 내보내고 id만 본다.
+   * `queue-operation`과 `attachment` 줄에 본문째 남긴다. 그 줄은 뷰어로 안 내보낸다.
+   *
+   * id 글자만 찾지 않고 그 메시지의 틀 머리(`<peer-message from=… id=…>`) 전체를 찾는다.
+   * 다른 메시지 본문에 id를 적어 넣어도 본문에는 `<`+글자가 못 들어가서 머리를 흉내 낼 수 없다.
    */
-  awaitMessage(id: string, onSeen: () => void): void {
+  awaitMessage(header: string, onSeen: () => void, now = Date.now()): void {
     if (this.isClosed) return;
+    this.expireAwaiting(now);
     if (this.awaiting.size >= MAX_AWAITING) {
       const oldest = this.awaiting.keys().next().value;
       if (oldest !== undefined) this.awaiting.delete(oldest);
     }
-    this.awaiting.set(id, onSeen);
+    // 대화 기록 줄은 JSON이라 머리의 따옴표가 `\"`로 적혀 있다
+    this.awaiting.set(JSON.stringify(header).slice(1, -1), {
+      onSeen,
+      seen: false,
+      until: now + AWAIT_TTL_MS,
+    });
   }
 
-  cancelAwait(id: string): void {
-    this.awaiting.delete(id);
+  cancelAwait(header: string): void {
+    this.awaiting.delete(JSON.stringify(header).slice(1, -1));
   }
 
   /** 들어간 메시지를 대화 흐름에 끼운다. 보는 사람 모두가 같은 자리에서 본다 */
@@ -129,12 +138,18 @@ export class ShareStream extends ShareFeed {
     this.trim();
   }
 
-  /** 기다리던 메시지가 보이면 알린다. 그 줄이 user 줄이면 true — 프롬프트로 바꾸지 않는다 */
-  private spot(line: string): boolean {
+  /**
+   * 기다리던 메시지가 보이면 알린다. 그 줄이 user 줄이면 true — 프롬프트로 바꾸지 않는다.
+   *
+   * 놀던 세션은 `queue-operation`을 먼저 남기고 새 턴의 user 줄을 뒤에 남긴다. 그래서 처음
+   * 보인 뒤에도 잠깐 기억해 뒀다가 뒤따르는 user 줄까지 숨긴다.
+   */
+  private spot(line: string, now = Date.now()): boolean {
+    this.expireAwaiting(now);
     let consumed = false;
-    // 줄 전체를 매번 파싱하지 않는다. 기다리는 id가 글자로 들어 있을 때만 본다
-    for (const [id, onSeen] of this.awaiting) {
-      if (!line.includes(id)) continue;
+    // 줄 전체를 매번 파싱하지 않는다. 기다리는 머리가 글자로 들어 있을 때만 본다
+    for (const [needle, w] of this.awaiting) {
+      if (!line.includes(needle)) continue;
       let type: unknown;
       try {
         type = (JSON.parse(line) as { type?: unknown }).type;
@@ -143,19 +158,38 @@ export class ShareStream extends ShareFeed {
       }
       if (type !== 'queue-operation' && type !== 'attachment' && type !== 'user') continue;
       if (type === 'user') consumed = true;
-      this.awaiting.delete(id);
+      if (w.seen) continue;
+      w.seen = true;
+      w.until = now + SEEN_HOLD_MS;
       try {
-        onSeen();
+        w.onSeen();
       } catch {
         // 상태 알림이 실패해도 따라 읽기는 계속한다
       }
     }
     return consumed;
   }
+
+  /** 보류되거나 거절돼 끝내 안 보인 메시지와 다 본 메시지를 잊는다 */
+  private expireAwaiting(now: number): void {
+    for (const [needle, w] of this.awaiting) {
+      if (now >= w.until) this.awaiting.delete(needle);
+    }
+  }
+}
+
+interface Awaiting {
+  onSeen: () => void;
+  seen: boolean;
+  until: number;
 }
 
 /** 기다리는 메시지 수 상한. 넘으면 오래된 것부터 잊는다 */
 const MAX_AWAITING = 512;
+/** 넣은 뒤 이만큼 안 보이면 잊는다. 보류된 메시지는 주인이 늦게 받아 줄 수 있어서 넉넉히 둔다 */
+const AWAIT_TTL_MS = 60 * 60 * 1000;
+/** 처음 보인 뒤 뒤따르는 user 줄을 숨기려고 기억해 두는 시간 */
+const SEEN_HOLD_MS = 10 * 60 * 1000;
 
 function toShareStatus(status: TailStatus): ShareStatus {
   return status === 'ok' ? 'live' : status;

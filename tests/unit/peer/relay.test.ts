@@ -11,6 +11,7 @@ import { signText } from '../../../src/peer/seal.js';
 import { RelayTransport } from '../../../src/peer/transport.js';
 import { helloSigned } from '../../../src/peer/wire.js';
 import { connectWs } from '../../../src/peer/ws.js';
+import { MESSAGE_RECEIVE_LIMIT } from '../../../src/peer/message.js';
 
 describe('RelayServer', () => {
   let dir: string;
@@ -166,6 +167,18 @@ describe('RelayServer', () => {
     );
     await new Promise((r) => setTimeout(r, 50));
     expect(relay.queuedSends).toBe(0);
+    await a.close();
+  });
+  it('오프라인 기기에게 한 사람이 들고 있게 하는 양은 주인 쪽 수신 한도까지다', async () => {
+    const a = new RelayTransport({ url, team: admin.id, key: admin, reconnect: false });
+    await a.connect(r1);
+    for (let i = 0; i < MESSAGE_RECEIVE_LIMIT; i++) {
+      expect(await a.send(alice.id, Buffer.from(`m${i}`), { queue: true })).toBe('queued');
+    }
+    await expect(a.send(alice.id, Buffer.from('over'), { queue: true })).rejects.toThrow(
+      'queue_full',
+    );
+    expect(relay.queuedSends).toBe(MESSAGE_RECEIVE_LIMIT);
     await a.close();
   });
 });

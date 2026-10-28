@@ -13,6 +13,7 @@ import type { WsConnection } from './ws.js';
 import { CLOSE_REJECTED, CLOSE_REMOVED, helloSigned } from './wire.js';
 import type { ClientFrame, HelloMode, RelayErrorCode, ServerFrame } from './wire.js';
 import { errMessage } from './errors.js';
+import { MESSAGE_RECEIVE_LIMIT } from './message.js';
 
 export interface RelayServerOptions {
   /** 팀 id. 처음 받는 명단은 이 키가 서명해야 한다 */
@@ -370,7 +371,10 @@ export class RelayServer {
     const now = Date.now();
     this.sendQueue = this.sendQueue.filter((q) => now - q.at < SEND_QUEUE_TTL_MS);
     if (this.sendQueue.length >= MAX_QUEUED_TOTAL) return false;
-    if (this.sendQueue.filter((q) => q.to === to).length >= MAX_QUEUED_PER_TARGET) return false;
+    const forTarget = this.sendQueue.filter((q) => q.to === to);
+    if (forTarget.length >= MAX_QUEUED_PER_TARGET) return false;
+    // 한 사람이 받는 기기 몫을 혼자 채우지 못하게 한다. 주인 쪽 수신 한도와 같은 숫자다
+    if (forTarget.filter((q) => q.from === from).length >= MESSAGE_RECEIVE_LIMIT) return false;
     this.sendQueue.push({ from, to, data, at: now });
     return true;
   }
@@ -381,7 +385,12 @@ export class RelayServer {
     if (!target) return;
     const mine = this.sendQueue.filter((q) => q.to === key);
     this.sendQueue = this.sendQueue.filter((q) => q.to !== key);
-    for (const q of mine) {
+    for (const [i, q] of mine.entries()) {
+      // 막 붙은 기기가 안 읽으면 남은 건 다시 들고 있는다
+      if (target.ws.bufferedAmount > MAX_RELAY_BUFFERED_BYTES) {
+        this.sendQueue.push(...mine.slice(i));
+        return;
+      }
       if (now - q.at >= SEND_QUEUE_TTL_MS) continue;
       // 그사이 명단에서 빠진 기기가 보낸 건 넘기지 않는다
       if (this.roster && !memberOf(this.roster.roster, q.from)) continue;

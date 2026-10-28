@@ -34,7 +34,14 @@ import type { RelayTransportOptions, TransportState } from './transport.js';
 import { MAX_VIEWERS_PER_SHARE, REPLAY_CHUNK_BYTES } from './viewer.js';
 import { errMessage } from './errors.js';
 import type { InboxResult } from './inbox.js';
-import { isMessageId, newMessageId, RateLimiter, sanitizeMessageBody } from './message.js';
+import {
+  isMessageId,
+  MESSAGE_RECEIVE_LIMIT,
+  newMessageId,
+  plainLabel,
+  RateLimiter,
+  sanitizeMessageBody,
+} from './message.js';
 import type { MessageOrigin, MessageStatus } from './message.js';
 import { RelaySendError } from './transport.js';
 
@@ -183,7 +190,8 @@ export class PeerNetwork {
   /** 받은 메시지의 `기기|id`. 릴레이가 같은 봉인을 다시 보내면 버린다 */
   private seenMessages = new Set<string>();
   private sendLimiter = new RateLimiter();
-  private receiveLimiter = new RateLimiter();
+  /** 보는 쪽이 12건으로 먼저 막는다. 주인 쪽은 릴레이에 쌓였다 한꺼번에 온 것도 받게 넉넉하다 */
+  private receiveLimiter = new RateLimiter(MESSAGE_RECEIVE_LIMIT);
   private readonly maxBuffered: number;
 
   constructor(private readonly options: PeerNetworkOptions) {
@@ -804,7 +812,8 @@ export class PeerNetwork {
     if (!isMessageId(msg.id) || !isMessageStatus(msg.status)) return;
     for (const w of this.watches.values()) {
       if (w.owner !== from || w.share !== msg.share || !w.feed.getMessage(msg.id)) continue;
-      const reason = typeof msg.reason === 'string' ? msg.reason.slice(0, 200) : undefined;
+      // 주인 데몬이 보낸 글자라 CLI 터미널에 찍히기 전에 제어 문자를 지운다
+      const reason = plainLabel(msg.reason);
       w.feed.setMessage(msg.id, { status: msg.status, ...(reason ? { reason } : {}) });
     }
   }

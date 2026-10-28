@@ -66,8 +66,9 @@ export function writeInbox(
       c.destroy();
       finish({ ok: false, reason: '인박스 소켓이 답하지 않았어요' });
     }, timeoutMs);
-    c.once('error', (err) =>
-      finish({ ok: false, reason: `인박스 소켓에 못 썼어요: ${err.message}` }),
+    // 오류 문구에는 소켓 경로(주인의 홈 경로)가 든다. 이유는 팀원에게 가므로 코드만 싣는다
+    c.once('error', (err: NodeJS.ErrnoException) =>
+      finish({ ok: false, reason: `인박스 소켓에 못 썼어요 (${err.code ?? 'error'})` }),
     );
     c.once('connect', () => {
       const line =

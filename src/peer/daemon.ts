@@ -30,7 +30,7 @@ import { PeerNetwork, PeerNetworkError } from './network.js';
 import type { InboundMessage, PeerNetworkOptions } from './network.js';
 import { findInboxSocket, writeInbox } from './inbox.js';
 import type { InboxResult } from './inbox.js';
-import { frameMessage } from './message.js';
+import { frameHeader, frameMessage } from './message.js';
 import type { WatchListItem, WatchResult } from './protocol.js';
 
 export interface PeerDaemonOptions {
@@ -336,7 +336,8 @@ export class PeerDaemon {
     if (!found.ok || !found.path)
       return { ok: false, reason: found.ok ? 'no_inbox' : found.reason };
     const stream = share.stream;
-    stream.awaitMessage(m.id, () => {
+    const header = frameHeader(m.person, m.origin, m.id);
+    stream.awaitMessage(header, () => {
       stream.pushPeerMessage({ id: m.id, from: m.person, origin: m.origin, text: m.body });
       onSeen();
     });
@@ -344,7 +345,7 @@ export class PeerDaemon {
       found.path,
       frameMessage({ from: m.person, origin: m.origin, id: m.id, body: m.body }),
     );
-    if (!result.ok) stream.cancelAwait(m.id);
+    if (!result.ok) stream.cancelAwait(header);
     return result;
   }
 
