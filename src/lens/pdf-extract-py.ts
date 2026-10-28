@@ -143,16 +143,36 @@ def build_table(page, box, ys):
             k += 1
     # 머리줄 글자가 본문 폭 밖으로 나가도 양 끝 칸에 들어가게 바깥 경계는 열어 둔다
     edges = [float("-inf")] + bounds + [float("inf")]
+    # 본문 칸마다 글자가 실제로 차지한 폭. 머리줄 낱말이 어느 칸 글자 위에 있는지 볼 때 쓴다
+    extents = {}
+    for w in body_words:
+        cx = (w["x0"] + w["x1"]) / 2
+        c = next(c for c in range(len(edges) - 1) if edges[c] <= cx < edges[c + 1])
+        lo, hi = extents.get(c, (w["x0"], w["x1"]))
+        extents[c] = (min(lo, w["x0"]), max(hi, w["x1"]))
     grid = []
     for ri, r in enumerate(rows):
         cells = [[] for _ in range(len(edges) - 1)]
         ws = sorted(r["words"], key=lambda w: w["x0"])
-        # 머리줄 낱말이 칸 경계에 걸치면 왼쪽 끝으로 칸을 정한다. 머리 글자가 본문 칸보다 넓어도 제 칸에 남는다
-        def anchor(w):
-            if ri < head_n and any(w["x0"] < b < w["x1"] for b in bounds):
-                return w["x0"] + 1
-            return (w["x0"] + w["x1"]) / 2
-        placed = [(anchor(w), w["text"]) for w in ws]
+        # 머리줄 낱말이 칸 경계에 걸치면 본문 칸의 실제 폭과 겹치는 칸으로 보낸다. 두 칸 사이 빈 띠 안이면
+        # 더 가까운 옆 낱말의 칸을 따른다("Train Size"의 Size). 머리 글자가 본문 칸보다 넓어도 제 칸에 남는다
+        def anchor(k):
+            w = ws[k]
+            mid = (w["x0"] + w["x1"]) / 2
+            if ri >= head_n or not any(w["x0"] < b < w["x1"] for b in bounds):
+                return mid
+            hits = sorted(c for c, (a, b) in extents.items() if min(w["x1"], b) - max(w["x0"], a) > 0)
+            # 여러 칸에 걸친 머리 글자("BLEU")는 묶는 칸들 가운데 첫 칸에 둔다
+            if hits:
+                lo, hi = extents[hits[0]]
+                return (max(lo, w["x0"]) + min(hi, w["x1"])) / 2
+            left = ws[k - 1] if k > 0 else None
+            right = ws[k + 1] if k + 1 < len(ws) else None
+            gl = w["x0"] - left["x1"] if left else float("inf")
+            gr = right["x0"] - w["x1"] if right else float("inf")
+            near = left if gl <= gr else right
+            return (near["x0"] + near["x1"]) / 2 if near else mid
+        placed = [(anchor(k), w["text"]) for k, w in enumerate(ws)]
         for cx, text in placed:
             for c in range(len(edges) - 1):
                 if edges[c] <= cx < edges[c + 1]:
