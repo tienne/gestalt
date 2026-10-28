@@ -61,7 +61,8 @@ const SHORT_DESCRIPTIONS: Record<string, string> = {
   explainer: '대상에 맞춘 설명 작성',
   'video-summarizer': '영상 스크립트로 요약 리포트 작성',
   'lens-reader': '논문과 글을 출처와 의심 표시로 읽는 리포트 작성',
-  'lens-context': '읽기 렌즈의 선행 연구와 반론 카드, 노트 연결 작성',
+  'lens-context': '읽기 렌즈의 선행 연구와 반론 카드 작성',
+  'lens-link': '읽기 렌즈의 내 노트 연결 카드 작성',
 };
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob'];
@@ -101,8 +102,11 @@ const TOOL_OVERRIDES: Record<string, string[]> = {
   // 산출물이 리포트 JSON 하나다. 저장 경로는 lens 스킬이 넘긴다.
   'lens-reader': [...READ_TOOLS, 'Write'],
   // 바깥 맥락 카드는 웹 페이지를 직접 열어 확인하고 쓴다. 웹 도구를 여는 유일한 에이전트라 셸은 주지 않는다.
-  // 페이지에 섞인 지시문이 할 수 있는 일은 카드 파일 쓰기뿐이고 그 파일은 attach의 lint를 거친다.
+  // 노트를 읽는 에이전트에는 웹 도구가 없다. 연결 카드는 lens-link가 따로 써서 개인 노트와 웹 페이지가
+  // 한 에이전트에 같이 실리지 않는다. 그래야 페이지에 섞인 지시문이 노트 내용을 검색어나 주소에 실어
+  // 밖으로 보낼 길이 없다.
   'lens-context': [...READ_TOOLS, 'WebSearch', 'WebFetch', 'Write'],
+  'lens-link': [...READ_TOOLS, 'Write'],
 };
 
 /**
@@ -123,6 +127,7 @@ const OMIT_CLAUDE_MD = new Set([
   'video-summarizer',
   'lens-reader',
   'lens-context',
+  'lens-link',
 ]);
 
 export const GENERATED_NOTICE = (source: string) =>

@@ -171,10 +171,11 @@ describe('생성된 에이전트의 도구', () => {
     }
   });
 
-  it('Write는 파일을 직접 쓰는 presentation-designer와 video-summarizer, 렌즈 두 에이전트만 받는다', () => {
+  it('Write는 파일을 직접 쓰는 presentation-designer와 video-summarizer, 렌즈 세 에이전트만 받는다', () => {
     const writers = [...agents].filter(([, tools]) => tools.includes('Write')).map(([n]) => n);
     expect(writers.sort()).toEqual([
       'lens-context',
+      'lens-link',
       'lens-reader',
       'presentation-designer',
       'video-summarizer',
@@ -193,6 +194,13 @@ describe('생성된 에이전트의 도구', () => {
     const fetchers = [...agents].filter(([, tools]) => tools.includes('WebFetch')).map(([n]) => n);
     expect(fetchers).toEqual(['lens-context']);
     expect(agents.get('lens-context')).not.toContain('Bash');
+  });
+
+  it('노트를 읽는 lens-link에는 웹 도구와 셸이 없다', () => {
+    const tools = agents.get('lens-link');
+    expect(tools).toEqual(['Read', 'Grep', 'Glob', 'Write']);
+    expect(tools).not.toContain('WebSearch');
+    expect(tools).not.toContain('WebFetch');
   });
 });
 
