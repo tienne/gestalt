@@ -291,6 +291,8 @@ export function createCli(): Command {
     .option('--kind <kind>', '자료 종류를 직접 정한다: pdf, web, podcast')
     .option('--episode <n>', '팟캐스트 피드에서 고를 에피소드. 0이 최신 (기본 0)')
     .option('--whisper-model <name>', '팟캐스트 받아쓰기 faster-whisper 모델 (기본 small)')
+    .option('--url <address>', '로컬 HTML 파일의 원래 주소 (Orca 내장 브라우저에서 꺼낸 페이지)')
+    .option('--no-speakers', '팟캐스트 화자 구분을 건너뛴다 (기본은 sherpa-onnx로 가른다)')
     .action((input, o, cmd) => lensIngestCommand(input, { ...lensInherited(cmd), ...o }));
 
   lens

@@ -36,6 +36,8 @@ export async function lensIngestCommand(
     kind?: string;
     episode?: string;
     whisperModel?: string;
+    url?: string;
+    speakers?: boolean;
   },
 ): Promise<void> {
   try {
@@ -49,6 +51,9 @@ export async function lensIngestCommand(
       kind: parseKind(opts.kind),
       episode,
       whisperModel: opts.whisperModel,
+      sourceUrl: opts.url,
+      // commander의 --no-speakers가 없으면 true로 온다
+      speakers: opts.speakers !== false,
     });
     if (opts.json) {
       console.log(JSON.stringify(r, null, 2));

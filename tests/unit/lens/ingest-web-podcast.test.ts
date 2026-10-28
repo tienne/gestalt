@@ -9,7 +9,7 @@ import { DigestServer } from '../../../src/digest/server.js';
 import { DigestStore } from '../../../src/digest/store.js';
 import type { RunCommand } from '../../../src/digest/ytdlp.js';
 import { ingestLens } from '../../../src/lens/ingest.js';
-import { audioExt, pickEpisode } from '../../../src/lens/podcast.js';
+import { assignSpeakers, audioExt, pickEpisode } from '../../../src/lens/podcast.js';
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -51,6 +51,27 @@ describe('팟캐스트 피드', () => {
   it('오디오 확장자를 주소에서 읽고 없으면 mp3로 둔다', () => {
     expect(audioExt('https://a.com/x.m4a?y=1')).toBe('.m4a');
     expect(audioExt('https://a.com/play?id=3')).toBe('.mp3');
+  });
+});
+
+describe('화자 붙이기', () => {
+  it('가장 오래 겹치는 구간의 화자를 처음 나온 순서대로 이름 붙인다', () => {
+    const turns = [
+      { start: 0, end: 5, speaker: 3 },
+      { start: 5, end: 9, speaker: 0 },
+      { start: 9, end: 20, speaker: 3 },
+    ];
+    expect(
+      assignSpeakers(
+        [
+          { start: 0, end: 4 },
+          { start: 4, end: 8.5 },
+          { start: 8.8, end: 12 },
+          { start: 30, end: 31 },
+        ],
+        turns,
+      ),
+    ).toEqual(['화자 1', '화자 2', '화자 1', undefined]);
   });
 });
 
@@ -200,5 +221,67 @@ describe('serve가 팟캐스트 오디오를 내준다', () => {
     );
     expect(res).toEqual({ status: 200, type: 'audio/mp4', body: 'AUDIO' });
     expect(existsSync(join(root, '.gestalt', 'digest', r.slug, 'cache', 'audio.m4a'))).toBe(true);
+  });
+});
+
+describe('ingestLens (podcast, 화자 구분)', () => {
+  it('모델이 있으면 받아쓴 문장에 화자를 붙이고 실패하면 화자 없이 살린다', async () => {
+    const root = repo();
+    const models = join(root, 'models');
+    mkdirSync(join(models, 'sherpa-onnx-pyannote-segmentation-3-0'), { recursive: true });
+    writeFileSync(join(models, 'sherpa-onnx-pyannote-segmentation-3-0', 'model.onnx'), 'x');
+    writeFileSync(join(models, 'wespeaker_en_voxceleb_resnet34.onnx'), 'x');
+    const prev = process.env.GESTALT_LENS_MODELS;
+    process.env.GESTALT_LENS_MODELS = models;
+    cleanups.push(() => {
+      if (prev === undefined) delete process.env.GESTALT_LENS_MODELS;
+      else process.env.GESTALT_LENS_MODELS = prev;
+    });
+    const audio = join(root, 'talk.mp3');
+    writeFileSync(audio, 'AUDIO');
+    const whisper = JSON.stringify({
+      language: 'en',
+      duration: 10,
+      segments: [
+        { start: 0, end: 4, text: 'Hello.' },
+        { start: 4, end: 9, text: 'Reporting.' },
+      ],
+    });
+    let diarizeOk = true;
+    const run: RunCommand = async (_cmd, args) => {
+      if (String(args[2]).includes('sherpa_onnx')) {
+        if (!diarizeOk) throw new Error('onnx 실패');
+        expect(args[4]).toBe(join(models, 'sherpa-onnx-pyannote-segmentation-3-0', 'model.onnx'));
+        return {
+          stdout: `\n${JSON.stringify([
+            { start: 0, end: 4.2, speaker: 2 },
+            { start: 4.2, end: 9, speaker: 0 },
+          ])}\n`,
+          stderr: '',
+        };
+      }
+      return { stdout: `\n${whisper}\n`, stderr: '' };
+    };
+    const r = await ingestLens(audio, {
+      repoRoot: root,
+      run,
+      python: '/usr/bin/python3',
+      speakers: true,
+    });
+    expect(r.warnings[0]).toContain('화자 2명');
+    const t = new DigestStore(root).readTranscript(r.slug);
+    expect(t.ok && t.transcript.segments.map((s) => s.speaker)).toEqual(['화자 1', '화자 2']);
+
+    diarizeOk = false;
+    const r2 = await ingestLens(audio, {
+      repoRoot: root,
+      run,
+      python: '/usr/bin/python3',
+      speakers: true,
+      slug: 'talk-again',
+    });
+    expect(r2.warnings[0]).toContain('화자 구분이 실패해');
+    const t2 = new DigestStore(root).readTranscript('talk-again');
+    expect(t2.ok && t2.transcript.segments.every((s) => s.speaker === undefined)).toBe(true);
   });
 });

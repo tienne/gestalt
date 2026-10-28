@@ -377,7 +377,7 @@ ${skippedHtml}</div>`;
   const script = `<div class="script"><h2>스크립트 <small>${e(CAPTION_LABEL[meta.captionSource])}</small>${trToggle}</h2><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="영상 스크립트"><ol id="script-list">${segments
     .map(
       (s) =>
-        `<li data-i="${s.i}">${timeLink(s.startSec, false)}<span class="txt"><span class="src">${e(s.text)}</span>${tr(s)}</span></li>`,
+        `<li data-i="${s.i}">${timeLink(s.startSec, false)}<span class="txt">${s.speaker ? `<span class="spk">${e(s.speaker)}</span>` : ''}<span class="src">${e(s.text)}</span>${tr(s)}</span></li>`,
     )
     .join('')}</ol></div></div>`;
 
@@ -543,6 +543,7 @@ button{font:inherit;color:inherit}
 #script-list li{display:flex;gap:10px;padding:4px 12px;font-size:.9em;line-height:1.55}
 #script-list li.is-playing{background:var(--hl)}
 .tr{display:block;color:var(--muted);font-size:.95em}
+.spk{display:inline-block;margin-right:6px;font-size:.78em;font-weight:600;color:var(--accent)}
 .script.hide-tr .tr{display:none}
 .tr-toggle{float:right;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:0 8px;font-size:.85em;font-weight:400;cursor:pointer}
 .tr-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}

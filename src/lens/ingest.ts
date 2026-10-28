@@ -24,9 +24,16 @@ import { DigestStore, isValidSlug, slugFromMeta } from '../digest/store.js';
 import { CommandError, runCommand, type RunCommand } from '../digest/ytdlp.js';
 import { AUDIO_EXTS, detectLensKind, pdfUrlOf } from './kind.js';
 import { PDF_EXTRACT_PY } from './pdf-extract-py.js';
-import { audioExt, pickEpisode, PODCAST_WHISPER_PY } from './podcast.js';
+import {
+  assignSpeakers,
+  audioExt,
+  DIARIZE_PY,
+  pickEpisode,
+  PODCAST_WHISPER_PY,
+  type SpeakerTurn,
+} from './podcast.js';
 import { WEB_EXTRACT_PY } from './web-extract-py.js';
-import { lensPython, missingModuleHint } from './python.js';
+import { DIARIZE_MODELS, lensModelsDir, lensPython, missingModuleHint } from './python.js';
 
 export interface LensIngestOptions {
   repoRoot: string;
@@ -40,6 +47,13 @@ export interface LensIngestOptions {
   episode?: number;
   /** 팟캐스트 받아쓰기 모델. 기본 small */
   whisperModel?: string;
+  /**
+   * 로컬 HTML 파일의 원래 주소. Orca 내장 브라우저에서 꺼낸 페이지를 받을 때 쓴다.
+   * 원문 링크와 slug, 본문 추출 기준 주소가 이 값을 따른다
+   */
+  sourceUrl?: string;
+  /** 팟캐스트 받아쓰기 뒤에 화자를 가른다. 모델이 없으면 처음 한 번 받는다 */
+  speakers?: boolean;
 }
 
 export interface LensIngestResult {
@@ -313,7 +327,10 @@ async function ingestWeb(
 ): Promise<LensIngestResult> {
   const run = opts.run ?? runCommand;
   const remote = /^https?:\/\//i.test(input);
-  const url = remote ? input : pathToFileURL(resolve(input)).href;
+  if (opts.sourceUrl !== undefined && (remote || !/^https?:\/\//i.test(opts.sourceUrl))) {
+    throw new Error('--url은 로컬 HTML 파일과 함께, http(s) 주소로만 줄 수 있어요');
+  }
+  const url = remote ? input : (opts.sourceUrl ?? pathToFileURL(resolve(input)).href);
   const htmlPath = join(work, 'page.html');
   if (remote) {
     const { contentType } = await download(url, htmlPath, opts.fetchImpl);
@@ -328,7 +345,7 @@ async function ingestWeb(
     run,
     opts.python ?? lensPython(),
     WEB_EXTRACT_PY,
-    [htmlPath, remote ? url : ''],
+    [htmlPath, /^https?:/i.test(url) ? url : ''],
     work,
     EXTRACT_TIMEOUT_MS,
   );
@@ -393,8 +410,30 @@ async function ingestWeb(
 interface WhisperOut {
   language: string;
   duration: number;
-  segments: Array<{ start: number; text: string }>;
+  segments: Array<{ start: number; end: number; text: string }>;
 }
+
+/** 화자 구분 모델이 없으면 받아 둔다. 받는 곳은 sherpa-onnx의 GitHub 릴리스다 */
+async function ensureDiarizeModels(
+  run: RunCommand,
+  fetchImpl: typeof fetch,
+  work: string,
+): Promise<{ segmentation: string; embedding: string }> {
+  const dir = lensModelsDir();
+  mkdirSync(dir, { recursive: true });
+  const segmentation = join(dir, DIARIZE_MODELS.segmentation.file);
+  const embedding = join(dir, DIARIZE_MODELS.embedding.file);
+  if (!existsSync(segmentation)) {
+    const archive = join(work, 'segmentation.tar.bz2');
+    await download(DIARIZE_MODELS.segmentation.archive, archive, fetchImpl);
+    await run('tar', ['xjf', archive, '-C', dir], { cwd: work, timeoutMs: DOWNLOAD_TIMEOUT_MS });
+  }
+  if (!existsSync(embedding)) await download(DIARIZE_MODELS.embedding.url, embedding, fetchImpl);
+  return { segmentation, embedding };
+}
+
+/** 같은 화자로 묶는 거리 기준. 낮추면 화자가 더 잘게 갈린다. sherpa-onnx 예제의 기본값이다 */
+const DIARIZE_THRESHOLD = 0.5;
 
 export const DEFAULT_PODCAST_MODEL = 'small';
 
@@ -448,6 +487,30 @@ async function ingestPodcast(
   const w = lastJsonLine<WhisperOut>(stdout, '받아쓰기');
   if (w.segments.length === 0)
     throw new Error('받아쓴 문장이 없어요. 말소리가 없는 오디오일 수 있어요.');
+  // 화자 구분이 실패해도 받아쓴 문장은 살린다. 화자 없이 시각만 출처로 단다
+  let speakers: Array<string | undefined> = [];
+  let speakerNote: string;
+  if (opts.speakers) {
+    try {
+      const models = await ensureDiarizeModels(run, fetchImpl, work);
+      const out = await runPython(
+        run,
+        opts.python ?? lensPython(),
+        DIARIZE_PY,
+        [audioPath, models.segmentation, models.embedding, String(DIARIZE_THRESHOLD)],
+        work,
+        3 * 60 * 60 * 1000,
+      );
+      speakers = assignSpeakers(w.segments, lastJsonLine<SpeakerTurn[]>(out, '화자 구분'));
+      const count = new Set(speakers.filter(Boolean)).size;
+      speakerNote = `화자 ${count}명으로 갈랐어요(sherpa-onnx). 이름은 붙이지 않았어요`;
+    } catch (e) {
+      const reason = e instanceof Error ? e.message.split('\n')[0] : String(e);
+      speakerNote = `화자 구분이 실패해 시각만 출처로 달았어요: ${reason}`;
+    }
+  } else {
+    speakerNote = `화자 구분 없이 시각만 출처로 달았어요(faster-whisper ${model})`;
+  }
   const name = title || basename(input).replace(/\.[^.]+$/, '');
   const slug = opts.slug ?? slugFromMeta(shortHash(audioUrl), name);
   if (!isValidSlug(slug)) throw new Error(`slug가 올바르지 않아요: ${slug}`);
@@ -476,7 +539,8 @@ async function ingestPodcast(
       segments: w.segments.map((s, i) => {
         // VAD로 잘린 조각이 앞 시각보다 이르게 나오는 일이 있어 앞 문장에 맞춘다
         prev = Math.max(prev, Math.round(s.start * 100) / 100);
-        return { i, startSec: prev, text: s.text };
+        const speaker = speakers[i];
+        return { i, startSec: prev, text: s.text, ...(speaker ? { speaker } : {}) };
       }),
     },
     { schemaVersion: LENS_SOURCE_SCHEMA_VERSION, slug, kind: 'podcast' },
@@ -491,7 +555,7 @@ async function ingestPodcast(
     pages: 0,
     tables: [],
     figures: [],
-    warnings: [`화자 구분 없이 시각만 출처로 달았어요(faster-whisper ${model})`],
+    warnings: [speakerNote],
     ...(saved.staleDigest ? { staleDigest: saved.staleDigest } : {}),
   };
 }
