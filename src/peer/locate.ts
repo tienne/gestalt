@@ -1,0 +1,134 @@
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
+
+/**
+ * Claude Code 대화 기록 위치 찾기.
+ *
+ * `sessions/<pid>.json`과 `projects/<슬러그>/<sessionId>.jsonl` 둘 다 문서화되지 않은
+ * 형식이다. 그래서 형식이 예상과 다르면 던지지 않고 이유를 담아 돌려준다 — 부르는 쪽이
+ * "어디서 무엇을 찾다 못 찾았는지"를 사람에게 그대로 보여줄 수 있어야 한다.
+ */
+
+export type LocateResult =
+  | { ok: true; path: string; sessionId: string; configDir: string; cwd?: string }
+  | { ok: false; reason: string; configDir: string; sessionId?: string };
+
+export interface SessionRecord {
+  sessionId: string;
+  cwd: string;
+  pid?: number;
+}
+
+/** 설정 디렉토리. Orca 프로필처럼 `CLAUDE_CONFIG_DIR`로 옮겨 둔 경우가 있다 */
+export function claudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env['CLAUDE_CONFIG_DIR'];
+  if (raw && isAbsolute(raw)) return raw;
+  return join(homedir(), '.claude');
+}
+
+/**
+ * cwd를 `projects/` 아래 디렉토리 이름으로 바꾼다. 실제 이름을 보면 영숫자와 `-`
+ * 말고는 전부 `-`가 된다(`/Users/a/.x` → `-Users-a--x`, 한글도 `-`).
+ */
+export function cwdSlug(cwd: string): string {
+  return cwd.replace(/[^A-Za-z0-9-]/g, '-');
+}
+
+/** sessionId가 경로 조각으로 쓰이므로 `..`이나 `/`가 들어오면 안 된다 */
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+export function isSessionId(value: string): boolean {
+  return SESSION_ID.test(value);
+}
+
+/** `sessions/<pid>.json` 하나를 읽는다. 형식이 다르면 null */
+export function readSessionFile(path: string): SessionRecord | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const rec = parsed as Record<string, unknown>;
+  const sessionId = rec['sessionId'];
+  const cwd = rec['cwd'];
+  if (typeof sessionId !== 'string' || typeof cwd !== 'string') return null;
+  const pid = typeof rec['pid'] === 'number' ? rec['pid'] : undefined;
+  return { sessionId, cwd, pid };
+}
+
+/** 부모 pid로 세션을 찾는다. MCP 서버처럼 세션의 자식이 쓴다 */
+export function findSessionByPid(pid: number, configDir = claudeConfigDir()): SessionRecord | null {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  return readSessionFile(join(configDir, 'sessions', `${pid}.json`));
+}
+
+function findSessionById(sessionId: string, configDir: string): SessionRecord | null {
+  const dir = join(configDir, 'sessions');
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return null;
+  }
+  for (const name of names) {
+    if (!/^\d+\.json$/.test(name)) continue;
+    const rec = readSessionFile(join(dir, name));
+    if (rec?.sessionId === sessionId) return rec;
+  }
+  return null;
+}
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * sessionId로 대화 기록 경로를 찾는다.
+ *
+ * 1. `sessions/*.json`에서 그 세션의 cwd를 찾아 슬러그 경로를 본다
+ * 2. 없으면(세션이 끝났거나 슬러그 규칙이 다르면) `projects/*` 아래를 훑는다
+ */
+export function locateTranscript(sessionId: string, configDir = claudeConfigDir()): LocateResult {
+  if (!isSessionId(sessionId)) {
+    return { ok: false, reason: 'sessionId 형식이 아니에요', configDir };
+  }
+  if (!existsSync(configDir)) {
+    return { ok: false, reason: '설정 디렉토리가 없어요', configDir, sessionId };
+  }
+
+  const session = findSessionById(sessionId, configDir);
+  if (session) {
+    const bySlug = join(configDir, 'projects', cwdSlug(session.cwd), `${sessionId}.jsonl`);
+    if (isFile(bySlug)) return { ok: true, path: bySlug, sessionId, configDir, cwd: session.cwd };
+  }
+
+  const projects = join(configDir, 'projects');
+  let dirs: string[];
+  try {
+    dirs = readdirSync(projects);
+  } catch {
+    return { ok: false, reason: 'projects 디렉토리를 못 읽었어요', configDir, sessionId };
+  }
+  for (const dir of dirs) {
+    const candidate = join(projects, dir, `${sessionId}.jsonl`);
+    if (isFile(candidate)) {
+      return { ok: true, path: candidate, sessionId, configDir, cwd: session?.cwd };
+    }
+  }
+
+  return {
+    ok: false,
+    reason: session
+      ? '세션은 있는데 대화 기록 파일을 못 찾았어요'
+      : '그 sessionId의 세션도 대화 기록도 못 찾았어요',
+    configDir,
+    sessionId,
+  };
+}

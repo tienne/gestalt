@@ -74,6 +74,19 @@ import {
   prUnregisterCommand,
   prUpdateCommand,
 } from './commands/pr.js';
+import {
+  peerDaemonCommand,
+  peerShareCommand,
+  peerSharesCommand,
+  peerStatusCommand,
+  peerUnshareCommand,
+} from './commands/peer.js';
+
+type ParentedCommand = { parent?: { opts(): Record<string, unknown> } | null };
+
+function parentOpts<T>(cmd: ParentedCommand): T {
+  return (cmd.parent?.opts() ?? {}) as T;
+}
 
 export function createCli(): Command {
   const program = new Command();
@@ -169,8 +182,8 @@ export function createCli(): Command {
     .option('--author <actor>', '누가 하는지 (예: codex:worker-2). 없으면 GESTALT_ACTOR')
     .option('--json', '에이전트가 파싱할 JSON으로');
 
-  const inherited = (cmd: { parent?: { opts(): Record<string, unknown> } }) =>
-    (cmd.parent?.opts() ?? {}) as { repoRoot?: string; author?: string; json?: boolean };
+  const inherited = (cmd: ParentedCommand) =>
+    parentOpts<{ repoRoot?: string; author?: string; json?: boolean }>(cmd);
 
   pr.command('create')
     .description('현재 HEAD로 PR을 만든다')
@@ -274,6 +287,42 @@ export function createCli(): Command {
     .description('그 레포를 웹 UI 목록에서 뺀다. 레포 자체는 안 건드린다')
     .action((key, o, cmd) => prUnregisterCommand({ ...inherited(cmd), ...o, key }));
 
+  const peer = program
+    .command('peer')
+    .description('내 에이전트 세션 대화를 로컬 뷰어로 공유한다')
+    .option('--json', '에이전트가 파싱할 JSON으로');
+
+  const peerOpts = (cmd: ParentedCommand) => parentOpts<{ json?: boolean }>(cmd);
+
+  peer
+    .command('daemon')
+    .description('peer 데몬을 전경에서 띄운다')
+    .action(() => peerDaemonCommand());
+
+  peer
+    .command('share')
+    .description('세션 하나를 공유하고 뷰어 주소를 출력한다')
+    .option('--session <id>', '공유할 Claude Code sessionId')
+    .option('--transcript <path>', '대화 기록 jsonl을 직접 지정 (로컬 검증용)')
+    .option('--tools <level>', '도구 출력 수준 full | summary | none (기본 summary, 앞 4KB)')
+    .option('--expires <minutes>', '만료까지 분 (기본 480)')
+    .action((o, cmd) => peerShareCommand({ ...peerOpts(cmd), ...o }));
+
+  peer
+    .command('shares')
+    .description('열린 공유 목록')
+    .action((o, cmd) => peerSharesCommand({ ...peerOpts(cmd), ...o }));
+
+  peer
+    .command('unshare <id>')
+    .description('공유를 종료한다')
+    .action((id, o, cmd) => peerUnshareCommand({ ...peerOpts(cmd), ...o, id }));
+
+  peer
+    .command('status')
+    .description('데몬 상태')
+    .action((o, cmd) => peerStatusCommand({ ...peerOpts(cmd), ...o }));
+
   const lens = program
     .command('lens')
     .description('읽기 렌즈 — 논문 PDF, 웹 글, 팟캐스트를 문단 단위 원문으로 받는다')
@@ -341,8 +390,8 @@ export function createCli(): Command {
     .option('--repo-root <path>', 'Repository root (defaults to cwd)')
     .option('--json', '에이전트가 파싱할 JSON으로');
 
-  const digestInherited = (cmd: { parent?: { opts(): Record<string, unknown> } }) =>
-    (cmd.parent?.opts() ?? {}) as { repoRoot?: string; json?: boolean };
+  const digestInherited = (cmd: ParentedCommand) =>
+    parentOpts<{ repoRoot?: string; json?: boolean }>(cmd);
 
   digest
     .command('ingest <input>')
