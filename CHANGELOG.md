@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.108.0] - 2026-10-28
+
+### Added
+
+- **`/lens` 스킬로 논문 PDF와 웹 글, 팟캐스트를 출처가 달린 뷰어로 읽어요.** 문장마다 원문 쪽과 문단 출처가 달리고 출처 칩을 누르면 원문 창이 그 자리로 가요. 슬로건은 "믿을 데와 의심할 데를 같이 짚어주는 읽기"이고 설계와 결정 기록은 `docs/proposals/reading-lens.md`에 남겼어요.
+  - `gestalt lens ingest`가 PDF(pdfplumber로 문단 좌표, 표 칸, 그림, 쪽 그림), 웹 글(trafilatura), 팟캐스트(faster-whisper 받아쓰기와 sherpa-onnx 화자 구분)를 문단 단위로 받아요. 유튜브 주소는 video-digest로 돌려보내요.
+  - 리포트에 한눈에 보기, 장 도입, 원문 표와 그림 참조, 불릿의 의심 표시, 검증 안 된 부분, 맥락 카드, 노트 연결 카드, 눌러 보면 바뀌는 그림이 붙어요.
+- **리포트 숫자를 원문과 대조하는 lint를 더했어요.** 참고 서비스를 시험해 보니 본문은 원문을 그대로 믿었고 그림은 난수로 지어냈어요. 의심 표시와 한계 줄의 숫자는 근거 표 칸과 문단에 있어야 하고 계산한 숫자는 막아요. 그림 값은 원문 칸과 같아야 하고 배지(A 원문 데이터, B 설명용, C 재구성)는 렌더러가 붙여서 모델이 끌 수 없어요.
+- **에이전트 셋을 더했어요.** `lens-reader`는 리포트를, `lens-context`는 웹 검색으로 맥락 카드를, `lens-link`는 내 노트 연결 카드를 써요. 웹 도구는 `lens-context`만 받고 노트는 웹 도구 없는 `lens-link`만 읽어요.
+- **노트 폴더를 처음 쓸 때 찾아서 묻고 연결해요.** Obsidian, Logseq, notes 폴더, 노션 내보내기를 Orca 없이 찾고 고른 폴더를 `~/.gestalt/lens.json`에 적어요. `gestalt lens notes` 명령으로 고칠 수 있어요.
+- **공유용 렌더를 더했어요.** `gestalt digest render --no-crops`(MCP `omitCrops`)가 원문에서 잘라낸 그림과 노트 연결 카드를 빼고 그려요.
+
+### Changed
+
+- **digest 스키마가 1.5.0이 됐어요.** `source.kind`로 영상과 읽을거리를 가르고 `frameSec`은 선택 칸이 됐어요. 영상 리포트에서 `frameSec`이 빠지면 `FRAME_SEC_MISSING`으로 막고 영상 리포트에 렌즈 칸이 오면 `LENS_FIELD_ON_VIDEO`로 막아요.
+- **`WebFetch`를 `lens-context`에만 열었어요.** 전에는 어느 에이전트에도 열지 않는다는 테스트가 있었어요. 맥락 카드는 웹 페이지를 직접 열어 확인해야 해서 바꿨고 그 에이전트에는 셸을 주지 않아요.
+- **`isPrivateAddress`가 IPv6 주소를 여덟 칸으로 풀어 검사해요.** `::ffff:a9fe:a9fe`처럼 16진으로 쓴 IPv4-mapped 주소와 NAT64 안의 IPv4를 다시 검사해요. NAT64 대역을 통째로 막으면 IPv6 전용망에서 공개 주소가 다 막혀서 대역째 막지는 않아요. 리서치 출처 검사도 같은 함수를 써서 함께 강화돼요.
+- **CLI `digest validate`가 렌즈 리포트를 원문과 대조해요.** 전에는 source를 안 넘겨서 표와 그림 출처가 전부 `TABLE_REF_UNKNOWN`으로 나왔어요.
+
+### 검증 범위
+
+- 로컬 PR에서 리뷰를 6라운드 돌렸어요. 1라운드는 high 10개와 warning 15개였고 라운드마다 9개, 3개, 3개, 1개로 줄어 6라운드에서 이슈 0개로 수렴했어요. 코멘트 50개를 반영했고 결정은 설계 문서의 "리뷰 라운드 N에서 정한 것" 절에 남겼어요.
+- 리뷰에서 걸린 것 가운데 큰 건 노트와 웹 도구가 한 에이전트에 같이 있던 것, 레포 `gestalt.json`이 개인 노트 폴더를 가리킬 수 있던 것, lint를 피해 가는 자리 넷(영상 리포트의 렌즈 칸, 카드를 단 한계 줄, B 그림 라벨의 숫자, 값 없는 A 그림)이에요.
+- FlavorDiffusion으로 수용 시험 6개를 통과했고 Attention Is All You Need로 의심 표시 오탐을 확인했어요(2개 모두 원문 안의 실제 어긋남). 웹 글(위키백과 Food pairing)과 팟캐스트(NPR News Now)로도 돌려 봤어요.
+- 머지한 `main`과 같은 트리에서 `pnpm gate`가 331개 파일, 6133개 테스트로 통과했어요.
+
+### 남긴 것
+
+- `lens-context`는 Read 경로를 제한할 수 없어서 노트 폴더를 안 읽는 건 지침으로만 지켜요. 노트 경로와 내용은 넘기지 않아요.
+- 피드 주소의 사설 주소 검사는 검사와 연결이 DNS를 따로 풀어서 rebinding은 막지 못해요.
+- 노션 MCP로 실제 노션 페이지를 연결하는 흐름은 이 세션에 커넥터가 인증되지 않아 시험하지 못했어요.
+- 코드와 PR을 렌즈로 읽는 건 다음으로 미뤘어요.
+- macOS CI에서 `tests/unit/execute/execution-evaluate.test.ts`의 `submitTaskResult` 테스트 두 개가 5초 제한을 넘겨 한 번 실패했어요. 다시 돌리면 통과하고 이번 변경과 상관없는 테스트라 그대로 뒀어요.
+
 ## [0.107.0] - 2026-10-28
 
 ### Added
