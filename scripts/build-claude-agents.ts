@@ -102,9 +102,9 @@ const TOOL_OVERRIDES: Record<string, string[]> = {
   // 산출물이 리포트 JSON 하나다. 저장 경로는 lens 스킬이 넘긴다.
   'lens-reader': [...READ_TOOLS, 'Write'],
   // 바깥 맥락 카드는 웹 페이지를 직접 열어 확인하고 쓴다. 웹 도구를 여는 유일한 에이전트라 셸은 주지 않는다.
-  // 노트를 읽는 에이전트에는 웹 도구가 없다. 연결 카드는 lens-link가 따로 써서 개인 노트와 웹 페이지가
-  // 한 에이전트에 같이 실리지 않는다. 그래야 페이지에 섞인 지시문이 노트 내용을 검색어나 주소에 실어
-  // 밖으로 보낼 길이 없다.
+  // 연결 카드는 웹 도구가 없는 lens-link가 따로 쓴다. 웹 도구를 가진 lens-context에는 스킬이 노트 경로와
+  // 노트 내용을 넘기지 않는다. 다만 Read는 경로 제한 없이 열려 있어서 페이지 지시문이 knowledge.json이나
+  // 노트 폴더를 읽게 하는 것은 에이전트 지침으로만 막는다.
   'lens-context': [...READ_TOOLS, 'WebSearch', 'WebFetch', 'Write'],
   'lens-link': [...READ_TOOLS, 'Write'],
 };

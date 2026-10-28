@@ -5,7 +5,7 @@ import { findReport, initialReportIndex } from '../digest/reports.js';
 import { DigestStore } from '../digest/store.js';
 import { parseDigest } from '../digest/schema.js';
 
-/** lens-context가 쓰는 파일. 카드와 연결 카드, 카드에서 나온 한계 줄이다 */
+/** lens-context의 카드(cards)와 한계 줄(limits), lens-link의 연결 카드(links)를 스킬이 한 파일로 합친 것이다 */
 export const contextFileSchema = z.object({
   cards: z.array(contextCardSchema).max(4).default([]),
   links: z.array(knowledgeLinkSchema).max(6).default([]),
