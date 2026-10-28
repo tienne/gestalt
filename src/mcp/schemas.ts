@@ -69,7 +69,7 @@ export const interviewInputSchema = guardObject(
       .optional()
       .default(false)
       .describe(
-        'complete only: 해상도가 임계값(interview.resolutionThreshold, 기본 0.8)에 못 미쳐도 완료한다. 사용자가 명시적으로 넘기기로 한 경우에만 쓴다. 세션과 이벤트에 forced로 남는다.',
+        'complete only: 해상도가 기준값(interview.resolutionThreshold, 기본 0.8)에 못 미치거나 gate의 다시 채점을 통과하지 못해도 완료한다. 사용자가 명시적으로 넘기기로 한 경우에만 쓴다. 세션과 이벤트에 forced로 남는다.',
       ),
   }),
 );
