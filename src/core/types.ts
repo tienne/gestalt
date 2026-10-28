@@ -51,16 +51,16 @@ export interface ResolutionSignals {
   rescore?: RescoreResult;
 }
 
-/** isolated: 인터뷰 맥락이 없는 채점자. same-context: 첫 채점과 같은 대화에서 다시 채점 */
+/** isolated: 인터뷰 맥락이 없는 채점자. same-context: 다시 채점 직전 점수를 매긴 대화에서 다시 채점 */
 export type RescoreMode = 'isolated' | 'same-context';
 
 export interface RescoreResult {
   mode: RescoreMode;
-  /** 두 번째 채점의 overall */
+  /** 다시 채점한 점수의 overall */
   overall: number;
   /** 차원별 |다시 채점 직전 점수 - 다시 채점한 점수| 중 가장 큰 값 */
   maxDimensionSpread: number;
-  /** 첫 채점에서 기준값 이상이었다가 두 번째 채점에서 아래로 떨어진 차원 */
+  /** 다시 채점 직전 점수에서 기준값 이상이었다가 다시 채점한 점수에서 아래로 떨어진 차원 */
   droppedDimensions: ResolutionDimensionName[];
 }
 
