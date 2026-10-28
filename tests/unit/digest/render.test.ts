@@ -513,7 +513,7 @@ describe('다이어리 테마', () => {
   });
 
   it('외부 글꼴을 끄면 구글 폰트 링크를 싣지 않는다', () => {
-    const on = renderDigestHtml(sampleDigest(), sampleTranscript()).html;
+    const on = renderDigestHtml(sampleDigest(), sampleTranscript(), { externalFonts: true }).html;
     const off = renderDigestHtml(sampleDigest(), sampleTranscript(), { externalFonts: false }).html;
     expect(on).toContain(DIARY_FONT_LINK);
     expect(off).not.toContain('fonts.googleapis.com');

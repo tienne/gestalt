@@ -21,7 +21,7 @@
   "$schema": "./node_modules/@tienne/gestalt/schemas/gestalt.schema.json",
   "llm": { "apiKey": "", "model": "claude-sonnet-5" },
   "interview": { "resolutionThreshold": 0.8, "maxRounds": 10, "rescore": "record" },
-  "execute": { "driftThreshold": 0.6, "successThreshold": 0.85, "goalAlignmentThreshold": 0.8 },
+  "execute": { "driftThreshold": 0.6, "successThreshold": 0.85, "goalAlignmentThreshold": 0.80 },
   "reasoningModel": "fable",
   "reasoningModelFallback": "opus",
   "tierModels": { "frugal": "haiku", "standard": "sonnet", "frontier": "opus" },
@@ -79,62 +79,62 @@ interface GestaltConfig {
 
 ## 환경변수 레퍼런스
 
-| 변수명                                    | 타입                                                 | 기본값                      | 설명                                                                                                                                                                                                                                          |
-| ----------------------------------------- | ---------------------------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ANTHROPIC_API_KEY`                       | string                                               | `""`                        | Anthropic API 키. 없으면 Interview/Spec에서 Passthrough 모드로 동작. `client`가 `"claude-code"`, `"codex"`, `"grok"`이면 API 키가 있어도 Interview/Spec은 Passthrough. `"both"`는 강제하지 않는다. Execute는 항상 Passthrough.                |
-| `GESTALT_MODEL`                           | string                                               | `"claude-sonnet-5"`         | 기본 LLM 모델 이름 (`llm.model` 매핑)                                                                                                                                                                                                         |
-| `GESTALT_RESOLUTION_THRESHOLD`            | number (0–1)                                         | `0.8`                       | 인터뷰 완료 기준 해상도 점수. 이 값 이상이면 인터뷰를 충분히 완료된 것으로 판단                                                                                                                                                               |
-| `GESTALT_MAX_ROUNDS`                      | number (int)                                         | `10`                        | 인터뷰 최대 라운드 수                                                                                                                                                                                                                         |
-| `GESTALT_DRIFT_THRESHOLD`                 | number (0–1)                                         | `0.6`                       | Execute 평가 시 드리프트 허용 임계값. 초과 시 Evolve 루프 진입                                                                                                                                                                                |
-| `GESTALT_EVOLVE_SUCCESS_THRESHOLD`        | number (0–1)                                         | `0.85`                      | Evolve 성공 판정 기준 점수                                                                                                                                                                                                                    |
-| `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | number (0–1)                                         | `0.80`                      | 목표 정렬도 최소 임계값. 미달 시 재실행 트리거                                                                                                                                                                                                |
-| `GESTALT_REASONING_MODEL`                 | `"fable"` \| `"opus"` \| `"sonnet"` \| `"haiku"`     | `"fable"`                   | 스펙 생성과 실행 플래닝의 깊은 추론에 쓸 Agent 서브에이전트 모델. Interview는 대상이 아님                                                                                                                                                     |
-| `GESTALT_REASONING_MODEL_FALLBACK`        | `"fable"` \| `"opus"` \| `"sonnet"` \| `"haiku"`     | `"opus"`                    | 위 모델을 Agent 도구가 지원하지 않을 때 쓸 폴백 모델                                                                                                                                                                                          |
-| `GESTALT_NOTIFICATIONS`                   | boolean                                              | `false`                     | 완료/실패 시 OS 알림 전송 여부 (`"true"` 문자열로 설정)                                                                                                                                                                                       |
-| `GESTALT_CODE_GRAPH_HOOKS`                | `"1"` \| `"true"` \| `"0"` \| `"false"`              | —                           | Claude Code 플러그인 훅의 코드 그래프 자동 주입을 켜고 끈다. `0`/`false`는 `gestalt.json` 설정보다 우선해서 끈다. 동작은 [Claude Code 훅 (자동 주입)](./code-graph.md#claude-code-훅-자동-주입)                                               |
-| `GESTALT_WEBFETCH_CACHE`                  | `"1"` \| `"true"` \| `"0"` \| `"false"`              | —                           | WebFetch 디스크 캐시 훅을 켜고 끈다. `0`/`false`는 `gestalt.json` 설정보다 우선해서 끈다. 동작은 [WebFetch 디스크 캐시](./webfetch-cache.md)                                                                                                  |
-| `GESTALT_DB_PATH`                         | string                                               | `"~/.gestalt/events.db"`    | SQLite 이벤트 스토어 파일 경로                                                                                                                                                                                                                |
-| `GESTALT_SKILLS_DIR`                      | string                                               | `"skills"`                  | 스킬 SKILL.md 파일들이 위치한 디렉터리                                                                                                                                                                                                        |
-| `GESTALT_AGENTS_DIR`                      | string                                               | `"agents"`                  | 커스텀 에이전트 정의 디렉터리                                                                                                                                                                                                                 |
-| `GESTALT_ROLE_AGENTS_DIR`                 | string                                               | `"role-agents"`             | Role Agent 정의 디렉터리                                                                                                                                                                                                                      |
-| `GESTALT_REVIEW_AGENTS_DIR`               | string                                               | `"review-agents"`           | Review Agent 정의 디렉터리                                                                                                                                                                                                                    |
-| `GESTALT_RESEARCH_SOURCES_DIR`            | string                                               | `"plugin/research-sources"` | 리서치 내장 출처(SOURCE.md) 디렉터리. 개인 출처는 `~/.gestalt/research-sources/`에서 따로 읽고 같은 이름이면 개인 쪽이 이긴다                                                                                                                 |
-| `GESTALT_LOG_LEVEL`                       | `"debug"` \| `"info"` \| `"warn"` \| `"error"`       | `"info"`                    | 로그 출력 레벨                                                                                                                                                                                                                                |
-| `GESTALT_CLIENT`                          | `"claude-code"` \| `"codex"` \| `"both"` \| `"grok"` | `"claude-code"`             | 액티브 세션 컨텍스트를 쓰는 호스트. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고 Interview/Spec passthrough를 강제한다. `"both"`는 Claude와 Codex만 쓰며 Grok 경로는 쓰지 않는다                                                           |
-| `GESTALT_NO_UPDATE_CHECK`                 | `"1"`                                                | —                           | `"1"` 로 설정하면 버전 업데이트 확인을 건너뜀                                                                                                                                                                                                 |
-| `GESTALT_DIGEST_EXTERNAL_FONTS`           | `"0"` \| `"false"`                                   | —                           | 영상 요약과 읽기 렌즈 뷰어가 손글씨 제목 글꼴(Nanum Pen Script)을 구글 폰트에서 받는 링크를 싣지 않는다. 끄면 제목이 명조로 보이고 요약을 열 때 밖으로 나가는 요청이 없다. 이미 만든 `digest.html`에는 링크가 남아 있으니 끈 뒤 다시 렌더한다 |
-| `GESTALT_LENS_MODELS`                     | string (절대 경로)                                   | —                           | 팟캐스트 화자를 가르는 모델(sherpa-onnx)을 둘 폴더. 없으면 `~/.local/share/gestalt/lens-models`를 쓴다. 모델이 없으면 처음 쓸 때 받고 sha256을 확인한다                                                                                       |
-| `GESTALT_LENS_PYTHON`                     | string (절대 경로)                                   | —                           | 읽기 렌즈 추출(pdfplumber, trafilatura, faster-whisper)에 쓸 파이썬. 없으면 `~/.local/share/gestalt/lens-venv/bin/python`, 그것도 없으면 `python3`. 상대 경로는 거절한다. 동작은 [읽기 렌즈](#읽기-렌즈-lens)                                 |
+| 변수명 | 타입 | 기본값 | 설명 |
+|--------|------|--------|------|
+| `ANTHROPIC_API_KEY` | string | `""` | Anthropic API 키. 없으면 Interview/Spec에서 Passthrough 모드로 동작. `client`가 `"claude-code"`, `"codex"`, `"grok"`이면 API 키가 있어도 Interview/Spec은 Passthrough. `"both"`는 강제하지 않는다. Execute는 항상 Passthrough. |
+| `GESTALT_MODEL` | string | `"claude-sonnet-5"` | 기본 LLM 모델 이름 (`llm.model` 매핑) |
+| `GESTALT_RESOLUTION_THRESHOLD` | number (0–1) | `0.8` | 인터뷰 완료 기준 해상도 점수. 이 값 이상이면 인터뷰를 충분히 완료된 것으로 판단 |
+| `GESTALT_MAX_ROUNDS` | number (int) | `10` | 인터뷰 최대 라운드 수 |
+| `GESTALT_DRIFT_THRESHOLD` | number (0–1) | `0.6` | Execute 평가 시 드리프트 허용 임계값. 초과 시 Evolve 루프 진입 |
+| `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | number (0–1) | `0.85` | Evolve 성공 판정 기준 점수 |
+| `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | number (0–1) | `0.80` | 목표 정렬도 최소 임계값. 미달 시 재실행 트리거 |
+| `GESTALT_REASONING_MODEL` | `"fable"` \| `"opus"` \| `"sonnet"` \| `"haiku"` | `"fable"` | 스펙 생성과 실행 플래닝의 깊은 추론에 쓸 Agent 서브에이전트 모델. Interview는 대상이 아님 |
+| `GESTALT_REASONING_MODEL_FALLBACK` | `"fable"` \| `"opus"` \| `"sonnet"` \| `"haiku"` | `"opus"` | 위 모델을 Agent 도구가 지원하지 않을 때 쓸 폴백 모델 |
+| `GESTALT_NOTIFICATIONS` | boolean | `false` | 완료/실패 시 OS 알림 전송 여부 (`"true"` 문자열로 설정) |
+| `GESTALT_CODE_GRAPH_HOOKS` | `"1"` \| `"true"` \| `"0"` \| `"false"` | — | Claude Code 플러그인 훅의 코드 그래프 자동 주입을 켜고 끈다. `0`/`false`는 `gestalt.json` 설정보다 우선해서 끈다. 동작은 [Claude Code 훅 (자동 주입)](./code-graph.md#claude-code-훅-자동-주입) |
+| `GESTALT_WEBFETCH_CACHE` | `"1"` \| `"true"` \| `"0"` \| `"false"` | — | WebFetch 디스크 캐시 훅을 켜고 끈다. `0`/`false`는 `gestalt.json` 설정보다 우선해서 끈다. 동작은 [WebFetch 디스크 캐시](./webfetch-cache.md) |
+| `GESTALT_DB_PATH` | string | `"~/.gestalt/events.db"` | SQLite 이벤트 스토어 파일 경로 |
+| `GESTALT_SKILLS_DIR` | string | `"skills"` | 스킬 SKILL.md 파일들이 위치한 디렉터리 |
+| `GESTALT_AGENTS_DIR` | string | `"agents"` | 커스텀 에이전트 정의 디렉터리 |
+| `GESTALT_ROLE_AGENTS_DIR` | string | `"role-agents"` | Role Agent 정의 디렉터리 |
+| `GESTALT_REVIEW_AGENTS_DIR` | string | `"review-agents"` | Review Agent 정의 디렉터리 |
+| `GESTALT_RESEARCH_SOURCES_DIR` | string | `"plugin/research-sources"` | 리서치 내장 출처(SOURCE.md) 디렉터리. 개인 출처는 `~/.gestalt/research-sources/`에서 따로 읽고 같은 이름이면 개인 쪽이 이긴다 |
+| `GESTALT_LOG_LEVEL` | `"debug"` \| `"info"` \| `"warn"` \| `"error"` | `"info"` | 로그 출력 레벨 |
+| `GESTALT_CLIENT` | `"claude-code"` \| `"codex"` \| `"both"` \| `"grok"` | `"claude-code"` | 액티브 세션 컨텍스트를 쓰는 호스트. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고 Interview/Spec passthrough를 강제한다. `"both"`는 Claude와 Codex만 쓰며 Grok 경로는 쓰지 않는다 |
+| `GESTALT_NO_UPDATE_CHECK` | `"1"` | — | `"1"` 로 설정하면 버전 업데이트 확인을 건너뜀 |
+| `GESTALT_DIGEST_EXTERNAL_FONTS` | `"0"` \| `"false"` | — | 영상 요약과 읽기 렌즈 뷰어가 손글씨 제목 글꼴(Nanum Pen Script)을 구글 폰트에서 받는 링크를 싣지 않는다. 끄면 제목이 명조로 보이고 요약을 열 때 밖으로 나가는 요청이 없다. 이미 만든 `digest.html`에는 링크가 남아 있으니 끈 뒤 다시 렌더한다 |
+| `GESTALT_LENS_MODELS` | string (절대 경로) | — | 팟캐스트 화자를 가르는 모델(sherpa-onnx)을 둘 폴더. 없으면 `~/.local/share/gestalt/lens-models`를 쓴다. 모델이 없으면 처음 쓸 때 받고 sha256을 확인한다 |
+| `GESTALT_LENS_PYTHON` | string (절대 경로) | — | 읽기 렌즈 추출(pdfplumber, trafilatura, faster-whisper)에 쓸 파이썬. 없으면 `~/.local/share/gestalt/lens-venv/bin/python`, 그것도 없으면 `python3`. 상대 경로는 거절한다. 동작은 [읽기 렌즈](#읽기-렌즈-lens) |
 
 잘못된 설정값은 경고를 출력하고 기본값으로 fallback한다 (에러를 throw하지 않음).
 
 ### Config 경로 매핑 (빠른 참조)
 
-| 환경변수                                  | Config 경로                      |
-| ----------------------------------------- | -------------------------------- |
-| `ANTHROPIC_API_KEY`                       | `llm.apiKey`                     |
-| `GESTALT_MODEL`                           | `llm.model`                      |
-| `GESTALT_RESOLUTION_THRESHOLD`            | `interview.resolutionThreshold`  |
-| `GESTALT_MAX_ROUNDS`                      | `interview.maxRounds`            |
-| `GESTALT_DRIFT_THRESHOLD`                 | `execute.driftThreshold`         |
-| `GESTALT_EVOLVE_SUCCESS_THRESHOLD`        | `execute.successThreshold`       |
+| 환경변수 | Config 경로 |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | `llm.apiKey` |
+| `GESTALT_MODEL` | `llm.model` |
+| `GESTALT_RESOLUTION_THRESHOLD` | `interview.resolutionThreshold` |
+| `GESTALT_MAX_ROUNDS` | `interview.maxRounds` |
+| `GESTALT_DRIFT_THRESHOLD` | `execute.driftThreshold` |
+| `GESTALT_EVOLVE_SUCCESS_THRESHOLD` | `execute.successThreshold` |
 | `GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD` | `execute.goalAlignmentThreshold` |
-| `GESTALT_REASONING_MODEL`                 | `reasoningModel`                 |
-| `GESTALT_REASONING_MODEL_FALLBACK`        | `reasoningModelFallback`         |
-| `GESTALT_TIER_MODEL_FRUGAL`               | `tierModels.frugal`              |
-| `GESTALT_TIER_MODEL_STANDARD`             | `tierModels.standard`            |
-| `GESTALT_TIER_MODEL_FRONTIER`             | `tierModels.frontier`            |
-| `GESTALT_NOTIFICATIONS`                   | `notifications`                  |
-| `GESTALT_CODE_GRAPH_HOOKS`                | `codeGraph.hooks.enabled`        |
-| `GESTALT_WEBFETCH_CACHE`                  | `webFetchCache.enabled`          |
-| `GESTALT_DB_PATH`                         | `dbPath`                         |
-| `GESTALT_SKILLS_DIR`                      | `skillsDir`                      |
-| `GESTALT_AGENTS_DIR`                      | `agentsDir`                      |
-| `GESTALT_ROLE_AGENTS_DIR`                 | `roleAgentsDir`                  |
-| `GESTALT_REVIEW_AGENTS_DIR`               | `reviewAgentsDir`                |
-| `GESTALT_RESEARCH_SOURCES_DIR`            | `researchSourcesDir`             |
-| `GESTALT_LOG_LEVEL`                       | `logLevel`                       |
-| `GESTALT_CLIENT`                          | `client`                         |
+| `GESTALT_REASONING_MODEL` | `reasoningModel` |
+| `GESTALT_REASONING_MODEL_FALLBACK` | `reasoningModelFallback` |
+| `GESTALT_TIER_MODEL_FRUGAL` | `tierModels.frugal` |
+| `GESTALT_TIER_MODEL_STANDARD` | `tierModels.standard` |
+| `GESTALT_TIER_MODEL_FRONTIER` | `tierModels.frontier` |
+| `GESTALT_NOTIFICATIONS` | `notifications` |
+| `GESTALT_CODE_GRAPH_HOOKS` | `codeGraph.hooks.enabled` |
+| `GESTALT_WEBFETCH_CACHE` | `webFetchCache.enabled` |
+| `GESTALT_DB_PATH` | `dbPath` |
+| `GESTALT_SKILLS_DIR` | `skillsDir` |
+| `GESTALT_AGENTS_DIR` | `agentsDir` |
+| `GESTALT_ROLE_AGENTS_DIR` | `roleAgentsDir` |
+| `GESTALT_REVIEW_AGENTS_DIR` | `reviewAgentsDir` |
+| `GESTALT_RESEARCH_SOURCES_DIR` | `researchSourcesDir` |
+| `GESTALT_LOG_LEVEL` | `logLevel` |
+| `GESTALT_CLIENT` | `client` |
 
 ---
 
@@ -142,11 +142,11 @@ interface GestaltConfig {
 
 인터뷰 점수가 `resolutionThreshold`를 넘으면 그 채점을 한 번 더 받는다. `record`는 처음 넘을 때 한 번만 요청하고 `gate`는 받을 때까지 넘을 때마다 요청한다. 같은 대화를 다시 물었을 때 점수가 얼마나 바뀌는지 남기려는 것이다. 환경변수는 없고 `gestalt.json`에서만 정한다.
 
-| 값              | 동작                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `off`           | 다시 채점하지 않는다                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `record` (기본) | 다시 채점해서 기록만 한다. `isReady`는 다시 채점 직전 점수 그대로 둔다                                                                                                                                                                                                                                                                                                                                                          |
-| `gate`          | 다시 채점을 받기 전까지 `isReady`를 `false`로 둔다. 받은 뒤에는 두 overall 중 낮은 쪽으로 정하고 차원 하나라도 0.2보다 크게 흔들렸으면 `false`로 둔다. 다시 채점은 인터뷰마다 한 번이라 보류된 뒤 다시 기준값을 넘은 채점은 기본 규칙(overall ≥ 기준값)으로 정한다. `rescoreMode`가 `same-context`여도 같은 규칙으로 정하고 이걸 그대로 둘지는 [제안서 열린 질문 6](./proposals/resolution-calibration.md#열린-질문)에서 정한다 |
+| 값 | 동작 |
+|---|---|
+| `off` | 다시 채점하지 않는다 |
+| `record` (기본) | 다시 채점해서 기록만 한다. `isReady`는 다시 채점 직전 점수 그대로 둔다 |
+| `gate` | 다시 채점을 받기 전까지 `isReady`를 `false`로 둔다. 받은 뒤에는 두 overall 중 낮은 쪽으로 정하고 차원 하나라도 0.2보다 크게 흔들렸으면 `false`로 둔다. 다시 채점은 인터뷰마다 한 번이라 보류된 뒤 다시 기준값을 넘은 채점은 기본 규칙(overall ≥ 기준값)으로 정한다. `rescoreMode`가 `same-context`여도 같은 규칙으로 정하고 이걸 그대로 둘지는 [제안서 열린 질문 6](./proposals/resolution-calibration.md#열린-질문)에서 정한다 |
 
 흐름과 응답 필드는 [`mcp-reference.md`](./mcp-reference.md#다시-채점하기)에 있다.
 
@@ -257,12 +257,12 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
 
 하네스 리뷰(`harness-reviewer`)는 diff 밖에서 깨질 수 있는 다른 레포의 참조를 찾는다. 찾을 레포 목록은 자동 탐지가 기본이다. `relatedRepos`는 자동으로 못 찾은 레포를 손으로 더하는 자리다.
 
-| 항목   | 값                                                                |
-| ------ | ----------------------------------------------------------------- |
-| 형식   | `owner/name` 문자열 배열 (예: `acme/widget-kit`)                  |
-| 기본값 | `[]`                                                              |
-| 상한   | 64개, 항목당 256자                                                |
-| 검증   | `src/core/config.ts`의 Zod 스키마와 `schemas/gestalt.schema.json` |
+| 항목 | 값 |
+|---|---|
+| 형식 | `owner/name` 문자열 배열 (예: `acme/widget-kit`) |
+| 기본값 | `[]` |
+| 상한 | 64개, 항목당 256자 |
+| 검증 | `src/core/config.ts`의 Zod 스키마와 `schemas/gestalt.schema.json` |
 
 ```json
 {
@@ -276,10 +276,10 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
 
 ### 탐지 결과 캐시
 
-| 항목      | 값                                                                  |
-| --------- | ------------------------------------------------------------------- |
-| 위치      | `.gestalt/harness-refs-cache.json` (`DETECTION_CACHE_PATH`)         |
-| 커밋      | 안 한다. `.gestalt/`가 `.gitignore`에 걸려 있다                     |
+| 항목 | 값 |
+|---|---|
+| 위치 | `.gestalt/harness-refs-cache.json` (`DETECTION_CACHE_PATH`) |
+| 커밋 | 안 한다. `.gestalt/`가 `.gitignore`에 걸려 있다 |
 | 담기는 것 | 관련 레포 목록, 식별자, 하네스 문서 해시, 만료 시각, 현재 레포 이름 |
 
 역방향 검색은 `gh search code`를 쓰고 속도 제한이 걸려 있다. 그래서 탐지를 매 리뷰마다 돌리지 않고 캐시를 쓴다. 다음 셋 중 하나면 다시 탐지한다.
@@ -307,20 +307,20 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
       "ref": "mcp__plate__get_design_tokens",
       "scope": ["ui", "css"],
       "trust": "convention",
-      "onMissing": "warn",
-    },
-  ],
+      "onMissing": "warn"
+    }
+  ]
 }
 ```
 
-| 필드        | 값                         | 설명                                                                                                              |
-| ----------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `id`        | string (≤64자)             | 보고에 쓰는 이름. 레포 안에서 고유해야 한다. 사용자에게 그대로 보이므로 줄이나 표의 칸을 새로 여는 문자는 못 쓴다 |
-| `kind`      | `mcp` \| `file` \| `skill` | 규칙이 어디 있나                                                                                                  |
-| `ref`       | string (≤512자)            | `kind`별 대상 — MCP 도구 이름, 파일 경로, 스킬 이름                                                               |
-| `scope`     | string[] (≤16개)           | 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다                                                                |
-| `trust`     | `convention` \| `delegate` | `convention`은 형식을 따른다. `delegate`는 그 작업을 넘긴다                                                       |
-| `onMissing` | `skip` \| `warn` \| `stop` | 못 읽었을 때 조용히 진행할지, 보고에 남길지, 멈출지                                                               |
+| 필드 | 값 | 설명 |
+|---|---|---|
+| `id` | string (≤64자) | 보고에 쓰는 이름. 레포 안에서 고유해야 한다. 사용자에게 그대로 보이므로 줄이나 표의 칸을 새로 여는 문자는 못 쓴다 |
+| `kind` | `mcp` \| `file` \| `skill` | 규칙이 어디 있나 |
+| `ref` | string (≤512자) | `kind`별 대상 — MCP 도구 이름, 파일 경로, 스킬 이름 |
+| `scope` | string[] (≤16개) | 이 태그가 걸린 작업에서만 읽는다. 비면 항상 읽는다 |
+| `trust` | `convention` \| `delegate` | `convention`은 형식을 따른다. `delegate`는 그 작업을 넘긴다 |
+| `onMissing` | `skip` \| `warn` \| `stop` | 못 읽었을 때 조용히 진행할지, 보고에 남길지, 멈출지 |
 
 `ref`에는 선이 걸려 있다. `file`은 레포 기준 상대 경로여야 하고 절대 경로와 `..`, 자격 증명이 담기는 자리는 거부한다. `mcp`와 `skill`은 이름 꼴만 받는다. 배열은 32개까지다.
 
@@ -355,11 +355,11 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
 {
   "ruleSources": [],
   "ruleSourceErrors": [
-    "ruleSources.1.kind (id: \"design-tokens\"): Invalid enum value. Expected 'mcp' | 'file' | 'skill', received 'http'",
+    "ruleSources.1.kind (id: \"design-tokens\"): Invalid enum value. Expected 'mcp' | 'file' | 'skill', received 'http'"
   ],
   "ruleSourceErrorCount": 1,
   "ruleSourceWarnings": [],
-  "ruleSourceWarningCount": 0,
+  "ruleSourceWarningCount": 0
 }
 ```
 
@@ -379,11 +379,11 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
 
 작업 복잡도에 따라 다른 LLM 프로바이더를 라우팅할 수 있다. `frugal`, `standard`, `frontier` 세 가지 tier로 구분한다.
 
-| Tier       | 용도                                     | 예시 모델                      | 지금 실제로 쓰이는 자리                                                                                                 |
-| ---------- | ---------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `frugal`   | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `claude-haiku-4-5` | 인터뷰 해상도 점수 산정(`ResolutionScorer`, 아래 조건), `ges_generate_kb`의 파일별 한 줄 요약(`summarize: true`일 때만) |
-| `standard` | 일반 작업 — 인터뷰, 스펙 생성            | `claude-sonnet-5`              | 질문 생성, Spec 생성. tier 미설정 시 flat `llm.apiKey`+`llm.model`로 폴백                                               |
-| `frontier` | 고난도 추론                              | `claude-opus-4-20250514`, `o1` | 아직 직접 호출 경로 없음 — 설정만 받아둔다                                                                              |
+| Tier | 용도 | 예시 모델 | 지금 실제로 쓰이는 자리 |
+|------|------|-----------|------------------------|
+| `frugal` | 가벼운 작업 — 점수 산정, 분류, 짧은 응답 | `llama3.2`, `claude-haiku-4-5` | 인터뷰 해상도 점수 산정(`ResolutionScorer`, 아래 조건), `ges_generate_kb`의 파일별 한 줄 요약(`summarize: true`일 때만) |
+| `standard` | 일반 작업 — 인터뷰, 스펙 생성 | `claude-sonnet-5` | 질문 생성, Spec 생성. tier 미설정 시 flat `llm.apiKey`+`llm.model`로 폴백 |
+| `frontier` | 고난도 추론 | `claude-opus-4-20250514`, `o1` | 아직 직접 호출 경로 없음 — 설정만 받아둔다 |
 
 `frugal`은 위 두 자리에서 쓰인다. 정해진 기준에 점수를 매기거나 파일 하나를 한 문장으로 옮겨 적는 작업이라 질문 생성만큼의 모델이 필요 없어서다.
 
@@ -400,12 +400,12 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
 
 ### Tier 객체 필드
 
-| 필드       | 타입                      | Required | Description                                          |
-| ---------- | ------------------------- | :------: | ---------------------------------------------------- |
-| `provider` | `"anthropic" \| "openai"` |    Y     | LLM 프로바이더                                       |
-| `model`    | `string`                  |    Y     | 모델 이름                                            |
-| `apiKey`   | `string`                  |    N     | 해당 tier의 API 키. 생략하면 `llm.apiKey`를 사용     |
-| `baseURL`  | `string`                  |    N     | API 엔드포인트 URL. Ollama 등 로컬 서버 연결 시 필요 |
+| 필드 | 타입 | Required | Description |
+|------|------|:--------:|-------------|
+| `provider` | `"anthropic" \| "openai"` | Y | LLM 프로바이더 |
+| `model` | `string` | Y | 모델 이름 |
+| `apiKey` | `string` | N | 해당 tier의 API 키. 생략하면 `llm.apiKey`를 사용 |
+| `baseURL` | `string` | N | API 엔드포인트 URL. Ollama 등 로컬 서버 연결 시 필요 |
 
 tier를 설정하지 않으면 `llm.apiKey` + `llm.model` 조합으로 모든 tier에 Anthropic 어댑터를 사용한다. 기존 설정과 호환된다.
 
@@ -439,20 +439,20 @@ tier를 설정하지 않으면 `llm.apiKey` + `llm.model` 조합으로 모든 ti
 
 패턴: `GESTALT_LLM_{TIER}_{FIELD}`
 
-| 환경변수                        | Config 경로             |
-| ------------------------------- | ----------------------- |
-| `GESTALT_LLM_FRUGAL_PROVIDER`   | `llm.frugal.provider`   |
-| `GESTALT_LLM_FRUGAL_API_KEY`    | `llm.frugal.apiKey`     |
-| `GESTALT_LLM_FRUGAL_BASE_URL`   | `llm.frugal.baseURL`    |
-| `GESTALT_LLM_FRUGAL_MODEL`      | `llm.frugal.model`      |
+| 환경변수 | Config 경로 |
+|----------|-------------|
+| `GESTALT_LLM_FRUGAL_PROVIDER` | `llm.frugal.provider` |
+| `GESTALT_LLM_FRUGAL_API_KEY` | `llm.frugal.apiKey` |
+| `GESTALT_LLM_FRUGAL_BASE_URL` | `llm.frugal.baseURL` |
+| `GESTALT_LLM_FRUGAL_MODEL` | `llm.frugal.model` |
 | `GESTALT_LLM_STANDARD_PROVIDER` | `llm.standard.provider` |
-| `GESTALT_LLM_STANDARD_API_KEY`  | `llm.standard.apiKey`   |
-| `GESTALT_LLM_STANDARD_BASE_URL` | `llm.standard.baseURL`  |
-| `GESTALT_LLM_STANDARD_MODEL`    | `llm.standard.model`    |
+| `GESTALT_LLM_STANDARD_API_KEY` | `llm.standard.apiKey` |
+| `GESTALT_LLM_STANDARD_BASE_URL` | `llm.standard.baseURL` |
+| `GESTALT_LLM_STANDARD_MODEL` | `llm.standard.model` |
 | `GESTALT_LLM_FRONTIER_PROVIDER` | `llm.frontier.provider` |
-| `GESTALT_LLM_FRONTIER_API_KEY`  | `llm.frontier.apiKey`   |
-| `GESTALT_LLM_FRONTIER_BASE_URL` | `llm.frontier.baseURL`  |
-| `GESTALT_LLM_FRONTIER_MODEL`    | `llm.frontier.model`    |
+| `GESTALT_LLM_FRONTIER_API_KEY` | `llm.frontier.apiKey` |
+| `GESTALT_LLM_FRONTIER_BASE_URL` | `llm.frontier.baseURL` |
+| `GESTALT_LLM_FRONTIER_MODEL` | `llm.frontier.model` |
 
 ---
 

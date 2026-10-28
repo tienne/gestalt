@@ -65,6 +65,7 @@ export function parseByteRange(header: string | undefined, size: number): ByteRa
 // 유튜브 IFrame API가 스크립트와 iframe을 함께 끌어와서 그 둘만 밖으로 연다.
 // 렌더가 싣는 실행 스크립트는 테마를 먼저 붙이는 THEME_BOOT_JS와 VIEWER_JS 둘이라 해시로 고정한다. 데이터 블록은 type이 JSON이라 실행되지 않는다.
 // 다이어리 테마(theme-diary.ts)의 손글씨 제목 글꼴은 영상 요약과 렌즈 모두 구글 폰트에서 받아서 스타일시트와 글꼴 파일 주소를 연다
+// GESTALT_DIGEST_EXTERNAL_FONTS로 끄면 렌더가 링크를 빼고 CSP는 그대로 둔다. 이미 렌더한 HTML의 링크가 막히지 않게 하려는 것이다
 export const DIGEST_CSP = [
   "default-src 'self'",
   `script-src 'self' 'sha256-${THEME_BOOT_JS_SHA256}' 'sha256-${VIEWER_JS_SHA256}' https://www.youtube.com https://s.ytimg.com`,
