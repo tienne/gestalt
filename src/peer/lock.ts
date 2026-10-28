@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   closeSync,
   linkSync,
@@ -15,6 +16,8 @@ export interface DaemonLock {
   path: string;
   dev: number;
   ino: number;
+  /** 적어 둔 내용. 지운 파일의 inode를 새 파일이 다시 받을 수 있어서 내용까지 맞춰 본다 */
+  content: string;
 }
 
 /**
@@ -53,13 +56,14 @@ export async function acquireDaemonLock(root: string, sock: string): Promise<Dae
       await clearStaleLock(path, sock);
       continue;
     }
+    const content = `${process.pid}\n${Date.now()}\n${randomBytes(8).toString('hex')}\n`;
     try {
-      writeSync(fd, `${process.pid}\n${Date.now()}\n`);
+      writeSync(fd, content);
     } finally {
       closeSync(fd);
     }
     const st = lstatSync(path);
-    return { path, dev: st.dev, ino: st.ino };
+    return { path, dev: st.dev, ino: st.ino, content };
   }
   throw new Error(`데몬 잠금을 못 잡았어요: ${path}`);
 }
@@ -68,7 +72,9 @@ export async function acquireDaemonLock(root: string, sock: string): Promise<Dae
 export function releaseDaemonLock(lock: DaemonLock): void {
   try {
     const st = lstatSync(lock.path);
-    if (st.dev === lock.dev && st.ino === lock.ino) unlinkSync(lock.path);
+    if (st.dev !== lock.dev || st.ino !== lock.ino) return;
+    if (readFileSync(lock.path, 'utf8') !== lock.content) return;
+    unlinkSync(lock.path);
   } catch {
     // 이미 없으면 그만이다
   }
@@ -109,7 +115,8 @@ async function clearStaleLock(path: string, sock: string): Promise<void> {
     throw err;
   }
   const moved = lstatSync(aside);
-  if (moved.dev !== st.dev || moved.ino !== st.ino) {
+  // inode는 지운 파일 것을 새 파일이 다시 받을 수 있다. 내용까지 같아야 내가 읽은 그 파일이다
+  if (moved.dev !== st.dev || moved.ino !== st.ino || readFileSync(aside, 'utf8') !== text) {
     try {
       linkSync(aside, path);
     } catch {
