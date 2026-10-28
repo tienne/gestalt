@@ -56,6 +56,17 @@ export interface RenderHtmlOptions {
   source?: LensSource | null;
   /** 공유용. 원문 쪽 그림과 표, 그림 크롭을 싣지 않는다(열린 질문 7) */
   omitCrops?: boolean;
+  /**
+   * 손글씨 제목 글꼴을 구글 폰트에서 받는 링크를 싣는다. 생략하면 GESTALT_DIGEST_EXTERNAL_FONTS가
+   * 0이나 false일 때만 끈다. 저장된 HTML에 링크가 남으므로 끄고 나면 다시 렌더해야 한다
+   */
+  externalFonts?: boolean;
+}
+
+function externalFontsEnabled(opt: boolean | undefined): boolean {
+  if (opt !== undefined) return opt;
+  const env = process.env.GESTALT_DIGEST_EXTERNAL_FONTS?.trim().toLowerCase();
+  return env !== '0' && env !== 'false';
 }
 
 export interface RenderHtmlResult {
@@ -478,7 +489,7 @@ ${skippedHtml}</div>`;
     ? `<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary" tabindex="0">${summary}</div>\n${extPanels}`
     : summary;
 
-  // is-diary는 모든 요약에 거는 다이어리 테마, is-lens는 읽기 렌즈 리포트, is-doc은 좁은 화면에서 원문 창을 시트로 접는 글 자료다
+  // is-doc은 render-lens.ts LENS_CSS가 좁은 화면에서 원문 창을 시트로 접는 표지다
   const bodyClass = ['is-diary', isLensKind(kind) ? 'is-lens' : '', textKind ? 'is-doc' : '']
     .filter(Boolean)
     .join(' ');
@@ -490,8 +501,9 @@ ${skippedHtml}</div>`;
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${e(meta.title)}</title>
 <script>${THEME_BOOT_JS}</script>
-${DIARY_FONT_LINK}<style>${CSS}${LENS_CSS}${WIDGET_CSS}${DIARY_CSS}</style>
+${externalFontsEnabled(opts.externalFonts) ? DIARY_FONT_LINK : ''}<style>${CSS}${LENS_CSS}${WIDGET_CSS}${DIARY_CSS}</style>
 ${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz-check,.zoom-btn{display:none}.quiz-exp{display:block!important}</style></noscript>' : ''}
+<noscript><style>.doc-open,.doc-close,.theme-switch{display:none!important}@media (max-width:900px){.is-doc .side{position:static;height:auto;transform:none;visibility:visible;transition:none}}</style></noscript>
 </head>
 <body${bodyClass ? ` class="${bodyClass}"` : ''}>
 <div class="layout">
@@ -515,9 +527,9 @@ ${rendered.map((r) => r.minimap).join('')}
 
 // 토큰은 research 렌더러와 같은 값을 쓴다
 const CSS = `
-:root{--bg:#fafaf9;--fg:#1c1917;--muted:#78716c;--line:#e7e5e4;--card:#fff;--accent:#2563eb;--warn:#b45309;--chip:#f5f5f4;--hl:#fef3c7;--on-accent:#fff;--scale:1;--float-w:min(360px,60vw,calc(40vh * 16 / 9))}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--line:#292524;--card:#1c1917;--accent:#60a5fa;--warn:#fbbf24;--chip:#292524;--hl:#422006;--on-accent:#0c0a09}}
-:root[data-theme="dark"]{--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--line:#292524;--card:#1c1917;--accent:#60a5fa;--warn:#fbbf24;--chip:#292524;--hl:#422006;--on-accent:#0c0a09}
+:root{color-scheme:light;--bg:#fafaf9;--fg:#1c1917;--muted:#78716c;--line:#e7e5e4;--card:#fff;--accent:#2563eb;--warn:#b45309;--chip:#f5f5f4;--hl:#fef3c7;--on-accent:#fff;--scale:1;--float-w:min(360px,60vw,calc(40vh * 16 / 9))}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--line:#292524;--card:#1c1917;--accent:#60a5fa;--warn:#fbbf24;--chip:#292524;--hl:#422006;--on-accent:#0c0a09}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--line:#292524;--card:#1c1917;--accent:#60a5fa;--warn:#fbbf24;--chip:#292524;--hl:#422006;--on-accent:#0c0a09}
 *{box-sizing:border-box}
 html{font-size:calc(100% * var(--scale))}
 body{margin:0;background:var(--bg);color:var(--fg);font:1rem/1.7 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif}

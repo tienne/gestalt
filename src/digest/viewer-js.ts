@@ -1,9 +1,15 @@
 import { createHash } from 'node:crypto';
 import { VIEWER_LOGIC_JS } from './viewer-logic.js';
 
-// 템플릿 리터럴 안이라 백틱과 달러 중괄호를 쓰지 않는다
+/** 테마 저장 키. VIEWER_JS의 setupTheme과 THEME_BOOT_JS가 같이 쓴다 */
+export const THEME_STORAGE_KEY = 'gestalt-digest-theme';
+
+// 템플릿 리터럴 안이라 백틱과 달러 중괄호를 쓰지 않는다. 바깥 값은 문자열 연결로 끼운다
 export const VIEWER_JS =
   VIEWER_LOGIC_JS +
+  "var THEME_STORAGE_KEY = '" +
+  THEME_STORAGE_KEY +
+  "';" +
   `
 (function(){
   var dataEl = document.getElementById('digest-data');
@@ -57,7 +63,7 @@ export const VIEWER_JS =
   // 테마 전환. 자동이면 data-theme을 지워 OS 설정을 따르고 라이트와 다크는 고른 값을 기억한다.
   // 첫 화면이 깜빡이지 않게 head의 짧은 스크립트가 저장된 값을 먼저 붙인다
   function setupTheme() {
-    var THEME_KEY = 'gestalt-digest-theme';
+    var THEME_KEY = THEME_STORAGE_KEY;
     var btns = document.querySelectorAll('[data-theme-set]');
     function setTheme(t) {
       if (t !== 'light' && t !== 'dark') t = 'auto';
@@ -213,7 +219,7 @@ export const VIEWER_JS =
 
   // 글 자료의 원문 창. 문단 칩을 누르면 PDF는 그 쪽으로 가서 문단 자리를 칠하고 웹 글은 그 문단으로 스크롤한다
   function setupDocPane() {
-    var api = { reveal: function(){} };
+    var api = { reveal: function(){}, closeSheet: function(){ return false; } };
     if (!data.doc) return api;
     var pagesBox = document.getElementById('doc-pages');
     var textBox = document.getElementById('script-body');
@@ -273,17 +279,45 @@ export const VIEWER_JS =
       }
     };
     // 좁은 화면에서는 원문 창이 시트로 접혀 있다. 문단 칩을 누르면 시트를 연 뒤 자리를 찾는다
+    // 900px은 render-lens.ts LENS_CSS의 시트 미디어 쿼리와 짝이다
     var narrow = window.matchMedia ? window.matchMedia('(max-width: 900px)') : null;
     var openBtn = document.getElementById('doc-open');
-    function setSheet(open) {
+    var side = document.getElementById('side');
+    var lastFocus = null;
+    function isSheetOpen() { return document.body.classList.contains('doc-sheet-open'); }
+    // 열 때는 닫기 버튼으로 포커스를 옮기고, 닫기 버튼과 Esc로 닫을 때만 연 자리로 되돌린다.
+    // 화면이 넓어져 닫힐 때는 사용자가 보던 자리를 건드리지 않는다
+    function setSheet(open, restore) {
+      var wasOpen = isSheetOpen();
+      if (open && !wasOpen) lastFocus = document.activeElement;
       document.body.classList.toggle('doc-sheet-open', open);
       if (openBtn) openBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open && !wasOpen) {
+        var closeBtn = side ? side.querySelector('.doc-close') : null;
+        if (closeBtn) closeBtn.focus();
+      } else if (!open && wasOpen && restore) {
+        var back = lastFocus && lastFocus.isConnected && lastFocus.getClientRects().length > 0 ? lastFocus : openBtn;
+        if (back) back.focus();
+        lastFocus = null;
+      }
     }
-    if (openBtn) openBtn.addEventListener('click', function(){ setSheet(true); });
-    document.querySelectorAll('.doc-close').forEach(function(b){ b.addEventListener('click', function(){ setSheet(false); }); });
-    document.addEventListener('keydown', function(ev){
-      if (ev.key === 'Escape' && document.body.classList.contains('doc-sheet-open')) setSheet(false);
+    function markDialog() {
+      if (!side) return;
+      if (narrow && narrow.matches) { side.setAttribute('role', 'dialog'); side.setAttribute('aria-label', '원문'); }
+      else { side.removeAttribute('role'); side.removeAttribute('aria-label'); }
+    }
+    markDialog();
+    if (narrow && narrow.addEventListener) narrow.addEventListener('change', function(){
+      markDialog();
+      if (!narrow.matches) setSheet(false, false);
     });
+    if (openBtn) openBtn.addEventListener('click', function(){ setSheet(true); });
+    document.querySelectorAll('.doc-close').forEach(function(b){ b.addEventListener('click', function(){ setSheet(false, true); }); });
+    api.closeSheet = function() {
+      if (!isSheetOpen()) return false;
+      setSheet(false, true);
+      return true;
+    };
     document.addEventListener('click', function(ev){
       var el = ev.target.closest ? ev.target.closest('[data-unit]') : null;
       if (!el) return;
@@ -882,11 +916,11 @@ export const VIEWER_JS =
     ev.preventDefault();
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
-  // 툴팁과 메뉴, 미니 플레이어가 함께 열려 있으면 Escape 한 번에 하나씩 닫는다
+  // 툴팁과 원문 시트, 메뉴, 미니 플레이어가 함께 열려 있으면 Escape 한 번에 하나씩 닫는다
   document.addEventListener('keydown', function(ev){
     if (ev.key !== 'Escape' || zoom.isOpen()) return;
     if (popups.isOpen()) popups.closeAndReturn();
-    else if (!more.close()) mini.close();
+    else if (!docPane.closeSheet() && !more.close()) mini.close();
   });
 })();
 `;
@@ -894,12 +928,11 @@ export const VIEWER_JS =
 /** CSP script-src에 싣는 VIEWER_JS 해시. 렌더가 이 문자열을 그대로 인라인으로 싣는다 */
 export const VIEWER_JS_SHA256 = createHash('sha256').update(VIEWER_JS, 'utf8').digest('base64');
 
-/**
- * 첫 화면이 깜빡이지 않게 head에서 저장된 테마를 먼저 붙이는 스크립트. VIEWER_JS는 body 끝에서 돌아서 따로 둔다.
- * 키 이름은 VIEWER_JS의 setupTheme과 같아야 한다
- */
+/** 첫 화면이 깜빡이지 않게 head에서 저장된 테마를 먼저 붙이는 스크립트. VIEWER_JS는 body 끝에서 돌아서 따로 둔다 */
 export const THEME_BOOT_JS =
-  "try{var t=localStorage.getItem('gestalt-digest-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}";
+  "try{var t=localStorage.getItem('" +
+  THEME_STORAGE_KEY +
+  "');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}";
 
 /** CSP script-src에 싣는 THEME_BOOT_JS 해시 */
 export const THEME_BOOT_JS_SHA256 = createHash('sha256')
