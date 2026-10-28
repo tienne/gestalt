@@ -95,18 +95,41 @@ describe('SessionManager', () => {
     expect(completedEvent(session.sessionId)).toBeUndefined();
   });
 
-  it('points a gate session above the threshold to the rescore instead of force', () => {
+  function rejection(sessionId: string): Error {
+    try {
+      manager.complete(sessionId);
+    } catch (e) {
+      return e as Error;
+    }
+    throw new Error('complete가 거절되지 않았다');
+  }
+
+  it('points a session above the threshold that has no rescore yet to the rescore instead of force', () => {
     const session = manager.create('test', 'greenfield');
     manager.updateResolutionScore(session.sessionId, {
       overall: 0.85,
       isReady: false,
       dimensions: [],
     });
-    expect(() => manager.complete(session.sessionId)).toThrow(/다시 채점을 아직 받지 않아/);
-    expect(() => manager.complete(session.sessionId)).not.toThrow(/force=true/);
+    const error = rejection(session.sessionId);
+    expect(error).toBeInstanceOf(InterviewNotReadyError);
+    expect(error.message).toMatch(/다시 채점을 아직 받지 않아/);
+    expect(error.message).not.toMatch(/force=true/);
+    expect(manager.get(session.sessionId).status).toBe('in_progress');
+    expect(manager.get(session.sessionId).forcedComplete).toBeUndefined();
   });
 
-  it('points a gate session held by the rescore to continue the interview', () => {
+  it('treats a score exactly at the threshold as above it', () => {
+    const session = manager.create('test', 'greenfield');
+    manager.updateResolutionScore(session.sessionId, {
+      overall: 0.8,
+      isReady: false,
+      dimensions: [],
+    });
+    expect(rejection(session.sessionId).message).toMatch(/다시 채점을 아직 받지 않아/);
+  });
+
+  it('points a session held by the rescore to continue the interview', () => {
     const session = manager.create('test', 'greenfield');
     manager.updateResolutionScore(session.sessionId, {
       overall: 0.85,
@@ -118,7 +141,47 @@ describe('SessionManager', () => {
       { mode: 'isolated', overall: 0.6, maxDimensionSpread: 0.3, droppedDimensions: [] },
       false,
     );
-    expect(() => manager.complete(session.sessionId)).toThrow(/완료가 보류됐습니다/);
+    const error = rejection(session.sessionId);
+    expect(error.message).toMatch(/완료가 보류됐습니다/);
+    expect(error.message).not.toMatch(/force=true/);
+    expect(manager.get(session.sessionId).status).toBe('in_progress');
+    expect(manager.get(session.sessionId).forcedComplete).toBeUndefined();
+  });
+
+  it('completes without force once the rescore passes', () => {
+    const session = manager.create('test', 'greenfield');
+    manager.updateResolutionScore(session.sessionId, {
+      overall: 0.85,
+      isReady: false,
+      dimensions: [],
+    });
+    manager.recordRescore(
+      session.sessionId,
+      { mode: 'isolated', overall: 0.84, maxDimensionSpread: 0.05, droppedDimensions: [] },
+      true,
+    );
+    const completed = manager.complete(session.sessionId);
+    expect(completed.status).toBe('completed');
+    expect(completed.forcedComplete).toBeUndefined();
+    expect(completedEvent(session.sessionId)?.payload).toMatchObject({ forced: false });
+  });
+
+  it('keeps the force message for a stored score without a threshold', () => {
+    const lowered = new SessionManager(store, { resolutionThreshold: 0.7 });
+    const session = lowered.create('test', 'greenfield');
+    store.append('interview', session.sessionId, EventType.INTERVIEW_RESOLUTION_SCORED, {
+      overall: 0.75,
+      isReady: false,
+      dimensions: [],
+    });
+    let message = '';
+    try {
+      lowered.complete(session.sessionId);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toMatch(/임계값\(0\.8\)에 못 미쳐/);
+    expect(message).toMatch(/force=true/);
   });
 
   it('rejects completing an unscored session', () => {
