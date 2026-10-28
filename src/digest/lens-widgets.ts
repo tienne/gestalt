@@ -295,7 +295,7 @@ export function lintWidget(
         err(
           `${wp}.figure`,
           'C_PANELS_UNKNOWN',
-          `원문 그림 ${fig.id}의 장면 수를 모른다. 크롭을 보고 gestalt lens panels로 먼저 적는다`,
+          `원문 그림 ${fig.id}의 장면 수를 모른다. 원문에서 잘라낸 그림을 보고 gestalt lens panels로 먼저 적는다`,
         );
       } else if (w.steps.length > fig.panels) {
         err(

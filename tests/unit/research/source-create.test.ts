@@ -113,6 +113,8 @@ describe('isPrivateAddress', () => {
     '64:ff9b::7f00:1',
     'fec0::1',
     '2001:db8::1',
+    'ff02::1',
+    'ff05::2',
     'not-an-ip',
   ])('%s는 막는다', (addr) => {
     expect(isPrivateAddress(addr)).toBe(true);
