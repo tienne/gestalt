@@ -15,6 +15,7 @@ import {
   doubtHtml,
   glanceHtml,
   LENS_CSS,
+  LENS_FONT_LINK,
   limitsHtml,
   sectionContextHtml,
   sourceFigureHtml,
@@ -25,7 +26,7 @@ import {
 import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
 import { WIDGET_CSS, widgetHtml } from './render-widgets.js';
 import { initialReportIndex, isPreset, pairIndex, reportKey, reportLabel } from './reports.js';
-import { VIEWER_JS } from './viewer-js.js';
+import { THEME_BOOT_JS, VIEWER_JS } from './viewer-js.js';
 import {
   boldPattern,
   isLensKind,
@@ -477,6 +478,10 @@ ${skippedHtml}</div>`;
     ? `<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary" tabindex="0">${summary}</div>\n${extPanels}`
     : summary;
 
+  // is-lens는 읽기 렌즈 리포트의 글꼴과 카드, is-doc은 좁은 화면에서 원문 창을 시트로 접는 글 자료다
+  const bodyClass = [isLensKind(kind) ? 'is-lens' : '', textKind ? 'is-doc' : '']
+    .filter(Boolean)
+    .join(' ');
   const html = `<!doctype html>
 <html lang="${e(base.lang)}">
 <head>
@@ -484,15 +489,16 @@ ${skippedHtml}</div>`;
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${e(meta.title)}</title>
-<style>${CSS}${LENS_CSS}${WIDGET_CSS}</style>
+<script>${THEME_BOOT_JS}</script>
+${isLensKind(kind) ? LENS_FONT_LINK : ''}<style>${CSS}${LENS_CSS}${WIDGET_CSS}</style>
 ${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz-check,.zoom-btn{display:none}.quiz-exp{display:block!important}</style></noscript>' : ''}
 </head>
-<body>
+<body${bodyClass ? ` class="${bodyClass}"` : ''}>
 <div class="layout">
-<aside class="side">${side}</aside>
+<aside class="side" id="side">${side}</aside>
+${textKind ? '<button type="button" id="doc-open" class="doc-open" aria-controls="side" aria-expanded="false">원문 보기</button>' : ''}
 <main class="main">
-<header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p><div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label><p id="copy-status" class="sr-only" role="status" aria-live="polite"></p></div>
-${hasTabs ? '' : reportBar}
+<header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p><div class="head-row">${hasTabs ? '' : reportBar}<div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label><span class="theme-switch" role="group" aria-label="테마"><button type="button" data-theme-set="auto" aria-pressed="true">자동</button><button type="button" data-theme-set="light" aria-pressed="false">라이트</button><button type="button" data-theme-set="dark" aria-pressed="false">다크</button></span><p id="copy-status" class="sr-only" role="status" aria-live="polite"></p></div></div>
 <noscript><p class="note">자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기, 리포트 전환이 동작하지 않아요.${isYoutube ? ' 시각 링크는 유튜브 새 탭으로 열려요.' : ''}</p></noscript></header>
 ${tabRow}
 ${summaryPanel}
@@ -552,8 +558,15 @@ a.ts:hover{text-decoration:underline}
 .main{padding:24px 0 96px;min-width:0}
 .head h1{margin:0 0 4px;font-size:1.6em;line-height:1.35}
 .facts{margin:0;color:var(--muted);display:flex;flex-wrap:wrap;gap:12px;font-size:.9em}
-.tools{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin:12px 0;font-size:.85em;color:var(--muted)}
+.head-row{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin:12px 0}
+.head-row .report-missing{flex-basis:100%}
+.tools{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin:0;font-size:.85em;color:var(--muted)}
+.head-row .report-bar{margin:0}
+.head-row .report-bar~.tools{margin-left:auto}
 .tools button{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:4px 10px;cursor:pointer}
+.theme-switch{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;gap:2px}
+.tools .theme-switch button{border:0;border-radius:999px;padding:2px 10px;background:none}
+.tools .theme-switch button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
 .note{color:var(--warn);font-size:.9em}
 .report-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0;font-size:.85em}
 .report-bar .bar-label{color:var(--muted);margin-left:6px}
@@ -710,6 +723,7 @@ body[data-tab="ext"] .minimap{display:none}
 .side{position:static;height:auto}
 .script-body{max-height:40vh}
 .minimap{display:none}
+.head-row .report-bar~.tools{margin-left:0}
 .main{padding-bottom:calc(var(--float-w) * 9 / 16 + 32px + env(safe-area-inset-bottom, 0px))}
 }
 `;

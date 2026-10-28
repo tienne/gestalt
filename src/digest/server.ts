@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { parseTranscript } from './schema.js';
 import { isValidSlug, readRaw } from './store.js';
-import { VIEWER_JS_SHA256 } from './viewer-js.js';
+import { THEME_BOOT_JS_SHA256, VIEWER_JS_SHA256 } from './viewer-js.js';
 
 export const DEFAULT_DIGEST_PORT = 7893;
 
@@ -63,14 +63,16 @@ export function parseByteRange(header: string | undefined, size: number): ByteRa
 }
 
 // 유튜브 IFrame API가 스크립트와 iframe을 함께 끌어와서 그 둘만 밖으로 연다.
-// 렌더가 싣는 실행 스크립트는 VIEWER_JS 하나뿐이라 해시로 고정한다. 데이터 블록은 type이 JSON이라 실행되지 않는다
+// 렌더가 싣는 실행 스크립트는 테마를 먼저 붙이는 THEME_BOOT_JS와 VIEWER_JS 둘이라 해시로 고정한다. 데이터 블록은 type이 JSON이라 실행되지 않는다.
+// 렌즈 리포트의 손글씨 제목 글꼴은 구글 폰트에서 받아서 스타일시트와 글꼴 파일 주소를 연다
 export const DIGEST_CSP = [
   "default-src 'self'",
-  `script-src 'self' 'sha256-${VIEWER_JS_SHA256}' https://www.youtube.com https://s.ytimg.com`,
+  `script-src 'self' 'sha256-${THEME_BOOT_JS_SHA256}' 'sha256-${VIEWER_JS_SHA256}' https://www.youtube.com https://s.ytimg.com`,
   'frame-src https://www.youtube.com https://www.youtube-nocookie.com',
   "img-src 'self' data: https://i.ytimg.com",
   "media-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
   "connect-src 'self'",
   "base-uri 'none'",
   "form-action 'none'",

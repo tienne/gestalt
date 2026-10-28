@@ -4,7 +4,7 @@ import { request } from 'node:http';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DIGEST_CSP, DigestServer } from '../../../src/digest/server.js';
-import { VIEWER_JS_SHA256 } from '../../../src/digest/viewer-js.js';
+import { THEME_BOOT_JS_SHA256, VIEWER_JS_SHA256 } from '../../../src/digest/viewer-js.js';
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -73,6 +73,7 @@ describe('DigestServer', () => {
     expect(DIGEST_CSP).toContain('frame-src https://www.youtube.com');
     const scriptSrc = DIGEST_CSP.split('; ').find((d) => d.startsWith('script-src'))!;
     expect(scriptSrc).toContain(`'sha256-${VIEWER_JS_SHA256}'`);
+    expect(scriptSrc).toContain(`'sha256-${THEME_BOOT_JS_SHA256}'`);
     expect(scriptSrc).not.toContain("'unsafe-inline'");
     expect(DIGEST_CSP).toContain("frame-ancestors 'none'");
     expect(DIGEST_CSP).toContain("object-src 'none'");

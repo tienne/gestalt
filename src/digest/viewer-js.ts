@@ -54,6 +54,24 @@ export const VIEWER_JS =
     if (range) range.addEventListener('input', function(){ setScale(range.value); });
   }
 
+  // 테마 전환. 자동이면 data-theme을 지워 OS 설정을 따르고 라이트와 다크는 고른 값을 기억한다.
+  // 첫 화면이 깜빡이지 않게 head의 짧은 스크립트가 저장된 값을 먼저 붙인다
+  function setupTheme() {
+    var THEME_KEY = 'gestalt-digest-theme';
+    var btns = document.querySelectorAll('[data-theme-set]');
+    function setTheme(t) {
+      if (t !== 'light' && t !== 'dark') t = 'auto';
+      if (t === 'auto') root.removeAttribute('data-theme');
+      else root.setAttribute('data-theme', t);
+      btns.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute('data-theme-set') === t ? 'true' : 'false'); });
+      try { if (t === 'auto') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, t); } catch (e) {}
+    }
+    var saved = 'auto';
+    try { saved = localStorage.getItem(THEME_KEY) || 'auto'; } catch (e) {}
+    setTheme(saved);
+    btns.forEach(function(b){ b.addEventListener('click', function(){ setTheme(b.getAttribute('data-theme-set')); }); });
+  }
+
   // 플레이어 어댑터. 유튜브와 로컬 영상이 같은 꼴을 내서 따라가기 코드는 둘을 가리지 않는다
   function createPlayer() {
     var player = { live: false, seek: function(){}, cue: function(){}, currentTime: function(){ return null; }, state: function(){ return -1; } };
@@ -254,11 +272,25 @@ export const VIEWER_JS =
         scrollWithin(textBox, li.offsetTop - textBox.clientHeight / 4);
       }
     };
+    // 좁은 화면에서는 원문 창이 시트로 접혀 있다. 문단 칩을 누르면 시트를 연 뒤 자리를 찾는다
+    var narrow = window.matchMedia ? window.matchMedia('(max-width: 900px)') : null;
+    var openBtn = document.getElementById('doc-open');
+    function setSheet(open) {
+      document.body.classList.toggle('doc-sheet-open', open);
+      if (openBtn) openBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    if (openBtn) openBtn.addEventListener('click', function(){ setSheet(true); });
+    document.querySelectorAll('.doc-close').forEach(function(b){ b.addEventListener('click', function(){ setSheet(false); }); });
+    document.addEventListener('keydown', function(ev){
+      if (ev.key === 'Escape' && document.body.classList.contains('doc-sheet-open')) setSheet(false);
+    });
     document.addEventListener('click', function(ev){
       var el = ev.target.closest ? ev.target.closest('[data-unit]') : null;
       if (!el) return;
       ev.preventDefault();
       var i = Number(el.getAttribute('data-unit'));
+      var inSheet = el.closest && el.closest('#side');
+      if (narrow && narrow.matches && !inSheet) setSheet(true);
       api.reveal(i, i, i);
     });
     return api;
@@ -825,6 +857,7 @@ export const VIEWER_JS =
     if (target && target.tagName.toLowerCase() === 'details') target.open = true;
   });
   setupFontScale();
+  setupTheme();
   setupTranslation();
   // 요약 앵커로 스크롤하려면 요약 패널이 먼저 보여야 해서 탭을 리포트보다 먼저 연다
   var tabs = setupTabs();
@@ -860,3 +893,15 @@ export const VIEWER_JS =
 
 /** CSP script-src에 싣는 VIEWER_JS 해시. 렌더가 이 문자열을 그대로 인라인으로 싣는다 */
 export const VIEWER_JS_SHA256 = createHash('sha256').update(VIEWER_JS, 'utf8').digest('base64');
+
+/**
+ * 첫 화면이 깜빡이지 않게 head에서 저장된 테마를 먼저 붙이는 스크립트. VIEWER_JS는 body 끝에서 돌아서 따로 둔다.
+ * 키 이름은 VIEWER_JS의 setupTheme과 같아야 한다
+ */
+export const THEME_BOOT_JS =
+  "try{var t=localStorage.getItem('gestalt-digest-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}";
+
+/** CSP script-src에 싣는 THEME_BOOT_JS 해시 */
+export const THEME_BOOT_JS_SHA256 = createHash('sha256')
+  .update(THEME_BOOT_JS, 'utf8')
+  .digest('base64');

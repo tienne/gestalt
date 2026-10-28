@@ -8,7 +8,12 @@ import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown, renderToFiles } from '../../../src/digest/render.js';
 import type { Digest, Transcript } from '../../../src/digest/schema.js';
 import { DigestStore } from '../../../src/digest/store.js';
-import { VIEWER_JS, VIEWER_JS_SHA256 } from '../../../src/digest/viewer-js.js';
+import {
+  THEME_BOOT_JS,
+  THEME_BOOT_JS_SHA256,
+  VIEWER_JS,
+  VIEWER_JS_SHA256,
+} from '../../../src/digest/viewer-js.js';
 import { findSegmentIndex, viewerLogic } from '../../../src/digest/viewer-logic.js';
 import { SLUG, sampleDigest, sampleTranscript } from './fixture.js';
 
@@ -92,7 +97,7 @@ describe('renderDigestHtml 마커', () => {
     const t = sampleTranscript();
     t.segments[0]!.text = 'bad </script><script>alert(1)</script>';
     const { html } = renderDigestHtml(sampleDigest(), t);
-    expect(html.match(/<\/script>/g)).toHaveLength(2);
+    expect(html.match(/<\/script>/g)).toHaveLength(3);
     expect(dataOf(html).starts).toHaveLength(12);
     expect(embedJson({ a: '</script>' })).toBe('{"a":"\\u003c/script>"}');
   });
@@ -474,15 +479,15 @@ describe('viewer-js', () => {
     expect(VIEWER_JS).not.toMatch(/`|\$\{/);
   });
 
-  it('실행되는 인라인 스크립트는 VIEWER_JS 하나이고 CSP 해시와 맞는다', () => {
+  it('실행되는 인라인 스크립트는 THEME_BOOT_JS와 VIEWER_JS 둘이고 CSP 해시와 맞는다', () => {
     const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
     const scripts = [
       ...html.matchAll(/<script(?![^>]*type="application\/json")[^>]*>([\s\S]*?)<\/script>/g),
     ];
-    expect(scripts).toHaveLength(1);
-    const body = scripts[0]![1]!;
-    expect(body).toBe(VIEWER_JS);
-    expect(createHash('sha256').update(body, 'utf8').digest('base64')).toBe(VIEWER_JS_SHA256);
+    expect(scripts.map((m) => m[1])).toEqual([THEME_BOOT_JS, VIEWER_JS]);
+    const sha = (body: string) => createHash('sha256').update(body, 'utf8').digest('base64');
+    expect(sha(THEME_BOOT_JS)).toBe(THEME_BOOT_JS_SHA256);
+    expect(sha(VIEWER_JS)).toBe(VIEWER_JS_SHA256);
   });
 });
 
