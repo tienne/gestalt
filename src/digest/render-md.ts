@@ -26,6 +26,8 @@ export interface RenderMdOptions {
   report?: Report;
   /** 읽기 렌즈의 source.json. 원문 표를 마크다운 표로 옮긴다 */
   source?: LensSource | null;
+  /** 공유용. 원문 그림 크롭 링크를 싣지 않는다 */
+  omitCrops?: boolean;
 }
 
 /** 키워드 마커는 표시 글자만 남긴다. 굵게(`**`)는 마크다운 문법 그대로라 둔다 */
@@ -121,7 +123,11 @@ export function renderDigestMarkdown(
       }
       for (const f of sub.figures ?? []) {
         const fig = source?.figures.find((x) => x.id === f.ref);
-        if (fig?.image) out.push(`![그림 ${fig.number}](${fig.image})`, '', `*${fig.caption}*`, '');
+        if (fig?.image && !opts.omitCrops) {
+          out.push(`![그림 ${fig.number}](${fig.image})`, '', `*${fig.caption}*`, '');
+        } else if (fig) {
+          out.push(`*${fig.caption}*`, '');
+        }
       }
       for (const w of sub.widgets ?? []) {
         out.push(

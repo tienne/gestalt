@@ -154,9 +154,10 @@ export function widgetHtml(w: Widget, ctx: LensHtmlContext): string {
   const fig =
     w.class === 'C' && w.figure ? ctx.source?.figures.find((f) => f.id === w.figure) : undefined;
   // C는 원문 크롭과 나란히 둔다. 토글로 바꾸면 어느 쪽이 원문인지 헷갈린다
-  const original = fig?.image
-    ? `<figure class="w-original"><img src="${ctx.escape(fig.image)}" alt="그림 ${ctx.escape(fig.number)} 원문" loading="lazy"><figcaption>원문 그림 ${ctx.escape(fig.number)} ${ctx.loc(fig.unit)}</figcaption></figure>`
-    : '';
+  const original =
+    fig?.image && !ctx.omitCrops
+      ? `<figure class="w-original"><img src="${ctx.escape(fig.image)}" alt="그림 ${ctx.escape(fig.number)} 원문" loading="lazy"><figcaption>원문 그림 ${ctx.escape(fig.number)} ${ctx.loc(fig.unit)}</figcaption></figure>`
+      : '';
   const head = `<p class="w-head"><span class="w-badge w-badge-${w.class}">${WIDGET_BADGE[w.class]}</span> <b>${ctx.escape(w.title)}</b>${ctx.cite(w.cite)}</p>${diffs}${w.caption ? `<p class="w-caption">${ctx.inline(w.caption)}</p>` : ''}`;
   const inner = `<div class="w-body">${body}</div>`;
   return `<figure class="widget w-${w.class}" data-widget id="${ctx.pfx ?? ''}w-${ctx.escape(w.id)}">${head}${original ? `<div class="w-pair">${original}${inner}</div>` : inner}</figure>`;

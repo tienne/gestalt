@@ -237,18 +237,20 @@ export function digestValidateCommand(slug: string, opts: DigestCommonOptions): 
 // serve도 render와 같은 템플릿 목록으로 그려야 '+ 더 만들기' 메뉴가 사라지지 않는다
 export function renderDigestFiles(
   slug: string,
-  opts: DigestCommonOptions & { inlineFrames?: boolean },
+  opts: DigestCommonOptions & { inlineFrames?: boolean; crops?: boolean },
 ): RenderFilesResult {
   return renderToFiles(slug, {
     repoRoot: rootOf(opts),
     inlineFrames: opts.inlineFrames,
+    // commander의 --no-crops는 crops: false로 온다
+    omitCrops: opts.crops === false,
     templates: templatesOf(opts).templates,
   });
 }
 
 export function digestRenderCommand(
   slug: string,
-  opts: DigestCommonOptions & { inlineFrames?: boolean },
+  opts: DigestCommonOptions & { inlineFrames?: boolean; crops?: boolean },
 ): void {
   try {
     const r = renderDigestFiles(slug, opts);

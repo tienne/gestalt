@@ -15,6 +15,8 @@ import { templateMap, type DigestTemplate } from './templates.js';
 export interface RenderFilesOptions {
   repoRoot: string;
   inlineFrames?: boolean;
+  /** 공유용. 읽기 렌즈의 원문 쪽 그림과 표, 그림 크롭을 싣지 않는다 */
+  omitCrops?: boolean;
   /** 아는 템플릿. lint가 확장의 블록을 대조하고 뷰어의 "+ 더 만들기" 메뉴가 이 목록을 띄운다 */
   templates?: DigestTemplate[];
 }
@@ -100,6 +102,7 @@ export function renderToFiles(slug: string, opts: RenderFilesOptions): RenderFil
   const source = readLensSource(store, slug);
   const { html, warnings } = renderDigestHtml(digest, transcript, {
     source,
+    omitCrops: opts.omitCrops,
     frameExists,
     inlineFrames: opts.inlineFrames,
     templates: opts.templates,
@@ -108,7 +111,10 @@ export function renderToFiles(slug: string, opts: RenderFilesOptions): RenderFil
   return {
     slug,
     htmlPath: store.saveHtml(slug, html),
-    mdPath: store.saveMd(slug, renderDigestMarkdown(digest, transcript, { frameExists, source })),
+    mdPath: store.saveMd(
+      slug,
+      renderDigestMarkdown(digest, transcript, { frameExists, source, omitCrops: opts.omitCrops }),
+    ),
     warnings,
   };
 }

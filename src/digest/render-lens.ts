@@ -27,7 +27,12 @@ export interface LensHtmlContext {
   transcript: Transcript;
   /** 리포트가 여럿일 때 카드 id가 겹치지 않게 붙이는 접두 */
   pfx?: string;
+  /** 공유용. 원문 쪽 그림과 표, 그림 크롭을 싣지 않는다 */
+  omitCrops?: boolean;
 }
+
+/** 크롭을 뺐을 때 그 자리에 두는 한 줄 */
+export const CROP_OMITTED = '공유용으로 원문 크롭을 뺐어요. 쪽 번호를 누르거나 원문에서 보세요.';
 
 export const GLANCE_LABEL: Record<Glance['kind'], string> = {
   problem: '문제',
@@ -150,9 +155,10 @@ export function sourceTableHtml(
   ctx: LensHtmlContext,
 ): string {
   const caption = `<figcaption><b>표 ${ctx.escape(table.number)}</b> ${ctx.escape(table.caption.replace(/^Table\s*\d+\s*[:.]\s*/i, ''))} ${ctx.loc(table.unit)}</figcaption>`;
-  const crop = table.image
-    ? `<img class="src-crop" src="${ctx.escape(table.image)}" alt="표 ${ctx.escape(table.number)} 원문" loading="lazy">`
-    : '';
+  const crop =
+    table.image && !ctx.omitCrops
+      ? `<img class="src-crop" src="${ctx.escape(table.image)}" alt="표 ${ctx.escape(table.number)} 원문" loading="lazy">`
+      : '';
   const noteHtml = note ? `<p class="src-note">${ctx.inline(note)}</p>` : '';
   if (table.grid === 'loose') {
     return `<figure class="src-table is-loose" id="src-${ctx.escape(table.id)}">${caption}${crop}<details><summary>옮긴 칸 보기(칸 경계가 틀렸을 수 있어요)</summary>${tableGridHtml(table, ctx)}</details>${noteHtml}</figure>`;
@@ -171,14 +177,16 @@ export function sourceFigureHtml(
   note: string | undefined,
   ctx: LensHtmlContext,
 ): string {
-  const page = ctx.source?.pages.find((p) => p.n === fig.page);
+  const page = ctx.omitCrops ? undefined : ctx.source?.pages.find((p) => p.n === fig.page);
   const thumb =
     page && fig.bbox
       ? `<button type="button" class="page-thumb" data-unit="${fig.unit}" aria-label="${fig.page}쪽에서 보기"><img src="${ctx.escape(page.image)}" alt="" loading="lazy"><span class="thumb-hl" style="left:${pct(fig.bbox[0], page.width)};top:${pct(fig.bbox[1], page.height)};width:${pct(fig.bbox[2] - fig.bbox[0], page.width)};height:${pct(fig.bbox[3] - fig.bbox[1], page.height)}"></span></button>`
       : '';
-  const crop = fig.image
-    ? `<img class="src-crop" src="${ctx.escape(fig.image)}" alt="그림 ${ctx.escape(fig.number)} 원문" loading="lazy">`
-    : '<p class="src-note">그림 자리를 못 찾아 크롭이 없어요. 쪽 번호를 눌러 원문에서 보세요.</p>';
+  const crop = ctx.omitCrops
+    ? `<p class="src-note">${CROP_OMITTED}</p>`
+    : fig.image
+      ? `<img class="src-crop" src="${ctx.escape(fig.image)}" alt="그림 ${ctx.escape(fig.number)} 원문" loading="lazy">`
+      : '<p class="src-note">그림 자리를 못 찾아 크롭이 없어요. 쪽 번호를 눌러 원문에서 보세요.</p>';
   const noteHtml = note ? `<p class="src-note">${ctx.inline(note)}</p>` : '';
   return `<figure class="src-figure" id="src-${ctx.escape(fig.id)}"><div class="fig-pair">${crop}${thumb}</div><figcaption><b>그림 ${ctx.escape(fig.number)}</b> ${ctx.escape(fig.caption.replace(/^(Figure|Fig\.)\s*\d+\s*[:.]\s*/i, ''))} ${ctx.loc(fig.unit)}</figcaption>${noteHtml}</figure>`;
 }
@@ -198,7 +206,8 @@ export function docPaneHtml(transcript: Transcript, ctx: LensHtmlContext): strin
     meta.url && /^https?:/.test(meta.url)
       ? `<a class="doc-link" href="${ctx.escape(meta.url)}" target="_blank" rel="noopener noreferrer">원문 열기</a>`
       : '';
-  const pages = ctx.source?.pages ?? [];
+  // 크롭을 빼면 쪽 그림도 원문 그대로라 함께 빼고 추출 텍스트만 둔다
+  const pages = ctx.omitCrops ? [] : (ctx.source?.pages ?? []);
   if (meta.source === 'pdf' && pages.length > 0) {
     return `<div class="doc-pane" id="doc-pane"><div class="doc-bar" role="group" aria-label="원문 보기"><button type="button" data-view="pages" aria-pressed="true">원문 쪽</button><button type="button" data-view="text" aria-pressed="false">추출 텍스트</button>${link}</div><div id="doc-pages" class="doc-pages" tabindex="0" role="region" aria-label="원문 쪽">${pages
       .map(

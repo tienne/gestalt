@@ -106,6 +106,7 @@ function handleRender(input: DigestInput, cwd: string): object {
     const r = renderToFiles(input.slug, {
       repoRoot: resolve(cwd, input.repoRoot ?? '.'),
       inlineFrames: input.inlineFrames,
+      omitCrops: input.omitCrops,
       templates: tpl.templates,
     });
     return { ok: true, action: 'render', ...r, templateWarnings: tpl.warnings };

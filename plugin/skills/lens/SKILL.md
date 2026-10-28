@@ -251,6 +251,8 @@ ges_digest { action: "render", slug: "<slug>", repoRoot: "<repoRoot>" }
 
 `RENDER_BLOCKED`면 응답의 `lintErrors`를 보고 Step 3으로 돌아간다. `RENDER_FAILED`는 메시지를 그대로 보고하고 멈춘다. 렌즈 뷰어는 쪽 그림과 크롭을 `pages/`, `tables/`, `figures/`에서 상대 경로로 읽는다. `inlineFrames`로 파일 하나에 담지 않는다. 폴더째 들고 다니거나 serve로 본다.
 
+**남에게 넘길 HTML이면 크롭을 뺀다.** 사용자가 공유하겠다고 하면 `omitCrops: true`로 렌더한다. 원문 쪽 그림과 표, 그림 크롭이 빠지고 원문 창은 추출 텍스트만 남는다. 옮긴 표 칸과 리포트 본문은 그대로다. 나중에 serve를 부르면 크롭이 있는 HTML로 다시 덮인다는 것도 보고에 적는다.
+
 ## Step 6 — 띄우기와 보고
 
 `output`이 `viewer`면 serve를 셸 도구의 백그라운드 실행으로 띄운다. 끝나지 않는 명령이라 포그라운드로 부르면 타임아웃에 서버도 같이 죽는다.

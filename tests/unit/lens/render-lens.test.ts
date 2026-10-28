@@ -90,3 +90,24 @@ describe('읽기 렌즈 뷰어', () => {
     expect(md).toContain('(표 6 2행 3열: 0.0006)');
   });
 });
+
+describe('공유용 렌더(크롭 빼기)', () => {
+  it('쪽 그림과 표, 그림 크롭을 싣지 않고 추출 텍스트 원문 창만 둔다', () => {
+    const r = lensReport();
+    const out = renderDigestHtml(lensDigest(r), lensTranscript(), {
+      source: lensSource(),
+      omitCrops: true,
+    }).html;
+    expect(out).not.toMatch(/src="(pages|tables|figures)\//);
+    expect(out).not.toContain('id="doc-pages"');
+    expect(out).toContain('id="script-list"');
+    expect(out).toContain('공유용으로 원문 크롭을 뺐어요');
+    // 칸 글자는 원문 크롭이 아니라 옮긴 표라 그대로 남는다
+    expect(out).toContain('<td data-cell="table-4:2:1">0.2862</td>');
+    const md = renderDigestMarkdown(lensDigest(r), lensTranscript(), {
+      source: lensSource(),
+      omitCrops: true,
+    });
+    expect(md).not.toContain('figures/figure-1.png');
+  });
+});

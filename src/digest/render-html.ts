@@ -53,6 +53,8 @@ export interface RenderHtmlOptions {
   templates?: Pick<DigestTemplate, 'id' | 'title' | 'description'>[];
   /** 읽기 렌즈의 source.json. 원문 표와 그림, 쪽 그림을 여기서 옮긴다 */
   source?: LensSource | null;
+  /** 공유용. 원문 쪽 그림과 표, 그림 크롭을 싣지 않는다(열린 질문 7) */
+  omitCrops?: boolean;
 }
 
 export interface RenderHtmlResult {
@@ -232,6 +234,7 @@ export function renderDigestHtml(
       source,
       transcript,
       pfx,
+      omitCrops: opts.omitCrops,
     };
     const bullets = (list: Bullet[]): string =>
       `<ul>${list
@@ -386,6 +389,7 @@ ${skippedHtml}</div>`;
         loc,
         source,
         transcript,
+        omitCrops: opts.omitCrops,
       })
     : `${player}${script}`;
 
@@ -403,9 +407,9 @@ ${skippedHtml}</div>`;
     localVideo: meta.source === 'file' || meta.source === 'podcast',
     kind,
     doc: textKind,
-    units: kind === 'pdf' ? docUnitsData(transcript) : null,
+    units: kind === 'pdf' && !opts.omitCrops ? docUnitsData(transcript) : null,
     pages:
-      kind === 'pdf'
+      kind === 'pdf' && !opts.omitCrops
         ? (source?.pages ?? []).map((p) => ({ n: p.n, w: p.width, h: p.height }))
         : null,
     watchBase,
@@ -434,6 +438,7 @@ ${skippedHtml}</div>`;
       ),
       markdown: renderDigestMarkdown(digest, transcript, {
         source,
+        omitCrops: opts.omitCrops,
         frameExists: opts.frameExists,
         report,
       }),
