@@ -517,7 +517,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   guardedTool(
     'ges_digest',
-    `Video digest helpers: validate a digest.json written from a sentence-numbered transcript, render it as a viewer HTML and a markdown file without calling an LLM, pull out its prose for polishing and put it back only when bold, keyword ids, numbers and URLs survive. Fetching captions, frames, serving and exporting run through the gestalt digest CLI. Results are kept under .gestalt/digest. Actions: ${DIGEST_ACTIONS.join(', ')}.`,
+    `Video digest and reading lens helpers: validate a digest.json written from a sentence-numbered transcript (or the paragraphs of a paper PDF, web article or podcast), render it as a viewer HTML and a markdown file without calling an LLM, pull out its prose for polishing and put it back only when bold, keyword ids, numbers and URLs survive. For reading lens reports, validation also checks doubt marks, limits and figure values against the source tables. Fetching captions, frames, sources, serving and exporting run through the gestalt digest and gestalt lens CLIs. Results are kept under .gestalt/digest. Actions: ${DIGEST_ACTIONS.join(', ')}.`,
     digestInputSchema.shape,
     async (params) => {
       const input = digestInputSchema.parse(params);

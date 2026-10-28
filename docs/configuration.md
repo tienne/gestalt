@@ -102,6 +102,7 @@ interface GestaltConfig {
 | `GESTALT_LOG_LEVEL` | `"debug"` \| `"info"` \| `"warn"` \| `"error"` | `"info"` | 로그 출력 레벨 |
 | `GESTALT_CLIENT` | `"claude-code"` \| `"codex"` \| `"both"` \| `"grok"` | `"claude-code"` | 액티브 세션 컨텍스트를 쓰는 호스트. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고 Interview/Spec passthrough를 강제한다. `"both"`는 Claude와 Codex만 쓰며 Grok 경로는 쓰지 않는다 |
 | `GESTALT_NO_UPDATE_CHECK` | `"1"` | — | `"1"` 로 설정하면 버전 업데이트 확인을 건너뜀 |
+| `GESTALT_LENS_PYTHON` | string (절대 경로) | — | 읽기 렌즈 추출(pdfplumber, trafilatura, faster-whisper)에 쓸 파이썬. 없으면 `~/.local/share/gestalt/lens-venv/bin/python`, 그것도 없으면 `python3`. 상대 경로는 거절한다. 동작은 [읽기 렌즈](#읽기-렌즈-lens) |
 
 잘못된 설정값은 경고를 출력하고 기본값으로 fallback한다 (에러를 throw하지 않음).
 
@@ -184,6 +185,32 @@ interface GestaltConfig {
 - 캐시는 레포 밖 `${XDG_CACHE_HOME:-$HOME/.cache}/gestalt/webfetch-cache/<프로젝트 해시>/`에 쌓인다. `jq`와 `curl`이 없으면 훅은 아무것도 하지 않고 지나간다
 
 저장 규칙과 한계는 [WebFetch 디스크 캐시](./webfetch-cache.md)에 있다.
+
+---
+
+## 읽기 렌즈 (`lens`)
+
+`/lens` 스킬이 연결 카드 후보를 찾을 내 노트 폴더를 적는다. 스킬 입력 `knowledge`나 `gestalt lens knowledge --source`로 넘긴 폴더와 합친다.
+
+```json
+{
+  "lens": { "knowledgeSources": ["../notes", "/Users/me/kb/docs/notes"] }
+}
+```
+
+- 상대 경로는 레포 루트 기준이다. 없는 폴더는 조용히 빠지고 `knowledge.json`의 `roots`에 안 실린다
+- `.md`, `.markdown`, `.txt`만 읽고 숨김 폴더와 `node_modules`는 건너뛴다. 남의 레포에 든 `gestalt.json`이 엉뚱한 폴더를 가리켜도 노트가 아닌 파일은 안 읽는다
+- 노트 폴더는 읽기만 한다. 연결 카드의 인용은 그 폴더 안 파일에 글자 그대로 있어야 merge를 통과한다
+
+추출 도구는 파이썬 패키지라 렌즈 전용 가상환경을 권한다. 시스템 파이썬의 pip가 오래돼 새 휠을 못 받는 머신이 있어서다.
+
+```bash
+python3 -m venv ~/.local/share/gestalt/lens-venv
+~/.local/share/gestalt/lens-venv/bin/python -m pip install --upgrade pip
+~/.local/share/gestalt/lens-venv/bin/python -m pip install pdfplumber trafilatura faster-whisper
+```
+
+다른 파이썬을 쓰려면 `GESTALT_LENS_PYTHON`에 절대 경로를 준다.
 
 ---
 

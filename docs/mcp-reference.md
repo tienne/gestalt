@@ -22,7 +22,7 @@ Complete reference for all Gestalt MCP tools.
 | [`ges_sync`](#ges_sync) | Knowledge Base 파일 동기화 |
 | [`ges_pr`](#ges_pr) | 로컬 PR 생성, 리뷰, 머지 — 원격에 안 나간다 |
 | [`ges_research`](../plugin/skills/research/SKILL.md#쓰는-도구) | 경쟁사 리서치의 출처 확인, 개인정보 치환, 검증, 윤문, 렌더. 서버는 LLM을 부르지 않는다 |
-| [`ges_digest`](#ges_digest) | 영상 요약(`digest.json`)의 검증, 윤문, 뷰어 렌더. 수집과 프레임, 서버는 `gestalt digest` CLI가 맡는다 |
+| [`ges_digest`](#ges_digest) | 영상 요약과 읽기 렌즈(`digest.json`)의 검증, 윤문, 뷰어 렌더. 수집과 프레임, 서버는 `gestalt digest`와 `gestalt lens` CLI가 맡는다 |
 | [`ges_architecture`](./architecture-view.md#ges_architecture-mcp-툴) | 세션이 쓴 아키텍처 IR을 검증하고 단일 HTML로 결정적으로 그린다. `service` 노드가 있으면 전체에서 서비스, 기능영역으로 들어가는 드릴다운 한 장으로 그린다. 서비스를 서빙하는 도메인, CDN, 버킷은 읽기 전용 클라우드 조회(`live` 근거)로 확인해 함께 싣는다. 서버는 LLM을 부르지 않는다 |
 
 ---
@@ -1186,7 +1186,7 @@ ges_pr({ action: "checkout", id: "e2085a1c" })
 
 ## `ges_digest`
 
-영상 요약 뷰어의 검증과 렌더를 맡는다. 흐름은 [`video-digest` 스킬](../plugin/skills/video-digest/SKILL.md)에 있고 설계는 [`proposals/video-digest.md`](./proposals/video-digest.md)에 있다.
+영상 요약 뷰어와 읽기 렌즈(논문 PDF, 웹 글, 팟캐스트)의 검증과 렌더를 맡는다. 흐름은 [`video-digest` 스킬](../plugin/skills/video-digest/SKILL.md)과 [`lens` 스킬](../plugin/skills/lens/SKILL.md)에 있고 설계는 [`proposals/video-digest.md`](./proposals/video-digest.md)와 [`proposals/reading-lens.md`](./proposals/reading-lens.md)에 있다. 두 기능은 저장소와 뷰어를 같이 쓰고 `transcript.json`의 `meta.source`(`youtube`, `file`, `pdf`, `web`, `podcast`)로 갈린다.
 
 요약 본문(`digest.json`)은 세션이 `video-summarizer`로 쓰고 이 도구는 LLM을 부르지 않는다. 자막 수집(`ingest`)과 프레임 추출(`frames`), 로컬 서버(`serve`)는 yt-dlp와 ffmpeg를 부르는 셸 명령이라 MCP action으로 두지 않고 `gestalt digest` CLI로 둔다.
 
@@ -1202,11 +1202,20 @@ digest.html       뷰어 (render가 쓴다)
 digest.md         마크다운 (render, export --md가 쓴다)
 ```
 
+읽기 렌즈는 `transcript.json`의 문장 자리에 문단(팟캐스트는 받아쓴 문장)을 두고 아래를 더 쓴다.
+
+```
+source.json        표 칸과 그림, 쪽 목록 (lens ingest가 쓰고 lens panels가 그림 장면 수를 적는다)
+pages/ tables/ figures/   PDF 쪽 그림과 표, 그림 크롭 (lens ingest가 쓴다)
+knowledge.json     내 노트에서 찾은 연결 후보 (lens knowledge가 쓴다)
+cache/             원본 PDF, HTML, 오디오 (serve는 팟캐스트 오디오 하나만 내준다)
+```
+
 ### Actions
 
 | Action | Description |
 |:---|:---|
-| `validate` | 스키마와 lint 검사. 출처 범위가 스크립트를 빈틈없이 덮는지, `key`가 범위 안인지, 불릿이 2단까지인지, 키워드 id가 있는지, `frameSec`이 첫 문장 시각과 맞는지 본다 |
+| `validate` | 스키마와 lint 검사. 출처 범위가 스크립트를 빈틈없이 덮는지, `key`가 범위 안인지, 불릿이 2단까지인지, 키워드 id가 있는지, `frameSec`이 첫 문장 시각과 맞는지 본다. 읽기 렌즈 리포트는 아래 "읽기 렌즈 검사"도 돈다 |
 | `render` | lint 오류가 없을 때만 `digest.html`과 `digest.md`를 쓴다 |
 | `prose_extract` | 윤문할 본문 문장을 `{ path, text, hash }`로 뽑는다. 제목은 빠진다. 도식 라벨과 설명, 장면 설명, 마인드맵 라벨은 `kind: "label"`과 같은 그림끼리 묶는 `group`을 붙여 함께 낸다 |
 | `prose_apply` | 다듬은 문장을 같은 path로 되돌려 넣는다. `**`, `{{kw:<id>}}`, 숫자, 링크가 원문과 같아야 들어간다. 라벨은 원문보다 길어지면 안 들어간다 |
@@ -1219,6 +1228,7 @@ digest.md         마크다운 (render, export --md가 쓴다)
 | `slug` | `string` | Y | — | `.gestalt/digest/` 아래 폴더 이름 |
 | `repoRoot` | `string` | | 서버 cwd | 레포 루트 |
 | `inlineFrames` | `boolean` | | `false` | `render`: 프레임을 HTML 안에 넣는다. 한 장 5MB, 합계 15MB를 넘는 프레임은 빼고 경고한다 |
+| `omitCrops` | `boolean` | | `false` | `render`: 읽기 렌즈 리포트에서 원문 쪽 그림과 표, 그림 크롭을 빼고 그린다. 남에게 공유할 HTML을 만들 때 쓴다. 원문 창은 추출 텍스트만 남는다 |
 | `items` | `{ path, text, hash }[]` | `prose_apply` | — | `prose_extract`가 준 항목. `text`만 바꿔 돌려준다 |
 | `dryRun` | `boolean` | | `false` | `prose_apply`: 검사만 하고 저장하지 않는다 |
 
@@ -1259,6 +1269,25 @@ digest.md         마크다운 (render, export --md가 쓴다)
 | `ITEMS_REQUIRED` | `prose_apply`에 `items`가 없다 |
 | `APPLY_BROKE_SCHEMA` | 되돌려 넣은 결과가 스키마에 안 맞는다. 저장하지 않는다 |
 
+### 읽기 렌즈 검사
+
+`transcript.json`의 `meta.source`가 `pdf`, `web`, `podcast`면 merge와 validate, render가 아래를 더 본다. 숫자가 든 칸은 `source.json`의 원문 표 칸이나 원문 문단과 대조한다.
+
+| Code | 뜻 |
+|:---|:---|
+| `GLANCE_MISSING` | 한눈에 보기에 자료별 칸(논문은 problem, method, result, limit)이 빠졌다 |
+| `LIMITS_MISSING`, `LIMIT_NO_SOURCE` | 검증 안 된 부분이 없거나 한 줄에 근거도 카드 id도 없다 |
+| `DOUBT_NOT_NUMERIC` | 의심 표시에 근거 칸의 숫자가 없다. 해석이 갈리는 의심은 맥락 카드로 간다 |
+| `DOUBT_NUMBER_UNKNOWN`, `LIMIT_NUMBER_UNKNOWN` | 근거 칸이 든 줄과 머리줄, 근거 문단에 없는 숫자다. 계산한 차이나 비율이 여기 걸린다 |
+| `TABLE_REF_UNKNOWN`, `CELL_REF_OUT_OF_RANGE`, `FIGURE_REF_UNKNOWN` | 없는 표나 칸, 그림을 가리킨다 |
+| `CARD_SOURCE_UNKNOWN`, `CARD_SECTION_UNKNOWN`, `CARD_ANCHOR_OUT_OF_SECTION`, `LIMIT_CARD_UNKNOWN` | 맥락 카드 줄의 출처 id가 없거나 붙인 대섹션이 맞지 않는다 |
+| `LINK_QUOTE_NOT_FOUND`, `LINK_OUTSIDE_SOURCES`, `LINK_NO_KNOWLEDGE` | 연결 카드 인용이 노트에 없거나 지식 소스 폴더 밖이거나 `knowledge.json`이 없다 |
+| `WIDGET_VALUE_MISMATCH`, `WIDGET_VALUE_NO_SOURCE`, `WIDGET_METRIC_UNKNOWN` | A, C 그림 값이 원문 칸과 다르거나 출처가 없거나 원문에 없는 지표 이름이다 |
+| `B_HAS_DATA`, `B_METRIC_LABEL`, `B_BORROWS_NAME`, `B_FIGURE_TITLE`, `B_FIGURE_REF` | 설명용 그림이 원문 데이터나 결과 지표, 원문 이름, 그림 번호를 쓴다 |
+| `C_FIGURE_MISSING`, `C_DIFFERENCES_EMPTY`, `C_PANELS_UNKNOWN`, `C_STEPS_EXCEED_PANELS` | 원문 그림 재구성의 원문 id나 다른 점이 없거나 장면 수를 모르거나 넘는다 |
+| `RANGE_NOT_SUPPORTED` | 글 자료 리포트에 시각 구간을 줬다 |
+| `FRAME_SEC_MISSING` | 영상 리포트 소섹션에 `frameSec`이 없다(영상 자료만 본다) |
+
 ### CLI
 
 ```bash
@@ -1269,12 +1298,20 @@ gestalt digest merge <slug> <리포트 파일>
 gestalt digest translate-apply <slug> <번역 파일>
 gestalt digest validate <slug>
 gestalt digest frames <slug> [--force]
-gestalt digest render <slug> [--inline-frames]
+gestalt digest render <slug> [--inline-frames] [--no-crops]
 gestalt digest serve <slug> [--port <n>] [--no-browser]   # 127.0.0.1, 기본 7893부터
 gestalt digest export <slug> --md [--report <key>] [--out <path>]
+
+# 읽기 렌즈. 합치기와 렌더, 띄우기는 위 digest 명령을 그대로 쓴다
+gestalt lens ingest <PDF|웹 주소|오디오|피드> [--kind pdf|web|podcast] [--slug <slug>] [--episode <n>] [--whisper-model <name>]
+gestalt lens panels <slug> <figure-id> <장면 수>   # C 재구성 슬라이더 칸 수 상한
+gestalt lens knowledge <slug> [--source <폴더>]...   # 내 노트에서 연결 후보 찾기
+gestalt lens attach <slug> <카드 파일> [--report <key>]   # 맥락 카드와 연결 카드를 붙이고 다시 검사
 ```
 
-로컬 영상 파일로 만든 요약도 `serve`로 열어야 재생된다. `serve`가 `transcript.json`에 적힌 원본 파일 하나만 `/<slug>/video`로 내주고 Range 요청을 받는다. 확장자가 영상(mp4, m4v, mov, webm, mkv)이 아니거나 원본이 없으면 404다.
+`lens ingest`는 파이썬 패키지(pdfplumber, trafilatura, faster-whisper)를 렌즈 가상환경이나 `GESTALT_LENS_PYTHON`에서 찾는다. 설정은 [configuration.md의 읽기 렌즈](./configuration.md#읽기-렌즈-lens)에 있다. 렌즈 뷰어는 쪽 그림과 크롭을 상대 경로로 읽어서 `file://`로 열어도 원문 창이 동작한다. 팟캐스트 오디오 재생만 `serve`가 필요하다.
+
+로컬 영상 파일로 만든 요약도 `serve`로 열어야 재생된다. `serve`가 `transcript.json`에 적힌 원본 파일 하나만 `/<slug>/video`로 내주고 Range 요청을 받는다. 팟캐스트는 원래 주소가 피드라서 내려받은 오디오(`meta.media`)를 같은 길로 내준다. 확장자가 영상(mp4, m4v, mov, webm, mkv)이나 오디오(mp3, m4a, aac, wav, ogg, oga, opus, flac)가 아니거나 원본이 없으면 404다.
 
 `digest.html`을 파일로 바로 열면 유튜브 플레이어가 153 오류로 막힌다. 그때는 썸네일과 "유튜브에서 열기" 링크가 뜨고 출처 시각은 새 탭 링크로 바뀐다. 재생과 따라가기는 `serve`로 열었을 때만 된다.
 

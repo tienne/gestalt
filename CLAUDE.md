@@ -40,6 +40,7 @@ WebFetch 캐시 훅 → [`docs/webfetch-cache.md`](./docs/webfetch-cache.md)
 - `src/skills/`는 Skill System 엔진(SKILL.md 파서와 실행기)이고 최상위 `skills/`와는 별개다.
 - `src/agent/`의 레지스트리는 tier→모델 해석을 하지 않는다. 그건 MCP 핸들러가 담당한다.
 - `src/explain/`은 판정 구조만 humanize에서 빌려 쓴다.
+- 읽기 렌즈(`/lens`)는 저장소와 뷰어를 영상 요약과 같이 쓴다. 리포트 칸과 lint, 렌더는 `src/digest/`의 `lens-*`, `lint-lens*`, `render-lens.ts`, `render-widgets.ts`에 있고 `src/lens/`에는 수집(PDF, 웹, 팟캐스트)과 `gestalt lens` 명령만 있다.
 - `plugin/`은 배포 자산 전부다. Claude Code와 Codex 플러그인이 이 디렉토리 하나를 공유한다.
 - `plugin/role-agents/_shared/references/`(룰북과 리뷰 절차 문서)와 `plugin/skills/_shared/`는 에이전트나 스킬이 아니다. 레지스트리가 건너뛴다.
 
