@@ -31,13 +31,24 @@ function parseKind(kind: string | undefined): LensKind | undefined {
 
 export async function lensIngestCommand(
   input: string,
-  opts: LensCommonOptions & { slug?: string; kind?: string },
+  opts: LensCommonOptions & {
+    slug?: string;
+    kind?: string;
+    episode?: string;
+    whisperModel?: string;
+  },
 ): Promise<void> {
   try {
+    const episode = opts.episode === undefined ? undefined : Number(opts.episode);
+    if (episode !== undefined && (!Number.isInteger(episode) || episode < 0)) {
+      throw new Error(`--episode는 0 이상의 정수예요: ${opts.episode}`);
+    }
     const r = await ingestLens(input, {
       repoRoot: rootOf(opts),
       slug: opts.slug,
       kind: parseKind(opts.kind),
+      episode,
+      whisperModel: opts.whisperModel,
     });
     if (opts.json) {
       console.log(JSON.stringify(r, null, 2));

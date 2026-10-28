@@ -289,6 +289,8 @@ export function createCli(): Command {
     )
     .option('--slug <slug>', '저장 폴더 이름 (기본: 제목과 주소 해시)')
     .option('--kind <kind>', '자료 종류를 직접 정한다: pdf, web, podcast')
+    .option('--episode <n>', '팟캐스트 피드에서 고를 에피소드. 0이 최신 (기본 0)')
+    .option('--whisper-model <name>', '팟캐스트 받아쓰기 faster-whisper 모델 (기본 small)')
     .action((input, o, cmd) => lensIngestCommand(input, { ...lensInherited(cmd), ...o }));
 
   lens
