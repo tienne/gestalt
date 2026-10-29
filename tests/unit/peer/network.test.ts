@@ -1643,7 +1643,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       const stranger = loadOrCreateMachineKey(mkdtempSync(join(tmpdir(), 'peer-stranger-')));
       // 끝에 '='를 붙여도 base64url로는 같은 서명이라 길이 검사가 없으면 검증을 통과한다
       const padded = answerBox(r.question, '패딩 붙인 서명');
-      // 틀린 서명이라 길이 사전 컷이 없으면 bad_signature가 된다
+      // 틀린 서명이라 길이를 먼저 거르지 않으면 bad_signature가 된다
       const big = answerBox(r.question, 'a'.repeat(16 * 1024 + 1), { signer: stranger });
       await forge([{ ...padded, sig: `${padded.sig}=` }, big]);
       await until(() => rejects().length >= 2);
@@ -1673,6 +1673,90 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       } finally {
         daemon.deliverMessage = original;
         sse.req.destroy();
+      }
+    });
+
+    /** 주인 데몬의 인박스 넣기를 바꿔 끼운다. 돌려준 함수로 되돌린다 */
+    function stubDeliver(fn: () => Promise<unknown>): () => void {
+      type Deliver = (...args: unknown[]) => Promise<unknown>;
+      const daemon = owner.daemon as unknown as { deliverMessage: Deliver };
+      const original = daemon.deliverMessage;
+      daemon.deliverMessage = fn;
+      return () => {
+        daemon.deliverMessage = original;
+      };
+    }
+
+    it('소켓에 붙은 뒤 실패한 답은 넣음으로 알리고 질문을 끝낸다', async () => {
+      const sse = openSse(watch.url);
+      const restore = stubDeliver(async () => ({
+        ok: false,
+        reason: '인박스 소켓이 답하지 않았어요',
+        maybeWritten: true,
+      }));
+      try {
+        const r = await ask();
+        await until(() => sse.body().includes('event: ask'));
+        expect((await viewerAnswer(r.question, '들어갔을지 모르는 답')).status).toBe(202);
+        await until(() => /"state":"inserted"/.test(sse.body()));
+        expect(sse.body()).not.toMatch(/"state":"open","reason"/);
+        expect(rejects()).toEqual([]);
+        expect(auditOf(owner, 'answer_insert')).toHaveLength(1);
+        expect((await viewerAnswer(r.question, '다시 답함')).status).toBe(400);
+        restore();
+        await forge([answerBox(r.question, '위조한 다음 답')]);
+        await until(() => rejects().length >= 1);
+        expect(rejects()).toEqual(['answered']);
+      } finally {
+        restore();
+        sse.req.destroy();
+      }
+    });
+
+    it('같은 기기가 인박스에 계속 못 넣는 답을 보내면 36번 뒤에 rate_limited로 막는다', async () => {
+      let calls = 0;
+      const restore = stubDeliver(async () => {
+        calls++;
+        return { ok: false, reason: '인박스 소켓이 없어요' };
+      });
+      try {
+        const r = await ask();
+        const ownerStatus = await owner.status();
+        const state = new PeerState(owner.dbPath);
+        const ownerBox = state
+          .getRoster()!
+          .roster.members.find((m) => m.machineKey === ownerStatus.machineKey)!.boxKey;
+        state.close();
+        const alice = loadMachineKey(machineKeyPath(watcher.root));
+        const net = (
+          owner.daemon as unknown as {
+            network: { onReceive(from: string, data: Uint8Array): void };
+          }
+        ).network;
+        const sealed = Buffer.from(
+          JSON.stringify(
+            sealBox(
+              alice,
+              ownerStatus.machineKey,
+              ownerBox,
+              JSON.stringify(answerBox(r.question, '계속 못 넣는 답')),
+            ),
+          ),
+        );
+        for (let i = 1; i <= 37; i++) {
+          net.onReceive(alice.id, sealed);
+          await until(() => rejects().length >= i);
+        }
+        expect(
+          rejects()
+            .slice(0, 36)
+            .every((x) => x === '인박스 소켓이 없어요'),
+        ).toBe(true);
+        expect(rejects()[36]).toBe('rate_limited');
+        expect(calls).toBe(36);
+        expect(auditOf(owner, 'answer_receive')).toHaveLength(36);
+      } finally {
+        restore();
       }
     });
 

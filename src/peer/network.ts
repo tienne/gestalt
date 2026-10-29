@@ -409,8 +409,9 @@ export class PeerNetwork {
    */
   private askLimiter = new RateLimiter(MESSAGE_RECEIVE_LIMIT);
   /**
-   * 주인 쪽. 질문 자리(`공유|기기`)마다 인박스에 넣기를 시도하는 수. 인박스가 없는 동안 다시 열린
-   * 질문에 같은 기기가 계속 답해도 감사 행과 넣기 시도가 끝없이 늘지 않게 한다
+   * 주인 쪽. 같은 기기가 같은 공유(`공유|기기`)에서 인박스에 답을 넣으려는 수를 10분에 36번으로 센다.
+   * 인박스가 없는 동안 다시 열린 질문에 계속 답하는 경우를 위해 뒀다. network.test.ts의 "같은 기기가
+   * 인박스에 계속 못 넣는 답을 보내면 36번 뒤에 rate_limited로 막는다"가 본다
    */
   private answerLimiter = new RateLimiter(MESSAGE_RECEIVE_LIMIT);
 
@@ -1125,7 +1126,9 @@ export class PeerNetwork {
       if (inserted) delivered();
       else seenEarly = true;
     });
-    if (!result.ok) return reject(result.reason);
+    // 소켓에 붙은 뒤 실패했으면 줄이 들어갔을 수 있다. 거절로 알리면 보낸 사람이 다시 보내 겹칠 수 있어서
+    // 넣음으로 알리고 대화 기록에 보이면 들어감으로 올린다
+    if (!result.ok && !result.maybeWritten) return reject(result.reason);
     status('inserted');
     this.options.state.audit('message_insert', msg.share, JSON.stringify({ id: msg.id, person }));
     inserted = true;
@@ -1262,8 +1265,9 @@ export class PeerNetwork {
 
   /**
    * 주인 쪽: 답을 검사하고 주인 세션 인박스에 `<peer-answer … verified>`로 넣는다. 검사 순서는
-   * 제안서 "ask_user 서명 답" 절의 표와 같다. 하나라도 걸리면 넣지 않는다. 거절 이유마다 network.test.ts의
-   * "ask_user 서명 답" 블록에 그 입력을 넣는 테스트가 있다(rate_limited는 빼고).
+   * 제안서 "ask_user 서명 답" 절의 표와 같다. 하나라도 걸리면 넣지 않는다. network.test.ts의 "ask_user 서명
+   * 답" 블록이 kicked, not_approved, not_asked, answered, bad_signature, bad_frame, bad_time, expired, 길이
+   * 검사, rate_limited, 인박스 실패 뒤 처리를 넣어 본다.
    */
   private async onAnswer(from: string, msg: Extract<BoxMessage, { t: 'answer' }>): Promise<void> {
     // 꼴이 틀린 id는 감사 로그와 답으로 흘러가지 않게 답 없이 버린다
@@ -1324,7 +1328,8 @@ export class PeerNetwork {
 
     // 인박스 쓰기를 기다리는 사이에 온 다른 답은 answered로 막는다. 소켓에 붙기 전에 실패했거나 deliver가
     // 던졌으면 질문을 열어 두고 답한 기기에 reopened로 알려 다시 답하게 한다. 이 알림은 거절 상한을 타지
-    // 않는다. 붙은 뒤 실패했으면 줄이 들어갔을 수 있어서 질문을 끝내고 reopened 없이 거절로 알린다
+    // 않는다. 붙은 뒤 실패했으면 줄이 들어갔을 수 있어서 메시지처럼 넣음으로 알리고 질문을 끝낸다.
+    // 대화 기록에 보이면 들어감으로 올린다
     let inserted = false;
     let seenEarly = false;
     const delivered = (): void => {
@@ -1356,8 +1361,7 @@ export class PeerNetwork {
     } finally {
       q.answering = false;
     }
-    if (!result.ok) {
-      if (result.maybeWritten) this.closeQuestion(q, 'answered', seat);
+    if (!result.ok && !result.maybeWritten) {
       const reopened = this.questions.get(q.id) === q;
       this.sendBox(from, {
         t: 'answer_status',
