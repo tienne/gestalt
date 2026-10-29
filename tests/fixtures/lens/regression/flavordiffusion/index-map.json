@@ -1,0 +1,19 @@
+{
+  "slug": "flavordiffusion-modeling-food-chemical-interactions-wit-1450e0fd",
+  "url": "https://aclanthology.org/2025.aisd-main.7.pdf",
+  "segments": [74, 80, 84, 86, 87],
+  "tables": {
+    "table-4": {
+      "unit": 1,
+      "originalUnit": 80
+    },
+    "table-5": {
+      "unit": 3,
+      "originalUnit": 86
+    },
+    "table-6": {
+      "unit": 4,
+      "originalUnit": 87
+    }
+  }
+}

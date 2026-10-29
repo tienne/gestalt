@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "1.0.0",
+  "slug": "flavordiffusion-modeling-food-chemical-interactions-wit-1450e0fd",
+  "meta": {
+    "source": "pdf",
+    "url": "https://aclanthology.org/2025.aisd-main.7.pdf",
+    "title": "FlavorDiffusion: Modeling Food-Chemical Interactions with Diffusion",
+    "durationSec": 0,
+    "lang": "en",
+    "captionSource": "text"
+  },
+  "segments": [
+    {
+      "i": 0,
+      "startSec": 0,
+      "text": "The NMI-based evaluation results in Table 4 demonstrate the clustering quality of different models. Among the non-CSP variants, the Flavor Diffusion (50 nodes) model achieves the highest NMI score of 0.3236, surpassing the baseline Flavor- Graph model without CSP. The best overall performance is observed in the Flavor Diffusion_CSP (200 nodes) model, which achieves an NMI score of 0.3410, indicating that the CSP layer significantly improves the learned ingredient embeddings. Smaller subgraphs, such as the 25-node configuration, show the greatest improvement when using CSP (0.2970 vs. 0.2167), suggesting that the chemical structure prediction enhances clustering, particularly in more limited ingredient sets.",
+      "page": 6,
+      "role": "para",
+      "rects": [
+        {
+          "page": 6,
+          "bbox": [70.9, 710.8, 291, 775.9]
+        },
+        {
+          "page": 6,
+          "bbox": [305.8, 74, 526.3, 206.8]
+        }
+      ]
+    },
+    {
+      "i": 1,
+      "startSec": 0,
+      "text": "Table 4: Performance Comparison Using NMI Metric. *CSP shorts for chemical structure prediction.",
+      "page": 6,
+      "role": "caption",
+      "ref": "table-4",
+      "rects": [
+        {
+          "page": 6,
+          "bbox": [305.1, 219.1, 526.2, 241]
+        },
+        {
+          "page": 6,
+          "bbox": [304.1, 250.9, 526.4, 366.4]
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 0,
+      "text": "These unconventional combinations introduce potential for umami-sweet fusion (Soy Sauce, Vanilla Extract), savory-bitter contrast (Garlic Paste, Dark Chocolate), and aromatic synergies (Cumin Powder, Coffee Beans and Green Cardamom, Parmesan Cheese). Such findings demonstrate that Flavor Diffusion extends beyond known ingredient interactions, offering a data-driven approach for novel flavor discovery and AI-assisted recipe development.",
+      "page": 7,
+      "role": "para",
+      "rects": [
+        {
+          "page": 7,
+          "bbox": [305.8, 567.2, 526.2, 700.1]
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 0,
+      "text": "Table 5: Top 5 High-Confidence Ingredient Pairings",
+      "page": 7,
+      "role": "caption",
+      "ref": "table-5",
+      "rects": [
+        {
+          "page": 7,
+          "bbox": [311.4, 241.3, 518.9, 251.3]
+        },
+        {
+          "page": 7,
+          "bbox": [306, 261.4, 526.4, 320.9]
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 0,
+      "text": "Table 6: Top 5 Creative Ingredient Pairings Suggested by Flavor Diffusion",
+      "page": 7,
+      "role": "caption",
+      "ref": "table-6",
+      "rects": [
+        {
+          "page": 7,
+          "bbox": [305.8, 453.4, 524.4, 475.3]
+        },
+        {
+          "page": 7,
+          "bbox": [306.1, 485.4, 526.4, 548.9]
+        }
+      ]
+    }
+  ]
+}

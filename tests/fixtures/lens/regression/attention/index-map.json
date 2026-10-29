@@ -1,0 +1,19 @@
+{
+  "slug": "provided-proper-attribution-is-provided-google-hereby-g-c3ab01e4",
+  "url": "https://arxiv.org/pdf/1706.03762",
+  "segments": [12, 92, 93, 98, 102, 107, 109, 122],
+  "tables": {
+    "table-2": {
+      "unit": 3,
+      "originalUnit": 98
+    },
+    "table-3": {
+      "unit": 5,
+      "originalUnit": 107
+    },
+    "table-4": {
+      "unit": 7,
+      "originalUnit": 122
+    }
+  }
+}

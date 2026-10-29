@@ -1,0 +1,15 @@
+{
+  "slug": "a-81153ab9",
+  "url": "https://arxiv.org/pdf/2010.11929",
+  "segments": [68, 77, 94, 201],
+  "tables": {
+    "table-2": {
+      "unit": 1,
+      "originalUnit": 77
+    },
+    "table-6": {
+      "unit": 3,
+      "originalUnit": 201
+    }
+  }
+}

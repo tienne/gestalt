@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.0.0",
+  "slug": "deep-residual-learning-for-image-recognition-523013cf",
+  "kind": "pdf",
+  "pages": [],
+  "tables": [
+    {
+      "id": "table-2",
+      "number": "2",
+      "caption": "Table 2. Top-1 error (%, 10-crop testing) on ImageNet validation. Here the ResNets have no extra parameter compared to their plain counterparts. Fig. 4 shows the training procedures.",
+      "page": 5,
+      "bbox": [91.5, 442.2, 245, 481.1],
+      "rows": [
+        ["", "plain", "ResNet"],
+        ["18 layers", "27.94", "27.88"],
+        ["34 layers", "28.54", "25.03"]
+      ],
+      "grid": "ok",
+      "unit": 2
+    },
+    {
+      "id": "table-3",
+      "number": "3",
+      "caption": "Table 3. Error rates (%, 10-crop testing) on ImageNet validation. VGG-16 is based on our test. ResNet-50/101/152 are of option B that only uses projections for increasing dimensions.",
+      "page": 6,
+      "bbox": [86.5, 71.2, 250, 209.8],
+      "rows": [
+        ["model", "top-1 err.", "top-5 err."],
+        ["VGG-16 [41]", "28.07", "9.33"],
+        ["GoogLeNet [44]", "-", "9.15"],
+        ["PReLU-net [13]", "24.27", "7.38"],
+        ["plain-34", "28.54", "10.02"],
+        ["ResNet-34 A", "25.03", "7.76"],
+        ["ResNet-34 B", "24.52", "7.46"],
+        ["ResNet-34 C", "24.19", "7.40"],
+        ["ResNet-50", "22.85", "6.71"],
+        ["ResNet-101", "21.75", "6.05"],
+        ["ResNet-152", "21.43", "5.71"]
+      ],
+      "grid": "ok",
+      "unit": 4
+    },
+    {
+      "id": "table-5",
+      "number": "5",
+      "caption": "Table 5. Error rates (%) of ensembles . The top-5 error is on the test set of ImageNet and reported by the test server.",
+      "page": 6,
+      "bbox": [57.1, 254.1, 279.3, 513.2],
+      "rows": [
+        ["method top-1 err. top-5 err."],
+        ["VGG [41] (ILSVRC’14) - 8.43 †"],
+        ["GoogLeNet [44] (ILSVRC’14) - 7.89"],
+        ["VGG [41] (v5) 24.4 7.1"],
+        ["PReLU-net [13] 21.59 5.71"],
+        ["BN-inception [16] 21.99 5.81"],
+        ["ResNet-34 B 21.84 5.71"],
+        ["ResNet-34 C 21.53 5.60"],
+        ["ResNet-50 20.74 5.25"],
+        ["ResNet-101 19.87 4.60"],
+        ["ResNet-152 19.38 4.49"],
+        ["able 4. Error rates (%) of single-model results on the ImageN"],
+        ["alidation set (except † reported on the test set)."],
+        ["method top-5 err. ( test )"],
+        ["VGG [41] (ILSVRC’14) 7.32"],
+        ["GoogLeNet [44] (ILSVRC’14) 6.66"],
+        ["VGG [41] (v5) 6.8"],
+        ["PReLU-net [13] 4.94"],
+        ["BN-inception [16] 4.82"],
+        ["ResNet (ILSVRC’15) 3.57"]
+      ],
+      "grid": "loose",
+      "unit": 5
+    }
+  ],
+  "figures": []
+}

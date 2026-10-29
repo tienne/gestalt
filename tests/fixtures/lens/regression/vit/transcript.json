@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0.0",
+  "slug": "a-81153ab9",
+  "meta": {
+    "source": "pdf",
+    "url": "https://arxiv.org/pdf/2010.11929",
+    "title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
+    "durationSec": 0,
+    "lang": "en",
+    "captionSource": "text"
+  },
+  "segments": [
+    {
+      "i": 0,
+      "startSec": 0,
+      "text": "Table 2 shows the results. The smaller ViT-L/16 model pre-trained on JFT-300M outperforms BiT-L (which is pre-trained on the same dataset) on all tasks, while requiring substantially less computational resources to train. The larger model, ViT-H/14, further improves the performance, especially on the more challenging datasets – ImageNet, CIFAR-100, and the VTAB suite. Interestingly, this Published as a conference paper at ICLR 2021",
+      "page": 5,
+      "role": "para",
+      "rects": [
+        {
+          "page": 5,
+          "bbox": [108, 689.2, 504, 732]
+        },
+        {
+          "page": 6,
+          "bbox": [108, 27.6, 293.1, 37.5]
+        }
+      ]
+    },
+    {
+      "i": 1,
+      "startSec": 0,
+      "text": "Table 2: Comparison with state of the art on popular image classification benchmarks. We re-",
+      "page": 6,
+      "role": "caption",
+      "ref": "table-2",
+      "rects": [
+        {
+          "page": 6,
+          "bbox": [108, 207, 504, 216.9]
+        },
+        {
+          "page": 6,
+          "bbox": [106, 38.2, 506, 197.7]
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 0,
+      "text": "Figure 5 contains the transfer performance versus total pre-training compute (see Appendix D.5 for details on computational costs). Detailed results per model are provided in Table 6 in the Appendix. A few patterns can be observed. First, Vision Transformers dominate ResNets on the performance/compute trade-off. ViT uses approximately 2 − 4 × less compute to attain the same performance (average over 5 datasets). Second, hybrids slightly outperform ViT at small computational budgets, but the difference vanishes for larger models. This result is somewhat surprising, since one might expect convolutional local feature processing to assist ViT at any size. Third, Vision Transformers appear not to saturate within the range tried, motivating future scaling efforts.",
+      "page": 8,
+      "role": "para",
+      "rects": [
+        {
+          "page": 8,
+          "bbox": [108, 209.7, 504, 296.4]
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 0,
+      "text": "Table 6: Detailed results of model scaling experiments. These correspond to Figure 5 in the main",
+      "page": 15,
+      "role": "caption",
+      "ref": "table-6",
+      "rects": [
+        {
+          "page": 15,
+          "bbox": [108, 569.6, 504, 579.6]
+        },
+        {
+          "page": 15,
+          "bbox": [106, 38.2, 506, 560.4]
+        }
+      ]
+    }
+  ]
+}

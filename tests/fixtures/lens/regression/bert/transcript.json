@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0.0",
+  "slug": "bert-pre-training-of-deep-bidirectional-transformers-fo-33769e0b",
+  "meta": {
+    "source": "pdf",
+    "url": "https://arxiv.org/pdf/1810.04805",
+    "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+    "durationSec": 0,
+    "lang": "en",
+    "captionSource": "text"
+  },
+  "segments": [
+    {
+      "i": 0,
+      "startSec": 0,
+      "text": "Table 3: SQuAD 2.0 results. We exclude entries that use BERT as one of their components.",
+      "page": 7,
+      "role": "caption",
+      "ref": "table-3",
+      "rects": [
+        {
+          "page": 7,
+          "bbox": [72, 447.3, 290.3, 469.2]
+        },
+        {
+          "page": 7,
+          "bbox": [80.9, 62.2, 281.4, 432.4]
+        }
+      ]
+    },
+    {
+      "i": 1,
+      "startSec": 0,
+      "text": "We first examine the impact brought by the NSP task. In Table 5, we show that removing NSP hurts performance significantly on QNLI, MNLI, and SQuAD 1.1. Next, we evaluate the impact of training bidirectional representations by comparing “No NSP” to “LTR & No NSP”. The LTR model performs worse than the MLM model on all tasks, with large drops on MRPC and SQuAD.",
+      "page": 8,
+      "role": "para",
+      "rects": [
+        {
+          "page": 8,
+          "bbox": [72, 563.5, 290.3, 669.2]
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 0,
+      "text": "Results on selected GLUE tasks are shown in Table 6. In this table, we report the average Dev Set accuracy from 5 random restarts of fine-tuning. We can see that larger models lead to a strict accuracy improvement across all four datasets, even for MRPC which only has 3,600 labeled training examples, and is substantially different from the pre-training tasks. It is also perhaps surprising that we are able to achieve such significant improvements on top of models which are already quite large relative to the existing literature. For example, the largest Transformer explored in Vaswani et al. (2017) is (L=6, H=1024, A=16) with 100M parameters for the encoder, and the largest Transformer we have found in the literature is (L=64, H=512, A=2) with 235M parameters (Al-Rfou et al., 2018). By contrast, BERT contains 110M parameters and BERT contains 340M parameters.",
+      "page": 8,
+      "role": "para",
+      "rects": [
+        {
+          "page": 8,
+          "bbox": [307.3, 360, 525.5, 614.8]
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 0,
+      "text": "Table 5: Ablation over the pre-training tasks using the BERT the next sentence prediction task. “LTR & No NSP” is trained as a left-to-right LM without the next sentence prediction, like OpenAI GPT. “+ BiLSTM” adds a randomly initialized BiLSTM on top of the “LTR + No NSP” model during fine-tuning.",
+      "page": 8,
+      "role": "caption",
+      "ref": "table-5",
+      "rects": [
+        {
+          "page": 8,
+          "bbox": [72, 155.2, 290.3, 236.9]
+        },
+        {
+          "page": 8,
+          "bbox": [70, 62.2, 294.1, 145.3]
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 0,
+      "text": "Table 6: Ablation over BERT model size. #L = the number of layers; #H = hidden size; #A = number of attention heads. “LM (ppl)” is the masked LM perplexity of held-out training data.",
+      "page": 9,
+      "role": "caption",
+      "ref": "table-6",
+      "rects": [
+        {
+          "page": 9,
+          "bbox": [72, 715.7, 290.3, 761.5]
+        },
+        {
+          "page": 9,
+          "bbox": [83.6, 602.3, 278.7, 700.8]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,158 @@
+{
+  "paper": {
+    "title": "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
+    "url": "https://arxiv.org/pdf/2010.11929",
+    "slug": "a-81153ab9"
+  },
+  "doubts": [
+    {
+      "id": "vit-l16-vs-bit-l",
+      "kind": "number",
+      "bulletText": "본문은 JFT-300M으로 사전학습한 ViT-L/16이 BiT-L보다 모든 과제에서 낫다고 쓴다.",
+      "bulletCite": {
+        "key": 0,
+        "from": 0,
+        "to": 0
+      },
+      "doubt": {
+        "note": "표 2에서 ImageNet ReaL은 ViT-L/16 90.54 ± 0.03, BiT-L 90.54로 같고 VTAB은 ViT-L/16 76.28 ± 0.46, BiT-L 76.29 ± 1.70이다.",
+        "evidence": [
+          {
+            "table": "table-2",
+            "row": 3,
+            "col": 2
+          },
+          {
+            "table": "table-2",
+            "row": 3,
+            "col": 4
+          },
+          {
+            "table": "table-2",
+            "row": 8,
+            "col": 2
+          },
+          {
+            "table": "table-2",
+            "row": 8,
+            "col": 4
+          }
+        ]
+      }
+    }
+  ],
+  "decoys": [
+    {
+      "id": "vit-x-plus-minus-cells",
+      "reason": "Flowers-102에서 ViT-H/14가 ViT-L/16보다 낮은 건 맞지만 두 칸이 '± 표준편차'를 달고 있어 숫자 하나만 든 칸이 아니다",
+      "expectedCode": "DOUBT_DIRECTION_NOT_NUMERIC",
+      "bulletCite": {
+        "key": 0,
+        "from": 0,
+        "to": 0
+      },
+      "doubt": {
+        "note": "표 2 Flowers-102에서 ViT-H/14는 99.68 ± 0.02로 ViT-L/16의 99.74 ± 0.00보다 낮다.",
+        "evidence": [
+          {
+            "table": "table-2",
+            "row": 7,
+            "col": 1
+          },
+          {
+            "table": "table-2",
+            "row": 7,
+            "col": 2
+          },
+          {
+            "cite": {
+              "key": 0,
+              "from": 0,
+              "to": 0
+            }
+          }
+        ],
+        "direction": {
+          "from": {
+            "table": "table-2",
+            "row": 7,
+            "col": 2
+          },
+          "to": {
+            "table": "table-2",
+            "row": 7,
+            "col": 1
+          },
+          "claim": "increase",
+          "better": "higher"
+        }
+      }
+    },
+    {
+      "id": "vit-x-loose-table-6",
+      "reason": "source.json의 table-6은 원문 표 5와 표 6이 한 칸짜리 줄로 뭉친 loose 표다",
+      "expectedCode": "DOUBT_DIRECTION_LOOSE_TABLE",
+      "bulletCite": {
+        "key": 2,
+        "from": 2,
+        "to": 2
+      },
+      "doubt": {
+        "note": "표 6에서 ViT-B/16은 83.97, ViT-L/16은 85.15다.",
+        "evidence": [
+          {
+            "table": "table-6",
+            "row": 9,
+            "col": 0
+          },
+          {
+            "cite": {
+              "key": 2,
+              "from": 2,
+              "to": 2
+            }
+          }
+        ],
+        "direction": {
+          "from": {
+            "table": "table-6",
+            "row": 3,
+            "col": 0
+          },
+          "to": {
+            "table": "table-6",
+            "row": 9,
+            "col": 0
+          },
+          "claim": "increase",
+          "better": "higher"
+        }
+      }
+    },
+    {
+      "id": "vit-x-computed-gap",
+      "reason": "두 칸의 차이 0.01을 계산해 note에 적었다",
+      "expectedCode": "DOUBT_NUMBER_UNKNOWN",
+      "bulletCite": {
+        "key": 0,
+        "from": 0,
+        "to": 0
+      },
+      "doubt": {
+        "note": "ImageNet ReaL에서 Noisy Student는 90.55로 BiT-L의 90.54보다 0.01 높다.",
+        "evidence": [
+          {
+            "table": "table-2",
+            "row": 3,
+            "col": 4
+          },
+          {
+            "table": "table-2",
+            "row": 3,
+            "col": 5
+          }
+        ]
+      }
+    }
+  ]
+}

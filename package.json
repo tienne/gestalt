@@ -37,6 +37,8 @@
     "serve": "tsx bin/gestalt.ts serve",
     "bench": "tsx benchmarks/run.ts",
     "resolution-bench": "tsx benchmarks/run-resolution-benchmark.ts",
+    "lens:fixture": "tsx scripts/lens-fixture-slice.ts",
+    "lens:eval": "tsx scripts/lens-eval.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\"",

@@ -1,0 +1,19 @@
+{
+  "slug": "deep-residual-learning-for-image-recognition-523013cf",
+  "url": "https://arxiv.org/pdf/1512.03385",
+  "segments": [62, 69, 73, 80, 85, 86],
+  "tables": {
+    "table-2": {
+      "unit": 2,
+      "originalUnit": 73
+    },
+    "table-3": {
+      "unit": 4,
+      "originalUnit": 85
+    },
+    "table-5": {
+      "unit": 5,
+      "originalUnit": 86
+    }
+  }
+}

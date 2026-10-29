@@ -1,0 +1,185 @@
+{
+  "paper": {
+    "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+    "url": "https://arxiv.org/pdf/1810.04805",
+    "slug": "bert-pre-training-of-deep-bidirectional-transformers-fo-33769e0b"
+  },
+  "doubts": [
+    {
+      "id": "bert-sst2-base",
+      "kind": "number",
+      "bulletText": "표 5 사전학습 과제 절제 실험의 BERT BASE 줄은 표 6 모델 크기 실험의 12층, 768, 12 줄과 같은 설정이다.",
+      "bulletCite": {
+        "key": 1,
+        "from": 1,
+        "to": 1
+      },
+      "doubt": {
+        "note": "표 5 BERT BASE의 SST-2는 92.7인데 같은 설정(12층, 768, 12)인 표 6 줄은 92.9다.",
+        "evidence": [
+          {
+            "table": "table-5",
+            "row": 1,
+            "col": 4
+          },
+          {
+            "table": "table-6",
+            "row": 5,
+            "col": 6
+          }
+        ]
+      }
+    }
+  ],
+  "decoys": [
+    {
+      "id": "bert-x-mnli-agrees",
+      "reason": "모델을 키우면 MNLI-m이 77.9에서 86.6으로 올라 본문 주장대로다",
+      "expectedCode": "DOUBT_DIRECTION_AGREES",
+      "bulletCite": {
+        "key": 2,
+        "from": 2,
+        "to": 2
+      },
+      "doubt": {
+        "note": "표 6에서 MNLI-m은 3층 77.9, 24층 86.6이다.",
+        "evidence": [
+          {
+            "table": "table-6",
+            "row": 2,
+            "col": 4
+          },
+          {
+            "table": "table-6",
+            "row": 7,
+            "col": 4
+          }
+        ],
+        "direction": {
+          "from": {
+            "table": "table-6",
+            "row": 2,
+            "col": 4
+          },
+          "to": {
+            "table": "table-6",
+            "row": 7,
+            "col": 4
+          },
+          "claim": "increase",
+          "better": "higher"
+        }
+      }
+    },
+    {
+      "id": "bert-x-ppl-lower-better",
+      "reason": "perplexity는 낮을수록 좋아서 5.84에서 3.23으로 내려간 게 주장대로다",
+      "expectedCode": "DOUBT_DIRECTION_AGREES",
+      "bulletCite": {
+        "key": 2,
+        "from": 2,
+        "to": 2
+      },
+      "doubt": {
+        "note": "표 6에서 LM perplexity는 3층 5.84, 24층 3.23이다.",
+        "evidence": [
+          {
+            "table": "table-6",
+            "row": 2,
+            "col": 3
+          },
+          {
+            "table": "table-6",
+            "row": 7,
+            "col": 3
+          }
+        ],
+        "direction": {
+          "from": {
+            "table": "table-6",
+            "row": 2,
+            "col": 3
+          },
+          "to": {
+            "table": "table-6",
+            "row": 7,
+            "col": 3
+          },
+          "claim": "increase",
+          "better": "lower"
+        }
+      }
+    },
+    {
+      "id": "bert-x-loose-table-3",
+      "reason": "source.json의 table-3은 SQuAD 2.0과 1.1 표가 한 칸짜리 줄로 뭉친 loose 표다",
+      "expectedCode": "DOUBT_DIRECTION_LOOSE_TABLE",
+      "bulletCite": {
+        "key": 0,
+        "from": 0,
+        "to": 0
+      },
+      "doubt": {
+        "note": "표 3에서 BERT LARGE 단일 모델은 84.1, 앙상블은 85.8이다.",
+        "evidence": [
+          {
+            "table": "table-3",
+            "row": 10,
+            "col": 0
+          },
+          {
+            "table": "table-3",
+            "row": 11,
+            "col": 0
+          },
+          {
+            "cite": {
+              "key": 0,
+              "from": 0,
+              "to": 0
+            }
+          }
+        ],
+        "direction": {
+          "from": {
+            "table": "table-3",
+            "row": 11,
+            "col": 0
+          },
+          "to": {
+            "table": "table-3",
+            "row": 10,
+            "col": 0
+          },
+          "claim": "increase",
+          "better": "higher"
+        }
+      }
+    },
+    {
+      "id": "bert-x-interpretation-only",
+      "reason": "숫자 없이 해석만 적었다",
+      "expectedCode": "DOUBT_NOT_NUMERIC",
+      "bulletCite": {
+        "key": 1,
+        "from": 1,
+        "to": 1
+      },
+      "doubt": {
+        "note": "NSP를 빼면 성능이 크게 떨어진다고 하지만 차이가 작아 보인다.",
+        "evidence": [
+          {
+            "table": "table-5",
+            "row": 1,
+            "col": 1
+          },
+          {
+            "table": "table-5",
+            "row": 2,
+            "col": 1
+          }
+        ]
+      }
+    }
+  ]
+}
