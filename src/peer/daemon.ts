@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
@@ -48,7 +49,7 @@ import { loadOrCreateMachineKey } from './keys.js';
 import type { MachineKey } from './keys.js';
 import { acquireDaemonLock, releaseDaemonLock } from './lock.js';
 import type { DaemonLock } from './lock.js';
-import { PeerNetwork, PeerNetworkError } from './network.js';
+import { APPROVAL_NOTICE_MS, PeerNetwork, PeerNetworkError } from './network.js';
 import type { InboundMessage, PeerNetworkOptions } from './network.js';
 import { findInboxSocket, writeInbox } from './inbox.js';
 import type { InboxResult } from './inbox.js';
@@ -121,6 +122,13 @@ export class PeerDaemon {
   private readonly pollMs: number;
   /** 훅 상태 파일을 다시 쓰기로 예약했는지. 한 틱 안의 바뀜을 한 번에 쓴다 */
   private watchingQueued = false;
+  /** 세션마다 마지막으로 쓴 훅 출력. 같으면 다시 안 쓴다 */
+  private watchingWritten = new Map<string, string>();
+  /**
+   * 이 프로세스가 시작한 시각을 ps로 읽은 글자. 훅이 같은 pid의 시작 시각과 맞춰 봐서 데몬이 죽은 뒤
+   * 그 pid를 받은 다른 프로세스를 데몬으로 믿지 않게 한다. ps를 못 부르면 빈 글자다
+   */
+  private readonly startStamp = processStartStamp(process.pid);
 
   constructor(private readonly options: PeerDaemonOptions) {
     this.sock = socketPath(options.root);
@@ -375,14 +383,8 @@ export class PeerDaemon {
       ids = [...this.shares.keys()];
       if (ids.length === 0) return { ok: false, error: '열린 공유가 없어요' };
     }
-    const person = req.person;
-    return this.withNetwork((n) =>
-      req.op === 'kick'
-        ? n.kick(person, ids)
-        : req.op === 'approve'
-          ? n.approve(person, ids)
-          : n.deny(person, ids),
-    ) as PeerResponse<ControlResult>;
+    const { op, person } = req;
+    return this.withNetwork((n) => CONTROL_OPS[op](n, person, ids));
   }
 
   private config(req: Extract<PeerRequest, { op: 'config' }>): PeerResponse<PeerConfig> {
@@ -393,6 +395,8 @@ export class PeerDaemon {
         return { ok: false, error: '--first-watch는 ask, team 중 하나예요' };
       }
       state.setSettings({ ...state.getSettings(), firstWatch: req.firstWatch });
+      const revoked = this.network?.setFirstWatch(req.firstWatch) ?? 0;
+      return { ok: true, result: { firstWatch: req.firstWatch, revoked } };
     }
     return {
       ok: true,
@@ -400,7 +404,7 @@ export class PeerDaemon {
     };
   }
 
-  private withNetwork<T>(fn: (n: PeerNetwork) => T): PeerResponse {
+  private withNetwork<T>(fn: (n: PeerNetwork) => T): PeerResponse<T> {
     if (!this.network) return { ok: false, error: '데몬이 아직 안 떴어요' };
     try {
       return { ok: true, result: fn(this.network) };
@@ -409,7 +413,7 @@ export class PeerDaemon {
     }
   }
 
-  private async withNetworkAsync<T>(fn: (n: PeerNetwork) => Promise<T>): Promise<PeerResponse> {
+  private async withNetworkAsync<T>(fn: (n: PeerNetwork) => Promise<T>): Promise<PeerResponse<T>> {
     if (!this.network) return { ok: false, error: '데몬이 아직 안 떴어요' };
     try {
       return { ok: true, result: await fn(this.network) };
@@ -569,10 +573,13 @@ export class PeerDaemon {
 
   /**
    * 보는 중 표시 훅이 읽을 세션별 상태 파일을 다시 쓴다. 원격으로 보는 사람이나 승인을 기다리는
-   * 사람이 있는 세션만 파일이 있다. 훅은 파일이 없으면 Node를 안 띄우고 끝나므로 아무도 없는
-   * 세션은 파일을 지운다. `--transcript`로 연 공유는 세션 id가 없어서 표시하지 않는다.
+   * 사람이 있는 세션만 파일이 있다. 훅은 파일이 있으면 적힌 데몬이 살아 있는 한 그 내용을 그대로
+   * 내보낸다. 아무도 없는 세션은 파일을 지워서 끊긴 사람이 다음 프롬프트에 계속 보이지 않게 한다.
+   * `--transcript`로 연 공유는 세션 id가 없어서 표시하지 않는다.
+   *
+   * 마지막에 쓴 내용을 세션마다 기억해서 바뀐 세션만 다시 쓴다. 파일 하나가 실패해도 나머지는 쓴다.
    */
-  private writeWatching(): void {
+  private writeWatching(now = Date.now()): void {
     const network = this.network;
     if (!network || !this.state) return;
     const sessions = new Map<string, { watchers: Set<string>; pending: PendingWatcher[] }>();
@@ -589,26 +596,43 @@ export class PeerDaemon {
       entry.pending.push(...c.pending);
     }
     const dir = watchingDir(this.options.root);
+    for (const sessionId of [...this.watchingWritten.keys()]) {
+      if (sessions.has(sessionId)) continue;
+      try {
+        unlinkSync(join(dir, sessionId));
+        this.watchingWritten.delete(sessionId);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT')
+          this.watchingWritten.delete(sessionId);
+        else process.stderr.write(`[peer] watching remove failed: ${errMessage(err)}\n`);
+      }
+    }
+    if (sessions.size === 0) return;
     try {
-      if (sessions.size > 0) ensurePrivateDir(dir);
-      for (const name of existsSync(dir) ? readdirSync(dir) : []) {
-        if (!sessions.has(name)) unlinkSync(join(dir, name));
-      }
-      for (const [sessionId, e] of sessions) {
-        const context = watchingContext([...e.watchers], e.pending);
-        const line = JSON.stringify({
-          hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context },
-        });
-        const tmp = join(dir, `.${sessionId}.tmp`);
-        writeFileSync(tmp, `${process.pid}\n${line}\n`, { mode: 0o600 });
-        renameSync(tmp, join(dir, sessionId));
-      }
+      ensurePrivateDir(dir);
     } catch (err) {
-      process.stderr.write(`[peer] watching state failed: ${errMessage(err)}\n`);
+      process.stderr.write(`[peer] watching dir failed: ${errMessage(err)}\n`);
+      return;
+    }
+    for (const [sessionId, e] of sessions) {
+      const context = watchingContext([...e.watchers], e.pending, now);
+      const line = JSON.stringify({
+        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context },
+      });
+      if (this.watchingWritten.get(sessionId) === line) continue;
+      try {
+        const tmp = join(dir, `.${sessionId}.tmp`);
+        writeFileSync(tmp, `${process.pid}\n${this.startStamp}\n${line}\n`, { mode: 0o600 });
+        renameSync(tmp, join(dir, sessionId));
+        this.watchingWritten.set(sessionId, line);
+      } catch (err) {
+        process.stderr.write(`[peer] watching state failed: ${errMessage(err)}\n`);
+      }
     }
   }
 
   private clearWatching(): void {
+    this.watchingWritten.clear();
     const dir = watchingDir(this.options.root);
     try {
       if (!existsSync(dir)) return;
@@ -771,7 +795,11 @@ export class PeerDaemon {
  * 라벨로 정리하고 이름 꼴이 아니면 뺀다. 승인 명령은 모델이 직접 치지 않게 적는다. 주인이
  * 받아 주는 자리를 모델이 대신 채우면 승인이 뜻이 없다.
  */
-export function watchingContext(watchers: string[], pending: PendingWatcher[]): string {
+export function watchingContext(
+  watchers: string[],
+  pending: PendingWatcher[],
+  now = Date.now(),
+): string {
   const names = (list: string[]): string[] =>
     [...new Set(list.map((n) => plainLabel(n, 32)).filter(isPersonName))].sort();
   const lines: string[] = [];
@@ -779,16 +807,48 @@ export function watchingContext(watchers: string[], pending: PendingWatcher[]): 
   if (who.length > 0) {
     lines.push(`[gestalt peer] ${who.join(', ')} 님이 이 세션의 대화를 보는 중이다.`);
   }
-  const waiting = names(pending.map((p) => p.person));
-  if (waiting.length > 0) {
+  // 긴 안내는 대기가 생기고 잠깐만 붙인다. 프롬프트마다 같은 문장이 컨텍스트에 쌓이지 않게 그 뒤로는 줄인다
+  const fresh = names(pending.filter((p) => now - p.at < APPROVAL_NOTICE_MS).map((p) => p.person));
+  const old = names(pending.map((p) => p.person)).filter((n) => !fresh.includes(n));
+  if (fresh.length > 0) {
     lines.push(
-      `[gestalt peer] ${waiting.join(', ')} 님이 이 세션을 보려고 주인 승인을 기다린다. ` +
+      `[gestalt peer] ${fresh.join(', ')} 님이 이 세션을 보려고 주인 승인을 기다린다. ` +
         '사용자에게 알리기만 하고 승인이나 거절 명령은 직접 실행하지 않는다. ' +
-        `사용자가 \`gestalt peer approve ${waiting[0]}\`나 \`gestalt peer deny ${waiting[0]}\`로 정한다.`,
+        `사용자가 \`gestalt peer approve ${fresh[0]}\`나 \`gestalt peer deny ${fresh[0]}\`로 정한다.`,
     );
+  }
+  if (old.length > 0) {
+    lines.push(`[gestalt peer] 승인 대기: ${old.join(', ')}. 사용자가 정할 일이다.`);
   }
   return lines.join('\n');
 }
+
+/**
+ * pid의 시작 시각을 ps로 읽어 공백을 뺀 글자로. 훅(`scripts/peer-watching-hook.sh`)이 같은 명령으로
+ * 읽어 맞춰 본다. 로캘에 따라 글자가 달라지지 않게 LC_ALL=C로 부른다.
+ */
+export function processStartStamp(pid: number): string {
+  try {
+    const out = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
+      encoding: 'utf8',
+      env: { ...process.env, LC_ALL: 'C' },
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 2_000,
+    });
+    return out.replace(/\s+/g, '');
+  } catch {
+    return '';
+  }
+}
+
+const CONTROL_OPS: Record<
+  'kick' | 'approve' | 'deny',
+  (n: PeerNetwork, person: string, shares: string[]) => ControlResult
+> = {
+  kick: (n, person, shares) => n.kick(person, shares),
+  approve: (n, person, shares) => n.approve(person, shares),
+  deny: (n, person, shares) => n.deny(person, shares),
+};
 
 function sameFile(path: string, id: FileId): boolean {
   try {

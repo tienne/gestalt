@@ -66,6 +66,8 @@ export type AuditAction =
   | 'approval_grant'
   | 'approval_deny'
   | 'approval_expire'
+  | 'approval_cancel'
+  | 'approval_revoke'
   | 'kick';
 
 /** 이 기기가 든 팀. 한 기기는 팀 하나에만 든다 */

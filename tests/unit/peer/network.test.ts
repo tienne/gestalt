@@ -144,10 +144,14 @@ interface Node {
   status(): Promise<DaemonStatus>;
 }
 
-/** 첫 접속 승인 시한. 시한이 지나는 테스트가 기다릴 만큼 짧고 승인하는 테스트가 넘기지 않을 만큼 길다 */
-const APPROVAL_TTL_MS = 3_000;
+/**
+ * 시한이 지나는 테스트만 쓰는 짧은 승인 시한. 이 표시가 이름에 든 테스트만 주인 데몬을 이 시한으로
+ * 띄운다. 나머지는 실제 시한(10분)이라 느린 CI에서 승인 전에 시한이 지나 깨지지 않는다
+ */
+const SHORT_APPROVAL_TTL_MS = 1_000;
+const SHORT_TTL_TAG = '(짧은 시한)';
 
-async function startNode(): Promise<Node> {
+async function startNode(opts: { approvalTtlMs?: number } = {}): Promise<Node> {
   const root = mkdtempSync(join(tmpdir(), 'peer-net-'));
   const dbPath = resolve('.gestalt-test', `peer-${randomUUID()}.db`);
   const daemon = new PeerDaemon({
@@ -156,7 +160,7 @@ async function startNode(): Promise<Node> {
     pollMs: 20,
     home: FAKE_HOME,
     network: { minBackoffMs: 50, maxBackoffMs: 200 },
-    approvalTtlMs: APPROVAL_TTL_MS,
+    approvalTtlMs: opts.approvalTtlMs,
   });
   await daemon.start();
   const call = async <T>(req: PeerRequest, timeoutMs = 5_000): Promise<T> => {
@@ -205,10 +209,12 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
   /** 릴레이로 들어온 프레임만 */
   const tapIn: string[] = [];
 
-  beforeEach(async () => {
+  beforeEach(async (ctx) => {
     tap.length = 0;
     tapIn.length = 0;
-    owner = await startNode();
+    owner = await startNode(
+      ctx.task.name.includes(SHORT_TTL_TAG) ? { approvalTtlMs: SHORT_APPROVAL_TTL_MS } : {},
+    );
     watcher = await startNode();
     const team = (await owner.status()).machineKey;
     relayDir = mkdtempSync(join(tmpdir(), 'peer-relay-'));
@@ -944,12 +950,12 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       );
     });
 
-    it('주인이 시한 안에 안 받아 주면 보는 쪽에 시간이 지나 끝났다고 보인다', async () => {
+    it(`주인이 시한 안에 안 받아 주면 보는 쪽에 시간이 지나 끝났다고 보인다 ${SHORT_TTL_TAG}`, async () => {
       const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
       expect(w.waiting).toBe(true);
       const sse = openSse(w.url);
       try {
-        await until(() => sse.body().includes('event: closed'), APPROVAL_TTL_MS + 5_000);
+        await until(() => sse.body().includes('event: closed'), SHORT_APPROVAL_TTL_MS + 5_000);
         expect(sse.body()).toMatch(/"reason":"approval_timeout"/);
       } finally {
         sse.req.destroy();
@@ -966,6 +972,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       expect(await owner.call({ op: 'config' })).toEqual({ firstWatch: 'ask' });
       expect(await owner.call({ op: 'config', firstWatch: 'team' })).toEqual({
         firstWatch: 'team',
+        revoked: 0,
       });
       const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
       expect(w.waiting).toBeUndefined();
@@ -1085,7 +1092,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       expect(session.received).toHaveLength(0);
     });
 
-    it('훅은 보는 사람이 있는 세션에만 한 줄을 내고 끊으면 안 낸다', async () => {
+    it('훅은 보는 사람이나 승인 대기가 있는 세션에만 붙이고 끊으면 안 낸다', async () => {
       const file = join(owner.root, 'watching', session.sessionId);
       expect(runHook(owner.root, session.sessionId)).toBe('');
 
@@ -1114,6 +1121,71 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       await owner.call({ op: 'kick', person: 'alice' });
       await until(() => !existsSync(file));
       expect(runHook(owner.root, session.sessionId)).toBe('');
+    });
+
+    it('기다리던 사람이 unwatch하면 주인 쪽 대기가 바로 사라지고 그 뒤 approve는 실패한다', async () => {
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(w.waiting).toBe(true);
+      const file = join(owner.root, 'watching', session.sessionId);
+      await until(() => existsSync(file));
+      await watcher.call({ op: 'unwatch', id: w.id });
+      await until(async () => (await ownerShare(shareInfo.id)).pending.length === 0);
+      await until(() => !existsSync(file));
+      expect(auditOf(owner, 'approval_cancel')).toHaveLength(1);
+      await expect(owner.call({ op: 'approve', person: 'alice' })).rejects.toThrow(
+        '승인을 기다리는 사람이 아니에요',
+      );
+      expect((await owner.status()).team?.remoteViewers).toBe(0);
+    });
+
+    it('기다리는 중에 공유를 닫으면 보는 쪽에 공유 종료로 끝나고 훅 파일도 사라진다', async () => {
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      const file = join(owner.root, 'watching', session.sessionId);
+      await until(() => existsSync(file));
+      await owner.call({ op: 'unshare', id: shareInfo.id });
+      await until(async () => (await watchStatus(w.id)) === 'closed:share_closed');
+      await until(() => !existsSync(file));
+    });
+
+    it('기다리는 중에 명단에서 빼면 대기가 사라진다', async () => {
+      await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      await until(async () => (await ownerShare(shareInfo.id)).pending.length === 1);
+      await owner.call({ op: 'remove', person: 'alice' });
+      await until(async () => (await ownerShare(shareInfo.id)).pending.length === 0);
+    });
+
+    it('받아 준 사람은 공유가 열린 동안 다시 청해도 묻지 않는다', async () => {
+      const first = await watchApproved(shareInfo.link!);
+      await watcher.call({ op: 'unwatch', id: first.id });
+      const again = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(again.waiting).toBeUndefined();
+      expect(auditOf(owner, 'approval_request')).toHaveLength(1);
+    });
+
+    it('기다리는 사이 팀원이면 바로 허용으로 바꾸고 다시 청하면 대기가 치워지고 붙는다', async () => {
+      await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      await until(async () => (await ownerShare(shareInfo.id)).pending.length === 1);
+      await owner.call({ op: 'config', firstWatch: 'team' });
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(w.waiting).toBeUndefined();
+      expect((await ownerShare(shareInfo.id)).pending).toEqual([]);
+    });
+
+    it('팀원이면 바로 허용에서 물어보기로 조이면 팀 설정으로 붙은 사람은 다시 승인 대기로 간다', async () => {
+      await owner.call({ op: 'config', firstWatch: 'team' });
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(w.waiting).toBeUndefined();
+      await until(async () => (await ownerShare(shareInfo.id)).watchers.length === 1);
+      const r = await owner.call<{ firstWatch: string; revoked: number }>({
+        op: 'config',
+        firstWatch: 'ask',
+      });
+      expect(r).toEqual({ firstWatch: 'ask', revoked: 1 });
+      await until(async () => (await watchStatus(w.id)) === 'waiting');
+      const s = await ownerShare(shareInfo.id);
+      expect(s.watchers).toEqual([]);
+      expect(s.pending.map((p) => p.person)).toEqual(['alice']);
+      expect(auditOf(owner, 'approval_revoke')).toHaveLength(1);
     });
   });
 });

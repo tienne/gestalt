@@ -27,8 +27,9 @@ export function statePath(root: string): string {
 }
 
 /**
- * 보는 중 표시 훅이 읽는 세션별 상태 파일 자리. 파일 이름은 세션 id이고 내용은 데몬 pid 한 줄과
- * 훅이 그대로 내보낼 JSON 한 줄이다. 훅(`scripts/peer-watching-hook.sh`)이 같은 경로를 셸로 계산한다.
+ * 보는 중 표시 훅이 읽는 세션별 상태 파일 자리. 파일 이름은 세션 id이고 내용은 데몬 pid, 데몬 시작
+ * 시각, 훅이 그대로 내보낼 JSON이 한 줄씩이다. 훅(`scripts/peer-watching-hook.sh`)이 같은 경로를
+ * 셸로 계산한다.
  */
 export function watchingDir(root: string): string {
   return join(root, 'watching');

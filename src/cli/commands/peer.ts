@@ -214,11 +214,16 @@ export async function peerUnshareCommand(options: PeerOptions & { id: string }):
   }
 }
 
-export async function peerKickCommand(
-  options: PeerOptions & { name: string; share?: string },
+type ControlOptions = PeerOptions & { name: string; share?: string };
+
+/** kick, approve, deny가 같이 쓰는 요청과 출력. lines가 사람이 읽을 결과 줄을 만든다 */
+async function controlCommand(
+  op: 'kick' | 'approve' | 'deny',
+  options: ControlOptions,
+  lines: (r: ControlResult) => string[],
 ): Promise<void> {
   const r = await call<ControlResult>({
-    op: 'kick',
+    op,
     person: options.name,
     ...(options.share ? { share: options.share } : {}),
   });
@@ -226,44 +231,28 @@ export async function peerKickCommand(
     console.log(JSON.stringify(r));
     return;
   }
-  console.log(
+  for (const line of lines(r)) console.log(line);
+}
+
+export function peerKickCommand(options: ControlOptions): Promise<void> {
+  return controlCommand('kick', options, (r) => [
     `${options.name} 님을 공유 ${r.shares.length}개에서 끊었어요. 끊은 구독 ${r.count}개`,
-  );
-  console.log(
     '그 공유가 열려 있는 동안 다시 못 붙고 메시지도 못 넣어요. 이미 본 내용은 회수하지 못해요.',
-  );
+  ]);
 }
 
-export async function peerApproveCommand(
-  options: PeerOptions & { name: string; share?: string },
-): Promise<void> {
-  const r = await call<ControlResult>({
-    op: 'approve',
-    person: options.name,
-    ...(options.share ? { share: options.share } : {}),
-  });
-  if (options.json) {
-    console.log(JSON.stringify(r));
-    return;
-  }
-  console.log(`${options.name} 님을 받아 줬어요 (공유 ${r.shares.join(', ')}).`);
-  console.log('그 공유가 열려 있는 동안은 다시 붙어도 묻지 않아요.');
+export function peerApproveCommand(options: ControlOptions): Promise<void> {
+  return controlCommand('approve', options, (r) => [
+    `${options.name} 님을 받아 줬어요 (공유 ${r.shares.join(', ')}).`,
+    '그 공유가 열려 있는 동안은 다시 붙어도 묻지 않아요.',
+  ]);
 }
 
-export async function peerDenyCommand(
-  options: PeerOptions & { name: string; share?: string },
-): Promise<void> {
-  const r = await call<ControlResult>({
-    op: 'deny',
-    person: options.name,
-    ...(options.share ? { share: options.share } : {}),
-  });
-  if (options.json) {
-    console.log(JSON.stringify(r));
-    return;
-  }
-  console.log(`${options.name} 님을 거절했어요 (공유 ${r.shares.join(', ')}).`);
-  console.log('그 공유가 열려 있는 동안 다시 붙지 못해요.');
+export function peerDenyCommand(options: ControlOptions): Promise<void> {
+  return controlCommand('deny', options, (r) => [
+    `${options.name} 님을 거절했어요 (공유 ${r.shares.join(', ')}).`,
+    '그 공유가 열려 있는 동안 다시 붙지 못해요.',
+  ]);
 }
 
 const FIRST_WATCH_LABEL: Record<string, string> = {
@@ -274,22 +263,23 @@ const FIRST_WATCH_LABEL: Record<string, string> = {
 export async function peerConfigCommand(
   options: PeerOptions & { firstWatch?: string },
 ): Promise<void> {
-  if (
-    options.firstWatch !== undefined &&
-    options.firstWatch !== 'ask' &&
-    options.firstWatch !== 'team'
-  ) {
-    fail('--first-watch는 ask, team 중 하나예요');
-  }
+  // 값 검사는 데몬이 한다. 여기서 또 보면 두 곳의 규칙이 어긋날 수 있다
   const r = await call<PeerConfig>({
     op: 'config',
-    ...(options.firstWatch ? { firstWatch: options.firstWatch as 'ask' | 'team' } : {}),
+    ...(options.firstWatch !== undefined
+      ? { firstWatch: options.firstWatch as PeerConfig['firstWatch'] }
+      : {}),
   });
   if (options.json) {
     console.log(JSON.stringify(r));
     return;
   }
   console.log(`첫 접속: ${FIRST_WATCH_LABEL[r.firstWatch] ?? r.firstWatch}`);
+  if (r.revoked && r.revoked > 0) {
+    console.log(
+      `팀 설정으로 붙어 있던 구독 ${r.revoked}개를 끊었어요. 그 사람들은 다시 승인을 받아야 해요.`,
+    );
+  }
 }
 
 export async function peerStatusCommand(options: PeerOptions): Promise<void> {
@@ -399,7 +389,7 @@ export async function peerWatchCommand(
   }
   console.log(`${w.owner}의 공유(${w.share})를 보기 시작했어요. 보기 id ${w.id}`);
   if (w.waiting) {
-    console.log('주인 승인을 기다리는 중이에요. 받아 주면 뷰어에 대화가 흐르기 시작해요.');
+    console.log('주인 승인을 기다리는 중이에요. 받아 주면 뷰어에 대화가 보여요.');
   }
   console.log(`\n${w.url}\n`);
   if (options.open !== false) {

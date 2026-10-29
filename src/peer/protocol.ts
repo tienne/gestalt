@@ -94,6 +94,8 @@ export interface ControlResult {
 
 export interface PeerConfig {
   firstWatch: FirstWatchApproval;
+  /** 바꿀 때만 있다. ask로 조여 승인을 거두고 끊은 구독 수 */
+  revoked?: number;
 }
 
 export interface WatchResult {
@@ -101,7 +103,7 @@ export interface WatchResult {
   share: string;
   owner: string;
   url: string;
-  /** 주인 승인을 기다리는 중이면 true. 받아 주면 뷰어에 대화가 흐르기 시작한다 */
+  /** 주인 승인을 기다리는 중이면 true. 받아 주면 뷰어에 대화가 보이기 시작한다 */
   waiting?: boolean;
 }
 
