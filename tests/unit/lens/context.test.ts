@@ -13,9 +13,11 @@ import {
 } from '../../../src/digest/lint-lens-context.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
+import { reportKey } from '../../../src/digest/reports.js';
 import { DigestStore } from '../../../src/digest/store.js';
 import { writeJsonAtomic } from '../../../src/core/json-file.js';
 import { attachContext } from '../../../src/lens/attach.js';
+import { buildContextInput } from '../../../src/lens/context-input.js';
 import {
   findKnowledge,
   knowledgeRoots,
@@ -178,9 +180,148 @@ describe('lens attach', () => {
     expect(saved.limits!.map((l) => l.text)).toEqual([r.limits![0]!.text, '새 카드 줄']);
   });
 
+  /** 노트 파일과 knowledge.json까지 갖춘 저장소에 카드와 연결 카드를 단 리포트를 합쳐 둔다 */
+  function withContext(): { root: string; store: DigestStore; note: string } {
+    const root = tmp();
+    const store = new DigestStore(root);
+    store.saveTranscript(lensTranscript());
+    writeJsonAtomic(lensSourcePath(store, LENS_SLUG), lensSource());
+    const notes = join(root, 'notes');
+    mkdirSync(notes, { recursive: true });
+    const note = join(notes, 'flavor.md');
+    writeFileSync(note, '# 노트\n\nFlavorGraph는 Recipe1M과 FlavorDB로 만든다.\n');
+    writeJsonAtomic(join(store.dir(LENS_SLUG), KNOWLEDGE_FILE), {
+      roots: [notes],
+      terms: [],
+      hits: [],
+    });
+    const r = lensReport();
+    r.cards = [card()];
+    r.links = [link({ path: note })];
+    r.limits!.push({ text: '카드에서 온 줄', evidence: [], card: 'lineage' });
+    expect(mergeReport(root, LENS_SLUG, r).saved).toBe(true);
+    return { root, store, note };
+  }
+
+  it('cards만 붙이면 links가 그대로 남는다', () => {
+    const { root, store } = withContext();
+    const out = attachContext(root, LENS_SLUG, {
+      cards: {
+        cards: [card({ id: 'counter', kind: 'counter', title: '반론' })],
+        limits: [{ text: '새 카드 줄', card: 'counter' }],
+      },
+    });
+    expect(out.saved).toBe(true);
+    const saved = store.loadDigest(LENS_SLUG)!.reports[0]!;
+    expect(saved.cards!.map((c) => c.id)).toEqual(['counter']);
+    expect(saved.limits!.map((l) => l.text)).toEqual([lensReport().limits![0]!.text, '새 카드 줄']);
+    expect(saved.links!.map((l) => l.id)).toEqual(['kb-1']);
+  });
+
+  it('links만 붙이면 cards와 카드 한계 줄이 그대로 남는다', () => {
+    const { root, store, note } = withContext();
+    const out = attachContext(root, LENS_SLUG, {
+      links: { links: [link({ id: 'kb-2', path: note })] },
+    });
+    expect(out.saved).toBe(true);
+    const saved = store.loadDigest(LENS_SLUG)!.reports[0]!;
+    expect(saved.links!.map((l) => l.id)).toEqual(['kb-2']);
+    expect(saved.cards!.map((c) => c.id)).toEqual(['lineage']);
+    expect(saved.limits!.some((l) => l.card === 'lineage')).toBe(true);
+  });
+
+  it('빈 객체는 그 필드를 비운다', () => {
+    const { root, store } = withContext();
+    expect(attachContext(root, LENS_SLUG, { links: {} }).saved).toBe(true);
+    const saved = store.loadDigest(LENS_SLUG)!.reports[0]!;
+    expect(saved.links ?? []).toEqual([]);
+    expect(saved.cards!.map((c) => c.id)).toEqual(['lineage']);
+  });
+
+  it('cards와 links를 함께 붙인다', () => {
+    const { root, store, note } = withContext();
+    const out = attachContext(root, LENS_SLUG, {
+      cards: {
+        cards: [card({ id: 'counter', kind: 'counter', title: '반론' })],
+        limits: [{ text: '새 카드 줄', card: 'counter' }],
+      },
+      links: { links: [link({ id: 'kb-3', path: note })] },
+    });
+    expect(out.saved).toBe(true);
+    const saved = store.loadDigest(LENS_SLUG)!.reports[0]!;
+    expect(saved.cards!.map((c) => c.id)).toEqual(['counter']);
+    expect(saved.links!.map((l) => l.id)).toEqual(['kb-3']);
+  });
+
+  it('옛 한 파일 꼴(file)도 받는다', () => {
+    const { root, store, note } = withContext();
+    const file = { cards: [card()], links: [link({ id: 'kb-9', path: note })], limits: [] };
+    expect(attachContext(root, LENS_SLUG, { file }).saved).toBe(true);
+    expect(store.loadDigest(LENS_SLUG)!.reports[0]!.links!.map((l) => l.id)).toEqual(['kb-9']);
+    expect(attachContext(root, LENS_SLUG, file).saved).toBe(true);
+  });
+
+  it('아무 파일도 없으면 거절한다', () => {
+    expect(() => attachContext(tmp(), LENS_SLUG, { cards: undefined })).toThrow(/붙일 파일/);
+  });
+
   it('카드 파일의 한계 줄에 card가 없으면 거절한다', () => {
     const root = tmp();
     expect(() => attachContext(root, LENS_SLUG, { limits: [{ text: 'x' }] })).toThrow(/card id/);
+  });
+});
+
+describe('context-input', () => {
+  const NOTE_PATH = '/Users/someone/private-notes/flavor.md';
+  function setup() {
+    const root = tmp();
+    const store = new DigestStore(root);
+    store.saveTranscript(lensTranscript());
+    const r = lensReport();
+    r.cards = [card()];
+    r.links = [link({ path: NOTE_PATH })];
+    // 노트 대조는 lint 단계라 저장소에 직접 써서 사본 동작만 본다
+    writeJsonAtomic(store.digestPath(LENS_SLUG), lensDigest(r));
+    return root;
+  }
+
+  it('links 키를 뺀 사본을 만들고 cards, limits, sections는 그대로 둔다', () => {
+    const root = setup();
+    const { report } = buildContextInput(root, LENS_SLUG);
+    const orig = lensReport();
+    expect('links' in report).toBe(false);
+    expect(report.cards!.map((c) => c.id)).toEqual(['lineage']);
+    expect(report.limits).toEqual(orig.limits);
+    expect(report.sections).toEqual(orig.sections);
+  });
+
+  it('노트 경로 문자열이 출력 어디에도 없다', () => {
+    const root = setup();
+    const text = JSON.stringify(
+      buildContextInput(root, LENS_SLUG, undefined, { withTranscript: true }),
+    );
+    expect(text).not.toContain('private-notes');
+    expect(text).not.toContain(NOTE_PATH);
+  });
+
+  it('--report 키로 리포트를 고른다', () => {
+    const root = setup();
+    const digest = new DigestStore(root).loadDigest(LENS_SLUG)!;
+    const key = reportKey(digest.reports[0]!.options);
+    expect(buildContextInput(root, LENS_SLUG, key).report.options).toEqual(
+      digest.reports[0]!.options,
+    );
+    expect(() => buildContextInput(root, LENS_SLUG, 'nope')).toThrow(/nope/);
+  });
+
+  it('withTranscript면 문단을 { i, text }만 담아 함께 준다', () => {
+    const root = setup();
+    expect(buildContextInput(root, LENS_SLUG).transcript).toBeUndefined();
+    const { transcript } = buildContextInput(root, LENS_SLUG, undefined, { withTranscript: true });
+    const segs = lensTranscript().segments;
+    expect(transcript).toHaveLength(segs.length);
+    expect(transcript![0]).toEqual({ i: segs[0]!.i, text: segs[0]!.text });
+    expect(Object.keys(transcript![0]!).sort()).toEqual(['i', 'text']);
   });
 });
 

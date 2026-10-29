@@ -1,7 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { LENS_SOURCES, type LensKind } from '../../digest/schema.js';
 import { attachContext } from '../../lens/attach.js';
+import { buildContextInput } from '../../lens/context-input.js';
 import { ingestLens } from '../../lens/ingest.js';
 import { findKnowledge } from '../../lens/knowledge.js';
 import {
@@ -138,11 +139,19 @@ export async function lensKnowledgeCommand(
 
 export async function lensAttachCommand(
   slug: string,
-  file: string,
-  opts: LensCommonOptions & { report?: string },
+  file: string | undefined,
+  opts: LensCommonOptions & { report?: string; cards?: string; links?: string },
 ): Promise<void> {
   try {
-    const input = JSON.parse(readFileSync(resolve(file), 'utf-8')) as unknown;
+    if (!file && !opts.cards && !opts.links) {
+      throw new Error('붙일 파일이 없어요. [file], --cards, --links 중 하나는 있어야 해요');
+    }
+    const read = (p: string) => JSON.parse(readFileSync(resolve(p), 'utf-8')) as unknown;
+    const input = {
+      ...(file ? { file: read(file) } : {}),
+      ...(opts.cards ? { cards: read(opts.cards) } : {}),
+      ...(opts.links ? { links: read(opts.links) } : {}),
+    };
     const r = attachContext(rootOf(opts), slug, input, opts.report);
     if (opts.json) {
       console.log(JSON.stringify(r, null, 2));
@@ -249,6 +258,26 @@ export async function lensNotesCommand(
     throw new Error(
       `모르는 동작이에요: ${action}. list, detect, add, remove, notion-on, notion-off, decline 중 하나예요`,
     );
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export async function lensContextInputCommand(
+  slug: string,
+  opts: LensCommonOptions & { report?: string; out?: string; withTranscript?: boolean },
+): Promise<void> {
+  try {
+    const r = buildContextInput(rootOf(opts), slug, opts.report, {
+      withTranscript: opts.withTranscript,
+    });
+    const text = JSON.stringify(r, null, 2);
+    if (opts.out) {
+      writeFileSync(resolve(opts.out), `${text}\n`);
+      console.error(`썼어요: ${resolve(opts.out)}`);
+    } else {
+      console.log(text);
+    }
   } catch (e) {
     fail(e);
   }
