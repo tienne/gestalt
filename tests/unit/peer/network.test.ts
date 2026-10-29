@@ -1726,6 +1726,9 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         expect(sse.body()).not.toMatch(/"state":"open","reason"/);
         expect(rejects()).toEqual([]);
         expect(auditOf(owner, 'answer_insert')).toHaveLength(1);
+        expect(JSON.parse(auditOf(owner, 'answer_insert')[0]!.detail!)).toMatchObject({
+          maybeWritten: true,
+        });
         expect((await viewerAnswer(r.question, '다시 답함')).status).toBe(400);
         restore();
         await forge([answerBox(r.question, '위조한 다음 답')]);
