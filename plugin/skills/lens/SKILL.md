@@ -204,6 +204,9 @@ gestalt digest merge '<slug>' '<reportPath>' --json --repo-root '<repoRoot>'
 | --- | --- | --- |
 | `DOUBT_NOT_NUMERIC` | 의심 표시에 근거 칸의 숫자가 없다 | 칸 숫자를 원문 꼴로 넣거나, 해석이 갈리는 의심이면 지우고 한계 단락이나 맥락 카드로 옮긴다 |
 | `DOUBT_NUMBER_UNKNOWN`, `LIMIT_NUMBER_UNKNOWN` | 근거에 없는 숫자다. 카드 id와 근거를 같이 단 한계 줄도 근거 칸과 대조한다 | `<sourcePath>`의 그 칸을 다시 열어 원문 꼴로 고친다. 계산한 값이면 지운다 |
+| `DOUBT_DIRECTION_AGREES` | 방향 의심의 두 칸이 본문 주장대로 움직였다 | 맞는 주장이라 의심 표시를 지운다. `claim`과 `better`, `from`과 `to`를 바꿔 적지 않았는지 칸을 다시 본다 |
+| `DOUBT_DIRECTION_NOT_NUMERIC`, `DOUBT_DIRECTION_TABLE_MISMATCH` | 방향 의심 칸이 숫자 하나만 든 칸이 아니거나 두 칸이 다른 표다 | 같은 표 같은 지표 열의 숫자 칸 둘로 고친다 |
+| `DOUBT_DIRECTION_LOOSE_TABLE` | 칸 경계를 못 믿는 표로 방향 의심을 달았다 | 방향 의심을 빼고 근거 문단 숫자로 숫자 의심을 달거나 의심 표시를 지운다 |
 | `TABLE_REF_UNKNOWN`, `FIGURE_REF_UNKNOWN`, `CELL_REF_OUT_OF_RANGE` | 없는 표나 칸이다 | `source.json`의 id와 `rows` 자리로 고친다 |
 | `GLANCE_MISSING`, `LIMITS_MISSING` | 한눈에 보기 칸이나 한계 단락이 빠졌다 | 지침의 자료별 칸을 채운다 |
 | `WIDGET_VALUE_MISMATCH`, `WIDGET_VALUE_NO_SOURCE` | 그림 값이 원문 칸과 다르거나 출처가 없다 | 칸 글자를 그대로 숫자로 옮기고 `src`를 단다 |
@@ -370,6 +373,6 @@ gestalt digest serve '<slug>' --repo-root '<repoRoot>'
 - lint 오류가 남은 채로 렌더하지 않는다.
 - HTML이나 마크다운을 손으로 쓰거나 고치지 않는다. 고칠 게 있으면 리포트 파일을 고쳐 다시 merge한다.
 - 원문 표를 글로 옮겨 적게 하지 않는다. 표는 `source.json`의 칸을 렌더러가 옮긴다.
-- 의심 표시에 바깥 자료의 반론을 섞지 않는다. 원문 안에서 숫자끼리 어긋난 자리만 짚는다.
+- 의심 표시에 바깥 자료의 반론을 섞지 않는다. 원문 안에서 숫자끼리 어긋난 자리와 방향 주장이 표 부호와 어긋난 자리만 짚는다.
 - 모델이 쓴 SVG나 HTML, 스크립트를 받지 않는다. 그림은 렌더러가 구조 JSON으로 그린다.
 - 뷰어 안에서 LLM을 부르지 않는다. 필요한 글은 리포트를 쓸 때 미리 만든다.

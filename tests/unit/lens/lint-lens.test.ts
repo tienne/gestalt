@@ -176,6 +176,64 @@ describe('읽기 렌즈 lint', () => {
     );
   });
 
+  describe('방향 의심', () => {
+    // FlavorDiffusion 표 4: 노드 50개에서 CSP를 켜면 NMI가 0.3236에서 0.2862로 떨어지는데 본문은 개선한다고 쓴다
+    const withDirection = (direction: Record<string, unknown>) => {
+      const r = lensReport();
+      r.sections[1]!.subsections[0]!.bullets[0]!.doubt!.direction = {
+        from: { table: 'table-4', row: 1, col: 1 },
+        to: { table: 'table-4', row: 2, col: 1 },
+        claim: 'increase',
+        better: 'higher',
+        ...direction,
+      } as never;
+      return r;
+    };
+
+    it('본문은 올린다는데 표 값이 내려간 CSP 사례는 통과한다', () => {
+      expect(parseDigest(lensDigest(withDirection({}))).ok).toBe(true);
+      expect(codes(withDirection({}))).toEqual([]);
+    });
+
+    it('표가 주장대로 움직였으면 DOUBT_DIRECTION_AGREES', () => {
+      expect(codes(withDirection({ claim: 'decrease' }))).toContain('DOUBT_DIRECTION_AGREES');
+      // 낮을수록 좋은 지표면 값이 내려간 게 개선이라 주장대로다
+      expect(codes(withDirection({ better: 'lower' }))).toContain('DOUBT_DIRECTION_AGREES');
+    });
+
+    it('낮을수록 좋은 지표에서 값이 올랐는데 낮춘다고 하면 통과한다', () => {
+      expect(codes(withDirection({ claim: 'decrease', better: 'lower' }))).toEqual([]);
+    });
+
+    it('숫자가 아닌 칸이나 없는 칸, 다른 표의 칸을 가리키면 막는다', () => {
+      expect(codes(withDirection({ from: { table: 'table-4', row: 0, col: 1 } }))).toContain(
+        'DOUBT_DIRECTION_NOT_NUMERIC',
+      );
+      expect(codes(withDirection({ to: { table: 'table-4', row: 9, col: 1 } }))).toContain(
+        'CELL_REF_OUT_OF_RANGE',
+      );
+      expect(codes(withDirection({ to: { table: 'table-9', row: 1, col: 1 } }))).toContain(
+        'TABLE_REF_UNKNOWN',
+      );
+      expect(codes(withDirection({ to: { table: 'table-6', row: 1, col: 1 } }))).toContain(
+        'DOUBT_DIRECTION_TABLE_MISMATCH',
+      );
+    });
+
+    it('칸 경계를 못 믿는 표면 DOUBT_DIRECTION_LOOSE_TABLE', () => {
+      const source = lensSource();
+      source.tables.find((t) => t.id === 'table-4')!.grid = 'loose';
+      expect(codes(withDirection({}), source)).toContain('DOUBT_DIRECTION_LOOSE_TABLE');
+    });
+
+    it('방향 의심의 두 칸 숫자는 note에 근거로 쓸 수 있다', () => {
+      const r = withDirection({});
+      const d = r.sections[1]!.subsections[0]!.bullets[0]!.doubt!;
+      d.evidence = [{ cite: { key: 3, from: 3, to: 3 } }];
+      expect(codes(r)).toEqual([]);
+    });
+  });
+
   it('numbersIn은 천 단위 쉼표를 지우고 이름에 붙은 숫자는 세지 않는다', () => {
     expect(numbersIn('표 4의 6,653개와 0.2862, CSP2와 v3')).toEqual([4, 6653, 0.2862]);
     expect(numbersIn('제3자가 확인하지 않았다')).toEqual([]);

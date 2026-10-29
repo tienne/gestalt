@@ -164,6 +164,30 @@ video-digest 리포트와 같은 꼴에 렌즈 칸을 더한다. 영상 칸 `fra
 - 바깥 자료로 하는 반론(선행 연구가 이미 했다, 다른 논문은 다르게 나왔다)은 의심 표시에 쓰지 않는다. 맥락 카드로 간다. 둘을 섞으면 무엇이 원문 안의 모순이고 무엇이 바깥 의견인지 구분이 안 된다.
 - 맞는 주장을 잘못 짚으면 렌즈 전체를 못 믿게 된다. 칸을 다시 확인해 확실한 것만 단다. 없으면 달지 않는다.
 
+### 방향 의심
+
+본문이 "올린다", "개선한다", "줄인다"처럼 방향만 말하고 표의 두 칸은 반대로 움직인 자리도 의심이다. 이때는 `doubt`에 `direction`을 더한다.
+
+```json
+"doubt": {
+  "note": "노드 50개에서는 CSP를 켜면 0.3236이 0.2862로 떨어진다",
+  "evidence": [{ "table": "table-4", "row": 4, "col": 1 }, { "table": "table-4", "row": 8, "col": 1 }],
+  "direction": {
+    "from": { "table": "table-4", "row": 4, "col": 1 },
+    "to": { "table": "table-4", "row": 8, "col": 1 },
+    "claim": "increase",
+    "better": "higher"
+  }
+}
+```
+
+- `from`은 주장 전(기준선, 끄기), `to`는 주장 후(제안 기법, 켜기) 칸이다. 같은 표 같은 지표 열의 숫자 칸 둘을 고른다.
+- `claim`은 본문이 말하는 성능 방향이다. 좋아진다고 하면 `increase`, 나빠진다고 하면 `decrease`다.
+- `better`는 그 지표에서 좋은 쪽이다. NMI, BLEU, 정확도는 `higher`, 오류율, loss, perplexity는 `lower`다. 머리줄의 ↑, ↓나 본문 설명으로 정한다. 모르면 방향 의심을 달지 않는다.
+- 부호는 적지 않는다. merge가 두 칸 값으로 계산한다. 표가 주장대로 움직였으면 `DOUBT_DIRECTION_AGREES`로 막히니 칸을 다시 본다.
+- 머리줄이나 글자 칸, `0.3±0.1`처럼 숫자가 둘인 칸은 `DOUBT_DIRECTION_NOT_NUMERIC`, 다른 표끼리는 `DOUBT_DIRECTION_TABLE_MISMATCH`, 칸 경계를 못 믿는 표(`grid: "loose"`)는 `DOUBT_DIRECTION_LOOSE_TABLE`로 막힌다. loose 표라면 근거 문단의 숫자로 숫자 의심을 달거나 달지 않는다.
+- `note`와 `evidence` 규칙은 숫자 의심과 같다. 두 칸 숫자를 원문 꼴로 `note`에 적는다.
+
 ## 한계 단락
 
 `limits`는 본문 끝에 늘 펼쳐 두는 "검증 안 된 부분"이다. 글 자료와 팟캐스트 리포트에서는 비우면 merge가 `LIMITS_MISSING`으로 막는다.

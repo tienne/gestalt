@@ -1,4 +1,4 @@
-import { isCellRef, type Evidence, type GlanceKind } from './lens-schema.js';
+import { isCellRef, type DoubtDirection, type Evidence, type GlanceKind } from './lens-schema.js';
 import { cellNumber, type LensSource } from './lens-source.js';
 import type { DigestIssue } from './lint.js';
 import type { Bullet, Cite, LensKind, Report, Transcript } from './schema.js';
@@ -126,6 +126,67 @@ function checkNumbers(
   });
 }
 
+/**
+ * 방향 의심의 부호를 칸 값으로 계산해 본문 주장과 견준다. 주장대로 움직였으면 의심이 아니다.
+ * 칸 경계를 못 믿는 표(loose)는 칸이 한 칸 밀려도 부호가 뒤집혀서 받지 않는다
+ */
+function checkDirection(
+  direction: DoubtDirection,
+  path: string,
+  source: LensSource | null,
+  issues: DigestIssue[],
+  problem?: 'missing' | 'invalid',
+): void {
+  const before = issues.length;
+  checkEvidence([direction.from, direction.to], path, source, issues, problem);
+  if (issues.length > before || !source) return;
+  if (direction.from.table !== direction.to.table) {
+    issues.push({
+      path: `${path}.to`,
+      severity: 'error',
+      code: 'DOUBT_DIRECTION_TABLE_MISMATCH',
+      message:
+        '방향 의심의 두 칸은 같은 표에 있어야 한다. 다른 표끼리는 조건이 달라 부호를 견줄 수 없다',
+    });
+    return;
+  }
+  const table = source.tables.find((t) => t.id === direction.from.table)!;
+  if (table.grid === 'loose') {
+    issues.push({
+      path,
+      severity: 'error',
+      code: 'DOUBT_DIRECTION_LOOSE_TABLE',
+      message: `${table.id}는 칸 경계를 못 믿는 표(loose)라 칸이 밀리면 부호가 뒤집힌다. 방향 의심을 빼거나 근거 문단의 숫자로 숫자 의심을 단다`,
+    });
+    return;
+  }
+  const [from, to] = [direction.from, direction.to].map((ref) => {
+    const text = table.rows[ref.row]?.[ref.col];
+    return text === undefined ? null : cellNumber(text);
+  });
+  if (from === null || to === null || from === undefined || to === undefined) {
+    issues.push({
+      path,
+      severity: 'error',
+      code: 'DOUBT_DIRECTION_NOT_NUMERIC',
+      message:
+        '방향 의심의 두 칸은 숫자 하나만 든 칸이어야 한다. 머리줄이나 글자 칸, "0.3±0.1" 같은 칸은 부호를 계산할 수 없다',
+    });
+    return;
+  }
+  // 주장대로라면 값이 움직일 쪽. 성능을 올린다(increase)인데 낮을수록 좋은 지표(lower)면 값은 내려가야 한다
+  const expected =
+    (direction.claim === 'increase' ? 1 : -1) * (direction.better === 'higher' ? 1 : -1);
+  if (Math.sign(to - from) === expected) {
+    issues.push({
+      path,
+      severity: 'error',
+      code: 'DOUBT_DIRECTION_AGREES',
+      message: `표에서 ${from}에서 ${to}로 주장한 방향대로 움직였다. 어긋나지 않는 자리라 의심 표시를 지운다`,
+    });
+  }
+}
+
 function checkDoubts(
   report: Report,
   p: string,
@@ -144,8 +205,10 @@ function checkDoubts(
         count++;
         const dp = `${path}.doubt`;
         checkEvidence(d.evidence, `${dp}.evidence`, source, issues, problem);
-        // 1차는 숫자끼리 어긋난 자리만 짚는다. 해석이 갈리는 자리는 맥락 카드 몫이다
-        const cellValues = d.evidence.flatMap((ev) => {
+        if (d.direction) checkDirection(d.direction, `${dp}.direction`, source, issues, problem);
+        // 숫자끼리, 또는 방향 주장과 표 부호가 어긋난 자리만 짚는다. 해석이 갈리는 자리는 맥락 카드 몫이다
+        const cells = d.direction ? [...d.evidence, d.direction.from, d.direction.to] : d.evidence;
+        const cellValues = cells.flatMap((ev) => {
           if (!isCellRef(ev)) return [];
           const text = source?.tables.find((t) => t.id === ev.table)?.rows[ev.row]?.[ev.col];
           const n = text === undefined ? null : cellNumber(text);
@@ -170,7 +233,7 @@ function checkDoubts(
         }
         checkNumbers(
           d.note,
-          allowedNumbers(d.evidence, source, transcript, [bullet.cite]),
+          allowedNumbers(cells, source, transcript, [bullet.cite]),
           `${dp}.note`,
           'DOUBT_NUMBER_UNKNOWN',
           issues,
