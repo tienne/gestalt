@@ -79,6 +79,11 @@ export class MirrorFeed extends ShareFeed {
     this.setStatus('offline');
   }
 
+  /** 주인 승인을 기다린다. 받아 주면 주인 쪽 state 프레임이 live로 바꾼다 */
+  markWaiting(): void {
+    this.setStatus('waiting');
+  }
+
   get messages(): MyMessage[] {
     return [...this.mine.values()];
   }
@@ -143,6 +148,7 @@ const STATUS_ORDER: Record<MessageStatus, number> = {
   rejected: 5,
 };
 
+/** 주인 쪽이 보내는 상태만 받는다. waiting은 보는 쪽 데몬이 정한다 */
 function isShareStatus(v: unknown): v is ShareStatus {
   return v === 'live' || v === 'missing' || v === 'truncated' || v === 'offline';
 }

@@ -26,8 +26,11 @@ export type ShareFrame =
       reason?: string;
     };
 
-/** offline은 원격 공유에서 주인 데몬이 릴레이에서 빠졌을 때다 */
-export type ShareStatus = 'live' | 'missing' | 'truncated' | 'offline';
+/**
+ * offline은 원격 공유에서 주인 데몬이 릴레이에서 빠졌을 때다. waiting은 원격 공유에서 주인이
+ * 첫 접속을 받아 주길 기다릴 때로 보는 쪽 데몬만 쓴다.
+ */
+export type ShareStatus = 'live' | 'missing' | 'truncated' | 'offline' | 'waiting';
 
 export type ShareListener = (frame: ShareFrame) => void;
 

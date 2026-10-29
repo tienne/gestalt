@@ -1,5 +1,5 @@
 {
-  "description": "gestalt 플러그인 훅. 둘 다 기본은 꺼져 있다. 코드 그래프 컨텍스트 자동 주입은 gestalt.json의 codeGraph.hooks.enabled나 GESTALT_CODE_GRAPH_HOOKS=1로 켠다. 그래프 DB가 없는 레포에서는 Node를 띄우지 않고 끝난다. WebFetch 디스크 캐시는 webFetchCache.enabled나 GESTALT_WEBFETCH_CACHE=1로 켠다.",
+  "description": "gestalt 플러그인 훅. 코드 그래프 컨텍스트 자동 주입과 WebFetch 디스크 캐시는 기본이 꺼져 있다. 코드 그래프 주입은 gestalt.json의 codeGraph.hooks.enabled나 GESTALT_CODE_GRAPH_HOOKS=1로 켠다. 그래프 DB가 없는 레포에서는 Node를 띄우지 않고 끝난다. WebFetch 디스크 캐시는 webFetchCache.enabled나 GESTALT_WEBFETCH_CACHE=1로 켠다. peer 보는 중 표시는 늘 돌지만 Node를 띄우지 않는다. 보는 사람이나 첫 접속 승인 대기가 있는 세션에만 peer 데몬이 상태 파일을 써 둔다. 훅은 그 파일이 있는 세션의 프롬프트에만 붙인다.",
   "hooks": {
     "PreToolUse": [
       {
@@ -32,6 +32,11 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/code-graph-hook.sh user-prompt-submit",
             "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/peer-watching-hook.sh",
+            "timeout": 2
           }
         ]
       }

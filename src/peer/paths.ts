@@ -27,6 +27,15 @@ export function statePath(root: string): string {
 }
 
 /**
+ * 보는 중 표시 훅이 읽는 세션별 상태 파일 자리. 파일 이름은 세션 id이고 내용은 데몬 pid, 데몬 시작
+ * 시각, 훅이 그대로 내보낼 JSON이 한 줄씩이다. 훅(`scripts/peer-watching-hook.sh`)이 같은 경로를
+ * 셸로 계산한다.
+ */
+export function watchingDir(root: string): string {
+  return join(root, 'watching');
+}
+
+/**
  * 같은 OS 사용자만 들어오게 디렉토리를 0700으로 만든다. 이미 있으면 권한을 다시
  * 좁힌다 — 소켓은 listen과 chmod 사이에 잠깐 기본 권한으로 열려 있어서 그 틈을
  * 막는 건 디렉토리다.

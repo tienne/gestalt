@@ -30,7 +30,15 @@ export type PeerRequest =
   /** 보고 있는 원격 공유의 주인 세션에 메시지를 넣는다 */
   | { op: 'send'; watch: string; body: string }
   /** watch가 있으면 그 보기에서 내가 보낸 메시지, 없으면 내 공유가 받은 메시지 기록 */
-  | { op: 'messages'; watch?: string };
+  | { op: 'messages'; watch?: string }
+  /** 그 사람을 내 공유에서 끊는다. share가 없으면 열린 공유 전부다 */
+  | { op: 'kick'; person: string; share?: string }
+  /** 처음 붙으려고 기다리는 사람을 받아 준다 */
+  | { op: 'approve'; person: string; share?: string }
+  /** 처음 붙으려고 기다리는 사람을 거절한다. 그 공유가 열려 있는 동안 다시 못 붙는다 */
+  | { op: 'deny'; person: string; share?: string }
+  /** firstWatch가 있으면 바꾸고 지금 설정을 돌려준다 */
+  | { op: 'config'; firstWatch?: FirstWatchApproval };
 
 export type PeerResponse<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
 
@@ -57,6 +65,39 @@ export interface ShareInfo {
   url: string;
   /** 팀에 들었으면 팀원에게 건넬 링크. 공유 키가 `#` 뒤에 붙는다 */
   link?: string;
+  /** 원격으로 보고 있는 사람 이름. 명단에서 온 값이다 */
+  watchers: string[];
+  /** 주인 승인을 기다리는 사람 */
+  pending: PendingWatcher[];
+  /** 이 공유에서 끊거나 거절해 다시 못 붙는 사람 */
+  blocked: { person: string; reason: BlockReason }[];
+}
+
+export interface PendingWatcher {
+  person: string;
+  /** 처음 청한 시각 */
+  at: number;
+  /** 이때까지 안 받아 주면 approval_timeout으로 끝난다 */
+  expiresAt: number;
+  /** 훅이 긴 안내를 한동안 붙였으면 true. 그 뒤로는 짧은 한 줄만 붙인다 */
+  brief?: boolean;
+}
+
+export type BlockReason = 'kicked' | 'denied';
+
+/** kick, approve, deny의 답 */
+export interface ControlResult {
+  person: string;
+  /** 손댄 공유 id */
+  shares: string[];
+  /** kick이면 끊은 구독 수, approve와 deny면 처리한 요청 수 */
+  count: number;
+}
+
+export interface PeerConfig {
+  firstWatch: FirstWatchApproval;
+  /** 바꿀 때만 있다. ask로 조여 승인을 거두고 끊은 구독 수 */
+  revoked?: number;
 }
 
 export interface WatchResult {
@@ -64,15 +105,21 @@ export interface WatchResult {
   share: string;
   owner: string;
   url: string;
+  /** 주인 승인을 기다리는 중이면 true. 받아 주면 뷰어에 대화가 보이기 시작한다 */
+  waiting?: boolean;
 }
 
 export interface WatchListItem {
   id: string;
   share: string;
   owner: string;
+  /** live, offline, waiting(주인 승인 기다리는 중) 같은 상태 */
   status: string;
   events: number;
-  url: string;
+  /** 끝난 보기면 없다 */
+  url?: string;
+  /** 끝난 보기면 그 이유(kicked, denied, approval_timeout, unshare 등) */
+  closed?: string;
 }
 
 export interface DaemonStatus {
@@ -92,7 +139,7 @@ export const MAX_REQUEST_BYTES = 64 * 1024;
 
 /**
  * 처음 붙는 팀원을 받는 방식. ask는 주인이 받아 주고 team은 명단에 있으면 바로 받는다.
- * 기본은 ask다. 동작은 PR 4가 붙이고 지금은 명단에 있고 링크를 가진 팀원이면 바로 붙는다.
+ * 기본은 ask다. 받아 준 사람은 그 공유가 열려 있는 동안만 기억한다.
  */
 export type FirstWatchApproval = 'ask' | 'team';
 export const DEFAULT_FIRST_WATCH_APPROVAL: FirstWatchApproval = 'ask';

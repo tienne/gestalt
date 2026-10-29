@@ -8,8 +8,10 @@ import { ensurePrivateDir, peerRoot, socketPath } from '../../peer/paths.js';
 import { plainLabel } from '../../peer/message.js';
 import { isToolsLevel } from '../../peer/redact.js';
 import type {
+  ControlResult,
   DaemonStatus,
   MemberInfo,
+  PeerConfig,
   PeerRequest,
   ShareInfo,
   WatchListItem,
@@ -174,19 +176,110 @@ export async function peerSharesCommand(options: PeerOptions): Promise<void> {
     return;
   }
   for (const s of list) {
-    const title = s.title ? ` "${s.title}"` : '';
+    const title = s.title ? ` "${plainLabel(s.title, 80) ?? ''}"` : '';
     console.log(
       `${s.id}${title}  ${s.status}  보는 사람 ${s.viewers}  도구 ${s.tools}  만료 ${time(s.expiresAt)}`,
     );
     console.log(`  ${s.url}`);
     if (s.link) console.log(`  ${s.link}`);
+    // 이름은 명단에서 온 값이지만 원격에서 받은 문서라 한 줄 라벨로 정리해 찍는다
+    if (s.watchers.length > 0) console.log(`  원격으로 보는 중: ${names(s.watchers)}`);
+    for (const p of s.pending) {
+      console.log(
+        `  승인 대기: ${names([p.person])} (${time(p.expiresAt)}까지) → gestalt peer approve ${names([p.person])} --share ${s.id}`,
+      );
+    }
+    for (const b of s.blocked) {
+      console.log(`  ${b.reason === 'kicked' ? '끊음' : '거절함'}: ${names([b.person])}`);
+    }
   }
 }
 
+function names(list: string[]): string {
+  return list.map((n) => plainLabel(n, 32) ?? '?').join(', ');
+}
+
 export async function peerUnshareCommand(options: PeerOptions & { id: string }): Promise<void> {
-  const result = await call<{ id: string }>({ op: 'unshare', id: options.id });
-  if (options.json) console.log(JSON.stringify(result));
-  else console.log(`공유를 종료했어요 (${result.id}).`);
+  const result = await call<{ id: string; watchers?: string[] }>({
+    op: 'unshare',
+    id: options.id,
+  });
+  if (options.json) {
+    console.log(JSON.stringify(result));
+    return;
+  }
+  console.log(`공유를 종료했어요 (${result.id}).`);
+  if (result.watchers && result.watchers.length > 0) {
+    console.log(`원격으로 보던 ${names(result.watchers)} 님도 끊겼어요.`);
+  }
+}
+
+type ControlOptions = PeerOptions & { name: string; share?: string };
+
+/** kick, approve, deny가 같이 쓰는 요청과 출력. lines가 사람이 읽을 결과 줄을 만든다 */
+async function controlCommand(
+  op: 'kick' | 'approve' | 'deny',
+  options: ControlOptions,
+  lines: (r: ControlResult) => string[],
+): Promise<void> {
+  const r = await call<ControlResult>({
+    op,
+    person: options.name,
+    ...(options.share ? { share: options.share } : {}),
+  });
+  if (options.json) {
+    console.log(JSON.stringify(r));
+    return;
+  }
+  for (const line of lines(r)) console.log(line);
+}
+
+export function peerKickCommand(options: ControlOptions): Promise<void> {
+  return controlCommand('kick', options, (r) => [
+    `${options.name} 님을 공유 ${r.shares.length}개에서 끊었어요. 끊은 구독 ${r.count}개`,
+    '그 공유가 열려 있는 동안 다시 못 붙고 메시지도 못 넣어요. 이미 본 내용은 회수하지 못해요.',
+  ]);
+}
+
+export function peerApproveCommand(options: ControlOptions): Promise<void> {
+  return controlCommand('approve', options, (r) => [
+    `${options.name} 님을 받아 줬어요 (공유 ${r.shares.join(', ')}).`,
+    '그 공유가 열려 있는 동안은 다시 붙어도 묻지 않아요.',
+  ]);
+}
+
+export function peerDenyCommand(options: ControlOptions): Promise<void> {
+  return controlCommand('deny', options, (r) => [
+    `${options.name} 님을 거절했어요 (공유 ${r.shares.join(', ')}).`,
+    '그 공유가 열려 있는 동안 다시 붙지 못해요.',
+  ]);
+}
+
+const FIRST_WATCH_LABEL: Record<string, string> = {
+  ask: '물어보기 (처음 붙는 사람은 주인이 받아 줘야 해요)',
+  team: '팀원이면 바로 허용',
+};
+
+export async function peerConfigCommand(
+  options: PeerOptions & { firstWatch?: string },
+): Promise<void> {
+  // 값 검사는 데몬이 한다. 여기서 또 보면 두 곳의 규칙이 어긋날 수 있다
+  const r = await call<PeerConfig>({
+    op: 'config',
+    ...(options.firstWatch !== undefined
+      ? { firstWatch: options.firstWatch as PeerConfig['firstWatch'] }
+      : {}),
+  });
+  if (options.json) {
+    console.log(JSON.stringify(r));
+    return;
+  }
+  console.log(`첫 접속: ${FIRST_WATCH_LABEL[r.firstWatch] ?? r.firstWatch}`);
+  if (r.revoked && r.revoked > 0) {
+    console.log(
+      `팀 설정으로 붙어 있던 구독 ${r.revoked}개를 끊었어요. 그 사람들은 다시 승인을 받아야 해요.`,
+    );
+  }
 }
 
 export async function peerStatusCommand(options: PeerOptions): Promise<void> {
@@ -295,6 +388,9 @@ export async function peerWatchCommand(
     return;
   }
   console.log(`${w.owner}의 공유(${w.share})를 보기 시작했어요. 보기 id ${w.id}`);
+  if (w.waiting) {
+    console.log('주인 승인을 기다리는 중이에요. 받아 주면 뷰어에 대화가 보여요.');
+  }
   console.log(`\n${w.url}\n`);
   if (options.open !== false) {
     try {
@@ -317,8 +413,35 @@ export async function peerWatchesCommand(options: PeerOptions): Promise<void> {
     return;
   }
   for (const w of list) {
-    console.log(`${w.id}  ${w.owner}/${w.share}  ${w.status}  이벤트 ${w.events}`);
-    console.log(`  ${w.url}`);
+    const status = w.closed ? closedLabel(w.closed) : (WATCH_STATUS[w.status] ?? w.status);
+    console.log(`${w.id}  ${w.owner}/${w.share}  ${status}  이벤트 ${w.events}`);
+    if (w.url) console.log(`  ${w.url}`);
+  }
+}
+
+const WATCH_STATUS: Record<string, string> = {
+  live: '실시간',
+  waiting: '주인 승인 기다리는 중',
+  offline: '주인 데몬 오프라인',
+  missing: '주인 대화 기록이 안 보임',
+  truncated: '주인 대화 기록이 줄어 멈춤',
+};
+
+/** 끝난 보기의 이유. 주인 데몬이 보낸 글자가 섞여서 모르는 값은 정리해 찍는다 */
+function closedLabel(reason: string): string {
+  switch (reason) {
+    case 'kicked':
+      return '끝남: 주인이 끊음';
+    case 'denied':
+      return '끝남: 주인이 거절함';
+    case 'approval_timeout':
+      return '끝남: 주인 승인을 기다리다 시간이 지남';
+    case 'removed':
+      return '끝남: 내가 명단에서 빠짐';
+    case 'owner_removed':
+      return '끝남: 주인이 명단에서 빠짐';
+    default:
+      return `끝남: ${plainLabel(reason, 64) ?? '?'}`;
   }
 }
 

@@ -61,7 +61,14 @@ export type AuditAction =
   | 'message_receive'
   | 'message_insert'
   | 'message_deliver'
-  | 'message_reject';
+  | 'message_reject'
+  | 'approval_request'
+  | 'approval_grant'
+  | 'approval_deny'
+  | 'approval_expire'
+  | 'approval_cancel'
+  | 'approval_revoke'
+  | 'kick';
 
 /** 이 기기가 든 팀. 한 기기는 팀 하나에만 든다 */
 export interface TeamConfig {
@@ -70,6 +77,14 @@ export interface TeamConfig {
   person: string;
   /** 명단을 하나도 못 들고 있을 때 믿을 관리자 키. 팀을 만든 기기면 자기 자신이다 */
   anchor: string;
+}
+
+/**
+ * 이 기기의 공유 설정. 팀 id와 상관없이 기기에 하나라서 다른 팀으로 옮겨도 남는다.
+ * firstWatch가 없으면 DEFAULT_FIRST_WATCH_APPROVAL(ask)로 본다.
+ */
+export interface PeerSettings {
+  firstWatch?: 'ask' | 'team';
 }
 
 export interface InviteRow {
@@ -189,6 +204,14 @@ export class PeerState {
 
   setRoster(roster: SignedRoster): void {
     this.setJson('roster', roster);
+  }
+
+  getSettings(): PeerSettings {
+    return this.getJson<PeerSettings>('settings') ?? {};
+  }
+
+  setSettings(settings: PeerSettings): void {
+    this.setJson('settings', settings);
   }
 
   insertInvite(row: Omit<InviteRow, 'usedAt' | 'usedBy'>): void {

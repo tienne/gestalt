@@ -145,7 +145,7 @@ describe('PeerDaemon', () => {
 
     expect(await request(daemon.socketPath, { op: 'unshare', id: info.id })).toEqual({
       ok: true,
-      result: { id: info.id },
+      result: { id: info.id, watchers: [] },
     });
     const after = await request<ShareInfo[]>(daemon.socketPath, { op: 'shares' });
     expect(after.ok && after.result).toEqual([]);
@@ -470,7 +470,7 @@ describe('PeerDaemon', () => {
     const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
       const res = await request(daemon.socketPath, { op: 'unshare', id: share.id });
-      expect(res).toEqual({ ok: true, result: { id: share.id } });
+      expect(res).toEqual({ ok: true, result: { id: share.id, watchers: [] } });
       expect(closeShare).toHaveBeenCalledTimes(1);
       const list = await request<ShareInfo[]>(daemon.socketPath, { op: 'shares' });
       expect(list.ok && list.result).toEqual([]);

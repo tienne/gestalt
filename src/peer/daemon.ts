@@ -1,25 +1,48 @@
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
   linkSync,
   lstatSync,
+  readdirSync,
   realpathSync,
+  renameSync,
   statSync,
   unlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { createConnection, createServer } from 'node:net';
 import type { Server, Socket } from 'node:net';
 import { isAbsolute, join } from 'node:path';
 import { isToolsLevel } from './redact.js';
 import type { ToolsLevel } from './redact.js';
-import { ensurePrivateDir, MAX_SOCKET_PATH_BYTES, socketPath, statePath } from './paths.js';
+import {
+  ensurePrivateDir,
+  MAX_SOCKET_PATH_BYTES,
+  socketPath,
+  statePath,
+  watchingDir,
+} from './paths.js';
 import { PeerState } from './state.js';
 import type { ShareCloseReason } from './state.js';
 import { ShareStream } from './share.js';
 import { ViewerServer } from './viewer.js';
-import { DEFAULT_EXPIRES_MINUTES, MAX_EXPIRES_MINUTES, MAX_REQUEST_BYTES } from './protocol.js';
-import type { DaemonStatus, PeerRequest, PeerResponse, ShareInfo } from './protocol.js';
+import {
+  DEFAULT_EXPIRES_MINUTES,
+  DEFAULT_FIRST_WATCH_APPROVAL,
+  MAX_EXPIRES_MINUTES,
+  MAX_REQUEST_BYTES,
+} from './protocol.js';
+import type {
+  ControlResult,
+  DaemonStatus,
+  PeerConfig,
+  PeerRequest,
+  PeerResponse,
+  PendingWatcher,
+  ShareInfo,
+} from './protocol.js';
 import { isSessionId } from './locate.js';
 import { errMessage } from './errors.js';
 import { loadOrCreateMachineKey } from './keys.js';
@@ -30,7 +53,8 @@ import { PeerNetwork, PeerNetworkError } from './network.js';
 import type { InboundMessage, PeerNetworkOptions } from './network.js';
 import { findInboxSocket, writeInbox } from './inbox.js';
 import type { InboxResult } from './inbox.js';
-import { frameHeader, frameMessage } from './message.js';
+import { frameHeader, frameMessage, plainLabel } from './message.js';
+import { isPersonName, isShareId } from './roster.js';
 import type { WatchListItem, WatchResult } from './protocol.js';
 
 export interface PeerDaemonOptions {
@@ -43,6 +67,10 @@ export interface PeerDaemonOptions {
   home?: string;
   /** 릴레이에 다시 붙는 간격 같은 것. 테스트가 줄인다 */
   network?: PeerNetworkOptions['transport'];
+  /** 첫 접속 승인을 기다리는 시한. 테스트가 줄인다 */
+  approvalTtlMs?: number;
+  /** 승인 대기를 알리는 시간. 이 동안은 긴 안내 문구를 붙이고 지나면 짧은 한 줄로 바꾼다. 테스트가 줄인다 */
+  approvalNoticeMs?: number;
 }
 
 interface OpenShare {
@@ -94,6 +122,15 @@ export class PeerDaemon {
   /** listen할 임시 이름. 권한을 좁힌 뒤 진짜 이름으로 링크한다 */
   private readonly tmpSock: string;
   private readonly pollMs: number;
+  /** 훅 상태 파일을 다시 쓰기로 예약했는지. 한 틱 안의 바뀜을 한 번에 쓴다 */
+  private watchingQueued = false;
+  /** 세션마다 마지막으로 쓴 훅 출력. 같으면 다시 안 쓴다 */
+  private watchingWritten = new Map<string, string>();
+  /**
+   * 이 프로세스가 시작한 시각을 ps로 읽은 글자. 훅이 같은 pid의 시작 시각과 맞춰 봐서 데몬이 죽은 뒤
+   * 그 pid를 받은 다른 프로세스를 데몬으로 믿지 않게 한다. ps를 못 부르면 빈 글자다
+   */
+  private readonly startStamp = processStartStamp(process.pid);
 
   constructor(private readonly options: PeerDaemonOptions) {
     this.sock = socketPath(options.root);
@@ -135,6 +172,8 @@ export class PeerDaemon {
         state.audit('share_close', id, 'daemon_restart');
       }
       this.key = loadOrCreateMachineKey(this.options.root);
+      // 죽은 데몬이 남긴 보는 중 표시를 치운다. 훅은 pid도 보지만 그 pid를 다른 프로세스가 받을 수 있다
+      this.clearWatching();
       await this.viewer.start(0);
       await this.listenIpc();
     } catch (err) {
@@ -166,6 +205,9 @@ export class PeerDaemon {
         };
       },
       transport: this.options.network,
+      approvalTtlMs: this.options.approvalTtlMs,
+      approvalNoticeMs: this.options.approvalNoticeMs,
+      onControlChange: () => this.scheduleWatching(),
     });
     this.network.start();
     this.startedAt = Date.now();
@@ -199,6 +241,7 @@ export class PeerDaemon {
         });
       }
     } finally {
+      this.clearWatching();
       this.removeOwnSocket();
       this.state?.close();
       this.state = null;
@@ -259,11 +302,19 @@ export class PeerDaemon {
         return this.openShare(req);
       case 'unshare': {
         if (typeof req.id !== 'string' || !this.shares.has(req.id)) {
-          return { ok: false, error: `열린 공유가 아니에요: ${String(req.id)}` };
+          return { ok: false, error: `열린 공유가 아니에요: ${plainLabel(req.id) ?? ''}` };
         }
+        // 끊기는 사람을 닫기 전에 센다. 닫으면 구독이 끝나 목록이 빈다
+        const ended = this.network?.shareControl(req.id).watchers ?? [];
         this.closeShareSafely(req.id, 'unshare');
-        return { ok: true, result: { id: req.id } };
+        return { ok: true, result: { id: req.id, watchers: ended } };
       }
+      case 'kick':
+      case 'approve':
+      case 'deny':
+        return this.control(req);
+      case 'config':
+        return this.config(req);
       case 'init':
         return this.withNetwork((n) => n.init(String(req.person), String(req.relay)));
       case 'invite':
@@ -281,14 +332,20 @@ export class PeerDaemon {
       case 'watch':
         return this.withNetworkAsync(async (n): Promise<WatchResult> => {
           const w = await n.watch(String(req.link));
-          return { id: w.id, share: w.share, owner: w.owner, url: this.viewerUrl(w.id, w.token) };
+          return {
+            id: w.id,
+            share: w.share,
+            owner: w.owner,
+            url: this.viewerUrl(w.id, w.token),
+            ...(w.waiting ? { waiting: true } : {}),
+          };
         });
       case 'watches':
         return this.withNetwork((n): WatchListItem[] =>
-          n.listWatches().map((w) => ({
-            ...w,
-            url: this.viewerUrl(w.id, n.lookupWatch(w.id)!.token),
-          })),
+          n.listWatches().map((w) => {
+            const live = n.lookupWatch(w.id);
+            return live ? { ...w, url: this.viewerUrl(w.id, live.token) } : w;
+          }),
         );
       case 'send': {
         const watch = String(req.watch);
@@ -314,7 +371,43 @@ export class PeerDaemon {
     }
   }
 
-  private withNetwork<T>(fn: (n: PeerNetwork) => T): PeerResponse {
+  /** kick, approve, deny. share가 없으면 열린 공유 전부에 건다 */
+  private control(
+    req: Extract<PeerRequest, { op: 'kick' | 'approve' | 'deny' }>,
+  ): PeerResponse<ControlResult> {
+    if (!isPersonName(req.person)) return { ok: false, error: '이름 꼴이 아니에요' };
+    let ids: string[];
+    if (req.share !== undefined) {
+      if (!isShareId(req.share) || !this.shares.has(req.share)) {
+        return { ok: false, error: `열린 공유가 아니에요: ${plainLabel(req.share) ?? ''}` };
+      }
+      ids = [req.share];
+    } else {
+      ids = [...this.shares.keys()];
+      if (ids.length === 0) return { ok: false, error: '열린 공유가 없어요' };
+    }
+    const { op, person } = req;
+    return this.withNetwork((n) => CONTROL_OPS[op](n, person, ids));
+  }
+
+  private config(req: Extract<PeerRequest, { op: 'config' }>): PeerResponse<PeerConfig> {
+    const state = this.state;
+    if (!state) return { ok: false, error: '데몬이 아직 안 떴어요' };
+    if (req.firstWatch !== undefined) {
+      if (req.firstWatch !== 'ask' && req.firstWatch !== 'team') {
+        return { ok: false, error: '--first-watch는 ask, team 중 하나예요' };
+      }
+      state.setSettings({ ...state.getSettings(), firstWatch: req.firstWatch });
+      const revoked = this.network?.setFirstWatch(req.firstWatch) ?? 0;
+      return { ok: true, result: { firstWatch: req.firstWatch, revoked } };
+    }
+    return {
+      ok: true,
+      result: { firstWatch: state.getSettings().firstWatch ?? DEFAULT_FIRST_WATCH_APPROVAL },
+    };
+  }
+
+  private withNetwork<T>(fn: (n: PeerNetwork) => T): PeerResponse<T> {
     if (!this.network) return { ok: false, error: '데몬이 아직 안 떴어요' };
     try {
       return { ok: true, result: fn(this.network) };
@@ -323,7 +416,7 @@ export class PeerDaemon {
     }
   }
 
-  private async withNetworkAsync<T>(fn: (n: PeerNetwork) => Promise<T>): Promise<PeerResponse> {
+  private async withNetworkAsync<T>(fn: (n: PeerNetwork) => Promise<T>): Promise<PeerResponse<T>> {
     if (!this.network) return { ok: false, error: '데몬이 아직 안 떴어요' };
     try {
       return { ok: true, result: await fn(this.network) };
@@ -440,6 +533,8 @@ export class PeerDaemon {
     if (!share) return;
     this.shares.delete(id);
     share.stream.close(reason);
+    this.network?.forgetShare(id);
+    this.scheduleWatching();
     this.announceShares();
     this.state?.closeShare(id, reason);
     this.state?.audit('share_close', id, reason);
@@ -466,7 +561,89 @@ export class PeerDaemon {
       title: s.stream.sessionTitle,
       url: this.viewerUrl(id, s.token),
       link: this.network?.linkFor(id, s.shareKey),
+      ...(this.network?.shareControl(id) ?? { watchers: [], pending: [], blocked: [] }),
     };
+  }
+
+  private scheduleWatching(): void {
+    if (this.watchingQueued) return;
+    this.watchingQueued = true;
+    setImmediate(() => {
+      this.watchingQueued = false;
+      this.writeWatching();
+    });
+  }
+
+  /**
+   * 보는 중 표시 훅이 읽을 세션별 상태 파일을 다시 쓴다. 원격으로 보는 사람이나 승인을 기다리는
+   * 사람이 있는 세션만 파일이 있다. 훅은 파일이 있으면 적힌 데몬이 살아 있는 한 그 내용을 그대로
+   * 내보낸다. 아무도 없는 세션은 파일을 지워서 끊긴 사람이 다음 프롬프트에 계속 보이지 않게 한다.
+   * `--transcript`로 연 공유는 세션 id가 없어서 표시하지 않는다.
+   *
+   * 마지막에 쓴 내용을 세션마다 기억해 같은 내용이면 건너뛰고 쓰기와 지우기는 파일마다 따로 실패를
+   * 처리한다. 디렉토리를 못 만들면 그 차례는 아무것도 안 쓴다.
+   */
+  private writeWatching(): void {
+    const network = this.network;
+    if (!network || !this.state) return;
+    const sessions = new Map<string, { watchers: Set<string>; pending: PendingWatcher[] }>();
+    for (const [id, s] of this.shares) {
+      if (!s.sessionId) continue;
+      const c = network.shareControl(id);
+      if (c.watchers.length === 0 && c.pending.length === 0) continue;
+      let entry = sessions.get(s.sessionId);
+      if (!entry) {
+        entry = { watchers: new Set(), pending: [] };
+        sessions.set(s.sessionId, entry);
+      }
+      for (const w of c.watchers) entry.watchers.add(w);
+      entry.pending.push(...c.pending);
+    }
+    const dir = watchingDir(this.options.root);
+    for (const sessionId of [...this.watchingWritten.keys()]) {
+      if (sessions.has(sessionId)) continue;
+      try {
+        unlinkSync(join(dir, sessionId));
+        this.watchingWritten.delete(sessionId);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT')
+          this.watchingWritten.delete(sessionId);
+        else process.stderr.write(`[peer] watching remove failed: ${errMessage(err)}\n`);
+      }
+    }
+    if (sessions.size === 0) return;
+    try {
+      ensurePrivateDir(dir);
+    } catch (err) {
+      process.stderr.write(`[peer] watching dir failed: ${errMessage(err)}\n`);
+      return;
+    }
+    for (const [sessionId, e] of sessions) {
+      const context = watchingContext([...e.watchers], e.pending);
+      const line = JSON.stringify({
+        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context },
+      });
+      if (this.watchingWritten.get(sessionId) === line) continue;
+      try {
+        const tmp = join(dir, `.${sessionId}.tmp`);
+        writeFileSync(tmp, `${process.pid}\n${this.startStamp}\n${line}\n`, { mode: 0o600 });
+        renameSync(tmp, join(dir, sessionId));
+        this.watchingWritten.set(sessionId, line);
+      } catch (err) {
+        process.stderr.write(`[peer] watching state failed: ${errMessage(err)}\n`);
+      }
+    }
+  }
+
+  private clearWatching(): void {
+    this.watchingWritten.clear();
+    const dir = watchingDir(this.options.root);
+    try {
+      if (!existsSync(dir)) return;
+      for (const name of readdirSync(dir)) unlinkSync(join(dir, name));
+    } catch (err) {
+      process.stderr.write(`[peer] watching cleanup failed: ${errMessage(err)}\n`);
+    }
   }
 
   private status(): DaemonStatus {
@@ -616,6 +793,64 @@ export class PeerDaemon {
     }
   }
 }
+
+/**
+ * 훅이 주인 세션 모델에 붙일 글자. 이름은 명단에서 온 값이지만 모델 컨텍스트로 들어가므로 한 줄
+ * 라벨로 정리하고 이름 꼴이 아니면 뺀다. 승인 명령은 모델이 직접 치지 않게 적는다. 주인이
+ * 받아 주는 자리를 모델이 대신 채우면 승인이 뜻이 없다.
+ */
+export function watchingContext(watchers: string[], pending: PendingWatcher[]): string {
+  const names = (list: string[]): string[] =>
+    [...new Set(list.map((n) => plainLabel(n, 32)).filter(isPersonName))].sort();
+  const lines: string[] = [];
+  const who = names(watchers);
+  if (who.length > 0) {
+    lines.push(`[gestalt peer] ${who.join(', ')} 님이 이 세션의 대화를 보는 중이다.`);
+  }
+  // 긴 안내는 대기가 생기고 잠깐만 붙인다(brief가 서기 전). 프롬프트마다 같은 문장이 컨텍스트에
+  // 쌓이지 않게 그 뒤로는 줄인다
+  const fresh = names(pending.filter((p) => !p.brief).map((p) => p.person));
+  const old = names(pending.map((p) => p.person)).filter((n) => !fresh.includes(n));
+  if (fresh.length > 0) {
+    lines.push(
+      `[gestalt peer] ${fresh.join(', ')} 님이 이 세션을 보려고 주인 승인을 기다린다. ` +
+        '사용자에게 알리기만 하고 승인이나 거절 명령은 직접 실행하지 않는다. ' +
+        `사용자가 \`gestalt peer approve ${fresh[0]}\`나 \`gestalt peer deny ${fresh[0]}\`로 정한다.`,
+    );
+  }
+  if (old.length > 0) {
+    lines.push(`[gestalt peer] 승인 대기: ${old.join(', ')}. 사용자가 정할 일이다.`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * pid의 시작 시각을 ps로 읽어 공백을 뺀 글자로. 훅(`scripts/peer-watching-hook.sh`)이 같은 명령으로
+ * 읽어 맞춰 본다. 로캘과 시간대에 따라 글자가 달라지지 않게 LC_ALL=C, TZ=UTC로 부른다. 데몬과 세션이
+ * 다른 TZ로 떠도 같은 프로세스면 같은 글자가 나와야 한다.
+ */
+export function processStartStamp(pid: number): string {
+  try {
+    const out = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
+      encoding: 'utf8',
+      env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' },
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 2_000,
+    });
+    return out.replace(/\s+/g, '');
+  } catch {
+    return '';
+  }
+}
+
+const CONTROL_OPS: Record<
+  'kick' | 'approve' | 'deny',
+  (n: PeerNetwork, person: string, shares: string[]) => ControlResult
+> = {
+  kick: (n, person, shares) => n.kick(person, shares),
+  approve: (n, person, shares) => n.approve(person, shares),
+  deny: (n, person, shares) => n.deny(person, shares),
+};
 
 function sameFile(path: string, id: FileId): boolean {
   try {
