@@ -4,7 +4,8 @@ import { request } from 'node:http';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DIGEST_CSP, DigestServer } from '../../../src/digest/server.js';
-import { VIEWER_JS_SHA256 } from '../../../src/digest/viewer-js.js';
+import { DIARY_FONT_LINK } from '../../../src/digest/theme-diary.js';
+import { THEME_BOOT_JS_SHA256, VIEWER_JS_SHA256 } from '../../../src/digest/viewer-js.js';
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -73,6 +74,18 @@ describe('DigestServer', () => {
     expect(DIGEST_CSP).toContain('frame-src https://www.youtube.com');
     const scriptSrc = DIGEST_CSP.split('; ').find((d) => d.startsWith('script-src'))!;
     expect(scriptSrc).toContain(`'sha256-${VIEWER_JS_SHA256}'`);
+    expect(scriptSrc).toContain(`'sha256-${THEME_BOOT_JS_SHA256}'`);
+    const directive = (name: string) =>
+      DIGEST_CSP.split('; ').find((d) => d.startsWith(`${name} `))!;
+    expect(directive('style-src')).toBe(
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    );
+    expect(directive('font-src')).toBe("font-src 'self' https://fonts.gstatic.com");
+    // 글꼴 링크가 받는 스타일시트와 글꼴 파일 출처가 CSP에 들어 있어야 글꼴이 막히지 않는다
+    const stylesheet = /rel="stylesheet" href="(https:\/\/[^/"]+)/.exec(DIARY_FONT_LINK)![1]!;
+    const fontOrigin = /href="(https:\/\/[^/"]+)" crossorigin/.exec(DIARY_FONT_LINK)![1]!;
+    expect(directive('style-src')).toContain(stylesheet);
+    expect(directive('font-src')).toContain(fontOrigin);
     expect(scriptSrc).not.toContain("'unsafe-inline'");
     expect(DIGEST_CSP).toContain("frame-ancestors 'none'");
     expect(DIGEST_CSP).toContain("object-src 'none'");

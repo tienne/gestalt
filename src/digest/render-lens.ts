@@ -207,10 +207,12 @@ export function docPaneHtml(transcript: Transcript, ctx: LensHtmlContext): strin
     meta.url && /^https?:/.test(meta.url)
       ? `<a class="doc-link" href="${ctx.escape(meta.url)}" target="_blank" rel="noopener noreferrer">원문 열기</a>`
       : '';
+  // 좁은 화면에서 원문 창은 아래에서 올라오는 시트라 닫는 버튼을 둔다. 넓은 화면에서는 CSS가 숨긴다
+  const close = '<button type="button" class="doc-close" aria-label="원문 창 닫기">닫기</button>';
   // 크롭을 빼면 쪽 그림도 원문 그대로라 함께 빼고 추출 텍스트만 둔다
   const pages = ctx.omitCrops ? [] : (ctx.source?.pages ?? []);
   if (meta.source === 'pdf' && pages.length > 0) {
-    return `<div class="doc-pane" id="doc-pane"><div class="doc-bar" role="group" aria-label="원문 보기"><button type="button" data-view="pages" aria-pressed="true">원문 쪽</button><button type="button" data-view="text" aria-pressed="false">추출 텍스트</button>${link}</div><div id="doc-pages" class="doc-pages" tabindex="0" role="region" aria-label="원문 쪽">${pages
+    return `<div class="doc-pane" id="doc-pane"><div class="doc-bar" role="group" aria-label="원문 보기"><button type="button" data-view="pages" aria-pressed="true">원문 쪽</button><button type="button" data-view="text" aria-pressed="false">추출 텍스트</button>${link}${close}</div><div id="doc-pages" class="doc-pages" tabindex="0" role="region" aria-label="원문 쪽">${pages
       .map(
         (p) =>
           `<div class="doc-page" data-page="${p.n}" style="aspect-ratio:${p.width}/${p.height}"><img src="${ctx.escape(p.image)}" alt="${p.n}쪽" loading="lazy"><span class="page-no">${p.n}</span></div>`,
@@ -219,7 +221,7 @@ export function docPaneHtml(transcript: Transcript, ctx: LensHtmlContext): strin
         '',
       )}</div><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="추출 텍스트" hidden>${textList}</div></div>`;
   }
-  return `<div class="doc-pane" id="doc-pane"><div class="doc-bar"><span>본문 ${segments.length}문단</span>${link}</div><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="추출한 본문">${textList}</div></div>`;
+  return `<div class="doc-pane" id="doc-pane"><div class="doc-bar"><span>본문 ${segments.length}문단</span>${link}${close}</div><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="추출한 본문">${textList}</div></div>`;
 }
 
 /** 원문 창이 칠할 자리. PDF 문단의 사각형을 [쪽, x0, top, x1, bottom]으로 줄여 싣는다 */
@@ -359,6 +361,19 @@ export const LENS_CSS = `
 .kn-card{border:1px dashed var(--accent);border-radius:8px;background:var(--card);padding:6px 12px}
 .kn-card blockquote{margin:6px 0;padding-left:10px;border-left:3px solid var(--line);color:var(--muted)}
 .kn-path{font-size:.8em;margin:0}
+.doc-open,.doc-close{display:none}
+@media (max-width:900px){
+.is-doc .layout{display:block}
+.is-doc .side{position:fixed;left:0;right:0;bottom:0;top:auto;height:75vh;z-index:30;padding:0;transform:translateY(100%);visibility:hidden;transition:transform .25s ease,visibility 0s linear .25s}
+.is-doc.doc-sheet-open .side{transform:none;visibility:visible;transition:transform .25s ease}
+.is-doc .doc-pane{border-radius:14px 14px 0 0;border-bottom:0;box-shadow:0 -8px 32px rgba(0,0,0,.3)}
+.is-doc .doc-close{display:inline-block;margin-left:auto;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:2px 12px;cursor:pointer}
+.is-doc .doc-link+.doc-close{margin-left:8px}
+.is-doc .doc-open{display:block;position:fixed;right:calc(16px + env(safe-area-inset-right, 0px));bottom:calc(16px + env(safe-area-inset-bottom, 0px));z-index:25;border:0;border-radius:999px;padding:10px 18px;background:var(--fg);color:var(--bg);font-weight:600;font-size:.9em;box-shadow:0 4px 16px rgba(0,0,0,.25);cursor:pointer}
+.is-doc.doc-sheet-open .doc-open{display:none}
+.is-doc .main{padding-bottom:96px}
+}
+@media (prefers-reduced-motion:reduce){.is-doc .side{transition:none!important}}
 .player-audio .player-local video,.player-audio audio{display:none;width:100%}
 .player-audio .player-local.is-live audio{display:block}
 .player-audio .player.is-floating{width:min(360px,80vw)}

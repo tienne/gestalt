@@ -102,6 +102,7 @@ interface GestaltConfig {
 | `GESTALT_LOG_LEVEL` | `"debug"` \| `"info"` \| `"warn"` \| `"error"` | `"info"` | 로그 출력 레벨 |
 | `GESTALT_CLIENT` | `"claude-code"` \| `"codex"` \| `"both"` \| `"grok"` | `"claude-code"` | 액티브 세션 컨텍스트를 쓰는 호스트. `grok`는 `.grok/rules/gestalt-active.md`만 쓰고 Interview/Spec passthrough를 강제한다. `"both"`는 Claude와 Codex만 쓰며 Grok 경로는 쓰지 않는다 |
 | `GESTALT_NO_UPDATE_CHECK` | `"1"` | — | `"1"` 로 설정하면 버전 업데이트 확인을 건너뜀 |
+| `GESTALT_DIGEST_EXTERNAL_FONTS` | `"0"` \| `"false"` | — | 영상 요약과 읽기 렌즈 뷰어가 손글씨 제목 글꼴(Nanum Pen Script)을 구글 폰트에서 받는 링크를 싣지 않는다. 끄면 제목이 명조로 보이고 요약을 열 때 밖으로 나가는 요청이 없다. 이미 만든 `digest.html`에는 링크가 남아 있으니 끈 뒤 다시 렌더한다 |
 | `GESTALT_LENS_MODELS` | string (절대 경로) | — | 팟캐스트 화자를 가르는 모델(sherpa-onnx)을 둘 폴더. 없으면 `~/.local/share/gestalt/lens-models`를 쓴다. 모델이 없으면 처음 쓸 때 받고 sha256을 확인한다 |
 | `GESTALT_LENS_PYTHON` | string (절대 경로) | — | 읽기 렌즈 추출(pdfplumber, trafilatura, faster-whisper)에 쓸 파이썬. 없으면 `~/.local/share/gestalt/lens-venv/bin/python`, 그것도 없으면 `python3`. 상대 경로는 거절한다. 동작은 [읽기 렌즈](#읽기-렌즈-lens) |
 

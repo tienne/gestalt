@@ -7,6 +7,14 @@ const html = (report = lensReport(), kind: 'pdf' | 'web' = 'pdf') =>
   renderDigestHtml(lensDigest(report), lensTranscript(kind), { source: lensSource() }).html;
 
 describe('읽기 렌즈 뷰어', () => {
+  it('글 자료는 렌즈와 원문 시트 클래스를 붙이고 시트를 여는 버튼을 그린다', () => {
+    const out = html();
+    expect(out).toContain('<body class="is-diary is-lens is-doc">');
+    expect(out).toContain('id="doc-open" class="doc-open" aria-controls="side"');
+    expect(out).toContain('<aside class="side" id="side">');
+    expect(out).toContain('class="doc-close"');
+  });
+
   it('PDF는 플레이어 대신 쪽 그림 원문 창과 추출 텍스트를 둔다', () => {
     const out = html();
     expect(out).toContain('id="doc-pane"');

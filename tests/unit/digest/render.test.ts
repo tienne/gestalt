@@ -8,7 +8,14 @@ import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown, renderToFiles } from '../../../src/digest/render.js';
 import type { Digest, Transcript } from '../../../src/digest/schema.js';
 import { DigestStore } from '../../../src/digest/store.js';
-import { VIEWER_JS, VIEWER_JS_SHA256 } from '../../../src/digest/viewer-js.js';
+import {
+  THEME_BOOT_JS,
+  THEME_BOOT_JS_SHA256,
+  THEME_STORAGE_KEY,
+  VIEWER_JS,
+  VIEWER_JS_SHA256,
+} from '../../../src/digest/viewer-js.js';
+import { DIARY_FONT_LINK } from '../../../src/digest/theme-diary.js';
 import { findSegmentIndex, viewerLogic } from '../../../src/digest/viewer-logic.js';
 import { SLUG, sampleDigest, sampleTranscript } from './fixture.js';
 
@@ -92,7 +99,7 @@ describe('renderDigestHtml 마커', () => {
     const t = sampleTranscript();
     t.segments[0]!.text = 'bad </script><script>alert(1)</script>';
     const { html } = renderDigestHtml(sampleDigest(), t);
-    expect(html.match(/<\/script>/g)).toHaveLength(2);
+    expect(html.match(/<\/script>/g)).toHaveLength(3);
     expect(dataOf(html).starts).toHaveLength(12);
     expect(embedJson({ a: '</script>' })).toBe('{"a":"\\u003c/script>"}');
   });
@@ -474,15 +481,56 @@ describe('viewer-js', () => {
     expect(VIEWER_JS).not.toMatch(/`|\$\{/);
   });
 
-  it('실행되는 인라인 스크립트는 VIEWER_JS 하나이고 CSP 해시와 맞는다', () => {
+  it('실행되는 인라인 스크립트는 THEME_BOOT_JS와 VIEWER_JS 둘이고 CSP 해시와 맞는다', () => {
     const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
     const scripts = [
       ...html.matchAll(/<script(?![^>]*type="application\/json")[^>]*>([\s\S]*?)<\/script>/g),
     ];
-    expect(scripts).toHaveLength(1);
-    const body = scripts[0]![1]!;
-    expect(body).toBe(VIEWER_JS);
-    expect(createHash('sha256').update(body, 'utf8').digest('base64')).toBe(VIEWER_JS_SHA256);
+    expect(scripts.map((m) => m[1])).toEqual([THEME_BOOT_JS, VIEWER_JS]);
+    const sha = (body: string) => createHash('sha256').update(body, 'utf8').digest('base64');
+    expect(sha(THEME_BOOT_JS)).toBe(THEME_BOOT_JS_SHA256);
+    expect(sha(VIEWER_JS)).toBe(VIEWER_JS_SHA256);
+  });
+
+  it('테마를 먼저 붙이는 스크립트와 뷰어 스크립트가 같은 저장 키를 쓴다', () => {
+    expect(THEME_BOOT_JS).toContain(`'${THEME_STORAGE_KEY}'`);
+    expect(VIEWER_JS).toContain(`var THEME_STORAGE_KEY = '${THEME_STORAGE_KEY}';`);
+  });
+});
+
+describe('다이어리 테마', () => {
+  it('모든 요약에 is-diary를 붙이고 영상에는 원문 시트 버튼을 그리지 않는다', () => {
+    const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
+    expect(html).toContain('<body class="is-diary">');
+    expect(html).not.toContain('id="doc-open"');
+  });
+
+  it('자바스크립트가 꺼지면 시트 버튼과 테마 전환을 숨기고 원문 창을 펼친다', () => {
+    const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
+    expect(html).toContain(
+      '<noscript><style>.doc-open,.doc-close,.theme-switch{display:none!important}',
+    );
+  });
+
+  it('외부 글꼴을 끄면 구글 폰트 링크를 싣지 않는다', () => {
+    const on = renderDigestHtml(sampleDigest(), sampleTranscript(), { externalFonts: true }).html;
+    const off = renderDigestHtml(sampleDigest(), sampleTranscript(), { externalFonts: false }).html;
+    expect(on).toContain(DIARY_FONT_LINK);
+    expect(off).not.toContain('fonts.googleapis.com');
+    expect(off).not.toContain('fonts.gstatic.com');
+  });
+
+  it('외부 글꼴은 환경변수 GESTALT_DIGEST_EXTERNAL_FONTS=0으로도 끈다', () => {
+    const prev = process.env.GESTALT_DIGEST_EXTERNAL_FONTS;
+    process.env.GESTALT_DIGEST_EXTERNAL_FONTS = '0';
+    try {
+      expect(renderDigestHtml(sampleDigest(), sampleTranscript()).html).not.toContain(
+        'fonts.googleapis.com',
+      );
+    } finally {
+      if (prev === undefined) delete process.env.GESTALT_DIGEST_EXTERNAL_FONTS;
+      else process.env.GESTALT_DIGEST_EXTERNAL_FONTS = prev;
+    }
   });
 });
 
