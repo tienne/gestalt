@@ -69,7 +69,7 @@ export interface PeerDaemonOptions {
   network?: PeerNetworkOptions['transport'];
   /** 첫 접속 승인을 기다리는 시한. 테스트가 줄인다 */
   approvalTtlMs?: number;
-  /** 승인 대기를 긴 안내 문구로 알리는 시간. 테스트가 줄인다 */
+  /** 승인 대기를 알리는 시간. 이 동안은 긴 안내 문구를 붙이고 지나면 짧은 한 줄로 바꾼다. 테스트가 줄인다 */
   approvalNoticeMs?: number;
 }
 

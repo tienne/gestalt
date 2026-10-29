@@ -150,7 +150,10 @@ interface Node {
  */
 const SHORT_APPROVAL_TTL_MS = 1_000;
 const SHORT_TTL_TAG = '(짧은 시한)';
-/** 승인 대기 긴 안내를 짧게 줄이는 테스트만 쓰는 알림 시간과 그 표시 */
+/**
+ * 짧게 줄인 알림 시간과 그 표시. 이 표시가 이름에 든 테스트만 주인 데몬을 이 알림 시간으로 띄운다.
+ * 긴 안내가 짧은 한 줄로 바뀌는 걸 오래 기다리지 않고 보려고 줄였다
+ */
 const SHORT_NOTICE_MS = 300;
 const SHORT_NOTICE_TAG = '(짧은 안내)';
 

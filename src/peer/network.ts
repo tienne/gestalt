@@ -82,7 +82,7 @@ export interface PeerNetworkOptions {
   maxBufferedBytes?: number;
   /** 첫 접속 승인을 기다리는 시한. 테스트가 줄인다 */
   approvalTtlMs?: number;
-  /** 승인 대기를 긴 안내 문구로 알리는 시간. 테스트가 줄인다 */
+  /** 승인 대기를 알리는 시간. 이 동안은 긴 안내 문구를 붙이고 지나면 짧은 한 줄로 바꾼다. 테스트가 줄인다 */
   approvalNoticeMs?: number;
   /** 보는 사람, 승인 대기, 끊은 사람 목록이 바뀌면 부른다. 데몬이 훅 상태 파일을 다시 쓴다 */
   onControlChange?(): void;
@@ -140,7 +140,7 @@ const MAX_REFUSED_PER_SENDER = 256;
 const MAX_REFUSED_SENDERS = 1024;
 /** 첫 접속 승인을 기다리는 시한. 넘으면 보는 쪽에 approval_timeout으로 알린다 */
 export const APPROVAL_TTL_MS = 10 * 60 * 1000;
-/** 승인 대기를 긴 안내 문구로 알리는 시간. 지나면 훅이 짧은 한 줄만 붙인다 */
+/** 승인 대기를 알리는 시간. 이 동안은 긴 안내 문구를 붙이고 지나면 훅이 짧은 한 줄만 붙인다 */
 export const APPROVAL_NOTICE_MS = 60 * 1000;
 /** 끝난 보기를 `peer watches`에 남겨 두는 개수. 거절이나 kick으로 끝난 이유를 CLI에서 보게 한다 */
 const MAX_CLOSED_WATCHES = 16;
