@@ -12,11 +12,14 @@ export const GLANCE_REQUIRED: Record<LensKind, readonly GlanceKind[]> = {
 
 /**
  * 글 속 숫자를 모은다. 천 단위 쉼표는 지우고 %는 뗀다. "표 4"의 4나 "50개"의 50도 숫자로 센다.
- * 영문자 바로 뒤에 붙은 숫자(CSP2, v3)는 이름의 일부라 세지 않는다. "제3자"처럼 서수 접두 "제"가 붙은 숫자도 말이라 세지 않는다
+ * 영문자 바로 뒤에 붙은 숫자(CSP2, v3)는 이름의 일부라 세지 않는다. 영문자 뒤에 -나 /를 두고 붙은 숫자(ResNet-34, ViT-L/16)도
+ * 모델 이름이라 세지 않는다. "제3자"처럼 서수 접두 "제"가 붙은 숫자도 말이라 세지 않는다
  */
 export function numbersIn(text: string): number[] {
   const out: number[] = [];
-  for (const m of text.matchAll(/(?<![A-Za-z0-9_.제])[-−]?\d+(?:,\d{3})*(?:\.\d+)?/g)) {
+  for (const m of text.matchAll(
+    /(?<![A-Za-z0-9_.제])(?<![A-Za-z][-/])[-−]?\d+(?:,\d{3})*(?:\.\d+)?/g,
+  )) {
     const n = Number(m[0].replace(/,/g, '').replace('−', '-'));
     if (Number.isFinite(n)) out.push(Math.abs(n));
   }

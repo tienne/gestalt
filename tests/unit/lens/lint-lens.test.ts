@@ -237,5 +237,8 @@ describe('읽기 렌즈 lint', () => {
   it('numbersIn은 천 단위 쉼표를 지우고 이름에 붙은 숫자는 세지 않는다', () => {
     expect(numbersIn('표 4의 6,653개와 0.2862, CSP2와 v3')).toEqual([4, 6653, 0.2862]);
     expect(numbersIn('제3자가 확인하지 않았다')).toEqual([]);
+    // 모델 이름 속 숫자는 원문 값이 아니다. 범위의 -와 음수 부호는 그대로 숫자로 센다
+    expect(numbersIn('ResNet-34는 plain-18보다, ViT-L/16과 SST-2에서')).toEqual([]);
+    expect(numbersIn('0.3-0.5 구간과 -0.5')).toEqual([0.3, 0.5, 0.5]);
   });
 });
