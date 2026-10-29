@@ -345,7 +345,7 @@ export class PeerDaemon {
     if (!share) return { ok: false, reason: 'share_closed' };
     const found = findInboxSocket(share.stream.transcriptPath, share.sessionId);
     if (!found.ok || !found.path)
-      return { ok: false, reason: found.ok ? 'no_inbox' : found.reason };
+      return { ok: false, reason: found.ok ? '인박스 소켓이 없어요' : found.reason };
     const stream = share.stream;
     const header = frameHeader(m.person, m.origin, m.id);
     stream.awaitMessage(header, () => {

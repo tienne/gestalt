@@ -686,7 +686,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       );
       expect(session.received).toHaveLength(0);
 
-      // 고친 클라이언트가 보는 쪽 검사를 건너뛰고 보내도 주인 데몬이 messages_off로 거절한다
+      // 보는 쪽 검사를 건너뛰고 위조해 보내도 주인 데몬이 messages_off로 거절한다
       await forge([msgBox(newMessageId(), '안녕', { share: closed.id, link: closed.link! })]);
       await until(() => ownerAudit('message_reject').length >= 1);
       const reasons = ownerAudit('message_reject').map(
