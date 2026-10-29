@@ -101,6 +101,8 @@ export interface LensIngestResult {
 /** 추출 스크립트가 stdout 마지막 줄로 내는 꼴 */
 interface PdfExtract {
   title: string;
+  /** 첫 쪽에서 글자가 가장 큰 줄들. 메타데이터 제목이 없는 논문(arXiv 대부분)에 쓴다 */
+  layoutTitle?: string;
   pageCount: number;
   pages: LensSource['pages'];
   units: Array<{
@@ -448,7 +450,9 @@ async function ingestPdf(
     );
   }
   const firstHeading = x.units.find((u) => u.page === 1 && u.role === 'heading')?.text;
-  const title = (x.title || firstHeading || basename(input, '.pdf')).trim().slice(0, 200);
+  const title = (x.title || x.layoutTitle || firstHeading || basename(input, '.pdf'))
+    .trim()
+    .slice(0, 200);
   const slug = opts.slug ?? slugFromMeta(shortHash(url), title);
   if (!isValidSlug(slug)) throw new Error(`slug가 올바르지 않아요: ${slug}`);
   const store = new DigestStore(opts.repoRoot);
