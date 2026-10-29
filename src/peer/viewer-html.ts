@@ -89,11 +89,15 @@ ${
     missing: '대화 기록 파일이 안 보여요',
     truncated: '대화 기록이 줄어들어서 멈췄어요',
     offline: '주인 데몬이 오프라인이에요',
+    waiting: '주인 승인을 기다리는 중이에요. 받아 주면 대화가 보여요',
   };
   const CLOSED = {
     removed: '명단에서 빠져 공유가 끊겼어요',
     owner_removed: '주인이 명단에서 빠져 공유가 끊겼어요',
     expired: '공유가 만료됐어요',
+    kicked: '주인이 이 공유에서 끊었어요',
+    denied: '주인이 거절했어요',
+    approval_timeout: '주인이 승인하지 않아 기다리다 끝났어요',
   };
 
   function render(ev) {

@@ -45,6 +45,8 @@ import {
 } from './message.js';
 import type { MessageOrigin, MessageStatus } from './message.js';
 import { RelaySendError } from './transport.js';
+import { DEFAULT_FIRST_WATCH_APPROVAL } from './protocol.js';
+import type { BlockReason, ControlResult, FirstWatchApproval, PendingWatcher } from './protocol.js';
 
 /** 주인 데몬이 내 공유를 넘겨줄 때 쓰는 것 */
 export interface OwnedShare {
@@ -78,6 +80,10 @@ export interface PeerNetworkOptions {
   >;
   /** 원격 구독 하나의 릴레이 소켓에 밀린 양이 이걸 넘으면 그 구독을 끊는다 */
   maxBufferedBytes?: number;
+  /** 첫 접속 승인을 기다리는 시한. 테스트가 줄인다 */
+  approvalTtlMs?: number;
+  /** 보는 사람, 승인 대기, 끊은 사람 목록이 바뀌면 부른다. 데몬이 훅 상태 파일을 다시 쓴다 */
+  onControlChange?(): void;
 }
 
 export interface TeamStatus {
@@ -106,6 +112,15 @@ export interface WatchInfo {
   owner: string;
   feed: MirrorFeed;
   token: string;
+  /** 주인 승인을 기다리는 중 */
+  waiting: boolean;
+}
+
+/** 주인 쪽에서 본 공유 하나의 통제 상태 */
+export interface ShareControl {
+  watchers: string[];
+  pending: PendingWatcher[];
+  blocked: { person: string; reason: BlockReason }[];
 }
 
 /** 초대 유효 시간. 설계 원문의 24시간 */
@@ -118,6 +133,19 @@ const MAX_SEEN_WATCH = 4096;
 const MAX_SEEN_MESSAGES = 8192;
 const MAX_REFUSED_PER_SENDER = 256;
 const MAX_REFUSED_SENDERS = 1024;
+/** 첫 접속 승인을 기다리는 시한. 넘으면 보는 쪽에 approval_timeout으로 알린다 */
+export const APPROVAL_TTL_MS = 10 * 60 * 1000;
+/** 끝난 보기를 `peer watches`에 남겨 두는 개수. 거절이나 kick으로 끝난 이유를 CLI에서 보게 한다 */
+const MAX_CLOSED_WATCHES = 16;
+/** 보는 쪽이 다시 청하지 않고 보기를 끝내는 거절 이유 */
+const FINAL_REFUSALS = new Set([
+  'not_found',
+  'bad_proof',
+  'kicked',
+  'denied',
+  'approval_timeout',
+  'share_closed',
+]);
 
 /** 데몬끼리 봉인해 주고받는 것. box 안에 든다 */
 type BoxMessage =
@@ -132,6 +160,8 @@ type BoxMessage =
       messages?: boolean;
     }
   | { t: 'watch_err'; share: string; nonce: string; reason: string }
+  /** 주인 승인을 기다린다. 받아 주면 같은 nonce로 watch_ok가, 아니면 watch_err가 온다 */
+  | { t: 'watch_wait'; share: string; nonce: string; expiresAt: number }
   | { t: 'watch_end'; share: string; sub: string; reason: string }
   | { t: 'unwatch'; share: string; sub: string }
   | { t: 'join'; invite: string; proof: string; box: string }
@@ -144,6 +174,18 @@ interface StreamEnvelope {
   share: string;
   sub: string;
   d: string;
+}
+
+/** 주인 쪽. 첫 접속 승인을 기다리는 요청. 키는 `공유|기기`다 */
+interface PendingApproval {
+  share: string;
+  watcher: string;
+  /** 보는 쪽이 기다리는 요청의 nonce. 다시 청하면 새것으로 바뀐다 */
+  nonce: string;
+  after: number;
+  at: number;
+  expiresAt: number;
+  timer: NodeJS.Timeout;
 }
 
 /** 주인 쪽. 원격으로 보는 사람 한 명 */
@@ -172,13 +214,45 @@ interface Watch {
   /** 지금 기다리는 watch 요청 */
   pending?: {
     nonce: string;
-    resolve: () => void;
-    reject: (err: Error) => void;
-    timer: NodeJS.Timeout;
+    /** 주인 데몬의 첫 답(watch_ok, watch_err, watch_wait)을 기다리는 동안만 있다 */
+    settle?: {
+      resolve: (r: 'ok' | 'waiting') => void;
+      reject: (err: Error) => void;
+      timer: NodeJS.Timeout;
+    };
   };
 }
 
+interface ClosedWatch {
+  id: string;
+  share: string;
+  owner: string;
+  events: number;
+  reason: string;
+}
+
 export class PeerNetworkError extends Error {}
+
+/** 주인 데몬이 watch를 거절했다. reason은 주인 데몬이 보낸 글자를 정리한 것이다 */
+export class WatchRefused extends PeerNetworkError {
+  constructor(readonly reason: string) {
+    super(refusalText(reason));
+  }
+}
+
+/** 거절 이유를 사람이 읽는 문장으로. 이유 글자는 끝에 괄호로 남겨 스크립트가 찾게 한다 */
+export function refusalText(reason: string): string {
+  switch (reason) {
+    case 'denied':
+      return '주인이 거절했어요 (denied)';
+    case 'kicked':
+      return '주인이 이 공유에서 끊었어요 (kicked)';
+    case 'approval_timeout':
+      return '주인이 승인하지 않아 기다리다 끝났어요 (approval_timeout)';
+    default:
+      return `주인 데몬이 거절했어요: ${reason}`;
+  }
+}
 
 /**
  * 팀, 명단, 릴레이 통로, 원격 공유를 묶는다. 데몬이 하나 들고 있다.
@@ -212,11 +286,24 @@ export class PeerNetwork {
   /** 보는 쪽이 12건으로 먼저 막는다. 주인 쪽은 릴레이에 쌓였다 한꺼번에 온 것도 받게 넉넉하다 */
   private receiveLimiter = new RateLimiter(MESSAGE_RECEIVE_LIMIT);
   private readonly maxBuffered: number;
+  private readonly approvalTtl: number;
+  /**
+   * 주인 쪽 통제 상태. 전부 공유가 열려 있는 동안만 메모리에 둔다. 공유는 데몬이 다시 뜨면
+   * 닫히므로 DB에 남길 필요가 없고 forgetShare가 공유를 닫을 때 같이 버린다.
+   * - pending: 첫 접속 승인을 기다리는 요청. 키는 `공유|기기`
+   * - approved: 공유마다 받아 준 기기
+   * - blocked: 공유마다 끊거나 거절한 기기. 공유가 열려 있는 동안 다시 못 붙고 메시지도 못 넣는다
+   */
+  private pending = new Map<string, PendingApproval>();
+  private approved = new Map<string, Set<string>>();
+  private blocked = new Map<string, Map<string, BlockReason>>();
+  private closedWatches: ClosedWatch[] = [];
 
   constructor(private readonly options: PeerNetworkOptions) {
     this.team = options.state.getTeam();
     this.roster = options.state.getRoster();
     this.maxBuffered = options.maxBufferedBytes ?? MAX_REMOTE_BUFFERED_BYTES;
+    this.approvalTtl = options.approvalTtlMs ?? APPROVAL_TTL_MS;
   }
 
   get key(): MachineKey {
@@ -229,6 +316,8 @@ export class PeerNetwork {
   }
 
   async stop(): Promise<void> {
+    for (const p of this.pending.values()) clearTimeout(p.timer);
+    this.pending.clear();
     for (const s of [...this.subs.values()]) this.endSub(s, 'daemon_stop', false);
     for (const w of [...this.watches.values()]) this.closeWatch(w, 'daemon_stop');
     const t = this.transport;
@@ -454,7 +543,9 @@ export class PeerNetwork {
     return {
       stream: w.feed,
       token: w.token,
-      ...(w.messages
+      // 승인을 기다리는 동안 연 뷰어도 받아 준 뒤에 입력창이 있어야 한다. 페이지는 열 때 한 번
+      // 그려지므로 기다리는 중에는 입력창을 두고 보내기는 sendMessage가 막는다
+      ...(w.messages || w.feed.currentStatus === 'waiting'
         ? {
             send: (text: string) =>
               this.sendMessage(id, text, 'human').then(
@@ -466,14 +557,31 @@ export class PeerNetwork {
     };
   }
 
-  listWatches(): { id: string; share: string; owner: string; status: string; events: number }[] {
-    return [...this.watches.values()].map((w) => ({
+  /** 보고 있는 공유와 최근에 끝난 보기. 끝난 것은 closed에 이유가 있다 */
+  listWatches(): {
+    id: string;
+    share: string;
+    owner: string;
+    status: string;
+    events: number;
+    closed?: string;
+  }[] {
+    const live = [...this.watches.values()].map((w) => ({
       id: w.id,
       share: w.share,
       owner: w.feed.ownerPerson,
       status: w.feed.currentStatus,
       events: w.feed.eventCount,
     }));
+    const ended = this.closedWatches.map((c) => ({
+      id: c.id,
+      share: c.share,
+      owner: c.owner,
+      status: 'closed',
+      events: c.events,
+      closed: c.reason,
+    }));
+    return [...live, ...ended];
   }
 
   /** 링크로 원격 공유를 보기 시작한다. 주인 데몬이 받아 줄 때까지 기다린다 */
@@ -514,8 +622,9 @@ export class PeerNetwork {
       messages: false,
     };
     this.watches.set(id, w);
+    let waiting: boolean;
     try {
-      await this.requestWatch(w);
+      waiting = (await this.requestWatch(w)) === 'waiting';
     } catch (err) {
       this.watches.delete(id);
       w.feed.close('watch_failed');
@@ -524,9 +633,9 @@ export class PeerNetwork {
     this.options.state.audit(
       'watch_open',
       null,
-      JSON.stringify({ watch: id, share: w.share, owner: ownerMember.person }),
+      JSON.stringify({ watch: id, share: w.share, owner: ownerMember.person, waiting }),
     );
-    return { id, share: w.share, owner: ownerMember.person, feed: w.feed, token: w.token };
+    return { id, share: w.share, owner: ownerMember.person, feed: w.feed, token: w.token, waiting };
   }
 
   unwatch(id: string): boolean {
@@ -635,6 +744,12 @@ export class PeerNetwork {
     for (const sub of [...this.subs.values()]) {
       if (!memberOf(r, sub.watcher)) this.endSub(sub, 'removed', false);
     }
+    for (const [key, p] of [...this.pending]) {
+      if (memberOf(r, p.watcher)) continue;
+      clearTimeout(p.timer);
+      this.pending.delete(key);
+      this.changed();
+    }
     for (const w of [...this.watches.values()]) {
       if (!memberOf(r, w.owner)) this.closeWatch(w, 'owner_removed');
     }
@@ -679,6 +794,7 @@ export class PeerNetwork {
         return this.onWatchRequest(from, msg);
       case 'watch_ok':
       case 'watch_err':
+      case 'watch_wait':
         return this.onWatchReply(from, msg);
       case 'watch_end':
         return this.onWatchEnd(from, msg);
@@ -709,6 +825,8 @@ export class PeerNetwork {
   ): Promise<{ id: string; status: MessageStatus }> {
     const w = this.watches.get(watchId);
     if (!w) throw new PeerNetworkError(`보고 있는 공유가 아니에요: ${watchId}`);
+    if (w.feed.currentStatus === 'waiting')
+      throw new PeerNetworkError('주인 승인을 기다리는 중이라 아직 메시지를 못 보내요');
     if (!w.messages) throw new PeerNetworkError('이 공유는 주인이 메시지를 받지 않게 열었어요');
     const clean = sanitizeMessageBody(raw);
     if (!clean.ok) throw new PeerNetworkError(clean.reason);
@@ -794,6 +912,13 @@ export class PeerNetwork {
       messageProofText(msg.share, from, msg.id, msg.body),
     );
     if (!safeEqual(msg.proof, expected)) return reject('bad_proof');
+    // 메시지는 구독이 아니라 링크 증명으로 받아서 구독을 끊어도 링크는 남는다. 끊거나 거절한 사람과
+    // 아직 안 받아 준 사람은 여기서 막는다. 릴레이가 들고 있다 나중에 넘긴 봉인도 같은 규칙을 탄다
+    const refusal = this.messageRefusal(msg.share, from);
+    if (refusal) {
+      this.rememberRefused(sender, msg.id);
+      return reject(refusal);
+    }
     const clean = sanitizeMessageBody(msg.body);
     if (!clean.ok) return reject(clean.reason);
     if (!this.receiveLimiter.take(sender)) {
@@ -951,19 +1076,49 @@ export class PeerNetwork {
       return reply('bad_proof');
     }
     if (!this.rememberWatchNonce(from, msg.nonce)) return reply('replay');
+    const block = this.blocked.get(msg.share)?.get(from);
+    if (block) return reply(block);
+    const after = Number.isSafeInteger(msg.after) && msg.after > 0 ? msg.after : 0;
+    // 승인은 salt와 세션 키를 정하기 전에 본다. 키를 받은 뒤에 막으면 이미 대화 흐름을 풀 수 있다
+    if (!this.approved.get(msg.share)?.has(from)) {
+      if (this.firstWatch() === 'ask')
+        return this.holdForApproval(from, msg.share, msg.nonce, after);
+      // 기다리는 사이 설정을 team으로 바꿨으면 남은 대기를 치운다. 안 치우면 목록과 훅에 계속 보인다
+      const waiting = this.pending.get(`${msg.share}|${from}`);
+      if (waiting) {
+        clearTimeout(waiting.timer);
+        this.pending.delete(`${msg.share}|${from}`);
+      }
+      this.grant(msg.share, from, 'team');
+    }
+    this.startSub(from, msg.share, msg.nonce, after, owned);
+  }
+
+  /** 받아 준 사람의 구독을 연다. 공유 세션 키는 여기서 처음 정한다 */
+  private startSub(
+    from: string,
+    share: string,
+    nonce: string,
+    after: number,
+    owned: OwnedShare,
+  ): void {
     // 같은 사람이 다시 청하면 앞의 구독을 바꾼다. 보는 쪽이 모르는 교체일 수 있어서 알린다
     for (const s of [...this.subs.values()]) {
-      if (s.watcher === from && s.share === msg.share) this.endSub(s, 'replaced', true);
+      if (s.watcher === from && s.share === share) this.endSub(s, 'replaced', true);
     }
-    if (owned.stream.viewerCount >= MAX_VIEWERS_PER_SHARE) return reply('too_many');
+    if (owned.stream.viewerCount >= MAX_VIEWERS_PER_SHARE) {
+      this.sendBox(from, { t: 'watch_err', share, nonce, reason: 'too_many' });
+      return;
+    }
 
     const sub = randomBytes(9).toString('base64url');
     const salt = randomBytes(32);
+    const shareKey = Buffer.from(owned.shareKey, 'base64url');
     const remote: RemoteSub = {
       sub,
-      share: msg.share,
+      share,
       watcher: from,
-      key: streamKey(shareKey, salt, msg.share, from, sub),
+      key: streamKey(shareKey, salt, share, from, sub),
       stream: owned.stream,
       unsubscribe: () => {},
       ended: false,
@@ -971,19 +1126,242 @@ export class PeerNetwork {
     this.subs.set(sub, remote);
     this.sendBox(from, {
       t: 'watch_ok',
-      share: msg.share,
-      nonce: msg.nonce,
+      share,
+      nonce,
       sub,
       salt: salt.toString('base64url'),
       messages: owned.deliver !== undefined,
     });
-    const person = this.roster ? memberOf(this.roster.roster, from)?.person : undefined;
     this.options.state.audit(
       'remote_watch',
-      msg.share,
-      JSON.stringify({ person: person ?? null, sub }),
+      share,
+      JSON.stringify({ person: this.personOf(from), sub }),
     );
-    this.pump(remote, Number.isSafeInteger(msg.after) && msg.after > 0 ? msg.after : 0);
+    this.changed();
+    this.pump(remote, after);
+  }
+
+  /**
+   * 첫 접속을 주인이 받아 줄 때까지 붙잡아 둔다. 보는 쪽에는 watch_wait로 알린다. 같은 사람이
+   * 다시 청하면(주인이나 보는 쪽이 릴레이에 다시 붙은 경우) 시한은 그대로 두고 nonce만 바꾼다.
+   */
+  private holdForApproval(from: string, share: string, nonce: string, after: number): void {
+    const key = `${share}|${from}`;
+    let p = this.pending.get(key);
+    if (p) {
+      p.nonce = nonce;
+      p.after = after;
+    } else {
+      let waiting = 0;
+      for (const q of this.pending.values()) if (q.share === share) waiting++;
+      if (waiting >= MAX_VIEWERS_PER_SHARE) {
+        this.sendBox(from, { t: 'watch_err', share, nonce, reason: 'too_many' });
+        return;
+      }
+      const at = Date.now();
+      const timer = setTimeout(() => this.expireApproval(key), this.approvalTtl);
+      timer.unref();
+      p = { share, watcher: from, nonce, after, at, expiresAt: at + this.approvalTtl, timer };
+      this.pending.set(key, p);
+      this.options.state.audit(
+        'approval_request',
+        share,
+        JSON.stringify({ person: this.personOf(from) }),
+      );
+      this.changed();
+    }
+    this.sendBox(from, { t: 'watch_wait', share, nonce, expiresAt: p.expiresAt });
+  }
+
+  private expireApproval(key: string): void {
+    const p = this.pending.get(key);
+    if (!p) return;
+    this.pending.delete(key);
+    this.sendBox(p.watcher, {
+      t: 'watch_err',
+      share: p.share,
+      nonce: p.nonce,
+      reason: 'approval_timeout',
+    });
+    try {
+      this.options.state.audit(
+        'approval_expire',
+        p.share,
+        JSON.stringify({ person: this.personOf(p.watcher) }),
+      );
+    } catch {
+      // 데몬이 멈추는 중이면 DB가 이미 닫혔을 수 있다
+    }
+    this.changed();
+  }
+
+  private grant(share: string, machine: string, by: 'owner' | 'team'): void {
+    let set = this.approved.get(share);
+    if (!set) {
+      set = new Set();
+      this.approved.set(share, set);
+    }
+    set.add(machine);
+    this.options.state.audit(
+      'approval_grant',
+      share,
+      JSON.stringify({ person: this.personOf(machine), by }),
+    );
+  }
+
+  private block(share: string, machine: string, reason: BlockReason): void {
+    let map = this.blocked.get(share);
+    if (!map) {
+      map = new Map();
+      this.blocked.set(share, map);
+    }
+    map.set(machine, reason);
+    this.approved.get(share)?.delete(machine);
+  }
+
+  /** 이 공유로 이 기기가 보낸 메시지를 막을 이유. 받을 수 있으면 undefined */
+  private messageRefusal(share: string, from: string): string | undefined {
+    const block = this.blocked.get(share)?.get(from);
+    if (block) return block;
+    if (this.firstWatch() === 'ask' && !this.approved.get(share)?.has(from)) return 'not_approved';
+    return undefined;
+  }
+
+  private firstWatch(): FirstWatchApproval {
+    return this.options.state.getSettings().firstWatch ?? DEFAULT_FIRST_WATCH_APPROVAL;
+  }
+
+  /** 명단의 이름을 한 줄 라벨로. 감사 로그와 CLI, 훅 출력으로 나간다 */
+  private personOf(machine: string): string {
+    const person = this.roster ? memberOf(this.roster.roster, machine)?.person : undefined;
+    return plainLabel(person, 32) ?? '?';
+  }
+
+  private machinesOf(person: string): string[] {
+    if (!this.roster) throw new PeerNetworkError('아직 팀에 안 들었어요');
+    const keys = this.roster.roster.members
+      .filter((m) => m.person === person)
+      .map((m) => m.machineKey);
+    if (keys.length === 0) throw new PeerNetworkError(`명단에 없는 이름이에요: ${person}`);
+    return keys;
+  }
+
+  private changed(): void {
+    try {
+      this.options.onControlChange?.();
+    } catch (err) {
+      process.stderr.write(`[peer] control change failed: ${errMessage(err)}\n`);
+    }
+  }
+
+  /** 주인 쪽: 공유 하나를 누가 보고 누가 기다리고 누가 막혔는지 */
+  shareControl(share: string): ShareControl {
+    const watchers = new Set<string>();
+    for (const s of this.subs.values())
+      if (s.share === share) watchers.add(this.personOf(s.watcher));
+    const pending: PendingWatcher[] = [];
+    for (const p of this.pending.values()) {
+      if (p.share === share) {
+        pending.push({ person: this.personOf(p.watcher), at: p.at, expiresAt: p.expiresAt });
+      }
+    }
+    const blocked = [...(this.blocked.get(share) ?? new Map<string, BlockReason>())].map(
+      ([machine, reason]) => ({ person: this.personOf(machine), reason }),
+    );
+    return { watchers: [...watchers], pending, blocked };
+  }
+
+  /** 주인 쪽: 승인을 기다리는 그 사람의 요청을 받아 준다. 받아 준 기기는 공유가 열린 동안 기억한다 */
+  approve(person: string, shares: string[]): ControlResult {
+    const hits = this.pendingOf(person, shares);
+    for (const p of hits) {
+      clearTimeout(p.timer);
+      this.pending.delete(`${p.share}|${p.watcher}`);
+      this.grant(p.share, p.watcher, 'owner');
+      const owned = this.options.lookupShare(p.share);
+      if (owned && !owned.stream.isClosed)
+        this.startSub(p.watcher, p.share, p.nonce, p.after, owned);
+      else
+        this.sendBox(p.watcher, {
+          t: 'watch_err',
+          share: p.share,
+          nonce: p.nonce,
+          reason: 'not_found',
+        });
+    }
+    this.changed();
+    return { person, shares: unique(hits.map((p) => p.share)), count: hits.length };
+  }
+
+  /** 주인 쪽: 승인을 기다리는 그 사람의 요청을 거절한다. 그 공유가 열린 동안 다시 못 붙는다 */
+  deny(person: string, shares: string[]): ControlResult {
+    const hits = this.pendingOf(person, shares);
+    for (const p of hits) {
+      clearTimeout(p.timer);
+      this.pending.delete(`${p.share}|${p.watcher}`);
+      this.block(p.share, p.watcher, 'denied');
+      this.sendBox(p.watcher, { t: 'watch_err', share: p.share, nonce: p.nonce, reason: 'denied' });
+      this.options.state.audit('approval_deny', p.share, JSON.stringify({ person }));
+    }
+    this.changed();
+    return { person, shares: unique(hits.map((p) => p.share)), count: hits.length };
+  }
+
+  private pendingOf(person: string, shares: string[]): PendingApproval[] {
+    const machines = new Set(this.machinesOf(person));
+    const hits = [...this.pending.values()].filter(
+      (p) => machines.has(p.watcher) && shares.includes(p.share),
+    );
+    if (hits.length === 0) throw new PeerNetworkError(`승인을 기다리는 사람이 아니에요: ${person}`);
+    return hits;
+  }
+
+  /**
+   * 주인 쪽: 그 사람의 기기 전부를 공유에서 끊는다. 구독을 끝내고 그 구독의 공유 세션 키를
+   * 버린다. 지금 안 보고 있어도 막아 둔다. 공유가 열린 동안 다시 붙지 못하고 메시지도 못 넣는다.
+   */
+  kick(person: string, shares: string[]): ControlResult {
+    const machines = this.machinesOf(person);
+    if (machines.includes(this.key.id)) throw new PeerNetworkError('자기 자신은 끊을 수 없어요');
+    let count = 0;
+    for (const share of shares) {
+      let ended = 0;
+      for (const machine of machines) {
+        this.block(share, machine, 'kicked');
+        const key = `${share}|${machine}`;
+        const p = this.pending.get(key);
+        if (p) {
+          clearTimeout(p.timer);
+          this.pending.delete(key);
+          this.sendBox(machine, { t: 'watch_err', share, nonce: p.nonce, reason: 'kicked' });
+        }
+      }
+      for (const sub of [...this.subs.values()]) {
+        if (sub.share !== share || !machines.includes(sub.watcher)) continue;
+        this.endSub(sub, 'kicked', true);
+        ended++;
+      }
+      this.options.state.audit('kick', share, JSON.stringify({ person, ended }));
+      count += ended;
+    }
+    this.changed();
+    return { person, shares, count };
+  }
+
+  /**
+   * 주인 쪽: 공유가 닫혔다. 승인을 기다리던 사람에게 알리고 그 공유의 승인과 막은 목록을 버린다.
+   * 붙어 있던 구독은 공유 스트림의 closed 프레임으로 끝난다.
+   */
+  forgetShare(share: string): void {
+    for (const [key, p] of [...this.pending]) {
+      if (p.share !== share) continue;
+      clearTimeout(p.timer);
+      this.pending.delete(key);
+      this.sendBox(p.watcher, { t: 'watch_err', share, nonce: p.nonce, reason: 'share_closed' });
+    }
+    this.approved.delete(share);
+    this.blocked.delete(share);
+    this.changed();
   }
 
   /**
@@ -1071,6 +1449,9 @@ export class PeerNetwork {
     remote.ended = true;
     remote.unsubscribe();
     this.subs.delete(remote.sub);
+    // 이 구독 몫의 공유 세션 키를 버린다. 끊긴 뒤에는 새 프레임을 봉인할 키가 없다
+    remote.key.fill(0);
+    this.changed();
     if (notify)
       this.sendBox(remote.watcher, {
         t: 'watch_end',
@@ -1091,19 +1472,20 @@ export class PeerNetwork {
 
   // ── 보는 쪽 ──────────────────────────────────────────────
 
-  private requestWatch(w: Watch): Promise<void> {
+  /**
+   * 주인 데몬에 보기를 청한다. watch_ok면 'ok', 주인 승인을 기다리면 'waiting'으로 끝난다.
+   * 기다리는 동안 pending.nonce는 남겨 두고 나중에 오는 watch_ok나 watch_err를 그 nonce로 맞춘다.
+   */
+  private requestWatch(w: Watch): Promise<'ok' | 'waiting'> {
     return new Promise((resolve, reject) => {
-      if (w.pending) {
-        clearTimeout(w.pending.timer);
-        w.pending.reject(new PeerNetworkError('다시 청해서 앞 요청을 버렸어요'));
-      }
+      this.dropPending(w, '다시 청해서 앞 요청을 버렸어요');
       const nonce = randomBytes(16).toString('base64url');
       const timer = setTimeout(() => {
-        w.pending = undefined;
+        if (w.pending?.nonce === nonce) w.pending = undefined;
         reject(new PeerNetworkError('주인 데몬이 답하지 않았어요'));
       }, WATCH_TIMEOUT_MS);
       timer.unref();
-      w.pending = { nonce, resolve, reject, timer };
+      w.pending = { nonce, settle: { resolve, reject, timer } };
       w.sub = undefined;
       w.key = undefined;
       const sent = this.sendBox(w.owner, {
@@ -1121,33 +1503,66 @@ export class PeerNetwork {
     });
   }
 
+  private dropPending(w: Watch, why: string): void {
+    const settle = w.pending?.settle;
+    w.pending = undefined;
+    if (!settle) return;
+    clearTimeout(settle.timer);
+    settle.reject(new PeerNetworkError(why));
+  }
+
   private rewatch(w: Watch): void {
-    this.requestWatch(w).catch((err: unknown) => {
-      if (err instanceof PeerNetworkError && /not_found|bad_proof/.test(err.message)) {
-        this.closeWatch(w, 'share_closed');
-      } else {
-        w.feed.markOffline();
-      }
-    });
+    this.requestWatch(w)
+      .then((r) => {
+        if (r === 'waiting') w.feed.markWaiting();
+      })
+      .catch((err: unknown) => {
+        if (err instanceof WatchRefused) this.onRefused(w, err.reason);
+        else w.feed.markOffline();
+      });
+  }
+
+  /** 주인 데몬이 보기를 거절했다. 다시 청해도 안 되는 이유면 보기를 끝낸다 */
+  private onRefused(w: Watch, reason: string): void {
+    if (!FINAL_REFUSALS.has(reason)) {
+      w.feed.markOffline();
+      return;
+    }
+    const closeAs = reason === 'not_found' || reason === 'bad_proof' ? 'share_closed' : reason;
+    this.closeWatch(w, closeAs);
   }
 
   private onWatchReply(
     from: string,
-    msg: Extract<BoxMessage, { t: 'watch_ok' | 'watch_err' }>,
+    msg: Extract<BoxMessage, { t: 'watch_ok' | 'watch_err' | 'watch_wait' }>,
   ): void {
     const w = [...this.watches.values()].find(
       (x) => x.owner === from && x.share === msg.share && x.pending?.nonce === msg.nonce,
     );
     if (!w || !w.pending) return;
-    const pending = w.pending;
+    const settle = w.pending.settle;
+    if (msg.t === 'watch_wait') {
+      w.feed.markWaiting();
+      if (settle) {
+        clearTimeout(settle.timer);
+        w.pending.settle = undefined;
+        settle.resolve('waiting');
+      }
+      return;
+    }
     w.pending = undefined;
-    clearTimeout(pending.timer);
+    if (settle) clearTimeout(settle.timer);
     if (msg.t === 'watch_err') {
-      pending.reject(new PeerNetworkError(`주인 데몬이 거절했어요: ${msg.reason}`));
+      // 주인 데몬이 보낸 글자라 CLI와 뷰어에 찍히기 전에 정리한다
+      const err = new WatchRefused(plainLabel(msg.reason, 64) ?? 'unknown');
+      if (settle) settle.reject(err);
+      else this.onRefused(w, err.reason);
       return;
     }
     if (typeof msg.sub !== 'string' || typeof msg.salt !== 'string') {
-      pending.reject(new PeerNetworkError('주인 데몬 답이 맞지 않아요'));
+      const err = new PeerNetworkError('주인 데몬 답이 맞지 않아요');
+      if (settle) settle.reject(err);
+      else w.feed.markOffline();
       return;
     }
     w.sub = msg.sub;
@@ -1159,14 +1574,17 @@ export class PeerNetwork {
       this.key.id,
       msg.sub,
     );
-    pending.resolve();
+    settle?.resolve('ok');
   }
 
   private onWatchEnd(from: string, msg: Extract<BoxMessage, { t: 'watch_end' }>): void {
     const w = [...this.watches.values()].find((x) => x.owner === from && x.sub === msg.sub);
     if (!w) return;
     w.sub = undefined;
+    w.key?.fill(0);
     w.key = undefined;
+    // 주인이 끊었으면 다시 청하지 않는다. 다시 청해도 주인 데몬이 kicked로 거절한다
+    if (msg.reason === 'kicked') return this.closeWatch(w, 'kicked');
     this.rewatch(w);
   }
 
@@ -1192,11 +1610,17 @@ export class PeerNetwork {
   private closeWatch(w: Watch, reason: string): void {
     if (!this.watches.has(w.id)) return;
     this.watches.delete(w.id);
-    if (w.pending) {
-      clearTimeout(w.pending.timer);
-      w.pending.reject(new PeerNetworkError(`보기가 끝났어요: ${reason}`));
-      w.pending = undefined;
-    }
+    this.dropPending(w, `보기가 끝났어요: ${reason}`);
+    w.key?.fill(0);
+    w.key = undefined;
+    this.closedWatches.push({
+      id: w.id,
+      share: w.share,
+      owner: w.feed.ownerPerson,
+      events: w.feed.eventCount,
+      reason,
+    });
+    if (this.closedWatches.length > MAX_CLOSED_WATCHES) this.closedWatches.shift();
     w.feed.close(reason);
     try {
       this.options.state.audit(
@@ -1226,6 +1650,10 @@ function watchProofText(share: string, watcher: string, nonce: string): string {
 /** 링크를 가진 쪽만 만드는 메시지 증명. 본문까지 넣어 릴레이가 내용을 바꾸지 못하게 한다 */
 function messageProofText(share: string, from: string, id: string, body: string): string {
   return canonical({ p: 'gestalt-peer-msg-v1', share, from, id, body });
+}
+
+function unique<T>(items: T[]): T[] {
+  return [...new Set(items)];
 }
 
 function isMessageStatus(v: unknown): v is MessageStatus {

@@ -75,8 +75,12 @@ import {
   prUpdateCommand,
 } from './commands/pr.js';
 import {
+  peerApproveCommand,
+  peerConfigCommand,
   peerDaemonCommand,
+  peerDenyCommand,
   peerInitCommand,
+  peerKickCommand,
   peerInviteCommand,
   peerJoinCommand,
   peerMembersCommand,
@@ -329,6 +333,30 @@ export function createCli(): Command {
     .command('unshare <id>')
     .description('공유를 종료한다')
     .action((id, o, cmd) => peerUnshareCommand({ ...peerOpts(cmd), ...o, id }));
+
+  peer
+    .command('kick <name>')
+    .description('그 사람을 내 공유에서 끊는다. 공유가 열린 동안 다시 못 붙는다')
+    .option('--share <id>', '이 공유에서만 (기본은 열린 공유 전부)')
+    .action((name, o, cmd) => peerKickCommand({ ...peerOpts(cmd), ...o, name }));
+
+  peer
+    .command('approve <name>')
+    .description('처음 붙으려고 기다리는 사람을 받아 준다')
+    .option('--share <id>', '이 공유에서만 (기본은 열린 공유 전부)')
+    .action((name, o, cmd) => peerApproveCommand({ ...peerOpts(cmd), ...o, name }));
+
+  peer
+    .command('deny <name>')
+    .description('처음 붙으려고 기다리는 사람을 거절한다')
+    .option('--share <id>', '이 공유에서만 (기본은 열린 공유 전부)')
+    .action((name, o, cmd) => peerDenyCommand({ ...peerOpts(cmd), ...o, name }));
+
+  peer
+    .command('config')
+    .description('이 기기의 공유 설정을 보거나 바꾼다')
+    .option('--first-watch <mode>', '처음 붙는 팀원을 ask(물어보기, 기본) 또는 team(바로 허용)으로')
+    .action((o, cmd) => peerConfigCommand({ ...peerOpts(cmd), ...o }));
 
   peer
     .command('status')

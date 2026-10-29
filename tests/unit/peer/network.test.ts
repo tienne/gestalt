@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { get as httpGet, request as httpRequest } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import type { Server as NetServer } from 'node:net';
@@ -17,10 +18,12 @@ import { newMessageId } from '../../../src/peer/message.js';
 import { RelayTransport } from '../../../src/peer/transport.js';
 import { PeerState } from '../../../src/peer/state.js';
 import type {
+  ControlResult,
   DaemonStatus,
   MemberInfo,
   PeerRequest,
   ShareInfo,
+  WatchListItem,
   WatchResult,
 } from '../../../src/peer/protocol.js';
 import { FAKE_HOME, FAKE_SECRETS, fixtureText } from '../../fixtures/peer/transcript.js';
@@ -141,6 +144,9 @@ interface Node {
   status(): Promise<DaemonStatus>;
 }
 
+/** 첫 접속 승인 시한. 시한이 지나는 테스트가 기다릴 만큼 짧고 승인하는 테스트가 넘기지 않을 만큼 길다 */
+const APPROVAL_TTL_MS = 3_000;
+
 async function startNode(): Promise<Node> {
   const root = mkdtempSync(join(tmpdir(), 'peer-net-'));
   const dbPath = resolve('.gestalt-test', `peer-${randomUUID()}.db`);
@@ -150,6 +156,7 @@ async function startNode(): Promise<Node> {
     pollMs: 20,
     home: FAKE_HOME,
     network: { minBackoffMs: 50, maxBackoffMs: 200 },
+    approvalTtlMs: APPROVAL_TTL_MS,
   });
   await daemon.start();
   const call = async <T>(req: PeerRequest, timeoutMs = 5_000): Promise<T> => {
@@ -158,6 +165,33 @@ async function startNode(): Promise<Node> {
     return res.result;
   };
   return { root, dbPath, daemon, call, status: () => call<DaemonStatus>({ op: 'status' }) };
+}
+
+const HOOK = resolve('scripts/peer-watching-hook.sh');
+
+/** 보는 중 표시 훅을 그 세션의 프롬프트처럼 부른다 */
+function runHook(peerRoot: string, sessionId: string): string {
+  const r = spawnSync(HOOK, [], {
+    input: JSON.stringify({ session_id: sessionId, hook_event_name: 'UserPromptSubmit' }),
+    encoding: 'utf-8',
+    timeout: 5_000,
+    env: { PATH: process.env['PATH'] ?? '', HOME: '/nonexistent', GESTALT_PEER_HOME: peerRoot },
+  });
+  expect(r.status).toBe(0);
+  return r.stdout;
+}
+
+function auditOf(node: Node, action: string): { shareId: string | null; detail: string | null }[] {
+  const state = new PeerState(node.dbPath);
+  try {
+    return state.auditLog().filter((r) => r.action === action);
+  } finally {
+    state.close();
+  }
+}
+
+function reasonsOf(rows: { detail: string | null }[]): string[] {
+  return rows.map((r) => (JSON.parse(r.detail!) as { reason: string }).reason);
 }
 
 describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
@@ -208,6 +242,22 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
     rmSync(relayDir, { recursive: true, force: true });
   });
 
+  /** 링크로 보기를 열고 주인이 받아 줄 때까지 마친다. 첫 접속 기본값이 물어보기다 */
+  async function watchApproved(link: string): Promise<WatchResult> {
+    const w = await watcher.call<WatchResult>({ op: 'watch', link }, 15_000);
+    if (w.waiting) {
+      await owner.call({ op: 'approve', person: 'alice', share: parseShareLink(link).shareId });
+      await until(async () => (await watchStatus(w.id)) === 'live');
+    }
+    return w;
+  }
+
+  async function watchStatus(id: string): Promise<string | undefined> {
+    const list = await watcher.call<WatchListItem[]>({ op: 'watches' });
+    const w = list.find((x) => x.id === id);
+    return w?.closed ? `closed:${w.closed}` : w?.status;
+  }
+
   async function openShare(): Promise<{ info: ShareInfo; transcript: string }> {
     const transcript = join(owner.root, 'fixture.jsonl');
     writeFileSync(transcript, fixtureText());
@@ -232,7 +282,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
     const { info, transcript } = await openShare();
     expect(info.link).toMatch(/^gestalt:\/\/peer\/127\.0\.0\.1:\d+\/[\w-]+#[\w-]{43}$/);
 
-    const watch = await watcher.call<WatchResult>({ op: 'watch', link: info.link! }, 15_000);
+    const watch = await watchApproved(info.link!);
     expect(watch).toMatchObject({ share: info.id, owner: 'tienne' });
     expect(watch.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/s\/[\w-]+\?t=[\w-]+$/);
 
@@ -258,7 +308,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
 
   it('릴레이에는 평문 대화와 공유 키가 안 가고 암호문과 라우팅 정보만 간다', async () => {
     const { info, transcript } = await openShare();
-    const watch = await watcher.call<WatchResult>({ op: 'watch', link: info.link! }, 15_000);
+    const watch = await watchApproved(info.link!);
     const sse = openSse(watch.url);
     try {
       await until(() => sse.body().includes('안녕하세요'));
@@ -299,7 +349,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
 
   it('명단에서 빼면 열린 공유에서 바로 끊기고 다시 못 붙는다', async () => {
     const { info } = await openShare();
-    const watch = await watcher.call<WatchResult>({ op: 'watch', link: info.link! }, 15_000);
+    const watch = await watchApproved(info.link!);
     const sse = openSse(watch.url);
     try {
       await until(() => sse.body().includes('안녕하세요'));
@@ -390,7 +440,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
   it('릴레이가 옛 watch 요청을 다시 보내도 주인 데몬은 구독을 새로 안 연다', async () => {
     const { info } = await openShare();
     const before = tapIn.length;
-    await watcher.call<WatchResult>({ op: 'watch', link: info.link! }, 15_000);
+    await watchApproved(info.link!);
     const bKey = (await watcher.status()).machineKey;
     const ownerKey = (await owner.status()).machineKey;
     // watch를 친 뒤 보는 쪽이 처음 보낸 send가 watch 요청이다
@@ -431,7 +481,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
 
   it('공유를 닫으면 보는 쪽 뷰어도 종료된다', async () => {
     const { info } = await openShare();
-    const watch = await watcher.call<WatchResult>({ op: 'watch', link: info.link! }, 15_000);
+    const watch = await watchApproved(info.link!);
     const sse = openSse(watch.url);
     try {
       await until(() => sse.body().includes('안녕하세요'));
@@ -455,7 +505,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         transcriptPath: session.transcript,
         sessionId: session.sessionId,
       });
-      watch = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      watch = await watchApproved(shareInfo.link!);
     });
 
     afterEach(async () => {
@@ -665,7 +715,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         messages: false,
       });
       expect(closed.messages).toBe(false);
-      const w = await watcher.call<WatchResult>({ op: 'watch', link: closed.link! }, 15_000);
+      const w = await watchApproved(closed.link!);
       const page = await new Promise<string>((resolveP, reject) => {
         httpGet(w.url, (res) => {
           let text = '';
@@ -702,7 +752,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         transcriptPath: session.transcript,
       });
       expect(plain.messages).toBe(false);
-      const w = await watcher.call<WatchResult>({ op: 'watch', link: plain.link! }, 15_000);
+      const w = await watchApproved(plain.link!);
       await expect(watcher.call({ op: 'send', watch: w.id, body: '안녕' }, 15_000)).rejects.toThrow(
         '메시지를 받지 않게',
       );
@@ -740,6 +790,330 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         ).status,
       ).toBe(400);
       expect(session.received).toHaveLength(0);
+    });
+  });
+
+  /** tapIn에서 mark 뒤로 그 기기에 간 공유 스트림 프레임 수. 봉투의 k만 보고 안은 못 연다 */
+  function streamFramesTo(key: string, mark: number): number {
+    return tapIn
+      .slice(mark)
+      .map((t) => JSON.parse(t) as Record<string, unknown>)
+      .filter((f) => f.t === 'send' && f.to === key)
+      .filter(
+        (f) =>
+          (JSON.parse(Buffer.from(String(f.data), 'base64url').toString('utf8')) as { k?: string })
+            .k === 's',
+      ).length;
+  }
+
+  function assistantLine(text: string): string {
+    return (
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } }) + '\n'
+    );
+  }
+
+  async function ownerShare(id: string): Promise<ShareInfo> {
+    return (await owner.call<ShareInfo[]>({ op: 'shares' })).find((s) => s.id === id)!;
+  }
+
+  describe('주인 쪽 통제', () => {
+    let session: FakeSession;
+    let shareInfo: ShareInfo;
+    let bKey: string;
+
+    beforeEach(async () => {
+      session = await fakeSession(owner.root);
+      shareInfo = await owner.call<ShareInfo>({
+        op: 'share',
+        transcriptPath: session.transcript,
+        sessionId: session.sessionId,
+      });
+      bKey = (await watcher.status()).machineKey;
+    });
+
+    afterEach(async () => {
+      await new Promise<void>((r) => session.server.close(() => r()));
+    });
+
+    /**
+     * 보는 쪽 데몬을 멈추고 그 기기 키로 주인 데몬에 메시지 봉인을 보낸다. queue면 릴레이가 주인
+     * 오프라인 동안 들고 있게 send로 보내고 결과를 기다린다.
+     */
+    async function forgeMessage(
+      id: string,
+      body: string,
+      opts: { queue?: boolean } = {},
+    ): Promise<'queued' | 'delivered' | 'posted'> {
+      await watcher.daemon.stop();
+      const key = loadMachineKey(machineKeyPath(watcher.root));
+      const state = new PeerState(watcher.dbPath);
+      const roster = state.getRoster()!;
+      state.close();
+      const ownerKey = (await owner.status()).machineKey;
+      const ownerBox = roster.roster.members.find((m) => m.machineKey === ownerKey)!.boxKey;
+      const shareKey = Buffer.from(parseShareLink(shareInfo.link!).shareKey, 'base64url');
+      const msg = {
+        t: 'msg',
+        share: shareInfo.id,
+        id,
+        body,
+        origin: 'human',
+        proof: hmac(
+          shareKey,
+          canonical({ p: 'gestalt-peer-msg-v1', share: shareInfo.id, from: key.id, id, body }),
+        ),
+      };
+      const t = new RelayTransport({
+        url: relayUrl,
+        team: roster.roster.team,
+        key,
+        reconnect: false,
+      });
+      await t.connect(roster);
+      const sealed = Buffer.from(
+        JSON.stringify(sealBox(key, ownerKey, ownerBox, JSON.stringify(msg))),
+      );
+      let result: 'queued' | 'delivered' | 'posted' = 'posted';
+      if (opts.queue) result = await t.send(ownerKey, sealed, { queue: true });
+      else t.post(ownerKey, sealed);
+      await new Promise((r) => setTimeout(r, 300));
+      await t.close();
+      return result;
+    }
+
+    it('처음 붙는 사람은 주인이 받아 줄 때까지 대화 줄과 세션 키를 못 받고 기다림이 보인다', async () => {
+      const mark = tapIn.length;
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(w.waiting).toBe(true);
+      const sse = openSse(w.url);
+      try {
+        await until(() => sse.body().includes('"status":"waiting"'));
+        await new Promise((r) => setTimeout(r, 200));
+        expect(sse.body()).not.toContain('안녕하세요');
+        expect(streamFramesTo(bKey, mark)).toBe(0);
+        expect(await watchStatus(w.id)).toBe('waiting');
+        // 주인 쪽은 구독을 안 열었다. 세션 키의 salt는 구독을 열 때 정해 remote_watch와 같이 나간다
+        expect((await owner.status()).team?.remoteViewers).toBe(0);
+        expect(auditOf(owner, 'remote_watch')).toHaveLength(0);
+        const s = await ownerShare(shareInfo.id);
+        expect(s.watchers).toEqual([]);
+        expect(s.pending.map((p) => p.person)).toEqual(['alice']);
+        // 기다리는 동안은 보는 쪽이 메시지를 안 보낸다
+        await expect(
+          watcher.call({ op: 'send', watch: w.id, body: '안녕' }, 15_000),
+        ).rejects.toThrow('승인을 기다리는 중');
+
+        const r = await owner.call<ControlResult>({ op: 'approve', person: 'alice' });
+        expect(r).toEqual({ person: 'alice', shares: [shareInfo.id], count: 1 });
+        await until(() => sse.body().includes('안녕하세요'));
+        expect(streamFramesTo(bKey, mark)).toBeGreaterThan(0);
+        expect((await ownerShare(shareInfo.id)).watchers).toEqual(['alice']);
+        expect((await ownerShare(shareInfo.id)).pending).toEqual([]);
+      } finally {
+        sse.req.destroy();
+      }
+      const grants = auditOf(owner, 'approval_grant').map((r) => JSON.parse(r.detail!) as object);
+      expect(grants).toEqual([{ person: 'alice', by: 'owner' }]);
+      expect(auditOf(owner, 'approval_request')).toHaveLength(1);
+    });
+
+    it('거절하면 보는 쪽에 거절로 끝나고 그 공유가 열린 동안 다시 못 붙는다', async () => {
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(w.waiting).toBe(true);
+      const sse = openSse(w.url);
+      try {
+        await until(() => sse.body().includes('"status":"waiting"'));
+        await owner.call({ op: 'deny', person: 'alice', share: shareInfo.id });
+        await until(() => sse.body().includes('event: closed'));
+        expect(sse.body()).toMatch(/"reason":"denied"/);
+        expect(sse.body()).not.toContain('안녕하세요');
+      } finally {
+        sse.req.destroy();
+      }
+      expect(await watchStatus(w.id)).toBe('closed:denied');
+      await expect(watcher.call({ op: 'watch', link: shareInfo.link! }, 15_000)).rejects.toThrow(
+        '주인이 거절했어요 (denied)',
+      );
+      expect((await ownerShare(shareInfo.id)).blocked).toEqual([
+        { person: 'alice', reason: 'denied' },
+      ]);
+      expect(auditOf(owner, 'approval_deny')).toHaveLength(1);
+      // 기다리는 사람이 없으면 approve도 deny도 실패한다
+      await expect(owner.call({ op: 'approve', person: 'alice' })).rejects.toThrow(
+        '승인을 기다리는 사람이 아니에요',
+      );
+    });
+
+    it('주인이 시한 안에 안 받아 주면 보는 쪽에 시간이 지나 끝났다고 보인다', async () => {
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(w.waiting).toBe(true);
+      const sse = openSse(w.url);
+      try {
+        await until(() => sse.body().includes('event: closed'), APPROVAL_TTL_MS + 5_000);
+        expect(sse.body()).toMatch(/"reason":"approval_timeout"/);
+      } finally {
+        sse.req.destroy();
+      }
+      expect(await watchStatus(w.id)).toBe('closed:approval_timeout');
+      expect((await ownerShare(shareInfo.id)).pending).toEqual([]);
+      expect(auditOf(owner, 'approval_expire')).toHaveLength(1);
+      // 시한이 지난 건 막지 않는다. 다시 청하면 또 묻는다
+      const again = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(again.waiting).toBe(true);
+    });
+
+    it('팀원이면 바로 허용으로 바꾸면 묻지 않고 붙는다', async () => {
+      expect(await owner.call({ op: 'config' })).toEqual({ firstWatch: 'ask' });
+      expect(await owner.call({ op: 'config', firstWatch: 'team' })).toEqual({
+        firstWatch: 'team',
+      });
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(w.waiting).toBeUndefined();
+      const sse = openSse(w.url);
+      try {
+        await until(() => sse.body().includes('안녕하세요'));
+      } finally {
+        sse.req.destroy();
+      }
+      expect(auditOf(owner, 'approval_request')).toHaveLength(0);
+      const grants = auditOf(owner, 'approval_grant').map((r) => JSON.parse(r.detail!) as object);
+      expect(grants).toEqual([{ person: 'alice', by: 'team' }]);
+      await expect(owner.call({ op: 'config', firstWatch: 'always' })).rejects.toThrow('ask, team');
+    });
+
+    it('kick하면 끊은 뒤의 새 줄이 릴레이로도 안 나가고 다시 못 붙는다', async () => {
+      const w = await watchApproved(shareInfo.link!);
+      const sse = openSse(w.url);
+      try {
+        await until(() => sse.body().includes('안녕하세요'));
+        // 끊기 전에는 새 줄이 간다. 아래 0건 검사가 헛돌지 않는지 먼저 본다
+        const before = tapIn.length;
+        appendFileSync(session.transcript, assistantLine('BEFORE_KICK'));
+        await until(() => sse.body().includes('BEFORE_KICK'));
+        expect(streamFramesTo(bKey, before)).toBeGreaterThan(0);
+
+        const r = await owner.call<ControlResult>({ op: 'kick', person: 'alice' });
+        expect(r).toEqual({ person: 'alice', shares: [shareInfo.id], count: 1 });
+        await until(() => sse.body().includes('event: closed'));
+        expect(sse.body()).toMatch(/"reason":"kicked"/);
+
+        const mark = tapIn.length;
+        const events = (await ownerShare(shareInfo.id)).events;
+        appendFileSync(session.transcript, assistantLine('AFTER_KICK'));
+        await until(async () => (await ownerShare(shareInfo.id)).events > events);
+        await new Promise((res) => setTimeout(res, 200));
+        expect(streamFramesTo(bKey, mark)).toBe(0);
+        expect(sse.body()).not.toContain('AFTER_KICK');
+      } finally {
+        sse.req.destroy();
+      }
+      expect(await watchStatus(w.id)).toBe('closed:kicked');
+      const s = await ownerShare(shareInfo.id);
+      expect(s.watchers).toEqual([]);
+      expect(s.blocked).toEqual([{ person: 'alice', reason: 'kicked' }]);
+      await expect(watcher.call({ op: 'watch', link: shareInfo.link! }, 15_000)).rejects.toThrow(
+        '(kicked)',
+      );
+      const kicks = auditOf(owner, 'kick').map((r) => JSON.parse(r.detail!) as object);
+      expect(kicks).toEqual([{ person: 'alice', ended: 1 }]);
+      expect(JSON.stringify(auditOf(owner, 'kick'))).not.toContain('KICK');
+      await expect(owner.call({ op: 'kick', person: 'tienne' })).rejects.toThrow('자기 자신');
+      await expect(owner.call({ op: 'kick', person: 'nobody' })).rejects.toThrow('명단에 없는');
+    });
+
+    it('unshare한 뒤의 새 줄은 릴레이로 안 나간다', async () => {
+      const w = await watchApproved(shareInfo.link!);
+      const sse = openSse(w.url);
+      try {
+        await until(() => sse.body().includes('안녕하세요'));
+        const res = await owner.call<{ id: string; watchers: string[] }>({
+          op: 'unshare',
+          id: shareInfo.id,
+        });
+        expect(res.watchers).toEqual(['alice']);
+        await until(() => sse.body().includes('event: closed'));
+        const mark = tapIn.length;
+        appendFileSync(session.transcript, assistantLine('AFTER_UNSHARE'));
+        await new Promise((r) => setTimeout(r, 300));
+        expect(streamFramesTo(bKey, mark)).toBe(0);
+        expect(sse.body()).not.toContain('AFTER_UNSHARE');
+      } finally {
+        sse.req.destroy();
+      }
+    });
+
+    it('kick된 사람이 구독이 끊긴 뒤 보낸 메시지는 kicked로 거절된다', async () => {
+      await watchApproved(shareInfo.link!);
+      await owner.call({ op: 'kick', person: 'alice' });
+      await forgeMessage(newMessageId(), '끊긴 뒤에 보냄');
+      await until(() => auditOf(owner, 'message_reject').length >= 1);
+      expect(reasonsOf(auditOf(owner, 'message_reject'))).toEqual(['kicked']);
+      expect(session.received).toHaveLength(0);
+    });
+
+    it('릴레이가 들고 있다 kick 뒤에 넘긴 메시지도 kicked로 거절된다', async () => {
+      await watchApproved(shareInfo.link!);
+      await owner.call({ op: 'kick', person: 'alice' });
+      // 주인 데몬의 릴레이 연결만 끊어 오프라인으로 만든다. 데몬을 멈추면 공유가 닫혀 share_closed가 된다
+      const net = (
+        owner.daemon as unknown as {
+          network: { transport: RelayTransport | null; connect(): void };
+        }
+      ).network;
+      const ownerKey = (await owner.status()).machineKey;
+      const t = net.transport!;
+      net.transport = null;
+      await t.close();
+      await until(() => !relay.onlineKeys.includes(ownerKey));
+
+      expect(await forgeMessage(newMessageId(), '오프라인 동안 쌓임', { queue: true })).toBe(
+        'queued',
+      );
+      expect(relay.queuedSends).toBe(1);
+      net.connect();
+      await until(() => auditOf(owner, 'message_reject').length >= 1);
+      expect(reasonsOf(auditOf(owner, 'message_reject'))).toEqual(['kicked']);
+      expect(session.received).toHaveLength(0);
+    });
+
+    it('아직 안 받아 준 사람의 메시지는 not_approved로 거절된다', async () => {
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(w.waiting).toBe(true);
+      await forgeMessage(newMessageId(), '승인 전에 보냄');
+      await until(() => auditOf(owner, 'message_reject').length >= 1);
+      expect(reasonsOf(auditOf(owner, 'message_reject'))).toEqual(['not_approved']);
+      expect(session.received).toHaveLength(0);
+    });
+
+    it('훅은 보는 사람이 있는 세션에만 한 줄을 내고 끊으면 안 낸다', async () => {
+      const file = join(owner.root, 'watching', session.sessionId);
+      expect(runHook(owner.root, session.sessionId)).toBe('');
+
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(w.waiting).toBe(true);
+      await until(() => existsSync(file));
+      const waiting = JSON.parse(runHook(owner.root, session.sessionId)) as {
+        hookSpecificOutput: { hookEventName: string; additionalContext: string };
+      };
+      expect(waiting.hookSpecificOutput.hookEventName).toBe('UserPromptSubmit');
+      expect(waiting.hookSpecificOutput.additionalContext).toContain(
+        'alice 님이 이 세션을 보려고 주인 승인을 기다린다',
+      );
+      expect(waiting.hookSpecificOutput.additionalContext).toContain('직접 실행하지 않는다');
+
+      await owner.call({ op: 'approve', person: 'alice' });
+      await until(() => runHook(owner.root, session.sessionId).includes('보는 중'));
+      const out = runHook(owner.root, session.sessionId);
+      expect(out.trim().split('\n')).toHaveLength(1);
+      const ctx = (JSON.parse(out) as { hookSpecificOutput: { additionalContext: string } })
+        .hookSpecificOutput.additionalContext;
+      expect(ctx).toBe('[gestalt peer] alice 님이 이 세션의 대화를 보는 중이다.');
+      // 다른 세션 프롬프트에는 안 붙는다
+      expect(runHook(owner.root, randomUUID())).toBe('');
+
+      await owner.call({ op: 'kick', person: 'alice' });
+      await until(() => !existsSync(file));
+      expect(runHook(owner.root, session.sessionId)).toBe('');
     });
   });
 });
