@@ -728,6 +728,30 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       expect(reasons).toEqual(['rate_limited']);
     });
 
+    it('소켓에 붙은 뒤 실패한 메시지는 거절이 아니라 넣음으로 알린다', async () => {
+      type Deliver = (...args: unknown[]) => Promise<unknown>;
+      const daemon = owner.daemon as unknown as { deliverMessage: Deliver };
+      const original = daemon.deliverMessage;
+      daemon.deliverMessage = async () => ({
+        ok: false,
+        reason: '인박스 소켓이 답하지 않았어요',
+        maybeWritten: true,
+      });
+      try {
+        const { id } = await watcher.call<{ id: string }>(
+          { op: 'send', watch: watch.id, body: '들어갔을지 모르는 메시지' },
+          15_000,
+        );
+        await until(async () => (await mine()).some((m) => m.id === id && m.status === 'inserted'));
+        expect(ownerAudit('message_reject')).toHaveLength(0);
+        const inserts = ownerAudit('message_insert');
+        expect(inserts).toHaveLength(1);
+        expect(JSON.parse(inserts[0]!.detail!)).toMatchObject({ id, maybeWritten: true });
+      } finally {
+        daemon.deliverMessage = original;
+      }
+    });
+
     it('--no-messages로 연 공유는 보는 쪽 입력창이 없고 보내도 들어가지 않는다', async () => {
       const closed = await owner.call<ShareInfo>({
         op: 'share',

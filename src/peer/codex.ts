@@ -105,6 +105,7 @@ const KNOWN_DROPPED_EVENTS = new Set([
  * 말과 함께 AGENTS.md 전문과 `<environment_context>`가 들어 있고 developer 메시지는 시스템 지시다.
  * 프롬프트와 답은 event_msg의 user_message, agent_message에서 꺼낸다. reasoning은 추론 원문이다.
  */
+// message는 기록에서 본 종류이고 reasoning은 기록에 없어서 바이너리에 있는 이름을 넣었다
 const KNOWN_DROPPED_ITEMS = new Set(['message', 'reasoning']);
 
 /**

@@ -211,7 +211,7 @@ TLS 없이 띄우면 위 라우팅 정보가 네트워크에 그대로 보인다
 | 릴레이가 들고 있음 | 주인 데몬이 오프라인이라 릴레이가 들고 있다                                                                                                                  |
 | 보냄               | 릴레이가 주인 데몬에 넘겼다                                                                                                                                  |
 | 주인 데몬이 받음   | 검사를 통과했다                                                                                                                                              |
-| 주인 세션에 넣음   | 인박스 소켓에 썼다                                                                                                                                           |
+| 주인 세션에 넣음   | 인박스 소켓에 썼다. 소켓에 붙은 뒤 실패해서 들어갔을 수 있는 경우도 여기다(감사 행에 `maybeWritten`이 붙는다)                                                |
 | 들어감             | 주인 세션 대화 기록에 그 메시지가 보였다                                                                                                                     |
 | 거절               | 주인 데몬이 거절했다. 이유가 같이 온다(`share_closed`, `bad_proof`, `rate_limited`, `messages_off`, `kicked`, `denied`, `not_approved`, 인박스 소켓 없음 등) |
 
@@ -258,7 +258,7 @@ ges_peer { action: "ask_user", question: "이 함수 이름 바꿔도 돼요?", 
 | `rate_limited`                            | 같은 기기가 같은 공유에서 10분에 36번 넘게 넣으려 함        |
 | 메시지 본문 규칙의 이유                   | 비었거나 16KB를 넘음                                        |
 
-거절 답과 감사 행은 메시지 거절과 같은 상한(보낸 기기마다 10분에 36건)을 탄다. 서명 검증은 본문 길이와 서명 길이를 먼저 본 뒤에 한다.
+거절 답과 감사 행은 메시지 거절과 같은 상한(보낸 기기마다 10분에 36건)을 탄다. 질문을 다시 열었다고 알리는 거절은 이 상한을 타지 않는다. 대신 같은 기기가 같은 공유에서 답을 넣으려는 횟수가 `rate_limited` 상한(10분에 36번)에 걸린다. 서명 검증은 본문 길이와 서명 길이를 먼저 본 뒤에 한다.
 
 검사를 다 통과했는데 인박스 소켓에 붙기도 전에 실패했으면(세션이 꺼졌거나 소켓이 없음) 주인 데몬은 질문을 다시 열고 답한 기기에 다시 열었다고 알린다. 보는 쪽 뷰어의 질문 상자가 답 입력으로 돌아가서 같은 사람이 다시 답할 수 있다. 주인 데몬의 넣기가 던졌을 때(`deliver_failed`)도 같다. 붙은 뒤 실패했으면 줄이 들어갔을 수 있어서 메시지처럼 "주인 세션에 넣음"으로 알리고 질문을 끝낸 뒤 대화 기록에 보이면 들어감으로 올린다. 같은 기기가 같은 공유에서 답을 넣으려는 건 10분에 36번까지다(`rate_limited`). 다른 이유로 거절된 답은 거기서 끝난다.
 
@@ -284,7 +284,7 @@ ges_peer { action: "ask_user", question: "이 함수 이름 바꿔도 돼요?", 
 
 - 기록은 `$CODEX_HOME/sessions/<연>/<월>/<일>/rollout-<시각>-<thread id>.jsonl`이다. `state_5.sqlite`는 이 경로를 가리키는 색인이라 안 읽는다.
 - 보내는 건 `event_msg`의 `user_message`(주인 프롬프트)와 `agent_message`(모델 답), `response_item`의 도구 호출(`function_call`, `custom_tool_call`, `local_shell_call`)과 결과(`function_call_output`, `custom_tool_call_output`)뿐이다. 도구 호출과 결과 가운데 기록에서 실제로 본 건 `custom_tool_call`과 그 결과뿐이고 나머지 셋은 바이너리에 있는 이름이다. 그 셋의 필드(`arguments`, `action.command`, `output.success`)는 확인하지 못했다. 꼴이 다르면 도구 이름만 보이고 입력과 결과가 비는 쪽으로 깨진다. 도구 입력과 결과는 Claude Code 기록과 같은 `--tools` 규칙과 가리기를 탄다.
-- 안 보내는 것: `session_meta`(시스템 프롬프트 원문), `world_state`(AGENTS.md 원문), `turn_context`, role과 무관한 `response_item` `message`(사람이 친 말 옆에 AGENTS.md 전문과 `<environment_context>`가 같이 들어 있다), 추론(`reasoning`, `agent_reasoning`, `agent_reasoning_raw_content`, `agent_reasoning_section_break`), 압축 요약(`compacted`), 그 밖의 `event_msg`. 추론과 압축 요약은 기록에 없어서 바이너리에 있는 이름으로 막아 뒀다. 모르는 종류는 개수만 띄운다.
+- 안 보내는 것: `session_meta`(시스템 프롬프트 원문), `world_state`(AGENTS.md 원문), `turn_context`, role과 무관한 `response_item` `message`(사람이 친 말 옆에 AGENTS.md 전문과 `<environment_context>`가 같이 들어 있다), 추론(`reasoning`, `agent_reasoning`, `agent_reasoning_raw_content`, `agent_reasoning_section_break`), 압축 요약(`compacted`), 그 밖의 `event_msg`. 추론과 압축 요약은 기록에 없어서 바이너리에 있는 이름을 "모르는 줄"로 세지 않는 목록에 넣어 뒀다. 이 목록에서 빠져도 허용 목록 밖이라 안 나간다. 모르는 종류는 개수만 띄운다.
 - 메시지와 질문 답은 안 받는다. 주인 데몬이 `messages_off`로 거절하고 보는 사람 뷰어에 입력창이 안 뜬다. 세션 id가 없어서 `ges_peer ask_user`로도 고를 수 없다.
 - 보는 중 표시 훅은 Claude Code 훅이라 Codex 세션에는 안 걸린다. Codex 주인은 `gestalt peer shares`로 누가 보는지 본다. 첫 접속 승인과 kick은 Claude Code 공유와 같다.
 - 모르는 줄이 늘면 감사 로그 `unknown_lines`에 `format: codex`와 codex-cli 버전을 남긴다.

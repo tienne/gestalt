@@ -1130,7 +1130,11 @@ export class PeerNetwork {
     // 넣음으로 알리고 대화 기록에 보이면 들어감으로 올린다
     if (!result.ok && !result.maybeWritten) return reject(result.reason);
     status('inserted');
-    this.options.state.audit('message_insert', msg.share, JSON.stringify({ id: msg.id, person }));
+    this.options.state.audit(
+      'message_insert',
+      msg.share,
+      JSON.stringify({ id: msg.id, person, ...(result.ok ? {} : { maybeWritten: true }) }),
+    );
     inserted = true;
     if (seenEarly) delivered();
   }
@@ -1383,7 +1387,7 @@ export class PeerNetwork {
     this.options.state.audit(
       'answer_insert',
       msg.share,
-      JSON.stringify({ question: q.id, person }),
+      JSON.stringify({ question: q.id, person, ...(result.ok ? {} : { maybeWritten: true }) }),
     );
     inserted = true;
     if (seenEarly) delivered();
