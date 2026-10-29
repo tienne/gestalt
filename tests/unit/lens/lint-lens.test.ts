@@ -176,6 +176,17 @@ describe('읽기 렌즈 lint', () => {
     );
   });
 
+  it('± 칸이어도 note에 그 칸 숫자를 적으면 숫자 의심을 받는다', () => {
+    const source = lensSource();
+    const t4 = source.tables.find((t) => t.id === 'table-4')!;
+    t4.rows[1]![1] = '0.3236 ± 0.0134';
+    t4.rows[2]![1] = '0.2862 ± 0.0152';
+    expect(codes(lensReport(), source)).toEqual([]);
+    const r = lensReport();
+    r.sections[1]!.subsections[0]!.bullets[0]!.doubt!.note = 'CSP 효과가 설정마다 다르다.';
+    expect(codes(r, source)).toContain('DOUBT_NOT_NUMERIC');
+  });
+
   describe('방향 의심', () => {
     // FlavorDiffusion 표 4: 노드 50개에서 CSP를 켜면 NMI가 0.3236에서 0.2862로 떨어지는데 본문은 개선한다고 쓴다
     const withDirection = (direction: Record<string, unknown>) => {

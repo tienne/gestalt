@@ -214,9 +214,12 @@ function checkDoubts(
         const cellValues = cells.flatMap((ev) => {
           if (!isCellRef(ev)) return [];
           const text = source?.tables.find((t) => t.id === ev.table)?.rows[ev.row]?.[ev.col];
-          const n = text === undefined ? null : cellNumber(text);
+          if (text === undefined) return [];
+          const n = cellNumber(text);
           // numbersIn이 부호를 떼므로 칸 값도 떼어 견준다. 음수 칸을 적은 note가 막히지 않게 한다
-          return n === null ? [] : [Math.abs(n)];
+          if (n !== null) return [Math.abs(n)];
+          // "99.68 ± 0.02"처럼 숫자가 둘 든 칸도 그 숫자를 note에 옮겼으면 근거로 친다. 부호를 계산하는 방향 의심은 여전히 이런 칸을 안 받는다
+          return numbersIn(text);
         });
         const noteNumbers = numbersIn(d.note);
         const citesNumbers = d.evidence.some(
