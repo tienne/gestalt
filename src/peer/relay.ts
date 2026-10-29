@@ -30,6 +30,8 @@ export interface RelayServerOptions {
   /** join 모드 연결이 명단에 오르기를 기다리는 시간 */
   joinTimeoutMs?: number;
   pingMs?: number;
+  /** 테스트가 큐 상한을 작게 줄 때 쓴다. 기본은 아래 상수다 */
+  queueLimits?: { perSender?: number; chars?: number };
 }
 
 interface Conn {
@@ -383,9 +385,16 @@ export class RelayServer {
         if (q.to === to) fromSenderToTarget++;
       }
     }
-    if (chars > MAX_QUEUED_CHARS || forTarget >= MAX_QUEUED_PER_TARGET) return false;
-    // 한 사람이 받는 기기 몫이나 큐 전체를 혼자 채우지 못하게 한다. 기기 몫은 주인 쪽 수신 한도와 같다
-    if (fromSenderToTarget >= MESSAGE_RECEIVE_LIMIT || fromSender >= MAX_QUEUED_PER_SENDER) {
+    const limits = this.options.queueLimits;
+    if (chars > (limits?.chars ?? MAX_QUEUED_CHARS) || forTarget >= MAX_QUEUED_PER_TARGET) {
+      return false;
+    }
+    // 한 사람이 받는 기기 하나의 몫(주인 쪽 수신 한도와 같다)과 받는 기기를 가리지 않은 전체를
+    // 따로 센다. 앞의 것만 세면 오프라인 기기 여럿에 나눠 넣어 큐를 혼자 채울 수 있다
+    if (
+      fromSenderToTarget >= MESSAGE_RECEIVE_LIMIT ||
+      fromSender >= (limits?.perSender ?? MAX_QUEUED_PER_SENDER)
+    ) {
       return false;
     }
     this.sendQueue.push({ from, to, data, at: Date.now() });

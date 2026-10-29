@@ -23,6 +23,8 @@ export interface MyMessage {
 export class MirrorFeed extends ShareFeed {
   private unknown = 0;
   private mine = new Map<string, MyMessage>();
+  /** 미리 두기만 하고 아직 안 알린 메시지. 새로 붙은 뷰어에도 안 보낸다 */
+  private reserved = new Set<string>();
 
   constructor(
     id: string,
@@ -94,6 +96,7 @@ export class MirrorFeed extends ShareFeed {
     };
     this.mine.delete(id);
     this.mine.set(id, next);
+    this.reserved.delete(id);
     this.dropOldest();
     this.emit({ type: 'msg', ...next });
   }
@@ -103,6 +106,7 @@ export class MirrorFeed extends ShareFeed {
       const oldest = this.mine.keys().next().value;
       if (oldest === undefined) break;
       this.mine.delete(oldest);
+      this.reserved.delete(oldest);
     }
   }
 
@@ -112,6 +116,7 @@ export class MirrorFeed extends ShareFeed {
    */
   reserveMessage(id: string, text: string, at: number): void {
     this.mine.set(id, { id, text, status: 'queued', at });
+    this.reserved.add(id);
     this.dropOldest();
   }
 
@@ -121,7 +126,9 @@ export class MirrorFeed extends ShareFeed {
 
   override subscribe(listener: ShareListener, afterSeq = 0): () => void {
     const off = super.subscribe(listener, afterSeq);
-    for (const m of this.mine.values()) listener({ type: 'msg', ...m });
+    for (const m of this.mine.values()) {
+      if (!this.reserved.has(m.id)) listener({ type: 'msg', ...m });
+    }
     return off;
   }
 }

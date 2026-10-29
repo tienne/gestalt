@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadOrCreateMachineKey } from '../../../src/peer/keys.js';
 import type { MachineKey } from '../../../src/peer/keys.js';
-import { RelayServer } from '../../../src/peer/relay.js';
+import { RelayServer, SEND_QUEUE_TTL_MS } from '../../../src/peer/relay.js';
 import { nextRoster, signRoster } from '../../../src/peer/roster.js';
-import type { SignedRoster } from '../../../src/peer/roster.js';
+import type { RosterMember, SignedRoster } from '../../../src/peer/roster.js';
 import { signText } from '../../../src/peer/seal.js';
 import { RelayTransport } from '../../../src/peer/transport.js';
 import { helloSigned } from '../../../src/peer/wire.js';
@@ -180,5 +180,102 @@ describe('RelayServer', () => {
     );
     expect(relay.queuedSends).toBe(MESSAGE_RECEIVE_LIMIT);
     await a.close();
+  });
+
+  /** 오프라인 팀원을 더 넣은 명단으로 상한을 작게 준 릴레이를 따로 띄운다 */
+  async function smallRelay(
+    extra: number,
+    queueLimits: { perSender?: number; chars?: number },
+    pingMs?: number,
+  ): Promise<{ relay: RelayServer; url: string; roster: SignedRoster; offline: string[] }> {
+    const others = Array.from({ length: extra }, () =>
+      loadOrCreateMachineKey(mkdtempSync(join(dir, 'x-'))),
+    );
+    const members: RosterMember[] = [
+      ...r1.roster.members,
+      ...others.map((k, i) => ({
+        person: `m${i}`,
+        machineKey: k.id,
+        boxKey: k.boxKey,
+        role: 'member' as const,
+        addedAt: 1,
+      })),
+    ];
+    const roster = signRoster({ ...r1.roster, members }, admin);
+    const r = new RelayServer({
+      team: admin.id,
+      host: '127.0.0.1',
+      port: 0,
+      queueLimits,
+      ...(pingMs ? { pingMs } : {}),
+    });
+    const u = `ws://127.0.0.1:${await r.start()}`;
+    return { relay: r, url: u, roster, offline: [alice.id, ...others.map((k) => k.id)] };
+  }
+
+  it('한 사람이 오프라인 기기 여럿에 나눠 넣어도 보낸 사람 전체 상한에서 막힌다', async () => {
+    const small = await smallRelay(2, { perSender: 3 });
+    try {
+      const a = new RelayTransport({
+        url: small.url,
+        team: admin.id,
+        key: admin,
+        reconnect: false,
+      });
+      await a.connect(small.roster);
+      const [t1, t2, t3] = small.offline as [string, string, string];
+      expect(await a.send(t1, Buffer.from('1'), { queue: true })).toBe('queued');
+      expect(await a.send(t1, Buffer.from('2'), { queue: true })).toBe('queued');
+      expect(await a.send(t2, Buffer.from('3'), { queue: true })).toBe('queued');
+      await expect(a.send(t3, Buffer.from('4'), { queue: true })).rejects.toThrow('queue_full');
+      expect(small.relay.queuedSends).toBe(3);
+      await a.close();
+    } finally {
+      await small.relay.stop();
+    }
+  });
+
+  it('큐 전체 글자 수 상한을 넘기는 것은 안 들고 있는다', async () => {
+    const small = await smallRelay(0, { chars: 100 });
+    try {
+      const a = new RelayTransport({
+        url: small.url,
+        team: admin.id,
+        key: admin,
+        reconnect: false,
+      });
+      await a.connect(small.roster);
+      expect(await a.send(alice.id, Buffer.alloc(40, 1), { queue: true })).toBe('queued');
+      await expect(a.send(alice.id, Buffer.alloc(40, 1), { queue: true })).rejects.toThrow(
+        'queue_full',
+      );
+      expect(small.relay.queuedSends).toBe(1);
+      await a.close();
+    } finally {
+      await small.relay.stop();
+    }
+  });
+
+  it('기한이 지난 큐는 아무도 안 보내도 ping 주기에 버린다', async () => {
+    const small = await smallRelay(0, {}, 20);
+    try {
+      const a = new RelayTransport({
+        url: small.url,
+        team: admin.id,
+        key: admin,
+        reconnect: false,
+      });
+      await a.connect(small.roster);
+      expect(await a.send(alice.id, Buffer.from('old'), { queue: true })).toBe('queued');
+      const now = Date.now();
+      vi.spyOn(Date, 'now').mockReturnValue(now + SEND_QUEUE_TTL_MS + 1);
+      await new Promise((r) => setTimeout(r, 80));
+      expect(small.relay.queuedSends).toBe(0);
+      vi.restoreAllMocks();
+      await a.close();
+    } finally {
+      vi.restoreAllMocks();
+      await small.relay.stop();
+    }
   });
 });

@@ -153,7 +153,8 @@ export class PeerDaemon {
         return {
           stream: s.stream,
           shareKey: s.shareKey,
-          ...(s.messages
+          // 인박스 소켓은 세션 id로 찾으므로 --transcript로 연 공유는 메시지를 못 받는다
+          ...(s.messages && s.sessionId
             ? {
                 deliver: (m: InboundMessage, onSeen: () => void) =>
                   this.deliverMessage(id, m, onSeen),
@@ -330,7 +331,7 @@ export class PeerDaemon {
 
   /**
    * 팀원이 보낸 메시지를 주인 세션 인박스에 쓴다. 들어간 게 대화 기록에 보이면 대화 흐름에
-   * 끼우고 onSeen을 부른다. 기다리기는 쓰기 전에 걸어야 쓰자마자 생긴 줄을 놓치지 않는다.
+   * 끼우고 onSeen을 부른다. 지켜보는 일은 쓰기 전에 걸어야 쓰자마자 생긴 줄을 놓치지 않는다.
    */
   private async deliverMessage(
     shareId: string,
@@ -449,7 +450,7 @@ export class PeerDaemon {
       sessionId: s.sessionId,
       transcriptPath: s.stream.transcriptPath,
       tools: s.stream.tools,
-      messages: s.messages,
+      messages: s.messages && s.sessionId !== null,
       createdAt: s.createdAt,
       expiresAt: s.expiresAt,
       status: s.stream.currentStatus,

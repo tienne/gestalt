@@ -194,6 +194,11 @@ ${
       e.preventDefault();
       const text = bodyEl.value.trim();
       if (!text) return;
+      // maxlength는 글자 수라 한글이면 16KB를 넘긴다. 서버에 보내기 전에 바이트로 한 번 본다
+      if (new TextEncoder().encode(text).length > 16 * 1024) {
+        statusEl.textContent = '메시지가 16KB를 넘어요. 줄여서 보내 주세요';
+        return;
+      }
       fetch(base + '/messages?t=' + encodeURIComponent(token), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

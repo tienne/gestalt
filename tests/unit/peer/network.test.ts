@@ -639,8 +639,10 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       expect(rejects.every((r) => r.shareId === shareInfo.id)).toBe(true);
     });
 
-    it('주인 쪽은 10분에 36건까지 받고 넘으면 rate_limited로 거절한다', async () => {
-      await forge(Array.from({ length: 37 }, (_, i) => msgBox(newMessageId(), `메시지 ${i}`)));
+    it('주인 쪽은 10분에 36건까지 받고 넘으면 rate_limited로 거절하며 거절한 봉인은 다시 와도 안 넣는다', async () => {
+      const bodies = Array.from({ length: 37 }, (_, i) => msgBox(newMessageId(), `메시지 ${i}`));
+      // 릴레이가 한도로 거절된 봉인을 다시 보내는 경우
+      await forge([...bodies, bodies[36]!]);
       await until(() => session.received.length >= 36);
       await until(() => ownerAudit('message_reject').length >= 1);
       expect(session.received).toHaveLength(36);
@@ -659,6 +661,15 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       });
       expect(closed.messages).toBe(false);
       const w = await watcher.call<WatchResult>({ op: 'watch', link: closed.link! }, 15_000);
+      const page = await new Promise<string>((resolveP, reject) => {
+        httpGet(w.url, (res) => {
+          let text = '';
+          res.setEncoding('utf8');
+          res.on('data', (d: string) => (text += d));
+          res.on('end', () => resolveP(text));
+        }).on('error', reject);
+      });
+      expect(page).not.toContain('<textarea id="body"');
       const origin = new URL(w.url).origin;
       const res = await postJson(w.url, JSON.stringify({ text: '안녕' }), {
         'Content-Type': 'application/json',

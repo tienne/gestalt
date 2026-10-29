@@ -209,10 +209,10 @@ describe('ShareStream 메시지 감지', () => {
     expect(kinds(stream)).toContain('tool_result');
   });
 
-  it('기다리기 시한이 지난 뒤 들어온 user 줄도 주인 프롬프트로 안 나간다', () => {
+  it('지켜보는 시한이 지난 뒤 들어온 user 줄도 주인 프롬프트로 안 나간다', () => {
     const stream = make();
     const id = 'm_GGGGGGGGGGGGGGGG';
-    // 기다리는 항목이 없다. 보류된 메시지를 주인이 기다리기 시한이 지난 뒤 받아들인 경우다
+    // 기다리는 항목이 없다. 보류된 메시지를 주인이 지켜보는 시한이 지난 뒤 받아들인 경우다
     line({
       type: 'user',
       message: {
@@ -226,12 +226,32 @@ describe('ShareStream 메시지 감지', () => {
     expect(stream.backlogAfter(0, Infinity).items[0]!.json).toContain('주인 프롬프트');
   });
 
+  it('여는 태그 앞에 다른 text 블록이 붙은 user 줄도 주인 프롬프트로 안 나간다', () => {
+    const stream = make();
+    const id = 'm_IIIIIIIIIIIIIIII';
+    line({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'text', text: '앞에 붙은 다른 글자' },
+          {
+            type: 'text',
+            text: frameMessage({ from: 'alice', origin: 'human', id, body: '안녕' }),
+          },
+        ],
+      },
+    });
+    stream.poll();
+    expect(kinds(stream)).toEqual([]);
+  });
+
   it('끝내 안 보인 메시지는 한 시간 뒤 잊는다', () => {
     const stream = make();
     const seen = vi.fn();
     const id = 'm_CCCCCCCCCCCCCCCC';
     stream.awaitMessage(header(id), seen, 0);
-    // 한 시간 뒤 다른 메시지를 기다리기 시작하면서 앞의 것은 잊힌다
+    // 한 시간 뒤 다른 메시지를 지켜보기 시작하면서 앞의 것은 잊힌다
     stream.awaitMessage(header('m_DDDDDDDDDDDDDDDD'), vi.fn(), 60 * 60 * 1000 + 1);
     line({
       type: 'queue-operation',

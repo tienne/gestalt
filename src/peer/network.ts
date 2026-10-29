@@ -116,6 +116,8 @@ const WATCH_TIMEOUT_MS = 10_000;
 const WATCH_NONCE_TTL_MS = 10 * 60 * 1000;
 const MAX_SEEN_WATCH = 4096;
 const MAX_SEEN_MESSAGES = 8192;
+const MAX_REFUSED_PER_SENDER = 256;
+const MAX_REFUSED_SENDERS = 1024;
 
 /** 데몬끼리 봉인해 주고받는 것. box 안에 든다 */
 type BoxMessage =
@@ -200,6 +202,12 @@ export class PeerNetwork {
   private seenWatch = new Map<string, number>();
   /** 받은 메시지의 `기기|id`. 릴레이가 같은 봉인을 다시 보내면 버린다 */
   private seenMessages = new Set<string>();
+  /**
+   * 수신 한도로 거절한 메시지 id를 `공유|기기`마다 따로 기억한다. 창이 지난 뒤 릴레이가 같은
+   * 봉인을 다시 보내도 넣지 않는다. 공용 seenMessages에 넣으면 한 사람이 맞는 증명으로
+   * 쏟아부어 다른 팀원의 기억을 밀어낼 수 있어서 나눈다
+   */
+  private refusedMessages = new Map<string, Set<string>>();
   private sendLimiter = new RateLimiter();
   /** 보는 쪽이 12건으로 먼저 막는다. 주인 쪽은 릴레이에 쌓였다 한꺼번에 온 것도 받게 넉넉하다 */
   private receiveLimiter = new RateLimiter(MESSAGE_RECEIVE_LIMIT);
@@ -756,7 +764,8 @@ export class PeerNetwork {
     // 릴레이가 같은 봉인을 다시 보내면 한 번만 넣는다. 기억은 검사를 다 통과한 뒤에 한다.
     // 앞에서 기억하면 증명 없는 가짜 id로 칸을 밀어내 옛 봉인을 다시 넣게 할 수 있다
     const dedupe = `${from}|${msg.id}`;
-    if (this.seenMessages.has(dedupe)) return;
+    const sender = `${msg.share}|${from}`;
+    if (this.seenMessages.has(dedupe) || this.refusedMessages.get(sender)?.has(msg.id)) return;
 
     const status = (s: MessageStatus, reason?: string): void => {
       this.sendBox(from, {
@@ -787,8 +796,11 @@ export class PeerNetwork {
     if (!safeEqual(msg.proof, expected)) return reject('bad_proof');
     const clean = sanitizeMessageBody(msg.body);
     if (!clean.ok) return reject(clean.reason);
-    if (!this.receiveLimiter.take(`${msg.share}|${from}`)) return reject('rate_limited');
-    if (!owned.deliver) return reject('no_inbox');
+    if (!this.receiveLimiter.take(sender)) {
+      this.rememberRefused(sender, msg.id);
+      return reject('rate_limited');
+    }
+    if (!owned.deliver) return reject('messages_off');
     // deliver의 첫 await 전에 기억해야 동시에 온 같은 봉인이 둘 다 들어가지 않는다
     this.seenMessages.add(dedupe);
     if (this.seenMessages.size > MAX_SEEN_MESSAGES) {
@@ -819,7 +831,8 @@ export class PeerNetwork {
         JSON.stringify({ id: msg.id, person }),
       );
     };
-    // 기다리기를 쓰기 전에 걸어서 쓰기가 끝나기 전에 보일 수 있다. 그때는 넣음을 먼저 알린 뒤 들어감을 알린다
+    // 들어갔는지 지켜보는 일은 쓰기 전에 걸어 둔다. 그래서 쓰기가 끝나기 전에 보일 수 있고 그때는
+    // 넣음을 먼저 알린 뒤 들어감을 알린다
     let inserted = false;
     let seenEarly = false;
     const result = await owned.deliver(inbound, () => {
@@ -831,6 +844,23 @@ export class PeerNetwork {
     this.options.state.audit('message_insert', msg.share, JSON.stringify({ id: msg.id, person }));
     inserted = true;
     if (seenEarly) delivered();
+  }
+
+  private rememberRefused(sender: string, id: string): void {
+    let ids = this.refusedMessages.get(sender);
+    if (!ids) {
+      ids = new Set();
+      this.refusedMessages.set(sender, ids);
+      if (this.refusedMessages.size > MAX_REFUSED_SENDERS) {
+        const oldest = this.refusedMessages.keys().next().value;
+        if (oldest !== undefined) this.refusedMessages.delete(oldest);
+      }
+    }
+    ids.add(id);
+    if (ids.size > MAX_REFUSED_PER_SENDER) {
+      const oldest = ids.values().next().value;
+      if (oldest !== undefined) ids.delete(oldest);
+    }
   }
 
   /** 보는 쪽: 주인 데몬이 알려 온 상태를 반영한다 */
