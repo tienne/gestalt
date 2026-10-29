@@ -1,9 +1,19 @@
 import { ShareFeed } from './feed.js';
 import type { ShareFrame, ShareListener, ShareStatus } from './feed.js';
-import type { MessageStatus } from './message.js';
+import type { MessageStatus, QuestionState } from './message.js';
 
 /** 내가 보낸 메시지 기록 상한. 넘으면 오래된 것부터 잊는다 */
 const MAX_MY_MESSAGES = 100;
+/** 받아 둔 질문 상한. 넘으면 오래된 것부터 잊는다 */
+export const MAX_QUESTIONS_PER_WATCH = 16;
+
+export interface MyQuestion {
+  id: string;
+  text: string;
+  expiresAt: number;
+  state: QuestionState;
+  reason?: string;
+}
 
 export interface MyMessage {
   id: string;
@@ -25,6 +35,7 @@ export class MirrorFeed extends ShareFeed {
   private mine = new Map<string, MyMessage>();
   /** 미리 두기만 하고 아직 안 알린 메시지. 새로 붙은 뷰어에도 안 보낸다 */
   private reserved = new Set<string>();
+  private questions = new Map<string, MyQuestion>();
 
   constructor(
     id: string,
@@ -129,14 +140,60 @@ export class MirrorFeed extends ShareFeed {
     return this.mine.get(id);
   }
 
+  /** 주인 세션 모델이 나에게 물은 질문을 둔다. 이미 받은 id면 false */
+  addQuestion(id: string, text: string, expiresAt: number): boolean {
+    if (this.isClosed || this.questions.has(id)) return false;
+    const q: MyQuestion = { id, text, expiresAt, state: 'open' };
+    this.questions.set(id, q);
+    while (this.questions.size > MAX_QUESTIONS_PER_WATCH) {
+      const oldest = this.questions.keys().next().value;
+      if (oldest === undefined) break;
+      this.questions.delete(oldest);
+    }
+    this.emit({ type: 'ask', ...q });
+    return true;
+  }
+
+  getQuestion(id: string): MyQuestion | undefined {
+    return this.questions.get(id);
+  }
+
+  /**
+   * 질문 상태를 바꾸고 붙은 뷰어에 알린다. 끝난 상태(delivered, rejected, closed)에서는 안 바뀌고
+   * 답 상태는 메시지처럼 뒤 단계에서 앞 단계로 안 돌아간다. closed는 아직 답하지 않았을 때만 된다.
+   */
+  setQuestion(id: string, state: QuestionState, reason?: string): void {
+    const q = this.questions.get(id);
+    if (!q || QUESTION_DONE.has(q.state)) return;
+    if (state === 'closed' && q.state !== 'open') return;
+    if (QUESTION_ORDER[state] < QUESTION_ORDER[q.state]) return;
+    q.state = state;
+    if (reason) q.reason = reason;
+    else delete q.reason;
+    this.emit({ type: 'ask', ...q });
+  }
+
   override subscribe(listener: ShareListener, afterSeq = 0): () => void {
     const off = super.subscribe(listener, afterSeq);
     for (const m of this.mine.values()) {
       if (!this.reserved.has(m.id)) listener({ type: 'msg', ...m });
     }
+    for (const q of this.questions.values()) listener({ type: 'ask', ...q });
     return off;
   }
 }
+
+const QUESTION_DONE = new Set<QuestionState>(['delivered', 'rejected', 'closed']);
+
+const QUESTION_ORDER: Record<QuestionState, number> = {
+  open: 0,
+  queued: 1,
+  sent: 2,
+  inserted: 3,
+  delivered: 4,
+  rejected: 5,
+  closed: 5,
+};
 
 /** 거절은 어느 단계에서든 올 수 있어서 끝에 둔다 */
 const STATUS_ORDER: Record<MessageStatus, number> = {

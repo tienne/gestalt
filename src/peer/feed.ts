@@ -1,5 +1,5 @@
 import { errMessage } from './errors.js';
-import type { MessageStatus } from './message.js';
+import type { MessageStatus, QuestionState } from './message.js';
 
 /**
  * 뷰어 하나가 받는 것. seq는 SSE id로 써서 다시 붙었을 때 이어 받게 한다. 이벤트는
@@ -23,6 +23,15 @@ export type ShareFrame =
       status: MessageStatus;
       text: string;
       at: number;
+      reason?: string;
+    }
+  /** 보는 쪽 데몬에서만 생긴다. 주인 세션 모델이 나에게 물은 질문과 내 답의 상태 */
+  | {
+      type: 'ask';
+      id: string;
+      text: string;
+      expiresAt: number;
+      state: QuestionState;
       reason?: string;
     };
 

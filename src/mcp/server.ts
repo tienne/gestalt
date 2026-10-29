@@ -41,6 +41,7 @@ import { handleResearchPassthrough } from './tools/research-passthrough.js';
 import { handleDigestPassthrough } from './tools/digest-passthrough.js';
 import { handleGenerateKb } from './tools/generate-kb.js';
 import { handlePr } from './tools/pr.js';
+import { handlePeer } from './tools/peer.js';
 import { handleSearchKb } from './tools/search-kb.js';
 import { handleSyncKb } from './tools/sync-kb.js';
 import { PassthroughReviewEngine } from '../review/passthrough-engine.js';
@@ -56,6 +57,8 @@ import {
   graphVisualizeInputSchema,
   prInputSchema,
   PR_ACTIONS,
+  peerInputSchema,
+  PEER_ACTIONS,
   architectureInputSchema,
   ARCHITECTURE_ACTIONS,
   researchInputSchema,
@@ -591,6 +594,16 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       const input = prInputSchema.parse(params);
       const result = await handlePr(input, process.cwd());
       return toolReply(result);
+    },
+  );
+
+  guardedTool(
+    'ges_peer',
+    `세션 공유(gestalt peer)에서 이 세션을 보고 있는 팀원에게 묻는다. 답은 팀원 기기가 서명한 답으로 나중에 이 세션에 메시지로 들어온다. peer 데몬이 떠 있고 이 세션을 공유 중이어야 한다. Actions: ${PEER_ACTIONS.join(', ')}.`,
+    peerInputSchema.shape,
+    async (params) => {
+      const input = peerInputSchema.parse(params);
+      return toolReply(await handlePeer(input));
     },
   );
 

@@ -26,7 +26,9 @@ export type PeerEvent =
       origin: 'human' | 'agent';
       text: string;
       at?: string;
-    };
+    }
+  /** 주인 세션 모델의 질문에 팀원이 뷰어에서 단 답. 주인 데몬이 서명을 확인한 것만 끼운다 */
+  | { kind: 'peer_answer'; question: string; from: string; text: string; at?: string };
 
 /** `tool_use` 입력 요약 길이. 결과보다 짧게 둔다 — 입력은 접힌 줄 제목처럼 읽힌다 */
 const TOOL_INPUT_SUMMARY_BYTES = 1024;
@@ -209,49 +211,73 @@ export class TranscriptTransformer {
   private toolCall(block: Record<string, unknown>, at: string | undefined): PeerEvent {
     const id = typeof block['id'] === 'string' ? block['id'] : '';
     const name = typeof block['name'] === 'string' ? this.redact(block['name']) : '(이름 없음)';
-    if (this.options.tools === 'none') return { kind: 'tool_call', id, name, at };
-
-    const redacted = redactValue(block['input'] ?? {}, this.options);
-    const json = JSON.stringify(redacted) ?? '';
-    const input =
-      this.options.tools === 'full' ? json : truncateBytes(json, TOOL_INPUT_SUMMARY_BYTES).text;
-    return { kind: 'tool_call', id, name, input, at };
+    return toolCallEvent(id, name, block['input'] ?? {}, at, this.options);
   }
 
   private toolResult(block: Record<string, unknown>, at: string | undefined): PeerEvent {
     const toolUseId = typeof block['tool_use_id'] === 'string' ? block['tool_use_id'] : '';
-    const isError = block['is_error'] === true;
-    if (this.options.tools === 'none') {
-      return { kind: 'tool_result', toolUseId, truncated: false, hidden: true, isError, at };
-    }
-
-    const full = this.redact(resultText(block['content']));
-    if (this.options.tools === 'full') {
-      return {
-        kind: 'tool_result',
-        toolUseId,
-        text: full,
-        truncated: false,
-        hidden: false,
-        isError,
-        at,
-      };
-    }
-    const cut = truncateBytes(full, TOOL_RESULT_SUMMARY_BYTES);
-    return {
-      kind: 'tool_result',
+    return toolResultEvent(
       toolUseId,
-      text: cut.text,
-      truncated: cut.truncated,
-      hidden: false,
-      isError,
+      () => resultText(block['content']),
+      block['is_error'] === true,
       at,
-    };
+      this.options,
+    );
   }
 
   private redact(text: string): string {
     return redactText(text, this.options);
   }
+}
+
+/**
+ * 도구 호출 이벤트. 입력은 가린 뒤 `--tools` 수준에 맞춰 자른다. 객체 입력은 키 이름으로도 가리고
+ * 글자 입력(Codex의 custom_tool_call)은 글자 규칙으로만 가린다.
+ */
+export function toolCallEvent(
+  id: string,
+  name: string,
+  rawInput: unknown,
+  at: string | undefined,
+  options: TransformOptions,
+): PeerEvent {
+  if (options.tools === 'none') return { kind: 'tool_call', id, name, at };
+  const text =
+    typeof rawInput === 'string'
+      ? redactText(rawInput, options)
+      : (JSON.stringify(redactValue(rawInput, options)) ?? '');
+  const input =
+    options.tools === 'full' ? text : truncateBytes(text, TOOL_INPUT_SUMMARY_BYTES).text;
+  return { kind: 'tool_call', id, name, input, at };
+}
+
+/**
+ * 도구 결과 이벤트. 글자는 가린 **뒤에** 자른다. `none`이면 글자를 꺼내지도 않도록 함수로 받는다.
+ */
+export function toolResultEvent(
+  toolUseId: string,
+  rawText: () => string,
+  isError: boolean,
+  at: string | undefined,
+  options: TransformOptions,
+): PeerEvent {
+  if (options.tools === 'none') {
+    return { kind: 'tool_result', toolUseId, truncated: false, hidden: true, isError, at };
+  }
+  const full = redactText(rawText(), options);
+  const cut =
+    options.tools === 'full'
+      ? { text: full, truncated: false }
+      : truncateBytes(full, TOOL_RESULT_SUMMARY_BYTES);
+  return {
+    kind: 'tool_result',
+    toolUseId,
+    text: cut.text,
+    truncated: cut.truncated,
+    hidden: false,
+    isError,
+    at,
+  };
 }
 
 /** tool_result의 content는 문자열이거나 블록 배열이다. 텍스트 블록만 꺼낸다 */
@@ -270,6 +296,6 @@ function resultText(content: unknown): string {
   return parts.join('\n');
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

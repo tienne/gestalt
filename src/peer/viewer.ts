@@ -10,6 +10,14 @@ export interface ViewerShare {
   token: string;
   /** 원격 공유를 보는 중이면 메시지를 보낼 수 있다. 내 공유에는 없다 */
   send?(text: string): Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+  /**
+   * 원격 공유를 보는 중이면 주인 세션 모델의 질문에 답할 수 있다. 내 공유에는 없다. 보는 쪽 데몬이
+   * 기기 키로 서명하는 길은 이 입력 하나다
+   */
+  answer?(
+    question: string,
+    text: string,
+  ): Promise<{ ok: true; question: string } | { ok: false; error: string }>;
 }
 
 export interface ViewerHooks {
@@ -21,6 +29,7 @@ export interface ViewerHooks {
 const PAGE_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/?$/;
 const EVENTS_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/events$/;
 const MESSAGES_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/messages$/;
+const ANSWERS_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/answers$/;
 
 /** POST 본문 상한. 메시지 본문 16KB에 JSON 껍데기 여유를 둔다 */
 const MAX_POST_BYTES = 64 * 1024;
@@ -63,6 +72,7 @@ export interface ViewerServerOptions {
  *   GET /s/:id/events?t=TOKEN   → SSE (line, trimmed, stats, state, closed, msg). 뷰어 상한을 넘으면 429.
  *                                 closed의 missed는 따라잡는 중에 공유가 종료돼 못 보낸 이벤트 수
  *   POST /s/:id/messages?t=TOKEN → 원격 공유에 메시지 보내기. JSON `{text}`만 받고 Origin이 이 뷰어여야 한다
+ *   POST /s/:id/answers?t=TOKEN  → 주인 세션 모델의 질문에 답하기. JSON `{question, text}`, 검사는 messages와 같다
  *   *                           → 404
  */
 export class ViewerServer {
@@ -141,7 +151,7 @@ export class ViewerServer {
       return plain(res, 401, 'Unauthorized');
     }
 
-    if (page) return this.page(res, share.send !== undefined);
+    if (page) return this.page(res, share.send !== undefined, share.answer !== undefined);
     if ((this.viewers.get(id) ?? 0) >= MAX_VIEWERS_PER_SHARE) {
       return plain(res, 429, 'Too Many Viewers');
     }
@@ -161,8 +171,10 @@ export class ViewerServer {
    */
   private post(req: IncomingMessage, res: ServerResponse, url: URL): void {
     const m = MESSAGES_PATH.exec(url.pathname);
-    if (!m) return plain(res, 404, 'Not Found');
-    const share = this.hooks.lookup(m[1]!);
+    const a = m ? null : ANSWERS_PATH.exec(url.pathname);
+    const id = m?.[1] ?? a?.[1];
+    if (!id) return plain(res, 404, 'Not Found');
+    const share = this.hooks.lookup(id);
     if (!share || !tokenMatches(url.searchParams.get('t'), share.token)) {
       return plain(res, 401, 'Unauthorized');
     }
@@ -170,12 +182,43 @@ export class ViewerServer {
     if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) {
       return plain(res, 415, 'Unsupported Media Type');
     }
+    if (a) {
+      const answer = share.answer;
+      if (!answer) return json(res, 400, { error: '질문에 답할 수 없는 공유예요 (내 공유예요)' });
+      return this.readJson(req, res, (parsed) => {
+        const { question, text } = parsed as { question?: unknown; text?: unknown };
+        if (typeof question !== 'string' || typeof text !== 'string') {
+          return json(res, 400, { error: 'question과 text가 필요해요' });
+        }
+        answer(question, text).then(
+          (r) =>
+            r.ok ? json(res, 202, { question: r.question }) : json(res, 400, { error: r.error }),
+          (err: unknown) => json(res, 500, { error: errMessage(err) }),
+        );
+      });
+    }
     if (!share.send) {
       return json(res, 400, {
         error: '메시지를 넣을 수 없는 공유예요 (내 공유이거나 주인이 막았어요)',
       });
     }
     const send = share.send;
+    this.readJson(req, res, (parsed) => {
+      const text = (parsed as { text?: unknown }).text;
+      if (typeof text !== 'string') return json(res, 400, { error: 'text가 없어요' });
+      send(text).then(
+        (r) => (r.ok ? json(res, 202, { id: r.id }) : json(res, 400, { error: r.error })),
+        (err: unknown) => json(res, 500, { error: errMessage(err) }),
+      );
+    });
+  }
+
+  /** POST 본문을 상한 안에서 읽어 JSON 객체로 넘긴다. 넘거나 JSON 객체가 아니면 여기서 답한다 */
+  private readJson(
+    req: IncomingMessage,
+    res: ServerResponse,
+    onBody: (parsed: object) => void,
+  ): void {
     let body = '';
     let tooBig = false;
     req.setEncoding('utf8');
@@ -190,21 +233,20 @@ export class ViewerServer {
     });
     req.on('end', () => {
       if (tooBig) return;
-      let text: unknown;
+      let parsed: unknown;
       try {
-        text = (JSON.parse(body) as { text?: unknown }).text;
+        parsed = JSON.parse(body);
       } catch {
         return json(res, 400, { error: 'JSON이 아니에요' });
       }
-      if (typeof text !== 'string') return json(res, 400, { error: 'text가 없어요' });
-      send(text).then(
-        (r) => (r.ok ? json(res, 202, { id: r.id }) : json(res, 400, { error: r.error })),
-        (err: unknown) => json(res, 500, { error: errMessage(err) }),
-      );
+      if (typeof parsed !== 'object' || parsed === null) {
+        return json(res, 400, { error: 'JSON 객체가 아니에요' });
+      }
+      onBody(parsed);
     });
   }
 
-  private page(res: ServerResponse, canSend: boolean): void {
+  private page(res: ServerResponse, canSend: boolean, canAnswer: boolean): void {
     const nonce = randomBytes(16).toString('base64');
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -219,7 +261,7 @@ export class ViewerServer {
       ].join('; '),
       ...PRIVATE_HEADERS,
     });
-    res.end(renderViewerHtml(nonce, MAX_VIEWERS_PER_SHARE, canSend));
+    res.end(renderViewerHtml(nonce, MAX_VIEWERS_PER_SHARE, canSend, canAnswer));
   }
 
   private stream(req: IncomingMessage, res: ServerResponse, stream: ShareFeed): void {
@@ -342,6 +384,10 @@ function sseFrame(frame: ShareFrame): string {
     case 'msg': {
       const { type: _t, ...rest } = frame;
       return `event: msg\ndata: ${JSON.stringify(rest)}\n\n`;
+    }
+    case 'ask': {
+      const { type: _t, ...rest } = frame;
+      return `event: ask\ndata: ${JSON.stringify(rest)}\n\n`;
     }
   }
 }

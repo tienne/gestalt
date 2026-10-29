@@ -847,6 +847,35 @@ export const prInputSchema = guardObject(
 
 export type PrInput = z.infer<typeof prInputSchema>;
 
+// ─── Peer Tool ────────────────────────────────────────────────────
+/**
+ * `ges_peer`가 받는 액션. 지금은 ask_user 하나다. 공유 통제(share, kick 같은)는 일부러 안 연다 —
+ * 모델이 공유 상태를 바꾸는 길은 사람이 치는 CLI에만 둔다
+ */
+export const PEER_ACTIONS = ['ask_user'] as const;
+
+export const peerInputSchema = guardObject(
+  z.object({
+    action: z
+      .enum(PEER_ACTIONS)
+      .describe(
+        'ask_user: 이 세션 공유를 보고 있는 팀원에게 질문한다. 바로 돌아오고 답은 나중에 <peer-answer … verified>로 이 세션에 들어온다',
+      ),
+    question: z
+      .string()
+      .describe('ask_user: 팀원에게 물을 글. 2KB까지, 비밀값 패턴은 가린 뒤 보낸다'),
+    to: z
+      .string()
+      .optional()
+      .describe(
+        'ask_user: 이 이름의 팀원에게만 묻는다. 없으면 지금 보는 팀원 전원이고 먼저 온 답 하나만 받는다',
+      ),
+    timeoutSecs: z.number().optional().describe('ask_user: 답을 받는 시한(초). 60~3600, 기본 600'),
+  }),
+);
+
+export type PeerInput = z.infer<typeof peerInputSchema>;
+
 // ─── Architecture View Tool ───────────────────────────────────────
 /** `ges_architecture`가 받는 액션. 서버 등록이 이 배열을 그대로 쓴다 */
 export const ARCHITECTURE_ACTIONS = [

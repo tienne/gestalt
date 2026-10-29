@@ -7,7 +7,12 @@ export const VIEWER_WARNING = '비밀값 패턴은 가리지만 전부 잡지는
  * 대화 내용은 전부 textContent로 넣는다. 마크다운을 HTML로 그리면 남의 도구 출력에
  * 든 태그가 이 페이지에서 실행될 길이 생긴다. localStorage나 IndexedDB도 안 쓴다.
  */
-export function renderViewerHtml(nonce: string, maxViewers: number, canSend = false): string {
+export function renderViewerHtml(
+  nonce: string,
+  maxViewers: number,
+  canSend = false,
+  canAnswer = false,
+): string {
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -34,6 +39,11 @@ export function renderViewerHtml(nonce: string, maxViewers: number, canSend = fa
   .error summary { color: #dc2626; }
   .note { color: var(--muted); font-style: italic; font-size: 13px; }
   .peer_message .text { border-left: 3px solid #059669; padding-left: 8px; }
+  .peer_answer .text { border-left: 3px solid #7c3aed; padding-left: 8px; }
+  .ask { border: 1px solid #7c3aed88; border-radius: 6px; padding: 8px 10px; }
+  .ask form { display: flex; gap: 8px; margin-top: 6px; }
+  .ask textarea { flex: 1; min-height: 38px; font: inherit; }
+  .ask .state.rejected { color: #dc2626; }
   footer { position: sticky; bottom: 0; padding: 8px 16px; border-top: 1px solid var(--line);
     background: Canvas; }
   footer form { display: flex; gap: 8px; max-width: 980px; }
@@ -133,6 +143,9 @@ ${
       const who = ev.origin === 'agent' ? ' 님의 에이전트가' : ' 님이';
       box.append(el('div', 'who', '팀원 ' + ev.from + who + ' 넣은 메시지 ' + time(ev.at)));
       box.append(el('div', 'text', ev.text));
+    } else if (ev.kind === 'peer_answer') {
+      box.append(el('div', 'who', '팀원 ' + ev.from + ' 님이 질문에 단 답 (서명 확인) ' + time(ev.at)));
+      box.append(el('div', 'text', ev.text));
     } else {
       return;
     }
@@ -190,6 +203,74 @@ ${
     const label = Object.hasOwn(MSG, d.status) ? MSG[d.status] : d.status;
     li.textContent = label + (d.reason ? ' (' + d.reason + ')' : '') + ' · ' + d.text.slice(0, 60);
     mine.scrollTop = mine.scrollHeight;
+  });
+  // 주인 세션 모델이 나에게 물은 질문. 답하면 보는 쪽 데몬이 기기 키로 서명해 보낸다
+  const ASK = {
+    open: '답을 기다려요',
+    queued: '답을 보냈어요. 주인 오프라인이라 릴레이가 들고 있어요',
+    sent: '답을 주인 데몬에 보냈어요',
+    inserted: '답을 주인 세션에 넣었어요',
+    delivered: '답이 주인 세션에 들어갔어요',
+    rejected: '답이 거절됐어요',
+    closed: '질문이 닫혔어요',
+  };
+  const CLOSED_ASK = { answered: '다른 사람이 먼저 답했어요', expired: '시한이 지났어요' };
+  const asks = new Map();
+  es.addEventListener('ask', (m) => {
+    const d = JSON.parse(m.data);
+    let a = asks.get(d.id);
+    if (!a) {
+      const box = el('div', 'ev ask');
+      box.append(el('div', 'who', '주인 세션 모델의 질문 · ' + new Date(d.expiresAt).toLocaleTimeString() + '까지'));
+      box.append(el('div', 'text', d.text));
+      const state = el('div', 'state');
+      box.append(state);
+      let form = null;
+      if (${canAnswer ? 'true' : 'false'}) {
+        form = el('form');
+        const input = el('textarea');
+        input.maxLength = 16000;
+        input.placeholder = '답 쓰기. 내 기기 키로 서명해서 보내요';
+        const button = el('button', '', '답하기');
+        button.type = 'submit';
+        form.append(input, button);
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const text = input.value.trim();
+          if (!text) return;
+          if (new TextEncoder().encode(text).length > 16 * 1024) {
+            state.textContent = '답이 16KB를 넘어요. 줄여서 보내 주세요';
+            return;
+          }
+          fetch(base + '/answers?t=' + encodeURIComponent(token), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: d.id, text }),
+            cache: 'no-store',
+          })
+            .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+            .then(({ ok, j }) => {
+              if (!ok) state.textContent = '답을 못 보냈어요: ' + (j.error || '');
+            })
+            .catch(() => (state.textContent = '답을 못 보냈어요'));
+        });
+        box.append(form);
+      }
+      a = { state, form };
+      asks.set(d.id, a);
+      const stick = atBottom();
+      log.append(box);
+      if (stick) window.scrollTo(0, document.body.scrollHeight);
+    }
+    a.state.className = 'state ' + d.state;
+    let label = Object.hasOwn(ASK, d.state) ? ASK[d.state] : d.state;
+    if (d.state === 'closed' && d.reason && Object.hasOwn(CLOSED_ASK, d.reason)) label = CLOSED_ASK[d.reason];
+    else if (d.reason) label += ' (' + d.reason + ')';
+    a.state.textContent = label;
+    if (a.form && d.state !== 'open') {
+      a.form.remove();
+      a.form = null;
+    }
   });
   const form = document.getElementById('send');
   if (form) {
