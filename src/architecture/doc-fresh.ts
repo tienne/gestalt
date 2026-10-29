@@ -42,7 +42,9 @@ export function docCommitDates(root: string): Map<string, string> {
         'log',
         // 이름 바꾸기 감지가 내용을 비교하느라 blob 없이 받은 레포에서는 blob을 하나씩 받아와 분 단위로 늘어진다
         '--no-renames',
-        '--format=%x00%cs',
+        // %cs는 git 2.25부터라 옛 git에서도 같은 날짜가 나오게 %cd에 short를 준다
+        '--format=%x00%cd',
+        '--date=short',
         '--name-only',
         '--relative',
         '--',
