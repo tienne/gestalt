@@ -39,6 +39,38 @@
           }
         ]
       }
+    },
+    {
+      "id": "vit-flowers-h14",
+      "kind": "number",
+      "bulletText": "본문은 더 큰 ViT-H/14가 성능을 더 끌어올린다고 쓴다.",
+      "bulletCite": {
+        "key": 0,
+        "from": 0,
+        "to": 0
+      },
+      "doubt": {
+        "note": "표 2 Oxford Flowers-102에서 ViT-H/14는 99.68 ± 0.02로 ViT-L/16의 99.74 ± 0.00보다 낮다.",
+        "evidence": [
+          {
+            "table": "table-2",
+            "row": 7,
+            "col": 1
+          },
+          {
+            "table": "table-2",
+            "row": 7,
+            "col": 2
+          },
+          {
+            "cite": {
+              "key": 0,
+              "from": 0,
+              "to": 0
+            }
+          }
+        ]
+      }
     }
   ],
   "decoys": [

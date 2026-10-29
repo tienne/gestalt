@@ -64,7 +64,8 @@ pnpm lens:fixture <slug> attention --tables table-2,table-3,table-4 --units 12,9
 - 남긴 문단(원래 번호): 68(표 2 해석), 94(모델 크기 해석), 캡션 77, 201.
 - 기대 의심
   - `vit-l16-vs-bit-l`(숫자): 본문 68은 ViT-L/16이 BiT-L보다 모든 과제에서 낫다고 쓰는데 표 2에서 ImageNet ReaL은 90.54로 같고 VTAB은 76.28 대 76.29로 BiT-L이 높다.
-- 고른 이유: 표 칸 대부분이 `88.55 ± 0.04`처럼 표준편차를 달고 있다. 이런 칸은 방향 의심을 받지 않는다는 걸(`vit-x-plus-minus-cells`) 확인하는 자리다. Flowers-102에서 ViT-H/14(99.68)가 ViT-L/16(99.74)보다 낮은 것도 본문 68과 어긋나지만 두 칸이 모두 ± 칸이라 속임 후보로 돌렸다.
+  - `vit-flowers-h14`(숫자): 본문 68은 더 큰 ViT-H/14가 성능을 더 올린다고 쓰는데 표 2 Oxford Flowers-102에서 ViT-H/14는 99.68 ± 0.02로 ViT-L/16의 99.74 ± 0.00보다 낮다.
+- 고른 이유: 표 칸 대부분이 `88.55 ± 0.04`처럼 표준편차를 달고 있다. 이런 칸은 방향 의심을 받지 않는다는 걸(`vit-x-plus-minus-cells`) 확인하는 자리다. Flowers-102에서 ViT-H/14(99.68)가 ViT-L/16(99.74)보다 낮은 것도 본문 68과 어긋난다. 두 칸이 모두 ± 칸이라 방향 의심은 속임 후보로 둔다. 근거 문단을 함께 건 숫자 의심은 기대 의심 `vit-flowers-h14`로 넣었다. 첫 실행 평가에서 lens-reader가 이 자리를 숫자 의심으로 찾아서 옮겼다.
 
 ## loose 표
 
@@ -72,5 +73,5 @@ attention의 table-3, resnet의 table-5, bert의 table-3, vit의 table-6이다. 
 
 ## ingest에서 본 것
 
-- attention과 vit는 제목을 잘못 뽑았다("Provided proper attribution is provided…", "A"). 슬러그도 그 제목에서 나왔다. 픽스처는 `--title`로 제목만 바로잡았고 슬러그는 그대로 뒀다.
+- attention과 vit는 제목을 잘못 뽑았다("Provided proper attribution is provided…", "A"). 슬러그도 그 제목에서 나왔다. 픽스처는 `--title`로 제목만 바로잡았고 슬러그는 그대로 뒀다. 6차 후속에서 ingest가 첫 쪽의 가장 큰 줄을 제목으로 잡게 고쳐 지금은 둘 다 제목이 맞게 나온다. 슬러그는 평가가 레포 복사본을 찾는 이름이라 바꾸지 않았다.
 - attention 본문 93은 소수점이 띄어져 `41 . 0`으로 뽑힌다. lint는 이 문단에서 41과 0을 따로 읽는다. 41.0을 note에 적으면 41로 읽혀 통과하지만 41.5 같은 값이었다면 막혔을 것이다.

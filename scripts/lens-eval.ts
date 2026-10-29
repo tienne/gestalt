@@ -6,7 +6,10 @@
  * SKILL.md Step 3과 같은 merge 재시도 루프를 돈다. 저장된 리포트의 의심 표시를 기대 의심과 표 칸으로 맞춰
  * 재현율, 오탐 후보, 라운드별 차단 코드를 마크다운 표로 낸다. 모델을 부르므로 gate에는 넣지 않는다.
  *
- *   pnpm lens:eval [--only <name>[,<name>]] [--model sonnet] [--effort high] [--out <file>] [--dry-run]
+ *   pnpm lens:eval [--only <name>[,<name>]] [--model sonnet] [--effort high] [--out <file>] [--dry-run] [--full]
+ *
+ * --full이면 픽스처 조각 대신 원문 전체(레포 .gestalt/digest 복사본, 없으면 새로 ingest)로 돌린다.
+ * 조각은 찾을 자리가 좁아서 원문 전체보다 쉬운 조건이다
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -253,7 +256,7 @@ interface Prepared {
   via: 'fixture' | 'repo-copy' | 'ingest';
 }
 
-async function prepare(f: LoadedFixture, base: string): Promise<Prepared> {
+async function prepare(f: LoadedFixture, base: string, full: boolean): Promise<Prepared> {
   const paperRoot = join(base, f.name);
   mkdirSync(paperRoot, { recursive: true });
   const { paper } = f.fixture;
@@ -263,7 +266,7 @@ async function prepare(f: LoadedFixture, base: string): Promise<Prepared> {
   const fixtureHasSource =
     existsSync(join(f.dir, 'source.json')) && existsSync(join(f.dir, 'transcript.json'));
   const repoCopy = paper.slug ? join(REPO_ROOT, '.gestalt', 'digest', paper.slug) : null;
-  if (fixtureHasSource) {
+  if (fixtureHasSource && !full) {
     // 픽스처 폴더에 조각 원문이 같이 있으면 그걸 쓴다. 표 id와 행열은 원래 ingest 기준이다
     cpSync(f.dir, dest(), {
       recursive: true,
@@ -508,6 +511,7 @@ async function evalPaper(
   hints: Map<string, string>,
   o: ClaudeOptions,
   dryRun: boolean,
+  full: boolean,
 ): Promise<PaperResult> {
   const t0 = Date.now();
   const res: PaperResult = {
@@ -530,7 +534,7 @@ async function evalPaper(
   };
   let prep: Prepared;
   try {
-    prep = await prepare(f, base);
+    prep = await prepare(f, base, full);
     Object.assign(res, { via: prep.via, slug: prep.slug, paperRoot: prep.paperRoot });
   } catch (e) {
     res.error = `준비 실패: ${e instanceof Error ? e.message : String(e)}`;
@@ -682,6 +686,7 @@ async function main(): Promise<number> {
       effort: { type: 'string', default: 'high' },
       out: { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
+      full: { type: 'boolean', default: false },
       'no-restricted': { type: 'boolean', default: false },
       'timeout-min': { type: 'string', default: '30' },
     },
@@ -725,13 +730,14 @@ async function main(): Promise<number> {
   for (const f of fixtures) {
     console.error(`[${results.length + 1}/${fixtures.length}] ${f.name}`);
     // 한 편이 실패해도 나머지를 돈다. evalPaper가 실패를 결과에 적어 돌려준다
-    results.push(await evalPaper(f, base, sys, hints, o, dryRun));
+    results.push(await evalPaper(f, base, sys, hints, o, dryRun, values.full));
   }
   const md = renderMarkdown(results, {
     run: runId,
     model: o.model,
     effort: o.effort,
     폴더: base,
+    원문: values.full ? '전체' : '픽스처 조각',
     ...(dryRun ? { 모드: 'dry-run (claude 안 부름)' } : {}),
   });
   writeFileSync(
