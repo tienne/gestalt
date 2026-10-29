@@ -76,6 +76,8 @@ export type HostLookup = (host: string) => Promise<string[]>;
 export interface PinnedInit {
   signal?: AbortSignal;
   headers?: Record<string, string>;
+  /** 믿을 인증서를 바꾼다. 테스트가 자체 서명 인증서로 TLS 이름 검증을 확인할 때만 쓴다 */
+  ca?: string;
 }
 
 /** url을 GET하되 DNS를 다시 풀지 않고 address로만 연결한다. 리다이렉트는 따라가지 않는다 */
@@ -199,12 +201,35 @@ export const pinnedFetch: PinnedFetch = (url, address, init = {}) =>
         agent: false,
         lookup,
         ...(target.protocol === 'https:' && !isIP(host) ? { servername: host } : {}),
+        ...(init.ca ? { ca: init.ca } : {}),
       },
       (res) => resolvePromise(toResponse(res)),
     );
     req.on('error', reject);
     req.end();
   });
+
+/**
+ * 검사한 주소를 차례로 붙어 본다. 연결이 안 되는 주소(IPv6 경로가 없는 망 같은)면 다음 주소로 넘어가고
+ * 응답이 오면 상태 코드와 상관없이 그 응답을 쓴다. 끊으라고 했으면 다음 주소로 가지 않는다
+ */
+async function firstReachable(
+  url: string,
+  addresses: string[],
+  init: PinnedInit,
+  pinned: PinnedFetch,
+): Promise<Response> {
+  let last: unknown;
+  for (const address of addresses) {
+    try {
+      return await pinned(url, address, init);
+    } catch (err) {
+      if (init.signal?.aborted) throw err;
+      last = err;
+    }
+  }
+  throw last;
+}
 
 /**
  * lookup이 있으면 리다이렉트를 직접 따라가며 홉마다 호스트를 다시 풀고 검사한 공개 주소로 고정해 접속한다.
@@ -220,7 +245,7 @@ async function fetchFollowing(
   let current = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const addresses = await resolvePublicHost(current, guard.lookup);
-    const res = await guard.pinnedFetch(current, addresses[0]!, init);
+    const res = await firstReachable(current, addresses, init, guard.pinnedFetch);
     const location = res.headers.get('location');
     if (res.status < 300 || res.status >= 400 || !location) return res;
     await res.body?.cancel().catch(() => undefined);

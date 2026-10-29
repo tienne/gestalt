@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -339,6 +340,41 @@ describe('pinnedFetch', () => {
     expect(seen).toEqual([{ host: `pinned.invalid:${port}`, ua: 'lens-test' }]);
   });
 
+  // tests/fixtures/lens/tls의 인증서는 pinned.test 이름으로만 발급한 자체 서명 인증서다(2126년까지)
+  const TLS = join(fileURLToPath(new URL('../../fixtures/lens/tls', import.meta.url)));
+  const tlsServer = async () => {
+    const names: Array<string | false> = [];
+    const server = createHttpsServer(
+      { key: readFileSync(join(TLS, 'key.pem')), cert: readFileSync(join(TLS, 'cert.pem')) },
+      (_req, res) => res.end('ID3audio'),
+    );
+    server.on('secureConnection', (socket) => names.push(socket.servername));
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    cleanups.push(() => new Promise<void>((done) => server.close(() => done())));
+    return { port: (server.address() as AddressInfo).port, names };
+  };
+  const ca = () => readFileSync(join(TLS, 'cert.pem'), 'utf8');
+
+  it('https는 IP로 붙되 SNI와 인증서 검증은 원래 호스트 이름으로 한다', async () => {
+    const { port, names } = await tlsServer();
+    const res = await pinnedFetch(`https://pinned.test:${port}/ep.mp3`, '127.0.0.1', {
+      ca: ca(),
+      signal: AbortSignal.timeout(5000),
+    });
+    expect(await res.text()).toBe('ID3audio');
+    expect(names).toEqual(['pinned.test']);
+  });
+
+  it('인증서 이름과 다른 호스트면 IP가 같아도 TLS 검증에서 막힌다', async () => {
+    const { port } = await tlsServer();
+    await expect(
+      pinnedFetch(`https://other.test:${port}/ep.mp3`, '127.0.0.1', {
+        ca: ca(),
+        signal: AbortSignal.timeout(5000),
+      }),
+    ).rejects.toThrow(/other\.test|altnames|certificate/i);
+  });
+
   it('IP가 아닌 고정 주소는 거절한다', async () => {
     await expect(pinnedFetch('http://a.example.com/x', 'a.example.com')).rejects.toThrow(
       /IP가 아니/,
@@ -466,6 +502,29 @@ describe('ingestLens (podcast, 주소 검사)', () => {
     expect(r.kind).toBe('podcast');
     expect(lookups).toEqual(['cdn.example.com']);
     expect(pins).toEqual([{ url: 'https://cdn.example.com/ep.mp3', address: '93.184.216.34' }]);
+  });
+
+  it('첫 주소로 연결이 안 되면 검사한 다음 주소로 넘어간다', async () => {
+    const pins: Array<{ url: string; address: string }> = [];
+    const fetchImpl = (async (url: string) =>
+      String(url).includes('feeds.')
+        ? new Response(feedOf('https://cdn.example.com/ep.mp3'), { status: 200 })
+        : new Response(Buffer.from('ID3audio'), { status: 200 })) as typeof fetch;
+    const flaky: PinnedFetch = (url, address, init) => {
+      pins.push({ url, address });
+      if (address === '2001:4860::1') return Promise.reject(new Error('connect ENETUNREACH'));
+      return fetchImpl(url, { ...init, redirect: 'manual' });
+    };
+    const r = await ingestLens('https://feeds.example.com/show', {
+      repoRoot: repo(),
+      run: whisperRun,
+      fetchImpl,
+      pinnedFetch: flaky,
+      python: '/usr/bin/python3',
+      lookup: async () => ['2001:4860::1', '93.184.216.34'],
+    });
+    expect(r.kind).toBe('podcast');
+    expect(pins.map((p) => p.address)).toEqual(['2001:4860::1', '93.184.216.34']);
   });
 
   it('리다이렉트 홉마다 그 홉의 검사 결과로 고정하고 사설 주소로 풀리는 홉에서 멈춘다', async () => {
