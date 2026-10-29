@@ -163,6 +163,69 @@ describe('ShareStream 메시지 감지', () => {
     expect(seen).not.toHaveBeenCalled();
   });
 
+  it('attachment 줄은 prompt 자리로 들어감을 판정한다', () => {
+    const stream = make();
+    const seen = vi.fn();
+    const id = 'm_EEEEEEEEEEEEEEEE';
+    stream.awaitMessage(header(id), seen);
+    line({
+      type: 'attachment',
+      attachment: {
+        type: 'queued_command',
+        prompt: frameMessage({ from: 'alice', origin: 'human', id, body: '안녕' }),
+      },
+    });
+    stream.poll();
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it('도구 결과에 든 여는 태그로는 들어감이 안 켜지고 그 줄도 숨기지 않는다', () => {
+    const stream = make();
+    const seen = vi.fn();
+    const id = 'm_FFFFFFFFFFFFFFFF';
+    stream.awaitMessage(header(id), seen);
+    // 주인 에이전트가 대화 기록을 읽어 도구 결과에 여는 태그가 그대로 들어간 경우
+    line({
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', id: 'tu1', name: 'Bash', input: { command: 'cat' } }],
+      },
+    });
+    line({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tu1',
+            content: frameMessage({ from: 'alice', origin: 'human', id, body: '안녕' }),
+          },
+        ],
+      },
+    });
+    stream.poll();
+    expect(seen).not.toHaveBeenCalled();
+    expect(kinds(stream)).toContain('tool_result');
+  });
+
+  it('기다리기 시한이 지난 뒤 들어온 user 줄도 주인 프롬프트로 안 나간다', () => {
+    const stream = make();
+    const id = 'm_GGGGGGGGGGGGGGGG';
+    // 기다리는 항목이 없다. 보류된 메시지를 주인이 기다리기 시한이 지난 뒤 받아들인 경우다
+    line({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: frameMessage({ from: 'alice', origin: 'human', id, body: '늦게 들어감' }),
+      },
+    });
+    line({ type: 'user', message: { role: 'user', content: '주인 프롬프트' } });
+    stream.poll();
+    expect(kinds(stream)).toEqual(['prompt']);
+    expect(stream.backlogAfter(0, Infinity).items[0]!.json).toContain('주인 프롬프트');
+  });
+
   it('끝내 안 보인 메시지는 한 시간 뒤 잊는다', () => {
     const stream = make();
     const seen = vi.fn();

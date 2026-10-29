@@ -5,7 +5,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import type { Duplex } from 'node:stream';
 import { isRawKey } from './keys.js';
-import { checkRosterUpdate, isAdmin, memberOf } from './roster.js';
+import { checkRosterUpdate, isAdmin, isShareId, memberOf } from './roster.js';
 import type { RosterVerdict, SignedRoster } from './roster.js';
 import { verifyText } from './seal.js';
 import { acceptUpgrade } from './ws.js';
@@ -68,10 +68,13 @@ const MAX_ANNOUNCED_PER_CONN = 256;
 /** 오프라인 기기에게 온 것을 들고 있는 기간. 설계 원문의 7일 */
 export const SEND_QUEUE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_QUEUED_PER_TARGET = 256;
+/** 한 사람이 받는 기기를 가리지 않고 들고 있게 하는 양. 받는 기기 하나 몫(36건)의 네 배다 */
+const MAX_QUEUED_PER_SENDER = MESSAGE_RECEIVE_LIMIT * 4;
 const MAX_QUEUED_TOTAL = 4096;
+/** 큐 전체 글자 수 상한. 건수만 막으면 64KB짜리로 채워 256MB까지 간다 */
+const MAX_QUEUED_CHARS = 16 * 1024 * 1024;
 /** 들고 있을 수 있는 한 건의 크기. 메시지 본문 16KB가 봉인되고 base64로 불어나도 들어간다 */
 const MAX_QUEUED_DATA = 64 * 1024;
-const SHARE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
  * `gestalt peer relay`. 팀이 한 대 띄우는 WebSocket 중계 서버다.
@@ -322,9 +325,7 @@ export class RelayServer {
   private announce(conn: Conn, shares: unknown): void {
     if (!Array.isArray(shares) || shares.length > MAX_ANNOUNCED_PER_CONN) return;
     const key = conn.key!;
-    const wanted = new Set(
-      shares.filter((s): s is string => typeof s === 'string' && SHARE_ID.test(s)),
-    );
+    const wanted = new Set(shares.filter(isShareId));
     for (const [id, owner] of [...this.announced]) {
       if (owner === key && !wanted.has(id)) this.announced.delete(id);
     }
@@ -368,15 +369,31 @@ export class RelayServer {
   private enqueueSend(from: string, to: string, data: string): boolean {
     const roster = this.roster;
     if (!roster || !memberOf(roster.roster, to) || data.length > MAX_QUEUED_DATA) return false;
-    const now = Date.now();
-    this.sendQueue = this.sendQueue.filter((q) => now - q.at < SEND_QUEUE_TTL_MS);
+    this.purgeExpiredSends(Date.now());
     if (this.sendQueue.length >= MAX_QUEUED_TOTAL) return false;
-    const forTarget = this.sendQueue.filter((q) => q.to === to);
-    if (forTarget.length >= MAX_QUEUED_PER_TARGET) return false;
-    // 한 사람이 받는 기기 몫을 혼자 채우지 못하게 한다. 주인 쪽 수신 한도와 같은 숫자다
-    if (forTarget.filter((q) => q.from === from).length >= MESSAGE_RECEIVE_LIMIT) return false;
-    this.sendQueue.push({ from, to, data, at: now });
+    let chars = data.length;
+    let forTarget = 0;
+    let fromSender = 0;
+    let fromSenderToTarget = 0;
+    for (const q of this.sendQueue) {
+      chars += q.data.length;
+      if (q.to === to) forTarget++;
+      if (q.from === from) {
+        fromSender++;
+        if (q.to === to) fromSenderToTarget++;
+      }
+    }
+    if (chars > MAX_QUEUED_CHARS || forTarget >= MAX_QUEUED_PER_TARGET) return false;
+    // 한 사람이 받는 기기 몫이나 큐 전체를 혼자 채우지 못하게 한다. 기기 몫은 주인 쪽 수신 한도와 같다
+    if (fromSenderToTarget >= MESSAGE_RECEIVE_LIMIT || fromSender >= MAX_QUEUED_PER_SENDER) {
+      return false;
+    }
+    this.sendQueue.push({ from, to, data, at: Date.now() });
     return true;
+  }
+
+  private purgeExpiredSends(now: number): void {
+    this.sendQueue = this.sendQueue.filter((q) => now - q.at < SEND_QUEUE_TTL_MS);
   }
 
   private flushSends(key: string): void {
@@ -386,7 +403,7 @@ export class RelayServer {
     const mine = this.sendQueue.filter((q) => q.to === key);
     this.sendQueue = this.sendQueue.filter((q) => q.to !== key);
     for (const [i, q] of mine.entries()) {
-      // 막 붙은 기기가 안 읽으면 남은 건 다시 들고 있는다
+      // 막 붙은 기기가 안 읽으면 남은 건 다시 들고 있다가 다음 ping 주기에 다시 넘긴다
       if (target.ws.bufferedAmount > MAX_RELAY_BUFFERED_BYTES) {
         this.sendQueue.push(...mine.slice(i));
         return;
@@ -482,6 +499,10 @@ export class RelayServer {
       c.alive = false;
       c.ws.ping();
     }
+    // 아무도 안 보내도 만료분을 버리고 버퍼가 차서 멈췄던 넘기기를 다시 해 본다
+    this.purgeExpiredSends(Date.now());
+    const waiting = new Set(this.sendQueue.map((q) => q.to));
+    for (const key of waiting) if (this.members.has(key)) this.flushSends(key);
   }
 
   private loadRosterFile(): void {

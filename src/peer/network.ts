@@ -11,6 +11,7 @@ import {
   isAdmin,
   isPersonName,
   isRelayUrl,
+  isShareId,
   joinProofText,
   memberOf,
   nextRoster,
@@ -119,7 +120,15 @@ const MAX_SEEN_MESSAGES = 8192;
 /** 데몬끼리 봉인해 주고받는 것. box 안에 든다 */
 type BoxMessage =
   | { t: 'watch'; share: string; nonce: string; proof: string; after: number }
-  | { t: 'watch_ok'; share: string; nonce: string; sub: string; salt: string }
+  | {
+      t: 'watch_ok';
+      share: string;
+      nonce: string;
+      sub: string;
+      salt: string;
+      /** 주인이 이 공유로 메시지를 받는지. 없으면(이전 버전 주인 데몬) 안 받는 것으로 본다 */
+      messages?: boolean;
+    }
   | { t: 'watch_err'; share: string; nonce: string; reason: string }
   | { t: 'watch_end'; share: string; sub: string; reason: string }
   | { t: 'unwatch'; share: string; sub: string }
@@ -156,6 +165,8 @@ interface Watch {
   feed: MirrorFeed;
   sub?: string;
   key?: Buffer;
+  /** 주인이 이 공유로 메시지를 받는지. watch_ok가 올 때마다 새로 받는다 */
+  messages: boolean;
   /** 지금 기다리는 watch 요청 */
   pending?: {
     nonce: string;
@@ -426,7 +437,8 @@ export class PeerNetwork {
     | {
         stream: ShareFeed;
         token: string;
-        send(text: string): Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+        /** 주인이 메시지를 안 받는 공유면 없다 */
+        send?(text: string): Promise<{ ok: true; id: string } | { ok: false; error: string }>;
       }
     | undefined {
     const w = this.watches.get(id);
@@ -434,11 +446,15 @@ export class PeerNetwork {
     return {
       stream: w.feed,
       token: w.token,
-      send: (text) =>
-        this.sendMessage(id, text, 'human').then(
-          (r) => ({ ok: true as const, id: r.id }),
-          (err: unknown) => ({ ok: false as const, error: errMessage(err) }),
-        ),
+      ...(w.messages
+        ? {
+            send: (text: string) =>
+              this.sendMessage(id, text, 'human').then(
+                (r) => ({ ok: true as const, id: r.id }),
+                (err: unknown) => ({ ok: false as const, error: errMessage(err) }),
+              ),
+          }
+        : {}),
     };
   }
 
@@ -487,6 +503,7 @@ export class PeerNetwork {
       shareKey: Buffer.from(parsed.shareKey, 'base64url'),
       owner,
       feed: new MirrorFeed(id, owner, ownerMember.person, parsed.shareId),
+      messages: false,
     };
     this.watches.set(id, w);
     try {
@@ -673,8 +690,6 @@ export class PeerNetwork {
     }
   }
 
-  // ── 메시지 ──────────────────────────────────────────────
-
   /**
    * 보는 쪽: 원격 공유 주인 세션에 메시지를 보낸다. 주인 데몬이 오프라인이면 릴레이가 7일까지
    * 들고 있는다. 상태는 보기의 MirrorFeed에 쌓여 뷰어로 간다.
@@ -686,16 +701,18 @@ export class PeerNetwork {
   ): Promise<{ id: string; status: MessageStatus }> {
     const w = this.watches.get(watchId);
     if (!w) throw new PeerNetworkError(`보고 있는 공유가 아니에요: ${watchId}`);
+    if (!w.messages) throw new PeerNetworkError('이 공유는 주인이 메시지를 받지 않게 열었어요');
     const clean = sanitizeMessageBody(raw);
     if (!clean.ok) throw new PeerNetworkError(clean.reason);
-    // 주인 쪽도 같은 한도로 막는다. 여기서 먼저 막아 릴레이까지 안 보낸다
-    if (!this.sendLimiter.take(`${w.share}|${w.owner}`)) {
-      throw new PeerNetworkError('메시지를 너무 자주 보냈어요. 10분에 12건까지예요');
-    }
     const member = this.roster ? memberOf(this.roster.roster, w.owner) : undefined;
     const t = this.transport;
     if (!member) throw new PeerNetworkError('공유 주인이 명단에 없어요');
     if (!t || t.state !== 'online') throw new PeerNetworkError('릴레이에 안 붙어 있어요');
+    // 보내기 직전에 센다. 명단이나 연결 때문에 못 보낸 시도는 한도를 안 깎는다.
+    // 주인 쪽 수신 한도는 MESSAGE_RECEIVE_LIMIT로 따로 정한다
+    if (!this.sendLimiter.take(`${w.share}|${w.owner}`)) {
+      throw new PeerNetworkError('메시지를 너무 자주 보냈어요. 10분에 12건까지예요');
+    }
 
     const id = newMessageId();
     const body: BoxMessage = {
@@ -706,7 +723,8 @@ export class PeerNetwork {
       origin,
       proof: hmac(w.shareKey, messageProofText(w.share, this.key.id, id, clean.text)),
     };
-    w.feed.setMessage(id, { status: 'sent', text: clean.text, at: Date.now() });
+    // 릴레이 답보다 주인 데몬의 상태가 먼저 올 수 있어서 레코드를 미리 둔다. 알리는 건 답을 받은 뒤다
+    w.feed.reserveMessage(id, clean.text, Date.now());
     const box = sealBox(this.key, w.owner, member.boxKey, JSON.stringify(body));
     let result: 'queued' | 'delivered';
     try {
@@ -716,11 +734,7 @@ export class PeerNetwork {
       w.feed.setMessage(id, { status: 'rejected', reason });
       throw new PeerNetworkError(`메시지를 못 보냈어요: ${errMessage(err)}`);
     }
-    if (result === 'queued') {
-      // 앞 단계로 안 돌아가므로 sent를 지우고 queued로 다시 쓴다
-      w.feed.forgetMessage(id);
-      w.feed.setMessage(id, { status: 'queued', text: clean.text });
-    }
+    w.feed.setMessage(id, { status: result === 'queued' ? 'queued' : 'sent' });
     return { id, status: w.feed.getMessage(id)?.status ?? 'sent' };
   }
 
@@ -737,15 +751,12 @@ export class PeerNetwork {
     from: string,
     msg: Extract<BoxMessage, { t: 'msg' }>,
   ): Promise<void> {
-    if (typeof msg.share !== 'string' || !isMessageId(msg.id)) return;
-    // 릴레이가 같은 봉인을 다시 보내면 한 번만 넣는다
+    // 꼴이 틀린 공유 id는 감사 로그와 CLI 출력으로 흘러가지 않게 답 없이 버린다
+    if (!isShareId(msg.share) || !isMessageId(msg.id)) return;
+    // 릴레이가 같은 봉인을 다시 보내면 한 번만 넣는다. 기억은 검사를 다 통과한 뒤에 한다.
+    // 앞에서 기억하면 증명 없는 가짜 id로 칸을 밀어내 옛 봉인을 다시 넣게 할 수 있다
     const dedupe = `${from}|${msg.id}`;
     if (this.seenMessages.has(dedupe)) return;
-    this.seenMessages.add(dedupe);
-    if (this.seenMessages.size > MAX_SEEN_MESSAGES) {
-      const oldest = this.seenMessages.values().next().value;
-      if (oldest !== undefined) this.seenMessages.delete(oldest);
-    }
 
     const status = (s: MessageStatus, reason?: string): void => {
       this.sendBox(from, {
@@ -778,6 +789,12 @@ export class PeerNetwork {
     if (!clean.ok) return reject(clean.reason);
     if (!this.receiveLimiter.take(`${msg.share}|${from}`)) return reject('rate_limited');
     if (!owned.deliver) return reject('no_inbox');
+    // deliver의 첫 await 전에 기억해야 동시에 온 같은 봉인이 둘 다 들어가지 않는다
+    this.seenMessages.add(dedupe);
+    if (this.seenMessages.size > MAX_SEEN_MESSAGES) {
+      const oldest = this.seenMessages.values().next().value;
+      if (oldest !== undefined) this.seenMessages.delete(oldest);
+    }
 
     const origin: MessageOrigin = msg.origin === 'agent' ? 'agent' : 'human';
     this.options.state.audit(
@@ -794,17 +811,26 @@ export class PeerNetwork {
       origin,
       body: clean.text,
     };
-    const result = await owned.deliver(inbound, () => {
+    const delivered = (): void => {
       status('delivered');
       this.options.state.audit(
         'message_deliver',
         msg.share,
         JSON.stringify({ id: msg.id, person }),
       );
+    };
+    // 기다리기를 쓰기 전에 걸어서 쓰기가 끝나기 전에 보일 수 있다. 그때는 넣음을 먼저 알린 뒤 들어감을 알린다
+    let inserted = false;
+    let seenEarly = false;
+    const result = await owned.deliver(inbound, () => {
+      if (inserted) delivered();
+      else seenEarly = true;
     });
     if (!result.ok) return reject(result.reason);
     status('inserted');
     this.options.state.audit('message_insert', msg.share, JSON.stringify({ id: msg.id, person }));
+    inserted = true;
+    if (seenEarly) delivered();
   }
 
   /** 보는 쪽: 주인 데몬이 알려 온 상태를 반영한다 */
@@ -919,6 +945,7 @@ export class PeerNetwork {
       nonce: msg.nonce,
       sub,
       salt: salt.toString('base64url'),
+      messages: owned.deliver !== undefined,
     });
     const person = this.roster ? memberOf(this.roster.roster, from)?.person : undefined;
     this.options.state.audit(
@@ -1094,6 +1121,7 @@ export class PeerNetwork {
       return;
     }
     w.sub = msg.sub;
+    w.messages = msg.messages === true;
     w.key = streamKey(
       w.shareKey,
       Buffer.from(msg.salt, 'base64url'),

@@ -94,17 +94,25 @@ export class MirrorFeed extends ShareFeed {
     };
     this.mine.delete(id);
     this.mine.set(id, next);
+    this.dropOldest();
+    this.emit({ type: 'msg', ...next });
+  }
+
+  private dropOldest(): void {
     while (this.mine.size > MAX_MY_MESSAGES) {
       const oldest = this.mine.keys().next().value;
       if (oldest === undefined) break;
       this.mine.delete(oldest);
     }
-    this.emit({ type: 'msg', ...next });
   }
 
-  /** 상태를 앞 단계로 되돌려야 할 때(릴레이가 들고 있다고 알려 온 경우) 먼저 지운다 */
-  forgetMessage(id: string): void {
-    this.mine.delete(id);
+  /**
+   * 보내기 전에 레코드만 둔다. 뷰어에는 안 알린다. 릴레이 답보다 주인 데몬의 상태가 먼저 와도
+   * 그 상태를 버리지 않으려고 쓴다. 가장 앞 단계인 queued로 두므로 뒤에 오는 어떤 상태든 덮는다.
+   */
+  reserveMessage(id: string, text: string, at: number): void {
+    this.mine.set(id, { id, text, status: 'queued', at });
+    this.dropOldest();
   }
 
   getMessage(id: string): MyMessage | undefined {

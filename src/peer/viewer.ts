@@ -170,7 +170,11 @@ export class ViewerServer {
     if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) {
       return plain(res, 415, 'Unsupported Media Type');
     }
-    if (!share.send) return json(res, 400, { error: '내 공유에는 메시지를 넣지 않아요' });
+    if (!share.send) {
+      return json(res, 400, {
+        error: '메시지를 넣을 수 없는 공유예요 (내 공유이거나 주인이 막았어요)',
+      });
+    }
     const send = share.send;
     let body = '';
     let tooBig = false;

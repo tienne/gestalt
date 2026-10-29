@@ -58,7 +58,7 @@ ${
     ? `<footer>
   <ul id="mine"></ul>
   <form id="send">
-    <textarea id="body" maxlength="16000" placeholder="주인 세션에 메시지 넣기. 프롬프트가 아니라 참고할 정보로 들어가요"></textarea>
+    <textarea id="body" maxlength="16000" placeholder="주인 세션에 메시지 넣기. 참고할 정보로 들어가요 (16KB까지, 한글은 5천 자쯤)"></textarea>
     <button type="submit">보내기</button>
   </form>
 </footer>`

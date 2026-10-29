@@ -317,6 +317,7 @@ export function createCli(): Command {
     .option('--transcript <path>', '대화 기록 jsonl을 직접 지정 (로컬 검증용)')
     .option('--tools <level>', '도구 출력 수준 full | summary | none (기본 summary, 앞 4KB)')
     .option('--expires <minutes>', '만료까지 분 (기본 480)')
+    .option('--no-messages', '팀원이 이 세션에 메시지를 못 넣게 한다')
     .action((o, cmd) => peerShareCommand({ ...peerOpts(cmd), ...o }));
 
   peer

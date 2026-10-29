@@ -217,6 +217,12 @@ export interface ShareLink {
 }
 
 const LINK = /^gestalt:\/\/peer\/([^/#?\s]{1,255})\/([A-Za-z0-9_-]{1,64})#([A-Za-z0-9_-]{43})$/;
+const SHARE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** 링크와 릴레이가 받는 공유 id 꼴 */
+export function isShareId(value: unknown): value is string {
+  return typeof value === 'string' && SHARE_ID.test(value);
+}
 
 export function formatShareLink(relayUrl: string, shareId: string, shareKey: string): string {
   return `gestalt://peer/${new URL(relayUrl).host}/${shareId}#${shareKey}`;

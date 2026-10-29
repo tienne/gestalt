@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
 
 /**
- * 보는 사람이 주인 세션에 넣는 메시지. 프롬프트가 아니라 "팀원이 보낸 것"으로 들어간다.
+ * 보는 사람이 주인 세션에 넣는 메시지. 주인 세션에는 "팀원이 보낸 것"으로 들어간다.
  *
- * 본문은 주인 세션 모델이 읽는 글자라서 틀(`<peer-message>`)을 닫거나 새로 여는 문자열과
- * 터미널 제어 문자를 지운다. 이 방어도 결국 모델 판단에 기대므로 보류(`crossSessionInbound`)와
- * 출처 표시를 같이 둔다.
+ * 본문은 주인 세션 모델이 읽는 글자라서 태그를 여는 꼴(`<` 뒤에 글자)은 `&lt;`로 바꿔 글자로
+ * 남기고 터미널 제어 문자와 보이지 않는 서식 글자는 지운다. 이 방어도 결국 모델 판단에 기대므로
+ * 보류(`crossSessionInbound`)와 출처 표시를 같이 둔다.
  */
 
 export type MessageOrigin = 'human' | 'agent';
@@ -33,14 +33,22 @@ export const MESSAGE_RATE_WINDOW_MS = 10 * 60 * 1000;
  */
 export const MESSAGE_RECEIVE_LIMIT = MESSAGE_RATE_LIMIT * 3;
 
-/** 원격에서 온 짧은 글자(거절 이유)를 화면에 찍기 전에 제어 문자를 지운다 */
+/**
+ * 원격에서 온 짧은 글자(거절 이유, 공유 id)를 한 줄 라벨로 찍기 전에 정리한다. 줄바꿈과 CR,
+ * 탭도 공백 하나로 합친다. 남겨 두면 CLI 목록에 가짜 줄을 끼우거나 앞의 상태 문구를 덮는다.
+ */
 export function plainLabel(raw: unknown, max = 200): string | undefined {
   if (typeof raw !== 'string') return undefined;
-  const text = raw.replace(CONTROL, '').replace(INVISIBLE, '').slice(0, max).trim();
+  const text = raw
+    .replace(/[\t\n\r]+/g, ' ')
+    .replace(CONTROL, '')
+    .replace(INVISIBLE, '')
+    .slice(0, max)
+    .trim();
   return text === '' ? undefined : text;
 }
 
-/** 대화 기록에서 그 메시지를 찾을 때 쓰는 틀 머리. 본문에는 `<`+글자가 못 들어가서 흉내 낼 수 없다 */
+/** 대화 기록에서 그 메시지를 찾을 때 쓰는 여는 태그. 본문에는 `<`+글자가 못 들어가서 흉내 낼 수 없다 */
 export function frameHeader(from: string, origin: MessageOrigin, id: string): string {
   return `<peer-message from="${safeName(from)}" origin="${origin}" id="${id}">`;
 }
@@ -107,9 +115,10 @@ export interface FrameInput {
 /** 주인 세션에 들어가는 글자. 이름은 명단에서 온 값이지만 따옴표만은 한 번 더 막는다 */
 export function frameMessage({ from, origin, id, body }: FrameInput): string {
   const name = safeName(from);
+  // origin은 보내는 쪽이 적는 값이라 사람이 직접 썼다고 단정하지 않는다
   const who =
     origin === 'human'
-      ? `팀원 ${name} 님이 공유 뷰어에서 직접 쓴 메시지다.`
+      ? `팀원 ${name} 님이 보낸 메시지다.`
       : `팀원 ${name} 님의 에이전트가 보낸 메시지다.`;
   return [
     frameHeader(from, origin, id),
@@ -123,6 +132,7 @@ export function frameMessage({ from, origin, id, body }: FrameInput): string {
 /** 보낸 사람마다 창 안의 건수를 센다. 넘으면 false */
 export class RateLimiter {
   private hits = new Map<string, number[]>();
+  private lastSweep = 0;
 
   constructor(
     private readonly limit = MESSAGE_RATE_LIMIT,
@@ -130,6 +140,13 @@ export class RateLimiter {
   ) {}
 
   take(key: string, now = Date.now()): boolean {
+    // 다시 안 불리는 키가 데몬이 도는 동안 남지 않게 창 하나에 한 번씩 지난 키를 지운다
+    if (now - this.lastSweep >= this.windowMs) {
+      for (const [k, ts] of this.hits) {
+        if (ts.length === 0 || now - ts[ts.length - 1]! >= this.windowMs) this.hits.delete(k);
+      }
+      this.lastSweep = now;
+    }
     const recent = (this.hits.get(key) ?? []).filter((at) => now - at < this.windowMs);
     if (recent.length >= this.limit) {
       this.hits.set(key, recent);

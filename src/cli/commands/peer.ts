@@ -5,6 +5,7 @@ import { DaemonUnavailableError, request } from '../../peer/client.js';
 import { errMessage } from '../../peer/errors.js';
 import { claudeConfigDir, locateTranscript } from '../../peer/locate.js';
 import { ensurePrivateDir, peerRoot, socketPath } from '../../peer/paths.js';
+import { plainLabel } from '../../peer/message.js';
 import { isToolsLevel } from '../../peer/redact.js';
 import type {
   DaemonStatus,
@@ -100,6 +101,7 @@ export async function peerShareCommand(
     transcript?: string;
     tools?: string;
     expires?: string;
+    messages?: boolean;
   },
 ): Promise<void> {
   if (!!options.session === !!options.transcript) {
@@ -138,6 +140,7 @@ export async function peerShareCommand(
     sessionId,
     tools: options.tools as 'full' | 'summary' | 'none' | undefined,
     expiresMinutes,
+    ...(options.messages === false ? { messages: false } : {}),
   });
 
   if (options.json) {
@@ -146,6 +149,11 @@ export async function peerShareCommand(
   }
   console.log(`공유를 열었어요 (${info.id}). 만료 ${time(info.expiresAt)}`);
   if (info.link) {
+    if (info.messages) {
+      console.log(
+        '링크를 연 팀원이 이 세션에 메시지를 넣을 수 있어요. 막으려면 --no-messages로 여세요.',
+      );
+    }
     console.log(`이 세션의 대화와 도구 출력이 링크를 연 팀원에게 보여요. ${VIEWER_WARNING}`);
     console.log(`\n팀원에게 건넬 링크 (# 뒤가 공유 키예요):\n${info.link}`);
     console.log(`\n내 뷰어:\n${info.url}\n`);
@@ -364,7 +372,8 @@ export async function peerMessagesCommand(
     }
     if (list.length === 0) console.log('보낸 메시지가 없어요.');
     for (const m of list) {
-      const reason = m.reason ? ` (${m.reason})` : '';
+      const label = plainLabel(m.reason);
+      const reason = label ? ` (${label})` : '';
       console.log(
         `${time(m.at)}  ${STATUS_LABEL[m.status] ?? m.status}${reason}  ${m.text.slice(0, 60)}`,
       );
@@ -382,7 +391,9 @@ export async function peerMessagesCommand(
   }
   if (log.length === 0) console.log('내 공유가 받은 메시지가 없어요.');
   for (const r of log) {
-    console.log(`${time(r.at)}  ${r.shareId ?? '-'}  ${r.action}  ${r.detail ?? ''}`);
+    // 공유 id와 거절 이유는 원격에서 온 값이 섞인다. 터미널에 찍기 전에 제어 문자를 지운다
+    const share = plainLabel(r.shareId) ?? '-';
+    console.log(`${time(r.at)}  ${share}  ${r.action}  ${plainLabel(r.detail, 400) ?? ''}`);
   }
 }
 

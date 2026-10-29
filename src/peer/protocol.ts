@@ -15,6 +15,8 @@ export type PeerRequest =
       sessionId?: string;
       tools?: ToolsLevel;
       expiresMinutes?: number;
+      /** false면 이 공유는 팀원 메시지를 안 받는다. 기본은 받는다 */
+      messages?: boolean;
     }
   | { op: 'unshare'; id: string }
   | { op: 'init'; person: string; relay: string }
@@ -37,6 +39,8 @@ export interface ShareInfo {
   sessionId: string | null;
   transcriptPath: string;
   tools: ToolsLevel;
+  /** 팀원 메시지를 받는지 */
+  messages: boolean;
   createdAt: number;
   expiresAt: number;
   status: ShareStatus;

@@ -51,6 +51,8 @@ interface OpenShare {
   /** 링크의 `#` 뒤에 붙는 공유 키. 메모리에만 있다 */
   shareKey: string;
   sessionId: string | null;
+  /** 팀원 메시지를 받는지. 끄면 deliver를 안 달아 주인 데몬이 no_inbox로 거절한다 */
+  messages: boolean;
   createdAt: number;
   expiresAt: number;
 }
@@ -151,7 +153,12 @@ export class PeerDaemon {
         return {
           stream: s.stream,
           shareKey: s.shareKey,
-          deliver: (m, onSeen) => this.deliverMessage(id, m, onSeen),
+          ...(s.messages
+            ? {
+                deliver: (m: InboundMessage, onSeen: () => void) =>
+                  this.deliverMessage(id, m, onSeen),
+              }
+            : {}),
         };
       },
       transport: this.options.network,
@@ -403,6 +410,7 @@ export class PeerDaemon {
       token,
       shareKey,
       sessionId: req.sessionId ?? null,
+      messages: req.messages !== false,
       createdAt,
       expiresAt,
     });
@@ -414,7 +422,11 @@ export class PeerDaemon {
       createdAt,
       expiresAt,
     });
-    this.state!.audit('share_open', id, JSON.stringify({ tools, expiresAt }));
+    this.state!.audit(
+      'share_open',
+      id,
+      JSON.stringify({ tools, expiresAt, messages: req.messages !== false }),
+    );
     this.announceShares();
     return { ok: true, result: this.info(id) };
   }
@@ -437,6 +449,7 @@ export class PeerDaemon {
       sessionId: s.sessionId,
       transcriptPath: s.stream.transcriptPath,
       tools: s.stream.tools,
+      messages: s.messages,
       createdAt: s.createdAt,
       expiresAt: s.expiresAt,
       status: s.stream.currentStatus,

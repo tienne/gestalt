@@ -12,6 +12,8 @@ import { request } from '../../../src/peer/client.js';
 import { loadMachineKey, machineKeyPath } from '../../../src/peer/keys.js';
 import { RelayServer } from '../../../src/peer/relay.js';
 import { nextRoster, parseShareLink, signRoster } from '../../../src/peer/roster.js';
+import { canonical, hmac, sealBox } from '../../../src/peer/seal.js';
+import { newMessageId } from '../../../src/peer/message.js';
 import { RelayTransport } from '../../../src/peer/transport.js';
 import { PeerState } from '../../../src/peer/state.js';
 import type {
@@ -463,6 +465,53 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
     type Msg = { id: string; status: string; text: string; reason?: string };
     const mine = (): Promise<Msg[]> => watcher.call<Msg[]>({ op: 'messages', watch: watch.id });
 
+    /**
+     * 보는 쪽 데몬을 멈추고 그 기기 키로 주인 데몬에게 메시지 봉인을 직접 보낸다. 같은 키로
+     * 데몬과 동시에 붙으면 접속을 뺏고 뺏기므로 데몬을 먼저 멈춘다.
+     */
+    async function forge(bodies: Record<string, unknown>[]): Promise<void> {
+      await watcher.daemon.stop();
+      const key = loadMachineKey(machineKeyPath(watcher.root));
+      const state = new PeerState(watcher.dbPath);
+      const roster = state.getRoster()!;
+      state.close();
+      const ownerKey = (await owner.status()).machineKey;
+      const ownerBox = roster.roster.members.find((m) => m.machineKey === ownerKey)!.boxKey;
+      const t = new RelayTransport({
+        url: relayUrl,
+        team: roster.roster.team,
+        key,
+        reconnect: false,
+      });
+      await t.connect(roster);
+      for (const b of bodies) {
+        const box = sealBox(key, ownerKey, ownerBox, JSON.stringify(b));
+        t.post(ownerKey, Buffer.from(JSON.stringify(box)));
+      }
+      await new Promise((r) => setTimeout(r, 500));
+      await t.close();
+    }
+
+    /** 링크의 공유 키로 증명을 단 메시지 봉인 내용 */
+    function msgBox(id: string, body: string, opts: { share?: string; proof?: string } = {}) {
+      const share = opts.share ?? shareInfo.id;
+      const from = loadMachineKey(machineKeyPath(watcher.root)).id;
+      const shareKey = Buffer.from(parseShareLink(shareInfo.link!).shareKey, 'base64url');
+      const proof =
+        opts.proof ??
+        hmac(shareKey, canonical({ p: 'gestalt-peer-msg-v1', share, from, id, body }));
+      return { t: 'msg', share, id, body, origin: 'human', proof };
+    }
+
+    const ownerAudit = (action: string): { shareId: string | null; detail: string | null }[] => {
+      const state = new PeerState(owner.dbPath);
+      try {
+        return state.auditLog().filter((r) => r.action === action);
+      } finally {
+        state.close();
+      }
+    };
+
     it('뷰어에서 보낸 메시지가 주인 세션 인박스에 틀로 감싸여 들어가고 상태가 들어감까지 간다', async () => {
       const sse = openSse(watch.url);
       try {
@@ -564,6 +613,62 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       await expect(
         watcher.call({ op: 'send', watch: watch.id, body: '13번째' }, 15_000),
       ).rejects.toThrow('너무 자주');
+    });
+
+    it('주인 데몬은 증명이 틀린 메시지와 꼴이 틀린 공유 id를 거절하고 같은 봉인은 한 번만 넣는다', async () => {
+      const once = newMessageId();
+      const later = newMessageId();
+      const badShare = newMessageId();
+      await forge([
+        msgBox(once, '한 번만'),
+        msgBox(once, '한 번만'),
+        // 증명이 틀린 건 중복 기록에 안 남아서 같은 id의 진짜 메시지는 들어간다
+        msgBox(later, '진짜', { proof: 'x'.repeat(43) }),
+        msgBox(later, '진짜'),
+        msgBox(badShare, '이상한 공유', { share: 'x\u001b[31m'.repeat(10) }),
+      ]);
+      await until(() => session.received.length >= 2);
+      await new Promise((r) => setTimeout(r, 200));
+      expect(session.received.filter((t) => t.includes(`id="${once}"`))).toHaveLength(1);
+      expect(session.received.filter((t) => t.includes(`id="${later}"`))).toHaveLength(1);
+      expect(session.received.some((t) => t.includes(badShare))).toBe(false);
+      const rejects = ownerAudit('message_reject');
+      expect(
+        rejects.map((r) => JSON.parse(r.detail!) as { reason: string }).map((d) => d.reason),
+      ).toEqual(['bad_proof']);
+      expect(rejects.every((r) => r.shareId === shareInfo.id)).toBe(true);
+    });
+
+    it('주인 쪽은 10분에 36건까지 받고 넘으면 rate_limited로 거절한다', async () => {
+      await forge(Array.from({ length: 37 }, (_, i) => msgBox(newMessageId(), `메시지 ${i}`)));
+      await until(() => session.received.length >= 36);
+      await until(() => ownerAudit('message_reject').length >= 1);
+      expect(session.received).toHaveLength(36);
+      const reasons = ownerAudit('message_reject').map(
+        (r) => (JSON.parse(r.detail!) as { reason: string }).reason,
+      );
+      expect(reasons).toEqual(['rate_limited']);
+    });
+
+    it('--no-messages로 연 공유는 보는 쪽 입력창이 없고 보내도 들어가지 않는다', async () => {
+      const closed = await owner.call<ShareInfo>({
+        op: 'share',
+        transcriptPath: session.transcript,
+        sessionId: session.sessionId,
+        messages: false,
+      });
+      expect(closed.messages).toBe(false);
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: closed.link! }, 15_000);
+      const origin = new URL(w.url).origin;
+      const res = await postJson(w.url, JSON.stringify({ text: '안녕' }), {
+        'Content-Type': 'application/json',
+        Origin: origin,
+      });
+      expect(res.status).toBe(400);
+      await expect(watcher.call({ op: 'send', watch: w.id, body: '안녕' }, 15_000)).rejects.toThrow(
+        '메시지를 받지 않게',
+      );
+      expect(session.received).toHaveLength(0);
     });
 
     it('뷰어 POST는 다른 출처와 JSON이 아닌 본문을 거절한다', async () => {
