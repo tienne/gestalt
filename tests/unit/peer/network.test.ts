@@ -150,8 +150,13 @@ interface Node {
  */
 const SHORT_APPROVAL_TTL_MS = 1_000;
 const SHORT_TTL_TAG = '(짧은 시한)';
+/** 승인 대기 긴 안내를 짧게 줄이는 테스트만 쓰는 알림 시간과 그 표시 */
+const SHORT_NOTICE_MS = 300;
+const SHORT_NOTICE_TAG = '(짧은 안내)';
 
-async function startNode(opts: { approvalTtlMs?: number } = {}): Promise<Node> {
+async function startNode(
+  opts: { approvalTtlMs?: number; approvalNoticeMs?: number } = {},
+): Promise<Node> {
   const root = mkdtempSync(join(tmpdir(), 'peer-net-'));
   const dbPath = resolve('.gestalt-test', `peer-${randomUUID()}.db`);
   const daemon = new PeerDaemon({
@@ -161,6 +166,7 @@ async function startNode(opts: { approvalTtlMs?: number } = {}): Promise<Node> {
     home: FAKE_HOME,
     network: { minBackoffMs: 50, maxBackoffMs: 200 },
     approvalTtlMs: opts.approvalTtlMs,
+    approvalNoticeMs: opts.approvalNoticeMs,
   });
   await daemon.start();
   const call = async <T>(req: PeerRequest, timeoutMs = 5_000): Promise<T> => {
@@ -212,9 +218,10 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
   beforeEach(async (ctx) => {
     tap.length = 0;
     tapIn.length = 0;
-    owner = await startNode(
-      ctx.task.name.includes(SHORT_TTL_TAG) ? { approvalTtlMs: SHORT_APPROVAL_TTL_MS } : {},
-    );
+    owner = await startNode({
+      ...(ctx.task.name.includes(SHORT_TTL_TAG) ? { approvalTtlMs: SHORT_APPROVAL_TTL_MS } : {}),
+      ...(ctx.task.name.includes(SHORT_NOTICE_TAG) ? { approvalNoticeMs: SHORT_NOTICE_MS } : {}),
+    });
     watcher = await startNode();
     const team = (await owner.status()).machineKey;
     relayDir = mkdtempSync(join(tmpdir(), 'peer-relay-'));
@@ -1286,6 +1293,40 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         (r) => (JSON.parse(r.detail!) as { reason: string }).reason,
       );
       expect(ends).toContain('unwatch');
+    });
+
+    it(`승인 대기 긴 안내는 알림 시간이 지나면 짧은 한 줄로 줄어든다 ${SHORT_NOTICE_TAG}`, async () => {
+      const file = join(owner.root, 'watching', session.sessionId);
+      await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      await until(() => existsSync(file));
+      expect(runHook(owner.root, session.sessionId)).toContain('주인 승인을 기다린다');
+      await until(async () => (await ownerShare(shareInfo.id)).pending[0]?.brief === true);
+      await until(() => runHook(owner.root, session.sessionId).includes('승인 대기: alice'));
+      const ctx = (
+        JSON.parse(runHook(owner.root, session.sessionId)) as {
+          hookSpecificOutput: { additionalContext: string };
+        }
+      ).hookSpecificOutput.additionalContext;
+      expect(ctx).toBe('[gestalt peer] 승인 대기: alice. 사용자가 정할 일이다.');
+    });
+
+    it('명단에서 빠진 기기는 다른 팀 초대로는 다시 join하지 못한다', async () => {
+      await owner.call({ op: 'remove', person: 'alice' });
+      await until(async () => (await watcher.status()).team?.connection === 'removed');
+      // 다른 팀을 하나 더 만들어 그 관리자의 초대 코드를 받는다
+      const other = await startNode();
+      try {
+        await other.call({ op: 'init', person: 'eve', relay: relayUrl });
+        const { code } = await other.call<{ code: string }>({ op: 'invite', person: 'alice' });
+        await expect(watcher.call({ op: 'join', code, timeoutMs: 2_000 }, 10_000)).rejects.toThrow(
+          '관리자가 새로 만든 초대로만',
+        );
+        expect((await watcher.status()).team?.team).toBe((await owner.status()).machineKey);
+      } finally {
+        await other.daemon.stop();
+        rmSync(other.root, { recursive: true, force: true });
+        rmSync(other.dbPath, { force: true });
+      }
     });
   });
 });

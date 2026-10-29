@@ -81,4 +81,61 @@ describe('재청 간격', () => {
     expect(w.retries).toBe(6);
     expect(w.feed.currentStatus).toBe('offline');
   });
+
+  it('구독이 열리면(watch_ok) 횟수를 지워서 다음 실패는 다시 1초부터 청한다', async () => {
+    const net = new PeerNetwork({
+      state,
+      key: loadOrCreateMachineKey(root),
+      lookupShare: () => undefined,
+    });
+    const inner = net as unknown as Internals;
+    const w = {
+      id: 'w1',
+      token: 't',
+      share: 's1',
+      shareKey: Buffer.alloc(32),
+      owner: 'o',
+      feed: new MirrorFeed('w1', 'o', 'owner', 's1'),
+      messages: false,
+      retries: 0,
+    };
+    inner.watches.set(w.id, w);
+    const calls: number[] = [];
+    // 세 번 거절한 뒤 네 번째에 구독이 열리고 그 뒤로는 다시 거절한다
+    inner.requestWatch = (target) =>
+      new Promise((resolveP, rejectP) => {
+        const nonce = `n${calls.length}`;
+        const ok = calls.length === 3;
+        calls.push(Date.now());
+        (target as { pending?: unknown }).pending = {
+          nonce,
+          settle: { resolve: resolveP, reject: rejectP, timer: setTimeout(() => {}, 0) },
+        };
+        queueMicrotask(() =>
+          inner.onWatchReply(
+            'o',
+            ok
+              ? {
+                  t: 'watch_ok',
+                  share: 's1',
+                  nonce,
+                  sub: 'sub1',
+                  salt: Buffer.alloc(32).toString('base64url'),
+                }
+              : { t: 'watch_err', share: 's1', nonce, reason: 'too_many' },
+          ),
+        );
+      });
+
+    inner.rewatch(w);
+    for (let i = 0; i < 4; i++) await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls).toHaveLength(4);
+    expect(w.retries).toBe(0);
+    // 구독이 열린 뒤 다시 청했다가 거절되면 간격이 처음부터다
+    inner.rewatch(w);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const gaps = calls.slice(1).map((at, i) => at - calls[i]!);
+    expect(gaps.slice(0, 3)).toEqual([1_000, 2_000, 4_000]);
+    expect(gaps[4]).toBe(1_000);
+  });
 });

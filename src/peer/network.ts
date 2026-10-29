@@ -82,6 +82,8 @@ export interface PeerNetworkOptions {
   maxBufferedBytes?: number;
   /** 첫 접속 승인을 기다리는 시한. 테스트가 줄인다 */
   approvalTtlMs?: number;
+  /** 승인 대기를 긴 안내 문구로 알리는 시간. 테스트가 줄인다 */
+  approvalNoticeMs?: number;
   /** 보는 사람, 승인 대기, 끊은 사람 목록이 바뀌면 부른다. 데몬이 훅 상태 파일을 다시 쓴다 */
   onControlChange?(): void;
 }
@@ -308,6 +310,7 @@ export class PeerNetwork {
   private receiveLimiter = new RateLimiter(MESSAGE_RECEIVE_LIMIT);
   private readonly maxBuffered: number;
   private readonly approvalTtl: number;
+  private readonly approvalNotice: number;
   /**
    * 주인 쪽 통제 상태. 전부 공유가 열려 있는 동안만 메모리에 둔다. 공유는 데몬이 다시 뜨면
    * 닫히므로 DB에 남길 필요가 없고 forgetShare가 공유를 닫을 때 같이 버린다.
@@ -329,6 +332,7 @@ export class PeerNetwork {
     this.roster = options.state.getRoster();
     this.maxBuffered = options.maxBufferedBytes ?? MAX_REMOTE_BUFFERED_BYTES;
     this.approvalTtl = options.approvalTtlMs ?? APPROVAL_TTL_MS;
+    this.approvalNotice = options.approvalNoticeMs ?? APPROVAL_NOTICE_MS;
     this.firstWatchMode = options.state.getSettings().firstWatch ?? DEFAULT_FIRST_WATCH_APPROVAL;
   }
 
@@ -442,10 +446,16 @@ export class PeerNetwork {
   async join(code: string, timeoutMs = 60_000): Promise<TeamStatus> {
     const invite = decodeInvite(code);
     // 명단에서 빠지면 릴레이가 바로 끊어서 새 명단을 못 받는다. 그래서 들고 있는 명단에는 아직 내가
-    // 있다. 릴레이가 removed로 끊었으면 그 명단을 믿지 않고 새 초대를 받는다
+    // 있다. 릴레이가 removed로 끊었으면 같은 팀, 같은 관리자의 재초대만 받는다. removed는 릴레이가
+    // 정하는 값이라 이걸로 다른 팀에 옮겨 가는 길까지 열지 않는다
     const removed = this.transport?.state === 'removed';
-    if (this.team && this.roster && memberOf(this.roster.roster, this.key.id) && !removed) {
-      throw new PeerNetworkError(`이미 팀에 들어 있어요 (${this.team.team})`);
+    const rejoin = removed && this.team?.team === invite.team && this.team.anchor === invite.admin;
+    if (this.team && this.roster && memberOf(this.roster.roster, this.key.id) && !rejoin) {
+      throw new PeerNetworkError(
+        removed
+          ? `명단에서 빠진 팀(${this.team.team})의 관리자가 새로 만든 초대로만 다시 들어올 수 있어요`
+          : `이미 팀에 들어 있어요 (${this.team.team})`,
+      );
     }
     if (Date.now() >= invite.expiresAt) throw new PeerNetworkError('초대 코드가 만료됐어요');
 
@@ -1206,7 +1216,7 @@ export class PeerNetwork {
         if (!q) return;
         q.brief = true;
         this.changed();
-      }, APPROVAL_NOTICE_MS);
+      }, this.approvalNotice);
       shorten.unref();
       p = {
         share,
