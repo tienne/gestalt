@@ -195,6 +195,8 @@ interface PendingApproval {
   timer: NodeJS.Timeout;
   /** 훅의 긴 안내 문구를 짧게 줄일 때 */
   shorten: NodeJS.Timeout;
+  /** shorten이 울렸으면 true. 훅 문구는 시각을 다시 재지 않고 이 값으로 고른다 */
+  brief: boolean;
 }
 
 /** 승인을 누가 했는지. team 승인은 설정을 ask로 조이면 거둔다 */
@@ -235,7 +237,7 @@ interface Watch {
   };
   /** 다시 청하기로 걸어 둔 타이머. 답이 없거나 다시 청하면 되는 거절일 때 건다 */
   retry?: NodeJS.Timeout;
-  /** 연달아 실패한 재청 수. 답을 받으면 0으로 돌린다 */
+  /** 연달아 실패한 재청 수. watch_ok로 구독이 열리면 0으로 돌린다 */
   retries: number;
 }
 
@@ -439,7 +441,10 @@ export class PeerNetwork {
    */
   async join(code: string, timeoutMs = 60_000): Promise<TeamStatus> {
     const invite = decodeInvite(code);
-    if (this.team && this.roster && memberOf(this.roster.roster, this.key.id)) {
+    // 명단에서 빠지면 릴레이가 바로 끊어서 새 명단을 못 받는다. 그래서 들고 있는 명단에는 아직 내가
+    // 있다. 릴레이가 removed로 끊었으면 그 명단을 믿지 않고 새 초대를 받는다
+    const removed = this.transport?.state === 'removed';
+    if (this.team && this.roster && memberOf(this.roster.roster, this.key.id) && !removed) {
       throw new PeerNetworkError(`이미 팀에 들어 있어요 (${this.team.team})`);
     }
     if (Date.now() >= invite.expiresAt) throw new PeerNetworkError('초대 코드가 만료됐어요');
@@ -1194,8 +1199,14 @@ export class PeerNetwork {
       const at = Date.now();
       const timer = setTimeout(() => this.expireApproval(key), this.approvalTtl);
       timer.unref();
-      // 긴 안내 문구는 처음 한동안만 붙이고 그 뒤로는 짧게 줄인다. 줄이는 시점에 훅 파일을 다시 쓴다
-      const shorten = setTimeout(() => this.changed(), APPROVAL_NOTICE_MS);
+      // 긴 안내 문구는 처음 한동안만 붙이고 그 뒤로는 짧게 줄인다. 시각 비교는 타이머가 몇 ms 일찍
+      // 울리면 어긋나서 울린 사실을 표시로 남기고 훅 파일을 다시 쓴다
+      const shorten = setTimeout(() => {
+        const q = this.pending.get(key);
+        if (!q) return;
+        q.brief = true;
+        this.changed();
+      }, APPROVAL_NOTICE_MS);
       shorten.unref();
       p = {
         share,
@@ -1206,6 +1217,7 @@ export class PeerNetwork {
         expiresAt: at + this.approvalTtl,
         timer,
         shorten,
+        brief: false,
       };
       this.pending.set(key, p);
       this.options.state.audit(
@@ -1356,7 +1368,12 @@ export class PeerNetwork {
     const pending: PendingWatcher[] = [];
     for (const p of this.pending.values()) {
       if (p.share === share) {
-        pending.push({ person: this.personOf(p.watcher), at: p.at, expiresAt: p.expiresAt });
+        pending.push({
+          person: this.personOf(p.watcher),
+          at: p.at,
+          expiresAt: p.expiresAt,
+          brief: p.brief,
+        });
       }
     }
     const blocked = [...(this.blocked.get(share) ?? new Map<string, BlockReason>())].map(
@@ -1512,7 +1529,8 @@ export class PeerNetwork {
   }
 
   private post(remote: RemoteSub, frames: ShareFrame[]): void {
-    // 끊긴 구독은 키를 지웠다. 지운 키로 봉인한 프레임이 나가지 않게 여기서 한 번 더 막는다
+    // 끊긴 구독은 키를 지웠다. 지금 부르는 쪽(pump의 step, onLocalFrame)이 ended를 먼저 보지만
+    // 호출부가 늘어도 지운 키로 봉인한 프레임이 나가지 않게 여기서도 막는다
     if (remote.ended) return;
     const env: StreamEnvelope = {
       k: 's',
@@ -1532,7 +1550,7 @@ export class PeerNetwork {
     remote.ended = true;
     remote.unsubscribe();
     this.subs.delete(remote.sub);
-    // 이 구독 몫의 세션 키를 메모리에서 지운다. 새 프레임은 ended를 보는 post가 막는다
+    // 이 구독 몫의 세션 키를 메모리에서 지운다. 새 프레임은 ended를 보는 앞 경로가 거르고 post가 한 번 더 막는다
     remote.key.fill(0);
     this.changed();
     if (notify)
@@ -1611,7 +1629,8 @@ export class PeerNetwork {
 
   /**
    * 조금 뒤에 다시 청한다. 주인 데몬이 답하지 않았거나 too_many처럼 다시 청하면 되는 거절일 때다.
-   * 이게 없으면 다음 presence가 올 때까지 보기가 offline에 멈춘다. 간격은 두 배씩 늘린다.
+   * 이게 없으면 다음 presence가 올 때까지 보기가 offline에 멈춘다. 간격은 두 배씩 늘리고 횟수는
+   * 구독이 열릴 때만 0으로 돌아간다. 상한에 닿으면 멈추고 주인이 릴레이에 다시 붙을 때 다시 청한다.
    */
   private scheduleRewatch(w: Watch): void {
     if (w.retry || w.retries >= MAX_REWATCH_RETRIES || !this.watches.has(w.id)) return;
@@ -1651,7 +1670,6 @@ export class PeerNetwork {
       return;
     }
     const settle = w.pending.settle;
-    w.retries = 0;
     if (msg.t === 'watch_wait') {
       w.feed.markWaiting();
       if (settle) {
@@ -1677,6 +1695,9 @@ export class PeerNetwork {
       return;
     }
     w.sub = msg.sub;
+    // 재청 횟수는 구독이 실제로 열렸을 때만 지운다. 거절 답에서 지우면 too_many가 이어질 때 간격이
+    // 늘지 않고 상한에도 안 닿아 1초마다 끝없이 청한다
+    w.retries = 0;
     w.messages = msg.messages === true;
     w.key = streamKey(
       w.shareKey,

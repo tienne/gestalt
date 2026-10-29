@@ -11,14 +11,14 @@
 #
 # 상태 파일: <peer 루트>/watching/<세션 id>
 #   1줄: 파일을 쓴 데몬 pid. 그 프로세스가 없으면 남은 파일로 보고 아무것도 안 낸다
-#   2줄: 그 데몬의 시작 시각(`LC_ALL=C ps -o lstart=`에서 공백을 뺀 글자). 데몬이 죽고 같은 pid를
+#   2줄: 그 데몬의 시작 시각(`LC_ALL=C TZ=UTC ps -o lstart=`에서 공백을 뺀 글자). 데몬이 죽고 같은 pid를
 #        다른 프로세스가 받았으면 시각이 달라서 안 낸다. 비어 있으면 데몬이 ps를 못 부른 것이라 안 본다
 #   3줄: 훅 출력 JSON 한 줄. 데몬이 JSON.stringify로 만든 것이라 셸에서 다시 손대지 않는다
 #
 # peer 루트는 src/peer/paths.ts의 peerRoot와 같게 정한다. GESTALT_PEER_HOME(절대경로만),
 # 없으면 GESTALT_HOME(절대경로만)/.gestalt/peer, 그것도 없으면 ~/.gestalt/peer다.
 #
-# 의존성: bash 3.2+. jq는 안 쓴다.
+# 의존성: bash 3.2+, cat, ps. jq는 안 쓴다.
 set -u
 
 if [[ -n "${GESTALT_PEER_HOME:-}" ]]; then
@@ -61,7 +61,7 @@ PID="" STAMP="" LINE=""
 # 데몬이 죽었으면 보는 사람도 이미 끊겼다
 kill -0 "$PID" 2>/dev/null || exit 0
 if [[ -n "$STAMP" ]]; then
-  NOW="$(LC_ALL=C ps -o lstart= -p "$PID" 2>/dev/null)" || exit 0
+  NOW="$(LC_ALL=C TZ=UTC ps -o lstart= -p "$PID" 2>/dev/null)" || exit 0
   [[ "${NOW//[[:space:]]/}" == "$STAMP" ]] || exit 0
 fi
 [[ "$LINE" == '{"hookSpecificOutput":'* ]] || exit 0

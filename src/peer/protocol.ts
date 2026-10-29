@@ -79,6 +79,8 @@ export interface PendingWatcher {
   at: number;
   /** 이때까지 안 받아 주면 approval_timeout으로 끝난다 */
   expiresAt: number;
+  /** 훅이 긴 안내를 한동안 붙였으면 true. 그 뒤로는 짧은 한 줄만 붙인다 */
+  brief?: boolean;
 }
 
 export type BlockReason = 'kicked' | 'denied';

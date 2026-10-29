@@ -49,7 +49,7 @@ import { loadOrCreateMachineKey } from './keys.js';
 import type { MachineKey } from './keys.js';
 import { acquireDaemonLock, releaseDaemonLock } from './lock.js';
 import type { DaemonLock } from './lock.js';
-import { APPROVAL_NOTICE_MS, PeerNetwork, PeerNetworkError } from './network.js';
+import { PeerNetwork, PeerNetworkError } from './network.js';
 import type { InboundMessage, PeerNetworkOptions } from './network.js';
 import { findInboxSocket, writeInbox } from './inbox.js';
 import type { InboxResult } from './inbox.js';
@@ -577,9 +577,10 @@ export class PeerDaemon {
    * 내보낸다. 아무도 없는 세션은 파일을 지워서 끊긴 사람이 다음 프롬프트에 계속 보이지 않게 한다.
    * `--transcript`로 연 공유는 세션 id가 없어서 표시하지 않는다.
    *
-   * 마지막에 쓴 내용을 세션마다 기억해서 바뀐 세션만 다시 쓴다. 파일 하나가 실패해도 나머지는 쓴다.
+   * 마지막에 쓴 내용을 세션마다 기억해 같은 내용이면 건너뛰고 쓰기와 지우기는 파일마다 따로 실패를
+   * 처리한다. 디렉토리를 못 만들면 그 차례는 아무것도 안 쓴다.
    */
-  private writeWatching(now = Date.now()): void {
+  private writeWatching(): void {
     const network = this.network;
     if (!network || !this.state) return;
     const sessions = new Map<string, { watchers: Set<string>; pending: PendingWatcher[] }>();
@@ -615,7 +616,7 @@ export class PeerDaemon {
       return;
     }
     for (const [sessionId, e] of sessions) {
-      const context = watchingContext([...e.watchers], e.pending, now);
+      const context = watchingContext([...e.watchers], e.pending);
       const line = JSON.stringify({
         hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context },
       });
@@ -795,11 +796,7 @@ export class PeerDaemon {
  * 라벨로 정리하고 이름 꼴이 아니면 뺀다. 승인 명령은 모델이 직접 치지 않게 적는다. 주인이
  * 받아 주는 자리를 모델이 대신 채우면 승인이 뜻이 없다.
  */
-export function watchingContext(
-  watchers: string[],
-  pending: PendingWatcher[],
-  now = Date.now(),
-): string {
+export function watchingContext(watchers: string[], pending: PendingWatcher[]): string {
   const names = (list: string[]): string[] =>
     [...new Set(list.map((n) => plainLabel(n, 32)).filter(isPersonName))].sort();
   const lines: string[] = [];
@@ -807,8 +804,9 @@ export function watchingContext(
   if (who.length > 0) {
     lines.push(`[gestalt peer] ${who.join(', ')} 님이 이 세션의 대화를 보는 중이다.`);
   }
-  // 긴 안내는 대기가 생기고 잠깐만 붙인다. 프롬프트마다 같은 문장이 컨텍스트에 쌓이지 않게 그 뒤로는 줄인다
-  const fresh = names(pending.filter((p) => now - p.at < APPROVAL_NOTICE_MS).map((p) => p.person));
+  // 긴 안내는 대기가 생기고 잠깐만 붙인다(brief가 서기 전). 프롬프트마다 같은 문장이 컨텍스트에
+  // 쌓이지 않게 그 뒤로는 줄인다
+  const fresh = names(pending.filter((p) => !p.brief).map((p) => p.person));
   const old = names(pending.map((p) => p.person)).filter((n) => !fresh.includes(n));
   if (fresh.length > 0) {
     lines.push(
@@ -825,13 +823,14 @@ export function watchingContext(
 
 /**
  * pid의 시작 시각을 ps로 읽어 공백을 뺀 글자로. 훅(`scripts/peer-watching-hook.sh`)이 같은 명령으로
- * 읽어 맞춰 본다. 로캘에 따라 글자가 달라지지 않게 LC_ALL=C로 부른다.
+ * 읽어 맞춰 본다. 로캘과 시간대에 따라 글자가 달라지지 않게 LC_ALL=C, TZ=UTC로 부른다. 데몬과 세션이
+ * 다른 TZ로 떠도 같은 프로세스면 같은 글자가 나와야 한다.
  */
 export function processStartStamp(pid: number): string {
   try {
     const out = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
       encoding: 'utf8',
-      env: { ...process.env, LC_ALL: 'C' },
+      env: { ...process.env, LC_ALL: 'C', TZ: 'UTC' },
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 2_000,
     });

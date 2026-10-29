@@ -846,7 +846,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
      * 오프라인 동안 들고 있게 send로 보내고 결과를 기다린다.
      */
     async function forgeMessage(
-      id: string,
+      ids: string | string[],
       body: string,
       opts: { queue?: boolean } = {},
     ): Promise<'queued' | 'delivered' | 'posted'> {
@@ -858,16 +858,19 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       const ownerKey = (await owner.status()).machineKey;
       const ownerBox = roster.roster.members.find((m) => m.machineKey === ownerKey)!.boxKey;
       const shareKey = Buffer.from(parseShareLink(shareInfo.link!).shareKey, 'base64url');
-      const msg = {
-        t: 'msg',
-        share: shareInfo.id,
-        id,
-        body,
-        origin: 'human',
-        proof: hmac(
-          shareKey,
-          canonical({ p: 'gestalt-peer-msg-v1', share: shareInfo.id, from: key.id, id, body }),
-        ),
+      const seal = (id: string): Buffer => {
+        const msg = {
+          t: 'msg',
+          share: shareInfo.id,
+          id,
+          body,
+          origin: 'human',
+          proof: hmac(
+            shareKey,
+            canonical({ p: 'gestalt-peer-msg-v1', share: shareInfo.id, from: key.id, id, body }),
+          ),
+        };
+        return Buffer.from(JSON.stringify(sealBox(key, ownerKey, ownerBox, JSON.stringify(msg))));
       };
       const t = new RelayTransport({
         url: relayUrl,
@@ -876,15 +879,40 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         reconnect: false,
       });
       await t.connect(roster);
-      const sealed = Buffer.from(
-        JSON.stringify(sealBox(key, ownerKey, ownerBox, JSON.stringify(msg))),
-      );
       let result: 'queued' | 'delivered' | 'posted' = 'posted';
-      if (opts.queue) result = await t.send(ownerKey, sealed, { queue: true });
-      else t.post(ownerKey, sealed);
+      for (const id of Array.isArray(ids) ? ids : [ids]) {
+        if (opts.queue) result = await t.send(ownerKey, seal(id), { queue: true });
+        else t.post(ownerKey, seal(id));
+      }
       await new Promise((r) => setTimeout(r, 300));
       await t.close();
       return result;
+    }
+
+    /** 주인 데몬 안쪽. 테스트가 릴레이 연결만 끊었다 붙일 때 쓴다 */
+    type OwnerNet = { transport: RelayTransport | null; connect(): void };
+    const ownerNet = (): OwnerNet => (owner.daemon as unknown as { network: OwnerNet }).network;
+
+    /** 주인 데몬의 릴레이 연결만 끊는다. 데몬을 멈추면 공유가 닫혀서 이렇게 한다 */
+    async function takeOwnerOffline(): Promise<void> {
+      const net = ownerNet();
+      const ownerKey = (await owner.status()).machineKey;
+      const t = net.transport!;
+      net.transport = null;
+      await t.close();
+      await until(() => !relay.onlineKeys.includes(ownerKey));
+    }
+
+    async function bringOwnerOnline(): Promise<void> {
+      ownerNet().connect();
+      await until(async () => (await owner.status()).team?.connection === 'online');
+    }
+
+    /** 명단에서 뺀 alice를 새 초대로 같은 기기 키 그대로 다시 들인다 */
+    async function rejoinAlice(): Promise<void> {
+      const { code } = await owner.call<{ code: string }>({ op: 'invite', person: 'alice' });
+      await watcher.call({ op: 'join', code, timeoutMs: 10_000 }, 15_000);
+      await until(async () => (await watcher.status()).team?.connection === 'online');
     }
 
     it('처음 붙는 사람은 주인이 받아 줄 때까지 대화 줄과 세션 키를 못 받고 기다림이 보인다', async () => {
@@ -1186,6 +1214,78 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       expect(s.watchers).toEqual([]);
       expect(s.pending.map((p) => p.person)).toEqual(['alice']);
       expect(auditOf(owner, 'approval_revoke')).toHaveLength(1);
+    });
+
+    it('끊긴 사람이 새 id로 계속 보내도 거절 기록은 보낸 기기마다 36건에서 멈춘다', async () => {
+      await watchApproved(shareInfo.link!);
+      await owner.call({ op: 'kick', person: 'alice' });
+      await forgeMessage(
+        Array.from({ length: 45 }, () => newMessageId()),
+        '끊긴 뒤에 계속 보냄',
+      );
+      await until(() => auditOf(owner, 'message_reject').length >= 36);
+      await new Promise((r) => setTimeout(r, 300));
+      const reasons = reasonsOf(auditOf(owner, 'message_reject'));
+      expect(reasons).toHaveLength(36);
+      expect(new Set(reasons)).toEqual(new Set(['kicked']));
+    });
+
+    it('옛 nonce의 취소가 와도 지금 기다리는 대기는 안 지워진다', async () => {
+      await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      await until(async () => (await ownerShare(shareInfo.id)).pending.length === 1);
+      const ownerKey = (await owner.status()).machineKey;
+      // 보는 쪽 데몬은 그대로 두고 그 통로로 다른 nonce의 취소만 보낸다. 데몬을 멈추면 진짜 nonce로
+      // 취소가 먼저 나간다
+      const wnet = (
+        watcher.daemon as unknown as {
+          network: { sendBox(to: string, msg: Record<string, unknown>): boolean };
+        }
+      ).network;
+      expect(
+        wnet.sendBox(ownerKey, { t: 'watch_cancel', share: shareInfo.id, nonce: 'stale-nonce' }),
+      ).toBe(true);
+      await new Promise((r) => setTimeout(r, 300));
+      expect((await ownerShare(shareInfo.id)).pending).toHaveLength(1);
+      expect(auditOf(owner, 'approval_cancel')).toHaveLength(0);
+      await owner.call({ op: 'approve', person: 'alice' });
+    });
+
+    it('받아 준 사람을 명단에서 뺐다 다시 들이면 다시 묻는다', async () => {
+      await watchApproved(shareInfo.link!);
+      await owner.call({ op: 'remove', person: 'alice' });
+      await until(async () => (await watcher.status()).team?.connection === 'removed');
+      await rejoinAlice();
+      const again = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      expect(again.waiting).toBe(true);
+    });
+
+    it('kick한 사람은 명단에서 뺐다 다시 들여도 그 공유에 못 붙는다', async () => {
+      await watchApproved(shareInfo.link!);
+      await owner.call({ op: 'kick', person: 'alice' });
+      await owner.call({ op: 'remove', person: 'alice' });
+      await until(async () => (await watcher.status()).team?.connection === 'removed');
+      await rejoinAlice();
+      await expect(watcher.call({ op: 'watch', link: shareInfo.link! }, 15_000)).rejects.toThrow(
+        '(kicked)',
+      );
+    });
+
+    it('취소가 닿지 않은 채 승인돼 열린 구독은 보는 쪽이 돌려보내 끊는다', async () => {
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+      await until(async () => (await ownerShare(shareInfo.id)).pending.length === 1);
+      // 주인이 릴레이에서 빠진 동안 그만두면 watch_cancel이 닿지 않고 대기가 남는다
+      await takeOwnerOffline();
+      await watcher.call({ op: 'unwatch', id: w.id });
+      await bringOwnerOnline();
+      expect((await ownerShare(shareInfo.id)).pending).toHaveLength(1);
+      // 그 대기를 받아 주면 맞는 보기가 없는 watch_ok가 가고 보는 쪽이 unwatch로 돌려보낸다
+      await owner.call({ op: 'approve', person: 'alice' });
+      await until(() => auditOf(owner, 'remote_watch').length === 1);
+      await until(async () => (await owner.status()).team?.remoteViewers === 0);
+      const ends = auditOf(owner, 'remote_watch_end').map(
+        (r) => (JSON.parse(r.detail!) as { reason: string }).reason,
+      );
+      expect(ends).toContain('unwatch');
     });
   });
 });
