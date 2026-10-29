@@ -258,7 +258,7 @@ ges_peer { action: "ask_user", question: "이 함수 이름 바꿔도 돼요?", 
 
 거절 답과 감사 행은 메시지 거절과 같은 상한(보낸 기기마다 10분에 36건)을 탄다. 서명 검증은 본문 길이와 서명 길이를 먼저 본 뒤에 한다.
 
-검사를 다 통과했는데 주인 세션 인박스에 못 넣었으면(세션이 꺼졌거나 소켓이 없음) 주인 데몬은 질문을 다시 열고 답한 기기에 다시 열었다고 알린다. 보는 쪽 뷰어의 질문 상자가 답 입력으로 돌아가서 같은 사람이 다시 답할 수 있다. 다른 이유로 거절된 답은 거기서 끝난다.
+검사를 다 통과했는데 인박스 소켓에 붙기도 전에 실패했으면(세션이 꺼졌거나 소켓이 없음) 주인 데몬은 질문을 다시 열고 답한 기기에 다시 열었다고 알린다. 보는 쪽 뷰어의 질문 상자가 답 입력으로 돌아가서 같은 사람이 다시 답할 수 있다. 붙은 뒤 실패했으면 줄이 들어갔을 수 있어서 질문을 끝내고 대화 기록에 보이는지 계속 지켜본다. 같은 질문 자리로 넣기를 시도하는 건 10분에 36번까지다(`rate_limited`). 다른 이유로 거절된 답은 거기서 끝난다.
 
 ### 주인 세션에 들어가는 꼴
 
@@ -281,7 +281,7 @@ ges_peer { action: "ask_user", question: "이 함수 이름 바꿔도 돼요?", 
 `gestalt peer share --codex <thread id 또는 rollout 경로>`로 Codex 세션을 연다. 보는 쪽은 Claude Code 공유와 같은 뷰어로 본다. codex-cli 0.147.0 기록으로 확인했다.
 
 - 기록은 `$CODEX_HOME/sessions/<연>/<월>/<일>/rollout-<시각>-<thread id>.jsonl`이다. `state_5.sqlite`는 이 경로를 가리키는 색인이라 안 읽는다.
-- 보내는 건 `event_msg`의 `user_message`(주인 프롬프트)와 `agent_message`(모델 답), `response_item`의 도구 호출(`function_call`, `custom_tool_call`, `local_shell_call`)과 결과(`function_call_output`, `custom_tool_call_output`)뿐이다. 이 가운데 기록에서 실제로 본 건 `custom_tool_call`과 그 결과뿐이고 나머지 셋은 바이너리에 있는 이름이다. 그 셋의 필드(`arguments`, `action.command`, `output.success`)는 확인하지 못했다. 꼴이 다르면 도구 이름만 보이고 입력과 결과가 비는 쪽으로 깨진다. 도구 입력과 결과는 Claude Code 기록과 같은 `--tools` 규칙과 가리기를 탄다.
+- 보내는 건 `event_msg`의 `user_message`(주인 프롬프트)와 `agent_message`(모델 답), `response_item`의 도구 호출(`function_call`, `custom_tool_call`, `local_shell_call`)과 결과(`function_call_output`, `custom_tool_call_output`)뿐이다. 도구 호출과 결과 가운데 기록에서 실제로 본 건 `custom_tool_call`과 그 결과뿐이고 나머지 셋은 바이너리에 있는 이름이다. 그 셋의 필드(`arguments`, `action.command`, `output.success`)는 확인하지 못했다. 꼴이 다르면 도구 이름만 보이고 입력과 결과가 비는 쪽으로 깨진다. 도구 입력과 결과는 Claude Code 기록과 같은 `--tools` 규칙과 가리기를 탄다.
 - 안 보내는 것: `session_meta`(시스템 프롬프트 원문), `world_state`(AGENTS.md 원문), `turn_context`, role과 무관한 `response_item` `message`(사람이 친 말 옆에 AGENTS.md 전문과 `<environment_context>`가 같이 들어 있다), 추론(`reasoning`, `agent_reasoning`, `agent_reasoning_raw_content`), 그 밖의 `event_msg`. 모르는 종류는 개수만 띄운다.
 - 메시지와 질문 답은 안 받는다. 주인 데몬이 `messages_off`로 거절하고 보는 사람 뷰어에 입력창이 안 뜬다. 세션 id가 없어서 `ges_peer ask_user`로도 고를 수 없다.
 - 보는 중 표시 훅은 Claude Code 훅이라 Codex 세션에는 안 걸린다. Codex 주인은 `gestalt peer shares`로 누가 보는지 본다. 첫 접속 승인과 kick은 Claude Code 공유와 같다.

@@ -42,6 +42,7 @@ export function renderViewerHtml(
   .peer_answer .text { border-left: 3px solid #7c3aed; padding-left: 8px; }
   .ask { border: 1px solid #7c3aed88; border-radius: 6px; padding: 8px 10px; }
   .ask form { display: flex; gap: 8px; margin-top: 6px; }
+  .ask form[hidden] { display: none; }
   .ask textarea { flex: 1; min-height: 38px; font: inherit; }
   .ask .state.rejected { color: #dc2626; }
   footer { position: sticky; bottom: 0; padding: 8px 16px; border-top: 1px solid var(--line);

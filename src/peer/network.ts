@@ -219,7 +219,7 @@ type BoxMessage =
   | { t: 'msg_status'; share: string; id: string; status: MessageStatus; reason?: string }
   /** 주인 → 보는 쪽. 주인 세션 모델의 질문 */
   | { t: 'ask'; share: string; q: string; text: string; expiresAt: number }
-  /** 주인 → 보는 쪽. 다른 사람이 먼저 답했거나(answered) 시한이 지나(expired) 닫혔다 */
+  /** 주인 → 보는 쪽. 다른 사람이 먼저 답했거나(answered) 시한이 지나(expired) 끝났다 */
   | { t: 'ask_close'; share: string; q: string; reason: string }
   /** 보는 쪽 → 주인. 뷰어에서 사람이 쓴 답. sig는 answerSignedText에 건 기기 서명이다 */
   | { t: 'answer'; share: string; q: string; body: string; at: number; sig: string }
@@ -408,6 +408,11 @@ export class PeerNetwork {
    * 질문 32개와 최소 시한 60초를 허용하므로 메시지 수신 한도(10분에 36건)를 쓴다
    */
   private askLimiter = new RateLimiter(MESSAGE_RECEIVE_LIMIT);
+  /**
+   * 주인 쪽. 질문 자리(`공유|기기`)마다 인박스에 넣기를 시도하는 수. 인박스가 없는 동안 다시 열린
+   * 질문에 같은 기기가 계속 답해도 감사 행과 넣기 시도가 끝없이 늘지 않게 한다
+   */
+  private answerLimiter = new RateLimiter(MESSAGE_RECEIVE_LIMIT);
 
   constructor(private readonly options: PeerNetworkOptions) {
     this.team = options.state.getTeam();
@@ -1238,7 +1243,7 @@ export class PeerNetwork {
     }
   }
 
-  /** 질문을 닫고 받은 사람 뷰어에 알린다. except 자리(먼저 답한 기기)에는 안 알린다 */
+  /** 질문을 끝내고 받은 사람 뷰어에 알린다. except 자리(먼저 답한 기기)에는 안 알린다 */
   private closeQuestion(q: OpenQuestion, reason: 'answered' | 'expired', except?: string): void {
     if (this.questions.get(q.id) !== q) return;
     clearTimeout(q.timer);
@@ -1258,7 +1263,7 @@ export class PeerNetwork {
   /**
    * 주인 쪽: 답을 검사하고 주인 세션 인박스에 `<peer-answer … verified>`로 넣는다. 검사 순서는
    * 제안서 "ask_user 서명 답" 절의 표와 같다. 하나라도 걸리면 넣지 않는다. 거절 이유마다 network.test.ts의
-   * "ask_user 서명 답" 블록에 그 입력을 넣는 테스트가 있다.
+   * "ask_user 서명 답" 블록에 그 입력을 넣는 테스트가 있다(rate_limited는 빼고).
    */
   private async onAnswer(from: string, msg: Extract<BoxMessage, { t: 'answer' }>): Promise<void> {
     // 꼴이 틀린 id는 감사 로그와 답으로 흘러가지 않게 답 없이 버린다
@@ -1315,9 +1320,11 @@ export class PeerNetwork {
     if (now >= q.expiresAt) return reject('expired');
     const clean = sanitizeMessageBody(msg.body);
     if (!clean.ok) return reject(clean.reason);
+    if (!this.answerLimiter.take(seat)) return reject('rate_limited');
 
-    // 인박스 쓰기를 기다리는 사이에 온 다른 답은 answered로 막는다. 넣지 못하면(던져도) 질문을 다시
-    // 열고 답한 기기에 reopened로 알려 다시 답하게 한다. 이 알림은 거절 상한을 타지 않는다
+    // 인박스 쓰기를 기다리는 사이에 온 다른 답은 answered로 막는다. 소켓에 붙기 전에 실패했거나 deliver가
+    // 던졌으면 질문을 열어 두고 답한 기기에 reopened로 알려 다시 답하게 한다. 이 알림은 거절 상한을 타지
+    // 않는다. 붙은 뒤 실패했으면 줄이 들어갔을 수 있어서 질문을 끝내고 reopened 없이 거절로 알린다
     let inserted = false;
     let seenEarly = false;
     const delivered = (): void => {
@@ -1350,6 +1357,7 @@ export class PeerNetwork {
       q.answering = false;
     }
     if (!result.ok) {
+      if (result.maybeWritten) this.closeQuestion(q, 'answered', seat);
       const reopened = this.questions.get(q.id) === q;
       this.sendBox(from, {
         t: 'answer_status',
@@ -1388,7 +1396,7 @@ export class PeerNetwork {
       (w) => w.owner === from && w.share === msg.share && w.sub && !w.feed.getQuestion(msg.q),
     );
     if (targets.length === 0) return;
-    // 질문마다 감사 행과 뷰어 알림이 따른다. 주인 기기가 계속 보내도 디스크와 뷰어를 못 채우게 한다
+    // 새 질문 수를 주인 기기마다 10분에 36개로 센다. 질문마다 감사 행과 뷰어 알림이 따른다
     if (!this.askLimiter.take(from)) {
       process.stderr.write('[peer] ask dropped: rate limited\n');
       return;
@@ -1453,8 +1461,8 @@ export class PeerNetwork {
       at,
       sig: signText(this.key, answerSignedText(w.share, q.id, clean.text, this.key.id, at)),
     };
-    // 봉인이 던지면 질문은 open으로 남는다. 상태를 옮기는 건 봉인 뒤, 첫 await 앞이라 여기까지가
-    // 동기로 돌고 같은 질문의 두 번째 호출은 위 open 검사에서 걸린다
+    // 상태를 옮기는 건 봉인 뒤, 첫 await 앞이다. 여기까지가 동기로 돌아서 같은 질문의 두 번째 호출은
+    // 위 open 검사에서 걸린다
     const sealed = sealBox(this.key, w.owner, member.boxKey, JSON.stringify(box));
     w.feed.setQuestion(q.id, 'queued');
     let result: 'queued' | 'delivered';

@@ -6,7 +6,9 @@ import type { PeerEvent, TransformOptions } from './transform.js';
 import { isRecord, toolCallEvent, toolResultEvent } from './transform.js';
 
 /**
- * Codex 대화 기록(rollout) 읽기. codex-cli 0.147.0에서 확인한 형식이다.
+ * Codex 대화 기록(rollout) 읽기. codex-cli 0.147.0 exec 기록으로 확인한 형식이다. 허용 목록 가운데
+ * function_call, local_shell_call, function_call_output은 기록에 없어서 바이너리에 있는 이름을 따랐고
+ * 필드는 추정이다.
  *
  * 기록은 `$CODEX_HOME/sessions/<연>/<월>/<일>/rollout-<시각>-<thread id>.jsonl`에 남는다.
  * `state_5.sqlite`의 threads 테이블은 이 경로를 가리키는 색인이고 본문은 jsonl에만 있다.
@@ -73,7 +75,8 @@ function isFile(path: string): boolean {
 }
 
 /**
- * 내용을 안 보내는 줄 종류. 0.147.0 기록에서 본 것이다. 여기 있는 건 조용히 버리고 여기에도 허용
+ * 내용을 안 보내는 줄 종류. compacted 말고는 0.147.0 기록에서 본 것이고 compacted는 바이너리에 있는
+ * 이름이다. 여기 있는 건 조용히 버리고 여기에도 허용
  * 목록에도 없는 종류만 "모르는 줄"로 센다. 차단 목록이 아니다 — 지워도 새는 게 없다.
  *
  * - session_meta: 시스템 프롬프트 원문(base_instructions)이 들어 있다
@@ -181,6 +184,8 @@ export class CodexTransformer {
     const kind = payload['type'];
     const callId = typeof payload['call_id'] === 'string' ? payload['call_id'] : '';
     switch (kind) {
+      // custom_tool_call과 그 결과는 기록에서 본 꼴이다. 나머지 분기의 필드는 추정이라 꼴이 다르면
+      // 도구 이름만 보이고 입력과 결과가 빈다
       case 'function_call':
         return [this.call(callId, payload['name'], parseArguments(payload['arguments']), at)];
       case 'custom_tool_call':

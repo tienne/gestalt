@@ -525,7 +525,8 @@ export class PeerDaemon {
           : frameMessage({ from: m.person, origin: m.origin, id: m.id, body: m.body }),
       );
     } finally {
-      if (!result.ok) stream.cancelAwait(header);
+      // 붙은 뒤 실패했으면 줄이 들어갔을 수 있다. 지켜보기를 남겨 들어갔으면 대화 흐름에 끼운다
+      if (!result.ok && !result.maybeWritten) stream.cancelAwait(header);
     }
     return result;
   }

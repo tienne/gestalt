@@ -1609,7 +1609,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       await until(() => rejects().length >= 4);
       expect(rejects()).toEqual(['bad_time', 'bad_time', 'bad_signature', 'bad_frame']);
 
-      // 시한이 지난 질문. 타이머가 닫기 전이라도 받는 시각이 시한 뒤면 expired다
+      // 시한이 지난 질문. 타이머가 질문을 끝내기 전이라도 받는 시각이 시한 뒤면 expired다
       ownerQuestions().get(r.question)!.expiresAt = Date.now() - 1;
       await forge([real]);
       await until(() => rejects().length >= 5);
@@ -1634,6 +1634,44 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         await until(() => session.received.length === 1);
         expect(session.received[0]).toContain('다시 단 답');
       } finally {
+        sse.req.destroy();
+      }
+    });
+
+    it('서명 길이와 본문 길이는 서명 검증 전에 거른다', async () => {
+      const r = await ask();
+      const stranger = loadOrCreateMachineKey(mkdtempSync(join(tmpdir(), 'peer-stranger-')));
+      // 끝에 '='를 붙여도 base64url로는 같은 서명이라 길이 검사가 없으면 검증을 통과한다
+      const padded = answerBox(r.question, '패딩 붙인 서명');
+      // 틀린 서명이라 길이 사전 컷이 없으면 bad_signature가 된다
+      const big = answerBox(r.question, 'a'.repeat(16 * 1024 + 1), { signer: stranger });
+      await forge([{ ...padded, sig: `${padded.sig}=` }, big]);
+      await until(() => rejects().length >= 2);
+      expect(rejects()).toEqual(['bad_signature', '본문이 16KB를 넘어요']);
+      expect(session.received).toHaveLength(0);
+    });
+
+    it('인박스 넣기가 던지면 질문을 다시 열고 같은 기기의 다음 답이 들어간다', async () => {
+      const sse = openSse(watch.url);
+      type Deliver = (...args: unknown[]) => Promise<unknown>;
+      const daemon = owner.daemon as unknown as { deliverMessage: Deliver };
+      const original = daemon.deliverMessage;
+      daemon.deliverMessage = async () => {
+        daemon.deliverMessage = original;
+        throw new Error('boom');
+      };
+      try {
+        const r = await ask();
+        await until(() => sse.body().includes('event: ask'));
+        expect((await viewerAnswer(r.question, '첫 답')).status).toBe(202);
+        await until(() => rejects().length >= 1);
+        expect(rejects()).toEqual(['deliver_failed']);
+        await until(() => /"state":"open","reason":"deliver_failed"/.test(sse.body()));
+        expect((await viewerAnswer(r.question, '다시 단 답')).status).toBe(202);
+        await until(() => session.received.length === 1);
+        expect(session.received[0]).toContain('다시 단 답');
+      } finally {
+        daemon.deliverMessage = original;
         sse.req.destroy();
       }
     });

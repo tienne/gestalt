@@ -3,7 +3,11 @@ import { createConnection } from 'node:net';
 import { dirname } from 'node:path';
 import { findSessionById, isSessionId } from './locate.js';
 
-export type InboxResult = { ok: true } | { ok: false; reason: string };
+/**
+ * 넣은 결과. maybeWritten은 소켓에 붙은 뒤 실패했다는 뜻이라 줄이 실제로 들어갔을 수 있다. 붙기 전에
+ * 실패했으면(소켓 없음, ENOENT, ECONNREFUSED) 없다
+ */
+export type InboxResult = { ok: true } | { ok: false; reason: string; maybeWritten?: true };
 
 /**
  * 대화 기록 경로에서 설정 디렉토리를 거꾸로 찾는다. 기록은
@@ -55,6 +59,7 @@ export function writeInbox(
 ): Promise<InboxResult> {
   return new Promise((resolve) => {
     let done = false;
+    let connected = false;
     const finish = (r: InboxResult): void => {
       if (done) return;
       done = true;
@@ -64,13 +69,22 @@ export function writeInbox(
     const c = createConnection(socketPath);
     const timer = setTimeout(() => {
       c.destroy();
-      finish({ ok: false, reason: '인박스 소켓이 답하지 않았어요' });
+      finish({
+        ok: false,
+        reason: '인박스 소켓이 답하지 않았어요',
+        ...(connected ? { maybeWritten: true as const } : {}),
+      });
     }, timeoutMs);
     // 오류 문구에는 소켓 경로(주인의 홈 경로)가 든다. 이유는 팀원에게 가므로 코드만 싣는다
     c.once('error', (err: NodeJS.ErrnoException) =>
-      finish({ ok: false, reason: `인박스 소켓에 못 썼어요 (${err.code ?? 'error'})` }),
+      finish({
+        ok: false,
+        reason: `인박스 소켓에 못 썼어요 (${err.code ?? 'error'})`,
+        ...(connected ? { maybeWritten: true as const } : {}),
+      }),
     );
     c.once('connect', () => {
+      connected = true;
       const line =
         JSON.stringify({ type: 'user', message: { role: 'user', content: text } }) + '\n';
       c.end(line, () => finish({ ok: true }));

@@ -197,4 +197,36 @@ describe('질문과 답', () => {
       .map((f) => (f as { state: string }).state);
     expect(states).toEqual(['open', 'queued', 'inserted', 'delivered']);
   });
+
+  it('다시 열기는 시한 전이고 내 답이 queued, sent, rejected일 때만 open으로 되돌린다', () => {
+    const now = Date.now();
+    const feed = new MirrorFeed('w', 'owner', 'tienne', 's');
+    const states: Record<string, string> = {};
+    const make = (
+      id: string,
+      to: 'queued' | 'sent' | 'rejected' | 'inserted' | 'delivered' | 'closed',
+    ) => {
+      feed.addQuestion(id, '물음', now + 60_000);
+      if (to === 'closed') feed.setQuestion(id, 'closed', 'answered');
+      else feed.setQuestion(id, to);
+    };
+    for (const s of ['queued', 'sent', 'rejected', 'inserted', 'delivered', 'closed'] as const) {
+      make(`q-${s}`, s);
+      feed.reopenQuestion(`q-${s}`, 'deliver_failed', now);
+      states[s] = feed.getQuestion(`q-${s}`)!.state;
+    }
+    expect(states).toEqual({
+      queued: 'open',
+      sent: 'open',
+      rejected: 'open',
+      inserted: 'inserted',
+      delivered: 'delivered',
+      closed: 'closed',
+    });
+    expect(feed.getQuestion('q-rejected')!.reason).toBe('deliver_failed');
+    // 시한이 지난 질문은 되살리지 않는다
+    make('q-late', 'rejected');
+    feed.reopenQuestion('q-late', 'deliver_failed', now + 60_000);
+    expect(feed.getQuestion('q-late')!.state).toBe('rejected');
+  });
 });
