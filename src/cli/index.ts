@@ -80,6 +80,8 @@ import {
   peerInviteCommand,
   peerJoinCommand,
   peerMembersCommand,
+  peerMessagesCommand,
+  peerSendCommand,
   peerRelayCommand,
   peerRemoveCommand,
   peerShareCommand,
@@ -315,6 +317,7 @@ export function createCli(): Command {
     .option('--transcript <path>', '대화 기록 jsonl을 직접 지정 (로컬 검증용)')
     .option('--tools <level>', '도구 출력 수준 full | summary | none (기본 summary, 앞 4KB)')
     .option('--expires <minutes>', '만료까지 분 (기본 480)')
+    .option('--no-messages', '팀원이 이 세션에 메시지를 못 넣게 한다')
     .action((o, cmd) => peerShareCommand({ ...peerOpts(cmd), ...o }));
 
   peer
@@ -376,6 +379,18 @@ export function createCli(): Command {
     .command('unwatch <id>')
     .description('원격 공유 보기를 멈춘다')
     .action((id, o, cmd) => peerUnwatchCommand({ ...peerOpts(cmd), ...o, id }));
+
+  peer
+    .command('send <watchId> [body...]')
+    .description('보고 있는 원격 공유의 주인 세션에 메시지를 넣는다. 본문이 없으면 표준 입력')
+    .action((watch, body, o, cmd) =>
+      peerSendCommand({ ...peerOpts(cmd), ...o, watch, body: body ?? [] }),
+    );
+
+  peer
+    .command('messages [watchId]')
+    .description('보기 id를 주면 내가 보낸 메시지 상태, 없으면 내 공유가 받은 메시지 기록')
+    .action((watch, o, cmd) => peerMessagesCommand({ ...peerOpts(cmd), ...o, watch }));
 
   peer
     .command('relay')

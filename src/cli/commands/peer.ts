@@ -5,6 +5,7 @@ import { DaemonUnavailableError, request } from '../../peer/client.js';
 import { errMessage } from '../../peer/errors.js';
 import { claudeConfigDir, locateTranscript } from '../../peer/locate.js';
 import { ensurePrivateDir, peerRoot, socketPath } from '../../peer/paths.js';
+import { plainLabel } from '../../peer/message.js';
 import { isToolsLevel } from '../../peer/redact.js';
 import type {
   DaemonStatus,
@@ -100,6 +101,7 @@ export async function peerShareCommand(
     transcript?: string;
     tools?: string;
     expires?: string;
+    messages?: boolean;
   },
 ): Promise<void> {
   if (!!options.session === !!options.transcript) {
@@ -138,6 +140,7 @@ export async function peerShareCommand(
     sessionId,
     tools: options.tools as 'full' | 'summary' | 'none' | undefined,
     expiresMinutes,
+    ...(options.messages === false ? { messages: false } : {}),
   });
 
   if (options.json) {
@@ -146,6 +149,11 @@ export async function peerShareCommand(
   }
   console.log(`공유를 열었어요 (${info.id}). 만료 ${time(info.expiresAt)}`);
   if (info.link) {
+    if (info.messages) {
+      console.log(
+        '링크를 연 팀원이 이 세션에 메시지를 넣을 수 있어요. 막으려면 --no-messages로 여세요.',
+      );
+    }
     console.log(`이 세션의 대화와 도구 출력이 링크를 연 팀원에게 보여요. ${VIEWER_WARNING}`);
     console.log(`\n팀원에게 건넬 링크 (# 뒤가 공유 키예요):\n${info.link}`);
     console.log(`\n내 뷰어:\n${info.url}\n`);
@@ -318,6 +326,75 @@ export async function peerUnwatchCommand(options: PeerOptions & { id: string }):
   const r = await call<{ id: string }>({ op: 'unwatch', id: options.id });
   if (options.json) console.log(JSON.stringify(r));
   else console.log(`보기를 멈췄어요 (${r.id}).`);
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  queued: '릴레이가 들고 있음(주인 오프라인)',
+  sent: '보냄',
+  arrived: '주인 데몬이 받음',
+  inserted: '주인 세션에 넣음(보류됐으면 여기서 멈춤)',
+  delivered: '들어감',
+  rejected: '거절',
+};
+
+export async function peerSendCommand(
+  options: PeerOptions & { watch: string; body: string[] },
+): Promise<void> {
+  let body = options.body.join(' ');
+  if (body.trim() === '' && !process.stdin.isTTY) {
+    const chunks: Buffer[] = [];
+    for await (const c of process.stdin) chunks.push(c as Buffer);
+    body = Buffer.concat(chunks).toString('utf8');
+  }
+  if (body.trim() === '') fail('보낼 본문을 인자나 표준 입력으로 주세요');
+  const r = await call<{ id: string; status: string }>(
+    { op: 'send', watch: options.watch, body },
+    15_000,
+  );
+  if (options.json) {
+    console.log(JSON.stringify(r));
+    return;
+  }
+  console.log(`메시지를 보냈어요 (${r.id}). 지금 상태: ${STATUS_LABEL[r.status] ?? r.status}`);
+  console.log(`이후 상태는 \`gestalt peer messages ${options.watch}\`나 뷰어에서 봐요.`);
+}
+
+export async function peerMessagesCommand(
+  options: PeerOptions & { watch?: string },
+): Promise<void> {
+  if (options.watch) {
+    const list = await call<
+      { id: string; status: string; text: string; at: number; reason?: string }[]
+    >({ op: 'messages', watch: options.watch });
+    if (options.json) {
+      console.log(JSON.stringify(list, null, 2));
+      return;
+    }
+    if (list.length === 0) console.log('보낸 메시지가 없어요.');
+    for (const m of list) {
+      const label = plainLabel(m.reason);
+      const reason = label ? ` (${label})` : '';
+      console.log(
+        `${time(m.at)}  ${STATUS_LABEL[m.status] ?? m.status}${reason}  ${m.text.slice(0, 60)}`,
+      );
+    }
+    return;
+  }
+  const log = await call<
+    { at: number; shareId: string | null; action: string; detail: string | null }[]
+  >({
+    op: 'messages',
+  });
+  if (options.json) {
+    console.log(JSON.stringify(log, null, 2));
+    return;
+  }
+  if (log.length === 0) console.log('내 공유가 받은 메시지가 없어요.');
+  for (const r of log) {
+    // 공유 id와 거절 이유는 원격에서 온 값이 섞인다. 터미널에 찍기 전에 제어 문자를 지운다
+    const share = plainLabel(r.shareId) ?? '-';
+    console.log(`${time(r.at)}  ${share}  ${r.action}  ${plainLabel(r.detail, 400) ?? ''}`);
+  }
 }
 
 export async function peerRelayCommand(options: {

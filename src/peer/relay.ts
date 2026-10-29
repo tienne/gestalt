@@ -5,7 +5,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import type { Duplex } from 'node:stream';
 import { isRawKey } from './keys.js';
-import { checkRosterUpdate, isAdmin, memberOf } from './roster.js';
+import { checkRosterUpdate, isAdmin, isShareId, memberOf } from './roster.js';
 import type { RosterVerdict, SignedRoster } from './roster.js';
 import { verifyText } from './seal.js';
 import { acceptUpgrade } from './ws.js';
@@ -13,6 +13,7 @@ import type { WsConnection } from './ws.js';
 import { CLOSE_REJECTED, CLOSE_REMOVED, helloSigned } from './wire.js';
 import type { ClientFrame, HelloMode, RelayErrorCode, ServerFrame } from './wire.js';
 import { errMessage } from './errors.js';
+import { MESSAGE_RECEIVE_LIMIT } from './message.js';
 
 export interface RelayServerOptions {
   /** 팀 id. 처음 받는 명단은 이 키가 서명해야 한다 */
@@ -29,6 +30,8 @@ export interface RelayServerOptions {
   /** join 모드 연결이 명단에 오르기를 기다리는 시간 */
   joinTimeoutMs?: number;
   pingMs?: number;
+  /** 테스트가 큐 상한을 작게 줄 때 쓴다. 기본은 아래 상수다 */
+  queueLimits?: { perSender?: number; chars?: number };
 }
 
 interface Conn {
@@ -41,6 +44,13 @@ interface Conn {
   joins: number;
   alive: boolean;
   timer?: NodeJS.Timeout;
+}
+
+interface QueuedSend {
+  from: string;
+  to: string;
+  data: string;
+  at: number;
 }
 
 interface QueuedJoin {
@@ -57,7 +67,16 @@ const MAX_JOINS_PER_CONN = 3;
 const MAX_QUEUED_JOINS = 64;
 const JOIN_QUEUE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_ANNOUNCED_PER_CONN = 256;
-const SHARE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** 오프라인 기기에게 온 것을 들고 있는 기간. 설계 원문의 7일 */
+export const SEND_QUEUE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_QUEUED_PER_TARGET = 256;
+/** 한 사람이 받는 기기를 가리지 않고 들고 있게 하는 양. 받는 기기 하나 몫(36건)의 네 배다 */
+const MAX_QUEUED_PER_SENDER = MESSAGE_RECEIVE_LIMIT * 4;
+const MAX_QUEUED_TOTAL = 4096;
+/** 큐 전체 글자 수 상한. 건수만 막으면 64KB짜리로 채워 256MB까지 간다 */
+const MAX_QUEUED_CHARS = 16 * 1024 * 1024;
+/** 들고 있을 수 있는 한 건의 크기. 메시지 본문 16KB가 봉인되고 base64로 불어나도 들어간다 */
+const MAX_QUEUED_DATA = 64 * 1024;
 
 /**
  * `gestalt peer relay`. 팀이 한 대 띄우는 WebSocket 중계 서버다.
@@ -76,6 +95,7 @@ export class RelayServer {
   private pending = new Map<string, Conn>();
   private announced = new Map<string, string>();
   private joinQueue: QueuedJoin[] = [];
+  private sendQueue: QueuedSend[] = [];
   private pinger: NodeJS.Timeout | null = null;
 
   constructor(private readonly options: RelayServerOptions) {
@@ -89,6 +109,11 @@ export class RelayServer {
 
   get epoch(): number {
     return this.roster?.roster.epoch ?? 0;
+  }
+
+  /** 오프라인 기기에게 가려고 들고 있는 건수 */
+  get queuedSends(): number {
+    return this.sendQueue.length;
   }
 
   /** 지금 member로 붙어 있는 기기 id */
@@ -132,6 +157,7 @@ export class RelayServer {
     this.members.clear();
     this.pending.clear();
     this.announced.clear();
+    this.sendQueue = [];
     const server = this.server;
     this.server = null;
     if (!server) return;
@@ -266,18 +292,30 @@ export class RelayServer {
     });
     this.broadcast({ t: 'presence', key, online: true }, conn);
     this.flushJoins(key);
+    this.flushSends(key);
   }
 
   private forward(conn: Conn, frame: Extract<ClientFrame, { t: 'send' }>): void {
     if (!Number.isSafeInteger(frame.id)) return;
-    const ack = (ok: boolean, error?: string): void => {
+    const ack = (ok: boolean, error?: string, queued?: true): void => {
       if (frame.ack === false) return;
-      this.send(conn, { t: 'ack', id: frame.id, ok, ...(error ? { error } : {}) });
+      this.send(conn, {
+        t: 'ack',
+        id: frame.id,
+        ok,
+        ...(error ? { error } : {}),
+        ...(queued ? { queued } : {}),
+      });
     };
     if (typeof frame.to !== 'string' || typeof frame.data !== 'string')
       return ack(false, 'bad_frame');
     const target = this.members.get(frame.to);
-    if (!target) return ack(false, 'offline');
+    if (!target) {
+      if (frame.queue !== true) return ack(false, 'offline');
+      return this.enqueueSend(conn.key!, frame.to, frame.data)
+        ? ack(true, undefined, true)
+        : ack(false, 'queue_full');
+    }
     if (target.ws.bufferedAmount > MAX_RELAY_BUFFERED_BYTES) {
       target.ws.terminate(1008, 'slow');
       return ack(false, 'slow');
@@ -289,9 +327,7 @@ export class RelayServer {
   private announce(conn: Conn, shares: unknown): void {
     if (!Array.isArray(shares) || shares.length > MAX_ANNOUNCED_PER_CONN) return;
     const key = conn.key!;
-    const wanted = new Set(
-      shares.filter((s): s is string => typeof s === 'string' && SHARE_ID.test(s)),
-    );
+    const wanted = new Set(shares.filter(isShareId));
     for (const [id, owner] of [...this.announced]) {
       if (owner === key && !wanted.has(id)) this.announced.delete(id);
     }
@@ -331,6 +367,63 @@ export class RelayServer {
     if (this.joinQueue.length > MAX_QUEUED_JOINS) this.joinQueue.shift();
   }
 
+  /** 명단에 있는 기기에게 가는 것만 들고 있는다. 상한을 넘으면 받지 않는다 */
+  private enqueueSend(from: string, to: string, data: string): boolean {
+    const roster = this.roster;
+    if (!roster || !memberOf(roster.roster, to) || data.length > MAX_QUEUED_DATA) return false;
+    this.purgeExpiredSends(Date.now());
+    if (this.sendQueue.length >= MAX_QUEUED_TOTAL) return false;
+    let chars = data.length;
+    let forTarget = 0;
+    let fromSender = 0;
+    let fromSenderToTarget = 0;
+    for (const q of this.sendQueue) {
+      chars += q.data.length;
+      if (q.to === to) forTarget++;
+      if (q.from === from) {
+        fromSender++;
+        if (q.to === to) fromSenderToTarget++;
+      }
+    }
+    const limits = this.options.queueLimits;
+    if (chars > (limits?.chars ?? MAX_QUEUED_CHARS) || forTarget >= MAX_QUEUED_PER_TARGET) {
+      return false;
+    }
+    // 한 사람이 받는 기기 하나의 몫(주인 쪽 수신 한도와 같다)과 받는 기기를 가리지 않은 전체를
+    // 따로 센다. 앞의 것만 세면 오프라인 기기 여럿에 나눠 넣어 큐를 혼자 채울 수 있다
+    if (
+      fromSenderToTarget >= MESSAGE_RECEIVE_LIMIT ||
+      fromSender >= (limits?.perSender ?? MAX_QUEUED_PER_SENDER)
+    ) {
+      return false;
+    }
+    this.sendQueue.push({ from, to, data, at: Date.now() });
+    return true;
+  }
+
+  private purgeExpiredSends(now: number): void {
+    this.sendQueue = this.sendQueue.filter((q) => now - q.at < SEND_QUEUE_TTL_MS);
+  }
+
+  private flushSends(key: string): void {
+    const now = Date.now();
+    const target = this.members.get(key);
+    if (!target) return;
+    const mine = this.sendQueue.filter((q) => q.to === key);
+    this.sendQueue = this.sendQueue.filter((q) => q.to !== key);
+    for (const [i, q] of mine.entries()) {
+      // 막 붙은 기기가 안 읽으면 남은 건 다시 들고 있다가 다음 ping 주기에 다시 넘긴다
+      if (target.ws.bufferedAmount > MAX_RELAY_BUFFERED_BYTES) {
+        this.sendQueue.push(...mine.slice(i));
+        return;
+      }
+      if (now - q.at >= SEND_QUEUE_TTL_MS) continue;
+      // 그사이 명단에서 빠진 기기가 보낸 건 넘기지 않는다
+      if (this.roster && !memberOf(this.roster.roster, q.from)) continue;
+      this.send(target, { t: 'recv', from: q.from, data: q.data });
+    }
+  }
+
   private flushJoins(key: string): void {
     const now = Date.now();
     this.joinQueue = this.joinQueue.filter((q) => now - q.at < JOIN_QUEUE_TTL_MS);
@@ -354,6 +447,10 @@ export class RelayServer {
     const roster = incoming as SignedRoster;
     this.roster = roster;
     this.saveRosterFile();
+    // 빠진 기기가 보냈거나 빠진 기기에게 가던 건 버린다
+    this.sendQueue = this.sendQueue.filter(
+      (q) => memberOf(roster.roster, q.from) && memberOf(roster.roster, q.to),
+    );
     for (const [key, conn] of [...this.members]) {
       if (memberOf(roster.roster, key)) continue;
       this.members.delete(key);
@@ -411,6 +508,10 @@ export class RelayServer {
       c.alive = false;
       c.ws.ping();
     }
+    // 아무도 안 보내도 만료분을 버리고 버퍼가 차서 멈춘 큐도 다시 넘겨 본다
+    this.purgeExpiredSends(Date.now());
+    const waiting = new Set(this.sendQueue.map((q) => q.to));
+    for (const key of waiting) if (this.members.has(key)) this.flushSends(key);
   }
 
   private loadRosterFile(): void {

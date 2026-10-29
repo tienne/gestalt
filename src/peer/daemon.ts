@@ -27,7 +27,10 @@ import type { MachineKey } from './keys.js';
 import { acquireDaemonLock, releaseDaemonLock } from './lock.js';
 import type { DaemonLock } from './lock.js';
 import { PeerNetwork, PeerNetworkError } from './network.js';
-import type { PeerNetworkOptions } from './network.js';
+import type { InboundMessage, PeerNetworkOptions } from './network.js';
+import { findInboxSocket, writeInbox } from './inbox.js';
+import type { InboxResult } from './inbox.js';
+import { frameHeader, frameMessage } from './message.js';
 import type { WatchListItem, WatchResult } from './protocol.js';
 
 export interface PeerDaemonOptions {
@@ -48,6 +51,11 @@ interface OpenShare {
   /** 링크의 `#` 뒤에 붙는 공유 키. 메모리에만 있다 */
   shareKey: string;
   sessionId: string | null;
+  /**
+   * 팀원 메시지를 받는지. 끄면 deliver를 안 달아 주인 데몬이 messages_off로 거절한다.
+   * sessionId가 없는 --transcript 공유도 같다
+   */
+  messages: boolean;
   createdAt: number;
   expiresAt: number;
 }
@@ -144,7 +152,18 @@ export class PeerDaemon {
       key: this.key,
       lookupShare: (id) => {
         const s = this.shares.get(id);
-        return s ? { stream: s.stream, shareKey: s.shareKey } : undefined;
+        if (!s) return undefined;
+        return {
+          stream: s.stream,
+          shareKey: s.shareKey,
+          // 인박스 소켓은 세션 id로 찾으므로 --transcript로 연 공유는 메시지를 못 받는다
+          ...(s.messages && s.sessionId
+            ? {
+                deliver: (m: InboundMessage, onSeen: () => void) =>
+                  this.deliverMessage(id, m, onSeen),
+              }
+            : {}),
+        };
       },
       transport: this.options.network,
     });
@@ -271,6 +290,18 @@ export class PeerDaemon {
             url: this.viewerUrl(w.id, n.lookupWatch(w.id)!.token),
           })),
         );
+      case 'send': {
+        const watch = String(req.watch);
+        const body = req.body;
+        return this.withNetworkAsync((n) => n.sendMessage(watch, String(body), 'human'));
+      }
+      case 'messages': {
+        if (req.watch !== undefined) {
+          const watch = String(req.watch);
+          return this.withNetwork((n) => n.listMessages(watch));
+        }
+        return { ok: true, result: this.state?.messageLog() ?? [] };
+      }
       case 'unwatch': {
         const id = String(req.id);
         return this.withNetwork((n) => {
@@ -299,6 +330,34 @@ export class PeerDaemon {
     } catch (err) {
       return { ok: false, error: errMessage(err) };
     }
+  }
+
+  /**
+   * 팀원이 보낸 메시지를 주인 세션 인박스에 쓴다. 들어간 게 대화 기록에 보이면 대화 흐름에
+   * 끼우고 onSeen을 부른다. 지켜보는 일은 쓰기 전에 걸어야 쓰자마자 생긴 줄을 놓치지 않는다.
+   */
+  private async deliverMessage(
+    shareId: string,
+    m: InboundMessage,
+    onSeen: () => void,
+  ): Promise<InboxResult> {
+    const share = this.shares.get(shareId);
+    if (!share) return { ok: false, reason: 'share_closed' };
+    const found = findInboxSocket(share.stream.transcriptPath, share.sessionId);
+    if (!found.ok || !found.path)
+      return { ok: false, reason: found.ok ? '인박스 소켓이 없어요' : found.reason };
+    const stream = share.stream;
+    const header = frameHeader(m.person, m.origin, m.id);
+    stream.awaitMessage(header, () => {
+      stream.pushPeerMessage({ id: m.id, from: m.person, origin: m.origin, text: m.body });
+      onSeen();
+    });
+    const result = await writeInbox(
+      found.path,
+      frameMessage({ from: m.person, origin: m.origin, id: m.id, body: m.body }),
+    );
+    if (!result.ok) stream.cancelAwait(header);
+    return result;
   }
 
   private viewerUrl(id: string, token: string): string {
@@ -355,6 +414,7 @@ export class PeerDaemon {
       token,
       shareKey,
       sessionId: req.sessionId ?? null,
+      messages: req.messages !== false,
       createdAt,
       expiresAt,
     });
@@ -366,7 +426,11 @@ export class PeerDaemon {
       createdAt,
       expiresAt,
     });
-    this.state!.audit('share_open', id, JSON.stringify({ tools, expiresAt }));
+    this.state!.audit(
+      'share_open',
+      id,
+      JSON.stringify({ tools, expiresAt, messages: req.messages !== false }),
+    );
     this.announceShares();
     return { ok: true, result: this.info(id) };
   }
@@ -389,6 +453,7 @@ export class PeerDaemon {
       sessionId: s.sessionId,
       transcriptPath: s.stream.transcriptPath,
       tools: s.stream.tools,
+      messages: s.messages && s.sessionId !== null,
       createdAt: s.createdAt,
       expiresAt: s.expiresAt,
       status: s.stream.currentStatus,

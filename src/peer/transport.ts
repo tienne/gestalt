@@ -14,8 +14,12 @@ import { errMessage } from './errors.js';
  */
 export interface PeerTransport {
   connect(roster: SignedRoster | null): Promise<void>;
-  /** 릴레이가 받는 기기에게 넘겼으면 delivered. PR 2 릴레이는 쌓지 않아서 queued는 아직 안 나온다 */
-  send(to: string, sealed: Uint8Array): Promise<'queued' | 'delivered'>;
+  /** 릴레이가 받는 기기에게 넘겼으면 delivered, 받는 기기가 없어 들고 있으면 queued */
+  send(
+    to: string,
+    sealed: Uint8Array,
+    options?: { queue?: boolean },
+  ): Promise<'queued' | 'delivered'>;
   onReceive(handler: (from: string, sealed: Uint8Array) => void): void;
   close(): Promise<void>;
 }
@@ -48,7 +52,7 @@ export class RelaySendError extends Error {
 }
 
 interface PendingAck {
-  resolve: (ok: boolean, error?: string) => void;
+  resolve: (ok: boolean, error?: string, queued?: boolean) => void;
   timer: NodeJS.Timeout;
 }
 
@@ -104,7 +108,11 @@ export class RelayTransport extends EventEmitter implements PeerTransport {
     this.receivers.push(handler);
   }
 
-  send(to: string, sealed: Uint8Array): Promise<'queued' | 'delivered'> {
+  send(
+    to: string,
+    sealed: Uint8Array,
+    options: { queue?: boolean } = {},
+  ): Promise<'queued' | 'delivered'> {
     return new Promise((resolve, reject) => {
       const ws = this.ws;
       if (!ws || this.status !== 'online') {
@@ -119,10 +127,18 @@ export class RelayTransport extends EventEmitter implements PeerTransport {
       timer.unref();
       this.acks.set(id, {
         timer,
-        resolve: (ok, error) =>
-          ok ? resolve('delivered') : reject(new RelaySendError(error ?? 'unknown')),
+        resolve: (ok, error, queued) =>
+          ok
+            ? resolve(queued ? 'queued' : 'delivered')
+            : reject(new RelaySendError(error ?? 'unknown')),
       });
-      this.write({ t: 'send', id, to, data: Buffer.from(sealed).toString('base64url') });
+      this.write({
+        t: 'send',
+        id,
+        to,
+        data: Buffer.from(sealed).toString('base64url'),
+        ...(options.queue ? { queue: true as const } : {}),
+      });
     });
   }
 
@@ -311,7 +327,7 @@ export class RelayTransport extends EventEmitter implements PeerTransport {
         if (!p) return;
         this.acks.delete(frame.id);
         clearTimeout(p.timer);
-        p.resolve(frame.ok, frame.error);
+        p.resolve(frame.ok, frame.error, frame.queued === true);
         return;
       }
       case 'resolved': {

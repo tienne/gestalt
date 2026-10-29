@@ -8,6 +8,8 @@ import { errMessage } from './errors.js';
 export interface ViewerShare {
   stream: ShareFeed;
   token: string;
+  /** 원격 공유를 보는 중이면 메시지를 보낼 수 있다. 내 공유에는 없다 */
+  send?(text: string): Promise<{ ok: true; id: string } | { ok: false; error: string }>;
 }
 
 export interface ViewerHooks {
@@ -18,6 +20,10 @@ export interface ViewerHooks {
 
 const PAGE_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/?$/;
 const EVENTS_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/events$/;
+const MESSAGES_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/messages$/;
+
+/** POST 본문 상한. 메시지 본문 16KB에 JSON 껍데기 여유를 둔다 */
+const MAX_POST_BYTES = 64 * 1024;
 
 /** SSE 연결이 프록시나 OS에서 놀다 끊기지 않게 보내는 빈 주석 간격 */
 const KEEPALIVE_MS = 15_000;
@@ -54,8 +60,9 @@ export interface ViewerServerOptions {
  *
  * Routes:
  *   GET /s/:id?t=TOKEN          → 뷰어 HTML
- *   GET /s/:id/events?t=TOKEN   → SSE (line, trimmed, stats, state, closed). 뷰어 상한을 넘으면 429.
+ *   GET /s/:id/events?t=TOKEN   → SSE (line, trimmed, stats, state, closed, msg). 뷰어 상한을 넘으면 429.
  *                                 closed의 missed는 따라잡는 중에 공유가 종료돼 못 보낸 이벤트 수
+ *   POST /s/:id/messages?t=TOKEN → 원격 공유에 메시지 보내기. JSON `{text}`만 받고 Origin이 이 뷰어여야 한다
  *   *                           → 404
  */
 export class ViewerServer {
@@ -117,12 +124,13 @@ export class ViewerServer {
   }
 
   private handle(req: IncomingMessage, res: ServerResponse): void {
-    if (req.method !== 'GET') return plain(res, 405, 'Method Not Allowed');
+    if (req.method !== 'GET' && req.method !== 'POST') return plain(res, 405, 'Method Not Allowed');
 
     // DNS 리바인딩으로 남의 도메인이 이 포트를 가리키게 해도 Host가 달라서 막힌다
     if (!this.hostAllowed(req.headers.host)) return plain(res, 403, 'Forbidden');
 
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    if (req.method === 'POST') return this.post(req, res, url);
     const page = PAGE_PATH.exec(url.pathname);
     const events = page ? null : EVENTS_PATH.exec(url.pathname);
     const id = page?.[1] ?? events?.[1];
@@ -133,7 +141,7 @@ export class ViewerServer {
       return plain(res, 401, 'Unauthorized');
     }
 
-    if (page) return this.page(res);
+    if (page) return this.page(res, share.send !== undefined);
     if ((this.viewers.get(id) ?? 0) >= MAX_VIEWERS_PER_SHARE) {
       return plain(res, 429, 'Too Many Viewers');
     }
@@ -146,7 +154,57 @@ export class ViewerServer {
     return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
   }
 
-  private page(res: ServerResponse): void {
+  /**
+   * 메시지 보내기. 브라우저에 열린 남의 페이지가 폼으로 쏘지 못하게 JSON만 받고 Origin을
+   * 이 뷰어로 묶는다. 다른 출처의 fetch는 JSON이라 preflight가 나가는데 여기선 OPTIONS에
+   * 답하지 않으므로 막힌다.
+   */
+  private post(req: IncomingMessage, res: ServerResponse, url: URL): void {
+    const m = MESSAGES_PATH.exec(url.pathname);
+    if (!m) return plain(res, 404, 'Not Found');
+    const share = this.hooks.lookup(m[1]!);
+    if (!share || !tokenMatches(url.searchParams.get('t'), share.token)) {
+      return plain(res, 401, 'Unauthorized');
+    }
+    if (req.headers.origin !== `http://${req.headers.host}`) return plain(res, 403, 'Forbidden');
+    if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) {
+      return plain(res, 415, 'Unsupported Media Type');
+    }
+    if (!share.send) {
+      return json(res, 400, {
+        error: '메시지를 넣을 수 없는 공유예요 (내 공유이거나 주인이 막았어요)',
+      });
+    }
+    const send = share.send;
+    let body = '';
+    let tooBig = false;
+    req.setEncoding('utf8');
+    req.on('data', (chunk: string) => {
+      if (tooBig) return;
+      body += chunk;
+      if (Buffer.byteLength(body) > MAX_POST_BYTES) {
+        tooBig = true;
+        json(res, 413, { error: '본문이 너무 커요' });
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      if (tooBig) return;
+      let text: unknown;
+      try {
+        text = (JSON.parse(body) as { text?: unknown }).text;
+      } catch {
+        return json(res, 400, { error: 'JSON이 아니에요' });
+      }
+      if (typeof text !== 'string') return json(res, 400, { error: 'text가 없어요' });
+      send(text).then(
+        (r) => (r.ok ? json(res, 202, { id: r.id }) : json(res, 400, { error: r.error })),
+        (err: unknown) => json(res, 500, { error: errMessage(err) }),
+      );
+    });
+  }
+
+  private page(res: ServerResponse, canSend: boolean): void {
     const nonce = randomBytes(16).toString('base64');
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -161,7 +219,7 @@ export class ViewerServer {
       ].join('; '),
       ...PRIVATE_HEADERS,
     });
-    res.end(renderViewerHtml(nonce, MAX_VIEWERS_PER_SHARE));
+    res.end(renderViewerHtml(nonce, MAX_VIEWERS_PER_SHARE, canSend));
   }
 
   private stream(req: IncomingMessage, res: ServerResponse, stream: ShareFeed): void {
@@ -251,6 +309,12 @@ const PRIVATE_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
 } as const;
 
+function json(res: ServerResponse, status: number, body: unknown): void {
+  if (res.headersSent) return;
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...PRIVATE_HEADERS });
+  res.end(JSON.stringify(body));
+}
+
 function plain(res: ServerResponse, status: number, body: string): void {
   res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', ...PRIVATE_HEADERS });
   res.end(body);
@@ -275,5 +339,9 @@ function sseFrame(frame: ShareFrame): string {
       return `event: closed\ndata: ${JSON.stringify({ reason: frame.reason, missed: frame.missed })}\n\n`;
     case 'trimmed':
       return `event: trimmed\ndata: ${JSON.stringify({ dropped: frame.dropped })}\n\n`;
+    case 'msg': {
+      const { type: _t, ...rest } = frame;
+      return `event: msg\ndata: ${JSON.stringify(rest)}\n\n`;
+    }
   }
 }

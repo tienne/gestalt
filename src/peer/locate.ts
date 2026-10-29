@@ -18,6 +18,8 @@ export interface SessionRecord {
   sessionId: string;
   cwd: string;
   pid?: number;
+  /** 세션의 인박스 소켓(cross-session messaging 수신구). 메시지를 넣을 때 쓴다 */
+  messagingSocketPath?: string;
 }
 
 /** 설정 디렉토리. Orca 프로필처럼 `CLAUDE_CONFIG_DIR`로 옮겨 둔 경우가 있다 */
@@ -56,7 +58,9 @@ export function readSessionFile(path: string): SessionRecord | null {
   const cwd = rec['cwd'];
   if (typeof sessionId !== 'string' || typeof cwd !== 'string') return null;
   const pid = typeof rec['pid'] === 'number' ? rec['pid'] : undefined;
-  return { sessionId, cwd, pid };
+  const sock = rec['messagingSocketPath'];
+  const messagingSocketPath = typeof sock === 'string' && isAbsolute(sock) ? sock : undefined;
+  return { sessionId, cwd, pid, ...(messagingSocketPath ? { messagingSocketPath } : {}) };
 }
 
 /** 부모 pid로 세션을 찾는다. MCP 서버처럼 세션의 자식이 쓴다 */
@@ -65,7 +69,7 @@ export function findSessionByPid(pid: number, configDir = claudeConfigDir()): Se
   return readSessionFile(join(configDir, 'sessions', `${pid}.json`));
 }
 
-function findSessionById(sessionId: string, configDir: string): SessionRecord | null {
+export function findSessionById(sessionId: string, configDir: string): SessionRecord | null {
   const dir = join(configDir, 'sessions');
   let names: string[];
   try {
