@@ -493,10 +493,15 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
     }
 
     /** 링크의 공유 키로 증명을 단 메시지 봉인 내용 */
-    function msgBox(id: string, body: string, opts: { share?: string; proof?: string } = {}) {
+    function msgBox(
+      id: string,
+      body: string,
+      opts: { share?: string; proof?: string; link?: string } = {},
+    ) {
       const share = opts.share ?? shareInfo.id;
       const from = loadMachineKey(machineKeyPath(watcher.root)).id;
-      const shareKey = Buffer.from(parseShareLink(shareInfo.link!).shareKey, 'base64url');
+      const link = opts.link ?? shareInfo.link!;
+      const shareKey = Buffer.from(parseShareLink(link).shareKey, 'base64url');
       const proof =
         opts.proof ??
         hmac(shareKey, canonical({ p: 'gestalt-peer-msg-v1', share, from, id, body }));
@@ -680,6 +685,27 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         '메시지를 받지 않게',
       );
       expect(session.received).toHaveLength(0);
+
+      // 고친 클라이언트가 보는 쪽 검사를 건너뛰고 보내도 주인 데몬이 messages_off로 거절한다
+      await forge([msgBox(newMessageId(), '안녕', { share: closed.id, link: closed.link! })]);
+      await until(() => ownerAudit('message_reject').length >= 1);
+      const reasons = ownerAudit('message_reject').map(
+        (r) => (JSON.parse(r.detail!) as { reason: string }).reason,
+      );
+      expect(reasons).toEqual(['messages_off']);
+      expect(session.received).toHaveLength(0);
+    });
+
+    it('--transcript로 연 공유는 세션 id가 없어서 메시지를 안 받는다고 알린다', async () => {
+      const plain = await owner.call<ShareInfo>({
+        op: 'share',
+        transcriptPath: session.transcript,
+      });
+      expect(plain.messages).toBe(false);
+      const w = await watcher.call<WatchResult>({ op: 'watch', link: plain.link! }, 15_000);
+      await expect(watcher.call({ op: 'send', watch: w.id, body: '안녕' }, 15_000)).rejects.toThrow(
+        '메시지를 받지 않게',
+      );
     });
 
     it('뷰어 POST는 다른 출처와 JSON이 아닌 본문을 거절한다', async () => {

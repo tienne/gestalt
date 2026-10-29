@@ -51,7 +51,10 @@ interface OpenShare {
   /** 링크의 `#` 뒤에 붙는 공유 키. 메모리에만 있다 */
   shareKey: string;
   sessionId: string | null;
-  /** 팀원 메시지를 받는지. 끄면 deliver를 안 달아 주인 데몬이 no_inbox로 거절한다 */
+  /**
+   * 팀원 메시지를 받는지. 끄면 deliver를 안 달아 주인 데몬이 messages_off로 거절한다.
+   * sessionId가 없는 --transcript 공유도 같다
+   */
   messages: boolean;
   createdAt: number;
   expiresAt: number;

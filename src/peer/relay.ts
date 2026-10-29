@@ -508,7 +508,7 @@ export class RelayServer {
       c.alive = false;
       c.ws.ping();
     }
-    // 아무도 안 보내도 만료분을 버리고 버퍼가 차서 멈췄던 넘기기를 다시 해 본다
+    // 아무도 안 보내도 만료분을 버리고 버퍼가 차서 멈춘 큐도 다시 넘겨 본다
     this.purgeExpiredSends(Date.now());
     const waiting = new Set(this.sendQueue.map((q) => q.to));
     for (const key of waiting) if (this.members.has(key)) this.flushSends(key);
