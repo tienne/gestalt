@@ -32,6 +32,7 @@ describe('CodexTransformer', () => {
       'tool_result',
       'tool_call',
       'tool_result',
+      'tool_call',
       'reply',
     ]);
     expect(t.version).toBe('0.147.0');
@@ -57,6 +58,7 @@ describe('CodexTransformer', () => {
       FAKE_SECRETS.aws,
       FAKE_SECRETS.tokenValue,
       FAKE_SECRETS.keyOnlyValue,
+      FAKE_SECRETS.passwordValue,
     ]) {
       expect(out).not.toContain(secret);
     }
@@ -74,6 +76,7 @@ describe('CodexTransformer', () => {
     expect(calls.map((c) => [c.id, c.name])).toEqual([
       ['call_exec', 'exec'],
       ['call_fn', 'shell'],
+      ['call_sh', 'local_shell'],
     ]);
     const results = events.filter((e) => e.kind === 'tool_result');
     expect(results.map((r) => [r.toolUseId, r.isError])).toEqual([

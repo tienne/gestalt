@@ -850,7 +850,8 @@ export type PrInput = z.infer<typeof prInputSchema>;
 // ─── Peer Tool ────────────────────────────────────────────────────
 /**
  * `ges_peer`가 받는 액션. 지금은 ask_user 하나다. 공유 통제(share, kick 같은)는 일부러 안 연다 —
- * 모델이 공유 상태를 바꾸는 길은 사람이 치는 CLI에만 둔다
+ * 모델이 공유 상태를 바꾸는 길은 사람이 치는 CLI에만 둔다. tests/unit/mcp/peer.test.ts의
+ * "공유 통제 action은 스키마가 받지 않는다"가 본다
  */
 export const PEER_ACTIONS = ['ask_user'] as const;
 
@@ -863,7 +864,7 @@ export const peerInputSchema = guardObject(
       ),
     question: z
       .string()
-      .describe('ask_user: 팀원에게 물을 글. 2KB까지, 비밀값 패턴은 가린 뒤 보낸다'),
+      .describe('ask_user: 팀원에게 물을 글. 2KB를 넘으면 거절한다. 비밀값 패턴은 가린 뒤 보낸다'),
     to: z
       .string()
       .optional()

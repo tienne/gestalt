@@ -61,7 +61,14 @@ import {
 import type { InboundAnswer, InboundMessage, PeerNetworkOptions } from './network.js';
 import { findInboxSocket, writeInbox } from './inbox.js';
 import type { InboxResult } from './inbox.js';
-import { answerHeader, frameAnswer, frameHeader, frameMessage, plainLabel } from './message.js';
+import {
+  answerHeader,
+  frameAnswer,
+  frameHeader,
+  frameMessage,
+  plainLabel,
+  stripQuestion,
+} from './message.js';
 import { redactText } from './redact.js';
 import { isPersonName, isShareId } from './roster.js';
 import type { WatchListItem, WatchResult } from './protocol.js';
@@ -457,7 +464,9 @@ export class PeerDaemon {
         error: '팀원 메시지를 끈 공유(--no-messages)라 답을 받을 수 없어서 질문도 못 보내요',
       };
     }
-    const question = redactText(req.question, { home: this.options.home });
+    // 보이지 않는 글자를 먼저 지우고 가린다. 거꾸로 하면 토큰 사이에 끼운 폭 없는 공백이 가리기를
+    // 피한 뒤 지워진다. 길이 검사와 자르기는 가린 뒤 network.ask가 한다
+    const question = redactText(stripQuestion(req.question) ?? '', { home: this.options.home });
     const to = req.to;
     return this.withNetwork((n) => n.ask(open, question, to, ttl));
   }
@@ -507,13 +516,17 @@ export class PeerDaemon {
       }
       onSeen();
     });
-    const result = await writeInbox(
-      found.path,
-      m.kind === 'answer'
-        ? frameAnswer({ from: m.person, question: m.question, body: m.body })
-        : frameMessage({ from: m.person, origin: m.origin, id: m.id, body: m.body }),
-    );
-    if (!result.ok) stream.cancelAwait(header);
+    let result: InboxResult = { ok: false, reason: 'deliver_failed' };
+    try {
+      result = await writeInbox(
+        found.path,
+        m.kind === 'answer'
+          ? frameAnswer({ from: m.person, question: m.question, body: m.body })
+          : frameMessage({ from: m.person, origin: m.origin, id: m.id, body: m.body }),
+      );
+    } finally {
+      if (!result.ok) stream.cancelAwait(header);
+    }
     return result;
   }
 

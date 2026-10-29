@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { DaemonUnavailableError, request } from '../../peer/client.js';
+import { request } from '../../peer/client.js';
+import { errMessage } from '../../peer/errors.js';
 import { claudeConfigDir, findSessionByPid } from '../../peer/locate.js';
 import { peerRoot, socketPath } from '../../peer/paths.js';
 import type { AskResult } from '../../peer/protocol.js';
@@ -62,7 +63,7 @@ export async function handlePeer(input: PeerInput, deps: PeerDeps = {}): Promise
   try {
     sock = deps.socket ?? socketPath(peerRoot());
   } catch (err) {
-    return JSON.stringify({ error: (err as Error).message });
+    return JSON.stringify({ error: errMessage(err) });
   }
   try {
     const res = await request<AskResult>(sock, {
@@ -78,7 +79,6 @@ export async function handlePeer(input: PeerInput, deps: PeerDeps = {}): Promise
       note: '질문을 보냈다. 답은 기다리지 말고 하던 일을 이어 간다. 답은 <peer-answer from=… question=… verified> 메시지로 이 세션에 들어온다. expiresAt이 지나면 더 안 온다.',
     });
   } catch (err) {
-    if (err instanceof DaemonUnavailableError) return JSON.stringify({ error: err.message });
-    return JSON.stringify({ error: (err as Error).message });
+    return JSON.stringify({ error: errMessage(err) });
   }
 }

@@ -7,9 +7,12 @@ import { FAKE_HOME, FAKE_SECRETS } from './transcript.js';
  *
  * 나가면 안 되는 본문에는 `LEAK_` 표식을 심는다. 테스트는 출력 어디에도 `LEAK_`가 없는지 본다.
  *
- * reasoning 계열 줄은 0.147.0 exec 기록에 안 남았다. 바이너리에 있는 이름(`reasoning`,
- * `agent_reasoning`, `agent_reasoning_raw_content`, `encrypted_content`)으로 만들어 넣었다.
- * 허용 목록 밖이라 안 나가야 한다.
+ * 기록에서 본 건 session_meta, world_state, turn_context, message, custom_tool_call(과 그 결과),
+ * event_msg의 user_message, agent_message, task_started, task_complete, token_count,
+ * thread_settings_applied다. 아래 줄은 기록에 없어서 바이너리에 있는 이름으로 만들어 넣었고 필드는
+ * 추정이다. reasoning 계열(`reasoning`, `agent_reasoning`, `agent_reasoning_raw_content`)은
+ * 허용 목록 밖이라 안 나가야 한다. `function_call`, `function_call_output`, `local_shell_call`은
+ * 허용 목록 안이라 가리기를 타야 한다.
  */
 
 const at = (n: number): string => `2026-10-30T00:53:${String(n).padStart(2, '0')}.000Z`;
@@ -140,6 +143,15 @@ export function codexLines(): string[] {
       type: 'function_call_output',
       call_id: 'call_fn',
       output: { content: 'note.txt', success: false },
+    }),
+    line(16, 'response_item', {
+      type: 'local_shell_call',
+      call_id: 'call_sh',
+      status: 'completed',
+      action: {
+        type: 'exec',
+        command: ['bash', '-lc', `PASSWORD=${FAKE_SECRETS.passwordValue} ls`],
+      },
     }),
     line(17, 'event_msg', {
       type: 'token_count',

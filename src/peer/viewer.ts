@@ -11,8 +11,8 @@ export interface ViewerShare {
   /** 원격 공유를 보는 중이면 메시지를 보낼 수 있다. 내 공유에는 없다 */
   send?(text: string): Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   /**
-   * 원격 공유를 보는 중이면 주인 세션 모델의 질문에 답할 수 있다. 내 공유에는 없다. 보는 쪽 데몬이
-   * 기기 키로 서명하는 길은 이 입력 하나다
+   * 원격 공유를 보는 중이면 주인 세션 모델의 질문에 답할 수 있다. 내 공유에는 없다. 이 함수가
+   * PeerNetwork.answer를 불러 기기 키로 서명한다
    */
   answer?(
     question: string,

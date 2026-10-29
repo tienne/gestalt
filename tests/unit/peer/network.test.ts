@@ -1380,15 +1380,28 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
     function answerBox(
       q: string,
       body: string,
-      opts: { share?: string; signer?: MachineKey; device?: string } = {},
+      opts: {
+        share?: string;
+        signer?: MachineKey;
+        device?: string;
+        at?: number;
+        /** 서명할 본문. 주면 보낸 본문과 다르게 서명한다 */
+        signedBody?: string;
+      } = {},
     ) {
       const key = loadMachineKey(machineKeyPath(watcher.root));
       const share = opts.share ?? shareInfo.id;
-      const at = Date.now();
+      const at = opts.at ?? Date.now();
       const device = opts.device ?? key.id;
-      const sig = signText(opts.signer ?? key, answerSignedText(share, q, body, device, at));
+      const signed = answerSignedText(share, q, opts.signedBody ?? body, device, at);
+      const sig = signText(opts.signer ?? key, signed);
       return { t: 'answer', share, q, body, at, sig };
     }
+
+    /** 주인 데몬 안쪽의 열린 질문. 시한이 지난 질문을 만들 때 쓴다 */
+    const ownerQuestions = (): Map<string, { expiresAt: number }> =>
+      (owner.daemon as unknown as { network: { questions: Map<string, { expiresAt: number }> } })
+        .network.questions;
 
     /** 보는 쪽 데몬을 멈추고 그 기기 키로 주인 데몬에게 봉인을 직접 보낸다 */
     async function forge(bodies: Record<string, unknown>[]): Promise<void> {
@@ -1566,12 +1579,9 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         owner.daemon as unknown as { network: { onReceive(from: string, data: Uint8Array): void } }
       ).network;
       net.onReceive(stranger.id, Buffer.from(JSON.stringify(sealed)));
-      await new Promise((r) => setTimeout(r, 300));
-      expect(rejects()).toEqual([]);
-      expect(auditOf(owner, 'answer_receive')).toHaveLength(0);
-      expect(session.received).toHaveLength(0);
 
-      // 같은 자리에 명단 안 기기가 서명한 답을 넣으면 들어간다. 위에서 막힌 게 명단 때문임을 확인한다
+      // 같은 자리에 명단 안 기기가 서명한 답을 넣으면 들어간다. 뒤에 넣은 이 답이 들어간 뒤에 보므로
+      // 앞의 답이 처리될 시간을 따로 기다리지 않는다. 막힌 게 명단 때문임도 함께 확인한다
       const alice = loadMachineKey(machineKeyPath(watcher.root));
       const ok = sealBox(
         alice,
@@ -1582,6 +1592,159 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       net.onReceive(alice.id, Buffer.from(JSON.stringify(ok)));
       await until(() => session.received.length === 1);
       expect(session.received[0]).toContain('명단 안에서 답함');
+      expect(rejects()).toEqual([]);
+      expect(auditOf(owner, 'answer_receive')).toHaveLength(1);
+    });
+
+    it('서명 시각이 범위 밖이거나 서명한 본문과 다르거나 꼴이 틀린 답, 시한이 지난 답은 넣지 않는다', async () => {
+      const r = await ask();
+      const sixMin = 6 * 60 * 1000;
+      const real = answerBox(r.question, '시한 뒤 답');
+      await forge([
+        answerBox(r.question, '너무 이른 답', { at: Date.now() - sixMin }),
+        answerBox(r.question, '너무 늦은 답', { at: Date.now() + sixMin }),
+        answerBox(r.question, '바꿔치기한 본문', { signedBody: '서명한 본문' }),
+        { t: 'answer', share: shareInfo.id, q: r.question, body: '서명 없음', at: Date.now() },
+      ]);
+      await until(() => rejects().length >= 4);
+      expect(rejects()).toEqual(['bad_time', 'bad_time', 'bad_signature', 'bad_frame']);
+
+      // 시한이 지난 질문. 타이머가 닫기 전이라도 받는 시각이 시한 뒤면 expired다
+      ownerQuestions().get(r.question)!.expiresAt = Date.now() - 1;
+      await forge([real]);
+      await until(() => rejects().length >= 5);
+      expect(rejects()[4]).toBe('expired');
+      expect(session.received).toHaveLength(0);
+    });
+
+    it('주인 세션에 못 넣은 답은 질문을 다시 열어 같은 뷰어에서 다시 답한다', async () => {
+      const sse = openSse(watch.url);
+      const sock = join(owner.root, 'cc.sock');
+      try {
+        const r = await ask();
+        await until(() => sse.body().includes('event: ask'));
+        await new Promise<void>((res) => session.server.close(() => res()));
+        expect((await viewerAnswer(r.question, '첫 답')).status).toBe(202);
+        await until(() => rejects().length >= 1);
+        expect(rejects()[0]).toMatch(/인박스 소켓/);
+        await until(() => /"state":"open","reason":"[^"]*인박스 소켓/.test(sse.body()));
+
+        await new Promise<void>((res) => session.server.listen(sock, () => res()));
+        expect((await viewerAnswer(r.question, '다시 단 답')).status).toBe(202);
+        await until(() => session.received.length === 1);
+        expect(session.received[0]).toContain('다시 단 답');
+      } finally {
+        sse.req.destroy();
+      }
+    });
+
+    it('같은 질문에 동시에 두 번 답하면 하나만 나가고 주인 세션에 한 번만 들어간다', async () => {
+      const r = await ask();
+      const results = await Promise.all([
+        viewerAnswer(r.question, '첫째'),
+        viewerAnswer(r.question, '둘째'),
+      ]);
+      expect(results.map((x) => x.status).sort()).toEqual([202, 400]);
+      await until(() => session.received.length === 1);
+      await until(() => auditOf(owner, 'answer_deliver').length === 1);
+      expect(auditOf(owner, 'answer_receive')).toHaveLength(1);
+    });
+
+    it('승인을 기다리는 기기와 kick된 기기에는 질문이 안 간다', async () => {
+      await watcher.call({ op: 'unwatch', id: watch.id });
+      await until(async () => (await owner.status()).team?.remoteViewers === 0);
+      const second = await owner.call<ShareInfo>({
+        op: 'share',
+        transcriptPath: session.transcript,
+        sessionId: session.sessionId,
+      });
+      const waiting = await watcher.call<WatchResult>({ op: 'watch', link: second.link! }, 15_000);
+      expect(waiting.waiting).toBe(true);
+      await expect(ask()).rejects.toThrow('지금 이 세션을 보는 팀원이 없어요');
+
+      await owner.call({ op: 'approve', person: 'alice', share: second.id });
+      await until(async () => (await owner.status()).team?.remoteViewers === 1);
+      await ask();
+      await owner.call({ op: 'kick', person: 'alice' });
+      await until(async () => (await owner.status()).team?.remoteViewers === 0);
+      await expect(ask()).rejects.toThrow('지금 이 세션을 보는 팀원이 없어요');
+    });
+
+    it('두 사람에게 물으면 먼저 온 답 하나만 들어가고 다른 사람 뷰어에서는 질문이 끝난다', async () => {
+      const bob = await startNode();
+      try {
+        const { code } = await owner.call<{ code: string }>({ op: 'invite', person: 'bob' });
+        await bob.call({ op: 'join', code, timeoutMs: 10_000 }, 15_000);
+        await until(async () => (await bob.status()).team?.connection === 'online');
+        const bw = await bob.call<WatchResult>({ op: 'watch', link: shareInfo.link! }, 15_000);
+        await owner.call({ op: 'approve', person: 'bob', share: shareInfo.id });
+        await until(async () => (await owner.status()).team?.remoteViewers === 2);
+        const bobSse = openSse(bw.url);
+        try {
+          const r = await ask();
+          expect(r.to.sort()).toEqual(['alice', 'bob']);
+          await until(() => bobSse.body().includes('event: ask'));
+          expect((await viewerAnswer(r.question, 'alice 답')).status).toBe(202);
+          await until(() => session.received.length === 1);
+          await until(() => /"state":"closed","reason":"answered"/.test(bobSse.body()));
+          expect(session.received[0]).toContain('alice 답');
+        } finally {
+          bobSse.req.destroy();
+        }
+      } finally {
+        await bob.daemon.stop();
+        rmSync(bob.root, { recursive: true, force: true });
+        rmSync(bob.dbPath, { force: true });
+      }
+    });
+
+    it('질문이 2KB를 넘으면 자르지 않고 거절한다', async () => {
+      await expect(ask({ question: '가'.repeat(700) })).rejects.toThrow('2KB를 넘어요');
+      expect(auditOf(owner, 'ask_open')).toHaveLength(0);
+    });
+
+    it('토큰 사이에 폭 없는 공백을 끼운 질문도 가린다', async () => {
+      const sse = openSse(watch.url);
+      try {
+        const ghp = FAKE_SECRETS.ghp;
+        await ask({ question: `토큰 ${ghp.slice(0, 4)}\u200b${ghp.slice(4)} 써도 돼요?` });
+        await until(() => sse.body().includes('event: ask'));
+        expect(sse.body()).not.toContain(ghp);
+        expect(sse.body()).toContain('토큰 [가림]');
+      } finally {
+        sse.req.destroy();
+      }
+    });
+
+    it('IPC와 MCP 도구에는 답을 서명하는 길이 없고 뷰어 답 입력은 메시지와 같은 검사를 한다', async () => {
+      for (const op of ['answer', 'send_answer', 'reply']) {
+        await expect(
+          watcher.call({ op, watch: watch.id, question: 'q_AAAAAAAAAAAAAAAA', body: 'x' } as never),
+        ).rejects.toThrow('모르는 요청이에요');
+      }
+      const r = await ask();
+      const body = JSON.stringify({ question: r.question, text: '네' });
+      const origin = new URL(watch.url).origin;
+      const json = { 'Content-Type': 'application/json' };
+      expect(
+        (await postJson(watch.url, body, { ...json, Origin: 'http://evil.test' }, 'answers'))
+          .status,
+      ).toBe(403);
+      const badToken = watch.url.replace(/t=[^&]+/, 't=nope');
+      expect((await postJson(badToken, body, { ...json, Origin: origin }, 'answers')).status).toBe(
+        401,
+      );
+      expect(
+        (
+          await postJson(
+            watch.url,
+            body,
+            { 'Content-Type': 'text/plain', Origin: origin },
+            'answers',
+          )
+        ).status,
+      ).toBe(415);
+      expect(session.received).toHaveLength(0);
     });
 
     it('답 본문의 틀 닫기 시도와 제어 문자는 글자로 남기거나 지운다', async () => {

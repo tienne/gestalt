@@ -26,7 +26,7 @@ export type MessageStatus = 'queued' | 'sent' | 'arrived' | 'inserted' | 'delive
  * 보는 쪽이 보는 질문 상태.
  * - open: 답을 기다린다
  * - queued, sent, inserted, delivered, rejected: 내가 단 답의 상태. 메시지와 같은 뜻이다
- * - closed: 내가 답하기 전에 닫혔다. reason이 answered(다른 사람이 먼저 답함)나 expired다
+ * - closed: 내가 답하기 전에 끝났다. reason이 answered(다른 사람이 먼저 답함)나 expired다
  */
 export type QuestionState =
   | 'open'
@@ -100,11 +100,20 @@ export function isQuestionId(value: unknown): value is string {
  * 보이지 않는 글자만 지운다. 상한을 넘으면 글자 경계에서 자른다. 남는 게 없으면 undefined
  */
 export function cleanQuestion(raw: unknown): string | undefined {
+  const stripped = stripQuestion(raw);
+  if (stripped === undefined) return undefined;
+  const text = truncateBytes(stripped, MAX_QUESTION_BYTES).text.trim();
+  return text === '' ? undefined : text;
+}
+
+/**
+ * 자르지 않고 줄바꿈을 맞추고 보이지 않는 글자와 제어 문자만 지운다. 가리기 전에 부른다 — 토큰
+ * 사이에 끼운 폭 없는 공백이 가리기 패턴을 피한 뒤 지워지면 붙은 비밀값이 그대로 나간다. 자르기는
+ * 가린 뒤에 한다(redact.ts의 truncateBytes 참고)
+ */
+export function stripQuestion(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
-  const text = truncateBytes(
-    raw.replace(/\r\n?/g, '\n').replace(INVISIBLE, '').replace(CONTROL, '').trim(),
-    MAX_QUESTION_BYTES,
-  ).text.trim();
+  const text = raw.replace(/\r\n?/g, '\n').replace(INVISIBLE, '').replace(CONTROL, '').trim();
   return text === '' ? undefined : text;
 }
 

@@ -41,6 +41,8 @@ import {
   cleanQuestion,
   isMessageId,
   isQuestionId,
+  MAX_MESSAGE_BYTES,
+  MAX_QUESTION_BYTES,
   MESSAGE_RECEIVE_LIMIT,
   newMessageId,
   newQuestionId,
@@ -177,6 +179,8 @@ export const MIN_ASK_TTL_MS = 60 * 1000;
 export const MAX_ASK_TTL_MS = 60 * 60 * 1000;
 /** 답의 서명 시각이 이만큼 어긋나도 받는다. 기기끼리 시계가 조금씩 다르다 */
 const ANSWER_CLOCK_SKEW_MS = 5 * 60 * 1000;
+/** Ed25519 서명을 base64url로 쓴 길이 */
+const SIGNATURE_CHARS = 86;
 /** 닫힌 질문 id를 기억하는 수. 늦게 온 답에 answered, expired로 답하려고 둔다 */
 const MAX_CLOSED_QUESTIONS = 256;
 /** 끝난 보기를 `peer watches`에 남겨 두는 개수. 거절이나 kick으로 끝난 이유를 CLI에서 보게 한다 */
@@ -219,8 +223,18 @@ type BoxMessage =
   | { t: 'ask_close'; share: string; q: string; reason: string }
   /** 보는 쪽 → 주인. 뷰어에서 사람이 쓴 답. sig는 answerSignedText에 건 기기 서명이다 */
   | { t: 'answer'; share: string; q: string; body: string; at: number; sig: string }
-  /** 주인 → 보는 쪽. 답 상태 */
-  | { t: 'answer_status'; share: string; q: string; status: AnswerStatus; reason?: string };
+  /**
+   * 주인 → 보는 쪽. 답 상태. reopened는 주인 세션에 넣지 못해 질문을 다시 열었다는 뜻이라 보는 쪽이
+   * 다시 답할 수 있다
+   */
+  | {
+      t: 'answer_status';
+      share: string;
+      q: string;
+      status: AnswerStatus;
+      reason?: string;
+      reopened?: boolean;
+    };
 
 type AnswerStatus = 'inserted' | 'delivered' | 'rejected';
 
@@ -389,6 +403,11 @@ export class PeerNetwork {
   private questions = new Map<string, OpenQuestion>();
   /** 주인 쪽. 닫힌 질문과 닫힌 이유. 늦게 온 답의 거절 이유로 쓴다 */
   private closedQuestions = new Map<string, 'answered' | 'expired'>();
+  /**
+   * 보는 쪽. 주인 기기마다 받는 새 질문 수. 질문마다 감사 행과 뷰어 알림이 따른다. 주인 쪽이 열린
+   * 질문 32개와 최소 시한 60초를 허용하므로 메시지 수신 한도(10분에 36건)를 쓴다
+   */
+  private askLimiter = new RateLimiter(MESSAGE_RECEIVE_LIMIT);
 
   constructor(private readonly options: PeerNetworkOptions) {
     this.team = options.state.getTeam();
@@ -1144,6 +1163,12 @@ export class PeerNetwork {
    * 글자는 부르는 쪽이 가린 뒤 넘긴다. 답은 나중에 onAnswer가 받아 주인 세션에 넣는다.
    */
   ask(shares: string[], raw: string, to: string | undefined, ttlMs: number): AskResult {
+    // 말없이 자르면 모델은 질문이 다 갔다고 여긴다. 넘으면 거절해서 줄여 다시 내게 한다
+    if (Buffer.byteLength(raw) > MAX_QUESTION_BYTES) {
+      throw new PeerNetworkError(
+        `질문이 ${MAX_QUESTION_BYTES / 1024}KB를 넘어요. 줄여서 다시 보내 주세요`,
+      );
+    }
     const text = cleanQuestion(raw);
     if (!text) throw new PeerNetworkError('질문이 비었어요');
     if (this.questions.size >= MAX_OPEN_QUESTIONS) {
@@ -1232,7 +1257,8 @@ export class PeerNetwork {
 
   /**
    * 주인 쪽: 답을 검사하고 주인 세션 인박스에 `<peer-answer … verified>`로 넣는다. 검사 순서는
-   * 제안서 "ask_user 서명 답" 절의 표와 같다. 하나라도 걸리면 넣지 않는다.
+   * 제안서 "ask_user 서명 답" 절의 표와 같다. 하나라도 걸리면 넣지 않는다. 거절 이유마다 network.test.ts의
+   * "ask_user 서명 답" 블록에 그 입력을 넣는 테스트가 있다.
    */
   private async onAnswer(from: string, msg: Extract<BoxMessage, { t: 'answer' }>): Promise<void> {
     // 꼴이 틀린 id는 감사 로그와 답으로 흘러가지 않게 답 없이 버린다
@@ -1274,6 +1300,11 @@ export class PeerNetwork {
       !Number.isSafeInteger(msg.at)
     )
       return reject('bad_frame');
+    if (msg.sig.length !== SIGNATURE_CHARS) return reject('bad_signature');
+    // 서명 검증 비용이 본문 크기에 비례해서 상한을 먼저 본다. UTF-16 길이는 바이트 수보다 크지 않다
+    if (msg.body.length > MAX_MESSAGE_BYTES) {
+      return reject(`본문이 ${MAX_MESSAGE_BYTES / 1024}KB를 넘어요`);
+    }
     if (!verifyText(from, answerSignedText(msg.share, msg.q, msg.body, from, msg.at), msg.sig)) {
       return reject('bad_signature');
     }
@@ -1285,13 +1316,8 @@ export class PeerNetwork {
     const clean = sanitizeMessageBody(msg.body);
     if (!clean.ok) return reject(clean.reason);
 
-    // 인박스 쓰기를 기다리는 사이에 온 다른 답은 answered로 막는다. 넣지 못하면 질문을 다시 연다
-    q.answering = true;
-    this.options.state.audit(
-      'answer_receive',
-      msg.share,
-      JSON.stringify({ question: q.id, person, bytes: Buffer.byteLength(clean.text) }),
-    );
+    // 인박스 쓰기를 기다리는 사이에 온 다른 답은 answered로 막는다. 넣지 못하면(던져도) 질문을 다시
+    // 열고 답한 기기에 reopened로 알려 다시 답하게 한다. 이 알림은 거절 상한을 타지 않는다
     let inserted = false;
     let seenEarly = false;
     const delivered = (): void => {
@@ -1302,15 +1328,44 @@ export class PeerNetwork {
         JSON.stringify({ question: q.id, person }),
       );
     };
-    const result = await owned.deliver(
-      { kind: 'answer', question: q.id, share: msg.share, from, person, body: clean.text },
-      () => {
-        if (inserted) delivered();
-        else seenEarly = true;
-      },
-    );
-    q.answering = false;
-    if (!result.ok) return reject(result.reason);
+    let result: InboxResult;
+    q.answering = true;
+    try {
+      this.options.state.audit(
+        'answer_receive',
+        msg.share,
+        JSON.stringify({ question: q.id, person, bytes: Buffer.byteLength(clean.text) }),
+      );
+      result = await owned.deliver(
+        { kind: 'answer', question: q.id, share: msg.share, from, person, body: clean.text },
+        () => {
+          if (inserted) delivered();
+          else seenEarly = true;
+        },
+      );
+    } catch (err) {
+      result = { ok: false, reason: 'deliver_failed' };
+      process.stderr.write(`[peer] answer deliver failed: ${errMessage(err)}\n`);
+    } finally {
+      q.answering = false;
+    }
+    if (!result.ok) {
+      const reopened = this.questions.get(q.id) === q;
+      this.sendBox(from, {
+        t: 'answer_status',
+        share: msg.share,
+        q: msg.q,
+        status: 'rejected',
+        reason: result.reason,
+        ...(reopened ? { reopened: true } : {}),
+      });
+      this.options.state.audit(
+        'answer_reject',
+        msg.share,
+        JSON.stringify({ question: msg.q, person, reason: result.reason }),
+      );
+      return;
+    }
     this.closeQuestion(q, 'answered', seat);
     status('inserted');
     this.options.state.audit(
@@ -1329,16 +1384,22 @@ export class PeerNetwork {
     const text = cleanQuestion(msg.text);
     const now = Date.now();
     if (!text || msg.expiresAt <= now) return;
-    for (const w of this.watches.values()) {
-      if (w.owner !== from || w.share !== msg.share || !w.sub) continue;
-      const added = w.feed.addQuestion(msg.q, text, Math.min(msg.expiresAt, now + MAX_ASK_TTL_MS));
-      if (added) {
-        this.options.state.audit(
-          'ask_receive',
-          null,
-          JSON.stringify({ watch: w.id, share: w.share, question: msg.q }),
-        );
-      }
+    const targets = [...this.watches.values()].filter(
+      (w) => w.owner === from && w.share === msg.share && w.sub && !w.feed.getQuestion(msg.q),
+    );
+    if (targets.length === 0) return;
+    // 질문마다 감사 행과 뷰어 알림이 따른다. 주인 기기가 계속 보내도 디스크와 뷰어를 못 채우게 한다
+    if (!this.askLimiter.take(from)) {
+      process.stderr.write('[peer] ask dropped: rate limited\n');
+      return;
+    }
+    for (const w of targets) {
+      w.feed.addQuestion(msg.q, text, Math.min(msg.expiresAt, now + MAX_ASK_TTL_MS));
+      this.options.state.audit(
+        'ask_receive',
+        null,
+        JSON.stringify({ watch: w.id, share: w.share, question: msg.q }),
+      );
     }
   }
 
@@ -1356,14 +1417,16 @@ export class PeerNetwork {
       return;
     const reason = plainLabel(msg.reason);
     for (const w of this.watches.values()) {
-      if (w.owner === from && w.share === msg.share) w.feed.setQuestion(msg.q, msg.status, reason);
+      if (w.owner !== from || w.share !== msg.share) continue;
+      if (msg.status === 'rejected' && msg.reopened === true) w.feed.reopenQuestion(msg.q, reason);
+      else w.feed.setQuestion(msg.q, msg.status, reason);
     }
   }
 
   /**
-   * 보는 쪽: 뷰어에서 사람이 쓴 답을 기기 키로 서명해 주인 데몬에 보낸다. 뷰어의 답 입력만 이걸
-   * 부른다. CLI와 IPC, MCP 도구에는 답을 서명하는 길이 없다. 주인 데몬이 오프라인이면 릴레이가
-   * 메시지처럼 들고 있는다.
+   * 보는 쪽: 뷰어에서 사람이 쓴 답을 기기 키로 서명해 주인 데몬에 보낸다. 부르는 곳은 lookupWatch가
+   * 뷰어에 넘기는 answer 하나다. IPC에 답 요청이 없는 건 network.test.ts의 "IPC와 MCP 도구에는 답을
+   * 서명하는 길이 없다"가 본다. 주인 데몬이 오프라인이면 릴레이가 메시지처럼 들고 있는다.
    */
   async answer(watchId: string, question: string, raw: string): Promise<{ question: string }> {
     const w = this.watches.get(watchId);
@@ -1390,9 +1453,10 @@ export class PeerNetwork {
       at,
       sig: signText(this.key, answerSignedText(w.share, q.id, clean.text, this.key.id, at)),
     };
-    // 보내기 전에 open에서 옮겨 두 번 누른 답이 둘 다 나가지 않게 한다
-    w.feed.setQuestion(q.id, 'queued');
+    // 봉인이 던지면 질문은 open으로 남는다. 상태를 옮기는 건 봉인 뒤, 첫 await 앞이라 여기까지가
+    // 동기로 돌고 같은 질문의 두 번째 호출은 위 open 검사에서 걸린다
     const sealed = sealBox(this.key, w.owner, member.boxKey, JSON.stringify(box));
+    w.feed.setQuestion(q.id, 'queued');
     let result: 'queued' | 'delivered';
     try {
       result = await t.send(w.owner, Buffer.from(JSON.stringify(sealed)), { queue: true });

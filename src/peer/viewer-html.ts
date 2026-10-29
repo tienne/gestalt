@@ -212,7 +212,7 @@ ${
     inserted: '답을 주인 세션에 넣었어요',
     delivered: '답이 주인 세션에 들어갔어요',
     rejected: '답이 거절됐어요',
-    closed: '질문이 닫혔어요',
+    closed: '질문이 끝났어요',
   };
   const CLOSED_ASK = { answered: '다른 사람이 먼저 답했어요', expired: '시한이 지났어요' };
   const asks = new Map();
@@ -267,10 +267,8 @@ ${
     if (d.state === 'closed' && d.reason && Object.hasOwn(CLOSED_ASK, d.reason)) label = CLOSED_ASK[d.reason];
     else if (d.reason) label += ' (' + d.reason + ')';
     a.state.textContent = label;
-    if (a.form && d.state !== 'open') {
-      a.form.remove();
-      a.form = null;
-    }
+    // 주인이 답을 못 넣어 질문을 다시 열면 open으로 돌아온다. 그때 입력을 다시 보인다
+    if (a.form) a.form.hidden = d.state !== 'open';
   });
   const form = document.getElementById('send');
   if (form) {

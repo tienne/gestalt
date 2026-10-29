@@ -173,6 +173,20 @@ export class MirrorFeed extends ShareFeed {
     this.emit({ type: 'ask', ...q });
   }
 
+  /**
+   * 주인 데몬이 내 답을 주인 세션에 못 넣어 질문을 다시 열었다. 내 답이 아직 끝나지 않았거나 거절된
+   * 상태이고 시한 전일 때만 open으로 되돌려 다시 답하게 한다. 이유는 남겨 뷰어에 보인다.
+   */
+  reopenQuestion(id: string, reason?: string, now = Date.now()): void {
+    const q = this.questions.get(id);
+    if (!q || now >= q.expiresAt) return;
+    if (q.state !== 'queued' && q.state !== 'sent' && q.state !== 'rejected') return;
+    q.state = 'open';
+    if (reason) q.reason = reason;
+    else delete q.reason;
+    this.emit({ type: 'ask', ...q });
+  }
+
   override subscribe(listener: ShareListener, afterSeq = 0): () => void {
     const off = super.subscribe(listener, afterSeq);
     for (const m of this.mine.values()) {

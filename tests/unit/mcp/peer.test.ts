@@ -5,6 +5,7 @@ import type { Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handlePeer, sessionPids } from '../../../src/mcp/tools/peer.js';
+import { PEER_ACTIONS, peerInputSchema } from '../../../src/mcp/schemas.js';
 
 describe('ges_peer ask_user', () => {
   let dir: string;
@@ -100,5 +101,13 @@ describe('ges_peer ask_user', () => {
     const pids = sessionPids({ CLAUDE_PID: '424242' });
     expect(pids[0]).toBe(424242);
     expect(pids[1]).toBe(process.ppid);
+  });
+
+  it('공유 통제 action은 스키마가 받지 않는다', () => {
+    expect(PEER_ACTIONS).toEqual(['ask_user']);
+    for (const action of ['share', 'kick', 'approve', 'send']) {
+      expect(peerInputSchema.safeParse({ action, question: 'x' }).success).toBe(false);
+    }
+    expect(peerInputSchema.safeParse({ action: 'ask_user', question: 'x' }).success).toBe(true);
   });
 });
