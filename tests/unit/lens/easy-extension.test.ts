@@ -121,4 +121,28 @@ describe('읽기 렌즈 확장 리포트', () => {
     expect(md).toContain('1. 그래프 만들기 p.1');
     expect(md).toContain('2. 간선 복원 p.2');
   });
+
+  it('리포트 마크다운의 뺀 구간도 시각 대신 쪽이나 문단 번호를 적는다', () => {
+    const pdf = renderDigestMarkdown(lensDigest(), lensTranscript('pdf'), { source: lensSource() });
+    expect(pdf).toMatch(/^- p\.\d+ 문단 10-10: 참고문헌$/m);
+    expect(pdf).not.toContain('00:00~');
+    const web = renderDigestMarkdown(lensDigest(), lensTranscript('web'), { source: lensSource() });
+    expect(web).toContain('- ¶10 문단 10-10: 참고문헌');
+  });
+
+  it('뷰어의 대섹션 도식 노드는 시각 대신 원문 문단을 연다', () => {
+    const r = lensReport();
+    r.sections[0]!.diagram = {
+      kind: 'flow',
+      steps: [{ label: '그래프 만들기', cite: { key: 1, from: 1, to: 1 } }, { label: '간선 복원' }],
+    };
+    const { html } = renderDigestHtml(lensDigest(r), lensTranscript('pdf'), {
+      source: lensSource(),
+    });
+    expect(html).toMatch(
+      /<g class="dg-node dg-cite" data-unit="1" role="link" tabindex="0" aria-label="그래프 만들기, 원문 p\.1 열기">/,
+    );
+    expect(html).not.toMatch(/<g [^>]*data-sec=/);
+    expect(html).not.toContain('0분 0초로 이동');
+  });
 });

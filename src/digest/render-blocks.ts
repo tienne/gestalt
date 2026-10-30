@@ -30,6 +30,8 @@ export interface BlockHtmlContext {
   time: (c: Cite) => string;
   /** cite.key 문장의 시작 초. SVG 노드에 data-sec으로 단다 */
   sec: (c: Cite) => number;
+  /** 글 자료면 있다. SVG 노드에 sec 대신 문단 자리를 단다 */
+  unit?: (c: Cite) => { index: number; label: string };
 }
 
 export interface BlockMdContext {
@@ -121,7 +123,7 @@ export function diagramParts(
   aria: string,
   ctx: BlockHtmlContext,
 ): { svg: string; outline: string } {
-  const opts = { sec: ctx.sec };
+  const opts = { sec: ctx.sec, unit: ctx.unit };
   const li = (n: MindmapNode) => outlineHtml(n, ctx);
   switch (d.kind) {
     case 'flow':
@@ -346,7 +348,7 @@ export function blockHtml(block: Block, ctx: BlockHtmlContext, id = 'b'): string
         .join('')}</ol>`;
     case 'mindmap':
       return diagramFigure(
-        treeSvg(block.root, { sec: ctx.sec }, `${block.root.label} 마인드맵`),
+        treeSvg(block.root, { sec: ctx.sec, unit: ctx.unit }, `${block.root.label} 마인드맵`),
         `<ul>${outlineHtml(block.root, ctx)}</ul>`,
       );
     case 'figure': {

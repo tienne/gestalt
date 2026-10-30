@@ -905,7 +905,7 @@ export const VIEWER_JS =
     close.addEventListener('click', function(){ dialog.close(); });
     dialog.addEventListener('click', function(ev){
       if (ev.target === dialog) dialog.close();
-      else if (ev.target.closest && ev.target.closest('[data-sec]')) dialog.close();
+      else if (ev.target.closest && ev.target.closest('[data-sec], [data-unit]')) dialog.close();
     });
     dialog.addEventListener('close', function(){
       body.textContent = '';
@@ -977,10 +977,10 @@ export const VIEWER_JS =
   setupCopyButton(reports, tabs);
   setupQuiz();
   var zoom = setupZoom();
-  // 도식 노드는 Enter와 Space를 클릭으로 넘겨야 시각 이동과 확대 창 닫기가 같이 돈다
+  // 도식 노드는 Enter와 Space를 클릭으로 넘겨야 시각 이동이나 문단 열기와 확대 창 닫기가 같이 돈다
   document.addEventListener('keydown', function(ev){
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
-    var el = ev.target.closest ? ev.target.closest('g[data-sec]') : null;
+    var el = ev.target.closest ? ev.target.closest('g[data-sec], g[data-unit]') : null;
     if (!el) return;
     ev.preventDefault();
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }));

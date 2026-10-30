@@ -179,6 +179,7 @@ export function renderDigestHtml(
     cite,
     time: (c) => (textKind ? loc(c.key) : timeLink(sec(c))),
     sec,
+    unit: textKind ? (c) => ({ index: c.key, label: unitLabel(transcript, c.key) }) : undefined,
   };
 
   const missingFrame = (subId: string, file: string) =>
