@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -235,7 +235,50 @@ describe('buildPeek', () => {
     expect(fits.truncated).toBeUndefined();
   });
 
-  it('파일 칸이 찬 뒤 다시 고친 Edit은 열지 않고 넘기고 둘째 파일이 새것인 apply_patch는 truncated를 켠다', () => {
+  it('파일 칸이 찬 뒤 이미 담긴 경로를 다시 고친 Edit은 열지 않고 경로를 앞부분에서 못 읽으면 연다', () => {
+    const ESC = 'q"uote\\back\u00e9.ts';
+    const lines = [tool('old', 'Edit', { file_path: ESC, old_string: 'a' })];
+    for (let i = 1; i < 20; i++) lines.push(tool(`e${i}`, 'Edit', { file_path: `f${i}.ts` }));
+    lines.push(tool('esc', 'Edit', { file_path: ESC }));
+    writeFileSync(path, lines.join(''));
+    const known = new ShareStream({
+      id: SHARE,
+      transcriptPath: path,
+      tools: 'summary',
+      home: FAKE_HOME,
+    });
+    known.poll();
+    const spy = vi.spyOn(JSON, 'parse');
+    let p: PeerPeek;
+    try {
+      p = buildPeek({ share: SHARE, feed: known, streamStatus: known.currentStatus });
+      const opened = spy.mock.calls.some(
+        ([s]) => typeof s === 'string' && s.startsWith('{"kind":"tool_call","id":"old"'),
+      );
+      expect(opened).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(p.touchedFiles).toHaveLength(20);
+    expect(p.touchedFiles).toContain(ESC);
+    expect(p.truncated).toBeUndefined();
+
+    // 경로 키가 이벤트 앞 2KB 밖이면 앞부분으로 못 읽어서 열고 새 경로를 찾는다
+    lines[0] = tool('far', 'Edit', { old_string: 'x'.repeat(3000), file_path: 'new.ts' });
+    writeFileSync(path, lines.join(''));
+    const far = new ShareStream({
+      id: SHARE,
+      transcriptPath: path,
+      tools: 'full',
+      home: FAKE_HOME,
+    });
+    far.poll();
+    const q = buildPeek({ share: SHARE, feed: far, streamStatus: far.currentStatus });
+    expect(q.touchedFiles).not.toContain('new.ts');
+    expect(q.truncated).toBe(true);
+  });
+
+  it('파일 칸이 찬 뒤 새 경로를 고친 Edit과 둘째 파일이 새것인 apply_patch는 truncated를 켠다', () => {
     const lines: string[] = [];
     for (let i = 0; i < 20; i++) lines.push(tool(`e${i}`, 'Edit', { file_path: `f${i}.ts` }));
     lines.push(tool('esc', 'Edit', { file_path: 'q"uote\\back\u00e9.ts' }));
@@ -372,6 +415,14 @@ describe('normalizePeek과 framePeek', () => {
     touchedFiles: ['a.ts'],
     cursor: '3',
   };
+
+  it('할 일이 20개를 넘게 오면 앞 20개만 남기고 truncated를 켠다', () => {
+    const todos = Array.from({ length: 25 }, (_, i) => `할 일 ${i}`);
+    const p = normalizePeek({ ...base, todos });
+    expect(p?.todos).toEqual(todos.slice(0, 20));
+    expect(p?.truncated).toBe(true);
+    expect(normalizePeek({ ...base, todos: todos.slice(0, 20) })?.truncated).toBeUndefined();
+  });
 
   it('틀 닫기 시도는 \\u003c로 남아 본문에 <가 없고 JSON으로 읽으면 원래 글자다', () => {
     const p = normalizePeek({

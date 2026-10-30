@@ -254,7 +254,8 @@ function knownPathHead(json: string, name: string, files: string[]): boolean {
   } catch {
     return false;
   }
-  const path = jsonField(head, key);
+  // 앞부분은 대개 잘려 있어서 통째로 읽기를 건너뛰고 맨 앞 키만 본다
+  const path = leadingField(head, key);
   return path !== undefined && files.includes(path);
 }
 
@@ -313,8 +314,8 @@ function touchedPaths(name: string, input: string): string[] {
 }
 
 /**
- * JSON 객체 글자에서 그 키의 문자열 값을 꺼낸다. 통째로 읽히면 그 값을, 잘려서 안 읽히면 맨 앞의
- * `{"키":"값"` 꼴만 본다. 도구 입력은 키 순서가 대화 기록 그대로라 경로 키가 보통 맨 앞이다.
+ * JSON 객체 글자에서 그 키의 문자열 값을 꺼낸다. 통째로 읽히면 그 값을, 잘려서 안 읽히면
+ * leadingField로 맨 앞 키만 본다.
  */
 function jsonField(text: string, key: string): string | undefined {
   try {
@@ -322,14 +323,22 @@ function jsonField(text: string, key: string): string | undefined {
     const v = parsed?.[key];
     return typeof v === 'string' ? v : undefined;
   } catch {
-    const m = new RegExp(`^\\{"${key}":("(?:[^"\\\\]|\\\\.)*")`).exec(text);
-    if (!m) return undefined;
-    try {
-      const v = JSON.parse(m[1]!) as unknown;
-      return typeof v === 'string' ? v : undefined;
-    } catch {
-      return undefined;
-    }
+    return leadingField(text, key);
+  }
+}
+
+/**
+ * 맨 앞의 `{"키":"값"` 꼴에서 값을 꺼낸다. 도구 입력은 키 순서가 대화 기록 그대로라 경로 키가 보통 맨
+ * 앞이다. 값이 닫히지 않았으면 undefined
+ */
+function leadingField(text: string, key: string): string | undefined {
+  const m = new RegExp(`^\\{"${key}":("(?:[^"\\\\]|\\\\.)*")`).exec(text);
+  if (!m) return undefined;
+  try {
+    const v = JSON.parse(m[1]!) as unknown;
+    return typeof v === 'string' ? v : undefined;
+  } catch {
+    return undefined;
   }
 }
 
