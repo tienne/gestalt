@@ -2,6 +2,7 @@ import { lstatSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { dirname } from 'node:path';
 import { findSessionById, isSessionId } from './locate.js';
+import type { SessionRecord } from './locate.js';
 
 /**
  * 넣은 결과. maybeWritten은 소켓에 붙은 뒤 실패했다는 뜻이라 줄이 실제로 들어갔을 수 있다. 붙기 전에
@@ -32,9 +33,25 @@ export function findInboxSocket(
       reason: '세션을 모르는 공유라 메시지를 넣을 수 없어요 (--session으로 연 공유만 돼요)',
     };
   }
-  const rec = findSessionById(sessionId, configDirOf(transcriptPath));
-  if (!rec) return { ok: false, reason: '주인 세션이 떠 있지 않아요' };
-  if (!rec.messagingSocketPath) return { ok: false, reason: '주인 세션에 인박스 소켓이 없어요' };
+  return findSessionSocket(sessionId, [configDirOf(transcriptPath)]);
+}
+
+/**
+ * 설정 디렉토리 후보에서 그 세션의 인박스 소켓을 찾는다. 주인 데몬의 메시지와 보는 쪽 데몬의 발췌가
+ * 같이 쓴다. 앞 후보부터 본다.
+ */
+export function findSessionSocket(
+  sessionId: string,
+  configDirs: string[],
+): InboxResult & { path?: string } {
+  if (!isSessionId(sessionId)) return { ok: false, reason: 'sessionId 형식이 아니에요' };
+  let rec: SessionRecord | null = null;
+  for (const dir of configDirs) {
+    rec = findSessionById(sessionId, dir);
+    if (rec) break;
+  }
+  if (!rec) return { ok: false, reason: '그 세션이 떠 있지 않아요' };
+  if (!rec.messagingSocketPath) return { ok: false, reason: '그 세션에 인박스 소켓이 없어요' };
   try {
     const st = lstatSync(rec.messagingSocketPath);
     if (!st.isSocket()) return { ok: false, reason: '인박스 자리가 소켓이 아니에요' };

@@ -127,6 +127,38 @@ describe('locateCodexRollout', () => {
     expect(found.ok && found.path.endsWith(`-${id}.jsonl`)).toBe(true);
   });
 
+  it('다른 날에 같은 id가 있으면 최근 날짜의 것을, 같은 날이면 이름이 뒤인 것을 고른다', () => {
+    mkdirSync(join(home, 'sessions', '2026', '9', '2'), { recursive: true });
+    mkdirSync(join(home, 'sessions', '2026', '10', '31'), { recursive: true });
+    const old = join(home, 'sessions', '2026', '9', '2', `rollout-2026-09-02T00-00-00-${id}.jsonl`);
+    const early = join(
+      home,
+      'sessions',
+      '2026',
+      '10',
+      '31',
+      `rollout-2026-10-31T01-00-00-${id}.jsonl`,
+    );
+    const late = join(
+      home,
+      'sessions',
+      '2026',
+      '10',
+      '31',
+      `rollout-2026-10-31T09-00-00-${id}.jsonl`,
+    );
+    for (const p of [old, early, late]) writeFileSync(p, codexText());
+    expect(locateCodexRollout(id, home)).toEqual({ ok: true, path: late, home });
+  });
+
+  it('날짜 디렉토리 밖에 있는 rollout도 전체를 훑어 찾는다', () => {
+    rmSync(join(home, 'sessions', '2026'), { recursive: true });
+    mkdirSync(join(home, 'sessions', 'archive'), { recursive: true });
+    const path = join(home, 'sessions', 'archive', `rollout-2026-10-30T00-53-13-${id}.jsonl`);
+    writeFileSync(path, codexText());
+    expect(locateCodexRollout(id, home)).toEqual({ ok: true, path, home });
+  });
+
   it('경로를 주면 그 파일을 쓴다', () => {
     const path = join(
       home,

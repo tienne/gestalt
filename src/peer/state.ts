@@ -76,7 +76,11 @@ export type AuditAction =
   | 'answer_receive'
   | 'answer_insert'
   | 'answer_deliver'
-  | 'answer_reject';
+  | 'answer_reject'
+  | 'peek_serve'
+  | 'peek_reject'
+  | 'peek_receive'
+  | 'excerpt_send';
 
 /** 이 기기가 든 팀. 한 기기는 팀 하나에만 든다 */
 export interface TeamConfig {
@@ -285,7 +289,7 @@ export class PeerState {
   messageLog(limit = 100): AuditRow[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM audit WHERE action LIKE 'message_%' OR action LIKE 'ask_%' OR action LIKE 'answer_%' ORDER BY id DESC LIMIT ?`,
+        `SELECT * FROM audit WHERE action LIKE 'message_%' OR action LIKE 'ask_%' OR action LIKE 'answer_%' OR action LIKE 'peek_%' OR action LIKE 'excerpt_%' ORDER BY id DESC LIMIT ?`,
       )
       .all(limit) as {
       at: number;

@@ -106,6 +106,7 @@ export async function peerShareCommand(
     tools?: string;
     expires?: string;
     messages?: boolean;
+    agentPeek?: boolean;
   },
 ): Promise<void> {
   if ([options.session, options.transcript, options.codex].filter(Boolean).length !== 1) {
@@ -153,6 +154,7 @@ export async function peerShareCommand(
     expiresMinutes,
     ...(options.codex ? { format: 'codex' as const } : {}),
     ...(options.messages === false ? { messages: false } : {}),
+    ...(options.agentPeek ? { agentPeek: true } : {}),
   });
 
   if (options.json) {
@@ -167,6 +169,11 @@ export async function peerShareCommand(
     if (info.messages) {
       console.log(
         '링크를 연 팀원이 이 세션에 메시지를 넣을 수 있어요. 막으려면 --no-messages로 여세요.',
+      );
+    }
+    if (info.agentPeek) {
+      console.log(
+        '링크를 연 팀원의 에이전트가 이 세션 요약(최근 프롬프트와 답, 고친 파일)을 가져갈 수 있어요.',
       );
     }
     console.log(`이 세션의 대화와 도구 출력이 링크를 연 팀원에게 보여요. ${VIEWER_WARNING}`);
@@ -191,8 +198,9 @@ export async function peerSharesCommand(options: PeerOptions): Promise<void> {
   for (const s of list) {
     const title = s.title ? ` "${plainLabel(s.title, 80) ?? ''}"` : '';
     const codex = s.format === 'codex' ? ' [codex]' : '';
+    const peek = s.agentPeek ? '  에이전트 요약 켬' : '';
     console.log(
-      `${s.id}${codex}${title}  ${s.status}  보는 사람 ${s.viewers}  도구 ${s.tools}  만료 ${time(s.expiresAt)}`,
+      `${s.id}${codex}${title}  ${s.status}  보는 사람 ${s.viewers}  도구 ${s.tools}${peek}  만료 ${time(s.expiresAt)}`,
     );
     console.log(`  ${s.url}`);
     if (s.link) console.log(`  ${s.link}`);
@@ -205,6 +213,9 @@ export async function peerSharesCommand(options: PeerOptions): Promise<void> {
     }
     for (const b of s.blocked) {
       console.log(`  ${b.reason === 'kicked' ? '끊음' : '거절함'}: ${names([b.person])}`);
+    }
+    for (const p of s.peeks) {
+      console.log(`  요약 가져감: ${names([p.person])}의 에이전트 (${time(p.at)})`);
     }
   }
 }
@@ -396,7 +407,11 @@ export async function peerMembersCommand(options: PeerOptions): Promise<void> {
 export async function peerWatchCommand(
   options: PeerOptions & { link: string; open?: boolean },
 ): Promise<void> {
-  const w = await call<WatchResult>({ op: 'watch', link: options.link }, 20_000);
+  // 발췌를 넣을 내 세션은 명령을 친 쪽 설정 디렉토리에서도 찾는다. 데몬은 다른 CLAUDE_CONFIG_DIR로 떴을 수 있다
+  const w = await call<WatchResult>(
+    { op: 'watch', link: options.link, configDir: claudeConfigDir() },
+    20_000,
+  );
   if (options.json) {
     console.log(JSON.stringify(w, null, 2));
     return;

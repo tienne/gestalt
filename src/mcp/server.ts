@@ -599,7 +599,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
 
   guardedTool(
     'ges_peer',
-    `세션 공유(gestalt peer)에서 이 세션을 보고 있는 팀원에게 묻는다. 답은 팀원 기기가 서명한 답으로 나중에 이 세션에 메시지로 들어온다. peer 데몬이 떠 있고 이 세션을 공유 중이어야 한다. Actions: ${PEER_ACTIONS.join(', ')}.`,
+    `세션 공유(gestalt peer). ask_user는 이 세션을 보고 있는 팀원에게 묻는다. 답은 팀원 기기가 서명한 답으로 나중에 이 세션에 메시지로 들어온다. peek은 내가 보고 있는 팀원 공유의 요약을 받는다. 주인이 --agent-peek으로 연 공유만 된다. peer 데몬이 떠 있어야 한다. Actions: ${PEER_ACTIONS.join(', ')}.`,
     peerInputSchema.shape,
     async (params) => {
       const input = peerInputSchema.parse(params);

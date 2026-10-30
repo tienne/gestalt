@@ -1,6 +1,7 @@
 import type { ToolsLevel } from './redact.js';
 import type { ShareStatus } from './feed.js';
-import type { AskResult, MemberInfo, TeamStatus } from './network.js';
+import type { MemberInfo, TeamStatus } from './network.js';
+import type { AskResult } from './questions.js';
 import type { TranscriptFormat } from './share.js';
 
 export type { AskResult, MemberInfo, TeamStatus, TranscriptFormat };
@@ -20,6 +21,8 @@ export type PeerRequest =
       messages?: boolean;
       /** 대화 기록 형식. 기본 claude. codex면 메시지를 안 받고 sessionId를 받지 않는다 */
       format?: TranscriptFormat;
+      /** true면 보는 쪽 에이전트가 ges_peer peek으로 요약을 가져갈 수 있다. 기본은 꺼짐 */
+      agentPeek?: boolean;
     }
   | { op: 'unshare'; id: string }
   | { op: 'init'; person: string; relay: string }
@@ -27,7 +30,8 @@ export type PeerRequest =
   | { op: 'join'; code: string; timeoutMs?: number }
   | { op: 'remove'; person: string }
   | { op: 'members' }
-  | { op: 'watch'; link: string }
+  /** configDir은 명령을 친 쪽의 Claude Code 설정 디렉토리. 발췌를 넣을 내 세션 목록을 거기서도 찾는다 */
+  | { op: 'watch'; link: string; configDir?: string }
   | { op: 'watches' }
   | { op: 'unwatch'; id: string }
   /** 보고 있는 원격 공유의 주인 세션에 메시지를 넣는다 */
@@ -46,7 +50,12 @@ export type PeerRequest =
    * 주인 세션 모델의 질문을 그 세션 공유를 보는 팀원에게 보낸다(ges_peer ask_user). to를 주면 그 사람만.
    * 답은 나중에 그 세션 인박스로 들어온다
    */
-  | { op: 'ask'; sessionId: string; question: string; to?: string; timeoutSecs?: number };
+  | { op: 'ask'; sessionId: string; question: string; to?: string; timeoutSecs?: number }
+  /**
+   * 보고 있는 원격 공유의 요약을 주인 데몬에 청한다(ges_peer peek). share는 주인 쪽 공유 id이고 보기
+   * id도 받는다. since는 앞 요약의 cursor다
+   */
+  | { op: 'peek'; share: string; since?: string };
 
 export type PeerResponse<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
 
@@ -59,6 +68,8 @@ export interface ShareInfo {
   format: TranscriptFormat;
   /** 팀원 메시지를 받는지 */
   messages: boolean;
+  /** 보는 쪽 에이전트가 요약(peek)을 가져갈 수 있는지. `--agent-peek`으로 연 공유만 true */
+  agentPeek: boolean;
   createdAt: number;
   expiresAt: number;
   status: ShareStatus;
@@ -81,6 +92,23 @@ export interface ShareInfo {
   pending: PendingWatcher[];
   /** 이 공유에서 끊거나 거절해 다시 못 붙는 사람 */
   blocked: { person: string; reason: BlockReason }[];
+  /** 최근 요약을 가져간 사람. 주인 세션에 알리는 시간(10분)이 지나면 빠진다 */
+  peeks: PeekNotice[];
+}
+
+/** 요약을 가져간 사람 한 명. 이름은 명단에서 온 값을 한 줄 라벨로 정리한 것이다 */
+export interface PeekNotice {
+  person: string;
+  /** 마지막으로 가져간 시각 */
+  at: number;
+}
+
+/** ges_peer peek의 답. text는 보는 쪽 에이전트에 그대로 넘기는 틀로 감싼 글자다 */
+export interface PeekResult {
+  share: string;
+  owner: string;
+  cursor: string;
+  text: string;
 }
 
 export interface PendingWatcher {

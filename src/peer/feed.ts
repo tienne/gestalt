@@ -140,6 +140,27 @@ export class ShareFeed {
   }
 
   /**
+   * `afterSeq` 뒤에 들고 있는 이벤트를 새것부터 꺼낸다. 요약(peek)이 최근 것만 추리다 다 모이면
+   * 멈추려고 쓴다. 부르는 쪽은 await 없이 한 번에 돈다. 도는 사이에 이벤트가 늘거나 버려지면 번호가
+   * 어긋난다.
+   */
+  *newestFirst(afterSeq = 0): Generator<{ seq: number; json: string }> {
+    for (let i = this.events.length - 1; i >= this.head; i--) {
+      const seq = this.base + i + 1;
+      if (seq <= afterSeq) return;
+      yield { seq, json: this.events[i]!.json };
+    }
+  }
+
+  /** 그 번호의 이벤트. 상한에 밀려 버렸거나 아직 없으면 undefined */
+  eventAt(seq: number): string | undefined {
+    if (!Number.isSafeInteger(seq)) return undefined;
+    const i = seq - this.base - 1;
+    if (i < this.head || i >= this.events.length) return undefined;
+    return this.events[i]?.json;
+  }
+
+  /**
    * 뷰어를 붙인다. 지금 상태와 `afterSeq` 뒤 앞부분을 한 번에 보내고 이후는 생기는 대로.
    * 떼어내는 함수를 돌려준다. 앞부분이 큰 뷰어는 backlogAfter로 먼저 따라잡은 뒤 이벤트
    * 루프로 돌아가기 전에 바로 붙어야 사이에 poll이 끼어 이벤트가 빠지지 않는다.

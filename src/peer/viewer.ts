@@ -18,6 +18,21 @@ export interface ViewerShare {
     question: string,
     text: string,
   ): Promise<{ ok: true; question: string } | { ok: false; error: string }>;
+  /** 원격 공유를 보는 중이면 고른 줄을 넘길 내 세션 목록. 내 공유에는 없다 */
+  sessions?(): LocalSession[];
+  /** 고른 줄을 내 세션에 발췌로 넣는다. items는 브라우저가 보낸 그대로고 데몬이 꼴을 본다 */
+  excerpt?(
+    session: string,
+    items: unknown,
+  ): Promise<{ ok: true; bytes: number } | { ok: false; error: string }>;
+}
+
+/** 발췌를 넣을 수 있는 보는 사람 머신의 세션 하나 */
+export interface LocalSession {
+  sessionId: string;
+  /** 홈 경로는 `~`로 바꾼 작업 디렉토리 */
+  cwd: string;
+  pid?: number;
 }
 
 export interface ViewerHooks {
@@ -30,8 +45,10 @@ const PAGE_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/?$/;
 const EVENTS_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/events$/;
 const MESSAGES_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/messages$/;
 const ANSWERS_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/answers$/;
+const SESSIONS_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/sessions$/;
+const EXCERPTS_PATH = /^\/s\/([A-Za-z0-9_-]{1,64})\/excerpts$/;
 
-/** POST 본문 상한. 메시지 본문 16KB에 JSON 껍데기 여유를 둔다 */
+/** POST 본문 상한. 메시지 본문 16KB와 발췌 번호 목록(2000줄)에 JSON 껍데기 여유를 둔다 */
 const MAX_POST_BYTES = 64 * 1024;
 
 /** SSE 연결이 프록시나 OS에서 놀다 끊기지 않게 보내는 빈 주석 간격 */
@@ -73,6 +90,8 @@ export interface ViewerServerOptions {
  *                                 closed의 missed는 따라잡는 중에 공유가 종료돼 못 보낸 이벤트 수
  *   POST /s/:id/messages?t=TOKEN → 원격 공유에 메시지 보내기. JSON `{text}`만 받고 Origin이 이 뷰어여야 한다
  *   POST /s/:id/answers?t=TOKEN  → 주인 세션 모델의 질문에 답하기. JSON `{question, text}`, 검사는 messages와 같다
+ *   GET /s/:id/sessions?t=TOKEN  → 발췌를 넣을 내 세션 목록. 원격 공유를 보는 중일 때만
+ *   POST /s/:id/excerpts?t=TOKEN → 고른 줄을 내 세션에 발췌로 넣기. JSON `{session, items}`, 검사는 messages와 같다
  *   *                           → 404
  */
 export class ViewerServer {
@@ -143,7 +162,8 @@ export class ViewerServer {
     if (req.method === 'POST') return this.post(req, res, url);
     const page = PAGE_PATH.exec(url.pathname);
     const events = page ? null : EVENTS_PATH.exec(url.pathname);
-    const id = page?.[1] ?? events?.[1];
+    const sessions = page || events ? null : SESSIONS_PATH.exec(url.pathname);
+    const id = page?.[1] ?? events?.[1] ?? sessions?.[1];
     if (!id) return plain(res, 404, 'Not Found');
 
     const share = this.hooks.lookup(id);
@@ -151,7 +171,18 @@ export class ViewerServer {
       return plain(res, 401, 'Unauthorized');
     }
 
-    if (page) return this.page(res, share.send !== undefined, share.answer !== undefined);
+    if (page) {
+      return this.page(res, {
+        canSend: share.send !== undefined,
+        canAnswer: share.answer !== undefined,
+        canExcerpt: share.excerpt !== undefined,
+      });
+    }
+    if (sessions) {
+      if (!share.sessions)
+        return json(res, 400, { error: '발췌를 넘길 수 없는 공유예요 (내 공유예요)' });
+      return json(res, 200, { sessions: share.sessions() });
+    }
     if ((this.viewers.get(id) ?? 0) >= MAX_VIEWERS_PER_SHARE) {
       return plain(res, 429, 'Too Many Viewers');
     }
@@ -172,7 +203,8 @@ export class ViewerServer {
   private post(req: IncomingMessage, res: ServerResponse, url: URL): void {
     const m = MESSAGES_PATH.exec(url.pathname);
     const a = m ? null : ANSWERS_PATH.exec(url.pathname);
-    const id = m?.[1] ?? a?.[1];
+    const x = m || a ? null : EXCERPTS_PATH.exec(url.pathname);
+    const id = m?.[1] ?? a?.[1] ?? x?.[1];
     if (!id) return plain(res, 404, 'Not Found');
     const share = this.hooks.lookup(id);
     if (!share || !tokenMatches(url.searchParams.get('t'), share.token)) {
@@ -181,6 +213,20 @@ export class ViewerServer {
     if (req.headers.origin !== `http://${req.headers.host}`) return plain(res, 403, 'Forbidden');
     if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) {
       return plain(res, 415, 'Unsupported Media Type');
+    }
+    if (x) {
+      const excerpt = share.excerpt;
+      if (!excerpt) return json(res, 400, { error: '발췌를 넘길 수 없는 공유예요 (내 공유예요)' });
+      return this.readJson(req, res, (parsed) => {
+        const { session, items } = parsed as { session?: unknown; items?: unknown };
+        if (typeof session !== 'string' || !Array.isArray(items)) {
+          return json(res, 400, { error: 'session과 items가 필요해요' });
+        }
+        excerpt(session, items).then(
+          (r) => (r.ok ? json(res, 202, { bytes: r.bytes }) : json(res, 400, { error: r.error })),
+          (err: unknown) => json(res, 500, { error: errMessage(err) }),
+        );
+      });
     }
     if (a) {
       const answer = share.answer;
@@ -246,7 +292,10 @@ export class ViewerServer {
     });
   }
 
-  private page(res: ServerResponse, canSend: boolean, canAnswer: boolean): void {
+  private page(
+    res: ServerResponse,
+    can: { canSend: boolean; canAnswer: boolean; canExcerpt: boolean },
+  ): void {
     const nonce = randomBytes(16).toString('base64');
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
@@ -261,7 +310,7 @@ export class ViewerServer {
       ].join('; '),
       ...PRIVATE_HEADERS,
     });
-    res.end(renderViewerHtml(nonce, MAX_VIEWERS_PER_SHARE, canSend, canAnswer));
+    res.end(renderViewerHtml(nonce, MAX_VIEWERS_PER_SHARE, can));
   }
 
   private stream(req: IncomingMessage, res: ServerResponse, stream: ShareFeed): void {

@@ -287,7 +287,7 @@ describe('ViewerServer', () => {
 
 describe('renderViewerHtml', () => {
   it('질문 답 입력은 hidden이면 안 보인다. .ask form의 display가 hidden 기본 규칙을 덮지 않게 한다', () => {
-    const html = renderViewerHtml('n', 16, true, true);
+    const html = renderViewerHtml('n', 16, { canSend: true, canAnswer: true });
     expect(html).toContain('.ask form[hidden] { display: none; }');
     expect(html).toContain("a.form.hidden = d.state !== 'open'");
   });
