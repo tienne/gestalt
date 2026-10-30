@@ -26,7 +26,8 @@ import {
 } from './paths.js';
 import { PeerState } from './state.js';
 import type { ShareCloseReason } from './state.js';
-import { ShareStream } from './share.js';
+import { isTranscriptFormat, ShareStream } from './share.js';
+import type { TranscriptFormat } from './share.js';
 import { ViewerServer } from './viewer.js';
 import {
   DEFAULT_EXPIRES_MINUTES,
@@ -35,6 +36,7 @@ import {
   MAX_REQUEST_BYTES,
 } from './protocol.js';
 import type {
+  AskResult,
   ControlResult,
   DaemonStatus,
   PeerConfig,
@@ -49,11 +51,25 @@ import { loadOrCreateMachineKey } from './keys.js';
 import type { MachineKey } from './keys.js';
 import { acquireDaemonLock, releaseDaemonLock } from './lock.js';
 import type { DaemonLock } from './lock.js';
-import { PeerNetwork, PeerNetworkError } from './network.js';
-import type { InboundMessage, PeerNetworkOptions } from './network.js';
+import {
+  DEFAULT_ASK_TTL_MS,
+  MAX_ASK_TTL_MS,
+  MIN_ASK_TTL_MS,
+  PeerNetwork,
+  PeerNetworkError,
+} from './network.js';
+import type { InboundAnswer, InboundMessage, PeerNetworkOptions } from './network.js';
 import { findInboxSocket, writeInbox } from './inbox.js';
 import type { InboxResult } from './inbox.js';
-import { frameHeader, frameMessage, plainLabel } from './message.js';
+import {
+  answerHeader,
+  frameAnswer,
+  frameHeader,
+  frameMessage,
+  plainLabel,
+  stripQuestion,
+} from './message.js';
+import { redactText } from './redact.js';
 import { isPersonName, isShareId } from './roster.js';
 import type { WatchListItem, WatchResult } from './protocol.js';
 
@@ -79,9 +95,10 @@ interface OpenShare {
   /** 링크의 `#` 뒤에 붙는 공유 키. 메모리에만 있다 */
   shareKey: string;
   sessionId: string | null;
+  format: TranscriptFormat;
   /**
    * 팀원 메시지를 받는지. 끄면 deliver를 안 달아 주인 데몬이 messages_off로 거절한다.
-   * sessionId가 없는 --transcript 공유도 같다
+   * sessionId가 없는 --transcript 공유와 Codex 공유도 같다
    */
   messages: boolean;
   createdAt: number;
@@ -198,7 +215,7 @@ export class PeerDaemon {
           // 인박스 소켓은 세션 id로 찾으므로 --transcript로 연 공유는 메시지를 못 받는다
           ...(s.messages && s.sessionId
             ? {
-                deliver: (m: InboundMessage, onSeen: () => void) =>
+                deliver: (m: InboundMessage | InboundAnswer, onSeen: () => void) =>
                   this.deliverMessage(id, m, onSeen),
               }
             : {}),
@@ -265,7 +282,11 @@ export class PeerDaemon {
           this.state?.audit(
             'unknown_lines',
             id,
-            JSON.stringify({ added, claudeVersion: share.stream.claudeVersion ?? null }),
+            JSON.stringify({
+              added,
+              format: share.stream.format,
+              version: share.stream.toolVersion ?? null,
+            }),
           );
         }
       } catch (err) {
@@ -315,6 +336,8 @@ export class PeerDaemon {
         return this.control(req);
       case 'config':
         return this.config(req);
+      case 'ask':
+        return this.ask(req);
       case 'init':
         return this.withNetwork((n) => n.init(String(req.person), String(req.relay)));
       case 'invite':
@@ -407,6 +430,47 @@ export class PeerDaemon {
     };
   }
 
+  /**
+   * ges_peer ask_user. 그 세션 id로 연 Claude Code 공유를 찾아 지금 보는 팀원에게 질문을 보낸다.
+   * 메시지를 끈 공유는 고르지 않는다. 답이 메시지와 같은 길로 들어가는데 주인이 그 길을 막았다.
+   * 질문 글자는 이 머신을 떠나므로 대화 기록과 같은 가리기를 건다.
+   */
+  private ask(req: Extract<PeerRequest, { op: 'ask' }>): PeerResponse<AskResult> {
+    if (typeof req.sessionId !== 'string' || !isSessionId(req.sessionId)) {
+      return { ok: false, error: 'sessionId 형식이 아니에요' };
+    }
+    if (typeof req.question !== 'string') return { ok: false, error: '질문이 없어요' };
+    if (req.to !== undefined && !isPersonName(req.to)) {
+      return { ok: false, error: '이름 꼴이 아니에요' };
+    }
+    let ttl = DEFAULT_ASK_TTL_MS;
+    if (req.timeoutSecs !== undefined) {
+      ttl = Number(req.timeoutSecs) * 1000;
+      if (!Number.isFinite(ttl) || ttl < MIN_ASK_TTL_MS || ttl > MAX_ASK_TTL_MS) {
+        return {
+          ok: false,
+          error: `timeoutSecs는 ${MIN_ASK_TTL_MS / 1000}~${MAX_ASK_TTL_MS / 1000}초예요`,
+        };
+      }
+    }
+    const mine = [...this.shares].filter(
+      ([, s]) => s.sessionId === req.sessionId && s.format === 'claude',
+    );
+    if (mine.length === 0) return { ok: false, error: '이 세션을 공유하고 있지 않아요' };
+    const open = mine.filter(([, s]) => s.messages).map(([id]) => id);
+    if (open.length === 0) {
+      return {
+        ok: false,
+        error: '팀원 메시지를 끈 공유(--no-messages)라 답을 받을 수 없어서 질문도 못 보내요',
+      };
+    }
+    // 보이지 않는 글자를 먼저 지우고 가린다. 거꾸로 하면 토큰 사이에 끼운 폭 없는 공백이 가리기를
+    // 피한 뒤 지워진다. 길이 검사와 자르기는 가린 뒤 network.ask가 한다
+    const question = redactText(stripQuestion(req.question) ?? '', { home: this.options.home });
+    const to = req.to;
+    return this.withNetwork((n) => n.ask(open, question, to, ttl));
+  }
+
   private withNetwork<T>(fn: (n: PeerNetwork) => T): PeerResponse<T> {
     if (!this.network) return { ok: false, error: '데몬이 아직 안 떴어요' };
     try {
@@ -426,12 +490,12 @@ export class PeerDaemon {
   }
 
   /**
-   * 팀원이 보낸 메시지를 주인 세션 인박스에 쓴다. 들어간 게 대화 기록에 보이면 대화 흐름에
-   * 끼우고 onSeen을 부른다. 지켜보는 일은 쓰기 전에 걸어야 쓰자마자 생긴 줄을 놓치지 않는다.
+   * 팀원이 보낸 메시지나 서명을 확인한 답을 주인 세션 인박스에 쓴다. 들어간 게 대화 기록에 보이면
+   * 대화 흐름에 끼우고 onSeen을 부른다. 지켜보는 일은 쓰기 전에 걸어야 쓰자마자 생긴 줄을 놓치지 않는다.
    */
   private async deliverMessage(
     shareId: string,
-    m: InboundMessage,
+    m: InboundMessage | InboundAnswer,
     onSeen: () => void,
   ): Promise<InboxResult> {
     const share = this.shares.get(shareId);
@@ -440,16 +504,30 @@ export class PeerDaemon {
     if (!found.ok || !found.path)
       return { ok: false, reason: found.ok ? '인박스 소켓이 없어요' : found.reason };
     const stream = share.stream;
-    const header = frameHeader(m.person, m.origin, m.id);
+    const header =
+      m.kind === 'answer'
+        ? answerHeader(m.person, m.question)
+        : frameHeader(m.person, m.origin, m.id);
     stream.awaitMessage(header, () => {
-      stream.pushPeerMessage({ id: m.id, from: m.person, origin: m.origin, text: m.body });
+      if (m.kind === 'answer') {
+        stream.pushPeerAnswer({ question: m.question, from: m.person, text: m.body });
+      } else {
+        stream.pushPeerMessage({ id: m.id, from: m.person, origin: m.origin, text: m.body });
+      }
       onSeen();
     });
-    const result = await writeInbox(
-      found.path,
-      frameMessage({ from: m.person, origin: m.origin, id: m.id, body: m.body }),
-    );
-    if (!result.ok) stream.cancelAwait(header);
+    let result: InboxResult = { ok: false, reason: 'deliver_failed' };
+    try {
+      result = await writeInbox(
+        found.path,
+        m.kind === 'answer'
+          ? frameAnswer({ from: m.person, question: m.question, body: m.body })
+          : frameMessage({ from: m.person, origin: m.origin, id: m.id, body: m.body }),
+      );
+    } finally {
+      // 붙은 뒤 실패했으면 줄이 들어갔을 수 있다. 지켜보기를 남겨 들어갔으면 대화 흐름에 끼운다
+      if (!result.ok && !result.maybeWritten) stream.cancelAwait(header);
+    }
     return result;
   }
 
@@ -484,6 +562,14 @@ export class PeerDaemon {
     if (req.sessionId !== undefined && !isSessionId(req.sessionId)) {
       return { ok: false, error: 'sessionId 형식이 아니에요' };
     }
+    const format: TranscriptFormat = req.format ?? 'claude';
+    if (!isTranscriptFormat(format))
+      return { ok: false, error: 'format은 claude, codex 중 하나예요' };
+    // Codex 세션에는 메시지를 넣는 길이 없다. sessionId는 Claude Code 인박스를 찾는 데만 쓴다
+    if (format === 'codex' && req.sessionId !== undefined) {
+      return { ok: false, error: 'Codex 공유는 sessionId를 받지 않아요' };
+    }
+    const messages = format === 'claude' && req.messages !== false;
 
     const tools: ToolsLevel = req.tools ?? 'summary';
     if (!isToolsLevel(tools))
@@ -499,7 +585,13 @@ export class PeerDaemon {
     const shareKey = randomBytes(32).toString('base64url');
     const createdAt = Date.now();
     const expiresAt = createdAt + Math.round(minutes * 60_000);
-    const stream = new ShareStream({ id, transcriptPath: real, tools, home: this.options.home });
+    const stream = new ShareStream({
+      id,
+      transcriptPath: real,
+      tools,
+      format,
+      home: this.options.home,
+    });
     stream.poll();
 
     this.shares.set(id, {
@@ -507,7 +599,8 @@ export class PeerDaemon {
       token,
       shareKey,
       sessionId: req.sessionId ?? null,
-      messages: req.messages !== false,
+      format,
+      messages,
       createdAt,
       expiresAt,
     });
@@ -519,11 +612,7 @@ export class PeerDaemon {
       createdAt,
       expiresAt,
     });
-    this.state!.audit(
-      'share_open',
-      id,
-      JSON.stringify({ tools, expiresAt, messages: req.messages !== false }),
-    );
+    this.state!.audit('share_open', id, JSON.stringify({ tools, format, expiresAt, messages }));
     this.announceShares();
     return { ok: true, result: this.info(id) };
   }
@@ -548,6 +637,7 @@ export class PeerDaemon {
       sessionId: s.sessionId,
       transcriptPath: s.stream.transcriptPath,
       tools: s.stream.tools,
+      format: s.format,
       messages: s.messages && s.sessionId !== null,
       createdAt: s.createdAt,
       expiresAt: s.expiresAt,

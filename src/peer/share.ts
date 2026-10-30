@@ -1,6 +1,8 @@
 import { TranscriptTail } from './tail.js';
 import type { TailOptions, TailStatus } from './tail.js';
 import { TranscriptTransformer } from './transform.js';
+import type { PeerEvent } from './transform.js';
+import { CodexTransformer } from './codex.js';
 import { redactText } from './redact.js';
 import type { RedactOptions, ToolsLevel } from './redact.js';
 import { ShareFeed } from './feed.js';
@@ -9,10 +11,27 @@ import type { ShareStatus } from './feed.js';
 export { DEFAULT_MAX_BACKLOG_BYTES } from './feed.js';
 export type { BacklogSlice, ShareFrame, ShareListener, ShareStatus } from './feed.js';
 
+/** 대화 기록 형식. claude는 Claude Code jsonl, codex는 Codex rollout jsonl이다 */
+export type TranscriptFormat = 'claude' | 'codex';
+
+export function isTranscriptFormat(value: unknown): value is TranscriptFormat {
+  return value === 'claude' || value === 'codex';
+}
+
+/** 대화 기록 한 줄을 뷰어 이벤트로 바꾸는 쪽. 형식마다 하나다 */
+interface LineTransformer {
+  push(line: string): PeerEvent[];
+  readonly unknownLines: number;
+  readonly failedLines: number;
+  readonly version: string | undefined;
+}
+
 export interface ShareStreamOptions extends RedactOptions {
   id: string;
   transcriptPath: string;
   tools: ToolsLevel;
+  /** 기본 claude */
+  format?: TranscriptFormat;
   /** 들고 있는 이벤트의 직렬화 바이트 상한. 테스트가 작게 준다 */
   maxBacklogBytes?: number;
   tail?: Omit<TailOptions, 'startOffset'>;
@@ -27,9 +46,10 @@ export interface ShareStreamOptions extends RedactOptions {
 export class ShareStream extends ShareFeed {
   readonly transcriptPath: string;
   readonly tools: ToolsLevel;
+  readonly format: TranscriptFormat;
 
   private tail: TranscriptTail;
-  private transformer: TranscriptTransformer;
+  private transformer: LineTransformer;
   private title: string | undefined;
   private lastUnknown = 0;
   private readonly home: string | undefined;
@@ -40,9 +60,14 @@ export class ShareStream extends ShareFeed {
     super(options.id, options.maxBacklogBytes);
     this.transcriptPath = options.transcriptPath;
     this.tools = options.tools;
+    this.format = options.format ?? 'claude';
     this.home = options.home;
     this.tail = new TranscriptTail(options.transcriptPath, options.tail);
-    this.transformer = new TranscriptTransformer({ tools: options.tools, home: options.home });
+    const transform = { tools: options.tools, home: options.home };
+    this.transformer =
+      this.format === 'codex'
+        ? new CodexTransformer(transform)
+        : new TranscriptTransformer(transform);
   }
 
   override get unknownLines(): number {
@@ -57,7 +82,8 @@ export class ShareStream extends ShareFeed {
     return this.tail.oversizedLines;
   }
 
-  get claudeVersion(): string | undefined {
+  /** 마지막으로 본 Claude Code나 codex-cli 버전. 모르는 줄이 늘 때 감사 로그에 남긴다 */
+  get toolVersion(): string | undefined {
     return this.transformer.version;
   }
 
@@ -82,8 +108,13 @@ export class ShareStream extends ShareFeed {
     for (const line of lines) {
       // 세션이 놀다가 메시지로 새 턴을 시작하면 user 줄로 남을 수 있다. 그 줄은 주인
       // 프롬프트처럼 보이면 안 되므로 바꾸지 않고 peer_message로만 보여준다. 대부분의 줄은
-      // 여는 태그 앞부분이 없어서 파싱 없이 지나간다
-      if (line.includes(PEER_TAG_IN_JSON) && this.spot(line, now)) continue;
+      // 여는 태그 앞부분이 없어서 파싱 없이 지나간다. Codex 공유는 메시지를 안 받는다
+      if (
+        this.format === 'claude' &&
+        PEER_TAGS_IN_JSON.some((tag) => line.includes(tag)) &&
+        this.spot(line, now)
+      )
+        continue;
       for (const event of this.transformer.push(line)) {
         if (event.kind === 'title') this.title = event.text;
         this.pushEvent(JSON.stringify(event));
@@ -124,6 +155,20 @@ export class ShareStream extends ShareFeed {
 
   cancelAwait(header: string): void {
     this.awaiting.delete(header);
+  }
+
+  /** 서명을 확인하고 들어간 답을 대화 흐름에 끼운다 */
+  pushPeerAnswer(a: { question: string; from: string; text: string }): void {
+    if (this.isClosed) return;
+    const event: PeerEvent = {
+      kind: 'peer_answer',
+      question: a.question,
+      from: a.from,
+      text: redactText(a.text, { home: this.home }),
+      at: new Date().toISOString(),
+    };
+    this.pushEvent(JSON.stringify(event));
+    this.trim();
   }
 
   /** 들어간 메시지를 대화 흐름에 끼운다. 보는 사람 모두가 같은 자리에서 본다 */
@@ -171,7 +216,7 @@ export class ShareStream extends ShareFeed {
         // 상태 알림이 실패해도 따라 읽기는 계속한다
       }
     }
-    return parsed.type === 'user' && text.includes(PEER_TAG);
+    return parsed.type === 'user' && PEER_TAGS.some((tag) => text.includes(tag));
   }
 
   /** 보류되거나 거절돼 끝내 안 보인 메시지와 다 본 메시지를 잊는다 */
@@ -188,9 +233,9 @@ interface Awaiting {
   until: number;
 }
 
-/** 팀원 메시지 여는 태그의 앞부분. 대화 기록 줄은 JSON이라 따옴표가 `\"`로 적혀 있다 */
-const PEER_TAG = '<peer-message from="';
-const PEER_TAG_IN_JSON = JSON.stringify(PEER_TAG).slice(1, -1);
+/** 팀원 메시지와 답 여는 태그의 앞부분. 대화 기록 줄은 JSON이라 따옴표가 `\"`로 적혀 있다 */
+const PEER_TAGS = ['<peer-message from="', '<peer-answer from="'];
+const PEER_TAGS_IN_JSON = PEER_TAGS.map((tag) => JSON.stringify(tag).slice(1, -1));
 
 interface TranscriptLineShape {
   type?: unknown;

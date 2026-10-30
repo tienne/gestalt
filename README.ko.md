@@ -151,7 +151,7 @@ claude plugin install gestalt@gestalt
 
 | 항목 | 내용 |
 |------|------|
-| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_architecture`, `ges_research`, `ges_digest` — [MCP 레퍼런스](./docs/mcp-reference.md) 참고 |
+| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_peer`, `ges_architecture`, `ges_research`, `ges_digest` — [MCP 레퍼런스](./docs/mcp-reference.md) 참고 |
 | **슬래시 커맨드** | 워크플로 스킬 — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send` 등. 전체 목록은 [스킬](#스킬) |
 | **에이전트** | 파이프라인 에이전트, [Role 에이전트와 Review 에이전트](#6단계--code-review-코드-리뷰) |
 | **CLAUDE.md** | 프로젝트 컨텍스트 및 MCP 사용 가이드 자동 추가 |

@@ -1,8 +1,9 @@
 import type { ToolsLevel } from './redact.js';
 import type { ShareStatus } from './feed.js';
-import type { MemberInfo, TeamStatus } from './network.js';
+import type { AskResult, MemberInfo, TeamStatus } from './network.js';
+import type { TranscriptFormat } from './share.js';
 
-export type { MemberInfo, TeamStatus };
+export type { AskResult, MemberInfo, TeamStatus, TranscriptFormat };
 
 /** IPC 한 줄 요청. 줄 단위 JSON이다 */
 export type PeerRequest =
@@ -17,6 +18,8 @@ export type PeerRequest =
       expiresMinutes?: number;
       /** false면 이 공유는 팀원 메시지를 안 받는다. 기본은 받는다 */
       messages?: boolean;
+      /** 대화 기록 형식. 기본 claude. codex면 메시지를 안 받고 sessionId를 받지 않는다 */
+      format?: TranscriptFormat;
     }
   | { op: 'unshare'; id: string }
   | { op: 'init'; person: string; relay: string }
@@ -38,7 +41,12 @@ export type PeerRequest =
   /** 처음 붙으려고 기다리는 사람을 거절한다. 그 공유가 열려 있는 동안 다시 못 붙는다 */
   | { op: 'deny'; person: string; share?: string }
   /** firstWatch가 있으면 바꾸고 지금 설정을 돌려준다 */
-  | { op: 'config'; firstWatch?: FirstWatchApproval };
+  | { op: 'config'; firstWatch?: FirstWatchApproval }
+  /**
+   * 주인 세션 모델의 질문을 그 세션 공유를 보는 팀원에게 보낸다(ges_peer ask_user). to를 주면 그 사람만.
+   * 답은 나중에 그 세션 인박스로 들어온다
+   */
+  | { op: 'ask'; sessionId: string; question: string; to?: string; timeoutSecs?: number };
 
 export type PeerResponse<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
 
@@ -47,6 +55,8 @@ export interface ShareInfo {
   sessionId: string | null;
   transcriptPath: string;
   tools: ToolsLevel;
+  /** 대화 기록 형식 */
+  format: TranscriptFormat;
   /** 팀원 메시지를 받는지 */
   messages: boolean;
   createdAt: number;

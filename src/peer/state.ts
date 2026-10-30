@@ -68,7 +68,15 @@ export type AuditAction =
   | 'approval_expire'
   | 'approval_cancel'
   | 'approval_revoke'
-  | 'kick';
+  | 'kick'
+  | 'ask_open'
+  | 'ask_expire'
+  | 'ask_receive'
+  | 'answer_send'
+  | 'answer_receive'
+  | 'answer_insert'
+  | 'answer_deliver'
+  | 'answer_reject';
 
 /** 이 기기가 든 팀. 한 기기는 팀 하나에만 든다 */
 export interface TeamConfig {
@@ -273,10 +281,12 @@ export class PeerState {
       .run(at, shareId, action, detail ?? null);
   }
 
-  /** 받은 메시지 기록. 본문은 없고 id, 보낸 사람, 크기, 거절 이유만 있다 */
+  /** 주고받은 메시지와 질문, 답 기록. 본문은 없고 id, 보낸 사람, 크기, 거절 이유만 있다 */
   messageLog(limit = 100): AuditRow[] {
     const rows = this.db
-      .prepare(`SELECT * FROM audit WHERE action LIKE 'message_%' ORDER BY id DESC LIMIT ?`)
+      .prepare(
+        `SELECT * FROM audit WHERE action LIKE 'message_%' OR action LIKE 'ask_%' OR action LIKE 'answer_%' ORDER BY id DESC LIMIT ?`,
+      )
       .all(limit) as {
       at: number;
       share_id: string | null;

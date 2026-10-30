@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cleanQuestion,
+  frameAnswer,
   frameMessage,
   isMessageId,
+  isQuestionId,
   MAX_MESSAGE_BYTES,
+  MAX_QUESTION_BYTES,
+  newQuestionId,
   newMessageId,
   plainLabel,
   RateLimiter,
@@ -147,5 +152,81 @@ describe('MirrorFeed 내 메시지 상태', () => {
     const msgs = frames.filter((f) => f.type === 'msg');
     expect(msgs.map((f) => (f as { status: string }).status)).toEqual(['arrived']);
     expect(feed.getMessage('m1')).toMatchObject({ status: 'arrived', text: '본문' });
+  });
+});
+
+describe('질문과 답', () => {
+  it('질문 id는 q_ 뒤 16자이고 메시지 id와 섞이지 않는다', () => {
+    const id = newQuestionId();
+    expect(isQuestionId(id)).toBe(true);
+    expect(isMessageId(id)).toBe(false);
+    expect(isQuestionId('q_../../etc/passwd')).toBe(false);
+  });
+
+  it('질문 글자는 제어 문자와 보이지 않는 글자를 지우고 줄바꿈은 남기며 상한에서 자른다', () => {
+    expect(cleanQuestion('a\u001b[31m\u200bb\r\nc')).toBe('a[31mb\nc');
+    expect(cleanQuestion('  \u200b ')).toBeUndefined();
+    expect(cleanQuestion(1)).toBeUndefined();
+    const long = cleanQuestion('가'.repeat(MAX_QUESTION_BYTES));
+    expect(Buffer.byteLength(long!)).toBeLessThanOrEqual(MAX_QUESTION_BYTES);
+  });
+
+  it('답 틀은 verified 여는 태그, 본문, 닫는 태그, 안내문 순이고 이름의 따옴표는 지운다', () => {
+    const text = frameAnswer({ from: 'al"ice', question: 'q_AAAAAAAAAAAAAAAA', body: '네' });
+    const lines = text.split('\n');
+    expect(lines[0]).toBe('<peer-answer from="alice" question="q_AAAAAAAAAAAAAAAA" verified>');
+    expect(lines[1]).toBe('네');
+    expect(lines[2]).toBe('</peer-answer>');
+    expect(lines[3]).toContain('서명을 주인 데몬이 확인했다');
+  });
+
+  it('보는 쪽 질문 상태는 답한 뒤 닫힘으로 안 돌아가고 끝난 상태는 안 바뀐다', () => {
+    const feed = new MirrorFeed('w', 'owner', 'tienne', 's');
+    const frames: ShareFrame[] = [];
+    feed.subscribe((f) => frames.push(f));
+    expect(feed.addQuestion('q1', '물음', Date.now() + 60_000)).toBe(true);
+    expect(feed.addQuestion('q1', '물음', Date.now() + 60_000)).toBe(false);
+    feed.setQuestion('q1', 'queued');
+    feed.setQuestion('q1', 'closed', 'answered');
+    feed.setQuestion('q1', 'inserted');
+    feed.setQuestion('q1', 'sent');
+    feed.setQuestion('q1', 'delivered');
+    feed.setQuestion('q1', 'rejected', 'late');
+    const states = frames
+      .filter((f) => f.type === 'ask')
+      .map((f) => (f as { state: string }).state);
+    expect(states).toEqual(['open', 'queued', 'inserted', 'delivered']);
+  });
+
+  it('다시 열기는 시한 전이고 내 답이 queued, sent, rejected일 때만 open으로 되돌린다', () => {
+    const now = Date.now();
+    const feed = new MirrorFeed('w', 'owner', 'tienne', 's');
+    const states: Record<string, string> = {};
+    const make = (
+      id: string,
+      to: 'queued' | 'sent' | 'rejected' | 'inserted' | 'delivered' | 'closed',
+    ) => {
+      feed.addQuestion(id, '물음', now + 60_000);
+      if (to === 'closed') feed.setQuestion(id, 'closed', 'answered');
+      else feed.setQuestion(id, to);
+    };
+    for (const s of ['queued', 'sent', 'rejected', 'inserted', 'delivered', 'closed'] as const) {
+      make(`q-${s}`, s);
+      feed.reopenQuestion(`q-${s}`, 'deliver_failed', now);
+      states[s] = feed.getQuestion(`q-${s}`)!.state;
+    }
+    expect(states).toEqual({
+      queued: 'open',
+      sent: 'open',
+      rejected: 'open',
+      inserted: 'inserted',
+      delivered: 'delivered',
+      closed: 'closed',
+    });
+    expect(feed.getQuestion('q-rejected')!.reason).toBe('deliver_failed');
+    // 시한이 지난 질문은 되살리지 않는다
+    make('q-late', 'rejected');
+    feed.reopenQuestion('q-late', 'deliver_failed', now + 60_000);
+    expect(feed.getQuestion('q-late')!.state).toBe('rejected');
   });
 });

@@ -53,6 +53,7 @@ const expectedPassthroughTools = [
   'ges_search',
   'ges_sync',
   'ges_pr',
+  'ges_peer',
 ];
 
 let dbPaths: string[] = [];

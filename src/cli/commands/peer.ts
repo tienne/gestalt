@@ -4,6 +4,7 @@ import { PeerDaemon } from '../../peer/daemon.js';
 import { DaemonUnavailableError, request } from '../../peer/client.js';
 import { errMessage } from '../../peer/errors.js';
 import { claudeConfigDir, locateTranscript } from '../../peer/locate.js';
+import { codexHome, locateCodexRollout } from '../../peer/codex.js';
 import { ensurePrivateDir, peerRoot, socketPath } from '../../peer/paths.js';
 import { plainLabel } from '../../peer/message.js';
 import { isToolsLevel } from '../../peer/redact.js';
@@ -101,13 +102,14 @@ export async function peerShareCommand(
   options: PeerOptions & {
     session?: string;
     transcript?: string;
+    codex?: string;
     tools?: string;
     expires?: string;
     messages?: boolean;
   },
 ): Promise<void> {
-  if (!!options.session === !!options.transcript) {
-    fail('--session과 --transcript 중 하나만 주세요');
+  if ([options.session, options.transcript, options.codex].filter(Boolean).length !== 1) {
+    fail('--session, --transcript, --codex 중 하나만 주세요');
   }
   if (options.tools !== undefined && !isToolsLevel(options.tools)) {
     fail('--tools는 full, summary, none 중 하나예요');
@@ -121,7 +123,14 @@ export async function peerShareCommand(
 
   let transcriptPath: string;
   let sessionId: string | undefined;
-  if (options.session) {
+  if (options.codex) {
+    // Codex 기록을 찾는 것도 부르는 쪽 환경이다. 오르카는 CODEX_HOME을 계정 디렉토리로 옮긴다
+    const found = locateCodexRollout(options.codex, codexHome());
+    if (!found.ok) {
+      fail(`Codex 기록을 못 찾았어요: ${found.reason}\n  CODEX_HOME: ${found.home}`);
+    }
+    transcriptPath = found.path;
+  } else if (options.session) {
     // 세션을 찾는 건 부르는 쪽 환경이다. 데몬은 다른 CLAUDE_CONFIG_DIR로 떴을 수 있다
     const found = locateTranscript(options.session, claudeConfigDir());
     if (!found.ok) {
@@ -142,6 +151,7 @@ export async function peerShareCommand(
     sessionId,
     tools: options.tools as 'full' | 'summary' | 'none' | undefined,
     expiresMinutes,
+    ...(options.codex ? { format: 'codex' as const } : {}),
     ...(options.messages === false ? { messages: false } : {}),
   });
 
@@ -150,6 +160,9 @@ export async function peerShareCommand(
     return;
   }
   console.log(`공유를 열었어요 (${info.id}). 만료 ${time(info.expiresAt)}`);
+  if (info.format === 'codex') {
+    console.log('Codex 세션이라 읽기만 해요. 팀원 메시지와 질문 답은 안 받아요.');
+  }
   if (info.link) {
     if (info.messages) {
       console.log(
@@ -177,8 +190,9 @@ export async function peerSharesCommand(options: PeerOptions): Promise<void> {
   }
   for (const s of list) {
     const title = s.title ? ` "${plainLabel(s.title, 80) ?? ''}"` : '';
+    const codex = s.format === 'codex' ? ' [codex]' : '';
     console.log(
-      `${s.id}${title}  ${s.status}  보는 사람 ${s.viewers}  도구 ${s.tools}  만료 ${time(s.expiresAt)}`,
+      `${s.id}${codex}${title}  ${s.status}  보는 사람 ${s.viewers}  도구 ${s.tools}  만료 ${time(s.expiresAt)}`,
     );
     console.log(`  ${s.url}`);
     if (s.link) console.log(`  ${s.link}`);
@@ -512,7 +526,7 @@ export async function peerMessagesCommand(
     console.log(JSON.stringify(log, null, 2));
     return;
   }
-  if (log.length === 0) console.log('내 공유가 받은 메시지가 없어요.');
+  if (log.length === 0) console.log('주고받은 메시지와 질문 기록이 없어요.');
   for (const r of log) {
     // 공유 id와 거절 이유는 원격에서 온 값이 섞인다. 터미널에 찍기 전에 제어 문자를 지운다
     const share = plainLabel(r.shareId) ?? '-';

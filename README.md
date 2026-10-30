@@ -126,7 +126,7 @@ What you get:
 
 | Item | Details |
 |------|---------|
-| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_architecture`, `ges_research`, `ges_digest` — see the [MCP reference](./docs/mcp-reference.md) |
+| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_peer`, `ges_architecture`, `ges_research`, `ges_digest` — see the [MCP reference](./docs/mcp-reference.md) |
 | **Slash Commands** | Workflow skills — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send`, and more. Full list in [Skills](#skills) |
 | **Agents** | Pipeline agents, [role agents](#role-agents), and [review agents](#review-agents) |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
