@@ -69,6 +69,26 @@ export function findSessionByPid(pid: number, configDir = claudeConfigDir()): Se
   return readSessionFile(join(configDir, 'sessions', `${pid}.json`));
 }
 
+/**
+ * 명령을 친 Claude Code 세션의 id. Bash 도구가 띄운 셸은 `CLAUDE_PID`와 `CLAUDE_CODE_SESSION_ID`를 물려받는다.
+ * `/clear`나 다시 이어 받기로 세션 id가 바뀌면 `sessions/<pid>.json`이 따라 바뀌므로 그쪽을 먼저 본다.
+ * MCP 서버(`ges_peer ask_user`)가 세션을 찾는 순서와 같다. 둘 다 없으면 세션 밖에서 친 것이다.
+ */
+export function findCurrentSession(
+  env: NodeJS.ProcessEnv = process.env,
+  configDir = claudeConfigDir(env),
+): { ok: true; sessionId: string } | { ok: false; reason: string } {
+  const rec = findSessionByPid(Number(env['CLAUDE_PID']), configDir);
+  if (rec && isSessionId(rec.sessionId)) return { ok: true, sessionId: rec.sessionId };
+  const fromEnv = env['CLAUDE_CODE_SESSION_ID'];
+  if (fromEnv && isSessionId(fromEnv)) return { ok: true, sessionId: fromEnv };
+  return {
+    ok: false,
+    reason:
+      'Claude Code 세션 안에서 친 명령이 아니에요. 세션 밖에서는 --session <sessionId>로 고르세요',
+  };
+}
+
 export function findSessionById(sessionId: string, configDir: string): SessionRecord | null {
   const dir = join(configDir, 'sessions');
   let names: string[];

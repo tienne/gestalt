@@ -3,7 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { PeerDaemon } from '../../peer/daemon.js';
 import { DaemonUnavailableError, request } from '../../peer/client.js';
 import { errMessage } from '../../peer/errors.js';
-import { claudeConfigDir, locateTranscript } from '../../peer/locate.js';
+import { claudeConfigDir, findCurrentSession, locateTranscript } from '../../peer/locate.js';
 import { codexHome, locateCodexRollout } from '../../peer/codex.js';
 import { ensurePrivateDir, peerRoot, socketPath } from '../../peer/paths.js';
 import { plainLabel } from '../../peer/message.js';
@@ -101,6 +101,8 @@ export async function peerDaemonCommand(): Promise<void> {
 export async function peerShareCommand(
   options: PeerOptions & {
     session?: string;
+    /** 명령을 친 Claude Code 세션을 연다. /gestalt:share 스킬이 쓴다 */
+    here?: boolean;
     transcript?: string;
     codex?: string;
     tools?: string;
@@ -109,8 +111,10 @@ export async function peerShareCommand(
     agentPeek?: boolean;
   },
 ): Promise<void> {
-  if ([options.session, options.transcript, options.codex].filter(Boolean).length !== 1) {
-    fail('--session, --transcript, --codex 중 하나만 주세요');
+  if (
+    [options.session, options.here, options.transcript, options.codex].filter(Boolean).length !== 1
+  ) {
+    fail('--session, --here, --transcript, --codex 중 하나만 주세요');
   }
   if (options.tools !== undefined && !isToolsLevel(options.tools)) {
     fail('--tools는 full, summary, none 중 하나예요');
@@ -131,12 +135,13 @@ export async function peerShareCommand(
       fail(`Codex 기록을 못 찾았어요: ${found.reason}\n  CODEX_HOME: ${found.home}`);
     }
     transcriptPath = found.path;
-  } else if (options.session) {
+  } else if (options.session || options.here) {
     // 세션을 찾는 건 부르는 쪽 환경이다. 데몬은 다른 CLAUDE_CONFIG_DIR로 떴을 수 있다
-    const found = locateTranscript(options.session, claudeConfigDir());
+    const wanted = options.session ?? currentSessionOrFail();
+    const found = locateTranscript(wanted, claudeConfigDir());
     if (!found.ok) {
       fail(
-        `대화 기록을 못 찾았어요: ${found.reason}\n  설정 디렉토리: ${found.configDir}\n  sessionId: ${options.session}`,
+        `대화 기록을 못 찾았어요: ${found.reason}\n  설정 디렉토리: ${found.configDir}\n  sessionId: ${wanted}`,
       );
     }
     transcriptPath = found.path;
@@ -224,33 +229,66 @@ function names(list: string[]): string {
   return list.map((n) => plainLabel(n, 32) ?? '?').join(', ');
 }
 
-export async function peerUnshareCommand(options: PeerOptions & { id: string }): Promise<void> {
-  const result = await call<{ id: string; watchers?: string[] }>({
-    op: 'unshare',
-    id: options.id,
-  });
+/** 명령을 친 Claude Code 세션 id. 세션 밖이면 이유를 찍고 끝낸다 */
+function currentSessionOrFail(): string {
+  const current = findCurrentSession();
+  if (!current.ok) fail(current.reason);
+  return current.sessionId;
+}
+
+export async function peerUnshareCommand(
+  options: PeerOptions & { id?: string; here?: boolean },
+): Promise<void> {
+  if ((options.id === undefined) === !options.here) fail('<공유 id>와 --here 중 하나만 주세요');
+  let ids: string[];
+  if (options.here) {
+    // 이 세션으로 연 공유를 전부 닫는다. 같은 세션을 두 번 열었을 수 있다
+    ids = await currentShareIds();
+  } else {
+    ids = [options.id!];
+  }
+  const results: { id: string; watchers?: string[] }[] = [];
+  for (const id of ids) {
+    results.push(await call<{ id: string; watchers?: string[] }>({ op: 'unshare', id }));
+  }
   if (options.json) {
-    console.log(JSON.stringify(result));
+    console.log(JSON.stringify(options.here ? results : results[0]));
     return;
   }
-  console.log(`공유를 종료했어요 (${result.id}).`);
-  if (result.watchers && result.watchers.length > 0) {
-    console.log(`원격으로 보던 ${names(result.watchers)} 님도 끊겼어요.`);
+  for (const result of results) {
+    console.log(`공유를 종료했어요 (${result.id}).`);
+    if (result.watchers && result.watchers.length > 0) {
+      console.log(`원격으로 보던 ${names(result.watchers)} 님도 끊겼어요.`);
+    }
   }
 }
 
-type ControlOptions = PeerOptions & { name: string; share?: string };
+type ControlOptions = PeerOptions & { name: string; share?: string; here?: boolean };
 
-/** kick, approve, deny가 같이 쓰는 요청과 출력. lines가 사람이 읽을 결과 줄을 만든다 */
+/** 명령을 친 Claude Code 세션으로 연 공유 id. 없으면 끝낸다 */
+async function currentShareIds(): Promise<string[]> {
+  const sessionId = currentSessionOrFail();
+  const list = await call<ShareInfo[]>({ op: 'shares' });
+  const ids = list.filter((s) => s.sessionId === sessionId).map((s) => s.id);
+  if (ids.length === 0) fail('이 세션으로 연 공유가 없어요');
+  return ids;
+}
+
+/**
+ * kick, approve, deny가 같이 쓰는 요청과 출력. lines가 사람이 읽을 결과 줄을 만든다. --here면 이 세션으로
+ * 연 공유에만 건다
+ */
 async function controlCommand(
   op: 'kick' | 'approve' | 'deny',
   options: ControlOptions,
   lines: (r: ControlResult) => string[],
 ): Promise<void> {
+  if (options.here && options.share) fail('--share와 --here 중 하나만 주세요');
   const r = await call<ControlResult>({
     op,
     person: options.name,
     ...(options.share ? { share: options.share } : {}),
+    ...(options.here ? { shares: await currentShareIds() } : {}),
   });
   if (options.json) {
     console.log(JSON.stringify(r));

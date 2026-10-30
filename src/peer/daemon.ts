@@ -68,7 +68,7 @@ import {
 } from './message.js';
 import { redactText } from './redact.js';
 import { isPersonName, isShareId } from './roster.js';
-import type { WatchListItem, WatchResult } from './protocol.js';
+import type { AgentSendResult, WatchListItem, WatchResult } from './protocol.js';
 import { buildPeek, framePeek } from './peek.js';
 import { composeExcerpt, frameExcerpt, parseExcerptItems } from './excerpt.js';
 import type { LocalSession } from './viewer.js';
@@ -430,22 +430,39 @@ export class PeerDaemon {
       }
       case 'peek':
         return this.peek(req);
+      case 'agent_send': {
+        const share = req.share;
+        const body = req.body;
+        return this.withNetworkAsync((n): Promise<AgentSendResult> => {
+          if (typeof share !== 'string') throw new PeerNetworkError('share가 없어요');
+          if (typeof body !== 'string') throw new PeerNetworkError('body가 없어요');
+          return n.sendAgentMessage(share, body);
+        });
+      }
       default:
         return { ok: false, error: `모르는 요청이에요: ${String((req as { op?: unknown }).op)}` };
     }
   }
 
-  /** kick, approve, deny. share가 없으면 열린 공유 전부에 건다 */
+  /** kick, approve, deny. share나 shares가 없으면 열린 공유 전부에 건다 */
   private control(
     req: Extract<PeerRequest, { op: 'kick' | 'approve' | 'deny' }>,
   ): PeerResponse<ControlResult> {
     if (!isPersonName(req.person)) return { ok: false, error: '이름 꼴이 아니에요' };
     let ids: string[];
-    if (req.share !== undefined) {
-      if (!isShareId(req.share) || !this.shares.has(req.share)) {
-        return { ok: false, error: `열린 공유가 아니에요: ${plainLabel(req.share) ?? ''}` };
+    if (req.share !== undefined && req.shares !== undefined) {
+      return { ok: false, error: 'share와 shares 중 하나만 주세요' };
+    }
+    const wanted =
+      req.share !== undefined ? [req.share] : Array.isArray(req.shares) ? req.shares : undefined;
+    if (wanted !== undefined) {
+      if (wanted.length === 0) return { ok: false, error: '고른 공유가 없어요' };
+      for (const id of wanted) {
+        if (!isShareId(id) || !this.shares.has(id)) {
+          return { ok: false, error: `열린 공유가 아니에요: ${plainLabel(id) ?? ''}` };
+        }
       }
-      ids = [req.share];
+      ids = [...new Set(wanted)];
     } else {
       ids = [...this.shares.keys()];
       if (ids.length === 0) return { ok: false, error: '열린 공유가 없어요' };

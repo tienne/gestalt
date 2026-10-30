@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   claudeConfigDir,
   cwdSlug,
+  findCurrentSession,
   findSessionByPid,
   locateTranscript,
 } from '../../../src/peer/locate.js';
@@ -85,5 +86,37 @@ describe('locateTranscript', () => {
   it('설정 디렉토리가 없으면 이유를 돌려준다', () => {
     const result = locateTranscript(sid, join(config, 'nope'));
     expect(result).toMatchObject({ ok: false, reason: '설정 디렉토리가 없어요' });
+  });
+});
+
+describe('findCurrentSession', () => {
+  let config: string;
+
+  beforeEach(() => {
+    config = mkdtempSync(join(tmpdir(), 'peer-current-'));
+    mkdirSync(join(config, 'sessions'));
+    writeFileSync(
+      join(config, 'sessions', '4242.json'),
+      JSON.stringify({ pid: 4242, sessionId: 'from-file', cwd: '/proj' }),
+    );
+  });
+
+  afterEach(() => rmSync(config, { recursive: true, force: true }));
+
+  it('CLAUDE_PID의 세션 파일을 먼저 보고 없으면 CLAUDE_CODE_SESSION_ID를 쓴다', () => {
+    // /clear로 바뀐 세션 id는 세션 파일이 먼저 따라가므로 환경 변수보다 앞선다
+    expect(
+      findCurrentSession({ CLAUDE_PID: '4242', CLAUDE_CODE_SESSION_ID: 'from-env' }, config),
+    ).toEqual({ ok: true, sessionId: 'from-file' });
+    expect(
+      findCurrentSession({ CLAUDE_PID: '1', CLAUDE_CODE_SESSION_ID: 'from-env' }, config),
+    ).toEqual({ ok: true, sessionId: 'from-env' });
+  });
+
+  it('세션 밖이거나 세션 id 꼴이 아니면 이유를 돌려준다', () => {
+    expect(findCurrentSession({}, config)).toMatchObject({ ok: false });
+    const bad = findCurrentSession({ CLAUDE_CODE_SESSION_ID: '../etc' }, config);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.reason).toContain('--session');
   });
 });

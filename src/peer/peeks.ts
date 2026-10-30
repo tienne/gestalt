@@ -58,6 +58,23 @@ export interface PeekWatch {
   feed: MirrorFeed;
 }
 
+/**
+ * 보는 쪽 에이전트가 준 공유 id로 보고 있는 원격 공유를 고른다. 주인 쪽 공유 id가 먼저고 보기 id도
+ * 받는다. 못 찾으면 지금 보는 공유 id와 주인 이름을 실패 문구에 싣는다. 에이전트가 따로 목록을
+ * 부르지 않고 다시 고를 수 있게 하려는 것이다. peek과 send가 같이 쓴다.
+ */
+export function pickWatch<T extends PeekWatch>(list: T[], target: string): T {
+  if (!isShareId(target)) throw new PeerNetworkError('공유 id 꼴이 아니에요');
+  const w = list.find((x) => x.share === target) ?? list.find((x) => x.id === target);
+  if (w) return w;
+  const open = list.map((x) => `${x.share} (${plainLabel(x.feed.ownerPerson, 32) ?? '?'})`);
+  throw new PeerNetworkError(
+    open.length === 0
+      ? '보고 있는 공유가 없어요. 사람이 `gestalt peer watch <링크>`로 먼저 열어야 해요'
+      : `보고 있는 공유가 아니에요: ${target}. 지금 보는 공유는 ${open.join(', ')}예요`,
+  );
+}
+
 /** 요약 요청과 답이 PeerNetwork에서 빌려 쓰는 것 */
 export interface PeekHost {
   readonly state: PeerState;
@@ -150,20 +167,10 @@ export class PeekDesk {
    * kick 기록으로 정한다. 받은 요약은 주인 데몬이 보낸 값이라 꼴과 크기를 다시 본다.
    */
   async peek(target: string, since?: string): Promise<{ peek: PeerPeek; owner: string }> {
-    if (!isShareId(target)) throw new PeerNetworkError('공유 id 꼴이 아니에요');
     if (since !== undefined && !isPeekCursor(since)) {
       throw new PeerNetworkError('since는 앞 peek이 돌려준 cursor예요');
     }
-    const list = [...this.host.watches()];
-    const w = list.find((x) => x.share === target) ?? list.find((x) => x.id === target);
-    if (!w) {
-      const open = list.map((x) => `${x.share} (${plainLabel(x.feed.ownerPerson, 32) ?? '?'})`);
-      throw new PeerNetworkError(
-        open.length === 0
-          ? '보고 있는 공유가 없어요. 사람이 `gestalt peer watch <링크>`로 먼저 열어야 해요'
-          : `보고 있는 공유가 아니에요: ${target}. 지금 보는 공유는 ${open.join(', ')}예요`,
-      );
-    }
+    const w = pickWatch([...this.host.watches()], target);
     if (this.pending.size >= MAX_PENDING_PEEKS) {
       throw new PeerNetworkError('답을 기다리는 요약 요청이 많아요. 조금 뒤에 다시 불러 주세요');
     }

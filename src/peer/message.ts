@@ -52,6 +52,12 @@ export const MESSAGE_RATE_WINDOW_MS = 10 * 60 * 1000;
 export const MESSAGE_RECEIVE_LIMIT = MESSAGE_RATE_LIMIT * 3;
 
 /**
+ * 보는 쪽 에이전트(`ges_peer send`)가 공유 하나에 10분 동안 보내는 메시지 상한. 사람 몫 상한
+ * (MESSAGE_RATE_LIMIT) 안에서 따로 센다. 묻고 다음 peek으로 답을 보는 흐름이라 몇 건이면 된다
+ */
+export const AGENT_MESSAGE_RATE_LIMIT = 4;
+
+/**
  * 원격에서 온 짧은 글자(거절 이유, 공유 id)를 한 줄 라벨로 찍기 전에 정리한다. 줄바꿈과 CR,
  * 탭도 공백 하나로 합친다. 남겨 두면 CLI 목록에 가짜 줄을 끼우거나 앞의 상태 문구를 덮는다.
  */
