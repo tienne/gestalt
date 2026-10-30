@@ -212,6 +212,77 @@ describe('buildPeek', () => {
     expect(fresh(20, true).truncated).toBeUndefined();
   });
 
+  it('할 일이 칸보다 많거나 입력이 1KB에서 잘려 다 못 읽으면 truncated를 켠다', () => {
+    const todo = (n: number, tools: 'full' | 'summary'): PeerPeek => {
+      const items = Array.from({ length: n }, (_, i) => ({
+        content: `할 일 ${i} ${'가'.repeat(20)}`,
+        status: 'pending',
+      }));
+      writeFileSync(path, tool('todo', 'TodoWrite', { todos: items }) + prompt('하나'));
+      const st = new ShareStream({ id: SHARE, transcriptPath: path, tools, home: FAKE_HOME });
+      st.poll();
+      return buildPeek({ share: SHARE, feed: st, streamStatus: st.currentStatus });
+    };
+    const many = todo(31, 'full');
+    expect(many.todos).toHaveLength(20);
+    expect(many.todos![0]).toContain('할 일 0 ');
+    expect(many.truncated).toBe(true);
+    const cut = todo(30, 'summary');
+    expect(cut.todos!.length).toBeLessThan(30);
+    expect(cut.truncated).toBe(true);
+    const fits = todo(3, 'full');
+    expect(fits.todos).toHaveLength(3);
+    expect(fits.truncated).toBeUndefined();
+  });
+
+  it('파일 칸이 찬 뒤 다시 고친 Edit은 열지 않고 넘기고 둘째 파일이 새것인 apply_patch는 truncated를 켠다', () => {
+    const lines: string[] = [];
+    for (let i = 0; i < 20; i++) lines.push(tool(`e${i}`, 'Edit', { file_path: `f${i}.ts` }));
+    lines.push(tool('esc', 'Edit', { file_path: 'q"uote\\back\u00e9.ts' }));
+    writeFileSync(path, lines.join(''));
+    const again = new ShareStream({
+      id: SHARE,
+      transcriptPath: path,
+      tools: 'summary',
+      home: FAKE_HOME,
+    });
+    again.poll();
+    // 새것부터 훑으므로 맨 뒤의 이스케이프 경로가 칸에 들어가고 f0.ts가 밀린다
+    const p1 = buildPeek({ share: SHARE, feed: again, streamStatus: again.currentStatus });
+    expect(p1.touchedFiles).toContain('q"uote\\back\u00e9.ts');
+    expect(p1.truncated).toBe(true);
+
+    const patch = (input: string): string =>
+      JSON.stringify({
+        timestamp: '2026-10-28T02:00:00.000Z',
+        type: 'response_item',
+        payload: {
+          type: 'custom_tool_call',
+          call_id: `c${input.length}`,
+          name: 'apply_patch',
+          input,
+        },
+      }) + '\n';
+    const cpath = join(dir, 'patch.jsonl');
+    const body: string[] = [
+      patch('*** Begin Patch\n*** Update File: a0.ts\n*** Add File: new.ts\n*** End Patch'),
+    ];
+    for (let i = 0; i < 20; i++)
+      body.push(patch(`*** Begin Patch\n*** Update File: a${i}.ts\n*** End Patch`));
+    writeFileSync(cpath, codexText() + body.join(''));
+    const codex = new ShareStream({
+      id: SHARE,
+      transcriptPath: cpath,
+      tools: 'summary',
+      format: 'codex',
+      home: FAKE_HOME,
+    });
+    codex.poll();
+    const p2 = buildPeek({ share: SHARE, feed: codex, streamStatus: codex.currentStatus });
+    expect(p2.touchedFiles).not.toContain('new.ts');
+    expect(p2.truncated).toBe(true);
+  });
+
   it('도구 이름을 앞부분에서 못 읽는 긴 id의 호출도 열어서 경로를 꺼낸다', () => {
     appendFileSync(path, tool('x'.repeat(600) + '\\"q', 'Write', { file_path: 'long-id.ts' }));
     stream.poll();

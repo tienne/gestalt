@@ -31,7 +31,8 @@ export interface PeerPeek {
   /** 다음 peek에 since로 넘기면 그 뒤에 생긴 것만 온다 */
   cursor: string;
   /**
-   * 칸 상한(프롬프트와 답 5개, 파일 20개)이나 8KB에 밀려 빠진 것이 있다. cursor는 그래도 끝으로 간다.
+   * 칸 상한(프롬프트와 답 5개, 파일과 할 일 20개)이나 8KB에 밀려 빠진 것이 있다. 할 일 입력이 1KB에서
+   * 잘려 다 못 읽었을 때도 켠다. cursor는 그래도 끝으로 간다.
    * 빠진 것까지 보려면 사람이 뷰어에서 본다
    */
   truncated?: true;
@@ -95,8 +96,11 @@ export interface BuildPeekInput {
 
 /**
  * 주인 쪽: 공유 이벤트를 새것부터 훑어 요약을 만든다. since가 있으면 그 번호 뒤만 본다. 각 칸이 다
- * 차면 멈춘다. 칸이 찬 종류는 JSON을 열지 않고 앞부분만 보고 건너뛰고 그런 이벤트가 있었으면
- * truncated를 켠다. 결과는 normalizePeek를 거쳐 8KB 안으로 줄인다.
+ * 차면 멈춘다. 프롬프트와 답, 할 일은 칸이 찬 뒤 앞부분만 보고 건너뛴다. 파일 칸이 찬 뒤에는
+ * truncated가 켜지기 전까지 파일 도구 호출을 계속 본다. Edit류는 앞부분에서 경로를 먼저 읽어 이미 담긴
+ * 경로면 열지 않고 apply_patch와 경로를 못 읽은 호출만 연다. 요약에 안 쓰는 도구 호출과 도구 결과는
+ * 열지 않는다. 칸에 못 넣은 것이 있었으면 truncated를 켠다. 결과는 normalizePeek를 거쳐 8KB 안으로
+ * 줄인다.
  */
 export function buildPeek(input: BuildPeekInput): PeerPeek {
   const since = isPeekCursor(input.since) ? Number(input.since) : 0;
@@ -128,8 +132,8 @@ export function buildPeek(input: BuildPeekInput): PeerPeek {
       const name = toolNameOf(json);
       if (name !== undefined && !PEEK_TOOLS.has(name)) continue;
       if (name === TODO_TOOL && todos !== undefined) continue;
-      if (name !== undefined && name !== TODO_TOOL && files.length >= PEEK_FILES && truncated) {
-        continue;
+      if (name !== undefined && name !== TODO_TOOL && files.length >= PEEK_FILES) {
+        if (truncated || knownPathHead(json, name, files)) continue;
       }
     }
     let ev: Record<string, unknown>;
@@ -147,7 +151,12 @@ export function buildPeek(input: BuildPeekInput): PeerPeek {
       const toolInput = typeof ev['input'] === 'string' ? ev['input'] : undefined;
       if (toolInput === undefined) continue;
       if (ev['name'] === TODO_TOOL) {
-        todos ??= todoItems(toolInput);
+        if (todos === undefined) {
+          const t = todoItems(toolInput);
+          todos = t.items;
+          // 입력이 1KB에서 잘려 다 못 읽었거나 칸보다 많으면 빠진 할 일이 있다
+          if (t.partial || t.items.length > PEEK_TODOS) truncated = true;
+        }
       } else {
         // 새것부터 훑다가 끝에 뒤집으므로 한 호출 안의 경로도 뒤에서부터 넣는다. 이미 담긴 경로는 다시
         // 고친 것이라 빠진 게 아니다
@@ -170,6 +179,7 @@ export function buildPeek(input: BuildPeekInput): PeerPeek {
       if (!json.startsWith(TOOL_CALL_HEAD)) continue;
       const name = toolNameOf(json);
       if (name !== undefined && (name === TODO_TOOL || !PEEK_TOOLS.has(name))) continue;
+      if (name !== undefined && knownPathHead(json, name, files)) continue;
       if (newPathsOf(json, files).length > 0) {
         truncated = true;
         break;
@@ -227,6 +237,29 @@ function toolNameOf(json: string): string | undefined {
     return undefined;
   }
 }
+
+/**
+ * Edit류 호출의 경로를 이벤트 앞부분에서 읽어 이미 files에 있으면 true. 경로 키가 입력 맨 앞이라
+ * 이벤트 앞 2KB 안에 있다. apply_patch는 한 호출에 파일이 여럿이라 여기서 다루지 않는다. 못 읽으면
+ * false라 부르는 쪽이 연다
+ */
+function knownPathHead(json: string, name: string, files: string[]): boolean {
+  const key = TOUCH_TOOLS[name];
+  if (!key) return false;
+  const m = INPUT_HEAD.exec(json.slice(0, 2048));
+  if (!m) return false;
+  let head: string;
+  try {
+    head = JSON.parse(`"${m[1]!}"`) as string;
+  } catch {
+    return false;
+  }
+  const path = jsonField(head, key);
+  return path !== undefined && files.includes(path);
+}
+
+/** tool_call 이벤트의 input 문자열 앞부분. 끝 따옴표가 잘려도 앞부분만 잡는다 */
+const INPUT_HEAD = /"input":"((?:[^"\\]|\\.)*)/;
 
 /** 그 호출이 고친 경로 가운데 아직 files에 없는 것 */
 function newPaths(name: string, input: string, files: string[]): string[] {
@@ -300,19 +333,21 @@ function jsonField(text: string, key: string): string | undefined {
   }
 }
 
-/** TodoWrite 입력의 할 일. 잘려서 안 읽히면 다 닫힌 content 값만 꺼낸다 */
-function todoItems(input: string): string[] {
+/**
+ * TodoWrite 입력의 할 일. 잘려서 안 읽히면 다 닫힌 content 값만 꺼내고 partial을 켠다. 뒤쪽 할 일이
+ * 빠졌다는 뜻이다
+ */
+function todoItems(input: string): { items: string[]; partial: boolean } {
   try {
     const parsed = JSON.parse(input) as { todos?: unknown };
-    if (Array.isArray(parsed?.todos)) {
-      return parsed.todos.flatMap((t) => {
-        if (typeof t !== 'object' || t === null) return [];
-        const { content, status } = t as { content?: unknown; status?: unknown };
-        if (typeof content !== 'string') return [];
-        return [typeof status === 'string' ? `[${status}] ${content}` : content];
-      });
-    }
-    return [];
+    if (!Array.isArray(parsed?.todos)) return { items: [], partial: false };
+    const items = parsed.todos.flatMap((t) => {
+      if (typeof t !== 'object' || t === null) return [];
+      const { content, status } = t as { content?: unknown; status?: unknown };
+      if (typeof content !== 'string') return [];
+      return [typeof status === 'string' ? `[${status}] ${content}` : content];
+    });
+    return { items, partial: false };
   } catch {
     const out: string[] = [];
     for (const m of input.matchAll(/"content":("(?:[^"\\]|\\.)*")/g)) {
@@ -323,7 +358,7 @@ function todoItems(input: string): string[] {
         // 깨진 값은 건너뛴다
       }
     }
-    return out;
+    return { items: out, partial: true };
   }
 }
 
@@ -355,9 +390,14 @@ export function normalizePeek(raw: unknown): PeerPeek | undefined {
     prompts: texts(r['prompts'], PEEK_PROMPTS, PEEK_PROMPT_CHARS),
     replies: texts(r['replies'], PEEK_REPLIES, PEEK_REPLY_CHARS),
     touchedFiles: labels(r['touchedFiles'], PEEK_FILES, PEEK_PATH_CHARS),
-    ...(r['todos'] !== undefined ? { todos: labels(r['todos'], PEEK_TODOS, PEEK_TODO_CHARS) } : {}),
+    ...(r['todos'] !== undefined
+      ? { todos: labels(r['todos'], PEEK_TODOS, PEEK_TODO_CHARS, 'head') }
+      : {}),
     cursor: r['cursor'],
-    ...(r['truncated'] === true ? { truncated: true as const } : {}),
+    // 할 일은 앞에서부터 칸에 넣는다. 칸보다 많으면 빠진 게 있다
+    ...(r['truncated'] === true || (Array.isArray(r['todos']) && r['todos'].length > PEEK_TODOS)
+      ? { truncated: true as const }
+      : {}),
     ...(r['gap'] === true ? { gap: true as const } : {}),
   };
   return fitPeek(peek);
@@ -376,12 +416,19 @@ function texts(raw: unknown, max: number, chars: number): string[] {
     .filter((v) => v !== '');
 }
 
-/** 한 줄 글자 목록. 경로와 할 일은 줄바꿈이 들 일이 없어서 한 줄로 합친다 */
-function labels(raw: unknown, max: number, chars: number): string[] {
+/**
+ * 한 줄 글자 목록. 경로와 할 일은 줄바꿈이 들 일이 없어서 한 줄로 합친다. 경로는 뒤쪽(최근)을, 할 일은
+ * 적힌 순서대로 앞쪽을 남긴다
+ */
+function labels(
+  raw: unknown,
+  max: number,
+  chars: number,
+  keep: 'head' | 'tail' = 'tail',
+): string[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((v): v is string => typeof v === 'string')
-    .slice(-max)
+  const strings = raw.filter((v): v is string => typeof v === 'string');
+  return (keep === 'head' ? strings.slice(0, max) : strings.slice(-max))
     .map((v) => plainLabel(v.normalize('NFKC'), chars))
     .filter((v): v is string => v !== undefined);
 }
