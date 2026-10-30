@@ -44,7 +44,7 @@ outputs:
 
 스킬 밖에서도 같은 규칙을 지킨다. 사용자가 이번 턴에 `/gestalt:share`로 시키지 않았으면 `gestalt peer share`, `unshare`, `approve`, `deny`, `kick`, `config`를 Bash로 직접 치지 않는다. 승인 대기 훅 한 줄을 봤으면 사용자에게 알리기만 한다.
 
-팀원 세션에 묻는 일은 사용자가 시켜도 `ges_peer send`로 하고 `gestalt peer send`를 Bash로 치지 않는다. 에이전트가 보낸 메시지로 표시되고 에이전트 상한을 타는 길은 `ges_peer send`다.
+팀원 세션에 묻는 일은 사용자가 시켜도 `ges_peer send`로 하고 `gestalt peer send`를 Bash로 치지 않는다. `ges_peer send`는 늘 에이전트가 보낸 메시지로 표시되고 에이전트 상한을 탄다. CLI는 환경 변수로 에이전트인지 가리는 기본값이라 환경에 따라 사람 메시지로 보일 수 있다.
 
 ## 언제 이 스킬인가
 
