@@ -3,15 +3,18 @@ import { request } from '../../peer/client.js';
 import { errMessage } from '../../peer/errors.js';
 import { claudeConfigDir, findSessionByPid } from '../../peer/locate.js';
 import { peerRoot, socketPath } from '../../peer/paths.js';
-import type { AskResult } from '../../peer/protocol.js';
+import type { AskResult, PeekResult } from '../../peer/protocol.js';
 import type { PeerInput } from '../schemas.js';
 
 /**
- * `ges_peer` 핸들러. action은 ask_user 하나다.
+ * `ges_peer` 핸들러. action은 ask_user와 peek이다. 공유를 열고 닫거나 사람을 받고 끊는 action은 없다.
  *
- * MCP 서버는 세션의 자식이라 부모 pid로 `sessions/<pid>.json`을 찾아 지금 세션 id를 안다. 세션 id는
- * `/clear`나 다시 이어 받기로 바뀔 수 있어서 부를 때마다 다시 읽는다. 질문은 보내고 바로 돌아온다 —
+ * ask_user: MCP 서버는 세션의 자식이라 부모 pid로 `sessions/<pid>.json`을 찾아 지금 세션 id를 안다. 세션
+ * id는 `/clear`나 다시 이어 받기로 바뀔 수 있어서 부를 때마다 다시 읽는다. 질문은 보내고 바로 돌아온다 —
  * 답을 기다리며 도구 호출을 붙잡으면 그동안 세션이 멈춘다.
+ *
+ * peek: 이 세션이 아니라 이 머신의 데몬이 보고 있는 원격 공유의 요약을 받는다. 세션 id는 안 쓴다. 답은
+ * 틀로 감싼 글자 그대로 돌려준다. 모델은 그 틀 문구로 요약이 남의 세션 글자라는 걸 안다.
  */
 
 export interface PeerDeps {
@@ -50,6 +53,9 @@ function parentOf(pid: number): number | undefined {
 }
 
 export async function handlePeer(input: PeerInput, deps: PeerDeps = {}): Promise<string> {
+  if (input.action === 'peek') return handlePeek(input, deps);
+  if (input.question === undefined)
+    return JSON.stringify({ error: 'ask_user는 question이 필요해요' });
   const configDir = deps.configDir ?? claudeConfigDir();
   const pids = deps.pids ?? sessionPids();
   const session = pids.map((pid) => findSessionByPid(pid, configDir)).find((s) => s !== null);
@@ -78,6 +84,36 @@ export async function handlePeer(input: PeerInput, deps: PeerDeps = {}): Promise
       ...res.result,
       note: '질문을 보냈다. 답은 기다리지 말고 하던 일을 이어 간다. 답은 <peer-answer from=… question=… verified> 메시지로 이 세션에 들어온다. expiresAt이 지나면 더 안 온다.',
     });
+  } catch (err) {
+    return JSON.stringify({ error: errMessage(err) });
+  }
+}
+
+async function handlePeek(input: PeerInput, deps: PeerDeps): Promise<string> {
+  if (input.share === undefined) {
+    return JSON.stringify({
+      error: 'peek은 share가 필요해요. 링크의 공유 id나 사용자가 알려 준 공유 id를 넣어 주세요',
+    });
+  }
+  let sock: string;
+  try {
+    sock = deps.socket ?? socketPath(peerRoot());
+  } catch (err) {
+    return JSON.stringify({ error: errMessage(err) });
+  }
+  try {
+    // 주인 데몬이 답하길 기다린다. 데몬 쪽 시한(10초)보다 넉넉하게 둔다
+    const res = await request<PeekResult>(
+      sock,
+      {
+        op: 'peek',
+        share: input.share,
+        ...(input.since !== undefined ? { since: input.since } : {}),
+      },
+      15_000,
+    );
+    if (!res.ok) return JSON.stringify({ error: res.error });
+    return res.result.text;
   } catch (err) {
     return JSON.stringify({ error: errMessage(err) });
   }

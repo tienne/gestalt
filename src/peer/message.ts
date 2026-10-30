@@ -71,8 +71,14 @@ export function frameHeader(from: string, origin: MessageOrigin, id: string): st
   return `<peer-message from="${safeName(from)}" origin="${origin}" id="${id}">`;
 }
 
-function safeName(from: string): string {
+/** 틀의 속성 자리에 넣는 이름. 따옴표와 꺾쇠, `&`를 빼서 속성을 닫거나 태그를 열지 못하게 한다 */
+export function safeName(from: string): string {
   return from.replace(/["<>&]/g, '');
+}
+
+/** 원격에서 온 이름을 틀 속성에 넣는 꼴로. 한 줄 라벨로 정리한 뒤 속성을 닫는 글자를 뺀다 */
+export function attrName(raw: unknown): string {
+  return safeName(plainLabel(raw, 32) ?? '?');
 }
 
 const MESSAGE_ID = /^m_[A-Za-z0-9_-]{16}$/;
@@ -113,8 +119,16 @@ export function cleanQuestion(raw: unknown): string | undefined {
  */
 export function stripQuestion(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
-  const text = raw.replace(/\r\n?/g, '\n').replace(INVISIBLE, '').replace(CONTROL, '').trim();
+  const text = stripInvisible(raw).trim();
   return text === '' ? undefined : text;
+}
+
+/**
+ * 줄바꿈을 `\n`으로 맞추고 보이지 않는 글자와 줄바꿈, 탭 말고 제어 문자를 지운다. 태그는 건드리지
+ * 않는다. 원격에서 온 여러 줄 글자(요약의 프롬프트와 답)를 모델이나 화면에 넘기기 전에 쓴다
+ */
+export function stripInvisible(raw: string): string {
+  return raw.replace(/\r\n?/g, '\n').replace(INVISIBLE, '').replace(CONTROL, '');
 }
 
 /**
@@ -138,7 +152,7 @@ export type SanitizeResult = { ok: true; text: string } | { ok: false; reason: s
  * 본문을 넣을 수 있는 꼴로 바꾼다. 태그 꼴의 `<`는 `&lt;`로 바꿔 글자로 남긴다 — 지우면
  * 사람이 쓴 내용이 무엇이었는지 주인이 못 읽는다. 코드 조각의 `<div>`도 `&lt;div>`가 된다.
  */
-export function sanitizeMessageBody(raw: unknown): SanitizeResult {
+export function sanitizeMessageBody(raw: unknown, maxBytes = MAX_MESSAGE_BYTES): SanitizeResult {
   if (typeof raw !== 'string') return { ok: false, reason: '본문은 글자여야 해요' };
   const text = raw
     .normalize('NFKC')
@@ -148,8 +162,8 @@ export function sanitizeMessageBody(raw: unknown): SanitizeResult {
     .replace(TAG, '&lt;')
     .trim();
   if (text === '') return { ok: false, reason: '본문이 비었어요' };
-  if (Buffer.byteLength(text) > MAX_MESSAGE_BYTES) {
-    return { ok: false, reason: `본문이 ${MAX_MESSAGE_BYTES / 1024}KB를 넘어요` };
+  if (Buffer.byteLength(text) > maxBytes) {
+    return { ok: false, reason: `본문이 ${maxBytes / 1024}KB를 넘어요` };
   }
   return { ok: true, text };
 }

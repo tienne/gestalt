@@ -1,17 +1,29 @@
 export const VIEWER_WARNING = '비밀값 패턴은 가리지만 전부 잡지는 못해요.';
 
+/** 뷰어 화면에 그릴 입력. 원격 공유를 볼 때만 켜진다 */
+export interface ViewerAbilities {
+  /** 주인 세션에 메시지 넣기 */
+  canSend?: boolean;
+  /** 주인 세션 모델의 질문에 답하기 */
+  canAnswer?: boolean;
+  /** 고른 줄을 내 세션에 발췌로 넘기기 */
+  canExcerpt?: boolean;
+}
+
 /**
  * 뷰어 페이지. 바깥 자원을 하나도 안 끌어온다 — CSP가 `default-src 'none'`이라
  * 인라인 스크립트와 스타일도 nonce가 맞는 것만 돈다.
  *
  * 대화 내용은 전부 textContent로 넣는다. 마크다운을 HTML로 그리면 남의 도구 출력에
  * 든 태그가 이 페이지에서 실행될 길이 생긴다. localStorage나 IndexedDB도 안 쓴다.
+ *
+ * 발췌는 고른 줄의 번호와 펼쳤는지만 보낸다. 글자는 보는 쪽 데몬이 들고 있는 이벤트에서 다시 만든다.
+ * 32KB 검사는 여기서 한 번 하고 데몬이 정리한 본문으로 한 번 더 한다.
  */
 export function renderViewerHtml(
   nonce: string,
   maxViewers: number,
-  canSend = false,
-  canAnswer = false,
+  { canSend = false, canAnswer = false, canExcerpt = false }: ViewerAbilities = {},
 ): string {
   return `<!doctype html>
 <html lang="ko">
@@ -52,6 +64,12 @@ export function renderViewerHtml(
   #mine { list-style: none; margin: 0 0 6px; padding: 0; font-size: 12px; color: var(--muted);
     max-width: 980px; max-height: 120px; overflow: auto; }
   #mine .rejected { color: #dc2626; }
+  .pick { float: left; margin: 3px 8px 0 0; }
+  .ev.picked { background: #2563eb14; }
+  #pickbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px;
+    margin-top: 6px; }
+  #pickbar[hidden] { display: none; }
+  #pickbar .over { color: #dc2626; }
 </style>
 </head>
 <body>
@@ -62,6 +80,17 @@ export function renderViewerHtml(
     <span id="status">연결 중</span>
     <span id="unknown"></span>
   </div>
+${
+  canExcerpt
+    ? `  <div id="pickbar" hidden>
+    <span id="picked"></span>
+    <select id="dest"><option value="">보낼 내 세션 고르기</option></select>
+    <button type="button" id="pick-send">내 세션으로 보내기</button>
+    <button type="button" id="pick-clear">고르기 해제</button>
+    <span id="pick-msg"></span>
+  </div>`
+    : ''
+}
 </header>
 <main id="log"></main>
 ${
@@ -85,6 +114,11 @@ ${
   const token = params.get('t') || '';
   const base = location.pathname.replace(/\\/$/, '');
   const results = new Map();
+  // 발췌 고르기. 번호(seq)마다 그 줄의 상자와 펼침 상태를 들고 있는다
+  const CAN_EXCERPT = ${canExcerpt ? 'true' : 'false'};
+  const MAX_EXCERPT = 32 * 1024;
+  const picks = new Map();
+  const calls = new Map();
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -111,7 +145,24 @@ ${
     approval_timeout: '주인이 승인하지 않아 기다리다 끝났어요',
   };
 
-  function render(ev) {
+  // 줄 상자 앞에 고르기 칸을 붙인다. entry는 그 줄을 발췌로 만들 때 볼 것들이다
+  function pickable(box, seq, entry) {
+    if (!CAN_EXCERPT || !seq) return;
+    const c = el('input', 'pick');
+    c.type = 'checkbox';
+    c.title = '발췌로 고르기';
+    c.addEventListener('change', () => {
+      if (c.checked) picks.set(seq, entry);
+      else picks.delete(seq);
+      box.classList.toggle('picked', c.checked);
+      updatePicks();
+    });
+    entry.check = c;
+    entry.box = box;
+    box.prepend(c);
+  }
+
+  function render(ev, seq) {
     const box = el('div', 'ev ' + ev.kind);
     if (ev.kind === 'prompt' || ev.kind === 'reply') {
       box.append(el('div', 'who', (ev.kind === 'prompt' ? '주인' : '모델') + ' ' + time(ev.at)));
@@ -124,14 +175,28 @@ ${
       d.append(slot);
       if (ev.id) results.set(ev.id, slot);
       box.append(d);
+      const entry = { seq, details: d, name: ev.name, input: ev.input || '', results: [] };
+      if (ev.id) calls.set(ev.id, entry);
+      pickable(box, seq, entry);
+      log.append(box);
+      return;
     } else if (ev.kind === 'tool_result') {
       const d = el('details', ev.isError ? 'error' : '');
       const label = ev.hidden ? '결과 (주인이 숨김)' : ev.isError ? '결과 (에러)' : '결과';
       d.append(el('summary', '', label + (ev.truncated ? ' · 앞부분만' : '')));
       if (!ev.hidden) d.append(el('pre', '', ev.text || ''));
       const slot = ev.toolUseId ? results.get(ev.toolUseId) : undefined;
-      if (slot) { slot.append(d); return; }
+      // 호출 상자 안에 든 결과는 호출을 고르면 같이 간다. 펼쳐 둔 것만 본문이 들어간다
+      if (slot) {
+        slot.append(d);
+        const call = calls.get(ev.toolUseId);
+        if (call) call.results.push({ seq, details: d, text: ev.hidden ? '' : ev.text || '' });
+        return;
+      }
       box.append(d);
+      pickable(box, seq, { seq, details: d, results: [], text: ev.hidden ? '' : ev.text || '' });
+      log.append(box);
+      return;
     } else if (ev.kind === 'title') {
       titleEl.textContent = ev.text;
       document.title = ev.text + ' · gestalt peer';
@@ -150,14 +215,134 @@ ${
     } else {
       return;
     }
+    pickable(box, seq, { seq, text: ev.text || '' });
     log.append(box);
+  }
+
+  const pickbar = document.getElementById('pickbar');
+  const pickedEl = document.getElementById('picked');
+  const dest = document.getElementById('dest');
+  const pickMsg = document.getElementById('pick-msg');
+
+  // 데몬에 보낼 고른 줄. 도구 호출은 펼쳐 둔 채 골랐을 때만 입력이 들어가고 그 안의 결과는 호출과 결과를
+  // 다 펼쳤을 때만 본문이 들어간다
+  // 줄마다 바이트 수는 처음 잴 때 한 번만 센다. 고르거나 접고 펼 때마다 다시 인코딩하지 않는다
+  const encoder = new TextEncoder();
+  const sizeOf = (o, key) => {
+    const k = key + 'Bytes';
+    if (o[k] === undefined) o[k] = encoder.encode(o[key] || '').length;
+    return o[k];
+  };
+  function pickedItems() {
+    const items = [];
+    let bytes = 0;
+    for (const seq of [...picks.keys()].sort((a, b) => a - b)) {
+      const e = picks.get(seq);
+      const open = e.details ? e.details.open : true;
+      items.push({ seq, open });
+      if (e.name !== undefined) bytes += sizeOf(e, 'name') + (open ? sizeOf(e, 'input') : 0);
+      else if (open) bytes += sizeOf(e, 'text');
+      for (const r of e.results || []) {
+        const ropen = open && r.details.open;
+        items.push({ seq: r.seq, open: ropen });
+        if (ropen) bytes += sizeOf(r, 'text');
+      }
+    }
+    return { items, bytes };
+  }
+
+  let overShown = false;
+  function updatePicks() {
+    if (!pickbar) return;
+    pickbar.hidden = picks.size === 0;
+    const { bytes } = pickedItems();
+    const over = bytes > MAX_EXCERPT;
+    pickedEl.textContent = picks.size + '줄 고름 · ' + Math.ceil(bytes / 1024) + 'KB';
+    pickedEl.className = over ? 'over' : '';
+    if (over) pickMsg.textContent = '발췌가 32KB를 넘어요. 더 좁게 골라 주세요';
+    else if (overShown) pickMsg.textContent = '';
+    overShown = over;
+    // 세션 목록은 처음 고를 때 한 번 읽고 그 뒤로는 목록을 열 때만 다시 읽는다
+    if (picks.size > 0 && !sessionsAsked) loadSessions();
+  }
+
+  let sessionsAsked = false;
+  let sessionsLoading = false;
+  function loadSessions() {
+    sessionsAsked = true;
+    if (sessionsLoading) return;
+    sessionsLoading = true;
+    fetch(base + '/sessions?t=' + encodeURIComponent(token), { cache: 'no-store' })
+      .finally(() => (sessionsLoading = false))
+      .then((r) => r.json())
+      .then((j) => {
+        const keep = dest.value;
+        while (dest.options.length > 1) dest.remove(1);
+        for (const s of j.sessions || []) {
+          const o = el('option', '', s.cwd + ' · ' + s.sessionId.slice(0, 8));
+          o.value = s.sessionId;
+          dest.append(o);
+        }
+        if (keep) dest.value = keep;
+        if ((j.sessions || []).length === 0) pickMsg.textContent = '발췌를 받을 내 세션이 안 보여요';
+      })
+      .catch(() => (pickMsg.textContent = '내 세션 목록을 못 읽었어요'));
+  }
+
+  function clearPicks() {
+    for (const e of picks.values()) {
+      e.check.checked = false;
+      e.box.classList.remove('picked');
+    }
+    picks.clear();
+    updatePicks();
+  }
+
+  if (pickbar) {
+    // 고른 줄 안의 상자를 접고 펼 때만 크기를 다시 잰다. toggle은 거품이 안 올라와서 캡처로 받는다.
+    // 고른 뒤에 도착한 결과도 그 줄 상자 안에 붙으므로 closest로 거른다
+    document.addEventListener(
+      'toggle',
+      (ev) => ev.target.closest && ev.target.closest('.picked') && updatePicks(),
+      true,
+    );
+    dest.addEventListener('focus', loadSessions);
+    document.getElementById('pick-clear').addEventListener('click', clearPicks);
+    document.getElementById('pick-send').addEventListener('click', () => {
+      const { items, bytes } = pickedItems();
+      if (items.length === 0) return;
+      if (bytes > MAX_EXCERPT) {
+        pickMsg.textContent = '발췌가 32KB를 넘어요. 더 좁게 골라 주세요';
+        return;
+      }
+      if (!dest.value) {
+        pickMsg.textContent = '보낼 내 세션을 골라 주세요';
+        return;
+      }
+      fetch(base + '/excerpts?t=' + encodeURIComponent(token), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session: dest.value, items }),
+        cache: 'no-store',
+      })
+        .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+        .then(({ ok, j }) => {
+          if (!ok) {
+            pickMsg.textContent = '못 보냈어요: ' + (j.error || '');
+            return;
+          }
+          clearPicks();
+          pickMsg.textContent = '내 세션에 넣었어요. 그 세션의 수신 규칙에 따라 승인을 기다릴 수 있어요';
+        })
+        .catch(() => (pickMsg.textContent = '못 보냈어요'));
+    });
   }
 
   const eventsUrl = base + '/events?t=' + encodeURIComponent(token);
   const es = new EventSource(eventsUrl);
   es.addEventListener('line', (m) => {
     const stick = atBottom();
-    render(JSON.parse(m.data));
+    render(JSON.parse(m.data), Number(m.lastEventId) || 0);
     if (stick) window.scrollTo(0, document.body.scrollHeight);
   });
   es.addEventListener('trimmed', (m) => {

@@ -85,6 +85,21 @@ export function findSessionById(sessionId: string, configDir: string): SessionRe
   return null;
 }
 
+/** `sessions/*.json`에 적힌 세션 전부. 형식이 다른 파일은 건너뛴다 */
+export function listSessions(configDir: string): SessionRecord[] {
+  const dir = join(configDir, 'sessions');
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((name) => /^\d+\.json$/.test(name))
+    .map((name) => readSessionFile(join(dir, name)))
+    .filter((rec): rec is SessionRecord => rec !== null && isSessionId(rec.sessionId));
+}
+
 function isFile(path: string): boolean {
   try {
     return statSync(path).isFile();

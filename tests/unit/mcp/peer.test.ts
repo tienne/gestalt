@@ -104,10 +104,44 @@ describe('ges_peer ask_user', () => {
   });
 
   it('공유 통제 action은 스키마가 받지 않는다', () => {
-    expect(PEER_ACTIONS).toEqual(['ask_user']);
-    for (const action of ['share', 'kick', 'approve', 'send']) {
+    expect(PEER_ACTIONS).toEqual(['ask_user', 'peek']);
+    for (const action of ['share', 'kick', 'approve', 'send', 'list', 'inbox', 'status']) {
       expect(peerInputSchema.safeParse({ action, question: 'x' }).success).toBe(false);
     }
     expect(peerInputSchema.safeParse({ action: 'ask_user', question: 'x' }).success).toBe(true);
+    expect(peerInputSchema.safeParse({ action: 'peek', share: 'shAAAAAA' }).success).toBe(true);
+  });
+
+  it('ask_user에 question이 없으면 데몬에 안 넘긴다', async () => {
+    const out = JSON.parse(
+      await handlePeer({ action: 'ask_user' }, { pids: [777], configDir: cfg, socket: sock }),
+    ) as { error: string };
+    expect(out.error).toContain('question');
+    expect(seen).toEqual([]);
+  });
+
+  it('peek은 세션을 찾지 않고 데몬에 요약을 청해 틀로 감싼 글자를 그대로 돌려준다', async () => {
+    const text =
+      '<peer-peek share="tienne/shAAAAAA" status="idle" at="x">\n{}\n</peer-peek>\n요약이다.';
+    reply = { ok: true, result: { share: 'shAAAAAA', owner: 'tienne', cursor: '3', text } };
+    const out = await handlePeer(
+      { action: 'peek', share: 'shAAAAAA', since: '2' },
+      { pids: [1], configDir: cfg, socket: sock },
+    );
+    expect(out).toBe(text);
+    expect(seen).toEqual([{ op: 'peek', share: 'shAAAAAA', since: '2' }]);
+  });
+
+  it('peek에 share가 없거나 데몬이 거절하면 error로 돌려준다', async () => {
+    const missing = JSON.parse(
+      await handlePeer({ action: 'peek' }, { pids: [1], configDir: cfg, socket: sock }),
+    ) as { error: string };
+    expect(missing.error).toContain('share');
+    expect(seen).toEqual([]);
+    reply = { ok: false, error: '주인이 에이전트 요약을 허락하지 않았어요' };
+    const off = JSON.parse(
+      await handlePeer({ action: 'peek', share: 'shAAAAAA' }, { socket: sock }),
+    ) as { error: string };
+    expect(off.error).toContain('허락하지 않았어요');
   });
 });

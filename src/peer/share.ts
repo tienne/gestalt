@@ -233,8 +233,12 @@ interface Awaiting {
   until: number;
 }
 
-/** 팀원 메시지와 답 여는 태그의 앞부분. 대화 기록 줄은 JSON이라 따옴표가 `\"`로 적혀 있다 */
-const PEER_TAGS = ['<peer-message from="', '<peer-answer from="'];
+/**
+ * 팀원 메시지와 답, 발췌 여는 태그의 앞부분. 대화 기록 줄은 JSON이라 따옴표가 `\"`로 적혀 있다. 발췌는
+ * 이 세션이 남의 공유를 보다가 골라 넘긴 것이다. 주인 프롬프트로 내보내면 그 남의 대화가 이 공유를 보는
+ * 사람에게 다시 나간다. 기다리는 항목이 없어서 숨기기만 한다
+ */
+const PEER_TAGS = ['<peer-message from="', '<peer-answer from="', '<peer-excerpt share="'];
 const PEER_TAGS_IN_JSON = PEER_TAGS.map((tag) => JSON.stringify(tag).slice(1, -1));
 
 interface TranscriptLineShape {

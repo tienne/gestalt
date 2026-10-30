@@ -1,4 +1,5 @@
 import { readdirSync, statSync } from 'node:fs';
+import type { Dirent } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { redactText } from './redact.js';
@@ -49,21 +50,85 @@ export function locateCodexRollout(
     return { ok: false, reason: 'thread id나 rollout 경로(.jsonl)를 주세요', home };
   }
   const root = join(home, 'sessions');
+  if (!isDir(root)) return { ok: false, reason: 'sessions 디렉토리를 못 읽었어요', home };
+  const suffix = `-${value}.jsonl`;
+  const pick = (dir: string, names: string[]): string | undefined => {
+    const hits = names
+      .filter((n) => basename(n).startsWith('rollout-') && n.endsWith(suffix))
+      .map((n) => join(dir, n))
+      .filter(isFile);
+    // 같은 날 같은 id가 둘이면 이름이 뒤인(나중에 만든) 것을 쓴다. 파일 이름이 시각으로 시작한다
+    return hits.sort().at(-1);
+  };
+  // 연/월/일 디렉토리를 최신순으로 내려가다 처음 찾은 날에서 멈춘다. 보통 공유하는 건 최근 세션이다.
+  // 날짜 꼴이 아닌 자리(연, 월 디렉토리의 다른 이름 디렉토리나 rollout 파일, 일 디렉토리 안의 하위
+  // 디렉토리)를 봤으면 표시해 둔다
+  let odd = false;
+  const days = (dir: string): string[] => {
+    const r = subdirs(dir);
+    if (r.odd) odd = true;
+    return r.dirs;
+  };
+  for (const year of days(root)) {
+    for (const month of days(join(root, year))) {
+      for (const day of days(join(root, year, month))) {
+        const dir = join(root, year, month, day);
+        const entries = readEntries(dir);
+        if (entries.some((e) => e.isDirectory())) odd = true;
+        const found = pick(
+          dir,
+          entries.filter((e) => !e.isDirectory()).map((e) => e.name),
+        );
+        if (found) return { ok: true, path: found, home };
+      }
+    }
+  }
+  // 날짜 꼴이 아닌 자리가 있었을 때만 전체를 훑는다. 디렉토리 규칙이 바뀌어도 못 찾는 일은 없게 두되
+  // 날짜 디렉토리뿐이면 이미 다 본 것이라 다시 훑지 않는다
+  if (!odd) return { ok: false, reason: '그 id의 rollout을 못 찾았어요', home };
   let names: string[];
   try {
     names = readdirSync(root, { recursive: true, encoding: 'utf8' });
   } catch {
     return { ok: false, reason: 'sessions 디렉토리를 못 읽었어요', home };
   }
-  const suffix = `-${value}.jsonl`;
-  const hits = names
-    .filter((n) => basename(n).startsWith('rollout-') && n.endsWith(suffix))
-    .map((n) => join(root, n))
-    .filter(isFile);
-  if (hits.length === 0) return { ok: false, reason: '그 id의 rollout을 못 찾았어요', home };
-  // 같은 id가 둘이면 이름이 뒤인(나중에 만든) 것을 쓴다. 파일 이름이 시각으로 시작한다
-  hits.sort();
-  return { ok: true, path: hits[hits.length - 1]!, home };
+  const found = pick(root, names);
+  if (!found) return { ok: false, reason: '그 id의 rollout을 못 찾았어요', home };
+  return { ok: true, path: found, home };
+}
+
+/**
+ * 이름이 숫자인 하위 디렉토리를 큰 것부터. 연, 월, 일 디렉토리가 이 꼴이다. 숫자가 아닌 하위 디렉토리나
+ * rollout 꼴 파일이 있었으면 odd다. `.DS_Store` 같은 다른 파일은 날짜 규칙이 바뀐 신호가 아니라 안 센다
+ */
+export function subdirs(dir: string): { dirs: string[]; odd: boolean } {
+  const entries = readEntries(dir);
+  const dirs = entries
+    .filter((d) => d.isDirectory() && /^\d+$/.test(d.name))
+    .map((d) => d.name)
+    .sort((a, b) => Number(b) - Number(a));
+  const odd = entries.some((d) =>
+    d.isDirectory()
+      ? !/^\d+$/.test(d.name)
+      : d.name.startsWith('rollout-') && d.name.endsWith('.jsonl'),
+  );
+  return { dirs, odd };
+}
+
+function readEntries(dir: string): Dirent[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function isDir(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function isFile(path: string): boolean {

@@ -39,27 +39,24 @@ import type {
   AskResult,
   ControlResult,
   DaemonStatus,
+  PeekNotice,
+  PeekResult,
   PeerConfig,
   PeerRequest,
   PeerResponse,
   PendingWatcher,
   ShareInfo,
 } from './protocol.js';
-import { isSessionId } from './locate.js';
-import { errMessage } from './errors.js';
+import { claudeConfigDir, isSessionId, listSessions } from './locate.js';
+import { errMessage, PeerNetworkError } from './errors.js';
 import { loadOrCreateMachineKey } from './keys.js';
 import type { MachineKey } from './keys.js';
 import { acquireDaemonLock, releaseDaemonLock } from './lock.js';
 import type { DaemonLock } from './lock.js';
-import {
-  DEFAULT_ASK_TTL_MS,
-  MAX_ASK_TTL_MS,
-  MIN_ASK_TTL_MS,
-  PeerNetwork,
-  PeerNetworkError,
-} from './network.js';
+import { PeerNetwork } from './network.js';
+import { DEFAULT_ASK_TTL_MS, MAX_ASK_TTL_MS, MIN_ASK_TTL_MS } from './questions.js';
 import type { InboundAnswer, InboundMessage, PeerNetworkOptions } from './network.js';
-import { findInboxSocket, writeInbox } from './inbox.js';
+import { findInboxSocket, findSessionSocket, writeInbox } from './inbox.js';
 import type { InboxResult } from './inbox.js';
 import {
   answerHeader,
@@ -72,6 +69,9 @@ import {
 import { redactText } from './redact.js';
 import { isPersonName, isShareId } from './roster.js';
 import type { WatchListItem, WatchResult } from './protocol.js';
+import { buildPeek, framePeek } from './peek.js';
+import { composeExcerpt, frameExcerpt, parseExcerptItems } from './excerpt.js';
+import type { LocalSession } from './viewer.js';
 
 export interface PeerDaemonOptions {
   root: string;
@@ -87,6 +87,12 @@ export interface PeerDaemonOptions {
   approvalTtlMs?: number;
   /** 승인 대기를 알리는 시간. 이 동안은 긴 안내 문구를 붙이고 지나면 짧은 한 줄로 바꾼다. 테스트가 줄인다 */
   approvalNoticeMs?: number;
+  /** 요약을 가져갔다고 주인 세션에 알리는 시간. 테스트가 줄인다 */
+  peekNoticeMs?: number;
+  /** 보는 쪽이 요약 답을 기다리는 시한. 테스트가 줄인다 */
+  peekTimeoutMs?: number;
+  /** 발췌를 넣을 내 세션을 찾는 Claude Code 설정 디렉토리. 기본은 데몬 환경의 claudeConfigDir() */
+  configDir?: string;
 }
 
 interface OpenShare {
@@ -101,6 +107,8 @@ interface OpenShare {
    * sessionId가 없는 --transcript 공유와 Codex 공유도 같다
    */
   messages: boolean;
+  /** 보는 쪽 에이전트가 요약(peek)을 가져갈 수 있는지. `--agent-peek`으로 열어야 켜진다 */
+  agentPeek: boolean;
   createdAt: number;
   expiresAt: number;
 }
@@ -148,6 +156,8 @@ export class PeerDaemon {
    * 그 pid를 받은 다른 프로세스를 데몬으로 믿지 않게 한다. ps를 못 부르면 빈 글자다
    */
   private readonly startStamp = processStartStamp(process.pid);
+  /** 보기마다 `peer watch`를 친 쪽의 Claude Code 설정 디렉토리. 발췌를 넣을 내 세션을 거기서 찾는다 */
+  private watchConfigDirs = new Map<string, string>();
 
   constructor(private readonly options: PeerDaemonOptions) {
     this.sock = socketPath(options.root);
@@ -157,7 +167,14 @@ export class PeerDaemon {
       lookup: (id) => {
         const s = this.shares.get(id);
         if (s) return { stream: s.stream, token: s.token };
-        return this.network?.lookupWatch(id);
+        const w = this.network?.lookupWatch(id);
+        if (!w) return undefined;
+        // 원격 공유를 보는 중이면 고른 줄을 내 세션으로 넘길 수 있다. 내 공유는 내 세션이라 없다
+        return {
+          ...w,
+          sessions: () => this.localSessions(id),
+          excerpt: (session: string, items: unknown) => this.sendExcerpt(id, session, items),
+        };
       },
       onConnect: (id) => this.state?.audit('viewer_connect', id),
       onDisconnect: (id) => this.state?.audit('viewer_disconnect', id),
@@ -219,11 +236,25 @@ export class PeerDaemon {
                   this.deliverMessage(id, m, onSeen),
               }
             : {}),
+          ...(s.agentPeek
+            ? {
+                peek: (since?: string) =>
+                  buildPeek({
+                    share: id,
+                    feed: s.stream,
+                    title: s.stream.sessionTitle,
+                    streamStatus: s.stream.currentStatus,
+                    since,
+                  }),
+              }
+            : {}),
         };
       },
       transport: this.options.network,
       approvalTtlMs: this.options.approvalTtlMs,
       approvalNoticeMs: this.options.approvalNoticeMs,
+      peekNoticeMs: this.options.peekNoticeMs,
+      peekTimeoutMs: this.options.peekTimeoutMs,
       onControlChange: () => this.scheduleWatching(),
     });
     this.network.start();
@@ -355,6 +386,13 @@ export class PeerDaemon {
       case 'watch':
         return this.withNetworkAsync(async (n): Promise<WatchResult> => {
           const w = await n.watch(String(req.link));
+          // 끝난 보기의 설정 디렉토리는 여기서 치운다. 보기는 kick이나 공유 종료로도 끝난다
+          for (const id of [...this.watchConfigDirs.keys()]) {
+            if (!n.lookupWatch(id)) this.watchConfigDirs.delete(id);
+          }
+          if (typeof req.configDir === 'string' && isAbsolute(req.configDir)) {
+            this.watchConfigDirs.set(w.id, req.configDir);
+          }
           return {
             id: w.id,
             share: w.share,
@@ -386,9 +424,12 @@ export class PeerDaemon {
         const id = String(req.id);
         return this.withNetwork((n) => {
           if (!n.unwatch(id)) throw new PeerNetworkError(`보고 있는 공유가 아니에요: ${id}`);
+          this.watchConfigDirs.delete(id);
           return { id };
         });
       }
+      case 'peek':
+        return this.peek(req);
       default:
         return { ok: false, error: `모르는 요청이에요: ${String((req as { op?: unknown }).op)}` };
     }
@@ -471,6 +512,105 @@ export class PeerDaemon {
     return this.withNetwork((n) => n.ask(open, question, to, ttl));
   }
 
+  /**
+   * ges_peer peek. 보고 있는 원격 공유의 요약을 주인 데몬에 청해 틀로 감싼 글자로 돌려준다. 받아 줄지는
+   * 주인 데몬이 정한다. 보는 쪽은 받은 요약의 꼴과 크기를 다시 본 뒤에 감싼다.
+   */
+  private peek(req: Extract<PeerRequest, { op: 'peek' }>): Promise<PeerResponse<PeekResult>> {
+    const share = req.share;
+    const since = req.since;
+    return this.withNetworkAsync(async (n): Promise<PeekResult> => {
+      if (typeof share !== 'string') throw new PeerNetworkError('share가 없어요');
+      if (since !== undefined && typeof since !== 'string') {
+        throw new PeerNetworkError('since는 앞 peek이 돌려준 cursor예요');
+      }
+      const r = await n.peek(share, since);
+      return {
+        share: r.peek.share,
+        owner: r.owner,
+        cursor: r.peek.cursor,
+        text: framePeek(r.owner, r.peek, Date.now()),
+      };
+    });
+  }
+
+  /**
+   * 고른 줄을 보는 사람 머신의 세션에 `<peer-excerpt>`로 넣는다. 글자는 브라우저가 보낸 것을 쓰지
+   * 않고 보기가 들고 있는 이벤트에서 다시 만든다. 넣는 길은 주인 데몬의 메시지와 같은 인박스 소켓
+   * 쓰기다. 데몬은 그 세션의 자식이 아니라서 내 세션이라도 수신 규칙(crossSessionInbound)을 탄다.
+   * 그 세션 대화 기록은 따라 읽지 않으므로 들어갔는지는 확인하지 않는다.
+   */
+  private async sendExcerpt(
+    watchId: string,
+    session: string,
+    rawItems: unknown,
+  ): Promise<{ ok: true; bytes: number } | { ok: false; error: string }> {
+    const w = this.network?.lookupWatch(watchId);
+    if (!w) return { ok: false, error: '보고 있는 공유가 아니에요' };
+    if (typeof session !== 'string' || !isSessionId(session)) {
+      return { ok: false, error: '보낼 세션을 골라 주세요' };
+    }
+    const items = parseExcerptItems(rawItems);
+    if (!items) return { ok: false, error: '고른 줄 꼴이 맞지 않아요' };
+    const composed = composeExcerpt(w.stream, items);
+    if (!composed.ok) return { ok: false, error: composed.reason };
+    const found = findSessionSocket(session, this.sessionConfigDirs(watchId));
+    if (!found.ok) return { ok: false, error: `보낼 ${found.reason}` };
+    const text = frameExcerpt({
+      owner: w.owner,
+      share: w.share,
+      pickedBy: this.network?.person ?? '?',
+      ...(composed.from ? { from: composed.from } : {}),
+      ...(composed.to ? { to: composed.to } : {}),
+      body: composed.body,
+    });
+    const result = await writeInbox(found.path, text);
+    // 붙은 뒤 실패면 들어갔을 수 있다. 다시 보내면 겹치므로 넣음으로 알리고 그 사실을 감사 행에 남긴다
+    if (!result.ok && !result.maybeWritten) return { ok: false, error: result.reason };
+    const bytes = Buffer.byteLength(composed.body);
+    this.state?.audit(
+      'excerpt_send',
+      null,
+      JSON.stringify({
+        watch: watchId,
+        share: w.share,
+        session,
+        items: items.length,
+        bytes,
+        ...(result.ok ? {} : { maybeWritten: true }),
+      }),
+    );
+    return { ok: true, bytes };
+  }
+
+  /** 발췌를 넣을 수 있는 내 세션. 인박스 소켓이 있고 프로세스가 살아 있는 것만 */
+  private localSessions(watchId: string): LocalSession[] {
+    const seen = new Set<string>();
+    const out: LocalSession[] = [];
+    for (const dir of this.sessionConfigDirs(watchId)) {
+      for (const rec of listSessions(dir)) {
+        if (seen.has(rec.sessionId) || !rec.messagingSocketPath) continue;
+        if (rec.pid !== undefined && !processAlive(rec.pid)) continue;
+        seen.add(rec.sessionId);
+        out.push({
+          sessionId: rec.sessionId,
+          cwd: redactText(rec.cwd, { home: this.options.home }),
+          ...(rec.pid !== undefined ? { pid: rec.pid } : {}),
+        });
+      }
+    }
+    return out;
+  }
+
+  /** 발췌를 넣을 세션을 찾는 설정 디렉토리. `peer watch`를 친 쪽 것이 먼저고 데몬 것이 다음이다 */
+  private sessionConfigDirs(watchId: string): string[] {
+    const dirs = [
+      this.watchConfigDirs.get(watchId),
+      this.options.configDir ?? claudeConfigDir(),
+    ].filter((d): d is string => d !== undefined);
+    return [...new Set(dirs)];
+  }
+
   private withNetwork<T>(fn: (n: PeerNetwork) => T): PeerResponse<T> {
     if (!this.network) return { ok: false, error: '데몬이 아직 안 떴어요' };
     try {
@@ -501,8 +641,7 @@ export class PeerDaemon {
     const share = this.shares.get(shareId);
     if (!share) return { ok: false, reason: 'share_closed' };
     const found = findInboxSocket(share.stream.transcriptPath, share.sessionId);
-    if (!found.ok || !found.path)
-      return { ok: false, reason: found.ok ? '인박스 소켓이 없어요' : found.reason };
+    if (!found.ok) return { ok: false, reason: found.reason };
     const stream = share.stream;
     const header =
       m.kind === 'answer'
@@ -570,6 +709,8 @@ export class PeerDaemon {
       return { ok: false, error: 'Codex 공유는 sessionId를 받지 않아요' };
     }
     const messages = format === 'claude' && req.messages !== false;
+    // 요약은 주인이 켜야만 된다. Codex 공유도 같은 규칙이다. 요약은 뷰어로 나간 이벤트에서만 추린다
+    const agentPeek = req.agentPeek === true;
 
     const tools: ToolsLevel = req.tools ?? 'summary';
     if (!isToolsLevel(tools))
@@ -601,6 +742,7 @@ export class PeerDaemon {
       sessionId: req.sessionId ?? null,
       format,
       messages,
+      agentPeek,
       createdAt,
       expiresAt,
     });
@@ -612,7 +754,11 @@ export class PeerDaemon {
       createdAt,
       expiresAt,
     });
-    this.state!.audit('share_open', id, JSON.stringify({ tools, format, expiresAt, messages }));
+    this.state!.audit(
+      'share_open',
+      id,
+      JSON.stringify({ tools, format, expiresAt, messages, agentPeek }),
+    );
     this.announceShares();
     return { ok: true, result: this.info(id) };
   }
@@ -639,6 +785,7 @@ export class PeerDaemon {
       tools: s.stream.tools,
       format: s.format,
       messages: s.messages && s.sessionId !== null,
+      agentPeek: s.agentPeek,
       createdAt: s.createdAt,
       expiresAt: s.expiresAt,
       status: s.stream.currentStatus,
@@ -651,7 +798,7 @@ export class PeerDaemon {
       title: s.stream.sessionTitle,
       url: this.viewerUrl(id, s.token),
       link: this.network?.linkFor(id, s.shareKey),
-      ...(this.network?.shareControl(id) ?? { watchers: [], pending: [], blocked: [] }),
+      ...(this.network?.shareControl(id) ?? { watchers: [], pending: [], blocked: [], peeks: [] }),
     };
   }
 
@@ -666,7 +813,7 @@ export class PeerDaemon {
 
   /**
    * 보는 중 표시 훅이 읽을 세션별 상태 파일을 다시 쓴다. 원격으로 보는 사람이나 승인을 기다리는
-   * 사람이 있는 세션만 파일이 있다. 훅은 파일이 있으면 적힌 데몬이 살아 있는 한 그 내용을 그대로
+   * 사람이 있거나 최근 10분(PEEK_NOTICE_MS) 안에 팀원의 에이전트가 요약을 가져간 세션만 파일이 있다. 훅은 파일이 있으면 적힌 데몬이 살아 있는 한 그 내용을 그대로
    * 내보낸다. 아무도 없는 세션은 파일을 지워서 끊긴 사람이 다음 프롬프트에 계속 보이지 않게 한다.
    * `--transcript`로 연 공유는 세션 id가 없어서 표시하지 않는다.
    *
@@ -676,18 +823,22 @@ export class PeerDaemon {
   private writeWatching(): void {
     const network = this.network;
     if (!network || !this.state) return;
-    const sessions = new Map<string, { watchers: Set<string>; pending: PendingWatcher[] }>();
+    const sessions = new Map<
+      string,
+      { watchers: Set<string>; pending: PendingWatcher[]; peeks: PeekNotice[] }
+    >();
     for (const [id, s] of this.shares) {
       if (!s.sessionId) continue;
       const c = network.shareControl(id);
-      if (c.watchers.length === 0 && c.pending.length === 0) continue;
+      if (c.watchers.length === 0 && c.pending.length === 0 && c.peeks.length === 0) continue;
       let entry = sessions.get(s.sessionId);
       if (!entry) {
-        entry = { watchers: new Set(), pending: [] };
+        entry = { watchers: new Set(), pending: [], peeks: [] };
         sessions.set(s.sessionId, entry);
       }
       for (const w of c.watchers) entry.watchers.add(w);
       entry.pending.push(...c.pending);
+      entry.peeks.push(...c.peeks);
     }
     const dir = watchingDir(this.options.root);
     for (const sessionId of [...this.watchingWritten.keys()]) {
@@ -709,7 +860,7 @@ export class PeerDaemon {
       return;
     }
     for (const [sessionId, e] of sessions) {
-      const context = watchingContext([...e.watchers], e.pending);
+      const context = watchingContext([...e.watchers], e.pending, e.peeks);
       const line = JSON.stringify({
         hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context },
       });
@@ -889,7 +1040,11 @@ export class PeerDaemon {
  * 라벨로 정리하고 이름 꼴이 아니면 뺀다. 승인 명령은 모델이 직접 치지 않게 적는다. 주인이
  * 받아 주는 자리를 모델이 대신 채우면 승인이 뜻이 없다.
  */
-export function watchingContext(watchers: string[], pending: PendingWatcher[]): string {
+export function watchingContext(
+  watchers: string[],
+  pending: PendingWatcher[],
+  peeks: PeekNotice[] = [],
+): string {
   const names = (list: string[]): string[] =>
     [...new Set(list.map((n) => plainLabel(n, 32)).filter(isPersonName))].sort();
   const lines: string[] = [];
@@ -910,6 +1065,11 @@ export function watchingContext(watchers: string[], pending: PendingWatcher[]): 
   }
   if (old.length > 0) {
     lines.push(`[gestalt peer] 승인 대기: ${old.join(', ')}. 사용자가 정할 일이다.`);
+  }
+  // 요약을 가져간 사람은 알리는 시간(10분) 동안만 붙는다. 그 뒤로는 데몬이 줄을 뺀다
+  const peekers = names(peeks.map((p) => p.person));
+  if (peekers.length > 0) {
+    lines.push(`[gestalt peer] ${peekers.join(', ')} 님의 에이전트가 이 세션의 요약을 가져갔다.`);
   }
   return lines.join('\n');
 }
@@ -941,6 +1101,16 @@ const CONTROL_OPS: Record<
   approve: (n, person, shares) => n.approve(person, shares),
   deny: (n, person, shares) => n.deny(person, shares),
 };
+
+/** pid가 살아 있는지. 남의 프로세스라 신호를 못 보내도(EPERM) 살아 있는 것이다 */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
 
 function sameFile(path: string, id: FileId): boolean {
   try {
