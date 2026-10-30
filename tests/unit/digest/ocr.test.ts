@@ -56,7 +56,7 @@ function tsv(words: Array<[number, number, string]>): string {
 /** ffmpeg는 프레임 4장을 쓰고 tesseract는 파일 이름별로 정해 둔 글자를 낸다 */
 function fakeRun(
   texts: Record<string, string>,
-  opts: { noTesseract?: boolean; showinfo?: number[] } = {},
+  opts: { noTesseract?: boolean; showinfo?: number[]; ffmpegError?: string } = {},
 ) {
   const calls: Array<{ cmd: string; args: string[]; cwd: string }> = [];
   const run: RunCommand = async (cmd, args, o) => {
@@ -67,6 +67,10 @@ function fakeRun(
       return { stdout: '', stderr: '' };
     }
     if (cmd === 'ffmpeg') {
+      // ffmpegError는 -fps_mode로 부를 때만 내는 오류다. 옛 ffmpeg가 새 옵션을 모르는 경우를 흉내 낸다
+      if (opts.ffmpegError && args.includes('-fps_mode')) {
+        throw new CommandError('ffmpeg', opts.ffmpegError, 'ffmpeg 실패');
+      }
       const dir = dirname(args.at(-1)!);
       for (const n of [1, 2, 3, 4]) writeFileSync(join(dir, `f0000${n}.png`), 'png');
       const stderr = (opts.showinfo ?? []).map(
@@ -179,6 +183,26 @@ describe('ocr', () => {
     expect(file).toMatchObject({ intervalSec: 12, requestedIntervalSec: 1 });
   });
 
+  it('-fps_mode로 뽑고 그 옵션을 모르는 옛 ffmpeg만 -vsync로 다시 돈다', async () => {
+    const repo = tmpRepo();
+    new DigestStore(repo).saveTranscript(sampleTranscript());
+    const fresh = fakeRun({});
+    await runOcr(SLUG, { repoRoot: repo, run: fresh.run });
+    const ffmpegArgs = (f: ReturnType<typeof fakeRun>) =>
+      f.calls.filter((c) => c.cmd === 'ffmpeg').map((c) => c.args);
+    expect(ffmpegArgs(fresh)).toHaveLength(1);
+    expect(ffmpegArgs(fresh)[0]).toContain('-fps_mode');
+    expect(ffmpegArgs(fresh)[0]).not.toContain('-vsync');
+
+    const old = fakeRun({}, { ffmpegError: "Unrecognized option 'fps_mode'.\nError splitting" });
+    await runOcr(SLUG, { repoRoot: repo, run: old.run });
+    expect(ffmpegArgs(old).map((a) => a.includes('-vsync'))).toEqual([false, true]);
+
+    const broken = fakeRun({}, { ffmpegError: 'video.mp4: Invalid data found' });
+    await expect(runOcr(SLUG, { repoRoot: repo, run: broken.run })).rejects.toThrow('ffmpeg 실패');
+    expect(ffmpegArgs(broken)).toHaveLength(1);
+  });
+
   it('프레임 시각은 showinfo 로그에서 받는다', async () => {
     const { repo } = seeded();
     const f = fakeRun(
@@ -250,7 +274,7 @@ describe('ocr', () => {
       'ffmpeg',
       [
         ...['-hide_banner', '-nostats', '-f', 'lavfi', '-i', 'testsrc=duration=5:rate=10'],
-        ...['-vf', `${everyInterval(1)},showinfo`, '-vsync', 'vfr', '-f', 'null', '-'],
+        ...['-vf', `${everyInterval(1)},showinfo`, '-fps_mode', 'vfr', '-f', 'null', '-'],
       ],
       { encoding: 'utf-8', timeout: 30_000 },
     );

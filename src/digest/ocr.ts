@@ -111,7 +111,7 @@ export function clipOcrText(text: string, max = MAX_TEXT): { text: string; trunc
 
 const FRAME_FILE = /^f(\d{5})\.png$/;
 
-/** 간격마다 첫 프레임만 고르는 select 식. -vsync vfr과 함께 써야 빈 자리를 복제하지 않는다 */
+/** 간격마다 첫 프레임만 고르는 select 식. -fps_mode vfr(옛 ffmpeg는 -vsync vfr)과 함께 써야 빈 자리를 복제하지 않는다 */
 export function everyInterval(intervalSec: number): string {
   return `select='isnan(prev_selected_t)+gte(floor(t/${intervalSec})-floor(prev_selected_t/${intervalSec}),1)'`;
 }
@@ -141,19 +141,26 @@ export async function runOcr(slug: string, opts: OcrOptions): Promise<OcrResult>
   const cwd = mkdtempSync(join(tmpdir(), 'gestalt-digest-ocr-'));
   try {
     const video = await ensureVideo(run, transcript, store.videoCacheDir(slug), cwd);
-    const { stderr } = await run(
-      'ffmpeg',
-      [
-        ...['-hide_banner', '-nostats', '-y', '-i', video],
-        // fps 필터는 두 번째 장부터 간격 절반만큼 늦은 프레임을 내서 sec과 화면이 어긋난다.
-        // 간격마다 첫 프레임을 고르고 그 프레임의 실제 시각은 showinfo 로그에서 받는다.
-        // 작은 글자는 tesseract가 못 읽어서 1280보다 좁은 화면은 두 배로 키운다
-        ...['-vf', `${everyInterval(intervalSec)},showinfo,scale='if(lt(iw,1280),iw*2,iw)':-2`],
-        // -fps_mode는 ffmpeg 5.1부터라 그 전 버전에서도 도는 -vsync를 쓴다
-        ...['-vsync', 'vfr', join(cwd, 'f%05d.png')],
-      ],
-      { cwd, timeoutMs: timeoutFor(transcript.meta.durationSec, 0.2) },
-    );
+    const extract = (frameOpt: '-fps_mode' | '-vsync') =>
+      run(
+        'ffmpeg',
+        [
+          ...['-hide_banner', '-nostats', '-y', '-i', video],
+          // fps 필터는 두 번째 장부터 간격 절반만큼 늦은 프레임을 내서 sec과 화면이 어긋난다.
+          // 간격마다 첫 프레임을 고르고 그 프레임의 실제 시각은 showinfo 로그에서 받는다.
+          // 작은 글자는 tesseract가 못 읽어서 1280보다 좁은 화면은 두 배로 키운다
+          ...['-vf', `${everyInterval(intervalSec)},showinfo,scale='if(lt(iw,1280),iw*2,iw)':-2`],
+          ...[frameOpt, 'vfr', join(cwd, 'f%05d.png')],
+        ],
+        { cwd, timeoutMs: timeoutFor(transcript.meta.durationSec, 0.2) },
+      );
+    // -vsync는 ffmpeg 9에서 없어졌고 -fps_mode는 5.1부터 있다. 새 옵션을 모르는 옛 ffmpeg만 -vsync로 다시 돌린다
+    const { stderr } = await extract('-fps_mode').catch((e: unknown) => {
+      if (e instanceof CommandError && /Unrecognized option 'fps_mode'/.test(e.stderr)) {
+        return extract('-vsync');
+      }
+      throw e;
+    });
     const times = parseShowinfo(stderr);
     const frames = readdirSync(cwd)
       .filter((f) => FRAME_FILE.test(f))

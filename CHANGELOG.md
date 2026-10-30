@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PDF 제목을 첫 쪽에서 글자가 가장 큰 줄로 잡아요.** 메타데이터 제목이 없는 arXiv 논문에서 Attention은 제목 위 저작권 안내문이, ViT는 작은 대문자 제목이 조각나 "A"가 제목이 됐어요. 본문에 `41 . 0`처럼 띄어 뽑힌 소수점도 붙여요.
 - **모델 이름 속 숫자를 원문 숫자로 세지 않아요.** `ResNet-34`, `ViT-L/16`을 옮긴 한계 줄이 근거에 없는 숫자로 막혔어요.
 - **`99.68 ± 0.02` 같은 칸의 숫자도 숫자 의심의 근거로 쳐요.** lens-reader가 ViT Flowers-102 의심을 달려다 이 칸 때문에 막혀 포기했어요. 방향 의심은 여전히 이런 칸을 받지 않아요.
+- **ffmpeg 9에서도 영상 요약의 OCR 장면 추출이 돌아요.** 옛 ffmpeg까지 받으려고 `-vsync vfr`을 썼는데 ffmpeg 9.0에서 이 옵션이 없어져서 추출이 바로 실패했어요. 이제 `-fps_mode vfr`로 먼저 돌리고 그 옵션을 모르는 ffmpeg 5.1 미만만 `-vsync`로 다시 돌려요. 배포 전 검증에서 이 머신의 ffmpeg가 9.0.2로 바뀌면서 드러났어요.
 - **git 2.28 미만에서도 테스트와 문서 신선도 검사가 돌아요.** `git init -b`를 `init` 뒤 `symbolic-ref`로, `git log --format=%cs`를 `%cd --date=short`로 바꿨어요. 출력은 같아요.
 
 ### 검증 범위
