@@ -226,25 +226,32 @@ ${
 
   // 데몬에 보낼 고른 줄. 도구 호출은 펼쳐 둔 채 골랐을 때만 입력이 들어가고 그 안의 결과는 호출과 결과를
   // 다 펼쳤을 때만 본문이 들어간다
+  // 줄마다 바이트 수는 처음 잴 때 한 번만 센다. 고르거나 접고 펼 때마다 다시 인코딩하지 않는다
+  const encoder = new TextEncoder();
+  const sizeOf = (o, key) => {
+    const k = key + 'Bytes';
+    if (o[k] === undefined) o[k] = encoder.encode(o[key] || '').length;
+    return o[k];
+  };
   function pickedItems() {
     const items = [];
     let bytes = 0;
-    const size = (t) => new TextEncoder().encode(t).length;
     for (const seq of [...picks.keys()].sort((a, b) => a - b)) {
       const e = picks.get(seq);
       const open = e.details ? e.details.open : true;
       items.push({ seq, open });
-      if (e.name !== undefined) bytes += size(e.name) + (open ? size(e.input) : 0);
-      else if (open) bytes += size(e.text || '');
+      if (e.name !== undefined) bytes += sizeOf(e, 'name') + (open ? sizeOf(e, 'input') : 0);
+      else if (open) bytes += sizeOf(e, 'text');
       for (const r of e.results || []) {
         const ropen = open && r.details.open;
         items.push({ seq: r.seq, open: ropen });
-        if (ropen) bytes += size(r.text);
+        if (ropen) bytes += sizeOf(r, 'text');
       }
     }
     return { items, bytes };
   }
 
+  let overShown = false;
   function updatePicks() {
     if (!pickbar) return;
     pickbar.hidden = picks.size === 0;
@@ -253,12 +260,20 @@ ${
     pickedEl.textContent = picks.size + '줄 고름 · ' + Math.ceil(bytes / 1024) + 'KB';
     pickedEl.className = over ? 'over' : '';
     if (over) pickMsg.textContent = '발췌가 32KB를 넘어요. 더 좁게 골라 주세요';
-    else if (pickMsg.textContent.startsWith('발췌가 32KB')) pickMsg.textContent = '';
-    if (picks.size > 0 && dest.options.length <= 1) loadSessions();
+    else if (overShown) pickMsg.textContent = '';
+    overShown = over;
+    // 세션 목록은 처음 고를 때 한 번 읽고 그 뒤로는 목록을 열 때만 다시 읽는다
+    if (picks.size > 0 && !sessionsAsked) loadSessions();
   }
 
+  let sessionsAsked = false;
+  let sessionsLoading = false;
   function loadSessions() {
+    sessionsAsked = true;
+    if (sessionsLoading) return;
+    sessionsLoading = true;
     fetch(base + '/sessions?t=' + encodeURIComponent(token), { cache: 'no-store' })
+      .finally(() => (sessionsLoading = false))
       .then((r) => r.json())
       .then((j) => {
         const keep = dest.value;
@@ -284,8 +299,13 @@ ${
   }
 
   if (pickbar) {
-    // 접고 펼 때마다 크기를 다시 잰다. toggle은 거품이 안 올라와서 캡처로 받는다
-    document.addEventListener('toggle', () => picks.size > 0 && updatePicks(), true);
+    // 고른 줄 안의 상자를 접고 펼 때만 크기를 다시 잰다. toggle은 거품이 안 올라와서 캡처로 받는다.
+    // 고른 뒤에 도착한 결과도 그 줄 상자 안에 붙으므로 closest로 거른다
+    document.addEventListener(
+      'toggle',
+      (ev) => ev.target.closest && ev.target.closest('.picked') && updatePicks(),
+      true,
+    );
     dest.addEventListener('focus', loadSessions);
     document.getElementById('pick-clear').addEventListener('click', clearPicks);
     document.getElementById('pick-send').addEventListener('click', () => {

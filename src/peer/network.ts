@@ -53,8 +53,9 @@ import type {
   PeekNotice,
   PendingWatcher,
 } from './protocol.js';
-import { isPeekCursor, isPeekId, newPeekId, normalizePeek, peekJson } from './peek.js';
 import type { PeerPeek } from './peek.js';
+import { PeekDesk } from './peeks.js';
+import type { PeekBox, PeekHost } from './peeks.js';
 import { QuestionDesk } from './questions.js';
 import type { AskResult, QuestionBox, QuestionHost } from './questions.js';
 
@@ -113,6 +114,8 @@ export interface PeerNetworkOptions {
   approvalNoticeMs?: number;
   /** 요약을 가져갔다고 주인 세션에 알리는 시간. 테스트가 줄인다 */
   peekNoticeMs?: number;
+  /** 보는 쪽이 요약 답을 기다리는 시한. 테스트가 줄인다 */
+  peekTimeoutMs?: number;
   /** 보는 사람, 승인 대기, 끊은 사람, 요약 가져간 사람 목록이 바뀌면 부른다. 데몬이 훅 상태 파일을 다시 쓴다 */
   onControlChange?(): void;
 }
@@ -173,12 +176,6 @@ const MAX_REFUSED_SENDERS = 1024;
 export const APPROVAL_TTL_MS = 10 * 60 * 1000;
 /** 승인 대기를 알리는 시간. 이 동안은 긴 안내 문구를 붙이고 지나면 훅이 짧은 한 줄만 붙인다 */
 export const APPROVAL_NOTICE_MS = 60 * 1000;
-/** 요약을 가져갔다고 주인 세션에 알리는 시간. 이 동안 보는 중 표시 훅이 한 줄을 붙인다 */
-export const PEEK_NOTICE_MS = 10 * 60 * 1000;
-/** 보는 쪽이 요약 답을 기다리는 시한. 이전 버전 주인 데몬은 peek을 몰라서 답하지 않는다 */
-const PEEK_TIMEOUT_MS = 10_000;
-/** 보는 쪽에서 답을 기다리는 요약 요청 수 */
-const MAX_PENDING_PEEKS = 16;
 /** 끝난 보기를 `peer watches`에 남겨 두는 개수. 거절이나 kick으로 끝난 이유를 CLI에서 보게 한다 */
 const MAX_CLOSED_WATCHES = 16;
 /** 보는 쪽이 다시 청하지 않고 보기를 끝내는 거절 이유 */
@@ -214,10 +211,7 @@ type BoxMessage =
   | { t: 'msg'; share: string; id: string; body: string; origin: MessageOrigin; proof: string }
   | { t: 'msg_status'; share: string; id: string; status: MessageStatus; reason?: string }
   | QuestionBox
-  /** 보는 쪽 → 주인. 보는 쪽 에이전트의 요약 요청. proof는 링크의 공유 키로 만든다 */
-  | { t: 'peek'; share: string; id: string; since?: string; proof: string }
-  /** 주인 → 보는 쪽. 요약이나 거절 이유 둘 중 하나가 든다 */
-  | { t: 'peek_reply'; share: string; id: string; peek?: PeerPeek; reason?: string };
+  | PeekBox;
 
 /** 공유 스트림 봉투. 공유 세션 키로 연다. share와 sub는 릴레이도 보는 라우팅 정보다 */
 interface StreamEnvelope {
@@ -285,16 +279,6 @@ interface Watch {
   retries: number;
 }
 
-/** 보는 쪽. 답을 기다리는 요약 요청 */
-interface PendingPeek {
-  owner: string;
-  share: string;
-  person: string;
-  resolve: (r: { peek: PeerPeek; owner: string }) => void;
-  reject: (err: Error) => void;
-  timer: NodeJS.Timeout;
-}
-
 interface ClosedWatch {
   id: string;
   share: string;
@@ -324,10 +308,6 @@ export function refusalText(reason: string): string {
       return '주인이 이 공유에서 끊었어요 (kicked)';
     case 'approval_timeout':
       return '주인이 승인하지 않아 기다리다 끝났어요 (approval_timeout)';
-    case 'not_approved':
-      return '주인이 아직 받아 주지 않았어요 (not_approved)';
-    case 'peek_off':
-      return '주인이 에이전트 요약을 허락하지 않았어요. 주인이 공유를 --agent-peek으로 열어야 해요 (peek_off)';
     default:
       return `주인 데몬이 거절했어요: ${reason}`;
   }
@@ -384,13 +364,8 @@ export class PeerNetwork {
   private closedWatches: ClosedWatch[] = [];
   /** 질문과 답. 주인 쪽 열린 질문도 여기 있다 */
   private questions: QuestionDesk;
-  /** 주인 쪽. 같은 기기가 같은 공유(`공유|기기`)에서 요약을 가져가는 수. 10분에 36번 */
-  private peekLimiter = new RateLimiter(MESSAGE_RECEIVE_LIMIT);
-  /** 주인 쪽. 공유마다 최근 요약을 가져간 사람(명단 이름)과 시각. 알리는 시간이 지나면 지운다 */
-  private peeked = new Map<string, Map<string, { at: number; timer: NodeJS.Timeout }>>();
-  /** 보는 쪽. 답을 기다리는 요약 요청. 키는 요청 id */
-  private peeks = new Map<string, PendingPeek>();
-  private readonly peekNotice: number;
+  /** 요약 요청과 답. 주인 쪽 알림과 보는 쪽 대기 요청도 여기 있다 */
+  private peeks: PeekDesk;
 
   constructor(private readonly options: PeerNetworkOptions) {
     this.team = options.state.getTeam();
@@ -398,8 +373,11 @@ export class PeerNetwork {
     this.maxBuffered = options.maxBufferedBytes ?? MAX_REMOTE_BUFFERED_BYTES;
     this.approvalTtl = options.approvalTtlMs ?? APPROVAL_TTL_MS;
     this.approvalNotice = options.approvalNoticeMs ?? APPROVAL_NOTICE_MS;
-    this.peekNotice = options.peekNoticeMs ?? PEEK_NOTICE_MS;
     this.questions = new QuestionDesk(this.questionHost());
+    this.peeks = new PeekDesk(this.peekHost(), {
+      noticeMs: options.peekNoticeMs,
+      timeoutMs: options.peekTimeoutMs,
+    });
     this.firstWatchMode = options.state.getSettings().firstWatch ?? DEFAULT_FIRST_WATCH_APPROVAL;
   }
 
@@ -419,13 +397,7 @@ export class PeerNetwork {
     }
     this.pending.clear();
     this.questions.stop();
-    for (const map of this.peeked.values()) for (const p of map.values()) clearTimeout(p.timer);
-    this.peeked.clear();
-    for (const p of this.peeks.values()) {
-      clearTimeout(p.timer);
-      p.reject(new PeerNetworkError('데몬이 멈췄어요'));
-    }
-    this.peeks.clear();
+    this.peeks.stop();
     for (const w of this.watches.values()) if (w.retry) clearTimeout(w.retry);
     for (const s of [...this.subs.values()]) this.endSub(s, 'daemon_stop', false);
     for (const w of [...this.watches.values()]) this.closeWatch(w, 'daemon_stop');
@@ -959,9 +931,8 @@ export class PeerNetwork {
       case 'answer_status':
         return this.questions.receive(from, msg);
       case 'peek':
-        return this.onPeekRequest(from, msg);
       case 'peek_reply':
-        return this.onPeekReply(from, msg);
+        return this.peeks.receive(from, msg);
       default:
         return;
     }
@@ -1185,8 +1156,6 @@ export class PeerNetwork {
     }
   }
 
-  // ── ask_user ──────────────────────────────────────────────
-
   /** 주인 쪽: 주인 세션 모델의 질문을 보낸다. 자세한 건 QuestionDesk.ask */
   ask(shares: string[], raw: string, to: string | undefined, ttlMs: number): AskResult {
     return this.questions.ask(shares, raw, to, ttlMs);
@@ -1206,187 +1175,45 @@ export class PeerNetwork {
       takeReject: (from) => this.rejectLimiter.take(from),
       lookupShare: (id) => this.options.lookupShare(id),
       insertInbound: (deliver, inbound, on) => this.insertInbound(deliver, inbound, on),
-      prepareSend: (owner, msg) => {
-        const member = this.roster ? memberOf(this.roster.roster, owner) : undefined;
-        const t = this.transport;
-        if (!member) throw new PeerNetworkError('공유 주인이 명단에 없어요');
-        if (!t || t.state !== 'online') throw new PeerNetworkError('릴레이에 안 붙어 있어요');
-        const sealed = sealBox(this.key, owner, member.boxKey, JSON.stringify(msg));
-        return () => t.send(owner, Buffer.from(JSON.stringify(sealed)), { queue: true });
-      },
+      prepareSend: (owner, msg) => this.prepareSealed(owner, msg, true),
     };
   }
 
-  // ── peek ──────────────────────────────────────────────
+  /** 보는 쪽: 보고 있는 공유의 요약을 주인 데몬에 청한다. 자세한 건 PeekDesk.peek */
+  peek(target: string, since?: string): Promise<{ peek: PeerPeek; owner: string }> {
+    return this.peeks.peek(target, since);
+  }
+
+  private peekHost(): PeekHost {
+    return {
+      state: this.options.state,
+      key: this.options.key,
+      sendBox: (to, msg) => this.sendBox(to, msg),
+      watches: () => this.watches.values(),
+      prepareDirect: (owner, msg) => this.prepareSealed(owner, msg, false),
+      personOf: (machine) => this.personOf(machine),
+      refusal: (share, from) => this.messageRefusal(share, from),
+      takeReject: (from) => this.rejectLimiter.take(from),
+      lookupShare: (id) => this.options.lookupShare(id),
+      changed: () => this.changed(),
+    };
+  }
 
   /**
-   * 보는 쪽: 보고 있는 공유의 요약을 주인 데몬에 청한다. target은 주인 쪽 공유 id이고 보기 id도
-   * 받는다. 증명은 메시지처럼 링크의 공유 키로 만든다. 받아 줄지는 주인 데몬이 명단과 증명, 승인과
-   * kick 기록으로 정한다. 받은 요약은 주인 데몬이 보낸 값이라 꼴과 크기를 다시 본다.
+   * 그 기기에 보낼 봉인을 지금 만든다. 명단에 없거나 릴레이에 안 붙어 있으면 바로 던진다. 돌려준 함수가
+   * 보낸다. queue면 받는 기기가 오프라인일 때 릴레이가 들고 있는다
    */
-  async peek(target: string, since?: string): Promise<{ peek: PeerPeek; owner: string }> {
-    if (!isShareId(target)) throw new PeerNetworkError('공유 id 꼴이 아니에요');
-    if (since !== undefined && !isPeekCursor(since)) {
-      throw new PeerNetworkError('since는 앞 peek이 돌려준 cursor예요');
-    }
-    const list = [...this.watches.values()];
-    const w = list.find((x) => x.share === target) ?? list.find((x) => x.id === target);
-    if (!w) {
-      const open = list.map((x) => `${x.share} (${plainLabel(x.feed.ownerPerson, 32) ?? '?'})`);
-      throw new PeerNetworkError(
-        open.length === 0
-          ? '보고 있는 공유가 없어요. 사람이 `gestalt peer watch <링크>`로 먼저 열어야 해요'
-          : `보고 있는 공유가 아니에요: ${target}. 지금 보는 공유는 ${open.join(', ')}예요`,
-      );
-    }
-    const member = this.roster ? memberOf(this.roster.roster, w.owner) : undefined;
+  private prepareSealed(
+    to: string,
+    msg: BoxMessage,
+    queue: boolean,
+  ): () => Promise<'queued' | 'delivered'> {
+    const member = this.roster ? memberOf(this.roster.roster, to) : undefined;
     const t = this.transport;
     if (!member) throw new PeerNetworkError('공유 주인이 명단에 없어요');
     if (!t || t.state !== 'online') throw new PeerNetworkError('릴레이에 안 붙어 있어요');
-    if (this.peeks.size >= MAX_PENDING_PEEKS) {
-      throw new PeerNetworkError('답을 기다리는 요약 요청이 많아요. 조금 뒤에 다시 불러 주세요');
-    }
-    const id = newPeekId();
-    const body: BoxMessage = {
-      t: 'peek',
-      share: w.share,
-      id,
-      ...(since !== undefined ? { since } : {}),
-      proof: hmac(w.shareKey, peekProofText(w.share, this.key.id, id, since)),
-    };
-    const reply = new Promise<{ peek: PeerPeek; owner: string }>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.peeks.delete(id);
-        reject(
-          new PeerNetworkError('주인 데몬이 답하지 않았어요. 요약을 모르는 이전 버전일 수 있어요'),
-        );
-      }, PEEK_TIMEOUT_MS);
-      timer.unref();
-      this.peeks.set(id, {
-        owner: w.owner,
-        share: w.share,
-        person: w.feed.ownerPerson,
-        resolve,
-        reject,
-        timer,
-      });
-    });
-    const sealed = sealBox(this.key, w.owner, member.boxKey, JSON.stringify(body));
-    try {
-      // 큐에 안 넣는다. 주인이 오프라인이면 기다리지 않고 바로 실패로 알린다
-      await t.send(w.owner, Buffer.from(JSON.stringify(sealed)));
-    } catch (err) {
-      const p = this.peeks.get(id);
-      if (p) {
-        clearTimeout(p.timer);
-        this.peeks.delete(id);
-      }
-      const reason = err instanceof RelaySendError ? err.reason : errMessage(err);
-      throw new PeerNetworkError(`주인 데몬에 요약을 청하지 못했어요 (${plainLabel(reason, 64)})`);
-    }
-    return reply;
-  }
-
-  /** 보는 쪽: 주인 데몬의 요약 답. 내가 낸 요청 id이고 그 주인이 보낸 것만 받는다 */
-  private onPeekReply(from: string, msg: Extract<BoxMessage, { t: 'peek_reply' }>): void {
-    if (!isPeekId(msg.id)) return;
-    const p = this.peeks.get(msg.id);
-    if (!p || p.owner !== from || p.share !== msg.share) return;
-    clearTimeout(p.timer);
-    this.peeks.delete(msg.id);
-    if (msg.peek === undefined) {
-      // 주인 데몬이 보낸 글자라 MCP 출력에 찍히기 전에 정리한다
-      return p.reject(new PeerNetworkError(refusalText(plainLabel(msg.reason, 64) ?? 'unknown')));
-    }
-    const peek = normalizePeek(msg.peek);
-    if (!peek || peek.share !== p.share) {
-      return p.reject(new PeerNetworkError('주인 데몬이 보낸 요약 꼴이 맞지 않아요'));
-    }
-    this.options.state.audit(
-      'peek_receive',
-      null,
-      JSON.stringify({ share: p.share, owner: plainLabel(p.person, 32) ?? '?' }),
-    );
-    p.resolve({ peek, owner: p.person });
-  }
-
-  /**
-   * 주인 쪽: 요약 요청을 검사하고 답한다. 메시지처럼 구독이 아니라 링크 증명과 승인, kick 기록으로
-   * 본다. 그래서 구독이 끊긴 사람도 증명만으로는 못 가져가고 승인 전이나 kick된 기기는 막힌다.
-   * 순서는 꼴 → 공유 → 증명 → 승인과 kick → `--agent-peek` → 횟수다. 가져가면 감사 로그에 남기고
-   * 보는 중 표시 훅으로 주인 세션에 한동안 알린다.
-   */
-  private onPeekRequest(from: string, msg: Extract<BoxMessage, { t: 'peek' }>): void {
-    // 꼴이 틀린 id는 감사 로그와 답으로 흘러가지 않게 답 없이 버린다
-    if (!isShareId(msg.share) || !isPeekId(msg.id)) return;
-    // 릴레이가 같은 봉인을 다시 보내면 한 번만 답한다. 메시지 id와는 접두가 달라 칸이 안 겹친다
-    const dedupe = `${from}|${msg.id}`;
-    if (this.seenMessages.has(dedupe)) return;
-    const person = this.personOf(from);
-    const reject = (reason: string): void => {
-      if (!this.rejectLimiter.take(from)) return;
-      this.sendBox(from, { t: 'peek_reply', share: msg.share, id: msg.id, reason });
-      this.options.state.audit(
-        'peek_reject',
-        msg.share,
-        JSON.stringify({ id: msg.id, person, reason }),
-      );
-    };
-    const owned = this.options.lookupShare(msg.share);
-    if (!owned || owned.stream.isClosed) return reject('share_closed');
-    if (typeof msg.proof !== 'string' || (msg.since !== undefined && !isPeekCursor(msg.since))) {
-      return reject('bad_frame');
-    }
-    const expected = hmac(
-      Buffer.from(owned.shareKey, 'base64url'),
-      peekProofText(msg.share, from, msg.id, msg.since),
-    );
-    if (!safeEqual(msg.proof, expected)) return reject('bad_proof');
-    // 기억은 증명이 맞은 뒤에 한다. 앞에서 기억하면 증명 없는 가짜 id로 칸을 밀어낼 수 있다. 거절한
-    // 요청도 기억해서 다시 와도 답과 감사 행을 또 쓰지 않는다
-    this.seenMessages.add(dedupe);
-    if (this.seenMessages.size > MAX_SEEN_MESSAGES) {
-      const oldest = this.seenMessages.values().next().value;
-      if (oldest !== undefined) this.seenMessages.delete(oldest);
-    }
-    const refusal = this.messageRefusal(msg.share, from);
-    if (refusal) return reject(refusal);
-    if (!owned.peek) return reject('peek_off');
-    if (!this.peekLimiter.take(`${msg.share}|${from}`)) return reject('rate_limited');
-    const peek = owned.peek(msg.since);
-    this.sendBox(from, { t: 'peek_reply', share: msg.share, id: msg.id, peek });
-    this.options.state.audit(
-      'peek_serve',
-      msg.share,
-      JSON.stringify({
-        id: msg.id,
-        person,
-        since: msg.since ?? null,
-        bytes: Buffer.byteLength(peekJson(peek)),
-      }),
-    );
-    this.notePeek(msg.share, person);
-  }
-
-  /** 주인 쪽: 요약을 가져간 사람을 알리는 시간 동안 기억한다. 다시 가져가면 시간을 새로 잰다 */
-  private notePeek(share: string, person: string): void {
-    let map = this.peeked.get(share);
-    if (!map) {
-      map = new Map();
-      this.peeked.set(share, map);
-    }
-    const prev = map.get(person);
-    if (prev) clearTimeout(prev.timer);
-    const timer = setTimeout(() => {
-      const m = this.peeked.get(share);
-      if (m?.get(person)?.timer !== timer) return;
-      m.delete(person);
-      if (m.size === 0) this.peeked.delete(share);
-      this.changed();
-    }, this.peekNotice);
-    timer.unref();
-    map.set(person, { at: Date.now(), timer });
-    this.changed();
+    const sealed = sealBox(this.key, to, member.boxKey, JSON.stringify(msg));
+    return () => t.send(to, Buffer.from(JSON.stringify(sealed)), queue ? { queue: true } : {});
   }
 
   private onJoinRequest(from: string, data: Uint8Array): void {
@@ -1728,8 +1555,7 @@ export class PeerNetwork {
     const blocked = [...(this.blocked.get(share) ?? new Map<string, BlockReason>())].map(
       ([machine, reason]) => ({ person: this.personOf(machine), reason }),
     );
-    const peeks = [...(this.peeked.get(share) ?? [])].map(([person, p]) => ({ person, at: p.at }));
-    return { watchers: [...watchers], pending, blocked, peeks };
+    return { watchers: [...watchers], pending, blocked, peeks: this.peeks.notices(share) };
   }
 
   /** 주인 쪽: 승인을 기다리는 그 사람의 요청을 받아 준다. 받아 준 기기는 공유가 열린 동안 기억한다 */
@@ -1809,8 +1635,7 @@ export class PeerNetwork {
     }
     this.approved.delete(share);
     this.blocked.delete(share);
-    for (const p of this.peeked.get(share)?.values() ?? []) clearTimeout(p.timer);
-    this.peeked.delete(share);
+    this.peeks.forget(share);
     this.changed();
   }
 
@@ -2135,11 +1960,6 @@ export class PeerNetwork {
 /** 링크를 가진 쪽만 만드는 증명. 보는 기기 id와 nonce를 넣어 남의 요청을 다시 못 쓰게 한다 */
 function watchProofText(share: string, watcher: string, nonce: string): string {
   return canonical({ p: 'gestalt-peer-watch-v1', share, watcher, nonce });
-}
-
-/** 링크를 가진 쪽만 만드는 요약 요청 증명. 요청 id와 since까지 넣어 릴레이가 바꾸지 못하게 한다 */
-function peekProofText(share: string, from: string, id: string, since: string | undefined): string {
-  return canonical({ p: 'gestalt-peer-peek-v1', share, from, id, since: since ?? '' });
 }
 
 /** 링크를 가진 쪽만 만드는 메시지 증명. 본문까지 넣어 릴레이가 내용을 바꾸지 못하게 한다 */

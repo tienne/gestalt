@@ -76,6 +76,11 @@ export function safeName(from: string): string {
   return from.replace(/["<>&]/g, '');
 }
 
+/** 원격에서 온 이름을 틀 속성에 넣는 꼴로. 한 줄 라벨로 정리한 뒤 속성을 닫는 글자를 뺀다 */
+export function attrName(raw: unknown): string {
+  return safeName(plainLabel(raw, 32) ?? '?');
+}
+
 const MESSAGE_ID = /^m_[A-Za-z0-9_-]{16}$/;
 
 export function newMessageId(): string {

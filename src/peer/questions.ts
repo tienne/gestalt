@@ -335,58 +335,84 @@ export class QuestionDesk {
     // 던졌으면 질문을 열어 두고 답한 기기에 reopened로 알려 다시 답하게 한다. 이 알림은 거절 상한을 타지
     // 않는다. 넣었으면(붙은 뒤 실패 포함) 질문을 먼저 끝내고 넣음을 알린다
     q.answering = true;
-    let result: InboxResult;
+    let result: InboxResult = { ok: false, reason: 'deliver_failed' };
     try {
-      this.host.state.audit(
-        'answer_receive',
-        msg.share,
-        JSON.stringify({ question: q.id, person, bytes: Buffer.byteLength(clean.text) }),
-      );
-      result = await this.host.insertInbound(
-        deliver,
-        { kind: 'answer', question: q.id, share: msg.share, from, person, body: clean.text },
-        {
-          inserted: (maybeWritten) => {
-            this.closeQuestion(q, 'answered', seat);
-            status('inserted');
-            this.host.state.audit(
-              'answer_insert',
-              msg.share,
-              JSON.stringify({
-                question: q.id,
-                person,
-                ...(maybeWritten ? { maybeWritten: true } : {}),
-              }),
-            );
+      // 받은 기록이 던지면(DB가 닫히는 중 등) deliver가 던진 것과 같게 넣지 않고 질문을 다시 연다.
+      // 넣은 뒤의 감사 기록은 여기서 잡지 않는다. 잡으면 이미 넣음을 알린 기기에 거절을 또 보낸다
+      let received = false;
+      try {
+        this.host.state.audit(
+          'answer_receive',
+          msg.share,
+          JSON.stringify({ question: q.id, person, bytes: Buffer.byteLength(clean.text) }),
+        );
+        received = true;
+      } catch (err) {
+        process.stderr.write(`[peer] answer audit failed: ${errMessage(err)}\n`);
+      }
+      if (received)
+        result = await this.host.insertInbound(
+          deliver,
+          { kind: 'answer', question: q.id, share: msg.share, from, person, body: clean.text },
+          {
+            inserted: (maybeWritten) => {
+              this.closeQuestion(q, 'answered', seat);
+              status('inserted');
+              this.host.state.audit(
+                'answer_insert',
+                msg.share,
+                JSON.stringify({
+                  question: q.id,
+                  person,
+                  ...(maybeWritten ? { maybeWritten: true } : {}),
+                }),
+              );
+            },
+            delivered: () => {
+              status('delivered');
+              this.host.state.audit(
+                'answer_deliver',
+                msg.share,
+                JSON.stringify({ question: q.id, person }),
+              );
+            },
           },
-          delivered: () => {
-            status('delivered');
-            this.host.state.audit(
-              'answer_deliver',
-              msg.share,
-              JSON.stringify({ question: q.id, person }),
-            );
-          },
-        },
-      );
+        );
     } finally {
       q.answering = false;
     }
     if (result.ok || result.maybeWritten) return;
-    const reopened = this.open.get(q.id) === q;
+    this.reopen(from, msg, person, result);
+  }
+
+  /**
+   * 주인 쪽: 답을 넣지 못했다. 질문이 아직 열려 있으면 reopened를 실어 답한 기기가 다시 답하게 한다. 이
+   * 알림은 거절 상한을 타지 않는다
+   */
+  private reopen(
+    from: string,
+    msg: Extract<QuestionBox, { t: 'answer' }>,
+    person: string,
+    result: Extract<InboxResult, { ok: false }>,
+  ): void {
+    const q = this.open.get(msg.q);
     this.host.sendBox(from, {
       t: 'answer_status',
       share: msg.share,
       q: msg.q,
       status: 'rejected',
       reason: result.reason,
-      ...(reopened ? { reopened: true } : {}),
+      ...(q && !q.answering ? { reopened: true } : {}),
     });
-    this.host.state.audit(
-      'answer_reject',
-      msg.share,
-      JSON.stringify({ question: msg.q, person, reason: result.reason }),
-    );
+    try {
+      this.host.state.audit(
+        'answer_reject',
+        msg.share,
+        JSON.stringify({ question: msg.q, person, reason: result.reason }),
+      );
+    } catch (err) {
+      process.stderr.write(`[peer] answer audit failed: ${errMessage(err)}\n`);
+    }
   }
 
   /** 보는 쪽: 내가 보는 공유의 주인 데몬이 보낸 질문을 뷰어에 띄운다 */

@@ -97,6 +97,41 @@ describe('TranscriptTransformer', () => {
     expect(results[0].text).toContain('[이미지]');
   });
 
+  it.each(['full', 'summary'] as const)(
+    'ges_peer peek으로 받은 요약 틀이 든 도구 결과는 숨긴다 (--tools %s)',
+    (tools) => {
+      const t = new TranscriptTransformer({ tools, home: FAKE_HOME });
+      const framed =
+        'x'.repeat(5000) +
+        '<peer-peek share="tienne/shAAAAAA" status="idle" at="x">\n{"prompts":["LEAK_PEEK"]}\n</peer-peek>';
+      const events = t.push(
+        JSON.stringify({
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'toolu_p',
+                content: [{ type: 'text', text: framed }],
+              },
+            ],
+          },
+        }),
+      );
+      expect(events).toEqual([
+        {
+          kind: 'tool_result',
+          toolUseId: 'toolu_p',
+          truncated: false,
+          hidden: true,
+          isError: false,
+        },
+      ]);
+      expect(JSON.stringify(events)).not.toContain('LEAK_PEEK');
+    },
+  );
+
   it('none이면 도구 입력과 결과 본문을 안 보낸다', () => {
     const { events } = run('none');
     for (const e of events) {

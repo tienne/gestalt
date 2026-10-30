@@ -106,6 +106,27 @@ describe('CodexTransformer', () => {
   });
 });
 
+describe('Codex 도구 결과에 든 요약 틀', () => {
+  it('ges_peer peek 결과는 --tools와 상관없이 숨긴다', () => {
+    const t = new CodexTransformer({ tools: 'full', home: FAKE_HOME });
+    const events = t.push(
+      JSON.stringify({
+        timestamp: '2026-10-30T00:00:00.000Z',
+        type: 'response_item',
+        payload: {
+          type: 'custom_tool_call_output',
+          call_id: 'c1',
+          output:
+            '<peer-peek share="tienne/shAAAAAA" status="idle" at="x">\n{"replies":["LEAK_PEEK"]}\n</peer-peek>',
+        },
+      }),
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: 'tool_result', hidden: true });
+    expect(JSON.stringify(events)).not.toContain('LEAK_PEEK');
+  });
+});
+
 describe('locateCodexRollout', () => {
   let home: string;
   const id = '01a1885d-8687-7033-a0b2-e3a17555a249';
@@ -149,6 +170,20 @@ describe('locateCodexRollout', () => {
     );
     for (const p of [old, early, late]) writeFileSync(p, codexText());
     expect(locateCodexRollout(id, home)).toEqual({ ok: true, path: late, home });
+  });
+
+  it('날짜 디렉토리 아래 다른 이름의 디렉토리에 있는 rollout도 찾는다', () => {
+    mkdirSync(join(home, 'sessions', '2026', 'archive'), { recursive: true });
+    const path = join(
+      home,
+      'sessions',
+      '2026',
+      'archive',
+      `rollout-2026-01-01T00-00-00-${id}.jsonl`,
+    );
+    rmSync(join(home, 'sessions', '2026', '10'), { recursive: true });
+    writeFileSync(path, codexText());
+    expect(locateCodexRollout(id, home)).toEqual({ ok: true, path, home });
   });
 
   it('날짜 디렉토리 밖에 있는 rollout도 전체를 훑어 찾는다', () => {

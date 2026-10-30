@@ -6,6 +6,7 @@ import { ShareStream } from '../../../src/peer/share.js';
 import type { ShareFrame } from '../../../src/peer/share.js';
 import { FAKE_HOME } from '../../fixtures/peer/transcript.js';
 import { frameHeader, frameMessage } from '../../../src/peer/message.js';
+import { frameExcerpt } from '../../../src/peer/excerpt.js';
 
 const reply = (text: string): string =>
   JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } }) + '\n';
@@ -244,6 +245,29 @@ describe('ShareStream 메시지 감지', () => {
     });
     stream.poll();
     expect(kinds(stream)).toEqual([]);
+  });
+
+  it('골라 넘긴 발췌 틀이 든 user 줄은 주인 프롬프트로 안 나가고 들어감도 안 켜진다', () => {
+    const stream = make();
+    const seen = vi.fn();
+    stream.awaitMessage(header('m_JJJJJJJJJJJJJJJJ'), seen);
+    const text = frameExcerpt({
+      owner: 'tienne',
+      share: 'shAAAAAA',
+      pickedBy: 'alice',
+      body: '[주인 (10:12)]\nLEAK_EXCERPT 남의 세션 글자',
+    });
+    line({ type: 'queue-operation', operation: 'enqueue', content: text });
+    line({ type: 'user', message: { role: 'user', content: text } });
+    line({ type: 'user', message: { role: 'user', content: '주인이 친 다음 프롬프트' } });
+    stream.poll();
+    expect(seen).not.toHaveBeenCalled();
+    expect(kinds(stream)).toEqual(['prompt']);
+    const out = stream
+      .backlogAfter(0, Infinity)
+      .items.map((i) => i.json)
+      .join('');
+    expect(out).not.toContain('LEAK_EXCERPT');
   });
 
   it('끝내 안 보인 메시지는 한 시간 뒤 잊는다', () => {

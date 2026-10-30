@@ -23,35 +23,34 @@ export function configDirOf(transcriptPath: string): string {
  * 세션의 인박스 소켓을 찾는다. 세션이 다시 떠서 pid와 소켓이 바뀔 수 있어서 넣을 때마다
  * 찾는다. 소켓이 아니거나 남의 것이면 안 쓴다.
  */
-export function findInboxSocket(
-  transcriptPath: string,
-  sessionId: string | null,
-): InboxResult & { path?: string } {
+export function findInboxSocket(transcriptPath: string, sessionId: string | null): SocketLookup {
   if (!sessionId || !isSessionId(sessionId)) {
     return {
       ok: false,
       reason: '세션을 모르는 공유라 메시지를 넣을 수 없어요 (--session으로 연 공유만 돼요)',
     };
   }
-  return findSessionSocket(sessionId, [configDirOf(transcriptPath)]);
+  const found = findSessionSocket(sessionId, [configDirOf(transcriptPath)]);
+  // 메시지를 보낸 팀원에게 가는 이유라 누구 세션인지 붙인다
+  return found.ok ? found : { ok: false, reason: `주인 ${found.reason}` };
 }
+
+/** 인박스 소켓을 찾은 결과. 찾으면 경로가 늘 있다 */
+export type SocketLookup = { ok: true; path: string } | { ok: false; reason: string };
 
 /**
  * 설정 디렉토리 후보에서 그 세션의 인박스 소켓을 찾는다. 주인 데몬의 메시지와 보는 쪽 데몬의 발췌가
  * 같이 쓴다. 앞 후보부터 본다.
  */
-export function findSessionSocket(
-  sessionId: string,
-  configDirs: string[],
-): InboxResult & { path?: string } {
+export function findSessionSocket(sessionId: string, configDirs: string[]): SocketLookup {
   if (!isSessionId(sessionId)) return { ok: false, reason: 'sessionId 형식이 아니에요' };
   let rec: SessionRecord | null = null;
   for (const dir of configDirs) {
     rec = findSessionById(sessionId, dir);
     if (rec) break;
   }
-  if (!rec) return { ok: false, reason: '그 세션이 떠 있지 않아요' };
-  if (!rec.messagingSocketPath) return { ok: false, reason: '그 세션에 인박스 소켓이 없어요' };
+  if (!rec) return { ok: false, reason: '세션이 떠 있지 않아요' };
+  if (!rec.messagingSocketPath) return { ok: false, reason: '세션에 인박스 소켓이 없어요' };
   try {
     const st = lstatSync(rec.messagingSocketPath);
     if (!st.isSocket()) return { ok: false, reason: '인박스 자리가 소켓이 아니에요' };

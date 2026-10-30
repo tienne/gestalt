@@ -1,4 +1,5 @@
 import { readdirSync, statSync } from 'node:fs';
+import type { Dirent } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { redactText } from './redact.js';
@@ -59,17 +60,31 @@ export function locateCodexRollout(
     // 같은 날 같은 id가 둘이면 이름이 뒤인(나중에 만든) 것을 쓴다. 파일 이름이 시각으로 시작한다
     return hits.sort().at(-1);
   };
-  // 연/월/일 디렉토리를 최신순으로 내려가다 처음 찾은 날에서 멈춘다. 보통 공유하는 건 최근 세션이다
-  for (const year of subdirs(root)) {
-    for (const month of subdirs(join(root, year))) {
-      for (const day of subdirs(join(root, year, month))) {
+  // 연/월/일 디렉토리를 최신순으로 내려가다 처음 찾은 날에서 멈춘다. 보통 공유하는 건 최근 세션이다.
+  // 날짜 꼴이 아닌 자리(연, 월 층의 다른 이름이나 파일, 일 층의 하위 디렉토리)를 봤으면 표시해 둔다
+  let odd = false;
+  const days = (dir: string): string[] => {
+    const r = subdirs(dir);
+    if (r.odd) odd = true;
+    return r.dirs;
+  };
+  for (const year of days(root)) {
+    for (const month of days(join(root, year))) {
+      for (const day of days(join(root, year, month))) {
         const dir = join(root, year, month, day);
-        const found = pick(dir, readNames(dir));
+        const entries = readEntries(dir);
+        if (entries.some((e) => e.isDirectory())) odd = true;
+        const found = pick(
+          dir,
+          entries.filter((e) => !e.isDirectory()).map((e) => e.name),
+        );
         if (found) return { ok: true, path: found, home };
       }
     }
   }
-  // 날짜 구조가 아닌 자리에 있으면 전체를 훑는다. 디렉토리 규칙이 바뀌어도 못 찾는 일은 없게 둔다
+  // 날짜 꼴이 아닌 자리가 있었을 때만 전체를 훑는다. 디렉토리 규칙이 바뀌어도 못 찾는 일은 없게 두되
+  // 날짜 디렉토리뿐이면 이미 다 본 것이라 다시 훑지 않는다
+  if (!odd) return { ok: false, reason: '그 id의 rollout을 못 찾았어요', home };
   let names: string[];
   try {
     names = readdirSync(root, { recursive: true, encoding: 'utf8' });
@@ -81,21 +96,22 @@ export function locateCodexRollout(
   return { ok: true, path: found, home };
 }
 
-/** 이름이 숫자인 하위 디렉토리를 큰 것부터. 연, 월, 일 디렉토리가 이 꼴이다 */
-function subdirs(dir: string): string[] {
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && /^\d+$/.test(d.name))
-      .map((d) => d.name)
-      .sort((a, b) => Number(b) - Number(a));
-  } catch {
-    return [];
-  }
+/**
+ * 이름이 숫자인 하위 디렉토리를 큰 것부터. 연, 월, 일 디렉토리가 이 꼴이다. 숫자가 아닌 이름이나
+ * 파일이 있었으면 odd다
+ */
+function subdirs(dir: string): { dirs: string[]; odd: boolean } {
+  const entries = readEntries(dir);
+  const dirs = entries
+    .filter((d) => d.isDirectory() && /^\d+$/.test(d.name))
+    .map((d) => d.name)
+    .sort((a, b) => Number(b) - Number(a));
+  return { dirs, odd: dirs.length !== entries.length };
 }
 
-function readNames(dir: string): string[] {
+function readEntries(dir: string): Dirent[] {
   try {
-    return readdirSync(dir);
+    return readdirSync(dir, { withFileTypes: true });
   } catch {
     return [];
   }

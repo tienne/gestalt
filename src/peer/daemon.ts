@@ -89,6 +89,8 @@ export interface PeerDaemonOptions {
   approvalNoticeMs?: number;
   /** 요약을 가져갔다고 주인 세션에 알리는 시간. 테스트가 줄인다 */
   peekNoticeMs?: number;
+  /** 보는 쪽이 요약 답을 기다리는 시한. 테스트가 줄인다 */
+  peekTimeoutMs?: number;
   /** 발췌를 넣을 내 세션을 찾는 Claude Code 설정 디렉토리. 기본은 데몬 환경의 claudeConfigDir() */
   configDir?: string;
 }
@@ -252,6 +254,7 @@ export class PeerDaemon {
       approvalTtlMs: this.options.approvalTtlMs,
       approvalNoticeMs: this.options.approvalNoticeMs,
       peekNoticeMs: this.options.peekNoticeMs,
+      peekTimeoutMs: this.options.peekTimeoutMs,
       onControlChange: () => this.scheduleWatching(),
     });
     this.network.start();
@@ -552,9 +555,7 @@ export class PeerDaemon {
     const composed = composeExcerpt(w.stream, items);
     if (!composed.ok) return { ok: false, error: composed.reason };
     const found = findSessionSocket(session, this.sessionConfigDirs(watchId));
-    if (!found.ok || !found.path) {
-      return { ok: false, error: found.ok ? '인박스 소켓이 없어요' : found.reason };
-    }
+    if (!found.ok) return { ok: false, error: `보낼 ${found.reason}` };
     const text = frameExcerpt({
       owner: w.owner,
       share: w.share,
@@ -640,8 +641,7 @@ export class PeerDaemon {
     const share = this.shares.get(shareId);
     if (!share) return { ok: false, reason: 'share_closed' };
     const found = findInboxSocket(share.stream.transcriptPath, share.sessionId);
-    if (!found.ok || !found.path)
-      return { ok: false, reason: found.ok ? '인박스 소켓이 없어요' : found.reason };
+    if (!found.ok) return { ok: false, reason: found.reason };
     const stream = share.stream;
     const header =
       m.kind === 'answer'

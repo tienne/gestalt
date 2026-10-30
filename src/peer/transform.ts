@@ -253,6 +253,10 @@ export function toolCallEvent(
 
 /**
  * 도구 결과 이벤트. 글자는 가린 **뒤에** 자른다. `none`이면 글자를 꺼내지도 않도록 함수로 받는다.
+ *
+ * 이 세션이 남의 공유를 `ges_peer peek`으로 요약해 받은 결과는 `--tools` 수준과 상관없이 숨긴다. 그
+ * 요약은 그 공유 주인이 이 세션의 에이전트에만 허락한 것이라 이 세션을 보는 사람에게 다시 나가면
+ * 안 된다. 틀이 결과 어디에 있든 잡으려고 자르기 전 글자 전체에서 찾는다.
  */
 export function toolResultEvent(
   toolUseId: string,
@@ -264,7 +268,11 @@ export function toolResultEvent(
   if (options.tools === 'none') {
     return { kind: 'tool_result', toolUseId, truncated: false, hidden: true, isError, at };
   }
-  const full = redactText(rawText(), options);
+  const raw = rawText();
+  if (raw.includes(PEEK_FRAME)) {
+    return { kind: 'tool_result', toolUseId, truncated: false, hidden: true, isError, at };
+  }
+  const full = redactText(raw, options);
   const cut =
     options.tools === 'full'
       ? { text: full, truncated: false }
@@ -279,6 +287,9 @@ export function toolResultEvent(
     at,
   };
 }
+
+/** ges_peer peek이 돌려주는 요약 틀의 여는 태그 앞부분(peek.ts의 framePeek) */
+const PEEK_FRAME = '<peer-peek share="';
 
 /** tool_result의 content는 문자열이거나 블록 배열이다. 텍스트 블록만 꺼낸다 */
 function resultText(content: unknown): string {
