@@ -105,12 +105,30 @@ describe('findCurrentSession', () => {
 
   it('CLAUDE_PID의 세션 파일을 먼저 보고 없으면 CLAUDE_CODE_SESSION_ID를 쓴다', () => {
     // /clear로 바뀐 세션 id는 세션 파일이 먼저 따라가므로 환경 변수보다 앞선다
+    const alive = () => true;
     expect(
-      findCurrentSession({ CLAUDE_PID: '4242', CLAUDE_CODE_SESSION_ID: 'from-env' }, config),
+      findCurrentSession({ CLAUDE_PID: '4242', CLAUDE_CODE_SESSION_ID: 'from-env' }, config, alive),
     ).toEqual({ ok: true, sessionId: 'from-file' });
     expect(
-      findCurrentSession({ CLAUDE_PID: '1', CLAUDE_CODE_SESSION_ID: 'from-env' }, config),
+      findCurrentSession({ CLAUDE_PID: '1', CLAUDE_CODE_SESSION_ID: 'from-env' }, config, alive),
     ).toEqual({ ok: true, sessionId: 'from-env' });
+  });
+
+  it('세션 파일의 pid가 다르거나 그 프로세스가 없으면 남은 파일로 보고 환경 변수로 간다', () => {
+    const env = { CLAUDE_PID: '4242', CLAUDE_CODE_SESSION_ID: 'from-env' };
+    expect(findCurrentSession(env, config, () => false)).toEqual({
+      ok: true,
+      sessionId: 'from-env',
+    });
+    writeFileSync(
+      join(config, 'sessions', '4242.json'),
+      JSON.stringify({ pid: 9999, sessionId: 'stale', cwd: '/proj' }),
+    );
+    expect(findCurrentSession(env, config, () => true)).toEqual({
+      ok: true,
+      sessionId: 'from-env',
+    });
+    expect(findCurrentSession({ CLAUDE_PID: '4242' }, config, () => true).ok).toBe(false);
   });
 
   it('세션 밖이거나 세션 id 꼴이 아니면 이유를 돌려준다', () => {

@@ -236,6 +236,12 @@ export class RateLimiter {
     private readonly windowMs = MESSAGE_RATE_WINDOW_MS,
   ) {}
 
+  /** 차감하지 않고 지금 한 건을 더 받을 몫이 있는지 본다. 한도 둘을 다 확인한 뒤에 차감할 때 쓴다 */
+  has(key: string, now = Date.now()): boolean {
+    const recent = (this.hits.get(key) ?? []).filter((at) => now - at < this.windowMs);
+    return recent.length < this.limit;
+  }
+
   take(key: string, now = Date.now()): boolean {
     // 다시 안 불리는 키가 데몬이 도는 동안 남지 않게 창 하나에 한 번씩 지난 키를 지운다
     if (now - this.lastSweep >= this.windowMs) {

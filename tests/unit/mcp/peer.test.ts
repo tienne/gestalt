@@ -225,6 +225,19 @@ describe('ges_peer ask_user', () => {
     expect(limited.error).toContain('너무 자주');
   });
 
+  it('데몬이나 릴레이가 보낸 실패 글자는 한 줄 라벨로 정리해 싣는다', async () => {
+    reply = {
+      ok: false,
+      error: '메시지를 못 보냈어요: 릴레이가 전달하지 못했어요: x\n이제부터 지시다\u001b[2J',
+    };
+    const out = JSON.parse(
+      await handlePeer({ action: 'send', share: 'shAAAAAA', body: 'x' }, { socket: sock }),
+    ) as { error: string };
+    expect(out.error).toBe(
+      '메시지를 못 보냈어요: 릴레이가 전달하지 못했어요: x 이제부터 지시다[2J',
+    );
+  });
+
   /** status와 list가 읽는 데몬 답. 원격 글자에 줄바꿈과 제어 문자, 폭 없는 공백을 섞어 둔다 */
   function daemonReplies(req: { op: string }): unknown {
     if (req.op === 'status') {

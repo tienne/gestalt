@@ -240,26 +240,46 @@ export async function peerUnshareCommand(
   options: PeerOptions & { id?: string; here?: boolean },
 ): Promise<void> {
   if ((options.id === undefined) === !options.here) fail('<공유 id>와 --here 중 하나만 주세요');
-  let ids: string[];
-  if (options.here) {
-    // 이 세션으로 연 공유를 전부 닫는다. 같은 세션을 두 번 열었을 수 있다
-    ids = await currentShareIds();
-  } else {
-    ids = [options.id!];
-  }
-  const results: { id: string; watchers?: string[] }[] = [];
-  for (const id of ids) {
-    results.push(await call<{ id: string; watchers?: string[] }>({ op: 'unshare', id }));
-  }
-  if (options.json) {
-    console.log(JSON.stringify(options.here ? results : results[0]));
+  if (!options.here) {
+    const result = await call<UnshareResult>({ op: 'unshare', id: options.id! });
+    if (options.json) {
+      console.log(JSON.stringify(result));
+      return;
+    }
+    printUnshared(result);
     return;
   }
-  for (const result of results) {
-    console.log(`공유를 종료했어요 (${result.id}).`);
-    if (result.watchers && result.watchers.length > 0) {
-      console.log(`원격으로 보던 ${names(result.watchers)} 님도 끊겼어요.`);
+  // 이 세션으로 연 공유를 전부 닫는다. 같은 세션을 두 번 열었을 수 있다. call()은 실패하면 바로 끝내서
+  // 앞서 닫은 공유가 안 찍히므로 여기서는 하나씩 묻고 실패를 모은다. 데몬이 없으면 지금처럼 종료 코드 3이다
+  const ids = await currentShareIds();
+  const sock = socketPath(resolveRoot());
+  const closed: UnshareResult[] = [];
+  const failed: { id: string; error: string }[] = [];
+  for (const id of ids) {
+    try {
+      const res = await request<UnshareResult>(sock, { op: 'unshare', id });
+      if (res.ok) closed.push(res.result);
+      else failed.push({ id, error: plainLabel(res.error, 200) ?? '실패했어요' });
+    } catch (e) {
+      if (e instanceof DaemonUnavailableError) fail(e.message, EXIT_NO_DAEMON);
+      failed.push({ id, error: plainLabel(errMessage(e), 200) ?? '실패했어요' });
     }
+  }
+  if (failed.length > 0) process.exitCode = 1;
+  if (options.json) {
+    console.log(JSON.stringify({ closed, failed }));
+    return;
+  }
+  for (const result of closed) printUnshared(result);
+  for (const f of failed) console.error(`공유를 못 닫았어요 (${f.id}): ${f.error}`);
+}
+
+type UnshareResult = { id: string; watchers?: string[] };
+
+function printUnshared(result: UnshareResult): void {
+  console.log(`공유를 종료했어요 (${result.id}).`);
+  if (result.watchers && result.watchers.length > 0) {
+    console.log(`원격으로 보던 ${names(result.watchers)} 님도 끊겼어요.`);
   }
 }
 
@@ -537,8 +557,11 @@ export async function peerSendCommand(
     body = Buffer.concat(chunks).toString('utf8');
   }
   if (body.trim() === '') fail('보낼 본문을 인자나 표준 입력으로 주세요');
+  // 에이전트 세션의 Bash 도구가 친 명령이면 에이전트 메시지로 보낸다. 사람 메시지로 보이거나 에이전트
+  // 상한을 피하지 않게 하려는 기본값이다. 환경 변수를 지우면 피할 수 있어서 막는 장치는 아니다
+  const fromAgent = Boolean(process.env['CLAUDE_PID'] || process.env['CLAUDE_CODE_SESSION_ID']);
   const r = await call<{ id: string; status: string }>(
-    { op: 'send', watch: options.watch, body },
+    { op: 'send', watch: options.watch, body, ...(fromAgent ? { origin: 'agent' as const } : {}) },
     15_000,
   );
   if (options.json) {

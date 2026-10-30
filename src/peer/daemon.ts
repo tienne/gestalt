@@ -411,7 +411,8 @@ export class PeerDaemon {
       case 'send': {
         const watch = String(req.watch);
         const body = req.body;
-        return this.withNetworkAsync((n) => n.sendMessage(watch, String(body), 'human'));
+        const origin = req.origin === 'agent' ? 'agent' : 'human';
+        return this.withNetworkAsync((n) => n.sendMessage(watch, String(body), origin));
       }
       case 'messages': {
         if (req.watch !== undefined) {
@@ -444,7 +445,7 @@ export class PeerDaemon {
     }
   }
 
-  /** kick, approve, deny. share나 shares가 없으면 열린 공유 전부에 건다 */
+  /** kick, approve, deny. share와 shares가 둘 다 없을 때만 열린 공유 전부에 건다 */
   private control(
     req: Extract<PeerRequest, { op: 'kick' | 'approve' | 'deny' }>,
   ): PeerResponse<ControlResult> {
@@ -453,8 +454,11 @@ export class PeerDaemon {
     if (req.share !== undefined && req.shares !== undefined) {
       return { ok: false, error: 'share와 shares 중 하나만 주세요' };
     }
-    const wanted =
-      req.share !== undefined ? [req.share] : Array.isArray(req.shares) ? req.shares : undefined;
+    // shares가 배열이 아닌데 그냥 넘어가면 아래에서 열린 공유 전부에 걸린다. 그래서 꼴이 틀리면 거절한다
+    if (req.shares !== undefined && !Array.isArray(req.shares)) {
+      return { ok: false, error: 'shares는 공유 id 배열이어야 해요' };
+    }
+    const wanted = req.share !== undefined ? [req.share] : req.shares;
     if (wanted !== undefined) {
       if (wanted.length === 0) return { ok: false, error: '고른 공유가 없어요' };
       for (const id of wanted) {

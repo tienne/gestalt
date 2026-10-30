@@ -140,7 +140,10 @@ async function handlePeek(input: PeerInput, deps: PeerDeps): Promise<string> {
   }
 }
 
-/** 데몬에 한 번 묻는다. 실패는 그대로 던지지 않고 오류 글자로 돌려준다 */
+/**
+ * 데몬에 한 번 묻는다. 실패는 던지지 않고 오류 글자로 돌려준다. 오류에는 릴레이나 주인 데몬이 보낸
+ * 글자가 섞일 수 있어서(릴레이가 전달 실패에 실은 이유 같은) 한 줄 라벨로 정리한다
+ */
 async function ask<T>(
   deps: PeerDeps,
   req: PeerRequest,
@@ -149,9 +152,9 @@ async function ask<T>(
   try {
     const sock = deps.socket ?? socketPath(peerRoot());
     const res = await request<T>(sock, req, timeoutMs);
-    return res.ok ? res : { ok: false, error: res.error };
+    return res.ok ? res : { ok: false, error: plainLabel(res.error, 300) ?? '데몬이 실패했어요' };
   } catch (err) {
-    return { ok: false, error: errMessage(err) };
+    return { ok: false, error: plainLabel(errMessage(err), 300) ?? '데몬에 묻지 못했어요' };
   }
 }
 
@@ -161,7 +164,7 @@ async function handleSend(input: PeerInput, deps: PeerDeps): Promise<string> {
       error: 'send는 share와 body가 필요해요. share는 list나 status의 watches에 있는 공유 id예요',
     });
   }
-  // 주인 데몬이 받는 것까지가 아니라 릴레이가 넘기거나 들고 있을 때까지 기다린다
+  // 릴레이가 넘기거나 들고 있을 때까지 기다린다. 주인 데몬이 받았는지는 기다리지 않는다
   const res = await ask<AgentSendResult>(
     deps,
     { op: 'agent_send', share: input.share, body: input.body },
@@ -209,11 +212,14 @@ function watchLines(list: WatchListItem[]): Record<string, unknown>[] {
 }
 
 async function handleStatus(deps: PeerDeps): Promise<string> {
-  const status = await ask<DaemonStatus>(deps, { op: 'status' });
+  // 셋은 서로 기다릴 게 없어서 같이 묻는다. 오류는 status, shares, watches 순으로 본다
+  const [status, shares, watches] = await Promise.all([
+    ask<DaemonStatus>(deps, { op: 'status' }),
+    ask<ShareInfo[]>(deps, { op: 'shares' }),
+    ask<WatchListItem[]>(deps, { op: 'watches' }),
+  ]);
   if (!status.ok) return JSON.stringify({ error: status.error });
-  const shares = await ask<ShareInfo[]>(deps, { op: 'shares' });
   if (!shares.ok) return JSON.stringify({ error: shares.error });
-  const watches = await ask<WatchListItem[]>(deps, { op: 'watches' });
   if (!watches.ok) return JSON.stringify({ error: watches.error });
   const t = status.result.team;
   return JSON.stringify({
@@ -257,6 +263,7 @@ async function handleList(input: PeerInput, deps: PeerDeps): Promise<string> {
   }
   const watches = await ask<WatchListItem[]>(deps, { op: 'watches' });
   if (!watches.ok) return JSON.stringify({ error: watches.error });
+  // 이름 꼴(isPersonName)을 통과한 입력이라 정리하기 전 owner와 그대로 비교해도 된다
   const person = input.person;
   const list = watchLines(
     person === undefined ? watches.result : watches.result.filter((w) => w.owner === person),

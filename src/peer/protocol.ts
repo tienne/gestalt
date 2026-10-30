@@ -35,8 +35,11 @@ export type PeerRequest =
   | { op: 'watch'; link: string; configDir?: string }
   | { op: 'watches' }
   | { op: 'unwatch'; id: string }
-  /** 보고 있는 원격 공유의 주인 세션에 메시지를 넣는다 */
-  | { op: 'send'; watch: string; body: string }
+  /**
+   * 보고 있는 원격 공유의 주인 세션에 메시지를 넣는다. origin이 정확히 agent면 에이전트 메시지로 보내고
+   * 에이전트 상한을 탄다. 그 밖의 값은 사람 메시지다
+   */
+  | { op: 'send'; watch: string; body: string; origin?: 'agent' }
   /** watch가 있으면 그 보기에서 내가 보낸 메시지, 없으면 내 공유가 받은 메시지 기록 */
   | { op: 'messages'; watch?: string }
   /**

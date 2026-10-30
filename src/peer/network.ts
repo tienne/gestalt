@@ -974,8 +974,9 @@ export class PeerNetwork {
     if (!t || t.state !== 'online') throw new PeerNetworkError('릴레이에 안 붙어 있어요');
     // 보내기 직전에 센다. 명단이나 연결 때문에 못 보낸 시도는 한도를 안 깎는다.
     // 주인 쪽 수신 한도는 MESSAGE_RECEIVE_LIMIT로 따로 정한다
+    // 에이전트 메시지는 두 한도를 다 본 뒤에 차감한다. 하나만 먼저 깎으면 다른 쪽에 막힌 시도가 몫을 쓴다
     const limitKey = `${w.share}|${w.owner}`;
-    if (origin === 'agent' && !this.agentLimiter.take(limitKey)) {
+    if (origin === 'agent' && !this.agentLimiter.has(limitKey)) {
       throw new PeerNetworkError(
         `에이전트 메시지를 너무 자주 보냈어요. 공유마다 10분에 ${AGENT_MESSAGE_RATE_LIMIT}건까지예요`,
       );
@@ -983,6 +984,7 @@ export class PeerNetwork {
     if (!this.sendLimiter.take(limitKey)) {
       throw new PeerNetworkError('메시지를 너무 자주 보냈어요. 10분에 12건까지예요');
     }
+    if (origin === 'agent') this.agentLimiter.take(limitKey);
 
     const id = newMessageId();
     const body: BoxMessage = {

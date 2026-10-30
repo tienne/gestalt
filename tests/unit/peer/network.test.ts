@@ -2840,6 +2840,16 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       await expect(
         owner.call({ op: 'deny', person: 'alice', shares: [b.id, 'zzzzzzzz'] }),
       ).rejects.toThrow('열린 공유가 아니에요: zzzzzzzz');
+      // 배열이 아닌 shares는 열린 공유 전부로 번지지 않고 거절된다
+      for (const shares of ['shAAAAAA', null, { a: 1 }, 1]) {
+        await expect(
+          owner.call({ op: 'kick', person: 'alice', shares } as unknown as PeerRequest),
+        ).rejects.toThrow('shares는 공유 id 배열이어야 해요');
+      }
+      await expect(
+        owner.call({ op: 'kick', person: 'alice', shares: [1] } as unknown as PeerRequest),
+      ).rejects.toThrow('열린 공유가 아니에요');
+      expect(await watchStatus(wa.id)).toBe('live');
       expect(await watchStatus(wb.id)).toBe('waiting');
     });
 
@@ -2852,6 +2862,22 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       await watcher.call({ op: 'send', watch: w.id, body: '사람이 보냄' }, 15_000);
       await until(() => session.received.length === AGENT_MESSAGE_RATE_LIMIT + 1);
       expect(session.received.at(-1)!.split('\n')[0]).toContain('origin="human"');
+    });
+
+    it('사람 몫이 먼저 차서 막힌 에이전트 메시지는 에이전트 몫을 깎지 않는다', async () => {
+      const info = await openFor();
+      const w = await watchApproved(info.link!);
+      for (let i = 0; i < 12; i++) {
+        await watcher.call({ op: 'send', watch: w.id, body: `사람 ${i}` }, 15_000);
+      }
+      for (let i = 0; i < AGENT_MESSAGE_RATE_LIMIT + 2; i++) {
+        await expect(agentSend(info.id, `막힘 ${i}`)).rejects.toThrow('10분에 12건까지예요');
+      }
+      const limiter = (
+        watcher.daemon as unknown as { network: { agentLimiter: { has(k: string): boolean } } }
+      ).network.agentLimiter;
+      const ownerKey = (await owner.status()).machineKey;
+      expect(limiter.has(`${info.id}|${ownerKey}`)).toBe(true);
     });
   });
 });
