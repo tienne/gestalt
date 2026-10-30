@@ -4,6 +4,7 @@ title: 댓글 분석
 description: 시청자 댓글을 반응별로 묶어 정리한다
 blocks: [comments]
 needs: [comments]
+kinds: [video]
 order: 110
 ---
 

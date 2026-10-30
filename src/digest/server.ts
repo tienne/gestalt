@@ -1,11 +1,19 @@
-import { createReadStream, existsSync, realpathSync, statSync } from 'node:fs';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createServer as createNetServer } from 'node:net';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { parseTranscript } from './schema.js';
+import { parseTranscript, type SourceKind } from './schema.js';
+import {
+  frameSessionRequest,
+  sendToSession,
+  sessionRequestSchema,
+  type SendResult,
+} from './session-request.js';
 import { isValidSlug, readRaw } from './store.js';
+import { templateFitsKind, templateKindOf, type DigestTemplate } from './templates.js';
 import { THEME_BOOT_JS_SHA256, VIEWER_JS_SHA256 } from './viewer-js.js';
 
 export const DEFAULT_DIGEST_PORT = 7893;
@@ -88,6 +96,40 @@ const BASE_HEADERS = {
   'Cache-Control': 'no-store',
 };
 
+/** 뷰어가 세션에 리포트를 만들어 달라고 넣는 자리. 정적 파일 경로와 겹치지 않게 확장자 없는 이름을 쓴다 */
+export const REQUEST_PATH = '/__request';
+/** 서버가 페이지에 끼워 넣는 토큰 meta 이름. 뷰어가 이걸 읽어 요청 헤더에 싣는다 */
+export const TOKEN_META_NAME = 'gestalt-serve-token';
+const TOKEN_HEADER = 'x-gestalt-token';
+/** 요청 본문 상한. 정해 둔 필드 몇 개라 이보다 크면 잘못 온 요청이다 */
+const REQUEST_MAX_BYTES = 2 * 1024;
+/** 1분 동안 세션에 넣는 요청 수 상한. 버튼을 연달아 눌러도 세션이 요청으로 덮이지 않게 둔다 */
+const REQUEST_RATE_LIMIT = 6;
+const REQUEST_RATE_WINDOW_MS = 60_000;
+
+/** 요청 응답 코드. 이유 글자나 경로는 싣지 않고 이 코드만 돌려준다. 자세한 이유는 serve의 stderr에 남긴다 */
+export type RequestCode =
+  | 'sent'
+  | 'forbidden'
+  | 'bad_request'
+  | 'too_large'
+  | 'unsupported_media_type'
+  | 'rate_limited'
+  | 'unknown_slug'
+  | 'unknown_template'
+  | 'no_session'
+  | 'send_failed';
+
+export interface DigestServerOptions {
+  /** 템플릿 요청에서 받아도 되는 템플릿. 없으면 템플릿 요청을 모두 거절한다 */
+  templates?: Pick<DigestTemplate, 'id' | 'kinds'>[];
+  /** 세션에 글을 넣는다. 테스트가 바꿔 끼운다 */
+  sendToSession?: (text: string) => Promise<SendResult>;
+  now?: () => number;
+}
+
+const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest();
+
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((done) => {
     const probe = createNetServer();
@@ -122,9 +164,19 @@ export class DigestServer {
   private readonly root: string;
   // 영상은 Range 요청이 연달아 와서 transcript.json을 매번 파싱하지 않는다. 파일이 바뀌면 mtime으로 다시 읽는다
   private readonly videoPaths = new Map<string, { mtimeMs: number; media: VideoMedia | null }>();
+  // 페이지에만 싣는 토큰. 디스크에 쓰지 않아서 serve를 다시 띄우면 바뀐다
+  private readonly token = randomBytes(32).toString('base64url');
+  private readonly tokenDigest = sha256(this.token);
+  private readonly templates: Pick<DigestTemplate, 'id' | 'kinds'>[];
+  private readonly send: (text: string) => Promise<SendResult>;
+  private readonly now: () => number;
+  private requestTimes: number[] = [];
 
-  constructor(root: string) {
+  constructor(root: string, opts: DigestServerOptions = {}) {
     this.root = realpathSync(root);
+    this.templates = opts.templates ?? [];
+    this.send = opts.sendToSession ?? ((text) => sendToSession(text));
+    this.now = opts.now ?? Date.now;
   }
 
   start(port: number): Promise<void> {
@@ -177,12 +229,14 @@ export class DigestServer {
   }
 
   private handle(req: IncomingMessage, res: ServerResponse): void {
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const isRequest = req.method === 'POST' && (req.url ?? '') === REQUEST_PATH;
+    if (!isRequest && req.method !== 'GET' && req.method !== 'HEAD') {
       return this.deny(res, 405, 'Method Not Allowed', { Allow: 'GET, HEAD' });
     }
     // 127.0.0.1에만 바인딩해도 DNS 리바인딩이면 남의 이름으로 여기 닿는다
     const host = (req.headers.host ?? '').split(':')[0];
     if (host !== '127.0.0.1' && host !== 'localhost') return this.deny(res, 403, 'Forbidden');
+    if (isRequest) return this.handleRequest(req, res);
 
     const decoded = safeDecode((req.url ?? '/').split('?')[0]!);
     if (decoded === null || decoded.includes('\0')) return this.deny(res, 400, 'Bad Request');
@@ -203,13 +257,124 @@ export class DigestServer {
       return this.deny(res, 404, 'Not Found');
     }
 
-    res.writeHead(200, {
-      ...BASE_HEADERS,
-      'Content-Type': MIME[ext]!,
-      ...(ext === '.html' ? { 'Content-Security-Policy': DIGEST_CSP } : {}),
-    });
+    if (ext === '.html') {
+      // 토큰은 디스크의 HTML에 쓰지 않고 내줄 때만 끼운다. HEAD도 같은 길이를 알린다
+      const body = Buffer.from(this.withToken(readFileSync(real, 'utf8')), 'utf8');
+      res.writeHead(200, {
+        ...BASE_HEADERS,
+        'Content-Type': MIME[ext]!,
+        'Content-Security-Policy': DIGEST_CSP,
+        'Content-Length': String(body.length),
+      });
+      return void res.end(req.method === 'HEAD' ? undefined : body);
+    }
+    res.writeHead(200, { ...BASE_HEADERS, 'Content-Type': MIME[ext]! });
     if (req.method === 'HEAD') return void res.end();
     this.stream(res, real);
+  }
+
+  /** 첫 </head> 앞에 토큰 meta를 끼운다. head가 없는 HTML이면 그대로 둔다. 그 페이지는 복사 모드로 돈다 */
+  private withToken(html: string): string {
+    const at = html.indexOf('</head>');
+    if (at < 0) return html;
+    return `${html.slice(0, at)}<meta name="${TOKEN_META_NAME}" content="${this.token}">\n${html.slice(at)}`;
+  }
+
+  private reply(res: ServerResponse, status: number, code: RequestCode): void {
+    res.writeHead(status, { ...BASE_HEADERS, 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ ok: code === 'sent', code }));
+  }
+
+  /**
+   * 뷰어 버튼 요청을 받아 세션에 넣는다. 127.0.0.1 서버라도 브라우저에 열린 아무 사이트가 여기로
+   * POST할 수 있어서 Origin과 페이지에만 실은 토큰을 둘 다 본다. JSON 본문이라 다른 출처에서 보내면
+   * 사전 요청(OPTIONS)부터 405로 막힌다. 세션에 들어가는 글은 검사를 통과한 값으로 서버가 다시 조립한다
+   */
+  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
+    const port = this.port;
+    const origin = req.headers.origin;
+    if (origin !== `http://127.0.0.1:${port}` && origin !== `http://localhost:${port}`) {
+      req.resume();
+      return this.reply(res, 403, 'forbidden');
+    }
+    const given = req.headers[TOKEN_HEADER];
+    if (typeof given !== 'string' || !timingSafeEqual(sha256(given), this.tokenDigest)) {
+      req.resume();
+      return this.reply(res, 403, 'forbidden');
+    }
+    const type = (req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
+    if (type !== 'application/json') {
+      req.resume();
+      return this.reply(res, 415, 'unsupported_media_type');
+    }
+    if (Number(req.headers['content-length'] ?? 0) > REQUEST_MAX_BYTES) {
+      req.resume();
+      return this.reply(res, 413, 'too_large');
+    }
+    // 속도 제한은 토큰을 통과한 요청만 센다. 밖에서 막 보내는 요청이 내 버튼 몫을 깎지 못하게 한다
+    const now = this.now();
+    this.requestTimes = this.requestTimes.filter((t) => now - t < REQUEST_RATE_WINDOW_MS);
+    if (this.requestTimes.length >= REQUEST_RATE_LIMIT) {
+      req.resume();
+      return this.reply(res, 429, 'rate_limited');
+    }
+    this.requestTimes.push(now);
+
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let over = false;
+    req.on('data', (c: Buffer) => {
+      if (over) return;
+      size += c.length;
+      if (size > REQUEST_MAX_BYTES) {
+        over = true;
+        this.reply(res, 413, 'too_large');
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('error', () => res.destroy());
+    req.on('end', () => {
+      if (over) return;
+      void this.dispatchRequest(Buffer.concat(chunks).toString('utf8'), res).catch((err) => {
+        process.stderr.write(`[digest] request failed: ${(err as Error).message}\n`);
+        if (!res.headersSent) this.reply(res, 500, 'send_failed');
+      });
+    });
+  }
+
+  private async dispatchRequest(raw: string, res: ServerResponse): Promise<void> {
+    let body: unknown;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      return this.reply(res, 400, 'bad_request');
+    }
+    const parsed = sessionRequestSchema.safeParse(body);
+    if (!parsed.success) return this.reply(res, 400, 'bad_request');
+    const request = parsed.data;
+    // 자료 종류는 뷰어가 보낸 값을 믿지 않고 transcript.json에서 읽는다
+    const kind = this.sourceKind(request.slug);
+    if (!kind) return this.reply(res, 404, 'unknown_slug');
+    if (request.action === 'template') {
+      const t = this.templates.find((x) => x.id === request.template);
+      if (!t || !templateFitsKind(t, templateKindOf(kind))) {
+        return this.reply(res, 404, 'unknown_template');
+      }
+    }
+    const lens = templateKindOf(kind) === 'lens';
+    const sent = await this.send(frameSessionRequest(request, lens));
+    if (sent.ok) return this.reply(res, 200, 'sent');
+    process.stderr.write(`[digest] 세션에 요청을 넣지 못했어요: ${sent.reason}\n`);
+    return this.reply(res, 503, sent.code);
+  }
+
+  private sourceKind(slug: string): SourceKind | null {
+    if (!isValidSlug(slug)) return null;
+    const raw = readRaw(join(this.root, slug, 'transcript.json'));
+    if (raw.kind !== 'ok') return null;
+    const parsed = parseTranscript(raw.value);
+    return parsed.ok && parsed.value.slug === slug ? parsed.value.meta.source : null;
   }
 
   /**

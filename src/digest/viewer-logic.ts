@@ -49,18 +49,32 @@ function pickReport(reports, length, difficulty) {
   }
   return -1;
 }
-function reportCommand(slug, difficulty, lang, range) {
-  var cmd = '/gestalt:video-digest slug=' + slug + ' difficulty=' + difficulty;
+function skillCommand(lens) {
+  return lens ? '/gestalt:lens' : '/gestalt:video-digest';
+}
+function reportCommand(slug, difficulty, lang, range, lens) {
+  var cmd = skillCommand(lens) + ' slug=' + slug + ' difficulty=' + difficulty;
   if (range) cmd += ' range=' + Math.floor(range[0]) + '-' + Math.ceil(range[1]);
   return lang ? cmd + ' reportLang=' + lang : cmd;
 }
-function missingNotice(r, slug, difficulty) {
+function missingNotice(r, slug, difficulty, lens) {
   if (r.prompted) return { msg: '요청을 붙여 만든 리포트라 짝이 없어요. 같은 요청으로 다시 만들어 주세요.', cmd: null };
-  return { msg: '이 리포트는 아직 없어요. 아래 명령을 세션에 붙여 넣으면 만들어요.', cmd: reportCommand(slug, difficulty, r.lang, r.range) };
+  return { msg: '이 리포트는 아직 없어요. 아래 명령을 세션에 붙여 넣으면 만들어요.', cmd: reportCommand(slug, difficulty, r.lang, r.range, lens) };
 }
-function templateCommand(slug, id, lang) {
-  var cmd = '/gestalt:video-digest slug=' + slug + ' templates=' + id;
+function templateCommand(slug, id, lang, lens) {
+  var cmd = skillCommand(lens) + ' slug=' + slug + ' templates=' + id;
   return lang ? cmd + ' reportLang=' + lang : cmd;
+}
+function reportRequest(slug, difficulty, lang, range) {
+  var body = { action: 'report', slug: slug, difficulty: difficulty };
+  if (lang) body.lang = lang;
+  if (range) body.range = [range[0], range[1]];
+  return body;
+}
+function templateRequest(slug, id, lang) {
+  var body = { action: 'template', slug: slug, template: id };
+  if (lang) body.lang = lang;
+  return body;
 }
 function tabStep(i, n, key) {
   if (key === 'ArrowRight') return (i + 1) % n;
@@ -148,21 +162,34 @@ export interface ViewerLogic {
     length: string,
     difficulty: string,
   ) => number;
+  /** 생성 명령의 스킬 자리. 읽기 렌즈면 lens 스킬이다 */
+  skillCommand: (lens?: boolean) => string;
   /** 없는 리포트를 고르면 복사해 주는 생성 명령. 스킬이 길게만 만들어서 분량은 싣지 않는다. 지금 보는 리포트의 언어와 구간을 따라가야 엉뚱한 리포트가 안 생긴다 */
   reportCommand: (
     slug: string,
     difficulty: string,
     lang?: string,
-    range?: [number, number],
+    range?: [number, number] | null,
+    lens?: boolean,
   ) => string;
   /** 짝이 없는 리포트에서 토글을 누르면 띄울 안내와 복사할 명령. 요청문은 따옴표가 섞일 수 있어 명령 인자로 안전하게 못 넘기니 요청 리포트는 명령 없이 안내만 한다 */
   missingNotice: (
-    r: { prompted: boolean; lang?: string; range?: [number, number] },
+    r: { prompted: boolean; lang?: string; range?: [number, number] | null },
     slug: string,
     difficulty: string,
+    lens?: boolean,
   ) => { msg: string; cmd: string | null };
   /** "+ 더 만들기"에서 템플릿을 고르면 복사해 주는 명령. 언어는 지금 보는 리포트를 따른다 */
-  templateCommand: (slug: string, id: string, lang?: string) => string;
+  templateCommand: (slug: string, id: string, lang?: string, lens?: boolean) => string;
+  /** serve에 보내는 리포트 요청 본문. 명령 글자는 서버가 이 값을 검사한 뒤 다시 조립한다 */
+  reportRequest: (
+    slug: string,
+    difficulty: string,
+    lang?: string,
+    range?: [number, number] | null,
+  ) => Record<string, unknown>;
+  /** serve에 보내는 템플릿 요청 본문 */
+  templateRequest: (slug: string, id: string, lang?: string) => Record<string, unknown>;
   /** 탭 목록에서 방향키, Home, End로 옮겨 갈 자리. 다른 키면 -1 */
   tabStep: (i: number, n: number, key: string) => number;
   /** 공유 링크의 앵커는 외부 입력이라 깨진 인코딩이면 빈 문자열로 받는다 */
@@ -176,7 +203,7 @@ export interface ViewerLogic {
 }
 
 export const viewerLogic = new Function(
-  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, isPlaying: isPlaying, shouldFollowHeld: shouldFollowHeld, shouldScrollScript: shouldScrollScript, shouldRetryFollow: shouldRetryFollow, isLineVisible: isLineVisible, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, reportCommand: reportCommand, missingNotice: missingNotice, templateCommand: templateCommand, tabStep: tabStep, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
+  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, isPlaying: isPlaying, shouldFollowHeld: shouldFollowHeld, shouldScrollScript: shouldScrollScript, shouldRetryFollow: shouldRetryFollow, isLineVisible: isLineVisible, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, skillCommand: skillCommand, reportCommand: reportCommand, missingNotice: missingNotice, templateCommand: templateCommand, reportRequest: reportRequest, templateRequest: templateRequest, tabStep: tabStep, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
 )() as ViewerLogic;
 
 export const findSegmentIndex = viewerLogic.findSegmentIndex;

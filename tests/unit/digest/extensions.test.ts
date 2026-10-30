@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   extensionKey,
   lintDigest,
@@ -14,7 +14,7 @@ import {
 import type { Block } from '../../../src/digest/blocks.js';
 import { blockFields } from '../../../src/digest/lint-extension.js';
 import { blockMarkdown } from '../../../src/digest/render-blocks.js';
-import { renderDigestFiles } from '../../../src/cli/commands/digest.js';
+import { digestTemplatesCommand, renderDigestFiles } from '../../../src/cli/commands/digest.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderExtensionMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown } from '../../../src/digest/render.js';
@@ -23,10 +23,12 @@ import {
   findBuiltinTemplatesDir,
   loadTemplates,
   parseTemplate,
+  templateFitsKind,
   templateMap,
 } from '../../../src/digest/templates.js';
 import { viewerLogic } from '../../../src/digest/viewer-logic.js';
 import { SLUG, sampleDigest, sampleTranscript } from './fixture.js';
+import { lensDigest, lensTranscript } from '../lens/fixture.js';
 
 const codes = (issues: DigestIssue[]) => issues.map((i) => i.code);
 
@@ -107,6 +109,25 @@ describe('parseTemplate', () => {
 
   it('64KB를 넘으면 거절한다', () => {
     expect(() => parseTemplate(TEMPLATE + 'a'.repeat(65 * 1024), 'user', 'p')).toThrow(/64KB/);
+  });
+
+  it('kinds는 선택이고 video와 lens만 받는다', () => {
+    expect(parseTemplate(TEMPLATE, 'builtin', 'p').kinds).toBeUndefined();
+    const video = parseTemplate(
+      TEMPLATE.replace('blocks:', 'kinds: [video, video]\nblocks:'),
+      'builtin',
+      'p',
+    );
+    expect(video.kinds).toEqual(['video']);
+    expect(templateFitsKind(video, 'video')).toBe(true);
+    expect(templateFitsKind(video, 'lens')).toBe(false);
+    expect(templateFitsKind(parseTemplate(TEMPLATE, 'builtin', 'p'), 'lens')).toBe(true);
+    expect(() =>
+      parseTemplate(TEMPLATE.replace('blocks:', 'kinds: [audio]\nblocks:'), 'user', 'p'),
+    ).toThrow(/kinds/);
+    expect(() =>
+      parseTemplate(TEMPLATE.replace('blocks:', 'kinds: []\nblocks:'), 'user', 'p'),
+    ).toThrow(/kinds/);
   });
 });
 
@@ -327,6 +348,24 @@ describe('확장 탭 렌더', () => {
     expect(html).toContain('&lt;문제&gt;');
   });
 
+  it('렌즈 뷰어는 영상 전용 템플릿을 메뉴에서 감추고 lens 표시를 싣는다', () => {
+    const withVideoOnly = [
+      ...templates,
+      { id: 'comments', title: '댓글', description: '댓글', kinds: ['video' as const] },
+    ];
+    const lens = renderDigestHtml(lensDigest(), lensTranscript(), {
+      templates: withVideoOnly,
+    }).html;
+    expect(lens).toContain('data-template="quiz"');
+    expect(lens).not.toContain('data-template="comments"');
+    expect(lens).toContain('"lens":true');
+    const video = renderDigestHtml(sampleDigest(), sampleTranscript(), {
+      templates: withVideoOnly,
+    }).html;
+    expect(video).toContain('data-template="comments"');
+    expect(video).toContain('"lens":false');
+  });
+
   it('메뉴에 띄울 템플릿만 있어도 탭 줄을 둔다', () => {
     const { html } = renderDigestHtml(sampleDigest(), sampleTranscript(), { templates });
     expect(html).toContain('role="tablist"');
@@ -345,6 +384,31 @@ describe('확장 탭 렌더', () => {
     const ext = { ...sampleExtension(), title: '[x](https://e.com) <b>' };
     const md = renderExtensionMarkdown(ext, sampleTranscript());
     expect(md).toContain(String.raw`> 리포트: \[x\](https://e.com) \<b\>`);
+  });
+});
+
+describe('templates 명령', () => {
+  it('--json에 템플릿마다 쓸 수 있는 자료 종류를 싣는다. 비워 둔 템플릿은 전부로 적는다', () => {
+    const repo = tmpRepo();
+    const dir = new DigestStore(repo).templatesDir();
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'background.md'), TEMPLATE);
+    writeFileSync(
+      join(dir, 'clips.md'),
+      TEMPLATE.replace('id: background', 'id: clips').replace('blocks:', 'kinds: [video]\nblocks:'),
+    );
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      digestTemplatesCommand({ repoRoot: repo, json: true });
+      const out = JSON.parse(String(log.mock.calls[0]![0])) as {
+        templates: Array<{ id: string; kinds: string[] }>;
+      };
+      const kinds = Object.fromEntries(out.templates.map((t) => [t.id, t.kinds]));
+      expect(kinds['background']).toEqual(['video', 'lens']);
+      expect(kinds['clips']).toEqual(['video']);
+    } finally {
+      log.mockRestore();
+    }
   });
 });
 
@@ -389,6 +453,9 @@ describe('뷰어 로직', () => {
     );
     expect(viewerLogic.templateCommand('abc', 'quiz')).toBe(
       '/gestalt:video-digest slug=abc templates=quiz',
+    );
+    expect(viewerLogic.templateCommand('abc', 'quiz', 'ko', true)).toBe(
+      '/gestalt:lens slug=abc templates=quiz reportLang=ko',
     );
   });
 

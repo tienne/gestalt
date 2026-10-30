@@ -1,11 +1,25 @@
-import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { request } from 'node:http';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DIGEST_CSP, DigestServer } from '../../../src/digest/server.js';
+import {
+  DIGEST_CSP,
+  DigestServer,
+  REQUEST_PATH,
+  TOKEN_META_NAME,
+  type DigestServerOptions,
+} from '../../../src/digest/server.js';
+import type { SendResult } from '../../../src/digest/session-request.js';
 import { DIARY_FONT_LINK } from '../../../src/digest/theme-diary.js';
-import { THEME_BOOT_JS_SHA256, VIEWER_JS_SHA256 } from '../../../src/digest/viewer-js.js';
+import {
+  THEME_BOOT_JS_SHA256,
+  VIEWER_JS,
+  VIEWER_JS_SHA256,
+} from '../../../src/digest/viewer-js.js';
+import { viewerLogic } from '../../../src/digest/viewer-logic.js';
+import { lensTranscript } from '../lens/fixture.js';
+import { sampleTranscript } from './fixture.js';
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -136,5 +150,227 @@ describe('DigestServer', () => {
     const r = await get(server.port!, '/s1/', { method: 'POST' });
     expect(r.status).toBe(405);
     expect(r.headers.allow).toBe('GET, HEAD');
+  });
+});
+
+describe('DigestServer 세션 요청', () => {
+  const PAGE = '<!doctype html><html><head><title>t</title></head><body><p>hi</p></body></html>';
+
+  async function serve(opts: DigestServerOptions = {}) {
+    const base = resolve('.gestalt-test', `digest-request-${randomUUID()}`);
+    const root = join(base, '.gestalt', 'digest');
+    mkdirSync(join(root, 's1'), { recursive: true });
+    mkdirSync(join(root, 'paper'), { recursive: true });
+    writeFileSync(join(root, 's1', 'digest.html'), PAGE);
+    writeFileSync(
+      join(root, 's1', 'transcript.json'),
+      JSON.stringify(sampleTranscript({ slug: 's1' })),
+    );
+    writeFileSync(
+      join(root, 'paper', 'transcript.json'),
+      JSON.stringify({ ...lensTranscript('web'), slug: 'paper' }),
+    );
+    const sent: string[] = [];
+    const server = new DigestServer(root, {
+      templates: [{ id: 'quiz' }, { id: 'comments', kinds: ['video'] }],
+      sendToSession: (text) => {
+        sent.push(text);
+        return Promise.resolve({ ok: true });
+      },
+      ...opts,
+    });
+    await server.start(0);
+    cleanups.push(() => rmSync(base, { recursive: true, force: true }));
+    cleanups.push(() => server.stop());
+    const page = await get(server.port!, '/s1/');
+    const token = new RegExp(`<meta name="${TOKEN_META_NAME}" content="([^"]+)">`).exec(
+      page.body,
+    )![1]!;
+    return { server, port: server.port!, root, token, sent };
+  }
+
+  function post(
+    port: number,
+    body: string,
+    headers: Record<string, string | undefined>,
+  ): Promise<{ status: number; json: { ok: boolean; code: string } }> {
+    return new Promise((done, reject) => {
+      const h: Record<string, string> = { host: `127.0.0.1:${port}` };
+      for (const [k, v] of Object.entries(headers)) if (v !== undefined) h[k] = v;
+      const req = request(
+        { host: '127.0.0.1', port, path: REQUEST_PATH, method: 'POST', headers: h },
+        (res) => {
+          let text = '';
+          res.on('data', (c: Buffer) => (text += c.toString()));
+          res.on('end', () =>
+            done({
+              status: res.statusCode!,
+              json: JSON.parse(text) as { ok: boolean; code: string },
+            }),
+          );
+        },
+      );
+      req.on('error', reject);
+      req.end(body);
+    });
+  }
+
+  const ok = (port: number, token: string) => ({
+    origin: `http://127.0.0.1:${port}`,
+    'x-gestalt-token': token,
+    'content-type': 'application/json',
+  });
+  const easy = JSON.stringify(viewerLogic.reportRequest('s1', 'easy', 'ko'));
+
+  it('토큰은 내줄 때만 head에 끼우고 디스크에는 쓰지 않는다. HEAD도 같은 길이를 알린다', async () => {
+    const { port, root, token } = await serve();
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(readFileSync(join(root, 's1', 'digest.html'), 'utf8')).toBe(PAGE);
+    const page = await get(port, '/s1/');
+    expect(page.body.indexOf(TOKEN_META_NAME)).toBeLessThan(page.body.indexOf('</head>'));
+    const head = await get(port, '/s1/', { method: 'HEAD' });
+    expect(head.body).toBe('');
+    expect(head.headers['content-length']).toBe(String(Buffer.byteLength(page.body)));
+    expect(page.headers['content-length']).toBe(String(Buffer.byteLength(page.body)));
+    // 뷰어 스크립트가 같은 이름과 경로를 쓴다
+    expect(VIEWER_JS).toContain(`meta[name="${TOKEN_META_NAME}"]`);
+    expect(VIEWER_JS).toContain(`'${REQUEST_PATH}'`);
+  });
+
+  it('통과한 요청은 서버가 조립한 틀로 세션에 넣고 고정 코드로 답한다', async () => {
+    const { port, token, sent } = await serve();
+    const r = await post(port, easy, ok(port, token));
+    expect(r).toEqual({ status: 200, json: { ok: true, code: 'sent' } });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.split('\n')[1]).toBe(
+      '/gestalt:video-digest slug=s1 difficulty=easy reportLang=ko',
+    );
+  });
+
+  it('localhost 출처도 같은 포트면 받는다', async () => {
+    const { port, token } = await serve();
+    const r = await post(port, easy, {
+      ...ok(port, token),
+      host: `localhost:${port}`,
+      origin: `http://localhost:${port}`,
+    });
+    expect(r.status).toBe(200);
+  });
+
+  it('렌즈 자료는 transcript에서 종류를 읽어 lens 명령을 넣는다', async () => {
+    const { port, token, sent } = await serve();
+    const body = JSON.stringify(viewerLogic.templateRequest('paper', 'quiz', 'ko'));
+    expect((await post(port, body, ok(port, token))).status).toBe(200);
+    expect(sent[0]!.split('\n')[1]).toBe('/gestalt:lens slug=paper templates=quiz reportLang=ko');
+  });
+
+  it('Origin이 없거나 다르면, 토큰이 없거나 틀리면 403이고 세션에 넣지 않는다', async () => {
+    const { port, token, sent } = await serve();
+    const cases: Array<Record<string, string | undefined>> = [
+      { ...ok(port, token), origin: undefined },
+      { ...ok(port, token), origin: 'https://evil.example' },
+      { ...ok(port, token), origin: `http://127.0.0.1:${port + 1}` },
+      { ...ok(port, token), origin: 'null' },
+      { ...ok(port, token), 'x-gestalt-token': undefined },
+      { ...ok(port, token), 'x-gestalt-token': token.slice(1) },
+      { ...ok(port, token), 'x-gestalt-token': `${token.slice(0, -1)}A` },
+    ];
+    for (const headers of cases) {
+      expect(await post(port, easy, headers)).toEqual({
+        status: 403,
+        json: { ok: false, code: 'forbidden' },
+      });
+    }
+    expect(sent).toEqual([]);
+  });
+
+  it('Host가 로컬이 아니면 Origin과 토큰이 맞아도 403이다', async () => {
+    const { port, token, sent } = await serve();
+    const r = await new Promise<number>((done) => {
+      const req = request(
+        {
+          host: '127.0.0.1',
+          port,
+          path: REQUEST_PATH,
+          method: 'POST',
+          headers: { ...ok(port, token), host: 'evil.example' },
+        },
+        (res) => {
+          res.resume();
+          done(res.statusCode!);
+        },
+      );
+      req.end(easy);
+    });
+    expect(r).toBe(403);
+    expect(sent).toEqual([]);
+  });
+
+  it('JSON이 아니거나 2KB를 넘거나 꼴이 틀리면 거절한다', async () => {
+    const { port, token, sent } = await serve();
+    const h = ok(port, token);
+    expect((await post(port, easy, { ...h, 'content-type': 'text/plain' })).status).toBe(415);
+    expect((await post(port, 'x'.repeat(3000), h)).json.code).toBe('too_large');
+    expect((await post(port, '{not json', h)).json.code).toBe('bad_request');
+    const bad = [
+      { action: 'report', slug: 's1', difficulty: 'easy', prompt: 'rm -rf' },
+      { action: 'report', slug: '../s1', difficulty: 'easy' },
+      { action: 'report', slug: 's1', difficulty: 'easy', lang: 'ko\n/x' },
+      { action: 'report', slug: 's1', difficulty: 'easy', range: [10, 5] },
+    ];
+    for (const body of bad) {
+      expect((await post(port, JSON.stringify(body), h)).json.code).toBe('bad_request');
+    }
+    expect(sent).toEqual([]);
+  });
+
+  it('없는 slug, 목록에 없거나 종류가 안 맞는 템플릿은 404다', async () => {
+    const { port, token, sent } = await serve();
+    const h = ok(port, token);
+    const missing = JSON.stringify(viewerLogic.reportRequest('nope', 'easy'));
+    expect((await post(port, missing, h)).json.code).toBe('unknown_slug');
+    const unknown = JSON.stringify(viewerLogic.templateRequest('s1', 'mindmap'));
+    expect((await post(port, unknown, h)).json.code).toBe('unknown_template');
+    const videoOnly = JSON.stringify(viewerLogic.templateRequest('paper', 'comments'));
+    expect((await post(port, videoOnly, h)).json.code).toBe('unknown_template');
+    expect(sent).toEqual([]);
+    const fits = JSON.stringify(viewerLogic.templateRequest('s1', 'comments'));
+    expect((await post(port, fits, h)).status).toBe(200);
+  });
+
+  it('세션을 못 찾거나 쓰다 실패하면 이유 없이 코드만 돌려준다', async () => {
+    let result: SendResult = {
+      ok: false,
+      code: 'no_session',
+      reason: '/Users/x/.claude 세션 없음',
+    };
+    const { port, token } = await serve({ sendToSession: () => Promise.resolve(result) });
+    const r = await post(port, easy, ok(port, token));
+    expect(r).toEqual({ status: 503, json: { ok: false, code: 'no_session' } });
+    result = { ok: false, code: 'send_failed', reason: 'x' };
+    expect((await post(port, easy, ok(port, token))).json).toEqual({
+      ok: false,
+      code: 'send_failed',
+    });
+  });
+
+  it('토큰을 통과한 요청만 1분에 6건까지 받는다', async () => {
+    let now = 1_000_000;
+    const { port, token } = await serve({ now: () => now });
+    for (let i = 0; i < 3; i++) {
+      expect((await post(port, easy, { ...ok(port, token), 'x-gestalt-token': 'x' })).status).toBe(
+        403,
+      );
+    }
+    for (let i = 0; i < 6; i++) expect((await post(port, easy, ok(port, token))).status).toBe(200);
+    expect((await post(port, easy, ok(port, token))).json.code).toBe('rate_limited');
+    now += 60_000;
+    expect((await post(port, easy, ok(port, token))).status).toBe(200);
+  });
+
+  it('요청 자리는 POST만 받고 다른 경로의 POST는 여전히 405다', async () => {
+    const { port } = await serve();
+    expect((await get(port, REQUEST_PATH)).status).toBe(404);
+    expect((await get(port, '/s1/', { method: 'POST' })).status).toBe(405);
   });
 });

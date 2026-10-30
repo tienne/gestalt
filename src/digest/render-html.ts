@@ -42,7 +42,7 @@ import {
   type Transcript,
   youtubeWatchUrl,
 } from './schema.js';
-import type { DigestTemplate } from './templates.js';
+import { templateFitsKind, templateKindOf, type DigestTemplate } from './templates.js';
 
 export interface RenderHtmlOptions {
   /** 프레임 파일이 있는지. 상대 경로 모드에서 없는 프레임은 자리를 만들지 않는다 */
@@ -51,7 +51,7 @@ export interface RenderHtmlOptions {
   inlineFrames?: boolean;
   loadFrame?: (fileName: string) => Buffer | null;
   /** "+ 더 만들기" 메뉴에 띄울 템플릿. 이미 만든 확장의 템플릿은 메뉴에서 뺀다 */
-  templates?: Pick<DigestTemplate, 'id' | 'title' | 'description'>[];
+  templates?: Pick<DigestTemplate, 'id' | 'title' | 'description' | 'kinds'>[];
   /** 읽기 렌즈의 source.json. 원문 표와 그림, 쪽 그림을 여기서 옮긴다 */
   source?: LensSource | null;
   /** 공유용. 원문 쪽 그림과 표, 그림 크롭을 싣지 않는다(열린 질문 7) */
@@ -418,6 +418,8 @@ ${skippedHtml}</div>`;
     videoId: isYoutube ? meta.videoId : null,
     localVideo: meta.source === 'file' || meta.source === 'podcast',
     kind,
+    // 생성 명령을 렌즈 스킬로 낼지. podcast도 렌즈라 doc으로는 못 가른다
+    lens: isLensKind(kind),
     doc: textKind,
     units: kind === 'pdf' && !opts.omitCrops ? docUnitsData(transcript) : null,
     pages:
@@ -464,19 +466,22 @@ ${skippedHtml}</div>`;
 
   const extensions = digest.extensions;
   const made = new Set(extensions.map((x) => x.template));
-  const menuTemplates = (opts.templates ?? []).filter((t) => !made.has(t.id));
+  // 렌즈에 맞지 않는 템플릿(유튜브 댓글 분석처럼 영상 전용)은 렌즈 메뉴에 띄우지 않는다
+  const menuTemplates = (opts.templates ?? []).filter(
+    (t) => !made.has(t.id) && templateFitsKind(t, templateKindOf(kind)),
+  );
   const hasTabs = extensions.length > 0 || menuTemplates.length > 0;
   const tab = (id: string, label: string, on: boolean) =>
     `<button type="button" role="tab" id="tab-${e(id)}" data-tab="${e(id)}" aria-controls="${e(id)}" aria-selected="${on ? 'true' : 'false'}"${on ? '' : ' tabindex="-1"'}>${e(label)}</button>`;
   const moreMenu = menuTemplates.length
-    ? `<button type="button" id="more-btn" class="more-btn" aria-expanded="false" aria-controls="more-menu">+ 더 만들기</button></div><div id="more-menu" class="more-menu" hidden><p>템플릿을 고르면 세션에 붙여 넣을 명령을 복사해요.</p><ul>${menuTemplates
+    ? `<button type="button" id="more-btn" class="more-btn" aria-expanded="false" aria-controls="more-menu">+ 더 만들기</button></div><div id="more-menu" class="more-menu" hidden><p id="more-hint">템플릿을 고르면 세션에 붙여 넣을 명령을 복사해요.</p><ul>${menuTemplates
         .map(
           (t) =>
             `<li><button type="button" data-template="${e(t.id)}"><b>${e(t.title)}</b><small>${e(t.description)}</small></button></li>`,
         )
         .join(
           '',
-        )}</ul><div id="more-cmd-box" hidden><code id="more-cmd"></code> <button type="button" id="more-copy">명령 복사</button></div></div>`
+        )}</ul><div id="more-cmd-box" hidden><p id="more-msg" role="status" aria-live="polite"></p><span id="more-cmd-wrap"><code id="more-cmd"></code> <button type="button" id="more-copy">명령 복사</button></span></div></div>`
     : '</div>';
   const tabRow = hasTabs
     ? `<div class="tab-row"><div class="tabs" role="tablist" aria-label="리포트 종류">${tab('panel-summary', '요약', true)}${extensions
@@ -604,6 +609,8 @@ a.ts:hover{text-decoration:underline}
 .more-menu li small{display:block;color:var(--muted);font-size:.85em}
 .more-menu code{display:block;white-space:nowrap;overflow-x:auto;background:var(--chip);padding:4px 8px;border-radius:4px;margin:0 0 6px}
 #more-copy{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer}
+#more-msg{color:inherit}
+#more-msg:empty{display:none}
 .ext h2{font-size:1.35em;border-bottom:1px solid var(--line);padding-bottom:6px}
 .ext h3{font-size:1.1em;margin:20px 0 6px}
 .ext h4{font-size:1em;margin:12px 0 4px}

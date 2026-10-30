@@ -18,6 +18,10 @@ export const VIEWER_JS =
   var starts = data.starts;
   var root = document.documentElement;
   var isFile = location.protocol === 'file:';
+  // serve가 내줄 때만 페이지에 끼우는 토큰. 있으면 없는 리포트를 serve를 띄운 세션에 바로 요청하고, 없거나 요청이 실패하면 명령 복사로 돌아간다
+  var tokenMeta = document.querySelector('meta[name="gestalt-serve-token"]');
+  var serveToken = !isFile && tokenMeta ? tokenMeta.getAttribute('content') : null;
+  var SENT_MSG = '세션에 요청을 넣었어요. 다 만들어지면 새로고침해 주세요.';
   var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var holder = document.getElementById('player');
   var slot = document.getElementById('player-slot');
@@ -599,6 +603,32 @@ export const VIEWER_JS =
       (ok ? done : fail)();
     }
   }
+  // 같은 요청은 한 번만 보낸다. 이미 넣은 요청을 다시 누르면 넣었다는 안내만 다시 보여 주고, 응답을 기다리는 중이면 그 응답에 함께 건다
+  var requestState = {};
+  function requestToSession(body, done, fail) {
+    if (!serveToken || !window.fetch) { fail(); return; }
+    var key = JSON.stringify(body);
+    var state = requestState[key];
+    if (state === 'sent') { done(); return; }
+    if (state) { state.push([done, fail]); return; }
+    var waiting = [[done, fail]];
+    requestState[key] = waiting;
+    function settle(ok){
+      if (ok) requestState[key] = 'sent';
+      else delete requestState[key];
+      waiting.forEach(function(w){ w[ok ? 0 : 1](); });
+    }
+    fetch('/__request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Gestalt-Token': serveToken },
+      body: key,
+      credentials: 'same-origin',
+      cache: 'no-store'
+    }).then(function(res){
+      return res.json().then(function(j){ return res.ok && j && j.ok === true; }, function(){ return false; });
+    }).then(settle, function(){ settle(false); });
+  }
+
   var flash = makeFlash(function(){ return document.getElementById('copy-status'); });
   function copyWith(btn, label, text) {
     copyText(text, function(){ flash(btn, label, false); }, function(){ flash(btn, label, true); });
@@ -663,14 +693,26 @@ export const VIEWER_JS =
     };
   }
 
-  // 없는 템플릿은 뷰어가 만들지 않고 세션에 붙여 넣을 명령만 복사해 준다
+  // 없는 템플릿은 뷰어가 만들지 않는다. serve로 열었으면 세션에 요청하고, 아니면 세션에 붙여 넣을 명령만 복사해 준다
   function setupMore(reports) {
     var btn = document.getElementById('more-btn');
     var menu = document.getElementById('more-menu');
     var box = document.getElementById('more-cmd-box');
     var code = document.getElementById('more-cmd');
     var copy = document.getElementById('more-copy');
+    var hint = document.getElementById('more-hint');
+    var msg = document.getElementById('more-msg');
+    var wrap = document.getElementById('more-cmd-wrap');
     if (!btn || !menu || !box || !code || !copy) return { close: function(){ return false; } };
+    if (serveToken && hint) hint.textContent = '템플릿을 고르면 serve를 띄운 세션에 만들어 달라고 요청해요.';
+    // 응답이 오기 전에 다른 템플릿을 고르면 앞 응답은 안내를 덮지 않는다
+    var seq = 0;
+    function showCmd(text, message){
+      code.textContent = text;
+      if (msg) msg.textContent = message;
+      if (wrap) wrap.hidden = false;
+      box.hidden = false;
+    }
     function setOpen(open){
       menu.hidden = !open;
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -678,9 +720,23 @@ export const VIEWER_JS =
     btn.addEventListener('click', function(){ setOpen(menu.hidden); });
     menu.querySelectorAll('[data-template]').forEach(function(b){
       b.addEventListener('click', function(){
-        code.textContent = templateCommand(data.slug, b.getAttribute('data-template'), data.reports[reports.current()].lang);
+        var id = b.getAttribute('data-template');
+        var lang = data.reports[reports.current()].lang;
+        var command = templateCommand(data.slug, id, lang, data.lens);
+        var mine = ++seq;
+        if (!serveToken) {
+          showCmd(command, '');
+          copyWith(copy, '명령 복사', command);
+          return;
+        }
+        if (msg) msg.textContent = '세션에 요청하는 중이에요.';
+        if (wrap) wrap.hidden = true;
         box.hidden = false;
-        copyWith(copy, '명령 복사', code.textContent);
+        requestToSession(templateRequest(data.slug, id, lang), function(){
+          if (mine === seq && msg) msg.textContent = SENT_MSG;
+        }, function(){
+          if (mine === seq) showCmd(command, '세션에 요청을 넣지 못했어요. 아래 명령을 세션에 붙여 넣어 주세요.');
+        });
       });
     });
     copy.addEventListener('click', function(){ copyWith(copy, '명령 복사', code.textContent); });
@@ -709,9 +765,19 @@ export const VIEWER_JS =
     var copyCmd = document.getElementById('copy-cmd');
     var initial = data.reports[data.initial] ? data.initial : 0;
     var current = initial;
+    // 안내를 닫거나 다른 리포트로 옮긴 뒤 도착한 요청 응답은 안내를 다시 띄우지 않는다
+    var noticeSeq = 0;
     function hideMissing(){
+      noticeSeq++;
       if (missing) missing.hidden = true;
       if (status) status.textContent = '';
+    }
+    function showNotice(msg, command){
+      if (missingMsg) missingMsg.textContent = msg;
+      if (cmdWrap) cmdWrap.hidden = command === null;
+      if (cmd) cmd.textContent = command || '';
+      if (missing) missing.hidden = false;
+      if (status) status.textContent = msg;
     }
     function show(ri){
       if (!data.reports[ri]) ri = initial;
@@ -730,12 +796,15 @@ export const VIEWER_JS =
       // 짝이 없는 옛 짧게, 기본 리포트는 길게로 간다. 스킬이 길게만 만들어서다. 구간이나 요청이 붙은 리포트는 다른 리포트로 넘기지 않는다
       if (ri < 0 && r.preset) ri = pickReport(data.reports, 'long', difficulty);
       if (ri >= 0) { show(ri); return; }
-      var notice = missingNotice(r, data.slug, difficulty);
-      if (missingMsg) missingMsg.textContent = notice.msg;
-      if (cmdWrap) cmdWrap.hidden = notice.cmd === null;
-      if (cmd) cmd.textContent = notice.cmd || '';
-      if (missing) missing.hidden = false;
-      if (status) status.textContent = notice.msg;
+      var notice = missingNotice(r, data.slug, difficulty, data.lens);
+      var mine = ++noticeSeq;
+      if (notice.cmd === null || !serveToken) { showNotice(notice.msg, notice.cmd); return; }
+      showNotice('세션에 만들어 달라고 요청하는 중이에요.', null);
+      requestToSession(reportRequest(data.slug, difficulty, r.lang, r.range), function(){
+        if (mine === noticeSeq) showNotice(SENT_MSG, null);
+      }, function(){
+        if (mine === noticeSeq) showNotice('세션에 요청을 넣지 못했어요. 아래 명령을 세션에 붙여 넣으면 만들어요.', notice.cmd);
+      });
     }
     // 눌림 상태는 보이는 리포트만 따른다. 안내가 떠 있으면 다시 눌러 닫는다
     if (easyToggle) easyToggle.addEventListener('click', function(){
