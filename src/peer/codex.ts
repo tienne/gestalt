@@ -61,7 +61,8 @@ export function locateCodexRollout(
     return hits.sort().at(-1);
   };
   // 연/월/일 디렉토리를 최신순으로 내려가다 처음 찾은 날에서 멈춘다. 보통 공유하는 건 최근 세션이다.
-  // 날짜 꼴이 아닌 자리(연, 월 층의 다른 이름이나 파일, 일 층의 하위 디렉토리)를 봤으면 표시해 둔다
+  // 날짜 꼴이 아닌 자리(연, 월 디렉토리의 다른 이름 디렉토리나 rollout 파일, 일 디렉토리 안의 하위
+  // 디렉토리)를 봤으면 표시해 둔다
   let odd = false;
   const days = (dir: string): string[] => {
     const r = subdirs(dir);
@@ -97,16 +98,21 @@ export function locateCodexRollout(
 }
 
 /**
- * 이름이 숫자인 하위 디렉토리를 큰 것부터. 연, 월, 일 디렉토리가 이 꼴이다. 숫자가 아닌 이름이나
- * 파일이 있었으면 odd다
+ * 이름이 숫자인 하위 디렉토리를 큰 것부터. 연, 월, 일 디렉토리가 이 꼴이다. 숫자가 아닌 하위 디렉토리나
+ * rollout 꼴 파일이 있었으면 odd다. `.DS_Store` 같은 다른 파일은 날짜 규칙이 바뀐 신호가 아니라 안 센다
  */
-function subdirs(dir: string): { dirs: string[]; odd: boolean } {
+export function subdirs(dir: string): { dirs: string[]; odd: boolean } {
   const entries = readEntries(dir);
   const dirs = entries
     .filter((d) => d.isDirectory() && /^\d+$/.test(d.name))
     .map((d) => d.name)
     .sort((a, b) => Number(b) - Number(a));
-  return { dirs, odd: dirs.length !== entries.length };
+  const odd = entries.some((d) =>
+    d.isDirectory()
+      ? !/^\d+$/.test(d.name)
+      : d.name.startsWith('rollout-') && d.name.endsWith('.jsonl'),
+  );
+  return { dirs, odd };
 }
 
 function readEntries(dir: string): Dirent[] {

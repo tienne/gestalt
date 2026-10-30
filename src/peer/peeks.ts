@@ -23,7 +23,7 @@ export const PEEK_NOTICE_MS = 10 * 60 * 1000;
 export const PEEK_TIMEOUT_MS = 10_000;
 /** 보는 쪽에서 답을 기다리는 요약 요청 수 */
 const MAX_PENDING_PEEKS = 16;
-/** 주인 쪽이 기억하는 요약 요청 id 수. 메시지 기억과 칸을 나눠 서로 밀어내지 못하게 한다 */
+/** 주인 쪽이 기억하는 요약 요청 id 수. PeerNetwork의 메시지 기억(seenMessages)과는 따로 센다 */
 const MAX_SEEN_PEEKS = 4096;
 
 /**
@@ -242,7 +242,8 @@ export class PeekDesk {
    * 보는 중 표시 훅으로 주인 세션에 한동안 알린다.
    */
   private onRequest(from: string, msg: Extract<PeekBox, { t: 'peek' }>): void {
-    // 꼴이 틀린 id는 감사 로그와 답으로 흘러가지 않게 답 없이 버린다
+    // 꼴이 틀린 id는 감사 로그와 답으로 흘러가지 않게 답 없이 버린다. network.test.ts의 "꼴이 틀린 공유
+    // id나 요청 id의 요약 요청은 답도 감사 행도 없이 버린다"가 본다
     if (!isShareId(msg.share) || !isPeekId(msg.id)) return;
     const dedupe = `${from}|${msg.id}`;
     if (this.seen.has(dedupe)) return;
@@ -267,8 +268,8 @@ export class PeekDesk {
     );
     if (!safeEqual(msg.proof, expected)) return reject('bad_proof');
     // 기억은 증명이 맞은 뒤에 한다. 앞에서 기억하면 증명 없는 가짜 id로 칸을 밀어낼 수 있다. 거절한
-    // 요청도 기억해서 다시 와도 답과 감사 행을 또 쓰지 않는다. 메시지 기억과는 칸이 따로라서 끊긴
-    // 기기가 요약 요청으로 메시지 기억을 밀어내지 못한다
+    // 요청도 기억해서 다시 와도 답과 감사 행을 또 쓰지 않는다. 요약 요청 id는 PeekDesk.seen에만
+    // 기억하고 PeerNetwork의 seenMessages와 같이 쓰지 않는다
     this.seen.add(dedupe);
     if (this.seen.size > MAX_SEEN_PEEKS) {
       const oldest = this.seen.values().next().value;

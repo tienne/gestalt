@@ -2093,6 +2093,8 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
         since?: string;
         proofId?: string;
         proofSince?: string;
+        /** 주면 봉인의 share를 이 값으로 바꾼다. 꼴 검사를 시험할 때 쓴다 */
+        share?: string;
       }[],
     ): Promise<void> {
       await watcher.daemon.stop();
@@ -2125,7 +2127,7 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
           );
         const box = {
           t: 'peek',
-          share: shareId,
+          share: b.share ?? shareId,
           id: b.id,
           ...(b.since ? { since: b.since } : {}),
           proof,
@@ -2319,6 +2321,20 @@ describe('peer 원격 공유 (데몬 둘 + 릴레이)', () => {
       await until(() => peekRejects().length >= 2);
       expect(peekRejects()).toEqual(['bad_proof', 'bad_proof']);
       expect(auditOf(owner, 'peek_serve')).toHaveLength(1);
+    });
+
+    it('꼴이 틀린 공유 id나 요청 id의 요약 요청은 답도 감사 행도 없이 버린다', async () => {
+      const info = await openAgentShare();
+      await watchApproved(info.link!);
+      await forgePeek(info.link!, [
+        { id: 'p_bad' },
+        { id: peekId(5), share: '../bad' },
+        // 봉인이 실제로 닿았는지 보려고 정상 요청 하나를 같이 보낸다
+        { id: peekId(6) },
+      ]);
+      await until(() => auditOf(owner, 'peek_serve').length >= 1);
+      expect(auditOf(owner, 'peek_serve')).toHaveLength(1);
+      expect(peekRejects()).toEqual([]);
     });
 
     it('같은 공유에서 10분에 36번 넘게 가져가면 rate_limited로 막는다', async () => {

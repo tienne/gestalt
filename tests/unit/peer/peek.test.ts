@@ -185,6 +185,39 @@ describe('buildPeek', () => {
     expect(gapped.gap).toBe(true);
   });
 
+  it('할 일이 있어도 파일 칸에 못 넣은 새 파일이 있으면 truncated를 켜고 다시 고친 파일은 세지 않는다', () => {
+    const fresh = (edits: number, again = false): PeerPeek => {
+      writeFileSync(path, '');
+      const lines: string[] = [];
+      for (let i = 0; i < edits; i++) lines.push(tool(`e${i}`, 'Edit', { file_path: `f${i}.ts` }));
+      if (again) lines.push(tool('again', 'Edit', { file_path: 'f0.ts' }));
+      lines.push(tool('todo', 'TodoWrite', { todos: [{ content: '하나', status: 'pending' }] }));
+      for (let i = 0; i < 5; i++) lines.push(prompt(`p${i}`), reply(`r${i}`));
+      writeFileSync(path, lines.join(''));
+      const st = new ShareStream({
+        id: SHARE,
+        transcriptPath: path,
+        tools: 'summary',
+        home: FAKE_HOME,
+      });
+      st.poll();
+      return buildPeek({ share: SHARE, feed: st, streamStatus: st.currentStatus });
+    };
+    const over = fresh(21);
+    expect(over.touchedFiles).toHaveLength(20);
+    expect(over.truncated).toBe(true);
+    const exact = fresh(20);
+    expect(exact.touchedFiles).toHaveLength(20);
+    expect(exact.truncated).toBeUndefined();
+    expect(fresh(20, true).truncated).toBeUndefined();
+  });
+
+  it('도구 이름을 앞부분에서 못 읽는 긴 id의 호출도 열어서 경로를 꺼낸다', () => {
+    appendFileSync(path, tool('x'.repeat(600) + '\\"q', 'Write', { file_path: 'long-id.ts' }));
+    stream.poll();
+    expect(peekOf().touchedFiles).toContain('long-id.ts');
+  });
+
   it('맨 마지막이 시각 없는 도구 결과여도 busy로 본다', () => {
     appendFileSync(
       path,

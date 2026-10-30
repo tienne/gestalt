@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CodexTransformer, codexHome, locateCodexRollout } from '../../../src/peer/codex.js';
+import {
+  CodexTransformer,
+  codexHome,
+  locateCodexRollout,
+  subdirs,
+} from '../../../src/peer/codex.js';
 import { ShareStream } from '../../../src/peer/share.js';
 import type { PeerEvent } from '../../../src/peer/transform.js';
 import { FAKE_HOME, FAKE_SECRETS } from '../../fixtures/peer/transcript.js';
@@ -107,6 +112,30 @@ describe('CodexTransformer', () => {
 });
 
 describe('Codex 도구 결과에 든 요약 틀', () => {
+  it.each(['full', 'summary'] as const)(
+    'JSON으로 한 번 더 싸이거나 꺾쇠가 이스케이프된 요약도 숨긴다 (--tools %s)',
+    (tools) => {
+      const frame =
+        '<peer-peek share="tienne/shAAAAAA" status="idle" at="x">\n{"replies":["LEAK_PEEK"]}\n</peer-peek>';
+      const outputs = [
+        JSON.stringify({ content: [{ type: 'text', text: frame }] }),
+        frame.replace(/</g, '\\u003c'),
+      ];
+      for (const output of outputs) {
+        const t = new CodexTransformer({ tools, home: FAKE_HOME });
+        const events = t.push(
+          JSON.stringify({
+            timestamp: '2026-10-30T00:00:00.000Z',
+            type: 'response_item',
+            payload: { type: 'function_call_output', call_id: 'c2', output },
+          }),
+        );
+        expect(events[0]).toMatchObject({ kind: 'tool_result', hidden: true });
+        expect(JSON.stringify(events)).not.toContain('LEAK_PEEK');
+      }
+    },
+  );
+
   it('ges_peer peek 결과는 --tools와 상관없이 숨긴다', () => {
     const t = new CodexTransformer({ tools: 'full', home: FAKE_HOME });
     const events = t.push(
@@ -184,6 +213,28 @@ describe('locateCodexRollout', () => {
     rmSync(join(home, 'sessions', '2026', '10'), { recursive: true });
     writeFileSync(path, codexText());
     expect(locateCodexRollout(id, home)).toEqual({ ok: true, path, home });
+  });
+
+  it('연, 월 디렉토리 바로 아래 둔 rollout도 찾는다', () => {
+    const top = join(home, 'sessions', `rollout-2026-01-01T00-00-00-${id}.jsonl`);
+    rmSync(join(home, 'sessions', '2026'), { recursive: true });
+    writeFileSync(top, codexText());
+    expect(locateCodexRollout(id, home)).toEqual({ ok: true, path: top, home });
+    rmSync(top);
+    mkdirSync(join(home, 'sessions', '2026'), { recursive: true });
+    const inYear = join(home, 'sessions', '2026', `rollout-2026-01-01T00-00-00-${id}.jsonl`);
+    writeFileSync(inYear, codexText());
+    expect(locateCodexRollout(id, home)).toEqual({ ok: true, path: inYear, home });
+  });
+
+  it('.DS_Store 같은 다른 파일은 날짜 꼴 밖으로 안 센다', () => {
+    for (const d of [['sessions'], ['sessions', '2026'], ['sessions', '2026', '10']]) {
+      writeFileSync(join(home, ...d, '.DS_Store'), '');
+    }
+    expect(subdirs(join(home, 'sessions')).odd).toBe(false);
+    expect(subdirs(join(home, 'sessions', '2026')).odd).toBe(false);
+    mkdirSync(join(home, 'sessions', 'archive'));
+    expect(subdirs(join(home, 'sessions')).odd).toBe(true);
   });
 
   it('날짜 디렉토리 밖에 있는 rollout도 전체를 훑어 찾는다', () => {

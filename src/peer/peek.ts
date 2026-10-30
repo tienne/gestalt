@@ -123,10 +123,14 @@ export function buildPeek(input: BuildPeekInput): PeerPeek {
       truncated = true;
       continue;
     }
-    if (json.startsWith(TOOL_CALL_HEAD) && files.length >= PEEK_FILES) {
-      if (TOUCH_NAME.test(json)) truncated = true;
-      // 파일 칸이 차면 할 일만 남았다. TodoWrite가 아닌 호출은 열지 않는다
-      if (todos !== undefined || !json.includes(TODO_NAME)) continue;
+    if (json.startsWith(TOOL_CALL_HEAD)) {
+      // 이름을 앞부분에서 먼저 읽어 요약에 안 쓰는 도구(Bash, Read 등)는 열지 않는다. 못 읽으면 연다
+      const name = toolNameOf(json);
+      if (name !== undefined && !PEEK_TOOLS.has(name)) continue;
+      if (name === TODO_TOOL && todos !== undefined) continue;
+      if (name !== undefined && name !== TODO_TOOL && files.length >= PEEK_FILES && truncated) {
+        continue;
+      }
     }
     let ev: Record<string, unknown>;
     try {
@@ -144,10 +148,10 @@ export function buildPeek(input: BuildPeekInput): PeerPeek {
       if (toolInput === undefined) continue;
       if (ev['name'] === TODO_TOOL) {
         todos ??= todoItems(toolInput);
-      } else if (files.length < PEEK_FILES) {
-        // 새것부터 훑다가 끝에 뒤집으므로 한 호출 안의 경로도 뒤에서부터 넣는다
-        for (const path of touchedPaths(ev['name'], toolInput).reverse()) {
-          if (files.includes(path)) continue;
+      } else {
+        // 새것부터 훑다가 끝에 뒤집으므로 한 호출 안의 경로도 뒤에서부터 넣는다. 이미 담긴 경로는 다시
+        // 고친 것이라 빠진 게 아니다
+        for (const path of newPaths(ev['name'], toolInput, files).reverse()) {
           if (files.length < PEEK_FILES) files.push(path);
           else truncated = true;
         }
@@ -155,10 +159,18 @@ export function buildPeek(input: BuildPeekInput): PeerPeek {
     }
     if (full()) break;
   }
-  // 다 차서 멈췄으면 남은 구간에 프롬프트나 답이 더 있는지 앞부분만 보고 확인한다
+  // 다 차서 멈췄으면 남은 구간에 칸에 못 넣은 프롬프트나 답, 새 파일이 더 있는지 본다
   if (!truncated && full()) {
-    for (const { json } of events) {
+    for (let step = events.next(); !step.done; step = events.next()) {
+      const { json } = step.value;
       if (json.startsWith(PROMPT_HEAD) || json.startsWith(REPLY_HEAD)) {
+        truncated = true;
+        break;
+      }
+      if (!json.startsWith(TOOL_CALL_HEAD)) continue;
+      const name = toolNameOf(json);
+      if (name !== undefined && (name === TODO_TOOL || !PEEK_TOOLS.has(name))) continue;
+      if (newPathsOf(json, files).length > 0) {
         truncated = true;
         break;
       }
@@ -200,8 +212,37 @@ export function buildPeek(input: BuildPeekInput): PeerPeek {
 const PROMPT_HEAD = '{"kind":"prompt"';
 const REPLY_HEAD = '{"kind":"reply"';
 const TOOL_CALL_HEAD = '{"kind":"tool_call"';
-const TOUCH_NAME = /"name":"(?:Edit|Write|MultiEdit|NotebookEdit|apply_patch)"/;
-const TODO_NAME = '"name":"TodoWrite"';
+/** tool_call 이벤트는 kind, id, name 순서다. id와 name을 JSON 문자열 꼴로 앞부분에서 읽는다 */
+const TOOL_NAME_HEAD = /^\{"kind":"tool_call","id":"(?:[^"\\]|\\.)*","name":"((?:[^"\\]|\\.)*)"/;
+/** 요약이 입력을 여는 도구. 나머지 도구 호출은 파싱하지 않는다 */
+const PEEK_TOOLS = new Set([...Object.keys(TOUCH_TOOLS), TODO_TOOL, CODEX_PATCH_TOOL]);
+
+/** tool_call 이벤트의 도구 이름. 앞부분에서 못 읽으면(아주 긴 id 등) undefined라 부르는 쪽이 파싱한다 */
+function toolNameOf(json: string): string | undefined {
+  const m = TOOL_NAME_HEAD.exec(json.slice(0, 512));
+  if (!m) return undefined;
+  try {
+    return JSON.parse(`"${m[1]!}"`) as string;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 그 호출이 고친 경로 가운데 아직 files에 없는 것 */
+function newPaths(name: string, input: string, files: string[]): string[] {
+  return [...new Set(touchedPaths(name, input))].filter((p) => !files.includes(p));
+}
+
+/** 이벤트 JSON 글자에서 newPaths. 꼴이 틀리면 빈 목록 */
+function newPathsOf(json: string, files: string[]): string[] {
+  try {
+    const ev = JSON.parse(json) as { name?: unknown; input?: unknown };
+    if (typeof ev.name !== 'string' || typeof ev.input !== 'string') return [];
+    return newPaths(ev.name, ev.input, files);
+  } catch {
+    return [];
+  }
+}
 
 function isToolResult(json: string): boolean {
   return json.startsWith('{"kind":"tool_result"');
