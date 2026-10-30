@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   claudeConfigDir,
   cwdSlug,
   findSessionByPid,
+  findSessionInAncestors,
   locateTranscript,
 } from '../../../src/peer/locate.js';
 
@@ -85,5 +87,69 @@ describe('locateTranscript', () => {
   it('설정 디렉토리가 없으면 이유를 돌려준다', () => {
     const result = locateTranscript(sid, join(config, 'nope'));
     expect(result).toMatchObject({ ok: false, reason: '설정 디렉토리가 없어요' });
+  });
+});
+
+describe('findSessionInAncestors', () => {
+  let config: string;
+  const sid = '11111111-2222-3333-4444-555555555555';
+  const other = '99999999-2222-3333-4444-555555555555';
+
+  beforeEach(() => {
+    config = resolve('.gestalt-test', `peer-ancestors-${randomUUID()}`);
+    mkdirSync(join(config, 'sessions'), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(config, { recursive: true, force: true });
+  });
+
+  const session = (pid: number, sessionId: string) =>
+    writeFileSync(
+      join(config, 'sessions', `${pid}.json`),
+      JSON.stringify({ pid, sessionId, cwd: '/w' }),
+    );
+  const chain =
+    (links: Record<number, number>) =>
+    (pid: number): number | undefined =>
+      links[pid];
+
+  it('셸이 몇 겹 끼어도 부모를 따라 올라가 첫 세션을 찾는다', () => {
+    session(300, sid);
+    const found = findSessionInAncestors(500, config, {
+      env: {},
+      parentOf: chain({ 500: 400, 400: 300, 300: 200 }),
+    });
+    expect(found?.sessionId).toBe(sid);
+  });
+
+  it('CLAUDE_PID에 세션이 있으면 체인보다 먼저 쓴다. 없으면 체인으로 간다', () => {
+    session(300, sid);
+    session(777, other);
+    const parentOf = chain({ 500: 300 });
+    expect(findSessionInAncestors(500, config, { env: { CLAUDE_PID: '777' }, parentOf })).toEqual(
+      expect.objectContaining({ sessionId: other }),
+    );
+    expect(findSessionInAncestors(500, config, { env: { CLAUDE_PID: '888' }, parentOf })).toEqual(
+      expect.objectContaining({ sessionId: sid }),
+    );
+  });
+
+  it('순환, pid 1, 깊이 상한에서 멈추고 null을 돌려준다', () => {
+    session(1, sid);
+    expect(
+      findSessionInAncestors(500, config, { env: {}, parentOf: chain({ 500: 400, 400: 500 }) }),
+    ).toBeNull();
+    expect(
+      findSessionInAncestors(500, config, { env: {}, parentOf: chain({ 500: 400, 400: 1 }) }),
+    ).toBeNull();
+    session(100, sid);
+    const long = chain({ 500: 400, 400: 300, 300: 200, 200: 100 });
+    expect(
+      findSessionInAncestors(500, config, { env: {}, parentOf: long, maxDepth: 2 }),
+    ).toBeNull();
+    expect(findSessionInAncestors(500, config, { env: {}, parentOf: long, maxDepth: 4 })).toEqual(
+      expect.objectContaining({ sessionId: sid }),
+    );
   });
 });
