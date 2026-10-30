@@ -489,7 +489,8 @@ describe('redactText', () => {
       }
       expect(best, JSON.stringify(input.slice(0, 16))).toBeLessThan(300);
     }
-  });
+    // 상한은 입력마다 300ms다. 1MB 입력 열여섯 개를 세 번씩 돌린 합은 바쁜 머신에서 기본 5초를 넘어서 테스트 전체 시한만 넓힌다
+  }, 30_000);
 });
 
 describe('redactValue', () => {
