@@ -1,0 +1,19 @@
+{
+  "slug": "bert-pre-training-of-deep-bidirectional-transformers-fo-33769e0b",
+  "url": "https://arxiv.org/pdf/1810.04805",
+  "segments": [88, 92, 97, 99, 108],
+  "tables": {
+    "table-3": {
+      "unit": 0,
+      "originalUnit": 88
+    },
+    "table-5": {
+      "unit": 3,
+      "originalUnit": 99
+    },
+    "table-6": {
+      "unit": 4,
+      "originalUnit": 108
+    }
+  }
+}

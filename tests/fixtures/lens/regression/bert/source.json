@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0.0",
+  "slug": "bert-pre-training-of-deep-bidirectional-transformers-fo-33769e0b",
+  "kind": "pdf",
+  "pages": [],
+  "tables": [
+    {
+      "id": "table-3",
+      "number": "3",
+      "caption": "Table 3: SQuAD 2.0 results. We exclude entries that use BERT as one of their components.",
+      "page": 7,
+      "bbox": [80.9, 62.2, 281.4, 432.4],
+      "rows": [
+        ["System Dev Test EM F1 EM F1"],
+        ["Top Leaderboard Systems (Dec 10th, 2018)"],
+        ["Human - - 82.3 91.2"],
+        ["#1 Ensemble - nlnet - - 86.0 91.7"],
+        ["#2 Ensemble - QANet - - 84.5 90.5"],
+        ["Published"],
+        ["BiDAF+ELMo (Single) - 85.6 - 85.8"],
+        ["R.M. Reader (Ensemble) 81.2 87.9 82.3 88.5"],
+        ["Ours"],
+        ["BERT BASE (Single) 80.8 88.5 - -"],
+        ["BERT LARGE (Single) 84.1 90.9 - -"],
+        ["BERT LARGE (Ensemble) 85.8 91.8 - -"],
+        ["BERT LARGE (Sgl.+TriviaQA) 84.2 91.1 85.1 91.8"],
+        ["BERT LARGE (Ens.+TriviaQA) 86.2 92.2 87.4 93.2"],
+        ["able 2: SQuAD 1.1 results. The BERT ensemb"],
+        ["7x systems which use different pre-training chec"],
+        ["oints and fine-tuning seeds."],
+        ["System Dev Test"],
+        ["EM F1 EM F1"],
+        ["Top Leaderboard Systems (Dec 10th, 2018)"],
+        ["Human 86.3 89.0 86.9 89.5"],
+        ["#1 Single - MIR-MRC (F-Net) - - 74.8 78.0"],
+        ["#2 Single - nlnet - - 74.2 77.1"],
+        ["Published"],
+        ["unet (Ensemble) - - 71.4 74.9"],
+        ["SLQA+ (Single) - 71.4 74.4"],
+        ["Ours"],
+        ["BERT LARGE (Single) 78.7 81.9 80.0 83.1"]
+      ],
+      "grid": "loose",
+      "unit": 0
+    },
+    {
+      "id": "table-5",
+      "number": "5",
+      "caption": "Table 5: Ablation over the pre-training tasks using the BERT the next sentence prediction task. “LTR & No NSP” is trained as a left-to-right LM without the next sentence prediction, like OpenAI GPT. “+ BiLSTM” adds a randomly initialized BiLSTM on top of the “LTR + No NSP” model during fine-tuning.",
+      "page": 8,
+      "bbox": [70, 62.2, 294.1, 145.3],
+      "rows": [
+        ["Tasks", "MNLI-m (Acc)", "QNLI (Acc)", "Dev Set MRPC (Acc)", "SST-2 (Acc)", "SQuAD (F1)"],
+        ["BERT BASE", "84.4", "88.4", "86.7", "92.7", "88.5"],
+        ["No NSP", "83.9", "84.9", "86.5", "92.6", "87.9"],
+        ["LTR & No NSP", "82.1", "84.3", "77.5", "92.1", "77.8"],
+        ["+ BiLSTM", "82.1", "84.1", "75.7", "91.6", "84.9"]
+      ],
+      "grid": "ok",
+      "unit": 3
+    },
+    {
+      "id": "table-6",
+      "number": "6",
+      "caption": "Table 6: Ablation over BERT model size. #L = the number of layers; #H = hidden size; #A = number of attention heads. “LM (ppl)” is the masked LM perplexity of held-out training data.",
+      "page": 9,
+      "bbox": [83.6, 602.3, 278.7, 700.8],
+      "rows": [
+        ["Hyperparams", "", "", "", "Dev Set", "Accuracy", ""],
+        ["#L", "#H", "#A", "LM (ppl)", "MNLI-m", "MRPC", "SST-2"],
+        ["3", "768", "12", "5.84", "77.9", "79.8", "88.4"],
+        ["6", "768", "3", "5.24", "80.6", "82.2", "90.7"],
+        ["6", "768", "12", "4.68", "81.9", "84.8", "91.3"],
+        ["12", "768", "12", "3.99", "84.4", "86.7", "92.9"],
+        ["12", "1024", "16", "3.54", "85.7", "86.9", "93.3"],
+        ["24", "1024", "16", "3.23", "86.6", "87.8", "93.7"]
+      ],
+      "grid": "ok",
+      "unit": 4
+    }
+  ],
+  "figures": []
+}

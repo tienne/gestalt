@@ -107,6 +107,27 @@ describe('ingestLens (pdf)', () => {
     expect(r.warnings.join('\n')).toContain('figure-1');
   });
 
+  it('메타데이터 제목이 없으면 첫 쪽의 가장 큰 줄을 첫 heading보다 먼저 쓴다', async () => {
+    const titleOf = async (extract: object) => {
+      const root = repo();
+      const run: RunCommand = async (_cmd, args) => {
+        mkdirSync(join(args[4]!, 'pages'), { recursive: true });
+        writeFileSync(join(args[4]!, 'pages', 'p1.jpg'), 'jpg');
+        return { stdout: `${JSON.stringify(extract)}\n`, stderr: '' };
+      };
+      return (await ingestLens(pdfFile(root), { repoRoot: root, run, python: '/usr/bin/python3' }))
+        .title;
+    };
+    // Attention 논문처럼 첫 heading이 제목 위의 저작권 안내문인 경우
+    expect(await titleOf({ ...EXTRACT, layoutTitle: 'Attention Is All You Need' })).toBe(
+      'Attention Is All You Need',
+    );
+    expect(await titleOf({ ...EXTRACT, title: 'Meta Title', layoutTitle: 'Layout' })).toBe(
+      'Meta Title',
+    );
+    expect(await titleOf({ ...EXTRACT, layoutTitle: '' })).toBe('A Paper Title');
+  });
+
   it('PDF가 아닌 파일은 거절한다', async () => {
     const root = repo();
     const p = join(root, 'fake.pdf');

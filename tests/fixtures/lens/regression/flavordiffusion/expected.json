@@ -1,0 +1,103 @@
+{
+  "paper": {
+    "title": "FlavorDiffusion: Modeling Food-Chemical Interactions with Diffusion",
+    "url": "https://aclanthology.org/2025.aisd-main.7.pdf",
+    "slug": "flavordiffusion-modeling-food-chemical-interactions-wit-1450e0fd"
+  },
+  "doubts": [
+    {
+      "id": "fd-csp-50-nodes",
+      "kind": "direction",
+      "bulletText": "본문은 CSP 층이 학습한 재료 임베딩을 크게 개선한다고 쓴다.",
+      "bulletCite": { "key": 0, "from": 0, "to": 0 },
+      "doubt": {
+        "note": "표 4에서 노드 50개는 CSP를 켜면 NMI가 0.3236에서 0.2862로 떨어진다.",
+        "evidence": [
+          { "table": "table-4", "row": 4, "col": 1 },
+          { "table": "table-4", "row": 8, "col": 1 }
+        ],
+        "direction": {
+          "from": { "table": "table-4", "row": 4, "col": 1 },
+          "to": { "table": "table-4", "row": 8, "col": 1 },
+          "claim": "increase",
+          "better": "higher"
+        }
+      }
+    },
+    {
+      "id": "fd-creative-scores",
+      "kind": "number",
+      "bulletText": "본문은 모델이 간장과 바닐라 같은 새 조합을 제안해 새 맛을 찾는 길을 연다고 쓴다.",
+      "bulletCite": { "key": 2, "from": 2, "to": 2 },
+      "doubt": {
+        "note": "표 6 창의 조합의 평균 점수는 0.0003~0.0006으로 표 5 확신 조합의 0.4663~0.7114에 한참 못 미친다.",
+        "evidence": [
+          { "table": "table-6", "row": 1, "col": 2 },
+          { "table": "table-6", "row": 4, "col": 2 },
+          { "table": "table-5", "row": 1, "col": 2 },
+          { "table": "table-5", "row": 5, "col": 2 }
+        ]
+      }
+    }
+  ],
+  "decoys": [
+    {
+      "id": "fd-x-csp-25-agrees",
+      "reason": "노드 25개는 CSP를 켜면 0.2167에서 0.2970으로 올라 본문 주장대로다",
+      "expectedCode": "DOUBT_DIRECTION_AGREES",
+      "bulletCite": { "key": 0, "from": 0, "to": 0 },
+      "doubt": {
+        "note": "표 4에서 노드 25개는 CSP를 켜면 0.2167에서 0.2970이 된다.",
+        "evidence": [
+          { "table": "table-4", "row": 3, "col": 1 },
+          { "table": "table-4", "row": 7, "col": 1 }
+        ],
+        "direction": {
+          "from": { "table": "table-4", "row": 3, "col": 1 },
+          "to": { "table": "table-4", "row": 7, "col": 1 },
+          "claim": "increase",
+          "better": "higher"
+        }
+      }
+    },
+    {
+      "id": "fd-x-computed-gap",
+      "reason": "두 칸의 차이 0.0374를 계산해 note에 적었다",
+      "expectedCode": "DOUBT_NUMBER_UNKNOWN",
+      "bulletCite": { "key": 0, "from": 0, "to": 0 },
+      "doubt": {
+        "note": "노드 50개에서 CSP를 켜면 0.3236에서 0.2862로 0.0374 떨어진다.",
+        "evidence": [
+          { "table": "table-4", "row": 4, "col": 1 },
+          { "table": "table-4", "row": 8, "col": 1 }
+        ]
+      }
+    },
+    {
+      "id": "fd-x-interpretation-only",
+      "reason": "숫자 없이 해석만 적었다",
+      "expectedCode": "DOUBT_NOT_NUMERIC",
+      "bulletCite": { "key": 0, "from": 0, "to": 0 },
+      "doubt": {
+        "note": "CSP 효과가 노드 수마다 들쭉날쭉해서 개선한다고 말하기 어렵다.",
+        "evidence": [{ "table": "table-4", "row": 4, "col": 1 }]
+      }
+    },
+    {
+      "id": "fd-x-header-cell",
+      "reason": "방향 의심의 from이 머리줄 칸(NMI Mean)을 가리킨다",
+      "expectedCode": "DOUBT_DIRECTION_NOT_NUMERIC",
+      "bulletCite": { "key": 0, "from": 0, "to": 0 },
+      "doubt": {
+        "note": "표 4에서 노드 50개는 CSP를 켜면 0.2862가 된다.",
+        "evidence": [{ "table": "table-4", "row": 8, "col": 1 }],
+        "direction": {
+          "from": { "table": "table-4", "row": 0, "col": 1 },
+          "to": { "table": "table-4", "row": 8, "col": 1 },
+          "claim": "increase",
+          "better": "higher"
+        }
+      }
+    }
+  ]
+}

@@ -97,7 +97,8 @@ describe('docCommitDates와 scan_docs', () => {
   beforeEach(() => {
     tmpRoot = resolve('.gestalt-test', `doc-fresh-${randomUUID()}`);
     mkdirSync(kb(), { recursive: true });
-    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: kb() });
+    execFileSync('git', ['init', '-q'], { cwd: kb() });
+    execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], { cwd: kb() });
     put('README.md', '# 지식\n\n- [주문](./domains/주문.md)\n');
     put('domains/주문.md', '---\nupdated: 2025-01-01\n---\n# 주문\n');
     put('domains/환불.md', '# 환불\n');

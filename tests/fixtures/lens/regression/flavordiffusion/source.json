@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1.0.0",
+  "slug": "flavordiffusion-modeling-food-chemical-interactions-wit-1450e0fd",
+  "kind": "pdf",
+  "pages": [],
+  "tables": [
+    {
+      "id": "table-4",
+      "number": "4",
+      "caption": "Table 4: Performance Comparison Using NMI Metric. *CSP shorts for chemical structure prediction.",
+      "page": 6,
+      "bbox": [304.1, 250.9, 526.4, 366.4],
+      "rows": [
+        ["Model", "NMI Mean", "NMI Std"],
+        ["FlavorGraph [Park et al., 2021]", "0.2995", "0.0403"],
+        ["FlavorGraph_CSP [Park et al., 2021]", "0.3102", "0.0407"],
+        ["Flavor Diffusion (25 nodes)", "0.2167", "0.0319"],
+        ["Flavor Diffusion (50 nodes)", "0.3236", "0.0134"],
+        ["Flavor Diffusion (100 nodes)", "0.3170", "0.0207"],
+        ["Flavor Diffusion (200 nodes)", "0.2935", "0.0300"],
+        ["Flavor Diffusion_CSP (25 nodes)", "0.2970", "0.0144"],
+        ["Flavor Diffusion_CSP (50 nodes)", "0.2862", "0.0152"],
+        ["Flavor Diffusion_CSP (100 nodes)", "0.3169", "0.0257"],
+        ["Flavor Diffusion_CSP (200 nodes)", "0.3410", "0.0150"]
+      ],
+      "grid": "ok",
+      "unit": 1
+    },
+    {
+      "id": "table-5",
+      "number": "5",
+      "caption": "Table 5: Top 5 High-Confidence Ingredient Pairings",
+      "page": 7,
+      "bbox": [306, 261.4, 526.4, 320.9],
+      "rows": [
+        ["Ingredient 1", "Ingredient 2", "Mean Score", "Std Dev"],
+        ["Red Chili Powder", "Turmeric Powder", "0.7114", "0.0882"],
+        ["Coriander Powder", "Turmeric Powder", "0.6057", "0.0827"],
+        ["Asafoetida Powder", "Turmeric Powder", "0.5930", "0.0846"],
+        ["Garam Masala Powder", "Turmeric Powder", "0.5178", "0.1055"],
+        ["Cumin Powder", "Turmeric Powder", "0.4663", "0.1525"]
+      ],
+      "grid": "ok",
+      "unit": 3
+    },
+    {
+      "id": "table-6",
+      "number": "6",
+      "caption": "Table 6: Top 5 Creative Ingredient Pairings Suggested by Flavor Diffusion",
+      "page": 7,
+      "bbox": [306.1, 485.4, 526.4, 548.9],
+      "rows": [
+        ["Ingredient 1", "Ingredient 2", "Mean Score", "Std Dev"],
+        ["Soy Sauce", "Vanilla Extract", "0.0006", "0.0001"],
+        ["Garlic Paste", "Dark Chocolate", "0.0005", "0.0001"],
+        ["Cumin Powder", "Coffee Beans", "0.0004", "0.0002"],
+        ["Green Cardamom", "Parmesan Cheese", "0.0003", "0.0002"],
+        ["Olive Oil", "Black Tea", "0.0004", "0.0001"]
+      ],
+      "grid": "ok",
+      "unit": 4
+    }
+  ],
+  "figures": []
+}

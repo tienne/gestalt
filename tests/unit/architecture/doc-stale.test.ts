@@ -144,7 +144,8 @@ describe('ges_architecture stale_docs', () => {
   it('diffBase를 주면 코드 레포에서 git diff로 바뀐 파일을 찾는다', async () => {
     const api = join(tmpRoot, 'acme-api');
     put('acme-api/orders/src/OrderController.java', 'class A {}\n');
-    git(api, 'init', '-q', '-b', 'main');
+    git(api, 'init', '-q');
+    git(api, 'symbolic-ref', 'HEAD', 'refs/heads/main');
     git(api, 'add', '.');
     git(api, 'commit', '-q', '-m', 'init');
     put('acme-api/orders/src/OrderController.java', 'class B {}\n');

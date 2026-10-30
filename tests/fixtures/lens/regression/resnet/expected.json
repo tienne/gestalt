@@ -1,0 +1,154 @@
+{
+  "paper": {
+    "title": "Deep Residual Learning for Image Recognition",
+    "url": "https://arxiv.org/pdf/1512.03385",
+    "slug": "deep-residual-learning-for-image-recognition-523013cf"
+  },
+  "doubts": [],
+  "decoys": [
+    {
+      "id": "res-x-plain-degradation",
+      "reason": "깊은 plain 망이 더 나쁘다는 건 본문이 스스로 밝힌 사실이고 표 2도 27.94에서 28.54로 그대로 움직인다",
+      "expectedCode": "DOUBT_DIRECTION_AGREES",
+      "bulletCite": {
+        "key": 0,
+        "from": 0,
+        "to": 0
+      },
+      "doubt": {
+        "note": "표 2에서 plain 망은 18층 27.94, 34층 28.54다.",
+        "evidence": [
+          {
+            "table": "table-2",
+            "row": 1,
+            "col": 1
+          },
+          {
+            "table": "table-2",
+            "row": 2,
+            "col": 1
+          }
+        ],
+        "direction": {
+          "from": {
+            "table": "table-2",
+            "row": 1,
+            "col": 1
+          },
+          "to": {
+            "table": "table-2",
+            "row": 2,
+            "col": 1
+          },
+          "claim": "decrease",
+          "better": "lower"
+        }
+      }
+    },
+    {
+      "id": "res-x-computed-gap",
+      "reason": "두 칸의 차이 0.6을 계산해 note에 적었다",
+      "expectedCode": "DOUBT_NUMBER_UNKNOWN",
+      "bulletCite": {
+        "key": 0,
+        "from": 0,
+        "to": 0
+      },
+      "doubt": {
+        "note": "plain-34는 28.54로 plain-18의 27.94보다 오차가 0.6 높다.",
+        "evidence": [
+          {
+            "table": "table-2",
+            "row": 1,
+            "col": 1
+          },
+          {
+            "table": "table-2",
+            "row": 2,
+            "col": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "res-x-loose-table-5",
+      "reason": "source.json의 table-5는 원문 표 4와 표 5가 한 칸짜리 줄로 뭉친 loose 표다",
+      "expectedCode": "DOUBT_DIRECTION_LOOSE_TABLE",
+      "bulletCite": {
+        "key": 3,
+        "from": 3,
+        "to": 3
+      },
+      "doubt": {
+        "note": "표 5에서 ResNet-34 B는 21.84, ResNet-34 C는 21.53이다.",
+        "evidence": [
+          {
+            "table": "table-5",
+            "row": 6,
+            "col": 0
+          },
+          {
+            "table": "table-5",
+            "row": 7,
+            "col": 0
+          },
+          {
+            "cite": {
+              "key": 3,
+              "from": 3,
+              "to": 3
+            }
+          }
+        ],
+        "direction": {
+          "from": {
+            "table": "table-5",
+            "row": 6,
+            "col": 0
+          },
+          "to": {
+            "table": "table-5",
+            "row": 7,
+            "col": 0
+          },
+          "claim": "increase",
+          "better": "lower"
+        }
+      }
+    },
+    {
+      "id": "res-x-header-cell",
+      "reason": "방향 의심의 from이 머리줄 칸(plain)을 가리킨다",
+      "expectedCode": "DOUBT_DIRECTION_NOT_NUMERIC",
+      "bulletCite": {
+        "key": 1,
+        "from": 1,
+        "to": 1
+      },
+      "doubt": {
+        "note": "표 2에서 34층 ResNet은 25.03이다.",
+        "evidence": [
+          {
+            "table": "table-2",
+            "row": 2,
+            "col": 2
+          }
+        ],
+        "direction": {
+          "from": {
+            "table": "table-2",
+            "row": 0,
+            "col": 1
+          },
+          "to": {
+            "table": "table-2",
+            "row": 2,
+            "col": 2
+          },
+          "claim": "increase",
+          "better": "lower"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0.0",
+  "slug": "a-81153ab9",
+  "kind": "pdf",
+  "pages": [],
+  "tables": [
+    {
+      "id": "table-2",
+      "number": "2",
+      "caption": "Table 2: Comparison with state of the art on popular image classification benchmarks. We re-",
+      "page": 6,
+      "bbox": [106, 38.2, 506, 197.7],
+      "rows": [
+        ["", "Ours-JFT", "Ours-JFT", "Ours-I21k", "BiT-L", "Noisy Student"],
+        ["", "(ViT-H/14)", "(ViT-L/16)", "(ViT-L/16)", "(ResNet152x4)", "(EfficientNet-L2)"],
+        [
+          "ImageNet",
+          "88.55 ± 0.04",
+          "87.76 ± 0.03",
+          "85.30 ± 0.02",
+          "87.54 ± 0.02",
+          "88.4 / 88.5 ∗"
+        ],
+        ["ImageNet ReaL", "90.72 ± 0.05", "90.54 ± 0.03", "88.62 ± 0.05", "90.54", "90.55"],
+        ["CIFAR-10", "99.50 ± 0.06", "99.42 ± 0.03", "99.15 ± 0.03", "99.37 ± 0.06", "−"],
+        ["CIFAR-100", "94.55 ± 0.04", "93.90 ± 0.05", "93.25 ± 0.05", "93.51 ± 0.08", "−"],
+        ["Oxford-IIIT Pets", "97.56 ± 0.03", "97.32 ± 0.11", "94.67 ± 0.15", "96.62 ± 0.23", "−"],
+        ["Oxford Flowers-102", "99.68 ± 0.02", "99.74 ± 0.00", "99.61 ± 0.02", "99.63 ± 0.03", "−"],
+        ["VTAB (19 tasks)", "77.63 ± 0.23", "76.28 ± 0.46", "72.72 ± 0.21", "76.29 ± 1.70", "−"],
+        ["TPUv3-core-days", "2.5 k", "0.68 k", "0.23 k", "9.9 k", "12.3 k"]
+      ],
+      "grid": "ok",
+      "unit": 1
+    },
+    {
+      "id": "table-6",
+      "number": "6",
+      "caption": "Table 6: Detailed results of model scaling experiments. These correspond to Figure 5 in the main",
+      "page": 15,
+      "bbox": [106, 38.2, 506, 560.4],
+      "rows": [
+        ["ViT-B/16 ViT-B/32 ViT-L/16 ViT-L/32 ViT-H/14"],
+        ["ImageNet CIFAR-10 98.13 97.77 97.86 97.94 -"],
+        ["CIFAR-100 87.13 86.31 86.35 87.07 -"],
+        ["ImageNet 77.91 73.38 76.53 71.16 -"],
+        ["ImageNet ReaL 83.57 79.56 82.19 77.83 -"],
+        ["Oxford Flowers-102 89.49 85.43 89.66 86.36 -"],
+        ["Oxford-IIIT-Pets 93.81 92.04 93.64 91.35 -"],
+        ["ImageNet-21k CIFAR-10 98.95 98.79 99.16 99.13 99.27"],
+        ["CIFAR-100 91.67 91.97 93.44 93.04 93.82"],
+        ["ImageNet 83.97 81.28 85.15 80.99 85.13"],
+        ["ImageNet ReaL 88.35 86.63 88.40 85.65 88.70"],
+        ["Oxford Flowers-102 99.38 99.11 99.61 99.19 99.51"],
+        ["Oxford-IIIT-Pets 94.43 93.02 94.73 93.09 94.82"],
+        ["JFT-300M CIFAR-10 99.00 98.61 99.38 99.19 99.50"],
+        ["CIFAR-100 91.87 90.49 94.04 92.52 94.55"],
+        ["ImageNet 84.15 80.73 87.12 84.37 88.04"],
+        ["ImageNet ReaL 88.85 86.27 89.99 88.28 90.33"],
+        ["Oxford Flowers-102 99.56 99.27 99.56 99.45 99.68"],
+        ["Oxford-IIIT-Pets 95.80 93.40 97.11 95.83 97.56"],
+        [
+          "Table 5: Top1 accuracy (in %) of Vision Transformer on various datasets when pre-trained on Im-"
+        ],
+        [
+          "ageNet, ImageNet-21k or JFT300M. These values correspond to Figure 3 in the main text. Models"
+        ],
+        [
+          "are fine-tuned at 384 resolution. Note that the ImageNet results are computed without additional"
+        ],
+        [
+          "techniques (Polyak averaging and 512 resolution images) used to achieve results in Table 2."
+        ],
+        ["Epochs ImageNet ImageNet ReaL CIFAR-10 CIFAR-100 Pets Flowers exaFLOPs"],
+        ["name"],
+        ["ViT-B/32 7 80.73 86.27 98.61 90.49 93.40 99.27 55"],
+        ["ViT-B/16 7 84.15 88.85 99.00 91.87 95.80 99.56 224"],
+        ["ViT-L/32 7 84.37 88.28 99.19 92.52 95.83 99.45 196"],
+        ["ViT-L/16 7 86.30 89.43 99.38 93.46 96.81 99.66 783"],
+        ["ViT-L/16 14 87.12 89.99 99.38 94.04 97.11 99.56 1567"],
+        ["ViT-H/14 14 88.08 90.36 99.50 94.71 97.11 99.71 4262"],
+        ["ResNet50x1 7 77.54 84.56 97.67 86.07 91.11 94.26 50"],
+        ["ResNet50x2 7 82.12 87.94 98.29 89.20 93.43 97.02 199"],
+        ["ResNet101x1 7 80.67 87.07 98.48 89.17 94.08 95.95 96"],
+        ["ResNet152x1 7 81.88 87.96 98.82 90.22 94.17 96.94 141"],
+        ["ResNet152x2 7 84.97 89.69 99.06 92.05 95.37 98.62 563"],
+        ["ResNet152x2 14 85.56 89.89 99.24 91.92 95.75 98.75 1126"],
+        ["ResNet200x3 14 87.22 90.15 99.34 93.53 96.32 99.04 3306"],
+        ["R50x1+ViT-B/32 7 84.90 89.15 99.01 92.24 95.75 99.46 106"],
+        ["R50x1+ViT-B/16 7 85.58 89.65 99.14 92.63 96.65 99.40 274"],
+        ["R50x1+ViT-L/32 7 85.68 89.04 99.24 92.93 96.97 99.43 246"],
+        ["R50x1+ViT-L/16 7 86.60 89.72 99.18 93.64 97.03 99.40 859"],
+        ["R50x1+ViT-L/16 14 87.12 89.76 99.31 93.89 97.36 99.11 1668"]
+      ],
+      "grid": "loose",
+      "unit": 3
+    }
+  ],
+  "figures": []
+}

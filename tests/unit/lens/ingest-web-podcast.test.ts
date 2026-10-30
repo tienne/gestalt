@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { request } from 'node:http';
+import { createServer, request } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import type { AddressInfo } from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,7 +10,12 @@ import { readLensSource } from '../../../src/digest/lens-source.js';
 import { DigestServer } from '../../../src/digest/server.js';
 import { DigestStore } from '../../../src/digest/store.js';
 import type { RunCommand } from '../../../src/digest/ytdlp.js';
-import { ingestLens, installModel } from '../../../src/lens/ingest.js';
+import {
+  ingestLens,
+  installModel,
+  pinnedFetch,
+  type PinnedFetch,
+} from '../../../src/lens/ingest.js';
 import { assignSpeakers, audioExt, pickEpisode } from '../../../src/lens/podcast.js';
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -27,6 +34,14 @@ const FEED = `<?xml version="1.0"?><rss><channel><title>News &amp; Notes</title>
 <enclosure url="https://cdn.example.com/ep2.mp3?x=1&amp;y=2" type="audio/mpeg"/></item>
 <item><title>Episode 1</title><enclosure url="https://cdn.example.com/ep1.m4a"/></item>
 </channel></rss>`;
+
+/** 고정 접속을 fetchImpl로 흘려보내고 어느 IP로 고정했는지 적는다 */
+const pinnedVia =
+  (fetchImpl: typeof fetch, pins: Array<{ url: string; address: string }> = []): PinnedFetch =>
+  (url, address, init) => {
+    pins.push({ url, address });
+    return fetchImpl(url, { ...init, redirect: 'manual' });
+  };
 
 describe('팟캐스트 피드', () => {
   it('최신 에피소드부터 고르고 CDATA와 엔티티를 푼다', () => {
@@ -161,6 +176,7 @@ describe('ingestLens (podcast)', () => {
       fetchImpl,
       python: '/usr/bin/python3',
       whisperModel: 'base',
+      pinnedFetch: pinnedVia(fetchImpl),
       lookup: async () => ['93.184.216.34'],
     });
     expect(fetched).toEqual([
@@ -302,6 +318,70 @@ describe('ingestLens (podcast, 화자 구분)', () => {
   });
 });
 
+describe('pinnedFetch', () => {
+  it('호스트명을 다시 풀지 않고 지정한 IP로 연결하며 Host 헤더는 원래 이름을 둔다', async () => {
+    const seen: Array<{ host?: string; ua?: string }> = [];
+    const server = createServer((req, res) => {
+      seen.push({ host: req.headers.host, ua: req.headers['user-agent'] });
+      res.writeHead(200, { 'content-type': 'audio/mpeg' });
+      res.end('ID3audio');
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    cleanups.push(() => new Promise<void>((done) => server.close(() => done())));
+    const { port } = server.address() as AddressInfo;
+
+    const res = await pinnedFetch(`http://pinned.invalid:${port}/ep.mp3`, '127.0.0.1', {
+      headers: { 'User-Agent': 'lens-test' },
+      signal: AbortSignal.timeout(5000),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('audio/mpeg');
+    expect(await res.text()).toBe('ID3audio');
+    expect(seen).toEqual([{ host: `pinned.invalid:${port}`, ua: 'lens-test' }]);
+  });
+
+  // tests/fixtures/lens/tls의 인증서는 pinned.test 이름으로만 발급한 자체 서명 인증서다(2126년까지)
+  const TLS = join(fileURLToPath(new URL('../../fixtures/lens/tls', import.meta.url)));
+  const tlsServer = async () => {
+    const names: Array<string | false> = [];
+    const server = createHttpsServer(
+      { key: readFileSync(join(TLS, 'key.pem')), cert: readFileSync(join(TLS, 'cert.pem')) },
+      (_req, res) => res.end('ID3audio'),
+    );
+    server.on('secureConnection', (socket) => names.push(socket.servername));
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    cleanups.push(() => new Promise<void>((done) => server.close(() => done())));
+    return { port: (server.address() as AddressInfo).port, names };
+  };
+  const ca = () => readFileSync(join(TLS, 'cert.pem'), 'utf8');
+
+  it('https는 IP로 붙되 SNI와 인증서 검증은 원래 호스트 이름으로 한다', async () => {
+    const { port, names } = await tlsServer();
+    const res = await pinnedFetch(`https://pinned.test:${port}/ep.mp3`, '127.0.0.1', {
+      ca: ca(),
+      signal: AbortSignal.timeout(5000),
+    });
+    expect(await res.text()).toBe('ID3audio');
+    expect(names).toEqual(['pinned.test']);
+  });
+
+  it('인증서 이름과 다른 호스트면 IP가 같아도 TLS 검증에서 막힌다', async () => {
+    const { port } = await tlsServer();
+    await expect(
+      pinnedFetch(`https://other.test:${port}/ep.mp3`, '127.0.0.1', {
+        ca: ca(),
+        signal: AbortSignal.timeout(5000),
+      }),
+    ).rejects.toThrow(/other\.test|altnames|certificate/i);
+  });
+
+  it('IP가 아닌 고정 주소는 거절한다', async () => {
+    await expect(pinnedFetch('http://a.example.com/x', 'a.example.com')).rejects.toThrow(
+      /IP가 아니/,
+    );
+  });
+});
+
 describe('ingestLens (podcast, 주소 검사)', () => {
   const whisperRun: RunCommand = async () => ({
     stdout: `\n${JSON.stringify({ language: 'en', duration: 3, segments: [{ start: 0, text: 'Hi.' }] })}\n`,
@@ -345,6 +425,7 @@ describe('ingestLens (podcast, 주소 검사)', () => {
         repoRoot: repo(),
         run: whisperRun,
         fetchImpl,
+        pinnedFetch: pinnedVia(fetchImpl),
         python: '/usr/bin/python3',
         lookup: async () => ['93.184.216.34'],
       }),
@@ -391,11 +472,110 @@ describe('ingestLens (podcast, 주소 검사)', () => {
         repoRoot: repo(),
         run: whisperRun,
         fetchImpl,
+        pinnedFetch: pinnedVia(fetchImpl),
         python: '/usr/bin/python3',
         lookup: async () => ['93.184.216.34'],
       }),
     ).rejects.toThrow(/내부망/);
     expect(fetched).toEqual(['https://feeds.example.com/show', 'https://cdn.example.com/ep.mp3']);
+  });
+
+  it('검사 뒤에 DNS 답이 루프백으로 바뀌어도 첫 검사의 공개 IP로만 접속한다', async () => {
+    const lookups: string[] = [];
+    const answers = ['93.184.216.34', '127.0.0.1'];
+    const pins: Array<{ url: string; address: string }> = [];
+    const fetchImpl = (async (url: string) =>
+      String(url).includes('feeds.')
+        ? new Response(feedOf('https://cdn.example.com/ep.mp3'), { status: 200 })
+        : new Response(Buffer.from('ID3audio'), { status: 200 })) as typeof fetch;
+    const r = await ingestLens('https://feeds.example.com/show', {
+      repoRoot: repo(),
+      run: whisperRun,
+      fetchImpl,
+      pinnedFetch: pinnedVia(fetchImpl, pins),
+      python: '/usr/bin/python3',
+      lookup: async (host) => {
+        lookups.push(host);
+        return [answers[lookups.length - 1] ?? '127.0.0.1'];
+      },
+    });
+    expect(r.kind).toBe('podcast');
+    expect(lookups).toEqual(['cdn.example.com']);
+    expect(pins).toEqual([{ url: 'https://cdn.example.com/ep.mp3', address: '93.184.216.34' }]);
+  });
+
+  it('첫 주소로 연결이 안 되면 검사한 다음 주소로 넘어간다', async () => {
+    const pins: Array<{ url: string; address: string }> = [];
+    const fetchImpl = (async (url: string) =>
+      String(url).includes('feeds.')
+        ? new Response(feedOf('https://cdn.example.com/ep.mp3'), { status: 200 })
+        : new Response(Buffer.from('ID3audio'), { status: 200 })) as typeof fetch;
+    const flaky: PinnedFetch = (url, address, init) => {
+      pins.push({ url, address });
+      if (address === '2001:4860::1') return Promise.reject(new Error('connect ENETUNREACH'));
+      return fetchImpl(url, { ...init, redirect: 'manual' });
+    };
+    const r = await ingestLens('https://feeds.example.com/show', {
+      repoRoot: repo(),
+      run: whisperRun,
+      fetchImpl,
+      pinnedFetch: flaky,
+      python: '/usr/bin/python3',
+      lookup: async () => ['2001:4860::1', '93.184.216.34'],
+    });
+    expect(r.kind).toBe('podcast');
+    expect(pins.map((p) => p.address)).toEqual(['2001:4860::1', '93.184.216.34']);
+  });
+
+  it('리다이렉트 홉마다 그 홉의 검사 결과로 고정하고 사설 주소로 풀리는 홉에서 멈춘다', async () => {
+    const ips: Record<string, string> = {
+      'cdn.example.com': '93.184.216.34',
+      'mirror.example.net': '198.51.100.7',
+      'edge.example.org': '203.0.113.9',
+      'evil.example.org': '10.0.0.5',
+    };
+    const hops: Record<string, string> = {
+      'https://cdn.example.com/ep.mp3': 'https://mirror.example.net/ep.mp3',
+      'https://mirror.example.net/ep.mp3': 'https://edge.example.org/ep.mp3',
+    };
+    const fetchImpl = (async (url: string) => {
+      const u = String(url);
+      if (u.includes('feeds.'))
+        return new Response(feedOf('https://cdn.example.com/ep.mp3'), { status: 200 });
+      const next = hops[u];
+      if (next) return new Response(null, { status: 302, headers: { location: next } });
+      return new Response(Buffer.from('ID3audio'), { status: 200 });
+    }) as typeof fetch;
+    const lookup = async (host: string) => [ips[host] ?? '127.0.0.1'];
+
+    const pins: Array<{ url: string; address: string }> = [];
+    await ingestLens('https://feeds.example.com/show', {
+      repoRoot: repo(),
+      run: whisperRun,
+      fetchImpl,
+      pinnedFetch: pinnedVia(fetchImpl, pins),
+      python: '/usr/bin/python3',
+      lookup,
+    });
+    expect(pins).toEqual([
+      { url: 'https://cdn.example.com/ep.mp3', address: '93.184.216.34' },
+      { url: 'https://mirror.example.net/ep.mp3', address: '198.51.100.7' },
+      { url: 'https://edge.example.org/ep.mp3', address: '203.0.113.9' },
+    ]);
+
+    hops['https://mirror.example.net/ep.mp3'] = 'https://evil.example.org/ep.mp3';
+    const blocked: Array<{ url: string; address: string }> = [];
+    await expect(
+      ingestLens('https://feeds.example.com/show', {
+        repoRoot: repo(),
+        run: whisperRun,
+        fetchImpl,
+        pinnedFetch: pinnedVia(fetchImpl, blocked),
+        python: '/usr/bin/python3',
+        lookup,
+      }),
+    ).rejects.toThrow(/내부망.*evil\.example\.org/);
+    expect(blocked.map((p) => p.address)).toEqual(['93.184.216.34', '198.51.100.7']);
   });
 
   it('사용자가 직접 넘긴 오디오 주소는 내부망이어도 막지 않는다', async () => {

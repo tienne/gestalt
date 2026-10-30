@@ -17,12 +17,26 @@ export const cellRefSchema = z.object({
 export const evidenceSchema = z.union([cellRefSchema, z.object({ cite: citeSchema })]);
 
 /**
+ * 본문이 "올린다", "낮춘다"고 말하는데 표의 두 칸이 반대로 움직인 자리. 모델은 두 칸 자리와 주장만 적고
+ * 부호는 lint가 칸 값으로 계산한다. claim은 본문이 말하는 성능 방향이고 better는 그 지표가 좋아지는 쪽이다.
+ * 둘을 곱한 쪽으로 from 칸에서 to 칸 값이 움직여야 주장대로라서, 그렇지 않을 때만 의심으로 받는다
+ */
+export const doubtDirectionSchema = z.object({
+  from: cellRefSchema,
+  to: cellRefSchema,
+  claim: z.enum(['increase', 'decrease']),
+  better: z.enum(['higher', 'lower']),
+});
+
+/**
  * 본문 문장의 주장과 같은 원문의 표나 다른 문단이 어긋나는 자리. 바깥 자료로 하는 반론은 여기 두지 않는다.
- * 숫자끼리 어긋난 자리만 받는다. note의 숫자가 근거 칸이나 문단에 있는지 lint가 본다
+ * 숫자끼리 어긋난 자리와 방향 주장이 표 부호와 어긋난 자리(direction)만 받는다.
+ * note의 숫자가 근거 칸이나 문단에 있는지 lint가 본다
  */
 export const doubtSchema = z.object({
   note: textSchema,
   evidence: z.array(evidenceSchema).min(1),
+  direction: doubtDirectionSchema.optional(),
 });
 
 export const GLANCE_KINDS = [
@@ -58,6 +72,7 @@ export const limitSchema = z.object({
 export type CellRef = z.infer<typeof cellRefSchema>;
 export type Evidence = z.infer<typeof evidenceSchema>;
 export type Doubt = z.infer<typeof doubtSchema>;
+export type DoubtDirection = z.infer<typeof doubtDirectionSchema>;
 export type Glance = z.infer<typeof glanceSchema>;
 export type GlanceKind = (typeof GLANCE_KINDS)[number];
 export type SourceRef = z.infer<typeof sourceRefSchema>;

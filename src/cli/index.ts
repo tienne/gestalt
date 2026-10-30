@@ -49,6 +49,7 @@ import {
 } from './commands/digest.js';
 import {
   lensAttachCommand,
+  lensContextInputCommand,
   lensIngestCommand,
   lensKnowledgeCommand,
   lensNotesCommand,
@@ -487,10 +488,22 @@ export function createCli(): Command {
     );
 
   lens
-    .command('attach <slug> <file>')
-    .description('맥락 카드와 연결 카드 파일을 이미 합친 리포트에 붙이고 merge 검사를 다시 돌린다')
+    .command('attach <slug> [file]')
+    .description(
+      '맥락 카드와 연결 카드를 이미 합친 리포트에 붙이고 merge 검사를 다시 돌린다. --cards나 --links로 한 필드만 바꿀 수 있다',
+    )
+    .option('--cards <path>', '카드와 카드 한계 줄 파일 (cards, limits). 이 필드만 바꾼다')
+    .option('--links <path>', '연결 카드 파일 (links). 이 필드만 바꾼다')
     .option('--report <key>', '붙일 리포트 키 (기본: 처음 보이는 리포트)')
     .action((slug, file, o, cmd) => lensAttachCommand(slug, file, { ...lensInherited(cmd), ...o }));
+
+  lens
+    .command('context-input <slug>')
+    .description('links를 뺀 리포트 사본을 낸다. 연결 카드를 쓰는 에이전트에게 줄 입력이다')
+    .option('--report <key>', '고를 리포트 키 (기본: 처음 보이는 리포트)')
+    .option('--out <file>', '파일로 쓴다 (기본: stdout)')
+    .option('--with-transcript', 'transcript 문단을 { i, text }로 함께 싣는다')
+    .action((slug, o, cmd) => lensContextInputCommand(slug, { ...lensInherited(cmd), ...o }));
 
   const digest = program
     .command('digest')

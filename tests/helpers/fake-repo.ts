@@ -98,7 +98,9 @@ function buildRepo(root: string, opts: FakeRepoOptions): FakeRepo {
     });
   };
 
-  git('init', '-q', '-b', branch);
+  // init -b는 git 2.28부터라 옛 git에서도 돌게 HEAD를 따로 옮긴다
+  git('init', '-q');
+  git('symbolic-ref', 'HEAD', `refs/heads/${branch}`);
   git('config', 'commit.gpgsign', 'false');
   if (remoteUrl) git('remote', 'add', 'origin', remoteUrl);
 

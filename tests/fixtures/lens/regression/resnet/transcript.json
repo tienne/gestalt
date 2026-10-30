@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0.0",
+  "slug": "deep-residual-learning-for-image-recognition-523013cf",
+  "meta": {
+    "source": "pdf",
+    "url": "https://arxiv.org/pdf/1512.03385",
+    "title": "Deep Residual Learning for Image Recognition",
+    "durationSec": 0,
+    "lang": "en",
+    "captionSource": "text"
+  },
+  "segments": [
+    {
+      "i": 0,
+      "startSec": 0,
+      "text": "The results in Table 2 show that the deeper 34-layer plain net has higher validation error than the shallower 18-layer plain net. To reveal the reasons, in Fig. 4 (left) we compare their training/validation errors during the training procedure. We have observed the degradation problem - the",
+      "page": 4,
+      "role": "para",
+      "rects": [
+        {
+          "page": 4,
+          "bbox": [308.9, 655.4, 545.1, 713.2]
+        }
+      ]
+    },
+    {
+      "i": 1,
+      "startSec": 0,
+      "text": "We have three major observations from Table 2 and Fig. 4. First, the situation is reversed with residual learning – the 34-layer ResNet is better than the 18-layer ResNet (by 2.8%). More importantly, the 34-layer ResNet exhibits considerably lower training error and is generalizable to the validation data. This indicates that the degradation problem is well addressed in this setting and we manage to obtain accuracy gains from increased depth.",
+      "page": 5,
+      "role": "para",
+      "rects": [
+        {
+          "page": 5,
+          "bbox": [308.9, 570.6, 545.1, 664.3]
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "startSec": 0,
+      "text": "Table 2. Top-1 error (%, 10-crop testing) on ImageNet validation. Here the ResNets have no extra parameter compared to their plain counterparts. Fig. 4 shows the training procedures.",
+      "page": 5,
+      "role": "caption",
+      "ref": "table-2",
+      "rects": [
+        {
+          "page": 5,
+          "bbox": [50.1, 485.4, 286.4, 516.3]
+        },
+        {
+          "page": 5,
+          "bbox": [91.5, 442.2, 245, 481.1]
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "startSec": 0,
+      "text": "Table 3 shows that all three options are considerably better than the plain counterpart. B is slightly better than A. We argue that this is because the zero-padded dimensions in A indeed have no residual learning. C is marginally better than B, and we attribute this to the extra parameters introduced by many (thirteen) projection shortcuts. But the small differences among A/B/C indicate that projection shortcuts are not essential for addressing the degradation problem. So we do not use option C in the rest of this paper, to reduce memory/time complexity and model sizes. Identity shortcuts are particularly important for not increasing the complexity of the bottleneck architectures that are introduced below.",
+      "page": 6,
+      "role": "para",
+      "rects": [
+        {
+          "page": 6,
+          "bbox": [308.9, 289.7, 545.1, 431.1]
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "startSec": 0,
+      "text": "Table 3. Error rates (%, 10-crop testing) on ImageNet validation. VGG-16 is based on our test. ResNet-50/101/152 are of option B that only uses projections for increasing dimensions.",
+      "page": 6,
+      "role": "caption",
+      "ref": "table-3",
+      "rects": [
+        {
+          "page": 6,
+          "bbox": [50.1, 214, 286.4, 245]
+        },
+        {
+          "page": 6,
+          "bbox": [86.5, 71.2, 250, 209.8]
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "startSec": 0,
+      "text": "Table 5. Error rates (%) of ensembles . The top-5 error is on the test set of ImageNet and reported by the test server.",
+      "page": 6,
+      "role": "caption",
+      "ref": "table-5",
+      "rects": [
+        {
+          "page": 6,
+          "bbox": [50.1, 517.9, 286.4, 537.8]
+        },
+        {
+          "page": 6,
+          "bbox": [57.1, 254.1, 279.3, 513.2]
+        }
+      ]
+    }
+  ]
+}

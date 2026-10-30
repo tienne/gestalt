@@ -7,6 +7,8 @@
  *   모든 줄에서 비어 있는 세로 띠를 칸 경계로 본다. 칸이 하나뿐이거나 빈칸이 30%를 넘으면 grid를 loose로 적는다.
  * - 그림: "Figure N:" 캡션 위나 아래의 비트맵을 묶어 자르고 벡터 그림은 캡션 위 빈자리를 자른다.
  *
+ * - 제목: 첫 쪽 위쪽에서 글자가 가장 큰 줄들이다. 글꼴 크기로 단어를 나누면 작은 대문자 제목이 조각나서 여기서는 크기를 안 보고 단어를 뽑는다.
+ *
  * 결과 JSON은 stdout 마지막 줄 하나로 낸다. 쪽 그림과 크롭은 두 번째 인자 폴더의 pages/, figures/, tables/에 쓴다.
  * 세 번째 인자는 쪽 수 상한이다. 넘으면 stderr에 too-many-pages를 남기고 멈춘다.
  * 백틱과 달러 중괄호가 없어야 String.raw 안에 그대로 실린다
@@ -230,7 +232,40 @@ def join_text(lines):
             text = text[:-1] + t
         else:
             text += " " + t
-    return text
+    # 소수점 양옆에 공백이 끼어 "41 . 0"으로 뽑힌 것만 붙인다. 문장 끝 마침표는 앞에 공백이 없어 안 걸린다
+    return re.sub(r"(?<=\d) \. (?=\d)", ".", text)
+
+
+def layout_title(page):
+    # 세로로 찍힌 arXiv 표시처럼 눕지 않은 글자는 뺀다
+    p = page.filter(lambda o: o.get("object_type") != "char" or o.get("upright", True))
+    limit = p.height * 0.45
+    words = [w for w in p.extract_words() if w["bottom"] < limit]
+    chars = [c for c in p.chars if c["bottom"] < limit]
+    lines = []
+    for w in sorted(words, key=lambda w: (w["bottom"], w["x0"])):
+        if lines and abs(lines[-1]["bottom"] - w["bottom"]) < 3:
+            lines[-1]["words"].append(w)
+        else:
+            lines.append({"bottom": w["bottom"], "words": [w]})
+    for l in lines:
+        x0 = min(w["x0"] for w in l["words"])
+        x1 = max(w["x1"] for w in l["words"])
+        top = min(w["top"] for w in l["words"])
+        l["size"] = max((c["size"] for c in chars if c["x0"] >= x0 - 1 and c["x1"] <= x1 + 1 and c["top"] >= top - 1 and c["bottom"] <= l["bottom"] + 1), default=0)
+        l["text"] = " ".join(w["text"] for w in sorted(l["words"], key=lambda w: w["x0"]))
+    # 낱글자만 큰 장식 머리글이 이기지 않게 영문자가 여섯 개 넘는 줄만 견준다
+    cand = [l for l in lines if sum(ch.isalpha() for ch in l["text"]) >= 6]
+    if not cand:
+        return ""
+    biggest = max(l["size"] for l in cand)
+    out = []
+    for l in lines:
+        if l in cand and l["size"] >= biggest - 0.6:
+            out.append(l["text"])
+        elif out:
+            break
+    return " ".join(out)
 
 
 def main():
@@ -393,7 +428,7 @@ def main():
     for f in figures:
         f["unit"] = next(u["i"] for u in units if u.get("ref") == f["id"])
     meta = pdf.metadata or {}
-    print(json.dumps({"title": meta.get("Title") or "", "pageCount": len(pdf.pages), "pages": pages, "units": units, "tables": tables, "figures": figures}))
+    print(json.dumps({"title": meta.get("Title") or "", "layoutTitle": layout_title(pdf.pages[0]) if pdf.pages else "", "pageCount": len(pdf.pages), "pages": pages, "units": units, "tables": tables, "figures": figures}))
 
 
 def close(cur, pno, units, body):

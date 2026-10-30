@@ -196,6 +196,12 @@ describe('생성된 에이전트의 도구', () => {
     expect(agents.get('lens-context')).not.toContain('Bash');
   });
 
+  it('lens-context는 웹 도구와 Write만 갖고 파일을 읽는 도구가 없다', () => {
+    const tools = agents.get('lens-context');
+    expect([...(tools ?? [])].sort()).toEqual(['WebFetch', 'WebSearch', 'Write']);
+    for (const t of ['Read', 'Grep', 'Glob']) expect(tools).not.toContain(t);
+  });
+
   it('노트를 읽는 lens-link에는 웹 도구와 셸이 없다', () => {
     const tools = agents.get('lens-link');
     expect(tools).toEqual(['Read', 'Grep', 'Glob', 'Write']);

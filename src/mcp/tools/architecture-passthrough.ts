@@ -570,10 +570,14 @@ function fileFactsFrom(codeRoots: Record<string, string>, repoRoot: string): Fil
       let committedAt: string | undefined;
       try {
         committedAt =
-          execFileSync('git', ['-C', abs, 'log', '-1', '--format=%cs', '--', path], {
-            encoding: 'utf-8',
-            stdio: ['ignore', 'pipe', 'ignore'],
-          }).trim() || undefined;
+          execFileSync(
+            'git',
+            ['-C', abs, 'log', '-1', '--format=%cd', '--date=short', '--', path],
+            {
+              encoding: 'utf-8',
+              stdio: ['ignore', 'pipe', 'ignore'],
+            },
+          ).trim() || undefined;
       } catch {
         committedAt = undefined;
       }

@@ -12,9 +12,12 @@ import {
   rmSync,
   writeSync,
 } from 'node:fs';
-import { isIP } from 'node:net';
+import { request as httpRequest, type IncomingMessage } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { isIP, type LookupFunction } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
+import { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import { log } from '../core/log.js';
 import { writeJsonAtomic } from '../core/json-file.js';
@@ -63,9 +66,22 @@ export interface LensIngestOptions {
   speakers?: boolean;
   /** 피드 오디오 주소의 호스트를 IP로 푼다. 테스트가 DNS 없이 돌도록 바꿔 끼운다 */
   lookup?: HostLookup;
+  /** 피드 오디오 주소를 검사한 IP로만 받는다. 테스트가 네트워크 없이 돌도록 바꿔 끼운다 */
+  pinnedFetch?: PinnedFetch;
 }
 
 export type HostLookup = (host: string) => Promise<string[]>;
+
+/** 고정 접속에 넘기는 요청 옵션. 내려받기가 쓰는 것만 둔다 */
+export interface PinnedInit {
+  signal?: AbortSignal;
+  headers?: Record<string, string>;
+  /** 믿을 인증서를 바꾼다. 테스트가 자체 서명 인증서로 TLS 이름 검증을 확인할 때만 쓴다 */
+  ca?: string;
+}
+
+/** url을 GET하되 DNS를 다시 풀지 않고 address로만 연결한다. 리다이렉트는 따라가지 않는다 */
+export type PinnedFetch = (url: string, address: string, init?: PinnedInit) => Promise<Response>;
 
 export interface LensIngestResult {
   slug: string;
@@ -85,6 +101,8 @@ export interface LensIngestResult {
 /** 추출 스크립트가 stdout 마지막 줄로 내는 꼴 */
 interface PdfExtract {
   title: string;
+  /** 첫 쪽에서 글자가 가장 큰 줄들. 메타데이터 제목이 없는 논문(arXiv 대부분)에 쓴다 */
+  layoutTitle?: string;
   pageCount: number;
   pages: LensSource['pages'];
   units: Array<{
@@ -123,10 +141,10 @@ const defaultLookup: HostLookup = async (host) =>
   (await dnsLookup(host, { all: true })).map((r) => r.address);
 
 /**
- * 호스트가 루프백, 링크 로컬, 사설 대역으로 풀리면 막는다. 메타데이터 주소(169.254.169.254)도 여기 걸린다.
- * 검사와 연결이 DNS를 따로 풀어서 이름을 풀 때마다 주소가 바뀌는 rebinding은 막지 못한다
+ * 호스트가 루프백, 링크 로컬, 사설 대역으로 풀리면 막고 검사한 주소를 돌려준다. 메타데이터 주소(169.254.169.254)도 여기 걸린다.
+ * 연결은 돌려준 주소로만 하므로 검사 뒤에 DNS 답이 사설 주소로 바뀌어도(rebinding) 그리로 가지 않는다
  */
-async function assertPublicHost(url: string, lookup: HostLookup): Promise<void> {
+async function resolvePublicHost(url: string, lookup: HostLookup): Promise<string[]> {
   const parsed = new URL(url);
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(`http(s)가 아닌 주소로 넘어가서 받지 않았어요: ${url}`);
@@ -136,23 +154,100 @@ async function assertPublicHost(url: string, lookup: HostLookup): Promise<void> 
   if (addresses.length === 0 || addresses.some(isPrivateAddress)) {
     throw new Error(`피드의 오디오 주소가 내부망을 가리켜서 받지 않았어요: ${url}`);
   }
+  return addresses;
+}
+
+/** 몸통을 실으면 Response 생성자가 던지는 상태 코드 */
+const NULL_BODY_STATUS = new Set([101, 204, 205, 304]);
+
+function toResponse(res: IncomingMessage): Response {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(res.headers)) {
+    if (value === undefined) continue;
+    for (const v of Array.isArray(value) ? value : [value]) headers.append(name, v);
+  }
+  const status = res.statusCode ?? 502;
+  if (NULL_BODY_STATUS.has(status)) {
+    res.destroy();
+    return new Response(null, { status, headers });
+  }
+  const body = Readable.toWeb(res) as ReadableStream<Uint8Array>;
+  return new Response(body, { status, statusText: res.statusMessage ?? '', headers });
 }
 
 /**
- * lookup이 있으면 리다이렉트를 직접 따라가며 홉마다 호스트를 다시 푼다.
+ * node:http(s)의 lookup을 갈아 끼워 address로만 연결한다. 호스트명은 URL 그대로 둬서
+ * Host 헤더와 TLS SNI, 인증서 검증은 원래 이름으로 한다. 소켓 풀이 다른 IP로 맺은 연결을 다시 쓰지 않게 agent를 끈다
+ */
+export const pinnedFetch: PinnedFetch = (url, address, init = {}) =>
+  new Promise((resolvePromise, reject) => {
+    const target = new URL(url);
+    const family = isIP(address);
+    if (family === 0) {
+      reject(new Error(`고정할 주소가 IP가 아니에요: ${address}`));
+      return;
+    }
+    const host = target.hostname.replace(/^\[(.*)\]$/, '$1');
+    // Node 20부터 autoSelectFamily가 켜져 있으면 all: true로 불러 배열을 기대한다
+    const lookup = ((_host, opts, cb) => {
+      if (opts.all) cb(null, [{ address, family }]);
+      else cb(null, address, family);
+    }) as LookupFunction;
+    const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
+    const req = send(
+      target,
+      {
+        method: 'GET',
+        headers: { ...init.headers, Host: target.host },
+        signal: init.signal,
+        agent: false,
+        lookup,
+        ...(target.protocol === 'https:' && !isIP(host) ? { servername: host } : {}),
+        ...(init.ca ? { ca: init.ca } : {}),
+      },
+      (res) => resolvePromise(toResponse(res)),
+    );
+    req.on('error', reject);
+    req.end();
+  });
+
+/**
+ * 검사한 주소를 차례로 붙어 본다. 연결이 안 되는 주소(IPv6 경로가 없는 망 같은)면 다음 주소로 넘어가고
+ * 응답이 오면 상태 코드와 상관없이 그 응답을 쓴다. 끊으라고 했으면 다음 주소로 가지 않는다
+ */
+async function firstReachable(
+  url: string,
+  addresses: string[],
+  init: PinnedInit,
+  pinned: PinnedFetch,
+): Promise<Response> {
+  let last: unknown;
+  for (const address of addresses) {
+    try {
+      return await pinned(url, address, init);
+    } catch (err) {
+      if (init.signal?.aborted) throw err;
+      last = err;
+    }
+  }
+  throw last;
+}
+
+/**
+ * lookup이 있으면 리다이렉트를 직접 따라가며 홉마다 호스트를 다시 풀고 검사한 공개 주소로 고정해 접속한다.
  * fetch에 맡기면 중간 주소를 못 보고 마지막 응답만 받는다
  */
 async function fetchFollowing(
   url: string,
-  init: RequestInit,
+  init: PinnedInit,
   fetchImpl: typeof fetch,
-  lookup: HostLookup | undefined,
+  guard: { lookup: HostLookup; pinnedFetch: PinnedFetch } | undefined,
 ): Promise<Response> {
-  if (!lookup) return fetchImpl(url, { ...init, redirect: 'follow' });
+  if (!guard) return fetchImpl(url, { ...init, redirect: 'follow' });
   let current = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    await assertPublicHost(current, lookup);
-    const res = await fetchImpl(current, { ...init, redirect: 'manual' });
+    const addresses = await resolvePublicHost(current, guard.lookup);
+    const res = await firstReachable(current, addresses, init, guard.pinnedFetch);
     const location = res.headers.get('location');
     if (res.status < 300 || res.status >= 400 || !location) return res;
     await res.body?.cancel().catch(() => undefined);
@@ -185,13 +280,14 @@ async function readCapped(
 
 /**
  * 주소를 받아 파일로 저장한다. 크기 상한을 넘으면 멈추고 받던 파일을 지운다.
- * lookup을 넘기면 사설 주소로 가는 요청을 막는다. 피드에서 뽑은 주소처럼 사용자가 직접 고르지 않은 주소에만 쓴다
+ * lookup을 넘기면 사설 주소로 가는 요청을 막고 검사한 IP로만 접속한다. 이때는 fetchImpl 대신 pinnedFetch를 쓴다.
+ * 피드에서 뽑은 주소처럼 사용자가 직접 고르지 않은 주소에만 쓴다
  */
 export async function download(
   url: string,
   dest: string,
   fetchImpl: typeof fetch = fetch,
-  opts: { lookup?: HostLookup; maxBytes?: number } = {},
+  opts: { lookup?: HostLookup; pinnedFetch?: PinnedFetch; maxBytes?: number } = {},
 ): Promise<{ contentType: string }> {
   const limit = opts.maxBytes ?? MAX_DOWNLOAD_BYTES;
   const tooBig = `파일이 ${Math.round(limit / 1024 / 1024)}MB를 넘어요: ${url}`;
@@ -199,7 +295,7 @@ export async function download(
     url,
     { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS), headers: { 'User-Agent': USER_AGENT } },
     fetchImpl,
-    opts.lookup,
+    opts.lookup ? { lookup: opts.lookup, pinnedFetch: opts.pinnedFetch ?? pinnedFetch } : undefined,
   );
   if (!res.ok) {
     await res.body?.cancel().catch(() => undefined);
@@ -222,7 +318,7 @@ export async function download(
   return { contentType: res.headers.get('content-type') ?? '' };
 }
 
-/** 피드 XML을 받는다. 주소는 사용자가 넘긴 것이라 사설 주소를 막지 않고 크기만 묶는다 */
+/** 피드 XML을 받는다. 주소는 사용자가 넘긴 것이라 사설 주소를 막거나 IP를 고정하지 않고 크기만 묶는다 */
 async function fetchFeed(url: string, fetchImpl: typeof fetch): Promise<string> {
   const res = await fetchImpl(url, {
     redirect: 'follow',
@@ -354,7 +450,9 @@ async function ingestPdf(
     );
   }
   const firstHeading = x.units.find((u) => u.page === 1 && u.role === 'heading')?.text;
-  const title = (x.title || firstHeading || basename(input, '.pdf')).trim().slice(0, 200);
+  const title = (x.title || x.layoutTitle || firstHeading || basename(input, '.pdf'))
+    .trim()
+    .slice(0, 200);
   const slug = opts.slug ?? slugFromMeta(shortHash(url), title);
   if (!isValidSlug(slug)) throw new Error(`slug가 올바르지 않아요: ${slug}`);
   const store = new DigestStore(opts.repoRoot);
@@ -648,13 +746,16 @@ async function ingestPodcast(
   }
   const ext = audioExt(remote ? audioUrl : input);
   const audioPath = join(work, `audio${ext}`);
-  // 피드가 적은 주소는 피드 주인이 고른 것이라 내부망으로 가는지 홉마다 본다. 사용자가 직접 넘긴 주소는 막지 않는다
+  // 피드가 적은 주소는 피드 주인이 고른 것이라 내부망으로 가는지 홉마다 보고 검사한 IP로만 받는다.
+  // 사용자가 직접 넘긴 주소는 막지 않는다
   if (remote) {
     await download(
       audioUrl,
       audioPath,
       fetchImpl,
-      fromFeed ? { lookup: opts.lookup ?? defaultLookup } : {},
+      fromFeed
+        ? { lookup: opts.lookup ?? defaultLookup, pinnedFetch: opts.pinnedFetch ?? pinnedFetch }
+        : {},
     );
   } else {
     if (!existsSync(resolve(input))) throw new Error(`파일이 없어요: ${input}`);

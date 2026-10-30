@@ -1,0 +1,107 @@
+{
+  "paper": {
+    "title": "Attention Is All You Need",
+    "url": "https://arxiv.org/pdf/1706.03762",
+    "slug": "provided-proper-attribution-is-provided-google-hereby-g-c3ab01e4"
+  },
+  "doubts": [
+    {
+      "id": "att-en-fr-bleu",
+      "kind": "number",
+      "bulletText": "본문은 big 모델이 WMT 2014 영불 번역에서 BLEU 41.0을 얻었다고 쓴다.",
+      "bulletCite": { "key": 2, "from": 2, "to": 2 },
+      "doubt": {
+        "note": "표 2와 초록은 big 모델의 EN-FR BLEU를 41.8로 적는데 이 문단은 41.0이라고 쓴다.",
+        "evidence": [
+          { "table": "table-2", "row": 10, "col": 2 },
+          { "cite": { "key": 0, "from": 0, "to": 0 } }
+        ]
+      }
+    },
+    {
+      "id": "att-parsing-luong",
+      "kind": "direction",
+      "bulletText": "본문은 구문 분석에서 RNNG만 빼고 앞서 보고된 모든 모델보다 낫다고 쓴다.",
+      "bulletCite": { "key": 6, "from": 6, "to": 6 },
+      "doubt": {
+        "note": "표 4에서 Luong 외(2015) multi-task는 93.0으로 Transformer semi-supervised의 92.7보다 높다.",
+        "evidence": [
+          { "table": "table-4", "row": 11, "col": 2 },
+          { "table": "table-4", "row": 10, "col": 2 }
+        ],
+        "direction": {
+          "from": { "table": "table-4", "row": 11, "col": 2 },
+          "to": { "table": "table-4", "row": 10, "col": 2 },
+          "claim": "increase",
+          "better": "higher"
+        }
+      }
+    }
+  ],
+  "decoys": [
+    {
+      "id": "att-x-en-de-agrees",
+      "reason": "영독 BLEU는 ConvS2S 앙상블 26.36에서 big 28.4로 올라 본문 주장대로다",
+      "expectedCode": "DOUBT_DIRECTION_AGREES",
+      "bulletCite": { "key": 1, "from": 1, "to": 1 },
+      "doubt": {
+        "note": "표 2에서 EN-DE BLEU는 ConvS2S 앙상블 26.36, Transformer big 28.4다.",
+        "evidence": [
+          { "table": "table-2", "row": 8, "col": 1 },
+          { "table": "table-2", "row": 10, "col": 1 }
+        ],
+        "direction": {
+          "from": { "table": "table-2", "row": 8, "col": 1 },
+          "to": { "table": "table-2", "row": 10, "col": 1 },
+          "claim": "increase",
+          "better": "higher"
+        }
+      }
+    },
+    {
+      "id": "att-x-computed-gap",
+      "reason": "41.8과 41.0의 차이 0.8을 계산해 note에 적었다",
+      "expectedCode": "DOUBT_NUMBER_UNKNOWN",
+      "bulletCite": { "key": 2, "from": 2, "to": 2 },
+      "doubt": {
+        "note": "표 2의 41.8과 본문의 41.0은 0.8 차이가 난다.",
+        "evidence": [{ "table": "table-2", "row": 10, "col": 2 }]
+      }
+    },
+    {
+      "id": "att-x-loose-table-3",
+      "reason": "표 3은 칸 경계를 못 믿는 loose 표라 방향 의심을 받지 않는다",
+      "expectedCode": "DOUBT_DIRECTION_LOOSE_TABLE",
+      "bulletCite": { "key": 4, "from": 4, "to": 4 },
+      "doubt": {
+        "note": "표 3에서 base는 BLEU 25.8인데 N을 8로 늘린 줄은 25.5다.",
+        "evidence": [
+          { "table": "table-3", "row": 1, "col": 5 },
+          { "table": "table-3", "row": 12, "col": 5 }
+        ],
+        "direction": {
+          "from": { "table": "table-3", "row": 1, "col": 5 },
+          "to": { "table": "table-3", "row": 12, "col": 5 },
+          "claim": "increase",
+          "better": "higher"
+        }
+      }
+    },
+    {
+      "id": "att-x-cross-table",
+      "reason": "방향 의심의 두 칸이 다른 표(표 2와 표 4)에 있다",
+      "expectedCode": "DOUBT_DIRECTION_TABLE_MISMATCH",
+      "bulletCite": { "key": 6, "from": 6, "to": 6 },
+      "doubt": {
+        "note": "표 4에서 Transformer semi-supervised는 92.7이다.",
+        "evidence": [{ "table": "table-4", "row": 10, "col": 2 }],
+        "direction": {
+          "from": { "table": "table-2", "row": 10, "col": 1 },
+          "to": { "table": "table-4", "row": 10, "col": 2 },
+          "claim": "increase",
+          "better": "higher"
+        }
+      }
+    }
+  ]
+}
