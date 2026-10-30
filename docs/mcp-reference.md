@@ -1332,6 +1332,52 @@ gestalt lens attach <slug> <카드 파일> [--report <key>]   # 맥락 카드와
 
 `serve`는 띄울 때 렌더를 인라인 없이 다시 돌려 `digest.html`을 덮어쓴다. `render --inline-frames`로 만든 파일 한 장짜리 HTML이 필요하면 `serve`를 부르지 않는다. `serve`는 Ctrl+C를 받을 때까지 끝나지 않는다.
 
+### 뷰어 버튼 요청 (`POST /__request`)
+
+`serve`로 연 뷰어에서 쉽게 보기 토글로 아직 없는 리포트를 고르거나 "+ 더 만들기"에서 템플릿을 고르면 뷰어가 `POST /__request`를 보낸다. serve는 자기를 띄운 Claude Code 세션을 찾아 그 세션 인박스 소켓에 스킬 명령 한 줄을 넣는다. 렌즈 자료면 `/gestalt:lens`, 영상이면 `/gestalt:video-digest`다. 세션 찾기와 쓰기는 [peer.md의 들어가는 길](./peer.md#들어가는-길)과 같은 코드를 쓴다. 뷰어는 여전히 LLM을 부르지 않고 세션에 요청만 넣는다.
+
+본문은 JSON이고 정해 둔 필드 말고는 받지 않는다. 자유 입력 칸은 없다.
+
+```javascript
+{ action: "report", slug, difficulty: "easy" | "normal", lang?, range?: [시작초, 끝초] }
+{ action: "template", slug, template: "<템플릿 id>", lang? }
+```
+
+127.0.0.1 서버라도 브라우저에 열린 아무 사이트가 이 주소로 POST할 수 있다. 그래서 아래를 모두 통과해야 세션에 넣는다.
+
+- **토큰**: serve가 띄울 때 만든 토큰을 `.html` 응답에만 `<meta name="gestalt-serve-token">`으로 끼워 내보낸다. 디스크의 `digest.html`에는 안 쓴다. 뷰어는 이 값을 `X-Gestalt-Token` 헤더에 싣고 서버는 상수 시간 비교로 맞춰 본다.
+- **Origin**: `http://127.0.0.1:<port>`나 `http://localhost:<port>`와 정확히 같아야 한다. 포트까지 본다.
+- **본문**: `Content-Type: application/json`이고 2KB 안이어야 한다. JSON 본문이라 다른 출처에서 보내면 사전 요청(OPTIONS)부터 405로 막힌다.
+- **값**: slug는 폴더 이름 꼴이고 `transcript.json`이 있어야 한다. 렌즈인지 영상인지는 뷰어가 보낸 값 대신 `transcript.json`에서 읽는다. 템플릿은 serve가 아는 목록에 있고 그 자료 종류에 쓸 수 있어야 한다(`kinds`). 렌즈 자료에 영상 전용 템플릿(댓글 분석)은 안 받는다. `lang`은 언어 태그 꼴, `range`는 0 이상 유한한 두 수다.
+- **속도**: 토큰을 통과한 요청만 1분에 6건까지 받는다.
+
+세션에 넣는 글은 검사를 통과한 값으로 서버가 다시 조립한다. 뷰어가 보낸 글자를 그대로 옮기지 않는다.
+
+```
+<digest-request from="viewer">
+/gestalt:lens slug=<slug> difficulty=easy reportLang=ko
+</digest-request>
+gestalt digest serve 뷰어에서 사용자가 버튼을 눌러 보낸 요청이다. …
+```
+
+응답은 `{ ok, code }`뿐이고 경로나 실패 이유 글자는 싣지 않는다. 이유는 serve의 stderr에 남는다.
+
+| 상태 | `code` | 뜻 |
+|:---|:---|:---|
+| 200 | `sent` | 세션에 넣었다. 소켓에 붙은 뒤 실패해 들어갔을 수도 있는 경우도 여기 든다 |
+| 400 | `bad_request` | JSON이 아니거나 정해 둔 필드 꼴이 아니다 |
+| 403 | `forbidden` | Origin이나 토큰이 맞지 않는다 |
+| 404 | `unknown_slug`, `unknown_template` | slug 폴더나 그 자료에 쓸 수 있는 템플릿이 없다 |
+| 413 | `too_large` | 본문이 2KB를 넘는다 |
+| 415 | `unsupported_media_type` | JSON 본문이 아니다 |
+| 429 | `rate_limited` | 1분에 6건을 넘었다 |
+| 500 | `send_failed` | 세션에 넣다가 예상 못 한 예외가 났다 |
+| 503 | `no_session`, `send_failed` | serve를 띄운 세션이나 인박스 소켓을 못 찾았거나 쓰다 실패했다 |
+
+`sent`면 뷰어가 "세션에 요청을 넣었어요. 다 만들어지면 새로고침해 주세요" 안내를 띄운다. 그 밖의 응답과 네트워크 오류, 토큰이 없는 페이지(파일로 연 `digest.html`)에서는 예전처럼 명령을 보여 주고 복사하게 한다. 세션은 요청마다 다시 찾아서 `/clear`나 재시작 뒤에도 따라간다. 따로 연 터미널에서 띄운 serve는 부모 중에 세션이 없어 늘 명령 복사로 간다.
+
+인박스로 들어간 글을 Claude Code가 다른 세션 메시지로 다뤄 승인 창을 띄우는지, 권한 확인을 건너뛰는(bypass) 세션에서도 그런지, 놀던 세션이 이 글로 새 턴을 여는지는 아직 사람이 확인하지 않았다.
+
 ---
 
 ## Full Pipeline Example
