@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.113.0] - 2026-10-30
+
+### Added
+
+- **`gestalt peer share --agent-peek`으로 연 공유에서는 보는 쪽 에이전트가 `ges_peer`의 `peek`으로 주인 세션 요약을 받아요.** `docs/proposals/peer-network.md` 단계 표의 마지막인 PR 6이에요(#96). 대화 전체를 넘기면 토큰이 쌓이고 남의 도구 출력에 든 지시문이 내 에이전트에 먹혀서 주인이 허락한 요약과 사람이 고른 발췌 두 길만 열었어요.
+  - 기본은 꺼짐이에요. 꺼진 공유는 `peek_off`로 거절하고 `peer shares`에 켜짐 여부와 최근 가져간 사람을 보여요. Codex 공유도 같은 규칙으로 켜요.
+  - 요약은 최근 프롬프트 5개와 답 5개, 고친 파일 20개, 할 일 20개를 담고 전체가 8KB 안이에요. `<`를 `<`로 적은 JSON이라 본문에 `<`가 안 남고 `</peer-peek>`를 흉내 낼 수 없어요. 상한에 밀려 빠진 게 있으면 `truncated`, `since` 뒤 구간을 주인 데몬이 이미 버렸으면 `gap`을 켜요.
+  - 주인 데몬은 뷰어로 내보낸 이벤트에서만 요약을 다시 추려요. 도구 결과와 Bash 명령은 읽지 않고 도구 입력은 `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `TodoWrite`, Codex `apply_patch`일 때만 열어요.
+  - 주인 쪽은 링크 공유 키 증명과 재전송, 승인과 kick 기록, `--agent-peek`, 횟수(`공유|기기`마다 10분 36번)를 차례로 봐요. 요약을 가져가면 주인 세션의 보는 중 표시 훅에 "alice 님의 에이전트가 이 세션의 요약을 가져갔다" 한 줄이 10분 동안 붙어요.
+  - 요약을 받은 세션을 그 사람이 공유하면 그 도구 결과는 `--tools` 수준과 상관없이 숨겨요.
+- **원격 공유 뷰어에서 줄을 골라 내 세션으로 보낼 수 있어요.** 뷰어는 줄 번호와 펼쳤는지만 보내고 보는 쪽 데몬이 들고 있는 이벤트에서 `<peer-excerpt>` 본문을 다시 만들어 내 세션 인박스에 넣어요. 접힌 도구는 이름만 들어가고 32KB를 넘으면 뷰어와 데몬 둘 다 막아요. 주인 세션에는 아무것도 안 가요.
+
+### Changed
+
+- 메시지와 답의 인박스 넣기 흐름을 `insertInbound` 하나로 합쳤고 질문과 답 로직은 `src/peer/questions.ts`의 `QuestionDesk`로 옮겼어요. 옮기면서 답 감사 기록이 실패하면 질문을 다시 여는 순서도 고쳤어요.
+- Codex rollout을 연/월/일 디렉토리 최신순으로 찾아요. 숫자가 아닌 디렉토리가 있을 때만 전체를 훑어요.
+
+### 검증 범위
+
+- 로컬 PR에서 다섯 라운드를 돌았어요. 이슈는 28건(high 8)에서 6건, 5건, 4건으로 줄었고 5라운드에서 새 이슈 없이 승인됐어요. 3~4라운드는 할 일 칸의 `truncated`가 빠진 자리와 건너뛰기 테스트가 실제 분기를 안 타던 자리였어요.
+
+### 남긴 것
+
+- `ges_peer`에는 `ask_user`와 `peek`만 있어요. `share`, `list`, `send`, `inbox`, `status`와 `/gestalt:share`는 아직 없어서 보는 쪽 에이전트가 주인 세션에 묻는 길도 막혀 있어요.
+- 이전 버전 주인 데몬은 `peek`을 모르는 종류로 버려요. 보는 쪽은 10초 뒤 "요약을 모르는 이전 버전일 수 있어요"로 실패해요.
+- `peer-peek share=` 글자가 든 도구 결과는 무엇이든 숨겨서 peer 문서나 소스를 읽은 결과도 내 공유 뷰어에서 숨겨져요. 이스케이프된 틀까지 잡으려고 넓게 잡았어요.
+- 발췌는 인박스 소켓에 쓰기까지만 확인해요. 할 일은 `TodoWrite`만 봐서 Codex 공유는 할 일 칸이 비어요.
+
 ## [0.112.0] - 2026-10-30
 
 ### Added
