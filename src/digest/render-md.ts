@@ -243,7 +243,10 @@ function mdCiter(transcript: Transcript): (c: Cite) => string {
   };
 }
 
-function mdTimer({ meta, segments }: Transcript): (c: Cite) => string {
+function mdTimer(transcript: Transcript): (c: Cite) => string {
+  const { meta, segments } = transcript;
+  // 글 자료는 시각이 다 0이라 뷰어의 문단 칩과 같은 쪽이나 문단 번호를 적는다
+  if (isTextKind(meta.source)) return (c) => unitLabel(transcript, c.key);
   const long = meta.durationSec >= 3600;
   return (c) => {
     const sec = segments[c.key]?.startSec ?? 0;
