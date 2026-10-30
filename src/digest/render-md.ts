@@ -191,9 +191,12 @@ export function renderDigestMarkdown(
   }
   if (skipped.length > 0) {
     out.push('## 요약에서 뺀 구간', '');
+    // 글 자료는 시각이 다 0이라 HTML처럼 쪽이나 문단 번호로 자리를 적는다
+    const textKind = isTextKind(transcript.meta.source);
     for (const s of skipped) {
+      const where = textKind ? unitLabel(transcript, s.from) : `${formatTime(at(s.from), long)}~`;
       out.push(
-        `- ${formatTime(at(s.from), long)}~ 문장 ${s.from + 1}-${s.to + 1}: ${plain(s.reason)}`,
+        `- ${where} ${textKind ? '문단' : '문장'} ${s.from + 1}-${s.to + 1}: ${plain(s.reason)}`,
       );
     }
     out.push('');
