@@ -21,7 +21,7 @@ export const VIEWER_JS =
   // serve가 내줄 때만 페이지에 끼우는 토큰. 있으면 없는 리포트를 serve를 띄운 세션에 바로 요청하고, 없거나 요청이 실패하면 명령 복사로 돌아간다
   var tokenMeta = document.querySelector('meta[name="gestalt-serve-token"]');
   var serveToken = !isFile && tokenMeta ? tokenMeta.getAttribute('content') : null;
-  var SENT_MSG = '세션에 요청을 넣었어요. 다 만들어지면 새로고침해 주세요.';
+  var SENT_MSG = '세션에 요청을 넣었어요. 다 만들어지면 이 화면이 저절로 새로고침돼요.';
   var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var holder = document.getElementById('player');
   var slot = document.getElementById('player-slot');
@@ -603,6 +603,72 @@ export const VIEWER_JS =
       (ok ? done : fail)();
     }
   }
+  // 넣은 요청은 새로고침해도 이어서 기다리게 sessionStorage에 둔다. 세션이 다시 렌더하면 serve가 주는 ETag가 바뀌어서
+  // 그걸 보고 새로고침한다. 처음 연 페이지의 ETag를 기준으로 삼으려고 serve로 열었으면 열자마자 한 번 받아 둔다
+  var PENDING_KEY = 'gestalt-digest-pending:' + data.slug;
+  var WATCH_MS = 3000;
+  var WATCH_LIMIT_MS = 30 * 60 * 1000;
+  function readPending(){
+    try {
+      var v = JSON.parse(sessionStorage.getItem(PENDING_KEY) || '[]');
+      return Array.isArray(v) ? v : [];
+    } catch (e) { return []; }
+  }
+  function writePending(list){
+    try {
+      if (list.length) sessionStorage.setItem(PENDING_KEY, JSON.stringify(list));
+      else sessionStorage.removeItem(PENDING_KEY);
+    } catch (e) {}
+  }
+  function pageTag(){
+    return fetch(location.pathname, { method: 'HEAD', cache: 'no-store', credentials: 'same-origin' })
+      .then(function(res){ return res.ok ? res.headers.get('ETag') : null; }, function(){ return null; });
+  }
+  var baseTag = serveToken && window.fetch ? pageTag() : null;
+  var watching = false;
+  function watchPage(){
+    if (watching || !baseTag) return;
+    watching = true;
+    var started = Date.now();
+    baseTag.then(function(base){
+      function tick(){
+        if (Date.now() - started > WATCH_LIMIT_MS) { watching = false; return; }
+        pageTag().then(function(tag){
+          if (tag && base && tag !== base) { location.reload(); return; }
+          if (!base) base = tag;
+          setTimeout(tick, WATCH_MS);
+        });
+      }
+      setTimeout(tick, WATCH_MS);
+    });
+  }
+  // 새로 그려진 페이지에서 만들어진 요청은 그 리포트나 탭을 열고 아직 안 된 요청은 이어서 기다린다
+  function requestMade(b){
+    if (b.action === 'template') {
+      return (data.extensions || []).some(function(x){
+        return b.lang ? x.key === b.template + '.' + b.lang : x.key.indexOf(b.template + '.') === 0;
+      });
+    }
+    return data.reports.some(function(r){ return r.difficulty === b.difficulty && (!b.lang || r.lang === b.lang); });
+  }
+  function resumePending(reports, tabs){
+    var list = readPending();
+    if (!list.length) return;
+    var left = [];
+    var ready = null;
+    list.forEach(function(b){ if (requestMade(b)) ready = b; else left.push(b); });
+    writePending(left);
+    left.forEach(function(b){ requestState[JSON.stringify(b)] = 'sent'; });
+    if (ready && ready.action === 'template') {
+      (data.extensions || []).forEach(function(x){
+        if (x.key === ready.template + '.' + ready.lang || (!ready.lang && x.key.indexOf(ready.template + '.') === 0)) tabs.open(x.panel);
+      });
+    } else if (ready) {
+      tabs.open('panel-summary');
+      reports.open(ready.difficulty, ready.lang);
+    }
+    if (left.length) watchPage();
+  }
   // 같은 요청은 한 번만 보낸다. 이미 넣은 요청을 다시 누르면 넣었다는 안내만 다시 보여 주고, 응답을 기다리는 중이면 그 응답에 함께 건다
   var requestState = {};
   function requestToSession(body, done, fail) {
@@ -614,8 +680,11 @@ export const VIEWER_JS =
     var waiting = [[done, fail]];
     requestState[key] = waiting;
     function settle(ok){
-      if (ok) requestState[key] = 'sent';
-      else delete requestState[key];
+      if (ok) {
+        requestState[key] = 'sent';
+        writePending(readPending().concat([body]));
+        watchPage();
+      } else delete requestState[key];
       waiting.forEach(function(w){ w[ok ? 0 : 1](); });
     }
     fetch('/__request', {
@@ -684,6 +753,7 @@ export const VIEWER_JS =
       else if (!target && saved) select(saved, false);
     }
     return {
+      open: function(id){ select(id, false); },
       markdown: function(){
         if (current === SUMMARY) return null;
         var hit = null;
@@ -826,7 +896,14 @@ export const VIEWER_JS =
     if (owner) start = Number(owner.getAttribute('data-ri'));
     if (start !== initial) show(start);
     if (owner && target) target.scrollIntoView();
-    return { current: function(){ return current; } };
+    return {
+      current: function(){ return current; },
+      open: function(difficulty, lang){
+        data.reports.forEach(function(r, i){
+          if (r.difficulty === difficulty && (!lang || r.lang === lang) && data.reports[current].difficulty !== difficulty) show(i);
+        });
+      }
+    };
   }
 
   // 고른 답을 맞춰 보고 해설을 연다. 아무것도 안 골랐으면 정답과 해설만 연다
@@ -966,6 +1043,7 @@ export const VIEWER_JS =
   var tabs = setupTabs();
   var reports = setupReports();
   var more = setupMore(reports);
+  resumePending(reports, tabs);
   var player = createPlayer();
   setupTimeLinks(player);
   var docPane = setupDocPane();

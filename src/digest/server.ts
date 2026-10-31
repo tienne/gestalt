@@ -274,13 +274,16 @@ export class DigestServer {
     }
 
     if (ext === '.html') {
-      // 토큰은 디스크의 HTML에 쓰지 않고 내줄 때만 끼운다. HEAD도 같은 길이를 알린다
+      // 토큰은 디스크의 HTML에 쓰지 않고 내줄 때만 끼운다. HEAD도 같은 길이를 알린다.
+      // ETag는 디스크 파일의 수정 시각과 크기로 만든다. 요청을 넣은 뷰어가 HEAD로 이 값이 바뀌는지 보고 다시 그려진 페이지를 연다
+      const { mtimeMs, size } = statSync(real);
       const body = Buffer.from(this.withToken(readFileSync(real, 'utf8')), 'utf8');
       res.writeHead(200, {
         ...BASE_HEADERS,
         'Content-Type': MIME[ext]!,
         'Content-Security-Policy': DIGEST_CSP,
         'Content-Length': String(body.length),
+        ETag: `"${Math.floor(mtimeMs)}-${size}"`,
       });
       return void res.end(req.method === 'HEAD' ? undefined : body);
     }

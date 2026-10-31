@@ -238,6 +238,16 @@ describe('DigestServer 세션 요청', () => {
     expect(VIEWER_JS).toContain(`'${REQUEST_PATH}'`);
   });
 
+  it('HTML ETag는 디스크 파일이 다시 쓰이면 바뀐다. 요청을 넣은 뷰어가 이 값으로 새로고침할 때를 안다', async () => {
+    const { port, root } = await serve();
+    const before = (await get(port, '/s1/', { method: 'HEAD' })).headers.etag;
+    expect(before).toMatch(/^"\d+-\d+"$/);
+    expect((await get(port, '/s1/', { method: 'HEAD' })).headers.etag).toBe(before);
+    writeFileSync(join(root, 's1', 'digest.html'), PAGE.replace('hi', 'hi again'));
+    expect((await get(port, '/s1/', { method: 'HEAD' })).headers.etag).not.toBe(before);
+    expect(VIEWER_JS).toContain("res.headers.get('ETag')");
+  });
+
   it('통과한 요청은 서버가 조립한 틀로 세션에 넣고 고정 코드로 답한다', async () => {
     const { port, token, sent } = await serve();
     const r = await post(port, easy, ok(port, token));
