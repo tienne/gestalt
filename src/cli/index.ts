@@ -319,6 +319,7 @@ export function createCli(): Command {
     .command('share')
     .description('세션 하나를 공유하고 뷰어 주소를 출력한다')
     .option('--session <id>', '공유할 Claude Code sessionId')
+    .option('--here', '이 명령을 친 Claude Code 세션을 공유한다 (/gestalt:share가 쓴다)')
     .option('--transcript <path>', '대화 기록 jsonl을 직접 지정 (로컬 검증용)')
     .option('--codex <id>', '공유할 Codex thread id나 rollout 경로 (읽기만, 메시지를 안 받는다)')
     .option('--tools <level>', '도구 출력 수준 full | summary | none (기본 summary, 앞 4KB)')
@@ -336,26 +337,30 @@ export function createCli(): Command {
     .action((o, cmd) => peerSharesCommand({ ...peerOpts(cmd), ...o }));
 
   peer
-    .command('unshare <id>')
+    .command('unshare [id]')
     .description('공유를 종료한다')
+    .option('--here', '이 명령을 친 Claude Code 세션으로 연 공유를 전부 종료한다')
     .action((id, o, cmd) => peerUnshareCommand({ ...peerOpts(cmd), ...o, id }));
 
   peer
     .command('kick <name>')
     .description('그 사람을 내 공유에서 끊는다. 공유가 열린 동안 다시 못 붙는다')
     .option('--share <id>', '이 공유에서만 (기본은 열린 공유 전부)')
+    .option('--here', '이 명령을 친 Claude Code 세션으로 연 공유에서만')
     .action((name, o, cmd) => peerKickCommand({ ...peerOpts(cmd), ...o, name }));
 
   peer
     .command('approve <name>')
     .description('처음 붙으려고 기다리는 사람을 받아 준다')
     .option('--share <id>', '이 공유에서만 (기본은 열린 공유 전부)')
+    .option('--here', '이 명령을 친 Claude Code 세션으로 연 공유에서만')
     .action((name, o, cmd) => peerApproveCommand({ ...peerOpts(cmd), ...o, name }));
 
   peer
     .command('deny <name>')
     .description('처음 붙으려고 기다리는 사람을 거절한다')
     .option('--share <id>', '이 공유에서만 (기본은 열린 공유 전부)')
+    .option('--here', '이 명령을 친 Claude Code 세션으로 연 공유에서만')
     .action((name, o, cmd) => peerDenyCommand({ ...peerOpts(cmd), ...o, name }));
 
   peer
