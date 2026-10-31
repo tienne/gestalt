@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   DIGEST_CSP,
   DigestServer,
+  isAllowableHost,
   REQUEST_PATH,
   TOKEN_META_NAME,
   type DigestServerOptions,
@@ -255,6 +256,33 @@ describe('DigestServer 세션 요청', () => {
       origin: `http://localhost:${port}`,
     });
     expect(r.status).toBe(200);
+  });
+
+  it('넘겨받은 이름은 Host와 https 출처로 받고 그 밖의 이름은 여전히 막는다', async () => {
+    const ts = 'home-macbook.tailnet.ts.net';
+    const { port, token, sent } = await serve({ allowHosts: [ts] });
+    const page = await get(port, '/s1/', { host: ts });
+    expect(page.status).toBe(200);
+    expect(
+      await post(port, easy, { ...ok(port, token), host: ts, origin: `https://${ts}` }),
+    ).toEqual({ status: 200, json: { ok: true, code: 'sent' } });
+    expect(
+      (await post(port, easy, { ...ok(port, token), host: ts, origin: `http://${ts}:${port}` }))
+        .status,
+    ).toBe(200);
+    for (const origin of [`http://${ts}`, `https://${ts}:8443`, `https://evil.${ts}`]) {
+      expect((await post(port, easy, { ...ok(port, token), host: ts, origin })).status).toBe(403);
+    }
+    expect((await get(port, '/s1/', { host: `evil.${ts}` })).status).toBe(403);
+    expect(sent).toHaveLength(2);
+  });
+
+  it('호스트 이름 꼴이 아닌 값은 서버를 만들 때 거절한다', () => {
+    for (const bad of ['*.ts.net', 'a.ts.net:443', 'http://a.ts.net', 'a/b', '']) {
+      expect(isAllowableHost(bad)).toBe(false);
+      expect(() => new DigestServer('.', { allowHosts: [bad] })).toThrow();
+    }
+    expect(isAllowableHost('home-macbook.tailb87648.ts.net')).toBe(true);
   });
 
   it('렌즈 자료는 transcript에서 종류를 읽어 lens 명령을 넣는다', async () => {

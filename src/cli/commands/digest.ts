@@ -429,14 +429,16 @@ export function parsePort(value: string): number {
 
 export async function digestServeCommand(
   slug: string,
-  opts: DigestCommonOptions & { port?: string; browser?: boolean },
+  opts: DigestCommonOptions & { port?: string; browser?: boolean; allowHost?: string[] },
 ): Promise<void> {
   try {
     const repoRoot = rootOf(opts);
+    const allowHosts = (opts.allowHost ?? []).map((h) => h.trim().toLowerCase());
     const r = renderDigestFiles(slug, opts);
     // 뷰어의 템플릿 요청은 이 목록에 있는 id만 세션에 넘긴다
     const server = new DigestServer(new DigestStore(repoRoot).root, {
       templates: templatesOf(opts).templates,
+      allowHosts,
     });
     const port = opts.port ? parsePort(opts.port) : await findDigestPort();
     try {
@@ -453,6 +455,7 @@ export async function digestServeCommand(
     emit({ ...r, url }, opts.json, () => {
       for (const w of r.warnings) console.log(`경고: ${w}`);
       console.log(`뷰어: ${url}`);
+      for (const h of allowHosts) console.log(`받는 이름: ${h}`);
       console.log('끝내려면 Ctrl+C');
     });
     if (opts.browser !== false) await openInBrowser(url);

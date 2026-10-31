@@ -126,7 +126,18 @@ export interface DigestServerOptions {
   /** 세션에 글을 넣는다. 테스트가 바꿔 끼운다 */
   sendToSession?: (text: string) => Promise<SendResult>;
   now?: () => number;
+  /**
+   * 127.0.0.1과 localhost 말고 받을 Host 이름. 테일스케일 serve처럼 내 기기에서 앞단 프록시를 거쳐
+   * 들어오는 이름을 사람이 직접 넘길 때만 쓴다. 이 이름의 https 출처와 포트 붙은 http 출처도 버튼 요청에서 받는다
+   */
+  allowHosts?: string[];
 }
+
+/** --allow-host로 받는 이름 꼴. 포트와 경로, 와일드카드 없이 호스트 이름만 받는다 */
+export const isAllowableHost = (name: string): boolean =>
+  /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(
+    name,
+  );
 
 const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest();
 
@@ -170,6 +181,7 @@ export class DigestServer {
   private readonly templates: Pick<DigestTemplate, 'id' | 'kinds'>[];
   private readonly send: (text: string) => Promise<SendResult>;
   private readonly now: () => number;
+  private readonly hosts: Set<string>;
   private requestTimes: number[] = [];
 
   constructor(root: string, opts: DigestServerOptions = {}) {
@@ -177,6 +189,10 @@ export class DigestServer {
     this.templates = opts.templates ?? [];
     this.send = opts.sendToSession ?? ((text) => sendToSession(text));
     this.now = opts.now ?? Date.now;
+    for (const h of opts.allowHosts ?? []) {
+      if (!isAllowableHost(h)) throw new Error(`호스트 이름 꼴이 아니에요: ${h}`);
+    }
+    this.hosts = new Set(['127.0.0.1', 'localhost', ...(opts.allowHosts ?? [])]);
   }
 
   start(port: number): Promise<void> {
@@ -234,8 +250,8 @@ export class DigestServer {
       return this.deny(res, 405, 'Method Not Allowed', { Allow: 'GET, HEAD' });
     }
     // 127.0.0.1에만 바인딩해도 DNS 리바인딩이면 남의 이름으로 여기 닿는다
-    const host = (req.headers.host ?? '').split(':')[0];
-    if (host !== '127.0.0.1' && host !== 'localhost') return this.deny(res, 403, 'Forbidden');
+    const host = (req.headers.host ?? '').split(':')[0]!.toLowerCase();
+    if (!this.hosts.has(host)) return this.deny(res, 403, 'Forbidden');
     if (isRequest) return this.handleRequest(req, res);
 
     const decoded = safeDecode((req.url ?? '/').split('?')[0]!);
@@ -290,10 +306,21 @@ export class DigestServer {
    * POST할 수 있어서 Origin과 페이지에만 실은 토큰을 둘 다 본다. JSON 본문이라 다른 출처에서 보내면
    * 사전 요청(OPTIONS)부터 405로 막힌다. 세션에 들어가는 글은 검사를 통과한 값으로 서버가 다시 조립한다
    */
+  // 루프백은 포트까지 같은 http 출처만 받는다. 넘겨받은 이름은 앞단 프록시가 https로 받아 넘기는 경우가 있어 https 출처도 받는다
+  private allowedOrigin(origin: string, port: number | undefined): boolean {
+    if (port === undefined) return false;
+    if (origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`) return true;
+    for (const h of this.hosts) {
+      if (h === '127.0.0.1' || h === 'localhost') continue;
+      if (origin === `https://${h}` || origin === `http://${h}:${port}`) return true;
+    }
+    return false;
+  }
+
   private handleRequest(req: IncomingMessage, res: ServerResponse): void {
     const port = this.port;
     const origin = req.headers.origin;
-    if (origin !== `http://127.0.0.1:${port}` && origin !== `http://localhost:${port}`) {
+    if (!origin || !this.allowedOrigin(origin, port)) {
       req.resume();
       return this.reply(res, 403, 'forbidden');
     }

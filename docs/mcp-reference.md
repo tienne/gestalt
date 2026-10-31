@@ -1313,7 +1313,7 @@ gestalt digest translate-apply <slug> <번역 파일>
 gestalt digest validate <slug>
 gestalt digest frames <slug> [--force]
 gestalt digest render <slug> [--inline-frames] [--no-crops]
-gestalt digest serve <slug> [--port <n>] [--no-browser]   # 127.0.0.1, 기본 7893부터
+gestalt digest serve <slug> [--port <n>] [--no-browser] [--allow-host <이름>...]   # 127.0.0.1, 기본 7893부터
 gestalt digest export <slug> --md [--report <key>] [--out <path>]
 
 # 읽기 렌즈. 합치기와 렌더, 띄우기는 위 digest 명령을 그대로 쓴다
@@ -1347,6 +1347,7 @@ gestalt lens attach <slug> <카드 파일> [--report <key>]   # 맥락 카드와
 
 - **토큰**: serve가 띄울 때 만든 토큰을 `.html` 응답에만 `<meta name="gestalt-serve-token">`으로 끼워 내보낸다. 디스크의 `digest.html`에는 안 쓴다. 뷰어는 이 값을 `X-Gestalt-Token` 헤더에 싣고 서버는 상수 시간 비교로 맞춰 본다.
 - **Origin**: `http://127.0.0.1:<port>`나 `http://localhost:<port>`와 정확히 같아야 한다. 포트까지 본다.
+- **앞단 프록시**: 테일스케일 serve처럼 다른 이름으로 들어오면 Host 검사에서 403이 난다. `--allow-host <이름>`으로 넘긴 이름만 Host로 받는다. 버튼 요청은 그 이름의 `https://<이름>`과 `http://<이름>:<port>` 출처만 받는다. 그 이름으로 페이지를 열 수 있는 기기는 모두 버튼으로 이 세션에 요청을 넣을 수 있다. tailnet 안에 내 기기만 있을 때 쓴다.
 - **본문**: `Content-Type: application/json`이고 2KB 안이어야 한다. JSON 본문이라 다른 출처에서 보내면 사전 요청(OPTIONS)부터 405로 막힌다.
 - **값**: slug는 폴더 이름 꼴이고 `transcript.json`이 있어야 한다. 렌즈인지 영상인지는 뷰어가 보낸 값 대신 `transcript.json`에서 읽는다. 템플릿은 serve가 아는 목록에 있고 그 자료 종류에 쓸 수 있어야 한다(`kinds`). 렌즈 자료에 영상 전용 템플릿(댓글 분석)은 안 받는다. `lang`은 언어 태그 꼴, `range`는 0 이상 유한한 두 수다.
 - **속도**: 토큰을 통과한 요청만 1분에 6건까지 받는다.
