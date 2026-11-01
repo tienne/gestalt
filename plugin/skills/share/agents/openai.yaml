@@ -1,0 +1,5 @@
+interface:
+  display_name: "Share"
+  short_description: "Open or close a gestalt peer share of this session"
+policy:
+  allow_implicit_invocation: false

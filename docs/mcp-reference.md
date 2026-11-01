@@ -21,7 +21,7 @@ Complete reference for all Gestalt MCP tools.
 | [`ges_search`](#ges_search) | Knowledge Base 시맨틱 검색 |
 | [`ges_sync`](#ges_sync) | Knowledge Base 파일 동기화 |
 | [`ges_pr`](#ges_pr) | 로컬 PR 생성, 리뷰, 머지 — 원격에 안 나간다 |
-| [`ges_peer`](./peer.md#ask_user-서명-답) | 세션 공유를 보고 있는 팀원에게 묻는다(`ask_user` 하나). 답은 팀원 기기가 서명한 답으로 나중에 세션에 들어온다 |
+| [`ges_peer`](./peer.md#보는-쪽-에이전트에-넘기기) | 세션 공유. `ask_user`는 이 세션을 보는 팀원에게 묻고 답은 팀원 기기가 서명해 나중에 들어온다. `peek`은 내가 보는 팀원 공유의 요약, `send`는 그 주인 세션에 에이전트 메시지 넣기, `status`와 `list`는 읽기만 한다. 공유를 열고 닫거나 사람을 받고 끊는 action은 없다(`/gestalt:share`) |
 | [`ges_research`](../plugin/skills/research/SKILL.md#쓰는-도구) | 경쟁사 리서치의 출처 확인, 개인정보 치환, 검증, 윤문, 렌더. 서버는 LLM을 부르지 않는다 |
 | [`ges_digest`](#ges_digest) | 영상 요약과 읽기 렌즈(`digest.json`)의 검증, 윤문, 뷰어 렌더. 수집과 프레임, 서버는 `gestalt digest`와 `gestalt lens` CLI가 맡는다 |
 | [`ges_architecture`](./architecture-view.md#ges_architecture-mcp-툴) | 세션이 쓴 아키텍처 IR을 검증하고 단일 HTML로 결정적으로 그린다. `service` 노드가 있으면 전체에서 서비스, 기능영역으로 들어가는 드릴다운 한 장으로 그린다. 서비스를 서빙하는 도메인, CDN, 버킷은 읽기 전용 클라우드 조회(`live` 근거)로 확인해 함께 싣는다. 서버는 LLM을 부르지 않는다 |

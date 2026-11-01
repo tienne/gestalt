@@ -36,6 +36,7 @@ import { MAX_VIEWERS_PER_SHARE, REPLAY_CHUNK_BYTES } from './viewer.js';
 import { errMessage, PeerNetworkError } from './errors.js';
 import type { InboxResult } from './inbox.js';
 import {
+  AGENT_MESSAGE_RATE_LIMIT,
   isMessageId,
   MESSAGE_RECEIVE_LIMIT,
   newMessageId,
@@ -54,7 +55,7 @@ import type {
   PendingWatcher,
 } from './protocol.js';
 import type { PeerPeek } from './peek.js';
-import { PeekDesk } from './peeks.js';
+import { PeekDesk, pickWatch } from './peeks.js';
 import type { PeekBox, PeekHost } from './peeks.js';
 import { QuestionDesk } from './questions.js';
 import type { AskResult, QuestionBox, QuestionHost } from './questions.js';
@@ -199,6 +200,8 @@ type BoxMessage =
       salt: string;
       /** 주인이 이 공유로 메시지를 받는지. 없으면(이전 버전 주인 데몬) 안 받는 것으로 본다 */
       messages?: boolean;
+      /** 주인이 `--agent-peek`으로 열었는지. 없으면(이전 버전 주인 데몬) 모르는 것으로 둔다 */
+      agentPeek?: boolean;
     }
   | { t: 'watch_err'; share: string; nonce: string; reason: string }
   /** 주인 승인을 기다린다. 받아 주면 같은 nonce로 watch_ok가, 아니면 watch_err가 온다 */
@@ -263,6 +266,8 @@ interface Watch {
   key?: Buffer;
   /** 주인이 이 공유로 메시지를 받는지. watch_ok가 올 때마다 새로 받는다 */
   messages: boolean;
+  /** 주인이 요약을 허락했는지. 이전 버전 주인 데몬은 안 알려 줘서 undefined다 */
+  agentPeek?: boolean;
   /** 지금 기다리는 watch 요청 */
   pending?: {
     nonce: string;
@@ -342,6 +347,11 @@ export class PeerNetwork {
    */
   private refusedMessages = new Map<string, Set<string>>();
   private sendLimiter = new RateLimiter();
+  /**
+   * 보는 쪽 에이전트가 보내는 메시지의 상한. 사람 몫(sendLimiter)과 따로 더 좁게 둔다. 에이전트가 루프를
+   * 돌며 주인 세션을 두드려도 사람이 보낼 몫까지 다 쓰지 못한다. 에이전트 메시지는 두 상한을 다 탄다
+   */
+  private agentLimiter = new RateLimiter(AGENT_MESSAGE_RATE_LIMIT);
   /** 보는 쪽이 12건으로 먼저 막는다. 주인 쪽은 릴레이에 쌓였다 한꺼번에 온 것도 받게 넉넉하다 */
   private receiveLimiter = new RateLimiter(MESSAGE_RECEIVE_LIMIT);
   private readonly maxBuffered: number;
@@ -674,6 +684,8 @@ export class PeerNetwork {
     owner: string;
     status: string;
     events: number;
+    messages?: boolean;
+    agentPeek?: boolean;
     closed?: string;
   }[] {
     const live = [...this.watches.values()].map((w) => ({
@@ -682,6 +694,8 @@ export class PeerNetwork {
       owner: w.feed.ownerPerson,
       status: w.feed.currentStatus,
       events: w.feed.eventCount,
+      messages: w.messages,
+      ...(w.agentPeek !== undefined ? { agentPeek: w.agentPeek } : {}),
     }));
     const ended = this.closedWatches.map((c) => ({
       id: c.id,
@@ -960,9 +974,17 @@ export class PeerNetwork {
     if (!t || t.state !== 'online') throw new PeerNetworkError('릴레이에 안 붙어 있어요');
     // 보내기 직전에 센다. 명단이나 연결 때문에 못 보낸 시도는 한도를 안 깎는다.
     // 주인 쪽 수신 한도는 MESSAGE_RECEIVE_LIMIT로 따로 정한다
-    if (!this.sendLimiter.take(`${w.share}|${w.owner}`)) {
+    // 에이전트 메시지는 두 한도를 다 본 뒤에 차감한다. 하나만 먼저 깎으면 다른 쪽에 막힌 시도가 몫을 쓴다
+    const limitKey = `${w.share}|${w.owner}`;
+    if (origin === 'agent' && !this.agentLimiter.has(limitKey)) {
+      throw new PeerNetworkError(
+        `에이전트 메시지를 너무 자주 보냈어요. 공유마다 10분에 ${AGENT_MESSAGE_RATE_LIMIT}건까지예요`,
+      );
+    }
+    if (!this.sendLimiter.take(limitKey)) {
       throw new PeerNetworkError('메시지를 너무 자주 보냈어요. 10분에 12건까지예요');
     }
+    if (origin === 'agent') this.agentLimiter.take(limitKey);
 
     const id = newMessageId();
     const body: BoxMessage = {
@@ -986,6 +1008,31 @@ export class PeerNetwork {
     }
     w.feed.setMessage(id, { status: result === 'queued' ? 'queued' : 'sent' });
     return { id, status: w.feed.getMessage(id)?.status ?? 'sent' };
+  }
+
+  /**
+   * 보는 쪽 에이전트(ges_peer send): 보고 있는 원격 공유의 주인 세션에 `origin="agent"` 메시지를 넣는다.
+   * target은 주인 쪽 공유 id이고 보기 id도 받는다. 나머지는 사람 메시지와 같은 길이다. 주인 모델의
+   * 답은 따로 안 돌아오고 주인 세션 대화 기록에 남아서 다음 peek의 replies로 본다.
+   */
+  async sendAgentMessage(
+    target: string,
+    raw: string,
+  ): Promise<{
+    id: string;
+    status: MessageStatus;
+    share: string;
+    owner: string;
+    agentPeek?: boolean;
+  }> {
+    const w = pickWatch([...this.watches.values()], target);
+    const r = await this.sendMessage(w.id, raw, 'agent');
+    return {
+      ...r,
+      share: w.share,
+      owner: w.feed.ownerPerson,
+      ...(w.agentPeek !== undefined ? { agentPeek: w.agentPeek } : {}),
+    };
   }
 
   listMessages(
@@ -1345,6 +1392,7 @@ export class PeerNetwork {
       sub,
       salt: salt.toString('base64url'),
       messages: owned.deliver !== undefined,
+      agentPeek: owned.peek !== undefined,
     });
     this.options.state.audit(
       'remote_watch',
@@ -1876,6 +1924,7 @@ export class PeerNetwork {
     // 늘지 않고 상한에도 안 닿아 1초마다 끝없이 청한다
     w.retries = 0;
     w.messages = msg.messages === true;
+    w.agentPeek = typeof msg.agentPeek === 'boolean' ? msg.agentPeek : undefined;
     w.key = streamKey(
       w.shareKey,
       Buffer.from(msg.salt, 'base64url'),
