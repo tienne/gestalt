@@ -336,7 +336,10 @@ describe('DigestServer 세션 요청', () => {
       { ...ok(port, token), origin: 'null' },
       { ...ok(port, token), 'x-gestalt-token': undefined },
       { ...ok(port, token), 'x-gestalt-token': token.slice(1) },
-      { ...ok(port, token), 'x-gestalt-token': `${token.slice(0, -1)}A` },
+      {
+        ...ok(port, token),
+        'x-gestalt-token': `${token.slice(0, -1)}${token.endsWith('A') ? 'B' : 'A'}`,
+      },
     ];
     for (const headers of cases) {
       expect(await post(port, easy, headers)).toEqual({
