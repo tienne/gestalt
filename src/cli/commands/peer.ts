@@ -119,11 +119,15 @@ export async function peerDaemonCommand(
   if (detached) {
     console.log(`pid ${process.pid}. \`gestalt peer daemon --stop\`으로 멈춰요.`);
     const log = daemonLogPath(root);
+    // 돌리기가 계속 실패하면 같은 줄이 1분마다 쌓여 로그가 오히려 큰다. 실패는 바뀔 때 한 번만 적는다
+    let rotateFailing = false;
     const timer = setInterval(() => {
       try {
         rotateDaemonLog(log);
+        rotateFailing = false;
       } catch (e) {
-        console.error(`[peer] 로그를 못 돌렸어요: ${errMessage(e)}`);
+        if (!rotateFailing) console.error(`[peer] 로그를 못 돌렸어요: ${errMessage(e)}`);
+        rotateFailing = true;
       }
     }, DAEMON_LOG_CHECK_MS);
     timer.unref();
@@ -149,6 +153,8 @@ async function detachCommand(options: PeerOptions, waitMs: number): Promise<void
     }
     fail(errMessage(e));
   }
+  // --json이어도 표준 출력의 JSON을 깨지 않게 표준 오류로 낸다
+  if (r.rotateError !== undefined) console.error(`로그를 못 돌렸어요: ${r.rotateError}`);
   if (options.json) {
     console.log(JSON.stringify({ pid: r.pid, log: r.log, already: r.already }));
     return;

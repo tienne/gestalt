@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  answeringDaemonPid,
   assertDetachSupported,
   DAEMON_LOG_MAX_BYTES,
   DaemonDetachError,
@@ -27,12 +28,13 @@ import {
   daemonLogPath,
   detachDaemon,
   detachedEnv,
+  type DetachResult,
   logTail,
   openDaemonLog,
   rotateDaemonLog,
   stopDaemon,
 } from '../../../src/peer/detach.js';
-import { lockPath, processAlive } from '../../../src/peer/lock.js';
+import { lockPath, processAlive, readLockPid } from '../../../src/peer/lock.js';
 import { socketPath } from '../../../src/peer/paths.js';
 
 const require = createRequire(import.meta.url);
@@ -120,6 +122,33 @@ describe('데몬 로그', () => {
     expect(readFileSync(log, 'utf8')).toBe('after\n');
   });
 
+  it('.1이 심링크면 따라가지 않고 던지고 원본과 링크 대상을 건드리지 않는다', () => {
+    const log = daemonLogPath(dir);
+    writeFileSync(log, 'y'.repeat(101), { mode: 0o600 });
+    const target = join(dir, 'elsewhere');
+    writeFileSync(target, 'keep', { mode: 0o644 });
+    symlinkSync(target, `${log}.1`);
+    expect(() => rotateDaemonLog(log, 100)).toThrow();
+    expect(readFileSync(target, 'utf8')).toBe('keep');
+    expect(statSync(target).mode & 0o777).toBe(0o644);
+    expect(statSync(log).size).toBe(101);
+  });
+
+  it('원본이 심링크면 돌리지 않는다', () => {
+    const target = join(dir, 'elsewhere');
+    writeFileSync(target, 'z'.repeat(200));
+    const log = daemonLogPath(dir);
+    symlinkSync(target, log);
+    expect(rotateDaemonLog(log, 100)).toBe(false);
+    expect(statSync(target).size).toBe(200);
+  });
+
+  it('꼬리는 줄마다 제어 문자를 지운다', () => {
+    const log = daemonLogPath(dir);
+    writeFileSync(log, 'ok \u001b[31mred\u001b[0m\n\u0007\n');
+    expect(logTail(log)).toEqual(['ok [31mred[0m']);
+  });
+
   it('꼬리는 이번 기동 표시 줄 뒤에서만 센다', () => {
     const log = daemonLogPath(dir);
     writeFileSync(
@@ -174,6 +203,16 @@ describe('daemonCommand', () => {
     expect(env).toEqual({ PATH: '/bin', GESTALT_PEER_HOME: '/root', GESTALT_PEER_DETACHED: '1' });
   });
 
+  it('NODE_OPTIONS에서 디버거와 감시 옵션만 빼고 다 빠지면 키를 지운다', () => {
+    expect(
+      detachedEnv(
+        { NODE_OPTIONS: '--require /x  --inspect=9229 --watch --max-old-space-size=512' },
+        '/r',
+      )['NODE_OPTIONS'],
+    ).toBe('--require /x --max-old-space-size=512');
+    expect('NODE_OPTIONS' in detachedEnv({ NODE_OPTIONS: '--inspect-brk' }, '/r')).toBe(false);
+  });
+
   it('Windows는 지원하지 않는다고 실패한다', () => {
     expect(() => assertDetachSupported('win32')).toThrow('Windows는 지원하지 않아요');
     expect(() => assertDetachSupported('darwin')).not.toThrow();
@@ -207,6 +246,25 @@ describe('detachDaemon 실패', () => {
     expect(e.child).toBeDefined();
     expect(await waitDead(e.child!)).toBe(true);
     expect(statSync(e.log).mode & 0o777).toBe(0o600);
+  });
+
+  it('로그 돌리기가 실패해도 띄우고 이유를 돌려준다', async () => {
+    const log = daemonLogPath(root);
+    writeFileSync(log, 'x'.repeat(2 * 1024 * 1024), { mode: 0o600 });
+    symlinkSync(join(root, 'nowhere'), `${log}.1`);
+    // 소켓에 답하는 가짜 데몬. 자식 pid를 답해 already가 false로 나와야 한다
+    const script =
+      "const net=require('node:net');" +
+      'net.createServer((c)=>c.once("data",()=>c.end(JSON.stringify({ok:true,result:{pid:process.pid}})+"\\n")))' +
+      `.listen(${JSON.stringify(socketPath(root))});`;
+    const r = await detachDaemon({
+      root,
+      waitMs: 10_000,
+      command: [process.execPath, '-e', script],
+    });
+    pids.push(r.pid);
+    expect(r.already).toBe(false);
+    expect(r.rotateError).toBeDefined();
   });
 
   it('자식이 뜨다가 끝나면 시한을 기다리지 않고 실패한다', async () => {
@@ -264,6 +322,39 @@ describe('stopDaemon이 신호를 안 보내는 경우', () => {
   });
 });
 
+describe('stopDaemon 시한 초과', () => {
+  let root: string;
+  let stubborn: ChildProcess | undefined;
+  let server: Server | undefined;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'pdt-'));
+  });
+  afterEach(async () => {
+    killQuietly(stubborn?.pid);
+    if (server) await new Promise<void>((r) => server!.close(() => r()));
+    server = undefined;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('SIGTERM에 안 끝나면 pid와 kill 안내로 실패하고 프로세스는 그대로다', async () => {
+    // 핸들러를 건 뒤에 신호를 보내야 해서 ready를 받을 때까지 기다린다
+    stubborn = spawn(
+      process.execPath,
+      ['-e', "process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)"],
+      { stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    await new Promise<void>((r) => stubborn!.stdout!.once('data', () => r()));
+    const pid = stubborn.pid!;
+    writeFileSync(lockPath(root), `${pid}\n${Date.now()}\nabc\n`);
+    server = createServer((c) => {
+      c.once('data', () => c.end(JSON.stringify({ ok: true, result: { pid } }) + '\n'));
+    });
+    await new Promise<void>((r) => server!.listen(socketPath(root), () => r()));
+    await expect(stopDaemon({ root, waitMs: 500 })).rejects.toThrow(`안 멈췄어요. \`kill ${pid}\``);
+    expect(processAlive(pid)).toBe(true);
+  });
+});
+
 /**
  * 진짜 CLI를 자식 프로세스로 띄운다. `GESTALT_PEER_HOME`을 임시 디렉토리로 두고 끝에 남은 데몬을 꼭 끈다
  */
@@ -291,6 +382,9 @@ describe('peer daemon --detach와 --stop', () => {
     root = mkdtempSync(join(tmpdir(), 'pdd-'));
   });
   afterEach(async () => {
+    // 단언이 pid를 모으기 전에 실패해도 잠금에 적힌 데몬은 끈다. root는 이 테스트가 만든 임시 디렉토리다
+    const holder = readLockPid(root);
+    if (holder !== undefined) pids.add(holder);
     for (const pid of pids) killQuietly(pid);
     for (const pid of pids) await waitDead(pid, 5_000);
     pids.clear();
@@ -299,18 +393,16 @@ describe('peer daemon --detach와 --stop', () => {
 
   it('부른 프로세스가 끝난 뒤에도 살아서 소켓에 답하고 --stop이 잠금과 소켓을 치운다', async () => {
     const first = await cli(['--json', 'daemon', '--detach', '--wait', String(BOOT_WAIT_SECS)]);
+    const r = JSON.parse(first.stdout || '{}') as { pid: number; log: string; already: boolean };
+    if (r.pid) pids.add(r.pid);
     expect(first.stderr).toBe('');
     expect(first.code).toBe(0);
-    const r = JSON.parse(first.stdout) as { pid: number; log: string; already: boolean };
-    pids.add(r.pid);
     expect(r).toEqual({ pid: r.pid, log: daemonLogPath(root), already: false });
     expect(r.pid).not.toBe(first.parent);
     // 부모는 끝났고 데몬은 그 뒤에도 답한다
     expect(processAlive(first.parent)).toBe(false);
     await sleep(300);
-    const status = await cli(['--json', 'status']);
-    expect(status.code).toBe(0);
-    expect((JSON.parse(status.stdout) as { pid: number }).pid).toBe(r.pid);
+    expect(await answeringDaemonPid(socketPath(root))).toBe(r.pid);
     expect(statSync(r.log).mode & 0o777).toBe(0o600);
     expect(statSync(root).mode & 0o777).toBe(0o700);
     expect(readFileSync(r.log, 'utf8')).toContain('`gestalt peer daemon --stop`으로 멈춰요');
@@ -334,14 +426,23 @@ describe('peer daemon --detach와 --stop', () => {
   it('동시에 두 번 띄워도 데몬은 하나다', async () => {
     const command = [process.execPath, ...TSX_FLAGS, BIN, 'peer', 'daemon'];
     const waitMs = BOOT_WAIT_SECS * 1000;
-    const [a, b] = await Promise.all([
+    const settled = await Promise.allSettled([
       detachDaemon({ root, waitMs, command }),
       detachDaemon({ root, waitMs, command }),
     ]);
-    for (const x of [a, b]) {
-      pids.add(x.pid);
-      if (x.spawned) pids.add(x.spawned);
+    // 한쪽이 실패해도 띄운 것은 다 모아 afterEach가 끄게 한다
+    for (const s of settled) {
+      if (s.status === 'fulfilled') {
+        pids.add(s.value.pid);
+        if (s.value.spawned) pids.add(s.value.spawned);
+      } else if (s.reason instanceof DaemonDetachError && s.reason.child) {
+        pids.add(s.reason.child);
+      }
     }
+    const [a, b] = settled.map((s) => {
+      if (s.status === 'rejected') throw s.reason;
+      return s.value;
+    }) as [DetachResult, DetachResult];
     expect(a.pid).toBe(b.pid);
     expect([a.already, b.already].sort()).toEqual([false, true]);
     // 진 자식은 잠금을 못 잡고 끝난다
