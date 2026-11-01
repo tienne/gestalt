@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import matter from 'gray-matter';
 import { z } from 'zod';
 import { BLOCK_TYPES, templateIdSchema, type BlockType } from './blocks.js';
+import { isLensKind, type SourceKind } from './schema.js';
 import { DigestStore } from './store.js';
 
 /** 템플릿 하나는 프롬프트 한 장이라 이보다 크면 잘못 넣은 파일로 본다 */
@@ -11,6 +12,10 @@ const TEMPLATE_MAX_BYTES = 64 * 1024;
 
 /** 템플릿이 요약 전에 따로 받아 둬야 하는 자료. 없으면 스킬이 먼저 받는다 */
 export const TEMPLATE_NEEDS = ['comments'] as const;
+
+/** 템플릿을 쓸 수 있는 자료 종류. 영상 요약은 video, 읽기 렌즈(PDF, 웹, 팟캐스트)는 lens다 */
+export const TEMPLATE_KINDS = ['video', 'lens'] as const;
+export type TemplateKind = (typeof TEMPLATE_KINDS)[number];
 
 // src/research/source-schema.ts와 같은 이유로 js 엔진을 막는다. 사용자 폴더 파일이라도 frontmatter가 코드로 돌면 안 된다
 const SAFE_MATTER_OPTIONS = {
@@ -33,6 +38,12 @@ const frontmatterSchema = z.object({
     .min(1)
     .transform((list) => [...new Set(list)]),
   needs: z.array(z.enum(TEMPLATE_NEEDS)).default([]),
+  /** 쓸 수 있는 자료 종류. 비워 두면 전부다 */
+  kinds: z
+    .array(z.enum(TEMPLATE_KINDS))
+    .min(1)
+    .transform((list) => [...new Set(list)])
+    .optional(),
   /** 탭과 메뉴에 놓이는 순서. 작을수록 앞이다 */
   order: z.number().int().default(100),
 });
@@ -43,6 +54,8 @@ export interface DigestTemplate {
   description: string;
   blocks: BlockType[];
   needs: (typeof TEMPLATE_NEEDS)[number][];
+  /** 쓸 수 있는 자료 종류. 없으면 영상과 렌즈 모두 */
+  kinds?: TemplateKind[];
   order: number;
   /** 요약 에이전트에게 넘기는 지시. frontmatter 아래 본문이다 */
   prompt: string;
@@ -151,6 +164,13 @@ export function findBuiltinTemplatesDir(skillsDir?: string): string | null {
 
 export const loadDigestTemplates = (repoRoot: string, skillsDir?: string): TemplateLoad =>
   loadTemplates(findBuiltinTemplatesDir(skillsDir), repoRoot);
+
+export const templateKindOf = (source: SourceKind): TemplateKind =>
+  isLensKind(source) ? 'lens' : 'video';
+
+/** 그 자료 종류의 뷰어 메뉴에 띄우고 세션 요청으로 받아도 되는 템플릿인지 */
+export const templateFitsKind = (t: Pick<DigestTemplate, 'kinds'>, kind: TemplateKind): boolean =>
+  !t.kinds || t.kinds.includes(kind);
 
 /** lint가 받는 꼴로 바꾼다 */
 export const templateMap = (templates: DigestTemplate[]): Map<string, DigestTemplate> =>

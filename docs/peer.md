@@ -221,6 +221,8 @@ TLS 없이 띄우면 위 라우팅 정보가 네트워크에 그대로 보인다
 
 인박스 소켓은 `--session`으로 연 공유만 찾는다. 소켓을 못 찾거나 붙기 전에 실패하면 거절로 돌려준다. 붙은 뒤 실패하면 줄이 들어갔을 수 있어서 "주인 세션에 넣음"으로 알리고 대화 기록을 지켜본다. 소켓을 못 찾을 때 훅 알림과 `ges_peer inbox`로 끌어오는 길은 아직 없다.
 
+digest 뷰어(`gestalt digest serve`)도 같은 인박스 소켓에 글을 넣는다. 뷰어의 쉽게 보기 토글이나 템플릿 버튼을 누르면 serve가 `CLAUDE_PID`와 부모 프로세스를 따라 올라가 자기를 띄운 Claude Code 세션의 `sessions/<pid>.json`을 찾는다. 세션 파일의 `messagingSocketPath`에 `/gestalt:lens`나 `/gestalt:video-digest` 명령 한 줄을 `<digest-request from="viewer">` 틀로 감싸 넣는다. 쓰는 코드는 주인 데몬과 같은 `src/peer/inbox.ts`이고 세션 토큰은 싣지 않는다. 공유를 열지 않아도 되고 릴레이도 거치지 않는다. 다만 serve는 데몬과 달리 세션의 자손이라 Claude Code가 이 글을 어떻게 다루는지(승인 창이 뜨는지, bypass 세션에서도 뜨는지, 놀던 세션이 새 턴을 여는지)는 사람이 따로 확인해야 한다. 요청 검사는 [mcp-reference.md의 뷰어 버튼 요청](./mcp-reference.md#뷰어-버튼-요청-post-__request)에 있다.
+
 ### 본문 틀
 
 ```

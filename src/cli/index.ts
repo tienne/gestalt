@@ -626,6 +626,10 @@ export function createCli(): Command {
     .description('뷰어를 로컬 서버(127.0.0.1)로 띄운다. 유튜브 재생과 따라가기는 여기서만 된다')
     .option('--port <n>', '포트 (기본: 7893부터 빈 곳)')
     .option('--no-browser', '브라우저를 열지 않는다')
+    .option(
+      '--allow-host <name...>',
+      '127.0.0.1 말고 받을 Host 이름. 테일스케일 serve 같은 앞단 프록시 이름을 직접 넘길 때만 쓴다',
+    )
     .action((slug, o, cmd) => digestServeCommand(slug, { ...digestInherited(cmd), ...o }));
 
   const reviewLoop = program

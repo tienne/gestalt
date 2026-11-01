@@ -412,6 +412,18 @@ describe('viewerLogic 리포트 전환', () => {
       '/gestalt:video-digest slug=figma-x difficulty=normal reportLang=en',
     );
   });
+
+  it('읽기 렌즈면 lens 스킬로 명령을 낸다', () => {
+    expect(viewerLogic.reportCommand('paper', 'easy', 'ko', null, true)).toBe(
+      '/gestalt:lens slug=paper difficulty=easy reportLang=ko',
+    );
+    expect(
+      viewerLogic.missingNotice({ prompted: false, lang: 'ko' }, 'paper', 'easy', true).cmd,
+    ).toBe('/gestalt:lens slug=paper difficulty=easy reportLang=ko');
+    expect(viewerLogic.missingNotice({ prompted: false }, 'v', 'easy', false).cmd).toBe(
+      '/gestalt:video-digest slug=v difficulty=easy',
+    );
+  });
 });
 
 describe('pairIndex', () => {

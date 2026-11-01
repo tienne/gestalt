@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
@@ -67,6 +68,58 @@ export function readSessionFile(path: string): SessionRecord | null {
 export function findSessionByPid(pid: number, configDir = claudeConfigDir()): SessionRecord | null {
   if (!Number.isInteger(pid) || pid <= 0) return null;
   return readSessionFile(join(configDir, 'sessions', `${pid}.json`));
+}
+
+/** pid의 부모 pid. 못 읽었거나 init(1)이면 undefined */
+export function parentPid(pid: number): number | undefined {
+  try {
+    const out = execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 500,
+    });
+    const n = Number(out.trim());
+    return Number.isInteger(n) && n > 1 ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export interface AncestorLookup {
+  /** 몇 대 위까지 볼지. `npx`나 셸이 여러 겹 끼어도 세션까지 닿을 만큼 둔다 */
+  maxDepth?: number;
+  env?: NodeJS.ProcessEnv;
+  /** 테스트가 ps 대신 넣는다 */
+  parentOf?: (pid: number) => number | undefined;
+}
+
+/**
+ * startPid부터 부모를 따라 올라가며 `sessions/<pid>.json`이 있는 첫 세션을 찾는다. Bash 도구로 띄운
+ * `gestalt digest serve`처럼 세션과 사이에 셸이 몇 겹 낀 프로세스가 쓴다. Claude Code가 자식에게 주는
+ * `CLAUDE_PID`가 있으면 그걸 먼저 본다. pid 1에 닿거나 같은 pid를 다시 만나면 멈춘다.
+ */
+export function findSessionInAncestors(
+  startPid: number,
+  configDir = claudeConfigDir(),
+  opts: AncestorLookup = {},
+): SessionRecord | null {
+  const env = opts.env ?? process.env;
+  const parentOf = opts.parentOf ?? parentPid;
+  const fromEnv = Number(env['CLAUDE_PID']);
+  if (Number.isInteger(fromEnv) && fromEnv > 1) {
+    const hit = findSessionByPid(fromEnv, configDir);
+    if (hit) return hit;
+  }
+  const seen = new Set<number>();
+  let pid: number | undefined = startPid;
+  for (let depth = 0; depth <= (opts.maxDepth ?? 8); depth++) {
+    if (pid === undefined || !Number.isInteger(pid) || pid <= 1 || seen.has(pid)) return null;
+    seen.add(pid);
+    const hit = findSessionByPid(pid, configDir);
+    if (hit) return hit;
+    pid = parentOf(pid);
+  }
+  return null;
 }
 
 /**

@@ -1,7 +1,6 @@
-import { execFileSync } from 'node:child_process';
 import { request } from '../../peer/client.js';
 import { errMessage } from '../../peer/errors.js';
-import { claudeConfigDir, findSessionByPid } from '../../peer/locate.js';
+import { claudeConfigDir, findSessionByPid, parentPid } from '../../peer/locate.js';
 import { plainLabel } from '../../peer/message.js';
 import { peerRoot, socketPath } from '../../peer/paths.js';
 import type {
@@ -51,23 +50,9 @@ export function sessionPids(env: NodeJS.ProcessEnv = process.env): number[] {
   const fromEnv = Number(env['CLAUDE_PID']);
   if (Number.isInteger(fromEnv) && fromEnv > 0) pids.push(fromEnv);
   pids.push(process.ppid);
-  const grand = parentOf(process.ppid);
+  const grand = parentPid(process.ppid);
   if (grand !== undefined) pids.push(grand);
   return [...new Set(pids)];
-}
-
-function parentOf(pid: number): number | undefined {
-  try {
-    const out = execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 2_000,
-    });
-    const n = Number(out.trim());
-    return Number.isInteger(n) && n > 1 ? n : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 export async function handlePeer(input: PeerInput, deps: PeerDeps = {}): Promise<string> {

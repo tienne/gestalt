@@ -15,6 +15,8 @@ export interface TreeNode {
 export interface SvgOptions {
   /** cite.key 문장의 시작 시각. 있으면 노드에 data-sec을 달아 누르면 영상이 그 자리로 간다 */
   sec?: (c: Cite) => number;
+  /** 글 자료의 문단 자리. 있으면 sec 대신 data-unit을 달아 누르면 원문 창이 그 문단을 연다 */
+  unit?: (c: Cite) => { index: number; label: string };
 }
 
 const FONT = 13;
@@ -120,10 +122,10 @@ export function treeSvg(root: TreeNode, opts: SvgOptions = {}, ariaLabel?: strin
       edges.push(`<path d="M${x1} ${p.y}C${mid} ${p.y} ${mid} ${c.y} ${x2} ${c.y}"/>`);
       draw(c);
     }
-    const cls = [`mm-node`, `mm-d${Math.min(p.depth, 3)}`, p.node.cite && opts.sec ? 'mm-cite' : '']
+    const sec = linkAttrs(p.node, opts);
+    const cls = [`mm-node`, `mm-d${Math.min(p.depth, 3)}`, sec ? 'mm-cite' : '']
       .filter(Boolean)
       .join(' ');
-    const sec = p.node.cite && opts.sec ? citeAttrs(p.node.label, opts.sec(p.node.cite)) : '';
     nodes.push(
       `<g class="${cls}"${sec}><title>${escapeXml(p.node.label)}</title><rect x="${x}" y="${p.y - BOX_H / 2}" width="${p.w}" height="${BOX_H}" rx="6"/><text x="${x + PAD_X}" y="${p.y}" dominant-baseline="central">${escapeXml(p.label)}</text></g>`,
     );
@@ -164,22 +166,30 @@ function nodeSvg(
   opts: SvgOptions,
   extra = '',
 ): string {
-  const cite = m.node.cite && opts.sec;
-  const cls = ['dg-node', extra, cite ? 'dg-cite' : ''].filter(Boolean).join(' ');
-  const sec = cite ? citeAttrs(m.node.label, opts.sec!(m.node.cite!)) : '';
+  const sec = linkAttrs(m.node, opts);
+  const cls = ['dg-node', extra, sec ? 'dg-cite' : ''].filter(Boolean).join(' ');
   const r = (n: number) => Math.round(n * 10) / 10;
   return `<g class="${cls}"${sec}><title>${escapeXml(m.node.label)}</title><rect x="${r(x)}" y="${r(cy - BOX_H / 2)}" width="${w}" height="${BOX_H}" rx="6"/><text x="${r(x + PAD_X)}" y="${r(cy)}" dominant-baseline="central">${escapeXml(m.text)}</text></g>`;
 }
 
-// 노드는 a가 아니라서 키보드와 스크린리더가 링크로 읽게 역할과 탭 순서를 직접 단다
-function citeAttrs(label: string, sec: number): string {
+// 노드는 a가 아니라서 키보드와 스크린리더가 링크로 읽게 역할과 탭 순서를 직접 단다.
+// 글 자료는 시각이 다 0이라 시각 대신 문단 자리를 달아야 눌렀을 때 갈 곳이 있다
+function linkAttrs(node: { label: string; cite?: Cite }, opts: SvgOptions): string {
+  if (!node.cite) return '';
+  const link = ' role="link" tabindex="0"';
+  if (opts.unit) {
+    const u = opts.unit(node.cite);
+    return ` data-unit="${u.index}"${link} aria-label="${escapeXml(`${node.label}, 원문 ${u.label} 열기`)}"`;
+  }
+  if (!opts.sec) return '';
+  const sec = opts.sec(node.cite);
   const s = Math.max(0, Math.floor(sec));
   const at = `${Math.floor(s / 60)}분 ${s % 60}초`;
-  return ` data-sec="${Math.max(0, sec)}" role="link" tabindex="0" aria-label="${escapeXml(`${label}, ${at}로 이동`)}"`;
+  return ` data-sec="${Math.max(0, sec)}"${link} aria-label="${escapeXml(`${node.label}, ${at}로 이동`)}"`;
 }
 
 // role="img"면 안쪽 노드가 보조기기에 안 보인다. 누를 노드가 있을 때만 group으로 연다
-const svgRole = (body: string) => (body.includes(' data-sec="') ? 'group' : 'img');
+const svgRole = (body: string) => (/ data-(sec|unit)="/.test(body) ? 'group' : 'img');
 
 /** 끝점 (x, y)에서 angle 방향을 향하는 화살촉 */
 function arrowHead(x: number, y: number, angle: number): string {

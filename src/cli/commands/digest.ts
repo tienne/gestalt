@@ -15,7 +15,12 @@ import { parseDigest } from '../../digest/schema.js';
 import { parseRangeArg, sliceFileName, sliceTranscript } from '../../digest/slice.js';
 import { DigestServer, findDigestPort, openInBrowser } from '../../digest/server.js';
 import { DigestStore } from '../../digest/store.js';
-import { loadDigestTemplates, templateMap, type TemplateLoad } from '../../digest/templates.js';
+import {
+  loadDigestTemplates,
+  TEMPLATE_KINDS,
+  templateMap,
+  type TemplateLoad,
+} from '../../digest/templates.js';
 import { applyTranslation } from '../../digest/translate.js';
 
 /**
@@ -315,7 +320,11 @@ export function digestMergeCommand(
 export function digestTemplatesCommand(opts: DigestCommonOptions): void {
   try {
     const load = templatesOf(opts);
-    const list = load.templates.map(({ prompt: _prompt, ...t }) => t);
+    // kinds를 비워 둔 템플릿도 전부 쓸 수 있다고 적어 준다. 렌즈 스킬이 이 값으로 템플릿을 거른다
+    const list = load.templates.map(({ prompt: _prompt, ...t }) => ({
+      ...t,
+      kinds: t.kinds ?? [...TEMPLATE_KINDS],
+    }));
     emit({ templates: list, warnings: load.warnings }, opts.json, () => {
       for (const t of list) {
         const tag = t.overridesBuiltin
@@ -325,7 +334,7 @@ export function digestTemplatesCommand(opts: DigestCommonOptions): void {
             : '';
         console.log(`${t.id}${tag}  ${t.title} — ${t.description}`);
         console.log(
-          `  블록: ${t.blocks.join(', ')}${t.needs.length ? ` / 먼저 받을 자료: ${t.needs.join(', ')}` : ''}`,
+          `  블록: ${t.blocks.join(', ')} / 자료: ${t.kinds.join(', ')}${t.needs.length ? ` / 먼저 받을 자료: ${t.needs.join(', ')}` : ''}`,
         );
       }
       if (list.length === 0) console.log('템플릿이 없어요.');
@@ -420,12 +429,17 @@ export function parsePort(value: string): number {
 
 export async function digestServeCommand(
   slug: string,
-  opts: DigestCommonOptions & { port?: string; browser?: boolean },
+  opts: DigestCommonOptions & { port?: string; browser?: boolean; allowHost?: string[] },
 ): Promise<void> {
   try {
     const repoRoot = rootOf(opts);
+    const allowHosts = (opts.allowHost ?? []).map((h) => h.trim().toLowerCase());
     const r = renderDigestFiles(slug, opts);
-    const server = new DigestServer(new DigestStore(repoRoot).root);
+    // 뷰어의 템플릿 요청은 이 목록에 있는 id만 세션에 넘긴다
+    const server = new DigestServer(new DigestStore(repoRoot).root, {
+      templates: templatesOf(opts).templates,
+      allowHosts,
+    });
     const port = opts.port ? parsePort(opts.port) : await findDigestPort();
     try {
       await server.start(port);
@@ -441,6 +455,7 @@ export async function digestServeCommand(
     emit({ ...r, url }, opts.json, () => {
       for (const w of r.warnings) console.log(`경고: ${w}`);
       console.log(`뷰어: ${url}`);
+      for (const h of allowHosts) console.log(`받는 이름: ${h}`);
       console.log('끝내려면 Ctrl+C');
     });
     if (opts.browser !== false) await openInBrowser(url);

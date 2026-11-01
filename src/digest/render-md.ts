@@ -191,9 +191,12 @@ export function renderDigestMarkdown(
   }
   if (skipped.length > 0) {
     out.push('## 요약에서 뺀 구간', '');
+    // 글 자료는 시각이 다 0이라 HTML처럼 쪽이나 문단 번호로 자리를 적는다
+    const textKind = isTextKind(transcript.meta.source);
     for (const s of skipped) {
+      const where = textKind ? unitLabel(transcript, s.from) : `${formatTime(at(s.from), long)}~`;
       out.push(
-        `- ${formatTime(at(s.from), long)}~ 문장 ${s.from + 1}-${s.to + 1}: ${plain(s.reason)}`,
+        `- ${where} ${textKind ? '문단' : '문장'} ${s.from + 1}-${s.to + 1}: ${plain(s.reason)}`,
       );
     }
     out.push('');
@@ -243,7 +246,10 @@ function mdCiter(transcript: Transcript): (c: Cite) => string {
   };
 }
 
-function mdTimer({ meta, segments }: Transcript): (c: Cite) => string {
+function mdTimer(transcript: Transcript): (c: Cite) => string {
+  const { meta, segments } = transcript;
+  // 글 자료는 시각이 다 0이라 뷰어의 문단 칩과 같은 쪽이나 문단 번호를 적는다
+  if (isTextKind(meta.source)) return (c) => unitLabel(transcript, c.key);
   const long = meta.durationSec >= 3600;
   return (c) => {
     const sec = segments[c.key]?.startSec ?? 0;

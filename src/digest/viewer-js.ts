@@ -18,6 +18,10 @@ export const VIEWER_JS =
   var starts = data.starts;
   var root = document.documentElement;
   var isFile = location.protocol === 'file:';
+  // serve가 내줄 때만 페이지에 끼우는 토큰. 있으면 없는 리포트를 serve를 띄운 세션에 바로 요청하고, 없거나 요청이 실패하면 명령 복사로 돌아간다
+  var tokenMeta = document.querySelector('meta[name="gestalt-serve-token"]');
+  var serveToken = !isFile && tokenMeta ? tokenMeta.getAttribute('content') : null;
+  var SENT_MSG = '세션에 요청을 넣었어요. 다 만들어지면 새로고침하지 않아도 이 화면에 바로 들어와요.';
   var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var holder = document.getElementById('player');
   var slot = document.getElementById('player-slot');
@@ -349,10 +353,13 @@ export const VIEWER_JS =
     pop.tabIndex = -1;
     pop.setAttribute('role', 'dialog');
     document.body.appendChild(pop);
-    document.querySelectorAll('.cite, .kw').forEach(function(b){
-      b.setAttribute('aria-expanded', 'false');
-      b.setAttribute('aria-controls', 'digest-pop');
-    });
+    function mark(root){
+      root.querySelectorAll('.cite, .kw').forEach(function(b){
+        b.setAttribute('aria-expanded', 'false');
+        b.setAttribute('aria-controls', 'digest-pop');
+      });
+    }
+    mark(document);
     var popFor = null;
     function closePop(){
       if (popFor) popFor.setAttribute('aria-expanded', 'false');
@@ -444,6 +451,7 @@ export const VIEWER_JS =
       closePop();
     });
     return {
+      mark: mark,
       isOpen: function(){ return !pop.hidden; },
       closeAndReturn: function(){
         var back = popFor;
@@ -485,14 +493,14 @@ export const VIEWER_JS =
     }, 250);
   }
 
+  // 리포트를 바꿔 끼우면 목차와 미니맵 링크도 바뀌어서 표시할 때마다 다시 읽는다
   function setupSectionMarks() {
-    var marks = document.querySelectorAll('[data-nav]');
-    if (!('IntersectionObserver' in window) || !marks.length) return;
+    if (!('IntersectionObserver' in window)) return { observe: function(){} };
     var io = new IntersectionObserver(function(entries){
       entries.forEach(function(en){
         if (!en.isIntersecting) return;
         var id = en.target.id;
-        marks.forEach(function(m){
+        document.querySelectorAll('[data-nav]').forEach(function(m){
           var on = m.getAttribute('data-nav') === id;
           m.classList.toggle('is-current', on);
           if (on) m.setAttribute('aria-current', 'location');
@@ -500,15 +508,16 @@ export const VIEWER_JS =
         });
       });
     }, { rootMargin: '-15% 0px -70% 0px' });
-    document.querySelectorAll('section.sec').forEach(function(s){ io.observe(s); });
+    function observe(root){ root.querySelectorAll('section.sec').forEach(function(s){ io.observe(s); }); }
+    observe(document);
+    return { observe: observe };
   }
 
   // 읽는 소섹션이 바뀌면 영상을 그 구간 첫 문장으로 옮긴다. 재생 중이면 요약을 스크롤해도 영상을 옮기지 않고 빠르게 훑을 때는 멈춘 자리만 따른다.
   // 방금 시각을 눌렀으면 유예가 끝난 뒤 영상이 멈춰 있을 때만 따라간다. 기다리는 사이 그 소섹션이 화면에서 빠지면 따라가지 않는다
   // 앞선 이동의 버퍼링이 덜 끝났으면 재생 중으로 읽히므로 300ms 뒤 두 번까지 다시 본다
   function setupSubsectionFollow(player) {
-    var subs = document.querySelectorAll('.sub[data-from]');
-    if (!player.live || !('IntersectionObserver' in window) || !subs.length) return;
+    if (!player.live || !('IntersectionObserver' in window)) return { observe: function(){} };
     var followTimer = null, heldTimer = null, pendingSub = null;
     var currentIdx = function(){
       var t = player.currentTime();
@@ -550,7 +559,9 @@ export const VIEWER_JS =
         }, 400);
       });
     }, { rootMargin: '-15% 0px -70% 0px' });
-    subs.forEach(function(s){ subIo.observe(s); });
+    function observe(root){ root.querySelectorAll('.sub[data-from]').forEach(function(s){ subIo.observe(s); }); }
+    observe(document);
+    return { observe: observe };
   }
 
   // 플레이어 자리가 화면 밖으로 나가면 미니 플레이어로 띄운다. iframe을 DOM에서 옮기면 영상이 처음부터 다시 로드돼서 자리는 두고 위치만 고정한다
@@ -599,6 +610,406 @@ export const VIEWER_JS =
       (ok ? done : fail)();
     }
   }
+  // 넣은 요청은 새로고침해도 이어서 기다리게 sessionStorage에 둔다. 세션이 다시 렌더하면 serve가 주는 ETag가 바뀌어서
+  // 그때 새 페이지를 받아 새로 생긴 탭과 리포트만 지금 화면에 끼운다. 처음 연 페이지의 ETag를 기준으로 삼으려고 serve로 열었으면 열자마자 한 번 받아 둔다
+  var PENDING_KEY = 'gestalt-digest-pending:' + data.slug;
+  var WATCH_MS = 3000;
+  var WATCH_LIMIT_MS = 30 * 60 * 1000;
+  // 다른 탭을 보는 동안은 드물게만 묻는다. 돌아오면 바로 한 번 묻는다
+  var WATCH_HIDDEN_MS = 30000;
+  function readPending(){
+    var raw = null;
+    try { raw = sessionStorage.getItem(PENDING_KEY); } catch (e) {}
+    return readPendingList(raw, Date.now());
+  }
+  function writePending(list){
+    try {
+      if (list.length) sessionStorage.setItem(PENDING_KEY, JSON.stringify(list));
+      else sessionStorage.removeItem(PENDING_KEY);
+    } catch (e) {}
+  }
+  function addPending(entry){
+    var key = JSON.stringify(entry.b);
+    writePending(readPending().filter(function(p){ return JSON.stringify(p.b) !== key; }).concat([entry]));
+  }
+  function pageTag(){
+    return fetch(location.pathname, { method: 'HEAD', cache: 'no-store', credentials: 'same-origin' })
+      .then(function(res){ return res.ok ? res.headers.get('ETag') : null; }, function(){ return null; });
+  }
+  // 렌더가 파일을 쓰는 도중에 받으면 데이터가 잘려 있다. 그때는 null을 돌려주고 다음 차례에 다시 받는다
+  function fetchPage(){
+    return fetch(location.pathname, { cache: 'no-store', credentials: 'same-origin' }).then(function(res){
+      if (!res.ok) return null;
+      var tag = res.headers.get('ETag');
+      return res.text().then(function(html){
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var el = doc.getElementById('digest-data');
+        var next = null;
+        try { next = el ? JSON.parse(el.textContent) : null; } catch (e) {}
+        return next ? { doc: doc, data: next, tag: tag } : null;
+      });
+    }).then(null, function(){ return null; });
+  }
+  var baseTag = serveToken && window.fetch && window.DOMParser ? pageTag() : null;
+  var watching = false;
+  var watchTimer = null;
+  var watchBusy = false;
+  var watchNow = null;
+  function watchPage(){
+    if (watching || !baseTag) return;
+    watching = true;
+    baseTag.then(function(base){
+      function schedule(ms){ watchTimer = setTimeout(tick, ms); }
+      function tick(){
+        watchTimer = null;
+        var list = readPending();
+        if (!list.length) { watching = false; return; }
+        if (list.every(function(p){ return Date.now() - p.at > WATCH_LIMIT_MS; })) {
+          watching = false;
+          progress.timeout();
+          return;
+        }
+        if (document.hidden) { schedule(WATCH_HIDDEN_MS); return; }
+        watchBusy = true;
+        pageTag().then(function(tag){
+          if (!tag || !base || tag === base) {
+            watchBusy = false;
+            if (!base) base = tag;
+            schedule(WATCH_MS);
+            return;
+          }
+          fetchPage().then(function(page){
+            watchBusy = false;
+            if (!page) { schedule(WATCH_MS); return; }
+            base = page.tag || tag;
+            // 끼우다 멈추면 화면이 반쯤 바뀐 채라 다시 읽는다. 남은 요청은 resumePending이 이어 받는다
+            try {
+              if (!livePatch(page)) { location.reload(); return; }
+              progress.settle();
+            } catch (e) {
+              location.reload();
+              return;
+            }
+            schedule(WATCH_MS);
+          });
+        });
+      }
+      watchNow = function(){
+        if (!watching || watchBusy || !watchTimer) return;
+        clearTimeout(watchTimer);
+        tick();
+      };
+      schedule(WATCH_MS);
+    });
+  }
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden && watchNow) watchNow(); });
+  // 새로 그려진 페이지에서 만들어진 요청은 그 리포트나 탭을 열고 아직 안 된 요청은 만드는 중 표시를 다시 띄운다.
+  // 30분이 지난 요청은 세션이 놓친 것으로 보고 버린다
+  function resumePending(reports, tabs){
+    var list = readPending().filter(function(p){ return Date.now() - p.at < WATCH_LIMIT_MS; });
+    var left = [];
+    var ready = null;
+    list.forEach(function(p){ if (requestMade(p.b, data.reports, data.extensions)) ready = p.b; else left.push(p); });
+    writePending(left);
+    left.forEach(function(p){
+      requestState[JSON.stringify(p.b)] = 'sent';
+      progress.add(p, true);
+    });
+    if (ready && ready.action === 'template') {
+      (data.extensions || []).forEach(function(x){
+        if (requestMade(ready, [], [x])) tabs.open(x.panel);
+      });
+    } else if (ready) {
+      tabs.open('panel-summary');
+      reports.open(ready.difficulty, ready.lang);
+    }
+    if (left.length) watchPage();
+  }
+  // 같은 요청은 한 번만 보낸다. 이미 넣은 요청을 다시 누르면 넣었다는 안내만 다시 보여 주고, 응답을 기다리는 중이면 그 응답에 함께 건다
+  var requestState = {};
+  function requestToSession(body, title, done, fail) {
+    if (!serveToken || !window.fetch) { fail(); return; }
+    var key = JSON.stringify(body);
+    var state = requestState[key];
+    if (state === 'sent') { done(); return; }
+    if (state) { state.push([done, fail]); return; }
+    var waiting = [[done, fail]];
+    requestState[key] = waiting;
+    function settle(ok){
+      if (ok) {
+        requestState[key] = 'sent';
+        var entry = { b: body, t: title, at: Date.now() };
+        addPending(entry);
+        progress.add(entry);
+        watchPage();
+      } else delete requestState[key];
+      waiting.forEach(function(w){ w[ok ? 0 : 1](); });
+    }
+    fetch('/__request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Gestalt-Token': serveToken },
+      body: key,
+      credentials: 'same-origin',
+      cache: 'no-store'
+    }).then(function(res){
+      return res.json().then(function(j){ return res.ok && j && j.ok === true; }, function(){ return false; });
+    }).then(settle, function(){ settle(false); });
+  }
+
+  // 만드는 중인 요청을 화면에 띄운다. 템플릿은 탭 줄에 빈 탭을 세우고 리포트는 쉽게 보기 옆에 칩을 단다. 흐른 시간은 1초마다 고친다
+  function setupProgress(tabs, reports) {
+    var items = [];
+    var timer = null;
+    var status = document.createElement('p');
+    status.className = 'sr-only';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    document.body.appendChild(status);
+    function tick(){
+      if (document.hidden && timer) return;
+      var els = document.querySelectorAll('[data-pending-at]');
+      els.forEach(function(el){ el.textContent = elapsedLabel(Date.now() - Number(el.getAttribute('data-pending-at'))); });
+      if (!els.length && timer) { clearInterval(timer); timer = null; }
+    }
+    function startTimer(){
+      tick();
+      if (!timer) timer = setInterval(tick, 1000);
+    }
+    function dot(){
+      var s = document.createElement('span');
+      s.className = 'busy-dot';
+      s.setAttribute('aria-hidden', 'true');
+      return s;
+    }
+    // 매초 바뀌는 글자라 스크린리더에는 숨긴다. 시간 초과 안내로 바뀌면 다시 읽히게 푼다
+    function elapsed(p){
+      var s = document.createElement('span');
+      s.setAttribute('aria-hidden', 'true');
+      s.setAttribute('data-pending-at', String(p.at));
+      return s;
+    }
+    function para(cls, text){
+      var el = document.createElement('p');
+      el.className = cls;
+      if (text) el.textContent = text;
+      return el;
+    }
+    function find(p){
+      var key = JSON.stringify(p.b);
+      var hit = null;
+      items.forEach(function(it){ if (it.key === key) hit = it; });
+      return hit;
+    }
+    function addTemplate(p){
+      var list = document.querySelector('.tab-row .tabs');
+      if (!list) return null;
+      var id = 'pending-' + p.b.template;
+      var title = p.t || String(p.b.template);
+      var tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = 'is-pending';
+      tab.id = 'tab-' + id;
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('data-tab', id);
+      tab.setAttribute('aria-controls', id);
+      tab.setAttribute('aria-selected', 'false');
+      tab.tabIndex = -1;
+      tab.appendChild(dot());
+      tab.appendChild(document.createTextNode(title));
+      var panel = document.createElement('section');
+      panel.className = 'ext ext-pending';
+      panel.id = id;
+      panel.hidden = true;
+      panel.tabIndex = 0;
+      panel.setAttribute('role', 'tabpanel');
+      panel.setAttribute('aria-labelledby', tab.id);
+      var h = document.createElement('h2');
+      h.textContent = title;
+      panel.appendChild(h);
+      panel.appendChild(para('', '세션이 만드는 중이에요. 다 만들어지면 새로고침하지 않아도 이 자리에 바로 들어와요.'));
+      var meta = para('pending-meta', '');
+      meta.appendChild(dot());
+      meta.appendChild(elapsed(p));
+      panel.appendChild(meta);
+      panel.appendChild(para('pending-hint', '세션 화면에 승인 창이 떠 있으면 거기서 먼저 확인해 주세요.'));
+      list.appendChild(tab);
+      placePanel(panel);
+      return { tab: tab, panel: panel, meta: meta };
+    }
+    function addReport(p){
+      var toggle = document.getElementById('easy-toggle');
+      if (!toggle) return null;
+      var chip = document.createElement('span');
+      chip.className = 'busy-chip';
+      chip.appendChild(dot());
+      chip.appendChild(document.createTextNode((p.b.difficulty === 'easy' ? '쉬운' : '보통') + ' 리포트 만드는 중 · '));
+      chip.appendChild(elapsed(p));
+      toggle.parentNode.insertBefore(chip, toggle.nextSibling);
+      return { chip: chip };
+    }
+    // 버튼으로 넣은 요청은 넣었다는 안내를 따로 띄워서 announce는 새로고침 뒤 이어 받을 때만 켠다
+    function add(p, announce){
+      if (find(p)) return;
+      var ui = p.b.action === 'template' ? addTemplate(p) : addReport(p);
+      if (!ui) return;
+      ui.key = JSON.stringify(p.b);
+      ui.p = p;
+      items.push(ui);
+      if (announce) {
+        var what = p.b.action === 'template' ? (p.t || String(p.b.template)) : (p.b.difficulty === 'easy' ? '쉬운' : '보통') + ' 리포트';
+        status.textContent = what + ' 만드는 중이에요.';
+      }
+      startTimer();
+      return ui;
+    }
+    function drop(it){ items = items.filter(function(x){ return x !== it; }); }
+    // 새로 들어온 확장에 맞는 빈 탭을 넘겨준다. livePatch가 그 자리에 진짜 탭을 끼운다
+    function takeTab(x){
+      var hit = null;
+      items.forEach(function(it){ if (it.tab && requestMade(it.p.b, [], [x])) hit = it; });
+      if (hit) drop(hit);
+      return hit;
+    }
+    // 들어온 요청은 목록에서 뺀다. 리포트 칩은 누르면 그 리포트를 여는 버튼으로 바꾼다
+    function settle(){
+      var left = [];
+      var done = [];
+      readPending().forEach(function(p){
+        if (requestMade(p.b, data.reports, data.extensions)) done.push(p);
+        else left.push(p);
+      });
+      writePending(left);
+      done.forEach(function(p){
+        delete requestState[JSON.stringify(p.b)];
+        var it = find(p);
+        if (p.b.action === 'template') {
+          if (it) { it.tab.remove(); it.panel.remove(); drop(it); }
+          status.textContent = (p.t || '확장') + ' 탭이 다 만들어졌어요.';
+          return;
+        }
+        var label = (p.b.difficulty === 'easy' ? '쉬운' : '보통') + ' 리포트';
+        status.textContent = label + '가 다 만들어졌어요.';
+        if (!it) return;
+        drop(it);
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'busy-chip is-done';
+        btn.textContent = label + ' 보기';
+        btn.addEventListener('click', function(){
+          btn.remove();
+          tabs.open('panel-summary');
+          reports.open(p.b.difficulty, p.b.lang);
+        });
+        it.chip.parentNode.replaceChild(btn, it.chip);
+      });
+      tick();
+    }
+    function timeout(){
+      items.forEach(function(it){
+        var box = it.meta || it.chip;
+        box.querySelectorAll('.busy-dot').forEach(function(d){ d.classList.add('is-stopped'); });
+        box.querySelectorAll('[data-pending-at]').forEach(function(el){
+          el.removeAttribute('data-pending-at');
+          el.removeAttribute('aria-hidden');
+          el.textContent = '30분이 지나도 안 들어왔어요. 세션 화면을 확인해 주세요.';
+        });
+      });
+      if (items.length) status.textContent = '요청한 리포트가 30분이 지나도 안 들어왔어요. 세션 화면을 확인해 주세요.';
+      tick();
+    }
+    return { add: add, takeTab: takeTab, settle: settle, timeout: timeout };
+  }
+  // 확장 패널은 요약 패널과 앞선 확장 패널 뒤에 차례로 붙는다
+  function placePanel(panel){
+    var all = document.querySelectorAll('section.ext');
+    var after = all.length ? all[all.length - 1] : document.getElementById('panel-summary');
+    if (after) after.parentNode.insertBefore(panel, after.nextSibling);
+  }
+  function reportKeys(list){ return (list || []).map(function(r){ return r.key; }).join('|'); }
+  // 새 렌더에서 지금 화면에 없는 확장 탭과 바뀐 리포트 묶음만 옮겨 온다. 보던 탭과 리포트, 스크롤은 그대로 둔다.
+  // 화면 짜임이 달라 끼울 자리를 못 찾으면 false를 돌려주고 부른 쪽이 새로고침한다
+  function livePatch(page){
+    var next = page.data;
+    var doc = page.doc;
+    if (next.slug !== data.slug) return false;
+    var list = document.querySelector('.tab-row .tabs');
+    var fresh = [];
+    var ok = true;
+    (next.extensions || []).forEach(function(x){
+      if (document.getElementById(x.panel)) return;
+      var panel = doc.getElementById(x.panel);
+      var tab = doc.getElementById('tab-' + x.panel);
+      if (!panel || !tab || !list) ok = false;
+      else fresh.push({ x: x, panel: panel, tab: tab });
+    });
+    var swapReports = reportKeys(next.reports) !== reportKeys(data.reports);
+    var oldBoxes = document.querySelectorAll('.report[data-ri]');
+    var newBoxes = doc.querySelectorAll('.report[data-ri]');
+    var oldSelect = document.getElementById('report-select');
+    var newSelect = doc.getElementById('report-select');
+    if (swapReports && (!oldBoxes.length || !newBoxes.length || Boolean(oldSelect) !== Boolean(newSelect))) ok = false;
+    if (!ok) return false;
+    var keep = data.reports[reports.current()].key;
+    data.reports = next.reports;
+    data.extensions = next.extensions;
+    if (swapReports) {
+      swapAll(oldBoxes, newBoxes, null);
+      swapAll(document.querySelectorAll('.minimap[data-ri]'), doc.querySelectorAll('.minimap[data-ri]'), dataEl);
+      if (oldSelect && newSelect) {
+        oldSelect.textContent = '';
+        Array.prototype.forEach.call(newSelect.children, function(o){ oldSelect.appendChild(document.importNode(o, true)); });
+      }
+      reports.refresh(keep);
+    }
+    fresh.forEach(function(f){
+      var panel = document.importNode(f.panel, true);
+      var tab = document.importNode(f.tab, true);
+      var slot = progress.takeTab(f.x);
+      var wasOpen = slot && slot.tab.getAttribute('aria-selected') === 'true';
+      var active = document.activeElement;
+      var hadFocus = slot && (active === slot.tab || slot.panel.contains(active));
+      panel.hidden = true;
+      tab.setAttribute('aria-selected', 'false');
+      tab.tabIndex = -1;
+      tab.classList.add('is-new');
+      if (slot) {
+        list.replaceChild(tab, slot.tab);
+        slot.panel.parentNode.replaceChild(panel, slot.panel);
+      } else {
+        list.appendChild(tab);
+        placePanel(panel);
+      }
+      enhance(panel);
+      // 만들어진 템플릿은 더 만들기 메뉴에서 뺀다
+      var id = f.x.key.split('.')[0];
+      document.querySelectorAll('#more-menu [data-template]').forEach(function(b){
+        if (b.getAttribute('data-template') === id && b.parentNode) b.parentNode.remove();
+      });
+      if (wasOpen) tabs.open(f.x.panel);
+      if (hadFocus) tab.focus();
+      setTimeout(function(){ tab.classList.remove('is-new'); }, 6000);
+    });
+    return true;
+  }
+  // 옛 노드 자리에 새 노드를 차례로 끼우고 옛 노드를 지운다. 옛 노드가 없으면 fallback 앞에 붙인다
+  function swapAll(olds, news, fallback){
+    var at = olds.length ? olds[0] : fallback;
+    if (!at) return;
+    Array.prototype.forEach.call(news, function(n){
+      var el = document.importNode(n, true);
+      at.parentNode.insertBefore(el, at);
+      enhance(el);
+    });
+    Array.prototype.forEach.call(olds, function(o){ o.remove(); });
+  }
+  // 새로 끼운 노드에 처음 로드 때 한 번만 걸던 처리를 다시 건다. 클릭과 키 입력은 document에 걸려 있어 따로 안 건다
+  function enhance(root){
+    popups.mark(root);
+    sectionMarks.observe(root);
+    subFollow.observe(root);
+    zoom.wrap(root);
+  }
+
   var flash = makeFlash(function(){ return document.getElementById('copy-status'); });
   function copyWith(btn, label, text) {
     copyText(text, function(){ flash(btn, label, false); }, function(){ flash(btn, label, true); });
@@ -613,13 +1024,16 @@ export const VIEWER_JS =
     });
   }
 
-  // 요약 탭과 확장 탭을 오간다. 리포트 바와 미니맵은 요약 탭 안이나 body 표시로 같이 숨는다
+  // 요약 탭과 확장 탭을 오간다. 리포트 바와 미니맵은 요약 탭 안이나 body 표시로 같이 숨는다.
+  // 탭은 나중에 끼워 넣기도 해서 누를 때마다 탭 목록을 다시 읽는다
   function setupTabs() {
     var TAB_KEY = 'gestalt-digest-tab:' + data.slug;
     var SUMMARY = 'panel-summary';
-    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]'));
+    var list = document.querySelector('.tab-row .tabs');
+    function all(){ return Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]')); }
     var current = SUMMARY;
     function select(id, focus){
+      var tabs = all();
       if (!tabs.some(function(t){ return t.getAttribute('data-tab') === id; })) id = SUMMARY;
       current = id;
       tabs.forEach(function(t){
@@ -632,18 +1046,27 @@ export const VIEWER_JS =
       });
       if (id === SUMMARY) document.body.removeAttribute('data-tab');
       else document.body.setAttribute('data-tab', 'ext');
+      // 만드는 중인 빈 탭은 다음에 열 때 없을 수 있어서 기억하지 않는다
+      if (id.indexOf('pending-') === 0) return;
       try { localStorage.setItem(TAB_KEY, id); } catch (e) {}
     }
-    tabs.forEach(function(t, i){
-      t.addEventListener('click', function(){ select(t.getAttribute('data-tab'), false); });
-      t.addEventListener('keydown', function(ev){
+    function tabOf(ev){ return ev.target.closest ? ev.target.closest('[role="tab"]') : null; }
+    if (list) {
+      list.addEventListener('click', function(ev){
+        var t = tabOf(ev);
+        if (t) select(t.getAttribute('data-tab'), false);
+      });
+      list.addEventListener('keydown', function(ev){
+        var tabs = all();
+        var i = tabs.indexOf(tabOf(ev));
+        if (i < 0) return;
         var j = tabStep(i, tabs.length, ev.key);
         if (j < 0) return;
         ev.preventDefault();
         select(tabs[j].getAttribute('data-tab'), true);
       });
-    });
-    if (tabs.length) {
+    }
+    if (all().length) {
       // 공유된 앵커가 있으면 그 앵커가 든 탭을 연다. 저장해 둔 탭보다 먼저다
       var anchor = safeDecode(location.hash.slice(1));
       var target = anchor ? document.getElementById(anchor) : null;
@@ -654,6 +1077,7 @@ export const VIEWER_JS =
       else if (!target && saved) select(saved, false);
     }
     return {
+      open: function(id){ select(id, false); },
       markdown: function(){
         if (current === SUMMARY) return null;
         var hit = null;
@@ -663,14 +1087,26 @@ export const VIEWER_JS =
     };
   }
 
-  // 없는 템플릿은 뷰어가 만들지 않고 세션에 붙여 넣을 명령만 복사해 준다
-  function setupMore(reports) {
+  // 없는 템플릿은 뷰어가 만들지 않는다. serve로 열었으면 세션에 요청하고 만드는 중 탭을 연다. 아니면 세션에 붙여 넣을 명령만 복사해 준다
+  function setupMore(reports, tabs) {
     var btn = document.getElementById('more-btn');
     var menu = document.getElementById('more-menu');
     var box = document.getElementById('more-cmd-box');
     var code = document.getElementById('more-cmd');
     var copy = document.getElementById('more-copy');
+    var hint = document.getElementById('more-hint');
+    var msg = document.getElementById('more-msg');
+    var wrap = document.getElementById('more-cmd-wrap');
     if (!btn || !menu || !box || !code || !copy) return { close: function(){ return false; } };
+    if (serveToken && hint) hint.textContent = '템플릿을 고르면 serve를 띄운 세션에 만들어 달라고 요청해요.';
+    // 응답이 오기 전에 다른 템플릿을 고르면 앞 응답은 안내를 덮지 않는다
+    var seq = 0;
+    function showCmd(text, message){
+      code.textContent = text;
+      if (msg) msg.textContent = message;
+      if (wrap) wrap.hidden = false;
+      box.hidden = false;
+    }
     function setOpen(open){
       menu.hidden = !open;
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -678,9 +1114,33 @@ export const VIEWER_JS =
     btn.addEventListener('click', function(){ setOpen(menu.hidden); });
     menu.querySelectorAll('[data-template]').forEach(function(b){
       b.addEventListener('click', function(){
-        code.textContent = templateCommand(data.slug, b.getAttribute('data-template'), data.reports[reports.current()].lang);
+        var id = b.getAttribute('data-template');
+        var lang = data.reports[reports.current()].lang;
+        var command = templateCommand(data.slug, id, lang, data.lens);
+        var name = b.querySelector('b');
+        var mine = ++seq;
+        if (!serveToken) {
+          showCmd(command, '');
+          copyWith(copy, '명령 복사', command);
+          return;
+        }
+        if (msg) msg.textContent = '세션에 요청하는 중이에요.';
+        if (wrap) wrap.hidden = true;
         box.hidden = false;
-        copyWith(copy, '명령 복사', code.textContent);
+        requestToSession(templateRequest(data.slug, id, lang), name ? name.textContent : id, function(){
+          if (mine !== seq) return;
+          // 이 상자는 곧 숨기니 안내는 늘 보이는 status에 쓴다. 메뉴 항목이 사라져 포커스는 만드는 중 탭으로 옮긴다
+          if (msg) msg.textContent = '';
+          var status = document.getElementById('copy-status');
+          if (status) status.textContent = SENT_MSG;
+          box.hidden = true;
+          setOpen(false);
+          tabs.open('pending-' + id);
+          var pendingTab = document.getElementById('tab-pending-' + id);
+          (pendingTab || btn).focus();
+        }, function(){
+          if (mine === seq) showCmd(command, '세션에 요청을 넣지 못했어요. 아래 명령을 세션에 붙여 넣어 주세요.');
+        });
       });
     });
     copy.addEventListener('click', function(){ copyWith(copy, '명령 복사', code.textContent); });
@@ -694,11 +1154,10 @@ export const VIEWER_JS =
     };
   }
 
-  // 툴바는 쉽게 보기 토글 하나로 보통과 쉬운 리포트를 오간다. 없는 리포트는 서버가 만들지 않고 생성 명령만 보여 준다
+  // 툴바는 쉽게 보기 토글 하나로 보통과 쉬운 리포트를 오간다. 없는 리포트는 서버가 만들지 않고 생성 명령만 보여 준다.
+  // 리포트 묶음은 나중에 통째로 바꿔 끼우기도 해서 보여 줄 때마다 다시 읽는다
   function setupReports() {
     var REPORT_KEY = 'gestalt-digest-report:' + data.slug;
-    var boxes = document.querySelectorAll('.report[data-ri]');
-    var maps = document.querySelectorAll('.minimap[data-ri]');
     var easyToggle = document.getElementById('easy-toggle');
     var select = document.getElementById('report-select');
     var missing = document.getElementById('report-missing');
@@ -709,15 +1168,25 @@ export const VIEWER_JS =
     var copyCmd = document.getElementById('copy-cmd');
     var initial = data.reports[data.initial] ? data.initial : 0;
     var current = initial;
+    // 안내를 닫거나 다른 리포트로 옮긴 뒤 도착한 요청 응답은 안내를 다시 띄우지 않는다
+    var noticeSeq = 0;
     function hideMissing(){
+      noticeSeq++;
       if (missing) missing.hidden = true;
       if (status) status.textContent = '';
+    }
+    function showNotice(msg, command){
+      if (missingMsg) missingMsg.textContent = msg;
+      if (cmdWrap) cmdWrap.hidden = command === null;
+      if (cmd) cmd.textContent = command || '';
+      if (missing) missing.hidden = false;
+      if (status) status.textContent = msg;
     }
     function show(ri){
       if (!data.reports[ri]) ri = initial;
       current = ri;
-      boxes.forEach(function(b){ b.hidden = Number(b.getAttribute('data-ri')) !== ri; });
-      maps.forEach(function(m){ m.hidden = Number(m.getAttribute('data-ri')) !== ri; });
+      document.querySelectorAll('.report[data-ri]').forEach(function(b){ b.hidden = Number(b.getAttribute('data-ri')) !== ri; });
+      document.querySelectorAll('.minimap[data-ri]').forEach(function(m){ m.hidden = Number(m.getAttribute('data-ri')) !== ri; });
       var r = data.reports[ri];
       if (easyToggle) easyToggle.setAttribute('aria-pressed', r.difficulty === 'easy' ? 'true' : 'false');
       if (select) select.value = String(ri);
@@ -730,12 +1199,15 @@ export const VIEWER_JS =
       // 짝이 없는 옛 짧게, 기본 리포트는 길게로 간다. 스킬이 길게만 만들어서다. 구간이나 요청이 붙은 리포트는 다른 리포트로 넘기지 않는다
       if (ri < 0 && r.preset) ri = pickReport(data.reports, 'long', difficulty);
       if (ri >= 0) { show(ri); return; }
-      var notice = missingNotice(r, data.slug, difficulty);
-      if (missingMsg) missingMsg.textContent = notice.msg;
-      if (cmdWrap) cmdWrap.hidden = notice.cmd === null;
-      if (cmd) cmd.textContent = notice.cmd || '';
-      if (missing) missing.hidden = false;
-      if (status) status.textContent = notice.msg;
+      var notice = missingNotice(r, data.slug, difficulty, data.lens);
+      var mine = ++noticeSeq;
+      if (notice.cmd === null || !serveToken) { showNotice(notice.msg, notice.cmd); return; }
+      showNotice('세션에 만들어 달라고 요청하는 중이에요.', null);
+      requestToSession(reportRequest(data.slug, difficulty, r.lang, r.range), '', function(){
+        if (mine === noticeSeq) showNotice(SENT_MSG, null);
+      }, function(){
+        if (mine === noticeSeq) showNotice('세션에 요청을 넣지 못했어요. 아래 명령을 세션에 붙여 넣으면 만들어요.', notice.cmd);
+      });
     }
     // 눌림 상태는 보이는 리포트만 따른다. 안내가 떠 있으면 다시 눌러 닫는다
     if (easyToggle) easyToggle.addEventListener('click', function(){
@@ -757,7 +1229,20 @@ export const VIEWER_JS =
     if (owner) start = Number(owner.getAttribute('data-ri'));
     if (start !== initial) show(start);
     if (owner && target) target.scrollIntoView();
-    return { current: function(){ return current; } };
+    return {
+      current: function(){ return current; },
+      open: function(difficulty, lang){
+        data.reports.forEach(function(r, i){
+          if (r.difficulty === difficulty && (!lang || r.lang === lang) && data.reports[current].difficulty !== difficulty) show(i);
+        });
+      },
+      // 리포트 묶음을 바꿔 끼운 뒤 보던 리포트를 키로 다시 찾는다. 자리 번호는 새 렌더에서 밀릴 수 있다
+      refresh: function(key){
+        var ri = current;
+        data.reports.forEach(function(r, i){ if (r.key === key) ri = i; });
+        show(ri);
+      }
+    };
   }
 
   // 고른 답을 맞춰 보고 해설을 연다. 아무것도 안 골랐으면 정답과 해설만 연다
@@ -797,9 +1282,9 @@ export const VIEWER_JS =
   }
 
   // 장면 사진은 확대 창을 열 수 있을 때만 버튼으로 감싼다. 서버가 버튼을 그리면 스크립트가 없을 때 Tab에는 잡히는데 눌러도 반응이 없다
-  function wrapShots() {
+  function wrapShots(root) {
     if (typeof document.createElement('dialog').showModal !== 'function') return;
-    var imgs = document.querySelectorAll('.shot > img');
+    var imgs = root.querySelectorAll('.shot > img');
     for (var i = 0; i < imgs.length; i++) {
       var img = imgs[i];
       var btn = document.createElement('button');
@@ -816,10 +1301,10 @@ export const VIEWER_JS =
     }
   }
 
-  // 그림과 장면을 화면 크기로 키워 본다. 노드를 눌러 영상으로 가면 창을 닫는다
+  // 그림과 장면을 화면 크기로 키워 본다. 노드를 눌러 영상으로 가면 창을 닫는다.
+  // 그림이 든 탭이 나중에 들어올 수 있어 그림이 없어도 창은 만들어 둔다
   function setupZoom() {
-    wrapShots();
-    if (!document.querySelector('[data-zoom]')) return { isOpen: function(){ return false; } };
+    wrapShots(document);
     var dialog = document.createElement('dialog');
     dialog.id = 'zoom-dialog';
     dialog.setAttribute('aria-label', '그림 크게 보기');
@@ -836,7 +1321,7 @@ export const VIEWER_JS =
     close.addEventListener('click', function(){ dialog.close(); });
     dialog.addEventListener('click', function(ev){
       if (ev.target === dialog) dialog.close();
-      else if (ev.target.closest && ev.target.closest('[data-sec]')) dialog.close();
+      else if (ev.target.closest && ev.target.closest('[data-sec], [data-unit]')) dialog.close();
     });
     dialog.addEventListener('close', function(){
       body.textContent = '';
@@ -857,7 +1342,7 @@ export const VIEWER_JS =
       opener = btn;
       dialog.showModal();
     });
-    return { isOpen: function(){ return dialog.open; } };
+    return { isOpen: function(){ return dialog.open; }, wrap: wrapShots };
   }
 
   // 인터랙티브 그림은 렌더러가 상태마다 그려 둔 것 가운데 하나만 보인다. 여기서 값을 계산하지 않는다
@@ -896,22 +1381,25 @@ export const VIEWER_JS =
   // 요약 앵커로 스크롤하려면 요약 패널이 먼저 보여야 해서 탭을 리포트보다 먼저 연다
   var tabs = setupTabs();
   var reports = setupReports();
-  var more = setupMore(reports);
+  var more = setupMore(reports, tabs);
+  var progress = setupProgress(tabs, reports);
   var player = createPlayer();
   setupTimeLinks(player);
   var docPane = setupDocPane();
   var popups = setupPopups(docPane);
   setupScriptFollow(player);
-  setupSectionMarks();
-  setupSubsectionFollow(player);
+  var sectionMarks = setupSectionMarks();
+  var subFollow = setupSubsectionFollow(player);
   var mini = setupMiniPlayer(player);
   setupCopyButton(reports, tabs);
   setupQuiz();
   var zoom = setupZoom();
-  // 도식 노드는 Enter와 Space를 클릭으로 넘겨야 시각 이동과 확대 창 닫기가 같이 돈다
+  // 빈 탭을 다시 세우고 끼울 때 쓰는 처리가 모두 준비된 뒤에 이어서 기다린다
+  resumePending(reports, tabs);
+  // 도식 노드는 Enter와 Space를 클릭으로 넘겨야 시각 이동이나 문단 열기와 확대 창 닫기가 같이 돈다
   document.addEventListener('keydown', function(ev){
     if (ev.key !== 'Enter' && ev.key !== ' ') return;
-    var el = ev.target.closest ? ev.target.closest('g[data-sec]') : null;
+    var el = ev.target.closest ? ev.target.closest('g[data-sec], g[data-unit]') : null;
     if (!el) return;
     ev.preventDefault();
     el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
