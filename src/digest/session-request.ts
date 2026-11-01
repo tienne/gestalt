@@ -63,7 +63,7 @@ export function frameSessionRequest(req: SessionRequest, lens: boolean): string 
     '<digest-request from="viewer">',
     requestCommand(req, lens),
     '</digest-request>',
-    'gestalt digest serve 뷰어에서 사용자가 버튼을 눌러 보낸 요청이다. 위 명령 한 줄을 그대로 실행해 리포트를 만든다. 뷰어 serve가 이미 떠 있으니 렌더까지만 하고 serve를 새로 띄우지 않는다. 다 만들면 뷰어를 새로고침하면 보인다고 알린다.',
+    'gestalt digest serve 뷰어에서 사용자가 버튼을 눌러 보낸 요청이다. 위 명령 한 줄을 그대로 실행해 리포트를 만든다. 뷰어 serve가 이미 떠 있으니 렌더까지만 하고 serve를 새로 띄우지 않는다. 다 만들면 뷰어에 바로 들어간다고 알린다.',
   ].join('\n');
 }
 

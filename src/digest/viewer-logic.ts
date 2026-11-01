@@ -76,6 +76,29 @@ function templateRequest(slug, id, lang) {
   if (lang) body.lang = lang;
   return body;
 }
+function requestMade(b, reports, extensions) {
+  if (b.action === 'template') {
+    return (extensions || []).some(function(x){
+      return b.lang ? x.key === b.template + '.' + b.lang : x.key.indexOf(b.template + '.') === 0;
+    });
+  }
+  return (reports || []).some(function(r){ return r.difficulty === b.difficulty && (!b.lang || r.lang === b.lang); });
+}
+function readPendingList(raw, now) {
+  var v;
+  try { v = JSON.parse(raw || '[]'); } catch (e) { return []; }
+  if (!Array.isArray(v)) return [];
+  return v.filter(function(x){ return x && typeof x === 'object'; }).map(function(x){
+    if (x.b && typeof x.b === 'object') return { b: x.b, t: typeof x.t === 'string' ? x.t : '', at: typeof x.at === 'number' ? x.at : now };
+    return { b: x, t: '', at: now };
+  });
+}
+function elapsedLabel(ms) {
+  var s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 10) return '방금 넣었어요';
+  if (s < 60) return s + '초째';
+  return Math.floor(s / 60) + '분째';
+}
 function tabStep(i, n, key) {
   if (key === 'ArrowRight') return (i + 1) % n;
   if (key === 'ArrowLeft') return (i - 1 + n) % n;
@@ -190,6 +213,19 @@ export interface ViewerLogic {
   ) => Record<string, unknown>;
   /** serve에 보내는 템플릿 요청 본문 */
   templateRequest: (slug: string, id: string, lang?: string) => Record<string, unknown>;
+  /** 넣은 요청이 새 렌더에 들어왔는지. 템플릿은 확장 키, 리포트는 난이도와 언어로 본다 */
+  requestMade: (
+    b: Record<string, unknown>,
+    reports: { difficulty: string; lang: string }[],
+    extensions: { key: string }[] | undefined,
+  ) => boolean;
+  /** sessionStorage에 둔 요청 목록을 읽는다. 요청 본문만 넣던 옛 꼴은 넣은 시각을 지금으로 친다 */
+  readPendingList: (
+    raw: string | null,
+    now: number,
+  ) => { b: Record<string, unknown>; t: string; at: number }[];
+  /** 만드는 중 표시에 붙는 흐른 시간 */
+  elapsedLabel: (ms: number) => string;
   /** 탭 목록에서 방향키, Home, End로 옮겨 갈 자리. 다른 키면 -1 */
   tabStep: (i: number, n: number, key: string) => number;
   /** 공유 링크의 앵커는 외부 입력이라 깨진 인코딩이면 빈 문자열로 받는다 */
@@ -203,7 +239,7 @@ export interface ViewerLogic {
 }
 
 export const viewerLogic = new Function(
-  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, isPlaying: isPlaying, shouldFollowHeld: shouldFollowHeld, shouldScrollScript: shouldScrollScript, shouldRetryFollow: shouldRetryFollow, isLineVisible: isLineVisible, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, skillCommand: skillCommand, reportCommand: reportCommand, missingNotice: missingNotice, templateCommand: templateCommand, reportRequest: reportRequest, templateRequest: templateRequest, tabStep: tabStep, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
+  `${VIEWER_LOGIC_JS}; return { findSegmentIndex: findSegmentIndex, shouldFollow: shouldFollow, isPlaying: isPlaying, shouldFollowHeld: shouldFollowHeld, shouldScrollScript: shouldScrollScript, shouldRetryFollow: shouldRetryFollow, isLineVisible: isLineVisible, cueAction: cueAction, citeWindow: citeWindow, pickReport: pickReport, skillCommand: skillCommand, reportCommand: reportCommand, missingNotice: missingNotice, templateCommand: templateCommand, reportRequest: reportRequest, templateRequest: templateRequest, requestMade: requestMade, readPendingList: readPendingList, elapsedLabel: elapsedLabel, tabStep: tabStep, safeDecode: safeDecode, videoState: videoState, makeFlash: makeFlash };`,
 )() as ViewerLogic;
 
 export const findSegmentIndex = viewerLogic.findSegmentIndex;

@@ -177,3 +177,44 @@ describe('sendToSession', () => {
     expect(failed).toMatchObject({ ok: false, code: 'send_failed' });
   });
 });
+
+describe('뷰어의 요청 기다리기', () => {
+  it('넣은 요청이 새 렌더에 들어왔는지 템플릿은 확장 키로, 리포트는 난이도와 언어로 본다', () => {
+    const reports = [
+      { difficulty: 'normal', lang: 'ko' },
+      { difficulty: 'easy', lang: 'ko' },
+    ];
+    const exts = [{ key: 'background.ko' }];
+    const made = viewerLogic.requestMade;
+    expect(made(viewerLogic.templateRequest('s1', 'background', 'ko'), reports, exts)).toBe(true);
+    expect(made(viewerLogic.templateRequest('s1', 'background'), reports, exts)).toBe(true);
+    expect(made(viewerLogic.templateRequest('s1', 'background', 'en'), reports, exts)).toBe(false);
+    expect(made(viewerLogic.templateRequest('s1', 'back', 'ko'), reports, exts)).toBe(false);
+    expect(made(viewerLogic.templateRequest('s1', 'quiz', 'ko'), reports, undefined)).toBe(false);
+    expect(made(viewerLogic.reportRequest('s1', 'easy', 'ko'), reports, exts)).toBe(true);
+    expect(made(viewerLogic.reportRequest('s1', 'easy', 'en'), reports, exts)).toBe(false);
+    expect(made(viewerLogic.reportRequest('s1', 'easy'), reports.slice(0, 1), exts)).toBe(false);
+  });
+
+  it('저장해 둔 요청 목록을 읽고 요청 본문만 넣던 옛 꼴은 넣은 시각을 지금으로 친다', () => {
+    const body = viewerLogic.templateRequest('s1', 'quiz', 'ko');
+    const now = 1_000_000;
+    expect(
+      viewerLogic.readPendingList(JSON.stringify([{ b: body, t: '퀴즈', at: 5 }]), now),
+    ).toEqual([{ b: body, t: '퀴즈', at: 5 }]);
+    expect(viewerLogic.readPendingList(JSON.stringify([body]), now)).toEqual([
+      { b: body, t: '', at: now },
+    ]);
+    expect(viewerLogic.readPendingList('{깨진', now)).toEqual([]);
+    expect(viewerLogic.readPendingList(null, now)).toEqual([]);
+    expect(viewerLogic.readPendingList('{"b":1}', now)).toEqual([]);
+    expect(viewerLogic.readPendingList('[null, 3]', now)).toEqual([]);
+  });
+
+  it('만드는 중 표시의 흐른 시간', () => {
+    expect(viewerLogic.elapsedLabel(3_000)).toBe('방금 넣었어요');
+    expect(viewerLogic.elapsedLabel(42_000)).toBe('42초째');
+    expect(viewerLogic.elapsedLabel(150_000)).toBe('2분째');
+    expect(viewerLogic.elapsedLabel(-5)).toBe('방금 넣었어요');
+  });
+});

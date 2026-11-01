@@ -428,7 +428,7 @@ ges_digest { action: "render", slug: "<slug>", repoRoot: "<repoRoot>" }
 
 **인라인 HTML을 만들었으면 serve를 부르지 않는다.** serve는 띄울 때 렌더를 인라인 없이 다시 돌려 `digest.html`을 덮어쓴다. 그때는 Step 6의 `digest.html` 경로를 보고하고 나중에 serve를 부르면 인라인 HTML이 덮인다는 것도 적는다.
 
-뷰어 버튼으로 들어온 요청(`<digest-request from="viewer">` 틀)이면 serve가 이미 떠 있다. Step 6 렌더까지만 하고 serve를 새로 띄우지 않는다. 보고에는 뷰어를 새로고침하면 보인다고 적는다.
+뷰어 버튼으로 들어온 요청(`<digest-request from="viewer">` 틀)이면 serve가 이미 떠 있다. Step 6 렌더까지만 하고 serve를 새로 띄우지 않는다. 뷰어가 렌더를 알아채 새로 생긴 탭과 리포트를 화면에 바로 끼우니 보고에는 뷰어에 들어갔다고 적는다.
 
 `output`이 `viewer`면 serve로 띄운다. serve는 Ctrl+C를 받을 때까지 끝나지 않는다. 포그라운드로 부르면 셸 도구가 타임아웃까지 붙잡히고 타임아웃에 서버도 같이 죽는다. 그래서 셸 도구의 백그라운드 실행으로 띄운다.
 

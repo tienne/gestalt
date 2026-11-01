@@ -602,6 +602,16 @@ a.ts:hover{text-decoration:underline}
 .tabs{display:flex;flex-wrap:wrap;gap:2px}
 .tabs [role="tab"]{border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);padding:6px 12px;font:inherit;font-size:.92em;cursor:pointer}
 .tabs [role="tab"][aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent);font-weight:600}
+.tabs [role="tab"].is-pending{font-style:italic}
+.tabs [role="tab"].is-new{color:var(--accent)}
+.busy-dot{display:inline-block;width:.75em;height:.75em;margin-right:6px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;vertical-align:-.08em;animation:busy-spin .9s linear infinite}
+.busy-dot.is-stopped{animation:none;border-color:var(--warn)}
+@keyframes busy-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.busy-dot{animation:none;border-color:var(--accent)}}
+.ext-pending .pending-meta{color:var(--muted);font-size:.92em}
+.ext-pending .pending-hint{color:var(--muted);font-size:.85em}
+.busy-chip{display:inline-flex;align-items:center;margin-left:8px;border:1px solid var(--line);border-radius:999px;padding:1px 10px;font-size:.85em;color:var(--muted);background:var(--card)}
+button.busy-chip{cursor:pointer;color:var(--accent)}
 .more-btn{margin-left:auto;margin-bottom:4px;border:1px dashed var(--line);background:var(--card);border-radius:999px;padding:3px 12px;font-size:.85em;cursor:pointer}
 .more-menu{border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:0 0 8px;background:var(--card);font-size:.88em}
 .more-menu p{margin:0 0 6px;color:var(--muted)}
