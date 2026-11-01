@@ -2,6 +2,7 @@ import type { ToolsLevel } from './redact.js';
 import type { ShareStatus } from './feed.js';
 import type { MemberInfo, TeamStatus } from './network.js';
 import type { AskResult } from './questions.js';
+import type { MessageStatus } from './message.js';
 import type { TranscriptFormat } from './share.js';
 
 export type { AskResult, MemberInfo, TeamStatus, TranscriptFormat };
@@ -34,16 +35,22 @@ export type PeerRequest =
   | { op: 'watch'; link: string; configDir?: string }
   | { op: 'watches' }
   | { op: 'unwatch'; id: string }
-  /** 보고 있는 원격 공유의 주인 세션에 메시지를 넣는다 */
-  | { op: 'send'; watch: string; body: string }
+  /**
+   * 보고 있는 원격 공유의 주인 세션에 메시지를 넣는다. origin이 정확히 agent면 에이전트 메시지로 보내고
+   * 에이전트 상한을 탄다. 그 밖의 값은 사람 메시지다
+   */
+  | { op: 'send'; watch: string; body: string; origin?: 'agent' }
   /** watch가 있으면 그 보기에서 내가 보낸 메시지, 없으면 내 공유가 받은 메시지 기록 */
   | { op: 'messages'; watch?: string }
-  /** 그 사람을 내 공유에서 끊는다. share가 없으면 열린 공유 전부다 */
-  | { op: 'kick'; person: string; share?: string }
+  /**
+   * 그 사람을 내 공유에서 끊는다. share나 shares(한 세션으로 연 공유 여럿)가 없으면 열린 공유 전부다.
+   * approve와 deny도 같다
+   */
+  | { op: 'kick'; person: string; share?: string; shares?: string[] }
   /** 처음 붙으려고 기다리는 사람을 받아 준다 */
-  | { op: 'approve'; person: string; share?: string }
+  | { op: 'approve'; person: string; share?: string; shares?: string[] }
   /** 처음 붙으려고 기다리는 사람을 거절한다. 그 공유가 열려 있는 동안 다시 못 붙는다 */
-  | { op: 'deny'; person: string; share?: string }
+  | { op: 'deny'; person: string; share?: string; shares?: string[] }
   /** firstWatch가 있으면 바꾸고 지금 설정을 돌려준다 */
   | { op: 'config'; firstWatch?: FirstWatchApproval }
   /**
@@ -55,7 +62,12 @@ export type PeerRequest =
    * 보고 있는 원격 공유의 요약을 주인 데몬에 청한다(ges_peer peek). share는 주인 쪽 공유 id이고 보기
    * id도 받는다. since는 앞 요약의 cursor다
    */
-  | { op: 'peek'; share: string; since?: string };
+  | { op: 'peek'; share: string; since?: string }
+  /**
+   * 보는 쪽 에이전트가 보고 있는 원격 공유의 주인 세션에 `origin="agent"` 메시지를 넣는다(ges_peer
+   * send). share는 주인 쪽 공유 id이고 보기 id도 받는다
+   */
+  | { op: 'agent_send'; share: string; body: string };
 
 export type PeerResponse<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
 
@@ -101,6 +113,19 @@ export interface PeekNotice {
   person: string;
   /** 마지막으로 가져간 시각 */
   at: number;
+}
+
+/** ges_peer send의 답 */
+export interface AgentSendResult {
+  /** 메시지 id */
+  id: string;
+  status: MessageStatus;
+  /** 주인 쪽 공유 id */
+  share: string;
+  /** 공유 주인 이름. 명단에서 온 값이다 */
+  owner: string;
+  /** 주인이 요약을 허락했는지. 이전 버전 주인 데몬이면 없다 */
+  agentPeek?: boolean;
 }
 
 /** ges_peer peek의 답. text는 보는 쪽 에이전트에 그대로 넘기는 틀로 감싼 글자다 */
@@ -154,6 +179,10 @@ export interface WatchListItem {
   /** live, offline, waiting(주인 승인 기다리는 중) 같은 상태 */
   status: string;
   events: number;
+  /** 주인이 메시지를 받는지. 끝난 보기면 없다 */
+  messages?: boolean;
+  /** 주인이 요약을 허락했는지. 끝난 보기나 이전 버전 주인 데몬이면 없다 */
+  agentPeek?: boolean;
   /** 끝난 보기면 없다 */
   url?: string;
   /** 끝난 보기면 그 이유(kicked, denied, approval_timeout, unshare 등) */

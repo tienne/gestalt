@@ -38,7 +38,7 @@ const GATE: { name: string; ids: string[] }[] = [
   { name: '결산 피벗', ids: ['D-1'] },
   { name: 'hype 어휘', ids: ['D-3', 'D-4'] },
   { name: '과잉 자책', ids: ['D-8'] },
-  { name: '의인화 주어', ids: ['D-5'] },
+  { name: '의인화 주어', ids: ['D-5', 'D-10'] },
   { name: '명사구 압축', ids: ['F-6'] },
   { name: '기술 비유 명사', ids: ['F-7'] },
   { name: '사무투 분류사', ids: ['I-5'] },
@@ -79,7 +79,9 @@ const SPOTLIGHT = [
   'D-5',
   'D-8',
   'D-9',
+  'D-10',
   'E-8',
+  'E-9',
   'F-4',
   'F-5',
   'F-6',
@@ -89,6 +91,7 @@ const SPOTLIGHT = [
   'F-10',
   'G-4',
   'H-1',
+  'H-5',
   'I-1',
   'I-5',
   'I-6',
@@ -125,6 +128,7 @@ const SPOTLIGHT = [
 export const HOIST: Record<string, string> = {
   'F-9': '"뿌리"는 root 한 단어가',
   'B-5': '"정본"이나 "원본"이라는 딱지로',
+  'H-1': '이어지는 자리의 연결어는 남긴다',
 };
 
 const PATTERN_MAX = 44;

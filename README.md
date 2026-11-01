@@ -658,6 +658,7 @@ Each skill is a slash command in Claude Code. In Codex the same skill is `gestal
 | `/explain` | Explain a concept, error, or code for a chosen audience, then check it with `explain-check` |
 | `/jira-create` | Draft a Jira ticket with `jira-writer` and create it after you approve the preview |
 | `/slack-send` | Draft a Slack message in the author's voice and send or schedule it after you approve |
+| `/share` | Open or close a [session share](./docs/peer.md) for this session, approve or deny a waiting teammate, and kick a viewer. Runs only when you type it — the model can't call it on its own |
 | `/agent` | Call any agent directly when no dedicated skill covers the task |
 
 ---
