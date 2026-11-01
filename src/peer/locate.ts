@@ -76,7 +76,7 @@ export function parentPid(pid: number): number | undefined {
     const out = execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 2_000,
+      timeout: 500,
     });
     const n = Number(out.trim());
     return Number.isInteger(n) && n > 1 ? n : undefined;

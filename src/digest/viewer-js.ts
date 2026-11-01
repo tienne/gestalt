@@ -615,6 +615,8 @@ export const VIEWER_JS =
   var PENDING_KEY = 'gestalt-digest-pending:' + data.slug;
   var WATCH_MS = 3000;
   var WATCH_LIMIT_MS = 30 * 60 * 1000;
+  // 다른 탭을 보는 동안은 드물게만 묻는다. 돌아오면 바로 한 번 묻는다
+  var WATCH_HIDDEN_MS = 30000;
   function readPending(){
     var raw = null;
     try { raw = sessionStorage.getItem(PENDING_KEY); } catch (e) {}
@@ -650,11 +652,16 @@ export const VIEWER_JS =
   }
   var baseTag = serveToken && window.fetch && window.DOMParser ? pageTag() : null;
   var watching = false;
+  var watchTimer = null;
+  var watchBusy = false;
+  var watchNow = null;
   function watchPage(){
     if (watching || !baseTag) return;
     watching = true;
     baseTag.then(function(base){
+      function schedule(ms){ watchTimer = setTimeout(tick, ms); }
       function tick(){
+        watchTimer = null;
         var list = readPending();
         if (!list.length) { watching = false; return; }
         if (list.every(function(p){ return Date.now() - p.at > WATCH_LIMIT_MS; })) {
@@ -662,24 +669,40 @@ export const VIEWER_JS =
           progress.timeout();
           return;
         }
+        if (document.hidden) { schedule(WATCH_HIDDEN_MS); return; }
+        watchBusy = true;
         pageTag().then(function(tag){
           if (!tag || !base || tag === base) {
+            watchBusy = false;
             if (!base) base = tag;
-            setTimeout(tick, WATCH_MS);
+            schedule(WATCH_MS);
             return;
           }
           fetchPage().then(function(page){
-            if (!page) { setTimeout(tick, WATCH_MS); return; }
+            watchBusy = false;
+            if (!page) { schedule(WATCH_MS); return; }
             base = page.tag || tag;
-            if (!livePatch(page)) { location.reload(); return; }
-            progress.settle();
-            setTimeout(tick, WATCH_MS);
+            // 끼우다 멈추면 화면이 반쯤 바뀐 채라 다시 읽는다. 남은 요청은 resumePending이 이어 받는다
+            try {
+              if (!livePatch(page)) { location.reload(); return; }
+              progress.settle();
+            } catch (e) {
+              location.reload();
+              return;
+            }
+            schedule(WATCH_MS);
           });
         });
       }
-      setTimeout(tick, WATCH_MS);
+      watchNow = function(){
+        if (!watching || watchBusy || !watchTimer) return;
+        clearTimeout(watchTimer);
+        tick();
+      };
+      schedule(WATCH_MS);
     });
   }
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden && watchNow) watchNow(); });
   // 새로 그려진 페이지에서 만들어진 요청은 그 리포트나 탭을 열고 아직 안 된 요청은 만드는 중 표시를 다시 띄운다.
   // 30분이 지난 요청은 세션이 놓친 것으로 보고 버린다
   function resumePending(reports, tabs){
@@ -690,7 +713,7 @@ export const VIEWER_JS =
     writePending(left);
     left.forEach(function(p){
       requestState[JSON.stringify(p.b)] = 'sent';
-      progress.add(p);
+      progress.add(p, true);
     });
     if (ready && ready.action === 'template') {
       (data.extensions || []).forEach(function(x){
@@ -743,6 +766,7 @@ export const VIEWER_JS =
     status.setAttribute('aria-live', 'polite');
     document.body.appendChild(status);
     function tick(){
+      if (document.hidden && timer) return;
       var els = document.querySelectorAll('[data-pending-at]');
       els.forEach(function(el){ el.textContent = elapsedLabel(Date.now() - Number(el.getAttribute('data-pending-at'))); });
       if (!els.length && timer) { clearInterval(timer); timer = null; }
@@ -757,8 +781,10 @@ export const VIEWER_JS =
       s.setAttribute('aria-hidden', 'true');
       return s;
     }
+    // 매초 바뀌는 글자라 스크린리더에는 숨긴다. 시간 초과 안내로 바뀌면 다시 읽히게 푼다
     function elapsed(p){
       var s = document.createElement('span');
+      s.setAttribute('aria-hidden', 'true');
       s.setAttribute('data-pending-at', String(p.at));
       return s;
     }
@@ -821,13 +847,18 @@ export const VIEWER_JS =
       toggle.parentNode.insertBefore(chip, toggle.nextSibling);
       return { chip: chip };
     }
-    function add(p){
+    // 버튼으로 넣은 요청은 넣었다는 안내를 따로 띄워서 announce는 새로고침 뒤 이어 받을 때만 켠다
+    function add(p, announce){
       if (find(p)) return;
       var ui = p.b.action === 'template' ? addTemplate(p) : addReport(p);
       if (!ui) return;
       ui.key = JSON.stringify(p.b);
       ui.p = p;
       items.push(ui);
+      if (announce) {
+        var what = p.b.action === 'template' ? (p.t || String(p.b.template)) : (p.b.difficulty === 'easy' ? '쉬운' : '보통') + ' 리포트';
+        status.textContent = what + ' 만드는 중이에요.';
+      }
       startTimer();
       return ui;
     }
@@ -879,9 +910,11 @@ export const VIEWER_JS =
         box.querySelectorAll('.busy-dot').forEach(function(d){ d.classList.add('is-stopped'); });
         box.querySelectorAll('[data-pending-at]').forEach(function(el){
           el.removeAttribute('data-pending-at');
+          el.removeAttribute('aria-hidden');
           el.textContent = '30분이 지나도 안 들어왔어요. 세션 화면을 확인해 주세요.';
         });
       });
+      if (items.length) status.textContent = '요청한 리포트가 30분이 지나도 안 들어왔어요. 세션 화면을 확인해 주세요.';
       tick();
     }
     return { add: add, takeTab: takeTab, settle: settle, timeout: timeout };
@@ -933,6 +966,8 @@ export const VIEWER_JS =
       var tab = document.importNode(f.tab, true);
       var slot = progress.takeTab(f.x);
       var wasOpen = slot && slot.tab.getAttribute('aria-selected') === 'true';
+      var active = document.activeElement;
+      var hadFocus = slot && (active === slot.tab || slot.panel.contains(active));
       panel.hidden = true;
       tab.setAttribute('aria-selected', 'false');
       tab.tabIndex = -1;
@@ -951,6 +986,7 @@ export const VIEWER_JS =
         if (b.getAttribute('data-template') === id && b.parentNode) b.parentNode.remove();
       });
       if (wasOpen) tabs.open(f.x.panel);
+      if (hadFocus) tab.focus();
       setTimeout(function(){ tab.classList.remove('is-new'); }, 6000);
     });
     return true;
@@ -1093,10 +1129,15 @@ export const VIEWER_JS =
         box.hidden = false;
         requestToSession(templateRequest(data.slug, id, lang), name ? name.textContent : id, function(){
           if (mine !== seq) return;
-          if (msg) msg.textContent = SENT_MSG;
+          // 이 상자는 곧 숨기니 안내는 늘 보이는 status에 쓴다. 메뉴 항목이 사라져 포커스는 만드는 중 탭으로 옮긴다
+          if (msg) msg.textContent = '';
+          var status = document.getElementById('copy-status');
+          if (status) status.textContent = SENT_MSG;
           box.hidden = true;
           setOpen(false);
           tabs.open('pending-' + id);
+          var pendingTab = document.getElementById('tab-pending-' + id);
+          (pendingTab || btn).focus();
         }, function(){
           if (mine === seq) showCmd(command, '세션에 요청을 넣지 못했어요. 아래 명령을 세션에 붙여 넣어 주세요.');
         });

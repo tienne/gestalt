@@ -8,6 +8,7 @@ import {
   frameSessionRequest,
   requestCommand,
   sendToSession,
+  type SessionPidCache,
   sessionRequestSchema,
   type SessionRequest,
 } from '../../../src/digest/session-request.js';
@@ -175,6 +176,43 @@ describe('sendToSession', () => {
       write: () => Promise.resolve({ ok: false, reason: '인박스 소켓에 못 썼어요 (ECONNREFUSED)' }),
     });
     expect(failed).toMatchObject({ ok: false, code: 'send_failed' });
+  });
+
+  it('찾은 세션의 pid만 기억하고 세션 파일은 요청마다 다시 읽는다. 못 찾은 결과는 30초 동안 다시 훑지 않는다', async () => {
+    const cfg = config();
+    const box = await inbox();
+    let now = 1_000_000;
+    let walks = 0;
+    const cache: SessionPidCache = {};
+    const deps = {
+      configDir: cfg,
+      startPid: 500,
+      env: {},
+      cache,
+      now: () => now,
+      parentOf: (pid: number) => {
+        walks++;
+        return pid === 500 ? 300 : undefined;
+      },
+    };
+    expect(await sendToSession('x', deps)).toMatchObject({ code: 'no_session' });
+    const missWalks = walks;
+    expect(await sendToSession('x', deps)).toMatchObject({ code: 'no_session' });
+    expect(walks).toBe(missWalks);
+    const session = (id: string) =>
+      writeFileSync(
+        join(cfg, 'sessions', '300.json'),
+        JSON.stringify({ pid: 300, sessionId: id, cwd: '/w', messagingSocketPath: box.path }),
+      );
+    session(sid);
+    now += 30_000;
+    expect(await sendToSession('x', deps)).toEqual({ ok: true });
+    expect(cache.pid).toBe(300);
+    const found = walks;
+    // /clear로 세션 id가 바뀌어도 같은 pid의 파일을 다시 읽어 따라간다
+    session(randomUUID());
+    expect(await sendToSession('x', deps)).toEqual({ ok: true });
+    expect(walks).toBe(found);
   });
 });
 

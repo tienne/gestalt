@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { findSessionSocket, writeInbox, type InboxResult } from '../peer/inbox.js';
-import { claudeConfigDir, findSessionInAncestors, type AncestorLookup } from '../peer/locate.js';
+import {
+  claudeConfigDir,
+  findSessionByPid,
+  findSessionInAncestors,
+  type AncestorLookup,
+  type SessionRecord,
+} from '../peer/locate.js';
 import { templateIdSchema } from './blocks.js';
 import { LANG_TAG_PATTERN } from './schema-base.js';
 import { isValidSlug } from './store.js';
@@ -75,20 +81,32 @@ export type SendResult =
   | { ok: true; maybeWritten?: true }
   | { ok: false; code: 'no_session' | 'send_failed'; reason: string };
 
+/** 못 찾은 결과를 기억하는 시간. 따로 연 터미널에서 띄운 serve가 요청마다 부모를 다 훑지 않게 한다 */
+const SESSION_MISS_MS = 30_000;
+
+/** serve가 들고 있는 세션 찾기 기억. 세션 파일은 늘 다시 읽고 어느 pid의 파일인지만 기억한다 */
+export interface SessionPidCache {
+  pid?: number;
+  missUntil?: number;
+}
+
 export interface SendDeps extends AncestorLookup {
   /** 부모를 따라 올라가기 시작할 pid. 기본은 serve 자신이다 */
   startPid?: number;
   configDir?: string;
   write?: (socketPath: string, text: string) => Promise<InboxResult>;
+  cache?: SessionPidCache;
+  now?: () => number;
 }
 
 /**
- * serve를 띄운 Claude Code 세션을 부모 pid 체인에서 찾아 인박스 소켓에 글을 넣는다. 세션은 `/clear`나
- * 재시작으로 바뀔 수 있어서 요청마다 다시 찾는다. 쓰는 길은 peer 데몬의 발췌 넣기와 같다
+ * serve를 띄운 Claude Code 세션을 부모 pid 체인에서 찾아 인박스 소켓에 글을 넣는다. 부모를 훑는 건
+ * ps를 여러 번 띄워서 찾은 pid만 기억한다. 세션 id는 `/clear`나 재시작으로 바뀌어서
+ * `sessions/<pid>.json`은 요청마다 다시 읽는다. 쓰는 길은 peer 데몬의 발췌 넣기와 같다
  */
 export async function sendToSession(text: string, deps: SendDeps = {}): Promise<SendResult> {
   const configDir = deps.configDir ?? claudeConfigDir(deps.env);
-  const session = findSessionInAncestors(deps.startPid ?? process.pid, configDir, deps);
+  const session = locateSession(configDir, deps);
   if (!session) {
     return { ok: false, code: 'no_session', reason: 'serve를 띄운 Claude Code 세션을 못 찾았어요' };
   }
@@ -98,4 +116,21 @@ export async function sendToSession(text: string, deps: SendDeps = {}): Promise<
   if (result.ok) return { ok: true };
   if (result.maybeWritten) return { ok: true, maybeWritten: true };
   return { ok: false, code: 'send_failed', reason: result.reason };
+}
+
+function locateSession(configDir: string, deps: SendDeps): SessionRecord | null {
+  const cache = deps.cache;
+  if (cache?.pid !== undefined) {
+    const hit = findSessionByPid(cache.pid, configDir);
+    if (hit) return hit;
+    cache.pid = undefined;
+  }
+  const now = (deps.now ?? Date.now)();
+  if (cache?.missUntil !== undefined && now < cache.missUntil) return null;
+  const found = findSessionInAncestors(deps.startPid ?? process.pid, configDir, deps);
+  if (cache) {
+    cache.pid = found?.pid;
+    cache.missUntil = found ? undefined : now + SESSION_MISS_MS;
+  }
+  return found;
 }

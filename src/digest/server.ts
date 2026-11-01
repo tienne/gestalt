@@ -11,6 +11,7 @@ import {
   sendToSession,
   sessionRequestSchema,
   type SendResult,
+  type SessionPidCache,
 } from './session-request.js';
 import { isValidSlug, readRaw } from './store.js';
 import { templateFitsKind, templateKindOf, type DigestTemplate } from './templates.js';
@@ -106,6 +107,8 @@ const REQUEST_MAX_BYTES = 2 * 1024;
 /** 1분 동안 세션에 넣는 요청 수 상한. 버튼을 연달아 눌러도 세션이 요청으로 덮이지 않게 둔다 */
 const REQUEST_RATE_LIMIT = 6;
 const REQUEST_RATE_WINDOW_MS = 60_000;
+/** 같은 요청을 다시 넣지 않는 시간. 탭을 여럿 열어 같은 버튼을 누른 경우를 합친다. 세션이 놓쳤으면 이 시간이 지나 다시 누르면 들어간다 */
+const REQUEST_DEDUP_MS = 2 * 60_000;
 
 /** 요청 응답 코드. 이유 글자나 경로는 싣지 않고 이 코드만 돌려준다. 자세한 이유는 serve의 stderr에 남긴다 */
 export type RequestCode =
@@ -183,11 +186,19 @@ export class DigestServer {
   private readonly now: () => number;
   private readonly hosts: Set<string>;
   private requestTimes: number[] = [];
+  private readonly sessionCache: SessionPidCache = {};
+  // 세션에 넣은 요청과 그때의 digest.html 수정 시각. 같은 요청이 다시 와도 페이지가 그대로면 넣지 않는다
+  private readonly recentRequests = new Map<string, { at: number; pageMtime: number }>();
+  // 뷰어가 기다리는 동안 HEAD를 계속 보낸다. 파일이 그대로면 다시 읽지 않고 토큰을 끼운 길이를 쓴다
+  private readonly htmlLengths = new Map<
+    string,
+    { mtimeMs: number; size: number; length: number }
+  >();
 
   constructor(root: string, opts: DigestServerOptions = {}) {
     this.root = realpathSync(root);
     this.templates = opts.templates ?? [];
-    this.send = opts.sendToSession ?? ((text) => sendToSession(text));
+    this.send = opts.sendToSession ?? ((text) => sendToSession(text, { cache: this.sessionCache }));
     this.now = opts.now ?? Date.now;
     for (const h of opts.allowHosts ?? []) {
       if (!isAllowableHost(h)) throw new Error(`호스트 이름 꼴이 아니에요: ${h}`);
@@ -277,15 +288,21 @@ export class DigestServer {
       // 토큰은 디스크의 HTML에 쓰지 않고 내줄 때만 끼운다. HEAD도 같은 길이를 알린다.
       // ETag는 디스크 파일의 수정 시각과 크기로 만든다. 요청을 넣은 뷰어가 HEAD로 이 값이 바뀌는지 보고 다시 그려진 페이지를 연다
       const { mtimeMs, size } = statSync(real);
-      const body = Buffer.from(this.withToken(readFileSync(real, 'utf8')), 'utf8');
+      const known = this.htmlLengths.get(real);
+      const fresh = known && known.mtimeMs === mtimeMs && known.size === size;
+      const body =
+        req.method === 'HEAD' && fresh
+          ? null
+          : Buffer.from(this.withToken(readFileSync(real, 'utf8')), 'utf8');
+      if (body) this.htmlLengths.set(real, { mtimeMs, size, length: body.length });
       res.writeHead(200, {
         ...BASE_HEADERS,
         'Content-Type': MIME[ext]!,
         'Content-Security-Policy': DIGEST_CSP,
-        'Content-Length': String(body.length),
+        'Content-Length': String(body ? body.length : known!.length),
         ETag: `"${Math.floor(mtimeMs)}-${size}"`,
       });
-      return void res.end(req.method === 'HEAD' ? undefined : body);
+      return void res.end(req.method === 'HEAD' || !body ? undefined : body);
     }
     res.writeHead(200, { ...BASE_HEADERS, 'Content-Type': MIME[ext]! });
     if (req.method === 'HEAD') return void res.end();
@@ -304,11 +321,6 @@ export class DigestServer {
     res.end(JSON.stringify({ ok: code === 'sent', code }));
   }
 
-  /**
-   * 뷰어 버튼 요청을 받아 세션에 넣는다. 127.0.0.1 서버라도 브라우저에 열린 아무 사이트가 여기로
-   * POST할 수 있어서 Origin과 페이지에만 실은 토큰을 둘 다 본다. JSON 본문이라 다른 출처에서 보내면
-   * 사전 요청(OPTIONS)부터 405로 막힌다. 세션에 들어가는 글은 검사를 통과한 값으로 서버가 다시 조립한다
-   */
   // 루프백은 포트까지 같은 http 출처만 받는다. 넘겨받은 이름은 앞단 프록시가 https로 받아 넘기는 경우가 있어 https 출처도 받는다
   private allowedOrigin(origin: string, port: number | undefined): boolean {
     if (port === undefined) return false;
@@ -320,6 +332,11 @@ export class DigestServer {
     return false;
   }
 
+  /**
+   * 뷰어 버튼 요청을 받아 세션에 넣는다. 127.0.0.1 서버라도 브라우저에 열린 아무 사이트가 여기로
+   * POST할 수 있어서 Origin과 페이지에만 실은 토큰을 둘 다 본다. JSON 본문이라 다른 출처에서 보내면
+   * 사전 요청(OPTIONS)부터 405로 막힌다. 세션에 들어가는 글은 검사를 통과한 값으로 서버가 다시 조립한다
+   */
   private handleRequest(req: IncomingMessage, res: ServerResponse): void {
     const port = this.port;
     const origin = req.headers.origin;
@@ -341,15 +358,6 @@ export class DigestServer {
       req.resume();
       return this.reply(res, 413, 'too_large');
     }
-    // 속도 제한은 토큰을 통과한 요청만 센다. 밖에서 막 보내는 요청이 내 버튼 몫을 깎지 못하게 한다
-    const now = this.now();
-    this.requestTimes = this.requestTimes.filter((t) => now - t < REQUEST_RATE_WINDOW_MS);
-    if (this.requestTimes.length >= REQUEST_RATE_LIMIT) {
-      req.resume();
-      return this.reply(res, 429, 'rate_limited');
-    }
-    this.requestTimes.push(now);
-
     const chunks: Buffer[] = [];
     let size = 0;
     let over = false;
@@ -358,6 +366,9 @@ export class DigestServer {
       size += c.length;
       if (size > REQUEST_MAX_BYTES) {
         over = true;
+        // 남은 본문을 받지 않고 끊는다. 응답을 다 보낸 뒤에 끊어야 뷰어가 413을 받는다
+        res.setHeader('Connection', 'close');
+        res.once('finish', () => req.destroy());
         this.reply(res, 413, 'too_large');
         return;
       }
@@ -393,10 +404,36 @@ export class DigestServer {
       }
     }
     const lens = templateKindOf(kind) === 'lens';
+    // 구간은 영상 리포트에만 있다. 렌즈 스킬은 range를 받지 않는다
+    if (lens && request.action === 'report' && request.range) {
+      return this.reply(res, 400, 'bad_request');
+    }
+    const now = this.now();
+    const key = JSON.stringify(request);
+    const pageMtime = this.pageMtime(request.slug);
+    for (const [k, v] of this.recentRequests) {
+      if (now - v.at >= REQUEST_DEDUP_MS) this.recentRequests.delete(k);
+    }
+    if (this.recentRequests.get(key)?.pageMtime === pageMtime) return this.reply(res, 200, 'sent');
+    // 속도 제한은 세션에 넣을 요청만 센다. 잘못 온 요청이나 합친 요청이 버튼 몫을 깎지 않는다
+    this.requestTimes = this.requestTimes.filter((t) => now - t < REQUEST_RATE_WINDOW_MS);
+    if (this.requestTimes.length >= REQUEST_RATE_LIMIT) return this.reply(res, 429, 'rate_limited');
+    this.requestTimes.push(now);
     const sent = await this.send(frameSessionRequest(request, lens));
-    if (sent.ok) return this.reply(res, 200, 'sent');
+    if (sent.ok) {
+      this.recentRequests.set(key, { at: now, pageMtime });
+      return this.reply(res, 200, 'sent');
+    }
     process.stderr.write(`[digest] 세션에 요청을 넣지 못했어요: ${sent.reason}\n`);
     return this.reply(res, 503, sent.code);
+  }
+
+  private pageMtime(slug: string): number {
+    try {
+      return statSync(join(this.root, slug, 'digest.html')).mtimeMs;
+    } catch {
+      return 0;
+    }
   }
 
   private sourceKind(slug: string): SourceKind | null {

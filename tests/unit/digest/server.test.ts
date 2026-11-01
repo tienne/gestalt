@@ -1,4 +1,12 @@
-import { chmodSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { request } from 'node:http';
 import { join, resolve } from 'node:path';
@@ -222,6 +230,7 @@ describe('DigestServer 세션 요청', () => {
     'content-type': 'application/json',
   });
   const easy = JSON.stringify(viewerLogic.reportRequest('s1', 'easy', 'ko'));
+  const normal = JSON.stringify(viewerLogic.reportRequest('s1', 'normal', 'ko'));
 
   it('토큰은 내줄 때만 head에 끼우고 디스크에는 쓰지 않는다. HEAD도 같은 길이를 알린다', async () => {
     const { port, root, token } = await serve();
@@ -236,6 +245,22 @@ describe('DigestServer 세션 요청', () => {
     // 뷰어 스크립트가 같은 이름과 경로를 쓴다
     expect(VIEWER_JS).toContain(`meta[name="${TOKEN_META_NAME}"]`);
     expect(VIEWER_JS).toContain(`'${REQUEST_PATH}'`);
+  });
+
+  it('head가 없는 HTML도 HEAD가 GET과 같은 길이를 알린다. 파일이 그대로면 HEAD는 다시 읽지 않아도 같은 값이다', async () => {
+    const { port, root } = await serve();
+    writeFileSync(join(root, 's1', 'bare.html'), '<!doctype html><p>no head</p>');
+    const page = await get(port, '/s1/bare.html');
+    expect(page.body).not.toContain(TOKEN_META_NAME);
+    for (let i = 0; i < 2; i++) {
+      const head = await get(port, '/s1/bare.html', { method: 'HEAD' });
+      expect(head.headers['content-length']).toBe(String(Buffer.byteLength(page.body)));
+    }
+    const full = await get(port, '/s1/');
+    for (let i = 0; i < 2; i++) {
+      const head = await get(port, '/s1/', { method: 'HEAD' });
+      expect(head.headers['content-length']).toBe(String(Buffer.byteLength(full.body)));
+    }
   });
 
   it('HTML ETag는 디스크 파일이 다시 쓰이면 바뀐다. 요청을 넣은 뷰어가 이 값으로 새로고침할 때를 안다', async () => {
@@ -277,7 +302,7 @@ describe('DigestServer 세션 요청', () => {
       await post(port, easy, { ...ok(port, token), host: ts, origin: `https://${ts}` }),
     ).toEqual({ status: 200, json: { ok: true, code: 'sent' } });
     expect(
-      (await post(port, easy, { ...ok(port, token), host: ts, origin: `http://${ts}:${port}` }))
+      (await post(port, normal, { ...ok(port, token), host: ts, origin: `http://${ts}:${port}` }))
         .status,
     ).toBe(200);
     for (const origin of [`http://${ts}`, `https://${ts}:8443`, `https://evil.${ts}`]) {
@@ -392,23 +417,82 @@ describe('DigestServer 세션 요청', () => {
     });
   });
 
-  it('토큰을 통과한 요청만 1분에 6건까지 받는다', async () => {
+  it('세션에 넣을 요청만 1분에 6건까지 받는다. 토큰이 틀리거나 본문이 잘못된 요청은 세지 않는다', async () => {
     let now = 1_000_000;
     const { port, token } = await serve({ now: () => now });
     for (let i = 0; i < 3; i++) {
       expect((await post(port, easy, { ...ok(port, token), 'x-gestalt-token': 'x' })).status).toBe(
         403,
       );
+      expect((await post(port, '{not json', ok(port, token))).json.code).toBe('bad_request');
     }
-    for (let i = 0; i < 6; i++) expect((await post(port, easy, ok(port, token))).status).toBe(200);
-    expect((await post(port, easy, ok(port, token))).json.code).toBe('rate_limited');
+    const bodies = ['ko', 'en', 'ja', 'fr', 'de', 'es', 'it'].map((l) =>
+      JSON.stringify(viewerLogic.reportRequest('s1', 'easy', l)),
+    );
+    for (const b of bodies.slice(0, 6)) {
+      expect((await post(port, b, ok(port, token))).status).toBe(200);
+    }
+    expect((await post(port, bodies[6]!, ok(port, token))).json.code).toBe('rate_limited');
     now += 60_000;
-    expect((await post(port, easy, ok(port, token))).status).toBe(200);
+    expect((await post(port, bodies[6]!, ok(port, token))).status).toBe(200);
+  });
+
+  it('같은 요청이 2분 안에 다시 오면 페이지가 그대로일 때 세션에 다시 넣지 않는다', async () => {
+    let now = 1_000_000;
+    const { port, root, token, sent } = await serve({ now: () => now });
+    expect((await post(port, easy, ok(port, token))).json.code).toBe('sent');
+    expect((await post(port, easy, ok(port, token))).json.code).toBe('sent');
+    expect(sent).toHaveLength(1);
+    // 세션이 다시 렌더해 페이지가 바뀌면 같은 요청도 새로 넣는다
+    const later = new Date(Date.now() + 10_000);
+    utimesSync(join(root, 's1', 'digest.html'), later, later);
+    expect((await post(port, easy, ok(port, token))).json.code).toBe('sent');
+    expect(sent).toHaveLength(2);
+    now += 2 * 60_000;
+    expect((await post(port, easy, ok(port, token))).json.code).toBe('sent');
+    expect(sent).toHaveLength(3);
+  });
+
+  it('세션에 넣지 못한 요청은 기억하지 않아 다시 누르면 다시 넣는다', async () => {
+    let fail = true;
+    const sent: string[] = [];
+    const { port, token } = await serve({
+      sendToSession: (text) => {
+        sent.push(text);
+        return Promise.resolve(
+          fail ? { ok: false, code: 'no_session', reason: 'x' } : { ok: true },
+        );
+      },
+    });
+    expect((await post(port, easy, ok(port, token))).json.code).toBe('no_session');
+    fail = false;
+    expect((await post(port, easy, ok(port, token))).json.code).toBe('sent');
+    expect(sent).toHaveLength(2);
+  });
+
+  it('렌즈 자료에 구간을 실은 리포트 요청은 거절한다. 구간은 영상 리포트에만 있다', async () => {
+    const { port, token, sent } = await serve();
+    const body = JSON.stringify({
+      action: 'report',
+      slug: 'paper',
+      difficulty: 'easy',
+      range: [0, 10],
+    });
+    expect((await post(port, body, ok(port, token))).json.code).toBe('bad_request');
+    expect(sent).toEqual([]);
   });
 
   it('요청 자리는 POST만 받고 다른 경로의 POST는 여전히 405다', async () => {
     const { port } = await serve();
     expect((await get(port, REQUEST_PATH)).status).toBe(404);
     expect((await get(port, '/s1/', { method: 'POST' })).status).toBe(405);
+  });
+
+  it('다른 출처의 사전 요청(OPTIONS)은 405이고 CORS 허용 헤더를 붙이지 않는다', async () => {
+    const { port } = await serve();
+    const r = await get(port, REQUEST_PATH, { method: 'OPTIONS' });
+    expect(r.status).toBe(405);
+    expect(r.headers['allow']).toBe('GET, HEAD');
+    expect(r.headers['access-control-allow-origin']).toBeUndefined();
   });
 });
