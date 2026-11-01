@@ -453,6 +453,18 @@ describe('DigestServer 세션 요청', () => {
     expect(sent).toHaveLength(3);
   });
 
+  it('합친 요청은 속도 제한 몫을 깎지 않는다', async () => {
+    const { port, token, sent } = await serve();
+    for (let i = 0; i < 6; i++) {
+      expect((await post(port, easy, ok(port, token))).json.code).toBe('sent');
+    }
+    const others = ['en', 'ja', 'fr', 'de', 'es'].map((l) =>
+      JSON.stringify(viewerLogic.reportRequest('s1', 'easy', l)),
+    );
+    for (const b of others) expect((await post(port, b, ok(port, token))).json.code).toBe('sent');
+    expect(sent).toHaveLength(6);
+  });
+
   it('세션에 넣지 못한 요청은 기억하지 않아 다시 누르면 다시 넣는다', async () => {
     let fail = true;
     const sent: string[] = [];
