@@ -1,4 +1,4 @@
-import { request } from '../../peer/client.js';
+import { DaemonUnavailableError, request } from '../../peer/client.js';
 import { errMessage } from '../../peer/errors.js';
 import { claudeConfigDir, findSessionByPid, parentPid } from '../../peer/locate.js';
 import { plainLabel } from '../../peer/message.js';
@@ -125,6 +125,9 @@ async function handlePeek(input: PeerInput, deps: PeerDeps): Promise<string> {
   }
 }
 
+const NO_DAEMON_NOTE =
+  '이 도구는 데몬을 띄우지 않는다. 사용자에게 /gestalt:share daemon start로 띄울 수 있다고 알리고, 사용자가 시키지 않았으면 Bash로 띄우지 않는다.';
+
 /**
  * 데몬에 한 번 묻는다. 실패는 던지지 않고 오류 글자로 돌려준다. 오류에는 릴레이나 주인 데몬이 보낸
  * 글자가 섞일 수 있어서(릴레이가 전달 실패에 실은 이유 같은) 한 줄 라벨로 정리한다
@@ -139,6 +142,10 @@ async function ask<T>(
     const res = await request<T>(sock, req, timeoutMs);
     return res.ok ? res : { ok: false, error: plainLabel(res.error, 300) ?? '데몬이 실패했어요' };
   } catch (err) {
+    // 이 도구는 데몬을 띄우지 않는다. 띄우면 팀원 명단에 온라인으로 보여서 사용자가 정할 일이다
+    if (err instanceof DaemonUnavailableError) {
+      return { ok: false, error: `${err.message} ${NO_DAEMON_NOTE}` };
+    }
     return { ok: false, error: plainLabel(errMessage(err), 300) ?? '데몬에 묻지 못했어요' };
   }
 }

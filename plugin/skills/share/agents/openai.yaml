@@ -1,5 +1,5 @@
 interface:
   display_name: "Share"
-  short_description: "Open or close a gestalt peer share of this session"
+  short_description: "Open or close a gestalt peer share of this session and start or stop the peer daemon"
 policy:
   allow_implicit_invocation: false

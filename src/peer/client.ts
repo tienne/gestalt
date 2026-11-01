@@ -1,7 +1,7 @@
 import { createConnection } from 'node:net';
 import type { PeerRequest, PeerResponse } from './protocol.js';
 
-export const DAEMON_NOT_RUNNING = '`gestalt peer daemon`을 먼저 실행해 주세요';
+export const DAEMON_NOT_RUNNING = '`gestalt peer daemon --detach`로 먼저 띄워 주세요';
 
 export class DaemonUnavailableError extends Error {
   constructor(readonly socketPath: string) {

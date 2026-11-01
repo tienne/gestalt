@@ -376,7 +376,8 @@ describe('ges_peer ask_user', () => {
       { action: 'send' as const, share: 'shAAAAAA', body: 'x' },
     ]) {
       const out = JSON.parse(await handlePeer(input, { socket: missing })) as { error: string };
-      expect(out.error).toContain('`gestalt peer daemon`을 먼저 실행해 주세요');
+      expect(out.error).toContain('`gestalt peer daemon --detach`로 먼저 띄워 주세요');
+      expect(out.error).toContain('이 도구는 데몬을 띄우지 않는다');
     }
   });
 });

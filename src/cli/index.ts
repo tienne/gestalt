@@ -312,8 +312,11 @@ export function createCli(): Command {
 
   peer
     .command('daemon')
-    .description('peer 데몬을 전경에서 띄운다')
-    .action(() => peerDaemonCommand());
+    .description('peer 데몬을 띄운다. 옵션이 없으면 전경에서 뜬다')
+    .option('--detach', '세션과 떨어진 프로세스로 띄우고 소켓이 답하면 끝난다')
+    .option('--stop', '떠 있는 데몬을 멈춘다')
+    .option('--wait <초>', '--detach와 --stop이 기다리는 시간 (기본 10초)')
+    .action((o, cmd) => peerDaemonCommand({ ...peerOpts(cmd), ...o }));
 
   peer
     .command('share')
