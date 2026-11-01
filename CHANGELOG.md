@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.115.0] - 2026-11-01
+
+### Added
+
+- **보는 쪽 에이전트가 `ges_peer send`로 주인 세션에 묻게 했어요(#97).** 메시지는 `origin="agent"`로 들어가고 답은 다음 `peek`의 `replies`로 받아요.
+  - 보는 쪽 상한은 공유마다 10분에 4건이고 사람 몫과 따로 세요. 에이전트 몫은 사람 몫을 차감한 뒤에 차감해서 막힌 시도가 몫을 쓰지 않아요.
+  - 주인 데몬은 `watch_ok`에 `agentPeek`을 실어 보는 쪽이 답을 `peek`으로 볼 수 있는지 알려 줘요.
+- **`ges_peer`에 `status`와 `list`를 더했어요.** 둘 다 읽기만 해요. 원격에서 온 글자는 `plainLabel`을 거치고 링크와 뷰어 주소는 응답에 안 실어요. `list`는 남의 공유 목록을 새 요청 없이 알 길이 없어서 이 머신이 보는 공유로 좁혔어요.
+- **세션 안에서 부르는 `/gestalt:share` 스킬을 넣었어요.** 공유를 열고 닫거나 사람을 받고 끊는 일을 `gestalt peer …` CLI로 해요.
+  - 이 action들은 MCP에 일부러 안 넣었어요. 팀원 메시지나 도구 출력에 심긴 지시가 모델 판단을 끌고 가서 누가 대화를 보는지 바꾸면 안 되니까요.
+  - 스킬은 `disable-model-invocation`과 Codex의 `allow_implicit_invocation: false`로 모델이 스스로 못 불러요.
+  - CLI에 `--here`를 붙였어요. Bash 도구가 물려준 `CLAUDE_PID`와 `CLAUDE_CODE_SESSION_ID`로 지금 세션을 찾아요. 통제 IPC도 공유 여럿을 받게 넓혔어요.
+
+### Fixed
+
+- 에이전트 세션의 Bash가 친 `gestalt peer send`가 에이전트 상한을 안 타던 걸 고쳤어요. 환경 변수가 있으면 에이전트 메시지로 보내요. 환경에 따라 사람 메시지로 보일 수 있다는 점은 스킬 문서에 적었어요.
+- `--here`의 세션 찾기는 세션 파일의 pid가 `CLAUDE_PID`와 같고 살아 있을 때만 믿어요. `unshare --here`는 못 닫은 공유를 모아 알려 줘요.
+- 통제 IPC는 배열이 아닌 `shares`를 거절하고 MCP 오류 글자는 한 줄 라벨로 정리해요.
+
+### 검증 범위
+
+- 로컬 리뷰 1라운드를 돌려 위 Fixed 항목을 반영했어요. 머지 전에 `pnpm gate`(352개 파일, 6704개 테스트 통과)와 CI 4개(ubuntu와 macOS, Node 22와 24)를 통과했어요.
+
+### 남긴 것
+
+- 팀이 없는 상태에서 `peer share`를 열면 로컬 뷰어 주소만 나오고 팀원용 `gestalt://` 링크가 없다는 안내는 아직 출력에 안 넣었어요. 팀원이 못 여는 주소를 링크로 오해하기 쉬워서 다음에 손볼 만해요.
+
 ## [0.114.0] - 2026-10-31
 
 ### Added
