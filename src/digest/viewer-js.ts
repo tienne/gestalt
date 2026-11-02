@@ -195,6 +195,8 @@ export const VIEWER_JS =
       on = v;
       box.classList.toggle('is-focus', on);
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      // 접힌 패널은 스크롤할 게 없어 키보드 포커스를 받을 이유가 없다
+      panel.setAttribute('tabindex', on ? '-1' : '0');
       if (on) { panel.scrollTop = 0; return; }
       var cur = panel.querySelector('li.is-playing');
       if (cur) panel.scrollTop = Math.max(0, cur.offsetTop - panel.clientHeight / 3);
