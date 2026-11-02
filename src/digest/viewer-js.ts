@@ -205,7 +205,10 @@ export const VIEWER_JS =
     btn.hidden = false;
     btn.addEventListener('click', function(){
       set(!on);
-      try { localStorage.setItem(FOLD_KEY, on ? 'on' : 'off'); } catch (e) {}
+      try {
+        if (on) localStorage.setItem(FOLD_KEY, 'on');
+        else localStorage.removeItem(FOLD_KEY);
+      } catch (e) {}
     });
   }
 
