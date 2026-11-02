@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.120.1] - 2026-11-03
+
+### Fixed
+
+- **플러그인만 올려도 MCP 서버가 플러그인이 핀한 버전으로 떠요(#106).** 예전에 `npm i -g @tienne/gestalt`를 해둔 사용자는 `scripts/mcp-serve.sh`가 전역 `gestalt`를 버전 확인 없이 바로 실행해서 스킬은 새 버전인데 서버는 옛 버전이 됐어요. 새 스킬이 옛 서버에 없는 도구를 부르는 일이 생겼어요.
+  - 전역의 `--version`을 핀과 비교해서 같을 때만 전역을 써요. 다르면 stderr에 경고를 남기고 무시한 뒤 핀 버전을 `npx --offline`으로 캐시에서 찾아요. 캐시에 없으면 내려받아요. 핀보다 새로운 전역도 똑같이 무시해요.
+  - 버전 조회에는 `timeout 5`를 걸어요. `timeout`이 없는 환경은 제한 없이 실행해요. 출력은 마지막 줄만 취해 버전에 쓰는 문자만 남겨요. PATH에서 찾은 임의의 바이너리를 실행하는 자리라 로그에 제어 문자나 쉘 문자가 섞이지 않게 했어요.
+  - 핀을 읽는 `node -p`가 경로를 `process.argv[1]`로 받아요. 작은따옴표가 든 경로에서도 읽혀요.
+  - 핀 버전이 npx 캐시에 없으면 내려받는다는 안내를 stderr에 남겨요.
+  - `GESTALT_MCP_BIN`을 지정한 경우와 `package.json`을 못 읽어 핀이 없는 경우는 비교를 거치지 않아요. 앞의 경우는 지정한 빌드가 그대로 뜨고 뒤의 경우는 전역이 그대로 떠요.
+
+### Changed
+
+- `README.md`와 `README.ko.md`, `docs/getting-started.md`, `scripts/CLAUDE.md`, `src/mcp/CLAUDE.md`에서 `전역이 핀보다 우선한다`고 적힌 자리를 새 동작에 맞췄어요(#106). `docs/getting-started.md`의 `Connection closed` 안내에는 전역을 플러그인 버전에 맞추라는 문장을 더했어요.
+
+### 검증 범위
+
+- #106은 로컬 PR 리뷰를 5라운드 돌렸어요. 라운드 1에서 13개, 라운드 2에서 3개, 라운드 3에서 3개가 나와 모두 반영했어요. 라운드 4는 리뷰어 6종이 이슈 0개로 승인했는데 정합 판정이 문서 서술 어긋남과 PR 본문 범위를 짚어서 고쳤어요. 라운드 5에서 리뷰어 3종과 정합 판정이 모두 통과했어요.
+- `pnpm gate`를 통과했어요(테스트 파일 356개, 6871개 통과, 1개 건너뜀). `tests/unit/mcp-manifests.test.ts`는 23개 케이스가 통과해요. PR CI 4개 잡도 모두 통과했어요.
+
+### 남긴 것
+
+- 오프라인이면서 전역이 핀과 다르고 핀도 캐시에 없으면 서버가 붙지 못해요. 옛 전역으로 대신 띄우면 스킬과 서버 버전이 갈려서 일부러 그렇게 뒀어요. `scripts/CLAUDE.md`에 적어 두었어요.
+- 핀 버전이 캐시에 없는 첫 기동은 20초쯤 걸려요. Claude Code의 기동 제한 30초 안이에요. 레지스트리에 닿지 못하는 환경에서는 70초쯤 기다려요.
+- 이미 설치된 옛 `mcp-serve.sh`는 이 버전으로 플러그인을 한 번 올리기 전까지 옛 동작이에요.
+
 ## [0.120.0] - 2026-11-02
 
 ### Added
