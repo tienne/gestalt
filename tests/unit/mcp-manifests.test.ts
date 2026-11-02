@@ -317,7 +317,7 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     expect(run.stdout.trim()).toBe('RESOLVED serve');
   });
 
-  // 스텁은 제어 문자와 `$(...)` 를 문자 그대로 찍는다. 작은따옴표 안이라 스텁 쉘은 실행하지 않고,
+  // 스텁은 제어 문자와 `$(...)` 를 문자 그대로 찍는다. 작은따옴표 안이라 스텁 쉘은 실행하지 않는다.
   // 런처가 정제하지 않으면 stderr 에 그대로 남는다.
   it('--version 출력의 제어 문자와 쉘 문자는 로그에 남기지 않는다', () => {
     const run = runWithStubs({
