@@ -97,7 +97,7 @@ describe('ges_peer ask_user', () => {
         { pids: [777], configDir: cfg, socket: join(dir, 'missing.sock') },
       ),
     ) as { error: string };
-    expect(noDaemon.error).toContain('peer 데몬이 안 떠 있어요');
+    expect(noDaemon.error).toContain('peer 데몬이 안 떠 있다');
     expect(noDaemon.error).toContain('이 도구는 데몬을 띄우지 않는다');
     expect(noDaemon.error).not.toContain('daemon --detach');
     expect(seen).toEqual([]);
@@ -379,7 +379,7 @@ describe('ges_peer ask_user', () => {
       { action: 'peek' as const, share: 'shAAAAAA' },
     ]) {
       const out = JSON.parse(await handlePeer(input, { socket: missing })) as { error: string };
-      expect(out.error).toContain('peer 데몬이 안 떠 있어요');
+      expect(out.error).toContain('peer 데몬이 안 떠 있다');
       expect(out.error).toContain('이 도구는 데몬을 띄우지 않는다');
       expect(out.error).toContain('/gestalt:share daemon start');
       expect(out.error).not.toContain('daemon --detach');

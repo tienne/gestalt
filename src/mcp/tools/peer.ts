@@ -131,11 +131,11 @@ const NO_DAEMON_NOTE =
   '이 도구는 데몬을 띄우지 않는다. 사용자에게 /gestalt:share daemon start로 띄울 수 있다고 알린다. 사용자가 시키지 않았으면 Bash로 띄우지 않는다.';
 
 /**
- * 데몬이 없을 때 모델에게 돌려줄 실패 문구. CLI 문구(`DAEMON_NOT_RUNNING`)는 사람에게 띄우는 명령을
- * 알려 주는 말이라 싣지 않는다. 같은 응답 안에서 띄우라는 문장과 띄우지 말라는 문장이 부딪힌다
+ * 데몬이 없을 때 모델에게 돌려줄 실패 문구. 사람에게 띄우는 명령을 알려 주는 `DAEMON_NOT_RUNNING`은
+ * 싣지 않는다. 같은 응답 안에서 띄우라는 문장과 띄우지 말라는 문장이 부딪힌다
  */
 function noDaemonError(err: DaemonUnavailableError): string {
-  return `peer 데몬이 안 떠 있어요 (${err.socketPath}). ${NO_DAEMON_NOTE}`;
+  return `peer 데몬이 안 떠 있다 (${err.socketPath}). ${NO_DAEMON_NOTE}`;
 }
 
 /**

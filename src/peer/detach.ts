@@ -30,7 +30,7 @@ export const DAEMON_LOG_CHECK_MS = 60_000;
 export const DEFAULT_DAEMON_WAIT_MS = 10_000;
 
 /**
- * `--detach`가 자식에 거는 환경 변수. 자식은 이걸 보고 로그를 돌리고 안내 문구를 바꾼 뒤 지운다.
+ * `--detach`가 자식에 거는 환경 변수. 자식은 이걸 보고 로그 크기를 챙기고 안내 문구를 바꾼 뒤 지운다.
  * 멈추는 길이나 잠금 규칙은 이 값과 상관없이 같다
  */
 export const DETACHED_ENV = 'GESTALT_PEER_DETACHED';
@@ -196,7 +196,7 @@ export interface DetachResult {
   already: boolean;
   /** 이번에 띄운 자식 pid. 이미 떠 있어서 안 띄웠으면 없다. 다른 데몬이 먼저 떴으면 `pid`와 다르다 */
   spawned?: number;
-  /** 띄우기 전 로그 돌리기가 실패했으면 그 이유. 기동은 계속했다 */
+  /** 띄우기 전 로그를 복사하고 비우다 실패했으면 그 이유. 기동은 계속했다 */
   rotateError?: string;
 }
 
@@ -265,7 +265,7 @@ export async function detachDaemon(options: DetachOptions): Promise<DetachResult
   const running = await answeringDaemonPid(sock);
   if (running !== undefined) return { pid: running, log, already: true };
 
-  // 로그 돌리기는 곁다리다. 실패해도 띄우고 이유만 돌려준다. 아래 openDaemonLog가 심링크는 따로 막는다
+  // 로그 크기 챙기기는 곁다리다. 실패해도 띄우고 이유만 돌려준다. 아래 openDaemonLog가 심링크는 따로 막는다
   let rotateError: string | undefined;
   try {
     rotateDaemonLog(log);

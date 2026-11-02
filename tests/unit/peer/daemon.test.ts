@@ -598,7 +598,7 @@ describe('request', () => {
         DaemonUnavailableError,
       );
       await expect(request(join(dir, 'peer.sock'), { op: 'ping' })).rejects.toThrow(
-        'gestalt peer daemon',
+        '연결하지 못했어요',
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

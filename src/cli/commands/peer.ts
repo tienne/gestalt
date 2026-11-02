@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { PeerDaemon } from '../../peer/daemon.js';
-import { DaemonUnavailableError, request } from '../../peer/client.js';
+import { DAEMON_NOT_RUNNING, DaemonUnavailableError, request } from '../../peer/client.js';
 import { errMessage } from '../../peer/errors.js';
 import { claudeConfigDir, findCurrentSession, locateTranscript } from '../../peer/locate.js';
 import { codexHome, locateCodexRollout } from '../../peer/codex.js';
@@ -51,6 +51,25 @@ function resolveRoot(): string {
   }
 }
 
+/** 공유를 다루는 명령. 데몬이 없으면 공유도 없고 새로 띄운 데몬에도 없어서 띄우라고 안내하지 않는다 */
+const SHARE_CONTROL_OPS: ReadonlySet<string> = new Set([
+  'shares',
+  'unshare',
+  'approve',
+  'deny',
+  'kick',
+]);
+
+/**
+ * 데몬이 없을 때 찍을 말. 공유를 다루는 명령은 열린 공유가 없다고만 하고 status는 사실만 낸다.
+ * `/gestalt:share`가 그 둘에서는 데몬을 띄우지 않는데 출력이 띄우라고 하면 두 말이 부딪힌다
+ */
+export function noDaemonMessage(op: string, err: DaemonUnavailableError): string {
+  if (SHARE_CONTROL_OPS.has(op)) return `${err.message} 데몬이 안 떠 있어서 열린 공유가 없어요.`;
+  if (op === 'status') return err.message;
+  return `${err.message} ${DAEMON_NOT_RUNNING}`;
+}
+
 async function call<T>(req: PeerRequest, timeoutMs?: number): Promise<T> {
   const root = resolveRoot();
   try {
@@ -58,7 +77,7 @@ async function call<T>(req: PeerRequest, timeoutMs?: number): Promise<T> {
     if (!res.ok) fail(res.error);
     return res.result;
   } catch (e) {
-    if (e instanceof DaemonUnavailableError) fail(e.message, EXIT_NO_DAEMON);
+    if (e instanceof DaemonUnavailableError) fail(noDaemonMessage(req.op, e), EXIT_NO_DAEMON);
     fail(errMessage(e));
   }
 }
@@ -119,14 +138,14 @@ export async function peerDaemonCommand(
   if (detached) {
     console.log(`pid ${process.pid}. \`gestalt peer daemon --stop\`으로 멈춰요.`);
     const log = daemonLogPath(root);
-    // 돌리기가 계속 실패하면 같은 줄이 1분마다 쌓여 로그가 오히려 큰다. 실패는 바뀔 때 한 번만 적는다
+    // 복사하고 비우기가 계속 실패하면 같은 줄이 1분마다 쌓여 로그가 오히려 큰다. 실패는 처음 한 번만 적는다
     let rotateFailing = false;
     const timer = setInterval(() => {
       try {
         rotateDaemonLog(log);
         rotateFailing = false;
       } catch (e) {
-        if (!rotateFailing) console.error(`[peer] 로그를 못 돌렸어요: ${errMessage(e)}`);
+        if (!rotateFailing) console.error(`[peer] 로그 파일을 비우지 못했어요: ${errMessage(e)}`);
         rotateFailing = true;
       }
     }, DAEMON_LOG_CHECK_MS);
@@ -154,7 +173,7 @@ async function detachCommand(options: PeerOptions, waitMs: number): Promise<void
     fail(errMessage(e));
   }
   // --json이어도 표준 출력의 JSON을 깨지 않게 표준 오류로 낸다
-  if (r.rotateError !== undefined) console.error(`로그를 못 돌렸어요: ${r.rotateError}`);
+  if (r.rotateError !== undefined) console.error(`로그 파일을 비우지 못했어요: ${r.rotateError}`);
   if (options.json) {
     console.log(JSON.stringify({ pid: r.pid, log: r.log, already: r.already }));
     return;
@@ -355,7 +374,7 @@ export async function peerUnshareCommand(
       if (res.ok) closed.push(res.result);
       else failed.push({ id, error: plainLabel(res.error, 200) ?? '실패했어요' });
     } catch (e) {
-      if (e instanceof DaemonUnavailableError) fail(e.message, EXIT_NO_DAEMON);
+      if (e instanceof DaemonUnavailableError) fail(noDaemonMessage('unshare', e), EXIT_NO_DAEMON);
       failed.push({ id, error: plainLabel(errMessage(e), 200) ?? '실패했어요' });
     }
   }

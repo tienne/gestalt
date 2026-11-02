@@ -134,7 +134,7 @@ describe('데몬 로그', () => {
     expect(statSync(log).size).toBe(101);
   });
 
-  it('원본이 심링크면 돌리지 않는다', () => {
+  it('원본이 심링크면 복사도 비우기도 안 한다', () => {
     const target = join(dir, 'elsewhere');
     writeFileSync(target, 'z'.repeat(200));
     const log = daemonLogPath(dir);
@@ -248,7 +248,7 @@ describe('detachDaemon 실패', () => {
     expect(statSync(e.log).mode & 0o777).toBe(0o600);
   });
 
-  it('로그 돌리기가 실패해도 띄우고 이유를 돌려준다', async () => {
+  it('로그를 복사하고 비우다 실패해도 띄우고 이유를 돌려준다', async () => {
     const log = daemonLogPath(root);
     writeFileSync(log, 'x'.repeat(2 * 1024 * 1024), { mode: 0o600 });
     symlinkSync(join(root, 'nowhere'), `${log}.1`);
