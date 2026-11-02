@@ -496,7 +496,8 @@ ${skippedHtml}</div>`;
     ? `<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary" tabindex="0">${summary}</div>\n${extPanels}`
     : summary;
 
-  // is-doc은 render-lens.ts LENS_CSS가 좁은 화면에서 원문 창을 시트로 접는 표지다
+  // is-doc은 render-lens.ts LENS_CSS가 좁은 화면에서 원문 창을 시트로 접고 데스크톱 사이드 폭을 420px로 두는 표지다.
+  // is-audio는 16:9 박스가 없는 팟캐스트가 같은 420px 고정만 받으려고 붙인다.
   const bodyClass = [
     'is-diary',
     isLensKind(kind) ? 'is-lens' : '',
