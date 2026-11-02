@@ -185,7 +185,7 @@ export function lensReport(): Report {
 
 export function lensDigest(report: Report = lensReport()): Digest {
   return {
-    schemaVersion: '1.6.0',
+    schemaVersion: '1.7.0',
     slug: LENS_SLUG,
     source: { kind: 'pdf' },
     reports: [report],

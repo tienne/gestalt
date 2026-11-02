@@ -29,6 +29,9 @@ const sideSchema = z.object({ title: textSchema.optional(), items: nodes(1, 6) }
 // focus가 둘 이상이면 강조가 강조로 안 읽혀서 lint가 DIAGRAM_FOCUS_MULTI로 막는다. 어느 위성인지 경로로 알리려고 스키마에서 안 잡는다
 const hubSatelliteSchema = diagramNodeSchema.extend({ focus: z.boolean().optional() });
 
+// picked 개수는 고르는 그림이 되려면 하나 이상이고 전부는 아니어야 한다. 어느 칸 문제인지 경로로 알리려고 스키마에서 안 잡고 lint가 DIAGRAM_PICK_*로 막는다
+const pickCellSchema = diagramNodeSchema.extend({ picked: z.boolean().optional() });
+
 export const DIAGRAM_KINDS = [
   'flow',
   'cycle',
@@ -40,6 +43,7 @@ export const DIAGRAM_KINDS = [
   'beforeAfter',
   'hub',
   'stat',
+  'pickGrid',
 ] as const;
 
 /**
@@ -102,6 +106,12 @@ export const diagramSchema = z.discriminatedUnion('kind', [
     value: textSchema,
     label: textSchema,
     cite: citeSchema.optional(),
+  }),
+  /** 열 수는 모델이 안 정한다. 렌더러가 칸 수로 정한다 */
+  z.object({
+    kind: z.literal('pickGrid'),
+    caption: diagramCaption,
+    cells: z.array(pickCellSchema).min(4).max(16),
   }),
 ]);
 

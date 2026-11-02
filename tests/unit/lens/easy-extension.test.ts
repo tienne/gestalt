@@ -175,4 +175,19 @@ describe('글 자료의 허브와 핵심 수치 도식', () => {
     expect(html).toContain('>98%<');
     expect(html).not.toMatch(/<g [^>]*data-sec=/);
   });
+
+  it('pickGrid 칸이 시각 대신 data-unit을 달고 선택됨을 알린다', () => {
+    const html = render({
+      kind: 'pickGrid',
+      cells: [
+        { label: '노드', picked: true, cite: { key: 1, from: 1, to: 1 } },
+        { label: '간선' },
+        { label: '경로' },
+        { label: '군집' },
+      ],
+    });
+    expect(html).toMatch(/<g class="dg-node dg-picked dg-cite" data-unit="1" role="link"/);
+    expect(html).toContain('선택됨"');
+    expect(html).not.toMatch(/<g [^>]*data-sec=/);
+  });
 });

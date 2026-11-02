@@ -165,27 +165,32 @@ function nodeSvg(
   w: number,
   opts: SvgOptions,
   extra = '',
+  note = '',
 ): string {
-  const sec = linkAttrs(m.node, opts);
-  const cls = ['dg-node', extra, sec ? 'dg-cite' : ''].filter(Boolean).join(' ');
+  const link = linkAttrs(m.node, opts, note);
+  const cls = ['dg-node', extra, link ? 'dg-cite' : ''].filter(Boolean).join(' ');
+  // 누르는 노드가 아니어도 상태는 소리로 알린다. 그림 전체가 img일 때 안쪽 aria-label은 무시되므로 호출한 쪽이 그림 aria에도 싣는다
+  const sec =
+    link || !note ? link : ` role="img" aria-label="${escapeXml(`${m.node.label}, ${note}`)}"`;
   const r = (n: number) => Math.round(n * 10) / 10;
   return `<g class="${cls}"${sec}><title>${escapeXml(m.node.label)}</title><rect x="${r(x)}" y="${r(cy - BOX_H / 2)}" width="${w}" height="${BOX_H}" rx="6"/><text x="${r(x + PAD_X)}" y="${r(cy)}" dominant-baseline="central">${escapeXml(m.text)}</text></g>`;
 }
 
 // 노드는 a가 아니라서 키보드와 스크린리더가 링크로 읽게 역할과 탭 순서를 직접 단다.
 // 글 자료는 시각이 다 0이라 시각 대신 문단 자리를 달아야 눌렀을 때 갈 곳이 있다
-function linkAttrs(node: { label: string; cite?: Cite }, opts: SvgOptions): string {
+function linkAttrs(node: { label: string; cite?: Cite }, opts: SvgOptions, note = ''): string {
   if (!node.cite) return '';
   const link = ' role="link" tabindex="0"';
+  const tail = note ? `, ${note}` : '';
   if (opts.unit) {
     const u = opts.unit(node.cite);
-    return ` data-unit="${u.index}"${link} aria-label="${escapeXml(`${node.label}, 원문 ${u.label} 열기`)}"`;
+    return ` data-unit="${u.index}"${link} aria-label="${escapeXml(`${node.label}, 원문 ${u.label} 열기${tail}`)}"`;
   }
   if (!opts.sec) return '';
   const sec = opts.sec(node.cite);
   const s = Math.max(0, Math.floor(sec));
   const at = `${Math.floor(s / 60)}분 ${s % 60}초`;
-  return ` data-sec="${Math.max(0, sec)}"${link} aria-label="${escapeXml(`${node.label}, ${at}로 이동`)}"`;
+  return ` data-sec="${Math.max(0, sec)}"${link} aria-label="${escapeXml(`${node.label}, ${at}로 이동${tail}`)}"`;
 }
 
 // role="img"면 안쪽 노드가 보조기기에 안 보인다. 누를 노드가 있을 때만 group으로 연다
@@ -236,13 +241,22 @@ function sequence(body: string): { body: string; steps: number } {
   return { body: out, steps: next };
 }
 
-const wrapSvg = (kind: string, width: number, height: number, body: string, aria: string) => {
+/** vars는 뷰어 CSS가 읽는 사용자 정의 속성이다. 등장 간격 조절과 같은 style 속성에 합쳐 싣는다 */
+const wrapSvg = (
+  kind: string,
+  width: number,
+  height: number,
+  body: string,
+  aria: string,
+  vars: string[] = [],
+) => {
   const seq = sequence(body);
   const pace =
     seq.steps > STEP_MAX
-      ? ` style="--dg-step:${Math.round(((STEP_SEC * STEP_MAX) / seq.steps) * 1000)}ms"`
-      : '';
-  return `<svg class="dg-svg dg-${kind}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="${svgRole(body)}" aria-label="${escapeXml(aria)}"${pace}>${seq.body}</svg>`;
+      ? [`--dg-step:${Math.round(((STEP_SEC * STEP_MAX) / seq.steps) * 1000)}ms`]
+      : [];
+  const style = [...pace, ...vars].join(';');
+  return `<svg class="dg-svg dg-${kind}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="${svgRole(body)}" aria-label="${escapeXml(aria)}"${style ? ` style="${style}"` : ''}>${seq.body}</svg>`;
 };
 
 /** 단계 흐름. 넷까지는 가로로, 그보다 많으면 세로로 잇는다 */
@@ -731,4 +745,58 @@ export function statSvg(
   ];
   const height = Math.ceil(labelCy + BOX_H / 2 + MARGIN);
   return wrapSvg('stat', Math.ceil(width), height, parts.join(''), ariaLabel);
+}
+
+export interface PickCell extends DiagramNode {
+  picked?: boolean;
+}
+
+/** 칸 수로 열 수를 정한다. 모델은 열을 모른다. 칸이 적으면 정사각에 가깝게 놓고 많아도 네 열을 넘기지 않아 옆으로 길어지지 않는다 */
+export function pickGridColumns(n: number): number {
+  if (n <= 4) return 2;
+  if (n <= 6) return 3;
+  if (n <= 8) return 4;
+  if (n === 9) return 3;
+  return 4;
+}
+
+const PICK_GAP_X = 14;
+const PICK_GAP_Y = 14;
+/** 선택 표식(체크)이 들어갈 칸 오른쪽 여백 */
+const PICK_CHECK_W = 16;
+const PICK_LABEL = '선택됨';
+const SCAN_W = 3;
+const SCAN_PAD = 6;
+
+/**
+ * 격자에서 일부만 고르는 그림. 모든 칸을 같은 크기로 놓고 picked 칸은 굵은 테두리와 체크로 강조하고 나머지는 흐리게 한다.
+ * 색만으로 가르지 않으려고 체크 표식과 aria-label의 "선택됨"을 더한다.
+ * 스캔 줄은 장식이다. 뷰어가 칸이 다 뜬 뒤 왼쪽에서 오른쪽으로 한 번 훑게 한다. 그 시점은 칸 수(--n)로 계산한다
+ */
+export function pickGridSvg(
+  cells: PickCell[],
+  opts: SvgOptions = {},
+  ariaLabel = '격자 고르기',
+): string {
+  const ms = cells.map((c) => measure(c));
+  const cols = pickGridColumns(cells.length);
+  const rows = Math.ceil(cells.length / cols);
+  const cw = Math.max(...ms.map((m) => m.w)) + PICK_CHECK_W;
+  const f = (v: number) => Math.round(v * 10) / 10;
+  const parts = ms.map((m, i) => {
+    const x = MARGIN + (i % cols) * (cw + PICK_GAP_X);
+    const cy = MARGIN + BOX_H / 2 + Math.floor(i / cols) * (BOX_H + PICK_GAP_Y);
+    if (!cells[i]!.picked) return nodeSvg(m, x, cy, cw, opts, 'dg-dim');
+    const kx = x + cw - PICK_CHECK_W + 2;
+    const check = `<path class="dg-check" d="M${f(kx)} ${f(cy)}L${f(kx + 4)} ${f(cy + 4)}L${f(kx + 11)} ${f(cy - 4)}" aria-hidden="true"/>`;
+    return nodeSvg(m, x, cy, cw, opts, 'dg-picked', PICK_LABEL).replace(/<\/g>$/, `${check}</g>`);
+  });
+  const gridW = cols * cw + (cols - 1) * PICK_GAP_X;
+  const gridH = rows * BOX_H + (rows - 1) * PICK_GAP_Y;
+  parts.push(
+    `<rect class="dg-scan" x="${MARGIN - SCAN_PAD}" y="${MARGIN - SCAN_PAD}" width="${SCAN_W}" height="${gridH + SCAN_PAD * 2}" rx="1.5" style="--w:${gridW + SCAN_PAD * 2 - SCAN_W}px" aria-hidden="true"/>`,
+  );
+  const width = Math.ceil(gridW + MARGIN * 2);
+  const height = Math.ceil(gridH + MARGIN * 2);
+  return wrapSvg('pick-grid', width, height, parts.join(''), ariaLabel, [`--n:${cells.length}`]);
 }

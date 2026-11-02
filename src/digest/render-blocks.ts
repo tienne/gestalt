@@ -15,6 +15,7 @@ import {
   flowSvg,
   hubSvg,
   matrixSvg,
+  pickGridSvg,
   statSvg,
   timelineSvg,
   treeSvg,
@@ -104,6 +105,7 @@ export const DIAGRAM_LABEL: Record<Diagram['kind'], string> = {
   beforeAfter: '전후 비교',
   hub: '허브',
   stat: '핵심 수치',
+  pickGrid: '격자 고르기',
 };
 
 const BEFORE = '전';
@@ -133,6 +135,12 @@ const hubOutline = (d: Extract<Diagram, { kind: 'hub' }>): MindmapNode => ({
     focus ? { ...s, label: `${s.label} (${FOCUS})` } : s,
   ),
 });
+
+const PICKED = '선택됨';
+
+/** 고른 칸은 그림의 색과 표식 대신 글자로도 알린다. 그림에 놓인 순서대로 둔다 */
+const pickOutline = (d: Extract<Diagram, { kind: 'pickGrid' }>): MindmapNode[] =>
+  d.cells.map(({ picked, ...c }) => (picked ? { ...c, label: `${c.label} (${PICKED})` } : c));
 
 /** 그림과 스크립트 없이 읽히는 목록. aria는 그림의 aria-label이다 */
 export function diagramParts(
@@ -198,6 +206,18 @@ export function diagramParts(
         svg: statSvg(d.value, d, opts, `${aria}: ${d.value} ${d.label}`),
         outline: `<p><b>${ctx.escape(d.value)}</b> ${ctx.escape(d.label)}${d.cite ? ` ${ctx.time(d.cite)}` : ''}</p>`,
       };
+    case 'pickGrid':
+      return {
+        svg: pickGridSvg(
+          d.cells,
+          opts,
+          `${aria}: ${d.cells
+            .filter((c) => c.picked)
+            .map((c) => c.label)
+            .join(', ')} ${PICKED}`,
+        ),
+        outline: `<ul>${pickOutline(d).map(li).join('')}</ul>`,
+      };
     default: {
       const never: never = d;
       throw new Error(`알 수 없는 도식: ${String(never)}`);
@@ -260,6 +280,8 @@ export function sectionDiagramMd(d: Diagram, ctx: BlockMdContext): string[] {
       return [...head, ...outlineMd(hubOutline(d), ctx), ''];
     case 'stat':
       return [...head, `**${mdInline(d.value)}** ${mdInline(d.label)}${at(d)}`, ''];
+    case 'pickGrid':
+      return [...head, ...pickOutline(d).flatMap((n) => outlineMd(n, ctx)), ''];
     default: {
       const never: never = d;
       throw new Error(`알 수 없는 도식: ${String(never)}`);

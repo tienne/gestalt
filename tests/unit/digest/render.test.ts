@@ -709,6 +709,56 @@ describe('순차 모션과 형광펜', () => {
     expect(body).toContain('stroke-dasharray:none');
   });
 
+  it('격자 고르기 모션은 스캔 줄을 한 번만 훑고 선택 강조를 그 뒤에 켠다', () => {
+    const css = motionCss(html());
+    const scan = /\.armed\.play \.dg-svg rect\.dg-scan\{([^}]*)\}/.exec(css);
+    expect(scan).not.toBeNull();
+    expect(scan![1]).toContain('animation:dg-scan 1s linear both');
+    expect(scan![1]).not.toContain('infinite');
+    expect(scan![1]).toContain('var(--n,0) * var(--dg-step,.28s) + .4s');
+    const pick = /\.armed\.play \.dg-svg \.dg-picked rect\{([^}]*)\}/.exec(css);
+    expect(pick![1]).toContain('+ 1.4s');
+    expect(css).toMatch(/\.armed\.play \.dg-svg \.dg-dim\{animation:dg-dim [^}]*\+ 1\.4s/);
+    expect(css).toMatch(/\.armed\.play \.dg-svg \.dg-check\{animation:dg-fade [^}]*\+ 1\.4s/);
+  });
+
+  it('격자 고르기 시작 상태는 모든 칸이 같은 톤이고 최종 상태는 .armed 없이 적용된다', () => {
+    const h = html();
+    const css = motionCss(h);
+    expect(css).toContain('.armed .dg-svg .dg-picked rect{fill:var(--bg);stroke:var(--line)');
+    expect(css).toContain('.armed .dg-svg .dg-dim{opacity:1}');
+    expect(css).toContain('.armed .dg-svg .dg-check{opacity:0}');
+    // 최종 상태는 .armed 없이 걸린 규칙이다
+    expect(h).toContain(
+      '.dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent);stroke-width:3}',
+    );
+    expect(h).toContain('.dg-svg .dg-dim{opacity:.5}');
+    expect(h).toContain('.dg-svg rect.dg-scan{fill:var(--accent);stroke:none;opacity:0}');
+  });
+
+  it('격자 고르기 선택자는 속성이 아니라 클래스로 건다', () => {
+    const css = motionCss(html());
+    const lines = css.split('\n').filter((l) => /dg-(scan|picked|dim|check)/.test(l));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) {
+      const selectors = l.startsWith('@keyframes') ? '' : l.slice(0, l.indexOf('{'));
+      expect(selectors).not.toContain('[');
+    }
+  });
+
+  it('reduce 모드와 인쇄는 선택 강조를 바로 적용하고 스캔 줄을 숨긴다', () => {
+    const css = motionCss(html());
+    const body = /@media \(prefers-reduced-motion:reduce\),print\{(.*)\}$/m.exec(css)![1]!;
+    expect(body).toContain(
+      '.armed .dg-svg .dg-check{opacity:1!important;animation:none!important}',
+    );
+    expect(body).toContain(
+      '.armed .dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent);stroke-width:3;animation:none!important}',
+    );
+    expect(body).toContain('.armed .dg-svg .dg-dim{opacity:.5;animation:none!important}');
+    expect(body).toContain('.armed .dg-svg rect.dg-scan{opacity:0;animation:none!important}');
+  });
+
   it('도식이 없는 대섹션도 sec-card 안에 결론 문장을 둔다', () => {
     const h = renderDigestHtml(sampleDigest(), sampleTranscript()).html;
     expect(h).toMatch(/<div class="sec-card"><p class="conclusion">[^]*?<\/p><\/div>/);

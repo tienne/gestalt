@@ -26,7 +26,7 @@ export { DIAGRAM_KINDS, diagramSchema, type Diagram, type DiagramKind } from './
 
 export { citeSchema, LANG_TAG_PATTERN };
 
-export const DIGEST_SCHEMA_VERSION = '1.6.0';
+export const DIGEST_SCHEMA_VERSION = '1.7.0';
 export const TRANSCRIPT_SCHEMA_VERSION = '1.0.0';
 
 /** text는 읽기 렌즈가 PDF나 웹 글에서 뽑은 본문이다 */

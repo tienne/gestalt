@@ -691,6 +691,11 @@ button.busy-chip{cursor:pointer;color:var(--accent)}
 .dg-svg .dg-stat-value text{fill:var(--accent);font-size:40px;font-weight:700}
 .dg-svg .dg-stat-label rect{fill:none;stroke:none}
 .dg-svg .dg-spark circle{fill:var(--accent);opacity:.45}
+.dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent);stroke-width:3}
+.dg-svg .dg-picked text{font-weight:600}
+.dg-svg .dg-check{stroke:var(--accent);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
+.dg-svg .dg-dim{opacity:.5}
+.dg-svg rect.dg-scan{fill:var(--accent);stroke:none;opacity:0}
 .replay-btn{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer;color:inherit;font:inherit}
 .replay-btn[hidden]{display:none}
 .sec-card>.conclusion strong,.sec-intro strong,.lead strong{background:linear-gradient(var(--hl),var(--hl)) 0 88%/100% 42% no-repeat}
@@ -698,6 +703,10 @@ button.busy-chip{cursor:pointer;color:var(--accent)}
 .armed{--dg-ease:cubic-bezier(.22,.8,.3,1)}
 .armed>.conclusion,.armed .dg-step,.armed .dg-arrow,.armed .dg-dot,.armed .dg-cell,.armed .dg-spark,.armed .dg-when,.armed .dg-axis{opacity:0}
 .armed .dg-svg path.dg-line{stroke-dasharray:1;stroke-dashoffset:1}
+.armed .dg-svg .dg-picked rect{fill:var(--bg);stroke:var(--line);stroke-width:1}
+.armed .dg-svg .dg-picked text{font-weight:400}
+.armed .dg-svg .dg-check{opacity:0}
+.armed .dg-svg .dg-dim{opacity:1}
 .armed>.conclusion strong{background-size:0 42%}
 .armed.play>.conclusion{animation:dg-up .5s var(--dg-ease) both}
 .armed.play>.conclusion strong{animation:dg-hl .6s var(--dg-ease) .3s both}
@@ -707,13 +716,20 @@ button.busy-chip{cursor:pointer;color:var(--accent)}
 .armed.play .dg-dot,.armed.play .dg-cell,.armed.play .dg-spark{animation:dg-fade .3s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s))}
 .armed.play .dg-when,.armed.play .dg-axis{animation:dg-fade .3s ease both;animation-delay:var(--dg-base,0s)}
 .armed.play .dg-focus{animation:dg-ping .8s ease-in-out 3;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s) + .4s);transform-box:fill-box;transform-origin:center}
+.armed.play .dg-svg rect.dg-scan{animation:dg-scan 1s linear both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,.28s) + .4s)}
+.armed.play .dg-svg .dg-picked rect{animation:dg-pick .4s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,.28s) + 1.4s)}
+.armed.play .dg-svg .dg-check{animation:dg-fade .3s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,.28s) + 1.4s)}
+.armed.play .dg-svg .dg-dim{animation:dg-dim .4s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,.28s) + 1.4s)}
 @keyframes dg-up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes dg-pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
 @keyframes dg-fade{from{opacity:0}to{opacity:1}}
 @keyframes dg-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
 @keyframes dg-hl{from{background-size:0 42%}to{background-size:100% 42%}}
 @keyframes dg-ping{0%,100%{transform:none}50%{transform:scale(1.08)}}
-@media (prefers-reduced-motion:reduce),print{.armed>.conclusion,.armed .dg-step,.armed .dg-arrow,.armed .dg-dot,.armed .dg-cell,.armed .dg-spark,.armed .dg-when,.armed .dg-axis,.armed .dg-focus{opacity:1!important;animation:none!important}.armed .dg-svg path.dg-line{stroke-dasharray:none;animation:none!important}.armed>.conclusion strong{background-size:100% 42%;animation:none!important}}
+@keyframes dg-scan{0%{opacity:0;transform:translateX(0)}10%,90%{opacity:.7}100%{opacity:0;transform:translateX(var(--w,0px))}}
+@keyframes dg-pick{from{fill:var(--bg);stroke:var(--line);stroke-width:1}to{fill:var(--hl);stroke:var(--accent);stroke-width:3}}
+@keyframes dg-dim{from{opacity:1}to{opacity:.5}}
+@media (prefers-reduced-motion:reduce),print{.armed>.conclusion,.armed .dg-step,.armed .dg-arrow,.armed .dg-dot,.armed .dg-cell,.armed .dg-spark,.armed .dg-when,.armed .dg-axis,.armed .dg-focus{opacity:1!important;animation:none!important}.armed .dg-svg .dg-check{opacity:1!important;animation:none!important}.armed .dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent);stroke-width:3;animation:none!important}.armed .dg-svg .dg-picked text{font-weight:600}.armed .dg-svg .dg-dim{opacity:.5;animation:none!important}.armed .dg-svg rect.dg-scan{opacity:0;animation:none!important}.armed .dg-svg path.dg-line{stroke-dasharray:none;animation:none!important}.armed>.conclusion strong{background-size:100% 42%;animation:none!important}}
 #zoom-dialog{width:min(96vw,1400px);max-height:92vh;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);padding:12px}
 #zoom-dialog::backdrop{background:rgba(0,0,0,.5)}
 #zoom-dialog .zoom-body{overflow:auto;max-height:calc(92vh - 64px)}
