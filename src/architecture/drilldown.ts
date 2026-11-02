@@ -645,7 +645,7 @@ function rootLevel(full: Graph, apps: MicroAppIndex): LevelDraft {
   };
 }
 
-/** 같은 group 값을 가진 카드를 묶는다. 앱 테두리에 이미 든 카드는 빼고 하나만 남는 묶음은 테두리를 안 그린다 */
+/** 같은 group 값을 가진 카드를 묶는다. 앱 테두리에 이미 든 카드는 뺀다. 카드가 하나여도 어디 소속인지 보이도록 테두리를 그린다 */
 function repoGroups(g: Graph, nodeIds: Set<string>, frames: readonly FrameGroup[]): RepoGroup[] {
   const framed = new Set(frames.flatMap((f) => [f.head, ...f.members]));
   const byLabel = new Map<string, string[]>();
@@ -655,7 +655,6 @@ function repoGroups(g: Graph, nodeIds: Set<string>, frames: readonly FrameGroup[
     byLabel.set(label, [...(byLabel.get(label) ?? []), id]);
   }
   return [...byLabel]
-    .filter(([, members]) => members.length > 1)
     .sort((a, b) => compareStr(a[0], b[0]))
     .map(([label, members]) => ({ label, members: [...members].sort(compareStr) }));
 }

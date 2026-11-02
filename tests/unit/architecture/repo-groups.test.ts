@@ -133,14 +133,9 @@ function contiguousInColumns(layout: LayoutResult, members: readonly string[]): 
 }
 
 describe('묶음 테두리 — 전체 보기', () => {
-  it('group이 없으면 테두리가 없고 하나뿐인 묶음만 있어도 레이아웃이 그대로다', async () => {
+  it('group이 없으면 테두리가 없다', async () => {
     const plain = await rootOf(fixture({ groups: false }));
     expect(plain.layout.frames).toBeUndefined();
-
-    const solo = fixture({ groups: false });
-    solo.nodes.find((n) => n.id === 'm-solo')!.group = 'repo-solo';
-    const soloRoot = await rootOf(solo);
-    expect(soloRoot.layout).toEqual(plain.layout);
   });
 
   it('서버 셋 이상인 묶음에 라벨 단 테두리를 두르고 묶음 카드는 열 안에서 이어진다', async () => {
@@ -177,9 +172,15 @@ describe('묶음 테두리 — 전체 보기', () => {
     );
   });
 
-  it('멤버가 하나뿐인 묶음은 테두리가 없다', async () => {
+  it('멤버가 하나뿐인 묶음도 그 카드에 라벨 단 테두리를 두른다', async () => {
     const root = await rootOf(fixture());
-    expect(groupFrames(root).some((f) => f.label === 'repo-solo')).toBe(false);
+    const solo = groupFrames(root).filter((f) => f.label === 'repo-solo');
+    expect(solo).toHaveLength(1);
+    const card = root.layout.nodes.find((n) => n.id === 'm-solo')!;
+    expect(contains(solo[0]!, card)).toBe(true);
+    for (const n of root.layout.nodes) {
+      if (n.id !== 'm-solo') expect(overlaps(solo[0]!, n)).toBe(false);
+    }
   });
 
   it('앱 테두리와 묶음 테두리가 같이 있어도 서로 안 겹치고 앱 카드는 묶음에서 빠진다', async () => {
