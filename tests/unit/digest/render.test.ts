@@ -666,6 +666,12 @@ describe('순차 모션과 형광펜', () => {
     expect(rule![1]).not.toMatch(/\bdd\b/);
   });
 
+  it('다이어리 형광펜도 요약 문장의 굵은 글씨에만 칠한다', () => {
+    const css = html();
+    expect(css).toContain('.is-diary :where(.sec-card>.conclusion,.sec-intro,.lead) strong{');
+    expect(css).not.toMatch(/\.is-diary strong\{/);
+  });
+
   it('모션 값은 --dg-step 0.28s와 선 그리기 0.55s다', () => {
     const css = motionCss(html());
     expect(css).toContain('var(--dg-step,.28s)');

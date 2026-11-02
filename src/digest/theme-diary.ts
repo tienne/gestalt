@@ -62,7 +62,7 @@ export const DIARY_CSS =
 .is-diary .main ul{padding-left:1.2em}
 .is-diary .main li{margin:4px 0}
 .is-diary .main li::marker{color:var(--accent)}
-.is-diary strong{background:linear-gradient(100deg,transparent 0,var(--hl) 4%,var(--hl) 96%,transparent 100%) 0 70%/100% 46% no-repeat}
+.is-diary :where(.sec-card>.conclusion,.sec-intro,.lead) strong{background:linear-gradient(100deg,transparent 0,var(--hl) 4%,var(--hl) 96%,transparent 100%) 0 70%/100% 46% no-repeat}
 .is-diary .cite{color:var(--muted);font-size:.7em}
 .is-diary .cite:hover,.is-diary .cite[aria-expanded="true"]{color:var(--accent)}
 .is-diary .doubt{margin:8px 0 10px;padding:8px 12px;border:1.5px dashed var(--warn);border-radius:10px;background:none;font-size:.9em}
