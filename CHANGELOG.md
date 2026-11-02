@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.120.0] - 2026-11-02
+
+### Added
+
+- **뷰어 스크립트에 현재 구간만 보기 토글을 넣었어요(#105).** 스크립트 영역 머리의 버튼을 켜면 재생 중인 자막 한 줄만 남고 나머지는 접혀요. 영상을 보면서 지금 구간만 따라가고 싶을 때 쓰는 용도예요.
+  - 기본은 꺼짐이고 켠 상태만 localStorage에 기억해요. 끄면 저장소 키를 지워서 다음 방문에는 예전과 똑같이 펼쳐진 채로 열려요.
+  - 접힌 줄은 `display:none`이라 키보드 포커스에서도 빠져요. 현재 줄이 바뀔 때 `tabindex`도 함께 옮겨요.
+  - 버튼은 번역 토글 바로 뒤에 놓고 우측 간격은 번역 버튼이 있을 때만 줘요.
+  - 첫 자막 앞으로 되감으면 재생 중인 줄이 없어서 패널이 비어 보였어요. 이때는 `has-cur` 클래스를 떼고 첫 줄을 폴백으로 보여줘요. `:has()` 대신 클래스로 판정해서 지원 범위가 넓어요.
+
+### Changed
+
+- 뷰어 `bodyClass` 표지 주석에 각 클래스가 어떤 레이아웃 규칙을 켜는지 적었어요(#105). 동작은 그대로예요.
+
+### 검증 범위
+
+- #105는 로컬 PR 리뷰를 3라운드 돌렸어요. 라운드 2에서 high 1개와 warning 2개가 나와 처리했고 라운드 3에서 frontend, quality, comment 리뷰어가 모두 이슈 0개로 승인했어요.
+- `pnpm gate`를 통과했어요(테스트 파일 356개, 6869개 통과, 1개 건너뜀). PR CI 4개 잡도 모두 통과했어요.
+
+### 남긴 것
+
+- 토글 상태를 영상마다 따로 기억하지 않고 뷰어 전체에서 하나로 기억해요. 영상마다 다르게 쓸 일이 드물어서 키 하나로 뒀어요.
+
 ## [0.119.0] - 2026-11-02
 
 ### Added
