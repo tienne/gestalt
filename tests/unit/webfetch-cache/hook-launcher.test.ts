@@ -110,6 +110,8 @@ function hook(
       clearTimeout(timer);
       done({ status, stdout, stderr });
     });
+    // 훅이 stdin을 읽기 전에 끝나면 쓰기가 EPIPE로 실패한다. 통과 경로에서는 정상이라 무시한다
+    child.stdin.on('error', () => {});
     child.stdin.end(typeof payload === 'string' ? payload : JSON.stringify(payload));
   });
 }
@@ -508,6 +510,7 @@ describe.skipIf(!HAS_DEPS)('webfetch-cache-hook.sh — 다루지 않는 입력',
     const r = await new Promise<number | null>((done) => {
       const child = spawn(SCRIPT, ['bogus'], { env: { ...process.env, ...ON } });
       child.on('close', done);
+      child.stdin.on('error', () => {});
       child.stdin.end('{}');
     });
     expect(r).toBe(0);
