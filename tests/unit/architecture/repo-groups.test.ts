@@ -13,7 +13,13 @@ import {
   type DrillLevel,
   type ValidatedIr,
 } from '../../../src/architecture/index.js';
-import { stackGroups, groupRects, type LayoutResult } from '../../../src/architecture/layout.js';
+import {
+  BAND_HEAD,
+  frameRects,
+  groupRects,
+  stackGroups,
+  type LayoutResult,
+} from '../../../src/architecture/layout.js';
 
 // 웹 서비스 하나가 게이트웨이 둘을 거쳐 서버 모듈들을 부른다. 서버는 레포 이름으로 묶는다. 이름은 전부 가짜다
 const ev = [{ type: 'code' as const, location: 'web:src/api.ts:1', visibility: 'public' as const }];
@@ -46,10 +52,18 @@ const MODULES: Array<[string, string | undefined, string]> = [
   ['m-solo', 'repo-solo', 'gw-b'],
 ];
 
-function fixture(opts: { groups?: boolean; console?: boolean } = {}): ArchitectureIr {
+// 제품 띠 둘. m-a3만 둘째 제품이라 repo-a 모듈 묶음이 두 띠에 걸친다
+const PRODUCT_ONE = ['svc-web', 'f-web', 's-web', 'gw-a', 'm-a1', 'm-a2', 'm-c'];
+const PRODUCT_TWO = ['gw-b', 'm-a3', 'm-b1', 'm-b2', 'm-solo'];
+
+function fixture(
+  opts: { groups?: boolean; console?: boolean; products?: boolean; label?: string } = {},
+): ArchitectureIr {
   const withGroups = opts.groups ?? true;
   const g = (label: string | undefined): Partial<ArchitectureNode> =>
-    withGroups && label !== undefined ? { group: label } : {};
+    withGroups && label !== undefined
+      ? { group: label === 'repo-a' && opts.label !== undefined ? opts.label : label }
+      : {};
   const consoleNodes = opts.console
     ? [
         node('svc-console', 'service', { repo: 'console' }),
@@ -85,6 +99,14 @@ function fixture(opts: { groups?: boolean; console?: boolean } = {}): Architectu
       ]),
       ...(opts.console ? [edge('ld-coupon', 'app-shell', 'app-coupon', 'loads')] : []),
     ],
+    ...(opts.products
+      ? {
+          groups: [
+            { id: 'p1', name: '제품 하나', members: PRODUCT_ONE },
+            { id: 'p2', name: '제품 둘', members: PRODUCT_TWO },
+          ],
+        }
+      : {}),
     unresolved: [],
     sourcesUsed: [],
     generatedAt: '2026-01-01T00:00:00.000Z',
@@ -133,12 +155,15 @@ function contiguousInColumns(layout: LayoutResult, members: readonly string[]): 
 }
 
 describe('묶음 테두리 — 전체 보기', () => {
-  it('group이 없으면 테두리가 없다', async () => {
-    const plain = await rootOf(fixture({ groups: false }));
-    expect(plain.layout.frames).toBeUndefined();
+  it('group이 없으면 테두리도 라벨 스타일도 없다', async () => {
+    const v = validated(fixture({ groups: false }));
+    const d = await computeDrilldown(v);
+    expect(d.levels.find((l) => l.id === 'root')!.layout.frames).toBeUndefined();
+    const html = renderDrilldownHtml(v, d, { audience: 'private' });
+    expect(html).not.toContain('frame-label');
   });
 
-  it('서버 셋 이상인 묶음에 라벨 단 테두리를 두르고 묶음 카드는 열 안에서 이어진다', async () => {
+  it('묶음에 라벨 단 테두리를 두르고 묶음 카드는 열 안에서 이어진다', async () => {
     const root = await rootOf(fixture());
     const frames = groupFrames(root);
     const aFrames = frames.filter((f) => f.label === 'repo-a');
@@ -207,9 +232,59 @@ describe('묶음 테두리 — 전체 보기', () => {
   it('렌더된 HTML에 묶음 라벨이 frame-label 글자로 들어간다', async () => {
     const v = validated(fixture());
     const html = renderDrilldownHtml(v, await computeDrilldown(v), { audience: 'private' });
-    expect(html).toMatch(/<text class="frame-label"[^>]*>repo-a<\/text>/);
-    expect(html).toMatch(/<text class="frame-label"[^>]*>repo-b<\/text>/);
+    expect(html).toMatch(/<text class="frame-label"[^>]*><title>repo-a<\/title>repo-a<\/text>/);
+    expect(html).toMatch(/<text class="frame-label"[^>]*><title>repo-b<\/title>repo-b<\/text>/);
     expect(html).toContain('.frame-label');
+    // 묶음 테두리 id는 카드의 data-frame으로 안 내려간다. 노드 id와 같은 값이어도 섞이지 않는다
+    expect(html).not.toContain('data-frame="group:');
+  });
+
+  it('테두리 폭보다 긴 라벨은 잘라 쓰고 전체 이름은 title에 남긴다', async () => {
+    const long = 'repo-' + 'a'.repeat(200);
+    const v = validated(fixture({ label: long }));
+    const html = renderDrilldownHtml(v, await computeDrilldown(v), { audience: 'private' });
+    expect(html).toContain(`<title>${long}</title>`);
+    expect(html).not.toContain(`</title>${long}</text>`);
+  });
+
+  it('묶음 값의 특수문자는 data-frame-id와 라벨 양쪽에서 이스케이프된다', async () => {
+    const v = validated(fixture({ label: `<b"x'>` }));
+    const html = renderDrilldownHtml(v, await computeDrilldown(v), { audience: 'private' });
+    expect(html).not.toContain(`<b"x'>`);
+    expect(html).toContain('data-frame-id="group:&lt;b&quot;x&#39;&gt;:');
+    expect(html).toContain('<title>&lt;b&quot;x&#39;&gt;</title>');
+  });
+});
+
+describe('묶음 테두리 — 제품 띠로 나뉜 그림', () => {
+  it('띠마다 묶음을 따로 모으고 테두리가 띠 밖이나 다른 카드와 안 겹친다', async () => {
+    const root = await rootOf(fixture({ products: true }));
+    const regions = root.layout.regions!;
+    expect(regions.bands.length).toBeGreaterThan(1);
+    const box = (id: string) => root.layout.nodes.find((n) => n.id === id)!;
+    const frames = groupFrames(root);
+
+    // m-a3만 다른 띠라 모듈 열의 repo-a 테두리가 띠마다 하나씩 생긴다
+    const x = box('m-a1').x;
+    const ids = frames.filter((f) => f.label === 'repo-a').map((f) => f.id);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        `group:repo-a:${x}:${regions.bandOf['m-a1']}`,
+        `group:repo-a:${x}:${regions.bandOf['m-a3']}`,
+      ]),
+    );
+
+    for (const [i, f] of frames.entries()) {
+      for (const other of frames.slice(i + 1)) expect(overlaps(f, other)).toBe(false);
+      for (const n of root.layout.nodes) {
+        if (contains(f, n)) continue;
+        expect(overlaps(f, n)).toBe(false);
+      }
+      const band = Number(f.id.split(':').pop());
+      const b = regions.bands.find((r) => r.band === band)!;
+      expect(f.y).toBeGreaterThanOrEqual(b.y + BAND_HEAD);
+      expect(f.y + f.height).toBeLessThanOrEqual(b.y + b.height);
+    }
   });
 });
 
@@ -246,6 +321,45 @@ describe('stackGroups와 groupRects', () => {
     expect(stacked.movedNodeIds).toEqual(expect.arrayContaining(['a1', 'a2', 'x', 'a3']));
   });
 
+  it('한 열에 두 묶음이 섞여 있으면 묶음마다 모으고 테두리끼리 안 겹친다', () => {
+    const layout = {
+      width: 400,
+      height: 400,
+      nodes: [card('a1', 0, 0), card('b1', 0, 72), card('a2', 0, 144), card('b2', 0, 216)],
+      edges: [],
+      lanes: [],
+    } as unknown as LayoutResult;
+    const groups = [
+      { label: 'repo-a', members: ['a1', 'a2'] },
+      { label: 'repo-b', members: ['b1', 'b2'] },
+    ];
+    const stacked = groupRects(stackGroups(layout, groups), groups);
+    const order = [...stacked.nodes].sort((p, q) => p.y - q.y).map((n) => n.id);
+    expect(order).toEqual(['a1', 'a2', 'b1', 'b2']);
+    const [fa, fb] = stacked.frames!;
+    expect(fa!.y + fa!.height).toBeLessThan(fb!.y);
+  });
+
+  it('앱 테두리 위아래에 묶음 멤버가 있으면 묶음을 위로 모으고 앱 테두리와 안 겹친다', () => {
+    const layout = {
+      width: 400,
+      height: 600,
+      nodes: [card('a1', 0, 0), card('head', 0, 72), card('app', 0, 144), card('a2', 0, 216)],
+      edges: [],
+      lanes: [],
+    } as unknown as LayoutResult;
+    const groups = [{ label: 'repo-a', members: ['a1', 'a2'] }];
+    const out = groupRects(
+      frameRects(stackGroups(layout, groups), [{ head: 'head', members: ['app'] }]),
+      groups,
+    );
+    const order = [...out.nodes].sort((p, q) => p.y - q.y).map((n) => n.id);
+    expect(order).toEqual(['a1', 'a2', 'head', 'app']);
+    const app = out.frames!.find((f) => f.id === 'head')!;
+    const grp = out.frames!.find((f) => f.label === 'repo-a')!;
+    expect(overlaps(app, grp)).toBe(false);
+  });
+
   it('기존 테두리는 그대로 두고 뒤에 붙인다', () => {
     const layout = {
       width: 400,
@@ -261,7 +375,7 @@ describe('stackGroups와 groupRects', () => {
 });
 
 describe('group 필드 스키마', () => {
-  it('group을 가진 IR이 형식 검사와 검증을 통과하고 빈 문자열은 거부한다', () => {
+  it('group이 달린 IR이 형식 검사와 검증을 통과하고 빈 문자열은 거부한다', () => {
     const parsed = parseArchitectureIr(fixture());
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
