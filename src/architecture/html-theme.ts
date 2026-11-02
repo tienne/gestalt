@@ -747,7 +747,7 @@ export const BLUEPRINT_CSS = `.bp-row rect { fill: var(--surface); stroke: var(-
 .bp-card .bp-who { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--muted); }
 `;
 
-/** 라벨 단 묶음 테두리가 있을 때만 붙이는 스타일. 테두리 선 색을 그대로 써서 다크와 라이트 둘 다 읽힌다 */
+/** 라벨 단 묶음 테두리가 있을 때만 붙이는 스타일. 공용 CSS에 넣으면 group 없는 그림의 바이트가 바뀐다. 테두리 선 색을 그대로 써서 다크와 라이트 둘 다 읽힌다 */
 export const FRAME_LABEL_CSS = `.frame-label { fill: var(--frame-line); font-size: 11px; font-weight: 700; }`;
 
 /**

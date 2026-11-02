@@ -769,14 +769,15 @@ function renderLevelSection(spec: CanvasSpec): string {
     })),
   );
   const frameOf = new Map<string, string>();
-  for (const f of layout.frames ?? []) frameOf.set(f.id, f.id);
+  for (const f of layout.frames ?? []) if (f.label === undefined) frameOf.set(f.id, f.id);
   const frameRects = (layout.frames ?? [])
     .map(
       (f) =>
         `<rect class="frame" data-frame-id="${escapeHtml(f.id)}" x="${round2(f.x + CANVAS_PAD_X)}" y="${round2(f.y + CANVAS_PAD_TOP)}" ` +
         `width="${f.width}" height="${f.height}" rx="14"/>` +
         (f.label !== undefined
-          ? `<text class="frame-label" x="${round2(f.x + CANVAS_PAD_X + FRAME_LABEL_INSET)}" y="${round2(f.y + CANVAS_PAD_TOP + FRAME_LABEL_BASELINE)}">${escapeHtml(f.label)}</text>`
+          ? `<text class="frame-label" x="${round2(f.x + CANVAS_PAD_X + FRAME_LABEL_INSET)}" y="${round2(f.y + CANVAS_PAD_TOP + FRAME_LABEL_BASELINE)}">` +
+            `<title>${escapeHtml(f.label)}</title>${escapeHtml(clipText(f.label, Math.max(1, Math.floor((f.width - FRAME_LABEL_INSET * 2) / 6))))}</text>`
           : ''),
     )
     .join('');
@@ -2444,7 +2445,7 @@ interface PageSpec {
   blueprints?: boolean;
   /** 테이블 관계 그림이 있으면 true. 그때만 그 스타일을 싣는다 */
   ers?: boolean;
-  /** 라벨 단 묶음 테두리가 있으면 true. 그때만 그 스타일을 싣는다. 예전 그림의 바이트를 지키려고서다 */
+  /** 라벨 단 묶음 테두리가 있으면 true. 그때만 그 스타일을 싣는다 */
   frameLabels?: boolean;
 }
 
