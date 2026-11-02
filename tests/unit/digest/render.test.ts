@@ -44,6 +44,13 @@ function dataOf(html: string): Record<string, unknown> {
   return JSON.parse(m![1]!) as Record<string, unknown>;
 }
 
+function narrowBlock(html: string): string {
+  const start = html.indexOf('@media (max-width:900px){');
+  expect(start).toBeGreaterThanOrEqual(0);
+  const rest = html.slice(start);
+  return rest.slice(0, rest.indexOf('\n}'));
+}
+
 describe('renderDigestHtml 마커', () => {
   it('escape한 뒤 굵게와 키워드 마커만 태그로 바꾼다', () => {
     const d = sampleDigest();
@@ -209,10 +216,37 @@ describe('renderDigestHtml 플레이어', () => {
     const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
     expect(html).toContain('.player.is-floating{position:fixed;');
     expect(html).toContain('width:var(--float-w);');
-    const narrow = html.slice(html.indexOf('@media (max-width:900px){'));
-    expect(narrow.slice(0, narrow.indexOf('\n}'))).toContain(
+    expect(narrowBlock(html)).toContain(
       '.main{padding-bottom:calc(var(--float-w) * 9 / 16 + 32px + env(safe-area-inset-bottom, 0px))}',
     );
+  });
+
+  it('넓은 화면에서는 사이드 폭을 화면 폭에 비례해 키우고 높이가 낮으면 영상 폭을 제한한다', () => {
+    const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
+    const side = /--side-w:([^;]+);/.exec(html)?.[1]?.trim() ?? '';
+    const shape =
+      /^min\(clamp\((\d+)px,\s*40vw,\s*(\d+)px\),\s*max\((\d+)px,\s*calc\(\(100vh - 300px\) \* 16 \/ 9\)\)\)$/.exec(
+        side,
+      );
+    expect(shape).not.toBeNull();
+    const [clampFloor, clampCap, heightFloor] = [shape![1]!, shape![2]!, shape![3]!].map(
+      Number,
+    ) as [number, number, number];
+    expect(clampFloor).toBeGreaterThanOrEqual(420);
+    expect(clampCap).toBeGreaterThan(420);
+    expect(clampCap).toBeGreaterThanOrEqual(clampFloor);
+    expect(clampCap).toBeLessThanOrEqual(600);
+    expect(heightFloor).toBeGreaterThanOrEqual(300);
+    expect(heightFloor).toBeLessThan(clampFloor);
+    expect(html).toContain('grid-template-columns:var(--side-w) minmax(0,1fr)');
+    expect(html).not.toContain('minmax(300px,420px)');
+  });
+
+  it('900px 이하 접힘에서는 사이드 폭 변수를 쓰지 않는다', () => {
+    const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
+    const narrow = narrowBlock(html);
+    expect(narrow).toContain('.layout{grid-template-columns:minmax(0,1fr);');
+    expect(narrow).not.toContain('--side-w');
   });
 
   it('1시간 넘는 영상은 시를 붙인다', () => {
