@@ -495,6 +495,7 @@ export const VIEWER_JS =
   function setupScriptFollow(player) {
     if (!player.live) return;
     var panel = document.getElementById('script-body');
+    var scriptBox = document.querySelector('.script');
     var current = -1, holdUntil = 0;
     if (panel) {
       ['wheel', 'touchmove', 'keydown', 'pointerdown'].forEach(function(name){
@@ -510,15 +511,12 @@ export const VIEWER_JS =
       if (changed) {
         if (lines[current]) lines[current].classList.remove('is-playing');
         current = idx;
+        // 재생 줄이 있는 동안만 접힘 폴백(첫 줄 노출)을 끈다. 첫 자막 앞으로 되감아 idx가 -1이 되면 다시 켜야 패널이 안 빈다
+        if (scriptBox) scriptBox.classList.toggle('has-cur', !!lines[idx]);
       }
       var li = lines[idx];
       if (!li) return;
-      if (changed) {
-        li.classList.add('is-playing');
-        // 재생 줄이 한 번이라도 잡히면 접힘 폴백(첫 줄 노출)을 끈다. :has 없이 같은 조건을 CSS가 읽게 하려는 표지다
-        var scriptBox = document.querySelector('.script');
-        if (scriptBox) scriptBox.classList.add('has-cur');
-      }
+      if (changed) li.classList.add('is-playing');
       if (!panel) return;
       var visible = isLineVisible(li.offsetTop, li.offsetHeight, panel.scrollTop, panel.clientHeight);
       if (!shouldScrollScript(player.state(), changed, Date.now(), holdUntil, visible)) return;
