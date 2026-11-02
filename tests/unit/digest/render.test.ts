@@ -204,6 +204,45 @@ describe('renderDigestHtml 플레이어', () => {
     );
   });
 
+  it('스크립트 헤더에 현재 구간만 보기 버튼을 싣는다', () => {
+    const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
+    expect(html).toContain(
+      'id="script-fold" class="script-toggle" aria-pressed="false" aria-controls="script-body" hidden>현재 구간만</button>',
+    );
+    expect(html).toContain('.script.is-focus #script-list li:not(.is-playing){display:none}');
+    expect(html).toContain(
+      '.script.is-focus:not(.has-cur) #script-list li:first-child{display:flex}',
+    );
+    expect(html).not.toContain(':has(.is-playing)');
+    expect(html).not.toContain('id="tr-toggle"');
+  });
+
+  it('번역 버튼이 있으면 그 뒤에 현재 구간만 보기 버튼을 두고 간격은 그 순서에만 준다', () => {
+    const t = sampleTranscript();
+    t.meta.translationLang = 'ko';
+    t.segments[1]!.translation = '두 번째 문장';
+    const { html } = renderDigestHtml(sampleDigest(), t);
+    expect(html.indexOf('id="tr-toggle"')).toBeGreaterThan(-1);
+    expect(html.indexOf('id="script-fold"')).toBeGreaterThan(html.indexOf('id="tr-toggle"'));
+    expect(html).toContain('.tr-toggle + .script-toggle{margin-right:6px}');
+  });
+
+  it('현재 구간만 보기 스크립트가 켠 상태만 저장하고 접힌 패널은 포커스에서 뺀다', () => {
+    const from = VIEWER_JS.indexOf('function setupScriptFold');
+    const body = VIEWER_JS.slice(from, VIEWER_JS.indexOf('function setupTranslation'));
+    expect(body).toContain("localStorage.getItem(FOLD_KEY) === 'on'");
+    expect(body).toContain("localStorage.setItem(FOLD_KEY, 'on')");
+    expect(body).toContain('localStorage.removeItem(FOLD_KEY)');
+    expect(body).toContain("box.classList.toggle('is-focus', on)");
+    expect(body).toContain("panel.setAttribute('tabindex', on ? '-1' : '0')");
+    expect(body).toContain('btn.hidden = false');
+  });
+
+  it('재생 줄이 있는 동안만 접힘 폴백을 끈다', () => {
+    expect(VIEWER_JS).toContain("scriptBox.classList.toggle('has-cur', !!lines[idx])");
+    expect(VIEWER_JS).not.toContain("classList.add('has-cur')");
+  });
+
   it('번역 언어가 없으면 번역 문장이 있어도 싣지 않는다', () => {
     const t = sampleTranscript();
     t.segments[1]!.translation = '두 번째 문장';

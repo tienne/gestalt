@@ -388,7 +388,8 @@ ${skippedHtml}</div>`;
     hasTr && s.translation
       ? `<span class="tr" lang="${e(trLang ?? '')}">${e(s.translation)}</span>`
       : '';
-  const script = `<div class="script"><h2>스크립트 <small>${e(CAPTION_LABEL[meta.captionSource])}</small>${trToggle}</h2><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="영상 스크립트"><ol id="script-list">${segments
+  const foldToggle = ` <button type="button" id="script-fold" class="script-toggle" aria-pressed="false" aria-controls="script-body" hidden>현재 구간만</button>`;
+  const script = `<div class="script"><h2>스크립트 <small>${e(CAPTION_LABEL[meta.captionSource])}</small>${trToggle}${foldToggle}</h2><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="영상 스크립트"><ol id="script-list">${segments
     .map(
       (s) =>
         `<li data-i="${s.i}">${timeLink(s.startSec, false)}<span class="txt">${s.speaker ? `<span class="spk">${e(s.speaker)}</span>` : ''}<span class="src">${e(s.text)}</span>${tr(s)}</span></li>`,
@@ -496,7 +497,8 @@ ${skippedHtml}</div>`;
     ? `<div id="panel-summary" role="tabpanel" aria-labelledby="tab-panel-summary" tabindex="0">${summary}</div>\n${extPanels}`
     : summary;
 
-  // is-doc은 render-lens.ts LENS_CSS가 좁은 화면에서 원문 창을 시트로 접는 표지다
+  // is-doc은 render-lens.ts LENS_CSS가 좁은 화면에서 원문 창을 시트로 접고 데스크톱 사이드 폭을 420px로 두는 표지다.
+  // is-audio는 16:9 박스가 없는 팟캐스트가 같은 420px 고정만 받으려고 붙인다.
   const bodyClass = [
     'is-diary',
     isLensKind(kind) ? 'is-lens' : '',
@@ -581,8 +583,13 @@ button{font:inherit;color:inherit}
 .tr{display:block;color:var(--muted);font-size:.95em}
 .spk{display:inline-block;margin-right:6px;font-size:.78em;font-weight:600;color:var(--accent)}
 .script.hide-tr .tr{display:none}
-.tr-toggle{float:right;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:0 8px;font-size:.85em;font-weight:400;cursor:pointer}
-.tr-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.script.is-focus{flex:none}
+.script.is-focus .script-body{flex:none;overflow:hidden}
+.script.is-focus #script-list li:not(.is-playing){display:none}
+.script.is-focus:not(.has-cur) #script-list li:first-child{display:flex}
+.tr-toggle,.script-toggle{float:right;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:0 8px;font-size:.85em;font-weight:400;cursor:pointer}
+.tr-toggle[aria-pressed="true"],.script-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.tr-toggle + .script-toggle{margin-right:6px}
 .ts{font-variant-numeric:tabular-nums;color:var(--accent);text-decoration:none;font-size:.85em;white-space:nowrap;cursor:pointer}
 a.ts:hover{text-decoration:underline}
 .main{padding:24px 0 96px;min-width:0}
