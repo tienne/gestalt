@@ -308,13 +308,34 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     expect(run.stdout.trim()).toBe('FROM_GLOBAL');
   });
 
-  it('전역 gestalt가 --version에 답하지 않으면 무시한다', () => {
+  it('전역 gestalt가 --version에서 비정상 종료하면 무시한다', () => {
     const run = runWithStubs({
       node: PIN_22_NODE,
       gestalt: '#!/bin/sh\nexit 1\n',
     });
     expect(run.stderr).toContain('unknown version');
     expect(run.stdout.trim()).toBe('RESOLVED serve');
+  });
+
+  // 스텁은 제어 문자와 `$(...)` 를 문자 그대로 찍는다. 작은따옴표 안이라 스텁 쉘은 실행하지 않고,
+  // 런처가 정제하지 않으면 stderr 에 그대로 남는다.
+  it('--version 출력의 제어 문자와 쉘 문자는 로그에 남기지 않는다', () => {
+    const run = runWithStubs({
+      node: PIN_22_NODE,
+      gestalt: `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '1.2.3\\033[31m$(touch x)\\n'; else echo FROM_GLOBAL; fi\n`,
+    });
+    expect(run.stdout.trim()).toBe('RESOLVED serve');
+    expect(run.stderr).toContain('global gestalt 1.2.331mtouchx');
+    expect(run.stderr).not.toContain('\x1b');
+    expect(run.stderr).not.toContain('$(');
+  });
+
+  it('--version 출력의 공백과 캐리지 리턴은 버전 비교 전에 걷어낸다', () => {
+    const run = runWithStubs({
+      node: PIN_22_NODE,
+      gestalt: `#!/bin/sh\nif [ "$1" = "--version" ]; then printf ' ${STUB_PIN_VERSION}\\r\\n'; else echo FROM_GLOBAL; fi\n`,
+    });
+    expect(run.stdout.trim()).toBe('FROM_GLOBAL');
   });
 
   it('--version 출력이 여러 줄이면 마지막 줄을 버전으로 본다', () => {
