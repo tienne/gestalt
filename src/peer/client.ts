@@ -1,11 +1,15 @@
 import { createConnection } from 'node:net';
 import type { PeerRequest, PeerResponse } from './protocol.js';
 
-export const DAEMON_NOT_RUNNING = '`gestalt peer daemon`을 먼저 실행해 주세요';
+/**
+ * 데몬이 없을 때 사람에게 띄우는 법을 알려 주는 말. 오류 메시지에는 넣지 않고 부르는 쪽이 고른다.
+ * 띄워도 소용없는 명령(공유 닫기, 받아 주기 같은)이나 모델에게 가는 응답에는 붙이지 않는다
+ */
+export const DAEMON_NOT_RUNNING = '`gestalt peer daemon --detach`로 먼저 띄워 주세요';
 
 export class DaemonUnavailableError extends Error {
   constructor(readonly socketPath: string) {
-    super(`peer 데몬에 연결하지 못했어요 (${socketPath}). ${DAEMON_NOT_RUNNING}`);
+    super(`peer 데몬에 연결하지 못했어요 (${socketPath}).`);
     this.name = 'DaemonUnavailableError';
   }
 }

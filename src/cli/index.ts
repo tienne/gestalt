@@ -312,8 +312,11 @@ export function createCli(): Command {
 
   peer
     .command('daemon')
-    .description('peer 데몬을 전경에서 띄운다')
-    .action(() => peerDaemonCommand());
+    .description('peer 데몬을 띄운다. 옵션이 없으면 이 터미널에서 직접 뜬다')
+    .option('--detach', '세션과 떨어진 프로세스로 띄우고 소켓이 답하면 끝난다')
+    .option('--stop', '떠 있는 데몬을 멈춘다')
+    .option('--wait <초>', '--detach와 --stop이 기다리는 시간 (기본 10초)')
+    .action((o, cmd) => peerDaemonCommand({ ...peerOpts(cmd), ...o }));
 
   peer
     .command('share')
@@ -433,7 +436,7 @@ export function createCli(): Command {
 
   peer
     .command('relay')
-    .description('팀 릴레이를 전경에서 띄운다')
+    .description('팀 릴레이를 이 터미널에서 직접 띄운다')
     .option('--team <id>', '팀 id (관리자의 init 출력)')
     .option('--port <port>', '포트 (기본 8443)')
     .option('--host <host>', '붙을 주소 (기본 0.0.0.0)')

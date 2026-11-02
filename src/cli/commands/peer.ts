@@ -1,11 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { PeerDaemon } from '../../peer/daemon.js';
-import { DaemonUnavailableError, request } from '../../peer/client.js';
+import { DAEMON_NOT_RUNNING, DaemonUnavailableError, request } from '../../peer/client.js';
 import { errMessage } from '../../peer/errors.js';
 import { claudeConfigDir, findCurrentSession, locateTranscript } from '../../peer/locate.js';
 import { codexHome, locateCodexRollout } from '../../peer/codex.js';
 import { ensurePrivateDir, peerRoot, socketPath } from '../../peer/paths.js';
+import {
+  DAEMON_LOG_CHECK_MS,
+  DaemonDetachError,
+  daemonLogPath,
+  DEFAULT_DAEMON_WAIT_MS,
+  DETACHED_ENV,
+  detachDaemon,
+  rotateDaemonLog,
+  stopDaemon,
+} from '../../peer/detach.js';
 import { plainLabel } from '../../peer/message.js';
 import { isToolsLevel } from '../../peer/redact.js';
 import type {
@@ -41,6 +51,25 @@ function resolveRoot(): string {
   }
 }
 
+/** 공유를 다루는 명령. 데몬이 없으면 공유도 없고 새로 띄운 데몬에도 없어서 띄우라고 안내하지 않는다 */
+const SHARE_CONTROL_OPS: ReadonlySet<string> = new Set([
+  'shares',
+  'unshare',
+  'approve',
+  'deny',
+  'kick',
+]);
+
+/**
+ * 데몬이 없을 때 찍을 말. 공유를 다루는 명령은 열린 공유가 없다고만 하고 status는 사실만 낸다.
+ * `/gestalt:share`가 그 둘에서는 데몬을 띄우지 않는데 출력이 띄우라고 하면 두 말이 부딪힌다
+ */
+export function noDaemonMessage(op: string, err: DaemonUnavailableError): string {
+  if (SHARE_CONTROL_OPS.has(op)) return `${err.message} 데몬이 안 떠 있어서 열린 공유가 없어요.`;
+  if (op === 'status') return err.message;
+  return `${err.message} ${DAEMON_NOT_RUNNING}`;
+}
+
 async function call<T>(req: PeerRequest, timeoutMs?: number): Promise<T> {
   const root = resolveRoot();
   try {
@@ -48,7 +77,7 @@ async function call<T>(req: PeerRequest, timeoutMs?: number): Promise<T> {
     if (!res.ok) fail(res.error);
     return res.result;
   } catch (e) {
-    if (e instanceof DaemonUnavailableError) fail(e.message, EXIT_NO_DAEMON);
+    if (e instanceof DaemonUnavailableError) fail(noDaemonMessage(req.op, e), EXIT_NO_DAEMON);
     fail(errMessage(e));
   }
 }
@@ -80,8 +109,24 @@ export function makeStopHandler(
   };
 }
 
-export async function peerDaemonCommand(): Promise<void> {
+export async function peerDaemonCommand(
+  options: PeerOptions & { detach?: boolean; stop?: boolean; wait?: string } = {},
+): Promise<void> {
+  if (options.detach && options.stop) fail('--detach와 --stop 중 하나만 주세요');
+  let waitMs = DEFAULT_DAEMON_WAIT_MS;
+  if (options.wait !== undefined) {
+    if (!options.detach && !options.stop) fail('--wait는 --detach나 --stop과 같이 주세요');
+    const secs = Number(options.wait);
+    if (!Number.isFinite(secs) || secs <= 0 || secs > 120) fail('--wait는 0~120초 사이 양수예요');
+    waitMs = secs * 1000;
+  }
+  if (options.detach) return detachCommand(options, waitMs);
+  if (options.stop) return stopCommand(options, waitMs);
+
   const root = resolveRoot();
+  // --detach가 띄운 자식이다. 값은 지워서 데몬이 띄우는 프로세스로 안 넘긴다
+  const detached = process.env[DETACHED_ENV] === '1';
+  delete process.env[DETACHED_ENV];
   const daemon = new PeerDaemon({ root });
   try {
     await daemon.start();
@@ -90,12 +135,80 @@ export async function peerDaemonCommand(): Promise<void> {
   }
 
   console.log(`peer 데몬이 떴어요. 소켓 ${daemon.socketPath}, 뷰어 포트 ${daemon.viewerPort}`);
-  console.log('Ctrl+C로 멈춰요. 멈추는 중에 한 번 더 누르면 바로 끝나요.');
+  if (detached) {
+    console.log(`pid ${process.pid}. \`gestalt peer daemon --stop\`으로 멈춰요.`);
+    const log = daemonLogPath(root);
+    // 복사하고 비우기가 계속 실패하면 같은 줄이 1분마다 쌓여 로그가 오히려 큰다. 실패는 처음 한 번만 적는다
+    let rotateFailing = false;
+    const timer = setInterval(() => {
+      try {
+        rotateDaemonLog(log);
+        rotateFailing = false;
+      } catch (e) {
+        if (!rotateFailing) console.error(`[peer] 로그 파일을 비우지 못했어요: ${errMessage(e)}`);
+        rotateFailing = true;
+      }
+    }, DAEMON_LOG_CHECK_MS);
+    timer.unref();
+  } else {
+    console.log('Ctrl+C로 멈춰요. 멈추는 중에 한 번 더 누르면 바로 끝나요.');
+  }
 
   const stop = makeStopHandler(daemon, (code) => process.exit(code));
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   // 타이머가 unref라 이벤트 루프를 붙잡는 건 서버 소켓뿐이다. 그걸로 충분하다
+}
+
+async function detachCommand(options: PeerOptions, waitMs: number): Promise<void> {
+  const root = resolveRoot();
+  let r;
+  try {
+    r = await detachDaemon({ root, waitMs });
+  } catch (e) {
+    if (e instanceof DaemonDetachError) {
+      const tail = e.tail.length > 0 ? `\n로그 끝 (${e.log}):\n${e.tail.join('\n')}` : '';
+      fail(`${e.message}${tail}`);
+    }
+    fail(errMessage(e));
+  }
+  // --json이어도 표준 출력의 JSON을 깨지 않게 표준 오류로 낸다
+  if (r.rotateError !== undefined) console.error(`로그 파일을 비우지 못했어요: ${r.rotateError}`);
+  if (options.json) {
+    console.log(JSON.stringify({ pid: r.pid, log: r.log, already: r.already }));
+    return;
+  }
+  if (r.already) {
+    console.log(`peer 데몬이 이미 떠 있어요 (pid ${r.pid}).`);
+    return;
+  }
+  console.log(`peer 데몬을 띄웠어요 (pid ${r.pid}). 로그 ${r.log}`);
+  console.log('팀에 들어 있으면 릴레이에 붙어 팀원 명단에 온라인으로 보여요.');
+  console.log('멈추려면 `gestalt peer daemon --stop`을 쳐요.');
+}
+
+async function stopCommand(options: PeerOptions, waitMs: number): Promise<void> {
+  const root = resolveRoot();
+  let r;
+  try {
+    r = await stopDaemon({ root, waitMs });
+  } catch (e) {
+    fail(errMessage(e));
+  }
+  if (options.json) {
+    console.log(JSON.stringify(r));
+    return;
+  }
+  if (!r.stopped) {
+    console.log('peer 데몬이 안 떠 있어요.');
+    if (r.lockPid !== undefined) {
+      console.log(
+        `잠금 파일에 pid ${r.lockPid}가 적혀 있지만 소켓이 답하지 않아 신호를 안 보냈어요.`,
+      );
+    }
+    return;
+  }
+  console.log(`peer 데몬을 멈췄어요 (pid ${r.pid}). 열려 있던 공유도 닫혔어요.`);
 }
 
 export async function peerShareCommand(
@@ -261,7 +374,7 @@ export async function peerUnshareCommand(
       if (res.ok) closed.push(res.result);
       else failed.push({ id, error: plainLabel(res.error, 200) ?? '실패했어요' });
     } catch (e) {
-      if (e instanceof DaemonUnavailableError) fail(e.message, EXIT_NO_DAEMON);
+      if (e instanceof DaemonUnavailableError) fail(noDaemonMessage('unshare', e), EXIT_NO_DAEMON);
       failed.push({ id, error: plainLabel(errMessage(e), 200) ?? '실패했어요' });
     }
   }

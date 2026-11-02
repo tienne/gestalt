@@ -1,11 +1,13 @@
 # 세션 공유 (`gestalt peer`)
 
-내 Claude Code 세션이나 Codex 세션 하나의 대화를 브라우저에서 실시간으로 본다. 같은 머신에서 보거나 팀 릴레이를 거쳐 팀원 머신에서 본다. 설계는 [설계 제안서](./proposals/peer-network.md)에 있고 이 문서는 지금 들어간 것만 적는다. 보는 사람은 주인 세션에 메시지를 넣을 수 있다. 주인 세션 모델은 보는 팀원에게 물어서 그 사람 기기가 서명한 답을 받는다. 주인은 누가 보는지 세션 안에서 알고 처음 붙는 사람을 받아 주거나 거절하고 보던 사람을 끊는다. 보는 사람은 뷰어에서 고른 줄을 자기 세션에 넘기고 주인이 허락한 공유면 자기 에이전트가 요약을 가져가게 한다. 보는 쪽 에이전트는 주인 세션에 메시지를 넣어 묻고 답을 다음 요약에서 본다. 주인은 세션 안에서 `/gestalt:share`로 공유를 열고 닫는다. Codex 세션은 읽기만 한다.
+내 Claude Code 세션이나 Codex 세션 하나의 대화를 브라우저에서 실시간으로 본다. 같은 머신에서 보거나 팀 릴레이를 거쳐 팀원 머신에서 본다. 설계는 [설계 제안서](./proposals/peer-network.md)에 있고 이 문서는 지금 들어간 것만 적는다. 보는 사람은 주인 세션에 메시지를 넣을 수 있다. 주인 세션 모델은 보는 팀원에게 물어서 그 사람 기기가 서명한 답을 받는다. 주인은 누가 보는지 세션 안에서 알고 처음 붙는 사람을 받아 주거나 거절하고 보던 사람을 끊는다. 보는 사람은 뷰어에서 고른 줄을 자기 세션에 넘기고 주인이 허락한 공유면 자기 에이전트가 요약을 가져가게 한다. 보는 쪽 에이전트는 주인 세션에 메시지를 넣어 묻고 답을 다음 요약에서 본다. 주인은 세션 안에서 `/gestalt:share`로 공유를 열고 닫고 데몬이 없으면 물어본 뒤 세션과 떨어진 프로세스로 띄운다. Codex 세션은 읽기만 한다.
 
 ## 명령
 
 ```bash
-gestalt peer daemon                                  # 데몬을 전경에서 띄운다
+gestalt peer daemon                                  # 데몬을 이 터미널에서 직접 띄운다
+gestalt peer daemon --detach [--wait 10]             # 세션과 떨어진 프로세스로 띄우고 소켓이 답하면 끝난다
+gestalt peer daemon --stop [--wait 10]               # 떠 있는 데몬을 멈춘다
 gestalt peer share --session <sessionId>             # 세션을 공유하고 뷰어 주소를 출력한다
 gestalt peer share --here                            # 이 명령을 친 Claude Code 세션을 공유한다 (/gestalt:share가 쓴다)
 gestalt peer share --session <sessionId> --no-messages  # 팀원 메시지를 안 받는 공유로 연다
@@ -39,7 +41,7 @@ gestalt peer send <보기 id> [본문...]                  # 그 공유의 주�
 gestalt peer messages [보기 id]                       # 보기 id를 주면 내가 보낸 메시지 상태, 없으면 메시지와 질문, 답, 요약, 발췌 기록
 ```
 
-`--json`을 `peer` 바로 뒤에 붙이면(`gestalt peer --json shares`) JSON으로 출력한다. 데몬이 안 떠 있으면 모든 명령이 종료 코드 3으로 끝난다.
+`--json`을 `peer` 바로 뒤에 붙이면(`gestalt peer --json shares`) JSON으로 출력한다. 데몬이 안 떠 있으면 `daemon`과 `relay`를 뺀 모든 명령이 종료 코드 3으로 끝난다. 이때 `shares`, `unshare`, `approve`, `deny`, `kick`은 "데몬이 안 떠 있어서 열린 공유가 없어요"를, `status`는 연결하지 못했다는 사실만, 나머지는 "`gestalt peer daemon --detach`로 먼저 띄워 주세요"를 덧붙인다.
 
 `--session`은 `CLAUDE_CONFIG_DIR`(없으면 `~/.claude`)의 `sessions/*.json`에서 그 세션의 cwd를 찾아 `projects/<슬러그>/<sessionId>.jsonl`을 연다. 못 찾으면 `projects/*` 아래를 훑는다. 세션을 찾는 건 명령을 친 쪽의 환경이라 데몬과 설정 디렉토리가 달라도 된다.
 
@@ -47,7 +49,7 @@ gestalt peer messages [보기 id]                       # 보기 id를 주면 �
 
 `--codex`는 `CODEX_HOME`(없으면 `~/.codex`)의 `sessions/` 아래에서 파일 이름이 `-<thread id>.jsonl`로 끝나는 rollout을 찾는다. 연/월/일 디렉토리를 최근 날짜부터 내려가다 처음 찾은 날에서 멈추고 같은 날에 둘이면 이름이 뒤인 것을 쓴다. 날짜 디렉토리에서 못 찾았고 날짜 꼴이 아닌 자리(연, 월 층의 다른 이름이나 파일, 일 디렉토리 안의 하위 디렉토리)가 있었으면 `sessions/` 전체를 훑는다. `.jsonl`로 끝나는 값은 경로로 본다. 자세한 건 아래 "Codex 세션 공유"에 있다.
 
-데몬은 `~/.gestalt/peer/`에 소켓(`peer.sock`, 0600), 잠금 파일(`peer.lock`), 기기 키(`machine.key`, 만들 때부터 0600), 상태 DB(`state.db`)를 둔다. 디렉토리는 0700이다. `GESTALT_PEER_HOME`(절대경로)으로 옮길 수 있다. 릴레이는 받은 명단을 `relay/<팀 id>.json`(0600)에 남긴다.
+데몬은 `~/.gestalt/peer/`에 소켓(`peer.sock`, 0600), 잠금 파일(`peer.lock`), 기기 키(`machine.key`, 만들 때부터 0600), 상태 DB(`state.db`)를 둔다. `--detach`로 띄우면 로그(`daemon.log`, 0600)도 둔다. 디렉토리는 0700이다. `GESTALT_PEER_HOME`(절대경로)으로 옮길 수 있다. 릴레이는 받은 명단을 `relay/<팀 id>.json`(0600)에 남긴다.
 
 ## 팀원에게 공유하기
 
@@ -191,19 +193,22 @@ TLS 없이 띄우면 위 라우팅 정보가 네트워크에 그대로 보인다
 
 공유할 세션 안에서 `/gestalt:share`를 부르면 스킬이 위 CLI를 대신 친다.
 
-| 부르기                                                                         | 치는 명령                            |
-| ------------------------------------------------------------------------------ | ------------------------------------ |
-| `/gestalt:share open [--agent-peek] [--no-messages] [--tools …] [--expires …]` | `gestalt peer share --here …`        |
-| `/gestalt:share stop`                                                          | `gestalt peer unshare --here`        |
-| `/gestalt:share list`                                                          | `gestalt peer shares`                |
-| `/gestalt:share approve bob`, `deny bob`, `kick bob`                           | `gestalt peer approve bob --here` 등 |
+| 부르기                                                                         | 치는 명령                                                       |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| `/gestalt:share open [--agent-peek] [--no-messages] [--tools …] [--expires …]` | `gestalt peer share --here …`                                   |
+| `/gestalt:share stop`                                                          | `gestalt peer unshare --here`                                   |
+| `/gestalt:share list`                                                          | `gestalt peer shares`                                           |
+| `/gestalt:share approve bob`, `deny bob`, `kick bob`                           | `gestalt peer approve bob --here` 등                            |
+| `/gestalt:share daemon start`, `daemon stop`, `daemon status`                  | `gestalt peer daemon --detach`, `--stop`, `gestalt peer status` |
 
 - 사람이 부를 때만 돈다. 모델이 스스로 공유를 열거나 사람을 받아 주면 팀원 메시지나 도구 출력에 심긴 지시가 그 판단을 끌고 갈 수 있어서다. Claude Code와 Grok은 스킬 frontmatter의 `disable-model-invocation: true`로, Codex는 `agents/openai.yaml`의 `allow_implicit_invocation: false`로 막는다. Orca 채팅이 이 필드를 지키는지는 확인하지 못했다. 그때는 스킬 본문의 "사용자가 이번 턴에 시키지 않았으면 치지 않는다" 규칙이 대신 막는다. 라우팅 표에도 안 올린다.
 - `ges_peer` MCP 도구에는 공유를 열고 닫거나 사람을 받고 끊는 action이 없다. 스킬이 MCP 대신 CLI를 치는 것도 그래서다.
-- 모델이 스킬 없이 Bash로 `gestalt peer share`나 `approve`를 바로 치는 길은 막지 못한다. 막는 건 틀 안내문과 승인 대기 훅 문구, 스킬 본문의 규칙, Claude Code의 Bash 권한 확인뿐이다. 보는 쪽 모델이 `gestalt peer send`를 치는 길도 같다. CLI는 `CLAUDE_PID`나 `CLAUDE_CODE_SESSION_ID`가 있으면 에이전트 메시지로 보내서 에이전트 상한을 탄다. 환경 변수를 지우고 치면 사람 메시지로 보이고 사람 몫 12건을 탄다.
+- 모델이 스킬 없이 Bash로 `gestalt peer share`나 `approve`, `daemon --detach`를 바로 치는 길은 막지 못한다. 막는 건 틀 안내문과 승인 대기 훅 문구, 스킬 본문의 규칙, Claude Code의 Bash 권한 확인뿐이다. 보는 쪽 모델이 `gestalt peer send`를 치는 길도 같다. CLI는 `CLAUDE_PID`나 `CLAUDE_CODE_SESSION_ID`가 있으면 에이전트 메시지로 보내서 에이전트 상한을 탄다. 환경 변수를 지우고 치면 사람 메시지로 보이고 사람 몫 12건을 탄다.
 - 받아 줄 이름은 사용자가 적은 것만 쓴다. 이름 없이 `approve`만 부르면 기다리는 사람을 보여 주고 묻는다.
 - 링크를 보여 줄 때 "`#` 뒤가 공유 키라 볼 사람에게만 건넨다"를 붙인다. 스킬은 링크를 슬랙이나 파일로 옮기지 않는다.
-- 팀 만들기와 초대, 명단 빼기, `config`, `watch`, 데몬 띄우기는 스킬이 하지 않는다.
+- `open`이 종료 코드 3(데몬 없음)으로 끝나면 스킬이 "데몬이 안 떠 있어요. 띄울까요? 띄우면 팀에 들어 있을 때 팀원 목록에 온라인으로 보여요"를 한 번 묻는다. 예면 `gestalt peer daemon --detach`를 치고 `open`을 한 번 다시 친다. 묻지 않고 띄우지 않는다. `stop`, `list`, `approve`, `deny`, `kick`은 묻지 않고 "데몬이 안 떠 있어서 열린 공유가 없어요"만 알린다. 공유는 데몬 메모리에만 있어서 새로 띄운 데몬에도 공유가 없다. 데몬이 뜨면 릴레이에 붙어 팀원의 `members`에 온라인으로 보이고 이 머신이 보기 요청을 받기 시작해서다. `daemon stop`은 열린 공유가 있으면 다른 세션 것까지 닫힌다고 알리고 한 번 확인받는다.
+- `ges_peer` MCP 도구는 데몬을 띄우지 않는다. 데몬이 없으면 지금처럼 실패하고 "이 도구는 데몬을 띄우지 않는다"와 `/gestalt:share daemon start`로 띄울 수 있다는 안내만 돌려준다. CLI가 사람에게 찍는 띄우는 명령은 싣지 않는다.
+- 팀 만들기와 초대, 명단 빼기, `config`, `watch`는 스킬이 하지 않는다.
 - Codex 세션은 `--here`로 못 찾는다. `CODEX_THREAD_ID`가 있으면 `--codex "$CODEX_THREAD_ID"`로 연다. 이 변수 이름은 codex-cli 0.147.0 바이너리에서 봤고 셸에 실제로 들어오는지는 확인하지 못했다.
 
 ## 메시지 넣기
@@ -438,7 +443,7 @@ ges_peer { action: "list", person?: "alice" }
 | `status` | 데몬 pid와 시작 시각, 팀(내 이름, 릴레이 주소, 명단 판(epoch), 역할, 연결 상태), 내가 연 공유(제목, 형식, 메시지와 요약 허용, 만료, 보는 사람, 승인 대기, 끊은 사람, 요약 가져간 사람), 내가 보는 공유 |
 | `list`   | 내가 보고 있거나 최근에 끝난 팀원 공유(공유 id, 주인, 상태, 메시지와 요약 허용, 끝난 이유). `person`을 주면 그 사람이 연 공유만                                                                        |
 
-- 데몬이 안 떠 있으면 "`gestalt peer daemon`을 먼저 실행해 주세요"로 실패한다. 빈 목록을 내지 않는다.
+- 데몬이 안 떠 있으면 데몬이 없다는 사실과 이 도구가 데몬을 띄우지 않는다는 말, `/gestalt:share daemon start`로 띄울 수 있다는 안내로 실패한다. `gestalt peer daemon --detach` 같은 셸 명령은 싣지 않는다. 빈 목록을 내지 않는다.
 - 사람 이름과 세션 제목, 상태 글자는 모델 컨텍스트로 들어가므로 한 줄 라벨로 정리해 싣는다. 줄바꿈과 제어 문자, 보이지 않는 글자를 지운다. 공유 id는 꼴부터 보고 아니면 그 줄을 뺀다.
 - 링크와 뷰어 주소, 대화 기록 경로, 데몬 루트는 싣지 않는다. 링크의 공유 키와 뷰어 토큰은 비밀값이라 모델이 알면 남에게 옮길 수 있다. 사람은 `gestalt peer shares`로 본다.
 - `list`에는 이 머신이 보고 있는 공유만 나온다. 남의 공유 목록을 알려면 릴레이나 주인 데몬에 새 요청을 만들어야 한다. 릴레이는 공유 id와 주인 기기만 알고 제목이나 요약 허용 여부는 모른다. 주인 데몬에 물으면 링크를 받지 않은 팀원에게도 세션 제목과 공유가 있다는 사실이 나간다. 누구에게 링크를 건넬지가 주인의 통제인데 그게 흐려진다. 그래서 `list`를 좁혔다. 링크를 받아 사람이 `gestalt peer watch`로 열면 여기에 생긴다.
@@ -455,6 +460,26 @@ ges_peer { action: "list", person?: "alice" }
 - 보는 중 표시 훅은 Claude Code 훅이라 Codex 세션에는 안 걸린다. Codex 주인은 `gestalt peer shares`로 누가 보는지, 누구의 에이전트가 요약을 가져갔는지 본다. 첫 접속 승인과 kick은 Claude Code 공유와 같다.
 - `--agent-peek`은 Codex 공유에도 같은 규칙으로 켠다. 요약은 허용 목록으로 거른 이벤트에서만 추리고 고친 파일은 `apply_patch` 입력의 `*** Add File:`, `*** Update File:`, `*** Delete File:` 머리줄에서 꺼낸다. 메시지와 답은 계속 안 받는다.
 - 모르는 줄이 늘면 감사 로그 `unknown_lines`에 `format: codex`와 codex-cli 버전을 남긴다.
+
+## 데몬 띄우기
+
+옵션 없는 `gestalt peer daemon`은 부른 터미널에서 직접 뜬다. 터미널 하나를 붙잡고 Ctrl+C로 멈춘다. 세션 안 Bash 도구로 이렇게 띄우면 도구 호출이 안 끝나고 세션과 같이 죽는다. `--detach`는 같은 데몬을 떨어진 프로세스로 띄운다.
+
+- 지금 프로세스와 같은 Node와 실행 인자, 같은 스크립트로 `peer daemon`을 자식으로 띄운다. `pnpm tsx bin/gestalt.ts`로 부르면 tsx가 건 `--require`, `--import`가 실행 인자에 들어 있어서 그대로 따라가고 설치본이면 `dist/bin/gestalt.js`를 띄운다. 디버거(`--inspect`)와 감시(`--watch`) 옵션은 넘기지 않는다. `NODE_OPTIONS`에 든 것도 뺀다.
+- 자식은 `detached`로 새 프로세스 세션의 리더가 되고 부모는 `unref()`한 뒤 끝난다. 부른 셸이나 세션이 끝나도 같이 안 죽는다. 자식의 cwd는 데몬 루트다. 부른 워크트리가 지워져도 상관없게 하려는 것이다. `GESTALT_PEER_HOME`은 부모가 쓴 루트로 고정해 넘기고 부른 세션 표시(`CLAUDE_PID`, `CLAUDE_CODE_SESSION_ID`)는 뺀다. 데몬은 그 세션보다 오래 산다. 나머지 환경 변수는 부른 셸 것을 그대로 물려받는다. 데몬이 `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `HOME`, CA 설정 같은 값으로 세션과 릴레이를 찾아서 좁히지 않았다. 세션에 있던 토큰 같은 값도 데몬 환경에 남는다.
+- 표준 입력은 버리고 표준 출력과 오류는 `daemon.log`에 덧붙인다. 파일은 0600이고 심링크면 따라가지 않고 실패한다. 실패를 알릴 때 찍는 로그 끝은 줄마다 제어 문자를 지우고 300자로 자른다. 데몬 오류에 릴레이나 팀원이 보낸 글자가 섞일 수 있어서다. 띄울 때마다 `=== gestalt peer daemon --detach <시각> ===` 줄을 먼저 쓴다.
+- 로그 상한은 1MB다. 띄울 때와 떠 있는 동안 1분마다 크기를 보고 넘었으면 `daemon.log.1`로 복사한 뒤 비운다. 이름을 옮기지 않는 건 데몬이 열어 둔 파일에 계속 쓰기 때문이다. 디스크에 남는 건 2MB 남짓이다. 복사와 비우기 사이에 쓰인 줄은 잃을 수 있다. 두 파일 다 심링크면 따라가지 않는다. 띄우기 전에 복사하고 비우다 실패하면 이유를 표준 오류에 한 줄 찍고 그대로 띄운다. 떠 있는 동안 계속 실패하면 처음 한 번만 적는다. 데몬은 뜰 때 안내 몇 줄과 실패만 적어서 평소에는 거의 안 는다.
+- 소켓이 `status`에 답할 때까지 `--wait`초(기본 10초, 최대 120초) 기다리고 pid와 로그 경로를 찍은 뒤 0으로 끝난다. `--json`이면 `{pid, log, already}`다.
+- 자식이 뜨다가 끝나면 시한을 기다리지 않고 실패한다. 시한이 지나면 아직 살아 있는 자식에 SIGTERM을 보내고 실패한다. 늦게 뜬 데몬이 실패 보고 뒤에 남지 않게 하려는 것이다. 둘 다 이번 표시 줄 뒤의 로그 끝 20줄을 같이 찍는다.
+- 소켓이 이미 답하면 아무것도 안 띄우고 "이미 떠 있어요"와 pid로 0을 낸다(`already: true`). 둘이 동시에 불러 둘 다 자식을 띄워도 아래 잠금을 하나만 잡는다. 진 자식은 "이미 떠 있어요"로 끝나고 그 부모는 이긴 데몬의 pid를 `already: true`로 받는다. 진 자식이 끝나기 전에 부모가 먼저 돌아올 수 있다. 다른 데몬이 잠금을 쥐고 아직 소켓을 안 열었으면 시한까지 그 소켓을 기다린다.
+- macOS와 Linux만 된다. 데몬이 유닉스 소켓과 디렉토리 권한에 기대고 훅도 bash라서 Windows는 데몬 자체가 안 돈다. Windows에서 `--detach`를 부르면 지원하지 않는다고 실패한다.
+- 떨어져 뜬 데몬도 터미널에서 직접 띄운 데몬과 같은 데몬이다. 잠금과 소켓, 멈출 때 하는 정리가 같다. 로그인할 때 자동으로 띄우는 설정(launchd, systemd)은 없다.
+
+`--stop`은 SIGTERM으로 멈춘다. 터미널에서 직접 띄운 데몬의 Ctrl+C와 같은 정리를 탄다. 열린 공유는 전부 닫히고 붙어 있던 뷰어도 끊긴다.
+
+- 소켓에 답한 데몬 pid와 잠금 파일의 pid가 같을 때만 신호를 보낸다. 잠금 pid만 믿으면 데몬이 죽고 그 pid를 받은 다른 프로세스를 끌 수 있다. 다르면 둘 다 찍고 신호 없이 종료 코드 1로 끝난다. 확인과 신호 사이에 데몬이 끝났으면(ESRCH) 멈춘 것으로 본다.
+- 소켓이 안 답하면 "안 떠 있어요"로 0을 낸다. 잠금 파일에 산 pid가 적혀 있으면 그 pid를 알리되 신호는 안 보낸다. `--json`이면 `{pid: null, stopped: false}`(잠금 pid가 있으면 `lockPid`도)다.
+- 프로세스가 끝날 때까지 `--wait`초 기다린 뒤 `{pid, stopped: true}`를 낸다. 시한 안에 안 끝나면 pid를 알리고 실패한다. 그때는 IPC가 이미 닫혀서 `--stop`을 다시 불러도 신호를 안 보낸다. 데몬은 정리 중에 신호를 한 번 더 받으면 기다리지 않고 끝나므로 `kill <pid>`를 한 번 더 치면 된다.
 
 ## 데몬 잠금
 
@@ -595,3 +620,10 @@ PR 7에서 넘긴 것이다.
 - **Bash로 치는 통제 명령 막기.** 스킬 자동 호출과 MCP는 막았지만 모델이 `gestalt peer share`를 바로 치는 길은 남았다.
 - **에이전트 메시지 확인.** `origin="agent"`는 보내는 쪽이 적는 값이다. 기기 서명으로 확인하는 길은 없다.
 - **Codex에서 스킬 확인.** `allow_implicit_invocation: false`와 `CODEX_THREAD_ID`는 바이너리와 내장 문서로만 봤다. Codex에서 스킬을 직접 띄워 보지 못했다.
+
+PR 8에서 넘긴 것이다.
+
+- **로그인할 때 데몬 띄우기.** launchd와 systemd에 등록하는 `--install`은 넣지 않았다. 지금은 사람이 `--detach`를 치거나 `/gestalt:share`가 물은 뒤 띄운다.
+- **세션 밖에서 살아 있는지 확인.** Claude Code 세션 안 Bash 도구로 `--detach`를 띄우고 다음 도구 호출에서 그 데몬이 PPID 1, 자기 세션의 리더로 답하는 것까지 봤다. 그 Claude Code 세션을 끝낸 뒤에도 남는지는 세션 안에서 볼 수 없어 확인하지 못했다.
+- **Codex 샌드박스.** Codex 셸에서 띄운 떨어진 프로세스가 호출이 끝난 뒤 남는지 확인하지 못했다.
+- **Windows.** 데몬 자체가 안 돈다. `--detach`는 지원하지 않는다고 실패한다.

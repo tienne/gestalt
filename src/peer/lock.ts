@@ -128,7 +128,23 @@ async function clearStaleLock(path: string, sock: string): Promise<void> {
   unlinkSync(aside);
 }
 
-function processAlive(pid: number): boolean {
+/**
+ * 잠금 파일에 적힌 pid. 파일이 없거나 pid 꼴이 아니면 undefined다. `peer daemon --detach`와 `--stop`이
+ * 소켓 답과 맞춰 볼 때 쓴다. 잠금을 쥐거나 치우지는 않는다
+ */
+export function readLockPid(root: string): number | undefined {
+  let text: string;
+  try {
+    text = readFileSync(lockPath(root), 'utf8');
+  } catch {
+    return undefined;
+  }
+  const line = text.split('\n')[0] ?? '';
+  const pid = Number(line);
+  return line !== '' && Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+export function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;

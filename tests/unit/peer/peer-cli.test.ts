@@ -6,14 +6,35 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   makeStopHandler,
+  noDaemonMessage,
   peerApproveCommand,
   peerKickCommand,
   peerSendCommand,
   peerShareCommand,
   peerUnshareCommand,
 } from '../../../src/cli/commands/peer.js';
+import { DaemonUnavailableError } from '../../../src/peer/client.js';
 
 const settle = (): Promise<void> => new Promise((r) => setImmediate(r));
+
+describe('noDaemonMessage', () => {
+  const err = new DaemonUnavailableError('/x/peer.sock');
+  it('공유를 다루는 명령은 열린 공유가 없다고만 하고 띄우라고 하지 않는다', () => {
+    for (const op of ['shares', 'unshare', 'approve', 'deny', 'kick']) {
+      const m = noDaemonMessage(op, err);
+      expect(m).toContain('열린 공유가 없어요');
+      expect(m).not.toContain('--detach');
+    }
+  });
+  it('status는 사실만 내고 나머지는 띄우는 법을 붙인다', () => {
+    expect(noDaemonMessage('status', err)).toBe(err.message);
+    for (const op of ['share', 'init', 'watch', 'members']) {
+      expect(noDaemonMessage(op, err)).toContain(
+        '`gestalt peer daemon --detach`로 먼저 띄워 주세요',
+      );
+    }
+  });
+});
 
 describe('makeStopHandler', () => {
   it('정리가 끝나면 0으로 끝낸다', async () => {
