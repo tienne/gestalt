@@ -72,7 +72,7 @@ export interface LayoutRect {
 }
 
 export interface LayoutFrame extends LayoutRect {
-  /** 머리 카드 id. 묶음 테두리면 `group:<라벨>:<열 x>`이고 띠로 나뉜 그림이면 뒤에 `:<띠>`가 붙는다. 렌더러는 라벨 단 테두리를 frameOf에 넣지 않아 노드 id와 같아도 카드의 data-frame으로 내려가지 않는다 */
+  /** 머리 카드 id. 묶음 테두리면 `group:<라벨>:<열 x>`이고 띠로 나뉜 그림이면 뒤에 `:<띠>`가 붙는다. 렌더러는 라벨 없는 테두리의 id만 카드 data-frame에 쓰므로 묶음 테두리 id가 노드 id와 같아도 그 카드에 data-frame이 붙지 않는다 */
   id: string;
   /** 묶음 테두리만. 테두리 왼쪽 위 안쪽에 쓰는 이름이다 */
   label?: string;
