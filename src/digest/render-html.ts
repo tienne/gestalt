@@ -497,7 +497,12 @@ ${skippedHtml}</div>`;
     : summary;
 
   // is-doc은 render-lens.ts LENS_CSS가 좁은 화면에서 원문 창을 시트로 접는 표지다
-  const bodyClass = ['is-diary', isLensKind(kind) ? 'is-lens' : '', textKind ? 'is-doc' : '']
+  const bodyClass = [
+    'is-diary',
+    isLensKind(kind) ? 'is-lens' : '',
+    textKind ? 'is-doc' : '',
+    kind === 'podcast' ? 'is-audio' : '',
+  ]
     .filter(Boolean)
     .join(' ');
   const html = `<!doctype html>
@@ -538,7 +543,7 @@ ${rendered.map((r) => r.minimap).join('')}
 // clamp가 420px일 때 창 높이가 약 536px 밑이면 높이 항이 먼저 줄여 300px까지 내려간다.
 // 높이 항의 300px는 .side의 위아래 패딩 32와 gap 12, 스크립트 영역으로 남기려는 256을 합친 값이다.
 // max(300px, ...)의 300px는 낮은 창에서 영상 폭이 줄어드는 바닥이다.
-// 영상이 없는 문서형(is-doc)은 render-lens.ts에서 데스크톱 폭을 420px로 덮는다.
+// 영상이 없는 문서형(is-doc)과 팟캐스트(is-audio)는 render-lens.ts에서 데스크톱 폭을 420px로 덮는다.
 const CSS = `
 :root{color-scheme:light;--bg:#fafaf9;--fg:#1c1917;--muted:#78716c;--line:#e7e5e4;--card:#fff;--accent:#2563eb;--warn:#b45309;--chip:#f5f5f4;--hl:#fef3c7;--on-accent:#fff;--scale:1;--float-w:min(360px,60vw,calc(40vh * 16 / 9))}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--line:#292524;--card:#1c1917;--accent:#60a5fa;--warn:#fbbf24;--chip:#292524;--hl:#422006;--on-accent:#0c0a09}}
