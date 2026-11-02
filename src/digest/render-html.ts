@@ -589,7 +589,7 @@ button{font:inherit;color:inherit}
 .script.is-focus:not(.has-cur) #script-list li:first-child{display:flex}
 .tr-toggle,.script-toggle{float:right;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:0 8px;font-size:.85em;font-weight:400;cursor:pointer}
 .tr-toggle[aria-pressed="true"],.script-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
-.script-toggle{margin-right:6px}
+.tr-toggle + .script-toggle{margin-right:6px}
 .ts{font-variant-numeric:tabular-nums;color:var(--accent);text-decoration:none;font-size:.85em;white-space:nowrap;cursor:pointer}
 a.ts:hover{text-decoration:underline}
 .main{padding:24px 0 96px;min-width:0}
