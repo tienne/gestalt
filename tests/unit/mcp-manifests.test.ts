@@ -141,8 +141,8 @@ describe('Claude MCP 매니페스트', () => {
   });
 });
 
-// 런처의 분기 순서는 이 PR의 핵심 로직인데 sh -n 문법 검사로는 안 잡힌다. 네트워크를
-// 안 타는 두 분기(GESTALT_MCP_BIN 오버라이드, GESTALT_NODE 검증)만 스텁으로 굳힌다.
+// 런처의 분기 순서는 sh -n 문법 검사로는 안 잡힌다. 네트워크를 안 타는 분기(GESTALT_MCP_BIN
+// 오버라이드, GESTALT_NODE 검증, 전역 gestalt와 핀의 버전 비교)만 스텁으로 굳힌다.
 describe('scripts/mcp-serve.sh 분기 순서', () => {
   const launcher = resolve(ROOT, 'scripts/mcp-serve.sh');
 
@@ -163,6 +163,12 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     delete env.BASH_ENV;
     return env;
   };
+
+  // 전역 gestalt는 `--version`이 핀과 같을 때만 쓰인다. 이 테스트들의 node 스텁은 어떤
+  // 질의에도 22를 돌려줘서 핀이 `@tienne/gestalt@22`가 되므로, 스텁도 22로 답한다.
+  const STUB_PIN_VERSION = '22';
+  const versionedStub = (onServe: string, version = STUB_PIN_VERSION): string =>
+    `#!/bin/sh\nif [ "$1" = "--version" ]; then echo ${version}; else echo "${onServe}"; fi\n`;
 
   function withStub<T>(body: (stub: string, dir: string) => T): T {
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-launcher-'));
@@ -197,10 +203,10 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     const pathDir = mkdtempSync(join(tmpdir(), 'gestalt-node-b-'));
     try {
       writeFileSync(join(overrideDir, 'node'), '#!/bin/sh\necho 22\n', { mode: 0o755 });
-      writeFileSync(join(overrideDir, 'gestalt'), '#!/bin/sh\necho FROM_OVERRIDE\n', {
+      writeFileSync(join(overrideDir, 'gestalt'), versionedStub('FROM_OVERRIDE'), {
         mode: 0o755,
       });
-      writeFileSync(join(pathDir, 'gestalt'), '#!/bin/sh\necho FROM_PATH\n', { mode: 0o755 });
+      writeFileSync(join(pathDir, 'gestalt'), versionedStub('FROM_PATH'), { mode: 0o755 });
       const run = spawnSync('bash', [launcher], {
         env: launcherEnv({
           PATH: `${pathDir}:${process.env.PATH ?? ''}`,
@@ -222,7 +228,7 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
   it('GESTALT_NODE가 Node가 아니면 경고를 남기고 탐색으로 넘어간다', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-badnode-'));
     try {
-      writeFileSync(join(dir, 'gestalt'), '#!/bin/sh\necho "STUB $*"\n', { mode: 0o755 });
+      writeFileSync(join(dir, 'gestalt'), versionedStub('STUB $*'), { mode: 0o755 });
       // 런처는 pick_node가 고른 node의 디렉토리를 PATH 맨 앞에 다시 붙인다. 실제 PATH를
       // 그대로 물려주면 node와 전역 gestalt가 같은 디렉토리에 깔린 머신(예: Homebrew)에서
       // 그 디렉토리가 이 스텁을 밀어낸다. 그러면 진짜 stdio 서버가 떠 stdin을 기다리고
@@ -239,5 +245,104 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // 전역 버전이 핀과 다르면 무시하고 npx 해석 결과(핀된 버전)를 써야 한다.
+  // npx 는 스텁으로 막아 네트워크를 안 탄다.
+  it('전역 gestalt 버전이 핀과 다르면 무시하고 핀된 버전을 쓴다', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gestalt-stale-global-'));
+    try {
+      writeFileSync(join(dir, 'node'), '#!/bin/sh\necho 22\n', { mode: 0o755 });
+      writeFileSync(join(dir, 'gestalt'), versionedStub('FROM_STALE_GLOBAL', '21'), {
+        mode: 0o755,
+      });
+      const resolved = join(dir, 'resolved-gestalt');
+      writeFileSync(resolved, '#!/bin/sh\necho "RESOLVED $*"\n', { mode: 0o755 });
+      writeFileSync(join(dir, 'npx'), `#!/bin/sh\necho ${resolved}\n`, { mode: 0o755 });
+      const run = spawnSync('bash', [launcher], {
+        env: launcherEnv({ PATH: `${dir}:/usr/bin:/bin`, GESTALT_NODE: join(dir, 'node') }),
+        encoding: 'utf-8',
+        timeout: LAUNCHER_TIMEOUT_MS,
+      });
+      expect(run.stderr).toContain('differs from pin');
+      expect(run.stdout.trim()).toBe('RESOLVED serve');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // 파일 이름 → 내용으로 스텁을 깔고 런처를 돌린다. npx 스텁은 같은 디렉토리의
+  // resolved-gestalt 를 해석 결과로 돌려줘서 네트워크를 안 탄다.
+  const runWithStubs = (files: Record<string, string>) => {
+    const dir = mkdtempSync(join(tmpdir(), 'gestalt-version-gate-'));
+    try {
+      writeFileSync(join(dir, 'resolved-gestalt'), '#!/bin/sh\necho "RESOLVED $*"\n', {
+        mode: 0o755,
+      });
+      writeFileSync(join(dir, 'npx'), '#!/bin/sh\necho "$(dirname "$0")/resolved-gestalt"\n', {
+        mode: 0o755,
+      });
+      for (const [name, body] of Object.entries(files)) {
+        writeFileSync(join(dir, name), body, { mode: 0o755 });
+      }
+      return spawnSync('bash', [launcher], {
+        env: launcherEnv({ PATH: `${dir}:/usr/bin:/bin`, GESTALT_NODE: join(dir, 'node') }),
+        encoding: 'utf-8',
+        timeout: LAUNCHER_TIMEOUT_MS,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  const PIN_22_NODE = '#!/bin/sh\necho 22\n';
+
+  // package.json 에서 버전을 못 읽으면 비교할 기준이 없다. 이때는 전역을 그대로 쓴다.
+  // 핀 조회(`-p require(...)`)만 실패하게 하고 pick_node 의 버전 확인(`-p process...`)은 통과시킨다.
+  it('핀을 못 읽으면 버전 비교 없이 전역 gestalt를 쓴다', () => {
+    const run = runWithStubs({
+      node: '#!/bin/sh\ncase "$2" in *require*) exit 1;; *) echo 22;; esac\n',
+      gestalt: versionedStub('FROM_GLOBAL', '21'),
+    });
+    expect(run.stderr).toContain('no version pin');
+    expect(run.stdout.trim()).toBe('FROM_GLOBAL');
+  });
+
+  it('전역 gestalt가 --version에서 비정상 종료하면 무시한다', () => {
+    const run = runWithStubs({
+      node: PIN_22_NODE,
+      gestalt: '#!/bin/sh\nexit 1\n',
+    });
+    expect(run.stderr).toContain('unknown version');
+    expect(run.stdout.trim()).toBe('RESOLVED serve');
+  });
+
+  // 스텁은 제어 문자와 `$(...)` 를 문자 그대로 찍는다. 작은따옴표 안이라 스텁 쉘은 실행하지 않는다.
+  // 런처가 정제하지 않으면 stderr 에 그대로 남는다.
+  it('--version 출력의 제어 문자와 쉘 문자는 로그에 남기지 않는다', () => {
+    const run = runWithStubs({
+      node: PIN_22_NODE,
+      gestalt: `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '1.2.3\\033[31m$(touch x)\\n'; else echo FROM_GLOBAL; fi\n`,
+    });
+    expect(run.stdout.trim()).toBe('RESOLVED serve');
+    expect(run.stderr).toContain('global gestalt 1.2.331mtouchx');
+    expect(run.stderr).not.toContain('\x1b');
+    expect(run.stderr).not.toContain('$(');
+  });
+
+  it('--version 출력의 공백과 캐리지 리턴은 버전 비교 전에 걷어낸다', () => {
+    const run = runWithStubs({
+      node: PIN_22_NODE,
+      gestalt: `#!/bin/sh\nif [ "$1" = "--version" ]; then printf ' ${STUB_PIN_VERSION}\\r\\n'; else echo FROM_GLOBAL; fi\n`,
+    });
+    expect(run.stdout.trim()).toBe('FROM_GLOBAL');
+  });
+
+  it('--version 출력이 여러 줄이면 마지막 줄을 버전으로 본다', () => {
+    const run = runWithStubs({
+      node: PIN_22_NODE,
+      gestalt: `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "update available"; echo ${STUB_PIN_VERSION}; else echo FROM_GLOBAL; fi\n`,
+    });
+    expect(run.stdout.trim()).toBe('FROM_GLOBAL');
   });
 });

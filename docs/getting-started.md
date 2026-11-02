@@ -118,7 +118,7 @@ ANTHROPIC_API_KEY=your-api-key-here
 → Node.js 22 이상이 필요해요. `nvm install 22 && nvm use 22`를 실행하거나 [nodejs.org](https://nodejs.org)에서 다운로드하세요.
 
 **MCP 서버가 붙었다 안 붙었다 하고 `Connection closed`로 끊겨요**
-→ 원인은 대개 Gestalt가 아니라 `npx`예요. `npx`는 버전을 박아도 기동할 때마다 레지스트리를 조회해요. 캐시가 비어 있으면 20초쯤 걸리고 레지스트리에 못 닿으면 70초를 매달리다 실패하는데, Claude Code는 stdio 서버가 `initialize`에 답할 때까지 30초만 기다려요. `npm i -g @tienne/gestalt`로 전역 설치하고 `gestalt serve`를 직접 부르면 이 조회가 아예 없어져요.
+→ 원인은 대개 Gestalt가 아니라 `npx`예요. `npx`는 버전을 박아도 기동할 때마다 레지스트리를 조회해요. 캐시가 비어 있으면 20초쯤 걸리고 레지스트리에 못 닿으면 70초를 매달리다 실패하는데, Claude Code는 stdio 서버가 `initialize`에 답할 때까지 30초만 기다려요. `npm i -g @tienne/gestalt`로 전역 설치하고 `gestalt serve`를 직접 부르면 이 조회가 아예 없어져요. 플러그인으로 설치했다면 전역 버전이 플러그인 핀과 같아야 쓰이니 `npm i -g @tienne/gestalt@<플러그인 버전>`으로 맞춰 주세요.
 
 **데스크톱 앱에서만 서버가 바로 죽어요**
 → 데스크톱 앱이나 런처처럼 터미널 밖에서 띄운 세션은 PATH에 nvm 같은 버전 매니저가 안 들어 있어요. 그래서 `npx`나 `gestalt`를 못 찾고 바로 죽어요. MCP 설정의 `command`에 절대 경로를 주거나 서버 항목에 `env.PATH`를 넣으세요. 플러그인으로 설치했다면 `scripts/mcp-serve.sh`가 nvm, fnm, Volta, Homebrew에서 Node를 찾아줘서 이 문제를 안 겪어요.
