@@ -533,6 +533,11 @@ ${rendered.map((r) => r.minimap).join('')}
 }
 
 // 토큰은 research 렌더러와 같은 값을 쓴다
+//
+// .layout의 --side-w에서 clamp의 420px는 폭 기준 하한이라 901px 부근에서도 예전 최대 폭 밑으로 안 내려간다.
+// clamp가 420px일 때 창 높이가 약 536px 밑이면 높이 항이 먼저 줄여 300px까지 내려간다.
+// 높이 항의 300px는 .side의 위아래 패딩 32와 gap 12, 스크립트 영역으로 남기려는 256을 합친 값이다.
+// max(300px, ...)의 300px는 낮은 창에서 영상 폭이 줄어드는 바닥이다.
 const CSS = `
 :root{color-scheme:light;--bg:#fafaf9;--fg:#1c1917;--muted:#78716c;--line:#e7e5e4;--card:#fff;--accent:#2563eb;--warn:#b45309;--chip:#f5f5f4;--hl:#fef3c7;--on-accent:#fff;--scale:1;--float-w:min(360px,60vw,calc(40vh * 16 / 9))}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--line:#292524;--card:#1c1917;--accent:#60a5fa;--warn:#fbbf24;--chip:#292524;--hl:#422006;--on-accent:#0c0a09}}
@@ -542,7 +547,7 @@ html{font-size:calc(100% * var(--scale))}
 body{margin:0;background:var(--bg);color:var(--fg);font:1rem/1.7 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif}
 a{color:var(--accent)}
 button{font:inherit;color:inherit}
-.layout{display:grid;grid-template-columns:minmax(300px,420px) minmax(0,1fr);gap:32px;max-width:1360px;margin:0 auto;padding:0 56px 0 16px}
+.layout{--side-w:min(clamp(420px,40vw,580px),max(300px,calc((100vh - 300px) * 16 / 9)));display:grid;grid-template-columns:var(--side-w) minmax(0,1fr);gap:32px;max-width:1360px;margin:0 auto;padding:0 56px 0 16px}
 .side{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:12px;padding:16px 0}
 .player{position:relative;background:#000;border-radius:8px;overflow:hidden;flex:none}
 #player-frame{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0;pointer-events:none}
