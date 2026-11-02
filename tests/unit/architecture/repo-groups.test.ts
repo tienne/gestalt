@@ -235,8 +235,20 @@ describe('묶음 테두리 — 전체 보기', () => {
     expect(html).toMatch(/<text class="frame-label"[^>]*><title>repo-a<\/title>repo-a<\/text>/);
     expect(html).toMatch(/<text class="frame-label"[^>]*><title>repo-b<\/title>repo-b<\/text>/);
     expect(html).toContain('.frame-label');
-    // 묶음 테두리 id는 카드의 data-frame으로 안 내려간다. 노드 id와 같은 값이어도 섞이지 않는다
     expect(html).not.toContain('data-frame="group:');
+  });
+
+  it('묶음 테두리 id가 노드 id와 같아도 그 카드에 data-frame을 달지 않는다', async () => {
+    const v = validated(fixture());
+    const d = await computeDrilldown(v);
+    const root = d.levels.find((l) => l.id === 'root')!;
+    const frame = groupFrames(root).find((f) => f.label === 'repo-a')!;
+    // m-c는 어느 테두리에도 안 든 카드라 id가 겹칠 때만 data-frame이 생길 수 있다
+    frame.id = 'm-c';
+    const html = renderDrilldownHtml(v, d, { audience: 'private' });
+    const card = html.match(/<div class="[^"]*" data-node-id="m-c"[^>]*>/)?.[0];
+    expect(card).toBeDefined();
+    expect(card).not.toContain('data-frame=');
   });
 
   it('테두리 폭보다 긴 라벨은 잘라 쓰고 전체 이름은 title에 남긴다', async () => {
