@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.117.0] - 2026-11-02
+
+### Added
+
+- **peer 데몬을 세션과 떨어진 프로세스로 띄우는 `gestalt peer daemon --detach`를 더했어요(#100).** Bash 도구로 그냥 띄우면 세션과 같이 죽어서 데몬은 늘 다른 터미널에서 띄워야 했어요.
+  - 같은 Node와 실행 인자로 새 프로세스 세션에 띄우고 소켓이 답하면 pid와 로그 경로를 알려 줘요. 이미 떠 있으면 새로 안 띄우고 `already`로 알려요. 동시에 두 번 불러도 잠금이 하나라 데몬은 하나만 남아요.
+  - 시한(기본 10초) 안에 안 뜨면 띄운 자식을 끄고 로그 끝 20줄을 보여 줘요.
+  - 로그는 `daemon.log`(0600)에 쌓이고 1MB를 넘으면 `.1`로 복사한 뒤 비워요. 두 파일 다 심링크를 따라가지 않아요.
+  - Windows에서는 지원하지 않는다고 실패해요.
+- **`gestalt peer daemon --stop`을 더했어요.** 소켓이 답한 데몬 pid와 잠금 파일 pid가 같을 때만 SIGTERM을 보내요. 안 떠 있으면 0으로 끝나요.
+- **`/gestalt:share`가 데몬을 띄워요.** `open`을 쳤는데 데몬이 없으면 한 번 묻고 `--detach`로 띄운 뒤 다시 열어요. 데몬이 뜨면 팀원 목록에 온라인으로 보여서 묻지 않고 띄우지는 않아요.
+  - `daemon start`, `daemon stop`, `daemon status` action이 생겼어요.
+  - `stop`, `list`, `approve`, `deny`, `kick`에서는 띄울지 묻지 않아요. 공유는 데몬 메모리에만 있어서 새로 띄운 데몬에는 다룰 공유가 없어요.
+
+### Changed
+
+- `ges_peer`는 데몬이 없을 때도 데몬을 띄우지 않아요. 실패 문구에 그 사실과 `/gestalt:share daemon start`만 싣고 셸 명령은 안 실어요.
+- CLI의 데몬 없음 안내를 명령마다 나눴어요. 공유를 다루는 명령은 열린 공유가 없다고만 하고 나머지 명령만 `--detach`로 띄우라고 안내해요.
+
+### 검증 범위
+
+- 로컬 리뷰를 3라운드 돌렸고 이슈가 16건에서 4건, 1건으로 줄었어요. 데몬 없음 문구가 띄우라는 말과 띄우지 않는다는 말을 한 응답에 같이 싣던 것, 로그 회전의 심링크, `--stop` 경합이 걸렸어요.
+- Claude Code 세션 안 Bash로 `--detach`를 띄워서 다음 도구 호출에서도 데몬이 살아 있는 걸 확인했어요. 부모가 launchd(PPID 1)로 바뀌고 데몬이 자기 세션의 리더였어요.
+
+### 남긴 것
+
+- Claude Code 세션을 끝낸 뒤에도 데몬이 남는지와 Codex 샌드박스에서 남는지는 아직 확인하지 못했어요.
+- `--inspect-port 9229`처럼 값이 따로 붙는 Node 옵션은 옵션만 걸러져서 데몬이 뜨다가 실패할 수 있어요. 조용히 넘어가지 않고 실패로 알려요.
+- 로그인할 때 데몬을 띄우는 launchd, systemd 설치는 이번에 안 넣었어요.
+
 ## [0.116.0] - 2026-11-02
 
 ### Added
