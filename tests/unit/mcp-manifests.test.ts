@@ -141,8 +141,8 @@ describe('Claude MCP 매니페스트', () => {
   });
 });
 
-// 런처의 분기 순서는 이 PR의 핵심 로직인데 sh -n 문법 검사로는 안 잡힌다. 네트워크를
-// 안 타는 두 분기(GESTALT_MCP_BIN 오버라이드, GESTALT_NODE 검증)만 스텁으로 굳힌다.
+// 런처의 분기 순서는 sh -n 문법 검사로는 안 잡힌다. 네트워크를 안 타는 분기(GESTALT_MCP_BIN
+// 오버라이드, GESTALT_NODE 검증, 전역 gestalt와 핀의 버전 비교)만 스텁으로 굳힌다.
 describe('scripts/mcp-serve.sh 분기 순서', () => {
   const launcher = resolve(ROOT, 'scripts/mcp-serve.sh');
 
@@ -247,8 +247,8 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     }
   });
 
-  // 플러그인만 올렸는데 예전 `npm i -g` 가 계속 뜨던 문제. 전역 버전이 핀과 다르면
-  // 무시하고 npx 해석 결과(핀된 버전)를 써야 한다. npx 는 스텁으로 막아 네트워크를 안 탄다.
+  // 전역 버전이 핀과 다르면 무시하고 npx 해석 결과(핀된 버전)를 써야 한다.
+  // npx 는 스텁으로 막아 네트워크를 안 탄다.
   it('전역 gestalt 버전이 핀과 다르면 무시하고 핀된 버전을 쓴다', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-stale-global-'));
     try {
@@ -269,5 +269,59 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  // 파일 이름 → 내용으로 스텁을 깔고 런처를 돌린다. npx 스텁은 같은 디렉토리의
+  // resolved-gestalt 를 해석 결과로 돌려줘서 네트워크를 안 탄다.
+  const runWithStubs = (files: Record<string, string>) => {
+    const dir = mkdtempSync(join(tmpdir(), 'gestalt-version-gate-'));
+    try {
+      writeFileSync(join(dir, 'resolved-gestalt'), '#!/bin/sh\necho "RESOLVED $*"\n', {
+        mode: 0o755,
+      });
+      writeFileSync(join(dir, 'npx'), '#!/bin/sh\necho "$(dirname "$0")/resolved-gestalt"\n', {
+        mode: 0o755,
+      });
+      for (const [name, body] of Object.entries(files)) {
+        writeFileSync(join(dir, name), body, { mode: 0o755 });
+      }
+      return spawnSync('bash', [launcher], {
+        env: launcherEnv({ PATH: `${dir}:/usr/bin:/bin`, GESTALT_NODE: join(dir, 'node') }),
+        encoding: 'utf-8',
+        timeout: LAUNCHER_TIMEOUT_MS,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  const PIN_22_NODE = '#!/bin/sh\necho 22\n';
+
+  // package.json 에서 버전을 못 읽으면 비교할 기준이 없다. 이때는 전역을 그대로 쓴다.
+  // 핀 조회(`-p require(...)`)만 실패하게 하고 pick_node 의 버전 확인(`-p process...`)은 통과시킨다.
+  it('핀을 못 읽으면 버전 비교 없이 전역 gestalt를 쓴다', () => {
+    const run = runWithStubs({
+      node: '#!/bin/sh\ncase "$2" in *require*) exit 1;; *) echo 22;; esac\n',
+      gestalt: versionedStub('FROM_GLOBAL', '21'),
+    });
+    expect(run.stderr).toContain('no version pin');
+    expect(run.stdout.trim()).toBe('FROM_GLOBAL');
+  });
+
+  it('전역 gestalt가 --version에 답하지 않으면 무시한다', () => {
+    const run = runWithStubs({
+      node: PIN_22_NODE,
+      gestalt: '#!/bin/sh\nexit 1\n',
+    });
+    expect(run.stderr).toContain('unknown version');
+    expect(run.stdout.trim()).toBe('RESOLVED serve');
+  });
+
+  it('--version 출력이 여러 줄이면 마지막 줄을 버전으로 본다', () => {
+    const run = runWithStubs({
+      node: PIN_22_NODE,
+      gestalt: `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "update available"; echo ${STUB_PIN_VERSION}; else echo FROM_GLOBAL; fi\n`,
+    });
+    expect(run.stdout.trim()).toBe('FROM_GLOBAL');
   });
 });

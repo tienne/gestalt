@@ -8,9 +8,9 @@
 # gives a stdio server 30s to finish initialize, so the cold and offline cases
 # both surface as "Connection closed" with nothing in the log to explain it.
 #
-# So the order here is: an already-installed binary, then the npx cache with the
-# network cut out, and only then the network. Plain npx stays as the last resort
-# so a broken checkout still starts something.
+# So the order here is: an already-installed binary of the pinned version, then the
+# npx cache with the network cut out, and only then the network. Plain npx stays as
+# the last resort so a broken checkout still starts something.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -58,14 +58,21 @@ if [[ "$SPEC" == "@tienne/gestalt" ]]; then
 fi
 
 # A global install is the fast path (no npx round), but only while it is the same
-# version as the pin. Before, it won unconditionally, and that is how a plugin
-# update did nothing: an old `npm i -g` kept serving, the skills moved to the new
-# version, and the server stayed behind. The plugin version is what the user
+# version as the pin. A stale `npm i -g` that kept serving would leave the server
+# behind the skills after a plugin update. The plugin version is what the user
 # updates, so it is what decides. Someone who really wants a different build
 # sets GESTALT_MCP_BIN above — that override is explicit and logged.
+#
+# `--version` runs an arbitrary binary found on PATH, so it gets a time limit when
+# `timeout` exists (stock macOS has none) and its output is cut down to version
+# characters before it reaches the log line or the comparison.
 GLOBAL_BIN="$(command -v gestalt || true)"
 if [[ -n "$GLOBAL_BIN" ]]; then
-  GLOBAL_VERSION="$("$GLOBAL_BIN" --version </dev/null 2>/dev/null | tail -n 1 || true)"
+  if command -v timeout >/dev/null 2>&1; then
+    GLOBAL_VERSION="$(timeout 5 "$GLOBAL_BIN" --version </dev/null 2>/dev/null | tail -n 1 | tr -cd '0-9A-Za-z.+-' || true)"
+  else
+    GLOBAL_VERSION="$("$GLOBAL_BIN" --version </dev/null 2>/dev/null | tail -n 1 | tr -cd '0-9A-Za-z.+-' || true)"
+  fi
   if [[ "$SPEC" == "@tienne/gestalt" || "$SPEC" == "@tienne/gestalt@$GLOBAL_VERSION" ]]; then
     echo "gestalt MCP: using globally installed gestalt ($GLOBAL_BIN ${GLOBAL_VERSION:-unknown version})." >&2
     exec "$GLOBAL_BIN" serve
@@ -89,6 +96,7 @@ resolve_bin() {
 
 BIN="$(resolve_bin --offline || true)"
 if [[ -z "$BIN" || ! -x "$BIN" ]]; then
+  echo "gestalt MCP: $SPEC is not in the npx cache — downloading it. The first start after a plugin update can take ~20s." >&2
   BIN="$(resolve_bin || true)"
 fi
 
