@@ -607,7 +607,7 @@ function checkDiagramCount(report: Report, p: string, issues: DigestIssue[]): vo
       path: `${p}.sections`,
       severity: 'warning',
       code: 'DIAGRAM_TOO_FEW',
-      message: `도식이 ${have}개다. 이 리포트는 ${want}개 이상을 권한다. 단계나 고리, 견주기, 가지, 시간 흐름, 원인과 결과, 한 중심에 딸린 여러 요소, 결론을 쥔 숫자, 여러 후보 중 고른 몇 개가 있는 대섹션에 붙인다`,
+      message: `도식이 ${have}개다. 이 리포트는 ${want}개 이상을 권한다. 단계나 고리, 견주기, 가지, 시간 흐름, 원인과 결과, 한 중심에 딸린 여러 요소, 숫자 하나에 담기는 결론, 여러 후보 중 고른 몇 개가 있는 대섹션에 붙인다`,
     });
   }
 }
