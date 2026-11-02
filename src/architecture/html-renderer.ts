@@ -130,6 +130,8 @@ const EMPTY_LEVEL_SIZE = { width: 560, height: 240 };
 // 묶음 테두리 라벨 자리. layout의 GROUP_LABEL_H(20) 줄 안에 글자가 들도록 테두리 왼쪽 위에서 이만큼 들인다
 const FRAME_LABEL_INSET = 12;
 const FRAME_LABEL_BASELINE = 18;
+// clipText가 세는 한 칸의 폭. 라벨이 테두리 안쪽 폭을 넘지 않을 만큼만 남긴다
+const FRAME_LABEL_UNIT_W = 6;
 
 const VIEW_TITLES: Record<ArchitectureIr['view'], string> = {
   'screen-chain': '화면별 호출 흐름',
@@ -736,6 +738,13 @@ function emptyFlowLinks(links: { level: string; title: string }[]): string {
   );
 }
 
+function frameLabelText(label: string, frameWidth: number): string {
+  return clipText(
+    label,
+    Math.max(1, Math.floor((frameWidth - FRAME_LABEL_INSET * 2) / FRAME_LABEL_UNIT_W)),
+  );
+}
+
 /** 레벨 하나. 레인 띠와 선은 SVG, 카드는 그 위에 겹친 HTML이다. 좌표는 전부 서버가 박는다 */
 function renderLevelSection(spec: CanvasSpec): string {
   const open = `<section class="level" data-level-id="${escapeHtml(spec.levelId)}" aria-label="${escapeHtml(spec.title)}"`;
@@ -777,7 +786,7 @@ function renderLevelSection(spec: CanvasSpec): string {
         `width="${f.width}" height="${f.height}" rx="14"/>` +
         (f.label !== undefined
           ? `<text class="frame-label" x="${round2(f.x + CANVAS_PAD_X + FRAME_LABEL_INSET)}" y="${round2(f.y + CANVAS_PAD_TOP + FRAME_LABEL_BASELINE)}">` +
-            `<title>${escapeHtml(f.label)}</title>${escapeHtml(clipText(f.label, Math.max(1, Math.floor((f.width - FRAME_LABEL_INSET * 2) / 6))))}</text>`
+            `<title>${escapeHtml(f.label)}</title>${escapeHtml(frameLabelText(f.label, f.width))}</text>`
           : ''),
     )
     .join('');
