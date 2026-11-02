@@ -223,7 +223,7 @@ claude mcp add gestalt -- gestalt serve
 }
 ```
 
-플러그인 설치(옵션 1)는 앞의 둘을 `scripts/mcp-serve.sh`가 알아서 처리해요. Node는 nvm, fnm, Volta, Homebrew 밑에서 찾고요. 전역 설치된 `gestalt`는 버전이 플러그인 핀과 같을 때만 씁니다. 옛 버전이 깔려 있으면 경고만 남기고 무시해서 플러그인만 업데이트해도 최신으로 뜨고요. 그 외에는 핀된 버전을 npm 캐시에서 바로 해석합니다.
+플러그인 설치(옵션 1)는 앞의 둘을 `scripts/mcp-serve.sh`가 알아서 처리해요. Node는 nvm, fnm, Volta, Homebrew 밑에서 찾고요. 전역 설치된 `gestalt`는 버전이 플러그인 핀과 같을 때만 씁니다. 핀과 다른 버전이 깔려 있으면 경고만 남기고 무시해서 플러그인만 업데이트해도 최신으로 뜨고요. 그 외에는 핀된 버전을 npm 캐시에서 바로 해석합니다.
 
 ---
 

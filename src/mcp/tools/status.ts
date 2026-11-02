@@ -70,7 +70,8 @@ export function handleStatus(
 ): string {
   const updateResult = getCachedUpdateResult();
   // current 는 이 세션이 실제로 로드한 플러그인 버전이다. 서버 자기 버전과 어긋날 수
-  // 있어서 server 를 따로 싣는다 — 둘이 다르면 GESTALT_MCP_BIN 으로 다른 빌드를 지정한 상태다.
+  // 있어서 server 를 따로 싣는다 — 둘이 다르면 GESTALT_MCP_BIN 지정이나 핀을 못 읽은 경우처럼
+  // 서버가 핀과 다른 빌드로 뜬 상태다.
   const session = getSessionVersion();
   const versionInfo = {
     current: session.version,
