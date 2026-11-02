@@ -508,7 +508,12 @@ export const VIEWER_JS =
       }
       var li = lines[idx];
       if (!li) return;
-      if (changed) li.classList.add('is-playing');
+      if (changed) {
+        li.classList.add('is-playing');
+        // 재생 줄이 한 번이라도 잡히면 접힘 폴백(첫 줄 노출)을 끈다. :has 없이 같은 조건을 CSS가 읽게 하려는 표지다
+        var scriptBox = document.querySelector('.script');
+        if (scriptBox) scriptBox.classList.add('has-cur');
+      }
       if (!panel) return;
       var visible = isLineVisible(li.offsetTop, li.offsetHeight, panel.scrollTop, panel.clientHeight);
       if (!shouldScrollScript(player.state(), changed, Date.now(), holdUntil, visible)) return;

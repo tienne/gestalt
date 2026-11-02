@@ -210,6 +210,10 @@ describe('renderDigestHtml 플레이어', () => {
       'id="script-fold" class="tr-toggle" aria-pressed="false" aria-controls="script-body" hidden>현재 구간만</button>',
     );
     expect(html).toContain('.script.is-focus #script-list li:not(.is-playing){display:none}');
+    expect(html).toContain(
+      '.script.is-focus:not(.has-cur) #script-list li:first-child{display:flex}',
+    );
+    expect(html).not.toContain(':has(.is-playing)');
     expect(html).not.toContain('id="tr-toggle"');
   });
 

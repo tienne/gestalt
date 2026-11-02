@@ -586,7 +586,7 @@ button{font:inherit;color:inherit}
 .script.is-focus{flex:none}
 .script.is-focus .script-body{flex:none;overflow:hidden}
 .script.is-focus #script-list li:not(.is-playing){display:none}
-.script.is-focus #script-list:not(:has(.is-playing)) li:first-child{display:flex}
+.script.is-focus:not(.has-cur) #script-list li:first-child{display:flex}
 .tr-toggle{float:right;margin-left:6px;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:0 8px;font-size:.85em;font-weight:400;cursor:pointer}
 .tr-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 .ts{font-variant-numeric:tabular-nums;color:var(--accent);text-decoration:none;font-size:.85em;white-space:nowrap;cursor:pointer}
