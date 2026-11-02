@@ -668,11 +668,31 @@ describe('순차 모션과 형광펜', () => {
 
   it('다이어리 형광펜도 요약 문장의 굵은 글씨에만 칠한다', () => {
     const css = html();
-    expect(css).toContain('.is-diary :where(.sec-card>.conclusion,.sec-intro,.lead) strong{');
+    const rule = /([^{}\n]*\.is-diary \.sec-card>\.conclusion strong[^{]*)\{([^}]*)\}/.exec(css);
+    expect(rule).not.toBeNull();
+    const selectors = rule![1]!.split(',').map((s) => s.trim());
+    expect(selectors).toEqual([
+      '.is-diary .sec-card>.conclusion strong',
+      '.is-diary .sec-intro strong',
+      '.is-diary .lead strong',
+    ]);
     expect(css).not.toMatch(/\.is-diary strong\{/);
   });
 
   it('모션 값은 --dg-step 0.28s와 선 그리기 0.55s다', () => {
+  it('다이어리 형광펜은 기본 규칙보다 특이도가 높고 칠하는 높이가 같다', () => {
+    const css = html();
+    const specificity = (sel: string) =>
+      sel.split(/[\s>]+/).filter((p) => p.startsWith('.')).length;
+    const def = specificity('.sec-card>.conclusion strong');
+    const diary = specificity('.is-diary .sec-card>.conclusion strong');
+    expect(diary).toBeGreaterThan(def);
+    const base = /\.sec-card>\.conclusion strong[^{]*\{background:[^}]*\/100% (\d+%)/.exec(css);
+    const themed =
+      /\.is-diary \.sec-card>\.conclusion strong[^{]*\{background:[^}]*\/100% (\d+%)/.exec(css);
+    expect(themed![1]).toBe(base![1]);
+  });
+
     const css = motionCss(html());
     expect(css).toContain('var(--dg-step,.28s)');
     expect(css).toContain('animation:dg-draw .55s');

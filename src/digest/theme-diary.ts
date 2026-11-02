@@ -3,6 +3,7 @@
  * render-html이 body에 is-diary를 붙여 모든 요약에 건다. 렌즈 전용 칸(한눈에 보기, 의심 표시)은 영상에 없어서 같이 둬도 영향이 없다.
  * 템플릿 리터럴 안이라 백틱과 달러 중괄호를 쓰지 않는다. 바깥 값은 문자열 연결로 끼운다.
  * 폴라로이드(--polaroid)는 다크에서도 흰 종이라 캡션 색을 고정값으로 두고 다크 팔레트에서 다시 정하지 않는다
+ * 형광펜 선택자는 render-html의 기본 규칙(.sec-card>.conclusion strong, 특이도 0,2,1)보다 낮으면 .conclusion에서 진다. :where로 묶지 않고 .is-diary를 앞에 붙여 이긴다
  */
 
 /** 손글씨 제목 글꼴. 오프라인이면 받지 못하고 --hand의 다음 글꼴로 보인다. 서버 CSP가 이 두 주소를 연다 */
@@ -62,7 +63,7 @@ export const DIARY_CSS =
 .is-diary .main ul{padding-left:1.2em}
 .is-diary .main li{margin:4px 0}
 .is-diary .main li::marker{color:var(--accent)}
-.is-diary :where(.sec-card>.conclusion,.sec-intro,.lead) strong{background:linear-gradient(100deg,transparent 0,var(--hl) 4%,var(--hl) 96%,transparent 100%) 0 70%/100% 46% no-repeat}
+.is-diary .sec-card>.conclusion strong,.is-diary .sec-intro strong,.is-diary .lead strong{background:linear-gradient(100deg,transparent 0,var(--hl) 4%,var(--hl) 96%,transparent 100%) 0 70%/100% 42% no-repeat}
 .is-diary .cite{color:var(--muted);font-size:.7em}
 .is-diary .cite:hover,.is-diary .cite[aria-expanded="true"]{color:var(--accent)}
 .is-diary .doubt{margin:8px 0 10px;padding:8px 12px;border:1.5px dashed var(--warn);border-radius:10px;background:none;font-size:.9em}
