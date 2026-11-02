@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   beforeAfterSvg,
   causalSvg,
+  cycleSvg,
+  flowSvg,
+  hubSvg,
+  pickGridSvg,
+  pickGridColumns,
+  statSvg,
   DIGEST_SCHEMA_VERSION,
   lintDigest,
   lintErrors,
@@ -61,8 +67,8 @@ const beforeAfter: Diagram = {
 };
 
 describe('새 도식 네 종류', () => {
-  it('스키마 버전은 읽기 렌즈 칸까지 더한 1.5.0이다', () => {
-    expect(DIGEST_SCHEMA_VERSION).toBe('1.5.0');
+  it('스키마 버전은 허브와 핵심 수치, 격자 고르기 도식까지 더한 1.7.0이다', () => {
+    expect(DIGEST_SCHEMA_VERSION).toBe('1.7.0');
   });
 
   it('스키마와 lint를 통과한다', () => {
@@ -356,5 +362,605 @@ describe('figure 블록', () => {
     expect(title).toBeGreaterThanOrEqual(0);
     expect(list).toBeGreaterThan(title);
     expect(exp).toBeGreaterThan(list);
+  });
+});
+
+describe('허브와 핵심 수치 도식', () => {
+  const hub: Diagram = {
+    kind: 'hub',
+    caption: '코드 레이어',
+    center: { label: '디자인 시스템' },
+    satellites: [
+      { label: '토큰', cite: { key: 1, from: 1, to: 1 } },
+      { label: '컴포넌트', focus: true },
+      { label: '문서' },
+    ],
+  };
+  const stat: Diagram = {
+    kind: 'stat',
+    caption: '규모',
+    value: '5천만 명',
+    label: '월간 가입자',
+    cite: { key: 2, from: 2, to: 2 },
+  };
+  const issuesOf = (d: Digest, code: string) =>
+    lintDigest(d, sampleTranscript()).filter((i) => i.code === code);
+  const figureDigest = (diagram: Diagram): Digest => ({
+    ...sampleDigest(),
+    extensions: [
+      {
+        template: 'visual',
+        title: '그림 해설',
+        lang: 'ko',
+        blocks: [
+          {
+            type: 'figure',
+            title: '제목',
+            diagram,
+            explanation: '설명',
+            cite: { key: 1, from: 1, to: 1 },
+          },
+        ],
+      },
+    ],
+  });
+  const raw = (diagram: unknown) => {
+    const r = JSON.parse(JSON.stringify(sampleDigest()));
+    r.reports[0].sections[0].diagram = diagram;
+    return r;
+  };
+
+  describe('스키마', () => {
+    it('위성 2~8개 허브와 stat은 통과한다', () => {
+      for (const n of [2, 8]) {
+        const satellites = Array.from({ length: n }, (_, i) => ({ label: `s${i}` }));
+        expect(parseDigest(raw({ ...hub, satellites })).ok).toBe(true);
+      }
+      expect(parseDigest(raw(hub)).ok).toBe(true);
+      expect(parseDigest(raw(stat)).ok).toBe(true);
+    });
+
+    it('위성이 2개 미만이거나 8개를 넘으면 거절한다', () => {
+      for (const n of [0, 1, 9]) {
+        const satellites = Array.from({ length: n }, (_, i) => ({ label: `s${i}` }));
+        expect(parseDigest(raw({ ...hub, satellites })).ok).toBe(false);
+      }
+    });
+
+    it('focus는 불리언만 받는다', () => {
+      const satellites = [{ label: 'a', focus: 'yes' }, { label: 'b' }];
+      expect(parseDigest(raw({ ...hub, satellites })).ok).toBe(false);
+      expect(
+        parseDigest(raw({ ...hub, satellites: [{ label: 'a', focus: false }, { label: 'b' }] })).ok,
+      ).toBe(true);
+    });
+
+    it('stat의 value는 텍스트이고 label은 필수이며 cite는 선택이다', () => {
+      expect(parseDigest(raw({ ...stat, value: 50000000 })).ok).toBe(false);
+      const { label: _l, ...noLabel } = stat as Extract<Diagram, { kind: 'stat' }>;
+      expect(parseDigest(raw(noLabel)).ok).toBe(false);
+      const { cite: _c, ...noCite } = stat as Extract<Diagram, { kind: 'stat' }>;
+      expect(parseDigest(raw(noCite)).ok).toBe(true);
+    });
+  });
+
+  describe('lint', () => {
+    it('정상 허브와 stat은 에러가 없다', () => {
+      expect(lintErrors(lintDigest(withDiagram(hub), sampleTranscript()))).toEqual([]);
+      expect(lintErrors(lintDigest(withDiagram(stat), sampleTranscript()))).toEqual([]);
+    });
+
+    it('DIAGRAM_FOCUS_MULTI는 focus가 둘 이상이면 두 번째 위성을 에러로 짚는다', () => {
+      const multi: Diagram = {
+        ...hub,
+        satellites: [{ label: 'a', focus: true }, { label: 'b' }, { label: 'c', focus: true }],
+      } as Diagram;
+      const found = issuesOf(withDiagram(multi), 'DIAGRAM_FOCUS_MULTI');
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({
+        severity: 'error',
+        path: 'reports.0.sections.0.diagram.satellites.2.focus',
+      });
+      expect(issuesOf(withDiagram(hub), 'DIAGRAM_FOCUS_MULTI')).toEqual([]);
+    });
+
+    it('DIAGRAM_FOCUS_MULTI는 figure 블록에서도 걸린다', () => {
+      const multi = {
+        ...hub,
+        satellites: [
+          { label: 'a', focus: true },
+          { label: 'b', focus: true },
+        ],
+      } as Diagram;
+      const found = issuesOf(figureDigest(multi), 'DIAGRAM_FOCUS_MULTI');
+      expect(found.map((i) => i.path)).toEqual([
+        'extensions.0.blocks.0.diagram.satellites.1.focus',
+      ]);
+      expect(found[0]!.severity).toBe('error');
+    });
+
+    it('DIAGRAM_STAT_LONG은 value가 한 줄(360px)에 안 들어갈 때만 경고한다', () => {
+      const at9 = { ...stat, value: '가'.repeat(9) } as Diagram;
+      const at10 = { ...stat, value: '가'.repeat(10) } as Diagram;
+      const digits = { ...stat, value: '1'.repeat(14) } as Diagram;
+      expect(issuesOf(withDiagram(at9), 'DIAGRAM_STAT_LONG')).toEqual([]);
+      expect(issuesOf(withDiagram(digits), 'DIAGRAM_STAT_LONG')).toEqual([]);
+      const found = issuesOf(withDiagram(at10), 'DIAGRAM_STAT_LONG');
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({
+        severity: 'warning',
+        path: 'reports.0.sections.0.diagram.value',
+      });
+      const fig = issuesOf(figureDigest(at10), 'DIAGRAM_STAT_LONG');
+      expect(fig.map((i) => i.path)).toEqual(['extensions.0.blocks.0.diagram.value']);
+    });
+
+    it('DIAGRAM_STAT_NO_CITE는 cite가 없을 때 경고한다', () => {
+      const noCite = { ...stat, cite: undefined } as Diagram;
+      const found = issuesOf(withDiagram(noCite), 'DIAGRAM_STAT_NO_CITE');
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({
+        severity: 'warning',
+        path: 'reports.0.sections.0.diagram',
+      });
+      expect(issuesOf(withDiagram(stat), 'DIAGRAM_STAT_NO_CITE')).toEqual([]);
+      expect(issuesOf(figureDigest(noCite), 'DIAGRAM_STAT_NO_CITE').map((i) => i.path)).toEqual([
+        'extensions.0.blocks.0.diagram',
+      ]);
+    });
+
+    it('stat value에도 마커를 받지 않고 경로는 value다', () => {
+      const d = withDiagram({ ...stat, value: '**5천만**' } as Diagram);
+      expect(issuesOf(d, 'TITLE_MARKER').map((i) => i.path)).toEqual([
+        'reports.0.sections.0.diagram.value',
+      ]);
+    });
+
+    it('출처가 대섹션 밖이면 허브 위성과 stat cite 자리를 짚는다', () => {
+      const out = { key: 8, from: 8, to: 8 };
+      const h = withDiagram({
+        ...hub,
+        satellites: [{ label: 'a', cite: out }, { label: 'b' }],
+      } as Diagram);
+      expect(issuesOf(h, 'DIAGRAM_CITE_OUT_OF_SECTION').map((i) => i.path)).toEqual([
+        'reports.0.sections.0.diagram.satellites.0.cite',
+      ]);
+      const s = withDiagram({ ...stat, cite: out } as Diagram);
+      expect(issuesOf(s, 'DIAGRAM_CITE_OUT_OF_SECTION').map((i) => i.path)).toEqual([
+        'reports.0.sections.0.diagram.cite',
+      ]);
+    });
+  });
+
+  describe('SVG', () => {
+    const opts = { sec };
+    const hubSvgOf = (n: number, o = opts) =>
+      hubSvg(
+        { label: '중심' },
+        Array.from({ length: n }, (_, i) => ({ label: `위성${i}` })),
+        o,
+      );
+
+    it('hub는 nodeSvg를 거쳐 data-sec과 role=link를 단다', () => {
+      const svg = hubSvg(
+        { label: '중심', cite: { key: 1, from: 1, to: 1 } },
+        [{ label: 'a', cite: { key: 2, from: 2, to: 2 } }, { label: 'b' }],
+        opts,
+      );
+      expect(svg).toContain('data-sec="5"');
+      expect(svg).toContain('data-sec="10"');
+      expect(svg).toMatch(/<g class="dg-node[^"]*" data-sec="10" role="link" tabindex="0"/);
+    });
+
+    it('hub는 글 자료에서 data-unit을 단다', () => {
+      const svg = hubSvg(
+        { label: '중심' },
+        [{ label: 'a', cite: { key: 2, from: 2, to: 2 } }, { label: 'b' }],
+        { unit: (c) => ({ index: c.key, label: 'p.1' }) },
+      );
+      expect(svg).toContain('data-unit="2"');
+      expect(svg).not.toContain('data-sec=');
+      expect(svg).toContain('role="link"');
+    });
+
+    it('stat은 label의 cite로 data-sec, data-unit, role=link를 단다', () => {
+      const label = { label: '가입자', cite: { key: 1, from: 1, to: 1 } };
+      const video = statSvg('5천만 명', label, opts);
+      expect(video).toContain('data-sec="5"');
+      expect(video).toContain('role="link"');
+      const text = statSvg('5천만 명', label, { unit: (c) => ({ index: c.key, label: 'p.1' }) });
+      expect(text).toContain('data-unit="1"');
+      expect(text).not.toContain('data-sec=');
+      expect(text).toContain('role="link"');
+    });
+
+    it('stat은 value를 글자 그대로 싣고 cite 없으면 링크를 안 단다', () => {
+      const svg = statSvg('5천만 명', { label: '가입자' }, opts);
+      expect(svg).toContain('>5천만 명<');
+      expect(svg).not.toContain('role="link"');
+      expect(svg).not.toContain('data-sec');
+    });
+
+    it('장식 요소에만 aria-hidden이 붙고 노드에는 안 붙는다', () => {
+      const h = hubSvgOf(3);
+      expect(h).toMatch(/<path d="[^"]+" aria-hidden="true"/);
+      for (const m of h.matchAll(/<g class="dg-node[^>]*>/g)) {
+        expect(m[0]).not.toContain('aria-hidden');
+      }
+      const s = statSvg('99%', { label: '정확도' }, opts);
+      expect(s).toContain('<g class="dg-spark" aria-hidden="true"');
+      for (const m of s.matchAll(/<g class="dg-(node|stat-value)[^>]*>/g)) {
+        expect(m[0]).not.toContain('aria-hidden');
+      }
+    });
+
+    it('focus 위성에만 dg-focus가 붙는다', () => {
+      const svg = hubSvg(
+        { label: '중심' },
+        [{ label: 'a', focus: true }, { label: 'b' }, { label: 'c' }],
+        opts,
+      );
+      expect(svg.match(/dg-focus/g)).toHaveLength(1);
+      expect(hubSvgOf(3)).not.toContain('dg-focus');
+    });
+
+    it('등장 번호는 그린 순서대로 노드와 선이 번호를 하나씩 쓴다', () => {
+      const svg = flowSvg([{ label: '가' }, { label: '나' }], opts);
+      expect(svg).toContain('<g class="dg-step" style="--i:0"><g class="dg-node');
+      expect(svg).toContain('class="dg-line" pathLength="1" style="--i:1"');
+      expect(svg).toContain('<g class="dg-step" style="--i:2"><g class="dg-node');
+    });
+
+    it('등장 번호가 16개까지는 간격을 그대로 두고 17개부터 --dg-step을 줄인다', () => {
+      const steps = (svg: string) => new Set(svg.match(/--i:\d+/g)).size;
+      const cyc = cycleSvg(
+        Array.from({ length: 8 }, (_, i) => ({ label: `c${i}` })),
+        opts,
+      );
+      expect(steps(cyc)).toBe(16);
+      expect(cyc).not.toContain('--dg-step');
+      const big = hubSvgOf(8);
+      expect(steps(big)).toBe(17);
+      expect(big).toMatch(/<svg [^>]*style="--dg-step:\d+ms"/);
+      expect(hubSvgOf(7)).not.toContain('--dg-step');
+      const ms = Number(/--dg-step:(\d+)ms/.exec(big)![1]);
+      expect(ms).toBeLessThan(280);
+    });
+
+    it('hub 상자는 위성 2, 3, 5, 8개에서 겹치지 않는다', () => {
+      for (const n of [2, 3, 5, 8]) {
+        const svg = hubSvgOf(n);
+        const vb = /viewBox="0 0 (\d+) (\d+)"/.exec(svg)!;
+        const boxes = [
+          ...svg.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/g),
+        ].map((m) => ({ x: +m[1]!, y: +m[2]!, w: +m[3]!, h: +m[4]! }));
+        expect(boxes).toHaveLength(n + 1);
+        for (const b of boxes) {
+          expect(b.x).toBeGreaterThanOrEqual(0);
+          expect(b.y).toBeGreaterThanOrEqual(0);
+          expect(b.x + b.w).toBeLessThanOrEqual(+vb[1]!);
+          expect(b.y + b.h).toBeLessThanOrEqual(+vb[2]!);
+        }
+        for (const [i, a] of boxes.entries()) {
+          for (const b of boxes.slice(i + 1)) {
+            const apart =
+              a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+            expect(apart).toBe(true);
+          }
+        }
+      }
+    });
+  });
+
+  describe('렌더', () => {
+    it('대섹션 HTML에 허브와 핵심 수치 도식을 그리고 라벨을 단다', () => {
+      const h = renderDigestHtml(withDiagram(hub), sampleTranscript()).html;
+      expect(h).toContain('dg-hub');
+      expect(h).toContain('허브');
+      const s = renderDigestHtml(withDiagram(stat), sampleTranscript()).html;
+      expect(s).toContain('dg-stat');
+      expect(s).toContain('핵심 수치');
+      expect(s).toContain('5천만 명');
+    });
+
+    it('figure 블록에서도 그린다', () => {
+      const { html } = renderDigestHtml(
+        { ...sampleDigest(), extensions: [figureExt(hub)] },
+        sampleTranscript(),
+      );
+      expect(html).toContain('dg-hub');
+    });
+
+    it('마크다운은 hub를 중심 아래 위성 목록으로, stat을 굵은 값과 label 한 줄로 낸다', () => {
+      const h = renderDigestMarkdown(withDiagram(hub), sampleTranscript());
+      expect(h).toContain('디자인 시스템');
+      expect(h).toMatch(/^\s*[-*\d.]+\s+\*?\*?토큰/m);
+      expect(h).toMatch(/컴포넌트 \(핵심\)/);
+      const s = renderDigestMarkdown(withDiagram(stat), sampleTranscript());
+      expect(s).toMatch(/\*\*5천만 명\*\* 월간 가입자/);
+    });
+
+    it('stat과 hub 글자는 mdInline을 거쳐 |와 줄바꿈이 마크다운을 깨지 않는다', () => {
+      const s = renderDigestMarkdown(
+        withDiagram({ ...stat, value: '3|4배', label: '속도\n향상' } as Diagram),
+        sampleTranscript(),
+      );
+      expect(s).toContain('**3\\|4배** 속도 향상');
+      const h = renderDigestMarkdown(
+        withDiagram({ ...hub, center: { label: '중심|축' } } as Diagram),
+        sampleTranscript(),
+      );
+      expect(h).toContain('중심\\|축');
+    });
+
+    it('stat HTML 목록 보기는 value를 굵게 쓴다', () => {
+      const { html } = renderDigestHtml(withDiagram(stat), sampleTranscript());
+      expect(html).toMatch(/<p><b>5천만 명<\/b> 월간 가입자/);
+    });
+  });
+});
+
+function figureExt(diagram: Diagram): Extension {
+  return {
+    template: 'visual',
+    title: '그림 해설',
+    lang: 'ko',
+    blocks: [
+      {
+        type: 'figure',
+        title: '허브 그림',
+        diagram,
+        explanation: '설명',
+        cite: { key: 1, from: 1, to: 1 },
+      },
+    ],
+  };
+}
+
+describe('격자 고르기 도식', () => {
+  const cell = (i: number, picked = false) => ({
+    label: `후보${i}`,
+    ...(picked ? { picked } : {}),
+  });
+  const cellsOf = (n: number, pickedAt: number[]) =>
+    Array.from({ length: n }, (_, i) => cell(i, pickedAt.includes(i)));
+  const grid: Diagram = {
+    kind: 'pickGrid',
+    caption: '고른 기능',
+    cells: [
+      { label: '검색', picked: true, cite: { key: 1, from: 1, to: 1 } },
+      { label: '추천' },
+      { label: '알림', picked: true },
+      { label: '결제' },
+      { label: '예약' },
+      { label: '리뷰' },
+    ],
+  };
+  const issuesOf = (d: Digest, code: string) =>
+    lintDigest(d, sampleTranscript()).filter((i) => i.code === code);
+  const raw = (diagram: unknown) => {
+    const r = JSON.parse(JSON.stringify(sampleDigest()));
+    r.reports[0].sections[0].diagram = diagram;
+    return r;
+  };
+  const opts = { sec };
+
+  describe('스키마', () => {
+    it('칸 4~16개는 통과하고 3개와 17개는 거절한다', () => {
+      for (const n of [4, 16]) {
+        expect(parseDigest(raw({ ...grid, cells: cellsOf(n, [0]) })).ok).toBe(true);
+      }
+      for (const n of [0, 3, 17]) {
+        expect(parseDigest(raw({ ...grid, cells: cellsOf(n, [0]) })).ok).toBe(false);
+      }
+      expect(parseDigest(raw(grid)).ok).toBe(true);
+    });
+
+    it('picked는 불리언만 받는다', () => {
+      const cells = [{ label: 'a', picked: 'yes' }, ...cellsOf(3, [])];
+      expect(parseDigest(raw({ ...grid, cells })).ok).toBe(false);
+    });
+  });
+
+  describe('lint', () => {
+    it('정상 격자는 에러도 경고도 없다', () => {
+      const found = lintDigest(withDiagram(grid), sampleTranscript());
+      expect(lintErrors(found)).toEqual([]);
+      expect(found.filter((i) => i.code.startsWith('DIAGRAM_PICK'))).toEqual([]);
+    });
+
+    it('DIAGRAM_PICK_NONE은 picked가 하나도 없으면 에러다', () => {
+      const none = { ...grid, cells: cellsOf(6, []) } as Diagram;
+      const found = issuesOf(withDiagram(none), 'DIAGRAM_PICK_NONE');
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({
+        severity: 'error',
+        path: 'reports.0.sections.0.diagram.cells',
+      });
+      const falsy = { ...grid, cells: cellsOf(4, []).map((c) => ({ ...c, picked: false })) };
+      expect(issuesOf(withDiagram(falsy as Diagram), 'DIAGRAM_PICK_NONE')).toHaveLength(1);
+    });
+
+    it('DIAGRAM_PICK_ALL은 전부 picked면 에러다', () => {
+      const all = { ...grid, cells: cellsOf(5, [0, 1, 2, 3, 4]) } as Diagram;
+      const found = issuesOf(withDiagram(all), 'DIAGRAM_PICK_ALL');
+      expect(found).toHaveLength(1);
+      expect(found[0]!.severity).toBe('error');
+      expect(issuesOf(withDiagram(all), 'DIAGRAM_PICK_MANY')).toEqual([]);
+    });
+
+    it('DIAGRAM_PICK_MANY는 절반을 넘을 때만 경고한다', () => {
+      const half = { ...grid, cells: cellsOf(6, [0, 1, 2]) } as Diagram;
+      expect(issuesOf(withDiagram(half), 'DIAGRAM_PICK_MANY')).toEqual([]);
+      const over = { ...grid, cells: cellsOf(6, [0, 1, 2, 3]) } as Diagram;
+      const found = issuesOf(withDiagram(over), 'DIAGRAM_PICK_MANY');
+      expect(found).toHaveLength(1);
+      expect(found[0]).toMatchObject({ severity: 'warning' });
+      expect(lintErrors(lintDigest(withDiagram(over), sampleTranscript()))).toEqual([]);
+    });
+
+    it('figure 블록에서도 걸린다', () => {
+      const none = { ...grid, cells: cellsOf(4, []) } as Diagram;
+      const d: Digest = { ...sampleDigest(), extensions: [figureExt(none)] };
+      expect(issuesOf(d, 'DIAGRAM_PICK_NONE').map((i) => i.path)).toEqual([
+        'extensions.0.blocks.0.diagram.cells',
+      ]);
+    });
+
+    it('출처가 대섹션 밖이면 칸 cite 자리를 짚는다', () => {
+      const out = { key: 8, from: 8, to: 8 };
+      const d = withDiagram({
+        ...grid,
+        cells: [{ label: 'a', picked: true, cite: out }, ...cellsOf(3, [])],
+      } as Diagram);
+      expect(issuesOf(d, 'DIAGRAM_CITE_OUT_OF_SECTION').map((i) => i.path)).toEqual([
+        'reports.0.sections.0.diagram.cells.0.cite',
+      ]);
+    });
+  });
+
+  describe('SVG', () => {
+    it('열 수는 칸 수로 정한다', () => {
+      const cols = Object.fromEntries(
+        Array.from({ length: 13 }, (_, i) => [i + 4, pickGridColumns(i + 4)]),
+      );
+      expect(cols).toEqual({
+        4: 2,
+        5: 3,
+        6: 3,
+        7: 4,
+        8: 4,
+        9: 3,
+        10: 4,
+        11: 4,
+        12: 4,
+        13: 4,
+        14: 4,
+        15: 4,
+        16: 4,
+      });
+    });
+
+    it('칸은 격자로 놓이고 같은 크기다', () => {
+      const svg = pickGridSvg(cellsOf(6, [1]), opts);
+      const boxes = [
+        ...svg.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="26"/g),
+      ];
+      expect(boxes).toHaveLength(6);
+      expect(new Set(boxes.map((m) => m[3])).size).toBe(1);
+      expect(new Set(boxes.map((m) => m[1])).size).toBe(3);
+      expect(new Set(boxes.map((m) => m[2])).size).toBe(2);
+    });
+
+    it('picked 칸에 dg-picked와 체크, 선택됨 aria가 붙고 나머지는 dg-dim이다', () => {
+      const svg = pickGridSvg(cellsOf(5, [1, 3]), opts);
+      expect(svg.match(/dg-picked/g)).toHaveLength(2);
+      expect(svg.match(/dg-dim/g)).toHaveLength(3);
+      expect(svg.match(/class="dg-check"/g)).toHaveLength(2);
+      expect(svg.match(/<path class="dg-check"[^>]*aria-hidden="true"/g)).toHaveLength(2);
+      expect(svg).toContain('aria-label="후보1, 선택됨"');
+      expect(svg).toContain('aria-label="후보3, 선택됨"');
+      expect(svg).not.toContain('aria-label="후보0');
+    });
+
+    it('출처가 있는 picked 칸은 링크 aria-label에도 선택됨을 싣는다', () => {
+      const svg = pickGridSvg(
+        [{ label: '검색', picked: true, cite: { key: 1, from: 1, to: 1 } }, ...cellsOf(3, [])],
+        opts,
+      );
+      expect(svg).toContain('aria-label="검색, 0분 5초로 이동, 선택됨"');
+      expect(svg).toContain('role="link"');
+      const text = pickGridSvg(
+        [{ label: '검색', picked: true, cite: { key: 1, from: 1, to: 1 } }, ...cellsOf(3, [])],
+        { unit: (c) => ({ index: c.key, label: 'p.1' }) },
+      );
+      expect(text).toContain('data-unit="1"');
+      expect(text).toContain('원문 p.1 열기, 선택됨');
+    });
+
+    it('스캔 줄은 장식이라 aria-hidden이고 등장 번호를 안 받는다', () => {
+      const svg = pickGridSvg(cellsOf(4, [0]), opts);
+      const scan = /<rect class="dg-scan"[^>]*>/.exec(svg)![0];
+      expect(scan).toContain('aria-hidden="true"');
+      expect(scan).not.toContain('--i:');
+      expect(scan).toMatch(/style="--w:[\d.]+px"/);
+      expect(svg.match(/class="dg-scan"/g)).toHaveLength(1);
+    });
+
+    it('칸은 dg-step으로 감싸 그린 순서대로 --i를 달고 svg에 칸 수 --n을 단다', () => {
+      const svg = pickGridSvg(cellsOf(6, [0]), opts);
+      for (let i = 0; i < 6; i++) {
+        expect(svg).toContain(`<g class="dg-step" style="--i:${i}"><g class="dg-node`);
+      }
+      expect(svg.match(/class="dg-step"/g)).toHaveLength(6);
+      expect(svg).toMatch(/<svg [^>]*style="--n:6"/);
+      expect(svg).not.toContain('--dg-step');
+    });
+
+    it('칸 16개는 간격을 줄이지 않고 --n 하나만 단다', () => {
+      const svg = pickGridSvg(cellsOf(16, [0, 5]), opts);
+      expect(svg).toMatch(/<svg [^>]*style="--n:16"/);
+      expect(svg).not.toContain('--dg-step');
+    });
+
+    it('칸이 전부 viewBox 안에 든다', () => {
+      for (const n of [4, 5, 9, 16]) {
+        const svg = pickGridSvg(cellsOf(n, [0]), opts);
+        const vb = /viewBox="0 0 (\d+) (\d+)"/.exec(svg)!;
+        for (const m of svg.matchAll(
+          /<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="26"/g,
+        )) {
+          expect(+m[1]! + +m[3]!).toBeLessThanOrEqual(+vb[1]!);
+          expect(+m[2]! + 26).toBeLessThanOrEqual(+vb[2]!);
+        }
+      }
+    });
+  });
+
+  describe('렌더', () => {
+    it('대섹션 HTML에 격자를 그리고 라벨과 aria에 고른 칸을 싣는다', () => {
+      const h = renderDigestHtml(withDiagram(grid), sampleTranscript()).html;
+      expect(h).toContain('dg-pick-grid');
+      expect(h).toContain('격자 고르기');
+      expect(h).toContain('검색, 알림 선택됨');
+    });
+
+    it('목록 보기가 선택됨을 말로 알린다', () => {
+      const { html } = renderDigestHtml(withDiagram(grid), sampleTranscript());
+      expect(html).toMatch(/<li>검색 \(선택됨\)/);
+      expect(html).toMatch(/<li>알림 \(선택됨\)<\/li>/);
+      expect(html).toMatch(/<li>추천<\/li>/);
+    });
+
+    it('figure 블록에서도 그린다', () => {
+      const { html } = renderDigestHtml(
+        { ...sampleDigest(), extensions: [figureExt(grid)] },
+        sampleTranscript(),
+      );
+      expect(html).toContain('dg-pick-grid');
+    });
+
+    it('마크다운은 칸 목록으로 내고 고른 칸에 선택됨을 쓴다', () => {
+      const md = renderDigestMarkdown(withDiagram(grid), sampleTranscript());
+      expect(md).toMatch(/- 검색 \(선택됨\)/);
+      expect(md).toMatch(/- 알림 \(선택됨\)/);
+      expect(md).toMatch(/- 추천(?! \(선택됨\))/);
+    });
+
+    it('칸 글자는 mdInline을 거쳐 |와 줄바꿈이 마크다운을 깨지 않는다', () => {
+      const d = withDiagram({
+        ...grid,
+        cells: [{ label: 'a|b\n칸', picked: true }, ...cellsOf(3, [])],
+      } as Diagram);
+      expect(renderDigestMarkdown(d, sampleTranscript())).toContain('a\\|b 칸 (선택됨)');
+    });
+
+    it('도식이 부족하다는 경고가 고른 칸 구조를 안내한다', () => {
+      const d = sampleDigest();
+      for (const s of d.reports[0]!.sections) delete s.diagram;
+      const found = lintDigest(d, sampleTranscript()).filter((i) => i.code === 'DIAGRAM_TOO_FEW');
+      expect(found).toHaveLength(1);
+      expect(found[0]!.message).toContain('여러 후보 중 고른 몇 개');
+    });
   });
 });

@@ -8,6 +8,7 @@ import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown, renderToFiles } from '../../../src/digest/render.js';
 import type { Digest, Transcript } from '../../../src/digest/schema.js';
 import { DigestStore } from '../../../src/digest/store.js';
+import { STEP_SEC } from '../../../src/digest/svg.js';
 import {
   THEME_BOOT_JS,
   THEME_BOOT_JS_SHA256,
@@ -608,5 +609,185 @@ describe('makeFlash', () => {
     vi.advanceTimersByTime(1);
     expect(btn.textContent).toBe('복사');
     expect(status.textContent).toBe('');
+  });
+});
+
+describe('순차 모션과 형광펜', () => {
+  const withDiagram = (): Digest => {
+    const d = sampleDigest();
+    d.reports[0]!.sections[0]!.diagram = {
+      kind: 'flow',
+      steps: [{ label: '가' }, { label: '나' }],
+    };
+    return d;
+  };
+  const html = () => renderDigestHtml(withDiagram(), sampleTranscript()).html;
+  /** 이번에 더한 모션 규칙 구간. 기존 busy-spin이 infinite를 써서 CSS 전체로는 못 본다 */
+  const motionCss = (h: string) => {
+    const from = h.indexOf('.sec-card{--dg-base');
+    const to = h.indexOf('@keyframes dg-ping');
+    expect(from).toBeGreaterThan(-1);
+    expect(to).toBeGreaterThan(from);
+    const media = h.indexOf('@media (prefers-reduced-motion:reduce),print', to);
+    expect(media).toBeGreaterThan(to);
+    return h.slice(from, h.indexOf('\n', media));
+  };
+
+  it('대섹션은 문장과 도식을 sec-card로 감싼다', () => {
+    const h = html();
+    expect(h).toMatch(/<div class="sec-card"><p class="conclusion">/);
+    const card = h.slice(h.indexOf('<div class="sec-card">'));
+    const end = card.indexOf('</div>');
+    expect(card.slice(0, end)).toContain('<figure class="diagram">');
+    expect(card.slice(0, end).indexOf('class="conclusion"')).toBeLessThan(
+      card.slice(0, end).indexOf('<figure class="diagram">'),
+    );
+  });
+
+  it('다시 재생 버튼은 hidden으로 렌더하고 noscript에서도 숨긴다', () => {
+    const h = html();
+    expect(h).toContain('<button type="button" class="replay-btn" data-replay hidden>');
+    expect(h).toMatch(/<noscript><style>[^<]*\.replay-btn\{display:none!important\}/);
+    expect(h).toContain('.replay-btn[hidden]{display:none}');
+  });
+
+  it('형광펜은 요약 문장 선택자에만 걸리고 불릿 li strong에는 안 걸린다', () => {
+    const css = motionCss(html()) + html().slice(html().indexOf('.replay-btn{'));
+    const rule = /([^{}\n]*\.sec-card>\.conclusion strong[^{]*)\{background:linear-gradient/.exec(
+      css,
+    );
+    expect(rule).not.toBeNull();
+    const selectors = rule![1]!.split(',').map((s) => s.trim());
+    expect(selectors).toEqual([
+      '.sec-card>.conclusion strong',
+      '.sec-intro strong',
+      '.lead strong',
+    ]);
+    expect(rule![1]).not.toMatch(/\bli\b/);
+    expect(rule![1]).not.toMatch(/\bdd\b/);
+  });
+
+  it('다이어리 형광펜도 요약 문장의 굵은 글씨에만 칠한다', () => {
+    const css = html();
+    const rule = /([^{}\n]*\.is-diary \.sec-card>\.conclusion strong[^{]*)\{([^}]*)\}/.exec(css);
+    expect(rule).not.toBeNull();
+    const selectors = rule![1]!.split(',').map((s) => s.trim());
+    expect(selectors).toEqual([
+      '.is-diary .sec-card>.conclusion strong',
+      '.is-diary .sec-intro strong',
+      '.is-diary .lead strong',
+    ]);
+    expect(css).not.toMatch(/\.is-diary strong\{/);
+  });
+
+  it('다이어리 형광펜은 기본 규칙보다 특이도가 높고 칠하는 높이가 같다', () => {
+    const css = html();
+    const specificity = (sel: string) =>
+      sel.split(/[\s>]+/).filter((p) => p.startsWith('.')).length;
+    const def = specificity('.sec-card>.conclusion strong');
+    const diary = specificity('.is-diary .sec-card>.conclusion strong');
+    expect(diary).toBeGreaterThan(def);
+    const base = /\.sec-card>\.conclusion strong[^{]*\{background:[^}]*\/100% (\d+%)/.exec(css);
+    const themed =
+      /\.is-diary \.sec-card>\.conclusion strong[^{]*\{background:[^}]*\/100% (\d+%)/.exec(css);
+    expect(themed![1]).toBe(base![1]);
+  });
+
+  it('모션 값은 --dg-step 0.28s와 선 그리기 0.55s다', () => {
+    const css = motionCss(html());
+    expect(css).toContain(`var(--dg-step,${STEP_SEC}s)`);
+    expect(css).toContain('animation:dg-draw .55s');
+    expect(css).toContain('.sec-card{--dg-base:.9s}');
+  });
+
+  it('선 그리기는 속성이 아니라 dg-line 클래스로 건다', () => {
+    const css = motionCss(html());
+    expect(css).toContain('.armed.play .dg-svg path.dg-line{animation:dg-draw');
+    expect(css).not.toContain('path[pathLength]');
+  });
+
+  it('새 모션 규칙에는 setInterval, Date.now, infinite가 없다', () => {
+    const css = motionCss(html());
+    expect(css).not.toContain('infinite');
+    expect(css).not.toContain('setInterval');
+    expect(css).not.toContain('Date.now');
+    // focus 강조는 세 번만 돈다
+    expect(css).toContain('animation:dg-ping .8s ease-in-out 3;');
+  });
+
+  it('JS가 .armed를 붙이기 전에는 아무것도 숨기지 않는다', () => {
+    const css = motionCss(html());
+    for (const line of css.split('\n')) {
+      if (line.startsWith('@keyframes') || line.startsWith('@media')) continue;
+      if (/opacity:0\}|stroke-dashoffset:1\}/.test(line))
+        expect(line.startsWith('.armed')).toBe(true);
+    }
+  });
+
+  it('reduce 모드와 인쇄에서는 새 모션을 끈다', () => {
+    const css = motionCss(html());
+    const media = /@media \(prefers-reduced-motion:reduce\),print\{(.*)\}$/m.exec(css);
+    expect(media).not.toBeNull();
+    const body = media![1]!;
+    expect(body).toContain('animation:none!important');
+    expect(body).toContain('opacity:1!important');
+    expect(body).toContain('.armed .dg-step');
+    expect(body).toContain('.armed>.conclusion strong{background-size:100% 42%');
+    expect(body).toContain('stroke-dasharray:none');
+  });
+
+  it('격자 고르기 모션은 스캔 줄을 한 번만 훑고 선택 강조를 그 뒤에 켠다', () => {
+    const css = motionCss(html());
+    const scan = /\.armed\.play \.dg-svg rect\.dg-scan\{([^}]*)\}/.exec(css);
+    expect(scan).not.toBeNull();
+    expect(scan![1]).toContain('animation:dg-scan 1s linear both');
+    expect(scan![1]).not.toContain('infinite');
+    expect(scan![1]).toContain(`var(--n,0) * var(--dg-step,${STEP_SEC}s) + .4s`);
+    const pick = /\.armed\.play \.dg-svg \.dg-picked rect\{([^}]*)\}/.exec(css);
+    expect(pick![1]).toContain('+ 1.4s');
+    expect(css).toMatch(/\.armed\.play \.dg-svg \.dg-dim\{animation:dg-dim [^}]*\+ 1\.4s/);
+    expect(css).toMatch(/\.armed\.play \.dg-svg \.dg-check\{animation:dg-fade [^}]*\+ 1\.4s/);
+  });
+
+  it('격자 고르기 시작 상태는 모든 칸이 같은 톤이고 최종 상태는 .armed 없이 적용된다', () => {
+    const h = html();
+    const css = motionCss(h);
+    expect(css).toContain('.armed .dg-svg .dg-picked rect{fill:var(--bg);stroke:var(--line)');
+    expect(css).toContain('.armed .dg-svg .dg-dim{opacity:1}');
+    expect(css).toContain('.armed .dg-svg .dg-check{opacity:0}');
+    // 최종 상태는 .armed 없이 걸린 규칙이다
+    expect(h).toContain(
+      '.dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent);stroke-width:3}',
+    );
+    expect(h).toContain('.dg-svg .dg-dim{opacity:.5}');
+    expect(h).toContain('.dg-svg rect.dg-scan{fill:var(--accent);stroke:none;opacity:0}');
+  });
+
+  it('격자 고르기 선택자는 속성이 아니라 클래스로 건다', () => {
+    const css = motionCss(html());
+    const lines = css.split('\n').filter((l) => /dg-(scan|picked|dim|check)/.test(l));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) {
+      const selectors = l.startsWith('@keyframes') ? '' : l.slice(0, l.indexOf('{'));
+      expect(selectors).not.toContain('[');
+    }
+  });
+
+  it('reduce 모드와 인쇄는 선택 강조를 바로 적용하고 스캔 줄을 숨긴다', () => {
+    const css = motionCss(html());
+    const body = /@media \(prefers-reduced-motion:reduce\),print\{(.*)\}$/m.exec(css)![1]!;
+    expect(body).toContain(
+      '.armed .dg-svg .dg-check{opacity:1!important;animation:none!important}',
+    );
+    expect(body).toContain(
+      '.armed .dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent);stroke-width:3;animation:none!important}',
+    );
+    expect(body).toContain('.armed .dg-svg .dg-dim{opacity:.5;animation:none!important}');
+    expect(body).toContain('.armed .dg-svg rect.dg-scan{opacity:0;animation:none!important}');
+  });
+
+  it('도식이 없는 대섹션도 sec-card 안에 결론 문장을 둔다', () => {
+    const h = renderDigestHtml(sampleDigest(), sampleTranscript()).html;
+    expect(h).toMatch(/<div class="sec-card"><p class="conclusion">[^]*?<\/p><\/div>/);
   });
 });

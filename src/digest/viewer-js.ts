@@ -513,6 +513,45 @@ export const VIEWER_JS =
     return { observe: observe };
   }
 
+  // 요약 문장과 도식은 카드가 35% 보일 때 한 번 차례로 띄운다. 시작 상태(.armed)를 스크립트가 붙이므로 스크립트가 없으면 처음부터 다 그려진 채로 보인다.
+  // 차례와 시간은 CSS의 --i와 animation-delay로만 정한다. 타이머 없이 시간표만 있어야 나중에 영상으로 뽑을 때 그대로 옮길 수 있다
+  // 카드가 화면보다 길면 보이는 비율이 35%에 못 미쳐서 화면 높이의 35%를 채운 것도 보인 것으로 친다
+  function setupMotion() {
+    if (reduceMotion || !('IntersectionObserver' in window)) return { observe: function(){} };
+    var SHOWN = 0.35;
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if (!en.isIntersecting) return;
+        var tall = en.rootBounds && en.intersectionRect.height >= en.rootBounds.height * SHOWN;
+        if (en.intersectionRatio < SHOWN && !tall) return;
+        en.target.classList.add('play');
+        io.unobserve(en.target);
+      });
+    }, { threshold: [0, 0.1, 0.2, 0.3, SHOWN] });
+    function observe(root){
+      var cards = Array.prototype.slice.call(root.querySelectorAll('.sec-card, figure.diagram'));
+      if (root.matches && root.matches('.sec-card, figure.diagram')) cards.unshift(root);
+      cards.forEach(function(c){
+        // 요약 카드 안 도식은 카드가 문장 다음 차례로 함께 띄운다
+        if (c.classList.contains('armed') || (c.matches('figure.diagram') && c.closest('.sec-card'))) return;
+        c.classList.add('armed');
+        io.observe(c);
+      });
+      root.querySelectorAll('[data-replay]').forEach(function(b){ b.hidden = false; });
+    }
+    observe(document);
+    document.addEventListener('click', function(ev){
+      var btn = ev.target.closest ? ev.target.closest('[data-replay]') : null;
+      var card = btn ? btn.closest('.armed') : null;
+      if (!card) return;
+      card.classList.remove('play');
+      // 클래스를 뗀 상태를 한 번 그려야 같은 애니메이션이 처음부터 다시 돈다
+      void card.offsetWidth;
+      card.classList.add('play');
+    });
+    return { observe: observe };
+  }
+
   // 읽는 소섹션이 바뀌면 영상을 그 구간 첫 문장으로 옮긴다. 재생 중이면 요약을 스크롤해도 영상을 옮기지 않고 빠르게 훑을 때는 멈춘 자리만 따른다.
   // 방금 시각을 눌렀으면 유예가 끝난 뒤 영상이 멈춰 있을 때만 따라간다. 기다리는 사이 그 소섹션이 화면에서 빠지면 따라가지 않는다
   // 앞선 이동의 버퍼링이 덜 끝났으면 재생 중으로 읽히므로 300ms 뒤 두 번까지 다시 본다
@@ -1007,6 +1046,7 @@ export const VIEWER_JS =
     popups.mark(root);
     sectionMarks.observe(root);
     subFollow.observe(root);
+    motion.observe(root);
     zoom.wrap(root);
   }
 
@@ -1389,6 +1429,7 @@ export const VIEWER_JS =
   var popups = setupPopups(docPane);
   setupScriptFollow(player);
   var sectionMarks = setupSectionMarks();
+  var motion = setupMotion();
   var subFollow = setupSubsectionFollow(player);
   var mini = setupMiniPlayer(player);
   setupCopyButton(reports, tabs);

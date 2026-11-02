@@ -215,3 +215,22 @@ describe('applyProse', () => {
     });
   });
 });
+
+describe('핵심 수치 윤문 라벨', () => {
+  it('stat의 value와 label이 같은 그림 group의 label로 잡힌다', () => {
+    const d = sampleDigest();
+    d.reports[0]!.sections[1]!.diagram = {
+      kind: 'stat',
+      caption: '규모',
+      value: '5천만 명',
+      label: '월간 가입자',
+      cite: { key: 6, from: 6, to: 6 },
+    };
+    const dp = 'reports.0.sections.1.diagram';
+    const labels = extractProse(d).filter((i) => i.kind === 'label' && i.group === dp);
+    const paths = labels.map((i) => i.path);
+    expect(paths).toContain(`${dp}.value`);
+    expect(paths).toContain(`${dp}.label`);
+    expect(labels.find((i) => i.path === `${dp}.value`)!.text).toBe('5천만 명');
+  });
+});

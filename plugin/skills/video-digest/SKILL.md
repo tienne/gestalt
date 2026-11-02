@@ -294,7 +294,7 @@ gestalt digest merge '<slug>' '<reportPath>' --json --repo-root '<repoRoot>'
 
 리포트 형식이 아예 틀리면 merge가 `리포트 형식 오류:`로 끝난다. 그 메시지도 같은 방법으로 넘긴다.
 
-`severity`가 `warning`인 것(소섹션 개수, 불릿 개수, 도식 수)은 막지 않는다. 영상에 맞는 분량이면 그대로 둔다. `DIAGRAM_TOO_FEW`는 리포트마다 한 번만 `video-summarizer`에 넘겨 단계나 견주기, 시간 흐름, 원인과 결과가 있는 대섹션에 도식을 더 붙일 수 있는지 보게 한다. 넘길 때는 프롬프트에 경고 `message`와 "도식을 더했거나 더할 구조가 없으면 Output Format 세 줄 뒤에 `diagrams:` 줄로 적는다"를 함께 싣는다. 돌아오면 같은 초안 경로로 merge를 다시 부른다. 이때 `DIAGRAM_TOO_FEW`가 또 나와도 다시 맡기지 않고 `diagrams:` 줄의 이유를 Step 7 보고에 옮긴다.
+`severity`가 `warning`인 것(소섹션 개수, 불릿 개수, 도식 수)은 막지 않는다. 영상에 맞는 분량이면 그대로 둔다. `DIAGRAM_TOO_FEW`는 리포트마다 한 번만 `video-summarizer`에 넘겨 단계나 견주기, 시간 흐름, 원인과 결과, 한 중심에 딸린 여러 요소, 숫자 하나에 담기는 결론, 여러 후보 중 고른 몇 개가 있는 대섹션에 도식을 더 붙일 수 있는지 보게 한다. 넘길 때는 프롬프트에 경고 `message`와 "도식을 더했거나 더할 구조가 없으면 Output Format 세 줄 뒤에 `diagrams:` 줄로 적는다"를 함께 싣는다. 돌아오면 같은 초안 경로로 merge를 다시 부른다. 이때 `DIAGRAM_TOO_FEW`가 또 나와도 다시 맡기지 않고 `diagrams:` 줄의 이유를 Step 7 보고에 옮긴다.
 
 ## Step 3.5 — 확장 리포트
 
@@ -409,6 +409,7 @@ gestalt digest translate-apply '<slug>' '<dir>/translation.part-<a>.json' --json
     - 원문보다 길게 쓰지 않는다. 길어지면 그 항목은 원문이 남는다
     - 같은 group 라벨끼리 꼴을 맞춘다. 비교 열 제목처럼 짝을 이루는 라벨은 한쪽만 바꾸지 않는다
     - 번역투와 '의'가 이어지는 꼴, 가운뎃점 나열, 안 굳은 음차, 과장 수식어만 고친다. 뜻을 바꾸거나 내용을 더 줄이지 않는다
+    - path가 `.value`로 끝나는 항목은 핵심 수치 도식의 큰 숫자다. 숫자와 단위를 그대로 둔다
   - 5단계에서 `LABEL_TOO_LONG`이 오면 라벨이 원문보다 길어진 것이다. 그 항목만 한 번 더 보내며 지킬 것 끝에 "원문 글자 수 이하"를 적어 준다. 두 번째도 걸리면 원문을 둔다.
 - 6단계는 다시 스캔까지만 하고 Step 6 렌더로 간다.
 

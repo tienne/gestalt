@@ -7,6 +7,7 @@ import {
 } from './blocks.js';
 import type { DigestIssue } from './lint.js';
 import { boldPattern, keywordPattern, type Cite, type Diagram, type Transcript } from './schema.js';
+import { statValueFits } from './svg.js';
 import type { DigestTemplate } from './templates.js';
 
 /**
@@ -119,6 +120,18 @@ export function* walkDiagram(
         if (title) yield { label: title, path: sp, labelPath: `${sp}.title` };
         for (const [k, item] of items.entries()) yield node(item, `${sp}.items.${k}`);
       }
+      return;
+    case 'hub':
+      yield node(d.center, `${prefix}.center`);
+      for (const [k, n] of d.satellites.entries()) yield node(n, `${prefix}.satellites.${k}`);
+      return;
+    case 'stat':
+      // value에 출처가 따로 없어서 cite는 label 쪽 하나만 싣는다
+      yield { label: d.value, path: prefix, labelPath: `${prefix}.value` };
+      yield node(d, prefix);
+      return;
+    case 'pickGrid':
+      for (const [k, c] of d.cells.entries()) yield node(c, `${prefix}.cells.${k}`);
       return;
     default: {
       const never: never = d;
@@ -419,7 +432,8 @@ const DIAGRAM_TREE_LIMIT: TreeLimit = {
 };
 
 /**
- * 스키마로는 못 잡는 도식 모양을 본다. 트리 깊이와 크기, 상자 하나만 남는 인과도와 빈 매트릭스다.
+ * 스키마로는 못 잡는 도식 모양을 본다. 트리 깊이와 크기, 상자 하나만 남는 인과도와 빈 매트릭스,
+ * 강조가 여럿인 허브, 길거나 출처 없는 핵심 수치, 고른 칸이 없거나 전부거나 많은 격자다.
  * 확장 리포트의 figure 블록도 같은 검사를 쓴다
  */
 export function checkDiagramShape(d: Diagram, dp: string, issues: DigestIssue[]): void {
@@ -439,6 +453,72 @@ export function checkDiagramShape(d: Diagram, dp: string, issues: DigestIssue[])
       severity: 'error',
       code: 'DIAGRAM_EMPTY',
       message: '매트릭스 네 칸이 다 비었다. 칸마다 노드를 0~4개 둔다',
+    });
+  }
+  if (d.kind === 'hub') {
+    const focused = d.satellites.flatMap((s, k) => (s.focus ? [k] : []));
+    if (focused.length > 1) {
+      issues.push({
+        path: `${dp}.satellites.${focused[1]!}.focus`,
+        severity: 'error',
+        code: 'DIAGRAM_FOCUS_MULTI',
+        message: `허브의 focus는 위성 하나에만 단다. 지금 ${focused.length}개다(${focused.join(', ')}번)`,
+      });
+    }
+  }
+  if (d.kind === 'stat') checkStat(d, dp, issues);
+  if (d.kind === 'pickGrid') checkPickGrid(d, dp, issues);
+}
+
+/** picked가 이 비율을 넘으면 고른 칸이 다수라서 고른다는 느낌이 약하다 */
+export const DIAGRAM_PICK_MANY_RATIO = 0.5;
+
+function checkPickGrid(
+  d: Extract<Diagram, { kind: 'pickGrid' }>,
+  dp: string,
+  issues: DigestIssue[],
+): void {
+  const picked = d.cells.filter((c) => c.picked).length;
+  if (picked === 0) {
+    issues.push({
+      path: `${dp}.cells`,
+      severity: 'error',
+      code: 'DIAGRAM_PICK_NONE',
+      message: '격자에서 picked인 칸이 하나도 없다. 고르는 그림이 아니다. 고른 칸에 picked를 단다',
+    });
+  } else if (picked === d.cells.length) {
+    issues.push({
+      path: `${dp}.cells`,
+      severity: 'error',
+      code: 'DIAGRAM_PICK_ALL',
+      message: `격자 ${d.cells.length}칸이 전부 picked다. 고르는 그림이 아니다. 고르지 않은 칸의 picked를 뺀다`,
+    });
+  } else if (picked > d.cells.length * DIAGRAM_PICK_MANY_RATIO) {
+    issues.push({
+      path: `${dp}.cells`,
+      severity: 'warning',
+      code: 'DIAGRAM_PICK_MANY',
+      message: `격자 ${d.cells.length}칸 중 ${picked}칸이 picked다. 절반을 넘으면 고른다는 느낌이 약하다. 정말 고른 칸만 남긴다`,
+    });
+  }
+}
+
+function checkStat(d: Extract<Diagram, { kind: 'stat' }>, dp: string, issues: DigestIssue[]): void {
+  if (!statValueFits(d.value)) {
+    issues.push({
+      path: `${dp}.value`,
+      severity: 'warning',
+      code: 'DIAGRAM_STAT_LONG',
+      message: `핵심 수치 value("${d.value}")가 한 줄에 안 들어가 그림에서 말줄임표로 잘린다. 한글 9자 안의 숫자와 단위만 두고 설명은 label로 옮긴다`,
+    });
+  }
+  // 수치는 원문 표와 대조하는 장치가 없어서 cite가 없으면 지어낸 숫자를 걸러낼 길이 없다
+  if (!d.cite) {
+    issues.push({
+      path: dp,
+      severity: 'warning',
+      code: 'DIAGRAM_STAT_NO_CITE',
+      message: '핵심 수치에 cite가 없다. 숫자가 나온 원문 자리를 단다',
     });
   }
 }
