@@ -48,7 +48,7 @@ export PATH="$(dirname "$NODE"):$PATH"
 # 0.72.1 server.
 SPEC="@tienne/gestalt"
 if [[ -f "$ROOT/package.json" ]]; then
-  VERSION="$("$NODE" -p "require('$ROOT/package.json').version" 2>/dev/null || true)"
+  VERSION="$("$NODE" -p "require(process.argv[1]).version" "$ROOT/package.json" 2>/dev/null || true)"
   [[ -n "$VERSION" ]] && SPEC="@tienne/gestalt@$VERSION"
 fi
 # Losing the pin lands us back on whatever npm calls latest. That is the state
