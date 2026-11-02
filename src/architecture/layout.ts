@@ -72,7 +72,7 @@ export interface LayoutRect {
 }
 
 export interface LayoutFrame extends LayoutRect {
-  /** 머리 카드 id. 묶음 테두리면 `group:<라벨>:<열 x>`라 노드 id와 안 겹친다 */
+  /** 머리 카드 id. 묶음 테두리면 `group:<라벨>:<열 x>`이고 띠로 나뉜 그림이면 뒤에 `:<띠>`가 붙는다. 렌더러는 라벨 단 테두리를 카드의 data-frame에 안 쓰므로 노드 id와 같아도 섞이지 않는다 */
   id: string;
   /** 묶음 테두리만. 테두리 왼쪽 위 안쪽에 쓰는 이름이다 */
   label?: string;
@@ -766,8 +766,8 @@ export function frameRects(layout: LayoutResult, frames: readonly FrameGroup[]):
   return rects.length === 0 ? layout : { ...layout, frames: rects };
 }
 
-/** 라벨을 단 테두리로 묶을 카드. 머리 카드 없이 같은 묶음 이름을 가진 카드끼리 모은다 */
-export interface RepoGroup {
+/** 라벨을 단 테두리로 묶을 카드. 머리 카드 없이 묶음 이름이 같은 카드끼리 모은다 */
+export interface LabeledGroup {
   label: string;
   members: readonly string[];
 }
@@ -776,50 +776,69 @@ export interface RepoGroup {
 export const GROUP_LABEL_H = 20;
 
 /**
- * 열마다 같은 묶음 카드를 그 묶음의 맨 위 멤버 자리에 이어 붙이고 나머지 카드는 elk가 정한 위아래 순서를 지키며 아래로 민다.
- * 카드를 옆 열로 옮기지 않는다. 한 묶음이 여러 열에 있으면 열마다 따로 모인다.
- * 묶음 앞에는 테두리 여백과 라벨 줄, 뒤에는 테두리 여백만큼 더 띄워 이웃 카드와 테두리가 안 겹치게 한다
+ * 위에서 아래 순으로 정렬된 한 열의 카드를 start부터 PIN_GAP 간격으로 쌓는다. 같은 묶음 카드는 그 묶음의 첫 카드 자리로 모은다.
+ * 묶음 앞에는 테두리 여백과 라벨 줄, 뒤에는 테두리 여백을 둔다. 다음 카드가 설 y를 돌려준다
  */
-export function stackGroups(layout: LayoutResult, groups: readonly RepoGroup[]): LayoutResult {
-  const byNode = new Map(layout.nodes.map((n) => [n.id, n]));
+function stackRuns(
+  sorted: readonly LayoutNode[],
+  groupOf: ReadonlyMap<string, string>,
+  start: number,
+  placed: Map<string, number>,
+): number {
+  const runs: LayoutNode[][] = [];
+  const runOf = new Map<string, LayoutNode[]>();
+  for (const n of sorted) {
+    const label = groupOf.get(n.id);
+    if (label === undefined) {
+      runs.push([n]);
+      continue;
+    }
+    const run = runOf.get(label);
+    if (run !== undefined) {
+      run.push(n);
+      continue;
+    }
+    const fresh = [n];
+    runOf.set(label, fresh);
+    runs.push(fresh);
+  }
+  let y = start;
+  for (const run of runs) {
+    const framed = groupOf.has(run[0]!.id);
+    if (framed) y += FRAME_PAD + GROUP_LABEL_H;
+    for (const n of run) {
+      placed.set(n.id, round2(y));
+      y += n.height + PIN_GAP;
+    }
+    if (framed) y += FRAME_PAD;
+  }
+  return y;
+}
+
+function groupIndex(layout: LayoutResult, groups: readonly LabeledGroup[]): Map<string, string> {
+  const present = new Set(layout.nodes.map((n) => n.id));
   const groupOf = new Map<string, string>();
   for (const g of groups) {
-    for (const m of g.members) if (byNode.has(m)) groupOf.set(m, g.label);
+    for (const m of g.members) if (present.has(m)) groupOf.set(m, g.label);
   }
+  return groupOf;
+}
+
+/**
+ * 묶음 카드가 있는 열을 맨 위 카드 자리부터 PIN_GAP 간격으로 다시 쌓는다. elk가 정한 위아래 순서만 지키고 카드 사이 간격은 새로 잡는다.
+ * 같은 묶음 카드는 그 묶음의 맨 위 멤버 자리로 모은다. 카드를 옆 열로 옮기지 않아서 한 묶음이 여러 열에 있으면 열마다 따로 모인다
+ */
+export function stackGroups(layout: LayoutResult, groups: readonly LabeledGroup[]): LayoutResult {
+  const groupOf = groupIndex(layout, groups);
   if (groupOf.size === 0) return layout;
+  const byNode = new Map(layout.nodes.map((n) => [n.id, n]));
   const placed = new Map<string, number>();
   const columns = [...new Set([...groupOf.keys()].map((id) => byNode.get(id)!.x))];
   for (const x of columns.sort((a, b) => a - b)) {
     const column = layout.nodes
       .filter((n) => n.x === x)
-      .sort((a, b) => a.y - b.y || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    const runs: LayoutNode[][] = [];
-    const runOf = new Map<string, LayoutNode[]>();
-    for (const n of column) {
-      const label = groupOf.get(n.id);
-      if (label === undefined) {
-        runs.push([n]);
-        continue;
-      }
-      const run = runOf.get(label);
-      if (run !== undefined) {
-        run.push(n);
-        continue;
-      }
-      const fresh = [n];
-      runOf.set(label, fresh);
-      runs.push(fresh);
-    }
-    let y = Math.min(...column.map((n) => n.y));
-    for (const run of runs) {
-      const framed = groupOf.has(run[0]!.id);
-      if (framed) y += FRAME_PAD + GROUP_LABEL_H;
-      for (const n of run) {
-        placed.set(n.id, round2(y));
-        y += n.height + PIN_GAP;
-      }
-      if (framed) y += FRAME_PAD;
-    }
+      .sort((a, b) => a.y - b.y || compareText(a.id, b.id));
+    stackRuns(column, groupOf, Math.min(...column.map((n) => n.y)), placed);
   }
   const nodes = layout.nodes.map((n) => ({ ...n, y: placed.get(n.id) ?? n.y }));
   const moved = nodes.filter((n, i) => n.y !== layout.nodes[i]!.y).map((n) => n.id);
@@ -833,23 +852,36 @@ export function stackGroups(layout: LayoutResult, groups: readonly RepoGroup[]):
   };
 }
 
-/** 다 쌓은 좌표에서 (묶음, 열)마다 라벨 단 테두리를 내 기존 테두리 뒤에 붙인다. frameRects처럼 맨 마지막에 부른다 */
-export function groupRects(layout: LayoutResult, groups: readonly RepoGroup[]): LayoutResult {
+/**
+ * 다 쌓은 좌표에서 (묶음, 열)마다 라벨 단 테두리를 내 기존 테두리 뒤에 붙인다. frameRects처럼 맨 마지막에 부른다.
+ * 띠로 나뉜 그림이면 (묶음, 열, 띠)마다 따로 그려 테두리가 다른 띠 카드를 감싸지 않게 한다
+ */
+export function groupRects(layout: LayoutResult, groups: readonly LabeledGroup[]): LayoutResult {
   const byNode = new Map(layout.nodes.map((n) => [n.id, n]));
+  const bandOf = layout.regions?.bandOf;
   const rects: LayoutFrame[] = [];
   for (const g of [...groups].sort((a, b) => compareText(a.label, b.label))) {
-    const byColumn = new Map<number, LayoutNode[]>();
+    const cells = new Map<string, { x: number; band?: number; present: LayoutNode[] }>();
     for (const m of g.members) {
       const n = byNode.get(m);
-      if (n !== undefined) byColumn.set(n.x, [...(byColumn.get(n.x) ?? []), n]);
+      if (n === undefined) continue;
+      const band = bandOf?.[m];
+      const key = band === undefined ? `${n.x}` : `${n.x}:${band}`;
+      let cell = cells.get(key);
+      if (cell === undefined) {
+        cell = { x: n.x, ...(band !== undefined ? { band } : {}), present: [] };
+        cells.set(key, cell);
+      }
+      cell.present.push(n);
     }
-    for (const [x, present] of [...byColumn].sort((a, b) => a[0] - b[0])) {
+    const ordered = [...cells.values()].sort((a, b) => a.x - b.x || (a.band ?? 0) - (b.band ?? 0));
+    for (const { x, band, present } of ordered) {
       const left = Math.min(...present.map((n) => n.x)) - FRAME_PAD;
       const top = Math.min(...present.map((n) => n.y)) - FRAME_PAD - GROUP_LABEL_H;
       const right = Math.max(...present.map((n) => n.x + n.width)) + FRAME_PAD;
       const bottom = Math.max(...present.map((n) => n.y + n.height)) + FRAME_PAD;
       rects.push({
-        id: `group:${g.label}:${x}`,
+        id: band === undefined ? `group:${g.label}:${x}` : `group:${g.label}:${x}:${band}`,
         label: g.label,
         x: round2(left),
         y: round2(top),
@@ -913,11 +945,13 @@ export const BAND_TAIL = 14;
  * 열(x)은 elk가 정한 그대로 둔다. 같이 쓰는 띠 안에서는 쓰는 제품이 많은 카드가 위로 가고 그 밖에는 elk의 위아래 순서를 지킨다.
  * 띠 높이는 모든 열에서 같게 맞춰야 구분선 한 줄로 띠가 갈린다. 카드가 있는 띠가 하나뿐이면 나눠 보일 게 없어 그대로 돌려준다.
  * 같이 쓰는 카드의 제품 순서는 그 카드와 바로 이어진 그 제품 전용 카드가 많은 순이다. 게이트웨이라면 그 제품 API로 가는 선이 많은 쪽이 앞에 온다. 같으면 그룹 순서다
+ * labeled를 주면 (열, 띠)마다 같은 묶음 카드를 모으고 묶음 테두리 여백까지 띠 높이에 넣는다. 그래야 다시 쌓을 때 stackGroups가 둔 여백이 사라지지 않는다
  */
 export function stackBands(
   layout: LayoutResult,
   groups: readonly BandGroup[],
   links: ReadonlyArray<{ from: string; to: string }> = [],
+  labeled: readonly LabeledGroup[] = [],
 ): LayoutResult {
   if (groups.length < 2 || layout.nodes.length === 0) return layout;
   const productsOf = new Map<string, number[]>();
@@ -939,12 +973,26 @@ export function stackBands(
 
   const columns = new Map<number, LayoutNode[]>();
   for (const n of layout.nodes) columns.set(n.x, [...(columns.get(n.x) ?? []), n]);
+  const share = (n: LayoutNode): number => productsOf.get(n.id)!.length;
+  const sortBand = (col: readonly LayoutNode[], band: number): LayoutNode[] =>
+    col
+      .filter((n) => bandOf(n.id) === band)
+      .sort(
+        (a, b) =>
+          (band === 0 ? share(b) - share(a) : 0) ||
+          a.y - b.y ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      );
+  const groupOf = groupIndex(layout, labeled);
   const bandHeight = Array.from({ length: bandCount }, () => 0);
   for (const col of columns.values()) {
     for (let band = 0; band < bandCount; band++) {
       const inBand = col.filter((n) => bandOf(n.id) === band);
       if (inBand.length === 0) continue;
-      const h = inBand.reduce((sum, n) => sum + n.height, 0) + PIN_GAP * (inBand.length - 1);
+      const h =
+        groupOf.size === 0
+          ? inBand.reduce((sum, n) => sum + n.height, 0) + PIN_GAP * (inBand.length - 1)
+          : stackRuns(sortBand(col, band), groupOf, 0, new Map()) - PIN_GAP;
       bandHeight[band] = Math.max(bandHeight[band]!, h);
     }
   }
@@ -961,24 +1009,9 @@ export function stackBands(
   }
   const bandTop = new Map(bands.map((b) => [b.band, b.y + BAND_HEAD]));
 
-  const share = (n: LayoutNode): number => productsOf.get(n.id)!.length;
   const placed = new Map<string, number>();
   for (const col of columns.values()) {
-    for (const [band, start] of bandTop) {
-      let y = start;
-      const inBand = col
-        .filter((n) => bandOf(n.id) === band)
-        .sort(
-          (a, b) =>
-            (band === 0 ? share(b) - share(a) : 0) ||
-            a.y - b.y ||
-            (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-        );
-      for (const n of inBand) {
-        placed.set(n.id, round2(y));
-        y += n.height + PIN_GAP;
-      }
-    }
+    for (const [band, start] of bandTop) stackRuns(sortBand(col, band), groupOf, start, placed);
   }
   const nodes = layout.nodes.map((n) => ({ ...n, y: placed.get(n.id) ?? n.y }));
   const moved = nodes.filter((n, i) => n.y !== layout.nodes[i]!.y).map((n) => n.id);
