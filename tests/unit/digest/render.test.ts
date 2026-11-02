@@ -207,7 +207,7 @@ describe('renderDigestHtml 플레이어', () => {
   it('스크립트 헤더에 현재 구간만 보기 버튼을 싣고 번역과 상관없이 둔다', () => {
     const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
     expect(html).toContain(
-      'id="script-fold" class="tr-toggle" aria-pressed="false" aria-controls="script-body" hidden>현재 구간만</button>',
+      'id="script-fold" class="script-toggle" aria-pressed="false" aria-controls="script-body" hidden>현재 구간만</button>',
     );
     expect(html).toContain('.script.is-focus #script-list li:not(.is-playing){display:none}');
     expect(html).toContain(
