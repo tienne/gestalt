@@ -217,6 +217,17 @@ describe('renderDigestHtml 플레이어', () => {
     expect(html).not.toContain('id="tr-toggle"');
   });
 
+  it('현재 구간만 보기 스크립트가 켠 상태만 저장하고 재생 줄이 잡히면 폴백을 끈다', () => {
+    const from = VIEWER_JS.indexOf('function setupScriptFold');
+    const body = VIEWER_JS.slice(from, VIEWER_JS.indexOf('function setupTranslation'));
+    expect(body).toContain("localStorage.getItem(FOLD_KEY) === 'on'");
+    expect(body).toContain("localStorage.setItem(FOLD_KEY, 'on')");
+    expect(body).toContain('localStorage.removeItem(FOLD_KEY)');
+    expect(body).toContain("box.classList.toggle('is-focus', on)");
+    expect(body).toContain('btn.hidden = false');
+    expect(VIEWER_JS).toContain("scriptBox.classList.add('has-cur')");
+  });
+
   it('번역 언어가 없으면 번역 문장이 있어도 싣지 않는다', () => {
     const t = sampleTranscript();
     t.segments[1]!.translation = '두 번째 문장';
