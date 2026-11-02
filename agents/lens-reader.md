@@ -235,7 +235,7 @@ video-digest 리포트와 같은 꼴에 렌즈 칸을 더한다. 영상 칸 `fra
 
 논문은 보통 문제 제기, 방법, 실험 결과, 논의와 한계 순으로 대섹션을 나눈다. 원문 절 번호를 그대로 따를 필요는 없다.
 
-대섹션 `diagram`은 video-digest와 같은 여덟 종류(`flow`, `cycle`, `compare`, `tree`, `timeline`, `matrix`, `causal`, `beforeAfter`)를 쓸 수 있다. 원문 그림을 다시 그리는 데 쓰지 않는다. 원문 그림은 `figures`로 싣는다.
+대섹션 `diagram`은 video-digest와 같은 열 종류(`flow`, `cycle`, `compare`, `tree`, `timeline`, `matrix`, `causal`, `beforeAfter`, `hub`, `stat`)를 쓸 수 있다. `stat`의 `value`는 원문 표나 본문의 숫자를 글자 그대로 옮기고 그 숫자가 나온 문단에 `cite`를 단다. 원문 그림을 다시 그리는 데 쓰지 않는다. 원문 그림은 `figures`로 싣는다.
 
 ## 키워드
 
