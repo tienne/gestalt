@@ -537,3 +537,40 @@ describe('초기 리포트 렌더', () => {
     expect(VIEWER_JS).toContain('data.initial');
   });
 });
+
+describe('VIEWER_JS 모션', () => {
+  const motion = () => {
+    const from = VIEWER_JS.indexOf('function setupMotion');
+    expect(from).toBeGreaterThan(-1);
+    return VIEWER_JS.slice(from, VIEWER_JS.indexOf('function setupSubsectionFollow'));
+  };
+
+  it('setupMotion이 IntersectionObserver와 threshold로 재생을 건다', () => {
+    const js = motion();
+    expect(js).toContain('IntersectionObserver');
+    expect(js).toContain('threshold');
+    expect(js).toContain("classList.add('armed')");
+    expect(js).toContain("classList.add('play')");
+  });
+
+  it('reduceMotion이면 아무것도 붙이지 않는다', () => {
+    expect(motion()).toMatch(
+      /if \(reduceMotion \|\| !\('IntersectionObserver' in window\)\) return/,
+    );
+  });
+
+  it('다시 재생은 data-replay 클릭 위임으로 play를 뗐다 다시 붙인다', () => {
+    const js = motion();
+    expect(js).toContain('[data-replay]');
+    expect(js).toContain("classList.remove('play')");
+    expect(js).toContain('offsetWidth');
+  });
+
+  it('번역과 확장 탭으로 끼는 노드도 motion.observe(root)로 받는다', () => {
+    expect(VIEWER_JS).toContain('motion.observe(root)');
+  });
+
+  it('모션 구간은 setInterval과 Date.now를 쓰지 않는다', () => {
+    expect(motion()).not.toMatch(/setInterval|Date\.now/);
+  });
+});

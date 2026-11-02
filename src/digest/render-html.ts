@@ -289,7 +289,7 @@ export function renderDigestHtml(
           )
           .join('');
         const intro = s.intro ? `<p class="sec-intro">${inline(s.intro, kwIds)}</p>` : '';
-        return `<section class="sec" id="sec-${pfx}${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${loc(s.cite.key)}</h2>${intro}<p class="conclusion">${inline(s.conclusion, kwIds)}${cite(s.cite)}</p>${s.diagram ? sectionDiagramHtml(s.diagram, stripNumbering(s.title), blockCtx) : ''}${subs}${sectionContextHtml(s.id, report.cards, report.links, lens)}</section>`;
+        return `<section class="sec" id="sec-${pfx}${e(s.id)}"><h2><span class="num">${si + 1}.</span> ${e(stripNumbering(s.title))} ${loc(s.cite.key)}</h2>${intro}<div class="sec-card"><p class="conclusion">${inline(s.conclusion, kwIds)}${cite(s.cite)}</p>${s.diagram ? sectionDiagramHtml(s.diagram, stripNumbering(s.title), blockCtx) : ''}</div>${subs}${sectionContextHtml(s.id, report.cards, report.links, lens)}</section>`;
       })
       .join('');
 
@@ -509,7 +509,7 @@ ${skippedHtml}</div>`;
 <script>${THEME_BOOT_JS}</script>
 ${externalFontsEnabled(opts.externalFonts) ? DIARY_FONT_LINK : ''}<style>${CSS}${LENS_CSS}${WIDGET_CSS}${DIARY_CSS}</style>
 ${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz-check,.zoom-btn{display:none}.quiz-exp{display:block!important}</style></noscript>' : ''}
-<noscript><style>.doc-open,.doc-close,.theme-switch{display:none!important}@media (max-width:900px){.is-doc .side{position:static;height:auto;transform:none;visibility:visible;transition:none}}</style></noscript>
+<noscript><style>.doc-open,.doc-close,.theme-switch{display:none!important}.replay-btn{display:none!important}@media (max-width:900px){.is-doc .side{position:static;height:auto;transform:none;visibility:visible;transition:none}}</style></noscript>
 </head>
 <body${bodyClass ? ` class="${bodyClass}"` : ''}>
 <div class="layout">
@@ -686,6 +686,34 @@ button.busy-chip{cursor:pointer;color:var(--accent)}
 .zoom-btn{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer;color:inherit;font:inherit}
 .dg-outline{margin-top:4px;font-size:.92em}
 .dg-outline summary{cursor:pointer;color:var(--muted)}
+.dg-svg .dg-focus rect{fill:var(--hl);stroke:var(--accent);stroke-width:2}
+.dg-svg .dg-focus text{font-weight:600}
+.dg-svg .dg-stat-value text{fill:var(--accent);font-size:40px;font-weight:700}
+.dg-svg .dg-stat-label rect{fill:none;stroke:none}
+.dg-svg .dg-spark circle{fill:var(--accent);opacity:.45}
+.replay-btn{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer;color:inherit;font:inherit}
+.replay-btn[hidden]{display:none}
+.sec-card>.conclusion strong,.sec-intro strong,.lead strong{background:linear-gradient(var(--hl),var(--hl)) 0 88%/100% 42% no-repeat}
+.sec-card{--dg-base:.9s}
+.armed{--dg-ease:cubic-bezier(.22,.8,.3,1)}
+.armed>.conclusion,.armed .dg-step,.armed .dg-arrow,.armed .dg-dot,.armed .dg-cell,.armed .dg-spark,.armed .dg-when,.armed .dg-axis{opacity:0}
+.armed .dg-svg path.dg-line{stroke-dasharray:1;stroke-dashoffset:1}
+.armed>.conclusion strong{background-size:0 42%}
+.armed.play>.conclusion{animation:dg-up .5s var(--dg-ease) both}
+.armed.play>.conclusion strong{animation:dg-hl .6s var(--dg-ease) .3s both}
+.armed.play .dg-step{animation:dg-pop .4s var(--dg-ease) both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s));transform-box:fill-box;transform-origin:center}
+.armed.play .dg-svg path.dg-line{animation:dg-draw .55s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s))}
+.armed.play .dg-arrow{animation:dg-fade .2s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s) + .45s)}
+.armed.play .dg-dot,.armed.play .dg-cell,.armed.play .dg-spark{animation:dg-fade .3s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s))}
+.armed.play .dg-when,.armed.play .dg-axis{animation:dg-fade .3s ease both;animation-delay:var(--dg-base,0s)}
+.armed.play .dg-focus{animation:dg-ping .8s ease-in-out 3;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s) + .4s);transform-box:fill-box;transform-origin:center}
+@keyframes dg-up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes dg-pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+@keyframes dg-fade{from{opacity:0}to{opacity:1}}
+@keyframes dg-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes dg-hl{from{background-size:0 42%}to{background-size:100% 42%}}
+@keyframes dg-ping{0%,100%{transform:none}50%{transform:scale(1.08)}}
+@media (prefers-reduced-motion:reduce),print{.armed>.conclusion,.armed .dg-step,.armed .dg-arrow,.armed .dg-dot,.armed .dg-cell,.armed .dg-spark,.armed .dg-when,.armed .dg-axis,.armed .dg-focus{opacity:1!important;animation:none!important}.armed .dg-svg path.dg-line{stroke-dasharray:none;animation:none!important}.armed>.conclusion strong{background-size:100% 42%;animation:none!important}}
 #zoom-dialog{width:min(96vw,1400px);max-height:92vh;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);padding:12px}
 #zoom-dialog::backdrop{background:rgba(0,0,0,.5)}
 #zoom-dialog .zoom-body{overflow:auto;max-height:calc(92vh - 64px)}
