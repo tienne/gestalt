@@ -57,14 +57,20 @@ if [[ "$SPEC" == "@tienne/gestalt" ]]; then
   echo "gestalt MCP: no version pin (unreadable $ROOT/package.json) — resolving latest." >&2
 fi
 
-# A global install outranks the pin on purpose: someone ran `npm i -g` and that
-# choice is more specific than what this checkout happens to bundle. Lockstep
-# governs what *we* resolve, not what the operator installed. Say which one it
-# was so a version mismatch is visible in the log rather than guessed at.
+# A global install is the fast path (no npx round), but only while it is the same
+# version as the pin. Before, it won unconditionally, and that is how a plugin
+# update did nothing: an old `npm i -g` kept serving, the skills moved to the new
+# version, and the server stayed behind. The plugin version is what the user
+# updates, so it is what decides. Someone who really wants a different build
+# sets GESTALT_MCP_BIN above — that override is explicit and logged.
 GLOBAL_BIN="$(command -v gestalt || true)"
 if [[ -n "$GLOBAL_BIN" ]]; then
-  echo "gestalt MCP: using globally installed gestalt ($GLOBAL_BIN); pin $SPEC not applied." >&2
-  exec "$GLOBAL_BIN" serve
+  GLOBAL_VERSION="$("$GLOBAL_BIN" --version </dev/null 2>/dev/null | tail -n 1 || true)"
+  if [[ "$SPEC" == "@tienne/gestalt" || "$SPEC" == "@tienne/gestalt@$GLOBAL_VERSION" ]]; then
+    echo "gestalt MCP: using globally installed gestalt ($GLOBAL_BIN ${GLOBAL_VERSION:-unknown version})." >&2
+    exec "$GLOBAL_BIN" serve
+  fi
+  echo "gestalt MCP: global gestalt ${GLOBAL_VERSION:-unknown version} ($GLOBAL_BIN) differs from pin $SPEC — ignoring it. Run \`npm i -g $SPEC\` to use the global one again." >&2
 fi
 
 # Resolve the bin path instead of letting npx spawn the server, for two reasons.

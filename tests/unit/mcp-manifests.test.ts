@@ -164,6 +164,12 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     return env;
   };
 
+  // 전역 gestalt는 `--version`이 핀과 같을 때만 쓰인다. 이 테스트들의 node 스텁은 어떤
+  // 질의에도 22를 돌려줘서 핀이 `@tienne/gestalt@22`가 되므로, 스텁도 22로 답한다.
+  const STUB_PIN_VERSION = '22';
+  const versionedStub = (onServe: string, version = STUB_PIN_VERSION): string =>
+    `#!/bin/sh\nif [ "$1" = "--version" ]; then echo ${version}; else echo "${onServe}"; fi\n`;
+
   function withStub<T>(body: (stub: string, dir: string) => T): T {
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-launcher-'));
     const stub = join(dir, 'fake-gestalt');
@@ -197,10 +203,10 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
     const pathDir = mkdtempSync(join(tmpdir(), 'gestalt-node-b-'));
     try {
       writeFileSync(join(overrideDir, 'node'), '#!/bin/sh\necho 22\n', { mode: 0o755 });
-      writeFileSync(join(overrideDir, 'gestalt'), '#!/bin/sh\necho FROM_OVERRIDE\n', {
+      writeFileSync(join(overrideDir, 'gestalt'), versionedStub('FROM_OVERRIDE'), {
         mode: 0o755,
       });
-      writeFileSync(join(pathDir, 'gestalt'), '#!/bin/sh\necho FROM_PATH\n', { mode: 0o755 });
+      writeFileSync(join(pathDir, 'gestalt'), versionedStub('FROM_PATH'), { mode: 0o755 });
       const run = spawnSync('bash', [launcher], {
         env: launcherEnv({
           PATH: `${pathDir}:${process.env.PATH ?? ''}`,
@@ -222,7 +228,7 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
   it('GESTALT_NODE가 Node가 아니면 경고를 남기고 탐색으로 넘어간다', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-badnode-'));
     try {
-      writeFileSync(join(dir, 'gestalt'), '#!/bin/sh\necho "STUB $*"\n', { mode: 0o755 });
+      writeFileSync(join(dir, 'gestalt'), versionedStub('STUB $*'), { mode: 0o755 });
       // 런처는 pick_node가 고른 node의 디렉토리를 PATH 맨 앞에 다시 붙인다. 실제 PATH를
       // 그대로 물려주면 node와 전역 gestalt가 같은 디렉토리에 깔린 머신(예: Homebrew)에서
       // 그 디렉토리가 이 스텁을 밀어낸다. 그러면 진짜 stdio 서버가 떠 stdin을 기다리고
@@ -236,6 +242,30 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
       });
       expect(run.stderr).toContain('is not Node >= 22');
       expect(run.stdout.trim()).toBe('STUB serve');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // 플러그인만 올렸는데 예전 `npm i -g` 가 계속 뜨던 문제. 전역 버전이 핀과 다르면
+  // 무시하고 npx 해석 결과(핀된 버전)를 써야 한다. npx 는 스텁으로 막아 네트워크를 안 탄다.
+  it('전역 gestalt 버전이 핀과 다르면 무시하고 핀된 버전을 쓴다', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gestalt-stale-global-'));
+    try {
+      writeFileSync(join(dir, 'node'), '#!/bin/sh\necho 22\n', { mode: 0o755 });
+      writeFileSync(join(dir, 'gestalt'), versionedStub('FROM_STALE_GLOBAL', '21'), {
+        mode: 0o755,
+      });
+      const resolved = join(dir, 'resolved-gestalt');
+      writeFileSync(resolved, '#!/bin/sh\necho "RESOLVED $*"\n', { mode: 0o755 });
+      writeFileSync(join(dir, 'npx'), `#!/bin/sh\necho ${resolved}\n`, { mode: 0o755 });
+      const run = spawnSync('bash', [launcher], {
+        env: launcherEnv({ PATH: `${dir}:/usr/bin:/bin`, GESTALT_NODE: join(dir, 'node') }),
+        encoding: 'utf-8',
+        timeout: LAUNCHER_TIMEOUT_MS,
+      });
+      expect(run.stderr).toContain('differs from pin');
+      expect(run.stdout.trim()).toBe('RESOLVED serve');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
