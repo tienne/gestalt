@@ -40,7 +40,7 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `view`          | `screen-chain` 또는 `deploy-path`                                                                                                                                                                                                                                                                                                                   |
 | `packs`         | 선택. 이 IR이 쓰는 [어휘 팩](#어휘-팩) id 목록. 안 적으면 `web-product`와 `harness`로 읽는다                                                                                                                                                                                                                                                       |
 | `repos`         | `{ id, name, root?, remote? }`. `root`는 로컬 경로다. 상대 경로면 `repoRoot` 기준으로 푼다. `root`가 없으면 [문서 묶음 레포](#문서-묶음-레포)다                                                                                                                                                                                                      |
-| `nodes`         | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, description?, environment?, engine?, account?, platforms?, platformEvidence?, displayKind?, renderClass?, columns?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서, `displayKind`와 `renderClass`는 [범용 component](#범용-component)에서, `columns`는 [테이블 컬럼](#테이블-컬럼)에서 설명한다. `description`은 카드의 설명 줄과 서랍에 나온다. 비우면 validate가 경고한다 ([검증 규칙](#검증-규칙)) |
+| `nodes`         | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, group?, description?, environment?, engine?, account?, platforms?, platformEvidence?, displayKind?, renderClass?, columns?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서, `displayKind`와 `renderClass`는 [범용 component](#범용-component)에서, `columns`는 [테이블 컬럼](#테이블-컬럼)에서 설명한다. `description`은 카드의 설명 줄과 서랍에 나온다. 비우면 validate가 경고한다 ([검증 규칙](#검증-규칙)). `group`은 [서버 묶음 테두리](#서버-묶음-테두리)에서 설명한다 |
 | `edges`         | `{ id, from, to, kind, evidence[], lineStyle }`. `lineStyle`은 `solid` 또는 `dashed`                                                                                                                                                                                                                                                                |
 | `unresolved`    | `{ id, subject: { nodeId?, edgeId?, stepId?, transitionId?, messageId? }, question, answer? }`. `messageId`는 질문별 그림의 메시지 id다                                                                                                                                                                                                             |
 | `flows`         | 선택. 도메인 흐름이다. 보통 서비스 하나에 딸리고 서비스 없이 따로 설 수도 있다. [도메인 흐름](#도메인-흐름)에서 설명한다                                                                                                                                                                                                                             |
@@ -649,6 +649,10 @@ private 근거의 원문은 세 겹으로 막는다.
 - **진입 앱을 못 정한 서비스**: 호스트가 없거나 여럿이면 서비스 레벨에 앱 카드를 전부 포함 선으로 늘어놓고 앱마다 앱 레벨로 들어간다. `auto:entry` 질문이 함께 뜬다.
 
 `loads` 선은 요청 선과 갈리게 굵은 점 무늬로 그린다. 근거가 약한 선은 일반 점선이 그대로 이긴다.
+
+#### 서버 묶음 테두리
+
+노드에 `group`을 달면 전체 레벨에서 같은 값을 가진 카드를 한 테두리로 묶고 그 값을 테두리 왼쪽 위에 라벨로 쓴다. 서버 카드를 `acme-orders`나 `인프라` 같은 레포, 서비스 단위로 묶어 보일 때 쓴다. 카드를 옆 열로 옮기지 않아서 한 묶음이 여러 열에 걸치면 열마다 테두리가 따로 생긴다. 카드가 하나뿐인 묶음과 앱 테두리에 이미 든 카드는 묶지 않는다.
 
 묶음 엣지마다 건수와 멤버 세부 엣지 id 목록이 따라간다. 묶음 안에 `code` 근거로 확인된 고리가 하나라도 있으면 묶음 선은 실선이다. 코드로 확인된 연결이 있는데 점선으로 그리면 확인된 연결까지 추정처럼 읽혀서다. 묶음 안이 전부 `doc`이나 `user` 근거일 때만 묶음 선이 점선이다.
 
