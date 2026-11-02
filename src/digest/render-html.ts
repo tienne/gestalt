@@ -388,7 +388,8 @@ ${skippedHtml}</div>`;
     hasTr && s.translation
       ? `<span class="tr" lang="${e(trLang ?? '')}">${e(s.translation)}</span>`
       : '';
-  const script = `<div class="script"><h2>스크립트 <small>${e(CAPTION_LABEL[meta.captionSource])}</small>${trToggle}</h2><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="영상 스크립트"><ol id="script-list">${segments
+  const foldToggle = ` <button type="button" id="script-fold" class="tr-toggle" aria-pressed="false" aria-controls="script-body" hidden>현재 구간만</button>`;
+  const script = `<div class="script"><h2>스크립트 <small>${e(CAPTION_LABEL[meta.captionSource])}</small>${foldToggle}${trToggle}</h2><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="영상 스크립트"><ol id="script-list">${segments
     .map(
       (s) =>
         `<li data-i="${s.i}">${timeLink(s.startSec, false)}<span class="txt">${s.speaker ? `<span class="spk">${e(s.speaker)}</span>` : ''}<span class="src">${e(s.text)}</span>${tr(s)}</span></li>`,
@@ -582,7 +583,11 @@ button{font:inherit;color:inherit}
 .tr{display:block;color:var(--muted);font-size:.95em}
 .spk{display:inline-block;margin-right:6px;font-size:.78em;font-weight:600;color:var(--accent)}
 .script.hide-tr .tr{display:none}
-.tr-toggle{float:right;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:0 8px;font-size:.85em;font-weight:400;cursor:pointer}
+.script.is-focus{flex:none}
+.script.is-focus .script-body{flex:none;overflow:hidden}
+.script.is-focus #script-list li:not(.is-playing){display:none}
+.script.is-focus #script-list:not(:has(.is-playing)) li:first-child{display:flex}
+.tr-toggle{float:right;margin-left:6px;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:0 8px;font-size:.85em;font-weight:400;cursor:pointer}
 .tr-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 .ts{font-variant-numeric:tabular-nums;color:var(--accent);text-decoration:none;font-size:.85em;white-space:nowrap;cursor:pointer}
 a.ts:hover{text-decoration:underline}

@@ -182,6 +182,31 @@ export const VIEWER_JS =
     return player;
   }
 
+  // 현재 구간만 보기는 기본이 꺼짐이라 켠 상태만 기억한다. 풀 때는 재생 중인 줄로 되돌아가 스크롤 위치를 잃지 않게 한다
+  function setupScriptFold() {
+    var btn = document.getElementById('script-fold');
+    var box = document.querySelector('.script');
+    var panel = document.getElementById('script-body');
+    if (!btn || !box || !panel) return;
+    var FOLD_KEY = 'gestalt-digest-script-fold';
+    var on = false;
+    try { on = localStorage.getItem(FOLD_KEY) === 'on'; } catch (e) {}
+    function set(v) {
+      on = v;
+      box.classList.toggle('is-focus', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (on) { panel.scrollTop = 0; return; }
+      var cur = panel.querySelector('li.is-playing');
+      if (cur) panel.scrollTop = Math.max(0, cur.offsetTop - panel.clientHeight / 3);
+    }
+    set(on);
+    btn.hidden = false;
+    btn.addEventListener('click', function(){
+      set(!on);
+      try { localStorage.setItem(FOLD_KEY, on ? 'on' : 'off'); } catch (e) {}
+    });
+  }
+
   // 스크립트 번역은 기본으로 보이고 끈 상태만 기억한다
   function setupTranslation() {
     var btn = document.getElementById('tr-toggle');
@@ -1418,6 +1443,7 @@ export const VIEWER_JS =
   setupFontScale();
   setupTheme();
   setupTranslation();
+  setupScriptFold();
   // 요약 앵커로 스크롤하려면 요약 패널이 먼저 보여야 해서 탭을 리포트보다 먼저 연다
   var tabs = setupTabs();
   var reports = setupReports();
