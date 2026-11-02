@@ -72,8 +72,10 @@ export interface LayoutRect {
 }
 
 export interface LayoutFrame extends LayoutRect {
-  /** 머리 카드 id */
+  /** 머리 카드 id. 묶음 테두리면 `group:<라벨>:<열 x>`라 노드 id와 안 겹친다 */
   id: string;
+  /** 묶음 테두리만. 테두리 왼쪽 위 안쪽에 쓰는 이름이다 */
+  label?: string;
 }
 
 /** 가로 띠 한 줄. y는 띠 머리(구분선과 이름이 들어가는 줄)부터다 */
@@ -762,6 +764,105 @@ export function frameRects(layout: LayoutResult, frames: readonly FrameGroup[]):
     });
   }
   return rects.length === 0 ? layout : { ...layout, frames: rects };
+}
+
+/** 라벨을 단 테두리로 묶을 카드. 머리 카드 없이 같은 묶음 이름을 가진 카드끼리 모은다 */
+export interface RepoGroup {
+  label: string;
+  members: readonly string[];
+}
+
+// 묶음 테두리 위쪽에 라벨이 들어갈 줄 높이
+export const GROUP_LABEL_H = 20;
+
+/**
+ * 열마다 같은 묶음 카드를 그 묶음의 맨 위 멤버 자리에 이어 붙이고 나머지 카드는 elk가 정한 위아래 순서를 지키며 아래로 민다.
+ * 카드를 옆 열로 옮기지 않는다. 한 묶음이 여러 열에 있으면 열마다 따로 모인다.
+ * 묶음 앞에는 테두리 여백과 라벨 줄, 뒤에는 테두리 여백만큼 더 띄워 이웃 카드와 테두리가 안 겹치게 한다
+ */
+export function stackGroups(layout: LayoutResult, groups: readonly RepoGroup[]): LayoutResult {
+  const byNode = new Map(layout.nodes.map((n) => [n.id, n]));
+  const groupOf = new Map<string, string>();
+  for (const g of groups) {
+    for (const m of g.members) if (byNode.has(m)) groupOf.set(m, g.label);
+  }
+  if (groupOf.size === 0) return layout;
+  const placed = new Map<string, number>();
+  const columns = [...new Set([...groupOf.keys()].map((id) => byNode.get(id)!.x))];
+  for (const x of columns.sort((a, b) => a - b)) {
+    const column = layout.nodes
+      .filter((n) => n.x === x)
+      .sort((a, b) => a.y - b.y || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const runs: LayoutNode[][] = [];
+    const runOf = new Map<string, LayoutNode[]>();
+    for (const n of column) {
+      const label = groupOf.get(n.id);
+      if (label === undefined) {
+        runs.push([n]);
+        continue;
+      }
+      const run = runOf.get(label);
+      if (run !== undefined) {
+        run.push(n);
+        continue;
+      }
+      const fresh = [n];
+      runOf.set(label, fresh);
+      runs.push(fresh);
+    }
+    let y = Math.min(...column.map((n) => n.y));
+    for (const run of runs) {
+      const framed = groupOf.has(run[0]!.id);
+      if (framed) y += FRAME_PAD + GROUP_LABEL_H;
+      for (const n of run) {
+        placed.set(n.id, round2(y));
+        y += n.height + PIN_GAP;
+      }
+      if (framed) y += FRAME_PAD;
+    }
+  }
+  const nodes = layout.nodes.map((n) => ({ ...n, y: placed.get(n.id) ?? n.y }));
+  const moved = nodes.filter((n, i) => n.y !== layout.nodes[i]!.y).map((n) => n.id);
+  const bottom = Math.max(...nodes.map((n) => n.y + n.height));
+  return {
+    ...layout,
+    height: round2(Math.max(layout.height, bottom + FRAME_PAD)),
+    nodes,
+    edges: layout.edges.map((e) => ({ ...e })),
+    movedNodeIds: [...new Set([...(layout.movedNodeIds ?? []), ...moved])].sort(),
+  };
+}
+
+/** 다 쌓은 좌표에서 (묶음, 열)마다 라벨 단 테두리를 내 기존 테두리 뒤에 붙인다. frameRects처럼 맨 마지막에 부른다 */
+export function groupRects(layout: LayoutResult, groups: readonly RepoGroup[]): LayoutResult {
+  const byNode = new Map(layout.nodes.map((n) => [n.id, n]));
+  const rects: LayoutFrame[] = [];
+  for (const g of [...groups].sort((a, b) => compareText(a.label, b.label))) {
+    const byColumn = new Map<number, LayoutNode[]>();
+    for (const m of g.members) {
+      const n = byNode.get(m);
+      if (n !== undefined) byColumn.set(n.x, [...(byColumn.get(n.x) ?? []), n]);
+    }
+    for (const [x, present] of [...byColumn].sort((a, b) => a[0] - b[0])) {
+      const left = Math.min(...present.map((n) => n.x)) - FRAME_PAD;
+      const top = Math.min(...present.map((n) => n.y)) - FRAME_PAD - GROUP_LABEL_H;
+      const right = Math.max(...present.map((n) => n.x + n.width)) + FRAME_PAD;
+      const bottom = Math.max(...present.map((n) => n.y + n.height)) + FRAME_PAD;
+      rects.push({
+        id: `group:${g.label}:${x}`,
+        label: g.label,
+        x: round2(left),
+        y: round2(top),
+        width: round2(right - left),
+        height: round2(bottom - top),
+      });
+    }
+  }
+  return rects.length === 0 ? layout : { ...layout, frames: [...(layout.frames ?? []), ...rects] };
+}
+
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /** 띠로 나눌 제품 하나. members는 그 제품 분석에서 온 노드 id다 */
