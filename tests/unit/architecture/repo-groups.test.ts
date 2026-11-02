@@ -246,7 +246,7 @@ describe('묶음 테두리 — 전체 보기', () => {
     // m-c는 어느 테두리에도 안 든 카드라 id가 겹칠 때만 data-frame이 생길 수 있다
     frame.id = 'm-c';
     const html = renderDrilldownHtml(v, d, { audience: 'private' });
-    const card = html.match(/<div class="[^"]*" data-node-id="m-c"[^>]*>/)?.[0];
+    const card = html.match(/<div\b[^>]*data-node-id="m-c"[^>]*>/)?.[0];
     expect(card).toBeDefined();
     expect(card).not.toContain('data-frame=');
   });
