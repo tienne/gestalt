@@ -600,7 +600,7 @@ describe('도식 레이아웃', () => {
         }
       expect(svg.match(/class="dg-arrow"/g)).toHaveLength(n);
       // 상자 사이 호가 짧으면 화살촉만 남는다. 아래쪽 두 상자 사이가 그렇게 묻힌 적이 있다
-      const arcs = [...svg.matchAll(/<path d="(M[^"]+)"\/>/g)].map((m) =>
+      const arcs = [...svg.matchAll(/<path d="(M[^"]+)"[^>]*\/>/g)].map((m) =>
         [...m[1]!.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((p) => [Number(p[1]), Number(p[2])]),
       );
       expect(arcs).toHaveLength(n);
@@ -622,5 +622,44 @@ describe('도식 레이아웃', () => {
     expect(svg).toContain('A&amp;B');
     expect(svg).not.toContain('<x>');
     expect(inView(svg)).toBe(true);
+  });
+});
+
+describe('figure 블록의 허브와 핵심 수치', () => {
+  const ext = (diagram: Diagram): Extension => ({
+    template: 'visual',
+    title: '그림 해설',
+    lang: 'ko',
+    blocks: [
+      {
+        type: 'figure',
+        title: '제목',
+        diagram,
+        explanation: '설명',
+        cite: { key: 1, from: 1, to: 1 },
+      },
+    ],
+  });
+
+  it('단독 figure.diagram은 sec-card 밖에서 hub와 stat을 그린다', () => {
+    const hub: Diagram = {
+      kind: 'hub',
+      center: { label: '중심' },
+      satellites: [{ label: 'a', focus: true }, { label: 'b' }],
+    };
+    const stat: Diagram = {
+      kind: 'stat',
+      value: '3배',
+      label: '속도',
+      cite: { key: 1, from: 1, to: 1 },
+    };
+    for (const [d, cls] of [
+      [hub, 'dg-hub'],
+      [stat, 'dg-stat'],
+    ] as const) {
+      const { html } = renderDigestHtml(withExt(ext(d)), sampleTranscript());
+      expect(html).toContain(cls);
+      expect(html).toMatch(/<article class="fig-card"><h3>제목<\/h3><figure class="diagram">/);
+    }
   });
 });

@@ -146,3 +146,33 @@ describe('읽기 렌즈 확장 리포트', () => {
     expect(html).not.toContain('0분 0초로 이동');
   });
 });
+
+describe('글 자료의 허브와 핵심 수치 도식', () => {
+  const render = (diagram: NonNullable<Report['sections'][number]['diagram']>) => {
+    const r = lensReport();
+    r.sections[0]!.diagram = diagram;
+    return renderDigestHtml(lensDigest(r), lensTranscript('pdf'), { source: lensSource() }).html;
+  };
+
+  it('hub 위성 노드가 시각 대신 data-unit을 단다', () => {
+    const html = render({
+      kind: 'hub',
+      center: { label: '그래프' },
+      satellites: [{ label: '노드', cite: { key: 1, from: 1, to: 1 } }, { label: '간선' }],
+    });
+    expect(html).toMatch(/<g class="dg-node dg-cite" data-unit="1" role="link" tabindex="0"/);
+    expect(html).not.toMatch(/<g [^>]*data-sec=/);
+  });
+
+  it('stat 설명 노드가 시각 대신 data-unit을 단다', () => {
+    const html = render({
+      kind: 'stat',
+      value: '98%',
+      label: '정확도',
+      cite: { key: 3, from: 3, to: 3 },
+    });
+    expect(html).toMatch(/<g class="dg-node dg-stat-label dg-cite" data-unit="3" role="link"/);
+    expect(html).toContain('>98%<');
+    expect(html).not.toMatch(/<g [^>]*data-sec=/);
+  });
+});

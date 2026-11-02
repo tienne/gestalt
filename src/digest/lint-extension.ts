@@ -120,6 +120,15 @@ export function* walkDiagram(
         for (const [k, item] of items.entries()) yield node(item, `${sp}.items.${k}`);
       }
       return;
+    case 'hub':
+      yield node(d.center, `${prefix}.center`);
+      for (const [k, n] of d.satellites.entries()) yield node(n, `${prefix}.satellites.${k}`);
+      return;
+    case 'stat':
+      // value에 출처가 따로 없어서 cite는 label 쪽 하나만 싣는다
+      yield { label: d.value, path: prefix, labelPath: `${prefix}.value` };
+      yield node(d, prefix);
+      return;
     default: {
       const never: never = d;
       throw new Error(`알 수 없는 도식: ${String(never)}`);
@@ -419,7 +428,8 @@ const DIAGRAM_TREE_LIMIT: TreeLimit = {
 };
 
 /**
- * 스키마로는 못 잡는 도식 모양을 본다. 트리 깊이와 크기, 상자 하나만 남는 인과도와 빈 매트릭스다.
+ * 스키마로는 못 잡는 도식 모양을 본다. 트리 깊이와 크기, 상자 하나만 남는 인과도와 빈 매트릭스,
+ * 강조가 여럿인 허브, 길거나 출처 없는 핵심 수치다.
  * 확장 리포트의 figure 블록도 같은 검사를 쓴다
  */
 export function checkDiagramShape(d: Diagram, dp: string, issues: DigestIssue[]): void {
@@ -439,6 +449,41 @@ export function checkDiagramShape(d: Diagram, dp: string, issues: DigestIssue[])
       severity: 'error',
       code: 'DIAGRAM_EMPTY',
       message: '매트릭스 네 칸이 다 비었다. 칸마다 노드를 0~4개 둔다',
+    });
+  }
+  if (d.kind === 'hub') {
+    const focused = d.satellites.flatMap((s, k) => (s.focus ? [k] : []));
+    if (focused.length > 1) {
+      issues.push({
+        path: `${dp}.satellites.${focused[1]!}.focus`,
+        severity: 'error',
+        code: 'DIAGRAM_FOCUS_MULTI',
+        message: `허브의 focus는 위성 하나에만 단다. 지금 ${focused.length}개다(${focused.join(', ')}번)`,
+      });
+    }
+  }
+  if (d.kind === 'stat') checkStat(d, dp, issues);
+}
+
+/** 큰 숫자가 한 줄을 넘으면 글자가 줄어 핵심 수치로 안 읽힌다 */
+export const DIAGRAM_STAT_VALUE_MAX = 12;
+
+function checkStat(d: Extract<Diagram, { kind: 'stat' }>, dp: string, issues: DigestIssue[]): void {
+  if ([...d.value].length > DIAGRAM_STAT_VALUE_MAX) {
+    issues.push({
+      path: `${dp}.value`,
+      severity: 'warning',
+      code: 'DIAGRAM_STAT_LONG',
+      message: `핵심 수치 value가 ${[...d.value].length}자다. ${DIAGRAM_STAT_VALUE_MAX}자 안의 숫자와 단위만 두고 설명은 label로 옮긴다`,
+    });
+  }
+  // 수치는 원문 표와 대조하는 장치가 없어서 cite가 없으면 지어낸 숫자를 걸러낼 길이 없다
+  if (!d.cite) {
+    issues.push({
+      path: dp,
+      severity: 'warning',
+      code: 'DIAGRAM_STAT_NO_CITE',
+      message: '핵심 수치에 cite가 없다. 숫자가 나온 원문 자리를 단다',
     });
   }
 }
