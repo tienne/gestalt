@@ -362,6 +362,7 @@ export const LENS_CSS = `
 .kn-card blockquote{margin:6px 0;padding-left:10px;border-left:3px solid var(--line);color:var(--muted)}
 .kn-path{font-size:.8em;margin:0}
 .doc-open,.doc-close{display:none}
+.is-doc .layout{--side-w:420px}
 @media (max-width:900px){
 .is-doc .layout{display:block}
 .is-doc .side{position:fixed;left:0;right:0;bottom:0;top:auto;height:75vh;z-index:30;padding:0;transform:translateY(100%);visibility:hidden;transition:transform .25s ease,visibility 0s linear .25s}

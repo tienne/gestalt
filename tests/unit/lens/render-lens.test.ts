@@ -15,6 +15,12 @@ describe('읽기 렌즈 뷰어', () => {
     expect(out).toContain('class="doc-close"');
   });
 
+  it('문서형 뷰어는 데스크톱에서 영상 뷰어의 폭 식 대신 420px를 쓴다', () => {
+    const out = html();
+    // 미디어 블록 안에 있으면 900px 이하에서만 걸려서 데스크톱이 영상 뷰어 식을 그대로 쓴다
+    expect(out).toContain('.is-doc .layout{--side-w:420px}\n@media (max-width:900px){');
+  });
+
   it('PDF는 플레이어 대신 쪽 그림 원문 창과 추출 텍스트를 둔다', () => {
     const out = html();
     expect(out).toContain('id="doc-pane"');
