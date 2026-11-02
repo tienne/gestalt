@@ -8,6 +8,7 @@ import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { exportMarkdown, renderToFiles } from '../../../src/digest/render.js';
 import type { Digest, Transcript } from '../../../src/digest/schema.js';
 import { DigestStore } from '../../../src/digest/store.js';
+import { STEP_SEC } from '../../../src/digest/svg.js';
 import {
   THEME_BOOT_JS,
   THEME_BOOT_JS_SHA256,
@@ -679,7 +680,6 @@ describe('순차 모션과 형광펜', () => {
     expect(css).not.toMatch(/\.is-diary strong\{/);
   });
 
-  it('모션 값은 --dg-step 0.28s와 선 그리기 0.55s다', () => {
   it('다이어리 형광펜은 기본 규칙보다 특이도가 높고 칠하는 높이가 같다', () => {
     const css = html();
     const specificity = (sel: string) =>
@@ -693,8 +693,9 @@ describe('순차 모션과 형광펜', () => {
     expect(themed![1]).toBe(base![1]);
   });
 
+  it('모션 값은 --dg-step 0.28s와 선 그리기 0.55s다', () => {
     const css = motionCss(html());
-    expect(css).toContain('var(--dg-step,.28s)');
+    expect(css).toContain(`var(--dg-step,${STEP_SEC}s)`);
     expect(css).toContain('animation:dg-draw .55s');
     expect(css).toContain('.sec-card{--dg-base:.9s}');
   });
@@ -741,7 +742,7 @@ describe('순차 모션과 형광펜', () => {
     expect(scan).not.toBeNull();
     expect(scan![1]).toContain('animation:dg-scan 1s linear both');
     expect(scan![1]).not.toContain('infinite');
-    expect(scan![1]).toContain('var(--n,0) * var(--dg-step,.28s) + .4s');
+    expect(scan![1]).toContain(`var(--n,0) * var(--dg-step,${STEP_SEC}s) + .4s`);
     const pick = /\.armed\.play \.dg-svg \.dg-picked rect\{([^}]*)\}/.exec(css);
     expect(pick![1]).toContain('+ 1.4s');
     expect(css).toMatch(/\.armed\.play \.dg-svg \.dg-dim\{animation:dg-dim [^}]*\+ 1\.4s/);

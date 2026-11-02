@@ -25,6 +25,7 @@ import {
 import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
 import { WIDGET_CSS, widgetHtml } from './render-widgets.js';
 import { initialReportIndex, isPreset, pairIndex, reportKey, reportLabel } from './reports.js';
+import { STEP_SEC } from './svg.js';
 import { DIARY_CSS, DIARY_FONT_LINK } from './theme-diary.js';
 import { THEME_BOOT_JS, VIEWER_JS } from './viewer-js.js';
 import {
@@ -710,16 +711,16 @@ button.busy-chip{cursor:pointer;color:var(--accent)}
 .armed>.conclusion strong{background-size:0 42%}
 .armed.play>.conclusion{animation:dg-up .5s var(--dg-ease) both}
 .armed.play>.conclusion strong{animation:dg-hl .6s var(--dg-ease) .3s both}
-.armed.play .dg-step{animation:dg-pop .4s var(--dg-ease) both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s));transform-box:fill-box;transform-origin:center}
-.armed.play .dg-svg path.dg-line{animation:dg-draw .55s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s))}
-.armed.play .dg-arrow{animation:dg-fade .2s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s) + .45s)}
-.armed.play .dg-dot,.armed.play .dg-cell,.armed.play .dg-spark{animation:dg-fade .3s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s))}
+.armed.play .dg-step{animation:dg-pop .4s var(--dg-ease) both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,${STEP_SEC}s));transform-box:fill-box;transform-origin:center}
+.armed.play .dg-svg path.dg-line{animation:dg-draw .55s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,${STEP_SEC}s))}
+.armed.play .dg-arrow{animation:dg-fade .2s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,${STEP_SEC}s) + .45s)}
+.armed.play .dg-dot,.armed.play .dg-cell,.armed.play .dg-spark{animation:dg-fade .3s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,${STEP_SEC}s))}
 .armed.play .dg-when,.armed.play .dg-axis{animation:dg-fade .3s ease both;animation-delay:var(--dg-base,0s)}
-.armed.play .dg-focus{animation:dg-ping .8s ease-in-out 3;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,.28s) + .4s);transform-box:fill-box;transform-origin:center}
-.armed.play .dg-svg rect.dg-scan{animation:dg-scan 1s linear both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,.28s) + .4s)}
-.armed.play .dg-svg .dg-picked rect{animation:dg-pick .4s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,.28s) + 1.4s)}
-.armed.play .dg-svg .dg-check{animation:dg-fade .3s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,.28s) + 1.4s)}
-.armed.play .dg-svg .dg-dim{animation:dg-dim .4s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,.28s) + 1.4s)}
+.armed.play .dg-focus{animation:dg-ping .8s ease-in-out 3;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,${STEP_SEC}s) + .4s);transform-box:fill-box;transform-origin:center}
+.armed.play .dg-svg rect.dg-scan{animation:dg-scan 1s linear both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,${STEP_SEC}s) + .4s)}
+.armed.play .dg-svg .dg-picked rect{animation:dg-pick .4s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,${STEP_SEC}s) + 1.4s)}
+.armed.play .dg-svg .dg-check{animation:dg-fade .3s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,${STEP_SEC}s) + 1.4s)}
+.armed.play .dg-svg .dg-dim{animation:dg-dim .4s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,${STEP_SEC}s) + 1.4s)}
 @keyframes dg-up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes dg-pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
 @keyframes dg-fade{from{opacity:0}to{opacity:1}}

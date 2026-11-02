@@ -208,8 +208,8 @@ function arrowHead(x: number, y: number, angle: number): string {
   return `<path class="dg-arrow" d="M${f(x)} ${f(y)}L${f(bx + px)} ${f(by + py)}L${f(bx - px)} ${f(by - py)}Z"/>`;
 }
 
-/** 뷰어가 노드를 띄우는 간격. render-html.ts CSS의 --dg-step 기본값과 맞춘다 */
-const STEP_SEC = 0.28;
+/** 뷰어가 노드를 띄우는 간격. render-html.ts CSS의 --dg-step 기본값이 이 값을 그대로 쓴다 */
+export const STEP_SEC = 0.28;
 /** 등장 번호가 이보다 많으면 간격을 줄인다. 노드가 스무 개 넘는 비교표는 0.28초씩이면 다 뜨기까지 8초 가까이 기다린다 */
 const STEP_MAX = 16;
 
