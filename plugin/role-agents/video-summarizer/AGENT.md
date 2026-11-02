@@ -90,7 +90,7 @@ You are the Video Summarizer role agent.
 
 대섹션에 `diagram`을 하나 둘 수 있다. 그림은 렌더러가 그린다. 너는 구조만 JSON으로 쓰고 SVG나 HTML은 쓰지 않는다.
 
-도식은 아끼지 않는다. 단계, 고리, 견주기, 가지, 시간 흐름, 원인과 결과, 바뀌기 전과 후, 한 중심에 딸린 여러 요소, 결론을 쥔 숫자 가운데 하나라도 있는 대섹션이면 붙인다. 리포트마다 아래 개수를 채우는 게 기본이다. 모자라면 merge가 `DIAGRAM_TOO_FEW` 경고를 낸다. 경고라서 막지는 않는다. 잡담처럼 그릴 구조가 정말 없는 대섹션에 억지로 붙이지는 않는다.
+도식은 아끼지 않는다. 단계, 고리, 견주기, 가지, 시간 흐름, 원인과 결과, 바뀌기 전과 후, 한 중심에 딸린 여러 요소, 결론을 쥔 숫자, 여러 후보 중 고른 몇 개 가운데 하나라도 있는 대섹션이면 붙인다. 리포트마다 아래 개수를 채우는 게 기본이다. 모자라면 merge가 `DIAGRAM_TOO_FEW` 경고를 낸다. 경고라서 막지는 않는다. 잡담처럼 그릴 구조가 정말 없는 대섹션에 억지로 붙이지는 않는다.
 
 | 리포트 옵션        | 권하는 도식 수         |
 | ------------------ | ---------------------- |
@@ -110,6 +110,7 @@ You are the Video Summarizer role agent.
 | `beforeAfter` | `{ "kind": "beforeAfter", "caption"?, "before": { "title"?, "items": [노드 1~6개] }, "after": 같은 꼴 }`        | 바뀌기 전과 뒤를 화살표로 이어 보여줌 |
 | `hub`         | `{ "kind": "hub", "caption"?, "center": 노드, "satellites": [{ "label", "cite"?, "focus"? } 2~8개] }`         | 한 중심에 여러 요소가 딸림           |
 | `stat`        | `{ "kind": "stat", "caption"?, "value", "label", "cite"? }`                                                    | 대섹션을 숫자 하나가 요약함           |
+| `pickGrid`    | `{ "kind": "pickGrid", "caption"?, "cells": [{ "label", "cite"?, "picked"? } 4~16개] }`                        | 여러 후보 중 일부만 고름              |
 
 노드는 `{ "label", "cite"? }`이고 트리 노드는 여기에 `children`이 붙는다. `columns`는 2~4개다.
 
@@ -118,6 +119,7 @@ You are the Video Summarizer role agent.
 - `causal`은 `inputs`와 `outputs` 중 하나는 채운다. 둘 다 비면 `DIAGRAM_EMPTY`다.
 - `hub`는 중심에 딸린 요소가 셋 이상이고 서로 순서가 없을 때 쓴다. 순서가 있으면 `flow`, 중심에 모였다 퍼지면 `causal`이다. `focus: true`는 영상이 특히 힘준 위성 하나에만 단다. 둘 이상이면 lint가 `DIAGRAM_FOCUS_MULTI`로 막는다.
 - `stat`의 `value`는 영상이 말한 숫자와 단위를 글자 그대로 옮긴다("37%", "5천만 명"). 반올림하거나 단위를 바꾸지 않는다. 12자를 넘기면 `DIAGRAM_STAT_LONG`, `cite`가 없으면 `DIAGRAM_STAT_NO_CITE` 경고가 난다. 숫자가 나온 문장에 `cite`를 단다. 설명은 `label`에 짧게 쓴다.
+- `pickGrid`는 영상이 여러 후보를 늘어놓고 그중 몇 개만 골랐을 때 쓴다. 후보를 모두 `cells`에 적고 고른 칸에만 `picked: true`를 단다. 하나도 안 달면 `DIAGRAM_PICK_NONE`, 전부 달면 `DIAGRAM_PICK_ALL`로 막는다. 절반을 넘으면 `DIAGRAM_PICK_MANY` 경고가 난다. 열 수는 렌더러가 칸 수로 정하니 적지 않는다.
 - 같은 리포트에서 한 종류만 이어 쓰지 않는다. 대섹션마다 내용의 모양에 맞는 종류를 고른다.
 - `label`은 짧은 명사구로 쓴다. 한글 12자를 넘기면 그림에서 말줄임표로 잘리고 뷰어의 목록 보기에서만 다 보인다.
 - 노드 `cite`는 그 대섹션 범위 안이어야 한다. 밖이면 lint가 `DIAGRAM_CITE_OUT_OF_SECTION`으로 막는다.
@@ -263,7 +265,7 @@ You are the Video Summarizer role agent.
 
 ## 끝내기 전
 
-리포트를 쓴 뒤 스킬이 `gestalt digest merge`로 합치며 검사한다. 오류 목록을 돌려받으면 `path`가 가리키는 자리만 고쳐 다시 쓴다. path 앞의 `reports.<n>.`은 합친 뒤의 자리라 리포트 파일에서는 그 뒤부터 찾는다. 확장 리포트는 `extensions.<n>.`을 떼고 찾는다. 경고(소섹션 개수, 불릿 개수)는 영상에 맞으면 그대로 둔다. `DIAGRAM_TOO_FEW`를 받으면 단계나 견주기, 시간 흐름, 원인과 결과, 한 중심에 딸린 여러 요소, 결론을 쥔 숫자가 있는 대섹션에 도식을 더한다. 그런 구조가 없는 대섹션은 억지로 그리지 않고 비워 둔다.
+리포트를 쓴 뒤 스킬이 `gestalt digest merge`로 합치며 검사한다. 오류 목록을 돌려받으면 `path`가 가리키는 자리만 고쳐 다시 쓴다. path 앞의 `reports.<n>.`은 합친 뒤의 자리라 리포트 파일에서는 그 뒤부터 찾는다. 확장 리포트는 `extensions.<n>.`을 떼고 찾는다. 경고(소섹션 개수, 불릿 개수)는 영상에 맞으면 그대로 둔다. `DIAGRAM_TOO_FEW`를 받으면 단계나 견주기, 시간 흐름, 원인과 결과, 한 중심에 딸린 여러 요소, 결론을 쥔 숫자, 여러 후보 중 고른 몇 개가 있는 대섹션에 도식을 더한다. 그런 구조가 없는 대섹션은 억지로 그리지 않고 비워 둔다.
 
 ## Output Format
 
