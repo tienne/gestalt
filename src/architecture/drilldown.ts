@@ -14,7 +14,10 @@ import {
   bandGroupsOf,
   stackFrames,
   frameRects,
+  stackGroups,
+  groupRects,
   type FrameGroup,
+  type LabeledGroup,
   type LaneId,
   type LayoutResult,
 } from './layout.js';
@@ -434,6 +437,8 @@ interface LevelDraft {
   orderOverride?: Map<string, number>;
   /** 테두리로 묶을 카드 */
   frames?: FrameGroup[];
+  /** 라벨 단 테두리로 묶을 카드. 노드의 group 값이 같은 것끼리다 */
+  groups?: LabeledGroup[];
 }
 
 /**
@@ -604,6 +609,7 @@ function rootLevel(full: Graph, apps: MicroAppIndex): LevelDraft {
     .filter((svc) => nodeIds.has(svc))
     .sort(compareStr)
     .map((svc) => ({ head: svc, members: orderedApps(apps, svc).filter((a) => nodeIds.has(a)) }));
+  const groups = labeledGroups(g, nodeIds, frames);
   const ext = externalReach(g, edges, frontReach(g, edges, inProcessUses));
   const rankOverride = new Map<string, number>();
   const laneOverride = new Map<string, LaneId>();
@@ -635,7 +641,29 @@ function rootLevel(full: Graph, apps: MicroAppIndex): LevelDraft {
     laneOverride,
     laneOfKind: { service: 'service', micro_app: 'service' },
     ...(frames.length > 0 ? { frames } : {}),
+    ...(groups.length > 0 ? { groups } : {}),
   };
+}
+
+/** group 값이 같은 카드를 묶는다. 앱 테두리에 이미 든 카드는 뺀다. 카드가 하나여도 어디 소속인지 보이도록 테두리를 그린다 */
+function labeledGroups(
+  g: Graph,
+  nodeIds: Set<string>,
+  frames: readonly FrameGroup[],
+): LabeledGroup[] {
+  const framed = new Set(frames.flatMap((f) => [f.head, ...f.members]));
+  const byLabel = new Map<string, string[]>();
+  for (const id of nodeIds) {
+    const label = g.nodeById.get(id)?.group;
+    if (label === undefined || framed.has(id)) continue;
+    let members = byLabel.get(label);
+    if (members === undefined) {
+      members = [];
+      byLabel.set(label, members);
+    }
+    members.push(id);
+  }
+  return [...byLabel].map(([label, members]) => ({ label, members: members.sort(compareStr) }));
 }
 
 /** 소유자 레벨에 더 얹을 것. 앱 아래 앱 카드를 달 때 쓴다 */
@@ -1339,8 +1367,10 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         : treed;
     const sunk = d.sinkBottom !== undefined ? sinkToColumnBottom(aligned, d.sinkBottom) : aligned;
     const framed = d.frames !== undefined ? stackFrames(sunk, d.frames) : sunk;
-    const banded = stackBands(liftColumns(framed), bands, validated.ir.edges);
-    const layout = d.frames !== undefined ? frameRects(banded, d.frames) : banded;
+    const grouped = d.groups !== undefined ? stackGroups(framed, d.groups) : framed;
+    const banded = stackBands(liftColumns(grouped), bands, validated.ir.edges, d.groups);
+    const rects = d.frames !== undefined ? frameRects(banded, d.frames) : banded;
+    const layout = d.groups !== undefined ? groupRects(rects, d.groups) : rects;
     levels.push({
       id: d.id,
       kind: d.kind,

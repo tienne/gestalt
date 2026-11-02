@@ -187,6 +187,11 @@
           "type": "boolean",
           "description": "true when displayName was condensed from evidence text rather than found verbatim in a document"
         },
+        "group": {
+          "type": "string",
+          "minLength": 1,
+          "description": "bundle name for the overview: cards with the same value are drawn inside one labeled frame, the value is the label. Used to group servers by repo"
+        },
         "repo": { "type": "string" },
         "parent": {
           "type": "string",

@@ -278,6 +278,8 @@ export interface ArchitectureNode {
   displayName?: string;
   /** 문서에 그대로 있는 이름이 아니라 근거 문장을 줄여 지은 이름이면 true. displayName 없이는 못 온다 */
   displayNameInferred?: boolean;
+  /** 전체 보기에서 카드를 테두리로 묶을 이름. 같은 값끼리 한 묶음이고 값이 테두리 라벨이 된다. 서버를 레포 단위로 묶는 데 쓴다 */
+  group?: string;
   repo: string;
   /** 포함 관계. 허용하는 parent kind는 PARENT_KINDS에 있다 */
   parent?: string;

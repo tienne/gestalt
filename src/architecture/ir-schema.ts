@@ -178,6 +178,7 @@ const nodeSchema = z
     label: z.string().min(1),
     displayName: z.string().min(1).optional(),
     displayNameInferred: z.boolean().optional(),
+    group: z.string().min(1).optional(),
     repo: z.string(),
     parent: z.string().min(1).optional(),
     description: z.string().optional(),

@@ -45,6 +45,7 @@ import {
   LIFECYCLE_CSS,
   BLUEPRINT_CSS,
   ER_CSS,
+  FRAME_LABEL_CSS,
   SEQ_VIEW_CSS,
 } from './html-theme.js';
 import {
@@ -126,6 +127,11 @@ export interface RenderArchitectureHtmlOptions {
 const DASHED_PATTERN = '6 4';
 const INFERRED_BADGE = '추정';
 const EMPTY_LEVEL_SIZE = { width: 560, height: 240 };
+// 묶음 테두리 라벨 자리. layout의 GROUP_LABEL_H(20) 줄 안에 글자가 들도록 테두리 왼쪽 위에서 이만큼 들인다
+const FRAME_LABEL_INSET = 12;
+const FRAME_LABEL_BASELINE = 18;
+// clipText가 세는 한 칸의 폭. 라벨이 테두리 안쪽 폭을 넘지 않을 만큼만 남긴다
+const FRAME_LABEL_UNIT_W = 6;
 
 const VIEW_TITLES: Record<ArchitectureIr['view'], string> = {
   'screen-chain': '화면별 호출 흐름',
@@ -732,6 +738,13 @@ function emptyFlowLinks(links: { level: string; title: string }[]): string {
   );
 }
 
+function frameLabelText(label: string, frameWidth: number): string {
+  return clipText(
+    label,
+    Math.max(1, Math.floor((frameWidth - FRAME_LABEL_INSET * 2) / FRAME_LABEL_UNIT_W)),
+  );
+}
+
 /** 레벨 하나. 레인 띠와 선은 SVG, 카드는 그 위에 겹친 HTML이다. 좌표는 전부 서버가 박는다 */
 function renderLevelSection(spec: CanvasSpec): string {
   const open = `<section class="level" data-level-id="${escapeHtml(spec.levelId)}" aria-label="${escapeHtml(spec.title)}"`;
@@ -765,12 +778,16 @@ function renderLevelSection(spec: CanvasSpec): string {
     })),
   );
   const frameOf = new Map<string, string>();
-  for (const f of layout.frames ?? []) frameOf.set(f.id, f.id);
+  for (const f of layout.frames ?? []) if (f.label === undefined) frameOf.set(f.id, f.id);
   const frameRects = (layout.frames ?? [])
     .map(
       (f) =>
         `<rect class="frame" data-frame-id="${escapeHtml(f.id)}" x="${round2(f.x + CANVAS_PAD_X)}" y="${round2(f.y + CANVAS_PAD_TOP)}" ` +
-        `width="${f.width}" height="${f.height}" rx="14"/>`,
+        `width="${f.width}" height="${f.height}" rx="14"/>` +
+        (f.label !== undefined
+          ? `<text class="frame-label" x="${round2(f.x + CANVAS_PAD_X + FRAME_LABEL_INSET)}" y="${round2(f.y + CANVAS_PAD_TOP + FRAME_LABEL_BASELINE)}">` +
+            `<title>${escapeHtml(f.label)}</title>${escapeHtml(frameLabelText(f.label, f.width))}</text>`
+          : ''),
     )
     .join('');
   const { width, height } = canvas;
@@ -2437,6 +2454,8 @@ interface PageSpec {
   blueprints?: boolean;
   /** 테이블 관계 그림이 있으면 true. 그때만 그 스타일을 싣는다 */
   ers?: boolean;
+  /** 라벨 단 묶음 테두리가 있으면 true. 그때만 그 스타일을 싣는다 */
+  frameLabels?: boolean;
 }
 
 function renderPage({
@@ -2451,6 +2470,7 @@ function renderPage({
   lifecycles = false,
   blueprints = false,
   ers = false,
+  frameLabels = false,
 }: PageSpec): string {
   const title = viewTitle(ir);
   const vocab = irVocabulary(ir);
@@ -2483,7 +2503,7 @@ function renderPage({
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}${frameLabels ? `\n${FRAME_LABEL_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab),
@@ -2851,5 +2871,8 @@ export function renderDrilldownHtml(
     ...(views.some((v) => v.projection.shape === 'lifecycle') ? { lifecycles: true } : {}),
     ...(views.some((v) => v.projection.shape === 'blueprint') ? { blueprints: true } : {}),
     ...(views.some((v) => v.projection.shape === 'er') ? { ers: true } : {}),
+    ...(levels.some((l) => l.layout.frames?.some((f) => f.label !== undefined))
+      ? { frameLabels: true }
+      : {}),
   });
 }
