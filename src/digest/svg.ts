@@ -705,8 +705,10 @@ export function hubSvg(
 }
 
 const STAT_FONT = 40;
-/** 큰 숫자가 이보다 넓으면 말줄임한다. lint가 길이를 먼저 경고한다 */
+/** 큰 숫자가 이보다 넓으면 말줄임한다. lint가 statValueFits로 먼저 경고한다 */
 const STAT_MAX = 360;
+/** lint가 쓰는 판정. 글자 수가 아니라 렌더러가 그리는 폭으로 잰다. 한글이면 9자가 한 줄의 끝이다 */
+export const statValueFits = (value: string): boolean => textWidth(value, STAT_FONT) <= STAT_MAX;
 /** 숫자 왼쪽에 흩뿌리는 장식 점. 오른쪽은 거울로 뒤집어 쓴다. [숫자 끝에서 떨어진 거리, 세로 위치, 반지름] */
 const SPARKS: readonly (readonly [number, number, number])[] = [
   [10, -12, 2.6],

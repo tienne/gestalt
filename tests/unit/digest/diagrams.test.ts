@@ -479,17 +479,19 @@ describe('허브와 핵심 수치 도식', () => {
       expect(found[0]!.severity).toBe('error');
     });
 
-    it('DIAGRAM_STAT_LONG은 value가 12자를 넘을 때만 경고한다', () => {
-      const at12 = { ...stat, value: '가'.repeat(12) } as Diagram;
-      const at13 = { ...stat, value: '가'.repeat(13) } as Diagram;
-      expect(issuesOf(withDiagram(at12), 'DIAGRAM_STAT_LONG')).toEqual([]);
-      const found = issuesOf(withDiagram(at13), 'DIAGRAM_STAT_LONG');
+    it('DIAGRAM_STAT_LONG은 value가 한 줄(360px)에 안 들어갈 때만 경고한다', () => {
+      const at9 = { ...stat, value: '가'.repeat(9) } as Diagram;
+      const at10 = { ...stat, value: '가'.repeat(10) } as Diagram;
+      const digits = { ...stat, value: '1'.repeat(14) } as Diagram;
+      expect(issuesOf(withDiagram(at9), 'DIAGRAM_STAT_LONG')).toEqual([]);
+      expect(issuesOf(withDiagram(digits), 'DIAGRAM_STAT_LONG')).toEqual([]);
+      const found = issuesOf(withDiagram(at10), 'DIAGRAM_STAT_LONG');
       expect(found).toHaveLength(1);
       expect(found[0]).toMatchObject({
         severity: 'warning',
         path: 'reports.0.sections.0.diagram.value',
       });
-      const fig = issuesOf(figureDigest(at13), 'DIAGRAM_STAT_LONG');
+      const fig = issuesOf(figureDigest(at10), 'DIAGRAM_STAT_LONG');
       expect(fig.map((i) => i.path)).toEqual(['extensions.0.blocks.0.diagram.value']);
     });
 

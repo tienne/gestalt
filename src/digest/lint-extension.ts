@@ -7,6 +7,7 @@ import {
 } from './blocks.js';
 import type { DigestIssue } from './lint.js';
 import { boldPattern, keywordPattern, type Cite, type Diagram, type Transcript } from './schema.js';
+import { statValueFits } from './svg.js';
 import type { DigestTemplate } from './templates.js';
 
 /**
@@ -502,16 +503,13 @@ function checkPickGrid(
   }
 }
 
-/** 큰 숫자가 한 줄을 넘으면 글자가 줄어 핵심 수치로 안 읽힌다 */
-export const DIAGRAM_STAT_VALUE_MAX = 12;
-
 function checkStat(d: Extract<Diagram, { kind: 'stat' }>, dp: string, issues: DigestIssue[]): void {
-  if ([...d.value].length > DIAGRAM_STAT_VALUE_MAX) {
+  if (!statValueFits(d.value)) {
     issues.push({
       path: `${dp}.value`,
       severity: 'warning',
       code: 'DIAGRAM_STAT_LONG',
-      message: `핵심 수치 value가 ${[...d.value].length}자다. ${DIAGRAM_STAT_VALUE_MAX}자 안의 숫자와 단위만 두고 설명은 label로 옮긴다`,
+      message: `핵심 수치 value("${d.value}")가 한 줄에 안 들어가 그림에서 말줄임표로 잘린다. 한글 9자 안의 숫자와 단위만 두고 설명은 label로 옮긴다`,
     });
   }
   // 수치는 원문 표와 대조하는 장치가 없어서 cite가 없으면 지어낸 숫자를 걸러낼 길이 없다
