@@ -224,16 +224,17 @@ describe('buildTaskExecutionPrompt — model 힌트 섹션', () => {
     };
   }
 
-  it('model 힌트가 있으면 해당 model + Agent tool 안내가 포함된다', () => {
+  it('opus 힌트는 호스트의 frontier 모델로 해석한다', () => {
     const prompt = buildTaskExecutionPrompt(makeTask('opus'), spec, completed, []);
-    expect(prompt).toContain('model: "opus"');
-    expect(prompt).toContain('Agent tool');
+    expect(prompt).toContain('tierModels.frontier');
+    expect(prompt).toContain('`inherit` means omit the model argument');
+    expect(prompt).not.toContain('model: "opus"');
   });
 
-  it('model 힌트가 haiku면 model: "haiku"가 포함된다', () => {
+  it('haiku 힌트는 호스트의 frugal 모델로 해석한다', () => {
     const prompt = buildTaskExecutionPrompt(makeTask('haiku'), spec, completed, []);
-    expect(prompt).toContain('model: "haiku"');
-    expect(prompt).toContain('Agent tool');
+    expect(prompt).toContain('tierModels.frugal');
+    expect(prompt).not.toContain('model: "haiku"');
   });
 
   it('model 힌트가 없으면 현재 세션 직접 실행 안내가 포함된다', () => {

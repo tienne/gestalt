@@ -280,7 +280,7 @@ describe('loadConfig — environment variable priority', () => {
   });
 
   it('invalid GESTALT_REASONING_MODEL falls back to default fable', () => {
-    process.env['GESTALT_REASONING_MODEL'] = 'gpt4';
+    process.env['GESTALT_REASONING_MODEL'] = '  ';
     const config = loadConfig({}, isolatedOpts);
     expect(config.reasoningModel).toBe('fable');
     expect(config.reasoningModelFallback).toBe('opus');

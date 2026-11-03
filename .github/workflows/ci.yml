@@ -64,6 +64,9 @@ jobs:
       - name: Test with coverage
         run: pnpm test -- --coverage
 
+      - name: Verify built plugin installation
+        run: pnpm test:plugin-install
+
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == '24' && github.event_name == 'pull_request'
         uses: davelosert/vitest-coverage-report-action@v2

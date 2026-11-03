@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 
 // We test the setup logic by importing the function and running it in a temp dir
 import { setupCommand } from '../src/cli/commands/setup.js';
+import { initCommand } from '../src/cli/commands/init.js';
+import { createCli } from '../src/cli/index.js';
 
 describe('setupCommand', () => {
   let tmpDir: string;
@@ -48,4 +50,27 @@ describe('setupCommand', () => {
     // File should be unchanged
     expect(readFileSync(filePath, 'utf-8')).toBe(existingContent);
   });
+
+  it('persists the explicitly selected Codex client', () => {
+    setupCommand({ client: 'codex' });
+    expect(JSON.parse(readFileSync('gestalt.json', 'utf8')).client).toBe('codex');
+  });
+
+  it('init preserves the explicit client when graph and hook steps are skipped', async () => {
+    await initCommand({ client: 'codex', skipGraph: true, skipHook: true });
+    expect(JSON.parse(readFileSync('gestalt.json', 'utf8')).client).toBe('codex');
+  });
+
+  it.each(['setup', 'init'])(
+    'rejects invalid --client before %s creates files',
+    async (command) => {
+      const cli = createCli()
+        .exitOverride()
+        .configureOutput({ writeErr: () => {} });
+      await expect(
+        cli.parseAsync(['node', 'gestalt', command, '--client', 'unknown']),
+      ).rejects.toThrow();
+      expect(existsSync('gestalt.json')).toBe(false);
+    },
+  );
 });
