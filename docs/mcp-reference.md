@@ -1199,7 +1199,7 @@ ges_pr({ action: "checkout", id: "e2085a1c" })
 
 영상 요약 뷰어와 읽기 렌즈(논문 PDF, 웹 글, 팟캐스트)의 검증과 렌더를 맡는다. 흐름은 [`video-digest` 스킬](../plugin/skills/video-digest/SKILL.md)과 [`lens` 스킬](../plugin/skills/lens/SKILL.md)에 있고 설계는 [`proposals/video-digest.md`](./proposals/video-digest.md)와 [`proposals/reading-lens.md`](./proposals/reading-lens.md)에 있다. 두 기능은 저장소와 뷰어를 같이 쓰고 `transcript.json`의 `meta.source`(`youtube`, `file`, `pdf`, `web`, `podcast`)로 갈린다.
 
-요약 본문(`digest.json`)은 세션이 `video-summarizer`로 쓰고 이 도구는 LLM을 부르지 않는다. 자막 수집(`ingest`)과 프레임 추출(`frames`)은 yt-dlp와 ffmpeg를 부르는 셸 명령이고 로컬 서버(`serve`)도 셸에서 띄우는 명령이라, 셋 다 MCP action으로 두지 않고 `gestalt digest` CLI로 둔다.
+요약 본문(`digest.json`)은 세션이 `video-summarizer`로 쓰고 이 도구는 LLM을 부르지 않는다. 자막 수집(`ingest`)과 프레임 추출(`frames`)은 yt-dlp나 ffmpeg, ffprobe, faster-whisper 같은 외부 프로그램을 부르는 셸 명령이고 로컬 서버(`serve`)도 셸에서 띄우는 명령이라, 셋 다 MCP action으로 두지 않고 `gestalt digest` CLI로 둔다.
 
 파일은 `.gestalt/digest/<slug>/` 아래에 있다.
 
