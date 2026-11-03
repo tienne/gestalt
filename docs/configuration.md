@@ -42,12 +42,12 @@ interface GestaltConfig {
   llm: { apiKey: string; model: string };
   interview: { resolutionThreshold: number; maxRounds: number; rescore: 'off' | 'record' | 'gate' };
   execute: { driftThreshold: number; successThreshold: number; goalAlignmentThreshold: number };
-  reasoningModel: 'fable' | 'opus' | 'sonnet' | 'haiku';
-  reasoningModelFallback: 'fable' | 'opus' | 'sonnet' | 'haiku';
+  reasoningModel: string;
+  reasoningModelFallback: string;
   tierModels: {
-    frugal: 'fable' | 'opus' | 'sonnet' | 'haiku';
-    standard: 'fable' | 'opus' | 'sonnet' | 'haiku';
-    frontier: 'fable' | 'opus' | 'sonnet' | 'haiku';
+    frugal: string;
+    standard: string;
+    frontier: string;
   };
   relatedRepos: string[]; // 'owner/name' 형식, 최대 64개, 기본 []
   ruleSources: Array<{
@@ -72,6 +72,7 @@ interface GestaltConfig {
   roleAgentsDir: string;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   client: 'claude-code' | 'codex' | 'both' | 'grok';
+  hostClient?: 'claude-code' | 'codex' | 'grok'; // 서버가 채우는 모델 기본값용 호스트
 }
 ```
 
@@ -158,13 +159,23 @@ interface GestaltConfig {
 
 - **적용 대상**: 스펙 생성(spec 스킬), 실행 플래닝(execute 스킬 `plan_step` / `plan_complete`).
 - **비대상**: 인터뷰(Phase 1 Q&A는 대화형이라 제외), execute Phase 2 실행 태스크(기존 태스크별 `model` 힌트 유지).
-- **값**: `fable | opus | sonnet | haiku` — full 모델 ID가 아니라 Agent 도구가 받는 alias.
+- **값**: 호스트가 받는 모델 ID, Claude 별칭 또는 `inherit`. 영문/숫자로 시작하는 최대 128자 토큰이며 `. _ : / @ + -`를 포함할 수 있다. 서버는 모델 가용성을 검사하지 않는다.
+- **Codex 기본값**: `reasoningModel`, `reasoningModelFallback`, `tierModels`의 세 tier 모두 `inherit`. 스킬은 모델 인자를 생략해 현재 세션 모델을 상속한다. 명시적으로 지정한 모델은 이 기본값보다 우선한다.
+- **Claude 기본값**: reasoning은 `fable`, fallback은 `opus`, tier는 `haiku`/`sonnet`/`opus`를 유지한다.
 
 `ges_status`는 sessionId 없이 호출해도 resolve된 `reasoningModel` / `reasoningModelFallback`을 노출한다. 스킬은 `gestalt.json`을 직접 파싱하지 않고 이 값을 읽는다.
 
+### MCP 호스트와 초기 설정
+
+MCP 초기화의 `clientInfo.name`이 알려진 Codex/Grok 이름이면 해당 호스트를 기본 `client`로 사용한다. `gestalt.json`, `GESTALT_CLIENT`, 코드 override에 적은 `client`가 감지값보다 우선하고, 실행 요청의 `client`는 그 요청에만 우선한다. 알 수 없는 호스트 이름은 기존 `claude-code` 기본값을 유지한다.
+
+`ges_status`의 `client`는 컨텍스트 파일을 기록할 대상이고 `hostClient`는 모델 기본값을 선택한 호스트다. 예를 들어 Codex에서 `client: "both"` 프로젝트를 열면 두 파일 기록은 유지하면서 모델 기본값은 Codex의 `inherit`를 쓴다. 알 수 없는 호스트는 Claude 호환 기본값을 사용한다.
+
+새 프로젝트는 `gestalt setup --client codex` 또는 `gestalt init --client codex`로 설정할 수 있다. `setup`은 기존 파일을 덮어쓰지 않고 `init`은 기존 확인 절차를 유지한다. client 옵션은 `claude-code`, `codex`, `both`, `grok` 중 하나다.
+
 ### 폴백 발동 지점
 
-`reasoningModelFallback`(기본 `opus`)은 폴백 **대상**일 뿐이다. 서버는 모델 가용성을 감지하지 않으며, 폴백을 발동하지도 않는다. 실제 발동은 **스킬 런타임**에서 일어난다 — Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`로 바꿔 1회 재시도한다. 즉 "fable 안 되면 opus"의 판단은 서버가 아니라 스킬이 한다.
+`reasoningModelFallback`은 폴백 **대상**일 뿐이다. 서버는 모델 가용성을 감지하지 않으며, 폴백을 발동하지도 않는다. 실제 발동은 **스킬 런타임**에서 일어난다. Claude에서 `fable` 스폰이 거부되면 기본 fallback인 `opus`로 한 번 재시도한다. Codex의 기본 fallback은 `inherit`이므로 모델 인자를 생략한다. 호스트가 모델 선택을 지원하지 않으면 해당 도구의 스키마에 맞게 세션 모델을 상속한다.
 
 ---
 

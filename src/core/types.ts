@@ -205,9 +205,9 @@ export interface AtomicTask {
   estimatedComplexity: 'low' | 'medium' | 'high';
   dependsOn: string[];
   /**
-   * Optional model hint for Passthrough execution. When set, Claude Code is
-   * advised to spawn a sub-agent with this model via the Agent tool. Auto-assigned
-   * at plan completion based on task complexity and intent.
+   * Legacy tier hint for Passthrough execution: haiku=frugal, sonnet=standard,
+   * opus=frontier. Resolve through the connected host's tierModels before
+   * spawning. Auto-assigned at plan completion based on complexity and intent.
    */
   model?: TaskModel;
 }

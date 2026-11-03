@@ -1,4 +1,5 @@
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { detectClientHost } from './client-host.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -110,7 +111,7 @@ function shouldUsePassthroughInterview(config: GestaltConfig): boolean {
 }
 
 export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) {
-  const config = loadConfig(configOverrides);
+  let config = loadConfig(configOverrides);
   setNotificationsEnabled(config.notifications);
   const eventStore = new EventStore(config.dbPath);
   const skillRegistry = new SkillRegistry(config.skillsDir);
@@ -126,6 +127,12 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     name: 'gestalt',
     version: getVersion(),
   });
+  server.server.oninitialized = () => {
+    const hostClient = detectClientHost(server.server.getClientVersion()?.name);
+    if (hostClient) {
+      config = loadConfig(configOverrides, { defaultClient: hostClient, hostClient });
+    }
+  };
 
   /**
    * 도구 등록은 전부 여기를 지난다.

@@ -37,6 +37,8 @@ function clamp(value: string, max: number): string {
  */
 export function buildStatusConfigInfo(config?: GestaltConfig) {
   return {
+    client: config?.client ?? null,
+    hostClient: config?.hostClient ?? null,
     reasoningModel: config?.reasoningModel ?? null,
     reasoningModelFallback: config?.reasoningModelFallback ?? null,
     // 등록 에이전트가 없는 인라인 서브에이전트(예: review-reply의 스레드 분류)도
