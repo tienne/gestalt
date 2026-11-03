@@ -2,7 +2,7 @@
 
 같은 문제를 다른 서비스가 어떻게 풀었는지 조사하고 화면을 모아서 우리 기획의 판단 근거로 만드는 스킬 다섯 개의 사용 안내다. `research`가 전체를 한 번에 돌리고 `market-scan`, `screen-ref`, `ux-research`, `reverse-plan`은 그중 한 단계씩만 따로 돌린다.
 
-결과는 `.gestalt/research/<slug>/` 폴더에 쌓인다. 조사 내용을 담은 `research.json`이 원본이고 거기서 개인용 HTML(`research.html`)과 공유용 HTML(`research.shared.html`)을 만든다. 캡처 이미지는 같은 폴더의 `captures/`에 모인다. 조사와 `research.json` 작성은 Claude Code 세션이 한다. `ges_research` MCP 도구는 이 세션에서 쓸 수 있는 출처를 알려 주고 캡처 속 개인정보를 가짜 값으로 바꾼다. `research.json`을 검증하고 윤문한 문장을 거기 반영한 뒤 HTML로 렌더하는 일도 이 도구가 한다. 서버는 LLM을 부르지 않는다. 도구 목록은 [MCP 레퍼런스](./mcp-reference.md)에 한 줄로 있다.
+결과는 `.gestalt/research/<slug>/` 폴더에 쌓인다. 조사 내용을 담은 `research.json`이 원본이고 거기서 개인용 HTML(`research.html`)과 공유용 HTML(`research.shared.html`)을 만든다. 캡처 이미지는 같은 폴더의 `captures/`에 모인다. 조사와 `research.json` 작성은 Claude Code 세션이 한다. `ges_research` MCP 도구는 이 세션에서 쓸 수 있는 출처를 알려 주고 캡처 속 개인정보를 가짜 값으로 바꾼다. 이 도구는 `research.json`을 검증하고 윤문한 문장을 거기 되돌려 넣은 뒤 HTML로 렌더하기도 한다. 서버는 LLM을 부르지 않는다. 도구 목록은 [MCP 레퍼런스](./mcp-reference.md)에 한 줄로 있다.
 
 ## 지키는 원칙
 
