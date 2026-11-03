@@ -84,7 +84,7 @@
 | `build-graph`  | 코드 지식 그래프                            | 그래프만 새로 빌드하거나 다시 빌드할 때                                                        |
 | `setup`        | `gestalt.json`, 코드 그래프, post-commit 훅 | 레포를 처음 설정할 때. 레포당 한 번이다                                                        |
 
-고르는 기준은 두 가지다. 코드를 이미 고쳤으면 `diff-radius`, 아직 고치기 전이면 `blast-radius`다. 그래프 DB가 아예 없으면 두 스킬 모두 자동으로 만들지 않는다. 그때만 `build-graph`를 돌린다. 레포를 처음 쓴다면 `build-graph`보다 `setup`이 맞다. `setup`이 그래프 빌드와 훅 설치까지 묶어 해 주기 때문이다.
+코드를 이미 고쳤으면 `diff-radius`, 아직 고치기 전이면 `blast-radius`다. 그래프 DB가 아예 없으면 두 스킬 모두 자동으로 만들지 않는다. 그때만 `build-graph`를 돌린다. 레포를 처음 쓴다면 `build-graph`보다 `setup`이 맞다. `setup`이 그래프 빌드와 훅 설치까지 묶어 해 주기 때문이다.
 
 같이 쓰는 순서는 `setup`(레포당 한 번), `blast-radius`(고치기 전), 코드 수정, `diff-radius`(커밋 전)다. 그래프는 한 번 빌드해 두면 질의할 때마다 작업 트리에 맞춰 갱신되므로 매번 `build-graph`를 부를 일은 없다. 그래프 구조는 [code-graph.md](./code-graph.md)에 있다.
 
