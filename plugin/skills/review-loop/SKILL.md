@@ -222,13 +222,12 @@ gh repo view --json owner,name,nameWithOwner
 
 **판정에 쓰는 수를 전부 이 명령이 낸다.** 없으면 첫 단계부터 아무것도 못 한다 — 설치본이 뒤처져 있으면 `unknown option` 으로 죽는데, 그걸 라운드를 돌다가 알면 늦다.
 
-먼저 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)에 따라 이 플러그인의 버전 고정 런처 절대 경로를 구한다.
-아래 `gestaltLauncher`에 그 경로를 넣고 하위 명령을 확인한다. 전역 CLI나 작업 레포의 로컬 bin은 탐색하지 않는다.
+먼저 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)에 따라 플러그인 버전에 맞는 런처가 설치된 절대 경로를 구한다.
+아래 경로 자리에 실제 값을 직접 넣는다. 도구 호출 사이에 셸 변수가 남는다고 가정하지 않는다.
 
 ```bash
-gestaltLauncher="<공유 지침으로 구한 런처 절대 경로>"
-if node "$gestaltLauncher" review-loop parse 1 >/dev/null 2>&1 \
-  && node "$gestaltLauncher" review-loop dir >/dev/null 2>&1; then
+if node "<공유 지침으로 구한 런처 절대 경로>" review-loop parse 1 >/dev/null 2>&1 \
+  && node "<공유 지침으로 구한 런처 절대 경로>" review-loop dir >/dev/null 2>&1; then
   echo "OK"
 else
   echo "MISSING"
@@ -238,14 +237,14 @@ fi
 
 **명령을 변수에 담아 함수로 넘기지 않는다.** zsh는 인용 안 한 변수 전개에서 단어 분리를 안 해 `$cmd`가 통째로 명령 이름이 된다. 그러면 실제로 깔려 있어도 `MISSING`이 나온다. 같은 코드가 bash에서는 도는 탓에 눈으로는 안 걸린다.
 
-`OK`면 이후 모든 CLI 예시의 `gestalt`를 `node "$gestaltLauncher"`로 바꿔 실행한다. **`MISSING`이면 라운드를 시작하지 않는다.**
+`OK`면 이후 모든 CLI 예시의 `gestalt`를 `node "<공유 지침으로 구한 런처 절대 경로>"`로 바꿔 실행한다. **`MISSING`이면 라운드를 시작하지 않는다.**
 
 **하위 명령을 둘 다 찔러본다.** 하나만 보면 그것만 있고 나머지가 없는 중간 설치본이 통과해 라운드 중간에 죽는다. 1.1이 입력 하나가 아니라 셋을 보는 이유와 같다.
 
 ```
 이 버전에는 `gestalt review-loop` 명령이 없네요. 판정에 쓰는 수를 낼 방법이 없어요.
 
-`/plugin install gestalt@gestalt`로 플러그인을 올린 뒤 다시 불러주세요.
+먼저 Node.js >=22, npm과 네트워크 연결을 확인해요. 그 버전에 하위 명령이 없다면 플러그인을 갱신한 뒤 다시 불러주세요.
 ```
 
 1.1의 `review` 스킬 검사와 같은 격이다. 둘 다 없으면 루프가 성립하지 않는 전제라 시작 전에 본다.
@@ -395,7 +394,7 @@ done
 설치된 `review` 스킬이 `postVerdict`를 안 받네요. 그대로 돌리면 라운드마다 판정이 두 번 나가요.
 이슈가 남았는데 승인으로 끝나는 경우도 생기고요.
 
-`/plugin install gestalt@gestalt`로 플러그인을 올린 뒤 다시 불러주세요.
+먼저 Node.js >=22, npm과 네트워크 연결을 확인해요. 그 버전에 하위 명령이 없다면 플러그인을 갱신한 뒤 다시 불러주세요.
 ```
 
 **이 스킬을 새로 부른 세션마다 한 번 돈다.** 같은 세션 안에서는 설치본이 안 바뀌므로 라운드 2부터 건너뛴다. 다만 `round` 파일이 있어 **이어서 도는 세션은 다시 돈다** — 지난 세션 뒤에 플러그인이 올라갔을 수 있다.
@@ -420,7 +419,7 @@ postVerdict: false
 `postVerdict: false`로 불렀는데 설치된 review 가 그걸 못 읽은 것 같습니다.
 
 이 라운드는 여기서 멈출게요. 제가 판정을 또 내면 두 번 나갑니다.
-`/plugin install gestalt@gestalt`로 플러그인을 올린 뒤 다시 불러주세요.
+먼저 Node.js >=22, npm과 네트워크 연결을 확인해요. 그 버전에 하위 명령이 없다면 플러그인을 갱신한 뒤 다시 불러주세요.
 ```
 
 `loopState`를 `blocked`로 두고 끝낸다. **2.5로 내려가지 않는다** — 이미 나간 판정 위에 하나 더 얹는 게 이 계약이 막으려던 바로 그 일이다.
@@ -612,7 +611,7 @@ gestalt humanize-scan --file "$stateDir/verdict-r<N>.md" --register chat
 echo "EXIT=$?"
 ```
 
-부르는 형태는 위 "조회 명령이 있는지 먼저 본다"에서 판정한 것을 그대로 쓴다.
+위 "조회 명령이 있는지 먼저 본다"에서 구한 런처의 절대 경로를 그대로 쓴다.
 
 | 종료 코드 | 무엇 |
 | --- | --- |
@@ -623,7 +622,7 @@ echo "EXIT=$?"
 
 **ⓦ 두 번째도 걸리면** 무엇이 남았는지 알리고 게시할지 묻는다.
 
-Phase 0에서 정한 버전 고정 런처를 여기서도 사용한다. `gestalt` 예시는 `node "$gestaltLauncher"`로 바꿔 실행한다.
+Phase 0에서 정한 버전 고정 런처를 여기서도 사용한다. `gestalt` 예시는 `node "<공유 지침으로 구한 런처 절대 경로>"`로 바꿔 실행한다.
 
 ### 2.5 게시
 

@@ -1,7 +1,8 @@
 # 플러그인과 같은 버전의 CLI 실행
 
 스킬 본문의 `gestalt ...` 예시는 아래 런처로 실행한다. 전역 `gestalt` 설치는 필요하지 않다.
-이 문서를 읽은 **실제 절대 경로**에서 `../../scripts/gestalt-cli.mjs`를 계산한다.
+이 문서가 있는 디렉토리(`.../skills/_shared`)에서 두 단계 위가 플러그인 루트다.
+런처는 그 아래 `scripts/gestalt-cli.mjs`에 있다. 예를 들어 문서가 `/cache/gestalt/skills/_shared/cli-launcher.md`이면 런처는 `/cache/gestalt/scripts/gestalt-cli.mjs`다.
 현재 작업 레포의 동명 파일이나 `bin/gestalt.ts`를 찾아 실행하지 않는다.
 
 ```bash
@@ -35,6 +36,7 @@ find "$scanTmp" -name '*.md' -print0 | xargs -0 node "/플러그인/절대경로
 ```
 
 `humanize-scan`의 종료 코드 `10`은 검사 실행 실패가 아니라 탐지 없음이다. 그 명령의 계약대로 읽는다.
+`xargs`는 자식의 종료 코드 `10`을 그대로 전달하지 않는다. 검사 판정에는 파일별 출력의 `EXIT=` 값을 사용한다. 단일 파일처럼 파일별 표지가 없는 호출에서 종료 코드가 필요하면 `xargs` 대신 런처를 직접 실행한다.
 런처를 찾지 못했거나 버전 해석이 실패하면 필수 검사와 그 수치에 의존하는 단계는 중단하고 오류를 알린다.
 그 밖의 선택적 단계는 실행하지 못한 단계를 완료 보고에 적는다. 검사 결과를 직접 지어내거나
 다른 버전의 실행을 같은 결과로 보고하지 않는다. MCP 도구는 [`tool-availability.md`](./tool-availability.md)를 따른다.

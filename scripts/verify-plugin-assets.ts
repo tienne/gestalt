@@ -45,8 +45,8 @@ const report = (label: string, files: string[]) => {
  * 게슈탈트 레포 밖에서는 그 단계가 원리상 못 돈다. 어투 검사처럼 필수 게이트인
  * 자리가 그렇게 건너뛰어지면 막으려던 문장이 그대로 나간다.
  *
- * 호출 형태는 _shared/cli-launcher.md 의 판정 한 곳에만 둔다. 여기서 막는 건
- * 그 판정을 안 거치고 pnpm 형태를 직접 박은 자리다. 판정 블록의 `--version`,
+ * 호출 형태는 _shared/cli-launcher.md 의 런처 지침 한 곳에만 둔다. 여기서 막는 건
+ * 그 런처를 안 거치고 pnpm 형태를 직접 박은 자리다. 판정 블록의 `--version`,
  * 산문의 `... ` 표기, 백틱으로 닫힌 인용은 하위 명령이 아니라 통과시킨다.
  */
 const HARDCODED_LAUNCHER = /pnpm tsx bin\/gestalt\.ts[ \t]+(?!--version|\.\.\.)/;
@@ -69,7 +69,7 @@ if (launcherOffenders.length > 0) {
   report('고칠 자리', launcherOffenders);
   console.error(
     '\n예시는 `gestalt ...` 로 적고, 부르는 형태는 ' +
-      'plugin/skills/_shared/cli-launcher.md 의 판정을 참조하게 하세요.',
+      'plugin/skills/_shared/cli-launcher.md 의 런처 지침을 참조하게 하세요.',
   );
   process.exit(1);
 }

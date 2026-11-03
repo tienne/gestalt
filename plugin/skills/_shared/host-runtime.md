@@ -12,6 +12,7 @@ MCP 도구의 입력과 2-Call 제출 계약은 호스트가 바뀌어도 그대
 
 `ges_status {}`의 `hostClient`가 `codex`이면 Codex 모델 기본값은 `inherit`다.
 `client`는 실행 컨텍스트를 기록할 파일의 선택이라 `both`일 수도 있다. 이 값을 호스트 판정과 혼동하지 않는다.
+`hostClient`가 없는 이전 서버와 연결돼 있어도 현재 호스트가 Codex이면 서버의 Claude 별칭을 그대로 모델 인자로 보내지 않는다. `fable`, `haiku`, `sonnet`, `opus`는 이때 `inherit`로 취급한다. 명시한 다른 모델 ID는 유지한다. 이전 서버에는 `ges_execute` 요청의 `client: "codex"`도 명시해 컨텍스트 기록 대상을 맞추고 플러그인 갱신을 안내한다.
 사용자가 명시한 모델 ID와 실제 도구의 지원 여부를 우선한다. Claude 모델 별칭을 GPT 모델로 추측해서 바꾸지 않는다.
 실행 태스크의 자동 `task.model`이 `haiku`, `sonnet`, `opus`이면 기존 tier 힌트다. 각각 `ges_status`의
 `tierModels.frugal`, `tierModels.standard`, `tierModels.frontier`로 해석한 뒤 아래 모델 규칙을 적용한다.
@@ -19,7 +20,7 @@ MCP 도구의 입력과 2-Call 제출 계약은 호스트가 바뀌어도 그대
 
 | 본문의 표기 | Codex에서 수행할 일 |
 |---|---|
-| `Agent`의 `gestalt:` 에이전트 타입 | 사용 가능한 범용 서브에이전트를 만들고 그 안에서 `ges_agent get`으로 페르소나를 받는다. `subagent_type`은 전달하지 않는다. |
+| `Agent`의 `gestalt:` 에이전트 타입 | [`agent-delegation.md`](./agent-delegation.md)의 Explore 폴백 프롬프트를 사용해 범용 서브에이전트 안에서 `ges_agent get`으로 페르소나를 받는다. 해당 문서의 절차대로 룰북 디렉토리를 절대 경로로 풀어 프롬프트에 직접 넣는다. 경로를 못 풀었으면 그 사실을 보고한다. `subagent_type`은 전달하지 않는다. |
 | `Explore` | 읽기 전용 조사를 위임한다. 실제 읽기 전용 타입이 없으면 파일 수정, 커밋, 외부 전송 금지를 프롬프트에 명시하고 도구로 강제된 제한이라고 말하지 않는다. |
 | `Agent.model`, `reasoningModel`, `tierModels` | `inherit`이면 모델 인자를 생략한다. 명시 모델 ID는 스폰 도구가 받는 경우에만 전달한다. |
 | `effort` | 해당 도구가 받는 `reasoning_effort` 또는 동등한 인자로 옮긴다. 지원하지 않는 인자는 보내지 않는다. |
@@ -32,13 +33,11 @@ MCP 도구의 입력과 2-Call 제출 계약은 호스트가 바뀌어도 그대
 모델이나 effort를 명시해야 할 때만 `fork_turns: "none"`으로 필수 맥락과 절대 경로를 직접 전달한다.
 이 매개변수가 없는 호스트에는 그 인자를 보내지 않는다. 특정 Codex 버전의 도구명을 필수 조건으로 삼지 않는다.
 
-명시한 모델을 거절하면 같은 호스트의 세션 상속으로 **한 번만** 재시도한다. `sonnet`이나 `opus`로
-재시도하지 않는다. `inherit`를 지원 모델 이름처럼 전달하지 않는다. 모델 선택을 지원하지 않는 호스트에서는
+명시한 모델을 거절하면 `ges_status.hostClient`가 `codex`인 새 서버에서는 `reasoningModelFallback`이 `inherit`가 아닐 때 그 설정값으로 한 번 재시도한다. `hostClient`가 없는 이전 서버에서는 Claude 기본 별칭이 아닌 폴백 ID만 사용한다. 그것도 거절되거나 별도 폴백 ID가 없으면 세션 상속으로 한 번 재시도하고 끝낸다. 서버 기본값인 Claude 별칭으로 재시도하지 않는다. `inherit`를 지원 모델 이름처럼 전달하지 않는다. 모델 선택을 지원하지 않는 호스트에서는
 상속으로 실행하고 완료 보고에 모델 지정이 적용되지 않았음을 적는다.
 
 서브에이전트가 없으면 메인이 `ges_agent get`으로 페르소나를 받아 직접 수행할 수 있다.
-이때 컨텍스트가 메인에 실렸음을 완료 보고에 밝힌다. **독립된 판정자가 필요한 단계**(`doubt` 등)는
-자기 검토로 대체하지 않고 독립 검토를 실행하지 못했다고 알린다. MCP 자체의 부재는
+이때 컨텍스트가 메인에 실렸음을 완료 보고에 밝힌다. **독립된 판정자가 필요한 단계**는 `doubt`, review의 3.5 `continuity-judge`, 3.7 `suggestion-verifier`다. 이 셋은 메인의 자기 검토로 대체하지 않는다. 제안 검증을 못 돌렸으면 review 지침에 따라 미실행을 알리고 정합 심급을 못 돌렸으면 그 사실을 적고 Pass를 승인으로 게시하지 않는다. MCP 자체의 부재는
 [`tool-availability.md`](./tool-availability.md)를 따르며 도구 없이 세션이나 검사 결과를 만들지 않는다.
 
 ## Claude Code와 그 밖의 호스트

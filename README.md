@@ -226,8 +226,10 @@ Start a new session after installing, then ask “Check Gestalt status” or
 initialization: new projects record execution context in `AGENTS.md`, and agent
 models inherit the active Codex session by default. Explicit `client` and model
 settings still take precedence; `client: "both"` continues writing both host files.
-For a persistent Codex-only project, initialize with `gestalt setup --client codex`
-(or `gestalt init --client codex` for the graph and Git hook too).
+For a persistent Codex-only project, ask the setup skill to save `client: "codex"`.
+The skill runs `setup --client codex` through the versioned launcher below
+(or `init --client codex` for the graph and Git hook), with compatibility handling
+when the pinned CLI predates that option.
 
 Skills use the bundled [host adapter](./plugin/skills/_shared/host-runtime.md) to
 translate Claude tool examples into the available Codex tools. They run CLI

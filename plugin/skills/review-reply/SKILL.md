@@ -54,7 +54,7 @@ routing:
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 >
 > **`gestalt` CLI를 부르는 형태** → [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)
-> 본문의 셸 예시는 전부 `gestalt ...`다. 게슈탈트 레포 안에서는 `pnpm tsx bin/gestalt.ts ...`로 바꿔 부른다. 답글 어투 검사가 이 CLI에 매달려 있고 **그건 필수 검사라 못 돌리면 멈춘다.**
+> 본문의 셸 예시는 전부 `gestalt ...`다. 설치 위치의 버전 고정 런처로 실행한다. 답글 어투 검사가 이 CLI에 매달려 있고 **그건 필수 검사라 못 돌리면 멈춘다.**
 >
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 > GitHub PR은 `gh` CLI(REST + GraphQL)에, 로컬 PR은 `gestalt pr` CLI에 의존한다 (대상 판별은 아래). 둘 다 실패하면 거기서 멈추고 알린다. 스레드 목록을 손으로 지어내지 않는다.

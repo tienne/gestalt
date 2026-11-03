@@ -36,7 +36,7 @@ routing:
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 >
 > **`gestalt` CLI를 부르는 형태** → [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)
-> 본문의 셸 예시는 `gestalt ...`입니다. 게슈탈트 레포 안에서는 `pnpm tsx bin/gestalt.ts ...`로 바꿔 부릅니다. description 어투 검사가 이 CLI에 매달려 있고 **그건 필수 검사라 못 돌리면 멈춥니다.**
+> 본문의 셸 예시는 `gestalt ...`입니다. 설치 위치의 버전 고정 런처로 실행합니다. description 어투 검사가 이 CLI에 매달려 있고 **그건 필수 검사라 못 돌리면 멈춥니다.**
 레포의 PR 규칙을 먼저 탐색하고 미니 인터뷰로 컨텍스트를 수집한 뒤, diff를 분석해 레포 규칙에 맞는 PR description을 생성하고 `gh pr create`로 제출합니다.
 
 ## 사용 방법
