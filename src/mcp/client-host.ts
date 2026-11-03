@@ -1,6 +1,6 @@
 import type { HostClient } from '../core/config.js';
 
-/** MCP clientInfo is a hint for defaults, never an override of project settings. */
+/** MCP names select model defaults; explicit write targets and model IDs stay intact. */
 export function detectClientHost(name: string | undefined): HostClient | undefined {
   if (!name) return undefined;
   const normalized = name.toLowerCase();

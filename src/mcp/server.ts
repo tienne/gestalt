@@ -130,7 +130,16 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
   server.server.oninitialized = () => {
     const hostClient = detectClientHost(server.server.getClientVersion()?.name);
     if (hostClient) {
-      config = loadConfig(configOverrides, { defaultClient: hostClient, hostClient });
+      const resolved = loadConfig(configOverrides, { defaultClient: hostClient, hostClient });
+      // Engines already captured other settings; initialization only selects host defaults.
+      config = {
+        ...config,
+        client: resolved.client,
+        hostClient: resolved.hostClient,
+        reasoningModel: resolved.reasoningModel,
+        reasoningModelFallback: resolved.reasoningModelFallback,
+        tierModels: resolved.tierModels,
+      };
     }
   };
 
