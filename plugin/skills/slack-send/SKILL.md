@@ -41,6 +41,8 @@ routing:
 
 # Slack Send Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 슬랙 메시지를 **작성자 어투로 다듬어 → 승인받고 → 전송/예약**하는 파이프라인.
 `slack-messenger` role agent(작성·다듬기)와 Slack MCP(전송)를 잇는다.

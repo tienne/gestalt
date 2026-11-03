@@ -66,6 +66,8 @@ outputs:
 
 # Video Digest Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 영상 하나를 문장 단위 스크립트로 받아 출처가 달린 계층 요약을 쓰고 뷰어로 띄운다. 일은 수집, 요약, 표현 순서로 나뉜다. 그중 요약 층과 표현 층을 갈라 두어서 요약을 다시 쓰지 않고 뷰어만 다시 뽑을 수 있다.
 
 - **수집**: `gestalt digest ingest`가 자막을 받아 문장으로 합친다. 프레임은 요약이 끝난 뒤 `gestalt digest frames`가 뽑는다.

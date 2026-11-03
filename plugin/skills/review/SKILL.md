@@ -52,6 +52,8 @@ routing: {}
 
 # Review Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파이프라인에 주입해 검토합니다.
 변경 파일을 수집하고 리뷰 에이전트(보안, 성능, 품질, 주석, 문서와 문자열이 바뀌었으면 라이팅, 스킬이나 에이전트 문서가 바뀌었으면 하네스)로 다각도 리뷰한 뒤(**결함 심급**), `continuity-judge`가 변경 전체의 목표 정합성과 일관성을 감독하고(**정합 심급**), `suggestion-verifier`가 리뷰어 제안을 반영하면 무엇이 깨지는지 게시 전에 확인한 뒤(**제안 검증**), Pass/Block 판정과 마크다운 리포트를 생성합니다. 리뷰 대상이 PR이면 — GitHub PR이든 로컬 `gestalt pr` PR이든 — `code-review-writer` 에이전트가 작성한 인라인 코멘트로 그 PR에 게시까지 이어집니다.
 
@@ -615,19 +617,9 @@ echo "$scanTmp"
 
 작성된 컨텍스트 문서를 `"$scanTmp/change-context.md"`에 쓴다 (파일 쓰기 도구 사용, 셸로 넘기지 않는다).
 
-```bash
-if gestalt --version >/dev/null 2>&1; then
-  echo "OK gestalt"
-elif pnpm tsx bin/gestalt.ts --version >/dev/null 2>&1; then
-  echo "OK pnpm"
-else
-  echo "MISSING"
-fi
-```
-
-`OK pnpm`이면 아래 호출의 `gestalt`를 `pnpm tsx bin/gestalt.ts`로 바꿔 부릅니다. 한 번 확인하고 그 뒤로는(4.5, 4.7단계 포함) 같은 형태를 씁니다.
-
-**`MISSING`이면 검사를 건너뛰지 않고 멈춥니다.** 못 돌린 걸 통과로 읽으면 검사가 없는 것과 같습니다. `npm i -g @tienne/gestalt`를 함께 알리고 그대로 진행할지 사용자가 정하게 둡니다.
+[`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)에 따라 이 플러그인의 버전 고정 런처를 사용한다.
+아래 `gestalt` 호출은 `node`와 런처의 절대 경로로 바꿔 실행한다. 이후 단계와 파이프라인에도 같은 규칙을 적용한다.
+런처 실행이 실패하면 필수 검사를 건너뛰지 않고 오류를 알린 뒤 멈춘다. 전역 CLI 설치를 요구하거나 다른 버전으로 대신 실행하지 않는다.
 
 ```bash
 gestalt humanize-scan --file "$scanTmp/change-context.md" --register report

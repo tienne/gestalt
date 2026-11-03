@@ -21,7 +21,10 @@ outputs:
 
 # Setup Skill
 
-`gestalt init` 명령어와 동일한 초기화 작업을 Claude Code 스킬로 실행한다.
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
+`gestalt init` 명령어와 동일한 초기화 작업을 현재 호스트에서 실행한다.
+Codex에서는 설정 생성 명령에 `--client codex`를 붙인다. 기존 설정은 사용자 동의 없이 덮어쓰지 않는다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 > `ges_*` 도구가 없거나 호출이 실패하면 직접 흉내내 진행하지 않고 무엇이 왜 안 되는지 말하고 멈춥니다.
@@ -64,10 +67,10 @@ multiSelect: true
 **파일이 없으면**: Bash로 생성한다.
 
 ```bash
-! gestalt setup
+gestalt setup
 ```
 
-부르는 형태는 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)의 판정을 따른다. 전역 설치도 게슈탈트 레포도 아니면 `npx @tienne/gestalt setup`으로 부른다.
+부르는 형태는 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)의 판정을 따른다. 설치된 플러그인에서도 버전 고정 런처를 사용한다. Codex의 생성 명령은 `gestalt setup --client codex`다.
 
 **파일이 이미 존재하면**: 사용자에게 덮어쓸지 확인 후 진행한다.
 

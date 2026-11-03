@@ -42,6 +42,8 @@ routing:
 
 # Review Reply Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 리뷰를 **받는 쪽**의 파이프라인. 내 PR에 달린 미해결 리뷰 코멘트를 모아 처리 방향을 정하고 고칠 건 고쳐 커밋한 뒤, `code-review-responder`가 쓴 답글을 각 스레드에 인라인으로 게시한다.
 
 `/review`가 diff를 읽어 코멘트를 만드는 방향이라면, 이 스킬은 남이 남긴 코멘트를 읽어 답하는 반대 방향이다. 두 스킬은 게시 API도 다르다 — `/review`는 리뷰 생성(`pulls/{n}/reviews`), 이쪽은 스레드 답글(`pulls/{n}/comments/{id}/replies`).
@@ -408,19 +410,9 @@ echo "$scanTmp"
 
 **본문만 쓴다** — 표지 줄을 붙이면 그 줄이 산문으로 세어져 인용 판정이 어긋난다.
 
-```bash
-if gestalt --version >/dev/null 2>&1; then
-  echo "OK gestalt"
-elif pnpm tsx bin/gestalt.ts --version >/dev/null 2>&1; then
-  echo "OK pnpm"
-else
-  echo "MISSING"
-fi
-```
-
-`OK pnpm`이면 아래 호출의 `gestalt`를 `pnpm tsx bin/gestalt.ts`로 바꿔 부른다.
-
-**`MISSING`이면 검사를 건너뛰지 않고 멈춘다.** 못 돌린 걸 통과로 읽으면 검사가 없는 것과 같다. `npm i -g @tienne/gestalt`를 함께 알리고 그대로 진행할지 사용자가 정하게 둔다.
+[`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)에 따라 이 플러그인의 버전 고정 런처를 사용한다.
+아래 `gestalt` 호출은 `node`와 런처의 절대 경로로 바꿔 실행한다. 이후 단계와 파이프라인에도 같은 규칙을 적용한다.
+런처 실행이 실패하면 필수 검사를 건너뛰지 않고 오류를 알린 뒤 멈춘다. 전역 CLI 설치를 요구하거나 다른 버전으로 대신 실행하지 않는다.
 
 ```bash
 # 개수를 먼저 센다. 글롭으로 바로 돌면 파일이 0개일 때 셸마다 다르게 죽는다

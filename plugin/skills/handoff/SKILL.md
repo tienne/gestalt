@@ -38,6 +38,8 @@ routing:
 
 # Handoff Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 일을 어디에 맡길지 고르고 고른 경로로 실제로 넘기는 앞단의 판단 스킬이다. 명령 문법은 여기에 복사하지 않는다. 오르카 명령의 기준은 `orca skills get orca-cli`와 `orca skills get orchestration`이고 버전이 오르면 복사본은 낡는다. 이 스킬에는 gestalt만의 것을 담는다. 맡길 곳 고르는 표, model과 effort 쌍 고르기, 지시서 쓰기, 충돌과 정리 규칙, 보고다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)

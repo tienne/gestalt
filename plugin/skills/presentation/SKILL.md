@@ -35,6 +35,8 @@ routing:
 
 # Presentation Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 발표 자료를 **콘텐츠 먼저, 디자인 나중** 순서로 만드는 파이프라인.
 `presentation-writer`(슬라이드 콘텐츠)와 `presentation-designer`(Reveal.js HTML)를 잇고 산출 전 승인 단계를 둔다.

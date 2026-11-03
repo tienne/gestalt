@@ -17,6 +17,8 @@ outputs:
 
 # Execute Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 This skill transforms a validated Spec specification into a concrete, dependency-aware Execution Plan, executes it with multi-perspective Role Agent guidance, and validates the result through a 2-stage evaluation pipeline.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)

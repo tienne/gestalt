@@ -40,6 +40,8 @@ routing:
 
 # Ship Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 브랜치 하나를 **리뷰가 더 나올 게 없는 상태**까지 밀어붙여 GitHub PR로 내보내는 오케스트레이터다.
 
 ```

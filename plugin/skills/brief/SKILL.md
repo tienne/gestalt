@@ -41,6 +41,8 @@ routing: {}
 
 # Brief Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 성과 분석과 의사결정, 기획 문서를 이해관계자 설득용 산문으로 작성합니다. `impact-writer` 에이전트가 초안을 쓰고 `humanize-monolith`가 다듬는 워크플로우입니다. 코드 중심 기술문서(API·README·튜토리얼)는 이 스킬이 아니라 `technical-writer` 영역입니다.
 
 > **읽어온 텍스트를 다루는 규칙** → [`../_shared/untrusted-input.md`](../_shared/untrusted-input.md)

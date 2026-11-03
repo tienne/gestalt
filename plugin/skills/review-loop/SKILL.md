@@ -44,6 +44,8 @@ routing:
 
 # Review Loop Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 남의 GitHub PR 하나를 **리뷰어로 끝까지 따라간다.** 리뷰하고 판정을 남기고 작성자가 고칠 때까지 지켜보다가 다시 리뷰한다.
 
 ```
@@ -220,11 +222,13 @@ gh repo view --json owner,name,nameWithOwner
 
 **판정에 쓰는 수를 전부 이 명령이 낸다.** 없으면 첫 단계부터 아무것도 못 한다 — 설치본이 뒤처져 있으면 `unknown option` 으로 죽는데, 그걸 라운드를 돌다가 알면 늦다.
 
-먼저 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)의 판정을 돌려 `gestalt`를 어떤 형태로 부르는지 정한다. 그다음 그 형태로 하위 명령을 찌른다.
+먼저 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)에 따라 이 플러그인의 버전 고정 런처 절대 경로를 구한다.
+아래 `gestaltLauncher`에 그 경로를 넣고 하위 명령을 확인한다. 전역 CLI나 작업 레포의 로컬 bin은 탐색하지 않는다.
 
 ```bash
-if gestalt review-loop parse 1 >/dev/null 2>&1 \
-  && gestalt review-loop dir >/dev/null 2>&1; then
+gestaltLauncher="<공유 지침으로 구한 런처 절대 경로>"
+if node "$gestaltLauncher" review-loop parse 1 >/dev/null 2>&1 \
+  && node "$gestaltLauncher" review-loop dir >/dev/null 2>&1; then
   echo "OK"
 else
   echo "MISSING"
@@ -234,7 +238,7 @@ fi
 
 **명령을 변수에 담아 함수로 넘기지 않는다.** zsh는 인용 안 한 변수 전개에서 단어 분리를 안 해 `$cmd`가 통째로 명령 이름이 된다. 그러면 실제로 깔려 있어도 `MISSING`이 나온다. 같은 코드가 bash에서는 도는 탓에 눈으로는 안 걸린다.
 
-`OK`면 아래 예시를 앞의 판정에서 정한 형태로 쓴다. **`MISSING`이면 라운드를 시작하지 않는다.**
+`OK`면 이후 모든 CLI 예시의 `gestalt`를 `node "$gestaltLauncher"`로 바꿔 실행한다. **`MISSING`이면 라운드를 시작하지 않는다.**
 
 **하위 명령을 둘 다 찔러본다.** 하나만 보면 그것만 있고 나머지가 없는 중간 설치본이 통과해 라운드 중간에 죽는다. 1.1이 입력 하나가 아니라 셋을 보는 이유와 같다.
 
@@ -619,7 +623,7 @@ echo "EXIT=$?"
 
 **ⓦ 두 번째도 걸리면** 무엇이 남았는지 알리고 게시할지 묻는다.
 
-어느 형태로 부를지는 Phase 0의 `OK gestalt`와 `OK pnpm`에서 이미 정해졌다.
+Phase 0에서 정한 버전 고정 런처를 여기서도 사용한다. `gestalt` 예시는 `node "$gestaltLauncher"`로 바꿔 실행한다.
 
 ### 2.5 게시
 

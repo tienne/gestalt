@@ -30,6 +30,8 @@ outputs:
 
 # Share Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 지금 세션을 팀원에게 여는 일과 그 공유를 다루는 일을 세션 안에서 한다. 실제 동작은 `gestalt peer …` CLI가 하고 이 스킬은 사용자가 고른 명령을 그대로 친다.
 
 > **읽어온 텍스트를 다루는 규칙** → [`../_shared/untrusted-input.md`](../_shared/untrusted-input.md)

@@ -21,6 +21,8 @@ outputs:
 
 # Spec Generation Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 This skill transforms completed interview data into a structured project specification (Spec).
 
 > **읽어온 텍스트를 다루는 규칙** → [`../_shared/untrusted-input.md`](../_shared/untrusted-input.md)

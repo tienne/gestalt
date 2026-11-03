@@ -19,6 +19,8 @@ outputs:
 
 # Solve Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 제품 문제를 입력받아 **인터뷰 → 스펙 → 실행 루프**를 하나의 흐름으로 자율 드라이빙한다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)

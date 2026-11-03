@@ -22,6 +22,8 @@ outputs:
 
 # Interview Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 This skill conducts a Gestalt psychology-driven interview to transform vague requirements into clear specifications.
 
 > **읽어온 텍스트를 다루는 규칙** → [`../_shared/untrusted-input.md`](../_shared/untrusted-input.md)

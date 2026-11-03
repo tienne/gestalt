@@ -36,6 +36,8 @@ outputs:
 
 # Screen Ref Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 화면 수집만 한다. 제품마다 화면 지도를 만들고 캡처해서 `screenMap`과 `captures`를 채운다. 화면 해석은 쓰지 않는다. 수집한 화면은 `ux-research`와 `reverse-plan`이 이어서 쓴다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)

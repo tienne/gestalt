@@ -1,5 +1,7 @@
 # 에이전트를 서브에이전트로 위임하기 (공유 규칙)
 
+> **Codex 등 다른 호스트에서는** [`host-runtime.md`](./host-runtime.md)를 먼저 적용한다. `inherit`는 모델 인자 생략이며 Claude 별칭 폴백을 강제하지 않는다.
+
 > **현재 적용: `review`, `pr`, `brief`, `presentation`, `review-reply`, `slack-send`, `jira-create`, `ship`, `explain`, `research`, `ux-research`, `reverse-plan`.** 에이전트를 불러 쓰는 스킬은 전부 위임한다. 새 스킬이 `ges_agent get`을 메인에서 하면 그건 예외가 아니라 빠뜨린 것이다.
 
 ## 왜 필요한가

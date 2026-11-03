@@ -31,6 +31,8 @@ routing:
 
 # PR Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 >
 > **`gestalt` CLI를 부르는 형태** → [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)
@@ -304,19 +306,9 @@ echo "$scanTmp"
 
 윤문된 제목과 본문을 합쳐 `"$scanTmp/description.md"`에 씁니다.
 
-```bash
-if gestalt --version >/dev/null 2>&1; then
-  echo "OK gestalt"
-elif pnpm tsx bin/gestalt.ts --version >/dev/null 2>&1; then
-  echo "OK pnpm"
-else
-  echo "MISSING"
-fi
-```
-
-`OK pnpm`이면 아래 호출의 `gestalt`를 `pnpm tsx bin/gestalt.ts`로 바꿔 부릅니다.
-
-**`MISSING`이면 검사를 건너뛰지 않고 멈춥니다.** 못 돌린 걸 통과로 읽으면 검사가 없는 것과 같습니다. `npm i -g @tienne/gestalt`를 함께 알리고 그대로 진행할지 사용자가 정하게 둡니다.
+[`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)에 따라 이 플러그인의 버전 고정 런처를 사용한다.
+아래 `gestalt` 호출은 `node`와 런처의 절대 경로로 바꿔 실행한다. 이후 단계와 파이프라인에도 같은 규칙을 적용한다.
+런처 실행이 실패하면 필수 검사를 건너뛰지 않고 오류를 알린 뒤 멈춘다. 전역 CLI 설치를 요구하거나 다른 버전으로 대신 실행하지 않는다.
 
 ```bash
 gestalt humanize-scan --file "$scanTmp/description.md" --register report

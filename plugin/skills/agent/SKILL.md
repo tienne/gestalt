@@ -22,6 +22,8 @@ outputs:
 
 # Agent Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 Invoke any Gestalt Role or Review agent directly, outside the Gestalt pipeline.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)

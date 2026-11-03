@@ -25,6 +25,8 @@ routing:
 
 # Doubt Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 확신이 정답을 보증하지 않는다. 세션이 길어지면 가정이 어느새 사실처럼 굳는데 같은 컨텍스트 안에서는 그게 안 보인다. 이 스킬은 결정 하나를 맥락 없는 서브에이전트에게 넘겨 **반박**을 먼저 받는다. 고치는 값이 쌀 때, 그러니까 아직 만드는 중일 때 쓴다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)

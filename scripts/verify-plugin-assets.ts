@@ -22,6 +22,8 @@ const ASSET_DIRS = [
   'personas',
   'research-sources',
   'skills',
+  'scripts',
+  '.codex-plugin',
 ] as const;
 
 function collectFiles(root: string): string[] {

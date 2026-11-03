@@ -221,6 +221,25 @@ Skills load on the next Codex session. Slash commands and the Claude Code Task
 panel are still Claude Code only — in Codex you invoke a skill by describing the
 task, and Codex reads the matching `SKILL.md`.
 
+Start a new session after installing, then ask “Check Gestalt status” or
+“Set up Gestalt for this Codex project.” The server recognizes Codex during MCP
+initialization: new projects record execution context in `AGENTS.md`, and agent
+models inherit the active Codex session by default. Explicit `client` and model
+settings still take precedence; `client: "both"` continues writing both host files.
+For a persistent Codex-only project, initialize with `gestalt setup --client codex`
+(or `gestalt init --client codex` for the graph and Git hook too).
+
+Skills use the bundled [host adapter](./plugin/skills/_shared/host-runtime.md) to
+translate Claude tool examples into the available Codex tools. They run CLI
+checks through the [versioned launcher](./plugin/skills/_shared/cli-launcher.md),
+so no global `gestalt` install is needed. The first CLI call may download the
+plugin's exact npm version and needs Node.js >=22 and npm on PATH.
+
+If startup fails, check MCP status and Node/npm availability. If the recorded
+host or model is unexpected, inspect `ges_status` fields `hostClient`, `client`,
+and `tierModels` before changing project settings. Claude Task panels and hooks
+are optional host-specific features; they do not gate Codex execution.
+
 ---
 
 ### Option 5: OpenAI Codex CLI (MCP only)

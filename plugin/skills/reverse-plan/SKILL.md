@@ -26,6 +26,8 @@ outputs:
 
 # Reverse Plan Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 이미 모은 화면에서 한 걸음 더 나가 레퍼런스가 그 화면을 만든 이유를 쓴다. `reasons`(섹션 5)만 채운다. 새 화면을 캡처하지 않는다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
