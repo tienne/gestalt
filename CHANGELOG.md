@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.120.2] - 2026-11-03
+
+### Added
+
+- **어떤 스킬을 쓸지 고르는 가이드와 기능별 사용 문서를 더했어요(#107).** README 스킬 표는 스킬당 한 줄뿐이라 비슷한 스킬 사이에서 고르기 어려웠어요. 경쟁사 리서치 스킬 다섯 개는 표에도 `docs/`에도 없어서 있는 줄 알기도 어려웠어요.
+  - `docs/choosing-skills.md`에 상황별 질문 표와 여섯 묶음을 두고 헷갈리는 쌍은 "이럴 땐 A, 저럴 땐 B"로 따로 모았어요.
+  - `docs/research-pipeline.md`에 리서치 스킬 다섯 개가 채우는 섹션과 같은 slug로 이어받는 순서, 개인정보 치환과 결제 직전 멈춤 같은 안전장치를 적었어요.
+  - `docs/lens.md`와 `docs/video-digest.md`에 입력과 부르는 법, 문장마다 붙는 출처와 의심 표시 읽는 법, 사전 준비, 저장 위치를 적었어요. `video-digest`는 유튜브 주소와 영상 파일 입력을 나눠 입력별로 필요한 외부 도구를 적었어요.
+
+### Changed
+
+- `README.md`와 `README.ko.md`의 스킬 표에 리서치 스킬 다섯 개를 더하고 `lens`와 `video-digest` 줄에 상세 문서 링크를 달았어요(#107).
+- `docs/mcp-reference.md`의 `video-digest` 절에서 외부 도구 설명을 새 문서와 맞췄어요(#107).
+
+### 검증 범위
+
+- #107은 로컬 PR 리뷰를 4라운드 돌렸어요. 라운드 1에서 9개, 라운드 2에서 4개, 라운드 3에서 1개가 나와 모두 반영했고 라운드 4는 이슈 없이 통과했어요. 라운드 1에서는 문서가 코드와 어긋난 곳이 high로 걸렸어요.
+- `pnpm gate`를 통과했고 PR CI 4개 잡도 모두 통과했어요. 코드는 바뀌지 않았어요.
+
+### 남긴 것
+
+- `plugin/skills/video-digest/SKILL.md`의 클립보드 복사 문구가 실제 동작과 달라요. 문서 PR에 스킬 수정을 섞지 않으려고 이번에는 건드리지 않았어요.
+
 ## [0.120.1] - 2026-11-03
 
 ### Fixed
