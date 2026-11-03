@@ -261,7 +261,7 @@ gh api --paginate 'repos/<owner>/<repo>/issues/<number>/comments?per_page=100' \
 gestalt pr --json comments <id> --unresolved
 ```
 
-반환된 코멘트를 스레드로 재구성한다. `replyTo`로 이어지는 코멘트를 한 체인으로 묶는다. 체인의 마지막 작성자가 나 자신이면 제외한다(이미 답했음). `line`이 `null`인 항목이 PR 전반 코멘트다 — 별도 API가 없다. `isOutdated` 개념은 로컬 PR에 없으므로 그 필터는 건너뛴다.
+반환된 코멘트를 `threadId`로 묶어 스레드를 재구성한다. `replyTo`는 CLI 입력이고 저장된 코멘트에는 없다. 같은 `threadId` 안의 코멘트는 반환된 순서를 유지한다. 체인의 마지막 작성자가 나 자신이면 제외한다(이미 답했음). `line`이 `null`인 항목이 PR 전반 코멘트다 — 별도 API가 없다. `isOutdated` 개념은 로컬 PR에 없으므로 그 필터는 건너뛴다.
 
 수집 결과를 한 줄로 알린다: **"미해결 스레드 N건, PR 전반 코멘트 M건을 찾았어요."** 0건이면 여기서 끝낸다 ("답할 코멘트가 없네요").
 

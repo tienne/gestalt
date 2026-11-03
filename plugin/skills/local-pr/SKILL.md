@@ -144,7 +144,7 @@ gestalt pr checkout <id> --remove --force
 ```bash
 printf '%s' "..." > /tmp/c.md
 GESTALT_ACTOR=agent:reviewer gestalt pr comment <id> --path <파일> --line <줄> --body-file /tmp/c.md
-GESTALT_ACTOR=agent:reviewer gestalt pr comment <id> --reply-to <코멘트id> --body-file /tmp/c.md
+GESTALT_ACTOR=agent:reviewer gestalt pr comment <id> --path <원 코멘트의 경로> --reply-to <코멘트id> --body-file /tmp/c.md
 GESTALT_ACTOR=agent:reviewer gestalt pr resolve <id> <코멘트id>
 GESTALT_ACTOR=agent:reviewer gestalt pr review <id> --verdict request-changes --body-file /tmp/v.md
 ```
