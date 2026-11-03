@@ -2,7 +2,7 @@
 
 같은 문제를 다른 서비스가 어떻게 풀었는지 조사하고 화면을 모아서 우리 기획의 판단 근거로 만드는 스킬 다섯 개의 사용 안내다. `research`가 전체를 한 번에 돌리고 `market-scan`, `screen-ref`, `ux-research`, `reverse-plan`은 그중 한 단계씩만 따로 돌린다.
 
-결과는 `.gestalt/research/<slug>/` 폴더에 쌓인다. 조사 내용을 담은 `research.json`이 원본이고 거기서 개인용 HTML(`research.html`)과 공유용 HTML(`research.shared.html`)을 만든다. 캡처 이미지는 같은 폴더의 `captures/`에 모인다. 조사와 `research.json` 작성은 Claude Code 세션이 한다. `ges_research` MCP 도구는 출처 상태 확인, 개인정보 치환, 검증, 윤문 결과 되돌려 넣기, 렌더만 맡고 서버는 LLM을 부르지 않는다. 도구 목록은 [MCP 레퍼런스](./mcp-reference.md)에 한 줄로 있다.
+결과는 `.gestalt/research/<slug>/` 폴더에 쌓인다. 조사 내용을 담은 `research.json`이 원본이고 거기서 개인용 HTML(`research.html`)과 공유용 HTML(`research.shared.html`)을 만든다. 캡처 이미지는 같은 폴더의 `captures/`에 모인다. 조사와 `research.json` 작성은 Claude Code 세션이 한다. `ges_research` MCP 도구는 출처 상태 확인, 개인정보 치환, 검증, 윤문 결과 반영, 렌더만 맡는다. 서버는 LLM을 부르지 않는다. 도구 목록은 [MCP 레퍼런스](./mcp-reference.md)에 한 줄로 있다.
 
 ## 지키는 원칙
 
@@ -25,7 +25,7 @@
 
 비교표(3번), 판단(6번), 검증 제안(7번), 열린 질문(8번)은 `research`만 채운다. 단계 스킬로 나눠 돌리면 이 네 섹션은 비어 있고 렌더에서 "없음"으로 나온다. 판단까지 필요하면 `research`를 쓴다.
 
-영상 분석만 하고 싶을 때는 전용 스킬이 없고 `research`가 영상 절차를 따른다. 영상은 본문 9번에 합치거나 영상 분석 문서로 따로 쓸 수 있다.
+경쟁 서비스 영상만 분석하고 싶을 때는 단계 스킬이 따로 없고 `research`가 영상 절차를 따른다. 일반 유튜브 영상 요약은 [`video-digest`](./video-digest.md)를 쓴다. 영상은 본문 9번에 합치거나 영상 분석 문서로 따로 쓸 수 있다.
 
 원하는 것이 한 번에 읽히지 않으면 `research`가 시작 전에 어느 경우인지 묻는다.
 
@@ -46,7 +46,7 @@
 
 ### 나눠서 돌릴 때
 
-단계 스킬은 같은 slug의 `research.json`을 이어받는 구조다. slug는 결과 폴더 이름이고 소문자, 숫자, `-`만 쓴다. 비워 두면 과제에서 짓는다. 같은 slug로 이어 하면 개인정보 가짜 값도 이어진다.
+단계 스킬은 같은 slug의 `research.json`을 이어받는 구조다. slug는 결과 폴더 이름이고 소문자, 숫자, `-`만 쓴다. 비워 두면 과제에서 짓는다. 같은 slug로 이어 하면 개인정보를 바꾼 가짜 값도 이어진다.
 
 ```
 market-scan ──▶ screen-ref ──┬──▶ ux-research
