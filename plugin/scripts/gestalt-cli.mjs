@@ -1,5 +1,5 @@
 import process from 'node:process';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
   existsSync,
   mkdtempSync,
@@ -12,6 +12,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ownsPackage } from './package-owner.mjs';
+import { createAcquisition } from './acquisition.mjs';
+import { npmEnvironment } from './npm-environment.mjs';
 
 const scripts = dirname(fileURLToPath(import.meta.url));
 const pluginRoot = resolve(scripts, '..');
@@ -64,74 +66,29 @@ try {
 let bin;
 if (!localArgs) {
   const neutral = mkdtempSync(join(tmpdir(), 'gestalt-cli-'));
-  const npmEnv = { ...process.env };
-  // Strip provider/cloud secrets; preserve npm registry auth, proxies and CA settings.
-  for (const key of Object.keys(npmEnv)) {
-    if (
-      /^(ANTHROPIC_|OPENAI_|CLAUDE_CODE_OAUTH_|GEMINI_|GOOGLE_API_KEY$|AWS_SECRET_ACCESS_KEY$|AWS_SESSION_TOKEN$|GH_TOKEN$|GITHUB_TOKEN$)/i.test(
-        key,
-      )
-    )
-      delete npmEnv[key];
-  }
-  let acquisitionSignal;
-  const resolveWithNpm = (npmArgs) =>
-    new Promise((resolveResult) => {
-      const child = spawn('npm', npmArgs, {
-        cwd: neutral,
-        env: npmEnv,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 180_000,
-      });
-      let stdout = '';
-      child.stdout.setEncoding('utf8');
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk;
-      });
-      // Drain npm diagnostics while keeping the final error concise.
-      child.stderr.resume();
-      const terminate = () => {
-        acquisitionSignal = 'SIGTERM';
-        child.kill('SIGTERM');
-      };
-      const hangup = () => {
-        acquisitionSignal = 'SIGHUP';
-        child.kill('SIGHUP');
-      };
-      // Group Ctrl-C already reaches npm. Wait for close before removing its cwd.
-      const interrupt = () => {
-        acquisitionSignal = 'SIGINT';
-      };
-      process.on('SIGTERM', terminate);
-      process.on('SIGHUP', hangup);
-      process.on('SIGINT', interrupt);
-      child.once('error', () => {});
-      child.once('close', (status, signal) => {
-        process.off('SIGTERM', terminate);
-        process.off('SIGHUP', hangup);
-        process.off('SIGINT', interrupt);
-        if (signal) acquisitionSignal ??= signal;
-        resolveResult({ status, stdout });
-      });
-    });
+  const acquisition = createAcquisition({ cwd: neutral, env: npmEnvironment(process.env) });
   try {
     writeFileSync(join(neutral, 'package.json'), '{"private":true}\n');
     for (const offline of [true, false]) {
       if (!offline)
         process.stderr.write(`gestalt CLI: resolving @tienne/gestalt@${version} from npm.\n`);
-      const result = await resolveWithNpm([
-        'exec',
-        '--yes',
-        `--prefix=${neutral}`,
-        '--no-workspaces',
-        ...(offline ? ['--offline'] : []),
-        `--package=@tienne/gestalt@${version}`,
-        '--',
-        process.execPath,
-        join(scripts, 'resolve-cli.mjs'),
-        version,
-      ]);
-      if (acquisitionSignal) break;
+      const result = await acquisition.run(
+        'npm',
+        [
+          'exec',
+          '--yes',
+          `--prefix=${neutral}`,
+          '--no-workspaces',
+          ...(offline ? ['--offline'] : []),
+          `--package=@tienne/gestalt@${version}`,
+          '--',
+          process.execPath,
+          join(scripts, 'resolve-cli.mjs'),
+          version,
+        ],
+        180_000,
+      );
+      if (acquisition.signal) break;
       if (result.status !== 0) continue;
       try {
         const candidate = JSON.parse(result.stdout.trim());
@@ -142,12 +99,8 @@ if (!localArgs) {
           continue;
         }
         // Do not trust the resolver process or a stale global executable.
-        const check = spawnSync(process.execPath, [bin, '--version'], {
-          cwd: neutral,
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'pipe'],
-          timeout: 10_000,
-        });
+        const check = await acquisition.run(process.execPath, [bin, '--version'], 10_000);
+        if (acquisition.signal) break;
         if (check.status === 0 && check.stdout.trim() === version) break;
         bin = undefined;
       } catch {
@@ -155,9 +108,13 @@ if (!localArgs) {
       }
     }
   } finally {
-    rmSync(neutral, { recursive: true, force: true });
+    try {
+      rmSync(neutral, { recursive: true, force: true });
+    } finally {
+      acquisition.dispose();
+    }
   }
-  if (acquisitionSignal) process.kill(process.pid, acquisitionSignal);
+  if (acquisition.signal) process.kill(process.pid, acquisition.signal);
   if (!bin)
     fail(
       `could not resolve @tienne/gestalt@${version}; check npm, network access, and its native dependencies. No other version was executed.`,
