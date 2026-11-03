@@ -49,23 +49,28 @@ else { console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),
   mkdirSync(packageBin);
   symlinkSync(bin, join(packageBin, 'gestalt'));
   const log = join(dir, 'npm-log');
+  const userconfig = join(dir, 'user.npmrc');
+  const globalconfig = join(dir, 'global.npmrc');
+  writeFileSync(userconfig, '');
+  writeFileSync(globalconfig, '');
+  const npmConfigEnv = { npm_config_userconfig: userconfig, npm_config_globalconfig: globalconfig };
   // npm resolution is stubbed; the actual copied wrapper and resolver execute.
   writeNpmStub(npmBin, { packageBin, log });
-  const run = (args: string[], env: Record<string, string> = {}) =>
+  const run = (args: string[], env: NodeJS.ProcessEnv = {}) =>
     spawnSync(process.execPath, [join(plugin, 'scripts/gestalt-cli.mjs'), ...args], {
       cwd,
       encoding: 'utf8',
       input: 'stdin stays intact\n',
-      env: { ...process.env, PATH: npmBin, ...env },
+      env: { ...process.env, ...npmConfigEnv, PATH: npmBin, ...env },
       timeout: 15000,
     });
-  return { dir, cwd, plugin, log, run, npmBin, bin };
+  return { dir, cwd, plugin, log, run, npmBin, bin, npmConfigEnv };
 }
 
 function runWaitingWrapper(f: ReturnType<typeof fixture>, env: Record<string, string> = {}) {
   const wrapper = spawn(process.execPath, [join(f.plugin, 'scripts/gestalt-cli.mjs'), 'wait'], {
     cwd: f.cwd,
-    env: { ...process.env, PATH: f.npmBin, ...env },
+    env: { ...process.env, ...f.npmConfigEnv, PATH: f.npmBin, ...env },
     stdio: 'ignore',
     detached: true,
   });
@@ -112,31 +117,105 @@ describe('copied plugin CLI launcher (stubbed npm resolver)', { timeout: 20000 }
     expect(prefix).toBeDefined();
     expect(basename(prefix.slice('--prefix='.length))).toBe(basename(calls[0].cwd));
     expect(calls[0].args).toContain('--no-workspaces');
+    expect(calls.every((call) => !existsSync(call.cwd))).toBe(true);
   });
 
-  it('keeps provider credentials out of npm but preserves them for the actual CLI', () => {
+  it('filters provider secrets while preserving npm authentication, proxies and CA settings', () => {
     const f = fixture();
-    const keys = [
+    const removed = [
       'ANTHROPIC_API_KEY',
       'OPENAI_API_KEY',
       'CLAUDE_CODE_OAUTH_TOKEN',
       'anthropic_api_key',
       'GITHUB_TOKEN',
+      'GH_TOKEN',
       'AWS_SECRET_ACCESS_KEY',
-      'NPM_TOKEN',
+      'AWS_SESSION_TOKEN',
+      'AWS_ACCESS_KEY_ID',
+      'GEMINI_API_KEY',
+      'GOOGLE_API_KEY',
+      'CODEX_API_KEY',
+      'XAI_API_KEY',
+      'GROK_API_KEY',
+      'MISTRAL_API_KEY',
+      'OPENROUTER_API_KEY',
+      'HF_TOKEN',
+      'SLACK_BOT_TOKEN',
+      'SENTRY_AUTH_TOKEN',
+      'AZURE_CLIENT_SECRET',
+      'INTERNAL_SECRET_KEY',
+      'INTERNAL_PASSWORD',
     ];
+    const preserved = [
+      'NPM_TOKEN',
+      'NODE_AUTH_TOKEN',
+      'NPM_GITHUB_TOKEN',
+      'npm_config_cafile',
+      'HTTPS_PROXY',
+      'NODE_EXTRA_CA_CERTS',
+      'npm_config__authToken',
+      'MY_ANTHROPIC_X',
+    ];
+    const keys = [...removed, ...preserved];
     writeFileSync(
       f.bin,
       `if(process.argv[2]==='--version')console.log(${JSON.stringify(version)});
 else console.log(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(k=>[k,process.env[k]]))));`,
     );
     const values = Object.fromEntries(keys.map((key) => [key, `fixture-${key}`]));
+    // A real file avoids Node's optional CA warning; npm itself remains stubbed.
+    const ca = join(f.dir, 'empty-ca.pem');
+    writeFileSync(ca, '');
+    values.NODE_EXTRA_CA_CERTS = ca;
     const result = f.run(['environment'], values);
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual(values);
     const call = JSON.parse(readFileSync(f.log, 'utf8').trim());
-    expect(call.providerKeys).toEqual([]);
-    expect(call.registryKeys).toEqual(['NPM_TOKEN']);
+    for (const key of removed) expect(call.envKeys, key).not.toContain(key);
+    for (const key of preserved) expect(call.envKeys, key).toContain(key);
+  });
+
+  it('preserves secret-shaped variables referenced by user and global npm configuration', () => {
+    const f = fixture();
+    writeFileSync(
+      f.npmConfigEnv.npm_config_userconfig,
+      '//registry.fixture/:_authToken=${ARTIFACTORY_API_KEY}\n',
+    );
+    writeFileSync(
+      f.npmConfigEnv.npm_config_globalconfig,
+      '//global.fixture/:_authToken=${GH_TOKEN}\n',
+    );
+    const result = f.run(['environment'], {
+      ARTIFACTORY_API_KEY: 'fixture-artifactory',
+      GH_TOKEN: 'fixture-github',
+      REFERENCED_CLIENT_SECRET: 'fixture-client',
+      npm_config_registry: 'https://${REFERENCED_CLIENT_SECRET}@registry.fixture/',
+      CODEX_API_KEY: 'fixture-codex',
+    });
+    expect(result.status, result.stderr).toBe(10);
+    const call = JSON.parse(readFileSync(f.log, 'utf8').trim());
+    expect(call.envKeys).toEqual(
+      expect.arrayContaining(['ARTIFACTORY_API_KEY', 'GH_TOKEN', 'REFERENCED_CLIENT_SECRET']),
+    );
+    expect(call.envKeys).not.toContain('CODEX_API_KEY');
+  });
+
+  it('reads default user npm configuration from the supplied home directory', () => {
+    const f = fixture();
+    const userHome = join(f.dir, 'user-home');
+    mkdirSync(userHome);
+    writeFileSync(
+      join(userHome, '.npmrc'),
+      '//registry.fixture/:_authToken=${MY_REGISTRY_API_KEY}\n',
+    );
+    const result = f.run(['echo'], {
+      HOME: userHome,
+      npm_config_userconfig: undefined,
+      MY_REGISTRY_API_KEY: 'fixture-registry',
+    });
+    expect(result.status, result.stderr).toBe(10);
+    const call = JSON.parse(readFileSync(f.log, 'utf8').trim());
+    expect(call.envKeys).toContain('MY_REGISTRY_API_KEY');
   });
 
   it('tries the exact same pin online after an offline miss', () => {
@@ -166,6 +245,27 @@ else console.log(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(k
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('No other version was executed');
     expect(readFileSync(f.log, 'utf8')).not.toContain('latest');
+    const calls = readFileSync(f.log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(calls.every((call) => !existsSync(call.cwd))).toBe(true);
+  });
+
+  it('reports npm signal failure instead of treating it as a user cancellation', () => {
+    const f = fixture();
+    const result = f.run(['echo'], { NPM_STUB_SELF_KILL: '1' });
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.signal).toBeNull();
+    expect(result.stderr).toContain('could not resolve');
+    const calls = readFileSync(f.log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(calls).toHaveLength(2);
+    expect(calls[0].args).toContain('--offline');
+    expect(calls[1].args).not.toContain('--offline');
+    expect(calls.every((call) => !existsSync(call.cwd))).toBe(true);
   });
 
   it('fails before npm when the installed plugin version cannot be read', () => {
@@ -292,16 +392,16 @@ else {
       const f = fixture();
       const ready = join(f.dir, 'child-ready');
       const interrupts = join(f.dir, 'interrupts');
-      const release = join(f.dir, 'release');
       writeFileSync(
         f.bin,
         `import fs from 'node:fs';
 if(process.argv[2]==='--version')console.log(${JSON.stringify(version)});
 else {
   process.on('SIGINT',()=>fs.appendFileSync(${JSON.stringify(interrupts)},'INT'));
+  process.on('SIGTERM',()=>{fs.appendFileSync(${JSON.stringify(interrupts)},'TERM');process.exit(0)});
   fs.writeFileSync(${JSON.stringify(interrupts)},'');
   fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));
-  setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0)},20);
+  setInterval(()=>{},1000);
 }`,
       );
       const running = runWaitingWrapper(f);
@@ -309,13 +409,13 @@ else {
         await expect.poll(() => existsSync(ready), { timeout: 10000 }).toBe(true);
         if (delivery === 'group') process.kill(-running.wrapper.pid!, 'SIGINT');
         else expect(running.wrapper.kill('SIGINT')).toBe(true);
-        // Allow delivery to both members before checking that the wrapper waited.
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        if (delivery === 'group')
+          await expect.poll(() => readFileSync(interrupts, 'utf8')).toBe('INT');
         expect(running.wrapper.exitCode).toBeNull();
         expect(running.wrapper.signalCode).toBeNull();
-        expect(readFileSync(interrupts, 'utf8')).toBe(delivery === 'group' ? 'INT' : '');
-        writeFileSync(release, 'exit');
+        expect(running.wrapper.kill('SIGTERM')).toBe(true);
         expect(await running.exited).toEqual({ code: 0, signal: null });
+        expect(readFileSync(interrupts, 'utf8')).toBe(delivery === 'group' ? 'INTTERM' : 'TERM');
       } finally {
         await running.cleanup();
       }
@@ -340,6 +440,64 @@ else { fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));setInterva
       await running.cleanup();
     }
   });
+
+  it('cancels the version check and removes its neutral directory before exiting', async () => {
+    const f = fixture();
+    const ready = join(f.dir, 'version-ready');
+    const final = join(f.dir, 'final-ran');
+    writeFileSync(
+      f.bin,
+      `import fs from 'node:fs';
+if(process.argv[2]==='--version') {
+  fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));setInterval(()=>{},1000);
+} else { fs.writeFileSync(${JSON.stringify(final)},'ran'); }`,
+    );
+    const running = runWaitingWrapper(f);
+    let neutral: string | undefined;
+    try {
+      await expect.poll(() => existsSync(ready), { timeout: 10000 }).toBe(true);
+      const childPid = Number(readFileSync(ready, 'utf8'));
+      const call = JSON.parse(readFileSync(f.log, 'utf8').trim());
+      neutral = call.cwd;
+      expect(existsSync(neutral!)).toBe(true);
+      expect(running.wrapper.kill('SIGTERM')).toBe(true);
+      expect(await running.exited).toEqual({ code: null, signal: 'SIGTERM' });
+      expect(existsSync(neutral!)).toBe(false);
+      expect(() => process.kill(childPid, 0)).toThrow();
+      expect(existsSync(final)).toBe(false);
+    } finally {
+      await running.cleanup();
+      if (neutral) rmSync(neutral, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['interrupt', 'interrupt-then-term'] as const)(
+    'cleans up npm when only the wrapper receives %s',
+    async (delivery) => {
+      const f = fixture();
+      const running = runWaitingWrapper(f, { NPM_STUB_WAIT_DIR: f.dir });
+      let neutral: string | undefined;
+      try {
+        const ready = join(f.dir, 'npm-ready');
+        await expect.poll(() => existsSync(ready), { timeout: 10000 }).toBe(true);
+        const npm = JSON.parse(readFileSync(ready, 'utf8')) as { pid: number; cwd: string };
+        neutral = npm.cwd;
+        expect(running.wrapper.kill('SIGINT')).toBe(true);
+        if (delivery === 'interrupt-then-term') expect(running.wrapper.kill('SIGTERM')).toBe(true);
+        expect(await running.exited).toEqual({
+          code: null,
+          signal: delivery === 'interrupt' ? 'SIGINT' : 'SIGTERM',
+        });
+        expect(readFileSync(join(f.dir, 'npm-stopped'), 'utf8')).toBe('SIGTERM');
+        expect(existsSync(neutral)).toBe(false);
+        expect(() => process.kill(npm.pid, 0)).toThrow();
+        expect(readFileSync(f.log, 'utf8').trim().split('\n')).toHaveLength(1);
+      } finally {
+        await running.cleanup();
+        if (neutral) rmSync(neutral, { recursive: true, force: true });
+      }
+    },
+  );
 
   it.each(['SIGTERM', 'SIGHUP', 'SIGINT'] as const)(
     'cleans up npm acquisition on %s without retrying online',

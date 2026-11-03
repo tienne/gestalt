@@ -14,9 +14,9 @@ const path = require('node:path');
 const log = ${JSON.stringify(opts.log)};
 if (log) fs.appendFileSync(log, JSON.stringify({
   args: process.argv.slice(2), cwd: process.cwd(),
-  providerKeys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'anthropic_api_key', 'GITHUB_TOKEN', 'AWS_SECRET_ACCESS_KEY'].filter(k => Object.hasOwn(process.env, k)),
-  registryKeys: ['NPM_TOKEN'].filter(k => Object.hasOwn(process.env, k)),
+  envKeys: Object.keys(process.env),
 }) + '\n');
+if (process.env.NPM_STUB_SELF_KILL === '1') process.kill(process.pid, 'SIGKILL');
 if (process.env.NPM_STUB_WAIT_DIR) {
   const dir = process.env.NPM_STUB_WAIT_DIR;
   for (const signal of ['SIGTERM', 'SIGHUP', 'SIGINT']) process.on(signal, () => {
