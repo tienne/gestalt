@@ -13,6 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeNpmStub } from '../helpers/npm-stub.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const version = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
@@ -37,11 +38,7 @@ describe('built Codex plugin installation', () => {
       mkdirSync(packageBin);
       symlinkSync(bin, join(packageBin, 'gestalt'));
       // Fake only npm acquisition; the real resolver locates the local built package.
-      writeFileSync(
-        join(shim, 'npm'),
-        `#!${process.execPath}\nconst cp=require('node:child_process');const i=process.argv.indexOf('--');const r=cp.spawnSync(process.argv[i+1],process.argv.slice(i+2),{stdio:'inherit',env:{...process.env,PATH:${JSON.stringify(packageBin)}}});process.exit(r.status??1);\n`,
-        { mode: 0o755 },
-      );
+      writeNpmStub(shim, { packageBin });
       const env = {
         ...process.env,
         PATH: shim,

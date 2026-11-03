@@ -14,6 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeNpmStub } from '../helpers/npm-stub.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const version = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
@@ -49,16 +50,7 @@ else { console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),
   symlinkSync(bin, join(packageBin, 'gestalt'));
   const log = join(dir, 'npm-log');
   // npm resolution is stubbed; the actual copied wrapper and resolver execute.
-  writeFileSync(
-    join(npmBin, 'npm'),
-    `#!${process.execPath}
-const fs=require('node:fs');const cp=require('node:child_process');
-fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({args:process.argv.slice(2),cwd:process.cwd(),providerKeys:['ANTHROPIC_API_KEY','OPENAI_API_KEY','CLAUDE_CODE_OAUTH_TOKEN'].filter(k=>Object.hasOwn(process.env,k))})+'\\n');
-if(process.env.FAIL_NPM==='1'||(process.env.OFFLINE_MISS==='1'&&process.argv.includes('--offline')))process.exit(1);
-const i=process.argv.indexOf('--'); const r=cp.spawnSync(process.argv[i+1],process.argv.slice(i+2),{stdio:'inherit',env:{...process.env,PATH:${JSON.stringify(packageBin)}+require('node:path').delimiter+process.env.PATH}});process.exit(r.status??1);
-`,
-    { mode: 0o755 },
-  );
+  writeNpmStub(npmBin, { packageBin, log });
   const run = (args: string[], env: Record<string, string> = {}) =>
     spawnSync(process.execPath, [join(plugin, 'scripts/gestalt-cli.mjs'), ...args], {
       cwd,
@@ -68,6 +60,32 @@ const i=process.argv.indexOf('--'); const r=cp.spawnSync(process.argv[i+1],proce
       timeout: 15000,
     });
   return { dir, cwd, plugin, log, run, npmBin, bin };
+}
+
+function runWaitingWrapper(f: ReturnType<typeof fixture>, env: Record<string, string> = {}) {
+  const wrapper = spawn(process.execPath, [join(f.plugin, 'scripts/gestalt-cli.mjs'), 'wait'], {
+    cwd: f.cwd,
+    env: { ...process.env, PATH: f.npmBin, ...env },
+    stdio: 'ignore',
+    detached: true,
+  });
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+    (resolve, reject) => {
+      wrapper.once('error', reject);
+      wrapper.once('exit', (code, signal) => resolve({ code, signal }));
+    },
+  );
+  const cleanup = async () => {
+    if (wrapper.pid) {
+      try {
+        process.kill(-wrapper.pid, 'SIGKILL');
+      } catch {
+        // The successful path has already reaped the complete process group.
+      }
+    }
+    await exited;
+  };
+  return { wrapper, exited, cleanup };
 }
 
 describe('copied plugin CLI launcher (stubbed npm resolver)', { timeout: 20000 }, () => {
@@ -98,7 +116,15 @@ describe('copied plugin CLI launcher (stubbed npm resolver)', { timeout: 20000 }
 
   it('keeps provider credentials out of npm but preserves them for the actual CLI', () => {
     const f = fixture();
-    const keys = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
+    const keys = [
+      'ANTHROPIC_API_KEY',
+      'OPENAI_API_KEY',
+      'CLAUDE_CODE_OAUTH_TOKEN',
+      'anthropic_api_key',
+      'GITHUB_TOKEN',
+      'AWS_SECRET_ACCESS_KEY',
+      'NPM_TOKEN',
+    ];
     writeFileSync(
       f.bin,
       `if(process.argv[2]==='--version')console.log(${JSON.stringify(version)});
@@ -108,7 +134,9 @@ else console.log(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(k
     const result = f.run(['environment'], values);
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual(values);
-    expect(JSON.parse(readFileSync(f.log, 'utf8').trim()).providerKeys).toEqual([]);
+    const call = JSON.parse(readFileSync(f.log, 'utf8').trim());
+    expect(call.providerKeys).toEqual([]);
+    expect(call.registryKeys).toEqual(['NPM_TOKEN']);
   });
 
   it('tries the exact same pin online after an offline miss', () => {
@@ -226,47 +254,124 @@ else console.log(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(k
     expect(existsSync(marker)).toBe(false);
   });
 
-  it('forwards SIGTERM to a running CLI child and waits for its exit', async () => {
+  it.each(['SIGTERM', 'SIGHUP'] as const)(
+    'forwards %s to a running CLI child and waits for its exit',
+    async (signal) => {
+      const f = fixture();
+      const ready = join(f.dir, 'child-ready');
+      const stopped = join(f.dir, 'child-stopped');
+      writeFileSync(
+        f.bin,
+        `import fs from 'node:fs';
+if(process.argv[2]==='--version')console.log(${JSON.stringify(version)});
+else {
+  for(const signal of ['SIGTERM','SIGHUP'])process.on(signal,()=>{
+    fs.writeFileSync(${JSON.stringify(stopped)},signal);
+    setTimeout(()=>process.exit(0),100);
+  });
+  fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));setInterval(()=>{},1000);
+}`,
+      );
+      const running = runWaitingWrapper(f);
+      try {
+        await expect.poll(() => existsSync(ready), { timeout: 10000 }).toBe(true);
+        const childPid = Number(readFileSync(ready, 'utf8'));
+        expect(running.wrapper.kill(signal)).toBe(true);
+        expect(await running.exited).toEqual({ code: 0, signal: null });
+        expect(readFileSync(stopped, 'utf8')).toBe(signal);
+        expect(() => process.kill(childPid, 0)).toThrow();
+      } finally {
+        await running.cleanup();
+      }
+    },
+  );
+
+  it.each(['wrapper', 'group'] as const)(
+    'does not forward SIGINT and waits for the child (%s delivery)',
+    async (delivery) => {
+      const f = fixture();
+      const ready = join(f.dir, 'child-ready');
+      const interrupts = join(f.dir, 'interrupts');
+      const release = join(f.dir, 'release');
+      writeFileSync(
+        f.bin,
+        `import fs from 'node:fs';
+if(process.argv[2]==='--version')console.log(${JSON.stringify(version)});
+else {
+  process.on('SIGINT',()=>fs.appendFileSync(${JSON.stringify(interrupts)},'INT'));
+  fs.writeFileSync(${JSON.stringify(interrupts)},'');
+  fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));
+  setInterval(()=>{if(fs.existsSync(${JSON.stringify(release)}))process.exit(0)},20);
+}`,
+      );
+      const running = runWaitingWrapper(f);
+      try {
+        await expect.poll(() => existsSync(ready), { timeout: 10000 }).toBe(true);
+        if (delivery === 'group') process.kill(-running.wrapper.pid!, 'SIGINT');
+        else expect(running.wrapper.kill('SIGINT')).toBe(true);
+        // Allow delivery to both members before checking that the wrapper waited.
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(running.wrapper.exitCode).toBeNull();
+        expect(running.wrapper.signalCode).toBeNull();
+        expect(readFileSync(interrupts, 'utf8')).toBe(delivery === 'group' ? 'INT' : '');
+        writeFileSync(release, 'exit');
+        expect(await running.exited).toEqual({ code: 0, signal: null });
+      } finally {
+        await running.cleanup();
+      }
+    },
+  );
+
+  it('preserves a CLI child signal exit on the wrapper', async () => {
     const f = fixture();
     const ready = join(f.dir, 'child-ready');
-    const stopped = join(f.dir, 'child-stopped');
     writeFileSync(
       f.bin,
       `import fs from 'node:fs';
 if(process.argv[2]==='--version')console.log(${JSON.stringify(version)});
-else {process.on('SIGTERM',()=>{fs.writeFileSync(${JSON.stringify(stopped)},'stopped');process.exit(0)});fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));setInterval(()=>{},1000);}`,
+else { fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));setInterval(()=>{},1000); }`,
     );
-    const wrapper = spawn(process.execPath, [join(f.plugin, 'scripts/gestalt-cli.mjs'), 'wait'], {
-      cwd: f.cwd,
-      env: { ...process.env, PATH: f.npmBin },
-      stdio: 'ignore',
-      detached: true,
-    });
-    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
-      (resolve, reject) => {
-        wrapper.once('error', reject);
-        wrapper.once('exit', (code, signal) => resolve({ code, signal }));
-      },
-    );
-    let childPid: number | undefined;
+    const running = runWaitingWrapper(f);
     try {
       await expect.poll(() => existsSync(ready), { timeout: 10000 }).toBe(true);
-      childPid = Number(readFileSync(ready, 'utf8'));
-      expect(wrapper.kill('SIGTERM')).toBe(true);
-      expect(await exited).toEqual({ code: 0, signal: null });
-      expect(readFileSync(stopped, 'utf8')).toBe('stopped');
-      expect(() => process.kill(childPid!, 0)).toThrow();
+      process.kill(Number(readFileSync(ready, 'utf8')), 'SIGTERM');
+      expect(await running.exited).toEqual({ code: null, signal: 'SIGTERM' });
     } finally {
-      if (wrapper.pid) {
-        try {
-          process.kill(-wrapper.pid, 'SIGKILL');
-        } catch {
-          // The process group is already gone on the successful path.
-        }
-      }
-      await exited;
+      await running.cleanup();
     }
   });
+
+  it.each(['SIGTERM', 'SIGHUP', 'SIGINT'] as const)(
+    'cleans up npm acquisition on %s without retrying online',
+    async (signal) => {
+      const f = fixture();
+      const running = runWaitingWrapper(f, { NPM_STUB_WAIT_DIR: f.dir });
+      let neutral: string | undefined;
+      try {
+        const ready = join(f.dir, 'npm-ready');
+        await expect.poll(() => existsSync(ready), { timeout: 10000 }).toBe(true);
+        const npm = JSON.parse(readFileSync(ready, 'utf8')) as { pid: number; cwd: string };
+        neutral = npm.cwd;
+        expect(existsSync(neutral)).toBe(true);
+        if (signal === 'SIGINT') process.kill(-running.wrapper.pid!, signal);
+        else expect(running.wrapper.kill(signal)).toBe(true);
+        expect(await running.exited).toEqual({ code: null, signal });
+        expect(readFileSync(join(f.dir, 'npm-stopped'), 'utf8')).toBe(signal);
+        expect(() => process.kill(npm.pid, 0)).toThrow();
+        expect(existsSync(neutral)).toBe(false);
+        const calls = readFileSync(f.log, 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line));
+        expect(calls).toHaveLength(1);
+        expect(calls[0].args).toContain('--offline');
+      } finally {
+        await running.cleanup();
+        // Failure cleanup must also remove an old wrapper's leaked directory.
+        if (neutral) rmSync(neutral, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe('copied plugin CLI launcher with actual offline npm', { timeout: 20000 }, () => {
