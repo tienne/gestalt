@@ -653,7 +653,7 @@ Each skill is a slash command in Claude Code. In Codex the same skill is `gestal
 | `/ship` | Converge review on a local PR, then open a draft GitHub PR and collect Copilot review |
 | `/brief` | Performance reports, proposals, RFCs, and decision memos written as prose for stakeholders |
 | `/presentation` | Slide decks — `presentation-writer` writes the content and `presentation-designer` builds Reveal.js HTML |
-| `/video-digest` | Turn a YouTube video into a summary viewer where every bullet cites transcript sentences, with a table of contents, player, and a script that follows playback. Also exports Markdown. See [Video digest](./docs/video-digest.md) |
+| `/video-digest` | Turn a YouTube video or a video file into a summary viewer where every bullet cites transcript sentences, with a table of contents, player, and a script that follows playback. Also exports Markdown. See [Video digest](./docs/video-digest.md) |
 | `/lens` | Read a paper PDF, web article, or podcast with a companion viewer. Every sentence cites the source page and paragraph, claims that disagree with the source's own tables get a doubt mark, and unverified parts are collected at the end. Adds prior-work cards, links to your own notes, and interactive figures drawn from the source tables. See [Reading lens](./docs/lens.md) |
 | `/research` | Competitor research in one document: sources, products, screen captures, comparison, judgment, and open questions. Cells without evidence say "unconfirmed" instead of being filled in. See [Competitor research](./docs/research-pipeline.md) |
 | `/market-scan` | Survey the landscape of services that do the same job and pick reference candidates. Stops before screen capture and analysis |
