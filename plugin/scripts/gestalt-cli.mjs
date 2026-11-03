@@ -36,7 +36,7 @@ try {
 if (Number(process.versions.node.split('.')[0]) < 22) fail('Node.js >=22 is required.');
 
 // A development checkout is identified by the wrapper's own location, never cwd.
-// Installed plugin copies have no parent package and use the exact npm pin below.
+// Without tsx, use a matching compiled entry if available, then the exact npm pin.
 const checkout = resolve(pluginRoot, '..');
 let localArgs;
 let sourceTsconfig;
@@ -45,7 +45,7 @@ try {
   const entry = join(checkout, 'bin/gestalt.ts');
   if (pkg.name === '@tienne/gestalt' && pkg.version === version && existsSync(entry)) {
     const tsx = join(checkout, 'node_modules/tsx/dist/loader.mjs');
-    // Dependency-free plugin installs need the compiled fallback or the npm pin.
+    // Keep the target project's tsconfig paths out of the source loader.
     if (existsSync(tsx)) {
       localArgs = ['--import', tsx, entry];
       sourceTsconfig = join(checkout, 'tsconfig.json');
@@ -65,37 +65,73 @@ let bin;
 if (!localArgs) {
   const neutral = mkdtempSync(join(tmpdir(), 'gestalt-cli-'));
   const npmEnv = { ...process.env };
-  // These provider credentials are unnecessary for npm; registry auth stays intact.
-  for (const key of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']) {
-    delete npmEnv[key];
+  // Strip provider/cloud secrets; preserve npm registry auth, proxies and CA settings.
+  for (const key of Object.keys(npmEnv)) {
+    if (
+      /^(ANTHROPIC_|OPENAI_|CLAUDE_CODE_OAUTH_|GEMINI_|GOOGLE_API_KEY$|AWS_SECRET_ACCESS_KEY$|AWS_SESSION_TOKEN$|GH_TOKEN$|GITHUB_TOKEN$)/i.test(
+        key,
+      )
+    )
+      delete npmEnv[key];
   }
+  let acquisitionSignal;
+  const resolveWithNpm = (npmArgs) =>
+    new Promise((resolveResult) => {
+      const child = spawn('npm', npmArgs, {
+        cwd: neutral,
+        env: npmEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 180_000,
+      });
+      let stdout = '';
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+      });
+      // Drain npm diagnostics while keeping the final error concise.
+      child.stderr.resume();
+      const terminate = () => {
+        acquisitionSignal = 'SIGTERM';
+        child.kill('SIGTERM');
+      };
+      const hangup = () => {
+        acquisitionSignal = 'SIGHUP';
+        child.kill('SIGHUP');
+      };
+      // Group Ctrl-C already reaches npm. Wait for close before removing its cwd.
+      const interrupt = () => {
+        acquisitionSignal = 'SIGINT';
+      };
+      process.on('SIGTERM', terminate);
+      process.on('SIGHUP', hangup);
+      process.on('SIGINT', interrupt);
+      child.once('error', () => {});
+      child.once('close', (status, signal) => {
+        process.off('SIGTERM', terminate);
+        process.off('SIGHUP', hangup);
+        process.off('SIGINT', interrupt);
+        if (signal) acquisitionSignal ??= signal;
+        resolveResult({ status, stdout });
+      });
+    });
   try {
     writeFileSync(join(neutral, 'package.json'), '{"private":true}\n');
     for (const offline of [true, false]) {
       if (!offline)
         process.stderr.write(`gestalt CLI: resolving @tienne/gestalt@${version} from npm.\n`);
-      const result = spawnSync(
-        'npm',
-        [
-          'exec',
-          '--yes',
-          `--prefix=${neutral}`,
-          '--no-workspaces',
-          ...(offline ? ['--offline'] : []),
-          `--package=@tienne/gestalt@${version}`,
-          '--',
-          process.execPath,
-          join(scripts, 'resolve-cli.mjs'),
-          version,
-        ],
-        {
-          cwd: neutral,
-          env: npmEnv,
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'pipe'],
-          timeout: 180_000,
-        },
-      );
+      const result = await resolveWithNpm([
+        'exec',
+        '--yes',
+        `--prefix=${neutral}`,
+        '--no-workspaces',
+        ...(offline ? ['--offline'] : []),
+        `--package=@tienne/gestalt@${version}`,
+        '--',
+        process.execPath,
+        join(scripts, 'resolve-cli.mjs'),
+        version,
+      ]);
+      if (acquisitionSignal) break;
       if (result.status !== 0) continue;
       try {
         const candidate = JSON.parse(result.stdout.trim());
@@ -121,6 +157,7 @@ if (!localArgs) {
   } finally {
     rmSync(neutral, { recursive: true, force: true });
   }
+  if (acquisitionSignal) process.kill(process.pid, acquisitionSignal);
   if (!bin)
     fail(
       `could not resolve @tienne/gestalt@${version}; check npm, network access, and its native dependencies. No other version was executed.`,
@@ -134,7 +171,8 @@ const child = spawn(process.execPath, [...(localArgs ?? [bin]), ...args], {
 });
 const terminate = () => child.kill('SIGTERM');
 const hangup = () => child.kill('SIGHUP');
-// Terminal Ctrl-C already reaches the child's process group; do not send it twice.
+// Group Ctrl-C reaches the child: do not forward it twice. Programmatic callers
+// must use SIGTERM to cancel only this pid. Signal tests cover both delivery modes.
 const interrupt = () => {};
 process.on('SIGTERM', terminate);
 process.on('SIGHUP', hangup);
