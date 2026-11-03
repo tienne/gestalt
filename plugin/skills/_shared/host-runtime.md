@@ -33,11 +33,12 @@ MCP 도구의 입력과 2-Call 제출 계약은 호스트가 바뀌어도 그대
 모델이나 effort를 명시해야 할 때만 `fork_turns: "none"`으로 필수 맥락과 절대 경로를 직접 전달한다.
 이 매개변수가 없는 호스트에는 그 인자를 보내지 않는다. 특정 Codex 버전의 도구명을 필수 조건으로 삼지 않는다.
 
-명시한 모델을 거절하면 `ges_status.hostClient`가 `codex`인 새 서버에서는 `reasoningModelFallback`이 `inherit`가 아닐 때 그 설정값으로 한 번 재시도한다. `hostClient`가 없는 이전 서버에서는 Claude 기본 별칭이 아닌 폴백 ID만 사용한다. 그것도 거절되거나 별도 폴백 ID가 없으면 세션 상속으로 한 번 재시도하고 끝낸다. 서버 기본값인 Claude 별칭으로 재시도하지 않는다. `inherit`를 지원 모델 이름처럼 전달하지 않는다. 모델 선택을 지원하지 않는 호스트에서는
+스폰 도구가 명시한 모델을 거절했을 때만 아래 순서로 재시도한다.
+`ges_status.hostClient`가 `codex`인 새 서버에서는 `reasoningModelFallback`이 `inherit`가 아니면 그 값으로 한 번 재시도한다. `hostClient`가 없는 이전 서버에서는 Claude 기본 별칭이 아닌 폴백 ID만 사용한다. 그것도 거절되거나 별도 폴백 ID가 없으면 세션 상속으로 한 번 재시도하고 끝낸다. 서버 기본값인 Claude 별칭으로 재시도하지 않는다. `inherit`를 지원 모델 이름처럼 전달하지 않는다. 모델 선택을 지원하지 않는 호스트에서는
 상속으로 실행하고 완료 보고에 모델 지정이 적용되지 않았음을 적는다.
 
 서브에이전트가 없으면 메인이 `ges_agent get`으로 페르소나를 받아 직접 수행할 수 있다.
-이때 컨텍스트가 메인에 실렸음을 완료 보고에 밝힌다. **독립된 판정자가 필요한 단계**는 `doubt`, review의 3.5 `continuity-judge`, 3.7 `suggestion-verifier`다. 이 셋은 메인의 자기 검토로 대체하지 않는다. 제안 검증을 못 돌렸으면 review 지침에 따라 미실행을 알리고 정합 심급을 못 돌렸으면 그 사실을 적고 Pass를 승인으로 게시하지 않는다. MCP 자체의 부재는
+이때 컨텍스트가 메인에 실렸음을 완료 보고에 밝힌다. **독립된 판정자가 필요한 단계**는 `doubt`, review의 3.5 `continuity-judge`, 3.7 `suggestion-verifier`다. 이 셋은 메인의 자기 검토로 대체하지 않는다. 제안 검증을 못 돌렸으면 review 지침에 따라 미실행을 알린다. 정합 심급을 못 돌렸으면 그 사실을 적고 Pass를 승인으로 게시하지 않는다. MCP 자체의 부재는
 [`tool-availability.md`](./tool-availability.md)를 따르며 도구 없이 세션이나 검사 결과를 만들지 않는다.
 
 ## Claude Code와 그 밖의 호스트

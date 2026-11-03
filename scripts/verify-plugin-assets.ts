@@ -57,18 +57,25 @@ for (const dir of ASSET_DIRS) {
   for (const file of collectFiles(sourceRoot)) {
     if (!file.endsWith('.md')) continue;
     const lines = readFileSync(join(sourceRoot, file), 'utf8').split('\n');
+    let fenced = false;
     lines.forEach((line, index) => {
-      if (HARDCODED_LAUNCHER.test(line)) launcherOffenders.push(`${dir}/${file}:${index + 1}`);
+      if (/^\s*```/.test(line)) fenced = !fenced;
+      const agentCommand =
+        fenced &&
+        ['role-agents', 'review-agents', 'agents'].includes(dir) &&
+        /^\s*gestalt [a-z]/.test(line);
+      if (HARDCODED_LAUNCHER.test(line) || agentCommand)
+        launcherOffenders.push(`${dir}/${file}:${index + 1}`);
     });
   }
 }
 
 if (launcherOffenders.length > 0) {
-  console.error('스킬 본문에 `pnpm tsx bin/gestalt.ts <하위명령>` 이 직접 박혀 있습니다.');
+  console.error('플러그인 본문에 런처를 거치지 않는 직접 CLI 호출이 있습니다.');
   console.error('플러그인 캐시에는 bin/ 도 node_modules 도 없어 그 형태는 안 돕니다.');
   report('고칠 자리', launcherOffenders);
   console.error(
-    '\n예시는 `gestalt ...` 로 적고, 부르는 형태는 ' +
+    '\n스킬 예시의 실행 형태와 에이전트 명령은 ' +
       'plugin/skills/_shared/cli-launcher.md 의 런처 지침을 참조하게 하세요.',
   );
   process.exit(1);
