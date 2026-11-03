@@ -8,6 +8,7 @@ import { loadConfig } from '../../../src/core/config.js';
 import { detectClientHost } from '../../../src/mcp/client-host.js';
 import { createMcpServer } from '../../../src/mcp/server.js';
 import * as hostAdapters from '../../../src/mcp/host-adapter.js';
+import * as statusTools from '../../../src/mcp/tools/status.js';
 
 const isolated = { skipDotEnv: true, skipGestaltJson: true };
 
@@ -109,7 +110,11 @@ describe('MCP client handshake', () => {
     vi.restoreAllMocks();
   });
 
-  async function connect(name: string, clientOverride?: 'both' | 'grok') {
+  async function connect(
+    name: string,
+    clientOverride?: 'both' | 'grok',
+    beforeInitialize?: () => void,
+  ) {
     const result = await createMcpServer({
       dbPath: resolve(cwd, 'events.db'),
       llm: { apiKey: '', model: 'test-model' },
@@ -117,6 +122,7 @@ describe('MCP client handshake', () => {
     });
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     await result.server.connect(serverTransport);
+    beforeInitialize?.();
     const client = new Client({ name, version: 'test' }, { capabilities: {} });
     await client.connect(clientTransport);
     async function call(name: string, args: Record<string, unknown> = {}) {
@@ -202,6 +208,50 @@ describe('MCP client handshake', () => {
       });
       const agent = await connection.call('ges_agent', { action: 'get', name: 'architect' });
       expect(agent.model).toBe('custom/frontier');
+    } finally {
+      await connection.close();
+    }
+  });
+
+  it.each(['claude-code', 'unknown-wrapper'])(
+    'separates explicit Codex writes from the %s model profile',
+    async (name) => {
+      writeFileSync('gestalt.json', JSON.stringify({ client: 'codex' }));
+      const connection = await connect(name);
+      try {
+        const status = await connection.call('ges_status');
+        expect(status.client).toBe('codex');
+        expect(status.hostClient).toBe(name === 'claude-code' ? 'claude-code' : 'codex');
+        expect(status.reasoningModel).toBe(name === 'claude-code' ? 'fable' : 'inherit');
+      } finally {
+        await connection.close();
+      }
+    },
+  );
+
+  it('keeps engine settings fixed when initialize reloads only the host profile', async () => {
+    const observed = vi.spyOn(statusTools, 'buildStatusConfigInfo');
+    writeFileSync(
+      'gestalt.json',
+      JSON.stringify({ interview: { maxRounds: 7 }, execute: { driftThreshold: 0.2 } }),
+    );
+    const connection = await connect('codex', undefined, () => {
+      writeFileSync(
+        'gestalt.json',
+        JSON.stringify({
+          interview: { maxRounds: 99 },
+          execute: { driftThreshold: 0.8 },
+          reasoningModel: 'custom/new-reasoner',
+        }),
+      );
+    });
+    try {
+      const status = await connection.call('ges_status');
+      expect(status.reasoningModel).toBe('custom/new-reasoner');
+      expect(status.hostClient).toBe('codex');
+      const config = observed.mock.calls.at(-1)![0]!;
+      expect(config.interview.maxRounds).toBe(7);
+      expect(config.execute.driftThreshold).toBe(0.2);
     } finally {
       await connection.close();
     }

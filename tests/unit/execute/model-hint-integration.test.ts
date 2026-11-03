@@ -237,6 +237,13 @@ describe('buildTaskExecutionPrompt — model 힌트 섹션', () => {
     expect(prompt).not.toContain('model: "haiku"');
   });
 
+  it('sonnet 힌트는 호스트의 standard 모델로 해석한다', () => {
+    const prompt = buildTaskExecutionPrompt(makeTask('sonnet'), spec, completed, []);
+    expect(prompt).toContain('tierModels.standard');
+    expect(prompt).not.toContain('tierModels.frugal');
+    expect(prompt).not.toContain('model: "sonnet"');
+  });
+
   it('model 힌트가 없으면 현재 세션 직접 실행 안내가 포함된다', () => {
     const prompt = buildTaskExecutionPrompt(makeTask(undefined), spec, completed, []);
     expect(prompt).toContain('directly');

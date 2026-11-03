@@ -28,7 +28,7 @@ describe('built Codex plugin installation', () => {
       const bin = join(ROOT, 'dist/bin/gestalt.js');
       expect(existsSync(bin), 'Run pnpm build before the installation integration test').toBe(true);
       const installed = join(root, 'plugin');
-      cpSync(join(ROOT, 'plugin'), installed, { recursive: true });
+      cpSync(join(ROOT, 'dist/plugin'), installed, { recursive: true });
       const project = join(root, 'project');
       mkdirSync(project);
       const shim = join(root, 'npm-bin');
@@ -68,4 +68,25 @@ describe('built Codex plugin installation', () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, 60000);
+
+  it('runs the in-place compiled package launcher without npm on PATH', () => {
+    const root = mkdtempSync(join(tmpdir(), 'gestalt-installed-package-'));
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [join(ROOT, 'dist/plugin/scripts/gestalt-cli.mjs'), '--version'],
+        {
+          cwd: root,
+          env: { ...process.env, PATH: '' },
+          encoding: 'utf8',
+          timeout: 20000,
+        },
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout.trim()).toBe(version);
+      expect(result.stderr).not.toContain('resolving @tienne/gestalt');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30000);
 });

@@ -47,15 +47,16 @@ describe('Codex copied-plugin installation contracts', () => {
         expect(
           source,
           `${skill.name} must use the versioned launcher instead of global/cwd probes`,
-        ).not.toMatch(
-          /if gestalt --version|pnpm tsx bin\/gestalt\.ts --version|npm i -g @tienne\/gestalt/,
-        );
+        ).not.toMatch(/if gestalt --version|pnpm tsx bin\/gestalt\.ts|npm i -g @tienne\/gestalt/);
       }
       expect(existsSync(join(installed, 'skills/_shared/host-runtime.md'))).toBe(true);
       expect(
         readFileSync(join(installed, 'skills/_shared/host-runtime.md'), 'utf8'),
         'Every skill reaches the versioned CLI launcher through its mandatory host adapter',
       ).toContain('./cli-launcher.md');
+      expect(readFileSync(join(installed, 'skills/review-loop/SKILL.md'), 'utf8')).not.toContain(
+        '$gestaltLauncher',
+      );
       expect(existsSync(join(installed, 'scripts/gestalt-cli.mjs'))).toBe(true);
       expect(
         existsSync(

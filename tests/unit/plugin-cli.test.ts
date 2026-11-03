@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import {
   cpSync,
   existsSync,
@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -53,7 +53,7 @@ else { console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),
     join(npmBin, 'npm'),
     `#!${process.execPath}
 const fs=require('node:fs');const cp=require('node:child_process');
-fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({args:process.argv.slice(2),cwd:process.cwd()})+'\\n');
+fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({args:process.argv.slice(2),cwd:process.cwd(),providerKeys:['ANTHROPIC_API_KEY','OPENAI_API_KEY','CLAUDE_CODE_OAUTH_TOKEN'].filter(k=>Object.hasOwn(process.env,k))})+'\\n');
 if(process.env.FAIL_NPM==='1'||(process.env.OFFLINE_MISS==='1'&&process.argv.includes('--offline')))process.exit(1);
 const i=process.argv.indexOf('--'); const r=cp.spawnSync(process.argv[i+1],process.argv.slice(i+2),{stdio:'inherit',env:{...process.env,PATH:${JSON.stringify(packageBin)}+require('node:path').delimiter+process.env.PATH}});process.exit(r.status??1);
 `,
@@ -70,7 +70,7 @@ const i=process.argv.indexOf('--'); const r=cp.spawnSync(process.argv[i+1],proce
   return { dir, cwd, plugin, log, run, npmBin, bin };
 }
 
-describe('copied plugin CLI launcher (stubbed npm resolver)', () => {
+describe('copied plugin CLI launcher (stubbed npm resolver)', { timeout: 20000 }, () => {
   it('preserves argv, stdin, cwd and exit 10 without a global gestalt', () => {
     const f = fixture();
     const result = f.run(['humanize-scan', '--file', 'a b;$(touch SHOULD_NOT_EXIST).md']);
@@ -85,9 +85,30 @@ describe('copied plugin CLI launcher (stubbed npm resolver)', () => {
       .split('\n')
       .map((x) => JSON.parse(x));
     expect(calls).toHaveLength(1);
-    expect(calls[0].cwd).not.toBe(f.cwd);
+    expect(calls[0].cwd).not.toBe(realpathSync(f.cwd));
+    expect(dirname(calls[0].cwd)).toBe(realpathSync(tmpdir()));
+    expect(basename(calls[0].cwd)).toMatch(/^gestalt-cli-/);
     expect(calls[0].args).toContain(`--package=@tienne/gestalt@${version}`);
     expect(calls[0].args).toContain('--offline');
+    const prefix = calls[0].args.find((arg: string) => arg.startsWith('--prefix='));
+    expect(prefix).toBeDefined();
+    expect(basename(prefix.slice('--prefix='.length))).toBe(basename(calls[0].cwd));
+    expect(calls[0].args).toContain('--no-workspaces');
+  });
+
+  it('keeps provider credentials out of npm but preserves them for the actual CLI', () => {
+    const f = fixture();
+    const keys = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
+    writeFileSync(
+      f.bin,
+      `if(process.argv[2]==='--version')console.log(${JSON.stringify(version)});
+else console.log(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(k=>[k,process.env[k]]))));`,
+    );
+    const values = Object.fromEntries(keys.map((key) => [key, `fixture-${key}`]));
+    const result = f.run(['environment'], values);
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(values);
+    expect(JSON.parse(readFileSync(f.log, 'utf8').trim()).providerKeys).toEqual([]);
   });
 
   it('tries the exact same pin online after an offline miss', () => {
@@ -176,5 +197,142 @@ describe('copied plugin CLI launcher (stubbed npm resolver)', () => {
     );
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe(version);
-  }, 20000);
+  });
+
+  it('pins source tsconfig instead of loading target-project import aliases', () => {
+    const f = fixture();
+    const marker = join(f.cwd, 'SOURCE_HIJACKED');
+    const config = join(f.cwd, 'tsconfig.json');
+    writeFileSync(
+      config,
+      JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { commander: ['./evil.ts'] } } }),
+    );
+    writeFileSync(
+      join(f.cwd, 'evil.ts'),
+      `import fs from 'node:fs';fs.writeFileSync(${JSON.stringify(marker)},'ran');throw new Error('target tsconfig executed');`,
+    );
+    const result = spawnSync(
+      process.execPath,
+      [join(ROOT, 'plugin/scripts/gestalt-cli.mjs'), '--version'],
+      {
+        cwd: f.cwd,
+        encoding: 'utf8',
+        env: { ...process.env, PATH: '', TSX_TSCONFIG_PATH: config },
+        timeout: 15000,
+      },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe(version);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it('forwards SIGTERM to a running CLI child and waits for its exit', async () => {
+    const f = fixture();
+    const ready = join(f.dir, 'child-ready');
+    const stopped = join(f.dir, 'child-stopped');
+    writeFileSync(
+      f.bin,
+      `import fs from 'node:fs';
+if(process.argv[2]==='--version')console.log(${JSON.stringify(version)});
+else {process.on('SIGTERM',()=>{fs.writeFileSync(${JSON.stringify(stopped)},'stopped');process.exit(0)});fs.writeFileSync(${JSON.stringify(ready)},String(process.pid));setInterval(()=>{},1000);}`,
+    );
+    const wrapper = spawn(process.execPath, [join(f.plugin, 'scripts/gestalt-cli.mjs'), 'wait'], {
+      cwd: f.cwd,
+      env: { ...process.env, PATH: f.npmBin },
+      stdio: 'ignore',
+      detached: true,
+    });
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve, reject) => {
+        wrapper.once('error', reject);
+        wrapper.once('exit', (code, signal) => resolve({ code, signal }));
+      },
+    );
+    let childPid: number | undefined;
+    try {
+      await expect.poll(() => existsSync(ready), { timeout: 10000 }).toBe(true);
+      childPid = Number(readFileSync(ready, 'utf8'));
+      expect(wrapper.kill('SIGTERM')).toBe(true);
+      expect(await exited).toEqual({ code: 0, signal: null });
+      expect(readFileSync(stopped, 'utf8')).toBe('stopped');
+      expect(() => process.kill(childPid!, 0)).toThrow();
+    } finally {
+      if (wrapper.pid) {
+        try {
+          process.kill(-wrapper.pid, 'SIGKILL');
+        } catch {
+          // The process group is already gone on the successful path.
+        }
+      }
+      await exited;
+    }
+  });
+});
+
+describe('copied plugin CLI launcher with actual offline npm', { timeout: 20000 }, () => {
+  it('does not execute a forged exact-version package in a TMPDIR parent workspace', () => {
+    const f = fixture();
+    const parent = join(f.dir, 'hostile temp parent');
+    const pkg = join(parent, 'node_modules/@tienne/gestalt');
+    mkdirSync(join(pkg, 'bin'), { recursive: true });
+    writeFileSync(
+      join(parent, 'package.json'),
+      JSON.stringify({ private: true, workspaces: ['*'] }),
+    );
+    writeFileSync(
+      join(pkg, 'package.json'),
+      JSON.stringify({ name: '@tienne/gestalt', version, bin: { gestalt: 'bin/gestalt.cjs' } }),
+    );
+    const marker = join(f.dir, 'NPM_HIJACKED');
+    const bin = join(pkg, 'bin/gestalt.cjs');
+    writeFileSync(
+      bin,
+      `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)},'ran');console.log(${JSON.stringify(version)});`,
+      { mode: 0o755 },
+    );
+    mkdirSync(join(parent, 'node_modules/.bin'));
+    symlinkSync(bin, join(parent, 'node_modules/.bin/gestalt'));
+    const npmrc = join(f.dir, 'empty.npmrc');
+    const globalNpmrc = join(f.dir, 'empty-global.npmrc');
+    writeFileSync(npmrc, '');
+    writeFileSync(globalNpmrc, '');
+    const env = {
+      ...process.env,
+      PATH: process.env.PATH ?? '',
+      TMPDIR: parent,
+      npm_config_cache: join(f.dir, 'empty npm cache'),
+      npm_config_offline: 'true',
+      npm_config_userconfig: npmrc,
+      npm_config_globalconfig: globalNpmrc,
+      npm_config_audit: 'false',
+      npm_config_fund: 'false',
+    };
+    const workspace = join(parent, 'control-workspace');
+    mkdirSync(workspace);
+    writeFileSync(join(workspace, 'package.json'), '{"private":true}');
+    const control = spawnSync(
+      'npm',
+      [
+        'exec',
+        '--yes',
+        '--offline',
+        `--package=@tienne/gestalt@${version}`,
+        '--',
+        'gestalt',
+        '--version',
+      ],
+      { cwd: workspace, env, encoding: 'utf8', timeout: 10000 },
+    );
+    expect(control.status, control.stderr).toBe(0);
+    expect(
+      existsSync(marker),
+      'The fixture must reproduce npm parent/workspace package selection',
+    ).toBe(true);
+    rmSync(marker);
+    const result = f.run(['probe'], env);
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain('could not resolve');
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(f.log)).toBe(false);
+  });
 });
