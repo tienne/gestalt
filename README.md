@@ -983,7 +983,7 @@ Claude Code (you)
 - [Choosing a skill](./docs/choosing-skills.md) — which skill to use when several look alike
 - [Competitor research](./docs/research-pipeline.md) — the five research skills and the order to run them
 - [Reading lens](./docs/lens.md) — paper, article, and podcast viewer with source citations
-- [Video digest](./docs/video-digest.md) — YouTube summary viewer with sourced bullets
+- [Video digest](./docs/video-digest.md) — YouTube or local video summary viewer with sourced bullets
 - [Local PR](./docs/local-pr.md) — in-repo pull requests for agent-to-agent review
 - [Architecture View](./docs/architecture-view.md) — evidence-backed architecture diagrams
 - [Design Proposals](./docs/proposals/README.md) — planned work to tighten verification from interview to evaluate
