@@ -158,6 +158,7 @@ describe('MCP client handshake', () => {
       expect(status.hostClient).toBe('codex');
       expect(status.clientDetection).toEqual({
         name: capturedCodex.clientInfo.name,
+        nameTruncated: false,
         detectedHost: 'codex',
         warning: null,
       });
@@ -257,6 +258,8 @@ describe('MCP client handshake', () => {
           detectedHost: null,
         });
         expect(status.clientDetection.warning).toContain('GESTALT_CLIENT');
+        expect(status.clientDetection.warning).toContain('not recognized');
+        expect(status.clientDetection.warning).not.toContain('did not include');
         expect(status.reasoningModel).toBe(client === 'codex' ? 'inherit' : 'fable');
       } finally {
         await connection.close();
@@ -299,8 +302,26 @@ describe('MCP client handshake', () => {
     try {
       const status = await connection.call('ges_status');
       expect(status.clientDetection.name).toHaveLength(128);
+      expect(status.clientDetection.nameTruncated).toBe(true);
       expect(status.clientDetection.detectedHost).toBeNull();
       expect(status.clientDetection.warning).toBeTruthy();
+    } finally {
+      await connection.close();
+    }
+  });
+
+  it('sanitizes only the displayed name without recognizing the sanitized value', async () => {
+    const connection = await connect('codex\ncli');
+    try {
+      const status = await connection.call('ges_status');
+      expect(status.clientDetection).toMatchObject({
+        name: 'codex cli',
+        nameTruncated: false,
+        detectedHost: null,
+      });
+      expect(status.clientDetection.warning).toContain('not recognized');
+      expect(status.client).toBe('claude-code');
+      expect(detectClientHost(status.clientDetection.name)).toBe('codex');
     } finally {
       await connection.close();
     }
@@ -382,11 +403,50 @@ describe('detectClientHost', () => {
       expect(detectClientHost(name)).toBe('codex');
     },
   );
-  it('reports missing initialization names instead of claiming fallback detection', () => {
-    expect(describeClientHost(undefined)).toMatchObject({ name: null, detectedHost: null });
-    expect(describeClientHost(undefined).warning).toContain('GESTALT_CLIENT');
+  it('distinguishes missing names from empty unrecognized names without losing fallback guidance', () => {
+    const missing = describeClientHost(undefined);
+    const empty = describeClientHost('');
+    expect(missing).toMatchObject({ name: null, nameTruncated: false, detectedHost: null });
+    expect(empty).toMatchObject({ name: '', nameTruncated: false, detectedHost: null });
+    expect(missing.warning).toContain('did not include a client name');
+    expect(missing.warning).not.toContain('not recognized');
+    expect(empty.warning).toContain('not recognized');
+    expect(empty.warning).not.toContain('did not include');
+    for (const result of [missing, empty]) {
+      expect(result.warning).toContain('GESTALT_CLIENT');
+      expect(result.warning).toContain('codex, grok, or claude-code');
+      expect(result.warning).toContain('client=both retains Claude-compatible model defaults');
+    }
     expect(statusTools.buildStatusConfigInfo(loadConfig({}, isolated)).clientDetection).toBeNull();
   });
+
+  it('replaces control, bidi, and line/paragraph separators in display data only', () => {
+    const raw = 'host\u0000\u001b\u0085\u202e\u2066\u2028\u2029name';
+    const result = describeClientHost(raw);
+    expect(result).toMatchObject({
+      name: 'host' + ' '.repeat(7) + 'name',
+      nameTruncated: false,
+      detectedHost: null,
+    });
+    expect(result.warning).toContain('not recognized');
+    expect(detectClientHost(raw)).toBeUndefined();
+  });
+
+  it.each([
+    ['x'.repeat(128), 'x'.repeat(128), false],
+    ['x'.repeat(129), 'x'.repeat(128), true],
+    ['x'.repeat(127) + '😀', 'x'.repeat(127) + '😀', false],
+    ['x'.repeat(127) + '😀y', 'x'.repeat(127) + '😀', true],
+  ] as const)(
+    'bounds %s by Unicode code points without splitting emoji',
+    (name, expected, truncated) => {
+      const result = describeClientHost(name);
+      expect(result.name).toBe(expected);
+      expect(result.nameTruncated).toBe(truncated);
+      expect(Array.from(result.name!)).toHaveLength(128);
+      expect(result.name).not.toContain('…');
+    },
+  );
 
   it('does not infer hosts from substrings', () => {
     expect(detectClientHost('my-codex-wrapper')).toBeUndefined();
