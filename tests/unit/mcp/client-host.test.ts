@@ -4,11 +4,18 @@ import { resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadConfig } from '../../../src/core/config.js';
-import { detectClientHost } from '../../../src/mcp/client-host.js';
+import { getHostProfile, loadConfig } from '../../../src/core/config.js';
+import { describeClientHost, detectClientHost } from '../../../src/mcp/client-host.js';
 import { createMcpServer } from '../../../src/mcp/server.js';
 import * as hostAdapters from '../../../src/mcp/host-adapter.js';
 import * as statusTools from '../../../src/mcp/tools/status.js';
+
+const capturedCodex = JSON.parse(
+  readFileSync(
+    new URL('../../fixtures/mcp/codex-cli-0.166.0-initialize.json', import.meta.url),
+    'utf8',
+  ),
+) as { clientInfo: { name: string; version: string; title: string }; protocolVersion: string };
 
 const isolated = { skipDotEnv: true, skipGestaltJson: true };
 
@@ -111,8 +118,8 @@ describe('MCP client handshake', () => {
   });
 
   async function connect(
-    name: string,
-    clientOverride?: 'both' | 'grok',
+    name: string | { name: string; version: string; title?: string },
+    clientOverride?: 'both' | 'grok' | 'codex',
     beforeInitialize?: () => void,
   ) {
     const result = await createMcpServer({
@@ -123,7 +130,9 @@ describe('MCP client handshake', () => {
     const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
     await result.server.connect(serverTransport);
     beforeInitialize?.();
-    const client = new Client({ name, version: 'test' }, { capabilities: {} });
+    const client = new Client(typeof name === 'string' ? { name, version: 'test' } : name, {
+      capabilities: {},
+    });
     await client.connect(clientTransport);
     async function call(name: string, args: Record<string, unknown> = {}) {
       const reply = await client.callTool({ name, arguments: args });
@@ -142,11 +151,17 @@ describe('MCP client handshake', () => {
 
   it('detects Codex before the first status/get/list request and selects its write adapter', async () => {
     const adapter = vi.spyOn(hostAdapters, 'createHostAdapter');
-    const connection = await connect('codex-mcp-client');
+    const connection = await connect(capturedCodex.clientInfo);
     try {
       const status = await connection.call('ges_status');
       expect(status.client).toBe('codex');
       expect(status.hostClient).toBe('codex');
+      expect(status.clientDetection).toEqual({
+        name: capturedCodex.clientInfo.name,
+        detectedHost: 'codex',
+        warning: null,
+      });
+      expect(status.modelWarnings).toEqual([]);
       expect(status.reasoningModel).toBe('inherit');
       expect(status.tierModels.standard).toBe('inherit');
       const agent = await connection.call('ges_agent', { action: 'get', name: 'architect' });
@@ -229,11 +244,78 @@ describe('MCP client handshake', () => {
     },
   );
 
+  it.each(['codex', 'both', 'grok'] as const)(
+    'reports unknown handshake evidence independently of explicit %s config',
+    async (client) => {
+      const connection = await connect('unknown-codex-proxy', client);
+      try {
+        const status = await connection.call('ges_status');
+        expect(status.client).toBe(client);
+        expect(status.hostClient).toBe(client === 'both' ? 'claude-code' : client);
+        expect(status.clientDetection).toMatchObject({
+          name: 'unknown-codex-proxy',
+          detectedHost: null,
+        });
+        expect(status.clientDetection.warning).toContain('GESTALT_CLIENT');
+        expect(status.reasoningModel).toBe(client === 'codex' ? 'inherit' : 'fable');
+      } finally {
+        await connection.close();
+      }
+    },
+  );
+
+  it('keeps runtime diagnostics on errors and ignores config-supplied diagnostic data', async () => {
+    writeFileSync(
+      'gestalt.json',
+      JSON.stringify({
+        client: 'both',
+        reasoningModel: 'opuss',
+        clientDetection: { name: 'fake', detectedHost: 'codex', warning: null },
+        modelWarnings: [{ path: 'fake', suggestion: 'fake' }],
+      }),
+    );
+    const connection = await connect('unknown-wrapper');
+    try {
+      const status = await connection.call('ges_status');
+      const error = await connection.call('ges_status', { sessionId: 'nonexistent-session' });
+      expect(error.error).toBeTruthy();
+      for (const result of [status, error]) {
+        expect(result.clientDetection).toMatchObject({
+          name: 'unknown-wrapper',
+          detectedHost: null,
+        });
+        expect(result.reasoningModel).toBe('opuss');
+        expect(result.modelWarnings).toEqual([
+          expect.objectContaining({ path: 'reasoningModel', model: 'opuss', suggestion: 'opus' }),
+        ]);
+      }
+    } finally {
+      await connection.close();
+    }
+  });
+
+  it('bounds unknown client names in the actual status response', async () => {
+    const connection = await connect('unrecognized-' + 'x'.repeat(1000));
+    try {
+      const status = await connection.call('ges_status');
+      expect(status.clientDetection.name).toHaveLength(128);
+      expect(status.clientDetection.detectedHost).toBeNull();
+      expect(status.clientDetection.warning).toBeTruthy();
+    } finally {
+      await connection.close();
+    }
+  });
+
   it('keeps engine settings fixed when initialize reloads only the host profile', async () => {
     const observed = vi.spyOn(statusTools, 'buildStatusConfigInfo');
     writeFileSync(
       'gestalt.json',
-      JSON.stringify({ interview: { maxRounds: 7 }, execute: { driftThreshold: 0.2 } }),
+      JSON.stringify({
+        interview: { maxRounds: 7 },
+        execute: { driftThreshold: 0.2 },
+        notifications: false,
+        skillsDir: resolve(cwd, 'original-skills'),
+      }),
     );
     const connection = await connect('codex', undefined, () => {
       writeFileSync(
@@ -242,6 +324,14 @@ describe('MCP client handshake', () => {
           interview: { maxRounds: 99 },
           execute: { driftThreshold: 0.8 },
           reasoningModel: 'custom/new-reasoner',
+          reasoningModelFallback: 'custom/new-fallback',
+          tierModels: {
+            frugal: 'custom/frugal',
+            standard: 'custom/standard',
+            frontier: 'custom/frontier',
+          },
+          notifications: true,
+          skillsDir: resolve(cwd, 'changed-skills'),
         }),
       );
     });
@@ -252,6 +342,21 @@ describe('MCP client handshake', () => {
       const config = observed.mock.calls.at(-1)![0]!;
       expect(config.interview.maxRounds).toBe(7);
       expect(config.execute.driftThreshold).toBe(0.2);
+      expect(config.notifications).toBe(false);
+      expect(config.skillsDir).toBe(resolve(cwd, 'original-skills'));
+      expect(status.reasoningModelFallback).toBe('custom/new-fallback');
+      expect(status.tierModels).toEqual({
+        frugal: 'custom/frugal',
+        standard: 'custom/standard',
+        frontier: 'custom/frontier',
+      });
+      expect(Object.keys(getHostProfile(config)).sort()).toEqual([
+        'client',
+        'hostClient',
+        'reasoningModel',
+        'reasoningModelFallback',
+        'tierModels',
+      ]);
     } finally {
       await connection.close();
     }
@@ -277,6 +382,12 @@ describe('detectClientHost', () => {
       expect(detectClientHost(name)).toBe('codex');
     },
   );
+  it('reports missing initialization names instead of claiming fallback detection', () => {
+    expect(describeClientHost(undefined)).toMatchObject({ name: null, detectedHost: null });
+    expect(describeClientHost(undefined).warning).toContain('GESTALT_CLIENT');
+    expect(statusTools.buildStatusConfigInfo(loadConfig({}, isolated)).clientDetection).toBeNull();
+  });
+
   it('does not infer hosts from substrings', () => {
     expect(detectClientHost('my-codex-wrapper')).toBeUndefined();
     expect(detectClientHost(undefined)).toBeUndefined();
