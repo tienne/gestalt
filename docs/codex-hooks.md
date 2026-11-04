@@ -21,9 +21,9 @@ Codex 자체의 훅 지원과 Gestalt가 제공하는 훅 통합은 구분한다
 | WebFetch 디스크 캐시 | Claude Code 훅, 기본 꺼짐 | 이 캐시 통합은 제공하지 않음 |
 | peer 보는 중 표시와 승인 대기 알림 | Claude Code 훅 | `gestalt peer shares`로 확인 |
 
-구현 근거는 루트 [`hooks/hooks.json`](../hooks/hooks.json)과 그 파일이 호출하는 `scripts/` 런처다. Codex 마켓플레이스의 [`path: "./plugin"`](../.agents/plugins/marketplace.json)은 `plugin/`만 복사한다. 루트의 훅과 런처는 그 범위 밖이고, [`plugin/.codex-plugin/plugin.json`](../plugin/.codex-plugin/plugin.json)에도 Codex 훅 통합 선언은 없다. 파일 이름이 `hooks/hooks.json`으로 같아도 현재 Gestalt의 Claude 훅이 Codex 패키지에 포함되어 실행되는 것은 아니다.
+구현 근거는 루트 [`hooks/hooks.json`](../hooks/hooks.json)과 그 파일이 호출하는 `scripts/` 런처다. Codex 마켓플레이스의 [`path: "./plugin"`](../.agents/plugins/marketplace.json)은 `plugin/`만 복사한다. 루트의 훅과 런처는 그 범위 밖이고 [`plugin/.codex-plugin/plugin.json`](../plugin/.codex-plugin/plugin.json)에도 Codex 훅 통합 선언은 없다. 파일 이름이 `hooks/hooks.json`으로 같아도 현재 Gestalt의 Claude 훅이 Codex 패키지에 포함되어 실행되는 것은 아니다.
 
-기존 Claude 이벤트와 matcher, stdin payload, `hookSpecificOutput.additionalContext`, 종료 코드의 의미, 환경변수가 Codex에서도 그대로 동작한다고 보장하지 않는다. Codex용 통합에는 해당 호스트의 계약 검증이 필요하다. 이 문서 교정은 훅 스크립트나 매니페스트를 추가하지 않으며, 훅을 자동 설치하거나 활성화하거나 trust하지 않는다.
+기존 Claude 이벤트와 matcher, stdin payload, `hookSpecificOutput.additionalContext`, 종료 코드의 의미, 환경변수가 Codex에서도 그대로 동작한다고 보장하지 않는다. Codex용 통합에는 해당 호스트의 계약 검증이 필요하다. 이 문서 교정은 훅 스크립트나 매니페스트를 추가하지 않으며 훅을 자동 설치하거나 활성화하거나 trust하지 않는다.
 
 `gestalt init`이 설치하는 Git post-commit 훅은 Git이 실행한다. 위 lifecycle hooks와 별개이며 Codex 훅 통합 유무와 혼동하지 않는다.
 

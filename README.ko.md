@@ -261,7 +261,7 @@ CLI 검사는 [버전 고정 런처](./plugin/skills/_shared/cli-launcher.md)를
 `client`, `tierModels`를 먼저 확인해요. Claude Task 패널과 Gestalt의 현재 Claude Code 훅 통합은 Codex 실행을 막지 않아요.
 
 Gestalt는 코드 그래프 자동 주입, WebFetch 캐시, peer 보는 중 표시 훅을 아직 Codex에 통합하지 않았어요.
-Codex desktop 자체는 수동 설치한 플러그인의 훅을 지원하지만 명시적 trust가 필요하고,
+Codex desktop 자체는 수동 설치한 플러그인의 훅을 지원하지만 명시적 trust가 필요하고
 훅이 포함된 플러그인은 public directory에 제출할 수 없어요.
 [Codex 훅 지원 범위](./docs/codex-hooks.md)에 2026-11-05 확인한
 [공식 근거](https://developers.openai.com/plugins/build/plugins)와 Orca를 포함한 호스트별 경계를 정리했어요.
