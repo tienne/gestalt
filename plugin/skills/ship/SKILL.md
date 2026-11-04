@@ -97,7 +97,7 @@ routing:
 
 - git 저장소
 - `gh` 인증 (Phase 3부터 필요 — Phase 0에서 미리 확인한다)
-- GitHub Enterprise Server가 아닐 것 (`@copilot` 리뷰어가 GHES에서는 안 된다)
+- GitHub Enterprise Server가 아닐 것 (Copilot 리뷰어 요청이 GHES에서는 안 된다)
 
 ## 에이전트는 전부 서브에이전트로 돌린다
 
@@ -623,28 +623,39 @@ shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev
 
 date -u +%Y-%m-%dT%H:%M:%SZ > "$shipTmp/requested-at"
 git rev-parse HEAD > "$shipTmp/round-start-head"
-gh pr edit <prNumber> --add-reviewer "@copilot"
+gh api -X POST "repos/{owner}/{repo}/pulls/<prNumber>/requested_reviewers" \
+  -f 'reviewers[]=copilot-pull-request-reviewer[bot]' \
+  > "$shipTmp/request-cp{round}.json" 2>&1; echo "EXIT=$?"
 ```
 
 두 값 다 파일로 둔다. 이유는 2.1과 같다 — 잡는 자리와 쓰는 자리 사이에 대기와 승인이 낀다.
 
-`@copilot`은 `gh` 2.x의 특수값이다. 두 번째 라운드부터는 같은 명령이 재요청이 된다.
+**`gh pr edit --add-reviewer`를 쓰지 않는다.** `gh pr edit`은 리뷰어를 붙이기 전에 PR의 classic Projects 카드를 GraphQL로 읽는다. GitHub이 그 필드를 막아서 리뷰어 요청까지 가지 못하고 아래 에러로 끝난다.
 
-**종료 코드로 성공을 판단하지 않는다.** `gh pr edit`은 요청이 반영 안 돼도 exit 0에 PR URL을 찍는다. REST로 직접 POST해도 200이 온다. 실제로 붙었는지는 따로 확인한다.
-
-```bash
-gh api "repos/{owner}/{repo}/pulls/<prNumber>/requested_reviewers" --jq '[.users[].login]'
+```
+GraphQL: Projects (classic) is being deprecated in favor of the new Projects experience, see: https://github.blog/changelog/2024-05-23-sunset-notice-projects-classic/. (repository.pullRequest.projectCards)
 ```
 
-여기 Copilot이 없으면 **요청이 접수되지 않은 것이다.** 기다려도 리뷰는 안 온다. 흔한 원인 셋이다.
+**리뷰어 값은 `copilot-pull-request-reviewer[bot]`이다.** GitHub 문서의 Copilot code review 사용법이 REST로 요청할 때 이 이름을 쓰라고 적고 있다. `Copilot`이나 `@copilot`으로 바꾸지 않는다. 이름이 틀려도 POST는 성공 코드를 돌려줘서 틀렸다는 걸 알 수 없다.
 
-- GHES라 `@copilot`을 지원하지 않는다
+**두 번째 라운드부터도 같은 POST를 보낸다.** 앞 라운드의 요청은 Copilot이 리뷰를 제출하면 끝나므로 다시 보내면 새 요청이 된다. 라운드마다 타임라인에 `review_requested` 이벤트가 새로 붙고 리뷰도 새로 온다.
+
+**종료 코드로 성공을 판단하지 않는다.** 요청이 반영 안 돼도 201이 온다. 응답 본문의 `requested_reviewers`와 `GET .../requested_reviewers`도 판단 근거가 못 된다. Copilot은 사람 리뷰어와 달리 이 목록에 안 나타나서 요청이 잘 들어가도 `[]`다. 실제로 붙었는지는 PR 타임라인의 `review_requested` 이벤트로 확인한다. 이벤트가 바로 안 붙을 수 있어서 5초쯤 뒤에 조회한다.
+
+```bash
+gh api "repos/{owner}/{repo}/issues/<prNumber>/timeline?per_page=100" --paginate \
+  --jq ".[] | select(.event == \"review_requested\" and .created_at >= \"$(cat "$shipTmp/requested-at")\") | .requested_reviewer.login // empty"
+```
+
+`Copilot`이 찍히면 접수된 것이다. `--jq`는 페이지마다 따로 돌지만 이 식은 이벤트 하나씩 거르므로 페이지가 나뉘어도 빠지는 게 없다.
+
+POST가 `EXIT=0`이 아니면 `request-cp{round}.json`에 남은 응답 본문을 그대로 보이고 아래로 간다. 타임라인에 Copilot 이벤트가 없어도 아래로 간다. **요청이 접수되지 않은 것이다.** 기다려도 리뷰는 안 온다. 흔한 원인 셋이다.
+
+- GHES라 Copilot code review를 지원하지 않는다
 - 레포나 조직에 Copilot code review가 안 켜져 있다
 - 계정에 Copilot 구독이 없다
 
 그때는 **멈추고 알린다.** 무엇을 확인해야 하는지 함께 적는다 — 레포 Settings의 Copilot 항목과 계정 구독이다. **Copilot 리뷰를 못 받았는데 받은 것처럼 넘어가지 않는다.** 사용자가 리뷰 없이 진행하기로 하면 승인 단계 ⓒ로 가되 `copilotRounds`를 0으로 적고 완료 보고에 그 사실을 남긴다.
-
-Copilot이 리뷰를 이미 시작해 요청 목록에서 빠졌을 수도 있다. 그 경우는 4.2의 판정에 걸리므로, 목록이 비었으면 **한 번은 4.2로 내려가 보고** 거기서도 아무것도 안 오면 위의 경우로 간다.
 
 ### 4.2 완료 대기
 
