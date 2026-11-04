@@ -35,13 +35,14 @@ export function createAcquisition({ cwd, env }) {
         const stop = (received) => {
           clearTimeout(interruptTimer);
           child.kill(received);
-          // Give npm a chance to forward cancellation to its own children first.
+          // Give npm a chance to forward cancellation first. KILL targets only this
+          // direct child; descendants can survive if npm cannot relay the signal.
           killTimer ??= setTimeout(() => child.kill('SIGKILL'), 5000);
         };
         const active = {
           cancel(received) {
             if (received === 'SIGINT') {
-              // Terminal Ctrl-C also reaches npm. A pid-only INT gets TERM after grace.
+              // Do not duplicate group INT. Any surviving child gets TERM after grace.
               interruptTimer ??= setTimeout(() => stop('SIGTERM'), 2000);
             } else stop(received);
           },

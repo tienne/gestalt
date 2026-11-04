@@ -8,12 +8,24 @@ import { dirname, join } from 'node:path';
 export function npmEnvironment(source) {
   const env = { ...source };
   const find = (name) => Object.keys(env).find((key) => key.toLowerCase() === name);
-  const get = (name) => env[find(name)];
-  const referenced = new Set();
-  const collect = (text) => {
-    for (const match of text.matchAll(/\$\{([^}\s]+)\}/g)) referenced.add(match[1].toLowerCase());
+  const get = (name) => {
+    const key = find(name);
+    return key === undefined ? undefined : env[key];
   };
-  const expand = (path) => path.replace(/\$\{([^}\s]+)\}/g, (whole, key) => env[key] ?? whole);
+  const referenced = new Set();
+  // Match npm's optional references and escaped dollar signs in configuration.
+  const envExpr = /(?<!\\)(\\*)\$\{([^${}?]+)(\?)?\}/g;
+  const collect = (text) => {
+    for (const match of text.matchAll(envExpr)) {
+      if (match[1].length % 2 === 0) referenced.add(match[2].toLowerCase());
+    }
+  };
+  const expand = (path) =>
+    path.replace(envExpr, (whole, escapes, key, optional) => {
+      if (escapes.length % 2) return whole.slice((escapes.length + 1) / 2);
+      const value = env[key] ?? (optional ? '' : '${' + key + '}');
+      return escapes.slice(escapes.length / 2) + value;
+    });
   const home = get('home') ?? get('userprofile') ?? homedir();
   const files = [
     get('npm_config_userconfig') ?? join(home, '.npmrc'),
