@@ -239,8 +239,15 @@ plugin's exact npm version and needs Node.js >=22 and npm on PATH.
 
 If startup fails, check MCP status and Node/npm availability. If the recorded
 host or model is unexpected, inspect `ges_status` fields `hostClient`, `client`,
-and `tierModels` before changing project settings. Claude Task panels and hooks
-are optional host-specific features; they do not gate Codex execution.
+and `tierModels` before changing project settings. Claude Task panels and Gestalt's
+current Claude Code hook integrations are optional; they do not gate Codex execution.
+
+Gestalt has not integrated its code graph injection, WebFetch cache, or peer
+watching hooks with Codex. Codex desktop supports hooks in manually installed
+plugins, subject to explicit trust; plugins containing hooks are ineligible for
+the public directory. See [Codex hook support](./docs/codex-hooks.md) for the
+[official source](https://developers.openai.com/plugins/build/plugins), verified
+2026-11-05, and the boundaries for other hosts, including Orca.
 
 ---
 
