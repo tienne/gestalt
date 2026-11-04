@@ -171,21 +171,25 @@ MCP 초기화의 `clientInfo.name`이 알려진 Codex/Grok 이름이면 해당 �
 
 `ges_status`의 `client`는 컨텍스트 파일을 기록할 대상이고 `hostClient`는 모델 기본값을 선택한 호스트다. 예를 들어 Codex에서 `client: "both"` 프로젝트를 열면 두 파일 기록은 유지하면서 모델 기본값은 Codex의 `inherit`를 쓴다. 알 수 없는 호스트는 Claude 호환 기본값을 사용한다.
 
-`ges_status.clientDetection`은 실제 MCP 초기화에서 받은 이름(최대 128자),
-`detectedHost`, `warning`을 보여 준다. `hostClient`는 설정에서 복구된 기본값일 수도
-있으므로 자동 감지의 성공 여부는 `clientDetection.detectedHost`로 확인한다.
-이름을 인식하지 못하면 명시한 `client` 설정은 그대로 유지하며 진단만 표시한다.
+`ges_status.clientDetection`은 MCP initialize 때 받은 클라이언트 이름과
+`nameTruncated`, `detectedHost`, `warning`을 보여 준다. 표시하는 이름은 유니코드
+코드포인트 128개까지다. 제어 문자와 보이지 않는 서식 글자는 공백으로 바꾼다.
+상한을 넘으면 `nameTruncated: true`로 알린다. 감지는 원문 이름으로 한다.
+`hostClient`는 설정에서 복구된 기본값일 수도 있으므로 자동 감지 성공 여부는
+`clientDetection.detectedHost`로 확인한다. 이름이 없을 때와 인식하지 못했을 때는
+각각 다른 경고를 표시한다. 명시한 `client` 설정은 유지한다.
 MCP `initialized` 알림을 받기 전에 상태를 만들면 `clientDetection`은 `null`이다.
-초기화 이름이 없으면 `name: null`과 `warning`을 담은 객체를 보여 준다.
+클라이언트 이름이 없으면 `name: null`과 `warning`을 담은 객체를 보여 준다.
 CLI `gestalt status`는 이 진단 필드를 출력하지 않는다.
-Codex CLI 0.166.0의 실제 초기화 이름 `codex-mcp-client`는 fixture로 검증한다.
-Desktop/IDE가 같은 이름을 보낸다는 의미는 아니다.
+Codex CLI 0.166.0이 initialize 때 보낸 이름 `codex-mcp-client`는 fixture로 검증한다.
+Desktop/IDE의 이름은 캡처하지 않았다.
 
-`ges_status.modelWarnings`는 `opuss`처럼 문서의 별칭(`inherit`, `fable`, `haiku`,
-`sonnet`, `opus`)에서 한 글자 삽입, 삭제, 교체 또는 이웃 글자 전도가 의심되는 값을
-필드 경로와 함께 알려 준다. 사용자 별칭일 수 있으므로 거부하거나 자동 교체하지
-않는다. 전체 모델 ID는 이 휴리스틱 대상에서 제외한다. 호스트의 모델 목록을
-조회하거나 모델의 존재와 가용성을 판정하는 기능은 아니다.
+`ges_status.modelWarnings`는 문서의 모델 별칭(`inherit`, `fable`, `haiku`,
+`sonnet`, `opus`)과 비슷한 값을 찾아 필드 경로와 함께 알려 준다.
+한 글자가 빠지거나 더해지거나 다른 글자로 바뀐 값, 이웃한 두 글자가 서로 바뀐
+값이 대상이다. 예를 들어 `opuss`를 찾으면 `opus`를 제안한다.
+사용자 별칭일 수 있어 모델 값은 유지한다. 영문 알파벳으로만 된 별칭을 검사한다.
+숫자나 기호가 섞인 전체 모델 ID는 검사에서 뺀다. 실제 모델 가용성은 호스트가 판단한다.
 
 새 프로젝트는 `gestalt setup --client codex` 또는 `gestalt init --client codex`로 설정할 수 있다. `setup`은 기존 파일을 덮어쓰지 않고 `init`은 기존 확인 절차를 유지한다. client 옵션은 `claude-code`, `codex`, `both`, `grok` 중 하나다.
 
