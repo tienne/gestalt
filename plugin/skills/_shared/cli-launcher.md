@@ -21,15 +21,19 @@ node "/플러그인/절대경로/scripts/gestalt-cli.mjs" humanize-scan --file "
 4. 실제 명령은 원래 작업 디렉토리에서 실행하며 stdin, 인자, 종료 코드를 보존한다.
    터미널 Ctrl-C는 자식도 함께 받으므로 중복 전달하지 않는다. 래퍼 pid만 지정해 취소할 때는 SIGTERM을 사용한다.
    SIGTERM과 SIGHUP은 npm 실행과 버전 확인, 실제 명령에 전달하고 자식 종료를 기다린다.
-   npm 실행과 버전 확인 중에는 취소 뒤 5초간 자식이 끝나지 않으면 SIGKILL을 보낸다.
-   이 두 단계에서 래퍼 pid만 SIGINT를 받으면 2초 뒤 자식에 SIGTERM을 보낸다. 그룹 Ctrl-C는 다시 전달하지 않는다.
-   취소한 뒤에는 임시 디렉토리를 지운다. npm 자체의 실패나 타임아웃은 사용자 취소로 처리하지 않고 재시도 후 오류를 알린다.
+   npm 실행과 버전 확인 중에는 SIGTERM이나 SIGHUP을 보낸 뒤 5초간 자식이 끝나지 않으면 SIGKILL을 보낸다.
+   SIGKILL은 직접 실행한 프로세스 하나에만 보낸다. npm이 신호를 자식에게 넘기지 못하고 멈추면 설치 스크립트 같은 자손은 남을 수 있다.
+   이 두 단계에서 SIGINT를 받으면 SIGINT를 다시 전달하지 않고 2초 동안 자식이 스스로 끝나기를 기다린다.
+   그래도 남아 있으면 SIGTERM을 보낸다. 래퍼 pid만 받은 SIGINT도 이 경로로 정리된다.
+   취소한 뒤에는 임시 디렉토리를 지운다. 오프라인 해석이나 버전 확인이 실패하거나 시간을 넘기면 같은 버전을 온라인으로 한 번 더 시도한다.
+   온라인 시도도 실패하거나 시간을 넘기면 사용자 취소가 아닌 오류로 알린다.
 
 npm 해석은 별도의 임시 디렉토리에서 한다. 작업 레포의 로컬 패키지나 다른 버전의 전역 CLI를
 선택하지 않으며 `latest`로 떨어지지 않는다.
-npm으로 CLI 패키지를 받는 동안에는 모델 공급자, 클라우드와 GitHub의 알려진 비밀 환경 변수를 npm에 넘기지 않는다.
-`_API_KEY`, `_PASSWORD`, `_SECRET`, `_AUTH_TOKEN` 등 비밀 키의 접미어도 대소문자 구분 없이 제외한다. 이 필터는 알려진 이름과 패턴만 검사한다.
-`NPM_*`, `NODE_AUTH_TOKEN`과 `npm_config_*`는 보존한다. 사용자 `.npmrc`와 전역 설정 파일에서 `${NAME}`으로 참조한 변수도 인증에 필요하므로 예외로 남긴다.
+npm으로 CLI 패키지를 받는 동안에는 알려진 비밀 환경 변수를 npm에 넘기지 않는다.
+모델 공급자 접두어(`ANTHROPIC_`, `OPENAI_` 등)로 시작하는 변수와 클라우드, GitHub의 인증 변수(`AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN` 등)가 여기에 든다.
+이름이 `_API_KEY`, `_PASSWORD`, `_SECRET`, `_AUTH_TOKEN` 등으로 끝나는 변수도 대소문자 구분 없이 제외한다. 이 필터는 알려진 이름과 패턴만 검사한다.
+`NPM_*`, `NODE_AUTH_TOKEN`과 `npm_config_*`는 보존한다. 사용자 `.npmrc`와 전역 설정 파일에서 `${NAME}` 또는 `${NAME?}`으로 참조한 변수도 인증에 필요하므로 예외로 남긴다.
 사용자 설정 경로는 `npm_config_userconfig` 또는 홈의 `.npmrc`다. 전역 설정은 `npm_config_globalconfig` 또는 npm prefix의 `etc/npmrc`에서 읽는다. prefix를 지정하지 않았으면 Node 설치 경로를 기준으로 한다.
 프록시와 CA 설정은 유지하며 최종 CLI에는 원래 환경을 전달한다. 처음 실행할 때 Node.js >=22와 npm, 네트워크가 필요할 수 있다.
 셸 함수가 필요하면 명령을 문자열 변수로 합치지 말고 인자를 그대로 넘긴다.
