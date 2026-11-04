@@ -1074,7 +1074,7 @@ ges_execute {
         line: 12,              // 선택 — 파일 전반이면 생략
         message: "...",
         suggestion: "...",               // revise면 고친 제안
-        reportedBy: "quality-reviewer",  // 필수. 문자열 하나다
+        reportedBy: "quality-reviewer",  // 문자열 하나. 비우면 엔진이 원본에서 채운다
         verification: {                  // 선택 — 3.7단계를 거친 이슈만
           verdict: "keep" | "revise",
           reason: "...",
@@ -1084,27 +1084,33 @@ ges_execute {
       }
     ],
     droppedIssues: [                     // 선택 — 3.7단계에서 drop된 이슈
-      { ...mergedIssues 항목과 같은 필드, dropReason: "...", dropEvidence: "..." }
+      { id: "...", dropReason: "...", dropEvidence: "..." }   // 나머지 칸은 원본에서 채운다
     ],
-    approvedBy: [...],
-    blockedBy: [...],
-    summary: "...",
-    overallApproved: true | false
+    summary: "..."                       // 비우면 엔진이 이슈 수로 채운다
   },
   continuityVerdict: { ...3.5단계 산출물... }
 }
 ```
 
-`line`과 `verification`만 선택이고 나머지는 전부 필수입니다. **`reportedBy`는 배열이 아니라 에이전트 이름 문자열 하나**입니다 — 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적습니다.
+**`reviewConsensus`에 꼭 적을 칸은 `mergedIssues` 하나입니다.** 이슈가 없으면 `[]`를 넣습니다. 비워 보내면 판정이 통과로 바뀔 수 있어서 엔진이 채우지 않고 거부합니다. `mergedIssues`와 `droppedIssues`는 `reviewConsensus` 객체 안에 넣습니다. 최상위에 두면 스키마가 버리고 `reviewConsensus is required`로 거부됩니다.
+
+- `mergedIssues` 항목은 `id`, `severity`, `category`, `file`, `message`, `suggestion`이 필수이고 `line`과 `verification`은 선택입니다.
+- **`reportedBy`는 에이전트 이름 문자열 하나**입니다. 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적습니다. 비우면 엔진이 같은 id나 `<reportedBy>:<원래 id>` 꼴의 `review_submit` 원본에서 채웁니다. 배열로 오면 첫 값만 씁니다. 원본이 없는 id(예: `continuity-judge:path-walk-1`)는 채울 데가 없어 그 id를 짚어 거부하니 직접 적습니다.
+- `droppedIssues` 항목은 `id`, `dropReason`, `dropEvidence`만 필수입니다. `severity`, `category`, `file`, `message`, `suggestion`, `reportedBy`는 비우면 원본에서 채웁니다. 원본이 없는 id인데 칸이 비었으면 거부합니다.
+- `verification.alsoCheck`는 배열입니다. 문자열 하나로 보내면 한 칸짜리 배열로 받습니다.
+- `approvedBy`와 `blockedBy`는 비우면 엔진이 `review_submit`의 `approved`로 채웁니다. 같은 리뷰어가 두 번 냈으면 마지막 판정을 씁니다. `summary`는 비우면 이슈 수로 한 줄을 채우지만 리포트와 로컬 PR 판정 본문에 그대로 실리니 직접 적는 쪽이 낫습니다.
+- `overallApproved`는 보내도 쓰지 않습니다. 판정은 엔진이 `mergedIssues`와 `continuityVerdict`로 냅니다.
+- `continuityVerdict`는 `coherent`, `driftFindings`, `escalate`, `summary`가 필수이고 `driftFindings` 항목마다 `axis`와 `message`가 필수입니다. 3.5단계 서브에이전트가 `coherent` 대신 `verdict: "pass" | "block"`을, `message` 대신 `summary`를 돌려줬으면 엔진이 제자리로 옮깁니다. `axis`는 셋 중 무엇인지 고를 근거가 없어 채우지 않으니 빠졌으면 메인이 `goal`, `consistency`, `drift` 중 하나를 적어 넘깁니다.
 
 **`verification`과 `droppedIssues`는 생략할 수 있습니다.** 3.7단계를 건너뛰었으면 둘 다 빼고 부릅니다. 기존 동작 그대로입니다. 엔진은 `droppedIssues`를 아래 경우에 `{ error }`로 거부합니다.
 
 - security category이거나 critical인 이슈가 들어 있다
-- 병합하면서 severity나 category, `reportedBy`를 바꿨어도 `review_submit` 원본이 security나 critical이다. 같은 id의 원본이 여럿이면 하나라도 걸리면 거부한다
+- 병합하면서 severity나 category, `reportedBy`를 바꿨어도 `review_submit` 원본이 security나 critical이다. 같은 id의 원본이 여럿이면 하나라도 걸리면 거부한다. 칸을 비워 보내도 원본으로 판단한다
 - `dropReason`이나 `dropEvidence`에 글자나 숫자가 하나도 없다 (공백이나 제로폭 문자만 있어도 비었다고 본다)
 - 같은 id가 `mergedIssues`에도 있거나 `droppedIssues` 안에 두 번 나온다
+- 칸이 비었는데 같은 id의 `review_submit` 원본이 없어 채울 수 없다
 
-거부되면 걸린 이슈를 `mergedIssues`로 되돌려 keep이나 revise로 붙이고 다시 부릅니다. 거부된 호출은 세션에 아무것도 남기지 않으므로 앞서 받은 합의도 그대로입니다.
+거부되면 뺄 수 없는 이슈는 `mergedIssues`로 되돌려 keep이나 revise로 붙입니다. 채울 수 없다고 한 칸은 직접 적어 다시 부릅니다. 거부된 호출은 세션에 아무것도 남기지 않으므로 앞서 받은 합의도 그대로입니다.
 
 엔진이 두 심급을 합쳐 판정합니다 — **결함(critical/high)이 없고 `coherent: true`여야 통과**입니다. `continuityVerdict`를 생략하면 결함 심급만으로 판정하는 기존 동작 그대로입니다.
 
