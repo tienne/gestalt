@@ -125,6 +125,12 @@ The interview only has value if the human's actual intent is captured. A self-an
 
 0.5단계에서 읽은 규칙 소스도 여기서 예외가 아니다. 조직 문서에 적혀 있다는 것은 질문을 대신 답할 근거가 되지 않는다. 전제를 좁히는 데까지만 쓴다. 좁혀서 물음이 사라졌으면 그 사실을 사용자에게 알린다. 문서를 근거로 답을 채우기 시작하면 self-answer가 "출처가 있는 self-answer"로 바뀔 뿐이다.
 
+### 질문 UI 적응
+
+[질문 capability와 폴백](../_shared/question-capabilities.md)에 따라 현재 모드에서 호출 가능한 도구와 실제 스키마를 확인한다. 생성된 질문 원문은 그대로 보여주고 자유 입력이 필요한 질문을 닫힌 단일 선택으로 축소하거나 도구가 요구한다는 이유로 추천 답을 만들어 넣지 않는다. 스키마로 의미를 보존할 수 없으면 일반 대화로 원문을 묻는다. 다중 선택 질문은 지원하는 UI로 옮기거나, 원문을 유지한 채 일반 대화에서 번호 조합 답변을 받는다.
+
+인터뷰 답변은 필수다. 비동기 질문 뒤에는 답변과 무관한 독립 작업만 계속할 수 있고 실제 답이 오기 전에는 `ges_interview respond`와 그 답에 의존하는 다음 라운드를 실행하지 않는다. 빈 응답, 취소, 기본 선택과 무응답은 사용자의 답이 아니다. 기다린 시간이 길어도 가정으로 채우지 않으며 기준값 미만 완료에 필요한 사용자의 명시적 결정도 대신하지 않는다. 이 참조는 기존 질문과 확인 경계를 추가하거나 없애지 않는다.
+
 ## Process
 
 1. **Start**: Create a session, detect project type (greenfield/brownfield), ask the first question
