@@ -171,6 +171,20 @@ MCP 초기화의 `clientInfo.name`이 알려진 Codex/Grok 이름이면 해당 �
 
 `ges_status`의 `client`는 컨텍스트 파일을 기록할 대상이고 `hostClient`는 모델 기본값을 선택한 호스트다. 예를 들어 Codex에서 `client: "both"` 프로젝트를 열면 두 파일 기록은 유지하면서 모델 기본값은 Codex의 `inherit`를 쓴다. 알 수 없는 호스트는 Claude 호환 기본값을 사용한다.
 
+`ges_status.clientDetection`은 실제 MCP 초기화에서 받은 이름(최대 128자),
+`detectedHost`, `warning`을 보여 준다. `hostClient`는 설정에서 복구된 기본값일 수도
+있으므로 자동 감지의 성공 여부는 `clientDetection.detectedHost`로 확인한다.
+이름을 인식하지 못하면 명시한 `client` 설정은 그대로 유지하며 진단만 표시한다.
+CLI처럼 MCP 연결이 없는 경로에서는 `clientDetection`이 `null`이다.
+Codex CLI 0.166.0의 실제 초기화 이름 `codex-mcp-client`는 fixture로 검증한다.
+Desktop/IDE가 같은 이름을 보낸다는 의미는 아니다.
+
+`ges_status.modelWarnings`는 `opuss`처럼 문서의 별칭(`inherit`, `fable`, `haiku`,
+`sonnet`, `opus`)에서 한 글자 삽입, 삭제, 교체 또는 이웃 글자 전도가 의심되는 값을
+필드 경로와 함께 알려 준다. 사용자 별칭일 수 있으므로 거부하거나 자동 교체하지
+않는다. 전체 모델 ID는 이 휴리스틱 대상에서 제외한다. 호스트의 모델 목록을
+조회하거나 모델의 존재와 가용성을 판정하는 기능은 아니다.
+
 새 프로젝트는 `gestalt setup --client codex` 또는 `gestalt init --client codex`로 설정할 수 있다. `setup`은 기존 파일을 덮어쓰지 않고 `init`은 기존 확인 절차를 유지한다. client 옵션은 `claude-code`, `codex`, `both`, `grok` 중 하나다.
 
 ### 폴백 발동 지점

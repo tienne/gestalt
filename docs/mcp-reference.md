@@ -864,6 +864,13 @@ ges_agent({ action: "get", name: "architect" })
 
 `reasoningModel`·`reasoningModelFallback`·`tierModels`는 세션 조회든 목록 조회든 오류 응답이든 항상 함께 온다. 앞의 둘은 spec과 execute 플래닝이 쓴다. `tierModels`는 **등록 에이전트가 없는 인라인 서브에이전트**가 tier 모델을 고를 때 쓴다 (`ges_agent { action: "get" }`은 에이전트 이름을 요구하므로 그런 자리에서는 조회 경로가 없다). 서버는 표만 알려줄 뿐 모델 가용성을 검사하지 않는다 — 폴백은 스킬 런타임 몫이다.
 
+`clientDetection`은 MCP 초기화 이름(최대 128자), `detectedHost`, 미인식 `warning`을 담는다.
+MCP 연결이 없는 호출에서는 `null`이다. 설정에서 복구된 `hostClient`와 자동 감지 결과를
+구분하는 데 쓴다. `modelWarnings`는 문서의 모델 별칭과 한 글자 차이인 값을 찾아
+`path`, `model`, `suggestion`, `message`를 알려 주는 비차단 진단이다.
+모델을 거부하거나 교체하거나 실제 사용 가능 여부를 검사하지 않는다.
+자세한 범위는 [설정 레퍼런스](./configuration.md#mcp-호스트와-초기-설정)를 본다.
+
 `ruleSources`와 `ruleSourceErrors`도 같은 자리에 항상 실린다. `ruleSources`는 대상 레포가 `gestalt.json`에 선언한 레포 밖 규칙 소스를 서버가 resolve한 값이다. 스킬은 `gestalt.json`을 직접 파싱하지 않고 이 값을 읽는다 — 파싱을 스킬 쪽에도 두면 resolve 규칙이 두 벌이 된다. 필드의 뜻과 적용 규칙은 [`plugin/skills/_shared/rule-sources.md`](../plugin/skills/_shared/rule-sources.md)가 원본이다.
 
 두 값 모두 서버가 기동할 때 한 번 resolve한 스냅샷이다. 도구를 다시 불러도 같은 값이 온다. 선언을 고쳤으면 서버를 다시 띄워야 반영된다.
