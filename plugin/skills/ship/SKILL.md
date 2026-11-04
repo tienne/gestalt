@@ -655,7 +655,7 @@ POST가 `EXIT=0`이 아니면 `request-cp{round}.json`에 남은 응답 본문�
 - 레포나 조직에 Copilot code review가 안 켜져 있다
 - 계정에 Copilot 구독이 없다
 
-그때는 **멈추고 알린다.** 무엇을 확인해야 하는지 함께 적는다 — 레포 Settings의 Copilot 항목과 계정 구독이다. **Copilot 리뷰를 못 받았는데 받은 것처럼 넘어가지 않는다.** 사용자가 리뷰 없이 진행하기로 하면 승인 단계 ⓒ로 가되 `copilotRounds`를 0으로 적고 완료 보고에 그 사실을 남긴다.
+그때는 **멈추고 알린다.** 무엇을 확인해야 하는지 함께 적는다 — 레포 Settings의 Copilot 항목과 계정 구독이다. **Copilot 리뷰를 못 받았는데 받은 것처럼 넘어가지 않는다.** 사용자가 리뷰 없이 진행하기로 하면 승인 단계 ⓒ로 가되 `copilotRounds`를 0으로, `copilotStatus`를 `not-accepted`로 적는다.
 
 ### 4.2 완료 대기
 
@@ -798,10 +798,22 @@ rm -rf "$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-
 | `localRounds` | 로컬 리뷰가 몇 라운드 돌았는지 |
 | `prUrl` | GitHub PR URL |
 | `copilotRounds` | Copilot 리뷰가 몇 라운드 돌았는지 |
+| `copilotStatus` | `reviewed`, `requested`, `not-accepted`, `skipped` |
 | `unresolvedAtReady` | ready 시점의 미해결 스레드 수 |
 | `prState` | `ready`, `draft`, `blocked`, `escalated` |
 
 `blocked`는 상한이나 조기 종료로 안 수렴한 채 멈췄다는 뜻이다. `escalated`는 정합 심급이 설계 이탈을 짚어 2.7로 빠졌다는 뜻이다.
+
+`copilotStatus`는 Copilot 리뷰가 어디서 끝났는지다. 사용자가 "Copilot 리뷰도 끝난 거야?"를 다시 묻지 않게 완료 보고에 항상 싣는다.
+
+| 값 | 보고에 쓰는 말 | 언제 |
+| --- | --- | --- |
+| `reviewed` | 리뷰 옴 | 4.2에서 요청 이후 제출된 Copilot 리뷰를 받았다 |
+| `requested` | 요청함 (리뷰 안 옴) | 요청은 접수됐는데 4.2의 대기에서 리뷰 없이 넘어갔다 |
+| `not-accepted` | 접수 안 됨 | 4.1에서 POST가 실패했거나 타임라인에 요청 이벤트가 없다 |
+| `skipped` | 건너뜀 | Phase 4를 돌지 않았다. 사용자가 빼기로 했거나 레포 사정으로 뺐다 |
+
+라운드가 여럿이면 마지막 라운드의 상태를 적는다. 앞 라운드에 리뷰가 왔어도 마지막 라운드에서 리뷰 없이 넘어갔으면 `requested`다.
 
 ## 완료 보고
 
@@ -810,10 +822,13 @@ rm -rf "$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-
 ```
 {prUrl} — ready
 
+Copilot: 리뷰 옴 (2라운드)
 로컬 리뷰 2라운드: 이슈 7 → 2 → 0
 Copilot 2라운드: 코멘트 5 → 1 → 0
 반영 11건 / 유예 2건 (오탐 1, 레포 규칙 우선 1)
 미해결 스레드 0
 ```
+
+**`Copilot:` 줄은 빼지 않는다.** `copilotStatus`의 "보고에 쓰는 말"을 그대로 쓰고 `리뷰 옴`이 아니면 이유를 괄호에 적는다. 예를 들면 `Copilot: 접수 안 됨 (레포에 Copilot code review가 꺼져 있음)`, `Copilot: 건너뜀 (사용자가 생략)`이다.
 
 **안 한 걸 했다고 쓰지 않는다.** 어느 라운드를 도구가 없어 건너뛰었으면 그 사실을 여기 적는다. 검증을 코드 변경이 없어 건너뛴 라운드가 있으면 그것도 적는다.
