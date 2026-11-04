@@ -15,7 +15,7 @@ inputs:
   target:
     type: string
     required: false
-    description: "비교 기준 브랜치 (생략 시 현재 브랜치 vs main)"
+    description: "비교 기준이자 PR base 브랜치 (생략하면 _shared/pr-base.md로 고른다)"
   repoRoot:
     type: string
     required: false
@@ -42,7 +42,7 @@ routing:
 ## 사용 방법
 
 ```
-/pr                    # 현재 브랜치 vs main
+/pr                    # base를 자동으로 고른다 (스택이 아니면 기본 브랜치)
 /pr feature/auth       # 특정 브랜치
 ```
 
@@ -51,7 +51,9 @@ PR을 만드는 것까지가 범위입니다. 올리기 전에 리뷰를 통과�
 ## 전제 조건
 
 `repoRoot`가 주어지지 않으면 현재 작업 디렉토리를 절대 경로로 사용합니다.
-`target`이 주어지지 않으면 현재 브랜치 vs `main`을 기준으로 삼습니다.
+`target`이 주어지지 않으면 [`../_shared/pr-base.md`](../_shared/pr-base.md)로 고릅니다. `main`을 그대로 쓰지 않습니다. 스택 브랜치를 기본 브랜치로 올리면 상위 브랜치의 커밋이 PR에 섞이기 때문입니다. 기본 브랜치가 아닌 브랜치로 정했으면 그 문서의 한 줄 보고를 1단계 인터뷰 전에 사용자에게 보입니다.
+
+정한 값이 `target`입니다. 2단계 diff 수집과 5단계 `--base`가 이 값을 씁니다.
 
 ## 이 스킬은 GitHub에만 올립니다
 
@@ -336,12 +338,13 @@ gestalt humanize-scan --file "$scanTmp/description.md" --register report
 heredoc 패턴으로 실행합니다. **PR 작성자 자신을 어사인**하기 위해 `--assignee @me`를 항상 포함합니다. 명령 앞에 `GESTALT_PR=1` 표식을 붙입니다 (raw `gh pr create`를 가로채는 PreToolUse 훅이 이 스킬의 호출은 통과시키도록 하는 우회 표식):
 
 ```bash
-GESTALT_PR=1 gh pr create --assignee @me --title "..." --body "$(cat <<'EOF'
+GESTALT_PR=1 gh pr create --base "{target}" --assignee @me --title "..." --body "$(cat <<'EOF'
 {description 내용}
 EOF
 )"
 ```
 
+- `--base`를 반드시 붙입니다. 안 붙이면 `gh`가 기본 브랜치나 upstream으로 추론해서 스택 브랜치의 base가 엉뚱하게 잡힙니다.
 - `GESTALT_PR=1`은 환경변수 형태의 표식일 뿐 동작에 영향을 주지 않습니다. 이미 gestalt:pr 플로우 안이므로 PR 생성 확인 프롬프트가 중복되지 않게 해줍니다.
 - `@me`는 `gh`에 인증된 현재 사용자를 가리키므로, PR이 생성되면 작성자 본인이 자동으로 assignee로 지정됩니다.
 - 어사인이 실패해도(권한·레포 설정 등) PR 생성 자체는 막지 않습니다. 실패 시 PR 생성 후 `gh pr edit {prUrl} --add-assignee @me`로 재시도합니다.

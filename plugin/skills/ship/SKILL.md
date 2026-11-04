@@ -14,7 +14,7 @@ inputs:
   base:
     type: string
     required: false
-    description: "PR의 base 브랜치. 생략하면 레포 기본 브랜치"
+    description: "PR의 base 브랜치. 생략하면 _shared/pr-base.md로 고른다 (스택이 아니면 레포 기본 브랜치)"
   repoRoot:
     type: string
     required: false
@@ -248,9 +248,10 @@ description: "Phase 4/5 — Copilot 라운드 {N}/{상한} | 새 코멘트 {M}�
 git rev-parse --show-toplevel                      # 레포인지
 git status --porcelain                             # 커밋 안 된 변경
 git rev-parse --abbrev-ref HEAD                    # 현재 브랜치
-gh repo view --json defaultBranchRef --jq .defaultBranchRef.name   # base 기본값
 gh auth status
 ```
+
+**`base` 인자가 없으면 [`../_shared/pr-base.md`](../_shared/pr-base.md)로 고른다.** 기본 브랜치를 그대로 쓰지 않는다. 스택 브랜치를 기본 브랜치로 올리면 상위 브랜치의 커밋이 PR에 섞인다. 기본 브랜치가 아닌 브랜치로 정했으면 그 문서의 한 줄 보고를 이 단계 보고에 넣는다.
 
 - **커밋 안 된 변경이 있으면 멈추고 묻는다.** 이 스킬은 head sha로 라운드를 가르므로 워킹 트리가 더러우면 무엇이 리뷰된 건지 흐려진다.
 - **현재 브랜치가 base와 같으면 멈춘다.** 기본 브랜치에서 바로 출하하지 않는다.
@@ -572,6 +573,8 @@ GitHub에 draft PR로 올릴까요?
 
 description은 `pr` 스킬의 0~4.5단계를 그대로 탄다. **로컬 PR 본문을 그냥 복사하지 않는다** — 로컬 라운드에서 코드가 바뀌었으므로 diff가 다르다.
 
+**`pr` 스킬의 `target`에 Phase 0의 `base`를 넘긴다.** 안 넘기면 그 스킬이 base를 다시 골라 diff 기준과 `--base`가 갈릴 수 있다.
+
 Phase 1과 같이 **지은 본문을 먼저 파일로 떨군다.** `pr` 스킬은 파일을 안 남기므로 이 자리가 없으면 아래 `--body-file`이 읽을 게 없다.
 
 ```
@@ -590,7 +593,7 @@ Write <Phase 0에서 출력된 절대 경로>/pr-body.md   ← 4.5단계에서 �
 - 연관 PR의 제목이나 본문을 옮겨 적지 않는다. 링크만 둔다
 - 연관 PR이 없으면 이 절을 만들지 않는다. 빈 절을 남기지 않는다
 
-제출만 이 스킬이 한다. `pr` 스킬과 갈리는 건 `--draft`와 `--base` 둘이다.
+제출만 이 스킬이 한다. `pr` 스킬과 갈리는 건 `--draft`와 본문을 파일로 넘기는 것 둘이다.
 
 ```bash
 shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-parse --abbrev-ref HEAD)"
