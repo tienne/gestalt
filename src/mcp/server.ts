@@ -1,9 +1,9 @@
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { detectClientHost } from './client-host.js';
+import { describeClientHost, type ClientHostDetection } from './client-host.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { loadConfig, type GestaltConfig } from '../core/config.js';
+import { getHostProfile, loadConfig, type GestaltConfig } from '../core/config.js';
 import { log } from '../core/log.js';
 import { logger } from '../core/logger.js';
 import {
@@ -127,18 +127,16 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     name: 'gestalt',
     version: getVersion(),
   });
+  let clientDetection: ClientHostDetection | undefined;
   server.server.oninitialized = () => {
-    const hostClient = detectClientHost(server.server.getClientVersion()?.name);
+    clientDetection = describeClientHost(server.server.getClientVersion()?.name);
+    const hostClient = clientDetection.detectedHost;
     if (hostClient) {
       const resolved = loadConfig(configOverrides, { defaultClient: hostClient, hostClient });
       // Engines already captured other settings; initialization only selects host defaults.
       config = {
         ...config,
-        client: resolved.client,
-        hostClient: resolved.hostClient,
-        reasoningModel: resolved.reasoningModel,
-        reasoningModelFallback: resolved.reasoningModelFallback,
-        tierModels: resolved.tierModels,
+        ...getHostProfile(resolved),
       };
     }
   };
@@ -315,7 +313,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
       (params) => {
         const input = statusInputSchema.parse(params);
-        const result = handleStatus(engine, input, eventStore, config);
+        const result = handleStatus(engine, input, eventStore, config, clientDetection);
         return toolReply(result);
       },
     );
@@ -434,7 +432,13 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
       (params) => {
         const input = statusInputSchema.parse(params);
-        const result = handleStatusPassthrough(ptEngine, ptExecuteEngine, input, config);
+        const result = handleStatusPassthrough(
+          ptEngine,
+          ptExecuteEngine,
+          input,
+          config,
+          clientDetection,
+        );
         return toolReply(result);
       },
     );
@@ -632,6 +636,7 @@ function handleStatusPassthrough(
   executeEngine: PassthroughExecuteEngine,
   rawInput: { sessionId?: string; sessionType?: 'interview' | 'execute' | 'all' },
   config?: GestaltConfig,
+  clientDetection?: ClientHostDetection,
 ): string {
   const updateResult = getCachedUpdateResult();
   // current 는 이 세션이 실제로 로드한 플러그인 버전이다. 서버 자기 버전과 어긋날 수
@@ -645,7 +650,7 @@ function handleStatusPassthrough(
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
   };
-  const statusConfigInfo = buildStatusConfigInfo(config);
+  const statusConfigInfo = buildStatusConfigInfo(config, clientDetection);
   const sessionType = rawInput.sessionType ?? 'all';
 
   const resolvedSessionId = rawInput.sessionId

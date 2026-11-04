@@ -372,13 +372,18 @@ const webFetchCacheConfigSchema = z.object({
   enabled: z.boolean().default(false),
 });
 
+/** 호스트 초기화 때 갱신하는 모델 필드와 그 기본값의 단일 정의. */
+const hostModelSchema = z.object({
+  reasoningModel: reasoningModelSchema.default(DEFAULT_REASONING_MODEL),
+  reasoningModelFallback: reasoningModelSchema.default(REASONING_MODEL_FALLBACK),
+  tierModels: tierModelsSchema.default({}),
+});
+
 const configSchema = z.object({
   llm: llmConfigSchema.default({}),
   interview: interviewConfigSchema.default({}),
   execute: executeConfigSchema.default({}),
-  reasoningModel: reasoningModelSchema.default(DEFAULT_REASONING_MODEL),
-  reasoningModelFallback: reasoningModelSchema.default(REASONING_MODEL_FALLBACK),
-  tierModels: tierModelsSchema.default({}),
+  ...hostModelSchema.shape,
   relatedRepos: z
     .array(
       z
@@ -430,6 +435,15 @@ const configSchema = z.object({
 
 export type HostClient = 'claude-code' | 'codex' | 'grok';
 export type GestaltConfig = z.infer<typeof configSchema> & { hostClient?: HostClient };
+/** Engines retain their construction settings; only this profile may change at handshake. */
+export function getHostProfile(config: GestaltConfig) {
+  return {
+    client: config.client,
+    hostClient: config.hostClient,
+    ...hostModelSchema.parse(config),
+  };
+}
+
 export type ExecuteConfig = z.infer<typeof executeConfigSchema>;
 export type InterviewConfig = z.infer<typeof interviewConfigSchema>;
 
@@ -739,11 +753,11 @@ export function loadConfig(
   // 재시도에서도 호스트 기본값을 채워 잘못된 Codex 필드가 Claude 별칭으로 복구되지 않게 한다.
   const hostModelDefaults =
     hostClient === 'codex'
-      ? {
+      ? ({
           reasoningModel: 'inherit',
           reasoningModelFallback: 'inherit',
           tierModels: { frugal: 'inherit', standard: 'inherit', frontier: 'inherit' },
-        }
+        } satisfies z.output<typeof hostModelSchema>)
       : {};
   const hostDefaults = { client: options?.defaultClient ?? 'claude-code', ...hostModelDefaults };
   const parse = (input: Record<string, unknown>) =>

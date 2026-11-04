@@ -1,3 +1,5 @@
+import { diagnoseModelAliases } from '../../core/model-diagnostics.js';
+import type { ClientHostDetection } from '../client-host.js';
 import type { InterviewEngine } from '../../interview/engine.js';
 import type { StatusInput } from '../schemas.js';
 import type { EventStore } from '../../events/store.js';
@@ -35,10 +37,15 @@ function clamp(value: string, max: number): string {
  * handleStatusPassthrough를 탄다. 두 곳이 각자 이 객체를 만들면 한쪽에만 필드를
  * 넣어도 테스트는 통과하고 실제 호출에는 안 나온다. 그래서 한 곳에서 만든다.
  */
-export function buildStatusConfigInfo(config?: GestaltConfig) {
+export function buildStatusConfigInfo(
+  config?: GestaltConfig,
+  clientDetection?: ClientHostDetection,
+) {
   return {
     client: config?.client ?? null,
     hostClient: config?.hostClient ?? null,
+    clientDetection: clientDetection ?? null,
+    modelWarnings: config ? diagnoseModelAliases(config) : [],
     reasoningModel: config?.reasoningModel ?? null,
     reasoningModelFallback: config?.reasoningModelFallback ?? null,
     // 등록 에이전트가 없는 인라인 서브에이전트(예: review-reply의 스레드 분류)도
@@ -69,6 +76,7 @@ export function handleStatus(
   rawInput: StatusInput,
   eventStore?: EventStore,
   config?: GestaltConfig,
+  clientDetection?: ClientHostDetection,
 ): string {
   const updateResult = getCachedUpdateResult();
   // current 는 이 세션이 실제로 로드한 플러그인 버전이다. 서버 자기 버전과 어긋날 수
@@ -82,7 +90,7 @@ export function handleStatus(
     latest: updateResult?.latestVersion ?? null,
     updateAvailable: updateResult?.updateAvailable ?? false,
   };
-  const statusConfigInfo = buildStatusConfigInfo(config);
+  const statusConfigInfo = buildStatusConfigInfo(config, clientDetection);
 
   const sessionType = rawInput.sessionType ?? 'all';
 
