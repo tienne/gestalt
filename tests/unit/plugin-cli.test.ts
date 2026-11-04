@@ -200,6 +200,88 @@ else console.log(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(k
     expect(call.envKeys).not.toContain('CODEX_API_KEY');
   });
 
+  it('preserves optional references in npm configuration and configuration environment values', () => {
+    const f = fixture();
+    writeFileSync(
+      f.npmConfigEnv.npm_config_userconfig,
+      '//registry.fixture/:_authToken=${GITHUB_TOKEN?}\n',
+    );
+    writeFileSync(
+      f.npmConfigEnv.npm_config_globalconfig,
+      '//global.fixture/:_authToken=${XAI_API_KEY?}\n',
+    );
+    const result = f.run(['echo'], {
+      GITHUB_TOKEN: 'fixture-github',
+      XAI_API_KEY: 'fixture-xai',
+      REFERENCED_CLIENT_SECRET: 'fixture-client',
+      npm_config_registry: 'https://${REFERENCED_CLIENT_SECRET?}@registry.fixture/',
+      CODEX_API_KEY: 'fixture-codex',
+    });
+    expect(result.status, result.stderr).toBe(10);
+    const call = JSON.parse(readFileSync(f.log, 'utf8').trim());
+    expect(call.envKeys).toEqual(
+      expect.arrayContaining(['GITHUB_TOKEN', 'XAI_API_KEY', 'REFERENCED_CLIENT_SECRET']),
+    );
+    expect(call.envKeys).not.toContain('CODEX_API_KEY');
+  });
+
+  it('does not preserve credentials referenced only in npm configuration comments', () => {
+    const f = fixture();
+    writeFileSync(
+      f.npmConfigEnv.npm_config_userconfig,
+      '# _authToken=${CODEX_API_KEY}\n ; _authToken=${GH_TOKEN?}\n',
+    );
+    const result = f.run(['echo'], {
+      CODEX_API_KEY: 'fixture-codex',
+      GH_TOKEN: 'fixture-github',
+    });
+    expect(result.status, result.stderr).toBe(10);
+    const call = JSON.parse(readFileSync(f.log, 'utf8').trim());
+    expect(call.envKeys).not.toContain('CODEX_API_KEY');
+    expect(call.envKeys).not.toContain('GH_TOKEN');
+  });
+
+  it('does not treat an escaped npm interpolation as a credential reference', () => {
+    const f = fixture();
+    writeFileSync(f.npmConfigEnv.npm_config_userconfig, '_authToken=\\${CODEX_API_KEY}\n');
+    const result = f.run(['echo'], { CODEX_API_KEY: 'fixture-codex' });
+    expect(result.status, result.stderr).toBe(10);
+    const call = JSON.parse(readFileSync(f.log, 'utf8').trim());
+    expect(call.envKeys).not.toContain('CODEX_API_KEY');
+  });
+
+  it.each(['~/registry.npmrc', '${HOME}/registry.npmrc', '${HOME?}/registry.npmrc'])(
+    'expands the user configuration path %s against the supplied home',
+    (userconfig) => {
+      const f = fixture();
+      const home = join(f.dir, 'config-home');
+      mkdirSync(home);
+      writeFileSync(join(home, 'registry.npmrc'), '_authToken=${MY_REGISTRY_API_KEY}\n');
+      const result = f.run(['echo'], {
+        HOME: home,
+        npm_config_userconfig: userconfig,
+        MY_REGISTRY_API_KEY: 'fixture-registry',
+      });
+      expect(result.status, result.stderr).toBe(10);
+      const call = JSON.parse(readFileSync(f.log, 'utf8').trim());
+      expect(call.envKeys).toContain('MY_REGISTRY_API_KEY');
+    },
+  );
+
+  it('expands a missing optional prefix in a global configuration path to an empty string', () => {
+    const f = fixture();
+    const globalConfig = join(f.dir, 'optional-global.npmrc');
+    writeFileSync(globalConfig, '_authToken=${MY_REGISTRY_API_KEY?}\n');
+    const result = f.run(['echo'], {
+      npm_config_globalconfig: '${GESTALT_TEST_ABSENT_PREFIX?}' + globalConfig,
+      GESTALT_TEST_ABSENT_PREFIX: undefined,
+      MY_REGISTRY_API_KEY: 'fixture-registry',
+    });
+    expect(result.status, result.stderr).toBe(10);
+    const call = JSON.parse(readFileSync(f.log, 'utf8').trim());
+    expect(call.envKeys).toContain('MY_REGISTRY_API_KEY');
+  });
+
   it('reads default user npm configuration from the supplied home directory', () => {
     const f = fixture();
     const userHome = join(f.dir, 'user-home');
@@ -482,12 +564,18 @@ if(process.argv[2]==='--version') {
         await expect.poll(() => existsSync(ready), { timeout: 10000 }).toBe(true);
         const npm = JSON.parse(readFileSync(ready, 'utf8')) as { pid: number; cwd: string };
         neutral = npm.cwd;
+        const interruptedAt = performance.now();
         expect(running.wrapper.kill('SIGINT')).toBe(true);
         if (delivery === 'interrupt-then-term') expect(running.wrapper.kill('SIGTERM')).toBe(true);
         expect(await running.exited).toEqual({
           code: null,
           signal: delivery === 'interrupt' ? 'SIGINT' : 'SIGTERM',
         });
+        if (delivery === 'interrupt') {
+          // Assert the lower bound after exit so slow CI cannot turn a pre-deadline
+          // absence check into a false failure by waking after the grace period.
+          expect(performance.now() - interruptedAt).toBeGreaterThanOrEqual(1500);
+        }
         expect(readFileSync(join(f.dir, 'npm-stopped'), 'utf8')).toBe('SIGTERM');
         expect(existsSync(neutral)).toBe(false);
         expect(() => process.kill(npm.pid, 0)).toThrow();

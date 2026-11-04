@@ -29,6 +29,7 @@ try {
   );
   // Each probe owns a group so inherited pipes and surviving descendants are
   // cleaned up even when the assertion or the implementation under test fails.
+  const startedAt = performance.now();
   const child = spawn(process.execPath, [runnerFile], {
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -69,6 +70,7 @@ try {
     return {
       result: JSON.parse(stdout) as { status: number | null; stdout: string; signal: null },
       marker,
+      elapsedMs: performance.now() - startedAt,
     };
   } finally {
     clearTimeout(watchdog);
@@ -81,6 +83,24 @@ describe('CLI acquisition subprocess lifetime', { timeout: 15000 }, () => {
   it('reports a timed-out attempt as failure without marking user cancellation', async () => {
     const { result } = await runAcquisition('setInterval(()=>{},1000);', 200);
     expect(result).toEqual({ status: null, stdout: '', signal: null });
+  });
+
+  it('keeps a timed-out attempt failed when its child handles TERM with exit zero', async () => {
+    const { result } = await runAcquisition(
+      `process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000);`,
+      1000,
+    );
+    expect(result).toEqual({ status: null, stdout: '', signal: null });
+  });
+
+  it('keeps excess stdout failed when its child handles TERM with exit zero', async () => {
+    const { result } = await runAcquisition(
+      `process.on('SIGTERM',()=>process.exit(0));process.stdout.write('x'.repeat(128*1024));setInterval(()=>{},1000);`,
+      2000,
+    );
+    expect(result.status).toBeNull();
+    expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(64 * 1024);
+    expect(result.signal).toBeNull();
   });
 
   it('bounds waiting when a descendant keeps both inherited pipes open', async () => {
@@ -113,7 +133,7 @@ process.exit(1);`,
   });
 
   it('escalates a timed-out child that ignores SIGTERM', async () => {
-    const { result, marker } = await runAcquisition(
+    const { result, marker, elapsedMs } = await runAcquisition(
       `
 import fs from 'node:fs';
 process.on('SIGTERM',()=>fs.appendFileSync(__MARKER__,'TERM'));
@@ -121,6 +141,7 @@ fs.writeFileSync(__MARKER__,'ready');setInterval(()=>{},1000);`,
       2000,
     );
     expect(readFileSync(marker, 'utf8')).toBe('readyTERM');
+    expect(elapsedMs).toBeGreaterThanOrEqual(6500);
     expect(result).toEqual({ status: null, stdout: '', signal: null });
   });
 });
