@@ -40,6 +40,13 @@
 
 ## 어떻게 위임하나
 
+Codex는 [`codex-delegation-examples.md`](./codex-delegation-examples.md)의 네이티브 호출 예시를 따른다.
+현재 제공된 스키마를 확인하고 `inherit`이면 모델 인자를 생략한다. 아래 `Agent`, `Explore`,
+`subagent_type`과 도구 권한 설명은 Claude Code 기준이며 Codex 호출 인자로 옮기지 않는다.
+페르소나 조회, 룰북 절대 경로와 입력 가드 등 공통 위임 규칙은 그대로 적용한다.
+
+### Claude Code 호출
+
 **`subagent_type`에 `gestalt:<에이전트명>`을 넣는다.** 리뷰어 전부와 스킬이 이렇게 띄우는 에이전트는 플러그인 `agents/`에 Claude Code 에이전트로도 들어 있다. AGENT.md를 `pnpm build:agents`가 옮겨 뽑은 것이라 지침은 `ges_agent`가 주는 것과 같다. 빌드가 스킬 문서의 `subagent_type: "gestalt:<이름>"`을 모아 뽑을 대상을 정하므로 새 스킬이 이 줄을 쓰면 다음 빌드에 함께 생긴다. 이때 `scripts/build-claude-agents.ts`의 한 줄 설명 표에 항목을 넣어야 빌드가 통과한다.
 
 이렇게 띄우면 AGENT.md 본문이 서브에이전트의 시스템 프롬프트로 바로 실린다. 프롬프트에서 페르소나를 가져오게 할 필요가 없다.
@@ -120,7 +127,7 @@ Agent {
 
 ## 실패했을 때
 
-`gestalt:` 타입을 못 찾으면 위의 Explore 폴백으로 간다. 폴백한 서브에이전트가 `ges_agent`에 닿지 못하면 (MCP 미연결 등) 아래를 순서대로 본다.
+`gestalt:` 타입을 못 찾으면 위의 Explore 폴백으로 간다. Codex의 도구 부재와 독립 판정 제한은 [`host-runtime.md`](./host-runtime.md)를 우선한다. 폴백한 서브에이전트가 `ges_agent`에 닿지 못하면 (MCP 미연결 등) 아래를 순서대로 본다.
 
 1. **페르소나 없이 임의로 수행하지 않는다.** 어투와 판정 기준이 에이전트에 있는데 그걸 못 읽었으면 결과가 규칙을 안 지킨다. 이건 어느 경우에도 금지다.
 2. **메인 세션이 대신 `ges_agent get`을 해서 직접 수행하는 폴백은 쓸 수 있다.** 페르소나는 확보되니 결과는 규칙을 지킨다. 다만 컨텍스트 절감이 사라지므로 그 사실을 완료 보고에 밝힌다.

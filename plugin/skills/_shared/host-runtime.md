@@ -20,8 +20,8 @@ MCP 도구의 입력과 2-Call 제출 계약은 호스트가 바뀌어도 그대
 
 | 본문의 표기 | Codex에서 수행할 일 |
 |---|---|
-| `Agent`의 `gestalt:` 에이전트 타입 | [`agent-delegation.md`](./agent-delegation.md)의 Explore 폴백 프롬프트를 사용해 범용 서브에이전트 안에서 `ges_agent get`으로 페르소나를 받는다. 해당 문서의 절차대로 룰북 디렉토리를 절대 경로로 풀어 프롬프트에 직접 넣는다. 경로를 못 풀었으면 그 사실을 보고한다. `subagent_type`은 전달하지 않는다. |
-| `Explore` | 읽기 전용 조사를 위임한다. 실제 읽기 전용 타입이 없으면 파일 수정, 커밋, 외부 전송 금지를 프롬프트에 명시하고 도구로 강제된 제한이라고 말하지 않는다. |
+| `Agent`의 `gestalt:` 에이전트 타입 | [`Codex 위임 예시`](./codex-delegation-examples.md)처럼 실제 스폰 도구로 범용 서브에이전트를 띄우고 그 안에서 `ges_agent get`으로 페르소나를 받는다. [`agent-delegation.md`](./agent-delegation.md)의 절차대로 룰북 디렉토리를 절대 경로로 풀어 프롬프트에 직접 넣는다. 경로를 못 풀었으면 그 사실을 보고한다. `subagent_type`은 전달하지 않는다. |
+| `Explore` | [`Codex 위임 예시`](./codex-delegation-examples.md)의 일반 위임으로 읽기 전용 조사를 맡긴다. 실제 읽기 전용 타입이 없으면 파일 수정, 커밋, 외부 전송 금지를 프롬프트에 명시하고 도구로 강제된 제한이라고 말하지 않는다. |
 | `Agent.model`, `reasoningModel`, `tierModels` | `inherit`이면 모델 인자를 생략한다. 명시 모델 ID는 스폰 도구가 받는 경우에만 전달한다. |
 | `effort` | 해당 도구가 받는 `reasoning_effort` 또는 동등한 인자로 옮긴다. 지원하지 않는 인자는 보내지 않는다. |
 | `AskUserQuestion` | 현재 모드의 질문 도구가 있으면 쓰고, 없으면 일반 대화로 묻는다. 필수 답변과 승인 없이 종속 단계를 실행하지 않는다. |
@@ -29,6 +29,7 @@ MCP 도구의 입력과 2-Call 제출 계약은 호스트가 바뀌어도 그대
 | `Bash`, `Read`, `Grep`, `Glob`, `Edit`, `Write` | 호스트의 셸, 파일 읽기, 검색, 패치 도구를 사용한다. 명령 인자와 쓰기 범위는 그대로 지킨다. |
 
 `spawn_agent`, `send_message`, `followup_task`, `wait_agent`가 제공되면 그 도구로 위임하고 결과를 기다린다.
+인자와 결과 대기 예시는 [`codex-delegation-examples.md`](./codex-delegation-examples.md)를 참고한다.
 일반 위임에서 스폰 스키마가 `fork_turns: "all"`일 때 모델 재지정을 금지하면, 상속 모델은 그대로 둔다.
 모델이나 effort를 명시해야 하면 지원되는 `fork_turns: "none"`으로 필수 맥락과 절대 경로를 직접 전달한다.
 독립 판정은 모델 선택과 무관하게 아래 **독립 판정 컨텍스트** 규칙을 우선한다.
