@@ -12,3 +12,6 @@ No model response, credentials, desktop, or IDE handshake was involved.
 
 Do not infer other host names from executable strings. Add names only when their
 actual initialize request is captured. Synthetic detection tests are separate.
+
+This evidence policy applies to future additions. Previously allowed names remain
+unchanged; this fixture only establishes the observed Codex CLI name above.

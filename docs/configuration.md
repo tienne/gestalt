@@ -175,7 +175,9 @@ MCP 초기화의 `clientInfo.name`이 알려진 Codex/Grok 이름이면 해당 �
 `detectedHost`, `warning`을 보여 준다. `hostClient`는 설정에서 복구된 기본값일 수도
 있으므로 자동 감지의 성공 여부는 `clientDetection.detectedHost`로 확인한다.
 이름을 인식하지 못하면 명시한 `client` 설정은 그대로 유지하며 진단만 표시한다.
-CLI처럼 MCP 연결이 없는 경로에서는 `clientDetection`이 `null`이다.
+MCP `initialized` 알림을 받기 전에 상태를 만들면 `clientDetection`은 `null`이다.
+초기화 이름이 없으면 `name: null`과 `warning`을 담은 객체를 보여 준다.
+CLI `gestalt status`는 이 진단 필드를 출력하지 않는다.
 Codex CLI 0.166.0의 실제 초기화 이름 `codex-mcp-client`는 fixture로 검증한다.
 Desktop/IDE가 같은 이름을 보낸다는 의미는 아니다.
 

@@ -865,8 +865,10 @@ ges_agent({ action: "get", name: "architect" })
 `reasoningModel`·`reasoningModelFallback`·`tierModels`는 세션 조회든 목록 조회든 오류 응답이든 항상 함께 온다. 앞의 둘은 spec과 execute 플래닝이 쓴다. `tierModels`는 **등록 에이전트가 없는 인라인 서브에이전트**가 tier 모델을 고를 때 쓴다 (`ges_agent { action: "get" }`은 에이전트 이름을 요구하므로 그런 자리에서는 조회 경로가 없다). 서버는 표만 알려줄 뿐 모델 가용성을 검사하지 않는다 — 폴백은 스킬 런타임 몫이다.
 
 `clientDetection`은 MCP 초기화 이름(최대 128자), `detectedHost`, 미인식 `warning`을 담는다.
-MCP 연결이 없는 호출에서는 `null`이다. 설정에서 복구된 `hostClient`와 자동 감지 결과를
-구분하는 데 쓴다. `modelWarnings`는 문서의 모델 별칭과 한 글자 차이인 값을 찾아
+MCP `initialized` 알림을 받기 전에 상태를 만들면 `null`이다. 초기화 이름이 없으면
+`name: null`과 `warning`을 담은 객체를 보여 준다. CLI `gestalt status`는 이 진단 필드를
+출력하지 않는다. 설정에서 복구된 `hostClient`와 자동 감지 결과를 구분하는 데 쓴다.
+`modelWarnings`는 문서의 모델 별칭에서 한 글자 삽입, 삭제, 교체 또는 이웃 글자 전도가 의심되는 값을 찾아
 `path`, `model`, `suggestion`, `message`를 알려 주는 비차단 진단이다.
 모델을 거부하거나 교체하거나 실제 사용 가능 여부를 검사하지 않는다.
 자세한 범위는 [설정 레퍼런스](./configuration.md#mcp-호스트와-초기-설정)를 본다.

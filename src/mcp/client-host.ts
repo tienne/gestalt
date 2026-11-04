@@ -20,7 +20,7 @@ export function describeClientHost(name: string | undefined) {
     detectedHost,
     warning: detectedHost
       ? null
-      : 'MCP client name was not recognized; automatic host defaults were not selected. Check hostClient/tierModels and set GESTALT_CLIENT or gestalt.json client explicitly if needed.',
+      : 'MCP client name was not recognized; hostClient comes from your client setting or Claude-compatible defaults, rather than this handshake. Check hostClient/tierModels and set GESTALT_CLIENT or gestalt.json client explicitly if needed.',
   };
 }
 
