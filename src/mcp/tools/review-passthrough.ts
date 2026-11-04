@@ -198,7 +198,11 @@ function handleReviewConsensus(
     return JSON.stringify({ error: 'reviewSessionId is required for review_consensus' });
   }
   if (!input.reviewConsensus) {
-    return JSON.stringify({ error: 'reviewConsensus is required for review_consensus' });
+    // 최상위에 둔 mergedIssues는 스키마가 모르는 키라 여기 오기 전에 버려진다. 그 꼴이 잦아서 자리를 알려준다
+    return JSON.stringify({
+      error:
+        'reviewConsensus is required for review_consensus. mergedIssues와 droppedIssues는 reviewConsensus 객체 안에 넣는다. 최상위에 두면 버려진다.',
+    });
   }
 
   const result = reviewEngine.submitConsensus(

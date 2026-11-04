@@ -655,6 +655,26 @@ export interface ReviewConsensusResult {
   droppedIssues?: DroppedReviewIssue[];
 }
 
+/** review_consensus가 받는 이슈. reportedBy가 비면 엔진이 review_submit 원본에서 채운다 */
+export type ReviewIssueInput = Omit<ReviewIssue, 'reportedBy'> & { reportedBy?: string };
+
+/** 뺀 이슈는 id와 뺀 이유만 있으면 나머지를 원본에서 채운다 */
+export type DroppedReviewIssueInput = Pick<ReviewIssue, 'id'> &
+  Partial<Omit<ReviewIssue, 'id'>> & { dropReason: string; dropEvidence: string };
+
+/**
+ * review_consensus 입력. 엔진이 세션에서 셀 수 있는 칸은 비어 와도 된다.
+ * overallApproved는 받아도 쓰지 않는다. 판정은 엔진이 mergedIssues와 정합 심급으로 낸다.
+ */
+export interface ReviewConsensusInput {
+  mergedIssues: ReviewIssueInput[];
+  approvedBy?: string[];
+  blockedBy?: string[];
+  summary?: string;
+  overallApproved?: boolean;
+  droppedIssues?: DroppedReviewIssueInput[];
+}
+
 /** 정합 심급이 판단하는 세 축. goal=목표 정합, consistency=일관성, drift=이탈. */
 export type ContinuityAxis = 'goal' | 'consistency' | 'drift';
 

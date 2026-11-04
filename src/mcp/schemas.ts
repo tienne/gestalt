@@ -121,6 +121,13 @@ export type SpecInput = z.infer<typeof specInputSchema>;
 
 // ─── Review Consensus Sub-schemas ───────────────────────────────
 // review 스킬 3.7단계(제안 검증)의 판정을 싣는다. src/core/types.ts의 ReviewIssue와 정합.
+// 모양만 어긋난 값(배열 하나, 문자열 하나, 다른 이름)은 여기서 바로잡고 빈 칸은 엔진이
+// review_submit 원본으로 채운다(src/review/consensus-input.ts). 거부하면 같은 내용을 한 번
+// 더 보내는 왕복만 생긴다.
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 const reviewIssueVerificationSchema = z.object({
   verdict: z
@@ -131,7 +138,12 @@ const reviewIssueVerificationSchema = z.object({
     .string()
     .optional()
     .describe('revise일 때 리뷰어가 처음 낸 제안. suggestion에는 고친 제안을 넣는다.'),
-  alsoCheck: z.array(z.string()).optional().describe('제안을 반영할 때 같이 바꿔야 하는 자리'),
+  alsoCheck: z
+    .preprocess((value) => (typeof value === 'string' ? [value] : value), z.array(z.string()))
+    .optional()
+    .describe(
+      '제안을 반영할 때 같이 바꿔야 하는 자리. 문자열 하나로 오면 한 칸짜리 배열로 받는다.',
+    ),
 });
 
 const mergedIssueSchema = z.object({
@@ -143,19 +155,53 @@ const mergedIssueSchema = z.object({
   message: z.string(),
   suggestion: z.string(),
   reportedBy: z
-    .string()
+    // 빈 배열은 undefined가 되어 안쪽 optional을 지나고 엔진이 원본에서 채운다
+    .preprocess((value) => (Array.isArray(value) ? value[0] : value), z.string().optional())
+    .optional()
     .describe(
-      '이 의견을 낸 에이전트 이름 하나. 배열이 아니다 — 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적는다.',
+      '이 의견을 낸 에이전트 이름 하나. 배열로 오면 첫 값만 쓴다. 비우면 엔진이 같은 id(또는 `<reportedBy>:<원래 id>`)의 review_submit 원본에서 채우고, 원본이 없으면 그 id를 짚어 거부한다.',
     ),
   verification: reviewIssueVerificationSchema
     .optional()
     .describe('제안 검증 결과. 검증을 안 거쳤으면 생략한다.'),
 });
 
-const droppedIssueSchema = mergedIssueSchema.extend({
-  dropReason: z.string().min(1).describe('전제가 사실과 다른 이유'),
-  dropEvidence: z.string().min(1).describe('그 판단의 증거. 파일:줄이나 명령 출력'),
-});
+// 뺀 이슈는 id와 뺀 이유만 있으면 나머지를 원본에서 채운다. 뺄 수 있는지는 채운 값이 아니라
+// 원본으로 판단한다(src/review/verification.ts). 칸을 비우거나 낮춰 적어 금지를 피하지 못한다.
+const droppedIssueSchema = mergedIssueSchema
+  .partial({ severity: true, category: true, file: true, message: true, suggestion: true })
+  .extend({
+    dropReason: z.string().min(1).describe('전제가 사실과 다른 이유'),
+    dropEvidence: z.string().min(1).describe('그 판단의 증거. 파일:줄이나 명령 출력'),
+  });
+
+/**
+ * continuity-judge가 같은 뜻을 다른 이름으로 돌려준 칸만 제자리로 옮긴다. 값이 이미 있으면 안 건드린다.
+ * `verdict: "pass" | "block"`은 coherent를, 항목의 `summary`는 message를 그대로 말한 것이라
+ * 채울 근거가 된다. axis는 셋 중 무엇인지 고를 근거가 없어서 채우지 않는다.
+ */
+function normalizeContinuityVerdict(value: unknown): unknown {
+  if (!isPlainObject(value)) return value;
+  const next: Record<string, unknown> = { ...value };
+  const verdict = next['verdict'];
+  if (next['coherent'] === undefined && typeof verdict === 'string') {
+    const normalized = verdict.trim().toLowerCase();
+    if (normalized === 'pass') next['coherent'] = true;
+    else if (normalized === 'block') next['coherent'] = false;
+  }
+  const findings = next['driftFindings'];
+  if (Array.isArray(findings)) {
+    next['driftFindings'] = findings.map((finding: unknown) => {
+      if (!isPlainObject(finding) || finding['message'] !== undefined) return finding;
+      const summary = finding['summary'];
+      if (typeof summary !== 'string') return finding;
+      const evidence = finding['evidence'];
+      const message = typeof evidence === 'string' ? `${summary} (근거: ${evidence})` : summary;
+      return { ...finding, message };
+    });
+  }
+  return next;
+}
 
 // ─── Execute Tool ───────────────────────────────────────────────
 export const executeInputSchema = guardObject(
@@ -547,35 +593,56 @@ export const executeInputSchema = guardObject(
       .describe('Individual agent review result (required for review_submit)'),
     reviewConsensus: z
       .object({
-        mergedIssues: z.array(mergedIssueSchema),
-        approvedBy: z.array(z.string()),
-        blockedBy: z.array(z.string()),
-        summary: z.string(),
-        overallApproved: z.boolean(),
+        mergedIssues: z.array(mergedIssueSchema, {
+          required_error:
+            'Required at reviewConsensus.mergedIssues — 3.7단계 검증을 반영한 이슈 배열을 reviewConsensus 안에 넣는다. 이슈가 없으면 []다. issues 같은 다른 이름은 받지 않는다.',
+        }),
+        approvedBy: z
+          .array(z.string())
+          .optional()
+          .describe('비우면 엔진이 review_submit의 approved가 true인 에이전트로 채운다.'),
+        blockedBy: z
+          .array(z.string())
+          .optional()
+          .describe('비우면 엔진이 review_submit의 approved가 false인 에이전트로 채운다.'),
+        summary: z.string().optional().describe('비우면 엔진이 이슈 수로 한 줄을 채운다.'),
+        overallApproved: z
+          .boolean()
+          .optional()
+          .describe('보내도 쓰지 않는다. 판정은 엔진이 mergedIssues와 continuityVerdict로 낸다.'),
         droppedIssues: z
           .array(droppedIssueSchema)
           .optional()
           .describe(
-            '제안 검증이 전제가 틀렸다는 증거를 찾아 판정에서 뺀 이슈. 판정과 게시에는 안 들어가고 리포트에 이유와 증거가 남는다. security category나 critical 이슈를 넣으면 거부된다.',
+            '제안 검증이 전제가 틀렸다는 증거를 찾아 판정에서 뺀 이슈. 판정과 게시에는 안 들어가고 리포트에 이유와 증거가 남는다. id와 dropReason, dropEvidence만 필수이고 나머지는 비우면 같은 id의 review_submit 원본에서 채운다. 원본이 security category나 critical이면 적은 값과 상관없이 거부된다.',
           ),
       })
       .optional()
       .describe(
-        'Merged review consensus (required for review_consensus). mergedIssues[]의 각 항목은 id, severity, category, file, message, suggestion, reportedBy가 모두 필요하다 (line과 verification만 선택). reportedBy는 에이전트 이름 문자열 하나다. droppedIssues는 선택이고 생략하면 기존 동작 그대로다.',
+        'Merged review consensus (required for review_consensus). mergedIssues[]의 각 항목은 id, severity, category, file, message, suggestion이 필요하다 (line과 verification, reportedBy는 선택). reportedBy를 비우면 엔진이 review_submit 원본에서 채운다. approvedBy, blockedBy, summary, overallApproved는 비우면 엔진이 채운다. droppedIssues는 선택이고 생략하면 기존 동작 그대로다.',
       ),
     continuityVerdict: z
-      .object({
-        coherent: z.boolean(),
-        driftFindings: z.array(
-          z.object({
-            axis: z.enum(['goal', 'consistency', 'drift']),
-            file: z.string().optional(),
-            message: z.string(),
+      .preprocess(
+        normalizeContinuityVerdict,
+        z.object({
+          coherent: z.boolean({
+            required_error:
+              'Required at continuityVerdict.coherent — 정합 심급을 통과하면 true, 막으면 false를 적는다.',
           }),
-        ),
-        escalate: z.boolean(),
-        summary: z.string(),
-      })
+          driftFindings: z.array(
+            z.object({
+              axis: z.enum(['goal', 'consistency', 'drift'], {
+                required_error:
+                  'Required at continuityVerdict.driftFindings[].axis — 항목마다 goal, consistency, drift 중 하나를 적는다. 엔진이 대신 고르지 않는다.',
+              }),
+              file: z.string().optional(),
+              message: z.string(),
+            }),
+          ),
+          escalate: z.boolean(),
+          summary: z.string(),
+        }),
+      )
       .optional()
       .describe(
         'Continuity instance (정합 심급) verdict from continuity-judge (optional, for review_consensus). coherent=false blocks even without defects; escalate=true routes to re-spec instead of review_fix.',

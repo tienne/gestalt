@@ -1,4 +1,12 @@
-import type { ReviewConsensusResult, ReviewIssue, ReviewResult } from '../core/types.js';
+import type {
+  DroppedReviewIssue,
+  DroppedReviewIssueInput,
+  ReviewConsensusInput,
+  ReviewConsensusResult,
+  ReviewIssue,
+  ReviewResult,
+} from '../core/types.js';
+import { type Result, ok, err } from '../core/result.js';
 
 /**
  * 제안 검증이 판정에서 뺄 수 없는 이슈인가.
@@ -8,10 +16,11 @@ import type { ReviewConsensusResult, ReviewIssue, ReviewResult } from '../core/t
  * category에 `secur`나 `appsec`이 들어 있으면 자리와 구분자와 상관없이 security로 본다.
  * 접두만 보면 `app-security`, 콜론만 보면 `security/xss`처럼 모양만 바꾼 이슈가 빠져나간다.
  * 넓게 막는 쪽이 싸다.
+ * 비어 있는 칸은 금지 근거가 못 된다. 그 자리는 review_submit 원본 대조가 맡는다.
  */
-export function isUndroppable(issue: Pick<ReviewIssue, 'severity' | 'category'>): boolean {
+export function isUndroppable(issue: Partial<Pick<ReviewIssue, 'severity' | 'category'>>): boolean {
   if (issue.severity === 'critical') return true;
-  return /secur|appsec/.test(issue.category.toLowerCase());
+  return /secur|appsec/.test((issue.category ?? '').toLowerCase());
 }
 
 export interface VerificationStats {
@@ -49,20 +58,24 @@ function norm(value: string): string {
 }
 
 /**
- * 뺀 이슈의 review_submit 원본 후보를 찾는다.
+ * 이슈의 review_submit 원본 후보를 찾는다. 앞에 올수록 더 확실한 후보다.
  *
  * 메인이 id를 고유화하는 꼴(`<reportedBy>:<원래 id>`)과 맞는 원본이 있으면 그것을 본다.
- * 그 접두와 뺀 이슈의 reportedBy가 어긋나면 reportedBy 쪽 리뷰어의 같은 id 원본도 후보에 넣는다.
+ * 그 접두와 이슈의 reportedBy가 어긋나면 reportedBy 쪽 리뷰어의 같은 id 원본도 후보에 넣는다.
  * 어느 쪽이 맞는지 가릴 수 없으면 둘 다 보는 게 안전해서다.
  * 접두 꼴 원본이 없으면 id가 같은 원본을 reportedBy와 상관없이 전부 후보로 둔다. 병합하면서 대표
  * reportedBy를 바꾸는 일이 흔해서 reportedBy까지 맞추라고 하면 그 자리로 금지를 피할 수 있다.
  */
-function findOriginals(dropped: ReviewIssue, reviewResults: ReviewResult[]): ReviewIssue[] {
+export function findOriginals(
+  issue: Pick<ReviewIssue, 'id'> & { reportedBy?: string },
+  reviewResults: ReviewResult[],
+): ReviewIssue[] {
   const all = reviewResults.flatMap((result) => result.issues);
-  const id = norm(dropped.id);
-  const by = norm(dropped.reportedBy);
+  const id = norm(issue.id);
   const prefixed = all.filter((orig) => norm(`${orig.reportedBy}:${orig.id}`) === id);
   if (prefixed.length === 0) return all.filter((orig) => norm(orig.id) === id);
+  if (issue.reportedBy === undefined) return prefixed;
+  const by = norm(issue.reportedBy);
   if (prefixed.every((orig) => norm(orig.reportedBy) === by)) return prefixed;
   const suffixes = new Set(prefixed.map((orig) => norm(orig.id)));
   const sameReporter = all.filter(
@@ -76,24 +89,57 @@ function hasContent(text: string): boolean {
   return /[\p{L}\p{N}]/u.test(text);
 }
 
+/** 뺀 이슈가 비워 보내도 원본에서 채우는 칸 */
+const FILLABLE_DROP_FIELDS = ['severity', 'category', 'file', 'message', 'suggestion'] as const;
+
+function missingFieldsOf(issue: DroppedReviewIssueInput): string[] {
+  const fields: string[] = FILLABLE_DROP_FIELDS.filter((field) => issue[field] === undefined);
+  if (issue.reportedBy === undefined) fields.push('reportedBy');
+  return fields;
+}
+
 /**
- * droppedIssues가 우회로로 쓰이지 않았는지 본다. 문제가 없으면 null이다.
+ * 빈 칸을 원본 후보의 첫째에서 채운다. 채울 칸이 남았는데 원본이 없으면 null이다.
+ * 적어 보낸 값은 그대로 둔다. 뺄 수 있는지는 이 결과가 아니라 원본 후보 전체로 판단한다.
+ */
+function fillDropped(
+  issue: DroppedReviewIssueInput,
+  originals: ReviewIssue[],
+): DroppedReviewIssue | null {
+  const source = originals[0];
+  if (!source) return missingFieldsOf(issue).length > 0 ? null : (issue as DroppedReviewIssue);
+  return {
+    ...issue,
+    severity: issue.severity ?? source.severity,
+    category: issue.category ?? source.category,
+    file: issue.file ?? source.file,
+    message: issue.message ?? source.message,
+    suggestion: issue.suggestion ?? source.suggestion,
+    reportedBy: issue.reportedBy ?? source.reportedBy,
+  };
+}
+
+/**
+ * droppedIssues의 빈 칸을 원본에서 채우고 우회로로 쓰이지 않았는지 본다.
  *
  * 애매하면 거부한다. 후보 원본 중 하나라도 금지 대상이면 막는다.
- * 병합하면서 severity나 category를 바꿔 금지를 피하는 길도 막으려고 review_submit 원본과
- * 대조한다. 원본 후보가 하나도 없을 때만 통과시킨다. 메인이 id를 다른 꼴로 바꿨을 수도 있는데
- * 그걸로 정상 호출까지 막으면 이 검사를 끄자는 쪽으로 가게 된다.
+ * 병합하면서 severity나 category를 바꾸거나 비워 금지를 피하는 길도 막으려고 review_submit
+ * 원본과 대조한다. 원본 후보가 하나도 없으면 적어 보낸 값으로만 판단한다. 그때 빈 칸이 있으면
+ * 채울 근거가 없으니 거부한다. 메인이 id를 다른 꼴로 바꿨을 수도 있는데 칸을 다 적은 정상
+ * 호출까지 막으면 이 검사를 끄자는 쪽으로 가게 된다.
  */
-export function checkDroppedIssues(
-  consensus: Pick<ReviewConsensusResult, 'mergedIssues' | 'droppedIssues'>,
+export function resolveDroppedIssues(
+  consensus: Pick<ReviewConsensusInput, 'mergedIssues' | 'droppedIssues'>,
   reviewResults: ReviewResult[],
-): string | null {
-  const dropped = consensus.droppedIssues ?? [];
-  if (dropped.length === 0) return null;
+): Result<DroppedReviewIssue[] | undefined> {
+  const dropped = consensus.droppedIssues;
+  if (dropped === undefined) return ok(undefined);
+  if (dropped.length === 0) return ok([]);
 
   const mergedIds = new Set(consensus.mergedIssues.map((issue) => norm(issue.id)));
   const seenDropped = new Set<string>();
   const problems: string[] = [];
+  const resolved: DroppedReviewIssue[] = [];
 
   for (const issue of dropped) {
     if (seenDropped.has(norm(issue.id))) {
@@ -105,10 +151,19 @@ export function checkDroppedIssues(
       problems.push(`${issue.id}: security category이거나 critical이라 뺄 수 없다`);
       continue;
     }
-    const undroppableOriginal = findOriginals(issue, reviewResults).find(isUndroppable);
+    const originals = findOriginals(issue, reviewResults);
+    const undroppableOriginal = originals.find(isUndroppable);
     if (undroppableOriginal) {
       problems.push(
         `${issue.id}: review_submit 원본이 ${undroppableOriginal.severity}/${undroppableOriginal.category}라 뺄 수 없다`,
+      );
+      continue;
+    }
+    // 금지 판단이 끝난 뒤에 채운다. 채우는 값은 위에서 이미 걸러진 원본에서만 온다
+    const filled = fillDropped(issue, originals);
+    if (!filled) {
+      problems.push(
+        `${issue.id}: ${missingFieldsOf(issue).join(', ')}가 비었는데 같은 id의 review_submit 원본이 없어 채울 수 없다. 그 칸을 적거나 원본 id를 그대로 쓴다`,
       );
       continue;
     }
@@ -118,12 +173,27 @@ export function checkDroppedIssues(
     }
     if (mergedIds.has(norm(issue.id))) {
       problems.push(`${issue.id}: mergedIssues에도 같은 id가 있다. 어느 한쪽에만 둔다`);
+      continue;
     }
+    resolved.push(filled);
   }
 
-  if (problems.length === 0) return null;
-  return [
-    'droppedIssues를 받을 수 없다. 걸린 이슈를 mergedIssues로 되돌려 keep이나 revise로 다시 부른다.',
-    ...problems.map((p) => `- ${p}`),
-  ].join('\n');
+  if (problems.length === 0) return ok(resolved);
+  return err(
+    new Error(
+      [
+        'droppedIssues를 받을 수 없다. 뺄 수 없는 이슈는 mergedIssues로 되돌려 keep이나 revise로 다시 부르고 나머지는 줄마다 적힌 대로 고친다.',
+        ...problems.map((p) => `- ${p}`),
+      ].join('\n'),
+    ),
+  );
+}
+
+/** droppedIssues가 우회로로 쓰이지 않았는지 본다. 문제가 없으면 null이다 */
+export function checkDroppedIssues(
+  consensus: Pick<ReviewConsensusInput, 'mergedIssues' | 'droppedIssues'>,
+  reviewResults: ReviewResult[],
+): string | null {
+  const result = resolveDroppedIssues(consensus, reviewResults);
+  return result.ok ? null : result.error.message;
 }

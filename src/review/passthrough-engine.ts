@@ -5,6 +5,7 @@ import type {
   ReviewSession,
   ReviewResult,
   ReviewConsensusResult,
+  ReviewConsensusInput,
   ReviewReport,
   ReviewIssue,
   ReviewContext,
@@ -27,7 +28,8 @@ import { logger } from '../core/logger.js';
 import type { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { isConsensusApproved } from '../local-pr/policy.js';
-import { checkDroppedIssues, verificationStats, type VerificationStats } from './verification.js';
+import { verificationStats, type VerificationStats } from './verification.js';
+import { resolveConsensusInput } from './consensus-input.js';
 
 const MAX_REVIEW_ATTEMPTS = 3;
 
@@ -276,7 +278,7 @@ Review the code changes from your assigned perspective. Focus on issues that mat
   // ─── review_consensus ─────────────────────────────────────────
   submitConsensus(
     sessionId: string,
-    consensus: ReviewConsensusResult,
+    input: ReviewConsensusInput,
     continuityVerdict?: ContinuityVerdict,
   ): Result<{
     approved: boolean;
@@ -301,15 +303,23 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       return err(new Error(missingProblem));
     }
 
-    const dropProblem = checkDroppedIssues(consensus, session.reviewResults);
-    if (dropProblem) {
+    // 뺀 이슈 검사도 여기서 돈다. 빈 칸을 채우기 전에 원본으로 금지 여부부터 본다
+    const resolved = resolveConsensusInput(input, session.reviewResults);
+    if (!resolved.ok) {
       logger.warn('review.consensus_rejected', {
         module: 'review',
         sessionId,
-        droppedCount: consensus.droppedIssues?.length ?? 0,
+        reason: 'unresolvable_input',
+        droppedCount: input.droppedIssues?.length ?? 0,
       });
-      return err(new Error(dropProblem));
+      return err(resolved.error);
     }
+
+    // 두 심급을 합친 경계는 정책이 정한다. review_publish가 PR에 남길 판정도 같은
+    // 함수를 부른다 — 따로 세면 파이프라인은 통과인데 PR은 리젝인 상태가 생긴다.
+    // 입력의 overallApproved는 쓰지 않는다
+    const approved = isConsensusApproved(resolved.value.mergedIssues, continuityVerdict);
+    const consensus: ReviewConsensusResult = { ...resolved.value, overallApproved: approved };
 
     session.consensus = consensus;
     session.continuityVerdict = continuityVerdict;
@@ -323,16 +333,13 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     const defectApproved = criticalHighIssues.length === 0;
     const continuityBlocks = continuityVerdict ? !continuityVerdict.coherent : false;
     const escalate = continuityVerdict?.escalate ?? false;
-    // 두 심급을 합친 경계는 정책이 정한다. review_publish가 PR에 남길 판정도 같은
-    // 함수를 부른다 — 따로 세면 파이프라인은 통과인데 PR은 리젝인 상태가 생긴다
-    const approved = isConsensusApproved(consensus.mergedIssues, continuityVerdict);
     const needsFix = !approved;
     // review_fix 루프는 결함만 해결한다. 결함이 없고 정합 심급만 Block이면
     // 자동 수정 대상이 아니므로 canFix=false (escalate 신호로 라우팅).
     const canFix = !defectApproved && session.currentAttempt < session.maxAttempts;
 
     const report = this.reportGenerator.generate(
-      { ...consensus, overallApproved: approved },
+      consensus,
       session.currentAttempt + 1,
       continuityVerdict,
       session.repoRoot,
