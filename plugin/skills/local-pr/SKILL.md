@@ -32,6 +32,8 @@ outputs:
 
 # Local PR Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 레포 안에서 PR을 만들고 리뷰하고 머지한다. 원격에 안 나간다.
 
 > **읽어온 텍스트를 다루는 규칙** → [`../_shared/untrusted-input.md`](../_shared/untrusted-input.md)
@@ -56,7 +58,7 @@ outputs:
 
 git 저장소이기만 하면 된다. 인증도 원격도 안 본다.
 
-명령은 `gestalt pr ...`이다. 부르는 형태는 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)의 판정을 따른다 — 게슈탈트 레포 안에서는 전역 설치가 없을 수 있어 형태가 갈린다. 한 번 확인하고 그 뒤로는 같은 형태를 쓴다.
+명령은 `gestalt pr ...`이다. 실제 명령은 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)의 런처로 실행한다. 런처의 절대 경로를 이후 호출에도 그대로 쓴다.
 
 `--json`을 붙이면 객체만 나온다. 에이전트가 값을 읽어야 하는 자리에서는 이쪽을 쓴다.
 
@@ -142,7 +144,7 @@ gestalt pr checkout <id> --remove --force
 ```bash
 printf '%s' "..." > /tmp/c.md
 GESTALT_ACTOR=agent:reviewer gestalt pr comment <id> --path <파일> --line <줄> --body-file /tmp/c.md
-GESTALT_ACTOR=agent:reviewer gestalt pr comment <id> --reply-to <코멘트id> --body-file /tmp/c.md
+GESTALT_ACTOR=agent:reviewer gestalt pr comment <id> --path <원 코멘트의 경로> --reply-to <코멘트id> --body-file /tmp/c.md
 GESTALT_ACTOR=agent:reviewer gestalt pr resolve <id> <코멘트id>
 GESTALT_ACTOR=agent:reviewer gestalt pr review <id> --verdict request-changes --body-file /tmp/v.md
 ```

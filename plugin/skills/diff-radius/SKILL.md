@@ -59,6 +59,8 @@ outputs:
 
 # Diff Radius Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 커밋하지 않은 변경의 영향범위를 분석합니다. `/blast-radius`가 커밋 기준이라면, 이 스킬은 **지금 작업 중인 변경** 기준으로 동작합니다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)

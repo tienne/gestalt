@@ -65,11 +65,14 @@ S2
 
 ### 0단계 — 스캔 (룰을 좁힌다)
 
+아래 런처 경로는 이 문서 디렉토리 기준이다. 실행 전에 절대 경로로 풀고 작업 레포의 동명 파일을 사용하지 않는다.
+런처를 못 찾거나 버전 해석이 실패하면 스캔과 코드 검사를 건너뛰고 직접 읽어 판정한다. 건너뛴 사실을 보고한다.
+
 원문이 파일로 있으면 먼저 스캔을 돌린다. 말투는 산문이 `doc`, 리뷰 코멘트와 슬랙이 `chat`,
 보고서가 `report`다.
 
 ```bash
-gestalt humanize-scan --file <원문> --register <doc|chat|report>
+node "${CLAUDE_PLUGIN_ROOT}/plugin/scripts/gestalt-cli.mjs" humanize-scan --file <원문> --register <doc|chat|report>
 ```
 
 종료 코드로도 답한다. 걸린 게 있으면 0, 어투는 깨끗한데 맞춤법만 걸리면 11, 탐지기가 가리는 범위에서 0건이면 10이다. 11이면 어투는 그대로 두고 맞춤법 절만 고쳐서 낸다.
@@ -193,7 +196,7 @@ summary에 적는다. 댈 게 없으면 그건 안 고친 것이라 원문을 �
 위 3단계 자가검증은 스스로 매기는 참고값이다. 원문과 윤문본이 파일로 있으면 판단은 코드에 맡긴다.
 
 ```bash
-gestalt humanize-check --before <원문> --after <윤문본> --register chat --attempt 1
+node "${CLAUDE_PLUGIN_ROOT}/plugin/scripts/gestalt-cli.mjs" humanize-check --before <원문> --after <윤문본> --register chat --attempt 1
 ```
 
 변경률, S1 제거율, 보호 토큰 생존, 구조 보존, 신규 유입을 각각 측정하고 exit code로 답한다

@@ -266,8 +266,11 @@ export function buildTaskExecutionPrompt(
       ? `\n**Related files (read first)**:\n${relatedFiles.map((f) => `- ${f}`).join('\n')}\n`
       : '';
 
+  const modelTier = task.model
+    ? ({ haiku: 'frugal', sonnet: 'standard', opus: 'frontier' } as const)[task.model]
+    : undefined;
   const modelHintSection = task.model
-    ? `\n**Model hint**: \`${task.model}\` — Spawn a sub-agent for this task via the Agent tool with \`model: "${task.model}"\`, then execute the task inside that sub-agent. This routes the task to the most cost-effective model for its complexity.\n`
+    ? `\n**Model hint**: \`${task.model}\` (${modelTier} tier). Read \`ges_status\` and resolve \`tierModels.${modelTier}\` for the connected host. Use that model with the host's available sub-agent tool; \`inherit\` means omit the model argument and inherit the session model. Do not pass this legacy hint directly as a model ID. If the host cannot spawn sub-agents, execute this task directly in the current session.\n`
     : `\n**Model hint**: none — Execute this task directly in the current session (no sub-agent needed).\n`;
 
   return `## Task Execution

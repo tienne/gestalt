@@ -53,8 +53,13 @@ const executeConfigSchema = z.object({
   goalAlignmentThreshold: z.number().min(0).max(1).default(EVOLVE_GOAL_ALIGNMENT_THRESHOLD),
 });
 
-/** 호스트 Agent 도구가 받는 모델 별칭. API 모델 ID(llm.model)와는 층위가 다르다. */
-const agentModelAliasSchema = z.enum(['fable', 'opus', 'sonnet', 'haiku']);
+/** 호스트가 해석하는 모델 ID. inherit는 호스트의 현재 세션 모델을 사용한다. */
+const agentModelAliasSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(/^[a-zA-Z0-9][a-zA-Z0-9._:/@+-]*$/);
 const reasoningModelSchema = agentModelAliasSchema;
 
 /** .env, .env.local, prod.env. env.md 처럼 env 를 설명하는 문서는 안 걸린다 */
@@ -367,13 +372,18 @@ const webFetchCacheConfigSchema = z.object({
   enabled: z.boolean().default(false),
 });
 
+/** 호스트 초기화 때 갱신하는 모델 필드와 그 기본값의 단일 정의. */
+const hostModelSchema = z.object({
+  reasoningModel: reasoningModelSchema.default(DEFAULT_REASONING_MODEL),
+  reasoningModelFallback: reasoningModelSchema.default(REASONING_MODEL_FALLBACK),
+  tierModels: tierModelsSchema.default({}),
+});
+
 const configSchema = z.object({
   llm: llmConfigSchema.default({}),
   interview: interviewConfigSchema.default({}),
   execute: executeConfigSchema.default({}),
-  reasoningModel: reasoningModelSchema.default(DEFAULT_REASONING_MODEL),
-  reasoningModelFallback: reasoningModelSchema.default(REASONING_MODEL_FALLBACK),
-  tierModels: tierModelsSchema.default({}),
+  ...hostModelSchema.shape,
   relatedRepos: z
     .array(
       z
@@ -423,7 +433,17 @@ const configSchema = z.object({
   client: z.enum(['claude-code', 'codex', 'both', 'grok']).default('claude-code'),
 });
 
-export type GestaltConfig = z.infer<typeof configSchema>;
+export type HostClient = 'claude-code' | 'codex' | 'grok';
+export type GestaltConfig = z.infer<typeof configSchema> & { hostClient?: HostClient };
+/** Engines retain their construction settings; only this profile may change at handshake. */
+export function getHostProfile(config: GestaltConfig) {
+  return {
+    client: config.client,
+    hostClient: config.hostClient,
+    ...hostModelSchema.parse(config),
+  };
+}
+
 export type ExecuteConfig = z.infer<typeof executeConfigSchema>;
 export type InterviewConfig = z.infer<typeof interviewConfigSchema>;
 
@@ -702,7 +722,14 @@ function pruneInvalidConfig(
 
 export function loadConfig(
   overrides: Partial<Record<string, unknown>> = {},
-  options?: { skipDotEnv?: boolean; skipGestaltJson?: boolean },
+  options?: {
+    skipDotEnv?: boolean;
+    skipGestaltJson?: boolean;
+    /** MCP handshake의 기본값. JSON/env/명시 override가 우선한다. */
+    defaultClient?: HostClient;
+    /** 설정의 client=both와 별개로 모델 기본값을 정하는 실제 연결 호스트. */
+    hostClient?: HostClient;
+  },
 ): GestaltConfig {
   // 1. Load .env (does not override existing env vars)
   if (!options?.skipDotEnv) {
@@ -716,7 +743,26 @@ export function loadConfig(
   const envConfig = buildEnvConfig();
 
   // 4. Merge: defaults ← gestalt.json ← envConfig ← overrides
-  const merged = deepMerge(deepMerge(jsonConfig, envConfig), overrides as Record<string, unknown>);
+  const merged: Record<string, unknown> = deepMerge(
+    deepMerge({ client: options?.defaultClient ?? 'claude-code' }, jsonConfig),
+    deepMerge(envConfig, overrides as Record<string, unknown>),
+  );
+  const hostClient: HostClient =
+    options?.hostClient ??
+    (merged.client === 'codex' || merged.client === 'grok' ? merged.client : 'claude-code');
+  // 재시도에서도 호스트 기본값을 채워 잘못된 Codex 필드가 Claude 별칭으로 복구되지 않게 한다.
+  const hostModelDefaults =
+    hostClient === 'codex'
+      ? ({
+          reasoningModel: 'inherit',
+          reasoningModelFallback: 'inherit',
+          tierModels: { frugal: 'inherit', standard: 'inherit', frontier: 'inherit' },
+        } satisfies z.output<typeof hostModelSchema>)
+      : {};
+  const hostDefaults = { client: options?.defaultClient ?? 'claude-code', ...hostModelDefaults };
+  const parse = (input: Record<string, unknown>) =>
+    configSchema.safeParse(deepMerge(hostDefaults, input));
+  const finish = (config: GestaltConfig) => applyPostProcessing({ ...config, hostClient });
 
   // ruleSourceErrors 는 로더가 채우는 출력이다. 스킬 여러 자리가 "비어 있지 않으면
   // 멈춘다"로 읽으므로, 작성자가 적은 값을 살려두면 gestalt.json 한 줄로 파이프라인을
@@ -748,7 +794,7 @@ export function loadConfig(
   const declared = Array.isArray(merged.ruleSources) && merged.ruleSources.length > 0;
 
   // 5. Validate with Zod — warn + fallback on invalid values
-  const result = configSchema.safeParse(merged);
+  const result = parse(merged);
   if (!result.success) {
     const messages = result.error.issues.map(
       (i) => `${describeIssuePath(i.path, merged)}: ${i.message}`,
@@ -761,9 +807,9 @@ export function loadConfig(
       result.error.issues.map((issue) => issue.path),
     );
     const broken = messages.filter((m) => m.startsWith('ruleSources'));
-    const recovered = configSchema.safeParse(pruned);
+    const recovered = parse(pruned);
     if (recovered.success) {
-      return applyPostProcessing(withRuleSourceNotes(recovered.data, broken, misspelled));
+      return finish(withRuleSourceNotes(recovered.data, broken, misspelled));
     }
 
     console.error('[gestalt] Warning: Failed to recover configuration, using defaults');
@@ -772,10 +818,10 @@ export function loadConfig(
     if (declared) {
       broken.unshift('ruleSources: 설정을 복구하지 못해 선언 전체가 빠졌습니다');
     }
-    return applyPostProcessing(withRuleSourceNotes(configSchema.parse({}), broken, misspelled));
+    return finish(withRuleSourceNotes(configSchema.parse(hostDefaults), broken, misspelled));
   }
 
-  return applyPostProcessing(withRuleSourceNotes(result.data, [], misspelled));
+  return finish(withRuleSourceNotes(result.data, [], misspelled));
 }
 
 /**

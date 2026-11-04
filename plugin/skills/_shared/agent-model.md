@@ -1,5 +1,7 @@
 # 에이전트 tier로 모델 고르기 (공유 규칙)
 
+> **Codex 등 다른 호스트에서는** [`host-runtime.md`](./host-runtime.md)를 먼저 적용한다. `inherit`는 모델 인자 생략이며 Claude 별칭 폴백을 강제하지 않는다.
+
 `ges_agent`의 `get`과 `list`는 둘 다 `tier`와 **해석된 `model`** 을 돌려준다. 에이전트 frontmatter의
 tier가 "이 역할이 어느 정도 모델을 필요로 하나"를 선언하고 서버가 그걸 호스트 Agent 도구가 받는
 별칭으로 옮겨준 값이다. 둘의 차이는 `systemPrompt`가 딸려오느냐뿐이다. `get`은 한 에이전트의

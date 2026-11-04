@@ -52,6 +52,8 @@ routing: {}
 
 # Review Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파이프라인에 주입해 검토합니다.
 변경 파일을 수집하고 리뷰 에이전트(보안, 성능, 품질, 주석, 문서와 문자열이 바뀌었으면 라이팅, 스킬이나 에이전트 문서가 바뀌었으면 하네스)로 다각도 리뷰한 뒤(**결함 심급**), `continuity-judge`가 변경 전체의 목표 정합성과 일관성을 감독하고(**정합 심급**), `suggestion-verifier`가 리뷰어 제안을 반영하면 무엇이 깨지는지 게시 전에 확인한 뒤(**제안 검증**), Pass/Block 판정과 마크다운 리포트를 생성합니다. 리뷰 대상이 PR이면 — GitHub PR이든 로컬 `gestalt pr` PR이든 — `code-review-writer` 에이전트가 작성한 인라인 코멘트로 그 PR에 게시까지 이어집니다.
 
@@ -61,7 +63,7 @@ execute 세션 없이 PR, 브랜치, 커밋의 변경사항을 직접 리뷰 파
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 >
 > **`gestalt` CLI를 부르는 형태** → [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)
-> 본문의 셸 예시는 전부 `gestalt ...`입니다. 게슈탈트 레포 안에서는 `pnpm tsx bin/gestalt.ts ...`로 바꿔 부릅니다. 어투 검사(1.5, 4.5, 4.7단계)가 이 CLI에 매달려 있고 **그 셋은 필수 검사라 못 돌리면 멈춥니다.**
+> 본문의 셸 예시는 전부 `gestalt ...`입니다. 설치 위치의 버전 고정 런처로 실행합니다. 어투 검사(1.5, 4.5, 4.7단계)가 이 CLI에 매달려 있고 **그 셋은 필수 검사라 못 돌리면 멈춥니다.**
 >
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 >
@@ -615,19 +617,9 @@ echo "$scanTmp"
 
 작성된 컨텍스트 문서를 `"$scanTmp/change-context.md"`에 쓴다 (파일 쓰기 도구 사용, 셸로 넘기지 않는다).
 
-```bash
-if gestalt --version >/dev/null 2>&1; then
-  echo "OK gestalt"
-elif pnpm tsx bin/gestalt.ts --version >/dev/null 2>&1; then
-  echo "OK pnpm"
-else
-  echo "MISSING"
-fi
-```
-
-`OK pnpm`이면 아래 호출의 `gestalt`를 `pnpm tsx bin/gestalt.ts`로 바꿔 부릅니다. 한 번 확인하고 그 뒤로는(4.5, 4.7단계 포함) 같은 형태를 씁니다.
-
-**`MISSING`이면 검사를 건너뛰지 않고 멈춥니다.** 못 돌린 걸 통과로 읽으면 검사가 없는 것과 같습니다. `npm i -g @tienne/gestalt`를 함께 알리고 그대로 진행할지 사용자가 정하게 둡니다.
+[`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)에 따라 이 플러그인의 버전 고정 런처를 사용한다.
+아래 `gestalt` 호출은 `node`와 런처의 절대 경로로 바꿔 실행한다. 이후 단계와 파이프라인에도 같은 규칙을 적용한다.
+런처 실행이 실패하면 필수 검사를 건너뛰지 않고 오류를 알린 뒤 멈춘다. 전역 CLI 설치를 요구하거나 다른 버전으로 대신 실행하지 않는다.
 
 ```bash
 gestalt humanize-scan --file "$scanTmp/change-context.md" --register report
@@ -1392,15 +1384,20 @@ echo "파일 $found 개"
 
 # 파일마다 프로세스를 새로 띄우지 않고 한 번의 호출에 전부 실어 보냅니다.
 # humanize-scan 은 넘겨받은 파일 각각을 읽고 스캔을 따로 돌리므로 결과는 파일별로 갈립니다.
-find "$scanTmp" -maxdepth 1 -name '*.md' | sort | sed 's/^/--file /' \
-  | xargs gestalt humanize-scan --register chat
+if [ "$found" -eq 1 ]; then
+  scanFile=$(find "$scanTmp" -maxdepth 1 -name '*.md')
+  gestalt humanize-scan --file "$scanFile" --register chat
+elif [ "$found" -gt 1 ]; then
+  find "$scanTmp" -maxdepth 1 -name '*.md' | sort | sed 's/^/--file /' \
+    | xargs gestalt humanize-scan --register chat
+fi
 ```
 
 `found` 가 코멘트 수와 다르면 **검사 실패입니다.** 그 자리에서 멈추고 무엇이 어긋났는지 알립니다. 파일 쓰기가 어긋났는데 조용히 넘어가면 이 검사가 막으려던 상황이 그대로 재현됩니다.
 
 이 호출이 답하는 질문은 두 층입니다.
 
-- **프로세스 종료 코드**는 파일 전체를 합친 값입니다 — 하나라도 0이면 0, 아니면 하나라도 12면 12, 아니면 하나라도 11이면 11, 나머지는 10입니다. "게시를 미뤄야 하는가"는 이 값 하나로 답이 납니다.
+- **스캐너 프로세스 종료 코드**는 파일 전체를 합친 값입니다 — 하나라도 0이면 0, 아니면 하나라도 12면 12, 아니면 하나라도 11이면 11, 나머지는 10입니다. `xargs`는 이 값을 다른 코드로 바꾸므로 여러 파일 호출에서는 셸의 종료 코드로 게시 여부를 판단하지 않습니다.
 - **어느 코멘트를 다시 써야 하는가**는 출력에 파일마다 찍히는 `== <경로> EXIT=<코드>` 줄로 답이 납니다. 파일별로 스캔을 따로 돌린 결과라 이 코드는 코멘트 단위 그대로입니다.
 
 각 줄의 EXIT 값이 뜻하는 바는 다음과 같습니다.
@@ -1410,7 +1407,7 @@ find "$scanTmp" -maxdepth 1 -name '*.md' | sort | sed 's/^/--file /' \
 - **11** — 어투는 깨끗하고 맞춤법만 걸렸습니다. 그것만 고칩니다.
 - **12** — **검사할 산문이 없습니다.** 코멘트가 인용줄뿐이라 검사가 안 된 것이지 통과가 아닙니다. 자기 문장을 인용 밖에 두고 다시 쓰게 합니다.
 - 재작성은 **한 번만** 돕니다. 두 번째도 걸리면 무엇이 남았는지 사용자에게 알리고 게시할지 묻습니다.
-- 프로세스 종료 코드가 10이나 11이면 게시합니다. 게시가 끝나면 `rm -rf "$scanTmp"`로 그 실행 칸만 치웁니다 — 상위 `gestalt-review`나 PR 칸을 통째로 지우면 다른 세션이 쓰는 중인 파일까지 날아갑니다.
+- 여러 파일이면 파일별 EXIT가 모두 10이나 11일 때 게시합니다. 표지가 없는 단일 파일 직접 호출은 그 프로세스의 종료 코드를 씁니다. 게시가 끝나면 `rm -rf "$scanTmp"`로 그 실행 칸만 치웁니다 — 상위 `gestalt-review`나 PR 칸을 통째로 지우면 다른 세션이 쓰는 중인 파일까지 날아갑니다.
 
 **코멘트 여러 개를 파일 하나에 모아 담으면 이 검사가 무력화됩니다.** 인용 판정이 그 파일 전체를 한 덩어리로 보기 때문에 코멘트 하나를 통째로 인용으로 감싸도 같은 파일 안 다른 코멘트의 산문에 묻혀 안 걸립니다. 파일 하나에 코멘트 하나가 이 검사가 서는 조건입니다.
 

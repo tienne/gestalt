@@ -1,9 +1,10 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { ClientType } from '../../execute/rule-writer.js';
 
 const CONFIG_FILENAME = 'gestalt.json';
 
-export function setupCommand(): void {
+export function setupCommand(options: { client?: ClientType } = {}): void {
   const filePath = resolve(CONFIG_FILENAME);
 
   if (existsSync(filePath)) {
@@ -13,6 +14,7 @@ export function setupCommand(): void {
 
   const config = {
     $schema: './node_modules/@tienne/gestalt/schemas/gestalt.schema.json',
+    ...(options.client ? { client: options.client } : {}),
     notifications: false,
     interview: {
       resolutionThreshold: 0.8,

@@ -1,4 +1,5 @@
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
+import type { ClientType } from '../execute/rule-writer.js';
 import { interviewCommand } from './commands/interview.js';
 import { specCommand } from './commands/spec.js';
 import { serveCommand } from './commands/serve.js';
@@ -150,15 +151,31 @@ export function createCli(): Command {
     )
     .option('--skip-graph', 'Skip code graph build')
     .option('--skip-hook', 'Skip post-commit hook installation')
-    .action(async (options: { skipGraph?: boolean; skipHook?: boolean }) => {
+    .addOption(
+      new Option('--client <client>', 'Host for active context files').choices([
+        'claude-code',
+        'codex',
+        'both',
+        'grok',
+      ]),
+    )
+    .action(async (options: { skipGraph?: boolean; skipHook?: boolean; client?: ClientType }) => {
       await initCommand(options);
     });
 
   program
     .command('setup')
     .description('Generate a gestalt.json configuration file')
-    .action(() => {
-      setupCommand();
+    .addOption(
+      new Option('--client <client>', 'Host for active context files').choices([
+        'claude-code',
+        'codex',
+        'both',
+        'grok',
+      ]),
+    )
+    .action((options: { client?: ClientType }) => {
+      setupCommand(options);
     });
 
   program

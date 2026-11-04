@@ -246,6 +246,20 @@ codex plugin add gestalt@gestalt
 
 스킬은 다음 Codex 세션부터 잡혀요. 슬래시 커맨드랑 Claude Code Task 패널은 Claude Code 전용이라, Codex에서는 하려는 일을 말로 설명하면 Codex가 해당 `SKILL.md`를 읽어 진행해요.
 
+설치 후 새 세션에서 “Gestalt 상태 확인해줘” 또는 “이 프로젝트를 Codex용 Gestalt로 초기화해줘”라고 요청하면 돼요.
+MCP 초기화 때 Codex를 인식해서 실행 컨텍스트는 기본으로 `AGENTS.md`에 기록하고 에이전트 모델은 현재
+Codex 세션을 상속해요. 명시한 `client`와 모델 설정은 유지하며 `client: "both"`면 두 호스트 파일에 계속 기록해요.
+프로젝트에 Codex 설정을 남기려면 초기화 스킬에 요청하면 돼요. 스킬이 아래의 버전 고정 런처로
+`setup --client codex`를 실행해요. 코드 그래프와 Git 훅까지 설정하려면 `init --client codex`를
+실행하고 고정된 CLI가 아직 이 옵션을 지원하지 않으면 호환 절차를 적용해요.
+
+스킬은 [호스트 어댑터](./plugin/skills/_shared/host-runtime.md)로 Claude 도구 예시를 현재 Codex 도구에 맞춰 실행해요.
+CLI 검사는 [버전 고정 런처](./plugin/skills/_shared/cli-launcher.md)를 거쳐서 전역 `gestalt` 설치가 필요 없어요.
+첫 CLI 실행은 플러그인과 같은 npm 버전을 내려받을 수 있으니 Node.js >=22와 npm이 PATH에 있어야 해요.
+
+연결이 실패하면 MCP 상태와 Node/npm부터 확인해요. 호스트나 모델이 예상과 다르면 `ges_status`의 `hostClient`,
+`client`, `tierModels`를 먼저 확인해요. Claude Task 패널과 Claude 전용 훅은 Codex 실행을 막지 않아요.
+
 ---
 
 ### 옵션 5: OpenAI Codex CLI (MCP만)

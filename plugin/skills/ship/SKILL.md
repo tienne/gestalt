@@ -40,6 +40,8 @@ routing:
 
 # Ship Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 브랜치 하나를 **리뷰가 더 나올 게 없는 상태**까지 밀어붙여 GitHub PR로 내보내는 오케스트레이터다.
 
 ```
@@ -364,7 +366,7 @@ Phase 0에서 4번(사용자가 직접 준 명령)으로 정했으면 `verify-sr
 
 ### 명령 형태
 
-예시는 `gestalt pr ...`이다. 부르는 형태는 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)의 판정을 따른다 — 게슈탈트 레포 안에서는 전역 설치가 없을 수 있어 형태가 갈린다. 확인하고 그 뒤로는 같은 형태를 쓴다.
+예시는 `gestalt pr ...`이다. 실제 명령은 [`../_shared/cli-launcher.md`](../_shared/cli-launcher.md)의 런처로 실행한다. 런처의 절대 경로를 이후 호출에도 그대로 쓴다.
 
 ## Phase 1 — 로컬 PR 확보
 

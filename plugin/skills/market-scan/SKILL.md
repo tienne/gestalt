@@ -35,6 +35,8 @@ outputs:
 
 # Market Scan Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 제품 지형 조사만 한다. 같은 문제를 서로 다르게 푼 제품을 찾아 규모와 유형으로 묶고 `research.json`의 `productCandidates`와 `references`까지 채운다. 화면을 열거나 캡처하지 않는다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)

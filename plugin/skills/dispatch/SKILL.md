@@ -33,6 +33,8 @@ routing:
 
 # Dispatch Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 실행 세션에서 지금 착수 가능한 태스크를 외부 에이전트 런타임의 터미널로 뿌려 병렬 실행한다. 게슈탈트가 무엇을 언제 할 수 있는지 계산하고 외부 런타임이 워커를 띄우고 생애주기를 추적한다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)

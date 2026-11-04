@@ -73,6 +73,8 @@ outputs:
 
 # Blast Radius Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 최근 코드 변경의 영향 범위를 분석해 **읽어야 할 파일만** 컨텍스트에 제공합니다. 불필요한 파일 읽기를 줄여 LLM 토큰 사용을 최소화합니다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)

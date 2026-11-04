@@ -22,6 +22,8 @@ const ASSET_DIRS = [
   'personas',
   'research-sources',
   'skills',
+  'scripts',
+  '.codex-plugin',
 ] as const;
 
 function collectFiles(root: string): string[] {
@@ -43,9 +45,11 @@ const report = (label: string, files: string[]) => {
  * 게슈탈트 레포 밖에서는 그 단계가 원리상 못 돈다. 어투 검사처럼 필수 게이트인
  * 자리가 그렇게 건너뛰어지면 막으려던 문장이 그대로 나간다.
  *
- * 호출 형태는 _shared/cli-launcher.md 의 판정 한 곳에만 둔다. 여기서 막는 건
- * 그 판정을 안 거치고 pnpm 형태를 직접 박은 자리다. 판정 블록의 `--version`,
- * 산문의 `... ` 표기, 백틱으로 닫힌 인용은 하위 명령이 아니라 통과시킨다.
+ * 스킬은 _shared/cli-launcher.md 를 읽고 `gestalt ...` 예시를 런처 호출로 바꾼다.
+ * 스킬에 소스 실행용 pnpm 호출을 직접 적으면 그 변환을 거치지 않아서 막는다.
+ * 에이전트는 공유 지침을 읽지 않고 자기 코드 블록을 실행하므로 맨 `gestalt`도 막는다.
+ * 에이전트 명령에는 문서 위치를 기준으로 한 런처 경로를 직접 적어야 한다.
+ * 판정 블록의 `--version`과 산문의 `... ` 표기는 통과시킨다.
  */
 const HARDCODED_LAUNCHER = /pnpm tsx bin\/gestalt\.ts[ \t]+(?!--version|\.\.\.)/;
 
@@ -55,19 +59,26 @@ for (const dir of ASSET_DIRS) {
   for (const file of collectFiles(sourceRoot)) {
     if (!file.endsWith('.md')) continue;
     const lines = readFileSync(join(sourceRoot, file), 'utf8').split('\n');
+    let fenced = false;
     lines.forEach((line, index) => {
-      if (HARDCODED_LAUNCHER.test(line)) launcherOffenders.push(`${dir}/${file}:${index + 1}`);
+      if (/^\s*```/.test(line)) fenced = !fenced;
+      const agentCommand =
+        fenced &&
+        ['role-agents', 'review-agents', 'agents'].includes(dir) &&
+        /^\s*gestalt [a-z]/.test(line);
+      if (HARDCODED_LAUNCHER.test(line) || agentCommand)
+        launcherOffenders.push(`${dir}/${file}:${index + 1}`);
     });
   }
 }
 
 if (launcherOffenders.length > 0) {
-  console.error('스킬 본문에 `pnpm tsx bin/gestalt.ts <하위명령>` 이 직접 박혀 있습니다.');
+  console.error('플러그인 본문에 런처를 거치지 않는 직접 CLI 호출이 있습니다.');
   console.error('플러그인 캐시에는 bin/ 도 node_modules 도 없어 그 형태는 안 돕니다.');
   report('고칠 자리', launcherOffenders);
   console.error(
-    '\n예시는 `gestalt ...` 로 적고, 부르는 형태는 ' +
-      'plugin/skills/_shared/cli-launcher.md 의 판정을 참조하게 하세요.',
+    '\n스킬 예시의 실행 형태와 에이전트 명령은 ' +
+      'plugin/skills/_shared/cli-launcher.md 의 런처 지침을 참조하게 하세요.',
   );
   process.exit(1);
 }

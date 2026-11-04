@@ -1,10 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, readFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 // We test the setup logic by importing the function and running it in a temp dir
 import { setupCommand } from '../src/cli/commands/setup.js';
+import { initCommand } from '../src/cli/commands/init.js';
+import { createCli } from '../src/cli/index.js';
+import * as readline from 'node:readline';
+
+vi.mock('node:readline', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:readline')>();
+  return { ...actual, createInterface: vi.fn(actual.createInterface) };
+});
 
 describe('setupCommand', () => {
   let tmpDir: string;
@@ -20,6 +28,7 @@ describe('setupCommand', () => {
   afterEach(() => {
     process.chdir(originalCwd);
     rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
   });
 
   it('creates gestalt.json when it does not exist', () => {
@@ -48,4 +57,80 @@ describe('setupCommand', () => {
     // File should be unchanged
     expect(readFileSync(filePath, 'utf-8')).toBe(existingContent);
   });
+
+  it('persists the explicitly selected Codex client', () => {
+    setupCommand({ client: 'codex' });
+    expect(JSON.parse(readFileSync('gestalt.json', 'utf8')).client).toBe('codex');
+  });
+
+  it('init preserves the explicit client when graph and hook steps are skipped', async () => {
+    await initCommand({ client: 'codex', skipGraph: true, skipHook: true });
+    expect(JSON.parse(readFileSync('gestalt.json', 'utf8')).client).toBe('codex');
+  });
+
+  it.each(['setup', 'init'])('parses valid --client through the %s command', async (command) => {
+    await createCli().parseAsync([
+      'node',
+      'gestalt',
+      command,
+      '--client',
+      'codex',
+      ...(command === 'init' ? ['--skip-graph', '--skip-hook'] : []),
+    ]);
+    expect(JSON.parse(readFileSync('gestalt.json', 'utf8')).client).toBe('codex');
+  });
+
+  it('preserves --client when init confirms replacing an existing configuration', async () => {
+    writeFileSync('gestalt.json', '{"client":"grok","old":true}');
+    const close = vi.fn();
+    vi.mocked(readline.createInterface).mockReturnValueOnce({
+      question: (_question: string, answer: (value: string) => void) => answer('y'),
+      close,
+    } as unknown as readline.Interface);
+    await createCli().parseAsync([
+      'node',
+      'gestalt',
+      'init',
+      '--client',
+      'codex',
+      '--skip-graph',
+      '--skip-hook',
+    ]);
+    const config = JSON.parse(readFileSync('gestalt.json', 'utf8'));
+    expect(config.client).toBe('codex');
+    expect(config).not.toHaveProperty('old');
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('preserves existing settings when init declines the overwrite prompt', async () => {
+    const existing = '{"client":"codex","interview":{"maxRounds":3}}';
+    writeFileSync('gestalt.json', existing);
+    vi.mocked(readline.createInterface).mockReturnValueOnce({
+      question: (_question: string, answer: (value: string) => void) => answer('n'),
+      close: vi.fn(),
+    } as unknown as readline.Interface);
+    await createCli().parseAsync([
+      'node',
+      'gestalt',
+      'init',
+      '--client',
+      'grok',
+      '--skip-graph',
+      '--skip-hook',
+    ]);
+    expect(readFileSync('gestalt.json', 'utf8')).toBe(existing);
+  });
+
+  it.each(['setup', 'init'])(
+    'rejects invalid --client before %s creates files',
+    async (command) => {
+      const cli = createCli()
+        .exitOverride()
+        .configureOutput({ writeErr: () => {} });
+      await expect(
+        cli.parseAsync(['node', 'gestalt', command, '--client', 'unknown']),
+      ).rejects.toThrow();
+      expect(existsSync('gestalt.json')).toBe(false);
+    },
+  );
 });

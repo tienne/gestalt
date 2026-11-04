@@ -214,9 +214,10 @@
 ## 코드 검사 (자가 채점보다 위)
 
 아래 등급은 모델이 스스로 매기는 참고값이다. 실제 판단은 코드가 한다.
+런처 경로는 이 문서 디렉토리 기준이다. 실행 전에 절대 경로로 풀고 작업 레포의 동명 파일을 사용하지 않는다.
 
 ```bash
-gestalt humanize-check --before before.md --after after.md --register chat
+node "../../../scripts/gestalt-cli.mjs" humanize-check --before before.md --after after.md --register chat
 ```
 
 변경률, S1 잔존, 보호 토큰 생존, 구조 보존 4가지 측면에서 각각 측정하고 exit code로 답한다

@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline';
 import { codeGraphEngine } from '../../code-graph/index.js';
 import { gitHookManager } from '../../code-graph/git-hook.js';
 import { logger } from '../../core/logger.js';
+import type { ClientType } from '../../execute/rule-writer.js';
 
 const CONFIG_FILENAME = 'gestalt.json';
 
@@ -29,8 +30,13 @@ async function confirm(question: string): Promise<boolean> {
 export async function initCommand(options: {
   skipGraph?: boolean;
   skipHook?: boolean;
+  client?: ClientType;
 }): Promise<void> {
   const repoRoot = process.cwd();
+  const defaultConfig = {
+    ...DEFAULT_CONFIG,
+    ...(options.client ? { client: options.client } : {}),
+  };
   const filePath = resolve(repoRoot, CONFIG_FILENAME);
 
   logger.info('cli.init', {
@@ -51,12 +57,12 @@ export async function initCommand(options: {
       if (!overwrite) {
         console.log('gestalt.json 생성을 건너뜁니다.');
       } else {
-        writeFileSync(filePath, JSON.stringify(DEFAULT_CONFIG, null, 2) + '\n', 'utf-8');
+        writeFileSync(filePath, JSON.stringify(defaultConfig, null, 2) + '\n', 'utf-8');
         completedSteps++;
         console.log(`✓ gestalt.json 생성 (완료 ${completedSteps}/${totalSteps} 단계)`);
       }
     } else {
-      writeFileSync(filePath, JSON.stringify(DEFAULT_CONFIG, null, 2) + '\n', 'utf-8');
+      writeFileSync(filePath, JSON.stringify(defaultConfig, null, 2) + '\n', 'utf-8');
       completedSteps++;
       console.log(`✓ gestalt.json 생성 (완료 ${completedSteps}/${totalSteps} 단계)`);
     }

@@ -33,6 +33,8 @@ outputs:
 
 # Build Graph Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 코드베이스를 정적 분석해 코드 지식 그래프를 빌드합니다. 이 그래프를 바탕으로 `/blast-radius` 스킬을 사용할 수 있습니다.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)

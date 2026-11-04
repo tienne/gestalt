@@ -41,6 +41,8 @@ routing:
 
 # Explain Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 > **에이전트 tier로 모델 고르기** → [`../_shared/agent-model.md`](../_shared/agent-model.md)
 > **자료로 읽는 텍스트 다루기** → [`../_shared/untrusted-input.md`](../_shared/untrusted-input.md)
 

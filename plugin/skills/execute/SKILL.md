@@ -17,6 +17,8 @@ outputs:
 
 # Execute Skill
 
+> **호스트별 도구와 모델 호출** → [`../_shared/host-runtime.md`](../_shared/host-runtime.md). 실행 전에 읽고 현재 호스트에 맞게 적용한다.
+
 This skill transforms a validated Spec specification into a concrete, dependency-aware Execution Plan, executes it with multi-perspective Role Agent guidance, and validates the result through a 2-stage evaluation pipeline.
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
@@ -245,7 +247,7 @@ ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ..
 
 **스폰.** 각 `plan_step`(그리고 `plan_complete` 조립을 위한 추론이 필요하면 그 단계)에서 Agent 도구로 서브에이전트를 띄우되 `model` 파라미터에 `reasoningModel` 값을 넘긴다. 서브에이전트에는 해당 단계의 `executeContext`(`systemPrompt`, `planningPrompt`, `currentStage`, `spec`, `previousSteps`)를 전달하고 그 단계의 `stepResult`를 산출하게 한다. 결과를 `plan_step`으로 제출한다.
 
-**폴백은 스킬 런타임에서 발동한다.** 서버는 폴백 대상(`reasoningModelFallback`)만 알려줄 뿐, 모델 가용성을 감지하거나 재시도하지 않는다. Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`(예: `opus`)로 바꿔 1회 재시도한다. 폴백 판단과 재시도는 전적으로 이 스킬 런타임의 책임이다.
+**폴백은 스킬 런타임에서 발동한다.** 서버는 폴백 대상(`reasoningModelFallback`)만 알려줄 뿐, 모델 가용성을 감지하거나 재시도하지 않는다. Agent 도구가 `reasoningModel`(예: `fable`)을 지원하지 않아 스폰이 거부/실패하면, 그때 스킬이 직접 `model`을 `reasoningModelFallback`(예: `opus`)로 바꿔 1회 재시도한다. 폴백 판단과 재시도는 전적으로 이 스킬 런타임의 책임이다. Codex의 폴백 선택과 상속은 `host-runtime.md`를 따른다.
 
 ---
 

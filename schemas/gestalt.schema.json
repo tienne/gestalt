@@ -91,15 +91,29 @@
     },
     "reasoningModel": {
       "type": "string",
-      "enum": ["fable", "opus", "sonnet", "haiku"],
-      "description": "Agent subagent model for deep one-shot reasoning in spec generation and execution planning (env: GESTALT_REASONING_MODEL)",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/@+-]*$",
+      "description": "Host model ID or inherit for spec/planning reasoning. Codex defaults to inherit; Claude defaults to fable (env: GESTALT_REASONING_MODEL)",
       "default": "fable"
     },
     "reasoningModelFallback": {
       "type": "string",
-      "enum": ["fable", "opus", "sonnet", "haiku"],
-      "description": "Fallback model when the Agent tool does not support reasoningModel (env: GESTALT_REASONING_MODEL_FALLBACK)",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/@+-]*$",
+      "description": "Host model ID or inherit when reasoningModel is unavailable. Codex defaults to inherit (env: GESTALT_REASONING_MODEL_FALLBACK)",
       "default": "opus"
+    },
+    "tierModels": {
+      "type": "object",
+      "description": "Host model IDs by agent tier. Codex defaults to inherit for all tiers; Claude defaults to haiku, sonnet, opus. Availability is checked by the host.",
+      "properties": {
+        "frugal": { "$ref": "#/definitions/hostModel" },
+        "standard": { "$ref": "#/definitions/hostModel" },
+        "frontier": { "$ref": "#/definitions/hostModel" }
+      },
+      "additionalProperties": false
     },
     "dbPath": {
       "type": "string",
@@ -213,6 +227,13 @@
   },
   "additionalProperties": false,
   "definitions": {
+    "hostModel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/@+-]*$",
+      "description": "Host model ID, Claude alias, or inherit to use the session model"
+    },
     "llmTierConfig": {
       "type": "object",
       "description": "Per-tier LLM provider configuration",
