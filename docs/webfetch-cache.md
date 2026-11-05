@@ -2,7 +2,7 @@
 
 같은 문서를 WebFetch로 여러 번 읽는 세션이 많다. 이 훅은 첫 결과를 디스크에 두었다가, 원본 서버가 "바뀌지 않았다"고 확인해 줄 때만 그 결과를 돌려준다. 바뀌었는지 모르는 상태에서는 캐시를 쓰지 않는다. 확인을 받아도 저장한 지 24시간이 지난 항목은 쓰지 않는다. 이유는 [알아 둘 한계](#알아-둘-한계)에 있다.
 
-**Claude만 지원한다.** Codex와 Grok은 훅을 지원하지 않는다.
+**Gestalt의 현재 WebFetch 캐시 통합은 Claude Code 전용이다.** Codex와 Grok용 통합은 제공하지 않는다. Codex 자체의 수동 설치 desktop 플러그인 훅 지원과 trust, 배포 제한은 [Codex 훅 지원 범위](./codex-hooks.md)에 정리했다. 아래 `WebFetch` 도구 이름, payload, 환경변수와 `exit 2` 처리는 Claude Code 기준이며 Codex 호환성을 검증한 계약이 아니다.
 
 ## 켜는 법
 

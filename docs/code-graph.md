@@ -549,7 +549,7 @@ main 코드로 빌드한 이 레포의 DB(파일 484개)를 이 버전으로 열
 
 게슈탈트 플러그인에 Claude Code 훅이 들어 있다. 켜두면 묻지 않아도 세션에 코드 그래프 컨텍스트가 들어간다. 세션을 열 때 레포 맵이 붙는다. 프롬프트를 보내면 관련 심볼 위치가 붙는다. 파일을 고치면 그 파일의 영향 범위가 붙는다. 매번 `ges_code_graph`를 부르지 않아도 어디를 봐야 하는지 알 수 있다.
 
-**Claude만 지원한다.** Codex와 Grok 훅은 없다.
+**Gestalt의 현재 자동 주입 통합은 Claude Code 전용이다.** Codex와 Grok용 통합은 제공하지 않는다. Codex 자체의 수동 설치 desktop 플러그인 훅 지원과 trust, 배포 제한은 [Codex 훅 지원 범위](./codex-hooks.md)에 정리했다. 아래 이벤트와 payload 설명은 Claude Code 기준이다. `ges_code_graph` 질의와 Git post-commit 훅은 이 호스트 훅 통합과 별개다.
 
 ### 켜는 법
 

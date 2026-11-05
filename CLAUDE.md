@@ -7,7 +7,7 @@
 ## 설계 전제
 - Execute Engine은 설계상 **항상 Passthrough 모드**다. Claude Code가 도구(Bash/Edit 등)로 실제 파일 수정과 코드 실행을 하므로 LLM 주체가 되고, API 키 유무와 무관하다. MCP 서버도 API 키가 없으면 Passthrough가 자동으로 켜진다.
 - Local PR은 에이전트끼리 레포 안에서 PR을 만들고 리뷰하고 머지하는 자리라 원격에 안 나간다. 워크트리 여럿이 `.gestalt/reviews.db` 하나를 공유한다.
-- 코드 그래프 훅 자동 주입과 WebFetch 디스크 캐시 훅은 둘 다 기본 꺼짐이다. peer 보는 중 표시 훅은 늘 돌지만 Node를 안 띄운다. 세션에 보는 사람이나 승인 대기가 있거나 팀원의 에이전트가 요약을 가져갔을 때만 데몬이 상태 파일을 써 두고 훅은 그 세션에만 붙인다.
+- 현재 Gestalt 훅 통합은 Claude Code 전용이다. 코드 그래프 훅 자동 주입과 WebFetch 디스크 캐시 훅은 둘 다 기본 꺼짐이다. peer 보는 중 표시 훅은 늘 돌지만 Node를 안 띄운다. 세션에 보는 사람이나 승인 대기가 있거나 팀원의 에이전트가 요약을 가져갔을 때만 데몬이 상태 파일을 써 두고 훅은 그 세션에만 붙인다.
 
 ## Key Commands
 ```bash
@@ -30,6 +30,7 @@ MCP 도구 목록과 액션 스키마는 `src/mcp/`의 툴 정의가 기준이�
 세션 공유 → [`docs/peer.md`](./docs/peer.md)
 아키텍처 그림 → [`docs/architecture-view.md`](./docs/architecture-view.md)
 WebFetch 캐시 훅 → [`docs/webfetch-cache.md`](./docs/webfetch-cache.md)
+Codex 훅 지원 범위 → [`docs/codex-hooks.md`](./docs/codex-hooks.md)
 설계 제안 → [docs/proposals/](./docs/proposals/README.md)
 
 ## Role Agent 자동 라우팅
@@ -69,8 +70,8 @@ agents/                           Claude 플러그인 에이전트 (gestalt:<이
 - Codex는 `path`가 가리킨 디렉토리를 통째로 복사한다. 레포 루트를 가리키면 `.git`과 `node_modules`까지 딸려가 1.6GB가 되므로 반드시 `plugin/`으로 좁힌다.
 - Codex는 심링크를 따라가지 않는다. 자산은 실물 파일로 `plugin/` 안에 있어야 한다.
 - `plugin/skills/review/SKILL.md`가 `../../role-agents/`를 참조한다. 스킬과 에이전트를 함께 옮겨야 이 상대 깊이가 유지된다.
-- 훅은 루트 `hooks/hooks.json` 하나만 두고 `plugin.json`에 `hooks` 필드를 넣지 않는다. 문서상 필드와 기본 파일은 merge된다. 같은 파일을 가리키면 실제로는 한 번만 걸리는 걸 확인했지만 그래도 한 곳만 둔다.
-- Codex와 Grok 훅은 지원하지 않는다. 훅 자동 주입은 Claude 전용이다.
+- Claude Code 훅은 루트 `hooks/hooks.json` 하나만 두고 `plugin.json`에 `hooks` 필드를 넣지 않는다. Claude Code 문서상 필드와 기본 파일은 merge된다. 같은 파일을 가리키면 실제로는 한 번만 걸리는 걸 확인했지만 그래도 한 곳만 둔다.
+- Gestalt의 코드 그래프 자동 주입, WebFetch 캐시, peer 보는 중 표시 훅은 현재 Claude Code 전용이며 Codex와 Grok에는 통합하지 않았다. Codex 자체는 수동 설치한 desktop 플러그인의 훅을 지원하지만 명시적 trust가 필요하고 훅 포함 플러그인은 public directory 대상이 아니다. 근거와 호스트별 경계는 [`docs/codex-hooks.md`](./docs/codex-hooks.md)에 있다(공식 문서 확인: 2026-11-05).
 - 루트 `agents/`는 리뷰어 전부와 스킬이 `subagent_type: "gestalt:<이름>"`으로 띄우는 에이전트만 뽑은 생성물이다. 에이전트마다 설명이 모든 세션의 Agent 도구 설명에 붙어서 대상을 좁히고 설명도 빌드 스크립트의 한 줄짜리로 바꿔 싣는다. 고칠 곳은 원본 AGENT.md이고 도구와 `omitClaudeMd`는 `scripts/build-claude-agents.ts`의 표에서 정한다. 타입을 못 찾는 런타임은 Explore와 `ges_agent`로 폴백한다(`plugin/skills/_shared/agent-delegation.md`).
 - `plugin.json`에 `agents` 필드를 넣지 않는다. 배열로 넣으면 기본 `agents/` 디렉토리를 대체한다. 디렉토리 문자열을 넣으면 플러그인 로드가 통째로 깨진다(2.1.302에서 확인). 원리 에이전트가 있는 `plugin/agents/`는 Claude가 직접 읽는 자리가 아니다. 빌드가 continuity-judge만 여기서 읽어 루트 `agents/`로 뽑는다.
 - 생성물 본문의 룰북 경로는 `${CLAUDE_PLUGIN_ROOT}/plugin/...`이다. Claude Code가 에이전트 본문의 이 변수를 설치 경로로 치환해서 서브에이전트가 남의 레포에서 돌아도 풀린다.

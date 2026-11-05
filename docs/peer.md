@@ -161,6 +161,8 @@ TLS 없이 띄우면 위 라우팅 정보가 네트워크에 그대로 보인다
 
 ### 보는 중 표시
 
+현재 Gestalt의 보는 중 표시 훅은 Claude Code에만 통합했다. Codex 자체의 훅 기능과 이 통합 범위는 별개이며 지원 환경과 trust 조건은 [Codex 훅 지원 범위](./codex-hooks.md)에 있다. 아래 `UserPromptSubmit`, `session_id`, `additionalContext` 계약은 Claude Code 기준이다.
+
 공유가 열려 있고 원격으로 보는 사람이 있으면 주인 세션의 매 프롬프트에 이 한 줄이 붙는다(`UserPromptSubmit` 훅의 `additionalContext`). 승인을 기다리는 사람이 있으면 그 줄이 하나 더 붙는다.
 
 ```
@@ -457,7 +459,7 @@ ges_peer { action: "list", person?: "alice" }
 - 보내는 건 `event_msg`의 `user_message`(주인 프롬프트)와 `agent_message`(모델 답), `response_item`의 도구 호출(`function_call`, `custom_tool_call`, `local_shell_call`)과 결과(`function_call_output`, `custom_tool_call_output`)뿐이다. 도구 호출과 결과 가운데 기록에서 실제로 본 건 `custom_tool_call`과 그 결과뿐이고 나머지 셋은 바이너리에 있는 이름이다. 그 셋의 필드(`arguments`, `action.command`, `output.success`)는 확인하지 못했다. 꼴이 다르면 도구 이름만 보이고 입력과 결과가 비는 쪽으로 깨진다. 도구 입력과 결과는 Claude Code 기록과 같은 `--tools` 규칙과 가리기를 탄다.
 - 안 보내는 것: `session_meta`(시스템 프롬프트 원문), `world_state`(AGENTS.md 원문), `turn_context`, role과 무관한 `response_item` `message`(사람이 친 말 옆에 AGENTS.md 전문과 `<environment_context>`가 같이 들어 있다), 추론(`reasoning`, `agent_reasoning`, `agent_reasoning_raw_content`, `agent_reasoning_section_break`), 압축 요약(`compacted`), 그 밖의 `event_msg`. 추론과 압축 요약은 기록에 없어서 바이너리에 있는 이름을 "모르는 줄"로 세지 않는 목록에 넣어 뒀다. 이 목록에서 빠져도 허용 목록 밖이라 안 나간다. 모르는 종류는 개수만 띄운다.
 - 메시지와 질문 답은 안 받는다. 주인 데몬이 `messages_off`로 거절하고 보는 사람 뷰어에 입력창이 안 뜬다. 세션 id가 없어서 `ges_peer ask_user`로도 고를 수 없다.
-- 보는 중 표시 훅은 Claude Code 훅이라 Codex 세션에는 안 걸린다. Codex 주인은 `gestalt peer shares`로 누가 보는지, 누구의 에이전트가 요약을 가져갔는지 본다. 첫 접속 승인과 kick은 Claude Code 공유와 같다.
+- Gestalt는 Codex용 보는 중 표시 훅을 아직 통합하지 않았다. Codex 주인은 `gestalt peer shares`로 누가 보는지, 누구의 에이전트가 요약을 가져갔는지 본다. 첫 접속 승인과 kick은 Claude Code 공유와 같다. Codex 자체의 훅 지원 환경은 [지원 범위](./codex-hooks.md)에 있다.
 - `--agent-peek`은 Codex 공유에도 같은 규칙으로 켠다. 요약은 허용 목록으로 거른 이벤트에서만 추리고 고친 파일은 `apply_patch` 입력의 `*** Add File:`, `*** Update File:`, `*** Delete File:` 머리줄에서 꺼낸다. 메시지와 답은 계속 안 받는다.
 - 모르는 줄이 늘면 감사 로그 `unknown_lines`에 `format: codex`와 codex-cli 버전을 남긴다.
 
@@ -603,7 +605,7 @@ PR 5에서 넘긴 것이다.
 - **`ges_peer`의 나머지 action과 `/gestalt:share`.** `ask_user` 하나만 만들었다. PR 6에서 `peek`을, PR 7에서 `send`, `status`, `list`와 `/gestalt:share`를 더했다. `share` action은 만들지 않기로 했고 `inbox`는 아직 없다.
 - **질문 시한이 지난 걸 주인 세션에 알리기.** 도구 응답의 `expiresAt`으로 모델이 안다. 따로 넣지 않는다.
 - **여러 사람 답 모으기.** 질문 하나에 답 하나다. 사람마다 `to`로 따로 묻는다.
-- **Codex 세션의 승인 대기 알림.** 보는 중 표시 훅이 Claude Code 전용이라 Codex 주인은 `peer shares`로만 승인 대기를 본다.
+- **Codex 세션의 승인 대기 알림.** 현재 Gestalt의 보는 중 표시 훅 통합이 Claude Code 전용이라 Codex 주인은 `peer shares`로만 승인 대기를 본다. Codex용 훅 통합은 아직 없다.
 - **Codex 대화형(TUI) 세션 기록 확인.** 0.147.0 `codex exec` 기록으로만 줄 종류를 확인했다. 대화형 세션에서 새 종류가 나오면 모르는 줄로 세어지고 나가지는 않는다.
 
 PR 6에서 넘긴 것이다.

@@ -56,7 +56,8 @@
     "verify:routing": "tsx scripts/build-skill-routing.ts --check",
     "build:agents": "tsx scripts/build-claude-agents.ts",
     "verify:agents": "tsx scripts/build-claude-agents.ts --check",
-    "verify:skill-confusion": "tsx scripts/verify-skill-confusion.ts"
+    "verify:skill-confusion": "tsx scripts/verify-skill-confusion.ts",
+    "test:codex-e2e": "tsx scripts/codex-e2e.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
