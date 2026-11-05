@@ -8,10 +8,19 @@ import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { LocalPrEngine, PrError } from '../../local-pr/engine.js';
 import { errorKind } from './pr.js';
 import { consensusVerdict, resolveActor } from '../../local-pr/policy.js';
-import type { ContinuityVerdict, ReviewIssue, ReviewPublishState } from '../../core/types.js';
+import type {
+  ContinuityVerdict,
+  ReviewIssue,
+  ReviewPublishState,
+  ReviewVerifierRecord,
+} from '../../core/types.js';
 import type { ReviewVerdict } from '../../local-pr/types.js';
 import { log } from '../../core/log.js';
 import { resolveExecuteSessionInput, asMemoryNote } from './execute/utils.js';
+import {
+  checkVerifierBeforePublish,
+  summarizeVerifierRecord,
+} from '../../review/verifier-record.js';
 
 const SHA_PATTERN = /^[0-9a-f]{7,64}$/i;
 
@@ -39,6 +48,8 @@ export function handleReviewPassthrough(
         return handleReviewStart(reviewEngine, executeEngine, roleAgentRegistry, input);
       case 'review_submit':
         return handleReviewSubmit(reviewEngine, input);
+      case 'review_verify':
+        return handleReviewVerify(reviewEngine, input);
       case 'review_consensus':
         return handleReviewConsensus(reviewEngine, executeEngine, input);
       case 'review_fix':
@@ -189,6 +200,57 @@ function handleReviewSubmit(reviewEngine: PassthroughReviewEngine, input: Execut
   );
 }
 
+function handleReviewVerify(reviewEngine: PassthroughReviewEngine, input: ExecuteInput): string {
+  if (!input.reviewSessionId) {
+    return JSON.stringify({ error: 'reviewSessionId is required for review_verify' });
+  }
+  if (input.verifierOutput === undefined) {
+    return JSON.stringify({
+      error:
+        'verifierOutput is required for review_verify. suggestion-verifier 응답을 그대로 넣는다. 서브에이전트가 실패했으면 돌아온 글을 그대로 넣는다.',
+    });
+  }
+
+  const result = reviewEngine.submitVerification(input.reviewSessionId, input.verifierOutput);
+  if (!result.ok) return JSON.stringify({ error: result.error.message });
+
+  const record = result.value;
+  const { verdictCount, skippedCount, duplicateCount } = summarizeVerifierRecord(record);
+  return JSON.stringify(
+    {
+      status: 'review_verified',
+      reviewSessionId: input.reviewSessionId,
+      verifier: record.status,
+      failure: record.failure,
+      verdictCount,
+      skippedCount,
+      duplicateCount,
+      message:
+        record.status === 'ran'
+          ? `제안 검증 판정 ${verdictCount}개를 기록했다.${unreadNote(record)} 판정을 mergedIssues와 droppedIssues에 반영해 review_consensus를 부른다.`
+          : '응답에서 판정을 못 읽어 서브에이전트 실패로 기록했다. 초안 그대로 review_consensus를 부르고 사용자에게 검증을 못 돌렸다고 알린다. 게시하면 PR 판정에 그 사실이 함께 남는다.',
+    },
+    null,
+    2,
+  );
+}
+
+/** 판정은 읽었는데 응답 일부를 못 읽었으면 그 사실을 메인에게 알린다 */
+function unreadNote(record: ReviewVerifierRecord): string {
+  const notes: string[] = [];
+  if (record.skippedCount > 0) {
+    notes.push(
+      ` 응답 항목 ${record.skippedCount}개는 issueId나 verdict가 없거나 잘못돼 읽지 않았다. 그 이슈는 판정 없이 남는다.`,
+    );
+  }
+  if (record.duplicateCount > 0) {
+    notes.push(
+      ` 같은 issueId가 ${record.duplicateCount}번 더 나와 이슈를 덜 빼는 쪽 판정만 남겼다.`,
+    );
+  }
+  return notes.join('');
+}
+
 function handleReviewConsensus(
   reviewEngine: PassthroughReviewEngine,
   executeEngine: PassthroughExecuteEngine,
@@ -198,7 +260,11 @@ function handleReviewConsensus(
     return JSON.stringify({ error: 'reviewSessionId is required for review_consensus' });
   }
   if (!input.reviewConsensus) {
-    return JSON.stringify({ error: 'reviewConsensus is required for review_consensus' });
+    // 최상위에 둔 mergedIssues는 스키마가 모르는 키라 여기 오기 전에 버려진다. 그 꼴이 잦아서 자리를 알려준다
+    return JSON.stringify({
+      error:
+        'reviewConsensus is required for review_consensus. mergedIssues와 droppedIssues는 reviewConsensus 객체 안에 넣는다. 최상위에 두면 버려진다.',
+    });
   }
 
   const result = reviewEngine.submitConsensus(
@@ -418,6 +484,11 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
     });
   }
 
+  // 코멘트를 한 건이라도 쓰기 전에 거른다. PR은 이벤트 소싱이라 쓴 뒤에는 되돌릴 수 없다
+  const gate = checkVerifierBeforePublish(session, consensus);
+  if (!gate.ok) return JSON.stringify({ error: gate.error.message });
+  const { status: verifier, coverage } = gate.value;
+
   const prId = input.prId ?? session.prId;
   if (!prId) {
     return JSON.stringify({
@@ -540,7 +611,15 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
       author: actorOfAgent(issue.reportedBy),
     }));
 
-    const pr = engine.review(prId, { reviewer, verdict, summary: consensus.summary });
+    // 검증 없이 올린 의견이라는 걸 PR을 읽는 사람도 알아야 한다. 세션 응답만으로는 안 남는다
+    const notes: string[] = [];
+    if (verifier === 'failed') notes.push('제안 검증을 못 돌려 리뷰어 제안을 검증 없이 옮겼다.');
+    if (coverage && coverage.judged < coverage.total) {
+      notes.push(`이슈 ${coverage.total}개 중 ${coverage.judged}개만 제안 검증 판정이 있다.`);
+    }
+    const summary =
+      notes.length > 0 ? `${consensus.summary}\n\n${notes.join(' ')}` : consensus.summary;
+    const pr = engine.review(prId, { reviewer, verdict, summary });
     state.completed = true;
 
     return JSON.stringify(
@@ -553,6 +632,8 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
         commentCount: postedComments.length,
         comments: postedComments,
         resumedFrom: prior ? prior.postedCount : 0,
+        verifier,
+        ...(coverage ? { verifierCoverage: coverage } : {}),
         prStatus: pr.status,
         round: pr.rounds.length,
         message:

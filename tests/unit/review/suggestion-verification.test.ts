@@ -5,8 +5,8 @@ import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
 import { PassthroughReviewEngine } from '../../../src/review/passthrough-engine.js';
 import {
-  checkDroppedIssues,
   isUndroppable,
+  resolveDroppedIssues,
   verificationStats,
 } from '../../../src/review/verification.js';
 import type {
@@ -378,6 +378,13 @@ describe('PassthroughReviewEngine 제안 검증', () => {
     });
 
     it('리뷰어마다 같은 id를 썼을 때 접두 없는 id는 거부하고 접두 붙은 id는 그 리뷰어 원본만 본다', () => {
+      // security 원본은 합의에 이어 둔다. 안 이으면 drop과 상관없이 그 원본 때문에 거부된다
+      const secOriginal = issue({
+        id: 'security-reviewer:issue-1',
+        category: 'security',
+        severity: 'high',
+        reportedBy: 'security-reviewer',
+      });
       const id = open({
         'security-reviewer': [issue({ id: 'issue-1', category: 'security', severity: 'high' })],
         'quality-reviewer': [issue({ id: 'issue-1', severity: 'warning' })],
@@ -397,7 +404,7 @@ describe('PassthroughReviewEngine 제안 검증', () => {
       const prefixed = engine.submitConsensus(
         id,
         consensus(
-          [],
+          [secOriginal],
           [
             drop(
               issue({
@@ -497,7 +504,14 @@ describe('PassthroughReviewEngine 제안 검증', () => {
       const result = engine.submitConsensus(
         id,
         consensus(
-          [],
+          [
+            issue({
+              id: 'security-reviewer:issue-3',
+              category: 'security',
+              severity: 'high',
+              reportedBy: 'security-reviewer',
+            }),
+          ],
           [
             drop(
               issue({
@@ -521,7 +535,17 @@ describe('PassthroughReviewEngine 제안 검증', () => {
 
       const result = engine.submitConsensus(
         id,
-        consensus([], [drop(issue({ id: 'perf-9', category: 'performance' }))]),
+        consensus(
+          [
+            issue({
+              id: 'issue-1',
+              category: 'security',
+              severity: 'high',
+              reportedBy: 'security-reviewer',
+            }),
+          ],
+          [drop(issue({ id: 'perf-9', category: 'performance' }))],
+        ),
       );
 
       expect(result.ok).toBe(true);
@@ -535,7 +559,14 @@ describe('PassthroughReviewEngine 제안 검증', () => {
       const result = engine.submitConsensus(
         id,
         consensus(
-          [],
+          [
+            issue({
+              id: 'issue-1',
+              category: 'security',
+              severity: 'high',
+              reportedBy: 'security-reviewer',
+            }),
+          ],
           [drop(issue({ id: 'performance-reviewer:issue-2', category: 'performance' }))],
         ),
       );
@@ -547,7 +578,15 @@ describe('PassthroughReviewEngine 제안 검증', () => {
   describe('근거가 비었으면 거부한다', () => {
     const blanks = ['', ' ', '   ', '\n', '\t \n '];
     // 제로폭 공백, 단어 결합자, BOM처럼 trim()에 안 걸리는 보이지 않는 문자와 문장부호뿐인 값
-    const invisible = ['\u200b', '\u200b\u200b', ' \u2060\ufeff\u200b ', '\u00a0\u3000', '- . -'];
+    const invisible = [
+      '\u200b',
+      '\u200b\u200b',
+      ' \u2060\ufeff\u200b ',
+      '\u00a0\u3000',
+      '\u3164',
+      '\u115f\u1160\uffa0',
+      '- . -',
+    ];
 
     it('공백뿐인 dropReason', () => {
       const id = open();
@@ -885,16 +924,16 @@ describe('PassthroughReviewEngine 제안 검증', () => {
   });
 });
 
-describe('checkDroppedIssues', () => {
-  it('droppedIssues가 없거나 비면 null이다', () => {
-    expect(checkDroppedIssues(consensus([]), [])).toBeNull();
-    expect(checkDroppedIssues(consensus([], []), [])).toBeNull();
+describe('resolveDroppedIssues', () => {
+  it('droppedIssues가 없거나 비면 통과한다', () => {
+    expect(resolveDroppedIssues(consensus([]), [])).toEqual({ ok: true, value: undefined });
+    expect(resolveDroppedIssues(consensus([], []), [])).toEqual({ ok: true, value: [] });
   });
 
   it('review_submit 원본이 하나도 없으면 입력만 보고 판단한다', () => {
-    expect(checkDroppedIssues(consensus([], [drop(issue({ id: 'ok' }))]), [])).toBeNull();
+    expect(resolveDroppedIssues(consensus([], [drop(issue({ id: 'ok' }))]), []).ok).toBe(true);
     expect(
-      checkDroppedIssues(consensus([], [drop(issue({ id: 'no', category: 'security' }))]), []),
-    ).not.toBeNull();
+      resolveDroppedIssues(consensus([], [drop(issue({ id: 'no', category: 'security' }))]), []).ok,
+    ).toBe(false);
   });
 });

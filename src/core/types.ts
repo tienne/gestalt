@@ -655,6 +655,26 @@ export interface ReviewConsensusResult {
   droppedIssues?: DroppedReviewIssue[];
 }
 
+/** review_consensus가 받는 이슈. reportedBy가 비면 엔진이 review_submit 원본에서 채운다 */
+export type ReviewIssueInput = Omit<ReviewIssue, 'reportedBy'> & { reportedBy?: string };
+
+/** 뺀 이슈는 id와 뺀 이유만 있으면 나머지를 원본에서 채운다 */
+export type DroppedReviewIssueInput = Pick<ReviewIssue, 'id'> &
+  Partial<Omit<ReviewIssue, 'id'>> & { dropReason: string; dropEvidence: string };
+
+/**
+ * review_consensus 입력. 엔진이 세션에서 셀 수 있는 칸은 비어 와도 된다.
+ * overallApproved는 받아도 쓰지 않는다. 판정은 엔진이 mergedIssues와 정합 심급으로 낸다.
+ */
+export interface ReviewConsensusInput {
+  mergedIssues: ReviewIssueInput[];
+  approvedBy?: string[];
+  blockedBy?: string[];
+  summary?: string;
+  overallApproved?: boolean;
+  droppedIssues?: DroppedReviewIssueInput[];
+}
+
 /** 정합 심급이 판단하는 세 축. goal=목표 정합, consistency=일관성, drift=이탈. */
 export type ContinuityAxis = 'goal' | 'consistency' | 'drift';
 
@@ -729,6 +749,43 @@ export interface ReviewPublishState {
   reviewer: string;
 }
 
+/** 제안 검증 응답에서 엔진이 읽은 이슈 하나의 판정 */
+export interface ReviewVerifierVerdict {
+  verdict: 'keep' | 'revise' | 'drop';
+  hasEvidence: boolean;
+}
+
+/**
+ * review_verify가 남기는 제안 검증(review 스킬 3.7단계) 기록.
+ *
+ * 메인이 검증기 응답을 그대로 넘기면 엔진이 직접 읽어 판정을 남긴다. 3.7단계를 돌렸는지와
+ * 서브에이전트 실패로 건너뛴 게 맞는지를 review_publish가 이 기록으로 가른다. 메인이
+ * 고른 사유를 받지 않는 이유는 그 칸이 곧 건너뛰기 스위치가 되기 때문이다.
+ *
+ * 엔진은 응답이 실제 검증기에서 왔는지 가리지 못한다. 빈 응답은 거부하지만 판정 없는 글을
+ * 넣으면 failed로 기록되고 게시된다. 그 흔적은 PR 판정 본문의 한 문장과 응답의 verifier
+ * 칸에만 남는다. 조용히 건너뛰던 것을 드러나게 할 뿐 지어낸 응답까지 막지는 않는다.
+ */
+export interface ReviewVerifierRecord {
+  /** ran은 판정을 읽었다는 뜻이고 failed는 판정을 하나도 못 읽었다는 뜻이다 */
+  status: 'ran' | 'failed';
+  /** 빈 응답은 review_verify가 기록 없이 거부하므로 여기 오지 않는다 */
+  failure?: 'unparseable' | 'no_verifications';
+  /** 기록할 때까지 들어온 review_submit 수. 합의 때 이보다 늘었으면 검증 뒤에 초안이 바뀐 것이다 */
+  submitCount: number;
+  verdicts: Record<string, ReviewVerifierVerdict>;
+  /** issueId나 verdict가 없거나 잘못돼 읽지 않은 항목 수 */
+  skippedCount: number;
+  /** 같은 issueId가 다시 나온 횟수. 겹친 판정은 이슈를 덜 빼는 쪽만 남긴다 */
+  duplicateCount: number;
+}
+
+/** review_consensus 때 제안 검증 기록이 어떤 상태였는지. review_publish는 이것만 본다 */
+export type ReviewVerifierAtConsensus =
+  | { status: 'ran' | 'failed'; record: ReviewVerifierRecord }
+  | { status: 'missing' }
+  | { status: 'stale'; record: ReviewVerifierRecord };
+
 export interface ReviewSession {
   sessionId: string;
   executeSessionId: string;
@@ -748,6 +805,10 @@ export interface ReviewSession {
   reviewResults: ReviewResult[];
   consensus?: ReviewConsensusResult;
   continuityVerdict?: ContinuityVerdict;
+  /** 가장 최근 review_verify 기록 */
+  verifier?: ReviewVerifierRecord;
+  /** 지금 합의를 받을 때의 검증 기록 상태. 합의 뒤에 온 review_verify는 여기 안 들어간다 */
+  verifierAtConsensus?: ReviewVerifierAtConsensus;
   reports: ReviewReport[];
   createdAt: string;
   updatedAt: string;

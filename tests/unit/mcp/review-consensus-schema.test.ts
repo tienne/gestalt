@@ -125,12 +125,71 @@ describe('reviewConsensus 스키마: 제안 검증 필드', () => {
     expect(parsed.success).toBe(true);
   });
 
-  it('droppedIssues 항목도 mergedIssues와 같은 필수 필드를 요구한다', () => {
+  // 나머지 칸은 엔진이 원본에서 채운다 (tests/unit/review/consensus-input.test.ts)
+  it('droppedIssues 항목은 id와 dropReason, dropEvidence만 있으면 스키마를 통과한다', () => {
     const parsed = parse({
       mergedIssues: [],
-      droppedIssues: [{ ...baseIssue, reportedBy: undefined, dropReason: 'r', dropEvidence: 'e' }],
+      droppedIssues: [{ id: 'i1', dropReason: 'r', dropEvidence: 'e' }],
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it('droppedIssues 항목에 id가 없으면 받지 않는다', () => {
+    const { id: _id, ...noId } = baseIssue;
+    const parsed = parse({
+      mergedIssues: [],
+      droppedIssues: [{ ...noId, dropReason: 'r', dropEvidence: 'e' }],
     });
 
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe('reviewConsensus 스키마: 엔진이 채우는 칸', () => {
+  it('mergedIssues만 있어도 받는다', () => {
+    const parsed = executeInputSchema.safeParse({
+      action: 'review_consensus',
+      reviewSessionId: 'rs-1',
+      reviewConsensus: { mergedIssues: [] },
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it('reportedBy가 비어도 받는다', () => {
+    const { reportedBy: _by, ...noReporter } = baseIssue;
+    expect(parse({ mergedIssues: [noReporter] }).success).toBe(true);
+  });
+
+  it('reportedBy 배열은 첫 값으로 받는다', () => {
+    const parsed = parse({ mergedIssues: [{ ...baseIssue, reportedBy: ['a', 'b'] }] });
+
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.reviewConsensus!.mergedIssues[0]!.reportedBy).toBe('a');
+  });
+
+  it('reportedBy 배열의 첫 값이 문자열이 아니면 받지 않는다', () => {
+    expect(parse({ mergedIssues: [{ ...baseIssue, reportedBy: [1, 'b'] }] }).success).toBe(false);
+  });
+
+  it('두 번 파싱해도 결과가 같다', () => {
+    const once = parse({
+      mergedIssues: [
+        {
+          ...baseIssue,
+          reportedBy: ['a', 'b'],
+          verification: { verdict: 'keep', reason: 'r', alsoCheck: 'x.ts:1' },
+        },
+      ],
+    });
+    expect(once.success).toBe(true);
+    if (!once.success) return;
+    const twice = executeInputSchema.safeParse(once.data);
+
+    expect(twice.success).toBe(true);
+    if (!twice.success) return;
+    expect(twice.data.reviewConsensus).toEqual(once.data.reviewConsensus);
   });
 });

@@ -5,6 +5,7 @@ import type {
   ReviewSession,
   ReviewResult,
   ReviewConsensusResult,
+  ReviewConsensusInput,
   ReviewReport,
   ReviewIssue,
   ReviewContext,
@@ -12,6 +13,7 @@ import type {
   AgentDefinition,
   ContinuityVerdict,
   ContinuityDriftFinding,
+  ReviewVerifierRecord,
 } from '../core/types.js';
 import { type Result, ok, err } from '../core/result.js';
 import { ReviewContextCollector } from './context-collector.js';
@@ -27,7 +29,15 @@ import { logger } from '../core/logger.js';
 import type { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { isConsensusApproved } from '../local-pr/policy.js';
-import { checkDroppedIssues, verificationStats, type VerificationStats } from './verification.js';
+import { hasContent, verificationStats, type VerificationStats } from './verification.js';
+import { resolveConsensusInput } from './consensus-input.js';
+import {
+  checkConsensusAgainstVerifier,
+  parseVerifierOutput,
+  stripCodeFences,
+  summarizeVerifierRecord,
+  verifierAtConsensus,
+} from './verifier-record.js';
 
 const MAX_REVIEW_ATTEMPTS = 3;
 
@@ -273,10 +283,44 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     });
   }
 
+  // ─── review_verify ────────────────────────────────────────────
+  /**
+   * 제안 검증 응답을 읽어 세션에 남긴다. 응답을 못 읽어도 거부하지 않는다 — 서브에이전트
+   * 실패도 기록으로 남아야 review_publish가 정당한 생략으로 가를 수 있다. 다만 빈 응답은
+   * 기록하지 않고 거부한다. 검증기를 안 띄우고 빈 문자열만 넘겨도 실패가 되면 그게 가장 싼
+   * 건너뛰기 길이 된다.
+   */
+  submitVerification(sessionId: string, verifierOutput: string): Result<ReviewVerifierRecord> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return err(new Error(`Review session not found: ${sessionId}`));
+    if (!hasContent(stripCodeFences(verifierOutput))) {
+      return err(
+        new Error(
+          '검증기 응답이 비었다. suggestion-verifier를 한 번 다시 띄워 그 응답을 넘긴다. ' +
+            '두 번째도 비면 그 사실을 적은 글을 넘긴다. 실패로 기록되고 초안 그대로 게시된다.',
+        ),
+      );
+    }
+
+    const record = parseVerifierOutput(verifierOutput, session.reviewResults.length);
+    session.verifier = record;
+    session.updatedAt = new Date().toISOString();
+
+    logger.info('review.verified', {
+      module: 'review',
+      sessionId,
+      status: record.status,
+      failure: record.failure,
+      ...summarizeVerifierRecord(record),
+    });
+
+    return ok(record);
+  }
+
   // ─── review_consensus ─────────────────────────────────────────
   submitConsensus(
     sessionId: string,
-    consensus: ReviewConsensusResult,
+    input: ReviewConsensusInput,
     continuityVerdict?: ContinuityVerdict,
   ): Result<{
     approved: boolean;
@@ -301,18 +345,39 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       return err(new Error(missingProblem));
     }
 
-    const dropProblem = checkDroppedIssues(consensus, session.reviewResults);
-    if (dropProblem) {
+    // 뺀 이슈 검사도 여기서 돈다. 빈 칸을 채우기 전에 원본으로 금지 여부부터 본다
+    const resolved = resolveConsensusInput(input, session.reviewResults);
+    if (!resolved.ok) {
       logger.warn('review.consensus_rejected', {
         module: 'review',
         sessionId,
-        droppedCount: consensus.droppedIssues?.length ?? 0,
+        reason: 'unresolvable_input',
+        droppedCount: input.droppedIssues?.length ?? 0,
       });
-      return err(new Error(dropProblem));
+      return err(resolved.error);
     }
+
+    const verifier = verifierAtConsensus(session);
+    const verifierProblem = checkConsensusAgainstVerifier(verifier, resolved.value);
+    if (verifierProblem) {
+      logger.warn('review.consensus_rejected', {
+        module: 'review',
+        sessionId,
+        reason: 'verifier_mismatch',
+        verifier: verifier.status,
+      });
+      return err(new Error(verifierProblem));
+    }
+
+    // 두 심급을 합친 경계는 정책이 정한다. review_publish가 PR에 남길 판정도 같은
+    // 함수를 부른다 — 따로 세면 파이프라인은 통과인데 PR은 리젝인 상태가 생긴다.
+    // 입력의 overallApproved는 쓰지 않는다
+    const approved = isConsensusApproved(resolved.value.mergedIssues, continuityVerdict);
+    const consensus: ReviewConsensusResult = { ...resolved.value, overallApproved: approved };
 
     session.consensus = consensus;
     session.continuityVerdict = continuityVerdict;
+    session.verifierAtConsensus = verifier;
     session.status = 'consensus';
     session.updatedAt = new Date().toISOString();
 
@@ -323,16 +388,13 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     const defectApproved = criticalHighIssues.length === 0;
     const continuityBlocks = continuityVerdict ? !continuityVerdict.coherent : false;
     const escalate = continuityVerdict?.escalate ?? false;
-    // 두 심급을 합친 경계는 정책이 정한다. review_publish가 PR에 남길 판정도 같은
-    // 함수를 부른다 — 따로 세면 파이프라인은 통과인데 PR은 리젝인 상태가 생긴다
-    const approved = isConsensusApproved(consensus.mergedIssues, continuityVerdict);
     const needsFix = !approved;
     // review_fix 루프는 결함만 해결한다. 결함이 없고 정합 심급만 Block이면
     // 자동 수정 대상이 아니므로 canFix=false (escalate 신호로 라우팅).
     const canFix = !defectApproved && session.currentAttempt < session.maxAttempts;
 
     const report = this.reportGenerator.generate(
-      { ...consensus, overallApproved: approved },
+      consensus,
       session.currentAttempt + 1,
       continuityVerdict,
       session.repoRoot,
@@ -352,6 +414,7 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       escalate,
       // 제안 검증이 라운드 수를 줄였는지 나중에 재려고 남긴다
       verification,
+      verifier: verifier.status,
     });
 
     if (approved) {
@@ -539,6 +602,8 @@ Fix these issues while maintaining code integrity. Run structural checks after f
     session.reviewResults = [];
     session.consensus = undefined;
     session.continuityVerdict = undefined;
+    session.verifier = undefined;
+    session.verifierAtConsensus = undefined;
     session.status = 'started';
     session.updatedAt = new Date().toISOString();
 

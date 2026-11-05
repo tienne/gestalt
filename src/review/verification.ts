@@ -1,4 +1,12 @@
-import type { ReviewConsensusResult, ReviewIssue, ReviewResult } from '../core/types.js';
+import type {
+  DroppedReviewIssue,
+  DroppedReviewIssueInput,
+  ReviewConsensusInput,
+  ReviewConsensusResult,
+  ReviewIssue,
+  ReviewResult,
+} from '../core/types.js';
+import { type Result, ok, err } from '../core/result.js';
 
 /**
  * 제안 검증이 판정에서 뺄 수 없는 이슈인가.
@@ -8,10 +16,11 @@ import type { ReviewConsensusResult, ReviewIssue, ReviewResult } from '../core/t
  * category에 `secur`나 `appsec`이 들어 있으면 자리와 구분자와 상관없이 security로 본다.
  * 접두만 보면 `app-security`, 콜론만 보면 `security/xss`처럼 모양만 바꾼 이슈가 빠져나간다.
  * 넓게 막는 쪽이 싸다.
+ * 비어 있는 칸은 금지 근거가 못 된다. 그 자리는 review_submit 원본 대조가 맡는다.
  */
-export function isUndroppable(issue: Pick<ReviewIssue, 'severity' | 'category'>): boolean {
+export function isUndroppable(issue: Partial<Pick<ReviewIssue, 'severity' | 'category'>>): boolean {
   if (issue.severity === 'critical') return true;
-  return /secur|appsec/.test(issue.category.toLowerCase());
+  return /secur|appsec/.test((issue.category ?? '').toLowerCase());
 }
 
 export interface VerificationStats {
@@ -44,25 +53,29 @@ export function verificationStats(
 }
 
 /** id와 reportedBy는 대소문자와 앞뒤 공백을 빼고 비교한다. 표기만 바꿔 대조를 피하지 못하게 */
-function norm(value: string): string {
+export function norm(value: string): string {
   return value.trim().toLowerCase();
 }
 
 /**
- * 뺀 이슈의 review_submit 원본 후보를 찾는다.
+ * 이슈의 review_submit 원본 후보를 찾는다. 앞에 올수록 더 확실한 후보다.
  *
  * 메인이 id를 고유화하는 꼴(`<reportedBy>:<원래 id>`)과 맞는 원본이 있으면 그것을 본다.
- * 그 접두와 뺀 이슈의 reportedBy가 어긋나면 reportedBy 쪽 리뷰어의 같은 id 원본도 후보에 넣는다.
+ * 그 접두와 이슈의 reportedBy가 어긋나면 reportedBy 쪽 리뷰어의 같은 id 원본도 후보에 넣는다.
  * 어느 쪽이 맞는지 가릴 수 없으면 둘 다 보는 게 안전해서다.
  * 접두 꼴 원본이 없으면 id가 같은 원본을 reportedBy와 상관없이 전부 후보로 둔다. 병합하면서 대표
  * reportedBy를 바꾸는 일이 흔해서 reportedBy까지 맞추라고 하면 그 자리로 금지를 피할 수 있다.
  */
-function findOriginals(dropped: ReviewIssue, reviewResults: ReviewResult[]): ReviewIssue[] {
+export function findOriginals(
+  issue: Pick<ReviewIssue, 'id'> & { reportedBy?: string },
+  reviewResults: ReviewResult[],
+): ReviewIssue[] {
   const all = reviewResults.flatMap((result) => result.issues);
-  const id = norm(dropped.id);
-  const by = norm(dropped.reportedBy);
+  const id = norm(issue.id);
   const prefixed = all.filter((orig) => norm(`${orig.reportedBy}:${orig.id}`) === id);
   if (prefixed.length === 0) return all.filter((orig) => norm(orig.id) === id);
+  if (issue.reportedBy === undefined) return prefixed;
+  const by = norm(issue.reportedBy);
   if (prefixed.every((orig) => norm(orig.reportedBy) === by)) return prefixed;
   const suffixes = new Set(prefixed.map((orig) => norm(orig.id)));
   const sameReporter = all.filter(
@@ -71,31 +84,112 @@ function findOriginals(dropped: ReviewIssue, reviewResults: ReviewResult[]): Rev
   return [...prefixed, ...sameReporter];
 }
 
-/** 공백과 제로폭 문자만 있는 값은 이유나 증거로 치지 않는다 */
-function hasContent(text: string): boolean {
-  return /[\p{L}\p{N}]/u.test(text);
+/**
+ * 글자나 숫자가 하나라도 있는 값인가. 공백과 제로폭 문자, 한글 채움 문자, 기호만 있는 값은 이유나
+ * 증거로 치지 않는다. 검증기 응답이 비었는지 가를 때도 쓴다.
+ *
+ * 한글 채움 문자는 글자 범주(Lo)라서 정규식만으로는 내용으로 잡히는데 화면에는 안 보인다.
+ * 화면에 안 보이게 처리되는 글자(Default_Ignorable_Code_Point)를 먼저 걷어낸다.
+ */
+export function hasContent(text: string): boolean {
+  return /[\p{L}\p{N}]/u.test(text.replace(/\p{Default_Ignorable_Code_Point}/gu, ''));
 }
 
 /**
- * droppedIssues가 우회로로 쓰이지 않았는지 본다. 문제가 없으면 null이다.
+ * 적어 보낸 reportedBy를 쓸 수 있는 값으로 고른다. 글자나 숫자가 없는 값은 안 적은 것으로 본다.
+ * 제로폭 문자만 있는 값이 눈에 안 보이는 작성자로 게시되지 않게 hasContent로 가른다.
+ * mergedIssues와 droppedIssues가 같은 규칙으로 채우도록 두 쪽이 이 함수를 같이 쓴다.
+ */
+export function givenReportedBy(value: string | undefined): string | undefined {
+  return value === undefined || !hasContent(value) ? undefined : value;
+}
+
+/** 뺀 이슈가 비워 보내도 원본에서 채우는 칸 */
+const FILLABLE_DROP_FIELDS = ['severity', 'category', 'file', 'message', 'suggestion'] as const;
+
+function missingFieldsOf(issue: DroppedReviewIssueInput): string[] {
+  const fields: string[] = FILLABLE_DROP_FIELDS.filter((field) => issue[field] === undefined);
+  if (issue.reportedBy === undefined) fields.push('reportedBy');
+  return fields;
+}
+
+/**
+ * 빈 칸을 채울 review_submit 원본 하나를 고른다.
+ *
+ * reportedBy를 적었으면 그 리뷰어의 원본만 쓴다. 비웠는데 후보가 여러 리뷰어에 걸쳐 있으면
+ * 고르지 않는다. 리뷰어마다 `issue-1` 같은 흔한 id를 쓰면 첫 후보로 채운 작성자와 본문이 다른
+ * 리뷰어 것이 된다. 금지 판단은 여기와 상관없이 후보 전체로 한다.
+ */
+export function pickFillSource(
+  reportedBy: string | undefined,
+  originals: ReviewIssue[],
+): ReviewIssue | 'ambiguous' | undefined {
+  if (reportedBy !== undefined) {
+    const by = norm(reportedBy);
+    return originals.find((orig) => norm(orig.reportedBy) === by);
+  }
+  const reporters = new Set(originals.map((orig) => norm(orig.reportedBy)));
+  return reporters.size > 1 ? 'ambiguous' : originals[0];
+}
+
+/** 같은 id의 원본이 여러 리뷰어에게 있어 채울 원본을 못 고를 때의 안내 */
+export function ambiguousSourceMessage(id: string): string {
+  return `${id}: 같은 id의 review_submit 원본이 여러 리뷰어에게 있어 어느 쪽으로 채울지 고를 수 없다. reportedBy를 직접 적는다`;
+}
+
+/**
+ * 빈 칸을 원본에서 채운다. 채울 수 없으면 거부 문구를 돌려준다.
+ * 적어 보낸 값은 그대로 둔다. 뺄 수 있는지는 이 결과가 아니라 원본 후보 전체로 판단한다.
+ */
+function fillDropped(
+  issue: DroppedReviewIssueInput,
+  originals: ReviewIssue[],
+): DroppedReviewIssue | string {
+  const missing = missingFieldsOf(issue);
+  if (missing.length === 0) return issue as DroppedReviewIssue;
+  const reportedBy = issue.reportedBy;
+  const source = pickFillSource(reportedBy, originals);
+  if (source === 'ambiguous') return ambiguousSourceMessage(issue.id);
+  if (!source) {
+    const owner = reportedBy === undefined ? '' : `${reportedBy}가 낸 `;
+    return `${issue.id}: ${missing.join(', ')} 칸이 비었는데 ${owner}같은 id의 review_submit 원본이 없어 채울 수 없다. 그 칸을 적거나 원본 id를 그대로 쓴다`;
+  }
+  return {
+    ...issue,
+    severity: issue.severity ?? source.severity,
+    category: issue.category ?? source.category,
+    file: issue.file ?? source.file,
+    message: issue.message ?? source.message,
+    suggestion: issue.suggestion ?? source.suggestion,
+    reportedBy: reportedBy ?? source.reportedBy,
+  };
+}
+
+/**
+ * droppedIssues의 빈 칸을 원본에서 채우고 우회로로 쓰이지 않았는지 본다.
  *
  * 애매하면 거부한다. 후보 원본 중 하나라도 금지 대상이면 막는다.
- * 병합하면서 severity나 category를 바꿔 금지를 피하는 길도 막으려고 review_submit 원본과
- * 대조한다. 원본 후보가 하나도 없을 때만 통과시킨다. 메인이 id를 다른 꼴로 바꿨을 수도 있는데
- * 그걸로 정상 호출까지 막으면 이 검사를 끄자는 쪽으로 가게 된다.
+ * 병합하면서 severity나 category를 바꾸거나 비워 금지를 피하는 길도 막으려고 review_submit
+ * 원본과 대조한다. 원본 후보가 하나도 없으면 적어 보낸 값으로만 판단한다. 그때 빈 칸이 있으면
+ * 채울 근거가 없으니 거부한다. 메인이 id를 다른 꼴로 바꿨을 수도 있는데 칸을 다 적은 정상
+ * 호출까지 막으면 이 검사를 끄자는 쪽으로 가게 된다.
  */
-export function checkDroppedIssues(
-  consensus: Pick<ReviewConsensusResult, 'mergedIssues' | 'droppedIssues'>,
+export function resolveDroppedIssues(
+  consensus: Pick<ReviewConsensusInput, 'mergedIssues' | 'droppedIssues'>,
   reviewResults: ReviewResult[],
-): string | null {
-  const dropped = consensus.droppedIssues ?? [];
-  if (dropped.length === 0) return null;
+): Result<DroppedReviewIssue[] | undefined> {
+  const dropped = consensus.droppedIssues;
+  if (dropped === undefined) return ok(undefined);
+  if (dropped.length === 0) return ok([]);
 
   const mergedIds = new Set(consensus.mergedIssues.map((issue) => norm(issue.id)));
   const seenDropped = new Set<string>();
   const problems: string[] = [];
+  const resolved: DroppedReviewIssue[] = [];
 
-  for (const issue of dropped) {
+  for (const raw of dropped) {
+    // 빈 reportedBy는 안 적은 것과 같게 다룬다. 원본 대조와 채움이 같은 값을 보게 여기서 한 번만 정한다
+    const issue = { ...raw, reportedBy: givenReportedBy(raw.reportedBy) };
     if (seenDropped.has(norm(issue.id))) {
       problems.push(`${issue.id}: droppedIssues 안에 같은 id가 두 번 있다`);
       continue;
@@ -105,11 +199,18 @@ export function checkDroppedIssues(
       problems.push(`${issue.id}: security category이거나 critical이라 뺄 수 없다`);
       continue;
     }
-    const undroppableOriginal = findOriginals(issue, reviewResults).find(isUndroppable);
+    const originals = findOriginals(issue, reviewResults);
+    const undroppableOriginal = originals.find(isUndroppable);
     if (undroppableOriginal) {
       problems.push(
         `${issue.id}: review_submit 원본이 ${undroppableOriginal.severity}/${undroppableOriginal.category}라 뺄 수 없다`,
       );
+      continue;
+    }
+    // 금지 판단이 끝난 뒤에 채운다. 채우는 값은 위에서 이미 걸러진 원본에서만 온다
+    const filled = fillDropped(issue, originals);
+    if (typeof filled === 'string') {
+      problems.push(filled);
       continue;
     }
     if (!hasContent(issue.dropReason) || !hasContent(issue.dropEvidence)) {
@@ -118,12 +219,18 @@ export function checkDroppedIssues(
     }
     if (mergedIds.has(norm(issue.id))) {
       problems.push(`${issue.id}: mergedIssues에도 같은 id가 있다. 어느 한쪽에만 둔다`);
+      continue;
     }
+    resolved.push(filled);
   }
 
-  if (problems.length === 0) return null;
-  return [
-    'droppedIssues를 받을 수 없다. 걸린 이슈를 mergedIssues로 되돌려 keep이나 revise로 다시 부른다.',
-    ...problems.map((p) => `- ${p}`),
-  ].join('\n');
+  if (problems.length === 0) return ok(resolved);
+  return err(
+    new Error(
+      [
+        'droppedIssues를 받을 수 없다. 뺄 수 없는 이슈는 mergedIssues로 되돌려 keep이나 revise로 다시 부르고 나머지는 줄마다 적힌 대로 고친다.',
+        ...problems.map((p) => `- ${p}`),
+      ].join('\n'),
+    ),
+  );
 }

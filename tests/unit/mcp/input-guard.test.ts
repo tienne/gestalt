@@ -136,12 +136,11 @@ describe('스키마 에러', () => {
           mergedIssues: [
             {
               id: 'i1',
-              severity: 'high',
               category: 'ui',
               file: 'a.tsx',
               message: 'm',
               suggestion: 's',
-              reportedBy: ['harness-architect', 'quality-reviewer'],
+              severity: ['high', 'critical'],
             },
           ],
           approvedBy: [],
@@ -151,11 +150,10 @@ describe('스키마 에러', () => {
         },
       });
 
-      expect(text).toContain('reviewConsensus.mergedIssues[0].reportedBy');
+      expect(text).toContain('reviewConsensus.mergedIssues[0].severity');
       // 값 샘플은 SDK가 한 번 더 직렬화할 수 있어 따옴표 이스케이프는 따지지 않는다.
       expect(text).toContain('received:');
-      expect(text).toContain('harness-architect');
-      expect(text).toContain('quality-reviewer');
+      expect(text).toContain('critical');
     });
   });
 
@@ -171,8 +169,8 @@ describe('스키마 에러', () => {
               severity: 'high',
               category: 'ui',
               file: 'a.tsx',
-              message: 'm',
               suggestion: 's',
+              reportedBy: 'quality-reviewer',
             },
           ],
           approvedBy: [],
@@ -182,8 +180,72 @@ describe('스키마 에러', () => {
         },
       });
 
-      expect(text).toContain('Required at reviewConsensus.mergedIssues[0].reportedBy');
+      expect(text).toContain('Required at reviewConsensus.mergedIssues[0].message');
       expect(text).toContain('expected: string');
+    });
+  });
+});
+
+describe('review_consensus 모양 관용', () => {
+  // SDK가 등록 스키마로 먼저 거르므로 관용이 그 단계에서도 살아 있어야 핸들러까지 간다
+  it('reportedBy 배열, 빈 칸, alsoCheck 문자열, verdict 별칭이 SDK 검증을 지난다', async () => {
+    await withServer(async (client) => {
+      const text = await callText(client, 'ges_execute', {
+        action: 'review_consensus',
+        reviewSessionId: 'no-such-session',
+        reviewConsensus: {
+          mergedIssues: [
+            {
+              id: 'i1',
+              severity: 'high',
+              category: 'ui',
+              file: 'a.tsx',
+              message: 'm',
+              suggestion: 's',
+              reportedBy: ['harness-architect', 'quality-reviewer'],
+              verification: { verdict: 'keep', reason: 'r', alsoCheck: 'b.tsx:3' },
+            },
+            {
+              id: 'i2',
+              severity: 'warning',
+              category: 'ui',
+              file: 'a.tsx',
+              message: 'm',
+              suggestion: 's',
+            },
+          ],
+          droppedIssues: [{ id: 'i3', dropReason: 'r', dropEvidence: 'e' }],
+        },
+        continuityVerdict: {
+          verdict: 'block',
+          driftFindings: [{ axis: 'goal', summary: '어긋난다' }],
+          escalate: false,
+          summary: 's',
+        },
+      });
+
+      // 검증을 통과해 핸들러까지 갔다는 뜻 — 세션이 없다는 도메인 에러가 나온다.
+      expect(text).not.toContain('Invalid arguments');
+      expect(text).toContain('Review session not found');
+    });
+  });
+
+  it('driftFindings의 axis가 빠지면 셋 중 하나를 적으라고 알려준다', async () => {
+    await withServer(async (client) => {
+      const text = await callText(client, 'ges_execute', {
+        action: 'review_consensus',
+        reviewSessionId: 'no-such-session',
+        reviewConsensus: { mergedIssues: [] },
+        continuityVerdict: {
+          coherent: false,
+          driftFindings: [{ message: 'm' }],
+          escalate: false,
+          summary: 's',
+        },
+      });
+
+      expect(text).toContain('continuityVerdict.driftFindings[].axis');
+      expect(text).toContain('goal, consistency, drift');
     });
   });
 });

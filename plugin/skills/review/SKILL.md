@@ -183,7 +183,7 @@ id를 직접 주면 아래 1번의 첫 수단이 브랜치를 안 따지고 잡�
 | --- | --- |
 | "사용자가 0단계에서 맥락을 다 줬으니 PR 본문은 안 읽어도 된다" | 1.15단계는 그래도 건너뛰지 않습니다. 사용자 말은 이번에 봐달라는 것이고 PR 본문은 작성자가 하려던 것입니다. 둘이 어긋나는 자리가 제일 볼 만한 자리인데 한쪽만 실으면 안 보입니다. |
 | "리뷰어 여럿이 같은 자리를 짚었으니 제안 검증은 넘어가자" | 같은 의견이 여럿이어도 반영 결과가 맞다는 보증은 아닙니다. 라운드를 늘린 사례 87개 가운데 35개가 리뷰어 제안을 그대로 반영한 자리에서 생긴 새 문제였습니다. 3.7단계를 건너뛰는 건 이슈 초안이 하나도 없을 때와 서브에이전트가 실패했을 때뿐입니다. |
-| "severity 낮은 이슈까지 검증할 필요는 없다" | 3.7단계는 severity와 상관없이 모든 이슈를 봅니다. 낮은 이슈의 제안도 반영하면 코드가 바뀝니다. |
+| "severity 낮은 이슈까지 검증할 필요는 없다" | 3.7단계는 severity와 상관없이 모든 이슈를 봅니다. 낮은 이슈의 제안도 반영하면 코드가 바뀝니다. 로컬 PR은 `review_verify` 기록이 없으면 엔진이 게시를 거절합니다. |
 | "방금 리뷰했으니 consensus는 아직 유효하다" | 유효한지는 `git rev-parse HEAD`와 PR head를 비교하면 알 수 있습니다. 그사이 커밋이 하나라도 붙었으면 stale이라 1단계부터 다시 돕니다. |
 | "코멘트를 모아 한 번에 스캔하면 빠르다" | 한 덩어리로 스캔하면 코멘트 하나를 통째로 `>` 인용으로 감싸도 다른 코멘트 산문에 묻혀 안 걸립니다. 4.7단계 어투 검사는 코멘트마다 파일 하나로 떨궈 돌립니다. |
 | "사용자가 리뷰를 맡겼으니 게시 확인은 생략한다" | 4.7단계 게시 확인은 코멘트를 다 쓴 뒤 한 번 묻는 자리입니다. 동의를 못 받으면 코멘트는 버리고 리포트만 보여줍니다. |
@@ -786,7 +786,7 @@ Agent {
 
 **리뷰어는 `gestalt:<agent-name>` 타입으로 띄웁니다.** 플러그인 `agents/`에 리뷰어마다 Claude Code 에이전트가 있어서 AGENT.md 본문이 시스템 프롬프트로 바로 실립니다. 서브에이전트가 `ges_agent`를 따로 부르지 않고 도구도 읽기와 셸로 좁혀져 있어 첫 요청이 가볍습니다. 룰북 경로는 본문 안에 플러그인 설치 경로 기준 절대 경로로 들어 있어서 리뷰 대상 레포에서 돌아도 풀립니다. 그래도 본문만 보고 룰북을 안 연 채 판정하는 일이 있어서 룰북 읽기를 프롬프트 1번에 둡니다.
 
-`gestalt:<agent-name>` 타입을 못 찾는다는 오류가 나면 이 에이전트가 없는 플러그인 버전이거나 Claude Code 에이전트를 못 읽는 런타임입니다. 그때는 [`agent-delegation.md`](../_shared/agent-delegation.md)의 폴백대로 `Explore`로 띄우고 프롬프트 1번 앞에 `ges_agent get`으로 시스템 프롬프트를 가져오는 줄을 넣습니다. 이 스킬의 다른 `gestalt:` 호출도 같습니다.
+`gestalt:<agent-name>` 타입을 못 찾는다는 오류가 나면 이 에이전트가 없는 플러그인 버전이거나 Claude Code 에이전트를 못 읽는 런타임입니다. 그때는 [`agent-delegation.md`](../_shared/agent-delegation.md)의 폴백대로 `Explore`로 띄우고 프롬프트 1번 앞에 `ges_agent get`으로 시스템 프롬프트를 가져오는 줄을 넣습니다. **그 문서의 `<룰북 디렉토리>` 줄도 함께 넣고 메인이 절대 경로로 풀어 채웁니다.** `ges_agent get`이 주는 본문은 룰북을 `../` 상대 경로로 가리킵니다. 이 줄이 없으면 서브에이전트가 리뷰 대상 레포를 기준으로 경로를 풀다가 `author-voice.md` 같은 룰북을 못 찾습니다. 못 풀었으면 `없음`을 넣어 서브에이전트가 그 사실을 보고하게 합니다. 이 스킬의 다른 `gestalt:` 호출도 같습니다.
 
 각 서브에이전트가 돌려준 JSON을 받아, 메인 세션에서 에이전트마다 한 번씩 `review_submit`을 호출합니다 (**2단계에서 정한 순서대로** 최소 4회 — `focusAreas`가 있으면 그 전문가가 먼저입니다). 세션 상태는 메인 세션 한 곳에서만 굴립니다:
 
@@ -911,7 +911,7 @@ continuityVerdict = {
 
 #### 입력 준비 (메인)
 
-1. **초안을 만듭니다.** `review_submit`으로 넣은 리뷰어 결과를 모아 중복을 합칩니다. 여러 리뷰어가 같은 자리를 같은 이유로 짚었으면 하나로 두고 `reportedBy`는 대표 하나만 적습니다.
+1. **초안을 만듭니다.** `review_submit`으로 넣은 리뷰어 결과를 모아 중복을 합칩니다. 여러 리뷰어가 같은 자리를 같은 이유로 짚었으면 하나로 두고 `reportedBy`는 대표 하나만 적습니다. 다만 critical이거나 security category인 원본은 다른 이슈로 합치지 않고 각자 원본의 id로 남깁니다. 합치는 건 그보다 낮은 원본뿐입니다. critical이거나 security인 원본의 id가 여러 리뷰어에게 겹치면 합치지 말고 `<reportedBy>:<원래 id>` 꼴로 바꿔 각자 잇습니다. 같은 id 하나에 원본 여럿을 이으면 엔진은 막지 않으니 이 구분은 메인이 지킵니다.
 
    3.5단계 `continuityVerdict.driftFindings` 가운데 message가 `경로 따라가기:`로 시작하는 항목도 하나씩 이슈로 더합니다. 경로 따라가기로 나온 막힘은 작성자가 고쳐야 풀리는데 `driftFindings`는 인라인 코멘트로 안 나갑니다. 이슈로 올려야 검증기가 그 전제를 다시 확인하고 4.7단계 코멘트와 로컬 PR 게시, `review_fix`까지 기존 경로로 흐릅니다.
 
@@ -949,7 +949,7 @@ continuityVerdict = {
 
    `file`과 `line`은 이 PR diff의 첫 변경 파일에서 처음 추가된 줄입니다. 셋 다 특정 줄의 결함이 아니라 PR 전체를 두고 하는 말이라 자리를 하나로 정해 둡니다. 추가된 줄이 없는 PR이면 이슈로 올리지 않고 [결과 표시](#결과-표시)의 후속 작업 절에만 남깁니다.
 
-   `harness-reviewer`가 같은 참조를 `harness:forwardRef`나 `harness:backwardRef`로 올렸으면 하나로 합치고 severity는 세 상태 판정 쪽을 씁니다. 세 상태 판정은 세 커밋을 git으로 실제로 맞춰 본 결과입니다. `blocked` 판정은 이슈로 올리지 않습니다.
+   `harness-reviewer`가 같은 참조를 `harness:forwardRef`나 `harness:backwardRef`로 올렸으면 하나로 합치고 severity는 세 상태 판정 쪽을 씁니다. 다만 `harness-reviewer` 원본이 critical이면 합치지 않고 그 원본의 id로 따로 둡니다. 세 상태 판정은 세 커밋을 git으로 실제로 맞춰 본 결과입니다. `blocked` 판정은 이슈로 올리지 않습니다.
 
    `relatedRemovesUsed`의 연관 PR 쪽 알림은 4.7단계 게시 확인에서 이번 PR 게시와 함께 동의를 받은 뒤 한 번 올립니다. 관련 레포 목록 안의 PR일 때만 올리고 본문은 파일 쓰기 도구로 만든 파일로 넘깁니다.
 
@@ -1040,6 +1040,25 @@ Agent {
 }
 ```
 
+#### 검증 기록 (review_verify)
+
+**검증기가 돌려준 응답을 고치지 않고 그대로 `review_verify`로 넘깁니다.** 서브에이전트가 실패해 에러 문구만 돌아왔어도 그 글을 그대로 넘깁니다. 엔진이 응답에서 판정을 직접 읽어 세션에 남깁니다. 판정을 하나도 못 읽으면 서브에이전트 실패로 기록합니다. 로컬 PR 게시(`review_publish`)는 이 기록이 없으면 거절합니다. 실패인지 아닌지는 엔진이 응답으로 가르므로 메인이 사유를 적어 보낼 칸은 없습니다.
+
+**응답이 비어 돌아오면 `review_verify`가 기록하지 않고 거부합니다.** 글자나 숫자가 하나도 없는 응답도 빈 것으로 봅니다. 공백, 빈 코드펜스(언어 표시가 붙은 것도 포함), `[]`, `{}`가 해당합니다. 검증기를 한 번 다시 띄워 그 응답을 넘깁니다. 두 번째도 비었으면 넘기기 전에 사용자에게 검증기가 두 번 빈 응답을 돌려줬다고 먼저 알리고 `suggestion-verifier가 두 번 빈 응답을 돌려줬다`를 그대로 넘깁니다. 판정이 없는 글이라 실패로 기록되고 아래 결과 반영의 마지막 줄대로 갑니다.
+
+```
+ges_execute {
+  action: "review_verify",
+  reviewSessionId: "<reviewSessionId>",
+  verifierOutput: "<검증기 응답 그대로>"
+}
+```
+
+- **`review_submit`을 다 넣은 뒤에 부릅니다.** 기록 뒤에 `review_submit`이 더 들어오면 엔진은 그 기록을 낡은 것으로 보고 게시를 거절합니다. 검증기가 못 본 초안이 생긴 것이라서요.
+- **`review_consensus`보다 먼저 부릅니다.** 합의 뒤에 기록하면 그 합의에는 검증이 반영되지 않았으므로 `review_consensus`를 다시 불러야 게시됩니다.
+- **이슈 초안이 하나도 없어 검증기를 안 띄웠으면 이것도 부르지 않습니다.** `review_submit`에 낸 이슈도 합의 이슈도 없으면 엔진이 그걸 보고 기록 없이 게시합니다. 합의에서 이슈를 다 빼고 보내도 `review_submit`에 이슈가 있었으면 기록을 요구합니다.
+- 응답의 `verifier`가 `failed`이면 아래 결과 반영의 마지막 줄대로 초안 그대로 넘깁니다. 이때 `droppedIssues`나 `verification`을 붙이면 `review_consensus`가 거부합니다.
+
 #### 결과 반영 (메인)
 
 `verifications`를 `issueId`로 초안에 되짚어 고칩니다.
@@ -1058,7 +1077,8 @@ Agent {
 - **severity와 message는 바꾸지 않습니다.** 검증기가 다르게 돌려줘도 초안 값을 그대로 둡니다.
 - **경로 따라가기에서 올라온 이슈(`continuity-judge:path-walk-<순번>`)를 drop으로 옮겼으면 짝이 되는 `driftFindings` 항목도 `continuityVerdict`에서 뺍니다.** 뺀 뒤 `driftFindings`가 비면 `coherent`를 true로 둡니다. 다른 항목이 남아 있으면 그대로 false입니다. 검증기가 전제가 틀렸다고 증거를 댄 막힘인데 정합 심급만 PR을 계속 막으면 그게 헛 Block입니다. `escalate`는 건드리지 않습니다.
 - **응답에서 빠진 이슈는 `verification` 없이 둡니다.** 손으로 채우지 않습니다. 그중 critical, high는 리포트가 "검증을 거치지 않은 critical/high 이슈 N개"로 드러냅니다.
-- **서브에이전트가 실패하거나 JSON을 못 읽으면 이 단계를 건너뜁니다.** 초안 그대로 4단계로 넘기고 사용자에게 한 줄 알립니다: "제안 검증을 못 돌려서 리뷰어 제안을 그대로 올려요."
+- **서브에이전트가 실패하거나 JSON을 못 읽으면 그 응답을 `review_verify`로 넘긴 뒤 결과 반영을 건너뜁니다.** 초안 그대로 4단계로 넘기고 사용자에게 한 줄 알립니다: "제안 검증을 못 돌려서 리뷰어 제안을 그대로 올려요." 로컬 PR에 게시하면 PR 판정에도 같은 사실이 남습니다.
+- **엔진은 뺀 이슈를 검증 기록과도 맞춰 봅니다.** `droppedIssues`에 넣은 id는 검증기 응답에서 `drop`이고 `evidence`가 있어야 합니다. 검증기가 keep이나 revise로 낸 이슈를 빼거나 응답에 없는 이슈를 빼면 `review_consensus`가 거부합니다. 응답의 `issueId`가 이번 이슈 id와 하나도 안 맞아도 거부합니다.
 
 ### 4단계: 합의 및 판정 (review_consensus)
 
@@ -1078,7 +1098,7 @@ ges_execute {
         line: 12,              // 선택 — 파일 전반이면 생략
         message: "...",
         suggestion: "...",               // revise면 고친 제안
-        reportedBy: "quality-reviewer",  // 필수. 문자열 하나다
+        reportedBy: "quality-reviewer",  // 문자열 하나. 생략하거나 글자와 숫자가 없으면 엔진이 원본에서 채운다
         verification: {                  // 선택 — 3.7단계를 거친 이슈만
           verdict: "keep" | "revise",
           reason: "...",
@@ -1088,27 +1108,33 @@ ges_execute {
       }
     ],
     droppedIssues: [                     // 선택 — 3.7단계에서 drop된 이슈
-      { ...mergedIssues 항목과 같은 필드, dropReason: "...", dropEvidence: "..." }
+      { id: "...", dropReason: "...", dropEvidence: "..." }   // 나머지 칸은 원본에서 채운다
     ],
-    approvedBy: [...],
-    blockedBy: [...],
-    summary: "...",
-    overallApproved: true | false
+    summary: "..."                       // 생략하거나 글자와 숫자가 없으면 엔진이 이슈 수로 채운다
   },
   continuityVerdict: { ...3.5단계 산출물... }
 }
 ```
 
-`line`과 `verification`만 선택이고 나머지는 전부 필수입니다. **`reportedBy`는 배열이 아니라 에이전트 이름 문자열 하나**입니다 — 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적습니다.
+**`reviewConsensus`에 꼭 적을 칸은 `mergedIssues` 하나입니다.** 이슈가 없으면 `[]`를 넣습니다. 비워 보내면 판정이 통과로 바뀔 수 있어서 엔진이 채우지 않고 거부합니다. `review_submit`에 critical이나 security 이슈가 있었다면 `[]`도 거부합니다. 그런 원본은 같은 id나 `<reportedBy>:<원래 id>` 꼴로 `mergedIssues`에 두고 severity는 원본 이상으로, critical이거나 security category인 채로 잇습니다. 낮춰 보내면 낮아졌다고 짚어 거부하고 3.7단계 revise 판정도 예외가 아닙니다. 여러 원본을 기존 id든 새 id든 하나로 합칠 때도 critical이나 security 원본은 다른 이슈에 접지 않고 각자 id로 따로 둡니다. 이 검사는 제안 검증 기록과 상관없이 돕니다. 같은 id 하나에 원본 여럿을 이으면 엔진은 막지 않으니 `<reportedBy>:<원래 id>` 꼴로 바꿔 각자 잇는 건 메인이 지킵니다. `mergedIssues`와 `droppedIssues`는 `reviewConsensus` 객체 안에 넣습니다. 최상위에 두면 스키마가 버리고 `reviewConsensus is required`로 거부됩니다.
+
+- `mergedIssues` 항목은 `id`, `severity`, `category`, `file`, `message`, `suggestion`이 필수이고 `line`과 `verification`은 선택입니다.
+- **`reportedBy`는 에이전트 이름 문자열 하나**입니다. 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적습니다. 생략하거나 글자와 숫자가 없으면 엔진이 같은 id나 `<reportedBy>:<원래 id>` 꼴의 `review_submit` 원본에서 채웁니다. 배열로 오면 첫 값만 씁니다. 원본이 없는 id(예: `continuity-judge:path-walk-1`)는 채울 데가 없어 그 id를 짚어 거부하니 직접 적습니다. 같은 id의 원본이 여러 리뷰어에게 있어도 엔진이 어느 쪽인지 고르지 않고 거부합니다. 3.7단계 2번대로 id를 `<reportedBy>:<원래 id>` 꼴로 바꿨으면 이 경우가 안 생깁니다. 안 바꿨으면 `reportedBy`를 직접 적습니다.
+- `droppedIssues` 항목은 `id`, `dropReason`, `dropEvidence`만 필수입니다. `severity`, `category`, `file`, `message`, `suggestion`은 생략하면 원본에서 채웁니다. `reportedBy`는 생략했거나 글자와 숫자가 없어도 채웁니다. 원본이 없는 id인데 칸이 비었으면 거부합니다. 같은 id의 원본이 여러 리뷰어에게 있으면 `reportedBy`를 적어야 그 리뷰어의 원본으로 채웁니다.
+- `verification.alsoCheck`는 배열입니다. 문자열 하나로 보내면 한 칸짜리 배열로 받습니다.
+- `approvedBy`와 `blockedBy`는 키를 생략했을 때만 엔진이 `review_submit`의 `approved`로 채웁니다. `[]`를 적으면 승인했거나 막은 에이전트가 없다는 뜻으로 그대로 씁니다. 같은 리뷰어가 두 번 냈으면 마지막 판정을 씁니다. 마지막 판정은 이 두 칸에만 해당하고 위의 critical이나 security 원본 대조는 재제출까지 전부 봅니다. `summary`는 생략했거나 글자와 숫자가 없으면 이슈 수로 한 줄을 채우지만 리포트와 로컬 PR 판정 본문에 그대로 실리니 직접 적는 쪽이 낫습니다.
+- `overallApproved`는 보내도 쓰지 않습니다. 판정은 엔진이 `mergedIssues`와 `continuityVerdict`로 냅니다.
+- `continuityVerdict`는 `coherent`, `driftFindings`, `escalate`, `summary`가 필수이고 `driftFindings` 항목마다 `axis`와 `message`가 필수입니다. 3.5단계 서브에이전트가 `coherent` 대신 `verdict: "pass" | "block"`을, `message` 대신 `summary`를 돌려줬으면 엔진이 제자리로 옮깁니다. `axis`는 셋 중 무엇인지 고를 근거가 없어 채우지 않으니 빠졌으면 메인이 `goal`, `consistency`, `drift` 중 하나를 적어 넘깁니다.
 
 **`verification`과 `droppedIssues`는 생략할 수 있습니다.** 3.7단계를 건너뛰었으면 둘 다 빼고 부릅니다. 기존 동작 그대로입니다. 엔진은 `droppedIssues`를 아래 경우에 `{ error }`로 거부합니다.
 
 - security category이거나 critical인 이슈가 들어 있다
-- 병합하면서 severity나 category, `reportedBy`를 바꿨어도 `review_submit` 원본이 security나 critical이다. 같은 id의 원본이 여럿이면 하나라도 걸리면 거부한다
+- 병합하면서 severity나 category, `reportedBy`를 바꿨어도 `review_submit` 원본이 security나 critical이다. 같은 id의 원본이 여럿이면 하나라도 걸리면 거부한다. 칸을 비워 보내도 원본으로 판단한다
 - `dropReason`이나 `dropEvidence`에 글자나 숫자가 하나도 없다 (공백이나 제로폭 문자만 있어도 비었다고 본다)
 - 같은 id가 `mergedIssues`에도 있거나 `droppedIssues` 안에 두 번 나온다
+- 칸이 비었는데 같은 id의 `review_submit` 원본이 없어 채울 수 없다
 
-거부되면 걸린 이슈를 `mergedIssues`로 되돌려 keep이나 revise로 붙이고 다시 부릅니다. 거부된 호출은 세션에 아무것도 남기지 않으므로 앞서 받은 합의도 그대로입니다.
+거부되면 뺄 수 없는 이슈는 `mergedIssues`로 되돌려 keep이나 revise로 붙입니다. 채울 수 없다고 한 칸은 직접 적어 다시 부릅니다. 거부된 호출은 세션에 아무것도 남기지 않으므로 앞서 받은 합의도 그대로입니다.
 
 엔진이 두 심급을 합쳐 판정합니다 — **결함(critical/high)이 없고 `coherent: true`여야 통과**입니다. `continuityVerdict`를 생략하면 결함 심급만으로 판정하는 기존 동작 그대로입니다.
 
@@ -1411,6 +1437,7 @@ fi
 - **11** — 어투는 깨끗하고 맞춤법만 걸렸습니다. 그것만 고칩니다.
 - **12** — **검사할 산문이 없습니다.** 코멘트가 인용줄뿐이라 검사가 안 된 것이지 통과가 아닙니다. 자기 문장을 인용 밖에 두고 다시 쓰게 합니다.
 - 재작성은 **한 번만** 돕니다. 두 번째도 걸리면 무엇이 남았는지 사용자에게 알리고 게시할지 묻습니다.
+- **스캔과 게시를 한 셸 호출에 묶지 않습니다.** 스캔 출력의 EXIT 줄을 읽고 판단한 뒤 다음 호출에서 게시합니다. `humanize-scan ... && gh api .../reviews`나 세미콜론으로 이어 붙이면 걸린 코멘트가 있어도 게시가 먼저 끝납니다. PR에 올라간 코멘트는 다시 쓸 수 없습니다.
 - 여러 파일이면 파일별 EXIT가 모두 10이나 11일 때 게시합니다. 표지가 없는 단일 파일 직접 호출은 그 프로세스의 종료 코드를 씁니다. 게시가 끝나면 `rm -rf "$scanTmp"`로 그 실행 칸만 치웁니다 — 상위 `gestalt-review`나 PR 칸을 통째로 지우면 다른 세션이 쓰는 중인 파일까지 날아갑니다.
 
 **코멘트 여러 개를 파일 하나에 모아 담으면 이 검사가 무력화됩니다.** 인용 판정이 그 파일 전체를 한 덩어리로 보기 때문에 코멘트 하나를 통째로 인용으로 감싸도 같은 파일 안 다른 코멘트의 산문에 묻혀 안 걸립니다. 파일 하나에 코멘트 하나가 이 검사가 서는 조건입니다.
@@ -1513,6 +1540,8 @@ ges_execute {
 - **판정 경계가 파이프라인과 같습니다.** 4단계의 `overallApproved`를 가르는 그 함수를 그대로 씁니다. 손으로 `--verdict`를 고르면 파이프라인은 통과인데 PR은 `request_changes`인 상태가 생깁니다.
 - **두 번 불러도 코멘트가 안 늘어납니다.** 같은 합의를 다시 옮기면 `alreadyPublished: true`로 아무것도 쓰지 않습니다. PR은 이벤트 소싱이라 한 번 붙은 코멘트를 지울 수 없습니다.
 - **중간에 끊기면 그 다음부터 잇습니다.** 코멘트마다 자국을 PR에 남기므로 세션이 사라진 뒤에 다시 불러도 쓴 것을 다시 쓰지 않습니다.
+
+**3.7단계 기록이 없으면 이 액션이 거절합니다.** 코멘트를 한 건도 쓰지 않고 에러로 돌아옵니다. 에러가 말하는 대로 검증기를 돌려 `review_verify`로 넘기고 `review_consensus`를 다시 부른 뒤 게시합니다. `review_submit`에 낸 이슈도 합의 이슈도 없으면 기록 없이 게시합니다. 응답의 `verifier`는 `ran`, `failed`, `no_drafts` 가운데 하나입니다. `ran`이면 `verifierCoverage`에 합의 이슈 가운데 검증기 판정이 있는 수와 전체 수가 옵니다. 판정이 없는 이슈가 있으면 PR 판정 본문에 `이슈 M개 중 N개만 제안 검증 판정이 있다`가 붙습니다.
 
 응답의 `commentCount`와 `resumedFrom`, `prStatus`, `round`를 사용자에게 그대로 보여줍니다. `alreadyPublished`가 붙어 오면 이미 올라가 있다는 뜻이니 다시 부르지 않습니다.
 
