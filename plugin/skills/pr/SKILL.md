@@ -195,6 +195,8 @@ git diff "$baseRef"...HEAD --stat      # 변경 파일 통계
 git diff "$baseRef"...HEAD             # 실제 diff (핵심 변경만)
 ```
 
+**블록이 `commits=error`를 찍었으면 아래 출력은 쓰지 않고 멈춰서 base를 다시 묻습니다.** 비교 기준 ref를 못 구했으니 커밋 목록과 diff가 비거나 에러로 나옵니다.
+
 **커밋 목록이 비면 멈춥니다.** 올릴 변경이 없습니다. 내 커밋이 이미 `target`에 들어간 경우가 여기 걸립니다.
 
 `changedFiles`와 커밋 목록을 수집합니다. 5단계 `--base`에는 `origin/`을 붙이지 않고 `{target}` 이름만 넘깁니다.

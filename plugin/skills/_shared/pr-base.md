@@ -96,16 +96,18 @@ parent=$(printf '%s' "$cur" | jq -r '.result.worktree.parentWorktreeId // empty'
 orcaParent=
 [ -n "$parent" ] && orcaParent=$(orca worktree show --worktree "id:$parent" --json \
   | jq -r '.result.worktree.branch // empty')
-for v in "$orcaBase" "$orcaParent"; do
+for kv in "orcaBase=$orcaBase" "orcaParent=$orcaParent"; do
+  v=${kv#*=}
   [ -n "$v" ] || continue
-  [[ $v =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]] && echo "$v" || echo "skip $v" >&2
+  [[ $v =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]] && echo "$kv" || echo "skip $v" >&2
 done
 ```
 
-- 첫 값은 이 워크트리를 만들 때 기준으로 삼은 ref에서 `refs/remotes/origin/`이나 `refs/heads/`를 뗀 이름이다
-- 두 번째 값은 상위 워크트리가 지금 체크아웃한 브랜치다. 상위 워크트리가 기본 브랜치 체크아웃이면 기본 브랜치가 나온다
+- `orcaBase=` 줄은 이 워크트리를 만들 때 기준으로 삼은 ref에서 `refs/remotes/origin/`이나 `refs/heads/`를 뗀 이름이다
+- `orcaParent=` 줄은 상위 워크트리가 지금 체크아웃한 브랜치다. 상위 워크트리가 기본 브랜치 체크아웃이면 기본 브랜치가 나온다
+- 값이 비면 그 줄은 안 찍힌다. 한 줄만 나와도 앞의 이름으로 어느 쪽인지 가린다
 - `orca`는 `--jq`를 안 받는다. `jq`로 거른다
-- 0절 이름 검사에 걸린 값은 찍지 않고 `skip <값>`을 표준 에러에 남긴다
+- 0절 이름 검사는 이름을 뗀 값에만 건다. 걸린 값은 찍지 않고 `skip <값>`을 표준 에러에 남긴다
 - 두 값이 가리키는 브랜치가 동률 후보 안에 있으면 그 브랜치로 정한다. 후보 밖이면 정하는 데 쓰지 않고 보고에만 적는다. 상위 브랜치가 원격에 아직 안 올라갔거나 이미 머지된 경우다
 
 ## 3. 정하기
@@ -135,15 +137,18 @@ done
 base가 정해지면(사용자가 줬든 1~3절로 골랐든) 커밋 수와 diff를 볼 ref를 여기서 정한다. `ship` Phase 0의 커밋 0 판정과 `pr` 2단계의 diff 수집이 같은 ref를 써야 두 스킬이 같은 판정을 한다. 0절 이름 검사를 통과한 이름만 넣는다.
 
 ```bash
-GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=20 git fetch --quiet origin "<base>" \
-  || echo "fetch-failed" >&2
+GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=20 git fetch --quiet origin \
+  "+refs/heads/<base>:refs/remotes/origin/<base>" || echo "fetch-failed" >&2
 baseRef=$(git rev-parse --verify --quiet "refs/remotes/origin/<base>" >/dev/null \
   && echo "origin/<base>" || echo "<base>")
-echo "baseRef=$baseRef commits=$(git rev-list --count "$baseRef"..HEAD)"
+n=$(git rev-list --count "$baseRef"..HEAD) || n=error
+echo "baseRef=$baseRef commits=$n"
 ```
 
 - `origin/<base>`가 있으면 그것을 쓴다. 로컬 브랜치는 원격보다 뒤처질 수 있고 PR은 원격 브랜치와 비교된다
+- fetch에 refspec을 적는다. 기본 브랜치만 받은 단일 브랜치 클론은 기본 refspec이 그 브랜치만 덮는다. 그래서 이름만 주면 `origin/<base>`가 안 생기고 낡은 로컬 브랜치로 떨어진다. 0절을 통과한 이름에는 `:`와 `*`가 없어 refspec이 안 깨진다
 - `commits`가 0이면 올릴 커밋이 없다. 부르는 스킬이 멈춘다
+- `commits=error`면 원격에도 로컬에도 그 브랜치가 없어 비교 기준을 못 구했다는 뜻이고 커밋이 없다는 뜻이 아니다. 부르는 스킬은 git 에러를 그대로 보이고 멈춰서 base를 다시 묻는다. 답을 받으면 0절 이름 검사와 이 절을 다시 돈다. 블록 안에서 `exit`하지 않는 건 셸이 호출 사이에 이어지는 런타임에서 호출한 셸까지 닫히기 때문이다
 - 셸 상태가 호출 사이에 안 남는 런타임이 있어서 `baseRef`를 쓰는 명령은 이 블록과 같은 호출 안에 붙여 돌린다
 - `--base`에는 `origin/` 없이 `<base>` 이름만 넘긴다
 
