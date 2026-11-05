@@ -51,7 +51,7 @@ PR을 만드는 것까지가 범위입니다. 올리기 전에 리뷰를 통과�
 ## 전제 조건
 
 `repoRoot`가 주어지지 않으면 현재 작업 디렉토리를 절대 경로로 사용합니다.
-`target`이 주어지지 않으면 [`../_shared/pr-base.md`](../_shared/pr-base.md)로 고릅니다. `main`을 그대로 쓰지 않습니다. 스택 브랜치를 기본 브랜치로 올리면 상위 브랜치의 커밋이 PR에 섞이기 때문입니다. 기본 브랜치가 아닌 브랜치로 정했으면 그 문서의 한 줄 보고를 1단계 인터뷰 전에 사용자에게 보입니다.
+`target`이 주어지지 않으면 [`../_shared/pr-base.md`](../_shared/pr-base.md)로 고릅니다. `main`을 그대로 쓰지 않습니다. 스택 브랜치를 기본 브랜치로 올리면 상위 브랜치의 커밋이 PR에 섞이기 때문입니다. 그 문서의 "보고 줄" 절에 해당하는 줄이 있으면 1단계 인터뷰 전에 사용자에게 보입니다. 기본 브랜치가 아닌 브랜치로 정한 경우뿐 아니라 후보에서 뺀 브랜치가 있거나 fetch가 실패한 경우도 여기 실립니다.
 
 정한 값이 `target`입니다. 2단계 diff 수집과 5단계 `--base`가 이 값을 씁니다.
 
@@ -184,15 +184,18 @@ PR을 작성하기 전에 세 가지를 확인합니다. 없으면 Enter / "없�
 
 ### 2단계: diff 수집
 
-비교 기준(`target`) 대비 변경 내용을 수집합니다:
+비교 기준(`target`) 대비 변경 내용을 수집합니다. 비교에 쓰는 ref(`baseRef`)는 `origin/{target}`이 있으면 그것, 없으면 `{target}`입니다. 로컬 브랜치는 원격보다 뒤처져 있을 수 있고 PR은 원격 브랜치와 비교되기 때문입니다.
 
 ```bash
-git log --oneline {target}..HEAD     # 커밋 목록
-git diff {target}...HEAD --stat      # 변경 파일 통계
-git diff {target}...HEAD             # 실제 diff (핵심 변경만)
+baseRef=$(git rev-parse --verify --quiet "origin/{target}" >/dev/null && echo "origin/{target}" || echo "{target}")
+git log --oneline "$baseRef"..HEAD     # 커밋 목록
+git diff "$baseRef"...HEAD --stat      # 변경 파일 통계
+git diff "$baseRef"...HEAD             # 실제 diff (핵심 변경만)
 ```
 
-`changedFiles`와 커밋 목록을 수집합니다.
+**커밋 목록이 비면 멈춥니다.** 올릴 변경이 없습니다. 내 커밋이 이미 `target`에 들어간 경우가 여기 걸립니다.
+
+`changedFiles`와 커밋 목록을 수집합니다. 5단계 `--base`에는 `origin/`을 붙이지 않고 `{target}` 이름만 넘깁니다.
 
 ### 3단계: change-context-writer로 변경 분석
 
@@ -213,7 +216,7 @@ Agent {
 
     시스템 프롬프트의 관점으로 아래 변경을 분석해 변경 컨텍스트 문서를 작성한다.
 
-    비교 기준: <target>
+    비교 기준: <2단계에서 쓴 baseRef>
     변경 파일: <2단계 목록>
     커밋 목록: <2단계 git log 결과>
     작성 의도: <prIntent.purpose>
