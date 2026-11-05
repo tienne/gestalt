@@ -301,7 +301,7 @@ export async function runE2E(
       join(project, 'AGENTS.md'),
       `This is an isolated interview fixture. Before acting, use /bin/cat to read the full skill at ${skill} and its mandatory host runtime references. Use only the gestalt MCP server for workflow state. Do not read environment variables, credential files, or any other home directory assets. Do not run plugin CLI launchers or install anything. No delegation.\n`,
     );
-    // /usr/bin/env -i prevents Codex authentication from reaching the local MCP.
+    // Configure MCP with env -i and a fixture HOME using only the explicit environment below.
     const mcpEnv: Record<string, string> = {
       PATH: env.PATH ?? '',
       HOME: join(fixture, 'home'),
