@@ -601,12 +601,19 @@ export const executeInputSchema = guardObject(
         approvedBy: z
           .array(z.string())
           .optional()
-          .describe('비우면 엔진이 review_submit의 approved가 true인 에이전트로 채운다.'),
+          .describe(
+            '생략했을 때만 엔진이 review_submit의 approved가 true인 에이전트로 채운다. []를 적으면 승인한 에이전트가 없다는 뜻으로 그대로 쓴다.',
+          ),
         blockedBy: z
           .array(z.string())
           .optional()
-          .describe('비우면 엔진이 review_submit의 approved가 false인 에이전트로 채운다.'),
-        summary: z.string().optional().describe('비우면 엔진이 이슈 수로 한 줄을 채운다.'),
+          .describe(
+            '생략했을 때만 엔진이 review_submit의 approved가 false인 에이전트로 채운다. []를 적으면 막은 에이전트가 없다는 뜻으로 그대로 쓴다.',
+          ),
+        summary: z
+          .string()
+          .optional()
+          .describe('생략했거나 글자와 숫자가 없으면 엔진이 이슈 수로 한 줄을 채운다.'),
         overallApproved: z
           .boolean()
           .optional()
@@ -615,12 +622,12 @@ export const executeInputSchema = guardObject(
           .array(droppedIssueSchema)
           .optional()
           .describe(
-            '제안 검증이 전제가 틀렸다는 증거를 찾아 판정에서 뺀 이슈. 판정과 게시에는 안 들어가고 리포트에 이유와 증거가 남는다. id와 dropReason, dropEvidence만 필수이고 나머지는 비우면 같은 id의 review_submit 원본에서 채운다. 원본이 security category나 critical이면 적은 값과 상관없이 거부된다.',
+            '제안 검증이 전제가 틀렸다는 증거를 찾아 판정에서 뺀 이슈. 판정과 게시에는 안 들어가고 리포트에 이유와 증거가 남는다. id와 dropReason, dropEvidence만 필수이고 나머지는 생략하면 같은 id의 review_submit 원본에서 채운다. 원본이 security category나 critical이면 적은 값과 상관없이 거부된다.',
           ),
       })
       .optional()
       .describe(
-        'Merged review consensus (required for review_consensus). mergedIssues[]의 각 항목은 id, severity, category, file, message, suggestion이 필요하다 (line과 verification, reportedBy는 선택). reportedBy를 비우면 엔진이 review_submit 원본에서 채운다. review_submit의 critical이나 security 원본은 같은 id나 <reportedBy>:<원래 id> 꼴로 mergedIssues에 두고 severity와 category를 낮추지 않는다. 낮추면 거부한다. approvedBy, blockedBy, summary는 비우면 엔진이 채우고 overallApproved는 보내도 쓰지 않는다. droppedIssues는 선택이고 생략하면 기존 동작 그대로다.',
+        'Merged review consensus (required for review_consensus). mergedIssues[]의 각 항목은 id, severity, category, file, message, suggestion이 필요하다 (line과 verification, reportedBy는 선택). reportedBy를 비우면 엔진이 review_submit 원본에서 채운다. review_submit의 critical이나 security 원본은 같은 id나 <reportedBy>:<원래 id> 꼴로 mergedIssues에 두고 severity와 category를 낮추지 않는다. 낮추면 거부한다. approvedBy와 blockedBy는 생략하면 엔진이 채우고 []는 그대로 쓴다. summary는 생략했거나 글자와 숫자가 없으면 엔진이 채운다. overallApproved는 보내도 쓰지 않는다. droppedIssues는 선택이고 생략하면 기존 동작 그대로다.',
       ),
     continuityVerdict: z
       .preprocess(
