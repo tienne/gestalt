@@ -107,7 +107,7 @@ function unlinkedUndroppable(mergedIssues: ReviewIssue[], reviewResults: ReviewR
       const originLabel = `${orig.reportedBy}:${orig.id}: ${orig.severity}/${orig.category}`;
       problems.push(
         linkedIssues.length === 0
-          ? `${originLabel} 원본이 mergedIssues에 없다. 같은 id나 \`<reportedBy>:<원래 id>\` 꼴로 mergedIssues에 둔다. 여러 원본을 기존 id든 새 id든 하나로 합쳤다면 critical이나 security 원본은 접지 않고 따로 둔다.`
+          ? `${originLabel} 원본이 mergedIssues에 없다. 같은 id나 \`<reportedBy>:<원래 id>\` 꼴로 mergedIssues에 둔다. critical이나 security 원본은 다른 이슈에 접지 않고 따로 둔다.`
           : `${originLabel} 원본이 mergedIssues에서 ${linkedIssues.map((i) => `${i.severity}/${i.category}`).join(', ')}로 낮아졌다. critical이나 security 원본은 severity는 원본 이상으로 두고 critical이거나 security category인 채로 잇는다.`,
       );
     }
