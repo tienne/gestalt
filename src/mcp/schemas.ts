@@ -228,6 +228,7 @@ export const executeInputSchema = guardObject(
       'role_consensus',
       'review_start',
       'review_submit',
+      'review_verify',
       'review_consensus',
       'review_fix',
       'review_publish',
@@ -651,7 +652,13 @@ export const executeInputSchema = guardObject(
       .string()
       .optional()
       .describe(
-        'Review session ID (required for review_submit, review_consensus, review_fix, review_publish)',
+        'Review session ID (required for review_submit, review_verify, review_consensus, review_fix, review_publish)',
+      ),
+    verifierOutput: z
+      .string()
+      .optional()
+      .describe(
+        'review_verify 전용. suggestion-verifier가 돌려준 응답을 고치지 않고 그대로 넣는다. 엔진이 판정을 읽어 기록하고 review_publish가 이 기록으로 3.7단계를 건너뛰었는지 가른다. 서브에이전트가 실패했으면 돌아온 글을 그대로 넣는다.',
       ),
     prId: z
       .string()

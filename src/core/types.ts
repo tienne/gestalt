@@ -749,6 +749,34 @@ export interface ReviewPublishState {
   reviewer: string;
 }
 
+/** 제안 검증 응답에서 엔진이 읽은 이슈 하나의 판정 */
+export interface ReviewVerifierVerdict {
+  verdict: 'keep' | 'revise' | 'drop';
+  hasEvidence: boolean;
+}
+
+/**
+ * review_verify가 남기는 제안 검증(review 스킬 3.7단계) 기록.
+ *
+ * 메인이 검증기 응답을 그대로 넘기면 엔진이 직접 읽어 판정을 남긴다. 3.7단계를 돌렸는지와
+ * 서브에이전트 실패로 건너뛴 게 맞는지를 review_publish가 이 기록으로 가른다. 메인이
+ * 고른 사유를 받지 않는 이유는 그 칸이 곧 건너뛰기 스위치가 되기 때문이다.
+ */
+export interface ReviewVerifierRecord {
+  /** ran은 판정을 읽었다는 뜻이고 failed는 응답이 비었거나 판정을 하나도 못 읽었다는 뜻이다 */
+  status: 'ran' | 'failed';
+  failure?: 'empty' | 'unparseable' | 'no_verifications';
+  /** 기록할 때까지 들어온 review_submit 수. 합의 때 이보다 늘었으면 검증 뒤에 초안이 바뀐 것이다 */
+  submitCount: number;
+  verdicts: Record<string, ReviewVerifierVerdict>;
+}
+
+/** review_consensus 때 제안 검증 기록이 어떤 상태였는지. review_publish는 이것만 본다 */
+export type ReviewVerifierAtConsensus =
+  | { status: 'ran' | 'failed'; record: ReviewVerifierRecord }
+  | { status: 'missing' }
+  | { status: 'stale'; record: ReviewVerifierRecord };
+
 export interface ReviewSession {
   sessionId: string;
   executeSessionId: string;
@@ -768,6 +796,10 @@ export interface ReviewSession {
   reviewResults: ReviewResult[];
   consensus?: ReviewConsensusResult;
   continuityVerdict?: ContinuityVerdict;
+  /** 가장 최근 review_verify 기록 */
+  verifier?: ReviewVerifierRecord;
+  /** 지금 합의를 받을 때의 검증 기록 상태. 합의 뒤에 온 review_verify는 여기 안 들어간다 */
+  verifierAtConsensus?: ReviewVerifierAtConsensus;
   reports: ReviewReport[];
   createdAt: string;
   updatedAt: string;

@@ -12,6 +12,7 @@ import type { ContinuityVerdict, ReviewIssue, ReviewPublishState } from '../../c
 import type { ReviewVerdict } from '../../local-pr/types.js';
 import { log } from '../../core/log.js';
 import { resolveExecuteSessionInput, asMemoryNote } from './execute/utils.js';
+import { checkVerifierBeforePublish } from '../../review/verifier-record.js';
 
 const SHA_PATTERN = /^[0-9a-f]{7,64}$/i;
 
@@ -39,6 +40,8 @@ export function handleReviewPassthrough(
         return handleReviewStart(reviewEngine, executeEngine, roleAgentRegistry, input);
       case 'review_submit':
         return handleReviewSubmit(reviewEngine, input);
+      case 'review_verify':
+        return handleReviewVerify(reviewEngine, input);
       case 'review_consensus':
         return handleReviewConsensus(reviewEngine, executeEngine, input);
       case 'review_fix':
@@ -183,6 +186,39 @@ function handleReviewSubmit(reviewEngine: PassthroughReviewEngine, input: Execut
       reviewSessionId: input.reviewSessionId,
       ...result.value,
       message: 'Submit more reviews or call review_consensus to merge all reviews.',
+    },
+    null,
+    2,
+  );
+}
+
+function handleReviewVerify(reviewEngine: PassthroughReviewEngine, input: ExecuteInput): string {
+  if (!input.reviewSessionId) {
+    return JSON.stringify({ error: 'reviewSessionId is required for review_verify' });
+  }
+  if (input.verifierOutput === undefined) {
+    return JSON.stringify({
+      error:
+        'verifierOutput is required for review_verify. suggestion-verifier 응답을 그대로 넣는다. 서브에이전트가 실패했으면 돌아온 글을 그대로 넣는다.',
+    });
+  }
+
+  const result = reviewEngine.submitVerification(input.reviewSessionId, input.verifierOutput);
+  if (!result.ok) return JSON.stringify({ error: result.error.message });
+
+  const record = result.value;
+  const verdictCount = Object.keys(record.verdicts).length;
+  return JSON.stringify(
+    {
+      status: 'review_verified',
+      reviewSessionId: input.reviewSessionId,
+      verifier: record.status,
+      failure: record.failure,
+      verdictCount,
+      message:
+        record.status === 'ran'
+          ? `제안 검증 판정 ${verdictCount}개를 기록했다. 판정을 mergedIssues와 droppedIssues에 반영해 review_consensus를 부른다.`
+          : '응답에서 판정을 못 읽어 서브에이전트 실패로 기록했다. 초안 그대로 review_consensus를 부르고 사용자에게 검증을 못 돌렸다고 알린다. 게시하면 PR 판정에 그 사실이 함께 남는다.',
     },
     null,
     2,
@@ -422,6 +458,11 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
     });
   }
 
+  // 코멘트를 한 건이라도 쓰기 전에 거른다. PR은 이벤트 소싱이라 쓴 뒤에는 되돌릴 수 없다
+  const gate = checkVerifierBeforePublish(session, consensus);
+  if (!gate.ok) return JSON.stringify({ error: gate.error.message });
+  const verifier = gate.value;
+
   const prId = input.prId ?? session.prId;
   if (!prId) {
     return JSON.stringify({
@@ -544,7 +585,12 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
       author: actorOfAgent(issue.reportedBy),
     }));
 
-    const pr = engine.review(prId, { reviewer, verdict, summary: consensus.summary });
+    // 검증 없이 올린 의견이라는 걸 PR을 읽는 사람도 알아야 한다. 세션 응답만으로는 안 남는다
+    const summary =
+      verifier === 'failed'
+        ? `${consensus.summary}\n\n제안 검증을 못 돌려 리뷰어 제안을 검증 없이 옮겼다.`
+        : consensus.summary;
+    const pr = engine.review(prId, { reviewer, verdict, summary });
     state.completed = true;
 
     return JSON.stringify(
@@ -557,6 +603,7 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
         commentCount: postedComments.length,
         comments: postedComments,
         resumedFrom: prior ? prior.postedCount : 0,
+        verifier,
         prStatus: pr.status,
         round: pr.rounds.length,
         message:

@@ -13,6 +13,7 @@ import type {
   AgentDefinition,
   ContinuityVerdict,
   ContinuityDriftFinding,
+  ReviewVerifierRecord,
 } from '../core/types.js';
 import { type Result, ok, err } from '../core/result.js';
 import { ReviewContextCollector } from './context-collector.js';
@@ -30,6 +31,11 @@ import { EventType } from '../events/types.js';
 import { isConsensusApproved } from '../local-pr/policy.js';
 import { verificationStats, type VerificationStats } from './verification.js';
 import { resolveConsensusInput } from './consensus-input.js';
+import {
+  checkConsensusAgainstVerifier,
+  parseVerifierOutput,
+  verifierAtConsensus,
+} from './verifier-record.js';
 
 const MAX_REVIEW_ATTEMPTS = 3;
 
@@ -275,6 +281,30 @@ Review the code changes from your assigned perspective. Focus on issues that mat
     });
   }
 
+  // ─── review_verify ────────────────────────────────────────────
+  /**
+   * 제안 검증 응답을 읽어 세션에 남긴다. 응답을 못 읽어도 거부하지 않는다 — 서브에이전트
+   * 실패도 기록으로 남아야 review_publish가 정당한 생략으로 가를 수 있다.
+   */
+  submitVerification(sessionId: string, verifierOutput: string): Result<ReviewVerifierRecord> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return err(new Error(`Review session not found: ${sessionId}`));
+
+    const record = parseVerifierOutput(verifierOutput, session.reviewResults.length);
+    session.verifier = record;
+    session.updatedAt = new Date().toISOString();
+
+    logger.info('review.verified', {
+      module: 'review',
+      sessionId,
+      status: record.status,
+      failure: record.failure,
+      verdictCount: Object.keys(record.verdicts).length,
+    });
+
+    return ok(record);
+  }
+
   // ─── review_consensus ─────────────────────────────────────────
   submitConsensus(
     sessionId: string,
@@ -315,6 +345,18 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       return err(resolved.error);
     }
 
+    const verifier = verifierAtConsensus(session);
+    const verifierProblem = checkConsensusAgainstVerifier(verifier, resolved.value);
+    if (verifierProblem) {
+      logger.warn('review.consensus_rejected', {
+        module: 'review',
+        sessionId,
+        reason: 'verifier_mismatch',
+        verifier: verifier.status,
+      });
+      return err(new Error(verifierProblem));
+    }
+
     // 두 심급을 합친 경계는 정책이 정한다. review_publish가 PR에 남길 판정도 같은
     // 함수를 부른다 — 따로 세면 파이프라인은 통과인데 PR은 리젝인 상태가 생긴다.
     // 입력의 overallApproved는 쓰지 않는다
@@ -323,6 +365,7 @@ Review the code changes from your assigned perspective. Focus on issues that mat
 
     session.consensus = consensus;
     session.continuityVerdict = continuityVerdict;
+    session.verifierAtConsensus = verifier;
     session.status = 'consensus';
     session.updatedAt = new Date().toISOString();
 
@@ -359,6 +402,7 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       escalate,
       // 제안 검증이 라운드 수를 줄였는지 나중에 재려고 남긴다
       verification,
+      verifier: verifier.status,
     });
 
     if (approved) {
@@ -546,6 +590,8 @@ Fix these issues while maintaining code integrity. Run structural checks after f
     session.reviewResults = [];
     session.consensus = undefined;
     session.continuityVerdict = undefined;
+    session.verifier = undefined;
+    session.verifierAtConsensus = undefined;
     session.status = 'started';
     session.updatedAt = new Date().toISOString();
 
