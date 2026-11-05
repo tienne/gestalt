@@ -994,6 +994,22 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
       expect(published.verifier).toBe('ran');
     });
 
+    it('합의에서 이슈를 다 비워도 review_submit에 이슈가 있으면 검증 기록을 요구한다', () => {
+      const reviewSessionId = open();
+      call({
+        action: 'review_submit',
+        reviewSessionId,
+        reviewAgentName: 'quality-reviewer',
+        reviewResult: { issues: [issue], approved: false, summary: '' },
+      } as Partial<ExecuteInput>);
+      agree(reviewSessionId, {}, []);
+
+      const parsed = call({ action: 'review_publish', reviewSessionId });
+
+      expect(parsed.error).toContain('제안 검증(3.7단계) 기록이 없어');
+      nothingWritten();
+    });
+
     it('검증 뒤에 review_submit이 더 들어오면 그 기록으로 게시하지 않는다', () => {
       const reviewSessionId = open();
       verify(reviewSessionId, { 'g-1': 'keep' });

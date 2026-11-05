@@ -134,15 +134,20 @@ export type PublishVerifierStatus = 'ran' | 'failed' | 'no_drafts';
 /**
  * 게시 전에 3.7단계 기록을 확인한다.
  *
- * 건너뛰어도 되는 경우는 엔진이 세션으로 가른다. 이슈 초안이 하나도 없었거나(합의에 남은
- * 이슈도 뺀 이슈도 없다) 검증기 응답을 못 읽었을 때다. 부르는 쪽이 사유를 적어 보낼
- * 자리는 두지 않는다.
+ * 건너뛰어도 되는 경우는 엔진이 세션으로 가른다. 이슈 초안이 하나도 없었거나(review_submit
+ * 이슈도 합의 이슈도 없다) 검증기 응답을 못 읽었을 때다. 초안 수를 합의만으로 세면 이슈를
+ * 전부 빼고 보낸 합의가 초안 0개로 통과하므로 review_submit 원본도 함께 센다. 부르는 쪽이
+ * 사유를 적어 보낼 자리는 두지 않는다.
  */
 export function checkVerifierBeforePublish(
   session: ReviewSession,
   consensus: ReviewConsensusResult,
 ): Result<PublishVerifierStatus> {
-  const draftCount = consensus.mergedIssues.length + (consensus.droppedIssues?.length ?? 0);
+  const submitted = session.reviewResults.reduce((n, r) => n + r.issues.length, 0);
+  const draftCount = Math.max(
+    submitted,
+    consensus.mergedIssues.length + (consensus.droppedIssues?.length ?? 0),
+  );
   if (draftCount === 0) return ok('no_drafts');
 
   const at = session.verifierAtConsensus ?? { status: 'missing' as const };
