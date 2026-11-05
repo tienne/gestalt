@@ -29,7 +29,7 @@ import { logger } from '../core/logger.js';
 import type { EventStore } from '../events/store.js';
 import { EventType } from '../events/types.js';
 import { isConsensusApproved } from '../local-pr/policy.js';
-import { verificationStats, type VerificationStats } from './verification.js';
+import { hasContent, verificationStats, type VerificationStats } from './verification.js';
 import { resolveConsensusInput } from './consensus-input.js';
 import {
   checkConsensusAgainstVerifier,
@@ -284,11 +284,21 @@ Review the code changes from your assigned perspective. Focus on issues that mat
   // ─── review_verify ────────────────────────────────────────────
   /**
    * 제안 검증 응답을 읽어 세션에 남긴다. 응답을 못 읽어도 거부하지 않는다 — 서브에이전트
-   * 실패도 기록으로 남아야 review_publish가 정당한 생략으로 가를 수 있다.
+   * 실패도 기록으로 남아야 review_publish가 정당한 생략으로 가를 수 있다. 다만 빈 응답은
+   * 기록하지 않고 거부한다. 검증기를 안 띄우고 빈 문자열만 넘겨도 실패가 되면 그게 가장 싼
+   * 건너뛰기 길이 된다.
    */
   submitVerification(sessionId: string, verifierOutput: string): Result<ReviewVerifierRecord> {
     const session = this.sessions.get(sessionId);
     if (!session) return err(new Error(`Review session not found: ${sessionId}`));
+    if (!hasContent(verifierOutput)) {
+      return err(
+        new Error(
+          '검증기 응답이 비었다. suggestion-verifier를 한 번 다시 띄워 그 응답을 넘긴다. ' +
+            '두 번째도 비면 그 사실을 적은 글을 넘긴다. 실패로 기록되고 초안 그대로 게시된다.',
+        ),
+      );
+    }
 
     const record = parseVerifierOutput(verifierOutput, session.reviewResults.length);
     session.verifier = record;

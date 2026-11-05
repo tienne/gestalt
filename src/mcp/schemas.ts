@@ -658,7 +658,7 @@ export const executeInputSchema = guardObject(
       .string()
       .optional()
       .describe(
-        'review_verify 전용. suggestion-verifier가 돌려준 응답을 고치지 않고 그대로 넣는다. 엔진이 판정을 읽어 기록하고 review_publish가 이 기록으로 3.7단계를 건너뛰었는지 가른다. 서브에이전트가 실패했으면 돌아온 글을 그대로 넣는다.',
+        'review_verify 전용. suggestion-verifier가 돌려준 응답을 고치지 않고 그대로 넣는다. 엔진이 판정을 읽어 기록하고 review_publish가 이 기록으로 3.7단계를 건너뛰었는지 가른다. 서브에이전트가 실패했으면 돌아온 글을 그대로 넣는다. 빈 응답은 받지 않는다 — 검증기를 한 번 다시 띄운다. 엔진은 이 글이 실제 검증기에서 왔는지 가리지 못한다. 판정 없는 글은 실패로 기록돼 게시되고 그 사실은 PR 판정 본문 한 문장으로만 남는다.',
       ),
     prId: z
       .string()

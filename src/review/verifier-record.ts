@@ -18,10 +18,7 @@ const VERDICTS = new Set(['keep', 'revise', 'drop']);
  * 되고 응답 문자열이 로그나 경로로 흘러갈 자리를 만들 이유가 없다.
  */
 export function parseVerifierOutput(raw: string, submitCount: number): ReviewVerifierRecord {
-  const text = raw.trim();
-  if (text === '') return { status: 'failed', failure: 'empty', submitCount, verdicts: {} };
-
-  const list = readVerificationList(text);
+  const list = readVerificationList(raw.trim());
   if (!list) return { status: 'failed', failure: 'unparseable', submitCount, verdicts: {} };
 
   const verdicts: Record<string, ReviewVerifierVerdict> = {};
@@ -181,7 +178,7 @@ export function checkVerifierBeforePublish(
     new Error(
       `제안 검증(3.7단계) 기록이 없어 게시하지 않는다. 이슈 ${draftCount}개를 suggestion-verifier로 ` +
         '검증하고 그 응답을 review_verify로 넘긴 뒤 review_consensus를 다시 부른다. ' +
-        '서브에이전트가 실패했으면 돌아온 응답을 그대로 넘긴다.',
+        '서브에이전트가 실패했으면 돌아온 응답을 그대로 넘긴다. 응답이 비었으면 검증기를 한 번 다시 띄운다.',
     ),
   );
 }

@@ -761,11 +761,16 @@ export interface ReviewVerifierVerdict {
  * 메인이 검증기 응답을 그대로 넘기면 엔진이 직접 읽어 판정을 남긴다. 3.7단계를 돌렸는지와
  * 서브에이전트 실패로 건너뛴 게 맞는지를 review_publish가 이 기록으로 가른다. 메인이
  * 고른 사유를 받지 않는 이유는 그 칸이 곧 건너뛰기 스위치가 되기 때문이다.
+ *
+ * 엔진은 응답이 실제 검증기에서 왔는지 가리지 못한다. 빈 응답은 거부하지만 판정 없는 글을
+ * 넣으면 failed로 기록되고 게시된다. 그 흔적은 PR 판정 본문의 한 문장과 응답의 verifier
+ * 칸에만 남는다. 조용히 건너뛰던 것을 드러나게 할 뿐 지어낸 응답까지 막지는 않는다.
  */
 export interface ReviewVerifierRecord {
-  /** ran은 판정을 읽었다는 뜻이고 failed는 응답이 비었거나 판정을 하나도 못 읽었다는 뜻이다 */
+  /** ran은 판정을 읽었다는 뜻이고 failed는 판정을 하나도 못 읽었다는 뜻이다 */
   status: 'ran' | 'failed';
-  failure?: 'empty' | 'unparseable' | 'no_verifications';
+  /** 빈 응답은 review_verify가 기록 없이 거부하므로 여기 오지 않는다 */
+  failure?: 'unparseable' | 'no_verifications';
   /** 기록할 때까지 들어온 review_submit 수. 합의 때 이보다 늘었으면 검증 뒤에 초안이 바뀐 것이다 */
   submitCount: number;
   verdicts: Record<string, ReviewVerifierVerdict>;

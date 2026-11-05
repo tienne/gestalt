@@ -1040,6 +1040,21 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
         nothingWritten();
       });
 
+      it('빈 응답이나 공백뿐인 응답은 실패로 기록하지 않고 거부한다', () => {
+        const reviewSessionId = open();
+
+        for (const verifierOutput of ['', '  \n\t', '\u200b\u200b', '```\n```']) {
+          const parsed = call({ action: 'review_verify', reviewSessionId, verifierOutput });
+          expect(parsed.error).toContain('검증기 응답이 비었다');
+        }
+        expect(reviewEngine.getSession(reviewSessionId).verifier).toBeUndefined();
+
+        agree(reviewSessionId);
+        const published = call({ action: 'review_publish', reviewSessionId });
+        expect(published.error).toContain('제안 검증(3.7단계) 기록이 없어');
+        nothingWritten();
+      });
+
       it('게시 입력에 건너뛰기 키를 붙여도 스키마가 버리고 게시를 거절한다', () => {
         const reviewSessionId = open();
         agree(reviewSessionId);
@@ -1100,7 +1115,11 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
 
       it('실패로 기록해 놓고 이슈를 빼거나 판정을 붙이면 합의를 거절한다', () => {
         const reviewSessionId = open();
-        call({ action: 'review_verify', reviewSessionId, verifierOutput: '' });
+        call({
+          action: 'review_verify',
+          reviewSessionId,
+          verifierOutput: 'Agent 호출이 실패했습니다',
+        });
 
         const dropped = agree(reviewSessionId, {
           droppedIssues: [{ ...issue, id: 'g-2', dropReason: '없음', dropEvidence: 'a.txt:1' }],

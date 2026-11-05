@@ -85,7 +85,7 @@ export function findOriginals(
 }
 
 /** 공백과 제로폭 문자만 있는 값은 이유나 증거로 치지 않는다 */
-function hasContent(text: string): boolean {
+export function hasContent(text: string): boolean {
   return /[\p{L}\p{N}]/u.test(text);
 }
 

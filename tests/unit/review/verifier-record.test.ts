@@ -51,10 +51,6 @@ describe('parseVerifierOutput', () => {
     expect(record.verdicts['a-1']!.hasEvidence).toBe(false);
   });
 
-  it('비었으면 empty로 실패한다', () => {
-    expect(parseVerifierOutput('   \n', 0)).toMatchObject({ status: 'failed', failure: 'empty' });
-  });
-
   it('JSON이 없으면 unparseable로 실패한다', () => {
     expect(parseVerifierOutput('Agent 호출이 실패했습니다', 0)).toMatchObject({
       status: 'failed',
@@ -77,6 +73,21 @@ describe('parseVerifierOutput', () => {
       failure: 'no_verifications',
       verdicts: {},
     });
+  });
+});
+
+describe('review_verify의 빈 응답', () => {
+  it('빈 응답과 공백뿐인 응답은 기록하지 않고 거부한다', () => {
+    const engine = new PassthroughReviewEngine();
+    const started = engine.startReview({ changedFiles: ['a.ts'], repoRoot: '/repo' }, [], []);
+    if (!started.ok) throw started.error;
+    const { sessionId } = started.value;
+
+    for (const raw of ['', '   \n', '\u200b', '```\n```']) {
+      const result = engine.submitVerification(sessionId, raw);
+      expect(result.ok).toBe(false);
+    }
+    expect(engine.getSession(sessionId).verifier).toBeUndefined();
   });
 });
 
