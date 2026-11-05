@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.123.0] - 2026-11-05
+
+### Added
+
+- **리뷰를 게시하기 전에 제안 검증 기록을 확인해요(#111).** `ges_execute`에 `review_verify` 액션을 더했어요. 3.7단계 검증기 응답을 받아 판정을 기록하고 `review_publish`는 코멘트를 쓰기 전에 그 기록을 확인해요. 기록이 없거나 합의 뒤에 검증이 들어왔거나 검증 뒤에 `review_submit`이 더 들어왔으면 게시를 거절해요.
+  - 지난 한 달 세션에서 이 단계가 빠진 경우가 셋 있었어요. 에이전트가 이슈가 가볍다고 보고 스스로 건너뛴 경우, 폴백 경로에서 룰북을 못 찾은 경우, 검증기 에이전트가 없는 서버에서 조용히 넘어간 경우예요.
+  - 생략 스위치는 만들지 않았어요. 이슈 초안이 0건이면 기록 없이 게시하고 검증기가 실패했으면 게시하되 PR 판정 본문에 그 사실을 남겨요. `skipVerification`이나 `force` 같은 칸을 넣어도 스키마가 버려요.
+- **ship과 pr 스킬이 스택 브랜치의 PR base를 스스로 골라요(#110).** base를 주지 않으면 원격 브랜치마다 merge-base 이후 내 커밋 수를 세서 가장 적은 브랜치를 후보로 잡아요. 기본 브랜치가 아닌 브랜치로 정하면 "base를 X로 잡았어요 (근거: …)"를 한 줄로 알려요. 절차는 `_shared/pr-base.md` 한 곳에 두고 두 스킬이 같이 써요.
+  - 상위 기능 브랜치 위에 쌓은 브랜치를 올렸다가 base를 다시 고친 세션이 7개 있었어요.
+  - 브랜치 이름은 셸 명령에 들어가므로 쓸 수 있는 글자만 있는지 먼저 검사해요.
+
+### Changed
+
+- **`review_consensus`가 엔진이 아는 칸을 직접 채워요(#111).** 이제 `reviewConsensus.mergedIssues`만 필수예요. `reportedBy`, `approvedBy`, `blockedBy`, `summary`는 비워 보내면 `review_submit` 기록으로 채워요. `overallApproved`는 보내도 무시하고 엔진이 계산해요. `droppedIssues`는 `id`, `dropReason`, `dropEvidence`만 있으면 나머지를 원본에서 채워요. `reportedBy` 배열과 `alsoCheck` 문자열도 받아요.
+  - 지난 한 달 동안 스키마 검증으로 57번 거절됐고 대부분 엔진이 이미 아는 칸이었어요.
+- ship 완료 보고에 `Copilot:` 줄(리뷰 옴, 요청함, 접수 안 됨, 건너뜀)을 항상 넣어요(#110). Copilot 리뷰가 끝났는지 다시 묻는 세션이 8개 있었어요. 건너뛰는 근거는 이번 대화의 사용자 말과 사용자 메모리만 인정해요.
+
+### Fixed
+
+- **ship의 Copilot 리뷰 요청이 GraphQL 에러로 실패하던 문제를 고쳤어요(#110).** `gh pr edit --add-reviewer`는 classic Projects 카드를 읽다가 막혀서 REST `POST .../requested_reviewers`로 바꿨어요. Copilot은 요청이 들어가도 `requested_reviewers` 목록에 안 나타나서 접수 여부는 PR 타임라인의 `review_requested` 이벤트로 확인해요.
+- `review_consensus`에서 critical이나 security 원본을 `mergedIssues`에서 빼거나 낮은 severity로 이어 보내던 우회를 막았어요(#111). 예전에는 `droppedIssues` 쪽만 막혀 있었어요. 판정은 에이전트가 보낸 값이 아니라 `review_submit` 원본으로 해요.
+
+### 검증 범위
+
+- #111은 로컬 리뷰를 8라운드 돌렸어요. 새 이슈가 15개에서 11개, 5개, 5개, 4개로 줄었고 마지막 라운드는 이슈 없이 통과했어요. 빈 값 판정과 severity 낮춤 우회 같은 경계 사례가 라운드를 늘렸어요.
+- #110은 로컬 리뷰를 5라운드 돌렸고 마지막은 critical과 high 없이 approve였어요. base 고르기 절차는 `/tmp` 임시 레포에서 스택, 머지 커밋, 동률, 위험한 브랜치 이름 상황을 만들어 돌렸어요.
+- 두 PR을 합친 main에서 `pnpm gate`가 통과했어요. 테스트 366개 파일의 7,121개가 통과했고 기존 스킵 1개가 남았어요. Linux와 macOS의 Node 22, 24 CI도 통과했어요.
+
+### 남긴 것
+
+- #111의 게시 전 확인은 PR을 리뷰할 때 이전 버전 MCP 서버가 떠 있어서 실제 리뷰 흐름에서는 아직 안 돌았어요. 단위 테스트로만 확인했어요.
+- Copilot REST 요청과 타임라인 이벤트는 이 레포가 Copilot 리뷰를 생략해서 실물로 확인하지 못했어요.
+- `review_publish`가 `prId`와 `repoRoot`를 세션 기록보다 입력값으로 먼저 정해요. 서로 다른 id로 같은 보안 결함을 짚으면 코멘트가 둘 나갈 수 있어요. 둘 다 이번 범위 밖이라 그대로 두었어요.
+- `docs/06-code-review.md`의 합의 예시는 이전 스키마 그대로예요.
+- 리뷰 후속 처리 명령(`review-loop followup-find`)이 SSH 별칭 원격에서 레포 이름을 못 뽑아 실패해요.
+
 ## [0.122.0] - 2026-11-05
 
 ### Added
