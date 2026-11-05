@@ -74,6 +74,22 @@ describe('parseVerifierOutput', () => {
     expect(record.verdicts['__proto__']).toEqual({ verdict: 'drop', hasEvidence: true });
   });
 
+  it('같은 id가 두 번 오면 뒤 판정을 쓰고 겹친 수를 센다', () => {
+    const record = parseVerifierOutput(
+      JSON.stringify({
+        verifications: [
+          { issueId: 'a-1', verdict: 'keep' },
+          { issueId: 'A-1', verdict: 'drop', evidence: 'a.ts:3' },
+        ],
+      }),
+      0,
+    );
+
+    expect(record.duplicateCount).toBe(1);
+    expect(record.skippedCount).toBe(0);
+    expect(record.verdicts['a-1']).toEqual({ verdict: 'drop', hasEvidence: true });
+  });
+
   it('JSON이 없으면 unparseable로 실패한다', () => {
     expect(parseVerifierOutput('Agent 호출이 실패했습니다', 0)).toMatchObject({
       status: 'failed',
@@ -95,7 +111,19 @@ describe('parseVerifierOutput', () => {
       status: 'failed',
       failure: 'no_verifications',
       verdicts: {},
+      skippedCount: 4,
     });
+  });
+
+  it('일부만 읽히면 ran으로 두고 못 읽은 수를 센다', () => {
+    const output = JSON.stringify({
+      verifications: [
+        { issueId: 'a-1', verdict: 'keep' },
+        { issueId: 'a-2', verdict: 'skip' },
+      ],
+    });
+
+    expect(parseVerifierOutput(output, 0)).toMatchObject({ status: 'ran', skippedCount: 1 });
   });
 });
 

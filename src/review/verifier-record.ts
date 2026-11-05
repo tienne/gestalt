@@ -23,26 +23,57 @@ const VERDICTS = new Set(['keep', 'revise', 'drop']);
  */
 export function parseVerifierOutput(raw: string, submitCount: number): ReviewVerifierRecord {
   const list = readVerificationList(raw.trim());
-  if (!list) return { status: 'failed', failure: 'unparseable', submitCount, verdicts: {} };
-
-  const verdicts: Record<string, ReviewVerifierVerdict> = Object.create(null);
-  for (const entry of list) {
-    if (typeof entry !== 'object' || entry === null) continue;
-    const { issueId, verdict, evidence } = entry as Record<string, unknown>;
-    if (typeof issueId !== 'string' || issueId.trim() === '') continue;
-    if (typeof verdict !== 'string') continue;
-    const normalized = verdict.trim().toLowerCase();
-    if (!VERDICTS.has(normalized)) continue;
-    verdicts[norm(issueId)] = {
-      verdict: normalized as ReviewVerifierVerdict['verdict'],
-      hasEvidence: typeof evidence === 'string' && evidence.trim() !== '',
+  if (!list) {
+    return {
+      status: 'failed',
+      failure: 'unparseable',
+      submitCount,
+      verdicts: {},
+      skippedCount: 0,
+      duplicateCount: 0,
     };
   }
 
-  if (Object.keys(verdicts).length === 0) {
-    return { status: 'failed', failure: 'no_verifications', submitCount, verdicts: {} };
+  const verdicts: Record<string, ReviewVerifierVerdict> = Object.create(null);
+  let skippedCount = 0;
+  let duplicateCount = 0;
+  for (const entry of list) {
+    const read = readVerdict(entry);
+    if (!read) {
+      skippedCount++;
+      continue;
+    }
+    if (Object.hasOwn(verdicts, read.id)) duplicateCount++;
+    verdicts[read.id] = read.verdict;
   }
-  return { status: 'ran', submitCount, verdicts };
+
+  if (Object.keys(verdicts).length === 0) {
+    return {
+      status: 'failed',
+      failure: 'no_verifications',
+      submitCount,
+      verdicts: {},
+      skippedCount,
+      duplicateCount,
+    };
+  }
+  return { status: 'ran', submitCount, verdicts, skippedCount, duplicateCount };
+}
+
+function readVerdict(entry: unknown): { id: string; verdict: ReviewVerifierVerdict } | null {
+  if (typeof entry !== 'object' || entry === null) return null;
+  const { issueId, verdict, evidence } = entry as Record<string, unknown>;
+  if (typeof issueId !== 'string' || issueId.trim() === '') return null;
+  if (typeof verdict !== 'string') return null;
+  const normalized = verdict.trim().toLowerCase();
+  if (!VERDICTS.has(normalized)) return null;
+  return {
+    id: norm(issueId),
+    verdict: {
+      verdict: normalized as ReviewVerifierVerdict['verdict'],
+      hasEvidence: typeof evidence === 'string' && evidence.trim() !== '',
+    },
+  };
 }
 
 function readVerificationList(text: string): unknown[] | null {

@@ -774,6 +774,10 @@ export interface ReviewVerifierRecord {
   /** 기록할 때까지 들어온 review_submit 수. 합의 때 이보다 늘었으면 검증 뒤에 초안이 바뀐 것이다 */
   submitCount: number;
   verdicts: Record<string, ReviewVerifierVerdict>;
+  /** issueId나 verdict가 없거나 잘못돼 읽지 않은 항목 수 */
+  skippedCount: number;
+  /** 같은 issueId가 다시 나와 뒤엣것으로 덮은 횟수 */
+  duplicateCount: number;
 }
 
 /** review_consensus 때 제안 검증 기록이 어떤 상태였는지. review_publish는 이것만 본다 */

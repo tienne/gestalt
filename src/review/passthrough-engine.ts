@@ -310,6 +310,8 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       status: record.status,
       failure: record.failure,
       verdictCount: Object.keys(record.verdicts).length,
+      skippedCount: record.skippedCount,
+      duplicateCount: record.duplicateCount,
     });
 
     return ok(record);

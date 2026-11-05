@@ -8,7 +8,12 @@ import { ProjectMemoryStore } from '../../memory/project-memory-store.js';
 import { LocalPrEngine, PrError } from '../../local-pr/engine.js';
 import { errorKind } from './pr.js';
 import { consensusVerdict, resolveActor } from '../../local-pr/policy.js';
-import type { ContinuityVerdict, ReviewIssue, ReviewPublishState } from '../../core/types.js';
+import type {
+  ContinuityVerdict,
+  ReviewIssue,
+  ReviewPublishState,
+  ReviewVerifierRecord,
+} from '../../core/types.js';
 import type { ReviewVerdict } from '../../local-pr/types.js';
 import { log } from '../../core/log.js';
 import { resolveExecuteSessionInput, asMemoryNote } from './execute/utils.js';
@@ -215,14 +220,30 @@ function handleReviewVerify(reviewEngine: PassthroughReviewEngine, input: Execut
       verifier: record.status,
       failure: record.failure,
       verdictCount,
+      skippedCount: record.skippedCount,
+      duplicateCount: record.duplicateCount,
       message:
         record.status === 'ran'
-          ? `제안 검증 판정 ${verdictCount}개를 기록했다. 판정을 mergedIssues와 droppedIssues에 반영해 review_consensus를 부른다.`
+          ? `제안 검증 판정 ${verdictCount}개를 기록했다.${unreadNote(record)} 판정을 mergedIssues와 droppedIssues에 반영해 review_consensus를 부른다.`
           : '응답에서 판정을 못 읽어 서브에이전트 실패로 기록했다. 초안 그대로 review_consensus를 부르고 사용자에게 검증을 못 돌렸다고 알린다. 게시하면 PR 판정에 그 사실이 함께 남는다.',
     },
     null,
     2,
   );
+}
+
+/** 판정은 읽었는데 응답 일부를 못 읽었으면 그 사실을 메인에게 알린다 */
+function unreadNote(record: ReviewVerifierRecord): string {
+  const notes: string[] = [];
+  if (record.skippedCount > 0) {
+    notes.push(
+      ` 응답 항목 ${record.skippedCount}개는 issueId나 verdict가 없거나 잘못돼 읽지 않았다. 그 이슈는 판정 없이 남는다.`,
+    );
+  }
+  if (record.duplicateCount > 0) {
+    notes.push(` 같은 issueId가 ${record.duplicateCount}번 더 나와 뒤에 나온 판정으로 덮었다.`);
+  }
+  return notes.join('');
 }
 
 function handleReviewConsensus(
