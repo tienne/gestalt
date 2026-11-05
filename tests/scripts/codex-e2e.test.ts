@@ -260,4 +260,27 @@ describe('Codex evidence adjudication (synthetic event unit fixtures, not LLM E2
       );
     }
   });
+  it('classifies unreadable or malformed persisted evidence without exposing raw errors', () => {
+    for (const kind of ['empty', 'corrupt', 'missing-table', 'malformed-payload']) {
+      const fixture = evidenceFixture();
+      if (kind === 'empty') writeFileSync(fixture.path, '');
+      else if (kind === 'corrupt') writeFileSync(fixture.path, 'invalid sqlite contents');
+      else {
+        const db = new Database(fixture.path);
+        db.exec(
+          kind === 'missing-table'
+            ? 'DROP TABLE events'
+            : "UPDATE events SET payload = '{invalid' WHERE event_type = 'interview.response.recorded'",
+        );
+        db.close();
+      }
+      expect(() => judgeEvidence(fixture.stdout(), skill, source, fixture.path)).toThrowError(
+        expect.objectContaining({
+          reason: 'evidence',
+          checkpoint: 'database',
+          message: 'evidence',
+        }),
+      );
+    }
+  });
 });

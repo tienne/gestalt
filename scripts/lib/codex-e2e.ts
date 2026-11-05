@@ -208,8 +208,9 @@ export function judgeEvidence(
   );
   if (!responded || !inspected)
     throw new E2EFailure('evidence', responded ? 'session-inspect' : 'session-response');
-  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+  let db: Database.Database | undefined;
   try {
+    db = new Database(dbPath, { readonly: true, fileMustExist: true });
     const rows = db
       .prepare(
         'SELECT event_type, payload FROM events WHERE aggregate_type = ? AND aggregate_id = ? ORDER BY rowid',
@@ -234,8 +235,11 @@ export function judgeEvidence(
       calls: calls.length,
       persistedEvents: rows.length,
     };
+  } catch (error) {
+    if (error instanceof E2EFailure) throw error;
+    throw new E2EFailure('evidence', 'database');
   } finally {
-    db.close();
+    db?.close();
   }
 }
 
