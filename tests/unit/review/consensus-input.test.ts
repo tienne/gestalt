@@ -172,7 +172,7 @@ describe('review_consensus 입력 채우기', () => {
 
   describe('mergedIssues[].reportedBy의 빈 문자열', () => {
     it('빈 문자열과 공백뿐인 값은 안 적은 것으로 보고 원본에서 채운다', () => {
-      for (const blank of ['', '   ', '\t']) {
+      for (const blank of ['', '   ', '\t', '\u200b', '-']) {
         const sid = open({ 'quality-reviewer': [original({ id: 'q1' })] });
         const { consensus } = accepted(sid, {
           reviewConsensus: { mergedIssues: [issueOf('q1', { reportedBy: blank })] },
@@ -190,14 +190,30 @@ describe('review_consensus 입력 채우기', () => {
     });
 
     it('droppedIssues도 빈 문자열을 안 적은 것으로 보고 원본에서 채운다', () => {
-      const sid = open({ 'quality-reviewer': [original({ id: 'q1', severity: 'warning' })] });
-      const { consensus } = accepted(sid, {
+      for (const blank of ['', '\u200b']) {
+        const sid = open({ 'quality-reviewer': [original({ id: 'q1', severity: 'warning' })] });
+        const { consensus } = accepted(sid, {
+          reviewConsensus: {
+            mergedIssues: [],
+            droppedIssues: [{ id: 'q1', reportedBy: blank, ...EVIDENCE }],
+          },
+        });
+        expect(consensus.droppedIssues![0]!.reportedBy).toBe('quality-reviewer');
+      }
+    });
+
+    it('droppedIssues의 공백뿐인 reportedBy도 안 적은 것과 같게 여러 리뷰어 원본을 고르지 않는다', () => {
+      const sid = open({
+        'quality-reviewer': [original({ id: 'i1', severity: 'warning' })],
+        'comment-reviewer': [original({ id: 'i1', severity: 'warning' })],
+      });
+      const message = rejected(sid, {
         reviewConsensus: {
           mergedIssues: [],
-          droppedIssues: [{ id: 'q1', reportedBy: '', ...EVIDENCE }],
+          droppedIssues: [{ id: 'i1', reportedBy: '  ', ...EVIDENCE }],
         },
       });
-      expect(consensus.droppedIssues![0]!.reportedBy).toBe('quality-reviewer');
+      expect(message).toContain('여러 리뷰어');
     });
   });
 
@@ -370,6 +386,19 @@ describe('review_consensus 입력 채우기', () => {
         },
       });
       expect(consensus.summary).toContain('이슈 1개(critical 0, high 0, warning 1), 뺀 이슈 1개');
+    });
+
+    it('summary가 공백이나 제로폭 문자뿐이어도 이슈 수로 채운다', () => {
+      for (const blank of ['', '   ', '\u200b']) {
+        const sid = open({ 'quality-reviewer': [original({ id: 'q1' })] });
+        const { consensus } = accepted(sid, {
+          reviewConsensus: {
+            mergedIssues: [issueOf('q1', { severity: 'warning' })],
+            summary: blank,
+          },
+        });
+        expect(consensus.summary).toContain('이슈 1개(critical 0, high 0, warning 1)');
+      }
     });
 
     it('overallApproved가 비어도 엔진이 판정한다', () => {

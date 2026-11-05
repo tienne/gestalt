@@ -9,6 +9,7 @@ import {
   ambiguousSourceMessage,
   findOriginals,
   givenReportedBy,
+  hasContent,
   isUndroppable,
   pickFillSource,
   resolveDroppedIssues,
@@ -31,7 +32,7 @@ export function resolveConsensusInput(
   for (const issue of input.mergedIssues) {
     let reportedBy = givenReportedBy(issue.reportedBy);
     if (reportedBy === undefined) {
-      const source = pickFillSource(undefined, findOriginals(issue, reviewResults));
+      const source = pickFillSource(undefined, findOriginals({ id: issue.id }, reviewResults));
       if (source === 'ambiguous') {
         problems.push(`mergedIssues의 ${ambiguousSourceMessage(issue.id)}.`);
         continue;
@@ -58,7 +59,10 @@ export function resolveConsensusInput(
     mergedIssues,
     approvedBy: input.approvedBy ?? votes.filter((v) => v.approved).map((v) => v.agentName),
     blockedBy: input.blockedBy ?? votes.filter((v) => !v.approved).map((v) => v.agentName),
-    summary: input.summary ?? countSummary(mergedIssues, droppedIssues?.length ?? 0),
+    summary:
+      input.summary !== undefined && hasContent(input.summary)
+        ? input.summary
+        : countSummary(mergedIssues, droppedIssues?.length ?? 0),
     ...(droppedIssues ? { droppedIssues } : {}),
   });
 }

@@ -93,11 +93,12 @@ export function hasContent(text: string): boolean {
 }
 
 /**
- * 적어 보낸 reportedBy를 쓸 수 있는 값으로 고른다. 빈 문자열과 공백뿐인 값은 안 적은 것으로 본다.
+ * 적어 보낸 reportedBy를 쓸 수 있는 값으로 고른다. 글자나 숫자가 없는 값은 안 적은 것으로 본다.
+ * 제로폭 문자만 있는 값이 눈에 안 보이는 작성자로 게시되지 않게 hasContent로 가른다.
  * mergedIssues와 droppedIssues가 같은 규칙으로 채우도록 두 쪽이 이 함수를 같이 쓴다.
  */
 export function givenReportedBy(value: string | undefined): string | undefined {
-  return value === undefined || value.trim() === '' ? undefined : value;
+  return value === undefined || !hasContent(value) ? undefined : value;
 }
 
 /** 뺀 이슈가 비워 보내도 원본에서 채우는 칸 */
@@ -105,7 +106,7 @@ const FILLABLE_DROP_FIELDS = ['severity', 'category', 'file', 'message', 'sugges
 
 function missingFieldsOf(issue: DroppedReviewIssueInput): string[] {
   const fields: string[] = FILLABLE_DROP_FIELDS.filter((field) => issue[field] === undefined);
-  if (givenReportedBy(issue.reportedBy) === undefined) fields.push('reportedBy');
+  if (issue.reportedBy === undefined) fields.push('reportedBy');
   return fields;
 }
 
@@ -143,7 +144,7 @@ function fillDropped(
 ): DroppedReviewIssue | string {
   const missing = missingFieldsOf(issue);
   if (missing.length === 0) return issue as DroppedReviewIssue;
-  const reportedBy = givenReportedBy(issue.reportedBy);
+  const reportedBy = issue.reportedBy;
   const source = pickFillSource(reportedBy, originals);
   if (source === 'ambiguous') return ambiguousSourceMessage(issue.id);
   if (!source) {
@@ -184,7 +185,7 @@ export function resolveDroppedIssues(
   const resolved: DroppedReviewIssue[] = [];
 
   for (const raw of dropped) {
-    // 빈 reportedBy는 안 적은 것과 같게 다룬다. 원본 대조와 채움이 같은 값을 보게 여기서 한 번 정한다
+    // 빈 reportedBy는 안 적은 것과 같게 다룬다. 원본 대조와 채움이 같은 값을 보게 여기서 한 번만 정한다
     const issue = { ...raw, reportedBy: givenReportedBy(raw.reportedBy) };
     if (seenDropped.has(norm(issue.id))) {
       problems.push(`${issue.id}: droppedIssues 안에 같은 id가 두 번 있다`);

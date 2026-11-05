@@ -6,7 +6,7 @@ import type {
   ReviewVerifierVerdict,
 } from '../core/types.js';
 import { type Result, ok, err } from '../core/result.js';
-import { norm } from './verification.js';
+import { hasContent, norm } from './verification.js';
 
 const VERDICTS = new Set(['keep', 'revise', 'drop']);
 
@@ -97,7 +97,7 @@ function readVerdict(entry: unknown): { id: string; verdict: ReviewVerifierVerdi
     id: norm(issueId),
     verdict: {
       verdict: normalized as ReviewVerifierVerdict['verdict'],
-      hasEvidence: typeof evidence === 'string' && evidence.trim() !== '',
+      hasEvidence: typeof evidence === 'string' && hasContent(evidence),
     },
   };
 }

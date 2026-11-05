@@ -54,6 +54,17 @@ describe('parseVerifierOutput', () => {
     expect(record.verdicts['a-1']!.hasEvidence).toBe(false);
   });
 
+  it('기호나 제로폭 문자뿐인 근거도 근거로 치지 않는다', () => {
+    for (const evidence of ['-', '...', '\u200b']) {
+      const record = parseVerifierOutput(
+        JSON.stringify({ verifications: [{ issueId: 'a-1', verdict: 'drop', evidence }] }),
+        0,
+      );
+
+      expect(record.verdicts['a-1']!.hasEvidence).toBe(false);
+    }
+  });
+
   it('이슈 id는 대소문자와 앞뒤 공백을 맞춰 담는다', () => {
     const record = parseVerifierOutput(
       JSON.stringify({ verifications: [{ issueId: ' A-1 ', verdict: 'keep' }] }),
