@@ -159,7 +159,7 @@ const mergedIssueSchema = z.object({
     .preprocess((value) => (Array.isArray(value) ? value[0] : value), z.string().optional())
     .optional()
     .describe(
-      '이 의견을 낸 에이전트 이름 하나. 배열로 오면 첫 값만 쓴다. 비우면 엔진이 같은 id(또는 `<reportedBy>:<원래 id>`)의 review_submit 원본에서 채우고, 원본이 없으면 그 id를 짚어 거부한다.',
+      '이 의견을 낸 에이전트 이름 하나. 배열로 오면 첫 값만 쓴다. 생략하거나 글자와 숫자가 없으면 엔진이 같은 id(또는 `<reportedBy>:<원래 id>`)의 review_submit 원본에서 채우고, 원본이 없으면 그 id를 짚어 거부한다.',
     ),
   verification: reviewIssueVerificationSchema
     .optional()
@@ -627,7 +627,7 @@ export const executeInputSchema = guardObject(
       })
       .optional()
       .describe(
-        'Merged review consensus (required for review_consensus). mergedIssues[]의 각 항목은 id, severity, category, file, message, suggestion이 필요하다 (line과 verification, reportedBy는 선택). reportedBy를 비우면 엔진이 review_submit 원본에서 채운다. review_submit의 critical이나 security 원본은 같은 id나 <reportedBy>:<원래 id> 꼴로 mergedIssues에 두고 severity와 category를 낮추지 않는다. 낮추면 거부한다. approvedBy와 blockedBy는 생략하면 엔진이 채우고 []는 그대로 쓴다. summary는 생략했거나 글자와 숫자가 없으면 엔진이 채운다. overallApproved는 보내도 쓰지 않는다. droppedIssues는 선택이고 생략하면 기존 동작 그대로다.',
+        'Merged review consensus (required for review_consensus). mergedIssues[]의 각 항목은 id, severity, category, file, message, suggestion이 필요하다 (line과 verification, reportedBy는 선택). reportedBy를 생략하거나 글자와 숫자가 없으면 엔진이 review_submit 원본에서 채운다. review_submit의 critical이나 security 원본은 같은 id나 <reportedBy>:<원래 id> 꼴로 mergedIssues에 두고 severity는 원본 이상으로, critical이거나 security category인 채로 잇는다. 낮추면 거부하고, 다른 이슈에 접지 않고 각자 따로 둔다. approvedBy와 blockedBy는 생략하면 엔진이 채우고 []는 그대로 쓴다. summary는 생략했거나 글자와 숫자가 없으면 엔진이 채운다. overallApproved는 보내도 쓰지 않는다. droppedIssues는 선택이고 생략하면 기존 동작 그대로다.',
       ),
     continuityVerdict: z
       .preprocess(

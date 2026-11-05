@@ -909,7 +909,7 @@ continuityVerdict = {
 
 #### 입력 준비 (메인)
 
-1. **초안을 만듭니다.** `review_submit`으로 넣은 리뷰어 결과를 모아 중복을 합칩니다. 여러 리뷰어가 같은 자리를 같은 이유로 짚었으면 하나로 두고 `reportedBy`는 대표 하나만 적습니다.
+1. **초안을 만듭니다.** `review_submit`으로 넣은 리뷰어 결과를 모아 중복을 합칩니다. 여러 리뷰어가 같은 자리를 같은 이유로 짚었으면 하나로 두고 `reportedBy`는 대표 하나만 적습니다. 다만 critical이거나 security category인 원본은 다른 이슈로 합치지 않고 각자 원본의 id로 남깁니다. 합치는 건 그보다 낮은 원본뿐입니다.
 
    3.5단계 `continuityVerdict.driftFindings` 가운데 message가 `경로 따라가기:`로 시작하는 항목도 하나씩 이슈로 더합니다. 경로 따라가기로 나온 막힘은 작성자가 고쳐야 풀리는데 `driftFindings`는 인라인 코멘트로 안 나갑니다. 이슈로 올려야 검증기가 그 전제를 다시 확인하고 4.7단계 코멘트와 로컬 PR 게시, `review_fix`까지 기존 경로로 흐릅니다.
 
@@ -947,7 +947,7 @@ continuityVerdict = {
 
    `file`과 `line`은 이 PR diff의 첫 변경 파일에서 처음 추가된 줄입니다. 셋 다 특정 줄의 결함이 아니라 PR 전체를 두고 하는 말이라 자리를 하나로 정해 둡니다. 추가된 줄이 없는 PR이면 이슈로 올리지 않고 [결과 표시](#결과-표시)의 후속 작업 절에만 남깁니다.
 
-   `harness-reviewer`가 같은 참조를 `harness:forwardRef`나 `harness:backwardRef`로 올렸으면 하나로 합치고 severity는 세 상태 판정 쪽을 씁니다. 다만 `harness-reviewer` 원본이 critical이면 낮추지 않습니다. 세 상태 판정은 세 커밋을 git으로 실제로 맞춰 본 결과입니다. `blocked` 판정은 이슈로 올리지 않습니다.
+   `harness-reviewer`가 같은 참조를 `harness:forwardRef`나 `harness:backwardRef`로 올렸으면 하나로 합치고 severity는 세 상태 판정 쪽을 씁니다. 다만 `harness-reviewer` 원본이 critical이면 합치지 않고 그 원본의 id로 따로 둡니다. 세 상태 판정은 세 커밋을 git으로 실제로 맞춰 본 결과입니다. `blocked` 판정은 이슈로 올리지 않습니다.
 
    `relatedRemovesUsed`의 연관 PR 쪽 알림은 4.7단계 게시 확인에서 이번 PR 게시와 함께 동의를 받은 뒤 한 번 올립니다. 관련 레포 목록 안의 PR일 때만 올리고 본문은 파일 쓰기 도구로 만든 파일로 넘깁니다.
 
@@ -1094,7 +1094,7 @@ ges_execute {
         line: 12,              // 선택 — 파일 전반이면 생략
         message: "...",
         suggestion: "...",               // revise면 고친 제안
-        reportedBy: "quality-reviewer",  // 문자열 하나. 비우면 엔진이 원본에서 채운다
+        reportedBy: "quality-reviewer",  // 문자열 하나. 생략하거나 글자와 숫자가 없으면 엔진이 원본에서 채운다
         verification: {                  // 선택 — 3.7단계를 거친 이슈만
           verdict: "keep" | "revise",
           reason: "...",
@@ -1106,16 +1106,16 @@ ges_execute {
     droppedIssues: [                     // 선택 — 3.7단계에서 drop된 이슈
       { id: "...", dropReason: "...", dropEvidence: "..." }   // 나머지 칸은 원본에서 채운다
     ],
-    summary: "..."                       // 비우면 엔진이 이슈 수로 채운다
+    summary: "..."                       // 생략하거나 글자와 숫자가 없으면 엔진이 이슈 수로 채운다
   },
   continuityVerdict: { ...3.5단계 산출물... }
 }
 ```
 
-**`reviewConsensus`에 꼭 적을 칸은 `mergedIssues` 하나입니다.** 이슈가 없으면 `[]`를 넣습니다. 비워 보내면 판정이 통과로 바뀔 수 있어서 엔진이 채우지 않고 거부합니다. `review_submit`에 critical이나 security 이슈가 있었다면 `[]`도 거부합니다. 그런 원본은 같은 id나 `<reportedBy>:<원래 id>` 꼴로 `mergedIssues`에 두고 severity와 category를 낮추지 않습니다. 낮춰 보내면 낮아졌다고 짚어 거부하고 3.7단계 revise 판정도 예외가 아닙니다. 여러 원본을 새 id 하나로 합쳤을 때도 그 원본은 따로 둡니다. 이 검사는 제안 검증 기록과 상관없이 돕니다. `mergedIssues`와 `droppedIssues`는 `reviewConsensus` 객체 안에 넣습니다. 최상위에 두면 스키마가 버리고 `reviewConsensus is required`로 거부됩니다.
+**`reviewConsensus`에 꼭 적을 칸은 `mergedIssues` 하나입니다.** 이슈가 없으면 `[]`를 넣습니다. 비워 보내면 판정이 통과로 바뀔 수 있어서 엔진이 채우지 않고 거부합니다. `review_submit`에 critical이나 security 이슈가 있었다면 `[]`도 거부합니다. 그런 원본은 같은 id나 `<reportedBy>:<원래 id>` 꼴로 `mergedIssues`에 두고 severity는 원본 이상으로, critical이거나 security category인 채로 잇습니다. 낮춰 보내면 낮아졌다고 짚어 거부하고 3.7단계 revise 판정도 예외가 아닙니다. 여러 원본을 기존 id든 새 id든 하나로 합칠 때도 critical이나 security 원본은 다른 이슈에 접지 않고 각자 id로 따로 둡니다. 이 검사는 제안 검증 기록과 상관없이 돕니다. `mergedIssues`와 `droppedIssues`는 `reviewConsensus` 객체 안에 넣습니다. 최상위에 두면 스키마가 버리고 `reviewConsensus is required`로 거부됩니다.
 
 - `mergedIssues` 항목은 `id`, `severity`, `category`, `file`, `message`, `suggestion`이 필수이고 `line`과 `verification`은 선택입니다.
-- **`reportedBy`는 에이전트 이름 문자열 하나**입니다. 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적습니다. 비우면 엔진이 같은 id나 `<reportedBy>:<원래 id>` 꼴의 `review_submit` 원본에서 채웁니다. 배열로 오면 첫 값만 씁니다. 원본이 없는 id(예: `continuity-judge:path-walk-1`)는 채울 데가 없어 그 id를 짚어 거부하니 직접 적습니다. 같은 id의 원본이 여러 리뷰어에게 있어도 엔진이 어느 쪽인지 고르지 않고 거부합니다. 3.7단계 2번대로 id를 `<reportedBy>:<원래 id>` 꼴로 바꿨으면 이 경우가 안 생깁니다. 안 바꿨으면 `reportedBy`를 직접 적습니다.
+- **`reportedBy`는 에이전트 이름 문자열 하나**입니다. 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적습니다. 생략하거나 글자와 숫자가 없으면 엔진이 같은 id나 `<reportedBy>:<원래 id>` 꼴의 `review_submit` 원본에서 채웁니다. 배열로 오면 첫 값만 씁니다. 원본이 없는 id(예: `continuity-judge:path-walk-1`)는 채울 데가 없어 그 id를 짚어 거부하니 직접 적습니다. 같은 id의 원본이 여러 리뷰어에게 있어도 엔진이 어느 쪽인지 고르지 않고 거부합니다. 3.7단계 2번대로 id를 `<reportedBy>:<원래 id>` 꼴로 바꿨으면 이 경우가 안 생깁니다. 안 바꿨으면 `reportedBy`를 직접 적습니다.
 - `droppedIssues` 항목은 `id`, `dropReason`, `dropEvidence`만 필수입니다. `severity`, `category`, `file`, `message`, `suggestion`은 생략하면 원본에서 채웁니다. `reportedBy`는 생략했거나 글자와 숫자가 없어도 채웁니다. 원본이 없는 id인데 칸이 비었으면 거부합니다. 같은 id의 원본이 여러 리뷰어에게 있으면 `reportedBy`를 적어야 그 리뷰어의 원본으로 채웁니다.
 - `verification.alsoCheck`는 배열입니다. 문자열 하나로 보내면 한 칸짜리 배열로 받습니다.
 - `approvedBy`와 `blockedBy`는 키를 생략했을 때만 엔진이 `review_submit`의 `approved`로 채웁니다. `[]`를 적으면 승인했거나 막은 에이전트가 없다는 뜻으로 그대로 씁니다. 같은 리뷰어가 두 번 냈으면 마지막 판정을 씁니다. 마지막 판정은 이 두 칸에만 해당하고 위의 critical이나 security 원본 대조는 재제출까지 전부 봅니다. `summary`는 생략했거나 글자와 숫자가 없으면 이슈 수로 한 줄을 채우지만 리포트와 로컬 PR 판정 본문에 그대로 실리니 직접 적는 쪽이 낫습니다.
