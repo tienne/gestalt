@@ -64,9 +64,9 @@ export function parseVerifierOutput(raw: string, submitCount: number): ReviewVer
 }
 
 /**
- * 같은 id의 판정이 겹칠 때 어느 쪽을 남길지 가르는 값. 클수록 이슈를 지키는 쪽이다.
- * 응답 뒤에 근거 붙은 drop 항목 하나를 덧붙여 이슈를 빼는 길을 막으려고 뒤에 온 것이 아니라
- * 보수적인 쪽을 남긴다. 값이 같으면 먼저 읽은 것을 둔다.
+ * 같은 id의 판정이 겹칠 때 어느 쪽을 남길지 가르는 값. 클수록 이슈를 빼지 않는 쪽이다.
+ * 겹치면 뒤에 온 것이 아니라 이슈를 덜 빼는 쪽을 남긴다. 응답 끝에 근거 붙은 drop 하나를
+ * 덧붙여 이슈를 빼는 걸 막으려고 둔 규칙이다. 값이 같으면 먼저 읽은 것을 둔다.
  */
 function conservativeness(verdict: ReviewVerifierVerdict): number {
   if (verdict.verdict !== 'drop') return 2;

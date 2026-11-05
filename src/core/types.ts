@@ -776,7 +776,7 @@ export interface ReviewVerifierRecord {
   verdicts: Record<string, ReviewVerifierVerdict>;
   /** issueId나 verdict가 없거나 잘못돼 읽지 않은 항목 수 */
   skippedCount: number;
-  /** 같은 issueId가 다시 나와 뒤엣것으로 덮은 횟수 */
+  /** 같은 issueId가 다시 나온 횟수. 겹친 판정은 이슈를 덜 빼는 쪽만 남긴다 */
   duplicateCount: number;
 }
 

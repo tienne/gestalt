@@ -41,6 +41,9 @@ interface ReviewResponse {
   round?: number;
   verifier?: string;
   failure?: string;
+  verdictCount?: number;
+  skippedCount?: number;
+  duplicateCount?: number;
   verifierCoverage?: { judged: number; total: number };
 }
 
@@ -1119,6 +1122,26 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
 
         expect(parsed.verifier).toBe('failed');
         expect(parsed.failure).toBe('no_verifications');
+      });
+
+      it('못 읽은 항목과 겹친 id를 섞어 보내면 세 개수와 안내를 응답에 싣는다', () => {
+        const reviewSessionId = open();
+        const parsed = call({
+          action: 'review_verify',
+          reviewSessionId,
+          verifierOutput: JSON.stringify({
+            verifications: [
+              { issueId: 'g-1', verdict: 'keep' },
+              { issueId: 'g-1', verdict: 'revise' },
+              { issueId: 'g-2', verdict: 'skip' },
+            ],
+          }),
+        });
+
+        expect(parsed).toMatchObject({ verdictCount: 1, skippedCount: 1, duplicateCount: 1 });
+        expect(parsed.message).toContain('판정 1개를 기록했다');
+        expect(parsed.message).toContain('응답 항목 1개는');
+        expect(parsed.message).toContain('1번 더 나와 이슈를 덜 빼는 쪽 판정만 남겼다');
       });
 
       it('검증기 응답 원문은 세션에 남지 않는다', () => {

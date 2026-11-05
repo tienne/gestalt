@@ -245,7 +245,7 @@ function unreadNote(record: ReviewVerifierRecord): string {
   }
   if (record.duplicateCount > 0) {
     notes.push(
-      ` 같은 issueId가 ${record.duplicateCount}번 더 나와 이슈를 더 지키는 쪽 판정만 남겼다.`,
+      ` 같은 issueId가 ${record.duplicateCount}번 더 나와 이슈를 덜 빼는 쪽 판정만 남겼다.`,
     );
   }
   return notes.join('');

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   checkConsensusAgainstVerifier,
   parseVerifierOutput,
+  summarizeVerifierRecord,
 } from '../../../src/review/verifier-record.js';
 import { PassthroughReviewEngine } from '../../../src/review/passthrough-engine.js';
 
@@ -85,7 +86,7 @@ describe('parseVerifierOutput', () => {
     expect(record.verdicts['__proto__']).toEqual({ verdict: 'drop', hasEvidence: true });
   });
 
-  it('같은 id가 두 번 오면 이슈를 더 지키는 판정을 남기고 겹친 수를 센다', () => {
+  it('같은 id가 두 번 오면 이슈를 덜 빼는 판정을 남기고 겹친 수를 센다', () => {
     const record = parseVerifierOutput(
       JSON.stringify({
         verifications: [
@@ -133,6 +134,59 @@ describe('parseVerifierOutput', () => {
     expect(withEvidenceLast.verdicts['a-1']!.hasEvidence).toBe(false);
   });
 
+  it('근거 없는 drop과 keep이 겹치면 순서와 상관없이 keep을 남긴다', () => {
+    const dropFirst = parseVerifierOutput(
+      JSON.stringify([
+        { issueId: 'a-1', verdict: 'drop' },
+        { issueId: 'a-1', verdict: 'keep' },
+      ]),
+      0,
+    );
+    const keepFirst = parseVerifierOutput(
+      JSON.stringify([
+        { issueId: 'a-1', verdict: 'keep' },
+        { issueId: 'a-1', verdict: 'drop' },
+      ]),
+      0,
+    );
+
+    expect(dropFirst.verdicts['a-1']!.verdict).toBe('keep');
+    expect(keepFirst.verdicts['a-1']!.verdict).toBe('keep');
+  });
+
+  it('keep과 revise가 겹치면 먼저 읽은 쪽을 남긴다', () => {
+    const keepFirst = parseVerifierOutput(
+      JSON.stringify([
+        { issueId: 'a-1', verdict: 'keep' },
+        { issueId: 'a-1', verdict: 'revise' },
+      ]),
+      0,
+    );
+    const reviseFirst = parseVerifierOutput(
+      JSON.stringify([
+        { issueId: 'a-1', verdict: 'revise' },
+        { issueId: 'a-1', verdict: 'keep' },
+      ]),
+      0,
+    );
+
+    expect(keepFirst.verdicts['a-1']!.verdict).toBe('keep');
+    expect(reviseFirst.verdicts['a-1']!.verdict).toBe('revise');
+  });
+
+  it('근거 있는 drop끼리 겹쳐도 먼저 읽은 쪽을 남기고 수를 센다', () => {
+    const record = parseVerifierOutput(
+      JSON.stringify([
+        { issueId: 'a-1', verdict: 'drop', evidence: 'a.ts:1' },
+        { issueId: 'a-1', verdict: 'drop', evidence: 'b.ts:2' },
+      ]),
+      0,
+    );
+
+    expect(record.verdicts['a-1']).toEqual({ verdict: 'drop', hasEvidence: true });
+    expect(record.duplicateCount).toBe(1);
+  });
+
   it('JSON이 없으면 unparseable로 실패한다', () => {
     expect(parseVerifierOutput('Agent 호출이 실패했습니다', 0)).toMatchObject({
       status: 'failed',
@@ -167,6 +221,28 @@ describe('parseVerifierOutput', () => {
     });
 
     expect(parseVerifierOutput(output, 0)).toMatchObject({ status: 'ran', skippedCount: 1 });
+  });
+});
+
+describe('summarizeVerifierRecord', () => {
+  it('판정 수와 못 읽은 수, 겹친 수를 서로 바꾸지 않고 싣는다', () => {
+    const record = parseVerifierOutput(
+      JSON.stringify([
+        { issueId: 'a-1', verdict: 'keep' },
+        { issueId: 'a-1', verdict: 'revise' },
+        { issueId: 'a-2', verdict: 'keep' },
+        { issueId: 'a-3', verdict: 'skip' },
+        { issueId: 'a-4' },
+        { issueId: 'a-5', verdict: 'nope' },
+      ]),
+      0,
+    );
+
+    expect(summarizeVerifierRecord(record)).toEqual({
+      verdictCount: 2,
+      skippedCount: 3,
+      duplicateCount: 1,
+    });
   });
 });
 
