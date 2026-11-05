@@ -216,12 +216,3 @@ export function resolveDroppedIssues(
     ),
   );
 }
-
-/** droppedIssues가 우회로로 쓰이지 않았는지 본다. 문제가 없으면 null이다 */
-export function checkDroppedIssues(
-  consensus: Pick<ReviewConsensusInput, 'mergedIssues' | 'droppedIssues'>,
-  reviewResults: ReviewResult[],
-): string | null {
-  const result = resolveDroppedIssues(consensus, reviewResults);
-  return result.ok ? null : result.error.message;
-}

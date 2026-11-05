@@ -5,8 +5,8 @@ import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
 import { PassthroughReviewEngine } from '../../../src/review/passthrough-engine.js';
 import {
-  checkDroppedIssues,
   isUndroppable,
+  resolveDroppedIssues,
   verificationStats,
 } from '../../../src/review/verification.js';
 import type {
@@ -885,16 +885,16 @@ describe('PassthroughReviewEngine 제안 검증', () => {
   });
 });
 
-describe('checkDroppedIssues', () => {
-  it('droppedIssues가 없거나 비면 null이다', () => {
-    expect(checkDroppedIssues(consensus([]), [])).toBeNull();
-    expect(checkDroppedIssues(consensus([], []), [])).toBeNull();
+describe('resolveDroppedIssues', () => {
+  it('droppedIssues가 없거나 비면 통과한다', () => {
+    expect(resolveDroppedIssues(consensus([]), [])).toEqual({ ok: true, value: undefined });
+    expect(resolveDroppedIssues(consensus([], []), [])).toEqual({ ok: true, value: [] });
   });
 
   it('review_submit 원본이 하나도 없으면 입력만 보고 판단한다', () => {
-    expect(checkDroppedIssues(consensus([], [drop(issue({ id: 'ok' }))]), [])).toBeNull();
+    expect(resolveDroppedIssues(consensus([], [drop(issue({ id: 'ok' }))]), []).ok).toBe(true);
     expect(
-      checkDroppedIssues(consensus([], [drop(issue({ id: 'no', category: 'security' }))]), []),
-    ).not.toBeNull();
+      resolveDroppedIssues(consensus([], [drop(issue({ id: 'no', category: 'security' }))]), []).ok,
+    ).toBe(false);
   });
 });
