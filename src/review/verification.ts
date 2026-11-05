@@ -99,15 +99,45 @@ function missingFieldsOf(issue: DroppedReviewIssueInput): string[] {
 }
 
 /**
- * 빈 칸을 원본 후보의 첫째에서 채운다. 채울 칸이 남았는데 원본이 없으면 null이다.
+ * 빈 칸을 채울 review_submit 원본 하나를 고른다.
+ *
+ * reportedBy를 적었으면 그 리뷰어의 원본만 쓴다. 비웠는데 후보가 여러 리뷰어에 걸쳐 있으면
+ * 고르지 않는다. 리뷰어마다 `issue-1` 같은 흔한 id를 쓰면 첫 후보로 채운 작성자와 본문이 다른
+ * 리뷰어 것이 된다. 금지 판단은 여기와 상관없이 후보 전체로 한다.
+ */
+export function pickFillSource(
+  reportedBy: string | undefined,
+  originals: ReviewIssue[],
+): ReviewIssue | 'ambiguous' | undefined {
+  if (reportedBy !== undefined) {
+    const by = norm(reportedBy);
+    return originals.find((orig) => norm(orig.reportedBy) === by);
+  }
+  const reporters = new Set(originals.map((orig) => norm(orig.reportedBy)));
+  return reporters.size > 1 ? 'ambiguous' : originals[0];
+}
+
+/** 같은 id의 원본이 여러 리뷰어에게 있어 채울 원본을 못 고를 때의 안내 */
+export function ambiguousSourceMessage(id: string): string {
+  return `${id}: 같은 id의 review_submit 원본이 여러 리뷰어에게 있어 어느 쪽으로 채울지 고를 수 없다. reportedBy를 직접 적는다`;
+}
+
+/**
+ * 빈 칸을 원본에서 채운다. 채울 수 없으면 거부 문구를 돌려준다.
  * 적어 보낸 값은 그대로 둔다. 뺄 수 있는지는 이 결과가 아니라 원본 후보 전체로 판단한다.
  */
 function fillDropped(
   issue: DroppedReviewIssueInput,
   originals: ReviewIssue[],
-): DroppedReviewIssue | null {
-  const source = originals[0];
-  if (!source) return missingFieldsOf(issue).length > 0 ? null : (issue as DroppedReviewIssue);
+): DroppedReviewIssue | string {
+  const missing = missingFieldsOf(issue);
+  if (missing.length === 0) return issue as DroppedReviewIssue;
+  const source = pickFillSource(issue.reportedBy, originals);
+  if (source === 'ambiguous') return ambiguousSourceMessage(issue.id);
+  if (!source) {
+    const owner = issue.reportedBy === undefined ? '' : `${issue.reportedBy}가 낸 `;
+    return `${issue.id}: ${missing.join(', ')}가 비었는데 ${owner}같은 id의 review_submit 원본이 없어 채울 수 없다. 그 칸을 적거나 원본 id를 그대로 쓴다`;
+  }
   return {
     ...issue,
     severity: issue.severity ?? source.severity,
@@ -161,10 +191,8 @@ export function resolveDroppedIssues(
     }
     // 금지 판단이 끝난 뒤에 채운다. 채우는 값은 위에서 이미 걸러진 원본에서만 온다
     const filled = fillDropped(issue, originals);
-    if (!filled) {
-      problems.push(
-        `${issue.id}: ${missingFieldsOf(issue).join(', ')}가 비었는데 같은 id의 review_submit 원본이 없어 채울 수 없다. 그 칸을 적거나 원본 id를 그대로 쓴다`,
-      );
+    if (typeof filled === 'string') {
+      problems.push(filled);
       continue;
     }
     if (!hasContent(issue.dropReason) || !hasContent(issue.dropEvidence)) {

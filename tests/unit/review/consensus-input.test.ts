@@ -141,6 +141,24 @@ describe('review_consensus 입력 채우기', () => {
       expect(consensus.mergedIssues[0]!.reportedBy).toBe('quality-reviewer');
     });
 
+    it('같은 id 원본이 여러 리뷰어에게 있으면 고르지 않고 reportedBy를 적으라고 거부한다', () => {
+      const sid = open({
+        'quality-reviewer': [original({ id: 'issue-1' })],
+        'comment-reviewer': [original({ id: 'issue-1', file: 'src/c.ts' })],
+      });
+      const message = rejected(sid, { reviewConsensus: { mergedIssues: [issueOf('issue-1')] } });
+      expect(message).toContain('issue-1');
+      expect(message).toContain('reportedBy를 직접 적는다');
+    });
+
+    it('같은 리뷰어가 같은 id를 두 번 냈으면 그 리뷰어로 채운다', () => {
+      const sid = open({
+        'quality-reviewer': [original({ id: 'q1' }), original({ id: 'q1', line: 20 })],
+      });
+      const { consensus } = accepted(sid, { reviewConsensus: { mergedIssues: [issueOf('q1')] } });
+      expect(consensus.mergedIssues[0]!.reportedBy).toBe('quality-reviewer');
+    });
+
     it('비었는데 원본이 없으면 그 id를 짚어 거부한다', () => {
       const sid = open({ 'quality-reviewer': [original({ id: 'q1' })] });
       const message = rejected(sid, {
@@ -301,6 +319,49 @@ describe('review_consensus 입력 채우기', () => {
       });
       expect(consensus.droppedIssues![0]!.file).toBe('src/c.ts');
       expect(consensus.droppedIssues![0]!.reportedBy).toBe('comment-reviewer');
+    });
+
+    it('같은 id 원본이 여러 리뷰어에게 있고 reportedBy가 비면 거부한다', () => {
+      const sid = open({
+        'quality-reviewer': [original({ id: 'issue-1', severity: 'warning', file: 'src/q.ts' })],
+        'comment-reviewer': [original({ id: 'issue-1', severity: 'warning', file: 'src/c.ts' })],
+      });
+      const message = rejected(sid, {
+        reviewConsensus: { mergedIssues: [], droppedIssues: [{ id: 'issue-1', ...EVIDENCE }] },
+      });
+      expect(message).toContain('issue-1');
+      expect(message).toContain('reportedBy를 직접 적는다');
+    });
+
+    it('reportedBy를 적으면 그 리뷰어의 원본으로 채운다', () => {
+      const sid = open({
+        'quality-reviewer': [original({ id: 'issue-1', severity: 'warning', file: 'src/q.ts' })],
+        'comment-reviewer': [
+          original({ id: 'issue-1', severity: 'warning', file: 'src/c.ts', message: '주석 문제' }),
+        ],
+      });
+      const { consensus } = accepted(sid, {
+        reviewConsensus: {
+          mergedIssues: [],
+          droppedIssues: [{ id: 'issue-1', reportedBy: 'comment-reviewer', ...EVIDENCE }],
+        },
+      });
+      expect(consensus.droppedIssues![0]).toMatchObject({
+        file: 'src/c.ts',
+        message: '주석 문제',
+        reportedBy: 'comment-reviewer',
+      });
+    });
+
+    it('적은 reportedBy의 원본이 없으면 다른 리뷰어 원본으로 채우지 않는다', () => {
+      const sid = open({ 'quality-reviewer': [original({ id: 'q1', severity: 'warning' })] });
+      const message = rejected(sid, {
+        reviewConsensus: {
+          mergedIssues: [],
+          droppedIssues: [{ id: 'q1', reportedBy: 'comment-reviewer', ...EVIDENCE }],
+        },
+      });
+      expect(message).toContain('comment-reviewer가 낸 같은 id의 review_submit 원본이 없어');
     });
 
     it('빈 칸이 있는데 원본이 없으면 그 id와 빈 칸을 짚어 거부한다', () => {

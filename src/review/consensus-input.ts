@@ -5,7 +5,12 @@ import type {
   ReviewResult,
 } from '../core/types.js';
 import { type Result, ok, err } from '../core/result.js';
-import { findOriginals, resolveDroppedIssues } from './verification.js';
+import {
+  ambiguousSourceMessage,
+  findOriginals,
+  pickFillSource,
+  resolveDroppedIssues,
+} from './verification.js';
 
 /**
  * review_consensus 입력의 빈 칸을 세션에 남은 review_submit 기록으로 채운다.
@@ -22,7 +27,16 @@ export function resolveConsensusInput(
 
   const mergedIssues: ReviewIssue[] = [];
   for (const issue of input.mergedIssues) {
-    const reportedBy = issue.reportedBy ?? findOriginals(issue, reviewResults)[0]?.reportedBy;
+    if (issue.reportedBy !== undefined) {
+      mergedIssues.push({ ...issue, reportedBy: issue.reportedBy });
+      continue;
+    }
+    const source = pickFillSource(undefined, findOriginals(issue, reviewResults));
+    if (source === 'ambiguous') {
+      problems.push(`mergedIssues의 ${ambiguousSourceMessage(issue.id)}.`);
+      continue;
+    }
+    const reportedBy = source?.reportedBy;
     if (reportedBy === undefined) {
       problems.push(
         `mergedIssues의 ${issue.id}: reportedBy가 비었는데 같은 id나 \`<reportedBy>:<원래 id>\` 꼴의 review_submit 원본이 없어 채울 수 없다. 그 의견을 낸 에이전트 이름 하나를 적는다.`,
