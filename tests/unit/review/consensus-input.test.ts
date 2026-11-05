@@ -322,6 +322,50 @@ describe('review_consensus 입력 채우기', () => {
       expect(message).not.toContain('security-reviewer:x1');
     });
 
+    it('id가 다른 두 security 원본을 하나로만 이으면 접힌 쪽 원본을 거부한다', () => {
+      const sid = open({
+        'security-reviewer': [original({ id: 's1', category: 'security', severity: 'high' })],
+        'quality-reviewer': [original({ id: 'q3', category: 'security', severity: 'high' })],
+      });
+      const message = rejected(sid, {
+        reviewConsensus: {
+          mergedIssues: [
+            issueOf('s1', {
+              category: 'security',
+              severity: 'high',
+              reportedBy: 'security-reviewer',
+            }),
+          ],
+        },
+      });
+      expect(message).toContain('quality-reviewer:q3');
+      expect(message).toContain('mergedIssues에 없다');
+      expect(message).not.toContain('security-reviewer:s1');
+    });
+
+    it('id가 다른 두 security 원본을 각자 id로 두면 통과한다', () => {
+      const sid = open({
+        'security-reviewer': [original({ id: 's1', category: 'security', severity: 'high' })],
+        'quality-reviewer': [original({ id: 'q3', category: 'security', severity: 'high' })],
+      });
+      accepted(sid, {
+        reviewConsensus: {
+          mergedIssues: [
+            issueOf('s1', {
+              category: 'security',
+              severity: 'high',
+              reportedBy: 'security-reviewer',
+            }),
+            issueOf('q3', {
+              category: 'security',
+              severity: 'high',
+              reportedBy: 'quality-reviewer',
+            }),
+          ],
+        },
+      });
+    });
+
     it('원본보다 높은 severity로 올려 이으면 통과한다', () => {
       const sid = open({
         'security-reviewer': [original({ id: 's1', category: 'security', severity: 'high' })],
@@ -482,12 +526,14 @@ describe('review_consensus 입력 채우기', () => {
       expect(consensus.blockedBy).toEqual([]);
     });
 
-    it('한글 자모가 섞인 summary는 내용으로 보고 그대로 쓴다', () => {
-      const sid = open({ 'quality-reviewer': [original({ id: 'q1' })] });
-      const { consensus } = accepted(sid, {
-        reviewConsensus: { mergedIssues: [issueOf('q1')], summary: '\u1100\u1160' },
-      });
-      expect(consensus.summary).toBe('\u1100\u1160');
+    it('채움 문자와 섞인 자모와 정상 조합 자모는 내용으로 보고 그대로 쓴다', () => {
+      for (const summary of ['\u1100\u1160', '\u1100\u1161']) {
+        const sid = open({ 'quality-reviewer': [original({ id: 'q1' })] });
+        const { consensus } = accepted(sid, {
+          reviewConsensus: { mergedIssues: [issueOf('q1')], summary },
+        });
+        expect(consensus.summary).toBe(summary);
+      }
     });
 
     it('summary가 비면 이슈 수로 채운다', () => {
