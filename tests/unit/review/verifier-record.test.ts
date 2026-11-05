@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { parseVerifierOutput } from '../../../src/review/verifier-record.js';
+import {
+  checkConsensusAgainstVerifier,
+  parseVerifierOutput,
+} from '../../../src/review/verifier-record.js';
 import { PassthroughReviewEngine } from '../../../src/review/passthrough-engine.js';
 
 /**
@@ -51,6 +54,26 @@ describe('parseVerifierOutput', () => {
     expect(record.verdicts['a-1']!.hasEvidence).toBe(false);
   });
 
+  it('이슈 id는 대소문자와 앞뒤 공백을 맞춰 담는다', () => {
+    const record = parseVerifierOutput(
+      JSON.stringify({ verifications: [{ issueId: ' A-1 ', verdict: 'keep' }] }),
+      0,
+    );
+
+    expect(Object.keys(record.verdicts)).toEqual(['a-1']);
+  });
+
+  it('__proto__ 같은 id도 판정으로 남는다', () => {
+    const record = parseVerifierOutput(
+      '{"verifications":[{"issueId":"__proto__","verdict":"drop","evidence":"a.ts:1"}]}',
+      0,
+    );
+
+    expect(record.status).toBe('ran');
+    expect(Object.hasOwn(record.verdicts, '__proto__')).toBe(true);
+    expect(record.verdicts['__proto__']).toEqual({ verdict: 'drop', hasEvidence: true });
+  });
+
   it('JSON이 없으면 unparseable로 실패한다', () => {
     expect(parseVerifierOutput('Agent 호출이 실패했습니다', 0)).toMatchObject({
       status: 'failed',
@@ -73,6 +96,74 @@ describe('parseVerifierOutput', () => {
       failure: 'no_verifications',
       verdicts: {},
     });
+  });
+});
+
+describe('checkConsensusAgainstVerifier', () => {
+  it('상속된 속성 이름의 이슈 id를 판정으로 읽지 않는다', () => {
+    const record = parseVerifierOutput(
+      JSON.stringify({ verifications: [{ issueId: 'x', verdict: 'keep' }] }),
+      1,
+    );
+    const issue = (id: string) => ({
+      id,
+      severity: 'warning' as const,
+      category: 'quality' as const,
+      file: 'a.ts',
+      message: '문제',
+      suggestion: '고치기',
+      reportedBy: 'quality-reviewer',
+    });
+
+    const problem = checkConsensusAgainstVerifier(
+      { status: 'ran', record },
+      { mergedIssues: [issue('constructor'), issue('toString')] },
+    );
+
+    expect(problem).toContain('하나도 안 맞는다');
+  });
+
+  it('JSON에서 되살린 기록이어도 상속된 이름으로 drop을 통과시키지 않는다', () => {
+    const record = JSON.parse(
+      JSON.stringify(
+        parseVerifierOutput(
+          JSON.stringify({ verifications: [{ issueId: 'x', verdict: 'keep' }] }),
+          1,
+        ),
+      ),
+    );
+
+    const problem = checkConsensusAgainstVerifier(
+      { status: 'ran', record },
+      {
+        mergedIssues: [
+          {
+            id: 'x',
+            severity: 'warning',
+            category: 'quality',
+            file: 'a.ts',
+            message: '문제',
+            suggestion: '고치기',
+            reportedBy: 'quality-reviewer',
+          },
+        ],
+        droppedIssues: [
+          {
+            id: 'constructor',
+            severity: 'warning',
+            category: 'quality',
+            file: 'a.ts',
+            message: '문제',
+            suggestion: '고치기',
+            reportedBy: 'quality-reviewer',
+            dropReason: '이미 고쳐짐',
+            dropEvidence: 'a.ts:1',
+          },
+        ],
+      },
+    );
+
+    expect(problem).toContain('constructor: 검증기 응답에 없는 이슈라 뺄 수 없다');
   });
 });
 

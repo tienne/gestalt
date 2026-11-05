@@ -53,7 +53,7 @@ export function verificationStats(
 }
 
 /** id와 reportedBy는 대소문자와 앞뒤 공백을 빼고 비교한다. 표기만 바꿔 대조를 피하지 못하게 */
-function norm(value: string): string {
+export function norm(value: string): string {
   return value.trim().toLowerCase();
 }
 

@@ -6,6 +6,7 @@ import type {
   ReviewVerifierVerdict,
 } from '../core/types.js';
 import { type Result, ok, err } from '../core/result.js';
+import { norm } from './verification.js';
 
 const VERDICTS = new Set(['keep', 'revise', 'drop']);
 
@@ -16,12 +17,15 @@ const VERDICTS = new Set(['keep', 'revise', 'drop']);
  * 통째로, 펜스 안, 첫 `{`부터 마지막 `}`까지 순서로 읽어 보고 처음 읽힌 것을 쓴다.
  * 하나도 못 읽으면 서브에이전트 실패로 본다. 원문은 남기지 않는다 — 판정과 개수만 쓰면
  * 되고 응답 문자열이 로그나 경로로 흘러갈 자리를 만들 이유가 없다.
+ *
+ * 판정은 프로토타입 없는 객체에 id를 norm으로 맞춰 담는다. 응답의 issueId가 `__proto__`여도
+ * 판정으로 남고 `constructor` 같은 id를 찾을 때 상속된 값이 걸리지 않는다.
  */
 export function parseVerifierOutput(raw: string, submitCount: number): ReviewVerifierRecord {
   const list = readVerificationList(raw.trim());
   if (!list) return { status: 'failed', failure: 'unparseable', submitCount, verdicts: {} };
 
-  const verdicts: Record<string, ReviewVerifierVerdict> = {};
+  const verdicts: Record<string, ReviewVerifierVerdict> = Object.create(null);
   for (const entry of list) {
     if (typeof entry !== 'object' || entry === null) continue;
     const { issueId, verdict, evidence } = entry as Record<string, unknown>;
@@ -29,7 +33,7 @@ export function parseVerifierOutput(raw: string, submitCount: number): ReviewVer
     if (typeof verdict !== 'string') continue;
     const normalized = verdict.trim().toLowerCase();
     if (!VERDICTS.has(normalized)) continue;
-    verdicts[issueId.trim()] = {
+    verdicts[norm(issueId)] = {
       verdict: normalized as ReviewVerifierVerdict['verdict'],
       hasEvidence: typeof evidence === 'string' && evidence.trim() !== '',
     };
@@ -62,6 +66,18 @@ function readVerificationList(text: string): unknown[] | null {
     }
   }
   return null;
+}
+
+/**
+ * 이슈 id로 판정을 찾는다. 세션을 JSON에서 되살리면 프로토타입이 붙은 객체가 되므로
+ * 저장할 때와 상관없이 자기 키만 본다.
+ */
+function verdictOf(
+  verdicts: Record<string, ReviewVerifierVerdict>,
+  id: string,
+): ReviewVerifierVerdict | undefined {
+  const key = norm(id);
+  return Object.hasOwn(verdicts, key) ? verdicts[key] : undefined;
 }
 
 /** 합의를 받는 지금 검증 기록이 어떤 상태인지 */
@@ -99,7 +115,7 @@ export function checkConsensusAgainstVerifier(
 
   const { verdicts } = at.record;
   const ids = [...consensus.mergedIssues, ...dropped].map((i) => i.id);
-  if (ids.length > 0 && !ids.some((id) => verdicts[id])) {
+  if (ids.length > 0 && !ids.some((id) => verdictOf(verdicts, id))) {
     return (
       '검증기가 돌려준 응답의 issueId가 이번 이슈 id와 하나도 안 맞는다. ' +
       '검증기에 넘긴 초안의 id를 그대로 쓰거나 지금 초안으로 검증을 다시 돌린다.'
@@ -108,7 +124,7 @@ export function checkConsensusAgainstVerifier(
 
   const problems: string[] = [];
   for (const issue of dropped) {
-    const judged = verdicts[issue.id];
+    const judged = verdictOf(verdicts, issue.id);
     if (!judged) {
       problems.push(`- ${issue.id}: 검증기 응답에 없는 이슈라 뺄 수 없다`);
     } else if (judged.verdict !== 'drop') {
