@@ -678,7 +678,7 @@ echo "ACCEPTED=$accepted"
 - 타임라인 조회가 세 번 다 실패했으면 `타임라인 조회 실패, 접수 여부 확인 못 함: {마지막 시도의 gh 에러 첫 줄}`
 - POST는 성공했고 조회도 됐는데 이벤트가 없으면 `POST는 성공, 타임라인에 요청 이벤트 없음`
 
-"한 번 더 조회한다"로 다시 돌면 그 회차 결과로 이유를 다시 정한다. ⓒ 메시지와 완료 보고의 `Copilot:` 줄이 이 이유를 고쳐 쓰지 않고 옮긴다. 파일은 Phase 5에서 지워지므로 이유는 대화에 남겨 둔다.
+"한 번 더 조회한다"로 다시 돌면 그 회차 결과로 이유를 다시 정한다. ⓒ 메시지의 첫 줄과 완료 보고의 `Copilot:` 줄에는 이 이유를 고쳐 쓰지 말고 그대로 옮긴다. 파일은 Phase 5에서 지워지므로 이유는 대화에 남겨 둔다.
 
 **POST는 `EXIT=0`인데 접수 안 됨이면 묻는다.** 선택지는 "한 번 더 조회한다 / 리뷰 없이 승인 단계 ⓒ로 간다 / 여기서 멈춘다"다. 한 번 더 조회하면 위 블록을 다시 백그라운드로 돈다. 이벤트가 늦게 붙는 경우가 있어서 바로 멈추지 않는다.
 
@@ -746,6 +746,8 @@ gh api "repos/{owner}/{repo}/pulls/<prNumber>/comments?since=<기준 시각>" \
 이번 라운드 새 코멘트 0건  →  수렴. 루프 탈출
 ```
 
+수렴한 라운드도 리뷰는 제출됐으므로 `copilotRounds`에 센다. 수렴해 빠질 때 `copilotRounds`는 지금 `round`와 같다.
+
 ### 4.5 승인 단계 ⓑ와 대응
 
 `review-reply` 스킬을 `prNumber` 대상으로 부른다. 유형 분류 승인이 ⓑ다.
@@ -807,15 +809,15 @@ Copilot 리뷰 수렴 ({N}라운드)
 
 ### 리뷰를 못 받고 들어올 때
 
-`copilotStatus`가 `skipped`나 `not-accepted`, `requested`로 ⓒ에 오면 위 틀의 첫 줄을 바꾼다. 수렴했다고 쓰면 리뷰를 받은 것처럼 읽힌다. `{N}`은 `copilotRounds`, `{R}`은 리뷰 없이 넘어온 라운드 번호다.
+`copilotStatus`가 `skipped`나 `not-accepted`, `requested`로 ⓒ에 오면 위 틀의 첫 줄을 바꾼다. 수렴했다고 쓰면 리뷰를 받은 것처럼 읽힌다. `{N}`은 `copilotRounds`, `{L}`은 리뷰 없이 넘어온 라운드 번호다. 위 틀의 검증 줄에 쓰는 `{R}`과 다른 값이다.
 
 | `copilotStatus` | 앞 라운드 리뷰 | 첫 줄 |
 | --- | --- | --- |
 | `skipped` | — | Phase 4 첫 문단의 줄. 예: `Copilot 리뷰 건너뜀 (사용자가 생략, 근거: 대화)` |
 | `not-accepted` | 없음 | `Copilot 리뷰 없음 (접수 안 됨: {4.1에서 정한 이유})` |
-| `not-accepted` | 있음 | `Copilot 리뷰 {N}라운드 받음, 라운드 {R} 접수 안 됨 ({4.1에서 정한 이유})` |
-| `requested` | 없음 | `Copilot 리뷰 안 옴 (요청은 접수됨, 라운드 {R}에서 10분 대기 중 제출 없음)` |
-| `requested` | 있음 | `Copilot 리뷰 {N}라운드 받음, 라운드 {R}은 리뷰 안 옴 (요청은 접수됨, 10분 대기 중 제출 없음)` |
+| `not-accepted` | 있음 | `Copilot 리뷰 {N}라운드 받음, 라운드 {L} 접수 안 됨 ({4.1에서 정한 이유})` |
+| `requested` | 없음 | `Copilot 리뷰 안 옴 (요청은 접수됨, 라운드 {L}에서 대기 중 제출 없음)` |
+| `requested` | 있음 | `Copilot 리뷰 {N}라운드 받음, 라운드 {L}에서는 리뷰 안 옴 (요청은 접수됨, 대기 중 제출 없음)` |
 
 나머지 줄은 Copilot 라운드를 돈 적이 있는지로 갈린다.
 
@@ -851,7 +853,7 @@ rm -rf "$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-
 | `localPrId` | 로컬 PR id (8자 16진수) |
 | `localRounds` | 로컬 리뷰가 몇 라운드 돌았는지 |
 | `prUrl` | GitHub PR URL |
-| `copilotRounds` | Copilot 리뷰를 받고 끝낸 라운드 수. 요청만 하고 리뷰를 못 받은 라운드는 안 센다 |
+| `copilotRounds` | Copilot 리뷰를 받은 라운드 수. 인라인 코멘트 0건으로 수렴한 라운드도 리뷰가 제출됐으므로 센다. 요청만 하고 리뷰를 못 받은 라운드는 안 센다 |
 | `copilotStatus` | `reviewed`, `requested`, `not-accepted`, `skipped` |
 | `unresolvedAtReady` | ready 시점의 미해결 스레드 수 |
 | `prState` | `ready`, `draft`, `blocked`, `escalated` |
@@ -889,18 +891,19 @@ rm -rf "$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-
 ```
 {prUrl} — ready
 
-Copilot: 리뷰 옴 (2라운드)
-로컬 리뷰 2라운드: 이슈 7 → 2 → 0
-Copilot 2라운드: 코멘트 5 → 1 → 0
+Copilot: 리뷰 옴 (3라운드)
+로컬 리뷰 3라운드: 이슈 7 → 2 → 0
+Copilot 3라운드: 코멘트 5 → 1 → 0
 반영 11건 / 유예 2건 (오탐 1, 레포 규칙 우선 1)
 미해결 스레드 0
 ```
 
-**`Copilot:` 줄은 빼지 않는다.** `copilotStatus`의 "보고에 쓰는 말"을 그대로 쓰고 `리뷰 옴`이 아니면 이유를 괄호에 적는다. `not-accepted`면 4.1에서 정한 마지막 라운드의 이유를 고쳐 쓰지 않고 괄호에 옮긴다. 원인을 짐작해 바꿔 적으면 사람이 같은 에러로 검색해 볼 수가 없다. 예시 앞의 셋이 4.1의 세 경우와 차례대로 맞는다.
+**`Copilot:` 줄은 빼지 않는다.** `copilotStatus`의 "보고에 쓰는 말"을 그대로 쓰고 `리뷰 옴`이 아니면 이유를 괄호에 적는다. `not-accepted`면 4.1에서 정한 마지막 라운드의 이유를 고쳐 쓰지 않고 괄호에 옮긴다. `requested`는 보고 말에 이미 괄호가 있으므로 하나로 합쳐 `요청함 (리뷰 안 옴, 라운드 {L}에서 대기 중 제출 없음)`으로 적는다. 원인을 짐작해 바꿔 적으면 사람이 같은 에러로 검색해 볼 수가 없다. 예시 앞의 셋이 4.1의 세 경우와 차례대로 맞는다.
 
 - `Copilot: 접수 안 됨 (gh: Not Found (HTTP 404))`
 - `Copilot: 접수 안 됨 (타임라인 조회 실패, 접수 여부 확인 못 함: gh: API rate limit exceeded)`
 - `Copilot: 접수 안 됨 (POST는 성공, 타임라인에 요청 이벤트 없음)`
+- `Copilot: 요청함 (리뷰 안 옴, 라운드 3에서 대기 중 제출 없음)`
 - `Copilot: 건너뜀 (사용자가 생략, 근거: 메모리 ship-skip-copilot.md)`
 
 **안 한 걸 했다고 쓰지 않는다.** 어느 라운드를 도구가 없어 건너뛰었으면 그 사실을 여기 적는다. 검증을 코드 변경이 없어 건너뛴 라운드가 있으면 그것도 적는다.
