@@ -93,7 +93,7 @@ export function checkConsensusAgainstVerifier(
     if (dropped.length === 0 && judged.length === 0) return null;
     const ids = [...dropped.map((i) => i.id), ...judged].join(', ');
     return (
-      `제안 검증 응답에서 판정을 못 읽었는데 판정이 붙은 이슈가 있다: ${ids}. ` +
+      `검증기가 돌려준 응답에서 판정을 못 읽었는데 판정이 붙은 이슈가 있다: ${ids}. ` +
       '검증기가 실패했으면 droppedIssues와 verification 없이 초안 그대로 보낸다. ' +
       '검증기를 다시 돌렸으면 그 응답을 review_verify로 먼저 넘긴다.'
     );
@@ -104,7 +104,7 @@ export function checkConsensusAgainstVerifier(
   const ids = [...consensus.mergedIssues, ...dropped].map((i) => i.id);
   if (ids.length > 0 && !ids.some((id) => verdicts[id])) {
     return (
-      '제안 검증 응답의 issueId가 이번 이슈 id와 하나도 안 맞는다. ' +
+      '검증기가 돌려준 응답의 issueId가 이번 이슈 id와 하나도 안 맞는다. ' +
       '검증기에 넘긴 초안의 id를 그대로 쓰거나 지금 초안으로 검증을 다시 돌린다.'
     );
   }
@@ -113,10 +113,10 @@ export function checkConsensusAgainstVerifier(
   for (const issue of dropped) {
     const judged = verdicts[issue.id];
     if (!judged) {
-      problems.push(`- ${issue.id}: 제안 검증 응답에 없는 이슈라 뺄 수 없다`);
+      problems.push(`- ${issue.id}: 검증기 응답에 없는 이슈라 뺄 수 없다`);
     } else if (judged.verdict !== 'drop') {
       problems.push(
-        `- ${issue.id}: 제안 검증 응답에서 ${judged.verdict}였다. drop으로 낸 이슈만 뺀다`,
+        `- ${issue.id}: 검증기 응답에서 ${judged.verdict}였다. drop으로 낸 이슈만 뺀다`,
       );
     } else if (!judged.hasEvidence) {
       problems.push(`- ${issue.id}: 검증기가 근거 없이 drop을 냈다. keep으로 mergedIssues에 둔다`);
@@ -124,7 +124,7 @@ export function checkConsensusAgainstVerifier(
   }
   if (problems.length === 0) return null;
   return [
-    'droppedIssues가 제안 검증 응답과 어긋난다. 해당 이슈를 mergedIssues로 되돌려 다시 부른다.',
+    'droppedIssues가 검증기 응답과 어긋난다. 해당 이슈를 mergedIssues로 되돌려 다시 부른다.',
     ...problems,
   ].join('\n');
 }
@@ -166,7 +166,7 @@ export function checkVerifierBeforePublish(
     const added = session.reviewResults.length - at.record.submitCount;
     return err(
       new Error(
-        `제안 검증 뒤에 review_submit이 ${added}건 더 들어와 그 기록으로는 게시하지 않는다. ` +
+        `제안 검증 뒤에 review_submit이 ${added}개 더 들어와 그 기록으로는 게시하지 않는다. ` +
           '늘어난 초안까지 다시 검증해 review_verify로 넘기고 review_consensus를 다시 부른다.',
       ),
     );

@@ -1007,7 +1007,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
 
       const parsed = call({ action: 'review_publish', reviewSessionId });
 
-      expect(parsed.error).toContain('review_submit이 1건 더 들어와');
+      expect(parsed.error).toContain('review_submit이 1개 더 들어와');
       nothingWritten();
     });
 
@@ -1105,7 +1105,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
           droppedIssues: [{ ...issue, id: 'g-2', dropReason: '불필요', dropEvidence: 'a.txt:1' }],
         });
 
-        expect(parsed.error).toContain('g-2: 제안 검증 응답에서 keep였다');
+        expect(parsed.error).toContain('g-2: 검증기 응답에서 keep였다');
       });
 
       it('검증기 응답에 없는 이슈를 droppedIssues로 빼면 합의를 거절한다', () => {
@@ -1116,7 +1116,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
           droppedIssues: [{ ...issue, id: 'g-9', dropReason: '불필요', dropEvidence: 'a.txt:1' }],
         });
 
-        expect(parsed.error).toContain('g-9: 제안 검증 응답에 없는 이슈라');
+        expect(parsed.error).toContain('g-9: 검증기 응답에 없는 이슈라');
       });
 
       it('검증기가 근거 없이 낸 drop으로는 뺄 수 없다', () => {
