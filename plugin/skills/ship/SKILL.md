@@ -259,7 +259,7 @@ gh auth status
 - **커밋 안 된 변경이 있으면 멈추고 묻는다.** 이 스킬은 head sha로 라운드를 가르므로 워킹 트리가 더러우면 무엇이 리뷰된 건지 흐려진다.
 - **현재 브랜치가 base와 같으면 멈춘다.** 기본 브랜치에서 바로 출하하지 않는다.
 - **detached HEAD면 멈춘다.** 라운드 상태를 브랜치별로 가르므로 이름이 없으면 다른 세션의 자리를 덮는다.
-- **base 대비 커밋이 없으면 멈춘다.** 리뷰할 게 없다. pr-base 4절이 찍은 `commits`가 0인 경우다. `commits=error`는 커밋이 없는 게 아니라 base를 못 찾은 것이라 멈추고 base를 다시 묻는다. 내 커밋이 이미 기본 브랜치에 들어갔으면 1절이 기본 브랜치를 수 0으로 돌려주고 4절도 0을 찍는다.
+- **base 대비 커밋이 없으면 멈춘다.** 리뷰할 게 없다. pr-base 4절이 찍은 `commits`가 0인 경우다. `commits=error`는 base를 못 찾았다는 뜻이라 멈추고 base를 다시 묻는다. 내 커밋이 이미 기본 브랜치에 들어갔으면 1절이 기본 브랜치를 수 0으로 돌려주고 4절도 0을 찍는다.
 - `gh` 인증이 안 돼 있으면 **여기서 알린다.** Phase 3에서 처음 알면 로컬 리뷰 라운드가 통째로 헛돈다.
 
 확정한 base를 `base`로 보관한다. **Phase 3의 `gh pr create`가 이 값을 받는다.**
@@ -672,6 +672,14 @@ echo "ACCEPTED=$accepted"
 
 `ACCEPTED=Copilot`이면 접수됐다. **이벤트는 바로 안 붙을 수 있어서 5초 간격으로 세 번까지 조회한다.** 루프에 `sleep`이 있으므로 이 블록은 백그라운드 Bash로 돌리고 끝나면 결과를 읽는다. 전경에서 세션을 붙잡지 않는다. `ACCEPTED=none`일 때만 접수 안 됨으로 본다. `TIMELINE_ERR`가 세 번 다 찍혔으면 접수 안 됨이 아니라 조회가 실패했다. 그 사실을 알리고 같은 선택지로 묻는다.
 
+**묻기 전에 이번 라운드의 접수 안 됨 이유를 정해 둔다.** 경우는 셋이다.
+
+- POST가 `EXIT=0`이 아니면 `request-cp{round}.err`의 첫 줄
+- 타임라인 조회가 세 번 다 실패했으면 `타임라인 조회 실패, 접수 여부 확인 못 함: {마지막 시도의 gh 에러 첫 줄}`
+- POST는 성공했고 조회도 됐는데 이벤트가 없으면 `POST는 성공, 타임라인에 요청 이벤트 없음`
+
+"한 번 더 조회한다"로 다시 돌면 그 회차 결과로 이유를 다시 정한다. ⓒ 메시지와 완료 보고의 `Copilot:` 줄이 이 이유를 고쳐 쓰지 않고 옮긴다. 파일은 Phase 5에서 지워지므로 이유는 대화에 남겨 둔다.
+
 **POST는 `EXIT=0`인데 접수 안 됨이면 묻는다.** 선택지는 "한 번 더 조회한다 / 리뷰 없이 승인 단계 ⓒ로 간다 / 여기서 멈춘다"다. 한 번 더 조회하면 위 블록을 다시 백그라운드로 돈다. 이벤트가 늦게 붙는 경우가 있어서 바로 멈추지 않는다.
 
 **POST가 `EXIT=0`이 아니면 요청 자체가 안 들어갔다.** 다시 조회해도 소용없고 기다려도 리뷰는 안 온다. `request-cp{round}.json`과 `request-cp{round}.err`의 내용을 그대로 보이고 "리뷰 없이 승인 단계 ⓒ로 간다 / 여기서 멈춘다"로 묻는다.
@@ -683,8 +691,6 @@ echo "ACCEPTED=$accepted"
 - 계정에 Copilot 구독이 없다
 
 알릴 때 무엇을 확인해야 하는지 함께 적는다 — 레포 Settings의 Copilot 항목과 계정 구독이다. **Copilot 리뷰를 못 받았는데 받은 것처럼 넘어가지 않는다.** 사용자가 여기서 리뷰 없이 진행하기로 하면 `copilotStatus`를 `not-accepted`로 적고 승인 단계 ⓒ로 간다. `copilotRounds`는 리뷰를 받고 끝낸 라운드 수 그대로라 첫 라운드면 0이다. ⓒ 메시지는 [리뷰를 못 받고 들어올 때](#리뷰를-못-받고-들어올-때)를 따른다. 접수를 확인 못 한 뒤에 내린 결정이라 `skipped`가 아니다.
-
-**이번 라운드의 에러 첫 줄을 여기서 잡아둔다.** POST가 실패했으면 `request-cp{round}.err`의 첫 줄이고 타임라인 조회가 세 번 다 실패했으면 `TIMELINE_ERR`와 함께 찍힌 gh 에러의 첫 줄이다. 완료 보고의 `Copilot:` 줄이 이 문장을 그대로 옮긴다. 파일은 Phase 5에서 지워지므로 그 전에 대화에 남겨 둔다.
 
 ### 4.2 완료 대기
 
@@ -710,6 +716,8 @@ gh pr view <prNumber> --json reviews \
 Copilot 리뷰가 10분째 안 옵니다. (요청은 접수됨)
 - 더 기다린다 / 리뷰 없이 승인 단계 ⓒ로 간다 / 여기서 멈춘다
 ```
+
+리뷰 없이 ⓒ로 가면 `copilotStatus`를 `requested`로 적는다. `copilotRounds`는 리뷰를 받고 끝낸 라운드 수 그대로 둔다. ⓒ 메시지는 [리뷰를 못 받고 들어올 때](#리뷰를-못-받고-들어올-때)를 따른다.
 
 이슈가 하나도 없을 때도 리뷰는 제출된다. body만 있고 인라인 코멘트가 0인 형태다. 그건 **완료이자 수렴**이다.
 
@@ -799,12 +807,15 @@ Copilot 리뷰 수렴 ({N}라운드)
 
 ### 리뷰를 못 받고 들어올 때
 
-`copilotStatus`가 `skipped`나 `not-accepted`로 ⓒ에 오면 위 틀의 첫 줄을 바꾼다. 수렴했다고 쓰면 리뷰를 받은 것처럼 읽힌다.
+`copilotStatus`가 `skipped`나 `not-accepted`, `requested`로 ⓒ에 오면 위 틀의 첫 줄을 바꾼다. 수렴했다고 쓰면 리뷰를 받은 것처럼 읽힌다. `{N}`은 `copilotRounds`, `{R}`은 리뷰 없이 넘어온 라운드 번호다.
 
-| `copilotStatus` | 첫 줄 |
-| --- | --- |
-| `skipped` | Phase 4 첫 문단의 줄. 예: `Copilot 리뷰 건너뜀 (사용자가 생략, 근거: 대화)` |
-| `not-accepted` | `Copilot 리뷰 없음 (접수 안 됨: {4.1에서 잡아둔 에러 첫 줄})` |
+| `copilotStatus` | 앞 라운드 리뷰 | 첫 줄 |
+| --- | --- | --- |
+| `skipped` | — | Phase 4 첫 문단의 줄. 예: `Copilot 리뷰 건너뜀 (사용자가 생략, 근거: 대화)` |
+| `not-accepted` | 없음 | `Copilot 리뷰 없음 (접수 안 됨: {4.1에서 정한 이유})` |
+| `not-accepted` | 있음 | `Copilot 리뷰 {N}라운드 받음, 라운드 {R} 접수 안 됨 ({4.1에서 정한 이유})` |
+| `requested` | 없음 | `Copilot 리뷰 안 옴 (요청은 접수됨, 라운드 {R}에서 10분 대기 중 제출 없음)` |
+| `requested` | 있음 | `Copilot 리뷰 {N}라운드 받음, 라운드 {R}은 리뷰 안 옴 (요청은 접수됨, 10분 대기 중 제출 없음)` |
 
 나머지 줄은 Copilot 라운드를 돈 적이 있는지로 갈린다.
 
@@ -840,7 +851,7 @@ rm -rf "$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-
 | `localPrId` | 로컬 PR id (8자 16진수) |
 | `localRounds` | 로컬 리뷰가 몇 라운드 돌았는지 |
 | `prUrl` | GitHub PR URL |
-| `copilotRounds` | Copilot 리뷰가 몇 라운드 돌았는지 |
+| `copilotRounds` | Copilot 리뷰를 받고 끝낸 라운드 수. 요청만 하고 리뷰를 못 받은 라운드는 안 센다 |
 | `copilotStatus` | `reviewed`, `requested`, `not-accepted`, `skipped` |
 | `unresolvedAtReady` | ready 시점의 미해결 스레드 수 |
 | `prState` | `ready`, `draft`, `blocked`, `escalated` |
@@ -885,7 +896,7 @@ Copilot 2라운드: 코멘트 5 → 1 → 0
 미해결 스레드 0
 ```
 
-**`Copilot:` 줄은 빼지 않는다.** `copilotStatus`의 "보고에 쓰는 말"을 그대로 쓰고 `리뷰 옴`이 아니면 이유를 괄호에 적는다. `not-accepted`이고 에러가 났으면 4.1에서 잡아둔 마지막 라운드의 에러 첫 줄을 고쳐 쓰지 않고 그대로 옮긴다. POST가 성공했는데 이벤트만 없었으면 그 사실을 적는다. 원인을 짐작해 바꿔 적으면 사람이 같은 에러로 검색해 볼 수가 없다. 예를 들면 아래와 같다.
+**`Copilot:` 줄은 빼지 않는다.** `copilotStatus`의 "보고에 쓰는 말"을 그대로 쓰고 `리뷰 옴`이 아니면 이유를 괄호에 적는다. `not-accepted`면 4.1에서 정한 마지막 라운드의 이유를 고쳐 쓰지 않고 괄호에 옮긴다. 원인을 짐작해 바꿔 적으면 사람이 같은 에러로 검색해 볼 수가 없다. 예시 앞의 셋이 4.1의 세 경우와 차례대로 맞는다.
 
 - `Copilot: 접수 안 됨 (gh: Not Found (HTTP 404))`
 - `Copilot: 접수 안 됨 (타임라인 조회 실패, 접수 여부 확인 못 함: gh: API rate limit exceeded)`
