@@ -12,7 +12,7 @@ base 이름은 뒤에서 PR 생성 명령의 `--base "<base>"`, `gh pr list --he
 
 | 이름이 온 자리 | 걸리면 |
 | --- | --- |
-| 사용자가 준 base나 `target` | 멈추고 사용자에게 묻는다 |
+| 사용자가 준 base나 `target` | 멈추고 "다른 이름을 준다 / 여기서 멈춘다"로 묻는다. 그대로 진행하는 선택지는 두지 않는다 |
 | 1절 후보 뽑기의 원격 브랜치 | 후보에서 빼고 `skip <이름>`을 표준 에러에 남긴다 (1절 스니펫이 한다) |
 | 2절 오르카 값 | 쓰지 않는다 (2절 스니펫이 한다) |
 
@@ -26,7 +26,7 @@ BRANCH_NAME_END
 [[ $name =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]] && echo ok || echo "bad-name"
 ```
 
-- 영문, 숫자, `.`, `_`, `/`, `-`만 받고 첫 글자에는 `/`와 `-`를 받지 않는다
+- 영문, 숫자, `.`, `_`, `/`, `-`만 받고 첫 글자에는 `/`와 `-`를 받지 않는다. `feat/한글`처럼 git은 받는 이름도 여기서는 걸린다. 그런 base면 사용자가 브랜치 이름을 바꿔야 한다
 - `git check-ref-format`은 `feat/$(id)` 같은 이름을 통과시키므로 쓰지 않는다
 - `[[ =~ ]]`는 bash와 zsh에서 같게 돈다. 줄바꿈이 든 값도 걸린다
 
@@ -34,12 +34,17 @@ BRANCH_NAME_END
 
 원격 브랜치마다 현재 브랜치와의 merge-base를 구하고 그 merge-base 이후에 쌓인 내 커밋 수를 센다. 이 수가 가장 작은 브랜치가 내가 실제로 갈라져 나온 브랜치다.
 
+fetch는 따로 먼저 돌린다. 한 블록에 두면 fetch가 끊길 때 후보 계산 출력도 같이 사라진다.
+
+```bash
+GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=20 git fetch --quiet origin \
+  || echo "fetch-failed" >&2
+```
+
 ```bash
 default=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
 me=$(git rev-parse --abbrev-ref HEAD)
 head=$(git rev-parse HEAD)
-GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=20 git fetch --quiet origin \
-  || echo "fetch-failed" >&2
 refs=$(git for-each-ref --format='%(refname)' refs/remotes/origin | grep -vc '/HEAD$')
 [ "$refs" -le 1 ] && echo "only-default" >&2
 [ "$refs" -gt 200 ] && echo "capped $refs" >&2
@@ -62,7 +67,7 @@ done | sort -n -k1,1 -s | head -5
 - **merge-base가 HEAD인 브랜치는 뺀다.** 내 커밋을 전부 담은 브랜치라 base가 아니다. 내 위에 쌓인 하위 브랜치나 같은 커밋을 다른 이름으로 올린 브랜치가 여기 걸린다. 기본 브랜치만은 빼지 않는다. 내 커밋이 이미 기본 브랜치에 들어갔으면 기본 브랜치가 수 0으로 남는다. 부르는 스킬은 그 수를 보고 올릴 커밋이 없다고 멈춘다
 - **0절 이름 검사에 걸린 브랜치는 후보에서 뺀다.** 뺀 이름은 `skip <이름>`으로 표준 에러에 남긴다. 여기 이름은 `read`로 받은 변수라 검사하는 중에 치환이 일어나지는 않는다
 - **최근 커밋 순 200개만 본다.** 원격 브랜치가 수천 개인 레포에서 merge-base를 전부 구하면 오래 걸린다. 갈라져 나온 상위 브랜치는 대개 최근에 움직인 브랜치다. 원격 브랜치가 200개를 넘으면 `capped <개수>`를 남긴다. 상위 브랜치가 200개 밖에 있으면 기본 브랜치로 정해지기 때문이다
-- **`git fetch`를 먼저 한다.** 원격 추적 브랜치가 낡으면 이미 머지된 상위 브랜치를 후보로 고른다. HTTP 원격은 20초 동안 초당 1KB도 못 받으면 끊는다. SSH 원격은 사용자의 ssh 설정을 따르므로 여기서 상한을 걸지 않는다. 실패하면 `fetch-failed`를 남기고 낡은 ref로 그대로 진행한다. 원격 추적 브랜치가 기본 브랜치 하나뿐이면(단일 브랜치 클론) `only-default`를 남긴다. 둘 다 상위 브랜치를 못 보고 기본 브랜치로 정해지는 경우다
+- **`git fetch`를 먼저 한다.** 원격 추적 브랜치가 낡으면 이미 머지된 상위 브랜치를 후보로 고른다. HTTP 원격은 20초 동안 초당 1KB도 못 받으면 끊는다. SSH 원격은 `GIT_SSH_COMMAND`로 상한을 걸면 사용자의 `core.sshCommand`를 덮어쓰므로 걸지 않고 런타임 도구의 타임아웃에 맡긴다. 거기서 끊기면 `fetch-failed`로 보고 다음으로 간다. 실패하면 `fetch-failed`를 남기고 낡은 ref로 그대로 진행한다. 원격 추적 브랜치가 기본 브랜치 하나뿐이면(단일 브랜치 클론) `only-default`를 남긴다. 둘 다 상위 브랜치를 못 보고 기본 브랜치로 정해지는 경우다
 
 ## 2. 보조 신호
 
@@ -123,7 +128,7 @@ done
 | 표준 에러에 `skip <이름>`이 있다 | `base 후보에서 뺀 브랜치: <이름> (쓸 수 없는 글자가 있음). 이 브랜치가 base면 직접 알려주세요` |
 | 표준 에러에 `fetch-failed`나 `only-default`, `capped`가 있다 | `base 자동 선택 근거가 약해요: <fetch 실패 \| 원격 브랜치가 기본 브랜치뿐 \| 원격 브랜치 N개 중 최근 200개만 봄>` |
 
-사용자가 이 줄을 보고 다른 base를 말하면 그 값으로 바꾼다.
+사용자가 이 줄을 보고 다른 base를 말하면 그 값으로 바꾸고 0절 이름 검사와 4절을 다시 돈다.
 
 ## 4. 비교 기준 ref
 
