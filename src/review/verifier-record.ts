@@ -175,6 +175,12 @@ export function checkConsensusAgainstVerifier(
 
 export type PublishVerifierStatus = 'ran' | 'failed' | 'no_drafts';
 
+export interface PublishVerifierCheck {
+  status: PublishVerifierStatus;
+  /** ran일 때 합의 이슈(남긴 것과 뺀 것) 가운데 검증 기록에 판정이 있는 수와 전체 수 */
+  coverage?: { judged: number; total: number };
+}
+
 /**
  * 게시 전에 3.7단계 기록을 확인한다.
  *
@@ -186,16 +192,21 @@ export type PublishVerifierStatus = 'ran' | 'failed' | 'no_drafts';
 export function checkVerifierBeforePublish(
   session: ReviewSession,
   consensus: ReviewConsensusResult,
-): Result<PublishVerifierStatus> {
-  const submitted = session.reviewResults.reduce((n, r) => n + r.issues.length, 0);
-  const draftCount = Math.max(
-    submitted,
-    consensus.mergedIssues.length + (consensus.droppedIssues?.length ?? 0),
+): Result<PublishVerifierCheck> {
+  const consensusIds = [...consensus.mergedIssues, ...(consensus.droppedIssues ?? [])].map(
+    (i) => i.id,
   );
-  if (draftCount === 0) return ok('no_drafts');
+  const submitted = session.reviewResults.reduce((n, r) => n + r.issues.length, 0);
+  const draftCount = Math.max(submitted, consensusIds.length);
+  if (draftCount === 0) return ok({ status: 'no_drafts' });
 
   const at = session.verifierAtConsensus ?? { status: 'missing' as const };
-  if (at.status === 'ran' || at.status === 'failed') return ok(at.status);
+  if (at.status === 'failed') return ok({ status: 'failed' });
+  if (at.status === 'ran') {
+    const { verdicts } = at.record;
+    const judged = consensusIds.filter((id) => verdictOf(verdicts, id)).length;
+    return ok({ status: 'ran', coverage: { judged, total: consensusIds.length } });
+  }
 
   const latest = session.verifier;
   const cameAfterConsensus =

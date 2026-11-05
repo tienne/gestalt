@@ -482,7 +482,7 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
   // 코멘트를 한 건이라도 쓰기 전에 거른다. PR은 이벤트 소싱이라 쓴 뒤에는 되돌릴 수 없다
   const gate = checkVerifierBeforePublish(session, consensus);
   if (!gate.ok) return JSON.stringify({ error: gate.error.message });
-  const verifier = gate.value;
+  const { status: verifier, coverage } = gate.value;
 
   const prId = input.prId ?? session.prId;
   if (!prId) {
@@ -607,10 +607,13 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
     }));
 
     // 검증 없이 올린 의견이라는 걸 PR을 읽는 사람도 알아야 한다. 세션 응답만으로는 안 남는다
+    const notes: string[] = [];
+    if (verifier === 'failed') notes.push('제안 검증을 못 돌려 리뷰어 제안을 검증 없이 옮겼다.');
+    if (coverage && coverage.judged < coverage.total) {
+      notes.push(`제안 검증 ${coverage.judged}/${coverage.total}개만 판정이 있다.`);
+    }
     const summary =
-      verifier === 'failed'
-        ? `${consensus.summary}\n\n제안 검증을 못 돌려 리뷰어 제안을 검증 없이 옮겼다.`
-        : consensus.summary;
+      notes.length > 0 ? `${consensus.summary}\n\n${notes.join(' ')}` : consensus.summary;
     const pr = engine.review(prId, { reviewer, verdict, summary });
     state.completed = true;
 
@@ -625,6 +628,7 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
         comments: postedComments,
         resumedFrom: prior ? prior.postedCount : 0,
         verifier,
+        ...(coverage ? { verifierCoverage: coverage } : {}),
         prStatus: pr.status,
         round: pr.rounds.length,
         message:

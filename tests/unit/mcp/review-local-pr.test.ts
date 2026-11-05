@@ -41,6 +41,7 @@ interface ReviewResponse {
   round?: number;
   verifier?: string;
   failure?: string;
+  verifierCoverage?: { judged: number; total: number };
 }
 
 describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
@@ -1008,6 +1009,29 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
 
       expect(parsed.error).toContain('제안 검증(3.7단계) 기록이 없어');
       nothingWritten();
+    });
+
+    it('검증기가 일부 이슈만 판정했으면 PR 판정에 판정 수를 남긴다', () => {
+      const reviewSessionId = open();
+      verify(reviewSessionId, { 'g-1': 'keep' });
+      agree(reviewSessionId, {}, [issue, { ...issue, id: 'g-2' }]);
+
+      const parsed = call({ action: 'review_publish', reviewSessionId });
+
+      expect(parsed.verifier).toBe('ran');
+      expect(parsed.verifierCoverage).toEqual({ judged: 1, total: 2 });
+      expect(readPr().reviews.at(-1)!.summary).toContain('제안 검증 1/2개만 판정이 있다');
+    });
+
+    it('검증기가 모든 이슈를 판정했으면 판정 수를 안 남긴다', () => {
+      const reviewSessionId = open();
+      verify(reviewSessionId, { 'G-1 ': 'keep' });
+      agree(reviewSessionId);
+
+      const parsed = call({ action: 'review_publish', reviewSessionId });
+
+      expect(parsed.verifierCoverage).toEqual({ judged: 1, total: 1 });
+      expect(readPr().reviews.at(-1)!.summary).not.toContain('판정이 있다');
     });
 
     it('검증 뒤에 review_submit이 더 들어오면 그 기록으로 게시하지 않는다', () => {
