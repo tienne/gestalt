@@ -333,6 +333,45 @@ describe('review_consensus 입력 채우기', () => {
       });
     });
 
+    it('security 원본을 critical로 올리면 category가 bug로 바뀌어도 통과한다', () => {
+      const sid = open({
+        'security-reviewer': [original({ id: 's1', category: 'security', severity: 'high' })],
+      });
+      accepted(sid, {
+        reviewConsensus: {
+          mergedIssues: [issueOf('s1', { category: 'bug', severity: 'critical' })],
+        },
+      });
+    });
+
+    it.each([
+      ['critical 원본', { id: 'q1', category: 'bug', severity: 'critical' }, 'quality-reviewer'],
+      [
+        'security/high 원본',
+        { id: 's1', category: 'security', severity: 'high' },
+        'security-reviewer',
+      ],
+    ] as const)('%s을 revise 판정을 달고 warning으로 낮춰도 거부한다', (_label, origin, agent) => {
+      const sid = open({ [agent]: [original({ ...origin })] });
+      const message = rejected(sid, {
+        reviewConsensus: {
+          mergedIssues: [
+            issueOf(origin.id, {
+              category: origin.category,
+              severity: 'warning',
+              verification: {
+                verdict: 'revise',
+                reason: '전제는 맞지만 제안을 고쳐야 한다',
+                originalSuggestion: `제안 ${origin.id}`,
+              },
+            }),
+          ],
+        },
+      });
+      expect(message).toContain(`${agent}:${origin.id}`);
+      expect(message).toContain('낮아졌다');
+    });
+
     it('접두 꼴 id로 낮춰 이어도 거부한다', () => {
       const sid = open({ 'security-reviewer': [original({ id: 's1', category: 'security' })] });
       rejected(sid, {
