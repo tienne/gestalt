@@ -85,11 +85,14 @@ export function findOriginals(
 }
 
 /**
- * 글자나 숫자가 하나라도 있는 값인가. 공백과 제로폭 문자, 기호만 있는 값은 이유나 증거로 치지
- * 않는다. 검증기 응답이 비었는지 가를 때도 쓴다.
+ * 글자나 숫자가 하나라도 있는 값인가. 공백과 제로폭 문자, 한글 채움 문자, 기호만 있는 값은 이유나
+ * 증거로 치지 않는다. 검증기 응답이 비었는지 가를 때도 쓴다.
+ *
+ * 한글 채움 문자(U+115F, U+1160, U+3164, U+FFA0)는 글자 범주(Lo)라서 정규식만으로는 내용으로
+ * 잡히는데 화면에는 안 보인다. 먼저 걷어낸다.
  */
 export function hasContent(text: string): boolean {
-  return /[\p{L}\p{N}]/u.test(text);
+  return /[\p{L}\p{N}]/u.test(text.replace(/[\u115F\u1160\u3164\uFFA0]/g, ''));
 }
 
 /**

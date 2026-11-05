@@ -578,7 +578,15 @@ describe('PassthroughReviewEngine 제안 검증', () => {
   describe('근거가 비었으면 거부한다', () => {
     const blanks = ['', ' ', '   ', '\n', '\t \n '];
     // 제로폭 공백, 단어 결합자, BOM처럼 trim()에 안 걸리는 보이지 않는 문자와 문장부호뿐인 값
-    const invisible = ['\u200b', '\u200b\u200b', ' \u2060\ufeff\u200b ', '\u00a0\u3000', '- . -'];
+    const invisible = [
+      '\u200b',
+      '\u200b\u200b',
+      ' \u2060\ufeff\u200b ',
+      '\u00a0\u3000',
+      '\u3164',
+      '\u115f\u1160\uffa0',
+      '- . -',
+    ];
 
     it('공백뿐인 dropReason', () => {
       const id = open();
