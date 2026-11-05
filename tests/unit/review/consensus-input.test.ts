@@ -240,6 +240,76 @@ describe('review_consensus 입력 채우기', () => {
       });
     });
 
+    it('같은 id로 이었어도 severity를 낮췄으면 낮아졌다고 짚어 거부한다', () => {
+      const sid = open({ 'quality-reviewer': [original({ id: 'q1', severity: 'critical' })] });
+      const message = rejected(sid, {
+        reviewConsensus: { mergedIssues: [issueOf('q1', { severity: 'warning' })] },
+      });
+      expect(message).toContain('quality-reviewer:q1');
+      expect(message).toContain('낮아졌다');
+    });
+
+    it('같은 id로 이었어도 security category를 바꿨으면 거부한다', () => {
+      const sid = open({
+        'security-reviewer': [original({ id: 's1', category: 'security', severity: 'high' })],
+      });
+      const message = rejected(sid, {
+        reviewConsensus: { mergedIssues: [issueOf('s1', { category: 'style' })] },
+      });
+      expect(message).toContain('security-reviewer:s1');
+      expect(message).toContain('낮아졌다');
+    });
+
+    it('접두 꼴 id로 낮춰 이어도 거부한다', () => {
+      const sid = open({ 'security-reviewer': [original({ id: 's1', category: 'security' })] });
+      rejected(sid, {
+        reviewConsensus: {
+          mergedIssues: [
+            issueOf('security-reviewer:s1', { category: 'style', severity: 'warning' }),
+          ],
+        },
+      });
+    });
+
+    it('리뷰어 둘이 같은 id를 쓰고 접두 꼴로 따로 두면 각자 이어져 통과한다', () => {
+      const sid = open({
+        'security-reviewer': [original({ id: 'i1', category: 'security', severity: 'critical' })],
+        'quality-reviewer': [original({ id: 'i1', severity: 'warning' })],
+      });
+      accepted(sid, {
+        reviewConsensus: {
+          mergedIssues: [
+            issueOf('security-reviewer:i1', { severity: 'critical' }),
+            issueOf('quality-reviewer:i1', { severity: 'warning' }),
+          ],
+        },
+      });
+    });
+
+    it('같은 id의 원본 여럿 가운데 critical이 하나뿐이어도 이은 이슈가 critical이면 통과한다', () => {
+      const sid = open({
+        'security-reviewer': [original({ id: 'x1', severity: 'critical' })],
+        'quality-reviewer': [original({ id: 'x1', severity: 'warning' })],
+      });
+      accepted(sid, {
+        reviewConsensus: {
+          mergedIssues: [issueOf('x1', { severity: 'critical', reportedBy: 'security-reviewer' })],
+        },
+      });
+    });
+
+    it('critical을 냈다가 이슈를 비워 다시 낸 리뷰어도 원본이 남아 mergedIssues []를 거부한다', () => {
+      const sid = open({ 'quality-reviewer': [original({ id: 'q1', severity: 'critical' })] });
+      engine.submitReview(sid, 'quality-reviewer', {
+        agentName: 'quality-reviewer',
+        issues: [],
+        approved: true,
+        summary: '다시 봤다',
+      });
+      const message = rejected(sid, { reviewConsensus: { mergedIssues: [] } });
+      expect(message).toContain('quality-reviewer:q1');
+    });
+
     it('warning 원본만 있으면 mergedIssues를 비워도 통과한다', () => {
       const sid = open({ 'quality-reviewer': [original({ id: 'q1', severity: 'warning' })] });
       accepted(sid, { reviewConsensus: { mergedIssues: [] } });

@@ -64,31 +64,43 @@ export function resolveConsensusInput(
 }
 
 /**
- * critical이나 security 원본이 mergedIssues에 이어져 있는지 본다. 없으면 문구를 돌려준다.
+ * critical이나 security 원본마다 mergedIssues에 그대로 이어져 있는지 본다. 어긋나면 문구를 돌려준다.
  *
  * 이 검사는 제안 검증 기록과 상관없이 돈다. 기록이 있어도 합의를 비워 보내면 그 원본은 아무
- * 대조도 안 받고 판정에서 사라지는데, droppedIssues는 이런 이슈를 못 빼게 막아 둔 자리라 그
- * 금지를 통째로 피하는 길이 된다. 새 id로 합친 이슈는 원본과 이을 수 없으므로 이 두 종류만
- * 같은 id나 `<reportedBy>:<원래 id>` 꼴로 두게 한다.
+ * 대조도 안 받고 판정에서 사라진다. droppedIssues는 이런 이슈를 못 빼게 막아 둔 자리인데 합의를
+ * 비우면 그 금지를 건너뛰게 된다.
+ *
+ * 이어졌는지만 보면 severity나 category를 낮춰 같은 id로 보내는 길이 열린다. 그래서 원본에 이어
+ * 준 이슈 가운데 critical이나 security가 하나는 남아 있어야 통과시킨다. 검증기는 severity를 바꾸는
+ * 자리가 아니라서 revise 판정이어도 예외를 두지 않는다.
+ *
+ * 같은 리뷰어가 여러 번 냈으면 마지막 제출만 보지 않고 전부 훑는다. 마지막 제출만 보면 이슈를
+ * 비운 재제출 하나로 critical 원본이 지워진다. 새 id로 합친 이슈는 원본과 이을 수 없으므로 이
+ * 두 종류만 같은 id나 `<reportedBy>:<원래 id>` 꼴로 두게 한다.
  */
 function unlinkedUndroppable(mergedIssues: ReviewIssue[], reviewResults: ReviewResult[]): string[] {
-  const linked = new Set<ReviewIssue>();
-  for (const issue of mergedIssues) {
-    for (const orig of findOriginals(issue, reviewResults)) linked.add(orig);
-  }
+  const links = mergedIssues.map((issue) => ({
+    issue,
+    originals: findOriginals(issue, reviewResults),
+  }));
   const problems: string[] = [];
   for (const result of reviewResults) {
     for (const orig of result.issues) {
-      if (!isUndroppable(orig) || linked.has(orig)) continue;
+      if (!isUndroppable(orig)) continue;
+      const linked = links.filter((link) => link.originals.includes(orig)).map((l) => l.issue);
+      if (linked.some(isUndroppable)) continue;
+      const name = `${orig.reportedBy}:${orig.id}: ${orig.severity}/${orig.category} 원본이`;
       problems.push(
-        `${orig.reportedBy}:${orig.id}: ${orig.severity}/${orig.category} 원본이 mergedIssues에 없다. 같은 id나 \`<reportedBy>:<원래 id>\` 꼴로 mergedIssues에 둔다. 여러 원본을 새 id 하나로 합쳤다면 critical이나 security 원본은 따로 둔다.`,
+        linked.length === 0
+          ? `${name} mergedIssues에 없다. 같은 id나 \`<reportedBy>:<원래 id>\` 꼴로 mergedIssues에 둔다. 여러 원본을 새 id 하나로 합쳤다면 critical이나 security 원본은 따로 둔다.`
+          : `${name} mergedIssues에서 ${linked.map((i) => `${i.severity}/${i.category}`).join(', ')}로 낮아졌다. critical이나 security 원본은 severity와 category를 그대로 둔다.`,
       );
     }
   }
   return problems;
 }
 
-/** 같은 리뷰어가 두 번 냈으면 마지막 제출을 그 리뷰어의 판정으로 본다 */
+/** 같은 리뷰어가 두 번 냈으면 마지막 제출을 그 리뷰어의 판정으로 본다. 이슈 대조는 이 규칙을 안 쓴다 */
 function lastVotes(reviewResults: ReviewResult[]): { agentName: string; approved: boolean }[] {
   const votes = new Map<string, boolean>();
   for (const result of reviewResults) votes.set(result.agentName, result.approved);

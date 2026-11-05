@@ -596,7 +596,7 @@ export const executeInputSchema = guardObject(
       .object({
         mergedIssues: z.array(mergedIssueSchema, {
           required_error:
-            'Required at reviewConsensus.mergedIssues — 3.7단계 검증을 반영한 이슈 배열을 reviewConsensus 안에 넣는다. 이슈가 없으면 []다. issues 같은 다른 이름은 받지 않는다.',
+            'Required at reviewConsensus.mergedIssues — 3.7단계 검증을 반영한 이슈 배열을 reviewConsensus 안에 넣는다. 이슈가 없으면 []다. review_submit에 critical이나 security 이슈가 있으면 []도 거부한다. issues 같은 다른 이름은 받지 않는다.',
         }),
         approvedBy: z
           .array(z.string())
@@ -620,7 +620,7 @@ export const executeInputSchema = guardObject(
       })
       .optional()
       .describe(
-        'Merged review consensus (required for review_consensus). mergedIssues[]의 각 항목은 id, severity, category, file, message, suggestion이 필요하다 (line과 verification, reportedBy는 선택). reportedBy를 비우면 엔진이 review_submit 원본에서 채운다. approvedBy, blockedBy, summary, overallApproved는 비우면 엔진이 채운다. droppedIssues는 선택이고 생략하면 기존 동작 그대로다.',
+        'Merged review consensus (required for review_consensus). mergedIssues[]의 각 항목은 id, severity, category, file, message, suggestion이 필요하다 (line과 verification, reportedBy는 선택). reportedBy를 비우면 엔진이 review_submit 원본에서 채운다. review_submit의 critical이나 security 원본은 같은 id나 <reportedBy>:<원래 id> 꼴로 mergedIssues에 두고 severity와 category를 낮추지 않는다. 낮추면 거부한다. approvedBy, blockedBy, summary는 비우면 엔진이 채우고 overallApproved는 보내도 쓰지 않는다. droppedIssues는 선택이고 생략하면 기존 동작 그대로다.',
       ),
     continuityVerdict: z
       .preprocess(
