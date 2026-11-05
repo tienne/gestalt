@@ -562,13 +562,13 @@ gestalt pr update <id> --head "$(git rev-parse HEAD)"
 - 연관 PR: owner/name#N ({확정 근거})
 
 GitHub에 draft PR로 올릴까요?
-- 올린다 / 수정하고 다시 리뷰 / 여기서 멈춘다
+- 올린다 / Copilot 리뷰 없이 올린다 / 수정하고 다시 리뷰 / 여기서 멈춘다
 ```
 
 **연관 PR 줄은 `$shipTmp/related.json`에서 만든다.** 새 멈춤 자리가 아니라 이 메시지에 붙는 한 줄이라 "올린다"가 곧 이 줄의 확인이다.
 
 - `confirmed`는 "연관 PR: owner/name#N (확정 근거)"로 적는다. 근거는 `evidence`를 짧게 줄인다. 예를 들면 "같은 작성자, 같은 티켓 PROJ-123"이다
-- `unconfirmed`는 "연관 PR 후보: owner/name#N (확인 필요, {이유})"로 적는다. **"올린다"를 고르면 그 후보를 승인한 것으로 본다.** 후보를 빼려면 사용자가 그 줄에서 빼라고 답한다
+- `unconfirmed`는 "연관 PR 후보: owner/name#N (확인 필요, {이유})"로 적는다. **"올린다"나 "Copilot 리뷰 없이 올린다"를 고르면 그 후보를 승인한 것으로 본다.** 후보를 빼려면 사용자가 그 줄에서 빼라고 답한다
 - 후보가 여럿이면 줄을 나눠 적는다. 없으면 이 줄을 아예 안 쓴다
 - 승인된 후보만 `--confirm owner/name#n`으로 이후 단계에 넘긴다. 목록에 없던 PR은 여기서 못 더한다
 
@@ -617,6 +617,8 @@ PR 번호를 `prNumber`, URL을 `prUrl`로 보관한다.
 
 `round = 1`부터 `maxCopilotRounds`(기본 5)까지 돈다.
 
+**사용자가 Copilot 리뷰를 빼라고 직접 말했으면 4.1 요청을 보내지 않는다.** 받는 자리는 이 스킬을 부를 때의 메시지와 승인 단계 ⓐ의 답이다. `copilotRounds`를 0, `copilotStatus`를 `skipped`로 적고 Phase 5로 간다. 무엇을 근거로 인정하는지는 아래 `copilotStatus` 표 밑에 있다.
+
 ### 4.1 요청
 
 **요청 직전 시각과 라운드 시작 head를 먼저 박아둔다.** 시각이 없으면 이전 라운드의 리뷰를 이번 것으로 착각한다. head가 없으면 4.5의 검증 조건이 무엇과 비교할지 모른다.
@@ -648,19 +650,26 @@ GraphQL: Projects (classic) is being deprecated in favor of the new Projects exp
 ```bash
 shipTmp=<Phase 0에서 출력된 절대 경로>
 requestedAt=$(cat "$shipTmp/requested-at")
-[ -n "$requestedAt" ] || { echo "requested-at이 비었습니다 — 조회하지 않고 멈춥니다"; exit 1; }
+[[ $requestedAt =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] \
+  || { echo "requested-at 형식이 아닙니다 — 조회하지 않고 멈춥니다"; exit 1; }
 
-gh api "repos/{owner}/{repo}/issues/<prNumber>/timeline?per_page=100" --paginate \
-  --jq ".[] | select(.event == \"review_requested\" and (.created_at | fromdateiso8601) >= ((\"$requestedAt\" | fromdateiso8601) - 10)) | .requested_reviewer.login // empty"
+for i in 1 2 3; do
+  hit=$(gh api "repos/{owner}/{repo}/issues/<prNumber>/timeline?per_page=100" --paginate \
+    --jq ".[] | select(.event == \"review_requested\" and (.created_at | fromdateiso8601) >= ((\"$requestedAt\" | fromdateiso8601) - 10)) | .requested_reviewer.login // empty" \
+    | grep -x Copilot)
+  [ -n "$hit" ] && break
+  [ "$i" -lt 3 ] && sleep 5
+done
+echo "ACCEPTED=${hit:-none}"
 ```
 
-- **`requested-at`이 비면 조회하지 않고 멈춘다.** 빈 값과 비교하면 모든 이벤트가 걸려 앞 라운드의 요청을 이번 접수로 읽는다
+- **`requested-at`이 `date -u` 형식이 아니면 조회하지 않고 멈춘다.** 빈 값과 비교하면 모든 이벤트가 걸려 앞 라운드의 요청을 이번 접수로 읽는다. 이 값은 `--jq` 식에 그대로 들어가므로 형식 밖의 글자가 섞이면 식이 바뀐다
 - **비교는 초로 바꿔서 하고 10초 여유를 둔다.** 기록한 시각은 이 머신의 시계이고 이벤트 시각은 GitHub 서버의 시계다. 이 머신이 몇 초 빠르면 방금 붙은 이벤트가 요청 시각보다 이르게 찍혀 빠진다
 - `--jq`는 페이지마다 따로 돌지만 이 식은 이벤트 하나씩 거르므로 페이지가 나뉘어도 빠지는 게 없다
 
-`Copilot`이 찍히면 접수된 것이다. **이벤트는 바로 안 붙을 수 있어서 5초 간격으로 세 번까지 조회한다.** 대기는 4.2와 같이 `Monitor`나 백그라운드 Bash로 하고 전경 `sleep`으로 세션을 붙잡지 않는다. 세 번 다 `Copilot`이 없을 때만 접수 안 됨으로 본다.
+`ACCEPTED=Copilot`이면 접수된 것이다. **이벤트는 바로 안 붙을 수 있어서 5초 간격으로 세 번까지 조회한다.** 루프에 `sleep`이 있으므로 이 블록은 백그라운드 Bash로 돌리고 끝나면 결과를 읽는다. 전경에서 세션을 붙잡지 않는다. `ACCEPTED=none`일 때만 접수 안 됨으로 본다.
 
-**접수 안 됨이면 아래 원인 목록을 보이고 멈춘다.** POST가 `EXIT=0`이 아닌 경우도 같다. 그때는 `request-cp{round}.json`과 `request-cp{round}.err`의 내용을 그대로 함께 보인다. 기다려도 리뷰는 안 온다. 흔한 원인 셋이다.
+**접수 안 됨이면 아래 원인 목록을 보이고 묻는다.** 선택지는 "한 번 더 조회한다 / 리뷰 없이 승인 단계 ⓒ로 간다 / 여기서 멈춘다"다. 한 번 더 조회하면 위 블록을 다시 돈다. POST가 `EXIT=0`이 아니면 다시 조회해도 소용없으므로 "한 번 더 조회한다"를 빼고 묻는다. 그때는 `request-cp{round}.json`과 `request-cp{round}.err`의 내용을 그대로 함께 보인다. 기다려도 리뷰는 안 온다. 흔한 원인 셋이다.
 
 - GHES라 Copilot code review를 지원하지 않는다
 - 레포나 조직에 Copilot code review가 안 켜져 있다
@@ -677,7 +686,7 @@ gh pr view <prNumber> --json reviews \
   --jq "[.reviews[] | select(.author.login | test(\"[Cc]opilot\")) | .submittedAt] | max"
 ```
 
-이 값이 `requestedAt`보다 늦으면 완료다. **`null`이거나 `requestedAt`보다 이르면 아직이다** — 앞 라운드의 잔상이다.
+이 값이 `requestedAt`보다 늦으면 완료다. **`null`이거나 `requestedAt`보다 이르면 아직이다** — 앞 라운드의 잔상이다. 4.1과 달리 시계 여유를 두지 않는다. 리뷰는 요청 뒤 1분 넘게 지나서 오므로 몇 초 어긋나도 판정이 안 바뀐다. 여유를 빼면 오히려 요청 직전에 끝난 앞 라운드 리뷰가 걸린다.
 
 대기 방식은 런타임이 주는 것에 맞춘다.
 
