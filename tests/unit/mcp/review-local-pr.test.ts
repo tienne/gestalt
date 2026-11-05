@@ -1020,7 +1020,7 @@ describe('리뷰 파이프라인 ↔ 로컬 PR', () => {
 
       expect(parsed.verifier).toBe('ran');
       expect(parsed.verifierCoverage).toEqual({ judged: 1, total: 2 });
-      expect(readPr().reviews.at(-1)!.summary).toContain('제안 검증 1/2개만 판정이 있다');
+      expect(readPr().reviews.at(-1)!.summary).toContain('이슈 2개 중 1개만 제안 검증 판정이 있다');
     });
 
     it('검증기가 모든 이슈를 판정했으면 판정 수를 안 남긴다', () => {

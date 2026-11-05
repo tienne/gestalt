@@ -17,7 +17,10 @@ import type {
 import type { ReviewVerdict } from '../../local-pr/types.js';
 import { log } from '../../core/log.js';
 import { resolveExecuteSessionInput, asMemoryNote } from './execute/utils.js';
-import { checkVerifierBeforePublish } from '../../review/verifier-record.js';
+import {
+  checkVerifierBeforePublish,
+  summarizeVerifierRecord,
+} from '../../review/verifier-record.js';
 
 const SHA_PATTERN = /^[0-9a-f]{7,64}$/i;
 
@@ -212,7 +215,7 @@ function handleReviewVerify(reviewEngine: PassthroughReviewEngine, input: Execut
   if (!result.ok) return JSON.stringify({ error: result.error.message });
 
   const record = result.value;
-  const verdictCount = Object.keys(record.verdicts).length;
+  const { verdictCount, skippedCount, duplicateCount } = summarizeVerifierRecord(record);
   return JSON.stringify(
     {
       status: 'review_verified',
@@ -220,8 +223,8 @@ function handleReviewVerify(reviewEngine: PassthroughReviewEngine, input: Execut
       verifier: record.status,
       failure: record.failure,
       verdictCount,
-      skippedCount: record.skippedCount,
-      duplicateCount: record.duplicateCount,
+      skippedCount,
+      duplicateCount,
       message:
         record.status === 'ran'
           ? `제안 검증 판정 ${verdictCount}개를 기록했다.${unreadNote(record)} 판정을 mergedIssues와 droppedIssues에 반영해 review_consensus를 부른다.`
@@ -241,7 +244,9 @@ function unreadNote(record: ReviewVerifierRecord): string {
     );
   }
   if (record.duplicateCount > 0) {
-    notes.push(` 같은 issueId가 ${record.duplicateCount}번 더 나와 뒤에 나온 판정으로 덮었다.`);
+    notes.push(
+      ` 같은 issueId가 ${record.duplicateCount}번 더 나와 이슈를 더 지키는 쪽 판정만 남겼다.`,
+    );
   }
   return notes.join('');
 }
@@ -610,7 +615,7 @@ function handleReviewPublish(reviewEngine: PassthroughReviewEngine, input: Execu
     const notes: string[] = [];
     if (verifier === 'failed') notes.push('제안 검증을 못 돌려 리뷰어 제안을 검증 없이 옮겼다.');
     if (coverage && coverage.judged < coverage.total) {
-      notes.push(`제안 검증 ${coverage.judged}/${coverage.total}개만 판정이 있다.`);
+      notes.push(`이슈 ${coverage.total}개 중 ${coverage.judged}개만 제안 검증 판정이 있다.`);
     }
     const summary =
       notes.length > 0 ? `${consensus.summary}\n\n${notes.join(' ')}` : consensus.summary;
