@@ -909,7 +909,7 @@ continuityVerdict = {
 
 #### 입력 준비 (메인)
 
-1. **초안을 만듭니다.** `review_submit`으로 넣은 리뷰어 결과를 모아 중복을 합칩니다. 여러 리뷰어가 같은 자리를 같은 이유로 짚었으면 하나로 두고 `reportedBy`는 대표 하나만 적습니다. 다만 critical이거나 security category인 원본은 다른 이슈로 합치지 않고 각자 원본의 id로 남깁니다. 합치는 건 그보다 낮은 원본뿐입니다. 같은 id를 여러 리뷰어가 썼으면 합치지 말고 `<reportedBy>:<원래 id>` 꼴로 바꿔 각자 잇습니다. 같은 id 하나에 원본 여럿을 이으면 엔진은 막지 않으니 이 구분은 메인이 지킵니다.
+1. **초안을 만듭니다.** `review_submit`으로 넣은 리뷰어 결과를 모아 중복을 합칩니다. 여러 리뷰어가 같은 자리를 같은 이유로 짚었으면 하나로 두고 `reportedBy`는 대표 하나만 적습니다. 다만 critical이거나 security category인 원본은 다른 이슈로 합치지 않고 각자 원본의 id로 남깁니다. 합치는 건 그보다 낮은 원본뿐입니다. critical이거나 security인 원본의 id가 여러 리뷰어에게 겹치면 합치지 말고 `<reportedBy>:<원래 id>` 꼴로 바꿔 각자 잇습니다. 같은 id 하나에 원본 여럿을 이으면 엔진은 막지 않으니 이 구분은 메인이 지킵니다.
 
    3.5단계 `continuityVerdict.driftFindings` 가운데 message가 `경로 따라가기:`로 시작하는 항목도 하나씩 이슈로 더합니다. 경로 따라가기로 나온 막힘은 작성자가 고쳐야 풀리는데 `driftFindings`는 인라인 코멘트로 안 나갑니다. 이슈로 올려야 검증기가 그 전제를 다시 확인하고 4.7단계 코멘트와 로컬 PR 게시, `review_fix`까지 기존 경로로 흐릅니다.
 
@@ -1112,7 +1112,7 @@ ges_execute {
 }
 ```
 
-**`reviewConsensus`에 꼭 적을 칸은 `mergedIssues` 하나입니다.** 이슈가 없으면 `[]`를 넣습니다. 비워 보내면 판정이 통과로 바뀔 수 있어서 엔진이 채우지 않고 거부합니다. `review_submit`에 critical이나 security 이슈가 있었다면 `[]`도 거부합니다. 그런 원본은 같은 id나 `<reportedBy>:<원래 id>` 꼴로 `mergedIssues`에 두고 severity는 원본 이상으로, critical이거나 security category인 채로 잇습니다. 낮춰 보내면 낮아졌다고 짚어 거부하고 3.7단계 revise 판정도 예외가 아닙니다. 여러 원본을 기존 id든 새 id든 하나로 합칠 때도 critical이나 security 원본은 다른 이슈에 접지 않고 각자 id로 따로 둡니다. 같은 id 하나에 원본 여럿을 이으면 엔진은 막지 않으니 `<reportedBy>:<원래 id>` 꼴로 바꿔 각자 잇는 건 메인이 지킵니다. 이 검사는 제안 검증 기록과 상관없이 돕니다. `mergedIssues`와 `droppedIssues`는 `reviewConsensus` 객체 안에 넣습니다. 최상위에 두면 스키마가 버리고 `reviewConsensus is required`로 거부됩니다.
+**`reviewConsensus`에 꼭 적을 칸은 `mergedIssues` 하나입니다.** 이슈가 없으면 `[]`를 넣습니다. 비워 보내면 판정이 통과로 바뀔 수 있어서 엔진이 채우지 않고 거부합니다. `review_submit`에 critical이나 security 이슈가 있었다면 `[]`도 거부합니다. 그런 원본은 같은 id나 `<reportedBy>:<원래 id>` 꼴로 `mergedIssues`에 두고 severity는 원본 이상으로, critical이거나 security category인 채로 잇습니다. 낮춰 보내면 낮아졌다고 짚어 거부하고 3.7단계 revise 판정도 예외가 아닙니다. 여러 원본을 기존 id든 새 id든 하나로 합칠 때도 critical이나 security 원본은 다른 이슈에 접지 않고 각자 id로 따로 둡니다. 이 검사는 제안 검증 기록과 상관없이 돕니다. 같은 id 하나에 원본 여럿을 이으면 엔진은 막지 않으니 `<reportedBy>:<원래 id>` 꼴로 바꿔 각자 잇는 건 메인이 지킵니다. `mergedIssues`와 `droppedIssues`는 `reviewConsensus` 객체 안에 넣습니다. 최상위에 두면 스키마가 버리고 `reviewConsensus is required`로 거부됩니다.
 
 - `mergedIssues` 항목은 `id`, `severity`, `category`, `file`, `message`, `suggestion`이 필수이고 `line`과 `verification`은 선택입니다.
 - **`reportedBy`는 에이전트 이름 문자열 하나**입니다. 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적습니다. 생략하거나 글자와 숫자가 없으면 엔진이 같은 id나 `<reportedBy>:<원래 id>` 꼴의 `review_submit` 원본에서 채웁니다. 배열로 오면 첫 값만 씁니다. 원본이 없는 id(예: `continuity-judge:path-walk-1`)는 채울 데가 없어 그 id를 짚어 거부하니 직접 적습니다. 같은 id의 원본이 여러 리뷰어에게 있어도 엔진이 어느 쪽인지 고르지 않고 거부합니다. 3.7단계 2번대로 id를 `<reportedBy>:<원래 id>` 꼴로 바꿨으면 이 경우가 안 생깁니다. 안 바꿨으면 `reportedBy`를 직접 적습니다.
