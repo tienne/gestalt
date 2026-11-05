@@ -74,7 +74,7 @@ describe('parseVerifierOutput', () => {
     expect(record.verdicts['__proto__']).toEqual({ verdict: 'drop', hasEvidence: true });
   });
 
-  it('같은 id가 두 번 오면 뒤 판정을 쓰고 겹친 수를 센다', () => {
+  it('같은 id가 두 번 오면 이슈를 더 지키는 판정을 남기고 겹친 수를 센다', () => {
     const record = parseVerifierOutput(
       JSON.stringify({
         verifications: [
@@ -87,7 +87,39 @@ describe('parseVerifierOutput', () => {
 
     expect(record.duplicateCount).toBe(1);
     expect(record.skippedCount).toBe(0);
-    expect(record.verdicts['a-1']).toEqual({ verdict: 'drop', hasEvidence: true });
+    expect(record.verdicts['a-1']).toEqual({ verdict: 'keep', hasEvidence: false });
+  });
+
+  it('응답 앞에 근거 붙은 drop이 있어도 뒤의 keep이 이긴다', () => {
+    const record = parseVerifierOutput(
+      JSON.stringify([
+        { issueId: 'a-1', verdict: 'drop', evidence: 'a.ts:3' },
+        { issueId: 'a-1', verdict: 'keep' },
+      ]),
+      0,
+    );
+
+    expect(record.verdicts['a-1']!.verdict).toBe('keep');
+  });
+
+  it('drop끼리 겹치면 근거 없는 쪽을 남긴다', () => {
+    const withEvidenceFirst = parseVerifierOutput(
+      JSON.stringify([
+        { issueId: 'a-1', verdict: 'drop', evidence: 'a.ts:3' },
+        { issueId: 'a-1', verdict: 'drop' },
+      ]),
+      0,
+    );
+    const withEvidenceLast = parseVerifierOutput(
+      JSON.stringify([
+        { issueId: 'a-1', verdict: 'drop' },
+        { issueId: 'a-1', verdict: 'drop', evidence: 'a.ts:3' },
+      ]),
+      0,
+    );
+
+    expect(withEvidenceFirst.verdicts['a-1']!.hasEvidence).toBe(false);
+    expect(withEvidenceLast.verdicts['a-1']!.hasEvidence).toBe(false);
   });
 
   it('JSON이 없으면 unparseable로 실패한다', () => {
@@ -128,20 +160,42 @@ describe('parseVerifierOutput', () => {
 });
 
 describe('checkConsensusAgainstVerifier', () => {
-  it('상속된 속성 이름의 이슈 id를 판정으로 읽지 않는다', () => {
+  const issue = (id: string) => ({
+    id,
+    severity: 'warning' as const,
+    category: 'quality' as const,
+    file: 'a.ts',
+    message: '문제',
+    suggestion: '고치기',
+    reportedBy: 'quality-reviewer',
+  });
+
+  it('합의 id의 대소문자와 앞뒤 공백이 달라도 같은 이슈의 판정으로 찾는다', () => {
     const record = parseVerifierOutput(
+      JSON.stringify([
+        { issueId: 'g-1', verdict: 'keep' },
+        { issueId: 'g-2', verdict: 'drop', evidence: 'a.ts:3' },
+      ]),
+      1,
+    );
+
+    const problem = checkConsensusAgainstVerifier(
+      { status: 'ran', record },
+      {
+        mergedIssues: [issue(' G-1 ')],
+        droppedIssues: [{ ...issue(' G-2 '), dropReason: '이미 고쳐짐', dropEvidence: 'a.ts:3' }],
+      },
+    );
+
+    expect(problem).toBeNull();
+  });
+
+  it('프로토타입이 없는 판정 객체가 일반 객체로 바뀌어도 상속된 속성 이름을 판정으로 읽지 않는다', () => {
+    const parsed = parseVerifierOutput(
       JSON.stringify({ verifications: [{ issueId: 'x', verdict: 'keep' }] }),
       1,
     );
-    const issue = (id: string) => ({
-      id,
-      severity: 'warning' as const,
-      category: 'quality' as const,
-      file: 'a.ts',
-      message: '문제',
-      suggestion: '고치기',
-      reportedBy: 'quality-reviewer',
-    });
+    const record = { ...parsed, verdicts: { ...parsed.verdicts } };
 
     const problem = checkConsensusAgainstVerifier(
       { status: 'ran', record },
@@ -202,7 +256,16 @@ describe('review_verify의 빈 응답', () => {
     if (!started.ok) throw started.error;
     const { sessionId } = started.value;
 
-    for (const raw of ['', '   \n', '\u200b', '```\n```']) {
+    for (const raw of [
+      '',
+      '   \n',
+      '\u200b',
+      '```\n```',
+      '```json\n```',
+      '```JSON\n\n```',
+      '[]',
+      '{}',
+    ]) {
       const result = engine.submitVerification(sessionId, raw);
       expect(result.ok).toBe(false);
     }

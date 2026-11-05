@@ -43,7 +43,10 @@ export function parseVerifierOutput(raw: string, submitCount: number): ReviewVer
       skippedCount++;
       continue;
     }
-    if (Object.hasOwn(verdicts, read.id)) duplicateCount++;
+    if (Object.hasOwn(verdicts, read.id)) {
+      duplicateCount++;
+      if (conservativeness(read.verdict) <= conservativeness(verdicts[read.id]!)) continue;
+    }
     verdicts[read.id] = read.verdict;
   }
 
@@ -58,6 +61,29 @@ export function parseVerifierOutput(raw: string, submitCount: number): ReviewVer
     };
   }
   return { status: 'ran', submitCount, verdicts, skippedCount, duplicateCount };
+}
+
+/**
+ * 같은 id의 판정이 겹칠 때 어느 쪽을 남길지 가르는 값. 클수록 이슈를 지키는 쪽이다.
+ * 응답 뒤에 근거 붙은 drop 항목 하나를 덧붙여 이슈를 빼는 길을 막으려고 뒤에 온 것이 아니라
+ * 보수적인 쪽을 남긴다. 값이 같으면 먼저 읽은 것을 둔다.
+ */
+function conservativeness(verdict: ReviewVerifierVerdict): number {
+  if (verdict.verdict !== 'drop') return 2;
+  return verdict.hasEvidence ? 0 : 1;
+}
+
+/** 이벤트 로그와 review_verify 응답이 같은 수를 싣도록 한 자리에서 센다 */
+export function summarizeVerifierRecord(record: ReviewVerifierRecord): {
+  verdictCount: number;
+  skippedCount: number;
+  duplicateCount: number;
+} {
+  return {
+    verdictCount: Object.keys(record.verdicts).length,
+    skippedCount: record.skippedCount,
+    duplicateCount: record.duplicateCount,
+  };
 }
 
 function readVerdict(entry: unknown): { id: string; verdict: ReviewVerifierVerdict } | null {

@@ -34,10 +34,19 @@ import { resolveConsensusInput } from './consensus-input.js';
 import {
   checkConsensusAgainstVerifier,
   parseVerifierOutput,
+  summarizeVerifierRecord,
   verifierAtConsensus,
 } from './verifier-record.js';
 
 const MAX_REVIEW_ATTEMPTS = 3;
+
+/**
+ * 코드펜스 기호와 바로 뒤에 붙은 언어 표시를 지운다. ```json만 있는 응답이 `json`이라는 글자
+ * 때문에 내용이 있는 것으로 읽히지 않게 빈 응답 판정에서만 쓴다. 공용 hasContent는 그대로 둔다.
+ */
+function stripCodeFences(text: string): string {
+  return text.replace(/```[\w+-]*/g, '');
+}
 
 export interface ReviewStartContext {
   systemPrompt: string;
@@ -291,7 +300,7 @@ Review the code changes from your assigned perspective. Focus on issues that mat
   submitVerification(sessionId: string, verifierOutput: string): Result<ReviewVerifierRecord> {
     const session = this.sessions.get(sessionId);
     if (!session) return err(new Error(`Review session not found: ${sessionId}`));
-    if (!hasContent(verifierOutput)) {
+    if (!hasContent(stripCodeFences(verifierOutput))) {
       return err(
         new Error(
           '검증기 응답이 비었다. suggestion-verifier를 한 번 다시 띄워 그 응답을 넘긴다. ' +
@@ -309,9 +318,7 @@ Review the code changes from your assigned perspective. Focus on issues that mat
       sessionId,
       status: record.status,
       failure: record.failure,
-      verdictCount: Object.keys(record.verdicts).length,
-      skippedCount: record.skippedCount,
-      duplicateCount: record.duplicateCount,
+      ...summarizeVerifierRecord(record),
     });
 
     return ok(record);
