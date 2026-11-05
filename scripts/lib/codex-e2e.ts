@@ -173,7 +173,8 @@ export function judgeEvidence(
     calls.some(
       (i) =>
         i.tool === 'ges_interview' &&
-        !['start', 'respond'].includes(String(object(i.arguments).action)),
+        (!['start', 'respond'].includes(String(object(i.arguments).action)) ||
+          ['resolutionScore', 'rescore', 'rescoreMode'].some((key) => key in object(i.arguments))),
     )
   )
     throw new E2EFailure('evidence', 'unexpected-action');
@@ -222,7 +223,8 @@ export function judgeEvidence(
       answers.length !== 1 ||
       object(JSON.parse(answers[0]!.payload)).response !== 'Each note has a title and a body.' ||
       types.includes('interview.session.completed') ||
-      types.includes('interview.session.aborted')
+      types.includes('interview.session.aborted') ||
+      types.some((type) => type.startsWith('interview.resolution.'))
     )
       throw new E2EFailure('evidence');
     return {

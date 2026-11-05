@@ -199,6 +199,40 @@ describe('Codex evidence adjudication (synthetic event unit fixtures, not LLM E2
     }
     expect(() => judgeEvidence(fixture.stdout(), skill, source, '/missing.db')).toThrow(E2EFailure);
   });
+  it('rejects scoring arguments even when the respond action succeeds', () => {
+    for (const scoring of [
+      { resolutionScore: { overall: 0.5 } },
+      { rescore: true },
+      { rescoreMode: 'same-context' },
+    ]) {
+      const fixture = evidenceFixture();
+      const event = fixture.events[2] as { item: { arguments: Record<string, unknown> } };
+      Object.assign(event.item.arguments, scoring);
+      expect(() => judgeEvidence(fixture.stdout(), skill, source, fixture.path)).toThrowError(
+        expect.objectContaining({ reason: 'evidence', checkpoint: 'unexpected-action' }),
+      );
+    }
+  });
+  it('rejects persisted scoring independently of CLI arguments', () => {
+    for (const type of [
+      'interview.resolution.scored',
+      'interview.resolution.rescored',
+      'interview.resolution.rescore_failed',
+    ]) {
+      const fixture = evidenceFixture();
+      const db = new Database(fixture.path);
+      db.prepare('INSERT INTO events VALUES (?, ?, ?, ?)').run(
+        'interview',
+        '11111111-1111-4111-8111-111111111111',
+        type,
+        '{}',
+      );
+      db.close();
+      expect(() => judgeEvidence(fixture.stdout(), skill, source, fixture.path)).toThrowError(
+        expect.objectContaining({ reason: 'evidence' }),
+      );
+    }
+  });
   it('rejects started-only calls, MCP error replies, and status for a different session', () => {
     for (const kind of ['started', 'error', 'wrong-session']) {
       const fixture = evidenceFixture();
