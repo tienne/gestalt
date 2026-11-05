@@ -51,7 +51,9 @@ PR을 만드는 것까지가 범위입니다. 올리기 전에 리뷰를 통과�
 ## 전제 조건
 
 `repoRoot`가 주어지지 않으면 현재 작업 디렉토리를 절대 경로로 사용합니다.
-`target`이 주어지지 않으면 [`../_shared/pr-base.md`](../_shared/pr-base.md)로 고릅니다. `main`을 그대로 쓰지 않습니다. 스택 브랜치를 기본 브랜치로 올리면 상위 브랜치의 커밋이 PR에 섞이기 때문입니다. 그 문서의 "보고 줄" 절에 해당하는 줄이 있으면 1단계 인터뷰 전에 사용자에게 보입니다. 기본 브랜치가 아닌 브랜치로 정한 경우뿐 아니라 후보에서 뺀 브랜치가 있거나 fetch가 실패한 경우도 여기 실립니다.
+`target`이 주어지지 않으면 [`../_shared/pr-base.md`](../_shared/pr-base.md)로 고릅니다. `main`을 그대로 쓰지 않습니다. 스택 브랜치를 기본 브랜치로 올리면 상위 브랜치의 커밋이 PR에 섞이기 때문입니다. 그 문서의 "보고 줄" 절에 해당하는 줄을 1단계 인터뷰 전에 그대로 보입니다.
+
+`target`이 주어졌으면 그 문서의 0절 이름 검사부터 겁니다. 걸리면 멈추고 묻습니다.
 
 정한 값이 `target`입니다. 2단계 diff 수집과 5단계 `--base`가 이 값을 씁니다.
 
@@ -184,10 +186,10 @@ PR을 작성하기 전에 세 가지를 확인합니다. 없으면 Enter / "없�
 
 ### 2단계: diff 수집
 
-비교 기준(`target`) 대비 변경 내용을 수집합니다. 비교에 쓰는 ref(`baseRef`)는 `origin/{target}`이 있으면 그것, 없으면 `{target}`입니다. 로컬 브랜치는 원격보다 뒤처져 있을 수 있고 PR은 원격 브랜치와 비교되기 때문입니다.
+비교 기준(`target`) 대비 변경 내용을 수집합니다. 비교에 쓰는 ref(`baseRef`)는 [`../_shared/pr-base.md`](../_shared/pr-base.md) 4절 블록으로 정합니다. `ship` Phase 0이 커밋 수를 셀 때도 같은 블록을 써서 두 스킬의 판정이 갈리지 않습니다. 셸 상태가 호출 사이에 안 남을 수 있으니 아래 명령을 그 블록 뒤에 붙여 한 번에 돌립니다.
 
 ```bash
-baseRef=$(git rev-parse --verify --quiet "origin/{target}" >/dev/null && echo "origin/{target}" || echo "{target}")
+# pr-base.md 4절 블록 (<base> 자리에 {target})
 git log --oneline "$baseRef"..HEAD     # 커밋 목록
 git diff "$baseRef"...HEAD --stat      # 변경 파일 통계
 git diff "$baseRef"...HEAD             # 실제 diff (핵심 변경만)
