@@ -102,6 +102,15 @@ function readVerdict(entry: unknown): { id: string; verdict: ReviewVerifierVerdi
   };
 }
 
+/**
+ * 코드펜스 기호와 줄바꿈이 바로 뒤따르는 언어 표시를 지운다. ```json만 있는 응답이 `json`이라는
+ * 글자 때문에 내용이 있는 것으로 읽히지 않게 빈 응답 판정에서만 쓴다. 줄바꿈이 안 따르는
+ * ```timeout 같은 한 단어는 내용이라 남긴다. 공용 hasContent는 그대로 둔다.
+ */
+export function stripCodeFences(text: string): string {
+  return text.replace(/```(?:[\w+-]*(?=\r?\n))?/g, '');
+}
+
 function readVerificationList(text: string): unknown[] | null {
   const candidates = [text];
   for (const match of text.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/g)) candidates.push(match[1]!);

@@ -284,6 +284,23 @@ describe('review_verify의 빈 응답', () => {
   });
 });
 
+describe('review_verify의 한 단어 응답', () => {
+  it('줄바꿈이 안 따르는 코드펜스 뒤 단어는 내용으로 보고 unparseable로 기록한다', () => {
+    const engine = new PassthroughReviewEngine();
+    const started = engine.startReview({ changedFiles: ['a.ts'], repoRoot: '/repo' }, [], []);
+    if (!started.ok) throw started.error;
+    const { sessionId } = started.value;
+
+    const result = engine.submitVerification(sessionId, '```timeout');
+
+    expect(result.ok).toBe(true);
+    expect(engine.getSession(sessionId).verifier).toMatchObject({
+      status: 'failed',
+      failure: 'unparseable',
+    });
+  });
+});
+
 describe('review_fix가 검증 기록을 비운다', () => {
   it('재리뷰로 넘어가면 앞 라운드의 검증 기록이 다음 합의에 안 남는다', () => {
     const engine = new PassthroughReviewEngine();

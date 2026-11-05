@@ -34,19 +34,12 @@ import { resolveConsensusInput } from './consensus-input.js';
 import {
   checkConsensusAgainstVerifier,
   parseVerifierOutput,
+  stripCodeFences,
   summarizeVerifierRecord,
   verifierAtConsensus,
 } from './verifier-record.js';
 
 const MAX_REVIEW_ATTEMPTS = 3;
-
-/**
- * 코드펜스 기호와 바로 뒤에 붙은 언어 표시를 지운다. ```json만 있는 응답이 `json`이라는 글자
- * 때문에 내용이 있는 것으로 읽히지 않게 빈 응답 판정에서만 쓴다. 공용 hasContent는 그대로 둔다.
- */
-function stripCodeFences(text: string): string {
-  return text.replace(/```[\w+-]*/g, '');
-}
 
 export interface ReviewStartContext {
   systemPrompt: string;
