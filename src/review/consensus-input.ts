@@ -67,6 +67,8 @@ export function resolveConsensusInput(
   });
 }
 
+const SEVERITY_RANK: Record<ReviewIssue['severity'], number> = { warning: 0, high: 1, critical: 2 };
+
 /**
  * critical이나 security 원본마다 mergedIssues에 그대로 이어져 있는지 본다. 어긋나면 문구를 돌려준다.
  *
@@ -74,16 +76,19 @@ export function resolveConsensusInput(
  * 대조도 안 받고 판정에서 사라진다. droppedIssues는 이런 이슈를 못 빼게 막아 둔 자리인데 합의를
  * 비우면 그 금지를 건너뛰게 된다.
  *
- * 이어졌는지만 보면 severity나 category를 낮춰 같은 id로 보내는 길이 열린다. 그래서 원본에 이어
- * 준 이슈 가운데 critical이나 security가 하나는 남아 있어야 통과시킨다. 검증기는 severity를 바꾸는
- * 자리가 아니라서 revise 판정이어도 예외를 두지 않는다.
+ * 이어졌는지만 보면 severity나 category를 낮춰 같은 id로 보내는 길이 열린다. isUndroppable만
+ * 보는 것도 모자라다. 그 술어는 critical이거나 security category인 이슈를 모두 통과시켜서
+ * security/high를 security/warning으로 낮춘 이슈가 그대로 지나간다. 판정은 critical과 high만
+ * 세므로 approve로 뒤집힌다. 그래서 원본에 이어 준 이슈 가운데 critical이나 security이면서
+ * severity가 원본 이상인 것이 하나는 남아 있어야 통과시킨다. 검증기는 severity를 바꾸는 자리가
+ * 아니라서 revise 판정이어도 예외를 두지 않는다.
  *
  * 같은 리뷰어가 여러 번 냈으면 마지막 제출만 보지 않고 전부 훑는다. 마지막 제출만 보면 이슈를
  * 비운 재제출 하나로 critical 원본이 지워진다. 새 id로 합친 이슈는 원본과 이을 수 없으므로 이
  * 두 종류만 같은 id나 `<reportedBy>:<원래 id>` 꼴로 두게 한다.
  */
 function unlinkedUndroppable(mergedIssues: ReviewIssue[], reviewResults: ReviewResult[]): string[] {
-  const links = mergedIssues.map((issue) => ({
+  const linkPairs = mergedIssues.map((issue) => ({
     issue,
     originals: findOriginals(issue, reviewResults),
   }));
@@ -91,13 +96,19 @@ function unlinkedUndroppable(mergedIssues: ReviewIssue[], reviewResults: ReviewR
   for (const result of reviewResults) {
     for (const orig of result.issues) {
       if (!isUndroppable(orig)) continue;
-      const linked = links.filter((link) => link.originals.includes(orig)).map((l) => l.issue);
-      if (linked.some(isUndroppable)) continue;
-      const name = `${orig.reportedBy}:${orig.id}: ${orig.severity}/${orig.category} 원본이`;
+      const linkedIssues = linkPairs
+        .filter((pair) => pair.originals.includes(orig))
+        .map((pair) => pair.issue);
+      const keptIssue = linkedIssues.some(
+        (issue) =>
+          isUndroppable(issue) && SEVERITY_RANK[issue.severity] >= SEVERITY_RANK[orig.severity],
+      );
+      if (keptIssue) continue;
+      const originLabel = `${orig.reportedBy}:${orig.id}: ${orig.severity}/${orig.category}`;
       problems.push(
-        linked.length === 0
-          ? `${name} mergedIssues에 없다. 같은 id나 \`<reportedBy>:<원래 id>\` 꼴로 mergedIssues에 둔다. 여러 원본을 새 id 하나로 합쳤다면 critical이나 security 원본은 따로 둔다.`
-          : `${name} mergedIssues에서 ${linked.map((i) => `${i.severity}/${i.category}`).join(', ')}로 낮아졌다. critical이나 security 원본은 severity와 category를 그대로 둔다.`,
+        linkedIssues.length === 0
+          ? `${originLabel} 원본이 mergedIssues에 없다. 같은 id나 \`<reportedBy>:<원래 id>\` 꼴로 mergedIssues에 둔다. 여러 원본을 새 id 하나로 합쳤다면 critical이나 security 원본은 따로 둔다.`
+          : `${originLabel} 원본이 mergedIssues에서 ${linkedIssues.map((i) => `${i.severity}/${i.category}`).join(', ')}로 낮아졌다. critical이나 security 원본은 severity와 category를 그대로 둔다.`,
       );
     }
   }

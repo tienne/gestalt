@@ -172,7 +172,7 @@ describe('review_consensus 입력 채우기', () => {
 
   describe('mergedIssues[].reportedBy의 빈 문자열', () => {
     it('빈 문자열과 공백뿐인 값은 안 적은 것으로 보고 원본에서 채운다', () => {
-      for (const blank of ['', '   ', '\t', '\u200b', '-']) {
+      for (const blank of ['', '   ', '\t', '\u200b', '\u3164', '-']) {
         const sid = open({ 'quality-reviewer': [original({ id: 'q1' })] });
         const { consensus } = accepted(sid, {
           reviewConsensus: { mergedIssues: [issueOf('q1', { reportedBy: blank })] },
@@ -190,7 +190,7 @@ describe('review_consensus 입력 채우기', () => {
     });
 
     it('droppedIssues도 빈 문자열을 안 적은 것으로 보고 원본에서 채운다', () => {
-      for (const blank of ['', '\u200b']) {
+      for (const blank of ['', '\u200b', '\u3164']) {
         const sid = open({ 'quality-reviewer': [original({ id: 'q1', severity: 'warning' })] });
         const { consensus } = accepted(sid, {
           reviewConsensus: {
@@ -274,6 +274,63 @@ describe('review_consensus 입력 채우기', () => {
       });
       expect(message).toContain('security-reviewer:s1');
       expect(message).toContain('낮아졌다');
+    });
+
+    it('security category는 그대로 두고 severity만 낮춰도 거부한다', () => {
+      const sid = open({
+        'security-reviewer': [original({ id: 's1', category: 'security', severity: 'high' })],
+      });
+      const message = rejected(sid, {
+        reviewConsensus: {
+          mergedIssues: [issueOf('s1', { category: 'security', severity: 'warning' })],
+        },
+      });
+      expect(message).toContain('security-reviewer:s1');
+      expect(message).toContain('낮아졌다');
+    });
+
+    it('critical 원본을 category에 security만 끼워 warning으로 낮춰도 거부한다', () => {
+      const sid = open({
+        'quality-reviewer': [original({ id: 'q1', category: 'bug', severity: 'critical' })],
+      });
+      const message = rejected(sid, {
+        reviewConsensus: {
+          mergedIssues: [issueOf('q1', { category: 'security-note', severity: 'warning' })],
+        },
+      });
+      expect(message).toContain('quality-reviewer:q1');
+      expect(message).toContain('낮아졌다');
+    });
+
+    it('접두 없이 같은 id를 쓴 두 원본을 낮은 이슈 하나로 이어도 높은 쪽 원본을 거부한다', () => {
+      const sid = open({
+        'security-reviewer': [original({ id: 'x1', category: 'security', severity: 'warning' })],
+        'quality-reviewer': [original({ id: 'x1', category: 'bug', severity: 'critical' })],
+      });
+      const message = rejected(sid, {
+        reviewConsensus: {
+          mergedIssues: [
+            issueOf('x1', {
+              category: 'security',
+              severity: 'warning',
+              reportedBy: 'security-reviewer',
+            }),
+          ],
+        },
+      });
+      expect(message).toContain('quality-reviewer:x1');
+      expect(message).not.toContain('security-reviewer:x1');
+    });
+
+    it('원본보다 높은 severity로 올려 이으면 통과한다', () => {
+      const sid = open({
+        'security-reviewer': [original({ id: 's1', category: 'security', severity: 'high' })],
+      });
+      accepted(sid, {
+        reviewConsensus: {
+          mergedIssues: [issueOf('s1', { category: 'security', severity: 'critical' })],
+        },
+      });
     });
 
     it('접두 꼴 id로 낮춰 이어도 거부한다', () => {
@@ -377,6 +434,23 @@ describe('review_consensus 입력 채우기', () => {
       expect(consensus.blockedBy).toEqual(['b']);
     });
 
+    it('approvedBy와 blockedBy에 []를 적어 보내면 투표로 채우지 않고 그대로 둔다', () => {
+      const sid = open({ 'quality-reviewer': [original({ id: 'q1' })] });
+      const { consensus } = accepted(sid, {
+        reviewConsensus: { mergedIssues: [issueOf('q1')], approvedBy: [], blockedBy: [] },
+      });
+      expect(consensus.approvedBy).toEqual([]);
+      expect(consensus.blockedBy).toEqual([]);
+    });
+
+    it('한글 자모가 섞인 summary는 내용으로 보고 그대로 쓴다', () => {
+      const sid = open({ 'quality-reviewer': [original({ id: 'q1' })] });
+      const { consensus } = accepted(sid, {
+        reviewConsensus: { mergedIssues: [issueOf('q1')], summary: '\u1100\u1160' },
+      });
+      expect(consensus.summary).toBe('\u1100\u1160');
+    });
+
     it('summary가 비면 이슈 수로 채운다', () => {
       const sid = open({ 'quality-reviewer': [original({ id: 'q1' }), original({ id: 'q2' })] });
       const { consensus } = accepted(sid, {
@@ -389,7 +463,7 @@ describe('review_consensus 입력 채우기', () => {
     });
 
     it('summary가 공백이나 제로폭 문자뿐이어도 이슈 수로 채운다', () => {
-      for (const blank of ['', '   ', '\u200b']) {
+      for (const blank of ['', '   ', '\u200b', '\u3164', '\u115f\u1160\uffa0']) {
         const sid = open({ 'quality-reviewer': [original({ id: 'q1' })] });
         const { consensus } = accepted(sid, {
           reviewConsensus: {
