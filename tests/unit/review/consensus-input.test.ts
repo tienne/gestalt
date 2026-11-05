@@ -170,6 +170,87 @@ describe('review_consensus 입력 채우기', () => {
     });
   });
 
+  describe('mergedIssues[].reportedBy의 빈 문자열', () => {
+    it('빈 문자열과 공백뿐인 값은 안 적은 것으로 보고 원본에서 채운다', () => {
+      for (const blank of ['', '   ', '\t']) {
+        const sid = open({ 'quality-reviewer': [original({ id: 'q1' })] });
+        const { consensus } = accepted(sid, {
+          reviewConsensus: { mergedIssues: [issueOf('q1', { reportedBy: blank })] },
+        });
+        expect(consensus.mergedIssues[0]!.reportedBy).toBe('quality-reviewer');
+      }
+    });
+
+    it('빈 문자열이고 원본도 없으면 작성자 이름 칸을 적으라고 거부한다', () => {
+      const sid = open({ 'quality-reviewer': [original({ id: 'q1' })] });
+      const message = rejected(sid, {
+        reviewConsensus: { mergedIssues: [issueOf('q1'), issueOf('ghost-7', { reportedBy: '' })] },
+      });
+      expect(message).toContain('ghost-7');
+    });
+
+    it('droppedIssues도 빈 문자열을 안 적은 것으로 보고 원본에서 채운다', () => {
+      const sid = open({ 'quality-reviewer': [original({ id: 'q1', severity: 'warning' })] });
+      const { consensus } = accepted(sid, {
+        reviewConsensus: {
+          mergedIssues: [],
+          droppedIssues: [{ id: 'q1', reportedBy: '', ...EVIDENCE }],
+        },
+      });
+      expect(consensus.droppedIssues![0]!.reportedBy).toBe('quality-reviewer');
+    });
+  });
+
+  describe('critical이나 security 원본이 합의에서 빠지는 길', () => {
+    it('critical 원본이 있는데 mergedIssues가 비면 그 원본을 짚어 거부한다', () => {
+      const sid = open({ 'quality-reviewer': [original({ id: 'q1', severity: 'critical' })] });
+      const message = rejected(sid, { reviewConsensus: { mergedIssues: [] } });
+      expect(message).toContain('quality-reviewer:q1');
+      expect(message).toContain('mergedIssues에 없다');
+    });
+
+    it('security 원본을 빼고 warning만 남긴 합의도 거부한다', () => {
+      const sid = open({
+        'security-reviewer': [original({ id: 's1', category: 'security', severity: 'high' })],
+        'quality-reviewer': [original({ id: 'q1', severity: 'warning' })],
+      });
+      const message = rejected(sid, {
+        reviewConsensus: { mergedIssues: [issueOf('q1', { severity: 'warning' })] },
+      });
+      expect(message).toContain('security-reviewer:s1');
+      expect(message).not.toContain('quality-reviewer:q1');
+    });
+
+    it('검증 기록이 ran이어도 같은 이유로 거부한다', () => {
+      const sid = open({ 'security-reviewer': [original({ id: 's1', category: 'security' })] });
+      engine.submitVerification(sid, JSON.stringify([{ issueId: 's1', verdict: 'keep' }]));
+      const message = rejected(sid, { reviewConsensus: { mergedIssues: [] } });
+      expect(message).toContain('security-reviewer:s1');
+    });
+
+    it('같은 id나 접두 꼴 id로 이어 두면 통과한다', () => {
+      const sid = open({
+        'security-reviewer': [original({ id: 'i1', category: 'security', severity: 'critical' })],
+        'quality-reviewer': [original({ id: 'i1', severity: 'warning' })],
+      });
+      accepted(sid, {
+        reviewConsensus: {
+          mergedIssues: [issueOf('security-reviewer:i1', { severity: 'critical' })],
+        },
+      });
+    });
+
+    it('warning 원본만 있으면 mergedIssues를 비워도 통과한다', () => {
+      const sid = open({ 'quality-reviewer': [original({ id: 'q1', severity: 'warning' })] });
+      accepted(sid, { reviewConsensus: { mergedIssues: [] } });
+    });
+
+    it('review_submit이 없으면 mergedIssues를 비워도 통과한다', () => {
+      const sid = open({});
+      accepted(sid, { reviewConsensus: { mergedIssues: [] } });
+    });
+  });
+
   describe('엔진이 세는 칸', () => {
     it('approvedBy와 blockedBy가 비면 review_submit의 approved로 채운다', () => {
       const sid = open({

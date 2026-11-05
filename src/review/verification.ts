@@ -84,9 +84,20 @@ export function findOriginals(
   return [...prefixed, ...sameReporter];
 }
 
-/** 공백과 제로폭 문자만 있는 값은 이유나 증거로 치지 않는다 */
+/**
+ * 글자나 숫자가 하나라도 있는 값인가. 공백과 제로폭 문자, 기호만 있는 값은 이유나 증거로 치지
+ * 않는다. 검증기 응답이 비었는지 가를 때도 쓴다.
+ */
 export function hasContent(text: string): boolean {
   return /[\p{L}\p{N}]/u.test(text);
+}
+
+/**
+ * 적어 보낸 reportedBy를 쓸 수 있는 값으로 고른다. 빈 문자열과 공백뿐인 값은 안 적은 것으로 본다.
+ * mergedIssues와 droppedIssues가 같은 규칙으로 채우도록 두 쪽이 이 함수를 같이 쓴다.
+ */
+export function givenReportedBy(value: string | undefined): string | undefined {
+  return value === undefined || value.trim() === '' ? undefined : value;
 }
 
 /** 뺀 이슈가 비워 보내도 원본에서 채우는 칸 */
@@ -94,7 +105,7 @@ const FILLABLE_DROP_FIELDS = ['severity', 'category', 'file', 'message', 'sugges
 
 function missingFieldsOf(issue: DroppedReviewIssueInput): string[] {
   const fields: string[] = FILLABLE_DROP_FIELDS.filter((field) => issue[field] === undefined);
-  if (issue.reportedBy === undefined) fields.push('reportedBy');
+  if (givenReportedBy(issue.reportedBy) === undefined) fields.push('reportedBy');
   return fields;
 }
 
@@ -132,11 +143,12 @@ function fillDropped(
 ): DroppedReviewIssue | string {
   const missing = missingFieldsOf(issue);
   if (missing.length === 0) return issue as DroppedReviewIssue;
-  const source = pickFillSource(issue.reportedBy, originals);
+  const reportedBy = givenReportedBy(issue.reportedBy);
+  const source = pickFillSource(reportedBy, originals);
   if (source === 'ambiguous') return ambiguousSourceMessage(issue.id);
   if (!source) {
-    const owner = issue.reportedBy === undefined ? '' : `${issue.reportedBy}가 낸 `;
-    return `${issue.id}: ${missing.join(', ')}가 비었는데 ${owner}같은 id의 review_submit 원본이 없어 채울 수 없다. 그 칸을 적거나 원본 id를 그대로 쓴다`;
+    const owner = reportedBy === undefined ? '' : `${reportedBy}가 낸 `;
+    return `${issue.id}: ${missing.join(', ')} 칸이 비었는데 ${owner}같은 id의 review_submit 원본이 없어 채울 수 없다. 그 칸을 적거나 원본 id를 그대로 쓴다`;
   }
   return {
     ...issue,
@@ -145,7 +157,7 @@ function fillDropped(
     file: issue.file ?? source.file,
     message: issue.message ?? source.message,
     suggestion: issue.suggestion ?? source.suggestion,
-    reportedBy: issue.reportedBy ?? source.reportedBy,
+    reportedBy: reportedBy ?? source.reportedBy,
   };
 }
 
@@ -171,7 +183,9 @@ export function resolveDroppedIssues(
   const problems: string[] = [];
   const resolved: DroppedReviewIssue[] = [];
 
-  for (const issue of dropped) {
+  for (const raw of dropped) {
+    // 빈 reportedBy는 안 적은 것과 같게 다룬다. 원본 대조와 채움이 같은 값을 보게 여기서 한 번 정한다
+    const issue = { ...raw, reportedBy: givenReportedBy(raw.reportedBy) };
     if (seenDropped.has(norm(issue.id))) {
       problems.push(`${issue.id}: droppedIssues 안에 같은 id가 두 번 있다`);
       continue;

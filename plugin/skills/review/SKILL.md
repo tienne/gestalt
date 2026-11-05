@@ -1112,7 +1112,7 @@ ges_execute {
 }
 ```
 
-**`reviewConsensus`에 꼭 적을 칸은 `mergedIssues` 하나입니다.** 이슈가 없으면 `[]`를 넣습니다. 비워 보내면 판정이 통과로 바뀔 수 있어서 엔진이 채우지 않고 거부합니다. `mergedIssues`와 `droppedIssues`는 `reviewConsensus` 객체 안에 넣습니다. 최상위에 두면 스키마가 버리고 `reviewConsensus is required`로 거부됩니다.
+**`reviewConsensus`에 꼭 적을 칸은 `mergedIssues` 하나입니다.** 이슈가 없으면 `[]`를 넣습니다. 비워 보내면 판정이 통과로 바뀔 수 있어서 엔진이 채우지 않고 거부합니다. `review_submit`에 critical이나 security 이슈가 있었다면 `[]`도 거부합니다. 그런 원본은 같은 id나 `<reportedBy>:<원래 id>` 꼴로 `mergedIssues`에 둡니다. 여러 원본을 새 id 하나로 합쳤을 때도 그 원본은 따로 둡니다. 이 검사는 제안 검증 기록과 상관없이 돕니다. `mergedIssues`와 `droppedIssues`는 `reviewConsensus` 객체 안에 넣습니다. 최상위에 두면 스키마가 버리고 `reviewConsensus is required`로 거부됩니다.
 
 - `mergedIssues` 항목은 `id`, `severity`, `category`, `file`, `message`, `suggestion`이 필수이고 `line`과 `verification`은 선택입니다.
 - **`reportedBy`는 에이전트 이름 문자열 하나**입니다. 여러 에이전트가 같은 걸 짚었으면 대표 하나만 적습니다. 비우면 엔진이 같은 id나 `<reportedBy>:<원래 id>` 꼴의 `review_submit` 원본에서 채웁니다. 배열로 오면 첫 값만 씁니다. 원본이 없는 id(예: `continuity-judge:path-walk-1`)는 채울 데가 없어 그 id를 짚어 거부하니 직접 적습니다. 같은 id의 원본이 여러 리뷰어에게 있어도 엔진이 어느 쪽인지 고르지 않고 거부합니다. 3.7단계 2번대로 id를 `<reportedBy>:<원래 id>` 꼴로 바꿨으면 이 경우가 안 생깁니다. 안 바꿨으면 `reportedBy`를 직접 적습니다.

@@ -378,6 +378,13 @@ describe('PassthroughReviewEngine 제안 검증', () => {
     });
 
     it('리뷰어마다 같은 id를 썼을 때 접두 없는 id는 거부하고 접두 붙은 id는 그 리뷰어 원본만 본다', () => {
+      // security 원본은 합의에 이어 둔다. 안 이으면 drop과 상관없이 그 원본 때문에 거부된다
+      const secOriginal = issue({
+        id: 'security-reviewer:issue-1',
+        category: 'security',
+        severity: 'high',
+        reportedBy: 'security-reviewer',
+      });
       const id = open({
         'security-reviewer': [issue({ id: 'issue-1', category: 'security', severity: 'high' })],
         'quality-reviewer': [issue({ id: 'issue-1', severity: 'warning' })],
@@ -397,7 +404,7 @@ describe('PassthroughReviewEngine 제안 검증', () => {
       const prefixed = engine.submitConsensus(
         id,
         consensus(
-          [],
+          [secOriginal],
           [
             drop(
               issue({
@@ -497,7 +504,14 @@ describe('PassthroughReviewEngine 제안 검증', () => {
       const result = engine.submitConsensus(
         id,
         consensus(
-          [],
+          [
+            issue({
+              id: 'security-reviewer:issue-3',
+              category: 'security',
+              severity: 'high',
+              reportedBy: 'security-reviewer',
+            }),
+          ],
           [
             drop(
               issue({
@@ -521,7 +535,17 @@ describe('PassthroughReviewEngine 제안 검증', () => {
 
       const result = engine.submitConsensus(
         id,
-        consensus([], [drop(issue({ id: 'perf-9', category: 'performance' }))]),
+        consensus(
+          [
+            issue({
+              id: 'issue-1',
+              category: 'security',
+              severity: 'high',
+              reportedBy: 'security-reviewer',
+            }),
+          ],
+          [drop(issue({ id: 'perf-9', category: 'performance' }))],
+        ),
       );
 
       expect(result.ok).toBe(true);
@@ -535,7 +559,14 @@ describe('PassthroughReviewEngine 제안 검증', () => {
       const result = engine.submitConsensus(
         id,
         consensus(
-          [],
+          [
+            issue({
+              id: 'issue-1',
+              category: 'security',
+              severity: 'high',
+              reportedBy: 'security-reviewer',
+            }),
+          ],
           [drop(issue({ id: 'performance-reviewer:issue-2', category: 'performance' }))],
         ),
       );

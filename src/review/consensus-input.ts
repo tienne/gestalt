@@ -8,6 +8,8 @@ import { type Result, ok, err } from '../core/result.js';
 import {
   ambiguousSourceMessage,
   findOriginals,
+  givenReportedBy,
+  isUndroppable,
   pickFillSource,
   resolveDroppedIssues,
 } from './verification.js';
@@ -27,16 +29,15 @@ export function resolveConsensusInput(
 
   const mergedIssues: ReviewIssue[] = [];
   for (const issue of input.mergedIssues) {
-    if (issue.reportedBy !== undefined) {
-      mergedIssues.push({ ...issue, reportedBy: issue.reportedBy });
-      continue;
+    let reportedBy = givenReportedBy(issue.reportedBy);
+    if (reportedBy === undefined) {
+      const source = pickFillSource(undefined, findOriginals(issue, reviewResults));
+      if (source === 'ambiguous') {
+        problems.push(`mergedIssues의 ${ambiguousSourceMessage(issue.id)}.`);
+        continue;
+      }
+      reportedBy = source?.reportedBy;
     }
-    const source = pickFillSource(undefined, findOriginals(issue, reviewResults));
-    if (source === 'ambiguous') {
-      problems.push(`mergedIssues의 ${ambiguousSourceMessage(issue.id)}.`);
-      continue;
-    }
-    const reportedBy = source?.reportedBy;
     if (reportedBy === undefined) {
       problems.push(
         `mergedIssues의 ${issue.id}: reportedBy가 비었는데 같은 id나 \`<reportedBy>:<원래 id>\` 꼴의 review_submit 원본이 없어 채울 수 없다. 그 의견을 낸 에이전트 이름 하나를 적는다.`,
@@ -45,6 +46,7 @@ export function resolveConsensusInput(
     }
     mergedIssues.push({ ...issue, reportedBy });
   }
+  problems.push(...unlinkedUndroppable(mergedIssues, reviewResults));
 
   const dropped = resolveDroppedIssues(input, reviewResults);
   if (!dropped.ok) problems.push(dropped.error.message);
@@ -59,6 +61,31 @@ export function resolveConsensusInput(
     summary: input.summary ?? countSummary(mergedIssues, droppedIssues?.length ?? 0),
     ...(droppedIssues ? { droppedIssues } : {}),
   });
+}
+
+/**
+ * critical이나 security 원본이 mergedIssues에 이어져 있는지 본다. 없으면 문구를 돌려준다.
+ *
+ * 이 검사는 제안 검증 기록과 상관없이 돈다. 기록이 있어도 합의를 비워 보내면 그 원본은 아무
+ * 대조도 안 받고 판정에서 사라지는데, droppedIssues는 이런 이슈를 못 빼게 막아 둔 자리라 그
+ * 금지를 통째로 피하는 길이 된다. 새 id로 합친 이슈는 원본과 이을 수 없으므로 이 두 종류만
+ * 같은 id나 `<reportedBy>:<원래 id>` 꼴로 두게 한다.
+ */
+function unlinkedUndroppable(mergedIssues: ReviewIssue[], reviewResults: ReviewResult[]): string[] {
+  const linked = new Set<ReviewIssue>();
+  for (const issue of mergedIssues) {
+    for (const orig of findOriginals(issue, reviewResults)) linked.add(orig);
+  }
+  const problems: string[] = [];
+  for (const result of reviewResults) {
+    for (const orig of result.issues) {
+      if (!isUndroppable(orig) || linked.has(orig)) continue;
+      problems.push(
+        `${orig.reportedBy}:${orig.id}: ${orig.severity}/${orig.category} 원본이 mergedIssues에 없다. 같은 id나 \`<reportedBy>:<원래 id>\` 꼴로 mergedIssues에 둔다. 여러 원본을 새 id 하나로 합쳤다면 critical이나 security 원본은 따로 둔다.`,
+      );
+    }
+  }
+  return problems;
 }
 
 /** 같은 리뷰어가 두 번 냈으면 마지막 제출을 그 리뷰어의 판정으로 본다 */
